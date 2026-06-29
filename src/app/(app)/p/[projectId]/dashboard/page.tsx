@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { ListTree, GanttChartSquare, Columns3, TrendingUp, Target, Activity, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
+import { overallProgress } from '@/lib/domain/rollup'
 import { getProjectMembers } from '@/lib/data/members'
 import { getAttendanceRecords } from '@/lib/data/attendance'
 import { listProjects } from '@/app/actions/project'
@@ -9,7 +10,6 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
 import { ReportButton } from '@/components/report/ReportButton'
 import { DashboardView } from '@/components/dashboard/DashboardView'
-import type { ComputedItem } from '@/lib/domain/types'
 
 const HERO_BTN =
   'inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20'
@@ -24,13 +24,8 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
   ])
   const project = projects.find(p => p.id === projectId)
 
-  // 루트(=Phase) 가중치 정규화로 전체 공정율 산출. weight=null은 균등.
-  const roots = items
-  const allNull = roots.every((r: ComputedItem) => r.weight == null)
-  const eff = (r: ComputedItem) => (allNull ? 1 : r.weight ?? 0)
-  const totalEff = roots.reduce((s, r) => s + eff(r), 0) || 1
-  const overallActual = Math.round(roots.reduce((s, r) => s + eff(r) * r.rolledActualPct, 0) / totalEff)
-  const overallPlanned = Math.round(roots.reduce((s, r) => s + eff(r) * r.plannedPct, 0) / totalEff)
+  // 루트(=Phase) 가중치 정규화로 전체 공정율 산출(공유 헬퍼). weight=null은 균등.
+  const { actual: overallActual, planned: overallPlanned } = overallProgress(items)
   const variance = overallActual - overallPlanned
 
   const leaves = collectLeaves(items)

@@ -11,6 +11,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { ComputedItem, TeamCode } from '@/lib/domain/types'
+import { overallProgress } from '@/lib/domain/rollup'
 import { Modal } from '@/components/ui/Modal'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
@@ -57,8 +58,8 @@ export function ReportModal({
   endDate?: string | null
 }) {
   const roots = items
-  const overallActual = avg(roots.map(r => r.rolledActualPct))
-  const overallPlanned = avg(roots.map(r => r.plannedPct))
+  // 대시보드와 동일한 가중 롤업으로 전체 공정율 산출(단순 평균이 아닌 단일 출처).
+  const { actual: overallActual, planned: overallPlanned } = overallProgress(roots)
   const variance = overallActual - overallPlanned
 
   const leaves = collectLeaves(items)

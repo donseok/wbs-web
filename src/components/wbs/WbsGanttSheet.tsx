@@ -64,11 +64,14 @@ export function WbsGanttSheet({
   holidays,
   today,
   membership,
+  readOnly = false,
 }: {
   items: ComputedItem[]
   holidays: string[]
   today: string
   membership: Membership | null
+  /** 데모 모드 등에서 인라인 편집 비활성화 */
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -177,7 +180,7 @@ export function WbsGanttSheet({
 
   /* ── 편집 (WbsSheet 이식) ── */
   const isPmo = membership?.role === 'pmo_admin'
-  const canEditW = canEditWeight(membership)
+  const canEditW = canEditWeight(membership) && !readOnly
   const startEdit = (id: string, field: 'weight' | 'actual', current: string) => {
     setEdit({ id, field })
     setDraft(current)
@@ -439,7 +442,7 @@ export function WbsGanttSheet({
             const editingWeight = edit?.id === n.id && edit.field === 'weight'
             const editingActual = edit?.id === n.id && edit.field === 'actual'
             const editableW = canEditW
-            const editableA = canEditActual(n, membership)
+            const editableA = canEditActual(n, membership) && !readOnly
             const weightLabel = n.weight == null ? '균등' : String(n.weight)
 
             const frozen = (key: string, z = 20): React.CSSProperties => {

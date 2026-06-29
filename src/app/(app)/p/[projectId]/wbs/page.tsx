@@ -3,6 +3,7 @@ import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 import { PageHero } from '@/components/ui/PageHero'
+import { DEMO } from '@/lib/demo'
 
 type ProjectRow = { id: string; name: string }
 
@@ -21,7 +22,7 @@ export default async function WbsPage({ params }: { params: Promise<{ projectId:
         title={`${project?.name ?? '프로젝트'} WBS · 간트`}
         description="계획·실적·가중 롤업을 한 시트에서 관리합니다."
       />
-      <WbsGanttSheet items={items} holidays={holidays} today={today} membership={m} />
+      <WbsGanttSheet items={items} holidays={holidays} today={today} membership={m} readOnly={DEMO} />
     </div>
   )
 }

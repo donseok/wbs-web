@@ -5,6 +5,7 @@ import {
   TrendingUp, TrendingDown, BarChart3,
 } from 'lucide-react'
 import type { ComputedItem, Status, TeamCode, AttendanceRecord, AttendanceType } from '@/lib/domain/types'
+import { overallProgress } from '@/lib/domain/rollup'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { StatusPill } from '@/components/ui/StatusPill'
@@ -124,8 +125,8 @@ export function DashboardView({
   const allNull = roots.every(r => r.weight == null)
   const eff = (r: ComputedItem) => (allNull ? 1 : r.weight ?? 0)
   const totalEff = roots.reduce((s, r) => s + eff(r), 0) || 1
-  const overallActual = Math.round(roots.reduce((s, r) => s + eff(r) * r.rolledActualPct, 0) / totalEff)
-  const overallPlanned = Math.round(roots.reduce((s, r) => s + eff(r) * r.plannedPct, 0) / totalEff)
+  // 전체 공정율은 공유 헬퍼로(보고서·대시보드 동일값). eff/totalEff는 아래 가중치 분포에 재사용.
+  const { actual: overallActual, planned: overallPlanned } = overallProgress(roots)
   const variance = overallActual - overallPlanned
 
   // 상태 분포
