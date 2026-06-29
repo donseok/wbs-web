@@ -58,14 +58,26 @@ npm run lint
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 프로젝트 URL | 클라이언트/서버 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 익명(anon) 공개 키 | 클라이언트/서버 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 엑셀 임포트 서버 처리용 서비스 롤 키 | **서버 전용 (절대 클라이언트 노출 금지)** |
+| `NEXT_PUBLIC_DEMO_MODE` | 데모 모드 토글 (`1`=켜짐). 미설정/`0`=정상 | 클라이언트/서버 |
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+NEXT_PUBLIC_DEMO_MODE=0
 ```
 
 > `.env.local` 은 `.gitignore` 에 의해 커밋되지 않는다. 플레이스홀더 값으로도 `npm run build` 는 통과하지만, 실제 동작에는 위 값이 필요하다.
+
+### 데모 모드 (Supabase 없이 둘러보기)
+
+Supabase 프로젝트 없이 UI 전체를 둘러보려면 `.env.local` 에 `NEXT_PUBLIC_DEMO_MODE=1` 을 설정한다.
+
+- 인증 우회 — `/login` 의 **"데모로 입장"** 버튼만 누르면 진입 (아이디/비밀번호 불필요)
+- 원본 `docs/WBS-original.xlsx` 를 파싱한 샘플 데이터로 프로젝트/WBS·간트/대시보드 렌더
+- 모든 쓰기(실적%·가중치·공휴일·프로젝트 생성)는 no-op (둘러보기 전용)
+
+> ⚠️ **운영 환경에서는 절대 켜지 말 것** — 인증이 전부 우회된다. 기본값은 꺼짐(`0`)이며 코드는 이 플래그가 켜졌을 때만 데모 분기를 탄다. `src/app/preview/*` 는 Supabase·로그인 없이 컴포넌트만 확인하는 dev 전용 라우트다(미들웨어 인증 제외).
 
 ## 3. Supabase 마이그레이션 + 시드 적용
 

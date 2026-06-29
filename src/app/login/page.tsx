@@ -3,11 +3,14 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@/lib/supabase/client'
 
+const DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === '1'
+
 export default function Login() {
   const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [err, setErr] = useState('')
   const router = useRouter()
   async function submit(e: React.FormEvent) {
     e.preventDefault()
+    if (DEMO) { router.push('/projects'); return }
     const sb = createBrowserClient()
     const { error } = await sb.auth.signInWithPassword({ email, password: pw })
     if (error) setErr('로그인 실패: ' + error.message)
@@ -35,7 +38,12 @@ export default function Login() {
           {err && (
             <p className="rounded-lg bg-delayed-weak px-3 py-2 text-sm text-delayed">{err}</p>
           )}
-          <button className="btn btn-primary mt-1 w-full">로그인</button>
+          <button className="btn btn-primary mt-1 w-full">{DEMO ? '데모로 입장' : '로그인'}</button>
+          {DEMO && (
+            <p className="mt-1 text-center text-xs text-ink-subtle">
+              데모 모드 — 아이디/비밀번호 없이 버튼만 누르면 둘러볼 수 있어요
+            </p>
+          )}
         </div>
       </form>
     </div>
