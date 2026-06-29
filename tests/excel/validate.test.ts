@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { validateAndLink } from '@/lib/excel/validate'
 import type { ParsedWbs } from '@/lib/excel/parse'
 
-const base = (over: Partial<ParsedWbs['rows'][0]>) => ({
-  level: 'activity' as const, code: 'x', name: 'n', deliverable: null,
-  plannedStart: '2026-07-01', plannedEnd: '2026-07-07', owners: [], excelRow: 1, ...over,
+const base = (over: Partial<ParsedWbs['rows'][0]>): ParsedWbs['rows'][0] => ({
+  level: 'activity' as const, code: 'x', name: 'n', biz: null, deliverable: null,
+  plannedStart: '2026-07-01', plannedEnd: '2026-07-07', weight: null, actualPct: null,
+  owners: [], excelRow: 1, ...over,
 })
 
 describe('validateAndLink', () => {

@@ -40,7 +40,7 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
         records={records}
         members={members}
         initialDate={today}
-        canEdit={m?.role === 'pmo_admin'}
+        canEdit={m?.role === 'pmo_admin' && !DEMO}
       />
     </div>
   )

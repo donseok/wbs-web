@@ -346,3 +346,9 @@ textarea {
   }
   .no-print { display: none !important; }
 }
+
+/* 우측 상세 패널 슬라이드인 */
+@keyframes slidein {
+  from { transform: translateX(16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}

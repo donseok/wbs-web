@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Upload, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock } from 'lucide-react'
+import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
@@ -9,6 +9,7 @@ import { SectionCard } from '@/components/ui/SectionCard'
 import { collectLeaves, fmtDate } from '@/components/wbs/shared'
 import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButton'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
+import { DEMO } from '@/lib/demo'
 
 type ProjectRow = {
   id: string
@@ -38,6 +39,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   const isPmo = membership?.role === 'pmo_admin'
+  const canMutate = isPmo && !DEMO // 데모에서는 데이터 변경 비활성(읽기 전용)
   const taskCount = collectLeaves(items).length
 
   const scheduleLabel =
@@ -77,7 +79,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         eyebrow="CORE INFORMATION"
         title="기본 정보"
         icon={Info}
-        actions={isPmo && project ? (
+        actions={canMutate && project ? (
           <ProjectInfoEditButton
             projectId={projectId}
             name={project.name}
@@ -111,17 +113,17 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         )}
       </SectionCard>
 
-      {/* ── WBS 데이터 가져오기 (기존 폼 유지) ── */}
+      {/* ── WBS 데이터 가져오기 / 내보내기 ── */}
       <SectionCard
         eyebrow="DATA"
-        title="WBS 데이터 가져오기"
+        title="WBS 데이터 가져오기 · 내보내기"
         icon={Upload}
-        actions={!isPmo ? <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span> : undefined}
+        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{DEMO ? '읽기 전용' : 'PMO 관리자 전용'}</span> : undefined}
       >
         <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
           Excel 형식의 작업 구조와 일정을 프로젝트에 반영합니다.
         </p>
-        {isPmo ? (
+        {canMutate ? (
           <form action="/api/import" method="post" encType="multipart/form-data">
             <input type="hidden" name="projectId" value={projectId} />
             <label className="group flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-surface-2 px-6 text-center transition hover:border-brand hover:bg-brand-weak/40">
@@ -155,11 +157,22 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
               <Shield className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-ink">가져오기 권한이 없습니다</p>
-              <p className="mt-1 text-xs leading-5 text-ink-muted">프로젝트의 PMO 관리자에게 WBS 업데이트를 요청하세요.</p>
+              <p className="text-sm font-semibold text-ink">{DEMO ? '데모 모드 — 읽기 전용' : '가져오기 권한이 없습니다'}</p>
+              <p className="mt-1 text-xs leading-5 text-ink-muted">{DEMO ? '데모에서는 WBS 가져오기가 비활성화됩니다. 실제 프로젝트에 연결해 사용하세요.' : '프로젝트의 PMO 관리자에게 WBS 업데이트를 요청하세요.'}</p>
             </div>
           </div>
         )}
+
+        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs leading-5 text-ink-muted">현재 WBS·일정·담당·실적을 Excel로 내려받습니다. 같은 형식으로 다시 가져올 수 있어요.</p>
+          <a
+            href={`/api/export?projectId=${projectId}`}
+            className="btn btn-ghost shrink-0"
+            aria-label="WBS를 Excel 파일로 내보내기"
+          >
+            <Download className="h-4 w-4" /> Excel 내보내기
+          </a>
+        </div>
       </SectionCard>
 
       {/* ── 일정 기준 및 공휴일 ── */}
@@ -167,13 +180,13 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         eyebrow="CALENDAR"
         title="일정 기준 및 공휴일"
         icon={CalendarDays}
-        actions={!isPmo ? <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span> : undefined}
+        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{DEMO ? '읽기 전용' : 'PMO 관리자 전용'}</span> : undefined}
       >
         <ScheduleManager
           projectId={projectId}
           baseDate={project?.base_date ?? null}
           holidays={holidays}
-          canEdit={isPmo}
+          canEdit={canMutate}
         />
       </SectionCard>
 

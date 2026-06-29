@@ -1,10 +1,12 @@
 'use client'
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
-import { updateActual, updateWeight } from '@/app/actions/wbs'
+import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
+import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { Icon } from '@/components/ui/Icon'
 import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
+import { RowDetailPanel } from './RowDetailPanel'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
 type Col = { key: string; w: number; frozen?: boolean; sk?: number; detail?: boolean }
@@ -63,19 +65,28 @@ export function WbsGanttSheet({
   holidays,
   today,
   membership,
+  projectId,
+  readOnly = false,
 }: {
   items: ComputedItem[]
   holidays: string[]
   today: string
   membership: Membership | null
+  projectId: string
+  /** 데모 모드 등에서 인라인 편집 비활성화 */
+  readOnly?: boolean
 }) {
   const router = useRouter()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
+  const [addBusy, setAddBusy] = useState(false)
   const [dayPx, setDayPx] = useState(24)
   const [showDetails, setShowDetails] = useState(false)
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
+  const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
   const visibleCols = useMemo(() => COLS.filter(col => showDetails || !col.detail), [showDetails])
@@ -131,6 +142,20 @@ export function WbsGanttSheet({
   const allCollapsed = collapsibleIds.size > 0 && [...collapsibleIds].every(id => collapsed.has(id))
   const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(collapsibleIds))
 
+  // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시.
+  const selectedItem = useMemo<ComputedItem | null>(() => {
+    if (!selectedId) return null
+    const find = (ns: ComputedItem[]): ComputedItem | null => {
+      for (const n of ns) {
+        if (n.id === selectedId) return n
+        const c = find(n.children)
+        if (c) return c
+      }
+      return null
+    }
+    return find(items)
+  }, [selectedId, items])
+
   /* ── 날짜 스케일 ── */
   const allDates = items.flatMap(function dates(n): string[] {
     return [n.plannedStart, n.plannedEnd, ...n.children.flatMap(dates)].filter(Boolean) as string[]
@@ -176,15 +201,11 @@ export function WbsGanttSheet({
 
   /* ── 편집 (WbsSheet 이식) ── */
   const isPmo = membership?.role === 'pmo_admin'
-  const canEditActual = useCallback(
-    (n: ComputedItem) =>
-      n.children.length === 0 &&
-      (isPmo || (!!membership && n.owners.some(o => o.team === membership.teamCode))),
-    [isPmo, membership],
-  )
+  const canEditW = canEditWeight(membership) && !readOnly
   const startEdit = (id: string, field: 'weight' | 'actual', current: string) => {
     setEdit({ id, field })
     setDraft(current)
+    setEditOriginal(current)
   }
   const cancel = () => {
     setEdit(null)
@@ -195,7 +216,7 @@ export function WbsGanttSheet({
     const { id, field } = edit
     setBusy(true)
     try {
-      let res: { ok: boolean; error?: string }
+      let res: { ok: boolean; error?: string; conflict?: boolean }
       if (field === 'actual') {
         if (draft.trim() === '') {
           setToast({ kind: 'err', msg: '빈 값은 입력할 수 없습니다' })
@@ -210,17 +231,21 @@ export function WbsGanttSheet({
           setToast({ kind: 'err', msg: '0~100 범위로 입력하세요' })
           return cancel()
         }
-        res = await updateActual(id, pct)
+        res = await updateActual(id, pct, Number(editOriginal))
       } else {
         const wv = draft.trim() === '' ? null : Number(draft)
         if (wv != null && (Number.isNaN(wv) || wv < 0)) {
           setToast({ kind: 'err', msg: '가중치는 0 이상이어야 합니다' })
           return cancel()
         }
-        res = await updateWeight(id, wv)
+        res = await updateWeight(id, wv, editOriginal.trim() === '' ? null : Number(editOriginal))
       }
       if (res.ok) {
         setToast({ kind: 'ok', msg: '저장되었습니다' })
+        router.refresh()
+      } else if (res.conflict) {
+        // 충돌: 최신 값으로 새로고침하고 안내.
+        setToast({ kind: 'err', msg: res.error ?? '다른 사용자가 먼저 수정했습니다' })
         router.refresh()
       } else {
         setToast({ kind: 'err', msg: res.error ?? '저장 실패' })
@@ -231,6 +256,15 @@ export function WbsGanttSheet({
       setDraft('')
     }
   }
+  async function submitAddPhase() {
+    if (!addPhase?.trim() || addBusy) return
+    setAddBusy(true)
+    const res = await addWbsItem(projectId, null, 'phase', addPhase.trim())
+    setAddBusy(false)
+    if (res.ok) { setAddPhase(null); setToast({ kind: 'ok', msg: 'Phase가 추가되었습니다' }); router.refresh() }
+    else setToast({ kind: 'err', msg: res.error ?? '추가 실패' })
+  }
+
   const editInput = (current: string, field: 'weight' | 'actual') => (
     <input
       autoFocus
@@ -302,6 +336,11 @@ export function WbsGanttSheet({
         <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? '상세 열 숨기기' : '상세 열 보기'}
         </button>
+        {isPmo && !readOnly && (
+          <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
+            <Icon name="plus" className="h-3.5 w-3.5" /> Phase 추가
+          </button>
+        )}
         <span className="hidden rounded-lg bg-surface-2 px-2.5 py-2 text-[10px] tabular-nums text-ink-muted xl:inline">
           {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}행
         </span>
@@ -322,6 +361,23 @@ export function WbsGanttSheet({
           </button>
         </div>
       </div>
+
+      {/* 새 Phase 입력 (PMO) */}
+      {addPhase != null && (
+        <div className="card mb-3 flex items-center gap-2 p-2.5">
+          <input
+            autoFocus
+            value={addPhase}
+            onChange={e => setAddPhase(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submitAddPhase(); else if (e.key === 'Escape') setAddPhase(null) }}
+            placeholder="새 Phase 이름 (예: 1. 준비)"
+            aria-label="새 Phase 이름"
+            className="app-input h-9 flex-1 text-sm"
+          />
+          <button onClick={submitAddPhase} disabled={addBusy || !addPhase.trim()} className="btn btn-primary h-9 px-4 text-xs">{addBusy ? '추가 중…' : '추가'}</button>
+          <button onClick={() => setAddPhase(null)} className="btn btn-ghost h-9 px-3 text-xs">취소</button>
+        </div>
+      )}
 
       {/* ── 단일 스크롤 컨테이너 ── */}
       <div className="card w-full max-w-full overflow-auto" style={{ maxHeight: 'max(440px, calc(100dvh - 390px))' }}>
@@ -442,8 +498,8 @@ export function WbsGanttSheet({
 
             const editingWeight = edit?.id === n.id && edit.field === 'weight'
             const editingActual = edit?.id === n.id && edit.field === 'actual'
-            const editableW = isPmo
-            const editableA = canEditActual(n)
+            const editableW = canEditW
+            const editableA = canEditActual(n, membership) && !readOnly
             const weightLabel = n.weight == null ? '균등' : String(n.weight)
 
             const frozen = (key: string, z = 20): React.CSSProperties => {
@@ -485,9 +541,14 @@ export function WbsGanttSheet({
                     ) : (
                       <span className="mr-1 w-4 shrink-0" />
                     )}
-                    <span className={`truncate ${nameWeight}`} title={n.name}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(n.id)}
+                      className={`truncate text-left ${nameWeight} hover:text-brand hover:underline`}
+                      title={`${n.name} · 상세/변경 이력 보기`}
+                    >
                       {n.name}
-                    </span>
+                    </button>
                   </div>
                 </div>
                 {/* BIZ */}
@@ -728,6 +789,16 @@ export function WbsGanttSheet({
         >
           {toast.msg}
         </div>
+      )}
+
+      {selectedItem && (
+        <RowDetailPanel
+          item={selectedItem}
+          onClose={() => setSelectedId(null)}
+          editable={isPmo && !readOnly}
+          canAttach={!readOnly && !!membership && (isPmo || selectedItem.owners.some(o => o.team === membership.teamCode))}
+          projectId={projectId}
+        />
       )}
     </div>
   )

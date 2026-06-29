@@ -35,7 +35,8 @@ function owners(row: unknown[]): ParsedRow['owners'] {
 export function parseWbsWorkbook(buf: ArrayBuffer): ParsedWbs {
   const wb = XLSX.read(buf, { type: 'array', cellDates: true })
   const ws = wb.Sheets['WBS']
-  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false })
+  // WBS 시트가 없으면 빈 행으로(예외 방지). Holiday 시트는 아래에서 별도 처리.
+  const aoa = ws ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false }) : []
 
   const rows: ParsedRow[] = []
   // 데이터는 헤더 3행(타이틀 포함) 이후. 행 인덱스 3부터.

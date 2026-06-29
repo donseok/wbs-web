@@ -18,6 +18,8 @@ export default async function Preview() {
         holidays={holidays}
         today={DEMO_TODAY}
         membership={{ role: 'pmo_admin', teamCode: 'PMO', teamId: 'demo' }}
+        projectId="preview"
+        readOnly
       />
     </div>
   )
