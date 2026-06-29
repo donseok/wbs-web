@@ -9,6 +9,7 @@ import { SectionCard } from '@/components/ui/SectionCard'
 import { collectLeaves, fmtDate } from '@/components/wbs/shared'
 import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButton'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
+import { WbsImportForm } from '@/components/settings/WbsImportForm'
 import { DEMO } from '@/lib/demo'
 
 type ProjectRow = {
@@ -124,33 +125,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
           Excel 형식의 작업 구조와 일정을 프로젝트에 반영합니다.
         </p>
         {canMutate ? (
-          <form action="/api/import" method="post" encType="multipart/form-data">
-            <input type="hidden" name="projectId" value={projectId} />
-            <label className="group flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-surface-2 px-6 text-center transition hover:border-brand hover:bg-brand-weak/40">
-              <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-line bg-surface text-brand shadow-sm transition group-hover:border-brand-ring">
-                <Upload className="h-5 w-5" />
-              </span>
-              <span className="mt-4 text-sm font-semibold text-ink">WBS Excel 파일을 선택하세요</span>
-              <span className="mt-1 text-xs leading-5 text-ink-muted">.xlsx 파일만 지원 · 가져오기 전 파일 형식을 검증합니다</span>
-              <input
-                type="file"
-                name="file"
-                accept=".xlsx"
-                required
-                className="mt-4 max-w-full text-xs text-ink-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-brand-weak file:px-3 file:py-2 file:font-semibold file:text-brand"
-              />
-            </label>
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="flex items-center gap-1.5 text-xs text-ink-muted">
-                <Shield className="h-3.5 w-3.5 text-done" />
-                파일 구조를 확인한 뒤 업로드합니다.
-              </p>
-              <button className="btn btn-primary">
-                <Upload className="h-4 w-4" />
-                검증 후 가져오기
-              </button>
-            </div>
-          </form>
+          <WbsImportForm projectId={projectId} />
         ) : (
           <div className="panel-soft flex min-h-32 items-center gap-4 p-5">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pending-weak text-pending">
