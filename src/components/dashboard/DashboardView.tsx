@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import {
   CalendarRange, PieChart, Users, Layers, Scale, AlertTriangle,
   CalendarClock, CalendarPlus, CheckCircle2, CalendarCheck,
-  TrendingUp, TrendingDown, BarChart3,
+  TrendingUp, TrendingDown, BarChart3, FileText, Timer,
 } from 'lucide-react'
 import type { ComputedItem, Status, TeamCode, AttendanceRecord, AttendanceType } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
@@ -164,6 +164,16 @@ export function DashboardView({
     .filter(l => l.status === 'done')
     .sort((a, b) => (b.plannedEnd ?? '').localeCompare(a.plannedEnd ?? ''))
     .slice(0, 6)
+
+  // 마감 임박 — 미완료 + 7일 내 마감(기준일 이후)
+  const dueSoon = leaves
+    .filter(l => l.status !== 'done' && l.plannedEnd && l.plannedEnd >= today && diffDays(today, l.plannedEnd) <= 7)
+    .sort((a, b) => (a.plannedEnd ?? '').localeCompare(b.plannedEnd ?? ''))
+
+  // 산출물 현황 — deliverable이 있는 leaf의 완료/예정
+  const withDeliverable = leaves.filter(l => l.deliverable && l.deliverable.trim())
+  const deliverableDone = withDeliverable.filter(l => l.status === 'done').length
+  const deliverablePct = withDeliverable.length ? Math.round((deliverableDone / withDeliverable.length) * 100) : 0
 
   // 프로젝트 일정
   let schedule: { totalDays: number; elapsed: number; remaining: number; elapsedPct: number } | null = null
@@ -413,6 +423,60 @@ export function DashboardView({
               팀원 {memberCount}명 · 이번 주 {attMembers}명 일정 등록 ({fmtDate(ws)}–{fmtDate(we)})
             </div>
           </div>
+        </SectionCard>
+      </div>
+
+      {/* 마감 임박 + 산출물 현황 */}
+      <div className="grid gap-5 xl:grid-cols-2">
+        <SectionCard eyebrow="DUE SOON" title="마감 임박 (7일 내)" icon={Timer} actions={<CountBadge n={dueSoon.length} />}>
+          {dueSoon.length === 0 ? (
+            <MiniEmpty text="7일 내 마감 예정인 미완료 작업이 없습니다." />
+          ) : (
+            <ul className="divide-y divide-line">
+              {dueSoon.slice(0, 8).map(l => {
+                const dleft = diffDays(today, l.plannedEnd!)
+                const urgent = dleft <= 1
+                return (
+                  <li key={l.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium text-ink" title={l.name}>{l.name}</div>
+                      <div className="mt-1"><OwnerBadges owners={l.owners} /></div>
+                    </div>
+                    <div className="w-24 shrink-0 text-right">
+                      <div className="tabular-nums text-xs text-ink-muted">{fmtDate(l.plannedEnd)}</div>
+                      <div className={`mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold ${urgent ? 'text-delayed' : 'text-accent-warning'}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${urgent ? 'bg-delayed' : 'bg-accent-warning'}`} />D-{dleft}
+                      </div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard eyebrow="DELIVERABLES" title="산출물 현황" icon={FileText} actions={<CountBadge n={withDeliverable.length} />}>
+          {withDeliverable.length === 0 ? (
+            <MiniEmpty text="등록된 산출물이 없습니다. WBS에 산출물을 입력하면 완료 현황을 추적합니다." />
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <Stat label="전체" value={`${withDeliverable.length}건`} />
+                <Stat label="완료" value={`${deliverableDone}건`} sub={`${deliverablePct}%`} />
+                <Stat label="진행·예정" value={`${withDeliverable.length - deliverableDone}건`} />
+              </div>
+              <ProgressBar value={deliverablePct} tone="bg-done" height="h-2.5" />
+              <ul className="space-y-1.5">
+                {withDeliverable.filter(l => l.status !== 'done').slice(0, 5).map(l => (
+                  <li key={l.id} className="flex items-center gap-2 text-[12px]">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+                    <span className="truncate text-ink-muted" title={l.deliverable ?? ''}>{l.deliverable}</span>
+                    <span className="ml-auto shrink-0"><StatusPill status={l.status} /></span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </SectionCard>
       </div>
     </div>
