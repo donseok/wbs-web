@@ -157,12 +157,4 @@ body {
     border-right: 1.5px solid var(--color-grid-strong);
     box-shadow: 6px 0 8px -6px rgb(20 30 50 / 0.1);
   }
-  /* 간트 본문 일자 격자 + 주말 음영(월요일 시작 offset 0). --gantt-day 폭 의존 */
-  .gantt-grid {
-    background-image:
-      repeating-linear-gradient(90deg, transparent 0, transparent calc(var(--gantt-day) - 1px),
-        var(--color-grid) calc(var(--gantt-day) - 1px), var(--color-grid) var(--gantt-day)),
-      repeating-linear-gradient(90deg, transparent 0, transparent calc(5 * var(--gantt-day)),
-        var(--color-weekend) calc(5 * var(--gantt-day)), var(--color-weekend) calc(7 * var(--gantt-day)));
-  }
 }
