@@ -29,7 +29,7 @@ export async function updateActual(itemId: string, newPct: number): Promise<{ ok
     user_id: u.user?.id, wbs_item_id: itemId, field: 'actual_pct',
     old_value: old == null ? null : String(old), new_value: String(newPct),
   })
-  revalidatePath(`/p/${item.project_id}/wbs`)
+  revalidatePath(`/p/${item.project_id}`, 'layout')
   return { ok: true }
 }
 
@@ -57,6 +57,6 @@ export async function updateWeight(itemId: string, weight: number | null): Promi
     user_id: u.user?.id, wbs_item_id: itemId, field: 'weight',
     old_value: old == null ? null : String(old), new_value: weight == null ? null : String(weight),
   })
-  revalidatePath(`/p/${item.project_id}/wbs`)
+  revalidatePath(`/p/${item.project_id}`, 'layout')
   return { ok: true }
 }
