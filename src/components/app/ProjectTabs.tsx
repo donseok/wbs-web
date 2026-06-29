@@ -3,15 +3,16 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const TABS = [
-  { key: 'wbs', label: 'WBS' },
-  { key: 'dashboard', label: '대시보드' },
-  { key: 'settings', label: '설정' },
+  { key: 'wbs', label: 'WBS 표', icon: '▦' },
+  { key: 'gantt', label: '간트 차트', icon: '▭' },
+  { key: 'dashboard', label: '대시보드', icon: '◧' },
+  { key: 'settings', label: '설정', icon: '⚙' },
 ] as const
 
 export function ProjectTabs({ base }: { base: string }) {
   const pathname = usePathname()
   return (
-    <nav className="flex items-center gap-1 border-b border-line">
+    <nav className="seg">
       {TABS.map(t => {
         const href = `${base}/${t.key}`
         const active = pathname === href || pathname.startsWith(href + '/')
@@ -19,12 +20,10 @@ export function ProjectTabs({ base }: { base: string }) {
           <Link
             key={t.key}
             href={href}
-            className={`-mb-px border-b-2 px-3.5 py-2.5 text-sm font-medium transition ${
-              active
-                ? 'border-brand text-brand'
-                : 'border-transparent text-ink-muted hover:text-ink'
-            }`}
+            aria-current={active ? 'page' : undefined}
+            className={`seg-item ${active ? 'seg-item-active' : ''}`}
           >
+            <span className="text-[13px] leading-none opacity-80">{t.icon}</span>
             {t.label}
           </Link>
         )
