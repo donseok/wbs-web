@@ -1,26 +1,91 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+/* ------------------------------------------------------------------ */
+/*  WBS 디자인 토큰 — 밝은 테마 고정, 엔터프라이즈 SaaS 팔레트          */
+/* ------------------------------------------------------------------ */
+@theme {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* 표면 / 중립 그레이 */
+  --color-canvas: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-surface-2: #f8f9fb;
+  --color-line: #e5e7eb;
+  --color-line-strong: #d3d7de;
+  --color-ink: #111827;
+  --color-ink-muted: #5b616e;
+  --color-ink-subtle: #989ea9;
+
+  /* 브랜드 (프라이머리) */
+  --color-brand: #4f46e5;
+  --color-brand-hover: #4338ca;
+  --color-brand-weak: #eef2ff;
+  --color-brand-fg: #ffffff;
+  --color-brand-ring: #c7d2fe;
+
+  /* 상태색: 완료 / 진행중 / 지연 / 시작전 */
+  --color-done: #047857;
+  --color-done-weak: #e7f5ee;
+  --color-progress: #2563eb;
+  --color-progress-weak: #e8f0fe;
+  --color-delayed: #dc2626;
+  --color-delayed-weak: #fdeaea;
+  --color-pending: #7c828e;
+  --color-pending-weak: #eef0f2;
+
+  /* 엑셀 스프레드시트 룩 */
+  --color-grid: #dfe2e8;
+  --color-grid-strong: #c5cad2;
+  --color-sheet-head: #eceef1;
+  --color-sheet-gutter: #e7e9ec;
+  --color-zebra: #f8f9fb;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ------------------------------------------------------------------ */
+/*  재사용 컴포넌트 클래스 (DRY)                                        */
+/* ------------------------------------------------------------------ */
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-sm;
+  }
+
+  .app-input {
+    @apply h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink
+           outline-none transition placeholder:text-ink-subtle
+           focus:border-brand focus:ring-2 focus:ring-brand-ring;
+  }
+
+  .btn {
+    @apply inline-flex h-9 cursor-pointer items-center justify-center gap-1.5
+           rounded-lg px-4 text-sm font-medium transition
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-brand text-brand-fg shadow-sm hover:bg-brand-hover;
+  }
+  .btn-ghost {
+    @apply border border-line bg-surface text-ink hover:bg-surface-2;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-none;
+  }
 }
