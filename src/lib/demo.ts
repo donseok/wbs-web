@@ -8,7 +8,7 @@ import path from 'node:path'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { validateAndLink } from '@/lib/excel/validate'
 import { computeTree } from '@/lib/domain/rollup'
-import type { AttendanceRecord, ComputedItem, Membership, ProjectMember, WbsRow } from '@/lib/domain/types'
+import type { AttendanceRecord, ComputedItem, Membership, ProgressSnapshot, ProjectMember, WbsRow } from '@/lib/domain/types'
 
 export const DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === '1'
 export const DEMO_PROJECT_ID = 'demo'
@@ -49,6 +49,17 @@ export const DEMO_ATTENDANCE: AttendanceRecord[] = [
   { id: 'a7', projectId: DEMO_PROJECT_ID, memberId: 'm8', date: '2026-09-15', type: 'remote', note: '시차 근무' },
   { id: 'a8', projectId: DEMO_PROJECT_ID, memberId: 'm2', date: '2026-09-16', type: 'trip', note: '본사 보고' },
   { id: 'a9', projectId: DEMO_PROJECT_ID, memberId: 'm1', date: '2026-09-18', type: 'annual', note: null },
+]
+
+// 주간 진척 스냅샷 샘플 — DEMO_TODAY(9/15) 직전까지 상승 추세
+export const DEMO_SNAPSHOTS: ProgressSnapshot[] = [
+  { id: 'snap1', projectId: DEMO_PROJECT_ID, capturedOn: '2026-08-03', actual: 8, planned: 14 },
+  { id: 'snap2', projectId: DEMO_PROJECT_ID, capturedOn: '2026-08-10', actual: 15, planned: 22 },
+  { id: 'snap3', projectId: DEMO_PROJECT_ID, capturedOn: '2026-08-17', actual: 24, planned: 31 },
+  { id: 'snap4', projectId: DEMO_PROJECT_ID, capturedOn: '2026-08-24', actual: 33, planned: 39 },
+  { id: 'snap5', projectId: DEMO_PROJECT_ID, capturedOn: '2026-08-31', actual: 41, planned: 47 },
+  { id: 'snap6', projectId: DEMO_PROJECT_ID, capturedOn: '2026-09-07', actual: 49, planned: 55 },
+  { id: 'snap7', projectId: DEMO_PROJECT_ID, capturedOn: '2026-09-14', actual: 56, planned: 62 },
 ]
 
 const SAMPLE_ACTUALS = [100, 90, 70, 45, 20, 0]
