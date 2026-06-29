@@ -143,12 +143,17 @@ export function WbsGanttSheet({
   const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(collapsibleIds))
 
   // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시.
-  const selectedItem = useMemo(() => {
+  const selectedItem = useMemo<ComputedItem | null>(() => {
     if (!selectedId) return null
-    let found: ComputedItem | null = null
-    const walk = (ns: ComputedItem[]) => ns.forEach(n => { if (n.id === selectedId) found = n; walk(n.children) })
-    walk(items)
-    return found
+    const find = (ns: ComputedItem[]): ComputedItem | null => {
+      for (const n of ns) {
+        if (n.id === selectedId) return n
+        const c = find(n.children)
+        if (c) return c
+      }
+      return null
+    }
+    return find(items)
   }, [selectedId, items])
 
   /* ── 날짜 스케일 ── */
@@ -791,6 +796,7 @@ export function WbsGanttSheet({
           item={selectedItem}
           onClose={() => setSelectedId(null)}
           editable={isPmo && !readOnly}
+          canAttach={!readOnly && !!membership && (isPmo || selectedItem.owners.some(o => o.team === membership.teamCode))}
           projectId={projectId}
         />
       )}

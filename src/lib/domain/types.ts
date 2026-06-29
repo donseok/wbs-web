@@ -47,6 +47,18 @@ export interface ProjectMember {
   createdAt: string
 }
 
+/* ── 산출물 첨부 ── */
+export interface DeliverableAttachment {
+  id: string
+  wbsItemId: string
+  fileName: string
+  filePath: string
+  size: number | null
+  mime: string | null
+  createdAt: string
+  url?: string | null      // 서명 URL(읽기 시 생성)
+}
+
 /* ── 진척 스냅샷(추세) ── */
 export interface ProgressSnapshot {
   id: string

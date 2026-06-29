@@ -1,11 +1,13 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
-import type { ComputedItem, Level, TeamCode } from '@/lib/domain/types'
+import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload } from 'lucide-react'
+import type { ComputedItem, DeliverableAttachment, Level, TeamCode } from '@/lib/domain/types'
 import {
   getChangeLogs, updateWbsFields, addWbsItem, deleteWbsItem, moveWbsItem, type ChangeLogEntry,
 } from '@/app/actions/wbs'
+import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
+import { createBrowserClient } from '@/lib/supabase/client'
 import { StatusChip, LevelBadge, OwnerBadges, fmtDate } from './shared'
 
 const ROLE_LABEL: Record<string, string> = { pmo_admin: 'PMO 관리자', team_editor: '팀 편집자' }
@@ -34,11 +36,12 @@ function actorLabel(team: TeamCode | null, role: string | null): string {
 /** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
-  item, onClose, editable = false, projectId,
+  item, onClose, editable = false, canAttach = false, projectId,
 }: {
   item: ComputedItem
   onClose: () => void
   editable?: boolean
+  canAttach?: boolean
   projectId: string
 }) {
   const router = useRouter()
@@ -180,6 +183,9 @@ export function RowDetailPanel({
             </section>
           )}
 
+          {/* 산출물 첨부 */}
+          <AttachmentSection itemId={item.id} canAttach={canAttach} />
+
           {/* 변경 이력 */}
           <section>
             <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle"><History className="h-3.5 w-3.5" /> 변경 이력</div>
@@ -218,6 +224,89 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">{label}</div>
       <div className="mt-0.5 text-[15px] font-bold tabular-nums text-ink">{value}</div>
     </div>
+  )
+}
+
+function fmtSize(n: number | null): string {
+  if (n == null) return ''
+  if (n < 1024) return `${n}B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)}KB`
+  return `${(n / 1024 / 1024).toFixed(1)}MB`
+}
+
+/** 산출물 파일 첨부 — 목록/다운로드(모두) + 업로드/삭제(담당팀·PMO). */
+function AttachmentSection({ itemId, canAttach }: { itemId: string; canAttach: boolean }) {
+  const router = useRouter()
+  const [list, setList] = useState<DeliverableAttachment[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    listAttachments(itemId).then(setList).catch(() => setList([]))
+  }, [itemId])
+  useEffect(() => { setList(null); load() }, [load])
+
+  async function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setBusy(true); setErr(null)
+    try {
+      const safe = file.name.replace(/[^\w.\-가-힣]+/g, '_')
+      const path = `${itemId}/${new Date().getTime()}-${safe}`
+      const sb = createBrowserClient()
+      const up = await sb.storage.from('deliverables').upload(path, file, { upsert: false })
+      if (up.error) { setErr('업로드 실패: ' + up.error.message); return }
+      const res = await recordAttachment(itemId, {
+        fileName: file.name, filePath: path, size: file.size, mime: file.type || 'application/octet-stream',
+      })
+      if (!res.ok) {
+        await sb.storage.from('deliverables').remove([path]) // 메타 기록 실패 시 객체 정리
+        setErr(res.error ?? '첨부 기록에 실패했습니다.'); return
+      }
+      load(); router.refresh()
+    } catch {
+      setErr('업로드 중 오류가 발생했습니다.')
+    } finally { setBusy(false) }
+  }
+
+  async function del(id: string) {
+    setBusy(true); setErr(null)
+    const res = await removeAttachment(id)
+    setBusy(false)
+    if (!res.ok) { setErr(res.error ?? '삭제에 실패했습니다.'); return }
+    load(); router.refresh()
+  }
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle"><Paperclip className="h-3.5 w-3.5" /> 산출물 첨부</div>
+        {canAttach && (
+          <label className="btn btn-ghost h-7 cursor-pointer px-2.5 text-xs">
+            <Upload className="h-3.5 w-3.5" /> {busy ? '처리 중…' : '파일 추가'}
+            <input type="file" className="hidden" onChange={onFile} disabled={busy} />
+          </label>
+        )}
+      </div>
+      {err && <p className="mb-2 text-xs font-medium text-delayed">{err}</p>}
+      {list == null ? (
+        <p className="text-sm text-ink-subtle">불러오는 중…</p>
+      ) : list.length === 0 ? (
+        <p className="text-sm text-ink-subtle">{canAttach ? '첨부된 파일이 없습니다. 파일을 추가하세요.' : '첨부된 파일이 없습니다.'}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {list.map(a => (
+            <li key={a.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2/60 px-2.5 py-2">
+              <FileText className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+              <a href={a.url ?? '#'} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-[13px] text-brand hover:underline" title={a.fileName}>{a.fileName}</a>
+              {a.size != null && <span className="shrink-0 text-[11px] tabular-nums text-ink-subtle">{fmtSize(a.size)}</span>}
+              {canAttach && <button onClick={() => del(a.id)} disabled={busy} aria-label="첨부 삭제" className="shrink-0 text-ink-subtle transition hover:text-delayed"><Trash2 className="h-3.5 w-3.5" /></button>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
