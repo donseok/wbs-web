@@ -82,6 +82,7 @@ export function WbsGanttSheet({
   const [showDetails, setShowDetails] = useState(false)
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
+  const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
   const visibleCols = useMemo(() => COLS.filter(col => showDetails || !col.detail), [showDetails])
@@ -195,6 +196,7 @@ export function WbsGanttSheet({
   const startEdit = (id: string, field: 'weight' | 'actual', current: string) => {
     setEdit({ id, field })
     setDraft(current)
+    setEditOriginal(current)
   }
   const cancel = () => {
     setEdit(null)
@@ -205,7 +207,7 @@ export function WbsGanttSheet({
     const { id, field } = edit
     setBusy(true)
     try {
-      let res: { ok: boolean; error?: string }
+      let res: { ok: boolean; error?: string; conflict?: boolean }
       if (field === 'actual') {
         if (draft.trim() === '') {
           setToast({ kind: 'err', msg: '빈 값은 입력할 수 없습니다' })
@@ -220,17 +222,21 @@ export function WbsGanttSheet({
           setToast({ kind: 'err', msg: '0~100 범위로 입력하세요' })
           return cancel()
         }
-        res = await updateActual(id, pct)
+        res = await updateActual(id, pct, Number(editOriginal))
       } else {
         const wv = draft.trim() === '' ? null : Number(draft)
         if (wv != null && (Number.isNaN(wv) || wv < 0)) {
           setToast({ kind: 'err', msg: '가중치는 0 이상이어야 합니다' })
           return cancel()
         }
-        res = await updateWeight(id, wv)
+        res = await updateWeight(id, wv, editOriginal.trim() === '' ? null : Number(editOriginal))
       }
       if (res.ok) {
         setToast({ kind: 'ok', msg: '저장되었습니다' })
+        router.refresh()
+      } else if (res.conflict) {
+        // 충돌: 최신 값으로 새로고침하고 안내.
+        setToast({ kind: 'err', msg: res.error ?? '다른 사용자가 먼저 수정했습니다' })
         router.refresh()
       } else {
         setToast({ kind: 'err', msg: res.error ?? '저장 실패' })

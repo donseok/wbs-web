@@ -53,7 +53,11 @@ export async function getChangeLogs(itemId: string): Promise<ChangeLogEntry[]> {
   })
 }
 
-export async function updateActual(itemId: string, newPct: number): Promise<{ ok: boolean; error?: string }> {
+export async function updateActual(
+  itemId: string,
+  newPct: number,
+  expectedCurrent?: number | null,
+): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
   if (newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
   if (DEMO) return { ok: true } // 데모 모드: 저장 비활성화(둘러보기용)
   const m = await getMembership()
@@ -69,6 +73,10 @@ export async function updateActual(itemId: string, newPct: number): Promise<{ ok
   }
 
   const old = item.actual_pct
+  // 낙관적 잠금: 편집 시작 시 본 값과 DB 현재값이 다르면 그새 다른 사용자가 바꾼 것.
+  if (expectedCurrent !== undefined && Number(old ?? 0) !== Number(expectedCurrent ?? 0)) {
+    return { ok: false, conflict: true, error: '다른 사용자가 먼저 수정했습니다. 최신 값으로 새로고침합니다.' }
+  }
   if (Number(old) === newPct) return { ok: true }
   const { error: upErr } = await sb.from('wbs_items').update({ actual_pct: newPct, updated_at: new Date().toISOString() }).eq('id', itemId)
   if (upErr) return { ok: false, error: upErr.message }
@@ -82,7 +90,11 @@ export async function updateActual(itemId: string, newPct: number): Promise<{ ok
   return { ok: true }
 }
 
-export async function updateWeight(itemId: string, weight: number | null): Promise<{ ok: boolean; error?: string }> {
+export async function updateWeight(
+  itemId: string,
+  weight: number | null,
+  expectedCurrent?: number | null,
+): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
   if (DEMO) return { ok: true } // 데모 모드: 저장 비활성화(둘러보기용)
   if (weight != null && (typeof weight !== 'number' || Number.isNaN(weight) || weight < 0)) {
     return { ok: false, error: '가중치는 0 이상이어야 함' }
@@ -97,6 +109,12 @@ export async function updateWeight(itemId: string, weight: number | null): Promi
   if (!item) return { ok: false, error: '항목 없음' }
 
   const old = item.weight
+  // 낙관적 잠금: 편집 시작 시 값과 DB 현재값이 다르면 충돌(null=균등도 구분).
+  if (expectedCurrent !== undefined) {
+    const a = old == null ? null : Number(old)
+    const b = expectedCurrent == null ? null : Number(expectedCurrent)
+    if (a !== b) return { ok: false, conflict: true, error: '다른 사용자가 먼저 수정했습니다. 최신 값으로 새로고침합니다.' }
+  }
   if (Number(old ?? NaN) === Number(weight ?? NaN) && (old == null) === (weight == null)) return { ok: true }
   const { error: upErr } = await sb.from('wbs_items').update({ weight, updated_at: new Date().toISOString() }).eq('id', itemId)
   if (upErr) return { ok: false, error: upErr.message }
