@@ -1,20 +1,15 @@
 'use client'
-import { useState } from 'react'
-import type { ComputedItem, TeamCode } from '@/lib/domain/types'
+import type { ComputedItem } from '@/lib/domain/types'
 import { ProgressBar } from './ProgressBar'
 
 const STATUS_LABEL: Record<string, string> = {
   not_started: '시작전', in_progress: '진행중', delayed: '지연', done: '완료',
 }
 
-export function TreeTable({ items, selectedId, onSelect }: {
+export function TreeTable({ items, selectedId, onSelect, collapsed, onToggle }: {
   items: ComputedItem[]; selectedId: string | null; onSelect: (id: string) => void
+  collapsed: Set<string>; onToggle: (id: string) => void
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const toggle = (id: string) => setCollapsed(s => {
-    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
-  })
-
   const render = (nodes: ComputedItem[], depth: number): React.ReactNode[] =>
     nodes.flatMap(n => {
       const hasChildren = n.children.length > 0
@@ -22,9 +17,9 @@ export function TreeTable({ items, selectedId, onSelect }: {
       const row = (
         <tr key={n.id} onClick={() => onSelect(n.id)}
           className={`cursor-pointer border-b text-sm ${selectedId === n.id ? 'bg-blue-50' : ''}`}>
-          <td className="py-1" style={{ paddingLeft: depth * 16 }}>
+          <td className="h-6" style={{ paddingLeft: depth * 16 }}>
             {hasChildren && (
-              <button onClick={e => { e.stopPropagation(); toggle(n.id) }} className="mr-1">{isCollapsed ? '▸' : '▾'}</button>
+              <button onClick={e => { e.stopPropagation(); onToggle(n.id) }} className="mr-1">{isCollapsed ? '▸' : '▾'}</button>
             )}
             <span className={depth === 0 ? 'font-semibold' : ''}>{n.name}</span>
           </td>
