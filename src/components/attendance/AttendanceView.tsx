@@ -13,7 +13,7 @@ import { fmtDate } from '@/components/wbs/shared'
 import {
   ATTENDANCE_META, ATTENDANCE_TYPES, monthMatrix, recordsByDate,
 } from '@/lib/domain/attendance'
-import { upsertAttendance } from '@/app/actions/attendance'
+import { upsertAttendance, removeAttendance } from '@/app/actions/attendance'
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 type ViewKey = 'calendar' | 'list'
@@ -40,9 +40,11 @@ export function AttendanceView({
   const [memberFilter, setMemberFilter] = useState<string>('all')
   const [view, setView] = useState<ViewKey>('calendar')
 
-  // 등록 모달
+  // 등록/수정 모달
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [formErr, setFormErr] = useState<string | null>(null)
   const [form, setForm] = useState<{ memberId: string; date: string; type: AttendanceType; note: string }>({
     memberId: members[0]?.id ?? '',
@@ -81,9 +83,28 @@ export function AttendanceView({
   }
 
   function openCreate() {
+    setEditingId(null)
     setForm({ memberId: members[0]?.id ?? '', date: initialDate, type: 'work', note: '' })
     setFormErr(null)
     setOpen(true)
+  }
+
+  function openEdit(r: AttendanceRecord) {
+    if (!canEdit) return
+    setEditingId(r.id)
+    setForm({ memberId: r.memberId, date: r.date, type: r.type, note: r.note ?? '' })
+    setFormErr(null)
+    setOpen(true)
+  }
+
+  async function handleDelete() {
+    if (!editingId) return
+    setDeleting(true)
+    const res = await removeAttendance(editingId)
+    setDeleting(false)
+    if (!res.ok) { setFormErr(res.error ?? '삭제에 실패했습니다.'); return }
+    setOpen(false)
+    router.refresh()
   }
 
   async function submit() {
@@ -176,8 +197,12 @@ export function AttendanceView({
                       return (
                         <div
                           key={r.id}
-                          className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium ${meta.chip}`}
-                          title={`${mem?.name ?? '?'} · ${meta.label}${r.note ? ` · ${r.note}` : ''}`}
+                          onClick={canEdit ? () => openEdit(r) : undefined}
+                          role={canEdit ? 'button' : undefined}
+                          tabIndex={canEdit ? 0 : undefined}
+                          onKeyDown={canEdit ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(r) } } : undefined}
+                          className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium ${meta.chip} ${canEdit ? 'cursor-pointer hover:ring-1 hover:ring-brand-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring' : ''}`}
+                          title={`${mem?.name ?? '?'} · ${meta.label}${r.note ? ` · ${r.note}` : ''}${canEdit ? ' · 클릭하여 수정' : ''}`}
                         >
                           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
                           <span className="truncate">{mem?.name ?? '?'}</span>
@@ -218,7 +243,14 @@ export function AttendanceView({
                   const meta = ATTENDANCE_META[r.type]
                   const mem = memberMap.get(r.memberId)
                   return (
-                    <tr key={r.id} className="border-b border-line/70 last:border-0 transition hover:bg-surface-2">
+                    <tr
+                      key={r.id}
+                      onClick={canEdit ? () => openEdit(r) : undefined}
+                      role={canEdit ? 'button' : undefined}
+                      tabIndex={canEdit ? 0 : undefined}
+                      onKeyDown={canEdit ? e => { if (e.key === 'Enter') openEdit(r) } : undefined}
+                      className={`border-b border-line/70 last:border-0 transition hover:bg-surface-2 ${canEdit ? 'cursor-pointer focus:outline-none focus-visible:bg-surface-2' : ''}`}
+                    >
                       <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-ink">{fmtDate(r.date)}</td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-ink">{mem?.name ?? '알 수 없음'}</div>
@@ -246,11 +278,16 @@ export function AttendanceView({
         open={open}
         onClose={() => setOpen(false)}
         eyebrow="ATTENDANCE"
-        title="근태 등록"
+        title={editingId ? '근태 수정' : '근태 등록'}
         footer={
           <>
+            {editingId && (
+              <button onClick={handleDelete} disabled={deleting || saving} className="btn btn-ghost mr-auto text-delayed hover:bg-delayed-weak">
+                {deleting ? '삭제 중…' : '삭제'}
+              </button>
+            )}
             <button onClick={() => setOpen(false)} className="btn btn-ghost">취소</button>
-            <button onClick={submit} disabled={saving} className="btn btn-primary">{saving ? '저장 중…' : '저장'}</button>
+            <button onClick={submit} disabled={saving || deleting} className="btn btn-primary">{saving ? '저장 중…' : '저장'}</button>
           </>
         }
       >
@@ -260,7 +297,8 @@ export function AttendanceView({
             <select
               value={form.memberId}
               onChange={e => setForm(f => ({ ...f, memberId: e.target.value }))}
-              className="app-input"
+              disabled={!!editingId}
+              className="app-input disabled:opacity-60"
             >
               {members.length === 0 && <option value="">멤버 없음</option>}
               {members.map(m => (
@@ -275,7 +313,8 @@ export function AttendanceView({
                 type="date"
                 value={form.date}
                 onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                className="app-input px-2 text-xs"
+                disabled={!!editingId}
+                className="app-input px-2 text-xs disabled:opacity-60"
               />
             </label>
             <label className="block">
@@ -301,6 +340,9 @@ export function AttendanceView({
               className="app-textarea"
             />
           </label>
+          {editingId && (
+            <p className="text-[11px] leading-5 text-ink-subtle">멤버·날짜는 수정할 수 없습니다. 변경하려면 삭제 후 다시 등록하세요.</p>
+          )}
           {formErr && <p className="text-xs font-medium text-delayed">{formErr}</p>}
         </div>
       </Modal>

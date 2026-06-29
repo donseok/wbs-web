@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
-/** 접근성 모달 — Escape/백드롭 닫기. 브라우저 alert/confirm 금지 대체. */
+const FOCUSABLE = 'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
+/** 접근성 모달 — Escape/백드롭 닫기 + 포커스 트랩/복원. 브라우저 alert/confirm 금지 대체. */
 export function Modal({
   open, onClose, title, eyebrow, children, footer, size = 'md',
 }: {
@@ -15,12 +17,39 @@ export function Modal({
   footer?: ReactNode
   size?: 'sm' | 'md' | 'lg'
 }) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    const panel = panelRef.current
+    const focusables = () =>
+      panel
+        ? Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => el.offsetParent !== null)
+        : []
+
+    // 열릴 때 다이얼로그 안으로 포커스 이동(첫 포커서블, 없으면 패널).
+    ;(focusables()[0] ?? panel)?.focus()
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return }
+      if (e.key !== 'Tab') return
+      const f = focusables()
+      if (f.length === 0) { e.preventDefault(); return }
+      const first = f[0]
+      const last = f[f.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = '' }
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+      // 닫힐 때 트리거로 포커스 복원.
+      previouslyFocused?.focus?.()
+    }
   }, [open, onClose])
 
   if (!open) return null
@@ -28,8 +57,8 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <button className="absolute inset-0 bg-black/45 backdrop-blur-sm" aria-label="닫기" onClick={onClose} />
-      <div className={`relative z-10 w-full ${width} overflow-hidden rounded-3xl border border-line bg-surface shadow-[var(--shadow-xl)]`}>
+      <button className="absolute inset-0 bg-black/45 backdrop-blur-sm" aria-label="닫기" onClick={onClose} tabIndex={-1} />
+      <div ref={panelRef} tabIndex={-1} className={`relative z-10 w-full ${width} overflow-hidden rounded-3xl border border-line bg-surface shadow-[var(--shadow-xl)] focus:outline-none`}>
         <div className="flex items-start justify-between gap-3 border-b border-line px-6 py-4">
           <div className="min-w-0">
             {eyebrow && <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-subtle">{eyebrow}</div>}
