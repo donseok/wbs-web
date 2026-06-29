@@ -10,6 +10,7 @@ export interface WbsRow {
   code: string
   sortOrder: number
   name: string
+  biz: string | null
   deliverable: string | null
   plannedStart: string | null   // 'YYYY-MM-DD'
   plannedEnd: string | null

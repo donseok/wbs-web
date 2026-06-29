@@ -29,6 +29,7 @@ create table wbs_items (
   code text not null,
   sort_order int not null default 0,
   name text not null,
+  biz text,
   deliverable text,
   planned_start date,
   planned_end date,

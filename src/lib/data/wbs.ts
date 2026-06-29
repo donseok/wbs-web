@@ -1,6 +1,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind } from '@/lib/domain/types'
+import { DEMO, loadDemoWbs } from '@/lib/demo'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -9,6 +10,7 @@ function seoulToday(): string {
 export async function getComputedWbs(
   projectId: string,
 ): Promise<{ items: ComputedItem[]; holidays: string[]; today: string }> {
+  if (DEMO) return loadDemoWbs()
   const sb = await createServerClient()
   const [{ data: items }, { data: ownerRows }, { data: hol }] = await Promise.all([
     sb.from('wbs_items').select('*').eq('project_id', projectId),
@@ -34,6 +36,7 @@ export async function getComputedWbs(
     code: r.code as string,
     sortOrder: r.sort_order as number,
     name: r.name as string,
+    biz: (r.biz as string) ?? null,
     deliverable: (r.deliverable as string) ?? null,
     plannedStart: (r.planned_start as string) ?? null,
     plannedEnd: (r.planned_end as string) ?? null,

@@ -3,7 +3,7 @@ import type { Level, TeamCode, OwnerKind } from '@/lib/domain/types'
 
 export interface ImportItem {
   tempId: string; parentTempId: string | null; level: Level
-  code: string; sortOrder: number; name: string; deliverable: string | null
+  code: string; sortOrder: number; name: string; biz: string | null; deliverable: string | null
   plannedStart: string | null; plannedEnd: string | null
   owners: { team: TeamCode; kind: OwnerKind }[]
 }
@@ -35,7 +35,7 @@ export function validateAndLink(
     }
     items.push({
       tempId, parentTempId, level: r.level, code: r.code, sortOrder: order++,
-      name: r.name, deliverable: r.deliverable, plannedStart: s, plannedEnd: e, owners: r.owners,
+      name: r.name, biz: r.biz, deliverable: r.deliverable, plannedStart: s, plannedEnd: e, owners: r.owners,
     })
   })
 

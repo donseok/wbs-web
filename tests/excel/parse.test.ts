@@ -7,7 +7,7 @@ function makeBook(): ArrayBuffer {
     ['Biz.', 'Phase', 'Task', 'Activity', '', '', '담당', '', '', '', 'Status', '산출물', '계획'],
     ['', '', '', '', '', '', 'PMO', 'DT', 'ERP', 'MES', '', '', 'Start', 'End'],
     ['타이틀', '', '', '', '', '', 'PMO', 'DT', 'ERP', 'MES', '', '', 'Start', 'End'],
-    ['', '1. 준비', '', '', '', '', '', '', '', '', '', '', new Date(2026,6,1), new Date(2026,6,9)],
+    ['PI', '1. 준비', '', '', '', '', '', '', '', '', '', '', new Date(2026,6,1), new Date(2026,6,9)],
     ['', '', '1-1. 거버넌스', '', '', '', '', '', '', '', '', '', new Date(2026,6,1), new Date(2026,6,7)],
     ['', '', '', 'TFT R&R 확정', '', '', '●', '', '', '', '', '업무분장표', new Date(2026,6,1), new Date(2026,6,7)],
     ['', '', '', '현황 파악', '', '', '', '●', '△', '△', '', '', new Date(2026,6,13), new Date(2026,6,24)],
@@ -46,6 +46,9 @@ describe('parseWbsWorkbook', () => {
   it('산출물 추출', () => {
     const tft = parsed.rows.find(r => r.name === 'TFT R&R 확정')!
     expect(tft.deliverable).toBe('업무분장표')
+  })
+  it('Biz(A열) 추출', () => {
+    expect(parsed.rows[0].biz).toBe('PI')
   })
   it('공휴일 시트 파싱', () => {
     expect(parsed.holidays).toContainEqual({ date: '2026-07-17', name: '제헌절' })

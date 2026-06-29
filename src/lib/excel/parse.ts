@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx'
 import type { Level, TeamCode, OwnerKind } from '@/lib/domain/types'
 
 export interface ParsedRow {
-  level: Level; code: string; name: string; deliverable: string | null
+  level: Level; code: string; name: string; biz: string | null; deliverable: string | null
   plannedStart: string | null; plannedEnd: string | null
   owners: { team: TeamCode; kind: OwnerKind }[]
   excelRow: number
@@ -48,6 +48,7 @@ export function parseWbsWorkbook(buf: ArrayBuffer): ParsedWbs {
     const code = name.split(/[.\s]/)[0]  // '1', '1-1', 또는 activity면 첫 토큰
     rows.push({
       level, code, name,
+      biz: String(r[0] ?? '').trim() || null,  // A
       deliverable: String(r[11] ?? '').trim() || null,  // L
       plannedStart: toIso(r[12]),  // M
       plannedEnd: toIso(r[13]),    // N

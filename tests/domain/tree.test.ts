@@ -4,7 +4,7 @@ import type { WbsRow } from '@/lib/domain/types'
 
 const row = (id: string, parentId: string | null, order: number): WbsRow => ({
   id, parentId, level: 'activity', code: id, sortOrder: order, name: id,
-  deliverable: null, plannedStart: null, plannedEnd: null, weight: null,
+  biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null,
   actualPct: null, owners: [],
 })
 

@@ -4,7 +4,7 @@ import type { WbsRow } from '@/lib/domain/types'
 
 const leaf = (id: string, parentId: string, actual: number, weight: number | null = null): WbsRow => ({
   id, parentId, level: 'activity', code: id, sortOrder: 1, name: id,
-  deliverable: null, plannedStart: '2026-07-06', plannedEnd: '2026-07-10',
+  biz: null, deliverable: null, plannedStart: '2026-07-06', plannedEnd: '2026-07-10',
   weight, actualPct: actual, owners: [],
 })
 
@@ -12,7 +12,7 @@ describe('computeTree rollup', () => {
   it('균등 가중치 롤업 = 단순 평균', () => {
     const rows: WbsRow[] = [
       { id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 1, name: 'P',
-        deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null, owners: [] },
+        biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null, owners: [] },
       leaf('a', 'P', 100), leaf('b', 'P', 0),
     ]
     const tree = computeTree(rows, '2026-07-20', new Set())
@@ -21,7 +21,7 @@ describe('computeTree rollup', () => {
   it('가중치 반영 롤업', () => {
     const rows: WbsRow[] = [
       { id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 1, name: 'P',
-        deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null, owners: [] },
+        biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null, owners: [] },
       leaf('a', 'P', 100, 3), leaf('b', 'P', 0, 1),
     ]
     const tree = computeTree(rows, '2026-07-20', new Set())
