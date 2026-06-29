@@ -34,12 +34,17 @@ export function WbsBoard({ items, holidays, today, membership }: {
     membership?.role === 'pmo_admin' || (!!membership && item.owners.some(o => o.team === membership.teamCode))
 
   return (
-    <div className="grid grid-cols-[1fr_1fr_280px] gap-3">
-      <div className="overflow-auto">
-        <TreeTable items={items} selectedId={selectedId} onSelect={setSelectedId} collapsed={collapsed} onToggle={onToggle} />
-      </div>
-      <div className="overflow-auto">
-        <GanttChart rows={flatRows} holidays={holidays} rangeStart={rangeStart} rangeEnd={rangeEnd} today={today} />
+    <div className="grid grid-cols-[minmax(0,1fr)_300px] items-start gap-4">
+      {/* 단일 세로 스크롤(행 정렬 동기화) + 간트만 가로 스크롤 */}
+      <div className="card max-h-[calc(100vh-170px)] overflow-y-auto overflow-x-hidden">
+        <div className="grid grid-cols-[minmax(420px,1.1fr)_minmax(0,1fr)]">
+          <div className="overflow-x-auto overflow-y-clip border-r border-grid-strong">
+            <TreeTable items={items} selectedId={selectedId} onSelect={setSelectedId} collapsed={collapsed} onToggle={onToggle} />
+          </div>
+          <div className="overflow-x-auto overflow-y-clip">
+            <GanttChart rows={flatRows} holidays={holidays} rangeStart={rangeStart} rangeEnd={rangeEnd} today={today} />
+          </div>
+        </div>
       </div>
       <DetailPanel item={selected} canEdit={selected ? canEdit(selected) : false} />
     </div>
