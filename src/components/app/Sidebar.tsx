@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
-export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'done' }
+export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'done'; baseDate?: string | null }
 
 const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string }> = {
   ready: { dot: 'bg-amber-400', label: '준비' },
@@ -35,12 +35,12 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
   const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
-    try { setCollapsed(localStorage.getItem('dkflow-sidebar') === '1') } catch {}
+    try { setCollapsed(localStorage.getItem('dflow-sidebar') === '1') } catch {}
   }, [])
   const toggleCollapse = () => {
     setCollapsed(prev => {
       const next = !prev
-      try { localStorage.setItem('dkflow-sidebar', next ? '1' : '0') } catch {}
+      try { localStorage.setItem('dflow-sidebar', next ? '1' : '0') } catch {}
       return next
     })
   }

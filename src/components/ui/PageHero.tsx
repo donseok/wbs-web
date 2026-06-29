@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 /**
- * DK Flow 스타일 페이지 히어로 — 다크 그라데이션 카드 + 우측 KPI 레일.
+ * D'Flow 스타일 페이지 히어로 — 다크 그라데이션 카드 + 우측 KPI 레일.
  * 각 페이지가 자신의 히어로를 렌더한다.
  */
 export function PageHero({

@@ -14,7 +14,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('dkflow-locale') as Locale | null
+      const stored = localStorage.getItem('dflow-locale') as Locale | null
       if (stored === 'ko' || stored === 'en') setLocaleState(stored)
     } catch {}
   }, [])
@@ -22,7 +22,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const setLocale = useCallback((next: Locale) => {
     setLocaleState(next)
     try {
-      localStorage.setItem('dkflow-locale', next)
+      localStorage.setItem('dflow-locale', next)
     } catch {}
   }, [])
 

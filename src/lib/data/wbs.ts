@@ -14,10 +14,11 @@ export const getComputedWbs = cache(async (
 ): Promise<{ items: ComputedItem[]; holidays: string[]; today: string }> => {
   if (DEMO) return loadDemoWbs()
   const sb = await createServerClient()
-  const [{ data: items }, { data: ownerRows }, { data: hol }] = await Promise.all([
+  const [{ data: items }, { data: ownerRows }, { data: hol }, { data: proj }] = await Promise.all([
     sb.from('wbs_items').select('*').eq('project_id', projectId),
     sb.from('item_owners').select('wbs_item_id, kind, teams(code)'),
     sb.from('holidays').select('date').eq('project_id', projectId),
+    sb.from('projects').select('base_date').eq('id', projectId).maybeSingle(),
   ])
 
   const ownerMap = new Map<string, { team: TeamCode; kind: OwnerKind }[]>()
@@ -48,6 +49,7 @@ export const getComputedWbs = cache(async (
   }))
 
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
-  const today = seoulToday()
+  // base_date(공정율 기준일)가 설정돼 있으면 그 날짜로, 없으면 오늘(자동)로 산정
+  const today = (proj as { base_date: string | null } | null)?.base_date ?? seoulToday()
   return { items: computeTree(rows, today, holidays), holidays: [...holidays], today }
 })

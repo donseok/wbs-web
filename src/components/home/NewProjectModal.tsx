@@ -8,7 +8,7 @@ import { createProject } from '@/app/actions/project'
 
 /**
  * 워크스페이스 홈의 "새 프로젝트 시작" 트리거 + 다이얼로그.
- * DK Flow 'WORKSPACE DIALOG / 새 프로젝트' 모달을 재현한다.
+ * D'Flow 'WORKSPACE DIALOG / 새 프로젝트' 모달.
  * 데모 모드에서는 createProject가 no-op이지만 닫기/새로고침은 정상 동작한다.
  */
 export function NewProjectModal({

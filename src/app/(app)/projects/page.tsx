@@ -116,7 +116,7 @@ export default async function ProjectsHome() {
       {/* ── 히어로 ── */}
       <section className="hero-glow hero-card flex flex-col gap-7 p-6 sm:p-8">
         <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-hero-ink-muted">Workspace · DK Flow</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-hero-ink-muted">Workspace · D&apos;Flow</div>
           <h1 className="mt-2 break-words text-[26px] font-bold leading-tight tracking-tight text-hero-ink sm:text-[34px]">
             한눈에 보이는 프로젝트 운영
           </h1>

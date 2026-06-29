@@ -26,6 +26,42 @@ export async function createProject(
   revalidatePath('/projects')
 }
 
+export async function updateProject(
+  projectId: string,
+  fields: { name?: string; description?: string | null; start_date?: string | null; end_date?: string | null },
+): Promise<{ ok: boolean; error?: string }> {
+  if (DEMO) return { ok: true } // 데모: 저장 비활성화
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const patch: Record<string, unknown> = {}
+  if (fields.name !== undefined) {
+    if (!fields.name.trim()) return { ok: false, error: '프로젝트명을 입력하세요' }
+    patch.name = fields.name.trim()
+  }
+  if (fields.description !== undefined) patch.description = fields.description?.trim() || null
+  if (fields.start_date !== undefined) patch.start_date = fields.start_date || null
+  if (fields.end_date !== undefined) patch.end_date = fields.end_date || null
+  if (Object.keys(patch).length === 0) return { ok: true }
+  const sb = await createServerClient()
+  const { error } = await sb.from('projects').update(patch).eq('id', projectId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/projects')
+  revalidatePath(`/p/${projectId}`, 'layout')
+  return { ok: true }
+}
+
+/** 공정율 기준일 설정. null이면 자동(오늘). 진척 산정 전체에 영향. */
+export async function setBaseDate(projectId: string, baseDate: string | null): Promise<{ ok: boolean; error?: string }> {
+  if (DEMO) return { ok: true }
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const sb = await createServerClient()
+  const { error } = await sb.from('projects').update({ base_date: baseDate || null }).eq('id', projectId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath(`/p/${projectId}`, 'layout')
+  return { ok: true }
+}
+
 export async function addHoliday(projectId: string, date: string, name: string) {
   if (DEMO) return // 데모 모드: 저장 비활성화
   const m = await getMembership()
@@ -35,7 +71,7 @@ export async function addHoliday(projectId: string, date: string, name: string) 
     .from('holidays')
     .upsert({ project_id: projectId, date, name }, { onConflict: 'project_id,date' })
   if (error) throw new Error(error.message)
-  revalidatePath(`/p/${projectId}/settings`)
+  revalidatePath(`/p/${projectId}`, 'layout')
 }
 
 export async function removeHoliday(projectId: string, date: string) {
@@ -49,5 +85,5 @@ export async function removeHoliday(projectId: string, date: string) {
     .eq('project_id', projectId)
     .eq('date', date)
   if (error) throw new Error(error.message)
-  revalidatePath(`/p/${projectId}/settings`)
+  revalidatePath(`/p/${projectId}`, 'layout')
 }

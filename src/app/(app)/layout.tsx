@@ -21,6 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     id: p.id,
     name: p.name,
     status: projectStatus(p.start_date, p.end_date, today),
+    baseDate: (p as { base_date?: string | null }).base_date ?? null,
   }))
 
   return (

@@ -22,8 +22,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(next)
     document.documentElement.classList.toggle('dark', next === 'dark')
     try {
-      localStorage.setItem('dkflow-theme', next)
-      document.cookie = `dkflow-theme=${next};path=/;max-age=31536000;samesite=lax`
+      localStorage.setItem('dflow-theme', next)
+      document.cookie = `dflow-theme=${next};path=/;max-age=31536000;samesite=lax`
     } catch {}
   }, [])
 

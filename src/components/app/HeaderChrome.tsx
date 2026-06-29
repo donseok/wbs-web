@@ -4,25 +4,19 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Bell, CalendarDays, ChevronRight, Globe, Hand, LogOut, Menu, Moon, Sun, Sparkles, User, X,
+  AlertTriangle, Bell, CalendarDays, ChevronRight, Clock4, Globe, Hand, LogOut, Menu, Moon, Sun, User, X,
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { getNotifications, type NotificationItem } from '@/app/actions/notifications'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { BrandMark } from '@/components/ui/BrandMark'
 import type { SidebarProject } from './Sidebar'
 
 const SECTION_LABEL: Record<string, string> = {
   dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드',
   members: '멤버', attendance: '근태현황', settings: '설정',
-}
-
-function BrandMark() {
-  return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-white shadow-[var(--shadow-sm)]" style={{ backgroundImage: 'var(--gradient-primary)' }} aria-hidden>
-      <Sparkles className="h-5 w-5" />
-    </span>
-  )
 }
 
 export function HeaderChrome({ membership, projects }: { membership: Membership | null; projects: SidebarProject[] }) {
@@ -32,13 +26,29 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   const { locale, setLocale, t } = useLocale()
   const [today, setToday] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [baseDateAuto, setBaseDateAuto] = useState(true)
   const [open, setOpen] = useState<null | 'notif' | 'profile'>(null)
+  const [notifs, setNotifs] = useState<NotificationItem[]>([])
+  const [notifLoading, setNotifLoading] = useState(false)
+
+  const activeId = useMemo(() => pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null, [pathname])
+  const activeProject = activeId ? projects.find(p => p.id === activeId) ?? null : null
+  const baseDateAuto = !activeProject?.baseDate
 
   useEffect(() => {
     setToday(new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short' }).format(new Date()))
   }, [])
   useEffect(() => { setMenuOpen(false); setOpen(null) }, [pathname])
+  // 활성 프로젝트의 지연·마감 알림 로드
+  useEffect(() => {
+    if (!activeId) { setNotifs([]); return }
+    let alive = true
+    setNotifLoading(true)
+    getNotifications(activeId)
+      .then(r => { if (alive) setNotifs(r.items) })
+      .catch(() => {})
+      .finally(() => { if (alive) setNotifLoading(false) })
+    return () => { alive = false }
+  }, [activeId])
 
   const context = useMemo(() => {
     const match = pathname.match(/^\/p\/([^/]+)\/?([^/]+)?/)
@@ -63,12 +73,8 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
         <div className="flex h-14 items-center gap-3 rounded-2xl border border-line bg-surface/85 px-3 shadow-[var(--shadow-sm)] backdrop-blur-xl sm:px-4">
           {/* 로고 */}
           <button onClick={() => setMenuOpen(true)} className="chrome-icon lg:hidden" aria-label="메뉴 열기"><Menu className="h-4 w-4" /></button>
-          <Link href="/projects" className="hidden items-center gap-2.5 sm:flex" aria-label="DK Flow 홈">
-            <BrandMark />
-            <span className="leading-tight">
-              <span className="block text-[15px] font-bold tracking-tight text-ink">DK Flow</span>
-              <span className="block text-[10px] text-ink-subtle">{t('brand.tagline')}</span>
-            </span>
+          <Link href="/projects" className="hidden items-center sm:flex" aria-label="D'Flow 홈">
+            <BrandMark withWordmark tagline />
           </Link>
 
           {/* 브레드크럼 */}
@@ -85,9 +91,11 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
                 <CalendarDays className="h-3.5 w-3.5 text-brand" />{today}
               </span>
             )}
-            <button onClick={() => setBaseDateAuto(v => !v)} className="chrome-btn hidden lg:inline-flex" title={baseDateAuto ? '기준일: 자동(오늘)' : '기준일: 수동 고정'}>
-              <Hand className="h-3.5 w-3.5" />{baseDateAuto ? t('chrome.auto') : t('chrome.manual')}
-            </button>
+            {activeId && (
+              <Link href={`/p/${activeId}/settings`} className="chrome-btn hidden lg:inline-flex" title={baseDateAuto ? '공정율 기준일: 자동(오늘) — 클릭해 설정' : `공정율 기준일: ${activeProject?.baseDate} 고정 — 클릭해 설정`}>
+                <Hand className="h-3.5 w-3.5" />{baseDateAuto ? t('chrome.auto') : t('chrome.manual')}
+              </Link>
+            )}
             <button onClick={() => setLocale(locale === 'ko' ? 'en' : 'ko')} className="chrome-btn" title="Language">
               <Globe className="h-3.5 w-3.5" />{locale.toUpperCase()}
             </button>
@@ -99,12 +107,41 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
             <div className="relative">
               <button onClick={() => setOpen(open === 'notif' ? null : 'notif')} className="chrome-icon relative" aria-label={t('chrome.notifications')}>
                 <Bell className="h-4 w-4" />
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-accent-secondary ring-2 ring-surface" />
+                {notifs.length > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-secondary px-1 text-[9px] font-bold text-white ring-2 ring-surface">{notifs.length}</span>
+                )}
               </button>
               {open === 'notif' && (
                 <Popover onClose={() => setOpen(null)}>
-                  <div className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">{t('chrome.notifications')}</div>
-                  <div className="px-4 py-6 text-center text-xs text-ink-subtle">표시할 새 알림이 없습니다.</div>
+                  <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                    <span className="text-sm font-semibold text-ink">{t('chrome.notifications')}</span>
+                    {notifs.length > 0 && <span className="chip bg-delayed-weak text-delayed">{notifs.length}</span>}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {!activeId ? (
+                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">프로젝트를 선택하면 지연·마감 알림이 표시됩니다.</div>
+                    ) : notifLoading ? (
+                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">불러오는 중…</div>
+                    ) : notifs.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">지연·마감 임박 작업이 없습니다. 👍</div>
+                    ) : (
+                      <ul className="divide-y divide-line">
+                        {notifs.map(n => (
+                          <li key={n.id}>
+                            <Link href={`/p/${activeId}/kanban`} className="flex gap-3 px-4 py-3 transition hover:bg-surface-2">
+                              <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${n.severity === 'danger' ? 'bg-delayed-weak text-delayed' : 'bg-pending-weak text-accent-warning'}`}>
+                                {n.type === 'delayed' ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock4 className="h-3.5 w-3.5" />}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block truncate text-[13px] font-medium text-ink">{n.title}</span>
+                                <span className="block text-[11px] text-ink-muted">{n.detail}</span>
+                              </span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </Popover>
               )}
             </div>
@@ -167,7 +204,7 @@ function MobileMenu({
       <button className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} aria-label="메뉴 닫기" />
       <div className="absolute inset-y-0 left-0 flex w-[min(86vw,320px)] flex-col bg-sidebar p-4 text-sidebar-ink shadow-2xl">
         <div className="flex items-center justify-between">
-          <span className="text-[15px] font-bold">DK Flow</span>
+          <span className="text-[15px] font-bold">D&apos;Flow</span>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted"><X className="h-4 w-4" /></button>
         </div>
         <nav className="mt-6 space-y-1">

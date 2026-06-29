@@ -7,6 +7,8 @@ import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { collectLeaves, fmtDate } from '@/components/wbs/shared'
+import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButton'
+import { ScheduleManager } from '@/components/settings/ScheduleManager'
 
 type ProjectRow = {
   id: string
@@ -14,6 +16,7 @@ type ProjectRow = {
   description?: string | null
   start_date: string | null
   end_date: string | null
+  base_date?: string | null
   created_at?: string | null
 }
 
@@ -28,7 +31,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
 
 export default async function SettingsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
-  const [{ items }, projects, membership] = await Promise.all([
+  const [{ items, holidays }, projects, membership] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getMembership(),
@@ -54,8 +57,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <KpiCard label="TASKS" value={taskCount} sub="등록된 리프 작업" icon={ListTree} tone="brand" />
             <KpiCard
               label="BASE DATE"
-              value={project?.start_date ? fmtDate(project.start_date) : '미정'}
-              sub="공정율 기준일"
+              value={project?.base_date ? fmtDate(project.base_date) : '자동'}
+              sub={project?.base_date ? '공정율 기준일(수동)' : '공정율 기준일(오늘)'}
               icon={CalendarDays}
             />
             <KpiCard
@@ -70,7 +73,20 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       />
 
       {/* ── 기본 정보 ── */}
-      <SectionCard eyebrow="CORE INFORMATION" title="기본 정보" icon={Info}>
+      <SectionCard
+        eyebrow="CORE INFORMATION"
+        title="기본 정보"
+        icon={Info}
+        actions={isPmo && project ? (
+          <ProjectInfoEditButton
+            projectId={projectId}
+            name={project.name}
+            description={project.description ?? null}
+            startDate={project.start_date ?? null}
+            endDate={project.end_date ?? null}
+          />
+        ) : undefined}
+      >
         <dl className="-mt-1">
           <InfoRow label="프로젝트명">
             <span className="font-semibold">{project?.name ?? '미지정'}</span>
@@ -87,10 +103,12 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <span className="tabular-nums">{project?.end_date ? fmtDate(project.end_date) : '미정'}</span>
           </InfoRow>
         </dl>
-        <p className="mt-4 flex items-center gap-1.5 text-xs leading-5 text-ink-subtle">
-          <Lock className="h-3.5 w-3.5" />
-          기본 정보는 프로젝트 생성 시 입력한 값입니다. 변경은 추후 지원될 예정입니다.
-        </p>
+        {!isPmo && (
+          <p className="mt-4 flex items-center gap-1.5 text-xs leading-5 text-ink-subtle">
+            <Lock className="h-3.5 w-3.5" />
+            기본 정보 변경은 PMO 관리자만 가능합니다.
+          </p>
+        )}
       </SectionCard>
 
       {/* ── WBS 데이터 가져오기 (기존 폼 유지) ── */}
@@ -144,27 +162,19 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         )}
       </SectionCard>
 
-      {/* ── 일정 기준 및 공휴일 (준비 중) ── */}
+      {/* ── 일정 기준 및 공휴일 ── */}
       <SectionCard
         eyebrow="CALENDAR"
         title="일정 기준 및 공휴일"
         icon={CalendarDays}
-        actions={<span className="badge bg-pending-weak text-pending">준비 중</span>}
+        actions={!isPmo ? <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span> : undefined}
       >
-        <p className="-mt-2 text-xs leading-5 text-ink-muted">
-          간트 차트에 적용되는 비근무일과 프로젝트 기준 일정을 관리합니다.
-        </p>
-        <div className="panel-soft mt-4 flex min-h-28 items-center gap-4 p-5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-ink-muted">
-            <CalendarDays className="h-5 w-5" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-ink">공휴일·기준일 편집기 준비 중</p>
-            <p className="mt-1 text-xs leading-5 text-ink-muted">
-              현재는 가져온 WBS 파일의 공휴일 정보를 그대로 사용합니다.
-            </p>
-          </div>
-        </div>
+        <ScheduleManager
+          projectId={projectId}
+          baseDate={project?.base_date ?? null}
+          holidays={holidays}
+          canEdit={isPmo}
+        />
       </SectionCard>
 
       {/* ── 프로젝트 상태 관리 (시각 전용) ── */}
@@ -193,12 +203,14 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
                 <Lock className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-sm font-semibold text-ink">수동 상태 고정</p>
-                <span className="badge bg-pending-weak text-pending">준비 중</span>
+                <p className="text-sm font-semibold text-ink">공정율 기준일 정책</p>
+                {project?.base_date
+                  ? <span className="badge bg-pending-weak text-accent-warning">수동 고정 · {project.base_date}</span>
+                  : <span className="badge bg-brand-weak text-brand">자동 · 오늘</span>}
               </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-ink-muted">
-              특정 작업의 상태를 담당자가 직접 고정해 자동 계산을 덮어쓰는 정책입니다. 향후 릴리스에서 지원됩니다.
+              위 &lsquo;일정 기준 및 공휴일&rsquo;에서 기준일을 고정하면 그 날짜로 상태를 계산하고, 비워두면 매일 오늘 기준으로 자동 갱신됩니다.
             </p>
           </div>
         </div>
