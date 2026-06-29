@@ -1,13 +1,16 @@
 import { createServerClient } from './supabase/server'
-import type { TeamCode } from './domain/types'
+import type { Membership, TeamCode } from './domain/types'
+import { DEMO, DEMO_MEMBERSHIP } from './demo'
 
 export async function getSession() {
+  if (DEMO) return { id: 'demo-user', email: 'demo@local' }
   const sb = await createServerClient()
   const { data } = await sb.auth.getUser()
   return data.user
 }
 
-export async function getMembership(): Promise<{ role: string; teamCode: TeamCode; teamId: string } | null> {
+export async function getMembership(): Promise<Membership | null> {
+  if (DEMO) return DEMO_MEMBERSHIP
   const sb = await createServerClient()
   const { data: u } = await sb.auth.getUser()
   if (!u.user) return null

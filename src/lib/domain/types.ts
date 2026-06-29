@@ -3,6 +3,13 @@ export type TeamCode = 'PMO' | 'DT' | 'ERP' | 'MES'
 export type OwnerKind = 'primary' | 'support'
 export type Status = 'not_started' | 'in_progress' | 'delayed' | 'done'
 
+/** 로그인 사용자의 팀/역할 멤버십 (getMembership 반환 단위) */
+export interface Membership {
+  role: string
+  teamCode: TeamCode
+  teamId: string
+}
+
 export interface WbsRow {
   id: string
   parentId: string | null

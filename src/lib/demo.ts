@@ -8,12 +8,12 @@ import path from 'node:path'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { validateAndLink } from '@/lib/excel/validate'
 import { computeTree } from '@/lib/domain/rollup'
-import type { ComputedItem, TeamCode, WbsRow } from '@/lib/domain/types'
+import type { ComputedItem, Membership, WbsRow } from '@/lib/domain/types'
 
 export const DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === '1'
 export const DEMO_PROJECT_ID = 'demo'
 export const DEMO_TODAY = '2026-09-15'
-export const DEMO_MEMBERSHIP: { role: string; teamCode: TeamCode; teamId: string } = {
+export const DEMO_MEMBERSHIP: Membership = {
   role: 'pmo_admin',
   teamCode: 'PMO',
   teamId: 'demo',

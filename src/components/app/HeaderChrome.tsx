@@ -2,10 +2,9 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import type { Membership } from '@/lib/domain/types'
 
-type Membership = { role: string; teamCode: string; teamId: string } | null
-
-export function HeaderChrome({ membership }: { membership: Membership }) {
+export function HeaderChrome({ membership }: { membership: Membership | null }) {
   const router = useRouter()
   // 날짜는 마운트 후에만 세팅 → SSR/CSR hydration mismatch 방지(초기엔 빈 문자열)
   const [today, setToday] = useState('')
