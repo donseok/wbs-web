@@ -29,7 +29,7 @@ export function ProjectHero({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-hero-line/70 bg-white/[0.07] px-2.5 py-1 text-[11px] font-medium tracking-wide text-hero-ink-muted">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span className="h-1.5 w-1.5 rounded-full bg-done" />
               PROJECT · WBS
             </span>
             <h1 className="mt-2.5 truncate text-2xl font-bold tracking-tight">{projectName}</h1>
@@ -47,24 +47,24 @@ export function ProjectHero({
         {/* KPI 타일 4개 */}
         <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiTile label="전체 작업" value={total} unit="건" accent="text-hero-ink" />
-          <KpiTile label="진행중" value={inProgress} unit="건" accent="text-sky-300" />
-          <KpiTile label="지연" value={delayed} unit="건" accent="text-rose-300" />
-          <KpiTile label="완료" value={done} unit="건" accent="text-emerald-300" />
+          <KpiTile label="진행중" value={inProgress} unit="건" accent="text-progress" />
+          <KpiTile label="지연" value={delayed} unit="건" accent="text-delayed" />
+          <KpiTile label="완료" value={done} unit="건" accent="text-done" />
         </div>
 
         {/* 작업 상태 분포 막대 */}
         <div className="mt-4">
           <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-white/10">
-            <span className="bg-emerald-400" style={{ width: `${seg(done)}%` }} />
-            <span className="bg-sky-400" style={{ width: `${seg(inProgress)}%` }} />
-            <span className="bg-rose-400" style={{ width: `${seg(delayed)}%` }} />
-            <span className="bg-white/25" style={{ width: `${seg(notStarted)}%` }} />
+            <span className="bg-done" style={{ width: `${seg(done)}%` }} />
+            <span className="bg-progress" style={{ width: `${seg(inProgress)}%` }} />
+            <span className="bg-delayed" style={{ width: `${seg(delayed)}%` }} />
+            <span className="bg-pending" style={{ width: `${seg(notStarted)}%` }} />
           </div>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-hero-ink-muted">
-            <Legend dot="bg-emerald-400" label={`완료 ${done}`} />
-            <Legend dot="bg-sky-400" label={`진행중 ${inProgress}`} />
-            <Legend dot="bg-rose-400" label={`지연 ${delayed}`} />
-            <Legend dot="bg-white/30" label={`시작전 ${notStarted}`} />
+            <Legend dot="bg-done" label={`완료 ${done}`} />
+            <Legend dot="bg-progress" label={`진행중 ${inProgress}`} />
+            <Legend dot="bg-delayed" label={`지연 ${delayed}`} />
+            <Legend dot="bg-pending" label={`시작전 ${notStarted}`} />
           </div>
         </div>
       </div>
