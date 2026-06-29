@@ -1,11 +1,9 @@
 'use client'
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import type { ComputedItem } from '@/lib/domain/types'
+import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { updateActual, updateWeight } from '@/app/actions/wbs'
 import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
-
-type Membership = { role: string; teamCode: string; teamId: string } | null
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
 type Col = { key: string; w: number; frozen?: boolean; sk?: number }
@@ -69,7 +67,7 @@ export function WbsGanttSheet({
   items: ComputedItem[]
   holidays: string[]
   today: string
-  membership: Membership
+  membership: Membership | null
 }) {
   const router = useRouter()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -384,27 +382,29 @@ export function WbsGanttSheet({
                   <span>{w.sub}</span>
                 </div>
               ))}
-              {days.map((d, i) => (
-                <div
-                  key={d}
-                  className={`absolute box-border border-r border-grid text-center text-[9px] leading-[18px] ${
-                    holSet.has(d) || isWeekend(d) ? 'text-delayed/70' : 'text-ink-subtle'
-                  }`}
-                  style={{
-                    top: 36,
-                    left: i * dayPx,
-                    width: dayPx,
-                    height: 18,
-                    background: holSet.has(d)
-                      ? 'var(--color-holiday-band)'
-                      : isWeekend(d)
-                        ? 'var(--color-weekend)'
-                        : undefined,
-                  }}
-                >
-                  {new Date(d + 'T00:00:00Z').getUTCDate()}
-                </div>
-              ))}
+              {/* 일자 숫자 행 — '주' 줌(16px)에서는 폭이 좁아 숫자가 넘쳐 깨지므로 숨김 */}
+              {dayPx >= 24 &&
+                days.map((d, i) => (
+                  <div
+                    key={d}
+                    className={`absolute box-border border-r border-grid text-center text-[9px] leading-[18px] ${
+                      holSet.has(d) || isWeekend(d) ? 'text-delayed/70' : 'text-ink-subtle'
+                    }`}
+                    style={{
+                      top: 36,
+                      left: i * dayPx,
+                      width: dayPx,
+                      height: 18,
+                      background: holSet.has(d)
+                        ? 'var(--color-holiday-band)'
+                        : isWeekend(d)
+                          ? 'var(--color-weekend)'
+                          : undefined,
+                    }}
+                  >
+                    {new Date(d + 'T00:00:00Z').getUTCDate()}
+                  </div>
+                ))}
             </div>
           </div>
 
@@ -448,14 +448,14 @@ export function WbsGanttSheet({
               >
                 {/* # */}
                 <div
-                  className={`${cellBase} border-r border-grid justify-center text-[11px] tabular-nums text-ink-subtle ${cellBg}`}
+                  className={`${cellBase} border-r border-grid-strong justify-center text-[11px] tabular-nums text-ink-subtle ${cellBg}`}
                   style={frozen('no')}
                 >
                   {rowNo}
                 </div>
                 {/* 구분 */}
                 <div
-                  className={`${cellBase} border-r border-grid justify-center ${cellBg}`}
+                  className={`${cellBase} border-r border-grid-strong justify-center ${cellBg}`}
                   style={frozen('level')}
                 >
                   <LevelBadge level={n.level} />
@@ -626,6 +626,25 @@ export function WbsGanttSheet({
               </div>
             )
           })}
+
+          {/* 빈 상태 — 항목 없음 / 검색 결과 없음 (가로 스크롤에도 좌측 고정) */}
+          {flatRows.length === 0 && (
+            <div
+              className="sticky left-0 z-10 flex flex-col items-center justify-center gap-1.5 py-20 text-center"
+              style={{ width: 'min(560px, 100vw)' }}
+              role="status"
+            >
+              <span className="text-2xl opacity-60" aria-hidden>
+                {items.length === 0 ? '🗂' : '⌕'}
+              </span>
+              <span className="text-sm font-medium text-ink-muted">
+                {items.length === 0 ? '작업 항목이 없습니다' : `‘${query.trim()}’에 대한 결과가 없습니다`}
+              </span>
+              <span className="text-[12px] text-ink-subtle">
+                {items.length === 0 ? 'WBS 엑셀을 업로드하면 작업이 표시됩니다.' : '검색어를 바꾸거나 지워보세요.'}
+              </span>
+            </div>
+          )}
 
           {/* 오늘 세로선 (행 위) */}
           {todayX != null && (
