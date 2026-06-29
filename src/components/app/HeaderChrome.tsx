@@ -1,18 +1,25 @@
 'use client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
 
 type Membership = { role: string; teamCode: string; teamId: string } | null
 
 export function HeaderChrome({ membership }: { membership: Membership }) {
   const router = useRouter()
-  const today = new Intl.DateTimeFormat('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'short',
-  }).format(new Date())
+  // 날짜는 마운트 후에만 세팅 → SSR/CSR hydration mismatch 방지(초기엔 빈 문자열)
+  const [today, setToday] = useState('')
+  useEffect(() => {
+    setToday(
+      new Intl.DateTimeFormat('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        weekday: 'short',
+      }).format(new Date()),
+    )
+  }, [])
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-surface/90 backdrop-blur">
