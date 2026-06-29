@@ -3,8 +3,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const TABS = [
-  { key: 'wbs', label: 'WBS 표', icon: '▦' },
-  { key: 'gantt', label: '간트 차트', icon: '▭' },
+  { key: 'wbs', label: 'WBS · 간트', icon: '▦' },
   { key: 'dashboard', label: '대시보드', icon: '◧' },
   { key: 'settings', label: '설정', icon: '⚙' },
 ] as const
