@@ -21,7 +21,7 @@ function projectMenu(base: string): { href: string; label: string; icon: LucideI
   return [
     { href: `${base}/dashboard`, label: '대시보드', icon: LayoutDashboard, match: `${base}/dashboard` },
     { href: `${base}/wbs`, label: 'WBS', icon: ListTree, match: `${base}/wbs` },
-    { href: `${base}/wbs`, label: '간트 차트', icon: CalendarDays, match: `${base}/gantt` },
+    { href: `${base}/gantt`, label: '간트 차트', icon: CalendarDays, match: `${base}/gantt` },
     { href: `${base}/kanban`, label: '칸반 보드', icon: Columns3, match: `${base}/kanban` },
     { href: `${base}/members`, label: '멤버', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, label: '근태현황', icon: CalendarCheck, match: `${base}/attendance` },

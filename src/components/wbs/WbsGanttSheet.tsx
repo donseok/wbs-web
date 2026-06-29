@@ -1,7 +1,8 @@
 'use client'
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
+import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import { updateActual, updateWeight } from '@/app/actions/wbs'
 import { Icon } from '@/components/ui/Icon'
 import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
@@ -176,12 +177,7 @@ export function WbsGanttSheet({
 
   /* ── 편집 (WbsSheet 이식) ── */
   const isPmo = membership?.role === 'pmo_admin'
-  const canEditActual = useCallback(
-    (n: ComputedItem) =>
-      n.children.length === 0 &&
-      (isPmo || (!!membership && n.owners.some(o => o.team === membership.teamCode))),
-    [isPmo, membership],
-  )
+  const canEditW = canEditWeight(membership)
   const startEdit = (id: string, field: 'weight' | 'actual', current: string) => {
     setEdit({ id, field })
     setDraft(current)
@@ -442,8 +438,8 @@ export function WbsGanttSheet({
 
             const editingWeight = edit?.id === n.id && edit.field === 'weight'
             const editingActual = edit?.id === n.id && edit.field === 'actual'
-            const editableW = isPmo
-            const editableA = canEditActual(n)
+            const editableW = canEditW
+            const editableA = canEditActual(n, membership)
             const weightLabel = n.weight == null ? '균등' : String(n.weight)
 
             const frozen = (key: string, z = 20): React.CSSProperties => {
