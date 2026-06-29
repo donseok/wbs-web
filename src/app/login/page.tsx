@@ -14,12 +14,30 @@ export default function Login() {
     else router.push('/projects')
   }
   return (
-    <form onSubmit={submit} className="mx-auto mt-32 flex max-w-sm flex-col gap-3">
-      <h1 className="text-xl font-bold">WBS 로그인</h1>
-      <input className="border p-2" placeholder="이메일" value={email} onChange={e => setEmail(e.target.value)} />
-      <input className="border p-2" type="password" placeholder="비밀번호" value={pw} onChange={e => setPw(e.target.value)} />
-      {err && <p className="text-red-600 text-sm">{err}</p>}
-      <button className="bg-black text-white p-2">로그인</button>
-    </form>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-canvas to-brand-weak/40 px-4">
+      <form onSubmit={submit} className="card w-full max-w-sm p-8">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand text-base font-bold text-brand-fg shadow-sm">
+            W
+          </div>
+          <h1 className="text-lg font-semibold text-ink">WBS 관리 시스템</h1>
+          <p className="mt-1 text-sm text-ink-muted">계정으로 로그인하세요</p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-ink-muted">이메일</span>
+            <input className="app-input" placeholder="name@company.com" value={email} onChange={e => setEmail(e.target.value)} />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-ink-muted">비밀번호</span>
+            <input className="app-input" type="password" placeholder="••••••••" value={pw} onChange={e => setPw(e.target.value)} />
+          </label>
+          {err && (
+            <p className="rounded-lg bg-delayed-weak px-3 py-2 text-sm text-delayed">{err}</p>
+          )}
+          <button className="btn btn-primary mt-1 w-full">로그인</button>
+        </div>
+      </form>
+    </div>
   )
 }

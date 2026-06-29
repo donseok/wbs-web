@@ -1,4 +1,4 @@
-import Link from 'next/link'
+import { ProjectTabs } from '@/components/app/ProjectTabs'
 
 export default async function ProjectLayout({
   children,
@@ -10,12 +10,8 @@ export default async function ProjectLayout({
   const { projectId } = await params
   const base = `/p/${projectId}`
   return (
-    <div className="space-y-4 p-4">
-      <nav className="flex gap-3 border-b pb-2 text-sm">
-        <Link href={`${base}/wbs`}>WBS</Link>
-        <Link href={`${base}/dashboard`}>대시보드</Link>
-        <Link href={`${base}/settings`}>설정</Link>
-      </nav>
+    <div className="space-y-5">
+      <ProjectTabs base={base} />
       {children}
     </div>
   )
