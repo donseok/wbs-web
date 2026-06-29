@@ -1,11 +1,13 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership } from '@/lib/auth'
+import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { DEMO, DEMO_PROJECT } from '@/lib/demo'
 
 export async function listProjects() {
   if (DEMO) return [DEMO_PROJECT]
+  // 서버 액션 직접 호출에 대비한 인증 재확인(RLS와 이중 방어).
+  if (!(await getSession())) return []
   const sb = await createServerClient()
   const { data } = await sb.from('projects').select('*').order('created_at', { ascending: false })
   return data ?? []
