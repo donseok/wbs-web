@@ -1,34 +1,56 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { X, Clock, FileText, CalendarRange, Scale, History, User } from 'lucide-react'
-import type { ComputedItem, TeamCode } from '@/lib/domain/types'
-import { getChangeLogs, type ChangeLogEntry } from '@/app/actions/wbs'
+import { useRouter } from 'next/navigation'
+import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2 } from 'lucide-react'
+import type { ComputedItem, Level, TeamCode } from '@/lib/domain/types'
+import {
+  getChangeLogs, updateWbsFields, addWbsItem, deleteWbsItem, moveWbsItem, type ChangeLogEntry,
+} from '@/app/actions/wbs'
 import { StatusChip, LevelBadge, OwnerBadges, fmtDate } from './shared'
 
 const ROLE_LABEL: Record<string, string> = { pmo_admin: 'PMO 관리자', team_editor: '팀 편집자' }
-const FIELD_LABEL: Record<string, string> = { actual_pct: '실적%', weight: '가중치' }
+const FIELD_LABEL: Record<string, string> = {
+  actual_pct: '실적%', weight: '가중치', name: '이름', planned_start: '계획시작',
+  planned_end: '계획종료', deliverable: '산출물', biz: 'Biz', created: '생성',
+}
+const CHILD_LEVEL: Record<Level, Level | null> = { phase: 'task', task: 'activity', activity: null }
 
 function fmtValue(field: string, v: string | null): string {
   if (v == null || v === '') return field === 'weight' ? '균등' : '—'
   return field === 'actual_pct' ? `${v}%` : v
 }
-
 function fmtAt(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
-
 function actorLabel(team: TeamCode | null, role: string | null): string {
   const r = role ? ROLE_LABEL[role] ?? role : null
   if (team && r) return `${team} · ${r}`
   return r ?? team ?? '알 수 없음'
 }
 
-/** WBS 행 클릭 시 우측 상세 패널 — 개요/담당/일정/진척/산출물 + 변경 이력 타임라인. */
-export function RowDetailPanel({ item, onClose }: { item: ComputedItem; onClose: () => void }) {
+/** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
+ *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
+export function RowDetailPanel({
+  item, onClose, editable = false, projectId,
+}: {
+  item: ComputedItem
+  onClose: () => void
+  editable?: boolean
+  projectId: string
+}) {
+  const router = useRouter()
   const [logs, setLogs] = useState<ChangeLogEntry[] | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [addName, setAddName] = useState<string | null>(null) // null=닫힘
+  const [form, setForm] = useState({
+    name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '',
+  })
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -39,15 +61,41 @@ export function RowDetailPanel({ item, onClose }: { item: ComputedItem; onClose:
   useEffect(() => {
     let alive = true
     setLogs(null)
+    setEditing(false); setConfirmDel(false); setAddName(null); setErr(null)
+    setForm({ name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '' })
     getChangeLogs(item.id).then(r => { if (alive) setLogs(r) }).catch(() => { if (alive) setLogs([]) })
     return () => { alive = false }
-  }, [item.id])
+  }, [item.id, item.name, item.plannedStart, item.plannedEnd, item.deliverable])
+
+  const childLevel = CHILD_LEVEL[item.level]
+
+  async function run(fn: () => Promise<{ ok: boolean; error?: string }>, after?: () => void) {
+    setBusy(true); setErr(null)
+    const res = await fn()
+    setBusy(false)
+    if (!res.ok) { setErr(res.error ?? '처리에 실패했습니다.'); return }
+    after?.()
+    router.refresh()
+  }
+
+  const saveFields = () =>
+    run(() => updateWbsFields(item.id, {
+      name: form.name,
+      plannedStart: form.start || null,
+      plannedEnd: form.end || null,
+      deliverable: form.deliverable || null,
+    }), () => setEditing(false))
+
+  const addChild = () => {
+    if (!childLevel || !addName?.trim()) return
+    run(() => addWbsItem(projectId, item.id, childLevel, addName.trim()), () => setAddName(null))
+  }
+  const doDelete = () => run(() => deleteWbsItem(item.id), () => onClose())
 
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label={`${item.name} 상세`}>
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} aria-hidden />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-surface shadow-[var(--shadow-xl)] animate-[slidein_.18s_ease-out]">
-        {/* 헤더 */}
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -56,55 +104,89 @@ export function RowDetailPanel({ item, onClose }: { item: ComputedItem; onClose:
             </div>
             <h2 className="mt-1.5 break-words text-[16px] font-bold leading-snug text-ink">{item.name}</h2>
           </div>
-          <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {editable && !editing && (
+              <button onClick={() => setEditing(true)} aria-label="편집" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink"><Pencil className="h-4 w-4" /></button>
+            )}
+            <button onClick={onClose} aria-label="닫기" className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink"><X className="h-4 w-4" /></button>
+          </div>
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
-          {/* 진척 */}
-          <section className="grid grid-cols-3 gap-2">
-            <Stat label="계획%" value={`${item.plannedPct}%`} />
-            <Stat label="실적%" value={`${item.rolledActualPct}%`} />
-            <Stat label="달성율" value={item.achievement == null ? '—' : `${item.achievement}%`} />
-          </section>
-          <div className="flex items-center gap-2"><span className="text-xs text-ink-subtle">상태</span><StatusChip status={item.status} /></div>
+          {editing ? (
+            <section className="space-y-3">
+              <label className="block"><span className="mb-1 block text-[11px] font-semibold text-ink-muted">이름</span>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="app-input" /></label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block"><span className="mb-1 block text-[11px] font-semibold text-ink-muted">계획시작</span>
+                  <input type="date" value={form.start} onChange={e => setForm(f => ({ ...f, start: e.target.value }))} className="app-input px-2 text-xs" /></label>
+                <label className="block"><span className="mb-1 block text-[11px] font-semibold text-ink-muted">계획종료</span>
+                  <input type="date" value={form.end} onChange={e => setForm(f => ({ ...f, end: e.target.value }))} className="app-input px-2 text-xs" /></label>
+              </div>
+              <label className="block"><span className="mb-1 block text-[11px] font-semibold text-ink-muted">산출물</span>
+                <input value={form.deliverable} onChange={e => setForm(f => ({ ...f, deliverable: e.target.value }))} className="app-input" placeholder="예: 업무분장표" /></label>
+              {err && <p className="text-xs font-medium text-delayed">{err}</p>}
+              <div className="flex gap-2">
+                <button onClick={saveFields} disabled={busy} className="btn btn-primary flex-1">{busy ? '저장 중…' : '저장'}</button>
+                <button onClick={() => { setEditing(false); setErr(null) }} className="btn btn-ghost">취소</button>
+              </div>
+            </section>
+          ) : (
+            <>
+              <section className="grid grid-cols-3 gap-2">
+                <Stat label="계획%" value={`${item.plannedPct}%`} />
+                <Stat label="실적%" value={`${item.rolledActualPct}%`} />
+                <Stat label="달성율" value={item.achievement == null ? '—' : `${item.achievement}%`} />
+              </section>
+              <div className="flex items-center gap-2"><span className="text-xs text-ink-subtle">상태</span><StatusChip status={item.status} /></div>
+              <Field icon={User} label="담당">
+                {item.owners.length ? <OwnerBadges owners={item.owners} /> : <span className="text-ink-subtle">미배정</span>}
+              </Field>
+              <Field icon={CalendarRange} label="계획 일정"><span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span></Field>
+              <Field icon={Scale} label="가중치"><span className="tabular-nums">{item.weight == null ? '균등(형제 1/n)' : item.weight}</span></Field>
+              <Field icon={FileText} label="산출물">{item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">없음</span>}</Field>
+              {item.biz && <Field icon={FileText} label="Biz"><span>{item.biz}</span></Field>}
+            </>
+          )}
 
-          {/* 담당 */}
-          <Field icon={User} label="담당">
-            {item.owners.length ? <OwnerBadges owners={item.owners} /> : <span className="text-ink-subtle">미배정</span>}
-          </Field>
-
-          {/* 일정 */}
-          <Field icon={CalendarRange} label="계획 일정">
-            <span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span>
-          </Field>
-
-          {/* 가중치 */}
-          <Field icon={Scale} label="가중치">
-            <span className="tabular-nums">{item.weight == null ? '균등(형제 1/n)' : item.weight}</span>
-          </Field>
-
-          {/* 산출물 */}
-          <Field icon={FileText} label="산출물">
-            {item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">없음</span>}
-          </Field>
-
-          {item.biz && (
-            <Field icon={FileText} label="Biz">
-              <span>{item.biz}</span>
-            </Field>
+          {/* PMO 구조 편집 */}
+          {editable && !editing && (
+            <section className="rounded-xl border border-line bg-surface-2/50 p-3">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">구조 편집</div>
+              <div className="flex flex-wrap gap-2">
+                {childLevel && (
+                  <button onClick={() => setAddName(addName == null ? '' : null)} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs">
+                    <Plus className="h-3.5 w-3.5" /> 하위 추가
+                  </button>
+                )}
+                <button onClick={() => run(() => moveWbsItem(item.id, 'up'))} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs" aria-label="위로 이동"><ChevronUp className="h-3.5 w-3.5" /></button>
+                <button onClick={() => run(() => moveWbsItem(item.id, 'down'))} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs" aria-label="아래로 이동"><ChevronDown className="h-3.5 w-3.5" /></button>
+                <button onClick={() => setConfirmDel(true)} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs text-delayed hover:bg-delayed-weak"><Trash2 className="h-3.5 w-3.5" /> 삭제</button>
+              </div>
+              {addName != null && childLevel && (
+                <div className="mt-2 flex gap-2">
+                  <input autoFocus value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addChild() }} placeholder={`${childLevel === 'task' ? 'Task' : 'Activity'} 이름`} className="app-input h-8 text-xs" />
+                  <button onClick={addChild} disabled={busy || !addName.trim()} className="btn btn-primary h-8 px-3 text-xs">추가</button>
+                </div>
+              )}
+              {confirmDel && (
+                <div className="mt-2 flex items-center gap-2 rounded-lg bg-delayed-weak px-3 py-2 text-xs text-delayed">
+                  <span className="flex-1">하위 항목·이력까지 삭제됩니다. 계속할까요?</span>
+                  <button onClick={doDelete} disabled={busy} className="btn h-7 bg-delayed px-2.5 text-xs text-white">삭제</button>
+                  <button onClick={() => setConfirmDel(false)} className="btn btn-ghost h-7 px-2.5 text-xs">취소</button>
+                </div>
+              )}
+              {err && !editing && <p className="mt-2 text-xs font-medium text-delayed">{err}</p>}
+            </section>
           )}
 
           {/* 변경 이력 */}
           <section>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-              <History className="h-3.5 w-3.5" /> 변경 이력
-            </div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle"><History className="h-3.5 w-3.5" /> 변경 이력</div>
             {logs == null ? (
               <p className="text-sm text-ink-subtle">불러오는 중…</p>
             ) : logs.length === 0 ? (
-              <p className="text-sm text-ink-subtle">아직 변경 기록이 없습니다. 실적%·가중치를 수정하면 여기에 남습니다.</p>
+              <p className="text-sm text-ink-subtle">아직 변경 기록이 없습니다.</p>
             ) : (
               <ol className="space-y-2.5">
                 {logs.map(log => (

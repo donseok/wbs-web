@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
-import { updateActual, updateWeight } from '@/app/actions/wbs'
+import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { Icon } from '@/components/ui/Icon'
 import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
@@ -65,12 +65,14 @@ export function WbsGanttSheet({
   holidays,
   today,
   membership,
+  projectId,
   readOnly = false,
 }: {
   items: ComputedItem[]
   holidays: string[]
   today: string
   membership: Membership | null
+  projectId: string
   /** 데모 모드 등에서 인라인 편집 비활성화 */
   readOnly?: boolean
 }) {
@@ -78,6 +80,8 @@ export function WbsGanttSheet({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
+  const [addBusy, setAddBusy] = useState(false)
   const [dayPx, setDayPx] = useState(24)
   const [showDetails, setShowDetails] = useState(false)
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
@@ -247,6 +251,15 @@ export function WbsGanttSheet({
       setDraft('')
     }
   }
+  async function submitAddPhase() {
+    if (!addPhase?.trim() || addBusy) return
+    setAddBusy(true)
+    const res = await addWbsItem(projectId, null, 'phase', addPhase.trim())
+    setAddBusy(false)
+    if (res.ok) { setAddPhase(null); setToast({ kind: 'ok', msg: 'Phase가 추가되었습니다' }); router.refresh() }
+    else setToast({ kind: 'err', msg: res.error ?? '추가 실패' })
+  }
+
   const editInput = (current: string, field: 'weight' | 'actual') => (
     <input
       autoFocus
@@ -318,6 +331,11 @@ export function WbsGanttSheet({
         <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? '상세 열 숨기기' : '상세 열 보기'}
         </button>
+        {isPmo && !readOnly && (
+          <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
+            <Icon name="plus" className="h-3.5 w-3.5" /> Phase 추가
+          </button>
+        )}
         <span className="hidden rounded-lg bg-surface-2 px-2.5 py-2 text-[10px] tabular-nums text-ink-muted xl:inline">
           {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}행
         </span>
@@ -338,6 +356,23 @@ export function WbsGanttSheet({
           </button>
         </div>
       </div>
+
+      {/* 새 Phase 입력 (PMO) */}
+      {addPhase != null && (
+        <div className="card mb-3 flex items-center gap-2 p-2.5">
+          <input
+            autoFocus
+            value={addPhase}
+            onChange={e => setAddPhase(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submitAddPhase(); else if (e.key === 'Escape') setAddPhase(null) }}
+            placeholder="새 Phase 이름 (예: 1. 준비)"
+            aria-label="새 Phase 이름"
+            className="app-input h-9 flex-1 text-sm"
+          />
+          <button onClick={submitAddPhase} disabled={addBusy || !addPhase.trim()} className="btn btn-primary h-9 px-4 text-xs">{addBusy ? '추가 중…' : '추가'}</button>
+          <button onClick={() => setAddPhase(null)} className="btn btn-ghost h-9 px-3 text-xs">취소</button>
+        </div>
+      )}
 
       {/* ── 단일 스크롤 컨테이너 ── */}
       <div className="card w-full max-w-full overflow-auto" style={{ maxHeight: 'max(440px, calc(100dvh - 390px))' }}>
@@ -751,7 +786,14 @@ export function WbsGanttSheet({
         </div>
       )}
 
-      {selectedItem && <RowDetailPanel item={selectedItem} onClose={() => setSelectedId(null)} />}
+      {selectedItem && (
+        <RowDetailPanel
+          item={selectedItem}
+          onClose={() => setSelectedId(null)}
+          editable={isPmo && !readOnly}
+          projectId={projectId}
+        />
+      )}
     </div>
   )
 }

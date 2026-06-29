@@ -3,7 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { DEMO } from '@/lib/demo'
-import type { TeamCode } from '@/lib/domain/types'
+import type { Level, TeamCode } from '@/lib/domain/types'
 
 export interface ChangeLogEntry {
   id: number
@@ -125,5 +125,117 @@ export async function updateWeight(
     old_value: old == null ? null : String(old), new_value: weight == null ? null : String(weight),
   })
   revalidatePath(`/p/${item.project_id}`, 'layout')
+  return { ok: true }
+}
+
+/* ── PMO 수동 WBS 트리 편집 (구조·일정) — 모두 PMO 전용, change_logs 기록 ── */
+
+/** 하위(또는 루트 Phase) 항목 추가. level은 호출자가 부모 기준으로 결정. */
+export async function addWbsItem(
+  projectId: string, parentId: string | null, level: Level, name: string,
+): Promise<{ ok: boolean; error?: string; id?: string }> {
+  if (DEMO) return { ok: true }
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  if (!name.trim()) return { ok: false, error: '이름을 입력하세요' }
+  const sb = await createServerClient()
+  let q = sb.from('wbs_items').select('sort_order').eq('project_id', projectId)
+  q = parentId ? q.eq('parent_id', parentId) : q.is('parent_id', null)
+  const { data: sibs } = await q
+  const nextOrder = (sibs ?? []).reduce((mx, r) => Math.max(mx, Number(r.sort_order) || 0), 0) + 1
+  const code = name.trim().split(/[.\s]/)[0] || level
+  const { data, error } = await sb
+    .from('wbs_items')
+    .insert({ project_id: projectId, parent_id: parentId, level, code, sort_order: nextOrder, name: name.trim() })
+    .select('id')
+    .single()
+  if (error) return { ok: false, error: error.message }
+  const { data: u } = await sb.auth.getUser()
+  await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: data.id, field: 'created', old_value: null, new_value: name.trim() })
+  revalidatePath(`/p/${projectId}`, 'layout')
+  return { ok: true, id: data.id as string }
+}
+
+/** 이름·계획일자·산출물·Biz 편집. 시작>종료 거부, 변경분만 기록. */
+export async function updateWbsFields(
+  itemId: string,
+  fields: { name?: string; plannedStart?: string | null; plannedEnd?: string | null; deliverable?: string | null; biz?: string | null },
+): Promise<{ ok: boolean; error?: string }> {
+  if (DEMO) return { ok: true }
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const sb = await createServerClient()
+  const { data: item } = await sb
+    .from('wbs_items')
+    .select('id, project_id, name, planned_start, planned_end, deliverable, biz')
+    .eq('id', itemId).single()
+  if (!item) return { ok: false, error: '항목 없음' }
+
+  const patch: Record<string, unknown> = {}
+  const logs: { field: string; old: string | null; new: string | null }[] = []
+  if (fields.name !== undefined) {
+    if (!fields.name.trim()) return { ok: false, error: '이름을 입력하세요' }
+    if (fields.name.trim() !== item.name) { patch.name = fields.name.trim(); logs.push({ field: 'name', old: item.name, new: fields.name.trim() }) }
+  }
+  const ns = fields.plannedStart === undefined ? undefined : (fields.plannedStart || null)
+  const ne = fields.plannedEnd === undefined ? undefined : (fields.plannedEnd || null)
+  const finalStart = ns === undefined ? item.planned_start : ns
+  const finalEnd = ne === undefined ? item.planned_end : ne
+  if (finalStart && finalEnd && finalStart > finalEnd) return { ok: false, error: '시작일이 종료일보다 늦습니다' }
+  if (ns !== undefined && ns !== item.planned_start) { patch.planned_start = ns; logs.push({ field: 'planned_start', old: item.planned_start, new: ns }) }
+  if (ne !== undefined && ne !== item.planned_end) { patch.planned_end = ne; logs.push({ field: 'planned_end', old: item.planned_end, new: ne }) }
+  if (fields.deliverable !== undefined) {
+    const v = fields.deliverable?.trim() || null
+    if (v !== item.deliverable) { patch.deliverable = v; logs.push({ field: 'deliverable', old: item.deliverable, new: v }) }
+  }
+  if (fields.biz !== undefined) {
+    const v = fields.biz?.trim() || null
+    if (v !== item.biz) { patch.biz = v; logs.push({ field: 'biz', old: item.biz, new: v }) }
+  }
+  if (Object.keys(patch).length === 0) return { ok: true }
+  patch.updated_at = new Date().toISOString()
+  const { error } = await sb.from('wbs_items').update(patch).eq('id', itemId)
+  if (error) return { ok: false, error: error.message }
+  const { data: u } = await sb.auth.getUser()
+  if (logs.length) {
+    await sb.from('change_logs').insert(logs.map(l => ({ user_id: u.user?.id, wbs_item_id: itemId, field: l.field, old_value: l.old, new_value: l.new })))
+  }
+  revalidatePath(`/p/${item.project_id}`, 'layout')
+  return { ok: true }
+}
+
+/** 항목 삭제(하위·담당·이력 cascade). */
+export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; error?: string }> {
+  if (DEMO) return { ok: true }
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const sb = await createServerClient()
+  const { data: item } = await sb.from('wbs_items').select('project_id').eq('id', itemId).single()
+  if (!item) return { ok: false, error: '항목 없음' }
+  const { error } = await sb.from('wbs_items').delete().eq('id', itemId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath(`/p/${item.project_id as string}`, 'layout')
+  return { ok: true }
+}
+
+/** 형제 내 순서 이동(위/아래) — 인접 형제와 sort_order 교환. */
+export async function moveWbsItem(itemId: string, dir: 'up' | 'down'): Promise<{ ok: boolean; error?: string }> {
+  if (DEMO) return { ok: true }
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const sb = await createServerClient()
+  const { data: item } = await sb.from('wbs_items').select('id, project_id, parent_id, sort_order').eq('id', itemId).single()
+  if (!item) return { ok: false, error: '항목 없음' }
+  let q = sb.from('wbs_items').select('id, sort_order').eq('project_id', item.project_id)
+  q = item.parent_id ? q.eq('parent_id', item.parent_id) : q.is('parent_id', null)
+  const { data: sibs } = await q.order('sort_order', { ascending: true })
+  const arr = sibs ?? []
+  const idx = arr.findIndex(s => s.id === itemId)
+  const swapIdx = dir === 'up' ? idx - 1 : idx + 1
+  if (idx < 0 || swapIdx < 0 || swapIdx >= arr.length) return { ok: true } // 경계는 무시
+  const a = arr[idx], b = arr[swapIdx]
+  await sb.from('wbs_items').update({ sort_order: b.sort_order }).eq('id', a.id)
+  await sb.from('wbs_items').update({ sort_order: a.sort_order }).eq('id', b.id)
+  revalidatePath(`/p/${item.project_id as string}`, 'layout')
   return { ok: true }
 }

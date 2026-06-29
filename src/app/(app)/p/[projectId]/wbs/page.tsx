@@ -22,7 +22,7 @@ export default async function WbsPage({ params }: { params: Promise<{ projectId:
         title={`${project?.name ?? '프로젝트'} WBS · 간트`}
         description="계획·실적·가중 롤업을 한 시트에서 관리합니다."
       />
-      <WbsGanttSheet items={items} holidays={holidays} today={today} membership={m} readOnly={DEMO} />
+      <WbsGanttSheet items={items} holidays={holidays} today={today} membership={m} projectId={projectId} readOnly={DEMO} />
     </div>
   )
 }
