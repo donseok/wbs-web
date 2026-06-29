@@ -4,6 +4,7 @@ import type { Level, TeamCode, OwnerKind } from '@/lib/domain/types'
 export interface ParsedRow {
   level: Level; code: string; name: string; biz: string | null; deliverable: string | null
   plannedStart: string | null; plannedEnd: string | null
+  weight: number | null; actualPct: number | null
   owners: { team: TeamCode; kind: OwnerKind }[]
   excelRow: number
 }
@@ -16,6 +17,10 @@ function toIso(v: unknown): string | null {
     return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate())).toISOString().slice(0, 10)
   }
   return null
+}
+function toNum(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN)
+  return Number.isFinite(n) ? n : null
 }
 function owners(row: unknown[]): ParsedRow['owners'] {
   const out: ParsedRow['owners'] = []
@@ -52,6 +57,8 @@ export function parseWbsWorkbook(buf: ArrayBuffer): ParsedWbs {
       deliverable: String(r[11] ?? '').trim() || null,  // L
       plannedStart: toIso(r[12]),  // M
       plannedEnd: toIso(r[13]),    // N
+      weight: toNum(r[14]),        // O (가중치)
+      actualPct: toNum(r[16]),     // Q (실적%)
       owners: owners(r),
       excelRow: i + 1,
     })

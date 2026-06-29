@@ -5,6 +5,7 @@ export interface ImportItem {
   tempId: string; parentTempId: string | null; level: Level
   code: string; sortOrder: number; name: string; biz: string | null; deliverable: string | null
   plannedStart: string | null; plannedEnd: string | null
+  weight: number | null; actualPct: number | null
   owners: { team: TeamCode; kind: OwnerKind }[]
 }
 export interface ImportError { excelRow: number; message: string }
@@ -35,7 +36,8 @@ export function validateAndLink(
     }
     items.push({
       tempId, parentTempId, level: r.level, code: r.code, sortOrder: order++,
-      name: r.name, biz: r.biz, deliverable: r.deliverable, plannedStart: s, plannedEnd: e, owners: r.owners,
+      name: r.name, biz: r.biz, deliverable: r.deliverable, plannedStart: s, plannedEnd: e,
+      weight: r.weight, actualPct: r.actualPct, owners: r.owners,
     })
   })
 

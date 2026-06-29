@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
       parent_id: it.parentTempId ? idMap.get(it.parentTempId) : null,
       level: it.level, code: it.code, sort_order: it.sortOrder, name: it.name,
       biz: it.biz, deliverable: it.deliverable, planned_start: it.plannedStart, planned_end: it.plannedEnd,
+      weight: it.weight, actual_pct: it.actualPct,
     }).select('id').single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     idMap.set(it.tempId, data.id)

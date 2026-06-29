@@ -32,8 +32,12 @@ export async function loadSampleItems(): Promise<{ items: ComputedItem[]; holida
       deliverable: it.deliverable,
       plannedStart: it.plannedStart,
       plannedEnd: it.plannedEnd,
-      weight: null,
-      actualPct: isLeaf ? SAMPLE_ACTUALS[leafIdx++ % SAMPLE_ACTUALS.length] : null,
+      // 파싱값 우선, 없으면 기존 폴백(null=균등)
+      weight: it.weight ?? null,
+      // leaf: 파싱값 있으면 사용, 없으면 샘플 실적. non-leaf는 null.
+      actualPct: isLeaf
+        ? (it.actualPct ?? SAMPLE_ACTUALS[leafIdx++ % SAMPLE_ACTUALS.length])
+        : null,
       owners: it.owners,
     }
   })
