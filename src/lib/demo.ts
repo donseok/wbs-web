@@ -8,7 +8,7 @@ import path from 'node:path'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { validateAndLink } from '@/lib/excel/validate'
 import { computeTree } from '@/lib/domain/rollup'
-import type { ComputedItem, Membership, WbsRow } from '@/lib/domain/types'
+import type { AttendanceRecord, ComputedItem, Membership, ProjectMember, WbsRow } from '@/lib/domain/types'
 
 export const DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === '1'
 export const DEMO_PROJECT_ID = 'demo'
@@ -21,10 +21,35 @@ export const DEMO_MEMBERSHIP: Membership = {
 export const DEMO_PROJECT = {
   id: DEMO_PROJECT_ID,
   name: 'D-CUBE PI Master Plan 수립 (데모)',
+  description: '계획부터 완료까지 투명하게 — WBS·일정·멤버·근태를 하나의 흐름으로 관리하는 데모 워크스페이스입니다.',
   start_date: '2026-06-29',
   end_date: '2027-01-04',
   created_at: '2026-06-29T00:00:00.000Z',
 }
+
+export const DEMO_MEMBERS: ProjectMember[] = [
+  { id: 'm1', projectId: DEMO_PROJECT_ID, name: '이돈석', email: 'lee@dcube.io', teamCode: 'PMO', role: 'admin', title: 'PM / 프로젝트 총괄', createdAt: '2026-06-29T00:00:00Z' },
+  { id: 'm2', projectId: DEMO_PROJECT_ID, name: '장한솔', email: 'jang@dcube.io', teamCode: 'PMO', role: 'admin', title: 'PMO 매니저', createdAt: '2026-06-29T00:00:00Z' },
+  { id: 'm3', projectId: DEMO_PROJECT_ID, name: '조한운', email: 'cho@dcube.io', teamCode: 'DT', role: 'contributor', title: '데이터 전환 리드', createdAt: '2026-06-30T00:00:00Z' },
+  { id: 'm4', projectId: DEMO_PROJECT_ID, name: '박서연', email: 'park@dcube.io', teamCode: 'DT', role: 'contributor', title: '인프라 엔지니어', createdAt: '2026-07-01T00:00:00Z' },
+  { id: 'm5', projectId: DEMO_PROJECT_ID, name: '김민재', email: 'kim@dcube.io', teamCode: 'ERP', role: 'contributor', title: 'ERP 컨설턴트', createdAt: '2026-07-01T00:00:00Z' },
+  { id: 'm6', projectId: DEMO_PROJECT_ID, name: '최유진', email: 'choi@dcube.io', teamCode: 'ERP', role: 'contributor', title: 'FI/CO 모듈', createdAt: '2026-07-02T00:00:00Z' },
+  { id: 'm7', projectId: DEMO_PROJECT_ID, name: '윤도현', email: 'yoon@dcube.io', teamCode: 'MES', role: 'contributor', title: 'MES 개발', createdAt: '2026-07-02T00:00:00Z' },
+  { id: 'm8', projectId: DEMO_PROJECT_ID, name: 'Nguyen Van A', email: 'nguyen@dcube.io', teamCode: 'MES', role: 'contributor', title: 'SW 개발 (베트남)', createdAt: '2026-07-03T00:00:00Z' },
+]
+
+// DEMO_TODAY(2026-09-15) 주변 9월 근태 샘플
+export const DEMO_ATTENDANCE: AttendanceRecord[] = [
+  { id: 'a1', projectId: DEMO_PROJECT_ID, memberId: 'm3', date: '2026-09-14', type: 'trip', note: '부산공장 현장 점검' },
+  { id: 'a2', projectId: DEMO_PROJECT_ID, memberId: 'm3', date: '2026-09-15', type: 'trip', note: '부산공장 현장 점검' },
+  { id: 'a3', projectId: DEMO_PROJECT_ID, memberId: 'm4', date: '2026-09-15', type: 'remote', note: null },
+  { id: 'a4', projectId: DEMO_PROJECT_ID, memberId: 'm5', date: '2026-09-11', type: 'annual', note: '개인 연차' },
+  { id: 'a5', projectId: DEMO_PROJECT_ID, memberId: 'm6', date: '2026-09-15', type: 'half', note: '오후 반차' },
+  { id: 'a6', projectId: DEMO_PROJECT_ID, memberId: 'm7', date: '2026-09-10', type: 'sick', note: '병가' },
+  { id: 'a7', projectId: DEMO_PROJECT_ID, memberId: 'm8', date: '2026-09-15', type: 'remote', note: '시차 근무' },
+  { id: 'a8', projectId: DEMO_PROJECT_ID, memberId: 'm2', date: '2026-09-16', type: 'trip', note: '본사 보고' },
+  { id: 'a9', projectId: DEMO_PROJECT_ID, memberId: 'm1', date: '2026-09-18', type: 'annual', note: null },
+]
 
 const SAMPLE_ACTUALS = [100, 90, 70, 45, 20, 0]
 
