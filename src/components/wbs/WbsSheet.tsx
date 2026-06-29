@@ -85,12 +85,14 @@ export function WbsSheet({
     try {
       let res: { ok: boolean; error?: string }
       if (field === 'actual') {
+        if (draft.trim() === '') { setToast({ kind: 'err', msg: '빈 값은 입력할 수 없습니다' }); return cancel() }
         const pct = Number(draft)
-        if (draft.trim() === '' || Number.isNaN(pct)) return cancel()
+        if (Number.isNaN(pct)) { setToast({ kind: 'err', msg: '숫자만 입력하세요' }); return cancel() }
+        if (pct < 0 || pct > 100) { setToast({ kind: 'err', msg: '0~100 범위로 입력하세요' }); return cancel() }
         res = await updateActual(id, pct)
       } else {
         const w = draft.trim() === '' ? null : Number(draft)
-        if (w != null && Number.isNaN(w)) return cancel()
+        if (w != null && (Number.isNaN(w) || w < 0)) { setToast({ kind: 'err', msg: '가중치는 0 이상이어야 합니다' }); return cancel() }
         res = await updateWeight(id, w)
       }
       if (res.ok) {
@@ -106,12 +108,13 @@ export function WbsSheet({
     }
   }
 
-  const editInput = (current: string) => (
+  const editInput = (current: string, field: 'weight' | 'actual') => (
     <input
       autoFocus
       type="number"
       value={draft}
       disabled={busy}
+      aria-label={field === 'weight' ? '가중치 편집' : '실적% 편집'}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => {
@@ -221,9 +224,21 @@ export function WbsSheet({
               editableW ? 'cursor-pointer hover:bg-brand-weak' : ''
             } ${n.weight == null ? 'text-ink-subtle' : 'text-ink'}`}
             onClick={() => editableW && !editingWeight && startEdit(n.id, 'weight', n.weight == null ? '' : String(n.weight))}
+            role={editableW ? 'button' : undefined}
+            tabIndex={editableW ? 0 : undefined}
+            onKeyDown={
+              editableW
+                ? e => {
+                    if ((e.key === 'Enter' || e.key === ' ') && !editingWeight) {
+                      e.preventDefault()
+                      startEdit(n.id, 'weight', n.weight == null ? '' : String(n.weight))
+                    }
+                  }
+                : undefined
+            }
             title={editableW ? '클릭하여 가중치 편집 (비우면 균등)' : undefined}
           >
-            {editingWeight ? editInput(weightLabel) : weightLabel}
+            {editingWeight ? editInput(weightLabel, 'weight') : weightLabel}
           </td>
           {/* 계획% */}
           <td className={`${CELL} text-right tabular-nums text-ink-muted`}>{n.plannedPct}%</td>
@@ -233,9 +248,21 @@ export function WbsSheet({
               editableA ? 'cursor-pointer hover:bg-brand-weak' : ''
             } ${n.status === 'delayed' ? 'text-delayed' : 'text-ink'}`}
             onClick={() => editableA && !editingActual && startEdit(n.id, 'actual', String(n.rolledActualPct))}
+            role={editableA ? 'button' : undefined}
+            tabIndex={editableA ? 0 : undefined}
+            onKeyDown={
+              editableA
+                ? e => {
+                    if ((e.key === 'Enter' || e.key === ' ') && !editingActual) {
+                      e.preventDefault()
+                      startEdit(n.id, 'actual', String(n.rolledActualPct))
+                    }
+                  }
+                : undefined
+            }
             title={editableA ? '클릭하여 실적% 입력' : hasChildren ? '하위에서 자동 집계' : undefined}
           >
-            {editingActual ? editInput(String(n.rolledActualPct)) : `${n.rolledActualPct}%`}
+            {editingActual ? editInput(String(n.rolledActualPct), 'actual') : `${n.rolledActualPct}%`}
           </td>
           {/* 달성율 */}
           <td

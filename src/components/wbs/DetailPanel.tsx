@@ -52,9 +52,9 @@ export function DetailPanel({ item, canEdit }: { item: ComputedItem | null; canE
 
         {isLeaf && canEdit ? (
           <div className="mt-2 rounded-lg border border-line bg-surface-2 p-3">
-            <label className="mb-1.5 block text-xs font-medium text-ink-muted">실적% 입력</label>
+            <label htmlFor="detail-actual" className="mb-1.5 block text-xs font-medium text-ink-muted">실적% 입력</label>
             <div className="flex items-center gap-2">
-              <input className="app-input w-24" type="number" min={0} max={100}
+              <input id="detail-actual" className="app-input w-24" type="number" min={0} max={100}
                 placeholder={String(item.rolledActualPct)} value={val} onChange={e => setVal(e.target.value)} />
               <button className="btn btn-primary" onClick={save}>저장</button>
             </div>
