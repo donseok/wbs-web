@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind } from '@/lib/domain/types'
@@ -7,9 +8,10 @@ function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
-export async function getComputedWbs(
+// 같은 요청 내 layout+page 중복 호출을 1회로 dedupe(React cache).
+export const getComputedWbs = cache(async (
   projectId: string,
-): Promise<{ items: ComputedItem[]; holidays: string[]; today: string }> {
+): Promise<{ items: ComputedItem[]; holidays: string[]; today: string }> => {
   if (DEMO) return loadDemoWbs()
   const sb = await createServerClient()
   const [{ data: items }, { data: ownerRows }, { data: hol }] = await Promise.all([
@@ -48,4 +50,4 @@ export async function getComputedWbs(
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
   const today = seoulToday()
   return { items: computeTree(rows, today, holidays), holidays: [...holidays], today }
-}
+})
