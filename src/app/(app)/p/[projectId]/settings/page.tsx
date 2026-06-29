@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Upload, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock } from 'lucide-react'
+import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
@@ -113,10 +113,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         )}
       </SectionCard>
 
-      {/* ── WBS 데이터 가져오기 (기존 폼 유지) ── */}
+      {/* ── WBS 데이터 가져오기 / 내보내기 ── */}
       <SectionCard
         eyebrow="DATA"
-        title="WBS 데이터 가져오기"
+        title="WBS 데이터 가져오기 · 내보내기"
         icon={Upload}
         actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{DEMO ? '읽기 전용' : 'PMO 관리자 전용'}</span> : undefined}
       >
@@ -162,6 +162,17 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             </div>
           </div>
         )}
+
+        <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs leading-5 text-ink-muted">현재 WBS·일정·담당·실적을 Excel로 내려받습니다. 같은 형식으로 다시 가져올 수 있어요.</p>
+          <a
+            href={`/api/export?projectId=${projectId}`}
+            className="btn btn-ghost shrink-0"
+            aria-label="WBS를 Excel 파일로 내보내기"
+          >
+            <Download className="h-4 w-4" /> Excel 내보내기
+          </a>
+        </div>
       </SectionCard>
 
       {/* ── 일정 기준 및 공휴일 ── */}
