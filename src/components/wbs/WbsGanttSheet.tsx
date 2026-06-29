@@ -3,26 +3,26 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { updateActual, updateWeight } from '@/app/actions/wbs'
+import { Icon } from '@/components/ui/Icon'
 import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
-type Col = { key: string; w: number; frozen?: boolean; sk?: number }
+type Col = { key: string; w: number; frozen?: boolean; sk?: number; detail?: boolean }
 const COLS: Col[] = [
   { key: 'no', w: 44, frozen: true, sk: 0 },
   { key: 'level', w: 60, frozen: true, sk: 44 },
   { key: 'name', w: 300, frozen: true, sk: 104 },
-  { key: 'biz', w: 64 },
+  { key: 'biz', w: 64, detail: true },
   { key: 'owners', w: 128 },
   { key: 'status', w: 76 },
-  { key: 'deliverable', w: 150 },
-  { key: 'pstart', w: 80 },
-  { key: 'pend', w: 80 },
-  { key: 'weight', w: 64 },
+  { key: 'deliverable', w: 150, detail: true },
+  { key: 'pstart', w: 80, detail: true },
+  { key: 'pend', w: 80, detail: true },
+  { key: 'weight', w: 64, detail: true },
   { key: 'pplan', w: 60 },
   { key: 'pactual', w: 72 },
   { key: 'achieve', w: 76 },
 ]
-const LEFT_W = COLS.reduce((a, c) => a + c.w, 0) // 1254
 const W = (k: string) => COLS.find(c => c.key === k)!.w
 
 function iso(d: Date) {
@@ -73,10 +73,13 @@ export function WbsGanttSheet({
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const [dayPx, setDayPx] = useState(24)
+  const [showDetails, setShowDetails] = useState(false)
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  const visibleCols = useMemo(() => COLS.filter(col => showDetails || !col.detail), [showDetails])
+  const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
 
   useEffect(() => {
     if (!toast) return
@@ -87,7 +90,8 @@ export function WbsGanttSheet({
   const toggle = (id: string) =>
     setCollapsed(s => {
       const n = new Set(s)
-      n.has(id) ? n.delete(id) : n.add(id)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
       return n
     })
 
@@ -247,7 +251,7 @@ export function WbsGanttSheet({
 
   /* ── 셀 helpers ── */
   const headBase =
-    'box-border flex h-[var(--wbs-head-h)] shrink-0 items-center bg-sheet-head px-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted border-b-2 border-grid-strong'
+    'box-border flex h-[var(--wbs-head-h)] shrink-0 items-center bg-sheet-head px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted border-b border-grid-strong'
   const cellBase = 'box-border flex h-full shrink-0 items-center border-b border-grid px-2'
 
   const headCell = (col: Col, label: string, align = 'justify-start', extra = '') => {
@@ -266,55 +270,61 @@ export function WbsGanttSheet({
 
   return (
     <div
-      className="relative"
+      className="relative w-full min-w-0 max-w-full"
       style={
         {
-          '--wbs-row-h': '36px',
-          '--wbs-head-h': '54px',
+          '--wbs-row-h': '40px',
+          '--wbs-head-h': '58px',
           '--wbs-left-w': `${LEFT_W}px`,
           '--gantt-day': `${dayPx}px`,
         } as React.CSSProperties
       }
     >
       {/* ── 툴바 ── */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="mr-1 text-sm font-semibold text-ink">WBS · 간트 통합</div>
-        <span className="rounded-md bg-surface-2 px-2 py-1 text-[11px] tabular-nums text-ink-muted">
-          {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}행
-        </span>
-        <div className="relative">
+      <div className="card mb-3 grid w-full min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden p-2.5 sm:flex sm:flex-wrap">
+        <div className="mr-2 flex items-center gap-2 px-1 text-sm font-semibold text-ink">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
+          <span>작업 보드</span>
+        </div>
+        <div className="relative min-w-0 sm:flex-none">
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="작업명 검색…"
             aria-label="작업명 검색"
-            className="app-input h-8 w-44 pl-7 text-[13px]"
+            className="app-input h-9 w-full pl-9 text-[13px] sm:w-52"
           />
-          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-ink-subtle">
-            ⌕
-          </span>
+          <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
-        <button onClick={toggleAll} className="btn btn-ghost h-8 px-3 text-[13px]">
+        <button onClick={toggleAll} className="btn btn-ghost h-9 px-3 text-xs">
           {allCollapsed ? '전체 펼치기' : '전체 접기'}
         </button>
-        <div className="seg ml-auto h-8 gap-0.5 p-0.5">
+        <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
+          <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? '상세 열 숨기기' : '상세 열 보기'}
+        </button>
+        <span className="hidden rounded-lg bg-surface-2 px-2.5 py-2 text-[10px] tabular-nums text-ink-muted xl:inline">
+          {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}행
+        </span>
+        <div className="seg ml-auto hidden h-9 gap-0.5 p-0.5 sm:inline-flex" aria-label="간트 배율">
           <button
             onClick={() => setDayPx(16)}
+            aria-pressed={dayPx === 16}
             className={`seg-item px-2.5 py-1 text-[12px] ${dayPx === 16 ? 'seg-item-active' : ''}`}
           >
-            주
+            축소
           </button>
           <button
             onClick={() => setDayPx(24)}
+            aria-pressed={dayPx === 24}
             className={`seg-item px-2.5 py-1 text-[12px] ${dayPx === 24 ? 'seg-item-active' : ''}`}
           >
-            일
+            기본
           </button>
         </div>
       </div>
 
       {/* ── 단일 스크롤 컨테이너 ── */}
-      <div className="card overflow-auto" style={{ maxHeight: 'calc(100vh - 340px)' }}>
+      <div className="card w-full max-w-full overflow-auto" style={{ maxHeight: 'max(440px, calc(100dvh - 390px))' }}>
         <div className="relative" style={{ width: LEFT_W + ganttW }}>
           {/* 배경 격자 + 주말/공휴일 (행 뒤) */}
           <div
@@ -348,13 +358,13 @@ export function WbsGanttSheet({
             {headCell(COLS[0], '#', 'justify-center')}
             {headCell(COLS[1], '구분', 'justify-center')}
             {headCell(COLS[2], '작업명', 'justify-start')}
-            {headCell(COLS[3], 'BIZ', 'justify-center')}
+            {showDetails && headCell(COLS[3], 'BIZ', 'justify-center')}
             {headCell(COLS[4], '담당', 'justify-start')}
             {headCell(COLS[5], '상태', 'justify-center')}
-            {headCell(COLS[6], '산출물', 'justify-start')}
-            {headCell(COLS[7], '계획시작', 'justify-center')}
-            {headCell(COLS[8], '계획종료', 'justify-center')}
-            {headCell(COLS[9], '가중치', 'justify-end')}
+            {showDetails && headCell(COLS[6], '산출물', 'justify-start')}
+            {showDetails && headCell(COLS[7], '계획시작', 'justify-center')}
+            {showDetails && headCell(COLS[8], '계획종료', 'justify-center')}
+            {showDetails && headCell(COLS[9], '가중치', 'justify-end')}
             {headCell(COLS[10], '계획%', 'justify-end')}
             {headCell(COLS[11], '실적%', 'justify-end')}
             {headCell(COLS[12], '달성율', 'justify-center')}
@@ -366,7 +376,7 @@ export function WbsGanttSheet({
               {months.map(m => (
                 <div
                   key={m.left}
-                  className="absolute top-0 box-border flex h-[18px] items-center border-r border-grid px-1.5 text-[10px] font-semibold text-ink-muted"
+                  className="absolute top-0 box-border flex h-5 items-center border-r border-grid px-1.5 text-[10px] font-semibold text-ink-muted"
                   style={{ left: m.left, width: m.width }}
                 >
                   {m.label}
@@ -375,8 +385,8 @@ export function WbsGanttSheet({
               {weeks.map(w => (
                 <div
                   key={w.left}
-                  className="absolute box-border flex h-[18px] items-center gap-1 border-r border-grid px-1.5 text-[9.5px] font-medium text-ink-subtle"
-                  style={{ top: 18, left: w.left, width: w.width }}
+                  className="absolute box-border flex h-[19px] items-center gap-1 border-r border-grid px-1.5 text-[9.5px] font-medium text-ink-subtle"
+                  style={{ top: 20, left: w.left, width: w.width }}
                 >
                   <span className="font-semibold text-ink-muted">{w.label}</span>
                   <span>{w.sub}</span>
@@ -391,10 +401,10 @@ export function WbsGanttSheet({
                       holSet.has(d) || isWeekend(d) ? 'text-delayed/70' : 'text-ink-subtle'
                     }`}
                     style={{
-                      top: 36,
+                      top: 39,
                       left: i * dayPx,
                       width: dayPx,
-                      height: 18,
+                      height: 19,
                       background: holSet.has(d)
                         ? 'var(--color-holiday-band)'
                         : isWeekend(d)
@@ -416,9 +426,9 @@ export function WbsGanttSheet({
             const rowNo = idx + 1
             const rowBg =
               n.level === 'phase'
-                ? 'bg-sheet-head'
+                ? 'bg-[#f1f4f9]'
                 : n.level === 'task'
-                  ? 'bg-surface-2'
+                  ? 'bg-[#f8faff]'
                   : rowNo % 2 === 0
                     ? 'bg-zebra'
                     : 'bg-surface'
@@ -466,8 +476,9 @@ export function WbsGanttSheet({
                     {hasChildren ? (
                       <button
                         onClick={() => toggle(n.id)}
-                        className="mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] text-ink-subtle hover:bg-line hover:text-ink"
+                        className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] text-ink-subtle hover:bg-line hover:text-ink"
                         aria-label={isCollapsed ? '펼치기' : '접기'}
+                        aria-expanded={!isCollapsed}
                       >
                         {isCollapsed ? '▸' : '▾'}
                       </button>
@@ -480,12 +491,14 @@ export function WbsGanttSheet({
                   </div>
                 </div>
                 {/* BIZ */}
-                <div
-                  className={`${cellBase} border-r border-grid justify-center text-[12px] text-ink-muted ${cellBg}`}
-                  style={{ width: W('biz') }}
-                >
-                  {n.biz ?? '-'}
-                </div>
+                {showDetails && (
+                  <div
+                    className={`${cellBase} border-r border-grid justify-center text-[12px] text-ink-muted ${cellBg}`}
+                    style={{ width: W('biz') }}
+                  >
+                    {n.biz ?? '-'}
+                  </div>
+                )}
                 {/* 담당 */}
                 <div
                   className={`${cellBase} border-r border-grid ${cellBg}`}
@@ -501,30 +514,36 @@ export function WbsGanttSheet({
                   <StatusChip status={n.status} />
                 </div>
                 {/* 산출물 */}
-                <div
-                  className={`${cellBase} border-r border-grid text-[12px] text-ink-muted ${cellBg}`}
-                  style={{ width: W('deliverable') }}
-                >
-                  <span className="block truncate" title={n.deliverable ?? undefined}>
-                    {n.deliverable ?? '-'}
-                  </span>
-                </div>
+                {showDetails && (
+                  <div
+                    className={`${cellBase} border-r border-grid text-[12px] text-ink-muted ${cellBg}`}
+                    style={{ width: W('deliverable') }}
+                  >
+                    <span className="block truncate" title={n.deliverable ?? undefined}>
+                      {n.deliverable ?? '-'}
+                    </span>
+                  </div>
+                )}
                 {/* 계획시작 */}
-                <div
-                  className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
-                  style={{ width: W('pstart') }}
-                >
-                  {fmtDate(n.plannedStart)}
-                </div>
+                {showDetails && (
+                  <div
+                    className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
+                    style={{ width: W('pstart') }}
+                  >
+                    {fmtDate(n.plannedStart)}
+                  </div>
+                )}
                 {/* 계획종료 */}
-                <div
-                  className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
-                  style={{ width: W('pend') }}
-                >
-                  {fmtDate(n.plannedEnd)}
-                </div>
+                {showDetails && (
+                  <div
+                    className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
+                    style={{ width: W('pend') }}
+                  >
+                    {fmtDate(n.plannedEnd)}
+                  </div>
+                )}
                 {/* 가중치 */}
-                <div
+                {showDetails && <div
                   className={`${cellBase} border-r border-grid justify-end tabular-nums ${
                     editableW ? 'cursor-pointer' : ''
                   } ${n.weight == null ? 'text-ink-subtle' : 'text-ink'} ${cellBg}`}
@@ -549,7 +568,7 @@ export function WbsGanttSheet({
                   title={editableW ? '클릭하여 가중치 편집 (비우면 균등)' : undefined}
                 >
                   {editingWeight ? editInput(weightLabel, 'weight') : weightLabel}
-                </div>
+                </div>}
                 {/* 계획% */}
                 <div
                   className={`${cellBase} border-r border-grid justify-end tabular-nums text-ink-muted ${cellBg}`}
@@ -634,8 +653,8 @@ export function WbsGanttSheet({
               style={{ width: 'min(560px, 100vw)' }}
               role="status"
             >
-              <span className="text-2xl opacity-60" aria-hidden>
-                {items.length === 0 ? '🗂' : '⌕'}
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-weak text-brand" aria-hidden>
+                <Icon name={items.length === 0 ? 'folder' : 'search'} />
               </span>
               <span className="text-sm font-medium text-ink-muted">
                 {items.length === 0 ? '작업 항목이 없습니다' : `‘${query.trim()}’에 대한 결과가 없습니다`}
@@ -665,7 +684,7 @@ export function WbsGanttSheet({
       </div>
 
       {/* ── 범례 ── */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[11px] text-ink-subtle">
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
         <span className="inline-flex items-center gap-2">
           {(['done', 'in_progress', 'delayed', 'not_started'] as const).map(s => (
             <span key={s} className="inline-flex items-center gap-1">
@@ -705,7 +724,7 @@ export function WbsGanttSheet({
           className={`fixed bottom-6 right-6 z-50 rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg ${
             toast.kind === 'ok' ? 'bg-done text-white' : 'bg-delayed text-white'
           }`}
-          role="status"
+          role={toast.kind === 'err' ? 'alert' : 'status'}
         >
           {toast.msg}
         </div>
@@ -727,8 +746,8 @@ function Bar({
   const left = xOf(n.plannedStart!)
   const width = Math.max(dayPx * 0.5, xOf(n.plannedEnd!) + dayPx - left)
   const pct = Math.min(100, Math.max(0, n.rolledActualPct))
-  const showInside = width >= 40 && n.status !== 'done'
-  const showOutside = width < 40 && n.status !== 'done'
+  const showInside = width >= 54 && pct >= 45 && n.status !== 'done'
+  const showOutside = !showInside && n.status !== 'done'
 
   if (n.level === 'phase') {
     return (
@@ -764,14 +783,14 @@ function Bar({
         />
       </div>
       {showInside && (
-        <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] font-medium tabular-nums text-white/95">
+        <span className="absolute top-1/2 -translate-x-full -translate-y-1/2 pr-1 text-[9px] font-medium tabular-nums text-white/95" style={{ left: `${pct}%` }}>
           {pct}%
         </span>
       )}
       {showOutside && (
         <span
           className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums text-ink-muted"
-          style={{ left: width }}
+          style={{ left: Math.min(width, Math.max(0, width * pct / 100)) }}
         >
           {pct}%
         </span>

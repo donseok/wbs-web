@@ -11,12 +11,17 @@ export async function listProjects() {
   return data ?? []
 }
 
-export async function createProject(name: string, start: string | null, end: string | null) {
+export async function createProject(
+  name: string,
+  start: string | null,
+  end: string | null,
+  description: string | null = null,
+) {
   if (DEMO) return // 데모 모드: 저장 비활성화
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
   const sb = await createServerClient()
-  const { error } = await sb.from('projects').insert({ name, start_date: start, end_date: end })
+  const { error } = await sb.from('projects').insert({ name, start_date: start, end_date: end, description })
   if (error) throw new Error(error.message)
   revalidatePath('/projects')
 }

@@ -33,3 +33,30 @@ export interface ComputedItem extends WbsRow {
   status: Status
   children: ComputedItem[]
 }
+
+/* ── 멤버 관리 ── */
+export type ProjectMemberRole = 'admin' | 'contributor'
+export interface ProjectMember {
+  id: string
+  projectId: string
+  name: string
+  email: string | null
+  teamCode: TeamCode | null
+  role: ProjectMemberRole
+  title: string | null      // 직함/역할 설명
+  createdAt: string
+}
+
+/* ── 근태현황 ──
+ * work=정상근무 remote=재택 annual=연차 half=반차 sick=병가
+ * trip=출장 official=공가 absent=결근 */
+export type AttendanceType =
+  | 'work' | 'remote' | 'annual' | 'half' | 'sick' | 'trip' | 'official' | 'absent'
+export interface AttendanceRecord {
+  id: string
+  projectId: string
+  memberId: string
+  date: string              // 'YYYY-MM-DD'
+  type: AttendanceType
+  note: string | null
+}
