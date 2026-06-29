@@ -6,6 +6,7 @@ import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import { updateActual, updateWeight } from '@/app/actions/wbs'
 import { Icon } from '@/components/ui/Icon'
 import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
+import { RowDetailPanel } from './RowDetailPanel'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
 type Col = { key: string; w: number; frozen?: boolean; sk?: number; detail?: boolean }
@@ -76,6 +77,7 @@ export function WbsGanttSheet({
   const router = useRouter()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [dayPx, setDayPx] = useState(24)
   const [showDetails, setShowDetails] = useState(false)
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
@@ -134,6 +136,15 @@ export function WbsGanttSheet({
 
   const allCollapsed = collapsibleIds.size > 0 && [...collapsibleIds].every(id => collapsed.has(id))
   const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(collapsibleIds))
+
+  // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시.
+  const selectedItem = useMemo(() => {
+    if (!selectedId) return null
+    let found: ComputedItem | null = null
+    const walk = (ns: ComputedItem[]) => ns.forEach(n => { if (n.id === selectedId) found = n; walk(n.children) })
+    walk(items)
+    return found
+  }, [selectedId, items])
 
   /* ── 날짜 스케일 ── */
   const allDates = items.flatMap(function dates(n): string[] {
@@ -484,9 +495,14 @@ export function WbsGanttSheet({
                     ) : (
                       <span className="mr-1 w-4 shrink-0" />
                     )}
-                    <span className={`truncate ${nameWeight}`} title={n.name}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(n.id)}
+                      className={`truncate text-left ${nameWeight} hover:text-brand hover:underline`}
+                      title={`${n.name} · 상세/변경 이력 보기`}
+                    >
                       {n.name}
-                    </span>
+                    </button>
                   </div>
                 </div>
                 {/* BIZ */}
@@ -728,6 +744,8 @@ export function WbsGanttSheet({
           {toast.msg}
         </div>
       )}
+
+      {selectedItem && <RowDetailPanel item={selectedItem} onClose={() => setSelectedId(null)} />}
     </div>
   )
 }

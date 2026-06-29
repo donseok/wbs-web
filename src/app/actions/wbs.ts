@@ -3,6 +3,55 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { DEMO } from '@/lib/demo'
+import type { TeamCode } from '@/lib/domain/types'
+
+export interface ChangeLogEntry {
+  id: number
+  field: string
+  oldValue: string | null
+  newValue: string | null
+  at: string
+  actorTeam: TeamCode | null
+  actorRole: string | null
+}
+
+/** 항목의 변경 이력 조회 — 실적%/가중치 편집 시 기록된 change_logs를 최신순으로.
+ *  user_id의 표시 이름은 프로필 테이블이 없어 memberships의 팀/역할로 대체한다. */
+export async function getChangeLogs(itemId: string): Promise<ChangeLogEntry[]> {
+  if (DEMO) return []
+  const sb = await createServerClient()
+  const { data: logs } = await sb
+    .from('change_logs')
+    .select('id, field, old_value, new_value, at, user_id')
+    .eq('wbs_item_id', itemId)
+    .order('at', { ascending: false })
+    .limit(50)
+  if (!logs?.length) return []
+
+  const userIds = [...new Set(logs.map(l => l.user_id).filter(Boolean) as string[])]
+  const actorMap = new Map<string, { team: TeamCode | null; role: string | null }>()
+  if (userIds.length) {
+    const { data: mems } = await sb.from('memberships').select('user_id, role, teams(code)').in('user_id', userIds)
+    ;(mems ?? []).forEach((m: Record<string, unknown>) => {
+      const t = m.teams as { code: TeamCode } | { code: TeamCode }[] | null
+      const code = (Array.isArray(t) ? t[0]?.code : t?.code) ?? null
+      actorMap.set(m.user_id as string, { team: code, role: (m.role as string) ?? null })
+    })
+  }
+
+  return logs.map(l => {
+    const actor = l.user_id ? actorMap.get(l.user_id as string) : undefined
+    return {
+      id: l.id as number,
+      field: l.field as string,
+      oldValue: (l.old_value as string) ?? null,
+      newValue: (l.new_value as string) ?? null,
+      at: l.at as string,
+      actorTeam: actor?.team ?? null,
+      actorRole: actor?.role ?? null,
+    }
+  })
+}
 
 export async function updateActual(itemId: string, newPct: number): Promise<{ ok: boolean; error?: string }> {
   if (newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
