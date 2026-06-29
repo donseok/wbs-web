@@ -57,6 +57,20 @@
   --color-hero-ink: #f4f5fb;
   --color-hero-ink-muted: #b6bce0;
   --color-hero-line: #3a3a72;
+
+  /* ── 팀 식별색 (담당 ●주관 / △지원) ── */
+  --color-team-pmo: #6366f1;   --color-team-pmo-weak: #eceeff;
+  --color-team-dt:  #0ea5e9;   --color-team-dt-weak:  #e2f4ff;
+  --color-team-erp: #8b5cf6;   --color-team-erp-weak: #f0eaff;
+  --color-team-mes: #f59e0b;   --color-team-mes-weak: #fff2dc;
+
+  /* ── 간트 전용 ── */
+  --color-weekend: #f3f5f8;          /* 주말/비영업일 day 셀 음영 */
+  --color-today: #ef4444;            /* 오늘 세로선 (delayed와 구분되는 vivid red) */
+  --color-holiday-band: #fdecef;     /* 공휴일 day 음영 */
+  --color-phasebar: #334155;         /* PHASE 서머리 바 (MS Project 슬레이트) */
+  --color-phasebar-fill: #94a3b8;    /* PHASE 진행 음영 */
+  --color-plan-track: #eef1f6;       /* TASK/ACT 계획 트랙 바닥 */
 }
 
 :root {
@@ -136,5 +150,19 @@ body {
   }
   .side-link-active {
     @apply bg-sidebar-3 text-sidebar-ink;
+  }
+
+  /* 동결 컬럼 우측 경계: 강조선 + 부드러운 그림자 */
+  .freeze-edge {
+    border-right: 1.5px solid var(--color-grid-strong);
+    box-shadow: 6px 0 8px -6px rgb(20 30 50 / 0.1);
+  }
+  /* 간트 본문 일자 격자 + 주말 음영(월요일 시작 offset 0). --gantt-day 폭 의존 */
+  .gantt-grid {
+    background-image:
+      repeating-linear-gradient(90deg, transparent 0, transparent calc(var(--gantt-day) - 1px),
+        var(--color-grid) calc(var(--gantt-day) - 1px), var(--color-grid) var(--gantt-day)),
+      repeating-linear-gradient(90deg, transparent 0, transparent calc(5 * var(--gantt-day)),
+        var(--color-weekend) calc(5 * var(--gantt-day)), var(--color-weekend) calc(7 * var(--gantt-day)));
   }
 }

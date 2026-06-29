@@ -1,4 +1,11 @@
-import type { ComputedItem, Level, Status } from '@/lib/domain/types'
+import type { ComputedItem, Level, Status, TeamCode } from '@/lib/domain/types'
+
+export const TEAM: Record<TeamCode, { fg: string; bar: string }> = {
+  PMO: { fg: 'text-team-pmo', bar: 'bg-team-pmo' },
+  DT: { fg: 'text-team-dt', bar: 'bg-team-dt' },
+  ERP: { fg: 'text-team-erp', bar: 'bg-team-erp' },
+  MES: { fg: 'text-team-mes', bar: 'bg-team-mes' },
+}
 
 export const STATUS: Record<Status, { label: string; chip: string; bar: string; dot: string }> = {
   not_started: { label: '시작전', chip: 'bg-pending-weak text-pending', bar: 'bg-pending', dot: 'bg-pending' },
@@ -31,19 +38,17 @@ export function LevelBadge({ level }: { level: Level }) {
 export function OwnerBadges({ owners }: { owners: ComputedItem['owners'] }) {
   if (!owners.length) return <span className="text-ink-subtle">-</span>
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 overflow-hidden">
       {owners.map(o => (
         <span
           key={o.team + o.kind}
-          className={
-            o.kind === 'primary'
-              ? 'badge bg-brand text-brand-fg'
-              : 'badge border border-line bg-surface-2 text-ink-muted'
-          }
+          className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold leading-none"
           title={o.kind === 'primary' ? `${o.team} 주관` : `${o.team} 지원`}
         >
-          <span className="mr-0.5 text-[8px] leading-none">{o.kind === 'primary' ? '●' : '△'}</span>
-          {o.team}
+          <span className={`${TEAM[o.team].fg} ${o.kind === 'support' ? 'opacity-60' : ''} text-[9px] leading-none`}>
+            {o.kind === 'primary' ? '●' : '△'}
+          </span>
+          <span className="text-ink-muted">{o.team}</span>
         </span>
       ))}
     </div>
