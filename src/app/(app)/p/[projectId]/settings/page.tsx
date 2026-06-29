@@ -10,7 +10,6 @@ import { collectLeaves, fmtDate } from '@/components/wbs/shared'
 import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButton'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
 import { WbsImportForm } from '@/components/settings/WbsImportForm'
-import { DEMO } from '@/lib/demo'
 
 type ProjectRow = {
   id: string
@@ -40,7 +39,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   const isPmo = membership?.role === 'pmo_admin'
-  const canMutate = isPmo && !DEMO // 데모에서는 데이터 변경 비활성(읽기 전용)
+  const canMutate = isPmo
   const taskCount = collectLeaves(items).length
 
   const scheduleLabel =
@@ -119,7 +118,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         eyebrow="DATA"
         title="WBS 데이터 가져오기 · 내보내기"
         icon={Upload}
-        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{DEMO ? '읽기 전용' : 'PMO 관리자 전용'}</span> : undefined}
+        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span> : undefined}
       >
         <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
           Excel 형식의 작업 구조와 일정을 프로젝트에 반영합니다.
@@ -132,8 +131,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
               <Shield className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-ink">{DEMO ? '데모 모드 — 읽기 전용' : '가져오기 권한이 없습니다'}</p>
-              <p className="mt-1 text-xs leading-5 text-ink-muted">{DEMO ? '데모에서는 WBS 가져오기가 비활성화됩니다. 실제 프로젝트에 연결해 사용하세요.' : '프로젝트의 PMO 관리자에게 WBS 업데이트를 요청하세요.'}</p>
+              <p className="text-sm font-semibold text-ink">가져오기 권한이 없습니다</p>
+              <p className="mt-1 text-xs leading-5 text-ink-muted">프로젝트의 PMO 관리자에게 WBS 업데이트를 요청하세요.</p>
             </div>
           </div>
         )}
@@ -155,7 +154,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         eyebrow="CALENDAR"
         title="일정 기준 및 공휴일"
         icon={CalendarDays}
-        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{DEMO ? '읽기 전용' : 'PMO 관리자 전용'}</span> : undefined}
+        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span> : undefined}
       >
         <ScheduleManager
           projectId={projectId}

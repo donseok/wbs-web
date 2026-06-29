@@ -2,7 +2,6 @@
 
 import { getComputedWbs } from '@/lib/data/wbs'
 import { getSession } from '@/lib/auth'
-import { DEMO } from '@/lib/demo'
 import { collectLeaves } from '@/components/wbs/shared'
 import type { ComputedItem } from '@/lib/domain/types'
 
@@ -22,7 +21,7 @@ function diffDays(from: string, to: string): number {
 
 /** 활성 프로젝트의 알림 피드 — 지연 작업 + 마감 임박(7일 내) 작업. */
 export async function getNotifications(projectId: string): Promise<{ items: NotificationItem[]; count: number }> {
-  if (!DEMO && !(await getSession())) return { items: [], count: 0 }
+  if (!(await getSession())) return { items: [], count: 0 }
   const { items, today } = await getComputedWbs(projectId)
   const leaves = collectLeaves(items)
 

@@ -6,7 +6,6 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { NewProjectModal } from '@/components/home/NewProjectModal'
 import { fmtDate } from '@/components/wbs/shared'
-import { DEMO } from '@/lib/demo'
 
 type ProjectRow = {
   id: string
@@ -104,7 +103,7 @@ export default async function ProjectsHome() {
   const doneCount = withStatus.filter(x => x.status === 'done').length
   const activeRatio = total ? Math.round((activeCount / total) * 100) : 0
   const recent = withStatus.slice(0, 3)
-  const canCreate = membership?.role === 'pmo_admin' && !DEMO // 데모는 읽기 전용
+  const canCreate = membership?.role === 'pmo_admin'
 
   const heroStats = [
     { label: '전체', value: total },

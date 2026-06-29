@@ -1,11 +1,9 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
-import { DEMO, DEMO_MEMBERS } from '@/lib/demo'
 
 // 같은 요청 내 중복 호출 dedupe
 export const getProjectMembers = cache(async (projectId: string): Promise<ProjectMember[]> => {
-  if (DEMO) return DEMO_MEMBERS
   const sb = await createServerClient()
   const { data } = await sb
     .from('project_members')

@@ -6,7 +6,6 @@ import { PageHero } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
 import { KanbanBoard } from '@/components/kanban/KanbanBoard'
-import { DEMO } from '@/lib/demo'
 
 export default async function KanbanPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -40,7 +39,7 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
           </>
         }
       />
-      <KanbanBoard items={items} membership={m} today={today} readOnly={DEMO} />
+      <KanbanBoard items={items} membership={m} today={today} />
     </div>
   )
 }

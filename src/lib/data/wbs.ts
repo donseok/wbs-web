@@ -2,7 +2,6 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind } from '@/lib/domain/types'
-import { DEMO, loadDemoWbs } from '@/lib/demo'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -12,7 +11,6 @@ function seoulToday(): string {
 export const getComputedWbs = cache(async (
   projectId: string,
 ): Promise<{ items: ComputedItem[]; holidays: string[]; today: string }> => {
-  if (DEMO) return loadDemoWbs()
   const sb = await createServerClient()
   const [{ data: items }, { data: ownerRows }, { data: hol }, { data: proj }] = await Promise.all([
     sb.from('wbs_items').select('*').eq('project_id', projectId),

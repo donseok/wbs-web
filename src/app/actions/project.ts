@@ -2,10 +2,8 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import { DEMO, DEMO_PROJECT } from '@/lib/demo'
 
 export async function listProjects() {
-  if (DEMO) return [DEMO_PROJECT]
   // 서버 액션 직접 호출에 대비한 인증 재확인(RLS와 이중 방어).
   if (!(await getSession())) return []
   const sb = await createServerClient()
@@ -19,7 +17,6 @@ export async function createProject(
   end: string | null,
   description: string | null = null,
 ) {
-  if (DEMO) return // 데모 모드: 저장 비활성화
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
   const sb = await createServerClient()
@@ -32,7 +29,6 @@ export async function updateProject(
   projectId: string,
   fields: { name?: string; description?: string | null; start_date?: string | null; end_date?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
-  if (DEMO) return { ok: true } // 데모: 저장 비활성화
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const patch: Record<string, unknown> = {}
@@ -54,7 +50,6 @@ export async function updateProject(
 
 /** 공정율 기준일 설정. null이면 자동(오늘). 진척 산정 전체에 영향. */
 export async function setBaseDate(projectId: string, baseDate: string | null): Promise<{ ok: boolean; error?: string }> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const sb = await createServerClient()
@@ -65,7 +60,6 @@ export async function setBaseDate(projectId: string, baseDate: string | null): P
 }
 
 export async function addHoliday(projectId: string, date: string, name: string) {
-  if (DEMO) return // 데모 모드: 저장 비활성화
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
   const sb = await createServerClient()
@@ -77,7 +71,6 @@ export async function addHoliday(projectId: string, date: string, name: string) 
 }
 
 export async function removeHoliday(projectId: string, date: string) {
-  if (DEMO) return // 데모 모드: 저장 비활성화
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
   const sb = await createServerClient()

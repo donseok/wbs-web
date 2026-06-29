@@ -2,14 +2,12 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Pencil, Trash2, Mail, ShieldCheck, UserRound, AlertTriangle, Info, Users } from 'lucide-react'
+import { UserPlus, Pencil, Trash2, Mail, ShieldCheck, UserRound, AlertTriangle, Users } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM } from '@/components/wbs/shared'
 import { addMember, updateMember, removeMember } from '@/app/actions/members'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
-
-const IS_DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === '1'
 
 const TEAM_META: Record<TeamCode, { chip: string; avatar: string }> = {
   PMO: { chip: 'bg-team-pmo-weak text-team-pmo', avatar: 'from-team-pmo to-brand' },
@@ -184,16 +182,6 @@ function MemberCard({
   )
 }
 
-function DemoNote() {
-  if (!IS_DEMO) return null
-  return (
-    <div className="mt-4 flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-xs text-ink-muted">
-      <Info className="h-3.5 w-3.5 shrink-0 text-accent-warning" />
-      데모 모드에서는 저장되지 않습니다.
-    </div>
-  )
-}
-
 function MemberFormModal({
   open,
   onClose,
@@ -334,8 +322,6 @@ function MemberFormModal({
             {error}
           </div>
         )}
-
-        <DemoNote />
       </div>
     </Modal>
   )
@@ -393,7 +379,6 @@ function DeleteMemberModal({ member, onClose }: { member: ProjectMember | null; 
           {error}
         </div>
       )}
-      <DemoNote />
     </Modal>
   )
 }

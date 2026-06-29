@@ -60,7 +60,7 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   }, [pathname, projects])
 
   const signOut = async () => {
-    if (process.env.NEXT_PUBLIC_DEMO_MODE !== '1') await createBrowserClient().auth.signOut()
+    await createBrowserClient().auth.signOut()
     router.replace('/login')
     router.refresh()
   }

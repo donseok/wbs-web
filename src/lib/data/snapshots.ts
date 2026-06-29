@@ -1,11 +1,9 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
-import { DEMO, DEMO_SNAPSHOTS } from '@/lib/demo'
 import type { ProgressSnapshot } from '@/lib/domain/types'
 
 /** 프로젝트 진척 스냅샷(추세). 캡처일 오름차순. */
 export const getSnapshots = cache(async (projectId: string): Promise<ProgressSnapshot[]> => {
-  if (DEMO) return DEMO_SNAPSHOTS
   const sb = await createServerClient()
   const { data } = await sb
     .from('progress_snapshots')

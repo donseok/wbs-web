@@ -3,12 +3,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { validateAndLink } from '@/lib/excel/validate'
-import { DEMO } from '@/lib/demo'
 
 export async function POST(req: NextRequest) {
-  // 데모 모드는 읽기 전용 — 서버 액션들과 동일하게 쓰기 차단.
-  if (DEMO) return NextResponse.json({ error: '데모 모드에서는 가져오기가 비활성화됩니다.' }, { status: 403 })
-
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return NextResponse.json({ error: '권한 없음' }, { status: 403 })
   const form = await req.formData()

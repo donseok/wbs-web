@@ -7,7 +7,6 @@ import { getAttendanceRecords } from '@/lib/data/attendance'
 import { getSnapshots } from '@/lib/data/snapshots'
 import { getMembership } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
-import { DEMO } from '@/lib/demo'
 import { TrendCard } from '@/components/dashboard/TrendCard'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -29,7 +28,7 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
     getMembership(),
   ])
   const project = projects.find(p => p.id === projectId)
-  const canCapture = membership?.role === 'pmo_admin' && !DEMO
+  const canCapture = membership?.role === 'pmo_admin'
 
   // 루트(=Phase) 가중치 정규화로 전체 공정율 산출(공유 헬퍼). weight=null은 균등.
   const { actual: overallActual, planned: overallPlanned } = overallProgress(items)

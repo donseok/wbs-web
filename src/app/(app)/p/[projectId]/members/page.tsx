@@ -5,7 +5,6 @@ import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MembersBoard } from '@/components/members/MembersBoard'
-import { DEMO } from '@/lib/demo'
 
 export default async function MembersPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -17,7 +16,7 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
 
   const project = projects.find((p) => p.id === projectId)
   const projectName = project?.name ?? '프로젝트'
-  const canEdit = m?.role === 'pmo_admin' && !DEMO
+  const canEdit = m?.role === 'pmo_admin'
 
   const teamSize = members.length
   const admins = members.filter((x) => x.role === 'admin').length

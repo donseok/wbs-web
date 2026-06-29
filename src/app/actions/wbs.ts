@@ -2,7 +2,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import { DEMO } from '@/lib/demo'
 import type { Level, TeamCode } from '@/lib/domain/types'
 
 export interface ChangeLogEntry {
@@ -18,7 +17,6 @@ export interface ChangeLogEntry {
 /** 항목의 변경 이력 조회 — 실적%/가중치 편집 시 기록된 change_logs를 최신순으로.
  *  user_id의 표시 이름은 프로필 테이블이 없어 memberships의 팀/역할로 대체한다. */
 export async function getChangeLogs(itemId: string): Promise<ChangeLogEntry[]> {
-  if (DEMO) return []
   const sb = await createServerClient()
   const { data: logs } = await sb
     .from('change_logs')
@@ -59,7 +57,6 @@ export async function updateActual(
   expectedCurrent?: number | null,
 ): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
   if (newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
-  if (DEMO) return { ok: true } // 데모 모드: 저장 비활성화(둘러보기용)
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
@@ -95,7 +92,6 @@ export async function updateWeight(
   weight: number | null,
   expectedCurrent?: number | null,
 ): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
-  if (DEMO) return { ok: true } // 데모 모드: 저장 비활성화(둘러보기용)
   if (weight != null && (typeof weight !== 'number' || Number.isNaN(weight) || weight < 0)) {
     return { ok: false, error: '가중치는 0 이상이어야 함' }
   }
@@ -134,7 +130,6 @@ export async function updateWeight(
 export async function addWbsItem(
   projectId: string, parentId: string | null, level: Level, name: string,
 ): Promise<{ ok: boolean; error?: string; id?: string }> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   if (!name.trim()) return { ok: false, error: '이름을 입력하세요' }
@@ -161,7 +156,6 @@ export async function updateWbsFields(
   itemId: string,
   fields: { name?: string; plannedStart?: string | null; plannedEnd?: string | null; deliverable?: string | null; biz?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const sb = await createServerClient()
@@ -206,7 +200,6 @@ export async function updateWbsFields(
 
 /** 항목 삭제(하위·담당·이력 cascade). */
 export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; error?: string }> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const sb = await createServerClient()
@@ -220,7 +213,6 @@ export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; erro
 
 /** 형제 내 순서 이동(위/아래) — 인접 형제와 sort_order 교환. */
 export async function moveWbsItem(itemId: string, dir: 'up' | 'down'): Promise<{ ok: boolean; error?: string }> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const sb = await createServerClient()

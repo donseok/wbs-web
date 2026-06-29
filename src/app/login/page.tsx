@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { Icon, ProductMark } from '@/components/ui/Icon'
 
-const DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === '1'
-
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -15,7 +13,6 @@ export default function Login() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (DEMO) { router.push('/projects'); return }
     const { error: authError } = await createBrowserClient().auth.signInWithPassword({ email, password })
     if (authError) setError('이메일 또는 비밀번호를 확인해 주세요.')
     else router.push('/projects')
@@ -33,11 +30,10 @@ export default function Login() {
           </div>
 
           <form onSubmit={submit} className="mt-9 space-y-4">
-            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">이메일</span><input className="app-input" type="email" autoComplete="email" placeholder="name@company.com" value={email} onChange={event => setEmail(event.target.value)} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required={!DEMO} /></label>
-            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">비밀번호</span><input className="app-input" type="password" autoComplete="current-password" placeholder="비밀번호를 입력하세요" value={password} onChange={event => setPassword(event.target.value)} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required={!DEMO} /></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">이메일</span><input className="app-input" type="email" autoComplete="email" placeholder="name@company.com" value={email} onChange={event => setEmail(event.target.value)} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required /></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">비밀번호</span><input className="app-input" type="password" autoComplete="current-password" placeholder="비밀번호를 입력하세요" value={password} onChange={event => setPassword(event.target.value)} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required /></label>
             {error && <p id="login-error" role="alert" className="flex items-center gap-2 rounded-xl bg-delayed-weak px-3 py-2.5 text-xs font-medium text-delayed"><Icon name="alert" className="h-4 w-4" />{error}</p>}
-            <button className="btn btn-primary mt-1 w-full">{DEMO ? '데모 워크스페이스 열기' : '로그인'}<Icon name="arrow" className="h-4 w-4" /></button>
-            {DEMO && <p className="text-center text-[11px] leading-5 text-ink-subtle">데모 모드에서는 계정 정보 없이 제품을 둘러볼 수 있습니다.</p>}
+            <button className="btn btn-primary mt-1 w-full">로그인<Icon name="arrow" className="h-4 w-4" /></button>
           </form>
         </div>
       </section>

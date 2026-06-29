@@ -2,7 +2,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import { DEMO } from '@/lib/demo'
 import type { ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 
 export interface MemberInput {
@@ -27,7 +26,6 @@ async function resolveTeamId(sb: ServerClient, teamCode: TeamCode | null): Promi
 }
 
 export async function addMember(projectId: string, input: MemberInput): Promise<MemberActionResult> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const sb = await createServerClient()
@@ -46,7 +44,6 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
 }
 
 export async function updateMember(memberId: string, input: MemberInput): Promise<MemberActionResult> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const sb = await createServerClient()
@@ -69,7 +66,6 @@ export async function updateMember(memberId: string, input: MemberInput): Promis
 }
 
 export async function removeMember(memberId: string): Promise<MemberActionResult> {
-  if (DEMO) return { ok: true }
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const sb = await createServerClient()

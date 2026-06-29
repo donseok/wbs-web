@@ -2,7 +2,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import { DEMO } from '@/lib/demo'
 import type { DeliverableAttachment, Membership } from '@/lib/domain/types'
 
 const BUCKET = 'deliverables'
@@ -20,7 +19,6 @@ async function canAttach(
 
 /** 항목의 첨부 목록(서명 URL 포함, 최신순). */
 export async function listAttachments(itemId: string): Promise<DeliverableAttachment[]> {
-  if (DEMO) return []
   const sb = await createServerClient()
   const { data } = await sb
     .from('deliverable_attachments')
@@ -49,7 +47,6 @@ export async function recordAttachment(
   itemId: string,
   file: { fileName: string; filePath: string; size: number; mime: string },
 ): Promise<{ ok: boolean; error?: string }> {
-  if (DEMO) return { ok: false, error: '데모 모드에서는 첨부할 수 없습니다.' }
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
@@ -67,7 +64,6 @@ export async function recordAttachment(
 
 /** 첨부 삭제(Storage 객체 + 메타). */
 export async function removeAttachment(id: string): Promise<{ ok: boolean; error?: string }> {
-  if (DEMO) return { ok: false, error: '데모 모드' }
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()

@@ -2,7 +2,6 @@ import { CalendarCheck, CalendarOff, PlaneTakeoff } from 'lucide-react'
 import { getAttendanceRecords } from '@/lib/data/attendance'
 import { getProjectMembers } from '@/lib/data/members'
 import { getMembership } from '@/lib/auth'
-import { DEMO, DEMO_TODAY } from '@/lib/demo'
 import { summarize } from '@/lib/domain/attendance'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -15,9 +14,7 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
     getProjectMembers(projectId),
     getMembership(),
   ])
-  const today = DEMO
-    ? DEMO_TODAY
-    : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
   const s = summarize(records)
 
   return (
@@ -40,7 +37,7 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
         records={records}
         members={members}
         initialDate={today}
-        canEdit={m?.role === 'pmo_admin' && !DEMO}
+        canEdit={m?.role === 'pmo_admin'}
       />
     </div>
   )
