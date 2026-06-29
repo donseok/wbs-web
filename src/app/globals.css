@@ -40,6 +40,23 @@
   --color-sheet-head: #eceef1;
   --color-sheet-gutter: #e7e9ec;
   --color-zebra: #f8f9fb;
+
+  /* 다크 사이드바 */
+  --color-sidebar: #0f1422;
+  --color-sidebar-2: #1a2133;
+  --color-sidebar-3: #232c42;
+  --color-sidebar-line: #2c3650;
+  --color-sidebar-ink: #eef1f7;
+  --color-sidebar-ink-muted: #97a1b8;
+  --color-sidebar-ink-subtle: #6b7488;
+
+  /* 다크 히어로 그라데이션 */
+  --color-hero-from: #161a2e;
+  --color-hero-via: #29275f;
+  --color-hero-to: #4338ca;
+  --color-hero-ink: #f4f5fb;
+  --color-hero-ink-muted: #b6bce0;
+  --color-hero-line: #3a3a72;
 }
 
 :root {
@@ -87,5 +104,37 @@ body {
 
   .badge {
     @apply inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-none;
+  }
+
+  /* 상태/구분 칩 */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-none;
+  }
+  .lvl-badge {
+    @apply inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide;
+  }
+
+  /* 세그먼트 뷰 탭 */
+  .seg {
+    @apply inline-flex items-center gap-1 rounded-xl border border-line bg-surface p-1 shadow-sm;
+  }
+  .seg-item {
+    @apply inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-ink-muted transition hover:text-ink;
+  }
+  .seg-item-active {
+    @apply bg-brand text-brand-fg shadow-sm hover:text-brand-fg;
+  }
+
+  /* 다크 히어로 KPI 타일 */
+  .kpi-tile {
+    @apply rounded-2xl border border-hero-line/70 bg-white/[0.06] px-4 py-3.5 backdrop-blur;
+  }
+
+  /* 사이드바 항목 */
+  .side-link {
+    @apply flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-ink-muted transition hover:bg-sidebar-3 hover:text-sidebar-ink;
+  }
+  .side-link-active {
+    @apply bg-sidebar-3 text-sidebar-ink;
   }
 }
