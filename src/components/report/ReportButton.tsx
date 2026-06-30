@@ -10,6 +10,7 @@ import { ReportModal } from './ReportModal'
  * 클릭 시 인쇄/PDF 가능한 ReportModal을 연다. (라우트 아님)
  */
 export function ReportButton({
+  projectId,
   items,
   projectName,
   projectDescription,
@@ -17,6 +18,7 @@ export function ReportButton({
   startDate,
   endDate,
 }: {
+  projectId: string
   items: ComputedItem[]
   projectName: string
   projectDescription?: string | null
@@ -40,6 +42,7 @@ export function ReportButton({
       <ReportModal
         open={open}
         onClose={() => setOpen(false)}
+        projectId={projectId}
         items={items}
         projectName={projectName}
         projectDescription={projectDescription}
