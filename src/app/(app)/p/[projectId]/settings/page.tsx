@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock } from 'lucide-react'
+import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
@@ -10,6 +10,8 @@ import { collectLeaves, fmtDate } from '@/components/wbs/shared'
 import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButton'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
 import { WbsImportForm } from '@/components/settings/WbsImportForm'
+import { ReindexButton } from '@/components/settings/ReindexButton'
+import { dkbotIndexStatus, type IndexStatus } from '@/lib/ai/health'
 
 type ProjectRow = {
   id: string
@@ -19,6 +21,24 @@ type ProjectRow = {
   end_date: string | null
   base_date?: string | null
   created_at?: string | null
+}
+
+/** DK Bot 색인 신선도 → 배지 라벨/색상. 무신호 실패(키 미설정·마이그레이션 미적용·stale)를 가시화. */
+function dkbotBadge(s: IndexStatus): { label: string; cls: string } {
+  switch (s.freshness) {
+    case 'fresh':
+      return { label: `색인 최신 · ${s.indexed}건`, cls: 'bg-done-weak text-done' }
+    case 'stale':
+      return { label: '재색인 필요 (WBS 변경 감지)', cls: 'bg-pending-weak text-pending' }
+    case 'schema_missing':
+      return { label: 'pgvector 마이그레이션 필요 (0010)', cls: 'bg-delayed-weak text-delayed' }
+    case 'disabled':
+      return { label: 'AI 키 미설정 · 결정형 답변 동작', cls: 'bg-pending-weak text-pending' }
+    case 'empty':
+      return { label: 'WBS 데이터 없음', cls: 'bg-pending-weak text-pending' }
+    default:
+      return { label: '색인 상태 확인 불가', cls: 'bg-pending-weak text-pending' }
+  }
 }
 
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
@@ -32,10 +52,11 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
 
 export default async function SettingsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
-  const [{ items, holidays }, projects, membership] = await Promise.all([
+  const [{ items, holidays }, projects, membership, dkIndex] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getMembership(),
+    dkbotIndexStatus(projectId),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   const isPmo = membership?.role === 'pmo_admin'
@@ -147,6 +168,33 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <Download className="h-4 w-4" /> Excel 내보내기
           </a>
         </div>
+      </SectionCard>
+
+      {/* ── DK Bot 의미검색 색인 ── */}
+      <SectionCard
+        eyebrow="AI ASSISTANT"
+        title="DK Bot 의미검색 색인"
+        icon={Sparkles}
+        actions={
+          <div className="flex items-center gap-2">
+            <span className={`badge px-2 py-1 ${dkbotBadge(dkIndex).cls}`}>{dkbotBadge(dkIndex).label}</span>
+            {canMutate ? (
+              <ReindexButton projectId={projectId} />
+            ) : (
+              <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span>
+            )}
+          </div>
+        }
+      >
+        <p className="-mt-2 text-xs leading-5 text-ink-muted">
+          DK Bot이 최신 작업을 검색·답변하도록 WBS·멤버를 임베딩 색인합니다. WBS를 가져오면 자동으로 갱신되며, WBS를 편집한 뒤에는
+          위 배지에 <span className="font-medium text-pending">재색인 필요</span>가 표시될 때 수동으로 재생성하세요.
+          <br />
+          <span className="text-ink-subtle">
+            GEMINI_API_KEY 미설정 시 색인은 건너뛰며, 봇은 구조화 질의 기반 결정형 답변으로 동작합니다.
+            “pgvector 마이그레이션 필요”가 보이면 <code className="text-ink-muted">docs/dkbot.md</code>의 0010 적용을 먼저 진행하세요.
+          </span>
+        </p>
       </SectionCard>
 
       {/* ── 일정 기준 및 공휴일 ── */}

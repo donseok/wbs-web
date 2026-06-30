@@ -2,6 +2,7 @@ import { getMembership } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
 import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { HeaderChrome } from '@/components/app/HeaderChrome'
+import { DkBot } from '@/components/chat/DkBot'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -32,6 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <HeaderChrome membership={m} projects={projectLinks} />
         <main id="main-content" className="mx-auto w-full max-w-[1680px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-7">{children}</main>
       </div>
+      <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />
     </div>
   )
 }
