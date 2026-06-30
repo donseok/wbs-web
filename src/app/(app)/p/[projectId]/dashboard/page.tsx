@@ -57,13 +57,13 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
             />
           </>
         }
-        aside={
+        heroKpis={
           <>
-            <KpiCard label="ACTUAL PROGRESS" value={`${overallActual}%`} sub="실적 공정율" icon={TrendingUp} tone="brand" />
-            <KpiCard label="계획 공정율" value={`${overallPlanned}%`} sub={`계획 대비 ${variance >= 0 ? '+' : ''}${variance}%p`} icon={Target} tone="default" />
-            <KpiCard label="진행중 작업" value={inProgress} sub={`전체 ${leaves.length}건`} icon={Activity} tone="warning" />
-            <KpiCard label="완료된 작업" value={doneCount} sub={`${donePct}% 완료`} icon={CheckCircle2} tone="success" />
-            <KpiCard label="지연 작업" value={delayedCount} sub={delayedCount > 0 ? '점검 필요' : '정상 범위'} icon={AlertTriangle} tone="danger" />
+            <KpiCard variant="hero" label="ACTUAL PROGRESS" value={`${overallActual}%`} sub="실적 공정율" icon={TrendingUp} tone="brand" />
+            <KpiCard variant="hero" label="계획 공정율" value={`${overallPlanned}%`} sub={`계획 대비 ${variance >= 0 ? '+' : ''}${variance}%p`} icon={Target} tone="default" />
+            <KpiCard variant="hero" label="진행중 작업" value={inProgress} sub={`전체 ${leaves.length}건`} icon={Activity} tone="warning" />
+            <KpiCard variant="hero" label="완료된 작업" value={doneCount} sub={`${donePct}% 완료`} icon={CheckCircle2} tone="success" />
+            <KpiCard variant="hero" label="지연 작업" value={delayedCount} sub={delayedCount > 0 ? '점검 필요' : '정상 범위'} icon={AlertTriangle} tone="danger" />
           </>
         }
       />
