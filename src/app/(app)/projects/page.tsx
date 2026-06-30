@@ -2,10 +2,13 @@ import Link from 'next/link'
 import { FolderKanban, Activity, CircleCheck, Gauge, Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight } from 'lucide-react'
 import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
+import { getComputedWbs } from '@/lib/data/wbs'
+import { aggregateTaskStats } from '@/lib/domain/workspace'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { NewProjectModal } from '@/components/home/NewProjectModal'
 import { fmtDate } from '@/components/wbs/shared'
+import type { ComputedItem } from '@/lib/domain/types'
 
 type ProjectRow = {
   id: string
@@ -105,10 +108,16 @@ export default async function ProjectsHome() {
   const recent = withStatus.slice(0, 3)
   const canCreate = membership?.role === 'pmo_admin'
 
+  // 히어로 통계칩 = 전사 작업 집계(TASKS / DONE / %). 각 프로젝트의 WBS 트리를 병렬 로드해 리프를 합산한다.
+  const trees = await Promise.all(
+    projects.map(p => getComputedWbs(p.id).then(w => w.items).catch((): ComputedItem[] => [])),
+  )
+  const taskStats = aggregateTaskStats(trees)
+
   const heroStats = [
-    { label: '전체', value: total },
-    { label: '진행중', value: activeCount },
-    { label: '완료', value: doneCount },
+    { label: 'Tasks', value: taskStats.tasks },
+    { label: 'Done', value: taskStats.done },
+    { label: '%', value: `${taskStats.donePct}%` },
   ]
 
   return (
