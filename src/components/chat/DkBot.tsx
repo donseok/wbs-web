@@ -152,7 +152,14 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     [messages, loading, currentProjectId],
   )
 
-  const reset = () => setMessages([{ id: nextId(), role: 'assistant', content: welcomeText(ctx) }])
+  const reset = () => {
+    // 진행 중 스트림이 있으면 폐기한다 — 세대를 올리면 send() 루프가 reader.cancel() 후 중단하고,
+    // 늦게 도착한 토큰이 새 대화에 끼어들지 않는다. 로딩도 직접 해제(스트림 finally 는 옛 세대라 건너뜀).
+    genRef.current += 1
+    setLoading(false)
+    setInput('')
+    setMessages([{ id: nextId(), role: 'assistant', content: welcomeText(ctx) }])
+  }
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
