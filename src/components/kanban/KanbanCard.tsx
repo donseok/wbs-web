@@ -39,7 +39,7 @@ export function KanbanCard({
       aria-roledescription={interactive ? '상태 이동 카드' : undefined}
       aria-label={interactive ? `${card.name} — 실적 ${card.rolledActualPct}%, ${STATUS[card.status].label}. Enter로 ${done ? '완료 해제' : '완료 처리'}` : undefined}
       onKeyDown={handleKeyDown}
-      className={`group relative overflow-hidden rounded-xl border border-line bg-surface p-3.5 shadow-sm transition
+      className={`group relative shrink-0 overflow-hidden rounded-xl border border-line bg-surface p-3.5 shadow-sm transition
         ${draggable ? 'cursor-grab select-none hover:border-line-strong hover:shadow-md active:cursor-grabbing' : ''}
         ${interactive ? 'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring' : ''}
         ${dragging ? 'opacity-40' : ''}`}
