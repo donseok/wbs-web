@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  CalendarCheck, CalendarDays, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  CalendarCheck, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -20,8 +20,7 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
 function projectMenu(base: string): { href: string; label: string; icon: LucideIcon; match: string }[] {
   return [
     { href: `${base}/dashboard`, label: '대시보드', icon: LayoutDashboard, match: `${base}/dashboard` },
-    { href: `${base}/wbs`, label: 'WBS', icon: ListTree, match: `${base}/wbs` },
-    { href: `${base}/gantt`, label: '간트 차트', icon: CalendarDays, match: `${base}/gantt` },
+    { href: `${base}/wbs`, label: 'WBS · 간트', icon: ListTree, match: `${base}/wbs` },
     { href: `${base}/kanban`, label: '칸반 보드', icon: Columns3, match: `${base}/kanban` },
     { href: `${base}/members`, label: '멤버', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, label: '근태현황', icon: CalendarCheck, match: `${base}/attendance` },

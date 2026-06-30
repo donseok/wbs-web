@@ -44,7 +44,7 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         actions={
           <>
             <Link href={`/p/${projectId}/wbs`} className={HERO_BTN}><ListTree className="h-4 w-4" />WBS 보기</Link>
-            <Link href={`/p/${projectId}/wbs`} className={HERO_BTN}><GanttChartSquare className="h-4 w-4" />간트 차트</Link>
+            <Link href={`/p/${projectId}/wbs?view=timeline`} className={HERO_BTN}><GanttChartSquare className="h-4 w-4" />간트 차트</Link>
             <Link href={`/p/${projectId}/kanban`} className={HERO_BTN}><Columns3 className="h-4 w-4" />칸반 보드</Link>
             <ReportButton
               projectId={projectId}

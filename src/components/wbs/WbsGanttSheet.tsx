@@ -26,6 +26,8 @@ const COLS: Col[] = [
   { key: 'achieve', w: 76 },
 ]
 const W = (k: string) => COLS.find(c => c.key === k)!.w
+/* 타임라인 집중 모드에서 보이는 컬럼(나머지 수치/상세 열은 숨겨 간트 폭을 확보) */
+const TIMELINE_COLS = new Set(['no', 'level', 'name', 'owners', 'status'])
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -67,6 +69,7 @@ export function WbsGanttSheet({
   membership,
   projectId,
   readOnly = false,
+  defaultView = 'sheet',
 }: {
   items: ComputedItem[]
   holidays: string[]
@@ -75,6 +78,8 @@ export function WbsGanttSheet({
   projectId: string
   /** 데모 모드 등에서 인라인 편집 비활성화 */
   readOnly?: boolean
+  /** 'timeline'이면 타임라인 집중 모드로 시작(통합된 간트 메뉴 진입용) */
+  defaultView?: 'sheet' | 'timeline'
 }) {
   const router = useRouter()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -84,12 +89,17 @@ export function WbsGanttSheet({
   const [addBusy, setAddBusy] = useState(false)
   const [dayPx, setDayPx] = useState(24)
   const [showDetails, setShowDetails] = useState(false)
+  const [timelineFocus, setTimelineFocus] = useState(defaultView === 'timeline')
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
-  const visibleCols = useMemo(() => COLS.filter(col => showDetails || !col.detail), [showDetails])
+  const visibleCols = useMemo(
+    () => COLS.filter(col => (timelineFocus ? TIMELINE_COLS.has(col.key) : showDetails || !col.detail)),
+    [showDetails, timelineFocus],
+  )
+  const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
 
   useEffect(() => {
@@ -333,9 +343,14 @@ export function WbsGanttSheet({
         <button onClick={toggleAll} className="btn btn-ghost h-9 px-3 text-xs">
           {allCollapsed ? '전체 펼치기' : '전체 접기'}
         </button>
-        <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-          <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? '상세 열 숨기기' : '상세 열 보기'}
+        <button onClick={() => setTimelineFocus(value => !value)} aria-pressed={timelineFocus} className={`btn h-9 px-3 text-xs ${timelineFocus ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
+          <Icon name="calendar" className="h-3.5 w-3.5" /> {timelineFocus ? '시트 편집' : '타임라인 집중'}
         </button>
+        {!timelineFocus && (
+          <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
+            <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? '상세 열 숨기기' : '상세 열 보기'}
+          </button>
+        )}
         {isPmo && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
             <Icon name="plus" className="h-3.5 w-3.5" /> Phase 추가
@@ -414,16 +429,16 @@ export function WbsGanttSheet({
             {headCell(COLS[0], '#', 'justify-center')}
             {headCell(COLS[1], '구분', 'justify-center')}
             {headCell(COLS[2], '작업명', 'justify-start')}
-            {showDetails && headCell(COLS[3], 'BIZ', 'justify-center')}
+            {showCol('biz') && headCell(COLS[3], 'BIZ', 'justify-center')}
             {headCell(COLS[4], '담당', 'justify-start')}
             {headCell(COLS[5], '상태', 'justify-center')}
-            {showDetails && headCell(COLS[6], '산출물', 'justify-start')}
-            {showDetails && headCell(COLS[7], '계획시작', 'justify-center')}
-            {showDetails && headCell(COLS[8], '계획종료', 'justify-center')}
-            {showDetails && headCell(COLS[9], '가중치', 'justify-end')}
-            {headCell(COLS[10], '계획%', 'justify-end')}
-            {headCell(COLS[11], '실적%', 'justify-end')}
-            {headCell(COLS[12], '달성율', 'justify-center')}
+            {showCol('deliverable') && headCell(COLS[6], '산출물', 'justify-start')}
+            {showCol('pstart') && headCell(COLS[7], '계획시작', 'justify-center')}
+            {showCol('pend') && headCell(COLS[8], '계획종료', 'justify-center')}
+            {showCol('weight') && headCell(COLS[9], '가중치', 'justify-end')}
+            {showCol('pplan') && headCell(COLS[10], '계획%', 'justify-end')}
+            {showCol('pactual') && headCell(COLS[11], '실적%', 'justify-end')}
+            {showCol('achieve') && headCell(COLS[12], '달성율', 'justify-center')}
             {/* 간트 헤더 (월/주/일 3단) */}
             <div
               className="relative box-border h-[var(--wbs-head-h)] shrink-0 border-b-2 border-grid-strong bg-sheet-head"
@@ -552,7 +567,7 @@ export function WbsGanttSheet({
                   </div>
                 </div>
                 {/* BIZ */}
-                {showDetails && (
+                {showCol('biz') && (
                   <div
                     className={`${cellBase} border-r border-grid justify-center text-[12px] text-ink-muted ${cellBg}`}
                     style={{ width: W('biz') }}
@@ -575,7 +590,7 @@ export function WbsGanttSheet({
                   <StatusChip status={n.status} />
                 </div>
                 {/* 산출물 */}
-                {showDetails && (
+                {showCol('deliverable') && (
                   <div
                     className={`${cellBase} border-r border-grid text-[12px] text-ink-muted ${cellBg}`}
                     style={{ width: W('deliverable') }}
@@ -586,7 +601,7 @@ export function WbsGanttSheet({
                   </div>
                 )}
                 {/* 계획시작 */}
-                {showDetails && (
+                {showCol('pstart') && (
                   <div
                     className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
                     style={{ width: W('pstart') }}
@@ -595,7 +610,7 @@ export function WbsGanttSheet({
                   </div>
                 )}
                 {/* 계획종료 */}
-                {showDetails && (
+                {showCol('pend') && (
                   <div
                     className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
                     style={{ width: W('pend') }}
@@ -604,7 +619,7 @@ export function WbsGanttSheet({
                   </div>
                 )}
                 {/* 가중치 */}
-                {showDetails && <div
+                {showCol('weight') && <div
                   className={`${cellBase} border-r border-grid justify-end tabular-nums ${
                     editableW ? 'cursor-pointer' : ''
                   } ${n.weight == null ? 'text-ink-subtle' : 'text-ink'} ${cellBg}`}
@@ -631,13 +646,16 @@ export function WbsGanttSheet({
                   {editingWeight ? editInput(weightLabel, 'weight') : weightLabel}
                 </div>}
                 {/* 계획% */}
+                {showCol('pplan') && (
                 <div
                   className={`${cellBase} border-r border-grid justify-end tabular-nums text-ink-muted ${cellBg}`}
                   style={{ width: W('pplan') }}
                 >
                   {n.plannedPct}%
                 </div>
+                )}
                 {/* 실적% (데이터바) */}
+                {showCol('pactual') && (
                 <div
                   className={`${cellBase} relative justify-end overflow-hidden border-r border-grid font-medium tabular-nums ${
                     editableA ? 'cursor-pointer' : ''
@@ -672,7 +690,9 @@ export function WbsGanttSheet({
                     {editingActual ? editInput(String(n.rolledActualPct), 'actual') : `${n.rolledActualPct}%`}
                   </span>
                 </div>
+                )}
                 {/* 달성율 (미니바) */}
+                {showCol('achieve') && (
                 <div
                   className={`${cellBase} flex-col items-end justify-center gap-0.5 border-r border-grid tabular-nums ${cellBg}`}
                   style={{ width: W('achieve') }}
@@ -699,6 +719,7 @@ export function WbsGanttSheet({
                     </span>
                   )}
                 </div>
+                )}
                 {/* 간트 셀 */}
                 <div className="relative box-border h-full shrink-0 border-b border-grid" style={{ width: ganttW }}>
                   {n.plannedStart && n.plannedEnd && <Bar n={n} xOf={xOf} dayPx={dayPx} />}
@@ -776,7 +797,11 @@ export function WbsGanttSheet({
           공휴일
         </span>
         <span className="text-ink-muted">
-          {isPmo ? '가중치·실적% 셀 클릭해 편집' : '담당 작업의 실적% 셀 클릭해 편집'}
+          {timelineFocus
+            ? '편집은 ‘시트 편집’으로 전환'
+            : isPmo
+              ? '가중치·실적% 셀 클릭해 편집'
+              : '담당 작업의 실적% 셀 클릭해 편집'}
         </span>
       </div>
 
