@@ -59,15 +59,6 @@ export interface DeliverableAttachment {
   url?: string | null      // 서명 URL(읽기 시 생성)
 }
 
-/* ── 진척 스냅샷(추세) ── */
-export interface ProgressSnapshot {
-  id: string
-  projectId: string
-  capturedOn: string   // 'YYYY-MM-DD'
-  actual: number
-  planned: number
-}
-
 /* ── 근태현황 ──
  * work=정상근무 remote=재택 annual=연차 half=반차 sick=병가
  * trip=출장 official=공가 absent=결근 */

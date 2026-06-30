@@ -4,10 +4,7 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { overallProgress } from '@/lib/domain/rollup'
 import { getProjectMembers } from '@/lib/data/members'
 import { getAttendanceRecords } from '@/lib/data/attendance'
-import { getSnapshots } from '@/lib/data/snapshots'
-import { getMembership } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
-import { TrendCard } from '@/components/dashboard/TrendCard'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
@@ -19,16 +16,13 @@ const HERO_BTN =
 
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
-  const [{ items, today }, projects, members, attendance, snapshots, membership] = await Promise.all([
+  const [{ items, today }, projects, members, attendance] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getProjectMembers(projectId),
     getAttendanceRecords(projectId),
-    getSnapshots(projectId),
-    getMembership(),
   ])
   const project = projects.find(p => p.id === projectId)
-  const canCapture = membership?.role === 'pmo_admin'
 
   // 루트(=Phase) 가중치 정규화로 전체 공정율 산출(공유 헬퍼). weight=null은 균등.
   const { actual: overallActual, planned: overallPlanned } = overallProgress(items)
@@ -82,10 +76,6 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         memberCount={members.length}
         attendance={attendance}
       />
-
-      <div className="mt-5">
-        <TrendCard projectId={projectId} snapshots={snapshots} canCapture={canCapture} />
-      </div>
     </>
   )
 }
