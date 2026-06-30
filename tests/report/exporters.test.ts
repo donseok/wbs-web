@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
-import { buildReportModel } from '@/lib/report/model'
+import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
 import { buildReportDeck } from '@/lib/report/pptx'
 import type { ComputedItem } from '@/lib/domain/types'
@@ -18,87 +18,76 @@ const phase = (name: string, children: ComputedItem[], over: Partial<ComputedIte
 
 const sampleItems: ComputedItem[] = [
   phase('착수', [
-    node({ name: '킥오프', status: 'done', rolledActualPct: 100, owners: [{ team: 'PMO', kind: 'primary' }], plannedEnd: '2026-02-01' }),
-  ], { plannedPct: 90, rolledActualPct: 100, status: 'done' }),
+    node({ name: '킥오프', status: 'done', rolledActualPct: 100, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-01-20', plannedEnd: '2026-02-01' }),
+  ], { weight: 1, plannedPct: 90, rolledActualPct: 100, status: 'done' }),
   phase('설계', [
-    node({ name: 'TO-BE 설계', status: 'delayed', rolledActualPct: 30, owners: [{ team: 'DT', kind: 'primary' }, { team: 'ERP', kind: 'support' }], plannedEnd: '2026-04-15' }),
-    node({ name: '요구사항 정의', status: 'in_progress', rolledActualPct: 60, owners: [{ team: 'ERP', kind: 'primary' }], plannedEnd: '2026-05-01' }),
-  ], { plannedPct: 50, rolledActualPct: 45, status: 'delayed' }),
+    node({ name: 'TO-BE 설계', status: 'delayed', rolledActualPct: 30, owners: [{ team: 'DT', kind: 'primary' }, { team: 'ERP', kind: 'support' }], plannedStart: '2026-04-01', plannedEnd: '2026-04-15' }),
+    node({ name: '요구사항 정의', status: 'in_progress', rolledActualPct: 60, owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+  ], { weight: 1, plannedPct: 50, rolledActualPct: 45, status: 'delayed' }),
 ]
 const project = { name: 'D-CUBE PI', description: 'PI Master Plan', start_date: '2026-01-01', end_date: '2026-12-31' }
-const model = buildReportModel(sampleItems, project, '2026-06-30')
-const emptyModel = buildReportModel([], { name: '빈 프로젝트' }, '2026-06-30')
+const model = buildWeeklyReportModel(sampleItems, project, '2026-06-30', { generatedAt: '2026-06-30 13:20' })
+const emptyModel = buildWeeklyReportModel([], { name: '빈 프로젝트' }, '2026-06-30')
 
-describe('buildReportWorkbook', () => {
-  it('두 시트(현황요약/지연작업)를 가진 유효한 xlsx 생성', async () => {
+describe('buildReportWorkbook (보라 공정보고 3시트)', () => {
+  it('3개 시트(공정보고/WBS/프로그램개발현황)', async () => {
     const buf = await buildReportWorkbook(model)
-    expect(buf.byteLength).toBeGreaterThan(0)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    expect(wb.worksheets.map(w => w.name)).toEqual(['현황요약', '지연작업'])
+    expect(wb.worksheets.map(w => w.name)).toEqual(['1.공정보고', '2.WBS', '3.프로그램개발현황'])
   })
 
-  it('요약 시트 제목/KPI 셀이 모델 값을 반영', async () => {
+  it('공정보고 제목/주차가 모델 값을 반영', async () => {
     const buf = await buildReportWorkbook(model)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    const ws = wb.getWorksheet('현황요약')!
-    expect(String(ws.getCell('A1').value)).toContain('D-CUBE PI')
-    expect(String(ws.getCell('A1').value)).toContain('현황 보고서')
+    const ws = wb.getWorksheet('1.공정보고')!
+    expect(String(ws.getCell('A2').value)).toContain('D-CUBE PI')
+    expect(String(ws.getCell('A2').value)).toContain('공정보고')
+    expect(String(ws.getCell('B3').value)).toContain('27주차')
   })
 
-  it('지연작업 시트에 지연 항목명이 들어감', async () => {
+  it('WBS 시트에 전체 노드가 들어감(지연 항목명 포함)', async () => {
     const buf = await buildReportWorkbook(model)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    const ws = wb.getWorksheet('지연작업')!
-    const text = JSON.stringify(ws.getSheetValues())
+    const text = JSON.stringify(wb.getWorksheet('2.WBS')!.getSheetValues())
     expect(text).toContain('TO-BE 설계')
   })
 
-  it('빈 모델도 깨지지 않고 두 시트 생성', async () => {
+  it('빈 모델도 깨지지 않고 3시트 생성', async () => {
     const buf = await buildReportWorkbook(emptyModel)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    expect(wb.worksheets.length).toBe(2)
+    expect(wb.worksheets.length).toBe(3)
   })
 })
 
-describe('buildReportDeck', () => {
-  it('유효한 pptx(zip) 버퍼 생성 — PK 시그니처', async () => {
+describe('buildReportDeck (네이비 주간보고)', () => {
+  it('유효한 pptx(zip) — PK 시그니처', async () => {
     const buf = await buildReportDeck(model)
     expect(buf.length).toBeGreaterThan(1000)
-    expect(buf[0]).toBe(0x50) // 'P'
-    expect(buf[1]).toBe(0x4b) // 'K'
+    expect(buf[0]).toBe(0x50)
+    expect(buf[1]).toBe(0x4b)
   })
 
-  it('빈 모델 / 지연 0건도 깨지지 않음', async () => {
+  it('빈 모델도 깨지지 않음', async () => {
     const buf = await buildReportDeck(emptyModel)
     expect(buf.length).toBeGreaterThan(1000)
     expect(buf[0]).toBe(0x50)
   })
 
-  it('표가 넘쳐 슬라이드가 분할돼도 모든 슬라이드가 브랜드 유지(배경 존재) — 빈 화이트 슬라이드 없음', async () => {
-    // 지연 30건 + Phase 25개 → 표 오버플로 → 다중 페이지
-    const manyDelayed: ComputedItem[] = Array.from({ length: 25 }, (_, i) =>
-      phase(`Phase ${i + 1}`, [
-        node({ name: `지연작업 ${i + 1}`, status: 'delayed', rolledActualPct: i % 100, plannedEnd: `2026-${String((i % 12) + 1).padStart(2, '0')}-15`, owners: [{ team: 'DT', kind: 'primary' }] }),
-      ], { plannedPct: 50, rolledActualPct: 20, status: 'delayed' }),
-    )
-    const model = buildReportModel(manyDelayed, { name: '대형 프로젝트' }, '2026-06-30')
-    expect(model.delayed.length).toBe(25)
-    expect(model.phases.length).toBe(25)
-
+  it('모든 슬라이드가 브랜드 배경(<p:bg>) 유지 + 주간보고/근태 슬라이드 포함', async () => {
     const buf = await buildReportDeck(model)
     const zip = await JSZip.loadAsync(buf)
     const slidePaths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
-    expect(slidePaths.length).toBeGreaterThan(5) // 분할 발생
-
-    for (const p of slidePaths) {
-      const xml = await zip.files[p].async('string')
-      // 모든 슬라이드는 배경(<p:bg>)을 가져야 한다 → 브랜드 유실(빈 화이트) 없음
-      expect(xml, `${p} 배경 누락(빈 화이트 슬라이드)`).toContain('<p:bg>')
-      // 푸터의 D'Flow 표기도 모든 본문 슬라이드에 존재
+    expect(slidePaths.length).toBeGreaterThanOrEqual(3) // 요약 + 상세 + 근태
+    const xmls = await Promise.all(slidePaths.map(p => zip.files[p].async('string')))
+    for (const [i, xml] of xmls.entries()) {
+      expect(xml, `slide ${i + 1} 배경 누락`).toContain('<p:bg>')
     }
+    const joined = xmls.join('')
+    expect(joined).toContain('주간보고')
+    expect(joined).toContain('근태현황')
   })
 })

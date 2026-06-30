@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getComputedWbs } from '@/lib/data/wbs'
+import { getProjectMembers } from '@/lib/data/members'
+import { getAttendanceRecords } from '@/lib/data/attendance'
 import { listProjects } from '@/app/actions/project'
-import { buildReportModel } from '@/lib/report/model'
+import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
 import { buildReportDeck } from '@/lib/report/pptx'
 
 // pptxgenjs/exceljs는 Node 전용 → Edge 런타임 금지.
 export const runtime = 'nodejs'
+
+/** 현재 시각을 Asia/Seoul 'YYYY-MM-DD HH:mm' 으로. */
+function seoulNow(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date())
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
+}
 
 const FORMATS = {
   xlsx: {
@@ -31,17 +43,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'format은 xlsx 또는 pptx여야 합니다' }, { status: 400 })
   }
 
-  const [{ items, today }, projects] = await Promise.all([getComputedWbs(projectId), listProjects()])
+  const [{ items, today }, projects, members, attendance] = await Promise.all([
+    getComputedWbs(projectId), listProjects(), getProjectMembers(projectId), getAttendanceRecords(projectId),
+  ])
   const project = (projects as { id: string; name: string; description?: string | null; start_date?: string | null; end_date?: string | null }[]).find(
     p => p.id === projectId,
   )
   if (!project) return NextResponse.json({ error: '프로젝트를 찾을 수 없습니다' }, { status: 404 })
 
-  const model = buildReportModel(items, project, today)
+  const model = buildWeeklyReportModel(items, project, today, { members, attendance, generatedAt: seoulNow() })
   const meta = FORMATS[format]
   const body = format === 'xlsx' ? await buildReportWorkbook(model) : await buildReportDeck(model)
 
-  const filename = `현황보고서_${project.name}_${today}.${meta.ext}`.replace(/[^\w가-힣.\-]+/g, '_')
+  const docName = format === 'xlsx' ? '공정보고' : '주간보고'
+  const filename = `${docName}_${project.name}_${today}.${meta.ext}`.replace(/[^\w가-힣.\-]+/g, '_')
 
   return new NextResponse(body as ArrayBuffer, {
     headers: {

@@ -1,186 +1,282 @@
 import ExcelJS from 'exceljs'
-import type { ReportModel } from './model'
-import { C, STATUS_LABEL, TEAM_COLOR, argb, ownersText } from './brand'
+import type { WeeklyReportModel } from './weekly'
+import { statusKr } from './weekly'
+import { PX, argb, asciiBar } from './dkbrand'
 
 type Cell = ExcelJS.Cell
 type Worksheet = ExcelJS.Worksheet
+type Align = 'left' | 'center' | 'right'
 
-const THIN = { style: 'thin' as const, color: { argb: argb(C.line) } }
+const THIN = { style: 'thin' as const, color: { argb: argb(PX.line) } }
 const BORDER = { top: THIN, left: THIN, bottom: THIN, right: THIN }
 
 function fill(cell: Cell, hex: string) {
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(hex) } }
 }
-
-/** 헤더 셀: 브랜드 배경 + 흰 굵은 글씨 + 테두리. */
-function headerCell(cell: Cell, text: string, align: 'left' | 'center' | 'right' = 'left') {
-  cell.value = text
-  cell.font = { bold: true, color: { argb: argb(C.white) }, size: 10 }
-  fill(cell, C.brand)
-  cell.alignment = { vertical: 'middle', horizontal: align }
-  cell.border = BORDER
-}
-
-function bodyCell(cell: Cell, value: ExcelJS.CellValue, align: 'left' | 'center' | 'right' = 'left') {
+function setCell(
+  cell: Cell, value: ExcelJS.CellValue,
+  opts: { bg?: string; color?: string; size?: number; bold?: boolean; align?: Align; wrap?: boolean; border?: boolean } = {},
+) {
   cell.value = value
-  cell.font = { color: { argb: argb(C.ink) }, size: 10 }
-  cell.alignment = { vertical: 'middle', horizontal: align }
-  cell.border = BORDER
+  cell.font = { color: { argb: argb(opts.color ?? PX.ink) }, size: opts.size ?? 10, bold: opts.bold ?? false }
+  if (opts.bg) fill(cell, opts.bg)
+  cell.alignment = { vertical: 'middle', horizontal: opts.align ?? 'left', wrapText: opts.wrap ?? false }
+  if (opts.border !== false) cell.border = BORDER
+}
+/** 섹션 머리띠(병합 + 퍼플 배경). */
+function sectionBar(ws: Worksheet, row: number, lastCol: number, text: string) {
+  ws.mergeCells(row, 1, row, lastCol)
+  setCell(ws.getCell(row, 1), text, { bg: PX.purple, color: PX.white, size: 11, bold: true })
+  ws.getRow(row).height = 20
+}
+function headerRow(ws: Worksheet, row: number, headers: { t: string; align?: Align }[]) {
+  headers.forEach((h, i) => setCell(ws.getCell(row, i + 1), h.t, { bg: PX.purple, color: PX.white, size: 10, bold: true, align: h.align ?? 'center' }))
+}
+function fmtD(d: string | null): string {
+  return d ?? ''
 }
 
-/** 'YYYY-MM-DD' → '2026.09.15' (없으면 '-') */
-function fmtDate(d: string | null): string {
-  return d ? d.replace(/-/g, '.') : '-'
-}
-/** 'YYYY-MM-DD' → '2026년 9월 15일' */
-function fmtFull(d: string | null): string {
-  if (!d) return '-'
-  const [y, m, day] = d.split('-')
-  return `${y}년 ${Number(m)}월 ${Number(day)}일`
-}
+/* ════════════════════ 시트 1: 공정보고 ════════════════════ */
+function buildProcessSheet(ws: Worksheet, model: WeeklyReportModel) {
+  const { meta, kpi } = model
+  ws.columns = [{ width: 11 }, { width: 12 }, { width: 14 }, { width: 9 }, { width: 9 }, { width: 9 }, { width: 9 }, { width: 8 }, { width: 9 }, { width: 9 }, { width: 9 }, { width: 9 }]
+  const LAST = 12
 
-function buildSummarySheet(ws: Worksheet, model: ReportModel) {
-  const { meta, kpi, phases, teams } = model
-  ws.columns = [{ width: 34 }, { width: 14 }, { width: 14 }, { width: 14 }, { width: 12 }]
-  ws.getColumn(1).alignment = { vertical: 'middle' }
+  // 제목
+  ws.mergeCells('A2:L2')
+  setCell(ws.getCell('A2'), `${meta.projectName} ${meta.isoYear}년 ${meta.isoWeek}주차 공정보고`, { bg: PX.purple, color: PX.white, size: 18, bold: true })
+  ws.getRow(2).height = 30
+  // 메타
+  setCell(ws.getCell('A3'), '기준주', { bg: PX.purpleLight, color: PX.gray, size: 9, bold: true })
+  setCell(ws.getCell('B3'), meta.weekLabel, { size: 10 })
+  setCell(ws.getCell('E3'), '생성일', { bg: PX.purpleLight, color: PX.gray, size: 9, bold: true })
+  setCell(ws.getCell('F3'), meta.generatedAt, { size: 10 })
+  setCell(ws.getCell('I3'), '프로젝트', { bg: PX.purpleLight, color: PX.gray, size: 9, bold: true })
+  ws.mergeCells('J3:L3')
+  setCell(ws.getCell('J3'), meta.projectName, { size: 10 })
 
-  // ── 제목 ──
-  ws.mergeCells('A1:E1')
-  const title = ws.getCell('A1')
-  title.value = `${meta.projectName} — 현황 보고서`
-  title.font = { bold: true, size: 16, color: { argb: argb(C.ink) } }
-  title.alignment = { vertical: 'middle' }
-  ws.getRow(1).height = 26
-
-  ws.mergeCells('A2:E2')
-  const sub = ws.getCell('A2')
-  const period = meta.startDate || meta.endDate ? `기간 ${fmtFull(meta.startDate)} ~ ${fmtFull(meta.endDate)}   ·   ` : ''
-  sub.value = `${period}생성일 ${fmtFull(meta.today)}   ·   전체 작업 ${meta.totalLeaves}건`
-  sub.font = { size: 10, color: { argb: argb(C.inkSubtle) } }
-  if (meta.description) {
-    ws.mergeCells('A3:E3')
-    const desc = ws.getCell('A3')
-    desc.value = meta.description
-    desc.font = { size: 10, color: { argb: argb(C.inkMuted) }, italic: true }
-  }
-
-  let r = 5
-  // ── KPI ──
-  ws.getCell(`A${r}`).value = '전체 요약'
-  ws.getCell(`A${r}`).font = { bold: true, size: 12, color: { argb: argb(C.brand) } }
-  r += 1
-  const kpiCols = [
-    { label: '전체 실적', value: `${kpi.actual}%`, hex: C.brand },
-    { label: '전체 계획', value: `${kpi.planned}%`, hex: C.inkSubtle },
-    { label: '계획 대비 편차', value: `${kpi.variance > 0 ? '+' : ''}${kpi.variance}%p`, hex: kpi.variance >= 0 ? C.done : C.delayed },
-    { label: '지연 작업', value: `${kpi.delayedCount}건`, hex: C.delayed },
+  // ── 핵심 지표 ──
+  sectionBar(ws, 5, LAST, '▣ 핵심 지표')
+  const red = { bg: PX.redBg, color: PX.red }
+  const purp = { bg: PX.zebra, color: PX.ink }
+  const grn = { bg: PX.greenBg, color: PX.green }
+  type K = { label: string; value: ExcelJS.CellValue; sub: string; tone: { bg: string; color: string }; merge?: boolean }
+  const ks: K[] = [
+    { label: '프로젝트 진척', value: `${kpi.actual}%`, sub: `계획 ${kpi.planned}%`, tone: red },
+    { label: '계획-실적 격차', value: `${kpi.variance > 0 ? '+' : ''}${kpi.variance}%p`, sub: kpi.variance < 0 ? '미달' : '양호', tone: kpi.variance < 0 ? red : grn },
+    { label: '전체 작업', value: kpi.total, sub: `${meta.phaseCount}개 Phase`, tone: purp },
+    { label: '완료', value: kpi.done, sub: `${kpi.doneRatio}%`, tone: grn },
+    { label: '진행중', value: kpi.inProgress, sub: `${kpi.inProgressRatio}%`, tone: purp },
+    { label: '대기', value: kpi.notStarted, sub: '미착수', tone: purp },
+    { label: '보류', value: kpi.onHold, sub: 'on hold', tone: purp },
+    { label: '지연', value: kpi.delayed, sub: `${kpi.delayedRatio}%`, tone: red },
+    { label: '금주 완료', value: kpi.doneThisWeek, sub: `신규 ${kpi.doneThisWeek}`, tone: grn, merge: true },
   ]
-  kpiCols.forEach((k, i) => {
-    const labelCell = ws.getCell(r, i + 1)
-    headerCell(labelCell, k.label, 'center')
-    const valueCell = ws.getCell(r + 1, i + 1)
-    valueCell.value = k.value
-    valueCell.font = { bold: true, size: 14, color: { argb: argb(k.hex) } }
-    valueCell.alignment = { vertical: 'middle', horizontal: 'center' }
-    valueCell.border = BORDER
+  ks.forEach((k, i) => {
+    const col = i + 1
+    if (k.merge) { ws.mergeCells(6, col, 6, LAST); ws.mergeCells(7, col, 7, LAST); ws.mergeCells(8, col, 8, LAST) }
+    setCell(ws.getCell(6, col), k.label, { bg: k.tone.bg, color: PX.gray, size: 9, bold: true, align: 'center' })
+    setCell(ws.getCell(7, col), k.value, { bg: k.tone.bg, color: k.tone.color, size: 20, bold: true, align: 'center' })
+    setCell(ws.getCell(8, col), k.sub, { bg: k.tone.bg, color: k.tone.color, size: 9, align: 'center' })
   })
-  ws.getRow(r + 1).height = 24
-  r += 3
+  ws.getRow(7).height = 28
 
-  // ── Phase별 진척 ──
-  ws.getCell(`A${r}`).value = 'Phase별 진척'
-  ws.getCell(`A${r}`).font = { bold: true, size: 12, color: { argb: argb(C.brand) } }
-  r += 1
-  const phaseHeaderRow = r
-  ;['Phase', '계획', '실적', '편차', '상태'].forEach((h, i) =>
-    headerCell(ws.getCell(phaseHeaderRow, i + 1), h, i === 0 ? 'left' : i === 4 ? 'center' : 'right'),
-  )
-  r += 1
-  if (phases.length === 0) {
-    ws.mergeCells(r, 1, r, 5)
-    bodyCell(ws.getCell(r, 1), '표시할 Phase가 없습니다.', 'left')
-    r += 1
-  } else {
-    for (const p of phases) {
-      bodyCell(ws.getCell(r, 1), p.name, 'left')
-      const planned = ws.getCell(r, 2)
-      bodyCell(planned, p.plannedPct / 100, 'right'); planned.numFmt = '0%'
-      const actual = ws.getCell(r, 3)
-      bodyCell(actual, p.actualPct / 100, 'right'); actual.numFmt = '0%'; actual.font = { bold: true, color: { argb: argb(C.ink) }, size: 10 }
-      const variance = ws.getCell(r, 4)
-      bodyCell(variance, `${p.variance > 0 ? '+' : ''}${p.variance}%p`, 'right')
-      variance.font = { color: { argb: argb(p.variance >= 0 ? C.done : C.delayed) }, size: 10, bold: true }
-      const status = ws.getCell(r, 5)
-      bodyCell(status, STATUS_LABEL[p.status], 'center')
-      status.font = { color: { argb: argb(C.white) }, size: 9, bold: true }
-      fill(status, STATUS_LABEL[p.status] === '완료' ? C.done : p.status === 'delayed' ? C.delayed : p.status === 'in_progress' ? C.progress : C.pending)
-      r += 1
-    }
+  // ── 1) 공정 진도 현황 ──
+  sectionBar(ws, 10, LAST, '1) 공정 진도 현황')
+  ws.mergeCells('I11:L11')
+  headerRow(ws, 11, [{ t: '구분', align: 'left' }, { t: '항목', align: 'left' }, { t: '점유율(%)' }, { t: '계획(%)' }, { t: '실적(%)' }, { t: '격차(%p)' }, { t: '완료/전체' }, { t: '지연' }, { t: '비고', align: 'left' }])
+  let r = 12
+  for (const p of model.phases) {
+    const zebra = r % 2 === 0 ? PX.zebra : PX.white
+    setCell(ws.getCell(r, 1), p.name, { bg: zebra })
+    setCell(ws.getCell(r, 2), p.name, { bg: zebra })
+    setCell(ws.getCell(r, 3), p.weightPct, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 4), p.plannedPct, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 5), p.actualPct, { bg: zebra, align: 'center' })
+    const gapTone = p.gap > 0 ? PX.red : p.gap < 0 ? PX.green : PX.ink
+    setCell(ws.getCell(r, 6), p.gap, { bg: zebra, color: gapTone, bold: p.gap !== 0, align: 'center' })
+    setCell(ws.getCell(r, 7), `${p.doneCount}/${p.totalCount}`, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 8), p.delayedCount, { bg: p.delayedCount > 0 ? PX.redBg : zebra, color: p.delayedCount > 0 ? PX.red : PX.ink, bold: p.delayedCount > 0, align: 'center' })
+    ws.mergeCells(r, 9, r, LAST)
+    setCell(ws.getCell(r, 9), asciiBar(p.actualPct), { bg: zebra, align: 'left' })
+    r++
   }
-  r += 1
+  // 합계
+  setCell(ws.getCell(r, 1), '합계', { bg: PX.purpleLight, bold: true })
+  setCell(ws.getCell(r, 2), '', { bg: PX.purpleLight })
+  setCell(ws.getCell(r, 3), 100, { bg: PX.purpleLight, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 4), kpi.planned, { bg: PX.purpleLight, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 5), kpi.actual, { bg: PX.purpleLight, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 6), kpi.planned - kpi.actual, { bg: PX.purpleLight, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 7), `${kpi.done}/${kpi.total}`, { bg: PX.purpleLight, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 8), kpi.delayed, { bg: PX.purpleLight, bold: true, align: 'center' })
+  ws.mergeCells(r, 9, r, LAST)
+  setCell(ws.getCell(r, 9), asciiBar(kpi.actual), { bg: PX.purpleLight, bold: true, align: 'left' })
+  r += 2
 
-  // ── 팀별 진척 ──
-  ws.getCell(`A${r}`).value = '팀별 진척'
-  ws.getCell(`A${r}`).font = { bold: true, size: 12, color: { argb: argb(C.brand) } }
-  r += 1
-  ;['팀', '담당 작업수', '평균 실적'].forEach((h, i) =>
-    headerCell(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'),
-  )
-  r += 1
-  for (const t of teams) {
-    const teamCell = ws.getCell(r, 1)
-    bodyCell(teamCell, t.team, 'left')
-    teamCell.font = { bold: true, color: { argb: argb(TEAM_COLOR[t.team]) }, size: 10 }
-    bodyCell(ws.getCell(r, 2), `${t.count}개`, 'right')
-    const pct = ws.getCell(r, 3)
-    if (t.pct == null) bodyCell(pct, '-', 'right')
-    else { bodyCell(pct, t.pct / 100, 'right'); pct.numFmt = '0%' }
-    r += 1
-  }
+  // ── 2) 공정 실적 및 계획 ──
+  sectionBar(ws, r, LAST, '2) 공정 실적 및 계획'); r++
+  ws.mergeCells(r, 1, r, 2); ws.mergeCells(r, 3, r, 4); ws.mergeCells(r, 5, r, 7)
+  setCell(ws.getCell(r, 1), '구분', { bg: PX.purple, color: PX.white, size: 11, bold: true })
+  setCell(ws.getCell(r, 3), '항목', { bg: PX.purple, color: PX.white, size: 11, bold: true })
+  setCell(ws.getCell(r, 5), '금주 실적', { bg: PX.purple, color: PX.white, size: 11, bold: true })
+  setCell(ws.getCell(r, 8), '계획', { bg: PX.purple, color: PX.white, size: 11, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 9), '실적', { bg: PX.purple, color: PX.white, size: 11, bold: true, align: 'center' })
+  r++
+  model.planActual.forEach((p, i) => {
+    const zebra = i % 2 === 1 ? PX.purpleLight : PX.zebra
+    ws.mergeCells(r, 1, r, 2); ws.mergeCells(r, 3, r, 4); ws.mergeCells(r, 5, r, 7)
+    setCell(ws.getCell(r, 1), p.phaseName, { bg: zebra, size: 9 })
+    setCell(ws.getCell(r, 3), p.phaseName, { bg: zebra, size: 9 })
+    const work = p.thisWeek.length ? p.thisWeek.map(t => `▸ ${t.name} (${t.ownerText})`).join('\n') : '(해당 없음)'
+    setCell(ws.getCell(r, 5), work, { bg: zebra, size: 9, wrap: true })
+    setCell(ws.getCell(r, 8), p.plannedPct, { bg: zebra, color: PX.ink, size: 10, bold: true, align: 'center' })
+    setCell(ws.getCell(r, 9), p.actualPct, { bg: zebra, color: p.actualPct < p.plannedPct ? PX.red : PX.ink, size: 10, bold: true, align: 'center' })
+    if (p.thisWeek.length > 1) ws.getRow(r).height = Math.min(14 * p.thisWeek.length + 6, 80)
+    r++
+  })
+  r++
+
+  // ── 4) 담당자별 워크로드 ──
+  sectionBar(ws, r, LAST, '4) 담당자별 워크로드'); r++
+  headerRow(ws, r, [{ t: '#' }, { t: '담당자', align: 'left' }, { t: '월' }, { t: '화' }, { t: '수' }, { t: '목' }, { t: '금' }, { t: '합계' }, { t: '비고', align: 'left' }])
+  r++
+  model.workload.forEach((w, i) => {
+    const zebra = i % 2 === 1 ? PX.zebra : PX.white
+    setCell(ws.getCell(r, 1), i + 1, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 2), w.name, { bg: zebra })
+    w.perDay.forEach((v, d) => setCell(ws.getCell(r, 3 + d), v, { bg: PX.workload, color: PX.ink, bold: true, align: 'center' }))
+    setCell(ws.getCell(r, 8), w.total, { bg: zebra, bold: true, align: 'center' })
+    setCell(ws.getCell(r, 9), w.note, { bg: zebra })
+    r++
+  })
+  r++
+
+  // ── 5) 이슈 / 리스크 ──
+  sectionBar(ws, r, LAST, '5) 이슈 / 리스크'); r++
+  ws.mergeCells(r, 3, r, 7); ws.mergeCells(r, 8, r, LAST)
+  setCell(ws.getCell(r, 1), '#', { bg: PX.purple, color: PX.white, size: 10, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 2), '등급', { bg: PX.purple, color: PX.white, size: 10, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 3), '내용', { bg: PX.purple, color: PX.white, size: 10, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 8), '대응방안', { bg: PX.purple, color: PX.white, size: 10, bold: true, align: 'center' })
+  r++
+  model.issues.forEach((it, i) => {
+    const tone = it.grade === '높음' ? { bg: PX.redBg, color: PX.red } : it.grade === '중간' ? { bg: PX.amberBg, color: PX.amber } : { bg: PX.greenBg, color: PX.green }
+    setCell(ws.getCell(r, 1), i + 1, { align: 'center' })
+    setCell(ws.getCell(r, 2), it.grade, { bg: tone.bg, color: tone.color, bold: true, align: 'center' })
+    ws.mergeCells(r, 3, r, 7); ws.mergeCells(r, 8, r, LAST)
+    setCell(ws.getCell(r, 3), it.content)
+    setCell(ws.getCell(r, 8), it.action)
+    r++
+  })
 }
 
-function buildDelayedSheet(ws: Worksheet, model: ReportModel) {
-  const { delayed } = model
-  ws.columns = [{ width: 40 }, { width: 22 }, { width: 16 }, { width: 12 }]
+/* ════════════════════ 시트 2: WBS ════════════════════ */
+function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
+  ws.columns = [
+    { width: 5 }, { width: 9 }, { width: 42 }, { width: 18 }, { width: 12 }, { width: 8 }, { width: 12 }, { width: 12 },
+    { width: 8 }, { width: 12 }, { width: 12 }, { width: 8 }, { width: 9 }, { width: 7 }, { width: 16 }, { width: 9 },
+  ]
+  ws.mergeCells('A1:P1')
+  setCell(ws.getCell('A1'), `${model.meta.projectName} WBS`, { bg: PX.purple, color: PX.white, size: 15, bold: true })
+  ws.getRow(1).height = 26
+  ws.mergeCells('A2:F2'); ws.mergeCells('G2:O2')
+  setCell(ws.getCell('A2'), `기준주 ${model.meta.weekLabel}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
+  setCell(ws.getCell('G2'), `전체 ${model.kpi.total} · 완료 ${model.kpi.done} · 진행중 ${model.kpi.inProgress} · 지연 ${model.kpi.delayed}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
+  setCell(ws.getCell('P2'), `생성 ${model.meta.generatedAt}`, { bg: PX.phaseRow, color: PX.ink, size: 9, align: 'center' })
 
-  ws.mergeCells('A1:D1')
-  const title = ws.getCell('A1')
-  title.value = '지연 작업 목록'
-  title.font = { bold: true, size: 14, color: { argb: argb(C.ink) } }
-  ws.getRow(1).height = 22
+  headerRow(ws, 3, [
+    { t: 'No' }, { t: 'Lv' }, { t: '작업명', align: 'left' }, { t: '산출물', align: 'left' }, { t: '담당자', align: 'left' }, { t: '가중치' },
+    { t: '계획시작' }, { t: '계획종료' }, { t: '계획(%)' }, { t: '실적시작' }, { t: '실적종료' }, { t: '실적(%)' }, { t: '격차(%p)' }, { t: '지연일' }, { t: '선행작업', align: 'left' }, { t: '상태' },
+  ])
+  let r = 4
+  for (const row of model.wbs) {
+    const bg = row.level === 'phase' ? PX.phaseRow : row.level === 'task' ? PX.actRow : r % 2 === 0 ? PX.zebra : PX.white
+    const bold = row.level === 'phase' || row.level === 'task'
+    setCell(ws.getCell(r, 1), row.no, { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 2), row.levelLabel, { bg, bold })
+    setCell(ws.getCell(r, 3), `${'  '.repeat(row.depth)}${row.name}`, { bg, bold })
+    setCell(ws.getCell(r, 4), row.deliverable, { bg, bold })
+    setCell(ws.getCell(r, 5), row.ownerText, { bg, bold })
+    setCell(ws.getCell(r, 6), row.weight ?? '', { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 7), fmtD(row.plannedStart), { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 8), fmtD(row.plannedEnd), { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 9), row.plannedPct, { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 10), '', { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 11), '', { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 12), row.actualPct, { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 13), row.gap, { bg, color: row.gap > 0 ? PX.red : row.gap < 0 ? PX.green : PX.ink, bold, align: 'center' })
+    setCell(ws.getCell(r, 14), row.delayDays || '', { bg, color: row.delayDays > 0 ? PX.red : PX.ink, bold, align: 'center' })
+    setCell(ws.getCell(r, 15), '', { bg, bold })
+    setCell(ws.getCell(r, 16), statusKr(row.status), { bg, bold, align: 'center' })
+    r++
+  }
+  ws.views = [{ state: 'frozen', ySplit: 3 }]
+}
 
-  const headerRow = 3
-  ;['작업명', '담당', '종료일', '실적'].forEach((h, i) =>
-    headerCell(ws.getCell(headerRow, i + 1), h, i === 0 || i === 1 ? 'left' : 'right'),
-  )
-  let r = headerRow + 1
-  if (delayed.length === 0) {
-    ws.mergeCells(r, 1, r, 4)
-    const none = ws.getCell(r, 1)
-    bodyCell(none, '현재 지연된 작업이 없습니다.', 'left')
-    none.font = { color: { argb: argb(C.done) }, size: 10, bold: true }
+/* ════════════════════ 시트 3: 프로그램 개발현황 ════════════════════ */
+function buildDevSheet(ws: Worksheet, model: WeeklyReportModel) {
+  ws.columns = [
+    { width: 5 }, { width: 18 }, { width: 18 }, { width: 34 }, { width: 16 }, { width: 12 }, { width: 8 },
+    { width: 12 }, { width: 12 }, { width: 8 }, { width: 12 }, { width: 8 }, { width: 8 }, { width: 9 }, { width: 22 },
+  ]
+  const LAST = 15
+  const { kpi } = model
+  ws.mergeCells('A1:O1')
+  setCell(ws.getCell('A1'), `${model.meta.projectName} 프로그램 개발현황`, { bg: PX.purple, color: PX.white, size: 15, bold: true })
+  ws.getRow(1).height = 26
+  ws.mergeCells('A2:C2'); ws.mergeCells('I2:N2')
+  setCell(ws.getCell('A2'), `전체 ${kpi.total}`, { bg: PX.phaseRow, color: PX.ink, size: 9, bold: true })
+  setCell(ws.getCell('D2'), `진행중 ${kpi.inProgress}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
+  setCell(ws.getCell('E2'), `대기 ${kpi.notStarted}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
+  setCell(ws.getCell('F2'), `보류 ${kpi.onHold}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
+  setCell(ws.getCell('G2'), `지연 ${kpi.delayed}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
+  setCell(ws.getCell('H2'), `완료 ${kpi.done}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
+  setCell(ws.getCell('O2'), `생성 ${model.meta.generatedAt}`, { bg: PX.phaseRow, color: PX.ink, size: 9, align: 'center' })
+  ws.mergeCells('A3:O3')
+  setCell(ws.getCell('A3'), model.devOwnerSummary, { bg: PX.purpleLight, color: PX.ink, size: 9 })
+
+  headerRow(ws, 4, [
+    { t: 'No' }, { t: 'Phase', align: 'left' }, { t: 'Activity', align: 'left' }, { t: '작업명', align: 'left' }, { t: '산출물', align: 'left' }, { t: '담당자', align: 'left' }, { t: '가중치' },
+    { t: '계획시작' }, { t: '계획종료' }, { t: '계획(%)' }, { t: '실적시작' }, { t: '실적(%)' }, { t: '지연일' }, { t: '상태' }, { t: '비고', align: 'left' },
+  ])
+  let r = 5
+  if (model.dev.length === 0) {
+    ws.mergeCells(r, 1, r, LAST)
+    setCell(ws.getCell(r, 1), '미완료 작업이 없습니다 — 전체 완료', { bg: PX.greenBg, color: PX.green, bold: true, align: 'center' })
     return
   }
-  for (const d of delayed) {
-    bodyCell(ws.getCell(r, 1), d.name, 'left')
-    bodyCell(ws.getCell(r, 2), ownersText(d.owners), 'left')
-    const end = ws.getCell(r, 3)
-    bodyCell(end, fmtDate(d.plannedEnd), 'right')
-    end.font = { color: { argb: argb(C.delayed) }, size: 10 }
-    const actual = ws.getCell(r, 4)
-    bodyCell(actual, d.actualPct / 100, 'right'); actual.numFmt = '0%'; actual.font = { bold: true, color: { argb: argb(C.ink) }, size: 10 }
-    r += 1
+  for (const d of model.dev) {
+    const zebra = r % 2 === 0 ? PX.zebra : PX.white
+    setCell(ws.getCell(r, 1), d.no, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 2), d.phaseName, { bg: zebra })
+    setCell(ws.getCell(r, 3), d.parentName, { bg: zebra })
+    setCell(ws.getCell(r, 4), d.name, { bg: zebra })
+    setCell(ws.getCell(r, 5), d.deliverable, { bg: zebra })
+    setCell(ws.getCell(r, 6), d.ownerText, { bg: zebra })
+    setCell(ws.getCell(r, 7), d.weight ?? '', { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 8), fmtD(d.plannedStart), { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 9), fmtD(d.plannedEnd), { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 10), d.plannedPct, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 11), '', { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 12), d.actualPct, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 13), d.delayDays || '', { bg: d.delayDays > 0 ? PX.redBg : zebra, color: d.delayDays > 0 ? PX.red : PX.ink, bold: d.delayDays > 0, align: 'center' })
+    setCell(ws.getCell(r, 14), statusKr(d.status), { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 15), d.note, { bg: zebra, color: d.note ? PX.red : PX.ink })
+    r++
   }
+  ws.views = [{ state: 'frozen', ySplit: 4 }]
 }
 
-/** 현황 보고서 모델 → 스타일 적용 xlsx 버퍼. */
-export async function buildReportWorkbook(model: ReportModel): Promise<ArrayBuffer> {
+/** 주간 공정보고 모델 → 동국씨엠 보라 3시트 xlsx 버퍼. */
+export async function buildReportWorkbook(model: WeeklyReportModel): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook()
   wb.creator = "D'Flow"
   wb.created = new Date(model.meta.today + 'T00:00:00Z')
 
-  buildSummarySheet(wb.addWorksheet('현황요약', { views: [{ showGridLines: false }] }), model)
-  buildDelayedSheet(wb.addWorksheet('지연작업', { views: [{ showGridLines: false }] }), model)
+  buildProcessSheet(wb.addWorksheet('1.공정보고', { views: [{ showGridLines: false }] }), model)
+  buildWbsSheet(wb.addWorksheet('2.WBS', { views: [{ showGridLines: false }] }), model)
+  buildDevSheet(wb.addWorksheet('3.프로그램개발현황', { views: [{ showGridLines: false }] }), model)
 
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer
 }
