@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { RotateCcw, X, Send, Sparkles, CalendarDays } from 'lucide-react'
-import { BearMascot } from './BearMascot'
+import { RobotMascot } from './RobotMascot'
 import { QUICK_SUGGESTIONS } from '@/lib/ai/intent'
 
 type Role = 'user' | 'assistant'
@@ -184,7 +184,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
           className="fixed bottom-5 right-5 z-[120] flex h-16 w-16 items-center justify-center rounded-full text-white ring-1 ring-white/10 transition hover:scale-105 active:scale-95"
           style={{ backgroundImage: 'var(--gradient-dark)', boxShadow: 'var(--shadow-lg)' }}
         >
-          <BearMascot className="h-11 w-11" />
+          <RobotMascot className="h-11 w-11" />
           {ctx && ctx.weekStartCount > 0 && (
             <span className="absolute right-1 top-1 h-3 w-3 rounded-full border-2 border-[#13161c] bg-brand" />
           )}
@@ -202,7 +202,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
           {/* 헤더 */}
           <header className="flex items-center gap-3 px-4 py-3.5 text-white" style={{ backgroundImage: 'var(--gradient-dark)' }}>
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15">
-              <BearMascot className="h-8 w-8" />
+              <RobotMascot className="h-8 w-8" />
             </span>
             <div className="min-w-0 flex-1">
               <div className="text-[15px] font-bold leading-tight">DK Bot</div>
