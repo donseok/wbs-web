@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
+import { Maximize2, Minimize2 } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
@@ -90,6 +91,7 @@ export function WbsGanttSheet({
   const [dayPx, setDayPx] = useState(24)
   const [showDetails, setShowDetails] = useState(false)
   const [timelineFocus, setTimelineFocus] = useState(defaultView === 'timeline')
+  const [fullscreen, setFullscreen] = useState(false) // 팝업(전체화면 모달)로 크게 보기
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
@@ -107,6 +109,18 @@ export function WbsGanttSheet({
     const t = setTimeout(() => setToast(null), 2600)
     return () => clearTimeout(t)
   }, [toast])
+
+  // 전체화면 팝업: Escape 로 닫기 + 배경 스크롤 잠금.
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false) }
+    document.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = ''
+    }
+  }, [fullscreen])
 
   const toggle = (id: string) =>
     setCollapsed(s => {
@@ -314,7 +328,14 @@ export function WbsGanttSheet({
 
   return (
     <div
-      className="relative w-full min-w-0 max-w-full"
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[125] overflow-auto app-backdrop px-3 py-3 sm:px-6 sm:py-5'
+          : 'relative w-full min-w-0 max-w-full'
+      }
+      role={fullscreen ? 'dialog' : undefined}
+      aria-modal={fullscreen || undefined}
+      aria-label={fullscreen ? 'WBS 전체화면 보기' : undefined}
       style={
         {
           '--wbs-row-h': '40px',
@@ -345,6 +366,9 @@ export function WbsGanttSheet({
         </button>
         <button onClick={() => setTimelineFocus(value => !value)} aria-pressed={timelineFocus} className={`btn h-9 px-3 text-xs ${timelineFocus ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           <Icon name="calendar" className="h-3.5 w-3.5" /> {timelineFocus ? '시트 편집' : '타임라인 집중'}
+        </button>
+        <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? '전체화면 닫기 (Esc)' : '전체화면으로 크게 보기'} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
+          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? '작게 보기' : '크게 보기'}
         </button>
         {!timelineFocus && (
           <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
@@ -395,7 +419,7 @@ export function WbsGanttSheet({
       )}
 
       {/* ── 단일 스크롤 컨테이너 ── */}
-      <div className="card w-full max-w-full overflow-auto" style={{ maxHeight: 'max(440px, calc(100dvh - 390px))' }}>
+      <div className="card w-full max-w-full overflow-auto" style={{ maxHeight: fullscreen ? 'calc(100dvh - 150px)' : 'max(440px, calc(100dvh - 390px))' }}>
         <div className="relative" style={{ width: LEFT_W + ganttW }}>
           {/* 배경 격자 + 주말/공휴일 (행 뒤) */}
           <div
