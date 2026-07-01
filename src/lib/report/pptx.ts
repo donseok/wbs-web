@@ -5,6 +5,7 @@ import { PN, PN_STATUS } from './dkbrand'
 import type { Status } from '@/lib/domain/types'
 
 const FONT = 'Malgun Gothic' // KR 엔터프라이즈 호환(미설치 시 PowerPoint가 대체)
+const COMPANY = '동국씨엠' // 보고 주체 회사명 — 표지 레터헤드 + 각 본문 슬라이드 헤더에 표기
 const W = 10
 const H = 5.625
 const MX = 0.6
@@ -22,7 +23,11 @@ function baseSlide(pptx: PptxGenJS, model: WeeklyReportModel, subtitle: string, 
   slide.background = { color: PN.surface }
   slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: W, h: HEADER_H, fill: { color: PN.navy }, line: { type: 'none' } })
   slide.addText(model.meta.projectName, {
-    x: MX, y: 0.16, w: W - MX * 2, h: 0.42, fontFace: FONT, fontSize: titleSize, color: PN.white, bold: true, valign: 'middle',
+    x: MX, y: 0.16, w: W - MX * 2 - 1.8, h: 0.42, fontFace: FONT, fontSize: titleSize, color: PN.white, bold: true, valign: 'middle',
+  })
+  // 헤더 우측 회사명 표기(각 본문 슬라이드 공통)
+  slide.addText(COMPANY, {
+    x: W - MX - 1.8, y: 0.16, w: 1.8, h: 0.42, fontFace: FONT, fontSize: 11, color: PN.subtle, bold: true, align: 'right', valign: 'middle',
   })
   slide.addText(subtitle, {
     x: MX, y: 0.58, w: W - MX * 2, h: 0.3, fontFace: FONT, fontSize: 10, color: PN.subtle, valign: 'middle',
@@ -50,6 +55,9 @@ function coverSlide(pptx: PptxGenJS, model: WeeklyReportModel) {
   // 상·하단 얇은 강조 바
   slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: W, h: 0.16, fill: { color: PN.navy2 }, line: { type: 'none' } })
   slide.addShape(pptx.ShapeType.rect, { x: 0, y: H - 0.16, w: W, h: 0.16, fill: { color: PN.navy2 }, line: { type: 'none' } })
+
+  // 상단 회사 레터헤드
+  slide.addText(COMPANY, { x: MX, y: 0.5, w: 6, h: 0.42, fontFace: FONT, fontSize: 17, color: PN.white, bold: true, charSpacing: 1 })
 
   // 좌측 세로 강조선
   slide.addShape(pptx.ShapeType.rect, { x: MX, y: 1.95, w: 0.08, h: 1.72, fill: { color: PN.white }, line: { type: 'none' } })
