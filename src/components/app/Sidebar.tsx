@@ -8,6 +8,7 @@ import {
   ListTree, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import type { DictKey } from '@/lib/i18n/dict'
 
 export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'done'; baseDate?: string | null }
 
@@ -17,14 +18,14 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
   done: { dot: 'bg-sky-400', label: '완료' },
 }
 
-function projectMenu(base: string): { href: string; label: string; icon: LucideIcon; match: string }[] {
+function projectMenu(base: string): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
   return [
-    { href: `${base}/dashboard`, label: '대시보드', icon: LayoutDashboard, match: `${base}/dashboard` },
-    { href: `${base}/wbs`, label: 'WBS · 간트', icon: ListTree, match: `${base}/wbs` },
-    { href: `${base}/kanban`, label: '칸반 보드', icon: Columns3, match: `${base}/kanban` },
-    { href: `${base}/members`, label: '멤버', icon: Users, match: `${base}/members` },
-    { href: `${base}/attendance`, label: '근태현황', icon: CalendarCheck, match: `${base}/attendance` },
-    { href: `${base}/settings`, label: '설정', icon: Settings, match: `${base}/settings` },
+    { href: `${base}/dashboard`, labelKey: 'nav.dashboard', icon: LayoutDashboard, match: `${base}/dashboard` },
+    { href: `${base}/wbs`, labelKey: 'nav.wbsGantt', icon: ListTree, match: `${base}/wbs` },
+    { href: `${base}/kanban`, labelKey: 'nav.kanban', icon: Columns3, match: `${base}/kanban` },
+    { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
+    { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
+    { href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` },
   ]
 }
 
@@ -125,10 +126,11 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
               projectMenu(`/p/${activeId}`).map(item => {
                 const active = pathname === item.match || pathname.startsWith(item.match + '/')
                 const ItemIcon = item.icon
+                const label = t(item.labelKey)
                 return (
-                  <Link key={item.label} href={item.href} aria-current={active ? 'page' : undefined} title={item.label} className={`side-link ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+                  <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} title={label} className={`side-link ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
                     <ItemIcon className="h-[18px] w-[18px] shrink-0" />
-                    {!collapsed && <span className="flex-1">{item.label}</span>}
+                    {!collapsed && <span className="flex-1">{label}</span>}
                   </Link>
                 )
               })

@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM } from '@/components/wbs/shared'
 import { addMember, updateMember, removeMember } from '@/app/actions/members'
+import { isValidEmail } from '@/lib/domain/validate'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 
 const TEAM_META: Record<TeamCode, { chip: string; avatar: string }> = {
@@ -17,6 +18,23 @@ const TEAM_META: Record<TeamCode, { chip: string; avatar: string }> = {
 }
 
 const TEAM_OPTIONS: TeamCode[] = ['PMO', 'DT', 'ERP', 'MES']
+
+// 아바타 그라디언트 팔레트(디자인 토큰 재사용). 멤버 id 해시로 결정적 배정 —
+// 이름·이니셜이 같은(예: '테스트사용자'/'테스트QA' → 둘 다 '테스') 멤버도 색으로 구분된다.
+// 소속 팀은 카드 하단 칩으로 별도 표시하므로 팀 정보가 사라지지 않는다.
+const AVATAR_GRADIENTS = [
+  'from-team-pmo to-brand',
+  'from-team-dt to-brand',
+  'from-team-erp to-accent-secondary',
+  'from-team-mes to-brand',
+  'from-brand to-brand-hover',
+  'from-accent-secondary to-brand',
+]
+function avatarGradient(seed: string): string {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0
+  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length]
+}
 
 function roleMeta(role: ProjectMemberRole) {
   return role === 'admin'
@@ -119,7 +137,7 @@ function MemberCard({
 }) {
   const role = roleMeta(member.role)
   const RoleIcon = role.Icon
-  const avatar = member.teamCode ? TEAM_META[member.teamCode].avatar : 'from-brand to-brand-hover'
+  const avatar = avatarGradient(member.id)
 
   return (
     <div className="group flex h-full flex-col gap-4 rounded-2xl border border-line bg-surface p-5 transition duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[var(--shadow-md)]">
@@ -218,9 +236,15 @@ function MemberFormModal({
       setError('이름을 입력하세요.')
       return
     }
+    const trimmedEmail = email.trim()
+    // 이메일은 선택 필드 — 입력이 있을 때만 형식 검증(서버에서도 재검증하므로 이건 UX용).
+    if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+      setError('올바른 이메일 형식이 아닙니다. (예: name@company.com)')
+      return
+    }
     const input = {
       name: name.trim(),
-      email: email.trim() || null,
+      email: trimmedEmail || null,
       teamCode: teamCode || null,
       role,
       title: title.trim() || null,

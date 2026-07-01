@@ -96,7 +96,7 @@ export function RowDetailPanel({
   const doDelete = () => run(() => deleteWbsItem(item.id), () => onClose())
 
   return (
-    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label={`${item.name} 상세`}>
+    <div className="fixed inset-0 z-[110]" role="dialog" aria-modal="true" aria-label={`${item.name} 상세`}>
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} aria-hidden />
       <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-surface shadow-[var(--shadow-xl)] animate-[slidein_.18s_ease-out]">
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
@@ -139,7 +139,7 @@ export function RowDetailPanel({
               <section className="grid grid-cols-3 gap-2">
                 <Stat label="계획%" value={`${item.plannedPct}%`} />
                 <Stat label="실적%" value={`${item.rolledActualPct}%`} />
-                <Stat label="달성율" value={item.achievement == null ? '—' : `${item.achievement}%`} />
+                <Stat label="계획대비" value={item.achievement == null ? '—' : `${item.achievement}%`} />
               </section>
               <div className="flex items-center gap-2"><span className="text-xs text-ink-subtle">상태</span><StatusChip status={item.status} /></div>
               <Field icon={User} label="담당">

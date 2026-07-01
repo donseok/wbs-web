@@ -188,15 +188,16 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
 function MobileMenu({
   projects, pathname, onClose, roleLabel, membership,
 }: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; membership: Membership | null }) {
+  const { t } = useLocale()
   const activeId = pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null
   const links = activeId
     ? [
-        { href: `/p/${activeId}/dashboard`, label: '대시보드' },
-        { href: `/p/${activeId}/wbs`, label: 'WBS · 간트' },
-        { href: `/p/${activeId}/kanban`, label: '칸반 보드' },
-        { href: `/p/${activeId}/members`, label: '멤버' },
-        { href: `/p/${activeId}/attendance`, label: '근태현황' },
-        { href: `/p/${activeId}/settings`, label: '설정' },
+        { href: `/p/${activeId}/dashboard`, label: t('nav.dashboard') },
+        { href: `/p/${activeId}/wbs`, label: t('nav.wbsGantt') },
+        { href: `/p/${activeId}/kanban`, label: t('nav.kanban') },
+        { href: `/p/${activeId}/members`, label: t('nav.members') },
+        { href: `/p/${activeId}/attendance`, label: t('nav.attendance') },
+        { href: `/p/${activeId}/settings`, label: t('nav.settings') },
       ]
     : []
   return (
@@ -208,7 +209,7 @@ function MobileMenu({
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted"><X className="h-4 w-4" /></button>
         </div>
         <nav className="mt-6 space-y-1">
-          <Link href="/projects" onClick={onClose} className={`side-link ${pathname === '/projects' ? 'side-link-active' : ''}`}>전체 프로젝트</Link>
+          <Link href="/projects" onClick={onClose} className={`side-link ${pathname === '/projects' ? 'side-link-active' : ''}`}>{t('nav.allProjects')}</Link>
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>
           {projects.map(p => (
             <Link key={p.id} onClick={onClose} href={`/p/${p.id}/dashboard`} className={`side-link ${pathname.startsWith(`/p/${p.id}`) ? 'side-link-active' : ''}`}>

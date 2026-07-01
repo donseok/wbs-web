@@ -2,6 +2,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
+import { isValidEmail } from '@/lib/domain/validate'
 import type { ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 
 export interface MemberInput {
@@ -28,6 +29,7 @@ async function resolveTeamId(sb: ServerClient, teamCode: TeamCode | null): Promi
 export async function addMember(projectId: string, input: MemberInput): Promise<MemberActionResult> {
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
   const sb = await createServerClient()
   const teamId = await resolveTeamId(sb, input.teamCode)
   const { error } = await sb.from('project_members').insert({
@@ -46,6 +48,7 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
 export async function updateMember(memberId: string, input: MemberInput): Promise<MemberActionResult> {
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
   const sb = await createServerClient()
   const teamId = await resolveTeamId(sb, input.teamCode)
   const { data, error } = await sb

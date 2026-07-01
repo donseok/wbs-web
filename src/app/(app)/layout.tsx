@@ -31,7 +31,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar projects={projectLinks} />
       <div className="flex min-w-0 flex-1 flex-col">
         <HeaderChrome membership={m} projects={projectLinks} />
-        <main id="main-content" className="mx-auto w-full max-w-[1680px] flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-7">{children}</main>
+        {/* pb-24: 우하단 고정 DK Bot FAB(64px)를 피하도록 하단 여백 확보 — 콘텐츠가 위젯에 가리지 않게 */}
+        <main id="main-content" className="mx-auto w-full max-w-[1680px] flex-1 px-3 pt-4 pb-24 sm:px-5 sm:pt-6 lg:px-7">{children}</main>
       </div>
       <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />
     </div>

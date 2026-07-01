@@ -29,7 +29,7 @@ function isoToDate(iso: string | null): Date | '' {
 export function buildWbsAoa(items: ComputedItem[], projectName = 'WBS'): unknown[][] {
   const header1 = [projectName]
   const header2 = ['', 'Phase', 'Task', 'Activity', '', '', '담당', '', '', '', '', '산출물', '계획', '']
-  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'DT', 'ERP', 'MES', '', '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '달성율', '상태']
+  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'DT', 'ERP', 'MES', '', '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
 
   const rows: unknown[][] = [header1, header2, header3]
   for (const it of flatten(items)) {

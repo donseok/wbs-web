@@ -31,7 +31,7 @@ function dkbotBadge(s: IndexStatus): { label: string; cls: string } {
     case 'stale':
       return { label: '재색인 필요 (WBS 변경 감지)', cls: 'bg-pending-weak text-pending' }
     case 'schema_missing':
-      return { label: 'pgvector 마이그레이션 필요 (0010)', cls: 'bg-delayed-weak text-delayed' }
+      return { label: 'AI 검색 준비 중', cls: 'bg-delayed-weak text-delayed' }
     case 'disabled':
       return { label: 'AI 키 미설정 · 결정형 답변 동작', cls: 'bg-pending-weak text-pending' }
     case 'empty':
@@ -191,8 +191,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
           위 배지에 <span className="font-medium text-pending">재색인 필요</span>가 표시될 때 수동으로 재생성하세요.
           <br />
           <span className="text-ink-subtle">
-            GEMINI_API_KEY 미설정 시 색인은 건너뛰며, 봇은 구조화 질의 기반 결정형 답변으로 동작합니다.
-            “pgvector 마이그레이션 필요”가 보이면 <code className="text-ink-muted">docs/dkbot.md</code>의 0010 적용을 먼저 진행하세요.
+            AI 검색이 준비되지 않은 상태에서도 DK Bot은 구조화된 데이터로 정확히 답변하며, 준비가 완료되면 의미검색이 자동으로 활성화됩니다.
           </span>
         </p>
       </SectionCard>

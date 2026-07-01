@@ -438,7 +438,7 @@ export function WbsGanttSheet({
             {showCol('weight') && headCell(COLS[9], '가중치', 'justify-end')}
             {showCol('pplan') && headCell(COLS[10], '계획%', 'justify-end')}
             {showCol('pactual') && headCell(COLS[11], '실적%', 'justify-end')}
-            {showCol('achieve') && headCell(COLS[12], '달성율', 'justify-center')}
+            {showCol('achieve') && headCell(COLS[12], '계획대비', 'justify-center')}
             {/* 간트 헤더 (월/주/일 3단) */}
             <div
               className="relative box-border h-[var(--wbs-head-h)] shrink-0 border-b-2 border-grid-strong bg-sheet-head"
