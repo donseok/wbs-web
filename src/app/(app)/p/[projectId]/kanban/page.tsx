@@ -31,11 +31,11 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
         eyebrow="KANBAN BOARD"
         title={`${name} 칸반 보드`}
         description="작업을 Phase·담당자·상태별로 한눈에 관리하세요."
-        aside={
+        heroKpis={
           <>
-            <KpiCard label="전체 작업" value={total} sub="말단 작업 카드" icon={ListChecks} />
-            <KpiCard label="진행중" value={inProgress} sub={`전체 ${total}건 중`} icon={Activity} tone="brand" />
-            <KpiCard label="전체 진척률" value={`${overall}%`} sub="Phase 평균 실적" icon={Gauge} tone="success" />
+            <KpiCard variant="hero" label="전체 작업" value={total} sub="말단 작업 카드" icon={ListChecks} />
+            <KpiCard variant="hero" label="진행중" value={inProgress} sub={`전체 ${total}건 중`} icon={Activity} tone="brand" />
+            <KpiCard variant="hero" label="전체 진척률" value={`${overall}%`} sub="Phase 평균 실적" icon={Gauge} tone="success" />
           </>
         }
       />
