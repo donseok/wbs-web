@@ -29,11 +29,11 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
         badge={<HeroBadge>Members</HeroBadge>}
         title={`${projectName} 팀 구성`}
         description="참여자를 역할과 소속이 명확한 팀 보드로 정리했습니다."
-        aside={
+        heroKpis={
           <>
-            <KpiCard label="TEAM SIZE" value={teamSize} sub="전체 참여자" icon={Users} tone="brand" />
-            <KpiCard label="ADMINS" value={admins} sub="프로젝트 관리자" icon={ShieldCheck} tone="success" />
-            <KpiCard label="CONTRIBUTORS" value={contributors} sub="실무 기여자" icon={UserRound} tone="default" />
+            <KpiCard variant="hero" label="TEAM SIZE" value={teamSize} sub="전체 참여자" icon={Users} tone="brand" />
+            <KpiCard variant="hero" label="ADMINS" value={admins} sub="프로젝트 관리자" icon={ShieldCheck} tone="success" />
+            <KpiCard variant="hero" label="CONTRIBUTORS" value={contributors} sub="실무 기여자" icon={UserRound} tone="default" />
           </>
         }
       />
