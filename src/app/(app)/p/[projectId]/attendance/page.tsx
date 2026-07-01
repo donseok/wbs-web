@@ -24,11 +24,11 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
         badge={<HeroBadge>Attendance</HeroBadge>}
         title="근태현황"
         description="프로젝트 멤버의 출결 상태를 캘린더와 리스트로 한눈에 확인하세요."
-        aside={
+        heroKpis={
           <>
-            <KpiCard label="TOTAL RECORDS" value={s.total} sub="전체 근태 기록" icon={CalendarCheck} />
-            <KpiCard label="LEAVE DAYS" value={s.leave} sub="연차·반차·병가" icon={CalendarOff} tone="brand" />
-            <KpiCard label="BUSINESS TRIP" value={s.trip} sub="출장 일정" icon={PlaneTakeoff} tone="warning" />
+            <KpiCard variant="hero" label="TOTAL RECORDS" value={s.total} sub="전체 근태 기록" icon={CalendarCheck} />
+            <KpiCard variant="hero" label="LEAVE DAYS" value={s.leave} sub="연차·반차·병가" icon={CalendarOff} tone="brand" />
+            <KpiCard variant="hero" label="BUSINESS TRIP" value={s.trip} sub="출장 일정" icon={PlaneTakeoff} tone="warning" />
           </>
         }
       />

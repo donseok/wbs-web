@@ -75,16 +75,18 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         badge={<HeroBadge>Smart Utility</HeroBadge>}
         title={`${project?.name ?? '프로젝트'} 설정`}
         description="프로젝트 메타 정보와 데이터 관리를 한곳에서 조정합니다."
-        aside={
+        heroKpis={
           <>
-            <KpiCard label="TASKS" value={taskCount} sub="등록된 리프 작업" icon={ListTree} tone="brand" />
+            <KpiCard variant="hero" label="TASKS" value={taskCount} sub="등록된 리프 작업" icon={ListTree} tone="brand" />
             <KpiCard
+              variant="hero"
               label="BASE DATE"
               value={project?.base_date ? fmtDate(project.base_date) : '자동'}
               sub={project?.base_date ? '공정율 기준일(수동)' : '공정율 기준일(오늘)'}
               icon={CalendarDays}
             />
             <KpiCard
+              variant="hero"
               label="SCHEDULE"
               value={<span className="text-[15px] font-bold tabular-nums">{scheduleLabel}</span>}
               sub="프로젝트 일정"
