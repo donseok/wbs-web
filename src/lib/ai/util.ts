@@ -31,10 +31,10 @@ const TRANSIENT_STATUS = new Set([502, 503, 504])
  */
 export async function fetchWithRetry(
   make: (signal: AbortSignal) => Promise<Response>,
-  { retries = 1, baseMs = 700 }: { retries?: number; baseMs?: number } = {},
+  { retries = 1, baseMs = 700, timeoutMs }: { retries?: number; baseMs?: number; timeoutMs?: number } = {},
 ): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
-    const res = await withTimeout(make)
+    const res = await withTimeout(make, timeoutMs)
     if (res.ok || !TRANSIENT_STATUS.has(res.status) || attempt >= retries) return res
     await sleep(baseMs * 2 ** attempt)
   }

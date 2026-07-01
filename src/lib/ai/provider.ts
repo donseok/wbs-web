@@ -31,10 +31,11 @@ export function llmConfig(): LlmConfig {
     provider: 'gemini',
     apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
     baseUrl: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
-    // gemini-2.5-flash = 현행 무료 티어 지원 모델. 구(舊) gemini-2.0-flash 는 무료 쿼터가
-    // limit:0 으로 회수돼(2026 기준) 매 호출 429 → LLM 답변이 항상 결정형으로 폴백되던 버그의 원인.
-    // (gemini-flash-latest / gemini-flash-lite-latest 도 무료 티어 가능. GEMINI_MODEL 로 오버라이드)
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    // gemini-3.5-flash = 현행 최신 안정판(2026-05 출시) + 무료 티어 지원(2026-07-02 실 키로 200 확인).
+    // 구 기본값 gemini-2.5-flash 는 2026-10-16 셧다운 확정(공식 deprecations) — 오버라이드로도 잔류 금지.
+    // gemini-2.0-flash 는 2026-06-01 완전 종료, Pro 계열(2.5-pro/3.x-pro)은 무료 쿼터 0(매 호출 429).
+    // (gemini-flash-latest 별칭도 현재 3.5-flash 를 가리킴. GEMINI_MODEL 로 오버라이드)
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
   }
 }
 

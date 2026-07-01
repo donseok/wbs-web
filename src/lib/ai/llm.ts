@@ -7,7 +7,7 @@ export interface ChatMessage {
 }
 
 interface GeminiResp {
-  candidates?: { content?: { parts?: { text?: string }[] } }[]
+  candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
 }
 interface OpenAIResp {
   choices?: { message?: { content?: string } }[]
@@ -30,6 +30,29 @@ export async function generateAnswer(system: string, messages: ChatMessage[]): P
   }
 }
 
+/**
+ * 모델 세대별 generationConfig.
+ * - Gemini 3.x(및 -latest 별칭): temperature/topP 를 보내지 않는다 — 공식 마이그레이션 가이드가
+ *   제거를 명시(1.0 미만이면 루핑·품질 저하 경고). thinking 은 thinkingLevel 로만 제어
+ *   (thinkingBudget 과 혼용 시 오류). RAG 근거 요약엔 심층 추론이 불필요해 low 로 고정.
+ * - Gemini 2.x Flash 계열: thinkingLevel 미지원(400) → thinkingBudget:0 으로 thinking 차단.
+ *   단 2.5 Pro 는 thinking 비활성화 자체가 불가(0 을 보내면 400) → thinkingConfig 미첨부.
+ * - gemma 등 비-gemini 모델: thinkingConfig 미지원(400) → 미첨부.
+ * - maxOutputTokens 는 thinking 토큰과의 '합산 상한'으로 동작한다. 1200 이던 시절 thinking 이
+ *   예산을 소진해 답변이 MAX_TOKENS 로 잘리는 것을 실측 확인(2.5/3.5 공통) → 4096 으로 여유.
+ */
+function geminiGenerationConfig(model: string): Record<string, unknown> {
+  if (/^gemini-2\./.test(model)) {
+    const cfg: Record<string, unknown> = { temperature: 0.3, topP: 0.9, maxOutputTokens: 4096 }
+    if (!model.includes('pro')) cfg.thinkingConfig = { thinkingBudget: 0 }
+    return cfg
+  }
+  if (/^gemini-/.test(model)) {
+    return { maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: 'low' } }
+  }
+  return { temperature: 0.3, topP: 0.9, maxOutputTokens: 4096 }
+}
+
 async function geminiChat(cfg: LlmConfig, system: string, messages: ChatMessage[]): Promise<string | null> {
   const url = `${cfg.baseUrl}/models/${cfg.model}:generateContent`
   const body = {
@@ -38,20 +61,28 @@ async function geminiChat(cfg: LlmConfig, system: string, messages: ChatMessage[
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     })),
-    generationConfig: { temperature: 0.3, topP: 0.9, maxOutputTokens: 1200 },
+    generationConfig: geminiGenerationConfig(cfg.model),
   }
-  const res = await fetchWithRetry(signal =>
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey! },
-      body: JSON.stringify(body),
-      signal,
-    }),
+  // 비스트리밍은 전체 생성이 끝나야 응답이 오므로, maxOutputTokens 4096 완주를 감안해 타임아웃 상향.
+  // (스트리밍 경로는 헤더 수신 시점에 타이머가 풀려 기본 25초로 충분)
+  const res = await fetchWithRetry(
+    signal =>
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey! },
+        body: JSON.stringify(body),
+        signal,
+      }),
+    { timeoutMs: 50_000 },
   )
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`)
   const json = (await res.json()) as GeminiResp
-  const parts = json.candidates?.[0]?.content?.parts ?? []
+  const cand = json.candidates?.[0]
+  const parts = cand?.content?.parts ?? []
   const text = parts.map(p => p.text ?? '').join('').trim()
+  // 답변 없이 MAX_TOKENS 면 thinking 이 출력 예산을 소진한 것 — 조용한 '항상 폴백' 회귀의 조기 신호.
+  if (!text && cand?.finishReason === 'MAX_TOKENS')
+    console.warn(`[dkbot] ${cfg.model} 답변이 MAX_TOKENS 로 비어 있음 — thinking 예산 잠식 의심`)
   return text || null
 }
 
@@ -105,7 +136,7 @@ async function* geminiStream(cfg: LlmConfig, system: string, messages: ChatMessa
   const body = {
     system_instruction: { parts: [{ text: system }] },
     contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-    generationConfig: { temperature: 0.3, topP: 0.9, maxOutputTokens: 1200 },
+    generationConfig: geminiGenerationConfig(cfg.model),
   }
   const res = await fetchWithRetry(signal =>
     fetch(url, {
@@ -119,6 +150,7 @@ async function* geminiStream(cfg: LlmConfig, system: string, messages: ChatMessa
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let yielded = false
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -130,7 +162,13 @@ async function* geminiStream(cfg: LlmConfig, system: string, messages: ChatMessa
       try {
         const j = JSON.parse(p) as GeminiResp
         const t = (j.candidates?.[0]?.content?.parts ?? []).map(x => x.text ?? '').join('')
-        if (t) yield t
+        if (t) {
+          yielded = true
+          yield t
+        }
+        // 텍스트를 한 글자도 못 내고 MAX_TOKENS 종료 = thinking 예산 잠식 신호(geminiChat 과 동일).
+        if (!yielded && j.candidates?.[0]?.finishReason === 'MAX_TOKENS')
+          console.warn(`[dkbot] ${cfg.model} 스트림이 MAX_TOKENS 로 빈 채 종료 — thinking 예산 잠식 의심`)
       } catch {
         /* 부분 JSON — 무시 */
       }

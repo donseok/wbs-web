@@ -75,7 +75,10 @@ GEMINI_API_KEY=...
 
 ## 모델
 
-- LLM: `gemini-2.0-flash`(기본, `GEMINI_MODEL`로 변경). 스트리밍 지원.
+- LLM: `gemini-3.5-flash`(기본, `GEMINI_MODEL`로 변경). 스트리밍 지원. 2.x 세대는
+  `thinkingBudget:0`, 3.x 세대는 `thinkingLevel:'low'`로 thinking 을 억제한다(세대별 자동 분기).
+  ⚠ `gemini-2.5-flash` 는 2026-10-16 셧다운, `gemini-2.0-flash` 는 이미 종료, Pro 계열은
+  무료 쿼터 0(429) — `GEMINI_MODEL` 오버라이드로도 지정하지 말 것.
 - 임베딩: `gemini-embedding-001`(기본). 기본 3072차원을 `outputDimensionality=768`로 축소해
   `vector(768)` 컬럼에 맞춤(pgvector HNSW 인덱스는 2000차원 이하만 지원). `embedContent`(단건)
   을 제한 동시성으로 호출(이 모델은 동기 `batchEmbedContents` 미지원).
