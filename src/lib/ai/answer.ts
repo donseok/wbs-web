@@ -1,6 +1,7 @@
 import { classifyIntent, needsSemantic, isCrossProject } from './intent'
 import { gatherKnowledge } from './knowledge'
 import { retrieveContext, type Match } from './retrieve'
+import { ensureProjectIndexed } from './ensure-index'
 import { generateAnswer, generateAnswerStream, type ChatMessage } from './llm'
 import { hasLLM } from './provider'
 
@@ -21,10 +22,12 @@ const SYSTEM = `너는 'DK Bot', 프로젝트 관리 도구 D'Flow 의 AI 어시
 사용자의 프로젝트·작업(WBS) 데이터에 대해 한국어로 친근하고 간결하게 답한다.
 
 규칙:
-- 아래 [데이터]에 있는 사실과 숫자만 근거로 답한다. [데이터]에 없는 내용은 모른다고 말하고 추측하지 않는다.
+- 아래 [데이터]에 있는 사실과 숫자만 근거로 답한다. [데이터]에 없는 내용만 모른다고 말한다.
+- [데이터]에는 프로젝트 현황 요약과 '전체 작업 목록'(담당·상태·기간·진행률·산출물·업무)이 들어 있다.
+  사용자가 특정 작업/담당자/일정/진행률을 물으면 이 목록에서 해당 항목을 찾아 구체적으로 답한다.
 - 작업 수·공정률·지연일 등 숫자는 [데이터]의 값을 그대로 사용한다. 임의로 만들지 않는다.
-- 핵심부터 말하고, 항목이 여러 개면 간단한 불릿(•)으로 정리한다.
-- 군더더기 없이 필요한 만큼만. 과한 인사·사과는 생략한다.`
+- 관련 항목이 여러 개면 해당되는 것을 모두 불릿(•)으로 정리한다. 담당자·날짜·진행률 등 핵심 수치를 함께 제시한다.
+- 핵심부터 말하고, 군더더기 없이 필요한 만큼만. 과한 인사·사과는 생략한다.`
 
 export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> {
   const message = input.message.trim()
@@ -34,6 +37,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   let matches: Match[] = []
   if (needsSemantic(intent)) {
     const scope = isCrossProject(intent) ? null : knowledge.scopeProjectId
+    await ensureProjectIndexed(scope) // 색인이 비어 있으면 이 질문에서 자동 채움(자가 치유)
     matches = await retrieveContext(message, scope, 8)
   }
 
@@ -44,7 +48,7 @@ export async function answerQuestion(input: AnswerInput): Promise<AnswerResult> 
   }))
 
   if (hasLLM()) {
-    const system = `${SYSTEM}\n\n[데이터]\n${buildDataBlock(knowledge.text, matches)}`
+    const system = `${SYSTEM}\n\n[데이터]\n${buildDataBlock(knowledge.facts, matches)}`
     const llm = await generateAnswer(system, [...trimHistory(input.history), { role: 'user', content: message }])
     if (llm) return { answer: llm, intent, usedLLM: true, sources }
   }
@@ -83,14 +87,16 @@ export async function streamAnswer(input: AnswerInput): Promise<ReadableStream<U
 
   let matches: Match[] = []
   if (needsSemantic(intent)) {
-    matches = await retrieveContext(message, isCrossProject(intent) ? null : knowledge.scopeProjectId, 8)
+    const scope = isCrossProject(intent) ? null : knowledge.scopeProjectId
+    await ensureProjectIndexed(scope) // 색인이 비어 있으면 이 질문에서 자동 채움(자가 치유)
+    matches = await retrieveContext(message, scope, 8)
   }
 
   const enc = new TextEncoder()
   const fallback = () => deterministicAnswer(knowledge.text, matches, intent)
 
   if (hasLLM()) {
-    const system = `${SYSTEM}\n\n[데이터]\n${buildDataBlock(knowledge.text, matches)}`
+    const system = `${SYSTEM}\n\n[데이터]\n${buildDataBlock(knowledge.facts, matches)}`
     const iter = await generateAnswerStream(system, [...trimHistory(input.history), { role: 'user', content: message }])
     if (iter) {
       return new ReadableStream<Uint8Array>({

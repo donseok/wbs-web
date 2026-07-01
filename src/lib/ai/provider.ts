@@ -31,7 +31,10 @@ export function llmConfig(): LlmConfig {
     provider: 'gemini',
     apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
     baseUrl: process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
-    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+    // gemini-2.5-flash = 현행 무료 티어 지원 모델. 구(舊) gemini-2.0-flash 는 무료 쿼터가
+    // limit:0 으로 회수돼(2026 기준) 매 호출 429 → LLM 답변이 항상 결정형으로 폴백되던 버그의 원인.
+    // (gemini-flash-latest / gemini-flash-lite-latest 도 무료 티어 가능. GEMINI_MODEL 로 오버라이드)
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   }
 }
 

@@ -277,6 +277,35 @@ export function answerOverview(summaries: ProjectSummary[], excludedCount = 0): 
   return lines.join('\n')
 }
 
+/**
+ * 자유질문(freeform) LLM 근거용 — 프로젝트의 모든 리프 작업을 한 줄씩 압축한 팩트시트.
+ * 의미검색(RAG) 재현율에 의존하지 않고 "누가 X 담당?", "X 언제 끝나?", "MES 진행률" 같은
+ * 구체 질문에 LLM 이 직접 답할 수 있게 전체 사실을 컨텍스트로 넣는다. 소규모 WBS 라 토큰상 안전하나,
+ * 초대형 프로젝트를 대비해 상한(max)을 둔다(초과분은 명시 표기 → 조용한 누락 방지).
+ */
+export function buildFactSheet(a: ProjectAnalysis, max = 160): string {
+  const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s)
+  const line = (l: LeafCtx): string => {
+    const n = l.node
+    const seg = [
+      `[${l.phaseName}] ${n.name}`,
+      `담당 ${ownersText(n.owners)}`,
+      `상태 ${STATUS_KO[n.status]}`,
+      `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)}`,
+      `실적 ${n.rolledActualPct}%/계획 ${n.plannedPct}%`,
+    ]
+    if (n.deliverable) seg.push(`산출물 ${clip(n.deliverable, 40)}`)
+    if (n.biz) seg.push(`업무 ${clip(n.biz, 60)}`)
+    return `- ${seg.join(' · ')}`
+  }
+  const rows = a.leaves.map(line)
+  const shown = rows.length <= max ? rows : rows.slice(0, max)
+  const header = `"${a.name}" 전체 작업 목록 (${a.taskCount}건, ${statusBreakdown(a.statusCount)}):`
+  const body = [header, ...shown]
+  if (rows.length > max) body.push(`…외 ${rows.length - max}건 더(구체 항목은 프로젝트에서 확인)`)
+  return body.join('\n')
+}
+
 /* ── 임베딩용 문서 빌더 ── */
 
 export interface EmbedDoc {

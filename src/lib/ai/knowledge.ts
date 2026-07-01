@@ -14,6 +14,7 @@ import {
   answerByTeam,
   answerWeeklySummary,
   answerOverview,
+  buildFactSheet,
   type ProjectAnalysis,
   type ProjectSummary,
 } from './analytics'
@@ -59,7 +60,10 @@ async function allProjectSummaries(): Promise<{ summaries: ProjectSummary[]; exc
 }
 
 export interface Knowledge {
+  /** 사용자에게 그대로 보여줄 결정형 답변(LLM 미설정/실패 시 폴백). 간결하게 유지. */
   text: string
+  /** LLM 근거용 사실 블록. 탐색형 질문(freeform/project_status)엔 전체 작업 팩트시트를 더해 준다. */
+  facts: string
   scopeProjectId: string | null
 }
 
@@ -68,28 +72,33 @@ export async function gatherKnowledge(intent: ChatIntent, projectId: string | nu
   // 전사 의도이거나 현재 선택된 프로젝트가 없으면 전체 프로젝트 요약을 컨텍스트로.
   if (intent === 'overview' || !projectId) {
     const { summaries, excludedCount } = await allProjectSummaries()
-    return { text: answerOverview(summaries, excludedCount), scopeProjectId: null }
+    const text = answerOverview(summaries, excludedCount)
+    return { text, facts: text, scopeProjectId: null }
   }
 
   const { analysis, members } = await loadProjectAnalysis(projectId)
+  const only = (text: string): Knowledge => ({ text, facts: text, scopeProjectId: projectId })
   switch (intent) {
     case 'delayed':
-      return { text: answerDelayed(analysis), scopeProjectId: projectId }
+      return only(answerDelayed(analysis))
     case 'completed':
-      return { text: answerCompleted(analysis), scopeProjectId: projectId }
+      return only(answerCompleted(analysis))
     case 'this_week':
-      return { text: answerThisWeek(analysis), scopeProjectId: projectId }
+      return only(answerThisWeek(analysis))
     case 'this_week_start':
-      return { text: answerThisWeekStart(analysis), scopeProjectId: projectId }
+      return only(answerThisWeekStart(analysis))
     case 'by_team':
-      return { text: answerByTeam(analysis, members), scopeProjectId: projectId }
+      return only(answerByTeam(analysis, members))
     case 'weekly_summary':
-      return { text: answerWeeklySummary(analysis), scopeProjectId: projectId }
+      return only(answerWeeklySummary(analysis))
     case 'project_status':
     case 'freeform':
-    default:
-      // freeform 은 의미검색이 디테일을 보강하고, 여기선 프로젝트 스냅샷을 기본 사실로 제공.
-      return { text: answerProjectStatus(analysis), scopeProjectId: projectId }
+    default: {
+      // 탐색형: 사용자 폴백은 간결한 스냅샷, LLM 근거엔 전체 작업 팩트시트를 더해
+      // 구체 질문(담당/일정/진행률 등)에 정확히 답하게 한다. 의미검색이 산출물/업무 상세를 추가 보강.
+      const text = answerProjectStatus(analysis)
+      return { text, facts: `${text}\n\n${buildFactSheet(analysis)}`, scopeProjectId: projectId }
+    }
   }
 }
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('@/lib/ai/provider', () => ({ hasLLM: vi.fn() }))
 vi.mock('@/lib/ai/knowledge', () => ({ gatherKnowledge: vi.fn() }))
 vi.mock('@/lib/ai/retrieve', () => ({ retrieveContext: vi.fn() }))
+vi.mock('@/lib/ai/ensure-index', () => ({ ensureProjectIndexed: vi.fn() }))
 vi.mock('@/lib/ai/llm', () => ({ generateAnswer: vi.fn(), generateAnswerStream: vi.fn() }))
 
 import { hasLLM } from '@/lib/ai/provider'
@@ -32,7 +33,7 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<string> {
 describe('answerQuestion — LLM ↔ 결정형 폴백', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mGather.mockResolvedValue({ text: 'KNOWLEDGE', scopeProjectId: 'p1' })
+    mGather.mockResolvedValue({ text: 'KNOWLEDGE', facts: 'KNOWLEDGE', scopeProjectId: 'p1' })
     mRetrieve.mockResolvedValue([])
   })
 
@@ -65,7 +66,7 @@ describe('answerQuestion — LLM ↔ 결정형 폴백', () => {
 describe('streamAnswer — 스트리밍', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mGather.mockResolvedValue({ text: 'KNOWLEDGE', scopeProjectId: 'p1' })
+    mGather.mockResolvedValue({ text: 'KNOWLEDGE', facts: 'KNOWLEDGE', scopeProjectId: 'p1' })
     mRetrieve.mockResolvedValue([])
   })
 

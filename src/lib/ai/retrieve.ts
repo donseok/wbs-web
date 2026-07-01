@@ -25,7 +25,9 @@ interface RawMatch {
 // 실데이터로 튜닝하려면 DKBOT_MIN_SIMILARITY(0~1) 로 덮어쓸 수 있다.
 const MIN_SIMILARITY = (() => {
   const v = Number(process.env.DKBOT_MIN_SIMILARITY)
-  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.55
+  // 0.35 기본값: gemini-embedding-001(코사인)로 짧은 한국어 질의는 관련 항목이라도 0.4~0.6 대에
+  // 분포해 0.55 는 과하게 걸러 '관련 작업 없음'이 잦았다. 실데이터로 DKBOT_MIN_SIMILARITY 로 튜닝.
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.35
 })()
 
 /**
