@@ -29,6 +29,10 @@ const COLS: Col[] = [
 const W = (k: string) => COLS.find(c => c.key === k)!.w
 /* 타임라인 집중 모드에서 보이는 컬럼(나머지 수치/상세 열은 숨겨 간트 폭을 확보) */
 const TIMELINE_COLS = new Set(['no', 'level', 'name', 'owners', 'status'])
+/* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
+   과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
+   주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
+const ROW_H = 40
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -221,7 +225,7 @@ export function WbsGanttSheet({
     })
   }
   const todayX = days.length && today >= rangeStart && today <= rangeEnd ? xOf(today) + dayPx / 2 : null
-  const rowsH = flatRows.length * 36
+  const rowsH = flatRows.length * ROW_H
 
   /* ── 편집 (WbsSheet 이식) ── */
   const isPmo = membership?.role === 'pmo_admin'
@@ -338,7 +342,7 @@ export function WbsGanttSheet({
       aria-label={fullscreen ? 'WBS 전체화면 보기' : undefined}
       style={
         {
-          '--wbs-row-h': '40px',
+          '--wbs-row-h': `${ROW_H}px`,
           '--wbs-head-h': '58px',
           '--wbs-left-w': `${LEFT_W}px`,
           '--gantt-day': `${dayPx}px`,
