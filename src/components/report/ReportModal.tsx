@@ -29,7 +29,7 @@ function fmtFull(d?: string | null): string {
 }
 
 /**
- * 현황 보고서 모달 — 인쇄/PDF 및 Excel·PPT 다운로드 가능한 보고서 본문.
+ * 주간 보고서 모달 — 인쇄/PDF 및 Excel·PPT 다운로드 가능한 보고서 본문.
  * 본문은 `.print-area`로 감싸 @media print에서 이 영역만 출력된다.
  * 다운로드/인쇄/닫기 버튼은 `.no-print`로 인쇄 시 숨김.
  * 화면·Excel·PPT는 buildReportModel 단일 모델을 공유한다.
@@ -91,11 +91,11 @@ export function ReportModal({
   )
 
   return (
-    <Modal open={open} onClose={onClose} eyebrow="Status report" title="현황 보고서" size="lg" footer={footer}>
+    <Modal open={open} onClose={onClose} eyebrow="Weekly report" title="주간 보고서" size="lg" footer={footer}>
       <div className="print-area space-y-6">
         {/* ── 보고서 헤더 ── */}
         <header className="card overflow-hidden p-6">
-          <div className="eyebrow">현황 보고서 · Status Report</div>
+          <div className="eyebrow">주간 보고서 · Weekly Report</div>
           <h1 className="mt-2 text-2xl font-bold tracking-tight text-ink">{meta.projectName}</h1>
           {meta.description && (
             <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-muted">{meta.description}</p>

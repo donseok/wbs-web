@@ -41,10 +41,39 @@ function bar(pptx: PptxGenJS, slide: Slide, x: number, y: number, w: number, pct
   if (p > 0) slide.addShape(pptx.ShapeType.roundRect, { x, y, w: Math.max((w * p) / 100, h), h, fill: { color }, line: { type: 'none' }, rectRadius: r })
 }
 
-/* ── S1: 요약 ── */
+/* ── 표지(1페이지) — 풀 네이비 겉표지. 헤더바·페이지번호 없이 제목/기간/작성일만. ── */
+function coverSlide(pptx: PptxGenJS, model: WeeklyReportModel) {
+  const { meta } = model
+  const slide = pptx.addSlide()
+  slide.background = { color: PN.navy }
+
+  // 상·하단 얇은 강조 바
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: W, h: 0.16, fill: { color: PN.navy2 }, line: { type: 'none' } })
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: H - 0.16, w: W, h: 0.16, fill: { color: PN.navy2 }, line: { type: 'none' } })
+
+  // 좌측 세로 강조선
+  slide.addShape(pptx.ShapeType.rect, { x: MX, y: 1.95, w: 0.08, h: 1.72, fill: { color: PN.white }, line: { type: 'none' } })
+
+  // eyebrow + 리포트 유형
+  slide.addText('WEEKLY REPORT', { x: MX + 0.28, y: 1.95, w: W - MX * 2, h: 0.3, fontFace: FONT, fontSize: 12, color: PN.subtle, bold: true, charSpacing: 3 })
+  slide.addText('주간 보고서', { x: MX + 0.26, y: 2.3, w: W - MX * 2, h: 0.4, fontFace: FONT, fontSize: 15, color: PN.line, bold: true })
+
+  // 프로젝트명(대형)
+  slide.addText(meta.projectName, { x: MX + 0.26, y: 2.78, w: W - MX * 2 - 0.26, h: 1.0, fontFace: FONT, fontSize: 30, color: PN.white, bold: true, valign: 'top' })
+
+  // 대상 주차(기간)
+  slide.addText(meta.weekLabel, { x: MX + 0.28, y: 3.8, w: W - MX * 2, h: 0.35, fontFace: FONT, fontSize: 14, color: PN.subtle })
+
+  // 하단: 작성 기준일(좌) / 브랜드(우)
+  slide.addShape(pptx.ShapeType.line, { x: MX, y: 4.92, w: W - MX * 2, h: 0, line: { color: PN.navy2, width: 1 } })
+  slide.addText(`작성 기준일 · ${meta.generatedAt}`, { x: MX, y: 5.05, w: 6, h: 0.3, fontFace: FONT, fontSize: 10, color: PN.subtle, valign: 'middle' })
+  slide.addText("D'Flow", { x: W - MX - 3, y: 5.05, w: 3, h: 0.3, fontFace: FONT, fontSize: 12, color: PN.white, bold: true, align: 'right', valign: 'middle' })
+}
+
+/* ── S2: 요약 ── */
 function summarySlide(pptx: PptxGenJS, model: WeeklyReportModel, totalPages: number) {
   const { meta, kpi } = model
-  const slide = baseSlide(pptx, model, `주간보고 · ${meta.weekLabel} · ${meta.generatedAt} 기준`, 1, totalPages, 20)
+  const slide = baseSlide(pptx, model, `주간보고 · ${meta.weekLabel} · ${meta.generatedAt} 기준`, 2, totalPages, 20)
 
   // KPI 4 타일
   const tiles = [
@@ -214,11 +243,12 @@ export async function buildReportDeck(model: WeeklyReportModel): Promise<Buffer>
   pptx.title = `${model.meta.projectName} 주간보고`
 
   const detailPages = detailPageCount(model)
-  const totalPages = 1 + detailPages + 1
+  const totalPages = 1 + 1 + detailPages + 1 // 표지 + 요약 + 상세 + 근태
 
-  summarySlide(pptx, model, totalPages)
-  detailSlides(pptx, model, totalPages, 2)
-  attendanceSlide(pptx, model, totalPages)
+  coverSlide(pptx, model) // 1페이지: 겉표지(페이지번호 없음)
+  summarySlide(pptx, model, totalPages) // 2페이지
+  detailSlides(pptx, model, totalPages, 3) // 3페이지~
+  attendanceSlide(pptx, model, totalPages) // 마지막
 
   return (await pptx.write({ outputType: 'nodebuffer' })) as Buffer
 }
