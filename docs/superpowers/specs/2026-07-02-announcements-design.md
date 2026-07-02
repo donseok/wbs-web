@@ -46,7 +46,7 @@ create table if not exists announcement_seen (
 
 **RLS** (같은 파일에 포함, 0004_ops_rls.sql 패턴):
 
-- `announcements`: SELECT는 authenticated 전원 `using (true)`; 쓰기 전체는 `current_role() = 'pmo_admin'` (0002의 기존 헬퍼 재사용, 재정의 금지).
+- `announcements`: SELECT는 authenticated 전원 `using (true)`; 쓰기 전체는 `app_role() = 'pmo_admin'`. (레포 0002/0004 파일에는 `current_role()`로 적혀 있으나 PG 예약어라 적용 불가 — 프로덕션 실배포 헬퍼는 `public.app_role()`, 2026-07-02 확인.)
 - `announcement_seen`: 본인 행만 — `for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())`. 이 앱 최초의 per-user RLS이지만 표준 형태.
 
 **읽음 워터마크 선택 이유**: 공지별 read 행(N×M) 대신 워터마크 1행이면 안읽음 수 = `created_at > last_seen_at`인 공지 수로 충분. "누가 읽었나" 수신 확인이 필요해지면 그때 per-item 테이블로 확장(§9).

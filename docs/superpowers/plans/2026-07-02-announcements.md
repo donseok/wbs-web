@@ -18,7 +18,7 @@
 - 페이지 `params`는 `Promise<{ projectId: string }>` — 반드시 await.
 - 서버 액션: `getMembership()` 게이트(null='로그인 필요', 비admin='권한 없음'), `{ ok: boolean; error?: string }` 반환, throw 금지, 성공 시 `revalidatePath`.
 - Supabase는 `createServerClient()`(RLS 적용)만 사용. `createAdminClient` 금지.
-- RLS 헬퍼 `current_role()`은 0002에 이미 배포됨 — 재정의 금지, `current_role() = 'pmo_admin'` 형태 그대로 호출.
+- RLS 헬퍼: 프로덕션 실배포 함수는 `public.app_role()` (레포 0002/0004 파일의 `current_role()`은 PG 예약어라 실제로는 적용 불가 — 드리프트). 0012는 `app_role() = 'pmo_admin'` 사용.
 - 검증은 `npm run build` / `npm run lint` / `npm test` (브라우저로 dev 서버 접근 불가).
 - 테스트는 순수 도메인 함수만 (vitest node env, jsdom 없음 — 컴포넌트 테스트 금지).
 - Modal z-[150], 토스트 z-[200] — 새 z-index 레이어 도입 금지.
