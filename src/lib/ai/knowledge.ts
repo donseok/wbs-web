@@ -15,10 +15,11 @@ import {
   answerWeeklySummary,
   answerOverview,
   buildFactSheet,
+  keywordMatchLines,
   type ProjectAnalysis,
   type ProjectSummary,
 } from './analytics'
-import type { ChatIntent } from './intent'
+import { extractSearchKeywords, type ChatIntent } from './intent'
 import type { ProjectMember } from '@/lib/domain/types'
 
 export const getProjectName = cache(async (projectId: string): Promise<string> => {
@@ -65,10 +66,17 @@ export interface Knowledge {
   /** LLM 근거용 사실 블록. 탐색형 질문(freeform/project_status)엔 전체 작업 팩트시트를 더해 준다. */
   facts: string
   scopeProjectId: string | null
+  /**
+   * "X 가 들어간 항목" 류 검색 질문에서 추출한 키워드와 정확 일치 작업 목록(팩트시트 형식).
+   * total=0 도 의미 있는 정보(해당 키워드 없음 → LLM/결정형 답변이 환각 없이 '없음'을 답함).
+   * freeform + 키워드 감지 + 프로젝트 스코프일 때만 채워진다.
+   */
+  keywordHits?: { keywords: string[]; total: number; lines: string[] }
 }
 
-/** 의도 + 프로젝트 컨텍스트 → 구조화 사실/답변 문장(LLM 근거 또는 결정형 답변). */
-export async function gatherKnowledge(intent: ChatIntent, projectId: string | null): Promise<Knowledge> {
+/** 의도 + 프로젝트 컨텍스트 → 구조화 사실/답변 문장(LLM 근거 또는 결정형 답변).
+ *  message 는 freeform 키워드 검색 감지에만 쓰인다(생략 시 감지 안 함). */
+export async function gatherKnowledge(intent: ChatIntent, projectId: string | null, message = ''): Promise<Knowledge> {
   // 전사 의도이거나 현재 선택된 프로젝트가 없으면 전체 프로젝트 요약을 컨텍스트로.
   if (intent === 'overview' || !projectId) {
     const { summaries, excludedCount } = await allProjectSummaries()
@@ -97,7 +105,14 @@ export async function gatherKnowledge(intent: ChatIntent, projectId: string | nu
       // 탐색형: 사용자 폴백은 간결한 스냅샷, LLM 근거엔 전체 작업 팩트시트를 더해
       // 구체 질문(담당/일정/진행률 등)에 정확히 답하게 한다. 의미검색이 산출물/업무 상세를 추가 보강.
       const text = answerProjectStatus(analysis)
-      return { text, facts: `${text}\n\n${buildFactSheet(analysis)}`, scopeProjectId: projectId }
+      const keywords = intent === 'freeform' ? extractSearchKeywords(message) : []
+      const hits = keywords.length ? keywordMatchLines(analysis, keywords) : null
+      return {
+        text,
+        facts: `${text}\n\n${buildFactSheet(analysis)}`,
+        scopeProjectId: projectId,
+        keywordHits: hits ? { keywords, total: hits.total, lines: hits.lines } : undefined,
+      }
     }
   }
 }

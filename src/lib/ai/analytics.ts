@@ -277,6 +277,42 @@ export function answerOverview(summaries: ProjectSummary[], excludedCount = 0): 
   return lines.join('\n')
 }
 
+const clipText = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s)
+
+/** 팩트시트 한 줄 포맷 — 전체 목록(buildFactSheet)과 키워드 일치(keywordMatchLines) 공용. */
+function leafLine(l: LeafCtx): string {
+  const n = l.node
+  const seg = [
+    `[${l.phaseName}] ${n.name}`,
+    `담당 ${ownersText(n.owners)}`,
+    `상태 ${STATUS_KO[n.status]}`,
+    `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)}`,
+    `실적 ${n.rolledActualPct}%/계획 ${n.plannedPct}%`,
+  ]
+  if (n.deliverable) seg.push(`산출물 ${clipText(n.deliverable, 40)}`)
+  if (n.biz) seg.push(`업무 ${clipText(n.biz, 60)}`)
+  return `- ${seg.join(' · ')}`
+}
+
+/**
+ * 이름/단계명/업무/산출물에 키워드(부분 문자열, 대소문자 무시)가 포함된 리프 작업을
+ * 팩트시트 형식 줄로 반환. "X 가 들어간 항목" 류 검색 질문의 정확·완전한 근거가 된다
+ * (임베딩 의미검색은 정확 문자열 일치를 보장하지 못한다).
+ */
+export function keywordMatchLines(
+  a: ProjectAnalysis,
+  keywords: string[],
+  max = 30,
+): { total: number; lines: string[] } {
+  const kws = keywords.map(k => k.toLowerCase()).filter(Boolean)
+  if (!kws.length) return { total: 0, lines: [] }
+  const hit = a.leaves.filter(l => {
+    const hay = `${l.phaseName} ${l.node.name} ${l.node.biz ?? ''} ${l.node.deliverable ?? ''}`.toLowerCase()
+    return kws.some(k => hay.includes(k))
+  })
+  return { total: hit.length, lines: hit.slice(0, max).map(leafLine) }
+}
+
 /**
  * 자유질문(freeform) LLM 근거용 — 프로젝트의 모든 리프 작업을 한 줄씩 압축한 팩트시트.
  * 의미검색(RAG) 재현율에 의존하지 않고 "누가 X 담당?", "X 언제 끝나?", "MES 진행률" 같은
@@ -284,21 +320,7 @@ export function answerOverview(summaries: ProjectSummary[], excludedCount = 0): 
  * 초대형 프로젝트를 대비해 상한(max)을 둔다(초과분은 명시 표기 → 조용한 누락 방지).
  */
 export function buildFactSheet(a: ProjectAnalysis, max = 160): string {
-  const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s)
-  const line = (l: LeafCtx): string => {
-    const n = l.node
-    const seg = [
-      `[${l.phaseName}] ${n.name}`,
-      `담당 ${ownersText(n.owners)}`,
-      `상태 ${STATUS_KO[n.status]}`,
-      `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)}`,
-      `실적 ${n.rolledActualPct}%/계획 ${n.plannedPct}%`,
-    ]
-    if (n.deliverable) seg.push(`산출물 ${clip(n.deliverable, 40)}`)
-    if (n.biz) seg.push(`업무 ${clip(n.biz, 60)}`)
-    return `- ${seg.join(' · ')}`
-  }
-  const rows = a.leaves.map(line)
+  const rows = a.leaves.map(leafLine)
   const shown = rows.length <= max ? rows : rows.slice(0, max)
   const header = `"${a.name}" 전체 작업 목록 (${a.taskCount}건, ${statusBreakdown(a.statusCount)}):`
   const body = [header, ...shown]

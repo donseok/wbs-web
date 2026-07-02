@@ -31,6 +31,25 @@ export async function generateAnswer(system: string, messages: ChatMessage[]): P
 }
 
 /**
+ * 429(무료 쿼터)·5xx 로 주 모델이 답을 못 줄 때 순서대로 시도할 폴백 모델.
+ * 무료 티어 쿼터는 모델별로 별도 버킷이라, 주 모델(gemini-3.5-flash, RPM 20)이 분당 한도에
+ * 걸려도 아래 모델들은 여유가 있다(2026-07-02 실 키로 두 모델 모두 200 확인).
+ * - gemini-3.1-flash-lite: 3.x 세대(thinkingLevel 분기)
+ * - gemini-2.5-flash-lite: 2.x 세대(thinkingBudget:0 분기), 2026-10-16 이후 교체 필요
+ * GEMINI_FALLBACK_MODELS(콤마 구분)로 오버라이드, 빈 문자열이면 폴백 없음.
+ */
+const DEFAULT_GEMINI_FALLBACKS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite']
+
+function geminiModelChain(primary: string): string[] {
+  const raw = process.env.GEMINI_FALLBACK_MODELS
+  const fallbacks =
+    raw === undefined
+      ? DEFAULT_GEMINI_FALLBACKS
+      : raw.split(',').map(s => s.trim()).filter(Boolean)
+  return [primary, ...fallbacks.filter(m => m !== primary)]
+}
+
+/**
  * 모델 세대별 generationConfig.
  * - Gemini 3.x(및 -latest 별칭): temperature/topP 를 보내지 않는다 — 공식 마이그레이션 가이드가
  *   제거를 명시(1.0 미만이면 루핑·품질 저하 경고). thinking 은 thinkingLevel 로만 제어
@@ -53,7 +72,24 @@ function geminiGenerationConfig(model: string): Record<string, unknown> {
   return { temperature: 0.3, topP: 0.9, maxOutputTokens: 4096 }
 }
 
+/** 주 모델 실패(429/5xx/빈 답변) 시 폴백 체인을 순서대로 시도. 전부 실패해야 상위 폴백으로. */
 async function geminiChat(cfg: LlmConfig, system: string, messages: ChatMessage[]): Promise<string | null> {
+  let lastErr: unknown = null
+  for (const model of geminiModelChain(cfg.model)) {
+    try {
+      const text = await geminiChatOne({ ...cfg, model }, system, messages)
+      if (text) return text
+      console.warn(`[dkbot] ${model} 이 빈 답변 반환 → 다음 모델 시도`)
+    } catch (e) {
+      lastErr = e
+      console.warn(`[dkbot] ${model} 실패 → 다음 모델 시도:`, e instanceof Error ? e.message : e)
+    }
+  }
+  if (lastErr) throw lastErr // 체인 전체 실패 — 상위 catch 가 로그 후 결정형 폴백
+  return null
+}
+
+async function geminiChatOne(cfg: LlmConfig, system: string, messages: ChatMessage[]): Promise<string | null> {
   const url = `${cfg.baseUrl}/models/${cfg.model}:generateContent`
   const body = {
     system_instruction: { parts: [{ text: system }] },
@@ -131,7 +167,33 @@ export function drainSse(buffer: string): { payloads: string[]; rest: string } {
   return { payloads, rest }
 }
 
+/**
+ * 스트리밍에도 동일한 모델 폴백 체인 적용. 단, 이미 토큰을 내보낸 뒤의 실패는 모델을
+ * 갈아탈 수 없으므로(부분 답변 이어붙기 불가) 그대로 던져 상위의 중단 마커 처리에 맡긴다.
+ * 첫 토큰 전 실패(429/5xx)·빈 스트림만 다음 모델로 넘어간다.
+ */
 async function* geminiStream(cfg: LlmConfig, system: string, messages: ChatMessage[]): AsyncGenerator<string> {
+  let lastErr: unknown = null
+  for (const model of geminiModelChain(cfg.model)) {
+    let yielded = false
+    try {
+      for await (const chunk of geminiStreamOne({ ...cfg, model }, system, messages)) {
+        yielded = true
+        yield chunk
+      }
+      if (yielded) return
+      console.warn(`[dkbot] ${model} 스트림이 빈 답변으로 종료 → 다음 모델 시도`)
+    } catch (e) {
+      if (yielded) throw e
+      lastErr = e
+      console.warn(`[dkbot] ${model} 스트림 실패 → 다음 모델 시도:`, e instanceof Error ? e.message : e)
+    }
+  }
+  if (lastErr) throw lastErr // 전 모델 실패 — 상위(answer.ts)가 결정형 폴백
+  // 전 모델이 빈 답변으로 종료: 토큰 0개로 정상 종료 → 상위가 결정형 폴백
+}
+
+async function* geminiStreamOne(cfg: LlmConfig, system: string, messages: ChatMessage[]): AsyncGenerator<string> {
   const url = `${cfg.baseUrl}/models/${cfg.model}:streamGenerateContent?alt=sse`
   const body = {
     system_instruction: { parts: [{ text: system }] },
@@ -146,7 +208,8 @@ async function* geminiStream(cfg: LlmConfig, system: string, messages: ChatMessa
       signal,
     }),
   )
-  if (!res.ok || !res.body) throw new Error(`Gemini stream ${res.status}`)
+  if (!res.ok || !res.body)
+    throw new Error(`Gemini stream ${res.status}: ${res.ok ? '(no body)' : (await res.text()).slice(0, 300)}`)
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
