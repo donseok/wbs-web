@@ -5,6 +5,8 @@ import { overallProgress } from '@/lib/domain/rollup'
 import { getProjectMembers } from '@/lib/data/members'
 import { getAttendanceRecords } from '@/lib/data/attendance'
 import { listProjects } from '@/app/actions/project'
+import { t } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
@@ -16,6 +18,7 @@ const HERO_BTN =
 
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
+  const locale = await getServerLocale()
   const [{ items, today }, projects, members, attendance] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
@@ -39,13 +42,13 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
       <PageHero
         eyebrow="OPERATIONS"
         badge={<HeroBadge>Smart Utility</HeroBadge>}
-        title={`${project?.name ?? '프로젝트'} 운영 현황`}
+        title={`${project?.name ?? t(locale, 'dash.heroProjectFallback')}${t(locale, 'dash.heroTitleSuffix')}`}
         description={project?.description ?? undefined}
         actions={
           <>
-            <Link href={`/p/${projectId}/wbs`} className={HERO_BTN}><ListTree className="h-4 w-4" />WBS 보기</Link>
-            <Link href={`/p/${projectId}/wbs?view=timeline`} className={HERO_BTN}><GanttChartSquare className="h-4 w-4" />간트 차트</Link>
-            <Link href={`/p/${projectId}/kanban`} className={HERO_BTN}><Columns3 className="h-4 w-4" />칸반 보드</Link>
+            <Link href={`/p/${projectId}/wbs`} className={HERO_BTN}><ListTree className="h-4 w-4" />{t(locale, 'dash.viewWbs')}</Link>
+            <Link href={`/p/${projectId}/wbs?view=timeline`} className={HERO_BTN}><GanttChartSquare className="h-4 w-4" />{t(locale, 'nav.gantt')}</Link>
+            <Link href={`/p/${projectId}/kanban`} className={HERO_BTN}><Columns3 className="h-4 w-4" />{t(locale, 'nav.kanban')}</Link>
             <ReportButton
               projectId={projectId}
               items={items}
@@ -59,11 +62,11 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         }
         heroKpis={
           <>
-            <KpiCard variant="hero" label="ACTUAL PROGRESS" value={`${overallActual}%`} sub="실적 공정율" icon={TrendingUp} tone="brand" />
-            <KpiCard variant="hero" label="계획 공정율" value={`${overallPlanned}%`} sub={`계획 대비 ${variance >= 0 ? '+' : ''}${variance}%p`} icon={Target} tone="default" />
-            <KpiCard variant="hero" label="진행중 작업" value={inProgress} sub={`전체 ${leaves.length}건`} icon={Activity} tone="warning" />
-            <KpiCard variant="hero" label="완료된 작업" value={doneCount} sub={`${donePct}% 완료`} icon={CheckCircle2} tone="success" />
-            <KpiCard variant="hero" label="지연 작업" value={delayedCount} sub={delayedCount > 0 ? '점검 필요' : '정상 범위'} icon={AlertTriangle} tone="danger" />
+            <KpiCard variant="hero" label="ACTUAL PROGRESS" value={`${overallActual}%`} sub={t(locale, 'dash.kpi.actualSub')} icon={TrendingUp} tone="brand" />
+            <KpiCard variant="hero" label={t(locale, 'dash.kpi.planned')} value={`${overallPlanned}%`} sub={`${t(locale, 'dash.vsPlan')} ${variance >= 0 ? '+' : ''}${variance}%p`} icon={Target} tone="default" />
+            <KpiCard variant="hero" label={t(locale, 'dash.kpi.inProgress')} value={inProgress} sub={`${t(locale, 'dash.ofTotalPrefix')} ${leaves.length}${t(locale, 'dash.unitCount')}`} icon={Activity} tone="warning" />
+            <KpiCard variant="hero" label={t(locale, 'dash.kpi.done')} value={doneCount} sub={`${donePct}% ${t(locale, 'dash.pctDoneSuffix')}`} icon={CheckCircle2} tone="success" />
+            <KpiCard variant="hero" label={t(locale, 'dash.kpi.delayed')} value={delayedCount} sub={delayedCount > 0 ? t(locale, 'dash.needsReview') : t(locale, 'dash.normalRange')} icon={AlertTriangle} tone="danger" />
           </>
         }
       />

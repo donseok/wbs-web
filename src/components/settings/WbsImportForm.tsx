@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { Upload, Shield, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
+import { useLocale } from '@/components/providers/LocaleProvider'
 
 type ImportError = { excelRow: number; message: string }
 
@@ -14,6 +15,7 @@ type ImportError = { excelRow: number; message: string }
 export function WbsImportForm({ projectId }: { projectId: string }) {
   const router = useRouter()
   const { toast } = useToast()
+  const { t } = useLocale()
   const [fileName, setFileName] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [errors, setErrors] = useState<ImportError[] | null>(null)
@@ -25,7 +27,7 @@ export function WbsImportForm({ projectId }: { projectId: string }) {
     const fd = new FormData(form)
     const file = fd.get('file')
     if (!(file instanceof File) || file.size === 0) {
-      toast({ title: '파일을 선택하세요.', variant: 'error' })
+      toast({ title: t('settings.selectFile'), variant: 'error' })
       return
     }
 
@@ -37,20 +39,20 @@ export function WbsImportForm({ projectId }: { projectId: string }) {
 
       if (res.ok && data.ok) {
         const count = typeof data.count === 'number' ? data.count : 0
-        toast({ title: 'WBS를 가져왔습니다.', description: `${count}개 작업 항목이 반영되었습니다.`, variant: 'success' })
+        toast({ title: t('settings.importDone'), description: `${count}${t('settings.importDoneCountSuffix')}`, variant: 'success' })
         form.reset()
         setFileName(null)
         router.refresh()
       } else if (Array.isArray(data.errors)) {
         const errs = data.errors as ImportError[]
         setErrors(errs)
-        toast({ title: '파일 검증에 실패했습니다.', description: `${errs.length}개 항목을 확인하세요.`, variant: 'error' })
+        toast({ title: t('settings.importValidationFailed'), description: `${errs.length}${t('settings.importCheckCountSuffix')}`, variant: 'error' })
       } else {
-        const msg = typeof data.error === 'string' ? data.error : `가져오기에 실패했습니다 (HTTP ${res.status}).`
+        const msg = typeof data.error === 'string' ? data.error : `${t('settings.importFailedHttp')} (HTTP ${res.status}).`
         toast({ title: msg, variant: 'error' })
       }
     } catch {
-      toast({ title: '네트워크 오류로 가져오기에 실패했습니다.', variant: 'error' })
+      toast({ title: t('settings.importNetworkError'), variant: 'error' })
     } finally {
       setBusy(false)
     }
@@ -63,8 +65,8 @@ export function WbsImportForm({ projectId }: { projectId: string }) {
         <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-line bg-surface text-brand shadow-sm transition group-hover:border-brand-ring">
           <Upload className="h-5 w-5" />
         </span>
-        <span className="mt-4 text-sm font-semibold text-ink">{fileName ?? 'WBS Excel 파일을 선택하세요'}</span>
-        <span className="mt-1 text-xs leading-5 text-ink-muted">.xlsx 파일만 지원 · 가져오기 전 파일 형식을 검증합니다</span>
+        <span className="mt-4 text-sm font-semibold text-ink">{fileName ?? t('settings.chooseExcel')}</span>
+        <span className="mt-1 text-xs leading-5 text-ink-muted">{t('settings.xlsxOnly')}</span>
         <input
           type="file"
           name="file"
@@ -79,11 +81,11 @@ export function WbsImportForm({ projectId }: { projectId: string }) {
       {errors && errors.length > 0 && (
         <div role="alert" className="mt-4 rounded-xl border border-delayed/30 bg-delayed-weak/40 p-3.5">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-delayed">
-            <AlertTriangle className="h-3.5 w-3.5" /> 검증 오류 {errors.length}건 — 가져오지 않았습니다
+            <AlertTriangle className="h-3.5 w-3.5" /> {t('settings.validationErrorsPrefix')}{errors.length}{t('settings.validationErrorsSuffix')}
           </p>
           <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-xs leading-5 text-ink-muted">
             {errors.map((er, i) => (
-              <li key={i}>엑셀 {er.excelRow}행: {er.message}</li>
+              <li key={i}>{t('settings.excelRowPrefix')}{er.excelRow}{t('settings.excelRowSuffix')}{er.message}</li>
             ))}
           </ul>
         </div>
@@ -92,11 +94,11 @@ export function WbsImportForm({ projectId }: { projectId: string }) {
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="flex items-center gap-1.5 text-xs text-ink-muted">
           <Shield className="h-3.5 w-3.5 text-done" />
-          파일 구조를 확인한 뒤 업로드합니다.
+          {t('settings.uploadNote')}
         </p>
         <button className="btn btn-primary" disabled={busy}>
           <Upload className="h-4 w-4" />
-          {busy ? '가져오는 중…' : '검증 후 가져오기'}
+          {busy ? t('settings.importing') : t('settings.validateAndImport')}
         </button>
       </div>
     </form>

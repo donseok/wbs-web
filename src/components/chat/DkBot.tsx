@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation'
 import { RotateCcw, X, Send, Sparkles, CalendarDays } from 'lucide-react'
 import { RobotMascot } from './RobotMascot'
 import { QUICK_SUGGESTIONS } from '@/lib/ai/intent'
+import { useLocale } from '@/components/providers/LocaleProvider'
+import type { DictKey } from '@/lib/i18n/dict'
 
 type Role = 'user' | 'assistant'
 interface Msg {
@@ -20,19 +22,34 @@ interface BotContext {
 
 const PROJECT_RE = /\/p\/([0-9a-fA-F-]{8,})/
 
-function welcomeText(ctx: BotContext | null): string {
-  if (!ctx) return '안녕하세요, DK Bot입니다.\n궁금한 점을 자유롭게 질문하세요!'
-  const lines = ['안녕하세요, DK Bot입니다.']
+type T = (k: DictKey) => string
+
+// 빠른 질문 칩의 표시 라벨 매핑 — 전송 문구(한국어, 서버 인텐트 매칭용)는 그대로 두고 표시만 번역한다.
+const SUGGESTION_LABEL_KEY: Record<string, DictKey> = {
+  '전체 프로젝트 현황 알려줘': 'chat.suggestion.allStatus',
+  '지연된 작업이 뭐야?': 'chat.suggestion.delayed',
+  '이번 주 작업 알려줘': 'chat.suggestion.thisWeek',
+  '멤버별 업무 정리해줘': 'chat.suggestion.byMember',
+  '완료된 작업 목록 보여줘': 'chat.suggestion.doneList',
+}
+
+function welcomeText(ctx: BotContext | null, t: T): string {
+  if (!ctx) return `${t('chat.welcome.greeting')}\n${t('chat.welcome.ask')}`
+  const lines = [t('chat.welcome.greeting')]
   if (ctx.currentProject) {
-    lines.push(`현재 프로젝트: "${ctx.currentProject.name}"`)
-    lines.push(`작업 ${ctx.currentProject.taskCount}건 | 공정률 ${ctx.currentProject.donePct}%`)
+    lines.push(`${t('chat.welcome.currentProject')}: "${ctx.currentProject.name}"`)
+    lines.push(
+      `${t('chat.welcome.tasksPrefix')}${ctx.currentProject.taskCount}${t('chat.welcome.tasksSuffix')} | ${t('chat.welcome.progressPrefix')}${ctx.currentProject.donePct}${t('chat.welcome.progressSuffix')}`,
+    )
   }
-  if (ctx.totalProjects > 0) lines.push(`전체 ${ctx.totalProjects}개 프로젝트에 대해서도 질문할 수 있습니다.`)
-  lines.push('궁금한 점을 자유롭게 질문하세요!')
+  if (ctx.totalProjects > 0)
+    lines.push(`${t('chat.welcome.totalPrefix')}${ctx.totalProjects}${t('chat.welcome.totalSuffix')}`)
+  lines.push(t('chat.welcome.ask'))
   return lines.join('\n')
 }
 
 export function DkBot({ projects }: { projects: { id: string; name: string }[] }) {
+  const { t } = useLocale()
   const pathname = usePathname()
   const currentProjectId = pathname?.match(PROJECT_RE)?.[1] ?? null
   const currentProjectName = projects.find(p => p.id === currentProjectId)?.name ?? null
@@ -68,12 +85,14 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
         if (genRef.current !== gen) return // 그 사이 프로젝트 전환 → 폐기
         setCtx(c)
         // 사용자가 그새 질문을 보냈으면(messages 비어있지 않음) 환영문구로 덮어쓰지 않는다.
-        setMessages(prev => (prev.length ? prev : [{ id: nextId(), role: 'assistant', content: welcomeText(c) }]))
+        setMessages(prev => (prev.length ? prev : [{ id: nextId(), role: 'assistant', content: welcomeText(c, t) }]))
       })
       .catch(() => {
         if (genRef.current !== gen) return
-        setMessages(prev => (prev.length ? prev : [{ id: nextId(), role: 'assistant', content: welcomeText(null) }]))
+        setMessages(prev => (prev.length ? prev : [{ id: nextId(), role: 'assistant', content: welcomeText(null, t) }]))
       })
+    // t는 의도적으로 deps에서 제외 — locale 전환이 진행 중 대화를 리셋하면 안 된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentProjectId])
 
   // Esc 닫기
@@ -130,7 +149,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
         if (!res.ok || !res.body) {
           const data = (await res.json().catch(() => ({}))) as { error?: string }
           if (genRef.current !== gen) return
-          setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: data.error ?? '문제가 발생했어요.' }])
+          setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: data.error ?? t('chat.error.generic') }])
           return
         }
         // 토큰 스트리밍 — 첫 청크에서 어시스턴트 버블을 만들고 이후 누적 갱신
@@ -155,19 +174,19 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
           }
         }
         if (asstId === null && genRef.current === gen) {
-          setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: '답변을 가져오지 못했어요.' }])
+          setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: t('chat.error.empty') }])
         }
       } catch {
         if (genRef.current !== gen) return
         setMessages(prev => [
           ...prev,
-          { id: nextId(), role: 'assistant', content: '죄송해요, 답변 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.' },
+          { id: nextId(), role: 'assistant', content: t('chat.error.retry') },
         ])
       } finally {
         if (genRef.current === gen) setLoading(false)
       }
     },
-    [messages, loading, currentProjectId, clearInput],
+    [messages, loading, currentProjectId, clearInput, t],
   )
 
   const reset = () => {
@@ -176,7 +195,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     genRef.current += 1
     setLoading(false)
     clearInput()
-    setMessages([{ id: nextId(), role: 'assistant', content: welcomeText(ctx) }])
+    setMessages([{ id: nextId(), role: 'assistant', content: welcomeText(ctx, t) }])
   }
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -201,7 +220,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          aria-label="DK Bot 열기"
+          aria-label={t('chat.open')}
           className="fixed bottom-5 right-5 z-[120] flex h-16 w-16 items-center justify-center rounded-full text-white ring-1 ring-white/10 transition hover:scale-105 active:scale-95"
           style={{ backgroundImage: 'var(--gradient-dark)', boxShadow: 'var(--shadow-lg)' }}
         >
@@ -216,7 +235,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
       {open && (
         <div
           role="dialog"
-          aria-label="DK Bot 채팅"
+          aria-label={t('chat.dialog')}
           className="fixed bottom-5 right-5 z-[130] flex h-[min(720px,calc(100dvh-2.5rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-line bg-surface"
           style={{ boxShadow: 'var(--shadow-xl)' }}
         >
@@ -227,18 +246,18 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
             </span>
             <div className="min-w-0 flex-1">
               <div className="text-[15px] font-bold leading-tight">DK Bot</div>
-              <div className="truncate text-xs text-white/60">{currentProjectName ?? '전체 프로젝트'}</div>
+              <div className="truncate text-xs text-white/60">{currentProjectName ?? t('nav.allProjects')}</div>
             </div>
             <button
               onClick={reset}
-              aria-label="대화 초기화"
+              aria-label={t('chat.reset')}
               className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
             >
               <RotateCcw className="h-4 w-4" />
             </button>
             <button
               onClick={() => setOpen(false)}
-              aria-label="닫기"
+              aria-label={t('common.close')}
               className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
             >
               <X className="h-4 w-4" />
@@ -251,12 +270,12 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
             {ctx?.currentProject && (
               <div className="rounded-2xl border border-brand-ring/40 bg-brand-weak/50 p-3.5">
                 <div className="flex items-center gap-1.5 text-[13px] font-semibold text-brand">
-                  <Sparkles className="h-4 w-4" /> 프로액티브 인사이트
+                  <Sparkles className="h-4 w-4" /> {t('chat.insight.title')}
                 </div>
                 <p className="mt-1.5 text-[13px] leading-5 text-ink-muted">
                   {ctx.weekStartCount > 0
-                    ? `이번 주 시작 예정 작업 ${ctx.weekStartCount}건을 확인해 보세요.`
-                    : '이번 주 시작 예정 작업이 없습니다. 진행 현황을 확인해 보세요.'}
+                    ? `${t('chat.insight.weekPrefix')}${ctx.weekStartCount}${t('chat.insight.weekSuffix')}`
+                    : t('chat.insight.none')}
                 </p>
                 <div className="mt-2.5 flex flex-wrap gap-1.5">
                   <button
@@ -264,14 +283,16 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
                     disabled={loading}
                     className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-medium text-white transition hover:brightness-110 disabled:opacity-50"
                   >
-                    <CalendarDays className="h-3.5 w-3.5" /> 이번 주 시작 {ctx.weekStartCount}건
+                    <CalendarDays className="h-3.5 w-3.5" /> {t('chat.chip.weekStartPrefix')}
+                    {ctx.weekStartCount}
+                    {t('chat.chip.weekStartSuffix')}
                   </button>
                   <button
                     onClick={() => send('주간 요약')}
                     disabled={loading}
                     className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted transition hover:border-brand-ring hover:text-brand disabled:opacity-50"
                   >
-                    주간 요약
+                    {t('chat.chip.weeklySummary')}
                   </button>
                 </div>
               </div>
@@ -286,7 +307,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
                   disabled={loading}
                   className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12.5px] text-ink-muted transition hover:border-brand-ring hover:text-brand disabled:opacity-50"
                 >
-                  {q}
+                  {SUGGESTION_LABEL_KEY[q] ? t(SUGGESTION_LABEL_KEY[q]) : q}
                 </button>
               ))}
             </div>
@@ -308,14 +329,14 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
                 onChange={onInputChange}
                 onKeyDown={onInputKey}
                 rows={1}
-                placeholder="질문을 입력하세요 (Enter로 전송)"
-                aria-label="질문 입력"
+                placeholder={t('chat.inputPlaceholder')}
+                aria-label={t('chat.inputAria')}
                 className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-line bg-canvas px-3.5 py-3 text-sm text-ink outline-none transition placeholder:text-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand-ring"
               />
               <button
                 onClick={() => send(input)}
                 disabled={!input.trim() || loading}
-                aria-label="전송"
+                aria-label={t('chat.send')}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition hover:brightness-105 disabled:opacity-40"
                 style={{ backgroundColor: '#ef9a9a', boxShadow: 'var(--shadow-sm)' }}
               >

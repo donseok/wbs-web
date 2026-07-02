@@ -6,8 +6,10 @@ import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { Maximize2, Minimize2 } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
-import { StatusChip, LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
+import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
+import { useLocale } from '@/components/providers/LocaleProvider'
+import type { DictKey } from '@/lib/i18n/dict'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
 type Col = { key: string; w: number; frozen?: boolean; sk?: number; detail?: boolean }
@@ -87,6 +89,7 @@ export function WbsGanttSheet({
   defaultView?: 'sheet' | 'timeline'
 }) {
   const router = useRouter()
+  const { t } = useLocale()
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -210,7 +213,7 @@ export function WbsGanttSheet({
     if (last && last.ym === ym) {
       last.width += dayPx
     } else {
-      months.push({ ym, label: `${Number(d.slice(5, 7))}월`, left: i * dayPx, width: dayPx })
+      months.push({ ym, label: t(`wbs.month${Number(d.slice(5, 7))}` as DictKey), left: i * dayPx, width: dayPx })
     }
   })
   const weeks: { label: string; sub: string; left: number; width: number }[] = []
@@ -247,36 +250,36 @@ export function WbsGanttSheet({
       let res: { ok: boolean; error?: string; conflict?: boolean }
       if (field === 'actual') {
         if (draft.trim() === '') {
-          setToast({ kind: 'err', msg: '빈 값은 입력할 수 없습니다' })
+          setToast({ kind: 'err', msg: t('wbs.toastEmpty') })
           return cancel()
         }
         const pct = Number(draft)
         if (Number.isNaN(pct)) {
-          setToast({ kind: 'err', msg: '숫자만 입력하세요' })
+          setToast({ kind: 'err', msg: t('wbs.toastNumbersOnly') })
           return cancel()
         }
         if (pct < 0 || pct > 100) {
-          setToast({ kind: 'err', msg: '0~100 범위로 입력하세요' })
+          setToast({ kind: 'err', msg: t('wbs.toastRange') })
           return cancel()
         }
         res = await updateActual(id, pct, Number(editOriginal))
       } else {
         const wv = draft.trim() === '' ? null : Number(draft)
         if (wv != null && (Number.isNaN(wv) || wv < 0)) {
-          setToast({ kind: 'err', msg: '가중치는 0 이상이어야 합니다' })
+          setToast({ kind: 'err', msg: t('wbs.toastWeightMin') })
           return cancel()
         }
         res = await updateWeight(id, wv, editOriginal.trim() === '' ? null : Number(editOriginal))
       }
       if (res.ok) {
-        setToast({ kind: 'ok', msg: '저장되었습니다' })
+        setToast({ kind: 'ok', msg: t('wbs.toastSaved') })
         router.refresh()
       } else if (res.conflict) {
         // 충돌: 최신 값으로 새로고침하고 안내.
-        setToast({ kind: 'err', msg: res.error ?? '다른 사용자가 먼저 수정했습니다' })
+        setToast({ kind: 'err', msg: res.error ?? t('wbs.toastConflict') })
         router.refresh()
       } else {
-        setToast({ kind: 'err', msg: res.error ?? '저장 실패' })
+        setToast({ kind: 'err', msg: res.error ?? t('wbs.toastSaveFail') })
       }
     } finally {
       setBusy(false)
@@ -289,8 +292,8 @@ export function WbsGanttSheet({
     setAddBusy(true)
     const res = await addWbsItem(projectId, null, 'phase', addPhase.trim())
     setAddBusy(false)
-    if (res.ok) { setAddPhase(null); setToast({ kind: 'ok', msg: 'Phase가 추가되었습니다' }); router.refresh() }
-    else setToast({ kind: 'err', msg: res.error ?? '추가 실패' })
+    if (res.ok) { setAddPhase(null); setToast({ kind: 'ok', msg: t('wbs.toastPhaseAdded') }); router.refresh() }
+    else setToast({ kind: 'err', msg: res.error ?? t('wbs.toastAddFail') })
   }
 
   const editInput = (current: string, field: 'weight' | 'actual') => (
@@ -299,7 +302,7 @@ export function WbsGanttSheet({
       type="number"
       value={draft}
       disabled={busy}
-      aria-label={field === 'weight' ? '가중치 편집' : '실적% 편집'}
+      aria-label={field === 'weight' ? t('wbs.ariaEditWeight') : t('wbs.ariaEditActual')}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => {
@@ -339,7 +342,7 @@ export function WbsGanttSheet({
       }
       role={fullscreen ? 'dialog' : undefined}
       aria-modal={fullscreen || undefined}
-      aria-label={fullscreen ? 'WBS 전체화면 보기' : undefined}
+      aria-label={fullscreen ? t('wbs.ariaFullscreen') : undefined}
       style={
         {
           '--wbs-row-h': `${ROW_H}px`,
@@ -353,54 +356,54 @@ export function WbsGanttSheet({
       <div className="card mb-3 grid w-full min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden p-2.5 sm:flex sm:flex-wrap">
         <div className="mr-2 flex items-center gap-2 px-1 text-sm font-semibold text-ink">
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
-          <span>작업 보드</span>
+          <span>{t('wbs.board')}</span>
         </div>
         <div className="relative min-w-0 sm:flex-none">
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="작업명 검색…"
-            aria-label="작업명 검색"
+            placeholder={t('wbs.searchPlaceholder')}
+            aria-label={t('wbs.searchAria')}
             className="app-input h-9 w-full pl-9 text-[13px] sm:w-52"
           />
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
         <button onClick={toggleAll} className="btn btn-ghost h-9 px-3 text-xs">
-          {allCollapsed ? '전체 펼치기' : '전체 접기'}
+          {allCollapsed ? t('wbs.expandAll') : t('wbs.collapseAll')}
         </button>
         <button onClick={() => setTimelineFocus(value => !value)} aria-pressed={timelineFocus} className={`btn h-9 px-3 text-xs ${timelineFocus ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-          <Icon name="calendar" className="h-3.5 w-3.5" /> {timelineFocus ? '시트 편집' : '타임라인 집중'}
+          <Icon name="calendar" className="h-3.5 w-3.5" /> {timelineFocus ? t('wbs.sheetEdit') : t('wbs.timelineFocus')}
         </button>
-        <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? '전체화면 닫기 (Esc)' : '전체화면으로 크게 보기'} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? '작게 보기' : '크게 보기'}
+        <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
+          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}
         </button>
         {!timelineFocus && (
           <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-            <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? '상세 열 숨기기' : '상세 열 보기'}
+            <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? t('wbs.hideDetailCols') : t('wbs.showDetailCols')}
           </button>
         )}
         {isPmo && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
-            <Icon name="plus" className="h-3.5 w-3.5" /> Phase 추가
+            <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhase')}
           </button>
         )}
         <span className="hidden rounded-lg bg-surface-2 px-2.5 py-2 text-[10px] tabular-nums text-ink-muted xl:inline">
-          {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}행
+          {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}{t('wbs.unitRows')}
         </span>
-        <div className="seg ml-auto hidden h-9 gap-0.5 p-0.5 sm:inline-flex" aria-label="간트 배율">
+        <div className="seg ml-auto hidden h-9 gap-0.5 p-0.5 sm:inline-flex" aria-label={t('wbs.ganttZoomAria')}>
           <button
             onClick={() => setDayPx(16)}
             aria-pressed={dayPx === 16}
             className={`seg-item px-2.5 py-1 text-[12px] ${dayPx === 16 ? 'seg-item-active' : ''}`}
           >
-            축소
+            {t('wbs.zoomOut')}
           </button>
           <button
             onClick={() => setDayPx(24)}
             aria-pressed={dayPx === 24}
             className={`seg-item px-2.5 py-1 text-[12px] ${dayPx === 24 ? 'seg-item-active' : ''}`}
           >
-            기본
+            {t('wbs.zoomDefault')}
           </button>
         </div>
       </div>
@@ -413,12 +416,12 @@ export function WbsGanttSheet({
             value={addPhase}
             onChange={e => setAddPhase(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') submitAddPhase(); else if (e.key === 'Escape') setAddPhase(null) }}
-            placeholder="새 Phase 이름 (예: 1. 준비)"
-            aria-label="새 Phase 이름"
+            placeholder={t('wbs.newPhasePlaceholder')}
+            aria-label={t('wbs.newPhaseAria')}
             className="app-input h-9 flex-1 text-sm"
           />
-          <button onClick={submitAddPhase} disabled={addBusy || !addPhase.trim()} className="btn btn-primary h-9 px-4 text-xs">{addBusy ? '추가 중…' : '추가'}</button>
-          <button onClick={() => setAddPhase(null)} className="btn btn-ghost h-9 px-3 text-xs">취소</button>
+          <button onClick={submitAddPhase} disabled={addBusy || !addPhase.trim()} className="btn btn-primary h-9 px-4 text-xs">{addBusy ? t('wbs.adding') : t('common.add')}</button>
+          <button onClick={() => setAddPhase(null)} className="btn btn-ghost h-9 px-3 text-xs">{t('common.cancel')}</button>
         </div>
       )}
 
@@ -455,18 +458,18 @@ export function WbsGanttSheet({
           {/* 헤더 행 (sticky top) */}
           <div className="sticky top-0 z-40 flex w-max">
             {headCell(COLS[0], '#', 'justify-center')}
-            {headCell(COLS[1], '구분', 'justify-center')}
-            {headCell(COLS[2], '작업명', 'justify-start')}
+            {headCell(COLS[1], t('wbs.colLevel'), 'justify-center')}
+            {headCell(COLS[2], t('wbs.colName'), 'justify-start')}
             {showCol('biz') && headCell(COLS[3], 'BIZ', 'justify-center')}
-            {headCell(COLS[4], '담당', 'justify-start')}
-            {headCell(COLS[5], '상태', 'justify-center')}
-            {showCol('deliverable') && headCell(COLS[6], '산출물', 'justify-start')}
-            {showCol('pstart') && headCell(COLS[7], '계획시작', 'justify-center')}
-            {showCol('pend') && headCell(COLS[8], '계획종료', 'justify-center')}
-            {showCol('weight') && headCell(COLS[9], '가중치', 'justify-end')}
-            {showCol('pplan') && headCell(COLS[10], '계획%', 'justify-end')}
-            {showCol('pactual') && headCell(COLS[11], '실적%', 'justify-end')}
-            {showCol('achieve') && headCell(COLS[12], '계획대비', 'justify-center')}
+            {headCell(COLS[4], t('wbs.colOwners'), 'justify-start')}
+            {headCell(COLS[5], t('wbs.colStatus'), 'justify-center')}
+            {showCol('deliverable') && headCell(COLS[6], t('wbs.colDeliverable'), 'justify-start')}
+            {showCol('pstart') && headCell(COLS[7], t('wbs.colPlannedStart'), 'justify-center')}
+            {showCol('pend') && headCell(COLS[8], t('wbs.colPlannedEnd'), 'justify-center')}
+            {showCol('weight') && headCell(COLS[9], t('wbs.colWeight'), 'justify-end')}
+            {showCol('pplan') && headCell(COLS[10], t('wbs.colPlannedPct'), 'justify-end')}
+            {showCol('pactual') && headCell(COLS[11], t('wbs.colActualPct'), 'justify-end')}
+            {showCol('achieve') && headCell(COLS[12], t('wbs.colAchievement'), 'justify-center')}
             {/* 간트 헤더 (월/주/일 3단) */}
             <div
               className="relative box-border h-[var(--wbs-head-h)] shrink-0 border-b-2 border-grid-strong bg-sheet-head"
@@ -543,7 +546,7 @@ export function WbsGanttSheet({
             const editingActual = edit?.id === n.id && edit.field === 'actual'
             const editableW = canEditW
             const editableA = canEditActual(n, membership) && !readOnly
-            const weightLabel = n.weight == null ? '균등' : String(n.weight)
+            const weightLabel = n.weight == null ? t('wbs.weightEqual') : String(n.weight)
 
             const frozen = (key: string, z = 20): React.CSSProperties => {
               const c = COLS.find(x => x.key === key)!
@@ -576,7 +579,7 @@ export function WbsGanttSheet({
                       <button
                         onClick={() => toggle(n.id)}
                         className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] text-ink-subtle hover:bg-line hover:text-ink"
-                        aria-label={isCollapsed ? '펼치기' : '접기'}
+                        aria-label={isCollapsed ? t('wbs.expand') : t('wbs.collapse')}
                         aria-expanded={!isCollapsed}
                       >
                         {isCollapsed ? '▸' : '▾'}
@@ -588,7 +591,7 @@ export function WbsGanttSheet({
                       type="button"
                       onClick={() => setSelectedId(n.id)}
                       className={`truncate text-left ${nameWeight} hover:text-brand hover:underline`}
-                      title={`${n.name} · 상세/변경 이력 보기`}
+                      title={`${n.name} · ${t('wbs.rowDetailTitle')}`}
                     >
                       {n.name}
                     </button>
@@ -615,7 +618,10 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid justify-center ${cellBg}`}
                   style={{ width: W('status') }}
                 >
-                  <StatusChip status={n.status} />
+                  <span className={`chip ${STATUS[n.status].chip}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${STATUS[n.status].dot}`} />
+                    {t(`status.${n.status}` as DictKey)}
+                  </span>
                 </div>
                 {/* 산출물 */}
                 {showCol('deliverable') && (
@@ -669,7 +675,7 @@ export function WbsGanttSheet({
                         }
                       : undefined
                   }
-                  title={editableW ? '클릭하여 가중치 편집 (비우면 균등)' : undefined}
+                  title={editableW ? t('wbs.editWeightTitle') : undefined}
                 >
                   {editingWeight ? editInput(weightLabel, 'weight') : weightLabel}
                 </div>}
@@ -705,7 +711,7 @@ export function WbsGanttSheet({
                       : undefined
                   }
                   title={
-                    editableA ? '클릭하여 실적% 입력' : hasChildren ? '하위에서 자동 집계' : undefined
+                    editableA ? t('wbs.editActualTitle') : hasChildren ? t('wbs.autoRollupTitle') : undefined
                   }
                 >
                   {!editingActual && (
@@ -767,10 +773,12 @@ export function WbsGanttSheet({
                 <Icon name={items.length === 0 ? 'folder' : 'search'} />
               </span>
               <span className="text-sm font-medium text-ink-muted">
-                {items.length === 0 ? '작업 항목이 없습니다' : `‘${query.trim()}’에 대한 결과가 없습니다`}
+                {items.length === 0
+                  ? t('wbs.emptyNoItems')
+                  : `${t('wbs.noResultsPrefix')}${query.trim()}${t('wbs.noResultsSuffix')}`}
               </span>
               <span className="text-[12px] text-ink-subtle">
-                {items.length === 0 ? 'WBS 엑셀을 업로드하면 작업이 표시됩니다.' : '검색어를 바꾸거나 지워보세요.'}
+                {items.length === 0 ? t('wbs.emptyNoItemsHint') : t('wbs.noResultsHint')}
               </span>
             </div>
           )}
@@ -786,7 +794,7 @@ export function WbsGanttSheet({
                 className="absolute -translate-x-1/2 rounded-sm bg-today px-1 py-0.5 text-[8px] font-bold leading-none text-white"
                 style={{ left: todayX, top: 0 }}
               >
-                오늘
+                {t('wbs.today')}
               </div>
             </div>
           )}
@@ -799,7 +807,7 @@ export function WbsGanttSheet({
           {(['done', 'in_progress', 'delayed', 'not_started'] as const).map(s => (
             <span key={s} className="inline-flex items-center gap-1">
               <span className={`h-2 w-2 rounded-full ${STATUS[s].dot}`} />
-              {STATUS[s].label}
+              {t(`status.${s}` as DictKey)}
             </span>
           ))}
         </span>
@@ -810,26 +818,26 @@ export function WbsGanttSheet({
               {t}
             </span>
           ))}
-          <span>· ● 주관 △ 지원</span>
+          <span>{t('wbs.legendOwnerMarks')}</span>
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-2 w-4 rounded-full bg-plan-track ring-1 ring-grid" />
-          계획
+          {t('wbs.legendPlanned')}
           <span className="ml-1 h-2 w-4 rounded-full bg-progress" />
-          실적
+          {t('wbs.legendActual')}
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-3 w-3 rounded-sm" style={{ background: 'var(--color-weekend)' }} />
-          주말
+          {t('wbs.legendWeekend')}
           <span className="ml-1 h-3 w-3 rounded-sm" style={{ background: 'var(--color-holiday-band)' }} />
-          공휴일
+          {t('wbs.legendHoliday')}
         </span>
         <span className="text-ink-muted">
           {timelineFocus
-            ? '편집은 ‘시트 편집’으로 전환'
+            ? t('wbs.legendHintTimeline')
             : isPmo
-              ? '가중치·실적% 셀 클릭해 편집'
-              : '담당 작업의 실적% 셀 클릭해 편집'}
+              ? t('wbs.legendHintPmo')
+              : t('wbs.legendHintOwner')}
         </span>
       </div>
 

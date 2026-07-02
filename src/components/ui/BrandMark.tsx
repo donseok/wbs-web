@@ -1,4 +1,7 @@
+'use client'
+
 import type { CSSProperties } from 'react'
+import { useLocale } from '@/components/providers/LocaleProvider'
 
 /**
  * D'Flow 브랜드 마크.
@@ -69,6 +72,7 @@ export function BrandMark({
   tagline?: boolean
   className?: string
 }) {
+  const { t } = useLocale()
   if (!withWordmark) return <BrandGlyph size={size} className={className} />
 
   return (
@@ -80,7 +84,7 @@ export function BrandMark({
         </span>
         {tagline && (
           <span className="block text-ink-subtle" style={{ fontSize: Math.round(size * 0.26) }}>
-            일하는 방식이 바뀌다
+            {t('brand.tagline')}
           </span>
         )}
       </span>

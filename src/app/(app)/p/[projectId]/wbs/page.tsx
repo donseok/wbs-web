@@ -3,6 +3,8 @@ import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 import { PageHero } from '@/components/ui/PageHero'
+import { t } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 
 type ProjectRow = { id: string; name: string }
 
@@ -15,6 +17,7 @@ export default async function WbsPage({
 }) {
   const { projectId } = await params
   const { view } = await searchParams
+  const locale = await getServerLocale()
   const [{ items, holidays, today }, m, projects] = await Promise.all([
     getComputedWbs(projectId),
     getMembership(),
@@ -25,8 +28,8 @@ export default async function WbsPage({
     <div className="space-y-6">
       <PageHero
         eyebrow="WBS · GANTT"
-        title={`${project?.name ?? '프로젝트'} WBS · 간트`}
-        description="계획·실적·가중 롤업을 한 시트에서 관리하고, ‘타임라인 집중’으로 간트만 크게 볼 수 있습니다."
+        title={`${project?.name ?? t(locale, 'wbs.projectFallback')} ${t(locale, 'wbs.heroTitleSuffix')}`}
+        description={t(locale, 'wbs.heroDesc')}
       />
       <WbsGanttSheet
         items={items}

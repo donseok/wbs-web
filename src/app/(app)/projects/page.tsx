@@ -8,6 +8,8 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { NewProjectModal } from '@/components/home/NewProjectModal'
 import { fmtDate } from '@/components/wbs/shared'
+import { t, type DictKey, type Locale } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 import type { ComputedItem } from '@/lib/domain/types'
 
 type ProjectRow = {
@@ -21,10 +23,10 @@ type ProjectRow = {
 
 type ProjectStatus = 'ready' | 'active' | 'done'
 
-const STATUS: Record<ProjectStatus, { label: string; chip: string; dot: string }> = {
-  ready: { label: '시작 전', chip: 'bg-pending-weak text-pending', dot: 'bg-pending' },
-  active: { label: '진행중', chip: 'bg-brand-weak text-brand', dot: 'bg-brand' },
-  done: { label: '완료', chip: 'bg-done-weak text-done', dot: 'bg-done' },
+const STATUS: Record<ProjectStatus, { labelKey: DictKey; chip: string; dot: string }> = {
+  ready: { labelKey: 'home.status_ready', chip: 'bg-pending-weak text-pending', dot: 'bg-pending' },
+  active: { labelKey: 'home.status_active', chip: 'bg-brand-weak text-brand', dot: 'bg-brand' },
+  done: { labelKey: 'home.status_done', chip: 'bg-done-weak text-done', dot: 'bg-done' },
 }
 
 function seoulToday(): string {
@@ -50,12 +52,12 @@ function initials(name: string): string {
   return trimmed.slice(0, 2)
 }
 
-function dateRange(start: string | null, end: string | null): string {
-  if (!start && !end) return '일정 미설정'
+function dateRange(start: string | null, end: string | null, locale: Locale): string {
+  if (!start && !end) return t(locale, 'home.scheduleUnset')
   return `${fmtDate(start)} – ${fmtDate(end)}`
 }
 
-function ProjectCard({ project, status }: { project: ProjectRow; status: ProjectStatus }) {
+function ProjectCard({ project, status, locale }: { project: ProjectRow; status: ProjectStatus; locale: Locale }) {
   const s = STATUS[status]
   return (
     <Link
@@ -71,24 +73,24 @@ function ProjectCard({ project, status }: { project: ProjectRow; status: Project
         </span>
         <span className={`chip ${s.chip}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-          {s.label}
+          {t(locale, s.labelKey)}
         </span>
       </div>
 
       <div className="mt-4 min-w-0">
         <h3 className="truncate text-[15px] font-semibold text-ink" title={project.name}>{project.name}</h3>
         <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-ink-muted">
-          {project.description?.trim() || '설명이 아직 없습니다. 설정에서 프로젝트 개요를 추가하세요.'}
+          {project.description?.trim() || t(locale, 'home.noDescription')}
         </p>
       </div>
 
       <div className="mt-auto flex items-center justify-between border-t border-line pt-4 text-xs">
         <span className="inline-flex items-center gap-1.5 text-ink-subtle">
           <Calendar className="h-3.5 w-3.5" />
-          <span className="tabular-nums">{dateRange(project.start_date, project.end_date)}</span>
+          <span className="tabular-nums">{dateRange(project.start_date, project.end_date, locale)}</span>
         </span>
         <span className="inline-flex items-center gap-1 font-medium text-ink-subtle transition group-hover:text-brand">
-          열기 <ArrowRight className="h-3.5 w-3.5" />
+          {t(locale, 'home.open')} <ArrowRight className="h-3.5 w-3.5" />
         </span>
       </div>
     </Link>
@@ -97,6 +99,7 @@ function ProjectCard({ project, status }: { project: ProjectRow; status: Project
 
 export default async function ProjectsHome() {
   const [rawProjects, membership] = await Promise.all([listProjects(), getMembership()])
+  const locale = await getServerLocale()
   const projects = rawProjects as ProjectRow[]
   const today = seoulToday()
 
@@ -127,10 +130,10 @@ export default async function ProjectsHome() {
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-hero-ink-muted">Workspace · D&apos;Flow</div>
           <h1 className="mt-2 break-words text-[26px] font-bold leading-tight tracking-tight text-hero-ink sm:text-[34px]">
-            한눈에 보이는 프로젝트 운영
+            {t(locale, 'home.heroTitle')}
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-hero-ink-muted">
-            WBS · 일정 · 멤버를 하나의 흐름으로. 계획부터 완료까지 투명하게 관리하세요.
+            {t(locale, 'home.heroDesc')}
           </p>
 
           <div className="mt-5 flex flex-wrap gap-2">
@@ -153,7 +156,7 @@ export default async function ProjectsHome() {
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20"
           >
             <LayoutGrid className="h-4 w-4" />
-            전체 프로젝트
+            {t(locale, 'nav.allProjects')}
             <ArrowDown className="h-3.5 w-3.5 opacity-70" />
           </a>
         </div>
@@ -161,10 +164,10 @@ export default async function ProjectsHome() {
 
       {/* ── KPI 카드 ── */}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <KpiCard label="전체 프로젝트" value={total} sub="등록된 프로젝트" icon={FolderKanban} tone="brand" />
-        <KpiCard label="진행중" value={activeCount} sub="현재 운영 중" icon={Activity} tone="default" />
-        <KpiCard label="완료" value={doneCount} sub="종료된 프로젝트" icon={CircleCheck} tone="success" />
-        <KpiCard label="Active ratio" value={`${activeRatio}%`} sub="진행중 비율" icon={Gauge} tone="warning" />
+        <KpiCard label={t(locale, 'nav.allProjects')} value={total} sub={t(locale, 'home.kpiTotalSub')} icon={FolderKanban} tone="brand" />
+        <KpiCard label={t(locale, 'home.status_active')} value={activeCount} sub={t(locale, 'home.kpiActiveSub')} icon={Activity} tone="default" />
+        <KpiCard label={t(locale, 'home.status_done')} value={doneCount} sub={t(locale, 'home.kpiDoneSub')} icon={CircleCheck} tone="success" />
+        <KpiCard label="Active ratio" value={`${activeRatio}%`} sub={t(locale, 'home.kpiRatioSub')} icon={Gauge} tone="warning" />
       </div>
 
       {/* ── 최근 프로젝트 (QUICK ACCESS) ── */}
@@ -174,12 +177,12 @@ export default async function ProjectsHome() {
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-weak text-brand"><History className="h-4 w-4" /></span>
             <div>
               <div className="eyebrow">Quick access</div>
-              <h2 id="recent-title" className="text-sm font-semibold text-ink">최근 프로젝트</h2>
+              <h2 id="recent-title" className="text-sm font-semibold text-ink">{t(locale, 'home.recentProjects')}</h2>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {recent.map(({ project, status }) => (
-              <ProjectCard key={project.id} project={project} status={status} />
+              <ProjectCard key={project.id} project={project} status={status} locale={locale} />
             ))}
           </div>
         </section>
@@ -192,23 +195,23 @@ export default async function ProjectsHome() {
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-weak text-brand"><LayoutGrid className="h-4 w-4" /></span>
             <div>
               <div className="eyebrow">Project library</div>
-              <h2 id="library-title" className="text-sm font-semibold text-ink">프로젝트 라이브러리</h2>
+              <h2 id="library-title" className="text-sm font-semibold text-ink">{t(locale, 'home.projectLibrary')}</h2>
             </div>
           </div>
-          {total > 0 && <span className="text-xs text-ink-subtle tabular-nums">{total}개 · 최근 생성 순</span>}
+          {total > 0 && <span className="text-xs text-ink-subtle tabular-nums">{total}{t(locale, 'home.countUnit')} · {t(locale, 'home.sortRecent')}</span>}
         </div>
 
         {total === 0 ? (
           <EmptyState
             icon={FolderPlus}
-            title="첫 프로젝트를 만들어 보세요"
-            description="프로젝트를 만들고 WBS 엑셀을 가져오면 계획과 실적 추적을 바로 시작할 수 있습니다."
-            action={canCreate ? <NewProjectModal label="새 프로젝트 시작" className="btn btn-primary" /> : undefined}
+            title={t(locale, 'home.emptyTitle')}
+            description={t(locale, 'home.emptyDesc')}
+            action={canCreate ? <NewProjectModal label={t(locale, 'home.newProjectStart')} className="btn btn-primary" /> : undefined}
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {withStatus.map(({ project, status }) => (
-              <ProjectCard key={project.id} project={project} status={status} />
+              <ProjectCard key={project.id} project={project} status={status} locale={locale} />
             ))}
           </div>
         )}

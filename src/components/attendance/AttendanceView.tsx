@@ -6,6 +6,8 @@ import {
   ChevronLeft, ChevronRight, CalendarDays, List, Plus, CalendarX2,
 } from 'lucide-react'
 import type { AttendanceRecord, AttendanceType, ProjectMember } from '@/lib/domain/types'
+import type { DictKey } from '@/lib/i18n/dict'
+import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -15,7 +17,7 @@ import {
 } from '@/lib/domain/attendance'
 import { upsertAttendance, removeAttendance } from '@/app/actions/attendance'
 
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 type ViewKey = 'calendar' | 'list'
 
 function dowClass(dow: number, base = 'text-ink') {
@@ -34,6 +36,10 @@ export function AttendanceView({
   canEdit: boolean
 }) {
   const router = useRouter()
+  const { t, locale } = useLocale()
+  // 근태 타입 라벨 — 원본 상수(ATTENDANCE_META)는 로직 키로 유지하고 표시 지점에서만 매핑.
+  const typeLabel = (ty: AttendanceType) => t(`att.type.${ty}` as DictKey)
+  const typeShort = (ty: AttendanceType) => t(`att.typeShort.${ty}` as DictKey)
   const [initY, initM] = useMemo(() => initialDate.split('-').map(Number), [initialDate])
   const [year, setYear] = useState(initY)
   const [month0, setMonth0] = useState((initM || 1) - 1)
@@ -106,14 +112,14 @@ export function AttendanceView({
     const res = await removeAttendance(editingId)
     setDeleting(false)
     setConfirmingDelete(false)
-    if (!res.ok) { setFormErr(res.error ?? '삭제에 실패했습니다.'); return }
+    if (!res.ok) { setFormErr(res.error ?? t('att.err.deleteFailed')); return }
     setOpen(false)
     router.refresh()
   }
 
   async function submit() {
-    if (!form.memberId) { setFormErr('멤버를 선택하세요.'); return }
-    if (!form.date) { setFormErr('날짜를 선택하세요.'); return }
+    if (!form.memberId) { setFormErr(t('att.err.selectMember')); return }
+    if (!form.date) { setFormErr(t('att.err.selectDate')); return }
     setSaving(true)
     setFormErr(null)
     const res = await upsertAttendance(projectId, {
@@ -123,7 +129,7 @@ export function AttendanceView({
       note: form.note.trim() || null,
     })
     setSaving(false)
-    if (!res.ok) { setFormErr(res.error ?? '저장에 실패했습니다.'); return }
+    if (!res.ok) { setFormErr(res.error ?? t('att.err.saveFailed')); return }
     setOpen(false)
     router.refresh()
   }
@@ -133,44 +139,46 @@ export function AttendanceView({
       {/* 툴바 */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-2">
-          <button onClick={() => shift(-1)} className="chrome-icon" aria-label="이전 달"><ChevronLeft className="h-4 w-4" /></button>
-          <div className="min-w-[116px] text-center text-base font-bold tabular-nums text-ink">{year}년 {month0 + 1}월</div>
-          <button onClick={() => shift(1)} className="chrome-icon" aria-label="다음 달"><ChevronRight className="h-4 w-4" /></button>
-          <button onClick={goToday} className="btn btn-ghost h-10">오늘</button>
+          <button onClick={() => shift(-1)} className="chrome-icon" aria-label={t('att.prevMonth')}><ChevronLeft className="h-4 w-4" /></button>
+          <div className="min-w-[116px] text-center text-base font-bold tabular-nums text-ink">
+            {new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : 'en-US', { year: 'numeric', month: locale === 'ko' ? 'numeric' : 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month0, 1)))}
+          </div>
+          <button onClick={() => shift(1)} className="chrome-icon" aria-label={t('att.nextMonth')}><ChevronRight className="h-4 w-4" /></button>
+          <button onClick={goToday} className="btn btn-ghost h-10">{t('att.today')}</button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={memberFilter}
             onChange={e => setMemberFilter(e.target.value)}
             className="app-input h-10 w-auto min-w-[140px]"
-            aria-label="멤버 필터"
+            aria-label={t('att.memberFilter')}
           >
-            <option value="all">전체 멤버</option>
+            <option value="all">{t('att.allMembers')}</option>
             {members.map(m => (
               <option key={m.id} value={m.id}>{m.name}{m.teamCode ? ` · ${m.teamCode}` : ''}</option>
             ))}
           </select>
           <SegmentedTabs<ViewKey>
             tabs={[
-              { key: 'calendar', label: '캘린더', icon: CalendarDays },
-              { key: 'list', label: '리스트', icon: List },
+              { key: 'calendar', label: t('att.view.calendar'), icon: CalendarDays },
+              { key: 'list', label: t('att.view.list'), icon: List },
             ]}
             value={view}
             onChange={setView}
             size="sm"
           />
           {canEdit && (
-            <button onClick={openCreate} className="btn btn-primary"><Plus className="h-4 w-4" />근태 등록</button>
+            <button onClick={openCreate} className="btn btn-primary"><Plus className="h-4 w-4" />{t('att.addRecord')}</button>
           )}
         </div>
       </div>
 
       {/* 범례 */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        {ATTENDANCE_TYPES.map(t => (
-          <span key={t} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink-muted">
-            <span className={`h-2 w-2 rounded-full ${ATTENDANCE_META[t].dot}`} />
-            {ATTENDANCE_META[t].label}
+        {ATTENDANCE_TYPES.map(ty => (
+          <span key={ty} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink-muted">
+            <span className={`h-2 w-2 rounded-full ${ATTENDANCE_META[ty].dot}`} />
+            {typeLabel(ty)}
           </span>
         ))}
       </div>
@@ -178,8 +186,8 @@ export function AttendanceView({
       {view === 'calendar' ? (
         <div className="card overflow-hidden p-0">
           <div className="grid grid-cols-7 gap-px bg-line">
-            {WEEKDAYS.map((w, i) => (
-              <div key={w} className={`bg-surface-2 py-2 text-center text-[11px] font-semibold ${dowClass(i, 'text-ink-muted')}`}>{w}</div>
+            {WEEKDAY_KEYS.map((w, i) => (
+              <div key={w} className={`bg-surface-2 py-2 text-center text-[11px] font-semibold ${dowClass(i, 'text-ink-muted')}`}>{t(`att.weekday.${w}` as DictKey)}</div>
             ))}
             {matrix.flat().map((cell, idx) => {
               const dow = idx % 7
@@ -206,16 +214,16 @@ export function AttendanceView({
                           tabIndex={canEdit ? 0 : undefined}
                           onKeyDown={canEdit ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(r) } } : undefined}
                           className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium ${meta.chip} ${canEdit ? 'cursor-pointer hover:ring-1 hover:ring-brand-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring' : ''}`}
-                          title={`${mem?.name ?? '?'} · ${meta.label}${r.note ? ` · ${r.note}` : ''}${canEdit ? ' · 클릭하여 수정' : ''}`}
+                          title={`${mem?.name ?? '?'} · ${typeLabel(r.type)}${r.note ? ` · ${r.note}` : ''}${canEdit ? ` · ${t('att.clickToEdit')}` : ''}`}
                         >
                           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
                           <span className="truncate">{mem?.name ?? '?'}</span>
-                          <span className="ml-auto shrink-0 opacity-75">{meta.short}</span>
+                          <span className="ml-auto shrink-0 opacity-75">{typeShort(r.type)}</span>
                         </div>
                       )
                     })}
                     {dayRecs.length > 3 && (
-                      <div className="px-1 text-[10px] font-medium text-ink-subtle">+{dayRecs.length - 3}건</div>
+                      <div className="px-1 text-[10px] font-medium text-ink-subtle">+{dayRecs.length - 3}{t('att.moreSuffix')}</div>
                     )}
                   </div>
                 </div>
@@ -226,8 +234,8 @@ export function AttendanceView({
       ) : listRows.length === 0 ? (
         <EmptyState
           icon={CalendarX2}
-          title="근태 기록이 없습니다"
-          description={memberFilter === 'all' ? '아직 등록된 근태가 없습니다.' : '선택한 멤버의 근태 기록이 없습니다.'}
+          title={t('att.empty.title')}
+          description={memberFilter === 'all' ? t('att.empty.all') : t('att.empty.member')}
         />
       ) : (
         <div className="card overflow-hidden p-0">
@@ -235,11 +243,11 @@ export function AttendanceView({
             <table className="w-full min-w-[640px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
-                  <th className="px-4 py-3">날짜</th>
-                  <th className="px-4 py-3">멤버</th>
-                  <th className="px-4 py-3">팀</th>
-                  <th className="px-4 py-3">근태</th>
-                  <th className="px-4 py-3">비고</th>
+                  <th className="px-4 py-3">{t('att.col.date')}</th>
+                  <th className="px-4 py-3">{t('att.col.member')}</th>
+                  <th className="px-4 py-3">{t('att.col.team')}</th>
+                  <th className="px-4 py-3">{t('att.col.type')}</th>
+                  <th className="px-4 py-3">{t('att.col.note')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -257,14 +265,14 @@ export function AttendanceView({
                     >
                       <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-ink">{fmtDate(r.date)}</td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-ink">{mem?.name ?? '알 수 없음'}</div>
+                        <div className="font-medium text-ink">{mem?.name ?? t('att.unknown')}</div>
                         {mem?.title && <div className="text-xs text-ink-subtle">{mem.title}</div>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-ink-muted">{mem?.teamCode ?? '-'}</td>
                       <td className="px-4 py-3">
                         <span className={`chip ${meta.chip}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-                          {meta.label}
+                          {typeLabel(r.type)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-ink-muted">{r.note || '-'}</td>
@@ -282,29 +290,29 @@ export function AttendanceView({
         open={open && !confirmingDelete}
         onClose={() => setOpen(false)}
         eyebrow="ATTENDANCE"
-        title={editingId ? '근태 수정' : '근태 등록'}
+        title={editingId ? t('att.editRecord') : t('att.addRecord')}
         footer={
           <>
             {editingId && (
               <button onClick={() => setConfirmingDelete(true)} disabled={deleting || saving} className="btn btn-ghost mr-auto text-delayed hover:bg-delayed-weak">
-                {deleting ? '삭제 중…' : '삭제'}
+                {deleting ? t('att.deleting') : t('common.delete')}
               </button>
             )}
-            <button onClick={() => setOpen(false)} className="btn btn-ghost">취소</button>
-            <button onClick={submit} disabled={saving || deleting} className="btn btn-primary">{saving ? '저장 중…' : '저장'}</button>
+            <button onClick={() => setOpen(false)} className="btn btn-ghost">{t('common.cancel')}</button>
+            <button onClick={submit} disabled={saving || deleting} className="btn btn-primary">{saving ? t('att.saving') : t('common.save')}</button>
           </>
         }
       >
         <div className="space-y-4">
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">멤버</span>
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('att.form.member')}</span>
             <select
               value={form.memberId}
               onChange={e => setForm(f => ({ ...f, memberId: e.target.value }))}
               disabled={!!editingId}
               className="app-input disabled:opacity-60"
             >
-              {members.length === 0 && <option value="">멤버 없음</option>}
+              {members.length === 0 && <option value="">{t('att.form.noMembers')}</option>}
               {members.map(m => (
                 <option key={m.id} value={m.id}>{m.name}{m.teamCode ? ` · ${m.teamCode}` : ''}</option>
               ))}
@@ -312,7 +320,7 @@ export function AttendanceView({
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">날짜</span>
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('att.form.date')}</span>
               <input
                 type="date"
                 value={form.date}
@@ -322,30 +330,30 @@ export function AttendanceView({
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">근태 유형</span>
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('att.form.type')}</span>
               <select
                 value={form.type}
                 onChange={e => setForm(f => ({ ...f, type: e.target.value as AttendanceType }))}
                 className="app-input"
               >
-                {ATTENDANCE_TYPES.map(t => (
-                  <option key={t} value={t}>{ATTENDANCE_META[t].label}</option>
+                {ATTENDANCE_TYPES.map(ty => (
+                  <option key={ty} value={ty}>{typeLabel(ty)}</option>
                 ))}
               </select>
             </label>
           </div>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">비고 (선택)</span>
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('att.form.note')}</span>
             <textarea
               value={form.note}
               onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
               rows={2}
-              placeholder="예: 부산공장 현장 점검"
+              placeholder={t('att.form.notePlaceholder')}
               className="app-textarea"
             />
           </label>
           {editingId && (
-            <p className="text-[11px] leading-5 text-ink-subtle">멤버·날짜는 수정할 수 없습니다. 변경하려면 삭제 후 다시 등록하세요.</p>
+            <p className="text-[11px] leading-5 text-ink-subtle">{t('att.form.lockedHint')}</p>
           )}
           {formErr && <p className="text-xs font-medium text-delayed">{formErr}</p>}
         </div>
@@ -357,24 +365,29 @@ export function AttendanceView({
         onClose={() => { if (!deleting) setConfirmingDelete(false) }}
         size="sm"
         eyebrow="Remove attendance"
-        title="근태 삭제"
+        title={t('att.deleteTitle')}
         footer={
           <>
             <button onClick={() => setConfirmingDelete(false)} className="btn btn-ghost" disabled={deleting}>
-              취소
+              {t('common.cancel')}
             </button>
             <button
               onClick={handleDelete}
               disabled={deleting}
               className="btn bg-delayed text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {deleting ? '삭제 중…' : '삭제'}
+              {deleting ? t('att.deleting') : t('common.delete')}
             </button>
           </>
         }
       >
         <p className="text-sm leading-6 text-ink-muted">
-          <strong className="text-ink">{memberMap.get(form.memberId)?.name ?? '알 수 없음'}</strong> 님의 {fmtDate(form.date)} 근태 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.
+          {/* 이름·날짜가 문장 중간에 끼고 어순이 달라 t() 파라미터 치환 없이 locale 분기로 조합 */}
+          {locale === 'en' ? (
+            <>Delete the {fmtDate(form.date)} attendance record for <strong className="text-ink">{memberMap.get(form.memberId)?.name ?? t('att.unknown')}</strong>? This action cannot be undone.</>
+          ) : (
+            <><strong className="text-ink">{memberMap.get(form.memberId)?.name ?? t('att.unknown')}</strong> 님의 {fmtDate(form.date)} 근태 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.</>
+          )}
         </p>
       </Modal>
     </div>

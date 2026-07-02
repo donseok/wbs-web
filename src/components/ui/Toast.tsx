@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { CheckCircle2, AlertTriangle, Info, X, type LucideIcon } from 'lucide-react'
+import { useLocale } from '@/components/providers/LocaleProvider'
 
 type ToastVariant = 'success' | 'error' | 'info'
 
@@ -37,6 +38,7 @@ const VARIANT: Record<ToastVariant, { icon: LucideIcon; iconWrap: string }> = {
 
 /** 앱을 감싸 토스트 스택을 제공한다. 우측 하단에 쌓이며 자동/수동으로 닫힌다. */
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useLocale()
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const seq = useRef(0)
 
@@ -56,7 +58,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div
         className="pointer-events-none fixed bottom-4 right-4 z-[200] flex w-[min(92vw,360px)] flex-col gap-2.5"
         role="region"
-        aria-label="알림"
+        aria-label={t('ui.toastRegion')}
       >
         {toasts.map(item => (
           <ToastCard key={item.id} item={item} onDismiss={() => dismiss(item.id)} />
@@ -67,6 +69,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) {
+  const { t } = useLocale()
   const [shown, setShown] = useState(false)
   const meta = VARIANT[item.variant ?? 'info']
   const Icon = meta.icon
@@ -112,7 +115,7 @@ function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: () => void
       <button
         onClick={onDismiss}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink"
-        aria-label="알림 닫기"
+        aria-label={t('ui.toastDismiss')}
       >
         <X className="h-4 w-4" />
       </button>

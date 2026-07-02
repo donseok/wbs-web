@@ -6,6 +6,7 @@ import { Plus, FolderPlus } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { createProject } from '@/app/actions/project'
 import { isValidDateRange } from '@/lib/domain/validate'
+import { useLocale } from '@/components/providers/LocaleProvider'
 
 /**
  * 워크스페이스 홈의 "새 프로젝트 시작" 트리거 + 다이얼로그.
@@ -13,12 +14,13 @@ import { isValidDateRange } from '@/lib/domain/validate'
  * 데모 모드에서는 createProject가 no-op이지만 닫기/새로고침은 정상 동작한다.
  */
 export function NewProjectModal({
-  label = '새 프로젝트 시작',
+  label,
   className = 'inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20',
 }: {
   label?: string
   className?: string
 }) {
+  const { t } = useLocale()
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -46,7 +48,7 @@ export function NewProjectModal({
     const trimmed = name.trim()
     if (!trimmed || busy) return
     if (!isValidDateRange(start || null, end || null)) {
-      setError('종료일은 시작일보다 빠를 수 없습니다.')
+      setError(t('home.errEndBeforeStart'))
       return
     }
     setBusy(true)
@@ -57,7 +59,7 @@ export function NewProjectModal({
       setOpen(false)
       reset()
     } catch (e) {
-      setError(e instanceof Error ? e.message : '프로젝트를 만들지 못했습니다.')
+      setError(e instanceof Error ? e.message : t('home.errCreateFailed'))
     } finally {
       setBusy(false)
     }
@@ -67,38 +69,38 @@ export function NewProjectModal({
     <>
       <button type="button" className={className} onClick={() => setOpen(true)}>
         <Plus className="h-4 w-4" />
-        {label}
+        {label ?? t('home.newProjectStart')}
       </button>
 
       <Modal
         open={open}
         onClose={close}
         eyebrow="Workspace dialog"
-        title="새 프로젝트"
+        title={t('common.newProject')}
         footer={
           <>
             <button type="button" className="btn btn-ghost" onClick={close} disabled={busy}>
-              취소
+              {t('common.cancel')}
             </button>
             <button type="button" className="btn btn-primary" onClick={submit} disabled={!name.trim() || busy}>
               <FolderPlus className="h-4 w-4" />
-              {busy ? '생성 중…' : '프로젝트 생성'}
+              {busy ? t('home.creating') : t('home.createProject')}
             </button>
           </>
         }
       >
         <div className="space-y-4">
           <p className="text-sm leading-6 text-ink-muted">
-            기본 정보를 입력해 새 프로젝트를 시작하세요. 생성 후 설정에서 WBS 엑셀을 가져올 수 있습니다.
+            {t('home.newProjectDesc')}
           </p>
 
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">
-              프로젝트명 <span className="text-delayed">*</span>
+              {t('home.fieldName')} <span className="text-delayed">*</span>
             </span>
             <input
               className="app-input"
-              placeholder="예: ERP 고도화 프로젝트"
+              placeholder={t('home.phName')}
               value={name}
               onChange={e => setName(e.target.value)}
               autoFocus
@@ -109,10 +111,10 @@ export function NewProjectModal({
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">설명</span>
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('home.fieldDesc')}</span>
             <textarea
               className="app-textarea min-h-[84px]"
-              placeholder="프로젝트의 목표나 범위를 간단히 적어주세요."
+              placeholder={t('home.phDesc')}
               value={description}
               onChange={e => setDescription(e.target.value)}
             />
@@ -120,11 +122,11 @@ export function NewProjectModal({
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">시작일</span>
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('home.fieldStart')}</span>
               <input type="date" className="app-input px-2.5 text-sm" value={start} onChange={e => setStart(e.target.value)} />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">종료일</span>
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('home.fieldEnd')}</span>
               <input type="date" className="app-input px-2.5 text-sm" value={end} min={start || undefined} onChange={e => setEnd(e.target.value)} />
             </label>
           </div>

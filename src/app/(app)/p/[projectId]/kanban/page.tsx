@@ -2,6 +2,8 @@ import { ListChecks, Activity, Gauge } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { getMembership } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
+import { t } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 import { PageHero } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
@@ -9,14 +11,15 @@ import { KanbanBoard } from '@/components/kanban/KanbanBoard'
 
 export default async function KanbanPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
-  const [{ items, today }, m, projects] = await Promise.all([
+  const [{ items, today }, m, projects, locale] = await Promise.all([
     getComputedWbs(projectId),
     getMembership(),
     listProjects(),
+    getServerLocale(),
   ])
 
   const project = projects.find((p: { id: string }) => p.id === projectId)
-  const name = project?.name ?? '프로젝트'
+  const name = project?.name ?? t(locale, 'kanban.projectFallback')
 
   const leaves = collectLeaves(items)
   const total = leaves.length
@@ -29,13 +32,13 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
     <div className="space-y-6">
       <PageHero
         eyebrow="KANBAN BOARD"
-        title={`${name} 칸반 보드`}
-        description="작업을 Phase·담당자·상태별로 한눈에 관리하세요."
+        title={`${name} ${t(locale, 'kanban.heroTitleSuffix')}`}
+        description={t(locale, 'kanban.heroDesc')}
         heroKpis={
           <>
-            <KpiCard variant="hero" label="전체 작업" value={total} sub="말단 작업 카드" icon={ListChecks} />
-            <KpiCard variant="hero" label="진행중" value={inProgress} sub={`전체 ${total}건 중`} icon={Activity} tone="brand" />
-            <KpiCard variant="hero" label="전체 진척률" value={`${overall}%`} sub="Phase 평균 실적" icon={Gauge} tone="success" />
+            <KpiCard variant="hero" label={t(locale, 'kanban.kpiTotalTasks')} value={total} sub={t(locale, 'kanban.kpiTotalTasksSub')} icon={ListChecks} />
+            <KpiCard variant="hero" label={t(locale, 'status.in_progress')} value={inProgress} sub={`${t(locale, 'kanban.kpiOfTotalPrefix')}${total}${t(locale, 'kanban.kpiOfTotalSuffix')}`} icon={Activity} tone="brand" />
+            <KpiCard variant="hero" label={t(locale, 'kanban.kpiOverallProgress')} value={`${overall}%`} sub={t(locale, 'kanban.kpiOverallProgressSub')} icon={Gauge} tone="success" />
           </>
         }
       />

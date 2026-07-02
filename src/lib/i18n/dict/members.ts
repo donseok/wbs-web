@@ -1,5 +1,89 @@
 // members 화면 사전 — 이 파일은 members 영역 담당만 수정한다.
 // en은 Record<keyof ko, string> 타입으로 ko와의 키 패리티를 컴파일 타임에 강제한다.
-export const membersKo = {} as const
+export const membersKo = {
+  // 히어로(page.tsx)
+  'members.projectFallback': '프로젝트',
+  // 프로젝트명 뒤에 붙는 접미사 — JSX에서 `${projectName} ${t(...)}` 로 조합
+  'members.heroTitleSuffix': '팀 구성',
+  'members.heroDesc': '참여자를 역할과 소속이 명확한 팀 보드로 정리했습니다.',
+  'members.kpiTeamSizeSub': '전체 참여자',
+  'members.kpiAdminsSub': '프로젝트 관리자',
+  'members.kpiContributorsSub': '실무 기여자',
+  // 보드 헤더 — '팀 보드 · {n}명' 은 {t(boardTitle)} · {n}{t(unitPeople)} 로 조합
+  'members.boardTitle': '팀 보드',
+  'members.unitPeople': '명',
+  'members.addMember': '멤버 추가',
+  'members.emptyTitle': '아직 등록된 멤버가 없습니다',
+  'members.emptyDesc': '멤버를 추가해 역할과 소속이 명확한 팀 보드를 구성하세요.',
+  // 멤버 카드
+  'members.roleAdmin': '관리자',
+  'members.roleContributor': '기여자',
+  'members.noTitle': '직함 미지정',
+  'members.noTeam': '소속 미지정',
+  'members.noEmail': '이메일 미등록',
+  // aria 접미사 — `${member.name}${t(...)}` 로 조합 (선행 공백/구두점 포함)
+  'members.ariaEditSuffix': ' 수정',
+  'members.ariaDeleteSuffix': ' 삭제',
+  // 추가/수정 모달
+  'members.editMember': '멤버 수정',
+  'members.fieldName': '이름',
+  'members.fieldEmail': '이메일',
+  'members.fieldTeam': '소속 팀',
+  'members.fieldRole': '역할',
+  'members.fieldTitle': '직함 / 역할 설명',
+  'members.phName': '예: 이돈석',
+  'members.phEmail': '예: name@company.com',
+  'members.phTitle': '예: PM / 프로젝트 총괄',
+  'members.noTeamOption': '소속 없음',
+  'members.saving': '저장 중…',
+  'members.saveChanges': '변경 저장',
+  'members.errNameRequired': '이름을 입력하세요.',
+  'members.errEmailInvalid': '올바른 이메일 형식이 아닙니다. (예: name@company.com)',
+  'members.errSaveFailed': '저장에 실패했습니다.',
+  // 삭제 확인 모달
+  'members.deleteMember': '멤버 삭제',
+  'members.deleting': '삭제 중…',
+  // `<strong>{name}</strong>{t(...)}` 로 조합 (선행 공백 포함)
+  'members.deleteConfirmSuffix': ' 님을 팀 보드에서 삭제할까요? 이 작업은 되돌릴 수 없습니다.',
+  'members.errDeleteFailed': '삭제에 실패했습니다.',
+} as const
 
-export const membersEn: Record<keyof typeof membersKo, string> = {}
+export const membersEn: Record<keyof typeof membersKo, string> = {
+  'members.projectFallback': 'Project',
+  'members.heroTitleSuffix': 'team',
+  'members.heroDesc': 'Participants organized into a team board with clear roles and teams.',
+  'members.kpiTeamSizeSub': 'All participants',
+  'members.kpiAdminsSub': 'Project admins',
+  'members.kpiContributorsSub': 'Active contributors',
+  'members.boardTitle': 'Team board',
+  'members.unitPeople': ' members',
+  'members.addMember': 'Add member',
+  'members.emptyTitle': 'No members yet',
+  'members.emptyDesc': 'Add members to build a team board with clear roles and teams.',
+  'members.roleAdmin': 'Admin',
+  'members.roleContributor': 'Contributor',
+  'members.noTitle': 'No title set',
+  'members.noTeam': 'No team set',
+  'members.noEmail': 'No email registered',
+  'members.ariaEditSuffix': ' — edit',
+  'members.ariaDeleteSuffix': ' — delete',
+  'members.editMember': 'Edit member',
+  'members.fieldName': 'Name',
+  'members.fieldEmail': 'Email',
+  'members.fieldTeam': 'Team',
+  'members.fieldRole': 'Role',
+  'members.fieldTitle': 'Title / role description',
+  'members.phName': 'e.g. Jane Kim',
+  'members.phEmail': 'e.g. name@company.com',
+  'members.phTitle': 'e.g. PM / project lead',
+  'members.noTeamOption': 'No team',
+  'members.saving': 'Saving…',
+  'members.saveChanges': 'Save changes',
+  'members.errNameRequired': 'Enter a name.',
+  'members.errEmailInvalid': 'Invalid email format. (e.g. name@company.com)',
+  'members.errSaveFailed': 'Failed to save.',
+  'members.deleteMember': 'Remove member',
+  'members.deleting': 'Removing…',
+  'members.deleteConfirmSuffix': ' will be removed from the team board. This action cannot be undone.',
+  'members.errDeleteFailed': 'Failed to remove.',
+}

@@ -1,7 +1,10 @@
 import Link from 'next/link'
 import { Compass, Home } from 'lucide-react'
+import { t } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 
-export default function NotFound() {
+export default async function NotFound() {
+  const locale = await getServerLocale()
   return (
     <div className="app-backdrop flex min-h-screen items-center justify-center px-4 py-16">
       <div className="card relative w-full max-w-md overflow-hidden p-8 text-center sm:p-10">
@@ -22,14 +25,14 @@ export default function NotFound() {
           404
         </div>
 
-        <h1 className="mt-4 text-lg font-bold tracking-tight text-ink">페이지를 찾을 수 없습니다</h1>
+        <h1 className="mt-4 text-lg font-bold tracking-tight text-ink">{t(locale, 'home.nfTitle')}</h1>
         <p className="mt-2 text-sm leading-6 text-ink-muted">
-          요청하신 페이지가 존재하지 않거나 이동되었습니다.
+          {t(locale, 'home.nfDesc')}
         </p>
 
         <Link href="/projects" className="btn btn-primary mt-7 w-full">
           <Home className="h-4 w-4" />
-          홈으로 돌아가기
+          {t(locale, 'home.nfHome')}
         </Link>
       </div>
     </div>

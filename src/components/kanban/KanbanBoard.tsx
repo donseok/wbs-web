@@ -10,6 +10,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
 import { groupByPhase, groupByOwner, groupByStatus, type KanbanColumn } from '@/lib/domain/kanban'
 import { updateActual } from '@/app/actions/wbs'
+import { useLocale } from '@/components/providers/LocaleProvider'
+import type { DictKey } from '@/lib/i18n/dict'
 import { KanbanCard } from './KanbanCard'
 
 type Mode = 'phase' | 'owner' | 'status'
@@ -17,6 +19,16 @@ type StatusFilter = 'all' | 'in_progress' | 'done'
 
 // 상태별 모드에서 드롭 시 실적값 매핑(완료=100, 시작전=0). 그 외 컬럼은 드롭 불가.
 const DROP_TARGET: Record<string, number> = { done: 100, not_started: 0 }
+
+// 표시 전용 매핑 — 도메인(src/lib/domain/kanban.ts)이 만드는 한국어 컬럼 제목을 번역 키로 변환.
+// 매핑에 없는 값(동적 팀명·담당자명·Phase명)은 원본 그대로 표시한다.
+const COLUMN_TITLE_KEY: Record<string, DictKey> = {
+  '시작전': 'status.not_started',
+  '진행중': 'status.in_progress',
+  '지연': 'status.delayed',
+  '완료': 'status.done',
+  '미배정': 'kanban.unassigned',
+}
 
 export function KanbanBoard({
   items,
@@ -31,6 +43,7 @@ export function KanbanBoard({
   readOnly?: boolean
 }) {
   const router = useRouter()
+  const { t } = useLocale()
   const [mode, setMode] = useState<Mode>('phase')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [query, setQuery] = useState('')
@@ -87,10 +100,10 @@ export function KanbanBoard({
     startTransition(async () => {
       const res = await updateActual(card.id, target)
       if (!res.ok) {
-        setErrorMsg(res.error ?? '상태 변경에 실패했습니다.')
+        setErrorMsg(res.error ?? t('kanban.errStatusChange'))
         return
       }
-      setLiveMsg(`${card.name} 작업을 ${landingLabel}(으)로 이동했습니다.`)
+      setLiveMsg(`${t('kanban.movedP1')}${card.name}${t('kanban.movedP2')}${landingLabel}${t('kanban.movedP3')}`)
       router.refresh()
     })
   }
@@ -104,25 +117,25 @@ export function KanbanBoard({
     if (!card) return
     if (!dropValidFor(card, columnKey)) {
       if (columnKey === 'not_started' && started(card)) {
-        setErrorMsg('이미 시작된 작업은 ‘시작전’으로 되돌릴 수 없습니다. 실적을 0%로 두면 ‘지연’으로 표시됩니다. 완료로 옮기거나 WBS에서 실적을 직접 수정하세요.')
+        setErrorMsg(t('kanban.errNotStartedDrop'))
       }
       return
     }
-    commitActual(card, DROP_TARGET[columnKey], columnKey === 'done' ? '완료' : '시작전')
+    commitActual(card, DROP_TARGET[columnKey], columnKey === 'done' ? t('status.done') : t('status.not_started'))
   }
 
   // 키보드 토글(Enter/Space): 완료↔초기화. 상태는 계산값이라 토글 의미로만 동작.
   function keyboardToggle(card: ComputedItem) {
     if (!cardEditable(card)) return
     if (card.status === 'done') {
-      setLiveMsg(`${card.name} 완료를 해제하여 실적을 0%로 초기화했습니다.`)
+      setLiveMsg(`${t('kanban.clearedP1')}${card.name}${t('kanban.clearedP2')}`)
       startTransition(async () => {
         const res = await updateActual(card.id, 0)
-        if (!res.ok) setErrorMsg(res.error ?? '변경에 실패했습니다.')
+        if (!res.ok) setErrorMsg(res.error ?? t('kanban.errChange'))
         else router.refresh()
       })
     } else {
-      commitActual(card, 100, '완료')
+      commitActual(card, 100, t('status.done'))
     }
   }
 
@@ -130,8 +143,8 @@ export function KanbanBoard({
     return (
       <EmptyState
         icon={Inbox}
-        title="표시할 작업이 없습니다"
-        description="설정에서 WBS 엑셀을 가져오면 작업이 Phase·담당자·상태별 카드로 나타납니다."
+        title={t('kanban.emptyTitle')}
+        description={t('kanban.emptyDesc')}
       />
     )
   }
@@ -144,9 +157,9 @@ export function KanbanBoard({
           value={mode}
           onChange={setMode}
           tabs={[
-            { key: 'phase', label: 'Phase별', icon: Layers },
-            { key: 'owner', label: '담당자별', icon: Users },
-            { key: 'status', label: '상태별', icon: Columns3 },
+            { key: 'phase', label: t('kanban.byPhase'), icon: Layers },
+            { key: 'owner', label: t('kanban.byOwner'), icon: Users },
+            { key: 'status', label: t('kanban.byStatus'), icon: Columns3 },
           ]}
         />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -155,9 +168,9 @@ export function KanbanBoard({
             value={statusFilter}
             onChange={setStatusFilter}
             tabs={[
-              { key: 'all', label: '전체' },
-              { key: 'in_progress', label: '진행중' },
-              { key: 'done', label: '완료' },
+              { key: 'all', label: t('kanban.filterAll') },
+              { key: 'in_progress', label: t('status.in_progress') },
+              { key: 'done', label: t('status.done') },
             ]}
           />
           <div className="relative">
@@ -165,8 +178,8 @@ export function KanbanBoard({
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="작업명·담당자 검색"
-              aria-label="작업명·담당자 검색"
+              placeholder={t('kanban.searchPlaceholder')}
+              aria-label={t('kanban.searchPlaceholder')}
               className="app-input pl-9 sm:w-64"
             />
           </div>
@@ -177,9 +190,9 @@ export function KanbanBoard({
       {editable && (
         <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-2 text-[12px] text-ink-muted">
           <MoveHorizontal className="h-3.5 w-3.5 shrink-0 text-brand" />
-          카드를 <span className="font-semibold text-done">완료</span> 또는
-          <span className="font-semibold text-pending">시작전</span> 컬럼으로 드래그(또는 카드 선택 후 Enter)하면 실적이 자동 반영됩니다.
-          {pending && <span className="ml-1 text-brand">저장 중…</span>}
+          {t('kanban.hint1')}<span className="font-semibold text-done">{t('status.done')}</span>{t('kanban.hint2')}
+          <span className="font-semibold text-pending">{t('status.not_started')}</span>{t('kanban.hint3')}
+          {pending && <span className="ml-1 text-brand">{t('kanban.saving')}</span>}
         </div>
       )}
 
@@ -187,6 +200,9 @@ export function KanbanBoard({
       <div className="flex gap-4 overflow-x-auto pb-2">
         {columns.map(col => {
           const draggingCard = draggingId ? cardById.get(draggingId) : undefined
+          // 표시 시점에만 한국어 컬럼 제목을 번역 — 도메인의 Record 키('미배정' 등)는 건드리지 않는다.
+          const titleKey = COLUMN_TITLE_KEY[col.title]
+          const displayTitle = titleKey ? t(titleKey) : col.title
           const isDropZone = editable && DROP_TARGET[col.key] !== undefined
           // 드래그 중인 카드를 이 컬럼이 받을 수 있을 때만 활성 하이라이트.
           const accepts = isDropZone && (!draggingCard || dropValidFor(draggingCard, col.key))
@@ -203,7 +219,7 @@ export function KanbanBoard({
               <header className="flex items-center justify-between gap-2 px-1 pb-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${col.accentDot ?? 'bg-brand'}`} />
-                  <h3 className="truncate text-[13px] font-semibold text-ink" title={col.title}>{col.title}</h3>
+                  <h3 className="truncate text-[13px] font-semibold text-ink" title={displayTitle}>{displayTitle}</h3>
                 </div>
                 <span className="badge shrink-0 bg-surface-2 text-ink-muted">{col.count}</span>
               </header>
@@ -211,7 +227,7 @@ export function KanbanBoard({
               <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto pr-0.5">
                 {col.cards.length === 0 ? (
                   <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-line py-8 text-center text-[12px] text-ink-subtle">
-                    {isDropZone ? '여기에 카드를 놓으세요' : '작업 없음'}
+                    {isDropZone ? t('kanban.dropHere') : t('kanban.noTasks')}
                   </div>
                 ) : (
                   col.cards.map(card => {
@@ -247,9 +263,9 @@ export function KanbanBoard({
         open={errorMsg !== null}
         onClose={() => setErrorMsg(null)}
         eyebrow="KANBAN"
-        title="변경하지 못했습니다"
+        title={t('kanban.errorModalTitle')}
         footer={
-          <button className="btn btn-primary" onClick={() => setErrorMsg(null)}>확인</button>
+          <button className="btn btn-primary" onClick={() => setErrorMsg(null)}>{t('common.confirm')}</button>
         }
       >
         <p className="text-sm leading-6 text-ink-muted">{errorMsg}</p>

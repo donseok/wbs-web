@@ -12,6 +12,8 @@ import { ScheduleManager } from '@/components/settings/ScheduleManager'
 import { WbsImportForm } from '@/components/settings/WbsImportForm'
 import { ReindexButton } from '@/components/settings/ReindexButton'
 import { dkbotIndexStatus, type IndexStatus } from '@/lib/ai/health'
+import { t, type Locale } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 
 type ProjectRow = {
   id: string
@@ -24,20 +26,20 @@ type ProjectRow = {
 }
 
 /** DK Bot 색인 신선도 → 배지 라벨/색상. 무신호 실패(키 미설정·마이그레이션 미적용·stale)를 가시화. */
-function dkbotBadge(s: IndexStatus): { label: string; cls: string } {
+function dkbotBadge(s: IndexStatus, locale: Locale): { label: string; cls: string } {
   switch (s.freshness) {
     case 'fresh':
-      return { label: `색인 최신 · ${s.indexed}건`, cls: 'bg-done-weak text-done' }
+      return { label: `${t(locale, 'settings.badgeFresh')} · ${s.indexed}${t(locale, 'settings.badgeFreshUnit')}`, cls: 'bg-done-weak text-done' }
     case 'stale':
-      return { label: '재색인 필요 (WBS 변경 감지)', cls: 'bg-pending-weak text-pending' }
+      return { label: t(locale, 'settings.badgeStale'), cls: 'bg-pending-weak text-pending' }
     case 'schema_missing':
-      return { label: 'AI 검색 준비 중', cls: 'bg-delayed-weak text-delayed' }
+      return { label: t(locale, 'settings.badgePreparing'), cls: 'bg-delayed-weak text-delayed' }
     case 'disabled':
-      return { label: 'AI 키 미설정 · 결정형 답변 동작', cls: 'bg-pending-weak text-pending' }
+      return { label: t(locale, 'settings.badgeDisabled'), cls: 'bg-pending-weak text-pending' }
     case 'empty':
-      return { label: 'WBS 데이터 없음', cls: 'bg-pending-weak text-pending' }
+      return { label: t(locale, 'settings.badgeEmpty'), cls: 'bg-pending-weak text-pending' }
     default:
-      return { label: '색인 상태 확인 불가', cls: 'bg-pending-weak text-pending' }
+      return { label: t(locale, 'settings.badgeUnknown'), cls: 'bg-pending-weak text-pending' }
   }
 }
 
@@ -52,6 +54,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
 
 export default async function SettingsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
+  const locale = await getServerLocale()
   const [{ items, holidays }, projects, membership, dkIndex] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
@@ -66,30 +69,30 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   const scheduleLabel =
     project?.start_date || project?.end_date
       ? `${fmtDate(project?.start_date ?? null)} – ${fmtDate(project?.end_date ?? null)}`
-      : '미정'
+      : t(locale, 'settings.tbd')
 
   return (
     <div className="space-y-6">
       <PageHero
         eyebrow="SETTINGS"
         badge={<HeroBadge>Smart Utility</HeroBadge>}
-        title={`${project?.name ?? '프로젝트'} 설정`}
-        description="프로젝트 메타 정보와 데이터 관리를 한곳에서 조정합니다."
+        title={`${project?.name ?? t(locale, 'settings.projectFallback')} ${t(locale, 'settings.heroTitleSuffix')}`}
+        description={t(locale, 'settings.heroDesc')}
         heroKpis={
           <>
-            <KpiCard variant="hero" label="TASKS" value={taskCount} sub="등록된 리프 작업" icon={ListTree} tone="brand" />
+            <KpiCard variant="hero" label="TASKS" value={taskCount} sub={t(locale, 'settings.kpiTasksSub')} icon={ListTree} tone="brand" />
             <KpiCard
               variant="hero"
               label="BASE DATE"
-              value={project?.base_date ? fmtDate(project.base_date) : '자동'}
-              sub={project?.base_date ? '공정율 기준일(수동)' : '공정율 기준일(오늘)'}
+              value={project?.base_date ? fmtDate(project.base_date) : t(locale, 'settings.kpiBaseAuto')}
+              sub={project?.base_date ? t(locale, 'settings.kpiBaseSubManual') : t(locale, 'settings.kpiBaseSubToday')}
               icon={CalendarDays}
             />
             <KpiCard
               variant="hero"
               label="SCHEDULE"
               value={<span className="text-[15px] font-bold tabular-nums">{scheduleLabel}</span>}
-              sub="프로젝트 일정"
+              sub={t(locale, 'settings.kpiScheduleSub')}
               icon={CalendarRange}
               tone="success"
             />
@@ -100,7 +103,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       {/* ── 기본 정보 ── */}
       <SectionCard
         eyebrow="CORE INFORMATION"
-        title="기본 정보"
+        title={t(locale, 'settings.coreInfoTitle')}
         icon={Info}
         actions={canMutate && project ? (
           <ProjectInfoEditButton
@@ -113,25 +116,25 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         ) : undefined}
       >
         <dl className="-mt-1">
-          <InfoRow label="프로젝트명">
-            <span className="font-semibold">{project?.name ?? '미지정'}</span>
+          <InfoRow label={t(locale, 'settings.projectName')}>
+            <span className="font-semibold">{project?.name ?? t(locale, 'settings.unassigned')}</span>
           </InfoRow>
-          <InfoRow label="설명">
+          <InfoRow label={t(locale, 'settings.description')}>
             {project?.description?.trim() || (
-              <span className="text-ink-subtle">설명이 아직 없습니다.</span>
+              <span className="text-ink-subtle">{t(locale, 'settings.noDescription')}</span>
             )}
           </InfoRow>
-          <InfoRow label="시작일">
-            <span className="tabular-nums">{project?.start_date ? fmtDate(project.start_date) : '미정'}</span>
+          <InfoRow label={t(locale, 'settings.startDate')}>
+            <span className="tabular-nums">{project?.start_date ? fmtDate(project.start_date) : t(locale, 'settings.tbd')}</span>
           </InfoRow>
-          <InfoRow label="종료일">
-            <span className="tabular-nums">{project?.end_date ? fmtDate(project.end_date) : '미정'}</span>
+          <InfoRow label={t(locale, 'settings.endDate')}>
+            <span className="tabular-nums">{project?.end_date ? fmtDate(project.end_date) : t(locale, 'settings.tbd')}</span>
           </InfoRow>
         </dl>
         {!isPmo && (
           <p className="mt-4 flex items-center gap-1.5 text-xs leading-5 text-ink-subtle">
             <Lock className="h-3.5 w-3.5" />
-            기본 정보 변경은 PMO 관리자만 가능합니다.
+            {t(locale, 'settings.pmoOnlyNotice')}
           </p>
         )}
       </SectionCard>
@@ -139,12 +142,12 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       {/* ── WBS 데이터 가져오기 / 내보내기 ── */}
       <SectionCard
         eyebrow="DATA"
-        title="WBS 데이터 가져오기 · 내보내기"
+        title={t(locale, 'settings.importExportTitle')}
         icon={Upload}
-        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span> : undefined}
+        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{t(locale, 'settings.pmoOnlyBadge')}</span> : undefined}
       >
         <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
-          Excel 형식의 작업 구조와 일정을 프로젝트에 반영합니다.
+          {t(locale, 'settings.importDesc')}
         </p>
         {canMutate ? (
           <WbsImportForm projectId={projectId} />
@@ -154,20 +157,20 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
               <Shield className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-ink">가져오기 권한이 없습니다</p>
-              <p className="mt-1 text-xs leading-5 text-ink-muted">프로젝트의 PMO 관리자에게 WBS 업데이트를 요청하세요.</p>
+              <p className="text-sm font-semibold text-ink">{t(locale, 'settings.noImportPermission')}</p>
+              <p className="mt-1 text-xs leading-5 text-ink-muted">{t(locale, 'settings.noImportPermissionDesc')}</p>
             </div>
           </div>
         )}
 
         <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs leading-5 text-ink-muted">현재 WBS·일정·담당·실적을 Excel로 내려받습니다. 같은 형식으로 다시 가져올 수 있어요.</p>
+          <p className="text-xs leading-5 text-ink-muted">{t(locale, 'settings.exportDesc')}</p>
           <a
             href={`/api/export?projectId=${projectId}`}
             className="btn btn-ghost shrink-0"
-            aria-label="WBS를 Excel 파일로 내보내기"
+            aria-label={t(locale, 'settings.exportAria')}
           >
-            <Download className="h-4 w-4" /> Excel 내보내기
+            <Download className="h-4 w-4" /> {t(locale, 'settings.exportExcel')}
           </a>
         </div>
       </SectionCard>
@@ -175,25 +178,24 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       {/* ── DK Bot 의미검색 색인 ── */}
       <SectionCard
         eyebrow="AI ASSISTANT"
-        title="DK Bot 의미검색 색인"
+        title={t(locale, 'settings.dkbotTitle')}
         icon={Sparkles}
         actions={
           <div className="flex items-center gap-2">
-            <span className={`badge px-2 py-1 ${dkbotBadge(dkIndex).cls}`}>{dkbotBadge(dkIndex).label}</span>
+            <span className={`badge px-2 py-1 ${dkbotBadge(dkIndex, locale).cls}`}>{dkbotBadge(dkIndex, locale).label}</span>
             {canMutate ? (
               <ReindexButton projectId={projectId} />
             ) : (
-              <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span>
+              <span className="badge bg-pending-weak px-2 py-1 text-pending">{t(locale, 'settings.pmoOnlyBadge')}</span>
             )}
           </div>
         }
       >
         <p className="-mt-2 text-xs leading-5 text-ink-muted">
-          DK Bot이 최신 작업을 검색·답변하도록 WBS·멤버를 임베딩 색인합니다. WBS를 가져오면 자동으로 갱신되며, WBS를 편집한 뒤에는
-          위 배지에 <span className="font-medium text-pending">재색인 필요</span>가 표시될 때 수동으로 재생성하세요.
+          {t(locale, 'settings.dkbotDesc1')}<span className="font-medium text-pending">{t(locale, 'settings.dkbotDescBadge')}</span>{t(locale, 'settings.dkbotDesc2')}
           <br />
           <span className="text-ink-subtle">
-            AI 검색이 준비되지 않은 상태에서도 DK Bot은 구조화된 데이터로 정확히 답변하며, 준비가 완료되면 의미검색이 자동으로 활성화됩니다.
+            {t(locale, 'settings.dkbotDesc3')}
           </span>
         </p>
       </SectionCard>
@@ -201,9 +203,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       {/* ── 일정 기준 및 공휴일 ── */}
       <SectionCard
         eyebrow="CALENDAR"
-        title="일정 기준 및 공휴일"
+        title={t(locale, 'settings.calendarTitle')}
         icon={CalendarDays}
-        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">PMO 관리자 전용</span> : undefined}
+        actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{t(locale, 'settings.pmoOnlyBadge')}</span> : undefined}
       >
         <ScheduleManager
           projectId={projectId}
@@ -214,9 +216,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       </SectionCard>
 
       {/* ── 프로젝트 상태 관리 (시각 전용) ── */}
-      <SectionCard eyebrow="STATUS POLICY" title="프로젝트 상태 관리" icon={Settings}>
+      <SectionCard eyebrow="STATUS POLICY" title={t(locale, 'settings.statusPolicyTitle')} icon={Settings}>
         <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
-          작업 상태(시작전·진행중·지연·완료)를 산정하는 방식을 정의합니다.
+          {t(locale, 'settings.statusPolicyDesc')}
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-2xl border border-brand-ring bg-brand-weak/40 p-5">
@@ -225,12 +227,12 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
                 <RefreshCw className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-sm font-semibold text-ink">자동 상태 동기화</p>
-                <span className="badge bg-brand-weak text-brand">현재 적용</span>
+                <p className="text-sm font-semibold text-ink">{t(locale, 'settings.autoSyncTitle')}</p>
+                <span className="badge bg-brand-weak text-brand">{t(locale, 'settings.currentlyApplied')}</span>
               </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-ink-muted">
-              실적·계획·기준일을 비교해 상태를 실시간으로 계산합니다. 별도 입력 없이 일정이 흐르면 자동 갱신됩니다.
+              {t(locale, 'settings.autoSyncDesc')}
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-surface-2 p-5">
@@ -239,14 +241,14 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
                 <Lock className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-sm font-semibold text-ink">공정율 기준일 정책</p>
+                <p className="text-sm font-semibold text-ink">{t(locale, 'settings.baseDatePolicyTitle')}</p>
                 {project?.base_date
-                  ? <span className="badge bg-pending-weak text-accent-warning">수동 고정 · {project.base_date}</span>
-                  : <span className="badge bg-brand-weak text-brand">자동 · 오늘</span>}
+                  ? <span className="badge bg-pending-weak text-accent-warning">{t(locale, 'settings.manualFixed')} · {project.base_date}</span>
+                  : <span className="badge bg-brand-weak text-brand">{t(locale, 'settings.autoTodayShort')}</span>}
               </div>
             </div>
             <p className="mt-3 text-xs leading-5 text-ink-muted">
-              위 &lsquo;일정 기준 및 공휴일&rsquo;에서 기준일을 고정하면 그 날짜로 상태를 계산하고, 비워두면 매일 오늘 기준으로 자동 갱신됩니다.
+              {t(locale, 'settings.baseDatePolicyDesc')}
             </p>
           </div>
         </div>

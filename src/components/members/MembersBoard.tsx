@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { UserPlus, Pencil, Trash2, Mail, ShieldCheck, UserRound, AlertTriangle, Users } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
+import { useLocale } from '@/components/providers/LocaleProvider'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM } from '@/components/wbs/shared'
 import { addMember, updateMember, removeMember } from '@/app/actions/members'
@@ -38,8 +39,8 @@ function avatarGradient(seed: string): string {
 
 function roleMeta(role: ProjectMemberRole) {
   return role === 'admin'
-    ? { label: '관리자', chip: 'bg-brand-weak text-brand', Icon: ShieldCheck }
-    : { label: '기여자', chip: 'bg-progress-weak text-progress', Icon: UserRound }
+    ? { labelKey: 'members.roleAdmin' as const, chip: 'bg-brand-weak text-brand', Icon: ShieldCheck }
+    : { labelKey: 'members.roleContributor' as const, chip: 'bg-progress-weak text-progress', Icon: UserRound }
 }
 
 function initials(name: string) {
@@ -59,6 +60,7 @@ export function MembersBoard({
   canEdit: boolean
   projectId: string
 }) {
+  const { t } = useLocale()
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ProjectMember | null>(null)
   const [deleting, setDeleting] = useState<ProjectMember | null>(null)
@@ -77,12 +79,12 @@ export function MembersBoard({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4 sm:px-6">
         <div>
           <div className="eyebrow">Member board</div>
-          <h2 className="mt-0.5 text-sm font-semibold text-ink">팀 보드 · {members.length}명</h2>
+          <h2 className="mt-0.5 text-sm font-semibold text-ink">{t('members.boardTitle')} · {members.length}{t('members.unitPeople')}</h2>
         </div>
         {canEdit && (
           <button onClick={openAdd} className="btn btn-primary">
             <UserPlus className="h-4 w-4" />
-            멤버 추가
+            {t('members.addMember')}
           </button>
         )}
       </div>
@@ -91,13 +93,13 @@ export function MembersBoard({
         {members.length === 0 ? (
           <EmptyState
             icon={Users}
-            title="아직 등록된 멤버가 없습니다"
-            description="멤버를 추가해 역할과 소속이 명확한 팀 보드를 구성하세요."
+            title={t('members.emptyTitle')}
+            description={t('members.emptyDesc')}
             action={
               canEdit ? (
                 <button onClick={openAdd} className="btn btn-primary">
                   <UserPlus className="h-4 w-4" />
-                  멤버 추가
+                  {t('members.addMember')}
                 </button>
               ) : undefined
             }
@@ -135,6 +137,7 @@ function MemberCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const { t } = useLocale()
   const role = roleMeta(member.role)
   const RoleIcon = role.Icon
   const avatar = avatarGradient(member.id)
@@ -152,21 +155,21 @@ function MemberCard({
             {member.name}
           </div>
           <div className="mt-0.5 truncate text-xs text-ink-muted" title={member.title ?? undefined}>
-            {member.title ?? '직함 미지정'}
+            {member.title ?? t('members.noTitle')}
           </div>
         </div>
         {canEdit && (
           <div className="flex shrink-0 items-center gap-1">
             <button
               onClick={onEdit}
-              aria-label={`${member.name} 수정`}
+              aria-label={`${member.name}${t('members.ariaEditSuffix')}`}
               className="flex h-7 w-7 items-center justify-center rounded-lg border border-line text-ink-subtle transition hover:border-line-strong hover:text-ink"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={onDelete}
-              aria-label={`${member.name} 삭제`}
+              aria-label={`${member.name}${t('members.ariaDeleteSuffix')}`}
               className="flex h-7 w-7 items-center justify-center rounded-lg border border-line text-ink-subtle transition hover:border-delayed hover:text-delayed"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -178,7 +181,7 @@ function MemberCard({
       <div className="flex flex-wrap items-center gap-1.5">
         <span className={`chip ${role.chip}`}>
           <RoleIcon className="h-3 w-3" />
-          {role.label}
+          {t(role.labelKey)}
         </span>
         {member.teamCode ? (
           <span className={`chip ${TEAM_META[member.teamCode].chip}`}>
@@ -186,14 +189,14 @@ function MemberCard({
             {member.teamCode}
           </span>
         ) : (
-          <span className="chip bg-surface-2 text-ink-subtle">소속 미지정</span>
+          <span className="chip bg-surface-2 text-ink-subtle">{t('members.noTeam')}</span>
         )}
       </div>
 
       <div className="mt-auto flex items-center gap-1.5 border-t border-line pt-3 text-xs text-ink-subtle">
         <Mail className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate" title={member.email ?? undefined}>
-          {member.email ?? '이메일 미등록'}
+          {member.email ?? t('members.noEmail')}
         </span>
       </div>
     </div>
@@ -212,6 +215,7 @@ function MemberFormModal({
   initial: ProjectMember | null
 }) {
   const router = useRouter()
+  const { t } = useLocale()
   const isEdit = !!initial
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -233,13 +237,13 @@ function MemberFormModal({
 
   function submit() {
     if (!name.trim()) {
-      setError('이름을 입력하세요.')
+      setError(t('members.errNameRequired'))
       return
     }
     const trimmedEmail = email.trim()
     // 이메일은 선택 필드 — 입력이 있을 때만 형식 검증(서버에서도 재검증하므로 이건 UX용).
     if (trimmedEmail && !isValidEmail(trimmedEmail)) {
-      setError('올바른 이메일 형식이 아닙니다. (예: name@company.com)')
+      setError(t('members.errEmailInvalid'))
       return
     }
     const input = {
@@ -255,7 +259,7 @@ function MemberFormModal({
         onClose()
         router.refresh()
       } else {
-        setError(res.error ?? '저장에 실패했습니다.')
+        setError(res.error ?? t('members.errSaveFailed'))
       }
     })
   }
@@ -265,50 +269,50 @@ function MemberFormModal({
       open={open}
       onClose={onClose}
       eyebrow={isEdit ? 'Edit member' : 'New member'}
-      title={isEdit ? '멤버 수정' : '멤버 추가'}
+      title={isEdit ? t('members.editMember') : t('members.addMember')}
       footer={
         <>
           <button onClick={onClose} className="btn btn-ghost" disabled={pending}>
-            취소
+            {t('common.cancel')}
           </button>
           <button onClick={submit} className="btn btn-primary" disabled={pending}>
-            {pending ? '저장 중…' : isEdit ? '변경 저장' : '멤버 추가'}
+            {pending ? t('members.saving') : isEdit ? t('members.saveChanges') : t('members.addMember')}
           </button>
         </>
       }
     >
       <div className="space-y-4">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">이름</span>
+          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldName')}</span>
           <input
             className="app-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="예: 이돈석"
+            placeholder={t('members.phName')}
             autoFocus
           />
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">이메일</span>
+          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldEmail')}</span>
           <input
             className="app-input"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="예: name@company.com"
+            placeholder={t('members.phEmail')}
           />
         </label>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">소속 팀</span>
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldTeam')}</span>
             <select
               className="app-input"
               value={teamCode}
               onChange={(e) => setTeamCode(e.target.value as TeamCode | '')}
             >
-              <option value="">소속 없음</option>
+              <option value="">{t('members.noTeamOption')}</option>
               {TEAM_OPTIONS.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -318,25 +322,25 @@ function MemberFormModal({
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">역할</span>
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldRole')}</span>
             <select
               className="app-input"
               value={role}
               onChange={(e) => setRole(e.target.value as ProjectMemberRole)}
             >
-              <option value="contributor">기여자</option>
-              <option value="admin">관리자</option>
+              <option value="contributor">{t('members.roleContributor')}</option>
+              <option value="admin">{t('members.roleAdmin')}</option>
             </select>
           </label>
         </div>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">직함 / 역할 설명</span>
+          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldTitle')}</span>
           <input
             className="app-input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="예: PM / 프로젝트 총괄"
+            placeholder={t('members.phTitle')}
           />
         </label>
 
@@ -353,6 +357,7 @@ function MemberFormModal({
 
 function DeleteMemberModal({ member, onClose }: { member: ProjectMember | null; onClose: () => void }) {
   const router = useRouter()
+  const { t } = useLocale()
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -368,7 +373,7 @@ function DeleteMemberModal({ member, onClose }: { member: ProjectMember | null; 
         onClose()
         router.refresh()
       } else {
-        setError(res.error ?? '삭제에 실패했습니다.')
+        setError(res.error ?? t('members.errDeleteFailed'))
       }
     })
   }
@@ -378,24 +383,24 @@ function DeleteMemberModal({ member, onClose }: { member: ProjectMember | null; 
       open={!!member}
       onClose={onClose}
       eyebrow="Remove member"
-      title="멤버 삭제"
+      title={t('members.deleteMember')}
       footer={
         <>
           <button onClick={onClose} className="btn btn-ghost" disabled={pending}>
-            취소
+            {t('common.cancel')}
           </button>
           <button
             onClick={confirm}
             disabled={pending}
             className="btn bg-delayed text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? '삭제 중…' : '삭제'}
+            {pending ? t('members.deleting') : t('common.delete')}
           </button>
         </>
       }
     >
       <p className="text-sm leading-6 text-ink-muted">
-        <strong className="text-ink">{member?.name}</strong> 님을 팀 보드에서 삭제할까요? 이 작업은 되돌릴 수 없습니다.
+        <strong className="text-ink">{member?.name}</strong>{t('members.deleteConfirmSuffix')}
       </p>
       {error && (
         <div className="mt-4 flex items-center gap-2 rounded-xl border border-delayed/40 bg-delayed-weak px-3 py-2.5 text-xs font-medium text-delayed">

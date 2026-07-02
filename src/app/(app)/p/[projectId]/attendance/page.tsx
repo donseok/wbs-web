@@ -3,6 +3,8 @@ import { getAttendanceRecords } from '@/lib/data/attendance'
 import { getProjectMembers } from '@/lib/data/members'
 import { getMembership } from '@/lib/auth'
 import { summarize } from '@/lib/domain/attendance'
+import { t } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { AttendanceView } from '@/components/attendance/AttendanceView'
@@ -14,6 +16,7 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
     getProjectMembers(projectId),
     getMembership(),
   ])
+  const locale = await getServerLocale()
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
   const s = summarize(records)
 
@@ -22,13 +25,13 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
       <PageHero
         eyebrow="ATTENDANCE"
         badge={<HeroBadge>Attendance</HeroBadge>}
-        title="근태현황"
-        description="프로젝트 멤버의 출결 상태를 캘린더와 리스트로 한눈에 확인하세요."
+        title={t(locale, 'att.title')}
+        description={t(locale, 'att.desc')}
         heroKpis={
           <>
-            <KpiCard variant="hero" label="TOTAL RECORDS" value={s.total} sub="전체 근태 기록" icon={CalendarCheck} />
-            <KpiCard variant="hero" label="LEAVE DAYS" value={s.leave} sub="연차·반차·병가" icon={CalendarOff} tone="brand" />
-            <KpiCard variant="hero" label="BUSINESS TRIP" value={s.trip} sub="출장 일정" icon={PlaneTakeoff} tone="warning" />
+            <KpiCard variant="hero" label="TOTAL RECORDS" value={s.total} sub={t(locale, 'att.kpi.totalSub')} icon={CalendarCheck} />
+            <KpiCard variant="hero" label="LEAVE DAYS" value={s.leave} sub={t(locale, 'att.kpi.leaveSub')} icon={CalendarOff} tone="brand" />
+            <KpiCard variant="hero" label="BUSINESS TRIP" value={s.trip} sub={t(locale, 'att.kpi.tripSub')} icon={PlaneTakeoff} tone="warning" />
           </>
         }
       />

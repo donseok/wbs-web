@@ -1,4 +1,6 @@
 import { Users, ShieldCheck, UserRound } from 'lucide-react'
+import { t } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 import { getProjectMembers } from '@/lib/data/members'
 import { getMembership } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
@@ -8,14 +10,15 @@ import { MembersBoard } from '@/components/members/MembersBoard'
 
 export default async function MembersPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
-  const [members, m, projects] = await Promise.all([
+  const [members, m, projects, locale] = await Promise.all([
     getProjectMembers(projectId),
     getMembership(),
     listProjects(),
+    getServerLocale(),
   ])
 
   const project = projects.find((p) => p.id === projectId)
-  const projectName = project?.name ?? '프로젝트'
+  const projectName = project?.name ?? t(locale, 'members.projectFallback')
   const canEdit = m?.role === 'pmo_admin'
 
   const teamSize = members.length
@@ -27,13 +30,13 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
       <PageHero
         eyebrow="TEAM"
         badge={<HeroBadge>Members</HeroBadge>}
-        title={`${projectName} 팀 구성`}
-        description="참여자를 역할과 소속이 명확한 팀 보드로 정리했습니다."
+        title={`${projectName} ${t(locale, 'members.heroTitleSuffix')}`}
+        description={t(locale, 'members.heroDesc')}
         heroKpis={
           <>
-            <KpiCard variant="hero" label="TEAM SIZE" value={teamSize} sub="전체 참여자" icon={Users} tone="brand" />
-            <KpiCard variant="hero" label="ADMINS" value={admins} sub="프로젝트 관리자" icon={ShieldCheck} tone="success" />
-            <KpiCard variant="hero" label="CONTRIBUTORS" value={contributors} sub="실무 기여자" icon={UserRound} tone="default" />
+            <KpiCard variant="hero" label="TEAM SIZE" value={teamSize} sub={t(locale, 'members.kpiTeamSizeSub')} icon={Users} tone="brand" />
+            <KpiCard variant="hero" label="ADMINS" value={admins} sub={t(locale, 'members.kpiAdminsSub')} icon={ShieldCheck} tone="success" />
+            <KpiCard variant="hero" label="CONTRIBUTORS" value={contributors} sub={t(locale, 'members.kpiContributorsSub')} icon={UserRound} tone="default" />
           </>
         }
       />

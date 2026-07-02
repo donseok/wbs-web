@@ -11,6 +11,8 @@ import { ProgressBar } from '@/components/ui/ProgressBar'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM, STATUS, OwnerBadges, collectLeaves, fmtDate } from '@/components/wbs/shared'
+import { t, type DictKey } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 
 /* ── 날짜 유틸 (UTC 기준 정수 일수 계산 → DST 무관) ── */
 const DAY = 86_400_000
@@ -31,6 +33,7 @@ function intersects(start: string | null, end: string | null, ws: string, we: st
 const STATUSES: Status[] = ['done', 'in_progress', 'delayed', 'not_started']
 const TEAMS: TeamCode[] = ['PMO', 'DT', 'ERP', 'MES']
 
+// label은 참조용 원본(한국어) — 화면 표시는 dict 키 `dash.att.<type>`로 번역해 렌더한다.
 const ATT: Record<AttendanceType, { label: string; cls: string }> = {
   work: { label: '정상근무', cls: 'bg-done-weak text-done' },
   remote: { label: '재택', cls: 'bg-progress-weak text-progress' },
@@ -51,8 +54,8 @@ function seoulToday(): string {
 }
 
 /* ── 소형 프리미티브 ── */
-function CountBadge({ n, tone = 'bg-brand-weak text-brand' }: { n: number; tone?: string }) {
-  return <span className={`badge ${tone}`}>{n}건</span>
+function CountBadge({ n, unit, tone = 'bg-brand-weak text-brand' }: { n: number; unit: string; tone?: string }) {
+  return <span className={`badge ${tone}`}>{n}{unit}</span>
 }
 
 function MiniEmpty({ text }: { text: string }) {
@@ -92,7 +95,7 @@ function TaskRow({ item }: { item: ComputedItem }) {
   )
 }
 
-export function DashboardView({
+export async function DashboardView({
   items,
   startDate = null,
   endDate = null,
@@ -107,12 +110,15 @@ export function DashboardView({
   memberCount?: number
   attendance?: AttendanceRecord[]
 }) {
+  const locale = await getServerLocale()
+  const tr = (k: DictKey) => t(locale, k)
+
   if (items.length === 0) {
     return (
       <EmptyState
         icon={BarChart3}
-        title="분석할 WBS 데이터가 없습니다"
-        description="설정에서 WBS 엑셀을 가져오면 진행률·팀별 현황·지연 작업을 자동으로 분석합니다."
+        title={tr('dash.emptyTitle')}
+        description={tr('dash.emptyDesc')}
       />
     )
   }
@@ -197,45 +203,45 @@ export function DashboardView({
       {/* 프로젝트 일정 */}
       <SectionCard
         eyebrow="TIMELINE"
-        title="프로젝트 일정"
+        title={tr('dash.schedule.title')}
         icon={CalendarRange}
         actions={
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold tabular-nums">
             {variance >= 0
-              ? <span className="inline-flex items-center gap-1 text-done"><TrendingUp className="h-3.5 w-3.5" />계획 대비 +{variance}%p</span>
-              : <span className="inline-flex items-center gap-1 text-delayed"><TrendingDown className="h-3.5 w-3.5" />계획 대비 {variance}%p</span>}
+              ? <span className="inline-flex items-center gap-1 text-done"><TrendingUp className="h-3.5 w-3.5" />{tr('dash.vsPlan')} +{variance}%p</span>
+              : <span className="inline-flex items-center gap-1 text-delayed"><TrendingDown className="h-3.5 w-3.5" />{tr('dash.vsPlan')} {variance}%p</span>}
           </span>
         }
       >
         {schedule ? (
           <div className="space-y-5">
             <div className="grid grid-cols-3 gap-3">
-              <Stat label="총 일수" value={`${schedule.totalDays}일`} sub={`${fmtDate(startDate)} – ${fmtDate(endDate)}`} />
-              <Stat label="경과" value={`${schedule.elapsed}일`} sub={`${schedule.elapsedPct}% 진행`} />
-              <Stat label="잔여" value={`${schedule.remaining}일`} sub={`${100 - schedule.elapsedPct}% 남음`} />
+              <Stat label={tr('dash.schedule.totalDays')} value={`${schedule.totalDays}${tr('dash.unitDays')}`} sub={`${fmtDate(startDate)} – ${fmtDate(endDate)}`} />
+              <Stat label={tr('dash.schedule.elapsed')} value={`${schedule.elapsed}${tr('dash.unitDays')}`} sub={`${schedule.elapsedPct}% ${tr('dash.schedule.elapsedSuffix')}`} />
+              <Stat label={tr('dash.schedule.remaining')} value={`${schedule.remaining}${tr('dash.unitDays')}`} sub={`${100 - schedule.elapsedPct}% ${tr('dash.schedule.remainingSuffix')}`} />
             </div>
             <div>
               <div className="mb-2 flex items-center justify-between text-xs">
-                <span className="font-semibold text-ink">실적 {overallActual}%</span>
-                <span className="text-ink-subtle">계획 {overallPlanned}% · 일정 경과 {schedule.elapsedPct}%</span>
+                <span className="font-semibold text-ink">{tr('dash.actualLabel')} {overallActual}%</span>
+                <span className="text-ink-subtle">{tr('dash.plannedLabel')} {overallPlanned}% · {tr('dash.timeElapsedLabel')} {schedule.elapsedPct}%</span>
               </div>
               <ProgressBar value={overallActual} planned={overallPlanned} tone="bg-brand" height="h-3" />
             </div>
           </div>
         ) : (
-          <MiniEmpty text="프로젝트 일정이 설정되지 않았습니다. 설정에서 시작일·종료일을 입력하세요." />
+          <MiniEmpty text={tr('dash.schedule.empty')} />
         )}
       </SectionCard>
 
       {/* 상태 분포 + 팀별 작업량 */}
       <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="STATUS MIX" title="상태 분포" icon={PieChart} actions={<CountBadge n={total} />}>
+        <SectionCard eyebrow="STATUS MIX" title={tr('dash.statusMix.title')} icon={PieChart} actions={<CountBadge n={total} unit={tr('dash.unitCount')} />}>
           <div className="space-y-4">
             <div className="flex h-3 w-full overflow-hidden rounded-full bg-line">
               {STATUSES.map(s => {
                 const c = statusCount(s)
                 if (!c || !total) return null
-                return <div key={s} className={STATUS[s].bar} style={{ width: `${(c / total) * 100}%` }} title={`${STATUS[s].label} ${c}건`} />
+                return <div key={s} className={STATUS[s].bar} style={{ width: `${(c / total) * 100}%` }} title={`${tr(`status.${s}` as DictKey)} ${c}${tr('dash.unitCount')}`} />
               })}
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -244,10 +250,10 @@ export function DashboardView({
                 return (
                   <div key={s} className="flex items-center justify-between rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
                     <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
-                      <span className={`h-2.5 w-2.5 rounded-full ${STATUS[s].dot}`} />{STATUS[s].label}
+                      <span className={`h-2.5 w-2.5 rounded-full ${STATUS[s].dot}`} />{tr(`status.${s}` as DictKey)}
                     </span>
                     <span className="tabular-nums">
-                      <strong className="text-ink">{c}건</strong>
+                      <strong className="text-ink">{c}{tr('dash.unitCount')}</strong>
                       <span className="ml-1 text-[11px] text-ink-subtle">{total ? Math.round((c / total) * 100) : 0}%</span>
                     </span>
                   </div>
@@ -257,7 +263,7 @@ export function DashboardView({
           </div>
         </SectionCard>
 
-        <SectionCard eyebrow="TEAM LOAD" title="담당자별 작업량" icon={Users}>
+        <SectionCard eyebrow="TEAM LOAD" title={tr('dash.teamLoad.title')} icon={Users}>
           <div className="space-y-4">
             {TEAMS.map(team => {
               const sm = teamSummary(team)
@@ -266,9 +272,9 @@ export function DashboardView({
                   <div className="mb-1.5 flex items-center justify-between text-xs">
                     <span className="flex items-center gap-2 font-semibold text-ink">
                       <span className={`h-2.5 w-2.5 rounded-full ${TEAM[team].bar}`} />{team}
-                      <span className="font-normal text-ink-subtle">· {sm.count}개</span>
+                      <span className="font-normal text-ink-subtle">· {sm.count}{tr('dash.unitTasks')}</span>
                     </span>
-                    <span className="tabular-nums font-semibold text-ink">{sm.pct == null ? '배정 없음' : `${sm.pct}%`}</span>
+                    <span className="tabular-nums font-semibold text-ink">{sm.pct == null ? tr('dash.noAssignment') : `${sm.pct}%`}</span>
                   </div>
                   <ProgressBar value={sm.pct ?? 0} tone={TEAM[team].bar} />
                 </div>
@@ -282,12 +288,12 @@ export function DashboardView({
       <div className="grid gap-5 xl:grid-cols-2">
         <SectionCard
           eyebrow="BY PHASE"
-          title="Phase별 진척"
+          title={tr('dash.phase.title')}
           icon={Layers}
           actions={
             <div className="flex items-center gap-3 text-[10px] text-ink-subtle">
-              <span className="inline-flex items-center gap-1"><span className="h-1.5 w-4 rounded-full bg-brand" />실적</span>
-              <span className="inline-flex items-center gap-1"><span className="h-3 w-0.5 bg-ink-muted" />계획</span>
+              <span className="inline-flex items-center gap-1"><span className="h-1.5 w-4 rounded-full bg-brand" />{tr('dash.actualLabel')}</span>
+              <span className="inline-flex items-center gap-1"><span className="h-3 w-0.5 bg-ink-muted" />{tr('dash.plannedLabel')}</span>
             </div>
           }
         >
@@ -311,7 +317,7 @@ export function DashboardView({
           </div>
         </SectionCard>
 
-        <SectionCard eyebrow="WEIGHT" title="가중치 분포" icon={Scale}>
+        <SectionCard eyebrow="WEIGHT" title={tr('dash.weight.title')} icon={Scale}>
           <ul className="space-y-3.5">
             {weightShare.map(r => (
               <li key={r.id}>
@@ -331,12 +337,12 @@ export function DashboardView({
       {/* 지연 작업 */}
       <SectionCard
         eyebrow="ATTENTION"
-        title="지연 작업"
+        title={tr('dash.kpi.delayed')}
         icon={AlertTriangle}
-        actions={<CountBadge n={delayed.length} tone="bg-delayed-weak text-delayed" />}
+        actions={<CountBadge n={delayed.length} unit={tr('dash.unitCount')} tone="bg-delayed-weak text-delayed" />}
       >
         {delayed.length === 0 ? (
-          <MiniEmpty text="현재 지연 작업이 없습니다. 모든 작업이 계획 범위 안에 있습니다." />
+          <MiniEmpty text={tr('dash.delayed.empty')} />
         ) : (
           <ul className="divide-y divide-line">
             {delayed.slice(0, 8).map(({ item, overdue, gap }) => (
@@ -354,7 +360,7 @@ export function DashboardView({
                 <div className="w-24 shrink-0 text-right">
                   <div className="tabular-nums text-xs text-ink-muted">{fmtDate(item.plannedEnd)}</div>
                   <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-delayed">
-                    <span className="h-1.5 w-1.5 rounded-full bg-delayed" />{overdue > 0 ? `${overdue}일 지연` : `격차 ${gap}%p`}
+                    <span className="h-1.5 w-1.5 rounded-full bg-delayed" />{overdue > 0 ? `${overdue}${tr('dash.overdueSuffix')}` : `${tr('dash.gapLabel')} ${gap}%p`}
                   </div>
                 </div>
               </li>
@@ -365,17 +371,17 @@ export function DashboardView({
 
       {/* 이번 주 / 다음 주 작업 */}
       <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="THIS WEEK" title="이번 주 작업" icon={CalendarClock} actions={<CountBadge n={thisWeek.length} />}>
+        <SectionCard eyebrow="THIS WEEK" title={tr('dash.thisWeek.title')} icon={CalendarClock} actions={<CountBadge n={thisWeek.length} unit={tr('dash.unitCount')} />}>
           {thisWeek.length === 0 ? (
-            <MiniEmpty text="이번 주에 진행되는 작업이 없습니다." />
+            <MiniEmpty text={tr('dash.thisWeek.empty')} />
           ) : (
             <ul className="space-y-2">{thisWeek.slice(0, 6).map(t => <TaskRow key={t.id} item={t} />)}</ul>
           )}
         </SectionCard>
 
-        <SectionCard eyebrow="NEXT WEEK" title="다음 주 작업" icon={CalendarPlus} actions={<CountBadge n={nextWeek.length} />}>
+        <SectionCard eyebrow="NEXT WEEK" title={tr('dash.nextWeek.title')} icon={CalendarPlus} actions={<CountBadge n={nextWeek.length} unit={tr('dash.unitCount')} />}>
           {nextWeek.length === 0 ? (
-            <MiniEmpty text="다음 주에 예정된 작업이 없습니다." />
+            <MiniEmpty text={tr('dash.nextWeek.empty')} />
           ) : (
             <ul className="space-y-2">{nextWeek.slice(0, 6).map(t => <TaskRow key={t.id} item={t} />)}</ul>
           )}
@@ -384,9 +390,9 @@ export function DashboardView({
 
       {/* 최근 완료 + 금주 근태 */}
       <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="RECENTLY DONE" title="최근 완료 작업" icon={CheckCircle2} actions={<CountBadge n={statusCount('done')} tone="bg-done-weak text-done" />}>
+        <SectionCard eyebrow="RECENTLY DONE" title={tr('dash.recentDone.title')} icon={CheckCircle2} actions={<CountBadge n={statusCount('done')} unit={tr('dash.unitCount')} tone="bg-done-weak text-done" />}>
           {recentDone.length === 0 ? (
-            <MiniEmpty text="완료된 작업이 아직 없습니다." />
+            <MiniEmpty text={tr('dash.recentDone.empty')} />
           ) : (
             <ul className="space-y-2">
               {recentDone.map(t => (
@@ -394,7 +400,7 @@ export function DashboardView({
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-done-weak text-done"><CheckCircle2 className="h-3.5 w-3.5" /></span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-ink" title={t.name}>{t.name}</div>
-                    <div className="mt-0.5 text-[11px] text-ink-subtle">완료 · {fmtDate(t.plannedEnd)}</div>
+                    <div className="mt-0.5 text-[11px] text-ink-subtle">{tr('status.done')} · {fmtDate(t.plannedEnd)}</div>
                   </div>
                   <OwnerBadges owners={t.owners} />
                 </li>
@@ -403,24 +409,24 @@ export function DashboardView({
           )}
         </SectionCard>
 
-        <SectionCard eyebrow="THIS WEEK ATTENDANCE" title="금주 근태 요약" icon={CalendarCheck}>
+        <SectionCard eyebrow="THIS WEEK ATTENDANCE" title={tr('dash.att.title')} icon={CalendarCheck}>
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
-              <Stat label="금주 기록" value={`${weekAtt.length}건`} />
-              <Stat label="휴가·연차" value={`${attCount('annual', 'half', 'sick')}건`} />
-              <Stat label="출장·재택" value={`${attCount('trip', 'remote')}건`} />
+              <Stat label={tr('dash.att.records')} value={`${weekAtt.length}${tr('dash.unitCount')}`} />
+              <Stat label={tr('dash.att.leave')} value={`${attCount('annual', 'half', 'sick')}${tr('dash.unitCount')}`} />
+              <Stat label={tr('dash.att.tripRemote')} value={`${attCount('trip', 'remote')}${tr('dash.unitCount')}`} />
             </div>
             {attByType.length === 0 ? (
-              <MiniEmpty text="이번 주 등록된 근태가 없습니다." />
+              <MiniEmpty text={tr('dash.att.empty')} />
             ) : (
               <div className="flex flex-wrap gap-2">
                 {attByType.map(({ type, count }) => (
-                  <span key={type} className={`chip ${ATT[type].cls}`}>{ATT[type].label} {count}</span>
+                  <span key={type} className={`chip ${ATT[type].cls}`}>{tr(`dash.att.${type}` as DictKey)} {count}</span>
                 ))}
               </div>
             )}
             <div className="text-[11px] text-ink-subtle">
-              팀원 {memberCount}명 · 이번 주 {attMembers}명 일정 등록 ({fmtDate(ws)}–{fmtDate(we)})
+              {tr('dash.att.memberPrefix')}{memberCount}{tr('dash.att.memberSuffix')} · {tr('dash.att.regPrefix')}{attMembers}{tr('dash.att.regSuffix')} ({fmtDate(ws)}–{fmtDate(we)})
             </div>
           </div>
         </SectionCard>
@@ -428,9 +434,9 @@ export function DashboardView({
 
       {/* 마감 임박 + 산출물 현황 */}
       <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="DUE SOON" title="마감 임박 (7일 내)" icon={Timer} actions={<CountBadge n={dueSoon.length} />}>
+        <SectionCard eyebrow="DUE SOON" title={tr('dash.dueSoon.title')} icon={Timer} actions={<CountBadge n={dueSoon.length} unit={tr('dash.unitCount')} />}>
           {dueSoon.length === 0 ? (
-            <MiniEmpty text="7일 내 마감 예정인 미완료 작업이 없습니다." />
+            <MiniEmpty text={tr('dash.dueSoon.empty')} />
           ) : (
             <ul className="divide-y divide-line">
               {dueSoon.slice(0, 8).map(l => {
@@ -455,15 +461,15 @@ export function DashboardView({
           )}
         </SectionCard>
 
-        <SectionCard eyebrow="DELIVERABLES" title="산출물 현황" icon={FileText} actions={<CountBadge n={withDeliverable.length} />}>
+        <SectionCard eyebrow="DELIVERABLES" title={tr('dash.deliv.title')} icon={FileText} actions={<CountBadge n={withDeliverable.length} unit={tr('dash.unitCount')} />}>
           {withDeliverable.length === 0 ? (
-            <MiniEmpty text="등록된 산출물이 없습니다. WBS에 산출물을 입력하면 완료 현황을 추적합니다." />
+            <MiniEmpty text={tr('dash.deliv.empty')} />
           ) : (
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-3">
-                <Stat label="전체" value={`${withDeliverable.length}건`} />
-                <Stat label="완료" value={`${deliverableDone}건`} sub={`${deliverablePct}%`} />
-                <Stat label="진행·예정" value={`${withDeliverable.length - deliverableDone}건`} />
+                <Stat label={tr('dash.deliv.total')} value={`${withDeliverable.length}${tr('dash.unitCount')}`} />
+                <Stat label={tr('dash.deliv.done')} value={`${deliverableDone}${tr('dash.unitCount')}`} sub={`${deliverablePct}%`} />
+                <Stat label={tr('dash.deliv.open')} value={`${withDeliverable.length - deliverableDone}${tr('dash.unitCount')}`} />
               </div>
               <ProgressBar value={deliverablePct} tone="bg-done" height="h-2.5" />
               <ul className="space-y-1.5">
