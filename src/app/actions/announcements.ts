@@ -2,7 +2,8 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import type { AnnouncementCategory } from '@/lib/domain/types'
+import { getTopAnnouncements } from '@/lib/data/announcements'
+import type { AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/types'
 
 export interface AnnouncementInput {
   title: string
@@ -157,6 +158,13 @@ export async function markAnnouncementsSeen(
   // 미래 시각 방지(클라이언트 값 신뢰 금지) — now 로 클램프
   const clamped = new Date(Math.min(ts, Date.now())).toISOString()
   return advanceSeenWatermark(projectId, user.id, clamped)
+}
+
+/** 헤더 티커용 상위 공지(고정 우선 → 최신순 5건) — 세션 확인 후 경량 조회에 위임. */
+export async function getHeaderAnnouncements(projectId: string): Promise<AnnouncementSummary[]> {
+  const user = await getSession()
+  if (!user) return []
+  return getTopAnnouncements(projectId)
 }
 
 /** 사이드바 배지용 안읽음 공지 수 — 워터마크 이후 생성된 공지 count. */

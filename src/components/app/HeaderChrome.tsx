@@ -14,6 +14,7 @@ import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
 import { readHeroCollapsed, dispatchHeroToggle, HERO_TOGGLE_EVENT } from '@/components/ui/PageHero'
+import { HeaderAnnouncementTicker } from './HeaderAnnouncementTicker'
 import type { SidebarProject } from './Sidebar'
 
 const SECTION_LABEL: Record<string, string> = {
@@ -100,6 +101,12 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
               )}
             </nav>
           )}
+
+          {/* 공지 티커 — 브레드크럼과 우측 컨트롤 사이 빈 공간에 공지 제목 상시 노출.
+              @container: 남은 공간이 좁으면 티커가 스스로 숨도록 컨테이너 쿼리 기준점 제공 */}
+          <div className="@container hidden min-w-0 flex-1 md:flex">
+            <HeaderAnnouncementTicker projectId={activeId} />
+          </div>
 
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             {/* 히어로 접기/펼치기 중앙 토글 */}

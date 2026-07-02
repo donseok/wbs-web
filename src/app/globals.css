@@ -352,3 +352,9 @@ textarea {
   from { transform: translateX(16px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* 헤더 공지 티커 항목 전환 */
+@keyframes tickerin {
+  from { transform: translateY(5px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

@@ -85,3 +85,10 @@ export interface Announcement {
   createdAt: string          // ISO timestamptz
   updatedAt: string
 }
+/** 헤더 티커 등 제목 표시용 최소 shape — body 전문을 실어 나르지 않는다. */
+export interface AnnouncementSummary {
+  id: string
+  title: string
+  category: AnnouncementCategory
+  isPinned: boolean
+}
