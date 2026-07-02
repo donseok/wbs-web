@@ -116,10 +116,11 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
                 <Hand className="h-3.5 w-3.5" />{baseDateAuto ? t('chrome.auto') : t('chrome.manual')}
               </Link>
             )}
-            <button onClick={() => setLocale(locale === 'ko' ? 'en' : 'ko')} className="chrome-btn" title="Language">
+            {/* 언어 전환·다크모드 토글 — 사용자 요청으로 화면에서 숨김(기능 코드는 유지) */}
+            <button onClick={() => setLocale(locale === 'ko' ? 'en' : 'ko')} className="chrome-btn hidden" title="Language">
               <Globe className="h-3.5 w-3.5" />{locale.toUpperCase()}
             </button>
-            <button onClick={toggle} className="chrome-icon" aria-label={theme === 'dark' ? t('chrome.lightMode') : t('chrome.darkMode')}>
+            <button onClick={toggle} className="chrome-icon hidden" aria-label={theme === 'dark' ? t('chrome.lightMode') : t('chrome.darkMode')}>
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
 
