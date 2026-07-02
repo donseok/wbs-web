@@ -51,7 +51,7 @@ create table if not exists announcement_seen (
 
 **읽음 워터마크 선택 이유**: 공지별 read 행(N×M) 대신 워터마크 1행이면 안읽음 수 = `created_at > last_seen_at`인 공지 수로 충분. "누가 읽었나" 수신 확인이 필요해지면 그때 per-item 테이블로 확장(§9).
 
-**적용 절차**: 마이그레이션은 수동 적용(관례). `scripts/apply-dkbot-migration.mjs` 패턴을 따라 Supabase(ref `rglfgrwwwwdqejohdnty`)에 적용하고, SQL은 SQL Editor에 붙여넣어도 안전하게 멱등으로 작성한다.
+**적용 절차**: 마이그레이션은 수동 적용(관례). Supabase Management API `POST /v1/projects/rglfgrwwwwdqejohdnty/database/query`(0011과 동일 경로, CLI 키체인 토큰)로 적용하며, SQL은 SQL Editor에 붙여넣어도 안전하게 멱등으로 작성한다. `app_role()` 헬퍼 정의도 0012에 버전화해 신규 환경에서 체인이 재생 가능하다. (pg 직결 스크립트는 TLS 검증 문제로 채택하지 않음.)
 
 ## 3. 도메인 계층 — `src/lib/domain/announcements.ts` (+ types.ts)
 
@@ -77,7 +77,7 @@ members.ts 템플릿: `'use server'`, 입력 검증 → `getMembership()` 게이
 - `createAnnouncement({ projectId, title, body, category, isPinned })` — pmo_admin. 검증: title 트림 후 1~200자, body ≤ 20,000자, category는 3종 중 하나. `created_by`에 세션 user id 기록.
 - `updateAnnouncement(id, { title, body, category, isPinned })` — pmo_admin. `updated_at`을 수동 갱신(wbs.ts 관례; 트리거 없음).
 - `deleteAnnouncement(id)` — pmo_admin. 하드 삭제(소프트 삭제 관례 없음).
-- `markAnnouncementsSeen(projectId)` — 인증 사용자 누구나(게스트 포함, 멤버십 불요). `announcement_seen` upsert(onConflict `user_id,project_id`), `last_seen_at = now()`.
+- `markAnnouncementsSeen(projectId, seenAt)` — 인증 사용자 누구나(게스트 포함, 멤버십 불요). 렌더에 실제로 보인 마지막 공지 시각(seenAt)까지만 읽음 처리(서버에서 now로 클램프). 워터마크는 뒤로 가지 않음(greatest). `createAnnouncement`는 작성자 본인의 워터마크를 새 공지 시각으로 전진시켜 자기 글이 안읽음으로 잡히지 않게 한다.
 - `getUnreadAnnouncementCount(projectId)` — 인증 사용자 누구나. 워터마크 조회 후 `created_at > last_seen_at` count(워터마크 없으면 전체 count). 사이드바 배지가 클라이언트에서 호출.
 
 revalidatePath: 쓰기 3종은 `/p/${projectId}/announcements`와 `/p/${projectId}/dashboard` 둘 다(대시보드 카드 반영).
@@ -99,7 +99,7 @@ MembersBoard/AttendanceView 관례:
 - 작성/수정: 단일 폼 Modal(`.app-input` 제목, `.app-textarea` 본문, 카테고리 select, 고정 체크박스). 인라인 에러(text-delayed) + 저장 중 busy 라벨 + `useTransition`. 성공 시 닫고 `router.refresh()` (성공 토스트 없음 — CRUD 관례 준수).
 - 삭제: 별도 소형 확인 Modal(수정 모달과 상호 배타), 위험 버튼.
 - 빈 상태: `EmptyState`(Megaphone 아이콘) + canEdit 시 작성 액션.
-- **읽음 처리**: 마운트 시 `markAnnouncementsSeen(projectId)` 1회 호출하되 refresh하지 않음 — NEW chip은 이번 방문 동안 유지되고, 배지는 다음 네비게이션에 소멸.
+- **읽음 처리**: 마운트/목록 갱신 시 렌더된 공지 중 최신 `createdAt`으로 `markAnnouncementsSeen(projectId, seenAt)` 호출하되 refresh하지 않음 — NEW chip은 이번 방문 동안 유지되고, 배지는 다음 네비게이션에 소멸. 빈 목록이면 호출하지 않음(워터마크가 과도하게 전진해 미표시 공지를 삼키는 것 방지).
 
 ### 6.3 네비 등록 (3곳 + dict)
 
@@ -110,7 +110,7 @@ MembersBoard/AttendanceView 관례:
 
 ### 6.4 사이드바 안읽음 배지
 
-Sidebar(client)에서 헤더 벨과 동일 패턴: pathname 변화에 keyed된 useEffect → 활성 projectId가 있으면 `getUnreadAnnouncementCount(activeId)` → 공지 메뉴 항목 우측에 카운트 배지(brand 톤, 99+ 캡). pathname 키잉이라 공지 페이지 방문 후 다른 페이지로 이동하면 재조회되어 배지가 사라진다. 폴링·Realtime 없음(앱 관례).
+Sidebar(client)에서 헤더 벨과 동일 패턴: pathname 변화에 keyed된 useEffect → 활성 projectId가 있으면 `getUnreadAnnouncementCount(activeId)` → 공지 메뉴 항목 우측에 카운트 배지(99+ 캡). pathname 키잉이라 공지 페이지 방문 후 다른 페이지로 이동하면 재조회되어 배지가 사라진다. 접힌 사이드바에서는 Megaphone 아이콘 위 도트로, 모바일 메뉴(HeaderChrome)에서는 메뉴가 열릴 때 1회 조회한 카운트 배지로 동일 지표를 노출한다. 폴링·Realtime 없음(앱 관례).
 
 ### 6.5 대시보드 카드
 

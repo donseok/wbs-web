@@ -1,6 +1,15 @@
 -- 공지사항 (프로젝트 스코프) + 읽음 워터마크
 -- 쓰기: pmo_admin 전용 (RLS + 서버 액션 이중 강제) / 읽기: 인증 사용자 전체(게스트 포함)
 -- 멱등: SQL Editor 에 여러 번 붙여넣어도 안전 (if not exists / drop policy if exists)
+-- 적용: Supabase Management API — POST /v1/projects/<ref>/database/query (0011과 동일 경로).
+--       .env.local 의 SUPABASE_DB_URL 은 비어 있으므로 pg 직결 스크립트는 사용하지 않는다.
+
+-- 쓰기 게이트 헬퍼 — 프로덕션에 이미 배포된 정의와 동일(pg_get_functiondef 로 확인).
+-- 레포 0002/0004 파일의 current_role() 은 PG 예약어라 적용 불가한 드리프트 표기 —
+-- 여기 버전화해 두어 신규 환경 부트스트랩 시에도 마이그레이션 체인이 재생 가능하게 한다.
+create or replace function public.app_role() returns text language sql stable as $$
+  select role from memberships where user_id = auth.uid()
+$$;
 
 create table if not exists announcements (
   id uuid primary key default gen_random_uuid(),

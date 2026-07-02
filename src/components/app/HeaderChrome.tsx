@@ -9,6 +9,7 @@ import {
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { getNotifications, type NotificationItem } from '@/app/actions/notifications'
+import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
@@ -209,6 +210,19 @@ function MobileMenu({
 }: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; membership: Membership | null }) {
   const { t } = useLocale()
   const activeId = pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null
+
+  // 안읽음 공지 배지 — 데스크탑 사이드바와 동일한 지표를 모바일 메뉴에서도 노출.
+  // 메뉴가 열릴 때(마운트)만 조회하므로 추가 비용은 열람 시 1회.
+  const [unreadAnn, setUnreadAnn] = useState(0)
+  useEffect(() => {
+    if (!activeId) return
+    let alive = true
+    getUnreadAnnouncementCount(activeId)
+      .then(n => { if (alive) setUnreadAnn(n) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [activeId])
+
   const links = activeId
     ? [
         { href: `/p/${activeId}/dashboard`, label: t('nav.dashboard') },
@@ -216,7 +230,7 @@ function MobileMenu({
         { href: `/p/${activeId}/kanban`, label: t('nav.kanban') },
         { href: `/p/${activeId}/members`, label: t('nav.members') },
         { href: `/p/${activeId}/attendance`, label: t('nav.attendance') },
-        { href: `/p/${activeId}/announcements`, label: t('nav.announcements') },
+        { href: `/p/${activeId}/announcements`, label: t('nav.announcements'), badge: unreadAnn },
         { href: `/p/${activeId}/settings`, label: t('nav.settings') },
       ]
     : []
@@ -238,7 +252,14 @@ function MobileMenu({
           ))}
           {links.length > 0 && <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">메뉴</div>}
           {links.map(l => (
-            <Link key={l.label} onClick={onClose} href={l.href} className={`side-link ${pathname === l.href ? 'side-link-active' : ''}`}>{l.label}</Link>
+            <Link key={l.label} onClick={onClose} href={l.href} className={`side-link ${pathname === l.href ? 'side-link-active' : ''}`}>
+              <span className="flex-1">{l.label}</span>
+              {(l.badge ?? 0) > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-secondary px-1.5 text-[10px] font-bold tabular-nums text-white">
+                  {l.badge! > 99 ? '99+' : l.badge}
+                </span>
+              )}
+            </Link>
           ))}
         </nav>
         {membership && (

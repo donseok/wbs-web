@@ -142,13 +142,16 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
                 const ItemIcon = item.icon
                 const label = t(item.labelKey)
                 return (
-                  <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} title={label} className={`side-link ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+                  <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} title={label} className={`side-link relative ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
                     <ItemIcon className="h-[18px] w-[18px] shrink-0" />
                     {!collapsed && <span className="flex-1">{label}</span>}
                     {!collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
                       <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-secondary px-1.5 text-[10px] font-bold tabular-nums text-white">
                         {unread > 99 ? '99+' : unread}
                       </span>
+                    )}
+                    {collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
+                      <span aria-hidden className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent-secondary ring-2 ring-sidebar" />
                     )}
                   </Link>
                 )

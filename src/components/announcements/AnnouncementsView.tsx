@@ -40,11 +40,16 @@ export function AnnouncementsView({
   const [editing, setEditing] = useState<Announcement | null>(null)
   const [deleting, setDeleting] = useState<Announcement | null>(null)
 
-  // 방문 = 확인 처리(워터마크 갱신). refresh 하지 않음 — NEW 칩은 이번 방문 동안
-  // 유지되고, 사이드바 배지는 다음 네비게이션의 재조회에서 사라진다.
+  // 방문 = 확인 처리: 렌더에 실제로 보인 가장 최신 공지 시각까지 읽음 처리(스냅샷 기준 —
+  // 렌더~호출 사이에 도착한 공지는 안읽음 유지). refresh 하지 않음 — NEW 칩은 이번 방문
+  // 동안 유지되고, 사이드바 배지는 다음 네비게이션의 재조회에서 사라진다.
   useEffect(() => {
-    markAnnouncementsSeen(projectId).catch(() => {})
-  }, [projectId])
+    if (announcements.length === 0) return
+    const latest = announcements.reduce((max, a) =>
+      Date.parse(a.createdAt) > Date.parse(max.createdAt) ? a : max,
+    ).createdAt
+    markAnnouncementsSeen(projectId, latest).catch(() => {})
+  }, [projectId, announcements])
 
   const visible = useMemo(() => {
     const base = filter === 'all' ? announcements : announcements.filter((a) => a.category === filter)

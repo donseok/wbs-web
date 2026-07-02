@@ -36,12 +36,15 @@ export function countUnread(items: Announcement[], lastSeenAt: string | null): n
 
 const DAY = 86_400_000
 
-/** KPI 집계 — recent7d는 todayIso('YYYY-MM-DD') 포함 직전 7일(UTC 자정 기준). */
+/**
+ * KPI 집계 — recent7d는 todayIso('YYYY-MM-DD', Asia/Seoul) 포함 직전 7일.
+ * 목록의 날짜 표기(fmtDate, Asia/Seoul)와 일치하도록 KST(+09:00) 자정을 경계로 쓴다.
+ */
 export function summarizeAnnouncements(
   items: Announcement[],
   todayIso: string,
 ): { total: number; pinned: number; recent7d: number } {
-  const cutoff = Date.parse(`${todayIso}T00:00:00Z`) - 6 * DAY
+  const cutoff = Date.parse(`${todayIso}T00:00:00+09:00`) - 6 * DAY
   let pinned = 0
   let recent7d = 0
   for (const a of items) {

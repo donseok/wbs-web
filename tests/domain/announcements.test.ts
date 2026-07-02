@@ -67,14 +67,21 @@ describe('isUnread / countUnread', () => {
 })
 
 describe('summarizeAnnouncements', () => {
+  // 7일 창 경계는 KST 자정: today=2026-07-02(KST) → 창 시작 = 2026-06-26T00:00+09:00 = 2026-06-25T15:00Z
   it('total / pinned / recent7d 집계', () => {
     const items = [
       ann('a', '2026-07-01T00:00:00+00:00', { isPinned: true }),
-      ann('b', '2026-06-26T00:00:00+00:00'),          // 7일 창 경계 안 (today-6)
-      ann('c', '2026-06-25T23:59:59+00:00'),          // 창 밖
+      ann('b', '2026-06-25T15:00:00+00:00'),          // = 06-26 00:00 KST, 경계 정확히 안
+      ann('c', '2026-06-25T14:59:59+00:00'),          // = 06-25 23:59 KST, 창 밖
       ann('d', '2026-07-02T00:00:00+00:00'),
     ]
     expect(summarizeAnnouncements(items, '2026-07-02')).toEqual({ total: 4, pinned: 1, recent7d: 3 })
+  })
+
+  it('KST 이른 아침(00:00–08:59)에 등록된 경계일 공지도 창 안이다', () => {
+    // UTC 자정 기준이었다면 빠졌을 케이스: 06-26 05:00 KST = 06-25T20:00Z
+    const items = [ann('a', '2026-06-25T20:00:00+00:00')]
+    expect(summarizeAnnouncements(items, '2026-07-02').recent7d).toBe(1)
   })
 
   it('빈 배열은 전부 0', () => {
