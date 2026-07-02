@@ -92,6 +92,25 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     if (open) inputRef.current?.focus()
   }, [open])
 
+  /**
+   * 입력창 비우기 — setInput('') 만으로는 한글 IME 조합 중이던 마지막 글자가 입력창에
+   * 되살아난다: React 상태를 비워도 브라우저의 조합(composition) 버퍼는 살아 있어서,
+   * 다음 커밋 시점에 조합 중이던 글자를 빈 입력창에 다시 써 넣는다(전송 버튼 클릭은
+   * 포커스를 뺏지 않아 조합이 안 끝난 채 남고, Enter 는 조합 확정과 전송이 겹친다).
+   * blur 로 조합을 강제 종료(확정)시킨 뒤 DOM 값까지 직접 비우고 포커스를 되돌린다.
+   * setInput('') 는 마지막에 — blur 가 확정분으로 onChange 를 한 번 더 발화시켜도 덮어쓴다.
+   */
+  const clearInput = useCallback(() => {
+    const el = inputRef.current
+    if (el) {
+      el.blur()
+      el.value = ''
+      el.style.height = 'auto'
+      el.focus()
+    }
+    setInput('')
+  }, [])
+
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim()
@@ -99,8 +118,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
       const gen = genRef.current // 이 요청이 속한 대화 세대
       const history = messages.map(m => ({ role: m.role, content: m.content }))
       setMessages(prev => [...prev, { id: nextId(), role: 'user', content: text }])
-      setInput('')
-      if (inputRef.current) inputRef.current.style.height = 'auto'
+      clearInput()
       setLoading(true)
       let asstId: number | null = null
       try {
@@ -149,7 +167,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
         if (genRef.current === gen) setLoading(false)
       }
     },
-    [messages, loading, currentProjectId],
+    [messages, loading, currentProjectId, clearInput],
   )
 
   const reset = () => {
@@ -157,11 +175,14 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     // 늦게 도착한 토큰이 새 대화에 끼어들지 않는다. 로딩도 직접 해제(스트림 finally 는 옛 세대라 건너뜀).
     genRef.current += 1
     setLoading(false)
-    setInput('')
+    clearInput()
     setMessages([{ id: nextId(), role: 'assistant', content: welcomeText(ctx) }])
   }
 
   const onInputKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 한글 IME 조합 중의 Enter 는 '조합 확정' 키다 — 이때 전송하면 마지막 글자가 잘리거나
+    // 조합 버퍼가 입력창에 남는다. 조합이 끝난 Enter 만 전송으로 처리한다.
+    if (e.nativeEvent.isComposing) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send(input)
