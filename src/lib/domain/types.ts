@@ -72,3 +72,16 @@ export interface AttendanceRecord {
   type: AttendanceType
   note: string | null
 }
+
+/* ── 공지사항 ── */
+export type AnnouncementCategory = 'general' | 'important' | 'event'
+export interface Announcement {
+  id: string
+  projectId: string
+  title: string
+  body: string
+  category: AnnouncementCategory
+  isPinned: boolean
+  createdAt: string          // ISO timestamptz
+  updatedAt: string
+}
