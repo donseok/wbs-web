@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
@@ -54,11 +55,11 @@ export function Modal({
     }
   }, [open, onClose])
 
-  if (!open) return null
+  if (!open || typeof document === 'undefined') return null
   const width = size === 'sm' ? 'max-w-sm' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg'
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
+  return createPortal(
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
       <button className="absolute inset-0 bg-black/45 backdrop-blur-sm" aria-label={t('common.close')} onClick={onClose} tabIndex={-1} />
       <div ref={panelRef} tabIndex={-1} className={`relative z-10 w-full ${width} overflow-hidden rounded-3xl border border-line bg-surface shadow-[var(--shadow-xl)] focus:outline-none`}>
         <div className="flex items-start justify-between gap-3 border-b border-line px-6 py-4">
@@ -71,6 +72,7 @@ export function Modal({
         <div className="max-h-[70vh] overflow-y-auto px-6 py-5">{children}</div>
         {footer && <div className="flex items-center justify-end gap-2 border-t border-line bg-surface-2 px-6 py-4">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
