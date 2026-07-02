@@ -17,7 +17,7 @@ import type { SidebarProject } from './Sidebar'
 
 const SECTION_LABEL: Record<string, string> = {
   dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드',
-  members: '멤버', attendance: '근태현황', settings: '설정',
+  members: '멤버', attendance: '근태현황', announcements: '공지사항', settings: '설정',
 }
 
 export function HeaderChrome({ membership, projects }: { membership: Membership | null; projects: SidebarProject[] }) {
@@ -216,6 +216,7 @@ function MobileMenu({
         { href: `/p/${activeId}/kanban`, label: t('nav.kanban') },
         { href: `/p/${activeId}/members`, label: t('nav.members') },
         { href: `/p/${activeId}/attendance`, label: t('nav.attendance') },
+        { href: `/p/${activeId}/announcements`, label: t('nav.announcements') },
         { href: `/p/${activeId}/settings`, label: t('nav.settings') },
       ]
     : []

@@ -5,9 +5,10 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarCheck, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
-  ListTree, PanelLeft, Plus, Settings, Users, type LucideIcon,
+  ListTree, Megaphone, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import type { DictKey } from '@/lib/i18n/dict'
 
 export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'done'; baseDate?: string | null }
@@ -25,6 +26,7 @@ function projectMenu(base: string): { href: string; labelKey: DictKey; icon: Luc
     { href: `${base}/kanban`, labelKey: 'nav.kanban', icon: Columns3, match: `${base}/kanban` },
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
+    { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` },
   ]
 }
@@ -47,6 +49,18 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
   const activeId = useMemo(() => pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null, [pathname])
   const activeCount = projects.filter(p => p.status === 'active').length
+
+  // 안읽음 공지 배지 — 헤더 벨과 같은 "네비게이션당 1회 조회" 패턴.
+  // pathname 키잉이라 공지 페이지를 다녀오면(워터마크 갱신 후) 재조회되어 배지가 사라진다.
+  const [unread, setUnread] = useState(0)
+  useEffect(() => {
+    if (!activeId) { setUnread(0); return }
+    let alive = true
+    getUnreadAnnouncementCount(activeId)
+      .then(n => { if (alive) setUnread(n) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [activeId, pathname])
 
   return (
     <aside
@@ -131,6 +145,11 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
                   <Link key={item.href} href={item.href} aria-current={active ? 'page' : undefined} title={label} className={`side-link ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
                     <ItemIcon className="h-[18px] w-[18px] shrink-0" />
                     {!collapsed && <span className="flex-1">{label}</span>}
+                    {!collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-secondary px-1.5 text-[10px] font-bold tabular-nums text-white">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    )}
                   </Link>
                 )
               })
