@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DK Bot 구동 프로세스 애니메이션 · D'Flow</title>
+<!-- 폰트는 논블로킹 로드: CDN이 느리거나 오프라인이어도 시스템 폰트로 즉시 렌더 -->
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  :root{
+    --canvas:#f5efe6; --surface:#fffaf4; --surface-2:#f3ece1;
+    --line:#e6dccd; --line-strong:#d6c9b6;
+    --ink:#17181d; --ink-muted:#4a4440; --ink-subtle:#7a6f68;
+    --brand:#0f766e; --brand-weak:#e3efec; --brand-ring:#9fd4cd;
+    --accent:#cb6d37; --accent-weak:#f9ece1;
+    --error:#cb4b5f; --error-weak:#f8e6e9;
+    --sidebar:#13161c; --sidebar-ink:#f5efe7; --sidebar-muted:#b6aa9e;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","Roboto Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--canvas); color:var(--ink);
+    font-family:"Pretendard Variable",Pretendard,system-ui,-apple-system,"Noto Sans KR",sans-serif;
+    padding-bottom:190px;
+  }
+  header.hero{
+    background:linear-gradient(135deg,#1c2028,#14181f 55%,#0d1014);
+    color:#f4efe7; padding:26px 28px 22px; border-bottom:1px solid #2c323c;
+  }
+  header.hero .brand{
+    font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#b6aa9e; font-weight:700;
+  }
+  header.hero h1{margin:6px 0 8px; font-size:24px; font-weight:800; letter-spacing:-.01em}
+  header.hero p{margin:0; font-size:13.5px; color:#b6aa9e; line-height:1.6; max-width:860px}
+  header.hero code{font-family:var(--mono); font-size:12px; color:#9fd4cd}
+
+  .toolbar{
+    display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    padding:14px 28px; background:var(--surface); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:20;
+  }
+  .tabs{display:flex; gap:6px; padding:4px; background:var(--surface-2); border-radius:12px}
+  .tabs button{
+    border:0; background:transparent; padding:8px 16px; border-radius:9px; cursor:pointer;
+    font:inherit; font-size:13.5px; font-weight:700; color:var(--ink-subtle);
+  }
+  .tabs button.on{background:var(--brand); color:#fff; box-shadow:0 1px 4px rgba(15,118,110,.35)}
+  .chips{display:flex; flex-wrap:wrap; gap:6px}
+  .chips button{
+    border:1px solid var(--line-strong); background:var(--surface); color:var(--ink-muted);
+    padding:7px 13px; border-radius:999px; cursor:pointer; font:inherit; font-size:12.5px; font-weight:600;
+  }
+  .chips button.on{border-color:var(--brand); background:var(--brand-weak); color:var(--brand); font-weight:800}
+
+  .stage-wrap{max-width:1340px; margin:18px auto 0; padding:0 16px}
+  .stage{
+    background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    box-shadow:0 2px 14px rgba(23,24,29,.05); overflow:hidden;
+  }
+  svg{display:block; width:100%; height:auto}
+
+  .legend{
+    display:flex; flex-wrap:wrap; gap:16px; align-items:center;
+    max-width:1340px; margin:10px auto 0; padding:0 22px; font-size:12px; color:var(--ink-subtle);
+  }
+  .legend .sw{display:inline-block; width:12px; height:12px; border-radius:4px; vertical-align:-2px; margin-right:5px}
+
+  /* ---------- SVG pieces ---------- */
+  .lane{fill:var(--surface-2); stroke:var(--line); rx:14}
+  .lane-label{font-size:12px; font-weight:800; letter-spacing:.08em; fill:var(--ink-subtle)}
+  .node rect,.node polygon{fill:#fff; stroke:var(--line-strong); stroke-width:1.4; transition:fill .25s,stroke .25s}
+  .node.note rect{fill:var(--surface); stroke-dasharray:5 4}
+  .node .title{font-size:14.5px; font-weight:800; fill:var(--ink)}
+  .node .sub{font-size:11px; fill:var(--ink-subtle)}
+  .node.visited rect,.node.visited polygon{fill:var(--brand-weak); stroke:var(--brand)}
+  .node.visited.warn rect,.node.visited.warn polygon{fill:var(--accent-weak); stroke:var(--accent)}
+  .node.visited.error rect,.node.visited.error polygon{fill:var(--error-weak); stroke:var(--error)}
+  .node.active rect,.node.active polygon{stroke-width:3; filter:drop-shadow(0 0 6px rgba(15,118,110,.55)); animation:pulse 1.1s ease-in-out infinite}
+  .node.active.warn rect,.node.active.warn polygon{filter:drop-shadow(0 0 6px rgba(203,109,55,.6))}
+  .node.active.error rect,.node.active.error polygon{filter:drop-shadow(0 0 6px rgba(203,75,95,.6))}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.82}}
+  @media (prefers-reduced-motion: reduce){ .node.active rect,.node.active polygon{animation:none} }
+
+  .edge path{fill:none; stroke:var(--line-strong); stroke-width:1.8; transition:stroke .25s}
+  .edge.dashed path{stroke-dasharray:6 5}
+  .edge.visited path{stroke:var(--brand); stroke-width:2.4}
+  .edge.visited.warn path{stroke:var(--accent)}
+  .edge.visited.error path{stroke:var(--error)}
+  .edge-label rect{fill:var(--surface); stroke:var(--line); rx:5}
+  .edge-label text{font-size:10.5px; font-weight:700; fill:var(--ink-subtle)}
+
+  .dot{fill:var(--accent); stroke:#fff; stroke-width:2; filter:drop-shadow(0 0 5px rgba(203,109,55,.7))}
+
+  /* ---------- bottom narration / controls ---------- */
+  .deck{
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:var(--sidebar); color:var(--sidebar-ink);
+    border-top:1px solid #2a2f3a; box-shadow:0 -6px 24px rgba(0,0,0,.25);
+  }
+  .deck-in{max-width:1340px; margin:0 auto; padding:12px 22px 14px}
+  .deck .row1{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+  .deck .scn{font-size:11.5px; font-weight:800; letter-spacing:.06em; color:#0d1014;
+    background:var(--brand-ring); border-radius:6px; padding:3px 9px}
+  .deck .ctr{font-family:var(--mono); font-size:11.5px; color:var(--sidebar-muted)}
+  .deck .say{font-size:14.5px; line-height:1.55; margin:7px 0 2px; min-height:23px}
+  .deck .say b{color:#9fd4cd}
+  .deck .ref{font-family:var(--mono); font-size:11px; color:#877d73; min-height:14px}
+  .deck .say.warn b{color:#f0b285}
+  .deck .say.error b{color:#f2a2b0}
+  .bar{height:4px; background:#2a2f3a; border-radius:2px; overflow:hidden; margin-top:9px}
+  .bar i{display:block; height:100%; width:0; background:var(--brand-ring); transition:width .3s}
+  .deck .btns{display:flex; gap:6px; align-items:center; margin-left:auto}
+  .deck button,.deck select{
+    border:1px solid #2a2f3a; background:#191d25; color:var(--sidebar-ink);
+    font:inherit; font-size:12.5px; font-weight:700; padding:7px 12px; border-radius:9px; cursor:pointer;
+  }
+  .deck button:hover{background:#232833}
+  .deck button.play{background:var(--brand); border-color:var(--brand); min-width:86px}
+  .deck .hint{font-size:10.5px; color:#877d73; margin-top:6px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="brand">D'Flow · DK Bot</div>
+  <h1>DK Bot 챗봇 구동 프로세스 애니메이션</h1>
+  <p>
+    사용자 질문이 위젯 → API → RAG 검색 → LLM 폴백 체인을 거쳐 답변으로 돌아오는 전 과정을 시나리오별로 재생합니다.
+    코드 기준: <code>src/app/api/chat/stream/route.ts</code> · <code>src/lib/ai/*</code> · <code>src/components/chat/DkBot.tsx</code> (2026-07-02 코드 대조 검증 완료)
+  </p>
+</header>
+
+<div class="toolbar">
+  <div class="tabs" id="tabs"></div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<div class="stage-wrap"><div class="stage" id="stage"></div></div>
+
+<div class="legend">
+  <span><span class="sw" style="background:var(--brand-weak);border:1.5px solid var(--brand)"></span>진행 경로</span>
+  <span><span class="sw" style="background:var(--accent-weak);border:1.5px solid var(--accent)"></span>재시도 · 폴백</span>
+  <span><span class="sw" style="background:var(--error-weak);border:1.5px solid var(--error)"></span>실패 · 강등</span>
+  <span><span class="sw" style="background:var(--surface);border:1.5px dashed var(--line-strong)"></span>보조 · 에러 경로</span>
+  <span style="margin-left:auto">◇ 마름모 = 분기 판단</span>
+</div>
+
+<div class="deck">
+  <div class="deck-in">
+    <div class="row1">
+      <span class="scn" id="scnName">—</span>
+      <span class="ctr" id="stepCtr">0 / 0</span>
+      <div class="btns">
+        <button id="btnRestart" title="처음부터">⟲ 처음</button>
+        <button id="btnPrev" title="이전 단계">◀ 이전</button>
+        <button id="btnPlay" class="play">⏸ 일시정지</button>
+        <button id="btnNext" title="다음 단계">다음 ▶</button>
+        <select id="speed" title="재생 속도">
+          <option value="0.6">0.6×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.6">1.6×</option>
+          <option value="2.4">2.4×</option>
+        </select>
+      </div>
+    </div>
+    <div class="say" id="say">시나리오를 선택하면 재생이 시작됩니다.</div>
+    <div class="ref" id="ref"></div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="hint">Space 재생/정지 · ←/→ 단계 이동 · 칩으로 시나리오 변경</div>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   장면 데이터 — 좌표는 수작업 레이아웃. shape: rect | diamond | note
+   edge: {id, from:[node,side,offset?], to:[...], corners, label, dashed}
+   side: t/b/l/r (노드 변의 중앙, offset으로 평행 이동)
+================================================================ */
+const SCENES = {
+  query: {
+    w: 1320, h: 1740,
+    lanes: [
+      {x:30,  y:26,   w:1260, h:196,  label:'클라이언트 · DkBot 위젯'},
+      {x:30,  y:246,  w:1260, h:238,  label:'API 라우트 · /api/chat/stream'},
+      {x:30,  y:502,  w:1260, h:316,  label:'RAG 지식 수집 · 검색'},
+      {x:30,  y:836,  w:1260, h:512,  label:'LLM 답변 생성'},
+      {x:30,  y:1364, w:1260, h:362,  label:'응답 스트림 · 클라이언트 렌더'},
+    ],
+    nodes: [
+      {id:'U',    x:60,  y:66,  w:230, h:64, title:'사용자 입력', sub:['Enter · 제안 칩 · IME 가드']},
+      {id:'SEND', x:350, y:66,  w:230, h:64, title:'send 실행', sub:['히스토리 스냅샷 + 유저 버블']},
+      {id:'POST', x:650, y:66,  w:270, h:64, title:'POST /api/chat/stream', sub:['projectId · message · history']},
+      {id:'FAB',  x:60,  y:152, w:340, h:52, shape:'note', title:'위젯 오픈 시 부트스트랩', sub:['GET /api/chat/context · 환영 메시지 · 인사이트 카드']},
+
+      {id:'AUTH', x:700, y:276, w:170, h:78, shape:'diamond', title:'세션 인증 OK?'},
+      {id:'VAL',  x:445, y:276, w:170, h:78, shape:'diamond', title:'message 유효?'},
+      {id:'SAN',  x:180, y:283, w:250, h:64, title:'sanitizeHistory', sub:['최근 12개 · 4000자 절단']},
+      {id:'SA',   x:180, y:395, w:250, h:64, title:'streamAnswer 실행', sub:['src/lib/ai/answer.ts']},
+      {id:'ERR',  x:625, y:400, w:320, h:70, title:'에러 JSON 401 / 400 / 500', sub:['미인증 · 빈/2000자 초과 질문 · 내부 오류']},
+
+      {id:'INT',   x:130, y:540, w:250, h:64, title:'classifyIntent', sub:['질문 의도 분류']},
+      {id:'SCOPE', x:385, y:532, w:190, h:80, shape:'diamond', title:'프로젝트\n스코프?'},
+      {id:'OVW',   x:660, y:505, w:300, h:64, title:'전사 프로젝트 요약', sub:['키워드 검색 없음 · overview/미선택']},
+      {id:'FACTS', x:660, y:600, w:300, h:78, title:'프로젝트 지식 수집', sub:['팩트시트: status·freeform 의도만','검색 신호 감지 시 키워드 정확일치 keywordHits']},
+      {id:'NS',    x:1005, y:532, w:170, h:80, shape:'diamond', title:'의미 검색\n필요 의도?'},
+      {id:'ENS',   x:760, y:720, w:320, h:72, title:'ensureProjectIndexed', sub:['빈 인덱스만 ingest · 60s 쿨다운 · 미선택 시 skip']},
+      {id:'RET',   x:400, y:720, w:300, h:72, title:'retrieveContext', sub:['질문 임베딩 → match_wbs_documents RPC · top-8']},
+      {id:'TH',    x:70,  y:720, w:280, h:72, title:'임계값 필터 sim ≥ 0.35', sub:['미달·오류 시 matches=[] 조용히 강등']},
+
+      {id:'HAS',   x:115, y:865, w:190, h:80, shape:'diamond', title:'hasLLM\nAPI 키?'},
+      {id:'PROV',  x:385, y:867, w:190, h:76, shape:'diamond', title:'AI_PROVIDER?'},
+      {id:'DBK',   x:640, y:873, w:250, h:64, title:'buildDataBlock', sub:['facts + 키워드 + 매치 → SYSTEM 주입']},
+      {id:'CALL',  x:950, y:857, w:280, h:96, title:'모델 스트리밍 호출', sub:['fetchWithRetry · 최근 히스토리 8개','체인: 3.5-flash → 3.1-flash-lite → 2.5-flash-lite']},
+      {id:'RES',   x:610, y:995, w:180, h:80, shape:'diamond', title:'호출 결과?'},
+      {id:'RETRY', x:990, y:990, w:280, h:90, title:'재시도 · fetchWithRetry', sub:['429 단기: Retry-After+250ms 대기','5xx: 지수 백오프 700ms · 모델당 1회']},
+      {id:'MORE',  x:600, y:1121, w:200, h:78, shape:'diamond', title:'다음 폴백\n모델?'},
+      {id:'FIN',   x:375, y:996, w:190, h:78, shape:'diamond', title:'스트림 종료\n상태?'},
+      {id:'DET',   x:80,  y:1020, w:260, h:76, title:'deterministicAnswer', sub:['knowledge.text·keywordHits·matches 직접 소비','데이터 블록 미생성']},
+      {id:'MARK',  x:225, y:1140, w:240, h:70, title:'절단 마커 덧붙임', sub:['답변이 도중에 끊겼어요']},
+      {id:'OAI',   x:880, y:1250, w:260, h:64, shape:'note', title:'OpenAI 호환 스트리밍', sub:['AI_PROVIDER=openai · 폴백 체인 없음']},
+      {id:'DEG',   x:550, y:1250, w:300, h:84, title:'degraded 결정형 답변', sub:['일반 freeform만 DEGRADED_NOTICE 접두','구조화·키워드 일치 답변은 그대로']},
+
+      {id:'RESP',  x:200, y:1400, w:600, h:76, title:'text/plain 청크 스트림 응답', sub:['no-store · X-Accel-Buffering: no']},
+      {id:'READ',  x:860, y:1400, w:300, h:76, title:'위젯 reader 루프', sub:['첫 청크에 assistant 버블 · 이후 갱신']},
+      {id:'GEN',   x:915, y:1521, w:190, h:78, shape:'diamond', title:'genRef 세대\n일치?'},
+      {id:'REND',  x:860, y:1656, w:300, h:64, title:'버블 렌더 + 자동 스크롤'},
+      {id:'CANCEL',x:600, y:1525, w:260, h:70, title:'reader.cancel', sub:['부분 출력 폐기 · 프로젝트 전환/리셋']},
+      {id:'CLERR', x:70,  y:1530, w:300, h:76, title:'위젯 에러 표시', sub:['error 필드·네트워크 예외·빈 응답 버블','genRef 세대 일치 시']},
+    ],
+    edges: [
+      {id:'U>SEND',   from:['U','r'], to:['SEND','l']},
+      {id:'SEND>POST',from:['SEND','r'], to:['POST','l']},
+      {id:'POST>AUTH',from:['POST','b'], to:['AUTH','t']},
+      {id:'AUTH>ERR', from:['AUTH','b'], to:['ERR','t'], label:'아니오'},
+      {id:'AUTH>VAL', from:['AUTH','l'], to:['VAL','r'], label:'예'},
+      {id:'VAL>ERR',  from:['VAL','b'], to:['ERR','l',0], corners:[[615,435]], label:'아니오', labelAt:[530,394]},
+      {id:'VAL>SAN',  from:['VAL','l'], to:['SAN','r'], label:'예', labelAt:[438,296]},
+      {id:'SAN>SA',   from:['SAN','b'], to:['SA','t']},
+      {id:'SA>ERR',   from:['SA','r'], to:['ERR','l',18], dashed:true, label:'throw → 500'},
+      {id:'SA>INT',   from:['SA','b'], to:['INT','t',50]},
+
+      {id:'INT>SCOPE',  from:['INT','r'], to:['SCOPE','l']},
+      {id:'SCOPE>OVW',  from:['SCOPE','r'], to:['OVW','l'], corners:[[615,572],[615,537]], label:'overview · 미선택', labelAt:[580,516]},
+      {id:'SCOPE>FACTS',from:['SCOPE','r'], to:['FACTS','l'], corners:[[615,572],[615,639]], label:'프로젝트 선택', labelAt:[612,662]},
+      {id:'OVW>NS',   from:['OVW','r'], to:['NS','l'], corners:[[980,537],[980,572]]},
+      {id:'FACTS>NS', from:['FACTS','r'], to:['NS','l'], corners:[[980,639],[980,572]]},
+      {id:'NS>ENS',   from:['NS','b'], to:['ENS','r'], corners:[[1090,756]], label:'예'},
+      {id:'ENS>RET',  from:['ENS','l'], to:['RET','r']},
+      {id:'RET>TH',   from:['RET','l'], to:['TH','r']},
+      {id:'TH>HAS',   from:['TH','b'], to:['HAS','t']},
+      {id:'NS>HAS',   from:['NS','r'], to:['HAS','t'], corners:[[1290,572],[1290,822],[210,822]], label:'아니오 · 구조화 의도', labelAt:[760,822]},
+
+      {id:'HAS>PROV', from:['HAS','r'], to:['PROV','l'], label:'있음'},
+      {id:'HAS>DET',  from:['HAS','b'], to:['DET','t'], label:'없음'},
+      {id:'PROV>DBK', from:['PROV','r'], to:['DBK','l'], label:'gemini'},
+      {id:'PROV>OAI', from:['PROV','b'], to:['OAI','t'], corners:[[480,968],[970,968],[970,1220],[1010,1220]], dashed:true, label:'openai'},
+      {id:'DBK>CALL', from:['DBK','r'], to:['CALL','l']},
+      {id:'CALL>RES', from:['CALL','b'], to:['RES','t'], corners:[[1090,975],[700,975]]},
+      {id:'RES>RETRY',from:['RES','r'], to:['RETRY','l'], label:'429 단기 · 5xx'},
+      {id:'RETRY>CALL',from:['RETRY','r'], to:['CALL','r'], corners:[[1300,1035],[1300,905]], label:'동일 모델 재시도', labelAt:[1222,970]},
+      {id:'RES>MORE', from:['RES','b'], to:['MORE','t'], label:'실패 확정'},
+      {id:'MORE>CALL',from:['MORE','r'], to:['CALL','l',-20], corners:[[930,1160],[930,885]], label:'있음 · 다음 모델', labelAt:[930,1112]},
+      {id:'MORE>DEG', from:['MORE','b'], to:['DEG','t'], label:'없음 · 0토큰'},
+      {id:'RES>FIN',  from:['RES','l'], to:['FIN','r'], label:'토큰 생성', labelAt:[588,984]},
+      {id:'FIN>MARK', from:['FIN','l'], to:['MARK','t',5], corners:[[350,1035]], label:'도중 중단', labelAt:[350,1122]},
+      {id:'FIN>RESP', from:['FIN','b'], to:['RESP','t',-30], label:'정상 완료 · close', labelAt:[470,1360]},
+      {id:'DET>RESP', from:['DET','b'], to:['RESP','t',-290]},
+      {id:'MARK>RESP',from:['MARK','b'], to:['RESP','t',-155]},
+      {id:'DEG>RESP', from:['DEG','b'], to:['RESP','t',200]},
+      {id:'OAI>RESP', from:['OAI','b'], to:['RESP','t',270], corners:[[1010,1358],[770,1358]], dashed:true},
+
+      {id:'RESP>READ',from:['RESP','r'], to:['READ','l']},
+      {id:'READ>GEN', from:['READ','b'], to:['GEN','t']},
+      {id:'GEN>REND', from:['GEN','b'], to:['REND','t'], label:'일치'},
+      {id:'GEN>CANCEL',from:['GEN','l'], to:['CANCEL','r'], label:'불일치'},
+      {id:'ERR>CLERR',from:['ERR','l',30], to:['CLERR','l'], corners:[[46,465],[46,1568]], dashed:true, labelAt:[46,1000], label:'에러 응답'},
+      {id:'READ>CLERR',from:['READ','b',-110], to:['CLERR','r'], corners:[[900,1498],[500,1498],[500,1568]], dashed:true, label:'청크 0개 종료', labelAt:[700,1498]},
+    ],
+  },
+
+  index: {
+    w: 1320, h: 1150,
+    lanes: [
+      {x:30, y:26,  w:1260, h:170, label:'색인 트리거 3가지'},
+      {x:30, y:216, w:1260, h:910, label:'ingest 파이프라인'},
+    ],
+    nodes: [
+      {id:'T1', x:60,  y:80, w:340, h:76, title:'Excel 임포트 후 자동 색인', sub:['/api/import']},
+      {id:'T2', x:480, y:80, w:360, h:76, title:'관리자 수동 재색인', sub:['POST /api/chat/reindex · pmo_admin']},
+      {id:'T3', x:900, y:80, w:360, h:76, title:'질의 시 자가치유', sub:['ensureProjectIndexed · 인덱스 0건 · 60s 쿨다운']},
+      {id:'ING', x:540, y:240, w:240, h:64, title:'ingestProject 실행', sub:['src/lib/ai/ingest.ts']},
+      {id:'KEY', x:560, y:346, w:200, h:84, shape:'diamond', title:'임베딩 API\n키 있음?'},
+      {id:'SKIP',x:60,  y:356, w:320, h:64, title:'skipped: no_embedding_key', sub:['색인하지 않고 종료']},
+      {id:'SRC', x:490, y:500, w:340, h:72, title:'지식 소스 로드', sub:['getComputedWbs + 프로젝트 멤버 + 프로젝트명']},
+      {id:'DOC', x:490, y:620, w:340, h:76, title:'buildDocuments · 엔티티당 1문서', sub:['프로젝트 요약 1 + WBS 리프별 + 멤버별']},
+      {id:'EMPTY',x:565, y:740, w:190, h:80, shape:'diamond', title:'문서 0건?'},
+      {id:'RET0',x:60,  y:746, w:320, h:70, title:'count 0 반환', sub:['임베딩·교체 안 함 · 기존 행 유지']},
+      {id:'EMB', x:900, y:740, w:390, h:84, title:'embedDocuments', sub:['gemini-embedding-001 · 768차원 · 동시성 5','8000자 절단 · 429/503 백오프 최대 3회']},
+      {id:'ALLF',x:995, y:900, w:200, h:80, shape:'diamond', title:'임베딩\n전부 실패?'},
+      {id:'KEEP',x:600, y:904, w:360, h:72, title:'기존 인덱스 보존', sub:['stale이 empty보다 낫다']},
+      {id:'WRITE',x:900, y:1030, w:390, h:84, title:'wbs_embeddings 전체 교체', sub:['프로젝트 행 삭제 → 200건 배치 insert · service_role']},
+      {id:'HNSW',x:400, y:1030, w:380, h:84, title:'pgvector HNSW cosine 인덱스', sub:['질의 시 match_wbs_documents RPC가 조회']},
+    ],
+    edges: [
+      {id:'T1>ING', from:['T1','b'], to:['ING','t',-80], corners:[[230,206],[580,206]]},
+      {id:'T2>ING', from:['T2','b'], to:['ING','t']},
+      {id:'T3>ING', from:['T3','b'], to:['ING','t',80], corners:[[1080,206],[740,206]]},
+      {id:'ING>KEY', from:['ING','b'], to:['KEY','t']},
+      {id:'KEY>SKIP',from:['KEY','l'], to:['SKIP','r'], label:'없음'},
+      {id:'KEY>SRC', from:['KEY','b'], to:['SRC','t'], label:'있음'},
+      {id:'SRC>DOC', from:['SRC','b'], to:['DOC','t']},
+      {id:'DOC>EMPTY',from:['DOC','b'], to:['EMPTY','t']},
+      {id:'EMPTY>RET0',from:['EMPTY','l'], to:['RET0','r'], label:'예'},
+      {id:'EMPTY>EMB',from:['EMPTY','r'], to:['EMB','l'], label:'아니오'},
+      {id:'EMB>ALLF',from:['EMB','b'], to:['ALLF','t']},
+      {id:'ALLF>KEEP',from:['ALLF','l'], to:['KEEP','r'], label:'예'},
+      {id:'ALLF>WRITE',from:['ALLF','b'], to:['WRITE','t'], label:'아니오'},
+      {id:'WRITE>HNSW',from:['WRITE','l'], to:['HNSW','r']},
+    ],
+  },
+};
+
+/* ================================================================
+   시나리오 — step: {e: edgeId(선택), n: nodeId, s: 해설, t: tone, p: {node:subLines}, ref}
+================================================================ */
+function queryPrefix() {
+  return [
+    {n:'U',    s:'사용자가 질문을 입력합니다. <b>Enter</b> 또는 제안 칩으로 전송하고, 한글 조합 중(IME isComposing)에는 전송을 막습니다.', ref:'src/components/chat/DkBot.tsx'},
+    {e:'U>SEND', n:'SEND', s:'<b>send</b>가 현재 히스토리를 스냅샷하고 유저 버블을 즉시 화면에 추가합니다.'},
+    {e:'SEND>POST', n:'POST', s:'<b>POST /api/chat/stream</b>으로 projectId · message · history를 전송합니다.'},
+    {e:'POST>AUTH', n:'AUTH', s:'서버가 <b>세션</b>을 확인합니다. 미인증이면 401 에러 JSON.', ref:'src/app/api/chat/stream/route.ts'},
+    {e:'AUTH>VAL', n:'VAL', s:'메시지를 검증합니다 — 빈 질문이거나 <b>2000자 초과</b>면 400.'},
+    {e:'VAL>SAN', n:'SAN', s:'<b>sanitizeHistory</b> — 히스토리를 최근 12개, 각 4000자로 절단해 정제합니다.'},
+    {e:'SAN>SA', n:'SA', s:'<b>streamAnswer</b> 실행 — 이후 전 과정이 이 함수의 오케스트레이션입니다.', ref:'src/lib/ai/answer.ts'},
+    {e:'SA>INT', n:'INT', s:'<b>classifyIntent</b>가 질문 의도를 분류합니다 — 구조화(진척률·담당자·지연 등) vs freeform.'},
+    {e:'INT>SCOPE', n:'SCOPE', s:'프로젝트 스코프 확인 — overview 의도거나 프로젝트 미선택이면 전사 요약 경로로 갑니다.', ref:'src/lib/ai/knowledge.ts'},
+    {e:'SCOPE>FACTS', n:'FACTS', s:'프로젝트 지식을 수집합니다 — <b>팩트시트</b>는 status·freeform 계열 의도만, 구조화 의도는 결정형 답변 텍스트만 수집합니다. freeform + 검색 신호(들어간·포함·검색…)가 감지될 때만 <b>키워드 정확일치 검색</b>도 수행합니다.'},
+    {e:'FACTS>NS', n:'NS', s:'이 의도가 <b>의미 검색</b>(pgvector)을 필요로 하는지 판단합니다.'},
+  ];
+}
+function ragSemantic(hit) {
+  const arr = [
+    {e:'NS>ENS', n:'ENS', s:'자가치유 색인 — 인덱스가 <b>비어 있을 때만</b> ingest하고 60초 쿨다운을 겁니다. 프로젝트 미선택이면 skip하고 전사 범위로 검색합니다.', ref:'src/lib/ai/ensure-index.ts'},
+    {e:'ENS>RET', n:'RET', s:'질문을 임베딩해 <b>match_wbs_documents RPC</b>로 top-8 cosine 유사도 검색을 실행합니다.', ref:'src/lib/ai/retrieve.ts'},
+  ];
+  arr.push(hit
+    ? {e:'RET>TH', n:'TH', s:'similarity <b>0.35 이상</b>만 근거로 채택합니다. 이번엔 관련 문서가 임계값을 통과했습니다.', t:'ok'}
+    : {e:'RET>TH', n:'TH', s:'모든 매치가 0.35 미만(또는 검색 오류) — <b>matches=[]로 조용히 강등</b>됩니다. 500 에러는 절대 내지 않습니다.', t:'warn'});
+  return arr;
+}
+function llmEnter(dataNote) {
+  return [
+    {e:'TH>HAS', n:'HAS', s:'<b>hasLLM</b> — API 키 존재를 먼저 확인합니다. buildDataBlock은 LLM 분기 안에서만 실행됩니다.', ref:'src/lib/ai/answer.ts:139'},
+    {e:'HAS>PROV', n:'PROV', s:'<b>AI_PROVIDER</b> 확인 — 기본은 Gemini. openai로 바꾸면 폴백 체인 없는 OpenAI 호환 경로로 갑니다.', ref:'src/lib/ai/provider.ts'},
+    {e:'PROV>DBK', n:'DBK', s:dataNote || '<b>buildDataBlock</b> — facts + 키워드 일치 + 의미검색 매치를 SYSTEM 프롬프트의 [데이터] 블록으로 주입합니다.'},
+  ];
+}
+function callModel(model, sub) {
+  return {e: sub ? 'MORE>CALL' : 'DBK>CALL', n:'CALL', p:{CALL:[model+' 호출 중 · fetchWithRetry','최근 히스토리 8개 포함']},
+    s:(sub?'폴백 모델 ':'1순위 모델 ')+'<b>'+model+'</b>'+(sub?'로 전환해 재호출합니다. 모델별 무료 쿼터 버킷이 분리되어 있어 즉시 시도 가능합니다.':'를 스트리밍 호출합니다.'), t: sub?'warn':undefined, ref:'src/lib/ai/llm.ts'};
+}
+function streamTail() {
+  return [
+    {e:'RES>FIN', n:'FIN', s:'토큰이 생성되는 즉시 클라이언트로 흘러가고, 스트림이 <b>정상 종료</b>됩니다.'},
+    {e:'FIN>RESP', n:'RESP', s:'<b>text/plain 청크 스트림</b>으로 응답합니다 — no-store, X-Accel-Buffering: no.'},
+    ...clientTail(),
+  ];
+}
+function clientTail() {
+  return [
+    {e:'RESP>READ', n:'READ', s:'위젯 <b>reader 루프</b> — 첫 청크가 도착하면 assistant 버블을 만들고 이후 계속 갱신합니다.', ref:'src/components/chat/DkBot.tsx'},
+    {e:'READ>GEN', n:'GEN', s:'<b>genRef 세대</b> 확인 — 스트리밍 중 프로젝트 전환이나 리셋이 있었다면 부분 출력을 폐기합니다.'},
+    {e:'GEN>REND', n:'REND', s:'버블 렌더 + 자동 스크롤. <b>답변 완료!</b>', t:'ok'},
+  ];
+}
+
+const SCENARIOS = {
+  query: [
+    {name:'정상 흐름', steps:[
+      ...queryPrefix(), ...ragSemantic(true), ...llmEnter(),
+      callModel('gemini-3.5-flash'),
+      {e:'CALL>RES', n:'RES', s:'첫 토큰이 정상적으로 생성되기 시작합니다.', t:'ok'},
+      ...streamTail(),
+    ]},
+    {name:'검색 0건 강등', steps:[
+      ...queryPrefix(), ...ragSemantic(false),
+      ...llmEnter('의미검색 매치가 없으므로 <b>팩트시트 + 키워드 일치만으로</b> 데이터 블록을 구성합니다. 파이프라인은 계속 진행됩니다.'),
+      callModel('gemini-3.5-flash'),
+      {e:'CALL>RES', n:'RES', s:'결정형 지식만으로도 LLM이 답변을 생성합니다.', t:'ok'},
+      ...streamTail(),
+    ]},
+    {name:'429 단기 재시도', steps:[
+      ...queryPrefix(), ...ragSemantic(true), ...llmEnter(),
+      callModel('gemini-3.5-flash'),
+      {e:'CALL>RES', n:'RES', s:'<b>429 Too Many Requests</b> — 응답의 Retry-After가 6초 이하로 파싱됩니다.', t:'warn'},
+      {e:'RES>RETRY', n:'RETRY', s:'<b>Retry-After + 250ms</b>만큼 대기합니다. 이 재시도는 모델당 1회이며, 폴백 모델들에도 각각 동일하게 적용됩니다.', t:'warn', ref:'src/lib/ai/util.ts'},
+      {e:'RETRY>CALL', n:'CALL', s:'대기 후 <b>동일 모델</b>(gemini-3.5-flash)을 재호출합니다.', p:{CALL:['gemini-3.5-flash 재시도 중','Retry-After 대기 후 1회']}},
+      {e:'CALL>RES', n:'RES', s:'이번엔 쿼터가 풀려 토큰이 정상 생성됩니다.', t:'ok'},
+      ...streamTail(),
+    ]},
+    {name:'모델 폴백 체인', steps:[
+      ...queryPrefix(), ...ragSemantic(true), ...llmEnter(),
+      callModel('gemini-3.5-flash'),
+      {e:'CALL>RES', n:'RES', s:'<b>429 장기</b>(Retry-After > 6초) 또는 지연 정보 없음 — 기다리지 않고 실패로 확정합니다.', t:'warn'},
+      {e:'RES>MORE', n:'MORE', s:'폴백 체인에 다음 모델이 남아 있습니다 — <b>모델별 쿼터 버킷이 분리</b>되어 있어 즉시 전환합니다.', t:'warn', ref:'src/lib/ai/llm.ts:41'},
+      callModel('gemini-3.1-flash-lite', true),
+      {e:'CALL>RES', n:'RES', s:'폴백 모델이 토큰을 정상 생성합니다.', t:'ok'},
+      ...streamTail(),
+    ]},
+    {name:'전 체인 실패 → 강등', steps:[
+      ...queryPrefix(), ...ragSemantic(true), ...llmEnter(),
+      callModel('gemini-3.5-flash'),
+      {e:'CALL>RES', n:'RES', s:'1순위 모델 실패 — 429 장기 · 재시도 소진 · 타임아웃 · 빈 응답 중 하나.', t:'warn'},
+      {e:'RES>MORE', n:'MORE', s:'다음 모델로 전환합니다.', t:'warn'},
+      callModel('gemini-3.1-flash-lite', true),
+      {e:'CALL>RES', n:'RES', s:'2순위 모델도 실패합니다.', t:'warn'},
+      {e:'RES>MORE', n:'MORE', s:'마지막 모델로 전환합니다.', t:'warn'},
+      callModel('gemini-2.5-flash-lite', true),
+      {e:'CALL>RES', n:'RES', s:'3순위 모델까지 실패 — 생성된 토큰이 0개입니다.', t:'error'},
+      {e:'RES>MORE', n:'MORE', s:'남은 폴백 모델이 없습니다.', t:'error'},
+      {e:'MORE>DEG', n:'DEG', s:'<b>결정형 답변으로 강등</b>합니다. DEGRADED_NOTICE(“AI 응답이 잠시 원활하지 않아…”)는 <b>일반 freeform 질문일 때만</b> 접두됩니다 — 구조화 의도·키워드 일치 답변은 결정형만으로 완전하므로 안내 없이 그대로 나갑니다.', t:'error', ref:'src/lib/ai/answer.ts:116'},
+      {e:'DEG>RESP', n:'RESP', s:'강등 답변도 동일한 청크 스트림으로 전송됩니다 — 사용자는 항상 답을 받습니다.'},
+      ...clientTail(),
+    ]},
+    {name:'LLM 키 없음', steps:[
+      ...queryPrefix(), ...ragSemantic(true),
+      {e:'TH>HAS', n:'HAS', s:'<b>hasLLM = false</b> — LLM API 키가 설정되어 있지 않습니다.', t:'warn', ref:'src/lib/ai/provider.ts'},
+      {e:'HAS>DET', n:'DET', s:'<b>deterministicAnswer</b> — 데이터 블록 없이 knowledge.text·keywordHits·matches를 직접 소비해 답을 조립합니다. freeform이면 의미검색 매치 상위 5건의 첫 줄만 보여줍니다.', ref:'src/lib/ai/answer.ts:95'},
+      {e:'DET>RESP', n:'RESP', s:'결정형 답변을 동일한 청크 스트림으로 전송합니다.'},
+      ...clientTail(),
+    ]},
+    {name:'요청 거부 · 에러 표시', steps:[
+      {n:'U', s:'사용자가 질문을 입력합니다 — 그런데 세션이 만료된 상태라고 가정해 봅니다.'},
+      {e:'U>SEND', n:'SEND', s:'위젯은 평소처럼 히스토리를 스냅샷하고 유저 버블을 추가합니다.'},
+      {e:'SEND>POST', n:'POST', s:'POST /api/chat/stream 호출.'},
+      {e:'POST>AUTH', n:'AUTH', s:'<b>세션 없음</b> — 인증 실패.', t:'error'},
+      {e:'AUTH>ERR', n:'ERR', s:'<b>401 에러 JSON</b>을 반환합니다. 빈 질문·2000자 초과는 400, streamAnswer 내부 throw는 500으로 같은 경로를 탑니다.', t:'error', ref:'src/app/api/chat/stream/route.ts'},
+      {e:'ERR>CLERR', n:'CLERR', s:'위젯이 에러 JSON의 <b>error 필드</b>를 안내 버블로 표시합니다(genRef 세대 일치 시). 네트워크 예외는 재시도 안내, 청크 0개 종료는 빈 응답 안내 버블로 처리됩니다.', t:'error', ref:'src/components/chat/DkBot.tsx:149'},
+    ]},
+  ],
+
+  index: [
+    {name:'정상 색인 · 관리자', steps:[
+      {n:'T2', s:'관리자(pmo_admin)가 <b>POST /api/chat/reindex</b>로 수동 재색인을 요청합니다.', ref:'src/app/api/chat/reindex/route.ts'},
+      {e:'T2>ING', n:'ING', s:'<b>ingestProject</b>가 실행됩니다.', ref:'src/lib/ai/ingest.ts'},
+      {e:'ING>KEY', n:'KEY', s:'임베딩 API 키(hasEmbeddings)를 확인합니다.'},
+      {e:'KEY>SRC', n:'SRC', s:'지식 소스를 로드합니다 — <b>getComputedWbs</b> + 프로젝트 멤버 + 프로젝트명.'},
+      {e:'SRC>DOC', n:'DOC', s:'<b>buildDocuments</b> — 임의 텍스트 청킹이 아니라 <b>엔티티당 1문서</b>: 프로젝트 요약 1건 + WBS 리프 작업별 + 멤버별.'},
+      {e:'DOC>EMPTY', n:'EMPTY', s:'생성된 문서 수를 확인합니다.'},
+      {e:'EMPTY>EMB', n:'EMB', s:'<b>gemini-embedding-001</b>로 768차원 임베딩 — 동시성 5, 8000자 절단, 429/503은 백오프로 최대 3회 재시도.', ref:'src/lib/ai/embeddings.ts'},
+      {e:'EMB>ALLF', n:'ALLF', s:'임베딩 결과를 점검합니다.'},
+      {e:'ALLF>WRITE', n:'WRITE', s:'<b>wbs_embeddings 전체 교체</b> — 프로젝트 행 삭제 후 200건 배치 insert(service_role).', t:'ok'},
+      {e:'WRITE>HNSW', n:'HNSW', s:'pgvector <b>HNSW cosine</b> 인덱스에 반영 — 이제 질의 시 match_wbs_documents RPC가 이 데이터를 조회합니다. <b>색인 완료!</b>', t:'ok', ref:'supabase/migrations/0010_dkbot_pgvector.sql'},
+    ]},
+    {name:'질의 시 자가치유', steps:[
+      {n:'T3', s:'사용자가 질문했는데 이 프로젝트의 인덱스가 <b>0건</b>입니다 — ensureProjectIndexed가 60초 쿨다운을 걸고 자동 색인을 시작합니다.', ref:'src/lib/ai/ensure-index.ts'},
+      {e:'T3>ING', n:'ING', s:'질의 응답을 잠시 붙잡고(await) ingestProject가 <b>인라인으로</b> 실행됩니다 — 그래서 이번 질의의 의미 검색부터 바로 활용할 수 있습니다.'},
+      {e:'ING>KEY', n:'KEY', s:'임베딩 키 확인.'},
+      {e:'KEY>SRC', n:'SRC', s:'지식 소스 로드.'},
+      {e:'SRC>DOC', n:'DOC', s:'엔티티당 1문서로 문서 생성.'},
+      {e:'DOC>EMPTY', n:'EMPTY', s:'문서 수 확인.'},
+      {e:'EMPTY>EMB', n:'EMB', s:'임베딩 생성.'},
+      {e:'EMB>ALLF', n:'ALLF', s:'결과 점검.'},
+      {e:'ALLF>WRITE', n:'WRITE', s:'인덱스 기록 — 이번 질의의 의미 검색부터 바로 활용됩니다.', t:'ok'},
+      {e:'WRITE>HNSW', n:'HNSW', s:'<b>자가치유 완료</b> — 수동 개입 없이 인덱스가 살아납니다.', t:'ok'},
+    ]},
+    {name:'임베딩 키 없음', steps:[
+      {n:'T1', s:'Excel 임포트가 끝나면 <b>/api/import</b>가 자동 색인을 시도합니다.', ref:'src/app/api/import/route.ts'},
+      {e:'T1>ING', n:'ING', s:'ingestProject 실행.'},
+      {e:'ING>KEY', n:'KEY', s:'임베딩 API 키가 <b>없습니다</b>.', t:'warn'},
+      {e:'KEY>SKIP', n:'SKIP', s:'<b>skipped: no_embedding_key</b> — 색인 없이 조용히 종료합니다. 챗봇은 결정형 지식(팩트시트·키워드 검색)만으로 계속 동작합니다.', t:'warn'},
+    ]},
+    {name:'임베딩 전부 실패', steps:[
+      {n:'T3', s:'자가치유 색인이 시작되지만, 임베딩 API가 장애 상태라고 가정합니다.'},
+      {e:'T3>ING', n:'ING', s:'ingestProject 실행.'},
+      {e:'ING>KEY', n:'KEY', s:'키는 있습니다 — 통과.'},
+      {e:'KEY>SRC', n:'SRC', s:'지식 소스 로드.'},
+      {e:'SRC>DOC', n:'DOC', s:'문서 생성.'},
+      {e:'DOC>EMPTY', n:'EMPTY', s:'문서 있음 — 임베딩으로.'},
+      {e:'EMPTY>EMB', n:'EMB', s:'429/503 백오프 3회까지 전부 실패합니다.', t:'error'},
+      {e:'EMB>ALLF', n:'ALLF', s:'임베딩이 <b>전부 실패</b>했습니다.', t:'error'},
+      {e:'ALLF>KEEP', n:'KEEP', s:'<b>기존 인덱스를 보존</b>합니다 — 삭제 후 빈 인덱스가 되느니 오래된 인덱스가 낫다(“stale이 empty보다 낫다”).', t:'warn', ref:'src/lib/ai/ingest.ts'},
+    ]},
+    {name:'문서 0건', steps:[
+      {n:'T2', s:'관리자가 재색인을 요청했지만, 프로젝트에 WBS 데이터가 아직 없습니다.'},
+      {e:'T2>ING', n:'ING', s:'ingestProject 실행.'},
+      {e:'ING>KEY', n:'KEY', s:'키 확인 — 통과.'},
+      {e:'KEY>SRC', n:'SRC', s:'지식 소스 로드 — 비어 있습니다.'},
+      {e:'SRC>DOC', n:'DOC', s:'buildDocuments 결과가 <b>0건</b>입니다.', t:'warn'},
+      {e:'DOC>EMPTY', n:'EMPTY', s:'문서 0건 분기.', t:'warn'},
+      {e:'EMPTY>RET0', n:'RET0', s:'<b>count 0을 반환</b>하고 종료 — 임베딩도, 기존 행 삭제·교체도 하지 않습니다.', t:'warn', ref:'src/lib/ai/ingest.ts:31'},
+    ]},
+  ],
+};
+
+/* ================================================================
+   렌더러 + 플레이어
+================================================================ */
+const SVGNS = 'http://www.w3.org/2000/svg';
+const $ = (s) => document.querySelector(s);
+const state = { scene:'query', scn:0, step:-1, playing:false, speed:1, timer:null, raf:null, dot:null };
+let nodeEls = {}, edgeEls = {}, nodeDefs = {}, subEls = {};
+
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function anchor(n, side, off = 0) {
+  const cx = n.x + n.w/2, cy = n.y + n.h/2;
+  if (side === 't') return [cx + off, n.y];
+  if (side === 'b') return [cx + off, n.y + n.h];
+  if (side === 'l') return [n.x, cy + off];
+  return [n.x + n.w, cy + off];
+}
+function edgePoints(sc, ed) {
+  const a = nodeDefs[ed.from[0]], b = nodeDefs[ed.to[0]];
+  const p0 = anchor(a, ed.from[1], ed.from[2] || 0);
+  const p1 = anchor(b, ed.to[1], ed.to[2] || 0);
+  const pts = [p0, ...(ed.corners || []), p1];
+  // 축 정렬 자동 엘보: 인접 점이 둘 다 어긋나면 진출 방향 기준 코너 삽입
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const prev = out[out.length - 1], cur = pts[i];
+    if (prev[0] !== cur[0] && prev[1] !== cur[1]) {
+      const fromSide = (i === 1) ? ed.from[1] : null;
+      const vertFirst = fromSide ? (fromSide === 't' || fromSide === 'b')
+        : Math.abs(cur[1] - prev[1]) > Math.abs(cur[0] - prev[0]);
+      out.push(vertFirst ? [prev[0], cur[1]] : [cur[0], prev[1]]);
+    }
+    out.push(cur);
+  }
+  return out;
+}
+function buildScene(key) {
+  const sc = SCENES[key];
+  nodeEls = {}; edgeEls = {}; nodeDefs = {}; subEls = {};
+  sc.nodes.forEach(n => nodeDefs[n.id] = n);
+  const stage = $('#stage');
+  stage.innerHTML = '';
+  const svg = el('svg', { viewBox: `0 0 ${sc.w} ${sc.h}` }, stage);
+
+  const defs = el('defs', {}, svg);
+  [['arrow', 'var(--line-strong)'], ['arrow-ok', 'var(--brand)'], ['arrow-warn', 'var(--accent)'], ['arrow-error', 'var(--error)']]
+    .forEach(([id, color]) => {
+      const m = el('marker', { id, viewBox:'0 0 10 10', refX:9, refY:5, markerWidth:7, markerHeight:7, orient:'auto-start-reverse' }, defs);
+      el('path', { d:'M0,0 L10,5 L0,10 z', fill: color }, m);
+    });
+
+  sc.lanes.forEach(l => {
+    el('rect', { x:l.x, y:l.y, width:l.w, height:l.h, rx:14, class:'lane' }, svg);
+    const t = el('text', { x:l.x+16, y:l.y+22, class:'lane-label' }, svg);
+    t.textContent = l.label.toUpperCase();
+  });
+
+  sc.edges.forEach(ed => {
+    const g = el('g', { class:'edge' + (ed.dashed ? ' dashed' : '') }, svg);
+    const pts = edgePoints(sc, ed);
+    const d = 'M' + pts.map(p => p.join(',')).join(' L');
+    const path = el('path', { d, 'marker-end':'url(#arrow)' }, g);
+    if (ed.label) {
+      let lx, ly;
+      if (ed.labelAt) { [lx, ly] = ed.labelAt; }
+      else {
+        const len = path.getTotalLength();
+        const mid = path.getPointAtLength(len / 2);
+        lx = mid.x; ly = mid.y;
+      }
+      const lg = el('g', { class:'edge-label' }, g);
+      const txt = el('text', { x:lx, y:ly+3.5, 'text-anchor':'middle' }, lg);
+      txt.textContent = ed.label;
+      // 배경 rect는 텍스트 뒤에 삽입 (getBBox는 DOM 부착 후 가능하므로 지연)
+      requestAnimationFrame(() => {
+        try {
+          const b = txt.getBBox();
+          const r = el('rect', { x:b.x-5, y:b.y-2.5, width:b.width+10, height:b.height+5, rx:5 });
+          lg.insertBefore(r, txt);
+        } catch (e) {}
+      });
+    }
+    edgeEls[ed.id] = { g, path };
+  });
+
+  const labelLayer = [];
+  svg.querySelectorAll('.edge-label').forEach(g => labelLayer.push(g));
+
+  sc.nodes.forEach(n => {
+    const g = el('g', { class:'node' + (n.shape === 'note' ? ' note' : '') }, svg);
+    const cx = n.x + n.w/2, cy = n.y + n.h/2;
+    if (n.shape === 'diamond') {
+      el('polygon', { points:`${cx},${n.y} ${n.x+n.w},${cy} ${cx},${n.y+n.h} ${n.x},${cy}` }, g);
+      const lines = n.title.split('\n');
+      const t = el('text', { x:cx, y:cy - (lines.length-1)*8 + 4, 'text-anchor':'middle', class:'title', style:'font-size:12.5px' }, g);
+      lines.forEach((ln, i) => {
+        const ts = el('tspan', { x:cx, dy: i === 0 ? 0 : 15 }, t); ts.textContent = ln;
+      });
+    } else {
+      el('rect', { x:n.x, y:n.y, width:n.w, height:n.h, rx:12 }, g);
+      const subs = n.sub || [];
+      const titleY = cy - (subs.length * 7) + 5;
+      const t = el('text', { x:cx, y:titleY, 'text-anchor':'middle', class:'title' }, g);
+      t.textContent = n.title;
+      subEls[n.id] = [];
+      subs.forEach((s, i) => {
+        const st = el('text', { x:cx, y:titleY + 16 + i*13.5, 'text-anchor':'middle', class:'sub' }, g);
+        st.textContent = s;
+        subEls[n.id].push(st);
+      });
+    }
+    nodeEls[n.id] = g;
+  });
+  labelLayer.forEach(g => svg.appendChild(g)); // 라벨을 노드 위 레이어로
+  state.svg = svg;
+}
+
+function setNodeSub(id, lines) {
+  (subEls[id] || []).forEach((t, i) => { t.textContent = lines[i] || ''; });
+}
+function resetVisual() {
+  for (const id in nodeEls) nodeEls[id].setAttribute('class', nodeEls[id].getAttribute('class').replace(/\b(visited|active|warn|error|ok)\b/g, '').trim());
+  for (const id in edgeEls) {
+    edgeEls[id].g.setAttribute('class', edgeEls[id].g.getAttribute('class').replace(/\b(visited|warn|error|ok)\b/g, '').trim());
+    edgeEls[id].path.setAttribute('marker-end', 'url(#arrow)');
+  }
+  // 패치 원복
+  SCENES[state.scene].nodes.forEach(n => { if (n.sub) setNodeSub(n.id, n.sub); });
+  killDot();
+}
+function killDot(flush) {
+  if (state.raf) cancelAnimationFrame(state.raf), state.raf = null;
+  if (state.dot) state.dot.remove(), state.dot = null;
+  // 진행 중이던 스텝의 미완 커밋: flush면 반영, 아니면 폐기 (전체 재도색 경로)
+  const c = state.commit; state.commit = null;
+  if (flush && c) c();
+}
+function markEdge(id, tone) {
+  const e = edgeEls[id]; if (!e) return;
+  e.g.classList.add('visited'); if (tone && tone !== 'ok') e.g.classList.add(tone);
+  e.path.setAttribute('marker-end', `url(#arrow-${tone || 'ok'})`);
+}
+function markNode(id, tone, active) {
+  const g = nodeEls[id]; if (!g) return;
+  g.classList.add('visited'); if (tone && tone !== 'ok') g.classList.add(tone);
+  if (active) g.classList.add('active');
+}
+function clearActive() {
+  for (const id in nodeEls) nodeEls[id].classList.remove('active');
+}
+function steps() { return SCENARIOS[state.scene][state.scn].steps; }
+
+function narrate(st) {
+  const tone = st.t || '';
+  const say = $('#say');
+  say.innerHTML = st.s || '';
+  say.className = 'say ' + tone;
+  $('#ref').textContent = st.ref ? '📄 ' + st.ref : '';
+  $('#stepCtr').textContent = (state.step + 1) + ' / ' + steps().length;
+  $('#bar').style.width = ((state.step + 1) / steps().length * 100) + '%';
+}
+function applyStep(st, animate, done) {
+  killDot(true); // 이전 스텝이 이동 중이었다면 그 커밋부터 반영
+  const finish = (flushed) => {
+    state.commit = null;
+    clearActive();
+    if (st.e) markEdge(st.e, st.t);
+    markNode(st.n, st.t, true);
+    if (st.p) for (const id in st.p) setNodeSub(id, st.p[id]);
+    narrate(st);
+    const g = nodeEls[st.n];
+    if (g && g.scrollIntoView) {
+      const r = g.getBoundingClientRect();
+      if (r.top < 90 || r.bottom > innerHeight - 200) g.scrollIntoView({ behavior:'smooth', block:'center' });
+    }
+    if (!flushed && done) done();
+  };
+  if (animate && st.e && edgeEls[st.e] && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const path = edgeEls[st.e].path;
+    const len = path.getTotalLength();
+    const dur = Math.min(950, Math.max(320, len * 1.15)) / state.speed;
+    state.commit = () => finish(true);
+    state.dot = el('circle', { r:7, class:'dot' }, state.svg);
+    const t0 = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      const p = path.getPointAtLength(len * t);
+      state.dot.setAttribute('cx', p.x); state.dot.setAttribute('cy', p.y);
+      if (t < 1) state.raf = requestAnimationFrame(tick);
+      else { killDot(); finish(); }
+    };
+    state.raf = requestAnimationFrame(tick);
+  } else finish();
+}
+function gotoStep(i) {
+  stopTimer(); killDot(); resetVisual();
+  state.step = -1;
+  for (let k = 0; k <= i && k < steps().length; k++) {
+    state.step = k;
+    const st = steps()[k];
+    if (st.e) markEdge(st.e, st.t);
+    markNode(st.n, st.t, k === i);
+    if (st.p) for (const id in st.p) setNodeSub(id, st.p[id]);
+  }
+  if (state.step >= 0) narrate(steps()[state.step]);
+}
+function next(fromPlay) {
+  if (state.step + 1 >= steps().length) { setPlaying(false); return; }
+  state.step++;
+  applyStep(steps()[state.step], true, () => {
+    if (fromPlay && state.playing) {
+      const st = steps()[state.step];
+      const gap = (st.t === 'error' || st.t === 'warn' ? 2100 : 1650) / state.speed;
+      state.timer = setTimeout(() => next(true), gap);
+    }
+  });
+}
+function stopTimer() { if (state.timer) clearTimeout(state.timer), state.timer = null; }
+function setPlaying(on) {
+  state.playing = on;
+  $('#btnPlay').textContent = on ? '⏸ 일시정지' : '▶ 재생';
+  stopTimer();
+  if (on) {
+    if (state.step + 1 >= steps().length) gotoStep(-1);
+    next(true);
+  }
+}
+function pickScenario(i, autoplay = true) {
+  state.scn = i; state.step = -1;
+  stopTimer(); resetVisual();
+  document.querySelectorAll('#chips button').forEach((b, k) => b.classList.toggle('on', k === i));
+  $('#scnName').textContent = SCENARIOS[state.scene][i].name;
+  $('#say').textContent = ''; $('#ref').textContent = '';
+  $('#stepCtr').textContent = '0 / ' + steps().length;
+  $('#bar').style.width = '0%';
+  setPlaying(autoplay);
+}
+function pickScene(key) {
+  state.scene = key;
+  stopTimer(); killDot();
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.k === key));
+  buildScene(key);
+  const chips = $('#chips');
+  chips.innerHTML = '';
+  SCENARIOS[key].forEach((s, i) => {
+    const b = document.createElement('button');
+    b.textContent = s.name;
+    b.onclick = () => pickScenario(i);
+    chips.appendChild(b);
+  });
+  pickScenario(0);
+}
+
+/* ---- UI 배선 ---- */
+const TABS = [['query', '질의 플로우'], ['index', '색인 파이프라인']];
+TABS.forEach(([k, label]) => {
+  const b = document.createElement('button');
+  b.textContent = label; b.dataset.k = k;
+  b.onclick = () => pickScene(k);
+  $('#tabs').appendChild(b);
+});
+$('#btnPlay').onclick = () => setPlaying(!state.playing);
+$('#btnNext').onclick = () => { setPlaying(false); if (state.step + 1 < steps().length) { state.step++; applyStep(steps()[state.step], true); } };
+$('#btnPrev').onclick = () => { setPlaying(false); gotoStep(Math.max(0, state.step - 1)); };
+$('#btnRestart').onclick = () => { gotoStep(-1); setPlaying(true); };
+$('#speed').onchange = (e) => {
+  state.speed = parseFloat(e.target.value);
+  if (state.playing && state.timer) { stopTimer(); state.timer = setTimeout(() => next(true), 250); }
+};
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); setPlaying(!state.playing); }
+  else if (e.key === 'ArrowRight') $('#btnNext').click();
+  else if (e.key === 'ArrowLeft') $('#btnPrev').click();
+});
+
+pickScene('query');
+</script>
+</body>
+</html>
