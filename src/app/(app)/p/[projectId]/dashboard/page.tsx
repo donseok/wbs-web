@@ -12,6 +12,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
 import { ReportButton } from '@/components/report/ReportButton'
 import { DashboardView } from '@/components/dashboard/DashboardView'
+import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
 const HERO_BTN =
   'inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20'
@@ -38,8 +39,8 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
   const donePct = leaves.length ? Math.round((doneCount / leaves.length) * 100) : 0
 
   return (
-    <>
-      <PageHero
+    <ProjectPageShell
+      hero={<PageHero
         eyebrow="OPERATIONS"
         badge={<HeroBadge>Smart Utility</HeroBadge>}
         title={`${project?.name ?? t(locale, 'dash.heroProjectFallback')}${t(locale, 'dash.heroTitleSuffix')}`}
@@ -69,8 +70,8 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
             <KpiCard variant="hero" label={t(locale, 'dash.kpi.delayed')} value={delayedCount} sub={delayedCount > 0 ? t(locale, 'dash.needsReview') : t(locale, 'dash.normalRange')} icon={AlertTriangle} tone="danger" />
           </>
         }
-      />
-
+      />}
+    >
       <DashboardView
         items={items}
         startDate={project?.start_date ?? null}
@@ -79,6 +80,6 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         memberCount={members.length}
         attendance={attendance}
       />
-    </>
+    </ProjectPageShell>
   )
 }

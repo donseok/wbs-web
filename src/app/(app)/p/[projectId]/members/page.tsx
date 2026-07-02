@@ -7,6 +7,7 @@ import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { MembersBoard } from '@/components/members/MembersBoard'
+import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
 export default async function MembersPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -26,8 +27,8 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
   const contributors = members.filter((x) => x.role === 'contributor').length
 
   return (
-    <div className="space-y-5">
-      <PageHero
+    <ProjectPageShell
+      hero={<PageHero
         eyebrow="TEAM"
         badge={<HeroBadge>Members</HeroBadge>}
         title={`${projectName} ${t(locale, 'members.heroTitleSuffix')}`}
@@ -39,9 +40,9 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
             <KpiCard variant="hero" label="CONTRIBUTORS" value={contributors} sub={t(locale, 'members.kpiContributorsSub')} icon={UserRound} tone="default" />
           </>
         }
-      />
-
+      />}
+    >
       <MembersBoard members={members} canEdit={canEdit} projectId={projectId} />
-    </div>
+    </ProjectPageShell>
   )
 }

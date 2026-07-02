@@ -14,6 +14,7 @@ import { ReindexButton } from '@/components/settings/ReindexButton'
 import { dkbotIndexStatus, type IndexStatus } from '@/lib/ai/health'
 import { t, type Locale } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
+import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
 type ProjectRow = {
   id: string
@@ -72,8 +73,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       : t(locale, 'settings.tbd')
 
   return (
-    <div className="space-y-6">
-      <PageHero
+    <ProjectPageShell
+      hero={<PageHero
         eyebrow="SETTINGS"
         badge={<HeroBadge>Smart Utility</HeroBadge>}
         title={`${project?.name ?? t(locale, 'settings.projectFallback')} ${t(locale, 'settings.heroTitleSuffix')}`}
@@ -98,23 +99,24 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             />
           </>
         }
-      />
-
-      {/* ── 기본 정보 ── */}
-      <SectionCard
-        eyebrow="CORE INFORMATION"
-        title={t(locale, 'settings.coreInfoTitle')}
-        icon={Info}
-        actions={canMutate && project ? (
-          <ProjectInfoEditButton
-            projectId={projectId}
-            name={project.name}
-            description={project.description ?? null}
-            startDate={project.start_date ?? null}
-            endDate={project.end_date ?? null}
-          />
-        ) : undefined}
-      >
+      />}
+    >
+      <div className="space-y-6">
+        {/* ── 기본 정보 ── */}
+        <SectionCard
+          eyebrow="CORE INFORMATION"
+          title={t(locale, 'settings.coreInfoTitle')}
+          icon={Info}
+          actions={canMutate && project ? (
+            <ProjectInfoEditButton
+              projectId={projectId}
+              name={project.name}
+              description={project.description ?? null}
+              startDate={project.start_date ?? null}
+              endDate={project.end_date ?? null}
+            />
+          ) : undefined}
+        >
         <dl className="-mt-1">
           <InfoRow label={t(locale, 'settings.projectName')}>
             <span className="font-semibold">{project?.name ?? t(locale, 'settings.unassigned')}</span>
@@ -137,10 +139,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             {t(locale, 'settings.pmoOnlyNotice')}
           </p>
         )}
-      </SectionCard>
+        </SectionCard>
 
       {/* ── WBS 데이터 가져오기 / 내보내기 ── */}
-      <SectionCard
+        <SectionCard
         eyebrow="DATA"
         title={t(locale, 'settings.importExportTitle')}
         icon={Upload}
@@ -173,10 +175,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <Download className="h-4 w-4" /> {t(locale, 'settings.exportExcel')}
           </a>
         </div>
-      </SectionCard>
+        </SectionCard>
 
       {/* ── DK Bot 의미검색 색인 ── */}
-      <SectionCard
+        <SectionCard
         eyebrow="AI ASSISTANT"
         title={t(locale, 'settings.dkbotTitle')}
         icon={Sparkles}
@@ -198,10 +200,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             {t(locale, 'settings.dkbotDesc3')}
           </span>
         </p>
-      </SectionCard>
+        </SectionCard>
 
       {/* ── 일정 기준 및 공휴일 ── */}
-      <SectionCard
+        <SectionCard
         eyebrow="CALENDAR"
         title={t(locale, 'settings.calendarTitle')}
         icon={CalendarDays}
@@ -213,10 +215,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
           holidays={holidays}
           canEdit={canMutate}
         />
-      </SectionCard>
+        </SectionCard>
 
       {/* ── 프로젝트 상태 관리 (시각 전용) ── */}
-      <SectionCard eyebrow="STATUS POLICY" title={t(locale, 'settings.statusPolicyTitle')} icon={Settings}>
+        <SectionCard eyebrow="STATUS POLICY" title={t(locale, 'settings.statusPolicyTitle')} icon={Settings}>
         <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
           {t(locale, 'settings.statusPolicyDesc')}
         </p>
@@ -252,7 +254,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             </p>
           </div>
         </div>
-      </SectionCard>
-    </div>
+        </SectionCard>
+      </div>
+    </ProjectPageShell>
   )
 }

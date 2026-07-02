@@ -47,7 +47,7 @@ export function PageHero({
   }
 
   return (
-    <section className={`sticky top-20 z-[60] grid gap-4 ${aside && !collapsed ? 'lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]' : ''}`}>
+    <section className={`grid gap-4 ${aside && !collapsed ? 'lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]' : ''}`}>
       <div className={`hero-glow hero-card flex flex-col px-6 transition-[padding] duration-200 sm:px-8 ${collapsed ? 'py-4' : 'py-6 sm:py-8'}`}>
         <div className={`flex ${collapsed ? 'items-center' : 'items-start'} justify-between gap-4`}>
           <div className="min-w-0">

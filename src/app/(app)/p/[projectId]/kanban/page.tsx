@@ -8,6 +8,7 @@ import { PageHero } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
 import { KanbanBoard } from '@/components/kanban/KanbanBoard'
+import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
 export default async function KanbanPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -29,8 +30,8 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
     : 0
 
   return (
-    <div className="space-y-6">
-      <PageHero
+    <ProjectPageShell
+      hero={<PageHero
         eyebrow="KANBAN BOARD"
         title={`${name} ${t(locale, 'kanban.heroTitleSuffix')}`}
         description={t(locale, 'kanban.heroDesc')}
@@ -41,8 +42,9 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
             <KpiCard variant="hero" label={t(locale, 'kanban.kpiOverallProgress')} value={`${overall}%`} sub={t(locale, 'kanban.kpiOverallProgressSub')} icon={Gauge} tone="success" />
           </>
         }
-      />
+      />}
+    >
       <KanbanBoard items={items} membership={m} today={today} />
-    </div>
+    </ProjectPageShell>
   )
 }

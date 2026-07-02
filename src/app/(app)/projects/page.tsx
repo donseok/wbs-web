@@ -124,7 +124,7 @@ export default async function ProjectsHome() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       {/* ── 히어로 ── */}
       <section className="hero-glow hero-card flex flex-col gap-7 p-6 sm:p-8">
         <div className="min-w-0">

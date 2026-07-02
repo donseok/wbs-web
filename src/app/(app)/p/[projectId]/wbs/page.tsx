@@ -5,6 +5,7 @@ import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 import { PageHero } from '@/components/ui/PageHero'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
+import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
 type ProjectRow = { id: string; name: string }
 
@@ -25,12 +26,13 @@ export default async function WbsPage({
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   return (
-    <div className="space-y-6">
-      <PageHero
+    <ProjectPageShell
+      hero={<PageHero
         eyebrow="WBS · GANTT"
         title={`${project?.name ?? t(locale, 'wbs.projectFallback')} ${t(locale, 'wbs.heroTitleSuffix')}`}
         description={t(locale, 'wbs.heroDesc')}
-      />
+      />}
+    >
       <WbsGanttSheet
         items={items}
         holidays={holidays}
@@ -39,6 +41,6 @@ export default async function WbsPage({
         projectId={projectId}
         defaultView={view === 'timeline' ? 'timeline' : 'sheet'}
       />
-    </div>
+    </ProjectPageShell>
   )
 }

@@ -8,6 +8,7 @@ import { getServerLocale } from '@/lib/i18n/server'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { AttendanceView } from '@/components/attendance/AttendanceView'
+import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
 export default async function AttendancePage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -21,8 +22,8 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
   const s = summarize(records)
 
   return (
-    <div className="space-y-6">
-      <PageHero
+    <ProjectPageShell
+      hero={<PageHero
         eyebrow="ATTENDANCE"
         badge={<HeroBadge>Attendance</HeroBadge>}
         title={t(locale, 'att.title')}
@@ -34,7 +35,8 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
             <KpiCard variant="hero" label="BUSINESS TRIP" value={s.trip} sub={t(locale, 'att.kpi.tripSub')} icon={PlaneTakeoff} tone="warning" />
           </>
         }
-      />
+      />}
+    >
       <AttendanceView
         projectId={projectId}
         records={records}
@@ -42,6 +44,6 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
         initialDate={today}
         canEdit={m?.role === 'pmo_admin'}
       />
-    </div>
+    </ProjectPageShell>
   )
 }
