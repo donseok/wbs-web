@@ -1,15 +1,34 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
 /** 접힘 상태 localStorage 키 — 사이드바(dflow-sidebar)와 동일 컨벤션, 전 페이지 공유. */
-const STORAGE_KEY = 'dflow-hero'
+export const HERO_STORAGE_KEY = 'dflow-hero'
+
+/** 헤더 등 외부에서 히어로 접기/펼치기를 일괄 제어할 때 dispatch하는 CustomEvent 이름. */
+export const HERO_TOGGLE_EVENT = 'dflow-hero-toggle'
 
 // PageHero는 페이지 트리에 있어 소프트 내비게이션마다 리마운트된다.
 // 모듈 캐시로 세션 내 상태를 유지해 페이지 이동 시 상태가 바뀌는 플래시를 막는다.
 let collapsedCache: boolean | null = null
+
+/** 현재 히어로 접힘 상태를 읽는다(localStorage → 캐시 → 기본값 true). */
+export function readHeroCollapsed(): boolean {
+  if (collapsedCache !== null) return collapsedCache
+  try { return localStorage.getItem(HERO_STORAGE_KEY) !== '0' } catch { return true }
+}
+
+/**
+ * 헤더 등 외부에서 호출. localStorage를 갱신하고 CustomEvent를 dispatch하여
+ * 마운트된 모든 PageHero 인스턴스의 상태를 동기화한다.
+ */
+export function dispatchHeroToggle(collapsed: boolean): void {
+  collapsedCache = collapsed
+  try { localStorage.setItem(HERO_STORAGE_KEY, collapsed ? '1' : '0') } catch {}
+  window.dispatchEvent(new CustomEvent(HERO_TOGGLE_EVENT, { detail: { collapsed } }))
+}
 
 /**
  * D'Flow 스타일 페이지 히어로 — 다크 그라데이션 카드 + 우측 KPI 레일.
@@ -34,16 +53,24 @@ export function PageHero({
 
   useEffect(() => {
     if (collapsedCache !== null) return
-    try { collapsedCache = localStorage.getItem(STORAGE_KEY) !== '0' } catch { collapsedCache = true }
+    try { collapsedCache = localStorage.getItem(HERO_STORAGE_KEY) !== '0' } catch { collapsedCache = true }
     setCollapsed(collapsedCache)
   }, [])
+
+  // 헤더(외부) 토글 이벤트 수신 — 마운트된 모든 PageHero가 동기화된다.
+  const onExternalToggle = useCallback((e: Event) => {
+    const collapsed = (e as CustomEvent<{ collapsed: boolean }>).detail.collapsed
+    collapsedCache = collapsed
+    setCollapsed(collapsed)
+  }, [])
+  useEffect(() => {
+    window.addEventListener(HERO_TOGGLE_EVENT, onExternalToggle)
+    return () => window.removeEventListener(HERO_TOGGLE_EVENT, onExternalToggle)
+  }, [onExternalToggle])
+
   const toggle = () => {
-    setCollapsed(prev => {
-      const next = !prev
-      collapsedCache = next
-      try { localStorage.setItem(STORAGE_KEY, next ? '1' : '0') } catch {}
-      return next
-    })
+    const next = !collapsed
+    dispatchHeroToggle(next)
   }
 
   return (

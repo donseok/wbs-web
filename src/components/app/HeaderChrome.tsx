@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, CalendarDays, ChevronRight, Clock4, Globe, Hand, LogOut, Menu, Moon, Sun, User, X,
+  AlertTriangle, Bell, CalendarDays, ChevronRight, Clock4, Globe, Hand, LogOut, Menu, Moon, PanelTopClose, PanelTopOpen, Sun, User, X,
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -12,6 +12,7 @@ import { getNotifications, type NotificationItem } from '@/app/actions/notificat
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
+import { readHeroCollapsed, dispatchHeroToggle, HERO_TOGGLE_EVENT } from '@/components/ui/PageHero'
 import type { SidebarProject } from './Sidebar'
 
 const SECTION_LABEL: Record<string, string> = {
@@ -29,6 +30,8 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   const [open, setOpen] = useState<null | 'notif' | 'profile'>(null)
   const [notifs, setNotifs] = useState<NotificationItem[]>([])
   const [notifLoading, setNotifLoading] = useState(false)
+  // 히어로 중앙 토글 상태
+  const [heroCollapsed, setHeroCollapsed] = useState(() => readHeroCollapsed())
 
   const activeId = useMemo(() => pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null, [pathname])
   const activeProject = activeId ? projects.find(p => p.id === activeId) ?? null : null
@@ -38,6 +41,12 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
     setToday(new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short' }).format(new Date()))
   }, [])
   useEffect(() => { setMenuOpen(false); setOpen(null) }, [pathname])
+  // 히어로 외부 토글 이벤트 수신 — 헤더 버튼 상태를 동기화
+  useEffect(() => {
+    const sync = (e: Event) => setHeroCollapsed((e as CustomEvent<{ collapsed: boolean }>).detail.collapsed)
+    window.addEventListener(HERO_TOGGLE_EVENT, sync)
+    return () => window.removeEventListener(HERO_TOGGLE_EVENT, sync)
+  }, [])
   // 활성 프로젝트의 지연·마감 알림 로드
   useEffect(() => {
     if (!activeId) { setNotifs([]); return }
@@ -86,6 +95,16 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
           )}
 
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+            {/* 히어로 접기/펼치기 중앙 토글 */}
+            <button
+              onClick={() => { const next = !heroCollapsed; setHeroCollapsed(next); dispatchHeroToggle(next) }}
+              className="chrome-btn"
+              title={heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
+              aria-label={heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
+            >
+              {heroCollapsed ? <PanelTopOpen className="h-3.5 w-3.5" /> : <PanelTopClose className="h-3.5 w-3.5" />}
+              {heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
+            </button>
             {today && (
               <span className="hidden items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-2 text-[12px] font-medium text-ink-muted md:inline-flex">
                 <CalendarDays className="h-3.5 w-3.5 text-brand" />{today}
