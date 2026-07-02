@@ -354,7 +354,7 @@ export function AttendanceView({
       {/* 근태 삭제 확인 모달 — 취소 시 수정 모달로 복귀 */}
       <Modal
         open={open && confirmingDelete}
-        onClose={() => setConfirmingDelete(false)}
+        onClose={() => { if (!deleting) setConfirmingDelete(false) }}
         size="sm"
         eyebrow="Remove attendance"
         title="근태 삭제"

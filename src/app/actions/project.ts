@@ -48,9 +48,11 @@ export async function updateProject(
     let start = patch.start_date as string | null | undefined
     let end = patch.end_date as string | null | undefined
     if (start === undefined || end === undefined) {
-      const { data: cur } = await sb.from('projects').select('start_date,end_date').eq('id', projectId).single()
-      if (start === undefined) start = (cur?.start_date as string | null) ?? null
-      if (end === undefined) end = (cur?.end_date as string | null) ?? null
+      const { data: cur, error: curErr } = await sb.from('projects').select('start_date,end_date').eq('id', projectId).single()
+      // 현재값 조회 실패 시 검증 불가 — 통과시키지 않고 저장을 중단한다.
+      if (curErr || !cur) return { ok: false, error: curErr?.message || '프로젝트를 찾을 수 없습니다.' }
+      if (start === undefined) start = (cur.start_date as string | null) ?? null
+      if (end === undefined) end = (cur.end_date as string | null) ?? null
     }
     if (!isValidDateRange(start, end)) return { ok: false, error: '종료일은 시작일보다 빠를 수 없습니다.' }
   }

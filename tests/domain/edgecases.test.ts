@@ -42,6 +42,10 @@ describe('statusOf edge cases', () => {
   it('시작 전 + 실적 100이면 done', () => {
     expect(statusOf(100, 0, '2026-07-13', '2026-07-02')).toBe('done')
   })
+  it('시작 전 롤업 부모(자식 계획>실적>0)는 delayed — 자식이 이미 시작했으면 부모도 지연 노출', () => {
+    // 롤업 부모는 rolledPlanned가 자식 가중평균이라 미래 시작이어도 planned>0일 수 있다.
+    expect(statusOf(20, 60, '2026-08-01', '2026-07-02')).toBe('delayed')
+  })
 })
 
 describe('achievementOf edge cases', () => {
