@@ -28,22 +28,40 @@ export function Modal({
   const onCloseRef = useRef(onClose)
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
+  // autoFocus 자식이 있으면 effect 시점에는 이미 포커스가 모달 내부라 트리거를 알 수 없다.
+  // 그 경우를 위해 닫힘→열림 전환 렌더(패널 DOM 생성 전) 시점의 activeElement를 캡처해 둔다.
+  // 단, 연쇄 모달(A 닫힘+B 열림 한 커밋)에서는 이 스냅샷이 곧 detach될 A 내부 요소일 수
+  // 있으므로 복원 대상은 아래 effect에서 하이브리드로 결정한다.
+  const prevFocusRef = useRef<HTMLElement | null>(null)
+  const wasOpenRef = useRef(false)
+  if (open !== wasOpenRef.current) {
+    if (open && typeof document !== 'undefined') prevFocusRef.current = document.activeElement as HTMLElement | null
+    wasOpenRef.current = open
+  }
+
   useEffect(() => {
     if (!open) return
-    const previouslyFocused = document.activeElement as HTMLElement | null
     const panel = panelRef.current
+    // 복원 대상(트리거) 하이브리드 결정: effect 시점 activeElement가 패널 밖이면 그것 —
+    // 연쇄 모달에서는 앞 모달의 cleanup(destroy가 create보다 먼저)이 이 시점에 이미
+    // 진짜 트리거로 포커스를 복원해 뒀다. 패널 안이면(autoFocus 자식 선점) 렌더 스냅샷이 트리거다.
+    const active = document.activeElement as HTMLElement | null
+    const autoFocused = !!panel && panel.contains(active)
+    const previouslyFocused = autoFocused ? prevFocusRef.current : active
     const focusables = () =>
       panel
         ? Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => el.offsetParent !== null)
         : []
 
-    // 열릴 때 다이얼로그 안으로 포커스 이동(첫 포커서블, 없으면 패널).
-    ;(focusables()[0] ?? panel)?.focus()
+    // 열릴 때 다이얼로그 안으로 포커스 이동(첫 포커서블, 없으면 패널) — autoFocus 선점 시 존중.
+    if (!autoFocused) (focusables()[0] ?? panel)?.focus()
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { onCloseRef.current(); return }
       if (e.key !== 'Tab') return
       const f = focusables()
+      // 포커스가 트랩 밖으로 샌 경우(저장 중 disabled 전환 등) 다시 안으로 회수.
+      if (!panel?.contains(document.activeElement)) { e.preventDefault(); (f[0] ?? panel)?.focus(); return }
       if (f.length === 0) { e.preventDefault(); return }
       const first = f[0]
       const last = f[f.length - 1]
