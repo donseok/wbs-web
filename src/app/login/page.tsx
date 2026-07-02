@@ -11,6 +11,7 @@ export default function Login() {
   const { t } = useLocale()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
 
@@ -34,7 +35,7 @@ export default function Login() {
 
           <form onSubmit={submit} className="mt-9 space-y-4">
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('home.loginEmail')}</span><input className="app-input" type="email" autoComplete="email" placeholder="name@company.com" value={email} onChange={event => setEmail(event.target.value)} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required /></label>
-            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('home.loginPassword')}</span><input className="app-input" type="password" autoComplete="current-password" placeholder={t('home.phPassword')} value={password} onChange={event => setPassword(event.target.value)} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required /></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('home.loginPassword')}</span><div className="relative"><input className="app-input pr-10" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder={t('home.phPassword')} value={password} onChange={event => setPassword(event.target.value)} aria-invalid={!!error} aria-describedby={error ? 'login-error' : undefined} required /><button type="button" onClick={() => setShowPassword(previous => !previous)} aria-label={t(showPassword ? 'home.hidePassword' : 'home.showPassword')} className="absolute inset-y-0 right-0 flex w-10 cursor-pointer items-center justify-center rounded-r-xl text-ink-subtle transition duration-150 hover:text-ink focus-visible:text-ink"><Icon name={showPassword ? 'eyeOff' : 'eye'} className="h-4 w-4" /></button></div></label>
             {error && <p id="login-error" role="alert" className="flex items-center gap-2 rounded-xl bg-delayed-weak px-3 py-2.5 text-xs font-medium text-delayed"><Icon name="alert" className="h-4 w-4" />{error}</p>}
             <button className="btn btn-primary mt-1 w-full">{t('home.loginSubmit')}<Icon name="arrow" className="h-4 w-4" /></button>
           </form>

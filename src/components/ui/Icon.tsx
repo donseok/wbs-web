@@ -8,6 +8,8 @@ export type IconName =
   | 'check'
   | 'chevron'
   | 'clock'
+  | 'eye'
+  | 'eyeOff'
   | 'folder'
   | 'grid'
   | 'home'
@@ -60,6 +62,10 @@ export function Icon({ name, ...props }: { name: IconName } & SVGProps<SVGSVGEle
       return <svg {...common}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></svg>
     case 'clock':
       return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+    case 'eye':
+      return <svg {...common}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+    case 'eyeOff':
+      return <svg {...common}><path d="M17.94 17.94A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a17.6 17.6 0 0 1 4.06-4.94M9.9 5.24A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a17.7 17.7 0 0 1-2.16 3.19m-5.72-.07a3 3 0 1 1-4.24-4.24" /><path d="m3 3 18 18" /></svg>
     case 'upload':
       return <svg {...common}><path d="M12 16V4m0 0L7 9m5-5 5 5M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" /></svg>
     case 'arrow':
