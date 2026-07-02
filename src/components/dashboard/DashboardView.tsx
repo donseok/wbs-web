@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import {
   CalendarRange, PieChart, Users, Layers, Scale, AlertTriangle,
   CalendarClock, CalendarPlus, CheckCircle2, CalendarCheck,
-  TrendingUp, TrendingDown, BarChart3, FileText, Timer,
+  TrendingUp, TrendingDown, BarChart3, FileText, Timer, Megaphone, Pin,
 } from 'lucide-react'
-import type { ComputedItem, Status, TeamCode, AttendanceRecord, AttendanceType } from '@/lib/domain/types'
+import type { Announcement, ComputedItem, Status, TeamCode, AttendanceRecord, AttendanceType } from '@/lib/domain/types'
+import { ANNOUNCEMENT_META } from '@/lib/domain/announcements'
 import { overallProgress } from '@/lib/domain/rollup'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { ProgressBar } from '@/components/ui/ProgressBar'
@@ -97,18 +99,22 @@ function TaskRow({ item }: { item: ComputedItem }) {
 
 export async function DashboardView({
   items,
+  projectId,
   startDate = null,
   endDate = null,
   today = seoulToday(),
   memberCount = 0,
   attendance = [],
+  announcements = [],
 }: {
   items: ComputedItem[]
+  projectId: string
   startDate?: string | null
   endDate?: string | null
   today?: string
   memberCount?: number
   attendance?: AttendanceRecord[]
+  announcements?: Announcement[]
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -230,6 +236,44 @@ export async function DashboardView({
           </div>
         ) : (
           <MiniEmpty text={tr('dash.schedule.empty')} />
+        )}
+      </SectionCard>
+
+      {/* 공지사항 — 최근/고정 상위 3건 */}
+      <SectionCard
+        eyebrow="NOTICE"
+        title={tr('ann.dash.title')}
+        icon={Megaphone}
+        actions={
+          <Link href={`/p/${projectId}/announcements`} className="btn btn-ghost h-8 px-3 text-xs">
+            {tr('common.viewAll')}
+          </Link>
+        }
+      >
+        {announcements.length === 0 ? (
+          <MiniEmpty text={tr('ann.dash.empty')} />
+        ) : (
+          <ul className="space-y-2">
+            {announcements.slice(0, 3).map(a => (
+              <li key={a.id}>
+                <Link
+                  href={`/p/${projectId}/announcements`}
+                  className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/40 px-3 py-2.5 transition hover:bg-surface-2"
+                >
+                  <span className={`chip shrink-0 ${ANNOUNCEMENT_META[a.category].chip}`}>
+                    {tr(ANNOUNCEMENT_META[a.category].labelKey)}
+                  </span>
+                  {a.isPinned && <Pin className="h-3.5 w-3.5 shrink-0 text-accent-warning" />}
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink" title={a.title}>
+                    {a.title}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[11px] text-ink-subtle">
+                    {new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(a.createdAt))}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
       </SectionCard>
 
