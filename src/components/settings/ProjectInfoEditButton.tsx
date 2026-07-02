@@ -6,6 +6,7 @@ import { Pencil } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { updateProject } from '@/app/actions/project'
+import { isValidDateRange } from '@/lib/domain/validate'
 
 export function ProjectInfoEditButton({
   projectId, name, description, startDate, endDate,
@@ -27,6 +28,10 @@ export function ProjectInfoEditButton({
 
   const save = () => {
     setError(null)
+    if (!isValidDateRange(form.start_date || null, form.end_date || null)) {
+      setError('종료일은 시작일보다 빠를 수 없습니다.')
+      return
+    }
     start(async () => {
       const res = await updateProject(projectId, {
         name: form.name,
@@ -64,7 +69,7 @@ export function ProjectInfoEditButton({
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">시작일</span><input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} className="app-input px-2 text-xs" /></label>
-            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">종료일</span><input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} className="app-input px-2 text-xs" /></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-ink-muted">종료일</span><input type="date" value={form.end_date} min={form.start_date || undefined} onChange={e => setForm({ ...form, end_date: e.target.value })} className="app-input px-2 text-xs" /></label>
           </div>
           {error && <p className="text-xs font-medium text-delayed">{error}</p>}
         </div>

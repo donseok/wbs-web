@@ -30,12 +30,13 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
+  const email = input.email?.trim() || null // DB CHECK(공백 불허)와 일치하도록 저장 전 정규화
   const sb = await createServerClient()
   const teamId = await resolveTeamId(sb, input.teamCode)
   const { error } = await sb.from('project_members').insert({
     project_id: projectId,
     name: input.name,
-    email: input.email,
+    email,
     team_id: teamId,
     role: input.role,
     title: input.title,
@@ -49,13 +50,14 @@ export async function updateMember(memberId: string, input: MemberInput): Promis
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
+  const email = input.email?.trim() || null // DB CHECK(공백 불허)와 일치하도록 저장 전 정규화
   const sb = await createServerClient()
   const teamId = await resolveTeamId(sb, input.teamCode)
   const { data, error } = await sb
     .from('project_members')
     .update({
       name: input.name,
-      email: input.email,
+      email,
       team_id: teamId,
       role: input.role,
       title: input.title,

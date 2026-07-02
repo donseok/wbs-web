@@ -1,6 +1,7 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
+import { isValidDateRange } from '@/lib/domain/validate'
 import { revalidatePath } from 'next/cache'
 
 export async function listProjects() {
@@ -19,6 +20,7 @@ export async function createProject(
 ) {
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
+  if (!isValidDateRange(start || null, end || null)) throw new Error('종료일은 시작일보다 빠를 수 없습니다.')
   const sb = await createServerClient()
   const { error } = await sb.from('projects').insert({ name, start_date: start, end_date: end, description })
   if (error) throw new Error(error.message)
@@ -41,6 +43,17 @@ export async function updateProject(
   if (fields.end_date !== undefined) patch.end_date = fields.end_date || null
   if (Object.keys(patch).length === 0) return { ok: true }
   const sb = await createServerClient()
+  // 날짜가 패치에 포함될 때만 범위 검증. 한쪽만 온 부분 패치는 DB 현재값과 병합해 비교(우회 방지).
+  if ('start_date' in patch || 'end_date' in patch) {
+    let start = patch.start_date as string | null | undefined
+    let end = patch.end_date as string | null | undefined
+    if (start === undefined || end === undefined) {
+      const { data: cur } = await sb.from('projects').select('start_date,end_date').eq('id', projectId).single()
+      if (start === undefined) start = (cur?.start_date as string | null) ?? null
+      if (end === undefined) end = (cur?.end_date as string | null) ?? null
+    }
+    if (!isValidDateRange(start, end)) return { ok: false, error: '종료일은 시작일보다 빠를 수 없습니다.' }
+  }
   const { error } = await sb.from('projects').update(patch).eq('id', projectId)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/projects')

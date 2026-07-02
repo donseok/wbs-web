@@ -23,7 +23,7 @@ export function statusOf(
   actual: number, planned: number, start: string | null, today: string,
 ): Status {
   if (actual >= 100) return 'done'
-  if (start && today < start) return 'not_started'
+  if (start && today < start && actual === 0) return 'not_started'
   if (planned === 0 && actual === 0) return 'not_started'
   if (actual < planned) return 'delayed'
   return 'in_progress'

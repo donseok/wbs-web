@@ -45,6 +45,7 @@ export function AttendanceView({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [formErr, setFormErr] = useState<string | null>(null)
   const [form, setForm] = useState<{ memberId: string; date: string; type: AttendanceType; note: string }>({
     memberId: members[0]?.id ?? '',
@@ -86,6 +87,7 @@ export function AttendanceView({
     setEditingId(null)
     setForm({ memberId: members[0]?.id ?? '', date: initialDate, type: 'work', note: '' })
     setFormErr(null)
+    setConfirmingDelete(false)
     setOpen(true)
   }
 
@@ -94,6 +96,7 @@ export function AttendanceView({
     setEditingId(r.id)
     setForm({ memberId: r.memberId, date: r.date, type: r.type, note: r.note ?? '' })
     setFormErr(null)
+    setConfirmingDelete(false)
     setOpen(true)
   }
 
@@ -102,6 +105,7 @@ export function AttendanceView({
     setDeleting(true)
     const res = await removeAttendance(editingId)
     setDeleting(false)
+    setConfirmingDelete(false)
     if (!res.ok) { setFormErr(res.error ?? '삭제에 실패했습니다.'); return }
     setOpen(false)
     router.refresh()
@@ -273,16 +277,16 @@ export function AttendanceView({
         </div>
       )}
 
-      {/* 근태 등록 모달 */}
+      {/* 근태 등록 모달 — 삭제 확인 모달과 상호배타로 렌더(포커스 트랩/Escape 충돌 방지) */}
       <Modal
-        open={open}
+        open={open && !confirmingDelete}
         onClose={() => setOpen(false)}
         eyebrow="ATTENDANCE"
         title={editingId ? '근태 수정' : '근태 등록'}
         footer={
           <>
             {editingId && (
-              <button onClick={handleDelete} disabled={deleting || saving} className="btn btn-ghost mr-auto text-delayed hover:bg-delayed-weak">
+              <button onClick={() => setConfirmingDelete(true)} disabled={deleting || saving} className="btn btn-ghost mr-auto text-delayed hover:bg-delayed-weak">
                 {deleting ? '삭제 중…' : '삭제'}
               </button>
             )}
@@ -345,6 +349,33 @@ export function AttendanceView({
           )}
           {formErr && <p className="text-xs font-medium text-delayed">{formErr}</p>}
         </div>
+      </Modal>
+
+      {/* 근태 삭제 확인 모달 — 취소 시 수정 모달로 복귀 */}
+      <Modal
+        open={open && confirmingDelete}
+        onClose={() => setConfirmingDelete(false)}
+        size="sm"
+        eyebrow="Remove attendance"
+        title="근태 삭제"
+        footer={
+          <>
+            <button onClick={() => setConfirmingDelete(false)} className="btn btn-ghost" disabled={deleting}>
+              취소
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="btn bg-delayed text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? '삭제 중…' : '삭제'}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm leading-6 text-ink-muted">
+          <strong className="text-ink">{memberMap.get(form.memberId)?.name ?? '알 수 없음'}</strong> 님의 {fmtDate(form.date)} 근태 기록을 삭제할까요? 이 작업은 되돌릴 수 없습니다.
+        </p>
       </Modal>
     </div>
   )

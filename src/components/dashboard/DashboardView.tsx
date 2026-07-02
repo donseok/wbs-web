@@ -247,7 +247,7 @@ export function DashboardView({
                       <span className={`h-2.5 w-2.5 rounded-full ${STATUS[s].dot}`} />{STATUS[s].label}
                     </span>
                     <span className="tabular-nums">
-                      <strong className="text-ink">{c}</strong>
+                      <strong className="text-ink">{c}건</strong>
                       <span className="ml-1 text-[11px] text-ink-subtle">{total ? Math.round((c / total) * 100) : 0}%</span>
                     </span>
                   </div>

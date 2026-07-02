@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, FolderPlus } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { createProject } from '@/app/actions/project'
+import { isValidDateRange } from '@/lib/domain/validate'
 
 /**
  * 워크스페이스 홈의 "새 프로젝트 시작" 트리거 + 다이얼로그.
@@ -44,6 +45,10 @@ export function NewProjectModal({
   async function submit() {
     const trimmed = name.trim()
     if (!trimmed || busy) return
+    if (!isValidDateRange(start || null, end || null)) {
+      setError('종료일은 시작일보다 빠를 수 없습니다.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {

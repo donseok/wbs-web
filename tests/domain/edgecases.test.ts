@@ -33,6 +33,15 @@ describe('statusOf edge cases', () => {
   it('실적==계획(>0) → in_progress', () => {
     expect(statusOf(60, 60, '2026-07-01', '2026-07-10')).toBe('in_progress')
   })
+  it('시작 전이라도 실적>0이면 in_progress', () => {
+    expect(statusOf(50, 0, '2026-07-13', '2026-07-02')).toBe('in_progress')
+  })
+  it('시작 전 + 실적 0이면 not_started 유지', () => {
+    expect(statusOf(0, 0, '2026-07-13', '2026-07-02')).toBe('not_started')
+  })
+  it('시작 전 + 실적 100이면 done', () => {
+    expect(statusOf(100, 0, '2026-07-13', '2026-07-02')).toBe('done')
+  })
 })
 
 describe('achievementOf edge cases', () => {
