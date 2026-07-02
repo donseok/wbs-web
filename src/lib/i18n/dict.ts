@@ -1,69 +1,50 @@
-// 최소 i18n 사전 — 크롬/공통 라벨만. 페이지 본문은 추후 확장.
+// i18n 사전 진입점 — 화면별 네임스페이스 파일(dict/*.ts)을 병합한다.
+// 각 네임스페이스 파일은 해당 화면 담당만 수정한다(병렬 작업 충돌 방지).
+// 키 패리티(ko↔en)는 각 네임스페이스 파일에서 Record<keyof ko, string> 타입으로 강제된다.
+import { commonKo, commonEn } from './dict/common'
+import { settingsKo, settingsEn } from './dict/settings'
+import { dashboardKo, dashboardEn } from './dict/dashboard'
+import { membersKo, membersEn } from './dict/members'
+import { attendanceKo, attendanceEn } from './dict/attendance'
+import { kanbanKo, kanbanEn } from './dict/kanban'
+import { wbsKo, wbsEn } from './dict/wbs'
+import { homeKo, homeEn } from './dict/home'
+import { chatKo, chatEn } from './dict/chat'
+import { uiKo, uiEn } from './dict/ui'
+
 export type Locale = 'ko' | 'en'
 
 export const DICT = {
   ko: {
-    'brand.tagline': '일하는 방식이 바뀌다',
-    'nav.home': '홈',
-    'nav.allProjects': '전체 프로젝트',
-    'nav.dashboard': '대시보드',
-    'nav.wbs': 'WBS',
-    'nav.wbsGantt': 'WBS · 간트',
-    'nav.gantt': '간트 차트',
-    'nav.kanban': '칸반 보드',
-    'nav.members': '멤버',
-    'nav.attendance': '근태현황',
-    'nav.settings': '설정',
-    'chrome.manual': '수동',
-    'chrome.auto': '자동',
-    'chrome.notifications': '알림',
-    'chrome.darkMode': '다크 모드',
-    'chrome.lightMode': '라이트 모드',
-    'chrome.logout': '로그아웃',
-    'workspace.title': 'Planning cockpit',
-    'workspace.desc': '일정, WBS, 팀 상태를 하나의 워크스페이스 톤으로 정리했습니다.',
-    'workspace.projects': 'PROJECTS',
-    'workspace.active': 'ACTIVE',
-    'common.newProject': '새 프로젝트',
-    'common.viewAll': '전체 보기',
-    'common.save': '저장',
-    'common.cancel': '취소',
-    'common.add': '추가',
-    'common.edit': '편집',
-    'common.delete': '삭제',
-    'common.search': '검색',
+    ...commonKo,
+    ...settingsKo,
+    ...dashboardKo,
+    ...membersKo,
+    ...attendanceKo,
+    ...kanbanKo,
+    ...wbsKo,
+    ...homeKo,
+    ...chatKo,
+    ...uiKo,
   },
   en: {
-    'brand.tagline': 'A better way to work',
-    'nav.home': 'Home',
-    'nav.allProjects': 'All projects',
-    'nav.dashboard': 'Dashboard',
-    'nav.wbs': 'WBS',
-    'nav.wbsGantt': 'WBS · Gantt',
-    'nav.gantt': 'Gantt',
-    'nav.kanban': 'Kanban',
-    'nav.members': 'Members',
-    'nav.attendance': 'Attendance',
-    'nav.settings': 'Settings',
-    'chrome.manual': 'Manual',
-    'chrome.auto': 'Auto',
-    'chrome.notifications': 'Notifications',
-    'chrome.darkMode': 'Dark mode',
-    'chrome.lightMode': 'Light mode',
-    'chrome.logout': 'Sign out',
-    'workspace.title': 'Planning cockpit',
-    'workspace.desc': 'Schedule, WBS, and team status unified into one workspace tone.',
-    'workspace.projects': 'PROJECTS',
-    'workspace.active': 'ACTIVE',
-    'common.newProject': 'New project',
-    'common.viewAll': 'View all',
-    'common.save': 'Save',
-    'common.cancel': 'Cancel',
-    'common.add': 'Add',
-    'common.edit': 'Edit',
-    'common.delete': 'Delete',
-    'common.search': 'Search',
+    ...commonEn,
+    ...settingsEn,
+    ...dashboardEn,
+    ...membersEn,
+    ...attendanceEn,
+    ...kanbanEn,
+    ...wbsEn,
+    ...homeEn,
+    ...chatEn,
+    ...uiEn,
   },
 } as const
 
 export type DictKey = keyof (typeof DICT)['ko']
+
+/** 서버 컴포넌트용 번역 — locale은 getServerLocale()(src/lib/i18n/server.ts)로 얻는다. */
+export function t(locale: Locale, key: DictKey): string {
+  const table = DICT[locale] as Record<string, string>
+  return table[key] ?? (DICT.ko as Record<string, string>)[key] ?? key
+}
