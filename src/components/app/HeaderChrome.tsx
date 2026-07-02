@@ -92,6 +92,12 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
             <nav className="ml-1 hidden min-w-0 items-center gap-1.5 rounded-xl border border-line bg-surface-2 px-2.5 py-1.5 md:flex" aria-label="현재 위치">
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
               <span className="truncate text-[13px] font-semibold text-ink">{context.project.name}</span>
+              {context.section && context.section !== '프로젝트' && (
+                <>
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+                  <span className="truncate text-[13px] font-medium text-ink-muted">{context.section}</span>
+                </>
+              )}
             </nav>
           )}
 
