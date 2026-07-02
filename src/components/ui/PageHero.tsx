@@ -8,8 +8,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 const STORAGE_KEY = 'dflow-hero'
 
 // PageHero는 페이지 트리에 있어 소프트 내비게이션마다 리마운트된다.
-// 모듈 캐시로 세션 내 상태를 유지해, 페이지 이동 시 접힌 히어로가 펼쳐졌다 다시 접히는 플래시를 막는다.
-// (하드 로드 1회의 펼침→접힘 전환만 남음 — 사이드바와 동일한 트레이드오프)
+// 모듈 캐시로 세션 내 상태를 유지해 페이지 이동 시 상태가 바뀌는 플래시를 막는다.
 let collapsedCache: boolean | null = null
 
 /**
@@ -30,12 +29,12 @@ export function PageHero({
   heroKpis?: ReactNode
 }) {
   const { t } = useLocale()
-  // 하드 로드 시 캐시가 비어 있어 SSR과 동일한 펼침으로 시작(hydration mismatch 없음).
-  const [collapsed, setCollapsed] = useState(() => collapsedCache ?? false)
+  // 저장된 선택이 없는 최초 방문은 접힘이 기본값이다. 서버와 클라이언트 모두 같은 값으로 시작한다.
+  const [collapsed, setCollapsed] = useState(() => collapsedCache ?? true)
 
   useEffect(() => {
     if (collapsedCache !== null) return
-    try { collapsedCache = localStorage.getItem(STORAGE_KEY) === '1' } catch { collapsedCache = false }
+    try { collapsedCache = localStorage.getItem(STORAGE_KEY) !== '0' } catch { collapsedCache = true }
     setCollapsed(collapsedCache)
   }, [])
   const toggle = () => {
