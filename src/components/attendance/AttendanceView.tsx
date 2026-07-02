@@ -15,6 +15,7 @@ import { fmtDate } from '@/components/wbs/shared'
 import {
   ATTENDANCE_META, ATTENDANCE_TYPES, monthMatrix, recordsByDate,
 } from '@/lib/domain/attendance'
+import { krSpecialDayMap } from '@/lib/domain/holidays'
 import { upsertAttendance, removeAttendance } from '@/app/actions/attendance'
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
@@ -72,6 +73,11 @@ export function AttendanceView({
   )
   const byDate = useMemo(() => recordsByDate(filtered), [filtered])
   const matrix = useMemo(() => monthMatrix(year, month0), [year, month0])
+  // 법정 공휴일·국경일 조회 맵 — 그리드가 연도 경계를 넘을 수 있어 셀에 등장하는 모든 연도를 모은다.
+  const specialDays = useMemo(
+    () => krSpecialDayMap(matrix.flat().map(cell => Number(cell.slice(0, 4)))),
+    [matrix],
+  )
   const ym = `${year}-${String(month0 + 1).padStart(2, '0')}`
 
   const listRows = useMemo(
@@ -195,12 +201,24 @@ export function AttendanceView({
               const isToday = cell === initialDate
               const dayNum = Number(cell.slice(8, 10))
               const dayRecs = byDate[cell] ?? []
+              const special = specialDays.get(cell)
+              // 쉬는 날(공휴일·대체공휴일)만 날짜를 빨간색으로 — 제헌절·근로자의날(anniversary)은 이름만 표시
+              const isRestDay = !!special && special.kind !== 'anniversary'
+              const specialName = special ? t(`hol.${special.name}` as DictKey) : null
               return (
                 <div key={cell} className={`min-h-[96px] bg-surface p-1.5 ${inMonth ? '' : 'opacity-40'}`}>
-                  <div className="flex items-center justify-between px-0.5">
-                    <span className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-semibold tabular-nums ${isToday ? 'bg-brand text-white' : dowClass(dow)}`}>
+                  <div className="flex items-center justify-between gap-1 px-0.5">
+                    <span className={`inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1 text-xs font-semibold tabular-nums ${isToday ? 'bg-brand text-white' : isRestDay ? 'text-delayed' : dowClass(dow)}`}>
                       {dayNum}
                     </span>
+                    {specialName && (
+                      <span
+                        className={`min-w-0 truncate text-[10px] font-medium ${isRestDay ? 'text-delayed' : 'text-ink-subtle'}`}
+                        title={specialName}
+                      >
+                        {specialName}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 space-y-1">
                     {dayRecs.slice(0, 3).map(r => {

@@ -11,6 +11,7 @@ import { wbsKo, wbsEn } from './dict/wbs'
 import { homeKo, homeEn } from './dict/home'
 import { chatKo, chatEn } from './dict/chat'
 import { uiKo, uiEn } from './dict/ui'
+import { holidaysKo, holidaysEn } from './dict/holidays'
 
 export type Locale = 'ko' | 'en'
 
@@ -26,6 +27,7 @@ export const DICT = {
     ...homeKo,
     ...chatKo,
     ...uiKo,
+    ...holidaysKo,
   },
   en: {
     ...commonEn,
@@ -38,6 +40,7 @@ export const DICT = {
     ...homeEn,
     ...chatEn,
     ...uiEn,
+    ...holidaysEn,
   },
 } as const
 
