@@ -4,11 +4,12 @@ import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
-import { Maximize2, Minimize2 } from 'lucide-react'
+import { Maximize2, Minimize2, FileText } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { roundWeight } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
+import { ReportModal } from '@/components/report/ReportModal'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -99,6 +100,10 @@ export function WbsGanttSheet({
   today,
   membership,
   projectId,
+  projectName = '',
+  projectDescription,
+  startDate,
+  endDate,
   readOnly = false,
   defaultView = 'sheet',
 }: {
@@ -107,6 +112,11 @@ export function WbsGanttSheet({
   today: string
   membership: Membership | null
   projectId: string
+  /** 주간 보고서 모달용 프로젝트 메타 */
+  projectName?: string
+  projectDescription?: string | null
+  startDate?: string | null
+  endDate?: string | null
   /** 데모 모드 등에서 인라인 편집 비활성화 */
   readOnly?: boolean
   /** 'timeline'이면 타임라인 집중 모드로 시작(통합된 간트 메뉴 진입용) */
@@ -122,8 +132,11 @@ export function WbsGanttSheet({
   const [addBusy, setAddBusy] = useState(false)
   const [dayPx, setDayPx] = useState(24)
   const [showDetails, setShowDetails] = useState(true)
-  const [timelineFocus, setTimelineFocus] = useState(defaultView === 'timeline')
+  // 타임라인 집중 모드는 대시보드 '간트' 링크(?view=timeline) 진입 시에만 활성.
+  // 툴바 토글 버튼은 제거됨 — 값은 defaultView에서 파생.
+  const timelineFocus = defaultView === 'timeline'
   const [fullscreen, setFullscreen] = useState(false) // 팝업(전체화면 모달)로 크게 보기
+  const [reportOpen, setReportOpen] = useState(false) // 주간 보고서 모달
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
@@ -398,9 +411,6 @@ export function WbsGanttSheet({
         <button onClick={toggleAll} className="btn btn-ghost h-9 px-3 text-xs">
           {allCollapsed ? t('wbs.expandAll') : t('wbs.collapseAll')}
         </button>
-        <button onClick={() => setTimelineFocus(value => !value)} aria-pressed={timelineFocus} className={`btn h-9 px-3 text-xs ${timelineFocus ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-          <Icon name="calendar" className="h-3.5 w-3.5" /> {timelineFocus ? t('wbs.sheetEdit') : t('wbs.timelineFocus')}
-        </button>
         <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}
         </button>
@@ -414,6 +424,9 @@ export function WbsGanttSheet({
             <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhase')}
           </button>
         )}
+        <button onClick={() => setReportOpen(true)} className="btn btn-ghost h-9 px-3 text-xs">
+          <FileText className="h-3.5 w-3.5" /> 주간 보고서
+        </button>
         <span className="hidden rounded-lg bg-surface-2 px-2.5 py-2 text-[10px] tabular-nums text-ink-muted xl:inline">
           {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}{t('wbs.unitRows')}
         </span>
@@ -451,6 +464,19 @@ export function WbsGanttSheet({
           <button onClick={() => setAddPhase(null)} className="btn btn-ghost h-9 px-3 text-xs">{t('common.cancel')}</button>
         </div>
       )}
+
+      {/* 주간 보고서 모달 (대시보드 히어로의 보고서 버튼과 동일 기능) */}
+      <ReportModal
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        projectId={projectId}
+        items={items}
+        projectName={projectName}
+        projectDescription={projectDescription}
+        today={today}
+        startDate={startDate}
+        endDate={endDate}
+      />
 
       {/* ── 단일 스크롤 컨테이너 ── */}
       <div className="card w-full max-w-full overflow-auto" style={{ maxHeight: fullscreen ? 'calc(100dvh - 150px)' : 'max(440px, calc(100dvh - 390px))' }}>

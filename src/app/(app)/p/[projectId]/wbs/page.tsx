@@ -7,7 +7,7 @@ import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
-type ProjectRow = { id: string; name: string }
+type ProjectRow = { id: string; name: string; description?: string | null; start_date?: string | null; end_date?: string | null }
 
 export default async function WbsPage({
   params,
@@ -39,6 +39,10 @@ export default async function WbsPage({
         today={today}
         membership={m}
         projectId={projectId}
+        projectName={project?.name ?? ''}
+        projectDescription={project?.description}
+        startDate={project?.start_date}
+        endDate={project?.end_date}
         defaultView={view === 'timeline' ? 'timeline' : 'sheet'}
       />
     </ProjectPageShell>
