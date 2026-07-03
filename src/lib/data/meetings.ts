@@ -96,10 +96,13 @@ export const getMyMemberIds = cache(async (): Promise<string[]> => {
   const { data: u } = await sb.auth.getUser()
   const email = u.user?.email
   if (!email) return []
+  // LIKE 와일드카드(%, _, \)를 이스케이프해 대소문자 무시 '완전 일치'로 동작시킨다.
+  // (이스케이프 없으면 jane_doe@x.com 의 _ 가 단일문자 와일드카드가 되어 오매칭)
+  const pattern = email.replace(/[\\%_]/g, '\\$&')
   const { data } = await sb
     .from('project_members')
     .select('id')
-    .ilike('email', email) // ilike = 대소문자 무시 동등(와일드카드 없는 값)
+    .ilike('email', pattern)
   return (data ?? []).map((r: Row) => r.id as string)
 })
 
