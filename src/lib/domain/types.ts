@@ -92,3 +92,59 @@ export interface AnnouncementSummary {
   category: AnnouncementCategory
   isPinned: boolean
 }
+
+/* ── 회의 (meetings) ── */
+export type MeetingCategory = 'general' | 'routine' | 'kickoff' | 'review' | 'report' | 'external'
+export type MeetingRecurrence = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly'
+
+export interface Meeting {
+  id: string
+  projectId: string
+  title: string
+  meetingDate: string          // 'YYYY-MM-DD' — 시리즈 앵커(첫 회차)
+  startTime: string | null     // 'HH:MM' 또는 null(종일)
+  endTime: string | null       // 'HH:MM' 또는 null
+  location: string | null
+  category: MeetingCategory
+  body: string                 // 회의록/메모 (목록 조회에선 '')
+  recurrence: MeetingRecurrence
+  recurrenceUntil: string | null // 'YYYY-MM-DD' 포함(inclusive)
+  createdBy: string | null
+  createdByName: string | null
+  createdAt: string
+  updatedAt: string
+  attendeeIds: string[]        // project_members.id (시리즈 단위)
+  projectName?: string         // 내 회의 뷰 전용(크로스 프로젝트 표시)
+  isMine?: boolean             // 내 회의 뷰 전용(서버 계산)
+}
+
+export interface MeetingException {
+  meetingId: string
+  occurrenceDate: string       // 'YYYY-MM-DD'
+  kind: 'cancelled'
+}
+
+/** 달력 셀·칩이 필요로 하는 전개된 1회차. body/참석자이름은 상세 모달에서 별도 로드. */
+export interface MeetingOccurrence {
+  occurrenceId: string         // `${seriesId}:${occurrenceDate}` — React key & 회차 식별
+  seriesId: string             // = Meeting.id
+  occurrenceDate: string       // 'YYYY-MM-DD'
+  projectId: string
+  title: string
+  startTime: string | null
+  endTime: string | null
+  location: string | null
+  category: MeetingCategory
+  isRecurring: boolean
+  attendeeCount: number
+  projectName?: string
+  isMine?: boolean
+}
+
+/** 상세 모달용 참석자 표시 정보 */
+export interface MeetingAttendeeInfo {
+  id: string                   // project_members.id
+  name: string
+  teamCode: TeamCode | null
+  email: string | null
+}
