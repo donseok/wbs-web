@@ -63,6 +63,10 @@ export async function updateActual(
   const { data: item } = await sb.from('wbs_items').select('id, level, actual_pct, project_id').eq('id', itemId).single()
   if (!item) return { ok: false, error: '항목 없음' }
   if (item.level !== 'activity') return { ok: false, error: 'Activity만 입력 가능' }
+  // 담당별 sub-act 분리로 '자식 있는 activity'(롤업 부모)가 정상 데이터에 존재한다.
+  // 말단이 아니므로 직접 입력을 거부(UI 게이트 canEditActual 과 동일 불변식).
+  const { data: child } = await sb.from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
+  if (child) return { ok: false, error: '하위 항목이 있어 롤업으로 계산됩니다' }
 
   if (m.role !== 'pmo_admin') {
     const { data: owner } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', m.teamId).maybeSingle()

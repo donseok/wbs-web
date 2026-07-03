@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
-import { validateAndLink } from '@/lib/excel/validate'
+import { splitLeafOwners, validateAndLink } from '@/lib/excel/validate'
 import { ingestProject } from '@/lib/ai/ingest'
 
 export async function POST(req: NextRequest) {
@@ -17,11 +17,14 @@ export async function POST(req: NextRequest) {
   const result = validateAndLink(parsed)
   if (!result.ok) return NextResponse.json({ errors: result.errors }, { status: 400 })
 
+  // 복수 담당 말단 항목은 담당별 sub-activity 로 분리해 팀별 실적 관리 가능하게.
+  const items = splitLeafOwners(result.items)
+
   const sb = await createServerClient()
   // 원자적 임포트: RPC 한 번으로 전체 삽입(중간 실패 시 전부 롤백 → '부분 반영' 방지).
   const { data, error } = await sb.rpc('import_wbs', {
     p_project_id: projectId,
-    p_items: result.items,
+    p_items: items,
     p_holidays: parsed.holidays,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -36,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    count: typeof data === 'number' ? data : result.items.length,
+    count: typeof data === 'number' ? data : items.length,
     reindexed,
   })
 }

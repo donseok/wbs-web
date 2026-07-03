@@ -12,9 +12,22 @@ const STATUS_LABEL: Record<ComputedItem['status'], string> = {
   not_started: '시작전', in_progress: '진행중', delayed: '지연', done: '완료',
 }
 
+/**
+ * 트리 평탄화. 단, activity 하위의 담당별 sub-activity(임포트 시 자동 생성)는 부모 행으로
+ * 접는다 — 엑셀 3단(Phase/Task/Activity) 형식엔 4단째 자리가 없어 그대로 쓰면 재임포트 때
+ * 엉뚱한 부모(직전 Task) 밑으로 들어가 중복 분리가 생긴다. 부모의 담당 표기(●/△)가 남아
+ * 있으므로 재임포트 시 sub-act 는 구조적으로 동일하게 재생성된다.
+ * 한계(의도된 손실): 팀별 실적은 부모 Q열의 롤업값 하나로 접히므로, 재임포트 시 모든
+ * sub-act 가 그 평균을 승계한다 — 합계 공정율은 보존되지만 팀별 편차·개별 편집(일정/가중치)은
+ * 엑셀 형식에 실을 자리가 없어 유실된다. 팀별 원장은 DB(트리 뷰)가 진실 원천.
+ */
 function flatten(items: ComputedItem[]): ComputedItem[] {
   const out: ComputedItem[] = []
-  const walk = (ns: ComputedItem[]) => ns.forEach(n => { out.push(n); walk(n.children) })
+  const walk = (ns: ComputedItem[]) =>
+    ns.forEach(n => {
+      out.push(n)
+      if (n.level !== 'activity') walk(n.children)
+    })
   walk(items)
   return out
 }
@@ -44,7 +57,8 @@ export function buildWbsAoa(items: ComputedItem[], projectName = 'WBS'): unknown
     row[13] = isoToDate(it.plannedEnd)
     row[14] = it.weight ?? ''
     // 실적%은 leaf(저장값)만 라운드트립. 상위는 계산값이므로 Q를 비워 임포트 시 무시되게 함.
-    row[16] = it.children.length === 0 ? (it.actualPct ?? '') : ''
+    // 예외: sub-act 를 접은 activity 는 롤업값을 실어 재임포트 시 실적이 보존되게 한다.
+    row[16] = it.children.length === 0 ? (it.actualPct ?? '') : it.level === 'activity' ? it.rolledActualPct : ''
     // 읽기용 계산 컬럼
     row[17] = it.plannedPct
     row[18] = it.rolledActualPct
