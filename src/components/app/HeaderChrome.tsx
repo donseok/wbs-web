@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, CalendarDays, ChevronRight, Clock4, Globe, Hand, LogOut, Menu, Moon, PanelTopClose, PanelTopOpen, Sun, User, X,
+  AlertTriangle, Bell, ChevronRight, Clock4, Globe, Hand, LogOut, Menu, Moon, PanelTopClose, PanelTopOpen, Sun, User, X,
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -27,7 +27,6 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   const pathname = usePathname()
   const { theme, toggle } = useTheme()
   const { locale, setLocale, t } = useLocale()
-  const [today, setToday] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [open, setOpen] = useState<null | 'notif' | 'profile'>(null)
   const [notifs, setNotifs] = useState<NotificationItem[]>([])
@@ -39,9 +38,6 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   const activeProject = activeId ? projects.find(p => p.id === activeId) ?? null : null
   const baseDateAuto = !activeProject?.baseDate
 
-  useEffect(() => {
-    setToday(new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'long', day: 'numeric', weekday: 'short' }).format(new Date()))
-  }, [])
   useEffect(() => { setMenuOpen(false); setOpen(null) }, [pathname])
   // 히어로 외부 토글 이벤트 수신 — 헤더 버튼 상태를 동기화
   useEffect(() => {
@@ -119,11 +115,6 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
               {heroCollapsed ? <PanelTopOpen className="h-3.5 w-3.5" /> : <PanelTopClose className="h-3.5 w-3.5" />}
               {heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
             </button>
-            {today && (
-              <span className="hidden items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-2 text-[12px] font-medium text-ink-muted md:inline-flex">
-                <CalendarDays className="h-3.5 w-3.5 text-brand" />{today}
-              </span>
-            )}
             {activeId && (
               <Link href={`/p/${activeId}/settings`} className="chrome-btn hidden lg:inline-flex" title={baseDateAuto ? '공정율 기준일: 자동(오늘) — 클릭해 설정' : `공정율 기준일: ${activeProject?.baseDate} 고정 — 클릭해 설정`}>
                 <Hand className="h-3.5 w-3.5" />{baseDateAuto ? t('chrome.auto') : t('chrome.manual')}
