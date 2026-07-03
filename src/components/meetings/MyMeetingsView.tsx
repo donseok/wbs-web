@@ -75,10 +75,6 @@ export function MyMeetingsView({
     () => expandMeetings(filteredMeetings, isStale ? [] : data.exceptions, gridStart, gridEnd),
     [filteredMeetings, data.exceptions, gridStart, gridEnd, isStale],
   )
-  const cancelledSet = useMemo(
-    () => new Set(data.exceptions.filter(e => e.kind === 'cancelled').map(e => `${e.meetingId}:${e.occurrenceDate}`)),
-    [data.exceptions],
-  )
   const listRows = useMemo(() => sortOccurrences(occurrences).sort((a, b) => a.occurrenceDate.localeCompare(b.occurrenceDate)), [occurrences])
 
   function shift(delta: number) {
@@ -151,9 +147,8 @@ export function MyMeetingsView({
       )}
 
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
-        isCancelled={detailOcc ? cancelledSet.has(detailOcc.occurrenceId) : false}
         currentUserId={currentUserId} role={role}
-        onClose={() => setDetailOcc(null)} onEditSeries={() => { /* 내 회의에서는 편집 시 프로젝트로 이동 유도 */ }}
+        onClose={() => setDetailOcc(null)} onEditSeries={(m) => router.push(`/p/${m.projectId}/meetings`)}
         onChanged={() => { setReloadKey(k => k + 1); router.refresh() }} />
     </div>
   )

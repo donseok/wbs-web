@@ -1,21 +1,20 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
-import { CalendarDays, Clock4, MapPin, Repeat, Trash2, Pencil, Ban, RotateCcw, User } from 'lucide-react'
+import { CalendarDays, Clock4, MapPin, Repeat, Trash2, Pencil, Ban, User, AlertTriangle } from 'lucide-react'
 import type { DictKey } from '@/lib/i18n/dict'
 import type { Meeting, MeetingAttendeeInfo, MeetingOccurrence } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
 import { fmtDate } from '@/components/wbs/shared'
 import { MEETING_META, canEditMeeting } from '@/lib/domain/meetings'
-import { fetchMeetingDetail, cancelOccurrence, restoreOccurrence, deleteMeeting } from '@/app/actions/meetings'
+import { fetchMeetingDetail, cancelOccurrence, deleteMeeting } from '@/app/actions/meetings'
 
 export function MeetingDetailModal({
-  open, occurrence, isCancelled, currentUserId, role, onClose, onEditSeries, onChanged,
+  open, occurrence, currentUserId, role, onClose, onEditSeries, onChanged,
 }: {
   open: boolean
   occurrence: MeetingOccurrence | null
-  isCancelled: boolean
   currentUserId: string | null
   role: string | null
   onClose: () => void
@@ -26,10 +25,12 @@ export function MeetingDetailModal({
   const [detail, setDetail] = useState<{ meeting: Meeting; attendees: MeetingAttendeeInfo[] } | null>(null)
   const [loading, setLoading] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   useEffect(() => {
-    if (!open || !occurrence) { setDetail(null); setConfirmDelete(false); return }
+    if (!open || !occurrence) { setDetail(null); setConfirmDelete(false); setConfirmCancel(false); setError(null); return }
     let alive = true
     setLoading(true)
     fetchMeetingDetail(occurrence.seriesId)
@@ -47,28 +48,28 @@ export function MeetingDetailModal({
     : t('meet.allDay')
 
   const runCancel = () => startTransition(async () => {
-    const res = isCancelled
-      ? await restoreOccurrence(occurrence.seriesId, occurrence.occurrenceDate)
-      : await cancelOccurrence(occurrence.seriesId, occurrence.occurrenceDate)
+    const res = await cancelOccurrence(occurrence.seriesId, occurrence.occurrenceDate)
     if (res.ok) { onChanged(); onClose() }
+    else { setError(res.error ?? t('meet.saveFailed')); setConfirmCancel(false) }
   })
   const runDelete = () => startTransition(async () => {
     const res = await deleteMeeting(occurrence.seriesId)
     if (res.ok) { onChanged(); onClose() }
+    else { setError(res.error ?? t('meet.deleteFailed')); setConfirmDelete(false) }
   })
 
   return (
     <>
       <Modal
-        open={open && !confirmDelete}
+        open={open && !confirmDelete && !confirmCancel}
         onClose={onClose}
         eyebrow={t(meta.labelKey as DictKey)}
         title={occurrence.title}
         footer={canEdit ? (
           <>
             {occurrence.isRecurring && (
-              <button onClick={runCancel} disabled={pending} className="btn btn-ghost mr-auto text-pending hover:bg-pending-weak">
-                {isCancelled ? <><RotateCcw className="h-4 w-4" />{t('meet.detail.restoreOccurrence')}</> : <><Ban className="h-4 w-4" />{t('meet.detail.cancelOccurrence')}</>}
+              <button onClick={() => setConfirmCancel(true)} disabled={pending} className="btn btn-ghost mr-auto text-pending hover:bg-pending-weak">
+                <Ban className="h-4 w-4" />{t('meet.detail.cancelOccurrence')}
               </button>
             )}
             <button onClick={() => setConfirmDelete(true)} disabled={pending} className="btn btn-ghost text-delayed hover:bg-delayed-weak"><Trash2 className="h-4 w-4" />{t('meet.detail.deleteSeries')}</button>
@@ -81,8 +82,10 @@ export function MeetingDetailModal({
         <div className="space-y-3 text-sm">
           <span className={`chip ${meta.chip}`}><span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{t(meta.labelKey as DictKey)}</span>
 
-          {isCancelled && (
-            <div className="rounded-lg bg-delayed-weak px-3 py-1.5 text-xs font-semibold text-delayed">{t('meet.detail.cancelledBadge')}</div>
+          {error && (
+            <p className="flex items-center gap-1.5 rounded-lg bg-delayed-weak px-3 py-2 text-xs font-medium text-delayed">
+              <AlertTriangle className="h-4 w-4 shrink-0" />{error}
+            </p>
           )}
           <div className="flex items-center gap-2 text-ink"><CalendarDays className="h-4 w-4 text-ink-subtle" />{fmtDate(occurrence.occurrenceDate)}
             {occurrence.isRecurring && <span className="inline-flex items-center gap-1 text-[11px] text-ink-subtle"><Repeat className="h-3 w-3" />{t('meet.recurring')}</span>}
@@ -127,6 +130,22 @@ export function MeetingDetailModal({
         }
       >
         <p className="text-sm leading-6 text-ink-muted">{t('meet.delete.confirm')}</p>
+      </Modal>
+
+      <Modal
+        open={open && confirmCancel}
+        onClose={() => { if (!pending) setConfirmCancel(false) }}
+        size="sm"
+        eyebrow="Cancel occurrence"
+        title={t('meet.cancelOcc.title')}
+        footer={
+          <>
+            <button onClick={() => setConfirmCancel(false)} disabled={pending} className="btn btn-ghost">{t('common.cancel')}</button>
+            <button onClick={runCancel} disabled={pending} className="btn bg-delayed text-white hover:brightness-105 disabled:opacity-50"><Ban className="h-4 w-4" />{t('meet.detail.cancelOccurrence')}</button>
+          </>
+        }
+      >
+        <p className="text-sm leading-6 text-ink-muted">{t('meet.cancelOcc.confirm')}</p>
       </Modal>
     </>
   )

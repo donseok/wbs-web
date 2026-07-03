@@ -53,10 +53,6 @@ export function MeetingsView({
     () => expandMeetings(meetings, exceptions, gridStart, gridEnd),
     [meetings, exceptions, gridStart, gridEnd],
   )
-  const cancelledSet = useMemo(
-    () => new Set(exceptions.filter(e => e.kind === 'cancelled').map(e => `${e.meetingId}:${e.occurrenceDate}`)),
-    [exceptions],
-  )
   const listRows = useMemo(() => sortOccurrences(occurrences).sort((a, b) => a.occurrenceDate.localeCompare(b.occurrenceDate)), [occurrences])
 
   function shift(delta: number) {
@@ -127,7 +123,6 @@ export function MeetingsView({
       <MeetingFormModal open={formOpen} projectId={projectId} members={members} initial={editing} todayIso={todayIso}
         onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={onSaved} />
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
-        isCancelled={detailOcc ? cancelledSet.has(detailOcc.occurrenceId) : false}
         currentUserId={currentUserId} role={role}
         onClose={() => setDetailOcc(null)} onEditSeries={openEditFromDetail} onChanged={() => router.refresh()} />
     </div>

@@ -73,10 +73,10 @@ function revalidateMeetings(projectId: string) {
 
 /** 참석자 전체 교체(시리즈 단위). 소유권은 부모 RLS 가 강제. */
 async function replaceAttendees(sb: Awaited<ReturnType<typeof createServerClient>>, meetingId: string, projectId: string, memberIds: string[]): Promise<string | null> {
-  await sb.from('meeting_attendees').delete().eq('meeting_id', meetingId)
   const unique = [...new Set(memberIds)]
-  if (unique.length === 0) return null
+  if (unique.length === 0) { await sb.from('meeting_attendees').delete().eq('meeting_id', meetingId); return null }
   // 다른 프로젝트 멤버 혼입 방지 — meeting 의 project_id 에 속한 member 만 허용
+  // 유효성 검증을 delete 보다 먼저 수행해, 잘못된 id 목록이 기존 참석자를 먼저 지워버리는 것을 방지한다.
   const { data: valid } = await sb
     .from('project_members')
     .select('id')
@@ -84,6 +84,7 @@ async function replaceAttendees(sb: Awaited<ReturnType<typeof createServerClient
     .in('id', unique)
   const validIds = (valid ?? []).map((r: { id: string }) => r.id)
   if (validIds.length === 0) return null
+  await sb.from('meeting_attendees').delete().eq('meeting_id', meetingId)
   const { error } = await sb.from('meeting_attendees').insert(validIds.map(id => ({ meeting_id: meetingId, member_id: id })))
   return error ? error.message : null
 }
@@ -152,7 +153,10 @@ export async function updateMeeting(id: string, input: MeetingInput): Promise<Me
     (cur.meeting_date as string) !== input.meetingDate ||
     (cur.recurrence as string) !== input.recurrence ||
     ((cur.recurrence_until as string | null) ?? null) !== input.recurrenceUntil
-  if (ruleChanged) await sb.from('meeting_exceptions').delete().eq('meeting_id', id)
+  if (ruleChanged) {
+    const { error: exErr } = await sb.from('meeting_exceptions').delete().eq('meeting_id', id)
+    if (exErr) return { ok: false, error: exErr.message }
+  }
 
   const attErr = await replaceAttendees(sb, id, projectId, input.attendeeIds)
   // 회의 본문 수정은 이미 커밋됨 — 참석자 저장이 실패해도 변경분이 반영되도록 revalidate 후 에러 보고.
@@ -202,15 +206,6 @@ export async function cancelOccurrence(meetingId: string, occurrenceDate: string
   const { error } = await sb
     .from('meeting_exceptions')
     .upsert({ meeting_id: meetingId, occurrence_date: occurrenceDate, kind: 'cancelled' }, { onConflict: 'meeting_id,occurrence_date' })
-  if (error) return { ok: false, error: error.message }
-  revalidateMeetings(gate.projectId)
-  return { ok: true }
-}
-
-export async function restoreOccurrence(meetingId: string, occurrenceDate: string): Promise<MeetingActionResult> {
-  const gate = await occurrenceGate(meetingId, occurrenceDate)
-  if (!gate.ok) return gate
-  const { error } = await gate.sb.from('meeting_exceptions').delete().eq('meeting_id', meetingId).eq('occurrence_date', occurrenceDate)
   if (error) return { ok: false, error: error.message }
   revalidateMeetings(gate.projectId)
   return { ok: true }
