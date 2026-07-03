@@ -51,8 +51,8 @@ function item(over: Partial<ComputedItem>): ComputedItem {
 function fixture(): ComputedItem[] {
   const parentName = 'CBO 개발 프로그램 사용 현황 분석'
   const subs = [
-    item({ id: 's1', parentId: 'a1', name: `${parentName} (가공 주관)`, owners: [{ team: '가공', kind: 'primary' }] }),
-    item({ id: 's2', parentId: 'a1', name: `${parentName} (ERP 주관)`, owners: [{ team: 'ERP', kind: 'primary' }] }),
+    item({ id: 's1', parentId: 'a1', name: `${parentName} (가공 Lead)`, owners: [{ team: '가공', kind: 'primary' }] }),
+    item({ id: 's2', parentId: 'a1', name: `${parentName} (ERP Lead)`, owners: [{ team: 'ERP', kind: 'primary' }] }),
     item({ id: 's3', parentId: 'a1', name: '수동으로 바꾼 이름', owners: [{ team: 'MES', kind: 'support' }] }),
   ]
   const multi = item({
@@ -109,7 +109,7 @@ describe('WBS sub-act 축약 표시 + 기본 접힘', () => {
     await mount()
     const names = rowNames()
     expect(names).toHaveLength(4) // phase + task + act 2 (sub-act 3개 숨김)
-    expect(names.join('|')).not.toContain('주관')
+    expect(names.join('|')).not.toContain('Lead')
   })
 
   it('펼치면 sub-act 는 부모명 접두를 뗀 축약명으로, 개명된 항목은 풀네임으로 보인다', async () => {
@@ -120,8 +120,8 @@ describe('WBS sub-act 축약 표시 + 기본 접힘', () => {
 
     const names = rowNames()
     expect(names).toHaveLength(7)
-    expect(names).toContain('└가공 주관')
-    expect(names).toContain('└ERP 주관')
+    expect(names).toContain('└가공 Lead')
+    expect(names).toContain('└ERP Lead')
     expect(names).toContain('└수동으로 바꾼 이름') // 접두 불일치 → 풀네임 폴백
     // 부모 행은 원본 이름 그대로 1회만
     expect(names.filter(n => n === 'CBO 개발 프로그램 사용 현황 분석')).toHaveLength(1)
@@ -135,6 +135,6 @@ describe('WBS sub-act 축약 표시 + 기본 접힘', () => {
     const titles = [...container.querySelectorAll<HTMLElement>('.group.relative.z-10 button[title]')].map(
       b => b.getAttribute('title') ?? '',
     )
-    expect(titles.some(t => t.startsWith('CBO 개발 프로그램 사용 현황 분석 (가공 주관)'))).toBe(true)
+    expect(titles.some(t => t.startsWith('CBO 개발 프로그램 사용 현황 분석 (가공 Lead)'))).toBe(true)
   })
 })

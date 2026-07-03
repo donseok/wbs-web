@@ -61,7 +61,7 @@ function splitParentIds(items: ComputedItem[]): Set<string> {
   walk(items)
   return s
 }
-/* sub-act 트리 표시명 — 저장 이름 "{부모명} ({팀} 주관/지원)"에서 부모명 접두를 벗겨
+/* sub-act 트리 표시명 — 저장 이름 "{부모명} ({팀} Lead/Support)"에서 부모명 접두를 벗겨
    팀 부분만 남긴다(트리에선 부모가 바로 위에 보여 접두가 중복). 접두가 없으면(개명된
    경우) 풀네임 그대로. 저장 이름·검색·챗봇·보고서는 풀네임을 유지한다. */
 function subActLabel(name: string, parentName: string): string {
