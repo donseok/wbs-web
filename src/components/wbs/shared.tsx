@@ -45,7 +45,7 @@ export function OwnerBadges({ owners }: { owners: ComputedItem['owners'] }) {
         <span
           key={o.team + o.kind}
           className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold leading-none"
-          title={o.kind === 'primary' ? `${o.team} Lead` : `${o.team} Support`}
+          title={o.kind === 'primary' ? `${o.team} 주관` : `${o.team} 지원`}
         >
           <span className={`${TEAM[o.team].fg} ${o.kind === 'support' ? 'opacity-60' : ''} text-[9px] leading-none`}>
             {o.kind === 'primary' ? '●' : '△'}

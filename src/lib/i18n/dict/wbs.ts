@@ -83,7 +83,7 @@ export const wbsKo = {
   'wbs.noResultsSuffix': '’에 대한 결과가 없습니다',
   'wbs.noResultsHint': '검색어를 바꾸거나 지워보세요.',
   // 범례
-  'wbs.legendOwnerMarks': '· ● Lead △ Support',
+  'wbs.legendOwnerMarks': '· ● 주관 △ 지원',
   'wbs.legendPlanned': '계획',
   'wbs.legendActual': '실적',
   'wbs.legendWeekend': '주말',
@@ -200,7 +200,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.noResultsPrefix': 'No results for ‘',
   'wbs.noResultsSuffix': '’',
   'wbs.noResultsHint': 'Try a different search or clear it.',
-  'wbs.legendOwnerMarks': '· ● Lead △ Support',
+  'wbs.legendOwnerMarks': '· ● Primary △ Support',
   'wbs.legendPlanned': 'Planned',
   'wbs.legendActual': 'Actual',
   'wbs.legendWeekend': 'Weekend',

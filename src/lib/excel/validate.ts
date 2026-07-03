@@ -49,7 +49,7 @@ export function validateAndLink(
  * 복수 담당 말단 항목을 담당별 sub-activity 로 분리한다.
  * 엑셀 원본 행(이름·일정·가중치·실적·담당 표기)은 그대로 두고, 그 아래에 팀당 1개의
  * activity 를 생성해 팀별 일정·실적을 따로 관리할 수 있게 한다.
- * - sub-act 이름은 "{원본 작업명} ({팀} Lead/Support)" — 리프 이름만 소비하는 하류(DK Bot
+ * - sub-act 이름은 "{원본 작업명} ({팀} 주관/지원)" — 리프 이름만 소비하는 하류(DK Bot
  *   검색·색인, 주간보고 행, 알림, 대시보드/칸반)에서 작업 식별이 가능해야 하기 때문.
  *   biz·산출물도 같은 이유로 승계한다.
  * - 일정·실적 승계(→ 롤업 결과가 원본과 동일), 가중치 null(형제 균등), 담당 1팀.
@@ -71,7 +71,7 @@ export function splitLeafOwners(items: ImportItem[]): ImportItem[] {
         level: 'activity',
         code: it.code,
         sortOrder: 0, // 아래에서 문서 순서로 전체 재번호
-        name: `${it.name} (${o.team} ${o.kind === 'primary' ? 'Lead' : 'Support'})`,
+        name: `${it.name} (${o.team} ${o.kind === 'primary' ? '주관' : '지원'})`,
         biz: it.biz,
         deliverable: it.deliverable,
         plannedStart: it.plannedStart,
