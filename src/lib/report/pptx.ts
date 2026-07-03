@@ -244,8 +244,8 @@ function attendanceTable(pptx: PptxGenJS, slide: Slide, y: number, label: string
   })
 }
 
-function attendanceSlide(pptx: PptxGenJS, model: WeeklyReportModel, totalPages: number) {
-  const slide = baseSlide(pptx, model, `근태현황 · ${model.meta.weekLabel}`, totalPages, totalPages)
+function attendanceSlide(pptx: PptxGenJS, model: WeeklyReportModel, page: number, totalPages: number) {
+  const slide = baseSlide(pptx, model, `근태현황 · ${model.meta.weekLabel}`, page, totalPages)
   attendanceTable(pptx, slide, 1.2, '금주 근태현황', model.meta.weekDays, model.attendance.thisWeek)
   attendanceTable(pptx, slide, 3.0, '차주 근태현황', model.meta.nextWeekDays, model.attendance.nextWeek)
 }
@@ -290,7 +290,7 @@ function meetingTableRows(n: number): number {
   return Math.max(1, Math.min(n, MEETING_CAP) + (n > MEETING_CAP ? 1 : 0))
 }
 function meetingSlide(pptx: PptxGenJS, model: WeeklyReportModel, page: number, totalPages: number) {
-  const slide = baseSlide(pptx, model, `회의일정 · ${model.meta.weekLabel}`, page, totalPages)
+  const slide = baseSlide(pptx, model, `회의현황 · ${model.meta.weekLabel}`, page, totalPages)
   const y1 = 1.15
   meetingTable(pptx, slide, y1, `금주 회의일정 (${model.meta.weekRange})`, model.meetings.thisWeek)
   // 차주 표는 금주 표의 실제 높이(라벨+헤더+행) 아래에 동적 배치 → 행이 많아도 겹치지 않음
@@ -308,15 +308,14 @@ export async function buildReportDeck(model: WeeklyReportModel): Promise<Buffer>
   pptx.title = `${model.meta.projectName} 주간보고`
 
   const detailPages = detailPageCount(model)
-  const hasMeetings = model.meetings.total > 0
-  // 표지 + 요약 + 상세(N) + [회의일정(회의 있을 때만)] + 근태
-  const totalPages = 1 + 1 + detailPages + (hasMeetings ? 1 : 0) + 1
+  // 표지 + 요약 + 상세(N) + 근태 + 회의현황(항상, 마지막)
+  const totalPages = 1 + 1 + detailPages + 1 + 1
 
   coverSlide(pptx, model) // 1페이지: 겉표지(페이지번호 없음)
   summarySlide(pptx, model, totalPages) // 2페이지
   detailSlides(pptx, model, totalPages, 3) // 3페이지~
-  if (hasMeetings) meetingSlide(pptx, model, 3 + detailPages, totalPages) // 회의 있을 때만
-  attendanceSlide(pptx, model, totalPages) // 마지막
+  attendanceSlide(pptx, model, 3 + detailPages, totalPages) // 근태
+  meetingSlide(pptx, model, totalPages, totalPages) // 회의현황 — 근태 다음, 회의 없어도 항상
 
   return (await pptx.write({ outputType: 'nodebuffer' })) as Buffer
 }

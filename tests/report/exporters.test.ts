@@ -118,17 +118,20 @@ describe('buildReportDeck (네이비 주간보고)', () => {
     ]
     const manyModel = buildWeeklyReportModel(many, project, '2026-06-30')
     const { paths, joined } = await slideXmls(await buildReportDeck(manyModel))
-    // 표지+요약+상세(12/5=3)+근태 = 6 이상
-    expect(paths.length).toBeGreaterThanOrEqual(6)
+    // 표지+요약+상세(12/5=3)+근태+회의현황 = 7 이상
+    expect(paths.length).toBeGreaterThanOrEqual(7)
     expect(joined).toContain('(3/3)')
   })
 
-  it('회의가 있으면 회의일정 슬라이드 추가, 없으면 생략', async () => {
+  it('회의현황은 회의가 없어도 항상 근태 뒤에 생성', async () => {
+    // 회의 없는 기본 모델에도 '회의현황' + 빈 플레이스홀더
+    const base = await slideXmls(await buildReportDeck(model))
+    expect(base.joined).toContain('회의현황')
+    expect(base.joined).toContain('예정된 회의 없음')
+    // 회의가 있으면 목록 표시
     const withMeet = buildWeeklyReportModel(sampleItems, project, '2026-06-30', {
-      generatedAt: '2026-06-30 13:20', meetings: [meetingFx({ meetingDate: '2026-07-01' })],
+      generatedAt: '2026-06-30 13:20', meetings: [meetingFx({ meetingDate: '2026-07-01', title: '정례리뷰' })],
     })
-    expect((await slideXmls(await buildReportDeck(withMeet))).joined).toContain('회의일정')
-    // 회의 없는 기본 모델엔 없음
-    expect((await slideXmls(await buildReportDeck(model))).joined).not.toContain('회의일정')
+    expect((await slideXmls(await buildReportDeck(withMeet))).joined).toContain('정례리뷰')
   })
 })
