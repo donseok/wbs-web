@@ -19,6 +19,8 @@ const LEVEL: Record<Level, { label: string; cls: string }> = {
   task: { label: 'TASK', cls: 'bg-progress-weak text-progress' },
   activity: { label: 'ACT', cls: 'bg-pending-weak text-pending' },
 }
+/* act 하위의 담당자별 분리 항목(임포트 시 자동 생성) 전용 표기 — 일반 ACT 와 시각 구분 */
+const SUB_ACT = { label: 'SUB-ACT', cls: 'bg-surface-2 text-ink-muted' }
 
 export function StatusChip({ status }: { status: Status }) {
   const s = STATUS[status]
@@ -30,8 +32,8 @@ export function StatusChip({ status }: { status: Status }) {
   )
 }
 
-export function LevelBadge({ level }: { level: Level }) {
-  const l = LEVEL[level]
+export function LevelBadge({ level, sub = false }: { level: Level; sub?: boolean }) {
+  const l = sub && level === 'activity' ? SUB_ACT : LEVEL[level]
   return <span className={`lvl-badge ${l.cls}`}>{l.label}</span>
 }
 

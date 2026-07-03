@@ -150,6 +150,18 @@ export function WbsGanttSheet({
     return m
   }, [items])
 
+  // act 하위의 담당자별 분리 항목(sub-act) id — 구분 배지를 SUB-ACT 로 표기
+  const subActIds = useMemo(() => {
+    const s = new Set<string>()
+    const walk = (ns: ComputedItem[]) =>
+      ns.forEach(n => {
+        if (n.level === 'activity') n.children.forEach(c => s.add(c.id))
+        walk(n.children)
+      })
+    walk(items)
+    return s
+  }, [items])
+
   const collapsibleIds = useMemo(() => {
     const s = new Set<string>()
     const walk = (ns: ComputedItem[]) =>
@@ -571,7 +583,7 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid-strong justify-center ${cellBg}`}
                   style={frozen('level')}
                 >
-                  <LevelBadge level={n.level} />
+                  <LevelBadge level={n.level} sub={subActIds.has(n.id)} />
                 </div>
                 {/* 작업명 */}
                 <div className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
@@ -856,6 +868,7 @@ export function WbsGanttSheet({
       {selectedItem && (
         <RowDetailPanel
           item={selectedItem}
+          subAct={subActIds.has(selectedItem.id)}
           onClose={() => setSelectedId(null)}
           editable={isPmo && !readOnly}
           canAttach={!readOnly && !!membership && (isPmo || selectedItem.owners.some(o => o.team === membership.teamCode))}

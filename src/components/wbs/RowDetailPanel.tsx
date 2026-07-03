@@ -41,13 +41,15 @@ function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
 /** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
-  item, onClose, editable = false, canAttach = false, projectId,
+  item, onClose, editable = false, canAttach = false, projectId, subAct = false,
 }: {
   item: ComputedItem
   onClose: () => void
   editable?: boolean
   canAttach?: boolean
   projectId: string
+  /** act 하위의 담당자별 분리 항목 — 구분 배지를 SUB-ACT 로 표기 */
+  subAct?: boolean
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -108,7 +110,7 @@ export function RowDetailPanel({
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <LevelBadge level={item.level} />
+              <LevelBadge level={item.level} sub={subAct} />
               {item.code && <span className="text-[11px] font-semibold tabular-nums text-ink-subtle">{item.code}</span>}
             </div>
             <h2 className="mt-1.5 break-words text-[16px] font-bold leading-snug text-ink">{item.name}</h2>
