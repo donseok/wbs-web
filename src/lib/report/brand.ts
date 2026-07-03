@@ -32,7 +32,7 @@ export const C = {
 
 export const TEAM_COLOR: Record<TeamCode, string> = {
   PMO: '4F46E5',
-  DT: '0276A8',
+  가공: '0276A8',
   ERP: '7C3AED',
   MES: 'A65B00',
 }
@@ -51,7 +51,7 @@ export const STATUS_LABEL: Record<Status, string> = {
   done: '완료',
 }
 
-/** 담당 배지 텍스트: '● PMO  △ DT' 형태. */
+/** 담당 배지 텍스트: '● PMO  △ 가공' 형태. */
 export function ownersText(owners: { team: TeamCode; kind: 'primary' | 'support' }[]): string {
   if (!owners.length) return '-'
   return owners.map(o => `${o.kind === 'primary' ? '●' : '△'} ${o.team}`).join('  ')

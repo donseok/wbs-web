@@ -1,3 +1,3 @@
 insert into teams (code, name) values
-  ('PMO','PMO'), ('DT','DT'), ('ERP','ERP'), ('MES','MES')
+  ('PMO','PMO'), ('가공','가공'), ('ERP','ERP'), ('MES','MES')
 on conflict (code) do nothing;

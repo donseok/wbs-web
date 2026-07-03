@@ -7,7 +7,7 @@ import type { ComputedItem, TeamCode } from '@/lib/domain/types'
  *           · L11 산출물 · M12 계획시작 · N13 계획종료 · O14 가중치 · Q16 실적%
  * R17~ 는 사람이 읽기 위한 계산 컬럼(파서는 무시).
  */
-const TEAM_COL: Record<TeamCode, number> = { PMO: 6, DT: 7, ERP: 8, MES: 9 }
+const TEAM_COL: Record<TeamCode, number> = { PMO: 6, 가공: 7, ERP: 8, MES: 9 }
 const STATUS_LABEL: Record<ComputedItem['status'], string> = {
   not_started: '시작전', in_progress: '진행중', delayed: '지연', done: '완료',
 }
@@ -42,7 +42,7 @@ function isoToDate(iso: string | null): Date | '' {
 export function buildWbsAoa(items: ComputedItem[], projectName = 'WBS'): unknown[][] {
   const header1 = [projectName]
   const header2 = ['', 'Phase', 'Task', 'Activity', '', '', '담당', '', '', '', '', '산출물', '계획', '']
-  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'DT', 'ERP', 'MES', '', '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
+  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', '가공', 'ERP', 'MES', '', '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
 
   const rows: unknown[][] = [header1, header2, header3]
   for (const it of flatten(items)) {

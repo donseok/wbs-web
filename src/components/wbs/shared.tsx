@@ -2,7 +2,7 @@ import type { ComputedItem, Level, Status, TeamCode } from '@/lib/domain/types'
 
 export const TEAM: Record<TeamCode, { fg: string; bar: string }> = {
   PMO: { fg: 'text-team-pmo', bar: 'bg-team-pmo' },
-  DT: { fg: 'text-team-dt', bar: 'bg-team-dt' },
+  가공: { fg: 'text-team-dt', bar: 'bg-team-dt' },
   ERP: { fg: 'text-team-erp', bar: 'bg-team-erp' },
   MES: { fg: 'text-team-mes', bar: 'bg-team-mes' },
 }

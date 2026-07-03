@@ -135,7 +135,7 @@ describe('answerOverview — 전사 합계', () => {
 describe('buildDocuments — 임베딩 문서', () => {
   it('프로젝트 요약 + 작업 + 멤버 문서를 생성', () => {
     const members: ProjectMember[] = [
-      { id: 'm1', projectId: 'P', name: '김담당', email: null, teamCode: 'DT', role: 'contributor', title: 'BE', createdAt: '' },
+      { id: 'm1', projectId: 'P', name: '김담당', email: null, teamCode: '가공', role: 'contributor', title: 'BE', createdAt: '' },
     ]
     const tree = [phase([leaf({ name: 'T1', deliverable: '설계서' }), leaf({ name: 'T2' })])]
     const docs = buildDocuments(tree, '계량대', TODAY, members)

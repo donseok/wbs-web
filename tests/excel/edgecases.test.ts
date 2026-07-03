@@ -31,7 +31,7 @@ describe('parseWbsWorkbook edge cases', () => {
   it('Holiday 시트가 없으면 holidays는 빈 배열', () => {
     const ws = XLSX.utils.aoa_to_sheet([
       ['Biz', 'Phase', 'Task', 'Activity', '', '', '담당'],
-      ['', '', '', '', '', '', 'PMO', 'DT', 'ERP', 'MES'],
+      ['', '', '', '', '', '', 'PMO', '가공', 'ERP', 'MES'],
       ['타이틀', '', '', '', '', '', '', '', '', ''],
       ['', '1. 준비', '', ''],
     ])

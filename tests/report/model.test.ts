@@ -22,7 +22,7 @@ describe('buildReportModel', () => {
     expect(m.kpi).toEqual({ actual: 0, planned: 0, variance: 0, delayedCount: 0 })
     expect(m.phases).toEqual([])
     expect(m.delayed).toEqual([])
-    expect(m.teams.map(t => t.team)).toEqual(['PMO', 'DT', 'ERP', 'MES'])
+    expect(m.teams.map(t => t.team)).toEqual(['PMO', '가공', 'ERP', 'MES'])
     expect(m.teams.every(t => t.count === 0 && t.pct === null)).toBe(true)
     expect(m.meta.totalLeaves).toBe(0)
   })
@@ -66,14 +66,14 @@ describe('buildReportModel', () => {
   it('delayed: leaf 중 status delayed만, 종료일 오름차순', () => {
     const items = [
       phase('P', [
-        node({ name: 'A', status: 'delayed', plannedEnd: '2026-03-10', rolledActualPct: 40, owners: [{ team: 'DT', kind: 'primary' }] }),
+        node({ name: 'A', status: 'delayed', plannedEnd: '2026-03-10', rolledActualPct: 40, owners: [{ team: '가공', kind: 'primary' }] }),
         node({ name: 'B', status: 'delayed', plannedEnd: '2026-01-05', rolledActualPct: 10 }),
         node({ name: 'C', status: 'in_progress', plannedEnd: '2026-02-01' }),
       ]),
     ]
     const m = buildReportModel(items, project, '2026-06-30')
     expect(m.delayed.map(d => d.name)).toEqual(['B', 'A']) // 종료일 오름차순
-    expect(m.delayed[1]).toMatchObject({ name: 'A', plannedEnd: '2026-03-10', actualPct: 40, owners: [{ team: 'DT', kind: 'primary' }] })
+    expect(m.delayed[1]).toMatchObject({ name: 'A', plannedEnd: '2026-03-10', actualPct: 40, owners: [{ team: '가공', kind: 'primary' }] })
   })
 
   it('teams: 담당(owners) 기준 count + 평균 실적, 미담당은 null', () => {
@@ -81,12 +81,12 @@ describe('buildReportModel', () => {
       phase('P', [
         node({ rolledActualPct: 100, owners: [{ team: 'PMO', kind: 'primary' }] }),
         node({ rolledActualPct: 50, owners: [{ team: 'PMO', kind: 'support' }] }),
-        node({ rolledActualPct: 20, owners: [{ team: 'DT', kind: 'primary' }] }),
+        node({ rolledActualPct: 20, owners: [{ team: '가공', kind: 'primary' }] }),
       ]),
     ]
     const m = buildReportModel(items, project, '2026-06-30')
     const pmo = m.teams.find(t => t.team === 'PMO')!
-    const dt = m.teams.find(t => t.team === 'DT')!
+    const dt = m.teams.find(t => t.team === '가공')!
     const erp = m.teams.find(t => t.team === 'ERP')!
     expect(pmo).toMatchObject({ count: 2, pct: 75 }) // (100+50)/2
     expect(dt).toMatchObject({ count: 1, pct: 20 })

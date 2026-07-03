@@ -18,8 +18,8 @@ const items: ComputedItem[] = [
     node({ name: '현황 분석', status: 'done', rolledActualPct: 100, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-04-20', plannedEnd: '2026-04-29' }),
   ], { weight: 1, plannedPct: 100, rolledActualPct: 100, status: 'done' }),
   phase('설계', [
-    node({ name: '화면 설계', status: 'in_progress', rolledActualPct: 99, owners: [{ team: 'DT', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
-    node({ name: 'API 설계', status: 'delayed', rolledActualPct: 40, owners: [{ team: 'DT', kind: 'primary' }], plannedStart: '2026-05-21', plannedEnd: '2026-05-22' }),
+    node({ name: '화면 설계', status: 'in_progress', rolledActualPct: 99, owners: [{ team: '가공', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+    node({ name: 'API 설계', status: 'delayed', rolledActualPct: 40, owners: [{ team: '가공', kind: 'primary' }], plannedStart: '2026-05-21', plannedEnd: '2026-05-22' }),
     node({ name: '차주 개발', status: 'in_progress', rolledActualPct: 40, owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
   ], { weight: 1, plannedPct: 100, rolledActualPct: 60, status: 'delayed' }),
 ]
@@ -98,7 +98,7 @@ describe('buildWeeklyReportModel — 이슈/WBS/Dev', () => {
 
 describe('buildWeeklyReportModel — 워크로드/근태', () => {
   const members: ProjectMember[] = [
-    { id: 'mem1', projectId: 'p', name: '홍길동', email: null, teamCode: 'DT', role: 'contributor', title: null, createdAt: '2026-01-01' },
+    { id: 'mem1', projectId: 'p', name: '홍길동', email: null, teamCode: '가공', role: 'contributor', title: null, createdAt: '2026-01-01' },
     { id: 'mem2', projectId: 'p', name: '김철수', email: null, teamCode: 'PMO', role: 'admin', title: null, createdAt: '2026-01-01' },
   ]
   const attendance: AttendanceRecord[] = [
@@ -107,8 +107,8 @@ describe('buildWeeklyReportModel — 워크로드/근태', () => {
   ]
   const m = buildWeeklyReportModel(items, project, '2026-06-30', { members, attendance })
   it('워크로드는 팀별 4행, 합계 일관', () => {
-    expect(m.workload.map(w => w.name)).toEqual(['PMO', 'DT', 'ERP', 'MES'])
-    const dt = m.workload.find(w => w.name === 'DT')!
+    expect(m.workload.map(w => w.name)).toEqual(['PMO', '가공', 'ERP', 'MES'])
+    const dt = m.workload.find(w => w.name === '가공')!
     expect(dt.total).toBe(dt.perDay.reduce((a, b) => a + b, 0))
   })
   it('근태는 특이근태 멤버만(정상근무 제외)', () => {

@@ -40,7 +40,7 @@ function node(
 //  A(phase)
 //   ├ A1(task)
 //   │  ├ A1a(leaf) done,  primary PMO
-//   │  └ A1b(leaf) in_progress, primary DT + support ERP
+//   │  └ A1b(leaf) in_progress, primary 가공 + support ERP
 //   └ A2(leaf, task-no-child) delayed, primary PMO + primary ERP
 //  B(phase)
 //   └ B1(leaf) not_started, support MES only (→ 미배정)
@@ -48,7 +48,7 @@ function fixture(): ComputedItem[] {
   const a1a = node('A1a', { status: 'done', owners: [{ team: 'PMO', kind: 'primary' }] })
   const a1b = node('A1b', {
     status: 'in_progress',
-    owners: [{ team: 'DT', kind: 'primary' }, { team: 'ERP', kind: 'support' }],
+    owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'support' }],
   })
   const a1 = node('A1', { children: [a1a, a1b] })
   const a2 = node('A2', {
@@ -80,16 +80,16 @@ describe('groupByPhase', () => {
 })
 
 describe('groupByOwner', () => {
-  it('PMO/DT/ERP/MES + 미배정 5개 컬럼을 순서대로 만든다', () => {
+  it('PMO/가공/ERP/MES + 미배정 5개 컬럼을 순서대로 만든다', () => {
     const cols = groupByOwner(fixture())
-    expect(cols.map(c => c.key)).toEqual(['PMO', 'DT', 'ERP', 'MES', '미배정'])
+    expect(cols.map(c => c.key)).toEqual(['PMO', '가공', 'ERP', 'MES', '미배정'])
   })
 
   it('leaf는 primary 담당팀 컬럼마다 들어가고 support는 무시한다', () => {
     const cols = groupByOwner(fixture())
     const by = (k: string) => cols.find(c => c.key === k)!
     expect(by('PMO').cards.map(c => c.id).sort()).toEqual(['A1a', 'A2'])
-    expect(by('DT').cards.map(c => c.id)).toEqual(['A1b'])
+    expect(by('가공').cards.map(c => c.id)).toEqual(['A1b'])
     expect(by('ERP').cards.map(c => c.id)).toEqual(['A2']) // A1b의 ERP는 support → 제외
     expect(by('MES').count).toBe(0)
   })

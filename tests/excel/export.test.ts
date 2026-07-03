@@ -17,7 +17,7 @@ const SRC: WbsRow[] = [
   row({
     id: 'A1', parentId: 'T', level: 'activity', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
     deliverable: '업무분장표', plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
-    weight: 2, actualPct: 50, owners: [{ team: 'PMO', kind: 'primary' }, { team: 'DT', kind: 'support' }],
+    weight: 2, actualPct: 50, owners: [{ team: 'PMO', kind: 'primary' }, { team: '가공', kind: 'support' }],
   }),
   row({
     id: 'A2', parentId: 'T', level: 'activity', code: 'a2', sortOrder: 3, name: '현황 파악',
@@ -37,7 +37,7 @@ describe('buildWbsWorkbook round-trip', () => {
 
   it('담당(●/△)이 보존된다', () => {
     const a1 = parsed.rows.find(r => r.name === 'TFT R&R 확정')!
-    expect(a1.owners).toEqual([{ team: 'PMO', kind: 'primary' }, { team: 'DT', kind: 'support' }])
+    expect(a1.owners).toEqual([{ team: 'PMO', kind: 'primary' }, { team: '가공', kind: 'support' }])
   })
 
   it('산출물·가중치·실적%가 보존된다', () => {

@@ -3,7 +3,7 @@ import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 
 const pmo: Membership = { role: 'pmo_admin', teamCode: 'PMO', teamId: 'p' }
-const dtEditor: Membership = { role: 'team_editor', teamCode: 'DT', teamId: 'd' }
+const dtEditor: Membership = { role: 'team_editor', teamCode: '가공', teamId: 'd' }
 
 const item = (over: Partial<ComputedItem>): ComputedItem =>
   ({
@@ -28,8 +28,8 @@ describe('canEditActual', () => {
     expect(canEditActual(item({ children: [item({})] }), pmo)).toBe(false)
   })
   it('팀 편집자는 자기 팀 담당만 가능', () => {
-    expect(canEditActual(item({ owners: [{ team: 'DT', kind: 'primary' }] }), dtEditor)).toBe(true)
-    expect(canEditActual(item({ owners: [{ team: 'DT', kind: 'support' }] }), dtEditor)).toBe(true)
+    expect(canEditActual(item({ owners: [{ team: '가공', kind: 'primary' }] }), dtEditor)).toBe(true)
+    expect(canEditActual(item({ owners: [{ team: '가공', kind: 'support' }] }), dtEditor)).toBe(true)
     expect(canEditActual(item({ owners: [{ team: 'ERP', kind: 'primary' }] }), dtEditor)).toBe(false)
     expect(canEditActual(item({ owners: [] }), dtEditor)).toBe(false)
   })

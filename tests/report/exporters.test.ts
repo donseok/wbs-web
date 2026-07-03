@@ -21,7 +21,7 @@ const sampleItems: ComputedItem[] = [
     node({ name: '킥오프', status: 'done', rolledActualPct: 100, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-01-20', plannedEnd: '2026-02-01' }),
   ], { weight: 1, plannedPct: 90, rolledActualPct: 100, status: 'done' }),
   phase('설계', [
-    node({ name: 'TO-BE 설계', status: 'delayed', rolledActualPct: 30, owners: [{ team: 'DT', kind: 'primary' }, { team: 'ERP', kind: 'support' }], plannedStart: '2026-04-01', plannedEnd: '2026-04-15' }),
+    node({ name: 'TO-BE 설계', status: 'delayed', rolledActualPct: 30, owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'support' }], plannedStart: '2026-04-01', plannedEnd: '2026-04-15' }),
     node({ name: '요구사항 정의', status: 'in_progress', rolledActualPct: 60, owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
   ], { weight: 1, plannedPct: 50, rolledActualPct: 45, status: 'delayed' }),
 ]
