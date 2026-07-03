@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
-import type { AttendanceRecord, ComputedItem, ProjectMember } from '@/lib/domain/types'
+import type { AttendanceRecord, ComputedItem, Meeting, ProjectMember } from '@/lib/domain/types'
+
+const meeting = (over: Partial<Meeting>): Meeting => ({
+  id: Math.random().toString(36).slice(2), projectId: 'p', title: '회의', meetingDate: '2026-07-01',
+  startTime: '14:00', endTime: '15:00', location: '회의실 A', category: 'routine', body: '',
+  recurrence: 'none', recurrenceUntil: null, createdBy: null, createdByName: null,
+  createdAt: '2026-01-01', updatedAt: '2026-01-01', attendeeIds: ['m1', 'm2'], ...over,
+})
 
 const node = (over: Partial<ComputedItem>): ComputedItem =>
   ({
@@ -122,5 +129,34 @@ describe('buildWeeklyReportModel — 워크로드/근태', () => {
     // mem1 연차 1건 → 포함, mem2 정상근무만 → 제외
     expect(m.attendance.thisWeek.map(r => r.memberName)).toEqual(['홍길동'])
     expect(m.attendance.thisWeek[0].count).toBe(1)
+  })
+})
+
+describe('buildWeeklyReportModel — 회의일정', () => {
+  // today=2026-06-30 → 금주 6/29~7/5, 차주 7/6~7/12
+  const meetings: Meeting[] = [
+    meeting({ title: '주간 정례회의', meetingDate: '2026-07-01', startTime: '10:00', endTime: '11:00' }),
+    meeting({ title: '착수 보고회', meetingDate: '2026-07-08', startTime: null, endTime: null, location: null, attendeeIds: ['m1'] }),
+    meeting({ title: '범위 밖', meetingDate: '2026-07-20' }), // 차주 밖 → 제외
+  ]
+  const m = buildWeeklyReportModel(items, project, '2026-06-30', { meetings })
+
+  it('금주/차주로 분리하고 범위 밖은 제외', () => {
+    expect(m.meetings.thisWeek.map(r => r.title)).toEqual(['주간 정례회의'])
+    expect(m.meetings.nextWeek.map(r => r.title)).toEqual(['착수 보고회'])
+    expect(m.meetings.total).toBe(2)
+  })
+  it('일자·시간·장소·참석 표기', () => {
+    const t = m.meetings.thisWeek[0]
+    expect(t.date).toBe('7/1(수)')
+    expect(t.time).toBe('10:00~11:00')
+    expect(t.location).toBe('회의실 A')
+    expect(t.attendeeCount).toBe(2)
+    const n = m.meetings.nextWeek[0] // 종일 + 장소 없음
+    expect(n.time).toBe('종일')
+    expect(n.location).toBe('-')
+  })
+  it('회의 없으면 total 0(페이지 생략 조건)', () => {
+    expect(buildWeeklyReportModel(items, project, '2026-06-30').meetings.total).toBe(0)
   })
 })

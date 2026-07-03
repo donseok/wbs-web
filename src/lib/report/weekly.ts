@@ -1,7 +1,9 @@
 import type {
-  AttendanceRecord, AttendanceType, ComputedItem, Level, ProjectMember, Status, TeamCode,
+  AttendanceRecord, AttendanceType, ComputedItem, Level, Meeting, MeetingException, MeetingOccurrence,
+  ProjectMember, Status, TeamCode,
 } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
+import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
 
 /* ============================================================================
  * 주간 공정보고 모델 — 동국씨엠 주간보고(PPT)·공정보고(Excel)가 공유하는 단일 출처.
@@ -102,6 +104,19 @@ export interface WeeklyAttendance {
   nextWeek: AttendanceRow[]
 }
 
+export interface MeetingRow {
+  date: string               // '7/6(월)'
+  time: string               // '14:00~15:00' 또는 '종일'
+  title: string
+  location: string           // 없으면 '-'
+  attendeeCount: number
+}
+export interface WeeklyMeetings {
+  thisWeek: MeetingRow[]
+  nextWeek: MeetingRow[]
+  total: number              // 금주+차주 회의 수 (0이면 PPT 회의일정 페이지 생략)
+}
+
 export interface WbsFlatRow {
   no: number
   level: Level
@@ -145,6 +160,7 @@ export interface WeeklyReportModel {
   workload: WorkloadRow[]
   issues: IssueRow[]
   attendance: WeeklyAttendance
+  meetings: WeeklyMeetings
   wbs: WbsFlatRow[]
   dev: DevStatusRow[]
   devOwnerSummary: string
@@ -187,6 +203,12 @@ function isoWeek(d: Date): { year: number; week: number } {
 }
 function md(d: Date): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
+}
+const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'] as const
+/** 'YYYY-MM-DD' → 'M/D(요일)' (회의일정 표기용). */
+function mdDow(iso: string): string {
+  const d = parseUTC(iso)
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${DOW_KR[d.getUTCDay()]})`
 }
 function diffDays(fromIso: string, toIso: string): number {
   return Math.round((parseUTC(toIso).getTime() - parseUTC(fromIso).getTime()) / 86_400_000)
@@ -234,7 +256,10 @@ export function buildWeeklyReportModel(
   items: ComputedItem[],
   project: ReportProject,
   today: string,
-  opts: { members?: ProjectMember[]; attendance?: AttendanceRecord[]; generatedAt?: string } = {},
+  opts: {
+    members?: ProjectMember[]; attendance?: AttendanceRecord[]; generatedAt?: string
+    meetings?: Meeting[]; meetingExceptions?: MeetingException[]
+  } = {},
 ): WeeklyReportModel {
   const roots = items
   const members = opts.members ?? []
@@ -372,6 +397,21 @@ export function buildWeeklyReportModel(
     nextWeek: buildAttendance(nextWeekDays),
   }
 
+  // ── 회의일정 (금주/차주) — 반복 회의를 주간 범위로 전개, 취소 회차 제외 ──
+  const occ = expandMeetings(opts.meetings ?? [], opts.meetingExceptions ?? [], weekStart, nextWeekEnd)
+  const toMeetingRow = (o: MeetingOccurrence): MeetingRow => ({
+    date: mdDow(o.occurrenceDate),
+    time: o.startTime ? (o.endTime ? `${o.startTime}~${o.endTime}` : o.startTime) : '종일',
+    title: o.title,
+    location: o.location ?? '-',
+    attendeeCount: o.attendeeCount,
+  })
+  const thisWeekMeetings = sortOccurrences(occ.filter(o => o.occurrenceDate >= weekStart && o.occurrenceDate <= weekEnd)).map(toMeetingRow)
+  const nextWeekMeetings = sortOccurrences(occ.filter(o => o.occurrenceDate >= nextWeekStart && o.occurrenceDate <= nextWeekEnd)).map(toMeetingRow)
+  const meetings: WeeklyMeetings = {
+    thisWeek: thisWeekMeetings, nextWeek: nextWeekMeetings, total: thisWeekMeetings.length + nextWeekMeetings.length,
+  }
+
   // ── WBS 플랫(전체 트리, 들여쓰기 depth) ──
   const wbs: WbsFlatRow[] = []
   let no = 0
@@ -421,7 +461,7 @@ export function buildWeeklyReportModel(
       weekRange, nextWeekRange, weekStart, weekDays, nextWeekStart, nextWeekDays,
       totalLeaves: total, phaseCount: roots.length,
     },
-    kpi, phases, planActual, workload, issues, attendance: attendanceModel, wbs, dev, devOwnerSummary,
+    kpi, phases, planActual, workload, issues, attendance: attendanceModel, meetings, wbs, dev, devOwnerSummary,
   }
 }
 

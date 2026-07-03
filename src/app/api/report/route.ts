@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { getProjectMembers } from '@/lib/data/members'
 import { getAttendanceRecords } from '@/lib/data/attendance'
+import { getProjectMeetingData } from '@/lib/data/meetings'
 import { listProjects } from '@/app/actions/project'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
@@ -43,15 +44,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'format은 xlsx 또는 pptx여야 합니다' }, { status: 400 })
   }
 
-  const [{ items, today }, projects, members, attendance] = await Promise.all([
+  const [{ items, today }, projects, members, attendance, meetingData] = await Promise.all([
     getComputedWbs(projectId), listProjects(), getProjectMembers(projectId), getAttendanceRecords(projectId),
+    getProjectMeetingData(projectId),
   ])
   const project = (projects as { id: string; name: string; description?: string | null; start_date?: string | null; end_date?: string | null }[]).find(
     p => p.id === projectId,
   )
   if (!project) return NextResponse.json({ error: '프로젝트를 찾을 수 없습니다' }, { status: 404 })
 
-  const model = buildWeeklyReportModel(items, project, today, { members, attendance, generatedAt: seoulNow() })
+  const model = buildWeeklyReportModel(items, project, today, {
+    members, attendance, generatedAt: seoulNow(),
+    meetings: meetingData.meetings, meetingExceptions: meetingData.exceptions,
+  })
   const meta = FORMATS[format]
   const body = format === 'xlsx' ? await buildReportWorkbook(model) : await buildReportDeck(model)
 

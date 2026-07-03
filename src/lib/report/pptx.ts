@@ -5,7 +5,7 @@ import { PN, PN_STATUS } from './dkbrand'
 import type { Status } from '@/lib/domain/types'
 
 const FONT = 'Malgun Gothic' // KR 엔터프라이즈 호환(미설치 시 PowerPoint가 대체)
-const COMPANY = '동국제강 그룹' // 보고 주체 — 표지 레터헤드 + 각 본문 슬라이드 헤더에 표기(동국제강 그룹 공통 CI)
+const COMPANY = '동국씨엠' // 보고 주체 — 표지 레터헤드 + 각 본문 슬라이드 헤더에 표기
 const W = 10
 const H = 5.625
 const MX = 0.6
@@ -191,22 +191,28 @@ function paginate<T>(arr: T[], size: number): T[][] {
   return pages.length ? pages : [[]]
 }
 
-/* ── S2~: 상세 작업 현황 ── */
+/* ── S2~: 상세 작업 현황 ──
+ * 금주 실적·차주 계획을 각각 독립 페이지네이션 → 행이 많으면 다음 페이지로 이어짐(잘림 방지).
+ * 2~3줄로 접히는 긴 작업명을 고려해 페이지당 5행으로 제한. */
+const DETAIL_PER = 5
+
 function detailSlides(pptx: PptxGenJS, model: WeeklyReportModel, totalPages: number, startPage: number): void {
   const thisWeek = model.planActual.flatMap(p => p.thisWeek)
   const nextWeek = model.planActual.flatMap(p => p.nextWeek)
-  const PER = 8
-  const pages = paginate(thisWeek, PER)
-  pages.forEach((rows, i) => {
-    const slide = baseSlide(pptx, model, `상세 작업 현황 (${i + 1}/${pages.length}) · ${model.meta.weekLabel}`, startPage + i, totalPages)
-    detailTable(pptx, slide, 0.4, `금주 실적 (${model.meta.weekRange})`, rows)
-    detailTable(pptx, slide, 5.2, `차주 계획 (${model.meta.nextWeekRange})`, i === 0 ? nextWeek.slice(0, PER) : [])
-  })
+  const thisPages = paginate(thisWeek, DETAIL_PER)
+  const nextPages = paginate(nextWeek, DETAIL_PER)
+  const nPages = Math.max(thisPages.length, nextPages.length)
+  for (let i = 0; i < nPages; i++) {
+    const slide = baseSlide(pptx, model, `상세 작업 현황 (${i + 1}/${nPages}) · ${model.meta.weekLabel}`, startPage + i, totalPages)
+    detailTable(pptx, slide, 0.4, `금주 실적 (${model.meta.weekRange})`, thisPages[i] ?? [])
+    detailTable(pptx, slide, 5.2, `차주 계획 (${model.meta.nextWeekRange})`, nextPages[i] ?? [])
+  }
 }
 
 function detailPageCount(model: WeeklyReportModel): number {
   const thisWeek = model.planActual.reduce((s, p) => s + p.thisWeek.length, 0)
-  return Math.max(1, Math.ceil(thisWeek / 8))
+  const nextWeek = model.planActual.reduce((s, p) => s + p.nextWeek.length, 0)
+  return Math.max(1, Math.ceil(thisWeek / DETAIL_PER), Math.ceil(nextWeek / DETAIL_PER))
 }
 
 /* ── 마지막: 근태현황 ── */
@@ -244,7 +250,55 @@ function attendanceSlide(pptx: PptxGenJS, model: WeeklyReportModel, totalPages: 
   attendanceTable(pptx, slide, 3.0, '차주 근태현황', model.meta.nextWeekDays, model.attendance.nextWeek)
 }
 
-/** 주간 공정보고 모델 → 동국제강 그룹 CI(블루+레드 듀오톤) PPTX 버퍼(nodebuffer). */
+/* ── 회의일정 (근태와 동일 양식: 라벨바 + 표) ── */
+const MEETING_CAP = 5 // 페이지당(테이블당) 최대 표시 행 — 초과분은 '외 N건' 요약
+function meetingTable(pptx: PptxGenJS, slide: Slide, y: number, label: string, rows: WeeklyReportModel['meetings']['thisWeek']) {
+  const x = 0.4
+  const w = 9.2
+  slide.addShape(pptx.ShapeType.rect, { x, y, w, h: 0.32, fill: { color: PN.navy2 }, line: { type: 'none' } })
+  slide.addText(label, { x: x + 0.12, y, w: w - 0.24, h: 0.32, fontFace: FONT, fontSize: 10, color: PN.white, bold: true, valign: 'middle' })
+
+  const head: PptxGenJS.TableRow = ['일자', '시간', '회의명', '장소', '참석'].map((t, i) => ({
+    text: t,
+    options: { fill: { color: PN.ink }, color: PN.white, bold: true, fontSize: 9, align: (i === 2 ? 'left' : 'center') as 'left' | 'center', valign: 'middle' as const },
+  }))
+  const shown = rows.slice(0, MEETING_CAP)
+  const body: PptxGenJS.TableRow[] = rows.length
+    ? shown.map((r, ri) => {
+        const zebra = ri % 2 === 1 ? PN.zebra : PN.white
+        return [
+          { text: r.date, options: { fill: { color: zebra }, color: PN.ink, fontSize: 9, align: 'center' as const, valign: 'middle' as const } },
+          { text: r.time, options: { fill: { color: zebra }, color: PN.body2, fontSize: 9, align: 'center' as const, valign: 'middle' as const } },
+          { text: r.title, options: { fill: { color: zebra }, color: PN.ink, fontSize: 9, align: 'left' as const, valign: 'middle' as const } },
+          { text: r.location, options: { fill: { color: zebra }, color: PN.body, fontSize: 8.5, align: 'center' as const, valign: 'middle' as const } },
+          { text: `${r.attendeeCount}명`, options: { fill: { color: zebra }, color: PN.body, fontSize: 9, align: 'center' as const, valign: 'middle' as const } },
+        ]
+      })
+    : [[{ text: '예정된 회의 없음', options: { fill: { color: PN.zebra }, color: PN.gray, fontSize: 9, colspan: 5, align: 'center' as const } }]]
+  if (rows.length > MEETING_CAP) {
+    body.push([{ text: `… 외 ${rows.length - MEETING_CAP}건`, options: { fill: { color: PN.chip }, color: PN.gray, fontSize: 8.5, colspan: 5, align: 'center' as const } }])
+  }
+
+  slide.addTable([head, ...body], {
+    x, y: y + 0.34, w, colW: [1.15, 1.35, 4.3, 1.6, 0.8], border: { type: 'solid', color: PN.line, pt: 1 },
+    fontFace: FONT, rowH: 0.32, valign: 'middle', autoPage: false,
+  })
+}
+
+// 표시 행수(플레이스홀더/‘외 N건’ 포함) → 표 높이 산정용
+function meetingTableRows(n: number): number {
+  return Math.max(1, Math.min(n, MEETING_CAP) + (n > MEETING_CAP ? 1 : 0))
+}
+function meetingSlide(pptx: PptxGenJS, model: WeeklyReportModel, page: number, totalPages: number) {
+  const slide = baseSlide(pptx, model, `회의일정 · ${model.meta.weekLabel}`, page, totalPages)
+  const y1 = 1.15
+  meetingTable(pptx, slide, y1, `금주 회의일정 (${model.meta.weekRange})`, model.meetings.thisWeek)
+  // 차주 표는 금주 표의 실제 높이(라벨+헤더+행) 아래에 동적 배치 → 행이 많아도 겹치지 않음
+  const y2 = y1 + 0.34 + 0.34 + meetingTableRows(model.meetings.thisWeek.length) * 0.32 + 0.24
+  meetingTable(pptx, slide, y2, `차주 회의일정 (${model.meta.nextWeekRange})`, model.meetings.nextWeek)
+}
+
+/** 주간 공정보고 모델 → 동국씨엠 네이비(블루+레드 듀오톤) PPTX 버퍼(nodebuffer). */
 export async function buildReportDeck(model: WeeklyReportModel): Promise<Buffer> {
   const pptx = new PptxGenJS()
   pptx.defineLayout({ name: 'DK_WIDE', width: W, height: H })
@@ -254,11 +308,14 @@ export async function buildReportDeck(model: WeeklyReportModel): Promise<Buffer>
   pptx.title = `${model.meta.projectName} 주간보고`
 
   const detailPages = detailPageCount(model)
-  const totalPages = 1 + 1 + detailPages + 1 // 표지 + 요약 + 상세 + 근태
+  const hasMeetings = model.meetings.total > 0
+  // 표지 + 요약 + 상세(N) + [회의일정(회의 있을 때만)] + 근태
+  const totalPages = 1 + 1 + detailPages + (hasMeetings ? 1 : 0) + 1
 
   coverSlide(pptx, model) // 1페이지: 겉표지(페이지번호 없음)
   summarySlide(pptx, model, totalPages) // 2페이지
   detailSlides(pptx, model, totalPages, 3) // 3페이지~
+  if (hasMeetings) meetingSlide(pptx, model, 3 + detailPages, totalPages) // 회의 있을 때만
   attendanceSlide(pptx, model, totalPages) // 마지막
 
   return (await pptx.write({ outputType: 'nodebuffer' })) as Buffer
