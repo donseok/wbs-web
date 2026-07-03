@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import type { WeeklyReportModel } from './weekly'
 import { statusKr } from './weekly'
+import { roundWeight } from '@/lib/domain/format'
 import { PX, argb, asciiBar } from './dkbrand'
 
 type Cell = ExcelJS.Cell
@@ -198,7 +199,7 @@ function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
     setCell(ws.getCell(r, 3), `${'  '.repeat(row.depth)}${row.name}`, { bg, bold })
     setCell(ws.getCell(r, 4), row.deliverable, { bg, bold })
     setCell(ws.getCell(r, 5), row.ownerText, { bg, bold })
-    setCell(ws.getCell(r, 6), row.weight ?? '', { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 6), row.weight == null ? '' : roundWeight(row.weight), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 7), fmtD(row.plannedStart), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 8), fmtD(row.plannedEnd), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 9), row.plannedPct, { bg, bold, align: 'center' })
@@ -254,7 +255,7 @@ function buildDevSheet(ws: Worksheet, model: WeeklyReportModel) {
     setCell(ws.getCell(r, 4), d.name, { bg: zebra })
     setCell(ws.getCell(r, 5), d.deliverable, { bg: zebra })
     setCell(ws.getCell(r, 6), d.ownerText, { bg: zebra })
-    setCell(ws.getCell(r, 7), d.weight ?? '', { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 7), d.weight == null ? '' : roundWeight(d.weight), { bg: zebra, align: 'center' })
     setCell(ws.getCell(r, 8), fmtD(d.plannedStart), { bg: zebra, align: 'center' })
     setCell(ws.getCell(r, 9), fmtD(d.plannedEnd), { bg: zebra, align: 'center' })
     setCell(ws.getCell(r, 10), d.plannedPct, { bg: zebra, align: 'center' })

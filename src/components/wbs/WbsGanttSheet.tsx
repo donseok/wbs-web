@@ -6,6 +6,7 @@ import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { Maximize2, Minimize2 } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
+import { roundWeight } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -546,7 +547,7 @@ export function WbsGanttSheet({
             const editingActual = edit?.id === n.id && edit.field === 'actual'
             const editableW = canEditW
             const editableA = canEditActual(n, membership) && !readOnly
-            const weightLabel = n.weight == null ? t('wbs.weightEqual') : String(n.weight)
+            const weightLabel = n.weight == null ? t('wbs.weightEqual') : String(roundWeight(n.weight))
 
             const frozen = (key: string, z = 20): React.CSSProperties => {
               const c = COLS.find(x => x.key === key)!
@@ -652,9 +653,9 @@ export function WbsGanttSheet({
                     {fmtDate(n.plannedEnd)}
                   </div>
                 )}
-                {/* 가중치 */}
+                {/* 가중치 — overflow-hidden: 표시 반올림을 우회하는 긴 값이 이웃 날짜 칸을 덮지 않게 */}
                 {showCol('weight') && <div
-                  className={`${cellBase} border-r border-grid justify-end tabular-nums ${
+                  className={`${cellBase} overflow-hidden border-r border-grid justify-end tabular-nums ${
                     editableW ? 'cursor-pointer' : ''
                   } ${n.weight == null ? 'text-ink-subtle' : 'text-ink'} ${cellBg}`}
                   style={{ width: W('weight') }}

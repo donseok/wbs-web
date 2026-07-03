@@ -8,6 +8,7 @@ import {
 } from '@/app/actions/wbs'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { roundWeight } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, fmtDate } from './shared'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -22,6 +23,7 @@ const CHILD_LEVEL: Record<Level, Level | null> = { phase: 'task', task: 'activit
 
 function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
+  if (field === 'weight' && !Number.isNaN(Number(v))) return String(roundWeight(Number(v)))
   return field === 'actual_pct' ? `${v}%` : v
 }
 function fmtAt(iso: string): string {
@@ -150,7 +152,7 @@ export function RowDetailPanel({
                 {item.owners.length ? <OwnerBadges owners={item.owners} /> : <span className="text-ink-subtle">{t('wbs.unassigned')}</span>}
               </Field>
               <Field icon={CalendarRange} label={t('wbs.plannedSchedule')}><span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span></Field>
-              <Field icon={Scale} label={t('wbs.colWeight')}><span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : item.weight}</span></Field>
+              <Field icon={Scale} label={t('wbs.colWeight')}><span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : roundWeight(item.weight)}</span></Field>
               <Field icon={FileText} label={t('wbs.colDeliverable')}>{item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}</Field>
               {item.biz && <Field icon={FileText} label="Biz"><span>{item.biz}</span></Field>}
             </>
