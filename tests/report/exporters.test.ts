@@ -29,12 +29,12 @@ const project = { name: 'D-CUBE PI', description: 'PI Master Plan', start_date: 
 const model = buildWeeklyReportModel(sampleItems, project, '2026-06-30', { generatedAt: '2026-06-30 13:20' })
 const emptyModel = buildWeeklyReportModel([], { name: '빈 프로젝트' }, '2026-06-30')
 
-describe('buildReportWorkbook (보라 공정보고 3시트)', () => {
-  it('3개 시트(공정보고/WBS/프로그램개발현황)', async () => {
+describe('buildReportWorkbook (보라 공정보고 2시트)', () => {
+  it('2개 시트(공정보고/WBS) — 프로그램개발현황 제외', async () => {
     const buf = await buildReportWorkbook(model)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    expect(wb.worksheets.map(w => w.name)).toEqual(['1.공정보고', '2.WBS', '3.프로그램개발현황'])
+    expect(wb.worksheets.map(w => w.name)).toEqual(['1.공정보고', '2.WBS'])
   })
 
   it('공정보고 제목/주차가 모델 값을 반영', async () => {
@@ -44,7 +44,7 @@ describe('buildReportWorkbook (보라 공정보고 3시트)', () => {
     const ws = wb.getWorksheet('1.공정보고')!
     expect(String(ws.getCell('A2').value)).toContain('D-CUBE PI')
     expect(String(ws.getCell('A2').value)).toContain('공정보고')
-    expect(String(ws.getCell('B3').value)).toContain('27주차')
+    expect(String(ws.getCell('B3').value)).toContain('6월 5주차')
   })
 
   it('WBS 시트에 전체 노드가 들어감(지연 항목명 포함)', async () => {
@@ -55,11 +55,11 @@ describe('buildReportWorkbook (보라 공정보고 3시트)', () => {
     expect(text).toContain('TO-BE 설계')
   })
 
-  it('빈 모델도 깨지지 않고 3시트 생성', async () => {
+  it('빈 모델도 깨지지 않고 2시트 생성', async () => {
     const buf = await buildReportWorkbook(emptyModel)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
-    expect(wb.worksheets.length).toBe(3)
+    expect(wb.worksheets.length).toBe(2)
   })
 })
 

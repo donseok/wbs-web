@@ -27,13 +27,20 @@ const project = { name: 'D-CUBE PI', description: 'PI', start_date: '2026-04-20'
 
 describe('buildWeeklyReportModel — 주차', () => {
   const m = buildWeeklyReportModel(items, project, '2026-06-30')
-  it('ISO 27주차 + 주 범위', () => {
-    expect(m.meta.isoWeek).toBe(27)
+  it('월기준 주차(6월 5주차) + 주 범위', () => {
+    // 월기준 주차 = ceil(오늘 일자/7): 6/30 → ceil(30/7)=5
+    expect(m.meta.weekTag).toBe('6월5주차')
+    expect(m.meta.weekLabel).toBe('2026년 6월 5주차 (6/29~7/5)')
+    expect(m.meta.isoWeek).toBe(27) // ISO 주차는 메타로 계속 보존
     expect(m.meta.weekRange).toBe('6/29~7/5')
     expect(m.meta.nextWeekRange).toBe('7/6~7/12')
     expect(m.meta.weekStart).toBe('2026-06-29')
-    expect(m.meta.weekLabel).toBe('2026년 27주차 (6/29~7/5)')
     expect(m.meta.weekDays).toEqual(['2026-06-29', '2026-06-30', '2026-07-01', '2026-07-02', '2026-07-03'])
+  })
+  it('월초 날짜는 1주차(7/4 → 7월1주차)', () => {
+    const j = buildWeeklyReportModel(items, project, '2026-07-04')
+    expect(j.meta.weekTag).toBe('7월1주차')
+    expect(j.meta.weekLabel).toContain('2026년 7월 1주차')
   })
 })
 

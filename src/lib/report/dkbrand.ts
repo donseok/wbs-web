@@ -1,11 +1,12 @@
 import type { Status } from '@/lib/domain/types'
 
-/* 동국씨엠 주간보고/공정보고 디자인 토큰 (실측 추출). Hex는 '#' 없는 6자리(RRGGBB).
- * PPT(pptxgenjs) = 다크 네이비 테마 · Excel(exceljs) = 보라(퍼플) 테마. */
+/* 동국제강 그룹 주간보고/공정보고 디자인 토큰. Hex는 '#' 없는 6자리(RRGGBB).
+ * 공식 CI: DONGKUK BLUE #002452 + DONGKUK RED #C51F2A (블루+레드 듀오톤).
+ * PPT(pptxgenjs) = 네이비 본문 + 레드 브랜드 악센트 · Excel(exceljs) = 보라(퍼플) 테마. */
 
-/** PPT — 네이비 주간보고 */
+/** PPT — 동국제강 그룹 네이비 주간보고 */
 export const PN = {
-  navy: '002452',       // 헤더바 · 표지 배경
+  navy: '002452',       // 헤더바 · 표지 배경 (DONGKUK BLUE)
   navy2: '003670',      // 보조 네이비
   ink: '1A1A2E',        // 진한 텍스트 · 표 헤더 배경
   body: '2A2F3C',       // 본문
@@ -13,7 +14,7 @@ export const PN = {
   gray: '5C6370',       // 라벨
   subtle: '8B92A0',     // 부제 · 페이지번호
   line: 'D4D8E0',       // 테두리 · 막대 트랙
-  red: 'C51F2A',        // 이슈 · 미달
+  red: 'C51F2A',        // DONGKUK RED — 브랜드 악센트(표지·헤더 룰) · 이슈/미달
   green: '0D7C3E',      // 초과 · 양호
   chip: 'E8EDF4',       // 상태 칩 배경
   zebra: 'F7F8FA',      // 줄무늬 행

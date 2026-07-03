@@ -45,7 +45,7 @@ function buildProcessSheet(ws: Worksheet, model: WeeklyReportModel) {
 
   // 제목
   ws.mergeCells('A2:L2')
-  setCell(ws.getCell('A2'), `${meta.projectName} ${meta.isoYear}년 ${meta.isoWeek}주차 공정보고`, { bg: PX.purple, color: PX.white, size: 18, bold: true })
+  setCell(ws.getCell('A2'), `${meta.projectName} ${meta.weekLabel} 공정보고`, { bg: PX.purple, color: PX.white, size: 18, bold: true })
   ws.getRow(2).height = 30
   // 메타
   setCell(ws.getCell('A3'), '기준주', { bg: PX.purpleLight, color: PX.gray, size: 9, bold: true })
@@ -215,61 +215,7 @@ function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
   ws.views = [{ state: 'frozen', ySplit: 3 }]
 }
 
-/* ════════════════════ 시트 3: 프로그램 개발현황 ════════════════════ */
-function buildDevSheet(ws: Worksheet, model: WeeklyReportModel) {
-  ws.columns = [
-    { width: 5 }, { width: 18 }, { width: 18 }, { width: 34 }, { width: 16 }, { width: 12 }, { width: 8 },
-    { width: 12 }, { width: 12 }, { width: 8 }, { width: 12 }, { width: 8 }, { width: 8 }, { width: 9 }, { width: 22 },
-  ]
-  const LAST = 15
-  const { kpi } = model
-  ws.mergeCells('A1:O1')
-  setCell(ws.getCell('A1'), `${model.meta.projectName} 프로그램 개발현황`, { bg: PX.purple, color: PX.white, size: 15, bold: true })
-  ws.getRow(1).height = 26
-  ws.mergeCells('A2:C2'); ws.mergeCells('I2:N2')
-  setCell(ws.getCell('A2'), `전체 ${kpi.total}`, { bg: PX.phaseRow, color: PX.ink, size: 9, bold: true })
-  setCell(ws.getCell('D2'), `진행중 ${kpi.inProgress}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
-  setCell(ws.getCell('E2'), `대기 ${kpi.notStarted}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
-  setCell(ws.getCell('F2'), `보류 ${kpi.onHold}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
-  setCell(ws.getCell('G2'), `지연 ${kpi.delayed}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
-  setCell(ws.getCell('H2'), `완료 ${kpi.done}`, { bg: PX.phaseRow, color: PX.ink, size: 9 })
-  setCell(ws.getCell('O2'), `생성 ${model.meta.generatedAt}`, { bg: PX.phaseRow, color: PX.ink, size: 9, align: 'center' })
-  ws.mergeCells('A3:O3')
-  setCell(ws.getCell('A3'), model.devOwnerSummary, { bg: PX.purpleLight, color: PX.ink, size: 9 })
-
-  headerRow(ws, 4, [
-    { t: 'No' }, { t: 'Phase', align: 'left' }, { t: 'Activity', align: 'left' }, { t: '작업명', align: 'left' }, { t: '산출물', align: 'left' }, { t: '담당자', align: 'left' }, { t: '가중치' },
-    { t: '계획시작' }, { t: '계획종료' }, { t: '계획(%)' }, { t: '실적시작' }, { t: '실적(%)' }, { t: '지연일' }, { t: '상태' }, { t: '비고', align: 'left' },
-  ])
-  let r = 5
-  if (model.dev.length === 0) {
-    ws.mergeCells(r, 1, r, LAST)
-    setCell(ws.getCell(r, 1), '미완료 작업이 없습니다 — 전체 완료', { bg: PX.greenBg, color: PX.green, bold: true, align: 'center' })
-    return
-  }
-  for (const d of model.dev) {
-    const zebra = r % 2 === 0 ? PX.zebra : PX.white
-    setCell(ws.getCell(r, 1), d.no, { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 2), d.phaseName, { bg: zebra })
-    setCell(ws.getCell(r, 3), d.parentName, { bg: zebra })
-    setCell(ws.getCell(r, 4), d.name, { bg: zebra })
-    setCell(ws.getCell(r, 5), d.deliverable, { bg: zebra })
-    setCell(ws.getCell(r, 6), d.ownerText, { bg: zebra })
-    setCell(ws.getCell(r, 7), d.weight == null ? '' : roundWeight(d.weight), { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 8), fmtD(d.plannedStart), { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 9), fmtD(d.plannedEnd), { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 10), d.plannedPct, { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 11), '', { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 12), d.actualPct, { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 13), d.delayDays || '', { bg: d.delayDays > 0 ? PX.redBg : zebra, color: d.delayDays > 0 ? PX.red : PX.ink, bold: d.delayDays > 0, align: 'center' })
-    setCell(ws.getCell(r, 14), statusKr(d.status), { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 15), d.note, { bg: zebra, color: d.note ? PX.red : PX.ink })
-    r++
-  }
-  ws.views = [{ state: 'frozen', ySplit: 4 }]
-}
-
-/** 주간 공정보고 모델 → 동국씨엠 보라 3시트 xlsx 버퍼. */
+/** 주간 공정보고 모델 → 동국제강 보라 2시트 xlsx 버퍼(공정보고 + WBS). */
 export async function buildReportWorkbook(model: WeeklyReportModel): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook()
   wb.creator = "D'Flow"
@@ -277,7 +223,7 @@ export async function buildReportWorkbook(model: WeeklyReportModel): Promise<Arr
 
   buildProcessSheet(wb.addWorksheet('1.공정보고', { views: [{ showGridLines: false }] }), model)
   buildWbsSheet(wb.addWorksheet('2.WBS', { views: [{ showGridLines: false }] }), model)
-  buildDevSheet(wb.addWorksheet('3.프로그램개발현황', { views: [{ showGridLines: false }] }), model)
+  // 3.프로그램개발현황 시트는 요청에 따라 제외(프로그램 리스트 불필요).
 
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer
 }

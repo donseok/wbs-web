@@ -55,8 +55,8 @@ export async function GET(req: NextRequest) {
   const meta = FORMATS[format]
   const body = format === 'xlsx' ? await buildReportWorkbook(model) : await buildReportDeck(model)
 
-  const docName = format === 'xlsx' ? '공정보고' : '주간보고'
-  const filename = `${docName}_${project.name}_${today}.${meta.ext}`.replace(/[^\w가-힣.\-]+/g, '_')
+  // 파일명: {프로젝트명}_{월기준 몇째주}_{기준일} (예: D-CUBE Project_7월1주차_2026-07-04)
+  const filename = `${project.name}_${model.meta.weekTag}_${today}.${meta.ext}`.replace(/[^\w가-힣.\-]+/g, '_')
 
   return new NextResponse(body as ArrayBuffer, {
     headers: {

@@ -5,7 +5,7 @@ import { PN, PN_STATUS } from './dkbrand'
 import type { Status } from '@/lib/domain/types'
 
 const FONT = 'Malgun Gothic' // KR 엔터프라이즈 호환(미설치 시 PowerPoint가 대체)
-const COMPANY = '동국씨엠' // 보고 주체 회사명 — 표지 레터헤드 + 각 본문 슬라이드 헤더에 표기
+const COMPANY = '동국제강 그룹' // 보고 주체 — 표지 레터헤드 + 각 본문 슬라이드 헤더에 표기(동국제강 그룹 공통 CI)
 const W = 10
 const H = 5.625
 const MX = 0.6
@@ -22,6 +22,8 @@ function baseSlide(pptx: PptxGenJS, model: WeeklyReportModel, subtitle: string, 
   const slide = pptx.addSlide()
   slide.background = { color: PN.surface }
   slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: W, h: HEADER_H, fill: { color: PN.navy }, line: { type: 'none' } })
+  // 네이비 헤더바 하단 얇은 동국 레드 룰 — 전 슬라이드 블루+레드 듀오톤 일관성(동국제강 그룹 CI)
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: HEADER_H, w: W, h: 0.045, fill: { color: PN.red }, line: { type: 'none' } })
   slide.addText(model.meta.projectName, {
     x: MX, y: 0.16, w: W - MX * 2 - 1.8, h: 0.42, fontFace: FONT, fontSize: titleSize, color: PN.white, bold: true, valign: 'middle',
   })
@@ -52,15 +54,16 @@ function coverSlide(pptx: PptxGenJS, model: WeeklyReportModel) {
   const slide = pptx.addSlide()
   slide.background = { color: PN.navy }
 
-  // 상·하단 얇은 강조 바
-  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: W, h: 0.16, fill: { color: PN.navy2 }, line: { type: 'none' } })
+  // 상단 동국 레드 브랜드 룰(듀오톤 시그니처) + 하단 얇은 네이비 바
+  slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: W, h: 0.11, fill: { color: PN.red }, line: { type: 'none' } })
   slide.addShape(pptx.ShapeType.rect, { x: 0, y: H - 0.16, w: W, h: 0.16, fill: { color: PN.navy2 }, line: { type: 'none' } })
 
-  // 상단 회사 레터헤드
-  slide.addText(COMPANY, { x: MX, y: 0.5, w: 6, h: 0.42, fontFace: FONT, fontSize: 17, color: PN.white, bold: true, charSpacing: 1 })
+  // 상단 회사 레터헤드 — 레드 스퀘어 악센트(CI 'D·K' 라이트 모티프) + 그룹명
+  slide.addShape(pptx.ShapeType.rect, { x: MX, y: 0.56, w: 0.14, h: 0.30, fill: { color: PN.red }, line: { type: 'none' } })
+  slide.addText(COMPANY, { x: MX + 0.24, y: 0.5, w: 6, h: 0.42, fontFace: FONT, fontSize: 17, color: PN.white, bold: true, charSpacing: 1, valign: 'middle' })
 
-  // 좌측 세로 강조선
-  slide.addShape(pptx.ShapeType.rect, { x: MX, y: 1.95, w: 0.08, h: 1.72, fill: { color: PN.white }, line: { type: 'none' } })
+  // 좌측 세로 강조선 — 동국 레드(블루 배경 위 듀오톤)
+  slide.addShape(pptx.ShapeType.rect, { x: MX, y: 1.95, w: 0.09, h: 1.72, fill: { color: PN.red }, line: { type: 'none' } })
 
   // eyebrow + 리포트 유형
   slide.addText('WEEKLY REPORT', { x: MX + 0.28, y: 1.95, w: W - MX * 2, h: 0.3, fontFace: FONT, fontSize: 12, color: PN.subtle, bold: true, charSpacing: 3 })
@@ -241,7 +244,7 @@ function attendanceSlide(pptx: PptxGenJS, model: WeeklyReportModel, totalPages: 
   attendanceTable(pptx, slide, 3.0, '차주 근태현황', model.meta.nextWeekDays, model.attendance.nextWeek)
 }
 
-/** 주간 공정보고 모델 → 동국씨엠 네이비 PPTX 버퍼(nodebuffer). */
+/** 주간 공정보고 모델 → 동국제강 그룹 CI(블루+레드 듀오톤) PPTX 버퍼(nodebuffer). */
 export async function buildReportDeck(model: WeeklyReportModel): Promise<Buffer> {
   const pptx = new PptxGenJS()
   pptx.defineLayout({ name: 'DK_WIDE', width: W, height: H })

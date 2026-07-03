@@ -19,8 +19,9 @@ export interface WeeklyMeta {
   generatedAt: string        // '2026-06-30 13:20'
   today: string              // 'YYYY-MM-DD'
   isoYear: number
-  isoWeek: number            // 27
-  weekLabel: string          // '2026년 27주차 (6/29~7/5)'
+  isoWeek: number            // 27 (ISO 주차 — 메타 보존용)
+  weekTag: string            // '7월1주차' (파일명용 · 월기준 몇째주)
+  weekLabel: string          // '2026년 7월 1주차 (6/29~7/5)' (월기준)
   weekRange: string          // '6/29~7/5'
   nextWeekRange: string      // '7/6~7/12'
   weekStart: string          // 월요일 'YYYY-MM-DD'
@@ -246,6 +247,11 @@ export function buildWeeklyReportModel(
   const nextStartD = addDays(weekStartD, 7)
   const nextEndD = addDays(weekStartD, 13)
   const { year: isoYear, week: isoWeekNum } = isoWeek(todayD)
+  // 월기준 몇째주 = ceil(오늘 일자/7). 파일명·본문 라벨에 사용(사용자 요청).
+  const calYear = todayD.getUTCFullYear()
+  const calMonth = todayD.getUTCMonth() + 1
+  const weekOfMonth = Math.ceil(todayD.getUTCDate() / 7)
+  const weekTag = `${calMonth}월${weekOfMonth}주차`
   const weekStart = fmtUTC(weekStartD)
   const weekEnd = fmtUTC(weekEndD)
   const nextWeekStart = fmtUTC(nextStartD)
@@ -410,8 +416,8 @@ export function buildWeeklyReportModel(
     meta: {
       projectName: project.name, description: project.description ?? null,
       generatedAt: opts.generatedAt ?? `${today} 00:00`, today,
-      isoYear, isoWeek: isoWeekNum,
-      weekLabel: `${isoYear}년 ${isoWeekNum}주차 (${weekRange})`,
+      isoYear, isoWeek: isoWeekNum, weekTag,
+      weekLabel: `${calYear}년 ${calMonth}월 ${weekOfMonth}주차 (${weekRange})`,
       weekRange, nextWeekRange, weekStart, weekDays, nextWeekStart, nextWeekDays,
       totalLeaves: total, phaseCount: roots.length,
     },
