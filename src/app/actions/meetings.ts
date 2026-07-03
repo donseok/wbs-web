@@ -3,7 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { getMyMeetings } from '@/lib/data/meetings'
-import { expandMeetings } from '@/lib/domain/meetings'
+import { expandMeetings, MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
 import type { Meeting, MeetingCategory, MeetingException, MeetingRecurrence } from '@/lib/domain/types'
 
 export interface MeetingInput {
@@ -25,8 +25,6 @@ export interface MeetingActionResult {
   id?: string
 }
 
-const CATEGORIES: MeetingCategory[] = ['general', 'routine', 'kickoff', 'review', 'report', 'external']
-const RECURRENCES: MeetingRecurrence[] = ['none', 'daily', 'weekly', 'biweekly', 'monthly']
 const TITLE_MAX = 200
 const BODY_MAX = 20000
 const LOCATION_MAX = 200
@@ -44,8 +42,8 @@ function validate(input: MeetingInput): string | null {
   if (input.startTime && input.endTime && input.endTime <= input.startTime) return '종료 시각은 시작 시각보다 뒤여야 합니다.'
   if (input.body.length > BODY_MAX) return `회의록은 ${BODY_MAX}자 이하여야 합니다.`
   if (input.location && input.location.length > LOCATION_MAX) return `장소는 ${LOCATION_MAX}자 이하여야 합니다.`
-  if (!CATEGORIES.includes(input.category)) return '잘못된 카테고리입니다.'
-  if (!RECURRENCES.includes(input.recurrence)) return '잘못된 반복 옵션입니다.'
+  if (!MEETING_CATEGORIES.includes(input.category)) return '잘못된 카테고리입니다.'
+  if (!RECURRENCE_ORDER.includes(input.recurrence)) return '잘못된 반복 옵션입니다.'
   if (input.recurrence === 'none' && input.recurrenceUntil !== null) return '반복 없음에는 종료일을 둘 수 없습니다.'
   if (input.recurrence !== 'none') {
     if (!input.recurrenceUntil || !DATE_RE.test(input.recurrenceUntil)) return '반복 종료일을 입력하세요.'
@@ -112,7 +110,11 @@ export async function createMeeting(projectId: string, input: MeetingInput): Pro
   if (error) return { ok: false, error: error.message }
   const meetingId = data.id as string
   const attErr = await replaceAttendees(sb, meetingId, projectId, input.attendeeIds)
-  if (attErr) return { ok: false, error: attErr }
+  if (attErr) {
+    // 참석자 저장 실패 시 방금 생성한 회의를 롤백(보상)해 고아 회의가 남지 않게 한다.
+    await sb.from('meetings').delete().eq('id', meetingId)
+    return { ok: false, error: attErr }
+  }
   revalidateMeetings(projectId)
   return { ok: true, id: meetingId }
 }
@@ -153,8 +155,9 @@ export async function updateMeeting(id: string, input: MeetingInput): Promise<Me
   if (ruleChanged) await sb.from('meeting_exceptions').delete().eq('meeting_id', id)
 
   const attErr = await replaceAttendees(sb, id, projectId, input.attendeeIds)
-  if (attErr) return { ok: false, error: attErr }
+  // 회의 본문 수정은 이미 커밋됨 — 참석자 저장이 실패해도 변경분이 반영되도록 revalidate 후 에러 보고.
   revalidateMeetings(projectId)
+  if (attErr) return { ok: false, error: attErr }
   return { ok: true, id }
 }
 
@@ -186,8 +189,8 @@ export async function setMeetingAttendees(meetingId: string, memberIds: string[]
   const isOwner = (cur.created_by as string | null) === user.id
   if (!isOwner && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
   const attErr = await replaceAttendees(sb, meetingId, cur.project_id as string, memberIds)
-  if (attErr) return { ok: false, error: attErr }
   revalidateMeetings(cur.project_id as string)
+  if (attErr) return { ok: false, error: attErr }
   return { ok: true }
 }
 
