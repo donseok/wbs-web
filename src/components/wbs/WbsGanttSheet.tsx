@@ -31,10 +31,13 @@ const COLS: Col[] = [
 const W = (k: string) => COLS.find(c => c.key === k)!.w
 /* 타임라인 집중 모드에서 보이는 컬럼(나머지 수치/상세 열은 숨겨 간트 폭을 확보) */
 const TIMELINE_COLS = new Set(['no', 'level', 'name', 'owners', 'status'])
-/* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
+/* 본문 행 높이(px)의 단일 진실원본. 담당 팀이 여러 개인 항목은 담당 수만큼 세로 분할되므로
+   항목 행 높이는 ownerRowCount(n) * ROW_H, 배경 격자/오늘선 높이(rowsH)는 그 합이어야 한다.
    과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
 const ROW_H = 40
+/* 항목이 차지하는 세로 칸 수 — 담당 팀별 1칸, 담당 없으면 1칸 */
+const ownerRowCount = (n: ComputedItem) => Math.max(1, n.owners.length)
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -228,7 +231,7 @@ export function WbsGanttSheet({
     })
   }
   const todayX = days.length && today >= rangeStart && today <= rangeEnd ? xOf(today) + dayPx / 2 : null
-  const rowsH = flatRows.length * ROW_H
+  const rowsH = flatRows.reduce((sum, n) => sum + ownerRowCount(n) * ROW_H, 0)
 
   /* ── 편집 (WbsSheet 이식) ── */
   const isPmo = membership?.role === 'pmo_admin'
@@ -345,7 +348,6 @@ export function WbsGanttSheet({
       aria-label={fullscreen ? t('wbs.ariaFullscreen') : undefined}
       style={
         {
-          '--wbs-row-h': `${ROW_H}px`,
           '--wbs-head-h': '58px',
           '--wbs-left-w': `${LEFT_W}px`,
           '--gantt-day': `${dayPx}px`,
@@ -553,10 +555,14 @@ export function WbsGanttSheet({
               return { width: c.w, position: 'sticky', left: c.sk, zIndex: z }
             }
 
+            // 담당 팀별로 세로 분할된 칸 수만큼 행 높이 확장(담당 외 셀은 병합돼 하나로 보임).
+            const rowH = ownerRowCount(n) * ROW_H
+
             return (
               <div
                 key={n.id}
-                className="group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max"
+                className="group relative z-10 box-border flex w-max"
+                style={{ height: rowH }}
               >
                 {/* # */}
                 <div
@@ -606,12 +612,20 @@ export function WbsGanttSheet({
                     {n.biz ?? '-'}
                   </div>
                 )}
-                {/* 담당 */}
+                {/* 담당 — 팀별 행 분리. 마지막 칸은 flex-1 로 남은 높이(외곽 border-b 몫 1px 차감)를 채운다. */}
                 <div
-                  className={`${cellBase} border-r border-grid ${cellBg}`}
+                  className={`box-border flex h-full shrink-0 flex-col border-b border-r border-grid ${cellBg}`}
                   style={{ width: W('owners') }}
                 >
-                  <OwnerBadges owners={n.owners} />
+                  {(n.owners.length ? n.owners : [null]).map((o, oi, arr) => (
+                    <div
+                      key={o ? o.team + o.kind : 'none'}
+                      className={`flex items-center px-2 ${oi < arr.length - 1 ? 'border-b border-grid' : 'flex-1'}`}
+                      style={oi < arr.length - 1 ? { height: ROW_H } : undefined}
+                    >
+                      <OwnerBadges owners={o ? [o] : []} />
+                    </div>
+                  ))}
                 </div>
                 {/* 상태 */}
                 <div
