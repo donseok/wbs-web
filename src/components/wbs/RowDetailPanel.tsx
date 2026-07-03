@@ -1,15 +1,16 @@
 'use client'
-import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload } from 'lucide-react'
-import type { ComputedItem, DeliverableAttachment, Level, TeamCode } from '@/lib/domain/types'
+import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus } from 'lucide-react'
+import type { ComputedItem, DeliverableAttachment, Level, OwnerKind, TeamCode } from '@/lib/domain/types'
 import {
-  getChangeLogs, updateWbsFields, addWbsItem, deleteWbsItem, moveWbsItem, type ChangeLogEntry,
+  getChangeLogs, updateWbsFields, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem, type ChangeLogEntry,
 } from '@/app/actions/wbs'
+import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { roundWeight } from '@/lib/domain/format'
-import { LevelBadge, OwnerBadges, STATUS, fmtDate } from './shared'
+import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -59,6 +60,9 @@ export function RowDetailPanel({
   const [err, setErr] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState(false)
   const [addName, setAddName] = useState<string | null>(null) // null=닫힘
+  const [subOpen, setSubOpen] = useState(false)               // SUB-ACT 추가 폼 열림
+  const [subTeam, setSubTeam] = useState<TeamCode | null>(null)
+  const [subKind, setSubKind] = useState<OwnerKind>('primary')
   const [form, setForm] = useState({
     name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '',
   })
@@ -73,12 +77,21 @@ export function RowDetailPanel({
     let alive = true
     setLogs(null)
     setEditing(false); setConfirmDel(false); setAddName(null); setErr(null)
+    setSubOpen(false); setSubTeam(null); setSubKind('primary')
     setForm({ name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '' })
     getChangeLogs(item.id).then(r => { if (alive) setLogs(r) }).catch(() => { if (alive) setLogs([]) })
     return () => { alive = false }
   }, [item.id, item.name, item.plannedStart, item.plannedEnd, item.deliverable])
 
   const childLevel = CHILD_LEVEL[item.level]
+  // SUB-ACT 추가는 ACT(=자식 유무와 무관한 activity, 단 자신이 SUB-ACT 는 제외)에서만.
+  const isAct = item.level === 'activity' && !subAct
+  const subTeams = useMemo(() => availableSubActTeams(item.children), [item.children])
+  const flipWarn = willDiscardActual(item.children.length, item.actualPct)
+  // 남은 팀이 하나뿐이면(유추가 아니라 유일 선택지) 폼을 열 때 자동 선택 — 클릭 한 번 절약.
+  useEffect(() => {
+    if (subOpen && !subTeam && subTeams.length === 1) setSubTeam(subTeams[0])
+  }, [subOpen, subTeam, subTeams])
 
   async function run(fn: () => Promise<{ ok: boolean; error?: string }>, after?: () => void) {
     setBusy(true); setErr(null)
@@ -100,6 +113,10 @@ export function RowDetailPanel({
   const addChild = () => {
     if (!childLevel || !addName?.trim()) return
     run(() => addWbsItem(projectId, item.id, childLevel, addName.trim()), () => setAddName(null))
+  }
+  const addSub = () => {
+    if (!subTeam) return
+    run(() => addSubAct(item.id, subTeam, subKind), () => { setSubOpen(false); setSubTeam(null); setSubKind('primary') })
   }
   const doDelete = () => run(() => deleteWbsItem(item.id), () => onClose())
 
@@ -170,6 +187,11 @@ export function RowDetailPanel({
                     <Plus className="h-3.5 w-3.5" /> {t('wbs.addChild')}
                   </button>
                 )}
+                {isAct && (
+                  <button onClick={() => { setSubOpen(o => !o); setErr(null) }} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs">
+                    <GitBranchPlus className="h-3.5 w-3.5" /> {t('wbs.addSubAct')}
+                  </button>
+                )}
                 <button onClick={() => run(() => moveWbsItem(item.id, 'up'))} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs" aria-label={t('wbs.moveUp')}><ChevronUp className="h-3.5 w-3.5" /></button>
                 <button onClick={() => run(() => moveWbsItem(item.id, 'down'))} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs" aria-label={t('wbs.moveDown')}><ChevronDown className="h-3.5 w-3.5" /></button>
                 <button onClick={() => setConfirmDel(true)} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs text-delayed hover:bg-delayed-weak"><Trash2 className="h-3.5 w-3.5" /> {t('common.delete')}</button>
@@ -178,6 +200,45 @@ export function RowDetailPanel({
                 <div className="mt-2 flex gap-2">
                   <input autoFocus value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addChild() }} placeholder={`${childLevel === 'task' ? 'Task' : 'Activity'} ${t('wbs.namePlaceholderSuffix')}`} className="app-input h-8 text-xs" />
                   <button onClick={addChild} disabled={busy || !addName.trim()} className="btn btn-primary h-8 px-3 text-xs">{t('common.add')}</button>
+                </div>
+              )}
+              {isAct && subOpen && (
+                <div className="mt-2 space-y-2.5 rounded-lg border border-line bg-surface px-3 py-2.5">
+                  {subTeams.length === 0 ? (
+                    <p className="text-xs text-ink-subtle">{t('wbs.subActAllTeamsUsed')}</p>
+                  ) : (
+                    <>
+                      {flipWarn && (
+                        <p className="rounded-lg bg-pending-weak px-2.5 py-1.5 text-[11px] leading-snug text-pending">{t('wbs.subActLeafWarn')}</p>
+                      )}
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.subActTeam')}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {subTeams.map(tm => {
+                            const on = subTeam === tm
+                            return (
+                              <button key={tm} onClick={() => setSubTeam(tm)}
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${on ? 'border-brand bg-brand-weak text-brand' : 'border-line text-ink-muted hover:bg-surface-2'}`}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${TEAM[tm].bar}`} />{tm}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.subActKind')}</div>
+                        <div className="inline-flex rounded-lg border border-line p-0.5">
+                          {(['primary', 'support'] as OwnerKind[]).map(k => (
+                            <button key={k} onClick={() => setSubKind(k)}
+                              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${subKind === k ? 'bg-brand text-white' : 'text-ink-muted hover:text-ink'}`}>
+                              {k === 'primary' ? `● ${t('wbs.ownerPrimary')}` : `△ ${t('wbs.ownerSupport')}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button onClick={addSub} disabled={busy || !subTeam} className="btn btn-primary h-8 w-full px-3 text-xs">{busy ? t('wbs.saving') : t('common.add')}</button>
+                    </>
+                  )}
                 </div>
               )}
               {confirmDel && (

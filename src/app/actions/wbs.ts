@@ -2,7 +2,8 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import type { Level, TeamCode } from '@/lib/domain/types'
+import type { Level, OwnerKind, TeamCode } from '@/lib/domain/types'
+import { subActName } from '@/lib/domain/subact'
 
 export interface ChangeLogEntry {
   id: number
@@ -153,6 +154,75 @@ export async function addWbsItem(
   await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: data.id, field: 'created', old_value: null, new_value: name.trim() })
   revalidatePath(`/p/${projectId}`, 'layout')
   return { ok: true, id: data.id as string }
+}
+
+/** ACT(자식 있는/없는 activity) 하위에 담당 팀별 SUB-ACT(활동 자식) 1개 추가 — PMO 전용.
+ *  임포트 분리(splitLeafOwners)와 같은 모양을 손으로 재현한다:
+ *   - level='activity', 이름 "{ACT명} ({팀} 주관/지원)", 코드·계획일정·biz·산출물 상속, 가중치 균등, 실적 0(=null).
+ *   - 담당 1팀(item_owners) 필수 — 없으면 팀 배지가 없고 정렬 맨 뒤, 팀 편집자가 실적% 입력 불가.
+ *   - 부모 ACT 에도 그 팀 담당 표기를 넣어 엑셀 내보내기→재임포트 라운드트립에서 SUB-ACT 가 사라지지 않게 한다.
+ *  1단계만 허용(SUB-ACT 아래엔 불가) — 엑셀 3단(Phase/Task/Activity) 형식을 유지하기 위함. */
+export async function addSubAct(
+  actId: string, team: TeamCode, kind: OwnerKind,
+): Promise<{ ok: boolean; error?: string; id?: string }> {
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const sb = await createServerClient()
+
+  const { data: act } = await sb
+    .from('wbs_items')
+    .select('id, project_id, parent_id, level, code, name, biz, deliverable, planned_start, planned_end')
+    .eq('id', actId).single()
+  if (!act) return { ok: false, error: '항목 없음' }
+  if (act.level !== 'activity') return { ok: false, error: 'SUB-ACT는 ACT(활동) 하위에만 추가할 수 있습니다' }
+  // 1단계 제한: 부모가 activity(=자기 자신이 SUB-ACT)면 그 아래로는 불가.
+  if (act.parent_id) {
+    const { data: parent } = await sb.from('wbs_items').select('level').eq('id', act.parent_id).maybeSingle()
+    if (parent?.level === 'activity') return { ok: false, error: 'SUB-ACT 아래에는 추가할 수 없습니다' }
+  }
+
+  const { data: teamRow } = await sb.from('teams').select('id').eq('code', team).maybeSingle()
+  if (!teamRow) return { ok: false, error: '담당 팀을 찾을 수 없습니다' }
+  const teamId = teamRow.id as string
+
+  // 형제(기존 SUB-ACT) 조회 — 중복 팀 방지 + sort_order 채번.
+  const { data: sibs } = await sb.from('wbs_items').select('id, sort_order').eq('parent_id', actId)
+  const sibIds = (sibs ?? []).map(s => s.id as string)
+  if (sibIds.length) {
+    const { data: dup } = await sb
+      .from('item_owners').select('wbs_item_id').eq('team_id', teamId).in('wbs_item_id', sibIds).limit(1).maybeSingle()
+    if (dup) return { ok: false, error: '이미 해당 팀의 SUB-ACT가 있습니다' }
+  }
+  const nextOrder = (sibs ?? []).reduce((mx, r) => Math.max(mx, Number(r.sort_order) || 0), 0) + 1
+
+  const name = subActName(act.name as string, team, kind)
+  const { data: inserted, error: insErr } = await sb
+    .from('wbs_items')
+    .insert({
+      project_id: act.project_id, parent_id: actId, level: 'activity', code: act.code,
+      sort_order: nextOrder, name, biz: act.biz, deliverable: act.deliverable,
+      planned_start: act.planned_start, planned_end: act.planned_end, weight: null, actual_pct: null,
+    })
+    .select('id').single()
+  if (insErr || !inserted) return { ok: false, error: insErr?.message ?? '추가 실패' }
+  const newId = inserted.id as string
+
+  const { error: ownErr } = await sb.from('item_owners').insert({ wbs_item_id: newId, team_id: teamId, kind })
+  if (ownErr) {
+    // 담당 없는 고아 SUB-ACT 를 남기지 않도록 방금 만든 행 정리 후 실패 반환.
+    await sb.from('wbs_items').delete().eq('id', newId)
+    return { ok: false, error: ownErr.message }
+  }
+
+  // 부모 ACT 에 담당 팀 표기 보강(라운드트립 안정용) — 이미 있으면 그대로 둔다. 베스트에포트.
+  const { data: parentOwner } = await sb
+    .from('item_owners').select('team_id').eq('wbs_item_id', actId).eq('team_id', teamId).maybeSingle()
+  if (!parentOwner) await sb.from('item_owners').insert({ wbs_item_id: actId, team_id: teamId, kind })
+
+  const { data: u } = await sb.auth.getUser()
+  await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: newId, field: 'created', old_value: null, new_value: name })
+  revalidatePath(`/p/${act.project_id}`, 'layout')
+  return { ok: true, id: newId }
 }
 
 /** 이름·계획일자·산출물·Biz 편집. 시작>종료 거부, 변경분만 기록. */
