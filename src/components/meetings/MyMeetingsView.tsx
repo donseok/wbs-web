@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, CalendarDays, List, CalendarX2 } from 'lucide-react'
 import type { Meeting, MeetingException, MeetingOccurrence } from '@/lib/domain/types'
@@ -39,32 +39,41 @@ export function MyMeetingsView({
   const [month0, setMonth0] = useState((initM || 1) - 1)
   const [view, setView] = useState<ViewKey>('calendar')
   const [onlyMine, setOnlyMine] = useState(true)
-  const [data, setData] = useState({ meetings: initialMeetings, exceptions: initialExceptions })
+  const initialRange = useMemo(() => gridRange(initY, (initM || 1) - 1).join('|'), [initY, initM])
+  const [data, setData] = useState<{ meetings: Meeting[]; exceptions: MeetingException[]; range: string }>(
+    { meetings: initialMeetings, exceptions: initialExceptions, range: initialRange },
+  )
+  const [reloadKey, setReloadKey] = useState(0)
+  const skipFirstFetch = useRef(true)
   const [detailOcc, setDetailOcc] = useState<MeetingOccurrence | null>(null)
   const [pending, startTransition] = useTransition()
 
   const [gridStart, gridEnd] = useMemo(() => gridRange(year, month0), [year, month0])
+  const currentRange = `${gridStart}|${gridEnd}`
 
-  // 월 이동 시 서버 액션 재조회(현재 달이 아니면). 초기 달은 서버 렌더 데이터 사용.
-  const isInitialMonth = year === initY && month0 === (initM || 1) - 1
+  // 초기 달은 서버 렌더 데이터로 첫 페인트(첫 실행은 fetch 생략).
+  // 이후 달 이동 또는 변경(reloadKey) 시마다 현재 그리드를 재조회한다.
+  // reloadKey 는 상세 모달의 회차 취소/삭제 후(onChanged) 증가해 현재 화면을 즉시 갱신한다.
   useEffect(() => {
-    if (isInitialMonth) { setData({ meetings: initialMeetings, exceptions: initialExceptions }); return }
+    if (skipFirstFetch.current) { skipFirstFetch.current = false; return }
     let alive = true
     startTransition(async () => {
       const res = await fetchMyMeetings(gridStart, gridEnd)
-      if (alive) setData(res)
+      if (alive) setData({ ...res, range: `${gridStart}|${gridEnd}` })
     })
     return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gridStart, gridEnd])
+  }, [gridStart, gridEnd, reloadKey])
 
+  // 그리드 범위가 바뀌었는데 그 범위 데이터가 아직 도착하지 않았으면(stale) 회차를 비워
+  // 이전 달 데이터가 새 달 그리드에 잘못 겹쳐 보이는 깜빡임을 막는다.
+  const isStale = data.range !== currentRange
   const filteredMeetings = useMemo(
-    () => onlyMine ? data.meetings.filter(m => m.isMine) : data.meetings,
-    [data.meetings, onlyMine],
+    () => isStale ? [] : (onlyMine ? data.meetings.filter(m => m.isMine) : data.meetings),
+    [data.meetings, onlyMine, isStale],
   )
   const occurrences = useMemo(
-    () => expandMeetings(filteredMeetings, data.exceptions, gridStart, gridEnd),
-    [filteredMeetings, data.exceptions, gridStart, gridEnd],
+    () => expandMeetings(filteredMeetings, isStale ? [] : data.exceptions, gridStart, gridEnd),
+    [filteredMeetings, data.exceptions, gridStart, gridEnd, isStale],
   )
   const cancelledSet = useMemo(
     () => new Set(data.exceptions.filter(e => e.kind === 'cancelled').map(e => `${e.meetingId}:${e.occurrenceDate}`)),
@@ -145,7 +154,7 @@ export function MyMeetingsView({
         isCancelled={detailOcc ? cancelledSet.has(detailOcc.occurrenceId) : false}
         currentUserId={currentUserId} role={role}
         onClose={() => setDetailOcc(null)} onEditSeries={() => { /* 내 회의에서는 편집 시 프로젝트로 이동 유도 */ }}
-        onChanged={() => router.refresh()} />
+        onChanged={() => { setReloadKey(k => k + 1); router.refresh() }} />
     </div>
   )
 }
