@@ -613,7 +613,7 @@ export function WbsGanttSheet({
                   <LevelBadge level={n.level} sub={subLabel != null} />
                 </div>
                 {/* 작업명 */}
-                <div className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
+                <div className={`${cellBase} freeze-edge text-[12px] ${cellBg}`} style={frozen('name')}>
                   <div className="flex min-w-0 items-center" style={{ paddingLeft: depth * 14 }}>
                     {hasChildren ? (
                       <button
@@ -701,7 +701,7 @@ export function WbsGanttSheet({
                 )}
                 {/* 가중치 — overflow-hidden: 표시 반올림을 우회하는 긴 값이 이웃 날짜 칸을 덮지 않게 */}
                 {showCol('weight') && <div
-                  className={`${cellBase} overflow-hidden border-r border-grid justify-end tabular-nums ${
+                  className={`${cellBase} overflow-hidden border-r border-grid justify-end text-[12px] tabular-nums ${
                     editableW ? 'cursor-pointer' : ''
                   } ${n.weight == null ? 'text-ink-subtle' : 'text-ink'} ${cellBg}`}
                   style={{ width: W('weight') }}
@@ -729,7 +729,7 @@ export function WbsGanttSheet({
                 {/* 계획% */}
                 {showCol('pplan') && (
                 <div
-                  className={`${cellBase} border-r border-grid justify-end tabular-nums text-ink-muted ${cellBg}`}
+                  className={`${cellBase} border-r border-grid justify-end text-[12px] tabular-nums text-ink-muted ${cellBg}`}
                   style={{ width: W('pplan') }}
                 >
                   {n.plannedPct}%
@@ -738,7 +738,7 @@ export function WbsGanttSheet({
                 {/* 실적% (데이터바) */}
                 {showCol('pactual') && (
                 <div
-                  className={`${cellBase} relative justify-end overflow-hidden border-r border-grid font-medium tabular-nums ${
+                  className={`${cellBase} relative justify-end overflow-hidden border-r border-grid text-[12px] font-medium tabular-nums ${
                     editableA ? 'cursor-pointer' : ''
                   } ${n.status === 'delayed' ? 'text-delayed' : 'text-ink'} ${cellBg}`}
                   style={{ width: W('pactual') }}
