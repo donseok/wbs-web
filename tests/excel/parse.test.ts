@@ -62,4 +62,30 @@ describe('parseWbsWorkbook', () => {
   it('공휴일 시트 파싱', () => {
     expect(parsed.holidays).toContainEqual({ date: '2026-07-17', name: '제헌절' })
   })
+
+  // 실제 xlsx 파일은 날짜를 '시리얼(정수)'로 저장한다(JS Date 아님).
+  // cellDates 로컬 변환(Asia/Seoul 1899 LMT)에 의존하면 -1일 밀린다 → 시리얼을 타임존 무관하게 해석해야 한다.
+  it('날짜 시리얼(정수) 셀을 타임존 무관하게 ISO 변환한다(-1일 밀림 금지)', () => {
+    const num = (serial: number) => ({ t: 'n', v: serial, z: 'yyyy-mm-dd' })
+    // 구조는 aoa 로 만들고, 계획 일자 칸(M/N)만 시리얼 정수 셀로 덮어쓴다.
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Biz.', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', 'Status', '산출물', '계획'],
+      ['', '', '', '', '', '', '', '', '', '', '', '', 'Start', 'End'],
+      ['타이틀', '', '', '', '', '', '', '', '', '', '', '', 'Start', 'End'],
+      ['', '', '', '기준일 활동', '', '', '●', '', '', '', '', '', 0, 0],  // 데이터 행(0-base idx 3)
+    ])
+    ws['M4'] = num(46204)  // 2026-07-01 (idx3 → 스프레드시트 4행)
+    ws['N4'] = num(46213)  // 2026-07-10
+    const hol = XLSX.utils.aoa_to_sheet([['Holiday'], [0, '제헌절']])
+    hol['A2'] = num(46220) // 2026-07-17
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'WBS')
+    XLSX.utils.book_append_sheet(wb, hol, 'Holiday')
+    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+    const p = parseWbsWorkbook(buf as ArrayBuffer)
+    const row = p.rows.find(r => r.name === '기준일 활동')!
+    expect(row.plannedStart).toBe('2026-07-01')
+    expect(row.plannedEnd).toBe('2026-07-10')
+    expect(p.holidays).toContainEqual({ date: '2026-07-17', name: '제헌절' })
+  })
 })

@@ -13,8 +13,17 @@ export interface ParsedWbs { rows: ParsedRow[]; holidays: { date: string; name: 
 const TEAM_COL: [number, TeamCode][] = [[6, 'PMO'], [7, 'ERP'], [8, 'MES'], [9, '가공']] // G,H,I,J (0-base)
 
 function toIso(v: unknown): string | null {
+  // 엑셀 날짜는 시리얼(정수)로 저장됨. SSF.parse_date_code 로 타임존 무관하게 {y,m,d} 도출.
+  // (cellDates 로컬 변환에 의존하면 Asia/Seoul 1899 LMT 오프셋 때문에 -1일 밀린다.)
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    const d = XLSX.SSF.parse_date_code(v)
+    if (!d) return null
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${d.y}-${p(d.m)}-${p(d.d)}`
+  }
+  // 방어적: 혹시 Date 로 들어오면 UTC 성분을 취해 로컬 오프셋 밀림을 피한다.
   if (v instanceof Date) {
-    return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate())).toISOString().slice(0, 10)
+    return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate())).toISOString().slice(0, 10)
   }
   return null
 }
@@ -33,7 +42,8 @@ function owners(row: unknown[]): ParsedRow['owners'] {
 }
 
 export function parseWbsWorkbook(buf: ArrayBuffer): ParsedWbs {
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+  // cellDates:false — 날짜를 시리얼(정수)로 유지해 toIso 에서 타임존 무관 변환(위 참조).
+  const wb = XLSX.read(buf, { type: 'array', cellDates: false })
   const ws = wb.Sheets['WBS']
   // WBS 시트가 없으면 빈 행으로(예외 방지). Holiday 시트는 아래에서 별도 처리.
   const aoa = ws ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false }) : []
