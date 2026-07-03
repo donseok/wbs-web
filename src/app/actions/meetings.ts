@@ -2,9 +2,9 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
-import { getMyMeetings } from '@/lib/data/meetings'
+import { getMyMeetings, getMeetingDetail } from '@/lib/data/meetings'
 import { expandMeetings, MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
-import type { Meeting, MeetingCategory, MeetingException, MeetingRecurrence } from '@/lib/domain/types'
+import type { Meeting, MeetingAttendeeInfo, MeetingCategory, MeetingException, MeetingRecurrence } from '@/lib/domain/types'
 
 export interface MeetingInput {
   title: string
@@ -256,4 +256,11 @@ export async function fetchMyMeetings(
   const user = await getSession()
   if (!user) return { meetings: [], exceptions: [] }
   return getMyMeetings(gridStartIso, gridEndIso)
+}
+
+/** 상세 모달에서 호출하는 얇은 래퍼 — getMeetingDetail(서버 전용)을 세션 게이트 후 위임. */
+export async function fetchMeetingDetail(id: string): Promise<{ meeting: Meeting; attendees: MeetingAttendeeInfo[] } | null> {
+  const user = await getSession()
+  if (!user) return null
+  return getMeetingDetail(id)
 }
