@@ -96,7 +96,7 @@ export function WbsGanttSheet({
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
   const [addBusy, setAddBusy] = useState(false)
   const [dayPx, setDayPx] = useState(24)
-  const [showDetails, setShowDetails] = useState(false)
+  const [showDetails, setShowDetails] = useState(true)
   const [timelineFocus, setTimelineFocus] = useState(defaultView === 'timeline')
   const [fullscreen, setFullscreen] = useState(false) // 팝업(전체화면 모달)로 크게 보기
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
