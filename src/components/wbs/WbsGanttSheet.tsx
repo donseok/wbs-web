@@ -174,7 +174,7 @@ export function WbsGanttSheet({
     return m
   }, [items])
 
-  // act 하위의 담당자별 분리 항목(sub-act) — 구분 배지 S-ACT + 트리 축약 표시명
+  // act 하위의 담당자별 분리 항목(sub-act) — 구분 배지 SUB-ACT + 트리 축약 표시명
   const subActLabels = useMemo(() => {
     const m = new Map<string, string>()
     const walk = (ns: ComputedItem[]) =>

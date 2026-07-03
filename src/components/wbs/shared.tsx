@@ -20,7 +20,7 @@ const LEVEL: Record<Level, { label: string; cls: string }> = {
   activity: { label: 'ACT', cls: 'bg-pending-weak text-pending' },
 }
 /* act 하위의 담당자별 분리 항목(임포트 시 자동 생성) 전용 표기 — 일반 ACT 와 시각 구분 */
-const SUB_ACT = { label: 'S-ACT', cls: 'bg-surface-2 text-ink-muted' }
+const SUB_ACT = { label: 'SUB-ACT', cls: 'bg-surface-2 text-ink-muted' }
 
 export function StatusChip({ status }: { status: Status }) {
   const s = STATUS[status]
