@@ -43,7 +43,7 @@ export interface ReportTeam {
   pct: number | null
 }
 
-export const REPORT_TEAMS: TeamCode[] = ['PMO', '가공', 'ERP', 'MES']
+export const REPORT_TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
 
 /** 정수 평균 (빈 배열 → 0). ReportModal의 avg와 동일. */
 function avg(ns: number[]): number {

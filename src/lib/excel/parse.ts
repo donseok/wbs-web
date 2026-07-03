@@ -10,7 +10,7 @@ export interface ParsedRow {
 }
 export interface ParsedWbs { rows: ParsedRow[]; holidays: { date: string; name: string }[] }
 
-const TEAM_COL: [number, TeamCode][] = [[6, 'PMO'], [7, '가공'], [8, 'ERP'], [9, 'MES']] // G,H,I,J (0-base)
+const TEAM_COL: [number, TeamCode][] = [[6, 'PMO'], [7, 'ERP'], [8, 'MES'], [9, '가공']] // G,H,I,J (0-base)
 
 function toIso(v: unknown): string | null {
   if (v instanceof Date) {

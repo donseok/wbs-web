@@ -22,7 +22,7 @@ describe('buildReportModel', () => {
     expect(m.kpi).toEqual({ actual: 0, planned: 0, variance: 0, delayedCount: 0 })
     expect(m.phases).toEqual([])
     expect(m.delayed).toEqual([])
-    expect(m.teams.map(t => t.team)).toEqual(['PMO', '가공', 'ERP', 'MES'])
+    expect(m.teams.map(t => t.team)).toEqual(['PMO', 'ERP', 'MES', '가공'])
     expect(m.teams.every(t => t.count === 0 && t.pct === null)).toBe(true)
     expect(m.meta.totalLeaves).toBe(0)
   })

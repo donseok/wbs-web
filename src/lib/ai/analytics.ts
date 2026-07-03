@@ -15,7 +15,7 @@ const STATUS_KO: Record<Status, string> = {
   done: '완료',
 }
 const LEVEL_KO = { phase: 'Phase', task: 'Task', activity: 'Activity' } as const
-const TEAMS: TeamCode[] = ['PMO', '가공', 'ERP', 'MES']
+const TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
 
 export interface LeafCtx {
   node: ComputedItem

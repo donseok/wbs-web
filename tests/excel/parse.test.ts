@@ -5,12 +5,12 @@ import { parseWbsWorkbook } from '@/lib/excel/parse'
 function makeBook(): ArrayBuffer {
   const wbs = XLSX.utils.aoa_to_sheet([
     ['Biz.', 'Phase', 'Task', 'Activity', '', '', '담당', '', '', '', 'Status', '산출물', '계획'],
-    ['', '', '', '', '', '', 'PMO', '가공', 'ERP', 'MES', '', '', 'Start', 'End'],
-    ['타이틀', '', '', '', '', '', 'PMO', '가공', 'ERP', 'MES', '', '', 'Start', 'End'],
+    ['', '', '', '', '', '', 'PMO', 'ERP', 'MES', '가공', '', '', 'Start', 'End'],
+    ['타이틀', '', '', '', '', '', 'PMO', 'ERP', 'MES', '가공', '', '', 'Start', 'End'],
     ['PI', '1. 준비', '', '', '', '', '', '', '', '', '', '', new Date(2026,6,1), new Date(2026,6,9)],
     ['', '', '1-1. 거버넌스', '', '', '', '', '', '', '', '', '', new Date(2026,6,1), new Date(2026,6,7)],
     ['', '', '', 'TFT R&R 확정', '', '', '●', '', '', '', '', '업무분장표', new Date(2026,6,1), new Date(2026,6,7), 2, '', 50],
-    ['', '', '', '현황 파악', '', '', '', '●', '△', '△', '', '', new Date(2026,6,13), new Date(2026,6,24)],
+    ['', '', '', '현황 파악', '', '', '', '△', '△', '●', '', '', new Date(2026,6,13), new Date(2026,6,24)],
   ])
   const hol = XLSX.utils.aoa_to_sheet([
     ['Holiday'], [new Date(2026,6,17), '제헌절'],
@@ -33,9 +33,9 @@ describe('parseWbsWorkbook', () => {
     expect(tft.owners).toEqual([{ team: 'PMO', kind: 'primary' }])
     const sang = parsed.rows.find(r => r.name === '현황 파악')!
     expect(sang.owners).toEqual([
-      { team: '가공', kind: 'primary' },
       { team: 'ERP', kind: 'support' },
       { team: 'MES', kind: 'support' },
+      { team: '가공', kind: 'primary' },
     ])
   })
   it('계획 일자 ISO 변환', () => {

@@ -33,7 +33,7 @@ function intersects(start: string | null, end: string | null, ws: string, we: st
 }
 
 const STATUSES: Status[] = ['done', 'in_progress', 'delayed', 'not_started']
-const TEAMS: TeamCode[] = ['PMO', '가공', 'ERP', 'MES']
+const TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
 
 // label은 참조용 원본(한국어) — 화면 표시는 dict 키 `dash.att.<type>`로 번역해 렌더한다.
 const ATT: Record<AttendanceType, { label: string; cls: string }> = {

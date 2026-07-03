@@ -18,7 +18,7 @@ const TEAM_META: Record<TeamCode, { chip: string; avatar: string }> = {
   MES: { chip: 'bg-team-mes-weak text-team-mes', avatar: 'from-team-mes to-brand' },
 }
 
-const TEAM_OPTIONS: TeamCode[] = ['PMO', '가공', 'ERP', 'MES']
+const TEAM_OPTIONS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
 
 // 아바타 그라디언트 팔레트(디자인 토큰 재사용). 멤버 id 해시로 결정적 배정 —
 // 이름·이니셜이 같은(예: '테스트사용자'/'테스트QA' → 둘 다 '테스') 멤버도 색으로 구분된다.

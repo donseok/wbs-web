@@ -29,9 +29,9 @@ export const getComputedWbs = cache(async (
     arr.push({ team: code, kind: o.kind as OwnerKind })
     ownerMap.set(wbsItemId, arr)
   })
-  // DB가 순서를 보장하지 않으므로 표시 순서를 고정: 주관 먼저, 팀은 PMO→가공→ERP→MES.
+  // DB가 순서를 보장하지 않으므로 표시 순서를 고정: 주관 먼저, 팀은 PMO→ERP→MES→가공.
   // (담당별 행 분리 UI에서 순서가 요청마다 바뀌면 같은 항목의 행 배치가 흔들린다.)
-  const teamOrder: Record<TeamCode, number> = { PMO: 0, 가공: 1, ERP: 2, MES: 3 }
+  const teamOrder: Record<TeamCode, number> = { PMO: 0, ERP: 1, MES: 2, 가공: 3 }
   ownerMap.forEach(arr =>
     arr.sort((a, b) =>
       (a.kind === b.kind ? 0 : a.kind === 'primary' ? -1 : 1) || teamOrder[a.team] - teamOrder[b.team],

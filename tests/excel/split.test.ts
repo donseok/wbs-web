@@ -146,7 +146,7 @@ describe('buildWbsAoa — sub-act 접기(라운드트립 보호)', () => {
     expect(bodies).toHaveLength(3)
     const actRow = bodies[2]
     expect(actRow[3]).toBe('복수 담당 작업')
-    expect(actRow[6 + 1]).toBe('●') // 가공 담당 표기 보존(G6~J9 중 H7)
+    expect(actRow[9]).toBe('●') // 가공 담당 표기 보존(G6~J9 중 J9)
     expect(actRow[16]).toBe(40) // Q열 = 롤업 실적
   })
 

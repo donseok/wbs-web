@@ -859,7 +859,7 @@ export function WbsGanttSheet({
           ))}
         </span>
         <span className="inline-flex items-center gap-2">
-          {(['PMO', '가공', 'ERP', 'MES'] as const).map(t => (
+          {(['PMO', 'ERP', 'MES', '가공'] as const).map(t => (
             <span key={t} className="inline-flex items-center gap-0.5">
               <span className={`${TEAM[t].fg} text-[9px]`}>●</span>
               {t}

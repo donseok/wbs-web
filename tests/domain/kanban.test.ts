@@ -82,7 +82,7 @@ describe('groupByPhase', () => {
 describe('groupByOwner', () => {
   it('PMO/가공/ERP/MES + 미배정 5개 컬럼을 순서대로 만든다', () => {
     const cols = groupByOwner(fixture())
-    expect(cols.map(c => c.key)).toEqual(['PMO', '가공', 'ERP', 'MES', '미배정'])
+    expect(cols.map(c => c.key)).toEqual(['PMO', 'ERP', 'MES', '가공', '미배정'])
   })
 
   it('leaf는 primary 담당팀 컬럼마다 들어가고 support는 무시한다', () => {

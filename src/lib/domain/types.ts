@@ -1,5 +1,5 @@
 export type Level = 'phase' | 'task' | 'activity'
-export type TeamCode = 'PMO' | '가공' | 'ERP' | 'MES'
+export type TeamCode = 'PMO' | 'ERP' | 'MES' | '가공'
 export type OwnerKind = 'primary' | 'support'
 export type Status = 'not_started' | 'in_progress' | 'delayed' | 'done'
 
