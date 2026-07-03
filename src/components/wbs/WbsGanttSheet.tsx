@@ -50,6 +50,29 @@ function flatten(items: ComputedItem[], collapsed: Set<string>): ComputedItem[] 
   walk(items)
   return out
 }
+/* 담당별 분리 부모(자식 있는 activity) id — 기본 접힘 대상 */
+function splitParentIds(items: ComputedItem[]): Set<string> {
+  const s = new Set<string>()
+  const walk = (ns: ComputedItem[]) =>
+    ns.forEach(n => {
+      if (n.level === 'activity' && n.children.length) s.add(n.id)
+      walk(n.children)
+    })
+  walk(items)
+  return s
+}
+/* sub-act 트리 표시명 — 저장 이름 "{부모명} ({팀} 주관/지원)"에서 부모명 접두를 벗겨
+   팀 부분만 남긴다(트리에선 부모가 바로 위에 보여 접두가 중복). 접두가 없으면(개명된
+   경우) 풀네임 그대로. 저장 이름·검색·챗봇·보고서는 풀네임을 유지한다. */
+function subActLabel(name: string, parentName: string): string {
+  if (name.startsWith(parentName)) {
+    const rest = name.slice(parentName.length).trim()
+    const m = rest.match(/^\((.*)\)$/)
+    if (m && m[1]) return m[1]
+    if (rest) return rest
+  }
+  return name
+}
 /* 검색: 매칭 노드 + 조상 id 집합 */
 function buildMatch(items: ComputedItem[], q: string): Set<string> {
   const keep = new Set<string>()
@@ -91,7 +114,8 @@ export function WbsGanttSheet({
 }) {
   const router = useRouter()
   const { t } = useLocale()
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // 담당별 분리 부모는 기본 접힘 — 첫 화면이 엑셀 원본과 같은 행 구성이 된다.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => splitParentIds(items))
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
@@ -150,16 +174,16 @@ export function WbsGanttSheet({
     return m
   }, [items])
 
-  // act 하위의 담당자별 분리 항목(sub-act) id — 구분 배지를 SUB-ACT 로 표기
-  const subActIds = useMemo(() => {
-    const s = new Set<string>()
+  // act 하위의 담당자별 분리 항목(sub-act) — 구분 배지 SUB-ACT + 트리 축약 표시명
+  const subActLabels = useMemo(() => {
+    const m = new Map<string, string>()
     const walk = (ns: ComputedItem[]) =>
       ns.forEach(n => {
-        if (n.level === 'activity') n.children.forEach(c => s.add(c.id))
+        if (n.level === 'activity') n.children.forEach(c => m.set(c.id, subActLabel(c.name, n.name)))
         walk(n.children)
       })
     walk(items)
-    return s
+    return m
   }, [items])
 
   const collapsibleIds = useMemo(() => {
@@ -548,12 +572,15 @@ export function WbsGanttSheet({
                     ? 'bg-zebra'
                     : 'bg-surface'
             const cellBg = `${rowBg} group-hover:bg-brand-weak`
+            const subLabel = subActLabels.get(n.id)
             const nameWeight =
               n.level === 'phase'
                 ? 'font-semibold text-ink'
                 : n.level === 'task'
                   ? 'font-medium text-ink'
-                  : 'text-ink'
+                  : subLabel != null
+                    ? 'text-ink-muted'
+                    : 'text-ink'
 
             const editingWeight = edit?.id === n.id && edit.field === 'weight'
             const editingActual = edit?.id === n.id && edit.field === 'actual'
@@ -583,7 +610,7 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid-strong justify-center ${cellBg}`}
                   style={frozen('level')}
                 >
-                  <LevelBadge level={n.level} sub={subActIds.has(n.id)} />
+                  <LevelBadge level={n.level} sub={subLabel != null} />
                 </div>
                 {/* 작업명 */}
                 <div className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
@@ -606,7 +633,14 @@ export function WbsGanttSheet({
                       className={`truncate text-left ${nameWeight} hover:text-brand hover:underline`}
                       title={`${n.name} · ${t('wbs.rowDetailTitle')}`}
                     >
-                      {n.name}
+                      {subLabel != null ? (
+                        <>
+                          <span aria-hidden className="mr-1 text-ink-subtle">└</span>
+                          {subLabel}
+                        </>
+                      ) : (
+                        n.name
+                      )}
                     </button>
                   </div>
                 </div>
@@ -868,7 +902,7 @@ export function WbsGanttSheet({
       {selectedItem && (
         <RowDetailPanel
           item={selectedItem}
-          subAct={subActIds.has(selectedItem.id)}
+          subAct={subActLabels.has(selectedItem.id)}
           onClose={() => setSelectedId(null)}
           editable={isPmo && !readOnly}
           canAttach={!readOnly && !!membership && (isPmo || selectedItem.owners.some(o => o.team === membership.teamCode))}
