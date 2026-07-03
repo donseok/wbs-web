@@ -186,18 +186,8 @@ export function WbsGanttSheet({
     return m
   }, [items])
 
-  const collapsibleIds = useMemo(() => {
-    const s = new Set<string>()
-    const walk = (ns: ComputedItem[]) =>
-      ns.forEach(n => {
-        if (n.children.length) {
-          s.add(n.id)
-          walk(n.children)
-        }
-      })
-    walk(items)
-    return s
-  }, [items])
+  // 접기/펼치기는 sub-act 를 가진 act 에만 허용 — phase/task 는 항상 펼친 채 고정
+  const collapsibleIds = useMemo(() => splitParentIds(items), [items])
 
   const q = query.trim().toLowerCase()
   const matchKeep = useMemo(() => (q ? buildMatch(items, q) : null), [items, q])
@@ -561,6 +551,7 @@ export function WbsGanttSheet({
           {flatRows.map((n, idx) => {
             const depth = depthMap.get(n.id) ?? 0
             const hasChildren = n.children.length > 0
+            const canToggle = collapsibleIds.has(n.id)
             const isCollapsed = collapsed.has(n.id)
             const rowNo = idx + 1
             const rowBg =
@@ -615,7 +606,7 @@ export function WbsGanttSheet({
                 {/* 작업명 */}
                 <div className={`${cellBase} freeze-edge text-[12px] ${cellBg}`} style={frozen('name')}>
                   <div className="flex min-w-0 items-center" style={{ paddingLeft: depth * 14 }}>
-                    {hasChildren ? (
+                    {canToggle ? (
                       <button
                         onClick={() => toggle(n.id)}
                         className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] text-ink-subtle hover:bg-line hover:text-ink"
