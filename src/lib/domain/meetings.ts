@@ -110,12 +110,9 @@ export function expandMeetings(
     for (let step = 0; count < MAX_OCCURRENCES; step++) {
       const t = new Date(Date.UTC(ay, am - 1 + step, ad))
       // Date.UTC 롤오버 감지: 목표 일자가 그 달에 존재하지 않으면 skip
-      if (t.getUTCDate() !== ad) {
-        // 이미 hardEnd 를 지났는지 판단하려면 그 달 1일 기준으로 종료 체크
-        const monthStart = epochDay(iso(ay, (am - 1 + step) % 12 < 0 ? 0 : ((am - 1 + step) % 12), 1))
-        if (monthStart > hardEndDay) break
-        continue
-      }
+      // 앵커 일자가 없는 달(예: 매월 31일의 2월)은 건너뛴다. 종료는 아래 유효 회차의
+      // d > hardEndDay 브레이크가 보장한다(어떤 일자든 연속 skip은 최대 1~2개월).
+      if (t.getUTCDate() !== ad) continue
       const dateIso = iso(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())
       const d = epochDay(dateIso)
       if (d > hardEndDay) break

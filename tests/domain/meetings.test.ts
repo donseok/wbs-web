@@ -92,6 +92,19 @@ describe('sortOccurrences', () => {
   })
 })
 
+describe('occurrencesByDate', () => {
+  it('날짜별로 버킷팅', () => {
+    const occ = expandMeetings(
+      [mtg('a', '2026-07-10'), mtg('b', '2026-07-10'), mtg('c', '2026-07-11')],
+      [], '2026-07-01', '2026-07-31',
+    )
+    const by = occurrencesByDate(occ)
+    expect(Object.keys(by).sort()).toEqual(['2026-07-10', '2026-07-11'])
+    expect(by['2026-07-10'].map(o => o.seriesId).sort()).toEqual(['a', 'b'])
+    expect(by['2026-07-11']).toHaveLength(1)
+  })
+})
+
 describe('canEditMeeting', () => {
   it('작성자 본인 → true', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u1', 'team_editor')).toBe(true))
   it('pmo_admin → true(남의 것도)', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u2', 'pmo_admin')).toBe(true))
