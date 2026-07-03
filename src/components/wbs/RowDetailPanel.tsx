@@ -48,7 +48,7 @@ export function RowDetailPanel({
   editable?: boolean
   canAttach?: boolean
   projectId: string
-  /** act 하위의 담당자별 분리 항목 — 구분 배지를 SUB-ACT 로 표기 */
+  /** act 하위의 담당자별 분리 항목 — 구분 배지를 S-ACT 로 표기 */
   subAct?: boolean
 }) {
   const router = useRouter()
