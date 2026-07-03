@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  CalendarCheck, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  CalendarCheck, CalendarClock, CalendarRange, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -27,6 +27,7 @@ function projectMenu(base: string): { href: string; labelKey: DictKey; icon: Luc
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
     { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
+    { href: `${base}/meetings`, labelKey: 'nav.meetings', icon: CalendarClock, match: `${base}/meetings` },
     { href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` },
   ]
 }
@@ -90,6 +91,13 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
           </div>
         </div>
       )}
+
+      {/* 전역: 내 회의 */}
+      <Link href="/meetings" title={t('nav.myMeetings')}
+        className={`side-link mt-3 ${pathname === '/meetings' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+        <CalendarRange className="h-[18px] w-[18px] shrink-0" />
+        {!collapsed && <span className="flex-1">{t('nav.myMeetings')}</span>}
+      </Link>
 
       {/* 프로젝트 리스트 */}
       <div className="mt-5 flex min-h-0 flex-1 flex-col">

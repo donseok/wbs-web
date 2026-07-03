@@ -19,7 +19,7 @@ import type { SidebarProject } from './Sidebar'
 
 const SECTION_LABEL: Record<string, string> = {
   dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드',
-  members: '멤버', attendance: '근태현황', announcements: '공지사항', settings: '설정',
+  members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', settings: '설정',
 }
 
 export function HeaderChrome({ membership, projects }: { membership: Membership | null; projects: SidebarProject[] }) {
@@ -245,6 +245,7 @@ function MobileMenu({
         { href: `/p/${activeId}/members`, label: t('nav.members') },
         { href: `/p/${activeId}/attendance`, label: t('nav.attendance') },
         { href: `/p/${activeId}/announcements`, label: t('nav.announcements'), badge: unreadAnn },
+        { href: `/p/${activeId}/meetings`, label: t('nav.meetings') },
         { href: `/p/${activeId}/settings`, label: t('nav.settings') },
       ]
     : []
@@ -258,6 +259,7 @@ function MobileMenu({
         </div>
         <nav className="mt-6 space-y-1">
           <Link href="/projects" onClick={onClose} className={`side-link ${pathname === '/projects' ? 'side-link-active' : ''}`}>{t('nav.allProjects')}</Link>
+          <Link href="/meetings" onClick={onClose} className={`side-link ${pathname === '/meetings' ? 'side-link-active' : ''}`}>{t('nav.myMeetings')}</Link>
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>
           {projects.map(p => (
             <Link key={p.id} onClick={onClose} href={`/p/${p.id}/dashboard`} className={`side-link ${pathname.startsWith(`/p/${p.id}`) ? 'side-link-active' : ''}`}>
