@@ -23,4 +23,23 @@ describe('computePrefsSync', () => {
     expect(r.apply).toEqual({})
     expect(r.backfill).toEqual({})
   })
+
+  it('서버 값이 명시적 null 이면 undefined 와 동일하게 "없음"으로 취급해 백필한다', () => {
+    // theme 은 타입상 'light' | 'dark' | undefined 이지만, JSONB 컬럼에서 실제로
+    // null 이 내려올 수 있어 이를 재현하기 위해 캐스팅한다.
+    // 나머지 키는 로컬과 동일하게 채워 theme 의 null 처리만 격리해 검증한다.
+    const r = computePrefsSync(
+      { ...local, theme: null } as unknown as Parameters<typeof computePrefsSync>[0],
+      local,
+    )
+    expect(r.backfill).toEqual({ theme: local.theme })
+    expect(r.apply).toEqual({})
+    expect('theme' in r.apply).toBe(false)
+  })
+
+  it('boolean 키가 로컬과 다르면 apply 되고, false 를 "없음"으로 오인하지 않는다', () => {
+    const r = computePrefsSync({ heroCollapsed: false }, local)
+    expect(r.apply).toEqual({ heroCollapsed: false })
+    expect('heroCollapsed' in r.backfill).toBe(false)
+  })
 })
