@@ -9,9 +9,21 @@ import {
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
+import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import type { DictKey } from '@/lib/i18n/dict'
 
 export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'done'; baseDate?: string | null }
+
+export const SIDEBAR_STORAGE_KEY = 'dflow-sidebar'
+
+/** 헤더 등 외부에서 사이드바 접기/펼치기를 일괄 제어할 때 dispatch하는 CustomEvent 이름. */
+export const SIDEBAR_TOGGLE_EVENT = 'dflow-sidebar-toggle'
+
+/** localStorage 갱신 + 이벤트 dispatch. 서버 쓰기는 사용자 토글 시에만(여기서 하지 않음 — reconcile 재사용 안전). */
+export function dispatchSidebarToggle(collapsed: boolean): void {
+  try { localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? '1' : '0') } catch {}
+  window.dispatchEvent(new CustomEvent(SIDEBAR_TOGGLE_EVENT, { detail: { collapsed } }))
+}
 
 const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string }> = {
   ready: { dot: 'bg-amber-400', label: '준비' },
@@ -38,14 +50,20 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
   const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
-    try { setCollapsed(localStorage.getItem('dflow-sidebar') === '1') } catch {}
+    try { setCollapsed(localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1') } catch {}
   }, [])
+
+  // 외부(PrefsSync reconcile / 헤더 등) 토글 이벤트 수신 — 마운트된 Sidebar 동기화.
+  useEffect(() => {
+    const onToggle = (e: Event) => setCollapsed((e as CustomEvent<{ collapsed: boolean }>).detail.collapsed)
+    window.addEventListener(SIDEBAR_TOGGLE_EVENT, onToggle)
+    return () => window.removeEventListener(SIDEBAR_TOGGLE_EVENT, onToggle)
+  }, [])
+
   const toggleCollapse = () => {
-    setCollapsed(prev => {
-      const next = !prev
-      try { localStorage.setItem('dflow-sidebar', next ? '1' : '0') } catch {}
-      return next
-    })
+    const next = !collapsed
+    dispatchSidebarToggle(next)          // localStorage + 이벤트(→ setCollapsed)
+    queueUiPref({ sidebarCollapsed: next }) // 사용자 액션만 서버 저장
   }
 
   const activeId = useMemo(() => pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null, [pathname])
