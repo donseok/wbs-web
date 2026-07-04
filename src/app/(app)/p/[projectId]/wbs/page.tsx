@@ -36,6 +36,7 @@ export default async function WbsPage({
       />}
     >
       <WbsGanttSheet
+        key={projectId}
         items={items}
         holidays={holidays}
         today={today}
