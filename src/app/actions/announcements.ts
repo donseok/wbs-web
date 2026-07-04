@@ -10,6 +10,8 @@ export interface AnnouncementInput {
   body: string
   category: AnnouncementCategory
   isPinned: boolean
+  publishFrom: string // 'YYYY-MM-DD' (KST) 게시 시작일 · 필수
+  publishTo: string   // 'YYYY-MM-DD' (KST) 게시 종료일(포함) · 필수
 }
 
 export interface AnnouncementActionResult {
@@ -20,6 +22,14 @@ export interface AnnouncementActionResult {
 const CATEGORIES: AnnouncementCategory[] = ['general', 'important', 'event']
 const TITLE_MAX = 200
 const BODY_MAX = 20000
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** 'YYYY-MM-DD' 형식 + 실재하는 날짜인지 (2026-02-30 등 반려) */
+function isValidDate(s: string): boolean {
+  if (!DATE_RE.test(s)) return false
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
 
 function validateInput(input: AnnouncementInput): string | null {
   const title = input.title.trim()
@@ -27,6 +37,9 @@ function validateInput(input: AnnouncementInput): string | null {
   if (title.length > TITLE_MAX) return `제목은 ${TITLE_MAX}자 이하여야 합니다.`
   if (input.body.length > BODY_MAX) return `본문은 ${BODY_MAX}자 이하여야 합니다.`
   if (!CATEGORIES.includes(input.category)) return '잘못된 카테고리입니다.'
+  if (!input.publishFrom || !input.publishTo) return '게시 시작일과 종료일을 모두 지정하세요.'
+  if (!isValidDate(input.publishFrom) || !isValidDate(input.publishTo)) return '게시 기간 날짜 형식이 올바르지 않습니다.'
+  if (input.publishFrom > input.publishTo) return '게시 종료일은 시작일보다 빠를 수 없습니다.'
   return null
 }
 
@@ -56,6 +69,8 @@ export async function createAnnouncement(
       body: input.body,
       category: input.category,
       is_pinned: input.isPinned,
+      publish_from: input.publishFrom,
+      publish_to: input.publishTo,
       created_by: user?.id ?? null,
     })
     .select('created_at')
@@ -87,6 +102,8 @@ export async function updateAnnouncement(
       body: input.body,
       category: input.category,
       is_pinned: input.isPinned,
+      publish_from: input.publishFrom,
+      publish_to: input.publishTo,
       updated_at: new Date().toISOString(), // updated_at 트리거 없음 — 수동 갱신(wbs.ts 관례)
     })
     .eq('id', id)

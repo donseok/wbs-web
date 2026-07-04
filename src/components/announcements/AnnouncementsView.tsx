@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Megaphone, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CalendarRange, Megaphone, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import {
-  ANNOUNCEMENT_CATEGORIES, ANNOUNCEMENT_META, isUnread, sortAnnouncements,
+  ANNOUNCEMENT_CATEGORIES, ANNOUNCEMENT_META, ANNOUNCEMENT_STATUS_META,
+  announcementStatus, isPublishedNow, isUnread, sortAnnouncements,
 } from '@/lib/domain/announcements'
 import {
   createAnnouncement, updateAnnouncement, deleteAnnouncement, markAnnouncementsSeen,
@@ -20,6 +21,11 @@ type CategoryFilter = 'all' | AnnouncementCategory
 /** 'YYYY-MM-DD' (Asia/Seoul) — 앱 날짜 표기 관례 */
 function fmtDate(iso: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(iso))
+}
+
+/** 오늘 'YYYY-MM-DD' (Asia/Seoul) — publish_from/to(date) 비교·폼 기본값 기준 */
+function seoulToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
 export function AnnouncementsView({
@@ -34,27 +40,35 @@ export function AnnouncementsView({
   projectId: string
 }) {
   const { t } = useLocale()
+  const today = seoulToday()
   const [filter, setFilter] = useState<CategoryFilter>('all')
   const [reading, setReading] = useState<Announcement | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Announcement | null>(null)
   const [deleting, setDeleting] = useState<Announcement | null>(null)
 
+  // 게시 기간 스코프: 관리자는 예정·게시중·만료 전부(상태 배지로 구분), 일반 사용자는
+  // 오늘 게시중인 것만 본다. 이후 카테고리 필터·읽음 처리 모두 이 스코프 위에서 동작.
+  const scoped = useMemo(
+    () => (canEdit ? announcements : announcements.filter((a) => isPublishedNow(a, today))),
+    [announcements, canEdit, today],
+  )
+
   // 방문 = 확인 처리: 렌더에 실제로 보인 가장 최신 공지 시각까지 읽음 처리(스냅샷 기준 —
   // 렌더~호출 사이에 도착한 공지는 안읽음 유지). refresh 하지 않음 — NEW 칩은 이번 방문
   // 동안 유지되고, 사이드바 배지는 다음 네비게이션의 재조회에서 사라진다.
   useEffect(() => {
-    if (announcements.length === 0) return
-    const latest = announcements.reduce((max, a) =>
+    if (scoped.length === 0) return
+    const latest = scoped.reduce((max, a) =>
       Date.parse(a.createdAt) > Date.parse(max.createdAt) ? a : max,
     ).createdAt
     markAnnouncementsSeen(projectId, latest).catch(() => {})
-  }, [projectId, announcements])
+  }, [projectId, scoped])
 
   const visible = useMemo(() => {
-    const base = filter === 'all' ? announcements : announcements.filter((a) => a.category === filter)
+    const base = filter === 'all' ? scoped : scoped.filter((a) => a.category === filter)
     return sortAnnouncements(base)
-  }, [announcements, filter])
+  }, [scoped, filter])
 
   function openWrite() {
     setEditing(null)
@@ -77,7 +91,7 @@ export function AnnouncementsView({
         <div>
           <div className="eyebrow">{t('ann.boardEyebrow')}</div>
           <h2 className="mt-0.5 text-sm font-semibold text-ink">
-            {t('ann.boardTitle')} · {announcements.length}{t('ann.unitCount')}
+            {t('ann.boardTitle')} · {scoped.length}{t('ann.unitCount')}
           </h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -114,6 +128,7 @@ export function AnnouncementsView({
                   item={a}
                   unread={isUnread(a, lastSeenAt)}
                   canEdit={canEdit}
+                  today={today}
                   onRead={() => setReading(a)}
                   onEdit={() => openEdit(a)}
                   onDelete={() => setDeleting(a)}
@@ -150,6 +165,7 @@ function AnnouncementRow({
   item,
   unread,
   canEdit,
+  today,
   onRead,
   onEdit,
   onDelete,
@@ -157,6 +173,7 @@ function AnnouncementRow({
   item: Announcement
   unread: boolean
   canEdit: boolean
+  today: string
   onRead: () => void
   onEdit: () => void
   onDelete: () => void
@@ -164,10 +181,14 @@ function AnnouncementRow({
   const { t } = useLocale()
   const meta = ANNOUNCEMENT_META[item.category]
   const edited = item.updatedAt !== item.createdAt
+  // 게시중이 아닌(예정·만료) 공지는 관리자만 보므로, 그 상태를 배지로 알린다.
+  const status = announcementStatus(item, today)
+  const statusMeta = status !== 'active' ? ANNOUNCEMENT_STATUS_META[status] : null
+  const period = item.publishFrom && item.publishTo ? `${item.publishFrom} ~ ${item.publishTo}` : null
 
   return (
     <div
-      className={`group flex items-start gap-3 rounded-2xl border bg-surface p-4 transition duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[var(--shadow-md)] ${item.isPinned ? 'border-brand/40 bg-brand-weak/30' : 'border-line'}`}
+      className={`group flex items-start gap-3 rounded-2xl border bg-surface p-4 transition duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[var(--shadow-md)] ${item.isPinned ? 'border-brand/40 bg-brand-weak/30' : 'border-line'} ${status === 'expired' ? 'opacity-60' : ''}`}
     >
       <button onClick={onRead} className="flex min-w-0 flex-1 items-start gap-3 text-left">
         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
@@ -181,6 +202,7 @@ function AnnouncementRow({
               </span>
             )}
             {unread && <span className="chip bg-accent-secondary/15 text-accent-secondary">{t('ann.new')}</span>}
+            {statusMeta && <span className={`chip ${statusMeta.chip}`}>{t(statusMeta.labelKey)}</span>}
           </span>
           <span className="mt-1.5 block truncate text-[15px] font-semibold text-ink" title={item.title}>
             {item.title}
@@ -188,9 +210,17 @@ function AnnouncementRow({
           {item.body && (
             <span className="mt-1 line-clamp-2 block text-[13px] leading-5 text-ink-muted">{item.body}</span>
           )}
-          <span className="mt-1.5 block text-[11px] tabular-nums text-ink-subtle">
-            {fmtDate(item.createdAt)}
-            {edited && t('ann.updatedSuffix')}
+          <span className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] tabular-nums text-ink-subtle">
+            <span>
+              {fmtDate(item.createdAt)}
+              {edited && t('ann.updatedSuffix')}
+            </span>
+            {period && (
+              <span className="inline-flex items-center gap-1">
+                <CalendarRange className="h-3 w-3" />
+                {period}
+              </span>
+            )}
           </span>
         </span>
       </button>
@@ -278,6 +308,13 @@ function ReadModal({
               {item.updatedAt !== item.createdAt && t('ann.updatedSuffix')}
             </span>
           </div>
+          {item.publishFrom && item.publishTo && (
+            <div className="flex items-center gap-1.5 text-[12px] tabular-nums text-ink-muted">
+              <CalendarRange className="h-3.5 w-3.5 text-ink-subtle" />
+              <span className="font-medium text-ink-subtle">{t('ann.periodLabel')}</span>
+              {item.publishFrom} ~ {item.publishTo}
+            </div>
+          )}
           <p className="whitespace-pre-wrap text-sm leading-6 text-ink">{item.body || '—'}</p>
         </div>
       )}
@@ -303,6 +340,8 @@ function AnnouncementFormModal({
   const [body, setBody] = useState('')
   const [category, setCategory] = useState<AnnouncementCategory>('general')
   const [isPinned, setIsPinned] = useState(false)
+  const [publishFrom, setPublishFrom] = useState('')
+  const [publishTo, setPublishTo] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -312,6 +351,9 @@ function AnnouncementFormModal({
     setBody(initial?.body ?? '')
     setCategory(initial?.category ?? 'general')
     setIsPinned(initial?.isPinned ?? false)
+    // 신규·legacy(기간 없음) 공지는 시작일을 오늘로 기본, 종료일은 직접 지정하도록 비운다.
+    setPublishFrom(initial?.publishFrom ?? seoulToday())
+    setPublishTo(initial?.publishTo ?? '')
     setError(null)
   }, [open, initial])
 
@@ -320,7 +362,15 @@ function AnnouncementFormModal({
       setError(t('ann.err.titleRequired'))
       return
     }
-    const input = { title: title.trim(), body, category, isPinned }
+    if (!publishFrom || !publishTo) {
+      setError(t('ann.err.periodRequired'))
+      return
+    }
+    if (publishFrom > publishTo) {
+      setError(t('ann.err.periodOrder'))
+      return
+    }
+    const input = { title: title.trim(), body, category, isPinned, publishFrom, publishTo }
     startTransition(async () => {
       const res = isEdit
         ? await updateAnnouncement(initial!.id, input)
@@ -393,6 +443,36 @@ function AnnouncementFormModal({
               {t('ann.form.pin')}
             </span>
           </label>
+        </div>
+
+        <div>
+          <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-ink-muted">
+            <CalendarRange className="h-3.5 w-3.5" />
+            {t('ann.form.period')}
+          </span>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium text-ink-subtle">{t('ann.form.publishFrom')}</span>
+              <input
+                type="date"
+                className="app-input"
+                value={publishFrom}
+                max={publishTo || undefined}
+                onChange={(e) => setPublishFrom(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-medium text-ink-subtle">{t('ann.form.publishTo')}</span>
+              <input
+                type="date"
+                className="app-input"
+                value={publishTo}
+                min={publishFrom || undefined}
+                onChange={(e) => setPublishTo(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-4 text-ink-subtle">{t('ann.form.periodHint')}</p>
         </div>
 
         <label className="block">

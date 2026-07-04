@@ -24,6 +24,32 @@ export function sortAnnouncements(items: Announcement[]): Announcement[] {
   })
 }
 
+/** 게시 상태 라벨(dict 키)·칩 색상 — ANNOUNCEMENT_META 관례. active 는 배지 없이 노출. */
+export type AnnouncementStatus = 'scheduled' | 'active' | 'expired'
+export const ANNOUNCEMENT_STATUS_META: Record<
+  AnnouncementStatus,
+  { labelKey: `ann.status.${AnnouncementStatus}`; chip: string }
+> = {
+  scheduled: { labelKey: 'ann.status.scheduled', chip: 'bg-pending-weak text-accent-warning' },
+  active:    { labelKey: 'ann.status.active',    chip: 'bg-progress-weak text-progress' },
+  expired:   { labelKey: 'ann.status.expired',   chip: 'bg-line text-ink-subtle' },
+}
+
+/**
+ * 게시 기간 대비 오늘(todayIso, 'YYYY-MM-DD' KST) 위치.
+ * date 문자열은 'YYYY-MM-DD' 사전식 비교가 시간순과 일치한다. from/to null = 무기한 경계.
+ */
+export function announcementStatus(a: Announcement, todayIso: string): AnnouncementStatus {
+  if (a.publishFrom && todayIso < a.publishFrom) return 'scheduled'
+  if (a.publishTo && todayIso > a.publishTo) return 'expired'
+  return 'active'
+}
+
+/** 오늘 노출 대상인가(게시중). 일반 사용자 목록·티커·대시보드 필터에 쓴다. */
+export function isPublishedNow(a: Announcement, todayIso: string): boolean {
+  return announcementStatus(a, todayIso) === 'active'
+}
+
 /** 워터마크(마지막으로 목록을 본 시각) 이후 생성된 공지인가. null 워터마크 = 전부 안읽음. */
 export function isUnread(a: Announcement, lastSeenAt: string | null): boolean {
   if (lastSeenAt === null) return true

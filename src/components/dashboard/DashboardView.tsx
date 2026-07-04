@@ -6,7 +6,7 @@ import {
   TrendingUp, TrendingDown, BarChart3, FileText, Timer, Megaphone, Pin,
 } from 'lucide-react'
 import type { Announcement, ComputedItem, Status, TeamCode, AttendanceRecord, AttendanceType } from '@/lib/domain/types'
-import { ANNOUNCEMENT_META } from '@/lib/domain/announcements'
+import { ANNOUNCEMENT_META, isPublishedNow } from '@/lib/domain/announcements'
 import { overallProgress } from '@/lib/domain/rollup'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { ProgressBar } from '@/components/ui/ProgressBar'
@@ -251,11 +251,11 @@ export async function DashboardView({
           </Link>
         }
       >
-        {announcements.length === 0 ? (
+        {announcements.filter(a => isPublishedNow(a, today)).length === 0 ? (
           <MiniEmpty text={tr('ann.dash.empty')} />
         ) : (
           <ul className="space-y-2">
-            {announcements.slice(0, 3).map(a => (
+            {announcements.filter(a => isPublishedNow(a, today)).slice(0, 3).map(a => (
               <li key={a.id}>
                 <Link
                   href={`/p/${projectId}/announcements`}

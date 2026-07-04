@@ -82,6 +82,8 @@ export interface Announcement {
   body: string
   category: AnnouncementCategory
   isPinned: boolean
+  publishFrom: string | null // 'YYYY-MM-DD' (KST) 게시 시작일 · null = 무기한
+  publishTo: string | null   // 'YYYY-MM-DD' (KST) 게시 종료일(포함) · null = 무기한
   createdAt: string          // ISO timestamptz
   updatedAt: string
 }

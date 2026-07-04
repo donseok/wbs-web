@@ -2,12 +2,17 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type { Announcement, AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/types'
 
+/** 오늘 'YYYY-MM-DD' (Asia/Seoul) — publish_from/to(date) 비교 기준. 앱 날짜 표기 관례. */
+function seoulToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+}
+
 /** 프로젝트 공지 목록 — 고정 우선 → 최신순. 실패 시 [] (읽기 계층 관례). */
 export const getAnnouncements = cache(async (projectId: string): Promise<Announcement[]> => {
   const sb = await createServerClient()
   const { data } = await sb
     .from('announcements')
-    .select('id, project_id, title, body, category, is_pinned, created_at, updated_at')
+    .select('id, project_id, title, body, category, is_pinned, publish_from, publish_to, created_at, updated_at')
     .eq('project_id', projectId)
     .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
@@ -19,6 +24,8 @@ export const getAnnouncements = cache(async (projectId: string): Promise<Announc
     body: (r.body as string) ?? '',
     category: r.category as AnnouncementCategory,
     isPinned: (r.is_pinned as boolean) ?? false,
+    publishFrom: (r.publish_from as string | null) ?? null,
+    publishTo: (r.publish_to as string | null) ?? null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
   }))
@@ -30,10 +37,15 @@ export const getAnnouncements = cache(async (projectId: string): Promise<Announc
  */
 export const getTopAnnouncements = cache(async (projectId: string, limit = 5): Promise<AnnouncementSummary[]> => {
   const sb = await createServerClient()
+  const today = seoulToday()
+  // 게시중만: (from is null 또는 from<=today) AND (to is null 또는 to>=today).
+  // .or() 는 서로 AND 결합 — 각 경계를 별도 .or() 로 건다.
   const { data } = await sb
     .from('announcements')
     .select('id, title, category, is_pinned')
     .eq('project_id', projectId)
+    .or(`publish_from.is.null,publish_from.lte.${today}`)
+    .or(`publish_to.is.null,publish_to.gte.${today}`)
     .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit)

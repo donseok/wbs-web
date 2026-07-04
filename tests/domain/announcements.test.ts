@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ANNOUNCEMENT_META, ANNOUNCEMENT_CATEGORIES,
   sortAnnouncements, isUnread, countUnread, summarizeAnnouncements,
+  announcementStatus, isPublishedNow,
 } from '@/lib/domain/announcements'
 import type { Announcement, AnnouncementCategory } from '@/lib/domain/types'
 
@@ -13,6 +14,8 @@ function ann(id: string, createdAt: string, opts: Partial<Announcement> = {}): A
     body: '',
     category: 'general',
     isPinned: false,
+    publishFrom: null,
+    publishTo: null,
     createdAt,
     updatedAt: createdAt,
     ...opts,
@@ -86,6 +89,44 @@ describe('summarizeAnnouncements', () => {
 
   it('빈 배열은 전부 0', () => {
     expect(summarizeAnnouncements([], '2026-07-02')).toEqual({ total: 0, pinned: 0, recent7d: 0 })
+  })
+})
+
+describe('announcementStatus / isPublishedNow', () => {
+  const today = '2026-07-05'
+
+  it('시작일 전이면 scheduled(비노출)', () => {
+    const a = ann('a', '2026-07-01T00:00:00+00:00', { publishFrom: '2026-07-10', publishTo: '2026-07-20' })
+    expect(announcementStatus(a, today)).toBe('scheduled')
+    expect(isPublishedNow(a, today)).toBe(false)
+  })
+
+  it('종료일 후면 expired(비노출)', () => {
+    const a = ann('a', '2026-07-01T00:00:00+00:00', { publishFrom: '2026-06-01', publishTo: '2026-07-01' })
+    expect(announcementStatus(a, today)).toBe('expired')
+    expect(isPublishedNow(a, today)).toBe(false)
+  })
+
+  it('기간 안이면 active(노출)', () => {
+    const a = ann('a', '2026-07-01T00:00:00+00:00', { publishFrom: '2026-07-01', publishTo: '2026-07-31' })
+    expect(announcementStatus(a, today)).toBe('active')
+    expect(isPublishedNow(a, today)).toBe(true)
+  })
+
+  it('경계 포함: 시작일 당일·종료일 당일 모두 active', () => {
+    expect(isPublishedNow(ann('s', '', { publishFrom: today, publishTo: '2026-07-31' }), today)).toBe(true)
+    expect(isPublishedNow(ann('e', '', { publishFrom: '2026-07-01', publishTo: today }), today)).toBe(true)
+  })
+
+  it('기간 null(legacy)은 무기한 노출', () => {
+    expect(isPublishedNow(ann('a', '', { publishFrom: null, publishTo: null }), today)).toBe(true)
+  })
+
+  it('한쪽만 지정: from만 있으면 그 이후 상시, to만 있으면 그 이전 상시', () => {
+    expect(isPublishedNow(ann('f', '', { publishFrom: '2026-07-01', publishTo: null }), today)).toBe(true)
+    expect(isPublishedNow(ann('f', '', { publishFrom: '2026-07-10', publishTo: null }), today)).toBe(false)
+    expect(isPublishedNow(ann('t', '', { publishFrom: null, publishTo: '2026-07-31' }), today)).toBe(true)
+    expect(isPublishedNow(ann('t', '', { publishFrom: null, publishTo: '2026-07-01' }), today)).toBe(false)
   })
 })
 
