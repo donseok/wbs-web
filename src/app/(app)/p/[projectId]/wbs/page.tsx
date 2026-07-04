@@ -1,6 +1,7 @@
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
+import { getWbsCollapse } from '@/app/actions/preferences'
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 import { PageHero } from '@/components/ui/PageHero'
 import { t } from '@/lib/i18n/dict'
@@ -19,10 +20,11 @@ export default async function WbsPage({
   const { projectId } = await params
   const { view } = await searchParams
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, m, projects] = await Promise.all([
+  const [{ items, holidays, today }, m, projects, initialCollapsed] = await Promise.all([
     getComputedWbs(projectId),
     getMembership(),
     listProjects(),
+    getWbsCollapse(projectId),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   return (
@@ -44,6 +46,7 @@ export default async function WbsPage({
         startDate={project?.start_date}
         endDate={project?.end_date}
         defaultView={view === 'timeline' ? 'timeline' : 'sheet'}
+        initialCollapsed={initialCollapsed ?? undefined}
       />
     </ProjectPageShell>
   )

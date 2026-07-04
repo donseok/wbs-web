@@ -1,9 +1,10 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
+import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { roundWeight } from '@/lib/domain/format'
@@ -105,6 +106,7 @@ export function WbsGanttSheet({
   endDate,
   readOnly = false,
   defaultView = 'sheet',
+  initialCollapsed,
 }: {
   items: ComputedItem[]
   holidays: string[]
@@ -120,11 +122,22 @@ export function WbsGanttSheet({
   readOnly?: boolean
   /** 'timeline'이면 타임라인 집중 모드로 시작(통합된 간트 메뉴 진입용) */
   defaultView?: 'sheet' | 'timeline'
+  /** 계정에 저장된 접힘 id 목록. 있으면 기본 접힘 대신 이 값으로 초기화. */
+  initialCollapsed?: string[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
   // 담당별 분리 부모는 기본 접힘 — 첫 화면이 엑셀 원본과 같은 행 구성이 된다.
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => splitParentIds(items))
+  // 계정에 저장된 접힘 상태가 있으면(initialCollapsed) 그 값을 우선한다.
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => (initialCollapsed ? new Set(initialCollapsed) : splitParentIds(items)),
+  )
+  // 사용자 토글 시 개인 뷰 상태를 계정에 저장. 첫 커밋(초기 렌더)은 스킵.
+  const didInitCollapse = useRef(false)
+  useEffect(() => {
+    if (!didInitCollapse.current) { didInitCollapse.current = true; return }
+    queueWbsCollapse(projectId, [...collapsed])
+  }, [collapsed, projectId])
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
