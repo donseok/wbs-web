@@ -60,10 +60,10 @@ export interface DeliverableAttachment {
 }
 
 /* ── 근태현황 ──
- * work=정상근무 remote=재택 annual=연차 half=반차 sick=병가
- * trip=출장 official=공가 absent=결근 */
+ * work=정상근무 annual=연차 half=반차 quarter=반반차 sick=병가 trip=출장
+ * (remote=재택 official=공가 absent=결근 은 등록 옵션에서 제외 — 과거 기록 표시용으로만 타입 유지) */
 export type AttendanceType =
-  | 'work' | 'remote' | 'annual' | 'half' | 'sick' | 'trip' | 'official' | 'absent'
+  | 'work' | 'remote' | 'annual' | 'half' | 'quarter' | 'sick' | 'trip' | 'official' | 'absent'
 export interface AttendanceRecord {
   id: string
   projectId: string

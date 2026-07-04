@@ -9,26 +9,27 @@ export const ATTENDANCE_META: Record<AttendanceType, { label: string; short: str
   remote:   { label: '재택',     short: '재택', dot: 'bg-brand',            chip: 'bg-brand-weak text-brand' },
   annual:   { label: '연차',     short: '연차', dot: 'bg-progress',         chip: 'bg-progress-weak text-progress' },
   half:     { label: '반차',     short: '반차', dot: 'bg-progress',         chip: 'bg-progress-weak text-progress' },
+  quarter:  { label: '반반차',   short: '반반차', dot: 'bg-progress',       chip: 'bg-progress-weak text-progress' },
   sick:     { label: '병가',     short: '병가', dot: 'bg-delayed',          chip: 'bg-delayed-weak text-delayed' },
   trip:     { label: '출장',     short: '출장', dot: 'bg-accent-secondary', chip: 'bg-accent-secondary/15 text-accent-secondary' },
   official: { label: '공가',     short: '공가', dot: 'bg-pending',          chip: 'bg-pending-weak text-pending' },
   absent:   { label: '결근',     short: '결근', dot: 'bg-delayed',          chip: 'bg-delayed-weak text-delayed' },
 }
 
-/** 근태 타입 표시 순서 (등록 셀렉트/범례용) */
+/** 근태 타입 표시 순서 (등록 셀렉트/범례용) — 재택·공가·결근은 등록 옵션에서 제외 */
 export const ATTENDANCE_TYPES: AttendanceType[] = [
-  'work', 'remote', 'annual', 'half', 'sick', 'trip', 'official', 'absent',
+  'work', 'annual', 'half', 'quarter', 'sick', 'trip',
 ]
 
 /**
- * 기록 집계 — total=전체, leave=연차·반차·병가, trip=출장, remote=재택.
+ * 기록 집계 — total=전체, leave=연차·반차·반반차·병가, trip=출장, remote=재택.
  */
 export function summarize(records: AttendanceRecord[]): { total: number; leave: number; trip: number; remote: number } {
   let leave = 0
   let trip = 0
   let remote = 0
   for (const r of records) {
-    if (r.type === 'annual' || r.type === 'half' || r.type === 'sick') leave++
+    if (r.type === 'annual' || r.type === 'half' || r.type === 'quarter' || r.type === 'sick') leave++
     else if (r.type === 'trip') trip++
     else if (r.type === 'remote') remote++
   }

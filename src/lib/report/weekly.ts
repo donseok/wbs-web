@@ -467,7 +467,7 @@ export function buildWeeklyReportModel(
 
 /** 근태 약칭 (모델 자급 — 컴포넌트 계층 의존 회피). */
 const ATT_SHORT: Record<AttendanceType, string> = {
-  work: '근무', remote: '재택', annual: '연차', half: '반차', sick: '병가', trip: '출장', official: '공가', absent: '결근',
+  work: '근무', remote: '재택', annual: '연차', half: '반차', quarter: '반반차', sick: '병가', trip: '출장', official: '공가', absent: '결근',
 }
 
 export { WEEKDAY_LABELS }

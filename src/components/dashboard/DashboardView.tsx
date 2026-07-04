@@ -41,6 +41,7 @@ const ATT: Record<AttendanceType, { label: string; cls: string }> = {
   remote: { label: '재택', cls: 'bg-progress-weak text-progress' },
   annual: { label: '연차', cls: 'bg-pending-weak text-accent-warning' },
   half: { label: '반차', cls: 'bg-pending-weak text-accent-warning' },
+  quarter: { label: '반반차', cls: 'bg-pending-weak text-accent-warning' },
   sick: { label: '병가', cls: 'bg-delayed-weak text-delayed' },
   trip: { label: '출장', cls: 'bg-brand-weak text-brand' },
   official: { label: '공가', cls: 'bg-surface-2 text-ink-muted' },
