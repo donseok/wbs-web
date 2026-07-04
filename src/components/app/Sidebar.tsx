@@ -65,28 +65,29 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
   return (
     <aside
-      className={`sticky top-0 hidden h-dvh shrink-0 flex-col overflow-y-auto bg-sidebar px-3 py-4 text-sidebar-ink lg:flex ${collapsed ? 'w-[78px]' : 'w-[248px]'} transition-[width] duration-200`}
+      className={`sticky top-0 hidden h-dvh shrink-0 flex-col overflow-y-auto bg-sidebar px-3 py-3 text-sidebar-ink lg:flex ${collapsed ? 'w-[78px]' : 'w-[248px]'} transition-[width] duration-200`}
     >
       <div className="flex items-center justify-end">
-        <button onClick={toggleCollapse} className="flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted transition hover:bg-sidebar-3 hover:text-sidebar-ink" aria-label="사이드바 접기">
-          <PanelLeft className="h-4 w-4" />
+        <button onClick={toggleCollapse} className="flex h-6 w-6 items-center justify-center rounded-md border border-sidebar-line text-sidebar-ink-muted transition hover:bg-sidebar-3 hover:text-sidebar-ink" aria-label="사이드바 접기">
+          <PanelLeft className="h-3.5 w-3.5" />
         </button>
       </div>
 
       {/* WORKSPACE 카드 */}
       {!collapsed && (
-        <div className="mt-2 rounded-2xl border border-sidebar-line bg-sidebar-2 p-3.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-ink-subtle">Workspace</div>
-          <div className="mt-1 text-[15px] font-bold tracking-tight text-sidebar-ink">{t('workspace.title')}</div>
-          <p className="mt-1.5 text-[11px] leading-4 text-sidebar-ink-subtle">{t('workspace.desc')}</p>
-          <div className="mt-2.5 grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-sidebar-line bg-sidebar-3/60 px-3 py-2">
+        <div className="mt-1 rounded-2xl border border-sidebar-line bg-sidebar-2 p-3">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-ink-subtle">Workspace</span>
+          </div>
+          <div className="mt-0.5 text-[14px] font-bold tracking-tight text-sidebar-ink">{t('workspace.title')}</div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-sidebar-line bg-sidebar-3/60 px-2.5 py-1.5">
               <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">{t('workspace.projects')}</div>
-              <div className="mt-0.5 text-xl font-bold tabular-nums text-sidebar-ink">{projects.length}</div>
+              <div className="mt-0.5 text-lg font-bold tabular-nums text-sidebar-ink">{projects.length}</div>
             </div>
-            <div className="rounded-xl border border-sidebar-line bg-sidebar-3/60 px-3 py-2">
+            <div className="rounded-xl border border-sidebar-line bg-sidebar-3/60 px-2.5 py-1.5">
               <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">{t('workspace.active')}</div>
-              <div className="mt-0.5 text-xl font-bold tabular-nums text-sidebar-ink">{activeCount}</div>
+              <div className="mt-0.5 text-lg font-bold tabular-nums text-sidebar-ink">{activeCount}</div>
             </div>
           </div>
         </div>
