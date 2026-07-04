@@ -173,7 +173,6 @@ export function RowDetailPanel({
               <Field icon={CalendarRange} label={t('wbs.plannedSchedule')}><span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span></Field>
               <Field icon={Scale} label={t('wbs.colWeight')}><span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : roundWeight(item.weight)}</span></Field>
               <Field icon={FileText} label={t('wbs.colDeliverable')}>{item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}</Field>
-              {item.biz && <Field icon={FileText} label="Biz"><span>{item.biz}</span></Field>}
             </>
           )}
 

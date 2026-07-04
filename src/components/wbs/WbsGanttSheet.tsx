@@ -19,7 +19,6 @@ const COLS: Col[] = [
   { key: 'no', w: 44, frozen: true, sk: 0 },
   { key: 'level', w: 60, frozen: true, sk: 44 },
   { key: 'name', w: 300, frozen: true, sk: 104 },
-  { key: 'biz', w: 64, detail: true },
   { key: 'owners', w: 128 },
   { key: 'status', w: 76 },
   { key: 'deliverable', w: 150, detail: true },
@@ -513,16 +512,15 @@ export function WbsGanttSheet({
             {headCell(COLS[0], '#', 'justify-center')}
             {headCell(COLS[1], t('wbs.colLevel'), 'justify-center')}
             {headCell(COLS[2], t('wbs.colName'), 'justify-start')}
-            {showCol('biz') && headCell(COLS[3], 'BIZ', 'justify-center')}
-            {headCell(COLS[4], t('wbs.colOwners'), 'justify-start')}
-            {headCell(COLS[5], t('wbs.colStatus'), 'justify-center')}
-            {showCol('deliverable') && headCell(COLS[6], t('wbs.colDeliverable'), 'justify-start')}
-            {showCol('pstart') && headCell(COLS[7], t('wbs.colPlannedStart'), 'justify-center')}
-            {showCol('pend') && headCell(COLS[8], t('wbs.colPlannedEnd'), 'justify-center')}
-            {showCol('weight') && headCell(COLS[9], t('wbs.colWeight'), 'justify-end')}
-            {showCol('pplan') && headCell(COLS[10], t('wbs.colPlannedPct'), 'justify-end')}
-            {showCol('pactual') && headCell(COLS[11], t('wbs.colActualPct'), 'justify-end')}
-            {showCol('achieve') && headCell(COLS[12], t('wbs.colAchievement'), 'justify-center')}
+            {headCell(COLS[3], t('wbs.colOwners'), 'justify-start')}
+            {headCell(COLS[4], t('wbs.colStatus'), 'justify-center')}
+            {showCol('deliverable') && headCell(COLS[5], t('wbs.colDeliverable'), 'justify-start')}
+            {showCol('pstart') && headCell(COLS[6], t('wbs.colPlannedStart'), 'justify-center')}
+            {showCol('pend') && headCell(COLS[7], t('wbs.colPlannedEnd'), 'justify-center')}
+            {showCol('weight') && headCell(COLS[8], t('wbs.colWeight'), 'justify-end')}
+            {showCol('pplan') && headCell(COLS[9], t('wbs.colPlannedPct'), 'justify-end')}
+            {showCol('pactual') && headCell(COLS[10], t('wbs.colActualPct'), 'justify-end')}
+            {showCol('achieve') && headCell(COLS[11], t('wbs.colAchievement'), 'justify-center')}
             {/* 간트 헤더 (월/주/일 3단) */}
             <div
               className="relative box-border h-[var(--wbs-head-h)] shrink-0 border-b-2 border-grid-strong bg-sheet-head"
@@ -661,15 +659,6 @@ export function WbsGanttSheet({
                     </button>
                   </div>
                 </div>
-                {/* BIZ */}
-                {showCol('biz') && (
-                  <div
-                    className={`${cellBase} border-r border-grid justify-center text-[12px] text-ink-muted ${cellBg}`}
-                    style={{ width: W('biz') }}
-                  >
-                    {n.biz ?? '-'}
-                  </div>
-                )}
                 {/* 담당 */}
                 <div
                   className={`${cellBase} border-r border-grid ${cellBg}`}
