@@ -459,7 +459,7 @@ export async function DashboardView({
             <div className="grid grid-cols-3 gap-3">
               <Stat label={tr('dash.att.records')} value={`${weekAtt.length}${tr('dash.unitCount')}`} />
               <Stat label={tr('dash.att.leave')} value={`${attCount('annual', 'half', 'sick')}${tr('dash.unitCount')}`} />
-              <Stat label={tr('dash.att.tripRemote')} value={`${attCount('trip', 'remote')}${tr('dash.unitCount')}`} />
+              <Stat label={tr('dash.att.tripRemote')} value={`${attCount('trip')}${tr('dash.unitCount')}`} />
             </div>
             {attByType.length === 0 ? (
               <MiniEmpty text={tr('dash.att.empty')} />
