@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, ChevronRight, Clock4, Globe, Hand, LogOut, Menu, Moon, PanelTopClose, PanelTopOpen, Sun, User, X,
+  AlertTriangle, Bell, ChevronRight, Clock4, Globe, LogOut, Menu, Moon, PanelTopClose, PanelTopOpen, Sun, User, X,
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -35,8 +35,6 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   const [heroCollapsed, setHeroCollapsed] = useState(() => readHeroCollapsed())
 
   const activeId = useMemo(() => pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null, [pathname])
-  const activeProject = activeId ? projects.find(p => p.id === activeId) ?? null : null
-  const baseDateAuto = !activeProject?.baseDate
 
   useEffect(() => { setMenuOpen(false); setOpen(null) }, [pathname])
   // 히어로 외부 토글 이벤트 수신 — 헤더 버튼 상태를 동기화
@@ -115,11 +113,7 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
               {heroCollapsed ? <PanelTopOpen className="h-3.5 w-3.5" /> : <PanelTopClose className="h-3.5 w-3.5" />}
               {heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
             </button>
-            {activeId && (
-              <Link href={`/p/${activeId}/settings`} className="chrome-btn hidden lg:inline-flex" title={baseDateAuto ? '공정율 기준일: 자동(오늘) — 클릭해 설정' : `공정율 기준일: ${activeProject?.baseDate} 고정 — 클릭해 설정`}>
-                <Hand className="h-3.5 w-3.5" />{baseDateAuto ? t('chrome.auto') : t('chrome.manual')}
-              </Link>
-            )}
+            {/* 공정율 기준일 자동/수동 바로가기 버튼 — 사용자 요청으로 화면에서 제거(기능은 설정 페이지에 유지) */}
             {/* 언어 전환·다크모드 토글 — 사용자 요청으로 화면에서 숨김(기능 코드는 유지) */}
             <button onClick={() => setLocale(locale === 'ko' ? 'en' : 'ko')} className="chrome-btn hidden" title="Language">
               <Globe className="h-3.5 w-3.5" />{locale.toUpperCase()}
