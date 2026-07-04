@@ -3,6 +3,7 @@ import { listProjects } from '@/app/actions/project'
 import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { HeaderChrome } from '@/components/app/HeaderChrome'
 import { DkBot } from '@/components/chat/DkBot'
+import { PrefsSync } from '@/components/app/PrefsSync'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -27,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="app-backdrop flex h-dvh overflow-hidden">
+      <PrefsSync />
       <a href="#main-content" className="fixed left-4 top-3 z-[200] -translate-y-20 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition focus:translate-y-0">본문 바로가기</a>
       <Sidebar projects={projectLinks} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
