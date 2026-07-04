@@ -150,3 +150,11 @@ export interface MeetingAttendeeInfo {
   teamCode: TeamCode | null
   email: string | null
 }
+
+/** 계정별로 동기화되는 전역 UI 설정. 각 키는 서버에 없을 수 있음(부분 저장). */
+export interface UiPrefs {
+  heroCollapsed?: boolean
+  sidebarCollapsed?: boolean
+  theme?: 'light' | 'dark'
+  locale?: 'ko' | 'en'
+}
