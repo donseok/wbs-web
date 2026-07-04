@@ -248,7 +248,7 @@ function MobileMenu({
           <span className="text-[15px] font-bold">D&apos;Flow</span>
           <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted"><X className="h-4 w-4" /></button>
         </div>
-        <nav className="mt-6 space-y-1">
+        <nav className="mt-6 min-h-0 flex-1 space-y-1 overflow-y-auto">
           <Link href="/projects" onClick={onClose} className={`side-link ${pathname === '/projects' ? 'side-link-active' : ''}`}>{t('nav.allProjects')}</Link>
           <Link href="/meetings" onClick={onClose} className={`side-link ${pathname === '/meetings' ? 'side-link-active' : ''}`}>{t('nav.myMeetings')}</Link>
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>

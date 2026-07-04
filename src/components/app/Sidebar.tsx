@@ -101,11 +101,11 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
       {/* 프로젝트 리스트 */}
       <div className="mt-5 flex min-h-0 flex-1 flex-col">
-        <div className="mb-2 flex items-center justify-between px-2">
+        <div className="mb-2 flex shrink-0 items-center justify-between px-2">
           {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</span>}
           <Link href="/projects" className="text-[10px] font-medium text-sidebar-ink-muted transition hover:text-sidebar-ink">{collapsed ? '' : t('common.viewAll')}</Link>
         </div>
-        <ul className="space-y-1 overflow-y-auto">
+        <ul className="min-h-0 space-y-1 overflow-y-auto">
           {projects.map(project => {
             const active = activeId === project.id
             const meta = STATUS_META[project.status]
@@ -136,7 +136,7 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
         </ul>
 
         {/* 메뉴 섹션 */}
-        <nav className="mt-5 border-t border-sidebar-line pt-4" aria-label="주요 메뉴">
+        <nav className="mt-5 shrink-0 border-t border-sidebar-line pt-4" aria-label="주요 메뉴">
           <div className="mb-2 flex items-center justify-between px-2">
             {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">메뉴</span>}
             <Link href="/projects" className="flex h-6 w-6 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted transition hover:bg-sidebar-3 hover:text-sidebar-ink" aria-label={t('common.newProject')}>
