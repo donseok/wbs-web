@@ -65,7 +65,7 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
   return (
     <aside
-      className={`sticky top-0 hidden h-dvh shrink-0 flex-col bg-sidebar px-3 py-4 text-sidebar-ink lg:flex ${collapsed ? 'w-[78px]' : 'w-[248px]'} transition-[width] duration-200`}
+      className={`sticky top-0 hidden h-dvh shrink-0 flex-col overflow-y-auto bg-sidebar px-3 py-4 text-sidebar-ink lg:flex ${collapsed ? 'w-[78px]' : 'w-[248px]'} transition-[width] duration-200`}
     >
       <div className="flex items-center justify-end">
         <button onClick={toggleCollapse} className="flex h-8 w-8 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted transition hover:bg-sidebar-3 hover:text-sidebar-ink" aria-label="사이드바 접기">
@@ -100,12 +100,12 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
       </Link>
 
       {/* 프로젝트 리스트 */}
-      <div className="mt-4 flex min-h-0 flex-1 flex-col">
+      <div className="mt-4 flex shrink-0 flex-col">
         <div className="mb-1.5 flex shrink-0 items-center justify-between px-2">
           {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</span>}
           <Link href="/projects" className="text-[10px] font-medium text-sidebar-ink-muted transition hover:text-sidebar-ink">{collapsed ? '' : t('common.viewAll')}</Link>
         </div>
-        <ul className="min-h-0 space-y-1 overflow-y-auto">
+        <ul className="max-h-[42vh] shrink-0 space-y-1 overflow-y-auto">
           {projects.map(project => {
             const active = activeId === project.id
             const meta = STATUS_META[project.status]
