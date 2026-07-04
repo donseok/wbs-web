@@ -75,11 +75,11 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
       {/* WORKSPACE 카드 */}
       {!collapsed && (
-        <div className="mt-2 rounded-2xl border border-sidebar-line bg-sidebar-2 p-4">
+        <div className="mt-2 rounded-2xl border border-sidebar-line bg-sidebar-2 p-3.5">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-ink-subtle">Workspace</div>
           <div className="mt-1 text-[15px] font-bold tracking-tight text-sidebar-ink">{t('workspace.title')}</div>
           <p className="mt-1.5 text-[11px] leading-4 text-sidebar-ink-subtle">{t('workspace.desc')}</p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
             <div className="rounded-xl border border-sidebar-line bg-sidebar-3/60 px-3 py-2">
               <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">{t('workspace.projects')}</div>
               <div className="mt-0.5 text-xl font-bold tabular-nums text-sidebar-ink">{projects.length}</div>
@@ -94,14 +94,14 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
       {/* 전역: 내 회의 */}
       <Link href="/meetings" title={t('nav.myMeetings')}
-        className={`side-link mt-3 ${pathname === '/meetings' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+        className={`side-link mt-2 ${pathname === '/meetings' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
         <CalendarRange className="h-[18px] w-[18px] shrink-0" />
         {!collapsed && <span className="flex-1">{t('nav.myMeetings')}</span>}
       </Link>
 
       {/* 프로젝트 리스트 */}
-      <div className="mt-5 flex min-h-0 flex-1 flex-col">
-        <div className="mb-2 flex shrink-0 items-center justify-between px-2">
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
+        <div className="mb-1.5 flex shrink-0 items-center justify-between px-2">
           {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</span>}
           <Link href="/projects" className="text-[10px] font-medium text-sidebar-ink-muted transition hover:text-sidebar-ink">{collapsed ? '' : t('common.viewAll')}</Link>
         </div>
@@ -136,8 +136,8 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
         </ul>
 
         {/* 메뉴 섹션 */}
-        <nav className="mt-5 shrink-0 border-t border-sidebar-line pt-4" aria-label="주요 메뉴">
-          <div className="mb-2 flex items-center justify-between px-2">
+        <nav className="mt-4 shrink-0 border-t border-sidebar-line pt-3" aria-label="주요 메뉴">
+          <div className="mb-1.5 flex items-center justify-between px-2">
             {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">메뉴</span>}
             <Link href="/projects" className="flex h-6 w-6 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted transition hover:bg-sidebar-3 hover:text-sidebar-ink" aria-label={t('common.newProject')}>
               <Plus className="h-3.5 w-3.5" />

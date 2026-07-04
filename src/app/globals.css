@@ -285,7 +285,7 @@ textarea {
 
   /* 사이드바 항목 (항상 다크) */
   .side-link {
-    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-sidebar-ink-muted transition duration-150 hover:bg-sidebar-3 hover:text-sidebar-ink;
+    @apply flex items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium text-sidebar-ink-muted transition duration-150 hover:bg-sidebar-3 hover:text-sidebar-ink;
   }
   .side-link-active {
     @apply bg-sidebar-3 text-sidebar-ink shadow-sm;
