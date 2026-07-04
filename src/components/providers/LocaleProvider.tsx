@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { DICT, type DictKey, type Locale } from '@/lib/i18n/dict'
+import { queueUiPref } from '@/lib/prefs/debouncedSave'
 
 const COOKIE = 'dflow-locale'
 
@@ -35,6 +36,7 @@ export function LocaleProvider({
         writeCookie(next)
         localStorage.setItem(COOKIE, next)
       } catch {}
+      queueUiPref({ locale: next })
       // 서버 컴포넌트로 렌더되는 페이지 본문도 새 locale로 재렌더.
       router.refresh()
     },

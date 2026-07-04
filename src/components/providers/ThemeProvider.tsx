@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { queueUiPref } from '@/lib/prefs/debouncedSave'
 
 type Theme = 'light' | 'dark'
 
@@ -25,6 +26,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('dflow-theme', next)
       document.cookie = `dflow-theme=${next};path=/;max-age=31536000;samesite=lax`
     } catch {}
+    queueUiPref({ theme: next })
   }, [])
 
   const toggle = useCallback(() => apply(theme === 'dark' ? 'light' : 'dark'), [theme, apply])

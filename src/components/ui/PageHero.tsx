@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { queueUiPref } from '@/lib/prefs/debouncedSave'
 
 /** 접힘 상태 localStorage 키 — 사이드바(dflow-sidebar)와 동일 컨벤션, 전 페이지 공유. */
 export const HERO_STORAGE_KEY = 'dflow-hero'
@@ -28,6 +29,7 @@ export function dispatchHeroToggle(collapsed: boolean): void {
   collapsedCache = collapsed
   try { localStorage.setItem(HERO_STORAGE_KEY, collapsed ? '1' : '0') } catch {}
   window.dispatchEvent(new CustomEvent(HERO_TOGGLE_EVENT, { detail: { collapsed } }))
+  queueUiPref({ heroCollapsed: collapsed })
 }
 
 /**
