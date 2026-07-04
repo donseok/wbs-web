@@ -35,4 +35,15 @@ describe('Sidebar 서버 동기화 배선', () => {
     // 접힌 상태의 aside 폭 클래스(w-[78px]) 존재로 확인
     expect(container.querySelector('aside')?.className ?? '').toContain('w-[78px]')
   })
+
+  it('사용자가 접기 버튼을 클릭하면 queueUiPref 로 서버에도 저장된다', async () => {
+    await mount()
+    const toggleBtn = container.querySelector<HTMLButtonElement>('button[aria-label="사이드바 접기"]')
+    expect(toggleBtn).not.toBeNull()
+    act(() => toggleBtn!.click())
+    expect(queueUiPref).toHaveBeenCalledTimes(1)
+    expect(queueUiPref).toHaveBeenCalledWith({ sidebarCollapsed: true })
+    // 사용자 클릭 경로도 이벤트 기반 상태 갱신을 거쳐 DOM에 반영된다.
+    expect(container.querySelector('aside')?.className ?? '').toContain('w-[78px]')
+  })
 })
