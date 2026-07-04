@@ -132,10 +132,12 @@ export function WbsGanttSheet({
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => (initialCollapsed ? new Set(initialCollapsed) : splitParentIds(items)),
   )
-  // 사용자 토글 시 개인 뷰 상태를 계정에 저장. 첫 커밋(초기 렌더)은 스킵.
-  const didInitCollapse = useRef(false)
+  // 사용자 토글 시에만 개인 뷰 상태를 계정에 저장. 초기 렌더(마운트, StrictMode 이중 호출 포함)는
+  // collapsed 참조가 초기값 그대로라 저장하지 않는다. setCollapsed 는 변경 시 항상 새 Set 을 만든다.
+  const savedCollapsedRef = useRef(collapsed)
   useEffect(() => {
-    if (!didInitCollapse.current) { didInitCollapse.current = true; return }
+    if (collapsed === savedCollapsedRef.current) return
+    savedCollapsedRef.current = collapsed
     queueWbsCollapse(projectId, [...collapsed])
   }, [collapsed, projectId])
   const [query, setQuery] = useState('')

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { ComputedItem } from '@/lib/domain/types'
 
@@ -48,5 +48,32 @@ describe('WBS initialCollapsed', () => {
       <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly />,
     ))
     expect(rowCount(container)).toBe(3)
+  })
+
+  it('마운트 시(StrictMode 이중 실행 포함) 저장을 호출하지 않는다', async () => {
+    // React StrictMode는 개발 모드에서 마운트 이펙트를 setup→cleanup→setup 두 번 실행한다.
+    // 참조 비교 가드는 두 번째 setup에서도 collapsed 가 초기 참조 그대로이므로 저장을 건너뛴다.
+    await act(async () => root.render(
+      <StrictMode>
+        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly />
+      </StrictMode>,
+    ))
+    expect(queueWbsCollapse).not.toHaveBeenCalled()
+  })
+
+  it('사용자가 접힘 토글을 누르면 저장을 정확히 1회 호출한다', async () => {
+    await act(async () => root.render(
+      <StrictMode>
+        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly />
+      </StrictMode>,
+    ))
+    expect(queueWbsCollapse).not.toHaveBeenCalled()
+
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="wbs.expand"]')
+    expect(toggle).not.toBeNull()
+    await act(async () => toggle!.click())
+
+    expect(queueWbsCollapse).toHaveBeenCalledTimes(1)
+    expect(queueWbsCollapse).toHaveBeenCalledWith('p1', expect.any(Array))
   })
 })
