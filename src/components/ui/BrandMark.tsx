@@ -1,6 +1,5 @@
 'use client'
 
-import Image from 'next/image'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
 /**
@@ -20,7 +19,8 @@ export function BrandGlyph({ size = 40, className = '' }: { size?: number; class
       style={{ width: size, height: size, borderRadius: Math.round(size * 0.28), boxShadow: 'var(--shadow-sm)' }}
       aria-hidden
     >
-      <Image src="/logo.png" alt="" width={size} height={size} priority className="block scale-[1.06]" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo.png" alt="" width={size} height={size} className="block scale-[1.06]" />
     </span>
   )
 }

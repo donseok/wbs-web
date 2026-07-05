@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import {
   Settings, Zap, GitBranch, Target, Lightbulb, ChartColumn, Clock,
@@ -127,7 +126,8 @@ export default function Login() {
           {/* 중앙 콘텐츠 */}
           <div className="relative z-10 text-center">
             <div className="relative mx-auto mb-8 w-fit overflow-hidden rounded-[20px]">
-              <Image src="/logo.png" alt="DK Flow" width={80} height={80} priority className="block scale-[1.06]" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="" width={80} height={80} className="block scale-[1.06]" />
             </div>
             <div className="mx-auto inline-flex items-center gap-[0.45rem] whitespace-nowrap rounded-full border border-white/[0.12] bg-white/[0.14] px-[0.85rem] py-[0.45rem] text-[0.78rem] font-semibold text-white/90">
               <Sparkles className="h-3.5 w-3.5 text-[#cb6d37]" />
@@ -159,7 +159,8 @@ export default function Login() {
           {/* 모바일 헤더 */}
           <div className="mb-10 flex flex-col items-center gap-3 lg:hidden">
             <div className="relative overflow-hidden rounded-[14px]">
-              <Image src="/logo.png" alt="DK Flow" width={56} height={56} priority className="block scale-[1.06]" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo.png" alt="" width={56} height={56} className="block scale-[1.06]" />
             </div>
             <div className="text-center">
               <h1 className="text-2xl font-bold tracking-[-0.02em] text-[#17181d]">DK Flow</h1>
@@ -175,14 +176,6 @@ export default function Login() {
 
           {/* 카드 */}
           <div className="relative w-full rounded-[28px] border border-[rgba(49,37,22,0.12)] bg-[linear-gradient(rgba(255,255,255,0.92),rgba(255,247,240,0.85))] p-6 shadow-[0_52px_120px_-52px_#11182761,0_0_0_1px_#ffffff2e_inset] sm:p-8">
-            {/* 탭 (로그인 전용) */}
-            <div className="mb-6 flex rounded-2xl border border-[rgba(49,37,22,0.18)] bg-[#ffffff94] p-1">
-              <div className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#fffaf4] px-4 py-2.5 text-sm font-medium text-[#17181d] shadow-sm">
-                <LogIn className="h-4 w-4" />
-                로그인
-              </div>
-            </div>
-
             <form onSubmit={submit} className="space-y-4">
               <div>
                 <label htmlFor="email" className="mb-[0.6rem] block text-[0.8rem] font-bold text-[#4a4440]">이메일</label>
