@@ -221,10 +221,10 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
         <button
           onClick={() => setOpen(true)}
           aria-label={t('chat.open')}
-          className="fixed bottom-5 right-5 z-[120] flex h-16 w-16 items-center justify-center rounded-full text-white ring-1 ring-white/10 transition hover:scale-105 active:scale-95"
+          className="fixed bottom-16 right-5 z-[120] flex h-[52px] w-[52px] items-center justify-center rounded-full text-white ring-1 ring-white/10 transition hover:scale-105 active:scale-95"
           style={{ backgroundImage: 'var(--gradient-dark)', boxShadow: 'var(--shadow-lg)' }}
         >
-          <RobotMascot className="h-11 w-11" />
+          <RobotMascot className="h-9 w-9" />
           {ctx && ctx.weekStartCount > 0 && (
             <span className="absolute right-1 top-1 h-3 w-3 rounded-full border-2 border-[#13161c] bg-brand" />
           )}
@@ -236,7 +236,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
         <div
           role="dialog"
           aria-label={t('chat.dialog')}
-          className="fixed bottom-5 right-5 z-[130] flex h-[min(720px,calc(100dvh-2.5rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-line bg-surface"
+          className="fixed bottom-16 right-5 z-[130] flex h-[min(720px,calc(100dvh-5.25rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-line bg-surface"
           style={{ boxShadow: 'var(--shadow-xl)' }}
         >
           {/* 헤더 */}
