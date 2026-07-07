@@ -9,7 +9,7 @@ export function ProjectPageShell({ hero, children }: { hero: ReactNode; children
     <div className="flex h-full min-h-0 flex-col gap-5">
       <div className="shrink-0">{hero}</div>
       <div
-        className="-mr-1 min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-20 pr-1"
+        className="-mr-1 min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-6 pr-1"
         data-project-scroll-region
       >
         {children}
