@@ -77,8 +77,7 @@ describe('isValidPassword', () => {
   it('8자 미만/비문자열은 false', () => {
     expect(isValidPassword('1234567')).toBe(false)
     expect(isValidPassword('')).toBe(false)
-    // @ts-expect-error 런타임 방어 확인
-    expect(isValidPassword(undefined)).toBe(false)
+    expect(isValidPassword(undefined)).toBe(false) // 런타임 방어(unknown 허용)
   })
 })
 
@@ -248,11 +247,14 @@ Create `tests/actions/accounts-gate.test.ts`:
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // next/cache · auth · admin 클라이언트를 모킹해 게이트 로직만 검증한다.
+// vi.mock 팩토리는 파일 최상단으로 호이스팅되므로, 스파이는 vi.hoisted 로 먼저 만든다.
+const { createAdminClient } = vi.hoisted(() => ({
+  createAdminClient: vi.fn(() => {
+    throw new Error('createAdminClient 는 게이트 통과 전에 호출되면 안 된다')
+  }),
+}))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ getMembership: vi.fn() }))
-const createAdminClient = vi.fn(() => {
-  throw new Error('createAdminClient 는 게이트 통과 전에 호출되면 안 된다')
-})
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient }))
 
 import { getMembership } from '@/lib/auth'

@@ -31,8 +31,7 @@ describe('isValidPassword', () => {
   it('8자 미만/비문자열은 false', () => {
     expect(isValidPassword('1234567')).toBe(false)
     expect(isValidPassword('')).toBe(false)
-    // @ts-expect-error 런타임 방어 확인
-    expect(isValidPassword(undefined)).toBe(false)
+    expect(isValidPassword(undefined)).toBe(false) // 런타임 방어(unknown 허용)
   })
 })
 
