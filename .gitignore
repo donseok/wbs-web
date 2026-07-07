@@ -43,3 +43,6 @@ next-env.d.ts
 
 # code-review workspace (generated)
 _workspace/
+
+# DB 백업 덤프 (WBS 업데이트 시 생성되는 로컬 스냅샷 — 소스 아님)
+/docs/backups/
