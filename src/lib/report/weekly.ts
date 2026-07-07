@@ -30,6 +30,9 @@ export interface WeeklyMeta {
   weekDays: string[]         // 월~금 5개
   nextWeekStart: string
   nextWeekDays: string[]     // 차주 월~금 5개
+  prevWeekStart: string      // 지난주 월요일 'YYYY-MM-DD'
+  prevWeekDays: string[]     // 지난주 월~금 5개
+  prevWeekRange: string      // '6/29~7/5'
   totalLeaves: number
   phaseCount: number
 }
@@ -76,6 +79,7 @@ export interface PhasePlanActual {
   phaseName: string
   plannedPct: number
   actualPct: number
+  prevWeek: WeeklyTaskRow[]
   thisWeek: WeeklyTaskRow[]
   nextWeek: WeeklyTaskRow[]
 }
@@ -271,6 +275,8 @@ export function buildWeeklyReportModel(
   const weekEndD = addDays(weekStartD, 6)
   const nextStartD = addDays(weekStartD, 7)
   const nextEndD = addDays(weekStartD, 13)
+  const prevStartD = addDays(weekStartD, -7)
+  const prevEndD = addDays(weekStartD, -1)
   const { year: isoYear, week: isoWeekNum } = isoWeek(todayD)
   // 월기준 몇째주 = ceil(오늘 일자/7). 파일명·본문 라벨에 사용(사용자 요청).
   const calYear = todayD.getUTCFullYear()
@@ -281,10 +287,14 @@ export function buildWeeklyReportModel(
   const weekEnd = fmtUTC(weekEndD)
   const nextWeekStart = fmtUTC(nextStartD)
   const nextWeekEnd = fmtUTC(nextEndD)
+  const prevWeekStart = fmtUTC(prevStartD)
+  const prevWeekEnd = fmtUTC(prevEndD)
   const weekDays = Array.from({ length: 5 }, (_, i) => fmtUTC(addDays(weekStartD, i)))
   const nextWeekDays = Array.from({ length: 5 }, (_, i) => fmtUTC(addDays(nextStartD, i)))
   const weekRange = `${md(weekStartD)}~${md(weekEndD)}`
   const nextWeekRange = `${md(nextStartD)}~${md(nextEndD)}`
+  const prevWeekDays = Array.from({ length: 5 }, (_, i) => fmtUTC(addDays(prevStartD, i)))
+  const prevWeekRange = `${md(prevStartD)}~${md(prevEndD)}`
 
   // ── leaf 수집(루트/부모 문맥 포함) ──
   const leaves: LeafCtx[] = []
@@ -311,6 +321,9 @@ export function buildWeeklyReportModel(
   ).length
   const nextWeekLeaves = leaves.filter(
     l => l.node.status !== 'done' && overlaps(l.node.plannedStart, l.node.plannedEnd, nextWeekStart, nextWeekEnd),
+  )
+  const prevWeekLeaves = leaves.filter(
+    l => l.node.status !== 'not_started' && overlaps(l.node.plannedStart, l.node.plannedEnd, prevWeekStart, prevWeekEnd),
   )
   const maxDelayDays = leafNodes.reduce((m, n) => Math.max(m, delayDaysOf(n)), 0)
   const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0)
@@ -352,6 +365,7 @@ export function buildWeeklyReportModel(
     phaseName: r.name,
     plannedPct: r.plannedPct,
     actualPct: r.rolledActualPct,
+    prevWeek: prevWeekLeaves.filter(l => l.rootName === r.name).map(toTaskRow),
     thisWeek: leaves.filter(l => l.rootName === r.name && l.node.status === 'in_progress').map(toTaskRow),
     nextWeek: nextWeekLeaves.filter(l => l.rootName === r.name).map(toTaskRow),
   }))
@@ -459,6 +473,7 @@ export function buildWeeklyReportModel(
       isoYear, isoWeek: isoWeekNum, weekTag,
       weekLabel: `${calYear}년 ${calMonth}월 ${weekOfMonth}주차 (${weekRange})`,
       weekRange, nextWeekRange, weekStart, weekDays, nextWeekStart, nextWeekDays,
+      prevWeekStart, prevWeekDays, prevWeekRange,
       totalLeaves: total, phaseCount: roots.length,
     },
     kpi, phases, planActual, workload, issues, attendance: attendanceModel, meetings, wbs, dev, devOwnerSummary,

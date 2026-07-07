@@ -160,3 +160,33 @@ describe('buildWeeklyReportModel — 회의일정', () => {
     expect(buildWeeklyReportModel(items, project, '2026-06-30').meetings.total).toBe(0)
   })
 })
+
+describe('prevWeek — 전주 주요활동', () => {
+  // today=2026-07-07(화) → 이번주 월=7/6, 지난주 월=6/29~7/5
+  const items: ComputedItem[] = [
+    phase('설계', [
+      node({ name: '전주완료작업', status: 'done', rolledActualPct: 100, owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+      node({ name: '금주진행작업', status: 'in_progress', rolledActualPct: 50, owners: [{ team: 'MES', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+      node({ name: '미착수작업', status: 'not_started', rolledActualPct: 0, owners: [], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+    ], { weight: 1, plannedPct: 100, rolledActualPct: 60 }),
+  ]
+  const project = { name: 'D-CUBE PI', description: null, start_date: null, end_date: null }
+  const m = buildWeeklyReportModel(items, project, '2026-07-07')
+
+  it('meta에 전주 범위/기간이 있다', () => {
+    expect(m.meta.prevWeekRange).toBe('6/29~7/5')
+    expect(m.meta.prevWeekStart).toBe('2026-06-29')
+    expect(m.meta.prevWeekDays).toHaveLength(5)
+    expect(m.meta.prevWeekDays[0]).toBe('2026-06-29')
+  })
+  it('전주 겹침+진행/완료 작업만 prevWeek에 담기고, 미착수는 제외', () => {
+    const names = m.planActual.flatMap(p => p.prevWeek.map(t => t.name))
+    expect(names).toContain('전주완료작업')
+    expect(names).not.toContain('미착수작업')
+    expect(names).not.toContain('금주진행작업')
+  })
+  it('기존 thisWeek(진행중) 정의는 불변 — 금주진행작업만', () => {
+    const names = m.planActual.flatMap(p => p.thisWeek.map(t => t.name))
+    expect(names).toEqual(['금주진행작업'])
+  })
+})
