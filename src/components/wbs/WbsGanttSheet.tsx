@@ -392,7 +392,7 @@ export function WbsGanttSheet({
       className={
         fullscreen
           ? 'fixed inset-0 z-[125] overflow-auto app-backdrop px-3 py-3 sm:px-6 sm:py-5'
-          : 'relative w-full min-w-0 max-w-full'
+          : 'relative flex h-full min-h-0 w-full min-w-0 max-w-full flex-col'
       }
       role={fullscreen ? 'dialog' : undefined}
       aria-modal={fullscreen || undefined}
@@ -407,7 +407,7 @@ export function WbsGanttSheet({
       }
     >
       {/* ── 툴바 ── */}
-      <div className="card mb-3 grid w-full min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden p-2.5 sm:flex sm:flex-wrap">
+      <div className="card mb-3 grid w-full min-w-0 max-w-full shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden p-2.5 sm:flex sm:flex-wrap">
         <div className="mr-2 flex items-center gap-2 px-1 text-sm font-semibold text-ink">
           <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
           <span>{t('wbs.board')}</span>
@@ -464,7 +464,7 @@ export function WbsGanttSheet({
 
       {/* 새 Phase 입력 (PMO) */}
       {addPhase != null && (
-        <div className="card mb-3 flex items-center gap-2 p-2.5">
+        <div className="card mb-3 flex shrink-0 items-center gap-2 p-2.5">
           <input
             autoFocus
             value={addPhase}
@@ -493,7 +493,7 @@ export function WbsGanttSheet({
       />
 
       {/* ── 단일 스크롤 컨테이너 ── */}
-      <div className="card w-full max-w-full overflow-auto" style={fullscreen ? { maxHeight: 'calc(100dvh - 150px)' } : { height: 'max(440px, calc(100dvh - 390px))' }}>
+      <div className={`card w-full max-w-full overflow-auto ${fullscreen ? '' : 'min-h-0 flex-1'}`} style={fullscreen ? { maxHeight: 'calc(100dvh - 150px)' } : undefined}>
         <div className="relative" style={{ width: LEFT_W + ganttW }}>
           {/* 배경 격자 + 주말/공휴일 (행 뒤) */}
           <div
@@ -870,7 +870,7 @@ export function WbsGanttSheet({
       </div>
 
       {/* ── 범례 ── */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
+      <div className="mt-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
         <span className="inline-flex items-center gap-2">
           {(['done', 'in_progress', 'delayed', 'not_started'] as const).map(s => (
             <span key={s} className="inline-flex items-center gap-1">
