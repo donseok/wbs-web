@@ -11,12 +11,27 @@ const W = 10.833
 const H = 7.5
 const BODY_L = 0.30
 const BODY_W = 10.23
-const LINE_BUDGET = 18 // 본문 활동 컬럼 페이지당 최대 줄 수(넘치면 다음 슬라이드)
+const TABLE_Y = 0.75
+const TABLE_BODY_H = 3.94        // 본문 활동 표 본체 행 높이(고정)
+const LINE_BUDGET = 16           // 활동 컬럼 페이지당 최대 줄 수(초과 시 다음 슬라이드)
+const ISSUE_CAP = 3              // 이슈 표시 최대 건수(초과분 '외 N건')
+const EVENT_CAP = 4              // 주요 이벤트 표시 최대 건수(초과분 '외 N건')
 
 type Slide = PptxGenJS.Slide
 
+/** 항목 목록을 max개로 제한(초과분은 '외 N건'으로 요약) — 오버플로우 방지. */
+export function capItems(items: string[], max: number): string[] {
+  if (items.length <= max) return items
+  return [...items.slice(0, max - 1), `외 ${items.length - (max - 1)}건`]
+}
+
+/** 각 Phase 그룹 항목 수를 제한(한 그룹이 한 페이지를 넘지 않도록). */
+function capGroups(groups: NarrativeGroup[], maxItems: number): NarrativeGroup[] {
+  return groups.map(g => ({ phase: g.phase, items: capItems(g.items, maxItems) }))
+}
+
 /** '#'없는 6자리 hex 선형보간. */
-function hexLerp(a: string, b: string, t: number): string {
+export function hexLerp(a: string, b: string, t: number): string {
   const ai = parseInt(a, 16), bi = parseInt(b, 16)
   const ar = (ai >> 16) & 255, ag = (ai >> 8) & 255, ab = ai & 255
   const br = (bi >> 16) & 255, bg = (bi >> 8) & 255, bb = bi & 255
@@ -37,41 +52,52 @@ function gradientRule(pptx: PptxGenJS, slide: Slide, y: number, h: number) {
   }
 }
 
+/** '‒ 항목' 하위 불릿 런들을 runs에 추가(Phase/이슈/이벤트 공용). */
+function pushItems(runs: PptxGenJS.TextProps[], items: string[]) {
+  items.forEach(it => runs.push({ text: `    ‒ ${it}`, options: { fontFace: FONTS.normal, fontSize: 9.5, color: PN.body, breakLine: true } }))
+}
+
+/** '▐ 라벨' 헤더 런을 runs에 추가. */
+function pushHeader(runs: PptxGenJS.TextProps[], label: string, color: string, size: number, spaceBefore: number) {
+  runs.push({ text: label, options: { fontFace: FONTS.medium, fontSize: size, color, bold: true, breakLine: true, paraSpaceBefore: spaceBefore } })
+}
+
 /** Phase 그룹들 → addText 런 배열(▐ Phase / ‒ 작업). */
 function groupsToRuns(groups: NarrativeGroup[]): PptxGenJS.TextProps[] {
   if (!groups.length) return [{ text: '(해당 없음)', options: { fontFace: FONTS.normal, fontSize: 10, color: PN.subtle } }]
   const runs: PptxGenJS.TextProps[] = []
   groups.forEach((g, gi) => {
-    runs.push({ text: `▐ ${g.phase}`, options: { fontFace: FONTS.medium, fontSize: 11, color: PN.navy, bold: true, breakLine: true, paraSpaceBefore: gi ? 4 : 0 } })
-    g.items.forEach(it => runs.push({ text: `    ‒ ${it}`, options: { fontFace: FONTS.normal, fontSize: 9.5, color: PN.body, breakLine: true } }))
+    pushHeader(runs, `▐ ${g.phase}`, PN.navy, 11, gi ? 4 : 0)
+    pushItems(runs, g.items)
   })
   return runs
 }
 
-interface Page { prev: NarrativeGroup[]; curr: NarrativeGroup[] }
+export interface PageContent { prev: NarrativeGroup[]; curr: NarrativeGroup[] }
 
-/** prev/curr Phase 그룹을 줄 예산 기준으로 페이지 분할(보통 1페이지). */
-function packGroups(prev: NarrativeGroup[], curr: NarrativeGroup[], budget: number): Page[] {
+/** prev/curr Phase 그룹을 줄 예산 기준으로 페이지 분할(보통 1페이지).
+ *  각 그룹은 capGroups로 budget 이내로 제한되어 한 그룹이 페이지를 넘지 않음. */
+export function packGroups(prev: NarrativeGroup[], curr: NarrativeGroup[], budget: number): PageContent[] {
   const phases: string[] = []
   for (const g of prev) if (!phases.includes(g.phase)) phases.push(g.phase)
   for (const g of curr) if (!phases.includes(g.phase)) phases.push(g.phase)
   const pMap = new Map(prev.map(g => [g.phase, g]))
   const cMap = new Map(curr.map(g => [g.phase, g]))
   const cost = (g?: NarrativeGroup) => (g ? 1 + g.items.length : 0)
-  const pages: Page[] = []
-  let cur: Page = { prev: [], curr: [] }
+  const pages: PageContent[] = []
+  let draft: PageContent = { prev: [], curr: [] }
   let lines = 0
   for (const ph of phases) {
     const pg = pMap.get(ph)
     const cg = cMap.get(ph)
     const c = Math.max(cost(pg), cost(cg))
-    if (lines > 0 && lines + c > budget) { pages.push(cur); cur = { prev: [], curr: [] }; lines = 0 }
-    if (pg) cur.prev.push(pg)
-    if (cg) cur.curr.push(cg)
+    if (lines > 0 && lines + c > budget) { pages.push(draft); draft = { prev: [], curr: [] }; lines = 0 }
+    if (pg) draft.prev.push(pg)
+    if (cg) draft.curr.push(cg)
     lines += c
   }
-  pages.push(cur)
-  return pages.length ? pages : [{ prev: [], curr: [] }]
+  pages.push(draft) // 마지막(또는 유일한) 페이지 — phases가 비어도 빈 페이지 1장 보장
+  return pages
 }
 
 /* ── 표지 ── 흰 배경 + 상단 red→navy 룰 + 우측 워터마크 + 대형 네이비 제목 + 하단 로고. */
@@ -98,10 +124,12 @@ function contentChrome(pptx: PptxGenJS, model: WeeklyReportModel, page: number, 
   return slide
 }
 
-/* ── 본문 ── 전주/금주 2단 활동 표 + (마지막 페이지) 이슈·주요이벤트. */
-function contentBody(pptx: PptxGenJS, slide: Slide, page: Page, model: WeeklyReportModel, narr: NarrativeModel, showIssues: boolean) {
+/* ── 본문 활동 표 ── 전주/금주 2단. */
+function activityTable(pptx: PptxGenJS, slide: Slide, content: PageContent, model: WeeklyReportModel) {
   const labelW = 0.9
   const colW = (BODY_W - labelW) / 2
+  // pptxgenjs .d.ts는 TableCell.text를 string|TableCell[]로만 선언하지만, 런타임은
+  // rich-text 런 배열({text,options})을 지원(공식 표 API). 그래서 캐스트로 우회한다.
   const cell = (runs: PptxGenJS.TextProps[] | string, opts: PptxGenJS.TableCellProps): PptxGenJS.TableCell =>
     ({ text: runs as PptxGenJS.TableCell['text'], options: opts })
   const headOpt: PptxGenJS.TableCellProps = { fill: { color: PN.navy }, color: PN.white, bold: true, align: 'center', valign: 'middle', fontFace: FONTS.medium, fontSize: 11 }
@@ -112,26 +140,28 @@ function contentBody(pptx: PptxGenJS, slide: Slide, page: Page, model: WeeklyRep
   ]
   const body: PptxGenJS.TableRow = [
     cell('내용', { fill: { color: PN.zebra }, color: PN.gray, bold: true, align: 'center', valign: 'middle', fontFace: FONTS.medium, fontSize: 10 }),
-    cell(groupsToRuns(page.prev), { fill: { color: PN.white }, valign: 'top', margin: 6 }),
-    cell(groupsToRuns(page.curr), { fill: { color: PN.white }, valign: 'top', margin: 6 }),
+    cell(groupsToRuns(content.prev), { fill: { color: PN.white }, valign: 'top', margin: 6 }),
+    cell(groupsToRuns(content.curr), { fill: { color: PN.white }, valign: 'top', margin: 6 }),
   ]
   slide.addTable([head, body], {
-    x: BODY_L, y: 0.75, w: BODY_W, colW: [labelW, colW, colW], rowH: [0.36, 4.35],
+    x: BODY_L, y: TABLE_Y, w: BODY_W, colW: [labelW, colW, colW], rowH: [0.36, TABLE_BODY_H],
     border: { type: 'solid', color: PN.line, pt: 1 }, valign: 'top', fontFace: FONTS.normal, autoPage: false,
   })
+}
 
-  if (!showIssues) return
-  const yi = 5.42
+/* ── 이슈·주요이벤트 밴드(마지막 본문 페이지만). 표시 건수는 capItems로 제한 → 밴드 오버플로우 방지. */
+function issuesEventsBand(pptx: PptxGenJS, slide: Slide, narr: NarrativeModel) {
+  const yi = 5.15
   slide.addShape(pptx.ShapeType.rect, { x: BODY_L, y: yi, w: BODY_W, h: 0.32, fill: { color: PN.navy2 }, line: { type: 'none' } })
   slide.addText('이슈사항 및 주요 이벤트', { x: BODY_L + 0.12, y: yi, w: BODY_W - 0.24, h: 0.32, fontFace: FONTS.medium, fontSize: 11, color: PN.white, bold: true, valign: 'middle' })
-  const issueRuns: PptxGenJS.TextProps[] = []
-  issueRuns.push({ text: '▐ 이슈', options: { fontFace: FONTS.medium, fontSize: 10.5, color: PN.red, bold: true, breakLine: true } })
-  const issues = narr.issues.length ? narr.issues : ['특이 이슈 없음']
-  issues.forEach(s => issueRuns.push({ text: `    ‒ ${s}`, options: { fontFace: FONTS.normal, fontSize: 9.5, color: PN.body, breakLine: true } }))
-  issueRuns.push({ text: '▐ 주요 이벤트', options: { fontFace: FONTS.medium, fontSize: 10.5, color: PN.navy, bold: true, breakLine: true, paraSpaceBefore: 6 } })
-  const events = narr.events.length ? narr.events : ['예정된 주요 이벤트 없음']
-  events.forEach(s => issueRuns.push({ text: `    ‒ ${s}`, options: { fontFace: FONTS.normal, fontSize: 9.5, color: PN.body, breakLine: true } }))
-  slide.addText(issueRuns, { x: BODY_L, y: yi + 0.42, w: BODY_W, h: 1.55, valign: 'top' })
+  const issues = capItems(narr.issues.length ? narr.issues : ['특이 이슈 없음'], ISSUE_CAP)
+  const events = capItems(narr.events.length ? narr.events : ['예정된 주요 이벤트 없음'], EVENT_CAP)
+  const runs: PptxGenJS.TextProps[] = []
+  pushHeader(runs, '▐ 이슈', PN.red, 10.5, 0)
+  pushItems(runs, issues)
+  pushHeader(runs, '▐ 주요 이벤트', PN.navy, 10.5, 6)
+  pushItems(runs, events)
+  slide.addText(runs, { x: BODY_L, y: yi + 0.42, w: BODY_W, h: 1.45, valign: 'top' })
 }
 
 /** 주간 공정보고 모델 → 동국씨엠 공식 양식 PPTX(nodebuffer). */
@@ -144,13 +174,15 @@ export async function buildReportDeck(model: WeeklyReportModel): Promise<Buffer>
   pptx.company = COMPANY
   pptx.title = `${model.meta.projectName} 주간보고`
 
-  const pages = packGroups(narr.prev, narr.curr, LINE_BUDGET)
+  // 각 그룹을 budget 이내로 캡 → packGroups가 페이지 분할. 한 페이지도 표 행을 넘기지 않음.
+  const pages = packGroups(capGroups(narr.prev, LINE_BUDGET - 1), capGroups(narr.curr, LINE_BUDGET - 1), LINE_BUDGET)
   const totalPages = 1 + pages.length // 표지 + 본문 N
 
   coverSlide(pptx, model)
   pages.forEach((pg, i) => {
     const slide = contentChrome(pptx, model, i + 2, totalPages)
-    contentBody(pptx, slide, pg, model, narr, i === pages.length - 1)
+    activityTable(pptx, slide, pg, model)
+    if (i === pages.length - 1) issuesEventsBand(pptx, slide, narr)
   })
 
   return (await pptx.write({ outputType: 'nodebuffer' })) as Buffer
