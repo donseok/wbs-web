@@ -493,7 +493,7 @@ export function WbsGanttSheet({
       />
 
       {/* ── 단일 스크롤 컨테이너 ── */}
-      <div className="card w-full max-w-full overflow-auto" style={{ maxHeight: fullscreen ? 'calc(100dvh - 150px)' : 'max(440px, calc(100dvh - 390px))' }}>
+      <div className="card w-full max-w-full overflow-auto" style={fullscreen ? { maxHeight: 'calc(100dvh - 150px)' } : { height: 'max(440px, calc(100dvh - 390px))' }}>
         <div className="relative" style={{ width: LEFT_W + ganttW }}>
           {/* 배경 격자 + 주말/공휴일 (행 뒤) */}
           <div
