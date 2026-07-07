@@ -14,7 +14,7 @@ export interface NarrativeModel {
   prev: NarrativeGroup[]   // 전주 주요활동 (Phase별)
   curr: NarrativeGroup[]   // 금주 주요활동 (Phase별)
   issues: string[]         // 이슈사항
-  events: string[]         // 주요 이벤트(회의·마일스톤)
+  events: string[]         // 주요 이벤트(금주·차주 회의)
 }
 
 /** 작업 1건 → '작업명 · 담당 · 상태 NN%'. */

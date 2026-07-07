@@ -102,4 +102,11 @@ describe('buildReportDeck — 동국씨엠 공식 양식(pptx)', () => {
     // A4: 10.833in ≈ 9906000 EMU
     expect(pres).toMatch(/sldSz[^>]*cx="99\d{5}"/)
   })
+
+  it('빈 모델(WBS 없음)도 깨지지 않고 유효한 pptx 생성', async () => {
+    const buf = await buildReportDeck(emptyModel)
+    expect(buf.length).toBeGreaterThan(1000)
+    expect(buf[0]).toBe(0x50)
+    expect(buf[1]).toBe(0x4b)
+  })
 })
