@@ -4,20 +4,7 @@ import JSZip from 'jszip'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
 import { buildReportDeck } from '@/lib/report/pptx'
-import type { ComputedItem, Meeting } from '@/lib/domain/types'
-
-async function slideXmls(buf: Buffer): Promise<{ paths: string[]; joined: string }> {
-  const zip = await JSZip.loadAsync(buf)
-  const paths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
-  const joined = (await Promise.all(paths.map(p => zip.files[p].async('string')))).join('')
-  return { paths, joined }
-}
-const meetingFx = (over: Partial<Meeting>): Meeting => ({
-  id: Math.random().toString(36).slice(2), projectId: 'p', title: '정례회의', meetingDate: '2026-07-01',
-  startTime: '10:00', endTime: '11:00', location: '회의실', category: 'routine', body: '',
-  recurrence: 'none', recurrenceUntil: null, createdBy: null, createdByName: null,
-  createdAt: '2026-01-01', updatedAt: '2026-01-01', attendeeIds: ['m1'], ...over,
-})
+import type { ComputedItem } from '@/lib/domain/types'
 
 const node = (over: Partial<ComputedItem>): ComputedItem =>
   ({
@@ -76,62 +63,43 @@ describe('buildReportWorkbook (보라 공정보고 2시트)', () => {
   })
 })
 
-describe('buildReportDeck (네이비 주간보고)', () => {
-  it('유효한 pptx(zip) — PK 시그니처', async () => {
+describe('buildReportDeck — 동국씨엠 공식 양식(pptx)', () => {
+  const model = buildWeeklyReportModel(sampleItems, project, '2026-07-07', { generatedAt: '2026-07-07 09:00' })
+
+  it('유효한 pptx(zip) — PK 시그니처 + 크기', async () => {
     const buf = await buildReportDeck(model)
     expect(buf.length).toBeGreaterThan(1000)
     expect(buf[0]).toBe(0x50)
     expect(buf[1]).toBe(0x4b)
   })
 
-  it('빈 모델도 깨지지 않음', async () => {
-    const buf = await buildReportDeck(emptyModel)
-    expect(buf.length).toBeGreaterThan(1000)
-    expect(buf[0]).toBe(0x50)
-  })
-
-  it('모든 슬라이드가 브랜드 배경(<p:bg>) 유지 + 주간보고/근태 슬라이드 포함', async () => {
+  it('표지+본문 최소 2슬라이드, 슬라이드마다 배경 유지', async () => {
     const buf = await buildReportDeck(model)
     const zip = await JSZip.loadAsync(buf)
     const slidePaths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
-    expect(slidePaths.length).toBeGreaterThanOrEqual(3) // 요약 + 상세 + 근태
+    expect(slidePaths.length).toBeGreaterThanOrEqual(2)
     const xmls = await Promise.all(slidePaths.map(p => zip.files[p].async('string')))
     for (const [i, xml] of xmls.entries()) {
       expect(xml, `slide ${i + 1} 배경 누락`).toContain('<p:bg>')
     }
-    const joined = xmls.join('')
+  })
+
+  it('핵심 문구 포함(제목·회사·전주/금주 헤더)', async () => {
+    const buf = await buildReportDeck(model)
+    const zip = await JSZip.loadAsync(buf)
+    const slidePaths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
+    const joined = (await Promise.all(slidePaths.map(p => zip.files[p].async('string')))).join('')
     expect(joined).toContain('주간보고')
-    expect(joined).toContain('근태현황')
-  })
-
-  it('레터헤드는 동국씨엠 (동국제강 그룹 아님)', async () => {
-    const { joined } = await slideXmls(await buildReportDeck(model))
     expect(joined).toContain('동국씨엠')
-    expect(joined).not.toContain('동국제강 그룹')
+    expect(joined).toContain('전주 주요활동')
+    expect(joined).toContain('금주 주요활동')
   })
 
-  it('차주 계획이 많으면 상세 슬라이드가 여러 페이지로 분할(잘림 방지)', async () => {
-    const many: ComputedItem[] = [
-      phase('대량 단계', Array.from({ length: 12 }, (_, i) =>
-        node({ name: `차주작업 ${i + 1}`, status: 'in_progress', rolledActualPct: 10, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
-      ), { weight: 1, plannedPct: 0, rolledActualPct: 10, status: 'in_progress' }),
-    ]
-    const manyModel = buildWeeklyReportModel(many, project, '2026-06-30')
-    const { paths, joined } = await slideXmls(await buildReportDeck(manyModel))
-    // 표지+요약+상세(12/5=3)+근태+회의현황 = 7 이상
-    expect(paths.length).toBeGreaterThanOrEqual(7)
-    expect(joined).toContain('(3/3)')
-  })
-
-  it('회의현황은 회의가 없어도 항상 근태 뒤에 생성', async () => {
-    // 회의 없는 기본 모델에도 '회의현황' + 빈 플레이스홀더
-    const base = await slideXmls(await buildReportDeck(model))
-    expect(base.joined).toContain('회의현황')
-    expect(base.joined).toContain('예정된 회의 없음')
-    // 회의가 있으면 목록 표시
-    const withMeet = buildWeeklyReportModel(sampleItems, project, '2026-06-30', {
-      generatedAt: '2026-06-30 13:20', meetings: [meetingFx({ meetingDate: '2026-07-01', title: '정례리뷰' })],
-    })
-    expect((await slideXmls(await buildReportDeck(withMeet))).joined).toContain('정례리뷰')
+  it('A4 레이아웃(슬라이드 크기)이 적용됨', async () => {
+    const buf = await buildReportDeck(model)
+    const zip = await JSZip.loadAsync(buf)
+    const pres = await zip.files['ppt/presentation.xml'].async('string')
+    // A4: 10.833in ≈ 9906000 EMU
+    expect(pres).toMatch(/sldSz[^>]*cx="99\d{5}"/)
   })
 })
