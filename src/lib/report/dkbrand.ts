@@ -14,6 +14,8 @@ export const PN = {
   gray: '5C6370',       // 라벨
   subtle: '8B92A0',     // 부제 · 페이지번호
   line: 'D4D8E0',       // 테두리 · 막대 트랙
+  divider: 'A6A6A6',    // 내지 헤더 구분선(중립 회색, 참조 bg1 65%)
+  footerGray: 'B6B6B6', // 푸터·페이지번호(중립 회색, 참조 lt2/bg2)
   red: 'C51F2A',        // DONGKUK RED — 브랜드 악센트(표지·헤더 룰) · 이슈/미달
   green: '0D7C3E',      // 초과 · 양호
   chip: 'E8EDF4',       // 상태 칩 배경
