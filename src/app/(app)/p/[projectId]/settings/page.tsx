@@ -101,7 +101,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         }
       />}
     >
-      <div className="space-y-6">
+      <div className="space-y-5">
         {/* ── 기본 정보 ── */}
         <SectionCard
           eyebrow="CORE INFORMATION"
@@ -154,7 +154,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         {canMutate ? (
           <WbsImportForm projectId={projectId} />
         ) : (
-          <div className="panel-soft flex min-h-32 items-center gap-4 p-5">
+          <div className="panel-soft flex items-center gap-4 p-5">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pending-weak text-pending">
               <Shield className="h-5 w-5" />
             </span>

@@ -197,7 +197,7 @@ export function KanbanBoard({
       )}
 
       {/* 보드 */}
-      <div className="flex gap-4 overflow-x-auto pb-2">
+      <div className="flex items-start gap-4 overflow-x-auto pb-2">
         {columns.map(col => {
           const draggingCard = draggingId ? cardById.get(draggingId) : undefined
           // 표시 시점에만 한국어 컬럼 제목을 번역 — 도메인의 Record 키('미배정' 등)는 건드리지 않는다.

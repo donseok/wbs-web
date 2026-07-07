@@ -833,7 +833,7 @@ export function WbsGanttSheet({
           {/* 빈 상태 — 항목 없음 / 검색 결과 없음 (가로 스크롤에도 좌측 고정) */}
           {flatRows.length === 0 && (
             <div
-              className="sticky left-0 z-10 flex flex-col items-center justify-center gap-1.5 py-20 text-center"
+              className="sticky left-0 z-10 flex flex-col items-center justify-center gap-1.5 py-10 text-center"
               style={{ width: 'min(560px, 100vw)' }}
               role="status"
             >
