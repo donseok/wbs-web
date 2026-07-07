@@ -279,7 +279,7 @@ export async function DashboardView({
       </SectionCard>
 
       {/* 상태 분포 + 팀별 작업량 */}
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
         <SectionCard eyebrow="STATUS MIX" title={tr('dash.statusMix.title')} icon={PieChart} actions={<CountBadge n={total} unit={tr('dash.unitCount')} />}>
           <div className="space-y-4">
             <div className="flex h-3 w-full overflow-hidden rounded-full bg-line">
@@ -330,7 +330,7 @@ export async function DashboardView({
       </div>
 
       {/* Phase별 진척 + 가중치 분포 */}
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
         <SectionCard
           eyebrow="BY PHASE"
           title={tr('dash.phase.title')}
@@ -415,7 +415,7 @@ export async function DashboardView({
       </SectionCard>
 
       {/* 이번 주 / 다음 주 작업 */}
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
         <SectionCard eyebrow="THIS WEEK" title={tr('dash.thisWeek.title')} icon={CalendarClock} actions={<CountBadge n={thisWeek.length} unit={tr('dash.unitCount')} />}>
           {thisWeek.length === 0 ? (
             <MiniEmpty text={tr('dash.thisWeek.empty')} />
@@ -434,7 +434,7 @@ export async function DashboardView({
       </div>
 
       {/* 최근 완료 + 금주 근태 */}
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
         <SectionCard eyebrow="RECENTLY DONE" title={tr('dash.recentDone.title')} icon={CheckCircle2} actions={<CountBadge n={statusCount('done')} unit={tr('dash.unitCount')} tone="bg-done-weak text-done" />}>
           {recentDone.length === 0 ? (
             <MiniEmpty text={tr('dash.recentDone.empty')} />
@@ -478,7 +478,7 @@ export async function DashboardView({
       </div>
 
       {/* 마감 임박 + 산출물 현황 */}
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
         <SectionCard eyebrow="DUE SOON" title={tr('dash.dueSoon.title')} icon={Timer} actions={<CountBadge n={dueSoon.length} unit={tr('dash.unitCount')} />}>
           {dueSoon.length === 0 ? (
             <MiniEmpty text={tr('dash.dueSoon.empty')} />
