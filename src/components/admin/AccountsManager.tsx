@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Upload, KeyRound, UserCog, ShieldCheck, UserRound, Wand2 } from 'lucide-react'
+import { UserPlus, Upload, KeyRound, UserCog, ShieldCheck, UserRound, Wand2, Copy, Check } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
@@ -144,12 +144,16 @@ function AddAccountModal({ open, onClose }: { open: boolean; onClose: () => void
     if (!isValidEmail(email)) { setError('올바른 이메일을 입력하세요.'); return }
     if (password.length < 8) { setError('초기 비밀번호는 8자 이상이어야 합니다.'); return }
     startTransition(async () => {
-      const res = await createAccount({ email: email.trim(), password, teamCode, role, name: name.trim() || null })
-      if (res.ok) {
-        toast({ title: '계정을 만들었습니다.', description: email.trim(), variant: 'success' })
-        onClose(); router.refresh()
-      } else {
-        setError(res.error ?? '생성 실패')
+      try {
+        const res = await createAccount({ email: email.trim(), password, teamCode, role, name: name.trim() || null })
+        if (res.ok) {
+          toast({ title: '계정을 만들었습니다.', description: email.trim(), variant: 'success' })
+          onClose(); router.refresh()
+        } else {
+          setError(res.error ?? '생성 실패')
+        }
+      } catch {
+        setError('요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.')
       }
     })
   }
@@ -210,10 +214,14 @@ function BulkAddModal({ open, onClose }: { open: boolean; onClose: () => void })
   function submit() {
     setError(null); setResults(null)
     startTransition(async () => {
-      const res = await bulkCreateAccounts(text)
-      if (!res.ok) { setError(res.error ?? '처리 실패'); return }
-      setResults(res.results)
-      router.refresh() // 성공분을 목록에 반영
+      try {
+        const res = await bulkCreateAccounts(text)
+        if (!res.ok) { setError(res.error ?? '처리 실패'); return }
+        setResults(res.results)
+        router.refresh() // 성공분을 목록에 반영
+      } catch {
+        setError('요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.')
+      }
     })
   }
 
@@ -274,11 +282,13 @@ function BulkAddModal({ open, onClose }: { open: boolean; onClose: () => void })
 function ResetPasswordModal({ account, onClose }: { account: AccountRow | null; onClose: () => void }) {
   const { toast } = useToast()
   const [password, setPassword] = useState('')
+  const [done, setDone] = useState<string | null>(null) // 적용 완료된 임시 비밀번호 — 전달용으로 유지
+  const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   useEffect(() => {
-    if (account) { setPassword(randomPassword()); setError(null) }
+    if (account) { setPassword(randomPassword()); setDone(null); setCopied(false); setError(null) }
   }, [account])
 
   function submit() {
@@ -286,35 +296,62 @@ function ResetPasswordModal({ account, onClose }: { account: AccountRow | null; 
     if (!account) return
     if (password.length < 8) { setError('임시 비밀번호는 8자 이상이어야 합니다.'); return }
     startTransition(async () => {
-      const res = await resetPassword(account.id, password)
-      if (res.ok) {
-        toast({ title: '비밀번호를 리셋했습니다.', description: '아래 임시 비밀번호를 사용자에게 전달하세요.', variant: 'success' })
-        onClose()
-      } else {
-        setError(res.error ?? '리셋 실패')
+      try {
+        const res = await resetPassword(account.id, password)
+        if (res.ok) {
+          setDone(password) // 모달을 닫지 않고 값을 유지 — 전달 전 소실 방지
+          toast({ title: '비밀번호를 리셋했습니다.', variant: 'success' })
+        } else {
+          setError(res.error ?? '리셋 실패')
+        }
+      } catch {
+        setError('요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.')
       }
     })
+  }
+
+  async function copy() {
+    if (!done) return
+    try { await navigator.clipboard.writeText(done); setCopied(true) } catch { /* 클립보드 미지원 시 무시 */ }
   }
 
   return (
     <Modal
       open={!!account} onClose={onClose} eyebrow="Reset password" title="비밀번호 리셋"
       footer={
-        <>
-          <button onClick={onClose} className="btn btn-ghost" disabled={pending}>취소</button>
-          <button onClick={submit} className="btn btn-primary" disabled={pending}>{pending ? '적용 중…' : '리셋'}</button>
-        </>
+        done ? (
+          <button onClick={onClose} className="btn btn-primary">닫기</button>
+        ) : (
+          <>
+            <button onClick={onClose} className="btn btn-ghost" disabled={pending}>취소</button>
+            <button onClick={submit} className="btn btn-primary" disabled={pending}>{pending ? '적용 중…' : '리셋'}</button>
+          </>
+        )
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-ink-muted"><b className="text-ink">{account?.email}</b> 의 비밀번호를 임시값으로 변경합니다. 사용자는 로그인 후 본인이 변경하게 하세요.</p>
-        <Field label="임시 비밀번호 (8자 이상)">
-          <div className="flex gap-2">
-            <input className="app-input" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <button type="button" onClick={() => setPassword(randomPassword())} className="btn btn-ghost shrink-0"><Wand2 className="h-4 w-4" />생성</button>
-          </div>
-        </Field>
-        {error && <p role="alert" className="text-sm font-medium text-delayed">{error}</p>}
+        {done ? (
+          <>
+            <p className="text-sm text-ink-muted"><b className="text-ink">{account?.email}</b> 의 임시 비밀번호가 설정되었습니다. 아래 값을 사용자에게 전달하세요. <b className="text-ink">이 창을 닫으면 다시 볼 수 없습니다.</b></p>
+            <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-3">
+              <code className="min-w-0 flex-1 truncate font-mono text-sm text-ink">{done}</code>
+              <button type="button" onClick={copy} className="btn btn-ghost btn-sm shrink-0">
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}{copied ? '복사됨' : '복사'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-ink-muted"><b className="text-ink">{account?.email}</b> 의 비밀번호를 임시값으로 변경합니다. 사용자는 로그인 후 본인이 변경하게 하세요.</p>
+            <Field label="임시 비밀번호 (8자 이상)">
+              <div className="flex gap-2">
+                <input className="app-input" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <button type="button" onClick={() => setPassword(randomPassword())} className="btn btn-ghost shrink-0"><Wand2 className="h-4 w-4" />생성</button>
+              </div>
+            </Field>
+            {error && <p role="alert" className="text-sm font-medium text-delayed">{error}</p>}
+          </>
+        )}
       </div>
     </Modal>
   )
@@ -339,12 +376,16 @@ function RoleEditModal({ account, onClose }: { account: AccountRow | null; onClo
     setError(null)
     if (!account) return
     startTransition(async () => {
-      const res = await updateAccountRole(account.id, teamCode, role)
-      if (res.ok) {
-        toast({ title: '팀·권한을 변경했습니다.', variant: 'success' })
-        onClose(); router.refresh()
-      } else {
-        setError(res.error ?? '변경 실패')
+      try {
+        const res = await updateAccountRole(account.id, teamCode, role)
+        if (res.ok) {
+          toast({ title: '팀·권한을 변경했습니다.', variant: 'success' })
+          onClose(); router.refresh()
+        } else {
+          setError(res.error ?? '변경 실패')
+        }
+      } catch {
+        setError('요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.')
       }
     })
   }

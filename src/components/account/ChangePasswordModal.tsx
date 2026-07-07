@@ -27,17 +27,28 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
     if (next.length < 8) { setError('새 비밀번호는 8자 이상이어야 합니다.'); return }
     if (next !== confirm) { setError('새 비밀번호가 일치하지 않습니다.'); return }
     startTransition(async () => {
-      const sb = createBrowserClient()
-      const { data } = await sb.auth.getUser()
-      const email = data.user?.email
-      if (!email) { setError('세션을 확인할 수 없습니다. 다시 로그인해 주세요.'); return }
-      // 현재 비밀번호 재확인(같은 사용자 재로그인 — 세션 유지)
-      const { error: reauth } = await sb.auth.signInWithPassword({ email, password: current })
-      if (reauth) { setError('현재 비밀번호가 올바르지 않습니다.'); return }
-      const { error: updErr } = await sb.auth.updateUser({ password: next })
-      if (updErr) { setError(updErr.message); return }
-      toast({ title: '비밀번호가 변경되었습니다.', variant: 'success' })
-      onClose()
+      try {
+        const sb = createBrowserClient()
+        const { data } = await sb.auth.getUser()
+        const email = data.user?.email
+        if (!email) { setError('세션을 확인할 수 없습니다. 다시 로그인해 주세요.'); return }
+        // 현재 비밀번호 재확인(같은 사용자 재로그인 — 세션 유지)
+        const { error: reauth } = await sb.auth.signInWithPassword({ email, password: current })
+        if (reauth) {
+          // 자격증명 오류만 "비번 틀림"으로, 그 외(레이트리밋·네트워크·5xx)는 실제 원인을 표시
+          const code = (reauth as { code?: string }).code
+          setError(code === 'invalid_credentials'
+            ? '현재 비밀번호가 올바르지 않습니다.'
+            : `현재 비밀번호 확인에 실패했습니다: ${reauth.message}`)
+          return
+        }
+        const { error: updErr } = await sb.auth.updateUser({ password: next })
+        if (updErr) { setError(updErr.message); return }
+        toast({ title: '비밀번호가 변경되었습니다.', variant: 'success' })
+        onClose()
+      } catch {
+        setError('요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.')
+      }
     })
   }
 

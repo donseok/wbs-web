@@ -125,6 +125,16 @@ export async function updateAccountRole(
   if (!isTeamCode(teamCode)) return { ok: false, error: '알 수 없는 팀 코드' }
   if (!isAccountRole(role)) return { ok: false, error: '알 수 없는 권한' }
   const admin = createAdminClient()
+
+  // 마지막 PMO 관리자 강등 방지 — 전원이 /admin/accounts 에서 잠기는 것을 막는다.
+  if (role !== 'pmo_admin') {
+    const { data: admins } = await admin.from('memberships').select('user_id').eq('role', 'pmo_admin')
+    const adminIds = (admins ?? []).map((r) => r.user_id as string)
+    if (adminIds.includes(userId) && adminIds.length <= 1) {
+      return { ok: false, error: '마지막 PMO 관리자는 강등할 수 없습니다. 다른 관리자를 먼저 지정하세요.' }
+    }
+  }
+
   const teamId = await resolveTeamId(admin, teamCode)
   if (!teamId) return { ok: false, error: '팀을 찾을 수 없습니다.' }
   // memberships PK 는 user_id — 없으면 삽입, 있으면 갱신
