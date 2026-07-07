@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, ChevronRight, Clock4, Globe, LogOut, Menu, Moon, PanelTopClose, PanelTopOpen, Sun, User, X,
+  AlertTriangle, Bell, ChevronRight, Clock4, Globe, LogOut, Menu, Moon, Sun, User, X,
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -13,7 +13,6 @@ import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
-import { readHeroCollapsed, dispatchHeroToggle, HERO_TOGGLE_EVENT } from '@/components/ui/PageHero'
 import { HeaderAnnouncementTicker } from './HeaderAnnouncementTicker'
 import type { SidebarProject } from './Sidebar'
 
@@ -31,18 +30,10 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   const [open, setOpen] = useState<null | 'notif' | 'profile'>(null)
   const [notifs, setNotifs] = useState<NotificationItem[]>([])
   const [notifLoading, setNotifLoading] = useState(false)
-  // 히어로 중앙 토글 상태
-  const [heroCollapsed, setHeroCollapsed] = useState(() => readHeroCollapsed())
 
   const activeId = useMemo(() => pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null, [pathname])
 
   useEffect(() => { setMenuOpen(false); setOpen(null) }, [pathname])
-  // 히어로 외부 토글 이벤트 수신 — 헤더 버튼 상태를 동기화
-  useEffect(() => {
-    const sync = (e: Event) => setHeroCollapsed((e as CustomEvent<{ collapsed: boolean }>).detail.collapsed)
-    window.addEventListener(HERO_TOGGLE_EVENT, sync)
-    return () => window.removeEventListener(HERO_TOGGLE_EVENT, sync)
-  }, [])
   // 활성 프로젝트의 지연·마감 알림 로드
   useEffect(() => {
     if (!activeId) { setNotifs([]); return }
@@ -103,16 +94,6 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
           </div>
 
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-            {/* 히어로 접기/펼치기 중앙 토글 */}
-            <button
-              onClick={() => { const next = !heroCollapsed; setHeroCollapsed(next); dispatchHeroToggle(next) }}
-              className="chrome-btn"
-              title={heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
-              aria-label={heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
-            >
-              {heroCollapsed ? <PanelTopOpen className="h-3.5 w-3.5" /> : <PanelTopClose className="h-3.5 w-3.5" />}
-              {heroCollapsed ? t('chrome.heroShow') : t('chrome.heroHide')}
-            </button>
             {/* 공정율 기준일 자동/수동 바로가기 버튼 — 사용자 요청으로 화면에서 제거(기능은 설정 페이지에 유지) */}
             {/* 언어 전환·다크모드 토글 — 사용자 요청으로 화면에서 숨김(기능 코드는 유지) */}
             <button onClick={() => setLocale(locale === 'ko' ? 'en' : 'ko')} className="chrome-btn hidden" title="Language">

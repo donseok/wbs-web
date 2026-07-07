@@ -5,7 +5,6 @@ import { computePrefsSync, type LocalPrefs } from '@/lib/prefs/sync'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { dispatchHeroToggle, readHeroCollapsed } from '@/components/ui/PageHero'
 import { dispatchSidebarToggle, SIDEBAR_STORAGE_KEY } from '@/components/app/Sidebar'
 
 /**
@@ -18,7 +17,8 @@ function readLocal(): LocalPrefs {
   const theme: 'light' | 'dark' = document.documentElement.classList.contains('dark') ? 'dark' : 'light'
   const cookieLocale = document.cookie.match(/(?:^|; )dflow-locale=([^;]+)/)?.[1]
   const locale: 'ko' | 'en' = cookieLocale === 'en' ? 'en' : 'ko'
-  return { heroCollapsed: readHeroCollapsed(), sidebarCollapsed, theme, locale }
+  // 히어로 접기 토글 제거됨 — 항상 접힘 상태이므로 상수 true.
+  return { heroCollapsed: true, sidebarCollapsed, theme, locale }
 }
 
 /**
@@ -41,7 +41,6 @@ export function PrefsSync() {
       // 적용: 각 설정의 기존 변경 경로 재사용(같은 값이면 computePrefsSync 가 이미 걸러냄).
       if (apply.theme !== undefined) setTheme(apply.theme)
       if (apply.locale !== undefined) setLocale(apply.locale)
-      if (apply.heroCollapsed !== undefined) dispatchHeroToggle(apply.heroCollapsed)
       if (apply.sidebarCollapsed !== undefined) dispatchSidebarToggle(apply.sidebarCollapsed)
       // 백필: 서버에 없던 키를 현재 로컬값으로 1회 저장(debounce 병합).
       if (Object.keys(backfill).length) queueUiPref(backfill)
