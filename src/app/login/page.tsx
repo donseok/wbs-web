@@ -233,6 +233,10 @@ export default function Login() {
                 <LogIn className="h-4 w-4" />
                 {loading ? '로그인 중…' : '로그인'}
               </button>
+
+              <p className="pt-1 text-center text-[13px] leading-5 text-[#7a6f68]">
+                아이디(이메일) 또는 비밀번호를 잊으셨다면 관리자에게 문의하세요.
+              </p>
             </form>
           </div>
         </div>

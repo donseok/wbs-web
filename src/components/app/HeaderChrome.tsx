@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, ChevronRight, Clock4, Globe, LogOut, Menu, Moon, Sun, User, X,
+  AlertTriangle, Bell, ChevronRight, Clock4, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, X,
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -15,6 +15,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
 import { HeaderAnnouncementTicker } from './HeaderAnnouncementTicker'
 import type { SidebarProject } from './Sidebar'
+import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
 
 const SECTION_LABEL: Record<string, string> = {
   dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드',
@@ -28,6 +29,7 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   const { locale, setLocale, t } = useLocale()
   const [menuOpen, setMenuOpen] = useState(false)
   const [open, setOpen] = useState<null | 'notif' | 'profile'>(null)
+  const [pwOpen, setPwOpen] = useState(false)
   const [notifs, setNotifs] = useState<NotificationItem[]>([])
   const [notifLoading, setNotifLoading] = useState(false)
 
@@ -161,7 +163,15 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
                     <div className="text-sm font-semibold text-ink">{roleLabel}</div>
                     <div className="mt-0.5 text-xs text-ink-subtle">{membership?.teamCode ? `${membership.teamCode} 팀` : '소속 미지정'}</div>
                   </div>
-                  <button onClick={signOut} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-delayed">
+                  <button onClick={() => { setOpen(null); setPwOpen(true) }} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                    <KeyRound className="h-4 w-4" />비밀번호 변경
+                  </button>
+                  {membership?.role === 'pmo_admin' && (
+                    <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                      <UserCog className="h-4 w-4" />계정 관리
+                    </Link>
+                  )}
+                  <button onClick={signOut} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-delayed">
                     <LogOut className="h-4 w-4" />{t('chrome.logout')}
                   </button>
                 </Popover>
@@ -172,6 +182,7 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
       </header>
 
       {menuOpen && <MobileMenu projects={projects} pathname={pathname} onClose={() => setMenuOpen(false)} roleLabel={roleLabel} membership={membership} />}
+      <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
     </>
   )
 }
