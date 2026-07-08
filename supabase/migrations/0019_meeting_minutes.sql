@@ -23,16 +23,22 @@ insert into storage.buckets (id, name, public)
 values ('minutes', 'minutes', false)
 on conflict (id) do nothing;
 
--- 주의: 스토리지 레벨 정책은 0008 과 동일하게 "인증되면 통과"다. 경로의 팀 폴더는 조직화 목적이며
---       보안 경계가 아니다 — team_editor 가 콘솔에서 남의 팀 경로로 upload() 를 직접 부르면 객체는 올라간다.
---       막히는 건 그다음 createMinutes 의 메타 기록뿐이다. 실제 방어선은
---       (a) 서버 액션 canCreateMinutes, (b) 아래 RLS insert_minutes 두 겹이다.
+-- 읽기/쓰기는 "인증되면 통과"다. 경로의 팀 폴더는 조직화 목적이며 보안 경계가 아니다 —
+-- team_editor 가 콘솔에서 남의 팀 경로로 upload() 를 직접 부르면 객체는 올라간다.
+-- 막히는 건 그다음 createMinutes 의 메타 기록(서버 액션 canCreateMinutes + 경로 prefix 검사)과
+-- 아래 RLS insert_minutes 두 겹이다. UPDATE 정책이 없으므로 기존 객체 덮어쓰기는 불가능하다.
+-- 삭제만은 아래에서 소유자로 좁힌다 — 파괴적이고, 서버 액션을 우회해 직접 호출할 수 있기 때문이다.
 drop policy if exists "minutes read"   on storage.objects;
 drop policy if exists "minutes insert" on storage.objects;
 drop policy if exists "minutes delete" on storage.objects;
 create policy "minutes read"   on storage.objects for select to authenticated using (bucket_id = 'minutes');
 create policy "minutes insert" on storage.objects for insert to authenticated with check (bucket_id = 'minutes');
-create policy "minutes delete" on storage.objects for delete to authenticated using (bucket_id = 'minutes');
+-- 삭제는 업로더 본인 또는 pmo_admin 만. bucket_id 만 검사하면 로그인한 아무나
+-- 브라우저 콘솔에서 남의 회의록 파일을 지울 수 있다(0008 의 알려진 구멍 — 여기선 반복하지 않는다).
+-- meeting_minutes 의 delete_minutes 정책(created_by = auth.uid() or pmo_admin)과 정확히 짝을 이룬다:
+-- 행을 지울 수 있는 사람만 그 행의 객체를 지울 수 있다.
+create policy "minutes delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'minutes' and (owner = auth.uid() or app_role() = 'pmo_admin'));
 
 -- 2) 테이블
 create table if not exists meeting_minutes (
