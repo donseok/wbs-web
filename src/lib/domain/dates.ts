@@ -38,13 +38,14 @@ export function makeBizDayIndex(start: string, end: string, holidays: Set<string
     if (isBusinessDay(d, holidays)) n++
     cum.set(d, n)
   }
-  const first = start, last = end
   return {
     between(a: string, b: string): number {
       if (b < a) return 0
-      if (a < first || b > last) return businessDaysBetween(a, b, holidays)
+      const ca = cum.get(a), cb = cum.get(b)
+      // 창 밖이거나, 창 안이어도 정규화되지 않은 키(예: '2026-07-2')라 표에 없으면 권위 구현으로 폴백.
+      if (ca === undefined || cb === undefined) return businessDaysBetween(a, b, holidays)
       // between(a,b) = cum(b) − cum(a) + (a가 업무일이면 1)
-      return cum.get(b)! - cum.get(a)! + (isBusinessDay(a, holidays) ? 1 : 0)
+      return cb - ca + (isBusinessDay(a, holidays) ? 1 : 0)
     },
   }
 }

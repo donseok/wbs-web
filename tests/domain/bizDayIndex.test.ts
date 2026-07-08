@@ -35,6 +35,12 @@ describe('makeBizDayIndex', () => {
     expect(idx.between('2026-07-28', '2026-08-05')).toBe(businessDaysBetween('2026-07-28', '2026-08-05', H))
   })
 
+  it('창 안이어도 정규화되지 않은 키는 권위 구현으로 폴백한다 (NaN 금지)', () => {
+    const v = idx.between('2026-07-01', '2026-07-2')   // 일 자리 0-padding 누락
+    expect(Number.isNaN(v)).toBe(false)
+    expect(v).toBe(businessDaysBetween('2026-07-01', '2026-07-2', H))
+  })
+
   it('Date 객체를 재할당하지 않는다 — 184일 창을 1000회 조회해도 10ms 미만', () => {
     const big = makeBizDayIndex('2026-07-01', '2026-12-31', H)
     const t0 = performance.now()
