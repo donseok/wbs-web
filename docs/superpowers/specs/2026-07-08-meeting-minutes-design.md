@@ -440,7 +440,12 @@ system 프롬프트는 **문서 밖 지식 사용을 금지**한다. `truncated`
 
 1. **서버 액션은 던지지 않는다.** `{ ok, error? }`로 보고한다. 읽기 계층은 실패 시 빈 값(`[]`/`null`)을 준다.
 2. **고아 Storage 객체.** 5단계 롤백 `remove()`는 브라우저에서 실행된다. 그 사이 탭을 닫거나 네트워크가 끊기면 객체가 영구히 남는다. 레포에 정리 크론이 없다. 대안(행 먼저 insert → 업로드 → confirm)은 레포 관례를 벗어나므로 **채택하지 않고 한계로 문서화한다.** 프로젝트 삭제 시 cascade도 Storage를 지우지 않는다(같은 한계).
-3. **Storage 정책은 팀 경계를 강제하지 않는다.** `bucket_id = 'minutes'`만 검사하므로(0008 관례), `team_editor`가 콘솔에서 다른 팀 경로로 `upload()`를 직접 호출하면 객체는 올라간다. 막히는 건 그다음 `createMinutes`의 메타 기록뿐이다. 실제 방어선은 (a) 서버 액션 `canCreateMinutes`, (b) RLS `insert_minutes` 두 겹이다. **경로의 팀 폴더는 조직화 목적이지 보안 경계가 아니다** — 마이그레이션과 `minutesStoragePath` 주석에 명시한다.
+3. **Storage 정책 — 읽기·쓰기는 넓고, 삭제만 좁다.**
+   - 읽기·쓰기는 `bucket_id = 'minutes'`만 검사한다(0008 관례). `team_editor`가 콘솔에서 다른 팀 경로로 `upload()`를 직접 호출하면 객체는 올라간다. 막히는 건 그다음 `createMinutes`의 메타 기록이다. 방어선은 (a) 서버 액션 `canCreateMinutes` + `filePath`가 `${projectId}/${teamId}/`로 시작하는지 검사, (b) RLS `insert_minutes` 두 겹이다. **경로의 팀 폴더는 조직화 목적이지 보안 경계가 아니다.** UPDATE 정책이 없어 기존 객체 덮어쓰기는 불가능하다.
+   - **삭제는 소유자 또는 PMO로 좁힌다**: `using (bucket_id = 'minutes' and (owner = auth.uid() or app_role() = 'pmo_admin'))`. `bucket_id`만 검사하면 **로그인한 아무나 브라우저 콘솔에서 남의 회의록 파일을 지울 수 있다.** 서버 액션을 우회하는 경로라 앱 레벨 검사로는 막히지 않는다. (`0008`의 `deliverables`는 이 구멍을 그대로 갖고 있다 — 기존 문제이며 이 스펙의 범위 밖이지만, 새 버킷에 복제하지 않는다.)
+   - **`file_path`에 UNIQUE 인덱스.** 읽기 RLS가 `using (true)`라 누구나 남의 `file_path`를 조회할 수 있다. 같은 경로를 가리키는 두 번째 행은 남의 파일을 자기 이름으로 등록하는 위조이고, 한쪽 삭제가 다른 쪽을 깨뜨린다. `minutesStoragePath()`가 타임스탬프 프리픽스를 붙이므로 정상 업로드는 충돌하지 않는다.
+
+5. **`deleteMinutes`는 `remove()`의 실패를 삼키지 않는다.** 실패를 무시하면 객체는 남고 행만 사라져 **영구 고아 파일**이 된다 — 객체-먼저 순서가 피하려던 바로 그 결과다. 실패 시 중단해 객체와 행을 함께 남긴다. (`attachments.ts:removeAttachment`는 이 검사를 하지 않는다 — 기존 버그, 범위 밖.) 이 검사는 `owner` 컬럼 가정이 틀렸을 때 조용한 데이터 손실 대신 **시끄러운 실패**를 만든다는 점에서도 중요하다.
 4. **i18n 키 패리티가 타입으로 강제된다.** `dict.ts:52` `export type DictKey = keyof (typeof DICT)['ko']`, 각 네임스페이스 파일은 `en`을 `Record<keyof ko, string>`으로 강제한다. `dict/minutes.ts`의 ko/en 키가 완전히 일치해야 컴파일된다.
 
 ## 10. 테스트
