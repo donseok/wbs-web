@@ -5,10 +5,6 @@
 -- 멱등: SQL Editor 반복 실행 안전(if not exists / drop policy if exists).
 -- 적용: Supabase Management API — POST /v1/projects/<ref>/database/query (0012/0013 과 동일 경로).
 --       .env.local 의 SUPABASE_DB_URL 은 비어 있으므로 pg 직결/db push 는 사용하지 않는다.
--- 적용 전 필수: Task 12 Step 2a 프로브(information_schema.columns)를 먼저 돌려
---       storage.objects 의 owner / owner_id 존재 여부를 확인한다. 그 다음 아래 §4 의 두 owner* 분기 중
---       존재하지 않는 컬럼을 가리키는 쪽을 지우고 실행한다. 없는 컬럼을 참조하면 create policy 가
---       파스 단계에서 실패해 마이그레이션 전체가 중단된다(의도된 시끄러운 실패).
 -- 주의: 레포 0002 의 current_role()/current_team() 은 PG 예약어 드리프트로 원문 그대로 적용된 적이 없다
 --       (0012_announcements.sql:47-48 참조). 프로덕션 헬퍼는 public.app_role() 이다.
 --       current_team() 의 프로덕션 존재 여부를 신뢰할 수 없으므로 app_team() 을 여기서 재선언한다.
@@ -99,33 +95,23 @@ create policy delete_minutes on meeting_minutes for delete to authenticated
 -- 4) 스토리지 삭제 정책 — meeting_minutes 와 minutes_file_path_key(UNIQUE) 가 존재해야 만들 수 있다.
 --    (정책 표현식의 테이블/함수 참조는 create policy 시점에 OID 로 해석되어 저장된다.)
 --
--- 삭제 권한을 "행을 지울 수 있는가"로 정의한다. 본 삭제 경로는 owner 컬럼에 의존하지 않는다 —
--- storage.objects.owner(uuid) 는 deprecated 이고 owner_id(text) 가 신형이라고 알려져 있으나
--- 레포에서는 어느 쪽도 확인할 수 없다. 그래서 본 경로는 확인이 필요 없는 규칙(EXISTS)을 쓴다.
+-- 삭제 권한 = 그 객체를 참조하는 행을 지울 수 있는가. 확인 불가능한 가정이 하나도 없다.
 --
--- owner* 분기는 업로드 직후 롤백 전용이다: 메타 INSERT 가 실패하면 참조하는 행이 없어
--- EXISTS 가 거짓이므로, 업로더 본인이 방금 올린 객체를 되돌릴 길이 필요하다.
--- 이 분기가 죽으면 실패한 INSERT 마다 고아 객체가 조용히 남는다 —
--- remove() 는 RLS 거부를 200 / data:[] / error:null 로 돌려주어 성공과 구별되지 않는다(실측).
--- 그래서 owner 와 owner_id 를 둘 다 받는다. 어느 쪽이 채워지는지 확인할 수 없기 때문이다.
--- 둘 중 없는 컬럼을 참조하면 여기서 파스 에러가 난다 = 조용한 데이터 손실 대신 시끄러운 중단.
--- 본 삭제 경로는 EXISTS 로 가므로 이 분기가 통째로 죽어도 삭제 기능 자체는 살아 있다.
+-- 업로드는 행-먼저다(MinutesUploadModal): 행을 INSERT 해 file_path 를 UNIQUE 로 예약한 뒤
+-- 객체를 올린다. 그래서 업로드 실패 시의 롤백도 행이 존재하는 상태에서 실행되고,
+-- 아래 EXISTS 가 그것을 인가한다. storage.objects.owner / owner_id 는 참조하지 않는다 —
+-- 어느 쪽이 채워지는지 확인할 방법이 없었고, 이제 알 필요가 없다.
 --
 -- 순서 의존성(중요): deleteMinutes 는 반드시 "객체 먼저, 행 나중"이어야 한다.
--- 행을 먼저 지우면 아래 EXISTS 가 거짓이 되어 객체 삭제가 거부되고 고아가 된다.
+-- 행을 먼저 지우면 EXISTS 가 거짓이 되어 객체 삭제가 거부된다.
 --
 -- 결합(중요): 이 EXISTS 는 호출자 권한으로 실행되므로 read_all_minutes(using(true))에 의존한다.
--- 나중에 회의록 읽기를 좁히면 이 정책도 함께 좁혀야 한다.
 create policy "minutes delete" on storage.objects for delete to authenticated
   using (
     bucket_id = 'minutes'
-    and (
-      owner = auth.uid()
-      or owner_id = auth.uid()::text
-      or exists (
-        select 1 from meeting_minutes mm
-        where mm.file_path = storage.objects.name
-          and (mm.created_by = auth.uid() or app_role() = 'pmo_admin')
-      )
+    and exists (
+      select 1 from meeting_minutes mm
+      where mm.file_path = storage.objects.name
+        and (mm.created_by = auth.uid() or app_role() = 'pmo_admin')
     )
   );
