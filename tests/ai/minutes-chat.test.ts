@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   MINUTES_CTX_MAX_CHARS,
-  truncateForContext, buildMinutesSystemPrompt, presetPrompt,
+  truncateForContext, buildMinutesSystemPrompt, presetPrompt, isMinutesPreset,
 } from '@/lib/ai/minutes-chat'
 import type { MinutesPreset } from '@/lib/domain/types'
 
@@ -31,11 +31,27 @@ describe('truncateForContext', () => {
     const md = 'x'.repeat(1000)
     const r = truncateForContext(md, 100)
     expect(r.text).toContain('중략')
-    expect(r.text).toContain('1000')
+    expect(r.text).toContain('1000') // 원문 길이
+    expect(r.text).toContain('900') // 생략된 글자수 = 1000 - 100
+  })
+  it('마커를 붙여 원문보다 길어질 상황이면 자르지 않는다', () => {
+    const md = 'a'.repeat(101)
+    expect(truncateForContext(md, 100)).toEqual({ text: md, truncated: false })
+  })
+  it('충분히 크면 실제로 짧아진다', () => {
+    const md = 'a'.repeat(10_000)
+    const r = truncateForContext(md, 1000)
+    expect(r.truncated).toBe(true)
+    expect(r.text.length).toBeLessThan(md.length)
   })
   it('기본 상한은 MINUTES_CTX_MAX_CHARS', () => {
     expect(truncateForContext('x'.repeat(MINUTES_CTX_MAX_CHARS)).truncated).toBe(false)
-    expect(truncateForContext('x'.repeat(MINUTES_CTX_MAX_CHARS + 1)).truncated).toBe(true)
+    // 마커(약 30자)만큼은 확실히 넘겨야 절단에 이득이 있다 — 바로 아래 max+1 케이스 참조.
+    expect(truncateForContext('x'.repeat(MINUTES_CTX_MAX_CHARS + 1000)).truncated).toBe(true)
+  })
+  it('기본 상한에서도 마커 이득이 없으면(max+1) 자르지 않는다', () => {
+    const md = 'x'.repeat(MINUTES_CTX_MAX_CHARS + 1)
+    expect(truncateForContext(md)).toEqual({ text: md, truncated: false })
   })
 })
 
@@ -68,5 +84,17 @@ describe('presetPrompt', () => {
   })
   it('4종이 서로 다르다', () => {
     expect(new Set(all.map(presetPrompt)).size).toBe(4)
+  })
+})
+
+describe('isMinutesPreset', () => {
+  it('프로토타입 체인의 키를 프리셋으로 인정하지 않는다', () => {
+    for (const evil of ['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf', 'isPrototypeOf']) {
+      expect(isMinutesPreset(evil)).toBe(false)
+    }
+  })
+  it('4종만 인정하고 그 외는 거부한다', () => {
+    for (const ok of ['summary', 'decisions', 'actions', 'risks']) expect(isMinutesPreset(ok)).toBe(true)
+    for (const no of ['', 'Summary', 'bogus', 0, null, undefined, {}, ['summary']]) expect(isMinutesPreset(no)).toBe(false)
   })
 })

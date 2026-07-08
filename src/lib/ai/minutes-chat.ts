@@ -29,7 +29,10 @@ export function truncateForContext(
   const tail = max - head
   const omitted = md.length - max
   const marker = `\n\n…(중략: 원문 ${md.length}자 중 ${omitted}자 생략)…\n\n`
-  return { text: md.slice(0, head) + marker + md.slice(md.length - tail), truncated: true }
+  const text = md.slice(0, head) + marker + md.slice(md.length - tail)
+  // 마커까지 붙이고도 원문보다 길어지면 자를 이유가 없다. 없는 '생략 구간'을 모델에게 알리지 않는다.
+  if (text.length >= md.length) return { text: md, truncated: false }
+  return { text, truncated: true }
 }
 
 /** 문서 1개 전용 system 프롬프트. RAG 없음 — 이 문서 밖 지식은 금지한다. */
@@ -58,12 +61,15 @@ const PRESETS: Record<MinutesPreset, string> = {
   risks: '리스크와 이슈, 미해결 안건을 정리해 줘.',
 }
 
+/** 프리셋 키 집합. `v in PRESETS` 를 쓰면 'constructor'/'toString' 같은 프로토타입 키가 통과한다. */
+const PRESET_KEYS: ReadonlySet<string> = new Set(Object.keys(PRESETS))
+
 /** 프리셋 버튼 → 사용자 질문 문자열. */
 export function presetPrompt(preset: MinutesPreset): string {
   return PRESETS[preset]
 }
 
-/** 라우트 입력 검증용 — 임의 문자열이 프리셋인지. */
+/** 라우트 입력 검증용 — 신뢰할 수 없는 문자열이 프리셋인지. 자체 키만 인정한다. */
 export function isMinutesPreset(v: unknown): v is MinutesPreset {
-  return typeof v === 'string' && v in PRESETS
+  return typeof v === 'string' && PRESET_KEYS.has(v)
 }
