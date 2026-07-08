@@ -156,3 +156,30 @@ describe('riskModel', () => {
     expect(riskModel([a], today).signal).toBe('green')
   })
 })
+
+import { overallSignal, buildExecSummary } from '@/lib/domain/dashboard'
+
+describe('overallSignal (worst-of, neutral 제외)', () => {
+  it('모두 green → green', () => { expect(overallSignal(['green', 'green', 'green', 'green'])).toBe('green') })
+  it('하나라도 red → red', () => { expect(overallSignal(['green', 'red', 'amber', 'neutral'])).toBe('red') })
+  it('진척 green + 일정 red 충돌 → red', () => { expect(overallSignal(['green', 'red'])).toBe('red') })
+  it('neutral만 있으면 green', () => { expect(overallSignal(['neutral', 'neutral'])).toBe('green') })
+  it('최악이 amber → amber', () => { expect(overallSignal(['green', 'amber', 'neutral'])).toBe('amber') })
+})
+
+describe('buildExecSummary', () => {
+  const today = '2026-07-08'
+  it('4개 하위 모델 + 종합 판정을 조립', () => {
+    const items = [phase({
+      weight: null, plannedPct: 40, rolledActualPct: 20, status: 'delayed',
+      children: [leaf({ status: 'delayed', plannedEnd: '2026-07-20' })],
+    })]
+    const r = buildExecSummary(items, { startDate: '2026-01-01', endDate: '2026-12-31', today })
+    expect(r.progress.actual).toBe(20)
+    expect(r.progress.planned).toBe(40)
+    expect(r.progress.variance).toBe(-20)
+    expect(r.progress.signal).toBe('red')       // -20 < -10
+    expect(r.overall.signal).toBe('red')         // worst-of
+    expect(r.risk.delayed).toBe(1)
+  })
+})

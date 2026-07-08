@@ -1,5 +1,6 @@
 import type { ComputedItem } from './types'
 import { collectLeaves } from '@/components/wbs/shared'
+import { overallProgress } from './rollup'
 
 export type Signal = 'green' | 'amber' | 'red' | 'neutral'
 
@@ -117,4 +118,38 @@ export function riskModel(roots: ComputedItem[], today: string): RiskModel {
   let signal: Signal = delayed >= 4 ? 'red' : delayed >= 1 ? 'amber' : 'green'
   if (topWeightDelayed) signal = escalate(signal)
   return { delayed, dueSoon, topWeightDelayed, signal }
+}
+
+const RANK: Record<Signal, number> = { neutral: -1, green: 0, amber: 1, red: 2 }
+
+/** 하위 신호 worst-of. neutral은 판정에서 제외(모두 neutral이면 green). */
+export function overallSignal(signals: Signal[]): Signal {
+  return signals
+    .filter(s => s !== 'neutral')
+    .reduce<Signal>((worst, s) => (RANK[s] > RANK[worst] ? s : worst), 'green')
+}
+
+export interface ExecSummary {
+  overall: { signal: Signal }
+  progress: { actual: number; planned: number; variance: number; signal: Signal }
+  schedule: ScheduleModel
+  risk: RiskModel
+  milestone: MilestoneModel
+}
+
+export function buildExecSummary(
+  items: ComputedItem[],
+  opts: { startDate: string | null; endDate: string | null; today: string },
+): ExecSummary {
+  const { actual, planned } = overallProgress(items)
+  const variance = actual - planned
+  const progress = { actual, planned, variance, signal: progressSignal(variance) }
+  const schedule = scheduleModel({
+    startDate: opts.startDate, endDate: opts.endDate, today: opts.today,
+    overallActual: actual, overallPlanned: planned,
+  })
+  const risk = riskModel(items, opts.today)
+  const milestone = detectMilestones(items, opts.today)
+  const overall = { signal: overallSignal([progress.signal, schedule.signal, risk.signal, milestone.signal]) }
+  return { overall, progress, schedule, risk, milestone }
 }
