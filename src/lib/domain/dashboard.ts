@@ -20,6 +20,7 @@ export function progressSignal(variance: number): Signal {
 
 export interface ScheduleModel {
   totalDays: number; elapsed: number; remaining: number; elapsedPct: number
+  earlyFloor: number
   projectedEnd: string | null; slipDays: number | null
   signal: Signal; label: 'onTrack' | 'early' | 'done' | 'none'
 }
@@ -32,18 +33,19 @@ export function scheduleModel(input: {
 }): ScheduleModel {
   const { startDate: s, endDate: e, today, overallActual, overallPlanned } = input
   if (!s || !e) {
-    return { totalDays: 0, elapsed: 0, remaining: 0, elapsedPct: 0, projectedEnd: null, slipDays: null, signal: 'neutral', label: 'none' }
+    return { totalDays: 0, elapsed: 0, remaining: 0, elapsedPct: 0, earlyFloor: 0,
+             projectedEnd: null, slipDays: null, signal: 'neutral', label: 'none' }
   }
   const totalDays = Math.max(1, diffDaysCal(s, e) + 1)
   const elapsed = clampN(diffDaysCal(s, today) + 1, 0, totalDays)
   const remaining = totalDays - elapsed
   const elapsedPct = Math.round((elapsed / totalDays) * 100)
-  const base = { totalDays, elapsed, remaining, elapsedPct }
+  const earlyFloor = Math.max(14, Math.round(totalDays * 0.15))   // 매직넘버는 여기 한 곳에만
+  const base = { totalDays, elapsed, remaining, elapsedPct, earlyFloor }
 
   // 완료 예외 — 종료일 경과여도 done이면 정상
   if (overallActual >= 100) return { ...base, projectedEnd: null, slipDays: null, signal: 'green', label: 'done' }
   // 조기 가드 — SPI 불안정 구간은 정직하게 회색(초록 아님)
-  const earlyFloor = Math.max(14, Math.round(totalDays * 0.15))
   if (overallPlanned < 5 || elapsed < earlyFloor) {
     return { ...base, projectedEnd: null, slipDays: null, signal: 'neutral', label: 'early' }
   }
@@ -73,16 +75,21 @@ function isMilestoneLeaf(l: ComputedItem): boolean {
 const byEndThenOrder = (a: ComputedItem, b: ComputedItem) =>
   a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : a.sortOrder - b.sortOrder
 
+/** 마일스톤 리프 전체 — 완료 포함, plannedEnd 오름차순. 타임라인용. today에 의존하지 않는다. */
+export function milestoneLeaves(items: ComputedItem[]): ComputedItem[] {
+  return collectLeaves(items)
+    .filter(l => isMilestoneLeaf(l) && l.plannedEnd != null)
+    .sort(byEndThenOrder)
+}
+
 export function detectMilestones(items: ComputedItem[], today: string): MilestoneModel {
-  const cands = collectLeaves(items).filter(
-    l => isMilestoneLeaf(l) && l.plannedEnd != null && l.status !== 'done',
-  )
-  const overdue = cands.filter(l => l.plannedEnd! < today).sort(byEndThenOrder)
+  const cands = milestoneLeaves(items).filter(l => l.status !== 'done')
+  const overdue = cands.filter(l => l.plannedEnd! < today)
   if (overdue.length > 0) {
     const od = overdue[0]
     return { name: od.name, date: od.plannedEnd, dday: diffDaysCal(today, od.plannedEnd!), overdue: true, signal: 'red' }
   }
-  const next = cands.filter(l => l.plannedEnd! >= today).sort(byEndThenOrder)[0]
+  const next = cands.filter(l => l.plannedEnd! >= today)[0]
   if (!next) return { name: null, date: null, dday: null, overdue: false, signal: 'neutral' }
   const dday = diffDaysCal(today, next.plannedEnd!)
   return { name: next.name, date: next.plannedEnd, dday, overdue: false, signal: dday >= 15 ? 'green' : 'amber' }
@@ -98,7 +105,17 @@ export function dueSoonLeaves(leaves: ComputedItem[], today: string): ComputedIt
     .sort((a, b) => (a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : 0))
 }
 
-export interface RiskModel { delayed: number; dueSoon: number; topWeightDelayed: boolean; signal: Signal }
+/**
+ * 조치가 필요한 리프 — 지연 ∪ 마감임박, 중복 제거. delayed가 이긴다.
+ * dueSoonLeaves가 delayed를 제외하지 않으므로 둘을 그냥 더하면 중복 계상된다.
+ */
+export function attentionLeaves(leaves: ComputedItem[], today: string): ComputedItem[] {
+  const delayed = delayedLeaves(leaves)
+  const seen = new Set(delayed.map(l => l.id))
+  return [...delayed, ...dueSoonLeaves(leaves, today).filter(l => !seen.has(l.id))]
+}
+
+export interface RiskModel { delayed: number; dueSoon: number; attention: number; topWeightDelayed: boolean; signal: Signal }
 
 const escalate = (s: Signal): Signal => (s === 'green' ? 'amber' : s === 'amber' ? 'red' : s)
 
@@ -114,10 +131,11 @@ export function riskModel(roots: ComputedItem[], today: string): RiskModel {
   const leaves = collectLeaves(roots)
   const delayed = delayedLeaves(leaves).length
   const dueSoon = dueSoonLeaves(leaves, today).length
+  const attention = attentionLeaves(leaves, today).length
   const topWeightDelayed = topWeightPhaseDelayed(roots)
   let signal: Signal = delayed >= 4 ? 'red' : delayed >= 1 ? 'amber' : 'green'
   if (topWeightDelayed) signal = escalate(signal)
-  return { delayed, dueSoon, topWeightDelayed, signal }
+  return { delayed, dueSoon, attention, topWeightDelayed, signal }
 }
 
 const RANK: Record<Signal, number> = { neutral: -1, green: 0, amber: 1, red: 2 }

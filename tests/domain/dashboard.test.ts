@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { progressSignal } from '@/lib/domain/dashboard'
 import { scheduleModel } from '@/lib/domain/dashboard'
+// riskModel·detectMilestones는 파일 하단에서 이미 import 한다(중복 선언 방지).
+import { attentionLeaves, milestoneLeaves } from '@/lib/domain/dashboard'
+import { computeTree } from '@/lib/domain/rollup'
+import { collectLeaves } from '@/lib/domain/tree'
+import type { WbsRow } from '@/lib/domain/types'
 
 describe('progressSignal (편차 %p)', () => {
   it('편차 ≥ -2 → green', () => {
@@ -209,5 +214,90 @@ describe('보강 — 경계·필드 검증', () => {
       leaf({ status: 'delayed' }),                                // 날짜 없음 → dueSoon 아님
     ] })
     expect(riskModel([r], today).dueSoon).toBe(1)
+  })
+})
+
+const H2 = new Set<string>()
+const r = (o: Partial<WbsRow> & { id: string }): WbsRow => ({
+  parentId: null, level: 'activity', code: o.id, sortOrder: 0, name: o.id,
+  biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
+  weight: null, actualPct: null, owners: [], ...o,
+})
+const TODAY = '2026-07-09'
+
+// x: 마감 지남 + 0% → delayed, dueSoon 아님
+// y: 07-13 마감(D-4) + 0% → delayed(계획 미달) AND dueSoon  ← 중복 케이스
+// z: 07-13 마감 + 100% → done, 어느 쪽도 아님
+// w: 08-01 마감, 아직 시작 전 → 어느 쪽도 아님
+const attRows: WbsRow[] = [
+  r({ id: 'P', level: 'phase', plannedStart: '2026-07-01', plannedEnd: '2026-08-31' }),
+  r({ id: 'x', parentId: 'P', plannedStart: '2026-07-01', plannedEnd: '2026-07-07' }),
+  r({ id: 'y', parentId: 'P', plannedStart: '2026-07-06', plannedEnd: '2026-07-13', sortOrder: 1 }),
+  r({ id: 'z', parentId: 'P', plannedStart: '2026-07-06', plannedEnd: '2026-07-13', actualPct: 100, sortOrder: 2 }),
+  r({ id: 'w', parentId: 'P', plannedStart: '2026-07-27', plannedEnd: '2026-08-01', sortOrder: 3 }),
+]
+
+describe('attentionLeaves — 지연 ∪ 마감임박 중복 제거', () => {
+  const leaves = collectLeaves(computeTree(attRows, TODAY, H2))
+
+  it('y는 delayed이자 dueSoon이지만 한 번만 센다', () => {
+    expect(attentionLeaves(leaves, TODAY).map(l => l.id).sort()).toEqual(['x', 'y'])
+  })
+
+  it('riskModel.attention은 고유 건수, delayed+dueSoon은 중복 포함', () => {
+    const m = riskModel(computeTree(attRows, TODAY, H2), TODAY)
+    expect(m.delayed).toBe(2)
+    expect(m.dueSoon).toBe(1)
+    expect(m.attention).toBe(2)   // 3이 아니다
+  })
+
+  it('signal은 delayed만 읽으므로 attention 추가로 변하지 않는다', () => {
+    expect(riskModel(computeTree(attRows, TODAY, H2), TODAY).signal).toBe('amber')
+  })
+})
+
+describe('scheduleModel.earlyFloor', () => {
+  it('max(14, round(totalDays * 0.15))', () => {
+    const a = scheduleModel({ startDate: '2026-07-01', endDate: '2026-12-31', today: '2026-07-09', overallActual: 1, overallPlanned: 6 })
+    expect(a.earlyFloor).toBe(28)   // totalDays 184 → round(27.6)
+    expect(a.label).toBe('early')   // elapsed 9 < 28
+    expect(a.projectedEnd).toBeNull()
+
+    const b = scheduleModel({ startDate: '2026-01-01', endDate: '2026-02-01', today: '2026-01-05', overallActual: 1, overallPlanned: 6 })
+    expect(b.earlyFloor).toBe(14)   // totalDays 32 → round(4.8)=5 → max(14,5)
+  })
+
+  it('날짜 없으면 earlyFloor 0', () => {
+    expect(scheduleModel({ startDate: null, endDate: null, today: TODAY, overallActual: 0, overallPlanned: 0 }).earlyFloor).toBe(0)
+  })
+})
+
+describe('milestoneLeaves', () => {
+  const msRows: WbsRow[] = [
+    r({ id: 'P', level: 'phase', plannedStart: '2026-07-01', plannedEnd: '2026-12-31' }),
+    r({ id: 'kick', parentId: 'P', name: '1-3. 프로젝트 착수 보고회(Kick-off)', plannedStart: '2026-07-10', plannedEnd: '2026-07-10' }),
+    r({ id: 'mid', parentId: 'P', name: '2-5. 중간보고', plannedStart: '2026-09-17', plannedEnd: '2026-09-17', sortOrder: 1 }),
+    r({ id: 'donems', parentId: 'P', name: '착수보고 준비', plannedStart: '2026-07-01', plannedEnd: '2026-07-02', actualPct: 100, sortOrder: 2 }),
+    r({ id: 'plain', parentId: 'P', name: '일반 작업', plannedStart: '2026-07-01', plannedEnd: '2026-07-30', sortOrder: 3 }),
+  ]
+  const tree = computeTree(msRows, TODAY, H2)
+
+  it('완료된 마일스톤도 포함한다 (detectMilestones와 다르다)', () => {
+    expect(milestoneLeaves(tree).map(l => l.id)).toEqual(['donems', 'kick', 'mid'])
+  })
+
+  it('마일스톤이 아닌 항목은 제외한다', () => {
+    expect(milestoneLeaves(tree).map(l => l.id)).not.toContain('plain')
+  })
+
+  it('plannedEnd 오름차순', () => {
+    const ends = milestoneLeaves(tree).map(l => l.plannedEnd)
+    expect([...ends].sort()).toEqual(ends)
+  })
+
+  it('detectMilestones는 여전히 미완료 중 다음 하나만 반환한다', () => {
+    const m = detectMilestones(tree, TODAY)
+    expect(m.name).toBe('1-3. 프로젝트 착수 보고회(Kick-off)')  // donems는 done이라 제외
+    expect(m.dday).toBe(1)
   })
 })
