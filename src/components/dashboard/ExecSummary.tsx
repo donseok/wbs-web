@@ -47,9 +47,13 @@ export async function ExecSummary({
     : s.schedule.label === 'none' ? null
     : `${s.schedule.remaining}${tr('dash.unitDays')}`
 
-  const msValue = s.milestone.name ?? tr('dash.exec.noMilestone')
-  const msSub = s.milestone.date
-    ? `${fmtDate(s.milestone.date)} · ${s.milestone.overdue ? tr('dash.exec.overdue') : `D-${s.milestone.dday}`}`
+  // 마일스톤 타일: 값 슬롯에 정량 D-day(다른 타일과 동일 위계), 이름·날짜는 sub로.
+  const hasMs = s.milestone.name != null
+  const msValue = hasMs
+    ? (s.milestone.overdue ? tr('dash.exec.overdue') : `D-${s.milestone.dday}`)
+    : tr('dash.exec.noMilestone')
+  const msSub = hasMs
+    ? `${s.milestone.name}${s.milestone.date ? ` · ${fmtDate(s.milestone.date)}` : ''}`
     : null
 
   const notice = sortAnnouncements(announcements.filter(a => isPublishedNow(a, today)))[0] ?? null
@@ -62,7 +66,7 @@ export async function ExecSummary({
           <h2 className="mt-0.5 truncate text-base font-bold text-ink">{projectName}</h2>
         </div>
         <ReportButton
-          variant="surface" projectId={projectId} items={items} projectName={projectName}
+          variant="surface" label={tr('dash.exec.reportTitle')} projectId={projectId} items={items} projectName={projectName}
           projectDescription={projectDescription} today={today} startDate={startDate} endDate={endDate}
         />
       </div>
@@ -72,15 +76,16 @@ export async function ExecSummary({
           <ProgressGauge
             actual={s.progress.actual} planned={s.progress.planned} variance={s.progress.variance}
             overall={s.overall.signal} verdictText={verdict} plannedText={plannedText}
+            label={tr('dash.exec.progressLabel')}
           />
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <SignalTile label={tr('dash.exec.scheduleLabel')} value={schedValue} sub={schedSub}
             signal={s.schedule.signal} statusText={statusWord(s.schedule.signal, tr)} />
-          <SignalTile label={tr('dash.exec.riskLabel')} value={`${s.risk.delayed}${tr('dash.unitCount')}`}
+          <SignalTile label={tr('dash.exec.riskLabel')} value={`${s.risk.delayed + s.risk.dueSoon}${tr('dash.unitCount')}`}
             sub={`${tr('dash.exec.delayed')} ${s.risk.delayed} · ${tr('dash.exec.dueSoon')} ${s.risk.dueSoon}`}
             signal={s.risk.signal} statusText={statusWord(s.risk.signal, tr)} />
-          <SignalTile label={tr('dash.exec.milestoneLabel')} value={<span className="text-sm">{msValue}</span>} sub={msSub}
+          <SignalTile label={tr('dash.exec.milestoneLabel')} value={msValue} sub={msSub}
             signal={s.milestone.signal} statusText={statusWord(s.milestone.signal, tr)} />
         </div>
       </div>

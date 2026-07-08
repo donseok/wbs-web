@@ -11,13 +11,13 @@ export function DetailAccordion({ groups, initialExpanded }: {
   initialExpanded: string[]
 }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set(initialExpanded))
-  const toggle = (id: string) =>
-    setOpen(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      queueUiPref({ dashSections: [...next] })
-      return next
-    })
+  // 부수효과(queueUiPref)는 업데이터 밖 이벤트 핸들러에서 — 업데이터는 순수 유지(StrictMode 이중호출 안전).
+  const toggle = (id: string) => {
+    const next = new Set(open)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    setOpen(next)
+    queueUiPref({ dashSections: [...next] })
+  }
 
   return (
     <div className="space-y-3">

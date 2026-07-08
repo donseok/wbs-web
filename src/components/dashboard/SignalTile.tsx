@@ -20,7 +20,7 @@ export function SignalTile({ label, value, sub, signal, statusText }: {
           <Icon className="h-3.5 w-3.5" aria-hidden />{statusText}
         </span>
       </div>
-      <div className="mt-2 text-xl font-bold tabular-nums leading-none text-ink">{value}</div>
+      <div className="mt-2 break-words text-xl font-bold tabular-nums leading-tight text-ink">{value}</div>
       {sub != null && <div className="mt-1.5 text-[11px] leading-4 text-ink-muted">{sub}</div>}
     </div>
   )

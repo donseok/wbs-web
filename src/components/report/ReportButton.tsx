@@ -18,6 +18,7 @@ export function ReportButton({
   startDate,
   endDate,
   variant = 'hero',
+  label = '주간 보고서',
 }: {
   projectId: string
   items: ComputedItem[]
@@ -27,6 +28,7 @@ export function ReportButton({
   startDate?: string | null
   endDate?: string | null
   variant?: 'hero' | 'surface'
+  label?: string
 }) {
   const [open, setOpen] = useState(false)
 
@@ -42,7 +44,7 @@ export function ReportButton({
         }
       >
         <FileText className="h-4 w-4" />
-        주간 보고서
+        {label}
       </button>
 
       <ReportModal
