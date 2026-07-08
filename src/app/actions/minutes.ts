@@ -1,5 +1,6 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { canCreateMinutes, canDeleteMinutes, isMarkdownFile, validateMinutesInput } from '@/lib/domain/minutes'
@@ -91,7 +92,13 @@ export async function createMinutes(
     })
     .select('id')
     .single()
-  if (error) return { ok: false, error: error.message }
+  if (error) {
+    // 23505 = unique_violation (minutes_file_path_key). 정상 업로드는 minutesStoragePath() 의
+    // 타임스탬프 때문에 충돌하지 않는다 — 이 경로는 사실상 남의 file_path 를 가리키려는 위조 시도다.
+    // 원시 Postgres 문자열(제약 이름 노출) 대신 사용자 메시지로 매핑한다.
+    if (error.code === '23505') return { ok: false, error: '이미 등록된 파일입니다.' }
+    return { ok: false, error: error.message }
+  }
 
   revalidateMinutes(projectId)
   return { ok: true, id: data.id as string }
@@ -120,21 +127,32 @@ export async function deleteMinutes(id: string): Promise<MinutesActionResult> {
     return { ok: false, error: '권한 없음' }
   }
 
-  // remove() 의 결과를 반드시 확인한다. 실패를 삼키면 객체는 남고 행만 사라져
-  // 영구 고아 파일이 된다 — 위 주석이 피하려던 바로 그 결과다.
-  // 여기서 중단하면 객체와 행이 함께 남아 정합성이 유지되고, 사용자는 재시도할 수 있다.
+  // 권한 판정은 여기서 이미 끝났다: 행은 세션 클라이언트로 읽었고(= RLS 가 열람을 허가),
+  // canDeleteMinutes 는 delete_minutes 정책과 같은 식이다. 객체 삭제에는 더 판단할 게 없다.
   //
-  // 이 검사가 잡는 것: 전송 실패·비-2xx HTTP 응답. storage-js 는 `!result.ok` 일 때만
-  // error 를 만든다(storage-js/dist/index.mjs:361).
-  // 이 검사가 잡지 못하는 것: RLS 로 거부된 삭제. remove() 는 벌크 엔드포인트
-  // (DELETE /object/{bucket}, body {prefixes})를 호출하고(index.mjs:1363-1368),
-  // 이 엔드포인트는 RLS 하에서 실제로 지워진 행만 배열로 돌려준다(data: FileObject[]).
-  // Postgres 는 DELETE 의 USING 절 불일치를 에러가 아니라 0행으로 처리하므로
-  // (같은 이유로 위 소유권 선검증이 존재한다) RLS 거부는 200 + data:[] + error:null 이다.
-  // 즉 "객체가 원래 없었다"와 "RLS 가 막았다"는 여기서 구별되지 않는다.
-  const { error: rmErr } = await sb.storage.from(BUCKET).remove([cur.file_path as string])
-  if (rmErr) return { ok: false, error: `파일 삭제 실패: ${rmErr.message}` }
+  // 그런데 세션 클라이언트로 지우면 성공 여부가 storage.objects.owner 에 걸리고,
+  // remove() 는 RLS 거부를 200 + data:[] + error:null 로 돌려준다 — 거부와 "원래 없음"이
+  // 구별되지 않아 조용히 고아 파일이 남는다(실측: anon 키로 삭제 정책이 없는 버킷에
+  // DELETE /object/{bucket} 을 쳐도 200 + [] 가 온다). 그래서 객체 제거만 service_role 로
+  // 결정적으로 한다. (storage RLS 는 브라우저 콘솔에서의 직접 삭제를 막는 용도로 남는다.)
+  //
+  // createAdminClient() 는 환경변수가 없으면 throw 한다(supabase/admin.ts:10).
+  // 이 계층은 절대 throw 하지 않으므로 생성만 감싼다. SUPABASE_SERVICE_ROLE_KEY 는
+  // 현재 Production 에만 있어서, dev/Preview 에서는 여기서 조용한 고아 대신 명시적 실패가 난다.
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch {
+    return { ok: false, error: '파일 삭제를 위한 서버 설정이 없습니다.' }
+  }
 
+  const { error: rmErr } = await admin.storage.from(BUCKET).remove([cur.file_path as string])
+  if (rmErr) return { ok: false, error: `파일 삭제 실패: ${rmErr.message}` }
+  // service_role 은 RLS 를 우회하므로 data:[] 는 오직 "객체가 이미 없다"는 뜻이다.
+  // 그건 정상적인 재시도/수동 정리 이후 상태이므로 행 삭제를 막지 않는다.
+  // (실측: 존재하지 않는 키 → HTTP 200 + [] + error:null. 에러가 아니다.)
+
+  // 행 삭제는 세션 클라이언트 그대로 — RLS 가 행의 최종 심판자로 남는다.
   const { error } = await sb.from('meeting_minutes').delete().eq('id', id).select('id').single()
   if (error) return { ok: false, error: error.message }
 
