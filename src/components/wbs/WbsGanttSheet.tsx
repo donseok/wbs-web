@@ -8,6 +8,7 @@ import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { roundWeight } from '@/lib/domain/format'
+import { isValidWeight } from '@/lib/domain/weight'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ReportModal } from '@/components/report/ReportModal'
@@ -319,8 +320,8 @@ export function WbsGanttSheet({
         res = await updateActual(id, pct, Number(editOriginal))
       } else {
         const wv = draft.trim() === '' ? null : Number(draft)
-        if (wv != null && (Number.isNaN(wv) || wv < 0)) {
-          setToast({ kind: 'err', msg: t('wbs.toastWeightMin') })
+        if (!isValidWeight(wv)) {
+          setToast({ kind: 'err', msg: t('wbs.toastWeightRange') })
           return cancel()
         }
         res = await updateWeight(id, wv, editOriginal.trim() === '' ? null : Number(editOriginal))

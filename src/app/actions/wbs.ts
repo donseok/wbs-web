@@ -4,6 +4,7 @@ import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import type { Level, OwnerKind, TeamCode } from '@/lib/domain/types'
 import { subActName } from '@/lib/domain/subact'
+import { WEIGHT_TOTAL, isValidWeight } from '@/lib/domain/weight'
 
 export interface ChangeLogEntry {
   id: number
@@ -97,8 +98,8 @@ export async function updateWeight(
   weight: number | null,
   expectedCurrent?: number | null,
 ): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
-  if (weight != null && (typeof weight !== 'number' || Number.isNaN(weight) || weight < 0)) {
-    return { ok: false, error: '가중치는 0 이상이어야 함' }
+  if (weight != null && (typeof weight !== 'number' || !isValidWeight(weight))) {
+    return { ok: false, error: `가중치는 0~${WEIGHT_TOTAL} 범위여야 함` }
   }
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }

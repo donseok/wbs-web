@@ -1,6 +1,7 @@
 import type { ComputedItem } from './types'
 import { collectLeaves } from './tree'
 import { overallProgress } from './rollup'
+import { effectiveWeights } from './weight'
 
 export type Signal = 'green' | 'amber' | 'red' | 'neutral'
 
@@ -105,9 +106,11 @@ const escalate = (s: Signal): Signal => (s === 'green' ? 'amber' : s === 'amber'
 /** 최상위 유효가중 루트 Phase가 지연인가. 전부 null이면 비교 불가 → false. */
 function topWeightPhaseDelayed(roots: ComputedItem[]): boolean {
   if (roots.length === 0 || roots.every(r => r.weight == null)) return false
-  const eff = (r: ComputedItem) => r.weight ?? 0
-  const top = [...roots].sort((a, b) => eff(b) - eff(a) || a.sortOrder - b.sortOrder)[0]
-  return top.status === 'delayed'
+  const eff = effectiveWeights(roots)
+  const top = roots
+    .map((r, i) => ({ r, w: eff[i] }))
+    .sort((a, b) => b.w - a.w || a.r.sortOrder - b.r.sortOrder)[0]
+  return top.r.status === 'delayed'
 }
 
 export function riskModel(roots: ComputedItem[], today: string): RiskModel {

@@ -41,6 +41,38 @@ function owners(row: unknown[]): ParsedRow['owners'] {
   return out
 }
 
+/**
+ * O열(가중치) 스케일 정규화 → 항상 0~100 으로 맞춘다.
+ *
+ * 두 종류의 파일이 들어온다:
+ *   - 고객사 원본 xlsx : 0~1 스케일 (leaf 합 ≈ 1). 엑셀 수식(1/22 등)에서 나온 값.
+ *   - 우리 export 파일 : 0~100 스케일 (leaf 합 ≈ 100).
+ *
+ * 두 스케일의 leaf 합은 1 vs 100 으로 간극이 100배라 오판 여지가 사실상 없다.
+ * 임계값 1.5 는 반올림·잔차(합이 0.9999 나 1.02 로 어긋나는 경우)를 넉넉히 흡수하면서도
+ * 100 스케일(합 100)과는 멀리 떨어뜨린 값이다.
+ *
+ * leaf(자식 없는 행) 기준으로 합산한다 — 가중치는 전역 절대 지분이므로 상위 행까지
+ * 더하면 트리 깊이만큼 중복 계산된다.
+ */
+function rescaleWeights(rows: ParsedRow[]): void {
+  const hasChild = new Set<number>()
+  const RANK: Record<Level, number> = { phase: 0, task: 1, activity: 2 }
+  // 바로 뒤에 더 깊은 레벨이 이어지면 그 행은 부모(=leaf 아님).
+  for (let i = 0; i < rows.length - 1; i++) {
+    if (RANK[rows[i + 1].level] > RANK[rows[i].level]) hasChild.add(i)
+  }
+  const leafWeights = rows
+    .map((r, i) => (hasChild.has(i) ? null : r.weight))
+    .filter((w): w is number => w != null)
+
+  if (leafWeights.length === 0) return
+  const sum = leafWeights.reduce((a, b) => a + b, 0)
+  if (sum > 1.5) return // 이미 0~100 스케일
+
+  for (const r of rows) if (r.weight != null) r.weight *= 100
+}
+
 export function parseWbsWorkbook(buf: ArrayBuffer): ParsedWbs {
   // cellDates:false — 날짜를 시리얼(정수)로 유지해 toIso 에서 타임존 무관 변환(위 참조).
   const wb = XLSX.read(buf, { type: 'array', cellDates: false })
@@ -74,6 +106,8 @@ export function parseWbsWorkbook(buf: ArrayBuffer): ParsedWbs {
       excelRow: i + 1,
     })
   }
+
+  rescaleWeights(rows)
 
   const holidays: { date: string; name: string }[] = []
   const hs = wb.Sheets['Holiday']

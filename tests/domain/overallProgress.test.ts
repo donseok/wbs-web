@@ -33,12 +33,25 @@ describe('overallProgress', () => {
     expect(overallProgress([])).toEqual({ actual: 0, planned: 0 })
   })
 
-  it('weight가 일부만 있으면 null은 0으로 취급(균등 분기 아님)', () => {
+  it('weight가 일부만 있으면 null은 명시값의 평균을 받는다', () => {
     const r = overallProgress([
       root({ rolledActualPct: 100, plannedPct: 100, weight: 2 }),
       root({ rolledActualPct: 50, plannedPct: 50, weight: null }),
     ])
-    // allNull=false → eff(null)=0 → totalEff=2 → (100*2 + 50*0)/2 = 100
-    expect(r.actual).toBe(100)
+    // null → avg([2]) = 2 → totalEff=4 → (100*2 + 50*2)/4 = 75
+    //
+    // 과거엔 null→0 이라 두 번째 Phase 가 전체 공정율에서 통째로 사라졌고(=100),
+    // 같은 데이터를 computeNode 는 null→1 로 계산해 서로 다른 답을 냈다.
+    // 이제 effectiveWeights 한 곳에서만 정의한다. (weight.ts 참조)
+    expect(r.actual).toBe(75)
+    expect(r.planned).toBe(75)
+  })
+
+  it('null 폴백은 스케일 불변 — 0~1 과 0~100 이 같은 결과', () => {
+    const mk = (w1: number) => [
+      root({ rolledActualPct: 100, plannedPct: 100, weight: w1 }),
+      root({ rolledActualPct: 0, plannedPct: 0, weight: null }),
+    ]
+    expect(overallProgress(mk(0.5))).toEqual(overallProgress(mk(50)))
   })
 })

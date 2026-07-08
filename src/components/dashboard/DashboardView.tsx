@@ -10,6 +10,7 @@ import { ProgressBar } from '@/components/ui/ProgressBar'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM, STATUS, OwnerBadges, collectLeaves, fmtDate } from '@/components/wbs/shared'
+import { effectiveWeights } from '@/lib/domain/weight'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { ExecSummary } from './ExecSummary'
@@ -150,9 +151,8 @@ export async function DashboardView({
   const total = leaves.length
 
   // 루트 가중치 정규화(가중치 분포에 사용). 전체 공정율/일정 신호는 ExecSummary가 담당.
-  const allNull = roots.every(r => r.weight == null)
-  const eff = (r: ComputedItem) => (allNull ? 1 : r.weight ?? 0)
-  const totalEff = roots.reduce((s, r) => s + eff(r), 0) || 1
+  const eff = effectiveWeights(roots)
+  const totalEff = eff.reduce((s, w) => s + w, 0) || 1
 
   // 상태 분포
   const statusCount = (s: Status) => leaves.filter(l => l.status === s).length
@@ -182,7 +182,7 @@ export async function DashboardView({
   const nextWeek = leaves.filter(l => intersects(l.plannedStart, l.plannedEnd, nws, nwe))
 
   // 가중치 분포
-  const weightShare = roots.map(r => ({ id: r.id, name: r.name, share: Math.round((eff(r) / totalEff) * 100) }))
+  const weightShare = roots.map((r, i) => ({ id: r.id, name: r.name, share: Math.round((eff[i] / totalEff) * 100) }))
 
   // 최근 완료
   const recentDone = leaves

@@ -3,6 +3,7 @@ import type {
   ProjectMember, Status, TeamCode,
 } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
+import { effectiveWeights } from '@/lib/domain/weight'
 import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
 
 /* ============================================================================
@@ -338,8 +339,7 @@ export function buildWeeklyReportModel(
   }
 
   // ── Phase별 ── 점유율은 루트 가중치 정규화
-  const rootWeights = roots.map(r => (r.weight == null ? 1 : r.weight))
-  const weightPcts = normalizeWeights(rootWeights)
+  const weightPcts = normalizeWeights(effectiveWeights(roots))
   const leavesUnderRoot = (rootName: string) => leaves.filter(l => l.rootName === rootName).map(l => l.node)
   const phases: WeeklyPhase[] = roots.map((r, i) => {
     const sub = leavesUnderRoot(r.name)
