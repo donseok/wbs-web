@@ -159,3 +159,32 @@ export interface UiPrefs {
   locale?: 'ko' | 'en'
   dashSections?: string[]   // 대시보드 상세 아코디언에서 펼쳐 둔 그룹 id
 }
+
+/* ── 회의록 ── */
+
+/** 목록용. content_md 는 싣지 않는다(무겁다). hasMd 로 바로보기 가능 여부만 안다. */
+export interface MeetingMinutes {
+  id: string
+  projectId: string
+  teamId: string
+  teamCode: TeamCode
+  meetingId: string | null
+  minutesDate: string // 'YYYY-MM-DD'
+  title: string
+  filePath: string
+  fileName: string
+  size: number | null
+  mime: string | null
+  hasMd: boolean
+  createdBy: string | null
+  createdByName: string | null
+  createdAt: string // ISO timestamptz
+}
+
+/** 상세용. 마크다운 원문 포함. 비-md 업로드는 contentMd === null. */
+export interface MeetingMinutesDetail extends MeetingMinutes {
+  contentMd: string | null
+}
+
+/** 회의록 챗봇 프리셋 질문 4종. */
+export type MinutesPreset = 'summary' | 'decisions' | 'actions' | 'risks'
