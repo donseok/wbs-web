@@ -1,8 +1,9 @@
 import type {
   Announcement, AttendanceRecord, AttendanceType, ComputedItem, Level, Meeting, MeetingException, MeetingOccurrence,
-  ProjectMember, Status, TeamCode,
+  ProjectMember, Status,
 } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
+import { TEAMS } from '@/lib/domain/tree'
 import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
 
 /* ============================================================================
@@ -12,7 +13,7 @@ import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
  * 금주 실적=진행중 leaf, 차주 계획=차주 기간과 겹치는 미완료 leaf, 워크로드=팀별, 근태=members+attendance.
  * ========================================================================== */
 
-export const REPORT_TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+export const REPORT_TEAMS = TEAMS
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금'] as const
 
 export interface WeeklyMeta {
