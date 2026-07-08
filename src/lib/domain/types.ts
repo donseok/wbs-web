@@ -190,6 +190,8 @@ export interface MeetingMinutes {
 /** 상세용. 마크다운 원문 포함. 비-md 업로드는 contentMd === null. */
 export interface MeetingMinutesDetail extends MeetingMinutes {
   contentMd: string | null
+  /** 챗 system 프롬프트 메타용. 목록(MeetingMinutes)은 싣지 않는다 — 조인이 불필요하다. */
+  projectName: string
 }
 
 /** 회의록 챗봇 프리셋 질문 4종. */

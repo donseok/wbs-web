@@ -6,14 +6,29 @@ import type { MeetingMinutes, MeetingMinutesDetail, TeamCode } from '@/lib/domai
 const BASE_COLS =
   'id, project_id, team_id, meeting_id, minutes_date, title, file_path, file_name, size, mime, has_md, created_by, created_by_name, created_at'
 
-/** PostgREST embed 는 항상 마지막에 둔다 — 레포의 다른 data/* 셀렉트와 동일한 배치. */
+/**
+ * PostgREST embed 는 항상 마지막에 둔다 — 레포의 다른 data/* 셀렉트와 동일한 배치
+ * (meetings.ts:131 의 `…, meeting_attendees(member_id), projects(name)` 와 같은 형태).
+ * 목록은 projects(name) 을 붙이지 않는다 — 이름이 필요 없고 목록이 핫 패스다.
+ */
 const LIST_COLS = `${BASE_COLS}, teams(code)`
-const DETAIL_COLS = `${BASE_COLS}, content_md, teams(code)`
+const DETAIL_COLS = `${BASE_COLS}, content_md, teams(code), projects(name)`
 
-type Row = Record<string, unknown> & { teams?: { code: TeamCode } | { code: TeamCode }[] | null }
+/** PostgREST 의 to-one 조인은 객체로 오지만 생성 타입이 배열로 넓어지는 경우가 있어 둘 다 받는다. */
+type ToOne<T> = T | T[] | null | undefined
+
+type Row = Record<string, unknown> & {
+  teams?: ToOne<{ code: TeamCode }>
+  projects?: ToOne<{ name: string }>
+}
+
+/** to-one embed 를 단일 객체로 정규화. 빈 배열도 null 로 — 이 계층은 절대 throw 하지 않는다. */
+function toOne<T>(v: ToOne<T>): T | null {
+  if (!v) return null
+  return Array.isArray(v) ? (v[0] ?? null) : v
+}
 
 /**
- * PostgREST 는 to-one 조인을 객체로 주지만 타입 추론이 배열로 넓어지는 경우가 있어 둘 다 받는다.
  * team_id 가 not null + FK(on delete restrict)이고 teams 의 RLS(read_all_teams)도
  * meeting_minutes 의 read_all_minutes 와 동일하게 "to authenticated using (true)"라
  * 인증된 사용자에게는 이 조인이 비어 있을 수 없다 — 즉 이 분기는 현재 스키마에서는 도달 불가다.
@@ -21,9 +36,18 @@ type Row = Record<string, unknown> & { teams?: { code: TeamCode } | { code: Team
  * (이론상) 틀릴 수 있는 값이라 실질적 안전장치는 이 주석이 설명하는 DB 제약이지 폴백 값 자체가 아니다.
  */
 function teamCode(r: Row): TeamCode {
-  const t = r.teams
-  if (!t) return 'PMO'
-  return Array.isArray(t) ? t[0].code : t.code
+  return toOne(r.teams)?.code ?? 'PMO'
+}
+
+/**
+ * teamCode 와 같은 이유로 도달 불가다: project_id 가 not null + FK(on delete cascade)이고
+ * projects 의 RLS(read_all_projects, 0002_rls.sql:18)도 "to authenticated using (true)"라
+ * 인증된 호출자에게는 이 조인이 비어 있을 수 없다(embed 는 호출자 권한으로 실행된다).
+ * 폴백 '프로젝트'는 챗 system 프롬프트의 메타 한 줄에만 쓰이므로 틀려도 무해하다 —
+ * 실질적 안전장치는 이 주석이 설명하는 DB 제약이지 폴백 값 자체가 아니다.
+ */
+function projectName(r: Row): string {
+  return toOne(r.projects)?.name ?? '프로젝트'
 }
 
 function mapMinutes(r: Row): MeetingMinutes {
@@ -70,5 +94,9 @@ export const getMinutesDetail = cache(async (id: string): Promise<MeetingMinutes
     .maybeSingle()
   if (!data) return null
   const r = data as Row
-  return { ...mapMinutes(r), contentMd: (r.content_md as string | null) ?? null }
+  return {
+    ...mapMinutes(r),
+    contentMd: (r.content_md as string | null) ?? null,
+    projectName: projectName(r),
+  }
 })

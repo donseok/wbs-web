@@ -4,7 +4,6 @@ import { sanitizeHistory } from '@/lib/ai/answer'
 import { generateAnswerStream } from '@/lib/ai/llm'
 import { hasLLM } from '@/lib/ai/provider'
 import { getMinutesDetail } from '@/lib/data/minutes'
-import { listProjects } from '@/app/actions/project'
 import {
   buildMinutesSystemPrompt, isMinutesPreset, presetPrompt, truncateForContext,
 } from '@/lib/ai/minutes-chat'
@@ -22,7 +21,13 @@ const STREAM_HEADERS = {
   'X-Accel-Buffering': 'no',
 } as const
 
-/** 문서 1개 전용 챗. 문서 id 는 경로 세그먼트로 고정 — 바디로 받지 않는다. */
+/**
+ * 문서 1개 전용 챗. 문서 id 는 경로 세그먼트로 고정 — 바디로 받지 않는다.
+ *
+ * 바디는 `message` 와 `preset` 중 **정확히 하나**만 담는다(둘 다 오면 400).
+ * 프리셋 버튼을 누른 클라이언트는 `{ preset }` 만 보내고 `message` 는 생략한다 —
+ * 프리셋 문구를 message 로 함께 실어 보내면 어느 쪽이 진짜 질문인지 서버가 알 수 없다.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!(await getSession())) return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 })
   const { id } = await params
@@ -65,12 +70,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // RAG 없는 문서 챗은 결정형 폴백 답이 존재할 수 없으므로 안내 문장 하나만 흘린다.
   if (!hasLLM()) return single(NO_LLM_NOTICE)
 
-  const projects = await listProjects()
-  const projectName =
-    (projects as { id: string; name: string }[]).find(p => p.id === minutes.projectId)?.name ?? '프로젝트'
+  // projectName 은 상세 조회가 projects(name) 임베드로 함께 가져온다 — 별도 왕복 없음.
   const { text, truncated } = truncateForContext(minutes.contentMd)
   const system = buildMinutesSystemPrompt(
-    { title: minutes.title, minutesDate: minutes.minutesDate, teamCode: minutes.teamCode, projectName },
+    {
+      title: minutes.title,
+      minutesDate: minutes.minutesDate,
+      teamCode: minutes.teamCode,
+      projectName: minutes.projectName,
+    },
     text,
     truncated,
   )
