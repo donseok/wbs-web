@@ -27,18 +27,14 @@ on conflict (id) do nothing;
 -- team_editor 가 콘솔에서 남의 팀 경로로 upload() 를 직접 부르면 객체는 올라간다.
 -- 막히는 건 그다음 createMinutes 의 메타 기록(서버 액션 canCreateMinutes + 경로 prefix 검사)과
 -- 아래 RLS insert_minutes 두 겹이다. UPDATE 정책이 없으므로 기존 객체 덮어쓰기는 불가능하다.
--- 삭제만은 아래에서 소유자로 좁힌다 — 파괴적이고, 서버 액션을 우회해 직접 호출할 수 있기 때문이다.
+-- 삭제만은 아래 §4 에서 좁힌다 — 파괴적이고, 서버 액션을 우회해 직접 호출할 수 있기 때문이다.
+-- 삭제 정책은 meeting_minutes 를 참조하므로 테이블(§2) 이 생긴 뒤에야 만들 수 있다. 반면 drop 은
+-- 여기서 먼저 한다: 파일이 중간에 실패해도 구(bucket_id 만 검사하던) 삭제 정책이 남지 않는다 = fail-closed.
 drop policy if exists "minutes read"   on storage.objects;
 drop policy if exists "minutes insert" on storage.objects;
 drop policy if exists "minutes delete" on storage.objects;
 create policy "minutes read"   on storage.objects for select to authenticated using (bucket_id = 'minutes');
 create policy "minutes insert" on storage.objects for insert to authenticated with check (bucket_id = 'minutes');
--- 삭제는 업로더 본인 또는 pmo_admin 만. bucket_id 만 검사하면 로그인한 아무나
--- 브라우저 콘솔에서 남의 회의록 파일을 지울 수 있다(0008 의 알려진 구멍 — 여기선 반복하지 않는다).
--- meeting_minutes 의 delete_minutes 정책(created_by = auth.uid() or pmo_admin)과 정확히 짝을 이룬다:
--- 행을 지울 수 있는 사람만 그 행의 객체를 지울 수 있다.
-create policy "minutes delete" on storage.objects for delete to authenticated
-  using (bucket_id = 'minutes' and (owner = auth.uid() or app_role() = 'pmo_admin'));
 
 -- 2) 테이블
 create table if not exists meeting_minutes (
@@ -95,3 +91,32 @@ create policy delete_minutes on meeting_minutes for delete to authenticated
   using (created_by = auth.uid() or app_role() = 'pmo_admin');
 
 -- UPDATE 정책을 만들지 않는다 = RLS 기본 거부 = 수정 금지(스펙 §2).
+
+-- 4) 스토리지 삭제 정책 — meeting_minutes 와 minutes_file_path_key(UNIQUE) 가 존재해야 만들 수 있다.
+--    (정책 표현식의 테이블/함수 참조는 create policy 시점에 OID 로 해석되어 저장된다.)
+--
+-- 삭제 권한을 "행을 지울 수 있는가"로 정의한다. owner 컬럼에 의존하지 않는다 —
+-- storage.objects.owner(uuid) 는 deprecated 이고 최신 Supabase 는 owner_id(text) 를 채운다.
+-- 어느 쪽인지 확인할 수 없으므로, 확인이 필요 없는 규칙을 쓴다.
+--
+-- owner 분기는 업로드 직후 롤백 전용이다: 메타 INSERT 가 실패하면 참조하는 행이 없어
+-- EXISTS 가 거짓이므로, 업로더 본인이 방금 올린 객체를 되돌릴 길이 필요하다.
+-- owner 가 비어 있어도 이 분기만 죽고 본 삭제 경로는 살아남는다(우아한 열화).
+--
+-- 순서 의존성(중요): deleteMinutes 는 반드시 "객체 먼저, 행 나중"이어야 한다.
+-- 행을 먼저 지우면 아래 EXISTS 가 거짓이 되어 객체 삭제가 거부되고 고아가 된다.
+--
+-- 결합(중요): 이 EXISTS 는 호출자 권한으로 실행되므로 read_all_minutes(using(true))에 의존한다.
+-- 나중에 회의록 읽기를 좁히면 이 정책도 함께 좁혀야 한다.
+create policy "minutes delete" on storage.objects for delete to authenticated
+  using (
+    bucket_id = 'minutes'
+    and (
+      owner = auth.uid()
+      or exists (
+        select 1 from meeting_minutes mm
+        where mm.file_path = storage.objects.name
+          and (mm.created_by = auth.uid() or app_role() = 'pmo_admin')
+      )
+    )
+  );
