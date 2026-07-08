@@ -393,6 +393,8 @@ Expected: FAIL — `Failed to resolve import "@/lib/domain/minutes"`
 
 ```ts
 import type { MeetingMinutes, Membership } from './types'
+// isValidDate('2026-02-30') === false. announcements.ts 에 있던 private 사본을 여기로 올렸다.
+import { isValidDate } from './validate'
 
 /** content_md 문자 상한. announcements/meetings 의 BODY_MAX(20000)를 문서 크기에 맞게 확대한 신규 값. */
 export const MINUTES_MD_MAX = 500_000
@@ -400,14 +402,21 @@ export const MINUTES_MD_MAX = 500_000
 export const MINUTES_FILE_MAX = 20 * 1024 * 1024
 
 const TITLE_MAX = 200
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const MD_EXT_RE = /\.(md|markdown)$/i
 
-/** 'YYYY-MM-DD' 형식 + 실재하는 날짜인지 (2026-02-30 등 반려). announcements.ts:isValidDate 와 동일. */
-function isValidDate(s: string): boolean {
-  if (!DATE_RE.test(s)) return false
-  const d = new Date(`${s}T00:00:00Z`)
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+/** Storage 키 길이 상한(문자). prefix(projectId/teamId/ts)를 더해도 S3 키 한도에 여유가 있다. */
+const NAME_MAX = 120
+
+/**
+ * 길이 제한 — 확장자를 반드시 보존한다.
+ * DB 의 minutes_md_only 제약이 file_path 의 '.md' 로 끝남을 요구하므로, 확장자를 잘라내면
+ * 업로드는 성공하고 메타 INSERT 만 실패해 고아 Storage 객체가 남는다.
+ */
+function capName(safe: string): string {
+  if (safe.length <= NAME_MAX) return safe
+  const dot = safe.lastIndexOf('.')
+  const ext = dot > 0 && safe.length - dot <= 12 ? safe.slice(dot) : ''
+  return safe.slice(0, NAME_MAX - ext.length) + ext
 }
 
 /**
@@ -426,11 +435,13 @@ export function isMarkdownFile(fileName: string): boolean {
  * 예) '///' 는 연속 비허용 문자 뭉치라 정규식이 '_' 하나로 뭉개고, '..' 는 원래부터 구분자뿐이다.
  * 둘 다 경로 세그먼트로 쓰기엔 무의미하므로(전자는 무정보, 후자는 '..' 트래버설 위험) 'file' 로 치환한다.
  * 주의: 가드를 /^\.+$/(점만)로 두면 '///' → '_' 가 통과한다. 구분자 전체를 봐야 한다.
+ * NFC 정규화가 먼저다 — macOS 는 파일명을 NFD(분해형)로 준다. 분해형 '가'(U+1100+U+1161)는
+ * [가-힣](완성형 전용 블록)에 안 걸려 한글이 통째로 '_' 로 뭉개진다.
  */
 export function sanitizeFileName(name: string): string {
-  const safe = name.replace(/[^\w.\-가-힣]+/g, '_')
+  const safe = name.normalize('NFC').replace(/[^\w.\-가-힣]+/g, '_')
   if (!safe || /^[.\-_]+$/.test(safe)) return 'file'
-  return safe
+  return capName(safe)
 }
 
 /**
@@ -511,8 +522,48 @@ Expected: PASS — 모든 테스트 통과
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add src/lib/domain/minutes.ts tests/domain/minutes.test.ts
+git add src/lib/domain/minutes.ts src/lib/domain/validate.ts tests/domain/minutes.test.ts tests/domain/validate.test.ts
 git commit -m "feat(minutes): 순수 도메인 — 파일 판별·경로·권한·검증·필터·집계 + 테스트"
+```
+
+- [ ] **Step 6: 교차 함수 불변식을 테스트로 고정**
+
+업로드는 `isMarkdownFile(원본명)`으로 `content_md`를 채울지 정하고, `file_path`는 `sanitizeFileName(원본명)`으로 만든다. **서로 다른 두 함수가 같은 입력을 읽는다.** 둘이 어긋나면 DB의 `minutes_md_only` 제약이 INSERT를 거부하는데, 그때는 이미 Storage에 객체가 올라간 뒤라 고아 파일이 남는다. 빨간 테스트가 아니라 쓰레기 파일로 드러나는 종류의 버그다.
+
+`tests/domain/minutes.test.ts`에 추가:
+
+```ts
+describe('isMarkdownFile ⇒ sanitizeFileName 결과가 DB minutes_md_only 제약을 만족한다', () => {
+  const DB_CHECK = /\.(md|markdown)$/i // 0019_meeting_minutes.sql 의 file_path ~* 와 동일
+  const inputs = [
+    'a.md', 'A.MD', 'notes.markdown', 'deck.MARKDOWN',
+    '회의록.md', '회의록.md'.normalize('NFD'),   // macOS 는 NFD 로 준다
+    '한'.repeat(300) + '.md',
+    'a'.repeat(119) + '.md', 'a'.repeat(120) + '.md', 'a'.repeat(121) + '.md',
+    '..md', '/'.repeat(50) + '.md', '../../etc/passwd.md', 'a b/c.md',
+  ]
+  it.each(inputs)('%s', (name) => {
+    if (!isMarkdownFile(name)) return  // 비-md 는 content_md 가 null 이라 제약 대상이 아니다
+    expect(DB_CHECK.test(minutesStoragePath('p1', 't1', name, 1700000000000))).toBe(true)
+  })
+})
+
+it('sanitizeFileName 은 어떤 입력에도 경로를 벗어나지 않는다', () => {
+  for (const n of ['../../etc/passwd', '/'.repeat(50), '..', '.', '', '\n\r', 'a'.repeat(500), '🙂🙂']) {
+    const out = sanitizeFileName(n)
+    expect(out).not.toBe('')
+    expect(out.length).toBeLessThanOrEqual(120)
+    expect(out).not.toBe('.'); expect(out).not.toBe('..')
+    expect(out.includes('/')).toBe(false)
+  }
+})
+```
+
+이 테스트가 깨지면 `sanitizeFileName`/`capName`의 진짜 버그다. 테스트를 약화시켜 통과시키지 말 것.
+
+```bash
+git add tests/domain/minutes.test.ts
+git commit -m "test(minutes): isMarkdownFile ⇒ file_path 가 DB 제약을 만족한다는 불변식 고정"
 ```
 
 ---
