@@ -54,3 +54,35 @@ export function scheduleModel(input: {
   const signal: Signal = slipDays > 14 || overdueUnfinished ? 'red' : slipDays > 3 ? 'amber' : 'green'
   return { ...base, projectedEnd, slipDays, signal, label: 'onTrack' }
 }
+
+// 마일스톤 키워드(소문자, WBS 도메인 데이터 기준). 이름에 부분문자열(대소문자 무시) 매칭.
+const MILESTONE_KEYWORDS = ['착수보고', '중간보고', '보고회', '마스터 플랜', 'bmt', '최종 선정', '승인', '준공', 'kick-off', '킥오프']
+
+export interface MilestoneModel {
+  name: string | null; date: string | null; dday: number | null; overdue: boolean; signal: Signal
+}
+
+function isMilestoneLeaf(l: ComputedItem): boolean {
+  const name = l.name.toLowerCase()
+  const kw = MILESTONE_KEYWORDS.some(k => name.includes(k))
+  const singleDay =
+    l.plannedStart != null && l.plannedStart === l.plannedEnd && !!(l.deliverable && l.deliverable.trim())
+  return kw || singleDay
+}
+const byEndThenOrder = (a: ComputedItem, b: ComputedItem) =>
+  a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : a.sortOrder - b.sortOrder
+
+export function detectMilestones(items: ComputedItem[], today: string): MilestoneModel {
+  const cands = collectLeaves(items).filter(
+    l => isMilestoneLeaf(l) && l.plannedEnd != null && l.status !== 'done',
+  )
+  const overdue = cands.filter(l => l.plannedEnd! < today).sort(byEndThenOrder)
+  if (overdue.length > 0) {
+    const od = overdue[0]
+    return { name: od.name, date: od.plannedEnd, dday: diffDaysCal(today, od.plannedEnd!), overdue: true, signal: 'red' }
+  }
+  const next = cands.filter(l => l.plannedEnd! >= today).sort(byEndThenOrder)[0]
+  if (!next) return { name: null, date: null, dday: null, overdue: false, signal: 'neutral' }
+  const dday = diffDaysCal(today, next.plannedEnd!)
+  return { name: next.name, date: next.plannedEnd, dday, overdue: false, signal: dday >= 15 ? 'green' : 'amber' }
+}

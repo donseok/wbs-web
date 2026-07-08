@@ -56,3 +56,50 @@ describe('scheduleModel', () => {
     expect(r.signal).toBe('red')
   })
 })
+
+import { detectMilestones } from '@/lib/domain/dashboard'
+import type { ComputedItem } from '@/lib/domain/types'
+
+const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
+  id: Math.random().toString(36).slice(2), parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
+  name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
+  owners: [], plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'in_progress', children: [], ...over,
+})
+
+describe('detectMilestones', () => {
+  const today = '2026-07-08'
+  it('키워드 매칭 + 임박(D-14 이내) → amber', () => {
+    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-17', sortOrder: 1 })], today)
+    expect(r.name).toBe('중간보고'); expect(r.signal).toBe('amber'); expect(r.dday).toBe(9)
+  })
+  it('여유(D-15+) → green', () => {
+    const r = detectMilestones([leaf({ name: '착수보고회', plannedEnd: '2026-08-01' })], today)
+    expect(r.signal).toBe('green')
+  })
+  it('단일일 + 산출물 → 감지', () => {
+    const r = detectMilestones([leaf({ name: '워크샵', plannedStart: '2026-07-20', plannedEnd: '2026-07-20', deliverable: '결과보고' })], today)
+    expect(r.name).toBe('워크샵')
+  })
+  it('날짜 null + 산출물 리프는 감지 안 함(null===null 함정 방지)', () => {
+    const r = detectMilestones([leaf({ name: '일반작업', deliverable: '산출물', plannedStart: null, plannedEnd: null })], today)
+    expect(r.name).toBeNull(); expect(r.signal).toBe('neutral')
+  })
+  it('지연 마일스톤(예정일 경과+미완료) → red', () => {
+    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-01', status: 'delayed' })], today)
+    expect(r.overdue).toBe(true); expect(r.signal).toBe('red')
+  })
+  it('완료된 마일스톤은 제외', () => {
+    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-20', status: 'done' })], today)
+    expect(r.name).toBeNull()
+  })
+  it('미감지 → neutral', () => {
+    expect(detectMilestones([leaf({ name: '일반작업', plannedEnd: '2026-07-20' })], today).signal).toBe('neutral')
+  })
+  it('다음 마일스톤 동점은 sortOrder로 결정', () => {
+    const r = detectMilestones([
+      leaf({ name: '중간보고 B', plannedEnd: '2026-07-20', sortOrder: 5 }),
+      leaf({ name: '중간보고 A', plannedEnd: '2026-07-20', sortOrder: 2 }),
+    ], today)
+    expect(r.name).toBe('중간보고 A')
+  })
+})
