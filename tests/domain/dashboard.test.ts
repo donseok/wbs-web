@@ -301,3 +301,35 @@ describe('milestoneLeaves', () => {
     expect(m.dday).toBe(1)
   })
 })
+
+/* ExecSummary 리스크 타일이 표시하는 산술 — 헤드라인과 부제가 서로 모순되지 않아야 한다.
+   타일: value = attention, sub = `지연 {delayed} · 임박 {attention - delayed}`.
+   따라서 delayed + (attention - delayed) === attention 이 눈으로도 성립해야 한다. */
+describe('리스크 타일 산술: 지연 + 임박(지연 아님) === 고유 건수', () => {
+  // pureDue: 07-06..07-10 업무일 5, 07-09까지 4 → planned 80. actual 80 → in_progress + dueSoon.
+  const tileRows: WbsRow[] = [
+    r({ id: 'P', level: 'phase', plannedStart: '2026-07-01', plannedEnd: '2026-08-31' }),
+    r({ id: 'x', parentId: 'P', plannedStart: '2026-07-01', plannedEnd: '2026-07-07' }),
+    r({ id: 'y', parentId: 'P', plannedStart: '2026-07-06', plannedEnd: '2026-07-13', sortOrder: 1 }),
+    r({ id: 'pureDue', parentId: 'P', plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 80, sortOrder: 2 }),
+  ]
+  const m = riskModel(computeTree(tileRows, TODAY, H2), TODAY)
+
+  it('겹치는 y를 한 번만 세어 attention < delayed + dueSoon', () => {
+    expect(m.delayed).toBe(2)              // x, y
+    expect(m.dueSoon).toBe(2)              // y, pureDue
+    expect(m.attention).toBe(3)            // x, y, pureDue — 4가 아니다
+  })
+
+  it('부제의 임박 = attention - delayed 는 음수가 될 수 없고, 합이 헤드라인과 같다', () => {
+    const dueSoonOnly = m.attention - m.delayed
+    expect(dueSoonOnly).toBe(1)            // pureDue 하나
+    expect(m.delayed + dueSoonOnly).toBe(m.attention)
+    expect(dueSoonOnly).toBeGreaterThanOrEqual(0)
+  })
+
+  it('불변식: delayed ≤ attention ≤ delayed + dueSoon', () => {
+    expect(m.attention).toBeGreaterThanOrEqual(m.delayed)
+    expect(m.attention).toBeLessThanOrEqual(m.delayed + m.dueSoon)
+  })
+})

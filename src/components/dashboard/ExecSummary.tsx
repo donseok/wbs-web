@@ -82,8 +82,10 @@ export async function ExecSummary({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <SignalTile label={tr('dash.exec.scheduleLabel')} value={schedValue} sub={schedSub}
             signal={s.schedule.signal} statusText={statusWord(s.schedule.signal, tr)} />
-          <SignalTile label={tr('dash.exec.riskLabel')} value={`${s.risk.delayed + s.risk.dueSoon}${tr('dash.unitCount')}`}
-            sub={`${tr('dash.exec.delayed')} ${s.risk.delayed} · ${tr('dash.exec.dueSoon')} ${s.risk.dueSoon}`}
+          {/* 지연 ∪ 임박의 고유 건수. delayed + dueSoon 은 겹치는 항목을 두 번 세므로 쓰지 않는다.
+              부제의 임박은 '지연이 아닌 임박'이라 지연 + 임박 === 헤드라인이 된다. */}
+          <SignalTile label={tr('dash.exec.riskLabel')} value={`${s.risk.attention}${tr('dash.unitCount')}`}
+            sub={`${tr('dash.exec.delayed')} ${s.risk.delayed} · ${tr('dash.exec.dueSoon')} ${s.risk.attention - s.risk.delayed}`}
             signal={s.risk.signal} statusText={statusWord(s.risk.signal, tr)} />
           <SignalTile label={tr('dash.exec.milestoneLabel')} value={msValue} sub={msSub}
             signal={s.milestone.signal} statusText={statusWord(s.milestone.signal, tr)} />
