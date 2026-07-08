@@ -103,3 +103,23 @@ describe('detectMilestones', () => {
     expect(r.name).toBe('중간보고 A')
   })
 })
+
+import { delayedLeaves, dueSoonLeaves } from '@/lib/domain/dashboard'
+
+describe('delayedLeaves / dueSoonLeaves', () => {
+  const today = '2026-07-08'
+  it('delayedLeaves — status delayed만', () => {
+    const ls = [leaf({ status: 'delayed' }), leaf({ status: 'in_progress' }), leaf({ status: 'delayed' })]
+    expect(delayedLeaves(ls)).toHaveLength(2)
+  })
+  it('dueSoonLeaves — 미완료 & 7일 내 마감(오늘 이후)', () => {
+    const ls = [
+      leaf({ status: 'in_progress', plannedEnd: '2026-07-10' }),   // D+2 ✓
+      leaf({ status: 'in_progress', plannedEnd: '2026-07-20' }),   // D+12 ✗
+      leaf({ status: 'done', plannedEnd: '2026-07-09' }),          // done ✗
+      leaf({ status: 'in_progress', plannedEnd: '2026-07-01' }),   // 과거 ✗
+      leaf({ status: 'in_progress', plannedEnd: null }),           // 날짜없음 ✗
+    ]
+    expect(dueSoonLeaves(ls, today)).toHaveLength(1)
+  })
+})

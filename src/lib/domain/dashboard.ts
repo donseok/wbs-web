@@ -86,3 +86,13 @@ export function detectMilestones(items: ComputedItem[], today: string): Mileston
   const dday = diffDaysCal(today, next.plannedEnd!)
   return { name: next.name, date: next.plannedEnd, dday, overdue: false, signal: dday >= 15 ? 'green' : 'amber' }
 }
+
+export const delayedLeaves = (leaves: ComputedItem[]): ComputedItem[] =>
+  leaves.filter(l => l.status === 'delayed')
+
+/** 미완료 & 오늘 이후 7일 내 마감 — DashboardView 인라인 정의와 동일(단일 출처). */
+export function dueSoonLeaves(leaves: ComputedItem[], today: string): ComputedItem[] {
+  return leaves
+    .filter(l => l.status !== 'done' && l.plannedEnd != null && l.plannedEnd >= today && diffDaysCal(today, l.plannedEnd) <= 7)
+    .sort((a, b) => (a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : 0))
+}
