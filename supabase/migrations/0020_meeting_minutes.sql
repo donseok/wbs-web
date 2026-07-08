@@ -10,17 +10,22 @@
 --       current_team() 의 프로덕션 존재 여부를 신뢰할 수 없으므로 app_team() 을 여기서 재선언한다.
 
 create or replace function public.app_role() returns text language sql stable as $$
-  select role from memberships where user_id = auth.uid()
+  select role from public.memberships where user_id = auth.uid()
 $$;
 
 -- memberships PK 가 (user_id) 단독(0001_init.sql:21)이라 사용자당 팀은 최대 1개 → 스칼라 안전.
 create or replace function public.app_team() returns uuid language sql stable as $$
-  select team_id from memberships where user_id = auth.uid()
+  select team_id from public.memberships where user_id = auth.uid()
 $$;
 
 -- 1) 비공개 버킷 (0008_attachments.sql 패턴)
-insert into storage.buckets (id, name, public)
-values ('minutes', 'minutes', false)
+-- file_size_limit 은 storage.buckets 의 bigint 바이트 컬럼(storage-js 문서: "max file size in bytes").
+-- 20971520 = 20*1024*1024 = MINUTES_FILE_MAX(src/lib/domain/minutes.ts). 두 값이 어긋나면 안 된다 —
+-- 클라이언트 모달 검사(MinutesUploadModal)만 있던 걸 서버측 백스톱으로 보강한다.
+-- 주의: on conflict do nothing 이라 이 한도는 버킷이 없을 때(=최초 적용)만 걸린다. 이미 만들어진
+--       버킷의 한도를 바꾸려면 별도 update storage.buckets set file_size_limit=... 가 필요하다.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('minutes', 'minutes', false, 20971520)
 on conflict (id) do nothing;
 
 -- 읽기/쓰기는 "인증되면 통과"다. 경로의 팀 폴더는 조직화 목적이며 보안 경계가 아니다 —
