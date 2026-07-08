@@ -1,6 +1,5 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { canCreateMinutes, canDeleteMinutes, isMarkdownFile, validateMinutesInput } from '@/lib/domain/minutes'
@@ -93,9 +92,11 @@ export async function createMinutes(
     .select('id')
     .single()
   if (error) {
-    // 23505 = unique_violation (minutes_file_path_key). 정상 업로드는 minutesStoragePath() 의
-    // 타임스탬프 때문에 충돌하지 않는다 — 이 경로는 사실상 남의 file_path 를 가리키려는 위조 시도다.
-    // 원시 Postgres 문자열(제약 이름 노출) 대신 사용자 메시지로 매핑한다.
+    // 23505 = unique_violation (minutes_file_path_key). 두 경우가 여기로 온다:
+    //  (1) 같은 업로드를 두 번 제출 — 등록 버튼 더블클릭. minutesStoragePath() 의 타임스탬프는
+    //      서로 다른 업로드끼리만 구별해 주지, 한 업로드를 두 번 보내는 것은 막지 못한다.
+    //  (2) 남의 file_path 를 가리키려는 위조 — UNIQUE 가 그 별칭을 차단한다.
+    // 사용자 메시지는 둘 다에 맞다. 원시 Postgres 문자열(제약 이름 노출) 대신 이걸 돌려준다.
     if (error.code === '23505') return { ok: false, error: '이미 등록된 파일입니다.' }
     return { ok: false, error: error.message }
   }
@@ -105,9 +106,15 @@ export async function createMinutes(
 }
 
 /**
- * 삭제 — Storage 객체 제거 후 메타 삭제 (attachments.removeAttachment 순서 그대로).
- * 객체가 먼저 사라지고 행 삭제가 실패하면 "깨진 링크 행"이 남지만,
- * 반대 순서는 "영구 고아 객체"를 남긴다. 레포는 전자를 택했다.
+ * 삭제 — Storage 객체 제거 **후** 메타 삭제.
+ *
+ * 이 순서는 이제 선호가 아니라 필수다. 스토리지 삭제 정책이
+ *   exists (select 1 from meeting_minutes mm where mm.file_path = storage.objects.name
+ *           and (mm.created_by = auth.uid() or app_role() = 'pmo_admin'))
+ * 로 행 삭제 권한을 그대로 미러링하므로, 행을 먼저 지우면 EXISTS 가 거짓이 되어
+ * 객체 삭제가 거부되고 아무도 참조하지 않는 고아 객체가 영구히 남는다.
+ * 반대로 객체를 먼저 지우고 행 삭제가 실패하면 "깨진 링크 행"이 남지만,
+ * remove() 는 없는 키에 멱등이므로(측정 확인) 사용자가 다시 삭제하면 복구된다.
  */
 export async function deleteMinutes(id: string): Promise<MinutesActionResult> {
   const m = await getMembership()
@@ -127,34 +134,28 @@ export async function deleteMinutes(id: string): Promise<MinutesActionResult> {
     return { ok: false, error: '권한 없음' }
   }
 
-  // 권한 판정은 여기서 이미 끝났다: 행은 세션 클라이언트로 읽었고(= RLS 가 열람을 허가),
-  // canDeleteMinutes 는 delete_minutes 정책과 같은 식이다. 객체 삭제에는 더 판단할 게 없다.
+  // rmErr 이 잡는 것: 전송 실패와 비-2xx 응답. storage-js 는 `!result.ok` 일 때만 error 를
+  // 만든다(storage-js/dist/index.mjs:361). 그 외에는 언제나 error:null 이다.
+  // rmErr 이 구별하지 못하는 것: "RLS 거부"와 "객체가 원래 없음". remove() 는 벌크 엔드포인트
+  // (DELETE /object/{bucket}, body {prefixes})를 부르는데(index.mjs:1363-1368), 둘 다
+  // 200 + data:[] + error:null 로 온다(실측: 삭제 정책이 없는 anon 키로도 200 + []).
   //
-  // 그런데 세션 클라이언트로 지우면 성공 여부가 storage.objects.owner 에 걸리고,
-  // remove() 는 RLS 거부를 200 + data:[] + error:null 로 돌려준다 — 거부와 "원래 없음"이
-  // 구별되지 않아 조용히 고아 파일이 남는다(실측: anon 키로 삭제 정책이 없는 버킷에
-  // DELETE /object/{bucket} 을 쳐도 200 + [] 가 온다). 그래서 객체 제거만 service_role 로
-  // 결정적으로 한다. (storage RLS 는 브라우저 콘솔에서의 직접 삭제를 막는 용도로 남는다.)
-  //
-  // createAdminClient() 는 환경변수가 없으면 throw 한다(supabase/admin.ts:10).
-  // 이 계층은 절대 throw 하지 않으므로 생성만 감싼다. SUPABASE_SERVICE_ROLE_KEY 는
-  // 현재 Production 에만 있어서, dev/Preview 에서는 여기서 조용한 고아 대신 명시적 실패가 난다.
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch {
-    return { ok: false, error: '파일 삭제를 위한 서버 설정이 없습니다.' }
-  }
-
-  const { error: rmErr } = await admin.storage.from(BUCKET).remove([cur.file_path as string])
+  // 그런데 이 지점에서는 거부가 일어날 수 없다. 스토리지 삭제 정책의 EXISTS 절이
+  // canDeleteMinutes 와 같은 식이고, 그 EXISTS 가 보는 행은 아직 지워지지 않았기 때문이다
+  // (그래서 객체를 먼저 지운다 — 위 주석 참조). 따라서 여기서 data:[] 는 "객체가 이미 없다"는
+  // 뜻뿐이고, 그건 사용자가 재시도로 정리하는 깨진 링크 행 상태다. 행 삭제를 막지 않는다.
+  const { error: rmErr } = await sb.storage.from(BUCKET).remove([cur.file_path as string])
   if (rmErr) return { ok: false, error: `파일 삭제 실패: ${rmErr.message}` }
-  // service_role 은 RLS 를 우회하므로 data:[] 는 오직 "객체가 이미 없다"는 뜻이다.
-  // 그건 정상적인 재시도/수동 정리 이후 상태이므로 행 삭제를 막지 않는다.
-  // (실측: 존재하지 않는 키 → HTTP 200 + [] + error:null. 에러가 아니다.)
 
-  // 행 삭제는 세션 클라이언트 그대로 — RLS 가 행의 최종 심판자로 남는다.
   const { error } = await sb.from('meeting_minutes').delete().eq('id', id).select('id').single()
-  if (error) return { ok: false, error: error.message }
+  if (error) {
+    // 객체는 이미 지워졌는데 행 삭제가 실패했다 — 깨진 링크 행이 남는다.
+    // PGRST116 = 단수 표현(.single())에 0행. PK 조회라 "2행 이상"은 불가능하므로 항상 0행이다.
+    // (실측: PostgREST 406 + {"code":"PGRST116","details":"The result contains 0 rows"})
+    // remove() 는 없는 키에 멱등이므로 사용자가 다시 삭제하면 복구된다.
+    if (error.code === 'PGRST116') return { ok: false, error: '회의록 기록을 삭제하지 못했습니다. 다시 시도해 주세요.' }
+    return { ok: false, error: error.message }
+  }
 
   revalidateMinutes(cur.project_id as string)
   return { ok: true }
