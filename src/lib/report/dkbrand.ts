@@ -1,36 +1,7 @@
-import type { Status } from '@/lib/domain/types'
-
-/* 동국제강 그룹 주간보고/공정보고 디자인 토큰. Hex는 '#' 없는 6자리(RRGGBB).
+/* 동국제강 그룹 공정보고 디자인 토큰. Hex는 '#' 없는 6자리(RRGGBB).
  * 공식 CI: DONGKUK BLUE #002452 + DONGKUK RED #C51F2A (블루+레드 듀오톤).
- * PPT(pptxgenjs) = 네이비 본문 + 레드 브랜드 악센트 · Excel(exceljs) = 보라(퍼플) 테마. */
-
-/** PPT — 동국제강 그룹 네이비 주간보고 */
-export const PN = {
-  navy: '002452',       // 헤더바 · 표지 배경 (DONGKUK BLUE)
-  navy2: '003670',      // 보조 네이비
-  ink: '1A1A2E',        // 진한 텍스트 · 표 헤더 배경
-  body: '2A2F3C',       // 본문
-  body2: '3E4555',
-  gray: '5C6370',       // 라벨
-  subtle: '8B92A0',     // 부제 · 페이지번호
-  line: 'D4D8E0',       // 테두리 · 막대 트랙
-  divider: 'A6A6A6',    // 내지 헤더 구분선(중립 회색, 참조 bg1 65%)
-  footerGray: 'B6B6B6', // 푸터·페이지번호(중립 회색, 참조 lt2/bg2)
-  red: 'C51F2A',        // DONGKUK RED — 브랜드 악센트(표지·헤더 룰) · 이슈/미달
-  green: '0D7C3E',      // 초과 · 양호
-  chip: 'E8EDF4',       // 상태 칩 배경
-  zebra: 'F7F8FA',      // 줄무늬 행
-  white: 'FFFFFF',
-  surface: 'FFFFFF',
-} as const
-
-/** PPT 상태 칩 텍스트 색 */
-export const PN_STATUS: Record<Status, string> = {
-  not_started: '5C6370',
-  in_progress: '1D4ED8',
-  delayed: 'C51F2A',
-  done: '0D7C3E',
-}
+ * Excel(exceljs) = 보라(퍼플) 테마. PPT는 사내 D-Cube 템플릿(.pptx)의 서식을
+ * 그대로 재사용하므로(templateFill) 색 토큰이 필요 없다. */
 
 /** Excel — 보라 공정보고 */
 export const PX = {
