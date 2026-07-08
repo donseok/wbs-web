@@ -16,7 +16,9 @@ export function DetailAccordion({ groups, initialExpanded }: {
     const next = new Set(open)
     if (next.has(id)) next.delete(id); else next.add(id)
     setOpen(next)
-    queueUiPref({ dashSections: [...next] })
+    // 렌더되지 않는 낡은 group id(analysis·scheduleRisk)를 DB에 영구 잔류시키지 않는다.
+    const live = new Set(groups.map(g => g.id))
+    queueUiPref({ dashSections: [...next].filter(gid => live.has(gid)) })
   }
 
   return (
