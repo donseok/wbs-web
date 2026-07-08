@@ -17,6 +17,7 @@ export function ReportButton({
   today,
   startDate,
   endDate,
+  variant = 'hero',
 }: {
   projectId: string
   items: ComputedItem[]
@@ -25,6 +26,7 @@ export function ReportButton({
   today: string
   startDate?: string | null
   endDate?: string | null
+  variant?: 'hero' | 'surface'
 }) {
   const [open, setOpen] = useState(false)
 
@@ -33,7 +35,11 @@ export function ReportButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20"
+        className={
+          variant === 'surface'
+            ? 'inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-semibold text-ink shadow-sm transition hover:bg-surface-2'
+            : 'inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 text-sm font-semibold text-hero-ink backdrop-blur transition hover:bg-white/20'
+        }
       >
         <FileText className="h-4 w-4" />
         주간 보고서
