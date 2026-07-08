@@ -28,8 +28,12 @@ async function resolveTeamId(sb: ServerClient, teamCode: TeamCode | null): Promi
 
 /** 0019 의 부분 유니크 인덱스 위반을 사용자 언어로 옮긴다 — 원시 Postgres 문자열 노출 방지. */
 function memberWriteError(error: { code?: string; message: string }): string {
-  if (error.code === '23505') return '같은 이메일의 멤버가 이 프로젝트에 이미 있습니다.'
-  return error.message
+  if (error.code !== '23505') return error.message
+  // 두 제약은 원인이 다르다: 같은 이메일 재등록 vs 다른 이메일이 같은 계정으로 해석됨.
+  if (error.message.includes('project_members_project_user_uidx')) {
+    return '이 로그인 계정은 이미 이 프로젝트의 멤버로 등록되어 있습니다.'
+  }
+  return '같은 이메일의 멤버가 이 프로젝트에 이미 있습니다.'
 }
 
 export async function addMember(projectId: string, input: MemberInput): Promise<MemberActionResult> {
