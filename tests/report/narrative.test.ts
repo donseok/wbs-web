@@ -3,8 +3,6 @@ import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildWeeklyNarrative } from '@/lib/report/narrative'
 import type { Announcement, ComputedItem, Meeting } from '@/lib/domain/types'
 
-const NB = ' ' // non-breaking space
-
 const node = (over: Partial<ComputedItem>): ComputedItem =>
   ({
     id: Math.random().toString(36).slice(2), parentId: null, level: 'activity', code: '1', sortOrder: 1,
