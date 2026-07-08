@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { createMinutes } from '@/app/actions/minutes'
+import { createMinutes, deleteMinutes } from '@/app/actions/minutes'
 import {
   MINUTES_FILE_MAX, canCreateMinutes, isMarkdownFile, minutesStoragePath, validateMinutesInput,
 } from '@/lib/domain/minutes'
@@ -79,7 +79,7 @@ export function MinutesUploadModal({
       //    file.name 으로 판정하면 sanitizeFileName 이 확장자를 바꾸는 날 클라이언트와 서버가 갈린다.
       const path = minutesStoragePath(projectId, teamId, file.name, Date.now())
 
-      // 3) .md 면 본문을 읽는다. 아직 Storage 를 건드리지 않았으므로 여기서 실패해도 고아 객체가 없다.
+      // 3) .md 면 본문을 읽는다. 아직 DB/Storage 를 건드리지 않았으므로 실패해도 남는 게 없다.
       let contentMd: string | null = null
       if (isMarkdownFile(path)) {
         contentMd = await file.text()
@@ -90,20 +90,45 @@ export function MinutesUploadModal({
       }
 
       // 4) MINUTES_MD_MAX(500,000자) 는 MINUTES_FILE_MAX(20MB) 와 별개 상한이다.
-      //    15MB .md 는 파일 상한을 통과하지만 본문 상한에 걸려 createMinutes 가 거절한다 —
-      //    업로드 뒤에 거절당하면 고아 객체가 남는다. 그래서 업로드 **전에** 여기서 검사한다.
+      //    15MB .md 는 파일 상한을 통과하지만 본문 상한에 걸려 createMinutes 가 거절한다.
+      //    이미 실패가 확정된 입력을 DB/Storage 까지 보내지 않는다 — 모든 사전 검사는 여기서 끝난다.
       const invalid = validateMinutesInput({ ...meta, contentMd })
       if (invalid) { setErr(invalid); return }
 
-      // 5) Storage 업로드. upsert:false — 경로에 ms 타임스탬프가 붙고 file_path 에 UNIQUE 가 있으므로
-      //    충돌은 곧 이상 신호다. 덮어쓰지 않고 시끄럽게 실패한다.
+      // createBrowserClient() 는 env 가 없으면 throw 한다. 아래 INSERT 와 upload 사이에서 터지면
+      // 바깥 catch 로 빠져 롤백을 건너뛰므로, 행을 만들기 **전에** 미리 만들어 둔다.
       const sb = createBrowserClient()
-      const up = await sb.storage.from(BUCKET).upload(path, file, { upsert: false })
-      if (up.error) { setErr(`${t('min.err.uploadFail')}: ${up.error.message}`); return }
 
-      // ── 이 지점부터 객체가 존재한다. 아래 모든 실패 경로는 롤백하거나, 의도적으로 남긴다. ──
+      // ─────────────────────────────────────────────────────────────────────────────
+      // 보상 트랜잭션: **행 먼저, 객체 나중.** 순서가 핵심이고, 뒤집으면 고아 객체가 생긴다.
+      //
+      // 0020 의 "minutes delete" 스토리지 정책은 삭제 권한을
+      //     bucket_id = 'minutes' and exists (
+      //       select 1 from meeting_minutes mm
+      //       where mm.file_path = storage.objects.name
+      //         and (mm.created_by = auth.uid() or app_role() = 'pmo_admin'))
+      // 으로 정의한다 — 즉 **객체를 지우려면 그 객체를 가리키는 행이 살아 있어야 한다.**
+      //
+      // 객체를 먼저 올리면(= RowDetailPanel.tsx 의 순서) 롤백 시점엔 아직 행이 없다.
+      // 그러면 EXISTS 가 거짓이라 삭제가 거부되고, remove() 는 거부를 200/[]/error:null 로 돌려주므로
+      // 코드는 성공으로 착각한 채 아무도 참조하지 않는 객체가 영구히 남는다(= 보이지 않는 고아).
+      //
+      // 행을 먼저 넣으면 그 함정이 사라진다. minutesStoragePath() 는 순수 함수라 I/O 전에 경로를
+      // 알 수 있고, file_path 의 UNIQUE 인덱스가 그 경로를 예약한다. 업로드가 실패하면 행이 살아 있는
+      // 상태에서 deleteMinutes() 를 부르므로 EXISTS 가 참이 되어 객체 삭제가 허가된다.
+      // storage.objects.owner 가 채워지는지 여부에 기대지 않는다 — 확인 불가능한 가정이었다.
+      //
+      // **객체가 존재하는데 그를 가리키는 행이 없는 순간 자체가 없다** → 고아 객체는 구조적으로 불가능.
+      // 최악의 잔여 상태는 객체가 안 올라간 '깨진 링크 행'인데, 이건 목록에 **보이고**
+      // 사용자가 삭제하면 스스로 낫는다(deleteMinutes 의 remove() 는 없는 키에 멱등한 no-op).
+      // 대가: 업로드가 끝나기 전 몇 초간 다운로드 링크가 404 다. content_md 는 5) 에서 이미 들어가므로
+      // .md 의 바로보기/챗은 그 순간에도 정상 동작한다.
+      //
+      // RowDetailPanel.tsx:318-340 은 반대 순서(객체→메타)를 쓴다. 그 버킷은 삭제 정책이 다르다.
+      // 여기서 순서를 "관례에 맞춘다"며 되돌리지 말 것 — 의도된 분기이지 실수가 아니다.
+      // ─────────────────────────────────────────────────────────────────────────────
 
-      // 6) 메타 기록. 서버 액션은 throw 하지 않지만 전송(fetch)은 끊길 수 있다.
+      // 5) 행 먼저. 서버 액션은 throw 하지 않지만 전송(fetch)은 끊길 수 있다.
       const res = await createMinutes(
         projectId,
         { ...meta, contentMd },
@@ -111,39 +136,37 @@ export function MinutesUploadModal({
       ).catch(() => null)
 
       if (res === null) {
-        // 전송 실패 — insert 가 됐는지 알 수 없다. 여기서 지우면 정상 등록된 행의 파일을 날려
-        // 되살릴 수 없는 '깨진 링크 행'을 만든다. 객체를 남기는 쪽이 덜 파괴적이다(최악은 고아 객체).
-        console.error('[minutes] createMinutes 응답 유실 — 행 생성 여부 불명, 객체를 남깁니다:', `${BUCKET}/${path}`)
+        // 전송 유실 — insert 됐는지 알 수 없다. 하지만 객체는 아직 올리지 않았으니 고아는 불가능하다.
+        // 행이 생겼다면 '깨진 링크 행'으로 목록에 보인다. 새로고침해서 사용자에게 드러낸다.
         setErr(t('min.err.recordFail'))
+        router.refresh()
         return
       }
+      // 거절 — createMinutes 의 ok:false 경로는 전부 INSERT 이전(권한/검증/경로/md 게이트)이거나
+      // INSERT 자체의 실패다. 어느 쪽이든 행이 없으니 정리할 것도 없다.
+      if (!res.ok) { setErr(res.error ?? t('min.err.recordFail')); return }
+      // ok 인데 id 가 없는 건 현재 구현상 도달 불가다. 그래도 행은 생긴 것이므로 롤백 대상을 잃었다 —
+      // 조용히 숨기지 말고 새로고침해 깨진 링크 행을 드러낸다.
+      if (!res.id) { setErr(t('min.err.uploadRollbackFail')); router.refresh(); return }
+      const rowId = res.id
 
-      // 7) 거절 → 보상 트랜잭션.
-      //
-      // 이 remove() 는 조용히 실패할 수 있다. 0020 의 "minutes delete" 정책은
-      //   owner = auth.uid()  OR  exists(file_path 가 이 객체를 가리키는 meeting_minutes 행)
-      // 인데, createMinutes 가 실패해 그 행이 없으므로 여기서는 owner 분기에만 의존한다.
-      // 최신 Supabase 가 owner(uuid) 대신 owner_id(text) 를 채우면 그 분기가 죽어 삭제가 거부된다
-      // (0020 주석이 말하는 '우아한 열화'가 정확히 이 경우다 → 고아 객체).
-      //
-      // 결정적으로 "거부"와 "성공"은 둘 다 error:null 로 온다 — data 로만 구분된다.
-      // remove() 는 실제로 지운 객체 목록을 돌려주므로 빈 배열 = 아무것도 안 지워짐 = 고아 확정
-      // (방금 업로드에 성공한 객체라 '원래 없었음'은 불가능하다). 최소한 로그로 회수 가능하게 남긴다.
-      if (!res.ok) {
-        try {
-          const rm = await sb.storage.from(BUCKET).remove([path])
-          if (rm.error || (rm.data?.length ?? 0) === 0) {
-            console.error(
-              '[minutes] 롤백 실패 — 고아 객체가 남았습니다:',
-              `${BUCKET}/${path}`,
-              rm.error?.message ?? '삭제된 객체 0개(스토리지 삭제 정책 거부로 추정)',
-            )
-          }
-        } catch (e) {
-          // 네트워크 단절 등. remove() 는 멱등이므로 같은 경로로 재시도해도 안전하다.
-          console.error('[minutes] 롤백 요청 실패 — 고아 객체가 남았을 수 있습니다:', `${BUCKET}/${path}`, e)
+      // 6) 객체 업로드. upsert:false — 경로에 ms 타임스탬프가 붙고 file_path 에 UNIQUE 가 있으므로
+      //    충돌은 곧 이상 신호다. 덮어쓰지 않고 시끄럽게 실패한다.
+      //    throw 를 여기서 잡아 아래 롤백으로 흘린다 — 바깥 catch 로 빠지면 행이 그대로 남는다.
+      const up = await sb.storage.from(BUCKET).upload(path, file, { upsert: false }).catch(() => null)
+      const upErr = up?.error ?? null
+
+      if (!up || upErr) {
+        // 7) 롤백 — 행이 살아 있는 지금 부른다. deleteMinutes 가 객체 제거 → 행 삭제 순으로 처리하고,
+        //    객체가 아예 안 올라갔으면 remove() 는 멱등한 no-op 이다. 손으로 remove() 하지 않는다.
+        const rb = await deleteMinutes(rowId).catch(() => null)
+        if (!rb || !rb.ok) {
+          // 롤백까지 실패 → 깨진 링크 행이 남았다. 숨기지 말고 보여주고, 할 일을 정확히 알려준다.
+          setErr(t('min.err.uploadRollbackFail'))
+          router.refresh()
+          return
         }
-        setErr(res.error ?? t('min.err.recordFail'))
+        setErr(upErr ? `${t('min.err.uploadFail')}: ${upErr.message}` : t('min.err.uploadFail'))
         return
       }
 
