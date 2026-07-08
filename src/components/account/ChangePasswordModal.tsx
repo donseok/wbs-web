@@ -6,40 +6,39 @@ import { useToast } from '@/components/ui/Toast'
 import { createBrowserClient } from '@/lib/supabase/client'
 
 /**
- * 로그인한 본인의 비밀번호 변경. 현재 비밀번호 재확인(signInWithPassword) 후
- * updateUser 로 변경한다. 이메일은 현재 세션에서 조회하므로 별도 prop 불필요.
+ * 로그인한 본인의 비밀번호 변경 — 기존/신규 두 칸만. 저장 시 즉시 적용.
+ * 기존 비밀번호 재확인(signInWithPassword) 후 updateUser 로 변경. 이메일은 현재 세션에서 조회.
+ * 신규 비밀번호 최소 6자(Supabase Auth 정책 하한 — 그 이하는 API로 설정 불가). 갱신주기/강제변경 없음.
  */
 export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
-  const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   useEffect(() => {
     if (!open) return
-    setCurrent(''); setNext(''); setConfirm(''); setError(null)
+    setCurrent(''); setNext(''); setError(null)
   }, [open])
 
   function submit() {
     setError(null)
-    if (next.length < 8) { setError('새 비밀번호는 8자 이상이어야 합니다.'); return }
-    if (next !== confirm) { setError('새 비밀번호가 일치하지 않습니다.'); return }
+    if (!current) { setError('기존 비밀번호를 입력하세요.'); return }
+    if (next.length < 6) { setError('신규 비밀번호는 6자 이상이어야 합니다.'); return }
     startTransition(async () => {
       try {
         const sb = createBrowserClient()
         const { data } = await sb.auth.getUser()
         const email = data.user?.email
         if (!email) { setError('세션을 확인할 수 없습니다. 다시 로그인해 주세요.'); return }
-        // 현재 비밀번호 재확인(같은 사용자 재로그인 — 세션 유지)
+        // 기존 비밀번호 재확인(같은 사용자 재로그인 — 세션 유지)
         const { error: reauth } = await sb.auth.signInWithPassword({ email, password: current })
         if (reauth) {
-          // 자격증명 오류만 "비번 틀림"으로, 그 외(레이트리밋·네트워크·5xx)는 실제 원인을 표시
           const code = (reauth as { code?: string }).code
           setError(code === 'invalid_credentials'
-            ? '현재 비밀번호가 올바르지 않습니다.'
-            : `현재 비밀번호 확인에 실패했습니다: ${reauth.message}`)
+            ? '기존 비밀번호가 올바르지 않습니다.'
+            : `기존 비밀번호 확인에 실패했습니다: ${reauth.message}`)
           return
         }
         const { error: updErr } = await sb.auth.updateUser({ password: next })
@@ -64,16 +63,12 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
     >
       <div className="space-y-4">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">현재 비밀번호</span>
+          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">기존 비밀번호</span>
           <input className="app-input" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus />
         </label>
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">새 비밀번호 (8자 이상)</span>
+          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">신규 비밀번호 (6자 이상)</span>
           <input className="app-input" type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">새 비밀번호 확인</span>
-          <input className="app-input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
         </label>
         {error && <p role="alert" className="text-sm font-medium text-delayed">{error}</p>}
       </div>
