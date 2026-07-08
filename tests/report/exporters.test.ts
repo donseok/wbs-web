@@ -103,6 +103,22 @@ describe('buildReportDeck — 동국씨엠 공식 양식(pptx)', () => {
     expect(pres).toMatch(/sldSz[^>]*cx="99\d{5}"/)
   })
 
+  it('활동 표: Phase 번호·내어쓰기 불릿·메타 비분리 공백', async () => {
+    const buf = await buildReportDeck(model)
+    const zip = await JSZip.loadAsync(buf)
+    const slidePaths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
+    const joined = (await Promise.all(slidePaths.map(p => zip.files[p].async('string')))).join('')
+    // Phase 번호 — 설계는 두 번째 Phase → '2. 설계'(착수는 활동 창 밖이라 제외, 재번호 없이 2 유지)
+    expect(joined).toContain('2. 설계')
+    // 내어쓰기 불릿(en dash U+2013) + 행잉 인덴트(음수 indent)
+    expect(joined).toContain('<a:buChar char="&#x2013;"')
+    expect(joined).toMatch(/indent="-\d+"/)
+    // 메타 비분리 공백(U+00A0): 담당·상태만 밀착, 진행률 % 제거 (요구사항 정의 · ERP · 진행중)
+    const NB = String.fromCharCode(0xa0)
+    expect(joined).toContain(`·${NB}ERP${NB}·${NB}진행중`)
+    expect(joined).not.toContain(`진행중${NB}60%`)
+  })
+
   it('빈 모델(WBS 없음)도 깨지지 않고 유효한 pptx 생성', async () => {
     const buf = await buildReportDeck(emptyModel)
     expect(buf.length).toBeGreaterThan(1000)

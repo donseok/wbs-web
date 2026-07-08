@@ -3,6 +3,8 @@ import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildWeeklyNarrative } from '@/lib/report/narrative'
 import type { ComputedItem, Meeting } from '@/lib/domain/types'
 
+const NB = ' ' // non-breaking space
+
 const node = (over: Partial<ComputedItem>): ComputedItem =>
   ({
     id: Math.random().toString(36).slice(2), parentId: null, level: 'activity', code: '1', sortOrder: 1,
@@ -30,17 +32,47 @@ describe('buildWeeklyNarrative', () => {
     expect(n.prev[0].items.some(s => s.includes('전주완료작업'))).toBe(true)
     expect(n.curr[0].items.some(s => s.includes('금주진행작업'))).toBe(true)
   })
-  it('활동 항목 문구에 담당·상태·공정율 포함', () => {
+  it('활동 항목 문구에 담당·상태 포함(진행률 % 제외)', () => {
     const line = n.curr[0].items[0]
     expect(line).toContain('금주진행작업')
     expect(line).toContain('MES')
     expect(line).toContain('진행중')
-    expect(line).toContain('50%')
+    expect(line).not.toContain('%')
+    expect(line).not.toContain('50')
   })
   it('이슈/이벤트는 문자열 배열', () => {
     expect(Array.isArray(n.issues)).toBe(true)
     expect(Array.isArray(n.events)).toBe(true)
   })
+  it('Phase 번호(num)가 전주·금주에서 동일 Phase에 같은 값', () => {
+    // 준비(index0): 준비완료작업(done, 전주) → 전주만. 설계(index1): 설계작업(in_progress, 전주+금주) → 양쪽.
+    const twoPhase: ComputedItem[] = [
+      phase('준비', [
+        node({ name: '준비완료작업', status: 'done', rolledActualPct: 100, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 100 }),
+      phase('설계', [
+        node({ name: '설계작업', status: 'in_progress', rolledActualPct: 60, owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 60 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(twoPhase, project, '2026-07-07'))
+    const prevPrep = n2.prev.find(g => g.phase === '준비')!
+    const prevDesign = n2.prev.find(g => g.phase === '설계')!
+    const currDesign = n2.curr.find(g => g.phase === '설계')!
+    expect(prevPrep.num).toBe(1)
+    expect(prevDesign.num).toBe(2)
+    // 준비(1)가 금주에 없어도 설계는 재번호되지 않고 2 유지
+    expect(currDesign.num).toBe(2)
+    expect(n2.curr.find(g => g.phase === '준비')).toBeUndefined()
+  })
+
+  it('메타(담당·상태)는 비분리 공백으로 묶이고 진행률 %는 없음', () => {
+    const NB = String.fromCharCode(0xa0) // non-breaking space (U+00A0)
+    const line = n.curr[0].items[0] // 금주진행작업 · MES · 진행중
+    expect(line).toContain(`·${NB}MES${NB}·${NB}진행중`) // 담당·상태가 NBSP로 묶임
+    expect(line).not.toContain('%')                       // 진행률(%) 제거
+    expect(line).toContain('금주진행작업 ')               // 작업명과 메타 사이는 일반 공백(줄바꿈 지점)
+  })
+
   it('회의가 있으면 events에 반영', () => {
     // today=2026-07-07(화) → 금주 범위는 7/6~7/12 (buildWeeklyReportModel의 월요일 기준 계산).
     // meetingDate 2026-07-10 은 금주 범위 안 → model.meetings.thisWeek 로 전개되어야 events 에 반영된다.
