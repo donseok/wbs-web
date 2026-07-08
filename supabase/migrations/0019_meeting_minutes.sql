@@ -71,6 +71,11 @@ create table if not exists meeting_minutes (
 create index if not exists minutes_project_date_idx on meeting_minutes(project_id, minutes_date desc, created_at desc);
 -- meeting_id 는 1단계에서 항상 NULL 이다(컬럼만 두고 UI 는 나중). 부분 인덱스라 빈 상태 비용은 0.
 create index if not exists minutes_meeting_idx      on meeting_minutes(meeting_id) where meeting_id is not null;
+-- file_path 는 Storage 객체 키다. 두 행이 같은 객체를 가리키면 한쪽 삭제가 다른 쪽을 깨뜨리고,
+-- 남의 파일을 자기 이름으로 등록하는 위조 행을 만들 수 있다.
+-- (읽기 RLS 가 using(true) 라 다른 사용자의 file_path 는 누구나 조회할 수 있다.)
+-- minutesStoragePath() 가 타임스탬프 프리픽스를 붙이므로 정상 업로드는 절대 충돌하지 않는다.
+create unique index if not exists minutes_file_path_key on meeting_minutes(file_path);
 
 alter table meeting_minutes enable row level security;
 
