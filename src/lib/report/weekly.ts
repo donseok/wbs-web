@@ -1,5 +1,5 @@
 import type {
-  AttendanceRecord, AttendanceType, ComputedItem, Level, Meeting, MeetingException, MeetingOccurrence,
+  Announcement, AttendanceRecord, AttendanceType, ComputedItem, Level, Meeting, MeetingException, MeetingOccurrence,
   ProjectMember, Status, TeamCode,
 } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
@@ -121,6 +121,16 @@ export interface WeeklyMeetings {
   total: number              // 금주+차주 회의 수 (0이면 PPT 회의일정 페이지 생략)
 }
 
+export interface AnnouncementRow {
+  date: string               // 게시일 'YYYY-MM-DD' (KST)
+  title: string
+}
+export interface WeeklyAnnouncements {
+  prevWeek: AnnouncementRow[]
+  thisWeek: AnnouncementRow[]
+  total: number              // 전주+금주 공지 수 (0이면 주요활동에 공지 그룹 생략)
+}
+
 export interface WbsFlatRow {
   no: number
   level: Level
@@ -165,6 +175,7 @@ export interface WeeklyReportModel {
   issues: IssueRow[]
   attendance: WeeklyAttendance
   meetings: WeeklyMeetings
+  announcements: WeeklyAnnouncements
   wbs: WbsFlatRow[]
   dev: DevStatusRow[]
   devOwnerSummary: string
@@ -189,6 +200,13 @@ function addDays(d: Date, n: number): Date {
   const x = new Date(d)
   x.setUTCDate(x.getUTCDate() + n)
   return x
+}
+/** 공지 게시일 'YYYY-MM-DD'(KST). publishFrom은 이미 KST date, 없으면 createdAt(ISO timestamptz)을 +9h로 환산.
+ *  UTC 슬라이스로 자르면 KST 자정~09시 공지가 하루 앞 주차로 오분류된다. */
+function announcedOn(a: Announcement): string {
+  if (a.publishFrom) return a.publishFrom.slice(0, 10)
+  const t = Date.parse(a.createdAt)
+  return Number.isNaN(t) ? '' : fmtUTC(new Date(t + 9 * 3600_000))
 }
 function mondayOf(d: Date): Date {
   const dow = d.getUTCDay() || 7 // 1=월 … 7=일
@@ -263,6 +281,7 @@ export function buildWeeklyReportModel(
   opts: {
     members?: ProjectMember[]; attendance?: AttendanceRecord[]; generatedAt?: string
     meetings?: Meeting[]; meetingExceptions?: MeetingException[]
+    announcements?: Announcement[]
   } = {},
 ): WeeklyReportModel {
   const roots = items
@@ -426,6 +445,18 @@ export function buildWeeklyReportModel(
     thisWeek: thisWeekMeetings, nextWeek: nextWeekMeetings, total: thisWeekMeetings.length + nextWeekMeetings.length,
   }
 
+  // ── 공지 (게시일 기준 전주/금주 분류, 날짜 오름차순) ──
+  const annRows: AnnouncementRow[] = (opts.announcements ?? [])
+    .map(a => ({ date: announcedOn(a), title: a.title }))
+    .filter(r => r.date !== '')
+    .sort((x, y) => x.date.localeCompare(y.date))
+  const annIn = (from: string, to: string) => annRows.filter(r => r.date >= from && r.date <= to)
+  const prevWeekAnn = annIn(prevWeekStart, prevWeekEnd)
+  const thisWeekAnn = annIn(weekStart, weekEnd)
+  const announcements: WeeklyAnnouncements = {
+    prevWeek: prevWeekAnn, thisWeek: thisWeekAnn, total: prevWeekAnn.length + thisWeekAnn.length,
+  }
+
   // ── WBS 플랫(전체 트리, 들여쓰기 depth) ──
   const wbs: WbsFlatRow[] = []
   let no = 0
@@ -476,7 +507,7 @@ export function buildWeeklyReportModel(
       prevWeekStart, prevWeekDays, prevWeekRange,
       totalLeaves: total, phaseCount: roots.length,
     },
-    kpi, phases, planActual, workload, issues, attendance: attendanceModel, meetings, wbs, dev, devOwnerSummary,
+    kpi, phases, planActual, workload, issues, attendance: attendanceModel, meetings, announcements, wbs, dev, devOwnerSummary,
   }
 }
 

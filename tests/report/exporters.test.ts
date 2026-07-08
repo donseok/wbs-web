@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
-import JSZip from 'jszip'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
-import { buildReportDeck } from '@/lib/report/pptx'
 import type { ComputedItem } from '@/lib/domain/types'
 
 const node = (over: Partial<ComputedItem>): ComputedItem =>
@@ -60,69 +58,5 @@ describe('buildReportWorkbook (보라 공정보고 2시트)', () => {
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(buf)
     expect(wb.worksheets.length).toBe(2)
-  })
-})
-
-describe('buildReportDeck — 동국씨엠 공식 양식(pptx)', () => {
-  const model = buildWeeklyReportModel(sampleItems, project, '2026-07-07', { generatedAt: '2026-07-07 09:00' })
-
-  it('유효한 pptx(zip) — PK 시그니처 + 크기', async () => {
-    const buf = await buildReportDeck(model)
-    expect(buf.length).toBeGreaterThan(1000)
-    expect(buf[0]).toBe(0x50)
-    expect(buf[1]).toBe(0x4b)
-  })
-
-  it('표지+본문 최소 2슬라이드, 슬라이드마다 배경 유지', async () => {
-    const buf = await buildReportDeck(model)
-    const zip = await JSZip.loadAsync(buf)
-    const slidePaths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
-    expect(slidePaths.length).toBeGreaterThanOrEqual(2)
-    const xmls = await Promise.all(slidePaths.map(p => zip.files[p].async('string')))
-    for (const [i, xml] of xmls.entries()) {
-      expect(xml, `slide ${i + 1} 배경 누락`).toContain('<p:bg>')
-    }
-  })
-
-  it('핵심 문구 포함(제목·회사·전주/금주 헤더)', async () => {
-    const buf = await buildReportDeck(model)
-    const zip = await JSZip.loadAsync(buf)
-    const slidePaths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
-    const joined = (await Promise.all(slidePaths.map(p => zip.files[p].async('string')))).join('')
-    expect(joined).toContain('주간보고')
-    expect(joined).toContain('동국씨엠')
-    expect(joined).toContain('전주 주요활동')
-    expect(joined).toContain('금주 주요활동')
-  })
-
-  it('A4 레이아웃(슬라이드 크기)이 적용됨', async () => {
-    const buf = await buildReportDeck(model)
-    const zip = await JSZip.loadAsync(buf)
-    const pres = await zip.files['ppt/presentation.xml'].async('string')
-    // A4: 10.833in ≈ 9906000 EMU
-    expect(pres).toMatch(/sldSz[^>]*cx="99\d{5}"/)
-  })
-
-  it('활동 표: Phase 번호·내어쓰기 불릿·메타 비분리 공백', async () => {
-    const buf = await buildReportDeck(model)
-    const zip = await JSZip.loadAsync(buf)
-    const slidePaths = Object.keys(zip.files).filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p))
-    const joined = (await Promise.all(slidePaths.map(p => zip.files[p].async('string')))).join('')
-    // Phase 번호 — 설계는 두 번째 Phase → '2. 설계'(착수는 활동 창 밖이라 제외, 재번호 없이 2 유지)
-    expect(joined).toContain('2. 설계')
-    // 내어쓰기 불릿(en dash U+2013) + 행잉 인덴트(음수 indent)
-    expect(joined).toContain('<a:buChar char="&#x2013;"')
-    expect(joined).toMatch(/indent="-\d+"/)
-    // 메타 비분리 공백(U+00A0): 담당·상태만 밀착, 진행률 % 제거 (요구사항 정의 · ERP · 진행중)
-    const NB = String.fromCharCode(0xa0)
-    expect(joined).toContain(`·${NB}ERP${NB}·${NB}진행중`)
-    expect(joined).not.toContain(`진행중${NB}60%`)
-  })
-
-  it('빈 모델(WBS 없음)도 깨지지 않고 유효한 pptx 생성', async () => {
-    const buf = await buildReportDeck(emptyModel)
-    expect(buf.length).toBeGreaterThan(1000)
-    expect(buf[0]).toBe(0x50)
-    expect(buf[1]).toBe(0x4b)
   })
 })

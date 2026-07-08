@@ -1,7 +1,7 @@
 import type { Status, TeamCode } from '@/lib/domain/types'
 
 /** D'Flow 브랜드 토큰 (globals.css 라이트 테마 기준). Hex는 '#' 없는 6자리(RRGGBB).
- *  Excel(exceljs)·PPT(pptxgenjs) 출력에서 화면과 동일한 브랜드 컬러를 쓰기 위한 단일 출처. */
+ *  Excel(exceljs) 출력에서 화면과 동일한 브랜드 컬러를 쓰기 위한 단일 출처. */
 export const C = {
   brand: '0F766E',
   brandHover: '155E75',

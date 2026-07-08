@@ -3,12 +3,14 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { getProjectMembers } from '@/lib/data/members'
 import { getAttendanceRecords } from '@/lib/data/attendance'
 import { getProjectMeetingData } from '@/lib/data/meetings'
+import { getAnnouncements } from '@/lib/data/announcements'
 import { listProjects } from '@/app/actions/project'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
-import { buildReportDeck } from '@/lib/report/pptx'
+import { buildWeeklyNarrative } from '@/lib/report/narrative'
+import { fillWeeklyTemplate } from '@/lib/report/templateFill'
 
-// pptxgenjs/exceljs는 Node 전용 → Edge 런타임 금지.
+// exceljs·템플릿 zip 읽기(fs)는 Node 전용 → Edge 런타임 금지.
 export const runtime = 'nodejs'
 
 /** 현재 시각을 Asia/Seoul 'YYYY-MM-DD HH:mm' 으로. */
@@ -44,9 +46,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'format은 xlsx 또는 pptx여야 합니다' }, { status: 400 })
   }
 
-  const [{ items, today }, projects, members, attendance, meetingData] = await Promise.all([
+  const [{ items, today }, projects, members, attendance, meetingData, announcements] = await Promise.all([
     getComputedWbs(projectId), listProjects(), getProjectMembers(projectId), getAttendanceRecords(projectId),
-    getProjectMeetingData(projectId),
+    getProjectMeetingData(projectId), getAnnouncements(projectId),
   ])
   const project = (projects as { id: string; name: string; description?: string | null; start_date?: string | null; end_date?: string | null }[]).find(
     p => p.id === projectId,
@@ -55,10 +57,13 @@ export async function GET(req: NextRequest) {
 
   const model = buildWeeklyReportModel(items, project, today, {
     members, attendance, generatedAt: seoulNow(),
-    meetings: meetingData.meetings, meetingExceptions: meetingData.exceptions,
+    meetings: meetingData.meetings, meetingExceptions: meetingData.exceptions, announcements,
   })
   const meta = FORMATS[format]
-  const body = format === 'xlsx' ? await buildReportWorkbook(model) : await buildReportDeck(model)
+  // pptx는 사내 D-Cube 템플릿(.pptx)의 slide2 표 셀만 교체 — 디자인은 원본과 바이트 동일.
+  const body = format === 'xlsx'
+    ? await buildReportWorkbook(model)
+    : await fillWeeklyTemplate(buildWeeklyNarrative(model), model)
 
   // 파일명: {프로젝트명}_{월기준 몇째주}_{기준일} (예: D-CUBE Project_7월1주차_2026-07-04)
   const filename = `${project.name}_${model.meta.weekTag}_${today}.${meta.ext}`.replace(/[^\w가-힣.\-]+/g, '_')

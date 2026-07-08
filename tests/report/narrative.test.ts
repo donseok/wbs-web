@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildWeeklyNarrative } from '@/lib/report/narrative'
-import type { ComputedItem, Meeting } from '@/lib/domain/types'
-
-const NB = ' ' // non-breaking space
+import type { Announcement, ComputedItem, Meeting } from '@/lib/domain/types'
 
 const node = (over: Partial<ComputedItem>): ComputedItem =>
   ({
@@ -87,5 +85,31 @@ describe('buildWeeklyNarrative', () => {
     const m2 = buildWeeklyReportModel(items, project, '2026-07-07', { meetings })
     const n2 = buildWeeklyNarrative(m2)
     expect(n2.events.some(e => e.includes('Kick-Off'))).toBe(true)
+  })
+
+  it('공지가 있으면 전주/금주 활동 끝에 "주요 공지" 그룹으로 붙는다', () => {
+    const ann = (title: string, publishFrom: string): Announcement => ({
+      id: title, projectId: 'p', title, body: '', category: 'general', isPinned: false,
+      publishFrom, publishTo: null, createdAt: '2026-07-07T00:00:00Z', updatedAt: '2026-07-07T00:00:00Z',
+    })
+    const m2 = buildWeeklyReportModel(items, project, '2026-07-07', {
+      announcements: [ann('전주 킥오프 안내', '2026-07-01'), ann('금주 산출물 마감', '2026-07-06')],
+    })
+    const n2 = buildWeeklyNarrative(m2)
+
+    const prevAnn = n2.prev.at(-1)!   // WBS Phase 그룹 뒤에 append
+    const currAnn = n2.curr.at(-1)!
+    expect(prevAnn.phase).toBe('주요 공지')
+    expect(prevAnn.items).toEqual(['전주 킥오프 안내'])
+    expect(currAnn.phase).toBe('주요 공지')
+    expect(currAnn.items).toEqual(['금주 산출물 마감'])
+    // WBS 그룹은 그대로 유지되고 앞에 온다
+    expect(n2.prev[0].phase).toBe('설계')
+  })
+
+  it('공지 없으면 "주요 공지" 그룹이 생기지 않고 WBS-only 동작 유지', () => {
+    expect(n.prev.some(g => g.phase === '주요 공지')).toBe(false)
+    expect(n.curr.some(g => g.phase === '주요 공지')).toBe(false)
+    expect(n.prev.length).toBeGreaterThan(0)
   })
 })
