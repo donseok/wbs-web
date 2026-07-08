@@ -92,12 +92,23 @@ export async function createMinutes(
     .select('id')
     .single()
   if (error) {
+    // PostgREST 는 error.message 에 제약/테이블 이름을 실어 보낸다. MinutesView 가 그 문자열을
+    // 토스트로 그대로 렌더하므로, 알려진 SQLSTATE 는 사용자 메시지로 매핑해 스키마 세부가 새지 않게 한다.
+    //
     // 23505 = unique_violation (minutes_file_path_key). 두 경우가 여기로 온다:
     //  (1) 같은 업로드를 두 번 제출 — 등록 버튼 더블클릭. minutesStoragePath() 의 타임스탬프는
     //      서로 다른 업로드끼리만 구별해 주지, 한 업로드를 두 번 보내는 것은 막지 못한다.
     //  (2) 남의 file_path 를 가리키려는 위조 — UNIQUE 가 그 별칭을 차단한다.
-    // 사용자 메시지는 둘 다에 맞다. 원시 Postgres 문자열(제약 이름 노출) 대신 이걸 돌려준다.
+    // 사용자 메시지는 둘 다에 맞다.
     if (error.code === '23505') return { ok: false, error: '이미 등록된 파일입니다.' }
+    // 23514 = check_violation (minutes_title_len·minutes_md_only 등). 앱 검증을 앞에 두었지만
+    // 경합/우회로 DB 까지 닿으면 여기서 일반 메시지로 막는다.
+    if (error.code === '23514') return { ok: false, error: '입력 값이 올바르지 않습니다.' }
+    // 42501 = insufficient_privilege (insert_minutes RLS 거부).
+    if (error.code === '42501') return { ok: false, error: '권한이 없습니다.' }
+    // 22P02 = invalid_text_representation (잘못된 uuid 등).
+    if (error.code === '22P02') return { ok: false, error: '잘못된 요청입니다.' }
+    // 그 밖은 진짜 예상 밖 — 삼키기보다 드러낸다.
     return { ok: false, error: error.message }
   }
 

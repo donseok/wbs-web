@@ -32,7 +32,10 @@ function fakeClient(opts: {
   deleteError?: ErrShape
   removeError?: { message: string } | null
 }) {
-  const calls = { removed: [] as string[][], rowDeleted: false }
+  // order: remove()/row-delete 의 상대 순서를 실행 순서 그대로 기록한다.
+  // 스토리지 삭제 정책의 EXISTS 는 행이 살아 있어야 객체 삭제를 허가하므로,
+  // 반드시 'remove' 가 'row-delete' 보다 먼저여야 한다(주석이 아니라 테스트로 고정).
+  const calls = { removed: [] as string[][], rowDeleted: false, order: [] as string[] }
   const client = {
     from: () => ({
       insert: () => ({
@@ -44,6 +47,7 @@ function fakeClient(opts: {
           select: () => ({
             single: async () => {
               calls.rowDeleted = true
+              calls.order.push('row-delete')
               return { data: { id: 'm1' }, error: opts.deleteError ?? null }
             },
           }),
@@ -54,6 +58,7 @@ function fakeClient(opts: {
       from: () => ({
         remove: async (paths: string[]) => {
           calls.removed.push(paths)
+          calls.order.push('remove')
           return { data: [], error: opts.removeError ?? null }
         },
       }),
@@ -207,5 +212,31 @@ describe('회의록 서버액션 권한 게이트', () => {
       ok: false,
       error: 'insert or update on table violates foreign key constraint',
     })
+  })
+
+  // insert 시 발생 가능한 나머지 SQLSTATE 를 사용자 메시지로 매핑한다(스키마 세부 노출 방지).
+  it.each([
+    ['23514', '입력 값이 올바르지 않습니다.', 'new row violates check constraint "minutes_title_len"'],
+    ['42501', '권한이 없습니다.', 'new row violates row-level security policy for table "meeting_minutes"'],
+    ['22P02', '잘못된 요청입니다.', 'invalid input syntax for type uuid: "not-a-uuid"'],
+  ])('insert 에러 %s 는 사용자 메시지로 매핑된다', async (code, expected, raw) => {
+    vi.mocked(getMembership).mockResolvedValue(PMO)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    const { client } = fakeClient({ insertError: { code, message: raw } })
+    useClient(client)
+    expect(await createMinutes('p1', INPUT, FILE)).toEqual({ ok: false, error: expected })
+  })
+
+  // 삭제는 객체(remove) → 행(delete) 순서여야 한다. 이 순서가 뒤집히면 정책의 EXISTS 가 깨져
+  // 프로덕션에서 고아 객체가 남지만, 순서만 주석인 한 테스트는 초록이다. 실행 순서로 못 박는다.
+  it('deleteMinutes 는 객체를 행보다 먼저 지운다 (순서 불변식)', async () => {
+    vi.mocked(getMembership).mockResolvedValue(PMO)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    const { client, calls } = fakeClient({
+      row: { project_id: 'p1', file_path: 'p1/t-erp/1-a.md', created_by: 'u1' },
+    })
+    useClient(client)
+    expect(await deleteMinutes('m1')).toEqual({ ok: true })
+    expect(calls.order).toEqual(['remove', 'row-delete'])
   })
 })
