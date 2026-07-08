@@ -1,5 +1,6 @@
 import type { ComputedItem, OwnerKind, Status, TeamCode } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
+import { TEAMS } from '@/lib/domain/tree'
 
 /** 현황 보고서의 모든 파생값을 담은 직렬화 가능한 모델.
  *  화면(ReportModal)·Excel·PPT가 이 단일 모델을 공유한다 → 수치·집계·정렬·필터는 항상 동일.
@@ -43,7 +44,7 @@ export interface ReportTeam {
   pct: number | null
 }
 
-export const REPORT_TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+export const REPORT_TEAMS = TEAMS
 
 /** 정수 평균 (빈 배열 → 0). ReportModal의 avg와 동일. */
 function avg(ns: number[]): number {
