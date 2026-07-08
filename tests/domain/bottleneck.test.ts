@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildBottleneck } from '@/lib/domain/bottleneck'
 import { computeTree } from '@/lib/domain/rollup'
-import { collectLeaves } from '@/lib/domain/tree'
+import { TEAMS, collectLeaves } from '@/lib/domain/tree'
 import type { TeamCode, WbsRow } from '@/lib/domain/types'
 
 const H = new Set<string>()
@@ -24,7 +24,7 @@ const rows: WbsRow[] = [
   // P1×ERP: 전부 완료 → done
   r({ id: 'c', parentId: 'P1', plannedStart: '2026-07-01', plannedEnd: '2026-07-07', actualPct: 100, owners: own('ERP'), sortOrder: 2 }),
 
-  // P1×MES: 담당 없음 → unassigned (최우선)
+  // 담당 없음 → 어느 팀 열에도 속하지 않고 단계(P1)에 귀속된다
   r({ id: 'd', parentId: 'P1', plannedStart: '2026-07-01', plannedEnd: '2026-07-07', owners: [], sortOrder: 3 }),
 
   // P1×가공: 진행중 (07-06..07-10 → planned 80, actual 80) → inProgress
@@ -46,8 +46,7 @@ describe('buildBottleneck', () => {
   const cell = (phaseId: string, team: TeamCode) =>
     m.cells.find(c => c.phaseId === phaseId && c.team === team)!
 
-  it('우선순위: unassigned > done > delayed > upcoming > inProgress', () => {
-    expect(cell('P1', 'MES').state).toBe('unassigned')   // 담당 없음이 최우선
+  it('우선순위: delayed > upcoming > inProgress > done > empty', () => {
     expect(cell('P1', 'ERP').state).toBe('done')
     expect(cell('P1', 'PMO').state).toBe('delayed')      // 완료 1 + 지연 1
     expect(cell('P1', '가공').state).toBe('inProgress')
@@ -63,16 +62,20 @@ describe('buildBottleneck', () => {
     expect(m.cells.length).toBe(2 * 4)
   })
 
-  it('불변식: Σ cells[].count + unassignedCount === 전체 리프 수', () => {
-    const total = m.cells.reduce((s, c) => s + c.count, 0) + m.unassignedCount
+  it('불변식: Σ cells[].count + Σ phases[].unassigned === 전체 리프 수', () => {
+    const unassigned = m.phases.reduce((s, p) => s + p.unassigned, 0)
+    const total = m.cells.reduce((s, c) => s + c.count, 0) + unassigned
     expect(total).toBe(collectLeaves(tree).length)
     expect(total).toBe(6)
+    expect(m.unassignedCount).toBe(unassigned)
   })
 
-  it('unassignedCount는 담당 없는 리프 수, 그 셀의 count는 0', () => {
+  it('미배정은 팀 열이 아니라 단계에 붙는다', () => {
     expect(m.unassignedCount).toBe(1)
+    expect(m.phases.find(p => p.id === 'P1')!.unassigned).toBe(1)
+    expect(m.phases.find(p => p.id === 'P2')!.unassigned).toBe(0)
     expect(cell('P1', 'MES').count).toBe(0)
-    expect(cell('P1', 'MES').unassigned).toBe(1)
+    expect(cell('P1', 'MES').state).toBe('empty')   // 미배정 리프는 어느 열에도 없다
   })
 
   it('avgProgress는 그 셀 리프들의 단순 평균 (가중 아님)', () => {
@@ -88,9 +91,22 @@ describe('buildBottleneck', () => {
     expect(cell('P2', 'PMO').dday).toBeNull()        // 빈 셀
   })
 
-  it('worst는 가장 나쁜 셀 — 미배정 우선, 그다음 지연', () => {
+  it('worst는 가장 나쁜 셀 — done·empty는 후보에서 제외', () => {
     expect(m.worst?.phaseId).toBe('P1')
-    expect(m.worst?.team).toBe('MES')
+    expect(m.worst?.team).toBe('PMO')                // delayed
+  })
+
+  it('모든 열이 차 있어도 미배정이 어떤 셀의 상태도 가리지 않는다', () => {
+    const full: WbsRow[] = [
+      r({ id: 'Q', level: 'phase', name: 'Q', plannedStart: '2026-07-01', plannedEnd: '2026-07-31' }),
+      ...TEAMS.map((t, i) => r({ id: `q${i}`, parentId: 'Q', plannedStart: '2026-07-01', plannedEnd: '2026-07-07', actualPct: 100, owners: own(t), sortOrder: i })),
+      r({ id: 'ghost', parentId: 'Q', plannedStart: '2026-07-01', plannedEnd: '2026-07-07', owners: [], sortOrder: 9 }),
+    ]
+    const b = buildBottleneck(computeTree(full, TODAY, H), TODAY)
+    expect(b.cells.every(c => c.state === 'done')).toBe(true)   // 어떤 셀도 미배정에 오염되지 않는다
+    expect(b.phases[0].unassigned).toBe(1)
+    expect(b.worst).toBeNull()                                   // done·empty뿐 → 조치할 셀 없음
+    expect(b.cells.reduce((s, c) => s + c.count, 0) + b.phases[0].unassigned).toBe(5)
   })
 
   it('빈 트리 → 빈 격자, 불변식 유지', () => {
