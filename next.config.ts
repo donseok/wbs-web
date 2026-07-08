@@ -5,6 +5,12 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/report": ["./src/lib/report/assets/weekly-template.pptx"],
   },
+  experimental: {
+    // 회의록 본문(content_md)은 createMinutes 서버 액션 인자로 전달된다. 상한은
+    // MINUTES_MD_MAX = 500,000자이고 한글은 UTF-8 3바이트/자라 최대 ~1.5MB다.
+    // Next 15 서버 액션 기본 한도(1MB)면 그 전에 잘려 상한이 거짓말이 된다.
+    serverActions: { bodySizeLimit: "2mb" },
+  },
   async headers() {
     // 프로덕션 배포에서만 Vercel Toolbar 숨김(공식 x-vercel-skip-toolbar 헤더).
     // Preview 배포의 코멘트/피드백 기능은 유지한다. (BUG-07)
