@@ -779,24 +779,27 @@ git commit -m "feat(minutes): 문서 전용 챗 프롬프트 조립·절단·프
 
 레포에 팀 목록 데이터 계층이 없다(`from('teams')`는 code→id 단건 조회에만 쓰인다). 업로드 모달의 팀 선택에 필요하다.
 
+`TeamOption`은 `src/lib/domain/types.ts`에 둔다 — `src/lib/data/*`의 다른 파일은 전부 도메인 타입을 import 하기만 한다.
+
 ```ts
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
-import type { TeamCode } from '@/lib/domain/types'
+import { TEAM_CODES } from '@/lib/domain/accounts'
+import type { TeamCode, TeamOption } from '@/lib/domain/types'
 
-export interface TeamOption {
-  id: string
-  code: TeamCode
-}
-
-/** 팀 4개(PMO/ERP/MES/가공). code 오름차순은 의미가 없으므로 삽입 순서(id) 대신 code 로 안정 정렬. 실패 시 []. */
+/**
+ * 팀 4개. 정렬은 앱의 표준 순서(TEAM_CODES, PMO 우선)를 따른다 —
+ * DB 의 .order('code') 는 로케일/콜레이션에 따라 결과가 달라지고 '가공'(비-ASCII)을 끝으로 민다.
+ * 이 순서는 화면의 필터 탭 순서가 된다. 실패 시 [].
+ */
 export const getTeams = cache(async (): Promise<TeamOption[]> => {
   const sb = await createServerClient()
-  const { data } = await sb.from('teams').select('id, code').order('code')
-  return (data ?? []).map((r: Record<string, unknown>) => ({
+  const { data } = await sb.from('teams').select('id, code')
+  const rows = (data ?? []).map((r: Record<string, unknown>) => ({
     id: r.id as string,
     code: r.code as TeamCode,
   }))
+  return rows.sort((a, b) => TEAM_CODES.indexOf(a.code) - TEAM_CODES.indexOf(b.code))
 })
 ```
 
@@ -807,9 +810,14 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type { MeetingMinutes, MeetingMinutesDetail, TeamCode } from '@/lib/domain/types'
 
-/** 목록 select — content_md 를 뺀 전 컬럼 + teams.code 조인. */
-const LIST_COLS =
-  'id, project_id, team_id, meeting_id, minutes_date, title, file_path, file_name, size, mime, has_md, created_by, created_by_name, created_at, teams(code)'
+/** 목록·상세 공통 컬럼. content_md 는 여기에 없다 — 목록이 본문을 읽으면 안 된다. */
+const BASE_COLS =
+  'id, project_id, team_id, meeting_id, minutes_date, title, file_path, file_name, size, mime, has_md, created_by, created_by_name, created_at'
+
+/** PostgREST embed 는 항상 마지막에 둔다 — 레포의 다른 data/* 셀렉트와 동일한 배치.
+ *  (embed 뒤에 일반 컬럼을 붙이는 형태는 이 레포에 선례가 없다. 검증되지 않은 문법을 쓰지 않는다.) */
+const LIST_COLS = `${BASE_COLS}, teams(code)`
+const DETAIL_COLS = `${BASE_COLS}, content_md, teams(code)`
 
 type Row = Record<string, unknown> & { teams?: { code: TeamCode } | { code: TeamCode }[] | null }
 
@@ -857,7 +865,7 @@ export const getMinutesDetail = cache(async (id: string): Promise<MeetingMinutes
   const sb = await createServerClient()
   const { data } = await sb
     .from('meeting_minutes')
-    .select(`${LIST_COLS}, content_md`)
+    .select(DETAIL_COLS)
     .eq('id', id)
     .maybeSingle()
   if (!data) return null
