@@ -120,7 +120,21 @@ export async function deleteMinutes(id: string): Promise<MinutesActionResult> {
     return { ok: false, error: '권한 없음' }
   }
 
-  await sb.storage.from(BUCKET).remove([cur.file_path as string])
+  // remove() 의 결과를 반드시 확인한다. 실패를 삼키면 객체는 남고 행만 사라져
+  // 영구 고아 파일이 된다 — 위 주석이 피하려던 바로 그 결과다.
+  // 여기서 중단하면 객체와 행이 함께 남아 정합성이 유지되고, 사용자는 재시도할 수 있다.
+  //
+  // 이 검사가 잡는 것: 전송 실패·비-2xx HTTP 응답. storage-js 는 `!result.ok` 일 때만
+  // error 를 만든다(storage-js/dist/index.mjs:361).
+  // 이 검사가 잡지 못하는 것: RLS 로 거부된 삭제. remove() 는 벌크 엔드포인트
+  // (DELETE /object/{bucket}, body {prefixes})를 호출하고(index.mjs:1363-1368),
+  // 이 엔드포인트는 RLS 하에서 실제로 지워진 행만 배열로 돌려준다(data: FileObject[]).
+  // Postgres 는 DELETE 의 USING 절 불일치를 에러가 아니라 0행으로 처리하므로
+  // (같은 이유로 위 소유권 선검증이 존재한다) RLS 거부는 200 + data:[] + error:null 이다.
+  // 즉 "객체가 원래 없었다"와 "RLS 가 막았다"는 여기서 구별되지 않는다.
+  const { error: rmErr } = await sb.storage.from(BUCKET).remove([cur.file_path as string])
+  if (rmErr) return { ok: false, error: `파일 삭제 실패: ${rmErr.message}` }
+
   const { error } = await sb.from('meeting_minutes').delete().eq('id', id).select('id').single()
   if (error) return { ok: false, error: error.message }
 
