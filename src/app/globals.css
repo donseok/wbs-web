@@ -388,3 +388,28 @@ textarea {
 .login-float-2 { animation: 7s ease-in-out -1s infinite loginFloat2; }
 .login-float-3 { animation: 8s ease-in-out -2.5s infinite loginFloat3; }
 .login-float-4 { animation: 5.5s ease-in-out -0.5s infinite loginFloat4; }
+
+/* ------------------------------------------------------------------ */
+/*  회의록 마크다운 본문 — Tailwind Typography 미사용, 토큰 기반 최소 타이포. */
+/*  긴 문서는 페이지 스크롤, 넓은 표/코드블록은 자체 컨테이너 안에서만 가로 스크롤. */
+/* ------------------------------------------------------------------ */
+.prose-minutes { color: var(--color-ink); font-size: 14px; line-height: 1.75; overflow-wrap: break-word; }
+.prose-minutes > * + * { margin-top: 0.85em; }
+.prose-minutes h1 { font-size: 1.5rem; font-weight: 700; margin-top: 1.6em; }
+.prose-minutes h2 { font-size: 1.25rem; font-weight: 700; margin-top: 1.5em; }
+.prose-minutes h3 { font-size: 1.05rem; font-weight: 600; margin-top: 1.3em; }
+.prose-minutes h1:first-child, .prose-minutes h2:first-child, .prose-minutes h3:first-child { margin-top: 0; }
+.prose-minutes ul { list-style: disc; padding-left: 1.4em; }
+.prose-minutes ol { list-style: decimal; padding-left: 1.4em; }
+.prose-minutes li + li { margin-top: 0.3em; }
+.prose-minutes a { color: var(--color-brand); text-decoration: underline; word-break: break-all; }
+.prose-minutes code { background: var(--color-surface-2); border-radius: 4px; padding: 0.1em 0.35em; font-size: 0.9em; }
+.prose-minutes pre { background: var(--color-surface-2); border-radius: 10px; padding: 0.9em 1em; overflow-x: auto; }
+.prose-minutes pre code { background: none; padding: 0; }
+.prose-minutes blockquote { border-left: 3px solid var(--color-line); padding-left: 0.9em; color: var(--color-ink-muted); }
+.prose-minutes hr { border-color: var(--color-line); }
+/* GFM 표 — 회의록의 결정사항/액션아이템이 주로 표로 온다. 좁은 화면에서 표 자체만 가로 스크롤. */
+.prose-minutes table { display: block; overflow-x: auto; border-collapse: collapse; width: 100%; }
+.prose-minutes th, .prose-minutes td { border: 1px solid var(--color-line); padding: 0.5em 0.7em; text-align: left; }
+.prose-minutes th { background: var(--color-surface-2); font-weight: 600; }
+.prose-minutes input[type='checkbox'] { margin-right: 0.4em; }
