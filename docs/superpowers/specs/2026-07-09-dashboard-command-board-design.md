@@ -559,3 +559,35 @@ queueUiPref({ dashSections: [...next].filter(id => live.has(id)) })
    - 다크 모드에서 오늘 선이 `#ff738a`인가
    - 사이드바 접기/펼치기 시 1280px에서 3열 ↔ 2열이 전환되는가
 5. 인쇄 미리보기에서 병목의 빗금·점선·글리프가 살아있는가.
+
+## 부록 A — 구현 중 발견된 잠재 버그 (이 스펙의 범위 밖)
+
+두 건 모두 **기존 코드의 문제**이고, 이번 작업이 만든 것이 아니다. 독립적으로 재현·확인했다. 고치지 않되 기록한다.
+
+### A-1. 루트 가중치가 일부만 null이면 그 phase가 통째로 사라진다
+
+`overallProgress`(`rollup.ts`)의 루트 가중 규칙은 `eff = allNull ? 1 : (r.weight ?? 0)` 이다. 즉 루트 중 **하나라도** 가중치가 있으면, 가중치가 `null`인 루트는 `0`으로 취급되어 전체 공정율에 **전혀 기여하지 못한다.**
+
+반면 루트 아래 모든 계층에서 `null`은 `siblingWeight`에 의해 **균등 분배(=1)** 를 뜻한다. 같은 `null`이 루트에서는 "몫 없음", 그 아래에서는 "동등한 몫"이다.
+
+재현: 루트 P1(`weight: 2`), P2(`weight: null`), 각각 리프 1개. 2026-07-15 기준 P2의 `plannedPct`는 **100**인데 `overallProgress().planned`는 **48**이다. `siblingWeight` 규칙이었다면 65다. 100% 진행되어야 할 phase 하나가 조용히 증발한다.
+
+이 동작은 `tests/domain/overallProgress.test.ts:36-43`이 **의도적으로 고정**하고 있다(단, `actual`만 단언하고 `planned`는 단언하지 않는다).
+
+현재 D-CUBE 프로젝트는 루트 5개가 모두 가중치를 가지므로 발동하지 않는다. **가중치 0~100 재조정 작업(`feat/weight-100-scale-clean`)이 부분 null 루트 집합을 만들면 그때 터진다.** 실패 모드가 조용하다는 것이 가장 나쁘다.
+
+### A-2. 형제 가중치가 전부 0이면 몫이 0이 된다
+
+`weightedMean`과 `leafWeightShares`의 `|| 1` 가드는 `totalW === 0`일 때 분모를 1로 만든다. 자식들의 `weight`가 전부 `0`이면 모든 자식의 몫이 `0`이 되어, 그 서브트리의 리프 몫 합이 **1이 아니라 0**이 된다. `wbs_items.weight`에는 CHECK 제약이 없어 `0`을 저장할 수 있다(`0001_init.sql:36`).
+
+이 구멍은 기존 `computeNode`에 이미 있었다(자식이 둘 다 100%여도 부모는 `rolledActualPct: 0`). `weightedMean`은 그 동작을 충실히 보존하므로 **회귀가 아니다**. `leafWeightShares`가 새로 이 성질을 물려받았을 뿐이다.
+
+고친다면 두 곳 모두 `totalW === 0 ? children.length : totalW`로 바꿔 균등 분배로 폴백해야 하고, 그러면 `computeNode`의 동작이 바뀌므로 **별도 커밋·별도 회귀 검증**이 필요하다.
+
+### A-3. 곡선은 반드시 `overallPlannedAt`으로 그려야 한다
+
+`Σ(leafWeightShares × plannedPct(leaf, d))`로 곡선을 만들면 `overallPlannedAt`과 **다른 숫자**가 나온다. `weightedMean`이 트리의 **매 계층마다** 반올림하기 때문이다.
+
+실측(`plannedAt.test.ts` 픽스처, `d = 2026-07-06`): `overallPlannedAt = 22`, 평탄 가중합 = `21.375 → 21`.
+
+`leafWeightShares`는 **조치 목록의 우선순위 타이브레이크**처럼 리프별 기여도를 따질 때만 쓴다. 게이지 값을 재구성하는 데 쓰면 이 스펙이 막으려 한 바로 그 버그(§5.2)를 한 계층 더 깊은 곳에서 재현한다.
