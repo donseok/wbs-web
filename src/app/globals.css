@@ -139,6 +139,7 @@
   --color-team-erp-weak: #241a3a;  --color-team-mes-weak: #2e2310;
 
   --color-weekend: #181d25;     --color-holiday-band: #2a1d22;
+  --color-today: #ff738a;
   --color-plan-track: #232a33;  --color-phasebar: #475063;  --color-phasebar-fill: #6b7686;
 
   --gradient-primary: linear-gradient(135deg, #18a79b 0%, #2d8ac8 50%, #475df1 100%);
@@ -295,6 +296,16 @@ textarea {
   .freeze-edge {
     border-right: 1.5px solid var(--color-grid-strong);
     box-shadow: 6px 0 8px -6px rgb(20 30 50 / 0.1);
+  }
+
+  /* 미착수(예정) 셀의 대각 빗금 — 색조가 아니라 질감으로 상태를 전달한다.
+     색맹 안전 + 인쇄 시 background-color가 떨어져도 살아남는다. */
+  .hatch {
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent 0 3px,
+      var(--color-line-strong) 3px 4px
+    );
   }
 }
 

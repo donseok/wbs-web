@@ -86,6 +86,28 @@ export const dashboardKo = {
   'dash.group.analysis': '진행 분석',
   'dash.group.scheduleRisk': '일정 · 리스크',
   'dash.group.teamDeliv': '팀 · 산출물',
+  // 여정
+  'dash.journey.title': '전체 여정',
+  'dash.journey.noSchedule': '프로젝트 기간이 설정되지 않았습니다',
+  'dash.journey.forecastPending': '예측 미산정',
+  // 조치
+  'dash.action.title': '조치가 필요한 작업',
+  'dash.action.empty': '조치가 필요한 작업이 없습니다.',
+  'dash.action.viewAll': 'WBS에서 전체 보기',
+  'dash.action.totalPrefix': '전체 ',
+  'dash.action.overdueSuffix': '일 초과',
+  'dash.action.gapLabel': '격차',
+  'dash.action.delayedTag': '지연',
+  // 병목
+  'dash.bottleneck.title': '단계 × 팀',
+  'dash.phase.axis': '단계',
+  'dash.bottleneck.noOwner': '담당 없음',
+  'dash.bottleneck.scheduled': '예정',
+  'dash.bottleneck.delayed': '지연',
+  'dash.bottleneck.legend': '숫자 = 팀 평균 진척 · 빗금 = 미착수 · 점선 = 담당 없음',
+  'dash.bottleneck.unassignedLeaves': '미배정 리프',
+  // 아코디언 그룹
+  'dash.group.weekly': '주간 리듬',
 } as const
 
 export const dashboardEn: Record<keyof typeof dashboardKo, string> = {
@@ -157,4 +179,22 @@ export const dashboardEn: Record<keyof typeof dashboardKo, string> = {
   'dash.group.analysis': 'Progress analysis',
   'dash.group.scheduleRisk': 'Schedule & risk',
   'dash.group.teamDeliv': 'Team & deliverables',
+  'dash.journey.title': 'Project journey',
+  'dash.journey.noSchedule': 'Project schedule is not set',
+  'dash.journey.forecastPending': 'Forecast pending',
+  'dash.action.title': 'Needs action',
+  'dash.action.empty': 'Nothing needs action right now.',
+  'dash.action.viewAll': 'View all in WBS',
+  'dash.action.totalPrefix': 'Total ',
+  'dash.action.overdueSuffix': 'd overdue',
+  'dash.action.gapLabel': 'Gap',
+  'dash.action.delayedTag': 'Delayed',
+  'dash.bottleneck.title': 'Phase × Team',
+  'dash.phase.axis': 'Phase',
+  'dash.bottleneck.noOwner': 'No owner',
+  'dash.bottleneck.scheduled': 'Scheduled',
+  'dash.bottleneck.delayed': 'Delayed',
+  'dash.bottleneck.legend': 'Number = team avg progress · Hatch = not started · Dashed = no owner',
+  'dash.bottleneck.unassignedLeaves': 'Unassigned leaves',
+  'dash.group.weekly': 'Weekly rhythm',
 }
