@@ -1,4 +1,4 @@
-import type { WeeklyReportModel, WeeklyTaskRow, PhasePlanActual } from './weekly'
+import type { AnnouncementRow, WeeklyReportModel, WeeklyTaskRow, PhasePlanActual } from './weekly'
 import { statusKr } from './weekly'
 
 /* ============================================================================
@@ -40,10 +40,17 @@ function groupsOf(planActual: PhasePlanActual[], key: 'prevWeek' | 'thisWeek'): 
     .filter(g => g.items.length > 0)
 }
 
+/** 해당 주차 공지 → '주요 공지' 그룹 1개. 없으면 빈 배열(그룹 자체를 생략).
+ *  num은 WBS Phase 다음 번호 — 전주·금주 모두 같은 값. */
+function announceGroup(rows: AnnouncementRow[], num: number): NarrativeGroup[] {
+  return rows.length ? [{ phase: '주요 공지', num, items: rows.map(r => r.title) }] : []
+}
+
 /** 주간 모델 → PPT 서술형 변환(순수·결정적). */
 export function buildWeeklyNarrative(model: WeeklyReportModel): NarrativeModel {
-  const prev = groupsOf(model.planActual, 'prevWeek')
-  const curr = groupsOf(model.planActual, 'thisWeek')
+  const annNum = model.planActual.length + 1
+  const prev = [...groupsOf(model.planActual, 'prevWeek'), ...announceGroup(model.announcements.prevWeek, annNum)]
+  const curr = [...groupsOf(model.planActual, 'thisWeek'), ...announceGroup(model.announcements.thisWeek, annNum)]
   const issues = model.issues.map(i => i.content)
   const events = [...model.meetings.thisWeek, ...model.meetings.nextWeek].map(mtg =>
     `${mtg.date} ${mtg.title}${mtg.location && mtg.location !== '-' ? ` (${mtg.location})` : ''}`,

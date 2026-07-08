@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
-import type { AttendanceRecord, ComputedItem, Meeting, ProjectMember } from '@/lib/domain/types'
+import type { Announcement, AttendanceRecord, ComputedItem, Meeting, ProjectMember } from '@/lib/domain/types'
 
 const meeting = (over: Partial<Meeting>): Meeting => ({
   id: Math.random().toString(36).slice(2), projectId: 'p', title: '회의', meetingDate: '2026-07-01',
@@ -188,5 +188,52 @@ describe('prevWeek — 전주 주요활동', () => {
   it('기존 thisWeek(진행중) 정의는 불변 — 금주진행작업만', () => {
     const names = m.planActual.flatMap(p => p.thisWeek.map(t => t.name))
     expect(names).toEqual(['금주진행작업'])
+  })
+})
+
+describe('buildWeeklyReportModel — 공지', () => {
+  // today=2026-07-07(화) → 금주 7/6~7/12, 전주 6/29~7/5
+  const items: ComputedItem[] = [phase('설계', [node({ name: 'a' })], { weight: 1 })]
+  const project = { name: 'D-CUBE PI', description: null, start_date: null, end_date: null }
+  const ann = (over: Partial<Announcement>): Announcement => ({
+    id: Math.random().toString(36).slice(2), projectId: 'p', title: 't', body: '',
+    category: 'general', isPinned: false, publishFrom: null, publishTo: null,
+    createdAt: '2026-07-07T00:00:00Z', updatedAt: '2026-07-07T00:00:00Z', ...over,
+  })
+
+  it('publishFrom 기준으로 전주/금주에 분류하고, 범위 밖 공지는 제외', () => {
+    const m = buildWeeklyReportModel(items, project, '2026-07-07', {
+      announcements: [
+        ann({ title: '전주공지', publishFrom: '2026-07-01' }),
+        ann({ title: '금주공지', publishFrom: '2026-07-06' }),
+        ann({ title: '옛날공지', publishFrom: '2026-05-01' }),
+      ],
+    })
+    expect(m.announcements.prevWeek.map(a => a.title)).toEqual(['전주공지'])
+    expect(m.announcements.thisWeek.map(a => a.title)).toEqual(['금주공지'])
+    expect(m.announcements.total).toBe(2)
+  })
+
+  it('publishFrom이 없으면 createdAt을 KST 날짜로 환산해 분류(UTC 슬라이스 아님)', () => {
+    // 2026-07-05T15:30Z = KST 2026-07-06 00:30 → 금주(7/6~) 이다. UTC로 자르면 7/5(전주)로 오분류된다.
+    const m = buildWeeklyReportModel(items, project, '2026-07-07', {
+      announcements: [ann({ title: '경계공지', createdAt: '2026-07-05T15:30:00Z' })],
+    })
+    expect(m.announcements.thisWeek.map(a => a.title)).toEqual(['경계공지'])
+    expect(m.announcements.prevWeek).toEqual([])
+  })
+
+  it('공지 날짜 오름차순 정렬 + 옵션 미전달 시 빈 목록', () => {
+    const m = buildWeeklyReportModel(items, project, '2026-07-07', {
+      announcements: [
+        ann({ title: '늦은', publishFrom: '2026-07-09' }),
+        ann({ title: '이른', publishFrom: '2026-07-06' }),
+      ],
+    })
+    expect(m.announcements.thisWeek.map(a => a.title)).toEqual(['이른', '늦은'])
+    expect(m.announcements.thisWeek[0].date).toBe('2026-07-06')
+
+    const none = buildWeeklyReportModel(items, project, '2026-07-07')
+    expect(none.announcements).toEqual({ prevWeek: [], thisWeek: [], total: 0 })
   })
 })
