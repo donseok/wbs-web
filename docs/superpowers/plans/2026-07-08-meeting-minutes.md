@@ -420,10 +420,16 @@ export function isMarkdownFile(fileName: string): boolean {
   return MD_EXT_RE.test(fileName)
 }
 
-/** Storage 키에 안전한 파일명. RowDetailPanel.tsx:324 와 같은 정규식 + 빈/점-only 결과 방어. */
+/**
+ * Storage 키에 안전한 파일명. RowDetailPanel.tsx:324 와 같은 정규식 + 빈/의미없는 결과 방어.
+ * 구분자(., -, _)만 남은 결과는 실질 콘텐츠가 없는 것과 같다 —
+ * 예) '///' 는 연속 비허용 문자 뭉치라 정규식이 '_' 하나로 뭉개고, '..' 는 원래부터 구분자뿐이다.
+ * 둘 다 경로 세그먼트로 쓰기엔 무의미하므로(전자는 무정보, 후자는 '..' 트래버설 위험) 'file' 로 치환한다.
+ * 주의: 가드를 /^\.+$/(점만)로 두면 '///' → '_' 가 통과한다. 구분자 전체를 봐야 한다.
+ */
 export function sanitizeFileName(name: string): string {
   const safe = name.replace(/[^\w.\-가-힣]+/g, '_')
-  if (!safe || /^\.+$/.test(safe)) return 'file'
+  if (!safe || /^[.\-_]+$/.test(safe)) return 'file'
   return safe
 }
 
