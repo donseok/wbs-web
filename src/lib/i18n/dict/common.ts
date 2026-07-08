@@ -12,7 +12,7 @@ export const commonKo = {
   'nav.members': '멤버',
   'nav.attendance': '근태현황',
   'nav.announcements': '공지사항',
-  'nav.meetings': '회의',
+  'nav.meetings': '회의일정',
   'nav.myMeetings': '내 회의',
   'nav.settings': '설정',
   'chrome.manual': '수동',
