@@ -141,9 +141,12 @@ create table if not exists meeting_minutes (
   constraint minutes_md_only  check (content_md is null or file_path ~* '\.(md|markdown)$')
 );
 
-create index if not exists minutes_project_date_idx on meeting_minutes(project_id, minutes_date desc);
-create index if not exists minutes_project_team_idx on meeting_minutes(project_id, team_id);
+-- 목록 쿼리(where project_id = ? order by minutes_date desc, created_at desc)를 완전히 덮는다.
+create index if not exists minutes_project_date_idx on meeting_minutes(project_id, minutes_date desc, created_at desc);
+-- meeting_id 는 1단계에서 항상 NULL 이다(컬럼만 두고 UI 는 나중). 부분 인덱스라 빈 상태 비용은 0.
 create index if not exists minutes_meeting_idx      on meeting_minutes(meeting_id) where meeting_id is not null;
+-- (project_id, team_id) 인덱스는 만들지 않는다 — 팀 필터는 클라이언트 filterMinutes()가 하고
+--  DB 에 team_id 조건 쿼리가 없다. 읽는 사람 없는 인덱스는 쓰기 비용일 뿐이다.
 
 alter table meeting_minutes enable row level security;
 
@@ -169,11 +172,14 @@ create policy delete_minutes on meeting_minutes for delete to authenticated
 
 DB에 붙지 않고 문법만 본다. 파일에 눈에 띄는 오타가 없는지 확인:
 
-Run: `grep -c "create policy" supabase/migrations/0019_meeting_minutes.sql`
-Expected: `5` (storage 3 + table 2)
+Run: `grep -c "^create policy" supabase/migrations/0019_meeting_minutes.sql`
+Expected: `6` (storage 3 + table 3). 행 시작 앵커(`^`)를 붙여야 주석 안의 문자열이 안 세어진다.
 
-Run: `grep -c "drop policy if exists" supabase/migrations/0019_meeting_minutes.sql`
-Expected: `5` (모든 create policy 앞에 멱등 drop이 있다)
+Run: `grep -c "^drop policy if exists" supabase/migrations/0019_meeting_minutes.sql`
+Expected: `6` (모든 create policy 앞에 멱등 drop이 있다)
+
+Run: `grep -c "^create policy .* for update" supabase/migrations/0019_meeting_minutes.sql`
+Expected: `0` — UPDATE 정책이 없어야 수정 금지가 성립한다
 
 - [ ] **Step 3: 커밋**
 

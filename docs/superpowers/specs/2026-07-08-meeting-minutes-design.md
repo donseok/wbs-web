@@ -97,9 +97,12 @@ create table if not exists meeting_minutes (
   constraint minutes_md_only  check (content_md is null or file_path ~* '\.(md|markdown)$')
 );
 
-create index if not exists minutes_project_date_idx on meeting_minutes(project_id, minutes_date desc);
-create index if not exists minutes_project_team_idx on meeting_minutes(project_id, team_id);
+-- 목록 쿼리(where project_id = ? order by minutes_date desc, created_at desc)를 완전히 덮는다.
+create index if not exists minutes_project_date_idx on meeting_minutes(project_id, minutes_date desc, created_at desc);
+-- meeting_id 는 1단계에서 항상 NULL. 부분 인덱스라 빈 상태 비용은 0이고, 2단계에 마이그레이션이 불필요해진다.
 create index if not exists minutes_meeting_idx      on meeting_minutes(meeting_id) where meeting_id is not null;
+-- (project_id, team_id) 인덱스는 두지 않는다 — 팀 필터는 클라이언트의 filterMinutes()가 하고,
+--  DB 에는 team_id 조건이 붙는 쿼리가 없다. 읽는 사람 없는 인덱스는 쓰기 비용일 뿐이다.
 
 alter table meeting_minutes enable row level security;
 
