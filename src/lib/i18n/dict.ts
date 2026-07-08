@@ -8,6 +8,7 @@ import { membersKo, membersEn } from './dict/members'
 import { attendanceKo, attendanceEn } from './dict/attendance'
 import { announcementsKo, announcementsEn } from './dict/announcements'
 import { meetingsKo, meetingsEn } from './dict/meetings'
+import { minutesKo, minutesEn } from './dict/minutes'
 import { kanbanKo, kanbanEn } from './dict/kanban'
 import { wbsKo, wbsEn } from './dict/wbs'
 import { homeKo, homeEn } from './dict/home'
@@ -26,6 +27,7 @@ export const DICT = {
     ...attendanceKo,
     ...announcementsKo,
     ...meetingsKo,
+    ...minutesKo,
     ...kanbanKo,
     ...wbsKo,
     ...homeKo,
@@ -41,6 +43,7 @@ export const DICT = {
     ...attendanceEn,
     ...announcementsEn,
     ...meetingsEn,
+    ...minutesEn,
     ...kanbanEn,
     ...wbsEn,
     ...homeEn,
