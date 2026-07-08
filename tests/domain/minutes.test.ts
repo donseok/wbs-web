@@ -66,6 +66,17 @@ describe('sanitizeFileName', () => {
   it('짧은 이름은 그대로 둔다', () => {
     expect(sanitizeFileName('a.md')).toBe('a.md')
   })
+  it('sanitizeFileName 은 어떤 입력에도 경로를 벗어나지 않는다', () => {
+    const nasty = ['../../etc/passwd', '/'.repeat(50), '..', '.', '', '\n\r', 'a'.repeat(500), '🙂🙂']
+    for (const n of nasty) {
+      const out = sanitizeFileName(n)
+      expect(out).not.toBe('')
+      expect(out.length).toBeLessThanOrEqual(120)
+      expect(out).not.toBe('.')
+      expect(out).not.toBe('..')
+      expect(out.includes('/')).toBe(false)
+    }
+  })
 })
 
 describe('minutesStoragePath', () => {
@@ -143,5 +154,43 @@ describe('summarizeMinutes', () => {
   it('연말/연초 경계에서 이번 달을 혼동하지 않는다', () => {
     const list = [row({ id: 'a', minutesDate: '2025-12-31' }), row({ id: 'b', minutesDate: '2026-01-01' })]
     expect(summarizeMinutes(list, '2026-01-15').thisMonth).toBe(1)
+  })
+})
+
+/**
+ * 교차 함수 불변식 — 업로드는 isMarkdownFile(원본명)으로 content_md 를 채울지 정하고,
+ * file_path 는 sanitizeFileName(원본명)으로 만든다. 서로 다른 두 함수가 같은 입력을 읽는다.
+ * 둘이 어긋나는 순간 DB 의 minutes_md_only 제약이 INSERT 를 거부하는데, 그때는 이미
+ * Storage 에 객체가 올라간 뒤라 고아 파일이 남는다. 그래서 여기서 구조적으로 못 박는다.
+ */
+describe('isMarkdownFile ⇒ sanitizeFileName 결과가 DB minutes_md_only 제약을 만족한다', () => {
+  const DB_CHECK = /\.(md|markdown)$/i // 0019_meeting_minutes.sql 의 file_path ~* 와 동일
+
+  const inputs = [
+    'a.md',
+    'A.MD',
+    'notes.markdown',
+    'deck.MARKDOWN',
+    '회의록.md',
+    '회의록.md'.normalize('NFD'),      // macOS
+    '한'.repeat(300) + '.md',
+    'a'.repeat(119) + '.md',
+    'a'.repeat(120) + '.md',
+    'a'.repeat(121) + '.md',
+    '..md',
+    '/'.repeat(50) + '.md',
+    '../../etc/passwd.md',
+    'a b/c.md',
+  ]
+
+  it.each(inputs)('%s', (name) => {
+    if (!isMarkdownFile(name)) return // 비-md 는 content_md 가 null 이라 제약이 안 걸린다
+    const path = minutesStoragePath('p1', 't1', name, 1700000000000)
+    expect(DB_CHECK.test(path)).toBe(true)
+  })
+
+  it('비-md 는 content_md 를 채우지 않으므로 제약 대상이 아니다', () => {
+    expect(isMarkdownFile('a.md.pdf')).toBe(false)
+    expect(isMarkdownFile('deck.pptx')).toBe(false)
   })
 })
