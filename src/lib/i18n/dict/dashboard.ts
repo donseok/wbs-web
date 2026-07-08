@@ -104,7 +104,7 @@ export const dashboardKo = {
   'dash.bottleneck.noOwner': '담당 없음',
   'dash.bottleneck.scheduled': '예정',
   'dash.bottleneck.delayed': '지연',
-  'dash.bottleneck.legend': '숫자 = 팀 평균 진척 · 빗금 = 미착수 · 점선 = 담당 없음',
+  'dash.bottleneck.legend': '색·글리프 = 상태 · 빗금 = 예정 · 숫자 = 팀 평균 진척',
   'dash.bottleneck.unassignedLeaves': '미배정 리프',
   // 아코디언 그룹
   'dash.group.weekly': '주간 리듬',
@@ -194,7 +194,7 @@ export const dashboardEn: Record<keyof typeof dashboardKo, string> = {
   'dash.bottleneck.noOwner': 'No owner',
   'dash.bottleneck.scheduled': 'Scheduled',
   'dash.bottleneck.delayed': 'Delayed',
-  'dash.bottleneck.legend': 'Number = team avg progress · Hatch = not started · Dashed = no owner',
+  'dash.bottleneck.legend': 'Color/glyph = state · Hatch = scheduled · Number = team avg progress',
   'dash.bottleneck.unassignedLeaves': 'Unassigned leaves',
   'dash.group.weekly': 'Weekly rhythm',
 }
