@@ -193,7 +193,7 @@ function MemberCard({
         )}
         {/* 이메일은 있는데 로그인 계정과 이어지지 않은 행 — 이 사람은 '내 회의'가 빈 화면이다.
             이메일 자체가 없는 행(외부 인력)은 아래 이메일 줄이 이미 '미등록'을 보여준다. */}
-        {member.email && !member.userId && (
+        {member.email && !member.hasAccount && (
           <span className="chip bg-pending-weak text-accent-warning" title={t('members.unlinkedHint')}>
             <Unlink className="h-3 w-3" />
             {t('members.unlinked')}

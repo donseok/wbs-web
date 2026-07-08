@@ -26,6 +26,12 @@ async function resolveTeamId(sb: ServerClient, teamCode: TeamCode | null): Promi
   return (data?.id as string | undefined) ?? null
 }
 
+/** 0019 의 부분 유니크 인덱스 위반을 사용자 언어로 옮긴다 — 원시 Postgres 문자열 노출 방지. */
+function memberWriteError(error: { code?: string; message: string }): string {
+  if (error.code === '23505') return '같은 이메일의 멤버가 이 프로젝트에 이미 있습니다.'
+  return error.message
+}
+
 export async function addMember(projectId: string, input: MemberInput): Promise<MemberActionResult> {
   const m = await getMembership()
   if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
@@ -41,7 +47,7 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
     role: input.role,
     title: input.title,
   })
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: memberWriteError(error) }
   revalidatePath('/p/' + projectId + '/members')
   return { ok: true }
 }
@@ -65,7 +71,7 @@ export async function updateMember(memberId: string, input: MemberInput): Promis
     .eq('id', memberId)
     .select('project_id')
     .single()
-  if (error) return { ok: false, error: error.message }
+  if (error) return { ok: false, error: memberWriteError(error) }
   if (data?.project_id) revalidatePath('/p/' + (data.project_id as string) + '/members')
   return { ok: true }
 }

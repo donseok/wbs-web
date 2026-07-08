@@ -92,31 +92,35 @@ export const getMeetingDetail = cache(async (
 })
 
 /**
- * 로그인 계정에 연결된 project_members.id 집합.
- * 1차 키는 user_id(0019 가 도입한 auth.users FK). email 은 아직 연결되지 않은 행을 위한 폴백 —
- * 계정 이메일과 멤버 이메일이 다른 경우(개인 gmail 로그인 등)를 위해 남겨둔다.
+ * 로그인 계정에 연결된 project_members.id 집합. 크로스 프로젝트 조회이므로
+ * user_id(0019 가 도입한 auth.users FK) 와 email 매칭의 **합집합**을 낸다 —
+ * 한쪽만 보면 프로젝트마다 연결 방식이 다른 사람을 놓친다.
+ * (예: 사내 계정은 email 로, 개인 gmail 계정은 명시적 user_id 로 같은 멤버 행에 이어진다.)
+ * 한쪽 조회가 실패해도 다른 쪽 결과로 계속 동작한다 — 마이그레이션 전 배포에 대한 내성.
  * 외부 인력 행은 user_id NULL 로 남고 로그인하지 않으므로 여기 걸리지 않는다.
  */
 export async function resolveMemberIds(
   sb: ServerClient,
   user: { id: string; email?: string | null },
 ): Promise<string[]> {
-  const byUser = await sb.from('project_members').select('id').eq('user_id', user.id)
-  if (byUser.error) {
-    // 무매칭([])과 조회 실패를 호출부가 구별할 수 없으므로 최소한 로그로는 남긴다.
-    console.error('[resolveMemberIds] user_id 조회 실패:', byUser.error.message)
-    return []
-  }
-  if (byUser.data && byUser.data.length > 0) return byUser.data.map((r: Row) => r.id as string)
+  const email = user.email?.trim().toLowerCase() || null
+  const [byUser, byEmail] = await Promise.all([
+    sb.from('project_members').select('id').eq('user_id', user.id),
+    email
+      ? sb.from('project_members').select('id').eq('email', email)
+      : Promise.resolve({ data: [] as Row[], error: null }),
+  ])
 
-  const email = user.email?.trim().toLowerCase()
-  if (!email) return []
-  const byEmail = await sb.from('project_members').select('id').eq('email', email)
-  if (byEmail.error) {
-    console.error('[resolveMemberIds] email 폴백 조회 실패:', byEmail.error.message)
-    return []
+  const ids = new Set<string>()
+  for (const [label, res] of [['user_id', byUser], ['email', byEmail]] as const) {
+    if (res.error) {
+      // 무매칭([])과 조회 실패를 호출부가 구별할 수 없으므로 최소한 로그로는 남긴다.
+      console.error(`[resolveMemberIds] ${label} 조회 실패:`, res.error.message)
+      continue
+    }
+    for (const r of (res.data ?? []) as Row[]) ids.add(r.id as string)
   }
-  return (byEmail.data ?? []).map((r: Row) => r.id as string)
+  return [...ids]
 }
 
 /** 현재 로그인 사용자의 project_members.id 집합. 비로그인/무매칭 시 []. */

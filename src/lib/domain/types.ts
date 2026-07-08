@@ -44,7 +44,7 @@ export interface ProjectMember {
   teamCode: TeamCode | null
   role: ProjectMemberRole
   title: string | null      // 직함/역할 설명
-  userId: string | null     // 연결된 로그인 계정(auth.users). 외부 인력·미연결이면 null
+  hasAccount: boolean       // 로그인 계정(auth.users)과 연결됨. auth uuid 자체는 클라이언트로 보내지 않는다
   createdAt: string
 }
 

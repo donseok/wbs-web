@@ -23,46 +23,52 @@ function stub(replies: Record<string, Reply>) {
 }
 
 const OK = (ids: string[]): Reply => ({ data: ids.map((id) => ({ id })), error: null })
-const FAIL: Reply = { data: null, error: { message: 'permission denied' } }
+const FAIL: Reply = { data: null, error: { message: 'column "user_id" does not exist' } }
+const sorted = (a: string[]) => [...a].sort()
 
 describe('resolveMemberIds — 로그인 계정 ↔ project_members 연결', () => {
   beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}) })
   afterEach(() => { vi.restoreAllMocks() })
 
-  it('user_id 로 연결된 행이 있으면 그것을 쓰고 email 은 조회하지 않는다', async () => {
-    const { sb, calls } = stub({ 'user_id=u1': OK(['m1', 'm2']) })
-    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual(['m1', 'm2'])
-    expect(calls).toEqual([['user_id', 'u1']])
+  it('user_id 와 email 결과의 합집합을 낸다 — 프로젝트마다 연결 방식이 달라도 놓치지 않는다', async () => {
+    // 프로젝트 A 행은 user_id 로, 프로젝트 B 행은 email 로만 이어진 상태.
+    const { sb } = stub({ 'user_id=u1': OK(['mA']), 'email=a@b.com': OK(['mB']) })
+    expect(sorted(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' }))).toEqual(['mA', 'mB'])
   })
 
-  it('user_id 무매칭이면 email 로 폴백한다 (미연결 행 / 개인 이메일 로그인)', async () => {
-    const { sb, calls } = stub({ 'email=a@b.com': OK(['m9']) })
-    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual(['m9'])
-    expect(calls).toEqual([['user_id', 'u1'], ['email', 'a@b.com']])
+  it('양쪽이 같은 행을 가리키면 중복 없이 한 번만 낸다', async () => {
+    const { sb } = stub({ 'user_id=u1': OK(['m1']), 'email=a@b.com': OK(['m1']) })
+    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual(['m1'])
   })
 
-  it('폴백 조회는 소문자로 정규화한다 — 0019 이후 email 은 소문자로 저장된다', async () => {
+  it('email 조회는 소문자로 정규화한다 — 0019 이후 email 은 소문자로 저장된다', async () => {
     const { sb, calls } = stub({ 'email=a@b.com': OK(['m9']) })
     expect(await resolveMemberIds(sb, { id: 'u1', email: '  A@B.CoM ' })).toEqual(['m9'])
-    expect(calls[1]).toEqual(['email', 'a@b.com'])
+    expect(calls).toContainEqual(['email', 'a@b.com'])
   })
 
   it('이메일 없는 계정은 user_id 만 본다', async () => {
-    const { sb, calls } = stub({})
-    expect(await resolveMemberIds(sb, { id: 'u1', email: null })).toEqual([])
+    const { sb, calls } = stub({ 'user_id=u1': OK(['m1']) })
+    expect(await resolveMemberIds(sb, { id: 'u1', email: null })).toEqual(['m1'])
     expect(calls).toEqual([['user_id', 'u1']])
   })
 
-  it('user_id 조회가 실패하면 빈 배열 + 로그 — 무매칭과 조용히 섞이지 않는다', async () => {
-    const { sb } = stub({ 'user_id=u1': FAIL })
-    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual([])
+  it('user_id 조회가 실패해도 email 결과로 계속 동작한다 — 마이그레이션 전 배포 내성', async () => {
+    const { sb } = stub({ 'user_id=u1': FAIL, 'email=a@b.com': OK(['m9']) })
+    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual(['m9'])
     expect(console.error).toHaveBeenCalledOnce()
   })
 
-  it('email 폴백 조회가 실패해도 빈 배열 + 로그', async () => {
-    const { sb } = stub({ 'email=a@b.com': FAIL })
-    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual([])
+  it('email 조회가 실패해도 user_id 결과로 계속 동작한다', async () => {
+    const { sb } = stub({ 'user_id=u1': OK(['m1']), 'email=a@b.com': FAIL })
+    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual(['m1'])
     expect(console.error).toHaveBeenCalledOnce()
+  })
+
+  it('둘 다 실패하면 빈 배열 + 두 번 로그 — 무매칭과 조용히 섞이지 않는다', async () => {
+    const { sb } = stub({ 'user_id=u1': FAIL, 'email=a@b.com': FAIL })
+    expect(await resolveMemberIds(sb, { id: 'u1', email: 'a@b.com' })).toEqual([])
+    expect(console.error).toHaveBeenCalledTimes(2)
   })
 
   it('둘 다 무매칭이면 빈 배열이고 로그는 남기지 않는다', async () => {

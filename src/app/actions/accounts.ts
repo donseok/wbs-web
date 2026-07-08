@@ -75,6 +75,17 @@ async function createOne(admin: AdminClient, input: AccountInput): Promise<Accou
     await admin.auth.admin.deleteUser(created.user.id)
     return { ok: false, error: '팀/권한 저장 실패: ' + memErr.message }
   }
+
+  // 같은 이메일의 프로젝트 멤버 행에 새 계정을 잇는다(0019 의 user_id FK).
+  // auth.users 트리거 대신 여기서 한다 — 실패하는 트리거는 GoTrue 회원가입 전체를 막는다.
+  // 실패해도 계정 생성은 성공으로 둔다: 멤버 보드의 '계정 미연결' 배지가 드러내 준다.
+  const { error: linkErr } = await admin
+    .from('project_members')
+    .update({ user_id: created.user.id })
+    .is('user_id', null)
+    .eq('email', input.email.trim().toLowerCase())
+  if (linkErr) console.error('[createAccount] 멤버 행 연결 실패:', linkErr.message)
+
   return { ok: true }
 }
 

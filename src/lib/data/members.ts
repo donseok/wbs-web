@@ -22,7 +22,7 @@ export const getProjectMembers = cache(async (projectId: string): Promise<Projec
       teamCode: teamCode as TeamCode | null,
       role: (r.role as ProjectMemberRole) ?? 'contributor',
       title: (r.title as string) ?? null,
-      userId: (r.user_id as string) ?? null,
+      hasAccount: r.user_id != null,
       createdAt: r.created_at as string,
     }
   })

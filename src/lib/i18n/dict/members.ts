@@ -68,7 +68,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   'members.noTeam': 'No team set',
   'members.noEmail': 'No email registered',
   'members.unlinked': 'No linked account',
-  'members.unlinkedHint': 'No login account matches this email. Their meetings will not appear under “My meetings”.',
+  'members.unlinkedHint': 'No login account matches this email. When this person signs in, their meetings will not appear under “My meetings”.',
   'members.ariaEditSuffix': ' — edit',
   'members.ariaDeleteSuffix': ' — delete',
   'members.editMember': 'Edit member',
