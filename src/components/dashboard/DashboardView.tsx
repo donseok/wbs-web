@@ -1,13 +1,10 @@
 import type { ReactNode } from 'react'
-import Link from 'next/link'
 import {
-  CalendarRange, PieChart, Users, Layers, Scale, AlertTriangle,
+  PieChart, Users, Layers, Scale, AlertTriangle,
   CalendarClock, CalendarPlus, CheckCircle2, CalendarCheck,
-  TrendingUp, TrendingDown, BarChart3, FileText, Timer, Megaphone, Pin,
+  BarChart3, FileText, Timer,
 } from 'lucide-react'
 import type { Announcement, ComputedItem, Status, TeamCode, AttendanceRecord, AttendanceType } from '@/lib/domain/types'
-import { ANNOUNCEMENT_META, isPublishedNow } from '@/lib/domain/announcements'
-import { overallProgress } from '@/lib/domain/rollup'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { StatusPill } from '@/components/ui/StatusPill'
@@ -15,6 +12,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM, STATUS, OwnerBadges, collectLeaves, fmtDate } from '@/components/wbs/shared'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
+import { ExecSummary } from './ExecSummary'
+import { DetailAccordion } from './DetailAccordion'
 
 /* ── 날짜 유틸 (UTC 기준 정수 일수 계산 → DST 무관) ── */
 const DAY = 86_400_000
@@ -98,24 +97,40 @@ function TaskRow({ item }: { item: ComputedItem }) {
   )
 }
 
+/* 아코디언 그룹 헤더 — 라벨 + 흐린 요약 힌트 */
+function GroupTitle({ label, hint }: { label: string; hint: string }) {
+  return (
+    <span className="flex items-baseline gap-2">
+      {label}
+      <span className="text-[11px] font-normal text-ink-subtle">{hint}</span>
+    </span>
+  )
+}
+
 export async function DashboardView({
   items,
   projectId,
+  projectName,
+  projectDescription = null,
   startDate = null,
   endDate = null,
   today = seoulToday(),
   memberCount = 0,
   attendance = [],
   announcements = [],
+  initialExpanded = [],
 }: {
   items: ComputedItem[]
   projectId: string
+  projectName: string
+  projectDescription?: string | null
   startDate?: string | null
   endDate?: string | null
   today?: string
   memberCount?: number
   attendance?: AttendanceRecord[]
   announcements?: Announcement[]
+  initialExpanded?: string[]
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -134,13 +149,10 @@ export async function DashboardView({
   const leaves = collectLeaves(items)
   const total = leaves.length
 
-  // 전체 공정율(루트 가중치 정규화)
+  // 루트 가중치 정규화(가중치 분포에 사용). 전체 공정율/일정 신호는 ExecSummary가 담당.
   const allNull = roots.every(r => r.weight == null)
   const eff = (r: ComputedItem) => (allNull ? 1 : r.weight ?? 0)
   const totalEff = roots.reduce((s, r) => s + eff(r), 0) || 1
-  // 전체 공정율은 공유 헬퍼로(보고서·대시보드 동일값). eff/totalEff는 아래 가중치 분포에 재사용.
-  const { actual: overallActual, planned: overallPlanned } = overallProgress(roots)
-  const variance = overallActual - overallPlanned
 
   // 상태 분포
   const statusCount = (s: Status) => leaves.filter(l => l.status === s).length
@@ -188,148 +200,216 @@ export async function DashboardView({
   const deliverableDone = withDeliverable.filter(l => l.status === 'done').length
   const deliverablePct = withDeliverable.length ? Math.round((deliverableDone / withDeliverable.length) * 100) : 0
 
-  // 프로젝트 일정
-  let schedule: { totalDays: number; elapsed: number; remaining: number; elapsedPct: number } | null = null
-  if (startDate && endDate) {
-    const totalDays = Math.max(1, diffDays(startDate, endDate) + 1)
-    const elapsed = Math.min(totalDays, Math.max(0, diffDays(startDate, today) + 1))
-    const elapsedPct = Math.round((elapsed / totalDays) * 100)
-    schedule = { totalDays, elapsed, remaining: totalDays - elapsed, elapsedPct }
-  }
-
   // 금주 근태
   const weekAtt = attendance.filter(a => a.date >= ws && a.date <= we)
   const attCount = (...ts: AttendanceType[]) => weekAtt.filter(a => ts.includes(a.type)).length
   const attByType = (Object.keys(ATT) as AttendanceType[])
-    .map(t => ({ type: t, count: weekAtt.filter(a => a.type === t).length }))
+    .map(tp => ({ type: tp, count: weekAtt.filter(a => a.type === tp).length }))
     .filter(x => x.count > 0)
   const attMembers = new Set(weekAtt.map(a => a.memberId)).size
 
-  return (
-    <div className="space-y-5">
-      {/* 프로젝트 일정 */}
-      <SectionCard
-        eyebrow="TIMELINE"
-        title={tr('dash.schedule.title')}
-        icon={CalendarRange}
-        actions={
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold tabular-nums">
-            {variance >= 0
-              ? <span className="inline-flex items-center gap-1 text-done"><TrendingUp className="h-3.5 w-3.5" />{tr('dash.vsPlan')} +{variance}%p</span>
-              : <span className="inline-flex items-center gap-1 text-delayed"><TrendingDown className="h-3.5 w-3.5" />{tr('dash.vsPlan')} {variance}%p</span>}
-          </span>
-        }
-      >
-        {schedule ? (
-          <div className="space-y-5">
-            <div className="grid grid-cols-3 gap-3">
-              <Stat label={tr('dash.schedule.totalDays')} value={`${schedule.totalDays}${tr('dash.unitDays')}`} sub={`${fmtDate(startDate)} – ${fmtDate(endDate)}`} />
-              <Stat label={tr('dash.schedule.elapsed')} value={`${schedule.elapsed}${tr('dash.unitDays')}`} sub={`${schedule.elapsedPct}% ${tr('dash.schedule.elapsedSuffix')}`} />
-              <Stat label={tr('dash.schedule.remaining')} value={`${schedule.remaining}${tr('dash.unitDays')}`} sub={`${100 - schedule.elapsedPct}% ${tr('dash.schedule.remainingSuffix')}`} />
-            </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between text-xs">
-                <span className="font-semibold text-ink">{tr('dash.actualLabel')} {overallActual}%</span>
-                <span className="text-ink-subtle">{tr('dash.plannedLabel')} {overallPlanned}% · {tr('dash.timeElapsedLabel')} {schedule.elapsedPct}%</span>
-              </div>
-              <ProgressBar value={overallActual} planned={overallPlanned} tone="bg-brand" height="h-3" />
-            </div>
+  /* ── 상세 아코디언 3그룹: 서버가 렌더한 카드 묶음을 content로 전달 ── */
+  const analysis = (
+    <div className="grid gap-5 xl:grid-cols-2">
+      <SectionCard eyebrow="STATUS MIX" title={tr('dash.statusMix.title')} icon={PieChart} actions={<CountBadge n={total} unit={tr('dash.unitCount')} />}>
+        <div className="space-y-4">
+          <div className="flex h-3 w-full overflow-hidden rounded-full bg-line">
+            {STATUSES.map(s => {
+              const c = statusCount(s)
+              if (!c || !total) return null
+              return <div key={s} className={STATUS[s].bar} style={{ width: `${(c / total) * 100}%` }} title={`${tr(`status.${s}` as DictKey)} ${c}${tr('dash.unitCount')}`} />
+            })}
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            {STATUSES.map(s => {
+              const c = statusCount(s)
+              return (
+                <div key={s} className="flex items-center justify-between rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
+                  <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                    <span className={`h-2.5 w-2.5 rounded-full ${STATUS[s].dot}`} />{tr(`status.${s}` as DictKey)}
+                  </span>
+                  <span className="tabular-nums">
+                    <strong className="text-ink">{c}{tr('dash.unitCount')}</strong>
+                    <span className="ml-1 text-[11px] text-ink-subtle">{total ? Math.round((c / total) * 100) : 0}%</span>
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard eyebrow="WEIGHT" title={tr('dash.weight.title')} icon={Scale}>
+        <ul className="space-y-3.5">
+          {weightShare.map(r => (
+            <li key={r.id}>
+              <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                <span className="truncate font-medium text-ink" title={r.name}>{r.name}</span>
+                <span className="shrink-0 tabular-nums font-semibold text-brand">{r.share}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-line">
+                <div className="h-full rounded-full bg-accent-secondary" style={{ width: `${r.share}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </SectionCard>
+    </div>
+  )
+
+  const scheduleRisk = (
+    <div className="space-y-5">
+      <SectionCard eyebrow="DUE SOON" title={tr('dash.dueSoon.title')} icon={Timer} actions={<CountBadge n={dueSoon.length} unit={tr('dash.unitCount')} />}>
+        {dueSoon.length === 0 ? (
+          <MiniEmpty text={tr('dash.dueSoon.empty')} />
         ) : (
-          <MiniEmpty text={tr('dash.schedule.empty')} />
+          <ul className="divide-y divide-line">
+            {dueSoon.slice(0, 8).map(l => {
+              const dleft = diffDays(today, l.plannedEnd!)
+              const urgent = dleft <= 1
+              return (
+                <li key={l.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium text-ink" title={l.name}>{l.name}</div>
+                    <div className="mt-1"><OwnerBadges owners={l.owners} /></div>
+                  </div>
+                  <div className="w-24 shrink-0 text-right">
+                    <div className="tabular-nums text-xs text-ink-muted">{fmtDate(l.plannedEnd)}</div>
+                    <div className={`mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold ${urgent ? 'text-delayed' : 'text-accent-warning'}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${urgent ? 'bg-delayed' : 'bg-accent-warning'}`} />D-{dleft}
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </SectionCard>
 
-      {/* 공지사항 — 최근/고정 상위 3건 */}
-      <SectionCard
-        eyebrow="NOTICE"
-        title={tr('ann.dash.title')}
-        icon={Megaphone}
-        actions={
-          <Link href={`/p/${projectId}/announcements`} className="btn btn-ghost h-8 px-3 text-xs">
-            {tr('common.viewAll')}
-          </Link>
-        }
-      >
-        {announcements.filter(a => isPublishedNow(a, today)).length === 0 ? (
-          <MiniEmpty text={tr('ann.dash.empty')} />
+      <div className="grid gap-5 xl:grid-cols-2">
+        <SectionCard eyebrow="THIS WEEK" title={tr('dash.thisWeek.title')} icon={CalendarClock} actions={<CountBadge n={thisWeek.length} unit={tr('dash.unitCount')} />}>
+          {thisWeek.length === 0 ? (
+            <MiniEmpty text={tr('dash.thisWeek.empty')} />
+          ) : (
+            <ul className="space-y-2">{thisWeek.slice(0, 6).map(tk => <TaskRow key={tk.id} item={tk} />)}</ul>
+          )}
+        </SectionCard>
+
+        <SectionCard eyebrow="NEXT WEEK" title={tr('dash.nextWeek.title')} icon={CalendarPlus} actions={<CountBadge n={nextWeek.length} unit={tr('dash.unitCount')} />}>
+          {nextWeek.length === 0 ? (
+            <MiniEmpty text={tr('dash.nextWeek.empty')} />
+          ) : (
+            <ul className="space-y-2">{nextWeek.slice(0, 6).map(tk => <TaskRow key={tk.id} item={tk} />)}</ul>
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  )
+
+  const teamDeliv = (
+    <div className="grid gap-5 xl:grid-cols-2">
+      <SectionCard eyebrow="TEAM LOAD" title={tr('dash.teamLoad.title')} icon={Users}>
+        <div className="space-y-4">
+          {TEAMS.map(team => {
+            const sm = teamSummary(team)
+            return (
+              <div key={team}>
+                <div className="mb-1.5 flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-2 font-semibold text-ink">
+                    <span className={`h-2.5 w-2.5 rounded-full ${TEAM[team].bar}`} />{team}
+                    <span className="font-normal text-ink-subtle">· {sm.count}{tr('dash.unitTasks')}</span>
+                  </span>
+                  <span className="tabular-nums font-semibold text-ink">{sm.pct == null ? tr('dash.noAssignment') : `${sm.pct}%`}</span>
+                </div>
+                <ProgressBar value={sm.pct ?? 0} tone={TEAM[team].bar} />
+              </div>
+            )
+          })}
+        </div>
+      </SectionCard>
+
+      <SectionCard eyebrow="DELIVERABLES" title={tr('dash.deliv.title')} icon={FileText} actions={<CountBadge n={withDeliverable.length} unit={tr('dash.unitCount')} />}>
+        {withDeliverable.length === 0 ? (
+          <MiniEmpty text={tr('dash.deliv.empty')} />
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label={tr('dash.deliv.total')} value={`${withDeliverable.length}${tr('dash.unitCount')}`} />
+              <Stat label={tr('dash.deliv.done')} value={`${deliverableDone}${tr('dash.unitCount')}`} sub={`${deliverablePct}%`} />
+              <Stat label={tr('dash.deliv.open')} value={`${withDeliverable.length - deliverableDone}${tr('dash.unitCount')}`} />
+            </div>
+            <ProgressBar value={deliverablePct} tone="bg-done" height="h-2.5" />
+            <ul className="space-y-1.5">
+              {withDeliverable.filter(l => l.status !== 'done').slice(0, 5).map(l => (
+                <li key={l.id} className="flex items-center gap-2 text-[12px]">
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+                  <span className="truncate text-ink-muted" title={l.deliverable ?? ''}>{l.deliverable}</span>
+                  <span className="ml-auto shrink-0"><StatusPill status={l.status} /></span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard eyebrow="RECENTLY DONE" title={tr('dash.recentDone.title')} icon={CheckCircle2} actions={<CountBadge n={statusCount('done')} unit={tr('dash.unitCount')} tone="bg-done-weak text-done" />}>
+        {recentDone.length === 0 ? (
+          <MiniEmpty text={tr('dash.recentDone.empty')} />
         ) : (
           <ul className="space-y-2">
-            {announcements.filter(a => isPublishedNow(a, today)).slice(0, 3).map(a => (
-              <li key={a.id}>
-                <Link
-                  href={`/p/${projectId}/announcements`}
-                  className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/40 px-3 py-2.5 transition hover:bg-surface-2"
-                >
-                  <span className={`chip shrink-0 ${ANNOUNCEMENT_META[a.category].chip}`}>
-                    {tr(ANNOUNCEMENT_META[a.category].labelKey)}
-                  </span>
-                  {a.isPinned && <Pin className="h-3.5 w-3.5 shrink-0 text-accent-warning" />}
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink" title={a.title}>
-                    {a.title}
-                  </span>
-                  <span className="shrink-0 tabular-nums text-[11px] text-ink-subtle">
-                    {new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(a.createdAt))}
-                  </span>
-                </Link>
+            {recentDone.map(tk => (
+              <li key={tk.id} className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-done-weak text-done"><CheckCircle2 className="h-3.5 w-3.5" /></span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium text-ink" title={tk.name}>{tk.name}</div>
+                  <div className="mt-0.5 text-[11px] text-ink-subtle">{tr('status.done')} · {fmtDate(tk.plannedEnd)}</div>
+                </div>
+                <OwnerBadges owners={tk.owners} />
               </li>
             ))}
           </ul>
         )}
       </SectionCard>
 
-      {/* 상태 분포 + 팀별 작업량 */}
-      <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="STATUS MIX" title={tr('dash.statusMix.title')} icon={PieChart} actions={<CountBadge n={total} unit={tr('dash.unitCount')} />}>
-          <div className="space-y-4">
-            <div className="flex h-3 w-full overflow-hidden rounded-full bg-line">
-              {STATUSES.map(s => {
-                const c = statusCount(s)
-                if (!c || !total) return null
-                return <div key={s} className={STATUS[s].bar} style={{ width: `${(c / total) * 100}%` }} title={`${tr(`status.${s}` as DictKey)} ${c}${tr('dash.unitCount')}`} />
-              })}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {STATUSES.map(s => {
-                const c = statusCount(s)
-                return (
-                  <div key={s} className="flex items-center justify-between rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
-                    <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
-                      <span className={`h-2.5 w-2.5 rounded-full ${STATUS[s].dot}`} />{tr(`status.${s}` as DictKey)}
-                    </span>
-                    <span className="tabular-nums">
-                      <strong className="text-ink">{c}{tr('dash.unitCount')}</strong>
-                      <span className="ml-1 text-[11px] text-ink-subtle">{total ? Math.round((c / total) * 100) : 0}%</span>
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
+      <SectionCard eyebrow="THIS WEEK ATTENDANCE" title={tr('dash.att.title')} icon={CalendarCheck}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <Stat label={tr('dash.att.records')} value={`${weekAtt.length}${tr('dash.unitCount')}`} />
+            <Stat label={tr('dash.att.leave')} value={`${attCount('annual', 'half', 'sick')}${tr('dash.unitCount')}`} />
+            <Stat label={tr('dash.att.tripRemote')} value={`${attCount('trip')}${tr('dash.unitCount')}`} />
           </div>
-        </SectionCard>
-
-        <SectionCard eyebrow="TEAM LOAD" title={tr('dash.teamLoad.title')} icon={Users}>
-          <div className="space-y-4">
-            {TEAMS.map(team => {
-              const sm = teamSummary(team)
-              return (
-                <div key={team}>
-                  <div className="mb-1.5 flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-2 font-semibold text-ink">
-                      <span className={`h-2.5 w-2.5 rounded-full ${TEAM[team].bar}`} />{team}
-                      <span className="font-normal text-ink-subtle">· {sm.count}{tr('dash.unitTasks')}</span>
-                    </span>
-                    <span className="tabular-nums font-semibold text-ink">{sm.pct == null ? tr('dash.noAssignment') : `${sm.pct}%`}</span>
-                  </div>
-                  <ProgressBar value={sm.pct ?? 0} tone={TEAM[team].bar} />
-                </div>
-              )
-            })}
+          {attByType.length === 0 ? (
+            <MiniEmpty text={tr('dash.att.empty')} />
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {attByType.map(({ type, count }) => (
+                <span key={type} className={`chip ${ATT[type].cls}`}>{tr(`dash.att.${type}` as DictKey)} {count}</span>
+              ))}
+            </div>
+          )}
+          <div className="text-[11px] text-ink-subtle">
+            {tr('dash.att.memberPrefix')}{memberCount}{tr('dash.att.memberSuffix')} · {tr('dash.att.regPrefix')}{attMembers}{tr('dash.att.regSuffix')} ({fmtDate(ws)}–{fmtDate(we)})
           </div>
-        </SectionCard>
-      </div>
+        </div>
+      </SectionCard>
+    </div>
+  )
 
-      {/* Phase별 진척 + 가중치 분포 */}
+  return (
+    <div className="space-y-5">
+      {/* 경영진 요약 — 게이지 + 신호등 3 + 공지 + 리포트 */}
+      <ExecSummary
+        items={items}
+        projectId={projectId}
+        projectName={projectName}
+        projectDescription={projectDescription}
+        startDate={startDate}
+        endDate={endDate}
+        today={today}
+        announcements={announcements}
+      />
+
+      {/* 핵심 시각 — Phase별 진척 + 지연 Top */}
       <div className="grid gap-5 xl:grid-cols-2">
         <SectionCard
           eyebrow="BY PHASE"
@@ -362,174 +442,50 @@ export async function DashboardView({
           </div>
         </SectionCard>
 
-        <SectionCard eyebrow="WEIGHT" title={tr('dash.weight.title')} icon={Scale}>
-          <ul className="space-y-3.5">
-            {weightShare.map(r => (
-              <li key={r.id}>
-                <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-                  <span className="truncate font-medium text-ink" title={r.name}>{r.name}</span>
-                  <span className="shrink-0 tabular-nums font-semibold text-brand">{r.share}%</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-line">
-                  <div className="h-full rounded-full bg-accent-secondary" style={{ width: `${r.share}%` }} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
-      </div>
-
-      {/* 지연 작업 */}
-      <SectionCard
-        eyebrow="ATTENTION"
-        title={tr('dash.kpi.delayed')}
-        icon={AlertTriangle}
-        actions={<CountBadge n={delayed.length} unit={tr('dash.unitCount')} tone="bg-delayed-weak text-delayed" />}
-      >
-        {delayed.length === 0 ? (
-          <MiniEmpty text={tr('dash.delayed.empty')} />
-        ) : (
-          <ul className="divide-y divide-line">
-            {delayed.slice(0, 8).map(({ item, overdue, gap }) => (
-              <li key={item.id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-ink" title={item.name}>{item.name}</div>
-                  <div className="mt-1"><OwnerBadges owners={item.owners} /></div>
-                </div>
-                <div className="hidden w-40 shrink-0 sm:block">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1"><ProgressBar value={item.rolledActualPct} planned={item.plannedPct} height="h-1.5" tone="bg-delayed" /></div>
-                    <span className="shrink-0 tabular-nums text-[11px] font-semibold text-delayed">{item.rolledActualPct}%</span>
-                  </div>
-                </div>
-                <div className="w-24 shrink-0 text-right">
-                  <div className="tabular-nums text-xs text-ink-muted">{fmtDate(item.plannedEnd)}</div>
-                  <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-delayed">
-                    <span className="h-1.5 w-1.5 rounded-full bg-delayed" />{overdue > 0 ? `${overdue}${tr('dash.overdueSuffix')}` : `${tr('dash.gapLabel')} ${gap}%p`}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </SectionCard>
-
-      {/* 이번 주 / 다음 주 작업 */}
-      <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="THIS WEEK" title={tr('dash.thisWeek.title')} icon={CalendarClock} actions={<CountBadge n={thisWeek.length} unit={tr('dash.unitCount')} />}>
-          {thisWeek.length === 0 ? (
-            <MiniEmpty text={tr('dash.thisWeek.empty')} />
+        <SectionCard
+          eyebrow="ATTENTION"
+          title={tr('dash.kpi.delayed')}
+          icon={AlertTriangle}
+          actions={<CountBadge n={delayed.length} unit={tr('dash.unitCount')} tone="bg-delayed-weak text-delayed" />}
+        >
+          {delayed.length === 0 ? (
+            <MiniEmpty text={tr('dash.delayed.empty')} />
           ) : (
-            <ul className="space-y-2">{thisWeek.slice(0, 6).map(t => <TaskRow key={t.id} item={t} />)}</ul>
-          )}
-        </SectionCard>
-
-        <SectionCard eyebrow="NEXT WEEK" title={tr('dash.nextWeek.title')} icon={CalendarPlus} actions={<CountBadge n={nextWeek.length} unit={tr('dash.unitCount')} />}>
-          {nextWeek.length === 0 ? (
-            <MiniEmpty text={tr('dash.nextWeek.empty')} />
-          ) : (
-            <ul className="space-y-2">{nextWeek.slice(0, 6).map(t => <TaskRow key={t.id} item={t} />)}</ul>
-          )}
-        </SectionCard>
-      </div>
-
-      {/* 최근 완료 + 금주 근태 */}
-      <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="RECENTLY DONE" title={tr('dash.recentDone.title')} icon={CheckCircle2} actions={<CountBadge n={statusCount('done')} unit={tr('dash.unitCount')} tone="bg-done-weak text-done" />}>
-          {recentDone.length === 0 ? (
-            <MiniEmpty text={tr('dash.recentDone.empty')} />
-          ) : (
-            <ul className="space-y-2">
-              {recentDone.map(t => (
-                <li key={t.id} className="flex items-center gap-3 rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-done-weak text-done"><CheckCircle2 className="h-3.5 w-3.5" /></span>
+            <ul className="divide-y divide-line">
+              {delayed.slice(0, 8).map(({ item, overdue, gap }) => (
+                <li key={item.id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium text-ink" title={t.name}>{t.name}</div>
-                    <div className="mt-0.5 text-[11px] text-ink-subtle">{tr('status.done')} · {fmtDate(t.plannedEnd)}</div>
+                    <div className="truncate text-[13px] font-medium text-ink" title={item.name}>{item.name}</div>
+                    <div className="mt-1"><OwnerBadges owners={item.owners} /></div>
                   </div>
-                  <OwnerBadges owners={t.owners} />
+                  <div className="hidden w-40 shrink-0 sm:block">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1"><ProgressBar value={item.rolledActualPct} planned={item.plannedPct} height="h-1.5" tone="bg-delayed" /></div>
+                      <span className="shrink-0 tabular-nums text-[11px] font-semibold text-delayed">{item.rolledActualPct}%</span>
+                    </div>
+                  </div>
+                  <div className="w-24 shrink-0 text-right">
+                    <div className="tabular-nums text-xs text-ink-muted">{fmtDate(item.plannedEnd)}</div>
+                    <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-delayed">
+                      <span className="h-1.5 w-1.5 rounded-full bg-delayed" />{overdue > 0 ? `${overdue}${tr('dash.overdueSuffix')}` : `${tr('dash.gapLabel')} ${gap}%p`}
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </SectionCard>
-
-        <SectionCard eyebrow="THIS WEEK ATTENDANCE" title={tr('dash.att.title')} icon={CalendarCheck}>
-          <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <Stat label={tr('dash.att.records')} value={`${weekAtt.length}${tr('dash.unitCount')}`} />
-              <Stat label={tr('dash.att.leave')} value={`${attCount('annual', 'half', 'sick')}${tr('dash.unitCount')}`} />
-              <Stat label={tr('dash.att.tripRemote')} value={`${attCount('trip')}${tr('dash.unitCount')}`} />
-            </div>
-            {attByType.length === 0 ? (
-              <MiniEmpty text={tr('dash.att.empty')} />
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {attByType.map(({ type, count }) => (
-                  <span key={type} className={`chip ${ATT[type].cls}`}>{tr(`dash.att.${type}` as DictKey)} {count}</span>
-                ))}
-              </div>
-            )}
-            <div className="text-[11px] text-ink-subtle">
-              {tr('dash.att.memberPrefix')}{memberCount}{tr('dash.att.memberSuffix')} · {tr('dash.att.regPrefix')}{attMembers}{tr('dash.att.regSuffix')} ({fmtDate(ws)}–{fmtDate(we)})
-            </div>
-          </div>
-        </SectionCard>
       </div>
 
-      {/* 마감 임박 + 산출물 현황 */}
-      <div className="grid gap-5 xl:grid-cols-2">
-        <SectionCard eyebrow="DUE SOON" title={tr('dash.dueSoon.title')} icon={Timer} actions={<CountBadge n={dueSoon.length} unit={tr('dash.unitCount')} />}>
-          {dueSoon.length === 0 ? (
-            <MiniEmpty text={tr('dash.dueSoon.empty')} />
-          ) : (
-            <ul className="divide-y divide-line">
-              {dueSoon.slice(0, 8).map(l => {
-                const dleft = diffDays(today, l.plannedEnd!)
-                const urgent = dleft <= 1
-                return (
-                  <li key={l.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-ink" title={l.name}>{l.name}</div>
-                      <div className="mt-1"><OwnerBadges owners={l.owners} /></div>
-                    </div>
-                    <div className="w-24 shrink-0 text-right">
-                      <div className="tabular-nums text-xs text-ink-muted">{fmtDate(l.plannedEnd)}</div>
-                      <div className={`mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold ${urgent ? 'text-delayed' : 'text-accent-warning'}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${urgent ? 'bg-delayed' : 'bg-accent-warning'}`} />D-{dleft}
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </SectionCard>
-
-        <SectionCard eyebrow="DELIVERABLES" title={tr('dash.deliv.title')} icon={FileText} actions={<CountBadge n={withDeliverable.length} unit={tr('dash.unitCount')} />}>
-          {withDeliverable.length === 0 ? (
-            <MiniEmpty text={tr('dash.deliv.empty')} />
-          ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
-                <Stat label={tr('dash.deliv.total')} value={`${withDeliverable.length}${tr('dash.unitCount')}`} />
-                <Stat label={tr('dash.deliv.done')} value={`${deliverableDone}${tr('dash.unitCount')}`} sub={`${deliverablePct}%`} />
-                <Stat label={tr('dash.deliv.open')} value={`${withDeliverable.length - deliverableDone}${tr('dash.unitCount')}`} />
-              </div>
-              <ProgressBar value={deliverablePct} tone="bg-done" height="h-2.5" />
-              <ul className="space-y-1.5">
-                {withDeliverable.filter(l => l.status !== 'done').slice(0, 5).map(l => (
-                  <li key={l.id} className="flex items-center gap-2 text-[12px]">
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                    <span className="truncate text-ink-muted" title={l.deliverable ?? ''}>{l.deliverable}</span>
-                    <span className="ml-auto shrink-0"><StatusPill status={l.status} /></span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </SectionCard>
-      </div>
+      {/* 상세 — 접이식 3그룹(정보 손실 0) */}
+      <DetailAccordion
+        initialExpanded={initialExpanded}
+        groups={[
+          { id: 'analysis', title: <GroupTitle label={tr('dash.group.analysis')} hint={`${total}${tr('dash.unitCount')}`} />, content: analysis },
+          { id: 'scheduleRisk', title: <GroupTitle label={tr('dash.group.scheduleRisk')} hint={`${tr('dash.exec.dueSoon')} ${dueSoon.length} · ${tr('dash.exec.delayed')} ${delayed.length}`} />, content: scheduleRisk },
+          { id: 'teamDeliv', title: <GroupTitle label={tr('dash.group.teamDeliv')} hint={`${tr('dash.deliv.title')} ${withDeliverable.length}`} />, content: teamDeliv },
+        ]}
+      />
     </div>
   )
 }
