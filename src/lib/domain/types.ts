@@ -10,6 +10,12 @@ export interface Membership {
   teamId: string
 }
 
+/** teams 테이블 한 행의 표시용 최소 단위 (팀 선택 UI). */
+export interface TeamOption {
+  id: string
+  code: TeamCode
+}
+
 export interface WbsRow {
   id: string
   parentId: string | null

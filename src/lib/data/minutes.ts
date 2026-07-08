@@ -37,7 +37,9 @@ function mapMinutes(r: Row): MeetingMinutes {
     title: r.title as string,
     filePath: r.file_path as string,
     fileName: r.file_name as string,
-    size: (r.size as number | null) ?? null,
+    // bigint 은 드라이버/전송 경로에 따라 문자열로 올 수 있고, JS number 의 안전 범위(2^53)도 넘을 수 있다.
+    // 타입이 number 라고 선언한 이상 경계에서 한 번 정규화한다. (파일 크기는 안전 범위 안이다.)
+    size: r.size == null ? null : Number(r.size),
     mime: (r.mime as string | null) ?? null,
     hasMd: (r.has_md as boolean) ?? false,
     createdBy: (r.created_by as string | null) ?? null,
