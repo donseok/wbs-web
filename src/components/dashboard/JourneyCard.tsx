@@ -44,10 +44,14 @@ export async function JourneyCard({ model }: { model: JourneyModel | null }) {
   /* 편차 스텁 — y는 아래로 갈수록 크다.
      뒤처지면(py(actual) > py(planned)) 아래로, 앞서면 위로 뻗어야 한다.
      한쪽으로만 MIN_STUB을 강제하면 앞선 프로젝트가 늦은 것처럼 그려진다.
-     편차 0이면 길이 0이므로 아예 그리지 않는다. */
+     편차 0이면 길이 0이므로 아예 그리지 않는다.
+     끝을 플롯 영역 [py(100), py(0)]로 클램프한다 — 바닥/천장 근처에서 MIN_STUB이
+     스텁을 축 밖으로 밀어 마일스톤 행(MS_Y)·단계 띠(BAND_Y0)를 침범하지 않도록.
+     레이아웃 정확성이 MIN_STUB 가시성 휴리스틱보다 우선이며, 바닥 근처의 짧은 스텁은
+     실제 편차가 작다는 정직한 표현이다. */
   const stubFrom = behind
-    ? Math.max(py(actual), py(planned) + MIN_STUB)
-    : Math.min(py(actual), py(planned) - MIN_STUB)
+    ? Math.min(Math.max(py(actual), py(planned) + MIN_STUB), py(0))
+    : Math.max(Math.min(py(actual), py(planned) - MIN_STUB), py(100))
 
   return (
     <SectionCard
