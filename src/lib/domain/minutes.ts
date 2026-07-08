@@ -83,6 +83,10 @@ export function validateMinutesInput(input: MinutesInputShape): string | null {
   if (!input.teamId) return '팀을 선택하세요.'
   const title = input.title.trim()
   if (!title) return '제목을 입력하세요.'
+  // 제목은 원래 한 줄이다. 개행을 허용하면 title 이 AI 챗 system 프롬프트(minutes-chat.ts)의
+  // 지시 영역에 여러 줄짜리 가짜 지시문(가짜 system:/user: 턴 등)을 심는 통로가 된다 —
+  // 프롬프트 인젝션 방어의 1차 방어선. 2차 방어(펜싱)는 minutes-chat.ts 에 있다.
+  if (/[\r\n]/.test(title)) return '제목에 줄바꿈을 넣을 수 없습니다.'
   if (title.length > TITLE_MAX) return `제목은 ${TITLE_MAX}자 이하여야 합니다.`
   if (!isValidDate(input.minutesDate)) return '날짜 형식이 올바르지 않습니다.'
   if (input.contentMd !== null && input.contentMd.length > MINUTES_MD_MAX) {
