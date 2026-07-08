@@ -62,13 +62,5 @@ export function fmtDate(d: string | null): string {
   return d.slice(2).replace(/-/g, '.') // 2026-09-15 -> 26.09.15
 }
 
-export function collectLeaves(items: ComputedItem[]): ComputedItem[] {
-  const out: ComputedItem[] = []
-  const walk = (ns: ComputedItem[]) =>
-    ns.forEach(n => {
-      if (!n.children.length) out.push(n)
-      walk(n.children)
-    })
-  walk(items)
-  return out
-}
+// 리프 수집은 도메인 계층(lib/domain/tree)이 단일 출처 — 여기선 재노출만.
+export { collectLeaves } from '@/lib/domain/tree'

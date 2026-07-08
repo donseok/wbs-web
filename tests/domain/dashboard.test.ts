@@ -183,3 +183,31 @@ describe('buildExecSummary', () => {
     expect(r.risk.delayed).toBe(1)
   })
 })
+
+// 코드 품질 리뷰 보강 — 경계값·필드 집계 고정
+describe('보강 — 경계·필드 검증', () => {
+  const today = '2026-07-08'
+  it('scheduleModel — 계획 앞섬(SPI>1) → green, slip 음수', () => {
+    const r = sched({ overallActual: 70, overallPlanned: 50 })
+    expect(r.signal).toBe('green')
+    expect(r.slipDays).toBeLessThanOrEqual(0)
+  })
+  it('dueSoonLeaves — 정확히 D+7 경계는 포함', () => {
+    const ls = [leaf({ status: 'in_progress', plannedEnd: '2026-07-15' })] // today +7일
+    expect(dueSoonLeaves(ls, today)).toHaveLength(1)
+  })
+  it('detectMilestones — 지연이 다가오는 예정보다 우선', () => {
+    const r = detectMilestones([
+      leaf({ name: '중간보고 예정', plannedEnd: '2026-07-20', sortOrder: 1 }),
+      leaf({ name: '착수보고 지연', plannedEnd: '2026-07-01', status: 'delayed', sortOrder: 2 }),
+    ], today)
+    expect(r.name).toBe('착수보고 지연'); expect(r.overdue).toBe(true); expect(r.signal).toBe('red')
+  })
+  it('riskModel — dueSoon 필드 집계', () => {
+    const r = phase({ children: [
+      leaf({ status: 'in_progress', plannedEnd: '2026-07-10' }), // D+2 임박
+      leaf({ status: 'delayed' }),                                // 날짜 없음 → dueSoon 아님
+    ] })
+    expect(riskModel([r], today).dueSoon).toBe(1)
+  })
+})

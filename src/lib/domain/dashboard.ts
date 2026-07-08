@@ -1,5 +1,5 @@
 import type { ComputedItem } from './types'
-import { collectLeaves } from '@/components/wbs/shared'
+import { collectLeaves } from './tree'
 import { overallProgress } from './rollup'
 
 export type Signal = 'green' | 'amber' | 'red' | 'neutral'
