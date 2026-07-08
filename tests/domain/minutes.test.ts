@@ -164,7 +164,7 @@ describe('summarizeMinutes', () => {
  * Storage 에 객체가 올라간 뒤라 고아 파일이 남는다. 그래서 여기서 구조적으로 못 박는다.
  */
 describe('isMarkdownFile ⇒ sanitizeFileName 결과가 DB minutes_md_only 제약을 만족한다', () => {
-  const DB_CHECK = /\.(md|markdown)$/i // 0019_meeting_minutes.sql 의 file_path ~* 와 동일
+  const DB_CHECK = /\.(md|markdown)$/i // 0020_meeting_minutes.sql 의 file_path ~* 와 동일
 
   const inputs = [
     'a.md',

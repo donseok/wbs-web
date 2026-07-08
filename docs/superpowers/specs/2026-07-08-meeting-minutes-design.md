@@ -39,7 +39,7 @@
 
 ### 4.1 마이그레이션 번호: `0019`
 
-`main`의 마지막은 `0017_user_prefs.sql`이지만, 미병합 브랜치 `feat/weight-100-scale-clean`(커밋 `de23254`)이 `0018_weight_100_scale.sql`을 선점했고 아직 실행되지 않았다. `0018`을 재사용하면 병합 시 파일명이 충돌한다. → **`0019_meeting_minutes.sql`**
+`main`의 마지막은 `0017_user_prefs.sql`이지만, 미병합 브랜치 `feat/weight-100-scale-clean`(커밋 `de23254`)이 `0018_weight_100_scale.sql`을 선점했고 아직 실행되지 않았다. `0018`을 재사용하면 병합 시 파일명이 충돌한다. → **`0020_meeting_minutes.sql`**
 
 ### 4.2 `app_team()` 헬퍼를 새로 선언한다
 
@@ -55,7 +55,7 @@
 ### 4.3 스키마
 
 ```sql
--- supabase/migrations/0019_meeting_minutes.sql
+-- supabase/migrations/0020_meeting_minutes.sql
 create or replace function public.app_role() returns text language sql stable as $$
   select role from memberships where user_id = auth.uid()
 $$;
@@ -139,7 +139,7 @@ create policy delete_minutes on meeting_minutes for delete to authenticated
 
 | 경로 | 단일 책임 |
 |---|---|
-| `supabase/migrations/0019_meeting_minutes.sql` | 테이블·인덱스·RLS·버킷·`app_team()` |
+| `supabase/migrations/0020_meeting_minutes.sql` | 테이블·인덱스·RLS·버킷·`app_team()` |
 | `src/lib/domain/minutes.ts` | **순수** — 파일 판별·경로 생성·권한 판정·검증·필터·KPI 집계 |
 | `src/lib/ai/minutes-chat.ts` | **순수** — system 프롬프트 조립·컨텍스트 절단·프리셋 매핑 |
 | `src/lib/data/minutes.ts` | 서버 전용 읽기 — `getProjectMinutes` / `getMinutesDetail` |
