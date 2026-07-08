@@ -1,4 +1,4 @@
-import type { TeamCode, WbsRow } from './types'
+import type { ComputedItem, TeamCode, WbsRow } from './types'
 
 export type TreeNode = WbsRow & { children: TreeNode[] }
 
@@ -31,4 +31,16 @@ export function buildTree(rows: WbsRow[]): TreeNode[] {
   }
   sort(roots)
   return roots
+}
+
+/** 리프(자식 없는 항목)를 트리 순회로 수집. 도메인 계층의 단일 출처. */
+export function collectLeaves(items: ComputedItem[]): ComputedItem[] {
+  const out: ComputedItem[] = []
+  const walk = (ns: ComputedItem[]) =>
+    ns.forEach(n => {
+      if (!n.children.length) out.push(n)
+      walk(n.children)
+    })
+  walk(items)
+  return out
 }

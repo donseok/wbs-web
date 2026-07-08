@@ -157,4 +157,5 @@ export interface UiPrefs {
   sidebarCollapsed?: boolean
   theme?: 'light' | 'dark'
   locale?: 'ko' | 'en'
+  dashSections?: string[]   // 대시보드 상세 아코디언에서 펼쳐 둔 그룹 id
 }
