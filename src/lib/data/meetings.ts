@@ -5,6 +5,7 @@ import type {
 } from '@/lib/domain/types'
 
 type Row = Record<string, unknown>
+type ServerClient = Awaited<ReturnType<typeof createServerClient>>
 
 function mapMeeting(r: Row, attendeeIds: string[], extra: Partial<Meeting> = {}): Meeting {
   return {
@@ -90,20 +91,44 @@ export const getMeetingDetail = cache(async (
   return { meeting: mapMeeting(r as Row, attendeeIds), attendees }
 })
 
-/** 현재 사용자 이메일과 lower 매칭되는 project_members.id 집합. 비로그인/무매칭 시 []. */
+/**
+ * 로그인 계정에 연결된 project_members.id 집합. 크로스 프로젝트 조회이므로
+ * user_id(0019 가 도입한 auth.users FK) 와 email 매칭의 **합집합**을 낸다 —
+ * 한쪽만 보면 프로젝트마다 연결 방식이 다른 사람을 놓친다.
+ * (예: 사내 계정은 email 로, 개인 gmail 계정은 명시적 user_id 로 같은 멤버 행에 이어진다.)
+ * 한쪽 조회가 실패해도 다른 쪽 결과로 계속 동작한다 — 마이그레이션 전 배포에 대한 내성.
+ * 외부 인력 행은 user_id NULL 로 남고 로그인하지 않으므로 여기 걸리지 않는다.
+ */
+export async function resolveMemberIds(
+  sb: ServerClient,
+  user: { id: string; email?: string | null },
+): Promise<string[]> {
+  const email = user.email?.trim().toLowerCase() || null
+  const [byUser, byEmail] = await Promise.all([
+    sb.from('project_members').select('id').eq('user_id', user.id),
+    email
+      ? sb.from('project_members').select('id').eq('email', email)
+      : Promise.resolve({ data: [] as Row[], error: null }),
+  ])
+
+  const ids = new Set<string>()
+  for (const [label, res] of [['user_id', byUser], ['email', byEmail]] as const) {
+    if (res.error) {
+      // 무매칭([])과 조회 실패를 호출부가 구별할 수 없으므로 최소한 로그로는 남긴다.
+      console.error(`[resolveMemberIds] ${label} 조회 실패:`, res.error.message)
+      continue
+    }
+    for (const r of (res.data ?? []) as Row[]) ids.add(r.id as string)
+  }
+  return [...ids]
+}
+
+/** 현재 로그인 사용자의 project_members.id 집합. 비로그인/무매칭 시 []. */
 export const getMyMemberIds = cache(async (): Promise<string[]> => {
   const sb = await createServerClient()
   const { data: u } = await sb.auth.getUser()
-  const email = u.user?.email
-  if (!email) return []
-  // LIKE 와일드카드(%, _, \)를 이스케이프해 대소문자 무시 '완전 일치'로 동작시킨다.
-  // (이스케이프 없으면 jane_doe@x.com 의 _ 가 단일문자 와일드카드가 되어 오매칭)
-  const pattern = email.replace(/[\\%_]/g, '\\$&')
-  const { data } = await sb
-    .from('project_members')
-    .select('id')
-    .ilike('email', pattern)
-  return (data ?? []).map((r: Row) => r.id as string)
+  if (!u.user) return []
+  return resolveMemberIds(sb, u.user)
 })
 
 /**

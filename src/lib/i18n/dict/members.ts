@@ -21,6 +21,8 @@ export const membersKo = {
   'members.noTitle': '직함 미지정',
   'members.noTeam': '소속 미지정',
   'members.noEmail': '이메일 미등록',
+  'members.unlinked': '계정 미연결',
+  'members.unlinkedHint': '이 이메일과 일치하는 로그인 계정이 없습니다. 본인이 로그인해도 “내 회의”에 이 사람의 회의가 표시되지 않습니다.',
   // aria 접미사 — `${member.name}${t(...)}` 로 조합 (선행 공백/구두점 포함)
   'members.ariaEditSuffix': ' 수정',
   'members.ariaDeleteSuffix': ' 삭제',
@@ -65,6 +67,8 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   'members.noTitle': 'No title set',
   'members.noTeam': 'No team set',
   'members.noEmail': 'No email registered',
+  'members.unlinked': 'No linked account',
+  'members.unlinkedHint': 'No login account matches this email. When this person signs in, their meetings will not appear under “My meetings”.',
   'members.ariaEditSuffix': ' — edit',
   'members.ariaDeleteSuffix': ' — delete',
   'members.editMember': 'Edit member',

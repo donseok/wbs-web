@@ -1,4 +1,5 @@
 import { createServerClient } from './supabase/server'
+import { displayNameFrom } from './domain/display-name'
 import type { Membership, TeamCode } from './domain/types'
 
 export async function getSession() {
@@ -13,8 +14,7 @@ export async function getDisplayName(): Promise<string | null> {
   const { data } = await sb.auth.getUser()
   const u = data.user
   if (!u) return null
-  const full = (u.user_metadata?.full_name as string | undefined)?.trim()
-  return full || u.email?.split('@')[0] || null
+  return displayNameFrom(u.user_metadata, u.email)
 }
 
 export async function getMembership(): Promise<Membership | null> {

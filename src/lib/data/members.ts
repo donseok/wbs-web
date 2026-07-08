@@ -5,11 +5,14 @@ import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/ty
 // 같은 요청 내 중복 호출 dedupe
 export const getProjectMembers = cache(async (projectId: string): Promise<ProjectMember[]> => {
   const sb = await createServerClient()
-  const { data } = await sb
+  const { data, error } = await sb
     .from('project_members')
-    .select('id, project_id, name, email, role, title, created_at, teams(code)')
+    .select('id, project_id, name, email, role, title, user_id, created_at, teams(code)')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true })
+
+  // 실패를 삼키면 '멤버 0명'이 정상 상태와 구별되지 않는다(스키마 드리프트가 조용히 빈 화면이 된다).
+  if (error) console.error('[getProjectMembers] 조회 실패:', error.message)
 
   return (data ?? []).map((r: Record<string, unknown>) => {
     const team = r.teams as { code: TeamCode } | { code: TeamCode }[] | null
@@ -22,6 +25,7 @@ export const getProjectMembers = cache(async (projectId: string): Promise<Projec
       teamCode: teamCode as TeamCode | null,
       role: (r.role as ProjectMemberRole) ?? 'contributor',
       title: (r.title as string) ?? null,
+      hasAccount: r.user_id != null,
       createdAt: r.created_at as string,
     }
   })
