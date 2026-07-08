@@ -3,6 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { getTopAnnouncements } from '@/lib/data/announcements'
+import { isValidDate } from '@/lib/domain/validate'
 import type { AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/types'
 
 export interface AnnouncementInput {
@@ -22,14 +23,6 @@ export interface AnnouncementActionResult {
 const CATEGORIES: AnnouncementCategory[] = ['general', 'important', 'event']
 const TITLE_MAX = 200
 const BODY_MAX = 20000
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-/** 'YYYY-MM-DD' 형식 + 실재하는 날짜인지 (2026-02-30 등 반려) */
-function isValidDate(s: string): boolean {
-  if (!DATE_RE.test(s)) return false
-  const d = new Date(`${s}T00:00:00Z`)
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
-}
 
 function validateInput(input: AnnouncementInput): string | null {
   const title = input.title.trim()

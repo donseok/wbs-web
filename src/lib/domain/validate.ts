@@ -8,6 +8,16 @@ export function isValidEmail(email: string): boolean {
 }
 
 /**
+ * 'YYYY-MM-DD' 형식 + 달력에 실재하는 날짜인지 (2026-02-30 등 반려).
+ * isValidDateRange 는 형식만 보므로 실재성 검사가 필요하면 이쪽을 쓴다.
+ */
+export function isValidDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
+/**
  * 시작일~종료일 범위 검증. null/빈문자열은 "미입력"으로 간주해 통과.
  * 둘 다 있으면 YYYY-MM-DD 형식 확인 후 시작 <= 종료(하루짜리 프로젝트 허용).
  */

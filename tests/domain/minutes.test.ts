@@ -50,6 +50,22 @@ describe('sanitizeFileName', () => {
   it('빈 결과를 만들지 않는다', () => {
     expect(sanitizeFileName('///')).toBe('file')
   })
+  it('macOS 의 NFD(분해형) 한글 파일명도 보존한다', () => {
+    const nfd = '회의록.md'.normalize('NFD')
+    expect(nfd).not.toBe('회의록.md')            // 입력이 실제로 분해형인지 먼저 확인
+    expect(sanitizeFileName(nfd)).toBe('회의록.md')
+  })
+  it('아주 긴 파일명을 자르되 확장자를 보존한다', () => {
+    const out = sanitizeFileName('a'.repeat(300) + '.md')
+    expect(out.length).toBeLessThanOrEqual(120)
+    expect(out.endsWith('.md')).toBe(true)          // DB minutes_md_only 제약이 이걸 요구한다
+  })
+  it('확장자가 없는 긴 파일명도 자른다', () => {
+    expect(sanitizeFileName('a'.repeat(300)).length).toBe(120)
+  })
+  it('짧은 이름은 그대로 둔다', () => {
+    expect(sanitizeFileName('a.md')).toBe('a.md')
+  })
 })
 
 describe('minutesStoragePath', () => {
@@ -74,6 +90,9 @@ describe('canDeleteMinutes', () => {
   it('작성자 본인은 삭제', () => expect(canDeleteMinutes({ createdBy: 'u1' }, 'u1', 'team_editor')).toBe(true))
   it('남의 것은 거부', () => expect(canDeleteMinutes({ createdBy: 'u2' }, 'u1', 'team_editor')).toBe(false))
   it('createdBy 가 null 이면 작성자 매칭 불가', () => expect(canDeleteMinutes({ createdBy: null }, 'u1', 'team_editor')).toBe(false))
+  it('role 이 null 이어도 작성자 본인은 삭제할 수 있다', () => {
+    expect(canDeleteMinutes({ createdBy: 'u1' }, 'u1', null)).toBe(true)
+  })
 })
 
 describe('validateMinutesInput', () => {
@@ -104,6 +123,11 @@ describe('filterMinutes', () => {
     filterMinutes(list, { teamId: 't-mes', q: '' })
     expect(list.map(r => r.id)).toEqual(before)
   })
+  it('createdByName 이 null 이어도 검색이 터지지 않는다', () => {
+    const list = [row({ id: 'a', createdByName: null, title: 'ERP' })]
+    expect(filterMinutes(list, { teamId: null, q: '홍길동' })).toEqual([])
+    expect(filterMinutes(list, { teamId: null, q: 'erp' }).map(r => r.id)).toEqual(['a'])
+  })
 })
 
 describe('summarizeMinutes', () => {
@@ -115,5 +139,9 @@ describe('summarizeMinutes', () => {
       row({ id: 'c', minutesDate: '2026-06-30', hasMd: true }),
     ]
     expect(summarizeMinutes(list, '2026-07-08')).toEqual({ total: 3, thisMonth: 2, viewable: 2 })
+  })
+  it('연말/연초 경계에서 이번 달을 혼동하지 않는다', () => {
+    const list = [row({ id: 'a', minutesDate: '2025-12-31' }), row({ id: 'b', minutesDate: '2026-01-01' })]
+    expect(summarizeMinutes(list, '2026-01-15').thisMonth).toBe(1)
   })
 })

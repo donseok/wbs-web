@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isValidEmail, isValidDateRange } from '@/lib/domain/validate'
+import { isValidEmail, isValidDate, isValidDateRange } from '@/lib/domain/validate'
 
 describe('isValidEmail', () => {
   it('정상 이메일은 true', () => {
@@ -17,6 +17,20 @@ describe('isValidEmail', () => {
   it('빈 문자열/공백은 false', () => {
     expect(isValidEmail('')).toBe(false)
     expect(isValidEmail('   ')).toBe(false)
+  })
+})
+
+describe('isValidDate', () => {
+  it('실재하는 날짜는 true', () => {
+    expect(isValidDate('2026-07-08')).toBe(true)
+  })
+  it('달력에 없는 날짜는 false', () => {
+    expect(isValidDate('2026-02-30')).toBe(false) // isValidDateRange 는 못 잡는 케이스
+  })
+  it('YYYY-MM-DD 형식이 아니면 false', () => {
+    expect(isValidDate('2026-7-8')).toBe(false)
+    expect(isValidDate('not-a-date')).toBe(false)
+    expect(isValidDate('')).toBe(false)
   })
 })
 
