@@ -5,6 +5,7 @@ import type {
 } from '@/lib/domain/types'
 
 type Row = Record<string, unknown>
+type ServerClient = Awaited<ReturnType<typeof createServerClient>>
 
 function mapMeeting(r: Row, attendeeIds: string[], extra: Partial<Meeting> = {}): Meeting {
   return {
@@ -90,20 +91,40 @@ export const getMeetingDetail = cache(async (
   return { meeting: mapMeeting(r as Row, attendeeIds), attendees }
 })
 
-/** 현재 사용자 이메일과 lower 매칭되는 project_members.id 집합. 비로그인/무매칭 시 []. */
+/**
+ * 로그인 계정에 연결된 project_members.id 집합.
+ * 1차 키는 user_id(0019 가 도입한 auth.users FK). email 은 아직 연결되지 않은 행을 위한 폴백 —
+ * 계정 이메일과 멤버 이메일이 다른 경우(개인 gmail 로그인 등)를 위해 남겨둔다.
+ * 외부 인력 행은 user_id NULL 로 남고 로그인하지 않으므로 여기 걸리지 않는다.
+ */
+export async function resolveMemberIds(
+  sb: ServerClient,
+  user: { id: string; email?: string | null },
+): Promise<string[]> {
+  const byUser = await sb.from('project_members').select('id').eq('user_id', user.id)
+  if (byUser.error) {
+    // 무매칭([])과 조회 실패를 호출부가 구별할 수 없으므로 최소한 로그로는 남긴다.
+    console.error('[resolveMemberIds] user_id 조회 실패:', byUser.error.message)
+    return []
+  }
+  if (byUser.data && byUser.data.length > 0) return byUser.data.map((r: Row) => r.id as string)
+
+  const email = user.email?.trim().toLowerCase()
+  if (!email) return []
+  const byEmail = await sb.from('project_members').select('id').eq('email', email)
+  if (byEmail.error) {
+    console.error('[resolveMemberIds] email 폴백 조회 실패:', byEmail.error.message)
+    return []
+  }
+  return (byEmail.data ?? []).map((r: Row) => r.id as string)
+}
+
+/** 현재 로그인 사용자의 project_members.id 집합. 비로그인/무매칭 시 []. */
 export const getMyMemberIds = cache(async (): Promise<string[]> => {
   const sb = await createServerClient()
   const { data: u } = await sb.auth.getUser()
-  const email = u.user?.email
-  if (!email) return []
-  // LIKE 와일드카드(%, _, \)를 이스케이프해 대소문자 무시 '완전 일치'로 동작시킨다.
-  // (이스케이프 없으면 jane_doe@x.com 의 _ 가 단일문자 와일드카드가 되어 오매칭)
-  const pattern = email.replace(/[\\%_]/g, '\\$&')
-  const { data } = await sb
-    .from('project_members')
-    .select('id')
-    .ilike('email', pattern)
-  return (data ?? []).map((r: Row) => r.id as string)
+  if (!u.user) return []
+  return resolveMemberIds(sb, u.user)
 })
 
 /**

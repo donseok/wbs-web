@@ -4,6 +4,7 @@ import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { getMyMeetings, getMeetingDetail } from '@/lib/data/meetings'
 import { expandMeetings, MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
+import { displayNameFrom } from '@/lib/domain/display-name'
 import type { Meeting, MeetingAttendeeInfo, MeetingCategory, MeetingException, MeetingRecurrence } from '@/lib/domain/types'
 
 export interface MeetingInput {
@@ -104,7 +105,8 @@ export async function createMeeting(projectId: string, input: MeetingInput): Pro
       ...toRow(input),
       project_id: projectId,
       created_by: user.id,
-      created_by_name: (user.user_metadata?.name as string | undefined) ?? user.email ?? null,
+      // full_name 이 1차 — 과거 .name 을 읽어 항상 이메일 폴백을 타던 버그(created_by_name 은 insert 시점 박제)
+      created_by_name: displayNameFrom(user.user_metadata, user.email),
     })
     .select('id')
     .single()

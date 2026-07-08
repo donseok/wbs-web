@@ -7,7 +7,7 @@ export const getProjectMembers = cache(async (projectId: string): Promise<Projec
   const sb = await createServerClient()
   const { data } = await sb
     .from('project_members')
-    .select('id, project_id, name, email, role, title, created_at, teams(code)')
+    .select('id, project_id, name, email, role, title, user_id, created_at, teams(code)')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true })
 
@@ -22,6 +22,7 @@ export const getProjectMembers = cache(async (projectId: string): Promise<Projec
       teamCode: teamCode as TeamCode | null,
       role: (r.role as ProjectMemberRole) ?? 'contributor',
       title: (r.title as string) ?? null,
+      userId: (r.user_id as string) ?? null,
       createdAt: r.created_at as string,
     }
   })
