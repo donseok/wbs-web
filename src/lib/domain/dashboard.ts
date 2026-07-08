@@ -96,3 +96,25 @@ export function dueSoonLeaves(leaves: ComputedItem[], today: string): ComputedIt
     .filter(l => l.status !== 'done' && l.plannedEnd != null && l.plannedEnd >= today && diffDaysCal(today, l.plannedEnd) <= 7)
     .sort((a, b) => (a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : 0))
 }
+
+export interface RiskModel { delayed: number; dueSoon: number; topWeightDelayed: boolean; signal: Signal }
+
+const escalate = (s: Signal): Signal => (s === 'green' ? 'amber' : s === 'amber' ? 'red' : s)
+
+/** 최상위 유효가중 루트 Phase가 지연인가. 전부 null이면 비교 불가 → false. */
+function topWeightPhaseDelayed(roots: ComputedItem[]): boolean {
+  if (roots.length === 0 || roots.every(r => r.weight == null)) return false
+  const eff = (r: ComputedItem) => r.weight ?? 0
+  const top = [...roots].sort((a, b) => eff(b) - eff(a) || a.sortOrder - b.sortOrder)[0]
+  return top.status === 'delayed'
+}
+
+export function riskModel(roots: ComputedItem[], today: string): RiskModel {
+  const leaves = collectLeaves(roots)
+  const delayed = delayedLeaves(leaves).length
+  const dueSoon = dueSoonLeaves(leaves, today).length
+  const topWeightDelayed = topWeightPhaseDelayed(roots)
+  let signal: Signal = delayed >= 4 ? 'red' : delayed >= 1 ? 'amber' : 'green'
+  if (topWeightDelayed) signal = escalate(signal)
+  return { delayed, dueSoon, topWeightDelayed, signal }
+}

@@ -123,3 +123,36 @@ describe('delayedLeaves / dueSoonLeaves', () => {
     expect(dueSoonLeaves(ls, today)).toHaveLength(1)
   })
 })
+
+import { riskModel } from '@/lib/domain/dashboard'
+
+const phase = (over: Partial<ComputedItem>): ComputedItem =>
+  leaf({ level: 'phase', parentId: null, ...over })
+
+describe('riskModel', () => {
+  const today = '2026-07-08'
+  it('지연 0 → green', () => {
+    expect(riskModel([phase({ status: 'in_progress', children: [leaf({ status: 'in_progress' })] })], today).signal).toBe('green')
+  })
+  it('지연 1~3 → amber', () => {
+    const r = phase({ weight: null, status: 'in_progress', children: [leaf({ status: 'delayed' }), leaf({ status: 'delayed' })] })
+    expect(riskModel([r], today).signal).toBe('amber')
+    expect(riskModel([r], today).delayed).toBe(2)
+  })
+  it('지연 4+ → red', () => {
+    const r = phase({ children: Array.from({ length: 4 }, () => leaf({ status: 'delayed' })) })
+    expect(riskModel([r], today).signal).toBe('red')
+  })
+  it('최상위 가중 Phase 지연 → 한 단계 격상(green→amber)', () => {
+    // 지연 리프 0(→green)이지만 최상위 가중 Phase 자체가 delayed → amber
+    const top = phase({ weight: 3, status: 'delayed', children: [leaf({ status: 'in_progress' })] })
+    const other = phase({ weight: 1, status: 'in_progress', children: [leaf({ status: 'in_progress' })] })
+    expect(riskModel([top, other], today).topWeightDelayed).toBe(true)
+    expect(riskModel([top, other], today).signal).toBe('amber')
+  })
+  it('가중치 전부 null → 격상 없음', () => {
+    const a = phase({ weight: null, status: 'delayed', children: [leaf({ status: 'in_progress' })] })
+    expect(riskModel([a], today).topWeightDelayed).toBe(false)
+    expect(riskModel([a], today).signal).toBe('green')
+  })
+})
