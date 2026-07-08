@@ -8,6 +8,7 @@ import { statusKr } from './weekly'
 
 export interface NarrativeGroup {
   phase: string
+  num: number              // Phase 번호(WBS 최상위 순서) — 전주·금주 동일 Phase는 같은 값
   items: string[]
 }
 export interface NarrativeModel {
@@ -17,15 +18,25 @@ export interface NarrativeModel {
   events: string[]         // 주요 이벤트(금주·차주 회의)
 }
 
-/** 작업 1건 → '작업명 · 담당 · 상태 NN%'. */
-function taskLine(r: WeeklyTaskRow): string {
-  return `${r.name} · ${r.ownerText} · ${statusKr(r.status)} ${r.actualPct}%`
+/** 비분리 공백(U+00A0) — 메타가 줄바꿈으로 쪼개지지 않게 묶는 데 사용. */
+const NB = String.fromCharCode(0xa0)
+
+/** 담당·상태 메타 → '· 담당 · 상태'. 진행률(%)은 표시하지 않음. 내부는 전부 NB로 묶어 한 덩어리로만 줄바꿈. */
+function taskMeta(r: WeeklyTaskRow): string {
+  const owner = r.ownerText.replace(/ /g, NB) // '(가공 주관)' 같은 담당 표기도 통째로 유지
+  return `·${NB}${owner}${NB}·${NB}${statusKr(r.status)}`
 }
 
-/** planActual에서 지정 컬럼(prevWeek|thisWeek)을 Phase 그룹으로. 빈 Phase 제외. */
+/** 작업 1건 → '작업명 · 담당 · 상태'. 작업명과 메타 사이만 일반 공백(줄바꿈 지점). */
+function taskLine(r: WeeklyTaskRow): string {
+  return `${r.name} ${taskMeta(r)}`
+}
+
+/** planActual에서 지정 컬럼(prevWeek|thisWeek)을 Phase 그룹으로. 빈 Phase 제외.
+ *  num은 planActual(=WBS 최상위) 순서 기반 → 전주·금주에서 같은 Phase면 같은 번호. */
 function groupsOf(planActual: PhasePlanActual[], key: 'prevWeek' | 'thisWeek'): NarrativeGroup[] {
   return planActual
-    .map(p => ({ phase: p.phaseName, items: p[key].map(taskLine) }))
+    .map((p, i) => ({ phase: p.phaseName, num: i + 1, items: p[key].map(taskLine) }))
     .filter(g => g.items.length > 0)
 }
 

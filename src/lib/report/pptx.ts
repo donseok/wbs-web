@@ -25,9 +25,9 @@ export function capItems(items: string[], max: number): string[] {
   return [...items.slice(0, max - 1), `외 ${items.length - (max - 1)}건`]
 }
 
-/** 각 Phase 그룹 항목 수를 제한(한 그룹이 한 페이지를 넘지 않도록). */
+/** 각 Phase 그룹 항목 수를 제한(한 그룹이 한 페이지를 넘지 않도록). num은 그대로 보존. */
 function capGroups(groups: NarrativeGroup[], maxItems: number): NarrativeGroup[] {
-  return groups.map(g => ({ phase: g.phase, items: capItems(g.items, maxItems) }))
+  return groups.map(g => ({ phase: g.phase, num: g.num, items: capItems(g.items, maxItems) }))
 }
 
 /** '#'없는 6자리 hex 선형보간. */
@@ -52,9 +52,17 @@ function gradientRule(pptx: PptxGenJS, slide: Slide, y: number, h: number) {
   }
 }
 
-/** '‒ 항목' 하위 불릿 런들을 runs에 추가(Phase/이슈/이벤트 공용). */
+/** 하위 불릿 런들을 runs에 추가(Phase/이슈/이벤트 공용).
+ *  bullet + indentLevel로 내어쓰기(hanging indent) → 넘친 줄이 글머리표가 아니라 본문 시작선에 정렬. */
 function pushItems(runs: PptxGenJS.TextProps[], items: string[]) {
-  items.forEach(it => runs.push({ text: `    ‒ ${it}`, options: { fontFace: FONTS.normal, fontSize: 9.5, color: PN.body, breakLine: true } }))
+  items.forEach(it => runs.push({
+    text: it,
+    options: {
+      fontFace: FONTS.normal, fontSize: 9.5, color: PN.body,
+      bullet: { characterCode: '2013', indent: 10 }, indentLevel: 1,
+      breakLine: true,
+    },
+  }))
 }
 
 /** '▐ 라벨' 헤더 런을 runs에 추가. */
@@ -67,7 +75,7 @@ function groupsToRuns(groups: NarrativeGroup[]): PptxGenJS.TextProps[] {
   if (!groups.length) return [{ text: '(해당 없음)', options: { fontFace: FONTS.normal, fontSize: 10, color: PN.subtle } }]
   const runs: PptxGenJS.TextProps[] = []
   groups.forEach((g, gi) => {
-    pushHeader(runs, `▐ ${g.phase}`, PN.navy, 11, gi ? 4 : 0)
+    pushHeader(runs, `▐ ${g.num}. ${g.phase}`, PN.navy, 11, gi ? 4 : 0)
     pushItems(runs, g.items)
   })
   return runs

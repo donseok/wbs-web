@@ -12,11 +12,11 @@ describe('pptx pure helpers', () => {
     expect(packGroups([], [], 16)).toHaveLength(1)
   })
   it('packGroups: 예산 초과 시 여러 페이지로 분할', () => {
-    const groups = Array.from({ length: 12 }, (_, i) => ({ phase: `P${i}`, items: ['x'] }))
+    const groups = Array.from({ length: 12 }, (_, i) => ({ phase: `P${i}`, num: i + 1, items: ['x'] }))
     expect(packGroups(groups, [], 4).length).toBeGreaterThan(1)
   })
   it('packGroups: prev/curr Phase를 합집합으로 배치', () => {
-    const pages = packGroups([{ phase: 'A', items: ['1'] }], [{ phase: 'B', items: ['2'] }], 16)
+    const pages = packGroups([{ phase: 'A', num: 1, items: ['1'] }], [{ phase: 'B', num: 2, items: ['2'] }], 16)
     const phases = pages.flatMap(pg => [...pg.prev, ...pg.curr].map(g => g.phase))
     expect(phases).toContain('A')
     expect(phases).toContain('B')
