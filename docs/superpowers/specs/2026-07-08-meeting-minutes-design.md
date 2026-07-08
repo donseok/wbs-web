@@ -256,10 +256,9 @@ export async function deleteMinutes(id: string): Promise<MinutesActionResult>
 
 /** 다운로드용 1시간 서명 URL. 목록에서는 부르지 않는다(§9-3). */
 export async function getMinutesFileUrl(id: string): Promise<{ url: string | null }>
-
-/** 삭제 후 클라이언트 목록 갱신용 얇은 래퍼. */
-export async function fetchProjectMinutes(projectId: string): Promise<MeetingMinutes[]>
 ```
+
+목록 재조회용 래퍼는 두지 않는다. 삭제 후 갱신은 `revalidatePath` + `router.refresh()`로 끝난다.
 
 **`Membership`에는 `userId`가 없다** (`types.ts:7` — `{ role, teamCode, teamId }`). 삭제 권한 판정에 필요한 `auth.uid()`는 `sb.auth.getUser()`로 따로 얻는다.
 
