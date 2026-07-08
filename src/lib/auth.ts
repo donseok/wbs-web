@@ -7,6 +7,16 @@ export async function getSession() {
   return data.user
 }
 
+/** 헤더 표시용 로그인 사용자 이름 — 계정 생성 시 저장한 full_name, 없으면 이메일 아이디. */
+export async function getDisplayName(): Promise<string | null> {
+  const sb = await createServerClient()
+  const { data } = await sb.auth.getUser()
+  const u = data.user
+  if (!u) return null
+  const full = (u.user_metadata?.full_name as string | undefined)?.trim()
+  return full || u.email?.split('@')[0] || null
+}
+
 export async function getMembership(): Promise<Membership | null> {
   const sb = await createServerClient()
   const { data: u } = await sb.auth.getUser()

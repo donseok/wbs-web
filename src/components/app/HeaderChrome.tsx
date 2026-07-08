@@ -22,7 +22,7 @@ const SECTION_LABEL: Record<string, string> = {
   members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', settings: '설정',
 }
 
-export function HeaderChrome({ membership, projects }: { membership: Membership | null; projects: SidebarProject[] }) {
+export function HeaderChrome({ membership, projects, userName }: { membership: Membership | null; projects: SidebarProject[]; userName?: string | null }) {
   const router = useRouter()
   const pathname = usePathname()
   const { theme, toggle } = useTheme()
@@ -64,6 +64,9 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
   }
 
   const roleLabel = membership?.role === 'pmo_admin' ? 'PMO 관리자' : membership ? '팀 편집자' : '게스트'
+  const displayName = userName?.trim() || null
+  // 프로필 부제: 이름이 있으면 역할·팀을, 없으면 팀만.
+  const roleTeam = membership?.teamCode ? `${roleLabel} · ${membership.teamCode}` : roleLabel
 
   return (
     <>
@@ -153,15 +156,15 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
               <button onClick={() => setOpen(open === 'profile' ? null : 'profile')} className="flex items-center gap-2 rounded-full border border-line bg-surface py-1 pl-1 pr-2.5 transition hover:border-line-strong sm:pr-3">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full text-white" style={{ backgroundImage: 'var(--gradient-primary)' }}><User className="h-4 w-4" /></span>
                 <span className="hidden leading-tight sm:block">
-                  <span className="block text-[11px] font-semibold text-ink">{roleLabel}</span>
-                  <span className="block text-[9px] text-ink-subtle">{membership?.teamCode ?? '—'}</span>
+                  <span className="block text-[11px] font-semibold text-ink">{displayName ?? roleLabel}</span>
+                  <span className="block text-[9px] text-ink-subtle">{displayName ? roleLabel : (membership?.teamCode ?? '—')}</span>
                 </span>
               </button>
               {open === 'profile' && (
                 <Popover onClose={() => setOpen(null)}>
                   <div className="border-b border-line px-4 py-3">
-                    <div className="text-sm font-semibold text-ink">{roleLabel}</div>
-                    <div className="mt-0.5 text-xs text-ink-subtle">{membership?.teamCode ? `${membership.teamCode} 팀` : '소속 미지정'}</div>
+                    <div className="text-sm font-semibold text-ink">{displayName ?? roleLabel}</div>
+                    <div className="mt-0.5 text-xs text-ink-subtle">{displayName ? roleTeam : (membership?.teamCode ? `${membership.teamCode} 팀` : '소속 미지정')}</div>
                   </div>
                   <button onClick={() => { setOpen(null); setPwOpen(true) }} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                     <KeyRound className="h-4 w-4" />비밀번호 변경
@@ -181,7 +184,7 @@ export function HeaderChrome({ membership, projects }: { membership: Membership 
         </div>
       </header>
 
-      {menuOpen && <MobileMenu projects={projects} pathname={pathname} onClose={() => setMenuOpen(false)} roleLabel={roleLabel} membership={membership} />}
+      {menuOpen && <MobileMenu projects={projects} pathname={pathname} onClose={() => setMenuOpen(false)} roleLabel={roleLabel} membership={membership} displayName={displayName} />}
       <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
     </>
   )
@@ -197,8 +200,8 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
 }
 
 function MobileMenu({
-  projects, pathname, onClose, roleLabel, membership,
-}: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; membership: Membership | null }) {
+  projects, pathname, onClose, roleLabel, membership, displayName,
+}: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; membership: Membership | null; displayName: string | null }) {
   const { t } = useLocale()
   const activeId = pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null
 
@@ -257,8 +260,8 @@ function MobileMenu({
         </nav>
         {membership && (
           <div className="mt-auto rounded-xl border border-sidebar-line bg-sidebar-2 p-3 text-xs text-sidebar-ink-muted">
-            <div className="font-semibold text-sidebar-ink">{roleLabel}</div>
-            <div className="mt-0.5">{membership.teamCode} 팀</div>
+            <div className="font-semibold text-sidebar-ink">{displayName ?? roleLabel}</div>
+            <div className="mt-0.5">{displayName ? `${roleLabel} · ${membership.teamCode} 팀` : `${membership.teamCode} 팀`}</div>
           </div>
         )}
       </div>
