@@ -38,3 +38,11 @@ export function sanitizeFileName(name: string): string {
 export function isMinuteFilePathValid(minuteId: string, path: string): boolean {
   return path.startsWith(`${minuteId}/`) && !path.includes('..')
 }
+
+/** PostgREST or() 필터에 안전하게 삽입할 ILIKE 패턴(큰따옴표 인용 포함).
+ *  1단계: LIKE 이스케이프(\, %, _ 를 \ 접두) → 2단계: PostgREST 인용 이스케이프(\ 와 " ). */
+export function ilikeOrPattern(needle: string): string {
+  const like = needle.replace(/[\\%_]/g, m => `\\${m}`)
+  const quoted = like.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return `"%${quoted}%"`
+}

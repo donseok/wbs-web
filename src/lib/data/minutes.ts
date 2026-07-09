@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type { Minute, MinuteFile, TeamCode } from '@/lib/domain/types'
+import { ilikeOrPattern } from '@/lib/domain/minutes'
 
 type Row = Record<string, unknown>
 
@@ -44,9 +45,9 @@ export const searchMinutes = cache(async (
   const needle = qtext.trim()
   if (!needle) return []
   const sb = await createServerClient()
-  const esc = needle.replace(/[%_]/g, m => `\\${m}`)
+  const pat = ilikeOrPattern(needle)
   let q = sb.from('minutes').select(LIST_COLS)
-    .or(`title.ilike.%${esc}%,body_md.ilike.%${esc}%`)
+    .or(`title.ilike.${pat},body_md.ilike.${pat}`)
     .order('minute_date', { ascending: false }).limit(limit)
   if (team) q = q.eq('team_code', team)
   const { data } = await q

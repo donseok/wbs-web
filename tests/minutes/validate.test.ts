@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  validateMinuteInput, sanitizeFileName, isMinuteFilePathValid,
+  validateMinuteInput, sanitizeFileName, isMinuteFilePathValid, ilikeOrPattern,
   MINUTE_BODY_MAX, type MinuteInput,
 } from '@/lib/domain/minutes'
 
@@ -34,4 +34,15 @@ describe('isMinuteFilePathValid', () => {
   it('타 회의록 경로 거부', () =>
     expect(isMinuteFilePathValid(id, '99999999-2222-3333-4444-555555555555/123-a.md')).toBe(false))
   it('경로 순회 거부', () => expect(isMinuteFilePathValid(id, `${id}/../etc/x`)).toBe(false))
+})
+
+describe('ilikeOrPattern', () => {
+  it('일반 문자열은 인용된 %패턴%', () => expect(ilikeOrPattern('예산')).toBe('"%예산%"'))
+  it('쉼표/괄호는 인용부 안에서 그대로 안전', () =>
+    expect(ilikeOrPattern('일정, 예산(안)')).toBe('"%일정, 예산(안)%"'))
+  it('LIKE 와일드카드 이스케이프', () =>
+    expect(ilikeOrPattern('100%_달성')).toBe('"%100\\\\%\\\\_달성%"'))
+  it('역슬래시는 LIKE→인용 2단 이스케이프', () =>
+    expect(ilikeOrPattern('a\\b')).toBe('"%a\\\\\\\\b%"'))
+  it('큰따옴표 이스케이프', () => expect(ilikeOrPattern('회의"록"')).toBe('"%회의\\"록\\"%"'))
 })
