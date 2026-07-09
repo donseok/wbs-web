@@ -4,7 +4,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import { validateMinuteInput, isMinuteFilePathValid, type MinuteInput } from '@/lib/domain/minutes'
-import { getMinuteDetail } from '@/lib/data/minutes'
+import { getMinuteDetail, getMinutesPage, searchMinutes } from '@/lib/data/minutes'
+import type { Minute, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 
 const BUCKET = 'minutes'
@@ -192,4 +193,20 @@ export async function fetchProjectMeetingsLite(
   if (!user) return []
   const { meetings } = await getProjectMeetingData(projectId)
   return meetings.map(mt => ({ id: mt.id, title: mt.title, meetingDate: mt.meetingDate }))
+}
+
+/** 월 이동 시 클라이언트 호출용. */
+export async function fetchMinutesRange(
+  rangeStart: string, rangeEnd: string, team: TeamCode | null,
+): Promise<Minute[]> {
+  const user = await getSession()
+  if (!user) return []
+  return getMinutesPage(rangeStart, rangeEnd, team)
+}
+
+/** 검색 입력 시 클라이언트 호출용(전 기간, 100건 캡). */
+export async function fetchMinutesSearch(q: string, team: TeamCode | null): Promise<Minute[]> {
+  const user = await getSession()
+  if (!user) return []
+  return searchMinutes(q, team, 100)
 }
