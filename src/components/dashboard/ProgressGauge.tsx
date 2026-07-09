@@ -1,4 +1,5 @@
 import type { Signal } from '@/lib/domain/dashboard'
+import { formatPct1, formatPp1 } from '@/lib/domain/format'
 import { SIGNAL_META } from './signalStyle'
 
 const SIZE = 128, CENTER = 64, R = 52, STROKE = 12
@@ -21,12 +22,12 @@ export function ProgressGauge({ actual, planned, variance, overall, verdictText,
   const at = (rad: number): [number, number] => [CENTER + rad * Math.sin(th), CENTER - rad * Math.cos(th)]
   const [ix, iy] = at(R - STROKE / 2)
   const [ox, oy] = at(R + STROKE / 2)
-  const varText = `${variance >= 0 ? '+' : ''}${variance}%p`
+  const varText = `${formatPp1(variance)}%p`
   return (
     <div
       className="relative h-32 w-32 shrink-0"
       role="img"
-      aria-label={`${label} 실적 ${actual}%, 계획 ${planned}%, 편차 ${varText}, 종합 판정 ${verdictText}`}
+      aria-label={`${label} 실적 ${formatPct1(actual)}%, 계획 ${formatPct1(planned)}%, 편차 ${varText}, 종합 판정 ${verdictText}`}
     >
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="h-full w-full">
         <circle cx={CENTER} cy={CENTER} r={R} fill="none" strokeWidth={STROKE} className="stroke-line" />
@@ -39,7 +40,7 @@ export function ProgressGauge({ actual, planned, variance, overall, verdictText,
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
         <span className={`badge text-[10px] ${m.chip}`}>{verdictText}</span>
-        <span className="text-2xl font-extrabold leading-none tabular-nums text-ink">{actual}%</span>
+        <span className="text-2xl font-extrabold leading-none tabular-nums text-ink">{formatPct1(actual)}%</span>
         <span className="text-[10px] text-ink-subtle">{plannedText}</span>
       </div>
     </div>

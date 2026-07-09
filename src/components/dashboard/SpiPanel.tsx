@@ -1,6 +1,7 @@
 import { Gauge } from 'lucide-react'
 import type { TrendModel } from '@/lib/domain/trend'
 import { progressSignal, type Signal } from '@/lib/domain/dashboard'
+import { formatPp1 } from '@/lib/domain/format'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -14,7 +15,7 @@ const SIG_TONE: Record<Signal, string> = {
 export async function SpiPanel({ model, variance }: { model: TrendModel; variance: number }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
-  const fmtPp = (n: number) => `${n >= 0 ? '+' : ''}${n}%p`
+  const fmtPp = (n: number) => `${formatPp1(n)}%p`
 
   const spi = model.currentSpi
   const spiTone = spi == null ? 'text-ink' : spi >= 0.98 ? 'text-done' : spi >= 0.9 ? 'text-accent-warning' : 'text-delayed'

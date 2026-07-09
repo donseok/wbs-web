@@ -102,7 +102,10 @@ export function analyzeProject(
   const statusCount = emptyStatusCount()
   for (const l of leaves) statusCount[l.node.status]++
 
-  const { actual, planned } = overallProgress(items)
+  // 봇 답변은 정수 % 관례 유지(도메인 롤업은 소수 1자리).
+  const overall = overallProgress(items)
+  const actual = Math.round(overall.actual)
+  const planned = Math.round(overall.planned)
   const { weekStart, weekRange } = weekly.meta
   const weekEnd = addDaysIso(weekStart, 6) // 일요일(주 종료). WeeklyMeta 는 weekStart/weekDays(월~금)만 노출
 
@@ -178,7 +181,7 @@ export function answerDelayed(a: ProjectAnalysis): string {
     .map(l =>
       bulletLeaf(l, n => {
         const late = n.plannedEnd && a.today > n.plannedEnd ? `${diffDays(n.plannedEnd, a.today)}일 지연` : '지연'
-        return `마감 ${dd(n.plannedEnd)} (${late}) · 실적 ${n.rolledActualPct}%/계획 ${n.plannedPct}%`
+        return `마감 ${dd(n.plannedEnd)} (${late}) · 실적 ${Math.round(n.rolledActualPct)}%/계획 ${Math.round(n.plannedPct)}%`
       }),
     )
   return [`"${a.name}" 지연 작업 ${a.delayed_.length}건입니다.`, listWithCap(rows, 12)].join('\n')
@@ -204,7 +207,7 @@ export function answerThisWeek(a: ProjectAnalysis): string {
   const rows = a.activeThisWeek
     .slice()
     .sort((x, y) => (x.node.plannedStart ?? '').localeCompare(y.node.plannedStart ?? ''))
-    .map(l => bulletLeaf(l, n => `${dd(n.plannedStart)}~${dd(n.plannedEnd)} · ${STATUS_KO[n.status]} · 실적 ${n.rolledActualPct}%`))
+    .map(l => bulletLeaf(l, n => `${dd(n.plannedStart)}~${dd(n.plannedEnd)} · ${STATUS_KO[n.status]} · 실적 ${Math.round(n.rolledActualPct)}%`))
   return [`이번 주(${a.weekRange}) 진행·예정 작업 ${a.activeThisWeek.length}건입니다.`, listWithCap(rows, 12)].join('\n')
 }
 
@@ -287,7 +290,7 @@ function leafLine(l: LeafCtx): string {
     `담당 ${ownersText(n.owners)}`,
     `상태 ${STATUS_KO[n.status]}`,
     `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)}`,
-    `실적 ${n.rolledActualPct}%/계획 ${n.plannedPct}%`,
+    `실적 ${Math.round(n.rolledActualPct)}%/계획 ${Math.round(n.plannedPct)}%`,
   ]
   if (n.deliverable) seg.push(`산출물 ${clipText(n.deliverable, 40)}`)
   if (n.biz) seg.push(`업무 ${clipText(n.biz, 60)}`)
@@ -355,7 +358,7 @@ export function buildDocuments(
     const lines = [
       `[${projectName}] ${l.phaseName} > ${n.name}`,
       `구분 ${LEVEL_KO[n.level]} · 담당 ${ownersText(n.owners)} · 상태 ${STATUS_KO[n.status]}`,
-      `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)} · 계획 ${n.plannedPct}% / 실적 ${n.rolledActualPct}%`,
+      `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)} · 계획 ${Math.round(n.plannedPct)}% / 실적 ${Math.round(n.rolledActualPct)}%`,
     ]
     if (n.deliverable) lines.push(`산출물 ${n.deliverable}`)
     if (n.biz) lines.push(`업무내용 ${n.biz}`)

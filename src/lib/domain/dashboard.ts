@@ -1,4 +1,5 @@
 import type { ComputedItem, TeamCode } from './types'
+import { round1 } from './format'
 import { collectLeaves } from './tree'
 import { overallProgress } from './rollup'
 
@@ -142,7 +143,9 @@ export function buildExecSummary(
   opts: { startDate: string | null; endDate: string | null; today: string },
 ): ExecSummary {
   const { actual, planned } = overallProgress(items)
-  const variance = actual - planned
+  // round1 없이 빼면 FP 노이즈(예: 6.3-8.3 = -2.000000000000001)가 progressSignal의
+  // -2/-10 경계를 넘어 표시(-2.0%p)와 신호가 어긋난다.
+  const variance = round1(actual - planned)
   const progress = { actual, planned, variance, signal: progressSignal(variance) }
   const schedule = scheduleModel({
     startDate: opts.startDate, endDate: opts.endDate, today: opts.today,

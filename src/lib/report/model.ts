@@ -76,8 +76,10 @@ export function buildReportModel(
   today: string,
 ): ReportModel {
   const roots = items
-  // 대시보드/모달과 동일한 가중 롤업(단일 출처).
-  const { actual, planned } = overallProgress(roots)
+  // 대시보드/모달과 동일한 가중 롤업(단일 출처). 보고서는 정수 표기 관례 유지.
+  const overall = overallProgress(roots)
+  const actual = Math.round(overall.actual)
+  const planned = Math.round(overall.planned)
 
   const leaves = leavesOf(items)
   const delayedLeaves = leaves
@@ -86,9 +88,9 @@ export function buildReportModel(
 
   const phases: ReportPhase[] = roots.map(p => ({
     name: p.name,
-    plannedPct: p.plannedPct,
-    actualPct: p.rolledActualPct,
-    variance: p.rolledActualPct - p.plannedPct,
+    plannedPct: Math.round(p.plannedPct),
+    actualPct: Math.round(p.rolledActualPct),
+    variance: Math.round(p.rolledActualPct) - Math.round(p.plannedPct),
     status: p.status,
   }))
 
@@ -96,7 +98,7 @@ export function buildReportModel(
     name: l.name,
     owners: l.owners,
     plannedEnd: l.plannedEnd,
-    actualPct: l.rolledActualPct,
+    actualPct: Math.round(l.rolledActualPct),
   }))
 
   const teams: ReportTeam[] = REPORT_TEAMS.map(team => {

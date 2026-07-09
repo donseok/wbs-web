@@ -1,4 +1,5 @@
 import { buildTree, type TreeNode } from './tree'
+import { round1 } from './format'
 import { plannedPct, achievementOf, statusOf } from './progress'
 import type { ComputedItem, WbsRow } from './types'
 
@@ -16,8 +17,8 @@ export function overallProgress(roots: ComputedItem[]): { actual: number; planne
   const eff = (r: ComputedItem) => (allNull ? 1 : r.weight ?? 0)
   const totalEff = roots.reduce((s, r) => s + eff(r), 0) || 1
   return {
-    actual: Math.round(roots.reduce((s, r) => s + eff(r) * r.rolledActualPct, 0) / totalEff),
-    planned: Math.round(roots.reduce((s, r) => s + eff(r) * r.plannedPct, 0) / totalEff),
+    actual: round1(roots.reduce((s, r) => s + eff(r) * r.rolledActualPct, 0) / totalEff),
+    planned: round1(roots.reduce((s, r) => s + eff(r) * r.plannedPct, 0) / totalEff),
   }
 }
 
@@ -35,10 +36,10 @@ function computeNode(node: TreeNode, today: string, holidays: Set<string>): Comp
     rolledActual = node.actualPct ?? 0
   } else {
     const totalW = children.reduce((s, c) => s + siblingWeight(c.weight), 0) || 1
-    rolledActual = Math.round(
+    rolledActual = round1(
       children.reduce((s, c) => s + siblingWeight(c.weight) * c.rolledActualPct, 0) / totalW,
     )
-    rolledPlanned = Math.round(
+    rolledPlanned = round1(
       children.reduce((s, c) => s + siblingWeight(c.weight) * c.plannedPct, 0) / totalW,
     )
   }

@@ -42,7 +42,7 @@ export function KanbanCard({
       tabIndex={interactive ? 0 : undefined}
       role={interactive ? 'button' : undefined}
       aria-roledescription={interactive ? t('kanban.card.roleDesc') : undefined}
-      aria-label={interactive ? `${card.name} — ${t('kanban.card.actual')} ${card.rolledActualPct}%, ${t(`status.${card.status}` as DictKey)}. ${done ? t('kanban.card.enterClear') : t('kanban.card.enterDone')}` : undefined}
+      aria-label={interactive ? `${card.name} — ${t('kanban.card.actual')} ${Math.round(card.rolledActualPct)}%, ${t(`status.${card.status}` as DictKey)}. ${done ? t('kanban.card.enterClear') : t('kanban.card.enterDone')}` : undefined}
       onKeyDown={handleKeyDown}
       className={`group relative shrink-0 overflow-hidden rounded-xl border border-line bg-surface p-3.5 shadow-sm transition
         ${draggable ? 'cursor-grab select-none hover:border-line-strong hover:shadow-md active:cursor-grabbing' : ''}
@@ -60,7 +60,7 @@ export function KanbanCard({
 
         <div className="mt-3 flex items-center gap-2">
           <ProgressBar value={card.rolledActualPct} tone={accent} height="h-1.5" label={`${card.name} ${t('kanban.card.actual')}`} />
-          <span className="shrink-0 text-[11px] font-semibold tabular-nums text-ink-muted">{card.rolledActualPct}%</span>
+          <span className="shrink-0 text-[11px] font-semibold tabular-nums text-ink-muted">{Math.round(card.rolledActualPct)}%</span>
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">

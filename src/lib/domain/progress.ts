@@ -1,4 +1,5 @@
 import { businessDaysBetween } from './dates'
+import { round1 } from './format'
 import type { Status } from './types'
 
 export function plannedPct(
@@ -11,20 +12,28 @@ export function plannedPct(
   const cappedToday = today > end ? end : today
   const done = businessDaysBetween(start, cappedToday, holidays)
   const pct = (done / total) * 100
-  return Math.min(100, Math.max(0, Math.round(pct)))
+  return Math.min(100, Math.max(0, round1(pct)))
 }
 
+/* 달성율·상태 판정은 정수 반올림 기준을 유지한다(입력이 소수 1자리가 된 뒤에도).
+ * 그대로 소수를 쓰면 (1) planned 0.1~0.4에서 0-가드가 무력화되어 not_started가
+ * delayed로 뒤집히고 달성율이 폭주하며(0.4 계획·45 실적 → 11250%),
+ * (2) 0.1%p 차이로 지연 판정이 나 정수 표기 화면(계획 33%/실적 33% '지연')과 모순된다. */
+
 export function achievementOf(actual: number, planned: number): number | null {
-  if (planned === 0) return null
-  return Math.round((actual / planned) * 100)
+  const p = Math.round(planned)
+  if (p === 0) return null
+  return Math.round((Math.round(actual) / p) * 100)
 }
 
 export function statusOf(
   actual: number, planned: number, start: string | null, today: string,
 ): Status {
-  if (actual >= 100) return 'done'
-  if (start && today < start && actual === 0) return 'not_started'
-  if (planned === 0 && actual === 0) return 'not_started'
-  if (actual < planned) return 'delayed'
+  const a = Math.round(actual)
+  const p = Math.round(planned)
+  if (a >= 100) return 'done'
+  if (start && today < start && a === 0) return 'not_started'
+  if (p === 0 && a === 0) return 'not_started'
+  if (a < p) return 'delayed'
   return 'in_progress'
 }

@@ -162,8 +162,8 @@ export function RowDetailPanel({
           ) : (
             <>
               <section className="grid grid-cols-3 gap-2">
-                <Stat label={t('wbs.colPlannedPct')} value={`${item.plannedPct}%`} />
-                <Stat label={t('wbs.colActualPct')} value={`${item.rolledActualPct}%`} />
+                <Stat label={t('wbs.colPlannedPct')} value={`${Math.round(item.plannedPct)}%`} />
+                <Stat label={t('wbs.colActualPct')} value={`${Math.round(item.rolledActualPct)}%`} />
                 <Stat label={t('wbs.colAchievement')} value={item.achievement == null ? '—' : `${item.achievement}%`} />
               </section>
               <div className="flex items-center gap-2"><span className="text-xs text-ink-subtle">{t('wbs.colStatus')}</span><span className={`chip ${STATUS[item.status].chip}`}><span className={`h-1.5 w-1.5 rounded-full ${STATUS[item.status].dot}`} />{t(`status.${item.status}` as DictKey)}</span></div>

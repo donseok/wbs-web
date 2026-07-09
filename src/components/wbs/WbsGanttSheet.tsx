@@ -757,7 +757,7 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid justify-end text-[12px] tabular-nums text-ink-muted ${cellBg}`}
                   style={{ width: W('pplan') }}
                 >
-                  {n.plannedPct}%
+                  {Math.round(n.plannedPct)}%
                 </div>
                 )}
                 {/* 실적% (데이터바) */}
@@ -793,7 +793,9 @@ export function WbsGanttSheet({
                     />
                   )}
                   <span className="relative z-10">
-                    {editingActual ? editInput(String(n.rolledActualPct), 'actual') : `${n.rolledActualPct}%`}
+                    {/* 편집 시드·잠금 기준(editOriginal)은 원시값 유지 — 반올림하면 저장값이
+                        소수일 때 낙관적 잠금이 영구 불일치. 표시만 정수 반올림. */}
+                    {editingActual ? editInput(String(n.rolledActualPct), 'actual') : `${Math.round(n.rolledActualPct)}%`}
                   </span>
                 </div>
                 )}
@@ -950,7 +952,7 @@ function Bar({
 }) {
   const left = xOf(n.plannedStart!)
   const width = Math.max(dayPx * 0.5, xOf(n.plannedEnd!) + dayPx - left)
-  const pct = Math.min(100, Math.max(0, n.rolledActualPct))
+  const pct = Math.round(Math.min(100, Math.max(0, n.rolledActualPct)))
   const showInside = width >= 54 && pct >= 45 && n.status !== 'done'
   const showOutside = !showInside && n.status !== 'done'
 

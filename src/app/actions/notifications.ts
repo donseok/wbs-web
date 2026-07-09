@@ -34,8 +34,8 @@ export async function getNotifications(projectId: string): Promise<{ items: Noti
       severity: 'danger' as const,
       title: l.name,
       detail: l.plannedEnd
-        ? `${diffDays(l.plannedEnd, today)}일 지연 · 실적 ${l.rolledActualPct}%`
-        : `실적 ${l.rolledActualPct}%`,
+        ? `${diffDays(l.plannedEnd, today)}일 지연 · 실적 ${Math.round(l.rolledActualPct)}%`
+        : `실적 ${Math.round(l.rolledActualPct)}%`,
     }))
 
   const dueSoon: NotificationItem[] = leaves

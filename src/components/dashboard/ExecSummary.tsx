@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Pin } from 'lucide-react'
 import type { Announcement, ComputedItem } from '@/lib/domain/types'
 import { buildExecSummary, type Signal } from '@/lib/domain/dashboard'
+import { formatPct1, formatPp1 } from '@/lib/domain/format'
 import { sortAnnouncements, isPublishedNow, ANNOUNCEMENT_META } from '@/lib/domain/announcements'
 import { getServerLocale } from '@/lib/i18n/server'
 import { t, type DictKey } from '@/lib/i18n/dict'
@@ -35,7 +36,7 @@ export async function ExecSummary({
   const s = buildExecSummary(items, { startDate, endDate, today })
 
   const verdict = statusWord(s.overall.signal === 'neutral' ? 'green' : s.overall.signal, tr)
-  const plannedText = `${tr('dash.plannedLabel')} ${s.progress.planned}% · ${s.progress.variance >= 0 ? '+' : ''}${s.progress.variance}%p`
+  const plannedText = `${tr('dash.plannedLabel')} ${formatPct1(s.progress.planned)}% · ${formatPp1(s.progress.variance)}%p`
 
   const schedValue =
     s.schedule.label === 'none' ? tr('dash.exec.noSchedule')

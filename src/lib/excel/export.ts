@@ -58,10 +58,10 @@ export function buildWbsAoa(items: ComputedItem[], projectName = 'WBS'): unknown
     row[14] = it.weight ?? ''
     // 실적%은 leaf(저장값)만 라운드트립. 상위는 계산값이므로 Q를 비워 임포트 시 무시되게 함.
     // 예외: sub-act 를 접은 activity 는 롤업값을 실어 재임포트 시 실적이 보존되게 한다.
-    row[16] = it.children.length === 0 ? (it.actualPct ?? '') : it.level === 'activity' ? it.rolledActualPct : ''
-    // 읽기용 계산 컬럼
-    row[17] = it.plannedPct
-    row[18] = it.rolledActualPct
+    row[16] = it.children.length === 0 ? (it.actualPct ?? '') : it.level === 'activity' ? Math.round(it.rolledActualPct) : ''
+    // 읽기용 계산 컬럼 — 엑셀은 정수 표기 관례 유지(도메인 롤업은 소수 1자리)
+    row[17] = Math.round(it.plannedPct)
+    row[18] = Math.round(it.rolledActualPct)
     row[19] = it.achievement == null ? '' : it.achievement
     row.push(STATUS_LABEL[it.status])
     rows.push(row)

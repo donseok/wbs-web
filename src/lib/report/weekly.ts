@@ -334,7 +334,10 @@ export function buildWeeklyReportModel(
   const cnt = { done: 0, in_progress: 0, delayed: 0, not_started: 0 } as Record<Status, number>
   for (const n of leafNodes) cnt[n.status]++
   const total = leafNodes.length
-  const { actual, planned } = overallProgress(roots)
+  // 주간보고는 정수 표기 관례 유지(도메인 롤업은 소수 1자리).
+  const overall = overallProgress(roots)
+  const actual = Math.round(overall.actual)
+  const planned = Math.round(overall.planned)
   const doneThisWeek = leafNodes.filter(
     n => n.status === 'done' && n.plannedEnd && n.plannedEnd >= weekStart && n.plannedEnd <= weekEnd,
   ).length
@@ -365,9 +368,9 @@ export function buildWeeklyReportModel(
     return {
       name: r.name,
       weightPct: weightPcts[i] ?? 0,
-      plannedPct: r.plannedPct,
-      actualPct: r.rolledActualPct,
-      gap: r.plannedPct - r.rolledActualPct,
+      plannedPct: Math.round(r.plannedPct),
+      actualPct: Math.round(r.rolledActualPct),
+      gap: Math.round(r.plannedPct) - Math.round(r.rolledActualPct),
       doneCount: sub.filter(n => n.status === 'done').length,
       totalCount: sub.length,
       delayedCount: sub.filter(n => n.status === 'delayed').length,
@@ -378,12 +381,12 @@ export function buildWeeklyReportModel(
   // ── 공정 실적 및 계획 (Phase별 금주 진행중 / 차주 예정) ──
   const toTaskRow = (l: LeafCtx): WeeklyTaskRow => ({
     name: l.node.name, phaseName: l.rootName, ownerText: ownersText(l.node.owners),
-    status: l.node.status, actualPct: l.node.rolledActualPct,
+    status: l.node.status, actualPct: Math.round(l.node.rolledActualPct),
   })
   const planActual: PhasePlanActual[] = roots.map(r => ({
     phaseName: r.name,
-    plannedPct: r.plannedPct,
-    actualPct: r.rolledActualPct,
+    plannedPct: Math.round(r.plannedPct),
+    actualPct: Math.round(r.rolledActualPct),
     prevWeek: prevWeekLeaves.filter(l => l.rootName === r.name).map(toTaskRow),
     thisWeek: leaves.filter(l => l.rootName === r.name && l.node.status === 'in_progress').map(toTaskRow),
     nextWeek: nextWeekLeaves.filter(l => l.rootName === r.name).map(toTaskRow),
@@ -466,8 +469,8 @@ export function buildWeeklyReportModel(
       no, level: node.level, levelLabel: LEVEL_LABEL[node.level], depth,
       name: node.name, deliverable: node.deliverable ?? '', ownerText: ownersText(node.owners),
       weight: node.weight, plannedStart: node.plannedStart, plannedEnd: node.plannedEnd,
-      plannedPct: node.plannedPct, actualPct: node.rolledActualPct,
-      gap: node.plannedPct - node.rolledActualPct, delayDays: delayDaysOf(node), status: node.status,
+      plannedPct: Math.round(node.plannedPct), actualPct: Math.round(node.rolledActualPct),
+      gap: Math.round(node.plannedPct) - Math.round(node.rolledActualPct), delayDays: delayDaysOf(node), status: node.status,
     })
     for (const c of node.children) flat(c, depth + 1)
   }
@@ -483,7 +486,7 @@ export function buildWeeklyReportModel(
       no: i + 1, phaseName: l.rootName, parentName: l.parentName ?? '-',
       name: l.node.name, deliverable: l.node.deliverable ?? '', ownerText: ownersText(l.node.owners),
       weight: l.node.weight, plannedStart: l.node.plannedStart, plannedEnd: l.node.plannedEnd,
-      plannedPct: l.node.plannedPct, actualPct: l.node.rolledActualPct, delayDays: dd, status: l.node.status,
+      plannedPct: Math.round(l.node.plannedPct), actualPct: Math.round(l.node.rolledActualPct), delayDays: dd, status: l.node.status,
       note: dd > 0 ? `⚠ 계획종료 ${dd}일 경과` : '',
     }
   })
