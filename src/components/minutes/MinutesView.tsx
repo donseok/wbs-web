@@ -11,6 +11,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM } from '@/components/wbs/shared'
+import { MinutesCalendar } from './MinutesCalendar'
 
 type ViewKey = 'list' | 'calendar'
 type TeamKey = 'ALL' | TeamCode
@@ -43,6 +44,7 @@ export function MinutesView({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [searching, setSearching] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const reqRef = useRef(0)
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -60,10 +62,12 @@ export function MinutesView({
     const base = new Date(Date.UTC(year, month0 + delta, 1))
     const y = base.getUTCFullYear(); const m0 = base.getUTCMonth()
     setYear(y); setMonth0(m0)
+    setSelectedDate(null)
     void loadMonth(y, m0, team)
   }
   function changeTeam(tk: TeamKey) {
     setTeam(tk)
+    setSelectedDate(null)
     if (isSearch) void runSearch(query, tk)
     else void loadMonth(year, month0, tk)
   }
@@ -179,9 +183,32 @@ export function MinutesView({
         )
       )}
 
-      {/* 달력 뷰 — Task 8에서 MinutesCalendar 로 교체 */}
+      {/* 달력 뷰 */}
       {view === 'calendar' && !isSearch && (
-        <EmptyState title="달력 뷰" description="Task 8에서 구현" />
+        <div className="space-y-3">
+          <MinutesCalendar year={year} month0={month0} todayIso={todayIso}
+            minutes={minutes} onSelectDate={d => setSelectedDate(prev => (prev === d ? null : d))}
+            selectedDate={selectedDate} />
+          {selectedDate && (
+            <section className="card p-3">
+              <h3 className="mb-2 px-1 text-sm font-semibold text-ink-muted">{selectedDate}</h3>
+              <ul className="divide-y divide-line/70">
+                {minutes.filter(mi => mi.minuteDate === selectedDate).map(mi => (
+                  <li key={mi.id}>
+                    <Link href={`/minutes/${mi.id}`}
+                      className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-surface-2">
+                      <span className={`inline-flex w-12 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[mi.teamCode].bar}`}>
+                        {mi.teamCode}
+                      </span>
+                      <span className="flex-1 truncate text-sm font-medium text-ink">{mi.title}</span>
+                      <span className="w-24 truncate text-right text-xs text-ink-subtle">{mi.createdByName ?? ''}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
       )}
 
       {/* 업로드 모달 — Task 9에서 MinuteUploadModal 로 교체 */}
