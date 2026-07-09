@@ -7,7 +7,7 @@ import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
-import { roundWeight } from '@/lib/domain/format'
+import { weightToPct, formatWeightPct } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ReportModal } from '@/components/report/ReportModal'
@@ -287,10 +287,10 @@ export function WbsGanttSheet({
   /* ── 편집 (WbsSheet 이식) ── */
   const isPmo = membership?.role === 'pmo_admin'
   const canEditW = canEditWeight(membership) && !readOnly
-  const startEdit = (id: string, field: 'weight' | 'actual', current: string) => {
+  const startEdit = (id: string, field: 'weight' | 'actual', current: string, original = current) => {
     setEdit({ id, field })
     setDraft(current)
-    setEditOriginal(current)
+    setEditOriginal(original)
   }
   const cancel = () => {
     setEdit(null)
@@ -318,12 +318,16 @@ export function WbsGanttSheet({
         }
         res = await updateActual(id, pct, Number(editOriginal))
       } else {
-        const wv = draft.trim() === '' ? null : Number(draft)
-        if (wv != null && (Number.isNaN(wv) || wv < 0)) {
+        // 입력은 % 기준, 저장·충돌 비교는 1기준 원본(editOriginal). 무변경 커밋은
+        // %↔분수 왕복 반올림값이 재저장되지 않게 서버 호출 없이 종료.
+        const origPct = editOriginal.trim() === '' ? '' : String(weightToPct(Number(editOriginal)))
+        if (draft.trim() === origPct) return cancel()
+        const pv = draft.trim() === '' ? null : Number(draft)
+        if (pv != null && (!Number.isFinite(pv) || pv < 0)) {
           setToast({ kind: 'err', msg: t('wbs.toastWeightMin') })
           return cancel()
         }
-        res = await updateWeight(id, wv, editOriginal.trim() === '' ? null : Number(editOriginal))
+        res = await updateWeight(id, pv == null ? null : pv / 100, editOriginal.trim() === '' ? null : Number(editOriginal))
       }
       if (res.ok) {
         setToast({ kind: 'ok', msg: t('wbs.toastSaved') })
@@ -616,7 +620,7 @@ export function WbsGanttSheet({
             const editingActual = edit?.id === n.id && edit.field === 'actual'
             const editableW = canEditW
             const editableA = canEditActual(n, membership) && !readOnly
-            const weightLabel = n.weight == null ? t('wbs.weightEqual') : String(roundWeight(n.weight))
+            const weightLabel = n.weight == null ? t('wbs.weightEqual') : formatWeightPct(n.weight)
 
             const frozen = (key: string, z = 20): React.CSSProperties => {
               const c = COLS.find(x => x.key === key)!
@@ -729,7 +733,7 @@ export function WbsGanttSheet({
                   onClick={() =>
                     editableW &&
                     !editingWeight &&
-                    startEdit(n.id, 'weight', n.weight == null ? '' : String(n.weight))
+                    startEdit(n.id, 'weight', n.weight == null ? '' : String(weightToPct(n.weight)), n.weight == null ? '' : String(n.weight))
                   }
                   role={editableW ? 'button' : undefined}
                   tabIndex={editableW ? 0 : undefined}
@@ -738,7 +742,7 @@ export function WbsGanttSheet({
                       ? e => {
                           if ((e.key === 'Enter' || e.key === ' ') && !editingWeight) {
                             e.preventDefault()
-                            startEdit(n.id, 'weight', n.weight == null ? '' : String(n.weight))
+                            startEdit(n.id, 'weight', n.weight == null ? '' : String(weightToPct(n.weight)), n.weight == null ? '' : String(n.weight))
                           }
                         }
                       : undefined

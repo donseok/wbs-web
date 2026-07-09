@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs'
 import type { WeeklyReportModel } from './weekly'
 import { statusKr } from './weekly'
-import { roundWeight } from '@/lib/domain/format'
+import { weightToPct } from '@/lib/domain/format'
 import { PX, argb, asciiBar } from './dkbrand'
 
 type Cell = ExcelJS.Cell
@@ -175,7 +175,7 @@ function buildProcessSheet(ws: Worksheet, model: WeeklyReportModel) {
 /* ════════════════════ 시트 2: WBS ════════════════════ */
 function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
   ws.columns = [
-    { width: 5 }, { width: 9 }, { width: 42 }, { width: 18 }, { width: 12 }, { width: 8 }, { width: 12 }, { width: 12 },
+    { width: 5 }, { width: 9 }, { width: 42 }, { width: 18 }, { width: 12 }, { width: 10 }, { width: 12 }, { width: 12 },
     { width: 8 }, { width: 12 }, { width: 12 }, { width: 8 }, { width: 9 }, { width: 7 }, { width: 16 }, { width: 9 },
   ]
   ws.mergeCells('A1:P1')
@@ -187,7 +187,7 @@ function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
   setCell(ws.getCell('P2'), `생성 ${model.meta.generatedAt}`, { bg: PX.phaseRow, color: PX.ink, size: 9, align: 'center' })
 
   headerRow(ws, 3, [
-    { t: 'No' }, { t: 'Lv' }, { t: '작업명', align: 'left' }, { t: '산출물', align: 'left' }, { t: '담당자', align: 'left' }, { t: '가중치' },
+    { t: 'No' }, { t: 'Lv' }, { t: '작업명', align: 'left' }, { t: '산출물', align: 'left' }, { t: '담당자', align: 'left' }, { t: '가중치(%)' },
     { t: '계획시작' }, { t: '계획종료' }, { t: '계획(%)' }, { t: '실적시작' }, { t: '실적종료' }, { t: '실적(%)' }, { t: '격차(%p)' }, { t: '지연일' }, { t: '선행작업', align: 'left' }, { t: '상태' },
   ])
   let r = 4
@@ -199,7 +199,7 @@ function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
     setCell(ws.getCell(r, 3), `${'  '.repeat(row.depth)}${row.name}`, { bg, bold })
     setCell(ws.getCell(r, 4), row.deliverable, { bg, bold })
     setCell(ws.getCell(r, 5), row.ownerText, { bg, bold })
-    setCell(ws.getCell(r, 6), row.weight == null ? '' : roundWeight(row.weight), { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 6), row.weight == null ? '' : weightToPct(row.weight), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 7), fmtD(row.plannedStart), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 8), fmtD(row.plannedEnd), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 9), row.plannedPct, { bg, bold, align: 'center' })

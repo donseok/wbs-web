@@ -100,7 +100,8 @@ export async function updateWeight(
   weight: number | null,
   expectedCurrent?: number | null,
 ): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
-  if (weight != null && (typeof weight !== 'number' || Number.isNaN(weight) || weight < 0)) {
+  // isFinite: Infinity는 JSON 직렬화에서 null(균등)로 둔갑해 이력과 어긋나므로 차단
+  if (weight != null && (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0)) {
     return { ok: false, error: '가중치는 0 이상이어야 함' }
   }
   const m = await getMembership()

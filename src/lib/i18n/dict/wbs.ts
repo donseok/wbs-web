@@ -59,7 +59,7 @@ export const wbsKo = {
   'wbs.collapse': '접기',
   'wbs.rowDetailTitle': '상세/변경 이력 보기',
   'wbs.weightEqual': '균등',
-  'wbs.editWeightTitle': '클릭하여 가중치 편집 (비우면 균등)',
+  'wbs.editWeightTitle': '클릭하여 가중치 편집 — % 단위 (비우면 균등)',
   'wbs.editActualTitle': '클릭하여 실적% 입력',
   'wbs.autoRollupTitle': '하위에서 자동 집계',
   // 타임라인
@@ -186,7 +186,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.collapse': 'Collapse',
   'wbs.rowDetailTitle': 'View details & history',
   'wbs.weightEqual': 'Equal',
-  'wbs.editWeightTitle': 'Click to edit weight (empty = equal)',
+  'wbs.editWeightTitle': 'Click to edit weight in % (empty = equal)',
   'wbs.editActualTitle': 'Click to enter actual %',
   'wbs.autoRollupTitle': 'Rolled up from children',
   'wbs.month1': 'Jan',
