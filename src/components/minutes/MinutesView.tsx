@@ -27,8 +27,7 @@ export function MinutesView({
   initialMinutes: Minute[]
   todayIso: string
   initialView: ViewKey
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  projects: any[]
+  projects: { id: string; name: string }[]
   currentUserId: string | null
   role: string | null
 }) {
