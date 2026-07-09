@@ -102,6 +102,21 @@ describe('splitLeafOwners — 복수 담당 말단 분리', () => {
     expect(subs.map(s => s.name)).toEqual(['1-1. 중간보고 (PMO 주관)', '1-1. 중간보고 (가공 지원)'])
     // 실적 승계 → 롤업 결과가 원본 실적과 동일
     expect(subs.map(s => s.actualPct)).toEqual([30, 30])
+    // 원본은 롤업 부모가 됐으므로 실적을 갖지 않는다 — 자식을 나중에 지워도 30이 되살아나면 안 된다.
+    expect(out.find(i => i.tempId === 't1')!.actualPct).toBeNull()
+  })
+
+  it('분리되지 않는 말단(담당 1팀)은 실적을 그대로 갖는다', () => {
+    const src = [
+      imp({ tempId: 't0', level: 'phase', name: '1. 준비' }),
+      imp({
+        tempId: 't1', parentTempId: 't0', level: 'task', name: '1-3. 착수 보고회', actualPct: 100,
+        owners: [{ team: 'PMO', kind: 'primary' }],
+      }),
+    ]
+    const out = splitLeafOwners(src)
+    expect(out).toHaveLength(2)
+    expect(out.find(i => i.tempId === 't1')!.actualPct).toBe(100)
   })
 })
 

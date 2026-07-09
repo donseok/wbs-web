@@ -196,9 +196,14 @@ export function RowDetailPanel({
                 <button onClick={() => setConfirmDel(true)} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs text-delayed hover:bg-delayed-weak"><Trash2 className="h-3.5 w-3.5" /> {t('common.delete')}</button>
               </div>
               {addName != null && childLevel && (
-                <div className="mt-2 flex gap-2">
-                  <input autoFocus value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addChild() }} placeholder={`${childLevel === 'task' ? 'Task' : 'Activity'} ${t('wbs.namePlaceholderSuffix')}`} className="app-input h-8 text-xs" />
-                  <button onClick={addChild} disabled={busy || !addName.trim()} className="btn btn-primary h-8 px-3 text-xs">{t('common.add')}</button>
+                <div className="mt-2 space-y-2">
+                  {flipWarn && (
+                    <p className="rounded-lg bg-pending-weak px-2.5 py-1.5 text-[11px] leading-snug text-pending">{t('wbs.addChildLeafWarn')}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <input autoFocus value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addChild() }} placeholder={`${childLevel === 'task' ? 'Task' : 'Activity'} ${t('wbs.namePlaceholderSuffix')}`} className="app-input h-8 text-xs" />
+                    <button onClick={addChild} disabled={busy || !addName.trim()} className="btn btn-primary h-8 px-3 text-xs">{t('common.add')}</button>
+                  </div>
                 </div>
               )}
               {isAct && subOpen && (

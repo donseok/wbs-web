@@ -54,20 +54,21 @@ export async function getChangeLogs(itemId: string): Promise<ChangeLogEntry[]> {
   })
 }
 
+/** 실적% 입력 — 말단(자식 없는) 항목만. level 은 보지 않는다: 롤업(computeNode)이 자식 유무로
+ *  말단을 판정하므로, 자식 없는 Task/Phase 도 자기 actual_pct 가 그대로 상위로 올라간다.
+ *  UI 게이트 canEditActual 과 동일 불변식. */
 export async function updateActual(
   itemId: string,
   newPct: number,
   expectedCurrent?: number | null,
 ): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
-  if (newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
+  if (!Number.isFinite(newPct) || newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
-  const { data: item } = await sb.from('wbs_items').select('id, level, actual_pct, project_id').eq('id', itemId).single()
+  const { data: item } = await sb.from('wbs_items').select('id, actual_pct, project_id').eq('id', itemId).single()
   if (!item) return { ok: false, error: '항목 없음' }
-  if (item.level !== 'activity') return { ok: false, error: 'Activity만 입력 가능' }
-  // 담당별 sub-act 분리로 '자식 있는 activity'(롤업 부모)가 정상 데이터에 존재한다.
-  // 말단이 아니므로 직접 입력을 거부(UI 게이트 canEditActual 과 동일 불변식).
+  // 자식이 있으면 롤업 부모 — 직접 입력한 값은 화면에도 엑셀에도 안 나오므로 거부한다.
   const { data: child } = await sb.from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
   if (child) return { ok: false, error: '하위 항목이 있어 롤업으로 계산됩니다' }
 
@@ -82,8 +83,15 @@ export async function updateActual(
     return { ok: false, conflict: true, error: '다른 사용자가 먼저 수정했습니다. 최신 값으로 새로고침합니다.' }
   }
   if (Number(old) === newPct) return { ok: true }
-  const { error: upErr } = await sb.from('wbs_items').update({ actual_pct: newPct, updated_at: new Date().toISOString() }).eq('id', itemId)
+  // .select() 필수 — RLS 가 행을 가리면 supabase-js 는 error 없이 0행을 돌려준다.
+  // 그대로 두면 저장 실패가 "저장됨" 토스트로 둔갑한다.
+  const { data: updated, error: upErr } = await sb
+    .from('wbs_items')
+    .update({ actual_pct: newPct, updated_at: new Date().toISOString() })
+    .eq('id', itemId)
+    .select('id')
   if (upErr) return { ok: false, error: upErr.message }
+  if (!updated?.length) return { ok: false, error: '저장 권한이 없습니다(담당 팀·PMO만 입력 가능)' }
 
   const { data: u } = await sb.auth.getUser()
   await sb.from('change_logs').insert({
@@ -136,6 +144,31 @@ export async function updateWeight(
 
 /* ── PMO 수동 WBS 트리 편집 (구조·일정) — 모두 PMO 전용, change_logs 기록 ── */
 
+type Sb = Awaited<ReturnType<typeof createServerClient>>
+
+/** 말단이던 항목이 첫 자식을 얻어 롤업 부모가 될 때, 직접 입력돼 있던 실적%를 지운다.
+ *  남겨 두면 롤업이 가려 화면엔 안 보이지만, 그 자식을 나중에 지우는 순간 옛 값이 되살아난다
+ *  (rollup: 자식 없으면 actualPct ?? 0). UI 경고(willDiscardActual)가 약속한 "대체됨"을 실제로 이행한다.
+ *  베스트에포트 — 이미 성공한 자식 추가를 되돌리지는 않되, 실패를 change_logs 에 성공으로 남기지도 않는다. */
+async function discardRolledUpActual(
+  sb: Sb, parentId: string, projectId: string, userId: string | undefined,
+): Promise<void> {
+  // project_id 동시 확인 — 호출자가 넘긴 parentId 가 다른 프로젝트 행이면 남의 실적을 지우게 된다.
+  const { data: parent } = await sb
+    .from('wbs_items').select('actual_pct').eq('id', parentId).eq('project_id', projectId).maybeSingle()
+  const old = parent?.actual_pct
+  if (old == null) return
+  const { data: cleared, error } = await sb
+    .from('wbs_items')
+    .update({ actual_pct: null, updated_at: new Date().toISOString() })
+    .eq('id', parentId)
+    .select('id')
+  if (error || !cleared?.length) return // RLS 차단은 error 없이 0행으로 온다 — 이력도 남기지 않는다
+  await sb.from('change_logs').insert({
+    user_id: userId, wbs_item_id: parentId, field: 'actual_pct', old_value: String(old), new_value: null,
+  })
+}
+
 /** 하위(또는 루트 Phase) 항목 추가. level은 호출자가 부모 기준으로 결정. */
 export async function addWbsItem(
   projectId: string, parentId: string | null, level: Level, name: string,
@@ -157,6 +190,8 @@ export async function addWbsItem(
   if (error) return { ok: false, error: error.message }
   const { data: u } = await sb.auth.getUser()
   await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: data.id, field: 'created', old_value: null, new_value: name.trim() })
+  // 부모가 방금 말단에서 롤업 부모로 바뀌었다면 남아 있던 직접 입력 실적%를 정리.
+  if (parentId && (sibs ?? []).length === 0) await discardRolledUpActual(sb, parentId, projectId, u.user?.id)
   revalidatePath(`/p/${projectId}`, 'layout')
   after(() => recordProgressSnapshot(projectId))
   return { ok: true, id: data.id as string }
@@ -227,6 +262,8 @@ export async function addSubAct(
 
   const { data: u } = await sb.auth.getUser()
   await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: newId, field: 'created', old_value: null, new_value: name })
+  // 첫 SUB-ACT 면 ACT 가 방금 롤업 부모가 된 것 — 직접 입력돼 있던 실적%를 정리.
+  if (sibIds.length === 0) await discardRolledUpActual(sb, actId, act.project_id as string, u.user?.id)
   revalidatePath(`/p/${act.project_id}`, 'layout')
   after(() => recordProgressSnapshot(act.project_id))
   return { ok: true, id: newId }
