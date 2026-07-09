@@ -211,3 +211,121 @@ describe('보강 — 경계·필드 검증', () => {
     expect(riskModel([r], today).dueSoon).toBe(1)
   })
 })
+
+import {
+  progressMatrix, varianceRanking, milestoneTimeline, delayAging, dataHygiene,
+} from '@/lib/domain/dashboard'
+
+describe('progressMatrix (Phase × 팀)', () => {
+  const TEAMS = ['PMO', 'ERP', 'MES', '가공'] as const
+  const phase = leaf({
+    name: 'Phase1', rolledActualPct: 40, plannedPct: 50,
+    children: [
+      leaf({ owners: [{ team: 'ERP', kind: 'primary' }], rolledActualPct: 60, plannedPct: 70 }),
+      leaf({ owners: [{ team: 'ERP', kind: 'support' }, { team: 'MES', kind: 'primary' }], rolledActualPct: 20, plannedPct: 30 }),
+    ],
+  })
+  it('셀 = 담당 leaf 평균(primary+support 모두), 무배정 팀은 null', () => {
+    const rows = progressMatrix([phase], TEAMS)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].cells[0]).toBeNull()                                    // PMO
+    expect(rows[0].cells[1]).toEqual({ pct: 40, planned: 50, count: 2 })   // ERP: (60+20)/2
+    expect(rows[0].cells[2]).toEqual({ pct: 20, planned: 30, count: 1 })   // MES
+    expect(rows[0].cells[3]).toBeNull()                                    // 가공
+  })
+  it('행 요약 = Phase 롤업값과 편차', () => {
+    const r = progressMatrix([phase], TEAMS)[0]
+    expect(r.overall).toBe(40); expect(r.planned).toBe(50); expect(r.variance).toBe(-10)
+  })
+})
+
+describe('varianceRanking (마감 전 따라잡기 후보)', () => {
+  const today = '2026-07-09'
+  it('done·기한경과·편차≤0 제외, 편차 내림차순', () => {
+    const out = varianceRanking([
+      leaf({ name: 'A', plannedPct: 50, rolledActualPct: 30, plannedEnd: '2026-07-20' }),          // gap 20
+      leaf({ name: 'B', plannedPct: 40, rolledActualPct: 35, plannedEnd: null }),                  // gap 5, 마감 없음 → 포함
+      leaf({ name: 'C', plannedPct: 80, rolledActualPct: 10, plannedEnd: '2026-07-01' }),          // 기한경과 → 제외
+      leaf({ name: 'D', plannedPct: 50, rolledActualPct: 50, plannedEnd: '2026-07-20' }),          // gap 0 → 제외
+      leaf({ name: 'E', status: 'done', plannedPct: 50, rolledActualPct: 100, plannedEnd: '2026-07-20' }), // done → 제외
+    ], today)
+    expect(out.map(e => e.item.name)).toEqual(['A', 'B'])
+    expect(out[0].gapPp).toBe(20); expect(out[1].gapPp).toBe(5)
+  })
+  it('limit 적용', () => {
+    const many = Array.from({ length: 10 }, (_, i) =>
+      leaf({ name: `T${i}`, plannedPct: 50, rolledActualPct: 50 - (i + 1), plannedEnd: '2026-08-01' }))
+    expect(varianceRanking(many, today)).toHaveLength(8)
+  })
+})
+
+describe('milestoneTimeline (완료 포함 전체)', () => {
+  const today = '2026-07-09'
+  it('done/overdue/upcoming 분류 + 날짜순 정렬', () => {
+    const out = milestoneTimeline([
+      leaf({ name: '착수보고', plannedEnd: '2026-06-01', status: 'done' }),
+      leaf({ name: '중간보고', plannedEnd: '2026-07-01', status: 'in_progress' }),
+      leaf({ name: '최종 선정', plannedEnd: '2026-07-20', status: 'not_started' }),
+      leaf({ name: '일반 작업', plannedEnd: '2026-07-15', status: 'in_progress' }),  // 키워드/단일일+산출물 아님 → 제외
+    ], today)
+    expect(out.map(m => m.name)).toEqual(['착수보고', '중간보고', '최종 선정'])
+    expect(out.map(m => m.status)).toEqual(['done', 'overdue', 'upcoming'])
+    expect(out[2].dday).toBe(11)
+  })
+  it('단일일 + 산출물 leaf도 감지', () => {
+    const out = milestoneTimeline([
+      leaf({ name: '워크샵', plannedStart: '2026-07-20', plannedEnd: '2026-07-20', deliverable: '결과보고' }),
+    ], today)
+    expect(out).toHaveLength(1)
+  })
+})
+
+describe('delayAging (기한 경과 에이징)', () => {
+  const today = '2026-07-09'
+  it('버킷 경계: 1~7 / 8~14 / 15+', () => {
+    const m = delayAging([
+      leaf({ name: 'a', plannedEnd: '2026-07-08', plannedPct: 50, rolledActualPct: 10 }), // 1일
+      leaf({ name: 'b', plannedEnd: '2026-07-02', plannedPct: 50, rolledActualPct: 10 }), // 7일
+      leaf({ name: 'c', plannedEnd: '2026-07-01', plannedPct: 50, rolledActualPct: 10 }), // 8일
+      leaf({ name: 'd', plannedEnd: '2026-06-24', plannedPct: 50, rolledActualPct: 10 }), // 15일
+    ], today)
+    expect(m.d1_7).toBe(2); expect(m.d8_14).toBe(1); expect(m.d15plus).toBe(1); expect(m.total).toBe(4)
+  })
+  it('done·마감 전·마감 없음 제외, 리스트는 경과일 내림차순', () => {
+    const m = delayAging([
+      leaf({ name: 'done', plannedEnd: '2026-07-01', status: 'done' }),
+      leaf({ name: 'future', plannedEnd: '2026-07-20' }),
+      leaf({ name: 'nodate', plannedEnd: null }),
+      leaf({ name: 'old', plannedEnd: '2026-06-01', plannedPct: 80, rolledActualPct: 10 }),
+      leaf({ name: 'new', plannedEnd: '2026-07-08', plannedPct: 50, rolledActualPct: 10 }),
+    ], today)
+    expect(m.total).toBe(2)
+    expect(m.list.map(e => e.item.name)).toEqual(['old', 'new'])
+    expect(m.list[0].overdue).toBe(38)
+  })
+})
+
+describe('dataHygiene (계획 데이터 품질)', () => {
+  it('담당 누락·기간 미설정 leaf 카운트', () => {
+    const m = dataHygiene([
+      leaf({ owners: [], plannedStart: '2026-07-01', plannedEnd: '2026-07-10' }),
+      leaf({ owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: null, plannedEnd: null }),
+    ])
+    expect(m.noOwner).toBe(1); expect(m.noDates).toBe(1); expect(m.clean).toBe(false)
+  })
+  it('가중치 혼재: 형제 그룹 내 일부만 null → 그룹당 1 카운트, 전부 null은 정상', () => {
+    const mixedRoots = dataHygiene([leaf({ weight: 1 }), leaf({ weight: null })])
+    expect(mixedRoots.mixedWeight).toBe(1)
+    const allNull = dataHygiene([leaf({ weight: null }), leaf({ weight: null })])
+    expect(allNull.mixedWeight).toBe(0)
+    const mixedChildren = dataHygiene([
+      leaf({ weight: 1, children: [leaf({ weight: 2 }), leaf({ weight: null })] }),
+      leaf({ weight: 1 }),
+    ])
+    expect(mixedChildren.mixedWeight).toBe(1) // 루트 그룹은 전부 non-null, 자식 그룹만 혼재
+  })
+  it('전부 정상이면 clean', () => {
+    const m = dataHygiene([leaf({ owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-07-01', plannedEnd: '2026-07-10' })])
+    expect(m.clean).toBe(true)
+  })
+})

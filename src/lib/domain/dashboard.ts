@@ -1,4 +1,4 @@
-import type { ComputedItem } from './types'
+import type { ComputedItem, TeamCode } from './types'
 import { collectLeaves } from './tree'
 import { overallProgress } from './rollup'
 
@@ -152,4 +152,99 @@ export function buildExecSummary(
   const milestone = detectMilestones(items, opts.today)
   const overall = { signal: overallSignal([progress.signal, schedule.signal, risk.signal, milestone.signal]) }
   return { overall, progress, schedule, risk, milestone }
+}
+
+/* ═══════════════ 본문 재구성(2026-07-09) 신규 모델 ═══════════════ */
+
+/* ── Phase × 팀 진척 매트릭스 ── */
+export interface MatrixCell { pct: number; planned: number; count: number }
+export interface MatrixRow {
+  id: string; name: string
+  cells: (MatrixCell | null)[]
+  overall: number; planned: number; variance: number
+}
+
+/** 셀 = 해당 팀이 담당(primary·support 모두)인 leaf들의 단순 평균. 무배정이면 null. */
+export function progressMatrix(roots: ComputedItem[], teams: readonly TeamCode[]): MatrixRow[] {
+  const avg = (ns: number[]) => Math.round(ns.reduce((a, b) => a + b, 0) / ns.length)
+  return roots.map(phase => {
+    const leaves = collectLeaves([phase])
+    const cells = teams.map(team => {
+      const owned = leaves.filter(l => l.owners.some(o => o.team === team))
+      if (!owned.length) return null
+      return { pct: avg(owned.map(l => l.rolledActualPct)), planned: avg(owned.map(l => l.plannedPct)), count: owned.length }
+    })
+    return {
+      id: phase.id, name: phase.name, cells,
+      overall: phase.rolledActualPct, planned: phase.plannedPct,
+      variance: phase.rolledActualPct - phase.plannedPct,
+    }
+  })
+}
+
+/* ── 편차 랭킹 — 뒤처졌지만 아직 마감 전(따라잡기 후보). 기한 경과분은 delayAging 전담.
+ *    statusOf 상 actual<planned ⟺ delayed 이므로 분리 기준은 상태가 아니라 마감 경과 여부다. ── */
+export interface VarianceEntry { item: ComputedItem; gapPp: number }
+
+export function varianceRanking(leaves: ComputedItem[], today: string, limit = 8): VarianceEntry[] {
+  return leaves
+    .filter(l => l.status !== 'done' && (l.plannedEnd == null || l.plannedEnd >= today))
+    .map(l => ({ item: l, gapPp: l.plannedPct - l.rolledActualPct }))
+    .filter(e => e.gapPp > 0)
+    .sort((a, b) => b.gapPp - a.gapPp || a.item.sortOrder - b.item.sortOrder)
+    .slice(0, limit)
+}
+
+/* ── 마일스톤 타임라인 — 완료 포함 전체 여정(detectMilestones는 '다음 1개' 전용으로 유지) ── */
+export type MilestoneStatus = 'done' | 'overdue' | 'upcoming'
+export interface MilestonePoint { id: string; name: string; date: string; status: MilestoneStatus; dday: number }
+
+export function milestoneTimeline(items: ComputedItem[], today: string): MilestonePoint[] {
+  return collectLeaves(items)
+    .filter(l => isMilestoneLeaf(l) && l.plannedEnd != null)
+    .map(l => ({
+      id: l.id, name: l.name, date: l.plannedEnd!,
+      status: (l.status === 'done' ? 'done' : l.plannedEnd! < today ? 'overdue' : 'upcoming') as MilestoneStatus,
+      dday: diffDaysCal(today, l.plannedEnd!),
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+}
+
+/* ── 지연 에이징 — 기한(plannedEnd) 경과 미완료 작업. 경과일은 항상 ≥ 1. ── */
+export interface AgingEntry { item: ComputedItem; overdue: number; gap: number }
+export interface AgingModel { d1_7: number; d8_14: number; d15plus: number; total: number; list: AgingEntry[] }
+
+export function delayAging(leaves: ComputedItem[], today: string, limit = 8): AgingModel {
+  const entries = leaves
+    .filter(l => l.status !== 'done' && l.plannedEnd != null && l.plannedEnd < today)
+    .map(l => ({ item: l, overdue: diffDaysCal(l.plannedEnd!, today), gap: Math.max(0, l.plannedPct - l.rolledActualPct) }))
+    .sort((a, b) => b.overdue - a.overdue || b.gap - a.gap)
+  return {
+    d1_7: entries.filter(e => e.overdue <= 7).length,
+    d8_14: entries.filter(e => e.overdue >= 8 && e.overdue <= 14).length,
+    d15plus: entries.filter(e => e.overdue >= 15).length,
+    total: entries.length,
+    list: entries.slice(0, limit),
+  }
+}
+
+/* ── 데이터 위생 — 계획 데이터 품질(PMO 거버넌스) ── */
+export interface HygieneModel { noOwner: number; noDates: number; mixedWeight: number; clean: boolean }
+
+/** mixedWeight: 형제 그룹에서 weight가 일부만 null이면 카운트.
+ *  루트 그룹은 null→유효가중 0(overallProgress eff), 자식 그룹은 null→1(siblingWeight)로
+ *  형제와 다른 의도치 않은 가중이 걸리는 실제 버그 소지다. */
+export function dataHygiene(items: ComputedItem[]): HygieneModel {
+  const leaves = collectLeaves(items)
+  const noOwner = leaves.filter(l => l.owners.length === 0).length
+  const noDates = leaves.filter(l => l.plannedStart == null && l.plannedEnd == null).length
+  let mixedWeight = 0
+  const checkGroup = (group: ComputedItem[]) => {
+    if (group.length >= 2 && group.some(g => g.weight == null) && group.some(g => g.weight != null)) mixedWeight++
+  }
+  checkGroup(items)
+  const walk = (ns: ComputedItem[]) =>
+    ns.forEach(n => { if (n.children.length) { checkGroup(n.children); walk(n.children) } })
+  walk(items)
+  return { noOwner, noDates, mixedWeight, clean: noOwner === 0 && noDates === 0 && mixedWeight === 0 }
 }
