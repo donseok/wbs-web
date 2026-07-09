@@ -60,7 +60,7 @@ export const getMinuteDetail = cache(async (
 ): Promise<{ minute: Minute; files: MinuteFile[] } | null> => {
   const sb = await createServerClient()
   const { data: r } = await sb.from('minutes')
-    .select('id, minute_date, team_code, title, body_md, meeting_id, created_by, created_by_name, created_at, updated_at')
+    .select('id, minute_date, team_code, title, body_md, meeting_id, created_by, created_by_name, created_at, updated_at, meetings(project_id)')
     .eq('id', id).maybeSingle()
   if (!r) return null
   const { data: fs } = await sb.from('minute_files')
@@ -76,5 +76,7 @@ export const getMinuteDetail = cache(async (
     mime: (f.mime as string) ?? null,
     createdAt: f.created_at as string,
   }))
-  return { minute: mapMinute(r as Row, (r as Row).body_md as string), files }
+  const minute = mapMinute(r as Row, (r as Row).body_md as string)
+  minute.meetingProjectId = ((r as Row).meetings as { project_id: string } | null)?.project_id ?? null
+  return { minute, files }
 })

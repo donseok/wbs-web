@@ -105,10 +105,11 @@ export function MinuteViewer({
               <Paperclip className="h-4 w-4" />{f.fileName}
             </button>
           ))}
-          {minute.meetingId && (
-            <span className="inline-flex items-center gap-1 text-xs text-ink-subtle">
+          {minute.meetingId && minute.meetingProjectId && (
+            <Link href={`/p/${minute.meetingProjectId}/meetings`}
+              className="inline-flex items-center gap-1 text-xs text-brand underline underline-offset-2 hover:text-brand-hover">
               <ExternalLink className="h-3.5 w-3.5" />{t('min.detail.linkedMeeting')}
-            </span>
+            </Link>
           )}
           {canManage && (
             <span className="ml-auto flex items-center gap-2">

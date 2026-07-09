@@ -142,6 +142,7 @@ export function MinutesView({
 
       {/* 담당별 카운트 요약 */}
       <div className="flex flex-wrap gap-3 text-xs text-ink-muted">
+        <span className="font-medium text-ink">{t('min.team.all')} {minutes.length}</span>
         {TEAM_CODES.map(tk => (
           <span key={tk} className="inline-flex items-center gap-1.5">
             <span className={`inline-block h-2 w-2 rounded-full ${TEAM[tk].bar}`} />

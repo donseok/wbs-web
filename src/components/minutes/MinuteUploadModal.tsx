@@ -1,5 +1,5 @@
 'use client'
-import { useState, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
 import type { TeamCode } from '@/lib/domain/types'
 import {
   MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX,
@@ -34,6 +34,8 @@ export function MinuteUploadModal({
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
+  const progressRef = useRef<{ id: string; done: number } | null>(null)
 
   async function onBodyFile(e: ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -66,12 +68,16 @@ export function MinuteUploadModal({
     if (!bodyFile) { setErr(t('min.err.bodyRequired')); return }
     setBusy(true); setErr(null)
     try {
-      const res = await createMinute({
-        minuteDate: date, teamCode: team, title: title.trim() || bodyFile.name,
-        bodyMd: bodyText, meetingId: meetingId || null,
-      })
-      if (!res.ok || !res.id) { setErr(res.error ?? t('min.err.upload')); return }
-      const minuteId = res.id
+      let minuteId = progressRef.current?.id ?? null
+      if (!minuteId) {
+        const res = await createMinute({
+          minuteDate: date, teamCode: team, title: title.trim() || bodyFile.name,
+          bodyMd: bodyText, meetingId: meetingId || null,
+        })
+        if (!res.ok || !res.id) { setErr(res.error ?? t('min.err.upload')); return }
+        minuteId = res.id
+        progressRef.current = { id: minuteId, done: 0 }
+      }
       const sb = createBrowserClient()
       const files: { role: 'body' | 'attachment'; f: File }[] = [
         { role: 'body', f: bodyFile },
@@ -79,7 +85,8 @@ export function MinuteUploadModal({
       ]
       // 파일 업로드 실패 시에도 회의록은 유지한다(body_md 가 원천 — 스펙 §7).
       // body 파일 실패면 뷰어가 '재업로드 유도' 상태를 안내하고, replaceMinuteBody 로 복구 가능.
-      for (const { role, f } of files) {
+      for (let i = progressRef.current?.done ?? 0; i < files.length; i++) {
+        const { role, f } = files[i]
         const path = `${minuteId}/${Date.now()}-${sanitizeFileName(f.name)}`
         const up = await sb.storage.from(BUCKET).upload(path, f, { upsert: false })
         if (up.error) { setErr(`${t('min.err.upload')}: ${up.error.message}`); return }
@@ -92,6 +99,7 @@ export function MinuteUploadModal({
           await sb.storage.from(BUCKET).remove([path])
           setErr(rec.error ?? t('min.err.record')); return
         }
+        progressRef.current = { id: minuteId, done: i + 1 }
       }
       onSaved()
     } finally { setBusy(false) }

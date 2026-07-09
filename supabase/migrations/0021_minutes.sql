@@ -63,9 +63,10 @@ create policy "minutes bucket read" on storage.objects for select to authenticat
 drop policy if exists "minutes bucket insert" on storage.objects;
 create policy "minutes bucket insert" on storage.objects for insert to authenticated
   with check (bucket_id = 'minutes');
+-- 삭제는 업로더 본인(owner) 또는 pmo_admin만 — INSERT/SELECT는 기존대로 넓게, 세부는 서버 액션.
 drop policy if exists "minutes bucket delete" on storage.objects;
 create policy "minutes bucket delete" on storage.objects for delete to authenticated
-  using (bucket_id = 'minutes');
+  using (bucket_id = 'minutes' and (owner = auth.uid() or app_role() = 'pmo_admin'));
 
 -- ── RLS ──
 alter table minutes           enable row level security;

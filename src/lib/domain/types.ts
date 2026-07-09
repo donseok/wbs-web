@@ -170,6 +170,7 @@ export interface Minute {
   title: string
   bodyMd: string               // 목록 조회에선 ''
   meetingId: string | null
+  meetingProjectId?: string | null  // 뷰어 전용 — 연결된 회의의 프로젝트(조인, 목록 조회엔 없음)
   createdBy: string | null
   createdByName: string | null
   createdAt: string
