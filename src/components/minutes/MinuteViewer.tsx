@@ -1,11 +1,20 @@
 'use client'
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ArrowLeft, Download, ExternalLink, Paperclip } from 'lucide-react'
 import type { Minute, MinuteFile } from '@/lib/domain/types'
-import { getMinuteFileUrl } from '@/app/actions/minutes'
+import {
+  MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
+} from '@/lib/domain/minutes'
+import {
+  getMinuteFileUrl, replaceMinuteBody, deleteMinute,
+} from '@/app/actions/minutes'
+import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { Modal } from '@/components/ui/Modal'
 import { MarkdownView } from './MarkdownView'
+import { MinuteMetaModal } from './MinuteMetaModal'
 import { TEAM } from '@/components/wbs/shared'
 
 export function MinuteViewer({
@@ -15,8 +24,12 @@ export function MinuteViewer({
   files: MinuteFile[]
   canManage: boolean
 }) {
+  const router = useRouter()
   const { t } = useLocale()
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [metaOpen, setMetaOpen] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const bodyFile = files.find(f => f.role === 'body') ?? null
   const attachments = files.filter(f => f.role === 'attachment')
 
@@ -24,7 +37,43 @@ export function MinuteViewer({
     setBusy(true)
     const res = await getMinuteFileUrl(fileId)
     setBusy(false)
-    if (res.ok && res.url) window.open(res.url, '_blank', 'noopener,noreferrer')
+    if (res.ok && res.url) {
+      window.open(res.url, '_blank', 'noopener,noreferrer')
+      setErr(null)
+    } else {
+      setErr(res.error ?? t('min.err.download'))
+    }
+  }
+
+  async function onReplaceBody(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    setErr(null)
+    if (!/\.(md|markdown)$/i.test(f.name)) { setErr(t('min.err.bodyExt')); return }
+    if (f.size > MINUTE_BODY_FILE_MAX) { setErr(t('min.err.bodyFileMax')); return }
+    const text = await f.text()
+    if (text.length > MINUTE_BODY_MAX) { setErr(t('min.err.bodyMax')); return }
+    setBusy(true)
+    try {
+      const sb = createBrowserClient()
+      const path = `${minute.id}/${Date.now()}-${sanitizeFileName(f.name)}`
+      const up = await sb.storage.from('minutes').upload(path, f, { upsert: false })
+      if (up.error) { setErr(`${t('min.err.upload')}: ${up.error.message}`); return }
+      const res = await replaceMinuteBody(minute.id, text, {
+        fileName: f.name, filePath: path, size: f.size, mime: f.type || 'text/markdown',
+      })
+      if (!res.ok) { await sb.storage.from('minutes').remove([path]); setErr(res.error ?? t('min.err.upload')); return }
+      router.refresh()
+    } finally { setBusy(false) }
+  }
+
+  async function onDelete() {
+    setBusy(true)
+    const res = await deleteMinute(minute.id)
+    setBusy(false)
+    if (!res.ok) { setErr(res.error ?? 'error'); return }
+    router.push('/minutes')
   }
 
   return (
@@ -60,15 +109,38 @@ export function MinuteViewer({
               <ExternalLink className="h-3.5 w-3.5" />{t('min.detail.linkedMeeting')}
             </span>
           )}
-          {/* 관리 메뉴(수정/교체/삭제) — Task 11에서 추가 (canManage) */}
+          {canManage && (
+            <span className="ml-auto flex items-center gap-2">
+              <button onClick={() => setMetaOpen(true)} className="btn">{t('min.detail.edit')}</button>
+              <label className="btn cursor-pointer">
+                {t('min.detail.replaceBody')}
+                <input type="file" accept=".md,.markdown" className="hidden" onChange={onReplaceBody} />
+              </label>
+              <button onClick={() => setConfirmOpen(true)} className="btn text-delayed">{t('min.detail.delete')}</button>
+            </span>
+          )}
         </div>
+        {err && <p className="text-sm text-delayed">{err}</p>}
       </div>
 
       {/* 본문 + (Task 17: 우측 채팅 패널) */}
       <div className="card p-5">
         <MarkdownView content={minute.bodyMd} />
       </div>
-      {void canManage}
+
+      <MinuteMetaModal open={metaOpen} onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }} minute={minute} />
+
+      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title={t('min.detail.delete')} size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmOpen(false)} className="btn">{t('common.cancel')}</button>
+            <button onClick={() => { setConfirmOpen(false); void onDelete() }} disabled={busy} className="btn text-delayed">
+              {t('min.detail.delete')}
+            </button>
+          </div>
+        }>
+        <p className="text-sm text-ink">{t('min.detail.deleteConfirm')}</p>
+      </Modal>
     </div>
   )
 }
