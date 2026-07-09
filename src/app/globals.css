@@ -231,6 +231,9 @@ textarea {
   .minutes-md code { @apply rounded bg-surface-2 px-1 py-0.5 text-[13px]; }
   .minutes-md pre { @apply my-3 overflow-x-auto rounded-xl border border-line bg-surface-2 p-3; }
   .minutes-md pre code { @apply bg-transparent p-0; }
+  .minutes-md .minutes-mermaid { @apply my-3 overflow-x-auto rounded-xl border border-line bg-surface p-3; }
+  .minutes-md .minutes-mermaid svg { @apply mx-auto block h-auto max-w-full; }
+  .minutes-md .minutes-mermaid-loading { @apply min-h-28 bg-surface-2; }
   .minutes-md table { @apply my-3 w-full border-collapse text-[13px]; }
   .minutes-md th { @apply border border-line bg-surface-2 px-2 py-1.5 text-left font-semibold; }
   .minutes-md td { @apply border border-line px-2 py-1.5 align-top; }
