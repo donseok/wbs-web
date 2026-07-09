@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { MessageCircle, X } from 'lucide-react'
+import { MessageCircle, RotateCcw, X } from 'lucide-react'
 import type { TeamCode } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { ChatBubble, ChatComposer, useMinutesChat } from './MinuteChatPanel'
@@ -35,7 +35,7 @@ export function ArchiveChatPanel({
   to: string | null
 }) {
   const { t } = useLocale()
-  const { messages, loading, send } = useMinutesChat((message, history) => ({
+  const { messages, loading, send, reset } = useMinutesChat((message, history) => ({
     mode: 'archive', message, history, filters: { team, from, to },
   }))
   if (!open) return null
@@ -45,9 +45,16 @@ export function ArchiveChatPanel({
         <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
           <MessageCircle className="h-4 w-4 text-brand" />{t('min.chat.archive.title')}
         </span>
-        <button onClick={onClose} className="text-ink-subtle hover:text-ink" aria-label="close">
-          <X className="h-4 w-4" />
-        </button>
+        <span className="inline-flex items-center gap-2">
+          <button onClick={reset} disabled={loading || messages.length === 0}
+            className="text-ink-subtle hover:text-ink disabled:opacity-40"
+            title={t('min.chat.reset')} aria-label={t('min.chat.reset')}>
+            <RotateCcw className="h-4 w-4" />
+          </button>
+          <button onClick={onClose} className="text-ink-subtle hover:text-ink" aria-label="close">
+            <X className="h-4 w-4" />
+          </button>
+        </span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {messages.map(m => (

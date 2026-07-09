@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
-import { MessageCircle, Send, X } from 'lucide-react'
+import { MessageCircle, RotateCcw, Send, X } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
 type Msg = { id: number; role: 'user' | 'assistant'; content: string }
@@ -50,7 +50,12 @@ export function useMinutesChat(buildBody: (message: string, history: Msg[]) => o
       setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: t('min.chat.error') }])
     } finally { setLoading(false) }
   }
-  return { messages, loading, send }
+  /** 대화 초기화 — 응답 수신 중에는 무시(스트림이 사라진 말풍선에 계속 쓰는 혼선 방지). */
+  function reset() {
+    if (loading) return
+    setMessages([])
+  }
+  return { messages, loading, send, reset }
 }
 
 /** 어시스턴트/사용자 말풍선 — plain text. renderContent 로 링크화 주입 가능(archive 전용). */
@@ -96,7 +101,7 @@ export function ChatComposer({ onSend, loading }: { onSend: (v: string) => void;
 export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   const { t } = useLocale()
   const [open, setOpen] = useState(true)
-  const { messages, loading, send } = useMinutesChat((message, history) => ({
+  const { messages, loading, send, reset } = useMinutesChat((message, history) => ({
     mode: 'doc', minuteId, message, history,
   }))
   if (!open) {
@@ -112,9 +117,16 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
         <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
           <MessageCircle className="h-4 w-4 text-brand" />{t('min.chat.doc.title')}
         </span>
-        <button onClick={() => setOpen(false)} className="text-ink-subtle hover:text-ink" aria-label="close">
-          <X className="h-4 w-4" />
-        </button>
+        <span className="inline-flex items-center gap-2">
+          <button onClick={reset} disabled={loading || messages.length === 0}
+            className="text-ink-subtle hover:text-ink disabled:opacity-40"
+            title={t('min.chat.reset')} aria-label={t('min.chat.reset')}>
+            <RotateCcw className="h-4 w-4" />
+          </button>
+          <button onClick={() => setOpen(false)} className="text-ink-subtle hover:text-ink" aria-label="close">
+            <X className="h-4 w-4" />
+          </button>
+        </span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {messages.map(m => <ChatBubble key={m.id} role={m.role} content={m.content} />)}
