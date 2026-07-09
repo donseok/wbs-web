@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CalendarDays, ChevronLeft, ChevronRight, List, Paperclip, Plus, Search } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, List, MessageCircle, Paperclip, Plus, Search } from 'lucide-react'
 import type { Minute, TeamCode } from '@/lib/domain/types'
 import { TEAM_CODES } from '@/lib/domain/minutes'
 import { fetchMinutesRange, fetchMinutesSearch } from '@/app/actions/minutes'
@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM } from '@/components/wbs/shared'
 import { MinutesCalendar } from './MinutesCalendar'
 import { MinuteUploadModal } from './MinuteUploadModal'
+import { ArchiveChatPanel } from './ArchiveChatPanel'
 
 type ViewKey = 'list' | 'calendar'
 type TeamKey = 'ALL' | TeamCode
@@ -45,10 +46,10 @@ export function MinutesView({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [searching, setSearching] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const reqRef = useRef(0)
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const teamOrNull = team === 'ALL' ? null : team
   const isSearch = query.trim().length > 0
 
@@ -130,6 +131,9 @@ export function MinutesView({
             tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
                    { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
             value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
+          <button onClick={() => setChatOpen(true)} className="btn">
+            <MessageCircle className="h-4 w-4" />{t('min.chat.archive.title')}
+          </button>
           <button onClick={() => setUploadOpen(true)} className="btn btn-primary">
             <Plus className="h-4 w-4" />{t('min.upload')}
           </button>
@@ -222,6 +226,10 @@ export function MinutesView({
           }}
           todayIso={todayIso} projects={projects} />
       )}
+      <ArchiveChatPanel open={chatOpen} onClose={() => setChatOpen(false)}
+        team={teamOrNull}
+        from={isSearch ? null : monthRangeOf(year, month0)[0]}
+        to={isSearch ? null : monthRangeOf(year, month0)[1]} />
       {void currentUserId} {void role} {void locale}
     </div>
   )
