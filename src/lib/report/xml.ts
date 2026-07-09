@@ -29,7 +29,8 @@ export function mapTableCell(xml: string, rowIdx: number, colIdx: number, newTxB
     let ci = -1
     return row.replace(TC_RE, cell => {
       ci += 1
-      return ci === colIdx ? cell.replace(TXBODY_RE, newTxBody) : cell
+      // 함수 치환 — newTxBody의 $&·$'·$` 가 치환 패턴으로 해석돼 XML이 파손되는 것을 방지
+      return ci === colIdx ? cell.replace(TXBODY_RE, () => newTxBody) : cell
     })
   })
 }
@@ -58,16 +59,25 @@ export function extractCellSkeletons(cellXml: string): CellSkeletons {
 const para = (pPr: string, rPr: string, text: string) =>
   `<a:p>${pPr}<a:r>${rPr}<a:t>${escapeXml(text)}</a:t></a:r></a:p>`
 
-/** Phase 그룹들 → 콘텐츠 셀 <a:txBody>. title=불릿+볼드 헤드라인, sub='- '상세. */
-export function buildCellTxBody(groups: NarrativeGroup[], sk: CellSkeletons): string {
+/** rPr → endParaRPr 개명(빈 문단이 본문과 같은 줄 높이를 갖도록). */
+const asEndParaRPr = (rPr: string) =>
+  rPr.replace(/^<a:rPr/, '<a:endParaRPr').replace(/<\/a:rPr>$/, '</a:endParaRPr>')
+
+/** Phase 그룹들 → 콘텐츠 셀 <a:txBody>. title=불릿+볼드 헤드라인, sub='- '상세.
+ *  상세 항목이 있는 그룹(주제 블록)이 끝나면 빈 문단 1줄로 다음 그룹과 구분(시인성).
+ *  항목 없는 한 줄짜리 그룹(이슈/이벤트 불릿) 사이에는 빈 줄을 넣지 않는다. */
+export function buildCellTxBody(groups: NarrativeGroup[], sk: CellSkeletons, emptyText = '(해당 없음)'): string {
   const body: string[] = []
   if (!groups.length) {
-    body.push(para(sk.sub.pPr, sk.sub.rPr, '(해당 없음)'))
+    body.push(para(sk.sub.pPr, sk.sub.rPr, emptyText))
   } else {
-    for (const g of groups) {
+    groups.forEach((g, gi) => {
+      if (gi > 0 && groups[gi - 1].items.length > 0) {
+        body.push(`<a:p>${sk.sub.pPr}${asEndParaRPr(sk.sub.rPr)}</a:p>`)
+      }
       body.push(para(sk.title.pPr, sk.title.rPr, g.phase))
       for (const it of g.items) body.push(para(sk.sub.pPr, sk.sub.rPr, `- ${it}`))
-    }
+    })
   }
   return `<a:txBody>${sk.bodyPr}${sk.lstStyle}${body.join('')}</a:txBody>`
 }

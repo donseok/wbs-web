@@ -45,6 +45,11 @@ describe('mapTableCell', () => {
   it('행/열 인덱스 벗어나면 원본 그대로', () => {
     expect(mapTableCell(TBL, 9, 0, '<a:txBody/>')).toBe(TBL)
   })
+  it("텍스트의 $&·$'·$` 가 치환 패턴으로 해석되지 않고 그대로 들어감", () => {
+    const tx = "<a:txBody><a:p>US$'000 $&amp; $` 예산</a:p></a:txBody>"
+    const out = mapTableCell(TBL, 0, 1, tx)
+    expect(out).toContain(tx)
+  })
 })
 
 const CONTENT_CELL =
@@ -83,8 +88,29 @@ describe('buildCellTxBody', () => {
     expect(xml).toContain('<a:t>- R&amp;R 확정</a:t>')
     expect(xml.endsWith('</a:txBody>')).toBe(true)
   })
-  it('빈 그룹 → (해당 없음) 한 줄', () => {
+  it('빈 그룹 → (해당 없음) 한 줄, emptyText로 대체 가능', () => {
     expect(buildCellTxBody([], SK)).toContain('<a:t>(해당 없음)</a:t>')
+    expect(buildCellTxBody([], SK, '-')).toContain('<a:t>-</a:t>')
+  })
+
+  // 런(<a:r>) 없는 빈 문단 — 주제 블록 구분용 개행
+  const blankParas = (xml: string) =>
+    (xml.match(/<a:p><a:pPr><a:buNone\/><\/a:pPr><a:endParaRPr[^>]*\/><\/a:p>/g) ?? []).length
+
+  it('항목 있는 그룹(주제 블록) 사이마다 빈 문단 1줄', () => {
+    const gs = ['P1', 'P2', 'P3'].map((p, i) => ({ phase: p, num: i + 1, items: [`${p} 항목`] }))
+    const xml = buildCellTxBody(gs, SK)
+    expect(blankParas(xml)).toBe(2)                             // 그룹 3개 → 사이 2곳
+    const blankAt = xml.indexOf('<a:endParaRPr')
+    expect(blankAt).toBeGreaterThan(xml.indexOf('P1 항목'))     // 첫 블록 끝난 뒤
+    expect(blankAt).toBeLessThan(xml.indexOf('<a:t>P2</a:t>')) // 다음 헤더 앞
+  })
+  it('그룹 1개면 빈 문단 없음', () => {
+    expect(blankParas(buildCellTxBody([{ phase: 'P1', num: 1, items: ['a', 'b'] }], SK))).toBe(0)
+  })
+  it('항목 없는 한 줄 그룹(이슈/이벤트 불릿) 사이에는 빈 문단 없음', () => {
+    const gs = ['이슈1', '이슈2', '이슈3'].map(p => ({ phase: p, num: 0, items: [] }))
+    expect(blankParas(buildCellTxBody(gs, SK))).toBe(0)
   })
 })
 

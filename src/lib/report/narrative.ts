@@ -1,5 +1,4 @@
 import type { AnnouncementRow, WeeklyReportModel, WeeklyTaskRow, PhasePlanActual } from './weekly'
-import { statusKr } from './weekly'
 
 /* ============================================================================
  * 주간보고 서술형 변환 — WeeklyReportModel(공유 모델) → PPT 전용 문구.
@@ -21,13 +20,13 @@ export interface NarrativeModel {
 /** 비분리 공백(U+00A0) — 메타가 줄바꿈으로 쪼개지지 않게 묶는 데 사용. */
 const NB = String.fromCharCode(0xa0)
 
-/** 담당·상태 메타 → '· 담당 · 상태'. 진행률(%)은 표시하지 않음. 내부는 전부 NB로 묶어 한 덩어리로만 줄바꿈. */
+/** 담당 메타 → '· 담당'. 상태(완료/진행중/지연)·진행률(%)은 표시하지 않음. 내부는 전부 NB로 묶어 한 덩어리로만 줄바꿈. */
 function taskMeta(r: WeeklyTaskRow): string {
   const owner = r.ownerText.replace(/ /g, NB) // '(가공 주관)' 같은 담당 표기도 통째로 유지
-  return `·${NB}${owner}${NB}·${NB}${statusKr(r.status)}`
+  return `·${NB}${owner}`
 }
 
-/** 작업 1건 → '작업명 · 담당 · 상태'. 작업명과 메타 사이만 일반 공백(줄바꿈 지점). */
+/** 작업 1건 → '작업명 · 담당'. 작업명과 메타 사이만 일반 공백(줄바꿈 지점). */
 function taskLine(r: WeeklyTaskRow): string {
   return `${r.name} ${taskMeta(r)}`
 }

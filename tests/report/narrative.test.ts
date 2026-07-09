@@ -30,11 +30,11 @@ describe('buildWeeklyNarrative', () => {
     expect(n.prev[0].items.some(s => s.includes('전주완료작업'))).toBe(true)
     expect(n.curr[0].items.some(s => s.includes('금주진행작업'))).toBe(true)
   })
-  it('활동 항목 문구에 담당·상태 포함(진행률 % 제외)', () => {
+  it('활동 항목 문구에 담당 포함(상태·진행률 제외)', () => {
     const line = n.curr[0].items[0]
     expect(line).toContain('금주진행작업')
     expect(line).toContain('MES')
-    expect(line).toContain('진행중')
+    expect(line).not.toContain('진행중')  // 진행사항(완료/진행중/지연) 미표기
     expect(line).not.toContain('%')
     expect(line).not.toContain('50')
   })
@@ -63,12 +63,13 @@ describe('buildWeeklyNarrative', () => {
     expect(n2.curr.find(g => g.phase === '준비')).toBeUndefined()
   })
 
-  it('메타(담당·상태)는 비분리 공백으로 묶이고 진행률 %는 없음', () => {
+  it('메타(담당)는 비분리 공백으로 묶이고 상태·진행률은 없음', () => {
     const NB = String.fromCharCode(0xa0) // non-breaking space (U+00A0)
-    const line = n.curr[0].items[0] // 금주진행작업 · MES · 진행중
-    expect(line).toContain(`·${NB}MES${NB}·${NB}진행중`) // 담당·상태가 NBSP로 묶임
-    expect(line).not.toContain('%')                       // 진행률(%) 제거
-    expect(line).toContain('금주진행작업 ')               // 작업명과 메타 사이는 일반 공백(줄바꿈 지점)
+    const line = n.curr[0].items[0] // 금주진행작업 · MES
+    expect(line).toContain(`·${NB}MES`)      // 담당이 NBSP로 묶임
+    expect(line).not.toContain('진행중')     // 상태 제거
+    expect(line).not.toContain('%')          // 진행률(%) 제거
+    expect(line).toContain('금주진행작업 ')  // 작업명과 메타 사이는 일반 공백(줄바꿈 지점)
   })
 
   it('회의가 있으면 events에 반영', () => {

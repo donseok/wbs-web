@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     meetings: meetingData.meetings, meetingExceptions: meetingData.exceptions, announcements,
   })
   const meta = FORMATS[format]
-  // pptx는 사내 D-Cube 템플릿(.pptx)의 slide2 표 셀만 교체 — 디자인은 원본과 바이트 동일.
+  // pptx는 사내 D-Cube 템플릿(.pptx)의 slide2 표 셀만 교체 — 내용이 넘치면 동일 디자인의 연속 슬라이드 추가.
   const body = format === 'xlsx'
     ? await buildReportWorkbook(model)
     : await fillWeeklyTemplate(buildWeeklyNarrative(model), model)
