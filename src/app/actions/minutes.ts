@@ -1,5 +1,6 @@
 'use server'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
@@ -7,6 +8,7 @@ import { validateMinuteInput, isMinuteFilePathValid, type MinuteInput } from '@/
 import { getMinuteDetail, getMinutesPage, searchMinutes } from '@/lib/data/minutes'
 import type { Minute, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
+import { ingestMinute } from '@/lib/ai/minutes-ingest'
 
 const BUCKET = 'minutes'
 
@@ -40,8 +42,8 @@ export async function createMinute(input: MinuteInput): Promise<MinuteActionResu
     created_by: user.id, created_by_name: displayNameFrom(user.user_metadata, user.email),
   }).select('id').single()
   if (error) return { ok: false, error: error.message }
-  // [P2] after(() => ingestMinute(data.id as string, input.bodyMd)) — Task 13에서 배선
   revalidatePath('/minutes')
+  after(() => ingestMinute(data.id as string, input.bodyMd))
   return { ok: true, id: data.id as string }
 }
 
@@ -100,8 +102,8 @@ export async function replaceMinuteBody(
   const { error } = await sb.from('minutes')
     .update({ body_md: bodyMd, updated_at: new Date().toISOString() }).eq('id', id)
   if (error) return { ok: false, error: error.message }
-  // [P2] after(() => ingestMinute(id, bodyMd)) — Task 13에서 배선
   revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
+  after(() => ingestMinute(id, bodyMd))
   return { ok: true }
 }
 
