@@ -12,6 +12,7 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TEAM } from '@/components/wbs/shared'
 import { MinutesCalendar } from './MinutesCalendar'
+import { MinuteUploadModal } from './MinuteUploadModal'
 
 type ViewKey = 'list' | 'calendar'
 type TeamKey = 'ALL' | TeamCode
@@ -211,9 +212,15 @@ export function MinutesView({
         </div>
       )}
 
-      {/* 업로드 모달 — Task 9에서 MinuteUploadModal 로 교체 */}
-      {uploadOpen && <div className="hidden" aria-hidden onClick={() => setUploadOpen(false)} />}
-      {void projects} {void currentUserId} {void role} {void locale} {void router}
+      {/* 업로드 모달 */}
+      <MinuteUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)}
+        onSaved={() => {
+          setUploadOpen(false)
+          if (isSearch) void runSearch(query, team); else void loadMonth(year, month0, team)
+          router.refresh()
+        }}
+        todayIso={todayIso} projects={projects} />
+      {void currentUserId} {void role} {void locale}
     </div>
   )
 }
