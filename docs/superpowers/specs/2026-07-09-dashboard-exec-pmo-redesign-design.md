@@ -15,9 +15,9 @@
 |---|---|
 | 추세가 좋아지고 있나, 나빠지고 있나? | B. 진척 트렌드 (S-Curve + SPI + velocity) |
 | 어느 단계·어느 팀이 병목인가? | C-1. 진척 매트릭스 (Phase×팀) |
-| 지연으로 번지기 전에 어디를 챙겨야 하나? | C-2. 편차 랭킹 |
+| 뒤처졌지만 아직 마감 전인 것(따라잡기 후보)은? | C-2. 편차 랭킹 |
 | 마일스톤 여정 전체는 어떤 상태인가? | D. 마일스톤 타임라인 |
-| 이미 지연된 것은 얼마나 오래, 얼마나 심각한가? | E-1. 지연 에이징 |
+| 기한을 이미 넘긴 작업은 얼마나 오래 방치됐나? | E-1. 지연 에이징(기한 경과) |
 | 계획 데이터 자체는 관리 가능한 품질인가? | E-2. 데이터 위생 |
 
 **선행 스펙과의 관계**: 07-08 스펙의 "정보 손실 0(13블록 전부 보존)" 원칙은 본 스펙에서 **사용자 결정으로 폐기**한다(브레인스토밍 선택지 "완전 교체" 채택). 근태·산출물 등은 각자 전용 페이지가 이미 있다.
@@ -38,12 +38,13 @@ B. 진척 트렌드 ────────────────── xl: [
    우: SPI 스파크라인 + 현재 SPI · 주간 velocity(+x%p) · 현재 편차(%p) 스탯
 C. 진척 매트릭스 + 편차 랭킹 ──── xl: 2열
    좌: Phase(행)×팀(열) 히트맵 — 셀=담당 leaf 평균 진척%(작업수), 행 끝=Phase 전체%·편차
-   우: 계획-실적 편차 내림차순 Top 8 (done 제외) — 이름·담당팀·이중 바·편차 %p 배지
+   우: 계획-실적 편차 내림차순 Top 8 (done·기한경과 제외 — 마감이 남은 따라잡기 후보만) — 이름·담당팀·이중 바·편차 %p 배지
 D. 마일스톤 타임라인 ──────────── 전체 폭
    프로젝트 시작→종료 가로축, 마일스톤 점 배치
    완료=초록 · 기한경과 미완=빨강 · 예정=중립+D-day 라벨 · 오늘 세로선
 E. 지연 에이징 + 데이터 위생 ──── xl: [minmax(0,2fr) minmax(0,1fr)]
-   좌: 경과일 버킷(≤7 / 8~14 / 15+일) 스탯 3개 + 지연 Top 8 리스트(기존 ATTENTION 흡수)
+   좌: 기한 경과(plannedEnd<오늘) 미완료 작업의 경과일 버킷(1~7 / 8~14 / 15+일) 스탯 3개
+       + 경과 Top 8 리스트(기존 ATTENTION 흡수)
    우: 담당팀 누락 n건 · 기간 미설정 n건 · 가중치 혼재 n건 — 각 행에서 WBS 페이지로 링크
 ```
 
@@ -97,9 +98,9 @@ create table wbs_progress_snapshots (
 ### 6.2 매트릭스·랭킹·에이징·위생 (`dashboard.ts` 확장)
 
 - `progressMatrix(roots): { rows: { phase, cells: ({ pct, count } | null)[], overall, variance }[] }` — 셀 = 해당 팀이 담당인 leaf들의 평균 `rolledActualPct` + 개수(primary·support 모두 포함 — 기존 `teamSummary` 관례), 담당 leaf 없으면 null(표시는 "—"). 팀 축은 기존 `TEAMS` 상수.
-- `varianceRanking(leaves): { item, gapPp }[]` — `plannedPct − rolledActualPct` 내림차순, `done`·`delayed` 제외(지연은 E-1이 전담 — 이 랭킹은 지연 판정 전 조기 경보 전용이라 중복 노출 방지), `gapPp > 0`만, Top 8.
+- `varianceRanking(leaves, today): { item, gapPp }[]` — `plannedPct − rolledActualPct` 내림차순, `gapPp > 0`만, Top 8. 제외: `done`, 그리고 **기한 경과 항목(`plannedEnd < today`)** — 그건 E-1이 전담. **주의(도메인 사실)**: `statusOf`는 `actual < planned`이면 곧바로 `delayed`이므로 "지연 전 조기 경보" 상태는 이 도메인에 존재하지 않는다. C-2/E-1의 분리 기준은 상태가 아니라 **마감 경과 여부**다(C-2=따라잡을 시간이 남은 것, E-1=기한을 넘긴 것 — 상호 배타).
 - `milestoneTimeline(items, today): { name, date, status: 'done'|'overdue'|'upcoming', dday }[]` — 기존 `isMilestoneLeaf` 재사용하되 **완료 포함 전체** 나열, 날짜순. 기존 `detectMilestones`(다음 1개 감지)는 ExecSummary용으로 그대로 유지.
-- `delayAging(leaves, today): { buckets: [n0_7, n8_14, n15plus], list: { item, overdue, gap }[] }` — 경과일 = `max(0, today − plannedEnd)`, 버킷 경계 ≤7 / 8~14 / 15+ (마감 전이지만 status=delayed인 것은 경과 0일로 ≤7 버킷), 리스트는 기존 ATTENTION 정렬(경과일 → 편차) Top 8.
+- `delayAging(leaves, today): { d1_7, d8_14, d15plus, total, list }` — 대상 = `status !== 'done' && plannedEnd < today`(기한 경과 미완료), 경과일 = `today − plannedEnd`(항상 ≥1), 버킷 1~7 / 8~14 / 15+, 리스트는 기존 ATTENTION 정렬(경과일 → 편차) Top 8.
 - `dataHygiene(items): { noOwner: number, noDates: number, mixedWeight: number }`
   - `noOwner`: owners가 빈 leaf 수
   - `noDates`: plannedStart·plannedEnd 모두 null인 leaf 수
@@ -148,7 +149,7 @@ create table wbs_progress_snapshots (
 ## 10. 테스트 (Vitest)
 
 - `tests/domain/trend.test.ts` (신규): plannedAt 경계(시작 전=0, 종료 후=100), carry-forward(빈 날짜 메움·미래 미연장), SPI 조기 가드 제외, velocity(7일 창, 스냅샷 희소 시 carry-forward 기준), 빈 스냅샷/기간 null 폴백.
-- `tests/domain/dashboard.test.ts` (확장): progressMatrix(무배정 null 셀·평균 계산), varianceRanking(done·delayed 제외·양수만·정렬), milestoneTimeline(done/overdue/upcoming 분류·정렬), delayAging(버킷 경계 7/14일·마감 전 지연 0일 처리), dataHygiene(mixedWeight — 일부 null 형제 감지, 전부 null은 정상).
+- `tests/domain/dashboard.test.ts` (확장): progressMatrix(무배정 null 셀·평균 계산), varianceRanking(done·기한경과 제외·양수만·정렬), milestoneTimeline(done/overdue/upcoming 분류·정렬), delayAging(버킷 경계 7/14일·기한 경과만 포함), dataHygiene(mixedWeight — 일부 null 형제 감지, 전부 null은 정상).
 - 스냅샷 upsert 헬퍼: 도메인 산출값 정합만 단위 테스트(DB 왕복은 범위 밖 — 기존 액션 테스트 관례 따름).
 
 ## 11. 배포
