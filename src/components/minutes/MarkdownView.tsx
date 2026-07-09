@@ -9,9 +9,15 @@ export function MarkdownView({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-          ),
+          a: ({ node, href, children, ...rest }) => {
+            void node
+            const isHash = typeof href === 'string' && href.startsWith('#')
+            return isHash ? (
+              <a href={href} {...rest}>{children}</a>
+            ) : (
+              <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>{children}</a>
+            )
+          },
         }}
       >
         {content}
