@@ -2,6 +2,8 @@
 import { useRef, useState } from 'react'
 import { MessageCircle, RotateCcw, Send, X } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import { linkifyMinutePaths } from './linkify'
 
 type Msg = { id: number; role: 'user' | 'assistant'; content: string }
 
@@ -97,13 +99,20 @@ export function ChatComposer({ onSend, loading }: { onSend: (v: string) => void;
   )
 }
 
-/** 문서 모드 패널 — 뷰어 우측(좁은 화면에선 아래). */
+type ChatScope = 'doc' | 'archive'
+
+/** 문서 모드 패널 — 뷰어 우측(좁은 화면에선 아래). 범위 토글로 전체 보관함 질문 가능. */
 export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   const { t } = useLocale()
   const [open, setOpen] = useState(true)
-  const { messages, loading, send, reset } = useMinutesChat((message, history) => ({
-    mode: 'doc', minuteId, message, history,
+  const [scope, setScope] = useState<ChatScope>('doc')
+  // 범위별 독립 스레드 — 전환해도 각 대화가 보존되고 LLM 컨텍스트가 섞이지 않는다.
+  const doc = useMinutesChat((message, history) => ({ mode: 'doc', minuteId, message, history }))
+  const archive = useMinutesChat((message, history) => ({
+    mode: 'archive', message, history, filters: { team: null, from: null, to: null },
   }))
+  const chat = scope === 'doc' ? doc : archive
+
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="btn self-start">
@@ -114,11 +123,15 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   return (
     <aside className="card flex h-[560px] w-full flex-col lg:w-[340px] lg:shrink-0">
       <div className="flex items-center justify-between border-b border-line px-3 py-2">
-        <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
-          <MessageCircle className="h-4 w-4 text-brand" />{t('min.chat.doc.title')}
+        <span className="inline-flex items-center gap-2">
+          <MessageCircle className="h-4 w-4 shrink-0 text-brand" />
+          <SegmentedTabs<ChatScope>
+            tabs={[{ key: 'doc', label: t('min.chat.scope.doc') },
+                   { key: 'archive', label: t('min.chat.scope.all') }]}
+            value={scope} onChange={setScope} size="sm" />
         </span>
         <span className="inline-flex items-center gap-2">
-          <button onClick={reset} disabled={loading || messages.length === 0}
+          <button onClick={chat.reset} disabled={chat.loading || chat.messages.length === 0}
             className="text-ink-subtle hover:text-ink disabled:opacity-40"
             title={t('min.chat.reset')} aria-label={t('min.chat.reset')}>
             <RotateCcw className="h-4 w-4" />
@@ -129,9 +142,12 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
         </span>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
-        {messages.map(m => <ChatBubble key={m.id} role={m.role} content={m.content} />)}
+        {chat.messages.map(m => (
+          <ChatBubble key={m.id} role={m.role} content={m.content}
+            renderContent={scope === 'archive' ? linkifyMinutePaths : undefined} />
+        ))}
       </div>
-      <ChatComposer onSend={send} loading={loading} />
+      <ChatComposer onSend={chat.send} loading={chat.loading} />
     </aside>
   )
 }

@@ -47,6 +47,8 @@ export const minutesKo = {
   'min.chat.empty': '응답이 비어 있어요. 다시 시도해 주세요.',
   'min.chat.error': '응답 생성에 실패했어요. 잠시 후 다시 시도해 주세요.',
   'min.chat.reset': '대화 초기화',
+  'min.chat.scope.doc': '이 문서',
+  'min.chat.scope.all': '전체 회의록',
   'min.meta.save': '저장',
   'min.meta.title': '회의록 메타 수정',
 }
@@ -100,6 +102,8 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.chat.empty': 'Empty response. Please retry.',
   'min.chat.error': 'Failed to generate a response. Try again shortly.',
   'min.chat.reset': 'Clear conversation',
+  'min.chat.scope.doc': 'This doc',
+  'min.chat.scope.all': 'All minutes',
   'min.meta.save': 'Save',
   'min.meta.title': 'Edit minutes meta',
 }
