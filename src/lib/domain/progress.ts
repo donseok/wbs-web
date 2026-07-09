@@ -29,9 +29,10 @@ export function achievementOf(actual: number, planned: number): number | null {
 export function statusOf(
   actual: number, planned: number, start: string | null, today: string,
 ): Status {
+  // done만은 원시값 비교 — 반올림하면 실적 99.5가 완료 처리된다(집계·알림·칸반 전파).
+  if (actual >= 100) return 'done'
   const a = Math.round(actual)
   const p = Math.round(planned)
-  if (a >= 100) return 'done'
   if (start && today < start && a === 0) return 'not_started'
   if (p === 0 && a === 0) return 'not_started'
   if (a < p) return 'delayed'

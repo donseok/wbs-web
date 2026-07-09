@@ -50,4 +50,8 @@ describe('statusOf', () => {
     // 0.1%p 격차는 지연 아님 — 정수 표기 화면(33%/33%)과 모순되지 않게
     expect(statusOf(66.6, 66.7, '2026-07-06', '2026-07-08')).toBe('in_progress')
   })
+  it('done은 원시값 기준 — 99.5는 반올림으로 완료 처리되지 않는다', () => {
+    expect(statusOf(99.5, 50, '2026-07-06', '2026-07-08')).toBe('in_progress')
+    expect(statusOf(100, 50, '2026-07-06', '2026-07-08')).toBe('done')
+  })
 })
