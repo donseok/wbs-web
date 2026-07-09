@@ -217,6 +217,27 @@ textarea {
            focus:border-brand focus:ring-2 focus:ring-brand-ring;
   }
 
+  /* 회의록 md 뷰어 타이포 — 토큰만 사용, .dark 자동 대응 */
+  .minutes-md { @apply text-[14px] leading-relaxed text-ink; }
+  .minutes-md h1 { @apply mt-6 mb-3 text-xl font-bold text-ink first:mt-0; }
+  .minutes-md h2 { @apply mt-5 mb-2 text-lg font-bold text-ink first:mt-0; }
+  .minutes-md h3 { @apply mt-4 mb-2 text-base font-semibold text-ink; }
+  .minutes-md h4, .minutes-md h5, .minutes-md h6 { @apply mt-3 mb-1.5 text-sm font-semibold text-ink; }
+  .minutes-md p { @apply my-2; }
+  .minutes-md ul { @apply my-2 list-disc pl-5; }
+  .minutes-md ol { @apply my-2 list-decimal pl-5; }
+  .minutes-md li { @apply my-0.5; }
+  .minutes-md blockquote { @apply my-3 border-l-4 border-line pl-3 text-ink-muted; }
+  .minutes-md code { @apply rounded bg-surface-2 px-1 py-0.5 text-[13px]; }
+  .minutes-md pre { @apply my-3 overflow-x-auto rounded-xl border border-line bg-surface-2 p-3; }
+  .minutes-md pre code { @apply bg-transparent p-0; }
+  .minutes-md table { @apply my-3 w-full border-collapse text-[13px]; }
+  .minutes-md th { @apply border border-line bg-surface-2 px-2 py-1.5 text-left font-semibold; }
+  .minutes-md td { @apply border border-line px-2 py-1.5 align-top; }
+  .minutes-md a { @apply text-brand underline underline-offset-2 hover:text-brand-hover; }
+  .minutes-md hr { @apply my-4 border-line; }
+  .minutes-md img { @apply max-w-full; }
+
   .btn {
     @apply inline-flex h-10 cursor-pointer items-center justify-center gap-2
            rounded-xl px-4 text-sm font-semibold transition duration-150
