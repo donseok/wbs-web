@@ -30,12 +30,17 @@ export async function getSnapshots(projectId: string): Promise<SnapshotPoint[]> 
 export async function recordProgressSnapshot(projectId: string, client?: Sb): Promise<void> {
   try {
     const sb = client ?? (await createServerClient())
-    const [{ data: items }, { data: hol }] = await Promise.all([
+    const [{ data: items, error: itemsErr }, { data: hol, error: holErr }] = await Promise.all([
       sb.from('wbs_items')
         .select('id, parent_id, level, code, sort_order, name, planned_start, planned_end, weight, actual_pct')
         .eq('project_id', projectId),
       sb.from('holidays').select('date').eq('project_id', projectId),
     ])
+    if (itemsErr || holErr) {
+      // supabase-js는 RLS 거부·테이블 미존재를 throw하지 않고 {error}로 반환하므로 명시적으로 확인해 로그를 남긴다.
+      console.error('[snapshot] wbs_items/holidays 조회 실패(무시):', (itemsErr ?? holErr)!.message)
+      return
+    }
     if (!items?.length) return
     const rows: WbsRow[] = items.map((r: Record<string, unknown>) => ({
       id: r.id as string,
@@ -55,10 +60,14 @@ export async function recordProgressSnapshot(projectId: string, client?: Sb): Pr
     const today = seoulToday()
     const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
     const { actual, planned } = overallProgress(computeTree(rows, today, holidays))
-    await sb.from('wbs_progress_snapshots').upsert(
+    const { error: upsertErr } = await sb.from('wbs_progress_snapshots').upsert(
       { project_id: projectId, snap_date: today, actual_pct: actual, planned_pct: planned, updated_at: new Date().toISOString() },
       { onConflict: 'project_id,snap_date' },
     )
+    if (upsertErr && upsertErr.code !== '42501') {
+      // 42501(RLS 거부)은 게스트(비멤버) 조회 시 예상 가능한 소음이라 로그를 생략한다.
+      console.error('[snapshot] upsert 실패(무시):', upsertErr.message)
+    }
   } catch (e) {
     console.error('[snapshot] 진척 스냅샷 기록 실패(무시):', e)
   }
