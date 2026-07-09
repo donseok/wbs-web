@@ -73,20 +73,20 @@ export async function DashboardView({
         today={today} announcements={announcements}
       />
 
-      {/* B. 진척 트렌드 — S-Curve + SPI/velocity */}
+      {/* B. 마일스톤 여정 */}
+      <MilestoneTimeline points={milestones} startDate={startDate} endDate={endDate} today={today} />
+
+      {/* C. 진척 트렌드 — S-Curve + SPI/velocity */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <TrendChart model={trend} currentActual={actual} today={today} />
         <SpiPanel model={trend} variance={actual - planned} />
       </div>
 
-      {/* C. 병목 식별 — Phase×팀 매트릭스 + 따라잡기 랭킹 */}
+      {/* D. 병목 식별 — Phase×팀 매트릭스 + 따라잡기 랭킹 */}
       <div className="grid gap-5 xl:grid-cols-2">
         <ProgressMatrix rows={matrix} teams={TEAMS} />
         <VarianceRanking entries={ranking} />
       </div>
-
-      {/* D. 마일스톤 여정 */}
-      <MilestoneTimeline points={milestones} startDate={startDate} endDate={endDate} today={today} />
 
       {/* E. 기한 경과 + 계획 데이터 품질 */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
