@@ -15,8 +15,9 @@ export function formatWeightPct(w: number): string {
 /**
  * 공정율 정밀도의 단일 기준 — 소수 1자리 반올림.
  * 롤업·계획율이 정수로 뭉개지면 대시보드가 0.1%p 단위 변화를 표현할 수 없어
- * 도메인 값은 1자리를 유지하고, 정수 표기가 필요한 화면(WBS 표·보고서 등)은
- * 표시 시점에 Math.round 한다.
+ * 도메인 값은 1자리를 유지한다. 대시보드·WBS 시트(셀·간트 라벨·상세 패널)는
+ * formatPct1 로 소수 1자리를 표시하고, 정수 표기가 필요한 화면(보고서·칸반·알림 등)은
+ * 표시 시점에 Math.round 한다. 상태/달성률 판정(statusOf 등)은 정수 반올림 기준 유지.
  */
 export function round1(n: number): number {
   return Math.round(n * 10) / 10

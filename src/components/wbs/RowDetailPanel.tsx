@@ -9,7 +9,7 @@ import {
 import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { formatWeightPct } from '@/lib/domain/format'
+import { formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -162,8 +162,8 @@ export function RowDetailPanel({
           ) : (
             <>
               <section className="grid grid-cols-3 gap-2">
-                <Stat label={t('wbs.colPlannedPct')} value={`${Math.round(item.plannedPct)}%`} />
-                <Stat label={t('wbs.colActualPct')} value={`${Math.round(item.rolledActualPct)}%`} />
+                <Stat label={t('wbs.colPlannedPct')} value={`${formatPct1(item.plannedPct)}%`} />
+                <Stat label={t('wbs.colActualPct')} value={`${formatPct1(item.rolledActualPct)}%`} />
                 <Stat label={t('wbs.colAchievement')} value={item.achievement == null ? '—' : `${item.achievement}%`} />
               </section>
               <div className="flex items-center gap-2"><span className="text-xs text-ink-subtle">{t('wbs.colStatus')}</span><span className={`chip ${STATUS[item.status].chip}`}><span className={`h-1.5 w-1.5 rounded-full ${STATUS[item.status].dot}`} />{t(`status.${item.status}` as DictKey)}</span></div>

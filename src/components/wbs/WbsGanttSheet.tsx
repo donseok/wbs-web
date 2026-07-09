@@ -7,7 +7,7 @@ import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
-import { weightToPct, formatWeightPct } from '@/lib/domain/format'
+import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ReportModal } from '@/components/report/ReportModal'
@@ -26,7 +26,7 @@ const COLS: Col[] = [
   { key: 'pstart', w: 80, detail: true },
   { key: 'pend', w: 80, detail: true },
   { key: 'weight', w: 64, detail: true },
-  { key: 'pplan', w: 60 },
+  { key: 'pplan', w: 68 },
   { key: 'pactual', w: 72 },
   { key: 'achieve', w: 76 },
 ]
@@ -757,7 +757,7 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid justify-end text-[12px] tabular-nums text-ink-muted ${cellBg}`}
                   style={{ width: W('pplan') }}
                 >
-                  {Math.round(n.plannedPct)}%
+                  {formatPct1(n.plannedPct)}%
                 </div>
                 )}
                 {/* 실적% (데이터바) */}
@@ -794,8 +794,8 @@ export function WbsGanttSheet({
                   )}
                   <span className="relative z-10">
                     {/* 편집 시드·잠금 기준(editOriginal)은 원시값 유지 — 반올림하면 저장값이
-                        소수일 때 낙관적 잠금이 영구 불일치. 표시만 정수 반올림. */}
-                    {editingActual ? editInput(String(n.rolledActualPct), 'actual') : `${Math.round(n.rolledActualPct)}%`}
+                        소수일 때 낙관적 잠금이 영구 불일치. 표시만 소수 1자리 반올림. */}
+                    {editingActual ? editInput(String(n.rolledActualPct), 'actual') : `${formatPct1(n.rolledActualPct)}%`}
                   </span>
                 </div>
                 )}
@@ -952,7 +952,8 @@ function Bar({
 }) {
   const left = xOf(n.plannedStart!)
   const width = Math.max(dayPx * 0.5, xOf(n.plannedEnd!) + dayPx - left)
-  const pct = Math.round(Math.min(100, Math.max(0, n.rolledActualPct)))
+  const pct = Math.min(100, Math.max(0, n.rolledActualPct))
+  const pctLabel = `${formatPct1(pct)}%`
   const showInside = width >= 54 && pct >= 45 && n.status !== 'done'
   const showOutside = !showInside && n.status !== 'done'
 
@@ -971,7 +972,7 @@ function Bar({
             className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums text-ink-muted"
             style={{ left: width }}
           >
-            {pct}%
+            {pctLabel}
           </span>
         )}
       </div>
@@ -991,7 +992,7 @@ function Bar({
       </div>
       {showInside && (
         <span className="absolute top-1/2 -translate-x-full -translate-y-1/2 pr-1 text-[9px] font-medium tabular-nums text-white/95" style={{ left: `${pct}%` }}>
-          {pct}%
+          {pctLabel}
         </span>
       )}
       {showOutside && (
@@ -999,7 +1000,7 @@ function Bar({
           className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums text-ink-muted"
           style={{ left: Math.min(width, Math.max(0, width * pct / 100)) }}
         >
-          {pct}%
+          {pctLabel}
         </span>
       )}
     </div>
