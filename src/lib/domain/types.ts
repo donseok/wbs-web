@@ -159,4 +159,32 @@ export interface UiPrefs {
   theme?: 'light' | 'dark'
   locale?: 'ko' | 'en'
   dashSections?: string[]   // 대시보드 상세 아코디언에서 펼쳐 둔 그룹 id
+  minutesView?: 'list' | 'calendar'   // 회의록 보관함 뷰 토글
+}
+
+/* ── 회의록 (minutes) ── */
+export interface Minute {
+  id: string
+  minuteDate: string           // 'YYYY-MM-DD'
+  teamCode: TeamCode
+  title: string
+  bodyMd: string               // 목록 조회에선 ''
+  meetingId: string | null
+  createdBy: string | null
+  createdByName: string | null
+  createdAt: string
+  updatedAt: string
+  fileCount?: number           // 목록 뷰 전용(첨부 수, 서버 계산)
+}
+
+export interface MinuteFile {
+  id: string
+  minuteId: string
+  role: 'body' | 'attachment'
+  fileName: string
+  filePath: string
+  size: number | null
+  mime: string | null
+  createdAt: string
+  url?: string | null          // 서명 URL(요청 시 발급)
 }
