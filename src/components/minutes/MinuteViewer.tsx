@@ -15,6 +15,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
 import { MarkdownView } from './MarkdownView'
 import { MinuteMetaModal } from './MinuteMetaModal'
+import { MinuteChatPanel } from './MinuteChatPanel'
 import { TEAM } from '@/components/wbs/shared'
 
 export function MinuteViewer({
@@ -124,8 +125,11 @@ export function MinuteViewer({
       </div>
 
       {/* 본문 + (Task 17: 우측 채팅 패널) */}
-      <div className="card p-5">
-        <MarkdownView content={minute.bodyMd} />
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="card min-w-0 flex-1 p-5">
+          <MarkdownView content={minute.bodyMd} />
+        </div>
+        <MinuteChatPanel minuteId={minute.id} />
       </div>
 
       <MinuteMetaModal open={metaOpen} onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }} minute={minute} />
