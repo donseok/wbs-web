@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSession } from '@/lib/auth'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { getProjectMembers } from '@/lib/data/members'
 import { getAttendanceRecords } from '@/lib/data/attendance'
@@ -35,10 +36,12 @@ const FORMATS = {
 } as const
 
 /**
- * 현황 보고서를 Excel/PPT로 내보낸다(읽기 전용 — /api/export와 동일, 데모 포함 누구나).
+ * 현황 보고서를 Excel/PPT로 내보낸다(읽기 전용 — /api/export와 동일, 로그인 사용자 누구나).
  * 데이터 페치는 RLS가 적용돼 권한이 자동 반영된다. 화면 모달과 동일한 buildReportModel 사용.
  */
 export async function GET(req: NextRequest) {
+  if (!(await getSession())) return NextResponse.json({ error: '인증이 필요합니다.' }, { status: 401 })
+
   const projectId = req.nextUrl.searchParams.get('projectId')
   const format = req.nextUrl.searchParams.get('format')
   if (!projectId) return NextResponse.json({ error: '프로젝트 누락' }, { status: 400 })
