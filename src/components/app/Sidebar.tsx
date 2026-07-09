@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarCheck, CalendarClock, CalendarRange, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
-  ListTree, Megaphone, PanelLeft, Plus, Settings, Users, type LucideIcon,
+  ListTree, Megaphone, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
@@ -116,6 +116,13 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
         className={`side-link mt-2 ${pathname === '/meetings' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
         <CalendarRange className="h-[18px] w-[18px] shrink-0" />
         {!collapsed && <span className="flex-1">{t('nav.myMeetings')}</span>}
+      </Link>
+
+      {/* 전역: 회의록 */}
+      <Link href="/minutes" title={t('nav.minutes')}
+        className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+        <NotebookText className="h-[18px] w-[18px] shrink-0" />
+        {!collapsed && <span className="flex-1">{t('nav.minutes')}</span>}
       </Link>
 
       {/* 프로젝트 리스트 */}

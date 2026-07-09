@@ -14,6 +14,7 @@ import { homeKo, homeEn } from './dict/home'
 import { chatKo, chatEn } from './dict/chat'
 import { uiKo, uiEn } from './dict/ui'
 import { holidaysKo, holidaysEn } from './dict/holidays'
+import { minutesKo, minutesEn } from './dict/minutes'
 
 export type Locale = 'ko' | 'en'
 
@@ -32,6 +33,7 @@ export const DICT = {
     ...chatKo,
     ...uiKo,
     ...holidaysKo,
+    ...minutesKo,
   },
   en: {
     ...commonEn,
@@ -47,6 +49,7 @@ export const DICT = {
     ...chatEn,
     ...uiEn,
     ...holidaysEn,
+    ...minutesEn,
   },
 } as const
 
