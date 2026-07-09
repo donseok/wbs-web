@@ -3,6 +3,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { isValidDateRange } from '@/lib/domain/validate'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
 
 export async function listProjects() {
   // 서버 액션 직접 호출에 대비한 인증 재확인(RLS와 이중 방어).
@@ -83,6 +85,7 @@ export async function addHoliday(projectId: string, date: string, name: string) 
     .upsert({ project_id: projectId, date, name }, { onConflict: 'project_id,date' })
   if (error) throw new Error(error.message)
   revalidatePath(`/p/${projectId}`, 'layout')
+  after(() => recordProgressSnapshot(projectId))
 }
 
 export async function removeHoliday(projectId: string, date: string) {
@@ -96,4 +99,5 @@ export async function removeHoliday(projectId: string, date: string) {
     .eq('date', date)
   if (error) throw new Error(error.message)
   revalidatePath(`/p/${projectId}`, 'layout')
+  after(() => recordProgressSnapshot(projectId))
 }

@@ -4,6 +4,7 @@ import { getMembership } from '@/lib/auth'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { splitLeafOwners, validateAndLink } from '@/lib/excel/validate'
 import { ingestProject } from '@/lib/ai/ingest'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
 
 export async function POST(req: NextRequest) {
   const m = await getMembership()
@@ -28,6 +29,9 @@ export async function POST(req: NextRequest) {
     p_holidays: parsed.holidays,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // 임포트는 실적·계획 전면 교체 — 즉시 스냅샷 기록(라우트라 await로 충분).
+  await recordProgressSnapshot(projectId)
 
   // 임포트 성공 후 DK Bot 의미검색 색인 갱신(베스트에포트 — 임베딩 키 없으면 자동 skip).
   let reindexed = 0

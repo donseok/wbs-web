@@ -2,6 +2,8 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import type { Level, OwnerKind, TeamCode } from '@/lib/domain/types'
 import { subActName } from '@/lib/domain/subact'
 
@@ -89,6 +91,7 @@ export async function updateActual(
     old_value: old == null ? null : String(old), new_value: String(newPct),
   })
   revalidatePath(`/p/${item.project_id}`, 'layout')
+  after(() => recordProgressSnapshot(item.project_id))
   return { ok: true }
 }
 
@@ -126,6 +129,7 @@ export async function updateWeight(
     old_value: old == null ? null : String(old), new_value: weight == null ? null : String(weight),
   })
   revalidatePath(`/p/${item.project_id}`, 'layout')
+  after(() => recordProgressSnapshot(item.project_id))
   return { ok: true }
 }
 
@@ -153,6 +157,7 @@ export async function addWbsItem(
   const { data: u } = await sb.auth.getUser()
   await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: data.id, field: 'created', old_value: null, new_value: name.trim() })
   revalidatePath(`/p/${projectId}`, 'layout')
+  after(() => recordProgressSnapshot(projectId))
   return { ok: true, id: data.id as string }
 }
 
@@ -222,6 +227,7 @@ export async function addSubAct(
   const { data: u } = await sb.auth.getUser()
   await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: newId, field: 'created', old_value: null, new_value: name })
   revalidatePath(`/p/${act.project_id}`, 'layout')
+  after(() => recordProgressSnapshot(act.project_id))
   return { ok: true, id: newId }
 }
 
@@ -269,6 +275,7 @@ export async function updateWbsFields(
     await sb.from('change_logs').insert(logs.map(l => ({ user_id: u.user?.id, wbs_item_id: itemId, field: l.field, old_value: l.old, new_value: l.new })))
   }
   revalidatePath(`/p/${item.project_id}`, 'layout')
+  after(() => recordProgressSnapshot(item.project_id))
   return { ok: true }
 }
 
@@ -282,6 +289,7 @@ export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; erro
   const { error } = await sb.from('wbs_items').delete().eq('id', itemId)
   if (error) return { ok: false, error: error.message }
   revalidatePath(`/p/${item.project_id as string}`, 'layout')
+  after(() => recordProgressSnapshot(item.project_id as string))
   return { ok: true }
 }
 
