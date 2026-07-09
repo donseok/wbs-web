@@ -1,4 +1,5 @@
 import type { ComputedItem, WbsRow } from './types'
+import { round1 } from './format'
 import { computeTree, overallProgress } from './rollup'
 import { collectLeaves } from './tree'
 import { addDaysCal } from './dashboard'
@@ -83,11 +84,20 @@ export function buildTrend(input: {
   if (today >= axisStart && today <= axisEnd) sampleDates.add(today)
   const plannedSeries = [...sampleDates].sort().map(date => ({ date, pct: plannedAt(rows, date, holidays) }))
 
-  // 실적 이력 — 오늘 이후 제외, carry-forward로 오늘까지 연장
+  // 실적 이력 — 오늘 이후 제외, carry-forward로 오늘까지 연장.
+  // '실적선은 항상 보인다' 불변식: 이력이 축 시작 이후에야 시작되면 (축 시작, 0)에서 직선 보간으로
+  // 연결하고, 이력이 전혀 없으면 현재 실적으로 (축 시작,0)→(오늘,실적) 선을 합성한다 —
+  // 스냅샷 축적 초기(0~1건)에도 점이 아니라 선이 그려지게.
   const snaps = input.snapshots.filter(s => s.date <= today).sort((a, b) => (a.date < b.date ? -1 : 1))
   const actualSeries: TrendPoint[] = snaps.map(s => ({ date: s.date, pct: s.actual }))
   const lastSnap = snaps[snaps.length - 1]
   if (lastSnap && lastSnap.date < today) actualSeries.push({ date: today, pct: lastSnap.actual })
+  if (snaps.length) {
+    if (snaps[0].date > axisStart) actualSeries.unshift({ date: axisStart, pct: 0 })
+  } else if (today > axisStart) {
+    const end = today <= axisEnd ? today : axisEnd
+    actualSeries.push({ date: axisStart, pct: 0 }, { date: end, pct: overallProgress(items).actual })
+  }
 
   // SPI — 계획 5% 미만 시점 제외(scheduleModel 조기 가드와 동일 원칙)
   const spiSeries: SpiPoint[] = snaps
@@ -98,7 +108,7 @@ export function buildTrend(input: {
   // 주간 velocity — 7일 전 시점 값이 없으면(이력 부족) null
   const nowV = actualAt(snaps, today)
   const prevV = actualAt(snaps, addDaysCal(today, -7))
-  const velocityWeek = nowV != null && prevV != null ? nowV - prevV : null
+  const velocityWeek = nowV != null && prevV != null ? round1(nowV - prevV) : null
 
   return {
     empty: false, axisStart, axisEnd, plannedSeries, actualSeries,

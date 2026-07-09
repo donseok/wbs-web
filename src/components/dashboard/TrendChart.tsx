@@ -9,9 +9,9 @@ import { MiniEmpty } from './bits'
 
 const W = 640, H = 240, PL = 34, PR = 12, PT = 12, PB = 26
 
-/** S-Curve — 계획 누적곡선(점선) vs 실적 이력(실선) + 오늘 마커. 자체 SVG(의존성 0). */
-export async function TrendChart({ model, currentActual, today }: {
-  model: TrendModel; currentActual: number; today: string
+/** S-Curve — 계획 누적곡선(점선) vs 실적선(실선, 도메인이 항상 2점 이상 보장) + 오늘 마커. 자체 SVG(의존성 0). */
+export async function TrendChart({ model, today }: {
+  model: TrendModel; today: string
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -29,6 +29,7 @@ export async function TrendChart({ model, currentActual, today }: {
   const y = (pct: number) => PT + (1 - pct / 100) * (H - PT - PB)
   const pts = (s: TrendPoint[]) => s.map(p => `${x(p.date).toFixed(1)},${y(p.pct).toFixed(1)}`).join(' ')
   const todayIn = today >= model.axisStart && today <= model.axisEnd
+  const lastActual = model.actualSeries[model.actualSeries.length - 1]
 
   const legend = (
     <div className="flex items-center gap-3 text-[10px] text-ink-subtle">
@@ -54,10 +55,7 @@ export async function TrendChart({ model, currentActual, today }: {
           {model.actualSeries.length > 1 && (
             <polyline points={pts(model.actualSeries)} fill="none" className="stroke-brand" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
           )}
-          {model.actualSeries.length === 1 && (
-            <circle cx={x(model.actualSeries[0].date)} cy={y(model.actualSeries[0].pct)} r={4} className="fill-brand" />
-          )}
-          {!model.hasHistory && todayIn && <circle cx={x(today)} cy={y(currentActual)} r={4} className="fill-brand" />}
+          {lastActual && <circle cx={x(lastActual.date)} cy={y(lastActual.pct)} r={4} className="fill-brand" />}
           <text x={PL} y={H - 8} fontSize={9} className="fill-ink-subtle">{fmtDate(model.axisStart)}</text>
           <text x={W - PR} y={H - 8} textAnchor="end" fontSize={9} className="fill-ink-subtle">{fmtDate(model.axisEnd)}</text>
         </svg>

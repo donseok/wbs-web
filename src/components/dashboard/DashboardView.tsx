@@ -5,6 +5,7 @@ import type {
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import { buildTrend } from '@/lib/domain/trend'
 import { milestoneTimeline } from '@/lib/domain/dashboard'
+import { round1 } from '@/lib/domain/format'
 import { overallProgress } from '@/lib/domain/rollup'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { t, type DictKey } from '@/lib/i18n/dict'
@@ -78,8 +79,8 @@ export async function DashboardView({
 
       {/* C. 진척 트렌드 — S-Curve + SPI/velocity */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <TrendChart model={trend} currentActual={actual} today={today} />
-        <SpiPanel model={trend} variance={actual - planned} />
+        <TrendChart model={trend} today={today} />
+        <SpiPanel model={trend} variance={round1(actual - planned)} />
       </div>
 
       {/* D. 협업 현황 — 회의 일정 + 근태(좌우 균형).

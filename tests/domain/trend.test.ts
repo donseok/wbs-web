@@ -52,21 +52,41 @@ describe('buildTrend — 실적 이력', () => {
   const mk = (snaps: SnapshotPoint[]) =>
     buildTrend({ items: items(baseRows), snapshots: snaps, holidays: new Set(), startDate: '2026-01-01', endDate: '2026-04-10', today: TODAY })
 
-  it('carry-forward: 마지막 스냅샷 이후 오늘까지 직전 값 유지', () => {
+  it('carry-forward: 마지막 스냅샷 이후 오늘까지 직전 값 유지 + 축 시작(0%)에서 보간 시작', () => {
     const m = mk([snap('2026-02-10', 10, 40), snap('2026-02-17', 20, 50)])
     expect(m.actualSeries).toEqual([
+      { date: '2026-01-01', pct: 0 },
       { date: '2026-02-10', pct: 10 }, { date: '2026-02-17', pct: 20 }, { date: TODAY, pct: 20 },
     ])
     expect(m.hasHistory).toBe(true)
+  })
+  it('첫 스냅샷이 축 시작과 같은 날이면 0% 시작점을 덧붙이지 않는다', () => {
+    const m = mk([snap('2026-01-01', 5, 3)])
+    expect(m.actualSeries[0]).toEqual({ date: '2026-01-01', pct: 5 })
   })
   it('오늘 이후 스냅샷은 제외(미래 미연장)', () => {
     const m = mk([snap('2026-02-10', 10, 40), snap('2026-03-01', 99, 60)])
     expect(m.actualSeries.every(p => p.date <= TODAY)).toBe(true)
   })
-  it('스냅샷 0건: actualSeries 비고 hasHistory=false, velocity/SPI null', () => {
-    const m = mk([])
-    expect(m.actualSeries).toEqual([]); expect(m.hasHistory).toBe(false)
+  it('스냅샷 0건: 현재 실적으로 (축시작,0)→(오늘,실적) 합성 — 실적선은 항상 보인다', () => {
+    const m = mk([]) // baseRows 실적 30%
+    expect(m.actualSeries).toEqual([{ date: '2026-01-01', pct: 0 }, { date: TODAY, pct: 30 }])
+    expect(m.hasHistory).toBe(false)
     expect(m.velocityWeek).toBeNull(); expect(m.currentSpi).toBeNull()
+  })
+  it('스냅샷 0건 + 오늘이 종료 이후면 합성 선의 끝은 축 종료일', () => {
+    const m = buildTrend({
+      items: items(baseRows), snapshots: [], holidays: new Set(),
+      startDate: '2026-01-01', endDate: '2026-02-01', today: TODAY, // TODAY(02-20) > 종료(02-01)
+    })
+    expect(m.actualSeries[m.actualSeries.length - 1].date).toBe('2026-02-01')
+  })
+  it('스냅샷 0건 + 오늘이 시작 이전이면 실적선 없음', () => {
+    const m = buildTrend({
+      items: items(baseRows), snapshots: [], holidays: new Set(),
+      startDate: '2026-03-01', endDate: '2026-04-10', today: TODAY, // TODAY(02-20) < 시작(03-01)
+    })
+    expect(m.actualSeries).toEqual([])
   })
 })
 
