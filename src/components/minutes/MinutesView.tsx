@@ -212,14 +212,16 @@ export function MinutesView({
         </div>
       )}
 
-      {/* 업로드 모달 */}
-      <MinuteUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)}
-        onSaved={() => {
-          setUploadOpen(false)
-          if (isSearch) void runSearch(query, team); else void loadMonth(year, month0, team)
-          router.refresh()
-        }}
-        todayIso={todayIso} projects={projects} />
+      {/* 업로드 모달 — 열 때마다 리마운트해 이전 입력(첨부·제목)이 잔존하지 않게 함 */}
+      {uploadOpen && (
+        <MinuteUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)}
+          onSaved={() => {
+            setUploadOpen(false)
+            if (isSearch) void runSearch(query, team); else void loadMonth(year, month0, team)
+            router.refresh()
+          }}
+          todayIso={todayIso} projects={projects} />
+      )}
       {void currentUserId} {void role} {void locale}
     </div>
   )
