@@ -2,7 +2,6 @@
 // en은 Record<keyof ko, string> 타입으로 ko와의 키 패리티를 컴파일 타임에 강제한다.
 // 단위 접미사(unit*, *Suffix)는 JSX에서 `{n}{t('dash.unit…')}` 식으로 숫자 뒤에 붙여 조합한다.
 // ko는 붙여 쓰고(예: '3건') en은 값에 선행 공백을 포함한다(예: '3 items') — BUG-03 건수 표기 유지.
-// 어순이 다른 근태 푸터 문장은 prefix/suffix 분해 조합이며 en 쪽 prefix는 빈 문자열이다.
 export const dashboardKo = {
   // 히어로(page.tsx)
   'dash.heroProjectFallback': '프로젝트',
@@ -63,6 +62,20 @@ export const dashboardKo = {
   'dash.hygiene.mixedWeight': '가중치 혼재',
   'dash.hygiene.clean': '계획 데이터 이상 없음',
   'dash.hygiene.goWbs': 'WBS에서 정리',
+  // ── 협업 현황(2026-07-09): 회의 일정 + 근태 카드 ──
+  'dash.today': '오늘',
+  'dash.unitPeople': '명',
+  'dash.viewAll': '전체 보기',
+  'dash.meet.title': '회의 일정',
+  'dash.meet.statToday': '오늘',
+  'dash.meet.stat7d': '7일 내',
+  'dash.meet.stat14d': '14일 내',
+  'dash.meet.empty': '앞으로 2주간 예정된 회의가 없습니다.',
+  'dash.att.title': '근태 현황',
+  'dash.att.statLeave': '오늘 휴가',
+  'dash.att.statTrip': '오늘 출장',
+  'dash.att.statRemote': '오늘 재택',
+  'dash.att.empty': '앞으로 2주간 등록된 근태가 없습니다.',
 } as const
 
 export const dashboardEn: Record<keyof typeof dashboardKo, string> = {
@@ -119,4 +132,17 @@ export const dashboardEn: Record<keyof typeof dashboardKo, string> = {
   'dash.hygiene.mixedWeight': 'Mixed weights',
   'dash.hygiene.clean': 'Plan data looks clean',
   'dash.hygiene.goWbs': 'Fix in WBS',
+  'dash.today': 'Today',
+  'dash.unitPeople': ' people',
+  'dash.viewAll': 'View all',
+  'dash.meet.title': 'Meeting schedule',
+  'dash.meet.statToday': 'Today',
+  'dash.meet.stat7d': 'Next 7 days',
+  'dash.meet.stat14d': 'Next 14 days',
+  'dash.meet.empty': 'No meetings scheduled in the next two weeks.',
+  'dash.att.title': 'Attendance',
+  'dash.att.statLeave': 'On leave today',
+  'dash.att.statTrip': 'Business trips today',
+  'dash.att.statRemote': 'Remote today',
+  'dash.att.empty': 'No attendance entries in the next two weeks.',
 }
