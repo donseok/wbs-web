@@ -55,6 +55,7 @@ export function WeeklySheetView({
   const rowsRef = useRef(rows)
   rowsRef.current = rows
   const [isPending, startTransition] = useTransition()
+  const reportId = report?.id ?? null
 
   // 서버 refetch(라우터 refresh) 반영 — dirty 셀은 로컬 유지(스펙 §5)
   useEffect(() => {
@@ -65,13 +66,17 @@ export function WeeklySheetView({
   }, [initialRows])
 
   // Realtime 구독 — 행 단위 이벤트를 셀 단위 병합
+  // 의존성은 reportId(원시값)만 사용한다. report는 서버 렌더마다 새 객체라
+  // 그걸 deps에 넣으면 SUBSCRIBED → refresh → 새 report 참조 → effect 재실행 → …
+  // 무한 재구독 루프에 빠진다.
   useEffect(() => {
-    if (!report) return
+    if (!reportId) return
     const sb = createBrowserClient()
+    let subscribedOnce = false
     const channel = sb
-      .channel(`weekly-rows-${report.id}`)
+      .channel(`weekly-rows-${reportId}`)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'weekly_report_rows', filter: `report_id=eq.${report.id}` },
+        { event: '*', schema: 'public', table: 'weekly_report_rows', filter: `report_id=eq.${reportId}` },
         payload => {
           if (payload.eventType === 'DELETE') {
             const oldId = (payload.old as { id?: string }).id
@@ -88,10 +93,14 @@ export function WeeklySheetView({
           })
         })
       .subscribe(st => {
-        if (st === 'SUBSCRIBED') router.refresh() // 재연결 누락분 보정(스펙 §5)
+        if (st !== 'SUBSCRIBED') return
+        // 최초 구독은 SSR props로 이미 최신 상태라 refetch 불필요.
+        // 두 번째 이후(연결 끊김→재연결)에만 누락분을 보정한다(스펙 §5).
+        if (!subscribedOnce) { subscribedOnce = true; return }
+        router.refresh()
       })
     return () => { sb.removeChannel(channel) }
-  }, [report, router])
+  }, [reportId, router])
 
   const commit = useCallback((rowId: string, key: WeeklyCellKey) => {
     const k = `${rowId}:${key}`
@@ -105,8 +114,12 @@ export function WeeklySheetView({
       const now = rowsRef.current.find(r => r.id === rowId)?.[CELL_FIELD[key]]
       if (!res.ok) {
         setStatus(s => ({ ...s, [k]: 'error' }))
-        if (!retriedRef.current.has(k)) { retriedRef.current.add(k); setTimeout(() => commit(rowId, key), 2000) } // 자동 재시도 1회
-        else toast({ title: '저장 실패', description: res.error, variant: 'error' })
+        if (!retriedRef.current.has(k)) {
+          retriedRef.current.add(k)
+          const prev = timersRef.current.get(k)
+          if (prev) clearTimeout(prev)
+          timersRef.current.set(k, setTimeout(() => commit(rowId, key), 2000)) // 자동 재시도 1회
+        } else toast({ title: '저장 실패', description: res.error, variant: 'error' })
         return
       }
       retriedRef.current.delete(k)
@@ -130,6 +143,13 @@ export function WeeklySheetView({
       if (!res.ok) toast({ title: '실패', description: res.error, variant: 'error' })
       router.refresh()
     })
+
+  // 언마운트 시 디바운스/재시도 타이머 정리 — 정리 안 하면 사라진 컴포넌트에 setState 호출됨.
+  // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
+  useEffect(() => () => {
+    for (const t of timersRef.current.values()) clearTimeout(t)
+    timersRef.current.clear()
+  }, [])
 
   // section 시각 병합: 연속 같은 section의 첫 행에만 rowSpan.
   // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
