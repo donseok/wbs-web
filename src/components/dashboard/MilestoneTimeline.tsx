@@ -103,7 +103,7 @@ export async function MilestoneTimeline({ points, startDate, endDate, today }: {
         <line x1={PL} x2={W - PR} y1={BASE} y2={BASE} className="stroke-line" strokeWidth={2} />
         {todayIn && (
           <g>
-            <line x1={x(today)} x2={x(today)} y1={TOP - 2} y2={H - 6} className="stroke-ink-subtle" strokeWidth={1} strokeDasharray="2 3" />
+            <line x1={x(today)} x2={x(today)} y1={TOP - 2} y2={H - 6} className="stroke-delayed" strokeWidth={1} strokeDasharray="2 3" />
             <text x={todayLabelX} y={12} textAnchor="middle" fontSize={FS_SUB} className="fill-ink-subtle">{fmtDate(today)}</text>
           </g>
         )}
