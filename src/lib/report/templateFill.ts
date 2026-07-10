@@ -5,7 +5,6 @@ import {
   mapTableCell, extractCellSkeletons, buildCellTxBody, buildHeaderCellTxBody, subLineText, type CellSkeletons,
 } from './xml'
 import type { NarrativeGroup, NarrativeModel } from './narrative'
-import type { WeeklyReportModel } from './weekly'
 
 /* ── 셀 용량·페이지 분할(순수). 템플릿 셀 높이가 고정 → 넘치는 내용은 잘라내지 않고
  *    slide2를 복제한 연속 슬라이드로 이어 붙인다(활동 항목 유실 없음). ── */
@@ -24,14 +23,17 @@ export function lineCost(text: string): number {
   return Math.max(1, Math.ceil(w / FULLWIDTH_PER_LINE))
 }
 
-/** 그룹 줄수 = 헤더 + 들여쓴 하위 항목들(줄바꿈 추정 포함) — 실제 렌더 문자열(subLineText)과 동일 기준. */
-const groupCost = (phase: string, items: string[]): number =>
-  lineCost(phase) + items.reduce((s, it) => s + lineCost(subLineText(it)), 0)
+/** 그룹 줄수 = 헤더 + 들여쓴 하위 항목들(줄바꿈 추정 포함) — 실제 렌더 문자열과 동일 기준. */
+const groupCost = (phase: string, items: string[], fmt: (item: string) => string): number =>
+  lineCost(phase) + items.reduce((s, it) => s + lineCost(fmt(it)), 0)
 
 /** 그룹들을 페이지(셀)당 budget 시각줄 이내로 분할. 그룹 사이 빈 줄 1도 예산에 포함.
  *  새 페이지에 통째로 들어가는 그룹은 쪼개지 않고 이월하고, 한 페이지를 넘는 그룹만
  *  항목 단위로 쪼개 '(계속)' 헤더로 잇는다. 빈 입력은 1페이지(빈 그룹 목록)로. */
-export function paginateGroups(groups: NarrativeGroup[], budget: number): NarrativeGroup[][] {
+export function paginateGroups(
+  groups: NarrativeGroup[], budget: number,
+  lineFormatter: (item: string) => string = subLineText,
+): NarrativeGroup[][] {
   const pages: NarrativeGroup[][] = []
   let page: NarrativeGroup[] = []
   let used = 0
@@ -42,7 +44,7 @@ export function paginateGroups(groups: NarrativeGroup[], budget: number): Narrat
     for (;;) {
       const sep = page.length ? 1 : 0            // 직전 그룹과의 빈 줄
       const remain = budget - used - sep
-      const total = groupCost(phase, items)
+      const total = groupCost(phase, items, lineFormatter)
       if (total <= remain || (!page.length && !items.length)) {
         page.push({ phase, num: g.num, items })  // 통째로 수용(빈 페이지의 거대 헤더는 방어적 수용)
         used += sep + total
@@ -50,8 +52,8 @@ export function paginateGroups(groups: NarrativeGroup[], budget: number): Narrat
       }
       if (page.length && total <= budget) { flush(); continue }  // 새 페이지로 통째 이월
       let cost = lineCost(phase), take = 0       // 분할: 남은 공간에 들어가는 항목까지
-      while (take < items.length && cost + lineCost(subLineText(items[take])) <= remain) {
-        cost += lineCost(subLineText(items[take]))
+      while (take < items.length && cost + lineCost(lineFormatter(items[take])) <= remain) {
+        cost += lineCost(lineFormatter(items[take]))
         take += 1
       }
       if (take === 0) {
@@ -112,8 +114,20 @@ async function appendContinuationSlides(zip: JSZip, buildPage: (i: number) => st
   zip.file('ppt/presentation.xml', pres)
 }
 
-/** 주간 내러티브 → 템플릿 디자인 그대로의 PPTX(nodebuffer). 내용이 길면 페이지 자동 추가. */
-export async function fillWeeklyTemplate(narr: NarrativeModel, model: WeeklyReportModel): Promise<Buffer> {
+export interface FillTemplateOptions {
+  labels?: { left: string; right: string }      // 행0 헤더 라벨(범위는 meta에서 합성)
+  lineFormatter?: (item: string) => string      // 상세 줄 표기(렌더·줄수 추정 공용)
+}
+
+/** 주간 내러티브 → 템플릿 디자인 그대로의 PPTX(nodebuffer). 내용이 길면 페이지 자동 추가.
+ *  model은 헤더 범위(meta)만 쓰므로 구조적 부분집합 허용 — 시트 경로는 최소 meta만 합성해 넘긴다. */
+export async function fillWeeklyTemplate(
+  narr: NarrativeModel,
+  model: { meta: { prevWeekRange: string; weekRange: string } },
+  opts: FillTemplateOptions = {},
+): Promise<Buffer> {
+  const labels = opts.labels ?? { left: '전주 주요활동', right: '금주 주요활동' }
+  const fmt = opts.lineFormatter ?? subLineText
   const zip = await JSZip.loadAsync(await readFile(TEMPLATE_PATH))
   const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
 
@@ -127,8 +141,8 @@ export async function fillWeeklyTemplate(narr: NarrativeModel, model: WeeklyRepo
     bodyPr: '<a:bodyPr/>', lstStyle: '<a:lstStyle/>',
   }
 
-  const prevPages = paginateGroups(narr.prev, CELL_BUDGET)
-  const currPages = paginateGroups(narr.curr, CELL_BUDGET)
+  const prevPages = paginateGroups(narr.prev, CELL_BUDGET, fmt)
+  const currPages = paginateGroups(narr.curr, CELL_BUDGET, fmt)
   const pageCount = Math.max(prevPages.length, currPages.length)
   const issues = capItems(narr.issues.length ? narr.issues : ['특이 이슈 없음'], ISSUE_CAP)
   const events = capItems(narr.events.length ? narr.events : ['예정된 주요 이벤트 없음'], EVENT_CAP)
@@ -136,10 +150,10 @@ export async function fillWeeklyTemplate(narr: NarrativeModel, model: WeeklyRepo
   // 페이지 i의 slide XML. 이슈/이벤트 행은 1페이지에만 싣고 연속 페이지는 '-'.
   const buildPage = (i: number): string => {
     let x = slide2
-    x = mapTableCell(x, 0, 1, buildHeaderCellTxBody('전주 주요활동', model.meta.prevWeekRange, hdrSk))
-    x = mapTableCell(x, 0, 2, buildHeaderCellTxBody('금주 주요활동', model.meta.weekRange, hdrSk))
-    x = mapTableCell(x, 1, 1, buildCellTxBody(prevPages[i] ?? [], contentSk, i ? '-' : undefined))
-    x = mapTableCell(x, 1, 2, buildCellTxBody(currPages[i] ?? [], contentSk, i ? '-' : undefined))
+    x = mapTableCell(x, 0, 1, buildHeaderCellTxBody(labels.left, model.meta.prevWeekRange, hdrSk))
+    x = mapTableCell(x, 0, 2, buildHeaderCellTxBody(labels.right, model.meta.weekRange, hdrSk))
+    x = mapTableCell(x, 1, 1, buildCellTxBody(prevPages[i] ?? [], contentSk, i ? '-' : undefined, fmt))
+    x = mapTableCell(x, 1, 2, buildCellTxBody(currPages[i] ?? [], contentSk, i ? '-' : undefined, fmt))
     x = mapTableCell(x, 2, 1, buildCellTxBody(asBulletGroups(i ? ['-'] : issues), issueSk))  // 이슈(전주 위치)
     x = mapTableCell(x, 2, 2, buildCellTxBody(asBulletGroups(i ? ['-'] : events), issueSk))  // 이벤트(금주 위치)
     return x

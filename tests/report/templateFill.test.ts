@@ -132,3 +132,33 @@ describe('fillWeeklyTemplate (통합)', () => {
     expect(slide3).not.toContain('Kick-Off')
   })
 })
+
+describe('fillWeeklyTemplate 옵션 (시트 경로)', () => {
+  const narr = {
+    prev: [{ phase: '[ERP] SD/LE', num: 1, items: ['1. 실적', '- 상세'] }],
+    curr: [{ phase: '[ERP] SD/LE', num: 1, items: ['1. 계획'] }],
+    issues: ['[SD/LE] 지연 위험'], events: ['특이 이슈 없음'],
+  }
+  const meta = { meta: { prevWeekRange: '7/6~7/10', weekRange: '7/13~7/17' } }
+  const sheetFmt = (s: string) => (s.trimStart().startsWith('-') ? `        ${s.trimStart()}` : `    ${s.trimStart()}`)
+
+  it('labels 주입 시 헤더 교체 + lineFormatter로 무마커 들여쓰기', async () => {
+    const buf = await fillWeeklyTemplate(narr, meta, {
+      labels: { left: '금주실적', right: '차주계획' }, lineFormatter: sheetFmt,
+    })
+    const zip = await JSZip.loadAsync(buf)
+    const xml = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    expect(xml).toContain('금주실적 (7/6~7/10)')
+    expect(xml).toContain('차주계획 (7/13~7/17)')
+    expect(xml).toContain('<a:t>    1. 실적</a:t>')       // 마커 미추가
+    expect(xml).toContain('<a:t>        - 상세</a:t>')     // '-' 8칸
+    expect(xml).not.toContain('전주 주요활동')
+  })
+  it('옵션 없으면 기존 라벨 그대로(기본 동작 불변)', async () => {
+    const buf = await fillWeeklyTemplate(narr, meta)
+    const zip = await JSZip.loadAsync(buf)
+    const xml = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    expect(xml).toContain('전주 주요활동 (7/6~7/10)')
+    expect(xml).toContain('<a:t>    - 1. 실적</a:t>')      // 기존 subLineText 규칙
+  })
+})
