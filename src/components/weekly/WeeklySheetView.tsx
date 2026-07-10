@@ -36,11 +36,16 @@ function fromRecord(r: Record<string, unknown>): WeeklySheetRow {
 }
 
 export function WeeklySheetView({
-  projectId, weekStart, weekLabel, report, initialRows, hasCarrySource,
+  projectId, weekStart, weekLabel, weekTitle, thisRange, nextRange, projectName,
+  report, initialRows, hasCarrySource,
 }: {
   projectId: string
   weekStart: string
   weekLabel: string
+  weekTitle: string   // '7월 2주차' — 시트 제목 행용
+  thisRange: string   // '7/6~7/10' — 금주실적 헤더
+  nextRange: string   // '7/13~7/17' — 차주계획 헤더
+  projectName: string
   report: { id: string } | null
   initialRows: WeeklySheetRow[]
   hasCarrySource: boolean
@@ -212,54 +217,81 @@ export function WeeklySheetView({
     )
   }
 
+  // ── 구글시트 복제 룩: 흰 종이 + 검정 얇은 테두리 + 회색 2단 헤더 + 병합 셀.
+  //    시트는 '문서'라 다크모드에서도 항상 밝게(고정 색상, 앱 토큰 미사용).
+  const HDR = 'border border-neutral-500 bg-[#d9d9d9] px-2 py-1.5 text-center text-[13px] font-bold text-black'
+  const BODY_CELL = 'border border-neutral-500 p-0 align-top'
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} />
-      <div className="card overflow-x-auto p-0">
-        <table className="w-full min-w-[960px] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-line bg-surface-2 text-left">
-              <th className="w-20 px-3 py-2 font-semibold text-ink">구분</th>
-              <th className="w-28 px-3 py-2 font-semibold text-ink">모듈</th>
-              {COLS.map(c => <th key={c.key} className="px-3 py-2 font-semibold text-ink">{c.label}</th>)}
-              <th className="w-24 px-2 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.id} className="border-b border-line align-top">
-                {spans[i] > 0 && (
-                  <td rowSpan={spans[i]} className="border-r border-line px-3 py-2 text-center font-semibold text-ink">
-                    {r.section}
-                  </td>
-                )}
-                <td className="border-r border-line px-3 py-2 text-center font-medium text-ink">{r.module}</td>
-                {COLS.map(c => (
-                  <td key={c.key} className="border-r border-line p-1">
-                    <CellEditor
-                      value={r[CELL_FIELD[c.key]]}
-                      status={status[`${r.id}:${c.key}`]}
-                      onChange={v => onCellChange(r.id, c.key, v)}
-                      onBlur={() => commit(r.id, c.key)}
-                      onRetry={() => commit(r.id, c.key)}
-                    />
-                  </td>
-                ))}
-                <td className="px-2 py-2">
-                  <div className="flex gap-1 text-ink-subtle">
-                    <button title="위로" className="hover:text-ink" onClick={() => runAction(() => moveWeeklyRow(projectId, r.id, 'up'))}><ArrowUp className="h-4 w-4" /></button>
-                    <button title="아래로" className="hover:text-ink" onClick={() => runAction(() => moveWeeklyRow(projectId, r.id, 'down'))}><ArrowDown className="h-4 w-4" /></button>
-                    <button title="행 삭제" className="hover:text-delayed"
-                      onClick={() => { if (confirm(`'${r.module}' 행을 삭제할까요? 셀 내용도 함께 지워집니다.`)) runAction(() => deleteWeeklyRow(projectId, r.id)) }}>
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
+      <div className="overflow-x-auto">
+        <div className="min-w-[1080px] bg-white p-3 shadow-sm ring-1 ring-neutral-300">
+          {/* 제목 행 — 레퍼런스 시트의 A1: ▣ 주간업무보고 - {부문}(N월 N주차) */}
+          <div className="px-0.5 pb-2 pt-0.5 text-[15px] font-extrabold text-black">
+            ▣ 주간업무보고 - {projectName}({weekTitle})
+          </div>
+          <table className="w-full table-fixed border-collapse bg-white text-[13px] text-black">
+            <colgroup>
+              <col className="w-16" />       {/* 구분 */}
+              <col className="w-28" />       {/* 모듈 */}
+              <col />                        {/* 금주 내용 */}
+              <col className="w-56" />       {/* 금주 이슈 */}
+              <col />                        {/* 차주 내용 */}
+              <col className="w-56" />       {/* 차주 이슈 */}
+              <col className="w-16" />       {/* 행 액션(시트 밖 여백처럼 무테두리) */}
+            </colgroup>
+            <thead>
+              <tr>
+                <th rowSpan={2} className={HDR}>구분</th>
+                <th rowSpan={2} className={HDR}>모듈</th>
+                <th colSpan={2} className={HDR}>금주실적({thisRange})</th>
+                <th colSpan={2} className={HDR}>차주계획({nextRange})</th>
+                <th rowSpan={2} className="border-0 bg-white" />
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <AddRowForm disabled={isPending} onAdd={(section, module) => runAction(() => addWeeklyRow(projectId, report.id, section, module))} />
+              <tr>
+                <th className={HDR}>내용</th>
+                <th className={HDR}>이슈 및 주요 이벤트</th>
+                <th className={HDR}>내용</th>
+                <th className={HDR}>이슈 및 주요 이벤트</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.id} className="group">
+                  {spans[i] > 0 && (
+                    <td rowSpan={spans[i]} className="border border-neutral-500 px-1 py-2 text-center align-middle font-bold">
+                      {r.section}
+                    </td>
+                  )}
+                  <td className="border border-neutral-500 px-1 py-2 text-center align-middle font-bold">{r.module}</td>
+                  {COLS.map(c => (
+                    <td key={c.key} className={BODY_CELL}>
+                      <CellEditor
+                        value={r[CELL_FIELD[c.key]]}
+                        status={status[`${r.id}:${c.key}`]}
+                        onChange={v => onCellChange(r.id, c.key, v)}
+                        onBlur={() => commit(r.id, c.key)}
+                        onRetry={() => commit(r.id, c.key)}
+                      />
+                    </td>
+                  ))}
+                  <td className="border-0 bg-white pl-2 align-top">
+                    <div className="flex flex-col gap-1 pt-1 text-neutral-300 opacity-0 transition group-hover:opacity-100">
+                      <button title="위로" className="hover:text-neutral-700" onClick={() => runAction(() => moveWeeklyRow(projectId, r.id, 'up'))}><ArrowUp className="h-4 w-4" /></button>
+                      <button title="아래로" className="hover:text-neutral-700" onClick={() => runAction(() => moveWeeklyRow(projectId, r.id, 'down'))}><ArrowDown className="h-4 w-4" /></button>
+                      <button title="행 삭제" className="hover:text-red-600"
+                        onClick={() => { if (confirm(`'${r.module}' 행을 삭제할까요? 셀 내용도 함께 지워집니다.`)) runAction(() => deleteWeeklyRow(projectId, r.id)) }}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <AddRowForm disabled={isPending} onAdd={(section, module) => runAction(() => addWeeklyRow(projectId, report.id, section, module))} />
+        </div>
       </div>
     </div>
   )
@@ -335,16 +367,17 @@ function CellEditor({ value, status, onChange, onBlur, onRetry }: {
   }, [value])
   return (
     <div className="relative">
+      {/* 구글시트 셀 감각: 흰 배경·검정 글자·둥근모서리 없음, 포커스 시 파란 셀 테두리 */}
       <textarea
         ref={ref} value={value} rows={3}
-        className="app-textarea min-h-20 w-full resize-none border-0 bg-transparent text-sm leading-5"
+        className="block min-h-24 w-full resize-none rounded-none border-0 bg-white p-1.5 text-[13px] leading-[1.5] text-black outline-none focus:relative focus:z-10 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-[#1a73e8]"
         onChange={e => onChange(e.target.value)} onBlur={onBlur}
       />
-      <span className="absolute right-1 top-1 text-[10px]">
-        {status === 'saving' && <span className="text-ink-subtle">저장 중…</span>}
-        {status === 'saved' && <span className="text-done">저장됨</span>}
+      <span className="absolute right-1 top-0.5 text-[10px]">
+        {status === 'saving' && <span className="text-[#9aa0a6]">저장 중…</span>}
+        {status === 'saved' && <span className="text-[#188038]">저장됨</span>}
         {status === 'error' && (
-          <button className="flex items-center gap-0.5 text-delayed" onClick={onRetry} title="다시 저장">
+          <button className="flex items-center gap-0.5 text-[#d93025]" onClick={onRetry} title="다시 저장">
             <RefreshCw className="h-3 w-3" />재시도
           </button>
         )}
@@ -356,12 +389,15 @@ function CellEditor({ value, status, onChange, onBlur, onRetry }: {
 function AddRowForm({ disabled, onAdd }: { disabled: boolean; onAdd: (section: string, module: string) => void }) {
   const [section, setSection] = useState('')
   const [module, setModule] = useState('')
+  const input = 'h-7 rounded-none border border-neutral-400 bg-white px-1.5 text-[13px] text-black outline-none placeholder:text-neutral-400 focus:border-[#1a73e8]'
   return (
-    <div className="flex items-center gap-2 border-t border-line px-3 py-2">
-      <Plus className="h-4 w-4 text-ink-subtle" />
-      <input className="app-input h-8 w-28 text-sm" placeholder="구분 (ERP)" value={section} onChange={e => setSection(e.target.value)} />
-      <input className="app-input h-8 w-36 text-sm" placeholder="모듈 (SD/LE)" value={module} onChange={e => setModule(e.target.value)} />
-      <button className="btn btn-ghost h-8 text-sm" disabled={disabled || !module.trim()}
+    <div className="flex items-center gap-2 pt-2 text-[13px]">
+      <Plus className="h-4 w-4 text-neutral-400" />
+      <input className={`${input} w-24`} placeholder="구분 (ERP)" value={section} onChange={e => setSection(e.target.value)} />
+      <input className={`${input} w-36`} placeholder="모듈 (SD/LE)" value={module} onChange={e => setModule(e.target.value)} />
+      <button
+        className="h-7 border border-neutral-400 bg-white px-2 text-[13px] text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-40"
+        disabled={disabled || !module.trim()}
         onClick={() => { onAdd(section, module); setSection(''); setModule('') }}>
         모듈 추가
       </button>

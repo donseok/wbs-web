@@ -3,7 +3,6 @@ import { mondayIso, sheetWeekMeta } from '@/lib/report/week'
 import { getWeeklySheet, findCarryOverSource } from '@/lib/data/weeklySheet'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
-import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { WeeklySheetView } from '@/components/weekly/WeeklySheetView'
 
@@ -32,17 +31,22 @@ export default async function WeeklyPage({
 
   return (
     <ProjectPageShell
-      hero={<PageHero
-        eyebrow="WEEKLY"
-        badge={<HeroBadge>Weekly Report</HeroBadge>}
-        title={`${projectName} ${t(locale, 'nav.weekly')}`}
-        description={`${wk.label} (${wk.thisRange})`}
-      />}
+      // 이 화면은 구글시트 복제 룩이 주인공 — 큰 히어로 대신 콤팩트한 한 줄 헤더만 둔다(사용자 요청).
+      hero={
+        <div className="flex items-baseline gap-3">
+          <span className="eyebrow">WEEKLY</span>
+          <h1 className="text-lg font-bold tracking-tight text-ink">{projectName} {t(locale, 'nav.weekly')}</h1>
+        </div>
+      }
     >
       <WeeklySheetView
         projectId={projectId}
         weekStart={weekStart}
         weekLabel={`${wk.label} (${wk.thisRange})`}
+        weekTitle={wk.label}
+        thisRange={wk.thisRange}
+        nextRange={wk.nextRange}
+        projectName={projectName}
         report={sheet ? { id: sheet.report.id } : null}
         initialRows={sheet?.rows ?? []}
         hasCarrySource={!!carrySource && carrySource.rows.length > 0}
