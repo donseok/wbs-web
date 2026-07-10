@@ -94,19 +94,19 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
       {/* WORKSPACE 카드 */}
       {!collapsed && (
-        <div className="mt-1 rounded-2xl border border-sidebar-line bg-sidebar-2 p-3">
+        <div className="mt-0.5 rounded-2xl border border-sidebar-line bg-sidebar-2 p-2">
           <div className="flex items-baseline justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-ink-subtle">Workspace</span>
+            <span className="text-[9px] font-semibold uppercase leading-none tracking-[0.16em] text-sidebar-ink-subtle">Workspace</span>
           </div>
-          <div className="mt-0.5 text-[14px] font-bold tracking-tight text-sidebar-ink">{t('workspace.title')}</div>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-sidebar-line bg-sidebar-3/60 px-2.5 py-1.5">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">{t('workspace.projects')}</div>
-              <div className="mt-0.5 text-lg font-bold tabular-nums text-sidebar-ink">{projects.length}</div>
+          <div className="mt-1 text-[13px] font-bold leading-none tracking-tight text-sidebar-ink">{t('workspace.title')}</div>
+          <div className="mt-1 grid grid-cols-2 gap-1.5">
+            <div className="rounded-lg border border-sidebar-line bg-sidebar-3/60 px-2 py-1">
+              <div className="text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-sidebar-ink-subtle">{t('workspace.projects')}</div>
+              <div className="mt-0.5 text-[15px] font-bold leading-none tabular-nums text-sidebar-ink">{projects.length}</div>
             </div>
-            <div className="rounded-xl border border-sidebar-line bg-sidebar-3/60 px-2.5 py-1.5">
-              <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">{t('workspace.active')}</div>
-              <div className="mt-0.5 text-lg font-bold tabular-nums text-sidebar-ink">{activeCount}</div>
+            <div className="rounded-lg border border-sidebar-line bg-sidebar-3/60 px-2 py-1">
+              <div className="text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-sidebar-ink-subtle">{t('workspace.active')}</div>
+              <div className="mt-0.5 text-[15px] font-bold leading-none tabular-nums text-sidebar-ink">{activeCount}</div>
             </div>
           </div>
         </div>
