@@ -43,7 +43,11 @@ export async function createWeeklyReport(
         next_content: r.nextContent, next_issue: r.nextIssue,
       }))
       const { error: rowErr } = await sb.from('weekly_report_rows').insert(rows)
-      if (rowErr) return { ok: false, error: rowErr.message }
+      if (rowErr) {
+        // 보상 삭제 — 빈 report만 남으면 멱등 체크에 걸려 재시도해도 이월이 영영 안 됨. 삭제 실패는 최선 노력으로 무시.
+        await sb.from('weekly_reports').delete().eq('id', report.id)
+        return { ok: false, error: rowErr.message }
+      }
     }
   }
   revalidateWeekly(projectId)
@@ -76,10 +80,32 @@ export async function addWeeklyRow(
   if (sec.length > NAME_MAX || mod.length > NAME_MAX) return { ok: false, error: `이름은 ${NAME_MAX}자 이하여야 합니다.` }
 
   const sb = await createServerClient()
-  const { data: last } = await sb.from('weekly_report_rows').select('sort_order')
-    .eq('report_id', reportId).order('sort_order', { ascending: false }).limit(1).maybeSingle()
+  const { data: all } = await sb.from('weekly_report_rows').select('id, section, sort_order')
+    .eq('report_id', reportId).order('sort_order')
+  const rows = all ?? []
+
+  // section 연속성 유지(스펙 §3 rowSpan 병합) — 같은 section이 이미 있으면 그 section의
+  // 마지막 행 바로 뒤에 삽입한다. 문서 맨 끝(전체 max+1)에 붙이면 다른 section 뒤에 고립되고,
+  // moveWeeklyRow는 동일 section 인접 swap만 허용하므로 UI로 복구할 수 없다.
+  const sameSection = rows.filter(r => (r.section as string).trim() === sec)
+  let newSort: number
+  if (sameSection.length) {
+    newSort = (sameSection[sameSection.length - 1].sort_order as number) + 1
+    // newSort 이상인 기존 행을 한 칸씩 뒤로 민다. sort_order에 unique 제약이 없어 순서는 자유이나,
+    // 내림차순으로 순차 처리(첫 에러에서 중단 — 부분 shift 잔류는 moveWeeklyRow와 동일한 비원자성 한계로 수용).
+    const toShift = rows.filter(r => (r.sort_order as number) >= newSort)
+      .sort((a, b) => (b.sort_order as number) - (a.sort_order as number))
+    for (const r of toShift) {
+      const { error: shiftErr } = await sb.from('weekly_report_rows')
+        .update({ sort_order: (r.sort_order as number) + 1 }).eq('id', r.id as string)
+      if (shiftErr) return { ok: false, error: shiftErr.message }
+    }
+  } else {
+    newSort = rows.length ? (rows[rows.length - 1].sort_order as number) + 1 : 1
+  }
+
   const { error } = await sb.from('weekly_report_rows')
-    .insert({ report_id: reportId, section: sec, module: mod, sort_order: ((last?.sort_order as number) ?? 0) + 1 })
+    .insert({ report_id: reportId, section: sec, module: mod, sort_order: newSort })
   if (error) return { ok: false, error: error.message }
   revalidateWeekly(projectId)
   return { ok: true }
