@@ -78,7 +78,8 @@ export function MinuteViewer({
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-4">
+    // 폭은 레이아웃 main(헤더와 동일 px 스케일)에 맡긴다 — 자체 max-w/패딩을 두면 헤더 기준선보다 안쪽으로 좁아짐
+    <div className="space-y-4">
       {/* 메타 헤더 */}
       <div className="card space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-3">
