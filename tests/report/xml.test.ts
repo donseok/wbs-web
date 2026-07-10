@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   escapeXml, mapTableCell, extractCellSkeletons,
-  buildCellTxBody, buildHeaderCellTxBody, type CellSkeletons,
+  buildCellTxBody, buildHeaderCellTxBody, subLineText, type CellSkeletons,
 } from '@/lib/report/xml'
 
 describe('escapeXml', () => {
@@ -78,14 +78,26 @@ const SK: CellSkeletons = {
   bodyPr: '<a:bodyPr/>', lstStyle: '<a:lstStyle/>',
 }
 
+describe('subLineText', () => {
+  it("기본 항목은 레퍼런스 줄 맞춤대로 '    - ' 접두", () => {
+    expect(subLineText('참석자 : TF 팀원')).toBe('    - 참석자 : TF 팀원')
+  })
+  it("'-'로 시작하는 항목은 대시 중복 없이 4칸 들여쓰기", () => {
+    expect(subLineText('- 회의 내용')).toBe('    - 회의 내용')
+  })
+  it("'.'로 시작하는 항목은 8칸 들여쓰기(레퍼런스 하위 단계)", () => {
+    expect(subLineText('. 프로젝트 목적 공유')).toBe('        . 프로젝트 목적 공유')
+  })
+})
+
 describe('buildCellTxBody', () => {
-  it('그룹→제목 문단 + 항목→상세 문단, 이스케이프 적용', () => {
+  it('그룹→제목 문단 + 항목→상세 문단(4칸 들여쓰기), 이스케이프 적용', () => {
     const xml = buildCellTxBody([{ phase: '설계 & 계획', num: 1, items: ['R&R 확정', '일정 공유'] }], SK)
     expect(xml.startsWith('<a:txBody><a:bodyPr/><a:lstStyle/>')).toBe(true)
     expect(xml).toContain('<a:buChar char="•"/>')
     expect(xml).toContain('<a:t>설계 &amp; 계획</a:t>')
     expect(xml).toContain('<a:buNone/>')
-    expect(xml).toContain('<a:t>- R&amp;R 확정</a:t>')
+    expect(xml).toContain('<a:t>    - R&amp;R 확정</a:t>')
     expect(xml.endsWith('</a:txBody>')).toBe(true)
   })
   it('빈 그룹 → (해당 없음) 한 줄, emptyText로 대체 가능', () => {

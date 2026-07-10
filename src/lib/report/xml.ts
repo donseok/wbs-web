@@ -63,6 +63,15 @@ const para = (pPr: string, rPr: string, text: string) =>
 const asEndParaRPr = (rPr: string) =>
   rPr.replace(/^<a:rPr/, '<a:endParaRPr').replace(/<\/a:rPr>$/, '</a:endParaRPr>')
 
+/** 하위 항목 한 줄 표기 — 레퍼런스 PPT 줄 맞춤(marL=0, 텍스트 선행 공백).
+ *  기본은 '    - 항목'. 항목이 '-'로 시작하면 4칸, '.'로 시작하면 8칸 들여쓰기만 붙인다. */
+export function subLineText(item: string): string {
+  const t = item.trimStart()
+  if (t.startsWith('.')) return `        ${t}`
+  if (t.startsWith('-')) return `    ${t}`
+  return `    - ${item}`
+}
+
 /** Phase 그룹들 → 콘텐츠 셀 <a:txBody>. title=불릿+볼드 헤드라인, sub='- '상세.
  *  상세 항목이 있는 그룹(주제 블록)이 끝나면 빈 문단 1줄로 다음 그룹과 구분(시인성).
  *  항목 없는 한 줄짜리 그룹(이슈/이벤트 불릿) 사이에는 빈 줄을 넣지 않는다. */
@@ -76,7 +85,7 @@ export function buildCellTxBody(groups: NarrativeGroup[], sk: CellSkeletons, emp
         body.push(`<a:p>${sk.sub.pPr}${asEndParaRPr(sk.sub.rPr)}</a:p>`)
       }
       body.push(para(sk.title.pPr, sk.title.rPr, g.phase))
-      for (const it of g.items) body.push(para(sk.sub.pPr, sk.sub.rPr, `- ${it}`))
+      for (const it of g.items) body.push(para(sk.sub.pPr, sk.sub.rPr, subLineText(it)))
     })
   }
   return `<a:txBody>${sk.bodyPr}${sk.lstStyle}${body.join('')}</a:txBody>`

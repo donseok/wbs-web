@@ -2,7 +2,7 @@ import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
-  mapTableCell, extractCellSkeletons, buildCellTxBody, buildHeaderCellTxBody, type CellSkeletons,
+  mapTableCell, extractCellSkeletons, buildCellTxBody, buildHeaderCellTxBody, subLineText, type CellSkeletons,
 } from './xml'
 import type { NarrativeGroup, NarrativeModel } from './narrative'
 import type { WeeklyReportModel } from './weekly'
@@ -24,9 +24,9 @@ export function lineCost(text: string): number {
   return Math.max(1, Math.ceil(w / FULLWIDTH_PER_LINE))
 }
 
-/** 그룹 줄수 = 헤더 + '- ' 항목들(줄바꿈 추정 포함). */
+/** 그룹 줄수 = 헤더 + 들여쓴 하위 항목들(줄바꿈 추정 포함) — 실제 렌더 문자열(subLineText)과 동일 기준. */
 const groupCost = (phase: string, items: string[]): number =>
-  lineCost(phase) + items.reduce((s, it) => s + lineCost(`- ${it}`), 0)
+  lineCost(phase) + items.reduce((s, it) => s + lineCost(subLineText(it)), 0)
 
 /** 그룹들을 페이지(셀)당 budget 시각줄 이내로 분할. 그룹 사이 빈 줄 1도 예산에 포함.
  *  새 페이지에 통째로 들어가는 그룹은 쪼개지 않고 이월하고, 한 페이지를 넘는 그룹만
@@ -50,8 +50,8 @@ export function paginateGroups(groups: NarrativeGroup[], budget: number): Narrat
       }
       if (page.length && total <= budget) { flush(); continue }  // 새 페이지로 통째 이월
       let cost = lineCost(phase), take = 0       // 분할: 남은 공간에 들어가는 항목까지
-      while (take < items.length && cost + lineCost(`- ${items[take]}`) <= remain) {
-        cost += lineCost(`- ${items[take]}`)
+      while (take < items.length && cost + lineCost(subLineText(items[take])) <= remain) {
+        cost += lineCost(subLineText(items[take]))
         take += 1
       }
       if (take === 0) {
