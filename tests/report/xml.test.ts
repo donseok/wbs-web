@@ -104,6 +104,12 @@ describe('buildCellTxBody', () => {
     expect(buildCellTxBody([], SK)).toContain('<a:t>(해당 없음)</a:t>')
     expect(buildCellTxBody([], SK, '-')).toContain('<a:t>-</a:t>')
   })
+  it('lineFormatter 주입 시 subLineText 대신 적용(시트 PPT 경로)', () => {
+    const fmt = (s: string) => `>>${s}`
+    const xml = buildCellTxBody([{ phase: 'P', num: 1, items: ['1. 항목'] }], SK, undefined, fmt)
+    expect(xml).toContain('<a:t>&gt;&gt;1. 항목</a:t>')
+    expect(xml).not.toContain('<a:t>    - 1. 항목</a:t>')
+  })
 
   // 런(<a:r>) 없는 빈 문단 — 주제 블록 구분용 개행
   const blankParas = (xml: string) =>

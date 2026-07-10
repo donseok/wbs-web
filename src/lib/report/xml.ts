@@ -72,10 +72,14 @@ export function subLineText(item: string): string {
   return `    - ${item}`
 }
 
-/** Phase 그룹들 → 콘텐츠 셀 <a:txBody>. title=불릿+볼드 헤드라인, sub='- '상세.
+/** Phase 그룹들 → 콘텐츠 셀 <a:txBody>. title=불릿+볼드 헤드라인, sub=들여쓴 상세 줄.
+ *  상세 줄 표기는 lineFormatter로 주입(기본 subLineText — WBS 주간보고 '    - ' 규칙).
  *  상세 항목이 있는 그룹(주제 블록)이 끝나면 빈 문단 1줄로 다음 그룹과 구분(시인성).
  *  항목 없는 한 줄짜리 그룹(이슈/이벤트 불릿) 사이에는 빈 줄을 넣지 않는다. */
-export function buildCellTxBody(groups: NarrativeGroup[], sk: CellSkeletons, emptyText = '(해당 없음)'): string {
+export function buildCellTxBody(
+  groups: NarrativeGroup[], sk: CellSkeletons, emptyText = '(해당 없음)',
+  lineFormatter: (item: string) => string = subLineText,
+): string {
   const body: string[] = []
   if (!groups.length) {
     body.push(para(sk.sub.pPr, sk.sub.rPr, emptyText))
@@ -85,7 +89,7 @@ export function buildCellTxBody(groups: NarrativeGroup[], sk: CellSkeletons, emp
         body.push(`<a:p>${sk.sub.pPr}${asEndParaRPr(sk.sub.rPr)}</a:p>`)
       }
       body.push(para(sk.title.pPr, sk.title.rPr, g.phase))
-      for (const it of g.items) body.push(para(sk.sub.pPr, sk.sub.rPr, subLineText(it)))
+      for (const it of g.items) body.push(para(sk.sub.pPr, sk.sub.rPr, lineFormatter(it)))
     })
   }
   return `<a:txBody>${sk.bodyPr}${sk.lstStyle}${body.join('')}</a:txBody>`
