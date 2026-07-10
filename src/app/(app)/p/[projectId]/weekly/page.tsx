@@ -47,7 +47,7 @@ export default async function WeeklyPage({
         thisRange={wk.thisRange}
         nextRange={wk.nextRange}
         projectName={projectName}
-        report={sheet ? { id: sheet.report.id } : null}
+        report={sheet ? { id: sheet.report.id, title: sheet.report.title } : null}
         initialRows={sheet?.rows ?? []}
         hasCarrySource={!!carrySource && carrySource.rows.length > 0}
       />

@@ -55,4 +55,13 @@ describe('buildSheetNarrative', () => {
     expect(empty.issues).toEqual(['특이 이슈 없음'])
     expect(empty.events).toEqual(['특이 이슈 없음'])
   })
+  it('구분·모듈 빈 행(무라벨) — 헤드라인·이슈 접두 폴백, "[] " 미노출', () => {
+    const unlabeled = buildSheetNarrative([
+      row({ section: '', module: '', thisContent: '1. 통관 프로세스', thisIssue: '보세공장 이슈' }),
+      row({ id: 'r2', sortOrder: 2, section: 'MES', module: '', nextContent: '1. 물류 분석' }),
+    ])
+    expect(unlabeled.prev.map(g => g.phase)).toEqual(['기타'])
+    expect(unlabeled.curr.map(g => g.phase)).toEqual(['MES'])
+    expect(unlabeled.issues).toEqual(['[기타] 보세공장 이슈'])
+  })
 })

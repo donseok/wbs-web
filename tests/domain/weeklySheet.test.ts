@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  carryOverRows, applyServerRow, isWeeklyCellKey, type WeeklySheetRow,
+  carryOverRows, applyServerRow, defaultWeeklyRows, isWeeklyCellKey, moduleOptions,
+  WEEKLY_MODULES, WEEKLY_SECTIONS, type WeeklySheetRow,
 } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
@@ -34,6 +35,35 @@ describe('applyServerRow', () => {
   })
   it('dirty 없으면 서버 그대로', () => {
     expect(applyServerRow(local, server, new Set())).toEqual(server)
+  })
+})
+
+describe('moduleOptions', () => {
+  it('구분별 목록을 그대로 반환', () => {
+    expect(moduleOptions('ERP')).toEqual(['SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'])
+    expect(moduleOptions('공통')).toEqual(['공통'])
+  })
+  it('미지의 구분 → 전체 모듈 평탄화', () => {
+    expect(moduleOptions('설비')).toEqual(Object.values(WEEKLY_MODULES).flat())
+  })
+  it('목록에 없는 current는 선두에 포함, 있으면 중복 없음', () => {
+    expect(moduleOptions('ERP', '커스텀')).toEqual(['커스텀', 'SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'])
+    expect(moduleOptions('ERP', 'MM')).toEqual(['SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'])
+  })
+})
+
+describe('defaultWeeklyRows', () => {
+  const rows = defaultWeeklyRows()
+  it('표준 분류 12행 — 구분·모듈 순서 보존, sortOrder 1부터 연속', () => {
+    expect(rows).toHaveLength(12)
+    expect(rows.map(r => r.sortOrder)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1))
+    expect(rows[0]).toMatchObject({ section: '공통', module: '공통' })
+    expect(rows.filter(r => r.section === 'ERP').map(r => r.module)).toEqual([...WEEKLY_MODULES.ERP])
+    expect(rows.filter(r => r.section === 'MES').map(r => r.module)).toEqual([...WEEKLY_MODULES.MES])
+    expect([...new Set(rows.map(r => r.section))]).toEqual([...WEEKLY_SECTIONS])
+  })
+  it('셀 4개는 모두 빈값', () => {
+    for (const r of rows) expect(r.thisContent + r.thisIssue + r.nextContent + r.nextIssue).toBe('')
   })
 })
 
