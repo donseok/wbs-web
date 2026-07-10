@@ -189,14 +189,14 @@ export interface ReportProject {
 }
 
 /* ── 날짜/주차 유틸 (UTC 기반, 타임존 무관) ── */
-function parseUTC(d: string): Date {
+export function parseUTC(d: string): Date {
   const [y, m, day] = d.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, day))
 }
-function fmtUTC(d: Date): string {
+export function fmtUTC(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
 }
-function addDays(d: Date, n: number): Date {
+export function addDays(d: Date, n: number): Date {
   const x = new Date(d)
   x.setUTCDate(x.getUTCDate() + n)
   return x
@@ -208,7 +208,7 @@ function announcedOn(a: Announcement): string {
   const t = Date.parse(a.createdAt)
   return Number.isNaN(t) ? '' : fmtUTC(new Date(t + 9 * 3600_000))
 }
-function mondayOf(d: Date): Date {
+export function mondayOf(d: Date): Date {
   const dow = d.getUTCDay() || 7 // 1=월 … 7=일
   return addDays(d, -(dow - 1))
 }
@@ -223,7 +223,7 @@ function isoWeek(d: Date): { year: number; week: number } {
   const week = 1 + Math.round((t.getTime() - firstThu.getTime()) / (7 * 86_400_000))
   return { year: t.getUTCFullYear(), week }
 }
-function md(d: Date): string {
+export function md(d: Date): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
 }
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'] as const
