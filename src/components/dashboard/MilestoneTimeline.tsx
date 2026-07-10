@@ -118,7 +118,7 @@ export async function MilestoneTimeline({ points, startDate, endDate, today }: {
           return (
             <g key={p.id}>
               <circle cx={x(p.date)} cy={BASE} r={5}
-                className={i > 0 && p.date <= today && p.status !== 'overdue' ? 'ms-alert' : MS_TONE[p.status]}>
+                className={i > 0 && p.date <= today && p.status !== 'overdue' ? 'fill-delayed' : MS_TONE[p.status]}>
                 <title>{`${p.name} · ${fmtDate(p.date)}`}</title>
               </circle>
               {lines.map((line, j) => (
