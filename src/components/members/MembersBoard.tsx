@@ -74,9 +74,11 @@ export function MembersBoard({
     setFormOpen(true)
   }
 
+  // 카드가 스크롤 영역을 꽉 채우고(h-full), 헤더는 고정된 채 그리드만 내부에서 스크롤된다.
+  // WBS 시트와 동일한 "단일 내부 스크롤 컨테이너" 패턴.
   return (
-    <div className="card overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4 sm:px-6">
+    <div className="card flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4 sm:px-6">
         <div>
           <div className="eyebrow">Member board</div>
           <h2 className="mt-0.5 text-sm font-semibold text-ink">{t('members.boardTitle')} · {members.length}{t('members.unitPeople')}</h2>
@@ -89,7 +91,7 @@ export function MembersBoard({
         )}
       </div>
 
-      <div className="p-5 sm:p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-5 sm:p-6">
         {members.length === 0 ? (
           <EmptyState
             icon={Users}
