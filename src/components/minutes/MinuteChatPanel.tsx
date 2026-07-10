@@ -121,7 +121,7 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
     )
   }
   return (
-    <aside className="card flex h-[560px] w-full flex-col lg:w-[340px] lg:shrink-0">
+    <aside className="card flex h-[560px] w-full flex-col xl:w-[340px] xl:shrink-0">
       <div className="flex items-center justify-between border-b border-line px-3 py-2">
         <span className="inline-flex items-center gap-2">
           <MessageCircle className="h-4 w-4 shrink-0 text-brand" />

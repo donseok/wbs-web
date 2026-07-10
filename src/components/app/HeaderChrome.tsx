@@ -49,13 +49,24 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
   }, [activeId])
 
   const context = useMemo(() => {
-    const match = pathname.match(/^\/p\/([^/]+)\/?([^/]+)?/)
-    if (!match) return { project: null as SidebarProject | null, section: '워크스페이스' }
-    return {
-      project: projects.find(p => p.id === match[1]) ?? null,
-      section: SECTION_LABEL[match[2] ?? ''] ?? '프로젝트',
+    const globalSection = pathname === '/meetings'
+      ? t('nav.myMeetings')
+      : pathname === '/minutes' || pathname.startsWith('/minutes/')
+        ? t('nav.minutes')
+        : null
+    if (globalSection) {
+      return { rootLabel: t('nav.workspace'), sectionLabel: globalSection }
     }
-  }, [pathname, projects])
+
+    const match = pathname.match(/^\/p\/([^/]+)\/?([^/]+)?/)
+    if (!match) return { rootLabel: null as string | null, sectionLabel: null as string | null }
+    const project = projects.find(p => p.id === match[1]) ?? null
+    const section = SECTION_LABEL[match[2] ?? ''] ?? '프로젝트'
+    return {
+      rootLabel: project?.name ?? null,
+      sectionLabel: section === '프로젝트' ? null : section,
+    }
+  }, [pathname, projects, t])
 
   const signOut = async () => {
     await createBrowserClient().auth.signOut()
@@ -79,14 +90,14 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
           </Link>
 
           {/* 브레드크럼 */}
-          {context.project && (
+          {context.rootLabel && (
             <nav className="ml-1 hidden min-w-0 items-center gap-1.5 rounded-xl border border-line bg-surface-2 px-2.5 py-1.5 md:flex" aria-label="현재 위치">
               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-              <span className="truncate text-[13px] font-semibold text-ink">{context.project.name}</span>
-              {context.section && context.section !== '프로젝트' && (
+              <span className="truncate text-[13px] font-semibold text-ink">{context.rootLabel}</span>
+              {context.sectionLabel && (
                 <>
                   <ChevronRight className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                  <span className="truncate text-[13px] font-medium text-ink-muted">{context.section}</span>
+                  <span className="truncate text-[13px] font-medium text-ink-muted">{context.sectionLabel}</span>
                 </>
               )}
             </nav>
@@ -240,6 +251,7 @@ function MobileMenu({
         <nav className="mt-6 min-h-0 flex-1 space-y-1 overflow-y-auto">
           <Link href="/projects" onClick={onClose} className={`side-link ${pathname === '/projects' ? 'side-link-active' : ''}`}>{t('nav.allProjects')}</Link>
           <Link href="/meetings" onClick={onClose} className={`side-link ${pathname === '/meetings' ? 'side-link-active' : ''}`}>{t('nav.myMeetings')}</Link>
+          <Link href="/minutes" onClick={onClose} className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''}`}>{t('nav.minutes')}</Link>
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>
           {projects.map(p => (
             <Link key={p.id} onClick={onClose} href={`/p/${p.id}/dashboard`} className={`side-link ${pathname.startsWith(`/p/${p.id}`) ? 'side-link-active' : ''}`}>

@@ -3,6 +3,7 @@
 export const commonKo = {
   'brand.tagline': '일하는 방식이 바뀌다',
   'nav.home': '홈',
+  'nav.workspace': '워크스페이스',
   'nav.allProjects': '전체 프로젝트',
   'nav.dashboard': '대시보드',
   'nav.wbs': 'WBS',
@@ -49,6 +50,7 @@ export const commonKo = {
 export const commonEn: Record<keyof typeof commonKo, string> = {
   'brand.tagline': 'A better way to work',
   'nav.home': 'Home',
+  'nav.workspace': 'Workspace',
   'nav.allProjects': 'All projects',
   'nav.dashboard': 'Dashboard',
   'nav.wbs': 'WBS',

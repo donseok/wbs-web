@@ -78,7 +78,7 @@ export function MinuteViewer({
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4">
+    <div className="mx-auto max-w-7xl space-y-4 p-4">
       {/* 메타 헤더 */}
       <div className="card space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -126,7 +126,7 @@ export function MinuteViewer({
       </div>
 
       {/* 본문 + (Task 17: 우측 채팅 패널) */}
-      <div className="flex flex-col gap-4 lg:flex-row">
+      <div className="flex flex-col gap-4 xl:flex-row">
         <div className="card min-w-0 flex-1 p-5">
           <MarkdownView content={minute.bodyMd} />
         </div>
