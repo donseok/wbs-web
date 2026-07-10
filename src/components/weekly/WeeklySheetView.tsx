@@ -679,7 +679,8 @@ function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExpo
 }) {
   const base = `/p/${projectId}/weekly`
   return (
-    <div className="flex items-center justify-between">
+    // 근태현황·회의일정과 동일한 스크롤 상단 고정. z-40: 시트 셀 오버레이(배지/핸들 z-30)보다 위.
+    <div className="sticky top-0 z-40 -mx-1 flex items-center justify-between bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm">
       <div className="flex items-center gap-2">
         <Link href={`${base}?week=${shiftWeeks(weekStart, -1)}`} className="btn btn-ghost px-2" aria-label="이전 주">
           <ChevronLeft className="h-4 w-4" />
