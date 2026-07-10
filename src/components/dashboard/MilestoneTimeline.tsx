@@ -117,7 +117,8 @@ export async function MilestoneTimeline({ points, startDate, endDate, today }: {
           const dateY = above ? BASE - 14 : BASE + 24 + LH * (lines.length - 1) + 13
           return (
             <g key={p.id}>
-              <circle cx={x(p.date)} cy={BASE} r={5} className={MS_TONE[p.status]}>
+              <circle cx={x(p.date)} cy={BASE} r={5}
+                className={p.date <= today && p.status !== 'overdue' ? 'ms-blink' : MS_TONE[p.status]}>
                 <title>{`${p.name} · ${fmtDate(p.date)}`}</title>
               </circle>
               {lines.map((line, j) => (
