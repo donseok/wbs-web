@@ -23,27 +23,37 @@ export interface PresencePeer {
   rowId: string            // 활성 셀 좌표(없으면 '')
   col: WeeklyCellKey | ''
   editing: boolean
+  ts: number               // 마지막 track 시각(ms) — 사용자당 최신 위치 판별용
 }
 
 export const CELL_PEERS_MAX = 3 // 한 셀에 겹칠 때 이름 칩 표시 상한(초과분은 +N)
 
 /** 셀 키(`rowId:col`) → 그 셀에 있는 타인 목록.
- *  자기 자신(다른 탭 포함)은 제외(구글시트 동일), 같은 사용자의 다중 탭이 같은 셀이면 1개만. */
+ *  자기 자신(다른 탭 포함)은 제외(구글시트 동일).
+ *  **사용자당 최신(ts 최대) 위치 1개만** — 같은 사람이 여러 탭/창으로 접속했거나 track이 겹치면
+ *  각 연결의 마지막 셀이 전부 링으로 남아 '클릭 이력'처럼 보인다. 최종 위치만 표시한다. */
 export function buildPresenceMap(peers: PresencePeer[], selfUserId: string): Map<string, PresencePeer[]> {
-  const seen = new Set<string>()
-  const map = new Map<string, PresencePeer[]>()
+  const latest = new Map<string, PresencePeer>()
   for (const p of peers) {
     if (p.userId === selfUserId) continue
     if (!p.rowId || !p.col) continue
-    const dedupe = `${p.userId}@${p.rowId}:${p.col}`
-    if (seen.has(dedupe)) continue
-    seen.add(dedupe)
+    const prev = latest.get(p.userId)
+    if (!prev || (p.ts ?? 0) > (prev.ts ?? 0)) latest.set(p.userId, p)
+  }
+  const map = new Map<string, PresencePeer[]>()
+  for (const p of latest.values()) {
     const k = `${p.rowId}:${p.col}`
     const list = map.get(k)
     if (list) list.push(p)
     else map.set(k, [p])
   }
   return map
+}
+
+/** 아바타 원 안에 넣을 짧은 라벨 — 2자까지(한글 이름 '이돈석'→'이돈', 라틴 'John'→'Jo'). */
+export function avatarLabel(name: string): string {
+  const t = name.trim()
+  return t.length <= 2 ? t : t.slice(0, 2)
 }
 
 /** 온라인 사용자 목록(툴바 스트립용) — 자기 제외, userId 단위 dedupe, 이름 가나다순. */

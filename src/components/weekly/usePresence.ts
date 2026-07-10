@@ -16,6 +16,7 @@ interface TrackPayload {
   rowId: string
   col: WeeklyCellKey | ''
   editing: boolean
+  ts: number // track 시각(ms) — 같은 사용자의 다중 연결 중 최신 위치 판별(buildPresenceMap)
 }
 
 /** 주간 시트 프레즌스 — reportId별 Realtime presence 채널에 자기 위치(활성 셀)를 track하고,
@@ -37,12 +38,13 @@ export function usePresence({ reportId, me, active, editing, enabled }: {
   }
 
   // track 페이로드 최신값 — 채널 effect가 재구독 없이 항상 현재 위치를 보내게 ref로 전달.
-  const payloadRef = useRef<TrackPayload | null>(null)
+  // ts는 렌더 시각이 아니라 track 직전에 찍는다(아래) — 렌더마다 갱신되면 의미가 흐려진다.
+  const payloadRef = useRef<Omit<TrackPayload, 'ts'> | null>(null)
   payloadRef.current = me
     ? { userId: me.id, name: me.name, rowId: active?.rowId ?? '', col: active?.col ?? '', editing }
     : null
 
-  type Tracker = { track: (p: TrackPayload) => void } | null
+  type Tracker = { track: (p: Omit<TrackPayload, 'ts'>) => void } | null
   const trackerRef = useRef<Tracker>(null)
 
   // 채널 수명 — reportId/사용자 단위. 주차 전환 시 leave/join으로 잔상 제거.
@@ -60,7 +62,7 @@ export function usePresence({ reportId, me, active, editing, enabled }: {
         for (const [connKey, metas] of Object.entries(state)) {
           for (const m of metas) {
             if (!m.userId) continue // 페이로드 없는 유령 메타 방어
-            flat.push({ connKey, userId: m.userId, name: m.name, rowId: m.rowId, col: m.col, editing: !!m.editing })
+            flat.push({ connKey, userId: m.userId, name: m.name, rowId: m.rowId, col: m.col, editing: !!m.editing, ts: m.ts ?? 0 })
           }
         }
         setPeers(flat)
@@ -68,9 +70,9 @@ export function usePresence({ reportId, me, active, editing, enabled }: {
       .subscribe(st => {
         if (st !== 'SUBSCRIBED') return
         subscribed = true
-        if (payloadRef.current) void channel.track(payloadRef.current)
+        if (payloadRef.current) void channel.track({ ...payloadRef.current, ts: Date.now() })
       })
-    trackerRef.current = { track: p => { if (subscribed) void channel.track(p) } }
+    trackerRef.current = { track: p => { if (subscribed) void channel.track({ ...p, ts: Date.now() }) } }
     return () => {
       trackerRef.current = null
       void sb.removeChannel(channel) // untrack(leave) 포함 — 타 세션에서 즉시 사라짐

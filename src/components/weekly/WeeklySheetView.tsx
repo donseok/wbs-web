@@ -19,7 +19,7 @@ import {
 import { shiftWeeks } from '@/lib/report/week'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
-import { buildPresenceMap, onlinePeers, presenceColor } from '@/lib/domain/sheetPresence'
+import { avatarLabel, buildPresenceMap, onlinePeers, presenceColor } from '@/lib/domain/sheetPresence'
 import { useSheetGrid } from './useSheetGrid'
 import { usePresence } from './usePresence'
 import { SheetCell, type BatchChip } from './SheetCell'
@@ -519,17 +519,22 @@ export function WeeklySheetView({
   const fp = grid.fillPreview
   const isMulti = !!gr && (gr.bottom > gr.top || gr.right > gr.left)
 
-  // 온라인 스트립 — 같은 주차를 보는 다른 사용자(색점+이름). 혼자면 아무것도 표시하지 않는다.
+  // 온라인 스트립 — 같은 주차를 보는 다른 사용자를 구글 문서식 원형 아바타(이름 2자)로 겹쳐 표시.
+  // 혼자면 아무것도 표시하지 않는다. 전체 이름은 각 원의 title(툴팁)로.
   const presenceStrip = online.length > 0 ? (
-    <div className="flex items-center gap-2 text-xs text-ink"
-      title={`함께 보는 중: ${online.map(o => o.name).join(', ')}`}>
-      {online.slice(0, 4).map(o => (
-        <span key={o.userId} className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full" style={{ background: presenceColor(o.userId) }} />
-          {o.name}
+    <div className="flex items-center" title={`함께 보는 중: ${online.map(o => o.name).join(', ')}`}>
+      {online.slice(0, 5).map(o => (
+        <span key={o.userId} title={o.name}
+          className="-ml-1.5 flex h-7 w-7 select-none items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-canvas first:ml-0"
+          style={{ background: presenceColor(o.userId) }}>
+          {avatarLabel(o.name)}
         </span>
       ))}
-      {online.length > 4 && <span>+{online.length - 4}</span>}
+      {online.length > 5 && (
+        <span className="-ml-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-neutral-500 text-[10px] font-bold text-white ring-2 ring-canvas">
+          +{online.length - 5}
+        </span>
+      )}
     </div>
   ) : null
 

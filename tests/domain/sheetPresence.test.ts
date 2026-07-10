@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
-  PRESENCE_COLORS, presenceColor, buildPresenceMap, onlinePeers, CELL_PEERS_MAX,
+  PRESENCE_COLORS, presenceColor, buildPresenceMap, onlinePeers, avatarLabel, CELL_PEERS_MAX,
   type PresencePeer,
 } from '@/lib/domain/sheetPresence'
 
 function peer(over: Partial<PresencePeer>): PresencePeer {
   return {
     connKey: 'u1:aaaa', userId: 'u1', name: '철수',
-    rowId: 'r1', col: 'this_content', editing: false, ...over,
+    rowId: 'r1', col: 'this_content', editing: false, ts: 1000, ...over,
   }
 }
 
@@ -47,6 +47,15 @@ describe('buildPresenceMap', () => {
     ], 'me')
     expect(map.get('r1:this_content')).toHaveLength(1)
   })
+  it('같은 사용자가 여러 셀에 있으면 최신(ts 최대) 위치 1개만 남긴다 — 이동 이력 잔상 방지', () => {
+    const map = buildPresenceMap([
+      peer({ userId: 'u2', connKey: 'u2:a', rowId: 'r1', ts: 1000 }),
+      peer({ userId: 'u2', connKey: 'u2:b', rowId: 'r2', ts: 3000 }),
+      peer({ userId: 'u2', connKey: 'u2:c', rowId: 'r3', ts: 2000 }),
+    ], 'me')
+    expect(map.size).toBe(1)
+    expect(map.get('r2:this_content')).toHaveLength(1)
+  })
   it('같은 셀의 서로 다른 사용자는 모두 모은다(칩 상한은 렌더 몫)', () => {
     const many = ['u2', 'u3', 'u4', 'u5'].map(id => peer({ userId: id, connKey: `${id}:a`, name: id }))
     const map = buildPresenceMap(many, 'me')
@@ -78,5 +87,14 @@ describe('onlinePeers', () => {
   it('셀 좌표가 없어도(문서만 열람) 온라인 목록에는 포함된다', () => {
     const list = onlinePeers([peer({ userId: 'u2', name: '영희', rowId: '', col: '' })], 'me')
     expect(list).toHaveLength(1)
+  })
+})
+
+describe('avatarLabel', () => {
+  it('2자 이하는 그대로, 길면 앞 2자만', () => {
+    expect(avatarLabel('이돈석')).toBe('이돈')
+    expect(avatarLabel('철수')).toBe('철수')
+    expect(avatarLabel('John Smith')).toBe('Jo')
+    expect(avatarLabel('  공백님  ')).toBe('공백')
   })
 })
