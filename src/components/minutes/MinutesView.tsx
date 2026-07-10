@@ -105,50 +105,52 @@ export function MinutesView({
 
   return (
     <div className="space-y-4">
-      {/* 필터 바 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedTabs<TeamKey>
-          tabs={[{ key: 'ALL', label: t('min.team.all') }, ...TEAM_CODES.map(tk => ({ key: tk, label: tk }))]}
-          value={team} onChange={changeTeam} size="sm" />
-        <div className="flex items-center gap-1">
-          <button onClick={() => shift(-1)} disabled={isSearch} className="chrome-icon disabled:opacity-40" aria-label="prev month">
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <span className="min-w-[84px] text-center text-sm font-semibold tabular-nums">{ymLabel}</span>
-          <button onClick={() => shift(1)} disabled={isSearch} className="chrome-icon disabled:opacity-40" aria-label="next month">
-            <ChevronRight className="h-4 w-4" />
-          </button>
+      {/* 필터 바 + 카운트 요약 (스크롤 시 상단 고정) */}
+      <div className="sticky top-0 z-20 -mx-1 space-y-3 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedTabs<TeamKey>
+            tabs={[{ key: 'ALL', label: t('min.team.all') }, ...TEAM_CODES.map(tk => ({ key: tk, label: tk }))]}
+            value={team} onChange={changeTeam} size="sm" />
+          <div className="flex items-center gap-1">
+            <button onClick={() => shift(-1)} disabled={isSearch} className="chrome-icon disabled:opacity-40" aria-label="prev month">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="min-w-[84px] text-center text-sm font-semibold tabular-nums">{ymLabel}</span>
+            <button onClick={() => shift(1)} disabled={isSearch} className="chrome-icon disabled:opacity-40" aria-label="next month">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
+            <input value={query}
+              onChange={e => { setQuery(e.target.value); void runSearch(e.target.value, team) }}
+              placeholder={t('min.search.placeholder')}
+              className="app-input h-9 w-56 pl-8" />
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <SegmentedTabs<ViewKey>
+              tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
+                     { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
+              value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
+            <button onClick={() => setChatOpen(true)} className="btn">
+              <MessageCircle className="h-4 w-4" />{t('min.chat.archive.title')}
+            </button>
+            <button onClick={() => setUploadOpen(true)} className="btn btn-primary">
+              <Plus className="h-4 w-4" />{t('min.upload')}
+            </button>
+          </div>
         </div>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
-          <input value={query}
-            onChange={e => { setQuery(e.target.value); void runSearch(e.target.value, team) }}
-            placeholder={t('min.search.placeholder')}
-            className="app-input h-9 w-56 pl-8" />
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <SegmentedTabs<ViewKey>
-            tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
-                   { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
-            value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
-          <button onClick={() => setChatOpen(true)} className="btn">
-            <MessageCircle className="h-4 w-4" />{t('min.chat.archive.title')}
-          </button>
-          <button onClick={() => setUploadOpen(true)} className="btn btn-primary">
-            <Plus className="h-4 w-4" />{t('min.upload')}
-          </button>
-        </div>
-      </div>
 
-      {/* 담당별 카운트 요약 */}
-      <div className="flex flex-wrap gap-3 text-xs text-ink-muted">
-        <span className="font-medium text-ink">{t('min.team.all')} {minutes.length}</span>
-        {TEAM_CODES.map(tk => (
-          <span key={tk} className="inline-flex items-center gap-1.5">
-            <span className={`inline-block h-2 w-2 rounded-full ${TEAM[tk].bar}`} />
-            {tk} {kpiByTeam[tk]}
-          </span>
-        ))}
+        {/* 담당별 카운트 요약 */}
+        <div className="flex flex-wrap gap-3 text-xs text-ink-muted">
+          <span className="font-medium text-ink">{t('min.team.all')} {minutes.length}</span>
+          {TEAM_CODES.map(tk => (
+            <span key={tk} className="inline-flex items-center gap-1.5">
+              <span className={`inline-block h-2 w-2 rounded-full ${TEAM[tk].bar}`} />
+              {tk} {kpiByTeam[tk]}
+            </span>
+          ))}
+        </div>
       </div>
 
       {isSearch && minutes.length >= 100 && (
