@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { CellAddr } from '@/lib/domain/sheetSelection'
+import { CELL_PEERS_MAX, presenceColor, type PresencePeer } from '@/lib/domain/sheetPresence'
 
 export type CellStatus = 'saving' | 'saved' | 'error'
 /** 배치 변이 중 활성 셀에 뜨는 집계 칩(§5) — 개별 배지 대신 하나만. */
@@ -24,6 +25,7 @@ export interface SheetCellProps {
   showFillHandle: boolean
   batchActive: boolean // true면 per-cell 배지 억제(활성 셀 칩만 노출)
   chip: BatchChip | null // 활성 셀에만 전달
+  peers: PresencePeer[] | null // 이 셀에 있는 타 사용자(프레즌스) — 없으면 null
   register: (key: string, el: HTMLTextAreaElement | null) => void
   onChange: (v: string) => void
   onBlur: (e: React.FocusEvent) => void
@@ -81,6 +83,29 @@ export function SheetCell(p: SheetCellProps) {
       {p.showFillBorder && (
         <div className="pointer-events-none absolute inset-0 z-20 border-dashed border-[#1a73e8]"
           style={{ borderTopWidth: p.fillTop ? 2 : 0, borderRightWidth: p.fillRight ? 2 : 0, borderBottomWidth: p.fillBottom ? 2 : 0, borderLeftWidth: p.fillLeft ? 2 : 0 }} />
+      )}
+      {/* 프레즌스 — 타 사용자 위치 링(첫 사용자 색) + 셀 상단에 이름 칩(구글시트 룩).
+          z-10: 자기 선택 외곽선(z-20)·배지(z-30)보다 아래, 클릭/타이핑엔 무간섭. */}
+      {p.peers && p.peers.length > 0 && (
+        <>
+          <div className="pointer-events-none absolute inset-0 z-10 border-2"
+            style={{ borderColor: presenceColor(p.peers[0].userId) }} />
+          <span className="pointer-events-none absolute left-0 top-0 z-30 flex max-w-full -translate-y-1/2 gap-0.5">
+            {p.peers.slice(0, CELL_PEERS_MAX).map(peer => (
+              <span key={peer.connKey}
+                className="truncate rounded-sm px-1 text-[9px] font-bold leading-4 text-white"
+                style={{ background: presenceColor(peer.userId) }}
+                title={peer.editing ? `${peer.name} · 입력 중` : peer.name}>
+                {peer.name}{peer.editing ? ' ✎' : ''}
+              </span>
+            ))}
+            {p.peers.length > CELL_PEERS_MAX && (
+              <span className="rounded-sm bg-neutral-500 px-1 text-[9px] font-bold leading-4 text-white">
+                +{p.peers.length - CELL_PEERS_MAX}
+              </span>
+            )}
+          </span>
+        </>
       )}
       {p.showFillHandle && (
         <div

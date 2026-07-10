@@ -19,7 +19,9 @@ import {
 import { shiftWeeks } from '@/lib/report/week'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
+import { buildPresenceMap, onlinePeers, presenceColor } from '@/lib/domain/sheetPresence'
 import { useSheetGrid } from './useSheetGrid'
+import { usePresence } from './usePresence'
 import { SheetCell, type BatchChip } from './SheetCell'
 
 type CellStatus = 'saving' | 'saved' | 'error'
@@ -47,7 +49,7 @@ function fromRecord(r: Record<string, unknown>): WeeklySheetRow {
 
 export function WeeklySheetView({
   projectId, weekStart, weekLabel, weekTitle, thisRange, nextRange, projectName,
-  report, initialRows, hasCarrySource,
+  report, initialRows, hasCarrySource, me,
 }: {
   projectId: string
   weekStart: string
@@ -59,6 +61,7 @@ export function WeeklySheetView({
   report: { id: string; title: string } | null
   initialRows: WeeklySheetRow[]
   hasCarrySource: boolean
+  me: { id: string; name: string } | null // 프레즌스 신원 — 서버(getSession)에서 전달
 }) {
   const router = useRouter()
   const { toast } = useToast()
@@ -445,6 +448,23 @@ export function WeeklySheetView({
     runBatch, requestUndo, requestRedo, beginEdit, endEdit, toast,
   })
 
+  // 프레즌스 — 같은 주차 문서를 보는 다른 사용자의 위치/편집 상태(구글시트의 색상 커서 대응).
+  // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
+  const presencePeers = usePresence({
+    reportId, me,
+    active: rows.length ? grid.sel.active : null,
+    editing: grid.sel.editing,
+    enabled: !!report && !!me,
+  })
+  const presenceByCell = useMemo(
+    () => buildPresenceMap(presencePeers, me?.id ?? ''),
+    [presencePeers, me?.id],
+  )
+  const online = useMemo(
+    () => onlinePeers(presencePeers, me?.id ?? ''),
+    [presencePeers, me?.id],
+  )
+
   // 언마운트 시 디바운스/재시도 타이머 정리 — 정리 안 하면 사라진 컴포넌트에 setState 호출됨.
   // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
   useEffect(() => () => {
@@ -499,9 +519,23 @@ export function WeeklySheetView({
   const fp = grid.fillPreview
   const isMulti = !!gr && (gr.bottom > gr.top || gr.right > gr.left)
 
+  // 온라인 스트립 — 같은 주차를 보는 다른 사용자(색점+이름). 혼자면 아무것도 표시하지 않는다.
+  const presenceStrip = online.length > 0 ? (
+    <div className="flex items-center gap-2 text-xs text-ink"
+      title={`함께 보는 중: ${online.map(o => o.name).join(', ')}`}>
+      {online.slice(0, 4).map(o => (
+        <span key={o.userId} className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full" style={{ background: presenceColor(o.userId) }} />
+          {o.name}
+        </span>
+      ))}
+      {online.length > 4 && <span>+{online.length - 4}</span>}
+    </div>
+  ) : null
+
   return (
     <div className="space-y-3">
-      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} />
+      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} presence={presenceStrip} />
       <div className="overflow-x-auto">
         <div className={`min-w-[1240px] bg-white p-1.5 shadow-sm ring-1 ring-neutral-300 ${grid.dragging === 'fill' ? 'cursor-crosshair select-none' : grid.dragging === 'select' ? 'cursor-cell select-none' : ''}`}>
           {/* 제목 행 — 레퍼런스 시트의 B1. 자유 편집(''이면 기본 제목 합성). key로 주차 전환 시 초기화 */}
@@ -586,6 +620,7 @@ export function WeeklySheetView({
                           showFillHandle={!!gr && i === gr.bottom && j === gr.right && !grid.sel.editing && grid.dragging !== 'fill'}
                           batchActive={batchActive}
                           chip={active ? batchChip : null}
+                          peers={presenceByCell.get(`${r.id}:${c.key}`) ?? null}
                           register={registerCell}
                           onChange={v => onCellChange(r.id, c.key, v)}
                           onBlur={e => { handleCellBlur(addr); grid.onCellBlurEvent(e) }}
@@ -629,9 +664,10 @@ export function WeeklySheetView({
   )
 }
 
-function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport }: {
+function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport, presence }: {
   projectId: string; weekStart: string; weekLabel: string; exportDisabled: boolean
   onBeforeExport: () => Promise<boolean>
+  presence?: React.ReactNode // 온라인 사용자 스트립(프레즌스) — 내보내기 버튼 왼쪽
 }) {
   const base = `/p/${projectId}/weekly`
   return (
@@ -645,7 +681,10 @@ function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExpo
           <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
-      <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />
+      <div className="flex items-center gap-3">
+        {presence}
+        <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />
+      </div>
     </div>
   )
 }

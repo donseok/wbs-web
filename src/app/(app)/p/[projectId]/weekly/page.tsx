@@ -1,4 +1,6 @@
 import { listProjects } from '@/app/actions/project'
+import { getSession } from '@/lib/auth'
+import { displayNameFrom } from '@/lib/domain/display-name'
 import { mondayIso, sheetWeekMeta } from '@/lib/report/week'
 import { getWeeklySheet, findCarryOverSource } from '@/lib/data/weeklySheet'
 import { t } from '@/lib/i18n/dict'
@@ -22,13 +24,16 @@ export default async function WeeklyPage({
   const weekStart = mondayIso(week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : seoulToday())
   const wk = sheetWeekMeta(weekStart)
 
-  const [sheet, carrySource, projects, locale] = await Promise.all([
+  const [sheet, carrySource, projects, locale, user] = await Promise.all([
     getWeeklySheet(projectId, weekStart),
     findCarryOverSource(projectId, weekStart),
     listProjects(),
     getServerLocale(),
+    getSession(),
   ])
   const projectName = projects.find(p => p.id === projectId)?.name ?? ''
+  // 프레즌스 신원 — 표시명 규칙은 헤더와 동일(full_name → name → 이메일 아이디)
+  const me = user ? { id: user.id, name: displayNameFrom(user.user_metadata, user.email) ?? '사용자' } : null
 
   return (
     <ProjectPageShell
@@ -47,6 +52,7 @@ export default async function WeeklyPage({
         report={sheet ? { id: sheet.report.id, title: sheet.report.title } : null}
         initialRows={sheet?.rows ?? []}
         hasCarrySource={!!carrySource && carrySource.rows.length > 0}
+        me={me}
       />
     </ProjectPageShell>
   )
