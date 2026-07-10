@@ -10,6 +10,9 @@ import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
 import { buildWeeklyNarrative } from '@/lib/report/narrative'
 import { fillWeeklyTemplate } from '@/lib/report/templateFill'
+import { mondayIso, sheetWeekMeta } from '@/lib/report/week'
+import { buildSheetNarrative, sheetLineText } from '@/lib/report/sheetNarrative'
+import { getWeeklySheet } from '@/lib/data/weeklySheet'
 
 // exceljs·템플릿 zip 읽기(fs)는 Node 전용 → Edge 런타임 금지.
 export const runtime = 'nodejs'
@@ -47,6 +50,39 @@ export async function GET(req: NextRequest) {
   if (!projectId) return NextResponse.json({ error: '프로젝트 누락' }, { status: 400 })
   if (format !== 'xlsx' && format !== 'pptx') {
     return NextResponse.json({ error: 'format은 xlsx 또는 pptx여야 합니다' }, { status: 400 })
+  }
+
+  // ── 주간업무 시트 PPT (source=sheet): WBS 모델 페치를 우회하고 시트 rows만 사용 ──
+  const source = req.nextUrl.searchParams.get('source')
+  if (source === 'sheet') {
+    if (format !== 'pptx') return NextResponse.json({ error: '시트 보고서는 pptx만 지원합니다' }, { status: 400 })
+    const week = req.nextUrl.searchParams.get('week')
+    if (!week || !/^\d{4}-\d{2}-\d{2}$/.test(week)) {
+      return NextResponse.json({ error: 'week(YYYY-MM-DD)가 필요합니다' }, { status: 400 })
+    }
+    const weekStart = mondayIso(week) // 임의 날짜 → 월요일 정규화(스펙 §7)
+    const [projects, sheet] = await Promise.all([listProjects(), getWeeklySheet(projectId, weekStart)])
+    const project = (projects as { id: string; name: string }[]).find(p => p.id === projectId)
+    if (!project) return NextResponse.json({ error: '프로젝트를 찾을 수 없습니다' }, { status: 404 })
+    const hasContent = sheet?.rows.some(r =>
+      (r.thisContent + r.thisIssue + r.nextContent + r.nextIssue).trim() !== '')
+    if (!sheet || !hasContent) {
+      return NextResponse.json({ error: '해당 주차에 작성된 내용이 없습니다' }, { status: 400 })
+    }
+    const wk = sheetWeekMeta(weekStart)
+    const body = await fillWeeklyTemplate(
+      buildSheetNarrative(sheet.rows),
+      { meta: { prevWeekRange: wk.thisRange, weekRange: wk.nextRange } }, // 좌=금주실적, 우=차주계획
+      { labels: { left: '금주실적', right: '차주계획' }, lineFormatter: sheetLineText },
+    )
+    const filename = `${project.name}_주간업무_${wk.weekTag}_${weekStart}.pptx`.replace(/[^\w가-힣.\-]+/g, '_')
+    return new NextResponse(body as unknown as ArrayBuffer, { // Buffer 단독 타입 → 기존 반환부(route.ts:74)의 ArrayBuffer|Buffer 유니온과 달리 unknown 경유 필요
+      headers: {
+        'Content-Type': FORMATS.pptx.type,
+        'Content-Disposition': `attachment; filename="report.pptx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        'Cache-Control': 'no-store',
+      },
+    })
   }
 
   const [{ items, today }, projects, members, attendance, meetingData, announcements] = await Promise.all([
