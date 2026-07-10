@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CalendarDays, ChevronLeft, ChevronRight, List, MessageCircle, Paperclip, Plus, Search } from 'lucide-react'
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, List, Paperclip, Plus, Search } from 'lucide-react'
 import type { Minute, TeamCode } from '@/lib/domain/types'
 import { TEAM_CODES } from '@/lib/domain/minutes'
 import { fetchMinutesRange, fetchMinutesSearch } from '@/app/actions/minutes'
@@ -133,7 +133,7 @@ export function MinutesView({
                      { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
               value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
             <button onClick={() => setChatOpen(true)} className="btn">
-              <MessageCircle className="h-4 w-4" />{t('min.chat.archive.title')}
+              <Bot className="h-4 w-4" />{t('min.chat.archive.title')}
             </button>
             <button onClick={() => setUploadOpen(true)} className="btn btn-primary">
               <Plus className="h-4 w-4" />{t('min.upload')}

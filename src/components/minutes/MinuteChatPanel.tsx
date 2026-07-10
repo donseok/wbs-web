@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
-import { MessageCircle, RotateCcw, Send, X } from 'lucide-react'
+import { Bot, RotateCcw, Send, X } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { TEAM_CODES } from '@/lib/domain/minutes'
@@ -79,6 +79,21 @@ export function ChatBubble({ role, content, renderContent }: {
   )
 }
 
+/** 답변 준비 표시 — 스트림 첫 청크가 오기 전까지 점 세 개로 대기 상태를 보여준다(DkBot과 동일 모양). */
+export function TypingBubble() {
+  const { t } = useLocale()
+  return (
+    <div className="flex justify-start" role="status" aria-label={t('min.chat.typing')}>
+      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-brand-ring/30 bg-brand-weak/50 px-4 py-3">
+        {[0, 1, 2].map(i => (
+          <span key={i} className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-subtle"
+            style={{ animationDelay: `${i * 0.15}s` }} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function ChatComposer({ onSend, loading }: { onSend: (v: string) => void; loading: boolean }) {
   const { t } = useLocale()
   const [value, setValue] = useState('')
@@ -121,7 +136,7 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="btn self-start">
-        <MessageCircle className="h-4 w-4" />{t('min.chat.doc.title')}
+        <Bot className="h-4 w-4" />{t('min.chat.doc.title')}
       </button>
     )
   }
@@ -129,7 +144,7 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
     <aside className="card flex h-[560px] w-full flex-col xl:w-[340px] xl:shrink-0">
       <div className="flex items-center justify-between border-b border-line px-3 py-2">
         <span className="inline-flex items-center gap-2">
-          <MessageCircle className="h-4 w-4 shrink-0 text-brand" />
+          <Bot className="h-4 w-4 shrink-0 text-brand" />
           <SegmentedTabs<ChatScope>
             tabs={[{ key: 'doc', label: t('min.chat.scope.doc') },
                    { key: 'archive', label: t('min.chat.scope.all') }]}
@@ -158,6 +173,7 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
           <ChatBubble key={m.id} role={m.role} content={m.content}
             renderContent={scope === 'archive' ? linkifyMinutePaths : undefined} />
         ))}
+        {chat.loading && chat.messages[chat.messages.length - 1]?.role !== 'assistant' && <TypingBubble />}
       </div>
       <ChatComposer onSend={chat.send} loading={chat.loading} />
     </aside>

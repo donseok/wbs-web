@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { MessageCircle, RotateCcw, X } from 'lucide-react'
+import { Bot, RotateCcw, X } from 'lucide-react'
 import type { TeamCode } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { ChatBubble, ChatComposer, useMinutesChat } from './MinuteChatPanel'
+import { ChatBubble, ChatComposer, TypingBubble, useMinutesChat } from './MinuteChatPanel'
 import { linkifyMinutePaths } from './linkify'
 
 export function ArchiveChatPanel({
@@ -39,7 +39,7 @@ export function ArchiveChatPanel({
       <div className="absolute bottom-3 right-3 top-3 flex w-[min(28rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-line bg-surface shadow-[var(--shadow-xl)] animate-[slidein_.18s_ease-out]">
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <span className="inline-flex items-center gap-1.5 text-sm font-semibold">
-            <MessageCircle className="h-4 w-4 text-brand" />{t('min.chat.archive.title')}
+            <Bot className="h-4 w-4 text-brand" />{t('min.chat.archive.title')}
           </span>
           <span className="inline-flex items-center gap-2">
             <button onClick={reset} disabled={loading || messages.length === 0}
@@ -56,6 +56,7 @@ export function ArchiveChatPanel({
           {messages.map(m => (
             <ChatBubble key={m.id} role={m.role} content={m.content} renderContent={linkifyMinutePaths} />
           ))}
+          {loading && messages[messages.length - 1]?.role !== 'assistant' && <TypingBubble />}
         </div>
         <ChatComposer onSend={send} loading={loading} />
       </div>
