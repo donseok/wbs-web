@@ -50,6 +50,13 @@ export const CELL_FIELD = {
   next_content: 'nextContent', next_issue: 'nextIssue',
 } as const satisfies Record<WeeklyCellKey, keyof WeeklySheetRow>
 
+/** 멀티셀 변이의 최소 단위 — 붙여넣기·범위삭제·채우기·undo·배치 액션이 공유. 고유성 키는 `${rowId}:${cellKey}`. */
+export interface WeeklyCellEdit {
+  rowId: string           // weekly_report_rows.id
+  cellKey: WeeklyCellKey  // snake_case DB 열명(구조 열 불가침 — 내용 4열만)
+  content: string         // 저장할 새 값(0~CELL_MAX)
+}
+
 /** 새 주차 이월(스펙 §4): 행 구성 복사 + 전주 차주계획→금주실적, next는 비움. sortOrder 재부여. */
 export function carryOverRows(prev: WeeklySheetRow[]): NewWeeklyRow[] {
   return [...prev]
