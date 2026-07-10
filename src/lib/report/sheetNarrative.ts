@@ -26,7 +26,13 @@ export function cellLines(text: string): string[] {
   return out
 }
 
-const headline = (r: WeeklySheetRow): string => `[${r.section}] ${r.module}`
+/** 그룹 헤드라인 — 구분·모듈 없는 행(레퍼런스 시트 말미의 무라벨 행)이 '[] '로 나오지 않게 폴백. */
+const headline = (r: WeeklySheetRow): string => {
+  const sec = r.section.trim(), mod = r.module.trim()
+  return sec && mod ? `[${sec}] ${mod}` : mod || sec || '기타'
+}
+
+const issueLabel = (r: WeeklySheetRow): string => r.module.trim() || r.section.trim() || '기타'
 
 function groupsOf(rows: WeeklySheetRow[], field: 'thisContent' | 'nextContent'): NarrativeGroup[] {
   return rows
@@ -36,7 +42,7 @@ function groupsOf(rows: WeeklySheetRow[], field: 'thisContent' | 'nextContent'):
 
 function issuesOf(rows: WeeklySheetRow[], field: 'thisIssue' | 'nextIssue'): string[] {
   const out = rows.flatMap(r =>
-    cellLines(r[field]).filter(l => l.trim() !== '').map(l => `[${r.module}] ${l.trim()}`),
+    cellLines(r[field]).filter(l => l.trim() !== '').map(l => `[${issueLabel(r)}] ${l.trim()}`),
   )
   // 빈 목록을 직접 채워 fillWeeklyTemplate 우측 슬롯의 '예정된 주요 이벤트 없음' 폴백이 노출되지 않게 한다.
   return out.length ? out : ['특이 이슈 없음']

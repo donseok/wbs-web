@@ -14,6 +14,30 @@ export interface WeeklySheetRow {
 
 export type NewWeeklyRow = Omit<WeeklySheetRow, 'id' | 'reportId'>
 
+/** 레퍼런스 시트의 표준 분류 체계 — 구분·모듈 콤보박스 옵션. 자유 값은 '직접 입력' 경로로 허용. */
+export const WEEKLY_SECTIONS = ['공통', 'ERP', 'MES'] as const
+
+export const WEEKLY_MODULES: Record<string, readonly string[]> = {
+  공통: ['공통'],
+  ERP: ['SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'],
+  MES: ['품질', 'APS', '조업 및 표준화', '가공', '설비 Level2', '물류'],
+}
+
+/** 구분별 모듈 옵션. 미지의 구분은 전체 평탄화, current는 목록에 없으면 선두에 포함. */
+export function moduleOptions(section: string, current?: string): string[] {
+  const base = WEEKLY_MODULES[section] ?? Object.values(WEEKLY_MODULES).flat()
+  return current && !base.includes(current) ? [current, ...base] : [...base]
+}
+
+/** 새 주차 기본 스켈레톤 — 표준 분류 12행(셀은 빈값). '빈 시트로 시작' 대신 이 프레임을 시드. */
+export function defaultWeeklyRows(): NewWeeklyRow[] {
+  return WEEKLY_SECTIONS.flatMap(section => WEEKLY_MODULES[section].map(module => ({ section, module })))
+    .map((r, i) => ({
+      ...r, sortOrder: i + 1,
+      thisContent: '', thisIssue: '', nextContent: '', nextIssue: '',
+    }))
+}
+
 /** 셀 저장 가능한 DB 열 화이트리스트 — 구조 필드(section/module/sort_order)는 별도 액션으로만. */
 export const WEEKLY_CELL_KEYS = ['this_content', 'this_issue', 'next_content', 'next_issue'] as const
 export type WeeklyCellKey = (typeof WEEKLY_CELL_KEYS)[number]

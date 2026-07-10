@@ -1,7 +1,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import type { WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
-export interface WeeklyReportDoc { id: string; projectId: string; weekStart: string }
+export interface WeeklyReportDoc { id: string; projectId: string; weekStart: string; title: string }
 
 type RowRecord = {
   id: string; report_id: string; section: string; module: string; sort_order: number
@@ -30,10 +30,13 @@ export async function getWeeklySheet(
   projectId: string, weekStartIso: string,
 ): Promise<{ report: WeeklyReportDoc; rows: WeeklySheetRow[] } | null> {
   const sb = await createServerClient()
-  const { data } = await sb.from('weekly_reports').select('id, project_id, week_start')
+  const { data } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
     .eq('project_id', projectId).eq('week_start', weekStartIso).maybeSingle()
   if (!data) return null
-  const report = { id: data.id as string, projectId: data.project_id as string, weekStart: data.week_start as string }
+  const report = {
+    id: data.id as string, projectId: data.project_id as string,
+    weekStart: data.week_start as string, title: (data.title as string | null) ?? '',
+  }
   return { report, rows: await loadRows(report.id) }
 }
 
@@ -42,10 +45,13 @@ export async function findCarryOverSource(
   projectId: string, beforeWeekStartIso: string,
 ): Promise<{ report: WeeklyReportDoc; rows: WeeklySheetRow[] } | null> {
   const sb = await createServerClient()
-  const { data } = await sb.from('weekly_reports').select('id, project_id, week_start')
+  const { data } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
     .eq('project_id', projectId).lt('week_start', beforeWeekStartIso)
     .order('week_start', { ascending: false }).limit(1).maybeSingle()
   if (!data) return null
-  const report = { id: data.id as string, projectId: data.project_id as string, weekStart: data.week_start as string }
+  const report = {
+    id: data.id as string, projectId: data.project_id as string,
+    weekStart: data.week_start as string, title: (data.title as string | null) ?? '',
+  }
   return { report, rows: await loadRows(report.id) }
 }

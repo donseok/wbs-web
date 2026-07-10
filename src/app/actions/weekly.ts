@@ -3,13 +3,15 @@ import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { mondayIso } from '@/lib/report/week'
-import { carryOverRows, isWeeklyCellKey } from '@/lib/domain/weeklySheet'
+import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, type NewWeeklyRow } from '@/lib/domain/weeklySheet'
 import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
 
 export interface WeeklyActionResult { ok: boolean; error?: string }
 
 const CELL_MAX = 20000        // 공지 body와 동일 상한
 const NAME_MAX = 100          // 구분·모듈명 상한
+const TITLE_MAX = 200         // 시트 제목 상한
+const RENAME_MAX_ROWS = 50    // 그룹 rename 대상 행 수 상한(병합 그룹 크기 방어)
 
 function revalidateWeekly(projectId: string) {
   revalidatePath(`/p/${projectId}/weekly`)
@@ -34,22 +36,76 @@ export async function createWeeklyReport(
     return { ok: false, error: error.message }
   }
 
+  // 이월이면 이월 원본 행, 아니면 표준 스켈레톤 12행(레퍼런스 프레임) — 행 0개 문서는 만들지 않는다.
+  let seed: NewWeeklyRow[] = []
   if (carryOver) {
     const src = await findCarryOverSource(projectId, weekStart)
-    if (src && src.rows.length) {
-      const rows = carryOverRows(src.rows).map(r => ({
-        report_id: report.id as string, section: r.section, module: r.module, sort_order: r.sortOrder,
-        this_content: r.thisContent, this_issue: r.thisIssue,
-        next_content: r.nextContent, next_issue: r.nextIssue,
-      }))
-      const { error: rowErr } = await sb.from('weekly_report_rows').insert(rows)
-      if (rowErr) {
-        // 보상 삭제 — 빈 report만 남으면 멱등 체크에 걸려 재시도해도 이월이 영영 안 됨. 삭제 실패는 최선 노력으로 무시.
-        await sb.from('weekly_reports').delete().eq('id', report.id)
-        return { ok: false, error: rowErr.message }
-      }
-    }
+    if (src && src.rows.length) seed = carryOverRows(src.rows)
   }
+  if (!seed.length) seed = defaultWeeklyRows()
+
+  const rows = seed.map(r => ({
+    report_id: report.id as string, section: r.section, module: r.module, sort_order: r.sortOrder,
+    this_content: r.thisContent, this_issue: r.thisIssue,
+    next_content: r.nextContent, next_issue: r.nextIssue,
+  }))
+  const { error: rowErr } = await sb.from('weekly_report_rows').insert(rows)
+  if (rowErr) {
+    // 보상 삭제 — 빈 report만 남으면 멱등 체크에 걸려 재시도해도 시드가 영영 안 됨. 삭제 실패는 최선 노력으로 무시.
+    await sb.from('weekly_reports').delete().eq('id', report.id)
+    return { ok: false, error: rowErr.message }
+  }
+  revalidateWeekly(projectId)
+  return { ok: true }
+}
+
+/** 병합 그룹(연속 동일 구분) 전체의 구분명을 바꾼다 — 콤보박스 선택 경로. */
+export async function renameWeeklySection(
+  projectId: string, rowIds: string[], section: string,
+): Promise<WeeklyActionResult> {
+  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const sec = section.trim()
+  if (!sec) return { ok: false, error: '구분명을 입력하세요.' }
+  if (sec.length > NAME_MAX) return { ok: false, error: `이름은 ${NAME_MAX}자 이하여야 합니다.` }
+  if (!rowIds.length || rowIds.length > RENAME_MAX_ROWS) return { ok: false, error: '잘못된 대상입니다.' }
+
+  const sb = await createServerClient()
+  const { error } = await sb.from('weekly_report_rows')
+    .update({ section: sec, updated_at: new Date().toISOString() }).in('id', rowIds)
+  if (error) return { ok: false, error: error.message }
+  revalidateWeekly(projectId)
+  return { ok: true }
+}
+
+/** 행 하나의 모듈명을 바꾼다 — 콤보박스 선택 경로. */
+export async function renameWeeklyModule(
+  projectId: string, rowId: string, module: string,
+): Promise<WeeklyActionResult> {
+  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const mod = module.trim()
+  if (!mod) return { ok: false, error: '모듈명을 입력하세요.' }
+  if (mod.length > NAME_MAX) return { ok: false, error: `이름은 ${NAME_MAX}자 이하여야 합니다.` }
+
+  const sb = await createServerClient()
+  const { error } = await sb.from('weekly_report_rows')
+    .update({ module: mod, updated_at: new Date().toISOString() }).eq('id', rowId)
+  if (error) return { ok: false, error: error.message }
+  revalidateWeekly(projectId)
+  return { ok: true }
+}
+
+/** 시트 제목 저장 — ''이면 화면이 기본 제목(프로젝트명+주차)을 합성한다. */
+export async function saveWeeklyTitle(
+  projectId: string, reportId: string, title: string,
+): Promise<WeeklyActionResult> {
+  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const t = title.trim()
+  if (t.length > TITLE_MAX) return { ok: false, error: `제목은 ${TITLE_MAX}자 이하여야 합니다.` }
+
+  const sb = await createServerClient()
+  const { error } = await sb.from('weekly_reports')
+    .update({ title: t, updated_at: new Date().toISOString() }).eq('id', reportId)
+  if (error) return { ok: false, error: error.message }
   revalidateWeekly(projectId)
   return { ok: true }
 }
