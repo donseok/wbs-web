@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarCheck, CalendarClock, CalendarRange, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
-  ListTree, Megaphone, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
+  ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
@@ -40,6 +40,7 @@ function projectMenu(base: string): { href: string; labelKey: DictKey; icon: Luc
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
     { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/meetings`, labelKey: 'nav.meetings', icon: CalendarClock, match: `${base}/meetings` },
+    { href: `${base}/weekly`, labelKey: 'nav.weekly', icon: NotebookPen, match: `${base}/weekly` },
     { href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` },
   ]
 }

@@ -1,6 +1,8 @@
 import { listProjects } from '@/app/actions/project'
 import { mondayIso, sheetWeekMeta } from '@/lib/report/week'
 import { getWeeklySheet, findCarryOverSource } from '@/lib/data/weeklySheet'
+import { t } from '@/lib/i18n/dict'
+import { getServerLocale } from '@/lib/i18n/server'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { WeeklySheetView } from '@/components/weekly/WeeklySheetView'
@@ -20,20 +22,20 @@ export default async function WeeklyPage({
   const weekStart = mondayIso(week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : seoulToday())
   const wk = sheetWeekMeta(weekStart)
 
-  const [sheet, carrySource, projects] = await Promise.all([
+  const [sheet, carrySource, projects, locale] = await Promise.all([
     getWeeklySheet(projectId, weekStart),
     findCarryOverSource(projectId, weekStart),
     listProjects(),
+    getServerLocale(),
   ])
   const projectName = projects.find(p => p.id === projectId)?.name ?? ''
 
-  // TODO(Task 10): nav.weekly i18n 키 추가 후 t(locale, 'nav.weekly')로 교체
   return (
     <ProjectPageShell
       hero={<PageHero
         eyebrow="WEEKLY"
         badge={<HeroBadge>Weekly Report</HeroBadge>}
-        title={`${projectName} 주간업무`}
+        title={`${projectName} ${t(locale, 'nav.weekly')}`}
         description={`${wk.label} (${wk.thisRange})`}
       />}
     >
