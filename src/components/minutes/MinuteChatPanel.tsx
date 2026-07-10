@@ -3,6 +3,8 @@ import { useRef, useState } from 'react'
 import { MessageCircle, RotateCcw, Send, X } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import { TEAM_CODES } from '@/lib/domain/minutes'
+import type { TeamCode } from '@/lib/domain/types'
 import { linkifyMinutePaths } from './linkify'
 
 type Msg = { id: number; role: 'user' | 'assistant'; content: string }
@@ -100,16 +102,19 @@ export function ChatComposer({ onSend, loading }: { onSend: (v: string) => void;
 }
 
 type ChatScope = 'doc' | 'archive'
+type TeamKey = 'ALL' | TeamCode
 
 /** 문서 모드 패널 — 뷰어 우측(좁은 화면에선 아래). 범위 토글로 전체 보관함 질문 가능. */
 export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   const { t } = useLocale()
   const [open, setOpen] = useState(true)
   const [scope, setScope] = useState<ChatScope>('doc')
+  const [team, setTeam] = useState<TeamKey>('ALL')
   // 범위별 독립 스레드 — 전환해도 각 대화가 보존되고 LLM 컨텍스트가 섞이지 않는다.
   const doc = useMinutesChat((message, history) => ({ mode: 'doc', minuteId, message, history }))
   const archive = useMinutesChat((message, history) => ({
-    mode: 'archive', message, history, filters: { team: null, from: null, to: null },
+    mode: 'archive', message, history,
+    filters: { team: team === 'ALL' ? null : team, from: null, to: null },
   }))
   const chat = scope === 'doc' ? doc : archive
 
@@ -141,6 +146,13 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
           </button>
         </span>
       </div>
+      {scope === 'archive' && (
+        <div className="border-b border-line px-3 py-1.5">
+          <SegmentedTabs<TeamKey>
+            tabs={[{ key: 'ALL', label: t('min.team.all') }, ...TEAM_CODES.map(tk => ({ key: tk, label: tk }))]}
+            value={team} onChange={setTeam} size="sm" />
+        </div>
+      )}
       <div className="flex-1 space-y-2 overflow-y-auto p-3">
         {chat.messages.map(m => (
           <ChatBubble key={m.id} role={m.role} content={m.content}
