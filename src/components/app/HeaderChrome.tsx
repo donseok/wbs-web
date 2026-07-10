@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { getNotifications, type NotificationItem } from '@/app/actions/notifications'
+import { getNotifications, markAllNotificationsRead, type NotificationItem } from '@/app/actions/notifications'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -74,6 +74,17 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
     router.refresh()
   }
 
+  // 안읽음 수 — 배지·칩은 이 값 기준(읽음 처리된 항목은 패널에 흐리게만 남음).
+  const unreadNotifs = useMemo(() => notifs.filter(n => !n.read).length, [notifs])
+  const markAllRead = () => {
+    if (!activeId || unreadNotifs === 0) return
+    const snapshot = notifs
+    setNotifs(ns => ns.map(n => ({ ...n, read: true }))) // 낙관 반영 — 배지 즉시 0
+    markAllNotificationsRead(activeId, snapshot.map(n => n.id))
+      .then(r => { if (!r.ok) setNotifs(snapshot) }) // 실패 시 복원(다음 로드가 서버 상태로 재정렬)
+      .catch(() => setNotifs(snapshot))
+  }
+
   const roleLabel = membership?.role === 'pmo_admin' ? 'PMO 관리자' : membership ? '팀 편집자' : '게스트'
   const displayName = userName?.trim() || null
   // 프로필 부제: 이름이 있으면 역할·팀을, 없으면 팀만.
@@ -123,15 +134,22 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
             <div className="relative">
               <button onClick={() => setOpen(open === 'notif' ? null : 'notif')} className="chrome-icon relative" aria-label={t('chrome.notifications')}>
                 <Bell className="h-4 w-4" />
-                {notifs.length > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-secondary px-1 text-[9px] font-bold text-white ring-2 ring-surface">{notifs.length}</span>
+                {unreadNotifs > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-secondary px-1 text-[9px] font-bold text-white ring-2 ring-surface">{unreadNotifs}</span>
                 )}
               </button>
               {open === 'notif' && (
                 <Popover onClose={() => setOpen(null)}>
                   <div className="flex items-center justify-between border-b border-line px-4 py-3">
                     <span className="text-sm font-semibold text-ink">{t('chrome.notifications')}</span>
-                    {notifs.length > 0 && <span className="chip bg-delayed-weak text-delayed">{notifs.length}</span>}
+                    <span className="flex items-center gap-2">
+                      {unreadNotifs > 0 && <span className="chip bg-delayed-weak text-delayed">{unreadNotifs}</span>}
+                      {unreadNotifs > 0 && (
+                        <button onClick={markAllRead} className="text-[11px] font-medium text-ink-muted underline-offset-2 hover:text-ink hover:underline">
+                          모두 읽음
+                        </button>
+                      )}
+                    </span>
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {!activeId ? (
@@ -144,7 +162,7 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
                       <ul className="divide-y divide-line">
                         {notifs.map(n => (
                           <li key={n.id}>
-                            <Link href={`/p/${activeId}/kanban`} className="flex gap-3 px-4 py-3 transition hover:bg-surface-2">
+                            <Link href={`/p/${activeId}/kanban`} className={`flex gap-3 px-4 py-3 transition hover:bg-surface-2 ${n.read ? 'opacity-55' : ''}`}>
                               <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${n.severity === 'danger' ? 'bg-delayed-weak text-delayed' : 'bg-pending-weak text-accent-warning'}`}>
                                 {n.type === 'delayed' ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock4 className="h-3.5 w-3.5" />}
                               </span>

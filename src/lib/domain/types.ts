@@ -160,6 +160,7 @@ export interface UiPrefs {
   locale?: 'ko' | 'en'
   dashSections?: string[]   // 대시보드 상세 아코디언에서 펼쳐 둔 그룹 id
   minutesView?: 'list' | 'calendar'   // 회의록 보관함 뷰 토글
+  notifRead?: Record<string, string[]> // 프로젝트 id → 읽음 처리한 알림 id('모두 읽음' 시점 피드)
 }
 
 /* ── 회의록 (minutes) ── */
