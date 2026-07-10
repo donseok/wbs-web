@@ -128,6 +128,30 @@ export function WeeklySheetView({
     })
   }, [projectId, toast])
 
+  // PPT 내보내기 직전 미저장 셀 flush — export fetch와 blur commit이 경합하면 서버가
+  // 저장 전 스냅샷으로 PPT를 만들 수 있다. 남은 dirty 키를 즉시 commit(디바운스 우회)하고
+  // 전부 저장될 때까지 폴링. 5초를 넘기면 중단(false)하고 안내 — 불완전 PPT 방지가 목적.
+  const flushPendingSaves = useCallback((): Promise<boolean> => {
+    for (const k of dirtyRef.current) {
+      const [rowId, key] = k.split(':') as [string, WeeklyCellKey]
+      commit(rowId, key)
+    }
+    if (!dirtyRef.current.size) return Promise.resolve(true)
+    return new Promise(resolve => {
+      const start = Date.now()
+      const poll = () => {
+        if (!dirtyRef.current.size) { resolve(true); return }
+        if (Date.now() - start >= 5000) {
+          toast({ title: '내보내기 중단', description: '일부 셀이 아직 저장 중입니다. 저장 완료 후 다시 내보내 주세요.', variant: 'error' })
+          resolve(false)
+          return
+        }
+        setTimeout(poll, 100)
+      }
+      poll()
+    })
+  }, [commit, toast])
+
   const onCellChange = (rowId: string, key: WeeklyCellKey, value: string) => {
     const k = `${rowId}:${key}`
     dirtyRef.current.add(k)
@@ -164,7 +188,7 @@ export function WeeklySheetView({
   if (!report) {
     return (
       <div className="space-y-4">
-        <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled />
+        <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled onBeforeExport={flushPendingSaves} />
         <EmptyState
           icon={FileSpreadsheet}
           title={`${weekLabel} 시트가 없습니다`}
@@ -190,7 +214,7 @@ export function WeeklySheetView({
 
   return (
     <div className="space-y-4">
-      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} />
+      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} />
       <div className="card overflow-x-auto p-0">
         <table className="w-full min-w-[960px] border-collapse text-sm">
           <thead>
@@ -241,8 +265,9 @@ export function WeeklySheetView({
   )
 }
 
-function WeekNav({ projectId, weekStart, weekLabel, exportDisabled }: {
+function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport }: {
   projectId: string; weekStart: string; weekLabel: string; exportDisabled: boolean
+  onBeforeExport: () => Promise<boolean>
 }) {
   const base = `/p/${projectId}/weekly`
   return (
@@ -256,20 +281,23 @@ function WeekNav({ projectId, weekStart, weekLabel, exportDisabled }: {
           <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
-      <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} />
+      <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />
     </div>
   )
 }
 
-/** PPT 내보내기 — fetch로 받아 400(빈 시트 등)을 Toast로 안내(스펙 §7). 성공 시 blob 다운로드. */
-function ExportPptButton({ projectId, weekStart, disabled }: {
-  projectId: string; weekStart: string; disabled: boolean
+/** PPT 내보내기 — fetch로 받아 400(빈 시트 등)을 Toast로 안내(스펙 §7). 성공 시 blob 다운로드.
+ *  onBeforeExport로 미저장 셀을 먼저 flush — false(중단)면 fetch 없이 종료. */
+function ExportPptButton({ projectId, weekStart, disabled, onBeforeExport }: {
+  projectId: string; weekStart: string; disabled: boolean; onBeforeExport: () => Promise<boolean>
 }) {
   const { toast } = useToast()
   const [busy, setBusy] = useState(false)
   const onExport = async () => {
     setBusy(true)
     try {
+      const canExport = await onBeforeExport()
+      if (!canExport) return
       const res = await fetch(`/api/report?projectId=${projectId}&format=pptx&source=sheet&week=${weekStart}`)
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as { error?: string } | null

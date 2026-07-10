@@ -63,10 +63,12 @@ export async function saveWeeklyCell(
   if (content.length > CELL_MAX) return { ok: false, error: `내용은 ${CELL_MAX}자 이하여야 합니다.` }
 
   const sb = await createServerClient()
-  const { error } = await sb.from('weekly_report_rows')
+  const { data, error } = await sb.from('weekly_report_rows')
     .update({ [cellKey]: content, updated_at: new Date().toISOString() }) // updated_at 트리거 없음 — 수동(wbs.ts 관례)
     .eq('id', rowId)
+    .select('id')
   if (error) return { ok: false, error: error.message }
+  if (!data || data.length === 0) return { ok: false, error: '행이 삭제되어 저장할 수 없습니다.' }
   // revalidate 불필요 — 셀 값은 클라이언트 상태 + Realtime으로 동기화(새로고침 시 서버 조회가 최신)
   return { ok: true }
 }

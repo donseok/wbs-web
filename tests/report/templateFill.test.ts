@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
 import { capItems, lineCost, paginateGroups, fillWeeklyTemplate } from '@/lib/report/templateFill'
+import { sheetLineText } from '@/lib/report/sheetNarrative'
 import type { NarrativeGroup, NarrativeModel } from '@/lib/report/narrative'
 import type { WeeklyReportModel } from '@/lib/report/weekly'
 
@@ -64,6 +65,15 @@ describe('paginateGroups', () => {
     // 뒤에 그룹이 이어져도 빈 '(계속)' 헤더가 끼지 않는다
     const pages2 = paginateGroups([{ phase: '실행', num: 1, items: [huge] }, g('구축', 2)], 15)
     expect(pages2.flat().filter(x => x.items.length === 0)).toHaveLength(0)
+  })
+  it('시트 포매터(sheetLineText) 주입 시에도 분할 규칙이 동일하게 적용된다', () => {
+    const pages = paginateGroups([g('[ERP] SD/LE', 20)], 15, sheetLineText)
+    expect(pages).toHaveLength(2)
+    expect(pages[0][0].items).toHaveLength(14)
+    expect(pages[1][0].phase).toBe('[ERP] SD/LE (계속)')
+    expect(pages[1][0].items).toHaveLength(6)
+    const all = pages.flat().flatMap(x => x.items)
+    expect(all).toHaveLength(20)
   })
 })
 
