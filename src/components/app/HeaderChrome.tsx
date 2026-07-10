@@ -74,8 +74,10 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
     router.refresh()
   }
 
-  // 안읽음 수 — 배지·칩은 이 값 기준(읽음 처리된 항목은 패널에 흐리게만 남음).
-  const unreadNotifs = useMemo(() => notifs.filter(n => !n.read).length, [notifs])
+  // 패널·배지는 안읽음만 표시(읽은 항목은 목록에서 제거 — 사용자 결정). notifs는 읽음 포함
+  // 전체를 유지한다 — '모두 읽음' 저장이 전체 id를 보내야 기존 읽음이 유실되지 않는다(replace 시맨틱).
+  const visibleNotifs = useMemo(() => notifs.filter(n => !n.read), [notifs])
+  const unreadNotifs = visibleNotifs.length
   const markAllRead = () => {
     if (!activeId || unreadNotifs === 0) return
     const snapshot = notifs
@@ -156,13 +158,13 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
                       <div className="px-4 py-6 text-center text-xs text-ink-subtle">프로젝트를 선택하면 지연·마감 알림이 표시됩니다.</div>
                     ) : notifLoading ? (
                       <div className="px-4 py-6 text-center text-xs text-ink-subtle">불러오는 중…</div>
-                    ) : notifs.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">지연·마감 임박 작업이 없습니다. 👍</div>
+                    ) : visibleNotifs.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">새 알림이 없습니다. 👍</div>
                     ) : (
                       <ul className="divide-y divide-line">
-                        {notifs.map(n => (
+                        {visibleNotifs.map(n => (
                           <li key={n.id}>
-                            <Link href={`/p/${activeId}/kanban`} className={`flex gap-3 px-4 py-3 transition hover:bg-surface-2 ${n.read ? 'opacity-55' : ''}`}>
+                            <Link href={`/p/${activeId}/kanban`} className="flex gap-3 px-4 py-3 transition hover:bg-surface-2">
                               <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${n.severity === 'danger' ? 'bg-delayed-weak text-delayed' : 'bg-pending-weak text-accent-warning'}`}>
                                 {n.type === 'delayed' ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock4 className="h-3.5 w-3.5" />}
                               </span>
