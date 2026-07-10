@@ -15,17 +15,17 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
-type Col = { key: string; w: number; frozen?: boolean; sk?: number; detail?: boolean }
+type Col = { key: string; w: number; frozen?: boolean; sk?: number }
 const COLS: Col[] = [
   { key: 'no', w: 44, frozen: true, sk: 0 },
   { key: 'level', w: 60, frozen: true, sk: 44 },
   { key: 'name', w: 300, frozen: true, sk: 104 },
   { key: 'owners', w: 128 },
   { key: 'status', w: 76 },
-  { key: 'deliverable', w: 150, detail: true },
-  { key: 'pstart', w: 80, detail: true },
-  { key: 'pend', w: 80, detail: true },
-  { key: 'weight', w: 64, detail: true },
+  { key: 'deliverable', w: 150 },
+  { key: 'pstart', w: 80 },
+  { key: 'pend', w: 80 },
+  { key: 'weight', w: 64 },
   { key: 'pplan', w: 68 },
   { key: 'pactual', w: 72 },
   { key: 'achieve', w: 76 },
@@ -144,8 +144,7 @@ export function WbsGanttSheet({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
   const [addBusy, setAddBusy] = useState(false)
-  const [dayPx, setDayPx] = useState(24)
-  const [showDetails, setShowDetails] = useState(true)
+  const dayPx = 24 // 간트 배율 — '기본' 고정 (축소 옵션 제거)
   // 타임라인 집중 모드는 대시보드 '간트' 링크(?view=timeline) 진입 시에만 활성.
   // 툴바 토글 버튼은 제거됨 — 값은 defaultView에서 파생.
   const timelineFocus = defaultView === 'timeline'
@@ -156,9 +155,10 @@ export function WbsGanttSheet({
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  // 상세 열은 항상 표시 (숨기기 토글 제거)
   const visibleCols = useMemo(
-    () => COLS.filter(col => (timelineFocus ? TIMELINE_COLS.has(col.key) : showDetails || !col.detail)),
-    [showDetails, timelineFocus],
+    () => (timelineFocus ? COLS.filter(col => TIMELINE_COLS.has(col.key)) : COLS),
+    [timelineFocus],
   )
   const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
@@ -432,38 +432,14 @@ export function WbsGanttSheet({
         <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}
         </button>
-        {!timelineFocus && (
-          <button onClick={() => setShowDetails(value => !value)} aria-pressed={showDetails} className={`btn h-9 px-3 text-xs ${showDetails ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-            <Icon name="layers" className="h-3.5 w-3.5" /> {showDetails ? t('wbs.hideDetailCols') : t('wbs.showDetailCols')}
-          </button>
-        )}
         {isPmo && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
             <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhase')}
           </button>
         )}
         <button onClick={() => setReportOpen(true)} className="btn btn-ghost h-9 px-3 text-xs">
-          <FileText className="h-3.5 w-3.5" /> 주간 보고서
+          <FileText className="h-3.5 w-3.5" /> 주간보고서(요약)
         </button>
-        <span className="hidden rounded-lg bg-surface-2 px-2.5 py-2 text-[10px] tabular-nums text-ink-muted xl:inline">
-          {fmtDate(rangeStart)} – {fmtDate(rangeEnd)} · {flatRows.length}{t('wbs.unitRows')}
-        </span>
-        <div className="seg ml-auto hidden h-9 gap-0.5 p-0.5 sm:inline-flex" aria-label={t('wbs.ganttZoomAria')}>
-          <button
-            onClick={() => setDayPx(16)}
-            aria-pressed={dayPx === 16}
-            className={`seg-item px-2.5 py-1 text-[12px] ${dayPx === 16 ? 'seg-item-active' : ''}`}
-          >
-            {t('wbs.zoomOut')}
-          </button>
-          <button
-            onClick={() => setDayPx(24)}
-            aria-pressed={dayPx === 24}
-            className={`seg-item px-2.5 py-1 text-[12px] ${dayPx === 24 ? 'seg-item-active' : ''}`}
-          >
-            {t('wbs.zoomDefault')}
-          </button>
-        </div>
       </div>
 
       {/* 새 Phase 입력 (PMO) */}
