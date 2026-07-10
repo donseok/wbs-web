@@ -142,51 +142,53 @@ export function AttendanceView({
 
   return (
     <div className="space-y-4">
-      {/* 툴바 */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-2">
-          <button onClick={() => shift(-1)} className="chrome-icon" aria-label={t('att.prevMonth')}><ChevronLeft className="h-4 w-4" /></button>
-          <div className="min-w-[116px] text-center text-base font-bold tabular-nums text-ink">
-            {new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : 'en-US', { year: 'numeric', month: locale === 'ko' ? 'numeric' : 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month0, 1)))}
+      {/* 툴바 + 범례 (스크롤 시 상단 고정) */}
+      <div className="sticky top-0 z-20 -mx-1 space-y-3 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2">
+            <button onClick={() => shift(-1)} className="chrome-icon" aria-label={t('att.prevMonth')}><ChevronLeft className="h-4 w-4" /></button>
+            <div className="min-w-[116px] text-center text-base font-bold tabular-nums text-ink">
+              {new Intl.DateTimeFormat(locale === 'ko' ? 'ko-KR' : 'en-US', { year: 'numeric', month: locale === 'ko' ? 'numeric' : 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month0, 1)))}
+            </div>
+            <button onClick={() => shift(1)} className="chrome-icon" aria-label={t('att.nextMonth')}><ChevronRight className="h-4 w-4" /></button>
+            <button onClick={goToday} className="btn btn-ghost h-10">{t('att.today')}</button>
           </div>
-          <button onClick={() => shift(1)} className="chrome-icon" aria-label={t('att.nextMonth')}><ChevronRight className="h-4 w-4" /></button>
-          <button onClick={goToday} className="btn btn-ghost h-10">{t('att.today')}</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={memberFilter}
+              onChange={e => setMemberFilter(e.target.value)}
+              className="app-input h-10 w-auto min-w-[140px]"
+              aria-label={t('att.memberFilter')}
+            >
+              <option value="all">{t('att.allMembers')}</option>
+              {members.map(m => (
+                <option key={m.id} value={m.id}>{m.name}{m.teamCode ? ` · ${m.teamCode}` : ''}</option>
+              ))}
+            </select>
+            <SegmentedTabs<ViewKey>
+              tabs={[
+                { key: 'calendar', label: t('att.view.calendar'), icon: CalendarDays },
+                { key: 'list', label: t('att.view.list'), icon: List },
+              ]}
+              value={view}
+              onChange={setView}
+              size="sm"
+            />
+            {canEdit && (
+              <button onClick={openCreate} className="btn btn-primary"><Plus className="h-4 w-4" />{t('att.addRecord')}</button>
+            )}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={memberFilter}
-            onChange={e => setMemberFilter(e.target.value)}
-            className="app-input h-10 w-auto min-w-[140px]"
-            aria-label={t('att.memberFilter')}
-          >
-            <option value="all">{t('att.allMembers')}</option>
-            {members.map(m => (
-              <option key={m.id} value={m.id}>{m.name}{m.teamCode ? ` · ${m.teamCode}` : ''}</option>
-            ))}
-          </select>
-          <SegmentedTabs<ViewKey>
-            tabs={[
-              { key: 'calendar', label: t('att.view.calendar'), icon: CalendarDays },
-              { key: 'list', label: t('att.view.list'), icon: List },
-            ]}
-            value={view}
-            onChange={setView}
-            size="sm"
-          />
-          {canEdit && (
-            <button onClick={openCreate} className="btn btn-primary"><Plus className="h-4 w-4" />{t('att.addRecord')}</button>
-          )}
-        </div>
-      </div>
 
-      {/* 범례 */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        {ATTENDANCE_TYPES.map(ty => (
-          <span key={ty} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink-muted">
-            <span className={`h-2 w-2 rounded-full ${ATTENDANCE_META[ty].dot}`} />
-            {typeLabel(ty)}
-          </span>
-        ))}
+        {/* 범례 */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {ATTENDANCE_TYPES.map(ty => (
+            <span key={ty} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink-muted">
+              <span className={`h-2 w-2 rounded-full ${ATTENDANCE_META[ty].dot}`} />
+              {typeLabel(ty)}
+            </span>
+          ))}
+        </div>
       </div>
 
       {view === 'calendar' ? (
