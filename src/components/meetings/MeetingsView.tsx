@@ -64,7 +64,8 @@ export function MeetingsView({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      {/* 툴바 (스크롤 시 상단 고정) */}
+      <div className="sticky top-0 z-20 -mx-1 flex flex-col gap-3 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-2">
           <button onClick={() => shift(-1)} className="chrome-icon" aria-label={t('meet.prevMonth')}><ChevronLeft className="h-4 w-4" /></button>
           <div className="min-w-[116px] text-center text-base font-bold tabular-nums text-ink">
