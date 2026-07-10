@@ -4,6 +4,7 @@ import { getWeeklySheet, findCarryOverSource } from '@/lib/data/weeklySheet'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
+import { PageHero } from '@/components/ui/PageHero'
 import { WeeklySheetView } from '@/components/weekly/WeeklySheetView'
 
 function seoulToday(): string {
@@ -31,13 +32,9 @@ export default async function WeeklyPage({
 
   return (
     <ProjectPageShell
-      // 이 화면은 구글시트 복제 룩이 주인공 — 큰 히어로 대신 콤팩트한 한 줄 헤더만 둔다(사용자 요청).
-      hero={
-        <div className="flex items-baseline gap-3">
-          <span className="eyebrow">WEEKLY</span>
-          <h1 className="text-lg font-bold tracking-tight text-ink">{projectName} {t(locale, 'nav.weekly')}</h1>
-        </div>
-      }
+      // 이 화면은 구글시트 복제 룩이 주인공 — 큰 히어로 대신 콤팩트한 한 줄 헤더만 둔다.
+      // 다른 프로젝트 화면(회의 등)과 동일하게 공용 PageHero(다크 히어로 카드)를 사용해 디자인 통일성 유지.
+      hero={<PageHero title={`${projectName} ${t(locale, 'nav.weekly')}`} />}
     >
       <WeeklySheetView
         projectId={projectId}
