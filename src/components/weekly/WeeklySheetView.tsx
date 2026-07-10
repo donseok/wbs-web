@@ -460,10 +460,11 @@ export function WeeklySheetView({
     () => buildPresenceMap(presencePeers, me?.id ?? ''),
     [presencePeers, me?.id],
   )
-  const online = useMemo(
-    () => onlinePeers(presencePeers, me?.id ?? ''),
-    [presencePeers, me?.id],
-  )
+  const online = useMemo(() => {
+    // 본인 포함 전원 표시(사용자 결정). 본인은 presence 동기화 전에도 즉시 보이게 로컬로 선두 고정.
+    const others = onlinePeers(presencePeers).filter(o => o.userId !== me?.id)
+    return me ? [{ userId: me.id, name: me.name }, ...others] : others
+  }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
 
   // 언마운트 시 디바운스/재시도 타이머 정리 — 정리 안 하면 사라진 컴포넌트에 setState 호출됨.
   // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
@@ -524,7 +525,7 @@ export function WeeklySheetView({
   const presenceStrip = online.length > 0 ? (
     <div className="flex items-center" title={`함께 보는 중: ${online.map(o => o.name).join(', ')}`}>
       {online.slice(0, 5).map(o => (
-        <span key={o.userId} title={o.name}
+        <span key={o.userId} title={o.userId === me?.id ? `${o.name} (나)` : o.name}
           className="-ml-1.5 flex h-7 w-7 select-none items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-canvas first:ml-0"
           style={{ background: presenceColor(o.userId) }}>
           {avatarLabel(o.name)}

@@ -72,20 +72,21 @@ describe('buildPresenceMap', () => {
 })
 
 describe('onlinePeers', () => {
-  it('자기 제외 + userId dedupe + 이름 가나다순', () => {
+  it('본인 포함 전원 + userId dedupe + 이름 가나다순', () => {
     const list = onlinePeers([
       peer({ userId: 'me', name: '나' }),
       peer({ userId: 'u2', name: '영희', connKey: 'u2:a' }),
       peer({ userId: 'u2', name: '영희', connKey: 'u2:b', rowId: 'r9' }),
       peer({ userId: 'u3', name: '강준', connKey: 'u3:a' }),
-    ], 'me')
+    ])
     expect(list).toEqual([
       { userId: 'u3', name: '강준' },
+      { userId: 'me', name: '나' },
       { userId: 'u2', name: '영희' },
     ])
   })
   it('셀 좌표가 없어도(문서만 열람) 온라인 목록에는 포함된다', () => {
-    const list = onlinePeers([peer({ userId: 'u2', name: '영희', rowId: '', col: '' })], 'me')
+    const list = onlinePeers([peer({ userId: 'u2', name: '영희', rowId: '', col: '' })])
     expect(list).toHaveLength(1)
   })
 })

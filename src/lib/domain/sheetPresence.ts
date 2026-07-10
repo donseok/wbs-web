@@ -56,10 +56,11 @@ export function avatarLabel(name: string): string {
   return t.length <= 2 ? t : t.slice(0, 2)
 }
 
-/** 온라인 사용자 목록(툴바 스트립용) — 자기 제외, userId 단위 dedupe, 이름 가나다순. */
-export function onlinePeers(peers: PresencePeer[], selfUserId: string): { userId: string; name: string }[] {
+/** 온라인 사용자 목록(툴바 스트립용) — **본인 포함 전원**, userId 단위 dedupe, 이름 가나다순.
+ *  (셀 링은 buildPresenceMap이 본인을 제외하지만, 접속자 아바타는 전원을 보여준다 — 사용자 결정.) */
+export function onlinePeers(peers: PresencePeer[]): { userId: string; name: string }[] {
   const byId = new Map<string, string>()
-  for (const p of peers) if (p.userId !== selfUserId && !byId.has(p.userId)) byId.set(p.userId, p.name)
+  for (const p of peers) if (!byId.has(p.userId)) byId.set(p.userId, p.name)
   return [...byId].map(([userId, name]) => ({ userId, name }))
     .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
 }
