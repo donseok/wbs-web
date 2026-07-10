@@ -409,7 +409,7 @@ function ExportPptButton({ projectId, weekStart, disabled, onBeforeExport }: {
   }
   return (
     <button className="btn btn-primary" disabled={disabled || busy} onClick={onExport}>
-      <Download className="mr-1 h-4 w-4" />주간보고 (PPT)
+      <Download className="mr-1 h-4 w-4" />주간보고상세 (PPT)
     </button>
   )
 }
