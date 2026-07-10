@@ -20,8 +20,9 @@ const ROW_COLS = 'id, report_id, section, module, sort_order, this_content, this
 
 async function loadRows(reportId: string): Promise<WeeklySheetRow[]> {
   const sb = await createServerClient()
-  const { data } = await sb.from('weekly_report_rows').select(ROW_COLS)
+  const { data, error } = await sb.from('weekly_report_rows').select(ROW_COLS)
     .eq('report_id', reportId).order('sort_order')
+  if (error) throw new Error(error.message) // 조회 실패를 '행 없음'으로 위장하면 이월이 스켈레톤으로 대체돼 내용이 유실됨
   return ((data ?? []) as RowRecord[]).map(mapRow)
 }
 
@@ -30,8 +31,9 @@ export async function getWeeklySheet(
   projectId: string, weekStartIso: string,
 ): Promise<{ report: WeeklyReportDoc; rows: WeeklySheetRow[] } | null> {
   const sb = await createServerClient()
-  const { data } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
+  const { data, error } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
     .eq('project_id', projectId).eq('week_start', weekStartIso).maybeSingle()
+  if (error) throw new Error(error.message)
   if (!data) return null
   const report = {
     id: data.id as string, projectId: data.project_id as string,
@@ -45,9 +47,10 @@ export async function findCarryOverSource(
   projectId: string, beforeWeekStartIso: string,
 ): Promise<{ report: WeeklyReportDoc; rows: WeeklySheetRow[] } | null> {
   const sb = await createServerClient()
-  const { data } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
+  const { data, error } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
     .eq('project_id', projectId).lt('week_start', beforeWeekStartIso)
     .order('week_start', { ascending: false }).limit(1).maybeSingle()
+  if (error) throw new Error(error.message) // null(원본 없음)과 조회 실패를 구분 — 실패 시 이월 폴백 금지
   if (!data) return null
   const report = {
     id: data.id as string, projectId: data.project_id as string,

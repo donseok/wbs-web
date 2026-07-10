@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Trash2, ArrowUp, ArrowDown, FileSpreadsheet, RefreshCw } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  applyServerRow, moduleOptions, WEEKLY_SECTIONS,
+  applyServerRow, moduleOptions, WEEKLY_CELL_KEYS, WEEKLY_SECTIONS,
   CELL_FIELD, type WeeklyCellKey, type WeeklySheetRow,
 } from '@/lib/domain/weeklySheet'
 import {
@@ -65,13 +65,33 @@ export function WeeklySheetView({
   const [isPending, startTransition] = useTransition()
   const reportId = report?.id ?? null
 
-  // 서버 refetch(라우터 refresh) 반영 — dirty 셀은 로컬 유지(스펙 §5)
+  // 삭제된 행의 dirty 키·디바운스 타이머·저장 상태 정리 — 잔류하면 flushPendingSaves가
+  // 영영 비지 않아 주간보고 PPT 내보내기가 세션 내내 차단된다(리뷰 확정 결함).
+  const cleanupRowKeys = useCallback((rowId: string) => {
+    for (const key of WEEKLY_CELL_KEYS) {
+      const k = `${rowId}:${key}`
+      dirtyRef.current.delete(k)
+      retriedRef.current.delete(k)
+      const t = timersRef.current.get(k)
+      if (t) { clearTimeout(t); timersRef.current.delete(k) }
+    }
+    setStatus(s => {
+      if (!WEEKLY_CELL_KEYS.some(key => `${rowId}:${key}` in s)) return s
+      const next = { ...s }
+      for (const key of WEEKLY_CELL_KEYS) delete next[`${rowId}:${key}`]
+      return next
+    })
+  }, [])
+
+  // 서버 refetch(라우터 refresh) 반영 — dirty 셀은 로컬 유지(스펙 §5), 사라진 행은 상태 정리
   useEffect(() => {
+    const serverIds = new Set(initialRows.map(r => r.id))
+    for (const l of rowsRef.current) if (!serverIds.has(l.id)) cleanupRowKeys(l.id)
     setRows(local => initialRows.map(sv => {
       const lc = local.find(l => l.id === sv.id)
       return lc ? applyServerRow(lc, sv, dirtyRef.current) : sv
     }))
-  }, [initialRows])
+  }, [initialRows, cleanupRowKeys])
 
   // Realtime 구독 — 행 단위 이벤트를 셀 단위 병합
   // 의존성은 reportId(원시값)만 사용한다. report는 서버 렌더마다 새 객체라
@@ -88,7 +108,7 @@ export function WeeklySheetView({
         payload => {
           if (payload.eventType === 'DELETE') {
             const oldId = (payload.old as { id?: string }).id
-            if (oldId) setRows(rs => rs.filter(r => r.id !== oldId))
+            if (oldId) { cleanupRowKeys(oldId); setRows(rs => rs.filter(r => r.id !== oldId)) }
             return
           }
           const server = fromRecord(payload.new as Record<string, unknown>)
@@ -108,19 +128,25 @@ export function WeeklySheetView({
         router.refresh()
       })
     return () => { sb.removeChannel(channel) }
-  }, [reportId, router])
+  }, [reportId, router, cleanupRowKeys])
 
   const commit = useCallback((rowId: string, key: WeeklyCellKey) => {
     const k = `${rowId}:${key}`
     const timer = timersRef.current.get(k)
     if (timer) { clearTimeout(timer); timersRef.current.delete(k) }
     const row = rowsRef.current.find(r => r.id === rowId)
-    if (!row || !dirtyRef.current.has(k)) return
+    if (!row) { cleanupRowKeys(rowId); return } // 삭제된 행 — dirty 잔류 시 PPT flush가 영구 차단됨
+    if (!dirtyRef.current.has(k)) return
     const sent = row[CELL_FIELD[key]]
     setStatus(s => ({ ...s, [k]: 'saving' }))
     saveWeeklyCell(projectId, rowId, key, sent).then(res => {
       const now = rowsRef.current.find(r => r.id === rowId)?.[CELL_FIELD[key]]
       if (!res.ok) {
+        if (res.gone) { // 서버가 '행 삭제됨' 확정 — 재시도 대신 로컬 행·상태 정리
+          cleanupRowKeys(rowId)
+          setRows(rs => rs.filter(r => r.id !== rowId))
+          return
+        }
         setStatus(s => ({ ...s, [k]: 'error' }))
         if (!retriedRef.current.has(k)) {
           retriedRef.current.add(k)
@@ -134,7 +160,7 @@ export function WeeklySheetView({
       if (now === sent) { dirtyRef.current.delete(k); setStatus(s => ({ ...s, [k]: 'saved' })) }
       else commit(rowId, key) // 전송 중 재수정 — dirty 유지한 채 재저장
     })
-  }, [projectId, toast])
+  }, [projectId, toast, cleanupRowKeys])
 
   // PPT 내보내기 직전 미저장 셀 flush — export fetch와 blur commit이 경합하면 서버가
   // 저장 전 스냅샷으로 PPT를 만들 수 있다. 남은 dirty 키를 즉시 commit(디바운스 우회)하고
@@ -238,13 +264,18 @@ export function WeeklySheetView({
     <div className="space-y-3">
       <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} />
       <div className="overflow-x-auto">
-        <div className="min-w-[1120px] bg-white p-1.5 shadow-sm ring-1 ring-neutral-300">
+        <div className="min-w-[1240px] bg-white p-1.5 shadow-sm ring-1 ring-neutral-300">
           {/* 제목 행 — 레퍼런스 시트의 B1. 자유 편집(''이면 기본 제목 합성). key로 주차 전환 시 초기화 */}
           <TitleEditor
             key={report.id}
             initial={report.title}
             fallback={`▣ 주간업무보고 - ${projectName}(${weekTitle})`}
-            onSave={t => runAction(() => saveWeeklyTitle(projectId, report.id, t))}
+            onSave={async t => {
+              const res = await saveWeeklyTitle(projectId, report.id, t)
+              if (!res.ok) { toast({ title: '제목 저장 실패', description: res.error, variant: 'error' }); return false }
+              router.refresh()
+              return true
+            }}
           />
           {/* 열 비율은 레퍼런스 실측(B8.38/C13.5/D58.63/E39.75/F41.13/G36)의 백분율 — 내용 열이 전폭을 쓴다 */}
           <table className="w-full table-fixed border-collapse bg-white text-[13px] text-black">
@@ -384,24 +415,32 @@ function ExportPptButton({ projectId, weekStart, disabled, onBeforeExport }: {
 }
 
 /** 시트 제목 편집기 — 레퍼런스 B1 룩(볼드·검정)의 borderless input. blur 시 변경분만 저장.
- *  기본 제목과 같은 값은 ''로 저장해 주차가 바뀌어도 기본 제목이 자연히 따라오게 한다. */
+ *  기본 제목과 같은 값은 ''로 저장해 주차가 바뀌어도 기본 제목이 자연히 따라오게 한다.
+ *  savedRef는 저장 '성공' 후에만 전진 — 실패 시 같은 값 blur로 재시도가 가능해야 한다(리뷰 확정).
+ *  서버 제목 변경(타 사용자)은 router.refresh로 내려온 initial을 비포커스 상태에서만 채택. */
 function TitleEditor({ initial, fallback, onSave }: {
-  initial: string; fallback: string; onSave: (title: string) => void
+  initial: string; fallback: string; onSave: (title: string) => Promise<boolean>
 }) {
   const [v, setV] = useState(initial || fallback)
   const savedRef = useRef(initial || fallback)
-  const onBlur = () => {
+  const focusedRef = useRef(false)
+  useEffect(() => {
+    const server = initial || fallback
+    if (!focusedRef.current && server !== savedRef.current) { savedRef.current = server; setV(server) }
+  }, [initial, fallback])
+  const onBlur = async () => {
+    focusedRef.current = false
     const t = v.trim()
     if (t === '') setV(fallback)
     const next = t === '' || t === fallback ? fallback : t
     if (next === savedRef.current) return
-    savedRef.current = next
-    onSave(next === fallback ? '' : next)
+    if (await onSave(next === fallback ? '' : next)) savedRef.current = next
   }
   return (
     <input
       value={v} onChange={e => setV(e.target.value)} onBlur={onBlur}
-      aria-label="시트 제목"
+      onFocus={() => { focusedRef.current = true }}
+      maxLength={200} aria-label="시트 제목"
       className="w-full border-0 bg-white px-0.5 pb-1.5 pt-0.5 text-[15px] font-extrabold text-black outline-none placeholder:text-neutral-400 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-[#1a73e8]"
     />
   )

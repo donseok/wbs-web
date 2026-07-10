@@ -6,7 +6,11 @@ import { mondayIso } from '@/lib/report/week'
 import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, type NewWeeklyRow } from '@/lib/domain/weeklySheet'
 import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
 
-export interface WeeklyActionResult { ok: boolean; error?: string }
+export interface WeeklyActionResult {
+  ok: boolean
+  error?: string
+  gone?: boolean // 대상 행이 이미 삭제됨 — 재시도 무의미(클라이언트가 dirty 정리·행 제거)
+}
 
 const CELL_MAX = 20000        // 공지 body와 동일 상한
 const NAME_MAX = 100          // 구분·모듈명 상한
@@ -17,6 +21,16 @@ function revalidateWeekly(projectId: string) {
   revalidatePath(`/p/${projectId}/weekly`)
 }
 
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/** 보상 삭제 — 행이 하나도 없을 때만. 그 사이 다른 사용자가 넣은 행을 cascade로 지우지 않게. */
+async function deleteReportIfEmpty(
+  sb: Awaited<ReturnType<typeof createServerClient>>, reportId: string,
+): Promise<void> {
+  const { data } = await sb.from('weekly_report_rows').select('id').eq('report_id', reportId).limit(1)
+  if (!data || data.length === 0) await sb.from('weekly_reports').delete().eq('id', reportId)
+}
+
 /** 주차 문서 생성. carryOver=true면 이월 원본(가장 최근 이전 주차)에서 행 구성+차주계획을 초안으로. */
 export async function createWeeklyReport(
   projectId: string, weekStartIso: string, carryOver: boolean,
@@ -24,8 +38,12 @@ export async function createWeeklyReport(
   if (!(await getSession())) return { ok: false, error: '로그인 필요' }
   const weekStart = mondayIso(weekStartIso)
 
-  // 이미 있으면 멱등 성공(동시 생성 경쟁 대비)
-  if (await getWeeklySheet(projectId, weekStart)) return { ok: true }
+  // 이미 있으면 멱등 성공(동시 생성 경쟁 대비). 조회 실패는 throw로 오므로 정직하게 중단.
+  try {
+    if (await getWeeklySheet(projectId, weekStart)) return { ok: true }
+  } catch (e) {
+    return { ok: false, error: `주차 문서 확인에 실패했습니다: ${errMsg(e)}` }
+  }
 
   const sb = await createServerClient()
   const { data: report, error } = await sb.from('weekly_reports')
@@ -37,10 +55,17 @@ export async function createWeeklyReport(
   }
 
   // 이월이면 이월 원본 행, 아니면 표준 스켈레톤 12행(레퍼런스 프레임) — 행 0개 문서는 만들지 않는다.
+  // 이월 원본 '조회 실패'는 '원본 없음'과 구분해 중단한다 — 스켈레톤으로 대체 생성되면 문서가
+  // 멱등 체크에 걸려 재시도가 불가능해지고 이월 초안이 조용히 유실되기 때문.
   let seed: NewWeeklyRow[] = []
   if (carryOver) {
-    const src = await findCarryOverSource(projectId, weekStart)
-    if (src && src.rows.length) seed = carryOverRows(src.rows)
+    try {
+      const src = await findCarryOverSource(projectId, weekStart)
+      if (src && src.rows.length) seed = carryOverRows(src.rows)
+    } catch (e) {
+      await deleteReportIfEmpty(sb, report.id as string)
+      return { ok: false, error: `이월 원본을 불러오지 못했습니다: ${errMsg(e)}` }
+    }
   }
   if (!seed.length) seed = defaultWeeklyRows()
 
@@ -52,7 +77,7 @@ export async function createWeeklyReport(
   const { error: rowErr } = await sb.from('weekly_report_rows').insert(rows)
   if (rowErr) {
     // 보상 삭제 — 빈 report만 남으면 멱등 체크에 걸려 재시도해도 시드가 영영 안 됨. 삭제 실패는 최선 노력으로 무시.
-    await sb.from('weekly_reports').delete().eq('id', report.id)
+    await deleteReportIfEmpty(sb, report.id as string)
     return { ok: false, error: rowErr.message }
   }
   revalidateWeekly(projectId)
@@ -124,7 +149,7 @@ export async function saveWeeklyCell(
     .eq('id', rowId)
     .select('id')
   if (error) return { ok: false, error: error.message }
-  if (!data || data.length === 0) return { ok: false, error: '행이 삭제되어 저장할 수 없습니다.' }
+  if (!data || data.length === 0) return { ok: false, error: '행이 삭제되어 저장할 수 없습니다.', gone: true }
   // revalidate 불필요 — 셀 값은 클라이언트 상태 + Realtime으로 동기화(새로고침 시 서버 조회가 최신)
   return { ok: true }
 }
