@@ -1,6 +1,7 @@
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
-import { getMembership } from '@/lib/auth'
+import { getMembership, getSession } from '@/lib/auth'
+import { displayNameFrom } from '@/lib/domain/display-name'
 import { getWbsCollapse } from '@/app/actions/preferences'
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 import { PageHero } from '@/components/ui/PageHero'
@@ -20,13 +21,16 @@ export default async function WbsPage({
   const { projectId } = await params
   const { view } = await searchParams
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, m, projects, initialCollapsed] = await Promise.all([
+  const [{ items, holidays, today }, m, projects, initialCollapsed, user] = await Promise.all([
     getComputedWbs(projectId),
     getMembership(),
     listProjects(),
     getWbsCollapse(projectId),
+    getSession(),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
+  // 프레즌스 신원 — 주간 시트와 동일하게 서버 세션에서 전달
+  const me = user ? { id: user.id, name: displayNameFrom(user.user_metadata, user.email) ?? '사용자' } : null
   return (
     <ProjectPageShell
       hero={<PageHero
@@ -41,6 +45,7 @@ export default async function WbsPage({
         holidays={holidays}
         today={today}
         membership={m}
+        me={me}
         projectId={projectId}
         projectName={project?.name ?? ''}
         projectDescription={project?.description}

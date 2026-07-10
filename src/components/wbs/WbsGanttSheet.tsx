@@ -11,6 +11,8 @@ import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ReportModal } from '@/components/report/ReportModal'
+import { usePagePresence } from '@/components/app/usePagePresence'
+import { PresenceStrip } from '@/components/app/PresenceStrip'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -99,6 +101,7 @@ export function WbsGanttSheet({
   holidays,
   today,
   membership,
+  me = null,
   projectId,
   projectName = '',
   projectDescription,
@@ -112,6 +115,8 @@ export function WbsGanttSheet({
   holidays: string[]
   today: string
   membership: Membership | null
+  /** 프레즌스 신원 — 서버(getSession)에서 전달. 없으면 접속자 표시 비활성. */
+  me?: { id: string; name: string } | null
   projectId: string
   /** 주간 보고서 모달용 프로젝트 메타 */
   projectName?: string
@@ -155,6 +160,13 @@ export function WbsGanttSheet({
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  // 접속자 프레즌스 — 같은 프로젝트 WBS 메뉴에 머무는 사용자(주간 시트 접속자 아바타와 동일 UX).
+  // 본인은 presence 동기화 전에도 즉시 보이게 로컬로 선두 고정(주간 시트와 동일한 사용자 결정).
+  const presencePeers = usePagePresence({ channelKey: `wbs-${projectId}`, me, enabled: !!me })
+  const online = useMemo(() => {
+    const others = presencePeers.filter(o => o.userId !== me?.id)
+    return me ? [{ userId: me.id, name: me.name }, ...others] : others
+  }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
   // 상세 열은 항상 표시 (숨기기 토글 제거)
   const visibleCols = useMemo(
     () => (timelineFocus ? COLS.filter(col => TIMELINE_COLS.has(col.key)) : COLS),
@@ -440,6 +452,10 @@ export function WbsGanttSheet({
         <button onClick={() => setReportOpen(true)} className="btn btn-ghost h-9 px-3 text-xs">
           <FileText className="h-3.5 w-3.5" /> 주간보고서(요약)
         </button>
+        {/* 접속자 아바타 — 지금 이 WBS 메뉴를 보고 있는 사용자(본인 포함) */}
+        <div className="ml-auto hidden sm:block">
+          <PresenceStrip online={online} meId={me?.id} />
+        </div>
       </div>
 
       {/* 새 Phase 입력 (PMO) */}
