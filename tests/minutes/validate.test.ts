@@ -24,8 +24,19 @@ describe('validateMinuteInput', () => {
 })
 
 describe('sanitizeFileName', () => {
-  it('허용 외 문자 → _', () => expect(sanitizeFileName('주간 회의(7월).md')).toBe('주간_회의_7월_.md'))
-  it('한글/영숫자/._- 보존', () => expect(sanitizeFileName('minutes-7.9_초안.md')).toBe('minutes-7.9_초안.md'))
+  it('허용 외 문자 → _', () => expect(sanitizeFileName('weekly meeting(July).md')).toBe('weekly_meeting_July_.md'))
+  it('영숫자/._- 보존', () => expect(sanitizeFileName('minutes-7.9_draft.md')).toBe('minutes-7.9_draft.md'))
+
+  it('한글 파일명도 Supabase Storage 키에 안전한 ASCII로 변환하고 확장자를 보존', () => {
+    const safe = sanitizeFileName('내수영업_인터뷰_임가공__2026-07-08.md')
+
+    expect(safe).toBe('_2026-07-08.md')
+    expect(safe).toMatch(/^[A-Za-z0-9_.-]+$/)
+    expect(safe).toMatch(/\.md$/)
+  })
+
+  it('구분자만 남는 파일명은 안전한 기본값 사용', () =>
+    expect(sanitizeFileName('한글파일')).toBe('file'))
 })
 
 describe('isMinuteFilePathValid', () => {

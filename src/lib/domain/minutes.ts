@@ -29,9 +29,16 @@ export function validateMinuteInput(input: MinuteInput): string | null {
   return null
 }
 
-/** 파일명 sanitize — RowDetailPanel 업로드 흐름과 동일 규칙. */
+/** 원본 표시명과 별개로 Supabase Storage 객체 키에 사용할 ASCII 파일명. */
 export function sanitizeFileName(name: string): string {
-  return name.replace(/[^\w.\-가-힣]+/g, '_')
+  const safe = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/\.{2,}/g, '.')
+
+  return safe && !/^[._-]+$/.test(safe) ? safe : 'file'
 }
 
 /** Storage 경로가 해당 회의록 전용 접두({minuteId}/)인지 — 타 객체를 가리키는 메타 기록 차단. */
