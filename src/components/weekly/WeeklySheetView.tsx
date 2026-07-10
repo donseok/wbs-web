@@ -603,7 +603,9 @@ export function WeeklySheetView({
                     const bg = fp && inFill && !inRange ? 'bg-[#e8f0fe]/60'
                       : isMulti && inRange && !active ? 'bg-[#e8f0fe]' : 'bg-white'
                     return (
-                      <td key={c.key} className={`border border-neutral-500 p-0 align-top ${bg}`}>
+                      // h-px: td에 명시 높이를 줘야 내부 h-full/min-h-full이 행 실제 높이로 해석된다(표 셀 스트레치 관례).
+                      // 없으면 입력창이 자기 내용만큼만 높아져, 옆 셀이 큰 행에서 포커스 링이 셀 일부만 감싼다.
+                      <td key={c.key} className={`h-px border border-neutral-500 p-0 align-top ${bg}`}>
                         <SheetCell
                           addr={addr}
                           value={r[CELL_FIELD[c.key]]}

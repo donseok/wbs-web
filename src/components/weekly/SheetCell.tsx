@@ -56,16 +56,24 @@ export function SheetCell(p: SheetCellProps) {
 
   useEffect(() => { // 자동 높이(회귀 #7 — rows 값 변화를 그대로 추종)
     const el = ref.current
-    if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` }
+    if (!el) return
+    // min-h-full 스트레치 상태로 재면 scrollHeight가 늘어난 높이로 측정돼 내용이 줄어도 행이 영영 안 줄어든다.
+    // 측정 동안만 min-height를 풀어 순수 내용 높이를 얻고, 복원해 셀 전체 채움(스트레치)은 CSS에 맡긴다.
+    el.style.minHeight = '0'
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+    el.style.minHeight = ''
   }, [p.value])
 
   return (
-    <div className="relative h-full" onMouseDown={p.onMouseDown} onMouseEnter={p.onMouseEnter} onDoubleClick={p.onDoubleClick}>
+    // min-h-24: 빈 행 최소 높이 바닥. h-full+내부 min-h-full로 입력창이 셀 전체를 채워
+    // 포커스 링이 셀을 통째로 감싸고, 셀 아래 빈 영역 클릭도 곧바로 입력이 된다.
+    <div className="relative h-full min-h-24" onMouseDown={p.onMouseDown} onMouseEnter={p.onMouseEnter} onDoubleClick={p.onDoubleClick}>
       {/* 배경(L0)은 <td>가 담당 → textarea는 bg-transparent라 틴트가 비쳐 보임(§0). */}
       <textarea
         ref={ref} value={p.value} rows={3} aria-label={p.ariaLabel} data-sheet-cell="1"
         style={{ caretColor: p.editing ? '#000' : 'transparent' }}
-        className={`block min-h-24 w-full resize-none select-text rounded-none border-0 bg-transparent p-1.5 text-[13px] leading-[1.5] text-black outline-none focus:relative focus:z-10 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-[#1a73e8] ${p.editing ? 'cursor-text' : 'cursor-cell'} ${p.editing ? 'shadow-[0_2px_6px_rgba(60,64,67,0.28)]' : ''}`}
+        className={`block min-h-full w-full resize-none select-text rounded-none border-0 bg-transparent p-1.5 text-[13px] leading-[1.5] text-black outline-none focus:relative focus:z-10 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-[#1a73e8] ${p.editing ? 'cursor-text' : 'cursor-cell'} ${p.editing ? 'shadow-[0_2px_6px_rgba(60,64,67,0.28)]' : ''}`}
         onChange={e => p.onChange(e.target.value)}
         onBlur={p.onBlur}
         onFocus={p.onFocus}
