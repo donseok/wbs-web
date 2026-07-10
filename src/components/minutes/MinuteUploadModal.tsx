@@ -37,26 +37,26 @@ export function MinuteUploadModal({
   // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
   const progressRef = useRef<{ id: string; done: number } | null>(null)
 
-  async function onBodyFile(e: ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    e.target.value = ''
-    if (!f) return
-    setErr(null)
-    if (!/\.(md|markdown)$/i.test(f.name)) { setErr(t('min.err.bodyExt')); return }
-    if (f.size > MINUTE_BODY_FILE_MAX) { setErr(t('min.err.bodyFileMax')); return }
-    const text = await f.text()
-    if (text.length > MINUTE_BODY_MAX) { setErr(t('min.err.bodyMax')); return }
-    setBodyFile(f); setBodyText(text)
-    if (!title.trim()) setTitle(f.name.replace(/\.(md|markdown)$/i, ''))
-  }
-
-  function onAttach(e: ChangeEvent<HTMLInputElement>) {
+  /** 파일 일괄 선택(단일 입력 UX) — 본문이 비어 있으면 첫 .md가 본문, 나머지는 전부 첨부로 자동 분류.
+   *  검증을 모두 통과한 뒤에만 상태를 반영해 부분 적용을 막는다. */
+  async function onFiles(e: ChangeEvent<HTMLInputElement>) {
     const files = [...(e.target.files ?? [])]
     e.target.value = ''
+    if (files.length === 0) return
     setErr(null)
-    if (attachments.length + files.length > MINUTE_ATTACHMENTS_MAX_COUNT) { setErr(t('min.err.attachCount')); return }
-    if (files.some(f => f.size > MINUTE_ATTACHMENT_MAX)) { setErr(t('min.err.attachMax')); return }
-    setAttachments(prev => [...prev, ...files])
+    const isMd = (f: File) => /\.(md|markdown)$/i.test(f.name)
+    const bodyCand = !bodyFile ? files.find(isMd) ?? null : null
+    const rest = files.filter(f => f !== bodyCand)
+    if (bodyCand && bodyCand.size > MINUTE_BODY_FILE_MAX) { setErr(t('min.err.bodyFileMax')); return }
+    if (attachments.length + rest.length > MINUTE_ATTACHMENTS_MAX_COUNT) { setErr(t('min.err.attachCount')); return }
+    if (rest.some(f => f.size > MINUTE_ATTACHMENT_MAX)) { setErr(t('min.err.attachMax')); return }
+    if (bodyCand) {
+      const text = await bodyCand.text()
+      if (text.length > MINUTE_BODY_MAX) { setErr(t('min.err.bodyMax')); return }
+      setBodyFile(bodyCand); setBodyText(text)
+      if (!title.trim()) setTitle(bodyCand.name.replace(/\.(md|markdown)$/i, ''))
+    }
+    if (rest.length) setAttachments(prev => [...prev, ...rest])
   }
 
   async function onProject(pid: string) {
@@ -126,28 +126,36 @@ export function MinuteUploadModal({
             value={team} onChange={setTeam} size="sm" />
         </div>
         <label className="block text-sm">
-          <span className="mb-1 block font-medium">{t('min.form.bodyFile')}</span>
-          <input type="file" accept=".md,.markdown" onChange={onBodyFile} className="app-input pt-1.5" />
-          {bodyFile && <span className="mt-1 block text-xs text-ink-subtle">{bodyFile.name} · {bodyText.length.toLocaleString()}자</span>}
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">{t('min.form.title')}</span>
-          <input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} className="app-input" />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">{t('min.form.attachments')}</span>
-          <input type="file" multiple onChange={onAttach} className="app-input pt-1.5" />
-          {attachments.length > 0 && (
-            <ul className="mt-1 space-y-0.5 text-xs text-ink-subtle">
+          <span className="mb-1 block font-medium">{t('min.form.files')}</span>
+          <input type="file" multiple onChange={e => void onFiles(e)} className="app-input pt-1.5" />
+          <span className="mt-1 block text-xs text-ink-subtle">{t('min.form.filesHint')}</span>
+          {(bodyFile || attachments.length > 0) && (
+            <ul className="mt-1.5 space-y-0.5 text-xs text-ink-subtle">
+              {bodyFile && (
+                <li className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="shrink-0 rounded bg-progress-weak px-1 text-[10px] font-semibold text-accent-ink">{t('min.form.roleBody')}</span>
+                    <span className="truncate">{bodyFile.name} · {bodyText.length.toLocaleString()}자</span>
+                  </span>
+                  <button type="button" className="text-delayed" onClick={() => { setBodyFile(null); setBodyText('') }}>✕</button>
+                </li>
+              )}
               {attachments.map((f, i) => (
-                <li key={`${f.name}-${i}`} className="flex items-center justify-between">
-                  <span className="truncate">{f.name}</span>
+                <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="shrink-0 rounded bg-surface-2 px-1 text-[10px] font-semibold text-ink-muted">{t('min.form.roleAttach')}</span>
+                    <span className="truncate">{f.name}</span>
+                  </span>
                   <button type="button" className="text-delayed"
                     onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))}>✕</button>
                 </li>
               ))}
             </ul>
           )}
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">{t('min.form.title')}</span>
+          <input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} className="app-input" />
         </label>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <label className="block">
