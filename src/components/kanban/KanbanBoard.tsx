@@ -150,9 +150,10 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="space-y-4">
+    // 헤드(툴바·안내)는 고정하고 보드만 남은 높이를 채운다 — 세로 스크롤은 컬럼 안에서만 일어난다.
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {/* 툴바 */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <SegmentedTabs<Mode>
           value={mode}
           onChange={setMode}
@@ -188,7 +189,7 @@ export function KanbanBoard({
 
       {/* 드래그 안내 (상태별 + 편집 권한) */}
       {editable && (
-        <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-2 text-[12px] text-ink-muted">
+        <div className="flex shrink-0 items-center gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-2 text-[12px] text-ink-muted">
           <MoveHorizontal className="h-3.5 w-3.5 shrink-0 text-brand" />
           {t('kanban.hint1')}<span className="font-semibold text-done">{t('status.done')}</span>{t('kanban.hint2')}
           <span className="font-semibold text-pending">{t('status.not_started')}</span>{t('kanban.hint3')}
@@ -197,7 +198,7 @@ export function KanbanBoard({
       )}
 
       {/* 보드 */}
-      <div className="flex items-start gap-4 overflow-x-auto pb-2">
+      <div className="flex min-h-0 flex-1 items-start gap-4 overflow-x-auto pb-2">
         {columns.map(col => {
           const draggingCard = draggingId ? cardById.get(draggingId) : undefined
           // 표시 시점에만 한국어 컬럼 제목을 번역 — 도메인의 Record 키('미배정' 등)는 건드리지 않는다.
@@ -213,7 +214,7 @@ export function KanbanBoard({
               onDragOver={isDropZone ? e => { if (accepts) { e.preventDefault(); setDragOverKey(col.key) } } : undefined}
               onDragLeave={isDropZone ? () => setDragOverKey(k => (k === col.key ? null : k)) : undefined}
               onDrop={isDropZone ? e => handleDrop(e, col.key) : undefined}
-              className={`card flex max-h-[calc(100vh-15rem)] w-[286px] min-w-[286px] flex-col p-3 transition
+              className={`card flex max-h-full w-[286px] min-w-[286px] flex-col p-3 transition
                 ${active ? 'border-brand ring-2 ring-brand-ring' : ''}`}
             >
               <header className="flex items-center justify-between gap-2 px-1 pb-3">
@@ -224,7 +225,7 @@ export function KanbanBoard({
                 <span className="badge shrink-0 bg-surface-2 text-ink-muted">{col.count}</span>
               </header>
 
-              <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto pr-0.5">
+              <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto pr-0.5">
                 {col.cards.length === 0 ? (
                   <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-line py-8 text-center text-[12px] text-ink-subtle">
                     {isDropZone ? t('kanban.dropHere') : t('kanban.noTasks')}
