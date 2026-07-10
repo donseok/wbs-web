@@ -31,11 +31,17 @@ function taskLine(r: WeeklyTaskRow): string {
   return `${r.name} ${taskMeta(r)}`
 }
 
+/** Phase 이름의 선행 번호 표기("1. ", "1-1.", "2)") 제거 — PPT 헤드라인은 불릿만 쓴다.
+ *  구분자(./)) 없는 숫자 시작("2026년 계획")은 번호가 아니므로 보존. */
+export function stripPhaseNumber(name: string): string {
+  return name.replace(/^\d+(?:[.-]\d+)*\s*[.)]\s*/, '') || name
+}
+
 /** planActual에서 지정 컬럼(prevWeek|thisWeek)을 Phase 그룹으로. 빈 Phase 제외.
  *  num은 planActual(=WBS 최상위) 순서 기반 → 전주·금주에서 같은 Phase면 같은 번호. */
 function groupsOf(planActual: PhasePlanActual[], key: 'prevWeek' | 'thisWeek'): NarrativeGroup[] {
   return planActual
-    .map((p, i) => ({ phase: p.phaseName, num: i + 1, items: p[key].map(taskLine) }))
+    .map((p, i) => ({ phase: stripPhaseNumber(p.phaseName), num: i + 1, items: p[key].map(taskLine) }))
     .filter(g => g.items.length > 0)
 }
 

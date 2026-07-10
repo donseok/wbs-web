@@ -108,6 +108,31 @@ describe('buildWeeklyNarrative', () => {
     expect(n2.prev[0].phase).toBe('설계')
   })
 
+  it('Phase 이름의 선행 번호("1. ", "1-1.", "2)")는 헤드라인에서 제거된다', () => {
+    const numbered: ComputedItem[] = [
+      phase('1. 프로젝트 준비 및 착수', [
+        node({ name: '준비작업', status: 'done', rolledActualPct: 100, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 100 }),
+      phase('2. As-Is 분석', [
+        node({ name: '분석작업', status: 'in_progress', rolledActualPct: 40, owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 40 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(numbered, project, '2026-07-07'))
+    expect(n2.prev.map(g => g.phase)).toContain('프로젝트 준비 및 착수')
+    expect(n2.curr.map(g => g.phase)).toContain('As-Is 분석')
+    expect([...n2.prev, ...n2.curr].some(g => /^\d/.test(g.phase))).toBe(false)
+  })
+
+  it('번호 형식이 아닌 숫자 시작 이름("2026년 계획")은 보존된다', () => {
+    const yearly: ComputedItem[] = [
+      phase('2026년 계획', [
+        node({ name: '계획작업', status: 'in_progress', rolledActualPct: 10, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 10 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(yearly, project, '2026-07-07'))
+    expect(n2.curr[0].phase).toBe('2026년 계획')
+  })
+
   it('공지 없으면 "주요 공지" 그룹이 생기지 않고 WBS-only 동작 유지', () => {
     expect(n.prev.some(g => g.phase === '주요 공지')).toBe(false)
     expect(n.curr.some(g => g.phase === '주요 공지')).toBe(false)
