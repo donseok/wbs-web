@@ -49,7 +49,7 @@ export async function TrendChart({ model, today }: {
             </g>
           ))}
           {todayIn && (
-            <line x1={x(today)} x2={x(today)} y1={PT} y2={H - PB} className="stroke-ink-subtle" strokeWidth={1} strokeDasharray="2 3" />
+            <line x1={x(today)} x2={x(today)} y1={PT} y2={H - PB} className="stroke-delayed" strokeWidth={1} strokeDasharray="2 3" />
           )}
           <polyline points={pts(model.plannedSeries)} fill="none" className="stroke-ink-muted" strokeWidth={1.5} strokeDasharray="4 4" />
           {model.actualSeries.length > 1 && (
