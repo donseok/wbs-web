@@ -101,12 +101,6 @@ export async function MilestoneTimeline({ points, startDate, endDate, today }: {
     >
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={tr('dash.ms.title')}>
         <line x1={PL} x2={W - PR} y1={BASE} y2={BASE} className="stroke-line" strokeWidth={2} />
-        {todayIn && (
-          <g>
-            <line x1={x(today)} x2={x(today)} y1={TOP - 2} y2={H - 6} className="stroke-delayed" strokeWidth={1} strokeDasharray="2 3" />
-            <text x={todayLabelX} y={12} textAnchor="middle" fontSize={FS_SUB} className="fill-ink-subtle">{fmtDate(today)}</text>
-          </g>
-        )}
         {points.map((p, i) => {
           const lines = wrapped[i]
           const sub = subs[i]
@@ -117,8 +111,7 @@ export async function MilestoneTimeline({ points, startDate, endDate, today }: {
           const dateY = above ? BASE - 14 : BASE + 24 + LH * (lines.length - 1) + 13
           return (
             <g key={p.id}>
-              <circle cx={x(p.date)} cy={BASE} r={5}
-                className={i > 0 && p.date <= today && p.status !== 'overdue' ? 'fill-delayed' : MS_TONE[p.status]}>
+              <circle cx={x(p.date)} cy={BASE} r={5} className={MS_TONE[p.status]}>
                 <title>{`${p.name} · ${fmtDate(p.date)}`}</title>
               </circle>
               {lines.map((line, j) => (
@@ -131,6 +124,15 @@ export async function MilestoneTimeline({ points, startDate, endDate, today }: {
             </g>
           )
         })}
+        {todayIn && (
+          <g>
+            <line x1={x(today)} x2={x(today)} y1={TOP - 2} y2={H - 6} className="stroke-delayed" strokeWidth={1} strokeDasharray="2 3" />
+            <text x={todayLabelX} y={12} textAnchor="middle" fontSize={FS_SUB} className="fill-ink-subtle">{fmtDate(today)}</text>
+            <circle cx={x(today)} cy={BASE} r={5} className="fill-delayed">
+              <title>{`${tr('dash.ms.today')} · ${fmtDate(today)}`}</title>
+            </circle>
+          </g>
+        )}
       </svg>
     </SectionCard>
   )
