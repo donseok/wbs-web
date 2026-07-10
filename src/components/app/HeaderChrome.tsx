@@ -19,7 +19,7 @@ import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
 
 const SECTION_LABEL: Record<string, string> = {
   dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드',
-  members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', settings: '설정',
+  members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', weekly: '주간업무', settings: '설정',
 }
 
 export function HeaderChrome({ membership, projects, userName }: { membership: Membership | null; projects: SidebarProject[]; userName?: string | null }) {
