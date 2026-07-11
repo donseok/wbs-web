@@ -7,7 +7,6 @@ import {
   FileSpreadsheet,
   Layers,
   Presentation,
-  Printer,
   TrendingDown,
   TrendingUp,
   Users,
@@ -29,10 +28,8 @@ function fmtFull(d?: string | null): string {
 }
 
 /**
- * 주간 보고서 모달 — 인쇄/PDF 및 Excel·PPT 다운로드 가능한 보고서 본문.
- * 본문은 `.print-area`로 감싸 @media print에서 이 영역만 출력된다.
- * 다운로드/인쇄/닫기 버튼은 `.no-print`로 인쇄 시 숨김.
- * 화면·Excel·PPT는 buildReportModel 단일 모델을 공유한다.
+ * 주간 보고서 모달 — Excel·PPT 다운로드 가능한 보고서 본문. (인쇄/PDF 버튼은 사용자 요청으로 제거)
+ * 화면은 buildReportModel(정수 표기), Excel은 buildWeeklyReportModel(소수 1자리)을 사용한다.
  */
 export function ReportModal({
   open,
@@ -83,10 +80,6 @@ export function ReportModal({
         <Presentation className="h-4 w-4" />
         PPT
       </a>
-      <button type="button" onClick={() => window.print()} className="no-print btn btn-primary">
-        <Printer className="h-4 w-4" />
-        인쇄 / PDF
-      </button>
     </>
   )
 
