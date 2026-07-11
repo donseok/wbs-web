@@ -27,6 +27,9 @@ export function lineCost(text: string): number {
 const groupCost = (phase: string, items: string[], fmt: (item: string) => string): number =>
   lineCost(phase) + items.reduce((s, it) => s + lineCost(fmt(it)), 0)
 
+/** 최하위 상세 줄('.' 마커) 여부 — 담당/소제목 헤더('-'·일반 줄)와 구분(분할 시 헤더-상세 찢김 방지용). */
+const isChildLine = (s: string): boolean => s.trimStart().startsWith('.')
+
 /** 그룹들을 페이지(셀)당 budget 시각줄 이내로 분할. 그룹 사이 빈 줄 1도 예산에 포함.
  *  새 페이지에 통째로 들어가는 그룹은 쪼개지 않고 이월하고, 한 페이지를 넘는 그룹만
  *  항목 단위로 쪼개 '(계속)' 헤더로 잇는다. 빈 입력은 1페이지(빈 그룹 목록)로. */
@@ -56,13 +59,22 @@ export function paginateGroups(
         cost += lineCost(lineFormatter(items[take]))
         take += 1
       }
+      // 상세('.') 직전의 헤더가 페이지 끝에 홀로 남지 않게 헤더부터 다음 페이지로 이월
+      if (take > 0 && take < items.length && isChildLine(items[take]) && !isChildLine(items[take - 1])) take -= 1
       if (take === 0) {
         if (page.length) { flush(); continue }
         take = 1                                 // 예산보다 큰 단일 항목 — 최소 진행 보장
       }
       page.push({ phase, num: g.num, items: items.slice(0, take) })
       flush()
-      items = items.slice(take)
+      const rest = items.slice(take)
+      // 상세('.') 중간에서 끊겼으면 직전 헤더를 '(계속)'으로 반복해 담당 문맥 유지.
+      // take=1(헤더만 실은 페이지)에는 재삽입하지 않음 — 동일 상태 반복(무한 루프) 방지.
+      if (take > 1 && rest.length && isChildLine(rest[0])) {
+        const hdr = items.slice(0, take).reverse().find(s => !isChildLine(s))
+        if (hdr) rest.unshift(hdr.endsWith(' (계속)') ? hdr : `${hdr} (계속)`)
+      }
+      items = rest
       if (!items.length) break // 강제 수용(take=1)이 마지막 항목이면 빈 '(계속)' 페이지를 만들지 않는다
       phase = phase.endsWith(' (계속)') ? phase : `${g.phase} (계속)`
     }

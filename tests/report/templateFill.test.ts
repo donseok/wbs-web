@@ -66,6 +66,24 @@ describe('paginateGroups', () => {
     const pages2 = paginateGroups([{ phase: '실행', num: 1, items: [huge] }, g('구축', 2)], 15)
     expect(pages2.flat().filter(x => x.items.length === 0)).toHaveLength(0)
   })
+  it('담당 헤더("- X")가 페이지 끝에 홀로 남지 않고 상세와 함께 다음 페이지로 이월', () => {
+    // 헤더1 + 항목13 = 14줄 사용 → 15번째 줄에 '- MES' 헤더만 남는 상황
+    const items = [...Array.from({ length: 13 }, (_, i) => `항목${i + 1}`), '- MES', '. 상세A', '. 상세B']
+    const pages = paginateGroups([{ phase: 'P', num: 1, items }], 15)
+    expect(pages).toHaveLength(2)
+    expect(pages[0][0].items.at(-1)).toBe('항목13')                 // 헤더가 끝에 홀로 남지 않음
+    expect(pages[1][0].items).toEqual(['- MES', '. 상세A', '. 상세B'])
+  })
+  it('상세(".") 중간에서 끊기면 다음 페이지에 담당 헤더를 "(계속)"으로 반복', () => {
+    const items = ['- MES', ...Array.from({ length: 20 }, (_, i) => `. 상세${i + 1}`)]
+    const pages = paginateGroups([{ phase: 'P', num: 1, items }], 15)
+    expect(pages).toHaveLength(2)
+    expect(pages[1][0].items[0]).toBe('- MES (계속)')
+    // 원본 상세 20건 전부 보존
+    const details = pages.flat().flatMap(x => x.items).filter(s => s.startsWith('. '))
+    expect(details).toHaveLength(20)
+  })
+
   it('시트 포매터(sheetLineText) 주입 시에도 분할 규칙이 동일하게 적용된다', () => {
     const pages = paginateGroups([g('[ERP] SD/LE', 20)], 15, sheetLineText)
     expect(pages).toHaveLength(2)

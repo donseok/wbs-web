@@ -17,18 +17,25 @@ export interface NarrativeModel {
   events: string[]         // 주요 이벤트(금주·차주 회의)
 }
 
-/** 비분리 공백(U+00A0) — 메타가 줄바꿈으로 쪼개지지 않게 묶는 데 사용. */
-const NB = String.fromCharCode(0xa0)
-
-/** 담당 메타 → '· 담당'. 상태(완료/진행중/지연)·진행률(%)은 표시하지 않음. 내부는 전부 NB로 묶어 한 덩어리로만 줄바꿈. */
-function taskMeta(r: WeeklyTaskRow): string {
-  const owner = r.ownerText.replace(/ /g, NB) // '(가공 주관)' 같은 담당 표기도 통째로 유지
-  return `·${NB}${owner}`
-}
-
-/** 작업 1건 → '작업명 · 담당'. 작업명과 메타 사이만 일반 공백(줄바꿈 지점). */
-function taskLine(r: WeeklyTaskRow): string {
-  return `${r.name} ${taskMeta(r)}`
+/** Phase 내 작업들을 담당별 하위 그룹으로 — '- 담당' 헤더 아래 '. 작업명' 줄(subLineText의 4칸/8칸 규칙).
+ *  같은 담당이 여러 작업을 맡아도 담당은 헤더 한 줄로만 표기(줄마다 '· 담당' 반복 방지).
+ *  담당 순서는 Phase 내 첫 등장 순. 상태(완료/진행중/지연)·진행률(%)은 표시하지 않음.
+ *  담당 미지정('-') 작업은 헤더 없이 '- 작업명' 그대로 둔다. */
+function ownerGroupedItems(rows: WeeklyTaskRow[]): string[] {
+  const byOwner = new Map<string, WeeklyTaskRow[]>()
+  for (const r of rows) {
+    if (!byOwner.has(r.ownerText)) byOwner.set(r.ownerText, [])
+    byOwner.get(r.ownerText)!.push(r)
+  }
+  const items: string[] = []
+  for (const [owner, tasks] of byOwner) {
+    if (owner === '-') {
+      items.push(...tasks.map(t => t.name))
+    } else {
+      items.push(`- ${owner}`, ...tasks.map(t => `. ${t.name}`))
+    }
+  }
+  return items
 }
 
 /** Phase 이름의 선행 번호 표기("1. ", "1-1.", "2)") 제거 — PPT 헤드라인은 불릿만 쓴다.
@@ -41,7 +48,7 @@ export function stripPhaseNumber(name: string): string {
  *  num은 planActual(=WBS 최상위) 순서 기반 → 전주·금주에서 같은 Phase면 같은 번호. */
 function groupsOf(planActual: PhasePlanActual[], key: 'prevWeek' | 'thisWeek'): NarrativeGroup[] {
   return planActual
-    .map((p, i) => ({ phase: stripPhaseNumber(p.phaseName), num: i + 1, items: p[key].map(taskLine) }))
+    .map((p, i) => ({ phase: stripPhaseNumber(p.phaseName), num: i + 1, items: ownerGroupedItems(p[key]) }))
     .filter(g => g.items.length > 0)
 }
 
