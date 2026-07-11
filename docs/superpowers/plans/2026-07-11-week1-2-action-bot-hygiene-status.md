@@ -18,6 +18,9 @@
 - 테스트: `tests/<area>/<topic>.test.ts`, vitest 명시적 import (`import { describe, it, expect, vi } from 'vitest'`), 한국어 describe/it 제목, 모킹 순서는 vi.mock 먼저 → SUT import (기존 관례).
 - 검증 커맨드: `npm test` (전체), `npx vitest run tests/<path>` (단일), `npm run lint`, `npm run build`. 이 저장소는 `next dev` 실행 중 `next build` 금지.
 - TypeScript strict — `any` 회피, 기존 도메인 타입(`ComputedItem`, `Membership` 등 src/lib/domain/types.ts) 재사용.
+- **D-CUBE 프로덕션 데이터 불훼손 (절대 원칙)** — 운영 중인 D-CUBE 프로젝트의 데이터(projects/wbs_items/진도율·진척 스냅샷·변경 이력/회의록/주간 시트)를 어떤 태스크도 변경·삭제하지 않는다. 이 계획에 DB 마이그레이션은 0건이며 신규 쓰기 경로도 없다(기존 서버 액션 재사용만). 봇의 쓰기는 확인 카드 [적용] 클릭으로만 발생하고 자동 실행은 없다.
+- 쓰기 경로의 수동·스모크 검증(봇 [적용] 클릭)은 **전용 테스트 프로젝트**(예: "액션봇 테스트" 신설)에서만 실행한다. D-CUBE 항목 대상 [적용] 클릭 검증 금지 — 로컬 dev도 프로덕션 Supabase를 공유하므로 로컬 검증에도 동일하게 적용된다.
+- Task 1에서 제거한 실물 파일 4개는 docs/backups/(git 제외)에 로컬 백업 보관 — 삭제 금지. git 히스토리도 보존(소거는 사용자 보류 결정).
 
 ---
 
@@ -1318,9 +1321,10 @@ const cancelProposal = useCallback((msgId: number) => {
 npm test && npm run lint && npm run build
 ```
 
-이후 `npm run dev`로 로컬 확인 (샌드박스는 curl 검증 — verify 스킬 참조):
-1. 프로젝트 화면에서 봇 열기 → "지연된 작업이 뭐야?" → 기존 스트리밍 답변 (회귀 없음)
-2. "ERP 인터페이스 설계 실적 80으로 올려줘" → 확인 카드 (40% → 80%)
+이후 `npm run dev`로 로컬 확인 (샌드박스는 curl 검증 — verify 스킬 참조).
+**시나리오 2–5는 반드시 전용 테스트 프로젝트("액션봇 테스트")에서 실행 — D-CUBE 항목 대상 [적용] 금지 (Global Constraints 참조. 로컬 dev도 프로덕션 Supabase 공유):**
+1. 프로젝트 화면에서 봇 열기 → "지연된 작업이 뭐야?" → 기존 스트리밍 답변 (회귀 없음, 조회는 아무 프로젝트나 무해)
+2. 테스트 프로젝트 항목명으로 "○○ 실적 80으로 올려줘" → 확인 카드 (현재% → 80%)
 3. [적용] → 성공 버블 + WBS 시트 새로고침 시 반영 + 행 상세 변경 이력에 기록
 4. 모호한 이름 → 후보 칩 → 선택 → 카드 → 적용
 5. team_editor 계정으로 타팀 작업 명령 → '담당 작업이 아님' 에러 버블 (권한 데모 포인트)
@@ -1360,6 +1364,6 @@ Expected: exit=1 (0건).
 
 - [ ] **Step 3: 배포** — `/deploy` 스킬 사용 (push만으로 Vercel 자동 배포 — `vercel --prod` 중복 실행 금지).
 
-- [ ] **Step 4: 프로덕션 스모크** — wbs-web.vercel.app에서 Task 10 Step 6 시나리오 1-3 재확인. RPM 여유를 위해 명령은 결정형 패턴(실적 변경) 위주로 확인.
+- [ ] **Step 4: 프로덕션 스모크** — wbs-web.vercel.app에서 Task 10 Step 7 시나리오 1-3 재확인. 시나리오 1(조회)은 아무 프로젝트나 무해, 시나리오 2-3(카드+적용)은 **전용 테스트 프로젝트에서만** — D-CUBE 대상 [적용] 금지. RPM 여유를 위해 명령은 결정형 패턴(실적 변경) 위주로 확인. 비로그인 게이트는 curl로 확인(/api/chat/command 401).
 
 - [ ] **Step 5: 측정 시작** — docs/superpowers/measurements.md 로그 표에 첫 실사용 기록 시작 (지표 #2: 이번 배포로 "봇 명령→WBS 반영" 시간 측정 가능해짐).
