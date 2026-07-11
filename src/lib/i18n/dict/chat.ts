@@ -3,6 +3,8 @@
 export const chatKo = {
   'chat.open': 'DK Bot 열기',
   'chat.dialog': 'DK Bot 채팅',
+  'chat.collapse': '접기',
+  'chat.expand': 'DK Bot 펼치기',
   'chat.reset': '대화 초기화',
   'chat.inputPlaceholder': '질문을 입력하세요 (Enter로 전송)',
   'chat.inputAria': '질문 입력',
@@ -38,6 +40,8 @@ export const chatKo = {
 export const chatEn: Record<keyof typeof chatKo, string> = {
   'chat.open': 'Open DK Bot',
   'chat.dialog': 'DK Bot chat',
+  'chat.collapse': 'Minimize',
+  'chat.expand': 'Expand DK Bot',
   'chat.reset': 'Reset conversation',
   'chat.inputPlaceholder': 'Type a question (Enter to send)',
   'chat.inputAria': 'Question input',

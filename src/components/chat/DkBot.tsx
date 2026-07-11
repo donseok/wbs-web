@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { RotateCcw, X, Send, Sparkles, CalendarDays } from 'lucide-react'
+import { RotateCcw, X, Send, Sparkles, CalendarDays, ChevronDown, ChevronUp } from 'lucide-react'
 import { RobotMascot } from './RobotMascot'
 import { QUICK_SUGGESTIONS } from '@/lib/ai/intent'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -66,6 +66,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
   const currentProjectName = projects.find(p => p.id === currentProjectId)?.name ?? null
 
   const [open, setOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(false) // 접힘 = 알약 바만 표시. 대화·스트리밍은 그대로 유지
   const [ctx, setCtx] = useState<BotContext | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
@@ -108,21 +109,31 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentProjectId])
 
-  // Esc 닫기
+  // 완전 닫기 — 접힘 상태도 리셋해 다음에 열 때는 펼친 상태로 시작
+  const close = useCallback(() => {
+    setOpen(false)
+    setCollapsed(false)
+  }, [])
+
+  // Esc 닫기 (접힘 상태에서도 완전 닫기)
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+  }, [open, close])
 
   // 메시지 추가 시 하단 스크롤 + 입력 포커스
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, loading])
   useEffect(() => {
-    if (open) inputRef.current?.focus()
-  }, [open])
+    if (open && !collapsed) inputRef.current?.focus()
+  }, [open, collapsed])
+  // 펼칠 때 — 재마운트된 스크롤 컨테이너는 scrollTop 0에서 시작하므로 즉시 맨 아래로
+  useEffect(() => {
+    if (open && !collapsed) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+  }, [open, collapsed])
 
   /**
    * 입력창 비우기 — setInput('') 만으로는 한글 IME 조합 중이던 마지막 글자가 입력창에
@@ -326,8 +337,26 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
         </button>
       )}
 
+      {/* ── 접힌 바 ── 바 전체가 펼치기 버튼. 대화는 뒤에서 그대로 유지된다 */}
+      {open && collapsed && (
+        <button
+          onClick={() => setCollapsed(false)}
+          aria-label={t('chat.expand')}
+          className="fixed bottom-16 right-5 z-[130] flex items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3 text-white ring-1 ring-white/10 transition hover:brightness-110 active:scale-95"
+          style={{ backgroundImage: 'var(--gradient-dark)', boxShadow: 'var(--shadow-lg)' }}
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15">
+            <RobotMascot className="h-6 w-6" />
+          </span>
+          <span className="text-sm font-bold">DK Bot</span>
+          {/* 응답 스트리밍 중 표시점 — 접혀 있어도 진행 상황을 알 수 있게 */}
+          {loading && <span className="h-2 w-2 animate-pulse rounded-full bg-brand" />}
+          <ChevronUp className="h-4 w-4 text-white/70" />
+        </button>
+      )}
+
       {/* ── 패널 ── */}
-      {open && (
+      {open && !collapsed && (
         <div
           role="dialog"
           aria-label={t('chat.dialog')}
@@ -344,6 +373,13 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
               <div className="truncate text-xs text-white/60">{currentProjectName ?? t('nav.allProjects')}</div>
             </div>
             <button
+              onClick={() => setCollapsed(true)}
+              aria-label={t('chat.collapse')}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+            <button
               onClick={reset}
               aria-label={t('chat.reset')}
               className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
@@ -351,7 +387,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
               <RotateCcw className="h-4 w-4" />
             </button>
             <button
-              onClick={() => setOpen(false)}
+              onClick={close}
               aria-label={t('common.close')}
               className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
             >
