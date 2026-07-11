@@ -28,7 +28,8 @@ export function dispatchSidebarToggle(collapsed: boolean): void {
 const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string }> = {
   ready: { dot: 'bg-amber-400', label: '준비' },
   active: { dot: 'bg-emerald-400', label: '진행중' },
-  overdue: { dot: 'bg-rose-400', label: '지연' },
+  // '지연 종료' = 기간 경과+미완(생애 축) — 대시보드의 '지연'(계획 대비 미달)과 다른 개념이라 라벨을 홈과 통일
+  overdue: { dot: 'bg-rose-400', label: '지연 종료' },
   done: { dot: 'bg-sky-400', label: '완료' },
 }
 
