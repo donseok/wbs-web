@@ -12,7 +12,7 @@ import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import type { DictKey } from '@/lib/i18n/dict'
 
-export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'done'; baseDate?: string | null }
+export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'overdue' | 'done'; baseDate?: string | null }
 
 export const SIDEBAR_STORAGE_KEY = 'dflow-sidebar'
 
@@ -28,6 +28,7 @@ export function dispatchSidebarToggle(collapsed: boolean): void {
 const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string }> = {
   ready: { dot: 'bg-amber-400', label: '준비' },
   active: { dot: 'bg-emerald-400', label: '진행중' },
+  overdue: { dot: 'bg-rose-400', label: '지연' },
   done: { dot: 'bg-sky-400', label: '완료' },
 }
 

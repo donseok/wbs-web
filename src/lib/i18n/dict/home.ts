@@ -4,9 +4,10 @@ export const homeKo = {
   // 전체 프로젝트 목록(홈)
   'home.heroTitle': '한눈에 보이는 프로젝트 운영',
   'home.heroDesc': 'WBS · 일정 · 멤버를 하나의 흐름으로. 계획부터 완료까지 투명하게 관리하세요.',
-  // 프로젝트 상태 뱃지 — projectStatus 파생값의 표시 라벨(로직은 불변)
+  // 프로젝트 상태 뱃지 — projectLifecycleStatus 파생값의 표시 라벨
   'home.status_ready': '시작 전',
   'home.status_active': '진행중',
+  'home.status_overdue': '지연 종료',
   'home.status_done': '완료',
   'home.scheduleUnset': '일정 미설정',
   'home.noDescription': '설명이 아직 없습니다. 설정에서 프로젝트 개요를 추가하세요.',
@@ -67,6 +68,7 @@ export const homeEn: Record<keyof typeof homeKo, string> = {
   'home.heroDesc': 'WBS, schedule, and members in one flow. Manage transparently from plan to done.',
   'home.status_ready': 'Not started',
   'home.status_active': 'In progress',
+  'home.status_overdue': 'Overdue',
   'home.status_done': 'Done',
   'home.scheduleUnset': 'No schedule',
   'home.noDescription': 'No description yet. Add a project overview in Settings.',

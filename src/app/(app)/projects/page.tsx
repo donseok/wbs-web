@@ -4,6 +4,7 @@ import { listProjects } from '@/app/actions/project'
 import { getMembership } from '@/lib/auth'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { aggregateTaskStats } from '@/lib/domain/workspace'
+import { projectLifecycleStatus, type ProjectLifecycleStatus } from '@/lib/domain/project-status'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { NewProjectModal } from '@/components/home/NewProjectModal'
@@ -21,23 +22,15 @@ type ProjectRow = {
   created_at?: string | null
 }
 
-type ProjectStatus = 'ready' | 'active' | 'done'
-
-const STATUS: Record<ProjectStatus, { labelKey: DictKey; chip: string; dot: string }> = {
+const STATUS: Record<ProjectLifecycleStatus, { labelKey: DictKey; chip: string; dot: string }> = {
   ready: { labelKey: 'home.status_ready', chip: 'bg-pending-weak text-pending', dot: 'bg-pending' },
   active: { labelKey: 'home.status_active', chip: 'bg-brand-weak text-brand', dot: 'bg-brand' },
+  overdue: { labelKey: 'home.status_overdue' as DictKey, chip: 'bg-delayed-weak text-delayed', dot: 'bg-delayed' },
   done: { labelKey: 'home.status_done', chip: 'bg-done-weak text-done', dot: 'bg-done' },
 }
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
-
-function projectStatus(start: string | null, end: string | null, today: string): ProjectStatus {
-  if (!start || !end) return 'ready'
-  if (today < start) return 'ready'
-  if (today > end) return 'done'
-  return 'active'
 }
 
 function initials(name: string): string {
@@ -57,7 +50,7 @@ function dateRange(start: string | null, end: string | null, locale: Locale): st
   return `${fmtDate(start)} – ${fmtDate(end)}`
 }
 
-function ProjectCard({ project, status, locale }: { project: ProjectRow; status: ProjectStatus; locale: Locale }) {
+function ProjectCard({ project, status, locale }: { project: ProjectRow; status: ProjectLifecycleStatus; locale: Locale }) {
   const s = STATUS[status]
   return (
     <Link
@@ -103,19 +96,28 @@ export default async function ProjectsHome() {
   const projects = rawProjects as ProjectRow[]
   const today = seoulToday()
 
-  const withStatus = projects.map(p => ({ project: p, status: projectStatus(p.start_date, p.end_date, today) }))
+  // 히어로 통계칩 = 전사 작업 집계(TASKS / DONE / %). 각 프로젝트의 WBS 트리를 병렬 로드해 리프를 합산한다.
+  const trees = await Promise.all(
+    projects.map(p => getComputedWbs(p.id).then(w => w.items).catch((): ComputedItem[] => [])),
+  )
+  const taskStats = aggregateTaskStats(trees)
+
+  const withStatus = projects.map((p, i) => {
+    const stats = aggregateTaskStats([trees[i]])
+    return {
+      project: p,
+      status: projectLifecycleStatus(p.start_date, p.end_date, today, {
+        hasWbs: stats.tasks > 0,
+        allDone: stats.tasks > 0 && stats.done === stats.tasks,
+      }),
+    }
+  })
   const total = withStatus.length
   const activeCount = withStatus.filter(x => x.status === 'active').length
   const doneCount = withStatus.filter(x => x.status === 'done').length
   const activeRatio = total ? Math.round((activeCount / total) * 100) : 0
   const recent = withStatus.slice(0, 3)
   const canCreate = membership?.role === 'pmo_admin'
-
-  // 히어로 통계칩 = 전사 작업 집계(TASKS / DONE / %). 각 프로젝트의 WBS 트리를 병렬 로드해 리프를 합산한다.
-  const trees = await Promise.all(
-    projects.map(p => getComputedWbs(p.id).then(w => w.items).catch((): ComputedItem[] => [])),
-  )
-  const taskStats = aggregateTaskStats(trees)
 
   const heroStats = [
     { label: 'Tasks', value: taskStats.tasks },

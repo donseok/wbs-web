@@ -4,25 +4,24 @@ import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { HeaderChrome } from '@/components/app/HeaderChrome'
 import { DkBot } from '@/components/chat/DkBot'
 import { PrefsSync } from '@/components/app/PrefsSync'
+import { projectLifecycleStatus } from '@/lib/domain/project-status'
+import { getProjectsCompletion } from '@/lib/data/wbs'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
-function projectStatus(start: string | null, end: string | null, today: string): SidebarProject['status'] {
-  if (!start || !end) return 'ready'
-  if (today < start) return 'ready'
-  if (today > end) return 'done'
-  return 'active'
-}
-
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const [m, projects, userName] = await Promise.all([getMembership(), listProjects(), getDisplayName()])
   const today = seoulToday()
+  const completion = await getProjectsCompletion(projects.map(p => p.id))
   const projectLinks: SidebarProject[] = projects.map(p => ({
     id: p.id,
     name: p.name,
-    status: projectStatus(p.start_date, p.end_date, today),
+    status: projectLifecycleStatus(
+      p.start_date, p.end_date, today,
+      completion[p.id] ?? { hasWbs: false, allDone: false },
+    ),
     baseDate: (p as { base_date?: string | null }).base_date ?? null,
   }))
 

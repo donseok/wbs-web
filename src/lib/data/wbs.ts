@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import { computeTree } from '@/lib/domain/rollup'
+import { computeCompletionMap, type ProjectCompletion } from '@/lib/domain/project-status'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind } from '@/lib/domain/types'
 
 function seoulToday(): string {
@@ -59,3 +60,23 @@ export const getComputedWbs = cache(async (
   const today = (proj as { base_date: string | null } | null)?.base_date ?? seoulToday()
   return { items: computeTree(rows, today, holidays), holidays: [...holidays], today }
 })
+
+// 사이드바용 경량 완료율 맵 — 프로젝트 전체를 1쿼리로 (트리 로드 없이)
+export const getProjectsCompletion = cache(
+  async (projectIds: string[]): Promise<Record<string, ProjectCompletion>> => {
+    if (!projectIds.length) return {}
+    const sb = await createServerClient()
+    const { data } = await sb
+      .from('wbs_items')
+      .select('id, parent_id, project_id, actual_pct')
+      .in('project_id', projectIds)
+    return computeCompletionMap(
+      (data ?? []).map(r => ({
+        id: r.id as string,
+        parentId: (r.parent_id as string | null) ?? null,
+        projectId: r.project_id as string,
+        actualPct: (r.actual_pct as number | null) ?? null,
+      })),
+    )
+  },
+)
