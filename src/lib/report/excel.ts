@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs'
 import type { WeeklyReportModel } from './weekly'
 import { statusKr } from './weekly'
-import { weightToPct } from '@/lib/domain/format'
+import { formatPct1, formatPp1, round1, weightToPct } from '@/lib/domain/format'
 import { PX, argb, asciiBar } from './dkbrand'
 
 type Cell = ExcelJS.Cell
@@ -16,14 +16,17 @@ function fill(cell: Cell, hex: string) {
 }
 function setCell(
   cell: Cell, value: ExcelJS.CellValue,
-  opts: { bg?: string; color?: string; size?: number; bold?: boolean; align?: Align; wrap?: boolean; border?: boolean } = {},
+  opts: { bg?: string; color?: string; size?: number; bold?: boolean; align?: Align; wrap?: boolean; border?: boolean; numFmt?: string } = {},
 ) {
   cell.value = value
   cell.font = { color: { argb: argb(opts.color ?? PX.ink) }, size: opts.size ?? 10, bold: opts.bold ?? false }
   if (opts.bg) fill(cell, opts.bg)
+  if (opts.numFmt) cell.numFmt = opts.numFmt
   cell.alignment = { vertical: 'middle', horizontal: opts.align ?? 'left', wrapText: opts.wrap ?? false }
   if (opts.border !== false) cell.border = BORDER
 }
+/** 공정율(%) 셀 서식 — 대시보드(formatPct1)와 동일한 소수 1자리 고정 표시. */
+const PCT1 = '0.0'
 /** 섹션 머리띠(병합 + 퍼플 배경). */
 function sectionBar(ws: Worksheet, row: number, lastCol: number, text: string) {
   ws.mergeCells(row, 1, row, lastCol)
@@ -63,8 +66,8 @@ function buildProcessSheet(ws: Worksheet, model: WeeklyReportModel) {
   const grn = { bg: PX.greenBg, color: PX.green }
   type K = { label: string; value: ExcelJS.CellValue; sub: string; tone: { bg: string; color: string }; merge?: boolean }
   const ks: K[] = [
-    { label: '프로젝트 진척', value: `${kpi.actual}%`, sub: `계획 ${kpi.planned}%`, tone: red },
-    { label: '계획-실적 격차', value: `${kpi.variance > 0 ? '+' : ''}${kpi.variance}%p`, sub: kpi.variance < 0 ? '미달' : '양호', tone: kpi.variance < 0 ? red : grn },
+    { label: '프로젝트 진척', value: `${formatPct1(kpi.actual)}%`, sub: `계획 ${formatPct1(kpi.planned)}%`, tone: red },
+    { label: '계획-실적 격차', value: `${formatPp1(kpi.variance)}%p`, sub: kpi.variance < 0 ? '미달' : '양호', tone: kpi.variance < 0 ? red : grn },
     { label: '전체 작업', value: kpi.total, sub: `${meta.phaseCount}개 Phase`, tone: purp },
     { label: '완료', value: kpi.done, sub: `${kpi.doneRatio}%`, tone: grn },
     { label: '진행중', value: kpi.inProgress, sub: `${kpi.inProgressRatio}%`, tone: purp },
@@ -92,10 +95,10 @@ function buildProcessSheet(ws: Worksheet, model: WeeklyReportModel) {
     setCell(ws.getCell(r, 1), p.name, { bg: zebra })
     setCell(ws.getCell(r, 2), p.name, { bg: zebra })
     setCell(ws.getCell(r, 3), p.weightPct, { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 4), p.plannedPct, { bg: zebra, align: 'center' })
-    setCell(ws.getCell(r, 5), p.actualPct, { bg: zebra, align: 'center' })
+    setCell(ws.getCell(r, 4), p.plannedPct, { bg: zebra, align: 'center', numFmt: PCT1 })
+    setCell(ws.getCell(r, 5), p.actualPct, { bg: zebra, align: 'center', numFmt: PCT1 })
     const gapTone = p.gap > 0 ? PX.red : p.gap < 0 ? PX.green : PX.ink
-    setCell(ws.getCell(r, 6), p.gap, { bg: zebra, color: gapTone, bold: p.gap !== 0, align: 'center' })
+    setCell(ws.getCell(r, 6), p.gap, { bg: zebra, color: gapTone, bold: p.gap !== 0, align: 'center', numFmt: PCT1 })
     setCell(ws.getCell(r, 7), `${p.doneCount}/${p.totalCount}`, { bg: zebra, align: 'center' })
     setCell(ws.getCell(r, 8), p.delayedCount, { bg: p.delayedCount > 0 ? PX.redBg : zebra, color: p.delayedCount > 0 ? PX.red : PX.ink, bold: p.delayedCount > 0, align: 'center' })
     ws.mergeCells(r, 9, r, LAST)
@@ -106,9 +109,9 @@ function buildProcessSheet(ws: Worksheet, model: WeeklyReportModel) {
   setCell(ws.getCell(r, 1), '합계', { bg: PX.purpleLight, bold: true })
   setCell(ws.getCell(r, 2), '', { bg: PX.purpleLight })
   setCell(ws.getCell(r, 3), 100, { bg: PX.purpleLight, bold: true, align: 'center' })
-  setCell(ws.getCell(r, 4), kpi.planned, { bg: PX.purpleLight, bold: true, align: 'center' })
-  setCell(ws.getCell(r, 5), kpi.actual, { bg: PX.purpleLight, bold: true, align: 'center' })
-  setCell(ws.getCell(r, 6), kpi.planned - kpi.actual, { bg: PX.purpleLight, bold: true, align: 'center' })
+  setCell(ws.getCell(r, 4), kpi.planned, { bg: PX.purpleLight, bold: true, align: 'center', numFmt: PCT1 })
+  setCell(ws.getCell(r, 5), kpi.actual, { bg: PX.purpleLight, bold: true, align: 'center', numFmt: PCT1 })
+  setCell(ws.getCell(r, 6), round1(kpi.planned - kpi.actual), { bg: PX.purpleLight, bold: true, align: 'center', numFmt: PCT1 })
   setCell(ws.getCell(r, 7), `${kpi.done}/${kpi.total}`, { bg: PX.purpleLight, bold: true, align: 'center' })
   setCell(ws.getCell(r, 8), kpi.delayed, { bg: PX.purpleLight, bold: true, align: 'center' })
   ws.mergeCells(r, 9, r, LAST)
@@ -131,8 +134,8 @@ function buildProcessSheet(ws: Worksheet, model: WeeklyReportModel) {
     setCell(ws.getCell(r, 3), p.phaseName, { bg: zebra, size: 9 })
     const work = p.thisWeek.length ? p.thisWeek.map(t => `▸ ${t.name} (${t.ownerText})`).join('\n') : '(해당 없음)'
     setCell(ws.getCell(r, 5), work, { bg: zebra, size: 9, wrap: true })
-    setCell(ws.getCell(r, 8), p.plannedPct, { bg: zebra, color: PX.ink, size: 10, bold: true, align: 'center' })
-    setCell(ws.getCell(r, 9), p.actualPct, { bg: zebra, color: p.actualPct < p.plannedPct ? PX.red : PX.ink, size: 10, bold: true, align: 'center' })
+    setCell(ws.getCell(r, 8), p.plannedPct, { bg: zebra, color: PX.ink, size: 10, bold: true, align: 'center', numFmt: PCT1 })
+    setCell(ws.getCell(r, 9), p.actualPct, { bg: zebra, color: p.actualPct < p.plannedPct ? PX.red : PX.ink, size: 10, bold: true, align: 'center', numFmt: PCT1 })
     if (p.thisWeek.length > 1) ws.getRow(r).height = Math.min(14 * p.thisWeek.length + 6, 80)
     r++
   })
@@ -202,11 +205,11 @@ function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
     setCell(ws.getCell(r, 6), row.weight == null ? '' : weightToPct(row.weight), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 7), fmtD(row.plannedStart), { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 8), fmtD(row.plannedEnd), { bg, bold, align: 'center' })
-    setCell(ws.getCell(r, 9), row.plannedPct, { bg, bold, align: 'center' })
+    setCell(ws.getCell(r, 9), row.plannedPct, { bg, bold, align: 'center', numFmt: PCT1 })
     setCell(ws.getCell(r, 10), '', { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 11), '', { bg, bold, align: 'center' })
-    setCell(ws.getCell(r, 12), row.actualPct, { bg, bold, align: 'center' })
-    setCell(ws.getCell(r, 13), row.gap, { bg, color: row.gap > 0 ? PX.red : row.gap < 0 ? PX.green : PX.ink, bold, align: 'center' })
+    setCell(ws.getCell(r, 12), row.actualPct, { bg, bold, align: 'center', numFmt: PCT1 })
+    setCell(ws.getCell(r, 13), row.gap, { bg, color: row.gap > 0 ? PX.red : row.gap < 0 ? PX.green : PX.ink, bold, align: 'center', numFmt: PCT1 })
     setCell(ws.getCell(r, 14), row.delayDays || '', { bg, color: row.delayDays > 0 ? PX.red : PX.ink, bold, align: 'center' })
     setCell(ws.getCell(r, 15), '', { bg, bold })
     setCell(ws.getCell(r, 16), statusKr(row.status), { bg, bold, align: 'center' })

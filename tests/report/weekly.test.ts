@@ -191,6 +191,32 @@ describe('prevWeek — 전주 주요활동', () => {
   })
 })
 
+describe('buildWeeklyReportModel — 공정율 소수 1자리(대시보드 동기화)', () => {
+  const items: ComputedItem[] = [
+    phase('P1', [
+      node({ name: 'a', status: 'in_progress', plannedPct: 43.7, rolledActualPct: 21.3, plannedStart: '2026-06-01', plannedEnd: '2026-07-31' }),
+    ], { weight: 1, plannedPct: 43.7, rolledActualPct: 21.3, status: 'in_progress' }),
+  ]
+  const m = buildWeeklyReportModel(items, project, '2026-06-30')
+
+  it('KPI 실적/계획은 소수 1자리를 유지하고 편차는 부동소수 노이즈 없이 반올림된다', () => {
+    expect(m.kpi.actual).toBe(21.3)
+    expect(m.kpi.planned).toBe(43.7)
+    expect(m.kpi.variance).toBe(-22.4) // 21.3-43.7 의 float 노이즈(-22.400000000000002) 제거
+  })
+  it('Phase·공정실적및계획·WBS 행의 계획/실적/격차도 소수 1자리', () => {
+    expect(m.phases[0]).toMatchObject({ plannedPct: 43.7, actualPct: 21.3, gap: 22.4 })
+    expect(m.planActual[0]).toMatchObject({ plannedPct: 43.7, actualPct: 21.3 })
+    const leafRow = m.wbs.find(w => w.name === 'a')!
+    expect([leafRow.plannedPct, leafRow.actualPct, leafRow.gap]).toEqual([43.7, 21.3, 22.4])
+    expect(m.dev[0]).toMatchObject({ plannedPct: 43.7, actualPct: 21.3 })
+  })
+  it('이슈 문구는 정수 기반 현상유지 — PPT(narrative)·DK Bot이 그대로 인용하므로', () => {
+    // 44(=round 43.7) - 21(=round 21.3) = 23
+    expect(m.issues.some(i => i.content === '계획 대비 실적 23%p 미달')).toBe(true)
+  })
+})
+
 describe('buildWeeklyReportModel — 공지', () => {
   // today=2026-07-07(화) → 금주 7/6~7/12, 전주 6/29~7/5
   const items: ComputedItem[] = [phase('설계', [node({ name: 'a' })], { weight: 1 })]

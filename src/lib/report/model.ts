@@ -76,7 +76,7 @@ export function buildReportModel(
   today: string,
 ): ReportModel {
   const roots = items
-  // 대시보드/모달과 동일한 가중 롤업(단일 출처). 보고서는 정수 표기 관례 유지.
+  // 대시보드/모달과 동일한 가중 롤업(단일 출처). 화면 보고서는 정수 표기 관례 유지(소수는 엑셀 전용).
   const overall = overallProgress(roots)
   const actual = Math.round(overall.actual)
   const planned = Math.round(overall.planned)

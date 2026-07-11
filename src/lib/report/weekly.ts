@@ -3,6 +3,7 @@ import type {
   ProjectMember, Status, TeamCode,
 } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
+import { round1 } from '@/lib/domain/format'
 import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
 
 /* ============================================================================
@@ -334,10 +335,11 @@ export function buildWeeklyReportModel(
   const cnt = { done: 0, in_progress: 0, delayed: 0, not_started: 0 } as Record<Status, number>
   for (const n of leafNodes) cnt[n.status]++
   const total = leafNodes.length
-  // 주간보고는 정수 표기 관례 유지(도메인 롤업은 소수 1자리).
+  // 공정율은 대시보드와 동일한 도메인 롤업 정밀도(소수 1자리)를 유지한다 — 엑셀 수치 셀 전용.
+  // PPT·DK Bot에 그대로 실리는 이슈 문구는 아래에서 기존 정수 표기로 생성(현상유지).
   const overall = overallProgress(roots)
-  const actual = Math.round(overall.actual)
-  const planned = Math.round(overall.planned)
+  const actual = overall.actual
+  const planned = overall.planned
   const doneThisWeek = leafNodes.filter(
     n => n.status === 'done' && n.plannedEnd && n.plannedEnd >= weekStart && n.plannedEnd <= weekEnd,
   ).length
@@ -351,7 +353,7 @@ export function buildWeeklyReportModel(
   const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0)
 
   const kpi: WeeklyKpi = {
-    actual, planned, variance: actual - planned,
+    actual, planned, variance: round1(actual - planned),
     total, done: cnt.done, inProgress: cnt.in_progress, notStarted: cnt.not_started, onHold: 0, delayed: cnt.delayed,
     doneThisWeek,
     doneRatio: pct(cnt.done), inProgressRatio: pct(cnt.in_progress), delayedRatio: pct(cnt.delayed),
@@ -368,9 +370,9 @@ export function buildWeeklyReportModel(
     return {
       name: r.name,
       weightPct: weightPcts[i] ?? 0,
-      plannedPct: Math.round(r.plannedPct),
-      actualPct: Math.round(r.rolledActualPct),
-      gap: Math.round(r.plannedPct) - Math.round(r.rolledActualPct),
+      plannedPct: round1(r.plannedPct),
+      actualPct: round1(r.rolledActualPct),
+      gap: round1(r.plannedPct - r.rolledActualPct),
       doneCount: sub.filter(n => n.status === 'done').length,
       totalCount: sub.length,
       delayedCount: sub.filter(n => n.status === 'delayed').length,
@@ -381,12 +383,12 @@ export function buildWeeklyReportModel(
   // ── 공정 실적 및 계획 (Phase별 금주 진행중 / 차주 예정) ──
   const toTaskRow = (l: LeafCtx): WeeklyTaskRow => ({
     name: l.node.name, phaseName: l.rootName, ownerText: ownersText(l.node.owners),
-    status: l.node.status, actualPct: Math.round(l.node.rolledActualPct),
+    status: l.node.status, actualPct: round1(l.node.rolledActualPct),
   })
   const planActual: PhasePlanActual[] = roots.map(r => ({
     phaseName: r.name,
-    plannedPct: Math.round(r.plannedPct),
-    actualPct: Math.round(r.rolledActualPct),
+    plannedPct: round1(r.plannedPct),
+    actualPct: round1(r.rolledActualPct),
     prevWeek: prevWeekLeaves.filter(l => l.rootName === r.name).map(toTaskRow),
     thisWeek: leaves.filter(l => l.rootName === r.name && l.node.status === 'in_progress').map(toTaskRow),
     nextWeek: nextWeekLeaves.filter(l => l.rootName === r.name).map(toTaskRow),
@@ -410,7 +412,10 @@ export function buildWeeklyReportModel(
   const issues: IssueRow[] = []
   if (cnt.delayed > 0) issues.push({ grade: '높음', content: `지연 작업 ${cnt.delayed}건 발생 — 조속한 조치 필요`, action: '(미작성)' })
   if (maxDelayDays > 0) issues.push({ grade: '높음', content: `최대 지연일수 ${maxDelayDays}일 — 일정 재조정 검토 필요`, action: '(미작성)' })
-  if (actual < planned) issues.push({ grade: '중간', content: `계획 대비 실적 ${planned - actual}%p 미달`, action: '(미작성)' })
+  // 이슈 문구는 PPT(narrative→templateFill)·DK Bot이 그대로 인용 → 정수 기반 현상유지.
+  const actualInt = Math.round(actual)
+  const plannedInt = Math.round(planned)
+  if (actualInt < plannedInt) issues.push({ grade: '중간', content: `계획 대비 실적 ${plannedInt - actualInt}%p 미달`, action: '(미작성)' })
   if (issues.length === 0) issues.push({ grade: '낮음', content: '특이 이슈 없음 — 계획대로 진행 중', action: '-' })
 
   // ── 근태 (멤버별, 특이 근태만) ──
@@ -469,8 +474,8 @@ export function buildWeeklyReportModel(
       no, level: node.level, levelLabel: LEVEL_LABEL[node.level], depth,
       name: node.name, deliverable: node.deliverable ?? '', ownerText: ownersText(node.owners),
       weight: node.weight, plannedStart: node.plannedStart, plannedEnd: node.plannedEnd,
-      plannedPct: Math.round(node.plannedPct), actualPct: Math.round(node.rolledActualPct),
-      gap: Math.round(node.plannedPct) - Math.round(node.rolledActualPct), delayDays: delayDaysOf(node), status: node.status,
+      plannedPct: round1(node.plannedPct), actualPct: round1(node.rolledActualPct),
+      gap: round1(node.plannedPct - node.rolledActualPct), delayDays: delayDaysOf(node), status: node.status,
     })
     for (const c of node.children) flat(c, depth + 1)
   }
@@ -486,7 +491,7 @@ export function buildWeeklyReportModel(
       no: i + 1, phaseName: l.rootName, parentName: l.parentName ?? '-',
       name: l.node.name, deliverable: l.node.deliverable ?? '', ownerText: ownersText(l.node.owners),
       weight: l.node.weight, plannedStart: l.node.plannedStart, plannedEnd: l.node.plannedEnd,
-      plannedPct: Math.round(l.node.plannedPct), actualPct: Math.round(l.node.rolledActualPct), delayDays: dd, status: l.node.status,
+      plannedPct: round1(l.node.plannedPct), actualPct: round1(l.node.rolledActualPct), delayDays: dd, status: l.node.status,
       note: dd > 0 ? `⚠ 계획종료 ${dd}일 경과` : '',
     }
   })

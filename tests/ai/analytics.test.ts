@@ -7,6 +7,7 @@ import {
   answerThisWeekStart,
   answerByTeam,
   answerOverview,
+  answerWeeklySummary,
   buildDocuments,
 } from '@/lib/ai/analytics'
 import type { ComputedItem, ProjectMember } from '@/lib/domain/types'
@@ -113,6 +114,27 @@ describe('의도별 답변 포매터', () => {
     const out = answerByTeam(analyzeProject(tree, 'P', TODAY, members), members)
     expect(out).toContain('PMO — 작업 1건')
     expect(out).toContain('홍길동')
+  })
+})
+
+describe('answerWeeklySummary — 정수 표기 관례(정수 기반 이슈 인용과 일관)', () => {
+  it('반올림 경계에서 공정률 줄과 이슈 인용이 모순되지 않는다', () => {
+    // kpi는 소수(43.5/43.7)를 담지만 봇·이슈 문구 모두 정수 기반 → '계획과 동일' + '특이 이슈 없음' 일관.
+    const tree = [phase([
+      leaf({ name: '진행중', status: 'in_progress', rolledActualPct: 43.5, plannedPct: 43.7, plannedStart: '2026-06-01', plannedEnd: '2026-12-31' }),
+    ], { rolledActualPct: 43.5, plannedPct: 43.7 })]
+    const out = answerWeeklySummary(analyzeProject(tree, 'P', TODAY))
+    expect(out).toContain('실적 44% / 계획 44% (계획과 동일)')
+    expect(out).toContain('주요 이슈: 특이 이슈 없음')
+  })
+
+  it('격차가 있으면 공정률 줄과 이슈 인용의 %p가 같은 정수', () => {
+    const tree = [phase([
+      leaf({ name: '진행중', status: 'in_progress', rolledActualPct: 21.3, plannedPct: 43.7, plannedStart: '2026-06-01', plannedEnd: '2026-12-31' }),
+    ], { rolledActualPct: 21.3, plannedPct: 43.7 })]
+    const out = answerWeeklySummary(analyzeProject(tree, 'P', TODAY))
+    expect(out).toContain('실적 21% / 계획 44% (23%p 미달)')
+    expect(out).toContain('주요 이슈: 계획 대비 실적 23%p 미달')
   })
 })
 

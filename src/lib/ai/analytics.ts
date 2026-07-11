@@ -244,12 +244,16 @@ export function answerByTeam(a: ProjectAnalysis, members: ProjectMember[]): stri
 
 export function answerWeeklySummary(a: ProjectAnalysis): string {
   const k = a.weekly.kpi
-  const gap = k.planned - k.actual
+  // 봇 답변은 정수 표기 관례 — kpi는 소수 1자리(엑셀 전용)를 담으므로 표시 시점에 반올림.
+  // 인용하는 이슈 문구(weekly.ts)도 같은 정수 기반이라 한 답변 안에서 수치가 모순되지 않는다.
+  const actual = Math.round(k.actual)
+  const planned = Math.round(k.planned)
+  const gap = planned - actual
   const gapText = gap > 0 ? `${gap}%p 미달` : gap < 0 ? `${-gap}%p 초과` : '계획과 동일'
   const topIssue = a.weekly.issues[0]
   return [
     `${a.weekly.meta.weekLabel} 주간 요약입니다.`,
-    `• 공정률: 실적 ${k.actual}% / 계획 ${k.planned}% (${gapText})`,
+    `• 공정률: 실적 ${actual}% / 계획 ${planned}% (${gapText})`,
     `• 작업: 총 ${k.total}건 — 완료 ${k.done} · 진행 ${k.inProgress} · 지연 ${k.delayed} · 시작 전 ${k.notStarted}`,
     `• 이번 주 완료 ${k.doneThisWeek}건 · 차주 예정 ${k.nextWeekPlanCount}건` + (k.maxDelayDays > 0 ? ` · 최대 지연 ${k.maxDelayDays}일` : ''),
     `• 주요 이슈: ${topIssue ? topIssue.content : '특이 이슈 없음'}`,
