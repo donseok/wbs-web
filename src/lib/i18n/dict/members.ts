@@ -33,7 +33,7 @@ export const membersKo = {
   'members.fieldTeam': '소속 팀',
   'members.fieldRole': '역할',
   'members.fieldTitle': '직함 / 역할 설명',
-  'members.phName': '예: 이돈석',
+  'members.phName': '예: 홍길동',
   'members.phEmail': '예: name@company.com',
   'members.phTitle': '예: PM / 프로젝트 총괄',
   'members.noTeamOption': '소속 없음',

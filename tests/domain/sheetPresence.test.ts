@@ -93,7 +93,7 @@ describe('onlinePeers', () => {
 
 describe('avatarLabel', () => {
   it('2자 이하는 그대로, 길면 앞 2자만', () => {
-    expect(avatarLabel('이돈석')).toBe('이돈')
+    expect(avatarLabel('홍길동')).toBe('홍길')
     expect(avatarLabel('철수')).toBe('철수')
     expect(avatarLabel('John Smith')).toBe('Jo')
     expect(avatarLabel('  공백님  ')).toBe('공백')

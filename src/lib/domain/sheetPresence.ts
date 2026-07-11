@@ -50,7 +50,7 @@ export function buildPresenceMap(peers: PresencePeer[], selfUserId: string): Map
   return map
 }
 
-/** 아바타 원 안에 넣을 짧은 라벨 — 2자까지(한글 이름 '이돈석'→'이돈', 라틴 'John'→'Jo'). */
+/** 아바타 원 안에 넣을 짧은 라벨 — 2자까지(한글 이름 '홍길동'→'홍길', 라틴 'John'→'Jo'). */
 export function avatarLabel(name: string): string {
   const t = name.trim()
   return t.length <= 2 ? t : t.slice(0, 2)
