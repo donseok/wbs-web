@@ -47,5 +47,9 @@ _workspace/
 # DB 백업 덤프 (WBS 업데이트 시 생성되는 로컬 스냅샷 — 소스 아님)
 /docs/backups/
 
+# 사내 실물 문서 재커밋 방지
+/docs/*.xlsx
+/docs/*.pptx
+
 # 브레인스토밍 비주얼 컴패니언 (로컬 목업)
 /.superpowers/
