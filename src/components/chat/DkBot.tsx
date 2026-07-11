@@ -1,18 +1,23 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { RotateCcw, X, Send, Sparkles, CalendarDays } from 'lucide-react'
 import { RobotMascot } from './RobotMascot'
 import { QUICK_SUGGESTIONS } from '@/lib/ai/intent'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
+import { isCommandUtterance } from '@/lib/ai/commands/cue'
+import type { CommandProposal, CommandCandidate } from '@/lib/ai/commands/types'
+import { updateActual, updateWbsFields } from '@/app/actions/wbs'
 
 type Role = 'user' | 'assistant'
 interface Msg {
   id: number
   role: Role
   content: string
+  proposal?: CommandProposal // 있으면 Bubble 대신 ProposalCard 렌더
+  proposalState?: 'pending' | 'applied' | 'cancelled'
 }
 interface BotContext {
   currentProject: { id: string; name: string; taskCount: number; donePct: number } | null
@@ -42,15 +47,21 @@ function welcomeText(ctx: BotContext | null, t: T): string {
       `${t('chat.welcome.tasksPrefix')}${ctx.currentProject.taskCount}${t('chat.welcome.tasksSuffix')} | ${t('chat.welcome.progressPrefix')}${ctx.currentProject.donePct}${t('chat.welcome.progressSuffix')}`,
     )
   }
-  if (ctx.totalProjects > 0)
+  if (ctx.totalProjects === 1) {
+    // N=1일 때 "전체 1개 프로젝트에 대해서도 질문할 수 있습니다"는 어색하다 — 단일 프로젝트 전용 문구로 대체.
+    lines.push('이 프로젝트에 대해 무엇이든 질문하세요')
+  } else if (ctx.totalProjects > 1) {
     lines.push(`${t('chat.welcome.totalPrefix')}${ctx.totalProjects}${t('chat.welcome.totalSuffix')}`)
+  }
   lines.push(t('chat.welcome.ask'))
+  lines.push('실적 변경 같은 명령도 할 수 있어요 — 예: "○○ 실적 80으로 올려줘"')
   return lines.join('\n')
 }
 
 export function DkBot({ projects }: { projects: { id: string; name: string }[] }) {
   const { t } = useLocale()
   const pathname = usePathname()
+  const router = useRouter()
   const currentProjectId = pathname?.match(PROJECT_RE)?.[1] ?? null
   const currentProjectName = projects.find(p => p.id === currentProjectId)?.name ?? null
 
@@ -66,6 +77,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
   const genRef = useRef(0) // 대화 세대 — 프로젝트 전환 시 증가, 진행 중 요청의 stale 결과를 폐기
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const lastCommandRef = useRef<string>('') // disambiguate 후속용 원문 보관
 
   // 패널 열림 + 프로젝트 컨텍스트 부트스트랩 (프로젝트가 바뀌면 새 대화로 갱신)
   useEffect(() => {
@@ -130,6 +142,41 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     setInput('')
   }, [])
 
+  // 명령 제안 요청 — send()의 명령 분기와 후보 칩 선택(pickCandidate)이 공유
+  const requestProposal = useCallback(
+    async (message: string, targetId?: string) => {
+      const gen = genRef.current
+      setLoading(true)
+      try {
+        const res = await fetch('/api/chat/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId: currentProjectId, message, targetId }),
+        })
+        const proposal = (await res.json()) as CommandProposal
+        if (genRef.current !== gen) return 'stale' as const
+        if (proposal.kind === 'not_command') return 'not_command' as const
+        const content =
+          proposal.kind === 'proposal' ? '변경 내용을 확인해 주세요:'
+          : proposal.kind === 'disambiguate' ? '어떤 작업인지 골라 주세요:'
+          : proposal.kind === 'not_found' ? `"${proposal.targetQuery}" 작업을 찾지 못했어요. 작업명을 더 정확히 말해 주세요.`
+          : proposal.message
+        setMessages(prev => [...prev, {
+          id: nextId(), role: 'assistant', content,
+          ...(proposal.kind === 'proposal' || proposal.kind === 'disambiguate'
+            ? { proposal, proposalState: 'pending' as const } : {}),
+        }])
+        return 'handled' as const
+      } catch {
+        if (genRef.current !== gen) return 'stale' as const
+        return 'not_command' as const // 명령 경로 실패 → 호출부가 스트리밍으로 폴백
+      } finally {
+        if (genRef.current === gen) setLoading(false) // ← 로딩 고착 방지 (stale이면 다른 세대 소유)
+      }
+    },
+    [currentProjectId],
+  )
+
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim()
@@ -138,6 +185,12 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
       const history = messages.map(m => ({ role: m.role, content: m.content }))
       setMessages(prev => [...prev, { id: nextId(), role: 'user', content: text }])
       clearInput()
+      if (isCommandUtterance(text)) {
+        lastCommandRef.current = text
+        const outcome = await requestProposal(text)
+        if (outcome !== 'not_command') return // handled/stale — 스트리밍 경로 미진입
+        // not_command → 아래 기존 스트리밍 경로 그대로 계속
+      }
       setLoading(true)
       let asstId: number | null = null
       try {
@@ -186,8 +239,42 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
         if (genRef.current === gen) setLoading(false)
       }
     },
-    [messages, loading, currentProjectId, clearInput, t],
+    [messages, loading, currentProjectId, clearInput, t, requestProposal],
   )
+
+  const applyProposal = useCallback(
+    async (msgId: number, p: Extract<CommandProposal, { kind: 'proposal' }>) => {
+      const mark = (state: 'applied' | 'cancelled') =>
+        setMessages(prev => prev.map(m => (m.id === msgId ? { ...m, proposalState: state } : m)))
+      const say = (content: string) =>
+        setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content }])
+      // 원시 params 사용 — 표시 문자열('80%', '미정') 역파싱 금지
+      const result = p.params.actualPct !== undefined
+        ? await updateActual(p.target.id, p.params.actualPct, p.target.currentActual)
+        : await updateWbsFields(p.target.id, {
+            ...(p.params.plannedStart !== undefined ? { plannedStart: p.params.plannedStart } : {}),
+            ...(p.params.plannedEnd !== undefined ? { plannedEnd: p.params.plannedEnd } : {}),
+          })
+      if (result.ok) {
+        mark('applied')
+        say(`✓ 변경했어요. ${p.target.name} — ${p.changes.map(c => `${c.label} ${c.after}`).join(', ')}`)
+        router.refresh()
+      } else {
+        mark('cancelled')
+        say(`변경하지 못했어요: ${result.error ?? '알 수 없는 오류'}`) // 서버 액션의 한국어 에러 그대로 — AI도 권한을 우회하지 못한다
+      }
+    },
+    [router],
+  )
+
+  const pickCandidate = useCallback((c: CommandCandidate) => {
+    // 되묻기 후속: 같은 명령 원문 + targetId 재요청 (requestProposal 재사용)
+    void requestProposal(lastCommandRef.current, c.id)
+  }, [requestProposal])
+
+  const cancelProposal = useCallback((msgId: number) => {
+    setMessages(prev => prev.map(m => (m.id === msgId ? { ...m, proposalState: 'cancelled' } : m)))
+  }, [])
 
   const reset = () => {
     // 진행 중 스트림이 있으면 폐기한다 — 세대를 올리면 send() 루프가 reader.cancel() 후 중단하고,
@@ -313,9 +400,16 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
             </div>
 
             {/* 메시지 */}
-            {messages.map(m => (
-              <Bubble key={m.id} role={m.role} content={m.content} />
-            ))}
+            {messages.map(m =>
+              m.proposal ? (
+                <div key={m.id} className="space-y-1.5">
+                  <Bubble role="assistant" content={m.content} />
+                  <ProposalCard msg={m} onApply={applyProposal} onPick={pickCandidate} onCancel={cancelProposal} />
+                </div>
+              ) : (
+                <Bubble key={m.id} role={m.role} content={m.content} />
+              ),
+            )}
             {/* 첫 토큰 도착 전(마지막 메시지가 사용자)에만 타이핑 표시 — 이후엔 버블이 스트리밍됨 */}
             {loading && messages[messages.length - 1]?.role !== 'assistant' && <TypingBubble />}
           </div>
@@ -362,6 +456,72 @@ function Bubble({ role, content }: { role: Role; content: string }) {
         }`}
       >
         {content}
+      </div>
+    </div>
+  )
+}
+
+function ProposalCard({
+  msg, onApply, onPick, onCancel,
+}: {
+  msg: Msg
+  onApply: (msgId: number, p: Extract<CommandProposal, { kind: 'proposal' }>) => void
+  onPick: (c: CommandCandidate) => void
+  onCancel: (msgId: number) => void
+}) {
+  const p = msg.proposal
+  if (!p || (p.kind !== 'proposal' && p.kind !== 'disambiguate')) return null
+  const disabled = msg.proposalState !== 'pending'
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[88%] rounded-2xl rounded-bl-md border border-brand-ring/30 bg-brand-weak/50 px-3.5 py-2.5 text-[13px] leading-relaxed text-ink">
+        {p.kind === 'proposal' ? (
+          <>
+            <div className="font-medium">{p.target.name}</div>
+            <div className="mt-0.5 text-[12px] text-ink-muted">
+              [{p.target.phaseName}] · 담당 {p.target.ownersText}
+            </div>
+            <ul className="mt-1.5 space-y-0.5">
+              {p.changes.map(c => (
+                <li key={c.field}>
+                  {c.label}: <span className="line-through opacity-60">{c.before}</span>
+                  {' → '}<span className="font-semibold text-brand">{c.after}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 flex gap-1.5">
+              <button
+                onClick={() => onApply(msg.id, p)}
+                disabled={disabled}
+                className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-medium text-white transition hover:brightness-110 disabled:opacity-50"
+              >
+                적용
+              </button>
+              <button
+                onClick={() => onCancel(msg.id)}
+                disabled={disabled}
+                className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-ink-muted transition hover:border-brand-ring disabled:opacity-50"
+              >
+                취소
+              </button>
+            </div>
+            {msg.proposalState === 'applied' && <div className="mt-1.5 text-[12px] text-ink-subtle">적용됨</div>}
+            {msg.proposalState === 'cancelled' && <div className="mt-1.5 text-[12px] text-ink-subtle">취소됨</div>}
+          </>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {p.candidates.map(c => (
+              <button
+                key={c.id}
+                onClick={() => onPick(c)}
+                disabled={disabled}
+                className="rounded-full border border-line bg-surface px-3 py-1.5 text-[12.5px] text-ink-muted transition hover:border-brand-ring hover:text-brand disabled:opacity-50"
+              >
+                {c.name} <span className="opacity-60">({c.phaseName})</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
