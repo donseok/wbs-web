@@ -154,6 +154,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectId: currentProjectId, message, targetId }),
         })
+        if (!res.ok) return 'not_command' as const // 401/400 등은 스트리밍 경로의 기존 에러 처리로 폴백
         const proposal = (await res.json()) as CommandProposal
         if (genRef.current !== gen) return 'stale' as const
         if (proposal.kind === 'not_command') return 'not_command' as const
