@@ -79,9 +79,10 @@ export function MinuteViewer({
 
   return (
     // 폭은 레이아웃 main(헤더와 동일 px 스케일)에 맡긴다 — 자체 max-w/패딩을 두면 헤더 기준선보다 안쪽으로 좁아짐
-    <div className="space-y-4">
+    // xl↑는 뷰포트 높이에 고정하고 본문 카드가 자체 스크롤 — 메타 헤더·채팅 패널은 스크롤과 무관하게 상주
+    <div className="flex flex-col gap-4 xl:h-full xl:min-h-0">
       {/* 메타 헤더 */}
-      <div className="card space-y-3 p-4">
+      <div className="card shrink-0 space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/minutes" className="inline-flex items-center gap-1 text-sm text-ink-muted hover:text-ink">
             <ArrowLeft className="h-4 w-4" />{t('min.detail.back')}
@@ -127,8 +128,8 @@ export function MinuteViewer({
       </div>
 
       {/* 본문 + (Task 17: 우측 채팅 패널) */}
-      <div className="flex flex-col gap-4 xl:flex-row">
-        <div className="card min-w-0 flex-1 p-5">
+      <div className="flex flex-col gap-4 xl:min-h-0 xl:flex-1 xl:flex-row">
+        <div className="card min-w-0 flex-1 p-5 xl:overflow-y-auto">
           <MarkdownView content={minute.bodyMd} />
         </div>
         <MinuteChatPanel minuteId={minute.id} />
