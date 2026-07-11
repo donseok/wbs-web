@@ -78,6 +78,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const lastCommandRef = useRef<string>('') // disambiguate 후속용 원문 보관
+  const applyingRef = useRef<Set<number>>(new Set()) // 적용 왕복 중 재클릭 무시 — 낙관적 잠금 충돌 버블 오표시 방지
 
   // 패널 열림 + 프로젝트 컨텍스트 부트스트랩 (프로젝트가 바뀌면 새 대화로 갱신)
   useEffect(() => {
@@ -244,24 +245,30 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
 
   const applyProposal = useCallback(
     async (msgId: number, p: Extract<CommandProposal, { kind: 'proposal' }>) => {
-      const mark = (state: 'applied' | 'cancelled') =>
-        setMessages(prev => prev.map(m => (m.id === msgId ? { ...m, proposalState: state } : m)))
-      const say = (content: string) =>
-        setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content }])
-      // 원시 params 사용 — 표시 문자열('80%', '미정') 역파싱 금지
-      const result = p.params.actualPct !== undefined
-        ? await updateActual(p.target.id, p.params.actualPct, p.target.currentActual)
-        : await updateWbsFields(p.target.id, {
-            ...(p.params.plannedStart !== undefined ? { plannedStart: p.params.plannedStart } : {}),
-            ...(p.params.plannedEnd !== undefined ? { plannedEnd: p.params.plannedEnd } : {}),
-          })
-      if (result.ok) {
-        mark('applied')
-        say(`✓ 변경했어요. ${p.target.name} — ${p.changes.map(c => `${c.label} ${c.after}`).join(', ')}`)
-        router.refresh()
-      } else {
-        mark('cancelled')
-        say(`변경하지 못했어요: ${result.error ?? '알 수 없는 오류'}`) // 서버 액션의 한국어 에러 그대로 — AI도 권한을 우회하지 못한다
+      if (applyingRef.current.has(msgId)) return // 왕복 중 재클릭 — 무시
+      applyingRef.current.add(msgId)
+      try {
+        const mark = (state: 'applied' | 'cancelled') =>
+          setMessages(prev => prev.map(m => (m.id === msgId ? { ...m, proposalState: state } : m)))
+        const say = (content: string) =>
+          setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content }])
+        // 원시 params 사용 — 표시 문자열('80%', '미정') 역파싱 금지
+        const result = p.params.actualPct !== undefined
+          ? await updateActual(p.target.id, p.params.actualPct, p.target.currentActual)
+          : await updateWbsFields(p.target.id, {
+              ...(p.params.plannedStart !== undefined ? { plannedStart: p.params.plannedStart } : {}),
+              ...(p.params.plannedEnd !== undefined ? { plannedEnd: p.params.plannedEnd } : {}),
+            })
+        if (result.ok) {
+          mark('applied')
+          say(`✓ 변경했어요. ${p.target.name} — ${p.changes.map(c => `${c.label} ${c.after}`).join(', ')}`)
+          router.refresh()
+        } else {
+          mark('cancelled')
+          say(`변경하지 못했어요: ${result.error ?? '알 수 없는 오류'}`) // 서버 액션의 한국어 에러 그대로 — AI도 권한을 우회하지 못한다
+        }
+      } finally {
+        applyingRef.current.delete(msgId)
       }
     },
     [router],
