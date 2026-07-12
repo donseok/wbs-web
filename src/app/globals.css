@@ -241,6 +241,38 @@ textarea {
   .minutes-md hr { @apply my-4 border-line; }
   .minutes-md img { @apply max-w-full; }
 
+  /* ── 뷰어 인사이트: 속성 선택자 전용(클래스 스탬프 금지 — language-* 클로버 함정), 토큰 기반 다크 자동 ── */
+  /* 마킹 가능 블록 hover 힌트 + 점프 여유 */
+  .minutes-md [data-mblock] { @apply scroll-mt-16 cursor-pointer rounded-md transition-colors duration-150; }
+  .minutes-md [data-mblock]:hover { @apply outline outline-1 outline-line-strong; }
+
+  /* AI 인라인 마킹 — 좌측 3px kind 색 보더 + 은은한 배경(opacity 스케일: -weak 토큰이 accent-warning 에 없음) */
+  .minutes-md [data-ins] { @apply border-l-[3px] pl-2; }
+  .minutes-md [data-ins='decision'] { @apply border-done bg-done/5; }
+  .minutes-md [data-ins='action'] { @apply border-progress bg-progress/5; }
+  .minutes-md [data-ins='deadline'] { @apply border-accent-warning bg-accent-warning/5; }
+  .minutes-md [data-ins='risk'] { @apply border-delayed bg-delayed/5; }
+  /* blockquote 특례 — 기본 border-l-4 border-line 을 kind 색으로 대체(같은 변 충돌) */
+  .minutes-md blockquote[data-ins='decision'] { @apply border-done; }
+  .minutes-md blockquote[data-ins='action'] { @apply border-progress; }
+  .minutes-md blockquote[data-ins='deadline'] { @apply border-accent-warning; }
+  .minutes-md blockquote[data-ins='risk'] { @apply border-delayed; }
+
+  /* 하이라이트 배경 3단계 (1명/2–3명/4명+) — pre code 의 bg-transparent 보다 우선하도록 pre 레벨 적용 */
+  .minutes-md [data-hl='1'] { @apply bg-accent-warning/10; }
+  .minutes-md [data-hl='2'] { @apply bg-accent-warning/20; }
+  .minutes-md [data-hl='3'] { @apply bg-accent-warning/30; }
+
+  /* 인원 배지 — data-hl-count 를 CSS attr() 로 표시 */
+  .minutes-md [data-hl-count] { @apply relative; }
+  .minutes-md [data-hl-count]::after {
+    content: '👤 ' attr(data-hl-count);
+    @apply absolute -top-2 right-1 rounded-full bg-accent-warning px-1.5 py-0.5 text-[10px] font-bold leading-none text-white;
+  }
+
+  /* 점프 도착 강조 — 정적 ring(상태 기반, prefers-reduced-motion 에서도 유효) */
+  .minutes-md .mblock-flash { @apply outline outline-2 outline-brand; }
+
   .btn {
     @apply inline-flex h-10 cursor-pointer items-center justify-center gap-2
            rounded-xl px-4 text-sm font-semibold transition duration-150
