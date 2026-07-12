@@ -40,8 +40,8 @@ export function MinuteInsightCard({
   const runHeal = useCallback(() => {
     setHealState('running')
     ensureMinuteInsightsAction(minuteId).then(({ status }) => {
-      if (status === 'generated') { setHealState('idle'); router.refresh() }
-      else if (status === 'ready') setHealState('idle')
+      // 'ready'도 refresh — runHeal은 pending(props가 낡음)에서만 불리므로 DB가 신선하면 재수화 필요(경합 고착 방지)
+      if (status === 'generated' || status === 'ready') { setHealState('idle'); router.refresh() }
       else setHealState('failed')
     }).catch(() => setHealState('failed'))
   }, [minuteId, router])
