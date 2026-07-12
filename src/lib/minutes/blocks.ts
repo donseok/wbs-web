@@ -1,4 +1,4 @@
-import { unified, type Plugin } from 'unified'
+import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import { toString as mdastToString } from 'mdast-util-to-string'
@@ -20,7 +20,6 @@ const NON_RENDERED = new Set(['html', 'footnoteDefinition', 'definition'])
 
 const FNV_OFFSET = BigInt('0xcbf29ce484222325')
 const FNV_PRIME = BigInt('0x100000001b3')
-const U64 = BigInt(64)
 
 /** FNV-1a 64bit hex — 앵커 재매칭용 비암호 해시. BigInt 리터럴 금지(target ES2017). */
 export function fnv1a64(text: string): string {
@@ -61,5 +60,34 @@ export function isMarkableBlock(b: MinuteBlock): boolean {
   return b.rendered && b.text !== ''
 }
 
-// remarkAnnotateBlocks 는 Task 4 에서 이 파일에 추가된다 (BlockMarks 포함).
-export type { Plugin }
+/** 렌더러에 전달하는 표시 상태(인덱스 키) — 스펙 §2.1. ins 는 우선순위 최상위 1개. */
+export type BlockMarks = Record<number, {
+  ins?: InsightKind
+  hlTier?: 1 | 2 | 3
+  hlCount?: number
+}>
+
+/**
+ * mdast 루트 블록에 data-* 앵커/마킹 속성을 스탬프하는 동기 remark 플러그인 — 스펙 §2.1.
+ * 클래스는 절대 스탬프하지 않는다(hProperties.className 이 code 블록의 language-* 를
+ * Object.assign 으로 대체하는 함정). 코드 블록의 속성은 <code> 에 떨어지며(§2 함정 2)
+ * MarkdownView 의 pre 오버라이드가 pre/MermaidBlock 으로 호이스팅한다.
+ */
+export function remarkAnnotateBlocks(marks: BlockMarks) {
+  return (tree: Root) => {
+    tree.children.forEach((node: RootContent, index: number) => {
+      const rendered = !NON_RENDERED.has(node.type)
+      const text = rendered ? normalize(mdastToString(node, { includeHtml: false })) : ''
+      if (!rendered || text === '') return  // 마킹 불가 블록은 스탬프 자체를 생략
+      const props: Record<string, string | number> = { 'data-mblock': index }
+      const m = marks[index]
+      if (m?.ins) props['data-ins'] = m.ins
+      if (m?.hlTier) {
+        props['data-hl'] = m.hlTier
+        props['data-hl-count'] = m.hlCount ?? 1
+      }
+      const data = (node.data ??= {}) as { hProperties?: Record<string, unknown> }
+      data.hProperties = { ...data.hProperties, ...props }
+    })
+  }
+}
