@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Highlighter, Users } from 'lucide-react'
 import type { InsightKind } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -29,28 +29,35 @@ export function MinuteBlockPopover({
   onClose: () => void
 }) {
   const { t } = useLocale()
+  const boxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const close = () => onClose()
-    window.addEventListener('scroll', close, true)  // capture — 본문 카드 내부 스크롤도 감지
-    window.addEventListener('resize', close)
+    // capture — 본문 카드 내부 스크롤도 감지. 단, 팝오버 내부 스크롤(긴 명단)은 닫지 않는다.
+    const close = (e: Event) => {
+      if (e.target instanceof Node && boxRef.current?.contains(e.target)) return
+      onClose()
+    }
+    const closeAll = () => onClose()
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', closeAll)
     return () => {
       window.removeEventListener('scroll', close, true)
-      window.removeEventListener('resize', close)
+      window.removeEventListener('resize', closeAll)
     }
   }, [onClose])
 
   const W = 260
+  const H = 240  // 최대 높이 추정치 — 명단 max-h-28 바운드로 실제 높이가 이 안에 든다
   const left = Math.min(Math.max(8, state.rect.left), window.innerWidth - W - 8)
-  const below = state.rect.bottom + 180 < window.innerHeight
+  const below = state.rect.bottom + H < window.innerHeight
   const pos = below
     ? { top: state.rect.bottom + 6, left }
-    : { top: Math.max(8, state.rect.top - 6 - 180), left }
+    : { top: Math.max(8, state.rect.top - 6 - H), left }
 
   return (
     <>
       <button className="fixed inset-0 z-[90] cursor-default" aria-label="닫기" onClick={onClose} />
-      <div style={{ position: 'fixed', width: W, ...pos }}
+      <div ref={boxRef} style={{ position: 'fixed', width: W, ...pos }}
         className="z-[95] overflow-hidden rounded-2xl border border-line bg-surface p-3 shadow-[var(--shadow-lg)]">
         {insKinds.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1">
@@ -69,7 +76,7 @@ export function MinuteBlockPopover({
             <p className="mb-1 inline-flex items-center gap-1 text-[11px] font-semibold text-ink-subtle">
               <Users className="h-3 w-3" />{t('min.hl.people')}
             </p>
-            <p className="text-xs leading-relaxed text-ink-muted">{names.join(', ')}</p>
+            <p className="max-h-28 overflow-y-auto text-xs leading-relaxed text-ink-muted">{names.join(', ')}</p>
           </div>
         )}
       </div>
