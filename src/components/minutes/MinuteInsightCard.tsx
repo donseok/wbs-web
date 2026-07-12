@@ -30,7 +30,7 @@ export function MinuteInsightCard({
 }) {
   const { t } = useLocale()
   const router = useRouter()
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const [healState, setHealState] = useState<'idle' | 'running' | 'failed'>('idle')
   const cardState = insightCardState(insights, bodyHash)
   const items = visibleInsights(insights, blocks, bodyHash)
