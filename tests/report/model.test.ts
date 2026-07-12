@@ -93,14 +93,14 @@ describe('buildReportModel', () => {
     expect(erp).toMatchObject({ count: 0, pct: null })
   })
 
-  it('화면 모달은 정수 표기 현상유지 — 소수 1자리는 엑셀(buildWeeklyReportModel) 전용', () => {
+  it('전체 실적/계획·편차는 대시보드와 같은 소수 1자리, Phase 표는 정수 유지', () => {
     const items = [
       phase('P1', [node({ rolledActualPct: 21.3, status: 'in_progress' })], { plannedPct: 43.7, rolledActualPct: 21.3 }),
     ]
     const m = buildReportModel(items, project, '2026-06-30')
-    expect(m.kpi.actual).toBe(21)
-    expect(m.kpi.planned).toBe(44)
-    expect(m.kpi.variance).toBe(-23)
+    expect(m.kpi.actual).toBe(21.3)
+    expect(m.kpi.planned).toBe(43.7)
+    expect(m.kpi.variance).toBe(-22.4)                    // round1(21.3-43.7) — 부동소수 잔차 없음
     expect(m.phases[0]).toMatchObject({ plannedPct: 44, actualPct: 21, variance: -23 })
   })
 

@@ -1,5 +1,6 @@
 import type { ComputedItem, OwnerKind, Status, TeamCode } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
+import { round1 } from '@/lib/domain/format'
 
 /** 현황 보고서의 모든 파생값을 담은 직렬화 가능한 모델.
  *  화면(ReportModal)·Excel·PPT가 이 단일 모델을 공유한다 → 수치·집계·정렬·필터는 항상 동일.
@@ -76,10 +77,11 @@ export function buildReportModel(
   today: string,
 ): ReportModel {
   const roots = items
-  // 대시보드/모달과 동일한 가중 롤업(단일 출처). 화면 보고서는 정수 표기 관례 유지(소수는 엑셀 전용).
+  // 대시보드/모달과 동일한 가중 롤업(단일 출처). 전체 실적/계획은 대시보드와 같은 소수 1자리 표기,
+  // Phase·지연 목록 등 나머지 표는 기존 정수 표기 유지.
   const overall = overallProgress(roots)
-  const actual = Math.round(overall.actual)
-  const planned = Math.round(overall.planned)
+  const actual = overall.actual
+  const planned = overall.planned
 
   const leaves = leavesOf(items)
   const delayedLeaves = leaves
@@ -122,7 +124,7 @@ export function buildReportModel(
     kpi: {
       actual,
       planned,
-      variance: actual - planned,
+      variance: round1(actual - planned), // 부동소수 잔차(7.3-8.1=-0.799…) 방지
       delayedCount: delayedLeaves.length,
     },
     phases,

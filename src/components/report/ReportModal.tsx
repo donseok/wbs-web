@@ -29,7 +29,8 @@ function fmtFull(d?: string | null): string {
 
 /**
  * 주간 보고서 모달 — Excel·PPT 다운로드 가능한 보고서 본문. (인쇄/PDF 버튼은 사용자 요청으로 제거)
- * 화면은 buildReportModel(정수 표기), Excel은 buildWeeklyReportModel(소수 1자리)을 사용한다.
+ * 화면은 buildReportModel(전체 실적/계획·편차는 대시보드와 같은 소수 1자리, 나머지 표는 정수),
+ * Excel은 buildWeeklyReportModel(소수 1자리)을 사용한다.
  */
 export function ReportModal({
   open,
