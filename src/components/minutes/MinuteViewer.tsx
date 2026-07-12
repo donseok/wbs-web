@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Download, ExternalLink, Paperclip } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Download, ExternalLink, Paperclip } from 'lucide-react'
 import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
@@ -39,6 +39,7 @@ export function MinuteViewer({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [metaOpen, setMetaOpen] = useState(false)
+  const [headerOpen, setHeaderOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const bodyFile = files.find(f => f.role === 'body') ?? null
   const attachments = files.filter(f => f.role === 'attachment')
@@ -229,37 +230,44 @@ export function MinuteViewer({
           </span>
           <h1 className="flex-1 truncate text-lg font-bold text-ink">{minute.title}</h1>
           <span className="text-xs text-ink-subtle">{minute.createdByName ?? ''}</span>
+          <button onClick={() => setHeaderOpen(o => !o)}
+            className="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink">
+            {headerOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {headerOpen ? t('min.insight.collapse') : t('min.insight.expand')}
+          </button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {bodyFile ? (
-            <button onClick={() => void download(bodyFile.id)} disabled={busy} className="btn">
-              <Download className="h-4 w-4" />{t('min.detail.download')}
-            </button>
-          ) : (
-            <span className="text-xs text-delayed">{t('min.detail.noBodyFile')}</span>
-          )}
-          {attachments.map(f => (
-            <button key={f.id} onClick={() => void download(f.id)} disabled={busy} className="btn">
-              <Paperclip className="h-4 w-4" />{f.fileName}
-            </button>
-          ))}
-          {minute.meetingId && minute.meetingProjectId && (
-            <Link href={`/p/${minute.meetingProjectId}/meetings`}
-              className="inline-flex items-center gap-1 text-xs text-brand underline underline-offset-2 hover:text-brand-hover">
-              <ExternalLink className="h-3.5 w-3.5" />{t('min.detail.linkedMeeting')}
-            </Link>
-          )}
-          {canManage && (
-            <span className="ml-auto flex items-center gap-2">
-              <button onClick={() => setMetaOpen(true)} className="btn">{t('min.detail.edit')}</button>
-              <label className="btn cursor-pointer">
-                {t('min.detail.replaceBody')}
-                <input type="file" accept=".md,.markdown" className="hidden" onChange={onReplaceBody} />
-              </label>
-              <button onClick={() => setConfirmOpen(true)} className="btn text-delayed">{t('min.detail.delete')}</button>
-            </span>
-          )}
-        </div>
+        {headerOpen && (
+          <div className="flex flex-wrap items-center gap-2">
+            {bodyFile ? (
+              <button onClick={() => void download(bodyFile.id)} disabled={busy} className="btn">
+                <Download className="h-4 w-4" />{t('min.detail.download')}
+              </button>
+            ) : (
+              <span className="text-xs text-delayed">{t('min.detail.noBodyFile')}</span>
+            )}
+            {attachments.map(f => (
+              <button key={f.id} onClick={() => void download(f.id)} disabled={busy} className="btn">
+                <Paperclip className="h-4 w-4" />{f.fileName}
+              </button>
+            ))}
+            {minute.meetingId && minute.meetingProjectId && (
+              <Link href={`/p/${minute.meetingProjectId}/meetings`}
+                className="inline-flex items-center gap-1 text-xs text-brand underline underline-offset-2 hover:text-brand-hover">
+                <ExternalLink className="h-3.5 w-3.5" />{t('min.detail.linkedMeeting')}
+              </Link>
+            )}
+            {canManage && (
+              <span className="ml-auto flex items-center gap-2">
+                <button onClick={() => setMetaOpen(true)} className="btn">{t('min.detail.edit')}</button>
+                <label className="btn cursor-pointer">
+                  {t('min.detail.replaceBody')}
+                  <input type="file" accept=".md,.markdown" className="hidden" onChange={onReplaceBody} />
+                </label>
+                <button onClick={() => setConfirmOpen(true)} className="btn text-delayed">{t('min.detail.delete')}</button>
+              </span>
+            )}
+          </div>
+        )}
         {err && <p className="text-sm text-delayed">{err}</p>}
       </div>
 
