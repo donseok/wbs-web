@@ -118,15 +118,24 @@ export function MinuteViewer({
     if (!popover) return
     const idx = popover.blockIndex
     const wasOn = myIndexes.has(idx)
-    // 낙관적 업데이트 → 실패 시 롤백 + 토스트
+    const rollback = () =>
+      setMyIndexes(prev => { const s = new Set(prev); if (wasOn) s.add(idx); else s.delete(idx); return s })
+    // 낙관적 업데이트 → 실패/예외 시 롤백 + 토스트
     setMyIndexes(prev => { const s = new Set(prev); if (wasOn) s.delete(idx); else s.add(idx); return s })
     setHlBusy(true)
-    const res = await toggleMinuteHighlight(minute.id, idx, blocks[idx].hash)
-    setHlBusy(false)
-    setPopover(null)
-    if (!res.ok) {
-      setMyIndexes(prev => { const s = new Set(prev); if (wasOn) s.add(idx); else s.delete(idx); return s })
-      toast({ title: t('min.hl.failed'), description: res.error, variant: 'error' })
+    try {
+      const res = await toggleMinuteHighlight(minute.id, idx, blocks[idx].hash)
+      if (!res.ok) {
+        rollback()
+        toast({ title: t('min.hl.failed'), description: res.error, variant: 'error' })
+      }
+    } catch {
+      // 네트워크 드롭·500·직렬화 오류 등 reject 경로 — busy 고착·팝오버 잔존·미롤백 방지(스펙 §6.4)
+      rollback()
+      toast({ title: t('min.hl.failed'), variant: 'error' })
+    } finally {
+      setHlBusy(false)
+      setPopover(null)
     }
   }
 
