@@ -3,9 +3,9 @@ import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import { toString as mdastToString } from 'mdast-util-to-string'
 import type { Root, RootContent } from 'mdast'
+import type { InsightKind } from '@/lib/domain/types'
 
-/** AI 분류 카테고리. 'none' 마커는 InsightKind 밖(도메인 타입에서 유니온). */
-export type InsightKind = 'decision' | 'action' | 'deadline' | 'risk'
+export type { InsightKind } from '@/lib/domain/types'
 
 export interface MinuteBlock {
   index: number          // mdast 루트 children 순번 (비렌더 블록도 인덱스 차지)

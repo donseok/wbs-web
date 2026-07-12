@@ -190,3 +190,26 @@ export interface MinuteFile {
   createdAt: string
   url?: string | null          // 서명 URL(요청 시 발급)
 }
+
+/** AI 분류 카테고리 (블록 앵커 공유 모듈과 동일 값 — import 순환 방지 위해 여기 재선언). */
+export type InsightKind = 'decision' | 'action' | 'deadline' | 'risk'
+
+export interface MinuteHighlight {
+  id: string
+  minuteId: string
+  blockIndex: number
+  blockHash: string
+  createdBy: string
+  createdByName: string | null
+  createdAt: string
+}
+
+export interface MinuteInsight {
+  id: string
+  minuteId: string
+  bodyHash: string             // 생성 시점 fnv1a64(body_md) — 신선도 캐시 키
+  kind: InsightKind | 'none'   // 'none' = 분석 성공·항목 없음 마커(blockIndex -1)
+  label: string
+  blockIndex: number
+  blockHash: string
+}
