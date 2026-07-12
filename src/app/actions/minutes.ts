@@ -219,9 +219,12 @@ export async function getMinuteFileUrl(fileId: string): Promise<{ ok: boolean; u
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
-  const { data: f } = await sb.from('minute_files').select('file_path').eq('id', fileId).maybeSingle()
+  const { data: f } = await sb.from('minute_files').select('file_path, file_name').eq('id', fileId).maybeSingle()
   if (!f) return { ok: false, error: '파일 없음' }
-  const { data: signed } = await sb.storage.from(BUCKET).createSignedUrl(f.file_path as string, 3600)
+  // download 지정 → Content-Disposition: attachment. 인라인 렌더 시 charset 미지정으로
+  // 한글이 깨져 보이는 문제를 피하고, 원본 파일명으로 바로 내려받게 한다.
+  const { data: signed } = await sb.storage.from(BUCKET)
+    .createSignedUrl(f.file_path as string, 3600, { download: (f.file_name as string) || true })
   if (!signed?.signedUrl) return { ok: false, error: 'URL 발급 실패' }
   return { ok: true, url: signed.signedUrl }
 }
