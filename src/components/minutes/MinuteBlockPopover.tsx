@@ -76,7 +76,7 @@ export function MinuteBlockPopover({
             <p className="mb-1 inline-flex items-center gap-1 text-[11px] font-semibold text-ink-subtle">
               <Users className="h-3 w-3" />{t('min.hl.people')}
             </p>
-            <p className="max-h-28 overflow-y-auto text-xs leading-relaxed text-ink-muted">{names.join(', ')}</p>
+            <p className="max-h-28 overflow-y-auto overscroll-contain text-xs leading-relaxed text-ink-muted">{names.join(', ')}</p>
           </div>
         )}
       </div>
