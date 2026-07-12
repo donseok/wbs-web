@@ -17,6 +17,12 @@ export interface NarrativeModel {
   events: string[]         // 주요 이벤트(금주·차주 회의)
 }
 
+/** 작업명 끝의 '(X 주관)'·'(X주관)' 꼬리표 제거 — 담당이 그룹 헤더로 표기되는 PPT에서는 중복.
+ *  이름 중간의 괄호("검토(인터뷰, 공청회, 진단)")는 건드리지 않는다. 꼬리표뿐인 이름은 원문 유지. */
+function stripOwnerSuffix(name: string): string {
+  return name.replace(/(?:\s*\([^()]*주관\))+\s*$/, '') || name
+}
+
 /** Phase 내 작업들을 담당별 하위 그룹으로 — '- 담당' 헤더 아래 '. 작업명' 줄(subLineText의 4칸/8칸 규칙).
  *  같은 담당이 여러 작업을 맡아도 담당은 헤더 한 줄로만 표기(줄마다 '· 담당' 반복 방지).
  *  담당 순서는 Phase 내 첫 등장 순. 상태(완료/진행중/지연)·진행률(%)은 표시하지 않음.
@@ -30,9 +36,9 @@ function ownerGroupedItems(rows: WeeklyTaskRow[]): string[] {
   const items: string[] = []
   for (const [owner, tasks] of byOwner) {
     if (owner === '-') {
-      items.push(...tasks.map(t => t.name))
+      items.push(...tasks.map(t => stripOwnerSuffix(t.name)))
     } else {
-      items.push(`- ${owner}`, ...tasks.map(t => `. ${t.name}`))
+      items.push(`- ${owner}`, ...tasks.map(t => `. ${stripOwnerSuffix(t.name)}`))
     }
   }
   return items

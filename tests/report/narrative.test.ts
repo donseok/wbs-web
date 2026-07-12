@@ -74,6 +74,22 @@ describe('buildWeeklyNarrative', () => {
     expect(n2.curr[0].items).toEqual(['- MES', '. 작업A', '. 작업B', '- PMO', '. 작업C'])
   })
 
+  it('작업명 끝의 "(X 주관)" 꼬리표는 제거되고 중간 괄호는 보존된다', () => {
+    const suffixed: ComputedItem[] = [
+      phase('As-Is 분석', [
+        node({ name: '기존 PI 산출물 검토(인터뷰, 공청회, 진단) (ERP 주관)', status: 'in_progress', rolledActualPct: 30, owners: [{ team: 'ERP', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+        node({ name: '인터뷰 계획 수립 (PMO주관)', status: 'in_progress', rolledActualPct: 20, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+        node({ name: '무담당 정리 (MES 주관)', status: 'in_progress', rolledActualPct: 10, owners: [], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 20 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(suffixed, project, '2026-07-07'))
+    expect(n2.curr[0].items).toEqual([
+      '- ERP', '. 기존 PI 산출물 검토(인터뷰, 공청회, 진단)',
+      '- PMO', '. 인터뷰 계획 수립',
+      '무담당 정리',
+    ])
+  })
+
   it('담당 미지정 작업은 헤더 없이 "작업명" 그대로', () => {
     const noOwner: ComputedItem[] = [
       phase('준비', [
