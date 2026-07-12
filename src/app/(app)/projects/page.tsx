@@ -128,21 +128,21 @@ export default async function ProjectsHome() {
   return (
     <div className="space-y-6 pb-20">
       {/* ── 히어로 ── */}
-      <section className="hero-glow hero-card flex flex-col gap-7 p-6 sm:p-8">
+      <section className="hero-glow hero-card flex flex-col gap-5 p-5 sm:p-6">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-hero-ink-muted">Workspace · D&apos;Flow</div>
           <h1 className="mt-2 break-words text-[26px] font-bold leading-tight tracking-tight text-hero-ink sm:text-[34px]">
             {t(locale, 'home.heroTitle')}
           </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-hero-ink-muted">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-hero-ink-muted">
             {t(locale, 'home.heroDesc')}
           </p>
 
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             {heroStats.map(stat => (
               <span
                 key={stat.label}
-                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-2 text-sm backdrop-blur"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-1.5 text-sm backdrop-blur"
               >
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-hero-ink-muted">{stat.label}</span>
                 <strong className="tabular-nums text-hero-ink">{stat.value}</strong>
