@@ -10,7 +10,9 @@ import type { Minute, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64 } from '@/lib/minutes/blocks'
-import { ensureMinuteInsights } from '@/lib/ai/minutes-insights'
+import { ensureMinuteInsights, generateMinuteInsights } from '@/lib/ai/minutes-insights'
+import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const BUCKET = 'minutes'
 
@@ -24,6 +26,33 @@ async function checkOwner(sb: Sb, minuteId: string, userId: string, role: string
   if (!data) return '회의록을 찾을 수 없습니다.'
   if ((data.created_by as string | null) !== userId && role !== 'pmo_admin') return '권한 없음'
   return null
+}
+
+/** 본문 교체 후 하이라이트 재배정 — 실패는 로그만(표시 규칙이 오표시를 차단). service_role. */
+async function rematchMinuteHighlights(minuteId: string, newBodyMd: string): Promise<void> {
+  try {
+    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
+    const admin = createAdminClient()
+    const { data: rows } = await admin.from('minute_highlights')
+      .select('id, created_by, created_by_name, block_index, block_hash, created_at')
+      .eq('minute_id', minuteId)
+    if (!rows || rows.length === 0) return
+    const { reinserts, deleteIds } = rematchHighlights(rows as unknown as HighlightRow[], splitMinuteBlocks(newBodyMd))
+    if (deleteIds.length === 0 && reinserts.length === 0) return
+    // delete 선실행 → insert — unique (minute_id, created_by, block_index) 충돌 원천 차단(스펙 §5)
+    if (deleteIds.length) {
+      const { error } = await admin.from('minute_highlights').delete().in('id', deleteIds)
+      if (error) { console.error('[minutes] 재매칭 삭제 실패:', error.message); return }
+    }
+    if (reinserts.length) {
+      const { error } = await admin.from('minute_highlights').insert(
+        reinserts.map(r => ({ ...r, minute_id: minuteId })),
+      )
+      if (error) console.error('[minutes] 재매칭 삽입 실패:', error.message)
+    }
+  } catch (e) {
+    console.error('[minutes] 재매칭 실패(무시):', e instanceof Error ? e.message : e)
+  }
 }
 
 export async function createMinute(input: MinuteInput): Promise<MinuteActionResult> {
@@ -45,7 +74,10 @@ export async function createMinute(input: MinuteInput): Promise<MinuteActionResu
   }).select('id').single()
   if (error) return { ok: false, error: error.message }
   revalidatePath('/minutes')
-  after(() => ingestMinute(data.id as string, input.bodyMd))
+  after(async () => {
+    await ingestMinute(data.id as string, input.bodyMd)
+    await generateMinuteInsights(data.id as string, input.bodyMd)
+  })
   return { ok: true, id: data.id as string }
 }
 
@@ -105,7 +137,12 @@ export async function replaceMinuteBody(
     .update({ body_md: bodyMd, updated_at: new Date().toISOString() }).eq('id', id)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
-  after(() => ingestMinute(id, bodyMd))
+  // ① 하이라이트 재매칭(delete→reinsert, service_role) → ② 재인제스트 → ③ 인사이트 재생성 — 스펙 §4.2
+  after(async () => {
+    await rematchMinuteHighlights(id, bodyMd)
+    await ingestMinute(id, bodyMd)
+    await generateMinuteInsights(id, bodyMd)
+  })
   return { ok: true }
 }
 
