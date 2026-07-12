@@ -1,6 +1,6 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
-import type { Minute, MinuteFile, TeamCode } from '@/lib/domain/types'
+import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight, TeamCode } from '@/lib/domain/types'
 import { ilikeOrPattern } from '@/lib/domain/minutes'
 
 type Row = Record<string, unknown>
@@ -79,4 +79,39 @@ export const getMinuteDetail = cache(async (
   const minute = mapMinute(r as Row, (r as Row).body_md as string)
   minute.meetingProjectId = ((r as Row).meetings as { project_id: string } | null)?.project_id ?? null
   return { minute, files }
+})
+
+/** 뷰어 주석 데이터 — 하이라이트 전체 + AI 인사이트. 실패 시 빈 배열(뷰어는 주석 없이 동작). */
+export const getMinuteAnnotations = cache(async (
+  id: string,
+): Promise<{ highlights: MinuteHighlight[]; insights: MinuteInsight[] }> => {
+  const sb = await createServerClient()
+  const [{ data: hs }, { data: ins }] = await Promise.all([
+    sb.from('minute_highlights')
+      .select('id, minute_id, block_index, block_hash, created_by, created_by_name, created_at')
+      .eq('minute_id', id).order('created_at', { ascending: true }),
+    sb.from('minute_insights')
+      .select('id, minute_id, body_hash, kind, label, block_index, block_hash')
+      .eq('minute_id', id),
+  ])
+  return {
+    highlights: (hs ?? []).map((r: Row) => ({
+      id: r.id as string,
+      minuteId: r.minute_id as string,
+      blockIndex: r.block_index as number,
+      blockHash: r.block_hash as string,
+      createdBy: r.created_by as string,
+      createdByName: (r.created_by_name as string | null) ?? null,
+      createdAt: r.created_at as string,
+    })),
+    insights: (ins ?? []).map((r: Row) => ({
+      id: r.id as string,
+      minuteId: r.minute_id as string,
+      bodyHash: r.body_hash as string,
+      kind: r.kind as InsightKind | 'none',
+      label: r.label as string,
+      blockIndex: r.block_index as number,
+      blockHash: r.block_hash as string,
+    })),
+  }
 })

@@ -9,6 +9,8 @@ import { getMinuteDetail, getMinutesPage, searchMinutes } from '@/lib/data/minut
 import type { Minute, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
+import { splitMinuteBlocks, isMarkableBlock, fnv1a64 } from '@/lib/minutes/blocks'
+import { ensureMinuteInsights } from '@/lib/ai/minutes-insights'
 
 const BUCKET = 'minutes'
 
@@ -211,4 +213,63 @@ export async function fetchMinutesSearch(q: string, team: TeamCode | null): Prom
   const user = await getSession()
   if (!user) return []
   return searchMinutes(q, team, 100)
+}
+
+/** 블록 하이라이트 토글 — 스펙 §6.7. 서버가 현재 본문 기준으로 (인덱스, 해시) 재검증. */
+export async function toggleMinuteHighlight(
+  minuteId: string, blockIndex: number, blockHash: string,
+): Promise<{ ok: boolean; on?: boolean; error?: string }> {
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  const { data: minute } = await sb.from('minutes').select('body_md').eq('id', minuteId).maybeSingle()
+  if (!minute) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
+  const blocks = splitMinuteBlocks(minute.body_md as string)
+  const block = blocks[blockIndex]
+  if (!block || !isMarkableBlock(block) || block.hash !== blockHash)
+    return { ok: false, error: '본문이 변경되었습니다. 새로고침 해주세요.' }
+
+  const { data: existing } = await sb.from('minute_highlights')
+    .select('id, block_hash').eq('minute_id', minuteId)
+    .eq('created_by', user.id).eq('block_index', blockIndex).maybeSingle()
+
+  if (existing && (existing.block_hash as string) === blockHash) {
+    // 끄기
+    const { error } = await sb.from('minute_highlights').delete().eq('id', existing.id as string)
+    if (error) return { ok: false, error: error.message }
+    revalidatePath(`/minutes/${minuteId}`)
+    return { ok: true, on: false }
+  }
+  if (existing) {
+    // stale 행(재매칭 실패 잔존, 해시 불일치) — 지우고 새로 켠다(스펙 §6.7)
+    await sb.from('minute_highlights').delete().eq('id', existing.id as string)
+  }
+  const { error } = await sb.from('minute_highlights').insert({
+    minute_id: minuteId, block_index: blockIndex, block_hash: blockHash,
+    created_by: user.id, created_by_name: displayNameFrom(user.user_metadata, user.email),
+  })
+  // 동시 토글 경합: unique 위반은 "이미 하이라이트됨"으로 멱등 처리
+  if (error && error.code !== '23505') return { ok: false, error: error.message }
+  revalidatePath(`/minutes/${minuteId}`)
+  return { ok: true, on: true }
+}
+
+/** 요약 카드 self-heal 트리거 — 스펙 §4.3. 멤버십 게이트(무료 쿼터 보호). */
+export async function ensureMinuteInsightsAction(
+  minuteId: string,
+): Promise<{ status: 'ready' | 'generated' | 'unavailable' }> {
+  const m = await getMembership()
+  if (!m) return { status: 'unavailable' }
+  const user = await getSession()
+  if (!user) return { status: 'unavailable' }
+  const sb = await createServerClient()
+  const { data: minute } = await sb.from('minutes').select('body_md').eq('id', minuteId).maybeSingle()
+  if (!minute) return { status: 'unavailable' }
+  const bodyMd = minute.body_md as string
+  if (!bodyMd.trim()) return { status: 'ready' }
+  const status = await ensureMinuteInsights(minuteId, bodyMd, fnv1a64(bodyMd))
+  if (status === 'generated') revalidatePath(`/minutes/${minuteId}`)
+  return { status }
 }
