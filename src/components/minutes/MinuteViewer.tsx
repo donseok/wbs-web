@@ -1,38 +1,157 @@
 'use client'
-import { useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Download, ExternalLink, Paperclip } from 'lucide-react'
-import type { Minute, MinuteFile } from '@/lib/domain/types'
+import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
 } from '@/lib/domain/minutes'
 import {
-  getMinuteFileUrl, replaceMinuteBody, deleteMinute,
+  getMinuteFileUrl, replaceMinuteBody, deleteMinute, toggleMinuteHighlight,
 } from '@/app/actions/minutes'
+import { fnv1a64, isMarkableBlock, splitMinuteBlocks, type BlockMarks } from '@/lib/minutes/blocks'
+import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
 import { MarkdownView } from './MarkdownView'
 import { MinuteMetaModal } from './MinuteMetaModal'
 import { MinuteChatPanel } from './MinuteChatPanel'
+import { MinuteInsightCard } from './MinuteInsightCard'
+import { MinuteToc } from './MinuteToc'
+import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
 import { TEAM } from '@/components/wbs/shared'
 
 export function MinuteViewer({
-  minute, files, canManage,
+  minute, files, canManage, annotations, userId,
 }: {
   minute: Minute
   files: MinuteFile[]
   canManage: boolean
+  annotations: { highlights: MinuteHighlight[]; insights: MinuteInsight[] }
+  userId: string | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
+  const { toast } = useToast()
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [metaOpen, setMetaOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const bodyFile = files.find(f => f.role === 'body') ?? null
   const attachments = files.filter(f => f.role === 'attachment')
+
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const [popover, setPopover] = useState<PopoverState | null>(null)
+  const [hlBusy, setHlBusy] = useState(false)
+  const [activeToc, setActiveToc] = useState<number | null>(null)
+
+  const blocks = useMemo(() => splitMinuteBlocks(minute.bodyMd), [minute.bodyMd])
+  const bodyHash = useMemo(() => fnv1a64(minute.bodyMd), [minute.bodyMd])
+
+  // 낙관적 병합 계약(스펙 §6.4): 내 하이라이트는 로컬 단독 소유(서버 prop 은 초기값),
+  // 타인 하이라이트는 항상 서버 prop 파생 — revalidate 가 와도 이중 계산/역전 없음.
+  const [myIndexes, setMyIndexes] = useState<Set<number>>(() => new Set(
+    visibleHighlights(annotations.highlights, blocks)
+      .filter(h => h.createdBy === userId).map(h => h.blockIndex),
+  ))
+  const others = useMemo(
+    () => visibleHighlights(annotations.highlights, blocks).filter(h => h.createdBy !== userId),
+    [annotations.highlights, blocks, userId],
+  )
+  const insights = useMemo(
+    () => visibleInsights(annotations.insights, blocks, bodyHash),
+    [annotations.insights, blocks, bodyHash],
+  )
+
+  const marks = useMemo<BlockMarks>(() => {
+    const m: BlockMarks = {}
+    for (const i of insights) {
+      const k = i.kind as InsightKind
+      const cur = m[i.blockIndex]?.ins
+      // 복수 kind 는 우선순위 최상위 1개만 인라인 표시(스펙 §6.3)
+      if (!cur || INS_PRIORITY.indexOf(k) < INS_PRIORITY.indexOf(cur)) {
+        m[i.blockIndex] = { ...m[i.blockIndex], ins: k }
+      }
+    }
+    const counts = new Map<number, Set<string>>()
+    for (const h of others) {
+      if (!counts.has(h.blockIndex)) counts.set(h.blockIndex, new Set())
+      counts.get(h.blockIndex)!.add(h.createdBy)
+    }
+    for (const idx of myIndexes) {
+      if (!counts.has(idx)) counts.set(idx, new Set())
+      counts.get(idx)!.add('me')
+    }
+    for (const [idx, users] of counts) {
+      m[idx] = { ...m[idx], hlTier: hlTier(users.size), hlCount: users.size }
+    }
+    return m
+  }, [insights, others, myIndexes])
+
+  // 점프 — 스크롤 컨테이너(xl=본문 카드/미만=main) 차이는 scrollIntoView 가 자동 처리
+  const jumpTo = useCallback((blockIndex: number) => {
+    const el = bodyRef.current?.querySelector<HTMLElement>(`[data-mblock="${blockIndex}"]`)
+    if (!el) return  // 비렌더 블록 — 조용히 무시(스펙 §6.5)
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+    el.classList.add('mblock-flash')
+    setTimeout(() => el.classList.remove('mblock-flash'), 2000)
+  }, [])
+
+  // 블록 클릭 → 팝오버 (이벤트 위임 — 링크/버튼/드래그 선택 제외, 스펙 §6.4)
+  const onBodyClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    if (target.closest('a, button')) return
+    if (window.getSelection()?.toString()) return
+    const blockEl = target.closest<HTMLElement>('[data-mblock]')
+    if (!blockEl) return
+    const idx = Number(blockEl.dataset.mblock)
+    if (!blocks[idx] || !isMarkableBlock(blocks[idx])) return
+    const r = blockEl.getBoundingClientRect()
+    setPopover({ blockIndex: idx, rect: { top: r.top, bottom: r.bottom, left: r.left, width: r.width } })
+  }, [blocks])
+
+  async function onToggleHighlight() {
+    if (!popover) return
+    const idx = popover.blockIndex
+    const wasOn = myIndexes.has(idx)
+    // 낙관적 업데이트 → 실패 시 롤백 + 토스트
+    setMyIndexes(prev => { const s = new Set(prev); if (wasOn) s.delete(idx); else s.add(idx); return s })
+    setHlBusy(true)
+    const res = await toggleMinuteHighlight(minute.id, idx, blocks[idx].hash)
+    setHlBusy(false)
+    setPopover(null)
+    if (!res.ok) {
+      setMyIndexes(prev => { const s = new Set(prev); if (wasOn) s.add(idx); else s.delete(idx); return s })
+      toast({ title: t('min.hl.failed'), description: res.error, variant: 'error' })
+    }
+  }
+
+  // TOC 스크롤 스파이 — 교차 중 최상단 헤딩(없으면 마지막 통과 헤딩), root null 로 두 레이아웃 공통
+  const headingIndexes = useMemo(
+    () => blocks.filter(b => b.headingDepth !== undefined && b.headingDepth <= 3).map(b => b.index),
+    [blocks],
+  )
+  useEffect(() => {
+    if (headingIndexes.length === 0 || !bodyRef.current) return
+    const els = headingIndexes
+      .map(i => bodyRef.current!.querySelector<HTMLElement>(`[data-mblock="${i}"]`))
+      .filter((el): el is HTMLElement => !!el)
+    if (els.length === 0) return
+    const io = new IntersectionObserver(entries => {
+      const visible = entries.filter(en => en.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+      if (visible.length > 0) {
+        const idx = Number((visible[0].target as HTMLElement).dataset.mblock)
+        setActiveToc(idx)
+      }
+    }, { root: null, rootMargin: '0px 0px -70% 0px' })
+    els.forEach(el => io.observe(el))
+    return () => io.disconnect()
+  }, [headingIndexes])
 
   async function download(fileId: string) {
     setBusy(true)
@@ -76,6 +195,14 @@ export function MinuteViewer({
     if (!res.ok) { setErr(res.error ?? 'error'); return }
     router.push('/minutes')
   }
+
+  const popNames = popover
+    ? [...new Set(others.filter(h => h.blockIndex === popover.blockIndex)
+        .map(h => h.createdByName ?? '이름 없음'))]
+    : []
+  const popKinds = popover
+    ? [...new Set(insights.filter(i => i.blockIndex === popover.blockIndex).map(i => i.kind as InsightKind))]
+    : []
 
   return (
     // 폭은 레이아웃 main(헤더와 동일 px 스케일)에 맡긴다 — 자체 max-w/패딩을 두면 헤더 기준선보다 안쪽으로 좁아짐
@@ -127,13 +254,32 @@ export function MinuteViewer({
         {err && <p className="text-sm text-delayed">{err}</p>}
       </div>
 
-      {/* 본문 + (Task 17: 우측 채팅 패널) */}
+      {/* 핵심 요약 카드 — shrink-0 유지(xl 높이 체인) */}
+      <MinuteInsightCard
+        minuteId={minute.id} insights={annotations.insights} highlights={annotations.highlights}
+        blocks={blocks} bodyHash={bodyHash} onJump={jumpTo}
+      />
+
+      {/* xl 미만 목차 아코디언은 MinuteToc 내부에서 분기 렌더 */}
+      {/* 목차 + 본문 + (Task 17: 우측 채팅 패널) */}
       <div className="flex flex-col gap-4 xl:min-h-0 xl:flex-1 xl:flex-row">
-        <div className="card min-w-0 flex-1 p-5 xl:overflow-y-auto">
-          <MarkdownView content={minute.bodyMd} />
+        <MinuteToc
+          blocks={blocks} insights={insights} highlights={annotations.highlights}
+          onJump={jumpTo} activeIndex={activeToc}
+        />
+        <div ref={bodyRef} onClick={onBodyClick} className="card min-w-0 flex-1 p-5 xl:overflow-y-auto">
+          <MarkdownView content={minute.bodyMd} marks={marks} />
         </div>
         <MinuteChatPanel minuteId={minute.id} />
       </div>
+
+      {popover && (
+        <MinuteBlockPopover
+          state={popover} mine={myIndexes.has(popover.blockIndex)}
+          names={popNames} insKinds={popKinds} busy={hlBusy}
+          onToggle={() => void onToggleHighlight()} onClose={() => setPopover(null)}
+        />
+      )}
 
       <MinuteMetaModal open={metaOpen} onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }} minute={minute} />
 
