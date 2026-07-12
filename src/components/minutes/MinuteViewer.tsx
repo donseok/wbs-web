@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ChevronDown, ChevronUp, Download, ExternalLink, Paperclip } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Download, ExternalLink, Maximize2, Minimize2, Paperclip } from 'lucide-react'
 import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
@@ -40,6 +40,7 @@ export function MinuteViewer({
   const [err, setErr] = useState<string | null>(null)
   const [metaOpen, setMetaOpen] = useState(false)
   const [headerOpen, setHeaderOpen] = useState(false)
+  const [focus, setFocus] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const bodyFile = files.find(f => f.role === 'body') ?? null
   const attachments = files.filter(f => f.role === 'attachment')
@@ -230,6 +231,13 @@ export function MinuteViewer({
           </span>
           <h1 className="flex-1 truncate text-lg font-bold text-ink">{minute.title}</h1>
           <span className="text-xs text-ink-subtle">{minute.createdByName ?? ''}</span>
+          <button onClick={() => setFocus(f => !f)}
+            title={focus ? t('min.focus.off') : t('min.focus.on')}
+            aria-label={focus ? t('min.focus.off') : t('min.focus.on')} aria-pressed={focus}
+            className={`inline-flex items-center gap-1 text-xs ${focus ? 'text-brand' : 'text-ink-muted hover:text-ink'}`}>
+            {focus ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            {t('min.focus.on')}
+          </button>
           <button onClick={() => setHeaderOpen(o => !o)}
             className="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink">
             {headerOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -280,14 +288,17 @@ export function MinuteViewer({
       {/* xl 미만 목차 아코디언은 MinuteToc 내부에서 분기 렌더 */}
       {/* 목차 + 본문 + (Task 17: 우측 채팅 패널) */}
       <div className="flex flex-col gap-4 xl:min-h-0 xl:flex-1 xl:flex-row">
-        <MinuteToc
-          blocks={blocks} insights={insights} highlights={annotations.highlights}
-          onJump={jumpTo} activeIndex={activeToc}
-        />
+        {/* 집중 모드 — 목차·채팅을 숨겨 본문이 전체 폭 사용 */}
+        {!focus && (
+          <MinuteToc
+            blocks={blocks} insights={insights} highlights={annotations.highlights}
+            onJump={jumpTo} activeIndex={activeToc}
+          />
+        )}
         <div ref={bodyRef} onClick={onBodyClick} className="card min-w-0 flex-1 p-5 xl:overflow-y-auto">
           <MarkdownView content={minute.bodyMd} marks={marks} />
         </div>
-        <MinuteChatPanel minuteId={minute.id} />
+        {!focus && <MinuteChatPanel minuteId={minute.id} />}
       </div>
 
       {popover && (

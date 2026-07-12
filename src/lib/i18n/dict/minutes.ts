@@ -73,6 +73,8 @@ export const minutesKo = {
   'min.hl.people': '하이라이트한 사람',
   'min.hl.failed': '하이라이트를 저장하지 못했습니다',
   'min.toc.title': '목차',
+  'min.focus.on': '집중 모드',
+  'min.focus.off': '집중 모드 해제',
 }
 
 export const minutesEn: Record<keyof typeof minutesKo, string> = {
@@ -150,4 +152,6 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.hl.people': 'Highlighted by',
   'min.hl.failed': "Couldn't save the highlight",
   'min.toc.title': 'Contents',
+  'min.focus.on': 'Focus mode',
+  'min.focus.off': 'Exit focus',
 }

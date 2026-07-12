@@ -1,6 +1,6 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, List } from 'lucide-react'
+import { ChevronDown, ChevronRight, List, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { InsightKind, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import type { MinuteBlock } from '@/lib/minutes/blocks'
 import { visibleHighlights } from '@/lib/minutes/annotations'
@@ -47,6 +47,7 @@ export function MinuteToc({
 }) {
   const { t } = useLocale()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(false)
   const entries = useMemo(() => buildEntries(blocks, insights, highlights), [blocks, insights, highlights])
   if (entries.length === 0) return null
 
@@ -71,11 +72,24 @@ export function MinuteToc({
 
   return (
     <>
-      {/* xl: 좌측 상주 컬럼 (자체 스크롤) */}
-      <nav className="card hidden w-[220px] shrink-0 self-start p-3 xl:block xl:max-h-full xl:overflow-y-auto">
-        <p className="eyebrow mb-2">{t('min.toc.title')}</p>
-        {list()}
-      </nav>
+      {/* xl: 좌측 상주 컬럼 (자체 스크롤) — 접으면 아이콘 버튼만 남겨 본문에 폭을 양보 */}
+      {collapsed ? (
+        <button onClick={() => setCollapsed(false)} title={t('min.toc.title')} aria-label={t('min.toc.title')}
+          className="btn hidden shrink-0 self-start xl:inline-flex">
+          <PanelLeftOpen className="h-4 w-4" />
+        </button>
+      ) : (
+        <nav className="card hidden w-[220px] shrink-0 self-start p-3 xl:block xl:max-h-full xl:overflow-y-auto">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="eyebrow">{t('min.toc.title')}</p>
+            <button onClick={() => setCollapsed(true)} title={t('min.insight.collapse')} aria-label={t('min.insight.collapse')}
+              className="text-ink-subtle hover:text-ink">
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+          </div>
+          {list()}
+        </nav>
+      )}
       {/* xl 미만: 접이식 바 — 점프 후 자동 접힘, 접힘 중 스파이 비활성(activeIndex 미표시 무해) */}
       <div className="card shrink-0 p-3 xl:hidden">
         <button onClick={() => setMobileOpen(o => !o)}
