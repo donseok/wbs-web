@@ -16,6 +16,7 @@ import { SpiPanel } from './SpiPanel'
 import { MilestoneTimeline } from './MilestoneTimeline'
 import { MeetingSchedule } from './MeetingSchedule'
 import { AttendanceBoard } from './AttendanceBoard'
+import { RiskWorklist } from './RiskWorklist'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -76,6 +77,9 @@ export async function DashboardView({
 
       {/* B. 마일스톤 여정 */}
       <MilestoneTimeline points={milestones} startDate={startDate} endDate={endDate} today={today} />
+
+      {/* 실행 큐 — 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
+      <RiskWorklist items={items} projectId={projectId} today={today} />
 
       {/* C. 진척 트렌드 — S-Curve + SPI/velocity */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">

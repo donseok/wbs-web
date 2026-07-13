@@ -14,17 +14,18 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 const BUCKET = 'minutes'
 
 export function MinuteUploadModal({
-  open, onClose, onSaved, todayIso, projects,
+  open, onClose, onSaved, todayIso, projects, defaultTeam,
 }: {
   open: boolean
   onClose: () => void
   onSaved: () => void
   todayIso: string
   projects: { id: string; name: string }[]
+  defaultTeam?: TeamCode | null
 }) {
   const { t } = useLocale()
   const [date, setDate] = useState(todayIso)
-  const [team, setTeam] = useState<TeamCode>('PMO')
+  const [team, setTeam] = useState<TeamCode>(defaultTeam ?? 'PMO')
   const [title, setTitle] = useState('')
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [bodyText, setBodyText] = useState('')

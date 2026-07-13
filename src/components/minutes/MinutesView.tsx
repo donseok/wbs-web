@@ -25,7 +25,7 @@ function monthRangeOf(year: number, month0: number): [string, string] {
 }
 
 export function MinutesView({
-  initialMinutes, todayIso, initialView, projects, currentUserId, role,
+  initialMinutes, todayIso, initialView, projects, currentUserId, role, defaultTeam,
 }: {
   initialMinutes: Minute[]
   todayIso: string
@@ -33,6 +33,7 @@ export function MinutesView({
   projects: { id: string; name: string }[]
   currentUserId: string | null
   role: string | null
+  defaultTeam?: TeamCode | null
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
@@ -227,7 +228,7 @@ export function MinutesView({
             if (isSearch) void runSearch(query, team); else void loadMonth(year, month0, team)
             router.refresh()
           }}
-          todayIso={todayIso} projects={projects} />
+          todayIso={todayIso} projects={projects} defaultTeam={defaultTeam} />
       )}
       <ArchiveChatPanel open={chatOpen} onClose={() => setChatOpen(false)}
         team={teamOrNull}

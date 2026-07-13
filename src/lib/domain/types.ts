@@ -212,4 +212,6 @@ export interface MinuteInsight {
   label: string
   blockIndex: number
   blockHash: string
+  linkedWbsItemId?: string | null
+  linkedWbsItemName?: string | null
 }

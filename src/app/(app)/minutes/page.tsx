@@ -44,7 +44,7 @@ export default async function MinutesPage() {
       />}
     >
       <MinutesView initialMinutes={minutes} todayIso={today}
-        initialView={prefs.minutesView ?? 'list'} projects={projects}
+        initialView={prefs.minutesView ?? 'list'} projects={projects} defaultTeam={m?.teamCode ?? null}
         currentUserId={user?.id ?? null} role={m?.role ?? null} />
     </ProjectPageShell>
   )

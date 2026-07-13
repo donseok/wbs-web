@@ -91,7 +91,7 @@ export const getMinuteAnnotations = cache(async (
       .select('id, minute_id, block_index, block_hash, created_by, created_by_name, created_at')
       .eq('minute_id', id).order('created_at', { ascending: true }),
     sb.from('minute_insights')
-      .select('id, minute_id, body_hash, kind, label, block_index, block_hash')
+      .select('id, minute_id, body_hash, kind, label, block_index, block_hash, minute_insight_wbs_links(wbs_item_id, wbs_items(name))')
       .eq('minute_id', id),
   ])
   return {
@@ -112,6 +112,8 @@ export const getMinuteAnnotations = cache(async (
       label: r.label as string,
       blockIndex: r.block_index as number,
       blockHash: r.block_hash as string,
+      linkedWbsItemId: ((r.minute_insight_wbs_links as Row[] | null)?.[0]?.wbs_item_id as string | undefined) ?? null,
+      linkedWbsItemName: (((r.minute_insight_wbs_links as Row[] | null)?.[0]?.wbs_items as Row | undefined)?.name as string | undefined) ?? null,
     })),
   }
 })
