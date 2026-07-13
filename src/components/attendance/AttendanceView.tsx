@@ -11,6 +11,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { DayPopover, type DayPopoverAnchor } from '@/components/ui/DayPopover'
 import { fmtDate } from '@/components/wbs/shared'
 import {
   ATTENDANCE_META, ATTENDANCE_TYPES, monthMatrix, recordsByDate,
@@ -46,6 +47,7 @@ export function AttendanceView({
   const [month0, setMonth0] = useState((initM || 1) - 1)
   const [memberFilter, setMemberFilter] = useState<string>('all')
   const [view, setView] = useState<ViewKey>('calendar')
+  const [more, setMore] = useState<DayPopoverAnchor | null>(null)
 
   // 등록/수정 모달
   const [open, setOpen] = useState(false)
@@ -84,6 +86,28 @@ export function AttendanceView({
     () => [...filtered].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.memberId.localeCompare(b.memberId))),
     [filtered],
   )
+
+  // 셀·팝오버가 공유하는 근태 칩 — canEdit일 때만 클릭/키보드로 수정 진입
+  function renderRecChip(r: AttendanceRecord, onOpen?: () => void) {
+    const meta = ATTENDANCE_META[r.type]
+    const mem = memberMap.get(r.memberId)
+    const open = canEdit ? () => { onOpen?.(); openEdit(r) } : undefined
+    return (
+      <div
+        key={r.id}
+        onClick={open}
+        role={canEdit ? 'button' : undefined}
+        tabIndex={canEdit ? 0 : undefined}
+        onKeyDown={open ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() } } : undefined}
+        className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium ${meta.chip} ${canEdit ? 'cursor-pointer hover:ring-1 hover:ring-brand-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring' : ''}`}
+        title={`${mem?.name ?? '?'} · ${typeLabel(r.type)}${r.note ? ` · ${r.note}` : ''}${canEdit ? ` · ${t('att.clickToEdit')}` : ''}`}
+      >
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
+        <span className="truncate">{mem?.name ?? '?'}</span>
+        <span className="ml-auto shrink-0 opacity-75">{typeShort(r.type)}</span>
+      </div>
+    )
+  }
 
   function shift(delta: number) {
     const base = new Date(Date.UTC(year, month0 + delta, 1))
@@ -223,33 +247,28 @@ export function AttendanceView({
                     )}
                   </div>
                   <div className="mt-1 space-y-1">
-                    {dayRecs.slice(0, 3).map(r => {
-                      const meta = ATTENDANCE_META[r.type]
-                      const mem = memberMap.get(r.memberId)
-                      return (
-                        <div
-                          key={r.id}
-                          onClick={canEdit ? () => openEdit(r) : undefined}
-                          role={canEdit ? 'button' : undefined}
-                          tabIndex={canEdit ? 0 : undefined}
-                          onKeyDown={canEdit ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(r) } } : undefined}
-                          className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-medium ${meta.chip} ${canEdit ? 'cursor-pointer hover:ring-1 hover:ring-brand-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring' : ''}`}
-                          title={`${mem?.name ?? '?'} · ${typeLabel(r.type)}${r.note ? ` · ${r.note}` : ''}${canEdit ? ` · ${t('att.clickToEdit')}` : ''}`}
-                        >
-                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
-                          <span className="truncate">{mem?.name ?? '?'}</span>
-                          <span className="ml-auto shrink-0 opacity-75">{typeShort(r.type)}</span>
-                        </div>
-                      )
-                    })}
+                    {dayRecs.slice(0, 3).map(r => renderRecChip(r))}
                     {dayRecs.length > 3 && (
-                      <div className="px-1 text-[10px] font-medium text-ink-subtle">+{dayRecs.length - 3}{t('att.moreSuffix')}</div>
+                      <button
+                        onClick={e => {
+                          const r = e.currentTarget.getBoundingClientRect()
+                          setMore({ date: cell, rect: { top: r.top, bottom: r.bottom, left: r.left } })
+                        }}
+                        className="w-full rounded-md px-1 py-0.5 text-left text-[10px] font-medium text-ink-subtle transition hover:bg-surface-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring"
+                      >
+                        +{dayRecs.length - 3}{t('att.moreSuffix')}
+                      </button>
                     )}
                   </div>
                 </div>
               )
             })}
           </div>
+          {more && (
+            <DayPopover anchor={more} count={(byDate[more.date] ?? []).length} onClose={() => setMore(null)}>
+              {(byDate[more.date] ?? []).map(r => renderRecChip(r, () => setMore(null)))}
+            </DayPopover>
+          )}
         </div>
       ) : listRows.length === 0 ? (
         <EmptyState

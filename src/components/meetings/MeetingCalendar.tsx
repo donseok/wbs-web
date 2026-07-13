@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { MeetingOccurrence } from '@/lib/domain/types'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { monthMatrix } from '@/lib/domain/attendance'
 import { occurrencesByDate, sortOccurrences, MEETING_META } from '@/lib/domain/meetings'
 import { krSpecialDayMap } from '@/lib/domain/holidays'
+import { DayPopover, type DayPopoverAnchor } from '@/components/ui/DayPopover'
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 
@@ -14,6 +15,26 @@ function dowClass(dow: number, base = 'text-ink') {
   if (dow === 0) return 'text-delayed'
   if (dow === 6) return 'text-progress'
   return base
+}
+
+function OccurrenceChip({ o, onSelect, t }: {
+  o: MeetingOccurrence
+  onSelect: (o: MeetingOccurrence) => void
+  t: (k: DictKey) => string
+}) {
+  const meta = MEETING_META[o.category]
+  const timeLabel = o.startTime ?? t('meet.allDay')
+  return (
+    <button
+      onClick={() => onSelect(o)}
+      className={`flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10.5px] font-medium ${meta.chip} cursor-pointer transition hover:ring-1 hover:ring-brand-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring`}
+      title={`${timeLabel} · ${o.title}`}
+    >
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
+      <span className="shrink-0 tabular-nums opacity-80">{timeLabel}</span>
+      <span className="truncate">{o.title}</span>
+    </button>
+  )
 }
 
 export function MeetingCalendar({
@@ -26,6 +47,7 @@ export function MeetingCalendar({
   onSelectOccurrence: (o: MeetingOccurrence) => void
 }) {
   const { t } = useLocale()
+  const [more, setMore] = useState<DayPopoverAnchor | null>(null)
   const matrix = useMemo(() => monthMatrix(year, month0), [year, month0])
   const byDate = useMemo(() => occurrencesByDate(occurrences), [occurrences])
   const specialDays = useMemo(
@@ -33,6 +55,7 @@ export function MeetingCalendar({
     [matrix],
   )
   const ym = `${year}-${String(month0 + 1).padStart(2, '0')}`
+  const moreOcc = more ? sortOccurrences(byDate[more.date] ?? []) : []
 
   return (
     <div className="card overflow-hidden p-0">
@@ -64,30 +87,32 @@ export function MeetingCalendar({
                 )}
               </div>
               <div className="mt-1 space-y-1">
-                {dayOcc.slice(0, 3).map(o => {
-                  const meta = MEETING_META[o.category]
-                  const timeLabel = o.startTime ?? t('meet.allDay')
-                  return (
-                    <button
-                      key={o.occurrenceId}
-                      onClick={() => onSelectOccurrence(o)}
-                      className={`flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10.5px] font-medium ${meta.chip} cursor-pointer transition hover:ring-1 hover:ring-brand-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring`}
-                      title={`${timeLabel} · ${o.title}`}
-                    >
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
-                      <span className="shrink-0 tabular-nums opacity-80">{timeLabel}</span>
-                      <span className="truncate">{o.title}</span>
-                    </button>
-                  )
-                })}
+                {dayOcc.slice(0, 3).map(o => (
+                  <OccurrenceChip key={o.occurrenceId} o={o} t={t} onSelect={onSelectOccurrence} />
+                ))}
                 {dayOcc.length > 3 && (
-                  <div className="px-1 text-[10px] font-medium text-ink-subtle">+{dayOcc.length - 3}{t('meet.moreSuffix')}</div>
+                  <button
+                    onClick={e => {
+                      const r = e.currentTarget.getBoundingClientRect()
+                      setMore({ date: cell, rect: { top: r.top, bottom: r.bottom, left: r.left } })
+                    }}
+                    className="w-full rounded-md px-1 py-0.5 text-left text-[10px] font-medium text-ink-subtle transition hover:bg-surface-2 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring"
+                  >
+                    +{dayOcc.length - 3}{t('meet.moreSuffix')}
+                  </button>
                 )}
               </div>
             </div>
           )
         })}
       </div>
+      {more && (
+        <DayPopover anchor={more} count={moreOcc.length} onClose={() => setMore(null)}>
+          {moreOcc.map(o => (
+            <OccurrenceChip key={o.occurrenceId} o={o} t={t} onSelect={occ => { setMore(null); onSelectOccurrence(occ) }} />
+          ))}
+        </DayPopover>
+      )}
     </div>
   )
 }
