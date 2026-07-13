@@ -2,8 +2,29 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight, TeamCode } from '@/lib/domain/types'
 import { ilikeOrPattern } from '@/lib/domain/minutes'
+import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 
 type Row = Record<string, unknown>
+
+export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8): Promise<MinuteSignal[]> => {
+  const sb = await createServerClient()
+  const { data } = await sb.from('minute_insights')
+    .select('id, minute_id, body_hash, kind, label, block_index, block_hash, minute_insight_wbs_links(wbs_item_id, wbs_items(name)), minutes!inner(title, minute_date, meeting_id, meetings!inner(project_id))')
+    .in('kind', ['action', 'risk', 'decision', 'deadline'])
+    .eq('minutes.meetings.project_id', projectId)
+    .order('created_at', { ascending: false }).limit(limit)
+  return (data ?? []).map((r: Row) => {
+    const minute = r.minutes as Row
+    const link = (r.minute_insight_wbs_links as Row[] | null)?.[0]
+    return {
+      id: r.id as string, minuteId: r.minute_id as string, bodyHash: r.body_hash as string,
+      kind: r.kind as 'action' | 'risk' | 'decision' | 'deadline', label: r.label as string, blockIndex: r.block_index as number,
+      blockHash: r.block_hash as string, linkedWbsItemId: link?.wbs_item_id as string | null,
+      linkedWbsItemName: (link?.wbs_items as Row | undefined)?.name as string | null,
+      minuteTitle: minute.title as string, minuteDate: minute.minute_date as string,
+    }
+  })
+})
 
 const LIST_COLS =
   'id, minute_date, team_code, title, meeting_id, created_by, created_by_name, created_at, updated_at, minute_files(count)'

@@ -1,7 +1,5 @@
 import { BarChart3 } from 'lucide-react'
-import type {
-  Announcement, AttendanceRecord, ComputedItem, Meeting, MeetingException, ProjectMember,
-} from '@/lib/domain/types'
+import type { Announcement, ComputedItem, Meeting, MeetingException } from '@/lib/domain/types'
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import { buildTrend } from '@/lib/domain/trend'
 import { milestoneTimeline } from '@/lib/domain/dashboard'
@@ -15,8 +13,8 @@ import { TrendChart } from './TrendChart'
 import { SpiPanel } from './SpiPanel'
 import { MilestoneTimeline } from './MilestoneTimeline'
 import { MeetingSchedule } from './MeetingSchedule'
-import { AttendanceBoard } from './AttendanceBoard'
 import { RiskWorklist } from './RiskWorklist'
+import { MinuteSignals, type MinuteSignal } from './MinuteSignals'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -37,8 +35,7 @@ export async function DashboardView({
   announcements = [],
   meetings = [],
   meetingExceptions = [],
-  attendance = [],
-  members = [],
+  minuteSignals = [],
 }: {
   items: ComputedItem[]
   projectId: string
@@ -52,8 +49,7 @@ export async function DashboardView({
   announcements?: Announcement[]
   meetings?: Meeting[]
   meetingExceptions?: MeetingException[]
-  attendance?: AttendanceRecord[]
-  members?: ProjectMember[]
+  minuteSignals?: MinuteSignal[]
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -92,7 +88,7 @@ export async function DashboardView({
           회의·근태는 진척 산정이 아니라 실제 달력이므로 항상 실제 오늘 기준. */}
       <div className="grid gap-5 xl:grid-cols-2">
         <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={seoulToday()} />
-        <AttendanceBoard projectId={projectId} records={attendance} members={members} today={seoulToday()} />
+        <MinuteSignals projectId={projectId} signals={minuteSignals} />
       </div>
     </div>
   )

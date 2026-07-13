@@ -3,8 +3,7 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { getSnapshots, recordProgressSnapshot } from '@/lib/data/snapshots'
 import { getAnnouncements } from '@/lib/data/announcements'
 import { getProjectMeetingData } from '@/lib/data/meetings'
-import { getAttendanceRecords } from '@/lib/data/attendance'
-import { getProjectMembers } from '@/lib/data/members'
+import { getProjectMinuteSignals } from '@/lib/data/minutes'
 import { listProjects } from '@/app/actions/project'
 import { createServerClient } from '@/lib/supabase/server'
 import { t } from '@/lib/i18n/dict'
@@ -16,14 +15,13 @@ import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, attendance, members, sb] = await Promise.all([
+  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, sb] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getAnnouncements(projectId),
     getSnapshots(projectId),
     getProjectMeetingData(projectId),
-    getAttendanceRecords(projectId),
-    getProjectMembers(projectId),
+    getProjectMinuteSignals(projectId),
     createServerClient(),
   ])
   // 보험 스냅샷 — 응답 전송 후 실행. 페이지의 after() 안에서는 cookies() 호출이 불가하므로
@@ -50,8 +48,7 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         announcements={announcements}
         meetings={meetingData.meetings}
         meetingExceptions={meetingData.exceptions}
-        attendance={attendance}
-        members={members}
+        minuteSignals={minuteSignals}
       />
     </ProjectPageShell>
   )
