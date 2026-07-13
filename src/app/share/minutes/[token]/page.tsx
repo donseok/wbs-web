@@ -11,6 +11,11 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function SharedMinutePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
   if (!isShareToken(token)) notFound()
+  // env 가드 — 미설정 배포에서 500 대신 404 (rematchMinuteHighlights 와 동일 패턴)
+  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+    console.error('[share] service_role 환경변수 미설정 — 공유 페이지 비활성')
+    notFound()
+  }
   const admin = createAdminClient()
   // 반환 컬럼 화이트리스트(스펙 §3.2) — 작성자 실명·첨부·하이라이트·인사이트 미노출
   const { data } = await admin.from('minutes')

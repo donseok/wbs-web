@@ -12,7 +12,7 @@ import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64 } from '@/lib/minutes/blocks'
 import { ensureMinuteInsights, generateMinuteInsights } from '@/lib/ai/minutes-insights'
 import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
-import { nextShareState, type ShareOp } from '@/lib/minutes/share'
+import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/share'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const BUCKET = 'minutes'
@@ -317,6 +317,16 @@ export async function ensureMinuteInsightsAction(
 
 export interface MinuteShareResult { ok: boolean; enabled?: boolean; token?: string | null; error?: string }
 
+/** 소유자/관리자 검증 + 공유 컬럼 단일 조회 — get/set 공용(왕복 1회, 소유권 규칙 한 곳). */
+async function readShareRow(sb: Sb, id: string, userId: string, role: string):
+  Promise<{ state: ShareState } | { error: string }> {
+  const { data } = await sb.from('minutes')
+    .select('created_by, share_token, share_enabled').eq('id', id).maybeSingle()
+  if (!data) return { error: '회의록을 찾을 수 없습니다.' }
+  if ((data.created_by as string | null) !== userId && role !== 'pmo_admin') return { error: '권한 없음' }
+  return { state: { token: (data.share_token as string | null) ?? null, enabled: !!data.share_enabled } }
+}
+
 /** 공유 상태 조회 — 토큰은 이 액션으로만 클라이언트에 전달(페이지 payload 미포함, 소유자/관리자 한정). */
 export async function getMinuteShare(id: string): Promise<MinuteShareResult> {
   const m = await getMembership()
@@ -324,11 +334,9 @@ export async function getMinuteShare(id: string): Promise<MinuteShareResult> {
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
-  const { data } = await sb.from('minutes')
-    .select('created_by, share_token, share_enabled').eq('id', id).maybeSingle()
-  if (!data) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
-  if ((data.created_by as string | null) !== user.id && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
-  return { ok: true, enabled: !!data.share_enabled, token: (data.share_token as string | null) ?? null }
+  const row = await readShareRow(sb, id, user.id, m.role)
+  if ('error' in row) return { ok: false, error: row.error }
+  return { ok: true, enabled: row.state.enabled, token: row.state.token }
 }
 
 /** 공유 토글/재발급 — 쓰기는 RLS update_own_minutes 가 최종 방어선. updated_at 은 건드리지 않는다(내용 편집 아님). */
@@ -338,15 +346,9 @@ export async function setMinuteShare(id: string, op: ShareOp): Promise<MinuteSha
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
-  const own = await checkOwner(sb, id, user.id, m.role)
-  if (own) return { ok: false, error: own }
-  const { data } = await sb.from('minutes')
-    .select('share_token, share_enabled').eq('id', id).maybeSingle()
-  if (!data) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
-  const next = nextShareState(
-    { token: (data.share_token as string | null) ?? null, enabled: !!data.share_enabled },
-    op, crypto.randomUUID(),
-  )
+  const row = await readShareRow(sb, id, user.id, m.role)
+  if ('error' in row) return { ok: false, error: row.error }
+  const next = nextShareState(row.state, op, crypto.randomUUID())
   const { error } = await sb.from('minutes')
     .update({ share_token: next.token, share_enabled: next.enabled }).eq('id', id)
   if (error) return { ok: false, error: error.message }

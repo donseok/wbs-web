@@ -4,5 +4,5 @@
 alter table minutes add column if not exists share_token uuid;
 alter table minutes add column if not exists share_enabled boolean not null default false;
 
-create index if not exists idx_minutes_share_token
+create unique index if not exists idx_minutes_share_token
   on minutes(share_token) where share_token is not null;

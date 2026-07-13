@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ChevronDown, ChevronUp, Download, ExternalLink, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
@@ -22,6 +22,7 @@ import { MinuteShareModal } from './MinuteShareModal'
 import { MinuteChatPanel } from './MinuteChatPanel'
 import { MinuteInsightCard } from './MinuteInsightCard'
 import { MinuteToc } from './MinuteToc'
+import { useMinuteTocSpy } from './useMinuteTocSpy'
 import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
 import { TEAM } from '@/components/wbs/shared'
 
@@ -50,9 +51,9 @@ export function MinuteViewer({
   const bodyRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [hlBusy, setHlBusy] = useState(false)
-  const [activeToc, setActiveToc] = useState<number | null>(null)
 
   const blocks = useMemo(() => splitMinuteBlocks(minute.bodyMd), [minute.bodyMd])
+  const { activeToc, jumpTo } = useMinuteTocSpy(blocks, bodyRef, { flash: true })
   const bodyHash = useMemo(() => fnv1a64(minute.bodyMd), [minute.bodyMd])
 
   // 낙관적 병합 계약(스펙 §6.4): 내 하이라이트는 로컬 단독 소유(서버 prop 은 초기값),
@@ -95,16 +96,6 @@ export function MinuteViewer({
     return m
   }, [insights, others, myIndexes])
 
-  // 점프 — 스크롤 컨테이너(xl=본문 카드/미만=main) 차이는 scrollIntoView 가 자동 처리
-  const jumpTo = useCallback((blockIndex: number) => {
-    const el = bodyRef.current?.querySelector<HTMLElement>(`[data-mblock="${blockIndex}"]`)
-    if (!el) return  // 비렌더 블록 — 조용히 무시(스펙 §6.5)
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
-    el.classList.add('mblock-flash')
-    setTimeout(() => el.classList.remove('mblock-flash'), 2000)
-  }, [])
-
   // 블록 클릭 → 팝오버 (이벤트 위임 — 링크/버튼/드래그 선택 제외, 스펙 §6.4)
   const onBodyClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement
@@ -142,29 +133,6 @@ export function MinuteViewer({
       setPopover(null)
     }
   }
-
-  // TOC 스크롤 스파이 — 교차 중 최상단 헤딩(없으면 마지막 통과 헤딩), root null 로 두 레이아웃 공통
-  const headingIndexes = useMemo(
-    () => blocks.filter(b => b.headingDepth !== undefined && b.headingDepth <= 3).map(b => b.index),
-    [blocks],
-  )
-  useEffect(() => {
-    if (headingIndexes.length === 0 || !bodyRef.current) return
-    const els = headingIndexes
-      .map(i => bodyRef.current!.querySelector<HTMLElement>(`[data-mblock="${i}"]`))
-      .filter((el): el is HTMLElement => !!el)
-    if (els.length === 0) return
-    const io = new IntersectionObserver(entries => {
-      const visible = entries.filter(en => en.isIntersecting)
-        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-      if (visible.length > 0) {
-        const idx = Number((visible[0].target as HTMLElement).dataset.mblock)
-        setActiveToc(idx)
-      }
-    }, { root: null, rootMargin: '0px 0px -70% 0px' })
-    els.forEach(el => io.observe(el))
-    return () => io.disconnect()
-  }, [headingIndexes])
 
   async function download(fileId: string) {
     setBusy(true)

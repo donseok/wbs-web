@@ -23,6 +23,7 @@ export async function middleware(req: NextRequest) {
 // 미제외 시 로그인 페이지에서 /logo.png 요청이 /login 으로 307 되어 로고가 안 뜬다.
 // API 엔드포인트는 라우트 핸들러에서 인증을 처리하므로 middleware 제외.
 // /share/** 는 비로그인 외부 열람 경로 — 토큰 검증은 페이지가 수행.
+// `share/` 로 앵커: 접두사만 쓰면 /share-xxx 같은 미래 경로까지 인증이 풀린다.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|login|api|share|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|login|api|share/|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)).*)'],
 }
