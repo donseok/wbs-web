@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { AlertTriangle, CalendarClock } from 'lucide-react'
 import type { ComputedItem } from '@/lib/domain/types'
-import { delayAging, varianceRanking } from '@/lib/domain/dashboard'
+import { delayAging, riskModel, varianceRanking } from '@/lib/domain/dashboard'
 import { collectLeaves } from '@/lib/domain/tree'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { fmtDate } from '@/components/wbs/shared'
@@ -14,10 +14,12 @@ export function RiskWorklist({ items, projectId, today }: {
   const aging = delayAging(leaves, today, 5)
   const variance = varianceRanking(leaves, today, 5)
   const rows = aging.list.length ? aging.list : variance.map(v => ({ item: v.item, overdue: 0, gap: v.gapPp }))
+  // 배지는 리스크 타일과 같은 숫자여야 한다 — 지연·임박 정의를 여기서 다시 쓰지 말 것.
+  const risk = riskModel(items, today)
 
   return (
     <SectionCard eyebrow="ACTION QUEUE" title="지금 확인할 작업" icon={AlertTriangle}
-      actions={<span className="chip bg-delayed-weak text-delayed">지연 {aging.total} · 임박 {leaves.filter(l => l.status !== 'done' && l.plannedEnd && l.plannedEnd >= today).length}</span>}>
+      actions={<span className="chip bg-delayed-weak text-delayed">지연 {risk.delayed} · 임박 {risk.dueSoon}</span>}>
       {rows.length === 0 ? <p className="text-sm text-ink-muted">현재 즉시 조치가 필요한 작업이 없습니다.</p> : (
         <div className="space-y-2">
           {rows.map(({ item, overdue, gap }) => (
