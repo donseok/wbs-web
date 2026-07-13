@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ChevronDown, ChevronUp, Download, ExternalLink, Maximize2, Minimize2, Paperclip } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Download, ExternalLink, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
 import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
@@ -18,6 +18,7 @@ import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
 import { MarkdownView } from './MarkdownView'
 import { MinuteMetaModal } from './MinuteMetaModal'
+import { MinuteShareModal } from './MinuteShareModal'
 import { MinuteChatPanel } from './MinuteChatPanel'
 import { MinuteInsightCard } from './MinuteInsightCard'
 import { MinuteToc } from './MinuteToc'
@@ -39,6 +40,7 @@ export function MinuteViewer({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [metaOpen, setMetaOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [headerOpen, setHeaderOpen] = useState(false)
   const [focus, setFocus] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -266,6 +268,9 @@ export function MinuteViewer({
             )}
             {canManage && (
               <span className="ml-auto flex items-center gap-2">
+                <button onClick={() => setShareOpen(true)} className="btn">
+                  <Share2 className="h-4 w-4" />{t('min.share.button')}
+                </button>
                 <button onClick={() => setMetaOpen(true)} className="btn">{t('min.detail.edit')}</button>
                 <label className="btn cursor-pointer">
                   {t('min.detail.replaceBody')}
@@ -310,6 +315,8 @@ export function MinuteViewer({
       )}
 
       <MinuteMetaModal open={metaOpen} onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }} minute={minute} />
+
+      <MinuteShareModal open={shareOpen} onClose={() => setShareOpen(false)} minuteId={minute.id} />
 
       <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title={t('min.detail.delete')} size="sm"
         footer={
