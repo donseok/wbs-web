@@ -78,14 +78,14 @@ export async function DashboardView({
       {/* B. 마일스톤 여정 */}
       <MilestoneTimeline points={milestones} startDate={startDate} endDate={endDate} today={today} />
 
-      {/* 실행 큐 — 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
-      <RiskWorklist items={items} projectId={projectId} today={today} />
-
       {/* C. 진척 트렌드 — S-Curve + SPI/velocity */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <TrendChart model={trend} today={today} />
         <SpiPanel model={trend} variance={round1(actual - planned)} />
       </div>
+
+      {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
+      <RiskWorklist items={items} projectId={projectId} today={today} />
 
       {/* D. 협업 현황 — 회의 일정 + 근태(좌우 균형).
           today 프롭은 base_date(공정율 기준일)로 고정될 수 있으므로(getComputedWbs) 쓰지 않는다 —
