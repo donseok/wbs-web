@@ -24,6 +24,11 @@ const TITLE_MAX = 200
 const BODY_MAX = 20000
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/** 오늘 'YYYY-MM-DD' (Asia/Seoul) — publish_from/to(date) 비교 기준. 앱 날짜 표기 관례. */
+function seoulToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+}
+
 /** 'YYYY-MM-DD' 형식 + 실재하는 날짜인지 (2026-02-30 등 반려) */
 function isValidDate(s: string): boolean {
   if (!DATE_RE.test(s)) return false
@@ -184,7 +189,11 @@ export async function getHeaderAnnouncements(projectId: string): Promise<Announc
   return getTopAnnouncements(projectId)
 }
 
-/** 사이드바 배지용 안읽음 공지 수 — 워터마크 이후 생성된 공지 count. */
+/**
+ * 사이드바 배지용 안읽음 공지 수 — 워터마크 이후 생성된 "오늘 게시중" 공지 count.
+ * 게시기간 필터가 없으면 만료 공지가 영구 안읽음으로 남는다(일반 사용자는 만료 공지를
+ * 목록에서 볼 수 없어 워터마크가 그것을 넘지 못함). getTopAnnouncements와 같은 조건.
+ */
 export async function getUnreadAnnouncementCount(projectId: string): Promise<number> {
   const user = await getSession()
   if (!user) return 0
@@ -196,10 +205,15 @@ export async function getUnreadAnnouncementCount(projectId: string): Promise<num
     .eq('project_id', projectId)
     .maybeSingle()
 
+  const today = seoulToday()
+  // 게시중만: (from is null 또는 from<=today) AND (to is null 또는 to>=today).
+  // .or() 는 서로 AND 결합 — 각 경계를 별도 .or() 로 건다.
   let query = sb
     .from('announcements')
     .select('id', { count: 'exact', head: true })
     .eq('project_id', projectId)
+    .or(`publish_from.is.null,publish_from.lte.${today}`)
+    .or(`publish_to.is.null,publish_to.gte.${today}`)
   if (seen?.last_seen_at) query = query.gt('created_at', seen.last_seen_at as string)
   const { count } = await query
   return count ?? 0
