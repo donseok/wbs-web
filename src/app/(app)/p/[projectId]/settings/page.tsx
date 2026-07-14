@@ -56,8 +56,15 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
 export default async function SettingsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const locale = await getServerLocale()
-  const [{ items, holidays }, projects, membership, dkIndex] = await Promise.all([
-    getComputedWbs(projectId),
+  const [wbs, projects, membership, dkIndex] = await Promise.all([
+    // 이 페이지가 트리에서 쓰는 건 표시용 스탯(taskCount)과 공휴일 목록뿐이다.
+    // WBS 조회 실패로 페이지 전체가 에러 바운더리로 떨어지면 복구 경로인 엑셀 임포트 UI까지 함께 막힌다 —
+    // 정확성 이득 없이 가용성만 잃으므로 이 페이지에서만 degrade 한다.
+    // (대시보드·WBS·칸반은 트리가 화면의 본체라 throw 를 그대로 둔다.)
+    getComputedWbs(projectId).catch((e: unknown) => {
+      console.error('[settings] WBS 조회 실패 — 통계·공휴일만 degrade:', e)
+      return null
+    }),
     listProjects(),
     getMembership(),
     dkbotIndexStatus(projectId),
@@ -65,7 +72,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   const isPmo = membership?.role === 'pmo_admin'
   const canMutate = isPmo
-  const taskCount = collectLeaves(items).length
+  const taskCount = wbs ? collectLeaves(wbs.items).length : '—'
 
   const scheduleLabel =
     project?.start_date || project?.end_date
@@ -209,12 +216,32 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         icon={CalendarDays}
         actions={!canMutate ? <span className="badge bg-pending-weak px-2 py-1 text-pending">{t(locale, 'settings.pmoOnlyBadge')}</span> : undefined}
       >
-        <ScheduleManager
-          projectId={projectId}
-          baseDate={project?.base_date ?? null}
-          holidays={holidays}
-          canEdit={canMutate}
-        />
+        {wbs ? (
+          <ScheduleManager
+            projectId={projectId}
+            baseDate={project?.base_date ?? null}
+            holidays={wbs.holidays}
+            canEdit={canMutate}
+          />
+        ) : (
+          // 공휴일을 빈 배열로 넘기면 '공휴일 0건'(정상)과 구분되지 않아 조용히 틀린 화면이 된다 —
+          // 조회 실패는 안내로 드러내고, 임포트·기본 설정 등 나머지 카드는 그대로 쓰게 둔다.
+          <div className="panel-soft flex items-center gap-4 p-5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pending-weak text-pending">
+              <Info className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                {locale === 'ko' ? '일정·공휴일 정보를 불러오지 못했습니다.' : 'Could not load schedule and holiday data.'}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-ink-muted">
+                {locale === 'ko'
+                  ? '일시적인 오류일 수 있습니다. 잠시 후 새로고침하세요. 이 페이지의 다른 설정(WBS 임포트 포함)은 그대로 사용할 수 있습니다.'
+                  : 'This may be temporary — please refresh shortly. Other settings on this page (including WBS import) remain available.'}
+              </p>
+            </div>
+          </div>
+        )}
         </SectionCard>
 
       {/* ── 프로젝트 상태 관리 (시각 전용) ── */}

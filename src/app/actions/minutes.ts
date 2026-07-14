@@ -23,7 +23,12 @@ type Sb = Awaited<ReturnType<typeof createServerClient>>
 
 /** 소유권 사전 확인 — RLS 0행 침묵 실패 방지. 반환: 에러 메시지 또는 null. */
 async function checkOwner(sb: Sb, minuteId: string, userId: string, role: string): Promise<string | null> {
-  const { data } = await sb.from('minutes').select('created_by').eq('id', minuteId).maybeSingle()
+  const { data, error } = await sb.from('minutes').select('created_by').eq('id', minuteId).maybeSingle()
+  // 보안 가드 조회 — 실패 시 소유자 판정 자체가 불가능하므로 거부(fail-closed).
+  if (error) {
+    console.error('[checkOwner] 소유권 조회 실패:', error.message)
+    return '권한 확인에 실패했습니다. 잠시 후 다시 시도하세요.'
+  }
   if (!data) return '회의록을 찾을 수 없습니다.'
   if ((data.created_by as string | null) !== userId && role !== 'pmo_admin') return '권한 없음'
   return null
@@ -34,9 +39,10 @@ async function rematchMinuteHighlights(minuteId: string, newBodyMd: string): Pro
   try {
     if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
     const admin = createAdminClient()
-    const { data: rows } = await admin.from('minute_highlights')
+    const { data: rows, error: rowsErr } = await admin.from('minute_highlights')
       .select('id, created_by, created_by_name, block_index, block_hash, created_at')
       .eq('minute_id', minuteId)
+    if (rowsErr) { console.error('[minutes] 재매칭 대상 하이라이트 조회 실패:', rowsErr.message); return }
     if (!rows || rows.length === 0) return
     const { reinserts, deleteIds } = rematchHighlights(rows as unknown as HighlightRow[], splitMinuteBlocks(newBodyMd))
     if (deleteIds.length === 0 && reinserts.length === 0) return
@@ -123,11 +129,26 @@ export async function replaceMinuteBody(
   const own = await checkOwner(sb, id, user.id, m.role)
   if (own) return { ok: false, error: own }
   // 기존 body 파일 경로는 DB에서 해석(클라이언트 신뢰 안 함) — 소유권 확인 후에만 Storage 삭제
-  const { data: old } = await sb.from('minute_files')
+  const { data: old, error: oldErr } = await sb.from('minute_files')
     .select('id, file_path').eq('minute_id', id).eq('role', 'body').maybeSingle()
+  // 삭제 대상 판단용 선행 조회 — 실패를 '기존 body 없음'으로 오인하면 아래 insert 로 role='body' 행이 2개가 되고,
+  // 그 뒤로는 이 maybeSingle 이 항상 복수 행으로 실패하는 자기 강화 고장이 된다. 실패는 실패로 반환한다.
+  if (oldErr) {
+    console.error('[replaceMinuteBody] 기존 본문 파일 조회 실패:', oldErr.message)
+    return { ok: false, error: oldErr.message }
+  }
   if (old) {
-    await sb.storage.from(BUCKET).remove([old.file_path as string])
-    await sb.from('minute_files').delete().eq('id', old.id as string)
+    // 순서 고정: 메타 행 delete 를 먼저 한다. Storage 를 먼저 지우면 행 delete 실패 시
+    // 행은 남고 그 file_path 가 가리키는 객체만 사라져 본문 다운로드가 영구히 깨진다(dangling pointer).
+    // 행 delete 가 실패하면 Storage 는 손대지 않은 원상이므로 그대로 중단한다.
+    const { error: delErr } = await sb.from('minute_files').delete().eq('id', old.id as string)
+    if (delErr) {
+      console.error('[replaceMinuteBody] 기존 본문 파일 메타 삭제 실패:', delErr.message)
+      return { ok: false, error: delErr.message }
+    }
+    // 행이 사라진 뒤의 Storage 삭제 실패는 고아 파일만 남기므로 로그 후 진행.
+    const { error: rmErr } = await sb.storage.from(BUCKET).remove([old.file_path as string])
+    if (rmErr) console.error('[replaceMinuteBody] 기존 본문 파일 Storage 삭제 실패(고아 파일 잔존):', rmErr.message)
   }
   const { error: insErr } = await sb.from('minute_files').insert({
     minute_id: id, role: 'body', file_name: file.fileName, file_path: file.filePath,
@@ -184,7 +205,9 @@ export async function removeMinuteFile(fileId: string): Promise<MinuteActionResu
   if ((f.role as string) === 'body') return { ok: false, error: '본문 파일은 교체로만 변경할 수 있습니다.' }
   const own = await checkOwner(sb, f.minute_id as string, user.id, m.role)
   if (own) return { ok: false, error: own }
-  await sb.storage.from(BUCKET).remove([f.file_path as string])
+  // Storage 삭제 실패는 고아 파일만 남기므로 로그 후 진행(메타 행 삭제는 계속한다).
+  const { error: rmErr } = await sb.storage.from(BUCKET).remove([f.file_path as string])
+  if (rmErr) console.error('[removeMinuteFile] Storage 삭제 실패(고아 파일 잔존):', rmErr.message)
   const { error } = await sb.from('minute_files').delete().eq('id', fileId)
   if (error) return { ok: false, error: error.message }
   revalidatePath(`/minutes/${f.minute_id as string}`)
@@ -199,9 +222,18 @@ export async function deleteMinute(id: string): Promise<MinuteActionResult> {
   const sb = await createServerClient()
   const own = await checkOwner(sb, id, user.id, m.role)
   if (own) return { ok: false, error: own }
-  const { data: fs } = await sb.from('minute_files').select('file_path').eq('minute_id', id)
+  // 삭제 대상 파일 목록 조회 — 실패를 '첨부 0건'으로 오인한 채 minutes 행을 지우면
+  // Storage 파일을 가리키는 유일한 포인터가 사라져 영구 고아가 된다. 실패 시 삭제를 중단한다.
+  const { data: fs, error: fsErr } = await sb.from('minute_files').select('file_path').eq('minute_id', id)
+  if (fsErr) {
+    console.error('[deleteMinute] 첨부 파일 목록 조회 실패:', fsErr.message)
+    return { ok: false, error: fsErr.message }
+  }
   const paths = (fs ?? []).map(f => f.file_path as string)
-  if (paths.length) await sb.storage.from(BUCKET).remove(paths)
+  if (paths.length) {
+    const { error: rmErr } = await sb.storage.from(BUCKET).remove(paths)
+    if (rmErr) console.error('[deleteMinute] Storage 삭제 실패(고아 파일 잔존):', rmErr.message)
+  }
   const { error } = await sb.from('minutes').delete().eq('id', id).select('id').single()
   if (error) return { ok: false, error: error.message }
   revalidatePath('/minutes')
@@ -247,10 +279,11 @@ export async function fetchMeetingMinutesLite(
   const user = await getSession()
   if (!user) return []
   const sb = await createServerClient()
-  const { data } = await sb.from('minutes')
+  const { data, error } = await sb.from('minutes')
     .select('id, title, minute_date')
     .eq('meeting_id', meetingId)
     .order('minute_date', { ascending: false })
+  if (error) console.error('[fetchMeetingMinutesLite] 연결된 회의록 조회 실패:', error.message)
   return (data ?? []).map(r => ({
     id: r.id as string,
     title: r.title as string,
@@ -290,9 +323,15 @@ export async function toggleMinuteHighlight(
   if (!block || !isMarkableBlock(block) || block.hash !== blockHash)
     return { ok: false, error: '본문이 변경되었습니다. 새로고침 해주세요.' }
 
-  const { data: existing } = await sb.from('minute_highlights')
+  const { data: existing, error: exErr } = await sb.from('minute_highlights')
     .select('id, block_hash').eq('minute_id', minuteId)
     .eq('created_by', user.id).eq('block_index', blockIndex).maybeSingle()
+  // 토글 방향(끄기/켜기)을 정하는 선행 조회 — 실패를 '없음'으로 오인하면 끄기가 켜기로 뒤집히고,
+  // 뒤이은 insert 의 unique 위반(23505)이 멱등 처리에 삼켜져 ok:true 로 보고된다.
+  if (exErr) {
+    console.error('[toggleMinuteHighlight] 기존 하이라이트 조회 실패:', exErr.message)
+    return { ok: false, error: exErr.message }
+  }
 
   if (existing && (existing.block_hash as string) === blockHash) {
     // 끄기
@@ -303,7 +342,13 @@ export async function toggleMinuteHighlight(
   }
   if (existing) {
     // stale 행(재매칭 실패 잔존, 해시 불일치) — 지우고 새로 켠다(스펙 §6.7)
-    await sb.from('minute_highlights').delete().eq('id', existing.id as string)
+    // 삭제 실패를 삼키면 뒤이은 insert 가 unique(minute_id, created_by, block_index) 위반(23505)을 내고,
+    // 그것이 아래 멱등 처리에 삼켜져 하이라이트가 갱신되지 않았는데도 ok:true 로 보고된다. 실패는 실패로 중단한다.
+    const { error: staleErr } = await sb.from('minute_highlights').delete().eq('id', existing.id as string)
+    if (staleErr) {
+      console.error('[toggleMinuteHighlight] stale 하이라이트 삭제 실패:', staleErr.message)
+      return { ok: false, error: staleErr.message }
+    }
   }
   const { error } = await sb.from('minute_highlights').insert({
     minute_id: minuteId, block_index: blockIndex, block_hash: blockHash,

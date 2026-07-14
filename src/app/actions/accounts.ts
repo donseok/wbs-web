@@ -45,7 +45,10 @@ async function isAdmin(): Promise<boolean> {
 }
 
 async function resolveTeamId(admin: AdminClient, teamCode: TeamCode): Promise<string | null> {
-  const { data } = await admin.from('teams').select('id').eq('code', teamCode).single()
+  const { data, error } = await admin.from('teams').select('id').eq('code', teamCode).single()
+  // 쓰기 직전의 채번 조회 — null 을 돌려주면 호출부가 저장을 중단(ok:false)하므로 실패는 이미 fail-closed다.
+  // 다만 '팀이 없음'과 '조회가 깨짐'이 화면에서 같은 문구로 보이므로 원인은 로그로 남긴다.
+  if (error) console.error('[resolveTeamId] 조회 실패:', error.message)
   return (data?.id as string | undefined) ?? null
 }
 
@@ -72,7 +75,12 @@ async function createOne(admin: AdminClient, input: AccountInput): Promise<Accou
   })
   if (memErr) {
     // 보상 롤백 — 멤버십 없는 유령 계정 방지
-    await admin.auth.admin.deleteUser(created.user.id)
+    // 롤백까지 실패하면 유령 계정이 남고, 관리자가 같은 이메일로 재시도할 때 '이미 존재'로만 튕긴다.
+    // 이 경우 ok:false 는 그대로 두되(계정 생성은 실패로 보고해야 맞다) 수동 정리를 위해 흔적을 남긴다.
+    const { error: rollbackErr } = await admin.auth.admin.deleteUser(created.user.id)
+    if (rollbackErr) {
+      console.error(`[createAccount] 보상 롤백 실패(유령 계정 잔존 user_id=${created.user.id}):`, rollbackErr.message)
+    }
     return { ok: false, error: '팀/권한 저장 실패: ' + memErr.message }
   }
 
@@ -139,8 +147,16 @@ export async function updateAccountRole(
 
   // 마지막 PMO 관리자 강등 방지 — 전원이 /admin/accounts 에서 잠기는 것을 막는다.
   if (role !== 'pmo_admin') {
-    const { data: admins } = await admin.from('memberships').select('user_id').eq('role', 'pmo_admin')
-    const adminIds = (admins ?? []).map((r) => r.user_id as string)
+    const { data: admins, error: adminsErr } = await admin
+      .from('memberships').select('user_id').eq('role', 'pmo_admin')
+    // 보안 가드용 조회다. 실패를 '관리자 0명'으로 폴백하면 가드가 통째로 무력화돼
+    // 마지막 관리자까지 강등되고 아무도 계정 관리에 못 들어온다(복구는 DB 직접 수정뿐).
+    // 따라서 조회 실패는 곧 거부(fail-closed) — 절대 통과시키지 않는다.
+    if (adminsErr || !admins) {
+      console.error('[updateAccountRole] 관리자 목록 조회 실패:', adminsErr?.message)
+      return { ok: false, error: '관리자 목록을 확인할 수 없어 권한 변경을 중단했습니다. 잠시 후 다시 시도하세요.' }
+    }
+    const adminIds = admins.map((r) => r.user_id as string)
     if (adminIds.includes(userId) && adminIds.length <= 1) {
       return { ok: false, error: '마지막 PMO 관리자는 강등할 수 없습니다. 다른 관리자를 먼저 지정하세요.' }
     }
@@ -167,7 +183,12 @@ export async function listAccounts(): Promise<AccountRow[]> {
   const perPage = 200
   for (let page = 1; ; page++) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage })
-    if (error || !data) break
+    // 지금까지 모은 페이지만 반환하면 '잘린 목록'이 완전한 목록처럼 보인다 — 누락된 계정은
+    // '존재하지 않음'과 구별되지 않고, 그가 pmo_admin 이면 관리자 목록에서 통째로 사라진다.
+    // 아래 memberships 조인과 같은 기준(fail-loud)으로 실패를 화면에 드러낸다.
+    if (error || !data) {
+      throw new Error(`계정 목록을 불러오지 못했습니다(page=${page}): ${error?.message ?? 'unknown'}`)
+    }
     for (const u of data.users) {
       users.push({
         id: u.id,
@@ -180,9 +201,13 @@ export async function listAccounts(): Promise<AccountRow[]> {
   }
 
   // 2) memberships + teams 조인
-  const { data: mems } = await admin.from('memberships').select('user_id, role, teams(code)')
+  const { data: mems, error: memsErr } = await admin.from('memberships').select('user_id, role, teams(code)')
+  // 조회 실패를 '멤버십 없음'으로 폴백하면 모든 계정이 '팀 없음 / 권한 없음'으로 렌더링된다.
+  // 여기는 권한 관리 화면이라 그 화면이 곧 잘못된 권한 정보이고(관리자 0명으로 보임),
+  // 그걸 근거로 관리자가 권한을 다시 부여하는 쓰기까지 유발한다. 조용한 빈 값보다 에러가 낫다.
+  if (memsErr || !mems) throw new Error('계정 권한 정보를 불러오지 못했습니다: ' + (memsErr?.message ?? 'unknown'))
   const byUser = new Map<string, { role: string; teamCode: TeamCode | null }>()
-  for (const row of mems ?? []) {
+  for (const row of mems) {
     const team = row.teams as unknown as { code: TeamCode } | null
     byUser.set(row.user_id as string, { role: row.role as string, teamCode: team?.code ?? null })
   }

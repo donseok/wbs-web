@@ -39,20 +39,25 @@ export const getProjectMeetingData = cache(async (
   projectId: string,
 ): Promise<{ meetings: Meeting[]; exceptions: MeetingException[] }> => {
   const sb = await createServerClient()
-  const { data: rows } = await sb
+  const { data: rows, error: rowsErr } = await sb
     .from('meetings')
     .select('id, project_id, title, meeting_date, start_time, end_time, location, category, recurrence, recurrence_until, created_by, created_by_name, created_at, updated_at, meeting_attendees(member_id)')
     .eq('project_id', projectId)
     .order('meeting_date', { ascending: true })
 
+  // 실패를 삼키면 캘린더와 회의록의 '회의 연결' 드롭다운이 '회의 없음'으로 위장된다(정상 상태와 구별 불가).
+  if (rowsErr) console.error('[getProjectMeetingData] meetings 조회 실패:', rowsErr.message)
+
   const meetings = (rows ?? []).map((r: Row) => mapMeeting(r, attendeeIdsFrom(r)))
   const ids = meetings.map(m => m.id)
   let exceptions: MeetingException[] = []
   if (ids.length) {
-    const { data: ex } = await sb
+    const { data: ex, error: exErr } = await sb
       .from('meeting_exceptions')
       .select('meeting_id, occurrence_date, kind')
       .in('meeting_id', ids)
+    // 예외 조회 실패 = 취소된 회차가 되살아나 보인다(취소 표시가 사라짐).
+    if (exErr) console.error('[getProjectMeetingData] meeting_exceptions 조회 실패(취소 회차가 표시됨):', exErr.message)
     exceptions = (ex ?? []).map((e: Row) => ({
       meetingId: e.meeting_id as string,
       occurrenceDate: e.occurrence_date as string,
@@ -67,20 +72,25 @@ export const getMeetingDetail = cache(async (
   id: string,
 ): Promise<{ meeting: Meeting; attendees: MeetingAttendeeInfo[] } | null> => {
   const sb = await createServerClient()
-  const { data: r } = await sb
+  const { data: r, error } = await sb
     .from('meetings')
     .select('id, project_id, title, meeting_date, start_time, end_time, location, category, body, recurrence, recurrence_until, created_by, created_by_name, created_at, updated_at, meeting_attendees(member_id)')
     .eq('id', id)
     .maybeSingle()
+
+  // 조회 실패가 null 폴백을 타면 호출부(상세 모달)는 '삭제된 회의'로 오인한다 — 원인을 로그로 남긴다.
+  if (error) console.error('[getMeetingDetail] 조회 실패:', error.message)
   if (!r) return null
 
   const attendeeIds = attendeeIdsFrom(r as Row)
   let attendees: MeetingAttendeeInfo[] = []
   if (attendeeIds.length) {
-    const { data: mem } = await sb
+    const { data: mem, error: memErr } = await sb
       .from('project_members')
       .select('id, name, email, teams(code)')
       .in('id', attendeeIds)
+    // 참석자 조회 실패 = 참석자가 지정돼 있는데도 '참석자 없음'으로 보인다.
+    if (memErr) console.error('[getMeetingDetail] 참석자 조회 실패:', memErr.message)
     attendees = (mem ?? []).map((m: Row) => ({
       id: m.id as string,
       name: m.name as string,
@@ -151,11 +161,14 @@ export const getMyMeetings = cache(async (
     `and(recurrence.eq.none,meeting_date.gte.${gridStartIso},meeting_date.lte.${gridEndIso}),` +
     `and(recurrence.neq.none,meeting_date.lte.${gridEndIso},or(recurrence_until.is.null,recurrence_until.gte.${gridStartIso}))`
 
-  const { data: rows } = await sb
+  const { data: rows, error: rowsErr } = await sb
     .from('meetings')
     .select('id, project_id, title, meeting_date, start_time, end_time, category, recurrence, recurrence_until, created_by, created_by_name, created_at, updated_at, meeting_attendees(member_id), projects(name)')
     .or(orClause)
     .order('meeting_date', { ascending: true })
+
+  // 실패를 삼키면 '내 회의' 캘린더가 '이번 달 회의 없음'으로 위장된다 — 사용자가 회의를 놓친다.
+  if (rowsErr) console.error('[getMyMeetings] meetings 조회 실패:', rowsErr.message)
 
   const meetings = (rows ?? []).map((r: Row) => {
     const attendeeIds = attendeeIdsFrom(r)
@@ -171,10 +184,12 @@ export const getMyMeetings = cache(async (
   const ids = meetings.map(m => m.id)
   let exceptions: MeetingException[] = []
   if (ids.length) {
-    const { data: ex } = await sb
+    const { data: ex, error: exErr } = await sb
       .from('meeting_exceptions')
       .select('meeting_id, occurrence_date, kind')
       .in('meeting_id', ids)
+    // 예외 조회 실패 = 취소된 회차가 되살아나 보인다(취소 표시가 사라짐).
+    if (exErr) console.error('[getMyMeetings] meeting_exceptions 조회 실패(취소 회차가 표시됨):', exErr.message)
     exceptions = (ex ?? []).map((e: Row) => ({
       meetingId: e.meeting_id as string,
       occurrenceDate: e.occurrence_date as string,

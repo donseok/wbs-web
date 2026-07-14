@@ -12,11 +12,18 @@ function seoulToday(): string {
 /** 진척 스냅샷 조회(날짜 오름차순). numeric 컬럼은 문자열로 올 수 있어 Number 변환. */
 export async function getSnapshots(projectId: string): Promise<SnapshotPoint[]> {
   const sb = await createServerClient()
-  const { data } = await sb
+  const { data, error } = await sb
     .from('wbs_progress_snapshots')
     .select('snap_date, actual_pct, planned_pct')
     .eq('project_id', projectId)
     .order('snap_date', { ascending: true })
+
+  // 조회 실패를 '이력 0건'으로 위장하면 buildTrend가 (축 시작,0)→(오늘,실적) 추세선을 **합성**해
+  // 정상 차트처럼 보인다 — 임원 의사결정에 쓰이는 화면이라 조용한 거짓 차트는 허용 불가.
+  // 다만 throw 하면 대시보드 전체가 죽으므로(같은 페이지의 다른 카드까지 동반 사망) 폴백은 유지하고
+  // 원인은 로그로 남긴다 — recordProgressSnapshot의 '로그만 남기고 계속' 관례와 동일.
+  if (error) console.error('[getSnapshots] 진척 스냅샷 조회 실패(추세선이 합성됨):', error.message)
+
   return (data ?? []).map((r: Record<string, unknown>) => ({
     date: r.snap_date as string,
     actual: Number(r.actual_pct),

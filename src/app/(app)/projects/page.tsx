@@ -27,6 +27,7 @@ const STATUS: Record<ProjectLifecycleStatus, { labelKey: DictKey; chip: string; 
   active: { labelKey: 'home.status_active', chip: 'bg-brand-weak text-brand', dot: 'bg-brand' },
   overdue: { labelKey: 'home.status_overdue' as DictKey, chip: 'bg-delayed-weak text-delayed', dot: 'bg-delayed' },
   done: { labelKey: 'home.status_done', chip: 'bg-done-weak text-done', dot: 'bg-done' },
+  unknown: { labelKey: 'home.status_unknown' as DictKey, chip: 'bg-surface-2 text-ink-muted', dot: 'bg-ink-subtle' },
 }
 
 function seoulToday(): string {
@@ -97,13 +98,17 @@ export default async function ProjectsHome() {
   const today = seoulToday()
 
   // 히어로 통계칩 = 전사 작업 집계(TASKS / DONE / %). 각 프로젝트의 WBS 트리를 병렬 로드해 리프를 합산한다.
+  // 실패는 null — 빈 트리([])로 뭉개면 'WBS 없는 프로젝트'와 구분이 안 돼, 종료일 지난 미완 프로젝트가
+  // '완료' 배지로 둔갑하고 히어로 집계도 조용히 축소된다. 한 프로젝트의 장애로 목록 전체를 죽이지는 않는다.
   const trees = await Promise.all(
-    projects.map(p => getComputedWbs(p.id).then(w => w.items).catch((): ComputedItem[] => [])),
+    projects.map(p => getComputedWbs(p.id).then(w => w.items).catch((): ComputedItem[] | null => null)),
   )
-  const taskStats = aggregateTaskStats(trees)
+  const taskStats = aggregateTaskStats(trees.filter((t): t is ComputedItem[] => t !== null))
 
   const withStatus = projects.map((p, i) => {
-    const stats = aggregateTaskStats([trees[i]])
+    const tree = trees[i]
+    if (!tree) return { project: p, status: 'unknown' as const }
+    const stats = aggregateTaskStats([tree])
     return {
       project: p,
       status: projectLifecycleStatus(p.start_date, p.end_date, today, {

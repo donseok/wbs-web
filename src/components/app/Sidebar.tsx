@@ -12,7 +12,7 @@ import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import type { DictKey } from '@/lib/i18n/dict'
 
-export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'overdue' | 'done'; baseDate?: string | null }
+export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'overdue' | 'done' | 'unknown'; baseDate?: string | null }
 
 export const SIDEBAR_STORAGE_KEY = 'dflow-sidebar'
 
@@ -31,6 +31,8 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
   // '지연 종료' = 기간 경과+미완(생애 축) — 대시보드의 '지연'(계획 대비 미달)과 다른 개념이라 라벨을 홈과 통일
   overdue: { dot: 'bg-rose-400', label: '지연 종료' },
   done: { dot: 'bg-sky-400', label: '완료' },
+  // WBS 조회 실패 — 완료 여부를 모른다. 모름을 '완료'로 표시하지 않기 위한 상태(추측 금지)
+  unknown: { dot: 'bg-slate-400', label: '확인 불가' },
 }
 
 function projectMenu(base: string): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {

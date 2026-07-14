@@ -34,8 +34,17 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 async function deleteReportIfEmpty(
   sb: Awaited<ReturnType<typeof createServerClient>>, reportId: string,
 ): Promise<void> {
-  const { data } = await sb.from('weekly_report_rows').select('id').eq('report_id', reportId).limit(1)
-  if (!data || data.length === 0) await sb.from('weekly_reports').delete().eq('id', reportId)
+  const { data, error } = await sb.from('weekly_report_rows').select('id').eq('report_id', reportId).limit(1)
+  // 조회 실패를 '행 0개'로 오인해 삭제하면 그새 다른 사용자가 넣은 행까지 cascade 로 사라진다(복구 불가).
+  // 보상 삭제는 어차피 최선 노력이므로, 실패하면 지우지 않고 빈 문서를 남긴 채 로그만 남긴다.
+  if (error) {
+    console.error('[deleteReportIfEmpty] 행 존재 확인 실패 — 보상 삭제를 건너뜁니다:', error.message)
+    return
+  }
+  if (data && data.length === 0) {
+    const { error: delErr } = await sb.from('weekly_reports').delete().eq('id', reportId)
+    if (delErr) console.error('[deleteReportIfEmpty] 보상 삭제 실패:', delErr.message)
+  }
 }
 
 /** 주차 문서 생성. carryOver=true면 이월 원본(가장 최근 이전 주차)에서 행 구성+차주계획을 초안으로. */

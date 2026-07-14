@@ -13,12 +13,33 @@ export const getComputedWbs = cache(async (
   projectId: string,
 ): Promise<{ items: ComputedItem[]; holidays: string[]; today: string }> => {
   const sb = await createServerClient()
-  const [{ data: items }, { data: ownerRows }, { data: hol }, { data: proj }] = await Promise.all([
+  const [
+    { data: items, error: itemsErr },
+    { data: ownerRows, error: ownersErr },
+    { data: hol, error: holErr },
+    { data: proj, error: projErr },
+  ] = await Promise.all([
     sb.from('wbs_items').select('*').eq('project_id', projectId),
     sb.from('item_owners').select('wbs_item_id, kind, teams(code)'),
     sb.from('holidays').select('date').eq('project_id', projectId),
     sb.from('projects').select('base_date').eq('id', projectId).maybeSingle(),
   ])
+
+  // 네 조회 모두 실패를 '없음'으로 폴백하면 화면이 비는 게 아니라 '조용히 틀린 화면/숫자'가 된다.
+  // - wbs_items: 빈 트리 → 대시보드가 'WBS 데이터 없음' EmptyState를 띄워 운영 데이터 위 재임포트를 유도한다(최악).
+  // - item_owners: 담당 배지·행 분리가 사라져 팀 편집 권한이 회수된 것처럼 보인다.
+  // - holidays: 빈 배열이 '공휴일 없음'(정상)과 구분되지 않아, 영업일 기반 계획%가 틀어져도 아무도 감지할 수 없다.
+  //   (정상적으로 0건인 경우와 달리 error는 명백한 실패이므로 여기서만 throw — 빈 결과는 그대로 통과시킨다.)
+  // - projects.base_date: 기준일이 조용히 오늘로 바뀌어 전 지표(계획%·지연 판정·PPT·봇 답변)가 어긋난다.
+  // 계산 결과가 알림/리포트/임베딩 쓰기로도 흘러가므로, 에러 바운더리('문제가 발생했습니다')가 조용한 오염보다 안전하다.
+  for (const [table, err] of [
+    ['wbs_items', itemsErr],
+    ['item_owners', ownersErr],
+    ['holidays', holErr],
+    ['projects', projErr],
+  ] as const) {
+    if (err) throw new Error(`[getComputedWbs] ${table} 조회 실패: ${err.message}`)
+  }
 
   const ownerMap = new Map<string, { team: TeamCode; kind: OwnerKind }[]>()
   ;(ownerRows ?? []).forEach((o: Record<string, unknown>) => {
@@ -62,14 +83,24 @@ export const getComputedWbs = cache(async (
 })
 
 // 사이드바용 경량 완료율 맵 — 프로젝트 전체를 1쿼리로 (트리 로드 없이)
+// 반환 null = 조회 실패. 빈 맵({})과 반드시 구분해야 한다 — 빈 맵은 'WBS가 없는 프로젝트'라는 정상 상태이고,
+// 실패를 그것과 같게 취급하면 종료일 지난 미완 프로젝트가 '완료' 배지로 둔갑한다(projectLifecycleStatus).
 export const getProjectsCompletion = cache(
-  async (projectIds: string[]): Promise<Record<string, ProjectCompletion>> => {
+  async (projectIds: string[]): Promise<Record<string, ProjectCompletion> | null> => {
     if (!projectIds.length) return {}
     const sb = await createServerClient()
-    const { data } = await sb
+    const { data, error } = await sb
       .from('wbs_items')
       .select('id, parent_id, project_id, actual_pct')
       .in('project_id', projectIds)
+
+    // 표시 전용이라 throw하지 않는다 — 이 함수는 앱 루트 layout에서 호출되므로 throw하면 배지 하나 때문에
+    // 모든 페이지가 에러 화면이 된다(복구 경로인 설정/임포트까지 막힌다). 대신 실패를 null로 신호한다.
+    if (error) {
+      console.error('[getProjectsCompletion] 조회 실패:', error.message)
+      return null
+    }
+
     return computeCompletionMap(
       (data ?? []).map(r => ({
         id: r.id as string,

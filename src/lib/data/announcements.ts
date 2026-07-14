@@ -10,12 +10,14 @@ function seoulToday(): string {
 /** 프로젝트 공지 목록 — 고정 우선 → 최신순. 실패 시 [] (읽기 계층 관례). */
 export const getAnnouncements = cache(async (projectId: string): Promise<Announcement[]> => {
   const sb = await createServerClient()
-  const { data } = await sb
+  const { data, error } = await sb
     .from('announcements')
     .select('id, project_id, title, body, category, is_pinned, publish_from, publish_to, created_at, updated_at')
     .eq('project_id', projectId)
     .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
+
+  if (error) console.error('[getAnnouncements] 조회 실패:', error.message)
 
   return (data ?? []).map((r: Record<string, unknown>) => ({
     id: r.id as string,
@@ -40,7 +42,7 @@ export const getTopAnnouncements = cache(async (projectId: string, limit = 5): P
   const today = seoulToday()
   // 게시중만: (from is null 또는 from<=today) AND (to is null 또는 to>=today).
   // .or() 는 서로 AND 결합 — 각 경계를 별도 .or() 로 건다.
-  const { data } = await sb
+  const { data, error } = await sb
     .from('announcements')
     .select('id, title, category, is_pinned')
     .eq('project_id', projectId)
@@ -49,6 +51,8 @@ export const getTopAnnouncements = cache(async (projectId: string, limit = 5): P
     .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit)
+
+  if (error) console.error('[getTopAnnouncements] 조회 실패:', error.message)
 
   return (data ?? []).map((r: Record<string, unknown>) => ({
     id: r.id as string,
@@ -63,11 +67,16 @@ export const getAnnouncementSeenAt = cache(async (projectId: string): Promise<st
   const sb = await createServerClient()
   const { data: u } = await sb.auth.getUser()
   if (!u.user) return null
-  const { data } = await sb
+  const { data, error } = await sb
     .from('announcement_seen')
     .select('last_seen_at')
     .eq('user_id', u.user.id)
     .eq('project_id', projectId)
     .maybeSingle()
+
+  // 조회 실패는 '워터마크 없음(=한 번도 안 봄)'과 구별되지 않아 **모든 공지가 NEW로 부풀어** 배지가 거짓말을 한다.
+  // 여기서 throw 하면 공지 페이지 자체가 뜨지 않으므로(읽는 것보다 나쁨) 폴백은 유지하고 원인만 로그로 남긴다.
+  if (error) console.error('[getAnnouncementSeenAt] 읽음 워터마크 조회 실패(공지가 모두 NEW로 표시됨):', error.message)
+
   return (data?.last_seen_at as string | undefined) ?? null
 })

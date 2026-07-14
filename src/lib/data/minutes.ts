@@ -61,7 +61,9 @@ export const getMinutesPage = cache(async (
     .gte('minute_date', rangeStart).lte('minute_date', rangeEnd)
     .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
   if (team) q = q.eq('team_code', team)
-  const { data } = await q
+  const { data, error } = await q
+  // 표시용 목록 — 실패를 삼키면 보관함이 '회의록 없음' 빈 화면으로 위장돼 재업로드를 유발한다. 최소한 원인은 남긴다.
+  if (error) console.error('[getMinutesPage] 조회 실패:', error.message)
   return (data ?? []).map((r: Row) => mapMinute(r))
 })
 
@@ -77,7 +79,9 @@ export const searchMinutes = cache(async (
     .or(`title.ilike.${pat},body_md.ilike.${pat}`)
     .order('minute_date', { ascending: false }).limit(limit)
   if (team) q = q.eq('team_code', team)
-  const { data } = await q
+  const { data, error } = await q
+  // 표시용 검색 — 실패를 '검색 결과 0건'으로 위장하면 사용자는 회의록이 없다고 오인한다. 폴백은 유지하되 로깅.
+  if (error) console.error('[searchMinutes] 조회 실패:', error.message)
   return (data ?? []).map((r: Row) => mapMinute(r))
 })
 
@@ -86,13 +90,18 @@ export const getMinuteDetail = cache(async (
   id: string,
 ): Promise<{ minute: Minute; files: MinuteFile[] } | null> => {
   const sb = await createServerClient()
-  const { data: r } = await sb.from('minutes')
+  const { data: r, error } = await sb.from('minutes')
     .select('id, minute_date, team_code, title, body_md, meeting_id, created_by, created_by_name, created_at, updated_at, meetings(project_id)')
     .eq('id', id).maybeSingle()
+  // null 은 호출자에서 404(삭제됨)로 렌더된다 — 조회 실패를 '행 없음'으로 위장하면
+  // 멀쩡히 존재하는 회의록이 삭제된 것처럼 보인다. 실패는 실패로 터뜨린다.
+  if (error) throw new Error(`[getMinuteDetail] 조회 실패: ${error.message}`)
   if (!r) return null
-  const { data: fs } = await sb.from('minute_files')
+  const { data: fs, error: fsErr } = await sb.from('minute_files')
     .select('id, minute_id, role, file_name, file_path, size, mime, created_at')
     .eq('minute_id', id).order('created_at', { ascending: true })
+  // 파일 목록은 부가 정보 — 본문까지 못 보게 막을 이유는 없어 로깅 후 빈 목록으로 진행.
+  if (fsErr) console.error('[getMinuteDetail] 파일 목록 조회 실패:', fsErr.message)
   const files: MinuteFile[] = (fs ?? []).map((f: Row) => ({
     id: f.id as string,
     minuteId: f.minute_id as string,

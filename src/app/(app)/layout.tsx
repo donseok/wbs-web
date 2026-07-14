@@ -20,7 +20,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     name: p.name,
     status: projectLifecycleStatus(
       p.start_date, p.end_date, today,
-      completion[p.id] ?? { hasWbs: false, allDone: false },
+      // completion === null 은 조회 실패(상태 모름) — 'WBS 없음'으로 뭉개면 '완료'로 오표시된다
+      completion === null ? null : (completion[p.id] ?? { hasWbs: false, allDone: false }),
     ),
     baseDate: (p as { base_date?: string | null }).base_date ?? null,
   }))

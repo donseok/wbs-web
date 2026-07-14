@@ -10,7 +10,12 @@ export async function listProjects() {
   // 서버 액션 직접 호출에 대비한 인증 재확인(RLS와 이중 방어).
   if (!(await getSession())) return []
   const sb = await createServerClient()
-  const { data } = await sb.from('projects').select('*').order('created_at', { ascending: false })
+  const { data, error } = await sb.from('projects').select('*').order('created_at', { ascending: false })
+  // 순수 표시용 조회라 폴백([])을 유지한다 — throw 하면 (app)/layout.tsx 가 호출하므로
+  // 프로젝트 목록 하나 깨진 것으로 앱 전 페이지가 에러 화면이 된다(로그인 후 아무 데도 못 감).
+  // 이 목록의 '0건'을 근거로 쓰기/삭제를 판단하는 경로는 없어서(생성은 채번·중복검사에 쓰지 않음)
+  // 데이터가 손상되지는 않는다. 대신 빈 사이드바의 원인이 사라지지 않도록 로그는 반드시 남긴다.
+  if (error) console.error('[listProjects] 조회 실패:', error.message)
   return data ?? []
 }
 
