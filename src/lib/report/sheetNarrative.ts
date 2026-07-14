@@ -49,9 +49,23 @@ function issuesOf(rows: WeeklySheetRow[], field: 'thisIssue' | 'nextIssue'): str
   return out.length ? out : ['특이 이슈 없음']
 }
 
+/** PPT 보고 순서 — 시트 화면의 행 순서(WEEKLY_SECTIONS)와 **일부러 다르다**.
+ *  보고서는 영업→구매→관리회계(사업/원가)를 먼저 세우고 품질·생산·조업·물류·설비·가공(현장)이 뒤따른다.
+ *  시트 행 순서를 바꾸면 작성자의 입력 동선이 흔들리므로, 순서 차이는 PPT 변환에서만 흡수한다.
+ *  이 목록은 WEEKLY_SECTIONS 전체를 덮어야 한다(테스트가 강제) — 빠진 구분은 맨 뒤로 밀린다. */
+export const PPT_SECTION_ORDER = [
+  '영업', '구매', '관리회계', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공',
+] as const
+
+/** 보고 순서상의 자리. 목록에 없는 구분(레거시·자유 입력)은 뒤로 밀되 서로는 sortOrder 순을 지킨다. */
+const pptRank = (r: WeeklySheetRow): number => {
+  const i = (PPT_SECTION_ORDER as readonly string[]).indexOf(r.section.trim())
+  return i < 0 ? PPT_SECTION_ORDER.length : i
+}
+
 /** 시트 행들 → NarrativeModel. 셀이 빈 모듈은 그 열에서 생략, 4셀 모두 빈 행은 어디에도 안 나감. */
 export function buildSheetNarrative(rows: WeeklySheetRow[]): NarrativeModel {
-  const sorted = [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+  const sorted = [...rows].sort((a, b) => pptRank(a) - pptRank(b) || a.sortOrder - b.sortOrder)
   return {
     prev: groupsOf(sorted, 'thisContent'),
     curr: groupsOf(sorted, 'nextContent'),

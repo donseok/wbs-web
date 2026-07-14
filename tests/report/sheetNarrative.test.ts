@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { sheetLineText, cellLines, rowLabel, buildSheetNarrative } from '@/lib/report/sheetNarrative'
-import type { WeeklySheetRow } from '@/lib/domain/weeklySheet'
+import { sheetLineText, cellLines, rowLabel, PPT_SECTION_ORDER, buildSheetNarrative } from '@/lib/report/sheetNarrative'
+import { WEEKLY_SECTIONS, type WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
   id: 'r1', reportId: 'rep1', section: '영업', module: '', sortOrder: 1,
@@ -45,6 +45,17 @@ describe('rowLabel', () => {
   })
 })
 
+describe('PPT_SECTION_ORDER', () => {
+  it('사용자 지정 보고 순서 — 시트 표시 순서와 다르다', () => {
+    expect(PPT_SECTION_ORDER).toEqual([
+      '영업', '구매', '관리회계', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공',
+    ])
+  })
+  it('시트의 9개 구분을 하나도 빠짐없이 덮는다 — 누락되면 그 구분이 PPT 맨 뒤로 밀린다', () => {
+    expect([...PPT_SECTION_ORDER].sort()).toEqual([...WEEKLY_SECTIONS].sort())
+  })
+})
+
 describe('buildSheetNarrative', () => {
   const rows = [
     row({ id: 'a', sortOrder: 2, section: '품질', thisContent: '1. 인터뷰', nextContent: '' }),
@@ -53,10 +64,26 @@ describe('buildSheetNarrative', () => {
   ]
   const n = buildSheetNarrative(rows)
 
-  it('prev=금주실적, curr=차주계획 — 헤드라인은 구분명, sortOrder 순', () => {
+  it('prev=금주실적, curr=차주계획 — 헤드라인은 구분명', () => {
     expect(n.prev.map(g => g.phase)).toEqual(['영업', '품질'])
     expect(n.prev[0].items).toEqual(['1. CheckList', '- CBO'])
     expect(n.curr.map(g => g.phase)).toEqual(['영업']) // 품질은 차주 빈 셀 → 생략
+  })
+  it('그룹·이슈 모두 PPT 보고 순서를 따른다 — 시트 행 순서(sortOrder)가 아니다', () => {
+    const sheetOrder = ['영업', '품질', '생산계획', '조업및표준화', '가공', '물류', '설비및L2', '관리회계', '구매']
+    const all = sheetOrder.map((section, i) =>
+      row({ id: `r${i}`, sortOrder: i + 1, section, thisContent: `${section} 실적`, thisIssue: `${section} 이슈` }))
+    const built = buildSheetNarrative(all)
+    expect(built.prev.map(g => g.phase)).toEqual([...PPT_SECTION_ORDER])
+    expect(built.issues).toEqual(PPT_SECTION_ORDER.map(s => `[${s}] ${s} 이슈`))
+  })
+  it('보고 순서에 없는 구분(레거시·자유 입력)은 뒤로 밀되 서로는 sortOrder 순을 지킨다', () => {
+    const built = buildSheetNarrative([
+      row({ id: 'x', sortOrder: 1, section: 'ERP', module: 'SD/LE', thisContent: '레거시B' }),
+      row({ id: 'y', sortOrder: 2, section: '구매', thisContent: '구매 실적' }),
+      row({ id: 'z', sortOrder: 0, section: '기타', module: '', thisContent: '레거시A' }),
+    ])
+    expect(built.prev.map(g => g.phase)).toEqual(['구매', '기타', 'ERP · SD/LE'])
   })
   it('내용 없는 구분은 어디에도 안 나감', () => {
     expect([...n.prev, ...n.curr].some(g => g.phase.includes('구매'))).toBe(false)
