@@ -471,7 +471,7 @@ export function WeeklySheetView({
         <EmptyState
           icon={FileSpreadsheet}
           title={`${weekLabel} 시트가 없습니다`}
-          description="이전 주차에서 이월하거나 기본 시트(공통·영업·품질 등 업무영역 10개 구분)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다."
+          description="이전 주차에서 이월하거나 기본 시트(영업·품질·생산계획 등 업무영역 9개 구분)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다."
           action={
             <div className="flex gap-2">
               {hasCarrySource && (
@@ -520,7 +520,7 @@ export function WeeklySheetView({
               return true
             }}
           />
-          {/* 구분 1단(업무영역 10개) + 내용 4열. 모듈 열과 행 구조 편집은 없다 — 구분당 1행 고정. */}
+          {/* 구분 1단(업무영역 9개) + 내용 4열. 모듈 열과 행 구조 편집은 없다 — 구분당 1행 고정. */}
           <table className="w-full table-fixed border-collapse bg-white text-[13px] text-black">
             <colgroup>
               <col className="w-[10%]" />    {/* 구분 */}

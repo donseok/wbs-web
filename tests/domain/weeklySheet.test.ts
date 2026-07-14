@@ -11,7 +11,6 @@ const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
 
 describe('mapLegacySection', () => {
   it('구 분류(공통/ERP/MES × 모듈) → 신규 구분', () => {
-    expect(mapLegacySection('공통', '공통')).toBe('공통')
     expect(mapLegacySection('ERP', 'SD/LE')).toBe('영업')
     expect(mapLegacySection('ERP', 'MD/PP')).toBe('생산계획')
     expect(mapLegacySection('ERP', 'MM')).toBe('구매')
@@ -19,38 +18,39 @@ describe('mapLegacySection', () => {
     expect(mapLegacySection('ERP', 'CO')).toBe('관리회계')
     expect(mapLegacySection('MES', '품질')).toBe('품질')
     expect(mapLegacySection('MES', 'APS')).toBe('생산계획')
-    expect(mapLegacySection('MES', '조업 및 표준화')).toBe('조업 및 표준화')
-    expect(mapLegacySection('MES', '가공')).toBe('Luxteel 가공')
-    expect(mapLegacySection('MES', '설비 Level2')).toBe('설비 및 Level2')
+    expect(mapLegacySection('MES', '조업 및 표준화')).toBe('조업및표준화')
+    expect(mapLegacySection('MES', '가공')).toBe('가공')
+    expect(mapLegacySection('MES', '설비 Level2')).toBe('설비및L2')
     expect(mapLegacySection('MES', '물류')).toBe('물류')
   })
   it('이미 신규 구분이면 항등 — 신규 행은 module이 빈 문자열', () => {
     for (const s of WEEKLY_SECTIONS) expect(mapLegacySection(s, '')).toBe(s)
   })
-  it('매핑 불가(자유 입력·모듈 없는 레거시) → 공통으로 흡수', () => {
-    expect(mapLegacySection('기타', '알수없음')).toBe('공통')
-    expect(mapLegacySection('MES', '')).toBe('공통')
-    expect(mapLegacySection('', '')).toBe('공통')
+  it('매핑 불가(자유 입력·모듈 없는 레거시) → 첫 구분으로 흡수(내용 유실 방지)', () => {
+    const fb = WEEKLY_SECTIONS[0]
+    expect(mapLegacySection('기타', '알수없음')).toBe(fb)
+    expect(mapLegacySection('MES', '')).toBe(fb)
+    expect(mapLegacySection('', '')).toBe(fb)
   })
-  it('Object.prototype 상속 키도 공통으로 흡수 — 매핑표 조회가 프로토타입 체인을 타지 않는다', () => {
+  it('Object.prototype 상속 키도 흡수 — 매핑표 조회가 프로토타입 체인을 타지 않는다', () => {
     for (const k of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
-      expect(mapLegacySection('ERP', k)).toBe('공통')
-      expect(mapLegacySection(k, '')).toBe('공통')
+      expect(mapLegacySection('ERP', k)).toBe(WEEKLY_SECTIONS[0])
+      expect(mapLegacySection(k, '')).toBe(WEEKLY_SECTIONS[0])
     }
   })
 })
 
 describe('carryOverRows', () => {
-  it('신규 체계 시트 — 차주계획→금주실적 1:1 이월, next는 비움, 10행 유지', () => {
+  it('신규 체계 시트 — 차주계획→금주실적 1:1 이월, next는 비움, 9행 유지', () => {
     const prev = [
-      row({ id: 'a', sortOrder: 2, section: '영업', module: '', nextContent: '계획B', nextIssue: '이슈B' }),
-      row({ id: 'b', sortOrder: 1, section: '공통', module: '', thisContent: '지난실적', nextContent: '계획A' }),
+      row({ id: 'a', sortOrder: 2, section: '품질', module: '', nextContent: '계획B', nextIssue: '이슈B' }),
+      row({ id: 'b', sortOrder: 1, section: '영업', module: '', thisContent: '지난실적', nextContent: '계획A' }),
     ]
     const out = carryOverRows(prev)
-    expect(out).toHaveLength(10)
+    expect(out).toHaveLength(9)
     expect(out.map(r => r.section)).toEqual([...WEEKLY_SECTIONS])
-    expect(out[0]).toMatchObject({ section: '공통', thisContent: '계획A', thisIssue: '', nextContent: '', nextIssue: '' })
-    expect(out[1]).toMatchObject({ section: '영업', thisContent: '계획B', thisIssue: '이슈B', nextContent: '', nextIssue: '' })
+    expect(out[0]).toMatchObject({ section: '영업', thisContent: '계획A', thisIssue: '', nextContent: '', nextIssue: '' })
+    expect(out[1]).toMatchObject({ section: '품질', thisContent: '계획B', thisIssue: '이슈B', nextContent: '', nextIssue: '' })
     expect('id' in out[0]).toBe(false)
   })
   it('레거시 시트 — 신규 구분으로 정규화, 같은 구분에 모이면 줄바꿈으로 병합', () => {
@@ -60,16 +60,16 @@ describe('carryOverRows', () => {
       row({ id: 'c', sortOrder: 3, section: 'MES', module: '가공', nextContent: 'Luxteel 라인 점검' }),
     ]
     const out = carryOverRows(prev)
-    expect(out).toHaveLength(10)
+    expect(out).toHaveLength(9)
     const by = (s: string) => out.find(r => r.section === s)!
     expect(by('관리회계').thisContent).toBe('자금 계획\n원가 계획') // sortOrder 순으로 이어붙임
     expect(by('관리회계').thisIssue).toBe('기준 미정')
-    expect(by('Luxteel 가공').thisContent).toBe('Luxteel 라인 점검')
-    expect(by('영업').thisContent).toBe('')                         // 원본에 없던 구분은 빈 행
+    expect(by('가공').thisContent).toBe('Luxteel 라인 점검')
+    expect(by('구매').thisContent).toBe('')                         // 원본에 없던 구분은 빈 행
   })
-  it('빈 입력 → 빈 표준 10행(빈 배열 아님)', () => {
+  it('빈 입력 → 빈 표준 9행(빈 배열 아님)', () => {
     const out = carryOverRows([])
-    expect(out).toHaveLength(10)
+    expect(out).toHaveLength(9)
     expect(out.every(r => r.thisContent === '' && r.nextContent === '')).toBe(true)
   })
   it('병합 시 앞뒤 빈 줄을 다듬는다 — PPT에 빈 불릿이 찍히지 않게', () => {
@@ -87,10 +87,10 @@ describe('carryOverRows', () => {
     const prev = [row({ sortOrder: 1, section: '영업', module: '', nextContent: '1. A\n\n2. B' })]
     expect(carryOverRows(prev).find(r => r.section === '영업')!.thisContent).toBe('1. A\n\n2. B')
   })
-  it('상속 키 모듈(toString 등)도 내용을 버리지 않고 공통으로 흡수', () => {
+  it('상속 키 모듈(toString 등)도 내용을 버리지 않고 흡수', () => {
     const prev = [row({ sortOrder: 1, section: 'ERP', module: 'toString', nextContent: '1. 잃으면 안 되는 내용' })]
     const out = carryOverRows(prev)
-    expect(out.find(r => r.section === '공통')!.thisContent).toBe('1. 잃으면 안 되는 내용')
+    expect(out.find(r => r.section === WEEKLY_SECTIONS[0])!.thisContent).toBe('1. 잃으면 안 되는 내용')
   })
   it('병합 결과가 셀 상한을 넘지 않게 클램프 — 넘치면 저장 불가 셀이 시드된다', () => {
     const half = 'x'.repeat(WEEKLY_CELL_MAX - 10)
@@ -120,10 +120,10 @@ describe('applyServerRow', () => {
 
 describe('defaultWeeklyRows', () => {
   const rows = defaultWeeklyRows()
-  it('업무영역 10행 — 구분 순서 보존, sortOrder 1부터 연속, module은 빈값', () => {
-    expect(rows).toHaveLength(10)
+  it('업무영역 9행 — 구분 순서 보존, sortOrder 1부터 연속, module은 빈값', () => {
+    expect(rows).toHaveLength(9)
     expect(rows.map(r => r.section)).toEqual([...WEEKLY_SECTIONS])
-    expect(rows.map(r => r.sortOrder)).toEqual(Array.from({ length: 10 }, (_, i) => i + 1))
+    expect(rows.map(r => r.sortOrder)).toEqual(Array.from({ length: 9 }, (_, i) => i + 1))
     expect(rows.every(r => r.module === '')).toBe(true)
   })
   it('셀 4개는 모두 빈값', () => {

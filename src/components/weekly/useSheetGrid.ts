@@ -145,9 +145,9 @@ export function useSheetGrid({
   const doPasteText = useCallback((text: string, anchor: CellAddr) => {
     const values = parseTsv(text)
     const { edits, clippedRows, clippedCols } = pasteEdits(rowIdsRef.current, anchor, values)
-    // 시트는 업무영역 구분 10행 고정이라 행을 늘릴 수단이 없다 — 실행 가능한 대안(위쪽 행부터
+    // 시트는 업무영역 구분 9행 고정이라 행을 늘릴 수단이 없다 — 실행 가능한 대안(위쪽 행부터
     // 붙여넣기 / 셀 안에서 줄바꿈)을 안내한다. '모듈 추가'를 안내하면 없는 버튼을 찾게 된다.
-    const rowsMsg = `${clippedRows}개 행이 시트 범위를 넘어 붙여넣지 못했습니다. 시트는 구분 10행 고정입니다 — 위쪽 행에서 시작하거나, 한 구분에 여러 항목을 넣으려면 셀 안에서 Alt+Enter로 줄을 나눠 주세요.`
+    const rowsMsg = `${clippedRows}개 행이 시트 범위를 넘어 붙여넣지 못했습니다. 시트는 구분 9행 고정입니다 — 위쪽 행에서 시작하거나, 한 구분에 여러 항목을 넣으려면 셀 안에서 Alt+Enter로 줄을 나눠 주세요.`
     if (clippedRows > 0 && clippedCols > 0) {
       toast({ title: '붙여넣기 일부 생략', variant: 'info',
         description: `${rowsMsg} 내용 4개 열을 넘는 오른쪽 데이터는 붙여넣지 않았습니다.` })
