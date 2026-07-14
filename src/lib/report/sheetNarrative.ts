@@ -26,23 +26,24 @@ export function cellLines(text: string): string[] {
   return out
 }
 
-/** 그룹 헤드라인 — 구분·모듈 없는 행(레퍼런스 시트 말미의 무라벨 행)이 '[] '로 나오지 않게 폴백. */
-const headline = (r: WeeklySheetRow): string => {
+/** 행 라벨 — 그룹 헤드라인과 이슈 접두가 공유한다.
+ *  신규 시트는 구분명 단독('영업'), 레거시 행은 '구분 · 모듈'('ERP · SD/LE')로 병기,
+ *  구분이 없으면 모듈로 폴백하고 둘 다 없으면 '기타'('[] '가 노출되지 않게). */
+export const rowLabel = (r: WeeklySheetRow): string => {
   const sec = r.section.trim(), mod = r.module.trim()
-  return sec && mod ? `[${sec}] ${mod}` : mod || sec || '기타'
+  if (!sec) return mod || '기타'
+  return mod && mod !== sec ? `${sec} · ${mod}` : sec
 }
-
-const issueLabel = (r: WeeklySheetRow): string => r.module.trim() || r.section.trim() || '기타'
 
 function groupsOf(rows: WeeklySheetRow[], field: 'thisContent' | 'nextContent'): NarrativeGroup[] {
   return rows
     .filter(r => r[field].trim() !== '')
-    .map((r, i) => ({ phase: headline(r), num: i + 1, items: cellLines(r[field]) }))
+    .map((r, i) => ({ phase: rowLabel(r), num: i + 1, items: cellLines(r[field]) }))
 }
 
 function issuesOf(rows: WeeklySheetRow[], field: 'thisIssue' | 'nextIssue'): string[] {
   const out = rows.flatMap(r =>
-    cellLines(r[field]).filter(l => l.trim() !== '').map(l => `[${issueLabel(r)}] ${l.trim()}`),
+    cellLines(r[field]).filter(l => l.trim() !== '').map(l => `[${rowLabel(r)}] ${l.trim()}`),
   )
   // 빈 목록을 직접 채워 fillWeeklyTemplate 우측 슬롯의 '예정된 주요 이벤트 없음' 폴백이 노출되지 않게 한다.
   return out.length ? out : ['특이 이슈 없음']

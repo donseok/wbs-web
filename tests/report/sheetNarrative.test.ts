@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { sheetLineText, cellLines, buildSheetNarrative } from '@/lib/report/sheetNarrative'
+import { sheetLineText, cellLines, rowLabel, buildSheetNarrative } from '@/lib/report/sheetNarrative'
 import type { WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
-  id: 'r1', reportId: 'rep1', section: 'ERP', module: 'SD/LE', sortOrder: 1,
+  id: 'r1', reportId: 'rep1', section: '영업', module: '', sortOrder: 1,
   thisContent: '', thisIssue: '', nextContent: '', nextIssue: '', ...over,
 })
 
@@ -30,38 +30,58 @@ describe('cellLines', () => {
   })
 })
 
+describe('rowLabel', () => {
+  it('신규 행(module 없음) — 구분명 단독', () => {
+    expect(rowLabel(row({ section: '영업', module: '' }))).toBe('영업')
+    expect(rowLabel(row({ section: '설비 및 Level2', module: '' }))).toBe('설비 및 Level2')
+  })
+  it('레거시 행 — 구분 · 모듈 병기', () => {
+    expect(rowLabel(row({ section: 'ERP', module: 'SD/LE' }))).toBe('ERP · SD/LE')
+    expect(rowLabel(row({ section: '공통', module: '공통' }))).toBe('공통') // 같으면 중복 표기 안 함
+  })
+  it('구분 없는 행 — 모듈 폴백, 둘 다 없으면 기타', () => {
+    expect(rowLabel(row({ section: '', module: '물류' }))).toBe('물류')
+    expect(rowLabel(row({ section: '', module: '' }))).toBe('기타')
+  })
+})
+
 describe('buildSheetNarrative', () => {
   const rows = [
-    row({ id: 'a', sortOrder: 2, section: 'MES', module: '가공', thisContent: '1. 인터뷰', nextContent: '' }),
-    row({ id: 'b', sortOrder: 1, thisContent: '1. CheckList\n- CBO', thisIssue: '지연 위험', nextContent: '1. 계획', nextIssue: '일정 협의 필요\n추가 인력' }),
-    row({ id: 'c', sortOrder: 3, section: '공통', module: '공통' }), // 4셀 모두 빈 행
+    row({ id: 'a', sortOrder: 2, section: '품질', thisContent: '1. 인터뷰', nextContent: '' }),
+    row({ id: 'b', sortOrder: 1, section: '영업', thisContent: '1. CheckList\n- CBO', thisIssue: '지연 위험', nextContent: '1. 계획', nextIssue: '일정 협의 필요\n추가 인력' }),
+    row({ id: 'c', sortOrder: 3, section: '구매' }), // 4셀 모두 빈 행
   ]
   const n = buildSheetNarrative(rows)
 
-  it('prev=금주실적, curr=차주계획 — 헤드라인 [구분] 모듈, sortOrder 순', () => {
-    expect(n.prev.map(g => g.phase)).toEqual(['[ERP] SD/LE', '[MES] 가공'])
+  it('prev=금주실적, curr=차주계획 — 헤드라인은 구분명, sortOrder 순', () => {
+    expect(n.prev.map(g => g.phase)).toEqual(['영업', '품질'])
     expect(n.prev[0].items).toEqual(['1. CheckList', '- CBO'])
-    expect(n.curr.map(g => g.phase)).toEqual(['[ERP] SD/LE']) // 가공은 차주 빈 셀 → 생략
+    expect(n.curr.map(g => g.phase)).toEqual(['영업']) // 품질은 차주 빈 셀 → 생략
   })
-  it('빈 행은 어디에도 안 나감', () => {
-    expect([...n.prev, ...n.curr].some(g => g.phase.includes('공통'))).toBe(false)
+  it('내용 없는 구분은 어디에도 안 나감', () => {
+    expect([...n.prev, ...n.curr].some(g => g.phase.includes('구매'))).toBe(false)
   })
-  it('이슈: [모듈] 접두, 멀티라인은 줄마다 개별 항목', () => {
-    expect(n.issues).toEqual(['[SD/LE] 지연 위험'])
-    expect(n.events).toEqual(['[SD/LE] 일정 협의 필요', '[SD/LE] 추가 인력'])
+  it('이슈: [구분] 접두, 멀티라인은 줄마다 개별 항목', () => {
+    expect(n.issues).toEqual(['[영업] 지연 위험'])
+    expect(n.events).toEqual(['[영업] 일정 협의 필요', '[영업] 추가 인력'])
   })
   it('이슈 없으면 [특이 이슈 없음] 직접 채움(우측 슬롯 기존 폴백 차단)', () => {
     const empty = buildSheetNarrative([row({ thisContent: '1. 작업' })])
     expect(empty.issues).toEqual(['특이 이슈 없음'])
     expect(empty.events).toEqual(['특이 이슈 없음'])
   })
-  it('구분·모듈 빈 행(무라벨) — 헤드라인·이슈 접두 폴백, "[] " 미노출', () => {
+  it('레거시 시트 — 헤드라인·이슈 접두에 구분 · 모듈 병기', () => {
+    const legacy = buildSheetNarrative([
+      row({ section: 'ERP', module: 'SD/LE', thisContent: '1. 수주 프로세스', thisIssue: '보류 건 있음' }),
+    ])
+    expect(legacy.prev.map(g => g.phase)).toEqual(['ERP · SD/LE'])
+    expect(legacy.issues).toEqual(['[ERP · SD/LE] 보류 건 있음'])
+  })
+  it('구분·모듈 빈 행(무라벨) — "[] " 미노출', () => {
     const unlabeled = buildSheetNarrative([
       row({ section: '', module: '', thisContent: '1. 통관 프로세스', thisIssue: '보세공장 이슈' }),
-      row({ id: 'r2', sortOrder: 2, section: 'MES', module: '', nextContent: '1. 물류 분석' }),
     ])
     expect(unlabeled.prev.map(g => g.phase)).toEqual(['기타'])
-    expect(unlabeled.curr.map(g => g.phase)).toEqual(['MES'])
     expect(unlabeled.issues).toEqual(['[기타] 보세공장 이슈'])
   })
 })
