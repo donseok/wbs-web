@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useTransition } from 'react'
-import { CalendarDays, Clock4, MapPin, Repeat, Trash2, Pencil, Ban, User, AlertTriangle } from 'lucide-react'
+import Link from 'next/link'
+import { CalendarDays, Clock4, MapPin, Repeat, Trash2, Pencil, Ban, User, AlertTriangle, NotebookText } from 'lucide-react'
 import type { DictKey } from '@/lib/i18n/dict'
 import type { Meeting, MeetingAttendeeInfo, MeetingOccurrence } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -9,6 +10,9 @@ import { Modal } from '@/components/ui/Modal'
 import { fmtDate } from '@/components/wbs/shared'
 import { MEETING_META, canEditMeeting } from '@/lib/domain/meetings'
 import { fetchMeetingDetail, cancelOccurrence, deleteMeeting } from '@/app/actions/meetings'
+import { fetchMeetingMinutesLite } from '@/app/actions/minutes'
+
+type LinkedMinute = { id: string; title: string; minuteDate: string }
 
 export function MeetingDetailModal({
   open, occurrence, currentUserId, role, onClose, onEditSeries, onChanged,
@@ -23,6 +27,7 @@ export function MeetingDetailModal({
 }) {
   const { t } = useLocale()
   const [detail, setDetail] = useState<{ meeting: Meeting; attendees: MeetingAttendeeInfo[] } | null>(null)
+  const [minutes, setMinutes] = useState<LinkedMinute[]>([])
   const [loading, setLoading] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
@@ -30,12 +35,17 @@ export function MeetingDetailModal({
   const [pending, startTransition] = useTransition()
 
   useEffect(() => {
-    if (!open || !occurrence) { setDetail(null); setConfirmDelete(false); setConfirmCancel(false); setError(null); return }
+    if (!open || !occurrence) {
+      setDetail(null); setMinutes([]); setConfirmDelete(false); setConfirmCancel(false); setError(null); return
+    }
     let alive = true
     setLoading(true)
-    fetchMeetingDetail(occurrence.seriesId)
-      .then(d => { if (alive) setDetail(d) })
-      .catch(() => {})
+    // 회의록 조회는 부가 정보 — 실패해도 상세 표시를 막지 않는다
+    Promise.all([
+      fetchMeetingDetail(occurrence.seriesId).catch(() => null),
+      fetchMeetingMinutesLite(occurrence.seriesId).catch(() => [] as LinkedMinute[]),
+    ])
+      .then(([d, ms]) => { if (alive) { setDetail(d); setMinutes(ms) } })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
   }, [open, occurrence])
@@ -106,6 +116,25 @@ export function MeetingDetailModal({
                 </div>
               )}
           </div>
+
+          {/* 연결된 회의록 — 있을 때만 노출. 클릭하면 회의록 상세로 바로 이동 */}
+          {minutes.length > 0 && (
+            <div>
+              <div className="mb-1.5 text-xs font-semibold text-ink-muted">{t('meet.detail.linkedMinutes')}</div>
+              <ul className="space-y-1">
+                {minutes.map(mn => (
+                  <li key={mn.id}>
+                    <Link href={`/minutes/${mn.id}`} onClick={onClose}
+                      className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink transition hover:border-line-strong hover:bg-surface-2">
+                      <NotebookText className="h-4 w-4 shrink-0 text-brand" />
+                      <span className="shrink-0 tabular-nums text-xs text-ink-subtle">{mn.minuteDate}</span>
+                      <span className="truncate">{mn.title}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div>
             <div className="mb-1.5 text-xs font-semibold text-ink-muted">{t('meet.detail.body')}</div>

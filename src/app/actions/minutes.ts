@@ -240,6 +240,24 @@ export async function fetchProjectMeetingsLite(
   return meetings.map(mt => ({ id: mt.id, title: mt.title, meetingDate: mt.meetingDate }))
 }
 
+/** 회의 상세 모달의 '연결된 회의록' 바로가기용 — 역방향 조회(회의 → 회의록). */
+export async function fetchMeetingMinutesLite(
+  meetingId: string,
+): Promise<{ id: string; title: string; minuteDate: string }[]> {
+  const user = await getSession()
+  if (!user) return []
+  const sb = await createServerClient()
+  const { data } = await sb.from('minutes')
+    .select('id, title, minute_date')
+    .eq('meeting_id', meetingId)
+    .order('minute_date', { ascending: false })
+  return (data ?? []).map(r => ({
+    id: r.id as string,
+    title: r.title as string,
+    minuteDate: r.minute_date as string,
+  }))
+}
+
 /** 월 이동 시 클라이언트 호출용. */
 export async function fetchMinutesRange(
   rangeStart: string, rangeEnd: string, team: TeamCode | null,
