@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
-import { capItems, lineCost, paginateGroups, fillWeeklyTemplate } from '@/lib/report/templateFill'
+import { capItems, lineCost, paginateGroups, paginatePairedByGroup, fillWeeklyTemplate } from '@/lib/report/templateFill'
 import { sheetLineText } from '@/lib/report/sheetNarrative'
 import type { NarrativeGroup, NarrativeModel } from '@/lib/report/narrative'
 import type { WeeklyReportModel } from '@/lib/report/weekly'
@@ -92,6 +92,55 @@ describe('paginateGroups', () => {
     expect(pages[1][0].items).toHaveLength(6)
     const all = pages.flat().flatMap(x => x.items)
     expect(all).toHaveLength(20)
+  })
+})
+
+describe('paginatePairedByGroup (구분당 1페이지)', () => {
+  const g = (phase: string, n: number): NarrativeGroup =>
+    ({ phase, num: 1, items: Array.from({ length: n }, (_, i) => `항목${i + 1}`) })
+
+  it('각 구분이 자기 슬라이드에서 시작 — 예산이 남아도 묶지 않는다', () => {
+    const { prevPages, currPages } = paginatePairedByGroup([g('영업', 2), g('ERP', 3)], [g('영업', 1), g('ERP', 2)], 15)
+    expect(prevPages).toHaveLength(2)
+    expect(prevPages.map(p => p[0].phase)).toEqual(['영업', 'ERP'])
+    expect(currPages.map(p => p[0].phase)).toEqual(['영업', 'ERP'])
+  })
+  it('같은 슬라이드의 좌/우는 항상 같은 구분', () => {
+    const { prevPages, currPages } = paginatePairedByGroup([g('영업', 1), g('MES', 1)], [g('영업', 1), g('MES', 1)], 15)
+    for (let i = 0; i < prevPages.length; i += 1) {
+      expect(prevPages[i][0].phase).toBe(currPages[i][0].phase)
+    }
+  })
+  it('한쪽 열에만 있는 구분은 반대 열이 빈 페이지(→ 해당 없음), 표준 순서 유지', () => {
+    // 금주실적: 영업·ERP·MES / 차주계획: 영업·MES (ERP는 차주 없음)
+    const { prevPages, currPages } = paginatePairedByGroup(
+      [g('영업', 1), g('ERP', 1), g('MES', 1)], [g('영업', 1), g('MES', 1)], 15,
+    )
+    expect(prevPages.map(p => p[0].phase)).toEqual(['영업', 'ERP', 'MES'])
+    expect(currPages[1]).toEqual([])                    // ERP 슬라이드의 차주계획은 빔
+    expect(currPages[0][0].phase).toBe('영업')
+    expect(currPages[2][0].phase).toBe('MES')
+  })
+  it('한 구분이 예산을 넘으면 그 구분 안에서만 연속 페이지로 분할', () => {
+    const { prevPages, currPages } = paginatePairedByGroup([g('영업', 20), g('ERP', 2)], [g('영업', 1), g('ERP', 1)], 15)
+    // 영업(20) → 2페이지 + ERP → 1페이지 = 3슬라이드
+    expect(prevPages).toHaveLength(3)
+    expect(prevPages[0][0].phase).toBe('영업')
+    expect(prevPages[1][0].phase).toBe('영업 (계속)')
+    expect(prevPages[2][0].phase).toBe('ERP')
+    expect(currPages[1]).toEqual([])                    // 영업 2페이지째 차주계획 없음
+    const all = prevPages.flat().flatMap(x => x.items).filter(s => s.startsWith('항목'))
+    expect(all).toHaveLength(22)                        // 20 + 2, 유실 없음
+  })
+  it('같은 라벨 그룹(레거시 다중 모듈)은 items를 이어붙여 한 페이지로', () => {
+    const { prevPages } = paginatePairedByGroup(
+      [{ phase: 'ERP · SD', num: 1, items: ['a'] }, { phase: 'ERP · SD', num: 2, items: ['b'] }], [], 15,
+    )
+    expect(prevPages).toHaveLength(1)
+    expect(prevPages[0][0].items).toEqual(['a', 'b'])
+  })
+  it('빈 입력은 빈 1페이지 쌍', () => {
+    expect(paginatePairedByGroup([], [], 15)).toEqual({ prevPages: [[]], currPages: [[]] })
   })
 })
 
@@ -188,5 +237,25 @@ describe('fillWeeklyTemplate 옵션 (시트 경로)', () => {
     const xml = await zip.file('ppt/slides/slide2.xml')!.async('string')
     expect(xml).toContain('전주 주요활동 (7/6~7/10)')
     expect(xml).toContain('<a:t>    - 1. 실적</a:t>')      // 기존 subLineText 규칙
+  })
+
+  it('pagePerGroup: 구분 2개면 예산이 남아도 슬라이드 2장(구분당 1페이지)', async () => {
+    const two: NarrativeModel = {
+      prev: [{ phase: '영업', num: 1, items: ['수주 협의'] }, { phase: 'ERP', num: 2, items: ['SD 설계'] }],
+      curr: [{ phase: '영업', num: 1, items: ['견적 발송'] }, { phase: 'ERP', num: 2, items: ['MM 이관'] }],
+      issues: ['특이 이슈 없음'], events: ['특이 이슈 없음'],
+    }
+    const zip = await JSZip.loadAsync(await fillWeeklyTemplate(two, meta, { pagePerGroup: true }))
+    const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    const slide3 = await zip.file('ppt/slides/slide3.xml')!.async('string')
+    expect(slide3).not.toBeNull()                        // 구분 2개 → 2슬라이드
+    expect(slide2).toContain('영업')                      // 1슬라이드 = 영업 구분(좌/우 모두)
+    expect(slide2).toContain('수주 협의')
+    expect(slide2).toContain('견적 발송')
+    expect(slide2).not.toContain('SD 설계')               // ERP는 2슬라이드로 분리
+    expect(slide3).toContain('ERP')
+    expect(slide3).toContain('SD 설계')
+    expect(slide3).toContain('MM 이관')
+    expect(await zip.file('ppt/slides/slide4.xml')).toBeNull()
   })
 })

@@ -73,7 +73,8 @@ export async function GET(req: NextRequest) {
     const body = await fillWeeklyTemplate(
       buildSheetNarrative(sheet.rows),
       { meta: { prevWeekRange: wk.thisRange, weekRange: wk.nextRange } }, // 좌=금주실적, 우=차주계획
-      { labels: { left: '금주실적', right: '차주계획' }, lineFormatter: sheetLineText },
+      { labels: { left: '금주실적', right: '차주계획' }, lineFormatter: sheetLineText, pagePerGroup: true }, // 구분(업무영역)당 1페이지
+
     )
     const filename = `${project.name}_주간업무_${wk.weekTag}_${weekStart}.pptx`.replace(/[^\w가-힣.\-]+/g, '_')
     return new NextResponse(body as unknown as ArrayBuffer, { // Buffer 단독 타입 → 기존 반환부(route.ts:74)의 ArrayBuffer|Buffer 유니온과 달리 unknown 경유 필요
