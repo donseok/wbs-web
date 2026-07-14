@@ -33,7 +33,6 @@ export function MinuteSignals({ signals }: { projectId: string; signals: MinuteS
                   <span className="text-[11px] text-ink-subtle">{s.minuteDate} · {s.minuteTitle}</span>
                 </div>
                 <p className="mt-1 text-sm text-ink">{s.label}</p>
-                {s.linkedWbsItemName && <p className="mt-1 text-[11px] text-brand">WBS ↔ {s.linkedWbsItemName}</p>}
               </div>
               <Link href={`/minutes/${s.minuteId}`} className="shrink-0 text-brand" title="회의록 열기">
                 <ArrowRight className="h-4 w-4" />

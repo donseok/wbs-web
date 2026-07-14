@@ -251,7 +251,7 @@ export function MinuteViewer({
 
       {/* 핵심 요약 카드 — shrink-0 유지(xl 높이 체인) */}
       <MinuteInsightCard
-        minuteId={minute.id} projectId={minute.meetingProjectId ?? null} insights={annotations.insights} highlights={annotations.highlights}
+        minuteId={minute.id} insights={annotations.insights} highlights={annotations.highlights}
         blocks={blocks} bodyHash={bodyHash} onJump={jumpTo}
       />
 

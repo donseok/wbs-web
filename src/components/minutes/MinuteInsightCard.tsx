@@ -1,13 +1,13 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, ChevronUp, Link2, Sparkles, Unlink } from 'lucide-react'
+import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import type { InsightKind, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import type { MinuteBlock } from '@/lib/minutes/blocks'
 import {
   INS_PRIORITY, insightCardState, topHighlightedBlocks, visibleInsights,
 } from '@/lib/minutes/annotations'
-import { ensureMinuteInsightsAction, linkMinuteInsightToWbsAction, searchWbsForMinuteAction, unlinkMinuteInsightFromWbsAction } from '@/app/actions/minutes'
+import { ensureMinuteInsightsAction } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
 /** kind 칩 색 — 결정=done/액션=progress/기한=accent-warning/리스크=delayed (스펙 §6.2, StatusPill 패턴). */
@@ -19,10 +19,9 @@ const KIND_CHIP: Record<InsightKind, { chip: string; dot: string }> = {
 }
 
 export function MinuteInsightCard({
-  minuteId, projectId, insights, highlights, blocks, bodyHash, onJump,
+  minuteId, insights, highlights, blocks, bodyHash, onJump,
 }: {
   minuteId: string
-  projectId: string | null
   insights: MinuteInsight[]
   highlights: MinuteHighlight[]
   blocks: MinuteBlock[]
@@ -53,19 +52,6 @@ export function MinuteInsightCard({
     healRan.current = true
     runHeal()
   }, [cardState, runHeal])
-
-  async function linkAction(i: MinuteInsight) {
-    if (!projectId) return
-    const query = window.prompt('연결할 WBS 작업명 검색')?.trim()
-    if (!query) return
-    const matches = await searchWbsForMinuteAction(projectId, query)
-    if (!matches.length) { window.alert('검색 결과가 없습니다.'); return }
-    const choice = window.prompt(matches.map((x, n) => `${n + 1}. ${x.name}`).join('\n') + '\n번호를 입력하세요', '1')
-    const selected = matches[Number(choice) - 1]
-    if (!selected) return
-    const result = await linkMinuteInsightToWbsAction(i.id, selected.id)
-    if (result.ok) router.refresh(); else window.alert(result.error ?? '연결에 실패했습니다.')
-  }
 
   // 표시할 것이 전무하면(빈 본문 등) 카드 자체를 숨김
   if (blocks.length === 0) return null
@@ -120,16 +106,6 @@ export function MinuteInsightCard({
                     </span>
                     {/* 순수 텍스트 렌더 — LLM 산출물 링크화 금지(프롬프트 인젝션 차단, 스펙 §6.2) */}
                     <span className="min-w-0 flex-1">{i.label}</span>
-                    {i.kind === 'action' && projectId && (i.linkedWbsItemId ? (
-                      <button title="WBS 연결 해제" className="shrink-0 text-brand" onClick={async e => { e.stopPropagation(); await unlinkMinuteInsightFromWbsAction(i.id); router.refresh() }}>
-                        <Unlink className="h-3.5 w-3.5" />
-                      </button>
-                    ) : (
-                      <button title="WBS 연결" className="shrink-0 text-ink-subtle hover:text-brand" onClick={e => { e.stopPropagation(); void linkAction(i) }}>
-                        <Link2 className="h-3.5 w-3.5" />
-                      </button>
-                    ))}
-                    {i.linkedWbsItemName && <span className="max-w-32 truncate text-[11px] text-brand">↔ {i.linkedWbsItemName}</span>}
                   </button>
                 </li>
               ))}

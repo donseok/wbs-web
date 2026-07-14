@@ -333,35 +333,6 @@ export async function ensureMinuteInsightsAction(
   return { status }
 }
 
-export async function searchWbsForMinuteAction(projectId: string, query: string) {
-  const m = await getMembership(); if (!m) return []
-  const sb = await createServerClient()
-  const { data } = await sb.from('wbs_items').select('id, name, level, planned_end')
-    .eq('project_id', projectId).ilike('name', `%${query.trim().replace(/[%_]/g, '')}%`)
-    .order('sort_order').limit(8)
-  return (data ?? []).map(r => ({ id: r.id as string, name: r.name as string, level: r.level as string, plannedEnd: r.planned_end as string | null }))
-}
-
-export async function linkMinuteInsightToWbsAction(insightId: string, wbsItemId: string) {
-  const m = await getMembership(); const user = await getSession()
-  if (!m || !user) return { ok: false, error: '로그인 필요' }
-  const sb = await createServerClient()
-  const { data: insight } = await sb.from('minute_insights').select('id, kind').eq('id', insightId).maybeSingle()
-  if (!insight || insight.kind !== 'action') return { ok: false, error: '액션 아이템만 연결할 수 있습니다.' }
-  const { data: item } = await sb.from('wbs_items').select('id').eq('id', wbsItemId).maybeSingle()
-  if (!item) return { ok: false, error: 'WBS 항목을 찾을 수 없습니다.' }
-  const { error } = await sb.from('minute_insight_wbs_links').upsert({ insight_id: insightId, wbs_item_id: wbsItemId, linked_by: user.id })
-  if (error) return { ok: false, error: error.message }
-  revalidatePath('/minutes'); return { ok: true }
-}
-
-export async function unlinkMinuteInsightFromWbsAction(insightId: string) {
-  const m = await getMembership(); if (!m) return { ok: false, error: '로그인 필요' }
-  const sb = await createServerClient()
-  const { error } = await sb.from('minute_insight_wbs_links').delete().eq('insight_id', insightId)
-  return error ? { ok: false, error: error.message } : { ok: true }
-}
-
 export interface MinuteShareResult { ok: boolean; enabled?: boolean; token?: string | null; error?: string }
 
 /** 소유자/관리자 검증 + 공유 컬럼 단일 조회 — get/set 공용(왕복 1회, 소유권 규칙 한 곳). */

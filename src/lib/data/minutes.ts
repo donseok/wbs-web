@@ -6,21 +6,27 @@ import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 
 type Row = Record<string, unknown>
 
+/** 인사이트 조회 컬럼 — 다른 테이블을 임베드하지 않는다.
+ *  임베드로 묶으면 그 테이블/관계가 어긋난 순간 PostgREST가 쿼리 전체를 거절해 인사이트가 통째로 사라진다(2026-07 실제 사고). */
+const INSIGHT_COLS = 'id, minute_id, body_hash, kind, label, block_index, block_hash'
+
 export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8): Promise<MinuteSignal[]> => {
   const sb = await createServerClient()
-  const { data } = await sb.from('minute_insights')
-    .select('id, minute_id, body_hash, kind, label, block_index, block_hash, minute_insight_wbs_links(wbs_item_id, wbs_items(name)), minutes!inner(title, minute_date, meeting_id, meetings!inner(project_id))')
+  const { data, error } = await sb.from('minute_insights')
+    .select(`${INSIGHT_COLS}, minutes!inner(title, minute_date, meeting_id, meetings!inner(project_id))`)
     .in('kind', ['action', 'risk', 'decision', 'deadline'])
     .eq('minutes.meetings.project_id', projectId)
     .order('created_at', { ascending: false }).limit(limit)
-  return (data ?? []).map((r: Row) => {
+  if (error) {
+    console.error('[getProjectMinuteSignals] 조회 실패:', error.message)
+    return []
+  }
+  return ((data ?? []) as Row[]).map((r: Row) => {
     const minute = r.minutes as Row
-    const link = (r.minute_insight_wbs_links as Row[] | null)?.[0]
     return {
       id: r.id as string, minuteId: r.minute_id as string, bodyHash: r.body_hash as string,
       kind: r.kind as 'action' | 'risk' | 'decision' | 'deadline', label: r.label as string, blockIndex: r.block_index as number,
-      blockHash: r.block_hash as string, linkedWbsItemId: link?.wbs_item_id as string | null,
-      linkedWbsItemName: (link?.wbs_items as Row | undefined)?.name as string | null,
+      blockHash: r.block_hash as string,
       minuteTitle: minute.title as string, minuteDate: minute.minute_date as string,
     }
   })
@@ -107,14 +113,17 @@ export const getMinuteAnnotations = cache(async (
   id: string,
 ): Promise<{ highlights: MinuteHighlight[]; insights: MinuteInsight[] }> => {
   const sb = await createServerClient()
-  const [{ data: hs }, { data: ins }] = await Promise.all([
+  const [{ data: hs, error: hsErr }, { data: ins, error: insErr }] = await Promise.all([
     sb.from('minute_highlights')
       .select('id, minute_id, block_index, block_hash, created_by, created_by_name, created_at')
       .eq('minute_id', id).order('created_at', { ascending: true }),
     sb.from('minute_insights')
-      .select('id, minute_id, body_hash, kind, label, block_index, block_hash, minute_insight_wbs_links(wbs_item_id, wbs_items(name))')
+      .select(INSIGHT_COLS)
       .eq('minute_id', id),
   ])
+  if (hsErr) console.error('[getMinuteAnnotations] 하이라이트 조회 실패:', hsErr.message)
+  if (insErr) console.error('[getMinuteAnnotations] 인사이트 조회 실패:', insErr.message)
+  const insRows = (ins ?? []) as Row[]
   return {
     highlights: (hs ?? []).map((r: Row) => ({
       id: r.id as string,
@@ -125,7 +134,7 @@ export const getMinuteAnnotations = cache(async (
       createdByName: (r.created_by_name as string | null) ?? null,
       createdAt: r.created_at as string,
     })),
-    insights: (ins ?? []).map((r: Row) => ({
+    insights: insRows.map((r: Row) => ({
       id: r.id as string,
       minuteId: r.minute_id as string,
       bodyHash: r.body_hash as string,
@@ -133,8 +142,6 @@ export const getMinuteAnnotations = cache(async (
       label: r.label as string,
       blockIndex: r.block_index as number,
       blockHash: r.block_hash as string,
-      linkedWbsItemId: ((r.minute_insight_wbs_links as Row[] | null)?.[0]?.wbs_item_id as string | undefined) ?? null,
-      linkedWbsItemName: (((r.minute_insight_wbs_links as Row[] | null)?.[0]?.wbs_items as Row | undefined)?.name as string | undefined) ?? null,
     })),
   }
 })
