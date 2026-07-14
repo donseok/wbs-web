@@ -2,7 +2,7 @@
 import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ChevronDown, ChevronUp, Download, ExternalLink, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
+import { ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
 import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
@@ -42,7 +42,6 @@ export function MinuteViewer({
   const [err, setErr] = useState<string | null>(null)
   const [metaOpen, setMetaOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
-  const [headerOpen, setHeaderOpen] = useState(false)
   const [focus, setFocus] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const bodyFile = files.find(f => f.role === 'body') ?? null
@@ -189,9 +188,9 @@ export function MinuteViewer({
     // 폭은 레이아웃 main(헤더와 동일 px 스케일)에 맡긴다 — 자체 max-w/패딩을 두면 헤더 기준선보다 안쪽으로 좁아짐
     // xl↑는 뷰포트 높이에 고정하고 본문 카드가 자체 스크롤 — 메타 헤더·채팅 패널은 스크롤과 무관하게 상주
     <div className="flex flex-col gap-4 xl:h-full xl:min-h-0">
-      {/* 메타 헤더 */}
-      <div className="card shrink-0 space-y-3 p-4">
-        <div className="flex flex-wrap items-center gap-3">
+      {/* 메타 헤더 — 메타·액션 단일 행(접기 없음). 좁은 폭에서만 wrap */}
+      <div className="card shrink-0 space-y-2 p-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Link href="/minutes" className="inline-flex items-center gap-1 text-sm text-ink-muted hover:text-ink">
             <ArrowLeft className="h-4 w-4" />{t('min.detail.back')}
           </Link>
@@ -199,33 +198,20 @@ export function MinuteViewer({
           <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[minute.teamCode].bar}`}>
             {minute.teamCode}
           </span>
-          <h1 className="flex-1 truncate text-lg font-bold text-ink">{minute.title}</h1>
-          <span className="text-xs text-ink-subtle">{minute.createdByName ?? ''}</span>
-          <button onClick={() => setFocus(f => !f)}
-            title={focus ? t('min.focus.off') : t('min.focus.on')}
-            aria-label={focus ? t('min.focus.off') : t('min.focus.on')} aria-pressed={focus}
-            className={`inline-flex items-center gap-1 text-xs ${focus ? 'text-brand' : 'text-ink-muted hover:text-ink'}`}>
-            {focus ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            {t('min.focus.on')}
-          </button>
-          <button onClick={() => setHeaderOpen(o => !o)}
-            className="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink">
-            {headerOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            {headerOpen ? t('min.insight.collapse') : t('min.insight.expand')}
-          </button>
-        </div>
-        {headerOpen && (
-          <div className="flex flex-wrap items-center gap-2">
+          <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-ink">{minute.title}</h1>
+
+          <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
             {bodyFile ? (
-              <button onClick={() => void download(bodyFile.id)} disabled={busy} className="btn">
-                <Download className="h-4 w-4" />{t('min.detail.download')}
+              <button onClick={() => void download(bodyFile.id)} disabled={busy} className="btn h-8 px-2.5 text-xs">
+                <Download className="h-3.5 w-3.5" />{t('min.detail.download')}
               </button>
             ) : (
               <span className="text-xs text-delayed">{t('min.detail.noBodyFile')}</span>
             )}
             {attachments.map(f => (
-              <button key={f.id} onClick={() => void download(f.id)} disabled={busy} className="btn">
-                <Paperclip className="h-4 w-4" />{f.fileName}
+              <button key={f.id} onClick={() => void download(f.id)} disabled={busy}
+                className="btn h-8 max-w-[10rem] px-2.5 text-xs">
+                <Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{f.fileName}</span>
               </button>
             ))}
             {minute.meetingId && minute.meetingProjectId && (
@@ -235,20 +221,30 @@ export function MinuteViewer({
               </Link>
             )}
             {canManage && (
-              <span className="ml-auto flex items-center gap-2">
-                <button onClick={() => setShareOpen(true)} className="btn">
-                  <Share2 className="h-4 w-4" />{t('min.share.button')}
+              <>
+                <button onClick={() => setShareOpen(true)} className="btn h-8 px-2.5 text-xs">
+                  <Share2 className="h-3.5 w-3.5" />{t('min.share.button')}
                 </button>
-                <button onClick={() => setMetaOpen(true)} className="btn">{t('min.detail.edit')}</button>
-                <label className="btn cursor-pointer">
+                <button onClick={() => setMetaOpen(true)} className="btn h-8 px-2.5 text-xs">{t('min.detail.edit')}</button>
+                <label className="btn h-8 cursor-pointer px-2.5 text-xs">
                   {t('min.detail.replaceBody')}
                   <input type="file" accept=".md,.markdown" className="hidden" onChange={onReplaceBody} />
                 </label>
-                <button onClick={() => setConfirmOpen(true)} className="btn text-delayed">{t('min.detail.delete')}</button>
-              </span>
+                <button onClick={() => setConfirmOpen(true)} className="btn h-8 px-2.5 text-xs text-delayed">
+                  {t('min.detail.delete')}
+                </button>
+              </>
             )}
+            <span className="text-xs text-ink-subtle">{minute.createdByName ?? ''}</span>
+            <button onClick={() => setFocus(f => !f)}
+              title={focus ? t('min.focus.off') : t('min.focus.on')}
+              aria-label={focus ? t('min.focus.off') : t('min.focus.on')} aria-pressed={focus}
+              className={`inline-flex items-center gap-1 text-xs ${focus ? 'text-brand' : 'text-ink-muted hover:text-ink'}`}>
+              {focus ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {t('min.focus.on')}
+            </button>
           </div>
-        )}
+        </div>
         {err && <p className="text-sm text-delayed">{err}</p>}
       </div>
 
