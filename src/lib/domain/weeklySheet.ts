@@ -38,12 +38,20 @@ const LEGACY_SECTION_MAP: Record<string, string> = {
 
 const isWeeklySection = (v: string): boolean => (WEEKLY_SECTIONS as readonly string[]).includes(v)
 
+/** 소유 프로퍼티만 조회 — 'toString'·'constructor' 같은 Object.prototype 상속 키가 함수를 돌려주면
+ *  ?? 폴백이 발동하지 않아 '공통 흡수' 계약이 깨지고 그 행의 이월 내용이 통째로 사라진다. */
+const lookupLegacy = (k: string): string | undefined =>
+  Object.hasOwn(LEGACY_SECTION_MAP, k) ? LEGACY_SECTION_MAP[k] : undefined
+
 /** 레거시 행 → 신규 구분. 이미 신규 구분이면 항등. 매핑 불가는 '공통'으로 흡수(내용 유실 방지). */
 export function mapLegacySection(section: string, module: string): string {
   const sec = section.trim(), mod = module.trim()
   if (isWeeklySection(sec)) return sec
-  return LEGACY_SECTION_MAP[mod] ?? LEGACY_SECTION_MAP[sec] ?? '공통'
+  return lookupLegacy(mod) ?? lookupLegacy(sec) ?? '공통'
 }
+
+/** 셀 1개 상한 — 서버 액션·클라이언트 클램프·이월 병합이 공유하는 단일 출처. */
+export const WEEKLY_CELL_MAX = 20000
 
 /** 새 주차 기본 스켈레톤 — 업무영역 10행(구분당 1행, 셀은 빈값). 신규 행의 module은 항상 ''. */
 export function defaultWeeklyRows(): NewWeeklyRow[] {
@@ -79,10 +87,18 @@ export interface WeeklyCellEdit {
 export function carryOverRows(prev: WeeklySheetRow[]): NewWeeklyRow[] {
   const out = defaultWeeklyRows()
   const bySection = new Map(out.map(r => [r.section, r]))
-  const append = (cur: string, add: string) => (add.trim() ? (cur ? `${cur}\n${add}` : add) : cur)
+  // 붙이는 값의 앞뒤 공백·개행을 실제로 다듬는다. 사용자가 셀 마지막 줄에서 Enter를 친 흔한 경우,
+  // 후행 개행이 병합 구분자 \n과 겹쳐 빈 줄이 되고 PPT에 빈 불릿으로 찍힌다(셀 내부 문단 빈 줄은 보존).
+  // 상한을 넘기면 더 붙이지 않는다 — 넘긴 채 시드되면 그 셀은 이후 저장 자체가 거부된다.
+  const append = (cur: string, add: string) => {
+    const t = add.trim()
+    if (!t) return cur
+    const merged = cur ? `${cur}\n${t}` : t
+    return merged.length > WEEKLY_CELL_MAX ? merged.slice(0, WEEKLY_CELL_MAX) : merged
+  }
   for (const r of [...prev].sort((a, b) => a.sortOrder - b.sortOrder)) {
-    const target = bySection.get(mapLegacySection(r.section, r.module))
-    if (!target) continue
+    // 매핑 실패 시에도 행을 버리지 않는다 — mapLegacySection이 '공통'을 보장하지만, 방어적으로 한 번 더.
+    const target = bySection.get(mapLegacySection(r.section, r.module)) ?? bySection.get('공통')!
     target.thisContent = append(target.thisContent, r.nextContent)
     target.thisIssue = append(target.thisIssue, r.nextIssue)
   }

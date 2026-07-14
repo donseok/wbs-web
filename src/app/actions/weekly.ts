@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { mondayIso } from '@/lib/report/week'
-import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, type NewWeeklyRow, type WeeklyCellEdit } from '@/lib/domain/weeklySheet'
+import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, WEEKLY_CELL_MAX, type NewWeeklyRow, type WeeklyCellEdit } from '@/lib/domain/weeklySheet'
 import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
 
 export interface WeeklyActionResult {
@@ -20,7 +20,7 @@ export interface WeeklyBatchResult {
   goneRowIds?: string[]   // ok:true여도 존재 가능 — 저장 시점 이미 삭제된 행(스킵됨). FE가 그 행만 정리
 }
 
-const CELL_MAX = 20000        // 공지 body와 동일 상한
+const CELL_MAX = WEEKLY_CELL_MAX // 셀 1개 상한(도메인 단일 출처) — 이월 병합 클램프와 동일 값
 const BATCH_MAX = 500         // 한 배치의 최대 edit 수(페이로드 크기 방어)
 const TITLE_MAX = 200         // 시트 제목 상한
 

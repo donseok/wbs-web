@@ -114,8 +114,8 @@ export function useSheetGrid({
   // 활성 셀 실 포커스(Design B). 사용자 상호작용(armed) 후에만 — 초기 마운트/리렌더가 포커스를 앗지 않게.
   useEffect(() => {
     if (!enabled || !armedRef.current) return
-    // 그리드 밖(TitleEditor/NameCombo/AddRowForm 등)에 실제 포커스가 있으면 강탈 금지 — 행 삭제 등
-    // Realtime 리렌더가 타 입력의 포커스를 도둑질하지 않게(F7). 포커스 없음(body/null)일 때만 그리드로 이동.
+    // 그리드 밖(TitleEditor 등)에 실제 포커스가 있으면 강탈 금지 — Realtime 리렌더가 타 입력의
+    // 포커스를 도둑질하지 않게(F7). 포커스 없음(body/null)일 때만 그리드로 이동.
     const ae = document.activeElement
     if (ae && ae !== document.body && !(ae instanceof HTMLElement && ae.dataset.sheetCell)) return
     const el = cellRefs.current.get(keyOf(sel.active))
@@ -145,12 +145,14 @@ export function useSheetGrid({
   const doPasteText = useCallback((text: string, anchor: CellAddr) => {
     const values = parseTsv(text)
     const { edits, clippedRows, clippedCols } = pasteEdits(rowIdsRef.current, anchor, values)
+    // 시트는 업무영역 구분 10행 고정이라 행을 늘릴 수단이 없다 — 실행 가능한 대안(위쪽 행부터
+    // 붙여넣기 / 셀 안에서 줄바꿈)을 안내한다. '모듈 추가'를 안내하면 없는 버튼을 찾게 된다.
+    const rowsMsg = `${clippedRows}개 행이 시트 범위를 넘어 붙여넣지 못했습니다. 시트는 구분 10행 고정입니다 — 위쪽 행에서 시작하거나, 한 구분에 여러 항목을 넣으려면 셀 안에서 Alt+Enter로 줄을 나눠 주세요.`
     if (clippedRows > 0 && clippedCols > 0) {
       toast({ title: '붙여넣기 일부 생략', variant: 'info',
-        description: `${clippedRows}개 행이 시트 범위를 넘어 붙여넣지 못했습니다. 먼저 '모듈 추가'로 행을 늘려주세요. 내용 4개 열을 넘는 오른쪽 데이터는 붙여넣지 않았습니다.` })
+        description: `${rowsMsg} 내용 4개 열을 넘는 오른쪽 데이터는 붙여넣지 않았습니다.` })
     } else if (clippedRows > 0) {
-      toast({ title: '붙여넣기 일부 생략', variant: 'info',
-        description: `${clippedRows}개 행이 시트 범위를 넘어 붙여넣지 못했습니다. 먼저 '모듈 추가'로 행을 늘려주세요.` })
+      toast({ title: '붙여넣기 일부 생략', variant: 'info', description: rowsMsg })
     } else if (clippedCols > 0) {
       toast({ title: '붙여넣기 일부 생략', variant: 'info', description: '내용 4개 열을 넘는 오른쪽 데이터는 붙여넣지 않았습니다.' })
     }

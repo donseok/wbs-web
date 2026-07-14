@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   carryOverRows, applyServerRow, defaultWeeklyRows, isWeeklyCellKey, mapLegacySection,
-  WEEKLY_SECTIONS, type WeeklySheetRow,
+  WEEKLY_CELL_MAX, WEEKLY_SECTIONS, type WeeklySheetRow,
 } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
@@ -31,6 +31,12 @@ describe('mapLegacySection', () => {
     expect(mapLegacySection('기타', '알수없음')).toBe('공통')
     expect(mapLegacySection('MES', '')).toBe('공통')
     expect(mapLegacySection('', '')).toBe('공통')
+  })
+  it('Object.prototype 상속 키도 공통으로 흡수 — 매핑표 조회가 프로토타입 체인을 타지 않는다', () => {
+    for (const k of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      expect(mapLegacySection('ERP', k)).toBe('공통')
+      expect(mapLegacySection(k, '')).toBe('공통')
+    }
   })
 })
 
@@ -65,6 +71,36 @@ describe('carryOverRows', () => {
     const out = carryOverRows([])
     expect(out).toHaveLength(10)
     expect(out.every(r => r.thisContent === '' && r.nextContent === '')).toBe(true)
+  })
+  it('병합 시 앞뒤 빈 줄을 다듬는다 — PPT에 빈 불릿이 찍히지 않게', () => {
+    const prev = [
+      row({ id: 'a', sortOrder: 1, section: 'ERP', module: 'FI/TR', nextContent: '1. 자금 계획\n\n' }),
+      row({ id: 'b', sortOrder: 2, section: 'ERP', module: 'CO', nextContent: '\n1. 원가 계획' }),
+      row({ id: 'c', sortOrder: 3, section: 'MES', module: '물류', nextContent: '\n\n1. 통관\n' }),
+    ]
+    const out = carryOverRows(prev)
+    const by = (s: string) => out.find(r => r.section === s)!
+    expect(by('관리회계').thisContent).toBe('1. 자금 계획\n1. 원가 계획') // 빈 줄 없이 정확히 두 줄
+    expect(by('물류').thisContent).toBe('1. 통관')                        // 단독 값도 앞뒤 개행 제거
+  })
+  it('셀 내부의 문단 구분 빈 줄은 보존한다 — 다듬는 건 앞뒤뿐', () => {
+    const prev = [row({ sortOrder: 1, section: '영업', module: '', nextContent: '1. A\n\n2. B' })]
+    expect(carryOverRows(prev).find(r => r.section === '영업')!.thisContent).toBe('1. A\n\n2. B')
+  })
+  it('상속 키 모듈(toString 등)도 내용을 버리지 않고 공통으로 흡수', () => {
+    const prev = [row({ sortOrder: 1, section: 'ERP', module: 'toString', nextContent: '1. 잃으면 안 되는 내용' })]
+    const out = carryOverRows(prev)
+    expect(out.find(r => r.section === '공통')!.thisContent).toBe('1. 잃으면 안 되는 내용')
+  })
+  it('병합 결과가 셀 상한을 넘지 않게 클램프 — 넘치면 저장 불가 셀이 시드된다', () => {
+    const half = 'x'.repeat(WEEKLY_CELL_MAX - 10)
+    const prev = [
+      row({ id: 'a', sortOrder: 1, section: 'ERP', module: 'FI/TR', nextContent: half }),
+      row({ id: 'b', sortOrder: 2, section: 'ERP', module: 'CO', nextContent: half }),
+    ]
+    const merged = carryOverRows(prev).find(r => r.section === '관리회계')!.thisContent
+    expect(merged.length).toBeLessThanOrEqual(WEEKLY_CELL_MAX)
+    expect(merged.startsWith(half)).toBe(true) // 앞부분은 보존
   })
 })
 

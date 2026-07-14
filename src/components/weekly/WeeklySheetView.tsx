@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  applyServerRow, WEEKLY_CELL_KEYS,
+  applyServerRow, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX,
   CELL_FIELD, type WeeklyCellKey, type WeeklySheetRow, type WeeklyCellEdit,
 } from '@/lib/domain/weeklySheet'
 import { type CellAddr } from '@/lib/domain/sheetSelection'
@@ -26,7 +26,7 @@ import { SheetCell, type BatchChip } from './SheetCell'
 
 type CellStatus = 'saving' | 'saved' | 'error'
 const DEBOUNCE_MS = 1500
-const CELL_MAX = 20000   // 셀 1개 상한(BE와 동일) — 배치 로컬 클램프용
+const CELL_MAX = WEEKLY_CELL_MAX // 셀 1개 상한(도메인 단일 출처) — 배치 로컬 클램프용
 const BATCH_MAX = 500    // 한 배치 최대 edit 수(BE와 동일) — 사전 검사용
 
 const COLS: { key: WeeklyCellKey; label: string }[] = [
