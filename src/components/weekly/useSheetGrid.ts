@@ -7,6 +7,7 @@ import {
   type CellAddr, type GridRect, type SelectionState,
 } from '@/lib/domain/sheetSelection'
 import { serializeTsv, parseTsv } from '@/lib/domain/sheetClipboard'
+import { isNewlineChord } from '@/lib/domain/sheetChords'
 import { type WeeklyCellKey, type WeeklySheetRow, type WeeklyCellEdit } from '@/lib/domain/weeklySheet'
 
 /** aria-live 방송용 열 라벨(§7). */
@@ -354,7 +355,7 @@ export function useSheetGrid({
 
     if (cur.editing) {
       // ── 편집 모드 ──
-      if (e.key === 'Enter' && e.altKey) { // 셀 내 줄바꿈
+      if (isNewlineChord(e)) { // 셀 내 줄바꿈 — Alt/⌥·Ctrl·⌘ + Enter 모두 허용
         e.preventDefault()
         const el = e.currentTarget
         const s = el.selectionStart, en = el.selectionEnd

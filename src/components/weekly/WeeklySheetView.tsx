@@ -606,6 +606,14 @@ export function WeeklySheetView({
               })}
             </tbody>
           </table>
+          {/* 단축키 안내 — 셀 내 줄바꿈은 눌러보기 전엔 알 수 없어서 표에 붙여 노출한다. */}
+          <p className="pt-1.5 text-[11px] text-neutral-500">
+            셀 안에서 줄을 바꾸려면 <kbd className="rounded border border-neutral-300 px-1 font-sans">Alt</kbd>
+            <span className="px-0.5">+</span>
+            <kbd className="rounded border border-neutral-300 px-1 font-sans">Enter</kbd>
+            <span className="px-1 text-neutral-400">(Mac: ⌥ 또는 ⌘ + Enter)</span>
+            — 그냥 <kbd className="rounded border border-neutral-300 px-1 font-sans">Enter</kbd>를 누르면 저장하고 아래 칸으로 넘어갑니다.
+          </p>
           {/* 선택/배치 결과 방송(§7) — 시각적 숨김 */}
           <div aria-live="polite" className="sr-only">{grid.live}</div>
         </div>
