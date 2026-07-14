@@ -43,14 +43,14 @@ describe('mapLegacySection', () => {
 describe('carryOverRows', () => {
   it('신규 체계 시트 — 차주계획→금주실적 1:1 이월, next는 비움, 9행 유지', () => {
     const prev = [
-      row({ id: 'a', sortOrder: 2, section: '품질', module: '', nextContent: '계획B', nextIssue: '이슈B' }),
+      row({ id: 'a', sortOrder: 2, section: '구매', module: '', nextContent: '계획B', nextIssue: '이슈B' }),
       row({ id: 'b', sortOrder: 1, section: '영업', module: '', thisContent: '지난실적', nextContent: '계획A' }),
     ]
     const out = carryOverRows(prev)
     expect(out).toHaveLength(9)
     expect(out.map(r => r.section)).toEqual([...WEEKLY_SECTIONS])
     expect(out[0]).toMatchObject({ section: '영업', thisContent: '계획A', thisIssue: '', nextContent: '', nextIssue: '' })
-    expect(out[1]).toMatchObject({ section: '품질', thisContent: '계획B', thisIssue: '이슈B', nextContent: '', nextIssue: '' })
+    expect(out[1]).toMatchObject({ section: '구매', thisContent: '계획B', thisIssue: '이슈B', nextContent: '', nextIssue: '' })
     expect('id' in out[0]).toBe(false)
   })
   it('레거시 시트 — 신규 구분으로 정규화, 같은 구분에 모이면 줄바꿈으로 병합', () => {
@@ -65,7 +65,7 @@ describe('carryOverRows', () => {
     expect(by('관리회계').thisContent).toBe('자금 계획\n원가 계획') // sortOrder 순으로 이어붙임
     expect(by('관리회계').thisIssue).toBe('기준 미정')
     expect(by('가공').thisContent).toBe('Luxteel 라인 점검')
-    expect(by('구매').thisContent).toBe('')                         // 원본에 없던 구분은 빈 행
+    expect(by('품질').thisContent).toBe('')                         // 원본에 없던 구분은 빈 행
   })
   it('빈 입력 → 빈 표준 9행(빈 배열 아님)', () => {
     const out = carryOverRows([])
