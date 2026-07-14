@@ -45,19 +45,6 @@ export function mapLegacySection(section: string, module: string): string {
   return LEGACY_SECTION_MAP[mod] ?? LEGACY_SECTION_MAP[sec] ?? '공통'
 }
 
-/** 구 분류 체계의 모듈 목록 — WeeklySheetView가 아직 참조. 소비처 정리 후 제거 예정. */
-export const WEEKLY_MODULES: Record<string, readonly string[]> = {
-  공통: ['공통'],
-  ERP: ['SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'],
-  MES: ['품질', 'APS', '조업 및 표준화', '가공', '설비 Level2', '물류'],
-}
-
-/** 구분별 모듈 옵션 — 소비처 정리 후 제거 예정. */
-export function moduleOptions(section: string, current?: string): string[] {
-  const base = WEEKLY_MODULES[section] ?? Object.values(WEEKLY_MODULES).flat()
-  return current && !base.includes(current) ? [current, ...base] : [...base]
-}
-
 /** 새 주차 기본 스켈레톤 — 업무영역 10행(구분당 1행, 셀은 빈값). 신규 행의 module은 항상 ''. */
 export function defaultWeeklyRows(): NewWeeklyRow[] {
   return WEEKLY_SECTIONS.map((section, i) => ({

@@ -22,9 +22,7 @@ export interface WeeklyBatchResult {
 
 const CELL_MAX = 20000        // 공지 body와 동일 상한
 const BATCH_MAX = 500         // 한 배치의 최대 edit 수(페이로드 크기 방어)
-const NAME_MAX = 100          // 구분·모듈명 상한
 const TITLE_MAX = 200         // 시트 제목 상한
-const RENAME_MAX_ROWS = 50    // 그룹 rename 대상 행 수 상한(병합 그룹 크기 방어)
 
 function revalidateWeekly(projectId: string) {
   revalidatePath(`/p/${projectId}/weekly`)
@@ -63,7 +61,7 @@ export async function createWeeklyReport(
     return { ok: false, error: error.message }
   }
 
-  // 이월이면 이월 원본 행, 아니면 표준 스켈레톤 12행(레퍼런스 프레임) — 행 0개 문서는 만들지 않는다.
+  // 이월이면 이월 원본 행(신규 구분으로 정규화된 10행), 아니면 표준 스켈레톤 10행 — 행 0개 문서는 만들지 않는다.
   // 이월 원본 '조회 실패'는 '원본 없음'과 구분해 중단한다 — 스켈레톤으로 대체 생성되면 문서가
   // 멱등 체크에 걸려 재시도가 불가능해지고 이월 초안이 조용히 유실되기 때문.
   let seed: NewWeeklyRow[] = []
@@ -89,41 +87,6 @@ export async function createWeeklyReport(
     await deleteReportIfEmpty(sb, report.id as string)
     return { ok: false, error: rowErr.message }
   }
-  revalidateWeekly(projectId)
-  return { ok: true }
-}
-
-/** 병합 그룹(연속 동일 구분) 전체의 구분명을 바꾼다 — 콤보박스 선택 경로. */
-export async function renameWeeklySection(
-  projectId: string, rowIds: string[], section: string,
-): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
-  const sec = section.trim()
-  if (!sec) return { ok: false, error: '구분명을 입력하세요.' }
-  if (sec.length > NAME_MAX) return { ok: false, error: `이름은 ${NAME_MAX}자 이하여야 합니다.` }
-  if (!rowIds.length || rowIds.length > RENAME_MAX_ROWS) return { ok: false, error: '잘못된 대상입니다.' }
-
-  const sb = await createServerClient()
-  const { error } = await sb.from('weekly_report_rows')
-    .update({ section: sec, updated_at: new Date().toISOString() }).in('id', rowIds)
-  if (error) return { ok: false, error: error.message }
-  revalidateWeekly(projectId)
-  return { ok: true }
-}
-
-/** 행 하나의 모듈명을 바꾼다 — 콤보박스 선택 경로. */
-export async function renameWeeklyModule(
-  projectId: string, rowId: string, module: string,
-): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
-  const mod = module.trim()
-  if (!mod) return { ok: false, error: '모듈명을 입력하세요.' }
-  if (mod.length > NAME_MAX) return { ok: false, error: `이름은 ${NAME_MAX}자 이하여야 합니다.` }
-
-  const sb = await createServerClient()
-  const { error } = await sb.from('weekly_report_rows')
-    .update({ module: mod, updated_at: new Date().toISOString() }).eq('id', rowId)
-  if (error) return { ok: false, error: error.message }
   revalidateWeekly(projectId)
   return { ok: true }
 }
@@ -197,81 +160,4 @@ export async function saveWeeklyCells(
   }
   // revalidate 안 함 — 각 update가 개별 Realtime 이벤트를 발생시켜 타 세션에 전파(saveWeeklyCell과 동일)
   return goneRowIds.length ? { ok: true, goneRowIds } : { ok: true }
-}
-
-export async function addWeeklyRow(
-  projectId: string, reportId: string, section: string, module: string,
-): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
-  const sec = section.trim(), mod = module.trim()
-  if (!mod) return { ok: false, error: '모듈명을 입력하세요.' }
-  if (sec.length > NAME_MAX || mod.length > NAME_MAX) return { ok: false, error: `이름은 ${NAME_MAX}자 이하여야 합니다.` }
-
-  const sb = await createServerClient()
-  const { data: all } = await sb.from('weekly_report_rows').select('id, section, sort_order')
-    .eq('report_id', reportId).order('sort_order')
-  const rows = all ?? []
-
-  // section 연속성 유지(스펙 §3 rowSpan 병합) — 같은 section이 이미 있으면 그 section의
-  // 마지막 행 바로 뒤에 삽입한다. 문서 맨 끝(전체 max+1)에 붙이면 다른 section 뒤에 고립되고,
-  // moveWeeklyRow는 동일 section 인접 swap만 허용하므로 UI로 복구할 수 없다.
-  const sameSection = rows.filter(r => (r.section as string).trim() === sec)
-  let newSort: number
-  if (sameSection.length) {
-    newSort = (sameSection[sameSection.length - 1].sort_order as number) + 1
-    // newSort 이상인 기존 행을 한 칸씩 뒤로 민다. sort_order에 unique 제약이 없어 순서는 자유이나,
-    // 내림차순으로 순차 처리(첫 에러에서 중단 — 부분 shift 잔류는 moveWeeklyRow와 동일한 비원자성 한계로 수용).
-    const toShift = rows.filter(r => (r.sort_order as number) >= newSort)
-      .sort((a, b) => (b.sort_order as number) - (a.sort_order as number))
-    for (const r of toShift) {
-      const { error: shiftErr } = await sb.from('weekly_report_rows')
-        .update({ sort_order: (r.sort_order as number) + 1 }).eq('id', r.id as string)
-      if (shiftErr) return { ok: false, error: shiftErr.message }
-    }
-  } else {
-    newSort = rows.length ? (rows[rows.length - 1].sort_order as number) + 1 : 1
-  }
-
-  const { error } = await sb.from('weekly_report_rows')
-    .insert({ report_id: reportId, section: sec, module: mod, sort_order: newSort })
-  if (error) return { ok: false, error: error.message }
-  revalidateWeekly(projectId)
-  return { ok: true }
-}
-
-export async function deleteWeeklyRow(projectId: string, rowId: string): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
-  const sb = await createServerClient()
-  const { error } = await sb.from('weekly_report_rows').delete().eq('id', rowId)
-  if (error) return { ok: false, error: error.message }
-  revalidateWeekly(projectId)
-  return { ok: true }
-}
-
-/** 행 이동 — 동일 section 내 인접 행과 swap(스펙 §3: 구분 병합이 갈라지지 않게). */
-export async function moveWeeklyRow(
-  projectId: string, rowId: string, dir: 'up' | 'down',
-): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
-  const sb = await createServerClient()
-  const { data: me } = await sb.from('weekly_report_rows')
-    .select('id, report_id, section, sort_order').eq('id', rowId).maybeSingle()
-  if (!me) return { ok: false, error: '행을 찾을 수 없습니다.' }
-
-  const { data: all } = await sb.from('weekly_report_rows')
-    .select('id, section, sort_order').eq('report_id', me.report_id as string).order('sort_order')
-  const list = all ?? []
-  const idx = list.findIndex(r => r.id === rowId)
-  const nIdx = dir === 'up' ? idx - 1 : idx + 1
-  const neighbor = list[nIdx]
-  if (!neighbor || neighbor.section !== me.section) return { ok: false, error: '같은 구분 안에서만 이동할 수 있습니다.' }
-
-  const [r1, r2] = await Promise.all([
-    sb.from('weekly_report_rows').update({ sort_order: neighbor.sort_order as number }).eq('id', rowId),
-    sb.from('weekly_report_rows').update({ sort_order: me.sort_order as number }).eq('id', neighbor.id as string),
-  ])
-  const err = r1.error ?? r2.error
-  if (err) return { ok: false, error: err.message }
-  revalidateWeekly(projectId)
-  return { ok: true }
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  carryOverRows, applyServerRow, defaultWeeklyRows, isWeeklyCellKey, mapLegacySection, moduleOptions,
-  WEEKLY_MODULES, WEEKLY_SECTIONS, type WeeklySheetRow,
+  carryOverRows, applyServerRow, defaultWeeklyRows, isWeeklyCellKey, mapLegacySection,
+  WEEKLY_SECTIONS, type WeeklySheetRow,
 } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
@@ -79,20 +79,6 @@ describe('applyServerRow', () => {
   })
   it('dirty 없으면 서버 그대로', () => {
     expect(applyServerRow(local, server, new Set())).toEqual(server)
-  })
-})
-
-describe('moduleOptions', () => {
-  it('구분별 목록을 그대로 반환', () => {
-    expect(moduleOptions('ERP')).toEqual(['SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'])
-    expect(moduleOptions('공통')).toEqual(['공통'])
-  })
-  it('미지의 구분 → 전체 모듈 평탄화', () => {
-    expect(moduleOptions('설비')).toEqual(Object.values(WEEKLY_MODULES).flat())
-  })
-  it('목록에 없는 current는 선두에 포함, 있으면 중복 없음', () => {
-    expect(moduleOptions('ERP', '커스텀')).toEqual(['커스텀', 'SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'])
-    expect(moduleOptions('ERP', 'MM')).toEqual(['SD/LE', 'MD/PP', 'MM', 'FI/TR', 'CO'])
   })
 })
 
