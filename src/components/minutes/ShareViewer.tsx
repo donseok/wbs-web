@@ -23,7 +23,7 @@ export function ShareViewer({ minuteDate, teamCode, title, bodyMd }: {
 
   return (
     <div className="app-backdrop min-h-screen">
-      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6">
+      <div className="flex w-full flex-col gap-4 px-4 py-6 sm:px-5 lg:px-7">
         <div className="card flex flex-wrap items-center gap-3 p-4">
           <BrandGlyph size={28} />
           <span className="text-sm tabular-nums text-ink-muted">{minuteDate}</span>

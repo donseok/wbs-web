@@ -32,7 +32,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar projects={projectLinks} />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <HeaderChrome membership={m} projects={projectLinks} userName={userName} />
-        <main id="main-content" className="mx-auto min-h-0 w-full max-w-[1680px] flex-1 overflow-y-auto px-3 pb-4 pt-4 sm:px-5 sm:pt-6 lg:px-7">{children}</main>
+        <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-3 pb-4 pt-4 sm:px-5 sm:pt-6 lg:px-7">{children}</main>
       </div>
       <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />
     </div>
