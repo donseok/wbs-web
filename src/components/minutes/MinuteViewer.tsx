@@ -27,13 +27,14 @@ import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
 import { TEAM } from '@/components/wbs/shared'
 
 export function MinuteViewer({
-  minute, files, canManage, annotations, userId,
+  minute, files, canManage, annotations, userId, projects,
 }: {
   minute: Minute
   files: MinuteFile[]
   canManage: boolean
   annotations: { highlights: MinuteHighlight[]; insights: MinuteInsight[] }
   userId: string | null
+  projects: { id: string; name: string }[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -278,7 +279,11 @@ export function MinuteViewer({
         />
       )}
 
-      <MinuteMetaModal open={metaOpen} onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }} minute={minute} />
+      {/* 열 때마다 리마운트 — 이전 입력·회의 선택이 잔존하지 않게 현재 회의록 값으로 초기화 */}
+      {metaOpen && (
+        <MinuteMetaModal open onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }}
+          minute={minute} projects={projects} />
+      )}
 
       <MinuteShareModal open={shareOpen} onClose={() => setShareOpen(false)} minuteId={minute.id} />
 
