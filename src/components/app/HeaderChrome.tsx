@@ -13,6 +13,7 @@ import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { HeaderAnnouncementTicker } from './HeaderAnnouncementTicker'
 import type { SidebarProject } from './Sidebar'
 import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
@@ -134,12 +135,14 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
 
             {/* 알림 */}
             <div className="relative">
-              <button onClick={() => setOpen(open === 'notif' ? null : 'notif')} className="chrome-icon relative" aria-label={t('chrome.notifications')}>
-                <Bell className="h-4 w-4" />
-                {unreadNotifs > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-secondary px-1 text-[9px] font-bold text-white ring-2 ring-surface">{unreadNotifs}</span>
-                )}
-              </button>
+              <Tooltip label={t('chrome.notifications')} side="bottom" disabled={open === 'notif'}>
+                <button onClick={() => setOpen(open === 'notif' ? null : 'notif')} className="chrome-icon relative" aria-label={t('chrome.notifications')}>
+                  <Bell className="h-4 w-4" />
+                  {unreadNotifs > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-secondary px-1 text-[9px] font-bold text-white ring-2 ring-surface">{unreadNotifs}</span>
+                  )}
+                </button>
+              </Tooltip>
               {open === 'notif' && (
                 <Popover onClose={() => setOpen(null)}>
                   <div className="flex items-center justify-between border-b border-line px-4 py-3">
