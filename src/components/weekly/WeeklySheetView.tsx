@@ -3,17 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Trash2, ArrowUp, ArrowDown, FileSpreadsheet } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  applyServerRow, moduleOptions, WEEKLY_CELL_KEYS, WEEKLY_SECTIONS,
+  applyServerRow, WEEKLY_CELL_KEYS,
   CELL_FIELD, type WeeklyCellKey, type WeeklySheetRow, type WeeklyCellEdit,
 } from '@/lib/domain/weeklySheet'
 import { type CellAddr } from '@/lib/domain/sheetSelection'
 import { emptyUndo, pushUndo, undo as undoOp, redo as redoOp, type UndoState } from '@/lib/domain/sheetUndo'
 import {
-  addWeeklyRow, createWeeklyReport, deleteWeeklyRow, moveWeeklyRow,
-  renameWeeklyModule, renameWeeklySection, saveWeeklyCell, saveWeeklyCells, saveWeeklyTitle,
+  createWeeklyReport, saveWeeklyCell, saveWeeklyCells, saveWeeklyTitle,
   type WeeklyActionResult, type WeeklyBatchResult,
 } from '@/app/actions/weekly'
 import { shiftWeeks } from '@/lib/report/week'
@@ -29,7 +28,6 @@ type CellStatus = 'saving' | 'saved' | 'error'
 const DEBOUNCE_MS = 1500
 const CELL_MAX = 20000   // 셀 1개 상한(BE와 동일) — 배치 로컬 클램프용
 const BATCH_MAX = 500    // 한 배치 최대 edit 수(BE와 동일) — 사전 검사용
-const CUSTOM = '__custom__' // 콤보박스 '직접 입력…' 센티널
 
 const COLS: { key: WeeklyCellKey; label: string }[] = [
   { key: 'this_content', label: '금주실적 내용' },
@@ -240,16 +238,6 @@ export function WeeklySheetView({
       if (!res.ok) toast({ title: '실패', description: res.error, variant: 'error' })
       router.refresh()
     })
-
-  // 구분(그룹)·모듈 rename — 콤보 선택 즉시 낙관 반영, 실패 시 refresh가 서버 값으로 복구.
-  const onRenameSection = (groupRowIds: string[], section: string) => {
-    setRows(rs => rs.map(r => (groupRowIds.includes(r.id) ? { ...r, section } : r)))
-    runAction(() => renameWeeklySection(projectId, groupRowIds, section))
-  }
-  const onRenameModule = (rowId: string, module: string) => {
-    setRows(rs => rs.map(r => (r.id === rowId ? { ...r, module } : r)))
-    runAction(() => renameWeeklyModule(projectId, rowId, module))
-  }
 
   // 재시도 직전 edits 재구성 — 여전히 dirty이고 행이 존재하는 키만 유지, content는 rowsRef 현재값으로 재스냅샷.
   // 그 사이 성공한 단건 저장을 stale 값으로 역전하지 않게(F4). 결과가 비면 되돌릴 것 없음 → 호출측이 성공 처리.
@@ -475,15 +463,6 @@ export function WeeklySheetView({
     if (batchShowTimerRef.current) clearTimeout(batchShowTimerRef.current)
   }, [])
 
-  // section 시각 병합: 연속 같은 section의 첫 행에만 rowSpan.
-  // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
-  const spans = useMemo(() => rows.map((r, i) => {
-    if (i > 0 && rows[i - 1].section === r.section) return 0
-    let n = 1
-    while (i + n < rows.length && rows[i + n].section === r.section) n += 1
-    return n
-  }), [rows])
-
   // ── 문서 없음: EmptyState + 시작 버튼 2종(스펙 §3 — 자동 생성 금지) ──
   if (!report) {
     return (
@@ -492,7 +471,7 @@ export function WeeklySheetView({
         <EmptyState
           icon={FileSpreadsheet}
           title={`${weekLabel} 시트가 없습니다`}
-          description="이전 주차에서 이월하거나 기본 시트(공통·ERP·MES 모듈)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다."
+          description="이전 주차에서 이월하거나 기본 시트(공통·영업·품질 등 업무영역 10개 구분)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다."
           action={
             <div className="flex gap-2">
               {hasCarrySource && (
@@ -541,24 +520,20 @@ export function WeeklySheetView({
               return true
             }}
           />
-          {/* 열 비율은 레퍼런스 실측(B8.38/C13.5/D58.63/E39.75/F41.13/G36)의 백분율 — 내용 열이 전폭을 쓴다 */}
+          {/* 구분 1단(업무영역 10개) + 내용 4열. 모듈 열과 행 구조 편집은 없다 — 구분당 1행 고정. */}
           <table className="w-full table-fixed border-collapse bg-white text-[13px] text-black">
             <colgroup>
-              <col className="w-[4.5%]" />   {/* 구분 */}
-              <col className="w-[7%]" />     {/* 모듈 */}
-              <col className="w-[29.5%]" />  {/* 금주 내용 */}
-              <col className="w-[20%]" />    {/* 금주 이슈 */}
-              <col className="w-[21%]" />    {/* 차주 내용 */}
+              <col className="w-[10%]" />    {/* 구분 */}
+              <col className="w-[27%]" />    {/* 금주 내용 */}
+              <col className="w-[19%]" />    {/* 금주 이슈 */}
+              <col className="w-[26%]" />    {/* 차주 내용 */}
               <col className="w-[18%]" />    {/* 차주 이슈 */}
-              <col className="w-8" />        {/* 행 액션(시트 밖 여백처럼 무테두리) */}
             </colgroup>
             <thead>
               <tr>
                 <th rowSpan={2} className={HDR}>구분</th>
-                <th rowSpan={2} className={HDR}>모듈</th>
                 <th colSpan={2} className={HDR}>금주실적({thisRange})</th>
                 <th colSpan={2} className={HDR}>차주계획({nextRange})</th>
-                <th rowSpan={2} className="border-0 bg-white" />
               </tr>
               <tr>
                 <th className={HDR}>내용</th>
@@ -568,23 +543,15 @@ export function WeeklySheetView({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id} className="group">
-                  {spans[i] > 0 && (
-                    <td rowSpan={spans[i]} className="border border-neutral-500 p-0 align-middle">
-                      <NameCombo
-                        value={r.section}
-                        options={[...WEEKLY_SECTIONS]}
-                        onCommit={v => onRenameSection(rows.slice(i, i + spans[i]).map(x => x.id), v)}
-                      />
-                    </td>
-                  )}
-                  <td className="border border-neutral-500 p-0 align-middle">
-                    <NameCombo
-                      value={r.module}
-                      options={moduleOptions(r.section)}
-                      onCommit={v => onRenameModule(r.id, v)}
-                    />
+              {rows.map((r, i) => {
+                // 레거시 시트(구 공통/ERP/MES × 모듈)의 모듈명을 잃지 않게 구분 칸에 병기한다.
+                const legacyModule = r.module.trim() && r.module.trim() !== r.section.trim() ? r.module.trim() : ''
+                const rowName = legacyModule ? `${r.section} ${legacyModule}` : r.section
+                return (
+                <tr key={r.id}>
+                  <td className="border border-neutral-500 px-1 py-1.5 text-center align-middle text-[13px] font-bold text-black">
+                    <div>{r.section}</div>
+                    {legacyModule && <div className="text-[11px] font-normal text-neutral-500">{legacyModule}</div>}
                   </td>
                   {COLS.map((c, j) => {
                     const addr: CellAddr = { rowId: r.id, col: c.key }
@@ -600,7 +567,7 @@ export function WeeklySheetView({
                         <SheetCell
                           addr={addr}
                           value={r[CELL_FIELD[c.key]]}
-                          ariaLabel={`${c.label}, ${r.section} ${r.module}`}
+                          ariaLabel={`${c.label}, ${rowName}`}
                           status={status[`${r.id}:${c.key}`]}
                           isActive={active}
                           editing={active && grid.sel.editing}
@@ -634,21 +601,11 @@ export function WeeklySheetView({
                       </td>
                     )
                   })}
-                  <td className="border-0 bg-white pl-1 align-top">
-                    <div className="flex flex-col gap-1 pt-1 text-neutral-300 opacity-0 transition group-hover:opacity-100">
-                      <button title="위로" className="hover:text-neutral-700" onClick={() => runAction(() => moveWeeklyRow(projectId, r.id, 'up'))}><ArrowUp className="h-4 w-4" /></button>
-                      <button title="아래로" className="hover:text-neutral-700" onClick={() => runAction(() => moveWeeklyRow(projectId, r.id, 'down'))}><ArrowDown className="h-4 w-4" /></button>
-                      <button title="행 삭제" className="hover:text-red-600"
-                        onClick={() => { if (confirm(`'${r.module || r.section || '이'}' 행을 삭제할까요? 셀 내용도 함께 지워집니다.`)) runAction(() => deleteWeeklyRow(projectId, r.id)) }}>
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
-          <AddRowForm disabled={isPending} onAdd={(section, module) => runAction(() => addWeeklyRow(projectId, report.id, section, module))} />
           {/* 선택/배치 결과 방송(§7) — 시각적 숨김 */}
           <div aria-live="polite" className="sr-only">{grid.live}</div>
         </div>
@@ -754,71 +711,4 @@ function TitleEditor({ initial, fallback, onSave }: {
   )
 }
 
-/** 구분·모듈 콤보박스 — 시트 셀 룩의 select. 목록 밖 현재값은 선두 옵션으로 노출하고,
- *  '직접 입력…' 선택 시 인라인 input으로 전환(Enter/blur 커밋, Esc 취소)해 자유 값도 허용. */
-function NameCombo({ value, options, onCommit, fieldClassName }: {
-  value: string; options: string[]; onCommit: (v: string) => void
-  fieldClassName?: string // 폼 등 셀 밖에서 쓸 때의 추가 스타일(테두리 등)
-}) {
-  const [custom, setCustom] = useState<string | null>(null) // null=select 모드, 문자열=직접 입력 중
-  const base = 'h-full min-h-9 w-full rounded-none bg-white text-center text-[13px] font-bold text-black outline-none focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-[#1a73e8]'
-  if (custom !== null) {
-    const commit = () => {
-      const t = custom.trim()
-      setCustom(null)
-      if (t && t !== value) onCommit(t)
-    }
-    return (
-      <input
-        autoFocus value={custom} onChange={e => setCustom(e.target.value)} onBlur={commit}
-        onKeyDown={e => {
-          if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur() }
-          if (e.key === 'Escape') setCustom(null)
-        }}
-        className={`${base} border-0 px-1 ${fieldClassName ?? ''}`}
-      />
-    )
-  }
-  return (
-    <div className="group/combo relative h-full">
-      <select
-        value={value}
-        onChange={e => {
-          if (e.target.value === CUSTOM) setCustom(value)
-          else if (e.target.value !== value) onCommit(e.target.value)
-        }}
-        className={`${base} cursor-pointer appearance-none border-0 ${fieldClassName ?? ''}`}
-      >
-        {!options.includes(value) && <option value={value}>{value}</option>}
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
-        <option value={CUSTOM}>직접 입력…</option>
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-0.5 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-400 opacity-0 transition group-hover/combo:opacity-100" />
-    </div>
-  )
-}
-
-function AddRowForm({ disabled, onAdd }: { disabled: boolean; onAdd: (section: string, module: string) => void }) {
-  const [section, setSection] = useState<string>(WEEKLY_SECTIONS[1]) // ERP — 모듈이 가장 많은 구분
-  const [module, setModule] = useState<string>(moduleOptions(WEEKLY_SECTIONS[1])[0])
-  const field = 'border border-neutral-400'
-  const pickSection = (v: string) => {
-    setSection(v)
-    const opts = moduleOptions(v)
-    if (!opts.includes(module)) setModule(opts[0] ?? '')
-  }
-  return (
-    <div className="flex items-center gap-2 pt-1.5 text-[13px]">
-      <Plus className="h-4 w-4 text-neutral-400" />
-      <div className="w-28"><NameCombo value={section} options={[...WEEKLY_SECTIONS]} onCommit={pickSection} fieldClassName={field} /></div>
-      <div className="w-40"><NameCombo value={module} options={moduleOptions(section, module)} onCommit={setModule} fieldClassName={field} /></div>
-      <button
-        className="h-9 border border-neutral-400 bg-white px-2 text-[13px] text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-40"
-        disabled={disabled || !module.trim()}
-        onClick={() => onAdd(section, module)}>
-        모듈 추가
-      </button>
-    </div>
-  )
-}
 
