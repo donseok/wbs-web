@@ -8,6 +8,7 @@ import {
 import { createMinute, fetchProjectMeetingsLite, recordMinuteFile } from '@/app/actions/minutes'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 
@@ -24,6 +25,7 @@ export function MinuteUploadModal({
   defaultTeam?: TeamCode | null
 }) {
   const { t } = useLocale()
+  const { toast } = useToast()
   const [date, setDate] = useState(todayIso)
   const [team, setTeam] = useState<TeamCode>(defaultTeam ?? 'PMO')
   const [title, setTitle] = useState('')
@@ -78,6 +80,13 @@ export function MinuteUploadModal({
         if (!res.ok || !res.id) { setErr(res.error ?? t('min.err.upload')); return }
         minuteId = res.id
         progressRef.current = { id: minuteId, done: 0 }
+        if (res.timeFix) {
+          toast({
+            title: t('min.timeFix.title'),
+            description: `${t('min.timeFix.desc')}: ${res.timeFix.from} → ${res.timeFix.to}`,
+            variant: 'info',
+          })
+        }
       }
       const sb = createBrowserClient()
       const files: { role: 'body' | 'attachment'; f: File }[] = [

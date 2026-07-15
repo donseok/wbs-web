@@ -14,10 +14,17 @@ import { ensureMinuteInsights, generateMinuteInsights } from '@/lib/ai/minutes-i
 import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/share'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
 
 const BUCKET = 'minutes'
 
-export interface MinuteActionResult { ok: boolean; error?: string; id?: string }
+export interface MinuteActionResult {
+  ok: boolean
+  error?: string
+  id?: string
+  /** 녹취툴 시간대(+9h) 보정이 적용됐으면 보정 전/후 시각. UI 토스트용. */
+  timeFix?: { from: string; to: string }
+}
 
 type Sb = Awaited<ReturnType<typeof createServerClient>>
 
@@ -74,18 +81,22 @@ export async function createMinute(input: MinuteInput): Promise<MinuteActionResu
     const { data: mt } = await sb.from('meetings').select('id').eq('id', input.meetingId).maybeSingle()
     if (!mt) return { ok: false, error: '연결할 회의를 찾을 수 없습니다.' }
   }
+  // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·다운스트림 전부 보정본 사용
+  const fix = correctMinuteBodyTime(input.bodyMd)
+  if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)
+  const bodyMd = fix.body
   const { data, error } = await sb.from('minutes').insert({
     minute_date: input.minuteDate, team_code: input.teamCode, title: input.title.trim(),
-    body_md: input.bodyMd, meeting_id: input.meetingId,
+    body_md: bodyMd, meeting_id: input.meetingId,
     created_by: user.id, created_by_name: displayNameFrom(user.user_metadata, user.email),
   }).select('id').single()
   if (error) return { ok: false, error: error.message }
   revalidatePath('/minutes')
   after(async () => {
-    await ingestMinute(data.id as string, input.bodyMd)
-    await generateMinuteInsights(data.id as string, input.bodyMd)
+    await ingestMinute(data.id as string, bodyMd)
+    await generateMinuteInsights(data.id as string, bodyMd)
   })
-  return { ok: true, id: data.id as string }
+  return { ok: true, id: data.id as string, timeFix: fix.corrected ? { from: fix.from!, to: fix.to! } : undefined }
 }
 
 export async function updateMinuteMeta(
@@ -128,6 +139,10 @@ export async function replaceMinuteBody(
   const sb = await createServerClient()
   const own = await checkOwner(sb, id, user.id, m.role)
   if (own) return { ok: false, error: own }
+  // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·재매칭·재인제스트 전부 보정본 사용
+  const fix = correctMinuteBodyTime(bodyMd)
+  if (fix.corrected) console.info(`[minutes] 본문 교체 시간 보정 적용: ${fix.from} → ${fix.to} (id=${id})`)
+  const body = fix.body
   // 기존 body 파일 경로는 DB에서 해석(클라이언트 신뢰 안 함) — 소유권 확인 후에만 Storage 삭제
   const { data: old, error: oldErr } = await sb.from('minute_files')
     .select('id, file_path').eq('minute_id', id).eq('role', 'body').maybeSingle()
@@ -156,16 +171,16 @@ export async function replaceMinuteBody(
   })
   if (insErr) return { ok: false, error: insErr.message }
   const { error } = await sb.from('minutes')
-    .update({ body_md: bodyMd, updated_at: new Date().toISOString() }).eq('id', id)
+    .update({ body_md: body, updated_at: new Date().toISOString() }).eq('id', id)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
   // ① 하이라이트 재매칭(delete→reinsert, service_role) → ② 재인제스트 → ③ 인사이트 재생성 — 스펙 §4.2
   after(async () => {
-    await rematchMinuteHighlights(id, bodyMd)
-    await ingestMinute(id, bodyMd)
-    await generateMinuteInsights(id, bodyMd)
+    await rematchMinuteHighlights(id, body)
+    await ingestMinute(id, body)
+    await generateMinuteInsights(id, body)
   })
-  return { ok: true }
+  return { ok: true, timeFix: fix.corrected ? { from: fix.from!, to: fix.to! } : undefined }
 }
 
 /** 클라이언트 Storage 업로드 후 메타 기록. file_path 는 {minuteId}/ 접두 강제. */

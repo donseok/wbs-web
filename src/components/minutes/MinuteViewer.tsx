@@ -165,6 +165,13 @@ export function MinuteViewer({
         fileName: f.name, filePath: path, size: f.size, mime: f.type || 'text/markdown',
       })
       if (!res.ok) { await sb.storage.from('minutes').remove([path]); setErr(res.error ?? t('min.err.upload')); return }
+      if (res.timeFix) {
+        toast({
+          title: t('min.timeFix.title'),
+          description: `${t('min.timeFix.desc')}: ${res.timeFix.from} → ${res.timeFix.to}`,
+          variant: 'info',
+        })
+      }
       router.refresh()
     } finally { setBusy(false) }
   }
