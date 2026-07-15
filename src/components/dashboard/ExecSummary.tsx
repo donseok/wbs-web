@@ -35,7 +35,10 @@ export async function ExecSummary({
   const tr = (k: DictKey) => t(locale, k)
   const s = buildExecSummary(items, { startDate, endDate, today })
 
-  const verdict = statusWord(s.overall.signal === 'neutral' ? 'green' : s.overall.signal, tr)
+  // 게이지 중앙 배지는 진척(실적 vs 계획) 판정만 반영한다. 큰 실적%·편차와 같은 위계라
+  // 종합(worst-of)을 얹으면 "+0.3%p 앞서는데 위험"처럼 수치와 모순돼 읽힌다.
+  // 일정·리스크·마일스톤은 우측 3개 타일이 각자 신호로 담당한다.
+  const verdict = statusWord(s.progress.signal, tr)
   const plannedText = `${tr('dash.plannedLabel')} ${formatPct1(s.progress.planned)}% · ${formatPp1(s.progress.variance)}%p`
 
   const schedValue =
@@ -76,7 +79,7 @@ export async function ExecSummary({
         <div className="flex items-center justify-center gap-4">
           <ProgressGauge
             actual={s.progress.actual} planned={s.progress.planned} variance={s.progress.variance}
-            overall={s.overall.signal} verdictText={verdict} plannedText={plannedText}
+            signal={s.progress.signal} verdictText={verdict} plannedText={plannedText}
             label={tr('dash.exec.progressLabel')}
           />
         </div>
