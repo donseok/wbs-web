@@ -284,8 +284,8 @@ describe('fillSheetTemplate (구분당 1페이지 + 4셀)', () => {
   })
 
   it("이슈·주요이벤트는 '외 N건'으로 줄이지 않고 전부 싣는다 — 넘치면 그 구분 다음 페이지로 이어 쓴다", async () => {
-    const issues = Array.from({ length: 10 }, (_, i) => `이슈사항${i + 1}`) // 예산 6 초과 → 2페이지
-    const events = Array.from({ length: 9 }, (_, i) => `주요이벤트${i + 1}`)
+    const issues = Array.from({ length: 15 }, (_, i) => `이슈사항${i + 1}`) // 예산 12 초과 → 2페이지
+    const events = Array.from({ length: 14 }, (_, i) => `주요이벤트${i + 1}`)
     const slides = await readSlides(await fillSheetTemplate(
       [sec('PMO', ['한 줄 실적'], ['한 줄 계획'], issues, events)], meta, { lineFormatter: sheetLineText },
     ))
@@ -293,7 +293,7 @@ describe('fillSheetTemplate (구분당 1페이지 + 4셀)', () => {
     expect(joined).not.toContain('외 ')                         // 캡 표기 없음
     for (const it of [...issues, ...events]) expect(joined).toContain(it) // 전량 보존
     expect(slides.length).toBeGreaterThanOrEqual(2)             // 이슈 초과분이 다음 페이지로
-    expect(slides[1]).toContain('이슈사항7')                     // 첫 페이지 예산(6) 넘긴 항목은 이어지는 페이지에
-    expect(slides[1]).toContain('주요이벤트7')
+    expect(slides[1]).toContain('이슈사항13')                    // 첫 페이지 예산(12) 넘긴 항목은 이어지는 페이지에
+    expect(slides[1]).toContain('주요이벤트13')
   })
 })
