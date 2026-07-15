@@ -238,6 +238,27 @@ describe('fillSheetTemplate (구분당 1페이지 + 4셀)', () => {
     return out
   }
 
+  /** slide xml에서 [r][c] 셀(tc) 원본 XML을 뽑는다(불릿·문단 서식 확인용). */
+  const cellXml = (xml: string, r: number, c: number): string => {
+    const rows = xml.match(/<a:tr\b[^>]*>[\s\S]*?<\/a:tr>/g) ?? []
+    const cells = rows[r]?.match(/<a:tc(?:\s[^>]*)?>[\s\S]*?<\/a:tc>/g) ?? []
+    return cells[c] ?? ''
+  }
+
+  it('이슈/이벤트는 콘텐츠 하위 줄과 동일 서식 — 그룹 불릿(점) 없이 마커 들여쓰기', async () => {
+    const sections = [sec('PMO', ['1. 착수'], ['1. 계획'],
+      ['1. PI 변화관리 교육세션', '-. 대상 : D-Cube TF'], ['1. 월간 보고'])]
+    const zip = await JSZip.loadAsync(await fillSheetTemplate(sections, meta, { lineFormatter: sheetLineText }))
+    const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    const issue = cellXml(slide2, 2, 1)   // 행2 이슈 셀
+    // 제목·하위 모두 sheetLineText 들여쓰기만(앞 점 없음) — 콘텐츠 셀과 동일
+    expect(issue).toContain('<a:t>    1. PI 변화관리 교육세션</a:t>') // 4칸, 불릿 제목 아님
+    expect(issue).toContain('<a:t>        -. 대상 : D-Cube TF</a:t>')  // '-' 8칸
+    expect(issue).not.toContain('<a:t>1. PI 변화관리 교육세션</a:t>')  // 예전 불릿 제목(들여쓰기 없음) 아님
+    // 이벤트 셀도 동일
+    expect(cellXml(slide2, 2, 2)).toContain('<a:t>    1. 월간 보고</a:t>')
+  })
+
   it('구분마다 한 슬라이드 + 이슈/이벤트도 그 구분 페이지에 실린다', async () => {
     const sections = [
       sec('영업', ['수주 협의'], ['견적 발송'], ['가격 이견'], ['입찰 마감 7/15']),

@@ -95,6 +95,21 @@ export function buildCellTxBody(
   return `<a:txBody>${sk.bodyPr}${sk.lstStyle}${body.join('')}</a:txBody>`
 }
 
+/** 이슈/이벤트 셀을 콘텐츠 하위 줄과 동일 서식으로 — 줄마다 그룹 불릿(제목 앞 점) 없이 sub 스타일 +
+ *  lineFormatter 들여쓰기만. (작성자 요청: 점은 그룹 표시에만, 제목·하위 줄엔 붙이지 않는다.)
+ *  pPr/rPr는 무불릿(buNone) 문단 스켈레톤을, bodyPr/lstStyle은 해당 셀의 것을 넘긴다. 빈 목록은 emptyText 1줄. */
+export function buildFlatCellTxBody(
+  lines: string[],
+  sk: { pPr: string; rPr: string; bodyPr: string; lstStyle: string },
+  emptyText = '',
+  lineFormatter: (item: string) => string = subLineText,
+): string {
+  const body = lines.length
+    ? lines.map(l => para(sk.pPr, sk.rPr, lineFormatter(l)))
+    : [para(sk.pPr, sk.rPr, emptyText)]
+  return `<a:txBody>${sk.bodyPr}${sk.lstStyle}${body.join('')}</a:txBody>`
+}
+
 /** 헤더 셀 <a:txBody> — '라벨 (범위)' 단일 런. */
 export function buildHeaderCellTxBody(
   label: string, range: string,

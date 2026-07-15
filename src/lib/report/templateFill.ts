@@ -2,7 +2,7 @@ import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
-  mapTableCell, extractCellSkeletons, buildCellTxBody, buildHeaderCellTxBody, subLineText, type CellSkeletons,
+  mapTableCell, extractCellSkeletons, buildCellTxBody, buildFlatCellTxBody, buildHeaderCellTxBody, subLineText, type CellSkeletons,
 } from './xml'
 import type { NarrativeGroup, NarrativeModel } from './narrative'
 import type { SheetSectionCells } from './sheetNarrative'
@@ -152,8 +152,11 @@ export interface FillTemplateOptions {
 
 /** 한 셀의 렌더 입력 — 표시할 그룹들과, 그룹이 아무것도 못 그릴 때의 대체 문구. */
 interface CellFill { groups: NarrativeGroup[]; empty: string }
+/** 이슈/이벤트 셀 채움 — 줄 목록 + 빈 대체 문구. flat=true면 콘텐츠 하위 줄과 동일한 무불릿 서식(시트 경로),
+ *  false면 그룹 불릿(제목 앞 점)으로 렌더(WBS 자동 보고 경로). */
+interface IssueFill { lines: string[]; empty: string; flat: boolean }
 /** 슬라이드 하나의 4개 콘텐츠 셀(행1 좌/우 = 실적/계획, 행2 좌/우 = 이슈/이벤트). 헤더 행0은 공통. */
-interface SlideFill { contentLeft: CellFill; contentRight: CellFill; issueLeft: CellFill; eventRight: CellFill }
+interface SlideFill { contentLeft: CellFill; contentRight: CellFill; issueLeft: IssueFill; eventRight: IssueFill }
 
 /** 기본(WBS) 슬라이드: 실적/계획을 각자 예산까지 묶어 독립 분할하고 인덱스로 정렬.
  *  이슈/이벤트는 1페이지에만 싣고 연속 페이지는 '-'(기존 동작 유지). */
@@ -168,8 +171,9 @@ function buildDefaultSlides(narr: NarrativeModel, fmt: (item: string) => string)
     slides.push({
       contentLeft: { groups: prevPages[i] ?? [], empty: i ? '-' : '(해당 없음)' },
       contentRight: { groups: currPages[i] ?? [], empty: i ? '-' : '(해당 없음)' },
-      issueLeft: { groups: asBulletGroups(i ? ['-'] : issues), empty: '-' },
-      eventRight: { groups: asBulletGroups(i ? ['-'] : events), empty: '-' },
+      // WBS 자동 보고는 기존대로 그룹 불릿 유지(flat:false) — 사용자 지시 "나머지 동일".
+      issueLeft: { lines: i ? ['-'] : issues, empty: '-', flat: false },
+      eventRight: { lines: i ? ['-'] : events, empty: '-', flat: false },
     })
   }
   return slides
@@ -194,9 +198,10 @@ function buildSheetSlides(sections: SheetSectionCells[], fmt: (item: string) => 
       slides.push({
         contentLeft: { groups: prevPages[i] ?? [], empty: '-' },
         contentRight: { groups: currPages[i] ?? [], empty: '-' },
-        // 이슈/이벤트 없는 페이지·구분은 빈칸('' → 대체 문구·불릿·'-' 없음).
-        issueLeft: { groups: asBulletGroups(issuePages[i] ?? []), empty: '' },
-        eventRight: { groups: asBulletGroups(eventPages[i] ?? []), empty: '' },
+        // 이슈/이벤트는 콘텐츠 하위 줄과 동일 서식(flat:true — 그룹 불릿 없이 마커 들여쓰기).
+        // 없는 페이지·구분은 빈칸('' → 대체 문구·불릿·'-' 없음).
+        issueLeft: { lines: issuePages[i] ?? [], empty: '', flat: true },
+        eventRight: { lines: eventPages[i] ?? [], empty: '', flat: true },
       })
     }
   })
@@ -224,6 +229,14 @@ async function renderTemplate(
     bodyPr: '<a:bodyPr/>', lstStyle: '<a:lstStyle/>',
   }
 
+  // 이슈/이벤트 셀: flat이면 콘텐츠 하위 줄과 동일한 무불릿 문단(contentSk.sub) + 셀 자체 bodyPr로,
+  // 아니면 기존 그룹 불릿(issueSk.title)으로 렌더. issue 셀 템플릿엔 무불릿(buNone) 문단이 없어 contentSk.sub을 빌려온다.
+  const flatIssueSk = { pPr: contentSk.sub.pPr, rPr: contentSk.sub.rPr, bodyPr: issueSk.bodyPr, lstStyle: issueSk.lstStyle }
+  const renderIssue = (cell: IssueFill): string =>
+    cell.flat
+      ? buildFlatCellTxBody(cell.lines, flatIssueSk, cell.empty, fmt)
+      : buildCellTxBody(asBulletGroups(cell.lines), issueSk, cell.empty)
+
   const buildPage = (i: number): string => {
     const s = slides[i]
     let x = slide2
@@ -231,8 +244,8 @@ async function renderTemplate(
     x = mapTableCell(x, 0, 2, buildHeaderCellTxBody(labels.right, meta.weekRange, hdrSk))
     x = mapTableCell(x, 1, 1, buildCellTxBody(s.contentLeft.groups, contentSk, s.contentLeft.empty, fmt))
     x = mapTableCell(x, 1, 2, buildCellTxBody(s.contentRight.groups, contentSk, s.contentRight.empty, fmt))
-    x = mapTableCell(x, 2, 1, buildCellTxBody(s.issueLeft.groups, issueSk, s.issueLeft.empty))   // 이슈(전주 위치)
-    x = mapTableCell(x, 2, 2, buildCellTxBody(s.eventRight.groups, issueSk, s.eventRight.empty))  // 이벤트(금주 위치)
+    x = mapTableCell(x, 2, 1, renderIssue(s.issueLeft))   // 이슈(전주 위치)
+    x = mapTableCell(x, 2, 2, renderIssue(s.eventRight))  // 이벤트(금주 위치)
     return x
   }
 
