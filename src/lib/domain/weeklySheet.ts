@@ -15,9 +15,9 @@ export interface WeeklySheetRow {
 export type NewWeeklyRow = Omit<WeeklySheetRow, 'id' | 'reportId'>
 
 /** D-CUBE 주간보고 양식의 업무영역 구분 — 시트 행 순서이자 PPT 보고 순서(단일 출처).
- *  사업/원가(영업·구매·관리회계)를 먼저 세우고 현장(품질·생산·조업·물류·설비·가공)이 뒤따른다. */
+ *  PMO(사업 관리)를 맨 앞에 두고, 사업/원가(영업·구매·관리회계)에 이어 현장(품질·생산·조업·물류·설비·가공)이 뒤따른다. */
 export const WEEKLY_SECTIONS = [
-  '영업', '구매', '관리회계', '품질', '생산계획',
+  'PMO', '영업', '구매', '관리회계', '품질', '생산계획',
   '조업및표준화', '물류', '설비및L2', '가공',
 ] as const
 
@@ -56,7 +56,7 @@ export function mapLegacySection(section: string, module: string): string {
 /** 셀 1개 상한 — 서버 액션·클라이언트 클램프·이월 병합이 공유하는 단일 출처. */
 export const WEEKLY_CELL_MAX = 20000
 
-/** 새 주차 기본 스켈레톤 — 업무영역 9행(구분당 1행, 셀은 빈값). 신규 행의 module은 항상 ''. */
+/** 새 주차 기본 스켈레톤 — 업무영역 10행(구분당 1행, 셀은 빈값). 신규 행의 module은 항상 ''. */
 export function defaultWeeklyRows(): NewWeeklyRow[] {
   return WEEKLY_SECTIONS.map((section, i) => ({
     section, module: '', sortOrder: i + 1,
@@ -83,7 +83,7 @@ export interface WeeklyCellEdit {
   content: string         // 저장할 새 값(0~CELL_MAX)
 }
 
-/** 새 주차 이월: 결과는 **항상 표준 9행**이다. 전주 차주계획 → 금주실적, next는 비움.
+/** 새 주차 이월: 결과는 **항상 표준 10행**이다. 전주 차주계획 → 금주실적, next는 비움.
  *  레거시(공통/ERP/MES) 시트는 mapLegacySection으로 신규 구분에 흡수하고, 같은 구분으로
  *  모이는 내용(FI/TR + CO → 관리회계)은 sortOrder 순서대로 줄바꿈으로 이어붙인다.
  *  이 정규화가 없으면 레거시 시트에서 이월한 새 주차가 다시 구 13행 구조로 태어난다. */

@@ -5,6 +5,7 @@ import {
   mapTableCell, extractCellSkeletons, buildCellTxBody, buildHeaderCellTxBody, subLineText, type CellSkeletons,
 } from './xml'
 import type { NarrativeGroup, NarrativeModel } from './narrative'
+import type { SheetSectionCells } from './sheetNarrative'
 
 /* ── 셀 용량·페이지 분할(순수). 템플릿 셀 높이가 고정 → 넘치는 내용은 잘라내지 않고
  *    slide2를 복제한 연속 슬라이드로 이어 붙인다(활동 항목 유실 없음). ── */
@@ -83,62 +84,21 @@ export function paginateGroups(
   return pages.length ? pages : [[]]
 }
 
-/** 두 정렬 목록(prev/curr 구분 순서)을 공통 순서를 보존하며 합친다.
- *  둘 다 같은 표준 순서(시트 행 순서)의 부분수열이므로, 한쪽에만 있는 구분도 제자리에 낀다. */
-function unionOrder(a: string[], b: string[]): string[] {
-  const out: string[] = []
-  const seen = new Set<string>()
-  const push = (s: string) => { if (!seen.has(s)) { seen.add(s); out.push(s) } }
-  const inRest = (arr: string[], from: number, s: string) => arr.indexOf(s, from) >= 0
-  let i = 0, j = 0
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { push(a[i]); i += 1; j += 1 }
-    else if (!inRest(b, j, a[i])) { push(a[i]); i += 1 }  // a[i]는 a에만 → 지금 순서
-    else if (!inRest(a, i, b[j])) { push(b[j]); j += 1 }  // b[j]는 b에만 → 지금 순서
-    else { push(a[i]); i += 1 }                           // 양쪽 뒤에 다 있음(역전) → a 우선
+/** 불릿 줄 목록을 셀 예산(시각 줄수) 단위 페이지로 분할 — 이슈/이벤트 셀 전용. 항목 유실·'외 N건' 캡 없이 전부.
+ *  paginateGroups와 달리 줄 사이 빈 줄(구분자)이 없다 — 이슈/이벤트 불릿은 붙여 렌더되므로 실측 줄수와 일치.
+ *  예산을 단독 초과하는 한 줄은 자기 페이지에 그대로 싣는다(잘라내지 않음). 빈 목록은 빈 1페이지. */
+export function paginateLines(lines: string[], budget: number): string[][] {
+  const pages: string[][] = []
+  let page: string[] = []
+  let used = 0
+  for (const line of lines) {
+    const c = lineCost(line)
+    if (page.length && used + c > budget) { pages.push(page); page = []; used = 0 }
+    page.push(line)
+    used += c
   }
-  while (i < a.length) { push(a[i]); i += 1 }
-  while (j < b.length) { push(b[j]); j += 1 }
-  return out
-}
-
-/** 구분(그룹) 하나당 새 페이지에서 시작하고, 같은 구분의 좌(prev)·우(curr)를 같은 슬라이드에 정렬한다.
- *  한 구분의 내용이 budget을 넘으면 그 구분 안에서만 연속 페이지로 분할(다른 구분과 섞지 않음).
- *  한쪽 열에만 있는 구분은 반대 열이 빈 페이지가 되어 '(해당 없음)'으로 렌더된다.
- *  반환된 prevPages[i]·currPages[i]는 같은 슬라이드의 좌/우 → 항상 같은 구분을 가리킨다. */
-export function paginatePairedByGroup(
-  prev: NarrativeGroup[], curr: NarrativeGroup[], budget: number,
-  lineFormatter: (item: string) => string = subLineText,
-): { prevPages: NarrativeGroup[][]; currPages: NarrativeGroup[][] } {
-  // 같은 라벨의 그룹(레거시 다중 모듈 행)은 items를 이어붙여 하나로 — 페어링 키는 구분 라벨.
-  const collect = (groups: NarrativeGroup[]): Map<string, NarrativeGroup> => {
-    const m = new Map<string, NarrativeGroup>()
-    for (const g of groups) {
-      const ex = m.get(g.phase)
-      if (ex) ex.items.push(...g.items)
-      else m.set(g.phase, { phase: g.phase, num: g.num, items: [...g.items] })
-    }
-    return m
-  }
-  const prevBy = collect(prev)
-  const currBy = collect(curr)
-  const prevPages: NarrativeGroup[][] = []
-  const currPages: NarrativeGroup[][] = []
-  for (const phase of unionOrder([...prevBy.keys()], [...currBy.keys()])) {
-    const p = prevBy.get(phase)
-    const c = currBy.get(phase)
-    const pPages = p ? paginateGroups([p], budget, lineFormatter) : [[]]
-    const cPages = c ? paginateGroups([c], budget, lineFormatter) : [[]]
-    const n = Math.max(pPages.length, cPages.length)
-    for (let i = 0; i < n; i += 1) {
-      prevPages.push(pPages[i] ?? [])
-      currPages.push(cPages[i] ?? [])
-    }
-  }
-  return {
-    prevPages: prevPages.length ? prevPages : [[]],
-    currPages: currPages.length ? currPages : [[]],
-  }
+  if (page.length) pages.push(page)
+  return pages.length ? pages : [[]]
 }
 
 /* ── 템플릿-필 렌더러. 원본 .pptx를 로드해 slide2 표 셀만 교체 → nodebuffer.
@@ -146,7 +106,8 @@ export function paginatePairedByGroup(
 
 const TEMPLATE_PATH = join(process.cwd(), 'src/lib/report/assets/weekly-template.pptx')
 const CELL_BUDGET = 15   // 콘텐츠 셀(행1, 높이 3.26"·12pt) 페이지당 최대 시각 줄수
-const ISSUE_CAP = 3, EVENT_CAP = 4
+const ISSUE_BUDGET = 6   // 이슈/이벤트 셀(행2, 높이 1.31") 페이지당 최대 시각 줄수 — CELL_BUDGET×(1.31/3.26)≈6
+const ISSUE_CAP = 3, EVENT_CAP = 4  // WBS 자동 보고 경로 전용 캡(시트 경로는 캡 없이 전부 페이지네이션)
 
 /** slide2 표에서 [r][c] tc의 원본 XML(스켈레톤 추출용). */
 function cellAt(slideXml: string, r: number, c: number): string {
@@ -187,18 +148,67 @@ async function appendContinuationSlides(zip: JSZip, buildPage: (i: number) => st
 export interface FillTemplateOptions {
   labels?: { left: string; right: string }      // 행0 헤더 라벨(범위는 meta에서 합성)
   lineFormatter?: (item: string) => string      // 상세 줄 표기(렌더·줄수 추정 공용)
-  pagePerGroup?: boolean                         // 각 구분(그룹)을 새 슬라이드로 + 좌/우를 같은 구분으로 정렬(시트 경로)
 }
 
-/** 주간 내러티브 → 템플릿 디자인 그대로의 PPTX(nodebuffer). 내용이 길면 페이지 자동 추가.
- *  model은 헤더 범위(meta)만 쓰므로 구조적 부분집합 허용 — 시트 경로는 최소 meta만 합성해 넘긴다. */
-export async function fillWeeklyTemplate(
-  narr: NarrativeModel,
-  model: { meta: { prevWeekRange: string; weekRange: string } },
-  opts: FillTemplateOptions = {},
+/** 한 셀의 렌더 입력 — 표시할 그룹들과, 그룹이 아무것도 못 그릴 때의 대체 문구. */
+interface CellFill { groups: NarrativeGroup[]; empty: string }
+/** 슬라이드 하나의 4개 콘텐츠 셀(행1 좌/우 = 실적/계획, 행2 좌/우 = 이슈/이벤트). 헤더 행0은 공통. */
+interface SlideFill { contentLeft: CellFill; contentRight: CellFill; issueLeft: CellFill; eventRight: CellFill }
+
+/** 기본(WBS) 슬라이드: 실적/계획을 각자 예산까지 묶어 독립 분할하고 인덱스로 정렬.
+ *  이슈/이벤트는 1페이지에만 싣고 연속 페이지는 '-'(기존 동작 유지). */
+function buildDefaultSlides(narr: NarrativeModel, fmt: (item: string) => string): SlideFill[] {
+  const prevPages = paginateGroups(narr.prev, CELL_BUDGET, fmt)
+  const currPages = paginateGroups(narr.curr, CELL_BUDGET, fmt)
+  const pageCount = Math.max(prevPages.length, currPages.length)
+  const issues = capItems(narr.issues.length ? narr.issues : ['특이 이슈 없음'], ISSUE_CAP)
+  const events = capItems(narr.events.length ? narr.events : ['예정된 주요 이벤트 없음'], EVENT_CAP)
+  const slides: SlideFill[] = []
+  for (let i = 0; i < pageCount; i += 1) {
+    slides.push({
+      contentLeft: { groups: prevPages[i] ?? [], empty: i ? '-' : '(해당 없음)' },
+      contentRight: { groups: currPages[i] ?? [], empty: i ? '-' : '(해당 없음)' },
+      issueLeft: { groups: asBulletGroups(i ? ['-'] : issues), empty: '-' },
+      eventRight: { groups: asBulletGroups(i ? ['-'] : events), empty: '-' },
+    })
+  }
+  return slides
+}
+
+/** 시트 슬라이드: 구분(업무영역) 하나당 한 페이지. 4셀(실적·계획·이슈·이벤트) 모두 그 구분 것으로 채운다.
+ *  내용이 빈 구분도 페이지를 만든다(구분명은 콘텐츠 셀 헤더로 표기). 이슈·주요이벤트는 '외 N건'으로 줄이지
+ *  않고 전부 싣되, 셀 예산(ISSUE_BUDGET)을 넘으면 그 구분의 다음 페이지로 이어 쓴다(사용자 요청). 한 구분이
+ *  네 셀 중 무엇이든 예산을 넘으면 그 구분 안에서만 연속 페이지로 분할하고, 페이지 수는 네 셀 중 최댓값이다. */
+function buildSheetSlides(sections: SheetSectionCells[], fmt: (item: string) => string): SlideFill[] {
+  const slides: SlideFill[] = []
+  sections.forEach((sec, idx) => {
+    // items가 비어도 그룹 헤더(구분명)는 렌더된다 → 빈 구분도 라벨이 붙은 빈 페이지가 된다.
+    const prevPages = paginateGroups([{ phase: sec.section, num: idx + 1, items: sec.thisContent }], CELL_BUDGET, fmt)
+    const currPages = paginateGroups([{ phase: sec.section, num: idx + 1, items: sec.nextContent }], CELL_BUDGET, fmt)
+    // 이슈/이벤트도 전부 페이지네이션 — 빈 구분은 대체 문구 1줄, 넘치면 이어지는 페이지로.
+    const issuePages = paginateLines(sec.thisIssue.length ? sec.thisIssue : ['특이 이슈 없음'], ISSUE_BUDGET)
+    const eventPages = paginateLines(sec.nextIssue.length ? sec.nextIssue : ['예정된 주요 이벤트 없음'], ISSUE_BUDGET)
+    const n = Math.max(prevPages.length, currPages.length, issuePages.length, eventPages.length)
+    for (let i = 0; i < n; i += 1) {
+      slides.push({
+        contentLeft: { groups: prevPages[i] ?? [], empty: '-' },
+        contentRight: { groups: currPages[i] ?? [], empty: '-' },
+        issueLeft: { groups: asBulletGroups(issuePages[i] ?? ['-']), empty: '-' },
+        eventRight: { groups: asBulletGroups(eventPages[i] ?? ['-']), empty: '-' },
+      })
+    }
+  })
+  return slides.length ? slides : buildDefaultSlides({ prev: [], curr: [], issues: [], events: [] }, fmt)
+}
+
+/** 슬라이드 채움 배열 → 템플릿 디자인 그대로의 PPTX(nodebuffer). 2장 이상이면 slide2를 복제해 연속 슬라이드 추가.
+ *  slides[0]는 slide2에, 이후는 slide3~에 배선된다. */
+async function renderTemplate(
+  slides: SlideFill[],
+  meta: { prevWeekRange: string; weekRange: string },
+  labels: { left: string; right: string },
+  fmt: (item: string) => string,
 ): Promise<Buffer> {
-  const labels = opts.labels ?? { left: '전주 주요활동', right: '금주 주요활동' }
-  const fmt = opts.lineFormatter ?? subLineText
   const zip = await JSZip.loadAsync(await readFile(TEMPLATE_PATH))
   const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
 
@@ -212,31 +222,43 @@ export async function fillWeeklyTemplate(
     bodyPr: '<a:bodyPr/>', lstStyle: '<a:lstStyle/>',
   }
 
-  // 시트 경로(pagePerGroup): 각 구분이 자기 슬라이드에서 시작하고 좌/우가 같은 구분으로 정렬된다.
-  // 기본(WBS 경로): 여러 Phase를 셀 예산까지 묶고 좌/우를 독립 분할해 인덱스로 정렬(기존 동작).
-  const { prevPages, currPages } = opts.pagePerGroup
-    ? paginatePairedByGroup(narr.prev, narr.curr, CELL_BUDGET, fmt)
-    : {
-        prevPages: paginateGroups(narr.prev, CELL_BUDGET, fmt),
-        currPages: paginateGroups(narr.curr, CELL_BUDGET, fmt),
-      }
-  const pageCount = Math.max(prevPages.length, currPages.length)
-  const issues = capItems(narr.issues.length ? narr.issues : ['특이 이슈 없음'], ISSUE_CAP)
-  const events = capItems(narr.events.length ? narr.events : ['예정된 주요 이벤트 없음'], EVENT_CAP)
-
-  // 페이지 i의 slide XML. 이슈/이벤트 행은 1페이지에만 싣고 연속 페이지는 '-'.
   const buildPage = (i: number): string => {
+    const s = slides[i]
     let x = slide2
-    x = mapTableCell(x, 0, 1, buildHeaderCellTxBody(labels.left, model.meta.prevWeekRange, hdrSk))
-    x = mapTableCell(x, 0, 2, buildHeaderCellTxBody(labels.right, model.meta.weekRange, hdrSk))
-    x = mapTableCell(x, 1, 1, buildCellTxBody(prevPages[i] ?? [], contentSk, i ? '-' : undefined, fmt))
-    x = mapTableCell(x, 1, 2, buildCellTxBody(currPages[i] ?? [], contentSk, i ? '-' : undefined, fmt))
-    x = mapTableCell(x, 2, 1, buildCellTxBody(asBulletGroups(i ? ['-'] : issues), issueSk))  // 이슈(전주 위치)
-    x = mapTableCell(x, 2, 2, buildCellTxBody(asBulletGroups(i ? ['-'] : events), issueSk))  // 이벤트(금주 위치)
+    x = mapTableCell(x, 0, 1, buildHeaderCellTxBody(labels.left, meta.prevWeekRange, hdrSk))
+    x = mapTableCell(x, 0, 2, buildHeaderCellTxBody(labels.right, meta.weekRange, hdrSk))
+    x = mapTableCell(x, 1, 1, buildCellTxBody(s.contentLeft.groups, contentSk, s.contentLeft.empty, fmt))
+    x = mapTableCell(x, 1, 2, buildCellTxBody(s.contentRight.groups, contentSk, s.contentRight.empty, fmt))
+    x = mapTableCell(x, 2, 1, buildCellTxBody(s.issueLeft.groups, issueSk, s.issueLeft.empty))   // 이슈(전주 위치)
+    x = mapTableCell(x, 2, 2, buildCellTxBody(s.eventRight.groups, issueSk, s.eventRight.empty))  // 이벤트(금주 위치)
     return x
   }
 
   zip.file('ppt/slides/slide2.xml', buildPage(0))
-  if (pageCount > 1) await appendContinuationSlides(zip, buildPage, pageCount)
+  if (slides.length > 1) await appendContinuationSlides(zip, buildPage, slides.length)
   return (await zip.generateAsync({ type: 'nodebuffer' })) as Buffer
+}
+
+/** 주간 내러티브 → 템플릿 디자인 그대로의 PPTX(nodebuffer). 내용이 길면 페이지 자동 추가.
+ *  model은 헤더 범위(meta)만 쓰므로 구조적 부분집합 허용 — 시트 경로는 최소 meta만 합성해 넘긴다. */
+export async function fillWeeklyTemplate(
+  narr: NarrativeModel,
+  model: { meta: { prevWeekRange: string; weekRange: string } },
+  opts: FillTemplateOptions = {},
+): Promise<Buffer> {
+  const labels = opts.labels ?? { left: '전주 주요활동', right: '금주 주요활동' }
+  const fmt = opts.lineFormatter ?? subLineText
+  return renderTemplate(buildDefaultSlides(narr, fmt), model.meta, labels, fmt)
+}
+
+/** 주간업무 시트 → 구분(업무영역)당 한 페이지 PPTX. 전 구분(내용 없는 구분 포함)을 페이지로 만들고,
+ *  각 페이지에 그 구분의 금주실적·차주계획·이슈사항·주요이벤트를 함께 싣는다. */
+export async function fillSheetTemplate(
+  sections: SheetSectionCells[],
+  model: { meta: { prevWeekRange: string; weekRange: string } },
+  opts: FillTemplateOptions = {},
+): Promise<Buffer> {
+  const labels = opts.labels ?? { left: '금주실적', right: '차주계획' }
+  const fmt = opts.lineFormatter ?? subLineText
+  return renderTemplate(buildSheetSlides(sections, fmt), model.meta, labels, fmt)
 }

@@ -9,9 +9,9 @@ import { listProjects } from '@/app/actions/project'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
 import { buildWeeklyNarrative } from '@/lib/report/narrative'
-import { fillWeeklyTemplate } from '@/lib/report/templateFill'
+import { fillWeeklyTemplate, fillSheetTemplate } from '@/lib/report/templateFill'
 import { mondayIso, sheetWeekMeta } from '@/lib/report/week'
-import { buildSheetNarrative, sheetLineText } from '@/lib/report/sheetNarrative'
+import { buildSheetSections, sheetLineText } from '@/lib/report/sheetNarrative'
 import { getWeeklySheet } from '@/lib/data/weeklySheet'
 
 // exceljs·템플릿 zip 읽기(fs)는 Node 전용 → Edge 런타임 금지.
@@ -70,10 +70,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: '해당 주차에 작성된 내용이 없습니다' }, { status: 400 })
     }
     const wk = sheetWeekMeta(weekStart)
-    const body = await fillWeeklyTemplate(
-      buildSheetNarrative(sheet.rows),
+    // 구분(업무영역)당 1페이지 — 내용 없는 구분도 페이지를 만들고, 각 페이지에 그 구분의 실적·계획·이슈·이벤트를 함께 싣는다.
+    const body = await fillSheetTemplate(
+      buildSheetSections(sheet.rows),
       { meta: { prevWeekRange: wk.thisRange, weekRange: wk.nextRange } }, // 좌=금주실적, 우=차주계획
-      { labels: { left: '금주실적', right: '차주계획' }, lineFormatter: sheetLineText, pagePerGroup: true }, // 구분(업무영역)당 1페이지
+      { labels: { left: '금주실적', right: '차주계획' }, lineFormatter: sheetLineText },
 
     )
     const filename = `${project.name}_주간업무_${wk.weekTag}_${weekStart}.pptx`.replace(/[^\w가-힣.\-]+/g, '_')
