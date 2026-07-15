@@ -178,23 +178,25 @@ function buildDefaultSlides(narr: NarrativeModel, fmt: (item: string) => string)
 /** 시트 슬라이드: 구분(업무영역) 하나당 한 페이지. 4셀(실적·계획·이슈·이벤트) 모두 그 구분 것으로 채운다.
  *  내용이 빈 구분도 페이지를 만든다(구분명은 콘텐츠 셀 헤더로 표기). 이슈·주요이벤트는 '외 N건'으로 줄이지
  *  않고 전부 싣되, 셀 예산(ISSUE_BUDGET)을 넘으면 그 구분의 다음 페이지로 이어 쓴다(사용자 요청). 한 구분이
- *  네 셀 중 무엇이든 예산을 넘으면 그 구분 안에서만 연속 페이지로 분할하고, 페이지 수는 네 셀 중 최댓값이다. */
+ *  네 셀 중 무엇이든 예산을 넘으면 그 구분 안에서만 연속 페이지로 분할하고, 페이지 수는 네 셀 중 최댓값이다.
+ *  이슈/이벤트가 없으면 대체 문구 없이 그냥 빈칸으로 둔다(사용자 요청 — '특이 이슈 없음' 등 표기 안 함). */
 function buildSheetSlides(sections: SheetSectionCells[], fmt: (item: string) => string): SlideFill[] {
   const slides: SlideFill[] = []
   sections.forEach((sec, idx) => {
     // items가 비어도 그룹 헤더(구분명)는 렌더된다 → 빈 구분도 라벨이 붙은 빈 페이지가 된다.
     const prevPages = paginateGroups([{ phase: sec.section, num: idx + 1, items: sec.thisContent }], CELL_BUDGET, fmt)
     const currPages = paginateGroups([{ phase: sec.section, num: idx + 1, items: sec.nextContent }], CELL_BUDGET, fmt)
-    // 이슈/이벤트도 전부 페이지네이션 — 빈 구분은 대체 문구 1줄, 넘치면 이어지는 페이지로.
-    const issuePages = paginateLines(sec.thisIssue.length ? sec.thisIssue : ['특이 이슈 없음'], ISSUE_BUDGET)
-    const eventPages = paginateLines(sec.nextIssue.length ? sec.nextIssue : ['예정된 주요 이벤트 없음'], ISSUE_BUDGET)
+    // 이슈/이벤트도 전부 페이지네이션 — 넘치면 이어지는 페이지로. 없으면 빈칸(대체 문구 없음).
+    const issuePages = paginateLines(sec.thisIssue, ISSUE_BUDGET)   // 빈 목록 → [[]] → 빈칸
+    const eventPages = paginateLines(sec.nextIssue, ISSUE_BUDGET)
     const n = Math.max(prevPages.length, currPages.length, issuePages.length, eventPages.length)
     for (let i = 0; i < n; i += 1) {
       slides.push({
         contentLeft: { groups: prevPages[i] ?? [], empty: '-' },
         contentRight: { groups: currPages[i] ?? [], empty: '-' },
-        issueLeft: { groups: asBulletGroups(issuePages[i] ?? ['-']), empty: '-' },
-        eventRight: { groups: asBulletGroups(eventPages[i] ?? ['-']), empty: '-' },
+        // 이슈/이벤트 없는 페이지·구분은 빈칸('' → 대체 문구·불릿·'-' 없음).
+        issueLeft: { groups: asBulletGroups(issuePages[i] ?? []), empty: '' },
+        eventRight: { groups: asBulletGroups(eventPages[i] ?? []), empty: '' },
       })
     }
   })
