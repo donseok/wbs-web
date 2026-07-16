@@ -32,8 +32,6 @@ export async function SpiPanel({ model, variance }: { model: TrendModel; varianc
   const spi = model.currentSpi
   const spiKey = spi == null ? null : spi >= 0.98 ? 'done' : spi >= 0.9 ? 'warn' : 'delayed'
   const spiTone = spiKey == null ? 'text-ink' : SPI_TEXT[spiKey]
-  const v = model.velocityWeek
-  const vTone = v == null || v === 0 ? 'text-ink' : v > 0 ? 'text-done' : 'text-delayed'
 
   // 반원 게이지 — 상태색 호 + 바늘 + 중앙 큰 숫자. 바늘이 숫자를 지나도 읽히게 표면색 할로를 두른다.
   const needle = spi == null ? null : angleOf(spi)
@@ -86,10 +84,9 @@ export async function SpiPanel({ model, variance }: { model: TrendModel; varianc
       <div className="space-y-4">
         {gauge}
         {spark}
-        <div className="grid grid-cols-3 gap-2">
-          <Stat label={tr('dash.spi.current')} value={spi == null ? '—' : spi.toFixed(2)} tone={spiTone} compact />
-          <Stat label={tr('dash.spi.velocity')} value={v == null ? '—' : fmtPp(v)} tone={vTone} compact />
-          <Stat label={tr('dash.spi.varianceNow')} value={fmtPp(variance)} tone={SIG_TONE[progressSignal(variance)]} compact />
+        <div className="grid grid-cols-2 gap-3">
+          <Stat label={tr('dash.spi.current')} value={spi == null ? '—' : spi.toFixed(2)} tone={spiTone} />
+          <Stat label={tr('dash.spi.varianceNow')} value={fmtPp(variance)} tone={SIG_TONE[progressSignal(variance)]} />
         </div>
         <div className="text-[11px] text-ink-subtle">{tr('dash.spi.hint')}</div>
       </div>
