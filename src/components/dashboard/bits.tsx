@@ -47,13 +47,18 @@ export function MiniEmpty({ text }: { text: string }) {
   )
 }
 
-/** 라벨+큰 숫자 스탯 타일. tone 으로 값 색상 오버라이드(예: text-done). */
-export function Stat({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: string; tone?: string }) {
+/**
+ * 라벨+큰 숫자 스탯 타일. tone 으로 값 색상 오버라이드(예: text-done).
+ * compact: 좁은 다열 그리드용 — 패딩·글자·자간을 줄여 값이 타일을 넘지 않게 한다.
+ */
+export function Stat({ label, value, sub, tone, compact }: {
+  label: string; value: ReactNode; sub?: string; tone?: string; compact?: boolean
+}) {
   return (
-    <div className="rounded-xl border border-line bg-surface-2/50 px-4 py-3">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">{label}</div>
-      <div className={`mt-1 text-xl font-bold tabular-nums leading-none ${tone ?? 'text-ink'}`}>{value}</div>
-      {sub && <div className="mt-1 text-[11px] text-ink-muted">{sub}</div>}
+    <div className={`min-w-0 overflow-hidden rounded-xl border border-line bg-surface-2/50 ${compact ? 'px-3 py-2.5' : 'px-4 py-3'}`}>
+      <div className={`truncate font-semibold uppercase text-ink-subtle ${compact ? 'text-[9px] tracking-[0.08em]' : 'text-[10px] tracking-[0.14em]'}`}>{label}</div>
+      <div className={`mt-1 truncate font-bold tabular-nums leading-none ${compact ? 'text-lg' : 'text-xl'} ${tone ?? 'text-ink'}`}>{value}</div>
+      {sub && <div className="mt-1 truncate text-[11px] text-ink-muted">{sub}</div>}
     </div>
   )
 }
