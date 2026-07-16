@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus } from 'lucide-react'
 import type { ComputedItem, DeliverableAttachment, Level, OwnerKind, TeamCode } from '@/lib/domain/types'
 import {
-  getChangeLogs, updateWbsFields, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem, type ChangeLogEntry,
+  getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem, type ChangeLogEntry,
 } from '@/app/actions/wbs'
 import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
@@ -42,12 +42,14 @@ function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
 /** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
-  item, onClose, editable = false, canAttach = false, projectId, subAct = false,
+  item, onClose, editable = false, canAttach = false, canEditDeliverable = false, projectId, subAct = false,
 }: {
   item: ComputedItem
   onClose: () => void
   editable?: boolean
   canAttach?: boolean
+  /** 산출물 텍스트 인라인 편집 권한 — PMO 또는 담당팀(첨부와 동일). editable(PMO 전체 폼)과 별개. */
+  canEditDeliverable?: boolean
   projectId: string
   /** act 하위의 담당자별 분리 항목 — 구분 배지를 SUB-ACT 로 표기 */
   subAct?: boolean
@@ -63,6 +65,10 @@ export function RowDetailPanel({
   const [subOpen, setSubOpen] = useState(false)               // SUB-ACT 추가 폼 열림
   const [subTeam, setSubTeam] = useState<TeamCode | null>(null)
   const [subKind, setSubKind] = useState<OwnerKind>('primary')
+  const [delivEditing, setDelivEditing] = useState(false)   // 산출물 인라인 편집(전체 폼과 별개)
+  const [delivDraft, setDelivDraft] = useState('')
+  const [delivBusy, setDelivBusy] = useState(false)
+  const [delivErr, setDelivErr] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '',
   })
@@ -78,6 +84,7 @@ export function RowDetailPanel({
     setLogs(null)
     setEditing(false); setConfirmDel(false); setAddName(null); setErr(null)
     setSubOpen(false); setSubTeam(null); setSubKind('primary')
+    setDelivEditing(false); setDelivErr(null)
     setForm({ name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '' })
     getChangeLogs(item.id).then(r => { if (alive) setLogs(r) }).catch(() => { if (alive) setLogs([]) })
     return () => { alive = false }
@@ -109,6 +116,16 @@ export function RowDetailPanel({
       plannedEnd: form.end || null,
       deliverable: form.deliverable || null,
     }), () => setEditing(false))
+
+  const openDeliv = () => { setDelivDraft(item.deliverable ?? ''); setDelivErr(null); setDelivEditing(true) }
+  async function saveDeliv() {
+    setDelivBusy(true); setDelivErr(null)
+    const res = await updateDeliverable(item.id, delivDraft.trim() || null)
+    setDelivBusy(false)
+    if (!res.ok) { setDelivErr(res.error ?? t('wbs.errGeneric')); return }
+    setDelivEditing(false)
+    router.refresh()
+  }
 
   const addChild = () => {
     if (!childLevel || !addName?.trim()) return
@@ -172,7 +189,27 @@ export function RowDetailPanel({
               </Field>
               <Field icon={CalendarRange} label={t('wbs.plannedSchedule')}><span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span></Field>
               <Field icon={Scale} label={t('wbs.colWeight')}><span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : formatWeightPct(item.weight)}</span></Field>
-              <Field icon={FileText} label={t('wbs.colDeliverable')}>{item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}</Field>
+              <Field icon={FileText} label={t('wbs.colDeliverable')}>
+                {delivEditing ? (
+                  <div className="space-y-2">
+                    <input autoFocus value={delivDraft} onChange={e => setDelivDraft(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') saveDeliv(); if (e.key === 'Escape') { setDelivEditing(false); setDelivErr(null) } }}
+                      className="app-input" placeholder={t('wbs.deliverablePlaceholder')} />
+                    {delivErr && <p className="text-xs font-medium text-delayed">{delivErr}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={saveDeliv} disabled={delivBusy} className="btn btn-primary h-8 px-3 text-xs">{delivBusy ? t('wbs.saving') : t('common.save')}</button>
+                      <button onClick={() => { setDelivEditing(false); setDelivErr(null) }} className="btn btn-ghost h-8 px-3 text-xs">{t('common.cancel')}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-2">
+                    {item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}
+                    {canEditDeliverable && (
+                      <button onClick={openDeliv} aria-label={t('common.edit')} className="shrink-0 text-ink-subtle transition hover:text-ink"><Pencil className="h-3.5 w-3.5" /></button>
+                    )}
+                  </div>
+                )}
+              </Field>
             </>
           )}
 

@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
-import { canEditActual, canEditWeight } from '@/lib/domain/permissions'
+import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText } from 'lucide-react'
@@ -925,6 +925,7 @@ export function WbsGanttSheet({
           onClose={() => setSelectedId(null)}
           editable={isPmo && !readOnly}
           canAttach={!readOnly && !!membership && (isPmo || selectedItem.owners.some(o => o.team === membership.teamCode))}
+          canEditDeliverable={!readOnly && canEditDeliverable(selectedItem, membership)}
           projectId={projectId}
         />
       )}

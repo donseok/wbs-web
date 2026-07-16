@@ -366,6 +366,35 @@ export async function updateWbsFields(
   return { ok: true }
 }
 
+/** 산출물 텍스트만 편집 — 산출물 첨부와 동일 권한(PMO 전체, 담당팀 편집자는 자기 담당 항목만).
+ *  이름·일정·구조는 거버넌스라 PMO 전용(updateWbsFields)으로 분리 유지. 진척 무관 → 스냅샷 생략. */
+export async function updateDeliverable(
+  itemId: string,
+  deliverable: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  const { data: item, error: itemErr } = await sb
+    .from('wbs_items').select('id, project_id, deliverable').eq('id', itemId).single()
+  if (itemErr && itemErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
+  if (!item) return { ok: false, error: '항목 없음' }
+  // 권한 — PMO 아니면 담당팀만(item_owners). attachments.canAttach 와 같은 판정.
+  if (m.role !== 'pmo_admin') {
+    const { data: own } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', m.teamId).maybeSingle()
+    if (!own) return { ok: false, error: '담당 작업이 아닙니다.' }
+  }
+  const v = deliverable?.trim() || null
+  if (v === item.deliverable) return { ok: true }
+  const { error } = await sb.from('wbs_items').update({ deliverable: v, updated_at: new Date().toISOString() }).eq('id', itemId)
+  if (error) return { ok: false, error: error.message }
+  const { data: u } = await sb.auth.getUser()
+  const { error: logErr } = await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: itemId, field: 'deliverable', old_value: item.deliverable, new_value: v })
+  if (logErr) console.error('[updateDeliverable] 변경 이력 기록 실패:', logErr.message) // 본 저장은 성공 — 이력만 유실
+  revalidatePath(`/p/${item.project_id}`, 'layout')
+  return { ok: true }
+}
+
 /** 항목 삭제(하위·담당·이력 cascade). */
 export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; error?: string }> {
   const m = await getMembership()

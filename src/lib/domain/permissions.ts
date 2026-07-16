@@ -20,3 +20,13 @@ export function canEditActual(item: ComputedItem, membership: Membership | null)
 export function canEditWeight(membership: Membership | null): boolean {
   return membership?.role === 'pmo_admin'
 }
+
+/** 산출물 텍스트 편집 권한 — PMO 전체. 팀 편집자는 실적%와 동일 조건(말단+자기 담당)만.
+ *  말단 제약은 프로덕션 RLS(team_update_actual: wbs_is_leaf + 담당) 때문 — 비말단은 UPDATE 정책이
+ *  없어 조용한 no-op 이 되므로 어포던스를 열지 않는다. 컬럼 가드는 0028 이 deliverable 을 허용한다. */
+export function canEditDeliverable(item: ComputedItem, membership: Membership | null): boolean {
+  if (!membership) return false
+  if (membership.role === 'pmo_admin') return true
+  if (item.children.length > 0) return false
+  return item.owners.some(o => o.team === membership.teamCode)
+}
