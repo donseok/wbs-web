@@ -185,6 +185,19 @@ export function progressMatrix(roots: ComputedItem[], teams: readonly TeamCode[]
   })
 }
 
+/* ── 팀별 진척 — 대시보드 카드와 주간 보고서 모달(By owner)이 공유하는 단일 정의 ── */
+export const ALL_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+export interface TeamProgressEntry { team: TeamCode; count: number; pct: number | null }
+
+/** 팀이 담당(primary·support 모두)인 leaf들의 rolledActual 단순 평균(정수). 무배정 팀은 pct null. */
+export function teamProgress(leaves: ComputedItem[], teams: readonly TeamCode[] = ALL_TEAMS): TeamProgressEntry[] {
+  const avg = (ns: number[]) => Math.round(ns.reduce((a, b) => a + b, 0) / ns.length)
+  return teams.map(team => {
+    const assigned = leaves.filter(l => l.owners.some(o => o.team === team))
+    return { team, count: assigned.length, pct: assigned.length ? avg(assigned.map(l => l.rolledActualPct)) : null }
+  })
+}
+
 /* ── 편차 랭킹 — 뒤처졌지만 아직 마감 전(따라잡기 후보). 기한 경과분은 delayAging 전담.
  *    statusOf 상 actual<planned ⟺ delayed 이므로 분리 기준은 상태가 아니라 마감 경과 여부다. ── */
 export interface VarianceEntry { item: ComputedItem; gapPp: number }
