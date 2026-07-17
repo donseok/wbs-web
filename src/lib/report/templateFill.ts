@@ -107,7 +107,9 @@ export function paginateLines(lines: string[], budget: number): string[][] {
 const TEMPLATE_PATH = join(process.cwd(), 'src/lib/report/assets/weekly-template.pptx')
 const CELL_BUDGET = 15   // 콘텐츠 셀(행1, 높이 3.26"·12pt) 페이지당 최대 시각 줄수
 const ISSUE_BUDGET = 12  // 이슈/이벤트 셀(행2, 높이 2.67"로 확대 — 표 프레임 여백을 채움) 페이지당 최대 시각 줄수 — CELL_BUDGET×(2.67/3.26)≈12
-const ISSUE_CAP = 3, EVENT_CAP = 4  // WBS 자동 보고 경로 전용 캡(시트 경로는 캡 없이 전부 페이지네이션)
+// WBS 자동 보고 경로 전용 캡(시트 경로는 캡 없이 전부 페이지네이션). 행2 확대(1.31"→2.67") 후에도
+// 옛 셀 기준(3/4)에 머물러 있던 것을 셀 용량(ISSUE_BUDGET=12줄)에 맞춤 — 사용자 결정(2026-07-17).
+const ISSUE_CAP = ISSUE_BUDGET, EVENT_CAP = ISSUE_BUDGET
 
 /** slide2 표에서 [r][c] tc의 원본 XML(스켈레톤 추출용). */
 function cellAt(slideXml: string, r: number, c: number): string {
