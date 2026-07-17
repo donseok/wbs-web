@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
-import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
+import type {
+  InsightKind, Minute, MinuteCommitment, MinuteFile, MinuteHighlight, MinuteInsight,
+} from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
 } from '@/lib/domain/minutes'
@@ -11,6 +13,7 @@ import {
   getMinuteFileUrl, replaceMinuteBody, deleteMinute, toggleMinuteHighlight,
 } from '@/app/actions/minutes'
 import { fnv1a64, isMarkableBlock, splitMinuteBlocks, type BlockMarks } from '@/lib/minutes/blocks'
+import { commitmentContextHash } from '@/lib/ai/minutes-commitments'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
 import { resolveMinuteSourceBlock, type MinuteSourceAnchor } from '@/lib/minutes/source'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -22,18 +25,20 @@ import { MinuteMetaModal } from './MinuteMetaModal'
 import { MinuteShareModal } from './MinuteShareModal'
 import { MinuteChatPanel } from './MinuteChatPanel'
 import { MinuteInsightCard } from './MinuteInsightCard'
+import { MinuteCommitmentPanel } from './MinuteCommitmentPanel'
 import { MinuteToc } from './MinuteToc'
 import { useMinuteTocSpy } from './useMinuteTocSpy'
 import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
 import { TEAM } from '@/components/wbs/shared'
 
 export function MinuteViewer({
-  minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
+  minute, files, canManage, annotations, commitments, userId, projects, sourceAnchor = null,
 }: {
   minute: Minute
   files: MinuteFile[]
   canManage: boolean
   annotations: { highlights: MinuteHighlight[]; insights: MinuteInsight[] }
+  commitments: MinuteCommitment[]
   userId: string | null
   projects: { id: string; name: string }[]
   sourceAnchor?: MinuteSourceAnchor | null
@@ -57,6 +62,18 @@ export function MinuteViewer({
   const blocks = useMemo(() => splitMinuteBlocks(minute.bodyMd), [minute.bodyMd])
   const { activeToc, jumpTo } = useMinuteTocSpy(blocks, bodyRef, { flash: true })
   const bodyHash = useMemo(() => fnv1a64(minute.bodyMd), [minute.bodyMd])
+  const commitmentContext = useMemo(
+    () => commitmentContextHash(minute.bodyMd, minute.minuteDate),
+    [minute.bodyMd, minute.minuteDate],
+  )
+  const jumpToSource = useCallback((blockIndex: number) => {
+    jumpTo(blockIndex)
+    const target = bodyRef.current?.querySelector<HTMLElement>(`[data-mblock="${blockIndex}"]`)
+    if (target) {
+      target.tabIndex = -1
+      target.focus({ preventScroll: true })
+    }
+  }, [jumpTo])
   const sourceBlockIndex = useMemo(
     () => sourceAnchor ? resolveMinuteSourceBlock(blocks, bodyHash, sourceAnchor) : null,
     [blocks, bodyHash, sourceAnchor],
@@ -81,16 +98,11 @@ export function MinuteViewer({
     // Strict Mode의 effect setup→cleanup→setup에서도 첫 frame 취소 뒤 두 번째 setup이 다시 예약되게,
     // 실제 점프가 실행된 뒤에만 완료 키를 기록한다.
     const frame = requestAnimationFrame(() => {
-      jumpTo(sourceBlockIndex)
-      const target = bodyRef.current?.querySelector<HTMLElement>(`[data-mblock="${sourceBlockIndex}"]`)
-      if (target) {
-        target.tabIndex = -1
-        target.focus({ preventScroll: true })
-      }
+      jumpToSource(sourceBlockIndex)
       attemptedSourceRef.current = sourceKey
     })
     return () => cancelAnimationFrame(frame)
-  }, [bodyHash, jumpTo, minute.id, sourceAnchor, sourceBlockIndex, t, toast])
+  }, [bodyHash, jumpToSource, minute.id, sourceAnchor, sourceBlockIndex, t, toast])
 
   // 낙관적 병합 계약(스펙 §6.4): 내 하이라이트는 로컬 단독 소유(서버 prop 은 초기값),
   // 타인 하이라이트는 항상 서버 prop 파생 — revalidate 가 와도 이중 계산/역전 없음.
@@ -295,7 +307,14 @@ export function MinuteViewer({
       {/* 핵심 요약 카드 — shrink-0 유지(xl 높이 체인) */}
       <MinuteInsightCard
         minuteId={minute.id} insights={annotations.insights} highlights={annotations.highlights}
-        blocks={blocks} bodyHash={bodyHash} onJump={jumpTo}
+        blocks={blocks} bodyHash={bodyHash} onJump={jumpToSource}
+      />
+
+      <MinuteCommitmentPanel
+        minuteId={minute.id} commitments={commitments} blocks={blocks}
+        bodyHash={bodyHash} contextHash={commitmentContext}
+        sourceRevision={minute.commitmentRevision ?? 0} canManage={canManage}
+        onJump={jumpToSource}
       />
 
       {/* xl 미만 목차 아코디언은 MinuteToc 내부에서 분기 렌더 */}

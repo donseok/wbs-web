@@ -99,7 +99,8 @@ describe('MinuteViewer 원문 최초 점프', () => {
       <StrictMode>
         <MinuteViewer
           minute={minute} files={[]} canManage={false}
-          annotations={{ highlights: [], insights: [] }} userId="u1" projects={[]}
+          annotations={{ highlights: [], insights: [] }} commitments={[]}
+          userId="u1" projects={[]}
           sourceAnchor={sourceAnchor}
         />
       </StrictMode>,

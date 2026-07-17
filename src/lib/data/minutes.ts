@@ -1,6 +1,9 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
-import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight, TeamCode } from '@/lib/domain/types'
+import type {
+  InsightKind, Minute, MinuteCommitment, MinuteCommitmentReviewStatus,
+  MinuteFile, MinuteHighlight, MinuteInsight, TeamCode,
+} from '@/lib/domain/types'
 import { ilikeOrPattern } from '@/lib/domain/minutes'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 
@@ -9,6 +12,8 @@ type Row = Record<string, unknown>
 /** 인사이트 조회 컬럼 — 다른 테이블을 임베드하지 않는다.
  *  임베드로 묶으면 그 테이블/관계가 어긋난 순간 PostgREST가 쿼리 전체를 거절해 인사이트가 통째로 사라진다(2026-07 실제 사고). */
 const INSIGHT_COLS = 'id, minute_id, body_hash, kind, label, block_index, block_hash'
+const COMMITMENT_COLS =
+  'id, minute_id, body_hash, context_hash, source_revision, commitment_hash, commitment_text, source_quote, block_index, block_hash, owner_name, owner_team, owner_unassigned, due_text, due_date, due_undecided, review_status, reviewed_by, reviewed_by_name, reviewed_at, created_at, updated_at'
 
 export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8): Promise<MinuteSignal[]> => {
   const sb = await createServerClient()
@@ -49,6 +54,9 @@ function mapMinute(r: Row, bodyMd = ''): Minute {
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
     fileCount: files?.[0]?.count ?? 0,
+    ...(r.commitment_revision !== undefined
+      ? { commitmentRevision: Number(r.commitment_revision) }
+      : {}),
   }
 }
 
@@ -91,7 +99,7 @@ export const getMinuteDetail = cache(async (
 ): Promise<{ minute: Minute; files: MinuteFile[] } | null> => {
   const sb = await createServerClient()
   const { data: r, error } = await sb.from('minutes')
-    .select('id, minute_date, team_code, title, body_md, meeting_id, created_by, created_by_name, created_at, updated_at, meetings(project_id)')
+    .select('id, minute_date, team_code, title, body_md, commitment_revision, meeting_id, created_by, created_by_name, created_at, updated_at, meetings(project_id)')
     .eq('id', id).maybeSingle()
   // null 은 호출자에서 404(삭제됨)로 렌더된다 — 조회 실패를 '행 없음'으로 위장하면
   // 멀쩡히 존재하는 회의록이 삭제된 것처럼 보인다. 실패는 실패로 터뜨린다.
@@ -153,4 +161,41 @@ export const getMinuteAnnotations = cache(async (
       blockHash: r.block_hash as string,
     })),
   }
+})
+
+/** 구조화 약속 + 사람의 검토 이력. 외부 공유 화면에는 호출하지 않는다. */
+export const getMinuteCommitments = cache(async (id: string): Promise<MinuteCommitment[]> => {
+  const sb = await createServerClient()
+  const { data, error } = await sb.from('minute_commitments')
+    .select(COMMITMENT_COLS)
+    .eq('minute_id', id)
+    .order('created_at', { ascending: true })
+  if (error) {
+    console.error('[getMinuteCommitments] 조회 실패:', error.message)
+    return []
+  }
+  return ((data ?? []) as Row[]).map((r): MinuteCommitment => ({
+    id: r.id as string,
+    minuteId: r.minute_id as string,
+    bodyHash: r.body_hash as string,
+    contextHash: r.context_hash as string,
+    sourceRevision: Number(r.source_revision),
+    commitmentHash: r.commitment_hash as string,
+    commitmentText: r.commitment_text as string,
+    sourceQuote: r.source_quote as string,
+    blockIndex: r.block_index as number,
+    blockHash: r.block_hash as string,
+    ownerName: (r.owner_name as string | null) ?? null,
+    ownerTeam: (r.owner_team as TeamCode | null) ?? null,
+    ownerUnassigned: !!r.owner_unassigned,
+    dueText: (r.due_text as string | null) ?? null,
+    dueDate: (r.due_date as string | null) ?? null,
+    dueUndecided: !!r.due_undecided,
+    reviewStatus: r.review_status as MinuteCommitmentReviewStatus,
+    reviewedBy: (r.reviewed_by as string | null) ?? null,
+    reviewedByName: (r.reviewed_by_name as string | null) ?? null,
+    reviewedAt: (r.reviewed_at as string | null) ?? null,
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+  }))
 })
