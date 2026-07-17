@@ -179,6 +179,26 @@ export interface Minute {
   fileCount?: number           // 목록 뷰 전용(첨부 수, 서버 계산)
 }
 
+/** 트리 뷰(구분→회의체→회의록) — 서버 집계 결과. */
+export interface MinutesTreeLeaf {
+  id: string
+  minuteDate: string           // 'YYYY-MM-DD'
+  title: string
+  fileCount: number
+  createdByName: string | null
+}
+export interface MinutesTreeBody {
+  name: string                 // meetingBodyOf 추출 결과(그룹 키이자 표시명)
+  count: number
+  latestDate: string           // 첫 리프(최신)의 minuteDate — 정렬 기준
+  leaves: MinutesTreeLeaf[]
+}
+export interface MinutesTreeGroup {
+  teamCode: TeamCode
+  count: number
+  bodies: MinutesTreeBody[]
+}
+
 export interface MinuteFile {
   id: string
   minuteId: string

@@ -1,4 +1,4 @@
-import type { TeamCode } from './types'
+import type { Minute, MinutesTreeBody, MinutesTreeGroup, TeamCode } from './types'
 
 export const MINUTE_TITLE_MAX = 200
 export const MINUTE_BODY_MAX = 100_000          // body_md 실효 한도(자)
@@ -80,4 +80,43 @@ export function meetingBodyOf(title: string): string {
   const trimmed = title.trim()
   const kept = trimmed.split(/[_\s]+/).filter(tok => tok !== '' && !isNoiseToken(tok))
   return kept.length > 0 ? kept.join(' ') : trimmed
+}
+
+/** 목록 → 트리 조립. 입력이 minute_date desc, created_at desc 정렬임을 전제하며 자체 재정렬하지 않는다
+ *  (리프 순서 = 입력 순서). 팀은 TEAM_CODES 순 — 미지 코드는 조용히 버리지 않고 뒤에 등장 순으로 붙인다.
+ *  회의체는 latestDate desc(동률은 첫 등장 순 — 안정 정렬). 0건 팀은 그룹을 만들지 않는다. */
+export function buildMinutesTree(minutes: Minute[]): MinutesTreeGroup[] {
+  const byTeam = new Map<string, Map<string, MinutesTreeBody>>()
+  const teamAppearance: string[] = []
+  for (const mi of minutes) {
+    let bodies = byTeam.get(mi.teamCode)
+    if (!bodies) {
+      bodies = new Map()
+      byTeam.set(mi.teamCode, bodies)
+      teamAppearance.push(mi.teamCode)
+    }
+    const name = meetingBodyOf(mi.title)
+    let body = bodies.get(name)
+    if (!body) {
+      body = { name, count: 0, latestDate: mi.minuteDate, leaves: [] }
+      bodies.set(name, body)
+    }
+    body.count += 1
+    body.leaves.push({
+      id: mi.id, minuteDate: mi.minuteDate, title: mi.title,
+      fileCount: mi.fileCount ?? 0, createdByName: mi.createdByName,
+    })
+  }
+  const known = TEAM_CODES.filter(tk => byTeam.has(tk)) as string[]
+  const unknown = teamAppearance.filter(tk => !(TEAM_CODES as string[]).includes(tk))
+  return [...known, ...unknown].map(tk => {
+    const bodies = [...byTeam.get(tk)!.values()]
+    // Array.sort는 안정 정렬 — 동률(latestDate 같음)은 Map 삽입 순서(첫 등장 순) 유지
+    bodies.sort((a, b) => (a.latestDate < b.latestDate ? 1 : a.latestDate > b.latestDate ? -1 : 0))
+    return {
+      teamCode: tk as TeamCode,
+      count: bodies.reduce((sum, b) => sum + b.count, 0),
+      bodies,
+    }
+  })
 }
