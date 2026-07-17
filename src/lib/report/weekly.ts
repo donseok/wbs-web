@@ -111,6 +111,7 @@ export interface WeeklyAttendance {
 
 export interface MeetingRow {
   date: string               // '7/6(월)'
+  dateIso: string            // 'YYYY-MM-DD' — 같은 회의의 반복 회차를 날짜 구간으로 병합할 때 사용(narrative)
   time: string               // '14:00~15:00' 또는 '종일'
   title: string
   location: string           // 없으면 '-'
@@ -121,6 +122,10 @@ export interface WeeklyMeetings {
   nextWeek: MeetingRow[]
   total: number              // 금주+차주 회의 수 (0이면 PPT 회의일정 페이지 생략)
 }
+
+/** 이슈 0건일 때 모델에 넣는 대체 문구 — 화면 표기(Excel·봇)는 유지하되, PPT(narrative)는
+ *  이 문구를 걸러 이슈 셀을 빈칸으로 둔다(사용자 요청: 특이 이슈 없으면 따로 작성 금지). */
+export const NO_ISSUE_TEXT = '특이 이슈 없음 — 계획대로 진행 중'
 
 export interface AnnouncementRow {
   date: string               // 게시일 'YYYY-MM-DD' (KST)
@@ -416,7 +421,7 @@ export function buildWeeklyReportModel(
   const actualInt = Math.round(actual)
   const plannedInt = Math.round(planned)
   if (actualInt < plannedInt) issues.push({ grade: '중간', content: `계획 대비 실적 ${plannedInt - actualInt}%p 미달`, action: '(미작성)' })
-  if (issues.length === 0) issues.push({ grade: '낮음', content: '특이 이슈 없음 — 계획대로 진행 중', action: '-' })
+  if (issues.length === 0) issues.push({ grade: '낮음', content: NO_ISSUE_TEXT, action: '-' })
 
   // ── 근태 (멤버별, 특이 근태만) ──
   const recByMemberDate = new Map<string, AttendanceType>()
@@ -442,6 +447,7 @@ export function buildWeeklyReportModel(
   const occ = expandMeetings(opts.meetings ?? [], opts.meetingExceptions ?? [], weekStart, nextWeekEnd)
   const toMeetingRow = (o: MeetingOccurrence): MeetingRow => ({
     date: mdDow(o.occurrenceDate),
+    dateIso: o.occurrenceDate,
     time: o.startTime ? (o.endTime ? `${o.startTime}~${o.endTime}` : o.startTime) : '종일',
     title: o.title,
     location: o.location ?? '-',

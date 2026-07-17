@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildWeeklyReportModel } from '@/lib/report/weekly'
+import { buildWeeklyReportModel, NO_ISSUE_TEXT } from '@/lib/report/weekly'
 import { buildWeeklyNarrative } from '@/lib/report/narrative'
 import type { Announcement, ComputedItem, Meeting } from '@/lib/domain/types'
 
@@ -187,5 +187,49 @@ describe('buildWeeklyNarrative', () => {
   it('공지 없으면 이벤트 목록에 "[공지]" 항목이 없고 WBS-only 동작 유지', () => {
     expect(n.events.some(e => e.includes('[공지]'))).toBe(false)
     expect(n.prev.length).toBeGreaterThan(0)
+  })
+
+  it('이슈 0건 대체 문구는 모델(Excel·봇)에는 남고 PPT 서술에서는 걸러진다', () => {
+    const onTrack: ComputedItem[] = [
+      phase('실행', [
+        node({ name: '정상작업', status: 'in_progress', rolledActualPct: 50, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+      ], { weight: 1, plannedPct: 50, rolledActualPct: 50 }),
+    ]
+    const m2 = buildWeeklyReportModel(onTrack, project, '2026-07-07')
+    expect(m2.issues.map(i => i.content)).toEqual([NO_ISSUE_TEXT]) // 모델은 현상 유지
+    expect(buildWeeklyNarrative(m2).issues).toEqual([])            // PPT 이슈 셀은 빈칸
+  })
+
+  it('실제 이슈는 PPT 서술에 그대로 남는다', () => {
+    const late: ComputedItem[] = [
+      phase('실행', [
+        node({ name: '지연작업', status: 'delayed', rolledActualPct: 10, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 10 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(late, project, '2026-07-07'))
+    expect(n2.issues.length).toBeGreaterThan(0)
+    expect(n2.issues.some(c => c.includes(NO_ISSUE_TEXT))).toBe(false)
+  })
+
+  it('같은 회의의 반복 회차는 날짜 구간 한 줄로 병합되고 장소는 제목과 중복 표기하지 않는다', () => {
+    const mk = (id: string, title: string, meetingDate: string, location: string): Meeting => ({
+      id, projectId: 'p', title, meetingDate, startTime: '10:00', endTime: '11:00', location,
+      category: 'kickoff', body: '', recurrence: 'none', recurrenceUntil: null,
+      createdBy: null, createdByName: null, createdAt: '2026-01-01', updatedAt: '2026-01-01', attendeeIds: ['m1'],
+    })
+    const m2 = buildWeeklyReportModel(items, project, '2026-07-07', {
+      meetings: [
+        mk('a1', '아주스틸 인터뷰', '2026-07-08', '구미 공장'),
+        mk('a2', '아주스틸 인터뷰', '2026-07-09', '구미 공장'),
+        mk('b1', 'MES 품질회의 (부산공장)', '2026-07-10', '부산공장'),
+        mk('c1', '주간회의', '2026-07-08', '-'),
+        mk('c2', '주간회의', '2026-07-10', '-'),
+      ],
+    })
+    const n2 = buildWeeklyNarrative(m2)
+    expect(n2.events).toContain('7/8(수)~7/9(목) 아주스틸 인터뷰 (구미 공장)') // 연속 → '~' 구간
+    expect(n2.events).toContain('7/10(금) MES 품질회의 (부산공장)')            // '(부산공장) (부산공장)' 방지
+    expect(n2.events).toContain('7/8(수)·7/10(금) 주간회의')                   // 비연속 → '·' 나열
+    expect(n2.events).toHaveLength(3)                                          // 회차 5건 → 3줄
   })
 })

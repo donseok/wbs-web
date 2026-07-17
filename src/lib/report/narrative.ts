@@ -1,4 +1,4 @@
-import { mdDow, type WeeklyReportModel, type WeeklyTaskRow, type PhasePlanActual } from './weekly'
+import { mdDow, NO_ISSUE_TEXT, type WeeklyReportModel, type WeeklyTaskRow, type PhasePlanActual } from './weekly'
 
 /* ============================================================================
  * 주간보고 서술형 변환 — WeeklyReportModel(공유 모델) → PPT 전용 문구.
@@ -58,16 +58,48 @@ function groupsOf(planActual: PhasePlanActual[], key: 'prevWeek' | 'thisWeek'): 
     .filter(g => g.items.length > 0)
 }
 
+const DAY_MS = 86_400_000
+const diffDaysIso = (a: string, b: string): number =>
+  Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY_MS)
+
+/** 정렬된 ISO 날짜들 → 'M/D(요일)' 나열. 연속 구간은 '~'로 접고, 떨어진 날짜는 '·'로 잇는다.
+ *  예: [7/13, 7/14, 7/17] → '7/13(월)~7/14(화)·7/17(금)'. */
+function dateRangeText(sortedIsos: string[]): string {
+  const runs: string[][] = []
+  for (const iso of sortedIsos) {
+    const last = runs.at(-1)
+    if (last && diffDaysIso(last.at(-1)!, iso) === 1) last.push(iso)
+    else runs.push([iso])
+  }
+  return runs.map(r => (r.length > 1 ? `${mdDow(r[0])}~${mdDow(r.at(-1)!)}` : mdDow(r[0]))).join('·')
+}
+
+/** 금주·차주 회의를 (제목, 장소) 단위로 병합해 한 줄씩 — 같은 회의의 반복 회차가 날짜만 바꿔
+ *  줄줄이 나열되던 것('외 16건'의 주범)을 날짜 구간 한 줄로 접는다. 줄 순서는 첫 등장 순. */
+function mergedMeetingLines(rows: { title: string; location: string; dateIso: string }[]): string[] {
+  const byKey = new Map<string, { title: string; location: string; dates: string[] }>()
+  for (const m of rows) {
+    const key = `${m.title}|${m.location}`
+    const e = byKey.get(key)
+    if (e) { if (!e.dates.includes(m.dateIso)) e.dates.push(m.dateIso) }
+    else byKey.set(key, { title: m.title, location: m.location, dates: [m.dateIso] })
+  }
+  return [...byKey.values()].map(m => {
+    // 제목에 장소가 이미 들어 있으면 중복 표기하지 않는다 — "MES 품질회의 (부산공장) (부산공장)" 방지.
+    const loc = m.location && m.location !== '-' && !m.title.includes(m.location) ? ` (${m.location})` : ''
+    return `${dateRangeText([...m.dates].sort())} ${m.title}${loc}`
+  })
+}
+
 /** 주간 모델 → PPT 서술형 변환(순수·결정적).
  *  주요 공지는 주요활동이 아니라 이슈사항·주요이벤트 영역(이벤트 목록)에 '[공지]'로 싣는다(사용자 결정). */
 export function buildWeeklyNarrative(model: WeeklyReportModel): NarrativeModel {
   const prev = groupsOf(model.planActual, 'prevWeek')
   const curr = groupsOf(model.planActual, 'thisWeek')
-  const issues = model.issues.map(i => i.content)
+  // 이슈 0건 대체 문구는 PPT에 싣지 않는다 — 이슈 셀은 빈칸으로(사용자 요청: 따로 작성 금지).
+  const issues = model.issues.filter(i => i.content !== NO_ISSUE_TEXT).map(i => i.content)
   const events = [
-    ...[...model.meetings.thisWeek, ...model.meetings.nextWeek].map(mtg =>
-      `${mtg.date} ${mtg.title}${mtg.location && mtg.location !== '-' ? ` (${mtg.location})` : ''}`,
-    ),
+    ...mergedMeetingLines([...model.meetings.thisWeek, ...model.meetings.nextWeek]),
     // 공지는 게시일 기준 전주→금주 순으로 회의 뒤에 — 회의와 같은 'M/D(요일)' 날짜 표기.
     ...[...model.announcements.prevWeek, ...model.announcements.thisWeek].map(a =>
       `${mdDow(a.date)} [공지] ${a.title}`,

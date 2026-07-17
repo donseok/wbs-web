@@ -131,6 +131,13 @@ const narr: NarrativeModel = {
 const model = { meta: { prevWeekRange: '6/29~7/3', weekRange: '7/6~7/10' } } as unknown as WeeklyReportModel
 
 describe('fillWeeklyTemplate (통합)', () => {
+  it('이슈 0건이면 이슈 셀은 대체 문구 없이 빈칸', async () => {
+    const zip = await JSZip.loadAsync(await fillWeeklyTemplate({ ...narr, issues: [] }, model))
+    const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    expect(slide2).not.toContain('특이 이슈 없음')
+    expect(slide2).toContain('Kick-Off (7/10)') // 이벤트 셀은 그대로
+  })
+
   it('산출 zip의 slide2에 주차 내용 반영 + 표 외 파트는 원본과 동일', async () => {
     const buf = await fillWeeklyTemplate(narr, model)
     const zip = await JSZip.loadAsync(buf)
