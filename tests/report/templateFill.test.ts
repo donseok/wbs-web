@@ -131,6 +131,15 @@ const narr: NarrativeModel = {
 const model = { meta: { prevWeekRange: '6/29~7/3', weekRange: '7/6~7/10' } } as unknown as WeeklyReportModel
 
 describe('fillWeeklyTemplate (통합)', () => {
+  it('이벤트가 셀 용량(12줄)을 넘으면 11건 + 외 N건 — 확대된 행2 용량 기준', async () => {
+    const many = { ...narr, events: Array.from({ length: 21 }, (_, i) => `일정 ${i + 1}`) }
+    const zip = await JSZip.loadAsync(await fillWeeklyTemplate(many, model))
+    const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    expect(slide2).toContain('일정 11')
+    expect(slide2).not.toContain('일정 12')
+    expect(slide2).toContain('외 10건')
+  })
+
   it('이슈 0건이면 이슈 셀은 대체 문구 없이 빈칸', async () => {
     const zip = await JSZip.loadAsync(await fillWeeklyTemplate({ ...narr, issues: [] }, model))
     const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')

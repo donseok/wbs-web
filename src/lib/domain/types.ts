@@ -177,6 +177,7 @@ export interface Minute {
   createdAt: string
   updatedAt: string
   fileCount?: number           // 목록 뷰 전용(첨부 수, 서버 계산)
+  commitmentRevision?: number  // 상세 뷰 전용 — 약속 원문 CAS revision
 }
 
 /** 트리 뷰(구분→회의체→회의록) — 서버 집계 결과. */
@@ -232,4 +233,35 @@ export interface MinuteInsight {
   label: string
   blockIndex: number
   blockHash: string
+}
+
+export type MinuteCommitmentReviewStatus = 'pending' | 'confirmed' | 'rejected'
+
+/**
+ * 회의록에서 추출한 실행 약속 후보.
+ * AI 캐시인 MinuteInsight와 달리 사람의 확인 이력을 보존하는 영속 데이터다.
+ */
+export interface MinuteCommitment {
+  id: string
+  minuteId: string
+  bodyHash: string
+  contextHash: string          // body + 회의일 + 해석 timezone 기반 신선도 키
+  sourceRevision: number       // DB가 본문/회의일 변경마다 증가시키는 원자적 CAS 값
+  commitmentHash: string       // 같은 근거 블록 안에서 재추출 중복을 막는 결정형 키
+  commitmentText: string
+  sourceQuote: string
+  blockIndex: number
+  blockHash: string
+  ownerName: string | null
+  ownerTeam: TeamCode | null
+  ownerUnassigned: boolean
+  dueText: string | null
+  dueDate: string | null
+  dueUndecided: boolean
+  reviewStatus: MinuteCommitmentReviewStatus
+  reviewedBy: string | null
+  reviewedByName: string | null
+  reviewedAt: string | null
+  createdAt: string
+  updatedAt: string
 }

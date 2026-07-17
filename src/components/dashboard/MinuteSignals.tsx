@@ -26,7 +26,14 @@ export function MinuteSignals({ signals }: { projectId: string; signals: MinuteS
             if (s.kind === 'none') return null
             const meta = META[s.kind]
             const Icon = meta.Icon
-            return <div key={s.id} className="flex items-start gap-3 rounded-xl border border-line px-3 py-2.5">
+            return <Link key={s.id}
+              href={minuteSourceHref(s.minuteId, {
+                blockIndex: s.blockIndex, blockHash: s.blockHash, bodyHash: s.bodyHash,
+              })}
+              className="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-3 py-2.5 transition hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2"
+              title="회의록 원문 위치 열기"
+              aria-label={`${s.minuteTitle}: ${s.label} 원문 위치 열기`}
+            >
               <Icon className="mt-0.5 h-4 w-4 shrink-0 text-ink-subtle" />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -35,17 +42,7 @@ export function MinuteSignals({ signals }: { projectId: string; signals: MinuteS
                 </div>
                 <p className="mt-1 text-sm text-ink">{s.label}</p>
               </div>
-              <Link
-                href={minuteSourceHref(s.minuteId, {
-                  blockIndex: s.blockIndex, blockHash: s.blockHash, bodyHash: s.bodyHash,
-                })}
-                className="shrink-0 text-brand"
-                title="회의록 원문 위치 열기"
-                aria-label={`${s.minuteTitle}: ${s.label} 원문 위치 열기`}
-              >
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
+            </Link>
           })}
         </div>
       )}

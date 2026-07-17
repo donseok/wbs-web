@@ -11,6 +11,7 @@ import { getProjectMeetingData } from '@/lib/data/meetings'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64 } from '@/lib/minutes/blocks'
 import { ensureMinuteInsights, generateMinuteInsights } from '@/lib/ai/minutes-insights'
+import { generateMinuteCommitments } from '@/lib/ai/minutes-commitments-generator'
 import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/share'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -94,7 +95,10 @@ export async function createMinute(input: MinuteInput): Promise<MinuteActionResu
   revalidatePath('/minutes')
   after(async () => {
     await ingestMinute(data.id as string, bodyMd)
-    await generateMinuteInsights(data.id as string, bodyMd)
+    await Promise.all([
+      generateMinuteInsights(data.id as string, bodyMd),
+      generateMinuteCommitments(data.id as string, bodyMd),
+    ])
   })
   return { ok: true, id: data.id as string, timeFix: fix.corrected ? { from: fix.from!, to: fix.to! } : undefined }
 }
@@ -178,7 +182,10 @@ export async function replaceMinuteBody(
   after(async () => {
     await rematchMinuteHighlights(id, body)
     await ingestMinute(id, body)
-    await generateMinuteInsights(id, body)
+    await Promise.all([
+      generateMinuteInsights(id, body),
+      generateMinuteCommitments(id, body),
+    ])
   })
   return { ok: true, timeFix: fix.corrected ? { from: fix.from!, to: fix.to! } : undefined }
 }
