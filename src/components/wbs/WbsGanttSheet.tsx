@@ -584,7 +584,7 @@ export function WbsGanttSheet({
           </button>
         )}
         <button onClick={() => setReportOpen(true)} className="btn btn-ghost h-9 px-3 text-xs">
-          <FileText className="h-3.5 w-3.5" /> 주간보고서(요약)
+          <FileText className="h-3.5 w-3.5" /> 주간보고서
         </button>
         {/* 접속자 아바타 — 지금 이 WBS 메뉴를 보고 있는 사용자(본인 포함) */}
         <div className="ml-auto hidden sm:block">
