@@ -89,6 +89,9 @@
   color-scheme: light;
   --gradient-primary: linear-gradient(135deg, #0f766e 0%, #155e75 48%, #173a63 100%);
   --gradient-secondary: linear-gradient(135deg, #f2be83 0%, #cb6d37 100%);
+  /* accent 버튼용 — gradient-secondary는 밝은 stop에서 흰 글자 AA 미달이라 버튼엔 이 토큰을 쓴다 */
+  --gradient-accent: linear-gradient(135deg, #c2410c 0%, #a63a12 50%, #8f3414 100%);
+  --color-accent-fg: #ffffff;
   --gradient-surface: linear-gradient(180deg, #ffffffd1, #fff8f19e);
   --gradient-dark: linear-gradient(165deg, #1c2028 0%, #14181f 55%, #0d1014 100%);
   --shadow-sm: 0 10px 24px -18px #12182538;
@@ -143,6 +146,9 @@
 
   --gradient-primary: linear-gradient(135deg, #18a79b 0%, #2d8ac8 50%, #475df1 100%);
   --gradient-secondary: linear-gradient(135deg, #ffd091 0%, #f08a53 100%);
+  /* 다크는 brand-fg 패턴처럼 반전 — 밝은 앰버 채움 + 어두운 글자(최저 stop 대비 5.3:1) */
+  --gradient-accent: linear-gradient(135deg, #f2a35f 0%, #e6853c 50%, #d76f22 100%);
+  --color-accent-fg: #241206;
   --gradient-surface: linear-gradient(180deg, #21262ff5, #14181feb);
   --gradient-dark: linear-gradient(165deg, #14181f 0%, #0e1116 55%, #090b0e 100%);
   --shadow-sm: 0 14px 28px -22px #00000085;
@@ -284,6 +290,12 @@ textarea {
     box-shadow: var(--shadow-sm);
   }
   .btn-primary:hover { filter: brightness(1.06); }
+  .btn-accent {
+    color: var(--color-accent-fg);
+    background-image: var(--gradient-accent);
+    box-shadow: var(--shadow-sm);
+  }
+  .btn-accent:hover { filter: brightness(1.06); }
   .btn-ghost {
     @apply border border-line bg-surface text-ink-muted shadow-sm hover:border-line-strong hover:bg-surface-2 hover:text-ink;
   }

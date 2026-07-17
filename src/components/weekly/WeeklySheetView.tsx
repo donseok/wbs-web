@@ -680,7 +680,7 @@ function ExportSummaryPptButton({ projectId }: { projectId: string }) {
     }
   }
   return (
-    <button className="btn btn-ghost" disabled={busy} onClick={onExport}>
+    <button className="btn btn-accent" disabled={busy} onClick={onExport}>
       <Download className="mr-1 h-4 w-4" />주간보고요약 (PPT)
     </button>
   )
