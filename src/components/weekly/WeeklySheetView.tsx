@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FileSpreadsheet, Wand2 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
   applyServerRow, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX, WEEKLY_CELL_LABEL,
@@ -12,7 +12,7 @@ import {
 import { type CellAddr } from '@/lib/domain/sheetSelection'
 import { emptyUndo, pushUndo, undo as undoOp, redo as redoOp, type UndoState } from '@/lib/domain/sheetUndo'
 import {
-  createWeeklyReport, saveWeeklyCell, saveWeeklyCells, saveWeeklyTitle,
+  createWeeklyReport, saveWeeklyCell, saveWeeklyCells, saveWeeklyTitle, previewWeeklyFormat,
   type WeeklyActionResult, type WeeklyBatchResult,
 } from '@/app/actions/weekly'
 import { shiftWeeks } from '@/lib/report/week'
@@ -23,6 +23,8 @@ import { PresenceStrip } from '@/components/app/PresenceStrip'
 import { useSheetGrid } from './useSheetGrid'
 import { usePresence } from './usePresence'
 import { SheetCell, type BatchChip } from './SheetCell'
+import { FormatUnifyModal } from './FormatUnifyModal'
+import type { WeeklyFormatEdit } from '@/lib/domain/weeklyFormat'
 
 type CellStatus = 'saving' | 'saved' | 'error'
 const DEBOUNCE_MS = 1500
@@ -79,6 +81,8 @@ export function WeeklySheetView({
   const lastFailedBatchRef = useRef<WeeklyCellEdit[] | null>(null)      // 칩 '재시도'용 마지막 실패 배치
   const [batchChip, setBatchChip] = useState<BatchChip | null>(null)   // 활성 셀 집계 칩(§5)
   const [batchActive, setBatchActive] = useState(false)                // true면 per-cell 배지 억제
+  const [unifyEdits, setUnifyEdits] = useState<WeeklyFormatEdit[] | null>(null) // 양식 통일 미리보기(null=닫힘)
+  const [unifyBusy, setUnifyBusy] = useState(false)
 
   const registerCell = useCallback((key: string, el: HTMLTextAreaElement | null) => {
     if (el) cellRefs.current.set(key, el)
@@ -356,6 +360,37 @@ export function WeeklySheetView({
     send(edits, 0)
   }, [projectId, toast, cleanupRowKeys, rebuildForRetry])
 
+  // 양식 통일: flush(미저장 셀 커밋, PPT 내보내기와 동일 가드) → 서버 미리보기 → 모달.
+  // 변경 0건이면 토스트로 종료. 적용은 runBatch(undoable)라 Ctrl+Z 한 번에 전체 되돌리기.
+  const openUnify = async () => {
+    if (!report) return
+    setUnifyBusy(true)
+    try {
+      if (!(await flushPendingSaves())) return
+      const res = await previewWeeklyFormat(projectId, report.id)
+      if (!res.ok || !res.edits) {
+        toast({ title: '양식 검사 실패', description: res.error ?? '잠시 후 다시 시도해 주세요.', variant: 'error' })
+        return
+      }
+      if (res.edits.length === 0) {
+        toast({ title: '이미 통일된 양식입니다', variant: 'info' })
+        return
+      }
+      setUnifyEdits(res.edits)
+    } finally {
+      setUnifyBusy(false)
+    }
+  }
+
+  const applyUnify = () => {
+    if (!unifyEdits) return
+    const count = unifyEdits.length
+    runBatch(unifyEdits.map(e => ({ rowId: e.rowId, cellKey: e.cellKey, content: e.after })), { undoable: true })
+    setUnifyEdits(null)
+    toast({ title: '양식 통일 적용', variant: 'success',
+      description: `${count}개 셀을 정리했습니다. Ctrl+Z로 되돌릴 수 있습니다.` })
+  }
+
   const retryBatch = useCallback(() => {
     const failed = lastFailedBatchRef.current
     if (!failed) return
@@ -501,7 +536,10 @@ export function WeeklySheetView({
 
   return (
     <div className="space-y-3">
-      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} presence={presenceStrip} />
+      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false}
+        onBeforeExport={flushPendingSaves} presence={presenceStrip} onUnify={openUnify} unifyBusy={unifyBusy} />
+      <FormatUnifyModal open={unifyEdits !== null} edits={unifyEdits ?? []}
+        onClose={() => setUnifyEdits(null)} onApply={applyUnify} />
       <div className="overflow-x-auto">
         <div className={`min-w-[1240px] bg-white p-1.5 shadow-sm ring-1 ring-neutral-300 ${grid.dragging === 'fill' ? 'cursor-crosshair select-none' : grid.dragging === 'select' ? 'cursor-cell select-none' : ''}`}>
           {/* 제목 행 — 레퍼런스 시트의 B1. 자유 편집(''이면 기본 제목 합성). key로 주차 전환 시 초기화 */}
@@ -618,10 +656,12 @@ export function WeeklySheetView({
   )
 }
 
-function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport, presence }: {
+function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport, presence, onUnify, unifyBusy }: {
   projectId: string; weekStart: string; weekLabel: string; exportDisabled: boolean
   onBeforeExport: () => Promise<boolean>
   presence?: React.ReactNode // 온라인 사용자 스트립(프레즌스) — 내보내기 버튼 왼쪽
+  onUnify?: () => void      // 미지정(시트 없는 주)이면 양식 통일 비활성
+  unifyBusy?: boolean
 }) {
   const base = `/p/${projectId}/weekly`
   return (
@@ -639,6 +679,10 @@ function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExpo
       <div className="flex items-center gap-3">
         {presence}
         <div className="flex items-center gap-2">
+          <button className="btn btn-ghost" disabled={!onUnify || unifyBusy} onClick={onUnify}
+            title="셀 텍스트의 마커·번호·빈 줄을 표준 양식으로 정리합니다">
+            <Wand2 className="mr-1 h-4 w-4" />양식 통일
+          </button>
           <ExportSummaryPptButton projectId={projectId} />
           <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />
         </div>
