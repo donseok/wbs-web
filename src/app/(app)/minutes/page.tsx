@@ -32,6 +32,9 @@ export default async function MinutesPage() {
     listProjects(),
     getServerLocale(),
   ])
+  // prefs에 미지 값(구버전 롤백·스큐)이 남아도 빈 화면이 되지 않게 화이트리스트로 클램프
+  const savedView = prefs.minutesView
+  const initialView = savedView === 'calendar' || savedView === 'tree' ? savedView : 'list'
   return (
     <ProjectPageShell
       hero={<PageHero
@@ -44,7 +47,7 @@ export default async function MinutesPage() {
       />}
     >
       <MinutesView initialMinutes={minutes} todayIso={today}
-        initialView={prefs.minutesView ?? 'list'} projects={projects} defaultTeam={m?.teamCode ?? null}
+        initialView={initialView} projects={projects} defaultTeam={m?.teamCode ?? null}
         currentUserId={user?.id ?? null} role={m?.role ?? null} />
     </ProjectPageShell>
   )

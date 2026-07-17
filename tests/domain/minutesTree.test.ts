@@ -107,4 +107,25 @@ describe('buildMinutesTree', () => {
   it('빈 입력은 빈 배열', () => {
     expect(buildMinutesTree([])).toEqual([])
   })
+
+  it('미지 팀 코드가 여럿이면 등장 순서를 유지한다', () => {
+    const rows = [
+      { ...minute('a', '2026-07-16', 'MES', 'X_260716'), teamCode: '레거시B' as TeamCode },
+      { ...minute('b', '2026-07-15', 'MES', 'Y_260715'), teamCode: '레거시A' as TeamCode },
+    ]
+    const tree = buildMinutesTree(rows)
+    expect(tree.map(g => String(g.teamCode))).toEqual(['레거시B', '레거시A'])
+  })
+
+  it('팀이 다르면 같은 회의체 이름이라도 병합되지 않는다', () => {
+    const tree = buildMinutesTree([
+      minute('a', '2026-07-16', 'PMO', '정산_260716'),
+      minute('b', '2026-07-15', 'ERP', '정산_260715'),
+    ])
+    expect(tree.map(g => g.teamCode)).toEqual(['PMO', 'ERP'])
+    expect(tree[0].bodies[0].name).toBe('정산')
+    expect(tree[1].bodies[0].name).toBe('정산')
+    expect(tree[0].bodies[0].count).toBe(1)
+    expect(tree[1].bodies[0].count).toBe(1)
+  })
 })

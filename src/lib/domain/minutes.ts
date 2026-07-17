@@ -58,7 +58,7 @@ export function ilikeOrPattern(needle: string): string {
 
 export const MINUTES_TREE_LIMIT = 1000 // PostgREST max_rows 하드 캡(supabase/config.toml)과 일치 — 초과 값은 성립 불가
 
-// 노이즈 토큰(전체 일치): 날짜형 4종(꼬리 요일 괄호 허용) + 회차형 + 요일 괄호 단독
+// 노이즈 토큰(전체 일치): 날짜형 5패턴(6/8자리·연월일·2자리 연도·월일, 꼬리 요일 괄호 허용) + 회차형 + 요일 괄호 단독
 const WEEKDAY_TAIL = '(?:\\((?:월|화|수|목|금|토|일)\\))?'
 const NOISE_PATTERNS = [
   new RegExp(`^\\d{6}${WEEKDAY_TAIL}$`),                                    // 260716

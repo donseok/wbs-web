@@ -6,7 +6,9 @@ import type { MinutesTreeGroup } from '@/lib/domain/types'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t: (k: string) => k, locale: 'ko' }) }))
+vi.mock('@/components/providers/LocaleProvider', () => ({
+  useLocale: () => ({ t: (k: string) => (k === 'min.tree.truncated' ? 'TRUNC {n}' : k), locale: 'ko' }),
+}))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) =>
@@ -94,5 +96,16 @@ describe('MinutesView 트리 뷰 배선', () => {
     await act(async () => buttonByText('PMO').click())
     expect(fetchMinutesTree).toHaveBeenCalledTimes(1)      // 트리 재조회 없음
     expect(container.textContent).not.toContain('물류공정') // MES 그룹 숨김
+  })
+
+  it('truncated면 {n}에 MINUTES_TREE_LIMIT를 치환한 안내문을 보여준다', async () => {
+    fetchMinutesTree.mockImplementationOnce(async () => ({ ...treeResult, truncated: true }))
+    await mount('tree')
+    expect(container.textContent).toContain('TRUNC 1000')
+  })
+
+  it('truncated가 아니면 안내문이 없다', async () => {
+    await mount('tree')
+    expect(container.textContent).not.toContain('TRUNC')
   })
 })
