@@ -642,9 +642,51 @@ function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExpo
       </div>
       <div className="flex items-center gap-3">
         {presence}
-        <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />
+        <div className="flex items-center gap-2">
+          <ExportSummaryPptButton projectId={projectId} />
+          <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />
+        </div>
       </div>
     </div>
+  )
+}
+
+/** PPT 응답을 blob으로 받아 파일 저장. 실패(400 등)는 Toast로 안내(스펙 §7). */
+async function downloadPpt(url: string, fallbackName: string, toast: ReturnType<typeof useToast>['toast']) {
+  const res = await fetch(url)
+  if (!res.ok) {
+    const err = (await res.json().catch(() => null)) as { error?: string } | null
+    toast({ title: 'PPT 생성 실패', description: err?.error ?? `오류 (${res.status})`, variant: 'error' })
+    return
+  }
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const name = decodeURIComponent(cd.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? fallbackName)
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(objectUrl)
+}
+
+/** 주간보고요약 PPT — WBS 기반 요약 보고서(WBS 메뉴 보고서 모달의 PPT와 동일 산출물)를 이
+ *  페이지에서 바로 다운로드. 시트 데이터를 읽지 않으므로 flush·시트 유무와 무관하게 항상 활성. */
+function ExportSummaryPptButton({ projectId }: { projectId: string }) {
+  const { toast } = useToast()
+  const [busy, setBusy] = useState(false)
+  const onExport = async () => {
+    setBusy(true)
+    try {
+      await downloadPpt(`/api/report?projectId=${projectId}&format=pptx`, 'weekly_report.pptx', toast)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button className="btn btn-ghost" disabled={busy} onClick={onExport}>
+      <Download className="mr-1 h-4 w-4" />주간보고요약 (PPT)
+    </button>
   )
 }
 
@@ -661,21 +703,10 @@ function ExportPptButton({ projectId, weekStart, disabled, onBeforeExport }: {
     try {
       const canExport = await onBeforeExport()
       if (!canExport) return
-      const res = await fetch(`/api/report?projectId=${projectId}&format=pptx&source=sheet&week=${weekStart}`)
-      if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as { error?: string } | null
-        toast({ title: 'PPT 생성 실패', description: err?.error ?? `오류 (${res.status})`, variant: 'error' })
-        return
-      }
-      const blob = await res.blob()
-      const cd = res.headers.get('Content-Disposition') ?? ''
-      const name = decodeURIComponent(cd.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? `weekly_${weekStart}.pptx`)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = name
-      a.click()
-      URL.revokeObjectURL(url)
+      await downloadPpt(
+        `/api/report?projectId=${projectId}&format=pptx&source=sheet&week=${weekStart}`,
+        `weekly_${weekStart}.pptx`, toast,
+      )
     } finally {
       setBusy(false)
     }
