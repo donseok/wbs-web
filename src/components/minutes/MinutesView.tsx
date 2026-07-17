@@ -173,8 +173,8 @@ export function MinutesView({
           <div className="ml-auto flex items-center gap-2">
             <SegmentedTabs<ViewKey>
               tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
-                     { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays },
-                     { key: 'tree', label: t('min.view.tree'), icon: ListTree }]}
+                     { key: 'tree', label: t('min.view.tree'), icon: ListTree },
+                     { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
               value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
             <button onClick={() => setChatOpen(true)} className="btn">
               <Bot className="h-4 w-4" />{t('min.chat.archive.title')}
