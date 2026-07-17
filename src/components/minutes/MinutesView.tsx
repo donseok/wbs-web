@@ -296,10 +296,11 @@ export function MinutesView({
           }}
           todayIso={todayIso} projects={projects} defaultTeam={defaultTeam} />
       )}
+      {/* 트리 뷰는 화면이 전 기간이므로 챗 범위도 전 기간으로 일치시킨다(월 라벨 '전체 기간'과 정합) */}
       <ArchiveChatPanel open={chatOpen} onClose={() => setChatOpen(false)}
         team={teamOrNull}
-        from={isSearch ? null : monthRangeOf(year, month0)[0]}
-        to={isSearch ? null : monthRangeOf(year, month0)[1]} />
+        from={isSearch || view === 'tree' ? null : monthRangeOf(year, month0)[0]}
+        to={isSearch || view === 'tree' ? null : monthRangeOf(year, month0)[1]} />
       {void currentUserId} {void role} {void locale}
     </div>
   )

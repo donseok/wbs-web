@@ -18,7 +18,10 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: vi.fn() }))
 // 무거운 자식은 스텁 — 이 테스트는 MinutesView의 배선만 본다
 vi.mock('@/components/minutes/MinutesCalendar', () => ({ MinutesCalendar: () => <div data-testid="cal" /> }))
 vi.mock('@/components/minutes/MinuteUploadModal', () => ({ MinuteUploadModal: () => null }))
-vi.mock('@/components/minutes/ArchiveChatPanel', () => ({ ArchiveChatPanel: () => null }))
+const chatProps = vi.fn()
+vi.mock('@/components/minutes/ArchiveChatPanel', () => ({
+  ArchiveChatPanel: (p: Record<string, unknown>) => { chatProps(p); return null },
+}))
 
 const treeResult = {
   groups: [{ teamCode: 'MES', count: 1, bodies: [{ name: '물류공정', count: 1, latestDate: '2026-07-16', leaves: [
@@ -39,7 +42,7 @@ describe('MinutesView 트리 뷰 배선', () => {
   let container: HTMLDivElement, root: Root
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
-    root = createRoot(container); fetchMinutesTree.mockClear()
+    root = createRoot(container); fetchMinutesTree.mockClear(); chatProps.mockClear()
     fetchMinutesTree.mockImplementation(async () => treeResult)
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
@@ -107,5 +110,19 @@ describe('MinutesView 트리 뷰 배선', () => {
   it('truncated가 아니면 안내문이 없다', async () => {
     await mount('tree')
     expect(container.textContent).not.toContain('TRUNC')
+  })
+
+  it('트리 뷰에서는 보관함 챗 범위가 전 기간(from/to null)이다', async () => {
+    await mount('tree')
+    const last = chatProps.mock.calls.at(-1)![0] as { from: string | null; to: string | null }
+    expect(last.from).toBeNull()
+    expect(last.to).toBeNull()
+  })
+
+  it('리스트 뷰에서는 보관함 챗 범위가 현재 월이다', async () => {
+    await mount('list')
+    const last = chatProps.mock.calls.at(-1)![0] as { from: string | null; to: string | null }
+    expect(last.from).toBe('2026-07-01')
+    expect(last.to).toBe('2026-07-31')
   })
 })
