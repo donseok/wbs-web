@@ -3,9 +3,20 @@ import { getMinuteDetail, getMinuteAnnotations } from '@/lib/data/minutes'
 import { getMembership, getSession } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
 import { MinuteViewer } from '@/components/minutes/MinuteViewer'
+import { parseMinuteSourceAnchor } from '@/lib/minutes/source'
 
-export default async function MinuteDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
+export default async function MinuteDetailPage({
+  params, searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{
+    block?: string | string[]
+    hash?: string | string[]
+    body?: string | string[]
+  }>
+}) {
+  const [{ id }, query] = await Promise.all([params, searchParams])
+  const sourceAnchor = parseMinuteSourceAnchor(query)
   const [detail, annotations, m, user, projects] = await Promise.all([
     getMinuteDetail(id), getMinuteAnnotations(id), getMembership(), getSession(), listProjects(),
   ])
@@ -15,6 +26,7 @@ export default async function MinuteDetailPage({ params }: { params: Promise<{ i
     <MinuteViewer
       minute={detail.minute} files={detail.files} canManage={canManage}
       annotations={annotations} userId={user?.id ?? null} projects={projects}
+      sourceAnchor={sourceAnchor}
     />
   )
 }

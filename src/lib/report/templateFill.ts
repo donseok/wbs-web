@@ -164,7 +164,8 @@ function buildDefaultSlides(narr: NarrativeModel, fmt: (item: string) => string)
   const prevPages = paginateGroups(narr.prev, CELL_BUDGET, fmt)
   const currPages = paginateGroups(narr.curr, CELL_BUDGET, fmt)
   const pageCount = Math.max(prevPages.length, currPages.length)
-  const issues = capItems(narr.issues.length ? narr.issues : ['특이 이슈 없음'], ISSUE_CAP)
+  // 이슈 0건이면 대체 문구 없이 빈칸(사용자 요청: 특이 이슈 없으면 따로 작성 금지). 이벤트 대체 문구는 유지.
+  const issues = capItems(narr.issues, ISSUE_CAP)
   const events = capItems(narr.events.length ? narr.events : ['예정된 주요 이벤트 없음'], EVENT_CAP)
   const slides: SlideFill[] = []
   for (let i = 0; i < pageCount; i += 1) {
@@ -172,7 +173,7 @@ function buildDefaultSlides(narr: NarrativeModel, fmt: (item: string) => string)
       contentLeft: { groups: prevPages[i] ?? [], empty: i ? '-' : '(해당 없음)' },
       contentRight: { groups: currPages[i] ?? [], empty: i ? '-' : '(해당 없음)' },
       // WBS 자동 보고는 기존대로 그룹 불릿 유지(flat:false) — 사용자 지시 "나머지 동일".
-      issueLeft: { lines: i ? ['-'] : issues, empty: '-', flat: false },
+      issueLeft: { lines: i ? ['-'] : issues, empty: i ? '-' : '', flat: false },
       eventRight: { lines: i ? ['-'] : events, empty: '-', flat: false },
     })
   }
