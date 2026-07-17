@@ -14,6 +14,7 @@ import { SpiPanel } from './SpiPanel'
 import { MilestoneTimeline } from './MilestoneTimeline'
 import { MeetingSchedule } from './MeetingSchedule'
 import { RiskWorklist } from './RiskWorklist'
+import { TeamProgress } from './TeamProgress'
 import { MinuteSignals, type MinuteSignal } from './MinuteSignals'
 
 function seoulToday(): string {
@@ -79,6 +80,9 @@ export async function DashboardView({
         <TrendChart model={trend} today={today} />
         <SpiPanel model={trend} variance={round1(actual - planned)} />
       </div>
+
+      {/* 팀별 진척 — 실행 큐로 내려가기 전에 팀 단위 진행 현황을 한눈에 */}
+      <TeamProgress items={items} />
 
       {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
       <RiskWorklist items={items} projectId={projectId} today={today} />

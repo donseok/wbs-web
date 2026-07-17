@@ -1,4 +1,5 @@
 import type { ComputedItem, OwnerKind, Status, TeamCode } from '@/lib/domain/types'
+import { teamProgress } from '@/lib/domain/dashboard'
 import { overallProgress } from '@/lib/domain/rollup'
 import { round1 } from '@/lib/domain/format'
 
@@ -42,13 +43,6 @@ export interface ReportTeam {
   team: TeamCode
   count: number
   pct: number | null
-}
-
-export const REPORT_TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
-
-/** 정수 평균 (빈 배열 → 0). ReportModal의 avg와 동일. */
-function avg(ns: number[]): number {
-  return ns.length ? Math.round(ns.reduce((a, b) => a + b, 0) / ns.length) : 0
 }
 
 /** 리프(자식 없는 항목) 수집 — components/wbs/shared의 collectLeaves와 동일 동작.
@@ -103,14 +97,8 @@ export function buildReportModel(
     actualPct: Math.round(l.rolledActualPct),
   }))
 
-  const teams: ReportTeam[] = REPORT_TEAMS.map(team => {
-    const assigned = leaves.filter(l => l.owners.some(o => o.team === team))
-    return {
-      team,
-      count: assigned.length,
-      pct: assigned.length ? avg(assigned.map(l => l.rolledActualPct)) : null,
-    }
-  })
+  // 팀별 진척 — 대시보드 '팀별 진척' 카드와 동일 정의(teamProgress 단일 출처)
+  const teams: ReportTeam[] = teamProgress(leaves)
 
   return {
     meta: {
