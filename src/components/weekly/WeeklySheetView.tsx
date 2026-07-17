@@ -681,7 +681,7 @@ function ExportSummaryPptButton({ projectId }: { projectId: string }) {
   }
   return (
     <button className="btn btn-accent" disabled={busy} onClick={onExport}>
-      <Download className="mr-1 h-4 w-4" />주간보고요약 (PPT)
+      <Download className="mr-1 h-4 w-4" />주간보고서 요약(PPT)
     </button>
   )
 }
@@ -709,7 +709,7 @@ function ExportPptButton({ projectId, weekStart, disabled, onBeforeExport }: {
   }
   return (
     <button className="btn btn-primary" disabled={disabled || busy} onClick={onExport}>
-      <Download className="mr-1 h-4 w-4" />주간보고상세 (PPT)
+      <Download className="mr-1 h-4 w-4" />주간보고서 상세(PPT)
     </button>
   )
 }
@@ -745,5 +745,4 @@ function TitleEditor({ initial, fallback, onSave }: {
     />
   )
 }
-
 
