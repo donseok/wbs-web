@@ -61,9 +61,9 @@ this_issue, next_content, next_issue) 전부 정규화해 **바뀌는 셀만**
  → previewWeeklyFormat()        변경 0건이면 "이미 통일된 양식입니다" 토스트로 종료
  → FormatUnifyModal             변경 셀만 before/after 표시
  → [N개 셀 적용]
- → saveWeeklyCells(after들)     기존 배치 경로
- → 성공 시에만 pushUndo({before, after})  Ctrl+Z 한 번에 전체 되돌리기
- → 로컬 rows 갱신 + 성공 토스트
+ → runBatch(after들, undoable)  기존 멀티셀 배치 실행기 — saveWeeklyCells 저장 +
+                                undo 스택 push + 낙관 로컬 반영 + Realtime을 통째로 상속
+ → 성공 토스트 (Ctrl+Z 한 번에 전체 되돌리기)
 ```
 
 **동시 편집**: 미리보기 열림~적용 사이의 타 사용자 편집은 시트 기존 관례대로
@@ -83,8 +83,9 @@ last-write-wins(미리보기의 after가 덮어씀). 충돌 감지는 만들지 
 
 - flush 실패 → 기존 문구로 중단 토스트, 모달 미오픈
 - preview 실패 → "양식 검사 실패" + 서버 error 토스트
-- 적용 DB 에러 → "일부 저장 실패 — 다시 시도" 토스트(배치 멱등이라 재시도 안전),
-  **undo push는 성공 시에만**
+- 적용 DB 에러 → runBatch의 기존 실패 처리(자동 재시도 1회 → 에러 칩 + 재시도 안내
+  토스트)를 그대로 상속. undo push는 낙관 적용과 함께 이뤄진다(기존 멀티셀 시맨틱과 동일 —
+  실패해도 로컬 rows가 이미 after이므로 undo 항목은 유효)
 - goneRowIds → 해당 셀 스킵 안내(기존 시맨틱)
 
 ## 테스트
@@ -93,7 +94,8 @@ last-write-wins(미리보기의 after가 덮어씀). 충돌 감지는 만들지 
   중복 번호 재부여, `1)`/`①`, 공백만 줄, 문장 내부 보존(`대상 : `), 마커 없는 줄 불변,
   빈 셀, 멱등성
 - `tests/ui/` — 모달 미리보기→적용 시 `saveWeeklyCells` 호출 값, 변경 0건 토스트,
-  Ctrl+Z 되돌리기 통합
+  EmptyState 비활성. Ctrl+Z 통합은 별도 테스트 없이 runBatch(undoable) 재사용으로 담보
+  (기존 멀티셀 검증 상속 — jsdom 포커스 제약으로 키보드 undo 직접 테스트는 취약)
 - 서버 액션 — 미로그인 거부, 빈 시트
 
 ## 범위 밖 (명시)
