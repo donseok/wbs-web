@@ -79,3 +79,42 @@ export function summarizeAnnouncements(
   }
   return { total: items.length, pinned, recent7d }
 }
+
+export interface MeetingAnnouncementSource {
+  title: string
+  occurrenceDate: string
+  startTime: string | null
+  endTime: string | null
+  location: string | null
+  body: string
+}
+
+/**
+ * 회의 1회차를 공지 입력으로 변환(원클릭 등록용). 본문은 평문으로 조합해 DB에
+ * 그대로 저장한다(뷰어 언어 재번역 없음 → 한글 라벨 고정). 게시기간은
+ * 오늘~max(오늘, 회차일)로, 과거 회차도 publishFrom>publishTo 위반이 나지 않게 한다.
+ */
+export function composeAnnouncementFromMeeting(
+  src: MeetingAnnouncementSource,
+  todayIso: string,
+): { title: string; body: string; category: AnnouncementCategory; isPinned: boolean; publishFrom: string; publishTo: string } {
+  const timePart = src.startTime === null
+    ? '(종일)'
+    : src.endTime
+      ? `${src.startTime}–${src.endTime}`
+      : src.startTime
+  const lines = [`일시: ${src.occurrenceDate} ${timePart}`]
+  if (src.location && src.location.trim()) lines.push(`장소: ${src.location.trim()}`)
+  const head = lines.join('\n')
+  const note = src.body.trim()
+  const body = note ? `${head}\n\n${note}` : head
+  return {
+    title: src.title,
+    body,
+    category: 'general',
+    isPinned: false,
+    publishFrom: todayIso,
+    // 'YYYY-MM-DD'는 사전식 비교가 시간순과 일치 — 더 늦은 날짜가 max
+    publishTo: src.occurrenceDate > todayIso ? src.occurrenceDate : todayIso,
+  }
+}

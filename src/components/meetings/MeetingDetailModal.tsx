@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import Link from 'next/link'
-import { CalendarDays, Clock4, MapPin, Repeat, Trash2, Pencil, Ban, User, AlertTriangle, NotebookText } from 'lucide-react'
+import { CalendarDays, Clock4, MapPin, Repeat, Trash2, Pencil, Ban, User, AlertTriangle, NotebookText, Megaphone, Check } from 'lucide-react'
 import type { DictKey } from '@/lib/i18n/dict'
 import type { Meeting, MeetingAttendeeInfo, MeetingOccurrence } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal'
 import { fmtDate } from '@/components/wbs/shared'
 import { MEETING_META, canEditMeeting } from '@/lib/domain/meetings'
 import { fetchMeetingDetail, cancelOccurrence, deleteMeeting } from '@/app/actions/meetings'
+import { createAnnouncementFromMeeting } from '@/app/actions/announcements'
 import { fetchMeetingMinutesLite } from '@/app/actions/minutes'
 
 type LinkedMinute = { id: string; title: string; minuteDate: string }
@@ -33,10 +34,12 @@ export function MeetingDetailModal({
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const [posting, startPost] = useTransition()
+  const [posted, setPosted] = useState(false)
 
   useEffect(() => {
     if (!open || !occurrence) {
-      setDetail(null); setMinutes([]); setConfirmDelete(false); setConfirmCancel(false); setError(null); return
+      setDetail(null); setMinutes([]); setConfirmDelete(false); setConfirmCancel(false); setPosted(false); setError(null); return
     }
     let alive = true
     setLoading(true)
@@ -67,6 +70,12 @@ export function MeetingDetailModal({
     if (res.ok) { onChanged(); onClose() }
     else { setError(res.error ?? t('meet.deleteFailed')); setConfirmDelete(false) }
   })
+  const runPost = () => startPost(async () => {
+    setError(null)
+    const res = await createAnnouncementFromMeeting(occurrence.seriesId, occurrence.occurrenceDate)
+    if (res.ok) setPosted(true)
+    else setError(res.error ?? t('meet.detail.postFailed'))
+  })
 
   return (
     <>
@@ -77,8 +86,17 @@ export function MeetingDetailModal({
         title={occurrence.title}
         footer={canEdit ? (
           <>
+            {role === 'pmo_admin' && (
+              posted ? (
+                <span className="btn btn-ghost mr-auto pointer-events-none text-progress"><Check className="h-4 w-4" />{t('meet.detail.postedAsAnnouncement')}</span>
+              ) : (
+                <button onClick={runPost} disabled={posting || pending} className="btn btn-ghost mr-auto text-brand hover:bg-brand-weak">
+                  <Megaphone className="h-4 w-4" />{posting ? t('meet.detail.posting') : t('meet.detail.postAsAnnouncement')}
+                </button>
+              )
+            )}
             {occurrence.isRecurring && (
-              <button onClick={() => setConfirmCancel(true)} disabled={pending} className="btn btn-ghost mr-auto text-pending hover:bg-pending-weak">
+              <button onClick={() => setConfirmCancel(true)} disabled={pending} className={`btn btn-ghost text-pending hover:bg-pending-weak ${role === 'pmo_admin' ? '' : 'mr-auto'}`}>
                 <Ban className="h-4 w-4" />{t('meet.detail.cancelOccurrence')}
               </button>
             )}
