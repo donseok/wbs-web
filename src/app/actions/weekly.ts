@@ -4,8 +4,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { mondayIso } from '@/lib/report/week'
 import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, WEEKLY_CELL_MAX, type NewWeeklyRow, type WeeklyCellEdit } from '@/lib/domain/weeklySheet'
-import { findCarryOverSource, getWeeklySheet, loadWeeklyRows } from '@/lib/data/weeklySheet'
-import { unifySheetRows, type WeeklyFormatEdit } from '@/lib/domain/weeklyFormat'
+import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
 
 export interface WeeklyActionResult {
   ok: boolean
@@ -170,26 +169,4 @@ export async function saveWeeklyCells(
   }
   // revalidate 안 함 — 각 update가 개별 Realtime 이벤트를 발생시켜 타 세션에 전파(saveWeeklyCell과 동일)
   return goneRowIds.length ? { ok: true, goneRowIds } : { ok: true }
-}
-
-export interface WeeklyFormatPreviewResult {
-  ok: boolean
-  error?: string
-  edits?: WeeklyFormatEdit[] // ok:true일 때 항상 존재(변경 없으면 빈 배열)
-}
-
-/** 양식 통일 미리보기 — DB의 저장 상태(권위) 기준으로 정규화 변경분만 계산한다.
- *  적용 액션은 따로 없다: 클라이언트가 확인한 after를 기존 saveWeeklyCells 배치로 저장(WYSIWYG). */
-export async function previewWeeklyFormat(
-  projectId: string, // 시그니처 대칭·향후 로깅용(saveWeeklyCells 관례). 조회는 reportId 기준(RLS가 접근 통제)
-  reportId: string,
-): Promise<WeeklyFormatPreviewResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
-  try {
-    const rows = await loadWeeklyRows(reportId)
-    return { ok: true, edits: unifySheetRows(rows) }
-  } catch (e) {
-    console.error('[previewWeeklyFormat] 양식 검사 실패:', errMsg(e))
-    return { ok: false, error: '양식 검사에 실패했습니다. 잠시 후 다시 시도해 주세요.' }
-  }
 }

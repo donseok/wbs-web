@@ -18,8 +18,7 @@ function mapRow(r: RowRecord): WeeklySheetRow {
 
 const ROW_COLS = 'id, report_id, section, module, sort_order, this_content, this_issue, next_content, next_issue'
 
-/** reportId의 시트 행 전부(sort_order 순). 양식 통일 미리보기 등 저장 상태 기준 검사가 공유. */
-export async function loadWeeklyRows(reportId: string): Promise<WeeklySheetRow[]> {
+async function loadWeeklyRows(reportId: string): Promise<WeeklySheetRow[]> {
   const sb = await createServerClient()
   const { data, error } = await sb.from('weekly_report_rows').select(ROW_COLS)
     .eq('report_id', reportId).order('sort_order')
