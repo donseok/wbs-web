@@ -15,7 +15,7 @@ import { MinutesCalendar } from './MinutesCalendar'
 import { MinuteUploadModal } from './MinuteUploadModal'
 import { ArchiveChatPanel } from './ArchiveChatPanel'
 
-type ViewKey = 'list' | 'calendar'
+type ViewKey = 'list' | 'calendar' | 'tree'
 type TeamKey = 'ALL' | TeamCode
 
 function monthRangeOf(year: number, month0: number): [string, string] {
