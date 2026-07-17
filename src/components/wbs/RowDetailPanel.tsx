@@ -1,10 +1,12 @@
 'use client'
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus } from 'lucide-react'
-import type { ComputedItem, DeliverableAttachment, Level, OwnerKind, TeamCode } from '@/lib/domain/types'
+import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
+import type { ComputedItem, DeliverableAttachment, DependencyType, Level, OwnerKind, TaskDependency, TeamCode } from '@/lib/domain/types'
+import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
 import {
-  getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem, type ChangeLogEntry,
+  getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem,
+  addTaskDependency, removeTaskDependency, type ChangeLogEntry,
 } from '@/app/actions/wbs'
 import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
@@ -19,11 +21,13 @@ const ROLE_KEY: Record<string, DictKey> = { pmo_admin: 'wbs.rolePmoAdmin', team_
 const FIELD_KEY: Record<string, DictKey> = {
   actual_pct: 'wbs.colActualPct', weight: 'wbs.colWeight', name: 'wbs.fieldName', planned_start: 'wbs.colPlannedStart',
   planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
+  dependency: 'wbs.dependencies',
 }
 const CHILD_LEVEL: Record<Level, Level | null> = { phase: 'task', task: 'activity', activity: null }
 
 function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
+  if (field === 'dependency') return t('wbs.dependencyLink')
   if (field === 'weight' && !Number.isNaN(Number(v))) return formatWeightPct(Number(v))
   return field === 'actual_pct' ? `${v}%` : v
 }
@@ -42,9 +46,13 @@ function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
 /** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
-  item, onClose, editable = false, canAttach = false, canEditDeliverable = false, projectId, subAct = false,
+  item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
+  canEditDeliverable = false, projectId, subAct = false,
 }: {
   item: ComputedItem
+  allItems?: ComputedItem[]
+  dependencies?: TaskDependency[]
+  schedule?: TaskSchedule
   onClose: () => void
   editable?: boolean
   canAttach?: boolean
@@ -69,6 +77,12 @@ export function RowDetailPanel({
   const [delivDraft, setDelivDraft] = useState('')
   const [delivBusy, setDelivBusy] = useState(false)
   const [delivErr, setDelivErr] = useState<string | null>(null)
+  const [dependencyOpen, setDependencyOpen] = useState(false)
+  const [predecessorId, setPredecessorId] = useState('')
+  const [dependencyType, setDependencyType] = useState<DependencyType>('FS')
+  const [lagDays, setLagDays] = useState('0')
+  const [dependencyBusy, setDependencyBusy] = useState(false)
+  const [dependencyErr, setDependencyErr] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '',
   })
@@ -85,6 +99,7 @@ export function RowDetailPanel({
     setEditing(false); setConfirmDel(false); setAddName(null); setErr(null)
     setSubOpen(false); setSubTeam(null); setSubKind('primary')
     setDelivEditing(false); setDelivErr(null)
+    setDependencyOpen(false); setPredecessorId(''); setDependencyType('FS'); setLagDays('0'); setDependencyErr(null)
     setForm({ name: item.name, start: item.plannedStart ?? '', end: item.plannedEnd ?? '', deliverable: item.deliverable ?? '' })
     getChangeLogs(item.id).then(r => { if (alive) setLogs(r) }).catch(() => { if (alive) setLogs([]) })
     return () => { alive = false }
@@ -95,6 +110,36 @@ export function RowDetailPanel({
   const isAct = item.level === 'activity' && !subAct
   const subTeams = useMemo(() => availableSubActTeams(item.children), [item.children])
   const flipWarn = willDiscardActual(item.children.length, item.actualPct)
+  const itemById = useMemo(() => new Map(allItems.map(candidate => [candidate.id, candidate])), [allItems])
+  const incomingDependencies = useMemo(
+    () => dependencies.filter(dep => dep.successorId === item.id),
+    [dependencies, item.id],
+  )
+  const outgoingDependencies = useMemo(
+    () => dependencies.filter(dep => dep.predecessorId === item.id),
+    [dependencies, item.id],
+  )
+  const predecessorCandidates = useMemo(() => {
+    const existing = new Set(incomingDependencies.map(dep => dep.predecessorId))
+    const nextById = new Map<string, string[]>()
+    dependencies.forEach(dep => nextById.set(dep.predecessorId, [...(nextById.get(dep.predecessorId) ?? []), dep.successorId]))
+    const wouldCycle = (candidateId: string) => {
+      const seen = new Set<string>()
+      const stack = [item.id]
+      while (stack.length) {
+        const id = stack.pop()!
+        if (id === candidateId) return true
+        if (seen.has(id)) continue
+        seen.add(id)
+        stack.push(...(nextById.get(id) ?? []))
+      }
+      return false
+    }
+    return allItems.filter(candidate =>
+      candidate.id !== item.id && candidate.plannedStart && candidate.plannedEnd &&
+      !existing.has(candidate.id) && !wouldCycle(candidate.id),
+    )
+  }, [allItems, dependencies, incomingDependencies, item.id])
   // 남은 팀이 하나뿐이면(유추가 아니라 유일 선택지) 폼을 열 때 자동 선택 — 클릭 한 번 절약.
   useEffect(() => {
     if (subOpen && !subTeam && subTeams.length === 1) setSubTeam(subTeams[0])
@@ -136,6 +181,28 @@ export function RowDetailPanel({
     run(() => addSubAct(item.id, subTeam, subKind), () => { setSubOpen(false); setSubTeam(null); setSubKind('primary') })
   }
   const doDelete = () => run(() => deleteWbsItem(item.id), () => onClose())
+
+  async function addDependency() {
+    const lag = Number(lagDays)
+    if (!predecessorId || !Number.isInteger(lag) || lag < 0 || lag > 365) {
+      setDependencyErr(t('wbs.dependencyInputError'))
+      return
+    }
+    setDependencyBusy(true); setDependencyErr(null)
+    const result = await addTaskDependency(projectId, predecessorId, item.id, dependencyType, lag)
+    setDependencyBusy(false)
+    if (!result.ok) { setDependencyErr(result.error ?? t('wbs.errGeneric')); return }
+    setDependencyOpen(false); setPredecessorId(''); setLagDays('0')
+    router.refresh()
+  }
+
+  async function removeDependency(id: string) {
+    setDependencyBusy(true); setDependencyErr(null)
+    const result = await removeTaskDependency(id)
+    setDependencyBusy(false)
+    if (!result.ok) { setDependencyErr(result.error ?? t('wbs.errGeneric')); return }
+    router.refresh()
+  }
 
   return (
     <div className="fixed inset-0 z-[110]" role="dialog" aria-modal="true" aria-label={`${item.name} ${t('wbs.detailSuffix')}`}>
@@ -211,6 +278,141 @@ export function RowDetailPanel({
                 )}
               </Field>
             </>
+          )}
+
+          {!editing && (
+            <section className="rounded-xl border border-line bg-surface-2/40 p-3" aria-label={t('wbs.dependencies')}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                  <GitBranch className="h-3.5 w-3.5" /> {t('wbs.dependencies')}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {schedule?.critical && (
+                    <span className="rounded-full border border-delayed/35 bg-delayed-weak px-2 py-0.5 text-[10px] font-bold text-delayed">
+                      {t('wbs.criticalPath')}
+                    </span>
+                  )}
+                  {editable && (
+                    <button
+                      type="button"
+                      onClick={() => { setDependencyOpen(open => !open); setDependencyErr(null) }}
+                      className="btn btn-ghost h-7 px-2 text-[11px]"
+                      aria-expanded={dependencyOpen}
+                    >
+                      <Plus className="h-3 w-3" /> {t('wbs.addPredecessor')}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {schedule && (schedule.forecastStart !== schedule.plannedStart || schedule.forecastEnd !== schedule.plannedEnd) && (
+                <div className="mt-2 rounded-lg border border-pending/25 bg-pending-weak px-2.5 py-2 text-[11px] text-pending" role="status">
+                  <div className="flex items-center justify-between gap-2 font-semibold">
+                    <span>{t('wbs.forecastSchedule')}</span>
+                    {schedule.forecastConfidence === 'estimated' && <span>{t('wbs.forecastEstimated')}</span>}
+                  </div>
+                  <div className="mt-0.5 tabular-nums">
+                    {fmtDate(schedule.forecastStart)} ~ {fmtDate(schedule.forecastEnd)}
+                    {schedule.delayBusinessDays > 0 && ` · +${schedule.delayBusinessDays}${t('wbs.businessDaysUnit')}`}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2 space-y-2">
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.predecessors')}</div>
+                  {incomingDependencies.length === 0 ? (
+                    <p className="text-xs text-ink-subtle">{t('wbs.noPredecessors')}</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {incomingDependencies.map(dep => {
+                        const predecessor = itemById.get(dep.predecessorId)
+                        return (
+                          <li key={dep.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
+                            <span className="min-w-0 flex-1 truncate text-ink" title={predecessor?.name}>
+                              {predecessor?.code && <span className="mr-1 text-ink-subtle">{predecessor.code}</span>}
+                              {predecessor?.name ?? t('wbs.missingTask')}
+                            </span>
+                            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted" title={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}>
+                              {dep.type}{dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}
+                            </span>
+                            {editable && (
+                              <button type="button" onClick={() => removeDependency(dep.id)} disabled={dependencyBusy}
+                                aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                {outgoingDependencies.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.successors')}</div>
+                    <ul className="space-y-1.5">
+                      {outgoingDependencies.map(dep => {
+                        const successor = itemById.get(dep.successorId)
+                        return (
+                          <li key={dep.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
+                            <span className="min-w-0 flex-1 truncate text-ink" title={successor?.name}>
+                              {successor?.code && <span className="mr-1 text-ink-subtle">{successor.code}</span>}
+                              {successor?.name ?? t('wbs.missingTask')}
+                            </span>
+                            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted">{dep.type}</span>
+                            {editable && (
+                              <button type="button" onClick={() => removeDependency(dep.id)} disabled={dependencyBusy}
+                                aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {editable && dependencyOpen && (
+                <div className="mt-2 space-y-2 rounded-lg border border-line bg-surface p-2.5">
+                  {predecessorCandidates.length === 0 ? (
+                    <p className="text-xs text-ink-subtle">{t('wbs.noDependencyCandidates')}</p>
+                  ) : (
+                    <>
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.predecessorTask')}</span>
+                        <select value={predecessorId} onChange={e => setPredecessorId(e.target.value)} className="app-input h-9 text-xs">
+                          <option value="">{t('wbs.selectTask')}</option>
+                          {predecessorCandidates.map(candidate => (
+                            <option key={candidate.id} value={candidate.id}>{candidate.code ? `${candidate.code} · ` : ''}{candidate.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="grid grid-cols-[1fr_88px] gap-2">
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.relationType')}</span>
+                          <select value={dependencyType} onChange={e => setDependencyType(e.target.value as DependencyType)} className="app-input h-9 text-xs">
+                            <option value="FS">{t('wbs.fsLong')}</option>
+                            <option value="SS">{t('wbs.ssLong')}</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.lagDays')}</span>
+                          <input type="number" min="0" max="365" step="1" value={lagDays} onChange={e => setLagDays(e.target.value)} className="app-input h-9 text-xs" />
+                        </label>
+                      </div>
+                      <button type="button" onClick={addDependency} disabled={dependencyBusy || !predecessorId} className="btn btn-primary h-8 w-full text-xs">
+                        {dependencyBusy ? t('wbs.saving') : t('wbs.connectTasks')}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {dependencyErr && <p className="mt-2 text-xs font-medium text-delayed" role="alert">{dependencyErr}</p>}
+            </section>
           )}
 
           {/* PMO 구조 편집 */}

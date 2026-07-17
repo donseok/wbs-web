@@ -1,11 +1,12 @@
 'use client'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useId, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import type { ComputedItem, Membership } from '@/lib/domain/types'
+import type { ComputedItem, Membership, TaskDependency } from '@/lib/domain/types'
+import { computeDependencySchedule, type TaskSchedule } from '@/lib/domain/dependencySchedule'
 import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText } from 'lucide-react'
+import { Maximize2, Minimize2, FileText, GitBranch } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
@@ -39,6 +40,7 @@ const TIMELINE_COLS = new Set(['no', 'level', 'name', 'owners', 'status'])
    과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
 const ROW_H = 40
+const EMPTY_DEPENDENCIES: TaskDependency[] = []
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -110,6 +112,7 @@ function buildMatch(items: ComputedItem[], q: string): Set<string> {
 
 export function WbsGanttSheet({
   items,
+  dependencies = EMPTY_DEPENDENCIES,
   holidays,
   today,
   membership,
@@ -125,6 +128,7 @@ export function WbsGanttSheet({
   focusId = null,
 }: {
   items: ComputedItem[]
+  dependencies?: TaskDependency[]
   holidays: string[]
   today: string
   membership: Membership | null
@@ -175,6 +179,7 @@ export function WbsGanttSheet({
   const timelineFocus = defaultView === 'timeline'
   const [fullscreen, setFullscreen] = useState(false) // 팝업(전체화면 모달)로 크게 보기
   const [reportOpen, setReportOpen] = useState(false) // 주간 보고서 모달
+  const [showDependencyLinks, setShowDependencyLinks] = useState(true)
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
@@ -312,6 +317,23 @@ export function WbsGanttSheet({
       matchKeep ? flatten(items, new Set()).filter(n => matchKeep.has(n.id)) : flatten(items, effCollapsed),
     [items, effCollapsed, matchKeep],
   )
+  const allFlatItems = useMemo(() => flatten(items, new Set()), [items])
+  const dependencySchedule = useMemo(
+    () => computeDependencySchedule(
+      allFlatItems.map(item => ({
+        id: item.id,
+        plannedStart: item.plannedStart,
+        plannedEnd: item.plannedEnd,
+        actualPct: item.rolledActualPct,
+      })),
+      dependencies,
+      today,
+      holidays,
+    ),
+    [allFlatItems, dependencies, holidays, today],
+  )
+  const itemById = useMemo(() => new Map(allFlatItems.map(item => [item.id, item])), [allFlatItems])
+  const rowIndex = useMemo(() => new Map(flatRows.map((item, index) => [item.id, index])), [flatRows])
 
   const allCollapsed = collapsibleIds.size > 0 && [...collapsibleIds].every(id => effCollapsed.has(id))
   const toggleAll = () => {
@@ -342,6 +364,9 @@ export function WbsGanttSheet({
   /* ── 날짜 스케일 ── */
   const allDates = items.flatMap(function dates(n): string[] {
     return [n.plannedStart, n.plannedEnd, ...n.children.flatMap(dates)].filter(Boolean) as string[]
+  })
+  dependencySchedule.byId.forEach(schedule => {
+    allDates.push(schedule.forecastStart, schedule.forecastEnd)
   })
   const rangeStart = allDates.length ? allDates.reduce((a, b) => (a < b ? a : b)) : today
   const rangeEnd = allDates.length ? allDates.reduce((a, b) => (a > b ? a : b)) : today
@@ -531,6 +556,28 @@ export function WbsGanttSheet({
         <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}
         </button>
+        {dependencies.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowDependencyLinks(value => !value)}
+            aria-pressed={showDependencyLinks}
+            title={t('wbs.toggleDependenciesTitle')}
+            className={`btn h-9 px-3 text-xs ${showDependencyLinks ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+            {t('wbs.dependencies')} {dependencies.length}
+            {dependencySchedule.criticalTaskIds.size > 0 && (
+              <span className="rounded-full bg-critical px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
+                {t('wbs.criticalShort')} {dependencySchedule.criticalTaskIds.size}
+              </span>
+            )}
+            {dependencySchedule.projectDelayBusinessDays > 0 && (
+              <span className="rounded-full bg-pending-weak px-1.5 py-0.5 text-[9px] font-bold leading-none text-pending">
+                +{dependencySchedule.projectDelayBusinessDays}{t('wbs.businessDaysUnit')}
+              </span>
+            )}
+          </button>
+        )}
         {isPmo && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
             <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhase')}
@@ -676,6 +723,8 @@ export function WbsGanttSheet({
             const canToggle = collapsibleIds.has(n.id)
             const isCollapsed = effCollapsed.has(n.id)
             const isFlash = flashId === n.id
+            const schedule = dependencySchedule.byId.get(n.id)
+            const isCritical = schedule?.critical ?? false
             const rowNo = idx + 1
             const rowBg =
               n.level === 'phase'
@@ -751,8 +800,8 @@ export function WbsGanttSheet({
                     <button
                       type="button"
                       onClick={() => setSelectedId(n.id)}
-                      className={`truncate text-left ${nameWeight} hover:text-brand hover:underline`}
-                      title={`${n.name} · ${t('wbs.rowDetailTitle')}`}
+                      className={`truncate text-left ${nameWeight} ${isCritical ? 'font-semibold text-critical' : ''} hover:text-brand hover:underline`}
+                      title={`${n.name} · ${t('wbs.rowDetailTitle')}${isCritical ? ` · ${t('wbs.criticalPath')}` : ''}`}
                     >
                       {subLabel != null ? (
                         <>
@@ -763,6 +812,7 @@ export function WbsGanttSheet({
                         n.name
                       )}
                     </button>
+                    {isCritical && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-critical" aria-label={t('wbs.criticalPath')} />}
                   </div>
                 </div>
                 {/* 담당 */}
@@ -917,11 +967,27 @@ export function WbsGanttSheet({
                 )}
                 {/* 간트 셀 */}
                 <div className={`relative box-border h-full shrink-0 border-b border-grid ${isFlash ? 'bg-brand-weak/60' : ''}`} style={{ width: ganttW }}>
-                  {n.plannedStart && n.plannedEnd && <Bar n={n} xOf={xOf} dayPx={dayPx} />}
+                  {n.plannedStart && n.plannedEnd && <Bar n={n} schedule={schedule} xOf={xOf} dayPx={dayPx} />}
                 </div>
               </div>
             )
           })}
+
+          {showDependencyLinks && dependencies.length > 0 && rowsH > 0 && (
+            <DependencyOverlay
+              dependencies={dependencies}
+              itemById={itemById}
+              scheduleById={dependencySchedule.byId}
+              criticalDependencyIds={dependencySchedule.criticalDependencyIds}
+              cycleTaskIds={dependencySchedule.cycleTaskIds}
+              rowIndex={rowIndex}
+              xOf={xOf}
+              dayPx={dayPx}
+              width={ganttW}
+              height={rowsH}
+              left={LEFT_W}
+            />
+          )}
 
           {/* 빈 상태 — 항목 없음 / 검색 결과 없음 (가로 스크롤에도 좌측 고정) */}
           {flatRows.length === 0 && (
@@ -987,6 +1053,14 @@ export function WbsGanttSheet({
           <span className="ml-1 h-2 w-4 rounded-full bg-progress" />
           {t('wbs.legendActual')}
         </span>
+        {dependencies.length > 0 && (
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-flex items-center gap-1"><span className="w-5 border-t border-ink-subtle" />FS</span>
+            <span className="inline-flex items-center gap-1"><span className="w-5 border-t border-dashed border-ink-subtle" />SS</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-full border-2 border-critical" />{t('wbs.criticalPath')}</span>
+            <span className="inline-flex items-center gap-1"><span className="w-5 border-t-2 border-dashed border-pending" />{t('wbs.forecast')}</span>
+          </span>
+        )}
         <span className="inline-flex items-center gap-1">
           <span className="h-3 w-3 rounded-sm" style={{ background: 'var(--color-weekend)' }} />
           {t('wbs.legendWeekend')}
@@ -1016,6 +1090,9 @@ export function WbsGanttSheet({
       {selectedItem && (
         <RowDetailPanel
           item={selectedItem}
+          allItems={allFlatItems}
+          dependencies={dependencies}
+          schedule={dependencySchedule.byId.get(selectedItem.id)}
           subAct={subActLabels.has(selectedItem.id)}
           onClose={() => setSelectedId(null)}
           editable={isPmo && !readOnly}
@@ -1028,13 +1105,110 @@ export function WbsGanttSheet({
   )
 }
 
+/* ── FS/SS 의존성 연결선 ── */
+function DependencyOverlay({
+  dependencies,
+  itemById,
+  scheduleById,
+  criticalDependencyIds,
+  cycleTaskIds,
+  rowIndex,
+  xOf,
+  dayPx,
+  width,
+  height,
+  left,
+}: {
+  dependencies: TaskDependency[]
+  itemById: Map<string, ComputedItem>
+  scheduleById: Map<string, TaskSchedule>
+  criticalDependencyIds: Set<string>
+  cycleTaskIds: Set<string>
+  rowIndex: Map<string, number>
+  xOf: (date: string) => number
+  dayPx: number
+  width: number
+  height: number
+  left: number
+}) {
+  const uid = useId().replace(/:/g, '')
+  const normalMarker = `dependency-arrow-${uid}`
+  const criticalMarker = `critical-arrow-${uid}`
+  const cycleMarker = `cycle-arrow-${uid}`
+  const clampX = (value: number) => Math.min(Math.max(value, 3), Math.max(3, width - 3))
+
+  return (
+    <svg
+      className="pointer-events-none absolute z-20 overflow-visible"
+      style={{ left, top: 'var(--wbs-head-h)' }}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      aria-hidden="true"
+    >
+      <defs>
+        <marker id={normalMarker} markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L7,3.5 L0,7 z" fill="var(--color-ink-subtle)" />
+        </marker>
+        <marker id={criticalMarker} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L8,4 L0,8 z" fill="var(--color-critical)" />
+        </marker>
+        <marker id={cycleMarker} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M0,0 L8,4 L0,8 z" fill="var(--color-delayed)" />
+        </marker>
+      </defs>
+      {dependencies.map(dep => {
+        const predecessorRow = rowIndex.get(dep.predecessorId)
+        const successorRow = rowIndex.get(dep.successorId)
+        if (predecessorRow == null || successorRow == null) return null
+        const predecessor = itemById.get(dep.predecessorId)
+        const successor = itemById.get(dep.successorId)
+        if (!predecessor?.plannedStart || !predecessor.plannedEnd || !successor?.plannedStart) return null
+        const predecessorSchedule = scheduleById.get(dep.predecessorId)
+        const successorSchedule = scheduleById.get(dep.successorId)
+        const predecessorStart = predecessorSchedule?.forecastStart ?? predecessor.plannedStart
+        const predecessorEnd = predecessorSchedule?.forecastEnd ?? predecessor.plannedEnd
+        const successorStart = successorSchedule?.forecastStart ?? successor.plannedStart
+        const sourceX = clampX(dep.type === 'FS' ? xOf(predecessorEnd) + dayPx - 3 : xOf(predecessorStart) + 3)
+        const targetX = clampX(xOf(successorStart) + 3)
+        const sourceY = (predecessorRow + 0.5) * ROW_H
+        const targetY = (successorRow + 0.5) * ROW_H
+        const enoughRoom = Math.abs(targetX - sourceX) >= 18
+        const outsideElbow = targetX >= sourceX
+          ? Math.min(width - 4, Math.max(sourceX, targetX) + 10)
+          : Math.max(4, Math.min(sourceX, targetX) - 10)
+        const elbowX = enoughRoom ? (sourceX + targetX) / 2 : outsideElbow
+        const critical = criticalDependencyIds.has(dep.id)
+        const cycle = cycleTaskIds.has(dep.predecessorId) || cycleTaskIds.has(dep.successorId)
+        const color = cycle ? 'var(--color-delayed)' : critical ? 'var(--color-critical)' : 'var(--color-ink-subtle)'
+        const marker = cycle ? cycleMarker : critical ? criticalMarker : normalMarker
+        return (
+          <path
+            key={dep.id}
+            d={`M ${sourceX} ${sourceY} H ${elbowX} V ${targetY} H ${targetX}`}
+            fill="none"
+            stroke={color}
+            strokeWidth={critical || cycle ? 2.25 : 1.25}
+            strokeDasharray={cycle ? '2 2' : dep.type === 'SS' ? '5 3' : undefined}
+            strokeLinejoin="round"
+            markerEnd={`url(#${marker})`}
+            opacity={critical || cycle ? 0.95 : 0.7}
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
 /* ── 간트 바 ── */
 function Bar({
   n,
+  schedule,
   xOf,
   dayPx,
 }: {
   n: ComputedItem
+  schedule?: TaskSchedule
   xOf: (d: string) => number
   dayPx: number
 }) {
@@ -1044,53 +1218,74 @@ function Bar({
   const pctLabel = `${formatPct1(pct)}%`
   const showInside = width >= 54 && pct >= 45 && n.status !== 'done'
   const showOutside = !showInside && n.status !== 'done'
+  const critical = schedule?.critical ?? false
+  const shifted = !!schedule && (
+    schedule.forecastStart !== schedule.plannedStart || schedule.forecastEnd !== schedule.plannedEnd
+  )
+  const forecastLeft = schedule ? xOf(schedule.forecastStart) : left
+  const forecastWidth = schedule
+    ? Math.max(dayPx * 0.5, xOf(schedule.forecastEnd) + dayPx - forecastLeft)
+    : width
+  const forecastBar = shifted ? (
+    <div
+      className="absolute bottom-1 h-1.5 rounded-full border border-dashed border-pending bg-pending-weak/70"
+      style={{ left: forecastLeft, width: forecastWidth }}
+      title={`${schedule!.forecastStart} ~ ${schedule!.forecastEnd}`}
+    />
+  ) : null
 
   if (n.level === 'phase') {
     return (
+      <>
+        <div
+          className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
+          style={{ left, width }}
+        >
+          <div
+            className="h-full rounded-[3px] bg-phasebar-fill opacity-60"
+            style={{ width: `${pct}%` }}
+          />
+          {showOutside && (
+            <span
+              className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums ${critical ? 'font-semibold text-critical' : 'text-ink-muted'}`}
+              style={{ left: width }}
+            >
+              {pctLabel}
+            </span>
+          )}
+        </div>
+        {forecastBar}
+      </>
+    )
+  }
+
+  return (
+    <>
       <div
-        className="absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar"
+        className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
         style={{ left, width }}
       >
-        <div
-          className="h-full rounded-[3px] bg-phasebar-fill opacity-60"
-          style={{ width: `${pct}%` }}
-        />
+        <div className={`h-full overflow-hidden rounded-full bg-plan-track ring-1 ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : 'ring-grid'}`}>
+          <div
+            className={`h-full rounded-full ${STATUS[n.status].bar}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        {showInside && (
+          <span className="absolute top-1/2 -translate-x-full -translate-y-1/2 pr-1 text-[9px] font-medium tabular-nums text-white/95" style={{ left: `${pct}%` }}>
+            {pctLabel}
+          </span>
+        )}
         {showOutside && (
           <span
-            className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums text-ink-muted"
-            style={{ left: width }}
+            className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums ${critical ? 'font-semibold text-critical' : 'text-ink-muted'}`}
+            style={{ left: Math.min(width, Math.max(0, width * pct / 100)) }}
           >
             {pctLabel}
           </span>
         )}
       </div>
-    )
-  }
-
-  return (
-    <div
-      className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
-      style={{ left, width }}
-    >
-      <div className="h-full overflow-hidden rounded-full bg-plan-track ring-1 ring-grid">
-        <div
-          className={`h-full rounded-full ${STATUS[n.status].bar}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      {showInside && (
-        <span className="absolute top-1/2 -translate-x-full -translate-y-1/2 pr-1 text-[9px] font-medium tabular-nums text-white/95" style={{ left: `${pct}%` }}>
-          {pctLabel}
-        </span>
-      )}
-      {showOutside && (
-        <span
-          className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums text-ink-muted"
-          style={{ left: Math.min(width, Math.max(0, width * pct / 100)) }}
-        >
-          {pctLabel}
-        </span>
-      )}
-    </div>
+      {forecastBar}
+    </>
   )
 }

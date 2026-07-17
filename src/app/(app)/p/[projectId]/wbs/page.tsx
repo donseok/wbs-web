@@ -21,7 +21,7 @@ export default async function WbsPage({
   const { projectId } = await params
   const { view, focus } = await searchParams
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, m, projects, initialCollapsed, user] = await Promise.all([
+  const [{ items, dependencies, holidays, today }, m, projects, initialCollapsed, user] = await Promise.all([
     getComputedWbs(projectId),
     getMembership(),
     listProjects(),
@@ -42,6 +42,7 @@ export default async function WbsPage({
       <WbsGanttSheet
         key={projectId}
         items={items}
+        dependencies={dependencies}
         holidays={holidays}
         today={today}
         membership={m}

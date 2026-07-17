@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import { computeTree } from '@/lib/domain/rollup'
 import { computeCompletionMap, type ProjectCompletion } from '@/lib/domain/project-status'
-import type { WbsRow, ComputedItem, TeamCode, OwnerKind } from '@/lib/domain/types'
+import type { WbsRow, ComputedItem, TeamCode, OwnerKind, TaskDependency } from '@/lib/domain/types'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -11,32 +11,38 @@ function seoulToday(): string {
 // 같은 요청 내 layout+page 중복 호출을 1회로 dedupe(React cache).
 export const getComputedWbs = cache(async (
   projectId: string,
-): Promise<{ items: ComputedItem[]; holidays: string[]; today: string }> => {
+): Promise<{ items: ComputedItem[]; dependencies: TaskDependency[]; holidays: string[]; today: string }> => {
   const sb = await createServerClient()
   const [
     { data: items, error: itemsErr },
     { data: ownerRows, error: ownersErr },
     { data: hol, error: holErr },
     { data: proj, error: projErr },
+    { data: dependencyRows, error: dependenciesErr },
   ] = await Promise.all([
     sb.from('wbs_items').select('*').eq('project_id', projectId),
     sb.from('item_owners').select('wbs_item_id, kind, teams(code)'),
     sb.from('holidays').select('date').eq('project_id', projectId),
     sb.from('projects').select('base_date').eq('id', projectId).maybeSingle(),
+    sb.from('task_dependencies')
+      .select('id, project_id, predecessor_id, successor_id, dependency_type, lag_days')
+      .eq('project_id', projectId),
   ])
 
-  // 네 조회 모두 실패를 '없음'으로 폴백하면 화면이 비는 게 아니라 '조용히 틀린 화면/숫자'가 된다.
+  // 핵심 조회 실패를 '없음'으로 폴백하면 화면이 비는 게 아니라 '조용히 틀린 화면/숫자'가 된다.
   // - wbs_items: 빈 트리 → 대시보드가 'WBS 데이터 없음' EmptyState를 띄워 운영 데이터 위 재임포트를 유도한다(최악).
   // - item_owners: 담당 배지·행 분리가 사라져 팀 편집 권한이 회수된 것처럼 보인다.
   // - holidays: 빈 배열이 '공휴일 없음'(정상)과 구분되지 않아, 영업일 기반 계획%가 틀어져도 아무도 감지할 수 없다.
   //   (정상적으로 0건인 경우와 달리 error는 명백한 실패이므로 여기서만 throw — 빈 결과는 그대로 통과시킨다.)
   // - projects.base_date: 기준일이 조용히 오늘로 바뀌어 전 지표(계획%·지연 판정·PPT·봇 답변)가 어긋난다.
+  // - task_dependencies: 연결선·지연 전파·크리티컬 패스가 모두 사라져 "의존성 없음"으로 오인된다.
   // 계산 결과가 알림/리포트/임베딩 쓰기로도 흘러가므로, 에러 바운더리('문제가 발생했습니다')가 조용한 오염보다 안전하다.
   for (const [table, err] of [
     ['wbs_items', itemsErr],
     ['item_owners', ownersErr],
     ['holidays', holErr],
     ['projects', projErr],
+    ['task_dependencies', dependenciesErr],
   ] as const) {
     if (err) throw new Error(`[getComputedWbs] ${table} 조회 실패: ${err.message}`)
   }
@@ -77,9 +83,17 @@ export const getComputedWbs = cache(async (
   }))
 
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
+  const dependencies: TaskDependency[] = (dependencyRows ?? []).map((r: Record<string, unknown>) => ({
+    id: r.id as string,
+    projectId: r.project_id as string,
+    predecessorId: r.predecessor_id as string,
+    successorId: r.successor_id as string,
+    type: r.dependency_type as TaskDependency['type'],
+    lagDays: Number(r.lag_days) || 0,
+  }))
   // base_date(공정율 기준일)가 설정돼 있으면 그 날짜로, 없으면 오늘(자동)로 산정
   const today = (proj as { base_date: string | null } | null)?.base_date ?? seoulToday()
-  return { items: computeTree(rows, today, holidays), holidays: [...holidays], today }
+  return { items: computeTree(rows, today, holidays), dependencies, holidays: [...holidays], today }
 })
 
 // 사이드바용 경량 완료율 맵 — 프로젝트 전체를 1쿼리로 (트리 로드 없이)

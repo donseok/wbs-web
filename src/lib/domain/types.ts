@@ -2,6 +2,7 @@ export type Level = 'phase' | 'task' | 'activity'
 export type TeamCode = 'PMO' | 'ERP' | 'MES' | '가공'
 export type OwnerKind = 'primary' | 'support'
 export type Status = 'not_started' | 'in_progress' | 'delayed' | 'done'
+export type DependencyType = 'FS' | 'SS'
 
 /** 로그인 사용자의 팀/역할 멤버십 (getMembership 반환 단위) */
 export interface Membership {
@@ -24,6 +25,16 @@ export interface WbsRow {
   weight: number | null         // null이면 형제 균등
   actualPct: number | null      // leaf만 의미 있음, 0~100
   owners: { team: TeamCode; kind: OwnerKind }[]
+}
+
+/** WBS 작업 간 일정 의존성. predecessor → successor 방향. */
+export interface TaskDependency {
+  id: string
+  projectId: string
+  predecessorId: string
+  successorId: string
+  type: DependencyType
+  lagDays: number
 }
 
 export interface ComputedItem extends WbsRow {

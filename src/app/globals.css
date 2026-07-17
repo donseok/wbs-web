@@ -82,6 +82,8 @@
   --color-phasebar: #3b4252;
   --color-phasebar-fill: #97a2b1;
   --color-plan-track: #ece3d5;
+  --color-critical: #b84a1b;
+  --color-critical-weak: #f8e7de;
 }
 
 /* 비-스케일 토큰(그라데이션/그림자) — 유틸은 var()로 참조 */
@@ -143,6 +145,7 @@
 
   --color-weekend: #181d25;     --color-holiday-band: #2a1d22;
   --color-plan-track: #232a33;  --color-phasebar: #475063;  --color-phasebar-fill: #6b7686;
+  --color-critical: #ff9b62;    --color-critical-weak: #3b261d;
 
   --gradient-primary: linear-gradient(135deg, #18a79b 0%, #2d8ac8 50%, #475df1 100%);
   --gradient-secondary: linear-gradient(135deg, #ffd091 0%, #f08a53 100%);

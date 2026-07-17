@@ -4,8 +4,9 @@ import { getMembership } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
-import type { Level, OwnerKind, TeamCode } from '@/lib/domain/types'
+import type { DependencyType, Level, OwnerKind, TeamCode } from '@/lib/domain/types'
 import { subActName } from '@/lib/domain/subact'
+import { businessDaysBetween } from '@/lib/domain/dates'
 
 export interface ChangeLogEntry {
   id: number
@@ -342,6 +343,16 @@ export async function updateWbsFields(
   const finalStart = ns === undefined ? item.planned_start : ns
   const finalEnd = ne === undefined ? item.planned_end : ne
   if (finalStart && finalEnd && finalStart > finalEnd) return { ok: false, error: '시작일이 종료일보다 늦습니다' }
+  if ((ns !== undefined || ne !== undefined) && (!finalStart || !finalEnd)) {
+    const { data: linked, error: linkedErr } = await sb
+      .from('task_dependencies')
+      .select('id')
+      .or(`predecessor_id.eq.${itemId},successor_id.eq.${itemId}`)
+      .limit(1)
+      .maybeSingle()
+    if (linkedErr) return { ok: false, error: `의존성 확인 실패: ${linkedErr.message}` }
+    if (linked) return { ok: false, error: '의존성이 연결된 작업의 계획일은 비울 수 없습니다. 연결을 먼저 삭제하세요.' }
+  }
   if (ns !== undefined && ns !== item.planned_start) { patch.planned_start = ns; logs.push({ field: 'planned_start', old: item.planned_start, new: ns }) }
   if (ne !== undefined && ne !== item.planned_end) { patch.planned_end = ne; logs.push({ field: 'planned_end', old: item.planned_end, new: ne }) }
   if (fields.deliverable !== undefined) {
@@ -363,6 +374,131 @@ export async function updateWbsFields(
   }
   revalidatePath(`/p/${item.project_id}`, 'layout')
   after(() => recordProgressSnapshot(item.project_id))
+  return { ok: true }
+}
+
+/** 선행→후행 작업 의존성 추가 — 기준 계획은 바꾸지 않고 예상 일정 계산에 사용한다. */
+export async function addTaskDependency(
+  projectId: string,
+  predecessorId: string,
+  successorId: string,
+  type: DependencyType,
+  lagDays = 0,
+): Promise<{ ok: boolean; error?: string; id?: string }> {
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  if (!projectId || !predecessorId || !successorId) return { ok: false, error: '연결할 작업을 선택하세요' }
+  if (predecessorId === successorId) return { ok: false, error: '같은 작업끼리는 연결할 수 없습니다' }
+  if (type !== 'FS' && type !== 'SS') return { ok: false, error: '지원하지 않는 의존성 유형입니다' }
+  if (!Number.isInteger(lagDays) || lagDays < 0 || lagDays > 365) {
+    return { ok: false, error: '대기일은 0~365일의 정수로 입력하세요' }
+  }
+
+  const sb = await createServerClient()
+  const { data: endpoints, error: endpointErr } = await sb
+    .from('wbs_items')
+    .select('id, project_id, planned_start, planned_end')
+    .in('id', [predecessorId, successorId])
+  if (endpointErr) return { ok: false, error: `작업 조회 실패: ${endpointErr.message}` }
+  if (!endpoints || endpoints.length !== 2) return { ok: false, error: '연결할 작업을 찾을 수 없습니다' }
+  if (endpoints.some(item => item.project_id !== projectId)) {
+    return { ok: false, error: '같은 프로젝트의 작업끼리만 연결할 수 있습니다' }
+  }
+  if (endpoints.some(item => !item.planned_start || !item.planned_end)) {
+    return { ok: false, error: '계획 시작일과 종료일이 있는 작업만 연결할 수 있습니다' }
+  }
+  if (endpoints.some(item => item.planned_start > item.planned_end)) {
+    return { ok: false, error: '시작일이 종료일보다 늦은 작업은 연결할 수 없습니다' }
+  }
+  const { data: holidayRows, error: holidayErr } = await sb.from('holidays').select('date').eq('project_id', projectId)
+  if (holidayErr) return { ok: false, error: `공휴일 조회 실패: ${holidayErr.message}` }
+  const holidaySet = new Set((holidayRows ?? []).map(row => row.date as string))
+  if (endpoints.some(item => businessDaysBetween(item.planned_start, item.planned_end, holidaySet) === 0)) {
+    return { ok: false, error: '계획 기간에 영업일이 없는 작업은 연결할 수 없습니다' }
+  }
+
+  // 앱에서도 순환을 선제 차단해 DB 제약의 원문 오류 대신 사용자가 이해할 메시지를 준다.
+  const { data: existing, error: dependencyErr } = await sb
+    .from('task_dependencies')
+    .select('predecessor_id, successor_id')
+    .eq('project_id', projectId)
+  if (dependencyErr) return { ok: false, error: `의존성 조회 실패: ${dependencyErr.message}` }
+  const nextById = new Map<string, string[]>()
+  for (const dep of existing ?? []) {
+    const arr = nextById.get(dep.predecessor_id as string) ?? []
+    arr.push(dep.successor_id as string)
+    nextById.set(dep.predecessor_id as string, arr)
+  }
+  const seen = new Set<string>()
+  const stack = [successorId]
+  while (stack.length) {
+    const id = stack.pop()!
+    if (id === predecessorId) return { ok: false, error: '순환 의존성은 등록할 수 없습니다' }
+    if (seen.has(id)) continue
+    seen.add(id)
+    stack.push(...(nextById.get(id) ?? []))
+  }
+
+  const { data: inserted, error } = await sb
+    .from('task_dependencies')
+    .insert({
+      project_id: projectId,
+      predecessor_id: predecessorId,
+      successor_id: successorId,
+      dependency_type: type,
+      lag_days: lagDays,
+    })
+    .select('id')
+    .single()
+  if (error?.code === '23505') return { ok: false, error: '이미 연결된 선행 작업입니다' }
+  if (error) return { ok: false, error: error.message }
+
+  const { data: u } = await sb.auth.getUser()
+  const { error: logErr } = await sb.from('change_logs').insert({
+    user_id: u.user?.id,
+    wbs_item_id: successorId,
+    field: 'dependency',
+    old_value: null,
+    new_value: `${predecessorId}|${type}|${lagDays}`,
+  })
+  if (logErr) console.error('[addTaskDependency] 변경 이력 기록 실패:', logErr.message)
+  revalidatePath(`/p/${projectId}`, 'layout')
+  return { ok: true, id: inserted.id as string }
+}
+
+/** 작업 의존성 삭제 — PMO 전용. */
+export async function removeTaskDependency(
+  dependencyId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const m = await getMembership()
+  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const sb = await createServerClient()
+  const { data: dependency, error: findErr } = await sb
+    .from('task_dependencies')
+    .select('id, project_id, predecessor_id, successor_id, dependency_type, lag_days')
+    .eq('id', dependencyId)
+    .single()
+  if (findErr?.code === 'PGRST116') return { ok: false, error: '의존성을 찾을 수 없습니다' }
+  if (findErr || !dependency) return { ok: false, error: `의존성 조회 실패: ${findErr?.message ?? '알 수 없는 오류'}` }
+
+  const { data: deleted, error } = await sb
+    .from('task_dependencies')
+    .delete()
+    .eq('id', dependencyId)
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!deleted?.length) return { ok: false, error: '삭제 권한이 없습니다' }
+
+  const { data: u } = await sb.auth.getUser()
+  const { error: logErr } = await sb.from('change_logs').insert({
+    user_id: u.user?.id,
+    wbs_item_id: dependency.successor_id,
+    field: 'dependency',
+    old_value: `${dependency.predecessor_id}|${dependency.dependency_type}|${dependency.lag_days}`,
+    new_value: null,
+  })
+  if (logErr) console.error('[removeTaskDependency] 변경 이력 기록 실패:', logErr.message)
+  revalidatePath(`/p/${dependency.project_id as string}`, 'layout')
   return { ok: true }
 }
 
