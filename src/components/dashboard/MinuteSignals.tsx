@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, Clock3 } from 'lucide-react'
 import type { InsightKind, MinuteInsight } from '@/lib/domain/types'
+import { minuteSourceHref } from '@/lib/minutes/source'
 import { SectionCard } from '@/components/ui/SectionCard'
 
 const META: Record<InsightKind, { label: string; cls: string; Icon: typeof AlertTriangle }> = {
@@ -34,7 +35,14 @@ export function MinuteSignals({ signals }: { projectId: string; signals: MinuteS
                 </div>
                 <p className="mt-1 text-sm text-ink">{s.label}</p>
               </div>
-              <Link href={`/minutes/${s.minuteId}`} className="shrink-0 text-brand" title="회의록 열기">
+              <Link
+                href={minuteSourceHref(s.minuteId, {
+                  blockIndex: s.blockIndex, blockHash: s.blockHash, bodyHash: s.bodyHash,
+                })}
+                className="shrink-0 text-brand"
+                title="회의록 원문 위치 열기"
+                aria-label={`${s.minuteTitle}: ${s.label} 원문 위치 열기`}
+              >
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
