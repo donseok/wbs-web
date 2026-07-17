@@ -36,6 +36,7 @@ export const wbsKo = {
   'wbs.toastSaveFail': '저장 실패',
   'wbs.toastPhaseAdded': 'Phase가 추가되었습니다',
   'wbs.toastAddFail': '추가 실패',
+  'wbs.focusNotFound': '이동하려는 작업을 찾을 수 없습니다 (삭제되었거나 목록이 바뀌었습니다)',
   // 컬럼 헤더
   'wbs.colLevel': '구분',
   'wbs.colName': '작업명',
@@ -160,6 +161,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.toastSaveFail': 'Save failed',
   'wbs.toastPhaseAdded': 'Phase added',
   'wbs.toastAddFail': 'Failed to add',
+  'wbs.focusNotFound': 'Could not find the linked task (it may have been deleted or replaced)',
   'wbs.colLevel': 'Level',
   'wbs.colName': 'Task name',
   'wbs.colOwners': 'Owner',

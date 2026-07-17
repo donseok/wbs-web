@@ -16,10 +16,10 @@ export default async function WbsPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>
-  searchParams: Promise<{ view?: string }>
+  searchParams: Promise<{ view?: string; focus?: string }>
 }) {
   const { projectId } = await params
-  const { view } = await searchParams
+  const { view, focus } = await searchParams
   const locale = await getServerLocale()
   const [{ items, holidays, today }, m, projects, initialCollapsed, user] = await Promise.all([
     getComputedWbs(projectId),
@@ -53,6 +53,7 @@ export default async function WbsPage({
         endDate={project?.end_date}
         defaultView={view === 'timeline' ? 'timeline' : 'sheet'}
         initialCollapsed={initialCollapsed ?? undefined}
+        focusId={focus ?? null}
       />
     </ProjectPageShell>
   )

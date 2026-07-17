@@ -76,6 +76,18 @@ function subActLabel(name: string, parentName: string): string {
   }
   return name
 }
+/* focus 대상의 조상 id 경로(루트→부모 순). 트리에 없으면 null */
+function ancestorPath(items: ComputedItem[], id: string): string[] | null {
+  const walk = (ns: ComputedItem[], anc: string[]): string[] | null => {
+    for (const n of ns) {
+      if (n.id === id) return anc
+      const found = walk(n.children, [...anc, n.id])
+      if (found) return found
+    }
+    return null
+  }
+  return walk(items, [])
+}
 /* 검색: 매칭 노드 + 조상 id 집합 */
 function buildMatch(items: ComputedItem[], q: string): Set<string> {
   const keep = new Set<string>()
@@ -110,6 +122,7 @@ export function WbsGanttSheet({
   readOnly = false,
   defaultView = 'sheet',
   initialCollapsed,
+  focusId = null,
 }: {
   items: ComputedItem[]
   holidays: string[]
@@ -129,6 +142,8 @@ export function WbsGanttSheet({
   defaultView?: 'sheet' | 'timeline'
   /** 계정에 저장된 접힘 id 목록. 있으면 기본 접힘 대신 이 값으로 초기화. */
   initialCollapsed?: string[]
+  /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
+  focusId?: string | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -145,6 +160,11 @@ export function WbsGanttSheet({
     savedCollapsedRef.current = collapsed
     queueWbsCollapse(projectId, [...collapsed])
   }, [collapsed, projectId])
+  // focus 진입으로 임시 펼친 조상 id — 사용자 접힘 상태(collapsed)와 분리해 계정 저장을 건드리지 않는다.
+  const [forcedOpen, setForcedOpen] = useState<Set<string>>(() => new Set())
+  const [flashId, setFlashId] = useState<string | null>(null) // focus 행 하이라이트(잠시 후 해제)
+  const handledFocusRef = useRef<string | null>(null) // router.refresh(items 갱신)마다 재점프하지 않게 1회 처리
+  const rootRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
@@ -181,6 +201,43 @@ export function WbsGanttSheet({
     return () => clearTimeout(t)
   }, [toast])
 
+  // focus 진입: 조상을 임시로 펼치고 대상 행에 플래시를 켠다. focus 가 사라지면 처리 표식을
+  // 리셋해 같은 항목으로 재진입(뒤로가기·재클릭) 시 다시 점프한다. 대상이 없으면(삭제·재임포트로
+  // id 변경) 조용히 삼키지 않고 토스트로 알린다 — 무응답 화면 금지 원칙.
+  useEffect(() => {
+    if (!focusId) {
+      handledFocusRef.current = null
+      return
+    }
+    if (handledFocusRef.current === focusId) return
+    handledFocusRef.current = focusId
+    const path = ancestorPath(items, focusId)
+    if (!path) {
+      setToast({ kind: 'err', msg: t('wbs.focusNotFound') })
+      return
+    }
+    if (path.length) setForcedOpen(new Set(path))
+    setFlashId(focusId)
+  }, [focusId, items, t])
+
+  // 플래시 해제 — toast 와 동일한 타이머 패턴(StrictMode 이중 실행 안전). 2000ms 는 minutes
+  // 소스 점프(mblock-flash)와 같은 지속시간.
+  useEffect(() => {
+    if (!flashId) return
+    const t = setTimeout(() => setFlashId(null), 2000)
+    return () => clearTimeout(t)
+  }, [flashId])
+
+  // 펼침이 렌더에 반영된 뒤 대상 행으로 스크롤 + 키보드 포커스 이동(minutes 소스 점프와 동일 규약)
+  useEffect(() => {
+    if (!flashId) return
+    const el = rootRef.current?.querySelector<HTMLElement>(`[data-row-id="${flashId}"]`)
+    if (!el) return
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' })
+    el.focus({ preventScroll: true })
+  }, [flashId])
+
   // 전체화면 팝업: Escape 로 닫기 + 배경 스크롤 잠금.
   useEffect(() => {
     if (!fullscreen) return
@@ -193,13 +250,25 @@ export function WbsGanttSheet({
     }
   }, [fullscreen])
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
+    if (forcedOpen.has(id)) {
+      // focus 로 임시 펼친 노드를 접는 경우 — 임시 펼침만 걷어낸다. 저장된 접힘(collapsed)에
+      // 이미 있으면 참조를 유지해 계정 저장(queueWbsCollapse)이 불필요하게 돌지 않는다.
+      setForcedOpen(s => {
+        const n = new Set(s)
+        n.delete(id)
+        return n
+      })
+      setCollapsed(s => (s.has(id) ? s : new Set(s).add(id)))
+      return
+    }
     setCollapsed(s => {
       const n = new Set(s)
       if (n.has(id)) n.delete(id)
       else n.add(id)
       return n
     })
+  }
 
   /* ── 계층 평탄화 + 깊이 + 검색 ── */
   const depthMap = useMemo(() => {
@@ -228,16 +297,33 @@ export function WbsGanttSheet({
   // 접기/펼치기는 sub-act 를 가진 act 에만 허용 — phase/task 는 항상 펼친 채 고정
   const collapsibleIds = useMemo(() => splitParentIds(items), [items])
 
+  // 표시용 접힘 = 저장된 접힘 − focus 임시 펼침
+  const effCollapsed = useMemo(() => {
+    if (forcedOpen.size === 0) return collapsed
+    const n = new Set(collapsed)
+    forcedOpen.forEach(id => n.delete(id))
+    return n
+  }, [collapsed, forcedOpen])
+
   const q = query.trim().toLowerCase()
   const matchKeep = useMemo(() => (q ? buildMatch(items, q) : null), [items, q])
   const flatRows = useMemo(
     () =>
-      matchKeep ? flatten(items, new Set()).filter(n => matchKeep.has(n.id)) : flatten(items, collapsed),
-    [items, collapsed, matchKeep],
+      matchKeep ? flatten(items, new Set()).filter(n => matchKeep.has(n.id)) : flatten(items, effCollapsed),
+    [items, effCollapsed, matchKeep],
   )
 
-  const allCollapsed = collapsibleIds.size > 0 && [...collapsibleIds].every(id => collapsed.has(id))
-  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(collapsibleIds))
+  const allCollapsed = collapsibleIds.size > 0 && [...collapsibleIds].every(id => effCollapsed.has(id))
+  const toggleAll = () => {
+    setForcedOpen(s => (s.size ? new Set() : s)) // 전체 토글은 임시 펼침도 함께 정리
+    // focus 임시 펼침만 걷어내는 경우 목표 집합이 저장 상태와 같을 수 있다 — 그때는 참조를
+    // 유지해 내용이 같은 값의 불필요한 계정 저장을 막는다(저장 가드는 참조 비교).
+    setCollapsed(s => {
+      const target = allCollapsed ? new Set<string>() : new Set(collapsibleIds)
+      if (target.size === s.size && [...target].every(id => s.has(id))) return s
+      return target
+    })
+  }
 
   // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시.
   const selectedItem = useMemo<ComputedItem | null>(() => {
@@ -405,6 +491,7 @@ export function WbsGanttSheet({
 
   return (
     <div
+      ref={rootRef}
       className={
         fullscreen
           ? 'fixed inset-0 z-[125] overflow-auto app-backdrop px-3 py-3 sm:px-6 sm:py-5'
@@ -587,7 +674,8 @@ export function WbsGanttSheet({
             const depth = depthMap.get(n.id) ?? 0
             const hasChildren = n.children.length > 0
             const canToggle = collapsibleIds.has(n.id)
-            const isCollapsed = collapsed.has(n.id)
+            const isCollapsed = effCollapsed.has(n.id)
+            const isFlash = flashId === n.id
             const rowNo = idx + 1
             const rowBg =
               n.level === 'phase'
@@ -597,7 +685,9 @@ export function WbsGanttSheet({
                   : rowNo % 2 === 0
                     ? 'bg-zebra'
                     : 'bg-surface'
-            const cellBg = `${rowBg} group-hover:bg-brand-weak`
+            // focus 플래시는 hover 와 같은 틴트(bg-brand-weak) + 좌측 브랜드 악센트 바로 강조 —
+            // 악센트가 있어야 커서가 우연히 올라간 행(hover)과 도착 행이 구분된다.
+            const cellBg = `${isFlash ? 'bg-brand-weak' : rowBg} group-hover:bg-brand-weak`
             const subLabel = subActLabels.get(n.id)
             const nameWeight =
               n.level === 'phase'
@@ -622,13 +712,18 @@ export function WbsGanttSheet({
             return (
               <div
                 key={n.id}
-                className="group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max"
+                data-row-id={n.id}
+                data-flash={isFlash ? 'true' : undefined}
+                tabIndex={isFlash ? -1 : undefined}
+                className="group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none"
               >
                 {/* # */}
                 <div
                   className={`${cellBase} border-r border-grid-strong justify-center text-[11px] tabular-nums text-ink-subtle ${cellBg}`}
                   style={frozen('no')}
                 >
+                  {/* focus 도착 마커 — 동결(#) 셀 안에 두어 가로 스크롤에도 항상 보인다 */}
+                  {isFlash && <span aria-hidden data-flash-accent className="absolute inset-y-0 left-0 w-1 bg-brand" />}
                   {rowNo}
                 </div>
                 {/* 구분 */}
@@ -821,7 +916,7 @@ export function WbsGanttSheet({
                 </div>
                 )}
                 {/* 간트 셀 */}
-                <div className="relative box-border h-full shrink-0 border-b border-grid" style={{ width: ganttW }}>
+                <div className={`relative box-border h-full shrink-0 border-b border-grid ${isFlash ? 'bg-brand-weak/60' : ''}`} style={{ width: ganttW }}>
                   {n.plannedStart && n.plannedEnd && <Bar n={n} xOf={xOf} dayPx={dayPx} />}
                 </div>
               </div>
