@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  applyServerRow, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX,
+  applyServerRow, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX, WEEKLY_CELL_LABEL,
   CELL_FIELD, type WeeklyCellKey, type WeeklySheetRow, type WeeklyCellEdit,
 } from '@/lib/domain/weeklySheet'
 import { type CellAddr } from '@/lib/domain/sheetSelection'
@@ -29,12 +29,8 @@ const DEBOUNCE_MS = 1500
 const CELL_MAX = WEEKLY_CELL_MAX // 셀 1개 상한(도메인 단일 출처) — 배치 로컬 클램프용
 const BATCH_MAX = 500    // 한 배치 최대 edit 수(BE와 동일) — 사전 검사용
 
-const COLS: { key: WeeklyCellKey; label: string }[] = [
-  { key: 'this_content', label: '금주실적 내용' },
-  { key: 'this_issue', label: '금주 이슈·이벤트' },
-  { key: 'next_content', label: '차주계획 내용' },
-  { key: 'next_issue', label: '차주 이슈·이벤트' },
-]
+const COLS: { key: WeeklyCellKey; label: string }[] =
+  WEEKLY_CELL_KEYS.map(key => ({ key, label: WEEKLY_CELL_LABEL[key] }))
 
 /** DB 행 payload(snake) → WeeklySheetRow. Realtime payload 매핑용. */
 function fromRecord(r: Record<string, unknown>): WeeklySheetRow {

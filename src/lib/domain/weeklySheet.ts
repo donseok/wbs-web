@@ -76,6 +76,12 @@ export const CELL_FIELD = {
   next_content: 'nextContent', next_issue: 'nextIssue',
 } as const satisfies Record<WeeklyCellKey, keyof WeeklySheetRow>
 
+/** 열 표시 라벨 — 그리드 헤더(COLS)와 양식 통일 미리보기가 공유하는 단일 출처. */
+export const WEEKLY_CELL_LABEL = {
+  this_content: '금주실적 내용', this_issue: '금주 이슈·이벤트',
+  next_content: '차주계획 내용', next_issue: '차주 이슈·이벤트',
+} as const satisfies Record<WeeklyCellKey, string>
+
 /** 멀티셀 변이의 최소 단위 — 붙여넣기·범위삭제·채우기·undo·배치 액션이 공유. 고유성 키는 `${rowId}:${cellKey}`. */
 export interface WeeklyCellEdit {
   rowId: string           // weekly_report_rows.id

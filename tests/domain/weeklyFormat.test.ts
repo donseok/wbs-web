@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeCellText } from '@/lib/domain/weeklyFormat'
+import { normalizeCellText, unifySheetRows } from '@/lib/domain/weeklyFormat'
+import type { WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 describe('normalizeCellText — 마커·번호·빈 줄 표준화(내용 불변)', () => {
   it('붙임 대시를 표준 하위 마커로', () => {
@@ -76,5 +77,27 @@ describe('normalizeCellText — 마커·번호·빈 줄 표준화(내용 불변)
       '3. 현업 인터뷰 참석',
       '  -. 대상 : 냉연생산, 도금생산',
     ].join('\n'))
+  })
+})
+
+describe('unifySheetRows — 바뀌는 셀만 edits로', () => {
+  const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
+    id: 'a', reportId: 'r', section: 'PMO', module: '', sortOrder: 1,
+    thisContent: '', thisIssue: '', nextContent: '', nextIssue: '', ...over,
+  })
+
+  it('변경 있는 셀만 before/after 쌍으로 반환하고, 이미 정상·빈 셀은 제외', () => {
+    const rows = [
+      row({ id: 'a', thisContent: '-메모', nextContent: '1. 계획' }), // nextContent는 이미 정상
+      row({ id: 'b', section: '', module: 'SD/LE', thisIssue: '- 이슈' }), // 라벨은 모듈로 폴백
+    ]
+    expect(unifySheetRows(rows)).toEqual([
+      { rowId: 'a', cellKey: 'this_content', section: 'PMO', before: '-메모', after: '  -. 메모' },
+      { rowId: 'b', cellKey: 'this_issue', section: 'SD/LE', before: '- 이슈', after: '  -. 이슈' },
+    ])
+  })
+
+  it('변경이 하나도 없으면 빈 배열', () => {
+    expect(unifySheetRows([row({ thisContent: '1. 정상\n  -. 하위' })])).toEqual([])
   })
 })
