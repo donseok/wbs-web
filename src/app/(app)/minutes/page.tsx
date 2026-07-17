@@ -32,9 +32,9 @@ export default async function MinutesPage() {
     listProjects(),
     getServerLocale(),
   ])
-  // prefs에 미지 값(구버전 롤백·스큐)이 남아도 빈 화면이 되지 않게 화이트리스트로 클램프
+  // 기본값은 트리, 미지 값(구버전 롤백·스큐)도 트리로 클램프 — calendar/list만 저장값 유지
   const savedView = prefs.minutesView
-  const initialView = savedView === 'calendar' || savedView === 'tree' ? savedView : 'list'
+  const initialView = savedView === 'calendar' || savedView === 'list' ? savedView : 'tree'
   return (
     <ProjectPageShell
       hero={<PageHero
