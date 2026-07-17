@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
@@ -12,6 +12,7 @@ import {
 } from '@/app/actions/minutes'
 import { fnv1a64, isMarkableBlock, splitMinuteBlocks, type BlockMarks } from '@/lib/minutes/blocks'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
+import { resolveMinuteSourceBlock, type MinuteSourceAnchor } from '@/lib/minutes/source'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useToast } from '@/components/ui/Toast'
@@ -27,7 +28,7 @@ import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
 import { TEAM } from '@/components/wbs/shared'
 
 export function MinuteViewer({
-  minute, files, canManage, annotations, userId, projects,
+  minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
 }: {
   minute: Minute
   files: MinuteFile[]
@@ -35,6 +36,7 @@ export function MinuteViewer({
   annotations: { highlights: MinuteHighlight[]; insights: MinuteInsight[] }
   userId: string | null
   projects: { id: string; name: string }[]
+  sourceAnchor?: MinuteSourceAnchor | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -55,6 +57,40 @@ export function MinuteViewer({
   const blocks = useMemo(() => splitMinuteBlocks(minute.bodyMd), [minute.bodyMd])
   const { activeToc, jumpTo } = useMinuteTocSpy(blocks, bodyRef, { flash: true })
   const bodyHash = useMemo(() => fnv1a64(minute.bodyMd), [minute.bodyMd])
+  const sourceBlockIndex = useMemo(
+    () => sourceAnchor ? resolveMinuteSourceBlock(blocks, bodyHash, sourceAnchor) : null,
+    [blocks, bodyHash, sourceAnchor],
+  )
+  const attemptedSourceRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!sourceAnchor) {
+      attemptedSourceRef.current = null
+      return
+    }
+    const sourceKey = [
+      minute.id, bodyHash, sourceAnchor.bodyHash, sourceAnchor.blockIndex, sourceAnchor.blockHash,
+    ].join(':')
+    if (attemptedSourceRef.current === sourceKey) return
+
+    if (sourceBlockIndex === null) {
+      attemptedSourceRef.current = sourceKey
+      toast({ title: t('min.source.missing'), variant: 'info' })
+      return
+    }
+    // Strict Mode의 effect setup→cleanup→setup에서도 첫 frame 취소 뒤 두 번째 setup이 다시 예약되게,
+    // 실제 점프가 실행된 뒤에만 완료 키를 기록한다.
+    const frame = requestAnimationFrame(() => {
+      jumpTo(sourceBlockIndex)
+      const target = bodyRef.current?.querySelector<HTMLElement>(`[data-mblock="${sourceBlockIndex}"]`)
+      if (target) {
+        target.tabIndex = -1
+        target.focus({ preventScroll: true })
+      }
+      attemptedSourceRef.current = sourceKey
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [bodyHash, jumpTo, minute.id, sourceAnchor, sourceBlockIndex, t, toast])
 
   // 낙관적 병합 계약(스펙 §6.4): 내 하이라이트는 로컬 단독 소유(서버 prop 은 초기값),
   // 타인 하이라이트는 항상 서버 prop 파생 — revalidate 가 와도 이중 계산/역전 없음.

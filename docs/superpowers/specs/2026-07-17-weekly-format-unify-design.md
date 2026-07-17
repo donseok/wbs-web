@@ -50,8 +50,9 @@ this_issue, next_content, next_issue) 전부 정규화해 **바뀌는 셀만**
 
 **적용 액션은 만들지 않는다** — 미리보기에서 확인한 `after`를 기존 `saveWeeklyCells`
 배치로 저장(WYSIWYG: 본 것 = 적용되는 것). 멱등 배치·goneRowIds 스킵·Realtime 전파를
-그대로 상속. 10구분 × 4열 = 최대 40 edits ≪ BATCH_MAX 500. 셀 상한 20,000자는
-정규화로 위협받지 않는다(빈 줄 1~수 개 증감 수준).
+그대로 상속. 10구분 × 4열 = 최대 40 edits ≪ BATCH_MAX 500. 셀 상한 20,000자: 정규화는
+`-a`형 줄에서 최대 3배 팽창할 수 있어 상한 초과가 이론상 가능하다 — 초과 셀은 통일
+대상에서 스킵한다(절단 금지, 최종 리뷰 반영).
 
 ## 클라이언트 흐름 (`WeeklySheetView`)
 
