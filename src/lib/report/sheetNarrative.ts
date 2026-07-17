@@ -26,6 +26,68 @@ export function cellLines(text: string): string[] {
   return out
 }
 
+const REPORT_CELL_LINE_BUDGET = 10
+const REPORT_FULLWIDTH_PER_LINE = 26
+
+/** PPT 셀에서 차지할 대략적인 시각 줄수(12pt, 반쪽 셀 폭 기준). */
+function reportLineCost(text: string): number {
+  let width = 0
+  for (const ch of text) width += ch.charCodeAt(0) >= 0x2e80 ? 1 : 0.5
+  return Math.max(1, Math.ceil(width / REPORT_FULLWIDTH_PER_LINE))
+}
+
+const cleanReportLine = (line: string): string => line
+  .trim()
+  .replace(/^[•·●◦▪■–—-]+\s*/, '')
+  .replace(/\s+/g, ' ')
+
+/** 같은 날짜의 주요 이벤트를 한 항목으로 묶는다.
+ *  예: "7/13(월) A", "7/13(월) B" -> "7/13(월) A · B" */
+export function groupEventsByDate(lines: string[]): string[] {
+  const groups: { date: string; details: string[] }[] = []
+  const datePrefix = /^(\d{1,2}\/\d{1,2}(?:\([월화수목금토일]\))?(?:\s*[~～-]\s*\d{1,2}\/\d{1,2}(?:\([월화수목금토일]\))?)?)\s*(.*)$/
+  for (const raw of lines) {
+    const line = cleanReportLine(raw)
+    if (!line) continue
+    const match = line.match(datePrefix)
+    const date = match?.[1] ?? ''
+    const detail = (match?.[2] || line).trim()
+    const group = groups.find(g => g.date === date)
+    if (group) {
+      if (!group.details.includes(detail)) group.details.push(detail)
+    } else {
+      groups.push({ date, details: [detail] })
+    }
+  }
+  return groups.map(({ date, details }) => {
+    const visible = details.slice(0, 3).join(' · ')
+    const rest = details.length > 3 ? ` · 외 ${details.length - 3}건` : ''
+    return `${date ? `${date} ` : ''}${visible}${rest}`
+  })
+}
+
+/** 이슈/이벤트 셀을 고정 높이 안에 맞춘다. 중복을 제거하고 긴 항목은 의미 단위로 축약하며,
+ *  예산을 넘는 나머지는 마지막 줄의 '외 N건'으로 표시한다. */
+export function compactReportLines(lines: string[], groupByDate = false): string[] {
+  const cleaned = [...new Set(lines.map(cleanReportLine).filter(Boolean))]
+  const source = groupByDate ? groupEventsByDate(cleaned) : cleaned
+  const shortened = source.map(line => line.length > 72 ? `${line.slice(0, 69).trimEnd()}…` : line)
+  const out: string[] = []
+  let used = 0
+  for (let i = 0; i < shortened.length; i += 1) {
+    const cost = reportLineCost(shortened[i])
+    const remaining = shortened.length - i - 1
+    const summaryCost = remaining > 0 ? reportLineCost(`외 ${remaining + 1}건`) : 0
+    if (used + cost + summaryCost > REPORT_CELL_LINE_BUDGET) {
+      out.push(`외 ${shortened.length - i}건`)
+      break
+    }
+    out.push(shortened[i])
+    used += cost
+  }
+  return out
+}
+
 /** 행 라벨 — 구분 헤더로 쓴다.
  *  신규 시트는 구분명 단독('영업'), 레거시 행은 '구분 · 모듈'('ERP · SD/LE')로 병기,
  *  구분이 없으면 모듈로 폴백하고 둘 다 없으면 '기타'('[] '가 노출되지 않게). */
@@ -77,8 +139,10 @@ export function buildSheetSections(rows: WeeklySheetRow[]): SheetSectionCells[] 
     const own = sorted.filter(r => keyOf(r) === section)
     const cell = (field: 'thisContent' | 'nextContent') => joinCells(own.map(r => cellLines(r[field])))
     // 이슈/이벤트 셀은 작아서 문단 빈 줄을 걷어내고 실질 줄만 이어붙인다.
-    const issue = (field: 'thisIssue' | 'nextIssue') =>
-      own.flatMap(r => cellLines(r[field]).filter(l => l.trim() !== ''))
+    const issue = (field: 'thisIssue' | 'nextIssue') => compactReportLines(
+      own.flatMap(r => cellLines(r[field]).filter(l => l.trim() !== '')),
+      field === 'nextIssue',
+    )
     return {
       section,
       thisContent: cell('thisContent'),

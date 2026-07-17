@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sheetLineText, cellLines, rowLabel, buildSheetSections } from '@/lib/report/sheetNarrative'
+import { sheetLineText, cellLines, rowLabel, buildSheetSections, groupEventsByDate, compactReportLines } from '@/lib/report/sheetNarrative'
 import { WEEKLY_SECTIONS, type WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
@@ -27,6 +27,26 @@ describe('cellLines', () => {
     expect(cellLines('\n\n1. A')).toEqual(['1. A'])
     expect(cellLines('')).toEqual([])
     expect(cellLines('   \n  ')).toEqual([])
+  })
+})
+
+describe('PPT 이슈·이벤트 정리', () => {
+  it('같은 날짜 이벤트를 날짜별 한 줄로 묶고 중복을 제거한다', () => {
+    expect(groupEventsByDate([
+      '• 7/13(월) MES 품질회의',
+      '• 7/13(월) F-MES 벤치마킹',
+      '• 7/15(수) 생산 협업 인터뷰',
+      '• 7/13(월) MES 품질회의',
+    ])).toEqual([
+      '7/13(월) MES 품질회의 · F-MES 벤치마킹',
+      '7/15(수) 생산 협업 인터뷰',
+    ])
+  })
+
+  it('셀 예산을 넘는 항목은 대표 내용과 외 N건으로 요약한다', () => {
+    const compacted = compactReportLines(Array.from({ length: 20 }, (_, i) => `7/15(수) 인터뷰 대상 ${i + 1}`), true)
+    expect(compacted.length).toBeLessThan(20)
+    expect(compacted.join(' ')).toMatch(/외 \d+건/)
   })
 })
 
@@ -72,7 +92,7 @@ describe('buildSheetSections', () => {
     expect(s.thisContent).toEqual(['1. CheckList', '- CBO'])
     expect(s.nextContent).toEqual(['1. 계획'])
     expect(s.thisIssue).toEqual(['지연 위험'])
-    expect(s.nextIssue).toEqual(['일정 협의 필요', '추가 인력']) // 멀티라인은 줄마다 개별 항목
+    expect(s.nextIssue).toEqual(['일정 협의 필요 · 추가 인력']) // 날짜 없는 이벤트도 한 줄로 간결하게 병합
   })
   it('내용 없는 구분도 빈 4셀로 남는다(빈 페이지 소스)', () => {
     const s = byName('구매')
@@ -103,5 +123,14 @@ describe('buildSheetSections', () => {
     const s = built.find(x => x.section === '관리회계')!
     expect(s.thisContent).toEqual(['FI 실적', '', 'CO 실적']) // 빈 줄 구분
     expect(s.thisIssue).toEqual(['FI 이슈', 'CO 이슈'])        // 이슈는 빈 줄 없이 flatten
+  })
+  it('주요이벤트는 같은 날짜끼리 묶여 PPT 셀에 전달된다', () => {
+    const built = buildSheetSections([
+      row({ id: 'e', section: 'PMO', nextIssue: '• 7/13(월) MES 품질회의\n• 7/13(월) F-MES 벤치마킹\n• 7/15(수) 생산 인터뷰' }),
+    ])
+    expect(built[0].nextIssue).toEqual([
+      '7/13(월) MES 품질회의 · F-MES 벤치마킹',
+      '7/15(수) 생산 인터뷰',
+    ])
   })
 })
