@@ -23,10 +23,33 @@ function stripOwnerSuffix(name: string): string {
   return name.replace(/(?:\s*\([^()]*주관\))+\s*$/, '') || name
 }
 
+/** 주요내용 중복 병합 규칙(사용자 결정 2026-07-17): 공백 정규화 후 같은 줄은 한 줄로 합치고,
+ *  꼬리 괄호만 다른 줄("설계 검토 (1차)"/"설계 검토 (2차)")은 꼬리를 '·'로 이어 한 줄로 요약한다.
+ *  중복이 없는 줄은 원문 그대로 둔다(붙은 괄호에 공백을 만들지 않음). 순서는 첫 등장 기준. */
+export function mergeDuplicateLines(lines: string[]): string[] {
+  const TAIL = /^(.*\S)\s*\(([^()]+)\)$/
+  const groups: { originals: string[]; base: string; tails: string[] }[] = []
+  const byBase = new Map<string, (typeof groups)[number]>()
+  for (const raw of lines) {
+    const line = raw.replace(/\s+/g, ' ').trim()
+    if (!line) continue
+    const m = line.match(TAIL)
+    const base = m ? m[1] : line
+    let g = byBase.get(base)
+    if (!g) { g = { originals: [], base, tails: [] }; byBase.set(base, g); groups.push(g) }
+    if (!g.originals.includes(line)) g.originals.push(line)
+    if (m && !g.tails.includes(m[2])) g.tails.push(m[2])
+  }
+  return groups.map(g =>
+    g.originals.length === 1 ? g.originals[0]
+    : g.tails.length ? `${g.base} (${g.tails.join('·')})` : g.base,
+  )
+}
+
 /** Phase 내 작업들을 담당별 하위 그룹으로 — '- 담당' 헤더 아래 '. 작업명' 줄(subLineText의 4칸/8칸 규칙).
  *  같은 담당이 여러 작업을 맡아도 담당은 헤더 한 줄로만 표기(줄마다 '· 담당' 반복 방지).
  *  담당 순서는 Phase 내 첫 등장 순. 상태(완료/진행중/지연)·진행률(%)은 표시하지 않음.
- *  담당 미지정('-') 작업은 헤더 없이 '- 작업명' 그대로 둔다. */
+ *  담당 미지정('-') 작업은 헤더 없이 '- 작업명' 그대로 두고, 담당별 중복 작업명은 병합한다. */
 function ownerGroupedItems(rows: WeeklyTaskRow[]): string[] {
   const byOwner = new Map<string, WeeklyTaskRow[]>()
   for (const r of rows) {
@@ -35,10 +58,11 @@ function ownerGroupedItems(rows: WeeklyTaskRow[]): string[] {
   }
   const items: string[] = []
   for (const [owner, tasks] of byOwner) {
+    const merged = mergeDuplicateLines(tasks.map(t => stripOwnerSuffix(t.name)))
     if (owner === '-') {
-      items.push(...tasks.map(t => stripOwnerSuffix(t.name)))
+      items.push(...merged)
     } else {
-      items.push(`- ${owner}`, ...tasks.map(t => `. ${stripOwnerSuffix(t.name)}`))
+      items.push(`- ${owner}`, ...merged.map(n => `. ${n}`))
     }
   }
   return items
@@ -97,13 +121,16 @@ export function buildWeeklyNarrative(model: WeeklyReportModel): NarrativeModel {
   const prev = groupsOf(model.planActual, 'prevWeek')
   const curr = groupsOf(model.planActual, 'thisWeek')
   // 이슈 0건 대체 문구는 PPT에 싣지 않는다 — 이슈 셀은 빈칸으로(사용자 요청: 따로 작성 금지).
-  const issues = model.issues.filter(i => i.content !== NO_ISSUE_TEXT).map(i => i.content)
-  const events = [
+  // 이슈·이벤트도 주요내용과 같은 중복 병합 규칙 적용.
+  const issues = mergeDuplicateLines(
+    model.issues.filter(i => i.content !== NO_ISSUE_TEXT).map(i => i.content),
+  )
+  const events = mergeDuplicateLines([
     ...mergedMeetingLines([...model.meetings.thisWeek, ...model.meetings.nextWeek]),
     // 공지는 게시일 기준 전주→금주 순으로 회의 뒤에 — 회의와 같은 'M/D(요일)' 날짜 표기.
     ...[...model.announcements.prevWeek, ...model.announcements.thisWeek].map(a =>
       `${mdDow(a.date)} [공지] ${a.title}`,
     ),
-  ]
+  ])
   return { prev, curr, issues, events }
 }

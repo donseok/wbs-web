@@ -10,10 +10,11 @@ import type { SheetSectionCells } from './sheetNarrative'
 /* ── 셀 용량·페이지 분할(순수). 템플릿 셀 높이가 고정 → 넘치는 내용은 잘라내지 않고
  *    slide2를 복제한 연속 슬라이드로 이어 붙인다(활동 항목 유실 없음). ── */
 
-/** 항목 목록을 max개로 제한(초과분은 '외 N건'). 이슈/이벤트 행(높이 1.3") 전용. */
+/** 항목 목록을 max개로 제한하고 초과분은 '외 N건' 한 줄로 요약 — 이슈/이벤트 셀 전용.
+ *  시트 경로(sheetNarrative REPORT_ITEM_LIMIT)와 동일한 표시 규칙(max건 + '외 N건'). */
 export function capItems(items: string[], max: number): string[] {
   if (items.length <= max) return items
-  return [...items.slice(0, max - 1), `외 ${items.length - (max - 1)}건`]
+  return [...items.slice(0, max), `외 ${items.length - max}건`]
 }
 
 /** 시각적 줄수 추정 — 12pt·콘텐츠 셀폭 4.67" 기준 전각(한글·CJK) 약 26자/줄, 영문·숫자는 반각(0.5). */
@@ -107,9 +108,9 @@ export function paginateLines(lines: string[], budget: number): string[][] {
 const TEMPLATE_PATH = join(process.cwd(), 'src/lib/report/assets/weekly-template.pptx')
 const CELL_BUDGET = 15   // 콘텐츠 셀(행1, 높이 3.26"·12pt) 페이지당 최대 시각 줄수
 const ISSUE_BUDGET = 12  // 이슈/이벤트 셀(행2, 높이 2.67"로 확대 — 표 프레임 여백을 채움) 페이지당 최대 시각 줄수 — CELL_BUDGET×(2.67/3.26)≈12
-// WBS 자동 보고 경로 전용 캡(시트 경로는 캡 없이 전부 페이지네이션). 행2 확대(1.31"→2.67") 후에도
-// 옛 셀 기준(3/4)에 머물러 있던 것을 셀 용량(ISSUE_BUDGET=12줄)에 맞춤 — 사용자 결정(2026-07-17).
-const ISSUE_CAP = ISSUE_BUDGET, EVENT_CAP = ISSUE_BUDGET
+// WBS 자동 보고 경로 전용 캡 — 이슈·주요 이벤트는 최대 5건 + '외 N건'(사용자 결정 2026-07-17,
+// 시트 경로의 REPORT_ITEM_LIMIT=5와 동일 상한).
+const ISSUE_CAP = 5, EVENT_CAP = 5
 
 /** slide2 표에서 [r][c] tc의 원본 XML(스켈레톤 추출용). */
 function cellAt(slideXml: string, r: number, c: number): string {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildWeeklyReportModel, NO_ISSUE_TEXT } from '@/lib/report/weekly'
-import { buildWeeklyNarrative } from '@/lib/report/narrative'
+import { buildWeeklyNarrative, mergeDuplicateLines } from '@/lib/report/narrative'
 import type { Announcement, ComputedItem, Meeting } from '@/lib/domain/types'
 
 const node = (over: Partial<ComputedItem>): ComputedItem =>
@@ -20,6 +20,21 @@ const items: ComputedItem[] = [
   ], { weight: 1, plannedPct: 100, rolledActualPct: 60 }),
 ]
 const project = { name: 'D-CUBE PI', description: null, start_date: null, end_date: null }
+
+describe('mergeDuplicateLines', () => {
+  it('공백 정규화 후 같은 줄은 한 줄로', () =>
+    expect(mergeDuplicateLines(['설계  검토', '설계 검토', '데이터 정리'])).toEqual(['설계 검토', '데이터 정리']))
+  it('꼬리 괄호만 다른 줄은 꼬리를 "·"로 합쳐 요약', () =>
+    expect(mergeDuplicateLines(['설계 검토 (1차)', '설계 검토 (2차)', '설계 검토 (1차)']))
+      .toEqual(['설계 검토 (1차·2차)']))
+  it('꼬리 없는 줄과 꼬리 있는 줄이 섞이면 꼬리 쪽으로 합친다', () =>
+    expect(mergeDuplicateLines(['설계 검토', '설계 검토 (1차)'])).toEqual(['설계 검토 (1차)']))
+  it('중복 없는 줄은 원문 그대로(붙은 괄호에 공백을 만들지 않음)', () =>
+    expect(mergeDuplicateLines(['산출물 검토(인터뷰, 공청회, 진단)', '계획 수립']))
+      .toEqual(['산출물 검토(인터뷰, 공청회, 진단)', '계획 수립']))
+  it('첫 등장 순서를 유지하고 빈 줄은 버린다', () =>
+    expect(mergeDuplicateLines(['B', '', 'A', 'B'])).toEqual(['B', 'A']))
+})
 
 describe('buildWeeklyNarrative', () => {
   const m = buildWeeklyReportModel(items, project, '2026-07-07')
@@ -72,6 +87,41 @@ describe('buildWeeklyNarrative', () => {
     ]
     const n2 = buildWeeklyNarrative(buildWeeklyReportModel(multi, project, '2026-07-07'))
     expect(n2.curr[0].items).toEqual(['- MES', '. 작업A', '. 작업B', '- PMO', '. 작업C'])
+  })
+
+  it('같은 담당 아래 중복 작업명은 한 줄로 합쳐진다(주요내용 중복 병합 규칙)', () => {
+    const dup: ComputedItem[] = [
+      phase('실행', [
+        node({ name: '주간보고 작성', status: 'in_progress', rolledActualPct: 30, owners: [{ team: 'MES', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+        node({ name: '주간보고 작성', status: 'in_progress', rolledActualPct: 60, owners: [{ team: 'MES', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+        node({ name: '설계 검토 (1차)', status: 'in_progress', rolledActualPct: 40, owners: [{ team: 'MES', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+        node({ name: '설계 검토 (2차)', status: 'in_progress', rolledActualPct: 20, owners: [{ team: 'MES', kind: 'primary' }], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 40 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(dup, project, '2026-07-07'))
+    expect(n2.curr[0].items).toEqual(['- MES', '. 주간보고 작성', '. 설계 검토 (1차·2차)'])
+  })
+
+  it('담당 미지정 중복 작업도 한 줄로 합쳐진다', () => {
+    const dup: ComputedItem[] = [
+      phase('실행', [
+        node({ name: '데이터 정리', status: 'in_progress', rolledActualPct: 30, owners: [], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+        node({ name: '데이터 정리', status: 'in_progress', rolledActualPct: 50, owners: [], plannedStart: '2026-07-06', plannedEnd: '2026-07-10' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 40 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(dup, project, '2026-07-07'))
+    expect(n2.curr[0].items).toEqual(['데이터 정리'])
+  })
+
+  it('중복 이슈 문구는 한 줄로 합쳐진다', () => {
+    const late: ComputedItem[] = [
+      phase('실행', [
+        node({ name: '지연작업', status: 'delayed', rolledActualPct: 10, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+        node({ name: '지연작업', status: 'delayed', rolledActualPct: 10, owners: [{ team: 'PMO', kind: 'primary' }], plannedStart: '2026-06-29', plannedEnd: '2026-07-03' }),
+      ], { weight: 1, plannedPct: 100, rolledActualPct: 10 }),
+    ]
+    const n2 = buildWeeklyNarrative(buildWeeklyReportModel(late, project, '2026-07-07'))
+    expect(n2.issues.length).toBe(new Set(n2.issues).size) // 동일 문구 중복 없음
   })
 
   it('작업명 끝의 "(X 주관)" 꼬리표는 제거되고 중간 괄호는 보존된다', () => {

@@ -8,8 +8,10 @@ import type { WeeklyReportModel } from '@/lib/report/weekly'
 
 describe('capItems', () => {
   it('max 이하는 그대로', () => expect(capItems(['a', 'b'], 3)).toEqual(['a', 'b']))
-  it('초과분은 마지막을 "외 N건"으로', () =>
-    expect(capItems(['a', 'b', 'c', 'd'], 3)).toEqual(['a', 'b', '외 2건']))
+  it('정확히 max건이면 "외 N건" 없이 전부', () =>
+    expect(capItems(['a', 'b', 'c'], 3)).toEqual(['a', 'b', 'c']))
+  it('초과분은 max건 표시 + "외 N건" 줄 추가(시트 경로와 동일 규칙)', () =>
+    expect(capItems(['a', 'b', 'c', 'd'], 3)).toEqual(['a', 'b', 'c', '외 1건']))
 })
 
 describe('lineCost', () => {
@@ -131,13 +133,22 @@ const narr: NarrativeModel = {
 const model = { meta: { prevWeekRange: '6/29~7/3', weekRange: '7/6~7/10' } } as unknown as WeeklyReportModel
 
 describe('fillWeeklyTemplate (통합)', () => {
-  it('이벤트가 셀 용량(12줄)을 넘으면 11건 + 외 N건 — 확대된 행2 용량 기준', async () => {
+  it('이벤트가 5건을 넘으면 5건 + 외 N건 — 이슈/이벤트 5건 제한(사용자 결정 2026-07-17)', async () => {
     const many = { ...narr, events: Array.from({ length: 21 }, (_, i) => `일정 ${i + 1}`) }
     const zip = await JSZip.loadAsync(await fillWeeklyTemplate(many, model))
     const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
-    expect(slide2).toContain('일정 11')
-    expect(slide2).not.toContain('일정 12')
-    expect(slide2).toContain('외 10건')
+    expect(slide2).toContain('일정 5')
+    expect(slide2).not.toContain('일정 6')
+    expect(slide2).toContain('외 16건')
+  })
+
+  it('이슈도 5건을 넘으면 5건 + 외 N건', async () => {
+    const many = { ...narr, issues: Array.from({ length: 8 }, (_, i) => `이슈 ${i + 1}`) }
+    const zip = await JSZip.loadAsync(await fillWeeklyTemplate(many, model))
+    const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    expect(slide2).toContain('이슈 5')
+    expect(slide2).not.toContain('이슈 6')
+    expect(slide2).toContain('외 3건')
   })
 
   it('이슈 0건이면 이슈 셀은 대체 문구 없이 빈칸', async () => {
