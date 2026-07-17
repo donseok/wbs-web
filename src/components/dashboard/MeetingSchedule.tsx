@@ -5,15 +5,15 @@ import { expandMeetings, occurrencesByDate, sortOccurrences, summarizeMeetings }
 import { SectionCard } from '@/components/ui/SectionCard'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
-import { CountBadge, MiniEmpty, Stat, addDaysIso } from './bits'
+import { CountBadge, MiniEmpty, addDaysIso } from './bits'
 import { MeetingScheduleList } from './MeetingScheduleList'
 
 /** 리스트 표시 상한 — 카드 높이를 근태 카드와 비슷하게 유지한다. */
-const MAX_ROWS = 6
+const MAX_ROWS = 10
 /** 전개 범위(오늘 포함 14일) — 근태 카드와 동일 창. */
 const WINDOW_DAYS = 14
 
-/** 향후 2주 회의 일정 — 오늘/7일/14일 스탯 + 날짜순 리스트. */
+/** 향후 2주 회의 일정 — 날짜순 리스트. */
 export async function MeetingSchedule({ projectId, meetings, exceptions, today }: {
   projectId: string
   meetings: Meeting[]
@@ -37,12 +37,6 @@ export async function MeetingSchedule({ projectId, meetings, exceptions, today }
       actions={<CountBadge n={s.total} unit={tr('dash.unitCount')} />}
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
-          <Stat label={tr('dash.meet.statToday')} value={`${s.today}${tr('dash.unitCount')}`}
-            tone={s.today > 0 ? 'text-brand' : undefined} />
-          <Stat label={tr('dash.meet.stat7d')} value={`${s.upcoming7d}${tr('dash.unitCount')}`} />
-          <Stat label={tr('dash.meet.stat14d')} value={`${s.total}${tr('dash.unitCount')}`} />
-        </div>
         {rows.length === 0 ? (
           <MiniEmpty text={tr('dash.meet.empty')} />
         ) : (
