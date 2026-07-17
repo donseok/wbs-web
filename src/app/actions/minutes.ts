@@ -5,8 +5,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import { validateMinuteInput, isMinuteFilePathValid, type MinuteInput } from '@/lib/domain/minutes'
-import { getMinuteDetail, getMinutesPage, searchMinutes } from '@/lib/data/minutes'
-import type { Minute, TeamCode } from '@/lib/domain/types'
+import { getMinuteDetail, getMinutesPage, getMinutesTree, searchMinutes } from '@/lib/data/minutes'
+import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64 } from '@/lib/minutes/blocks'
@@ -320,6 +320,18 @@ export async function fetchMinutesSearch(q: string, team: TeamCode | null): Prom
   const user = await getSession()
   if (!user) return []
   return searchMinutes(q, team, 100)
+}
+
+/** 트리 뷰 진입/재시도/업로드 후 클라이언트 호출용.
+ *  기존 액션들의 [] 폴백과 달리 에러 상태를 UI까지 전달하기 위해 null을 반환한다(의도적 관례 이탈).
+ *  미로그인/세션 만료도 v1에서는 구분하지 않는다 — 이 페이지는 인증 하에 있어 실사용상 만료 엣지뿐이며
+ *  에러 카드+재시도로 수용(스펙 '서버 액션' 절). */
+export async function fetchMinutesTree(): Promise<
+  { groups: MinutesTreeGroup[]; total: number; truncated: boolean } | null
+> {
+  const user = await getSession()
+  if (!user) return null
+  return getMinutesTree()
 }
 
 /** 블록 하이라이트 토글 — 스펙 §6.7. 서버가 현재 본문 기준으로 (인덱스, 해시) 재검증. */
