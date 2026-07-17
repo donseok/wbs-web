@@ -18,7 +18,8 @@ function mapRow(r: RowRecord): WeeklySheetRow {
 
 const ROW_COLS = 'id, report_id, section, module, sort_order, this_content, this_issue, next_content, next_issue'
 
-async function loadRows(reportId: string): Promise<WeeklySheetRow[]> {
+/** reportId의 시트 행 전부(sort_order 순). 양식 통일 미리보기 등 저장 상태 기준 검사가 공유. */
+export async function loadWeeklyRows(reportId: string): Promise<WeeklySheetRow[]> {
   const sb = await createServerClient()
   const { data, error } = await sb.from('weekly_report_rows').select(ROW_COLS)
     .eq('report_id', reportId).order('sort_order')
@@ -70,7 +71,7 @@ export async function getWeeklySheet(
     id: data.id as string, projectId: data.project_id as string,
     weekStart: data.week_start as string, title: (data.title as string | null) ?? '',
   }
-  return { report, rows: await ensureStandardRows(report.id, await loadRows(report.id)) }
+  return { report, rows: await ensureStandardRows(report.id, await loadWeeklyRows(report.id)) }
 }
 
 /** 이월 원본: 해당 주 이전 가장 최근 week_start 문서(직전 주 한정 아님 — 연휴 건너뜀 대응, 스펙 §4). */
@@ -87,5 +88,5 @@ export async function findCarryOverSource(
     id: data.id as string, projectId: data.project_id as string,
     weekStart: data.week_start as string, title: (data.title as string | null) ?? '',
   }
-  return { report, rows: await loadRows(report.id) }
+  return { report, rows: await loadWeeklyRows(report.id) }
 }
