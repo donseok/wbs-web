@@ -53,3 +53,31 @@ export function ilikeOrPattern(needle: string): string {
   const quoted = like.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
   return `"%${quoted}%"`
 }
+
+/* ── 트리 뷰: 회의체 추출 (스펙 2026-07-17-minutes-tree-view-design.md) ── */
+
+export const MINUTES_TREE_LIMIT = 1000 // PostgREST max_rows 하드 캡(supabase/config.toml)과 일치 — 초과 값은 성립 불가
+
+// 노이즈 토큰(전체 일치): 날짜형 4종(꼬리 요일 괄호 허용) + 회차형 + 요일 괄호 단독
+const WEEKDAY_TAIL = '(?:\\((?:월|화|수|목|금|토|일)\\))?'
+const NOISE_PATTERNS = [
+  new RegExp(`^\\d{6}${WEEKDAY_TAIL}$`),                                    // 260716
+  new RegExp(`^\\d{8}${WEEKDAY_TAIL}$`),                                    // 20260716
+  new RegExp(`^\\d{4}[.\\-/]\\d{1,2}(?:[.\\-/]\\d{1,2})?${WEEKDAY_TAIL}$`), // 2026-07-16, 2026.07
+  new RegExp(`^\\d{2}[.\\-/]\\d{1,2}[.\\-/]\\d{1,2}${WEEKDAY_TAIL}$`),      // 26.07.16
+  new RegExp(`^\\d{1,2}[.\\-/]\\d{1,2}${WEEKDAY_TAIL}$`),                   // 7.16, 07-16
+  /^\(?제?\d{1,4}차\)?$/,                                                    // 12차, 제3차, (5차)
+  /^\((?:월|화|수|목|금|토|일)\)$/,                                          // (수)
+]
+
+function isNoiseToken(token: string): boolean {
+  return NOISE_PATTERNS.some(re => re.test(token))
+}
+
+/** 제목에서 회의체 이름 추출 — `_`·공백 토큰화 후 노이즈(날짜·회차·요일) 제거, 공백 1칸 결합.
+ *  전부 제거되어 비면 원제목(trim) 반환. 그룹 키이자 표시명. */
+export function meetingBodyOf(title: string): string {
+  const trimmed = title.trim()
+  const kept = trimmed.split(/[_\s]+/).filter(tok => tok !== '' && !isNoiseToken(tok))
+  return kept.length > 0 ? kept.join(' ') : trimmed
+}
