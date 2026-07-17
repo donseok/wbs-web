@@ -1,21 +1,25 @@
 'use client'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, List, Paperclip, Plus, Search } from 'lucide-react'
-import type { Minute, TeamCode } from '@/lib/domain/types'
-import { TEAM_CODES } from '@/lib/domain/minutes'
-import { fetchMinutesRange, fetchMinutesSearch } from '@/app/actions/minutes'
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, List, ListTree, Paperclip, Plus, Search } from 'lucide-react'
+import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
+import { MINUTES_TREE_LIMIT, TEAM_CODES } from '@/lib/domain/minutes'
+import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesTree } from '@/app/actions/minutes'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { CardSkeleton } from '@/components/ui/Skeleton'
 import { TEAM } from '@/components/wbs/shared'
 import { MinutesCalendar } from './MinutesCalendar'
 import { MinuteUploadModal } from './MinuteUploadModal'
 import { ArchiveChatPanel } from './ArchiveChatPanel'
+import { MinutesTree } from './MinutesTree'
 
 type ViewKey = 'list' | 'calendar' | 'tree'
+type TreeState = 'idle' | 'loading' | 'error'
+  | { groups: MinutesTreeGroup[]; total: number; truncated: boolean }
 type TeamKey = 'ALL' | TeamCode
 
 function monthRangeOf(year: number, month0: number): [string, string] {
@@ -50,9 +54,21 @@ export function MinutesView({
   const [chatOpen, setChatOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const reqRef = useRef(0)
+  const [treeState, setTreeState] = useState<TreeState>('idle')
+  // 트리 전용 세대 카운터 — reqRef(월 목록·검색)와 분리. 공유하면 트리 로딩 중 검색·팀 변경이
+  // 트리 응답을 폐기해 'loading'에 갇힌다(스펙 'MinutesView 통합' 절).
+  const treeReqRef = useRef(0)
 
   const teamOrNull = team === 'ALL' ? null : team
   const isSearch = query.trim().length > 0
+
+  async function loadTree() {
+    const gen = ++treeReqRef.current
+    setTreeState('loading')
+    const res = await fetchMinutesTree()
+    if (treeReqRef.current !== gen) return
+    setTreeState(res ?? 'error')
+  }
 
   async function loadMonth(y: number, m0: number, tk: TeamKey) {
     const gen = ++reqRef.current
@@ -84,7 +100,15 @@ export function MinutesView({
   function changeView(v: ViewKey) {
     setView(v)
     queueUiPref({ minutesView: v })
+    if (v === 'tree' && typeof treeState !== 'object' && treeState !== 'loading') void loadTree()
   }
+
+  // initialView가 'tree'(계정 prefs)로 마운트된 경우의 최초 조회.
+  // deps를 [view]로 제한 — treeState를 넣으면 조회 실패('error') 시 effect가 재발화해 무한 재시도가 된다.
+  useEffect(() => {
+    if (view === 'tree' && treeState === 'idle') void loadTree()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
 
   // 일자별 그룹(내림차순)
   const groups = useMemo(() => {
@@ -104,6 +128,22 @@ export function MinutesView({
     return c
   }, [minutes])
 
+  // 트리 뷰 카운트: 전 기간·전 팀 트리 데이터 기준. 로딩·에러 중엔 null → '-' 표시(이전 월 숫자 잔존 금지).
+  const isTreeDisplay = view === 'tree' && !isSearch
+  const summary = useMemo(() => {
+    if (!isTreeDisplay) return { total: minutes.length, byTeam: kpiByTeam }
+    if (typeof treeState !== 'object') return null
+    const c: Record<string, number> = {}
+    for (const tk of TEAM_CODES) c[tk] = 0
+    for (const g of treeState.groups) c[g.teamCode] = g.count
+    return { total: treeState.total, byTeam: c }
+  }, [isTreeDisplay, treeState, minutes.length, kpiByTeam])
+
+  // 팀 탭은 재조회 없이 클라이언트 프루닝(트리는 항상 전 팀 조회 — 스펙 '구분 탭' 절)
+  const treeGroups = typeof treeState === 'object'
+    ? (team === 'ALL' ? treeState.groups : treeState.groups.filter(g => g.teamCode === team))
+    : []
+
   return (
     <div className="space-y-4">
       {/* 필터 바 + 카운트 요약 (스크롤 시 상단 고정) */}
@@ -113,11 +153,13 @@ export function MinutesView({
             tabs={[{ key: 'ALL', label: t('min.team.all') }, ...TEAM_CODES.map(tk => ({ key: tk, label: tk }))]}
             value={team} onChange={changeTeam} size="sm" />
           <div className="flex items-center gap-1">
-            <button onClick={() => shift(-1)} disabled={isSearch} className="chrome-icon disabled:opacity-40" aria-label="prev month">
+            <button onClick={() => shift(-1)} disabled={isSearch || view === 'tree'} className="chrome-icon disabled:opacity-40" aria-label="prev month">
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <span className="min-w-[84px] text-center text-sm font-semibold tabular-nums">{ymLabel}</span>
-            <button onClick={() => shift(1)} disabled={isSearch} className="chrome-icon disabled:opacity-40" aria-label="next month">
+            <span className="min-w-[84px] text-center text-sm font-semibold tabular-nums">
+              {view === 'tree' && !isSearch ? t('min.tree.allPeriod') : ymLabel}
+            </span>
+            <button onClick={() => shift(1)} disabled={isSearch || view === 'tree'} className="chrome-icon disabled:opacity-40" aria-label="next month">
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -131,7 +173,8 @@ export function MinutesView({
           <div className="ml-auto flex items-center gap-2">
             <SegmentedTabs<ViewKey>
               tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
-                     { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
+                     { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays },
+                     { key: 'tree', label: t('min.view.tree'), icon: ListTree }]}
               value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
             <button onClick={() => setChatOpen(true)} className="btn">
               <Bot className="h-4 w-4" />{t('min.chat.archive.title')}
@@ -144,11 +187,11 @@ export function MinutesView({
 
         {/* 담당별 카운트 요약 */}
         <div className="flex flex-wrap gap-3 text-xs text-ink-muted">
-          <span className="font-medium text-ink">{t('min.team.all')} {minutes.length}</span>
+          <span className="font-medium text-ink">{t('min.team.all')} {summary ? summary.total : '-'}</span>
           {TEAM_CODES.map(tk => (
             <span key={tk} className="inline-flex items-center gap-1.5">
               <span className={`inline-block h-2 w-2 rounded-full ${TEAM[tk].bar}`} />
-              {tk} {kpiByTeam[tk]}
+              {tk} {summary ? summary.byTeam[tk] : '-'}
             </span>
           ))}
         </div>
@@ -220,12 +263,35 @@ export function MinutesView({
         </div>
       )}
 
+      {/* 트리 뷰 (검색 중에는 강제 리스트) */}
+      {view === 'tree' && !isSearch && (
+        treeState === 'idle' || treeState === 'loading' ? (
+          <CardSkeleton lines={8} />
+        ) : treeState === 'error' ? (
+          // 조용한 빈 화면 금지 — EmptyState('회의록 없음')로 위장하지 않고 에러를 표시한다
+          <EmptyState title={t('min.tree.error')}
+            action={<button onClick={() => void loadTree()} className="btn">{t('min.tree.retry')}</button>} />
+        ) : treeGroups.length === 0 ? (
+          <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
+        ) : (
+          <div className="space-y-2">
+            {treeState.truncated && (
+              <p className="text-xs text-ink-subtle">
+                {t('min.tree.truncated').replace('{n}', String(MINUTES_TREE_LIMIT))}
+              </p>
+            )}
+            <MinutesTree groups={treeGroups} />
+          </div>
+        )
+      )}
+
       {/* 업로드 모달 — 열 때마다 리마운트해 이전 입력(첨부·제목)이 잔존하지 않게 함 */}
       {uploadOpen && (
         <MinuteUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)}
           onSaved={() => {
             setUploadOpen(false)
             if (isSearch) void runSearch(query, team); else void loadMonth(year, month0, team)
+            if (treeState !== 'idle') void loadTree()   // 트리 데이터가 있으면 최신화(idle이면 다음 진입 시 조회)
             router.refresh()
           }}
           todayIso={todayIso} projects={projects} defaultTeam={defaultTeam} />
