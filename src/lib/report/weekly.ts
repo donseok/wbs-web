@@ -129,7 +129,7 @@ export interface AnnouncementRow {
 export interface WeeklyAnnouncements {
   prevWeek: AnnouncementRow[]
   thisWeek: AnnouncementRow[]
-  total: number              // 전주+금주 공지 수 (0이면 주요활동에 공지 그룹 생략)
+  total: number              // 전주+금주 공지 수 (PPT에서는 주요 이벤트 목록에 '[공지]'로 실림)
 }
 
 export interface WbsFlatRow {
@@ -228,8 +228,8 @@ export function md(d: Date): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
 }
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'] as const
-/** 'YYYY-MM-DD' → 'M/D(요일)' (회의일정 표기용). */
-function mdDow(iso: string): string {
+/** 'YYYY-MM-DD' → 'M/D(요일)' (회의일정·공지 표기용 — narrative의 이벤트 목록이 공유). */
+export function mdDow(iso: string): string {
   const d = parseUTC(iso)
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${DOW_KR[d.getUTCDay()]})`
 }

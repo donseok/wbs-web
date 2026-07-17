@@ -116,7 +116,7 @@ describe('buildWeeklyNarrative', () => {
     expect(n2.events.some(e => e.includes('Kick-Off'))).toBe(true)
   })
 
-  it('공지가 있으면 전주/금주 활동 끝에 "주요 공지" 그룹으로 붙는다', () => {
+  it('공지는 주요활동이 아니라 이벤트 목록에 "[공지]" 표기·M/D(요일) 날짜로 실린다', () => {
     const ann = (title: string, publishFrom: string): Announcement => ({
       id: title, projectId: 'p', title, body: '', category: 'general', isPinned: false,
       publishFrom, publishTo: null, createdAt: '2026-07-07T00:00:00Z', updatedAt: '2026-07-07T00:00:00Z',
@@ -126,14 +126,37 @@ describe('buildWeeklyNarrative', () => {
     })
     const n2 = buildWeeklyNarrative(m2)
 
-    const prevAnn = n2.prev.at(-1)!   // WBS Phase 그룹 뒤에 append
-    const currAnn = n2.curr.at(-1)!
-    expect(prevAnn.phase).toBe('주요 공지')
-    expect(prevAnn.items).toEqual(['전주 킥오프 안내'])
-    expect(currAnn.phase).toBe('주요 공지')
-    expect(currAnn.items).toEqual(['금주 산출물 마감'])
-    // WBS 그룹은 그대로 유지되고 앞에 온다
+    // 주요활동(콘텐츠 셀)에는 공지 그룹이 없다
+    expect(n2.prev.some(g => g.phase === '주요 공지')).toBe(false)
+    expect(n2.curr.some(g => g.phase === '주요 공지')).toBe(false)
+    // 이벤트 목록에 전주→금주 순, 회의와 동일한 날짜 표기 + [공지] 마커
+    expect(n2.events).toContain('7/1(수) [공지] 전주 킥오프 안내')
+    expect(n2.events).toContain('7/6(월) [공지] 금주 산출물 마감')
+    // WBS 그룹은 그대로 유지된다
     expect(n2.prev[0].phase).toBe('설계')
+  })
+
+  it('회의와 공지가 함께 있으면 회의가 앞, 공지가 뒤', () => {
+    const ann = (title: string, publishFrom: string): Announcement => ({
+      id: title, projectId: 'p', title, body: '', category: 'general', isPinned: false,
+      publishFrom, publishTo: null, createdAt: '2026-07-07T00:00:00Z', updatedAt: '2026-07-07T00:00:00Z',
+    })
+    const meetings: Meeting[] = [
+      {
+        id: 'mtg1', projectId: 'p', title: 'Kick-Off', meetingDate: '2026-07-10',
+        startTime: '14:00', endTime: '15:00', location: '대회의실', category: 'kickoff', body: '',
+        recurrence: 'none', recurrenceUntil: null, createdBy: null, createdByName: null,
+        createdAt: '2026-01-01', updatedAt: '2026-01-01', attendeeIds: ['m1'],
+      },
+    ]
+    const m2 = buildWeeklyReportModel(items, project, '2026-07-07', {
+      meetings, announcements: [ann('산출물 마감', '2026-07-06')],
+    })
+    const n2 = buildWeeklyNarrative(m2)
+    const iMeeting = n2.events.findIndex(e => e.includes('Kick-Off'))
+    const iAnn = n2.events.findIndex(e => e.includes('[공지]'))
+    expect(iMeeting).toBeGreaterThanOrEqual(0)
+    expect(iAnn).toBeGreaterThan(iMeeting)
   })
 
   it('Phase 이름의 선행 번호("1. ", "1-1.", "2)")는 헤드라인에서 제거된다', () => {
@@ -161,9 +184,8 @@ describe('buildWeeklyNarrative', () => {
     expect(n2.curr[0].phase).toBe('2026년 계획')
   })
 
-  it('공지 없으면 "주요 공지" 그룹이 생기지 않고 WBS-only 동작 유지', () => {
-    expect(n.prev.some(g => g.phase === '주요 공지')).toBe(false)
-    expect(n.curr.some(g => g.phase === '주요 공지')).toBe(false)
+  it('공지 없으면 이벤트 목록에 "[공지]" 항목이 없고 WBS-only 동작 유지', () => {
+    expect(n.events.some(e => e.includes('[공지]'))).toBe(false)
     expect(n.prev.length).toBeGreaterThan(0)
   })
 })

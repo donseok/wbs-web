@@ -1,4 +1,4 @@
-import type { AnnouncementRow, WeeklyReportModel, WeeklyTaskRow, PhasePlanActual } from './weekly'
+import { mdDow, type WeeklyReportModel, type WeeklyTaskRow, type PhasePlanActual } from './weekly'
 
 /* ============================================================================
  * 주간보고 서술형 변환 — WeeklyReportModel(공유 모델) → PPT 전용 문구.
@@ -14,7 +14,7 @@ export interface NarrativeModel {
   prev: NarrativeGroup[]   // 전주 주요활동 (Phase별)
   curr: NarrativeGroup[]   // 금주 주요활동 (Phase별)
   issues: string[]         // 이슈사항
-  events: string[]         // 주요 이벤트(금주·차주 회의)
+  events: string[]         // 주요 이벤트(금주·차주 회의 + 전주·금주 공지 '[공지]' 표기)
 }
 
 /** 작업명 끝의 '(X 주관)'·'(X주관)' 꼬리표 제거 — 담당이 그룹 헤더로 표기되는 PPT에서는 중복.
@@ -58,20 +58,20 @@ function groupsOf(planActual: PhasePlanActual[], key: 'prevWeek' | 'thisWeek'): 
     .filter(g => g.items.length > 0)
 }
 
-/** 해당 주차 공지 → '주요 공지' 그룹 1개. 없으면 빈 배열(그룹 자체를 생략).
- *  num은 WBS Phase 다음 번호 — 전주·금주 모두 같은 값. */
-function announceGroup(rows: AnnouncementRow[], num: number): NarrativeGroup[] {
-  return rows.length ? [{ phase: '주요 공지', num, items: rows.map(r => r.title) }] : []
-}
-
-/** 주간 모델 → PPT 서술형 변환(순수·결정적). */
+/** 주간 모델 → PPT 서술형 변환(순수·결정적).
+ *  주요 공지는 주요활동이 아니라 이슈사항·주요이벤트 영역(이벤트 목록)에 '[공지]'로 싣는다(사용자 결정). */
 export function buildWeeklyNarrative(model: WeeklyReportModel): NarrativeModel {
-  const annNum = model.planActual.length + 1
-  const prev = [...groupsOf(model.planActual, 'prevWeek'), ...announceGroup(model.announcements.prevWeek, annNum)]
-  const curr = [...groupsOf(model.planActual, 'thisWeek'), ...announceGroup(model.announcements.thisWeek, annNum)]
+  const prev = groupsOf(model.planActual, 'prevWeek')
+  const curr = groupsOf(model.planActual, 'thisWeek')
   const issues = model.issues.map(i => i.content)
-  const events = [...model.meetings.thisWeek, ...model.meetings.nextWeek].map(mtg =>
-    `${mtg.date} ${mtg.title}${mtg.location && mtg.location !== '-' ? ` (${mtg.location})` : ''}`,
-  )
+  const events = [
+    ...[...model.meetings.thisWeek, ...model.meetings.nextWeek].map(mtg =>
+      `${mtg.date} ${mtg.title}${mtg.location && mtg.location !== '-' ? ` (${mtg.location})` : ''}`,
+    ),
+    // 공지는 게시일 기준 전주→금주 순으로 회의 뒤에 — 회의와 같은 'M/D(요일)' 날짜 표기.
+    ...[...model.announcements.prevWeek, ...model.announcements.thisWeek].map(a =>
+      `${mdDow(a.date)} [공지] ${a.title}`,
+    ),
+  ]
   return { prev, curr, issues, events }
 }
