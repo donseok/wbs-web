@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sheetLineText, cellLines, rowLabel, buildSheetSections, groupEventsByDate, compactReportLines } from '@/lib/report/sheetNarrative'
+import { sheetLineText, cellLines, rowLabel, buildSheetSections } from '@/lib/report/sheetNarrative'
 import { WEEKLY_SECTIONS, type WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
@@ -30,28 +30,33 @@ describe('cellLines', () => {
   })
 })
 
-describe('PPT 이슈·이벤트 정리', () => {
-  it('같은 날짜 이벤트를 날짜별 한 줄로 묶고 중복을 제거한다', () => {
-    expect(groupEventsByDate([
-      '• 7/13(월) MES 품질회의',
-      '• 7/13(월) F-MES 벤치마킹',
-      '• 7/15(수) 생산 협업 인터뷰',
-      '• 7/13(월) MES 품질회의',
-    ])).toEqual([
-      '7/13(월) MES 품질회의 · F-MES 벤치마킹',
-      '7/15(수) 생산 협업 인터뷰',
+describe('상세 PPT 이슈·이벤트 원문 보존', () => {
+  it("여러 줄 이슈는 마커·들여쓰기 구조 그대로, '외 N건' 캡 없이 전량 실린다", () => {
+    const built = buildSheetSections([
+      row({
+        id: 'e', section: 'PMO',
+        thisIssue: '1. PI 변화관리 교육세션\n- 대상 : D-Cube TF\n- 일정 : 7/20(월)\n2. 인터뷰 지연\n- 원인 : 현업 일정\n- 대응 : 재조율',
+      }),
+    ])
+    expect(built[0].thisIssue).toEqual([
+      '1. PI 변화관리 교육세션', '- 대상 : D-Cube TF', '- 일정 : 7/20(월)',
+      '2. 인터뷰 지연', '- 원인 : 현업 일정', '- 대응 : 재조율',
+    ]) // 6줄이어도 잘리지 않고, '-' 마커(하위 들여쓰기 판정 기준)도 보존
+  })
+
+  it('주요이벤트도 작성한 줄 그대로 — 날짜 병합·재작성 없음', () => {
+    const built = buildSheetSections([
+      row({ id: 'e', section: 'PMO', nextIssue: '• 7/13(월) MES 품질회의\n• 7/13(월) F-MES 벤치마킹\n• 7/15(수) 생산 인터뷰' }),
+    ])
+    expect(built[0].nextIssue).toEqual([
+      '• 7/13(월) MES 품질회의', '• 7/13(월) F-MES 벤치마킹', '• 7/15(수) 생산 인터뷰',
     ])
   })
 
-  it('최대 5건만 표시하고 나머지는 외 N건으로 요약한다', () => {
-    const compacted = compactReportLines(Array.from({ length: 20 }, (_, i) => `7/15(수) 인터뷰 대상 ${i + 1}`), true)
-    expect(compacted.join(' ')).toContain('인터뷰 대상 5')
-    expect(compacted.join(' ')).not.toContain('인터뷰 대상 6')
-    expect(compacted.at(-1)).toBe('외 15건')
-  })
-
-  it('중복은 건수에서 제외한다', () => {
-    expect(compactReportLines(['이슈 A', '이슈 A', '이슈 B'])).toEqual(['이슈 A', '이슈 B'])
+  it('긴 줄도 절단("…") 없이 원문 유지 — 넘침은 PPT 페이지네이션이 처리', () => {
+    const long = `1. ${'가'.repeat(100)}`
+    const built = buildSheetSections([row({ id: 'e', section: 'PMO', thisIssue: long })])
+    expect(built[0].thisIssue).toEqual([long])
   })
 })
 
@@ -97,7 +102,7 @@ describe('buildSheetSections', () => {
     expect(s.thisContent).toEqual(['1. CheckList', '- CBO'])
     expect(s.nextContent).toEqual(['1. 계획'])
     expect(s.thisIssue).toEqual(['지연 위험'])
-    expect(s.nextIssue).toEqual(['일정 협의 필요 · 추가 인력']) // 날짜 없는 이벤트도 한 줄로 간결하게 병합
+    expect(s.nextIssue).toEqual(['일정 협의 필요', '추가 인력']) // 작성한 줄 그대로(병합·재작성 없음)
   })
   it('내용 없는 구분도 빈 4셀로 남는다(빈 페이지 소스)', () => {
     const s = byName('구매')
@@ -128,14 +133,5 @@ describe('buildSheetSections', () => {
     const s = built.find(x => x.section === '관리회계')!
     expect(s.thisContent).toEqual(['FI 실적', '', 'CO 실적']) // 빈 줄 구분
     expect(s.thisIssue).toEqual(['FI 이슈', 'CO 이슈'])        // 이슈는 빈 줄 없이 flatten
-  })
-  it('주요이벤트는 같은 날짜끼리 묶여 PPT 셀에 전달된다', () => {
-    const built = buildSheetSections([
-      row({ id: 'e', section: 'PMO', nextIssue: '• 7/13(월) MES 품질회의\n• 7/13(월) F-MES 벤치마킹\n• 7/15(수) 생산 인터뷰' }),
-    ])
-    expect(built[0].nextIssue).toEqual([
-      '7/13(월) MES 품질회의 · F-MES 벤치마킹',
-      '7/15(수) 생산 인터뷰',
-    ])
   })
 })

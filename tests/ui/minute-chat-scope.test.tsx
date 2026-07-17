@@ -53,22 +53,24 @@ describe('MinuteChatPanel 범위 전환', () => {
     const call = fetchMock.mock.calls.at(-1) as [string, { body: string }]
     return JSON.parse(call[1].body) as Record<string, unknown>
   }
-  /** 패널은 기본 접힘(7995445 '채팅 기본 접힘') — 렌더 직후엔 열기 버튼만 있으므로 눌러서 연다. */
-  async function mountOpen() {
+  async function mountPanel() {
     await act(async () => root.render(<MinuteChatPanel minuteId="m-1" />))
-    const opener = container.querySelector<HTMLButtonElement>('button')
-    if (!opener) throw new Error('열기 버튼 없음')
-    await act(async () => { opener.click() })
   }
 
+  it('질문 패널은 기본으로 열린다', async () => {
+    await mountPanel()
+    expect(tab('min.chat.scope.doc')).toBeTruthy()
+    expect(container.querySelector('input[placeholder="min.chat.placeholder"]')).toBeTruthy()
+  })
+
   it('기본(이 문서) 전송은 mode=doc + minuteId', async () => {
-    await mountOpen()
+    await mountPanel()
     await send('요약해줘')
     expect(lastBody()).toMatchObject({ mode: 'doc', minuteId: 'm-1', message: '요약해줘' })
   })
 
   it('전체 회의록 탭 전송은 mode=archive + null 필터', async () => {
-    await mountOpen()
+    await mountPanel()
     await act(async () => { tab('min.chat.scope.all').click() })
     await send('PI 관련 회의 찾아줘')
     expect(lastBody()).toMatchObject({
@@ -80,7 +82,7 @@ describe('MinuteChatPanel 범위 전환', () => {
   })
 
   it('범위 전환 후에도 각 스레드 대화가 보존된다', async () => {
-    await mountOpen()
+    await mountPanel()
     await send('문서 질문')
     expect(container.textContent).toContain('문서 질문')
 

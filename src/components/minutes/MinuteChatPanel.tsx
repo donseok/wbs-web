@@ -122,7 +122,7 @@ type TeamKey = 'ALL' | TeamCode
 /** 문서 모드 패널 — 뷰어 우측(좁은 화면에선 아래). 범위 토글로 전체 보관함 질문 가능. */
 export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   const { t } = useLocale()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const [scope, setScope] = useState<ChatScope>('doc')
   const [team, setTeam] = useState<TeamKey>('ALL')
   // 범위별 독립 스레드 — 전환해도 각 대화가 보존되고 LLM 컨텍스트가 섞이지 않는다.
