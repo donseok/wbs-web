@@ -43,10 +43,15 @@ describe('PPT 이슈·이벤트 정리', () => {
     ])
   })
 
-  it('셀 예산을 넘는 항목은 대표 내용과 외 N건으로 요약한다', () => {
+  it('최대 5건만 표시하고 나머지는 외 N건으로 요약한다', () => {
     const compacted = compactReportLines(Array.from({ length: 20 }, (_, i) => `7/15(수) 인터뷰 대상 ${i + 1}`), true)
-    expect(compacted.length).toBeLessThan(20)
-    expect(compacted.join(' ')).toMatch(/외 \d+건/)
+    expect(compacted.join(' ')).toContain('인터뷰 대상 5')
+    expect(compacted.join(' ')).not.toContain('인터뷰 대상 6')
+    expect(compacted.at(-1)).toBe('외 15건')
+  })
+
+  it('중복은 건수에서 제외한다', () => {
+    expect(compactReportLines(['이슈 A', '이슈 A', '이슈 B'])).toEqual(['이슈 A', '이슈 B'])
   })
 })
 

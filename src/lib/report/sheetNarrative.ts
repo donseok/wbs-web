@@ -28,6 +28,7 @@ export function cellLines(text: string): string[] {
 
 const REPORT_CELL_LINE_BUDGET = 10
 const REPORT_FULLWIDTH_PER_LINE = 26
+const REPORT_ITEM_LIMIT = 5
 
 /** PPT 셀에서 차지할 대략적인 시각 줄수(12pt, 반쪽 셀 폭 기준). */
 function reportLineCost(text: string): number {
@@ -59,32 +60,32 @@ export function groupEventsByDate(lines: string[]): string[] {
       groups.push({ date, details: [detail] })
     }
   }
-  return groups.map(({ date, details }) => {
-    const visible = details.slice(0, 3).join(' · ')
-    const rest = details.length > 3 ? ` · 외 ${details.length - 3}건` : ''
-    return `${date ? `${date} ` : ''}${visible}${rest}`
-  })
+  return groups.map(({ date, details }) => `${date ? `${date} ` : ''}${details.join(' · ')}`)
 }
 
 /** 이슈/이벤트 셀을 고정 높이 안에 맞춘다. 중복을 제거하고 긴 항목은 의미 단위로 축약하며,
- *  예산을 넘는 나머지는 마지막 줄의 '외 N건'으로 표시한다. */
+ *  최대 5건만 표시하고 나머지는 마지막 줄의 '외 N건'으로 표시한다. */
 export function compactReportLines(lines: string[], groupByDate = false): string[] {
   const cleaned = [...new Set(lines.map(cleanReportLine).filter(Boolean))]
-  const source = groupByDate ? groupEventsByDate(cleaned) : cleaned
+  const visible = cleaned.slice(0, REPORT_ITEM_LIMIT)
+  const hiddenCount = cleaned.length - visible.length
+  const source = groupByDate ? groupEventsByDate(visible) : visible
   const shortened = source.map(line => line.length > 72 ? `${line.slice(0, 69).trimEnd()}…` : line)
   const out: string[] = []
   let used = 0
+  let budgetHidden = 0
   for (let i = 0; i < shortened.length; i += 1) {
     const cost = reportLineCost(shortened[i])
     const remaining = shortened.length - i - 1
     const summaryCost = remaining > 0 ? reportLineCost(`외 ${remaining + 1}건`) : 0
     if (used + cost + summaryCost > REPORT_CELL_LINE_BUDGET) {
-      out.push(`외 ${shortened.length - i}건`)
+      budgetHidden = shortened.length - i
       break
     }
     out.push(shortened[i])
     used += cost
   }
+  if (hiddenCount + budgetHidden > 0) out.push(`외 ${hiddenCount + budgetHidden}건`)
   return out
 }
 
