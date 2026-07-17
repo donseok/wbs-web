@@ -202,7 +202,7 @@ export function WeeklySheetView({
   // PPT 내보내기 직전 미저장 셀 flush — export fetch와 blur commit이 경합하면 서버가
   // 저장 전 스냅샷으로 PPT를 만들 수 있다. 남은 dirty 키를 즉시 commit(디바운스 우회)하고
   // 전부 저장될 때까지 폴링. 5초를 넘기면 중단(false)하고 안내 — 불완전 PPT 방지가 목적.
-  const flushPendingSaves = useCallback((): Promise<boolean> => {
+  const flushPendingSaves = useCallback((taskLabel = '내보내기'): Promise<boolean> => {
     for (const k of dirtyRef.current) {
       const [rowId, key] = k.split(':') as [string, WeeklyCellKey]
       commit(rowId, key)
@@ -213,7 +213,7 @@ export function WeeklySheetView({
       const poll = () => {
         if (!dirtyRef.current.size) { resolve(true); return }
         if (Date.now() - start >= 5000) {
-          toast({ title: '내보내기 중단', description: '일부 셀이 아직 저장 중입니다. 저장 완료 후 다시 내보내 주세요.', variant: 'error' })
+          toast({ title: `${taskLabel} 중단`, description: '일부 셀이 아직 저장 중입니다. 저장 완료 후 다시 시도해 주세요.', variant: 'error' })
           resolve(false)
           return
         }
@@ -366,7 +366,7 @@ export function WeeklySheetView({
     if (!report) return
     setUnifyBusy(true)
     try {
-      if (!(await flushPendingSaves())) return
+      if (!(await flushPendingSaves('양식 통일'))) return
       const res = await previewWeeklyFormat(projectId, report.id)
       if (!res.ok || !res.edits) {
         toast({ title: '양식 검사 실패', description: res.error ?? '잠시 후 다시 시도해 주세요.', variant: 'error' })
@@ -377,6 +377,9 @@ export function WeeklySheetView({
         return
       }
       setUnifyEdits(res.edits)
+    } catch {
+      // 오프라인·전송 계층 예외 흡수(F2 관례) — 무반응 실패 금지(silent-empty-screens)
+      toast({ title: '양식 검사 실패', description: '네트워크 오류입니다. 잠시 후 다시 시도해 주세요.', variant: 'error' })
     } finally {
       setUnifyBusy(false)
     }

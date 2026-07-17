@@ -1,7 +1,7 @@
 /* ── 주간 시트 양식 통일(순수) — 마커·번호·빈 줄만 표준화, 내용 불변. I/O 없음.
  *    스펙: docs/superpowers/specs/2026-07-17-weekly-format-unify-design.md ── */
 
-import { WEEKLY_CELL_KEYS, CELL_FIELD, type WeeklyCellKey, type WeeklySheetRow } from './weeklySheet'
+import { WEEKLY_CELL_KEYS, CELL_FIELD, WEEKLY_CELL_MAX, type WeeklyCellKey, type WeeklySheetRow } from './weeklySheet'
 
 // 상위(1단계): '1.' '1)' '(1)' '①~⑳'. 숫자 1~3자리 제한 + 마커 뒤 숫자 금지 —
 // 연도('2026.')와 소수('12.5%')로 시작하는 일반 줄을 항목으로 오인하지 않게.
@@ -57,7 +57,7 @@ export function normalizeCellText(text: string): string {
 export interface WeeklyFormatEdit {
   rowId: string
   cellKey: WeeklyCellKey
-  section: string // 미리보기 행 라벨 — 구분, 없으면 모듈, 둘 다 없으면 '기타'(sheetNarrative.rowLabel과 동일 폴백)
+  section: string // 미리보기 행 라벨 — 구분, 없으면 모듈, 둘 다 없으면 '기타'
   before: string
   after: string
 }
@@ -70,7 +70,11 @@ export function unifySheetRows(rows: WeeklySheetRow[]): WeeklyFormatEdit[] {
     for (const cellKey of WEEKLY_CELL_KEYS) {
       const before = r[CELL_FIELD[cellKey]]
       const after = normalizeCellText(before)
-      if (after !== before) out.push({ rowId: r.id, cellKey, section: label, before, after })
+      if (after === before) continue
+      // 정규화 팽창이 셀 상한을 넘으면 통일을 포기한다 — 상한 초과분을 잘라 저장하면
+      // '내용 불변' 원칙이 깨진다(절단보다 미통일이 낫다).
+      if (after.length > WEEKLY_CELL_MAX) continue
+      out.push({ rowId: r.id, cellKey, section: label, before, after })
     }
   }
   return out

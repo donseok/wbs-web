@@ -44,6 +44,7 @@ describe('normalizeCellText — 마커·번호·빈 줄 표준화(내용 불변)
   it('숫자로 시작하는 값(12.5%, -15%)을 마커로 오인하지 않는다', () => {
     expect(normalizeCellText('12.5% 달성')).toBe('12.5% 달성')
     expect(normalizeCellText('-15% 하락')).toBe('-15% 하락')
+    expect(normalizeCellText('2026. 상반기 계획')).toBe('2026. 상반기 계획')
   })
 
   it('상위 항목이 없는 셀은 재배치 없이 연속 빈 줄만 축약', () => {
@@ -99,5 +100,10 @@ describe('unifySheetRows — 바뀌는 셀만 edits로', () => {
 
   it('변경이 하나도 없으면 빈 배열', () => {
     expect(unifySheetRows([row({ thisContent: '1. 정상\n  -. 하위' })])).toEqual([])
+  })
+
+  it('정규화 팽창이 셀 상한을 넘는 셀은 스킵한다(절단 방지)', () => {
+    const huge = Array.from({ length: 5000 }, () => '-a').join('\n') // 정규화 시 3배 팽창 → 상한 초과
+    expect(unifySheetRows([row({ thisContent: huge })])).toEqual([])
   })
 })
