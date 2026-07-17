@@ -4,6 +4,9 @@ import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { getTopAnnouncements } from '@/lib/data/announcements'
 import type { AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/types'
+import { expandMeetings } from '@/lib/domain/meetings'
+import { composeAnnouncementFromMeeting } from '@/lib/domain/announcements'
+import type { MeetingCategory, MeetingRecurrence } from '@/lib/domain/types'
 
 export interface AnnouncementInput {
   title: string
@@ -217,4 +220,72 @@ export async function getUnreadAnnouncementCount(projectId: string): Promise<num
   if (seen?.last_seen_at) query = query.gt('created_at', seen.last_seen_at as string)
   const { count } = await query
   return count ?? 0
+}
+
+/**
+ * 회의 1회차를 바탕으로 공지사항 1건을 생성한다(원클릭 등록). 회의는 그대로 둔다.
+ * pmo_admin 전용. occurrenceDate 가 실제 규칙상 회차인지 서버에서 재검증하고
+ * (클라이언트 값 불신), 본문은 composeAnnouncementFromMeeting 으로 조합한다.
+ */
+export async function createAnnouncementFromMeeting(
+  meetingId: string,
+  occurrenceDate: string,
+): Promise<AnnouncementActionResult> {
+  const m = await getMembership()
+  if (!m || m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  if (!DATE_RE.test(occurrenceDate)) return { ok: false, error: '잘못된 날짜입니다.' }
+
+  const user = await getSession()
+  const sb = await createServerClient()
+  const { data: r } = await sb
+    .from('meetings')
+    .select('project_id, title, body, meeting_date, start_time, end_time, location, category, recurrence, recurrence_until')
+    .eq('id', meetingId)
+    .maybeSingle()
+  if (!r) return { ok: false, error: '회의를 찾을 수 없습니다.' }
+
+  // 회차 검증 — 비반복/반복 모두 expandMeetings 로 동일하게 처리(해당 날짜만 전개).
+  const meeting = {
+    id: meetingId, projectId: r.project_id as string, title: r.title as string,
+    meetingDate: r.meeting_date as string, startTime: (r.start_time as string | null) ?? null,
+    endTime: (r.end_time as string | null) ?? null, location: (r.location as string | null) ?? null,
+    category: r.category as MeetingCategory, body: '', recurrence: r.recurrence as MeetingRecurrence,
+    recurrenceUntil: (r.recurrence_until as string | null) ?? null, createdBy: null,
+    createdByName: null, createdAt: '', updatedAt: '', attendeeIds: [],
+  }
+  const occ = expandMeetings([meeting], [], occurrenceDate, occurrenceDate)
+  if (!occ.some(o => o.occurrenceDate === occurrenceDate)) {
+    return { ok: false, error: '해당 날짜는 이 회의의 회차가 아닙니다.' }
+  }
+
+  const input = composeAnnouncementFromMeeting({
+    title: r.title as string,
+    occurrenceDate,
+    startTime: (r.start_time as string | null) ?? null,
+    endTime: (r.end_time as string | null) ?? null,
+    location: (r.location as string | null) ?? null,
+    body: (r.body as string | null) ?? '',
+  }, seoulToday())
+
+  const projectId = r.project_id as string
+  const { data, error } = await sb
+    .from('announcements')
+    .insert({
+      project_id: projectId,
+      title: input.title,
+      body: input.body,
+      category: input.category,
+      is_pinned: input.isPinned,
+      publish_from: input.publishFrom,
+      publish_to: input.publishTo,
+      created_by: user?.id ?? null,
+    })
+    .select('created_at')
+    .single()
+  if (error) return { ok: false, error: error.message }
+  if (user && data?.created_at) {
+    await advanceSeenWatermark(projectId, user.id, data.created_at as string)
+  }
+  revalidateAnnouncements(projectId)
+  return { ok: true }
 }
