@@ -12,7 +12,7 @@ export function TeamProgress({ items }: { items: ComputedItem[] }) {
   const rows = teamProgress(collectLeaves(items))
 
   return (
-    <SectionCard eyebrow="BY OWNER" title="팀별 진척" icon={Users}>
+    <SectionCard eyebrow="BY OWNER" title="팀별 진척현황" icon={Users}>
       <div className="space-y-4">
         {rows.map(s => (
           <div key={s.team} className="flex items-center gap-3">

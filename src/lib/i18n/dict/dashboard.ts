@@ -34,7 +34,7 @@ export const dashboardKo = {
   'dash.exec.dueSoon': '마감임박',
   'dash.exec.reportTitle': '주간보고서 요약(PPT)',
   // ── 본문 재구성(2026-07-09): 트렌드/매트릭스/랭킹/타임라인/에이징/위생 ──
-  'dash.trend.title': '진척 트렌드',
+  'dash.trend.title': '진척현황',
   'dash.trend.empty': '일정 정보가 없어 트렌드를 그릴 수 없습니다. 프로젝트 기간 또는 WBS 일정을 설정하세요.',
   'dash.trend.noHistory': '실적 이력은 지금부터 기록됩니다 — WBS 수정·대시보드 조회 시 자동 축적',
   'dash.spi.title': '속도 지표',

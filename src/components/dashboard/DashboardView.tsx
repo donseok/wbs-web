@@ -112,8 +112,9 @@ export async function DashboardView({
       {/* B. 마일스톤 여정 */}
       <MilestoneTimeline points={milestones} startDate={startDate} endDate={endDate} today={today} />
 
-      {/* C. 진척 트렌드 — S-Curve + SPI/velocity */}
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      {/* C. 진척현황 — S-Curve + SPI/velocity. lg부터 2열 — xl(1280px) 기준이면 배율 확대
+          노트북에서 세로로 쌓여 페이지 스크롤이 길어진다(사용자 요청 2026-07-19). */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <TrendChart model={trend} today={today} />
         <SpiPanel model={trend} variance={round1(actual - planned)} />
       </div>
@@ -135,7 +136,7 @@ export async function DashboardView({
       {/* D. 협업 현황 — 회의 일정 + 근태(좌우 균형).
           today 프롭은 base_date(공정율 기준일)로 고정될 수 있으므로(getComputedWbs) 쓰지 않는다 —
           회의·근태는 진척 산정이 아니라 실제 달력이므로 항상 실제 오늘 기준. */}
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={seoulToday()} />
         <MinuteSignals projectId={projectId} signals={minuteSignals.slice(0, MINUTE_SIGNAL_DISPLAY)} />
       </div>
