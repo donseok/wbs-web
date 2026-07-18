@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
 import { capItems, lineCost, paginateGroups, paginateLines, fillWeeklyTemplate, fillSheetTemplate } from '@/lib/report/templateFill'
@@ -156,6 +156,37 @@ describe('fillWeeklyTemplate (통합)', () => {
     const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
     expect(slide2).not.toContain('특이 이슈 없음')
     expect(slide2).toContain('Kick-Off (7/10)') // 이벤트 셀은 그대로
+  })
+
+  it('extra(AI 코멘트) 지정 시 마지막에 전용 라벨 슬라이드가 추가되고, 본 슬라이드는 불변', async () => {
+    const extra = {
+      left: { title: 'AI 종합 코멘트', groups: [{ phase: '지연 관리가 관건', items: ['. 실적 점검 필요'] }] },
+      right: { title: '주요 리스크·제언', groups: [{ phase: '리스크', items: ['. 지연 누적'] }] },
+    }
+    const plain = await (await JSZip.loadAsync(await fillWeeklyTemplate(narr, model))).file('ppt/slides/slide2.xml')!.async('string')
+    const zip = await JSZip.loadAsync(await fillWeeklyTemplate(narr, model, { extra }))
+    const slide2 = await zip.file('ppt/slides/slide2.xml')!.async('string')
+    const slide3 = await zip.file('ppt/slides/slide3.xml')!.async('string')
+    expect(slide2).toBe(plain)                        // 본 슬라이드 바이트 불변(회귀 보호)
+    expect(slide3).toContain('AI 종합 코멘트')          // 행0 라벨이 슬라이드 고유 라벨로 교체
+    expect(slide3).toContain('주요 리스크·제언')
+    expect(slide3).toContain('지연 관리가 관건')
+    expect(slide3).toContain('지연 누적')
+    expect(slide3).not.toContain('MDM 표준화')          // 본문 내용이 새 슬라이드로 새지 않음
+  })
+
+  it('extra 미지정이면 산출 바이트가 기존과 완전 동일(코드 경로 불변)', async () => {
+    // JSZip 이 재작성 엔트리에 호출 시각(DOS mtime, 2초 해상도)을 찍으므로 Date 만 고정 —
+    // 두 빌드가 2초 틱을 걸치면 내용 동일에도 바이트가 달라지는 플레이키 방지(리뷰 확정).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-01T00:00:00Z'))
+    try {
+      const a = await fillWeeklyTemplate(narr, model)
+      const b = await fillWeeklyTemplate(narr, model, {})
+      expect(Buffer.compare(a, b)).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('산출 zip의 slide2에 주차 내용 반영 + 표 외 파트는 원본과 동일', async () => {

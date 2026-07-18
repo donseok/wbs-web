@@ -1,17 +1,21 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
   CalendarRange,
   FileSpreadsheet,
   Layers,
+  Loader2,
   Presentation,
+  Sparkles,
   TrendingDown,
   TrendingUp,
   Users,
 } from 'lucide-react'
 import type { ComputedItem } from '@/lib/domain/types'
+import { ensureProjectBriefAction, getProjectBriefAction } from '@/app/actions/brief'
 import { buildReportModel } from '@/lib/report/model'
 import { Modal } from '@/components/ui/Modal'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -60,11 +64,94 @@ export function ReportModal({
   )
   const { meta, kpi, phases, delayed, teams } = model
 
+  // ── PPT 'AI 코멘트 포함' — 신선한 캐시가 있을 때만 활성(LLM 0콜 조회). stale/부재면
+  // 인라인 생성 버튼을 노출한다. 409 최종 방어는 서버(/api/report ai=1)가 담당하고
+  // 여기는 평시 게이트만 — 실패는 문구로 정직하게 표시(조용한 비활성 금지).
+  const [aiStatus, setAiStatus] = useState<'loading' | 'fresh' | 'stale' | 'none' | 'failed'>('loading')
+  const [aiChecked, setAiChecked] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [pptBusy, setPptBusy] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    setAiStatus('loading')
+    setAiChecked(false)
+    setAiError(null)
+    getProjectBriefAction(projectId)
+      .then(r => { if (alive) setAiStatus(r.fresh ? 'fresh' : r.hasBrief ? 'stale' : 'none') })
+      .catch(() => { if (alive) setAiStatus('failed') })
+    return () => { alive = false }
+  }, [open, projectId])
+
+  const generateBrief = async () => {
+    if (aiBusy) return
+    setAiBusy(true)
+    try {
+      const r = await ensureProjectBriefAction(projectId)
+      if (r.state !== 'unavailable' && r.fresh) { setAiStatus('fresh'); setAiChecked(true) }
+      else setAiStatus('failed')
+    } catch {
+      setAiStatus('failed')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const withAi = aiChecked && aiStatus === 'fresh'
+  const pptHref = `/api/report?projectId=${encodeURIComponent(projectId)}&format=pptx${withAi ? '&ai=1' : ''}`
+
+  // ai=1 다운로드는 fetch 경유 — <a download> 는 서버 409(브리핑 stale)의 JSON 안내를
+  // 사용자에게 보여줄 수 없어 무설명 실패가 된다(리뷰 확정). 모달을 열어둔 사이 데이터가
+  // 바뀌는 레이스에서 409 원인을 인라인으로 표시하고 신선도 게이트를 되돌린다.
+  const downloadAiPpt = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!withAi || pptBusy) { if (pptBusy) e.preventDefault(); return }
+    e.preventDefault()
+    setPptBusy(true)
+    setAiError(null)
+    try {
+      const res = await fetch(pptHref)
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as { error?: string } | null
+        setAiError(j?.error ?? 'AI 코멘트 포함 다운로드에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+        if (res.status === 409) { setAiStatus('stale'); setAiChecked(false) }
+        return
+      }
+      const blob = await res.blob()
+      const cd = res.headers.get('Content-Disposition') ?? ''
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = m ? decodeURIComponent(m[1]) : 'report.pptx'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setAiError('다운로드에 실패했습니다. 네트워크 상태를 확인하고 잠시 후 다시 시도해 주세요.')
+    } finally {
+      setPptBusy(false)
+    }
+  }
+
   const footer = (
     <>
       <button type="button" onClick={onClose} className="no-print btn btn-ghost">
         닫기
       </button>
+      <label className={`no-print flex items-center gap-1.5 text-xs ${aiStatus === 'fresh' ? 'text-ink-muted' : 'text-ink-subtle'}`}
+        title={aiStatus === 'fresh' ? 'PPT 마지막에 AI 종합 코멘트 슬라이드를 추가합니다' : '신선한 AI 브리핑이 있어야 포함할 수 있습니다'}>
+        <input type="checkbox" checked={withAi} disabled={aiStatus !== 'fresh'}
+          onChange={e => setAiChecked(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--brand)]" />
+        AI 코멘트 포함
+      </label>
+      {(aiStatus === 'stale' || aiStatus === 'none' || aiStatus === 'failed') && (
+        <button type="button" onClick={generateBrief} disabled={aiBusy}
+          className="no-print btn btn-ghost !text-xs disabled:opacity-60">
+          {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {aiBusy ? '생성 중…' : aiStatus === 'failed' ? '생성 실패 — 다시 시도' : 'AI 브리핑 생성'}
+        </button>
+      )}
       <a
         href={`/api/report?projectId=${encodeURIComponent(projectId)}&format=xlsx`}
         className="no-print btn btn-ghost"
@@ -74,13 +161,15 @@ export function ReportModal({
         Excel
       </a>
       <a
-        href={`/api/report?projectId=${encodeURIComponent(projectId)}&format=pptx`}
-        className="no-print btn btn-ghost"
+        href={pptHref}
+        onClick={downloadAiPpt}
+        className={`no-print btn btn-ghost ${pptBusy ? 'pointer-events-none opacity-60' : ''}`}
         download
       >
-        <Presentation className="h-4 w-4" />
+        {pptBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4" />}
         PPT
       </a>
+      {aiError && <span className="no-print w-full text-right text-xs text-accent-warning">{aiError}</span>}
     </>
   )
 

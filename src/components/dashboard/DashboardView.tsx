@@ -4,8 +4,10 @@ import type { SnapshotPoint } from '@/lib/domain/trend'
 import { buildTrend } from '@/lib/domain/trend'
 import { milestoneTimeline } from '@/lib/domain/dashboard'
 import { round1 } from '@/lib/domain/format'
-import { detectRiskSignals } from '@/lib/domain/riskSignals'
 import { overallProgress } from '@/lib/domain/rollup'
+import { briefFactsHash, buildBriefFacts } from '@/lib/ai/brief'
+import { sanitizeRiskItems } from '@/lib/ai/risk-brief'
+import type { AiBriefRow } from '@/lib/data/aiBriefs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -43,6 +45,8 @@ export async function DashboardView({
   meetings = [],
   meetingExceptions = [],
   minuteSignals = [],
+  weeklyBriefRow = null,
+  riskBriefRow = null,
 }: {
   items: ComputedItem[]
   projectId: string
@@ -57,6 +61,9 @@ export async function DashboardView({
   meetings?: Meeting[]
   meetingExceptions?: MeetingException[]
   minuteSignals?: MinuteSignal[]
+  /** AI 브리핑 캐시 행(page.tsx 페치, 읽기 전용 RLS) — 신선도 판정은 여기서 해시 대조로 수행. */
+  weeklyBriefRow?: AiBriefRow | null
+  riskBriefRow?: AiBriefRow | null
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -68,11 +75,30 @@ export async function DashboardView({
   const { actual, planned } = overallProgress(items)
   const trend = buildTrend({ items, snapshots, holidays: new Set(holidays), startDate, endDate, today })
   const milestones = milestoneTimeline(items, today)
-  // 위험 신호 — 기존 props 재조합만(신규 페치 없음). WBS 신호는 today(base_date 우선 — ExecSummary와
-  // 동일 판정), 회의 액션 경과일은 실제 오늘(seoulToday) — '오늘' 이원화는 엔진 계약.
-  const riskReport = detectRiskSignals({
-    items, today, realToday: seoulToday(), snapshots, startDate, endDate, minuteSignals,
+  // 팩트 컨텍스트 — 기존 props 재조합만(신규 페치 없음). 위험 신호(detectRiskSignals)는
+  // buildBriefFacts 내부에서 계산돼 riskReport 로 재사용된다(C3 — 브리핑·신호 카드 근거 단일화).
+  // WBS 신호는 today(base_date 우선 — ExecSummary와 동일 판정), 회의·회의록은 실제 오늘(이중 시계).
+  const realToday = seoulToday()
+  const facts = buildBriefFacts({
+    projectName, items, startDate, endDate, todayWbs: today, realToday,
+    holidays, snapshots, minuteSignals, meetings, meetingExceptions,
   })
+  const riskReport = facts.riskReport
+  const factsHash = briefFactsHash(facts)
+  // 캐시 신선도 — weekly 는 팩트 해시, risk 는 신호 지문이 각자의 단일 근거(0030 계약).
+  const weeklyBrief = weeklyBriefRow && weeklyBriefRow.status === 'ready' ? {
+    headline: weeklyBriefRow.headline,
+    bodyMd: weeklyBriefRow.bodyMd,
+    updatedAt: weeklyBriefRow.updatedAt,
+    model: weeklyBriefRow.model,
+    fresh: weeklyBriefRow.inputHash === factsHash,
+  } : null
+  const riskBrief = riskBriefRow ? {
+    headline: riskBriefRow.headline,
+    items: sanitizeRiskItems(riskBriefRow.items),
+    fresh: riskBriefRow.inputHash === riskReport.fingerprint,
+    status: riskBriefRow.status,
+  } : null
 
   return (
     <div className="space-y-5">
@@ -95,9 +121,13 @@ export async function DashboardView({
       {/* 팀별 진척 — 실행 큐로 내려가기 전에 팀 단위 진행 현황을 한눈에 */}
       <TeamProgress items={items} />
 
-      {/* 위험 신호 — 규칙 기반 탐지 요약(왜 위험한가). 아래 실행 큐(무엇을 할까)로 이어지는 순서라
-          RiskWorklist 바로 위에 둔다. minuteSignals는 minute_block evidence의 bodyHash 앵커 복원용. */}
-      <RiskSignalCard report={riskReport} projectId={projectId} minuteSignals={minuteSignals} />
+      {/* AI 브리핑 & 위험 신호(D1 통합) — 서술(왜 위험한가)에서 아래 실행 큐(무엇을 할까)로
+          이어지는 순서라 RiskWorklist 바로 위에 둔다. minuteSignals는 bodyHash 앵커 복원용. */}
+      <RiskSignalCard
+        report={riskReport} projectId={projectId} minuteSignals={minuteSignals}
+        kpiLine={facts.kpiLine} baseDate={today} realToday={realToday}
+        weeklyBrief={weeklyBrief} riskBrief={riskBrief}
+      />
 
       {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
       <RiskWorklist items={items} projectId={projectId} today={today} />

@@ -4,6 +4,7 @@ import { getSnapshots, recordProgressSnapshot } from '@/lib/data/snapshots'
 import { getAnnouncements } from '@/lib/data/announcements'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { getProjectMinuteSignals } from '@/lib/data/minutes'
+import { getAiBrief } from '@/lib/data/aiBriefs'
 import { listProjects } from '@/app/actions/project'
 import { createServerClient } from '@/lib/supabase/server'
 import { t } from '@/lib/i18n/dict'
@@ -15,7 +16,7 @@ import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, sb] = await Promise.all([
+  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, riskBriefRow, sb] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getAnnouncements(projectId),
@@ -24,8 +25,11 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
     // limit 30 — 위험 신호 탐지(회의 액션 경과)가 최근 8건보다 넓은 창을 봐야 해서 상향.
     // 협업 카드 표시는 DashboardView가 기존 8건으로 잘라 밀도를 유지한다.
     getProjectMinuteSignals(projectId, 30),
+    getAiBrief(projectId, 'risk', ''),          // 위험 해설 캐시 — cache_key 고정('')이라 병렬 가능
     createServerClient(),
   ])
+  // weekly 캐시 키는 getComputedWbs 의 today(base_date 우선)라 병렬 로드 불가 — 후속 1회 조회.
+  const weeklyBriefRow = await getAiBrief(projectId, 'weekly', today)
   // 보험 스냅샷 — 응답 전송 후 실행. 페이지의 after() 안에서는 cookies() 호출이 불가하므로
   // supabase 클라이언트를 미리 만들어 넘긴다(서버 액션 훅과 달리 이 경로만 client 인자 사용).
   after(() => recordProgressSnapshot(projectId, sb))
@@ -51,6 +55,8 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         meetings={meetingData.meetings}
         meetingExceptions={meetingData.exceptions}
         minuteSignals={minuteSignals}
+        weeklyBriefRow={weeklyBriefRow}
+        riskBriefRow={riskBriefRow}
       />
     </ProjectPageShell>
   )

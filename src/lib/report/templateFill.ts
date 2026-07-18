@@ -6,6 +6,7 @@ import {
 } from './xml'
 import type { NarrativeGroup, NarrativeModel } from './narrative'
 import type { SheetSectionCells } from './sheetNarrative'
+import type { ExtraNarrativeSlide } from './aiComment'
 
 /* ── 셀 용량·페이지 분할(순수). 템플릿 셀 높이가 고정 → 넘치는 내용은 잘라내지 않고
  *    slide2를 복제한 연속 슬라이드로 이어 붙인다(활동 항목 유실 없음). ── */
@@ -151,6 +152,9 @@ async function appendContinuationSlides(zip: JSZip, buildPage: (i: number) => st
 export interface FillTemplateOptions {
   labels?: { left: string; right: string }      // 행0 헤더 라벨(범위는 meta에서 합성)
   lineFormatter?: (item: string) => string      // 상세 줄 표기(렌더·줄수 추정 공용)
+  /** AI 종합 코멘트 추가 슬라이드(캐시된 브리핑 — briefToExtraSlide 산출).
+   *  미지정 시 코드 경로·출력 완전 불변(운영 보고서 회귀 보호). */
+  extra?: ExtraNarrativeSlide
 }
 
 /** 한 셀의 렌더 입력 — 표시할 그룹들과, 그룹이 아무것도 못 그릴 때의 대체 문구. */
@@ -158,8 +162,12 @@ interface CellFill { groups: NarrativeGroup[]; empty: string }
 /** 이슈/이벤트 셀 채움 — 줄 목록 + 빈 대체 문구. flat=true면 콘텐츠 하위 줄과 동일한 무불릿 서식(시트 경로),
  *  false면 그룹 불릿(제목 앞 점)으로 렌더(WBS 자동 보고 경로). */
 interface IssueFill { lines: string[]; empty: string; flat: boolean }
-/** 슬라이드 하나의 4개 콘텐츠 셀(행1 좌/우 = 실적/계획, 행2 좌/우 = 이슈/이벤트). 헤더 행0은 공통. */
-interface SlideFill { contentLeft: CellFill; contentRight: CellFill; issueLeft: IssueFill; eventRight: IssueFill }
+/** 슬라이드 하나의 4개 콘텐츠 셀(행1 좌/우 = 실적/계획, 행2 좌/우 = 이슈/이벤트). 헤더 행0은 공통이되
+ *  labels 지정 슬라이드(AI 코멘트)는 자기 라벨로 덮는다. */
+interface SlideFill {
+  contentLeft: CellFill; contentRight: CellFill; issueLeft: IssueFill; eventRight: IssueFill
+  labels?: { left: string; right: string }
+}
 
 /** 기본(WBS) 슬라이드: 실적/계획을 각자 예산까지 묶어 독립 분할하고 인덱스로 정렬.
  *  이슈/이벤트는 1페이지에만 싣고 연속 페이지는 '-'(기존 동작 유지). */
@@ -243,9 +251,10 @@ async function renderTemplate(
 
   const buildPage = (i: number): string => {
     const s = slides[i]
+    const lb = s.labels ?? labels
     let x = slide2
-    x = mapTableCell(x, 0, 1, buildHeaderCellTxBody(labels.left, meta.prevWeekRange, hdrSk))
-    x = mapTableCell(x, 0, 2, buildHeaderCellTxBody(labels.right, meta.weekRange, hdrSk))
+    x = mapTableCell(x, 0, 1, buildHeaderCellTxBody(lb.left, meta.prevWeekRange, hdrSk))
+    x = mapTableCell(x, 0, 2, buildHeaderCellTxBody(lb.right, meta.weekRange, hdrSk))
     x = mapTableCell(x, 1, 1, buildCellTxBody(s.contentLeft.groups, contentSk, s.contentLeft.empty, fmt))
     x = mapTableCell(x, 1, 2, buildCellTxBody(s.contentRight.groups, contentSk, s.contentRight.empty, fmt))
     x = mapTableCell(x, 2, 1, renderIssue(s.issueLeft))   // 이슈(전주 위치)
@@ -258,8 +267,30 @@ async function renderTemplate(
   return (await zip.generateAsync({ type: 'nodebuffer' })) as Buffer
 }
 
+/** AI 코멘트 추가 슬라이드 — 좌/우 셀을 각자 예산으로 분할(넘치면 '(계속)' 연속 페이지),
+ *  이슈/이벤트 행은 빈칸. 행0 라벨은 슬라이드 고유(AI 종합 코멘트/주요 리스크·제언)로 덮는다. */
+function buildExtraSlides(extra: ExtraNarrativeSlide, fmt: (item: string) => string): SlideFill[] {
+  const toGroups = (cell: ExtraNarrativeSlide['left']): NarrativeGroup[] =>
+    cell.groups.map((g, i) => ({ phase: g.phase, num: i, items: g.items }))
+  const leftPages = paginateGroups(toGroups(extra.left), CELL_BUDGET, fmt)
+  const rightPages = paginateGroups(toGroups(extra.right), CELL_BUDGET, fmt)
+  const n = Math.max(leftPages.length, rightPages.length)
+  const slides: SlideFill[] = []
+  for (let i = 0; i < n; i += 1) {
+    slides.push({
+      contentLeft: { groups: leftPages[i] ?? [], empty: '-' },
+      contentRight: { groups: rightPages[i] ?? [], empty: '-' },
+      issueLeft: { lines: [], empty: '', flat: true },
+      eventRight: { lines: [], empty: '', flat: true },
+      labels: { left: extra.left.title, right: extra.right.title },
+    })
+  }
+  return slides
+}
+
 /** 주간 내러티브 → 템플릿 디자인 그대로의 PPTX(nodebuffer). 내용이 길면 페이지 자동 추가.
- *  model은 헤더 범위(meta)만 쓰므로 구조적 부분집합 허용 — 시트 경로는 최소 meta만 합성해 넘긴다. */
+ *  model은 헤더 범위(meta)만 쓰므로 구조적 부분집합 허용 — 시트 경로는 최소 meta만 합성해 넘긴다.
+ *  opts.extra 지정 시에만 마지막에 AI 코멘트 슬라이드를 덧붙인다(미지정 = 기존 출력 불변). */
 export async function fillWeeklyTemplate(
   narr: NarrativeModel,
   model: { meta: { prevWeekRange: string; weekRange: string } },
@@ -267,7 +298,9 @@ export async function fillWeeklyTemplate(
 ): Promise<Buffer> {
   const labels = opts.labels ?? { left: '전주 주요활동', right: '금주 주요활동' }
   const fmt = opts.lineFormatter ?? subLineText
-  return renderTemplate(buildDefaultSlides(narr, fmt), model.meta, labels, fmt)
+  const slides = buildDefaultSlides(narr, fmt)
+  if (opts.extra) slides.push(...buildExtraSlides(opts.extra, fmt))
+  return renderTemplate(slides, model.meta, labels, fmt)
 }
 
 /** 주간업무 시트 → 구분(업무영역)당 한 페이지 PPTX. 전 구분(내용 없는 구분 포함)을 페이지로 만들고,

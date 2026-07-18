@@ -5,20 +5,27 @@ import { minuteSourceHref } from '@/lib/minutes/source'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { MiniEmpty } from './bits'
 import { SIGNAL_META } from './signalStyle'
+import { WeeklyBriefSection, type WeeklyBriefInitial } from './WeeklyBriefSection'
+import { RiskBriefNotes, type RiskBriefInitial } from './RiskBriefNotes'
 
 /**
- * 위험 신호 카드 — riskSignals 엔진(규칙 기반 탐지 5종)의 결과를 그대로 보여준다.
+ * AI 브리핑 & 위험 신호 통합 카드(D1 확정) — 세 층으로 구성된다.
+ *  ① 주간 AI 브리핑(상단): LLM 서술, 버튼 온디맨드 전용(열람 자동 생성 금지).
+ *  ② 위험 신호 목록(중단): riskSignals 엔진(규칙 기반 탐지 5종)의 결정형 결과 그대로.
+ *  ③ 신호별 AI 해설(하단): 지문 게이트 self-heal(D2) — 신호가 바뀔 때만 1콜.
+ * 두 AI 층이 모두 실패해도 ②는 항상 유효하다 — 브리핑의 리스크 팩트가 같은
+ * RiskSignalReport 를 소비(C3)하므로 층간 수치 모순은 구조적으로 불가능하다.
  *
  * 왜 "예측"이 아닌가: 신호는 기존 대시보드 지표(진척 정체·에이징·SPI 등)의 재조합이라
  * ExecSummary·RiskWorklist와 절대 모순되지 않고, 모든 신호는 evidence 딥링크(WBS 행 focus /
  * 회의록 원문 블록)로 사용자가 원문에서 직접 검증할 수 있다 — 헤더의 '규칙 기반 탐지' 칩이
- * 이 계약의 UI 명문화다. LLM 없이 완결되는 결정형 카드라 AI 해설 실패·부재와 무관하게 항상 유효.
+ * 이 계약의 UI 명문화다.
  *
  * 정직한 무신호: 신호 0건은 빈 카드 숨김이 아니라 MiniEmpty로 명시하고, 탐지가 구조적으로
  * 침묵하는 조건(SPI 스냅샷 이력 부족, 계획 데이터 미비)은 캐비앗으로 함께 표기한다 —
  * '조용한 무신호'가 '위험 없음'으로 위장되지 않게(silent-empty 3원칙).
  *
- * 텍스트는 RiskWorklist 선례에 따라 한국어 하드코딩(i18n 전면 번역 보류 결정과 일치).
+ * 텍스트는 RiskWorklist 선례에 따라 한국어 하드코딩(D7 확정 — i18n 전면 번역 보류와 일치).
  */
 
 /** severity → 행 테두리 틴트(RiskWorklist ROW_META 미러) + 색맹 대응 텍스트 라벨(SignalTile statusText 관례). */
@@ -58,11 +65,23 @@ function evidenceHref(e: EvidenceRef, projectId: string, bodyHashOf: Map<string,
     : `/minutes/${e.minuteId}`
 }
 
-export function RiskSignalCard({ report, projectId, minuteSignals = [] }: {
+export function RiskSignalCard({
+  report, projectId, minuteSignals = [], kpiLine, baseDate, realToday, weeklyBrief = null, riskBrief = null,
+}: {
   report: RiskSignalReport
   projectId: string
   /** minute_block evidence 앵커 복원용 — 대시보드가 이미 페치한 회의 인사이트 재사용(신규 페치 없음). */
   minuteSignals?: MinuteAnchorSource[]
+  /** 결정형 KPI 라인(buildBriefFacts 조립) — LLM 산출이 아니라 항상 표기. */
+  kpiLine: string
+  /** 진척·리스크 기준일(base_date 우선) — 이중 시계 캡션용. */
+  baseDate: string
+  /** 실제 오늘(Asia/Seoul) — 이중 시계 캡션용. */
+  realToday: string
+  /** 주간 브리핑 캐시(서버 조립: status='ready' 행 + 팩트 해시 대조 완료). */
+  weeklyBrief?: WeeklyBriefInitial | null
+  /** 위험 해설 캐시(서버 조립: 지문 대조 완료). */
+  riskBrief?: RiskBriefInitial | null
 }) {
   const bodyHashOf = new Map(minuteSignals.map(s => [anchorKey(s.minuteId, s.blockIndex, s.blockHash), s.bodyHash]))
   const overall = SIGNAL_META[report.overall]
@@ -80,14 +99,25 @@ export function RiskSignalCard({ report, projectId, minuteSignals = [] }: {
   // 회의 일정에 연결되지 않은 회의록은 탐지 범위 밖 — 데이터 상태와 무관한 경계라 항상 표기한다.
   caveats.push('회의 액션 신호는 회의 일정에 연결된 회의록만 탐지합니다 — 미연결 회의록의 액션·기한은 포함되지 않습니다.')
 
+  const signalTitles = Object.fromEntries(report.signals.map(s => [s.id, s.title]))
+
   return (
-    <SectionCard eyebrow="RISK SIGNALS" title="위험 신호" icon={Siren}
+    <SectionCard eyebrow="AI BRIEFING & RISK SIGNALS" title="AI 브리핑 & 위험 신호" icon={Siren}
       actions={
         <>
-          <span className="chip bg-surface-2 text-ink-subtle">규칙 기반 탐지</span>
+          <span className="chip bg-surface-2 text-ink-subtle">규칙 기반 탐지 + AI 해설</span>
           <span className={`chip ${overall.chip}`}>신호 {report.signals.length}건</span>
         </>
       }>
+      {/* ① 주간 AI 브리핑 — 버튼 온디맨드(클라이언트). 실패해도 아래 결정형 목록은 유효. */}
+      <div className="mb-4">
+        <WeeklyBriefSection
+          projectId={projectId} kpiLine={kpiLine} baseDate={baseDate} realToday={realToday}
+          initial={weeklyBrief}
+        />
+      </div>
+
+      {/* ② 결정형 위험 신호 목록 — LLM 무관 항상 렌더 */}
       {report.signals.length === 0 ? <MiniEmpty text="감지된 위험 신호 없음" /> : (
         <div className="space-y-2">
           {report.signals.map(s => {
@@ -122,6 +152,12 @@ export function RiskSignalCard({ report, projectId, minuteSignals = [] }: {
           })}
         </div>
       )}
+      {/* ③ 신호별 AI 해설 — 지문 게이트 self-heal(클라이언트). 신호 0건이면 미렌더. */}
+      <RiskBriefNotes
+        projectId={projectId} signalCount={report.signals.length}
+        signalTitles={signalTitles} initial={riskBrief}
+      />
+
       {caveats.length > 0 && (
         <ul className="mt-3 space-y-1">
           {caveats.map(c => <li key={c} className="text-[11px] leading-4 text-ink-subtle">· {c}</li>)}
