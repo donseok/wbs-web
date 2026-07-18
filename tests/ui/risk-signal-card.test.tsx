@@ -14,7 +14,8 @@ import { RiskSignalCard, type MinuteAnchorSource } from '@/components/dashboard/
 /* ── 픽스처 — 엔진 산출 형태를 그대로 구성(카드는 재계산 없이 표시만 해야 한다) ── */
 const cleanHygiene = { noOwner: 0, noDates: 0, mixedWeight: 0, clean: true }
 const report = (over: Partial<RiskSignalReport> = {}): RiskSignalReport => ({
-  signals: [], overall: 'green', hygiene: cleanHygiene, fingerprint: 'f', today: '2026-07-15', ...over,
+  signals: [], overall: 'green', hygiene: cleanHygiene, trendSparse: false,
+  fingerprint: 'f', today: '2026-07-15', ...over,
 })
 
 describe('RiskSignalCard', () => {
@@ -59,11 +60,14 @@ describe('RiskSignalCard', () => {
     const html = renderToStaticMarkup(<RiskSignalCard projectId="p1" report={report()} />)
     expect(html).toContain('감지된 위험 신호 없음')
     expect(html).toContain('신호 0건')
+    // 구조적 사각지대(회의 미연결 회의록)는 데이터 상태와 무관하게 항상 표기(D6 v1 수용)
+    expect(html).toContain('미연결 회의록의 액션·기한은 포함되지 않습니다')
   })
 
   it('탐지 불능 조건(SPI 이력 부족·데이터 미비)은 무신호여도 캐비앗으로 표기한다', () => {
     const html = renderToStaticMarkup(
-      <RiskSignalCard projectId="p1" trendSparse report={report({
+      <RiskSignalCard projectId="p1" report={report({
+        trendSparse: true,
         hygiene: { noOwner: 2, noDates: 1, mixedWeight: 0, clean: false },
       })} />,
     )

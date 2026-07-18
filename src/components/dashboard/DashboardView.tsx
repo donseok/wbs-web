@@ -23,8 +23,6 @@ function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
-// riskSignals delay_trend 표본 수(SPI_TAIL) 미러 — '이력 부족' 캐비앗 판정 전용(임계값 소유자는 엔진).
-const SPI_TAIL_MIRROR = 3
 // 회의 인사이트 카드 표시 상한 — 페치는 위험 신호 탐지 겸용으로 상향됐지만(page.tsx),
 // 협업 2열 카드의 기존 '최근 8건' 밀도는 유지한다.
 const MINUTE_SIGNAL_DISPLAY = 8
@@ -99,12 +97,7 @@ export async function DashboardView({
 
       {/* 위험 신호 — 규칙 기반 탐지 요약(왜 위험한가). 아래 실행 큐(무엇을 할까)로 이어지는 순서라
           RiskWorklist 바로 위에 둔다. minuteSignals는 minute_block evidence의 bodyHash 앵커 복원용. */}
-      <RiskSignalCard
-        report={riskReport}
-        projectId={projectId}
-        minuteSignals={minuteSignals}
-        trendSparse={trend.spiSeries.length < SPI_TAIL_MIRROR}
-      />
+      <RiskSignalCard report={riskReport} projectId={projectId} minuteSignals={minuteSignals} />
 
       {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
       <RiskWorklist items={items} projectId={projectId} today={today} />

@@ -61,6 +61,22 @@ describe('delay_trend', () => {
     // today=07-08이면 07-10 스냅샷 제외 → 2점뿐 → 비발화 (realToday=07-15는 무관)
     expect(find(run({ snapshots: falling, today: '2026-07-08', realToday: TODAY }), 'delay_trend')).toBeUndefined()
   })
+
+  /* trendSparse — 캐비앗 판정도 신호와 같은 시계열을 봐야 한다(카드-엔진 모순 차단) */
+  it('trendSparse: 유효 표본 3점 이상이면 false, 미만이면 true', () => {
+    expect(run({ snapshots: falling }).trendSparse).toBe(false)
+    expect(run({ snapshots: falling.slice(1) }).trendSparse).toBe(true)
+    expect(run().trendSparse).toBe(true)  // 스냅샷 전무
+  })
+  it('trendSparse: planned<5 가드로 제외된 표본은 세지 않는다 — 신호 판정과 동일 표본', () => {
+    // 원시 3점이지만 가드 통과는 2점 → sparse(신호도 같은 이유로 비발화)
+    const r = run({ snapshots: [snap('2026-06-20', 2, 3), ...falling.slice(1)] })
+    expect(r.trendSparse).toBe(true)
+    expect(find(r, 'delay_trend')).toBeUndefined()
+  })
+  it('trendSparse: today 이후 스냅샷 제외 후 판정 — 표본 충분이었다가 부족해지면 true', () => {
+    expect(run({ snapshots: falling, today: '2026-07-08' }).trendSparse).toBe(true)
+  })
 })
 
 /* ═══ ② deadline_stall — 7일 내 마감 + 계획 대비 갭>0 ═══ */

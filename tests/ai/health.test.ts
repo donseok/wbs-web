@@ -43,6 +43,13 @@ describe('pgErrorCode / isSchemaMissing', () => {
     expect(isSchemaMissing(new Error('네트워크 시간 초과'))).toBe(false)
     expect(isSchemaMissing(null)).toBe(false)
   })
+
+  it('대상 객체 패턴을 넘기면 그 객체의 부재만 잡는다(0030 briefs 프로브 규칙)', () => {
+    const pgrst205 = { code: 'PGRST205', message: "Could not find the table 'public.project_ai_briefs' in the schema cache" }
+    expect(isSchemaMissing(pgrst205, /project_ai_briefs/i)).toBe(true)
+    // 기본(pgvector 계열) 패턴으로는 briefs 부재를 미적용으로 판정하지 않는다 — 상태 축 분리
+    expect(isSchemaMissing(pgrst205)).toBe(false)
+  })
 })
 
 describe('dkbotHealth', () => {
@@ -54,35 +61,65 @@ describe('dkbotHealth', () => {
   })
   afterEach(() => vi.unstubAllEnvs())
 
-  it('service_role 미설정이면 schema=no_service_role', async () => {
+  /** dkbotHealth 용 가짜 admin — RPC(0010)와 briefs 테이블(0030) 프로브 결과를 개별 지정. */
+  function fakeHealthAdmin(
+    rpcResult: { data: unknown; error: unknown },
+    briefsResult: { count: number | null; error: unknown } = { count: 0, error: null },
+  ) {
+    return {
+      rpc: vi.fn(async () => rpcResult),
+      from: vi.fn(() => tableChain(briefsResult, null)),
+    }
+  }
+
+  it('service_role 미설정이면 schema/briefs=no_service_role', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '')
     const h = await dkbotHealth()
     expect(h.serviceRole).toBe(false)
     expect(h.schema).toBe('no_service_role')
+    expect(h.briefs).toBe('no_service_role')
     expect(h.llm).toBe(true)
     expect(h.embeddings).toBe(true)
     expect(mockedCreate).not.toHaveBeenCalled()
   })
 
-  it('RPC 프로빙 성공이면 schema=ready', async () => {
+  it('RPC·briefs 프로빙 모두 성공이면 schema/briefs=ready', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://x.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'svc')
-    const rpc = vi.fn(async () => ({ data: [], error: null }))
-    mockedCreate.mockReturnValue({ rpc } as never)
+    const admin = fakeHealthAdmin({ data: [], error: null })
+    mockedCreate.mockReturnValue(admin as never)
     const h = await dkbotHealth()
     expect(h.schema).toBe('ready')
-    expect(rpc).toHaveBeenCalledWith('match_wbs_documents', expect.objectContaining({ match_count: 1 }))
+    expect(h.briefs).toBe('ready')
+    expect(admin.rpc).toHaveBeenCalledWith('match_wbs_documents', expect.objectContaining({ match_count: 1 }))
+    expect(admin.from).toHaveBeenCalledWith('project_ai_briefs')
   })
 
-  it('RPC 가 테이블 부재 에러면 schema=missing', async () => {
+  it('RPC 가 테이블 부재 에러면 schema=missing (briefs 는 독립적으로 ready)', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://x.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'svc')
-    mockedCreate.mockReturnValue({
-      rpc: vi.fn(async () => ({ data: null, error: { code: '42P01', message: 'relation does not exist' } })),
-    } as never)
+    mockedCreate.mockReturnValue(
+      fakeHealthAdmin({ data: null, error: { code: '42P01', message: 'relation does not exist' } }) as never,
+    )
     const h = await dkbotHealth()
     expect(h.schema).toBe('missing')
+    expect(h.briefs).toBe('ready')
+  })
+
+  it('briefs 테이블 부재(PGRST205)면 briefs=missing (schema 는 독립적으로 ready)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://x.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'svc')
+    mockedCreate.mockReturnValue(
+      fakeHealthAdmin(
+        { data: [], error: null },
+        { count: null, error: { code: 'PGRST205', message: "Could not find the table 'public.project_ai_briefs' in the schema cache" } },
+      ) as never,
+    )
+    const h = await dkbotHealth()
+    expect(h.schema).toBe('ready')
+    expect(h.briefs).toBe('missing')
+    expect(h.detail).toContain('project_ai_briefs')
   })
 })
 

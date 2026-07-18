@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Siren } from 'lucide-react'
-import type { EvidenceRef, RiskSeverity, RiskSignalReport } from '@/lib/domain/riskSignals'
+import { SPI_TAIL, type EvidenceRef, type RiskSeverity, type RiskSignalReport } from '@/lib/domain/riskSignals'
 import { minuteSourceHref } from '@/lib/minutes/source'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { MiniEmpty } from './bits'
@@ -58,25 +58,27 @@ function evidenceHref(e: EvidenceRef, projectId: string, bodyHashOf: Map<string,
     : `/minutes/${e.minuteId}`
 }
 
-export function RiskSignalCard({ report, projectId, minuteSignals = [], trendSparse = false }: {
+export function RiskSignalCard({ report, projectId, minuteSignals = [] }: {
   report: RiskSignalReport
   projectId: string
   /** minute_block evidence 앵커 복원용 — 대시보드가 이미 페치한 회의 인사이트 재사용(신규 페치 없음). */
   minuteSignals?: MinuteAnchorSource[]
-  /** SPI 시계열 표본 부족(지연 추세 신호 판정 불가) — 조용한 무신호 위장 방지 캐비앗. */
-  trendSparse?: boolean
 }) {
   const bodyHashOf = new Map(minuteSignals.map(s => [anchorKey(s.minuteId, s.blockIndex, s.blockHash), s.bodyHash]))
   const overall = SIGNAL_META[report.overall]
 
   // 탐지기가 구조적으로 침묵하는 조건 — 무신호·유신호 모두에 표기해 '위험 없음'과 구분한다.
+  // trendSparse는 엔진이 자기 시계열로 판정한 값(report 소유) — 신호와 캐비앗의 표본이 항상 같다.
   const caveats: string[] = []
-  if (trendSparse) caveats.push('SPI 스냅샷 이력이 부족해(3회 미만) 지연 추세 신호는 아직 판정할 수 없습니다.')
+  if (report.trendSparse) caveats.push(`SPI 스냅샷 이력이 부족해(${SPI_TAIL}회 미만) 지연 추세 신호는 아직 판정할 수 없습니다.`)
   if (!report.hygiene.clean) {
     caveats.push(
       `계획 데이터 미비(담당 미지정 ${report.hygiene.noOwner} · 일정 미입력 ${report.hygiene.noDates} · 가중치 혼재 ${report.hygiene.mixedWeight}) — 신호가 실제보다 적게 감지될 수 있습니다.`,
     )
   }
+  // 구조적 사각지대(D6 v1 수용): 회의 액션 소스(getProjectMinuteSignals)가 meetings inner join이라
+  // 회의 일정에 연결되지 않은 회의록은 탐지 범위 밖 — 데이터 상태와 무관한 경계라 항상 표기한다.
+  caveats.push('회의 액션 신호는 회의 일정에 연결된 회의록만 탐지합니다 — 미연결 회의록의 액션·기한은 포함되지 않습니다.')
 
   return (
     <SectionCard eyebrow="RISK SIGNALS" title="위험 신호" icon={Siren}

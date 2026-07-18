@@ -16,18 +16,23 @@ export function pgErrorCode(e: unknown): string | undefined {
   return undefined
 }
 
+// 메시지 휴리스틱의 대상 객체 — 기본은 0010(pgvector) 계열, 브리핑 캐시는 0030 테이블.
+const VECTOR_OBJECTS = /wbs_embeddings|match_wbs_documents|\bvector\b/i
+const BRIEFS_OBJECTS = /project_ai_briefs/i
+
 /**
- * 마이그레이션 0010(pgvector) 미적용 신호인지 판별.
+ * 마이그레이션 미적용 신호인지 판별(기본 대상: 0010 pgvector 계열 객체).
  * 42P01 undefined_table / 42883 undefined_function / 42704 undefined_object(type)
- * / 3F000 invalid_schema, 또는 메시지에 관련 객체명 + "존재하지 않음"이 함께 보이는 경우.
+ * / 3F000 invalid_schema, 또는 메시지에 대상 객체명 + "존재하지 않음"이 함께 보이는 경우.
+ * PostgREST 스키마 캐시 부재("Could not find the table ...", PGRST205)도 메시지 규칙이 잡는다.
  */
-export function isSchemaMissing(e: unknown): boolean {
+export function isSchemaMissing(e: unknown, objects: RegExp = VECTOR_OBJECTS): boolean {
   const code = pgErrorCode(e)
   if (code && ['42P01', '42883', '42704', '3F000'].includes(code)) return true
   const msg =
     e instanceof Error ? e.message : typeof e === 'string' ? e : ((e as { message?: unknown })?.message as string)
   if (typeof msg === 'string') {
-    const hitsObject = /wbs_embeddings|match_wbs_documents|\bvector\b/i.test(msg)
+    const hitsObject = objects.test(msg)
     const hitsMissing = /does not exist|존재하지\s*않|undefined|unknown function|could not find/i.test(msg)
     return hitsObject && hitsMissing
   }
@@ -45,13 +50,15 @@ export interface DkbotHealth {
   llm: boolean // LLM 답변 키 설정됨
   embeddings: boolean // 임베딩(의미검색) 키 설정됨
   serviceRole: boolean // service_role 키 설정됨(색인 쓰기/RPC 호출 가능)
-  schema: SchemaState // pgvector 스키마/RPC 적용 상태
+  schema: SchemaState // pgvector(0010) 스키마/RPC 적용 상태
+  briefs: SchemaState // AI 브리핑 캐시(0030 project_ai_briefs) 적용 상태
   detail?: string
 }
 
 /**
  * 전반적 헬스 체크. schema 는 match_wbs_documents RPC 를 단위 벡터로 1회 프로빙하여
- * vector 확장·테이블·함수 존재를 한 번에 확인한다(실데이터 변경 없음).
+ * vector 확장·테이블·함수 존재를 한 번에 확인하고, briefs 는 project_ai_briefs 를
+ * head 카운트로 1회 프로빙한다(둘 다 실데이터 변경 없음).
  */
 export async function dkbotHealth(): Promise<DkbotHealth> {
   const base = {
@@ -60,23 +67,30 @@ export async function dkbotHealth(): Promise<DkbotHealth> {
     embeddings: hasEmbeddings(),
     serviceRole: serviceRoleConfigured(),
   }
-  if (!base.serviceRole) return { ...base, schema: 'no_service_role' }
+  if (!base.serviceRole) return { ...base, schema: 'no_service_role', briefs: 'no_service_role' }
   try {
     const admin = createAdminClient()
     const dim = embedConfig().dim
     // 단위 벡터(영벡터는 코사인 거리 NaN 유발 가능 → 첫 성분만 1)로 RPC 프로빙.
     const probe = new Array(dim).fill(0)
     probe[0] = 1
-    const { error } = await admin.rpc('match_wbs_documents', {
-      query_embedding: probe,
-      match_count: 1,
-      p_project_id: null,
-      p_kinds: null,
-    })
-    if (error) return { ...base, schema: isSchemaMissing(error) ? 'missing' : 'error', detail: error.message }
-    return { ...base, schema: 'ready' }
+    const [rpc, briefsProbe] = await Promise.all([
+      admin.rpc('match_wbs_documents', {
+        query_embedding: probe,
+        match_count: 1,
+        p_project_id: null,
+        p_kinds: null,
+      }),
+      admin.from('project_ai_briefs').select('id', { count: 'exact', head: true }),
+    ])
+    const schema: SchemaState = rpc.error ? (isSchemaMissing(rpc.error) ? 'missing' : 'error') : 'ready'
+    const briefs: SchemaState = briefsProbe.error
+      ? (isSchemaMissing(briefsProbe.error, BRIEFS_OBJECTS) ? 'missing' : 'error')
+      : 'ready'
+    const detail = rpc.error?.message ?? briefsProbe.error?.message
+    return detail !== undefined ? { ...base, schema, briefs, detail } : { ...base, schema, briefs }
   } catch (e) {
-    return { ...base, schema: 'error', detail: e instanceof Error ? e.message : String(e) }
+    return { ...base, schema: 'error', briefs: 'error', detail: e instanceof Error ? e.message : String(e) }
   }
 }
 
