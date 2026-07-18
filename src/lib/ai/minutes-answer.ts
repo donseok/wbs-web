@@ -1,6 +1,7 @@
 import { generateAnswerStream, type ChatMessage } from './llm'
 import { hasLLM, hasEmbeddings } from './provider'
 import { embedTexts } from './embeddings'
+import { passesSimilarity } from './similarity'
 import { extractSearchKeywords } from './intent'
 import { healMissingMinuteEmbeddings } from './minutes-ingest'
 import { createServerClient } from '@/lib/supabase/server'
@@ -21,11 +22,6 @@ const ARCHIVE_SYSTEM = `너는 D'Flow 의 회의록 보관함 어시스턴트야
 - 여러 회의록에 걸치면 회의록별로 불릿(•)으로 정리한다.`
 
 const DEGRADED_NOTICE = '⚠ AI 응답이 잠시 원활하지 않아 검색 결과만 알려드려요. 잠시 후 다시 물어보세요.\n\n'
-
-const MIN_SIMILARITY = (() => {
-  const v = Number(process.env.DKBOT_MIN_SIMILARITY) // DK Bot 과 동일 규칙 복제(원본은 미export)
-  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.35
-})()
 
 const trimHistory = (h: ChatMessage[]) => h.slice(-8)
 
@@ -124,7 +120,7 @@ export async function streamArchiveAnswer(input: {
       })
       if (error) console.error('[minutes] match_minute_documents 실패:', error.message)
       matches = ((data as Record<string, unknown>[] | null) ?? [])
-        .filter(m => (m.similarity as number) >= MIN_SIMILARITY)
+        .filter(m => passesSimilarity(m.similarity as number)) // DK Bot 검색과 동일 컷오프(similarity.ts 단일 출처)
         .map(m => ({
           minuteId: m.minute_id as string, content: m.content as string,
           minuteDate: m.minute_date as string, teamCode: m.team_code as string,

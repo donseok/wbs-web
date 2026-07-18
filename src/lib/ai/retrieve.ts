@@ -1,6 +1,7 @@
 import { embedTexts } from './embeddings'
 import { hasEmbeddings } from './provider'
 import { isSchemaMissing } from './health'
+import { passesSimilarity } from './similarity'
 import { createServerClient } from '@/lib/supabase/server'
 
 export interface Match {
@@ -19,16 +20,6 @@ interface RawMatch {
   content: string
   similarity: number
 }
-
-// 코사인 유사도 하한. 이보다 낮은(=의미적으로 먼) 결과는 '관련 작업'으로 제시하지 않는다.
-// 임계값 미만이면 무관한 질문에도 가장 가까운 행들이 끌려와 근거를 흐리므로 컷한다.
-// 실데이터로 튜닝하려면 DKBOT_MIN_SIMILARITY(0~1) 로 덮어쓸 수 있다.
-const MIN_SIMILARITY = (() => {
-  const v = Number(process.env.DKBOT_MIN_SIMILARITY)
-  // 0.35 기본값: gemini-embedding-001(코사인)로 짧은 한국어 질의는 관련 항목이라도 0.4~0.6 대에
-  // 분포해 0.55 는 과하게 걸러 '관련 작업 없음'이 잦았다. 실데이터로 DKBOT_MIN_SIMILARITY 로 튜닝.
-  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.35
-})()
 
 /**
  * 질문을 임베딩해 pgvector 의미검색(match_wbs_documents)으로 관련 문서 top-K 회수.
@@ -64,7 +55,7 @@ export async function retrieveContext(query: string, projectId: string | null, k
       return []
     }
     return ((data as RawMatch[] | null) ?? [])
-      .filter(m => m.similarity >= MIN_SIMILARITY) // 약한 매칭은 근거에서 제외
+      .filter(m => passesSimilarity(m.similarity)) // 약한 매칭은 근거에서 제외(임계값 해석은 similarity.ts 단일 출처)
       .map(m => ({
         kind: m.kind,
         refId: m.ref_id,

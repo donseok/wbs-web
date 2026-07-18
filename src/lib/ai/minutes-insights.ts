@@ -1,5 +1,6 @@
 import { generateAnswer } from './llm'
 import { hasLLM } from './provider'
+import { createEnsureGate } from './ensure'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64, type MinuteBlock } from '@/lib/minutes/blocks'
 import type { InsightKind } from '@/lib/domain/types'
@@ -87,10 +88,11 @@ export async function generateMinuteInsights(minuteId: string, bodyMd: string): 
   }
 }
 
-// ── 열람 self-heal — 회의록 단위 in-flight dedupe + 60초 쿨다운 (healMissingMinuteEmbeddings 미러) ──
-const insightInFlight = new Map<string, Promise<void>>()
-const insightLastAttempt = new Map<string, number>()
-const INSIGHT_COOLDOWN_MS = 60_000
+// ── 열람 self-heal — 회의록 단위 in-flight dedupe + 60초 쿨다운 (healMissingMinuteEmbeddings 미러).
+// 게이트 상태(Map)는 공용 헬퍼(ensure.ts) 클로저에 있고, 모듈 로드 시 1회 생성해
+// 기존 모듈 스코프 Map 과 동일한 인스턴스 메모리 수명을 유지한다.
+const INSIGHT_LOG_LABEL = '[minutes] 인사이트 ensure 실패(무시):'
+const ensureInsightGate = createEnsureGate({ cooldownMs: 60_000, logLabel: INSIGHT_LOG_LABEL })
 
 /**
  * 인사이트가 없거나 stale 이면 생성 시도. 호출측(서버 액션)이 신선하면 아예 부르지 않지만
@@ -110,20 +112,13 @@ export async function ensureMinuteInsights(
         .select('body_hash').eq('minute_id', minuteId)
       return !!data && data.length > 0 && data.every(r => (r.body_hash as string) === currentBodyHash)
     }
-    if (await fresh()) return 'ready'
-
-    const inflight = insightInFlight.get(minuteId)
-    if (inflight) { await inflight; return (await fresh()) ? 'generated' : 'unavailable' }
-    const last = insightLastAttempt.get(minuteId) ?? 0
-    if (Date.now() - last < INSIGHT_COOLDOWN_MS) return 'unavailable'
-
-    insightLastAttempt.set(minuteId, Date.now())
-    const p = generateMinuteInsights(minuteId, bodyMd).finally(() => insightInFlight.delete(minuteId))
-    insightInFlight.set(minuteId, p)
-    await p
-    return (await fresh()) ? 'generated' : 'unavailable'
+    return await ensureInsightGate(minuteId, {
+      fresh,
+      generate: () => generateMinuteInsights(minuteId, bodyMd),
+    })
   } catch (e) {
-    console.error('[minutes] 인사이트 ensure 실패(무시):', e instanceof Error ? e.message : e)
+    // 게이트 진입 전(클라이언트 생성 등) 실패 방어 — never-throw 계약 유지
+    console.error(INSIGHT_LOG_LABEL, e instanceof Error ? e.message : e)
     return 'unavailable'
   }
 }

@@ -21,7 +21,9 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
     getAnnouncements(projectId),
     getSnapshots(projectId),
     getProjectMeetingData(projectId),
-    getProjectMinuteSignals(projectId),
+    // limit 30 — 위험 신호 탐지(회의 액션 경과)가 최근 8건보다 넓은 창을 봐야 해서 상향.
+    // 협업 카드 표시는 DashboardView가 기존 8건으로 잘라 밀도를 유지한다.
+    getProjectMinuteSignals(projectId, 30),
     createServerClient(),
   ])
   // 보험 스냅샷 — 응답 전송 후 실행. 페이지의 after() 안에서는 cookies() 호출이 불가하므로
