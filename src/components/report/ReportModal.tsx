@@ -290,8 +290,8 @@ export function ReportModal({
           )}
         </SectionCard>
 
-        {/* ── 팀별 진척 ── */}
-        <SectionCard eyebrow="By owner" title="팀별 진척" icon={Users}>
+        {/* ── 팀별 진척현황 ── */}
+        <SectionCard eyebrow="By owner" title="팀별 진척현황" icon={Users}>
           <div className="space-y-4">
             {teams.map(s => (
               <div key={s.team} className="flex items-center gap-3">
