@@ -1,0 +1,614 @@
+<title>D'Flow 우승 전략서</title>
+<style>
+  :root {
+    --bg: #FAFBFC;
+    --surface: #FFFFFF;
+    --ink: #20263A;
+    --muted: #5A6376;
+    --line: #E3E6EE;
+    --line-soft: #EEF0F5;
+    --gold: #8A6D1D;
+    --gold-bar: #C9A227;
+    --gold-soft: #F6F0DC;
+    --indigo: #3D4A73;
+    --crit: #B23A2F;
+    --crit-soft: #F9ECEA;
+    --warn: #A8721E;
+    --warn-soft: #F8F1E2;
+    --ok: #2E7D4F;
+    --ok-soft: #E9F3ED;
+    --font-body: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", -apple-system, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151926;
+      --surface: #1D2333;
+      --ink: #E8EAF2;
+      --muted: #9AA3B8;
+      --line: #2C3450;
+      --line-soft: #232A40;
+      --gold: #E3B84E;
+      --gold-bar: #E3B84E;
+      --gold-soft: #2A2A1E;
+      --indigo: #8B9BD1;
+      --crit: #E06A5E;
+      --crit-soft: #33201E;
+      --warn: #D9A84E;
+      --warn-soft: #2F2818;
+      --ok: #66BB8A;
+      --ok-soft: #1C2B22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151926; --surface: #1D2333; --ink: #E8EAF2; --muted: #9AA3B8;
+    --line: #2C3450; --line-soft: #232A40;
+    --gold: #E3B84E; --gold-bar: #E3B84E; --gold-soft: #2A2A1E;
+    --indigo: #8B9BD1;
+    --crit: #E06A5E; --crit-soft: #33201E;
+    --warn: #D9A84E; --warn-soft: #2F2818;
+    --ok: #66BB8A; --ok-soft: #1C2B22;
+  }
+  :root[data-theme="light"] {
+    --bg: #FAFBFC; --surface: #FFFFFF; --ink: #20263A; --muted: #5A6376;
+    --line: #E3E6EE; --line-soft: #EEF0F5;
+    --gold: #8A6D1D; --gold-bar: #C9A227; --gold-soft: #F6F0DC;
+    --indigo: #3D4A73;
+    --crit: #B23A2F; --crit-soft: #F9ECEA;
+    --warn: #A8721E; --warn-soft: #F8F1E2;
+    --ok: #2E7D4F; --ok-soft: #E9F3ED;
+  }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    line-height: 1.72;
+    font-size: 15.5px;
+    margin: 0;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 48px 20px 96px; }
+
+  a { color: var(--gold); text-decoration: none; }
+  a:hover, a:focus-visible { text-decoration: underline; }
+  a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 2px; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 33px;
+    font-weight: 800;
+    letter-spacing: -0.022em;
+    line-height: 1.25;
+    margin: 10px 0 8px;
+    text-wrap: balance;
+  }
+  .masthead p.lede { color: var(--muted); margin: 0 0 22px; font-size: 16px; }
+
+  .dday-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+  .dday {
+    display: inline-flex; align-items: baseline; gap: 7px;
+    border: 1px solid var(--line); background: var(--surface);
+    border-radius: 6px; padding: 6px 11px;
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--muted);
+  }
+  .dday b { color: var(--ink); font-weight: 600; }
+  .dday .n { color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  nav.toc {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+    padding: 18px 20px; margin: 30px 0 0;
+  }
+  nav.toc .toc-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  nav.toc ol {
+    margin: 0; padding: 0; list-style: none;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px;
+  }
+  @media (max-width: 560px) { nav.toc ol { grid-template-columns: 1fr; } }
+  nav.toc li a { color: var(--ink); font-size: 14px; display: flex; gap: 9px; padding: 2px 0; }
+  nav.toc li a .no { font-family: var(--font-mono); color: var(--gold); font-size: 12px; width: 24px; flex: none; padding-top: 2px; }
+
+  section { margin-top: 64px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; margin-bottom: 22px; }
+  .sec-head .no { font-family: var(--font-mono); font-size: 13px; color: var(--gold); font-weight: 700; flex: none; }
+  h2 { font-size: 22.5px; font-weight: 800; letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+  h3 { font-size: 16.5px; font-weight: 700; margin: 30px 0 10px; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; }
+  section > p, section li { max-width: 68ch; }
+  ul, ol { padding-left: 22px; margin: 0 0 14px; }
+  li { margin-bottom: 6px; }
+  li::marker { color: var(--gold); }
+  strong { font-weight: 700; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  .kicker {
+    background: var(--gold-soft); border-left: 3px solid var(--gold-bar);
+    border-radius: 0 6px 6px 0; padding: 14px 18px; margin: 0 0 18px;
+  }
+  .kicker p { margin: 0; }
+  .callout {
+    border-left: 3px solid var(--crit); background: var(--crit-soft);
+    border-radius: 0 6px 6px 0; padding: 14px 18px; margin: 18px 0;
+  }
+  .callout .label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--crit); font-weight: 700; display: block; margin-bottom: 6px; }
+  .callout p { margin: 0; }
+  .note {
+    border-left: 3px solid var(--indigo); background: var(--line-soft);
+    border-radius: 0 6px 6px 0; padding: 12px 16px; margin: 16px 0; font-size: 14px;
+  }
+  .note p { margin: 0; }
+
+  .table-scroll { overflow-x: auto; margin: 16px 0 20px; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.8px; background: var(--surface); }
+  th {
+    text-align: left; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600;
+    padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--line-soft);
+    white-space: nowrap;
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft); vertical-align: top; line-height: 1.6; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .sub { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+  .pill {
+    display: inline-block; font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap; letter-spacing: 0.04em;
+  }
+  .pill.crit { background: var(--crit-soft); color: var(--crit); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.ok   { background: var(--ok-soft); color: var(--ok); }
+  .pill.gold { background: var(--gold-soft); color: var(--gold); }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 18px 0; }
+  @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--line); border-top: 3px solid var(--gold-bar);
+    border-radius: 8px; background: var(--surface); padding: 16px 16px 14px;
+  }
+  .card .c-no { font-family: var(--font-mono); font-size: 11px; color: var(--gold); font-weight: 700; letter-spacing: 0.1em; }
+  .card h4 { margin: 6px 0 8px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .card p { margin: 0; font-size: 13.5px; color: var(--muted); }
+
+  .checklist { list-style: none; padding: 0; margin: 16px 0; }
+  .checklist li { margin: 0; border-bottom: 1px solid var(--line-soft); }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist label { display: flex; gap: 12px; align-items: flex-start; padding: 11px 4px; cursor: pointer; }
+  .checklist input[type="checkbox"] {
+    accent-color: var(--gold-bar); width: 17px; height: 17px; margin-top: 4px; flex: none; cursor: pointer;
+  }
+  .checklist input[type="checkbox"]:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .checklist .t b { font-weight: 700; }
+  .checklist .t .sub { display: block; color: var(--muted); font-size: 13px; }
+  .checklist input:checked ~ .t { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+
+  .qa-list { counter-reset: q; list-style: none; padding: 0; }
+  .qa-list li { counter-increment: q; display: flex; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line-soft); margin: 0; }
+  .qa-list li::before {
+    content: "Q" counter(q); font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;
+    color: var(--gold); flex: none; width: 30px; padding-top: 3px;
+  }
+  .qa-list li:last-child { border-bottom: none; }
+
+  footer.doc-foot {
+    margin-top: 80px; padding-top: 18px; border-top: 1px solid var(--line);
+    font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  .top-link { font-family: var(--font-mono); font-size: 12px; }
+</style>
+
+<div class="wrap" id="top">
+
+<header class="masthead">
+  <div class="eyebrow">업무 속 AI 활용 경진대회 · 2026 · 대외비</div>
+  <h1>D'Flow 우승 전략서</h1>
+  <p class="lede">하나의 플랫폼, 두 개의 현장 — MES운영팀의 승리 공식과 6주 실행 계획</p>
+  <div class="dday-strip">
+    <span class="dday"><b>사례 제출</b> 8/31 <span class="n" data-dday="2026-08-31"></span></span>
+    <span class="dday"><b>전 직원 투표</b> 9/7–11 <span class="n" data-dday="2026-09-07"></span></span>
+    <span class="dday"><b>발표·심사</b> 9/14–18 <span class="n" data-dday="2026-09-14"></span></span>
+    <span class="dday"><b>시상</b> 10/1</span>
+  </div>
+</header>
+
+<nav class="toc" aria-label="목차">
+  <div class="toc-title">목차</div>
+  <ol>
+    <li><a href="#s1"><span class="no">§1</span>승리 공식 요약</a></li>
+    <li><a href="#s2"><span class="no">§2</span>룰 분석 — 실제 룰이 의미하는 것</a></li>
+    <li><a href="#s3"><span class="no">§3</span>포지션 진단 — 추정 루브릭</a></li>
+    <li><a href="#s4"><span class="no">§4</span>승리 서사</a></li>
+    <li><a href="#s5"><span class="no">§5</span>증거 체계 — 전/후 3층 구조</a></li>
+    <li><a href="#s6"><span class="no">§6</span>심사 70% 공략</a></li>
+    <li><a href="#s7"><span class="no">§7</span>투표 30% 공략</a></li>
+    <li><a href="#s8"><span class="no">§8</span>리스크 방어</a></li>
+    <li><a href="#s9"><span class="no">§9</span>경쟁 지형과 카운터</a></li>
+    <li><a href="#s10"><span class="no">§10</span>출전 구성 · 행정 · CES</a></li>
+    <li><a href="#s11"><span class="no">§11</span>6주 로드맵 + 9월 작전</a></li>
+    <li><a href="#s12"><span class="no">§12</span>W1 체크리스트 (7/21–27)</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <div class="sec-head"><span class="no">§1</span><h2>승리 공식 요약</h2></div>
+
+  <div class="kicker">
+    <p><strong>기술과 창의성은 이미 1위감이다. 승부는 나머지에서 갈린다</strong> — 검증 가능한 전/후 숫자, 거버넌스 선제 방어, 그리고 서로 다른 두 청중(심사위원·전 직원)을 동시에 잡는 제출물. 이 세 가지를 6주 안에 만드는 것이 이 문서의 전부다.</p>
+  </div>
+
+  <p>점수 구조: <strong>심사위원 현장평가 70% + 전 임직원 사전 온라인 투표 30%</strong>. 결정적 사실은 투표(9/7–11)가 발표(9/14–18)보다 <strong>먼저</strong>라는 것 — 전 직원은 8/31 제출물만 보고 찍는다. 제출물이 곧 선거 캠페인이다.</p>
+
+  <div class="cards">
+    <div class="card">
+      <span class="c-no">승부처 1</span>
+      <h4>증거 — 전/후 실측</h4>
+      <p>측정 로그 0건이 현재 최대 약점. 소급 지표 6종은 이미 DB에 있고, 신규 계측(usage_events)의 6주 창은 지금 열어야만 존재한다. §5</p>
+    </div>
+    <div class="card">
+      <span class="c-no">승부처 2</span>
+      <h4>거버넌스 — 선제 방어</h4>
+      <p>개인 계정 인프라는 방치하면 실격급 리스크, 선제 공개하면 '이관 로드맵을 가진 팀'이라는 가점. 기획팀 우군화부터. §8</p>
+    </div>
+    <div class="card">
+      <span class="c-no">승부처 3</span>
+      <h4>이중 청중 제출물</h4>
+      <p>앞 3장은 전 직원의 30초를 잡는 공감 훅, 이후는 심사 루브릭 순서 — 하나의 PPT가 두 개의 언어를 쓴다. §6·§7</p>
+    </div>
+  </div>
+
+  <p class="small muted">근거: 레드팀 패널 5인(심사위원·투표자·경쟁 시뮬레이션·리스크 감사·증거 전략) 병렬 분석, 2026-07-19.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <div class="sec-head"><span class="no">§2</span><h2>룰 분석 — 실제 룰이 의미하는 것</h2></div>
+
+  <div class="table-scroll"><table>
+    <thead><tr><th>공식 룰</th><th>전략적 시사점</th></tr></thead>
+    <tbody>
+      <tr><td><strong>개선 전/후 비교 필수</strong></td><td>가산점이 아니라 자격 요건. 숫자 없는 사례는 "인상적인 툴, 효과는 불명"으로 강등된다. 동시에 모든 경쟁팀에게 같은 부담 — 정직한 측정 방법론을 가진 팀이 드물어, 갖추면 역전 무기가 된다.</td></tr>
+      <tr><td><strong>전 임직원 사전 투표 30%</strong> <span class="sub">9/7–11, 발표 이전</span></td><td>투표자는 발표를 못 본다. 8/31 제출물의 첫 90초가 30%를 결정한다. 수백 명 서로 아는 회사 — 10인+ 팀의 대인 네트워크가 곧 표밭.</td></tr>
+      <tr><td><strong>팀 단위 참여 (솔로 불가)</strong></td><td>사례의 주어는 '만든 사람'이 아니라 '바뀐 팀'이어야 한다. 1인 빌드 사실은 숨길 게 아니라 "만든 건 1인+AI, 쓰는 건 두 조직 전원"으로 뒤집는다.</td></tr>
+      <tr><td><strong>이전 연도 사례 불가</strong></td><td>수년 묵은 대형 시스템(예지보전·RPA류)의 파괴력을 깎아주는 룰. D'Flow는 100% 2026년산 — 6/25 이후 커밋 그래프가 자격 증명이자 공격 카드.</td></tr>
+      <tr><td><strong>PPT 표준 양식 제공</strong> <span class="sub">추후 IRIS 공지</span></td><td>양식이 서사와 충돌할 수 있다. 콘텐츠를 모듈(전/후 표·측정 그래프·데모 QR·타임라인)로 선제작해 어떤 양식에도 끼워 넣게 준비.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <div class="sec-head"><span class="no">§3</span><h2>포지션 진단 — 추정 루브릭</h2></div>
+
+  <p>사내 대회의 전형적 심사 배점을 추정하면 아래와 같다. 현재 D'Flow는 <strong>배점이 가장 큰 축들이 전부 약하다</strong> — 6주의 일은 이 표의 오른쪽 열을 만드는 것이다.</p>
+
+  <div class="table-scroll"><table>
+    <thead><tr><th>평가 축 (추정 배점)</th><th>현재</th><th>8/31 목표 상태</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>업무 개선 효과</strong> <span class="num">30%</span></td>
+        <td><span class="pill crit">최약</span> 측정 로그 0건</td>
+        <td>3층 증거(§5): 소급 실측 + 신규 계측 5주치 + 델파이 베이스라인, 실측/추정 라벨 분리</td>
+      </tr>
+      <tr>
+        <td><strong>전사 확산 가능성</strong> <span class="num">20%</span></td>
+        <td><span class="pill warn">애매</span> 개인 인프라</td>
+        <td>이미 두 조직(MES운영팀+전사 PI TFT)이 사용 = 확산 실증 완료 + 사내 이관 로드맵</td>
+      </tr>
+      <tr>
+        <td><strong>창의성·기술 수준</strong> <span class="num">20%</span></td>
+        <td><span class="pill ok">압도적</span></td>
+        <td>유지. 본문에선 "무료 AI만으로 운영비 0원" 한 줄로 압축, 상세는 부록</td>
+      </tr>
+      <tr>
+        <td><strong>지속가능성·정착도</strong> <span class="num">15%</span></td>
+        <td><span class="pill warn">약</span> 버스 팩터 1</td>
+        <td>429 삼중 방어·AI 장애 시에도 핵심 기능 동작을 '설계된 리스크 관리'로 재포장 + 부관리자 지정</td>
+      </tr>
+      <tr>
+        <td><strong>발표·전달력</strong> <span class="num">15%</span></td>
+        <td><span class="pill warn">미정</span></td>
+        <td>3인 분담 발표 + 녹화 본편·라이브 킬러신 + 모의 Q&amp;A 2회</td>
+      </tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <div class="sec-head"><span class="no">§4</span><h2>승리 서사</h2></div>
+
+  <h3>폐기하는 프레임</h3>
+  <p><strong>"개발자 0명 팀이 만들었다"는 쓰지 않는다.</strong> 사실이 아니고(개발자 출신 팀장), IT 서비스 회사에서는 들키는 순간 신뢰 전체가 무너진다. 상금·CES 등 보상 이야기도 제출물·발표 어디에서도 꺼내지 않는다.</p>
+
+  <h3>서사 3층</h3>
+  <div class="table-scroll"><table>
+    <thead><tr><th>층위</th><th>메시지</th><th>겨냥</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>① 본업 서사</strong><span class="sub">정점</span></td>
+        <td>"실무자형 팀장 1인 + AI 페어링 = 2.5주에 플랫폼급. <strong>IT 서비스 회사의 본업 생산성이 AI로 이렇게 바뀐다</strong>" — 한 팀의 개선 사례가 아니라 회사의 미래 일하는 방식에 대한 실증 제안.</td>
+        <td>심사위원(임원)</td>
+      </tr>
+      <tr>
+        <td><strong>② 두 현장 서사</strong><span class="sub">요건+확산</span></td>
+        <td>성격이 다른 두 조직이 같은 플랫폼으로 일한다 — <strong>계량대 재구축(MES운영팀)</strong>이 '팀 업무 적용' 요건을, <strong>전사 PI TFT(부서 횡단)</strong>가 '확산 가능성'을 이미 증명.</td>
+        <td>심사위원 + 투표자</td>
+      </tr>
+      <tr>
+        <td><strong>③ 실행 AI 서사</strong><span class="sub">차별화</span></td>
+        <td>"대답하는 AI가 아니라 <strong>일하는 AI</strong>" — 회의록→액션아이템→확인 카드→실데이터 변경까지 닫힌 실행 루프. 데모의 정점 장면.</td>
+        <td>챗봇·GPT 활용형 경쟁작 무력화</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>고정 핵심 메시지 4</h3>
+  <ul>
+    <li><strong>검증 가능한 전/후</strong> — 측정 방법론을 공개하는 유일한 팀</li>
+    <li><strong>AI와 페어링한 구축</strong> — 2.5주 365+커밋, 설계 문서 수십 건이 AI 협업 증거</li>
+    <li><strong>대답을 넘어 실행하는 AI</strong> — 확인 카드로 안전장치까지 갖춘 실행 루프</li>
+    <li><strong>100% 2026년산</strong> — 커밋 그래프로 시점 증명, "만들어 쓰던 것을 대회에 낸다"</li>
+  </ul>
+
+  <p class="small muted">선택 카드: 마무리 1장에 "사내 활용을 넘어 고객 제안 가능한 자산으로" — IT 서비스 회사 임원의 매출 상상력을 자극하는 사업화 시사. 주장이 아니라 가능성 제시 수준으로만.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <div class="sec-head"><span class="no">§5</span><h2>증거 체계 — 전/후 3층 구조</h2></div>
+
+  <div class="kicker"><p>원칙: 모든 수치에 <strong>[실측] / [추정] / [실험]</strong> 출처 라벨을 분리 표기한다. 정직한 구분이 부풀린 단일 숫자보다 강하다 — 추정을 실측처럼 포장하다 걸리면 그 순간 신뢰 전체가 무너진다.</p></div>
+
+  <div class="table-scroll"><table>
+    <thead><tr><th>층</th><th>내용</th><th>확보 방법</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>1층 [추정]</strong><span class="sub">도입 전 베이스라인</span></td>
+        <td>주간보고 취합+PPT 수작업 시간, 엑셀 교환 횟수, 결정사항 검색 시간, 액션 반영 소요일</td>
+        <td>W1 팀 회의에서 30분 델파이식 워크숍 — 무기명 추정+근거 한 줄 → 중앙값·범위 공개, n 명기. 기억은 매주 감쇠하므로 이번 주가 마지노선.</td>
+      </tr>
+      <tr>
+        <td><strong>2층 [실측·소급]</strong><span class="sub">이미 DB에 있다</span></td>
+        <td>① 실적 갱신 활동(change_logs: 주당 편집·참여 인원) ② 회의록 리드타임(minutes: 회의일→업로드 시차) ③ 회의록 축적+AI 활용(minute_insights) ④ 주간보고 작성 창(weekly_report_rows) ⑤ 스냅샷 커버리지 ⑥ 운영 활동량(meetings·announcements 등)</td>
+        <td>W1에 read-only SQL 1차 산출 → measurements.md에 날짜와 함께 박제. <strong>두 프로젝트(계량대+PI TFT) 별도 산출로 표본 2배.</strong></td>
+      </tr>
+      <tr>
+        <td><strong>3층 [실측·이중 전/후]</strong><span class="sub">가장 방어력 강함</span></td>
+        <td>신기능(회의록→액션 자동 반영, 주간보고 AI 초안)은 배포 전 구간의 실측이 지금 쌓이는 중 — <strong>실측 대 실측</strong> 비교 가능</td>
+        <td>매칭 규칙(예: 회의록 업로드 후 48시간 내 동일 프로젝트 변경 = 반영)을 W1에 문서로 못박고, 배포 전 기준선을 먼저 산출.</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <h3>신규 계측: usage_events</h3>
+  <p>챗봇 질의·PPT 생성·액션봇 실행은 <strong>소급 불가</strong> — 6주 창이 지금 시작된다. <code>0031_usage_events</code> 테이블 하나 + 라우트 5곳(chat·chat/stream·chat/command·report·export) fire-and-forget 1줄 + 주간보고 셀 저장 액션. 8/31에 "6주간 질의 N건·PPT 생성 M회·액션 실행 K건·사용자 P명"이라는 실측 사용량이 생긴다.</p>
+
+  <h3>수동 측정은 3문항, 주 1회 5분</h3>
+  <p>8종 수동 타이머 원안은 5일간 0건으로 이미 실패가 증명됐다. 금요 회의 말미에 기록자 1인(로테이션)이 세 가지만 묻는다: ① 이번 주 엑셀 파일 교환 횟수 ② 회의에서 나왔는데 반영 안 된 액션 수 ③ 위험 사전 감지 사례 유무. 6주면 6행 — 그거면 된다.</p>
+
+  <h3>대표 지표 5선 (PPT 후보)</h3>
+  <div class="table-scroll"><table>
+    <thead><tr><th>지표</th><th>전 → 후</th><th>약점과 방어</th></tr></thead>
+    <tbody>
+      <tr><td><strong>① 주간보고 1건 산출 시간</strong> <span class="pill gold">투표용 대표 숫자</span></td><td>[추정] 수 시간 → [실측] 자동 생성, 예상 70~90% 단축</td><td>'전'이 추정 — n·범위 명기로 방어</td></tr>
+      <tr><td><strong>② 실적 데이터 최신성</strong></td><td>[추정] 주 1회 취합 → [실측] 주당 편집 N건·참여 M명·일별 스냅샷</td><td>'후'가 완전 실측 — 방어력 높음</td></tr>
+      <tr><td><strong>③ 회의록→WBS 반영 리드타임</strong></td><td>[실측] 배포 전 → [실측] 배포 후 — 유일한 실측 대 실측</td><td>매칭 규칙 자의성 지적 → 사전 문서화로 방어</td></tr>
+      <tr><td><strong>④ 결정사항 검색 시간</strong></td><td>[실험] 기존 방식 vs DK Bot, 3인×3과제=9쌍, 분→초</td><td>소표본 — '실험'으로 정직 표기, 화면 녹화가 곧 데모 영상</td></tr>
+      <tr><td><strong>⑤ 구축·운영 비용</strong></td><td>[실측] 2.5주 솔로 구축(깃) + 운영비 0원 vs [가정] 외주·SaaS 견적</td><td>견적은 가정임을 병기</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">슬라이드 배치: ②③을 중앙(방어력), ①⑤를 임팩트용, ④는 영상으로.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <div class="sec-head"><span class="no">§6</span><h2>심사 70% 공략</h2></div>
+
+  <h3>PPT는 루브릭 순서로</h3>
+  <p>목차를 심사표 순서로 재배열한다: <strong>① 전/후 효과(분량 40%) → ② 확산(두 현장 실증+이관 로드맵) → ③ 기술·창의 → ④ 지속 운영</strong>. 기술 자랑을 앞세우지 않는다. 본문에서 기술 용어를 걷어내고 모든 성과를 시간·비용·품질 3축 숫자로 환산 — 임원에게 가장 강한 기술 어필은 "유료 API 없이 무료 AI만으로, 운영비 0원" 한 줄이다.</p>
+
+  <h3>발표 구성 — 두 조직이 도열하는 그림</h3>
+  <p>최소 3인 분담: <strong>팀장의 빌드 스토리 → MES운영팀원의 계량대 전/후 증언 → TFT 멤버의 "우리 팀 사람도 아닌데 이걸로 일합니다" 증언</strong>. '팀원별 AI 활용 지도' 슬라이드(1인 1사례)로 1인 쇼 프레임을 구조적으로 봉쇄. '성장 타임라인' 슬라이드(6/25 첫 커밋~주차별 기능+누적 사용량)로 급조 의혹 차단.</p>
+
+  <h3>데모 원칙 — 녹화 본편 + 라이브 한 방</h3>
+  <ul>
+    <li>본편은 사전 녹화. 라이브는 킬러 신 1개만: <strong>액션 봇 — 말하면 → 확인 카드 → 데이터가 바뀐다</strong></li>
+    <li>음성 입력은 '라이브 필수'가 아니라 영상 속 1신으로 격하 (발표장 마이크·소음 리스크 제거)</li>
+    <li>발표 직전 프리워밍 스크립트(콜드 스타트 ~10초 실측 대비) + 발표장 사내망 접속 리허설 + 핫스팟 백업 + 실패 시 영상 전환 멘트 대본화</li>
+  </ul>
+
+  <h3>예상 Q&amp;A 13선 — 전부 모범답안 작성, 모의 Q&amp;A 2회</h3>
+  <ol class="qa-list">
+    <li>회사 데이터를 개인 클라우드에 두는 것을 보안팀이 아는가 → 선제 슬라이드로 김 빼기(§8)</li>
+    <li>발안자가 이동하면 누가 유지보수하나 → 부관리자+설계 문서 수십 건이 시스템의 기억</li>
+    <li>무료 LLM이 유료화·중단되면 → 429 삼중 방어 + AI 장애 시에도 핵심 기능 동작</li>
+    <li>전/후 수치의 베이스라인 근거는 → 델파이 워크숍 형식(n·중앙값·범위) 즉답</li>
+    <li>다른 팀이 쓰려면? 확산 주체는 → 이미 두 조직 실증 + 이관 로드맵 3단계</li>
+    <li>Jira·MS Project 대비 자체 구축이 맞나, TCO는 → 비용 대비표 + 업무 맞춤성</li>
+    <li>AI 산출물이 틀리면 책임·검증은 → 확인 카드·사람 승인 게이트 설계</li>
+    <li>개인 Vercel 장애 시 업무 정지 아닌가 → 백업·이중화 답변 + 이관 계획</li>
+    <li>6/25 시작 — 대회용 급조 아닌가 → 성장 타임라인 + 사용 발자국</li>
+    <li>이건 'AI 활용'이 아니라 '시스템 개발' 아닌가 → 만든 것도 AI, 안에서 일하는 것도 AI</li>
+    <li>사내 표준 도구 대신 자체 구축한 이유는 (IT사 특화)</li>
+    <li>고객 서비스로 사업화 가능한가 (IT사 특화 — 기회 질문, 준비된 한 장으로 응수)</li>
+    <li>개발 표준·보안 정책과의 정합성은 (IT사 특화)</li>
+  </ol>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <div class="sec-head"><span class="no">§7</span><h2>투표 30% 공략</h2></div>
+
+  <h3>30초 스캔의 법칙</h3>
+  <p>투표자는 수십 개 제출물을 훑는다. 첫 장이 기술이면 스킵, 내 고통이면 정독. 첫 장은 기능 소개가 아니라 <strong>비포 장면</strong>으로: 좌측=밤 11시 엑셀·PPT 수작업, 우측=클릭 한 번에 완성된 주간보고, 중앙에 초대형 숫자 하나(예: "3시간 → 3분"). 제품명·기술 스택은 2장 이후로.</p>
+
+  <h3>이중 훅 — IT 회사의 두 표밭</h3>
+  <div class="table-scroll"><table>
+    <thead><tr><th>표밭</th><th>훅</th><th>배치</th></tr></thead>
+    <tbody>
+      <tr><td>스탭·비개발 직군</td><td>"주간보고 클릭 한 번, 3시간→3분" — 보편 고통의 해결</td><td>제출물 1–3장</td></tr>
+      <tr><td>개발·기술 직군</td><td>"2.5주 365커밋, AI와 페어링으로" — 그 무게를 정확히 아는 사람들</td><td>4장쯤 배치</td></tr>
+    </tbody>
+  </table></div>
+  <p>기술 용어는 '본문은 생활어, 상세는 부록' 원칙. 최종 원고는 비개발 직군 1명에게 읽혀 '모르는 단어 체크' 검수 통과.</p>
+
+  <h3>제출물·영상 스펙</h3>
+  <ul>
+    <li><strong>영상 2종</strong>: 60초 본편(첫 5초 = 무언의 클릭 한 번 → PPT 좌르륵 → 자막 "방금 주간보고가 끝났습니다") + 15초 티저(메신저 입소문용). 시드 데이터만 사용.</li>
+    <li><strong>훅 문구 3안 블라인드 테스트</strong>: 제출 전 주에 비개발 지인 5명에게 제목만 보여주고 최다 득표안을 IRIS 제목·표지·영상에 통일. 후보 — A안 "일요일 밤 주간보고, 이제 클릭 한 번입니다" / B안 "보고서 3시간이 3분으로 — AI와 함께 2.5주 만에 만든 우리 업무 플랫폼" / C안 "AI가 만들고, AI가 일하는 팀 — 비용 0원"</li>
+    <li><strong>개방 카드(선택)</strong>: 마지막 장 "희망 부서에 주간보고 자동화 적용(선착순 2팀)" 또는 수위 낮춘 "9월 오픈 데모 데이 초대" — 남의 성과를 내 이득으로 전환</li>
+  </ul>
+
+  <h3>캠페인 캘린더</h3>
+  <ul>
+    <li><strong>8/17–29</strong> 점심 미니 데모 주 3회, 2인 1조 — "너네 주간보고에도 되는지 봐줘" 톤. 투표 부탁은 하지 않고 "9월 IRIS에 올라가요" 한 마디만.</li>
+    <li><strong>8월 중순</strong> 팀원별 네트워크 맵(부서×인원)으로 공백 부서 식별 → 1인당 지인 10명에게 15초 티저+한 줄 소개 1:1 발송 배정</li>
+    <li><strong>9/4까지</strong> IRIS 직링크 동선 리허설 — 로그인 후 클릭 2번 이내 영상 도달</li>
+    <li><strong>9/7 오전 9시</strong> 팀원 전원 통일 문구+직링크 D-day 발송 (캘린더 사전 등록)</li>
+  </ul>
+  <p class="small muted">윤리선: 투표 강요·인증 요구·조건부 부탁·상급자 라인 동원 금지. "구경 초대"까지만. 누구에게 물어도 같은 답이 나오도록 예상 질문 5개의 30초 표준 답변을 전원 숙지.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s8">
+  <div class="sec-head"><span class="no">§8</span><h2>리스크 방어</h2></div>
+
+  <div class="callout">
+    <span class="label">치명 리스크 — 섀도우 IT</span>
+    <p>회사 프로젝트 데이터(회의록·근태·실적)가 개인 계정 Supabase/Vercel에 있다. IRIS 전사 공개(9/7)나 심사 Q&amp;A에서 무방비로 드러나면 "포상 대상이 아니라 감사 대상" 프레임으로 뒤집힌다 — 감점이 아니라 실격급이며, 사후 해명은 불가능하고 선제 공개만이 방어다. <strong>확정 접근법: 주관 기획팀을 먼저 우군으로 만들고(대회 문의를 겸한 자연스러운 접촉), 그 라인으로 IT/정보보호에 단계적 언질 → 데이터 명세 1장(실명 제로·RLS 접근통제·저장 위치) 지참 → 조건부 양해 확보.</strong> 발표에는 '보안 조치 + 사내 이관 로드맵' 슬라이드를 선제 배치해 "그림자 IT"가 아니라 "이관 대기 파일럿"으로 프레이밍한다. 성공하면 리스크가 "거버넌스 의식 있는 팀"이라는 가점으로 뒤집힌다.</p>
+  </div>
+
+  <div class="table-scroll"><table>
+    <thead><tr><th>리스크</th><th>평가</th><th>대응</th><th class="num">시한</th></tr></thead>
+    <tbody>
+      <tr><td><strong>측정 데이터 확보 실패</strong><span class="sub">로그 0건 지속</span></td><td><span class="pill crit">치명</span></td><td>W1에 usage_events 배포 + 델파이 워크숍 + 소급 SQL. 한 주 밀릴 때마다 표본 20% 증발</td><td class="num">7/27</td></tr>
+      <tr><td><strong>실명·실데이터 노출</strong><span class="sub">스크린샷·영상·리포</span></td><td><span class="pill crit">회수 불가</span></td><td>시드 데모 프로젝트 구축 → "모든 화면 자료는 시드만" 팀 규칙 + 제출 전 실명 grep 2인 교차 검수 게이트. 리포 제출 여부 확인 후 filter-repo는 8월 초 결정</td><td class="num">7/27</td></tr>
+      <tr><td><strong>사무국 공지·신청 누락</strong><span class="sub">놓치면 전부 무효</span></td><td><span class="pill crit">치명</span></td><td>사무국 담당 1인 지정, IRIS 일 1회 확인. 참가 신청 절차·마감·제출 포맷·혼성 팀 허용을 기획팀에 선제 문의</td><td class="num">7/27</td></tr>
+      <tr><td><strong>데모 실패</strong><span class="sub">429·콜드스타트·사내망</span></td><td><span class="pill warn">중상</span></td><td>녹화 본편+라이브 1신 원칙(§6), 프리워밍, 발표장 리허설, 핫스팟 백업, 전환 멘트</td><td class="num">8월 중</td></tr>
+      <tr><td><strong>PPT 표준 양식 충돌</strong></td><td><span class="pill warn">중</span></td><td>콘텐츠 모듈 선제작 — 어떤 양식에도 끼워 넣게. 서사 전체는 발표 스크립트·영상에 이원화</td><td class="num">8/10~</td></tr>
+      <tr><td><strong>신규 기능 지연</strong><span class="sub">프리즈 침범</span></td><td><span class="pill warn">중</span></td><td>킬 기준: 8/9까지 프로덕션+실사용 미달이면 서사에서 제외. 기존 기능만으로도 서사 성립. 8/10 이후 버그픽스만</td><td class="num">8/9</td></tr>
+      <tr><td><strong>1인 쇼 인상</strong></td><td><span class="pill warn">중상</span></td><td>RACI 분담(사무국·측정·PPT·영상·캠페인·IT동행 각각 다른 사람) + 3인 발표 + 두 조직 증언</td><td class="num">7/27</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s9">
+  <div class="sec-head"><span class="no">§9</span><h2>경쟁 지형과 카운터</h2></div>
+
+  <p>IT 서비스 회사 기준으로 보정한 예상 경쟁 지형. 대부분은 "기성 AI 도구를 써봤다"형이고, 완성된 제품 + 실사용 조직 + 실측 전/후를 모두 갖춘 사례는 희소하다. 단, IT 회사엔 고수가 많다 — 자체 빌드 경쟁작 가능성은 상향 조정하고, 완성도·정착도·측정으로 격차를 벌린다.</p>
+
+  <div class="table-scroll"><table>
+    <thead><tr><th>경쟁작 유형</th><th>위협도</th><th>카운터</th></tr></thead>
+    <tbody>
+      <tr><td>Copilot·코드 AI 개발 생산성 사례</td><td><span class="pill warn">중상</span></td><td>"도구 사용담" vs "완성 제품+두 조직 정착" — 성숙도 격차. 우리도 같은 방식(AI 페어링)의 끝단 사례임을 명시</td></tr>
+      <tr><td>사내 GPT 봇 (규정·문서 RAG)</td><td><span class="pill warn">중상</span><span class="sub">투표 도달 넓음</span></td><td><strong>"대답하는 AI vs 일하는 AI"</strong> — 실행 루프(확인 카드→데이터 변경)로 2단계 위 포지션</td></tr>
+      <tr><td>운영·인프라 자동화 (모니터링 봇 등)</td><td><span class="pill warn">중</span></td><td>범용 업무(프로젝트 운영)가 아닌 특정 직군용 — 확산 상상력에서 우위</td></tr>
+      <tr><td>제안서·문서 GPT 자동화</td><td><span class="pill ok">중하</span></td><td>전/후 숫자 없이 체감담이 대부분 — 측정 방법론 공개로 상대화</td></tr>
+      <tr><td>고수의 자체 빌드 툴</td><td><span class="pill warn">중상</span></td><td>기능 경쟁이 아니라 <strong>정착 경쟁</strong>: "PoC가 아니라 오늘도 두 조직이 돌리는 시스템" — 사용 발자국(누적 지표)으로 승부</td></tr>
+    </tbody>
+  </table></div>
+
+  <p><strong>삼중 카운터 요약</strong>: 숫자(실측 전/후)는 정량 사례를, 완성도·정착(두 현장 실사용)은 감동·도입형을, 실행 루프는 챗봇형을 각각 무력화한다. 여기에 "100% 2026년산" 커밋 그래프가 자격 시비를 원천 차단한다.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s10">
+  <div class="sec-head"><span class="no">§10</span><h2>출전 구성 · 행정 · CES</h2></div>
+
+  <h3>출전 구성</h3>
+  <p><strong>MES운영팀 명의로 출전</strong> — "수상 팀 소속 부서 예산 지급" 룰과 정합하고, 계량대 재구축 프로젝트가 '팀 업무 적용' 요건을 정면 충족한다. TFT 멤버는 혼성 팀이 허용되면 팀원으로 합류, 불허되면 발표·영상 속 증언자로 등장. 어느 쪽이든 "서로 다른 두 조직의 실사용자"라는 그림은 유지된다.</p>
+
+  <h3>사무국 문의 4건 (W1)</h3>
+  <ul>
+    <li>혼성 팀(타 부서 TFT 인원 포함) 허용 여부</li>
+    <li>참가 신청 절차와 마감일 (제출 마감 8/31보다 이를 가능성)</li>
+    <li>제출 포맷 — 리포·링크 포함 여부 (filter-repo 히스토리 소거 결정이 여기 종속)</li>
+    <li>PPT 표준 양식 공개 시점</li>
+  </ul>
+  <p class="small muted">포스터 기재 문의처: 인사팀 이은형 · 기획팀 최태윤 — 기획팀 접촉은 §8 우군화 접근과 겸한다.</p>
+
+  <h3>CES 처리 원칙</h3>
+  <p>재수혜 여부는 통제 밖 변수이므로 <strong>전략에서 제외하고 1등에 집중한다.</strong> 경영진이 재수혜를 꺼려도 잃는 건 티켓 하나 — 1등 팀장 타이틀, 사내 위상, 팀 상금, "AI 시대 개발 리더" 포지션은 온전히 남는다. 선택 카드로 "1등 하면 CES는 가장 기여한 분께" 양보 선언이 있다: TFT 동원력과 1인 쇼 해소에 가장 강력하지만, 개인적 결정이므로 옵션으로만 남긴다. 제출물·발표에서 보상 언급은 전면 금지.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s11">
+  <div class="sec-head"><span class="no">§11</span><h2>6주 로드맵 + 9월 작전</h2></div>
+
+  <div class="table-scroll"><table>
+    <thead><tr><th class="num">주차</th><th>기간</th><th>핵심 과업</th></tr></thead>
+    <tbody>
+      <tr><td class="num"><strong>W1</strong></td><td class="num">7/21–27</td><td><strong>복구 불가능한 것 전부</strong> — §12 체크리스트. 이 주가 대회의 사활.</td></tr>
+      <tr><td class="num">W2–3</td><td class="num">7/28–8/9</td><td>회의록→액션 자동 반영·주간보고 AI 초안 개발+두 현장 실사용, 측정 축적, 훅 문구 블라인드 테스트. <strong>8/9 = 기능 킬 데드라인</strong></td></tr>
+      <tr><td class="num">W4</td><td class="num">8/10–16</td><td><strong>기능 프리즈.</strong> PPT 모듈·영상 2종 제작, 검색 A/B 실험(9쌍, 녹화 겸용), Q&amp;A 13선 답안</td></tr>
+      <tr><td class="num">W5</td><td class="num">8/17–23</td><td>제출물 완성 + 실명 검수 게이트, 점심 미니 데모 시작, 비개발 검수</td></tr>
+      <tr><td class="num">W6</td><td class="num">8/24–31</td><td>버퍼 주간 — 최종 검수, <strong>8/31 제출</strong></td></tr>
+      <tr><td class="num">9월</td><td class="num">9/1–18</td><td>9/7 오전 D-day 발송·캠페인(–9/11) → 발표 리허설·모의 Q&amp;A 2회·발표장 네트워크 점검 → 9/14–18 발표</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s12">
+  <div class="sec-head"><span class="no">§12</span><h2>W1 체크리스트 (7/21–27)</h2></div>
+
+  <p>전부 "시간이 지나면 복구 자체가 불가능해지는" 유형이다. 체크 상태는 이 브라우저에 저장된다.</p>
+
+  <ul class="checklist">
+    <li><label><input type="checkbox" id="w1-1"><span class="t"><b>기획팀 우군화 미팅</b><span class="sub">대회 문의 4건(§10) + 데이터 거버넌스 언질 → IT/정보보호 단계적 협의 라인 확보. 데이터 명세 1장 지참</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-2"><span class="t"><b>0031_usage_events 배포 + 계측 5곳 삽입</b><span class="sub">chat·chat/stream·chat/command·report·export + 주간보고 셀 저장 액션. fire-and-forget</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-3"><span class="t"><b>베이스라인 델파이 워크숍 30분</b><span class="sub">무기명 추정+근거 → 중앙값·범위·n 기록. 두 현장(계량대·TFT) 모두</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-4"><span class="t"><b>소급 SQL 6종 1차 산출</b><span class="sub">read-only, 프로젝트별 분리 → measurements.md에 날짜와 함께 박제</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-5"><span class="t"><b>이중 전/후 매칭 규칙 문서화</b><span class="sub">48시간 창 등 — 신기능 배포 전 기준선 먼저 산출</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-6"><span class="t"><b>시드 데모 프로젝트 구축</b><span class="sub">가명 인물·가짜 일정. "모든 화면 자료는 시드만" 팀 규칙 명문화</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-7"><span class="t"><b>사무국 담당 1인 지정</b><span class="sub">IRIS 일 1회 확인 + 공지 시 24시간 내 공유 프로세스</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-8"><span class="t"><b>RACI 확정</b><span class="sub">사무국·측정 오너·PPT·영상·캠페인·IT 협의 동행 — 각각 다른 사람</span></span></label></li>
+    <li><label><input type="checkbox" id="w1-9"><span class="t"><b>measurements.md 개정</b><span class="sub">자동 5종(SQL) + 수동 3문항(주 1회 금요) + 실험 1종 구조로. 금요 첫 회고 실시</span></span></label></li>
+  </ul>
+</section>
+
+<footer class="doc-foot">
+  <span>작성 2026-07-19 · 레드팀 패널 5인 분석 기반</span>
+  <a class="top-link" href="#top">↑ 맨 위로</a>
+</footer>
+
+</div>
+
+<script>
+  (function () {
+    try {
+      var now = new Date();
+      document.querySelectorAll('[data-dday]').forEach(function (el) {
+        var target = new Date(el.getAttribute('data-dday') + 'T00:00:00+09:00');
+        var diff = Math.ceil((target - now) / 86400000);
+        if (diff > 0) el.textContent = 'D-' + diff;
+        else if (diff === 0) el.textContent = 'D-DAY';
+        else el.textContent = '종료';
+      });
+    } catch (e) { /* 날짜 표시는 장식 — 실패해도 문서는 유효 */ }
+
+    try {
+      document.querySelectorAll('.checklist input[type="checkbox"]').forEach(function (box) {
+        var key = 'dflow-strategy-' + box.id;
+        if (localStorage.getItem(key) === '1') box.checked = true;
+        box.addEventListener('change', function () {
+          if (box.checked) localStorage.setItem(key, '1');
+          else localStorage.removeItem(key);
+        });
+      });
+    } catch (e) { /* localStorage 불가 환경에서도 체크리스트는 동작 */ }
+  })();
+</script>
