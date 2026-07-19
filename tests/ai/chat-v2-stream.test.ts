@@ -404,9 +404,10 @@ describe('chat v2 orchestrator', () => {
 
       const text = events.filter(item => item.type === 'delta')
         .map(item => item.type === 'delta' ? item.text : '').join('')
-      const expected = deterministicEvidenceAnswer(
+      const { stripCitationMarkers } = await import('@/lib/ai/chat/orchestrator')
+      const expected = stripCitationMarkers(deterministicEvidenceAnswer(
         buildEvidencePack([{ callId: 'c1', tool: 'find_wbs_items', result }]),
-      )
+      ))
       expect(text).toBe(expected)
       expect(text).not.toContain('999')
       expect(text).not.toContain('[S9]')
@@ -477,8 +478,9 @@ describe('chat v2 orchestrator', () => {
       { role: 'user', content: '설계 설명' },
     ])
     expect(messages.slice(0, -1).every(message => !/\[S\d+]/.test(message.content))).toBe(true)
+    // 인용 마커는 검증 후 표시 직전에 제거된다 — 출처는 sources 이벤트(칩)로만 전달.
     expect(synthesized.filter(item => item.type === 'delta')
-      .map(item => item.type === 'delta' ? item.text : '').join('')).toBe('LLM이 정리한 설계입니다. [S1]')
+      .map(item => item.type === 'delta' ? item.text : '').join('')).toBe('LLM이 정리한 설계입니다.')
   })
 })
 
@@ -505,5 +507,16 @@ describe('합성 인용 정규화 — 검증기 계약으로 수렴', () => {
       .toBe('요약 [S1][S2] · 유령 ')
     // 치환으로 생긴 인접 중복은 접는다.
     expect(normalizeSynthesizedCitations('출장 [R1][R1]', pack)).toBe('출장 [S2]')
+  })
+})
+
+describe('stripCitationMarkers — 표시용 마커 제거', () => {
+  it('removes citation groups while keeping punctuation and spacing readable', async () => {
+    const { stripCitationMarkers } = await import('@/lib/ai/chat/orchestrator')
+    expect(stripCitationMarkers('해 드립니다 [S1][S2].')).toBe('해 드립니다.')
+    expect(stripCitationMarkers('• 조회 건수: 8건 [S1][S2][S3]')).toBe('• 조회 건수: 8건')
+    expect(stripCitationMarkers('07-13 [S1], 07-14 [S3]에 출장')).toBe('07-13, 07-14에 출장')
+    expect(stripCitationMarkers('확인할 수 없습니다. [S8][failedTools]')).toBe('확인할 수 없습니다.')
+    expect(stripCitationMarkers('마커 없는 문장은 그대로')).toBe('마커 없는 문장은 그대로')
   })
 })

@@ -195,6 +195,19 @@ function displayValue(value: unknown, key?: string): string {
   return String(value)
 }
 
+/**
+ * 검증을 마친 최종 답변에서 인라인 인용 마커([S1][S2] 등)를 제거한다.
+ * 마커는 서버 검증(수치·출처 결속)에만 필요하고, 사용자에게는 답변 아래 출처
+ * 칩(sources 이벤트)이 같은 정보를 더 읽기 좋게 전달한다 — 본문에 남기면 노이즈다.
+ * 반드시 verifySynthesizedAnswer 이후에 호출한다(마커가 검증의 입력이므로).
+ */
+export function stripCitationMarkers(text: string): string {
+  return text
+    .replace(/[ \t]*(?:\[S\d+\]|\[failedTools\])+/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trimEnd()
+}
+
 function citations(sourceIds: readonly string[], limit = 3): string {
   const selected = [...new Set(sourceIds)].slice(0, limit)
   return selected.length ? ` ${selected.map(id => `[${id}]`).join('')}` : ''
@@ -440,6 +453,8 @@ async function* finishWithEvidence(
     }
   }
 
+  // 표시 직전 단일 지점에서 마커 제거 — 결정형·합성 두 경로 모두 여기를 지난다.
+  answer = stripCitationMarkers(answer)
   for (const text of chunks(answer)) yield event(requestId, { type: 'delta', text })
   if (pack.sources.length) yield event(requestId, { type: 'sources', items: pack.sources })
   yield event(requestId, { type: 'state', conversationState: stateFromSources(pack.sources, domains) })
