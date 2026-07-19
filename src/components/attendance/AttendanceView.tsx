@@ -1,11 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Plus, CalendarX2,
 } from 'lucide-react'
-import type { AttendanceRecord, AttendanceType, ProjectMember } from '@/lib/domain/types'
+import type { AttendanceRecord, AttendanceType, ProjectMember, TeamCode } from '@/lib/domain/types'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
@@ -18,14 +18,43 @@ import {
 } from '@/lib/domain/attendance'
 import { krSpecialDayMap } from '@/lib/domain/holidays'
 import { upsertAttendance, removeAttendance } from '@/app/actions/attendance'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 type ViewKey = 'calendar' | 'list'
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const FILTER_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
 
 function dowClass(dow: number, base = 'text-ink') {
   if (dow === 0) return 'text-delayed'
   if (dow === 6) return 'text-progress'
   return base
+}
+
+interface BotDeepLinkFilter {
+  from: string | null
+  to: string | null
+  team: TeamCode | null
+  type: AttendanceType | null
+}
+
+/** 챗봇 딥링크(?from&to&team&type) 초기 필터 — 유효값만 채택, 아무 것도 없으면 null. */
+function readBotFilter(params: { get(name: string): string | null }): BotDeepLinkFilter | null {
+  const rawFrom = params.get('from')
+  const rawTo = params.get('to')
+  // 기간은 from·to가 함께 유효할 때만 적용한다(도구 조회 계약과 동일).
+  const rangeValid = !!rawFrom && !!rawTo
+    && ISO_DAY_RE.test(rawFrom) && ISO_DAY_RE.test(rawTo) && rawFrom <= rawTo
+  const rawTeam = params.get('team')
+  const team = rawTeam && (FILTER_TEAMS as readonly string[]).includes(rawTeam)
+    ? (rawTeam as TeamCode)
+    : null
+  const rawType = params.get('type')
+  const type = rawType && (ATTENDANCE_TYPES as readonly string[]).includes(rawType)
+    ? (rawType as AttendanceType)
+    : null
+  if (!rangeValid && !team && !type) return null
+  return { from: rangeValid ? rawFrom : null, to: rangeValid ? rawTo : null, team, type }
 }
 
 export function AttendanceView({
@@ -42,9 +71,14 @@ export function AttendanceView({
   // 근태 타입 라벨 — 원본 상수(ATTENDANCE_META)는 로직 키로 유지하고 표시 지점에서만 매핑.
   const typeLabel = (ty: AttendanceType) => t(`att.type.${ty}` as DictKey)
   const typeShort = (ty: AttendanceType) => t(`att.typeShort.${ty}` as DictKey)
+  const searchParams = useSearchParams()
+  // 챗봇 딥링크 필터는 최초 마운트에서 한 번만 읽고, 해제 전까지 달력·목록에 적용한다.
+  const [botFilter, setBotFilter] = useState(() => readBotFilter(searchParams))
   const [initY, initM] = useMemo(() => initialDate.split('-').map(Number), [initialDate])
-  const [year, setYear] = useState(initY)
-  const [month0, setMonth0] = useState((initM || 1) - 1)
+  const [year, setYear] = useState(botFilter?.from ? Number(botFilter.from.slice(0, 4)) : initY)
+  const [month0, setMonth0] = useState(
+    botFilter?.from ? Number(botFilter.from.slice(5, 7)) - 1 : (initM || 1) - 1,
+  )
   const [memberFilter, setMemberFilter] = useState<string>('all')
   const [view, setView] = useState<ViewKey>('calendar')
   const [more, setMore] = useState<DayPopoverAnchor | null>(null)
@@ -69,10 +103,17 @@ export function AttendanceView({
     return map
   }, [members])
 
-  const filtered = useMemo(
-    () => (memberFilter === 'all' ? records : records.filter(r => r.memberId === memberFilter)),
-    [records, memberFilter],
-  )
+  const filtered = useMemo(() => {
+    const base = memberFilter === 'all' ? records : records.filter(r => r.memberId === memberFilter)
+    if (!botFilter) return base
+    return base.filter(r => {
+      if (botFilter.from && r.date < botFilter.from) return false
+      if (botFilter.to && r.date > botFilter.to) return false
+      if (botFilter.type && r.type !== botFilter.type) return false
+      if (botFilter.team && memberMap.get(r.memberId)?.teamCode !== botFilter.team) return false
+      return true
+    })
+  }, [records, memberFilter, botFilter, memberMap])
   const byDate = useMemo(() => recordsByDate(filtered), [filtered])
   const matrix = useMemo(() => monthMatrix(year, month0), [year, month0])
   // 법정 공휴일·국경일 조회 맵 — 그리드가 연도 경계를 넘을 수 있어 셀에 등장하는 모든 연도를 모은다.
@@ -81,6 +122,18 @@ export function AttendanceView({
     [matrix],
   )
   const ym = `${year}-${String(month0 + 1).padStart(2, '0')}`
+  const monthEnd = `${ym}-${String(new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate()).padStart(2, '0')}`
+  useBotPageContext({
+    domain: 'attendance',
+    projectId,
+    selectedEntity: editingId ? { type: 'attendance_record', id: editingId } : null,
+    view,
+    range: { from: `${ym}-01`, to: monthEnd },
+    filters: {
+      ...(memberFilter === 'all' ? {} : { memberId: memberFilter }),
+      ...(botFilter?.team ? { team: botFilter.team } : {}),
+    },
+  })
 
   const listRows = useMemo(
     () => [...filtered].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.memberId.localeCompare(b.memberId))),
@@ -213,6 +266,21 @@ export function AttendanceView({
             </span>
           ))}
         </div>
+
+        {/* 챗봇 딥링크 필터 — 해제 전까지 달력·목록에 적용 (신규 문구는 dict 미보유라 locale 분기) */}
+        {botFilter && (
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-ink-muted">
+            <span className="text-ink-subtle">{locale === 'en' ? 'DK Bot filter' : 'DK Bot 필터'}</span>
+            {botFilter.from && botFilter.to && (
+              <span className="chip bg-surface-2 tabular-nums text-ink-muted">{botFilter.from} ~ {botFilter.to}</span>
+            )}
+            {botFilter.team && <span className="chip bg-surface-2 text-ink-muted">{botFilter.team}</span>}
+            {botFilter.type && <span className="chip bg-surface-2 text-ink-muted">{typeLabel(botFilter.type)}</span>}
+            <button onClick={() => setBotFilter(null)} className="btn btn-ghost h-7 px-2 text-[11px]">
+              {locale === 'en' ? 'Clear' : '해제'}
+            </button>
+          </div>
+        )}
       </div>
 
       {view === 'calendar' ? (

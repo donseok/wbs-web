@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState, useTransition, type DragEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Layers, Users, Columns3, Search, Inbox, MoveHorizontal } from 'lucide-react'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { canEditActual } from '@/lib/domain/permissions'
@@ -13,9 +13,11 @@ import { updateActual } from '@/app/actions/wbs'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { KanbanCard } from './KanbanCard'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 type Mode = 'phase' | 'owner' | 'status'
 type StatusFilter = 'all' | 'in_progress' | 'done'
+const KANBAN_TEAM_CODES: readonly string[] = ['PMO', 'ERP', 'MES', '가공']
 
 // 상태별 모드에서 드롭 시 실적값 매핑(완료=100, 시작전=0). 그 외 컬럼은 드롭 불가.
 const DROP_TARGET: Record<string, number> = { done: 100, not_started: 0 }
@@ -31,11 +33,13 @@ const COLUMN_TITLE_KEY: Record<string, DictKey> = {
 }
 
 export function KanbanBoard({
+  projectId,
   items,
   membership,
   today,
   readOnly = false,
 }: {
+  projectId: string
   items: ComputedItem[]
   membership: Membership | null
   today: string
@@ -44,14 +48,31 @@ export function KanbanBoard({
 }) {
   const router = useRouter()
   const { t } = useLocale()
-  const [mode, setMode] = useState<Mode>('phase')
+  const searchParams = useSearchParams()
+  // 챗봇 딥링크 ?view= 초기 모드 — 무효 값은 조용히 무시(기본 phase).
+  const [mode, setMode] = useState<Mode>(() => {
+    const view = searchParams.get('view')
+    return view === 'phase' || view === 'owner' || view === 'status' ? view : 'phase'
+  })
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [query, setQuery] = useState('')
+  // ?team= 은 검색어 초기값으로 소비한다 — 칸반 검색 대상에 담당팀 코드가 포함되며,
+  // 검색창에 그대로 보여 사용자가 지울 수 있다(숨은 필터 금지).
+  const [query, setQuery] = useState(() => {
+    const team = searchParams.get('team')
+    return team && KANBAN_TEAM_CODES.includes(team) ? team : ''
+  })
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [liveMsg, setLiveMsg] = useState('')
   const [pending, startTransition] = useTransition()
+  useBotPageContext({
+    domain: 'kanban',
+    projectId,
+    view: mode,
+    search: query || null,
+    filters: statusFilter === 'all' ? {} : { status: statusFilter },
+  })
 
   const editable = !readOnly && mode === 'status'
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight, CalendarDays, List, CalendarX2 } from 'lucide-react'
 import type { Meeting, MeetingException, MeetingOccurrence } from '@/lib/domain/types'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -13,8 +13,10 @@ import { expandMeetings, sortOccurrences, MEETING_META } from '@/lib/domain/meet
 import { MeetingCalendar } from './MeetingCalendar'
 import { MeetingDetailModal } from './MeetingDetailModal'
 import { fetchMyMeetings } from '@/app/actions/meetings'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 type ViewKey = 'calendar' | 'list'
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 function gridRange(year: number, month0: number): [string, string] {
   const first = new Date(Date.UTC(year, month0, 1)); const dow = first.getUTCDay()
@@ -34,9 +36,19 @@ export function MyMeetingsView({
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
+  const searchParams = useSearchParams()
+  // 챗봇 딥링크(?focus=&date=) — 최초 마운트에서 한 번만 소비하고, 데이터 도착 후 상세를 연다.
+  const [deepLink] = useState(() => {
+    const focus = searchParams.get('focus')
+    if (!focus) return null
+    const date = searchParams.get('date')
+    return { focus, date: date && ISO_DAY_RE.test(date) ? date : null }
+  })
   const [initY, initM] = useMemo(() => todayIso.split('-').map(Number), [todayIso])
-  const [year, setYear] = useState(initY)
-  const [month0, setMonth0] = useState((initM || 1) - 1)
+  const [year, setYear] = useState(deepLink?.date ? Number(deepLink.date.slice(0, 4)) : initY)
+  const [month0, setMonth0] = useState(
+    deepLink?.date ? Number(deepLink.date.slice(5, 7)) - 1 : (initM || 1) - 1,
+  )
   const [view, setView] = useState<ViewKey>('calendar')
   const [onlyMine, setOnlyMine] = useState(true)
   const initialRange = useMemo(() => gridRange(initY, (initM || 1) - 1).join('|'), [initY, initM])
@@ -44,12 +56,31 @@ export function MyMeetingsView({
     { meetings: initialMeetings, exceptions: initialExceptions, range: initialRange },
   )
   const [reloadKey, setReloadKey] = useState(0)
-  const skipFirstFetch = useRef(true)
   const [detailOcc, setDetailOcc] = useState<MeetingOccurrence | null>(null)
   const [pending, startTransition] = useTransition()
 
   const [gridStart, gridEnd] = useMemo(() => gridRange(year, month0), [year, month0])
   const currentRange = `${gridStart}|${gridEnd}`
+  // 딥링크 date가 서버 렌더 달과 다르면 첫 그리드도 재조회해야 한다(ref 초기값은 첫 렌더 기준).
+  const skipFirstFetch = useRef(currentRange === initialRange)
+  useBotPageContext({
+    domain: 'meetings',
+    // The global "내 회의" page itself is not project-scoped. Keep that stable
+    // while a detail modal opens so DkBot does not discard the conversation;
+    // the selected meeting's project remains a server-verified lookup hint.
+    projectId: null,
+    // 상세 모달의 프로젝트는 typed 필드로 전달(리뷰 M-4) — 'all'/빈 값은 null로 정규화.
+    selectedProjectId: detailOcc && detailOcc.projectId && detailOcc.projectId !== 'all'
+      ? detailOcc.projectId
+      : null,
+    selectedEntity: detailOcc ? {
+      type: 'meeting_occurrence',
+      id: detailOcc.seriesId,
+      qualifier: { occurrenceDate: detailOcc.occurrenceDate },
+    } : null,
+    view,
+    range: { from: gridStart, to: gridEnd },
+  })
 
   // 초기 달은 서버 렌더 데이터로 첫 페인트(첫 실행은 fetch 생략).
   // 이후 달 이동 또는 변경(reloadKey) 시마다 현재 그리드를 재조회한다.
@@ -67,6 +98,24 @@ export function MyMeetingsView({
   // 그리드 범위가 바뀌었는데 그 범위 데이터가 아직 도착하지 않았으면(stale) 회차를 비워
   // 이전 달 데이터가 새 달 그리드에 잘못 겹쳐 보이는 깜빡임을 막는다.
   const isStale = data.range !== currentRange
+
+  // 딥링크 대상 회의는 현재 그리드 데이터가 준비된 뒤 한 번만 상세로 연다.
+  // 대상 날짜에 회차가 없으면(취소 등) 시리즈 기준일 → 현재 그리드 첫 회차 순으로 폴백.
+  const pendingDeepLink = useRef(deepLink)
+  useEffect(() => {
+    const target = pendingDeepLink.current
+    if (!target || isStale) return
+    pendingDeepLink.current = null
+    const meeting = data.meetings.find(m => m.id === target.focus)
+    if (!meeting) return
+    const occurrence = [target.date, meeting.meetingDate]
+      .filter((day): day is string => !!day)
+      .flatMap(day => expandMeetings([meeting], data.exceptions, day, day))
+      .find(o => o.seriesId === target.focus)
+      ?? expandMeetings([meeting], data.exceptions, gridStart, gridEnd)
+        .find(o => o.seriesId === target.focus)
+    if (occurrence) setDetailOcc(occurrence)
+  }, [isStale, data, gridStart, gridEnd])
   const filteredMeetings = useMemo(
     () => isStale ? [] : (onlyMine ? data.meetings.filter(m => m.isMine) : data.meetings),
     [data.meetings, onlyMine, isStale],

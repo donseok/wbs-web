@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AlertTriangle, CalendarRange, Megaphone, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -15,6 +15,7 @@ import {
   createAnnouncement, updateAnnouncement, deleteAnnouncement, markAnnouncementsSeen,
 } from '@/app/actions/announcements'
 import type { Announcement, AnnouncementCategory } from '@/lib/domain/types'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 type CategoryFilter = 'all' | AnnouncementCategory
 
@@ -41,11 +42,26 @@ export function AnnouncementsView({
 }) {
   const { t } = useLocale()
   const today = seoulToday()
+  const searchParams = useSearchParams()
   const [filter, setFilter] = useState<CategoryFilter>('all')
-  const [reading, setReading] = useState<Announcement | null>(null)
+  // 챗봇 딥링크 ?focus= — 최초 마운트에서 해당 공지의 상세를 연다.
+  // 비관리자는 게시 중인 공지만(게시 스코프 밖 공지 노출 방지). 무효 id는 조용히 무시.
+  const [reading, setReading] = useState<Announcement | null>(() => {
+    const focus = searchParams.get('focus')
+    if (!focus) return null
+    const target = announcements.find((a) => a.id === focus)
+    if (!target) return null
+    return canEdit || isPublishedNow(target, today) ? target : null
+  })
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Announcement | null>(null)
   const [deleting, setDeleting] = useState<Announcement | null>(null)
+  useBotPageContext({
+    domain: 'announcements',
+    projectId,
+    selectedEntity: reading ? { type: 'announcement', id: reading.id } : null,
+    filters: filter === 'all' ? {} : { category: filter },
+  })
 
   // 게시 기간 스코프: 관리자는 예정·게시중·만료 전부(상태 배지로 구분), 일반 사용자는
   // 오늘 게시중인 것만 본다. 이후 카테고리 필터·읽음 처리 모두 이 스코프 위에서 동작.

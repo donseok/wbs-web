@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { UserPlus, Pencil, Trash2, Mail, ShieldCheck, UserRound, AlertTriangle, Users, Unlink } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -10,6 +10,7 @@ import { TEAM } from '@/components/wbs/shared'
 import { addMember, updateMember, removeMember } from '@/app/actions/members'
 import { isValidEmail } from '@/lib/domain/validate'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 const TEAM_META: Record<TeamCode, { chip: string; avatar: string }> = {
   PMO: { chip: 'bg-team-pmo-weak text-team-pmo', avatar: 'from-team-pmo to-brand' },
@@ -60,10 +61,26 @@ export function MembersBoard({
   canEdit: boolean
   projectId: string
 }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
+  const searchParams = useSearchParams()
+  // 챗봇 딥링크 ?team= 초기 팀 필터 — 무효 값은 조용히 무시('all').
+  const [teamFilter, setTeamFilter] = useState<TeamCode | 'all'>(() => {
+    const team = searchParams.get('team')
+    return team && (TEAM_OPTIONS as string[]).includes(team) ? (team as TeamCode) : 'all'
+  })
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ProjectMember | null>(null)
   const [deleting, setDeleting] = useState<ProjectMember | null>(null)
+  useBotPageContext({
+    domain: 'members',
+    projectId,
+    selectedEntity: editing ? { type: 'member', id: editing.id } : null,
+    filters: teamFilter === 'all' ? {} : { team: teamFilter },
+  })
+  const visibleMembers = useMemo(
+    () => (teamFilter === 'all' ? members : members.filter((m) => m.teamCode === teamFilter)),
+    [members, teamFilter],
+  )
 
   function openAdd() {
     setEditing(null)
@@ -83,12 +100,26 @@ export function MembersBoard({
           <div className="eyebrow">Member board</div>
           <h2 className="mt-0.5 text-sm font-semibold text-ink">{t('members.boardTitle')} · {members.length}{t('members.unitPeople')}</h2>
         </div>
-        {canEdit && (
-          <button onClick={openAdd} className="btn btn-primary">
-            <UserPlus className="h-4 w-4" />
-            {t('members.addMember')}
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 신규 문구는 dict 미보유라 locale 분기(근태 삭제 확인 문구 관례) */}
+          <select
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value as TeamCode | 'all')}
+            className="app-input h-10 w-auto min-w-[120px]"
+            aria-label={locale === 'en' ? 'Team filter' : '팀 필터'}
+          >
+            <option value="all">{locale === 'en' ? 'All teams' : '전체 팀'}</option>
+            {TEAM_OPTIONS.map((code) => (
+              <option key={code} value={code}>{code}</option>
+            ))}
+          </select>
+          {canEdit && (
+            <button onClick={openAdd} className="btn btn-primary">
+              <UserPlus className="h-4 w-4" />
+              {t('members.addMember')}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-5 sm:p-6">
@@ -106,9 +137,14 @@ export function MembersBoard({
               ) : undefined
             }
           />
+        ) : visibleMembers.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={locale === 'en' ? 'No members in this team' : '해당 팀 멤버가 없습니다'}
+          />
         ) : (
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {members.map((member) => (
+            {visibleMembers.map((member) => (
               <li key={member.id}>
                 <MemberCard member={member} canEdit={canEdit} onEdit={() => openEdit(member)} onDelete={() => setDeleting(member)} />
               </li>

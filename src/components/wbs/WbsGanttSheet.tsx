@@ -15,6 +15,7 @@ import { ReportModal } from '@/components/report/ReportModal'
 import { usePagePresence } from '@/components/app/usePagePresence'
 import { PresenceStrip } from '@/components/app/PresenceStrip'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
@@ -185,6 +186,13 @@ export function WbsGanttSheet({
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  useBotPageContext({
+    domain: 'wbs',
+    projectId,
+    selectedEntity: selectedId ? { type: 'wbs_item', id: selectedId } : null,
+    view: timelineFocus ? 'timeline' : 'sheet',
+    search: query || null,
+  })
   // 접속자 프레즌스 — 같은 프로젝트 WBS 메뉴에 머무는 사용자(주간 시트 접속자 아바타와 동일 UX).
   // 본인은 presence 동기화 전에도 즉시 보이게 로컬로 선두 고정(주간 시트와 동일한 사용자 결정).
   const presencePeers = usePagePresence({ channelKey: `wbs-${projectId}`, me, enabled: !!me })

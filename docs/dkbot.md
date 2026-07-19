@@ -1,10 +1,63 @@
-# DK Bot — AI 챗봇 (pgvector RAG)
+# DK Bot — AI 챗봇 (메뉴 인식형 v2 + 기존 pgvector RAG)
 
-prj-manager의 "DK Bot"과 동일한 우하단 챗봇 위젯. 프로젝트/작업(WBS) 데이터에 대해
-한국어로 질의응답하며, **제공자 비종속(provider-agnostic)** 구조라 무료로 동작하고
-필요하면 다른 LLM으로 환경변수 한 줄만 바꿔 교체할 수 있습니다.
+우하단 DK Bot 위젯은 두 경로를 사용합니다. 메뉴 인식형 v2는 현재 화면·선택 항목·필터를
+바탕으로 WBS·주간업무·회의·근태·공지·회의록·칸반·대시보드·멤버·설정 10개 도메인을 읽고
+출처와 기준 시각을 함께 표시합니다. 미지원 질문(전사 포트폴리오·팀별 진척 등)과 v2 비활성
+상태는 기존 WBS 중심 pgvector RAG로 자동 복귀합니다.
+LLM 계층은 **제공자 비종속(provider-agnostic)** 구조입니다.
 
 ## 동작 방식
+
+### 메뉴 인식형 v2
+
+```
+질문 + PageContextV1 → 인증/허용 프로젝트 확정 → 결정형 라우터
+  → 메뉴별 strict Repository/읽기 도구(최대 4개 병렬)
+  → Evidence Pack → 결정형 근거 답변(기본) / LLM 합성·검증(실험적 opt-in)
+  → NDJSON 답변 + 출처 + 기준 시각 + 후속 대화 상태
+```
+
+- 지원 도구 20종: WBS 검색·상세·의존성·변경 이력·첨부 metadata(5), 주간 시트·주차 비교(2),
+  프로젝트 회의·상세·전역 내 회의(3), 근태 기간·팀·유형(1), 공지 목록·본문 검색(2),
+  회의록 검색·상세(2), 칸반 뷰 집계(1), 대시보드 요약(1), 멤버 목록·팀 워크로드(2),
+  안전한 프로젝트 설정(1).
+- 쓰기 명령은 기존 Action Bot 확인 카드만 사용합니다. v2 도구는 모두 `*:read` capability입니다.
+- 근태 메모, 참석자 이메일, Storage 경로·signed URL, 환경변수·키는 조회 계약에서 제외합니다.
+- 정상 0건과 DB 실패를 구분하며, 도구/LLM 실패 시 조회된 근거만 결정형으로 표시합니다.
+- 멤버 워크로드는 개인 담당 스키마가 없어 **팀 단위 집계**로만 답하고 그 사실을 항상 명시합니다.
+- 전사 포트폴리오·팀별 진척 같은 나머지 질문은 기존 `/api/chat/stream`으로 폴백합니다.
+
+**출처 딥링크 계약** — 답변 출처 클릭 시 해당 화면이 선택·필터 상태를 복원합니다:
+WBS `?focus={itemId}` · 주간 `?week=` · 회의/내 회의 `?focus={meetingId}&date=YYYY-MM-DD` ·
+근태 `?from&to&team&type`(단일 type만) · 공지 `?focus={id}` · 멤버 `?team=` ·
+칸반 `?view=phase|owner|status&team=` · 회의록 `/minutes/{id}`.
+
+활성화는 서버 환경변수로 명시합니다. 기본값은 안전하게 비활성입니다.
+
+```env
+CHAT_V2_ENABLED=true
+# 선택적 실험 기능. 미설정/false이면 아래 LLM 합성을 호출하지 않습니다.
+# CHAT_V2_LLM_SYNTHESIS_ENABLED=true
+# 선택적 실험 기능. 모호하거나 교차 메뉴 질문에 제한된 2단계 도구 플래너(LLM)를 시도합니다.
+# CHAT_V2_PLANNER_ENABLED=true
+```
+
+즉시 롤백하려면 값을 `false`로 바꾸거나 제거합니다. UI가 v2의 `501` 응답을 확인해 기존
+스트림을 다시 호출합니다.
+
+v2 답변의 운영 기본값은 조회된 Evidence Pack을 그대로 인용하는 **검증 가능한 결정형 답변**입니다.
+`CHAT_V2_LLM_SYNTHESIS_ENABLED=true`는 표현을 자연스럽게 다듬는 **실험적 선택사항**이며,
+활성화해도 존재하지 않는 출처나 근거 없는 숫자·날짜가 감지되면 결과를 폐기하고 결정형 답변으로
+돌아갑니다. 합성은 검증 후 전송(버퍼링)이라 첫 토큰 지연이 합성 시간만큼 늘어납니다 —
+"첫 토큰 p95 3초" 목표는 합성 비활성(결정형) 기준입니다. 이 플래그는 기존
+`/api/chat`·`/api/chat/stream`의 LLM 동작에는 영향을 주지 않습니다.
+
+`CHAT_V2_PLANNER_ENABLED=true`는 결정형 라우터가 레거시로 넘기려는 질문 중 교차 메뉴
+결합(명시 도메인 2개 이상) 또는 미지원 페이지 문맥일 때만 §7.3 계약의 **제한된 2단계
+플래너**(도구 ≤4, 단계 ≤2, binding은 앞 단계 결과 ID·날짜만)를 한 번 시도합니다. 계획
+생성·검증에 실패하면 추가 오류 노출 없이 기존 501 폴백으로 수렴합니다.
+
+### 기존 WBS RAG
 
 ```
 사용자 질문 → /api/chat (인증) → 의도 분류
@@ -56,8 +109,15 @@ GEMINI_API_KEY=...
 | `GET`  | `/api/chat/context?projectId=` | 환영/프로액티브 인사이트 부트스트랩 | 인증 |
 | `POST` | `/api/chat` | 질의응답(JSON, 비스트리밍) `{ projectId, message, history }` | 인증 |
 | `POST` | `/api/chat/stream` | 질의응답(text 토큰 스트리밍) — UI 기본 | 인증 |
+| `POST` | `/api/chat/v2/stream` | 메뉴 문맥 기반 NDJSON 스트림. `CHAT_V2_ENABLED=true` 필요 | 인증 |
 | `POST` | `/api/chat/reindex` | 의미검색 색인 재생성 `{ projectId }` | pmo_admin |
 | `GET`  | `/api/chat/health` | 진단 — 키 설정/마이그레이션 적용 상태 | pmo_admin |
+| `POST` | `/api/chat/index/worker` | Phase 2 증분 색인 워커/정합성/백필 실행 | 이중 게이트* |
+
+\* `CHAT_V2_INDEX_WORKER_ENABLED=true` + `x-cron-secret` 헤더가 `CHAT_V2_INDEX_CRON_SECRET`과
+일치해야 하며, 둘 중 하나라도 미설정이면 라우트가 404입니다. body는
+`{ mode: 'worker'|'consistency'|'backfill', domain?, projectId?, dryRun?, batchSize? }`.
+**cron 연결·0031/0033 적용 전에는 호출할 일이 없습니다.**
 
 답변은 기본적으로 `/api/chat/stream` 으로 **토큰 스트리밍**됩니다(타이핑되듯 출력). LLM 키가 없으면
 결정형 답변이 단일 청크로 전송됩니다. `/api/chat`(JSON)은 비스트리밍 폴백/외부 호출용으로 유지됩니다.
@@ -70,8 +130,49 @@ GEMINI_API_KEY=...
 - 어댑터: `src/lib/ai/{provider,llm,embeddings}.ts` (`llm.ts` = 비스트리밍 + 스트리밍)
 - RAG: `src/lib/ai/{knowledge,ingest,retrieve,answer}.ts` (`answer.ts` = `answerQuestion` + `streamAnswer`)
 - 라우트: `src/app/api/chat/{route,stream,context,reindex,health}/route.ts`
+- v2 문맥/UI: `src/components/chat/BotPageContextProvider.tsx`, `DkBot.tsx`, `chatStream.ts`
+- v2 서버: `src/app/api/chat/v2/stream/route.ts`, `src/lib/ai/chat/*`
+  (`planner.ts`=제한된 2단계 플래너, `deep-links.ts`=출처 딥링크 단일 정본)
+- 접근 범위: `src/lib/authz/accessScope.ts` (세션→허용 프로젝트 확정, MySQL 전환 교체 단위)
+- 읽기 경계: `src/lib/ai/tools/*`, `src/lib/repositories/*`
+- 차세대 검색 경계: `src/lib/ai/index/*` (`worker/consistency/backfill/shadow/content/enqueue`
+  포함 — 답변 경로 미연결, 보호 라우트 `/api/chat/index/worker`에서만 소비)
 - 헬스/색인 신선도: `src/lib/ai/health.ts` (설정 화면 배지 + `/api/chat/health`)
-- 마이그레이션: `supabase/migrations/0010_dkbot_pgvector.sql` · 적용 스크립트: `scripts/apply-dkbot-migration.{sh,mjs}` (`mjs` 는 `SUPABASE_DB_URL` + `npm i --no-save pg` 필요)
+- 마이그레이션: `0010_dkbot_pgvector.sql`(기존 RAG), `0031_ai_knowledge_index.sql`(Phase 2 검색 기반),
+  `0032_attendance_member_project_integrity.sql`(근태 프로젝트 무결성),
+  `0033_ai_index_worker.sql`(워커 claim/lease·generation CAS RPC — 0031 이후 적용) · 적용 스크립트:
+  `scripts/apply-dkbot-migration.{sh,mjs}` (`mjs`는 0010 전용이며 `SUPABASE_DB_URL` + `npm i --no-save pg` 필요)
+
+> `supabase/migrations/0031_ai_knowledge_index.sql`·`0033_ai_index_worker.sql`은 Phase 2의
+> 일반 문서·증분 색인 워커 기반입니다. 현재 v2 메뉴는 전부 실시간 구조화 조회로 동작하므로
+> **둘 다 적용하지 않아도 v2가 완전히 동작합니다**. 워커·cron·백필·shadow 검색을 시작할 때만
+> 0031 → 0033 순으로 적용하세요(벡터 검색 어댑터는 0031의 확장된 `match_ai_documents` 반환
+> 계약을 요구합니다). 그 전에는 기존 `wbs_embeddings`·`minute_embeddings`를 삭제하지 마세요.
+>
+> 워커 운영: 워커는 `claim_ai_index_jobs`(FOR UPDATE SKIP LOCKED + lease 만료 회수)로 작업을
+> 원자 선점하고, 처리 중 같은 엔티티의 새 변경이 들어오면 `generation` CAS가 완료를 거부해
+> 자동 재처리합니다(구세대 upsert가 최신 delete를 되살리지 못하는 tombstone 규칙 포함).
+> 실패는 지수 백오프 최대 5회 후 `dead_letter`로 남습니다 — 복구는 같은 엔티티를 다시
+> enqueue(`upsert_ai_index_jobs`)하면 pending 복귀+generation 증가로 재실행됩니다.
+> 업무 쓰기 경로 enqueue 배선(`enqueueIndexMutationBestEffort`)은 헬퍼만 존재하며
+> `CHAT_V2_INDEX_ENQUEUE_ENABLED` 기본 OFF입니다.
+
+근태 데이터는 `supabase/migrations/0032_attendance_member_project_integrity.sql`을 적용하면
+신규 쓰기부터 멤버와 근태 행의 프로젝트 일치를 DB가 강제합니다. 제약은 기존 데이터를 막지 않도록
+`NOT VALID`로 추가되므로, 아래 조회 결과를 먼저 정리한 뒤 제약을 검증합니다.
+
+```sql
+select ar.id, ar.project_id as attendance_project_id, pm.project_id as member_project_id
+from public.attendance_records ar
+join public.project_members pm on pm.id = ar.member_id
+where ar.project_id <> pm.project_id;
+
+alter table public.attendance_records
+  validate constraint attendance_member_project_fk;
+```
+
+챗봇 Repository는 0032 적용 여부와 무관하게 근태와 멤버를 프로젝트 조건으로 각각 읽고,
+불일치·누락이 있으면 해당 조회 전체를 차단합니다.
 
 ## 모델
 

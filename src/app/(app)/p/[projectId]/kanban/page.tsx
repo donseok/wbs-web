@@ -44,7 +44,7 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
         }
       />}
     >
-      <KanbanBoard items={items} membership={m} today={today} />
+      <KanbanBoard projectId={projectId} items={items} membership={m} today={today} />
     </ProjectPageShell>
   )
 }

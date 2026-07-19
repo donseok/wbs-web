@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight, CalendarDays, List, Plus, CalendarX2 } from 'lucide-react'
 import type { Meeting, MeetingException, MeetingOccurrence, ProjectMember } from '@/lib/domain/types'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -13,9 +13,32 @@ import { expandMeetings, sortOccurrences, MEETING_META } from '@/lib/domain/meet
 import { MeetingCalendar } from './MeetingCalendar'
 import { MeetingFormModal } from './MeetingFormModal'
 import { MeetingDetailModal } from './MeetingDetailModal'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 const MATRIX_ROWS = 6
+const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 type ViewKey = 'calendar' | 'list'
+
+/** 챗봇 딥링크(?focus=&date=)를 열 회차로 해석한다 — 유효하지 않으면 null(조용히 무시). */
+function resolveFocusOccurrence(
+  meetings: Meeting[],
+  exceptions: MeetingException[],
+  focusId: string | null,
+  date: string | null,
+): MeetingOccurrence | null {
+  if (!focusId) return null
+  const meeting = meetings.find(m => m.id === focusId)
+  if (!meeting) return null
+  // date가 없거나 그 날짜에 회차가 없으면(취소 등) 시리즈 기준일로 폴백.
+  const candidates = [...new Set([date, meeting.meetingDate])]
+    .filter((day): day is string => !!day && ISO_DAY_RE.test(day))
+  for (const day of candidates) {
+    const occurrence = expandMeetings([meeting], exceptions, day, day)
+      .find(o => o.seriesId === focusId)
+    if (occurrence) return occurrence
+  }
+  return null
+}
 
 function gridRange(year: number, month0: number): [string, string] {
   const first = new Date(Date.UTC(year, month0, 1))
@@ -39,16 +62,34 @@ export function MeetingsView({
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
+  const searchParams = useSearchParams()
+  // 챗봇 딥링크는 최초 마운트에서 한 번만 소비한다 — 이후 내비게이션은 화면 상태가 소유.
+  const [initialFocus] = useState(() => resolveFocusOccurrence(
+    meetings, exceptions, searchParams.get('focus'), searchParams.get('date'),
+  ))
   const [initY, initM] = useMemo(() => todayIso.split('-').map(Number), [todayIso])
-  const [year, setYear] = useState(initY)
-  const [month0, setMonth0] = useState((initM || 1) - 1)
+  const [year, setYear] = useState(initialFocus ? Number(initialFocus.occurrenceDate.slice(0, 4)) : initY)
+  const [month0, setMonth0] = useState(
+    initialFocus ? Number(initialFocus.occurrenceDate.slice(5, 7)) - 1 : (initM || 1) - 1,
+  )
   const [view, setView] = useState<ViewKey>('calendar')
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Meeting | null>(null)
-  const [detailOcc, setDetailOcc] = useState<MeetingOccurrence | null>(null)
+  const [detailOcc, setDetailOcc] = useState<MeetingOccurrence | null>(initialFocus)
 
   const [gridStart, gridEnd] = useMemo(() => gridRange(year, month0), [year, month0])
+  useBotPageContext({
+    domain: 'meetings',
+    projectId,
+    selectedEntity: detailOcc ? {
+      type: 'meeting_occurrence',
+      id: detailOcc.seriesId,
+      qualifier: { occurrenceDate: detailOcc.occurrenceDate },
+    } : null,
+    view,
+    range: { from: gridStart, to: gridEnd },
+  })
   const occurrences = useMemo(
     () => expandMeetings(meetings, exceptions, gridStart, gridEnd),
     [meetings, exceptions, gridStart, gridEnd],

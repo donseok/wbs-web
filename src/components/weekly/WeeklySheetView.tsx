@@ -23,6 +23,7 @@ import { PresenceStrip } from '@/components/app/PresenceStrip'
 import { useSheetGrid } from './useSheetGrid'
 import { usePresence } from './usePresence'
 import { SheetCell, type BatchChip } from './SheetCell'
+import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 type CellStatus = 'saving' | 'saved' | 'error'
 const DEBOUNCE_MS = 1500
@@ -69,6 +70,12 @@ export function WeeklySheetView({
   rowsRef.current = rows
   const [isPending, startTransition] = useTransition()
   const reportId = report?.id ?? null
+  useBotPageContext({
+    domain: 'weekly',
+    projectId,
+    selectedEntity: reportId ? { type: 'weekly_report', id: reportId } : null,
+    weekStart,
+  })
 
   // ── 멀티셀 편집 레이어 상태 ──
   const cellRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map())  // `${rowId}:${col}` → 활성 포커스 관리(Design B)
@@ -745,4 +752,3 @@ function TitleEditor({ initial, fallback, onSave }: {
     />
   )
 }
-

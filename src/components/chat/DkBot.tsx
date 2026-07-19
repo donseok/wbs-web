@@ -1,14 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { RotateCcw, X, Send, Sparkles, CalendarDays, ChevronDown, ChevronUp } from 'lucide-react'
 import { RobotMascot } from './RobotMascot'
+import { useCurrentBotPageContext } from './BotPageContextProvider'
+import { consumeChatNdjson, isSafeInternalBotHref } from './chatStream'
 import { QUICK_SUGGESTIONS } from '@/lib/ai/intent'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { isCommandUtterance } from '@/lib/ai/commands/cue'
 import type { CommandProposal, CommandCandidate } from '@/lib/ai/commands/types'
+import type {
+  BotSource,
+  ChatRequestV2,
+  ChatStreamEvent,
+  ConversationStateV1,
+} from '@/lib/ai/chat/protocol'
 import { updateActual, updateWbsFields } from '@/app/actions/wbs'
 
 type Role = 'user' | 'assistant'
@@ -18,6 +26,10 @@ interface Msg {
   content: string
   proposal?: CommandProposal // 있으면 Bubble 대신 ProposalCard 렌더
   proposalState?: 'pending' | 'applied' | 'cancelled'
+  sources?: BotSource[]
+  asOf?: string
+  tools?: string[]
+  truncated?: boolean
 }
 interface BotContext {
   currentProject: { id: string; name: string; taskCount: number; donePct: number } | null
@@ -25,7 +37,11 @@ interface BotContext {
   weekStartCount: number
 }
 
-const PROJECT_RE = /\/p\/([0-9a-fA-F-]{8,})/
+const EMPTY_CONVERSATION_STATE: ConversationStateV1 = {
+  version: 1,
+  lastEntities: [],
+  lastDomains: [],
+}
 
 type T = (k: DictKey) => string
 
@@ -60,9 +76,9 @@ function welcomeText(ctx: BotContext | null, t: T): string {
 
 export function DkBot({ projects }: { projects: { id: string; name: string }[] }) {
   const { t } = useLocale()
-  const pathname = usePathname()
   const router = useRouter()
-  const currentProjectId = pathname?.match(PROJECT_RE)?.[1] ?? null
+  const pageContext = useCurrentBotPageContext()
+  const currentProjectId = pageContext.projectId
   const currentProjectName = projects.find(p => p.id === currentProjectId)?.name ?? null
 
   const [open, setOpen] = useState(false)
@@ -71,6 +87,7 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [streamStatus, setStreamStatus] = useState<string | null>(null)
 
   const idRef = useRef(0)
   const nextId = () => (idRef.current += 1)
@@ -80,6 +97,8 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const lastCommandRef = useRef<string>('') // disambiguate 후속용 원문 보관
   const applyingRef = useRef<Set<number>>(new Set()) // 적용 왕복 중 재클릭 무시 — 낙관적 잠금 충돌 버블 오표시 방지
+  const conversationStateRef = useRef<ConversationStateV1>(EMPTY_CONVERSATION_STATE)
+  const streamAbortRef = useRef<AbortController | null>(null)
 
   // 패널 열림 + 프로젝트 컨텍스트 부트스트랩 (프로젝트가 바뀌면 새 대화로 갱신)
   useEffect(() => {
@@ -88,9 +107,13 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     if (loadedKeyRef.current === key) return // 이미 로드된 대화 → 닫았다 열어도 보존
     loadedKeyRef.current = key
     const gen = (genRef.current += 1) // 새 대화 세대 시작
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+    conversationStateRef.current = EMPTY_CONVERSATION_STATE
     // 프로젝트 전환 = 새 대화. 이전 진행 중 send() 의 결과는 세대 불일치로 무시된다.
     setMessages([])
     setLoading(false)
+    setStreamStatus(null)
     setInput('')
     setCtx(null)
     fetch(`/api/chat/context?projectId=${currentProjectId ?? ''}`, { cache: 'no-store' })
@@ -109,10 +132,16 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentProjectId])
 
+  useEffect(() => () => streamAbortRef.current?.abort(), [])
+
   // 완전 닫기 — 접힘 상태도 리셋해 다음에 열 때는 펼친 상태로 시작
   const close = useCallback(() => {
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
     setOpen(false)
     setCollapsed(false)
+    setLoading(false)
+    setStreamStatus(null)
   }, [])
 
   // Esc 닫기 (접힘 상태에서도 완전 닫기)
@@ -206,53 +235,152 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
       }
       setLoading(true)
       let asstId: number | null = null
+      const abortController = new AbortController()
+      streamAbortRef.current = abortController
       try {
-        const res = await fetch('/api/chat/stream', {
+        const request: ChatRequestV2 = {
+          projectId: currentProjectId,
+          message: text,
+          history,
+          pageContext,
+          conversationState: conversationStateRef.current,
+        }
+        let res = await fetch('/api/chat/v2/stream', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId: currentProjectId, message: text, history }),
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson',
+          },
+          body: JSON.stringify(request),
+          signal: abortController.signal,
         })
+        // 점진 배포 중 v2 라우트가 없는 서버에서는 기존 읽기 챗봇으로 즉시 강등한다.
+        if ([404, 405, 501].includes(res.status)) {
+          res = await fetch('/api/chat/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId: currentProjectId, message: text, history }),
+            signal: abortController.signal,
+          })
+        }
         if (!res.ok || !res.body) {
           const data = (await res.json().catch(() => ({}))) as { error?: string }
           if (genRef.current !== gen) return
           setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: data.error ?? t('chat.error.generic') }])
           return
         }
-        // 토큰 스트리밍 — 첫 청크에서 어시스턴트 버블을 만들고 이후 누적 갱신
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
         let acc = ''
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          if (genRef.current !== gen) {
-            reader.cancel()
-            return // 스트리밍 중 프로젝트 전환 → 폐기
-          }
-          acc += decoder.decode(value, { stream: true })
-          if (asstId === null) {
-            const id = nextId()
-            asstId = id
-            setMessages(prev => [...prev, { id, role: 'assistant', content: acc }])
-          } else {
-            const id = asstId
-            setMessages(prev => prev.map(m => (m.id === id ? { ...m, content: acc } : m)))
+        let sources: BotSource[] = []
+        let asOf: string | undefined
+        let tools: string[] | undefined
+        let truncated: boolean | undefined
+
+        const ensureAssistant = () => {
+          if (asstId !== null) return asstId
+          const id = nextId()
+          asstId = id
+          setMessages(prev => [...prev, {
+            id,
+            role: 'assistant',
+            content: acc,
+            ...(sources.length ? { sources } : {}),
+            ...(asOf ? { asOf } : {}),
+            ...(tools ? { tools } : {}),
+            ...(truncated !== undefined ? { truncated } : {}),
+          }])
+          return id
+        }
+        const patchAssistant = () => {
+          if (asstId === null) return
+          const id = asstId
+          setMessages(prev => prev.map(m => (m.id === id ? {
+            ...m,
+            content: acc,
+            ...(sources.length ? { sources } : {}),
+            ...(asOf ? { asOf } : {}),
+            ...(tools ? { tools } : {}),
+            ...(truncated !== undefined ? { truncated } : {}),
+          } : m)))
+        }
+        const mergeSources = (items: BotSource[]) => {
+          const byId = new Map(sources.map(source => [source.id, source]))
+          for (const source of items) byId.set(source.id, source)
+          sources = [...byId.values()]
+          patchAssistant()
+        }
+        const onEvent = (event: ChatStreamEvent) => {
+          if (genRef.current !== gen) throw new DOMException('Stale chat request', 'AbortError')
+          switch (event.type) {
+            case 'status':
+              setStreamStatus(event.message)
+              break
+            case 'delta':
+              acc += event.text
+              ensureAssistant()
+              patchAssistant()
+              break
+            case 'sources':
+              mergeSources(event.items)
+              break
+            case 'state':
+              conversationStateRef.current = event.conversationState
+              break
+            case 'done':
+              asOf = event.asOf
+              tools = event.tools
+              truncated = event.truncated
+              patchAssistant()
+              break
+            case 'error':
+              break
           }
         }
-        if (asstId === null && genRef.current === gen) {
-          setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: t('chat.error.empty') }])
+
+        const contentType = res.headers?.get('content-type') ?? ''
+        if (contentType.includes('application/x-ndjson')) {
+          const terminal = await consumeChatNdjson(res.body, onEvent)
+          if (terminal.type === 'error') {
+            setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: terminal.message }])
+          } else if (asstId === null && genRef.current === gen) {
+            setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: t('chat.error.empty') }])
+          }
+        } else {
+          // text/plain 은 구형 스트림 또는 v2 서버의 명시적 하위 호환 응답이다.
+          const reader = res.body.getReader()
+          const decoder = new TextDecoder()
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            if (genRef.current !== gen) {
+              await reader.cancel()
+              return
+            }
+            acc += decoder.decode(value, { stream: true })
+            ensureAssistant()
+            patchAssistant()
+          }
+          acc += decoder.decode()
+          patchAssistant()
+          if (asstId === null && genRef.current === gen) {
+            setMessages(prev => [...prev, { id: nextId(), role: 'assistant', content: t('chat.error.empty') }])
+          }
         }
-      } catch {
+      } catch (error) {
         if (genRef.current !== gen) return
+        if (error instanceof DOMException && error.name === 'AbortError') return
         setMessages(prev => [
           ...prev,
           { id: nextId(), role: 'assistant', content: t('chat.error.retry') },
         ])
       } finally {
-        if (genRef.current === gen) setLoading(false)
+        if (streamAbortRef.current === abortController) streamAbortRef.current = null
+        if (genRef.current === gen) {
+          setLoading(false)
+          setStreamStatus(null)
+        }
       }
     },
-    [messages, loading, currentProjectId, clearInput, t, requestProposal],
+    [messages, loading, currentProjectId, pageContext, clearInput, t, requestProposal],
   )
 
   const applyProposal = useCallback(
@@ -299,7 +427,11 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     // 진행 중 스트림이 있으면 폐기한다 — 세대를 올리면 send() 루프가 reader.cancel() 후 중단하고,
     // 늦게 도착한 토큰이 새 대화에 끼어들지 않는다. 로딩도 직접 해제(스트림 finally 는 옛 세대라 건너뜀).
     genRef.current += 1
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = null
+    conversationStateRef.current = EMPTY_CONVERSATION_STATE
     setLoading(false)
+    setStreamStatus(null)
     clearInput()
     setMessages([{ id: nextId(), role: 'assistant', content: welcomeText(ctx, t) }])
   }
@@ -451,11 +583,18 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
                   <ProposalCard msg={m} onApply={applyProposal} onPick={pickCandidate} onCancel={cancelProposal} />
                 </div>
               ) : (
-                <Bubble key={m.id} role={m.role} content={m.content} />
+                <Bubble
+                  key={m.id}
+                  role={m.role}
+                  content={m.content}
+                  sources={m.sources}
+                  asOf={m.asOf}
+                  truncated={m.truncated}
+                />
               ),
             )}
             {/* 첫 토큰 도착 전(마지막 메시지가 사용자)에만 타이핑 표시 — 이후엔 버블이 스트리밍됨 */}
-            {loading && messages[messages.length - 1]?.role !== 'assistant' && <TypingBubble />}
+            {loading && messages[messages.length - 1]?.role !== 'assistant' && <TypingBubble message={streamStatus} />}
           </div>
 
           {/* 입력 */}
@@ -488,10 +627,26 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
   )
 }
 
-function Bubble({ role, content }: { role: Role; content: string }) {
+function Bubble({
+  role, content, sources, asOf, truncated,
+}: {
+  role: Role
+  content: string
+  sources?: BotSource[]
+  asOf?: string
+  truncated?: boolean
+}) {
   const isUser = role === 'user'
+  const safeSources = isUser ? [] : (sources ?? []).filter(source => isSafeInternalBotHref(source.href))
+  const citedIds = [...content.matchAll(/\[(S\d+)]/g)].map(match => match[1])
+  const sourceById = new Map(safeSources.map(source => [source.id, source]))
+  const visibleSources = [
+    ...citedIds.flatMap(id => sourceById.get(id) ? [sourceById.get(id)!] : []),
+    ...safeSources,
+  ].filter((source, index, all) => all.findIndex(item => item.id === source.id) === index).slice(0, 12)
+  const hiddenSourceCount = safeSources.length - visibleSources.length
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div data-chat-role={role} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
         className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
           isUser
@@ -500,9 +655,46 @@ function Bubble({ role, content }: { role: Role; content: string }) {
         }`}
       >
         {content}
+        {!isUser && (safeSources.length > 0 || asOf || truncated) && (
+          <div className="mt-2 border-t border-brand-ring/30 pt-2 text-[11px] text-ink-subtle">
+            {visibleSources.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" aria-label="답변 출처">
+                {visibleSources.map(source => (
+                  <a
+                    key={source.id}
+                    href={source.href}
+                    className="max-w-full truncate rounded-full border border-brand-ring/40 bg-surface px-2 py-1 text-brand transition hover:border-brand hover:underline"
+                    title={source.excerpt ?? source.title}
+                  >
+                    {source.id} · {source.title}
+                  </a>
+                ))}
+                {hiddenSourceCount > 0 && (
+                  <span className="rounded-full border border-brand-ring/30 px-2 py-1">
+                    출처 +{hiddenSourceCount}개
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+              {asOf && <span>기준 {formatAsOf(asOf)}</span>}
+              {truncated && <span>일부 결과만 표시</span>}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
+}
+
+function formatAsOf(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date)
 }
 
 function ProposalCard({
@@ -571,17 +763,20 @@ function ProposalCard({
   )
 }
 
-function TypingBubble() {
+function TypingBubble({ message }: { message?: string | null }) {
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-brand-ring/30 bg-brand-weak/50 px-4 py-3">
-        {[0, 1, 2].map(i => (
-          <span
-            key={i}
-            className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-subtle"
-            style={{ animationDelay: `${i * 0.15}s` }}
-          />
-        ))}
+      <div className="rounded-2xl rounded-bl-md border border-brand-ring/30 bg-brand-weak/50 px-4 py-3">
+        <div className="flex items-center gap-1">
+          {[0, 1, 2].map(i => (
+            <span
+              key={i}
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-subtle"
+              style={{ animationDelay: `${i * 0.15}s` }}
+            />
+          ))}
+        </div>
+        {message && <div className="mt-1.5 max-w-64 text-[11px] text-ink-subtle">{message}</div>}
       </div>
     </div>
   )
