@@ -389,3 +389,23 @@ describe('planWithConfiguredLlm', () => {
     expect(await planWithConfiguredLlm(request, { allowedTools: ALL_TOOLS, now: '2026-07-19' })).toBeNull()
   })
 })
+
+describe('plannerDateAnchors — 기간 인자 앵커', () => {
+  it('computes KST week anchors around a Sunday correctly', async () => {
+    const { plannerDateAnchors } = await import('@/lib/ai/chat/planner')
+    // 2026-07-19은 KST 일요일 — 이번 주는 07-13(월)~07-19(일)이어야 한다.
+    const anchors = plannerDateAnchors('2026-07-19T09:00:00.000Z')
+    expect(anchors.today).toBe('2026-07-19')
+    expect(anchors.thisWeek).toEqual({ from: '2026-07-13', to: '2026-07-19' })
+    expect(anchors.nextWeek).toEqual({ from: '2026-07-20', to: '2026-07-26' })
+    expect(anchors.lastWeek).toEqual({ from: '2026-07-06', to: '2026-07-12' })
+  })
+
+  it('rolls today forward across the KST midnight boundary', async () => {
+    const { plannerDateAnchors } = await import('@/lib/ai/chat/planner')
+    // UTC 15:30 = KST 다음날 00:30
+    const anchors = plannerDateAnchors('2026-07-19T15:30:00.000Z')
+    expect(anchors.today).toBe('2026-07-20')
+    expect(anchors.thisWeek).toEqual({ from: '2026-07-20', to: '2026-07-26' })
+  })
+})
