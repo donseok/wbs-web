@@ -481,3 +481,29 @@ describe('chat v2 orchestrator', () => {
       .map(item => item.type === 'delta' ? item.text : '').join('')).toBe('LLM이 정리한 설계입니다. [S1]')
   })
 })
+
+describe('합성 인용 정규화 — 검증기 계약으로 수렴', () => {
+  it('splits grouped citations into the verifier contract', async () => {
+    const { normalizeCitationGroups } = await import('@/lib/ai/chat/orchestrator')
+    expect(normalizeCitationGroups('총 2건 [S1, S2] · 상세 [S3]')).toBe('총 2건 [S1][S2] · 상세 [S3]')
+    expect(normalizeCitationGroups('휴가 0건 [S1,S2,S10]')).toBe('휴가 0건 [S1][S2][S10]')
+    expect(normalizeCitationGroups('단일 [S4] 유지')).toBe('단일 [S4] 유지')
+    expect(normalizeCitationGroups('무관 [A, B] 텍스트')).toBe('무관 [A, B] 텍스트')
+  })
+
+  it('maps fact/record citations to their declared source ids', async () => {
+    const { normalizeSynthesizedCitations } = await import('@/lib/ai/chat/orchestrator')
+    const pack = {
+      facts: [{ id: 'F1', tool: 't', key: 'total', value: 2, sourceIds: ['S1', 'S2'] }],
+      records: [{ id: 'R1', tool: 't', value: {}, sourceIds: ['S2'] }],
+      sources: [], asOf: '', truncated: false, warnings: [], tools: [], partialTools: [],
+    }
+    expect(normalizeSynthesizedCitations('총 2건 [F1] · 상세 [R1]', pack))
+      .toBe('총 2건 [S1][S2] · 상세 [S2]')
+    // 묶음 표기 + F/R 혼합도 한 번에 수렴하고, 알 수 없는 ID는 제거된다.
+    expect(normalizeSynthesizedCitations('요약 [F1, R1] · 유령 [F9]', pack))
+      .toBe('요약 [S1][S2] · 유령 ')
+    // 치환으로 생긴 인접 중복은 접는다.
+    expect(normalizeSynthesizedCitations('출장 [R1][R1]', pack)).toBe('출장 [S2]')
+  })
+})
