@@ -7,7 +7,7 @@ export const ACCOUNT_ROLES = ['pmo_admin', 'team_editor'] as const
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
 
 /** 팀 코드 런타임 화이트리스트 (teams.code CHECK 와 일치). */
-export const TEAM_CODES = ['PMO', '가공', 'ERP', 'MES'] as const satisfies readonly TeamCode[]
+export const TEAM_CODES = ['PMO', '가공', 'ERP', 'MES', 'MDM'] as const satisfies readonly TeamCode[]
 
 export function isTeamCode(v: string): v is TeamCode {
   return (TEAM_CODES as readonly string[]).includes(v)

@@ -120,8 +120,8 @@ describe('buildWeeklyReportModel — 워크로드/근태', () => {
     { id: 'a2', projectId: 'p', memberId: 'mem2', date: '2026-06-29', type: 'work', note: null },
   ]
   const m = buildWeeklyReportModel(items, project, '2026-06-30', { members, attendance })
-  it('워크로드는 팀별 4행, 합계 일관', () => {
-    expect(m.workload.map(w => w.name)).toEqual(['PMO', 'ERP', 'MES', '가공'])
+  it('워크로드는 팀별 5행, 합계 일관', () => {
+    expect(m.workload.map(w => w.name)).toEqual(['PMO', 'ERP', 'MES', '가공', 'MDM'])
     const dt = m.workload.find(w => w.name === '가공')!
     expect(dt.total).toBe(dt.perDay.reduce((a, b) => a + b, 0))
   })

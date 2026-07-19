@@ -23,7 +23,7 @@ import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 type ViewKey = 'calendar' | 'list'
 const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
-const FILTER_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+const FILTER_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 function dowClass(dow: number, base = 'text-ink') {
   if (dow === 0) return 'text-delayed'

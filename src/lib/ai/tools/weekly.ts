@@ -25,6 +25,20 @@ const WEEKLY_TEAM_SECTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
   MES: new Set(['MES', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공']),
   PMO: new Set(['PMO']),
   가공: new Set(['가공']),
+  // 주간업무 구분(업무영역 10종)에 MDM 이 아직 없다 — 빈 매핑은 '알려진 팀이지만 조회 불가'로
+  // 명시 거부된다(validateTeam). 구분 신설 시 여기에 채우면 자동 활성.
+  MDM: new Set<string>(),
+}
+
+/** team 인자 검증 — 미지 팀과 '매핑 구분 없음'을 구분해 명시 거부(조용한 빈 결과 금지). */
+function validateTeam(team: string | undefined): ReturnType<typeof invalidArgument> | null {
+  if (!team) return null
+  const sections = WEEKLY_TEAM_SECTIONS[team]
+  if (!sections) return invalidArgument('알 수 없는 담당팀입니다.')
+  if (sections.size === 0) {
+    return invalidArgument(`${team} 팀에 매핑된 주간업무 구분이 아직 없습니다. 주간업무 시트는 업무영역 구분 체계라 ${team} 전용 구분 신설 전까지 팀 필터를 지원하지 않습니다.`)
+  }
+  return null
 }
 
 export interface WeeklySheetToolRecord {
@@ -108,9 +122,8 @@ export function createGetWeeklySheetTool(
       ) {
         return invalidArgument()
       }
-      if (team && !Object.hasOwn(WEEKLY_TEAM_SECTIONS, team)) {
-        return invalidArgument('알 수 없는 담당팀입니다.')
-      }
+      const teamError = validateTeam(team || undefined)
+      if (teamError) return teamError
       if (new Date(`${weekStart}T00:00:00Z`).getUTCDay() !== 1) {
         return invalidArgument('주간업무 기준일은 월요일이어야 합니다.')
       }
@@ -289,9 +302,8 @@ export function createCompareWeeklySheetsTool(
         !projectId || !fromWeekStart || !toWeekStart || section === null || team === null
         || query === null || limit === null
       ) return invalidArgument()
-      if (team && !Object.hasOwn(WEEKLY_TEAM_SECTIONS, team)) {
-        return invalidArgument('알 수 없는 담당팀입니다.')
-      }
+      const teamError = validateTeam(team || undefined)
+      if (teamError) return teamError
       if (!monday(fromWeekStart) || !monday(toWeekStart) || fromWeekStart >= toWeekStart) {
         return invalidArgument('비교할 두 주차는 서로 다른 월요일이며 과거 주차부터 입력해야 합니다.')
       }

@@ -24,7 +24,7 @@ const KANBAN_VIEWS = ['phase', 'owner', 'status'] as const
 type KanbanView = (typeof KANBAN_VIEWS)[number]
 
 const CARD_STATUSES: readonly Status[] = ['not_started', 'in_progress', 'delayed', 'done']
-const CARD_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+const CARD_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 export interface KanbanCardRecord {
   id: string

@@ -6,7 +6,7 @@ export const MINUTE_BODY_FILE_MAX = 1_048_576   // 원시 .md 파일 안전망(1
 export const MINUTE_ATTACHMENT_MAX = 20_971_520 // 첨부 개당 20MB(버킷 file_size_limit와 일치)
 export const MINUTE_ATTACHMENTS_MAX_COUNT = 10
 
-export const TEAM_CODES: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+export const TEAM_CODES: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 

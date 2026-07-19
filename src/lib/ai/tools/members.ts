@@ -23,7 +23,7 @@ import {
 import type { BotSource, ReadOnlyBotTool, ToolExecutionContext, ToolExecutionResult } from './types'
 
 const MEMBERS_CAPABILITY = 'members:read' as const
-const TEAM_CODES = ['PMO', 'ERP', 'MES', '가공'] as const
+const TEAM_CODES = ['PMO', 'ERP', 'MES', '가공', 'MDM'] as const
 const MEMBER_ROLES: readonly ProjectMemberRole[] = ['admin', 'contributor']
 // 설계 §9.1 — 개인 담당 관계를 추론하지 않는다는 사실을 응답에 항상 명시한다.
 const TEAM_AGGREGATION_WARNING = '개인별 담당 데이터가 등록되지 않아 팀 단위로 집계했습니다.'

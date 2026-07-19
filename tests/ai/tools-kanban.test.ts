@@ -138,7 +138,7 @@ describe('get_kanban_view', () => {
     expect(owner.ok).toBe(true)
     if (owner.ok) {
       expect(owner.result.records.map(record => record.columnKey))
-        .toEqual(['PMO', 'ERP', 'MES', '가공', '미배정'])
+        .toEqual(['PMO', 'ERP', 'MES', '가공', 'MDM', '미배정'])
       expect(columnByKey(owner.result.records, 'ERP')?.cards.map(card => card.id))
         .toEqual(['task-1', 'task-3'])
       expect(columnByKey(owner.result.records, '미배정')?.cards.map(card => card.id))

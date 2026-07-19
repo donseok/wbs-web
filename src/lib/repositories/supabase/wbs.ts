@@ -35,7 +35,7 @@ interface WbsItemScope {
 
 function mapOwners(raw: unknown): WbsRow['owners'] {
   if (!Array.isArray(raw)) return []
-  const allowedTeams = new Set<TeamCode>(['PMO', 'ERP', 'MES', '가공'])
+  const allowedTeams = new Set<TeamCode>(['PMO', 'ERP', 'MES', '가공', 'MDM'])
   const allowedKinds = new Set<OwnerKind>(['primary', 'support'])
   const owners: WbsRow['owners'] = []
   for (const value of raw) {
@@ -48,7 +48,7 @@ function mapOwners(raw: unknown): WbsRow['owners'] {
       owners.push({ team: code as TeamCode, kind: kind as OwnerKind })
     }
   }
-  const order: Record<TeamCode, number> = { PMO: 0, ERP: 1, MES: 2, 가공: 3 }
+  const order: Record<TeamCode, number> = { PMO: 0, ERP: 1, MES: 2, 가공: 3, MDM: 4 }
   return owners.sort((a, b) =>
     (a.kind === b.kind ? 0 : a.kind === 'primary' ? -1 : 1) || order[a.team] - order[b.team],
   )
@@ -66,7 +66,7 @@ function safeAuditValue(value: unknown): string | null {
 }
 
 function teamCode(value: unknown): TeamCode | null {
-  return (['PMO', 'ERP', 'MES', '가공'] as unknown[]).includes(value)
+  return (['PMO', 'ERP', 'MES', '가공', 'MDM'] as unknown[]).includes(value)
     ? value as TeamCode
     : null
 }

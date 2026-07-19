@@ -14,13 +14,13 @@ describe('subActName — 저장 이름 규칙', () => {
 })
 
 describe('subActTeamsInUse / availableSubActTeams', () => {
-  it('이미 SUB-ACT 로 쓰인 팀을 제외하고 표준 순서(PMO→ERP→MES→가공)로 남긴다', () => {
+  it('이미 SUB-ACT 로 쓰인 팀을 제외하고 표준 순서(PMO→ERP→MES→가공→MDM)로 남긴다', () => {
     const children = [sub('가공'), sub('ERP')]
     expect([...subActTeamsInUse(children)].sort()).toEqual(['ERP', '가공'].sort())
-    expect(availableSubActTeams(children)).toEqual(['PMO', 'MES'])
+    expect(availableSubActTeams(children)).toEqual(['PMO', 'MES', 'MDM'])
   })
 
-  it('자식이 없으면 4개 팀 모두 배정 가능', () => {
+  it('자식이 없으면 5개 팀 모두 배정 가능', () => {
     expect(availableSubActTeams([])).toEqual([...SUB_ACT_TEAMS])
   })
 

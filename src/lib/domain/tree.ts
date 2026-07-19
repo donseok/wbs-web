@@ -3,7 +3,7 @@ import type { ComputedItem, TeamCode, WbsRow } from './types'
 export type TreeNode = WbsRow & { children: TreeNode[] }
 
 /* sub-act(act 하위 팀별 분리 항목) 고정 표시 순서 — 임포트 시 저장된 sortOrder와 무관하게 항상 이 순서 */
-const SUB_ACT_TEAM_ORDER: Record<TeamCode, number> = { PMO: 0, ERP: 1, MES: 2, 가공: 3 }
+const SUB_ACT_TEAM_ORDER: Record<TeamCode, number> = { PMO: 0, ERP: 1, MES: 2, 가공: 3, MDM: 4 }
 
 function subActTeamRank(n: TreeNode): number {
   const team = n.owners.find(o => o.kind === 'primary')?.team ?? n.owners[0]?.team

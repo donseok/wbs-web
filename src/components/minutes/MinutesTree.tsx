@@ -13,6 +13,7 @@ const FOLDER_TINT: Record<TeamCode, string> = {
   가공: 'fill-team-dt-weak',
   ERP: 'fill-team-erp-weak',
   MES: 'fill-team-mes-weak',
+  MDM: 'fill-team-mdm-weak',
 }
 
 /** 구분→회의체→회의록 트리 — 탐색기 폴더 메타포 (스펙 2026-07-17-minutes-tree-view-design.md).

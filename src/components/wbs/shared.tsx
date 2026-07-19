@@ -5,6 +5,7 @@ export const TEAM: Record<TeamCode, { fg: string; bar: string }> = {
   가공: { fg: 'text-team-dt', bar: 'bg-team-dt' },
   ERP: { fg: 'text-team-erp', bar: 'bg-team-erp' },
   MES: { fg: 'text-team-mes', bar: 'bg-team-mes' },
+  MDM: { fg: 'text-team-mdm', bar: 'bg-team-mdm' },
 }
 
 export const STATUS: Record<Status, { label: string; chip: string; bar: string; dot: string }> = {

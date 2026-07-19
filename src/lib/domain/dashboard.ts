@@ -186,7 +186,7 @@ export function progressMatrix(roots: ComputedItem[], teams: readonly TeamCode[]
 }
 
 /* ── 팀별 진척 — 대시보드 카드와 주간 보고서 모달(By owner)이 공유하는 단일 정의 ── */
-export const ALL_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+export const ALL_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 export interface TeamProgressEntry { team: TeamCode; count: number; pct: number | null }
 
 /** 팀이 담당(primary·support 모두)인 leaf들의 rolledActual 단순 평균(정수). 무배정 팀은 pct null. */

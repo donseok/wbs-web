@@ -17,12 +17,12 @@ const phase = (name: string, children: ComputedItem[], over: Partial<ComputedIte
 const project = { name: '테스트 프로젝트', description: '설명', start_date: '2026-01-01', end_date: '2026-12-31' }
 
 describe('buildReportModel', () => {
-  it('빈 WBS → 0 KPI, 빈 목록, 팀 4개(모두 null)', () => {
+  it('빈 WBS → 0 KPI, 빈 목록, 팀 5개(모두 null)', () => {
     const m = buildReportModel([], project, '2026-06-30')
     expect(m.kpi).toEqual({ actual: 0, planned: 0, variance: 0, delayedCount: 0 })
     expect(m.phases).toEqual([])
     expect(m.delayed).toEqual([])
-    expect(m.teams.map(t => t.team)).toEqual(['PMO', 'ERP', 'MES', '가공'])
+    expect(m.teams.map(t => t.team)).toEqual(['PMO', 'ERP', 'MES', '가공', 'MDM'])
     expect(m.teams.every(t => t.count === 0 && t.pct === null)).toBe(true)
     expect(m.meta.totalLeaves).toBe(0)
   })

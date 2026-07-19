@@ -59,7 +59,7 @@ export function createGetAttendanceTool(
         return invalidArgument()
       }
       if (!validDateRange(from, to)) return invalidArgument('근태 조회 기간이 올바르지 않습니다.')
-      if (team && !(['PMO', 'ERP', 'MES', '가공'] as string[]).includes(team)) {
+      if (team && !(['PMO', 'ERP', 'MES', '가공', 'MDM'] as string[]).includes(team)) {
         return invalidArgument('알 수 없는 담당팀입니다.')
       }
       const denied = checkProjectAccess(context, projectId, ATTENDANCE_CAPABILITY)

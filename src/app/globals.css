@@ -74,6 +74,7 @@
   --color-team-dt:  #0276a8;   --color-team-dt-weak:  #e2f4ff;
   --color-team-erp: #7c3aed;   --color-team-erp-weak: #f0eaff;
   --color-team-mes: #a65b00;   --color-team-mes-weak: #fff2dc;
+  --color-team-mdm: #0f766e;   --color-team-mdm-weak: #dcf4f1;
 
   /* 간트 전용 */
   --color-weekend: #efe8dc;
@@ -142,6 +143,7 @@
 
   --color-team-pmo-weak: #20223a;  --color-team-dt-weak: #102633;
   --color-team-erp-weak: #241a3a;  --color-team-mes-weak: #2e2310;
+  --color-team-mdm-weak: #0e2a27;
 
   --color-weekend: #181d25;     --color-holiday-band: #2a1d22;
   --color-plan-track: #232a33;  --color-phasebar: #475063;  --color-phasebar-fill: #6b7686;

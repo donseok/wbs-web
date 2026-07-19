@@ -35,6 +35,7 @@ export const TEAM_COLOR: Record<TeamCode, string> = {
   가공: '0276A8',
   ERP: '7C3AED',
   MES: 'A65B00',
+  MDM: '0F766E',
 }
 
 export const STATUS_COLOR: Record<Status, string> = {

@@ -195,7 +195,7 @@ export function createFindWbsItemsTool(repository: WbsRepository): ReadOnlyBotTo
       if (status && !(['not_started', 'in_progress', 'delayed', 'done'] as string[]).includes(status)) {
         return invalidArgument('알 수 없는 WBS 상태입니다.')
       }
-      if (team && !(['PMO', 'ERP', 'MES', '가공'] as string[]).includes(team)) {
+      if (team && !(['PMO', 'ERP', 'MES', '가공', 'MDM'] as string[]).includes(team)) {
         return invalidArgument('알 수 없는 담당팀입니다.')
       }
       if ((from === undefined) !== (to === undefined)) {

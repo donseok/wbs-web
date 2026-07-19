@@ -17,7 +17,7 @@ import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 type Mode = 'phase' | 'owner' | 'status'
 type StatusFilter = 'all' | 'in_progress' | 'done'
-const KANBAN_TEAM_CODES: readonly string[] = ['PMO', 'ERP', 'MES', '가공']
+const KANBAN_TEAM_CODES: readonly string[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 // 상태별 모드에서 드롭 시 실적값 매핑(완료=100, 시작전=0). 그 외 컬럼은 드롭 불가.
 const DROP_TARGET: Record<string, number> = { done: 100, not_started: 0 }

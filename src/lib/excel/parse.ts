@@ -10,7 +10,7 @@ export interface ParsedRow {
 }
 export interface ParsedWbs { rows: ParsedRow[]; holidays: { date: string; name: string }[] }
 
-const TEAM_COL: [number, TeamCode][] = [[6, 'PMO'], [7, 'ERP'], [8, 'MES'], [9, '가공']] // G,H,I,J (0-base)
+const TEAM_COL: [number, TeamCode][] = [[6, 'PMO'], [7, 'ERP'], [8, 'MES'], [9, '가공'], [10, 'MDM']] // G,H,I,J,K (0-base)
 
 function toIso(v: unknown): string | null {
   // 엑셀 날짜는 시리얼(정수)로 저장됨. SSF.parse_date_code 로 타임존 무관하게 {y,m,d} 도출.

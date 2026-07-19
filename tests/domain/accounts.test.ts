@@ -4,8 +4,8 @@ import {
 } from '@/lib/domain/accounts'
 
 describe('상수/타입가드', () => {
-  it('팀 코드는 PMO·가공·ERP·MES', () => {
-    expect([...TEAM_CODES].sort()).toEqual(['ERP', 'MES', 'PMO', '가공'].sort())
+  it('팀 코드는 PMO·가공·ERP·MES·MDM', () => {
+    expect([...TEAM_CODES].sort()).toEqual(['ERP', 'MES', 'PMO', '가공', 'MDM'].sort())
   })
   it('권한은 pmo_admin·team_editor', () => {
     expect([...ACCOUNT_ROLES].sort()).toEqual(['pmo_admin', 'team_editor'])

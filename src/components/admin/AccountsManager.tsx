@@ -241,7 +241,7 @@ function BulkAddModal({ open, onClose }: { open: boolean; onClose: () => void })
       <div className="space-y-4">
         <div className="rounded-xl bg-surface-2 px-3.5 py-3 text-xs leading-5 text-ink-muted">
           한 줄에 하나씩, <b>이메일, 팀코드, 권한, 초기비번</b> 순서(선택: 이름). 콤마 또는 탭 구분.<br />
-          팀코드: <code>PMO · 가공 · ERP · MES</code> / 권한: <code>pmo_admin · team_editor</code><br />
+          팀코드: <code>PMO · 가공 · ERP · MES · MDM</code> / 권한: <code>pmo_admin · team_editor</code><br />
           예) <code>hong@company.com, 가공, team_editor, password1, 홍길동</code>
         </div>
         <textarea

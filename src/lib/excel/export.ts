@@ -3,11 +3,11 @@ import type { ComputedItem, TeamCode } from '@/lib/domain/types'
 
 /**
  * WBS 익스포트 (순수). parse.ts와 동일한 열 배치로 써서 다시 임포트하면 라운드트립된다.
- * 열(0-base): A0 Biz · B1 Phase · C2 Task · D3 Activity · G6~J9 담당(●주관/△지원)
+ * 열(0-base): A0 Biz · B1 Phase · C2 Task · D3 Activity · G6~K10 담당(●주관/△지원)
  *           · L11 산출물 · M12 계획시작 · N13 계획종료 · O14 가중치 · Q16 실적%
  * R17~ 는 사람이 읽기 위한 계산 컬럼(파서는 무시).
  */
-const TEAM_COL: Record<TeamCode, number> = { PMO: 6, ERP: 7, MES: 8, 가공: 9 }
+const TEAM_COL: Record<TeamCode, number> = { PMO: 6, ERP: 7, MES: 8, 가공: 9, MDM: 10 }
 const STATUS_LABEL: Record<ComputedItem['status'], string> = {
   not_started: '시작전', in_progress: '진행중', delayed: '지연', done: '완료',
 }
@@ -42,7 +42,7 @@ function isoToDate(iso: string | null): Date | '' {
 export function buildWbsAoa(items: ComputedItem[], projectName = 'WBS'): unknown[][] {
   const header1 = [projectName]
   const header2 = ['', 'Phase', 'Task', 'Activity', '', '', '담당', '', '', '', '', '산출물', '계획', '']
-  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', '', '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
+  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', 'MDM', '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
 
   const rows: unknown[][] = [header1, header2, header3]
   for (const it of flatten(items)) {

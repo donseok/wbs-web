@@ -1,7 +1,7 @@
 import type { OwnerKind, TeamCode } from './types'
 
-/** 담당 팀 표준 순서(PMO→ERP→MES→가공) — 트리/오너 정렬과 동일. */
-export const SUB_ACT_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+/** 담당 팀 표준 순서(PMO→ERP→MES→가공→MDM) — 트리/오너 정렬과 동일. */
+export const SUB_ACT_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 /** SUB-ACT 저장 이름 규칙 — 임포트 분리(splitLeafOwners)와 동일한 "{ACT명} ({팀} 주관/지원)".
  *  하류(검색·챗봇·보고·엑셀 라운드트립)가 리프 이름만으로 작업을 식별할 수 있어야 하므로 부모명을 접두로 유지한다. */

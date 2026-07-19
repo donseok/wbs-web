@@ -17,9 +17,10 @@ const TEAM_META: Record<TeamCode, { chip: string; avatar: string }> = {
   가공: { chip: 'bg-team-dt-weak text-team-dt', avatar: 'from-team-dt to-brand' },
   ERP: { chip: 'bg-team-erp-weak text-team-erp', avatar: 'from-team-erp to-accent-secondary' },
   MES: { chip: 'bg-team-mes-weak text-team-mes', avatar: 'from-team-mes to-brand' },
+  MDM: { chip: 'bg-team-mdm-weak text-team-mdm', avatar: 'from-team-mdm to-brand' },
 }
 
-const TEAM_OPTIONS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+const TEAM_OPTIONS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 // 아바타 그라디언트 팔레트(디자인 토큰 재사용). 멤버 id 해시로 결정적 배정 —
 // 이름·이니셜이 같은(예: '테스트사용자'/'테스트QA' → 둘 다 '테스') 멤버도 색으로 구분된다.
@@ -29,6 +30,7 @@ const AVATAR_GRADIENTS = [
   'from-team-dt to-brand',
   'from-team-erp to-accent-secondary',
   'from-team-mes to-brand',
+  'from-team-mdm to-brand',
   'from-brand to-brand-hover',
   'from-accent-secondary to-brand',
 ]

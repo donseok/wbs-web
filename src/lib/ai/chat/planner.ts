@@ -201,7 +201,7 @@ export const PLANNER_TOOL_CATALOG: Record<CoreBotToolName, PlannerToolSpec> = {
     argKeys: ['projectId', 'team'],
     requiresProjectId: true,
     purpose: '팀 단위 워크로드',
-    argHints: 'team은 PMO|ERP|MES|가공(선택)',
+    argHints: 'team은 PMO|ERP|MES|가공|MDM(선택)',
   },
   get_safe_project_settings: {
     domain: 'settings',

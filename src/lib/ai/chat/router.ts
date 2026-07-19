@@ -206,7 +206,7 @@ function wbsStatusFrom(message: string, context: PageContextV1 | undefined): str
 function teamFrom(message: string, context: PageContextV1 | undefined): string | undefined {
   const filtered = stringFilter(context, 'team')
   if (filtered) return filtered
-  return message.match(/(?:^|\s)(PMO|ERP|MES|가공)(?:\s|$)/i)?.[1]?.toUpperCase()
+  return message.match(/(?:^|\s)(PMO|ERP|MES|가공|MDM)(?:\s|$)/i)?.[1]?.toUpperCase()
 }
 
 function attendanceTypesFrom(message: string): string[] | undefined {

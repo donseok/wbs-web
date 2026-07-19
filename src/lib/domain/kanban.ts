@@ -9,7 +9,7 @@ export type KanbanColumn = {
   accentDot?: string
 }
 
-const TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+const TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 const STATUS_ORDER: Status[] = ['not_started', 'in_progress', 'delayed', 'done']
 
 // 순수 도메인 모듈 — JSX(shared.tsx)에 의존하지 않도록 표현 메타를 로컬로 둔다.
@@ -20,7 +20,7 @@ const STATUS_DOT: Record<Status, string> = {
   not_started: 'bg-pending', in_progress: 'bg-progress', delayed: 'bg-delayed', done: 'bg-done',
 }
 const TEAM_DOT: Record<TeamCode, string> = {
-  PMO: 'bg-team-pmo', 가공: 'bg-team-dt', ERP: 'bg-team-erp', MES: 'bg-team-mes',
+  PMO: 'bg-team-pmo', 가공: 'bg-team-dt', ERP: 'bg-team-erp', MES: 'bg-team-mes', MDM: 'bg-team-mdm',
 }
 
 /** 말단(자식 없는) 노드 수집 — pure. */
@@ -39,10 +39,10 @@ export function groupByPhase(items: ComputedItem[]): KanbanColumn[] {
   })
 }
 
-/** 담당자별 — PMO/ERP/MES/가공 + 미배정. leaf는 primary 담당팀마다 들어가고, primary가 없으면 미배정. */
+/** 담당자별 — PMO/ERP/MES/가공/MDM + 미배정. leaf는 primary 담당팀마다 들어가고, primary가 없으면 미배정. */
 export function groupByOwner(items: ComputedItem[]): KanbanColumn[] {
   const leaves = leavesOf(items)
-  const buckets: Record<string, ComputedItem[]> = { PMO: [], ERP: [], MES: [], 가공: [], 미배정: [] }
+  const buckets: Record<string, ComputedItem[]> = { PMO: [], ERP: [], MES: [], 가공: [], MDM: [], 미배정: [] }
   for (const leaf of leaves) {
     const primaries = [...new Set(leaf.owners.filter(o => o.kind === 'primary').map(o => o.team))]
     if (primaries.length === 0) buckets['미배정'].push(leaf)
