@@ -206,7 +206,7 @@ const WBS_CASES: GoldenCase[] = [
     expect: {
       routeKind: 'tools', tools: ['get_wbs_change_log'],
       argsSubset: { get_wbs_change_log: { itemId: 'a-s112' } },
-      deltaIncludes: ['표시 건수: 2건', '변경자: 김이피', '변경 후: 40'],
+      deltaIncludes: ['변경자: 김이피', '변경 후: 40'],
       sourceHrefPrefixes: [`${WBS_FOCUS}a-s112`],
     },
   },
@@ -1257,7 +1257,7 @@ const CROSS_CASES: GoldenCase[] = [
     expect: {
       routeKind: 'tools', tools: ['get_wbs_item_detail'],
       argsSubset: { get_wbs_item_detail: { projectId: PROJECT_ALPHA, itemId: 'b-t1' } },
-      deltaIncludes: ['작업 확인: 아니요'],
+      deltaIncludes: ['조건에 맞는 데이터는 0건'],
       deltaExcludes: [BETA_MARKER],
     },
   },

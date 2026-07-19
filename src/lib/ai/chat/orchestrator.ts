@@ -179,18 +179,42 @@ function displayNumber(value: number, key?: string): string {
   return formatted
 }
 
+/** 원시 ISO 타임스탬프(마이크로초·오프셋 포함)를 KST 'YYYY-MM-DD HH:MM'으로 줄인다. */
+function displayTimestamp(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  }).format(parsed)
+}
+
+/** 제목 성격의 필드는 라벨 없이 문두에 그대로 노출한다 — "작업명: X" 반복을 없앤다. */
+const RECORD_TITLE_KEYS = ['title', 'name', 'itemName', 'memberName', 'fileName', 'columnTitle'] as const
+
 function displayValue(value: unknown, key?: string): string {
   if (value === null) return '없음'
   if (typeof value === 'boolean') return value ? '예' : '아니요'
   if (typeof value === 'number') return displayNumber(value, key)
-  if (typeof value === 'string') return DISPLAY_ENUMS[value] ?? value
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return displayTimestamp(value)
+    return DISPLAY_ENUMS[value] ?? value
+  }
   if (Array.isArray(value)) return value.map(item => displayValue(item, key)).join(', ')
   if (typeof value === 'object' && value) {
-    return Object.entries(value as Record<string, unknown>)
-      .filter(([field, v]) => v !== undefined && field !== 'sortOrder' && !/(?:^id$|ids$|id$)/i.test(field))
+    // 레코드 표시는 정보가 있는 필드만: null·false·내부 갱신시각은 나열 노이즈다.
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([field, v]) =>
+        v !== undefined && v !== null && v !== false
+        && field !== 'sortOrder' && field !== 'updatedAt'
+        && !/(?:^id$|ids$|id$)/i.test(field))
+    const titleKey = RECORD_TITLE_KEYS.find(candidate => entries.some(([field]) => field === candidate))
+    const title = titleKey ? entries.find(([field]) => field === titleKey) : undefined
+    const rest = entries
+      .filter(([field]) => field !== titleKey)
       .slice(0, 12)
       .map(([field, v]) => `${DISPLAY_LABELS[field] ?? field}: ${displayValue(v, field)}`)
-      .join(' · ')
+    return [...(title ? [displayValue(title[1], title[0])] : []), ...rest].join(' · ')
   }
   return String(value)
 }
@@ -213,23 +237,39 @@ function citations(sourceIds: readonly string[], limit = 3): string {
   return selected.length ? ` ${selected.map(id => `[${id}]`).join('')}` : ''
 }
 
+/**
+ * 사용자 답변에 노출하지 않는 내부 확인용 fact 키 — 도구 계약·검증에는 그대로 남는다.
+ * (표시 건수·확인 플래그류는 상한 경고와 0건 문구가 이미 같은 정보를 전달한다.)
+ */
+const HIDDEN_FACT_KEYS = new Set([
+  'returned', 'projectFound', 'itemFound', 'reportFound', 'meetingFound', 'minuteFound',
+  'fromReportFound', 'toReportFound', 'defaultRangeApplied', 'bodyTruncated',
+])
+
 /** Truthful provider-independent answer used when no LLM is configured or synthesis verification fails. */
 export function deterministicEvidenceAnswer(pack: EvidencePack, failedTools: string[] = []): string {
   const lines: string[] = []
-  if (pack.facts.length) {
+  const visible = pack.facts.filter(fact => !HIDDEN_FACT_KEYS.has(fact.key))
+  if (visible.length) {
     lines.push('조회 요약')
-    for (const fact of pack.facts.slice(0, 8)) {
+    const rangeTo = new Map(visible.filter(f => f.key === 'rangeTo').map(f => [f.tool, f]))
+    for (const fact of visible.filter(f => f.key !== 'rangeTo').slice(0, 8)) {
+      // 조회 시작/종료 두 줄 대신 "기간: A ~ B" 한 줄로 합친다.
+      if (fact.key === 'rangeFrom' && rangeTo.has(fact.tool)) {
+        lines.push(`• 기간: ${displayValue(fact.value)} ~ ${displayValue(rangeTo.get(fact.tool)!.value)}`)
+        continue
+      }
       lines.push(`• ${DISPLAY_LABELS[fact.key] ?? fact.key}: ${displayValue(fact.value, fact.key)}${citations(fact.sourceIds)}`)
     }
   }
   if (pack.records.length) {
-    if (pack.facts.length) lines.push('')
+    if (visible.length) lines.push('')
     lines.push('상세 항목')
     for (const record of pack.records.slice(0, 12)) {
       lines.push(`• ${displayValue(record.value).slice(0, 800)}${citations(record.sourceIds)}`)
     }
   }
-  if (!pack.facts.length && !pack.records.length) {
+  if (!visible.length && !pack.records.length) {
     lines.push('조건에 맞는 데이터는 0건입니다.')
   }
   if (pack.records.length > 12 || pack.truncated) lines.push('※ 조회 상한 때문에 일부 결과만 표시했습니다.')

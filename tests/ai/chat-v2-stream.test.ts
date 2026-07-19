@@ -99,7 +99,7 @@ describe('chat v2 orchestrator', () => {
     expect(generateAnswer).not.toHaveBeenCalled()
     const answer = events.filter(e => e.type === 'delta').map(e => e.type === 'delta' ? e.text : '').join('')
     expect(answer).toContain('조회 요약')
-    expect(answer).toContain('작업명: 설계')
+    expect(answer).toContain('• 설계')
     expect(answer).toContain('실적률: 30%')
     expect(answer).not.toContain('actualPct')
     expect(events.some(e => e.type === 'sources')).toBe(true)
@@ -458,7 +458,7 @@ describe('chat v2 orchestrator', () => {
     const deterministic = await run({ projectId: 'p1', message: '설계 설명', history: [] })
     expect(generateAnswer).not.toHaveBeenCalled()
     expect(deterministic.filter(item => item.type === 'delta')
-      .map(item => item.type === 'delta' ? item.text : '').join('')).toContain('작업명: 설계')
+      .map(item => item.type === 'delta' ? item.text : '').join('')).toContain('• 설계')
 
     vi.stubEnv('CHAT_V2_LLM_SYNTHESIS_ENABLED', 'true')
     vi.mocked(generateAnswer).mockResolvedValueOnce('LLM이 정리한 설계입니다. [S1]')
