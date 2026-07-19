@@ -173,7 +173,7 @@ function displayNumber(value: number, key?: string): string {
   if (key === 'totalRows') return `${formatted}행`
   if (key === 'projectCount') return `${formatted}개`
   if (key && ['leave', 'trip', 'remote'].includes(key)) return `${formatted}건`
-  if (key && /(?:total|count|matched|returned|added|removed|changed|unchanged|cards|tasks)$/i.test(key)) {
+  if (key && /(?:total|count|matched|returned|added|removed|changed|unchanged|cards|tasks|compared)$/i.test(key)) {
     return `${formatted}건`
   }
   return formatted

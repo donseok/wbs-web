@@ -80,7 +80,7 @@
 
 2026-07-19 Phase 2 완료 시점(종합 코드 리뷰 Critical/High 0건 + Medium/Low 20건 반영 포함):
 
-- 전체 Vitest: 137개 파일, **1,458개 테스트 통과** (골든 질문셋 118개 포함)
+- 전체 Vitest: 135개 파일, **1,458개 테스트 통과** (골든 질문셋 118개 포함)
 - TypeScript `tsc --noEmit` 통과
 - ESLint 통과
 - Next.js production build 통과(`/api/chat/v2/stream`, `/api/chat/index/worker` 포함)

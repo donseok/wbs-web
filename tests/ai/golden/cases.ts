@@ -305,7 +305,7 @@ const WEEKLY_CASES: GoldenCase[] = [
     expect: {
       routeKind: 'tools', tools: ['compare_weekly_sheets'],
       argsSubset: { compare_weekly_sheets: { fromWeekStart: '2026-07-06', toWeekStart: '2026-07-13' } },
-      deltaIncludes: ['비교 항목: 4', '추가: 1건', '삭제: 1건'],
+      deltaIncludes: ['비교 항목: 4건', '추가: 1건', '삭제: 1건'],
       sourceHrefPrefixes: [WEEKLY_HREF],
     },
   },
@@ -316,7 +316,7 @@ const WEEKLY_CASES: GoldenCase[] = [
     expect: {
       routeKind: 'tools', tools: ['compare_weekly_sheets'],
       argsSubset: { compare_weekly_sheets: { fromWeekStart: '2026-07-06', toWeekStart: '2026-07-13' } },
-      deltaIncludes: ['비교 항목: 4'],
+      deltaIncludes: ['비교 항목: 4건'],
     },
   },
   {
