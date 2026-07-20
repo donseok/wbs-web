@@ -182,8 +182,9 @@ alter table public.attendance_records
   무료 쿼터 0(429) — `GEMINI_MODEL` 오버라이드로도 지정하지 말 것.
 - **429 내성(3중 방어)**: 무료 티어 분당 한도(3.5-flash RPM 20)에 걸리면 ① 서버가 알려준
   지연(≤6초)만큼 기다렸다 1회 재시도 → ② 폴백 모델 체인
-  `gemini-3.1-flash-lite → gemini-2.5-flash-lite`(모델별 쿼터 버킷이 분리돼 있어 주 모델이
-  막혀도 통과, `GEMINI_FALLBACK_MODELS`로 변경) → ③ 그래도 실패하면 결정형 답변 + 원인 안내.
+  `gemini-3.1-flash-lite → gemini-3-flash-preview`(모델별 쿼터 버킷이 분리돼 있어 주 모델이
+  막혀도 통과, `GEMINI_FALLBACK_MODELS`로 변경; 종전 마지막 단 `gemini-2.5-flash-lite` 는
+  2026-10-16 셧다운으로 교체) → ③ 그래도 실패하면 결정형 답변 + 원인 안내.
 - **키워드 정확 일치 검색**: "tft 단어가 들어간 항목", "'기준정보' 포함된 작업" 류 질문은
   임베딩 의미검색이 정확 문자열 일치를 보장하지 못하므로, 질문에서 키워드를 추출해
   팩트시트를 직접 필터한 `[키워드 정확 일치]` 블록을 LLM 근거로 제공한다(0건도 명시 →

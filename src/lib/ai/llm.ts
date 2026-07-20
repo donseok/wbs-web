@@ -35,10 +35,11 @@ export async function generateAnswer(system: string, messages: ChatMessage[]): P
  * 무료 티어 쿼터는 모델별로 별도 버킷이라, 주 모델(gemini-3.5-flash, RPM 20)이 분당 한도에
  * 걸려도 아래 모델들은 여유가 있다(2026-07-02 실 키로 두 모델 모두 200 확인).
  * - gemini-3.1-flash-lite: 3.x 세대(thinkingLevel 분기)
- * - gemini-2.5-flash-lite: 2.x 세대(thinkingBudget:0 분기), 2026-10-16 이후 교체 필요
+ * - gemini-3-flash-preview: 3.x 세대. preview 라 예고 없이 회수될 수 있으나 마지막 보루라 허용
+ *   (2026-07-20 실 키로 thinkingLevel 포함 200 확인; 종전 gemini-2.5-flash-lite 는 2026-10-16 셧다운으로 교체)
  * GEMINI_FALLBACK_MODELS(콤마 구분)로 오버라이드, 빈 문자열이면 폴백 없음.
  */
-const DEFAULT_GEMINI_FALLBACKS = ['gemini-3.1-flash-lite', 'gemini-2.5-flash-lite']
+const DEFAULT_GEMINI_FALLBACKS = ['gemini-3.1-flash-lite', 'gemini-3-flash-preview']
 
 function geminiModelChain(primary: string): string[] {
   const raw = process.env.GEMINI_FALLBACK_MODELS
