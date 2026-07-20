@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { ChevronRight, FileText, Folder, FolderOpen, Paperclip } from 'lucide-react'
+import { ChevronRight, FileText, Folder, FolderOpen } from 'lucide-react'
 import type { MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { TEAM } from '@/components/wbs/shared'
@@ -103,10 +103,8 @@ export function MinutesTree({ groups }: { groups: MinutesTreeGroup[] }) {
                                   <FileText aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
                                   <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{leaf.title}</span>
                                   <span className="w-24 shrink-0 truncate text-right text-xs text-ink-subtle">{leaf.createdByName ?? ''}</span>
-                                  {/* 건수 레일 — 첨부 없으면 빈 자리 유지(레일 정렬) */}
-                                  <span className="inline-flex w-10 shrink-0 items-center justify-end gap-0.5 text-xs tabular-nums text-ink-subtle">
-                                    {leaf.fileCount > 0 && (<><Paperclip aria-hidden className="h-3 w-3" />{leaf.fileCount}</>)}
-                                  </span>
+                                  {/* 건수 레일 — 상위 행의 건수 열과 날짜 정렬을 맞추기 위한 빈 자리 */}
+                                  <span aria-hidden className="w-10 shrink-0" />
                                   <span className="w-20 shrink-0 text-right text-xs tabular-nums text-ink-subtle">{leaf.minuteDate}</span>
                                 </Link>
                               </li>

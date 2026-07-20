@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, List, ListTree, Paperclip, Plus, Search } from 'lucide-react'
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, List, ListTree, Plus, Search } from 'lucide-react'
 import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
 import { MINUTES_TREE_LIMIT, TEAM_CODES } from '@/lib/domain/minutes'
 import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesTree } from '@/app/actions/minutes'
@@ -219,11 +219,6 @@ export function MinutesView({
                           {mi.teamCode}
                         </span>
                         <span className="flex-1 truncate text-sm font-medium text-ink">{mi.title}</span>
-                        {(mi.fileCount ?? 0) > 0 && (
-                          <span className="inline-flex items-center gap-1 text-xs text-ink-subtle">
-                            <Paperclip className="h-3.5 w-3.5" />{mi.fileCount}
-                          </span>
-                        )}
                         <span className="w-24 truncate text-right text-xs text-ink-subtle">{mi.createdByName ?? ''}</span>
                       </Link>
                     </li>
