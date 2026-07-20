@@ -5,13 +5,19 @@ import { useRouter } from 'next/navigation'
 import type { MeetingOccurrence } from '@/lib/domain/types'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { MEETING_META } from '@/lib/domain/meetings'
+import { MEETING_META, meetingEditHref } from '@/lib/domain/meetings'
 import { MeetingDetailModal } from '@/components/meetings/MeetingDetailModal'
 import { DateCell, weekdayKey } from './bits'
 
-/** 대시보드 회의 리스트 — 행 클릭 시 상세 모달을 읽기 전용으로 띄운다.
- *  편집/삭제는 회의 페이지 전용(여기서는 currentUserId/role 을 넘기지 않는다). */
-export function MeetingScheduleList({ rows, today }: { rows: MeetingOccurrence[]; today: string }) {
+/** 대시보드 회의 리스트 — 행 클릭 시 상세 모달을 띄운다.
+ *  작성자(또는 pmo_admin)면 상세에서 수정·삭제가 열린다. 수정 폼은 프로젝트 멤버 목록이 필요하므로
+ *  여기서 띄우지 않고 회의 페이지로 딥링크(?focus=&date=&edit=1)해 폼을 바로 연다. */
+export function MeetingScheduleList({ rows, today, currentUserId = null, role = null }: {
+  rows: MeetingOccurrence[]
+  today: string
+  currentUserId?: string | null
+  role?: string | null
+}) {
   const router = useRouter()
   const { t } = useLocale()
   const [detailOcc, setDetailOcc] = useState<MeetingOccurrence | null>(null)
@@ -45,9 +51,9 @@ export function MeetingScheduleList({ rows, today }: { rows: MeetingOccurrence[]
         })}
       </ul>
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
-        currentUserId={null} role={null}
+        currentUserId={currentUserId} role={role}
         onClose={() => setDetailOcc(null)}
-        onEditSeries={m => router.push(`/p/${m.projectId}/meetings`)}
+        onEditSeries={m => router.push(meetingEditHref(m.projectId, m.id, detailOcc?.occurrenceDate))}
         onChanged={() => router.refresh()} />
     </>
   )

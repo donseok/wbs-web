@@ -47,6 +47,8 @@ export async function DashboardView({
   minuteSignals = [],
   weeklyBriefRow = null,
   riskBriefRow = null,
+  currentUserId = null,
+  role = null,
 }: {
   items: ComputedItem[]
   projectId: string
@@ -64,6 +66,9 @@ export async function DashboardView({
   /** AI 브리핑 캐시 행(page.tsx 페치, 읽기 전용 RLS) — 신선도 판정은 여기서 해시 대조로 수행. */
   weeklyBriefRow?: AiBriefRow | null
   riskBriefRow?: AiBriefRow | null
+  /** 회의 카드에서 작성자 본인/pmo_admin 에게 수정·삭제를 열기 위한 식별자. */
+  currentUserId?: string | null
+  role?: string | null
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -137,7 +142,8 @@ export async function DashboardView({
           today 프롭은 base_date(공정율 기준일)로 고정될 수 있으므로(getComputedWbs) 쓰지 않는다 —
           회의·근태는 진척 산정이 아니라 실제 달력이므로 항상 실제 오늘 기준. */}
       <div className="grid gap-5 lg:grid-cols-2">
-        <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={seoulToday()} />
+        <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={seoulToday()}
+          currentUserId={currentUserId} role={role} />
         <MinuteSignals projectId={projectId} signals={minuteSignals.slice(0, MINUTE_SIGNAL_DISPLAY)} />
       </div>
     </div>

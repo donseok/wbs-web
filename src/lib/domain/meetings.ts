@@ -147,6 +147,14 @@ export function canEditMeeting(m: { createdBy: string | null }, userId: string |
   return m.createdBy !== null && m.createdBy === userId
 }
 
+/** 회의 시리즈 수정 폼을 바로 여는 딥링크. 대시보드·내 회의처럼 폼에 필요한 프로젝트 멤버 목록이
+ *  없는 화면에서 쓴다 — 회의 페이지가 ?focus 로 회차를 찾고 edit=1 이면 폼을 연다. */
+export function meetingEditHref(projectId: string, seriesId: string, occurrenceDate?: string | null): string {
+  const q = new URLSearchParams({ focus: seriesId, edit: '1' })
+  if (occurrenceDate) q.set('date', occurrenceDate)
+  return `/p/${projectId}/meetings?${q.toString()}`
+}
+
 const DAY = 86_400_000
 
 /** hero KPI — 오늘/향후 7일(오늘 포함)/전체(현재 그리드 전개분 기준). */

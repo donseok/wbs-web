@@ -6,6 +6,7 @@ import { getProjectMeetingData } from '@/lib/data/meetings'
 import { getProjectMinuteSignals } from '@/lib/data/minutes'
 import { getProjectAiBriefs, briefFrom } from '@/lib/data/aiBriefs'
 import { listProjects } from '@/app/actions/project'
+import { getMembership, getSession } from '@/lib/auth'
 import { createServerClient } from '@/lib/supabase/server'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -16,7 +17,7 @@ import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, briefs, sb] = await Promise.all([
+  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, briefs, sb, user, membership] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getAnnouncements(projectId),
@@ -29,6 +30,9 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
     // getComputedWbs 이후 후속 1회 조회가 필요했고, 그게 대시보드의 유일한 직렬 2단째였다.
     getProjectAiBriefs(projectId),
     createServerClient(),
+    // 회의 카드에서 '작성자 본인이면 수정' 판정에 쓰는 식별자 — 기존 배치에 얹어 직렬 왕복을 늘리지 않는다.
+    getSession(),
+    getMembership(),
   ])
   const riskBriefRow = briefFrom(briefs, 'risk', '')
   const weeklyBriefRow = briefFrom(briefs, 'weekly', today)
@@ -59,6 +63,8 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         minuteSignals={minuteSignals}
         weeklyBriefRow={weeklyBriefRow}
         riskBriefRow={riskBriefRow}
+        currentUserId={user?.id ?? null}
+        role={membership?.role ?? null}
       />
     </ProjectPageShell>
   )

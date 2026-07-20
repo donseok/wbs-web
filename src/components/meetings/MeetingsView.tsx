@@ -9,7 +9,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { fmtDate } from '@/components/wbs/shared'
-import { expandMeetings, sortOccurrences, MEETING_META } from '@/lib/domain/meetings'
+import { expandMeetings, sortOccurrences, MEETING_META, canEditMeeting } from '@/lib/domain/meetings'
 import { MeetingCalendar } from './MeetingCalendar'
 import { MeetingFormModal } from './MeetingFormModal'
 import { MeetingDetailModal } from './MeetingDetailModal'
@@ -67,6 +67,13 @@ export function MeetingsView({
   const [initialFocus] = useState(() => resolveFocusOccurrence(
     meetings, exceptions, searchParams.get('focus'), searchParams.get('date'),
   ))
+  // ?edit=1 딥링크(대시보드·내 회의의 '수정') — 권한이 있을 때만 폼을 바로 연다.
+  // 권한이 없으면 null 이 되어 평소처럼 상세 모달만 열린다(서버 액션도 다시 검증).
+  const [initialEdit] = useState<Meeting | null>(() => {
+    if (searchParams.get('edit') !== '1' || !initialFocus) return null
+    const m = meetings.find(x => x.id === initialFocus.seriesId)
+    return m && canEditMeeting(m, currentUserId, role) ? m : null
+  })
   const [initY, initM] = useMemo(() => todayIso.split('-').map(Number), [todayIso])
   const [year, setYear] = useState(initialFocus ? Number(initialFocus.occurrenceDate.slice(0, 4)) : initY)
   const [month0, setMonth0] = useState(
@@ -74,9 +81,9 @@ export function MeetingsView({
   )
   const [view, setView] = useState<ViewKey>('calendar')
 
-  const [formOpen, setFormOpen] = useState(false)
-  const [editing, setEditing] = useState<Meeting | null>(null)
-  const [detailOcc, setDetailOcc] = useState<MeetingOccurrence | null>(initialFocus)
+  const [formOpen, setFormOpen] = useState(!!initialEdit)
+  const [editing, setEditing] = useState<Meeting | null>(initialEdit)
+  const [detailOcc, setDetailOcc] = useState<MeetingOccurrence | null>(initialEdit ? null : initialFocus)
 
   const [gridStart, gridEnd] = useMemo(() => gridRange(year, month0), [year, month0])
   useBotPageContext({

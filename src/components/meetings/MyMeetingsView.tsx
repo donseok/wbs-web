@@ -9,7 +9,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { fmtDate } from '@/components/wbs/shared'
-import { expandMeetings, sortOccurrences, MEETING_META } from '@/lib/domain/meetings'
+import { expandMeetings, sortOccurrences, MEETING_META, meetingEditHref } from '@/lib/domain/meetings'
 import { MeetingCalendar } from './MeetingCalendar'
 import { MeetingDetailModal } from './MeetingDetailModal'
 import { fetchMyMeetings } from '@/app/actions/meetings'
@@ -198,7 +198,7 @@ export function MyMeetingsView({
 
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
         currentUserId={currentUserId} role={role}
-        onClose={() => setDetailOcc(null)} onEditSeries={(m) => router.push(`/p/${m.projectId}/meetings`)}
+        onClose={() => setDetailOcc(null)} onEditSeries={(m) => router.push(meetingEditHref(m.projectId, m.id, detailOcc?.occurrenceDate))}
         onChanged={() => { setReloadKey(k => k + 1); router.refresh() }} />
     </div>
   )

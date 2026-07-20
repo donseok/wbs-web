@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   expandMeetings, occurrencesByDate, sortOccurrences, canEditMeeting, summarizeMeetings,
-  MEETING_CATEGORIES,
+  meetingEditHref, MEETING_CATEGORIES,
 } from '@/lib/domain/meetings'
 import type { Meeting, MeetingException } from '@/lib/domain/types'
 
@@ -129,5 +129,16 @@ describe('summarizeMeetings', () => {
     expect(s.total).toBe(3)
     expect(s.today).toBe(1)
     expect(s.upcoming7d).toBe(2) // 07-03(포함) ~ 07-09: a,b
+  })
+})
+
+describe('meetingEditHref', () => {
+  it('회차 날짜가 있으면 focus/edit/date 를 모두 싣는다', () => {
+    expect(meetingEditHref('p1', 'm1', '2026-07-21'))
+      .toBe('/p/p1/meetings?focus=m1&edit=1&date=2026-07-21')
+  })
+  it('회차 날짜가 없으면 date 를 생략한다(회의 페이지가 시리즈 기준일로 폴백)', () => {
+    expect(meetingEditHref('p1', 'm1')).toBe('/p/p1/meetings?focus=m1&edit=1')
+    expect(meetingEditHref('p1', 'm1', null)).toBe('/p/p1/meetings?focus=m1&edit=1')
   })
 })

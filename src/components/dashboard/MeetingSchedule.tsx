@@ -14,11 +14,14 @@ const MAX_ROWS = 10
 const WINDOW_DAYS = 14
 
 /** 향후 2주 회의 일정 — 날짜순 리스트. */
-export async function MeetingSchedule({ projectId, meetings, exceptions, today }: {
+export async function MeetingSchedule({ projectId, meetings, exceptions, today, currentUserId = null, role = null }: {
   projectId: string
   meetings: Meeting[]
   exceptions: MeetingException[]
   today: string
+  /** 작성자 본인(또는 pmo_admin)에게 상세 모달의 수정·삭제를 열기 위한 식별자. */
+  currentUserId?: string | null
+  role?: string | null
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -40,7 +43,7 @@ export async function MeetingSchedule({ projectId, meetings, exceptions, today }
         {rows.length === 0 ? (
           <MiniEmpty text={tr('dash.meet.empty')} />
         ) : (
-          <MeetingScheduleList rows={rows} today={today} />
+          <MeetingScheduleList rows={rows} today={today} currentUserId={currentUserId} role={role} />
         )}
         <Link href={`/p/${projectId}/meetings`} className="inline-flex items-center gap-1 text-[12px] font-medium text-brand hover:underline">
           {tr('dash.viewAll')} <ArrowRight className="h-3.5 w-3.5" />
