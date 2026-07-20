@@ -170,6 +170,21 @@ export function MinuteViewer({
     }
   }
 
+  // 원본 파일이 없는 회의록 — 본문 마크다운을 그대로 .md 파일로 내려받는다(클라이언트 Blob, 서버 왕복 없음)
+  function downloadBodyMd() {
+    // OS 파일명 금지 문자만 치환 — 한글 등 유니코드는 download 속성에서 그대로 허용
+    const safeTitle = minute.title.replace(/[\\/:*?"<>|]/g, '_').trim() || t('nav.minutes')
+    const blob = new Blob([minute.bodyMd], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${minute.minuteDate} ${safeTitle} 내용.md`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   async function download(fileId: string) {
     setBusy(true)
     const res = await getMinuteFileUrl(fileId)
@@ -250,7 +265,9 @@ export function MinuteViewer({
                 <Download className="h-3.5 w-3.5" />{t('min.detail.download')}
               </button>
             ) : (
-              <span className="text-xs text-delayed">{t('min.detail.noBodyFile')}</span>
+              <button onClick={downloadBodyMd} className="btn h-8 px-2.5 text-xs">
+                <Download className="h-3.5 w-3.5" />{t('min.detail.downloadBody')}
+              </button>
             )}
             {attachments.map(f => (
               <button key={f.id} onClick={() => void download(f.id)} disabled={busy}
