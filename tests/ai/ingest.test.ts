@@ -21,13 +21,16 @@ const mHasEmb = vi.mocked(hasEmbeddings)
 const mEmbed = vi.mocked(embedDocuments)
 const mAdmin = vi.mocked(createAdminClient)
 
-type Row = { project_id: string; kind: string; ref_id: string | null; content: string; embedding: number[] }
-function mockAdmin() {
-  const eq = vi.fn(async () => ({ error: null }))
+type Row = { project_id: string; kind: string; ref_id: string | null; content: string; embedding: number[]; updated_at: string }
+function mockAdmin(upsertError: { message: string } | null = null) {
+  const lt = vi.fn(async () => ({ error: null }))
+  const eq = vi.fn(() => ({ lt }))
   const del = vi.fn(() => ({ eq }))
-  const insert = vi.fn<(rows: Row[]) => Promise<{ error: null }>>(async () => ({ error: null }))
-  mAdmin.mockReturnValue({ from: vi.fn(() => ({ delete: del, insert })) } as never)
-  return { eq, del, insert }
+  const upsert = vi.fn<(rows: Row[], opts: { onConflict: string }) => Promise<{ error: { message: string } | null }>>(
+    async () => ({ error: upsertError }),
+  )
+  mAdmin.mockReturnValue({ from: vi.fn(() => ({ delete: del, upsert })) } as never)
+  return { lt, eq, del, upsert }
 }
 const mWbs = vi.mocked(getComputedWbs)
 const mMembers = vi.mocked(getProjectMembers)
@@ -64,7 +67,7 @@ describe('ingestProject — 재색인(전체 교체)', () => {
     expect(mAdmin).not.toHaveBeenCalled()
   })
 
-  it('정상 경로: 기존 삭제 후 삽입, count 반환', async () => {
+  it('정상 경로: upsert(문서 키 충돌 갱신) 후 이번 라운드에 없던 stale 행만 삭제, count 반환', async () => {
     mHasEmb.mockReturnValue(true)
     mDocs.mockReturnValue([
       { kind: 'project', refId: null, content: 'doc1' },
@@ -74,16 +77,30 @@ describe('ingestProject — 재색인(전체 교체)', () => {
       [0.1, 0.2],
       [0.3, 0.4],
     ])
-    const { eq, del, insert } = mockAdmin()
+    const { lt, eq, del, upsert } = mockAdmin()
 
     const r = await ingestProject('p1')
     expect(r).toEqual({ count: 2 })
-    expect(del).toHaveBeenCalled()
-    expect(eq).toHaveBeenCalledWith('project_id', 'p1')
-    expect(insert).toHaveBeenCalledTimes(1)
-    const rows = insert.mock.calls[0][0]
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0][1]).toEqual({ onConflict: 'project_id,kind,ref_id' })
+    const rows = upsert.mock.calls[0][0]
     expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ project_id: 'p1', embedding: [0.1, 0.2] })
+    expect(typeof rows[0].updated_at).toBe('string')
+    // stale 정리는 upsert 성공 후: 같은 라운드 타임스탬프보다 오래된 행만 삭제
+    expect(del).toHaveBeenCalled()
+    expect(eq).toHaveBeenCalledWith('project_id', 'p1')
+    expect(lt).toHaveBeenCalledWith('updated_at', rows[0].updated_at)
+  })
+
+  it('upsert 실패 시 stale 삭제를 건너뛴다 — 기존 색인은 스테일로 보존(무색인 방지)', async () => {
+    mHasEmb.mockReturnValue(true)
+    mDocs.mockReturnValue([{ kind: 'wbs_item', refId: 'w1', content: 'doc1' }])
+    mEmbed.mockResolvedValue([[0.1, 0.2]])
+    const { del } = mockAdmin({ message: 'insert 실패' })
+
+    await expect(ingestProject('p1')).rejects.toThrow('insert 실패')
+    expect(del).not.toHaveBeenCalled()
   })
 
   it('부분 성공: 일부 항목 임베딩 실패(null)면 성공분만 삽입하고 skippedItems 보고', async () => {
@@ -94,12 +111,12 @@ describe('ingestProject — 재색인(전체 교체)', () => {
       { kind: 'wbs_item', refId: 'w2', content: 'doc3' },
     ])
     mEmbed.mockResolvedValue([[0.1, 0.2], null, [0.5, 0.6]]) // 가운데 항목 실패
-    const { del, insert } = mockAdmin()
+    const { del, upsert } = mockAdmin()
 
     const r = await ingestProject('p1')
     expect(r).toEqual({ count: 2, skippedItems: 1 })
     expect(del).toHaveBeenCalled()
-    const rows = insert.mock.calls[0][0]
+    const rows = upsert.mock.calls[0][0]
     expect(rows).toHaveLength(2)
     expect(rows.map(x => x.ref_id)).toEqual([null, 'w2']) // 실패한 w1 은 빠짐
   })

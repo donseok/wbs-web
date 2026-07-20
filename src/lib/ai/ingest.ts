@@ -53,13 +53,23 @@ export async function ingestProject(projectId: string): Promise<IngestResult> {
   if (rows.length === 0) return { count: 0, skipped: true, reason: 'embed_failed', skippedItems }
 
   const admin = createAdminClient()
-  // 전체 교체: 기존 문서 삭제 후 재삽입(스테일 방지).
-  const { error: delErr } = await admin.from('wbs_embeddings').delete().eq('project_id', projectId)
-  if (delErr) throw new Error(delErr.message)
-
-  for (const batch of chunked(rows, 200)) {
-    const { error } = await admin.from('wbs_embeddings').insert(batch)
+  // 전체 교체를 upsert + stale 삭제로 수행(0037 unique(project_id,kind,ref_id) 전제).
+  // 종전 '전체 삭제 후 재삽입'은 삽입 중간 실패 시 색인이 통째로 비었다 — 이제 실패해도
+  // 기존 행이 남아 최악이 '스테일'로 격하된다(스테일이 무색인보다 낫다 원칙과 일관).
+  const startedAt = new Date().toISOString()
+  const stamped = rows.map(r => ({ ...r, updated_at: startedAt }))
+  for (const batch of chunked(stamped, 200)) {
+    const { error } = await admin
+      .from('wbs_embeddings')
+      .upsert(batch, { onConflict: 'project_id,kind,ref_id' })
     if (error) throw new Error(error.message)
   }
+  // 전 배치 성공 후에만 이번 라운드에 갱신되지 않은 행(=원본에서 사라진 문서)을 정리한다.
+  const { error: delErr } = await admin
+    .from('wbs_embeddings')
+    .delete()
+    .eq('project_id', projectId)
+    .lt('updated_at', startedAt)
+  if (delErr) throw new Error(delErr.message)
   return skippedItems > 0 ? { count: rows.length, skippedItems } : { count: rows.length }
 }
