@@ -4,7 +4,7 @@
 -- 적용: Supabase Management API — POST /v1/projects/<ref>/database/query (0013과 동일 경로).
 --       .env.local 의 SUPABASE_DB_URL 은 비어 있으므로 pg 직결/db push 는 사용하지 않는다.
 -- 적용 순서: 이 마이그레이션을 **먼저** 적용한 뒤 코드를 배포한다.
--- 주의: 레포 0002/0004 의 current_role() 은 PG 예약어 드리프트 — 프로덕션 헬퍼는 public.app_role().
+-- 주의: RLS 헬퍼는 public.app_role() (레포 0002/0004 의 옛 current_role() 표기는 2026-07-20 정리됨).
 
 create extension if not exists vector;
 

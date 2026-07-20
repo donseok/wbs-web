@@ -5,8 +5,8 @@
 --       .env.local 의 SUPABASE_DB_URL 은 비어 있으므로 pg 직결 스크립트는 사용하지 않는다.
 
 -- 쓰기 게이트 헬퍼 — 프로덕션에 이미 배포된 정의와 동일(pg_get_functiondef 로 확인).
--- 레포 0002/0004 파일의 current_role() 은 PG 예약어라 적용 불가한 드리프트 표기 —
--- 여기 버전화해 두어 신규 환경 부트스트랩 시에도 마이그레이션 체인이 재생 가능하게 한다.
+-- (0002 도 같은 정의를 담는다 — 옛 current_role() 예약어 표기는 2026-07-20 정리됨.
+--  create or replace 라 중복 실행 무해; 신규 환경 부트스트랩 시 체인 재생 가능.)
 create or replace function public.app_role() returns text language sql stable as $$
   select role from memberships where user_id = auth.uid()
 $$;
@@ -44,8 +44,7 @@ create policy read_all_announcements on announcements
   for select to authenticated using (true);
 
 -- 쓰기: PMO admin 전체.
--- 주의: 레포 0002/0004 파일에는 current_role() 로 적혀 있으나 current_role 은 PG 예약어라
--- 그대로는 적용 불가 — 프로덕션에 실제 배포된 헬퍼는 public.app_role() 이다 (2026-07-02 확인).
+-- 주의: RLS 헬퍼는 public.app_role() (레포 0002/0004 의 옛 current_role() 표기는 2026-07-20 정리됨).
 drop policy if exists pmo_write_announcements on announcements;
 create policy pmo_write_announcements on announcements
   for all to authenticated

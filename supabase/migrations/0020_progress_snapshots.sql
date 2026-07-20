@@ -4,7 +4,7 @@
 --       — updateActual 이 팀 멤버에게 허용되므로 스냅샷 쓰기도 동일 범위.
 -- 멱등: SQL Editor 반복 실행 안전(if not exists / drop policy if exists).
 -- 적용: Supabase Management API — POST /v1/projects/<ref>/database/query (0013과 동일 경로).
--- 주의: 레포 0002/0004 의 current_role() 은 PG 예약어 드리프트 — 프로덕션 헬퍼는 public.app_role().
+-- 주의: RLS 헬퍼는 public.app_role() (레포 0002/0004 의 옛 current_role() 표기는 2026-07-20 정리됨).
 
 create table if not exists wbs_progress_snapshots (
   project_id  uuid not null references projects(id) on delete cascade,

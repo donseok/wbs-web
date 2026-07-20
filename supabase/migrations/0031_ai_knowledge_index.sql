@@ -70,7 +70,7 @@ alter table public.ai_documents enable row level security;
 -- 단, 향후 프로젝트 ACL(예: app_role() 헬퍼 + 프로젝트 멤버십 검사)을 원본에 도입하면
 -- 이 정책도 원본과 반드시 함께 갱신해야 하며, 백필(재색인) 전에 정책 정렬을 끝내는 것이
 -- 게이트다. 정렬 없이 백필하면 색인 사본이 원본보다 넓게 노출된다.
--- (프로덕션 RLS 헬퍼는 app_role()이다. current_role()은 레포 드리프트이므로 참조 금지.)
+-- (RLS 헬퍼는 app_role() — current_role 은 PG 예약어라 사용 불가.)
 drop policy if exists ai_documents_read on public.ai_documents;
 create policy ai_documents_read on public.ai_documents
   for select to authenticated using (true);

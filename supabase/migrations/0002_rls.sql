@@ -7,7 +7,9 @@ alter table memberships enable row level security;
 alter table teams enable row level security;
 
 -- 헬퍼: 현재 사용자의 role / team
-create or replace function current_role() returns text language sql stable as $$
+-- (2026-07-20 정리: 원래 current_role() 로 적혀 있었으나 current_role 은 PG 예약어라
+--  실행 불가 — 프로덕션에 실제 배포된 이름인 app_role() 로 파일을 일치시켰다.)
+create or replace function app_role() returns text language sql stable as $$
   select role from memberships where user_id = auth.uid()
 $$;
 create or replace function current_team() returns uuid language sql stable as $$
@@ -25,13 +27,13 @@ create policy read_all_teams on teams for select to authenticated using (true);
 
 -- PMO admin: 전체 쓰기
 create policy pmo_write_items on wbs_items for all to authenticated
-  using (current_role() = 'pmo_admin') with check (current_role() = 'pmo_admin');
+  using (app_role() = 'pmo_admin') with check (app_role() = 'pmo_admin');
 create policy pmo_write_projects on projects for all to authenticated
-  using (current_role() = 'pmo_admin') with check (current_role() = 'pmo_admin');
+  using (app_role() = 'pmo_admin') with check (app_role() = 'pmo_admin');
 create policy pmo_write_holidays on holidays for all to authenticated
-  using (current_role() = 'pmo_admin') with check (current_role() = 'pmo_admin');
+  using (app_role() = 'pmo_admin') with check (app_role() = 'pmo_admin');
 create policy pmo_write_owners on item_owners for all to authenticated
-  using (current_role() = 'pmo_admin') with check (current_role() = 'pmo_admin');
+  using (app_role() = 'pmo_admin') with check (app_role() = 'pmo_admin');
 
 -- team_editor: 자기 팀이 담당(primary/support)인 activity의 actual_pct만 수정
 create policy team_update_actual on wbs_items for update to authenticated

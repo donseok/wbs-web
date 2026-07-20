@@ -14,4 +14,4 @@ create index if not exists progress_snapshots_project_idx on progress_snapshots(
 alter table progress_snapshots enable row level security;
 create policy read_all_snapshots on progress_snapshots for select to authenticated using (true);
 create policy pmo_write_snapshots on progress_snapshots for all to authenticated
-  using (current_role() = 'pmo_admin') with check (current_role() = 'pmo_admin');
+  using (app_role() = 'pmo_admin') with check (app_role() = 'pmo_admin');

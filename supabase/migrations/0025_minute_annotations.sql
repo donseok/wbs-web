@@ -5,7 +5,7 @@
 -- 적용: Supabase Management API — POST /v1/projects/<ref>/database/query (0021과 동일 경로).
 --       .env.local 의 SUPABASE_DB_URL 은 비어 있으므로 pg 직결/db push 는 사용하지 않는다.
 -- 적용 순서: 이 마이그레이션을 **먼저** 적용한 뒤 코드를 배포한다. Storage 정책은 건드리지 않는다.
--- 주의: 레포 0002/0004 의 current_role() 은 PG 예약어 드리프트 — 프로덕션 헬퍼는 public.app_role().
+-- 주의: RLS 헬퍼는 public.app_role() (레포 0002/0004 의 옛 current_role() 표기는 2026-07-20 정리됨).
 
 -- ── 블록 하이라이트 (앵커 = 루트 블록 인덱스 + 정규화 텍스트 FNV-1a 64 해시) ──
 -- excerpt 컬럼은 의도적으로 없음: 표시 발췌는 클라이언트가 현재 본문에서 파생(위조·잔존 노출 표면 제거).
