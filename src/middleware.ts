@@ -13,9 +13,19 @@ export async function middleware(req: NextRequest) {
       },
     },
   )
-  const { data } = await sb.auth.getUser()
+  // getUser() 가 아니라 getClaims() 를 쓴다 — getUser() 는 매 요청 GoTrue /auth/v1/user 로
+  // 네트워크 왕복을 강제하지만(클릭당 100~180ms), 이 프로젝트의 JWT 는 비대칭 서명(ES256/EC,
+  // JWKS 키 1개·대칭 oct 키 없음)이라 getClaims() 가 JWKS 캐시로 로컬 서명 검증만 하고 끝난다.
+  // (대칭 HS* 키였다면 getClaims 가 내부적으로 getUser() 로 폴백해 이득이 0이 된다.)
+  //
+  // 쿠키를 직접 디코드하는 방식으로 바꾸지 말 것: 이 호출은 인증 게이트인 동시에 토큰 자동
+  // 갱신 지점이다. getClaims() → getSession() → 만료 시 _callRefreshToken 경로가 갱신 토큰을
+  // 발급하고, 위 setAll 이 그 쿠키를 res 에 싣는다. RSC 클라이언트는 Next 15 에서 쿠키 쓰기가
+  // 막혀 있어 갱신을 영속할 수 없으므로, 여기서 갱신이 빠지면 액세스 토큰 수명(기본 1h) 뒤
+  // 사용자가 조용히 로그아웃된다.
+  const { data } = await sb.auth.getClaims()
   const isLogin = req.nextUrl.pathname.startsWith('/login')
-  if (!data.user && !isLogin) return NextResponse.redirect(new URL('/login', req.url))
+  if (!data?.claims && !isLogin) return NextResponse.redirect(new URL('/login', req.url))
   return res
 }
 
