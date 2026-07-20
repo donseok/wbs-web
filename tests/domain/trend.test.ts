@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow } from '@/lib/domain/types'
-import { buildTrend, plannedAt, flattenRows, type SnapshotPoint } from '@/lib/domain/trend'
+import { buildTrend, plannedAt, plannedCurve, flattenRows, type SnapshotPoint } from '@/lib/domain/trend'
 
 const row = (over: Partial<WbsRow>): WbsRow => ({
   id: over.id ?? Math.random().toString(36).slice(2), parentId: null, level: 'activity', code: 'x', sortOrder: 0,
@@ -24,6 +24,58 @@ describe('plannedAt', () => {
     const mid = plannedAt(rows, '2026-02-20', new Set())
     expect(mid).toBeGreaterThan(0); expect(mid).toBeLessThan(100)
     expect(plannedAt(rows, '2026-03-20', new Set())).toBeGreaterThanOrEqual(mid)
+  })
+})
+
+describe('plannedCurve — plannedAt 등가성(성능 최적화의 정확성 계약)', () => {
+  // 결정적 시드 PRNG — 무작위 트리에서도 두 경로가 항상 같은 수치를 내야 한다.
+  const lcg = (seed: number) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32
+  const pad = (n: number) => String(n).padStart(2, '0')
+
+  it('무작위 트리 20종 × 주간 샘플 전체에서 plannedAt 재샘플링과 완전 동일', () => {
+    for (let t = 0; t < 20; t++) {
+      const rnd = lcg(1000 + t)
+      const rows: WbsRow[] = []
+      let id = 0
+      const phases = 1 + Math.floor(rnd() * 3)
+      for (let p = 0; p < phases; p++) {
+        const pid = `p${id++}`
+        rows.push(row({ id: pid, level: 'phase', weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10 }))
+        const tasks = 1 + Math.floor(rnd() * 3)
+        for (let k = 0; k < tasks; k++) {
+          const tid = `t${id++}`
+          rows.push(row({ id: tid, parentId: pid, level: 'task', weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10 }))
+          const acts = 1 + Math.floor(rnd() * 4)
+          for (let a = 0; a < acts; a++) {
+            const noDates = rnd() < 0.15 // 날짜 없는 항목(0% 가드 경로)도 섞는다
+            const sm = 1 + Math.floor(rnd() * 6)
+            const em = sm + Math.floor(rnd() * (7 - sm))
+            rows.push(row({
+              id: `a${id++}`, parentId: tid, level: 'activity',
+              plannedStart: noDates ? null : `2026-${pad(sm)}-${pad(1 + Math.floor(rnd() * 27))}`,
+              plannedEnd: noDates ? null : `2026-${pad(em)}-${pad(1 + Math.floor(rnd() * 27))}`,
+              weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10,
+            }))
+          }
+        }
+      }
+      const holidays = new Set(['2026-01-01', '2026-03-02', '2026-05-05'].filter(() => rnd() < 0.7))
+      const addDays = (d: string, n: number) => {
+        const dt = new Date(`${d}T00:00:00Z`)
+        dt.setUTCDate(dt.getUTCDate() + n)
+        return dt.toISOString().slice(0, 10)
+      }
+      const sampled: string[] = []
+      for (let d = '2026-01-01'; d <= '2026-07-31'; d = addDays(d, 7)) sampled.push(d)
+      const fast = plannedCurve(rows, sampled, holidays)
+      const slow = sampled.map(date => ({ date, pct: plannedAt(rows, date, holidays) }))
+      expect(fast).toEqual(slow)
+    }
+  })
+
+  it('빈 rows·빈 dates 경계에서도 동일', () => {
+    expect(plannedCurve([], ['2026-01-01'], new Set())).toEqual([{ date: '2026-01-01', pct: plannedAt([], '2026-01-01', new Set()) }])
+    expect(plannedCurve([row({})], [], new Set())).toEqual([])
   })
 })
 
