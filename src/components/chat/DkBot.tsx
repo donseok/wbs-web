@@ -99,6 +99,8 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
   const applyingRef = useRef<Set<number>>(new Set()) // 적용 왕복 중 재클릭 무시 — 낙관적 잠금 충돌 버블 오표시 방지
   const conversationStateRef = useRef<ConversationStateV1>(EMPTY_CONVERSATION_STATE)
   const streamAbortRef = useRef<AbortController | null>(null)
+  const fabRef = useRef<HTMLButtonElement | null>(null)
+  const wasOpenRef = useRef(false)
 
   // 패널 열림 + 프로젝트 컨텍스트 부트스트랩 (프로젝트가 바뀌면 새 대화로 갱신)
   useEffect(() => {
@@ -143,6 +145,13 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
     setLoading(false)
     setStreamStatus(null)
   }, [])
+
+  // 닫힘 시 포커스를 FAB 로 복귀 — 키보드/스크린리더 사용자가 포커스를 잃지 않게(a11y).
+  // FAB 는 닫힌 뒤에야 다시 마운트되므로 렌더 커밋 후 시점(effect)에서 잡아야 한다.
+  useEffect(() => {
+    if (!open && wasOpenRef.current) fabRef.current?.focus()
+    wasOpenRef.current = open
+  }, [open])
 
   // Esc 닫기 (접힘 상태에서도 완전 닫기)
   useEffect(() => {
@@ -457,8 +466,10 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
       {/* ── FAB ── */}
       {!open && (
         <button
+          ref={fabRef}
           onClick={() => setOpen(true)}
           aria-label={t('chat.open')}
+          aria-haspopup="dialog"
           className="fixed bottom-16 right-5 z-[120] flex h-[52px] w-[52px] items-center justify-center rounded-full text-white ring-1 ring-white/10 transition hover:scale-105 active:scale-95"
           style={{ backgroundImage: 'var(--gradient-dark)', boxShadow: 'var(--shadow-lg)' }}
         >
@@ -527,8 +538,8 @@ export function DkBot({ projects }: { projects: { id: string; name: string }[] }
             </button>
           </header>
 
-          {/* 본문 */}
-          <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-canvas px-4 py-4">
+          {/* 본문 — aria-live: 새 봇 응답을 스크린리더가 낭독(polite = 사용자 발화 중 끼어들지 않음) */}
+          <div ref={scrollRef} aria-live="polite" className="flex-1 space-y-3 overflow-y-auto bg-canvas px-4 py-4">
             {/* 프로액티브 인사이트 */}
             {ctx?.currentProject && (
               <div className="rounded-2xl border border-brand-ring/40 bg-brand-weak/50 p-3.5">

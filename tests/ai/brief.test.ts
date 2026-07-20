@@ -78,6 +78,21 @@ describe('factsToPrompt', () => {
     expect(factsToPrompt(f)).toContain('외 3건')
   })
 
+  it('신호·심각도는 한국어 라벨로, 대괄호 마커 없이 들어간다 (2026-07-20 스모크 발견 수선)', () => {
+    const items = [leaf({ name: '지연작업', plannedEnd: '2026-07-01', plannedPct: 80, rolledActualPct: 10, status: 'delayed' })]
+    const p = factsToPrompt(buildBriefFacts(input({ items })))
+    expect(p).not.toMatch(/\[(red|amber|green|neutral)\]/)
+    expect(p).toMatch(/종합 신호: (위험|주의|양호|중립)/)
+    expect(p).toMatch(/- (\(위험\)|\(주의\))/)
+  })
+
+  it("결측값은 '-' 대신 한국어 사유로 렌더 — LLM 이 '-%p'를 문장화하지 않게", () => {
+    const p = factsToPrompt(buildBriefFacts(input({ items: [leaf()] })))
+    expect(p).not.toContain('-%p')
+    expect(p).not.toContain('- 일 ·')
+    expect(p).toContain('주간 실적 증분 이력 부족')
+  })
+
   it('총량 캡 6000자를 넘지 않는다', () => {
     const items = Array.from({ length: 60 }, (_, i) =>
       leaf({ name: `아주 긴 이름의 작업 항목 ${'가나다라마바사'.repeat(10)}${i}`, plannedEnd: '2026-07-18' }))
@@ -102,6 +117,12 @@ describe('briefFactsHash', () => {
 })
 
 describe('parseBrief', () => {
+  it('산출에 남은 [amber]/[red] 마커를 한국어로 치환한다', () => {
+    const p = parseBrief("위험 신호 1건([amber])이 발생\n\n## 리스크\n- 종합 신호는 [red] 수준")!
+    expect(p.headline).toBe('위험 신호 1건(주의)이 발생')
+    expect(p.bodyMd).toContain('종합 신호는 위험 수준')
+  })
+
   it('코드펜스 제거 + 첫 줄 헤드라인(마크다운 접두 제거) + 본문 분리', () => {
     const raw = '```markdown\n## 이번 주는 순항 중\n\n## 진행 현황\n- 전체 실적 40.5%\n```'
     const p = parseBrief(raw)!
