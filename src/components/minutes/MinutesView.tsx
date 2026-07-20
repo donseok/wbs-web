@@ -29,9 +29,11 @@ function monthRangeOf(year: number, month0: number): [string, string] {
 }
 
 export function MinutesView({
-  initialMinutes, todayIso, initialView, projects, currentUserId, role, defaultTeam,
+  initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role, defaultTeam,
 }: {
   initialMinutes: Minute[]
+  /** 서버에서 미리 실어 보낸 트리. null 이면(조회 실패 포함) 마운트 후 클라이언트가 직접 가져온다. */
+  initialTree?: { groups: MinutesTreeGroup[]; total: number; truncated: boolean } | null
   todayIso: string
   initialView: ViewKey
   projects: { id: string; name: string }[]
@@ -54,7 +56,10 @@ export function MinutesView({
   const [chatOpen, setChatOpen] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const reqRef = useRef(0)
-  const [treeState, setTreeState] = useState<TreeState>('idle')
+  // 서버가 트리를 실어 보냈으면 그대로 초기값으로 쓴다 — 아래 마운트 effect 와 changeView 는
+  // 둘 다 'idle'/비객체일 때만 조회하므로 자동으로 no-op 이 되어 왕복이 사라진다.
+  // 서버 조회가 실패해 null 이면 'idle' 로 떨어져 기존 클라이언트 폴백 경로가 그대로 산다.
+  const [treeState, setTreeState] = useState<TreeState>(initialTree ?? 'idle')
   // 트리 전용 세대 카운터 — reqRef(월 목록·검색)와 분리. 공유하면 트리 로딩 중 검색·팀 변경이
   // 트리 응답을 폐기해 'loading'에 갇힌다(스펙 'MinutesView 통합' 절).
   const treeReqRef = useRef(0)
@@ -286,7 +291,11 @@ export function MinutesView({
           onSaved={() => {
             setUploadOpen(false)
             if (isSearch) void runSearch(query, team); else void loadMonth(year, month0, team)
-            if (treeState !== 'idle') void loadTree()   // 트리 데이터가 있으면 최신화(idle이면 다음 진입 시 조회)
+            // 트리 데이터가 있으면 최신화. 서버 프리페치(initialTree)가 들어온 경우 treeState 는
+            // 마운트 시점부터 객체라 이 가드는 사실상 항상 참이다 — 업로드 후 트리가 갱신되게
+            // 하는 것이 목적이므로 의도한 동작이다. 가드를 좁히지 말 것(갱신 누락 버그가 된다).
+            // 'idle'로 남는 건 프리페치가 없었던 경우뿐이고, 그때는 트리 진입 시 조회된다.
+            if (treeState !== 'idle') void loadTree()
             router.refresh()
           }}
           todayIso={todayIso} projects={projects} defaultTeam={defaultTeam} />
