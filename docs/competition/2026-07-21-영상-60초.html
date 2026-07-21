@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>업무 속 AI 활용 경진대회 — 60초 본편 / 15초 티저</title>
+<style>
+:root{
+  --cream:#fffaf4; --ink:#17181d; --muted:#4a4440; --subtle:#7a6f68;
+  --line:#e6dccd; --brand:#0f766e; --brand-weak:#e3efec; --accent:#cb6d37;
+  --dark:#12161c; --dark-soft:#1a2029; --dark-line:#272d36;
+  --before:#8a8178; --after:#0f766e;
+  --stage-w:1920px; --stage-h:1080px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#07090c;overflow:hidden;
+  font-family:-apple-system,'Apple SD Gothic Neo','Pretendard','Noto Sans KR',sans-serif;
+  -webkit-font-smoothing:antialiased}
+
+/* 무대: 1920x1080 고정 후 뷰포트에 맞춰 스케일 — 어떤 화면에서 녹화해도 레이아웃 동일 */
+#fit{position:fixed;inset:0;display:grid;place-items:center;padding-bottom:52px;
+  transition:padding-bottom .15s}
+#fit.full{padding-bottom:0}
+#stage{width:var(--stage-w);height:var(--stage-h);position:relative;overflow:hidden;
+  background:var(--cream);transform-origin:center center}
+
+/* ── 장면 공통 ─────────────────────────────────────────── */
+.scene{position:absolute;inset:0;opacity:0;visibility:hidden;
+  transition:opacity .5s ease, visibility .5s}
+.scene.on{opacity:1;visibility:visible}
+.cue{opacity:0;transform:translateY(14px);
+  transition:opacity .55s cubic-bezier(.2,.7,.3,1), transform .55s cubic-bezier(.2,.7,.3,1)}
+.cue.shown{opacity:1;transform:none}
+.cue.fade{transform:none}
+.cue.grow{transform:scale(.94)}
+.cue.grow.shown{transform:scale(1)}
+
+/* ── 촬영 슬롯: 실화면 녹화를 나중에 얹을 자리 ─────────── */
+.slot{position:relative;background:#0d1117;border-radius:14px;overflow:hidden;
+  border:2px dashed #39424f;display:flex;flex-direction:column;justify-content:center;
+  align-items:center;gap:18px;padding:40px;text-align:center}
+.slot::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(135deg,transparent 0 22px,rgba(255,255,255,.018) 22px 44px)}
+.slot .tag{font-size:15px;letter-spacing:.16em;color:#5d6b7d;font-weight:700}
+.slot .shots{list-style:none;display:flex;flex-direction:column;gap:12px;
+  font-size:24px;line-height:1.5;color:#aab6c6;font-weight:600}
+.slot .shots li{display:flex;gap:14px;align-items:baseline}
+.slot .shots b{color:var(--brand);background:#0f766e22;border-radius:6px;
+  min-width:34px;height:34px;display:grid;place-items:center;font-size:16px;flex:none}
+.slot .dur{position:absolute;right:18px;bottom:14px;font-size:16px;color:#4d5a6b;
+  font-variant-numeric:tabular-nums}
+
+/* ── 자막 ──────────────────────────────────────────────── */
+.caption{position:absolute;left:0;right:0;bottom:88px;text-align:center;
+  font-size:44px;font-weight:800;color:var(--ink);letter-spacing:-.02em}
+.caption.dark{color:#f5efe7}
+.caption small{display:block;font-size:24px;font-weight:600;color:var(--subtle);
+  margin-top:14px;letter-spacing:0}
+
+/* ── 조작 UI (녹화 시 H로 숨김) ────────────────────────── */
+#hud{position:fixed;left:0;right:0;bottom:0;padding:14px 22px;display:flex;
+  align-items:center;gap:18px;background:#0b0e12ee;color:#c9d2de;font-size:13px;
+  border-top:1px solid #1e242d;z-index:50}
+#hud.hide{display:none}
+#hud button{background:#1b222c;color:#dbe3ee;border:1px solid #2c3542;border-radius:7px;
+  padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+#hud button:hover{background:#232c38}
+#bar{flex:1;height:6px;background:#232c38;border-radius:99px;overflow:hidden}
+#bar i{display:block;height:100%;width:0;background:var(--brand)}
+#clock{font-variant-numeric:tabular-nums;font-weight:700;min-width:96px}
+.keys{color:#6a7686}
+.keys b{color:#9fb0c4;font-weight:700}
+
+/* ── S1 밤 11시, 파일 더미 ─────────────────────────────── */
+.night{background:var(--dark);height:100%;padding:96px 130px;display:flex;
+  flex-direction:column;justify-content:center;gap:26px}
+.night .time{position:absolute;top:64px;right:96px;font-size:30px;color:#4b5666;
+  font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.file{display:flex;align-items:center;gap:22px;font-size:38px;color:#8f9aa9;
+  font-weight:600;letter-spacing:-.01em}
+.file i{width:42px;height:52px;border-radius:5px;background:#232b36;flex:none;
+  border:1px solid #333d4a;position:relative}
+.file i::before{content:'';position:absolute;right:0;top:0;border:9px solid transparent;
+  border-top-color:#12161c;border-right-color:#12161c}
+.file em{font-style:normal;color:#5c6674;font-size:26px}
+.file.hot{color:#c98d6a}
+.file.hot i{background:#3a2a20;border-color:#5a4030}
+
+/* ── S2 전환 문장 ──────────────────────────────────────── */
+.statement{background:var(--dark);height:100%;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;gap:34px;text-align:center}
+.statement p{font-size:58px;font-weight:700;color:#8b95a3;letter-spacing:-.025em}
+.statement p.pop{font-size:72px;font-weight:800;color:#f5efe7}
+.statement p.pop b{color:var(--accent);font-weight:800}
+
+/* ── S3·S4 도입 전 / 도입 후 2열 ───────────────────────── */
+.split{height:100%;background:var(--cream);display:grid;grid-template-rows:auto 1fr auto;
+  padding:56px 78px 0;gap:28px}
+.split .chapter{display:flex;align-items:center;gap:18px}
+.split .chapter b{font-size:19px;letter-spacing:.2em;color:var(--brand);font-weight:800}
+.split .chapter span{font-size:34px;font-weight:800;color:var(--ink);letter-spacing:-.02em}
+.split .chapter hr{flex:1;border:0;border-top:1px solid var(--line)}
+.cols{display:grid;grid-template-columns:1fr 1.32fr;gap:40px;min-height:0}
+.col{display:flex;flex-direction:column;gap:18px;min-height:0}
+.col .label{display:inline-flex;align-items:center;gap:10px;font-size:22px;
+  font-weight:800;letter-spacing:-.01em}
+.col .label u{text-decoration:none;width:11px;height:11px;border-radius:99px;background:currentColor}
+.col.before .label{color:var(--before)}
+.col.after  .label{color:var(--after)}
+.pains{list-style:none;display:flex;flex-direction:column;gap:14px;flex:1}
+.pains li{background:#f2ece3;border:1px solid var(--line);border-radius:12px;
+  padding:20px 24px;font-size:26px;font-weight:600;color:#6f665e;line-height:1.4;
+  display:flex;gap:14px;align-items:flex-start}
+.pains li s{color:#a79c90;text-decoration-thickness:2px}
+.pains li b{color:#8a7f73;font-weight:800;flex:none}
+.col.after .slot{flex:1}
+
+/* ── S5 숫자 ───────────────────────────────────────────── */
+.metrics{height:100%;padding:80px 96px;display:flex;flex-direction:column;gap:44px;
+  justify-content:center;background:var(--cream)}
+.metrics h3{font-size:38px;font-weight:800;color:var(--ink);letter-spacing:-.025em;text-align:center}
+.mrow{display:grid;grid-template-columns:repeat(3,1fr);gap:32px}
+.metric{border:1px solid var(--line);border-radius:16px;padding:34px 30px;background:#fff;
+  display:flex;flex-direction:column;gap:16px}
+.metric .k{font-size:23px;font-weight:700;color:var(--muted);letter-spacing:-.01em}
+.metric .v{display:flex;align-items:baseline;gap:14px;font-size:52px;font-weight:800;
+  color:var(--ink);letter-spacing:-.03em}
+.metric .v s{color:#a79c90;font-size:40px;text-decoration-thickness:3px}
+.metric .v em{font-style:normal;color:var(--brand)}
+.metric .v span{font-size:34px;color:#c2b6a6}
+.tagline{text-align:center;font-size:24px;color:var(--subtle);font-weight:600}
+.pill{display:inline-block;font-size:15px;font-weight:800;letter-spacing:.04em;
+  padding:5px 11px;border-radius:99px;border:1px solid;align-self:flex-start}
+.pill.est{color:#9a7b4f;border-color:#e2cfae;background:#fbf3e4}
+.pill.act{color:var(--brand);border-color:#b9ded8;background:var(--brand-weak)}
+
+/* ── S6 마무리 ─────────────────────────────────────────── */
+.outro{height:100%;background:var(--dark);display:flex;flex-direction:column;
+  justify-content:center;align-items:center;gap:48px;text-align:center}
+.outro h2{font-size:82px;font-weight:800;color:#f5efe7;letter-spacing:-.035em;line-height:1.24}
+.outro h2 b{color:#32b6ab}
+.outro .pair{display:flex;align-items:center;gap:34px;color:#8b95a3;font-size:29px;font-weight:700}
+.outro .pair span{color:#f5efe7}
+.outro .pair i{width:1px;height:30px;background:#333d4a}
+.outro .who{font-size:23px;color:#5c6674;font-weight:600;letter-spacing:.02em}
+
+/* ── 티저 ──────────────────────────────────────────────── */
+.teaser{height:100%;background:var(--dark);display:flex;flex-direction:column;
+  justify-content:center;align-items:center;gap:40px;padding:0 120px;text-align:center}
+.teaser .big{font-size:96px;font-weight:800;color:#f5efe7;letter-spacing:-.04em;line-height:1.15}
+.teaser .big em{font-style:normal;color:#32b6ab}
+.teaser .sub{font-size:34px;color:#8b95a3;font-weight:700}
+</style>
+</head>
+<body>
+<div id="fit"><div id="stage"></div></div>
+
+<div id="hud">
+  <button id="play">▶ 재생</button>
+  <button id="rew">↺ 처음</button>
+  <button id="mode">15초 티저</button>
+  <div id="bar"><i></i></div>
+  <span id="clock">0.0 / 60.0s</span>
+  <span class="keys"><b>Space</b> 재생 · <b>R</b> 처음 · <b>T</b> 티저 · <b>H</b> UI숨김</span>
+</div>
+
+<script>
+// ===========================================================================
+// 타임라인 엔진
+//   장면(scene)은 start~end 초 구간을 갖고, 장면 안의 요소는 data-at(장면 시작
+//   기준 상대 초)에 맞춰 하나씩 등장한다. CSS 키프레임 대신 이 방식을 쓰는 이유는
+//   초 단위 수정이 잦기 때문 — 숫자 하나만 고치면 연출 타이밍이 바뀐다.
+// ===========================================================================
+const stage = document.getElementById('stage');
+const bar = document.querySelector('#bar i');
+const clock = document.getElementById('clock');
+const hud = document.getElementById('hud');
+
+let scenes = [], total = 0, t = 0, playing = false, last = 0, mode = 'main';
+
+function fit(){
+  const s = Math.min(innerWidth / 1920, (innerHeight - (hud.classList.contains('hide') ? 0 : 52)) / 1080);
+  stage.style.transform = `scale(${s})`;
+}
+addEventListener('resize', fit);
+
+function build(list){
+  scenes = list; total = list.reduce((m, s) => Math.max(m, s.end), 0);
+  stage.innerHTML = list.map(s => `<section class="scene" data-s="${s.start}" data-e="${s.end}">${s.html}</section>`).join('');
+  seek(0);
+}
+
+function seek(v){
+  t = Math.max(0, Math.min(total, v));
+  stage.querySelectorAll('.scene').forEach(el => {
+    const s = +el.dataset.s, e = +el.dataset.e, on = t >= s && t < e;
+    el.classList.toggle('on', on);
+    el.querySelectorAll('.cue').forEach(c => {
+      c.classList.toggle('shown', on && t - s >= (+c.dataset.at || 0));
+    });
+  });
+  bar.style.width = (t / total * 100) + '%';
+  clock.textContent = t.toFixed(1) + ' / ' + total.toFixed(1) + 's';
+}
+
+function loop(now){
+  if(!playing) return;
+  const dt = (now - last) / 1000; last = now;
+  seek(t + dt);
+  if(t >= total){ playing = false; document.getElementById('play').textContent = '▶ 재생'; return; }
+  requestAnimationFrame(loop);
+}
+function play(){
+  if(t >= total) t = 0;
+  playing = !playing;
+  document.getElementById('play').textContent = playing ? '❚❚ 정지' : '▶ 재생';
+  if(playing){ last = performance.now(); requestAnimationFrame(loop); }
+}
+
+document.getElementById('play').onclick = play;
+document.getElementById('rew').onclick = () => { playing = false; document.getElementById('play').textContent = '▶ 재생'; seek(0); };
+document.getElementById('mode').onclick = () => setMode(mode === 'main' ? 'teaser' : 'main');
+addEventListener('keydown', e => {
+  if(e.code === 'Space'){ e.preventDefault(); play(); }
+  if(e.key === 'r' || e.key === 'R'){ playing = false; seek(0); }
+  if(e.key === 't' || e.key === 'T'){ setMode(mode === 'main' ? 'teaser' : 'main'); }
+  if(e.key === 'h' || e.key === 'H'){
+    hud.classList.toggle('hide');
+    document.getElementById('fit').classList.toggle('full', hud.classList.contains('hide'));
+    fit();
+  }
+});
+
+// ===========================================================================
+// 60초 본편
+//   설계 원칙 3가지
+//   ① 0~6초는 무음·무자막. 투표자가 "저거 내 폴더인데"를 먼저 느끼게 한다.
+//      제품명은 27초가 지나서야 처음 나온다 — 기능 소개로 시작하면 스킵된다.
+//   ② 중반은 좌(도입 전) / 우(도입 후) 2열 고정. 공고의 "개선 전/후 비교 필수"를
+//      영상 안에서 직접 충족시키는 형식이다.
+//   ③ 우측 검은 슬롯 = 실화면 녹화를 나중에 얹을 자리. 촬영 지시가 화면에 박혀 있어
+//      대본을 따로 들고 다닐 필요가 없다.
+// ===========================================================================
+const MAIN = [
+{ start:0, end:6.5, html:`
+  <div class="night">
+    <div class="time cue fade" data-at="0.2">23:47</div>
+    <div class="file cue" data-at="0.6"><i></i><span>주간보고_2026_28주차_v3_최종.pptx</span></div>
+    <div class="file cue" data-at="1.5"><i></i><span>WBS_통합_최종_최종2_진짜최종.xlsx</span></div>
+    <div class="file cue" data-at="2.4"><i></i><span>회의록_0715.jpg <em>— 수첩 사진</em></span></div>
+    <div class="file cue" data-at="3.3"><i></i><span>[재전송] 수정본_확인부탁드립니다.xlsx</span></div>
+    <div class="file hot cue" data-at="4.2"><i></i><span>어제 회의에서 뭐 하기로 했더라.txt</span></div>
+  </div>`},
+
+{ start:6.5, end:11, html:`
+  <div class="statement">
+    <p class="cue" data-at="0.3">회의는 늘 있었습니다. 기록도 있었고요.</p>
+    <p class="pop cue" data-at="1.9">그런데 <b>실행</b>은, 매번 처음부터였습니다.</p>
+  </div>`},
+
+{ start:11, end:28, html:`
+  <div class="split">
+    <div class="chapter cue fade" data-at="0.1">
+      <b>01</b><span>회의 — 말이 기록이 되기까지</span><hr>
+    </div>
+    <div class="cols">
+      <div class="col before">
+        <div class="label cue fade" data-at="0.4"><u></u>도입 전</div>
+        <ul class="pains">
+          <li class="cue" data-at="0.9"><b>①</b><span>받아적느라 <s>회의에 집중을 못 한다</s></span></li>
+          <li class="cue" data-at="1.6"><b>②</b><span>정리해 공유하기까지 <s>며칠</s></span></li>
+          <li class="cue" data-at="2.3"><b>③</b><span>누가 뭘 하기로 했는지 <s>사람 기억에 의존</s></span></li>
+          <li class="cue" data-at="3.0"><b>④</b><span>지난 회의 결정사항은 <s>찾을 방법이 없다</s></span></li>
+        </ul>
+      </div>
+      <div class="col after">
+        <div class="label cue fade" data-at="0.4"><u></u>도입 후 — 또박또박</div>
+        <div class="slot cue grow" data-at="0.9">
+          <div class="tag">실화면 녹화 삽입 구간</div>
+          <ul class="shots">
+            <li><b>1</b><span>녹음 시작 → 말하는 대로 자막이 실시간으로 쌓인다</span></li>
+            <li><b>2</b><span>화자가 자동으로 갈린다 (이름 붙이기)</span></li>
+            <li><b>3</b><span>회의 종료 → 핵심·결정·Action Item이 이미 정리돼 있다</span></li>
+            <li><b>4</b><span>요약 문장 클릭 → 그 말을 한 지점 오디오로 점프</span></li>
+          </ul>
+          <div class="dur">약 13초</div>
+        </div>
+      </div>
+    </div>
+    <div class="caption cue fade" data-at="12.4">이제 회의는, 끝나면 이미 정리돼 있습니다.</div>
+  </div>`},
+
+{ start:28, end:45, html:`
+  <div class="split">
+    <div class="chapter cue fade" data-at="0.1">
+      <b>02</b><span>실행 — 기록이 일이 되기까지</span><hr>
+    </div>
+    <div class="cols">
+      <div class="col before">
+        <div class="label cue fade" data-at="0.4"><u></u>도입 전</div>
+        <ul class="pains">
+          <li class="cue" data-at="0.9"><b>①</b><span>WBS는 <s>엑셀 파일로 오간다</s> — 버전이 갈린다</span></li>
+          <li class="cue" data-at="1.6"><b>②</b><span>진척은 <s>주 1회 취합할 때만</s> 최신이다</span></li>
+          <li class="cue" data-at="2.3"><b>③</b><span>주간보고는 <s>매주 손으로 다시</s> 만든다</span></li>
+          <li class="cue" data-at="3.0"><b>④</b><span>회의에서 정한 일이 <s>WBS에 안 들어간다</s></span></li>
+        </ul>
+      </div>
+      <div class="col after">
+        <div class="label cue fade" data-at="0.4"><u></u>도입 후 — D'Flow</div>
+        <div class="slot cue grow" data-at="0.9">
+          <div class="tag">실화면 녹화 삽입 구간</div>
+          <ul class="shots">
+            <li><b>1</b><span>회의록의 Action Item이 그대로 넘어온다</span></li>
+            <li><b>2</b><span>WBS에 담당·기한이 붙고 진척이 자동 계산된다</span></li>
+            <li><b>3</b><span>대시보드에 지연·위험이 즉시 뜬다</span></li>
+            <li><b>4</b><span>주간보고 — <strong style="color:#e8b98a">클릭 한 번</strong>에 공식 양식 PPT</span></li>
+          </ul>
+          <div class="dur">약 13초</div>
+        </div>
+      </div>
+    </div>
+    <div class="caption cue fade" data-at="12.4">그 액션이, 그대로 실행 계획이 됩니다.</div>
+  </div>`},
+
+{ start:45, end:53.5, html:`
+  <div class="metrics">
+    <h3 class="cue fade" data-at="0.2">두 조직이 6주째 이렇게 일하고 있습니다</h3>
+    <div class="mrow">
+      <div class="metric cue" data-at="0.8">
+        <span class="pill est">추정 → 실측 대기</span>
+        <div class="k">주간보고 1건 만드는 시간</div>
+        <div class="v"><s>__시간</s><span>→</span><em>__분</em></div>
+      </div>
+      <div class="metric cue" data-at="1.4">
+        <span class="pill act">실측 · 소급 집계</span>
+        <div class="k">실적 데이터가 최신인 주기</div>
+        <div class="v"><s>주 1회</s><span>→</span><em>상시</em></div>
+      </div>
+      <div class="metric cue" data-at="2.0">
+        <span class="pill act">실측 · 전/후 동일 기준</span>
+        <div class="k">회의 결정 → WBS 반영</div>
+        <div class="v"><s>__일</s><span>→</span><em>__분</em></div>
+      </div>
+    </div>
+    <p class="tagline cue fade" data-at="2.8">
+      모든 수치는 출처를 함께 답니다 — 추정은 추정이라고 씁니다.
+    </p>
+  </div>`},
+
+{ start:53.5, end:61, html:`
+  <div class="outro">
+    <h2 class="cue" data-at="0.3">회의가 끝나는 순간,<br><b>실행이 시작됩니다.</b></h2>
+    <div class="pair cue fade" data-at="1.6">
+      <span>또박또박</span><i></i><span>D'Flow</span>
+    </div>
+    <div class="who cue fade" data-at="2.4">MES운영팀 · 전사 PI TFT — 2026년, 두 조직이 실제로 쓰고 있습니다</div>
+  </div>`},
+];
+
+// ===========================================================================
+// 15초 티저 — 메신저로 돌리는 용도. 본편의 첫 훅과 마지막 문장만 남긴 압축본.
+// ===========================================================================
+const TEASER = [
+{ start:0, end:3.5, html:`
+  <div class="night">
+    <div class="time cue fade" data-at="0.1">23:47</div>
+    <div class="file cue" data-at="0.4"><i></i><span>주간보고_2026_28주차_v3_최종.pptx</span></div>
+    <div class="file cue" data-at="1.0"><i></i><span>WBS_통합_최종_최종2_진짜최종.xlsx</span></div>
+    <div class="file hot cue" data-at="1.6"><i></i><span>[재전송] 수정본_확인부탁드립니다.xlsx</span></div>
+  </div>`},
+
+{ start:3.5, end:8.5, html:`
+  <div class="split" style="grid-template-rows:auto 1fr;padding-bottom:56px">
+    <div class="chapter cue fade" data-at="0.1"><b>지금</b><span>클릭 한 번</span><hr></div>
+    <div class="slot cue grow" data-at="0.3">
+      <div class="tag">실화면 녹화 삽입 구간</div>
+      <ul class="shots">
+        <li><b>1</b><span>주간보고 버튼 클릭</span></li>
+        <li><b>2</b><span>공식 양식 PPT가 좌르륵 완성되는 장면</span></li>
+      </ul>
+      <div class="dur">약 4.5초 — 본편 소스 재활용</div>
+    </div>
+  </div>`},
+
+{ start:8.5, end:11.5, html:`
+  <div class="teaser">
+    <div class="big cue" data-at="0.2">방금 <em>주간보고</em>가<br>끝났습니다.</div>
+  </div>`},
+
+{ start:11.5, end:15.5, html:`
+  <div class="outro">
+    <h2 class="cue" data-at="0.2">회의가 끝나는 순간,<br><b>실행이 시작됩니다.</b></h2>
+    <div class="pair cue fade" data-at="1.2"><span>또박또박</span><i></i><span>D'Flow</span></div>
+  </div>`},
+];
+
+function setMode(m){
+  mode = m; playing = false;
+  document.getElementById('play').textContent = '▶ 재생';
+  document.getElementById('mode').textContent = m === 'main' ? '15초 티저' : '60초 본편';
+  build(m === 'main' ? MAIN : TEASER);
+  fit();
+}
+
+// ?teaser 로 열면 티저부터. 녹화 시엔 H로 UI를 감추고 Space로 재생한다.
+setMode(location.search.includes('teaser') ? 'teaser' : 'main');
+</script>
+</body>
+</html>
