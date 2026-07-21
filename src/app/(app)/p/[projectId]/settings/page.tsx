@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
-import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles } from 'lucide-react'
+import Link from 'next/link'
+import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles, Cpu, ArrowUpRight } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
+import { getLlmConfig } from '@/app/actions/llmConfig'
 import { getMembership } from '@/lib/auth'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -44,6 +46,31 @@ function dkbotBadge(s: IndexStatus, locale: Locale): { label: string; cls: strin
   }
 }
 
+/**
+ * 서버 전역 LLM 설정의 현재 상태 → 배지 라벨/색상.
+ * 관리자에게만 호출한다(getLlmConfig 는 관리자 게이트가 있어 비관리자에겐 error 를 돌려준다).
+ * 조회가 실패하면 '환경변수 기본값'으로 추측하지 않고 '확인 불가'로 드러낸다 —
+ * 실제로 '선택 안함'인 서버를 env 로 표시하면 관리자가 상태를 오판한다.
+ */
+async function llmBadge(locale: Locale): Promise<{ label: string; cls: string }> {
+  const unknown = { label: t(locale, 'settings.llmBadgeUnknown'), cls: 'bg-pending-weak text-pending' }
+  const env = { label: t(locale, 'settings.llmBadgeEnv'), cls: 'bg-brand-weak text-brand' }
+  try {
+    const cfg = await getLlmConfig()
+    if ('error' in cfg) return unknown
+    if (cfg.mode === 'none') return { label: t(locale, 'settings.llmBadgeNone'), cls: 'bg-pending-weak text-pending' }
+    if (cfg.mode === 'profile') {
+      const name = cfg.profiles.find(p => p.id === cfg.active_profile_id)?.name
+      // 활성 프로필이 삭제된 dangling 상태에서 서버는 env 로 폴백한다 — 화면도 같은 값을 보여야 한다.
+      return name ? { label: `${t(locale, 'settings.llmBadgeProfilePrefix')}${name}`, cls: 'bg-done-weak text-done' } : env
+    }
+    return env
+  } catch (e) {
+    console.error('[settings] LLM 설정 조회 실패 — 배지만 degrade:', e)
+    return unknown
+  }
+}
+
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 border-b border-line py-3.5 last:border-b-0 sm:flex-row sm:items-start sm:gap-4">
@@ -73,6 +100,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   const isPmo = membership?.role === 'pmo_admin'
   const canMutate = isPmo
   const taskCount = wbs ? collectLeaves(wbs.items).length : '—'
+  // 위 Promise.all 에 합류시키지 않는다 — 관리자에게만 필요한 부가 정보이고,
+  // 이 조회의 실패가 페이지 본체(임포트·일정 등)를 막으면 안 된다.
+  const llm = isPmo ? await llmBadge(locale) : null
 
   const scheduleLabel =
     project?.start_date || project?.end_date
@@ -208,6 +238,30 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
           </span>
         </p>
         </SectionCard>
+
+      {/* ── 서버 LLM 설정 (PMO 관리자 전용) ── */}
+        {isPmo && llm && (
+          <SectionCard
+            eyebrow="AI ASSISTANT"
+            title={t(locale, 'settings.llmTitle')}
+            icon={Cpu}
+            actions={
+              <div className="flex items-center gap-2">
+                <span className="badge bg-surface-2 px-2 py-1 text-ink-muted">{t(locale, 'settings.llmGlobalBadge')}</span>
+                <span className={`badge px-2 py-1 ${llm.cls}`}>{llm.label}</span>
+                <Link href="/admin/llm-config" className="btn btn-ghost shrink-0">
+                  <ArrowUpRight className="h-4 w-4" /> {t(locale, 'settings.llmOpenAdmin')}
+                </Link>
+              </div>
+            }
+          >
+            <p className="-mt-2 text-xs leading-5 text-ink-muted">
+              {t(locale, 'settings.llmDesc1')}
+              <br />
+              <span className="text-ink-subtle">{t(locale, 'settings.llmDesc2')}</span>
+            </p>
+          </SectionCard>
+        )}
 
       {/* ── 일정 기준 및 공휴일 ── */}
         <SectionCard

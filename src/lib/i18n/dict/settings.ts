@@ -45,6 +45,18 @@ export const settingsKo = {
   'settings.dkbotDesc2': '가 표시될 때 수동으로 재생성하세요.',
   'settings.dkbotDesc3':
     'AI 검색이 준비되지 않은 상태에서도 DK Bot은 구조화된 데이터로 정확히 답변하며, 준비가 완료되면 의미검색이 자동으로 활성화됩니다.',
+  // 서버 LLM 설정 섹션
+  'settings.llmTitle': '서버 LLM 설정',
+  'settings.llmGlobalBadge': '서버 전역',
+  'settings.llmBadgeEnv': '환경변수 기본값',
+  'settings.llmBadgeProfilePrefix': '프로필: ',
+  'settings.llmBadgeNone': '선택 안함',
+  'settings.llmBadgeUnknown': '확인 불가',
+  'settings.llmDesc1':
+    '이 설정은 프로젝트가 아니라 서버 전체에 적용됩니다. 요약·브리프·회의록 인사이트 등 모든 AI 기능이 여기서 선택한 LLM을 사용합니다.',
+  'settings.llmDesc2':
+    '배포 환경변수를 그대로 쓰거나, 등록해 둔 LLM 프로필로 재배포 없이 전환할 수 있습니다. 프로필 등록·연결 테스트는 관리 화면에서 합니다.',
+  'settings.llmOpenAdmin': '관리 화면 열기',
   // 일정 기준 및 공휴일
   'settings.calendarTitle': '일정 기준 및 공휴일',
   // 프로젝트 상태 관리
@@ -168,6 +180,18 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   'settings.dkbotDesc2': '.',
   'settings.dkbotDesc3':
     'Even before AI search is ready, DK Bot answers accurately from structured data; semantic search turns on automatically once ready.',
+  // Server LLM settings section
+  'settings.llmTitle': 'Server LLM settings',
+  'settings.llmGlobalBadge': 'Server-wide',
+  'settings.llmBadgeEnv': 'Environment defaults',
+  'settings.llmBadgeProfilePrefix': 'Profile: ',
+  'settings.llmBadgeNone': 'Disabled',
+  'settings.llmBadgeUnknown': 'Status unavailable',
+  'settings.llmDesc1':
+    'This setting applies to the entire server, not to a single project. Every AI feature (summaries, briefs, meeting-minute insights) uses the LLM selected here.',
+  'settings.llmDesc2':
+    'Keep the deployment environment variables, or switch to a registered LLM profile without redeploying. Profiles and connection tests live in the admin console.',
+  'settings.llmOpenAdmin': 'Open admin console',
   // Schedule baseline and holidays
   'settings.calendarTitle': 'Schedule baseline and holidays',
   // Project status policy

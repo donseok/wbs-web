@@ -61,16 +61,16 @@ function geminiModelChain(primary: string): string[] {
  * - maxOutputTokens 는 thinking 토큰과의 '합산 상한'으로 동작한다. 1200 이던 시절 thinking 이
  *   예산을 소진해 답변이 MAX_TOKENS 로 잘리는 것을 실측 확인(2.5/3.5 공통) → 4096 으로 여유.
  */
-function geminiGenerationConfig(model: string): Record<string, unknown> {
+function geminiGenerationConfig(model: string, maxOutputTokens = 4096): Record<string, unknown> {
   if (/^gemini-2\./.test(model)) {
-    const cfg: Record<string, unknown> = { temperature: 0.3, topP: 0.9, maxOutputTokens: 4096 }
+    const cfg: Record<string, unknown> = { temperature: 0.3, topP: 0.9, maxOutputTokens }
     if (!model.includes('pro')) cfg.thinkingConfig = { thinkingBudget: 0 }
     return cfg
   }
   if (/^gemini-/.test(model)) {
-    return { maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: 'low' } }
+    return { maxOutputTokens, thinkingConfig: { thinkingLevel: 'low' } }
   }
-  return { temperature: 0.3, topP: 0.9, maxOutputTokens: 4096 }
+  return { temperature: 0.3, topP: 0.9, maxOutputTokens }
 }
 
 /** 주 모델 실패(429/5xx/빈 답변) 시 폴백 체인을 순서대로 시도. 전부 실패해야 상위 폴백으로. */
@@ -98,7 +98,7 @@ async function geminiChatOne(cfg: LlmConfig, system: string, messages: ChatMessa
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     })),
-    generationConfig: geminiGenerationConfig(cfg.model),
+    generationConfig: geminiGenerationConfig(cfg.model, cfg.maxOutputTokens),
   }
   // 비스트리밍은 전체 생성이 끝나야 응답이 오므로, maxOutputTokens 4096 완주를 감안해 타임아웃 상향.
   // (스트리밍 경로는 헤더 수신 시점에 타이머가 풀려 기본 25초로 충분)
@@ -128,6 +128,8 @@ async function openaiChat(cfg: LlmConfig, system: string, messages: ChatMessage[
   const body = {
     model: cfg.model,
     temperature: 0.3,
+    // 프로필에 '최대 출력 토큰'이 지정된 경우에만 보낸다 — 미지정 시 서버 기본값을 그대로 쓴다.
+    ...(cfg.maxOutputTokens ? { max_tokens: cfg.maxOutputTokens } : {}),
     messages: [{ role: 'system', content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))],
   }
   const res = await fetchWithRetry(signal =>
@@ -199,7 +201,7 @@ async function* geminiStreamOne(cfg: LlmConfig, system: string, messages: ChatMe
   const body = {
     system_instruction: { parts: [{ text: system }] },
     contents: messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-    generationConfig: geminiGenerationConfig(cfg.model),
+    generationConfig: geminiGenerationConfig(cfg.model, cfg.maxOutputTokens),
   }
   const res = await fetchWithRetry(signal =>
     fetch(url, {
@@ -248,6 +250,7 @@ async function* openaiStream(cfg: LlmConfig, system: string, messages: ChatMessa
   const body = {
     model: cfg.model,
     temperature: 0.3,
+    ...(cfg.maxOutputTokens ? { max_tokens: cfg.maxOutputTokens } : {}),
     stream: true,
     messages: [{ role: 'system', content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))],
   }
