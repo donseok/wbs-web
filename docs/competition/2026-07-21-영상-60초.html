@@ -159,10 +159,12 @@ html,body{height:100%;background:#07090c;overflow:hidden;
   animation:blink 1.1s steps(2,start) infinite}
 @keyframes blink{50%{opacity:.25}}
 .app-bar .clock{font-variant-numeric:tabular-nums;color:#8b95a3;font-size:15px}
-.app-body{flex:1;padding:18px;display:flex;flex-direction:column;gap:12px;min-height:0}
+/* gap 9px·전사 19px 는 여유값이다 — 전사 11줄 + 회의록 카드 2장 + 전송 행이
+   835px 안에 들어가야 한다. 줄을 더 늘리려면 여기부터 다시 계산할 것. */
+.app-body{flex:1;padding:16px 18px;display:flex;flex-direction:column;gap:9px;min-height:0}
 
 /* 실시간 전사 줄 */
-.tline{display:flex;gap:11px;align-items:flex-start;font-size:20px;line-height:1.45;
+.tline{display:flex;gap:11px;align-items:flex-start;font-size:19px;line-height:1.4;
   color:#2b2f36;font-weight:600}
 .spk{flex:none;font-size:14px;font-weight:800;padding:3px 9px;border-radius:7px;
   margin-top:2px;letter-spacing:-.01em}
@@ -358,33 +360,47 @@ const MAIN = [
             <span class="clock">00:14</span>
           </div>
           <div class="app-body">
-            <div class="tline cue fade" data-at="1.6">
-              <b class="spk s1">발화자 1</b><span>예외 코드 정리가 아직 안 끝났습니다.</span>
+            <div class="tline cue fade" data-at="1.2">
+              <b class="spk s1">발화자 1</b><span>지난주 공정 점검 결과부터 보겠습니다.</span>
             </div>
-            <div class="tline cue fade" data-at="2.7">
-              <b class="spk s2">발화자 2</b><span>그건 제가 8월 20일까지 맡겠습니다.</span>
+            <div class="tline cue fade" data-at="1.8">
+              <b class="spk s2">발화자 2</b><span>기준정보 표준화는 지난주에 마무리했습니다.</span>
             </div>
-            <div class="tline cue fade" data-at="3.8">
-              <b class="spk s1">발화자 1</b><span>설비 쪽 지원도 같이 필요합니다.</span>
+            <div class="tline cue fade" data-at="2.4">
+              <b class="spk s1">발화자 1</b><span>인터페이스 설계는 어디까지 됐나요?</span>
+            </div>
+            <div class="tline cue fade" data-at="3.0">
+              <b class="spk s3">발화자 3</b><span>절반 조금 넘었습니다. 다음 주면 끝납니다.</span>
             </div>
             <!-- 화자 이름이 확정되면 전사 본문의 칩까지 함께 바뀐다 -->
-            <div class="tline cue fade" data-at="5.0" style="color:#7a6f68;font-size:17px">
-              <b class="spk s1">김책임</b><b class="spk s2">이수석</b>
+            <div class="tline cue fade" data-at="3.6" style="color:#7a6f68;font-size:17px">
+              <b class="spk s1">김책임</b><b class="spk s2">이수석</b><b class="spk s3">박선임</b>
               <span>← 화자 이름을 붙이면 전사 전체에 반영됩니다</span>
             </div>
             <!-- 이름 확정 이후 줄은 실제 이름으로 나온다 — 위 기능이 먹었다는 증거 -->
-            <div class="tline cue fade" data-at="5.9">
+            <div class="tline cue fade" data-at="4.2">
+              <b class="spk s1">김책임</b><span>예외 코드 정리가 아직 안 끝났습니다.</span>
+            </div>
+            <div class="tline cue fade" data-at="4.8">
+              <b class="spk s2">이수석</b><span>37건 남았습니다. 제가 맡겠습니다.</span>
+            </div>
+            <div class="tline cue fade" data-at="5.4">
+              <b class="spk s1">김책임</b><span>언제까지 가능하실까요?</span>
+            </div>
+            <div class="tline cue fade" data-at="6.0">
+              <b class="spk s2">이수석</b><span>8월 20일까지 하겠습니다. 설비 지원이 필요합니다.</span>
+            </div>
+            <div class="tline cue fade" data-at="6.6">
               <b class="spk s3">박선임</b><span>사내 약어도 그대로 받아쓰네요.</span>
             </div>
-            <div class="tline cue fade" data-at="6.6" style="font-size:17px;color:#7a6f68">
+            <div class="tline cue fade" data-at="7.1" style="font-size:17px;color:#7a6f68">
               <b class="spk s1">김책임</b><span>용어집에 등록해 둔 단어라 그렇습니다.</span>
             </div>
-            <div style="flex:1;min-height:8px"></div>
-            <div class="mcard cue" data-at="7.6">
+            <div class="mcard cue" data-at="8.1">
               <div class="h">결정사항</div>
               <div class="r">예외 코드 정리를 8월 3주차까지 완료한다</div>
             </div>
-            <div class="mcard cue" data-at="8.7">
+            <div class="mcard cue" data-at="9.2">
               <div class="h">ACTION ITEM</div>
               <div class="r">예외 코드 37건 정리 및 검증</div>
               <div class="meta"><span class="chip">담당 이수석</span>
@@ -392,7 +408,7 @@ const MAIN = [
                 <span class="chip due">8/20까지</span></div>
             </div>
             <!-- 두 도구를 잇는 실제 기능. 개념적 연결이 아니라 화면에 있는 버튼이다. -->
-            <div class="cue fade" data-at="10.2" style="display:flex;align-items:center;gap:13px;
+            <div class="cue fade" data-at="10.7" style="display:flex;align-items:center;gap:13px;
                  padding-top:4px">
               <span class="btn press">D'Flow로 전송</span>
               <span style="font-size:16px;color:var(--subtle);font-weight:700">
@@ -433,15 +449,30 @@ const MAIN = [
             <table class="wbs">
               <tr><th style="width:9%">구분</th><th>작업명</th><th style="width:15%">담당</th>
                   <th style="width:14%">기한</th><th style="width:22%">진척</th></tr>
-              <tr class="cue fade" data-at="1.4">
+              <tr class="cue fade" data-at="1.2">
+                <td><span class="tag">PHASE</span></td><td><b>1. 착수 및 기준정보</b></td><td>PMO</td><td>08.10</td>
+                <td><div style="display:flex;align-items:center;gap:9px">
+                  <div class="bar" style="--w:100%"><i></i></div><span class="pct">100%</span></div></td>
+              </tr>
+              <tr class="cue fade" data-at="1.6">
                 <td><span class="tag">TASK</span></td><td>기준정보 표준화</td><td>PMO</td><td>08.10</td>
                 <td><div style="display:flex;align-items:center;gap:9px">
                   <div class="bar" style="--w:100%"><i></i></div><span class="pct">100%</span></div></td>
               </tr>
               <tr class="cue fade" data-at="2.0">
+                <td><span class="tag">PHASE</span></td><td><b>2. 설계</b></td><td>ERP</td><td>09.05</td>
+                <td><div style="display:flex;align-items:center;gap:9px">
+                  <div class="bar" style="--w:58%"><i></i></div><span class="pct">58%</span></div></td>
+              </tr>
+              <tr class="cue fade" data-at="2.4">
                 <td><span class="tag">TASK</span></td><td>인터페이스 설계</td><td>ERP</td><td>08.28</td>
                 <td><div style="display:flex;align-items:center;gap:9px">
                   <div class="bar" style="--w:62%"><i></i></div><span class="pct">62%</span></div></td>
+              </tr>
+              <tr class="cue fade" data-at="2.8">
+                <td><span class="tag">TASK</span></td><td>화면 설계서 작성</td><td>MES</td><td>09.05</td>
+                <td><div style="display:flex;align-items:center;gap:9px">
+                  <div class="bar" style="--w:45%"><i></i></div><span class="pct">45%</span></div></td>
               </tr>
               <!-- 회의록에서 넘어온 행 — 배경으로 '방금 생긴 줄'임을 표시한다 -->
               <tr class="new cue" data-at="3.4">
@@ -449,6 +480,11 @@ const MAIN = [
                 <td><b>예외 코드 37건 정리 및 검증</b></td><td>이수석</td><td>08.20</td>
                 <td><div style="display:flex;align-items:center;gap:9px">
                   <div class="bar" style="--w:15%"><i></i></div><span class="pct">15%</span></div></td>
+              </tr>
+              <tr class="cue fade" data-at="3.9">
+                <td><span class="tag">TASK</span></td><td>통합 테스트 준비</td><td>MES</td><td>09.20</td>
+                <td><div style="display:flex;align-items:center;gap:9px">
+                  <div class="bar" style="--w:8%"><i></i></div><span class="pct">8%</span></div></td>
               </tr>
             </table>
             <div class="cue fade" data-at="4.2"
