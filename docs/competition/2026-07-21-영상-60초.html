@@ -143,6 +143,78 @@ html,body{height:100%;background:#07090c;overflow:hidden;
 .outro .pair i{width:1px;height:30px;background:#333d4a}
 .outro .who{font-size:23px;color:#5c6674;font-weight:600;letter-spacing:.02em}
 
+/* ══ 앱 화면 재현 목업 ═══════════════════════════════════
+   실제 화면을 녹화해 얹기 전까지, 그리고 시연이 어려운 자리에서는 이 목업이 대신한다.
+   실명·실제 프로젝트명은 쓰지 않는다 — 전부 시드 값이다.
+   ─────────────────────────────────────────────────────── */
+.app{position:relative;background:#fffdf9;border:1px solid var(--line);border-radius:14px;
+  overflow:hidden;display:flex;flex-direction:column;height:100%;
+  box-shadow:0 10px 30px rgba(23,24,29,.07)}
+.app-bar{display:flex;align-items:center;gap:12px;padding:13px 18px;background:#12161c;
+  color:#c9d2de;font-size:16px;font-weight:700;flex:none}
+.app-bar .brand{color:#fff;font-weight:800;letter-spacing:-.01em}
+.app-bar .spacer{flex:1}
+.app-bar .rec{display:flex;align-items:center;gap:8px;color:#ff8b6b;font-size:15px}
+.app-bar .rec u{text-decoration:none;width:10px;height:10px;border-radius:99px;background:#ff5a3c;
+  animation:blink 1.1s steps(2,start) infinite}
+@keyframes blink{50%{opacity:.25}}
+.app-bar .clock{font-variant-numeric:tabular-nums;color:#8b95a3;font-size:15px}
+.app-body{flex:1;padding:18px;display:flex;flex-direction:column;gap:12px;min-height:0}
+
+/* 실시간 전사 줄 */
+.tline{display:flex;gap:11px;align-items:flex-start;font-size:20px;line-height:1.45;
+  color:#2b2f36;font-weight:600}
+.spk{flex:none;font-size:14px;font-weight:800;padding:3px 9px;border-radius:7px;
+  margin-top:2px;letter-spacing:-.01em}
+.spk.s1{background:#e3efec;color:#0f766e}
+.spk.s2{background:#fbe9dc;color:#b25a26}
+.spk.s3{background:#e6e9f5;color:#4a56a6}
+
+/* 회의록 결과 카드 */
+.mcard{border:1px solid var(--line);border-radius:10px;padding:13px 16px;background:#fff}
+.mcard .h{font-size:13px;font-weight:800;letter-spacing:.1em;color:var(--brand);margin-bottom:7px}
+.mcard .r{font-size:18px;font-weight:700;color:#2b2f36;line-height:1.45}
+.mcard .meta{margin-top:7px;display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:14px;font-weight:800;padding:3px 10px;border-radius:99px;
+  background:var(--brand-weak);color:var(--brand);border:1px solid #b9ded8}
+.chip.due{background:#fbf3e4;color:#9a7b4f;border-color:#e2cfae}
+
+/* WBS 표 */
+.wbs{width:100%;border-collapse:collapse;font-size:17px}
+.wbs th{font-size:12px;letter-spacing:.06em;color:var(--subtle);font-weight:800;
+  text-align:left;padding:7px 10px;border-bottom:1px solid var(--line2)}
+.wbs td{padding:10px;border-bottom:1px solid var(--line);font-weight:600;color:#2b2f36}
+.wbs tr.new td{background:#f2faf8}
+.tag{font-size:12px;font-weight:800;padding:2px 7px;border-radius:5px;
+  background:#eee7dc;color:#7a6f68;letter-spacing:.04em}
+.tag.act{background:var(--brand-weak);color:var(--brand)}
+.bar{position:relative;height:9px;border-radius:99px;background:#ece4d8;overflow:hidden;min-width:110px}
+.bar i{position:absolute;inset:0 auto 0 0;width:0;background:var(--brand);border-radius:99px;
+  transition:width 1.3s cubic-bezier(.3,.8,.4,1)}
+.cue.shown .bar i{width:var(--w,60%)}
+.pct{font-size:15px;font-weight:800;color:var(--brand);font-variant-numeric:tabular-nums}
+
+/* 신호 타일 */
+.sig{display:flex;gap:10px}
+.sig div{flex:1;border-radius:10px;padding:10px 13px;border:1px solid;font-weight:800}
+.sig .ok{background:#eaf5f2;border-color:#b9ded8;color:var(--brand)}
+.sig .warn{background:#fdf1e3;border-color:#e9cba6;color:#a9671f}
+.sig .bad{background:#fbe9e6;border-color:#eec2b8;color:#b1442c}
+.sig span{display:block;font-size:13px;font-weight:700;opacity:.8;margin-bottom:3px}
+.sig b{font-size:22px;letter-spacing:-.02em}
+
+/* 버튼 · 생성 결과 */
+.btn{display:inline-flex;align-items:center;gap:9px;background:var(--brand);color:#fff;
+  font-size:18px;font-weight:800;padding:11px 20px;border-radius:10px;letter-spacing:-.01em}
+.btn.press{animation:press .5s ease}
+@keyframes press{40%{transform:scale(.95);filter:brightness(.9)}}
+.ppt{display:flex;gap:10px}
+.ppt div{flex:1;aspect-ratio:4/3;border:1px solid var(--line2);border-radius:7px;background:#fff;
+  padding:9px;display:flex;flex-direction:column;gap:5px}
+.ppt div::before{content:'';height:7px;border-radius:2px;background:var(--brand);width:62%}
+.ppt div::after{content:'';flex:1;border-radius:3px;
+  background:repeating-linear-gradient(180deg,#ece4d8 0 4px,transparent 4px 11px)}
+
 /* ── 티저 ──────────────────────────────────────────────── */
 .teaser{height:100%;background:var(--dark);display:flex;flex-direction:column;
   justify-content:center;align-items:center;gap:40px;padding:0 120px;text-align:center}
@@ -277,15 +349,42 @@ const MAIN = [
       </div>
       <div class="col after">
         <div class="label cue fade" data-at="0.4"><u></u>도입 후 — 또박또박</div>
-        <div class="slot cue grow" data-at="0.9">
-          <div class="tag">실화면 녹화 삽입 구간</div>
-          <ul class="shots">
-            <li><b>1</b><span>녹음 시작 → 말하는 대로 자막이 실시간으로 쌓인다</span></li>
-            <li><b>2</b><span>화자가 자동으로 갈린다 (이름 붙이기)</span></li>
-            <li><b>3</b><span>회의 종료 → 핵심·결정·Action Item이 이미 정리돼 있다</span></li>
-            <li><b>4</b><span>요약 문장 클릭 → 그 말을 한 지점 오디오로 점프</span></li>
-          </ul>
-          <div class="dur">약 13초</div>
+        <div class="app cue grow" data-at="0.8">
+          <div class="app-bar">
+            <span class="brand">또박또박</span>
+            <span style="font-weight:600;color:#8b95a3">주간 공정 점검 회의</span>
+            <span class="spacer"></span>
+            <span class="rec"><u></u>녹음 중</span>
+            <span class="clock">00:14</span>
+          </div>
+          <div class="app-body">
+            <div class="tline cue fade" data-at="1.6">
+              <b class="spk s1">발화자 1</b><span>예외 코드 정리가 아직 안 끝났습니다.</span>
+            </div>
+            <div class="tline cue fade" data-at="2.7">
+              <b class="spk s2">발화자 2</b><span>그건 제가 8월 20일까지 맡겠습니다.</span>
+            </div>
+            <div class="tline cue fade" data-at="3.8">
+              <b class="spk s1">발화자 1</b><span>설비 쪽 지원도 같이 필요합니다.</span>
+            </div>
+            <!-- 화자 이름이 확정되면 전사 본문의 칩까지 함께 바뀐다 -->
+            <div class="tline cue fade" data-at="5.2" style="color:#7a6f68;font-size:17px">
+              <b class="spk s1">김책임</b><b class="spk s2">이수석</b>
+              <span>← 화자 이름을 붙이면 전체에 반영됩니다</span>
+            </div>
+            <div style="flex:1"></div>
+            <div class="mcard cue" data-at="7.0">
+              <div class="h">결정사항</div>
+              <div class="r">예외 코드 정리를 8월 3주차까지 완료한다</div>
+            </div>
+            <div class="mcard cue" data-at="8.2">
+              <div class="h">ACTION ITEM</div>
+              <div class="r">예외 코드 37건 정리 및 검증</div>
+              <div class="meta"><span class="chip">담당 이수석</span>
+                <span class="chip">지원 설비팀</span>
+                <span class="chip due">8/20까지</span></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -309,15 +408,57 @@ const MAIN = [
       </div>
       <div class="col after">
         <div class="label cue fade" data-at="0.4"><u></u>도입 후 — D'Flow</div>
-        <div class="slot cue grow" data-at="0.9">
-          <div class="tag">실화면 녹화 삽입 구간</div>
-          <ul class="shots">
-            <li><b>1</b><span>회의록의 Action Item이 그대로 넘어온다</span></li>
-            <li><b>2</b><span>WBS에 담당·기한이 붙고 진척이 자동 계산된다</span></li>
-            <li><b>3</b><span>대시보드에 지연·위험이 즉시 뜬다</span></li>
-            <li><b>4</b><span>주간보고 — <strong style="color:#e8b98a">클릭 한 번</strong>에 공식 양식 PPT</span></li>
-          </ul>
-          <div class="dur">약 13초</div>
+        <div class="app cue grow" data-at="0.8">
+          <div class="app-bar">
+            <span class="brand">D'Flow</span>
+            <span style="font-weight:600;color:#8b95a3">스마트팩토리 구축 · WBS</span>
+            <span class="spacer"></span>
+            <span class="clock">7월 4주차</span>
+          </div>
+          <div class="app-body" style="gap:0">
+            <table class="wbs">
+              <tr><th style="width:9%">구분</th><th>작업명</th><th style="width:15%">담당</th>
+                  <th style="width:14%">기한</th><th style="width:22%">진척</th></tr>
+              <tr class="cue fade" data-at="1.4">
+                <td><span class="tag">TASK</span></td><td>기준정보 표준화</td><td>PMO</td><td>08.10</td>
+                <td><div style="display:flex;align-items:center;gap:9px">
+                  <div class="bar" style="--w:100%"><i></i></div><span class="pct">100%</span></div></td>
+              </tr>
+              <tr class="cue fade" data-at="2.0">
+                <td><span class="tag">TASK</span></td><td>인터페이스 설계</td><td>ERP</td><td>08.28</td>
+                <td><div style="display:flex;align-items:center;gap:9px">
+                  <div class="bar" style="--w:62%"><i></i></div><span class="pct">62%</span></div></td>
+              </tr>
+              <!-- 회의록에서 넘어온 행 — 배경으로 '방금 생긴 줄'임을 표시한다 -->
+              <tr class="new cue" data-at="3.4">
+                <td><span class="tag act">신규</span></td>
+                <td><b>예외 코드 37건 정리 및 검증</b></td><td>이수석</td><td>08.20</td>
+                <td><div style="display:flex;align-items:center;gap:9px">
+                  <div class="bar" style="--w:15%"><i></i></div><span class="pct">15%</span></div></td>
+              </tr>
+            </table>
+            <div class="cue fade" data-at="4.2"
+                 style="font-size:15px;color:var(--brand);font-weight:800;padding:9px 10px">
+              ↑ 회의록의 Action Item이 그대로 한 줄이 됐습니다
+            </div>
+            <div class="sig cue" data-at="5.6" style="margin-top:6px">
+              <div class="ok"><span>일정</span><b>계획 대비 +2일</b></div>
+              <div class="warn"><span>마감 임박</span><b>3건</b></div>
+              <div class="bad"><span>지연</span><b>1건</b></div>
+            </div>
+            <div style="flex:1"></div>
+            <div class="cue fade" data-at="7.6" style="display:flex;align-items:center;gap:14px">
+              <span class="btn press">주간보고서(PPT) 생성</span>
+              <span style="font-size:16px;color:var(--subtle);font-weight:700">클릭 한 번</span>
+            </div>
+            <div class="ppt cue grow" data-at="8.8" style="margin-top:12px">
+              <div></div><div></div><div></div><div></div>
+            </div>
+            <div class="cue fade" data-at="9.8"
+                 style="font-size:15px;color:var(--brand);font-weight:800;padding-top:8px">
+              공식 양식 그대로 · 4장 생성 완료
+            </div>
+          </div>
         </div>
       </div>
     </div>
