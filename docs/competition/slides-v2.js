@@ -76,40 +76,120 @@ const SLIDES = [
   <div class="body">
     <h2>회의부터 실행까지, 끊긴 곳을 이었습니다</h2>
     <p class="lead">두 개의 도구지만 하나의 흐름입니다. 회의에서 나온 한 문장이 실행 계획까지 끊기지 않고 갑니다.</p>
-    <div class="grid2" style="margin-top:14px">
-      <div class="card">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+    <div class="grid2" style="margin-top:12px;gap:20px">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div style="display:flex;align-items:center;gap:9px">
           <span class="pill act">01</span>
-          <b style="font-size:22px;letter-spacing:-.02em">또박또박</b>
-          <span style="font-size:14px;color:var(--subtle);font-weight:700">회의록 AI</span>
+          <b style="font-size:20px;letter-spacing:-.02em">또박또박</b>
+          <span style="font-size:13px;color:var(--subtle);font-weight:700">회의록 AI</span>
         </div>
-        <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;
-                   font-size:16px;line-height:1.45;font-weight:600;color:var(--muted)">
-          <li>· 말하면 그대로 받아쓰고, 화자를 자동으로 구분</li>
-          <li>· 회의가 끝나면 핵심·결정·할 일이 이미 정리돼 있음</li>
-          <li>· 요약 문장을 클릭하면 그 말을 한 지점으로 점프</li>
-          <li>· 지난 회의 전체를 가로질러 질문 가능</li>
-          <li>· 음성·기록이 <b style="color:var(--brand)">외부로 나가지 않음</b> (로컬 처리)</li>
-        </ul>
+        <div class="shot" style="flex:1">
+          <div class="bar"><b>또박또박</b><span>주간 공정 점검 회의</span>
+            <span class="sp"></span><span class="rec"><u></u>녹음 중</span></div>
+          <div class="in">
+            <div class="tl"><b class="sp1">김책임</b><span>예외 코드 정리가 아직 안 끝났습니다.</span></div>
+            <div class="tl"><b class="sp2">이수석</b><span>제가 8월 20일까지 맡겠습니다.</span></div>
+            <div class="tl"><b class="sp3">박선임</b><span>사내 약어도 그대로 받아쓰네요.</span></div>
+            <div style="flex:1"></div>
+            <div class="mc"><div class="h">ACTION ITEM</div>
+              <div class="r">예외 코드 37건 정리 및 검증</div>
+              <div class="m"><span class="cx">담당 이수석</span><span class="cx due">8/20까지</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:14px;line-height:1.45;color:var(--muted);font-weight:600">
+          받아쓰기·화자 구분·요약이 <b style="color:var(--brand)">전부 사내에서</b> 처리됩니다 ·
+          사내 용어집을 등록하면 우리 회사 약어도 제대로 인식 ·
+          요약 문장을 누르면 그 말을 한 순간의 음성으로 이동
+        </div>
       </div>
-      <div class="card">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div style="display:flex;align-items:center;gap:9px">
           <span class="pill act">02</span>
-          <b style="font-size:22px;letter-spacing:-.02em">D'Flow</b>
-          <span style="font-size:14px;color:var(--subtle);font-weight:700">프로젝트 실행 플랫폼</span>
+          <b style="font-size:20px;letter-spacing:-.02em">D'Flow</b>
+          <span style="font-size:13px;color:var(--subtle);font-weight:700">프로젝트 실행 플랫폼</span>
         </div>
-        <ul style="list-style:none;display:flex;flex-direction:column;gap:9px;
-                   font-size:16px;line-height:1.45;font-weight:600;color:var(--muted)">
-          <li>· 엑셀 WBS를 온라인으로 — 버전이 하나로 수렴</li>
-          <li>· 진척·지연·위험이 자동 계산되어 상시 최신</li>
-          <li>· 회의록의 할 일이 담당·기한과 함께 계획에 반영</li>
-          <li>· 주간보고를 <b style="color:var(--brand)">클릭 한 번</b>으로 공식 양식 PPT</li>
-          <li>· 물어보면 답하는 봇 — 근거 데이터까지 함께</li>
-        </ul>
+        <div class="shot" style="flex:1">
+          <div class="bar"><b>D'Flow</b><span>스마트팩토리 구축 · WBS</span>
+            <span class="sp"></span><span>7월 4주차</span></div>
+          <div class="in">
+            <table class="wb">
+              <tr><th style="width:16%">구분</th><th>작업명</th><th style="width:17%">담당</th>
+                  <th style="width:26%">진척</th></tr>
+              <tr><td><span class="tg">TASK</span></td><td>기준정보 표준화</td><td>PMO</td>
+                  <td><div style="display:flex;align-items:center;gap:6px">
+                    <div class="pb"><i style="width:100%"></i></div><span class="pn">100%</span></div></td></tr>
+              <tr><td><span class="tg">TASK</span></td><td>인터페이스 설계</td><td>ERP</td>
+                  <td><div style="display:flex;align-items:center;gap:6px">
+                    <div class="pb"><i style="width:62%"></i></div><span class="pn">62%</span></div></td></tr>
+              <tr class="hi"><td><span class="tg n">신규</span></td>
+                  <td><b>예외 코드 37건 정리</b></td><td>이수석</td>
+                  <td><div style="display:flex;align-items:center;gap:6px">
+                    <div class="pb"><i style="width:15%"></i></div><span class="pn">15%</span></div></td></tr>
+            </table>
+            <div style="flex:1"></div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="bt">주간보고서(PPT) 생성</span>
+              <span class="sl" style="flex:1"><div></div><div></div><div></div><div></div></span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:14px;line-height:1.45;color:var(--muted);font-weight:600">
+          엑셀 WBS가 한 곳으로 — 버전 충돌이 사라짐 ·
+          진척·지연·위험 <b style="color:var(--brand)">자동 계산</b> ·
+          주간보고는 클릭 한 번으로 공식 양식 PPT
+        </div>
       </div>
     </div>
   </div>
   <div class="foot">두 도구 모두 <b>2026년에 만들어 2026년에 쓰고 있는</b> 사례입니다</div>`},
+
+// ── 3-2. 두 도구가 실제로 이어지는 방식 ────────────────────────────────
+{ title:'두 도구의 연결', html:`
+  <div class="eyebrow">무엇을 만들었나 <span class="rub">· 연결 지점</span><s></s></div>
+  <div class="body">
+    <h2>"회의록을 D'Flow로 전송" — 버튼 하나입니다</h2>
+    <p class="lead">두 도구를 잇는 것은 계획이 아니라 이미 화면에 있는 기능입니다.</p>
+    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center;margin-top:16px">
+      <div class="shot">
+        <div class="bar"><b>또박또박</b><span>회의 상세 · 내보내기</span></div>
+        <div class="in" style="gap:9px">
+          <div class="mc"><div class="h">완성된 회의록</div>
+            <div class="r">주간 공정 점검 회의 — 결정 1건 · 액션 3건</div></div>
+          <span class="bt" style="align-self:flex-start">D'Flow로 전송</span>
+        </div>
+      </div>
+      <div style="font-size:26px;color:var(--line2);font-weight:800">→</div>
+      <div class="shot">
+        <div class="bar"><b>D'Flow</b><span>회의록</span></div>
+        <div class="in" style="gap:9px">
+          <div class="mc"><div class="h">등록됨</div>
+            <div class="r">물류 - 주간 공정 점검 회의</div>
+            <div class="m"><span class="cx">구분 자동 판정</span><span class="cx">제목 자동 조립</span></div></div>
+          <div style="font-size:12px;color:var(--subtle);font-weight:700">
+            회의록을 고치면 "재전송 필요" 배지 → 다시 보내면 같은 글이 갱신됩니다</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid3" style="margin-top:20px">
+      <div class="card" style="padding:14px 18px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:5px">몇 번을 보내도 안전</div>
+        <div style="font-size:14px;line-height:1.45;color:var(--muted);font-weight:600">
+          같은 회의는 새 글이 생기지 않고 원래 글이 갱신됩니다</div>
+      </div>
+      <div class="card" style="padding:14px 18px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:5px">구분·제목 자동</div>
+        <div style="font-size:14px;line-height:1.45;color:var(--muted);font-weight:600">
+          폴더 위치를 보고 팀 구분과 제목을 채웁니다 (수정 가능)</div>
+      </div>
+      <div class="card" style="padding:14px 18px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:5px">보내는 사람 확인</div>
+        <div style="font-size:14px;line-height:1.45;color:var(--muted);font-weight:600">
+          D'Flow 계정이 있는 사람만 전송됩니다</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot">시연 구간: 회의록 완성 → 전송 → D'Flow 회의록에 등록되는 장면</div>`},
 
 // ── 4. 전/후 한눈에 ─────────────────────────────────────────────────────
 { title:'개선 전/후 — 한눈에', html:`
@@ -168,6 +248,7 @@ const SLIDES = [
           <li>회의 종료 시점에 회의록이 이미 완성</li>
           <li>결정 / 할 일(담당·기한)이 구조로 분리되어 추출</li>
           <li>요약 문장 → <b>실제 발언 지점으로 점프</b>, 근거 확인</li>
+          <li>사내 용어집을 등록하면 <b>우리 회사 약어</b>도 정확히 인식</li>
           <li>여러 회의를 가로질러 질문 — 답변에 출처 표시</li>
         </ul>
       </div>

@@ -368,21 +368,35 @@ const MAIN = [
               <b class="spk s1">발화자 1</b><span>설비 쪽 지원도 같이 필요합니다.</span>
             </div>
             <!-- 화자 이름이 확정되면 전사 본문의 칩까지 함께 바뀐다 -->
-            <div class="tline cue fade" data-at="5.2" style="color:#7a6f68;font-size:17px">
+            <div class="tline cue fade" data-at="5.0" style="color:#7a6f68;font-size:17px">
               <b class="spk s1">김책임</b><b class="spk s2">이수석</b>
-              <span>← 화자 이름을 붙이면 전체에 반영됩니다</span>
+              <span>← 화자 이름을 붙이면 전사 전체에 반영됩니다</span>
             </div>
-            <div style="flex:1"></div>
-            <div class="mcard cue" data-at="7.0">
+            <!-- 이름 확정 이후 줄은 실제 이름으로 나온다 — 위 기능이 먹었다는 증거 -->
+            <div class="tline cue fade" data-at="5.9">
+              <b class="spk s3">박선임</b><span>사내 약어도 그대로 받아쓰네요.</span>
+            </div>
+            <div class="tline cue fade" data-at="6.6" style="font-size:17px;color:#7a6f68">
+              <b class="spk s1">김책임</b><span>용어집에 등록해 둔 단어라 그렇습니다.</span>
+            </div>
+            <div style="flex:1;min-height:8px"></div>
+            <div class="mcard cue" data-at="7.6">
               <div class="h">결정사항</div>
               <div class="r">예외 코드 정리를 8월 3주차까지 완료한다</div>
             </div>
-            <div class="mcard cue" data-at="8.2">
+            <div class="mcard cue" data-at="8.7">
               <div class="h">ACTION ITEM</div>
               <div class="r">예외 코드 37건 정리 및 검증</div>
               <div class="meta"><span class="chip">담당 이수석</span>
                 <span class="chip">지원 설비팀</span>
                 <span class="chip due">8/20까지</span></div>
+            </div>
+            <!-- 두 도구를 잇는 실제 기능. 개념적 연결이 아니라 화면에 있는 버튼이다. -->
+            <div class="cue fade" data-at="10.2" style="display:flex;align-items:center;gap:13px;
+                 padding-top:4px">
+              <span class="btn press">D'Flow로 전송</span>
+              <span style="font-size:16px;color:var(--subtle);font-weight:700">
+                구분·제목 자동 · 다시 보내도 덮어쓰기</span>
             </div>
           </div>
         </div>
@@ -439,7 +453,7 @@ const MAIN = [
             </table>
             <div class="cue fade" data-at="4.2"
                  style="font-size:15px;color:var(--brand);font-weight:800;padding:9px 10px">
-              ↑ 회의록의 Action Item이 그대로 한 줄이 됐습니다
+              ↑ 방금 또박또박에서 넘어온 Action Item입니다
             </div>
             <div class="sig cue" data-at="5.6" style="margin-top:6px">
               <div class="ok"><span>일정</span><b>계획 대비 +2일</b></div>
