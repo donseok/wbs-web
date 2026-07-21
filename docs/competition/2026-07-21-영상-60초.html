@@ -191,11 +191,14 @@ function build(list){
 
 function seek(v){
   t = Math.max(0, Math.min(total, v));
+  // 판정 시각은 total 직전으로 묶는다. t === total 이면 `t < e` 가 모든 장면에서 거짓이 되어
+  // 마지막 프레임이 빈 화면으로 끝난다 — 그대로 녹화하면 영상 끝에 백지가 한 장 붙는다.
+  const tt = Math.min(t, total - 0.001);
   stage.querySelectorAll('.scene').forEach(el => {
-    const s = +el.dataset.s, e = +el.dataset.e, on = t >= s && t < e;
+    const s = +el.dataset.s, e = +el.dataset.e, on = tt >= s && tt < e;
     el.classList.toggle('on', on);
     el.querySelectorAll('.cue').forEach(c => {
-      c.classList.toggle('shown', on && t - s >= (+c.dataset.at || 0));
+      c.classList.toggle('shown', on && tt - s >= (+c.dataset.at || 0));
     });
   });
   bar.style.width = (t / total * 100) + '%';
