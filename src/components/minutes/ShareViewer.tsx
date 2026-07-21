@@ -8,6 +8,8 @@ import { TEAM } from '@/components/wbs/shared'
 import { MarkdownView } from './MarkdownView'
 import { MinuteToc } from './MinuteToc'
 import { useMinuteTocSpy } from './useMinuteTocSpy'
+import { MinuteFontSizeControl } from './MinuteFontSizeControl'
+import { useMinuteFontSize } from './useMinuteFontSize'
 
 /** 비로그인 외부 열람 전용 미니멀 뷰어 — 본문+목차만(스펙 §3.3). 채팅·하이라이트·인사이트·첨부 없음. */
 export function ShareViewer({ minuteDate, teamCode, title, bodyMd }: {
@@ -20,6 +22,8 @@ export function ShareViewer({ minuteDate, teamCode, title, bodyMd }: {
   const bodyRef = useRef<HTMLDivElement>(null)
   const blocks = useMemo(() => splitMinuteBlocks(bodyMd), [bodyMd])
   const { activeToc, jumpTo } = useMinuteTocSpy(blocks, bodyRef)
+  // 비로그인 열람 — 서버 저장 없이 localStorage 에만 유지(스펙 §4.2)
+  const fs = useMinuteFontSize({ persist: false })
 
   return (
     <div className="app-backdrop min-h-screen">
@@ -32,10 +36,15 @@ export function ShareViewer({ minuteDate, teamCode, title, bodyMd }: {
           </span>
           <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-ink">{title}</h1>
           <span className="text-xs text-ink-subtle">{t('min.share.readonly')}</span>
+          <MinuteFontSizeControl
+            size={fs.size} onDec={fs.dec} onInc={fs.inc} onReset={fs.reset}
+            canDec={fs.canDec} canInc={fs.canInc}
+          />
         </div>
         <div className="flex flex-col gap-4 xl:flex-row">
           <MinuteToc blocks={blocks} insights={[]} highlights={[]} onJump={jumpTo} activeIndex={activeToc} />
-          <div ref={bodyRef} className="card min-w-0 flex-1 p-5">
+          <div ref={bodyRef} className="card min-w-0 flex-1 p-5"
+            style={{ '--minutes-fs': `${fs.size}px` } as React.CSSProperties}>
             <MarkdownView content={bodyMd} />
           </div>
         </div>

@@ -228,28 +228,32 @@ textarea {
            focus:border-brand focus:ring-2 focus:ring-brand-ring;
   }
 
-  /* 회의록 md 뷰어 타이포 — 토큰만 사용, .dark 자동 대응 */
-  .minutes-md { @apply text-[14px] leading-relaxed text-ink; }
-  .minutes-md h1 { @apply mt-6 mb-3 text-xl font-bold text-ink first:mt-0; }
-  .minutes-md h2 { @apply mt-5 mb-2 text-lg font-bold text-ink first:mt-0; }
-  .minutes-md h3 { @apply mt-4 mb-2 text-base font-semibold text-ink; }
-  .minutes-md h4, .minutes-md h5, .minutes-md h6 { @apply mt-3 mb-1.5 text-sm font-semibold text-ink; }
-  .minutes-md p { @apply my-2; }
-  .minutes-md ul { @apply my-2 list-disc pl-5; }
-  .minutes-md ol { @apply my-2 list-decimal pl-5; }
-  .minutes-md li { @apply my-0.5; }
-  .minutes-md blockquote { @apply my-3 border-l-4 border-line pl-3 text-ink-muted; }
-  .minutes-md code { @apply rounded bg-surface-2 px-1 py-0.5 text-[13px]; }
-  .minutes-md pre { @apply my-3 overflow-x-auto rounded-xl border border-line bg-surface-2 p-3; }
+  /* 회의록 md 뷰어 타이포 — 토큰만 사용, .dark 자동 대응.
+     크기는 --minutes-fs(뷰어가 본문 카드에 인라인 주입, 기본 14px) 하나로 스케일한다.
+     CSS 변수는 상속되므로 MarkdownView(memo+ReactMarkdown)의 props 가 바뀌지 않는다 —
+     1px 조절마다 10만 자 재파싱이 일어나지 않게 하는 핵심 계약(스펙 §3).
+     그래서 글자 크기와 세로 여백은 em(본문 기준 비례), 보더·라운드·배지·스크롤 오프셋은 px 고정. */
+  .minutes-md { @apply leading-relaxed text-ink; font-size: var(--minutes-fs, 14px); }
+  .minutes-md h1 { @apply font-bold text-ink first:mt-0; font-size: 1.4em; margin: 1.7em 0 0.85em; }
+  .minutes-md h2 { @apply font-bold text-ink first:mt-0; font-size: 1.3em; margin: 1.45em 0 0.6em; }
+  .minutes-md h3 { @apply font-semibold text-ink; font-size: 1.15em; margin: 1.15em 0 0.6em; }
+  .minutes-md h4, .minutes-md h5, .minutes-md h6 { @apply font-semibold text-ink; font-size: 1em; margin: 0.85em 0 0.45em; }
+  .minutes-md p { margin: 0.6em 0; }
+  .minutes-md ul { @apply list-disc; margin: 0.6em 0; padding-left: 1.45em; }
+  .minutes-md ol { @apply list-decimal; margin: 0.6em 0; padding-left: 1.45em; }
+  .minutes-md li { margin: 0.15em 0; }
+  .minutes-md blockquote { @apply border-l-4 border-line text-ink-muted; margin: 0.85em 0; padding-left: 0.85em; }
+  .minutes-md code { @apply rounded bg-surface-2; font-size: 0.93em; padding: 0.1em 0.3em; }
+  .minutes-md pre { @apply overflow-x-auto rounded-xl border border-line bg-surface-2; margin: 0.85em 0; padding: 0.85em; }
   .minutes-md pre code { @apply bg-transparent p-0; }
-  .minutes-md .minutes-mermaid { @apply my-3 overflow-x-auto rounded-xl border border-line bg-surface p-3; }
+  .minutes-md .minutes-mermaid { @apply overflow-x-auto rounded-xl border border-line bg-surface; margin: 0.85em 0; padding: 0.85em; }
   .minutes-md .minutes-mermaid svg { @apply mx-auto block h-auto max-w-full; }
   .minutes-md .minutes-mermaid-loading { @apply min-h-28 bg-surface-2; }
-  .minutes-md table { @apply my-3 w-full border-collapse text-[13px]; }
-  .minutes-md th { @apply border border-line bg-surface-2 px-2 py-1.5 text-left font-semibold; }
-  .minutes-md td { @apply border border-line px-2 py-1.5 align-top; }
+  .minutes-md table { @apply w-full border-collapse; font-size: 0.93em; margin: 0.85em 0; }
+  .minutes-md th { @apply border border-line bg-surface-2 text-left font-semibold; padding: 0.4em 0.55em; }
+  .minutes-md td { @apply border border-line align-top; padding: 0.4em 0.55em; }
   .minutes-md a { @apply text-brand underline underline-offset-2 hover:text-brand-hover; }
-  .minutes-md hr { @apply my-4 border-line; }
+  .minutes-md hr { @apply border-line; margin: 1.15em 0; }
   .minutes-md img { @apply max-w-full; }
 
   /* ── 뷰어 인사이트: 속성 선택자 전용(클래스 스탬프 금지 — language-* 클로버 함정), 토큰 기반 다크 자동 ── */
@@ -258,7 +262,8 @@ textarea {
   .minutes-md [data-mblock]:hover { @apply outline outline-1 outline-line-strong; }
 
   /* AI 인라인 마킹 — 좌측 3px kind 색 보더 + 은은한 배경(opacity 스케일: -weak 토큰이 accent-warning 에 없음) */
-  .minutes-md [data-ins] { @apply border-l-[3px] pl-2; }
+  /* 좌측 보더는 px 고정(장식), 들여쓰기는 em — 큰 글자에서 마킹 여백이 눌리지 않게 */
+  .minutes-md [data-ins] { @apply border-l-[3px]; padding-left: 0.6em; }
   .minutes-md [data-ins='decision'] { @apply border-done bg-done/5; }
   .minutes-md [data-ins='action'] { @apply border-progress bg-progress/5; }
   .minutes-md [data-ins='deadline'] { @apply border-accent-warning bg-accent-warning/5; }

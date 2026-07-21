@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { getMinuteDetail, getMinuteAnnotations } from '@/lib/data/minutes'
 import { getMembership, getSession } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
+import { getUiPrefs } from '@/app/actions/preferences'
 import { MinuteViewer } from '@/components/minutes/MinuteViewer'
 import { parseMinuteSourceAnchor } from '@/lib/minutes/source'
 
@@ -17,8 +18,10 @@ export default async function MinuteDetailPage({
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams])
   const sourceAnchor = parseMinuteSourceAnchor(query)
-  const [detail, annotations, m, user, projects] = await Promise.all([
+  // prefs 는 기존 병렬 묶음에 합류 — 직렬 왕복 단수는 그대로다(스펙 §4.5)
+  const [detail, annotations, m, user, projects, prefs] = await Promise.all([
     getMinuteDetail(id), getMinuteAnnotations(id), getMembership(), getSession(), listProjects(),
+    getUiPrefs(),
   ])
   if (!detail) notFound()
   const canManage = !!user && (detail.minute.createdBy === user.id || m?.role === 'pmo_admin')
@@ -26,7 +29,7 @@ export default async function MinuteDetailPage({
     <MinuteViewer
       minute={detail.minute} files={detail.files} canManage={canManage}
       annotations={annotations} userId={user?.id ?? null} projects={projects}
-      sourceAnchor={sourceAnchor}
+      sourceAnchor={sourceAnchor} initialFontSize={prefs.minuteFontSize ?? null}
     />
   )
 }

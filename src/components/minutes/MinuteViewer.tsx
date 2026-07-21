@@ -25,10 +25,13 @@ import { MinuteInsightCard } from './MinuteInsightCard'
 import { MinuteToc } from './MinuteToc'
 import { useMinuteTocSpy } from './useMinuteTocSpy'
 import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
+import { MinuteFontSizeControl } from './MinuteFontSizeControl'
+import { useMinuteFontSize } from './useMinuteFontSize'
 import { TEAM } from '@/components/wbs/shared'
 
 export function MinuteViewer({
   minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
+  initialFontSize = null,
 }: {
   minute: Minute
   files: MinuteFile[]
@@ -37,6 +40,7 @@ export function MinuteViewer({
   userId: string | null
   projects: { id: string; name: string }[]
   sourceAnchor?: MinuteSourceAnchor | null
+  initialFontSize?: number | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -47,6 +51,7 @@ export function MinuteViewer({
   const [shareOpen, setShareOpen] = useState(false)
   const [focus, setFocus] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const fs = useMinuteFontSize({ initial: initialFontSize })
   const bodyFile = files.find(f => f.role === 'body') ?? null
   const attachments = files.filter(f => f.role === 'attachment')
 
@@ -297,6 +302,10 @@ export function MinuteViewer({
               </>
             )}
             <span className="text-xs text-ink-subtle">{minute.createdByName ?? ''}</span>
+            <MinuteFontSizeControl
+              size={fs.size} onDec={fs.dec} onInc={fs.inc} onReset={fs.reset}
+              canDec={fs.canDec} canInc={fs.canInc}
+            />
             <button onClick={() => setFocus(f => !f)}
               title={focus ? t('min.focus.off') : t('min.focus.on')}
               aria-label={focus ? t('min.focus.off') : t('min.focus.on')} aria-pressed={focus}
@@ -325,7 +334,9 @@ export function MinuteViewer({
             onJump={jumpTo} activeIndex={activeToc}
           />
         )}
-        <div ref={bodyRef} onClick={onBodyClick} className="card min-w-0 flex-1 p-5 xl:overflow-y-auto">
+        {/* 글자크기는 CSS 변수로만 내려보낸다 — MarkdownView props 가 그대로여야 재파싱이 없다(스펙 §3) */}
+        <div ref={bodyRef} onClick={onBodyClick} className="card min-w-0 flex-1 p-5 xl:overflow-y-auto"
+          style={{ '--minutes-fs': `${fs.size}px` } as React.CSSProperties}>
           <MarkdownView content={minute.bodyMd} marks={marks} />
         </div>
         {!focus && <MinuteChatPanel minuteId={minute.id} />}
