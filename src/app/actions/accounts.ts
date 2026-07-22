@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { getMembership } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isValidEmail } from '@/lib/domain/validate'
+import { compareKoreanName } from '@/lib/domain/nameSort'
 import {
   isValidPassword, isTeamCode, isAccountRole, parseBulkAccounts, type AccountRole,
 } from '@/lib/domain/accounts'
@@ -221,5 +222,7 @@ export async function listAccounts(): Promise<AccountRow[]> {
       role: byUser.get(u.id)?.role ?? null,
       createdAt: u.created_at,
     }))
-    .sort((a, b) => a.email.localeCompare(b.email))
+    // 계정 표에 '이름' 열이 있으므로 이름 가나다순으로 보여준다.
+    // 이름이 비어 있는 계정(이메일만 등록)은 compareKoreanName 이 뒤로 보내고, 그 안에서는 이메일순.
+    .sort((a, b) => compareKoreanName(a.name, b.name) || a.email.localeCompare(b.email))
 }

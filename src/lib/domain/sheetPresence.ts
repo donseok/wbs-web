@@ -1,5 +1,6 @@
 /* ── 시트 프레즌스 도메인(순수) — 사용자 색상 배정·셀 매핑·온라인 목록. I/O 없음. ── */
 
+import { compareKoreanName } from './nameSort'
 import type { WeeklyCellKey } from './weeklySheet'
 
 /** 타 사용자 프레즌스 팔레트 — 흰 문서 배경에서 판독 가능한 진한 색.
@@ -47,6 +48,10 @@ export function buildPresenceMap(peers: PresencePeer[], selfUserId: string): Map
     if (list) list.push(p)
     else map.set(k, [p])
   }
+  // 한 셀에 여러 명이 겹치면 이름 칩이 나란히 뜬다. presence 도착 순서를 그대로 두면
+  // 같은 셀을 보는 두 사람에게 칩 순서가 다르게 보이고, 상한(CELL_PEERS_MAX)에 걸려
+  // 잘려 나가는 사람도 세션마다 달라진다. 가나다순으로 고정한다.
+  for (const list of map.values()) list.sort((a, b) => compareKoreanName(a.name, b.name))
   return map
 }
 
@@ -62,5 +67,5 @@ export function onlinePeers(peers: PresencePeer[]): { userId: string; name: stri
   const byId = new Map<string, string>()
   for (const p of peers) if (!byId.has(p.userId)) byId.set(p.userId, p.name)
   return [...byId].map(([userId, name]) => ({ userId, name }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    .sort((a, b) => compareKoreanName(a.name, b.name))
 }

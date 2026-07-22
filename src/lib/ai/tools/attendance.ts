@@ -1,5 +1,6 @@
 import { attendanceHref } from '@/lib/ai/chat/deep-links'
 import { summarize } from '@/lib/domain/attendance'
+import { compareKoreanName } from '@/lib/domain/nameSort'
 import type { AttendanceRecord, AttendanceType, TeamCode } from '@/lib/domain/types'
 import type { AttendanceRepository } from '@/lib/repositories/types'
 import {
@@ -76,7 +77,11 @@ export function createGetAttendanceTool(
         if (types && !types.includes(record.type)) return false
         return true
       })
-      const records: AttendanceToolRecord[] = matched.slice(0, limit)
+      // 리포지토리는 날짜순만 보장한다 — 같은 날짜 안의 이름 순서는 미정.
+      // limit 로 자르기 전에 이름 가나다순으로 고정해야 '앞쪽 N건'이 매번 같은 답이 된다.
+      const ordered = [...matched].sort((a, b) =>
+        a.date.localeCompare(b.date) || compareKoreanName(a.memberName, b.memberName))
+      const records: AttendanceToolRecord[] = ordered.slice(0, limit)
       const summaryInput: AttendanceRecord[] = matched.map(record => ({
         id: record.id,
         projectId: record.projectId,

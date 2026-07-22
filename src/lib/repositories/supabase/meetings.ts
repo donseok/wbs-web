@@ -1,3 +1,4 @@
+import { compareKoreanName } from '@/lib/domain/nameSort'
 import type {
   Meeting,
   MeetingCategory,
@@ -143,7 +144,13 @@ export function createSupabaseMeetingRepository(client: SupabaseServerClient): M
         )
       }
 
-      const attendees: SafeMeetingAttendee[] = ((attendeesResult.data ?? []) as Row[]).map(row => {
+      // `.in()` 은 순서 보장이 없다 — 챗봇이 읽어주는 참석자 명단도 화면과 같은 가나다순으로 고정한다.
+      // id tiebreak — `.in()` 은 기준 순서가 없어 동명이인의 앞뒤가 요청마다 달라진다.
+      const attendeeRows = [...((attendeesResult.data ?? []) as Row[])].sort((x, y) =>
+        compareKoreanName(x.name as string, y.name as string)
+        || (x.id as string).localeCompare(y.id as string),
+      )
+      const attendees: SafeMeetingAttendee[] = attendeeRows.map(row => {
         const team = nestedOne(row.teams as { code?: unknown } | { code?: unknown }[] | null)
         return {
           id: row.id as string,

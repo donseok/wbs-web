@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { CalendarCheck, ArrowRight } from 'lucide-react'
 import type { AttendanceRecord, ProjectMember } from '@/lib/domain/types'
 import { ATTENDANCE_META, summarize } from '@/lib/domain/attendance'
+import { compareKoreanName } from '@/lib/domain/nameSort'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -26,8 +27,10 @@ export async function AttendanceBoard({ projectId, records, members, today }: {
   const nameOf = new Map(members.map(m => [m.id, m.name]))
   const upcoming = records
     .filter(r => r.type !== 'work' && r.date >= today && r.date <= windowEnd)
+    // 같은 날짜 안에서는 이름 가나다순. localeCompare 를 로케일 인자 없이 쓰면
+    // 실행 환경 기본 로케일에 따라 순서가 달라진다(서버 렌더 ≠ 사용자 기대).
     .sort((a, b) => a.date.localeCompare(b.date)
-      || (nameOf.get(a.memberId) ?? '').localeCompare(nameOf.get(b.memberId) ?? ''))
+      || compareKoreanName(nameOf.get(a.memberId), nameOf.get(b.memberId)))
   const s = summarize(upcoming.filter(r => r.date === today))
   const rows = upcoming.slice(0, MAX_ROWS)
 

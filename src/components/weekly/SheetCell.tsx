@@ -92,7 +92,9 @@ export function SheetCell(p: SheetCellProps) {
         <div className="pointer-events-none absolute inset-0 z-20 border-dashed border-[#1a73e8]"
           style={{ borderTopWidth: p.fillTop ? 2 : 0, borderRightWidth: p.fillRight ? 2 : 0, borderBottomWidth: p.fillBottom ? 2 : 0, borderLeftWidth: p.fillLeft ? 2 : 0 }} />
       )}
-      {/* 프레즌스 — 타 사용자 위치 링(첫 사용자 색) + 셀 상단에 이름 칩(구글시트 룩).
+      {/* 프레즌스 — 타 사용자 위치 링(이름 가나다순 첫 사용자 색) + 셀 상단에 이름 칩(구글시트 룩).
+          peers 는 buildPresenceMap 이 가나다순으로 정렬해 준다 — 도착 순서가 아니므로
+          이름이 앞서는 사람이 같은 셀에 들어오면 링 색이 바뀐다(대신 보는 사람마다 같은 색).
           z-10: 자기 선택 외곽선(z-20)·배지(z-30)보다 아래, 클릭/타이핑엔 무간섭. */}
       {p.peers && p.peers.length > 0 && (
         <>

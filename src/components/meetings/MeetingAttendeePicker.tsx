@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { Search, AlertCircle } from 'lucide-react'
+import { sortByKoreanName } from '@/lib/domain/nameSort'
 import type { ProjectMember } from '@/lib/domain/types'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
@@ -16,11 +17,16 @@ export function MeetingAttendeePicker({
   const [q, setQ] = useState('')
   const selectedSet = useMemo(() => new Set(selected), [selected])
 
+  // 이름을 고르는 목록은 검색 여부와 무관하게 항상 가나다순.
+  // 상위(getProjectMembers)에서 이미 정렬해 내려주지만, 이 피커는 이름을 직접 고르는 UI이므로
+  // 어떤 호출부가 어떤 순서로 members 를 넘기든 순서가 보장되도록 여기서도 정렬한다.
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase()
-    if (!kw) return members
-    return members.filter(m =>
-      m.name.toLowerCase().includes(kw) || (m.teamCode ?? '').toLowerCase().includes(kw))
+    const base = kw
+      ? members.filter(m =>
+        m.name.toLowerCase().includes(kw) || (m.teamCode ?? '').toLowerCase().includes(kw))
+      : members
+    return sortByKoreanName(base, m => m.name)
   }, [members, q])
 
   const toggle = (id: string) => {

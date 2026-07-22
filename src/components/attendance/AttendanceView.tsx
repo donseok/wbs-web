@@ -16,6 +16,7 @@ import { fmtDate } from '@/components/wbs/shared'
 import {
   ATTENDANCE_META, ATTENDANCE_TYPES, monthMatrix, recordsByDate,
 } from '@/lib/domain/attendance'
+import { compareKoreanName } from '@/lib/domain/nameSort'
 import { krSpecialDayMap } from '@/lib/domain/holidays'
 import { upsertAttendance, removeAttendance } from '@/app/actions/attendance'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
@@ -114,7 +115,15 @@ export function AttendanceView({
       return true
     })
   }, [records, memberFilter, botFilter, memberMap])
-  const byDate = useMemo(() => recordsByDate(filtered), [filtered])
+  // 달력 셀·팝오버의 이름 칩도 가나다순. 셀은 앞 3건만 보여주므로(초과분은 '+N'),
+  // 정렬하지 않으면 '누가 잘려 나가는지'가 DB 반환 순서에 따라 바뀐다.
+  const byDate = useMemo(() => {
+    const map = recordsByDate(filtered)
+    for (const list of Object.values(map)) {
+      list.sort((a, b) => compareKoreanName(memberMap.get(a.memberId)?.name, memberMap.get(b.memberId)?.name))
+    }
+    return map
+  }, [filtered, memberMap])
   const matrix = useMemo(() => monthMatrix(year, month0), [year, month0])
   // 법정 공휴일·국경일 조회 맵 — 그리드가 연도 경계를 넘을 수 있어 셀에 등장하는 모든 연도를 모은다.
   const specialDays = useMemo(
@@ -135,9 +144,14 @@ export function AttendanceView({
     },
   })
 
+  // 날짜 내림차순. 같은 날짜 안에서는 이름 가나다순 —
+  // memberId(UUID)로 tiebreak 하면 사람 이름이 사실상 무작위 순서로 늘어선다.
   const listRows = useMemo(
-    () => [...filtered].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.memberId.localeCompare(b.memberId))),
-    [filtered],
+    () => [...filtered].sort((a, b) => (
+      a.date < b.date ? 1 : a.date > b.date ? -1
+        : compareKoreanName(memberMap.get(a.memberId)?.name, memberMap.get(b.memberId)?.name)
+    )),
+    [filtered, memberMap],
   )
 
   // 셀·팝오버가 공유하는 근태 칩 — canEdit일 때만 클릭/키보드로 수정 진입

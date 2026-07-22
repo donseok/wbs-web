@@ -13,6 +13,7 @@ import {
 import { fnv1a64, isMarkableBlock, splitMinuteBlocks, type BlockMarks } from '@/lib/minutes/blocks'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
 import { resolveMinuteSourceBlock, type MinuteSourceAnchor } from '@/lib/minutes/source'
+import { compareKoreanName } from '@/lib/domain/nameSort'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useToast } from '@/components/ui/Toast'
@@ -240,9 +241,10 @@ export function MinuteViewer({
     router.push('/minutes')
   }
 
+  // 같은 문장을 하이라이트한 사람 명단 — 하이라이트를 누른 시각순이 아니라 가나다순으로 보여준다.
   const popNames = popover
     ? [...new Set(others.filter(h => h.blockIndex === popover.blockIndex)
-        .map(h => h.createdByName ?? '이름 없음'))]
+        .map(h => h.createdByName ?? '이름 없음'))].sort(compareKoreanName)
     : []
   const popKinds = popover
     ? [...new Set(insights.filter(i => i.blockIndex === popover.blockIndex).map(i => i.kind as InsightKind))]

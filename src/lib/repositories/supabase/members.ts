@@ -1,3 +1,4 @@
+import { sortByKoreanName } from '@/lib/domain/nameSort'
 import type { ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 import {
   repositoryError,
@@ -22,13 +23,18 @@ export function createSupabaseMemberRepository(client: SupabaseServerClient): Me
         .from('project_members')
         .select(MEMBER_COLUMNS)
         .eq('project_id', projectId)
+        // 이름 정렬은 아래 sortByKoreanName 이 한다(DB collation 은 가나다순을 보장하지 않는다).
+        // created_at 은 동명이인 순서를 고정하는 tiebreak 로만 남긴다.
         .order('created_at', { ascending: true })
 
       if (result.error) {
         return repositoryError('MEMBERS_READ_FAILED', isRetryableReadError(result.error))
       }
 
-      const records: MemberRepositoryRecord[] = ((result.data ?? []) as unknown as Row[]).map(row => {
+      // 챗봇이 읽어주는 멤버 명단도 화면과 같은 가나다순이어야 한다.
+      const sorted = sortByKoreanName((result.data ?? []) as unknown as Row[], row => row.name as string)
+
+      const records: MemberRepositoryRecord[] = sorted.map(row => {
         const team = nestedOne(row.teams as { code?: unknown } | { code?: unknown }[] | null)
         return {
           id: row.id as string,

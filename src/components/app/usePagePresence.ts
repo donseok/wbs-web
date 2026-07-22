@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { compareKoreanName } from '@/lib/domain/nameSort'
 
 /** track 페이로드 — 신원만. 셀 좌표가 필요한 주간 시트는 weekly/usePresence를 쓴다. */
 interface TrackPayload {
@@ -48,7 +49,7 @@ export function usePagePresence({ channelKey, me, enabled }: {
         setOnline(
           [...byId]
             .map(([userId, name]) => ({ userId, name }))
-            .sort((a, b) => a.name.localeCompare(b.name, 'ko')),
+            .sort((a, b) => compareKoreanName(a.name, b.name)),
         )
       })
       .subscribe(st => {

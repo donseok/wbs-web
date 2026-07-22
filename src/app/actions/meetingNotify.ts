@@ -5,6 +5,7 @@ import { classifyRecipients } from '@/lib/mail/recipients'
 import { renderMeetingInvite, type InviteKind } from '@/lib/mail/meetingInvite'
 import { getTransport } from '@/lib/mail/transport'
 import { displayNameFrom } from '@/lib/domain/display-name'
+import { sortByKoreanName } from '@/lib/domain/nameSort'
 import type { MeetingNotifyResult } from '@/lib/mail/outcome'
 
 const NONE = { sentTo: [] as string[], skipped: [] as MeetingNotifyResult['skipped'] }
@@ -77,11 +78,13 @@ export async function notifyMeetingSaved(
     return {
       ok: true,
       sentTo: valid.filter(v => !rejectedSet.has(v.email)).map(v => v.name),
-      skipped: [
+      // 두 그룹(메일 없음·형식 오류 / 발송 거부)을 이어 붙이면 이름 순서가 경계에서 한 번 되감긴다.
+      // 결과 패널은 '이름(사유)' 를 한 줄로 나열하므로 합친 뒤 다시 가나다순으로 맞춘다.
+      skipped: sortByKoreanName([
         ...skipped,
         ...valid.filter(v => rejectedSet.has(v.email))
           .map(v => ({ name: v.name, reason: 'rejected' as const })),
-      ],
+      ], s => s.name),
     }
   } catch (e) {
     console.error(`[notifyMeetingSaved:${kind}] 발송 실패:`, e)

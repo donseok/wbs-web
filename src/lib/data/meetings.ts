@@ -1,5 +1,6 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
+import { compareKoreanName } from '@/lib/domain/nameSort'
 import type {
   Meeting, MeetingAttendeeInfo, MeetingCategory, MeetingException, MeetingRecurrence, TeamCode,
 } from '@/lib/domain/types'
@@ -139,7 +140,13 @@ export const getMeetingDetail = cache(async (
       .in('id', attendeeIds)
     // 참석자 조회 실패 = 참석자가 지정돼 있는데도 '참석자 없음'으로 보인다.
     if (memErr) console.error('[getMeetingDetail] 참석자 조회 실패:', memErr.message)
-    attendees = (mem ?? []).map((m: Row) => ({
+    // `.in()` 은 순서를 보장하지 않는다 — 정렬하지 않으면 참석자 칩과 안내 메일의 이름 순서가
+    // 조회할 때마다 달라진다. 상세 모달·메일 본문·챗봇이 전부 이 배열을 그대로 쓰므로 여기서 가나다순으로 고정.
+    // id tiebreak — `.in()` 결과에는 기준 순서가 없어, 이름만으로 정렬하면 동명이인의 앞뒤가 요청마다 뒤집힌다.
+    attendees = [...(mem ?? [])].sort((x: Row, y: Row) =>
+      compareKoreanName(x.name as string, y.name as string)
+      || (x.id as string).localeCompare(y.id as string),
+    ).map((m: Row) => ({
       id: m.id as string,
       name: m.name as string,
       email: (m.email as string | null) ?? null,
