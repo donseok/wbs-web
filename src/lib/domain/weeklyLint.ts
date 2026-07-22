@@ -43,3 +43,64 @@ export function normalizeForCompare(line: string): string {
   }
   return s.replace(/\s+/g, ' ').trim()
 }
+
+/** 셀 값을 줄 배열로. 빈 문자열은 빈 배열(빈 줄 1개가 아니라). */
+const toLines = (content: string): string[] => (content === '' ? [] : content.split('\n'))
+
+/** 지정 인덱스의 줄을 지운 결과. 전부 공백만 남으면 빈 셀로 만든다. */
+function removeLines(content: string, drop: ReadonlySet<number>): string {
+  const kept = toLines(content).filter((_, i) => !drop.has(i))
+  const joined = kept.join('\n')
+  return joined.trim() === '' ? '' : joined
+}
+
+/** 규칙 ① — 같은 열에서 구분 행을 가로지르는 동일 줄. 같은 셀 안 중복은 대상이 아니다. */
+export function lintDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
+  const ordered = [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+  const byId = new Map(ordered.map(r => [r.id, r]))
+  const out: LintFinding[] = []
+
+  for (const cellKey of WEEKLY_CELL_KEYS) {
+    // 정규화 줄 → 등장 위치들. ordered 순회라 배열 앞쪽이 곧 sortOrder가 작은 쪽이다.
+    const groups = new Map<string, { rowId: string; line: number; raw: string }[]>()
+    for (const row of ordered) {
+      toLines(row[CELL_FIELD[cellKey]]).forEach((raw, line) => {
+        const norm = normalizeForCompare(raw)
+        if (!norm) return
+        const hits = groups.get(norm)
+        if (hits) hits.push({ rowId: row.id, line, raw })
+        else groups.set(norm, [{ rowId: row.id, line, raw }])
+      })
+    }
+
+    for (const [norm, hits] of groups) {
+      const keepRowId = hits[0].rowId
+      const victims = hits.filter(h => h.rowId !== keepRowId)
+      if (victims.length === 0) continue // 한 구분 안에서만 반복 — 대상 아님
+
+      // 행별로 지울 줄 번호를 모아 셀당 편집 1개로. victims는 ordered 순서를 물려받는다.
+      const dropByRow = new Map<string, Set<number>>()
+      for (const v of victims) {
+        const s = dropByRow.get(v.rowId)
+        if (s) s.add(v.line)
+        else dropByRow.set(v.rowId, new Set([v.line]))
+      }
+      const edits: WeeklyCellEdit[] = [...dropByRow].map(([rowId, drop]) => ({
+        rowId, cellKey, content: removeLines(byId.get(rowId)![CELL_FIELD[cellKey]], drop),
+      }))
+
+      const keepSection = byId.get(keepRowId)!.section
+      const victimSections = [...dropByRow.keys()].map(id => byId.get(id)!.section)
+      out.push({
+        id: `duplicate:${cellKey}:${norm}`,
+        kind: 'duplicate',
+        rowId: edits[0].rowId,
+        cellKey,
+        title: WEEKLY_CELL_LABEL[cellKey],
+        detail: `${[keepSection, ...victimSections].join(' · ')}에 같은 줄이 있습니다: "${norm}" — ${victimSections.join(' · ')}에서 이 줄을 지웁니다.`,
+        edits,
+      })
+    }
+  }
+  return out
+}
