@@ -1,4 +1,4 @@
-import { t, type DictKey } from '@/lib/i18n/dict'
+import { t } from '@/lib/i18n/dict'
 import type { Meeting } from '@/lib/domain/types'
 
 // 메일 본문은 한국어 고정 — 수신자의 언어를 알 수 없고 발신자 로케일을 쓰는 것은 틀린 답이다.
@@ -57,7 +57,12 @@ function fmtTimeShort(meeting: Meeting): string {
  * 주/격주는 요일, 매월은 일자를 덧붙인다 — '매주'만으로는 어느 요일인지 알 수 없다.
  */
 function fmtRecurrence(meeting: Meeting): string {
-  const label = t(LOCALE, `meet.recur.${meeting.recurrence}` as DictKey)
+  // `as DictKey` 를 붙이지 않는다 — 아래 '구분' 행도 같다.
+  // 템플릿 리터럴이 DictKey 에 그대로 assignable 해야, MeetingRecurrence 에 값을 추가하고
+  // 사전 항목을 빠뜨렸을 때 컴파일 에러로 잡힌다. 캐스트를 달면 그 에러가 지워지고
+  // 대신 'meet.recur.quarterly' 같은 원문 키가 그대로 메일에 실려 외부 수신자에게 나간다.
+  // 타입 에러가 나면 캐스트로 덮지 말고 사전에 키를 추가할 것.
+  const label = t(LOCALE, `meet.recur.${meeting.recurrence}`)
   const d = utcDate(meeting.meetingDate)
   if (meeting.recurrence === 'weekly' || meeting.recurrence === 'biweekly') {
     return `${label} ${DOW_KR[d.getUTCDay()]}요일`
@@ -116,7 +121,7 @@ export function renderMeetingInvite(input: {
   ]
   if (meeting.recurrence !== 'none') rows.push({ label: '반복', value: whenLabel(meeting) })
   if (meeting.location?.trim()) rows.push({ label: '장소', value: meeting.location.trim() })
-  rows.push({ label: '구분', value: t(LOCALE, `meet.cat.${meeting.category}` as DictKey) })
+  rows.push({ label: '구분', value: t(LOCALE, `meet.cat.${meeting.category}`) })
   if (attendeeNames.length) rows.push({ label: '참석자', value: attendeeNames.join(', ') })
   if (senderName.trim()) rows.push({ label: '작성자', value: senderName.trim() })
   if (meeting.body.trim()) rows.push({ label: '안건', value: meeting.body.trim() })
