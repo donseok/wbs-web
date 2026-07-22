@@ -104,6 +104,23 @@ export function MeetingFormModal({
     setOutcome(next)
   }
 
+  /**
+   * 발송 구간. 트랜지션 밖에서 돈다 — 안에서 await 하면 SMTP 가 붙잡히는 내내 pending 이
+   * true 로 남아, 모달을 닫고 새로 연 빈 폼의 저장 버튼까지 비활성인 채
+   * 사용자가 하지도 않은 발송을 하고 있다고 말한다. 저장 구간은 pending, 발송 구간은 sending —
+   * 두 값이 각자의 실제 구간만 나타내야 한다.
+   */
+  async function sendInvite(run: number, meetingId: string) {
+    try {
+      report(run, describeNotifyResult(await notifyMeetingCreated(meetingId), t))
+    } catch {
+      // 액션 호출 자체가 실패한 경우 — 회의가 사라진 게 아님을 반드시 알린다.
+      report(run, { kind: 'panel', tone: 'error', message: t('meet.notify.unknown') })
+    } finally {
+      if (run === runRef.current) setSending(false)
+    }
+  }
+
   function submit() {
     const input: MeetingInput = {
       title: form.title,
@@ -122,6 +139,7 @@ export function MeetingFormModal({
     const run = ++runRef.current
     const isCurrent = () => run === runRef.current
 
+    // 트랜지션이 감싸는 것은 저장까지다. 발송은 void 로 떼어 보내 pending 을 즉시 놓아준다.
     startTransition(async () => {
       const res = initial ? await updateMeeting(initial.id, input) : await createMeeting(projectId, input)
       if (!res.ok) {
@@ -136,15 +154,7 @@ export function MeetingFormModal({
       if (!canNotify || !form.notify || !res.id) { if (isCurrent()) onSaved(); return }
 
       if (isCurrent()) setSending(true)
-      try {
-        const sent = await notifyMeetingCreated(res.id)
-        report(run, describeNotifyResult(sent, t))
-      } catch {
-        // 액션 호출 자체가 실패한 경우 — 회의가 사라진 게 아님을 반드시 알린다.
-        report(run, { kind: 'panel', tone: 'error', message: t('meet.notify.unknown') })
-      } finally {
-        if (isCurrent()) setSending(false)
-      }
+      void sendInvite(run, res.id)
     })
   }
 
