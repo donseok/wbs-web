@@ -22,6 +22,9 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
 }))
+// MeetingsView 가 항상 마운트하는 MeetingFormModal 이 useToast 를 쓴다.
+// 이 테스트는 뷰만 단독 마운트해 ToastProvider 가 없으므로 훅 자체를 대체한다.
+vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 vi.mock('@/app/actions/meetings', () => ({
   fetchMyMeetings: vi.fn(async () => ({ meetings: [], exceptions: [] })),
   fetchMeetingDetail: vi.fn(async () => null),
