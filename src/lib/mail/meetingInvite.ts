@@ -71,7 +71,20 @@ function fmtRecurrence(meeting: Meeting): string {
   return label
 }
 
-/** 제목 꼬리표 — 단발이면 날짜, 반복이면 규칙과 기간. */
+/**
+ * 본문 '반복' 행 — 규칙과 기간만. 시각은 붙이지 않는다.
+ * whenLabel 을 재사용하면 시작 시각만 담긴 꼬리표가 붙어 바로 위 '일시' 행과 충돌한다
+ * ('일시: 7/25(토) 14:00~15:30' / '반복: 매주 토요일 14:00') — 수신자는 2회차부터
+ * 종료 시각이 다른지, 첫 회차만 90분인지 알 수 없다. 종일 회의는 '종일'이 두 번 찍힌다.
+ */
+function recurrenceRow(meeting: Meeting): string {
+  const until = meeting.recurrenceUntil
+    ? ` (${fmtRange(meeting.meetingDate, meeting.recurrenceUntil)})`
+    : ''
+  return `${fmtRecurrence(meeting)}${until}`
+}
+
+/** 제목 꼬리표 — 단발이면 날짜, 반복이면 규칙과 기간. 제목에는 시각이 있어야 한다. */
 function whenLabel(meeting: Meeting): string {
   const time = fmtTimeShort(meeting)
   if (meeting.recurrence === 'none') return `${fmtDateDow(meeting.meetingDate)} ${time}`
@@ -104,6 +117,23 @@ function oneLine(s: string): string {
 
 type Row = { label: string; value: string }
 
+/**
+ * 'Segoe UI' 를 맨 앞에 둔다 — Word 엔진이 아는 이름이어야 한다.
+ * -apple-system 이 선두면 Word 가 스택 파싱에 실패해 통째로 무시할 위험이 있다.
+ */
+const FONT_STACK = "'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,sans-serif"
+
+/**
+ * Outlook(Word 엔진)은 폰트를 표 셀로 상속시키지 않는다. 래퍼 div 에만 선언하면
+ * 모든 <td> 가 Word 기본 명조체(Times New Roman)·기본 크기로 떨어져 본문 전체가 뒤틀린다.
+ * 그래서 셀마다 같은 선언을 되풀이한다. 여백을 HTML 속성으로도 못박는 것과 같은 이유다.
+ * color 는 여기 넣지 않는다 — 라벨 셀은 회색이라, 한 style 안에 color 가 두 번 들어가는
+ * 모호한 선언(뒤가 이긴다는 규칙에 기대는)을 만들지 않기 위함이다.
+ */
+const BODY_FONT = `font-family:${FONT_STACK};font-size:14px;line-height:1.6`
+const INK = '#1f2328'
+const INK_MUTED = '#6b7280'
+
 export function renderMeetingInvite(input: {
   meeting: Meeting
   attendeeNames: string[]
@@ -119,7 +149,7 @@ export function renderMeetingInvite(input: {
   const rows: Row[] = [
     { label: '일시', value: `${fmtDateDow(meeting.meetingDate)} ${fmtTime(meeting)}` },
   ]
-  if (meeting.recurrence !== 'none') rows.push({ label: '반복', value: whenLabel(meeting) })
+  if (meeting.recurrence !== 'none') rows.push({ label: '반복', value: recurrenceRow(meeting) })
   if (meeting.location?.trim()) rows.push({ label: '장소', value: meeting.location.trim() })
   rows.push({ label: '구분', value: t(LOCALE, `meet.cat.${meeting.category}`) })
   if (attendeeNames.length) rows.push({ label: '참석자', value: attendeeNames.join(', ') })
@@ -134,14 +164,14 @@ export function renderMeetingInvite(input: {
   ].join('\n')
 
   const html = [
-    '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;font-size:14px;line-height:1.6;color:#1f2328;max-width:560px">',
-    `<h2 style="margin:0 0 16px;font-size:18px">${esc(meeting.title)}</h2>`,
+    `<div style="${BODY_FONT};color:${INK};max-width:560px">`,
+    `<h2 style="margin:0 0 16px;font-family:${FONT_STACK};font-size:18px">${esc(meeting.title)}</h2>`,
     // Outlook 은 Word 엔진으로 그려 표의 CSS 를 일부만 따른다 — 여백은 HTML 속성으로도 못박는다.
     // role="presentation" — 라벨/값 2단 레이아웃이지 데이터 표가 아니므로 표로 읽히면 안 된다.
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%">',
     ...rows.map(r =>
-      `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top">${esc(r.label)}</td>` +
-      `<td style="padding:6px 0">${escMultiline(r.value)}</td></tr>`),
+      `<tr><td style="${BODY_FONT};color:${INK_MUTED};padding:6px 12px 6px 0;white-space:nowrap;vertical-align:top">${esc(r.label)}</td>` +
+      `<td style="${BODY_FONT};color:${INK};padding:6px 0">${escMultiline(r.value)}</td></tr>`),
     '</table>',
     ...(link
       ? [`<p style="margin:20px 0 0"><a href="${esc(link)}" style="color:#2563eb">회의일정에서 보기</a></p>`]
