@@ -32,6 +32,27 @@ describe('classifyRecipients', () => {
     expect(res.skipped).toHaveLength(broken.length)
   })
 
+  it('SMTP 에서 깨지는 문자가 든 주소를 invalid_email 로 제외한다', () => {
+    const bad = ['a@ev,il.com', 'chulsoo@dongkuk,co.kr', 'a;b@test.com', 'a<b>@test.com', 'a"b@test.com']
+    const res = classifyRecipients(bad.map((e, i) => att(`Y${i}`, e)))
+    expect(res.valid).toEqual([])
+    expect(res.skipped).toHaveLength(bad.length)
+    expect(res.skipped.every(s => s.reason === 'invalid_email')).toBe(true)
+  })
+
+  it('실제로 쓰이는 사내 주소 형태는 계속 valid 로 통과시킨다', () => {
+    const good = [
+      'chulsoo@dongkuk.com',
+      'jihun.kim@dongkuk.co.kr',
+      'jihun+test@dongkuk.com',
+      'a@dong-kuk.com',
+      'a_b@mail.dongkuk.com',
+    ]
+    const res = classifyRecipients(good.map((e, i) => att(`Z${i}`, e)))
+    expect(res.skipped).toEqual([])
+    expect(res.valid.map(v => v.email)).toEqual(good)
+  })
+
   it('이메일을 소문자로 정규화하고 앞뒤 공백을 제거한다', () => {
     const res = classifyRecipients([att('최지훈', '  JiHun@Dongkuk.COM ')])
     expect(res.valid).toEqual([{ name: '최지훈', email: 'jihun@dongkuk.com' }])
