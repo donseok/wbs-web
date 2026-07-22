@@ -2,7 +2,7 @@
 import { getMembership, getSession } from '@/lib/auth'
 import { getMeetingDetail } from '@/lib/data/meetings'
 import { classifyRecipients } from '@/lib/mail/recipients'
-import { renderMeetingInvite } from '@/lib/mail/meetingInvite'
+import { renderMeetingInvite, type InviteKind } from '@/lib/mail/meetingInvite'
 import { getTransport } from '@/lib/mail/transport'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import type { MeetingNotifyResult } from '@/lib/mail/outcome'
@@ -28,11 +28,15 @@ function toUserMessage(e: unknown): string {
 }
 
 /**
- * 회의 참석자에게 안내 메일을 보낸다.
- * createMeeting 이 커밋된 뒤에 호출되므로, 여기서 무엇이 실패하든 회의 데이터는 남는다.
- * 인자가 meetingId 뿐인 것은 의도적이다 — 수신자는 서버가 DB 에서 다시 읽는다.
+ * 회의 참석자에게 안내(생성)·변경(수정) 메일을 보낸다.
+ * createMeeting/updateMeeting 이 커밋된 뒤에 호출되므로, 여기서 무엇이 실패하든 회의 데이터는 남는다.
+ * 인자가 meetingId·kind 뿐인 것은 의도적이다 — 수신자는 서버가 DB 에서 다시 읽는다.
+ * 그래서 수정으로 참석자 명단에서 빠진 사람은 조회 결과에 아예 없고, 메일을 받을 길도 없다.
  */
-export async function notifyMeetingCreated(meetingId: string): Promise<MeetingNotifyResult> {
+export async function notifyMeetingSaved(
+  meetingId: string,
+  kind: InviteKind,
+): Promise<MeetingNotifyResult> {
   const [membership, user] = await Promise.all([getMembership(), getSession()])
   if (!membership || !user) return { ok: false, error: '로그인 필요', ...NONE }
 
@@ -52,6 +56,7 @@ export async function notifyMeetingCreated(meetingId: string): Promise<MeetingNo
   if (!transport.ok) return { ok: false, error: transport.error, sentTo: [], skipped }
 
   const { subject, html, text } = renderMeetingInvite({
+    kind,
     meeting,
     attendeeNames: attendees.map(a => a.name),
     // displayNameFrom 도 null 을 낼 수 있다. 빈 문자열이면 렌더러가 '작성자' 줄 자체를 생략한다.
@@ -79,7 +84,7 @@ export async function notifyMeetingCreated(meetingId: string): Promise<MeetingNo
       ],
     }
   } catch (e) {
-    console.error('[notifyMeetingCreated] 발송 실패:', e)
+    console.error(`[notifyMeetingSaved:${kind}] 발송 실패:`, e)
     return { ok: false, error: toUserMessage(e), sentTo: [], skipped }
   }
 }
