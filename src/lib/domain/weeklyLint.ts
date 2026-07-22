@@ -241,3 +241,9 @@ export function lintFormat(rows: WeeklySheetRow[]): LintFinding[] {
   }
   return out
 }
+
+/** 점검 진입점. 세 규칙의 결과를 부류 순서로 이어붙인다.
+ *  각 규칙이 이미 열 바깥/행(sortOrder) 안쪽으로 순회하므로 부류 안 정렬은 그대로 유지된다. */
+export function lintWeeklySheet(rows: WeeklySheetRow[]): LintFinding[] {
+  return [...lintDuplicates(rows), ...lintNumbering(rows), ...lintFormat(rows)]
+}

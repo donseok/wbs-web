@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeForCompare, lintDuplicates, lintNumbering, lintFormat } from '@/lib/domain/weeklyLint'
+import {
+  normalizeForCompare, lintDuplicates, lintNumbering, lintFormat, lintWeeklySheet,
+} from '@/lib/domain/weeklyLint'
 import type { WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 describe('normalizeForCompare', () => {
@@ -236,5 +238,40 @@ describe('lintFormat', () => {
     expect(out).toHaveLength(1)
     expect(out[0].kind).toBe('format')
     expect(out[0].edits[0].content).toBe('가\n\n나')
+  })
+})
+
+describe('lintWeeklySheet', () => {
+  it('부류 순서대로 이어붙인다 — 중복 → 체번 → 정리', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료', thisIssue: '1. 가\n3. 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '설계 리뷰 완료', nextContent: '다  ' }),
+    ]
+    expect(lintWeeklySheet(rows).map(f => f.kind)).toEqual(['duplicate', 'numbering', 'format'])
+  })
+
+  it('id가 서로 겹치지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '가  \n1. 나\n3. 다' }),
+      mkRow('r2', '영업', 2, { thisContent: '가' }),
+    ]
+    const ids = lintWeeklySheet(rows).map(f => f.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('깨끗한 시트는 빈 배열', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '가\n나' }),
+      mkRow('r2', '영업', 2, { thisContent: '다' }),
+    ]
+    expect(lintWeeklySheet(rows)).toEqual([])
+  })
+
+  it('모든 지적의 edits는 비어 있지 않다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '가  \n1. 나\n3. 다' }),
+      mkRow('r2', '영업', 2, { thisContent: '가' }),
+    ]
+    for (const f of lintWeeklySheet(rows)) expect(f.edits.length).toBeGreaterThan(0)
   })
 })
