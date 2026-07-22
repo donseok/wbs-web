@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeForCompare, lintDuplicates, lintNumbering } from '@/lib/domain/weeklyLint'
+import { normalizeForCompare, lintDuplicates, lintNumbering, lintFormat } from '@/lib/domain/weeklyLint'
 import type { WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 describe('normalizeForCompare', () => {
@@ -163,5 +163,78 @@ describe('lintNumbering', () => {
   it('4개 열을 모두 검사한다', () => {
     const rows = [mkRow('r1', 'PMO', 1, { nextIssue: '1. 가\n3. 나' })]
     expect(lintNumbering(rows)[0].cellKey).toBe('next_issue')
+  })
+})
+
+describe('lintFormat', () => {
+  const one = (content: string) => lintFormat([mkRow('r1', 'PMO', 1, { thisContent: content })])
+  const fixed = (content: string) => one(content)[0].edits[0].content
+
+  it('줄 끝 공백을 지운다', () => {
+    expect(fixed('가  \n나\t')).toBe('가\n나')
+  })
+
+  it('줄 안 연속 공백을 1칸으로 접는다', () => {
+    expect(fixed('가  나')).toBe('가 나')
+  })
+
+  it('들여쓰기는 접지 않는다', () => {
+    expect(one('  가')).toEqual([])
+  })
+
+  it('전각 공백을 반각으로 바꾼다', () => {
+    expect(fixed('가　나')).toBe('가 나')
+  })
+
+  it('앞뒤 빈 줄을 지운다', () => {
+    expect(fixed('\n\n가\n\n')).toBe('가')
+  })
+
+  it('중간 연속 빈 줄을 1줄로 줄인다', () => {
+    expect(fixed('가\n\n\n\n나')).toBe('가\n\n나')
+  })
+
+  it('고칠 것이 없으면 지적하지 않는다', () => {
+    expect(one('가\n\n나')).toEqual([])
+  })
+
+  it('글머리 기호를 시트 전체 다수결로 통일한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '- 가\n- 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '· 다' }),
+    ]
+    const out = lintFormat(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].rowId).toBe('r2')
+    expect(out[0].edits[0].content).toBe('- 다')
+    expect(out[0].detail).toContain('글머리 기호')
+  })
+
+  it('동수면 - 가 이긴다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '· 가' }),
+      mkRow('r2', '영업', 2, { thisContent: '- 나' }),
+    ]
+    expect(lintFormat(rows)[0].edits[0].content).toBe('- 가')
+  })
+
+  it('시트 전체에 기호가 한 종류뿐이면 기호는 건드리지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '· 가\n· 나' })]
+    expect(lintFormat(rows)).toEqual([])
+  })
+
+  it('기호 뒤에 공백이 없으면 글머리로 보지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '- 가' }),
+      mkRow('r2', '영업', 2, { thisContent: '·5% 감소' }),
+    ]
+    expect(lintFormat(rows)).toEqual([])
+  })
+
+  it('셀 하나에 문제가 여러 개여도 지적은 1건', () => {
+    const out = one('가  \n\n\n나 ')
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('format')
+    expect(out[0].edits[0].content).toBe('가\n\n나')
   })
 })

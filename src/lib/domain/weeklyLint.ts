@@ -144,3 +144,94 @@ export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
   }
   return out
 }
+
+/** 시트 전체에서 가장 많이 쓰인 글머리 기호. 종류가 하나뿐이면 통일할 것이 없으므로 null. */
+function dominantBullet(rows: WeeklySheetRow[]): string | null {
+  const count = new Map<string, number>()
+  for (const row of rows) {
+    for (const cellKey of WEEKLY_CELL_KEYS) {
+      for (const line of toLines(row[CELL_FIELD[cellKey]])) {
+        const m = BULLET_PREFIX.exec(line.replace(/　/g, ' ').trimStart())
+        if (m) count.set(m[1], (count.get(m[1]) ?? 0) + 1)
+      }
+    }
+  }
+  if (count.size < 2) return null
+  // BULLETS 순서로 훑으며 최대값 — 동수면 먼저 나온 기호(-)가 이긴다.
+  let best: string = BULLETS[0]
+  let bestN = -1
+  for (const b of BULLETS) {
+    const n = count.get(b) ?? 0
+    if (n > bestN) { best = b; bestN = n }
+  }
+  return best
+}
+
+interface FormatResult { next: string; notes: string[] }
+
+/** 셀 1개의 공백·빈줄·기호 정리. 바뀐 것이 없으면 notes가 빈 배열. */
+function formatCell(content: string, bullet: string | null): FormatResult {
+  let fullwidth = 0, trailing = 0, multiSpace = 0, bulletFixed = 0, blank = 0
+
+  const cleaned = toLines(content).map(line => {
+    let s = line
+    if (s.includes('　')) { fullwidth++; s = s.replace(/　/g, ' ') }
+    if (/\s+$/.test(s)) { trailing++; s = s.replace(/\s+$/, '') }
+    // 들여쓰기(줄 맨 앞 공백)는 보존하려고 앞에 \S를 요구한다.
+    const collapsed = s.replace(/(\S) {2,}/g, '$1 ')
+    if (collapsed !== s) { multiSpace++; s = collapsed }
+    if (bullet) {
+      const head = s.trimStart()
+      const m = BULLET_PREFIX.exec(head)
+      if (m && m[1] !== bullet) {
+        bulletFixed++
+        s = s.slice(0, s.length - head.length) + bullet + head.slice(1)
+      }
+    }
+    return s
+  })
+
+  // 선두/연속 빈 줄 정리 후, 남은 후행 빈 줄 제거.
+  const out: string[] = []
+  for (const line of cleaned) {
+    if (line.trim() === '') {
+      if (out.length === 0 || out[out.length - 1].trim() === '') { blank++; continue }
+      out.push('')
+      continue
+    }
+    out.push(line)
+  }
+  while (out.length > 0 && out[out.length - 1].trim() === '') { out.pop(); blank++ }
+
+  const notes: string[] = []
+  if (trailing > 0) notes.push(`줄 끝 공백 ${trailing}곳`)
+  if (multiSpace > 0) notes.push(`연속 공백 ${multiSpace}곳`)
+  if (fullwidth > 0) notes.push(`전각 공백 ${fullwidth}곳`)
+  if (blank > 0) notes.push(`빈 줄 ${blank}곳`)
+  if (bulletFixed > 0) notes.push(`글머리 기호 → ${bullet}`)
+
+  return { next: out.join('\n'), notes }
+}
+
+/** 규칙 ③ — 공백·빈줄·글머리 기호. 셀당 지적 1건. */
+export function lintFormat(rows: WeeklySheetRow[]): LintFinding[] {
+  const bullet = dominantBullet(rows)
+  const out: LintFinding[] = []
+  for (const cellKey of WEEKLY_CELL_KEYS) {
+    for (const row of [...rows].sort((a, b) => a.sortOrder - b.sortOrder)) {
+      const content = row[CELL_FIELD[cellKey]]
+      const { next, notes } = formatCell(content, bullet)
+      if (next === content || notes.length === 0) continue
+      out.push({
+        id: `format:${row.id}:${cellKey}`,
+        kind: 'format',
+        rowId: row.id,
+        cellKey,
+        title: `${row.section} · ${WEEKLY_CELL_LABEL[cellKey]}`,
+        detail: notes.join(', '),
+        edits: [{ rowId: row.id, cellKey, content: next }],
+      })
+    }
+  }
+  return out
+}
