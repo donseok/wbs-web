@@ -127,14 +127,6 @@ export async function DashboardView({
       {/* 팀별 진척 — 실행 큐로 내려가기 전에 팀 단위 진행 현황을 한눈에 */}
       <TeamProgress items={items} />
 
-      {/* AI 브리핑 & 위험 신호(D1 통합) — 서술(왜 위험한가)에서 아래 실행 큐(무엇을 할까)로
-          이어지는 순서라 RiskWorklist 바로 위에 둔다. minuteSignals는 bodyHash 앵커 복원용. */}
-      <RiskSignalCard
-        report={riskReport} projectId={projectId} minuteSignals={minuteSignals}
-        kpiLine={facts.kpiLine} baseDate={today} realToday={realToday}
-        weeklyBrief={weeklyBrief} riskBrief={riskBrief}
-      />
-
       {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
       <RiskWorklist items={items} projectId={projectId} today={today} />
 
@@ -146,6 +138,14 @@ export async function DashboardView({
           currentUserId={currentUserId} role={role} />
         <MinuteSignals projectId={projectId} signals={minuteSignals.slice(0, MINUTE_SIGNAL_DISPLAY)} />
       </div>
+
+      {/* E. AI 브리핑 & 위험 신호(D1 통합) — 회의 일정 아래에 배치(사용자 요청 2026-07-23).
+          minuteSignals는 bodyHash 앵커 복원용. */}
+      <RiskSignalCard
+        report={riskReport} projectId={projectId} minuteSignals={minuteSignals}
+        kpiLine={facts.kpiLine} baseDate={today} realToday={realToday}
+        weeklyBrief={weeklyBrief} riskBrief={riskBrief}
+      />
     </div>
   )
 }
