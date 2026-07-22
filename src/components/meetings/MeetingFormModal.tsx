@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import type { DictKey } from '@/lib/i18n/dict'
 import type { Meeting, MeetingCategory, MeetingRecurrence, ProjectMember } from '@/lib/domain/types'
@@ -61,8 +61,22 @@ export function MeetingFormModal({
   const [outcome, setOutcome] = useState<NotifyOutcome | null>(null)
   const [pending, startTransition] = useTransition()
 
+  // 발송은 모달보다 오래 산다 — SMTP 는 10초씩 붙잡히는데 Escape·X·백드롭은 막혀 있지 않다.
+  // 저장 뒤 닫고 '새 회의'를 열면 아래 리셋 effect 가 이 값을 올려 이전 실행을 무효로 만든다.
+  // 이 토큰이 없으면 뒤늦게 도착한 A 의 결과가 B 를 입력 중인 빈 폼에 내려앉아,
+  // 성공이면 onSaved 가 폼을 닫아 입력을 통째로 날리고 실패면 남의 폼을 잠근 채 "저장되었습니다"를 띄운다.
+  const runRef = useRef(0)
+
+  // 콜백이 캡처한 open 은 낡아 있다. 닫힌 뒤 도착한 실패를 패널로 보내면 Modal 이 null 을 반환해
+  // 아무 것도 안 보이고, 성공만 토스트로 뜨는 탓에 '조용히 성공'으로 읽힌다 — 실제로는 아무도 못 받았다.
+  const openRef = useRef(open)
+  useEffect(() => { openRef.current = open }, [open])
+
   useEffect(() => {
-    if (open) { setForm(initState(initial, todayIso)); setErr(null); setOutcome(null); setSending(false) }
+    if (open) {
+      runRef.current += 1
+      setForm(initState(initial, todayIso)); setErr(null); setOutcome(null); setSending(false)
+    }
   }, [open, initial, todayIso])
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm(f => ({ ...f, [k]: v }))
@@ -70,6 +84,25 @@ export function MeetingFormModal({
   const locked = outcome !== null
   const busy = pending || sending
   const canNotify = !initial && form.attendeeIds.length > 0
+
+  /**
+   * 발송 결과를 어디에 표시할지 고른다.
+   * - 밀려난 실행: 사용자는 이미 다른 회의를 입력 중이다. 알리되(토스트) 폼 상태와 onSaved 는
+   *   건드리지 않는다 — 목록 갱신을 잃는 편이 남의 입력을 날리는 것보다 훨씬 가벼운 손해다.
+   * - 현재 실행인데 모달이 닫힌 경우: 패널은 렌더될 자리가 없으므로 실패를 토스트로 승격한다.
+   *   실패 통지가 모달 생존에 기대면 안 된다.
+   */
+  function report(run: number, next: NotifyOutcome) {
+    const success = next.kind === 'toast'
+    const notifyToast = () => success
+      ? toast({ title: t('meet.notify.toastTitle'), description: next.message, variant: 'success' })
+      : toast({ title: next.message, variant: 'error' })
+
+    if (run !== runRef.current) { notifyToast(); return }
+    if (success) { notifyToast(); onSaved(); return }
+    if (!openRef.current) { notifyToast(); return }
+    setOutcome(next)
+  }
 
   function submit() {
     const input: MeetingInput = {
@@ -85,28 +118,32 @@ export function MeetingFormModal({
       attendeeIds: form.attendeeIds,
     }
     setErr(null)
+    // 이 실행의 신분증. await 뒤의 모든 상태 쓰기는 이 값이 여전히 최신일 때만 허용된다.
+    const run = ++runRef.current
+    const isCurrent = () => run === runRef.current
+
     startTransition(async () => {
       const res = initial ? await updateMeeting(initial.id, input) : await createMeeting(projectId, input)
-      if (!res.ok) { setErr(res.error ?? t('meet.saveFailed')); return }
+      if (!res.ok) {
+        const message = res.error ?? t('meet.saveFailed')
+        // err 줄은 이 폼 안에만 있다 — 밀려났거나 닫힌 뒤라면 보이지 않으므로 토스트로 돌린다.
+        if (isCurrent() && openRef.current) setErr(message)
+        else toast({ title: message, variant: 'error' })
+        return
+      }
 
       // 여기부터 회의는 이미 커밋됐다. 어떤 실패도 저장을 되돌리지 않는다.
-      if (!canNotify || !form.notify || !res.id) { onSaved(); return }
+      if (!canNotify || !form.notify || !res.id) { if (isCurrent()) onSaved(); return }
 
-      setSending(true)
+      if (isCurrent()) setSending(true)
       try {
         const sent = await notifyMeetingCreated(res.id)
-        const next = describeNotifyResult(sent, t)
-        if (next.kind === 'toast') {
-          toast({ title: t('meet.notify.toastTitle'), description: next.message, variant: 'success' })
-          onSaved()
-          return
-        }
-        setOutcome(next)
+        report(run, describeNotifyResult(sent, t))
       } catch {
         // 액션 호출 자체가 실패한 경우 — 회의가 사라진 게 아님을 반드시 알린다.
-        setOutcome({ kind: 'panel', tone: 'error', message: t('meet.notify.unknown') })
+        report(run, { kind: 'panel', tone: 'error', message: t('meet.notify.unknown') })
       } finally {
-        setSending(false)
+        if (isCurrent()) setSending(false)
       }
     })
   }
