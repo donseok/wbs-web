@@ -55,6 +55,8 @@ export interface SheetGridApi {
   onCompositionStart: () => void
   onCompositionEnd: () => void
   onFillHandleMouseDown: (e: React.MouseEvent) => void
+  /** 그리드 밖(점검 패널 등)에서 특정 셀로 선택·포커스를 옮긴다. 편집 모드로 들어가지는 않는다. */
+  focusCell: (addr: CellAddr) => void
 }
 
 interface UseSheetGridArgs {
@@ -299,6 +301,14 @@ export function useSheetGrid({
     setDragging('fill')
   }, [])
 
+  // 그리드 밖에서의 셀 이동 — armed를 세워야 활성 셀 포커스 effect가 동작한다.
+  // F7 가드(그리드 밖에 포커스가 있으면 훔치지 않음)를 우회하려고 여기서 직접 focus까지 한다.
+  const focusCell = useCallback((addr: CellAddr) => {
+    armedRef.current = true
+    setSingle(addr, false)
+    cellRefs.current.get(keyOf(addr))?.focus()
+  }, [setSingle, cellRefs])
+
   // 키보드/Tab로 그리드에 진입 시 active를 실제 포커스 셀로 동기화(§7 포커스 관리).
   // 프로그램 포커스(active 이동)로 인한 focus는 addr==active라 no-op → 루프 없음.
   const onCellFocus = useCallback((addr: CellAddr) => {
@@ -461,5 +471,6 @@ export function useSheetGrid({
     sel, rect, fillPreview, dragging, live,
     onCellMouseDown, onCellMouseEnter, onCellFocus, onCellBlurEvent, onCellDoubleClick, onCellKeyDown,
     onCellCopy, onCellCut, onCellPaste, onCompositionStart, onCompositionEnd, onFillHandleMouseDown,
+    focusCell,
   }
 }
