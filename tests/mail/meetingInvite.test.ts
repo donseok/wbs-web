@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { Meeting } from '@/lib/domain/types'
 import { renderMeetingInvite } from '@/lib/mail/meetingInvite'
 
@@ -50,6 +50,61 @@ describe('renderMeetingInvite — 제목', () => {
     expect(render({ recurrence: 'monthly', recurrenceUntil: '2026-12-25' }).subject)
       .toBe('[회의 안내] 주간 진척 점검 · 매월 25일 14:00 (7/25~12/25)')
   })
+
+  it('반복 종료일이 없으면 기간 꼬리표를 붙이지 않는다', () => {
+    expect(render({ recurrence: 'weekly', recurrenceUntil: null }).subject)
+      .toBe('[회의 안내] 주간 진척 점검 · 매주 토요일 14:00')
+  })
+
+  it('제목의 CR/LF 를 걷어낸다 — 메일 헤더는 한 줄이다', () => {
+    const { subject } = render({ title: '주간\r\nBcc: evil@x.com' })
+    expect(subject).not.toMatch(/[\r\n]/)
+    expect(subject).toBe('[회의 안내] 주간 Bcc: evil@x.com · 7/25(토) 14:00')
+  })
+})
+
+describe('renderMeetingInvite — 반복 기간의 연도', () => {
+  it('같은 해 안에서 끝나면 연도를 생략한다', () => {
+    expect(render({
+      recurrence: 'weekly', meetingDate: '2026-07-25', recurrenceUntil: '2026-08-29',
+    }).subject).toBe('[회의 안내] 주간 진척 점검 · 매주 토요일 14:00 (7/25~8/29)')
+  })
+
+  it('해를 넘기면 양쪽 모두에 연도를 붙인다 — 12/25~1/15 는 어느 해인지 알 수 없다', () => {
+    expect(render({
+      recurrence: 'weekly', meetingDate: '2026-12-25', recurrenceUntil: '2027-01-15',
+    }).subject).toBe('[회의 안내] 주간 진척 점검 · 매주 금요일 14:00 (2026/12/25~2027/1/15)')
+  })
+})
+
+// 이 모듈은 UTC 게터로만 날짜를 읽는다. getDay()/getDate() 로 회귀하면
+// 서버 타임존에 따라 요일·날짜가 하루 어긋나는데, 기본 TZ 로만 돌리면 CI 가 이를 놓친다.
+describe('renderMeetingInvite — 서버 타임존에 흔들리지 않는다', () => {
+  const ORIGINAL_TZ = process.env.TZ
+
+  // UTC-7 — 2026-07-25T00:00Z 는 이 존에서 7/24(금)이라 로컬 게터면 즉시 어긋난다.
+  beforeAll(() => { process.env.TZ = 'America/Los_Angeles' })
+
+  // TZ 가 원래 없었으면 지운다 — undefined 를 대입하면 문자열 'undefined' 가 박혀
+  // 같은 워커를 쓰는 다음 테스트 파일이 UTC 폴백으로 끌려간다.
+  afterAll(() => {
+    if (ORIGINAL_TZ === undefined) delete process.env.TZ
+    else process.env.TZ = ORIGINAL_TZ
+  })
+
+  it('음수 오프셋 타임존에서도 날짜·요일이 그대로다', () => {
+    expect(render().subject).toBe('[회의 안내] 주간 진척 점검 · 7/25(토) 14:00')
+  })
+
+  it('반복 요일도 그대로다', () => {
+    expect(render({ recurrence: 'weekly', recurrenceUntil: '2026-08-29' }).subject)
+      .toBe('[회의 안내] 주간 진척 점검 · 매주 토요일 14:00 (7/25~8/29)')
+  })
+
+  it('매월 반복의 일자도 그대로다', () => {
+    expect(render({ recurrence: 'monthly', recurrenceUntil: '2026-12-25' }).subject)
+      .toBe('[회의 안내] 주간 진척 점검 · 매월 25일 14:00 (7/25~12/25)')
+  })
 })
 
 describe('renderMeetingInvite — 본문', () => {
@@ -93,6 +148,34 @@ describe('renderMeetingInvite — 본문', () => {
     const { html, text } = render({}, null)
     expect(html).not.toContain('href="http')
     expect(text).not.toContain('http')
+  })
+
+  it('참석자가 없으면 참석자 줄을 넣지 않는다', () => {
+    const out = renderMeetingInvite({
+      meeting: BASE, attendeeNames: [], senderName: '김철수', appUrl: null,
+    })
+    expect(out.text).not.toContain('참석자')
+    expect(out.html).not.toContain('참석자')
+  })
+
+  it('작성자 이름이 비면 작성자 줄을 넣지 않는다', () => {
+    const out = renderMeetingInvite({
+      meeting: BASE, attendeeNames: ['박영희'], senderName: '  ', appUrl: null,
+    })
+    expect(out.text).not.toContain('작성자')
+    expect(out.html).not.toContain('작성자')
+  })
+
+  it('여러 줄 안건은 HTML 에서 <br> 로 끊는다 — pre-wrap 은 Outlook 에서 무시된다', () => {
+    const { html, text } = render({ body: '1. 지연 항목\n2. 인력 계획' })
+    expect(html).toContain('1. 지연 항목<br>2. 인력 계획')
+    expect(html).not.toContain('pre-wrap')
+    expect(text).toContain('1. 지연 항목\n2. 인력 계획')
+  })
+
+  it('표를 Outlook·스크린리더용으로 못박는다', () => {
+    const { html } = render()
+    expect(html).toContain('<table role="presentation" cellpadding="0" cellspacing="0" border="0"')
   })
 })
 

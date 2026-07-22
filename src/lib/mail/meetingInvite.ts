@@ -26,6 +26,21 @@ function fmtDateShort(iso: string): string {
   return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
 }
 
+/** '2026/12/25' */
+function fmtDateFull(iso: string): string {
+  return `${utcDate(iso).getUTCFullYear()}/${fmtDateShort(iso)}`
+}
+
+/**
+ * 반복 기간 '7/25~8/29'.
+ * 해를 넘기면 연도를 붙인다 — '12/25~1/15' 는 어느 날짜가 어느 해인지 알 수 없다.
+ */
+function fmtRange(fromIso: string, toIso: string): string {
+  const sameYear = utcDate(fromIso).getUTCFullYear() === utcDate(toIso).getUTCFullYear()
+  const fmt = sameYear ? fmtDateShort : fmtDateFull
+  return `${fmt(fromIso)}~${fmt(toIso)}`
+}
+
 /** '14:00' 또는 '14:00~15:00', 종일이면 '종일'. */
 function fmtTime(meeting: Meeting): string {
   if (!meeting.startTime) return t(LOCALE, 'meet.allDay')
@@ -56,7 +71,7 @@ function whenLabel(meeting: Meeting): string {
   const time = fmtTimeShort(meeting)
   if (meeting.recurrence === 'none') return `${fmtDateDow(meeting.meetingDate)} ${time}`
   const until = meeting.recurrenceUntil
-    ? ` (${fmtDateShort(meeting.meetingDate)}~${fmtDateShort(meeting.recurrenceUntil)})`
+    ? ` (${fmtRange(meeting.meetingDate, meeting.recurrenceUntil)})`
     : ''
   return `${fmtRecurrence(meeting)} ${time}${until}`
 }
@@ -65,6 +80,21 @@ function esc(s: string): string {
   return s
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+/**
+ * 이스케이프 후 줄바꿈을 <br> 로. 순서가 중요하다 — esc() 는 줄바꿈을 건드리지 않으므로
+ * 이스케이프를 먼저 해야 <br> 자체가 다시 이스케이프되지 않는다.
+ * 안건은 textarea 에서 오는 유일한 여러 줄 값이고, white-space:pre-wrap 은
+ * Outlook(Word 엔진)·일부 Gmail 경로에서 무시되므로 마크업으로 직접 끊는다.
+ */
+function escMultiline(s: string): string {
+  return esc(s).replace(/\n/g, '<br>')
+}
+
+/** 메일 헤더는 한 줄이다 — 제목의 CR/LF 는 헤더 주입 표면이므로 여기서 잘라낸다. */
+function oneLine(s: string): string {
+  return s.replace(/[\r\n]+/g, ' ')
 }
 
 type Row = { label: string; value: string }
@@ -77,7 +107,7 @@ export function renderMeetingInvite(input: {
 }): { subject: string; html: string; text: string } {
   const { meeting, attendeeNames, senderName, appUrl } = input
 
-  const subject = `[회의 안내] ${meeting.title} · ${whenLabel(meeting)}`
+  const subject = oneLine(`[회의 안내] ${meeting.title} · ${whenLabel(meeting)}`)
   const link = appUrl ? `${appUrl.replace(/\/$/, '')}/p/${meeting.projectId}/meetings` : null
 
   // 값이 빈 항목은 줄 자체를 만들지 않는다 — 빈 항목을 나열하지 않는다.
@@ -88,7 +118,7 @@ export function renderMeetingInvite(input: {
   if (meeting.location?.trim()) rows.push({ label: '장소', value: meeting.location.trim() })
   rows.push({ label: '구분', value: t(LOCALE, `meet.cat.${meeting.category}` as DictKey) })
   if (attendeeNames.length) rows.push({ label: '참석자', value: attendeeNames.join(', ') })
-  rows.push({ label: '작성자', value: senderName })
+  if (senderName.trim()) rows.push({ label: '작성자', value: senderName.trim() })
   if (meeting.body.trim()) rows.push({ label: '안건', value: meeting.body.trim() })
 
   const text = [
@@ -101,10 +131,12 @@ export function renderMeetingInvite(input: {
   const html = [
     '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;font-size:14px;line-height:1.6;color:#1f2328;max-width:560px">',
     `<h2 style="margin:0 0 16px;font-size:18px">${esc(meeting.title)}</h2>`,
-    '<table style="border-collapse:collapse;width:100%">',
+    // Outlook 은 Word 엔진으로 그려 표의 CSS 를 일부만 따른다 — 여백은 HTML 속성으로도 못박는다.
+    // role="presentation" — 라벨/값 2단 레이아웃이지 데이터 표가 아니므로 표로 읽히면 안 된다.
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%">',
     ...rows.map(r =>
       `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top">${esc(r.label)}</td>` +
-      `<td style="padding:6px 0;white-space:pre-wrap">${esc(r.value)}</td></tr>`),
+      `<td style="padding:6px 0">${escMultiline(r.value)}</td></tr>`),
     '</table>',
     ...(link
       ? [`<p style="margin:20px 0 0"><a href="${esc(link)}" style="color:#2563eb">회의일정에서 보기</a></p>`]
