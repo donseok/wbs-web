@@ -42,72 +42,169 @@ const mkRow = (id: string, section: string, sortOrder: number, over: Partial<Wee
 })
 
 describe('lintDuplicates', () => {
-  it('같은 열 두 구분에 동일 줄 — 지적 1건, 뒤 구분에서 삭제', () => {
+  it('한 셀 안에서 되풀이된 줄 — 지적 1건, 뒤의 줄을 삭제', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료\n견적 회신\n설계 리뷰 완료' })]
+    const out = lintDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('duplicate')
+    expect(out[0].section).toBe('PMO')
+    expect(out[0].cellKey).toBe('this_content')
+    expect(out[0].rowId).toBe('r1')
+    expect(out[0].edits).toEqual([{ rowId: 'r1', cellKey: 'this_content', content: '설계 리뷰 완료\n견적 회신' }])
+  })
+
+  it('구분이 다르면 같은 줄이어도 지적하지 않는다', () => {
     const rows = [
       mkRow('r1', 'PMO', 1, { thisContent: '킥오프 완료\n설계 리뷰 완료' }),
       mkRow('r2', '영업', 2, { thisContent: '견적 회신\n설계 리뷰 완료' }),
     ]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('한 구분에 행이 여럿이면 그 행들끼리는 비교한다', () => {
+    const rows = [
+      mkRow('r1', '영업', 1, { thisContent: '견적 회신' }),
+      mkRow('r2', '영업', 2, { thisContent: '견적 회신\n수주 협의' }),
+      mkRow('r3', 'PMO', 3, { thisContent: '견적 회신' }),
+    ]
     const out = lintDuplicates(rows)
     expect(out).toHaveLength(1)
-    expect(out[0].kind).toBe('duplicate')
-    expect(out[0].cellKey).toBe('this_content')
-    expect(out[0].rowId).toBe('r2')
-    expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_content', content: '견적 회신' }])
+    expect(out[0].section).toBe('영업')
+    expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_content', content: '수주 협의' }])
   })
 
   it('글머리·번호가 달라도 같은 줄로 본다', () => {
-    const rows = [
-      mkRow('r1', 'PMO', 1, { thisIssue: '- 설계 리뷰 완료' }),
-      mkRow('r2', '영업', 2, { thisIssue: '1. 설계  리뷰 완료' }),
-    ]
+    const rows = [mkRow('r1', 'PMO', 1, { thisIssue: '- 설계 리뷰 완료\n1. 설계  리뷰 완료' })]
     const out = lintDuplicates(rows)
     expect(out).toHaveLength(1)
-    expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_issue', content: '' }])
+    expect(out[0].edits).toEqual([{ rowId: 'r1', cellKey: 'this_issue', content: '- 설계 리뷰 완료' }])
   })
 
-  it('다른 열의 같은 줄은 지적하지 않는다', () => {
-    const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료' }),
-      mkRow('r2', '영업', 2, { nextContent: '설계 리뷰 완료' }),
-    ]
+  it('같은 구분이라도 열이 다르면 지적하지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료', nextContent: '설계 리뷰 완료' })]
     expect(lintDuplicates(rows)).toEqual([])
   })
 
-  it('같은 셀 안 중복은 이 규칙의 대상이 아니다', () => {
-    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료\n설계 리뷰 완료' })]
-    expect(lintDuplicates(rows)).toEqual([])
-  })
-
-  it('3개 구분에 겹치면 1건으로 묶고 첫 구분만 남긴다', () => {
+  it('한 구분 안에서 세 번 나오면 1건으로 묶고 처음 1개만 남긴다', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료' }),
-      mkRow('r2', '영업', 2, { thisContent: '설계 리뷰 완료\n견적 회신' }),
-      mkRow('r3', '구매', 3, { thisContent: '설계 리뷰 완료' }),
+      mkRow('r1', '영업', 1, { thisContent: '설계 리뷰 완료\n견적 회신\n설계 리뷰 완료' }),
+      mkRow('r2', '영업', 2, { thisContent: '설계 리뷰 완료' }),
     ]
     const out = lintDuplicates(rows)
     expect(out).toHaveLength(1)
-    expect(out[0].rowId).toBe('r2')
+    expect(out[0].rowId).toBe('r1')
     expect(out[0].edits).toEqual([
-      { rowId: 'r2', cellKey: 'this_content', content: '견적 회신' },
-      { rowId: 'r3', cellKey: 'this_content', content: '' },
+      { rowId: 'r1', cellKey: 'this_content', content: '설계 리뷰 완료\n견적 회신' },
+      { rowId: 'r2', cellKey: 'this_content', content: '' },
     ])
   })
 
   it('빈 줄은 중복으로 보지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '가\n\n나\n\n다' })]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('sortOrder가 뒤섞여 들어와도 앞선 행의 줄을 남긴다', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '가\n\n나' }),
-      mkRow('r2', '영업', 2, { thisContent: '다\n\n라' }),
+      mkRow('r2', '영업', 2, { thisContent: '설계 리뷰 완료' }),
+      mkRow('r1', '영업', 1, { thisContent: '설계 리뷰 완료' }),
+    ]
+    const out = lintDuplicates(rows)
+    expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_content', content: '' }])
+  })
+
+  it('구분이 떨어져 있어도 같은 구분이면 한 묶음으로 본다', () => {
+    const rows = [
+      mkRow('r1', '영업', 1, { thisContent: '견적 회신' }),
+      mkRow('r2', 'PMO', 2, { thisContent: '킥오프' }),
+      mkRow('r3', '영업', 3, { thisContent: '견적 회신' }),
+    ]
+    const out = lintDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].section).toBe('영업')
+    expect(out[0].edits).toEqual([{ rowId: 'r3', cellKey: 'this_content', content: '' }])
+  })
+
+  it('옛 시트: section이 같아도 모듈이 다르면 다른 구분이라 견주지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'ERP', 1, { module: 'SD/LE', thisContent: '주간 회의 참석' }),
+      mkRow('r2', 'ERP', 2, { module: 'MM', thisContent: '주간 회의 참석' }),
     ]
     expect(lintDuplicates(rows)).toEqual([])
   })
 
-  it('sortOrder가 뒤섞여 들어와도 가장 작은 구분을 남긴다', () => {
+  it('옛 시트: 같은 section·같은 모듈 안에서는 견주고, 구분 이름에 모듈을 병기한다', () => {
     const rows = [
-      mkRow('r2', '영업', 2, { thisContent: '설계 리뷰 완료' }),
-      mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료' }),
+      mkRow('r1', 'ERP', 1, { module: 'MM', thisContent: '발주 검토' }),
+      mkRow('r2', 'ERP', 2, { module: 'MM', thisContent: '발주 검토' }),
     ]
     const out = lintDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].section).toBe('ERP · MM')
     expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_content', content: '' }])
+  })
+
+  it('표준 구분명 행은 모듈이 붙어 있어도 한 구분 — PPT가 한 장으로 싣는 단위와 같다', () => {
+    const rows = [
+      mkRow('r1', '영업', 1, { thisContent: '견적 회신' }),
+      mkRow('r2', '영업', 2, { module: '국내', thisContent: '견적 회신' }),
+    ]
+    const out = lintDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].section).toBe('영업')
+    expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_content', content: '' }])
+  })
+
+  it('구분이 비어 있어도 이름 없는 묶음을 만들지 않는다', () => {
+    const rows = [
+      mkRow('r1', '', 1, { module: 'MM', thisContent: '가\n가' }),
+      mkRow('r2', '', 2, { thisContent: '나\n나' }),
+    ]
+    expect(lintDuplicates(rows).map(f => f.section)).toEqual(['MM', '기타'])
+  })
+
+  it('들여쓴 줄(상위 항목에 딸린 상태줄)은 중복으로 보지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, {
+      thisContent: '1. ERP 요구사항 정의\n - 완료\n2. MES 인터페이스 설계\n - 완료',
+    })]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('하위 항목이 상위와 같은 글이어도 지우지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '- 검토\n  - 검토\n- 승인' })]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('셀 전체가 들여쓰여 있으면 그 깊이를 기준으로 본다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '  가\n  나\n  가' })]
+    expect(lintDuplicates(rows)[0].edits[0].content).toBe('  가\n  나')
+  })
+
+  it('지적문이 몇 번째 줄을 지우는지 밝힌다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1. 주간 회의\n2. 설계 리뷰\n3. 주간 회의' })]
+    const [f] = lintDuplicates(rows)
+    expect(f.detail).toContain('3번째 줄')
+    expect(f.detail).toContain('주간 회의')
+  })
+
+  it('줄을 지운 자리에 빈 줄 잔재를 남기지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '가\n\n가' })]
+    expect(lintDuplicates(rows)[0].edits[0].content).toBe('가')
+  })
+
+  it('문단 사이 빈 줄은 지키면서 잔재만 없앤다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '가\n\n나\n\n가' })]
+    expect(lintDuplicates(rows)[0].edits[0].content).toBe('가\n\n나')
+  })
+
+  it('구분마다 같은 줄이 되풀이돼도 지적은 구분별로 따로, id도 따로', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '가\n가' }),
+      mkRow('r2', '영업', 2, { thisContent: '가\n가' }),
+    ]
+    const out = lintDuplicates(rows)
+    expect(out.map(f => f.section)).toEqual(['PMO', '영업'])
+    expect(new Set(out.map(f => f.id)).size).toBe(2)
   })
 })
 
@@ -212,6 +309,14 @@ describe('lintFormat', () => {
     expect(out[0].detail).toContain('글머리 기호')
   })
 
+  it('글머리 기호만은 시트 전체 기준임을 지적에 밝힌다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '- 가\n- 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '· 다' }),
+    ]
+    expect(lintFormat(rows)[0].detail).toContain('시트 전체')
+  })
+
   it('동수면 - 가 이긴다', () => {
     const rows = [
       mkRow('r1', 'PMO', 1, { thisContent: '· 가' }),
@@ -244,16 +349,15 @@ describe('lintFormat', () => {
 describe('lintWeeklySheet', () => {
   it('부류 순서대로 이어붙인다 — 중복 → 체번 → 정리', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료', thisIssue: '1. 가\n3. 나' }),
-      mkRow('r2', '영업', 2, { thisContent: '설계 리뷰 완료', nextContent: '다  ' }),
+      mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료\n설계 리뷰 완료', thisIssue: '1. 가\n3. 나', nextContent: '다  ' }),
     ]
     expect(lintWeeklySheet(rows).map(f => f.kind)).toEqual(['duplicate', 'numbering', 'format'])
   })
 
   it('id가 서로 겹치지 않는다', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '가  \n1. 나\n3. 다' }),
-      mkRow('r2', '영업', 2, { thisContent: '가' }),
+      mkRow('r1', 'PMO', 1, { thisContent: '가  \n1. 나\n3. 다\n가' }),
+      mkRow('r2', '영업', 2, { thisContent: '가\n가' }),
     ]
     const ids = lintWeeklySheet(rows).map(f => f.id)
     expect(new Set(ids).size).toBe(ids.length)
@@ -269,9 +373,62 @@ describe('lintWeeklySheet', () => {
 
   it('모든 지적의 edits는 비어 있지 않다', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '가  \n1. 나\n3. 다' }),
-      mkRow('r2', '영업', 2, { thisContent: '가' }),
+      mkRow('r1', 'PMO', 1, { thisContent: '가  \n1. 나\n3. 다\n가' }),
+      mkRow('r2', '영업', 2, { thisContent: '가\n가' }),
     ]
     for (const f of lintWeeklySheet(rows)) expect(f.edits.length).toBeGreaterThan(0)
+  })
+
+  it('모든 지적이 자기 구분을 달고 나온다 — 제목은 열 이름만', () => {
+    const rows = [mkRow('r1', '영업', 2, { thisContent: '가\n가', thisIssue: '1. 가\n3. 나', nextContent: '다  ' })]
+    const out = lintWeeklySheet(rows)
+    expect(out).toHaveLength(3)
+    for (const f of out) expect(f.section).toBe('영업')
+    expect(out.map(f => f.title)).toEqual(['금주실적 내용', '금주 이슈·이벤트', '차주계획 내용'])
+  })
+
+  it('지적 목록은 구분 순으로 나온다', () => {
+    const rows = [
+      mkRow('r3', '구매', 3, { thisContent: '다  ' }),
+      mkRow('r1', 'PMO', 1, { thisContent: '가  ' }),
+      mkRow('r2', '영업', 2, { thisContent: '나  ' }),
+    ]
+    expect(lintWeeklySheet(rows).map(f => f.section)).toEqual(['PMO', '영업', '구매'])
+  })
+
+  it('앞 구분에 정리 지적만 있어도 구분 순서가 부류에 밀리지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '가  나' }),   // 정리 지적만
+      mkRow('r2', '영업', 2, { thisContent: '다\n다' }),  // 중복 지적
+    ]
+    const out = lintWeeklySheet(rows)
+    expect(out.map(f => f.section)).toEqual(['PMO', '영업'])
+  })
+
+  it('한 구분 안에서는 중복 → 체번 → 정리 순서를 지킨다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '가\n가', thisIssue: '1. 가\n3. 나', nextContent: '다  ' }),
+      mkRow('r2', '영업', 2, { thisContent: '라  ' }),
+    ]
+    const out = lintWeeklySheet(rows)
+    expect(out.map(f => `${f.section}/${f.kind}`)).toEqual([
+      'PMO/duplicate', 'PMO/numbering', 'PMO/format', '영업/format',
+    ])
+  })
+
+  it('한 구분에 행이 여럿이면 지적도 행 순서·열 순서대로 나온다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { nextIssue: '위\n위' }),
+      mkRow('r3', 'PMO', 3, { thisContent: '아래\n아래' }),
+    ]
+    expect(lintWeeklySheet(rows).map(f => `${f.rowId}/${f.cellKey}`))
+      .toEqual(['r1/next_issue', 'r3/this_content'])
+  })
+
+  it('중복 수정을 한 번 적용하면 곧바로 다른 지적이 생기지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '가\n\n가' })]
+    const [f] = lintWeeklySheet(rows)
+    const applied = rows.map(r => ({ ...r, thisContent: f.edits[0].content }))
+    expect(lintWeeklySheet(applied)).toEqual([])
   })
 })

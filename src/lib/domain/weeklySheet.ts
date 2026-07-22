@@ -53,6 +53,23 @@ export function mapLegacySection(section: string, module: string): string {
   return lookupLegacy(mod) ?? lookupLegacy(sec) ?? FALLBACK_SECTION
 }
 
+/** 행 라벨 — 신규 시트는 구분명 단독('영업'), 레거시 행은 '구분 · 모듈'('ERP · SD/LE')로 병기.
+ *  구분이 없으면 모듈로 폴백하고 둘 다 없으면 '기타'(이름 없는 묶음이 생기지 않게). */
+export function rowSectionLabel(row: Pick<WeeklySheetRow, 'section' | 'module'>): string {
+  const sec = row.section.trim(), mod = row.module.trim()
+  if (!sec) return mod || '기타'
+  return mod && mod !== sec ? `${sec} · ${mod}` : sec
+}
+
+/** 한 '구분'으로 묶이는 단위의 키 — PPT 페이지 합성(buildSheetSections)과 주간보고 점검이 공유한다.
+ *  표준 구분명이면 모듈과 무관하게 구분명 하나로 묶고(PPT가 한 장으로 싣는 단위), 레거시 행은
+ *  라벨(구분 · 모듈)로 가른다 — section이 ERP뿐이라 모듈까지 봐야 영업·구매·관리회계가 갈린다.
+ *  두 곳이 서로 다른 단위를 쓰면, 점검을 통과한 시트가 PPT에서는 중복으로 인쇄된다. */
+export function sectionKeyOf(row: Pick<WeeklySheetRow, 'section' | 'module'>): string {
+  const sec = row.section.trim()
+  return isWeeklySection(sec) ? sec : rowSectionLabel(row)
+}
+
 /** 셀 1개 상한 — 서버 액션·클라이언트 클램프·이월 병합이 공유하는 단일 출처. */
 export const WEEKLY_CELL_MAX = 20000
 

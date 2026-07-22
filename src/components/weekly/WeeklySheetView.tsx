@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  applyServerRow, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX, WEEKLY_CELL_LABEL,
+  applyServerRow, rowSectionLabel, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX, WEEKLY_CELL_LABEL,
   CELL_FIELD, type WeeklyCellKey, type WeeklySheetRow, type WeeklyCellEdit,
 } from '@/lib/domain/weeklySheet'
 import { type CellAddr } from '@/lib/domain/sheetSelection'
@@ -550,8 +550,10 @@ export function WeeklySheetView({
             <tbody>
               {rows.map((r, i) => {
                 // 레거시 시트(구 공통/ERP/MES × 모듈)의 모듈명을 잃지 않게 구분 칸에 병기한다.
-                const legacyModule = r.module.trim() && r.module.trim() !== r.section.trim() ? r.module.trim() : ''
-                const rowName = legacyModule ? `${r.section} ${legacyModule}` : r.section
+                // 병기 여부는 rowSectionLabel이 정한 이름에서 되읽는다 — 규칙을 두 벌 두면
+                // 점검 패널 머리글(sectionKeyOf)과 이 칸의 표기가 조용히 갈라진다.
+                const rowName = rowSectionLabel(r)
+                const legacyModule = rowName === r.section.trim() ? '' : r.module.trim()
                 return (
                 <tr key={r.id}>
                   <td className="border border-neutral-500 px-1 py-1.5 text-center align-middle text-[13px] font-bold text-black">
