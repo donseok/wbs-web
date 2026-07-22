@@ -12,8 +12,13 @@ const BASE: Meeting = {
   attendeeIds: [],
 }
 
-function render(overrides: Partial<Meeting> = {}, appUrl: string | null = 'https://wbs-web.vercel.app') {
+function render(
+  overrides: Partial<Meeting> = {},
+  appUrl: string | null = 'https://wbs-web.vercel.app',
+  kind: 'created' | 'updated' = 'created',
+) {
   return renderMeetingInvite({
+    kind,
     meeting: { ...BASE, ...overrides },
     attendeeNames: ['김철수', '박영희'],
     senderName: '김철수',
@@ -175,7 +180,7 @@ describe('renderMeetingInvite — 본문', () => {
 
   it('참석자가 없으면 참석자 줄을 넣지 않는다', () => {
     const out = renderMeetingInvite({
-      meeting: BASE, attendeeNames: [], senderName: '김철수', appUrl: null,
+      kind: 'created', meeting: BASE, attendeeNames: [], senderName: '김철수', appUrl: null,
     })
     expect(out.text).not.toContain('참석자')
     expect(out.html).not.toContain('참석자')
@@ -183,7 +188,7 @@ describe('renderMeetingInvite — 본문', () => {
 
   it('작성자 이름이 비면 작성자 줄을 넣지 않는다', () => {
     const out = renderMeetingInvite({
-      meeting: BASE, attendeeNames: ['박영희'], senderName: '  ', appUrl: null,
+      kind: 'created', meeting: BASE, attendeeNames: ['박영희'], senderName: '  ', appUrl: null,
     })
     expect(out.text).not.toContain('작성자')
     expect(out.html).not.toContain('작성자')
@@ -233,7 +238,7 @@ describe('renderMeetingInvite — 이스케이프', () => {
 
   it('참석자 이름도 이스케이프한다', () => {
     const out = renderMeetingInvite({
-      meeting: BASE, attendeeNames: ['<b>김철수</b>'], senderName: '<i>박영희</i>', appUrl: null,
+      kind: 'created', meeting: BASE, attendeeNames: ['<b>김철수</b>'], senderName: '<i>박영희</i>', appUrl: null,
     })
     expect(out.html).not.toContain('<b>김철수</b>')
     expect(out.html).toContain('&lt;b&gt;')
@@ -242,5 +247,39 @@ describe('renderMeetingInvite — 이스케이프', () => {
 
   it('text 파트는 이스케이프하지 않고 원문을 담는다', () => {
     expect(render({ title: 'A & B' }).text).toContain('A & B')
+  })
+})
+
+describe('renderMeetingInvite — 종류(생성/변경)', () => {
+  it('변경 메일은 제목 접두사만 [회의 변경] 으로 바꾼다', () => {
+    expect(render({}, 'https://wbs-web.vercel.app', 'updated').subject)
+      .toBe('[회의 변경] 주간 진척 점검 · 7/25(토) 14:00')
+  })
+
+  it('반복 회의의 변경 메일도 제목 꼬리표는 생성과 같다', () => {
+    expect(render({ recurrence: 'weekly', recurrenceUntil: '2026-08-29' }, 'https://wbs-web.vercel.app', 'updated').subject)
+      .toBe('[회의 변경] 주간 진척 점검 · 매주 토요일 14:00 (7/25~8/29)')
+  })
+
+  // '본문은 생성 메일과 완전히 동일하다' 가 요구사항이다. 변경 메일에만 안내 문구나
+  // 변경 전/후 비교를 덧붙이면 여기서 깨진다 — 그 판단은 코드가 아니라 사람이 해야 한다.
+  it('본문(html·text)은 생성 메일과 글자 하나까지 같다', () => {
+    const created = render({}, 'https://wbs-web.vercel.app', 'created')
+    const updated = render({}, 'https://wbs-web.vercel.app', 'updated')
+    expect(updated.html).toBe(created.html)
+    expect(updated.text).toBe(created.text)
+  })
+
+  it('제목도 접두사를 뺀 나머지는 같다', () => {
+    const created = render({}, null, 'created')
+    const updated = render({}, null, 'updated')
+    expect(updated.subject.replace('[회의 변경] ', ''))
+      .toBe(created.subject.replace('[회의 안내] ', ''))
+  })
+
+  it('변경 메일도 제목의 CR/LF 를 걷어낸다', () => {
+    const { subject } = render({ title: '주간\r\nBcc: evil@x.com' }, null, 'updated')
+    expect(subject).not.toMatch(/[\r\n]/)
+    expect(subject).toBe('[회의 변경] 주간 Bcc: evil@x.com · 7/25(토) 14:00')
   })
 })

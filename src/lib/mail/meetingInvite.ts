@@ -134,15 +134,31 @@ const BODY_FONT = `font-family:${FONT_STACK};font-size:14px;line-height:1.6`
 const INK = '#1f2328'
 const INK_MUTED = '#6b7280'
 
+/** 새 회의인지 이미 안내가 나간 회의의 변경인지. 제목 접두사만 가른다. */
+export type InviteKind = 'created' | 'updated'
+
+/**
+ * 수신자는 제목만 보고 '새 회의'와 '바뀐 회의'를 구분한다.
+ * 두 접두사가 같아지면 이미 캘린더에 넣어 둔 회의를 또 잡는 중복 일정이 생긴다.
+ */
+const SUBJECT_PREFIX: Record<InviteKind, string> = {
+  created: '[회의 안내]',
+  updated: '[회의 변경]',
+}
+
 export function renderMeetingInvite(input: {
+  /** 기본값을 두지 않는다 — 빠뜨린 호출자가 조용히 '안내'로 나가는 대신 컴파일에서 걸려야 한다. */
+  kind: InviteKind
   meeting: Meeting
   attendeeNames: string[]
   senderName: string
   appUrl: string | null
 }): { subject: string; html: string; text: string } {
-  const { meeting, attendeeNames, senderName, appUrl } = input
+  const { kind, meeting, attendeeNames, senderName, appUrl } = input
 
-  const subject = oneLine(`[회의 안내] ${meeting.title} · ${whenLabel(meeting)}`)
+  // 본문은 kind 를 보지 않는다. 변경 메일이라고 문구를 덧붙이면 '무엇이 바뀌었나'를
+  // 말하지 않으면서 말하는 척하게 되고, 그 순간 수정 전 값을 읽어 오는 조회가 필요해진다.
+  const subject = oneLine(`${SUBJECT_PREFIX[kind]} ${meeting.title} · ${whenLabel(meeting)}`)
   const link = appUrl ? `${appUrl.replace(/\/$/, '')}/p/${meeting.projectId}/meetings` : null
 
   // 값이 빈 항목은 줄 자체를 만들지 않는다 — 빈 항목을 나열하지 않는다.
