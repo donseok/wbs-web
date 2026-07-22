@@ -44,6 +44,10 @@ export function normalizeForCompare(line: string): string {
   return s.replace(/\s+/g, ' ').trim()
 }
 
+/** 화면 표시 순서(구분 순) 사본. 지적 목록의 정렬 근거이자 중복 규칙의 '남길 행' 기준. */
+const byOrder = (rows: WeeklySheetRow[]): WeeklySheetRow[] =>
+  [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+
 /** 셀 값을 줄 배열로. 빈 문자열은 빈 배열(빈 줄 1개가 아니라). */
 const toLines = (content: string): string[] => (content === '' ? [] : content.split('\n'))
 
@@ -56,7 +60,7 @@ function removeLines(content: string, drop: ReadonlySet<number>): string {
 
 /** 규칙 ① — 같은 열에서 구분 행을 가로지르는 동일 줄. 같은 셀 안 중복은 대상이 아니다. */
 export function lintDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
-  const ordered = [...rows].sort((a, b) => a.sortOrder - b.sortOrder)
+  const ordered = byOrder(rows)
   const byId = new Map(ordered.map(r => [r.id, r]))
   const out: LintFinding[] = []
 
@@ -107,9 +111,10 @@ export function lintDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
 
 /** 규칙 ② — 셀 안 줄 번호. 번호 줄이 2개 이상일 때만 검사하고, 1부터 1씩 증가하지 않으면 지적. */
 export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
+  const ordered = byOrder(rows)
   const out: LintFinding[] = []
   for (const cellKey of WEEKLY_CELL_KEYS) {
-    for (const row of [...rows].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    for (const row of ordered) {
       const content = row[CELL_FIELD[cellKey]]
       const lines = toLines(content)
       const numbered = lines
@@ -216,9 +221,10 @@ function formatCell(content: string, bullet: string | null): FormatResult {
 /** 규칙 ③ — 공백·빈줄·글머리 기호. 셀당 지적 1건. */
 export function lintFormat(rows: WeeklySheetRow[]): LintFinding[] {
   const bullet = dominantBullet(rows)
+  const ordered = byOrder(rows)
   const out: LintFinding[] = []
   for (const cellKey of WEEKLY_CELL_KEYS) {
-    for (const row of [...rows].sort((a, b) => a.sortOrder - b.sortOrder)) {
+    for (const row of ordered) {
       const content = row[CELL_FIELD[cellKey]]
       const { next, notes } = formatCell(content, bullet)
       if (next === content || notes.length === 0) continue
