@@ -44,4 +44,11 @@ describe("RiskWorklist '지연 · 임박' 배지", () => {
     await act(async () => root.render(<RiskWorklist items={items} projectId="p1" today={today} />))
     expect(container.textContent).not.toContain('임박 3')
   })
+
+  // 임박 행이 있으면 지연(계획 미달) 행이 통째로 가려지던 회귀 — 배지는 '지연 1'인데 목록엔 임박만 보였다.
+  it('임박이 있어도 지연 내용을 함께 보여준다', async () => {
+    await act(async () => root.render(<RiskWorklist items={items} projectId="p1" today={today} />))
+    expect(container.textContent).toContain('D-2 임박')
+    expect(container.textContent).toContain('계획 대비 40%p 미달')
+  })
 })

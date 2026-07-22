@@ -20,8 +20,9 @@ const ROW_META: Record<Kind, { border: string; icon: string }> = {
 }
 
 /** 실행 가능한 리스크 목록 — 요약 타일의 숫자를 실제 WBS 작업으로 연결한다.
- *  지연(기한 경과)·임박(7일 내 마감)을 함께 노출하고, 둘 다 없을 때만 뒤처짐(계획 미달)로 대체한다.
- *  배지의 지연·임박 카운트(riskModel)와 목록에 보이는 행이 일치해야 한다 — 정의를 여기서 다시 쓰지 말 것. */
+ *  기한 경과(지연)·7일 내 마감(임박)·계획 미달(뒤처짐)을 항상 함께 쌓아 보여준다.
+ *  배지의 지연 카운트(riskModel)는 status==='delayed' 기준이라 기한 경과분만으로는 설명되지 않는다 —
+ *  나머지는 뒤처짐 행이 받아내므로, 뒤처짐을 조건부로 숨기면 배지 숫자가 목록에서 사라진다. */
 export function RiskWorklist({ items, projectId, today }: {
   items: ComputedItem[]; projectId: string; today: string
 }) {
@@ -33,11 +34,15 @@ export function RiskWorklist({ items, projectId, today }: {
   const dueSoon: Row[] = dueSoonLeaves(leaves, today).slice(0, 4)
     .map(l => ({ item: l, kind: 'dueSoon' as const, overdue: 0, dday: diffDaysCal(today, l.plannedEnd!), gap: 0 }))
 
-  // 지연·임박은 마감일 기준 상호배타(과거 vs 오늘·미래)라 중복 없음. 둘 다 비면 뒤처짐으로 대체.
+  // 지연·임박은 마감일 기준 상호배타(과거 vs 오늘·미래). 뒤처짐은 임박과 겹칠 수 있어 id로 제외한다.
   const urgent = [...overdue, ...dueSoon]
-  const rows: Row[] = urgent.length
-    ? urgent
-    : varianceRanking(leaves, today, 5).map(v => ({ item: v.item, kind: 'behind' as const, overdue: 0, dday: 0, gap: v.gapPp }))
+  const seen = new Set(urgent.map(r => r.item.id))
+  const behind: Row[] = varianceRanking(leaves, today, 12)
+    .filter(v => !seen.has(v.item.id))
+    .slice(0, urgent.length ? 4 : 5)
+    .map(v => ({ item: v.item, kind: 'behind' as const, overdue: 0, dday: 0, gap: v.gapPp }))
+
+  const rows: Row[] = [...urgent, ...behind]
 
   return (
     <SectionCard eyebrow="ACTION QUEUE" title="지금 확인할 작업" icon={AlertTriangle}
@@ -46,7 +51,7 @@ export function RiskWorklist({ items, projectId, today }: {
         <div className="space-y-2">
           {rows.map(({ item, kind, overdue, dday, gap }) => {
             const meta = ROW_META[kind]
-            const detail = kind === 'overdue' ? `${overdue}일 지연` : kind === 'behind' ? `계획 대비 ${Math.round(gap)}%p` : null
+            const detail = kind === 'overdue' ? `${overdue}일 지연` : kind === 'behind' ? `계획 대비 ${Math.round(gap)}%p 미달` : null
             const aria = kind === 'dueSoon' ? `${item.name}, 마감 임박 ${ddayText(dday)}` : `${item.name}, ${detail}`
             return (
               <Link key={item.id} href={`/p/${projectId}/wbs?focus=${item.id}`} aria-label={aria}
