@@ -114,7 +114,9 @@ export function MeetingFormModal({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      // 결과 패널이 떠 있으면 회의는 이미 저장됐다. Escape·X·백드롭으로 닫아도 목록을
+      // 갱신하는 onSaved 로 보내야 한다 — onClose 로 빠지면 방금 만든 회의가 목록에 없다.
+      onClose={locked ? onSaved : onClose}
       eyebrow="MEETING"
       title={initial ? t('meet.editMeeting') : t('meet.addMeeting')}
       footer={
