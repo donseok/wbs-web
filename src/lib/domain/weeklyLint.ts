@@ -62,14 +62,14 @@ export function lintDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
 
   for (const cellKey of WEEKLY_CELL_KEYS) {
     // 정규화 줄 → 등장 위치들. ordered 순회라 배열 앞쪽이 곧 sortOrder가 작은 쪽이다.
-    const groups = new Map<string, { rowId: string; line: number; raw: string }[]>()
+    const groups = new Map<string, { rowId: string; line: number }[]>()
     for (const row of ordered) {
       toLines(row[CELL_FIELD[cellKey]]).forEach((raw, line) => {
         const norm = normalizeForCompare(raw)
         if (!norm) return
         const hits = groups.get(norm)
-        if (hits) hits.push({ rowId: row.id, line, raw })
-        else groups.set(norm, [{ rowId: row.id, line, raw }])
+        if (hits) hits.push({ rowId: row.id, line })
+        else groups.set(norm, [{ rowId: row.id, line }])
       })
     }
 
