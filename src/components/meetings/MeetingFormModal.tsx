@@ -10,8 +10,10 @@ import { Modal } from '@/components/ui/Modal'
 import { MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
 import { MeetingAttendeePicker } from './MeetingAttendeePicker'
 import { createMeeting, updateMeeting, type MeetingInput } from '@/app/actions/meetings'
-import { notifyMeetingCreated } from '@/app/actions/meetingNotify'
+import { notifyMeetingSaved } from '@/app/actions/meetingNotify'
 import { describeNotifyResult, type NotifyOutcome } from '@/lib/mail/outcome'
+// `import type` 을 유지한다 — 값으로 바꾸면 메일 본문 렌더러 전체가 클라이언트 번들에 실린다.
+import type { InviteKind } from '@/lib/mail/meetingInvite'
 
 type FormState = {
   title: string; meetingDate: string; allDay: boolean; startTime: string; endTime: string
@@ -37,6 +39,8 @@ function initState(initial: Meeting | null, todayIso: string): FormState {
     recurrenceUntil: initial.recurrenceUntil ?? '',
     body: initial.body,
     attendeeIds: initial.attendeeIds,
+    // 수정은 옵트인이다. 수정의 대부분은 오타·메모 한 줄 고치기인데 기본값이 켜짐이면
+    // 그때마다 참석자 전원에게 '변경' 메일이 나가 알림이 소음이 되고 아무도 읽지 않게 된다.
     notify: false,
   }
 }
@@ -83,7 +87,10 @@ export function MeetingFormModal({
 
   const locked = outcome !== null
   const busy = pending || sending
-  const canNotify = !initial && form.attendeeIds.length > 0
+  // 생성·수정 모두 발송할 수 있다. 무엇을 보낼지는 kind 가 가르고, 보낼지 말지는
+  // notify 체크박스가 가른다(생성=켜짐, 수정=꺼짐). 여기서 막는 것은 수신자가 없는 경우뿐이다.
+  const canNotify = form.attendeeIds.length > 0
+  const notifyKind: InviteKind = initial ? 'updated' : 'created'
 
   /**
    * 발송 결과를 어디에 표시할지 고른다.
@@ -110,9 +117,9 @@ export function MeetingFormModal({
    * 사용자가 하지도 않은 발송을 하고 있다고 말한다. 저장 구간은 pending, 발송 구간은 sending —
    * 두 값이 각자의 실제 구간만 나타내야 한다.
    */
-  async function sendInvite(run: number, meetingId: string) {
+  async function sendInvite(run: number, meetingId: string, kind: InviteKind) {
     try {
-      report(run, describeNotifyResult(await notifyMeetingCreated(meetingId), t))
+      report(run, describeNotifyResult(await notifyMeetingSaved(meetingId, kind), t))
     } catch {
       // 액션 호출 자체가 실패한 경우 — 회의가 사라진 게 아님을 반드시 알린다.
       report(run, { kind: 'panel', tone: 'error', message: t('meet.notify.unknown') })
@@ -154,7 +161,7 @@ export function MeetingFormModal({
       if (!canNotify || !form.notify || !res.id) { if (isCurrent()) onSaved(); return }
 
       if (isCurrent()) setSending(true)
-      void sendInvite(run, res.id)
+      void sendInvite(run, res.id, notifyKind)
     })
   }
 
@@ -247,24 +254,26 @@ export function MeetingFormModal({
             <MeetingAttendeePicker members={members} selected={form.attendeeIds} onChange={ids => set('attendeeIds', ids)} />
           </div>
 
-          {!initial && (
-            <div>
-              <label className="flex items-center gap-2">
-                <input
-                  id="notify-attendees"
-                  type="checkbox"
-                  checked={form.notify && canNotify}
-                  disabled={!canNotify}
-                  onChange={e => set('notify', e.target.checked)}
-                  className="h-4 w-4 accent-[var(--color-brand)] disabled:opacity-50"
-                />
-                <span className="text-xs font-semibold text-ink-muted">{t('meet.form.notify')}</span>
-              </label>
-              {!canNotify && (
-                <p className="mt-1 pl-6 text-[11px] text-ink-subtle">{t('meet.form.notifyNoAttendees')}</p>
-              )}
-            </div>
-          )}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                id="notify-attendees"
+                type="checkbox"
+                checked={form.notify && canNotify}
+                disabled={!canNotify}
+                onChange={e => set('notify', e.target.checked)}
+                className="h-4 w-4 accent-[var(--color-brand)] disabled:opacity-50"
+              />
+              {/* 문구를 종류에 맞춘다 — 수정 화면에서 '회의 안내'라고 적혀 있으면
+                  사용자는 새로 만든 회의를 알린다고 읽고, 실제로는 '[회의 변경]' 이 나간다. */}
+              <span className="text-xs font-semibold text-ink-muted">
+                {t(initial ? 'meet.form.notifyUpdate' : 'meet.form.notify')}
+              </span>
+            </label>
+            {!canNotify && (
+              <p className="mt-1 pl-6 text-[11px] text-ink-subtle">{t('meet.form.notifyNoAttendees')}</p>
+            )}
+          </div>
 
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('meet.form.body')}</span>

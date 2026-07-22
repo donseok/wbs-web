@@ -87,6 +87,9 @@ export const meetingsKo = {
   'meet.saveFailed': '저장에 실패했습니다.',
   'meet.deleteFailed': '삭제에 실패했습니다.',
   'meet.form.notify': '참석자에게 회의 안내 메일 보내기',
+  // 수정 화면 전용. '안내'와 문구를 나눠 둔다 — 수정은 기본이 꺼짐이라,
+  // 사용자가 직접 켤 때 무엇이 나가는지(안내가 아니라 변경 통지) 알고 켜야 한다.
+  'meet.form.notifyUpdate': '참석자에게 변경 안내 메일 보내기',
   'meet.form.notifyNoAttendees': '참석자를 선택하면 메일을 보낼 수 있습니다.',
   'meet.notify.sending': '메일 보내는 중…',
   'meet.notify.toastTitle': '메일 발송 완료',
@@ -189,6 +192,7 @@ export const meetingsEn: Record<keyof typeof meetingsKo, string> = {
   'meet.saveFailed': 'Failed to save.',
   'meet.deleteFailed': 'Failed to delete.',
   'meet.form.notify': 'Email the meeting details to attendees',
+  'meet.form.notifyUpdate': 'Email the updated meeting details to attendees',
   'meet.form.notifyNoAttendees': 'Select attendees to enable email.',
   'meet.notify.sending': 'Sending email…',
   'meet.notify.toastTitle': 'Email sent',
