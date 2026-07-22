@@ -46,8 +46,12 @@ export function describeNotifyResult(res: MeetingNotifyResult, t: T): NotifyOutc
     return { kind: 'toast', message: fill(t('meet.notify.sent'), { n: String(res.sentTo.length) }) }
   }
 
+  // `as DictKey` 를 붙이지 않는다. 이 템플릿 리터럴이 DictKey 에 그대로 assignable 해야
+  // SkipReason 에 새 사유를 추가하고 사전 항목을 빠뜨렸을 때 컴파일 에러로 잡힌다.
+  // 캐스트를 달면 그 에러가 지워지고, 대신 사용자 화면에 'meet.notify.reason.bounced'
+  // 같은 원문 키가 그대로 찍힌다. 나중에 타입 에러가 나면 캐스트로 덮지 말고 사전에 키를 추가할 것.
   const names = res.skipped
-    .map(s => `${s.name}(${t(`meet.notify.reason.${s.reason}` as DictKey)})`)
+    .map(s => `${s.name}(${t(`meet.notify.reason.${s.reason}`)})`)
     .join(', ')
   return {
     kind: 'panel',
