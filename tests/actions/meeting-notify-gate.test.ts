@@ -98,8 +98,14 @@ describe('notifyMeetingCreated 발송', () => {
 
     const res = await notifyMeetingCreated('m1')
 
+    // to/replyTo 만 보면 액션→렌더러 배선이 끊겨 본문이 비어도 이 파일 전체가 초록이다.
+    // 제목과 HTML 본문이 실제 회의 내용을 담고 나갔는지까지 못박는다.
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
-      to: ['y@dongkuk.com'], replyTo: 'me@dongkuk.com',
+      to: ['y@dongkuk.com'],
+      replyTo: 'me@dongkuk.com',
+      subject: expect.stringContaining('주간 점검'),
+      html: expect.stringContaining('박영희'),
+      text: expect.stringContaining('주간 점검'),
     }))
     expect(res.sentTo).toEqual(['박영희'])
     expect(res.skipped).toEqual([{ name: '이민수', reason: 'invalid_email' }])

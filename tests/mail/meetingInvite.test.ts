@@ -116,6 +116,29 @@ describe('renderMeetingInvite — 본문', () => {
     expect(text).toContain('지연 항목 점검')
   })
 
+  it('일시 줄에 날짜·요일과 시작~종료 범위를 모두 담는다', () => {
+    // 제목은 시작 시각만 싣는다. 본문 일시 줄까지 시작 시각만 남으면
+    // 수신자는 회의가 언제 끝나는지 어디에서도 알 수 없게 된다.
+    const { text, html } = render()
+    expect(text).toContain('일시: 7/25(토) 14:00~15:00')
+    expect(html).toContain('>7/25(토) 14:00~15:00<')
+  })
+
+  it('반복 줄은 규칙과 기간만 담는다 — 시각을 넣으면 일시 줄과 어긋난다', () => {
+    // whenLabel(제목용)을 재사용하면 '반복: 매주 토요일 14:00 (…)' 이 되어
+    // 바로 위 '일시: … 14:00~15:00' 과 충돌한다. 2회차부터 30분 짧은 회의로 읽힌다.
+    const { text, html } = render({ recurrence: 'weekly', recurrenceUntil: '2026-08-29' })
+    expect(text).toContain('반복: 매주 토요일 (7/25~8/29)')
+    expect(text).not.toContain('반복: 매주 토요일 14:00')
+    expect(html).toContain('>매주 토요일 (7/25~8/29)<')
+  })
+
+  it('종일 반복 회의는 종일을 한 번만 찍는다', () => {
+    const { text } = render({ startTime: null, endTime: null, recurrence: 'weekly', recurrenceUntil: '2026-08-29' })
+    expect(text).toContain('일시: 7/25(토) 종일')
+    expect(text.match(/종일/g)).toHaveLength(1)
+  })
+
   it('구분 라벨을 한국어로 표기한다', () => {
     expect(render().text).toContain('정례')
   })
@@ -176,6 +199,22 @@ describe('renderMeetingInvite — 본문', () => {
   it('표를 Outlook·스크린리더용으로 못박는다', () => {
     const { html } = render()
     expect(html).toContain('<table role="presentation" cellpadding="0" cellspacing="0" border="0"')
+  })
+
+  it('모든 셀에 폰트를 되풀이한다 — Outlook 은 표 셀로 폰트를 상속시키지 않는다', () => {
+    const { html } = render()
+    const cells = html.match(/<td style="[^"]*"/g) ?? []
+    expect(cells.length).toBeGreaterThan(0)
+    for (const cell of cells) {
+      expect(cell).toContain('font-family:')
+      expect(cell).toContain('font-size:14px')
+      expect(cell).toContain('line-height:1.6')
+      expect(cell).toMatch(/color:#(1f2328|6b7280)/)
+    }
+    // 라벨 셀의 회색은 그대로 살아 있어야 한다.
+    expect(html).toContain('color:#6b7280')
+    // Word 가 아는 이름이 스택 선두 — -apple-system 이 앞이면 파싱에 실패할 수 있다.
+    expect(html).toContain("font-family:'Segoe UI',")
   })
 })
 
