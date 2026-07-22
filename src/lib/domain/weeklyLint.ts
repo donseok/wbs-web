@@ -104,3 +104,43 @@ export function lintDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
   }
   return out
 }
+
+/** 규칙 ② — 셀 안 줄 번호. 번호 줄이 2개 이상일 때만 검사하고, 1부터 1씩 증가하지 않으면 지적. */
+export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
+  const out: LintFinding[] = []
+  for (const cellKey of WEEKLY_CELL_KEYS) {
+    for (const row of [...rows].sort((a, b) => a.sortOrder - b.sortOrder)) {
+      const content = row[CELL_FIELD[cellKey]]
+      const lines = toLines(content)
+      const numbered = lines
+        .map((line, i) => ({ i, m: NUM_PREFIX.exec(line.trimStart()) }))
+        .filter((x): x is { i: number; m: RegExpExecArray } => x.m !== null)
+      if (numbered.length < 2) continue
+
+      const nums = numbered.map(x => Number(x.m[1]))
+      if (nums.every((n, k) => n === k + 1)) continue
+
+      // 첫 번호 줄의 표기(구분자, 구분자 뒤 공백)를 나머지에 그대로 적용한다.
+      const sep = numbered[0].m[2]
+      const gap = numbered[0].m[3]
+      const next = [...lines]
+      numbered.forEach((x, k) => {
+        const line = lines[x.i]
+        const indent = line.slice(0, line.length - line.trimStart().length)
+        const rest = line.trimStart().slice(x.m[0].length)
+        next[x.i] = `${indent}${k + 1}${sep}${gap}${rest}`
+      })
+
+      out.push({
+        id: `numbering:${row.id}:${cellKey}`,
+        kind: 'numbering',
+        rowId: row.id,
+        cellKey,
+        title: `${row.section} · ${WEEKLY_CELL_LABEL[cellKey]}`,
+        detail: `줄 번호가 ${nums.join(', ')} 입니다 → ${nums.map((_, k) => k + 1).join(', ')}`,
+        edits: [{ rowId: row.id, cellKey, content: next.join('\n') }],
+      })
+    }
+  }
+  return out
+}
