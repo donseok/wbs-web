@@ -21,6 +21,7 @@ import { useToast } from '@/components/ui/Toast'
 import { buildPresenceMap, onlinePeers } from '@/lib/domain/sheetPresence'
 import { PresenceStrip } from '@/components/app/PresenceStrip'
 import { useSheetGrid } from './useSheetGrid'
+import { WeeklyLintPanel } from './WeeklyLintPanel'
 import { usePresence } from './usePresence'
 import { SheetCell, type BatchChip } from './SheetCell'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
@@ -62,6 +63,7 @@ export function WeeklySheetView({
   const router = useRouter()
   const { toast } = useToast()
   const [rows, setRows] = useState<WeeklySheetRow[]>(initialRows)
+  const [lintOpen, setLintOpen] = useState(false)
   const [status, setStatus] = useState<Record<string, CellStatus>>({}) // key = `${rowId}:${cellKey}`
   const dirtyRef = useRef<Set<string>>(new Set())
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -508,7 +510,7 @@ export function WeeklySheetView({
 
   return (
     <div className="space-y-3">
-      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} presence={presenceStrip} />
+      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} presence={presenceStrip} onLint={() => setLintOpen(true)} />
       <div className="overflow-x-auto">
         <div className={`min-w-[1240px] bg-white p-1.5 shadow-sm ring-1 ring-neutral-300 ${grid.dragging === 'fill' ? 'cursor-crosshair select-none' : grid.dragging === 'select' ? 'cursor-cell select-none' : ''}`}>
           {/* 제목 행 — 레퍼런스 시트의 B1. 자유 편집(''이면 기본 제목 합성). key로 주차 전환 시 초기화 */}
@@ -621,14 +623,22 @@ export function WeeklySheetView({
           <div aria-live="polite" className="sr-only">{grid.live}</div>
         </div>
       </div>
+      <WeeklyLintPanel
+        open={lintOpen}
+        rows={rows}
+        onClose={() => setLintOpen(false)}
+        onApply={edits => runBatch(edits, { undoable: true })}
+        onGoToCell={(rowId, col) => grid.focusCell({ rowId, col })}
+      />
     </div>
   )
 }
 
-function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport, presence }: {
+function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport, presence, onLint }: {
   projectId: string; weekStart: string; weekLabel: string; exportDisabled: boolean
   onBeforeExport: () => Promise<boolean>
   presence?: React.ReactNode // 온라인 사용자 스트립(프레즌스) — 내보내기 버튼 왼쪽
+  onLint?: () => void        // 주간보고 점검 패널 열기. 시트가 없는 빈 상태에서는 점검할 것이 없어 넘기지 않는다.
 }) {
   const base = `/p/${projectId}/weekly`
   return (
@@ -646,6 +656,8 @@ function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExpo
       <div className="flex items-center gap-3">
         {presence}
         <div className="flex items-center gap-2">
+          {/* 내보내기 전에 점검하는 순서가 자연스러워 왼쪽에 둔다. */}
+          {onLint && <button type="button" className="btn btn-ghost" onClick={onLint}>주간보고 점검</button>}
           <ExportSummaryPptButton projectId={projectId} />
           <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />
         </div>
