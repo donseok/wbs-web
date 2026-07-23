@@ -15,6 +15,7 @@ vi.mock('next/link', () => ({
     <a href={href} {...props}>{children}</a>,
 }))
 vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: vi.fn() }))
+vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 vi.mock('@/components/minutes/MinutesCalendar', () => ({ MinutesCalendar: () => <div /> }))
 vi.mock('@/components/minutes/MinuteUploadModal', () => ({ MinuteUploadModal: () => null }))
 vi.mock('@/components/minutes/ArchiveChatPanel', () => ({ ArchiveChatPanel: () => null }))

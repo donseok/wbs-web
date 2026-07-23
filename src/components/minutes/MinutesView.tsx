@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, List, ListTree, Plus, Search } from 'lucide-react'
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, Download, List, ListTree, Plus, Search } from 'lucide-react'
 import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
 import { MINUTES_TREE_LIMIT, TEAM_CODES } from '@/lib/domain/minutes'
 import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesTree } from '@/app/actions/minutes'
@@ -11,11 +11,13 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { CardSkeleton } from '@/components/ui/Skeleton'
+import { useToast } from '@/components/ui/Toast'
 import { TEAM } from '@/components/wbs/shared'
 import { MinutesCalendar } from './MinutesCalendar'
 import { MinuteUploadModal } from './MinuteUploadModal'
 import { ArchiveChatPanel } from './ArchiveChatPanel'
 import { MinutesTree } from './MinutesTree'
+import { filenameFromContentDisposition } from './download'
 
 type ViewKey = 'list' | 'calendar' | 'tree'
 type TreeState = 'idle' | 'loading' | 'error'
@@ -43,6 +45,7 @@ export function MinutesView({
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
+  const { toast } = useToast()
   const [initY, initM] = useMemo(() => todayIso.split('-').map(Number), [todayIso])
   const [year, setYear] = useState(initY)
   const [month0, setMonth0] = useState((initM || 1) - 1)
@@ -54,6 +57,7 @@ export function MinutesView({
   const [searching, setSearching] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const reqRef = useRef(0)
   // 서버가 트리를 실어 보냈으면 그대로 초기값으로 쓴다 — 아래 마운트 effect 와 changeView 는
@@ -106,6 +110,47 @@ export function MinutesView({
     setView(v)
     queueUiPref({ minutesView: v })
     if (v === 'tree' && typeof treeState !== 'object' && treeState !== 'loading') void loadTree()
+  }
+
+  async function downloadAllMinutes() {
+    setExportBusy(true)
+    try {
+      const res = await fetch('/api/minutes/export')
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as { error?: string } | null
+        toast({
+          title: t('min.export.failed'),
+          description: payload?.error ?? `${t('min.export.failed')} (${res.status})`,
+          variant: 'error',
+        })
+        return
+      }
+
+      const blob = await res.blob()
+      const name = filenameFromContentDisposition(
+        res.headers.get('Content-Disposition'),
+        'minutes.zip',
+      )
+      const objectUrl = URL.createObjectURL(blob)
+      try {
+        const a = document.createElement('a')
+        a.href = objectUrl
+        a.download = name
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } finally {
+        URL.revokeObjectURL(objectUrl)
+      }
+    } catch {
+      toast({
+        title: t('min.export.failed'),
+        description: t('min.export.networkError'),
+        variant: 'error',
+      })
+    } finally {
+      setExportBusy(false)
+    }
   }
 
   // initialView가 'tree'(계정 prefs)로 마운트된 경우의 최초 조회.
@@ -175,12 +220,17 @@ export function MinutesView({
               placeholder={t('min.search.placeholder')}
               className="app-input h-9 w-56 pl-8" />
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <SegmentedTabs<ViewKey>
               tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
                      { key: 'tree', label: t('min.view.tree'), icon: ListTree },
                      { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
               value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
+            <button onClick={() => void downloadAllMinutes()} disabled={exportBusy}
+              aria-busy={exportBusy} className="btn">
+              <Download className="h-4 w-4" />
+              {exportBusy ? t('min.export.progress') : t('min.export.all')}
+            </button>
             <button onClick={() => setChatOpen(true)} className="btn">
               <Bot className="h-4 w-4" />{t('min.chat.archive.title')}
             </button>

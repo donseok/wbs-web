@@ -15,6 +15,7 @@ vi.mock('next/link', () => ({
     <a href={href} {...props}>{children}</a>,
 }))
 vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: vi.fn() }))
+vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 // 무거운 자식은 스텁 — 이 테스트는 MinutesView의 배선만 본다
 vi.mock('@/components/minutes/MinutesCalendar', () => ({ MinutesCalendar: () => <div data-testid="cal" /> }))
 vi.mock('@/components/minutes/MinuteUploadModal', () => ({ MinuteUploadModal: () => null }))
