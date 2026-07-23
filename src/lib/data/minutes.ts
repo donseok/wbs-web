@@ -1,7 +1,7 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type {
-  InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight, MinutesTreeGroup, TeamCode,
+  InsightKind, MeetingCategory, Minute, MinuteFile, MinuteHighlight, MinuteInsight, MinutesTreeGroup, TeamCode,
 } from '@/lib/domain/types'
 import { buildMinutesTree, ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
@@ -35,7 +35,7 @@ export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8
 })
 
 const LIST_COLS =
-  'id, minute_date, team_code, title, meeting_id, created_by, created_by_name, created_at, updated_at, minute_files(count)'
+  'id, minute_date, team_code, title, meeting_id, created_by, created_by_name, created_at, updated_at, body_preview, minute_files(count), meetings(category)'
 
 function mapMinute(r: Row, bodyMd = ''): Minute {
   const files = r.minute_files as { count: number }[] | undefined
@@ -51,6 +51,8 @@ function mapMinute(r: Row, bodyMd = ''): Minute {
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
     fileCount: files?.[0]?.count ?? 0,
+    bodyPreview: (r.body_preview as string | null) ?? '',
+    meetingCategory: ((r.meetings as { category?: MeetingCategory } | null)?.category) ?? null,
   }
 }
 
@@ -178,4 +180,17 @@ export const getMinuteAnnotations = cache(async (
       blockHash: r.block_hash as string,
     })),
   }
+})
+
+/** 내 즐겨찾기 회의록 id 목록(RLS 가 본인 행으로 한정). 실패 시 로깅 + null —
+ *  빈 배열과 구분해 '즐겨찾기 없음'으로 위장되는 조용한 빈 화면을 방지한다.
+ *  세션 없는 조회는 200+[] 로 돌아오므로(0039 RLS to authenticated) 호출측(page)이 세션 게이트를 건다. */
+export const getMinuteFavorites = cache(async (): Promise<string[] | null> => {
+  const sb = await createServerClient()
+  const { data, error } = await sb.from('minute_favorites').select('minute_id')
+  if (error) {
+    console.error('[getMinuteFavorites] 조회 실패:', error.message)
+    return null
+  }
+  return (data ?? []).map((r: Row) => r.minute_id as string)
 })

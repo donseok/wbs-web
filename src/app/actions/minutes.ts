@@ -5,7 +5,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import { validateMinuteInput, isMinuteFilePathValid, type MinuteInput } from '@/lib/domain/minutes'
-import { getMinuteDetail, getMinutesPage, getMinutesTree, searchMinutes } from '@/lib/data/minutes'
+import { getMinuteDetail, getMinuteFavorites, getMinutesPage, getMinutesTree, searchMinutes } from '@/lib/data/minutes'
 import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
@@ -332,6 +332,30 @@ export async function fetchMinutesTree(): Promise<
   const user = await getSession()
   if (!user) return null
   return getMinutesTree()
+}
+
+/** 탐색기 즐겨찾기 목록 — 미로그인/실패 null (fetchMinutesTree 관례와 동일). */
+export async function fetchMinuteFavorites(): Promise<string[] | null> {
+  const user = await getSession()
+  if (!user) return null
+  return getMinuteFavorites()
+}
+
+/** 회의록 즐겨찾기 토글 — 성공 여부만 반환(실패 시 호출부가 낙관적 갱신 롤백 + 토스트). */
+export async function toggleMinuteFavorite(minuteId: string, on: boolean): Promise<boolean> {
+  const user = await getSession()
+  if (!user) return false
+  const sb = await createServerClient()
+  if (on) {
+    const { error } = await sb.from('minute_favorites')
+      .upsert({ user_id: user.id, minute_id: minuteId }, { onConflict: 'user_id,minute_id', ignoreDuplicates: true })
+    if (error) { console.error('[toggleMinuteFavorite] 저장 실패:', error.message); return false }
+  } else {
+    const { error } = await sb.from('minute_favorites')
+      .delete().eq('user_id', user.id).eq('minute_id', minuteId)
+    if (error) { console.error('[toggleMinuteFavorite] 삭제 실패:', error.message); return false }
+  }
+  return true
 }
 
 /** 블록 하이라이트 토글 — 스펙 §6.7. 서버가 현재 본문 기준으로 (인덱스, 해시) 재검증. */
