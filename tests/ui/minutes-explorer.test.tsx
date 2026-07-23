@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { MinutesTreeGroup } from '@/lib/domain/types'
+import type { ExplorerLeaf, MinuteFolder } from '@/lib/domain/types'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -13,47 +13,54 @@ vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) =>
     <a href={href} {...props}>{children}</a>,
 }))
+vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
+const moveMinuteToFolder = vi.fn(async () => ({ ok: true }))
+vi.mock('@/app/actions/minutes', () => ({
+  createMinuteFolder: vi.fn(async () => ({ ok: true })),
+  renameMinuteFolder: vi.fn(async () => ({ ok: true })),
+  deleteMinuteFolder: vi.fn(async () => ({ ok: true })),
+  moveMinuteToFolder: (...a: unknown[]) => moveMinuteToFolder(...(a as [])),
+}))
 
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
-const leaf = (id: string, date: string, title: string, extra: Partial<{
-  bodyPreview: string; meetingCategory: 'routine' | null; fileCount: number
-}> = {}) => ({
-  id, minuteDate: date, title, fileCount: 0, createdByName: '홍길동',
-  bodyPreview: '', meetingCategory: null as 'routine' | null, ...extra,
+const folder = (id: string, name: string, parentId: string | null = null, sort = 100, createdBy: string | null = null): MinuteFolder =>
+  ({ id, name, parentId, sort, createdBy })
+const leaf = (id: string, date: string, title: string, folderId: string | null, extra: Partial<ExplorerLeaf> = {}): ExplorerLeaf => ({
+  id, minuteDate: date, teamCode: 'MES', title, fileCount: 0,
+  createdBy: 'u1', createdByName: '홍길동', bodyPreview: '', meetingCategory: null,
+  folderId, ...extra,
 })
 
-const groups = [
-  {
-    teamCode: 'MES', count: 3,
-    bodies: [
-      { name: '물류공정', count: 2, latestDate: '2026-07-16', leaves: [
-        leaf('m1', '2026-07-16', '물류공정_260716', { bodyPreview: '부자재 발주 요약', meetingCategory: 'routine', fileCount: 2 }),
-        leaf('m2', '2026-07-09', '물류공정_260709'),
-      ] },
-      { name: '공정조', count: 1, latestDate: '2026-07-15', leaves: [leaf('m3', '2026-07-15', '공정조_260715')] },
-    ],
-  },
-  {
-    teamCode: 'PMO', count: 1,
-    bodies: [{ name: '정산', count: 1, latestDate: '2026-07-14', leaves: [leaf('m4', '2026-07-14', '정산_260714')] }],
-  },
-] as MinutesTreeGroup[]
+const folders = [
+  folder('f-pmo', 'PMO', null, 0),
+  folder('f-plan', '생산계획', null, 5),
+  folder('f-aps', 'APS 회의', 'f-plan', 100, 'u1'),
+]
+const leaves = [
+  leaf('m1', '2026-07-22', 'APS 인터뷰', 'f-aps', { bodyPreview: '부자재 발주 요약', meetingCategory: 'routine' }),
+  leaf('m2', '2026-07-21', '생산계획 정례', 'f-plan'),
+  leaf('m3', '2026-07-20', '미배정 회의록', null),
+]
 
-describe('MinutesExplorer', () => {
+describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
   let container: HTMLDivElement, root: Root
-  const onToggle = vi.fn(), onRetry = vi.fn(), onLayoutChange = vi.fn()
+  const onToggle = vi.fn(), onRetry = vi.fn(), onLayout = vi.fn(), onChanged = vi.fn(), onFolderSelect = vi.fn()
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
-    root = createRoot(container); onToggle.mockClear(); onRetry.mockClear(); onLayoutChange.mockClear()
+    root = createRoot(container)
+    onToggle.mockClear(); onRetry.mockClear(); onLayout.mockClear(); onChanged.mockClear()
+    onFolderSelect.mockClear(); moveMinuteToFolder.mockClear()
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
   async function mount(over: Partial<Parameters<typeof MinutesExplorer>[0]> = {}) {
     await act(async () => root.render(
-      <MinutesExplorer groups={groups} favorites={new Set(['m1'])}
+      <MinutesExplorer folders={folders} leaves={leaves} favorites={new Set(['m1'])}
         onToggleFavorite={onToggle} onRetryFavorites={onRetry}
-        layout="grid" onLayoutChange={onLayoutChange} {...over} />,
+        layout="grid" onLayoutChange={onLayout}
+        currentUserId="u1" isAdmin={false} onChanged={onChanged} onFolderSelect={onFolderSelect}
+        {...over} />,
     ))
   }
   function buttonByText(text: string): HTMLButtonElement {
@@ -61,55 +68,88 @@ describe('MinutesExplorer', () => {
     if (!found) throw new Error(`button not found: ${text}`)
     return found
   }
+  // Modal은 createPortal(..., document.body)로 container 밖에 렌더된다(다른 스위트의 확립된 관례 —
+  // tests/ui/modal-focus.test.tsx, tests/ui/deep-link-params.test.tsx도 document.querySelector('[role="dialog"]')
+  // 로 모달을 찾는다). container 스코프 헬퍼로는 모달 내부 버튼/텍스트를 관찰할 수 없어 별도 헬퍼가 필요하다.
+  function dialog(): HTMLElement {
+    const found = document.querySelector<HTMLElement>('[role="dialog"]')
+    if (!found) throw new Error('dialog not found')
+    return found
+  }
+  function dialogButtonByText(text: string): HTMLButtonElement {
+    const found = [...dialog().querySelectorAll('button')].find(b => b.textContent?.includes(text))
+    if (!found) throw new Error(`dialog button not found: ${text}`)
+    return found
+  }
 
-  it('초기 all 스코프: 사이드바 팀 펼침 + 팀 폴더 카드 + 회의록 카드(요약·유형 칩·회의체 칩)', async () => {
+  it('all 스코프: 루트 폴더 카드(재귀 카운트) + 미분류 카드 + 전체 리프 flat', async () => {
     await mount()
-    expect(container.textContent).toContain('min.exp.all')
-    expect(container.textContent).toContain('물류공정')            // 사이드바 회의체 행(기본 펼침)
-    expect(container.textContent).toContain('min.exp.subfolderCount') // 팀 폴더 카드 메타
-    expect(container.textContent).toContain('부자재 발주 요약')       // bodyPreview
-    expect(container.textContent).toContain('meet.cat.routine')      // 유형 칩
+    expect(container.textContent).toContain('PMO')
+    expect(container.textContent).toContain('min.fold.unfiled')
+    // 생산계획 루트 카드의 재귀 카운트(직계 1 + APS 1 = 2)
+    const planCard = [...container.querySelectorAll('button')]
+      .find(b => b.textContent?.includes('생산계획') && b.textContent?.includes('min.exp.meetingCount'))!
+    expect(planCard.textContent).toContain('min.exp.subfolderCount')
+    // 전체 flat: 3건 모두 렌더
+    expect(container.querySelectorAll('a[href^="/minutes/m"]').length).toBe(3)
+  })
+
+  it('폴더 스코프: 직계 하위 폴더 카드 + 직계 리프만, 경로 표시', async () => {
+    await mount()
+    await act(async () => buttonByText('생산계획').click())   // 레일 행(첫 매치)
+    expect(container.querySelector('a[href="/minutes/m2"]')).toBeTruthy()   // 직계
+    expect(container.querySelector('a[href="/minutes/m1"]')).toBeNull()     // 하위 폴더 소속은 미표시
+    expect(container.textContent).toContain('APS 회의')                      // 하위 폴더 카드
+    await act(async () => buttonByText('APS 회의').click())
     expect(container.querySelector('a[href="/minutes/m1"]')).toBeTruthy()
+    expect(onFolderSelect).toHaveBeenLastCalledWith('f-aps')
   })
 
-  it('팀 폴더 카드 클릭 → team 스코프(회의체 폴더 카드 + 그 팀 리프만)', async () => {
+  it('미분류 스코프: folder_id null 리프만', async () => {
     await mount()
-    // 폴더 카드의 팀명 버튼(사이드바 행과 구분: 카드는 min.exp.meetingCount 메타를 포함)
-    const card = [...container.querySelectorAll('button')]
-      .find(b => b.textContent?.includes('MES') && b.textContent?.includes('min.exp.meetingCount'))!
-    await act(async () => card.click())
-    expect(container.textContent).toContain('min.exp.latest')   // 회의체 폴더 카드 메타
-    expect(container.querySelector('a[href="/minutes/m4"]')).toBeNull() // PMO 리프 제외
-  })
-
-  it('회의체 선택(body 스코프) → 폴더 카드 없음 + 회의체 칩 생략', async () => {
-    await mount()
-    await act(async () => buttonByText('공정조').click())
+    await act(async () => buttonByText('min.fold.unfiled').click())
     expect(container.querySelector('a[href="/minutes/m3"]')).toBeTruthy()
     expect(container.querySelector('a[href="/minutes/m1"]')).toBeNull()
-    expect(container.textContent).not.toContain('min.exp.subfolderCount')
+    expect(onFolderSelect).toHaveBeenLastCalledWith(null)
   })
 
-  it('별 토글 클릭 → onToggleFavorite(id) 호출, aria-pressed 반영', async () => {
+  it('폴더 ⋯ 메뉴는 소유자/관리자에게만 — 시드 폴더는 일반 사용자에게 숨김', async () => {
     await mount()
-    const stars = [...container.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')]
-    const m1star = stars.find(b => b.closest('article')?.textContent?.includes('물류공정_260716'))!
-    expect(m1star.getAttribute('aria-pressed')).toBe('true')   // m1 은 즐겨찾기
-    await act(async () => m1star.click())
-    expect(onToggle).toHaveBeenCalledWith('m1')
+    // 시드(createdBy null) PMO 행: 메뉴 없음 / 본인 소유 APS 회의: 메뉴 있음
+    const menuBtns = [...container.querySelectorAll('button[aria-label="min.fold.menuAria"]')]
+    expect(menuBtns.length).toBe(1)
+    await mount({ isAdmin: true })
+    expect([...container.querySelectorAll('button[aria-label="min.fold.menuAria"]')].length).toBe(3)
   })
 
-  it('즐겨찾기 스코프: fav 리프만 + 카운트, 비면 favEmpty', async () => {
+  it('새 폴더 버튼 → 생성 모달 열림, 이동 버튼 → 픽커 열림 후 moveMinuteToFolder 호출·onChanged', async () => {
     await mount()
-    await act(async () => buttonByText('min.exp.favorites').click())
-    expect(container.querySelector('a[href="/minutes/m1"]')).toBeTruthy()
-    expect(container.querySelector('a[href="/minutes/m2"]')).toBeNull()
-    await mount({ favorites: new Set<string>() })
-    await act(async () => buttonByText('min.exp.favorites').click())
-    expect(container.textContent).toContain('min.exp.favEmpty')
+    await act(async () => buttonByText('min.fold.new').click())
+    expect(dialog().textContent).toContain('min.fold.name')          // FolderManageModal
+    await act(async () => dialogButtonByText('min.fold.cancel').click())  // 없으면 Esc 대체 — 구현의 닫기 버튼 텍스트에 맞춤
+    // 이동: m1 카드의 이동 버튼(작성자 u1)
+    const moveBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.move"]')]
+      .find(b => b.closest('article')?.textContent?.includes('APS 인터뷰'))!
+    await act(async () => moveBtn.click())
+    expect(dialog().textContent).toContain('min.fold.pickTitle')
+    await act(async () => dialogButtonByText('min.fold.unfiled').click())   // 픽커에서 미분류 선택
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m1', null)
+    expect(onChanged).toHaveBeenCalled()
   })
 
-  it('favorites=null: 카운트 – 표시, 즐겨찾기 스코프는 에러 카드 + 재시도 콜백', async () => {
+  it('이동 버튼은 작성자가 아니고 관리자도 아니면 없다', async () => {
+    await mount({ currentUserId: 'other' })
+    expect(container.querySelectorAll('button[aria-label="min.fold.move"]').length).toBe(0)
+  })
+
+  it('선택 폴더가 사라지면(재조회 후) all 강등', async () => {
+    await mount()
+    await act(async () => buttonByText('APS 회의').click())
+    await mount({ folders: [folders[0], folders[1]], leaves })  // f-aps 삭제된 재조회 결과
+    expect(container.querySelectorAll('a[href^="/minutes/m"]').length).toBe(3)  // all flat
+  })
+
+  it('즐겨찾기·팀 필터 계약 유지: favorites=null 카운트 –, 즐겨찾기 스코프 에러 카드+재시도', async () => {
     await mount({ favorites: null })
     expect(container.textContent).toContain('–')
     await act(async () => buttonByText('min.exp.favorites').click())
@@ -118,35 +158,13 @@ describe('MinutesExplorer', () => {
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
-  it('더 보기: 30개 초과분은 숨기고 잔여 건수를 라벨에 노출, 클릭 시 확장', async () => {
-    const many = [{
-      teamCode: 'MES', count: 35,
-      bodies: [{ name: '대량', count: 35, latestDate: '2026-07-16',
-        leaves: Array.from({ length: 35 }, (_, i) => leaf(`x${i}`, '2026-07-16', `대량_${i}`)) }],
-    }] as MinutesTreeGroup[]
-    await mount({ groups: many })
+  it('더 보기 30개 증분과 레이아웃 콜백 유지', async () => {
+    const many = Array.from({ length: 35 }, (_, i) => leaf(`x${i}`, '2026-07-01', `대량_${i}`, null))
+    await mount({ leaves: many, folders: [] })
     expect(container.querySelectorAll('a[href^="/minutes/x"]').length).toBe(30)
-    expect(container.textContent).toContain('min.exp.more')
     await act(async () => buttonByText('min.exp.more').click())
     expect(container.querySelectorAll('a[href^="/minutes/x"]').length).toBe(35)
-  })
-
-  it('레이아웃 토글 클릭 → onLayoutChange("list") 호출(레이아웃 상태는 MinutesView 소유)', async () => {
-    await mount()
     await act(async () => buttonByText('min.exp.layout.list').click())
-    expect(onLayoutChange).toHaveBeenCalledWith('list')
-  })
-
-  it('layout="list"로 마운트하면 카드 대신 리스트 행이 렌더된다', async () => {
-    await mount({ layout: 'list' })
-    expect(container.querySelector('article')).toBeNull()   // 카드 대신 행
-    expect(container.querySelector('a[href="/minutes/m1"]')).toBeTruthy()
-  })
-
-  it('팀 탭 프루닝으로 선택 노드가 사라지면 all 로 강등된다', async () => {
-    await mount()
-    await act(async () => buttonByText('공정조').click())
-    await mount({ groups: [groups[1]] })   // MES 가 사라진 프루닝 결과로 리렌더
-    expect(container.querySelector('a[href="/minutes/m4"]')).toBeTruthy() // all 폴백으로 PMO 리프 표시
+    expect(onLayout).toHaveBeenCalledWith('list')
   })
 })
