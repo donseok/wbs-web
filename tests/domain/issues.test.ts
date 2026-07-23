@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ISSUE_STATUSES, ISSUE_SEVERITIES, STATUS_TRANSITIONS,
   canTransition, isOverdue, nextResolvedAt, sortIssues, summarizeIssues, filterIssues, canEditIssue,
-  type Issue, type IssueStatus,
+  type Issue,
 } from '@/lib/domain/issues'
 
 function issue(id: string, opts: Partial<Issue> = {}): Issue {

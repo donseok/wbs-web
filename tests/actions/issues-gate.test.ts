@@ -79,8 +79,15 @@ describe('updateIssueProgress — 전환 검증 + CAS', () => {
     vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
     vi.mocked(getSession).mockResolvedValue(USER as never)
     state.client = sbWithCurrent({ project_id: 'p1', created_by: 'other', status: 'resolved', resolved_at: '2026-07-20T00:00:00Z' })
-    const res = await updateIssueProgress('i1', { status: 'on_hold' })
+    const res = await updateIssueProgress('i1', { status: 'on_hold', expectedStatus: 'resolved' })
     expect(res.ok).toBe(false)
+  })
+  it('status 만 있고 expectedStatus 가 없으면 검증 에러 (DB 미도달)', async () => {
+    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    const res = await updateIssueProgress('i1', { status: 'in_progress' })
+    expect(res).toMatchObject({ ok: false, error: '상태 기준값이 없습니다. 새로고침 후 다시 시도하세요.' })
+    expect(createServerClient).not.toHaveBeenCalled()
   })
   it('CAS 0행이면 conflict:true (다른 사용자 선변경)', async () => {
     vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
@@ -93,7 +100,16 @@ describe('updateIssueProgress — 전환 검증 + CAS', () => {
         })),
       })),
     }
-    const res = await updateIssueProgress('i1', { status: 'in_progress' })
+    const res = await updateIssueProgress('i1', { status: 'in_progress', expectedStatus: 'open' })
+    expect(res).toMatchObject({ ok: false, conflict: true })
+  })
+  it('클라이언트가 관측한 expectedStatus 가 서버 최신 상태와 다르면 즉시 conflict (stale 재오픈 저장 차단, update 미호출)', async () => {
+    // A 가 open 을 보는 동안 B 가 resolved 로 바꿈. A 의 in_progress 저장(expectedStatus:'open')은
+    // 선검증에서 즉시 conflict — 서버가 방금 읽은 status(resolved)가 아니라 클라이언트 관측값이 기준.
+    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    state.client = sbWithCurrent({ project_id: 'p1', created_by: 'other', status: 'resolved', resolved_at: '2026-07-20T00:00:00Z' })
+    const res = await updateIssueProgress('i1', { status: 'in_progress', expectedStatus: 'open' })
     expect(res).toMatchObject({ ok: false, conflict: true })
   })
 })

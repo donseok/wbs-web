@@ -29,6 +29,8 @@ export interface IssueInput {
 
 export interface IssueProgressPatch {
   status?: IssueStatus
+  /** status 를 보낼 때 필수 — 클라이언트가 화면에 보이는 상태(CAS 비교 기준). 서버가 방금 읽은 상태가 아니다. */
+  expectedStatus?: IssueStatus
   assigneeMemberId?: string | null
   resolutionNote?: string
 }
@@ -132,6 +134,9 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
   if (patch.status === undefined && patch.assigneeMemberId === undefined && patch.resolutionNote === undefined) {
     return { ok: false, error: '변경할 내용이 없습니다.' }
   }
+  if (patch.status !== undefined && patch.expectedStatus === undefined) {
+    return { ok: false, error: '상태 기준값이 없습니다. 새로고침 후 다시 시도하세요.' }
+  }
   if (patch.resolutionNote !== undefined && patch.resolutionNote.length > TEXT_MAX) {
     return { ok: false, error: `조치 메모는 ${TEXT_MAX}자 이하여야 합니다.` }
   }
@@ -139,27 +144,32 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
   const sb = await createServerClient()
   const { data: cur } = await sb.from('issues').select('project_id, created_by, status, resolved_at').eq('id', issueId).maybeSingle()
   if (!cur) return { ok: false, error: '이슈를 찾을 수 없습니다.' }
-  const from = cur.status as IssueStatus
+  const curStatus = cur.status as IssueStatus
 
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (patch.assigneeMemberId !== undefined) payload.assignee_member_id = patch.assigneeMemberId
   if (patch.resolutionNote !== undefined) payload.resolution_note = patch.resolutionNote
   if (patch.status !== undefined) {
-    if (!canTransition(from, patch.status)) {
+    // CAS 비교 기준은 서버가 방금 읽은 curStatus 가 아니라 클라이언트가 화면에서 관측한 expectedStatus.
+    // 그래야 read→write 사이가 아니라 "클라이언트가 화면을 마지막으로 갱신한 시점 이후" 변경까지 잡아낸다.
+    if (curStatus !== patch.expectedStatus) {
+      return { ok: false, conflict: true, error: '다른 사용자가 먼저 변경했거나 이슈가 삭제되었습니다. 최신 상태로 새로고침합니다.' }
+    }
+    if (!canTransition(patch.expectedStatus, patch.status)) {
       return { ok: false, error: '허용되지 않는 상태 전환입니다. 화면을 새로고침해 주세요.' }
     }
     payload.status = patch.status
-    payload.resolved_at = nextResolvedAt(from, patch.status, (cur.resolved_at as string | null) ?? null, new Date().toISOString())
+    payload.resolved_at = nextResolvedAt(patch.expectedStatus, patch.status, (cur.resolved_at as string | null) ?? null, new Date().toISOString())
   }
 
   if (patch.status !== undefined) {
-    // CAS: 선검증 시점의 상태와 같을 때만 반영. 0행 = 그새 다른 사용자가 바꿈(또는 삭제됨).
+    // CAS: expectedStatus 와 같을 때만 반영(위 선검증과 동일 기준). 0행 = 그 사이(read→write) 추가 경합.
     // .select() 필수 — RLS/0행은 error 없이 빈 배열이라 그대로 두면 실패가 성공으로 둔갑한다(wbs.ts 관례).
     const { data: updated, error } = await sb
       .from('issues')
       .update(payload)
       .eq('id', issueId)
-      .eq('status', from)
+      .eq('status', patch.expectedStatus)
       .select('id')
     if (error) return { ok: false, error: error.message }
     if (!updated?.length) {

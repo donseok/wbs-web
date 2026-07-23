@@ -34,11 +34,13 @@ export function IssuesView({
   const [severityFilter, setSeverityFilter] = useState<IssueSeverityFilter>('all')
   const [mineOnly, setMineOnly] = useState(false)
   // 딥링크 ?focus= — 최초 마운트에서 해당 이슈 상세를 연다. 무효 id 는 조용히 무시(공지·회의 관례).
-  const [viewing, setViewing] = useState<Issue | null>(() => {
-    const focus = searchParams.get('focus')
-    if (!focus) return null
-    return issues.find(i => i.id === focus) ?? null
-  })
+  // viewing 은 id 만 상태로 갖고 issues 에서 파생한다 — conflict 후 router.refresh() 로 issues 가 새
+  // 참조로 갱신되면 모달도 자동으로 최신값을 반영한다(객체 state 로 들고 있으면 refresh 가 못 미친다).
+  const [viewingId, setViewingId] = useState<string | null>(() => searchParams.get('focus'))
+  const viewing = useMemo(
+    () => (viewingId ? issues.find(i => i.id === viewingId) ?? null : null),
+    [issues, viewingId],
+  )
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Issue | null>(null)
   const [deleting, setDeleting] = useState<Issue | null>(null)
@@ -67,7 +69,7 @@ export function IssuesView({
     setFormOpen(true)
   }
   function openEdit(issue: Issue) {
-    setViewing(null)
+    setViewingId(null)
     setEditing(issue)
     setFormOpen(true)
   }
@@ -124,10 +126,10 @@ export function IssuesView({
                   return (
                     <tr
                       key={issue.id}
-                      onClick={() => setViewing(issue)}
+                      onClick={() => setViewingId(issue.id)}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={e => { if (e.key === 'Enter') setViewing(issue) }}
+                      onKeyDown={e => { if (e.key === 'Enter') setViewingId(issue.id) }}
                       className="cursor-pointer border-b border-line/70 transition last:border-0 hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2"
                     >
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums text-ink-muted">#{issue.issueNo}</td>
@@ -174,12 +176,12 @@ export function IssuesView({
         memberName={memberName}
         canEdit={viewing ? canEditIssue(viewing, currentUserId, role) : false}
         today={today}
-        onClose={() => setViewing(null)}
+        onClose={() => setViewingId(null)}
         onEdit={() => viewing && openEdit(viewing)}
         onDelete={() => {
           if (!viewing) return
           setDeleting(viewing)
-          setViewing(null)
+          setViewingId(null)
         }}
       />
       <IssueFormModal open={formOpen} onClose={() => setFormOpen(false)} projectId={projectId} initial={editing} members={members} />

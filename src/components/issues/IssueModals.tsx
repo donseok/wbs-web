@@ -103,7 +103,7 @@ export function IssueDetailModal({
   function saveProgress() {
     if (!issue || !dirty) return
     const patch = {
-      ...(status !== issue.status ? { status } : {}),
+      ...(status !== issue.status ? { status, expectedStatus: issue.status } : {}),
       ...(assignee !== issue.assigneeMemberId ? { assigneeMemberId: assignee } : {}),
       ...(note !== issue.resolutionNote ? { resolutionNote: note } : {}),
     }
