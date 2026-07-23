@@ -1,0 +1,147 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const getSession = vi.fn()
+vi.mock('@/lib/auth', () => ({
+  getSession: (...a: unknown[]) => getSession(...(a as [])),
+  getMembership: vi.fn(),
+}))
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+vi.mock('next/server', () => ({ after: vi.fn() }))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn() }))
+vi.mock('@/lib/ai/minutes-ingest', () => ({ ingestMinute: vi.fn() }))
+vi.mock('@/lib/ai/minutes-insights', () => ({ ensureMinuteInsights: vi.fn(), generateMinuteInsights: vi.fn() }))
+vi.mock('@/lib/data/meetings', () => ({ getProjectMeetingData: vi.fn() }))
+vi.mock('@/lib/data/minutes', () => ({
+  getMinuteDetail: vi.fn(), getMinutesPage: vi.fn(), getMinutesTree: vi.fn(), searchMinutes: vi.fn(),
+  getMinuteFavorites: vi.fn(), getMinutesExplorer: vi.fn(),
+}))
+
+// 테이블별 결과를 주입하는 thenable 가짜 빌더 — insert/update/delete/select 체인 지원
+type TableResult = { data?: unknown; error: { message: string; code?: string } | null }
+function fakeClient(results: Record<string, TableResult>) {
+  const calls: Record<string, { method: string; args: unknown[] }[]> = {}
+  const from = vi.fn((table: string) => {
+    const log = (calls[table] ??= [])
+    const result = results[table] ?? { data: [], error: null }
+    const builder: Record<string, unknown> = {}
+    for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'maybeSingle', 'single']) {
+      builder[m] = vi.fn((...a: unknown[]) => { log.push({ method: m, args: a }); return builder })
+    }
+    ;(builder as { then: (r: (v: TableResult) => void) => void }).then = resolve => resolve(result)
+    return builder
+  })
+  return { client: { from }, calls, from }
+}
+const createServerClient = vi.fn()
+vi.mock('@/lib/supabase/server', () => ({
+  createServerClient: (...a: unknown[]) => createServerClient(...(a as [])),
+}))
+
+import {
+  createMinuteFolder, deleteMinuteFolder, moveMinuteToFolder, renameMinuteFolder,
+} from '@/app/actions/minutes'
+
+const seedFolders = [
+  { id: 'f1', name: 'PMO', parent_id: null, sort: 0, created_by: null },
+  { id: 'f2', name: '하위', parent_id: 'f1', sort: 100, created_by: 'u1' },
+]
+
+beforeEach(() => {
+  getSession.mockReset(); createServerClient.mockReset()
+  getSession.mockResolvedValue({ id: 'u1' })
+})
+
+describe('createMinuteFolder', () => {
+  it('미로그인은 실패 + 클라이언트 미생성', async () => {
+    getSession.mockResolvedValue(null)
+    const r = await createMinuteFolder('새폴더', null)
+    expect(r.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('이름 검증 실패(공백)는 DB 접근 없이 에러', async () => {
+    const r = await createMinuteFolder('   ', null)
+    expect(r.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('깊이 5단 초과는 거부', async () => {
+    const chain = [
+      { id: 'd1', name: '1', parent_id: null, sort: 0, created_by: null },
+      { id: 'd2', name: '2', parent_id: 'd1', sort: 0, created_by: null },
+      { id: 'd3', name: '3', parent_id: 'd2', sort: 0, created_by: null },
+      { id: 'd4', name: '4', parent_id: 'd3', sort: 0, created_by: null },
+      { id: 'd5', name: '5', parent_id: 'd4', sort: 0, created_by: null },
+    ]
+    const { client } = fakeClient({ minute_folders: { data: chain, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await createMinuteFolder('6단', 'd5')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('5')
+  })
+  it('유니크 위반(23505)은 중복 안내 문구로 매핑', async () => {
+    const { client, from } = fakeClient({ minute_folders: { data: seedFolders, error: null } })
+    // 두 번째 from('minute_folders') 호출(insert)만 에러를 내도록 교체
+    let call = 0
+    from.mockImplementation(() => {
+      call += 1
+      const result = call === 1
+        ? { data: seedFolders, error: null }
+        : { data: null, error: { message: 'duplicate key value', code: '23505' } }
+      const builder: Record<string, unknown> = {}
+      for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'maybeSingle', 'single']) {
+        builder[m] = vi.fn(() => builder)
+      }
+      ;(builder as { then: (r: (v: typeof result) => void) => void }).then = resolve => resolve(result)
+      return builder
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await createMinuteFolder('PMO', null)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('이미')
+  })
+})
+
+describe('renameMinuteFolder / deleteMinuteFolder', () => {
+  it('rename: 이름 검증 실패는 DB 접근 없이 에러', async () => {
+    const r = await renameMinuteFolder('f2', '')
+    expect(r.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('rename: 0행 갱신(권한 없음/미존재)은 실패로 판정', async () => {
+    const { client } = fakeClient({ minute_folders: { data: [], error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await renameMinuteFolder('f1', '새이름')
+    expect(r.ok).toBe(false)
+  })
+  it('delete: 0행 삭제는 실패, 1행 삭제는 성공', async () => {
+    const { client } = fakeClient({ minute_folders: { data: [{ id: 'f2' }], error: null } })
+    createServerClient.mockResolvedValue(client)
+    expect((await deleteMinuteFolder('f2')).ok).toBe(true)
+    const empty = fakeClient({ minute_folders: { data: [], error: null } })
+    createServerClient.mockResolvedValue(empty.client)
+    expect((await deleteMinuteFolder('f2')).ok).toBe(false)
+  })
+})
+
+describe('moveMinuteToFolder', () => {
+  it('대상 폴더 미존재면 거부', async () => {
+    const { client } = fakeClient({ minute_folders: { data: null, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteToFolder('m1', 'ghost')
+    expect(r.ok).toBe(false)
+  })
+  it('folderId null(미분류)은 폴더 존재 검증 없이 진행, 0행 갱신은 권한 없음', async () => {
+    const { client, calls } = fakeClient({ minutes: { data: [], error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteToFolder('m1', null)
+    expect(r.ok).toBe(false)                       // 0행 → 권한 없음
+    expect(calls['minute_folders']).toBeUndefined() // 폴더 조회 안 함
+  })
+  it('1행 갱신이면 성공', async () => {
+    const { client } = fakeClient({
+      minute_folders: { data: { id: 'f1' }, error: null },
+      minutes: { data: [{ id: 'm1' }], error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    expect((await moveMinuteToFolder('m1', 'f1')).ok).toBe(true)
+  })
+})
