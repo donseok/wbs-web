@@ -17,6 +17,7 @@ D'Flow 전반에서 **하나의 개념에는 하나의 아이콘**을 쓰기 위
 | WBS | `ListTree` | `ListTree` | WBS·간트 병합 시트의 대표 아이콘 |
 | 간트 차트 | `GanttChartSquare` | `GanttChartSquare` | 대시보드 퀵링크 기준. ※ 현재 Sidebar 의 "간트" 항목은 `CalendarDays` 를 쓰므로 차후 `GanttChartSquare` 로 통일 권장 |
 | 칸반 보드 | `Columns3` | `Columns3` | |
+| 이슈관리 | `CircleAlert` | `CircleAlert` | 프로젝트 리스크/장애물. 지연·위험 "상태" 의미의 `AlertTriangle` 과 구분 |
 | 멤버 | `Users` | `Users` | |
 | 근태현황 | `CalendarCheck` | `CalendarCheck` | |
 | 설정 | `Settings` | `Settings` | |
@@ -104,3 +105,4 @@ D'Flow 전반에서 **하나의 개념에는 하나의 아이콘**을 쓰기 위
 | 날짜 | 변경 | 사유 |
 |------|------|------|
 | 2026-06-29 | 최초 작성 — 내비/액션/상태/근태/크롬 정본 매핑 + 크기 규칙 | DK Flow → D'Flow 리브랜딩에 맞춰 아이콘 사용 일관성 확보 |
+| 2026-07-23 | 내비게이션 정본에 이슈관리(`CircleAlert`) 등록 | 이슈관리 메뉴 신설 |

@@ -19,7 +19,7 @@ import type { SidebarProject } from './Sidebar'
 import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
 
 const SECTION_LABEL: Record<string, string> = {
-  dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드',
+  dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드', issues: '이슈관리',
   members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', weekly: '주간업무', settings: '설정',
 }
 
@@ -263,10 +263,12 @@ function MobileMenu({
         { href: `/p/${activeId}/dashboard`, label: t('nav.dashboard') },
         { href: `/p/${activeId}/wbs`, label: t('nav.wbsGantt') },
         { href: `/p/${activeId}/kanban`, label: t('nav.kanban') },
+        { href: `/p/${activeId}/issues`, label: t('nav.issues') },
         { href: `/p/${activeId}/members`, label: t('nav.members') },
         { href: `/p/${activeId}/attendance`, label: t('nav.attendance') },
         { href: `/p/${activeId}/announcements`, label: t('nav.announcements'), badge: unreadAnn },
         { href: `/p/${activeId}/meetings`, label: t('nav.meetings') },
+        { href: `/p/${activeId}/weekly`, label: t('nav.weekly') },
         { href: `/p/${activeId}/settings`, label: t('nav.settings') },
       ]
     : []
