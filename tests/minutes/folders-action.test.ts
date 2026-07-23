@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const getSession = vi.fn()
+const getMembership = vi.fn()
 vi.mock('@/lib/auth', () => ({
   getSession: (...a: unknown[]) => getSession(...(a as [])),
-  getMembership: vi.fn(),
+  getMembership: (...a: unknown[]) => getMembership(...(a as [])),
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('next/server', () => ({ after: vi.fn() }))
@@ -47,13 +48,22 @@ const seedFolders = [
 ]
 
 beforeEach(() => {
-  getSession.mockReset(); createServerClient.mockReset()
+  getSession.mockReset(); createServerClient.mockReset(); getMembership.mockReset()
   getSession.mockResolvedValue({ id: 'u1' })
+  // 이 파일의 기존 케이스들은 멤버십 가드를 겨냥하지 않으므로 통과 기본값을 깔아준다 —
+  // 개별 케이스(멤버십 null)만 아래서 오버라이드.
+  getMembership.mockResolvedValue({ role: 'member' })
 })
 
 describe('createMinuteFolder', () => {
   it('미로그인은 실패 + 클라이언트 미생성', async () => {
     getSession.mockResolvedValue(null)
+    const r = await createMinuteFolder('새폴더', null)
+    expect(r.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('멤버십 없음(세션은 존재)은 실패 + DB insert 미도달', async () => {
+    getMembership.mockResolvedValue(null)
     const r = await createMinuteFolder('새폴더', null)
     expect(r.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
@@ -97,6 +107,27 @@ describe('createMinuteFolder', () => {
     const r = await createMinuteFolder('PMO', null)
     expect(r.ok).toBe(false)
     expect(r.error).toContain('이미')
+  })
+  it('상위 폴더 FK 위반(23503)은 삭제 안내 문구로 매핑', async () => {
+    const { client, from } = fakeClient({ minute_folders: { data: seedFolders, error: null } })
+    // 두 번째 from('minute_folders') 호출(insert)만 에러를 내도록 교체
+    let call = 0
+    from.mockImplementation(() => {
+      call += 1
+      const result = call === 1
+        ? { data: seedFolders, error: null }
+        : { data: null, error: { message: 'insert or update on table violates foreign key constraint', code: '23503' } }
+      const builder: Record<string, unknown> = {}
+      for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'maybeSingle', 'single']) {
+        builder[m] = vi.fn(() => builder)
+      }
+      ;(builder as { then: (r: (v: typeof result) => void) => void }).then = resolve => resolve(result)
+      return builder
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await createMinuteFolder('새폴더', 'f1')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('삭제')
   })
 })
 

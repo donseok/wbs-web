@@ -117,7 +117,10 @@ export function MinutesView({
 
   async function loadTree() {
     const gen = ++treeReqRef.current
-    setTreeState('loading')
+    // 이미 데이터가 있으면 스켈레톤으로 갈아끼우지 않는다(silent refresh) — 로딩 전환이
+    // 탐색기를 언마운트해 스코프·펼침·더 보기가 CRUD 때마다 리셋되는 문제를 막는다.
+    // 최초 진입(idle)·에러 재시도는 기존대로 스켈레톤.
+    if (typeof treeState !== 'object') setTreeState('loading')
     const res = await fetchMinutesExplorer()
     if (treeReqRef.current !== gen) return
     setTreeState(res ?? 'error')

@@ -361,6 +361,8 @@ export async function createMinuteFolder(
 ): Promise<{ ok: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
   const nameErr = validateFolderName(name)
   if (nameErr) return { ok: false, error: nameErr }
   const sb = await createServerClient()
@@ -373,6 +375,7 @@ export async function createMinuteFolder(
     .insert({ name: name.trim(), parent_id: parentId, created_by: user.id })
   if (error) {
     if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
+    if (error.code === '23503') return { ok: false, error: '상위 폴더가 방금 삭제되었습니다. 새로고침 후 다시 시도하세요.' }
     console.error('[createMinuteFolder] 실패:', error.message)
     return { ok: false, error: error.message }
   }

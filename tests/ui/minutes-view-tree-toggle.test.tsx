@@ -19,7 +19,10 @@ const toast = vi.fn()
 vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toast(...(a as [])) }) }))
 // 무거운 자식은 스텁 — 이 테스트는 MinutesView의 배선만 본다
 vi.mock('@/components/minutes/MinutesCalendar', () => ({ MinutesCalendar: () => <div data-testid="cal" /> }))
-vi.mock('@/components/minutes/MinuteUploadModal', () => ({ MinuteUploadModal: () => null }))
+vi.mock('@/components/minutes/MinuteUploadModal', () => ({
+  MinuteUploadModal: ({ open, onSaved }: { open: boolean; onSaved: () => void }) =>
+    open ? <button onClick={onSaved}>fake-saved</button> : null,
+}))
 const chatProps = vi.fn()
 vi.mock('@/components/minutes/ArchiveChatPanel', () => ({
   ArchiveChatPanel: (p: Record<string, unknown>) => { chatProps(p); return null },
@@ -33,6 +36,20 @@ const treeResult = {
     bodyPreview: '', meetingCategory: null, folderId: 'f1',
   }],
   total: 1, truncated: false,
+}
+// CRUD 재조회(silent refresh) 계약 테스트 전용 — m2 는 f1 이 아닌 다른 폴더(f2) 소속이라
+// 폴더 스코프(f1)에서는 보이지 않아야 한다. 리마운트로 스코프가 all 로 튕기면 노출된다.
+const treeResultTwoLeaves = {
+  folders: [...treeResult.folders, { id: 'f2', name: '운영', parentId: null, sort: 10, createdBy: null }],
+  leaves: [
+    ...treeResult.leaves,
+    {
+      id: 'm2', minuteDate: '2026-07-15', teamCode: 'PMO', title: '운영회의_260715',
+      fileCount: 0, createdBy: null, createdByName: null,
+      bodyPreview: '', meetingCategory: null, folderId: 'f2',
+    },
+  ],
+  total: 2, truncated: false,
 }
 const fetchMinutesExplorer = vi.fn(async () => treeResult as typeof treeResult | null)
 const toggleMinuteFavorite = vi.fn(async (id: string, on: boolean) => { void id; void on; return true })
@@ -174,5 +191,34 @@ describe('MinutesView 트리 뷰 배선', () => {
     await act(async () => m1star.click())
     expect(m1star.getAttribute('aria-pressed')).toBe('false')
     expect(toast).toHaveBeenCalled()
+  })
+
+  it('CRUD 후 재조회(silent refresh)는 탐색기를 리마운트하지 않는다 — 폴더 스코프 유지 + 스켈레톤 미노출', async () => {
+    await mount('tree')
+    expect(fetchMinutesExplorer).toHaveBeenCalledTimes(1)
+
+    // 레일에서 폴더 행 클릭 → 폴더 스코프(f1) 진입
+    await act(async () => buttonByText('생산계획').click())
+
+    // 업로드 모달 오픈
+    await act(async () => buttonByText('min.upload').click())
+
+    // 두 번째 응답(CRUD 이후 loadTree 재조회)을 지연시켜, 그 사이 로딩 화면으로 전환되는지 관찰한다
+    let resolveSecond!: (v: typeof treeResultTwoLeaves) => void
+    fetchMinutesExplorer.mockImplementationOnce(() => new Promise(res => { resolveSecond = res }))
+
+    await act(async () => { buttonByText('fake-saved').click() })
+    // 재조회가 아직 대기 중인 구간 — silent refresh 라면 이전 트리가 그대로 보여야 한다(스켈레톤 금지)
+    expect(container.querySelector('.dflow-skeleton')).toBeNull()
+    expect(container.textContent).toContain('생산계획')
+    expect(container.querySelector('a[href="/minutes/m2"]')).toBeNull()
+
+    await act(async () => { resolveSecond(treeResultTwoLeaves); await new Promise(r => setTimeout(r, 0)) })
+
+    expect(fetchMinutesExplorer).toHaveBeenCalledTimes(2)
+    // 리마운트됐다면 스코프가 all 로 리셋돼 m2(f2 소속)가 보였을 것 — 여전히 null 이면 스코프 유지 증거
+    expect(container.querySelector('a[href="/minutes/m2"]')).toBeNull()
+    expect(container.querySelector('.dflow-skeleton')).toBeNull()
+    expect(container.textContent).toContain('생산계획')
   })
 })
