@@ -1,7 +1,7 @@
 import { NotebookText } from 'lucide-react'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
-import { getMinuteFavorites, getMinutesPage, getMinutesTree } from '@/lib/data/minutes'
+import { getMinuteFavorites, getMinutesExplorer, getMinutesPage } from '@/lib/data/minutes'
 import { getMembership, getSession } from '@/lib/auth'
 import { getUiPrefs } from '@/app/actions/preferences'
 import { listProjects } from '@/app/actions/project'
@@ -30,7 +30,7 @@ export default async function MinutesPage() {
   // 아래 히어로 KPI(minutes.length)와 리스트/달력 전환용 월 목록까지 늦어진다.
   const [minutes, tree, favs, m, user, prefs, projects, locale] = await Promise.all([
     getMinutesPage(rs, re, null),
-    getMinutesTree(),
+    getMinutesExplorer(),
     getMinuteFavorites(),
     getMembership(),
     getSession(),
@@ -53,10 +53,10 @@ export default async function MinutesPage() {
       />}
     >
       {/* 세션이 없으면 프리페치를 버린다. minutes 의 RLS 는 `to authenticated`(0021:77)라
-          세션 없는 RSC 조회는 에러가 아니라 200+빈 배열로 돌아오고, getMinutesTree 는 그걸
-          null 이 아닌 빈 트리 객체로 반환한다(minutes.ts:90 주석의 "실패=null/빈결과=객체" 구분).
+          세션 없는 RSC 조회는 에러가 아니라 200+빈 배열로 돌아오고, getMinutesExplorer 는 그걸
+          null 이 아닌 빈 트리 객체로 반환한다(minutes.ts 주석의 "실패=null/빈결과=객체" 구분).
           그대로 넘기면 '회의록 없음' EmptyState 로 위장되고 클라이언트 self-heal 도 막힌다.
-          fetchMinutesTree(actions/minutes.ts:332)가 가진 세션 게이트를 서버 경로에도 맞춘 것.
+          fetchMinutesExplorer(actions/minutes.ts)가 가진 세션 게이트를 서버 경로에도 맞춘 것.
           user 는 위 Promise.all 에서 이미 받았으므로 추가 왕복은 없다.
           (대가: GoTrue 일시 실패 시 멀쩡한 프리페치를 버려 왕복 1회 손해 — 정확성 우선.) */}
       <MinutesView initialMinutes={minutes} initialTree={user ? tree : null} todayIso={today}

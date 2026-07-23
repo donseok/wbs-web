@@ -3,9 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Bot, CalendarDays, ChevronLeft, ChevronRight, Download, List, ListTree, Plus, Search } from 'lucide-react'
-import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
+import type { ExplorerData, ExplorerLeaf, Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import { MINUTES_TREE_LIMIT, TEAM_CODES } from '@/lib/domain/minutes'
-import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesTree, fetchMinuteFavorites, toggleMinuteFavorite } from '@/app/actions/minutes'
+import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesExplorer, fetchMinuteFavorites, toggleMinuteFavorite } from '@/app/actions/minutes'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
@@ -20,8 +20,7 @@ import { MinutesExplorer, type ExplorerLayout } from './MinutesExplorer'
 import { filenameFromContentDisposition } from './download'
 
 type ViewKey = 'list' | 'calendar' | 'tree'
-type TreeState = 'idle' | 'loading' | 'error'
-  | { groups: MinutesTreeGroup[]; total: number; truncated: boolean }
+type TreeState = 'idle' | 'loading' | 'error' | ExplorerData
 type TeamKey = 'ALL' | TeamCode
 
 function monthRangeOf(year: number, month0: number): [string, string] {
@@ -36,7 +35,7 @@ export function MinutesView({
 }: {
   initialMinutes: Minute[]
   /** 서버에서 미리 실어 보낸 트리. null 이면(조회 실패 포함) 마운트 후 클라이언트가 직접 가져온다. */
-  initialTree?: { groups: MinutesTreeGroup[]; total: number; truncated: boolean } | null
+  initialTree?: ExplorerData | null
   todayIso: string
   initialView: ViewKey
   projects: { id: string; name: string }[]
@@ -80,6 +79,8 @@ export function MinutesView({
 
   // 탐색기 레이아웃 — favState와 동일한 이유로 여기 소유(뷰 전환 언마운트에도 생존해야 함).
   const [exLayout, setExLayout] = useState<ExplorerLayout>(explorerLayout)
+  // 업로드 모달의 기본 폴더 — 탐색기에서 폴더를 선택 중이면 업로드가 그 폴더로 기본 지정되게 한다.
+  const uploadFolderRef = useRef<string | null>(null)
   function changeExplorerLayout(v: ExplorerLayout) {
     setExLayout(v)
     queueUiPref({ minutesExplorerLayout: v })
@@ -116,8 +117,11 @@ export function MinutesView({
 
   async function loadTree() {
     const gen = ++treeReqRef.current
-    setTreeState('loading')
-    const res = await fetchMinutesTree()
+    // 이미 데이터가 있으면 스켈레톤으로 갈아끼우지 않는다(silent refresh) — 로딩 전환이
+    // 탐색기를 언마운트해 스코프·펼침·더 보기가 CRUD 때마다 리셋되는 문제를 막는다.
+    // 최초 진입(idle)·에러 재시도는 기존대로 스켈레톤.
+    if (typeof treeState !== 'object') setTreeState('loading')
+    const res = await fetchMinutesExplorer()
     if (treeReqRef.current !== gen) return
     setTreeState(res ?? 'error')
   }
@@ -230,14 +234,15 @@ export function MinutesView({
     if (typeof treeState !== 'object') return null
     const c: Record<string, number> = {}
     for (const tk of TEAM_CODES) c[tk] = 0
-    for (const g of treeState.groups) c[g.teamCode] = g.count
+    for (const l of treeState.leaves) c[l.teamCode] = (c[l.teamCode] ?? 0) + 1
     return { total: treeState.total, byTeam: c }
   }, [isTreeDisplay, treeState, minutes.length, kpiByTeam])
 
-  // 팀 탭은 재조회 없이 클라이언트 프루닝(트리는 항상 전 팀 조회 — 스펙 '구분 탭' 절)
-  const treeGroups = typeof treeState === 'object'
-    ? (team === 'ALL' ? treeState.groups : treeState.groups.filter(g => g.teamCode === team))
+  // 팀 탭은 재조회 없이 리프만 클라이언트 필터(폴더 레일은 항상 전부 — 스펙 v2)
+  const explorerLeaves: ExplorerLeaf[] = typeof treeState === 'object'
+    ? (team === 'ALL' ? treeState.leaves : treeState.leaves.filter(l => l.teamCode === team))
     : []
+  const explorerFolders: MinuteFolder[] = typeof treeState === 'object' ? treeState.folders : []
 
   return (
     <div className="space-y-4">
@@ -366,8 +371,6 @@ export function MinutesView({
           // 조용한 빈 화면 금지 — EmptyState('회의록 없음')로 위장하지 않고 에러를 표시한다
           <EmptyState title={t('min.tree.error')}
             action={<button onClick={() => void loadTree()} className="btn">{t('min.tree.retry')}</button>} />
-        ) : treeGroups.length === 0 ? (
-          <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
         ) : (
           <div className="space-y-2">
             {treeState.truncated && (
@@ -375,11 +378,14 @@ export function MinutesView({
                 {t('min.tree.truncated').replace('{n}', String(MINUTES_TREE_LIMIT))}
               </p>
             )}
-            <MinutesExplorer groups={treeGroups}
+            <MinutesExplorer folders={explorerFolders} leaves={explorerLeaves}
               favorites={favState instanceof Set ? favState : null}
               onToggleFavorite={id => void toggleFav(id)}
               onRetryFavorites={() => void loadFavorites()}
-              layout={exLayout} onLayoutChange={changeExplorerLayout} />
+              layout={exLayout} onLayoutChange={changeExplorerLayout}
+              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'}
+              onChanged={() => { void loadTree(); router.refresh() }}
+              onFolderSelect={id => { uploadFolderRef.current = id }} />
           </div>
         )
       )}
@@ -397,14 +403,15 @@ export function MinutesView({
             if (treeState !== 'idle') void loadTree()
             router.refresh()
           }}
-          todayIso={todayIso} projects={projects} defaultTeam={defaultTeam} />
+          todayIso={todayIso} projects={projects} defaultTeam={defaultTeam}
+          folders={explorerFolders} defaultFolderId={uploadFolderRef.current} />
       )}
       {/* 트리 뷰는 화면이 전 기간이므로 챗 범위도 전 기간으로 일치시킨다(월 라벨 '전체 기간'과 정합) */}
       <ArchiveChatPanel open={chatOpen} onClose={() => setChatOpen(false)}
         team={teamOrNull}
         from={isSearch || view === 'tree' ? null : monthRangeOf(year, month0)[0]}
         to={isSearch || view === 'tree' ? null : monthRangeOf(year, month0)[1]} />
-      {void currentUserId} {void role} {void locale}
+      {void locale}
     </div>
   )
 }

@@ -4,9 +4,14 @@ import { after } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
-import { validateMinuteInput, isMinuteFilePathValid, type MinuteInput } from '@/lib/domain/minutes'
-import { getMinuteDetail, getMinuteFavorites, getMinutesPage, getMinutesTree, searchMinutes } from '@/lib/data/minutes'
-import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
+import {
+  validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
+  type MinuteInput,
+} from '@/lib/domain/minutes'
+import {
+  getMinuteDetail, getMinuteFavorites, getMinutesExplorer, getMinutesPage, searchMinutes,
+} from '@/lib/data/minutes'
+import type { ExplorerData, Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64 } from '@/lib/minutes/blocks'
@@ -69,7 +74,9 @@ async function rematchMinuteHighlights(minuteId: string, newBodyMd: string): Pro
   }
 }
 
-export async function createMinute(input: MinuteInput): Promise<MinuteActionResult> {
+export async function createMinute(
+  input: MinuteInput, folderId: string | null = null,
+): Promise<MinuteActionResult> {
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
@@ -81,13 +88,17 @@ export async function createMinute(input: MinuteInput): Promise<MinuteActionResu
     const { data: mt } = await sb.from('meetings').select('id').eq('id', input.meetingId).maybeSingle()
     if (!mt) return { ok: false, error: '연결할 회의를 찾을 수 없습니다.' }
   }
+  if (folderId) {
+    const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
+    if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+  }
   // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·다운스트림 전부 보정본 사용
   const fix = correctMinuteBodyTime(input.bodyMd)
   if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)
   const bodyMd = fix.body
   const { data, error } = await sb.from('minutes').insert({
     minute_date: input.minuteDate, team_code: input.teamCode, title: input.title.trim(),
-    body_md: bodyMd, meeting_id: input.meetingId,
+    body_md: bodyMd, meeting_id: input.meetingId, folder_id: folderId,
     created_by: user.id, created_by_name: displayNameFrom(user.user_metadata, user.email),
   }).select('id').single()
   if (error) return { ok: false, error: error.message }
@@ -322,19 +333,111 @@ export async function fetchMinutesSearch(q: string, team: TeamCode | null): Prom
   return searchMinutes(q, team, 100)
 }
 
-/** 트리 뷰 진입/재시도/업로드 후 클라이언트 호출용.
+/** 탐색기 진입/재시도/업로드 후 클라이언트 호출용.
  *  기존 액션들의 [] 폴백과 달리 에러 상태를 UI까지 전달하기 위해 null을 반환한다(의도적 관례 이탈).
  *  미로그인/세션 만료도 v1에서는 구분하지 않는다 — 이 페이지는 인증 하에 있어 실사용상 만료 엣지뿐이며
  *  에러 카드+재시도로 수용(스펙 '서버 액션' 절). */
-export async function fetchMinutesTree(): Promise<
-  { groups: MinutesTreeGroup[]; total: number; truncated: boolean } | null
-> {
+export async function fetchMinutesExplorer(): Promise<ExplorerData | null> {
   const user = await getSession()
   if (!user) return null
-  return getMinutesTree()
+  return getMinutesExplorer()
 }
 
-/** 탐색기 즐겨찾기 목록 — 미로그인/실패 null (fetchMinutesTree 관례와 동일). */
+/** 폴더 전량 로드(액션 내부용) — 깊이 검증에 사용. 실패 시 null. */
+async function loadFolders(sb: Awaited<ReturnType<typeof createServerClient>>): Promise<MinuteFolder[] | null> {
+  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id, sort, created_by')
+  if (error) { console.error('[loadFolders] 조회 실패:', error.message); return null }
+  return (data ?? []).map((f: Record<string, unknown>) => ({
+    id: f.id as string, name: f.name as string,
+    parentId: (f.parent_id as string | null) ?? null,
+    sort: f.sort as number, createdBy: (f.created_by as string | null) ?? null,
+  }))
+}
+
+const FOLDER_DUP_MSG = '같은 폴더에 같은 이름이 이미 있습니다.'
+
+export async function createMinuteFolder(
+  name: string, parentId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
+  const nameErr = validateFolderName(name)
+  if (nameErr) return { ok: false, error: nameErr }
+  const sb = await createServerClient()
+  const folders = await loadFolders(sb)
+  if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
+  if (parentId && !folders.some(f => f.id === parentId)) return { ok: false, error: '상위 폴더를 찾을 수 없습니다.' }
+  if (folderDepthOf(folders, parentId) + 1 > MINUTE_FOLDER_DEPTH_MAX)
+    return { ok: false, error: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.` }
+  const { error } = await sb.from('minute_folders')
+    .insert({ name: name.trim(), parent_id: parentId, created_by: user.id })
+  if (error) {
+    if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
+    if (error.code === '23503') return { ok: false, error: '상위 폴더가 방금 삭제되었습니다. 새로고침 후 다시 시도하세요.' }
+    console.error('[createMinuteFolder] 실패:', error.message)
+    return { ok: false, error: error.message }
+  }
+  revalidatePath('/minutes')
+  return { ok: true }
+}
+
+export async function renameMinuteFolder(
+  id: string, name: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const nameErr = validateFolderName(name)
+  if (nameErr) return { ok: false, error: nameErr }
+  const sb = await createServerClient()
+  const { data, error } = await sb.from('minute_folders')
+    .update({ name: name.trim(), updated_at: new Date().toISOString() })
+    .eq('id', id).select('id')
+  if (error) {
+    if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
+    console.error('[renameMinuteFolder] 실패:', error.message)
+    return { ok: false, error: error.message }
+  }
+  // RLS 가 소유자/pmo_admin 이 아니면 0행 — 조용한 no-op 을 성공으로 위장하지 않는다
+  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
+  revalidatePath('/minutes')
+  return { ok: true }
+}
+
+export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  // 하위 폴더는 FK cascade, 소속 회의록은 set null(미분류 강등)이 정리한다
+  const { data, error } = await sb.from('minute_folders').delete().eq('id', id).select('id')
+  if (error) { console.error('[deleteMinuteFolder] 실패:', error.message); return { ok: false, error: error.message } }
+  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
+  revalidatePath('/minutes')
+  return { ok: true }
+}
+
+export async function moveMinuteToFolder(
+  minuteId: string, folderId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  if (folderId) {
+    const { data: f } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
+    if (!f) return { ok: false, error: '이동할 폴더를 찾을 수 없습니다.' }
+  }
+  // 권한은 update_own_minutes RLS(작성자 or pmo_admin)가 담당 — 0행이면 권한 없음으로 판정
+  const { data, error } = await sb.from('minutes')
+    .update({ folder_id: folderId, updated_at: new Date().toISOString() })
+    .eq('id', minuteId).select('id')
+  if (error) { console.error('[moveMinuteToFolder] 실패:', error.message); return { ok: false, error: error.message } }
+  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 회의록이 없습니다.' }
+  revalidatePath('/minutes')
+  return { ok: true }
+}
+
+/** 탐색기 즐겨찾기 목록 — 미로그인/실패 null (fetchMinutesExplorer 관례와 동일). */
 export async function fetchMinuteFavorites(): Promise<string[] | null> {
   const user = await getSession()
   if (!user) return null

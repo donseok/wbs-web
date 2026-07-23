@@ -1,4 +1,4 @@
-import type { Minute, MinutesTreeBody, MinutesTreeGroup, TeamCode } from './types'
+import type { ExplorerLeaf, FolderNode, MinuteFolder, TeamCode } from './types'
 
 export const MINUTE_TITLE_MAX = 200
 export const MINUTE_BODY_MAX = 100_000          // body_md 실효 한도(자)
@@ -82,42 +82,82 @@ export function meetingBodyOf(title: string): string {
   return kept.length > 0 ? kept.join(' ') : trimmed
 }
 
-/** 목록 → 트리 조립. 입력이 minute_date desc, created_at desc 정렬임을 전제하며 자체 재정렬하지 않는다
- *  (리프 순서 = 입력 순서). 팀은 TEAM_CODES 순 — 미지 코드는 조용히 버리지 않고 뒤에 등장 순으로 붙인다.
- *  회의체는 latestDate desc(동률은 첫 등장 순 — 안정 정렬). 0건 팀은 그룹을 만들지 않는다. */
-export function buildMinutesTree(minutes: Minute[]): MinutesTreeGroup[] {
-  const byTeam = new Map<string, Map<string, MinutesTreeBody>>()
-  const teamAppearance: string[] = []
-  for (const mi of minutes) {
-    let bodies = byTeam.get(mi.teamCode)
-    if (!bodies) {
-      bodies = new Map()
-      byTeam.set(mi.teamCode, bodies)
-      teamAppearance.push(mi.teamCode)
-    }
-    const name = meetingBodyOf(mi.title)
-    let body = bodies.get(name)
-    if (!body) {
-      body = { name, count: 0, latestDate: mi.minuteDate, leaves: [] }
-      bodies.set(name, body)
-    }
-    body.count += 1
-    body.leaves.push({
-      id: mi.id, minuteDate: mi.minuteDate, title: mi.title,
-      fileCount: mi.fileCount ?? 0, createdByName: mi.createdByName,
-      bodyPreview: mi.bodyPreview ?? '', meetingCategory: mi.meetingCategory ?? null,
-    })
+/* ── 탐색기 v2: 폴더 디렉토리 (스펙 2026-07-23-minutes-folders-design.md) ── */
+
+export const MINUTE_FOLDER_NAME_MAX = 60
+export const MINUTE_FOLDER_DEPTH_MAX = 5
+
+/** 폴더 이름 검증 — 에러 메시지 또는 null (validateMinuteInput 관례). */
+export function validateFolderName(name: string): string | null {
+  const trimmed = name.trim()
+  if (!trimmed) return '폴더 이름을 입력하세요.'
+  if (trimmed.length > MINUTE_FOLDER_NAME_MAX) return `폴더 이름은 ${MINUTE_FOLDER_NAME_MAX}자 이하여야 합니다.`
+  return null
+}
+
+/** folderId 가 트리에서 몇 단인지(null=0, 루트=1). 순환·끊긴 체인은 상한 초과 값으로 수렴해
+ *  호출부의 깊이 검증이 자연히 거부하게 한다(무한 루프 방지 가드). */
+export function folderDepthOf(folders: MinuteFolder[], folderId: string | null): number {
+  const byId = new Map(folders.map(f => [f.id, f]))
+  let depth = 0
+  let cur = folderId
+  while (cur) {
+    depth += 1
+    if (depth > MINUTE_FOLDER_DEPTH_MAX) return depth  // 순환/과깊이 — 즉시 초과 반환
+    cur = byId.get(cur)?.parentId ?? null
   }
-  const known = TEAM_CODES.filter(tk => byTeam.has(tk)) as string[]
-  const unknown = teamAppearance.filter(tk => !(TEAM_CODES as string[]).includes(tk))
-  return [...known, ...unknown].map(tk => {
-    const bodies = [...byTeam.get(tk)!.values()]
-    // Array.sort는 안정 정렬 — 동률(latestDate 같음)은 Map 삽입 순서(첫 등장 순) 유지
-    bodies.sort((a, b) => (a.latestDate < b.latestDate ? 1 : a.latestDate > b.latestDate ? -1 : 0))
-    return {
-      teamCode: tk as TeamCode,
-      count: bodies.reduce((sum, b) => sum + b.count, 0),
-      bodies,
+  return depth
+}
+
+/** 폴더 + 리프 → 디렉토리 트리. 정렬은 sort asc·name asc(시드 0~9 우선), directLeaves 는 입력
+ *  순서 보존(재정렬 없음). 방어: 부모가 목록에 없는 고아·순환 참조 폴더는 루트로 승격(조용히
+ *  버리지 않음), 미존재 폴더를 가리키는 리프는 unfiled 로. */
+export function buildFolderTree(
+  folders: MinuteFolder[], leaves: ExplorerLeaf[],
+): { roots: FolderNode[]; unfiled: ExplorerLeaf[] } {
+  const nodeById = new Map<string, FolderNode>(
+    folders.map(f => [f.id, { folder: f, children: [], directLeaves: [], totalCount: 0 }]))
+
+  // 루트 판정: 부모 없음 / 부모 미존재(고아) / 조상 체인이 순환(자신에게 되돌아옴)
+  const isRoot = (f: MinuteFolder): boolean => {
+    if (f.parentId === null || !nodeById.has(f.parentId)) return true
+    let cur: string | null = f.parentId
+    const seen = new Set<string>([f.id])
+    while (cur) {
+      if (seen.has(cur)) return true  // 순환 절단
+      seen.add(cur)
+      cur = nodeById.get(cur)?.folder.parentId ?? null
     }
-  })
+    return false
+  }
+
+  const roots: FolderNode[] = []
+  for (const f of folders) {
+    const node = nodeById.get(f.id)!
+    if (isRoot(f)) roots.push(node)
+    else nodeById.get(f.parentId!)!.children.push(node)
+  }
+
+  const bySort = (a: FolderNode, b: FolderNode) =>
+    a.folder.sort - b.folder.sort || a.folder.name.localeCompare(b.folder.name, 'ko')
+  const sortRec = (nodes: FolderNode[]) => {
+    nodes.sort(bySort)
+    for (const n of nodes) sortRec(n.children)
+  }
+  sortRec(roots)
+
+  const unfiled: ExplorerLeaf[] = []
+  for (const l of leaves) {
+    const node = l.folderId ? nodeById.get(l.folderId) : undefined
+    if (node) node.directLeaves.push(l)
+    else unfiled.push(l)
+  }
+
+  const sumRec = (node: FolderNode): number => {
+    node.totalCount = node.directLeaves.length + node.children.reduce((n, c) => n + sumRec(c), 0)
+    return node.totalCount
+  }
+  for (const r of roots) sumRec(r)
+
+  return { roots, unfiled }
 }

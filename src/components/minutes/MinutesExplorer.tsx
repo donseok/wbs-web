@@ -2,38 +2,35 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
-  ChevronDown, ChevronRight, Folder, FolderOpen, LayoutGrid, List, Paperclip, Star,
+  ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, LayoutGrid, List,
+  MoreHorizontal, Paperclip, Star,
 } from 'lucide-react'
-import type { MeetingCategory, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
+import type {
+  ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
+} from '@/lib/domain/types'
+import { buildFolderTree, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
 import { MEETING_META } from '@/lib/domain/meetings'
+import { moveMinuteToFolder } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { useToast } from '@/components/ui/Toast'
 import { TEAM } from '@/components/wbs/shared'
-
-/** 팀 폴더 틴트 — MinutesTree(폐기)에서 승계. Tailwind 정적 스캔 제약으로 리터럴 맵 유지. */
-const FOLDER_TINT: Record<TeamCode, string> = {
-  PMO: 'fill-team-pmo-weak',
-  가공: 'fill-team-dt-weak',
-  ERP: 'fill-team-erp-weak',
-  MES: 'fill-team-mes-weak',
-  MDM: 'fill-team-mdm-weak',
-}
+import { FolderManageModal } from './FolderManageModal'
+import { FolderPickModal } from './FolderPickModal'
 
 export type ExplorerLayout = 'grid' | 'list'
 type Scope =
   | { kind: 'all' }
   | { kind: 'favorites' }
-  | { kind: 'team'; team: TeamCode }
-  | { kind: 'body'; team: TeamCode; body: string }
-
-/** 카드 렌더용 리프 — 소속(팀·회의체)을 부착한 행. */
-interface LeafRow {
-  id: string; minuteDate: string; title: string; fileCount: number
-  createdByName: string | null; bodyPreview: string; meetingCategory: MeetingCategory | null
-  team: TeamCode; body: string
-}
+  | { kind: 'unfiled' }
+  | { kind: 'folder'; id: string }
+type ManageState =
+  | { mode: 'create'; parentId: string | null }
+  | { mode: 'rename'; folder: MinuteFolder }
+  | { mode: 'delete'; folder: MinuteFolder }
+  | null
 
 const PAGE_SIZE = 30
 type T = (k: DictKey) => string
@@ -42,66 +39,151 @@ const rowCls = (active: boolean) =>
   `flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-100 ${
     active ? 'bg-brand-weak font-semibold text-brand' : 'text-ink hover:bg-surface-2'}`
 
-/** 탐색기 — 좌측 폴더 레일 + 우측 폴더/회의록 카드 (스펙 2026-07-23-minutes-explorer-design.md).
- *  트리 데이터·즐겨찾기·레이아웃 상태는 전부 MinutesView 소유(뷰 전환 언마운트에도 생존해야 함) —
- *  여기는 선택·펼침·노출 개수만 관리하며 전부 비영속(v1). */
+/** 탐색기 v2 — 실제 폴더 디렉토리(스펙 2026-07-23-minutes-folders-design.md).
+ *  데이터·즐겨찾기·레이아웃 상태는 MinutesView 소유. 여기는 선택·펼침·노출 개수·모달만 관리(비영속).
+ *  leaves 는 팀 탭 필터가 이미 적용된 것 — 카운트·스코프가 필터와 정합. folders 는 항상 전부. */
 export function MinutesExplorer({
-  groups, favorites, onToggleFavorite, onRetryFavorites, layout, onLayoutChange,
+  folders, leaves, favorites, onToggleFavorite, onRetryFavorites,
+  layout, onLayoutChange, currentUserId, isAdmin, onChanged, onFolderSelect,
 }: {
-  groups: MinutesTreeGroup[]
-  /** null = 로딩/실패 — 카운트 '–', 별 비활성, 즐겨찾기 스코프는 에러 카드+재시도 */
+  folders: MinuteFolder[]
+  leaves: ExplorerLeaf[]
   favorites: Set<string> | null
   onToggleFavorite: (id: string) => void
   onRetryFavorites: () => void
   layout: ExplorerLayout
   onLayoutChange: (v: ExplorerLayout) => void
+  currentUserId: string | null
+  isAdmin: boolean
+  onChanged: () => void
+  onFolderSelect?: (folderId: string | null) => void
 }) {
   const { t } = useLocale()
+  const { toast } = useToast()
   const [scopeRaw, setScopeRaw] = useState<Scope>({ kind: 'all' })
-  const [collapsedTeams, setCollapsedTeams] = useState<Set<string>>(new Set())
+  // 기본 전체 펼침(부모 id 집합) — 시드 트리가 얕아(깊이 상한 5) 접힌 채 시작하면 하위 폴더 메뉴·이동이
+  // 첫 렌더에 발견 불가능해진다. 최초 렌더 1회만 계산(폴더 추가/삭제는 토글로 사용자가 직접 관리).
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(folders.map(f => f.parentId).filter((id): id is string => id !== null)),
+  )
   const [visible, setVisible] = useState(PAGE_SIZE)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [manage, setManage] = useState<ManageState>(null)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [movingId, setMovingId] = useState<string | null>(null)   // 폴더 픽커 대상 회의록
 
-  // 팀 탭 프루닝으로 groups 가 좁아지면 선택이 유령 노드를 가리킬 수 있다 — 조용히 all 로 강등
-  const scope: Scope = useMemo(() => {
-    if (scopeRaw.kind === 'team' && !groups.some(g => g.teamCode === scopeRaw.team)) return { kind: 'all' }
-    if (scopeRaw.kind === 'body' &&
-      !groups.some(g => g.teamCode === scopeRaw.team && g.bodies.some(b => b.name === scopeRaw.body)))
-      return { kind: 'all' }
-    return scopeRaw
-  }, [scopeRaw, groups])
+  const { roots, unfiled } = useMemo(() => buildFolderTree(folders, leaves), [folders, leaves])
+  const nodeById = useMemo(() => {
+    const map = new Map<string, FolderNode>()
+    const walk = (nodes: FolderNode[]) => { for (const n of nodes) { map.set(n.folder.id, n); walk(n.children) } }
+    walk(roots)
+    return map
+  }, [roots])
+  const folderById = useMemo(() => new Map(folders.map(f => [f.id, f])), [folders])
 
-  function select(next: Scope) { setScopeRaw(next); setVisible(PAGE_SIZE) }
-  function toggleTeam(tk: string) {
-    setCollapsedTeams(prev => {
+  // 재조회로 폴더가 사라지면 선택이 유령을 가리킬 수 있다 — 조용히 all 로 강등
+  const scope: Scope = useMemo(() => (
+    scopeRaw.kind === 'folder' && !nodeById.has(scopeRaw.id) ? { kind: 'all' } : scopeRaw
+  ), [scopeRaw, nodeById])
+
+  function select(next: Scope) {
+    setScopeRaw(next); setVisible(PAGE_SIZE); setMenuFor(null)
+    onFolderSelect?.(next.kind === 'folder' ? next.id : null)
+  }
+  function toggleExpand(id: string) {
+    setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(tk)) next.delete(tk); else next.add(tk)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
-  const allRows: LeafRow[] = useMemo(() =>
-    groups
-      .flatMap(g => g.bodies.flatMap(b => b.leaves.map(l => ({ ...l, team: g.teamCode, body: b.name }))))
-      // 그룹 평탄화로 잃은 전역 날짜순 복원 — 안정 정렬이라 회의체 내부 순서(입력 순서)는 유지
-      .sort((a, b) => (a.minuteDate < b.minuteDate ? 1 : a.minuteDate > b.minuteDate ? -1 : 0)),
-  [groups])
+  const canManageFolder = (f: MinuteFolder) => isAdmin || (f.createdBy !== null && f.createdBy === currentUserId)
+  const canMoveLeaf = (l: ExplorerLeaf) => isAdmin || (l.createdBy !== null && l.createdBy === currentUserId)
 
-  const total = groups.reduce((n, g) => n + g.count, 0)
+  const total = leaves.length
   const favCount = favorites === null
     ? null
-    : allRows.reduce((n, r) => n + (favorites.has(r.id) ? 1 : 0), 0)
+    : leaves.reduce((n, l) => n + (favorites.has(l.id) ? 1 : 0), 0)
 
-  const rows: LeafRow[] = useMemo(() => {
+  const rows: ExplorerLeaf[] = useMemo(() => {
     switch (scope.kind) {
-      case 'all': return allRows
-      case 'favorites': return favorites ? allRows.filter(r => favorites.has(r.id)) : []
-      case 'team': return allRows.filter(r => r.team === scope.team)
-      case 'body': return allRows.filter(r => r.team === scope.team && r.body === scope.body)
+      case 'all': return leaves
+      case 'favorites': return favorites ? leaves.filter(l => favorites.has(l.id)) : []
+      case 'unfiled': return unfiled
+      case 'folder': return nodeById.get(scope.id)?.directLeaves ?? []
     }
-  }, [scope, allRows, favorites])
+  }, [scope, leaves, favorites, unfiled, nodeById])
   const shown = rows.slice(0, visible)
   const remaining = rows.length - shown.length
-  const showBodyChip = scope.kind !== 'body'
+  const showFolderChip = scope.kind === 'all' || scope.kind === 'favorites'
+
+  async function moveTo(folderId: string | null) {
+    const id = movingId
+    setMovingId(null)
+    if (!id) return
+    const res = await moveMinuteToFolder(id, folderId)
+    if (!res.ok) { toast({ title: res.error ?? t('min.fold.error'), variant: 'error' }); return }
+    toast({ title: t('min.fold.moved'), variant: 'info' })
+    onChanged()
+  }
+
+  function folderRow(node: FolderNode, depth: number): React.ReactNode {
+    const f = node.folder
+    const hasChildren = node.children.length > 0
+    const isExpanded = expanded.has(f.id)
+    const active = scope.kind === 'folder' && scope.id === f.id
+    const FolderIcon = active || isExpanded ? FolderOpen : Folder
+    return (
+      <li key={f.id}>
+        <div className="group flex items-center gap-0.5" style={{ paddingLeft: `${depth * 12}px` }}>
+          {hasChildren ? (
+            <button onClick={() => toggleExpand(f.id)} aria-expanded={isExpanded} aria-label={f.name}
+              className="shrink-0 rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2">
+              <ChevronRight aria-hidden
+                className={`h-3.5 w-3.5 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+            </button>
+          ) : <span aria-hidden className="w-[22px] shrink-0" />}
+          <button onClick={() => select({ kind: 'folder', id: f.id })} className={rowCls(active)}>
+            <FolderIcon aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
+            <span className="min-w-0 flex-1 truncate text-[13px]">{f.name}</span>
+            <span className="shrink-0 text-xs tabular-nums text-ink-muted">{node.totalCount}</span>
+          </button>
+          {canManageFolder(f) && (
+            <div className="relative shrink-0">
+              <button onClick={() => setMenuFor(cur => (cur === f.id ? null : f.id))}
+                aria-label={t('min.fold.menuAria')} aria-expanded={menuFor === f.id}
+                className="rounded-md p-1 text-ink-subtle opacity-0 transition-opacity duration-100 hover:bg-surface-2 focus-visible:opacity-100 group-hover:opacity-100">
+                <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
+              </button>
+              {menuFor === f.id && (
+                <>
+                  <button aria-hidden tabIndex={-1} onClick={() => setMenuFor(null)}
+                    className="fixed inset-0 z-10 cursor-default" />
+                  <div className="absolute right-0 z-20 mt-1 w-36 rounded-xl border border-line bg-surface p-1 shadow-[var(--shadow-md)]">
+                    <button onClick={() => { setMenuFor(null); setManage({ mode: 'rename', folder: f }) }}
+                      className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
+                      {t('min.fold.rename')}
+                    </button>
+                    {folderDepthOf(folders, f.id) < MINUTE_FOLDER_DEPTH_MAX && (
+                      <button onClick={() => { setMenuFor(null); setManage({ mode: 'create', parentId: f.id }) }}
+                        className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
+                        {t('min.fold.addSub')}
+                      </button>
+                    )}
+                    <button onClick={() => { setMenuFor(null); setManage({ mode: 'delete', folder: f }) }}
+                      className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-delayed hover:bg-surface-2">
+                      {t('min.fold.delete')}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        {hasChildren && isExpanded && <ul>{node.children.map(c => folderRow(c, depth + 1))}</ul>}
+      </li>
+    )
+  }
 
   function rail(onNavigate?: () => void) {
     const go = (s: Scope) => { select(s); onNavigate?.() }
@@ -115,85 +197,88 @@ export function MinutesExplorer({
           </button>
         </li>
         <li>
-          <button onClick={() => go({ kind: 'all' })} className={rowCls(scope.kind === 'all')}>
-            <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{t('min.exp.all')}</span>
-            <span className="shrink-0 text-xs tabular-nums text-ink-muted">{total}</span>
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button onClick={() => go({ kind: 'all' })} className={rowCls(scope.kind === 'all')}>
+              <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{t('min.exp.all')}</span>
+              <span className="shrink-0 text-xs tabular-nums text-ink-muted">{total}</span>
+            </button>
+            <button onClick={() => setManage({ mode: 'create', parentId: null })}
+              aria-label={t('min.fold.new')} title={t('min.fold.new')}
+              className="shrink-0 rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2 hover:text-ink">
+              <FolderPlus aria-hidden className="h-4 w-4" />
+              <span className="sr-only">{t('min.fold.new')}</span>
+            </button>
+          </div>
           <ul className="ml-2 mt-0.5 border-l border-line pl-1.5">
-            {groups.map(g => {
-              const collapsed = collapsedTeams.has(g.teamCode)
-              const TeamIcon = collapsed ? Folder : FolderOpen
-              return (
-                <li key={g.teamCode}>
-                  <div className="flex items-center gap-0.5">
-                    <button onClick={() => toggleTeam(g.teamCode)} aria-expanded={!collapsed} aria-label={g.teamCode}
-                      className="shrink-0 rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2">
-                      <ChevronRight aria-hidden
-                        className={`h-3.5 w-3.5 transition-transform duration-150 ${collapsed ? '' : 'rotate-90'}`} />
-                    </button>
-                    <button onClick={() => go({ kind: 'team', team: g.teamCode })}
-                      className={rowCls(scope.kind === 'team' && scope.team === g.teamCode)}>
-                      {/* 미지 팀 코드(방어 케이스)는 중립 폴백 */}
-                      <TeamIcon aria-hidden
-                        className={`h-4 w-4 shrink-0 ${TEAM[g.teamCode]?.fg ?? 'text-ink-subtle'} ${FOLDER_TINT[g.teamCode] ?? ''}`} />
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{g.teamCode}</span>
-                      <span className="shrink-0 text-xs tabular-nums text-ink-muted">{g.count}</span>
-                    </button>
-                  </div>
-                  {!collapsed && (
-                    <ul className="ml-5 border-l border-line pl-1.5">
-                      {g.bodies.map(b => (
-                        <li key={b.name}>
-                          <button onClick={() => go({ kind: 'body', team: g.teamCode, body: b.name })}
-                            className={rowCls(scope.kind === 'body' && scope.team === g.teamCode && scope.body === b.name)}>
-                            <Folder aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
-                            <span className="min-w-0 flex-1 truncate text-[13px]">{b.name}</span>
-                            <span className="shrink-0 text-xs tabular-nums text-ink-muted">{b.count}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              )
-            })}
+            {roots.map(r => folderRow(r, 0))}
+            <li>
+              <div className="flex items-center gap-0.5">
+                <span aria-hidden className="w-[22px] shrink-0" />
+                <button onClick={() => go({ kind: 'unfiled' })} className={rowCls(scope.kind === 'unfiled')}>
+                  <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">{t('min.fold.unfiled')}</span>
+                  <span className="shrink-0 text-xs tabular-nums text-ink-muted">{unfiled.length}</span>
+                </button>
+              </div>
+            </li>
           </ul>
         </li>
       </ul>
     )
   }
 
+  // 경로 표시 — 폴더 스코프의 조상 체인(클릭 이동)
+  const crumbs: MinuteFolder[] = useMemo(() => {
+    if (scope.kind !== 'folder') return []
+    const chain: MinuteFolder[] = []
+    let cur: string | null = scope.id
+    const seen = new Set<string>()
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      const f = folderById.get(cur)
+      if (!f) break
+      chain.unshift(f)
+      cur = f.parentId
+    }
+    return chain
+  }, [scope, folderById])
+
+  const folderCardCls =
+    'card flex flex-col gap-3 p-4 text-left transition-shadow duration-150 hover:shadow-[var(--shadow-md)]'
   const folderCards = scope.kind === 'all' ? (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {groups.map(g => (
-        <button key={g.teamCode} onClick={() => select({ kind: 'team', team: g.teamCode })}
-          className="card flex flex-col gap-3 p-4 text-left transition-shadow duration-150 hover:shadow-[var(--shadow-md)]">
+      {roots.map(n => (
+        <button key={n.folder.id} onClick={() => select({ kind: 'folder', id: n.folder.id })} className={folderCardCls}>
           <span className="flex min-w-0 items-center gap-2">
-            <Folder aria-hidden className={`h-5 w-5 shrink-0 ${TEAM[g.teamCode]?.fg ?? 'text-ink-subtle'} ${FOLDER_TINT[g.teamCode] ?? ''}`} />
-            <span className="truncate text-sm font-semibold text-ink">{g.teamCode}</span>
+            <Folder aria-hidden className="h-5 w-5 shrink-0 text-brand fill-brand-weak" />
+            <span className="truncate text-sm font-semibold text-ink">{n.folder.name}</span>
           </span>
           <span className="text-xs text-ink-muted">
-            {t('min.exp.meetingCount').replace('{n}', String(g.count))}
-            {' · '}
-            {t('min.exp.subfolderCount').replace('{n}', String(g.bodies.length))}
+            {t('min.exp.meetingCount').replace('{n}', String(n.totalCount))}
+            {n.children.length > 0 && <> {' · '}{t('min.exp.subfolderCount').replace('{n}', String(n.children.length))}</>}
           </span>
         </button>
       ))}
+      <button onClick={() => select({ kind: 'unfiled' })} className={folderCardCls}>
+        <span className="flex min-w-0 items-center gap-2">
+          <FolderOpen aria-hidden className="h-5 w-5 shrink-0 text-ink-subtle" />
+          <span className="truncate text-sm font-semibold text-ink">{t('min.fold.unfiled')}</span>
+        </span>
+        <span className="text-xs text-ink-muted">{t('min.exp.meetingCount').replace('{n}', String(unfiled.length))}</span>
+      </button>
     </div>
-  ) : scope.kind === 'team' ? (
+  ) : scope.kind === 'folder' && (nodeById.get(scope.id)?.children.length ?? 0) > 0 ? (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {(groups.find(g => g.teamCode === scope.team)?.bodies ?? []).map(b => (
-        <button key={b.name} onClick={() => select({ kind: 'body', team: scope.team, body: b.name })}
-          className="card flex flex-col gap-3 p-4 text-left transition-shadow duration-150 hover:shadow-[var(--shadow-md)]">
+      {nodeById.get(scope.id)!.children.map(n => (
+        <button key={n.folder.id} onClick={() => select({ kind: 'folder', id: n.folder.id })} className={folderCardCls}>
           <span className="flex min-w-0 items-center gap-2">
             <Folder aria-hidden className="h-5 w-5 shrink-0 text-ink-subtle" />
-            <span className="truncate text-sm font-semibold text-ink">{b.name}</span>
+            <span className="truncate text-sm font-semibold text-ink">{n.folder.name}</span>
           </span>
           <span className="text-xs text-ink-muted">
-            {t('min.exp.meetingCount').replace('{n}', String(b.count))}
-            {' · '}
-            {t('min.exp.latest').replace('{d}', b.latestDate)}
+            {t('min.exp.meetingCount').replace('{n}', String(n.totalCount))}
+            {n.children.length > 0 && <> {' · '}{t('min.exp.subfolderCount').replace('{n}', String(n.children.length))}</>}
           </span>
         </button>
       ))}
@@ -202,9 +287,7 @@ export function MinutesExplorer({
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-      {/* lg+: 상주 폴더 레일 */}
-      <nav className="card hidden w-[240px] shrink-0 p-2 lg:block">{rail()}</nav>
-      {/* lg 미만: 접이식 폴더 바 (MinuteToc 관례) */}
+      <nav className="card hidden w-[250px] shrink-0 p-2 lg:block">{rail()}</nav>
       <div className="card shrink-0 p-3 lg:hidden">
         <button onClick={() => setMobileOpen(o => !o)}
           className="flex w-full items-center gap-2 text-sm font-semibold text-ink">
@@ -216,33 +299,36 @@ export function MinutesExplorer({
         {mobileOpen && <div className="mt-2">{rail(() => setMobileOpen(false))}</div>}
       </div>
 
-      {/* 우측 콘텐츠 */}
       <section className="min-w-0 flex-1 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-sm">
             {scope.kind === 'favorites' ? (
               <span className="font-semibold text-ink">{t('min.exp.favorites')}</span>
+            ) : scope.kind === 'unfiled' ? (
+              <>
+                <button onClick={() => select({ kind: 'all' })} className="text-ink-muted transition-colors hover:text-ink">
+                  {t('min.exp.all')}
+                </button>
+                <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+                <span className="font-semibold text-ink">{t('min.fold.unfiled')}</span>
+              </>
             ) : (
               <>
                 <button onClick={() => select({ kind: 'all' })}
                   className={scope.kind === 'all' ? 'font-semibold text-ink' : 'text-ink-muted transition-colors hover:text-ink'}>
                   {t('min.exp.all')}
                 </button>
-                {(scope.kind === 'team' || scope.kind === 'body') && (
-                  <>
+                {crumbs.map((f, i) => (
+                  <span key={f.id} className="flex min-w-0 items-center gap-1.5">
                     <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                    <button onClick={() => select({ kind: 'team', team: scope.team })}
-                      className={scope.kind === 'team' ? 'font-semibold text-ink' : 'text-ink-muted transition-colors hover:text-ink'}>
-                      {scope.team}
-                    </button>
-                  </>
-                )}
-                {scope.kind === 'body' && (
-                  <>
-                    <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                    <span className="truncate font-semibold text-ink">{scope.body}</span>
-                  </>
-                )}
+                    {i === crumbs.length - 1
+                      ? <span className="truncate font-semibold text-ink">{f.name}</span>
+                      : (
+                        <button onClick={() => select({ kind: 'folder', id: f.id })}
+                          className="truncate text-ink-muted transition-colors hover:text-ink">{f.name}</button>
+                      )}
+                  </span>
+                ))}
               </>
             )}
           </div>
@@ -261,21 +347,25 @@ export function MinutesExplorer({
           <>
             {folderCards}
             {rows.length === 0 ? (
-              scope.kind === 'favorites' && <EmptyState icon={Star} title={t('min.exp.favEmpty')} />
+              scope.kind === 'favorites'
+                ? <EmptyState icon={Star} title={t('min.exp.favEmpty')} />
+                : !folderCards && <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
             ) : layout === 'grid' ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {shown.map(r => (
-                  <MinuteCard key={r.id} r={r} t={t} showBodyChip={showBodyChip}
-                    fav={favorites?.has(r.id) ?? false} disabled={favorites === null}
+                {shown.map(l => (
+                  <MinuteCard key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
+                    fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
+                    canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
                     onToggle={onToggleFavorite} />
                 ))}
               </div>
             ) : (
               <div className="card p-2">
                 <ul className="divide-y divide-line/70">
-                  {shown.map(r => (
-                    <MinuteRow key={r.id} r={r} t={t} showBodyChip={showBodyChip}
-                      fav={favorites?.has(r.id) ?? false} disabled={favorites === null}
+                  {shown.map(l => (
+                    <MinuteRow key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
+                      fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
+                      canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
                       onToggle={onToggleFavorite} />
                   ))}
                 </ul>
@@ -291,8 +381,26 @@ export function MinutesExplorer({
           </>
         )}
       </section>
+
+      {manage && (
+        <FolderManageModal open mode={manage.mode}
+          folder={manage.mode !== 'create' ? manage.folder : undefined}
+          parentId={manage.mode === 'create' ? manage.parentId : null}
+          onClose={() => setManage(null)}
+          onDone={() => { setManage(null); onChanged() }} />
+      )}
+      <FolderPickModal open={movingId !== null} folders={folders}
+        onClose={() => setMovingId(null)} onPick={id => void moveTo(id)} />
     </div>
   )
+}
+
+/** 폴더 칩 라벨 — all·favorites 스코프에서 소속이 있을 때만. */
+function folderNameOf(
+  l: ExplorerLeaf, folderById: Map<string, MinuteFolder>, show: boolean,
+): string | null {
+  if (!show || !l.folderId) return null
+  return folderById.get(l.folderId)?.name ?? null
 }
 
 function StarButton({ id, fav, disabled, onToggle, t }: {
@@ -307,43 +415,53 @@ function StarButton({ id, fav, disabled, onToggle, t }: {
   )
 }
 
+function MoveButton({ onMove, t }: { onMove: () => void; t: T }) {
+  return (
+    <button onClick={onMove} aria-label={t('min.fold.move')} title={t('min.fold.move')}
+      className="relative z-10 shrink-0 rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2 hover:text-ink">
+      <FolderOpen aria-hidden className="h-4 w-4" />
+    </button>
+  )
+}
+
 function CategoryChip({ cat, t }: { cat: MeetingCategory; t: T }) {
   const meta = MEETING_META[cat]
   return <span className={`chip ${meta.chip}`}>{t(meta.labelKey)}</span>
 }
 
-function MinuteCard({ r, fav, disabled, onToggle, showBodyChip, t }: {
-  r: LeafRow; fav: boolean; disabled: boolean; onToggle: (id: string) => void
-  showBodyChip: boolean; t: T
+function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t }: {
+  l: ExplorerLeaf; fav: boolean; favDisabled: boolean
+  canMove: boolean; onMove: () => void
+  onToggle: (id: string) => void; folderName: string | null; t: T
 }) {
   return (
     <article className="card relative flex flex-col gap-2 p-4 transition-shadow duration-150 hover:shadow-[var(--shadow-md)]">
-      {/* 스트레치드 링크 — 카드 전면 클릭, 별 버튼만 z-10 으로 위에 */}
-      <Link href={`/minutes/${r.id}`} aria-label={r.title} className="absolute inset-0 rounded-2xl" />
+      <Link href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-2xl" />
       <div className="flex items-start gap-1.5">
-        <StarButton id={r.id} fav={fav} disabled={disabled} onToggle={onToggle} t={t} />
-        <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{r.title}</h4>
-        <span className={`inline-flex shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[r.team]?.bar ?? 'bg-ink-subtle'}`}>
-          {r.team}
+        <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
+        <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{l.title}</h4>
+        {canMove && <MoveButton onMove={onMove} t={t} />}
+        <span className={`inline-flex shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[l.teamCode]?.bar ?? 'bg-ink-subtle'}`}>
+          {l.teamCode}
         </span>
       </div>
-      {(r.meetingCategory || showBodyChip) && (
+      {(l.meetingCategory || folderName) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {r.meetingCategory && <CategoryChip cat={r.meetingCategory} t={t} />}
-          {showBodyChip && (
+          {l.meetingCategory && <CategoryChip cat={l.meetingCategory} t={t} />}
+          {folderName && (
             <span className="chip bg-surface-2 text-ink-muted">
-              <Folder aria-hidden className="h-3 w-3" />{r.body}
+              <Folder aria-hidden className="h-3 w-3" />{folderName}
             </span>
           )}
         </div>
       )}
-      {r.bodyPreview && <p className="line-clamp-3 text-[13px] leading-5 text-ink-muted">{r.bodyPreview}</p>}
+      {l.bodyPreview && <p className="line-clamp-3 text-[13px] leading-5 text-ink-muted">{l.bodyPreview}</p>}
       <div className="mt-auto flex items-center gap-2 pt-1 text-xs text-ink-subtle">
-        <span className="tabular-nums">{r.minuteDate}</span>
-        {r.createdByName && <><span aria-hidden>·</span><span className="truncate">{r.createdByName}</span></>}
-        {r.fileCount > 0 && (
+        <span className="tabular-nums">{l.minuteDate}</span>
+        {l.createdByName && <><span aria-hidden>·</span><span className="truncate">{l.createdByName}</span></>}
+        {l.fileCount > 0 && (
           <span className="ml-auto inline-flex items-center gap-1">
-            <Paperclip aria-hidden className="h-3 w-3" />{r.fileCount}
+            <Paperclip aria-hidden className="h-3 w-3" />{l.fileCount}
           </span>
         )}
       </div>
@@ -351,29 +469,31 @@ function MinuteCard({ r, fav, disabled, onToggle, showBodyChip, t }: {
   )
 }
 
-function MinuteRow({ r, fav, disabled, onToggle, showBodyChip, t }: {
-  r: LeafRow; fav: boolean; disabled: boolean; onToggle: (id: string) => void
-  showBodyChip: boolean; t: T
+function MinuteRow({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t }: {
+  l: ExplorerLeaf; fav: boolean; favDisabled: boolean
+  canMove: boolean; onMove: () => void
+  onToggle: (id: string) => void; folderName: string | null; t: T
 }) {
   return (
     <li className="relative">
-      <Link href={`/minutes/${r.id}`} aria-label={r.title} className="absolute inset-0 rounded-lg" />
+      <Link href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-lg" />
       <div className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors duration-100 hover:bg-surface-2">
-        <StarButton id={r.id} fav={fav} disabled={disabled} onToggle={onToggle} t={t} />
-        <span className={`inline-flex w-12 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[r.team]?.bar ?? 'bg-ink-subtle'}`}>
-          {r.team}
+        <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
+        <span className={`inline-flex w-12 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[l.teamCode]?.bar ?? 'bg-ink-subtle'}`}>
+          {l.teamCode}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-ink">{r.title}</span>
-          {r.bodyPreview && <span className="block truncate text-xs text-ink-subtle">{r.bodyPreview}</span>}
+          <span className="block truncate text-sm font-medium text-ink">{l.title}</span>
+          {l.bodyPreview && <span className="block truncate text-xs text-ink-subtle">{l.bodyPreview}</span>}
         </span>
-        {r.meetingCategory && <span className="hidden shrink-0 sm:inline-flex"><CategoryChip cat={r.meetingCategory} t={t} /></span>}
-        {showBodyChip && (
+        {l.meetingCategory && <span className="hidden shrink-0 sm:inline-flex"><CategoryChip cat={l.meetingCategory} t={t} /></span>}
+        {folderName && (
           <span className="chip hidden shrink-0 bg-surface-2 text-ink-muted md:inline-flex">
-            <Folder aria-hidden className="h-3 w-3" />{r.body}
+            <Folder aria-hidden className="h-3 w-3" />{folderName}
           </span>
         )}
-        <span className="w-20 shrink-0 text-right text-xs tabular-nums text-ink-subtle">{r.minuteDate}</span>
+        {canMove && <MoveButton onMove={onMove} t={t} />}
+        <span className="w-20 shrink-0 text-right text-xs tabular-nums text-ink-subtle">{l.minuteDate}</span>
       </div>
     </li>
   )

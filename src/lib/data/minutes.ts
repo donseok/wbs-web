@@ -1,9 +1,10 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type {
-  InsightKind, MeetingCategory, Minute, MinuteFile, MinuteHighlight, MinuteInsight, MinutesTreeGroup, TeamCode,
+  ExplorerData, ExplorerLeaf, InsightKind, MeetingCategory, Minute, MinuteFile, MinuteFolder, MinuteHighlight,
+  MinuteInsight, TeamCode,
 } from '@/lib/domain/types'
-import { buildMinutesTree, ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
+import { ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 
 type Row = Record<string, unknown>
@@ -35,7 +36,7 @@ export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8
 })
 
 const LIST_COLS =
-  'id, minute_date, team_code, title, meeting_id, created_by, created_by_name, created_at, updated_at, body_preview, minute_files(count), meetings(category)'
+  'id, minute_date, team_code, title, meeting_id, created_by, created_by_name, created_at, updated_at, body_preview, folder_id, minute_files(count), meetings(category)'
 
 function mapMinute(r: Row, bodyMd = ''): Minute {
   const files = r.minute_files as { count: number }[] | undefined
@@ -53,6 +54,7 @@ function mapMinute(r: Row, bodyMd = ''): Minute {
     fileCount: files?.[0]?.count ?? 0,
     bodyPreview: (r.body_preview as string | null) ?? '',
     meetingCategory: ((r.meetings as { category?: MeetingCategory } | null)?.category) ?? null,
+    folderId: (r.folder_id as string | null) ?? null,
   }
 }
 
@@ -89,27 +91,35 @@ export const searchMinutes = cache(async (
   return (data ?? []).map((r: Row) => mapMinute(r))
 })
 
-/** 전 기간·전 팀 트리(구분→회의체→회의록). 실패 시 로깅 + null —
- *  빈 트리 []와 구분해 '회의록 없음'으로 위장되는 조용한 빈 화면을 방지한다.
- *  MINUTES_TREE_LIMIT(1000)은 PostgREST max_rows 하드 캡과 일치 — 서버 캡이 .limit보다 우선하므로
- *  이보다 큰 값은 성립하지 않는다. total은 집계에 사용된(표시되는) 행 수이며 실제 전체 건수가 아니다. */
-export const getMinutesTree = cache(async (): Promise<
-  { groups: MinutesTreeGroup[]; total: number; truncated: boolean } | null
-> => {
+/** 탐색기 v2 — 전 기간 리프 + 폴더 전량. 실패 시 로깅 + null(빈 결과 객체와 구분 —
+ *  조용한 빈 화면 방지). 트리 조립은 클라이언트(buildFolderTree) — 팀 탭 필터를 리프에
+ *  먼저 적용해야 하므로 서버 조립은 성립하지 않는다. */
+export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> => {
   const sb = await createServerClient()
-  const { data, error } = await sb.from('minutes').select(LIST_COLS)
-    .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
-    .limit(MINUTES_TREE_LIMIT)
-  if (error) {
-    console.error('[getMinutesTree] 조회 실패:', error.message)
+  const [mRes, fRes] = await Promise.all([
+    sb.from('minutes').select(LIST_COLS)
+      .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
+      .limit(MINUTES_TREE_LIMIT),
+    sb.from('minute_folders').select('id, name, parent_id, sort, created_by')
+      .order('sort').order('name'),
+  ])
+  if (mRes.error || fRes.error) {
+    console.error('[getMinutesExplorer] 조회 실패:', mRes.error?.message ?? fRes.error?.message)
     return null
   }
-  const rows = (data ?? []).map((r: Row) => mapMinute(r))
-  return {
-    groups: buildMinutesTree(rows),
-    total: rows.length,
-    truncated: rows.length >= MINUTES_TREE_LIMIT,
-  }
+  const rows = (mRes.data ?? []).map((r: Row) => mapMinute(r))
+  const leaves: ExplorerLeaf[] = rows.map(mi => ({
+    id: mi.id, minuteDate: mi.minuteDate, teamCode: mi.teamCode, title: mi.title,
+    fileCount: mi.fileCount ?? 0, createdBy: mi.createdBy, createdByName: mi.createdByName,
+    bodyPreview: mi.bodyPreview ?? '', meetingCategory: mi.meetingCategory ?? null,
+    folderId: mi.folderId ?? null,
+  }))
+  const folders: MinuteFolder[] = ((fRes.data ?? []) as Row[]).map(f => ({
+    id: f.id as string, name: f.name as string,
+    parentId: (f.parent_id as string | null) ?? null,
+    sort: f.sort as number, createdBy: (f.created_by as string | null) ?? null,
+  }))
+  return { folders, leaves, total: rows.length, truncated: rows.length >= MINUTES_TREE_LIMIT }
 })
 
 /** 뷰어 상세 — body_md + 파일 목록(서명 URL 없이 메타만). 없으면 null. */

@@ -15,7 +15,7 @@ vi.mock('@/lib/data/meetings', () => ({ getProjectMeetingData: vi.fn() }))
 
 const getMinuteFavorites = vi.fn()
 vi.mock('@/lib/data/minutes', () => ({
-  getMinuteDetail: vi.fn(), getMinutesPage: vi.fn(), getMinutesTree: vi.fn(), searchMinutes: vi.fn(),
+  getMinuteDetail: vi.fn(), getMinutesPage: vi.fn(), searchMinutes: vi.fn(),
   getMinuteFavorites: (...a: unknown[]) => getMinuteFavorites(...(a as [])),
 }))
 
