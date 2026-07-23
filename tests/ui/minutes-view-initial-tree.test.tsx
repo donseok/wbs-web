@@ -21,10 +21,13 @@ vi.mock('@/components/minutes/MinuteUploadModal', () => ({ MinuteUploadModal: ()
 vi.mock('@/components/minutes/ArchiveChatPanel', () => ({ ArchiveChatPanel: () => null }))
 
 const fetchMinutesTree = vi.fn()
+const fetchMinuteFavorites = vi.fn()
 vi.mock('@/app/actions/minutes', () => ({
   fetchMinutesRange: vi.fn(async () => []),
   fetchMinutesSearch: vi.fn(async () => []),
   fetchMinutesTree: (...a: unknown[]) => fetchMinutesTree(...(a as [])),
+  fetchMinuteFavorites: (...a: unknown[]) => fetchMinuteFavorites(...(a as [])),
+  toggleMinuteFavorite: vi.fn(async () => true),
 }))
 
 import { MinutesView } from '@/components/minutes/MinutesView'
@@ -33,7 +36,7 @@ const groups = [{
   teamCode: 'MES', count: 1,
   bodies: [{
     name: '물류공정', count: 1, latestDate: '2026-07-16',
-    leaves: [{ id: 'm1', minuteDate: '2026-07-16', title: '물류공정_260716', fileCount: 0, createdByName: null }],
+    leaves: [{ id: 'm1', minuteDate: '2026-07-16', title: '물류공정_260716', fileCount: 0, createdByName: null, bodyPreview: '', meetingCategory: null }],
   }],
 }] as MinutesTreeGroup[]
 const serverTree = { groups, total: 1, truncated: false }
@@ -50,17 +53,20 @@ describe('MinutesView initialTree 서버 프리페치', () => {
     root = createRoot(container)
     fetchMinutesTree.mockReset()
     fetchMinutesTree.mockImplementation(async () => serverTree)
+    fetchMinuteFavorites.mockReset()
+    fetchMinuteFavorites.mockResolvedValue([])
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
   async function mount(
     initialView: 'list' | 'calendar' | 'tree',
     initialTree: typeof serverTree | null,
+    initialFavorites: string[] | null = [],
   ) {
     await act(async () => root.render(
       <MinutesView initialMinutes={[]} initialTree={initialTree} todayIso="2026-07-17"
         initialView={initialView} projects={[]} currentUserId="u1" role="pmo_admin"
-        defaultTeam={null} />,
+        defaultTeam={null} initialFavorites={initialFavorites} />,
     ))
   }
   function buttonByText(text: string): HTMLButtonElement {
@@ -106,5 +112,15 @@ describe('MinutesView initialTree 서버 프리페치', () => {
         projects={[]} currentUserId="u1" role="pmo_admin" defaultTeam={null} />,
     ))
     expect(fetchMinutesTree).toHaveBeenCalledTimes(1)
+  })
+
+  it('initialFavorites 프리페치 시 즐겨찾기 재조회 0회', async () => {
+    await mount('tree', serverTree, ['m1'])
+    expect(fetchMinuteFavorites).not.toHaveBeenCalled()
+  })
+
+  it('initialFavorites 가 null(실패/미로그인)이면 트리 뷰에서 1회 폴백 조회한다', async () => {
+    await mount('tree', serverTree, null)
+    expect(fetchMinuteFavorites).toHaveBeenCalledTimes(1)
   })
 })

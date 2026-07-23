@@ -1,7 +1,7 @@
 import { NotebookText } from 'lucide-react'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
-import { getMinutesPage, getMinutesTree } from '@/lib/data/minutes'
+import { getMinuteFavorites, getMinutesPage, getMinutesTree } from '@/lib/data/minutes'
 import { getMembership, getSession } from '@/lib/auth'
 import { getUiPrefs } from '@/app/actions/preferences'
 import { listProjects } from '@/app/actions/project'
@@ -28,9 +28,10 @@ export default async function MinutesPage() {
   // 가져와서 "화면이 뜨고 나서 또 로딩이 도는" 왕복이 한 번 더 붙었다. 여기서 함께 싣는다.
   // prefs.minutesView 를 먼저 await 해 조건부로 부르면 안 된다 — 직렬 2단이 되고,
   // 아래 히어로 KPI(minutes.length)와 리스트/달력 전환용 월 목록까지 늦어진다.
-  const [minutes, tree, m, user, prefs, projects, locale] = await Promise.all([
+  const [minutes, tree, favs, m, user, prefs, projects, locale] = await Promise.all([
     getMinutesPage(rs, re, null),
     getMinutesTree(),
+    getMinuteFavorites(),
     getMembership(),
     getSession(),
     getUiPrefs(),
@@ -59,6 +60,8 @@ export default async function MinutesPage() {
           user 는 위 Promise.all 에서 이미 받았으므로 추가 왕복은 없다.
           (대가: GoTrue 일시 실패 시 멀쩡한 프리페치를 버려 왕복 1회 손해 — 정확성 우선.) */}
       <MinutesView initialMinutes={minutes} initialTree={user ? tree : null} todayIso={today}
+        initialFavorites={user ? favs : null}
+        explorerLayout={prefs.minutesExplorerLayout === 'list' ? 'list' : 'grid'}
         initialView={initialView} projects={projects} defaultTeam={m?.teamCode ?? null}
         currentUserId={user?.id ?? null} role={m?.role ?? null} />
     </ProjectPageShell>

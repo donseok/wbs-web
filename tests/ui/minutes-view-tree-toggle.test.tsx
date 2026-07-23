@@ -26,7 +26,7 @@ vi.mock('@/components/minutes/ArchiveChatPanel', () => ({
 
 const treeResult = {
   groups: [{ teamCode: 'MES', count: 1, bodies: [{ name: '물류공정', count: 1, latestDate: '2026-07-16', leaves: [
-    { id: 'm1', minuteDate: '2026-07-16', title: '물류공정_260716', fileCount: 0, createdByName: null },
+    { id: 'm1', minuteDate: '2026-07-16', title: '물류공정_260716', fileCount: 0, createdByName: null, bodyPreview: '', meetingCategory: null },
   ] }] }] as MinutesTreeGroup[],
   total: 1, truncated: false,
 }
@@ -35,6 +35,8 @@ vi.mock('@/app/actions/minutes', () => ({
   fetchMinutesRange: vi.fn(async () => []),
   fetchMinutesSearch: vi.fn(async () => []),
   fetchMinutesTree: (...a: unknown[]) => fetchMinutesTree(...(a as [])),
+  fetchMinuteFavorites: vi.fn(async () => []),
+  toggleMinuteFavorite: vi.fn(async () => true),
 }))
 
 import { MinutesView } from '@/components/minutes/MinutesView'

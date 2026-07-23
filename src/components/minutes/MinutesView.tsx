@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Bot, CalendarDays, ChevronLeft, ChevronRight, Download, List, ListTree, Plus, Search } from 'lucide-react'
 import type { Minute, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
 import { MINUTES_TREE_LIMIT, TEAM_CODES } from '@/lib/domain/minutes'
-import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesTree } from '@/app/actions/minutes'
+import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesTree, fetchMinuteFavorites, toggleMinuteFavorite } from '@/app/actions/minutes'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
@@ -16,7 +16,7 @@ import { TEAM } from '@/components/wbs/shared'
 import { MinutesCalendar } from './MinutesCalendar'
 import { MinuteUploadModal } from './MinuteUploadModal'
 import { ArchiveChatPanel } from './ArchiveChatPanel'
-import { MinutesTree } from './MinutesTree'
+import { MinutesExplorer, type ExplorerLayout } from './MinutesExplorer'
 import { filenameFromContentDisposition } from './download'
 
 type ViewKey = 'list' | 'calendar' | 'tree'
@@ -32,6 +32,7 @@ function monthRangeOf(year: number, month0: number): [string, string] {
 
 export function MinutesView({
   initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role, defaultTeam,
+  initialFavorites = null, explorerLayout = 'grid',
 }: {
   initialMinutes: Minute[]
   /** 서버에서 미리 실어 보낸 트리. null 이면(조회 실패 포함) 마운트 후 클라이언트가 직접 가져온다. */
@@ -42,6 +43,9 @@ export function MinutesView({
   currentUserId: string | null
   role: string | null
   defaultTeam?: TeamCode | null
+  /** 서버에서 미리 실어 보낸 즐겨찾기 id 목록. null 이면(조회 실패·미로그인) 트리 뷰 진입 시 클라이언트가 직접 가져온다. */
+  initialFavorites?: string[] | null
+  explorerLayout?: ExplorerLayout
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
@@ -67,6 +71,38 @@ export function MinutesView({
   // 트리 전용 세대 카운터 — reqRef(월 목록·검색)와 분리. 공유하면 트리 로딩 중 검색·팀 변경이
   // 트리 응답을 폐기해 'loading'에 갇힌다(스펙 'MinutesView 통합' 절).
   const treeReqRef = useRef(0)
+
+  // 즐겨찾기 — 뷰 전환 언마운트에도 살아야 하므로 탐색기가 아닌 여기 소유. initialTree 계약과 대칭:
+  // 서버 프리페치가 있으면 재조회 없음, null(실패/미로그인)이면 'idle' → 트리 뷰 진입 시 1회 폴백.
+  const [favState, setFavState] = useState<'idle' | 'loading' | 'error' | Set<string>>(
+    initialFavorites != null ? new Set(initialFavorites) : 'idle')
+  const favReqRef = useRef(0)
+
+  async function loadFavorites() {
+    const gen = ++favReqRef.current
+    setFavState('loading')
+    const res = await fetchMinuteFavorites()
+    if (favReqRef.current !== gen) return
+    setFavState(res ? new Set(res) : 'error')
+  }
+
+  async function toggleFav(id: string) {
+    if (!(favState instanceof Set)) return
+    const on = !favState.has(id)
+    setFavState(cur => {
+      if (!(cur instanceof Set)) return cur
+      const next = new Set(cur); if (on) next.add(id); else next.delete(id); return next
+    })
+    const ok = await toggleMinuteFavorite(id, on)
+    if (!ok) {
+      // 해당 id 만 외과적으로 되돌린다 — 연타 시 다른 토글 결과를 덮지 않도록 전체 스냅숏 복원 금지
+      setFavState(cur => {
+        if (!(cur instanceof Set)) return cur
+        const next = new Set(cur); if (on) next.delete(id); else next.add(id); return next
+      })
+      toast({ title: t('min.exp.favToggleError'), variant: 'error' })
+    }
+  }
 
   const teamOrNull = team === 'ALL' ? null : team
   const isSearch = query.trim().length > 0
@@ -110,6 +146,7 @@ export function MinutesView({
     setView(v)
     queueUiPref({ minutesView: v })
     if (v === 'tree' && typeof treeState !== 'object' && treeState !== 'loading') void loadTree()
+    if (v === 'tree' && favState === 'idle') void loadFavorites()
   }
 
   async function downloadAllMinutes() {
@@ -157,6 +194,7 @@ export function MinutesView({
   // deps를 [view]로 제한 — treeState를 넣으면 조회 실패('error') 시 effect가 재발화해 무한 재시도가 된다.
   useEffect(() => {
     if (view === 'tree' && treeState === 'idle') void loadTree()
+    if (view === 'tree' && favState === 'idle') void loadFavorites()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
 
@@ -330,7 +368,11 @@ export function MinutesView({
                 {t('min.tree.truncated').replace('{n}', String(MINUTES_TREE_LIMIT))}
               </p>
             )}
-            <MinutesTree groups={treeGroups} />
+            <MinutesExplorer groups={treeGroups}
+              favorites={favState instanceof Set ? favState : null}
+              onToggleFavorite={id => void toggleFav(id)}
+              onRetryFavorites={() => void loadFavorites()}
+              initialLayout={explorerLayout} />
           </div>
         )
       )}
