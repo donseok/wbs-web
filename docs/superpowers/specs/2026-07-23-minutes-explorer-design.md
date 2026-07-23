@@ -112,6 +112,7 @@ create policy own_minute_favorites on minute_favorites
 |----|----|----|
 | `min.exp.favorites` | 즐겨찾기 | Favorites |
 | `min.exp.all` | 전체 | All |
+| `min.exp.folders` | 폴더 | Folders (lg 미만 접이식 레일 헤더) |
 | `min.exp.meetingCount` | 회의록 {n}건 | {n} minutes |
 | `min.exp.subfolderCount` | 하위 폴더 {n}개 | {n} subfolders |
 | `min.exp.latest` | 최근 {d} | Latest {d} |
