@@ -53,6 +53,12 @@ vi.mock('@/app/actions/members', () => ({
 vi.mock('@/app/actions/wbs', () => ({
   updateActual: vi.fn(async () => ({ ok: true })),
 }))
+vi.mock('@/app/actions/issues', () => ({
+  createIssue: vi.fn(async () => ({ ok: true })),
+  updateIssue: vi.fn(async () => ({ ok: true })),
+  updateIssueProgress: vi.fn(async () => ({ ok: true })),
+  deleteIssue: vi.fn(async () => ({ ok: true })),
+}))
 
 import { MeetingsView } from '@/components/meetings/MeetingsView'
 import { MyMeetingsView } from '@/components/meetings/MyMeetingsView'
@@ -60,6 +66,8 @@ import { AttendanceView } from '@/components/attendance/AttendanceView'
 import { AnnouncementsView } from '@/components/announcements/AnnouncementsView'
 import { MembersBoard } from '@/components/members/MembersBoard'
 import { KanbanBoard } from '@/components/kanban/KanbanBoard'
+import { IssuesView } from '@/components/issues/IssuesView'
+import type { Issue } from '@/lib/domain/issues'
 
 function meeting(overrides: Partial<Meeting> = {}): Meeting {
   return {
@@ -92,6 +100,15 @@ function announcement(overrides: Partial<Announcement> = {}): Announcement {
     isPinned: false, publishFrom: null, publishTo: null,
     createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z',
     ...overrides,
+  }
+}
+
+function issueFx(overrides: Partial<Issue> = {}): Issue {
+  return {
+    id: 'iss-1', issueNo: 1, projectId: 'p1', title: '기준정보 오류', body: '',
+    status: 'open', severity: 'medium', assigneeMemberId: null, dueDate: null,
+    resolutionNote: '', resolvedAt: null, createdBy: 'u1', createdByName: '홍길동',
+    createdAt: '2026-07-01T00:00:00+00:00', updatedAt: '2026-07-01T00:00:00+00:00', ...overrides,
   }
 }
 
@@ -282,5 +299,24 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
     // phase 모드면 컬럼 제목이 루트 이름(구축)이다.
     expect(container.textContent).toContain('구축')
     expect(container.textContent).not.toContain('미배정')
+  })
+
+  it('IssuesView: ?focus= 로 해당 이슈 상세를 연다', async () => {
+    currentSearch = 'focus=iss-2'
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={[issueFx(), issueFx({ id: 'iss-2', title: '인터페이스 오류' })]} />,
+    )
+    expect(dialog()).not.toBeNull()
+    expect(dialog()!.textContent).toContain('인터페이스 오류')
+  })
+
+  it('IssuesView: 무효 focus id 는 조용히 무시한다', async () => {
+    currentSearch = 'focus=iss-없음'
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={[issueFx()]} />,
+    )
+    expect(dialog()).toBeNull()
   })
 })
