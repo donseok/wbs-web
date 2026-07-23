@@ -101,7 +101,20 @@ describe('buildMinutesTree', () => {
     expect(leaf).toEqual({
       id: 'a', minuteDate: '2026-07-16', title: '정산_260716',
       fileCount: 1, createdByName: '작성자a',
+      bodyPreview: '', meetingCategory: null,
     })
+  })
+
+  it('리프는 bodyPreview·meetingCategory를 패스스루하고, 없으면 기본값("", null)', () => {
+    const tree = buildMinutesTree([
+      { ...minute('a', '2026-07-16', 'ERP', '정산_260716'), bodyPreview: '요약 문단', meetingCategory: 'routine' },
+      minute('b', '2026-07-15', 'ERP', '정산_260715'),
+    ])
+    const [withMeta, without] = tree[0].bodies[0].leaves
+    expect(withMeta.bodyPreview).toBe('요약 문단')
+    expect(withMeta.meetingCategory).toBe('routine')
+    expect(without.bodyPreview).toBe('')
+    expect(without.meetingCategory).toBeNull()
   })
 
   it('빈 입력은 빈 배열', () => {

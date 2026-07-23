@@ -105,6 +105,7 @@ export function buildMinutesTree(minutes: Minute[]): MinutesTreeGroup[] {
     body.leaves.push({
       id: mi.id, minuteDate: mi.minuteDate, title: mi.title,
       fileCount: mi.fileCount ?? 0, createdByName: mi.createdByName,
+      bodyPreview: mi.bodyPreview ?? '', meetingCategory: mi.meetingCategory ?? null,
     })
   }
   const known = TEAM_CODES.filter(tk => byTeam.has(tk)) as string[]

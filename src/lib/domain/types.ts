@@ -172,6 +172,7 @@ export interface UiPrefs {
   dashSections?: string[]   // 대시보드 상세 아코디언에서 펼쳐 둔 그룹 id
   minutesView?: 'list' | 'calendar' | 'tree'   // 회의록 보관함 뷰 토글
   minuteFontSize?: number   // 회의록 뷰어 본문 글자크기(px, 12~28)
+  minutesExplorerLayout?: 'grid' | 'list'  // 회의록 탐색기 우측 카드 레이아웃
   notifRead?: Record<string, string[]> // 프로젝트 id → 읽음 처리한 알림 id('모두 읽음' 시점 피드)
 }
 
@@ -189,6 +190,8 @@ export interface Minute {
   createdAt: string
   updatedAt: string
   fileCount?: number           // 목록 뷰 전용(첨부 수, 서버 계산)
+  bodyPreview?: string              // 카드 요약(0039 생성 컬럼, 목록/트리 조회 전용)
+  meetingCategory?: MeetingCategory | null  // 연결 회의 유형(meetings 임베드, 미연결 null)
 }
 
 /** 트리 뷰(구분→회의체→회의록) — 서버 집계 결과. */
@@ -198,6 +201,8 @@ export interface MinutesTreeLeaf {
   title: string
   fileCount: number
   createdByName: string | null
+  bodyPreview: string
+  meetingCategory: MeetingCategory | null
 }
 export interface MinutesTreeBody {
   name: string                 // meetingBodyOf 추출 결과(그룹 키이자 표시명)
