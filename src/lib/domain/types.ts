@@ -192,6 +192,7 @@ export interface Minute {
   fileCount?: number           // 목록 뷰 전용(첨부 수, 서버 계산)
   bodyPreview?: string              // 카드 요약(0039 생성 컬럼, 목록/트리 조회 전용)
   meetingCategory?: MeetingCategory | null  // 연결 회의 유형(meetings 임베드, 미연결 null)
+  folderId?: string | null  // 소속 폴더(0040, 목록 조회 전용 — null=미분류)
 }
 
 /** 트리 뷰(구분→회의체→회의록) — 서버 집계 결과. */
@@ -214,6 +215,44 @@ export interface MinutesTreeGroup {
   teamCode: TeamCode
   count: number
   bodies: MinutesTreeBody[]
+}
+
+/* ── 탐색기 v2: 실제 폴더 디렉토리 (스펙 2026-07-23-minutes-folders-design.md) ── */
+
+export interface MinuteFolder {
+  id: string
+  name: string
+  parentId: string | null
+  sort: number
+  createdBy: string | null           // null = 시드 폴더(pmo_admin 만 관리)
+}
+
+/** 탐색기 리프 — 목록 조회 shape 에 폴더 소속 부착. */
+export interface ExplorerLeaf {
+  id: string
+  minuteDate: string                 // 'YYYY-MM-DD'
+  teamCode: TeamCode
+  title: string
+  fileCount: number
+  createdBy: string | null           // 이동 버튼 노출 판정(작성자 or pmo_admin)
+  createdByName: string | null
+  bodyPreview: string
+  meetingCategory: MeetingCategory | null
+  folderId: string | null            // null = 미분류
+}
+
+export interface FolderNode {
+  folder: MinuteFolder
+  children: FolderNode[]
+  directLeaves: ExplorerLeaf[]       // 직계 소속(입력 순서 = 날짜 내림차순)
+  totalCount: number                 // 하위 포함 재귀 합계
+}
+
+export interface ExplorerData {
+  folders: MinuteFolder[]
+  leaves: ExplorerLeaf[]             // 전 기간 flat, 날짜 내림차순
+  total: number
+  truncated: boolean
 }
 
 export interface MinuteFile {
