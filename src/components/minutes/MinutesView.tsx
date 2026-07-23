@@ -213,14 +213,14 @@ export function MinutesView({
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
             <input value={query}
               onChange={e => { setQuery(e.target.value); void runSearch(e.target.value, team) }}
               placeholder={t('min.search.placeholder')}
-              className="app-input h-9 w-56 pl-8" />
+              className="app-input h-9 w-full pl-8 sm:w-40" />
           </div>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             <SegmentedTabs<ViewKey>
               tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
                      { key: 'tree', label: t('min.view.tree'), icon: ListTree },
