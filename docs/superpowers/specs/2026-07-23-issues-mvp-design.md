@@ -23,9 +23,9 @@
 | 삭제 | hard delete (soft archive 불채택) | 회의·공지·회의록 관례와 정합 |
 | 동시 편집 | 상태 변경 CAS (`where status=$from`, 0행 감지) | version 낙관잠금 불채택 — 기존 last-write-wins 관례 |
 
-## 2. 데이터 모델 — `supabase/migrations/0040_issues.sql`
+## 2. 데이터 모델 — `supabase/migrations/0041_issues.sql`
 
-번호는 **0040** — 0039는 회의록 탐색기(`0039_minutes_explorer.sql`, 병렬 작업분)가 선점(2026-07-23 실측). 멱등 SQL + 롤백 파일(`0040_issues_rollback.sql`) 동봉. 적용은 Supabase Management API 경로(레포 관례 — db push 금지).
+번호는 **0041** — 0039는 회의록 탐색기(`0039_minutes_explorer.sql`, 적용 완료), 0040은 회의록 폴더(`0040_minute_folders.sql`, feat/minutes-folders 미머지 브랜치)가 선점(2026-07-23 실측). 멱등 SQL + 롤백 파일(`0041_issues_rollback.sql`) 동봉. 적용은 Supabase Management API 경로(레포 관례 — db push 금지).
 
 ```sql
 create table if not exists issues (

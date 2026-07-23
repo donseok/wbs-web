@@ -4,7 +4,7 @@
 
 **Goal:** 프로젝트별 이슈(리스크/장애물) 관리 메뉴 `/p/[projectId]/issues` — 필터 테이블 + 모달 + KPI 3장 + `?focus=` 딥링크.
 
-**Architecture:** 기존 공지/회의 패턴 1:1 복제. 순수 도메인(`lib/domain/issues.ts`) → 읽기 계층(`lib/data/issues.ts`) → 서버 액션(`app/actions/issues.ts`) → 서버 페이지 + 클라이언트 뷰(`components/issues/`). DB는 `issues` 테이블 1개(0040 마이그레이션, RLS 포함).
+**Architecture:** 기존 공지/회의 패턴 1:1 복제. 순수 도메인(`lib/domain/issues.ts`) → 읽기 계층(`lib/data/issues.ts`) → 서버 액션(`app/actions/issues.ts`) → 서버 페이지 + 클라이언트 뷰(`components/issues/`). DB는 `issues` 테이블 1개(0041 마이그레이션, RLS 포함).
 
 **Tech Stack:** Next.js 15 App Router, Supabase(PostgREST + RLS), vitest, Tailwind 토큰 시스템, lucide-react.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **`git add -A` 절대 금지** — 병렬 세션이 있는 저장소다. 커밋마다 파일을 명시적으로 나열한다.
-- 마이그레이션 번호는 **0040** (0039는 `0039_minutes_explorer.sql`이 선점). 적용은 Task 11에서 Supabase Management API로만 — `db push`/pg 직결 금지. **로컬 dev도 프로덕션 DB를 공유**하므로 마이그레이션 적용 전에는 이슈 화면 런타임이 PGRST 오류(빈 목록)로 보이는 게 정상이다.
+- 마이그레이션 번호는 **0041** (0039는 `0039_minutes_explorer.sql`, 0040은 feat/minutes-folders 브랜치의 `0040_minute_folders.sql`이 선점). 적용은 Task 11에서 Supabase Management API로만 — `db push`/pg 직결 금지. **로컬 dev도 프로덕션 DB를 공유**하므로 마이그레이션 적용 전에는 이슈 화면 런타임이 PGRST 오류(빈 목록)로 보이는 게 정상이다.
 - 운영 D-CUBE 프로젝트 데이터에 쓰기 검증 금지 — 쓰기 스모크는 전용 테스트 프로젝트에서만.
 - DB에는 영문 코드만 저장: status `open|in_progress|resolved|on_hold`, severity `high|medium|low`.
 - `updated_at` 트리거는 이 DB에 없다 — 모든 update 페이로드에 `updated_at: new Date().toISOString()` 수동 포함(레포 관례).
@@ -210,7 +210,7 @@ Expected: FAIL — `Cannot find module '@/lib/domain/issues'` 계열 오류.
 ```ts
 // 이슈관리 도메인 — 순수 함수만(I/O 없음). 스펙: docs/superpowers/specs/2026-07-23-issues-mvp-design.md §3.
 // 상태 전환의 단일 정본은 STATUS_TRANSITIONS — UI(select 옵션)와 서버 액션(전환 검증)이
-// 이 맵만 참조한다. 5번째 상태를 추가할 때 이 파일 + 0040 check 제약만 바꾸면 되게 유지할 것.
+// 이 맵만 참조한다. 5번째 상태를 추가할 때 이 파일 + 0041 check 제약만 바꾸면 되게 유지할 것.
 
 export const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'on_hold'] as const
 export type IssueStatus = (typeof ISSUE_STATUSES)[number]
@@ -547,17 +547,17 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: 마이그레이션 0040 (파일 작성만 — 적용은 Task 11)
+### Task 3: 마이그레이션 0041 (파일 작성만 — 적용은 Task 11)
 
 **Files:**
-- Create: `supabase/migrations/0040_issues.sql`
-- Create: `supabase/migrations/0040_issues_rollback.sql`
+- Create: `supabase/migrations/0041_issues.sql`
+- Create: `supabase/migrations/0041_issues_rollback.sql`
 
 **Interfaces:**
 - Consumes: `projects`, `project_members`, `auth.users`, `app_role()` (기존 DB 객체)
 - Produces: `issues` 테이블 — Task 4 데이터 계층의 select 컬럼 목록과 1:1 대응. RLS: select=전체 / insert=본인+멤버 / update=멤버 백스톱 / delete=작성자 or pmo.
 
-- [ ] **Step 1: `0040_issues.sql` 작성**
+- [ ] **Step 1: `0041_issues.sql` 작성**
 
 ```sql
 -- 이슈관리 (프로젝트 스코프) — 리스크/장애물 트래킹. 스펙: docs/superpowers/specs/2026-07-23-issues-mvp-design.md §2.
@@ -571,7 +571,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 --       .env.local 의 SUPABASE_DB_URL 은 비어 있으므로 pg 직결/db push 는 사용하지 않는다.
 -- 적용 순서: 이 마이그레이션을 **먼저** 적용한 뒤 코드를 배포한다(0027 PGRST 사고 교훈) —
 --       테이블이 없는 상태로 getIssues 가 돌면 매 요청 PGRST 오류가 로그를 오염시킨다.
--- 롤백: 0040_issues_rollback.sql (등록된 이슈 전량 + issue_no 발번 이력 소실 — 롤백 파일 헤더 경고 참조).
+-- 롤백: 0041_issues_rollback.sql (등록된 이슈 전량 + issue_no 발번 이력 소실 — 롤백 파일 헤더 경고 참조).
 -- 주의: RLS 헬퍼는 public.app_role() (0012/0013 에서 생성, memberships.role 조회). 재정의하지 말 것.
 --       updated_at 트리거 없음 — 레포 관례(0023/0030/0038)대로 앱이 직접 갱신한다
 --       (AI 인덱스 신선도 가드의 입력이므로 쓰기 액션마다 갱신 필수).
@@ -642,10 +642,10 @@ create policy delete_own_issues on issues
   using (created_by = auth.uid() or app_role() = 'pmo_admin');
 ```
 
-- [ ] **Step 2: `0040_issues_rollback.sql` 작성**
+- [ ] **Step 2: `0041_issues_rollback.sql` 작성**
 
 ```sql
--- 0040 롤백 — issues 테이블을 제거해 0040 적용 이전 상태로 되돌린다.
+-- 0041 롤백 — issues 테이블을 제거해 0041 적용 이전 상태로 되돌린다.
 --
 -- 경고(데이터 소실): 등록된 모든 이슈(제목/본문/상태/조치 경과/resolved_at)가 함께 사라진다.
 --   issue_no 발번 시퀀스도 테이블과 함께 제거되므로 재적용 시 #1 부터 다시 시작한다 —
@@ -675,8 +675,8 @@ drop table if exists issues;
 - [ ] **Step 3: 커밋**
 
 ```bash
-git add supabase/migrations/0040_issues.sql supabase/migrations/0040_issues_rollback.sql
-git commit -m "feat(issues): 0040 issues 테이블 + RLS 마이그레이션(롤백 동봉)
+git add supabase/migrations/0041_issues.sql supabase/migrations/0041_issues_rollback.sql
+git commit -m "feat(issues): 0041 issues 테이블 + RLS 마이그레이션(롤백 동봉)
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```
@@ -902,7 +902,7 @@ Expected: FAIL — `Cannot find module '@/app/actions/issues'`.
 ```ts
 'use server'
 // 이슈 쓰기 액션 — 전부 세션+멤버십 fail-closed. RLS 는 "멤버면 수정 가능" 백스톱까지만
-// 보장하므로(0040 헤더 참조) 진행 필드 vs 전체 편집의 세분화는 여기서 강제한다.
+// 보장하므로(0041 헤더 참조) 진행 필드 vs 전체 편집의 세분화는 여기서 강제한다.
 // updated_at 트리거 없음 — 모든 update 페이로드에 수동 포함(레포 관례).
 import { createServerClient } from '@/lib/supabase/server'
 import { getMembership, getSession } from '@/lib/auth'
@@ -977,7 +977,7 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
       title: input.title.trim(),
       body: input.body,
       severity: input.severity,
-      // 담당자-프로젝트 정합은 0040 복합 FK 가 DB 에서 이중 방어(타 프로젝트 멤버면 FK 위반)
+      // 담당자-프로젝트 정합은 0041 복합 FK 가 DB 에서 이중 방어(타 프로젝트 멤버면 FK 위반)
       assignee_member_id: input.assigneeMemberId,
       due_date: input.dueDate,
       created_by: user.id,
@@ -2017,12 +2017,12 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Files:** 없음 (운영 작업)
 
 **Interfaces:**
-- Consumes: `0040_issues.sql`(Task 3), 메모리의 Supabase Management API 레시피(키체인 "Supabase CLI" 토큰 → go-keyring-base64 디코드 → `POST /v1/projects/rglfgrwwwwdqejohdnty/database/query`)
+- Consumes: `0041_issues.sql`(Task 3), 메모리의 Supabase Management API 레시피(키체인 "Supabase CLI" 토큰 → go-keyring-base64 디코드 → `POST /v1/projects/rglfgrwwwwdqejohdnty/database/query`)
 - Produces: 프로덕션 `issues` 테이블 + 라이브 메뉴
 
 - [ ] **Step 1: 마이그레이션 적용 (코드 배포 전 — 0027 교훈)**
 
-메모리 `supabase-mgmt-api-recipe`의 레시피대로 키체인 토큰을 꺼내 `0040_issues.sql` 전문을 Management API로 실행한다.
+메모리 `supabase-mgmt-api-recipe`의 레시피대로 키체인 토큰을 꺼내 `0041_issues.sql` 전문을 Management API로 실행한다.
 
 - [ ] **Step 2: 적용 검증 (읽기 전용 쿼리)**
 
@@ -2049,7 +2049,7 @@ Expected: `tbl=1, policies=4, fk=issues_assignee_project_fk`.
 
 - [ ] **Step 5: 메모리 기록**
 
-`~/.claude/projects/-Users-jerry-wbs-web/memory/`에 이슈관리 기능 메모리 파일 신규 작성 + MEMORY.md 인덱스 1줄 추가(배포 커밋 해시·0040 적용 여부·잔여 백로그 포인터).
+`~/.claude/projects/-Users-jerry-wbs-web/memory/`에 이슈관리 기능 메모리 파일 신규 작성 + MEMORY.md 인덱스 1줄 추가(배포 커밋 해시·0041 적용 여부·잔여 백로그 포인터).
 
 ---
 
