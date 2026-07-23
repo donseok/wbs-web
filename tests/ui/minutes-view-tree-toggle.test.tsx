@@ -14,8 +14,10 @@ vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) =>
     <a href={href} {...props}>{children}</a>,
 }))
-vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: vi.fn() }))
-vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
+const queueUiPref = vi.fn()
+vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: (...a: unknown[]) => queueUiPref(...(a as [])) }))
+const toast = vi.fn()
+vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: (...a: unknown[]) => toast(...(a as [])) }) }))
 // 무거운 자식은 스텁 — 이 테스트는 MinutesView의 배선만 본다
 vi.mock('@/components/minutes/MinutesCalendar', () => ({ MinutesCalendar: () => <div data-testid="cal" /> }))
 vi.mock('@/components/minutes/MinuteUploadModal', () => ({ MinuteUploadModal: () => null }))
@@ -31,12 +33,13 @@ const treeResult = {
   total: 1, truncated: false,
 }
 const fetchMinutesTree = vi.fn(async () => treeResult as typeof treeResult | null)
+const toggleMinuteFavorite = vi.fn(async (id: string, on: boolean) => { void id; void on; return true })
 vi.mock('@/app/actions/minutes', () => ({
   fetchMinutesRange: vi.fn(async () => []),
   fetchMinutesSearch: vi.fn(async () => []),
   fetchMinutesTree: (...a: unknown[]) => fetchMinutesTree(...(a as [])),
   fetchMinuteFavorites: vi.fn(async () => []),
-  toggleMinuteFavorite: vi.fn(async () => true),
+  toggleMinuteFavorite: (...a: unknown[]) => toggleMinuteFavorite(...(a as [string, boolean])),
 }))
 
 import { MinutesView } from '@/components/minutes/MinutesView'
@@ -47,6 +50,10 @@ describe('MinutesView 트리 뷰 배선', () => {
     container = document.createElement('div'); document.body.appendChild(container)
     root = createRoot(container); fetchMinutesTree.mockClear(); chatProps.mockClear()
     fetchMinutesTree.mockImplementation(async () => treeResult)
+    queueUiPref.mockClear()
+    toast.mockClear()
+    toggleMinuteFavorite.mockReset()
+    toggleMinuteFavorite.mockImplementation(async () => true)
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
@@ -127,5 +134,41 @@ describe('MinutesView 트리 뷰 배선', () => {
     const last = chatProps.mock.calls.at(-1)![0] as { from: string | null; to: string | null }
     expect(last.from).toBe('2026-07-01')
     expect(last.to).toBe('2026-07-31')
+  })
+
+  it('탐색기 레이아웃 변경은 queueUiPref로 동기화된다', async () => {
+    await mount('tree')
+    await act(async () => buttonByText('min.exp.layout.list').click())
+    expect(queueUiPref).toHaveBeenCalledWith({ minutesExplorerLayout: 'list' })
+  })
+
+  it('레이아웃 선택은 뷰 왕복에도 유지된다', async () => {
+    await mount('tree')
+    await act(async () => buttonByText('min.exp.layout.list').click())
+    await act(async () => buttonByText('min.view.list').click())
+    await act(async () => buttonByText('min.view.tree').click())
+    // 탐색기가 언마운트·재마운트돼도 여전히 리스트 모드여야 한다(레이아웃 상태는 MinutesView 소유)
+    expect(container.querySelector('article')).toBeNull()
+    expect(container.querySelector('a[href="/minutes/m1"]')).toBeTruthy()
+  })
+
+  it('별 토글: 성공 경로는 즉시 낙관적으로 반영되고 서버 액션이 호출된다', async () => {
+    await mount('tree')
+    const stars = [...container.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')]
+    const m1star = stars.find(b => b.closest('article')?.textContent?.includes('물류공정_260716'))!
+    expect(m1star.getAttribute('aria-pressed')).toBe('false')   // 폴백 즐겨찾기는 빈 Set
+    await act(async () => m1star.click())
+    expect(m1star.getAttribute('aria-pressed')).toBe('true')
+    expect(toggleMinuteFavorite).toHaveBeenCalledWith('m1', true)
+  })
+
+  it('별 토글: 실패하면 해당 id만 원복되고 토스트가 뜬다', async () => {
+    toggleMinuteFavorite.mockResolvedValueOnce(false)
+    await mount('tree')
+    const stars = [...container.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')]
+    const m1star = stars.find(b => b.closest('article')?.textContent?.includes('물류공정_260716'))!
+    await act(async () => m1star.click())
+    expect(m1star.getAttribute('aria-pressed')).toBe('false')
+    expect(toast).toHaveBeenCalled()
   })
 })

@@ -6,7 +6,6 @@ import {
 } from 'lucide-react'
 import type { MeetingCategory, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
 import { MEETING_META } from '@/lib/domain/meetings'
-import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
@@ -44,22 +43,22 @@ const rowCls = (active: boolean) =>
     active ? 'bg-brand-weak font-semibold text-brand' : 'text-ink hover:bg-surface-2'}`
 
 /** 탐색기 — 좌측 폴더 레일 + 우측 폴더/회의록 카드 (스펙 2026-07-23-minutes-explorer-design.md).
- *  트리 데이터·즐겨찾기 상태는 MinutesView 소유(뷰 전환 언마운트에도 생존해야 함) — 여기는
- *  선택·펼침·레이아웃·노출 개수만 관리하며 전부 비영속(v1, 레이아웃만 prefs 동기화). */
+ *  트리 데이터·즐겨찾기·레이아웃 상태는 전부 MinutesView 소유(뷰 전환 언마운트에도 생존해야 함) —
+ *  여기는 선택·펼침·노출 개수만 관리하며 전부 비영속(v1). */
 export function MinutesExplorer({
-  groups, favorites, onToggleFavorite, onRetryFavorites, initialLayout = 'grid',
+  groups, favorites, onToggleFavorite, onRetryFavorites, layout, onLayoutChange,
 }: {
   groups: MinutesTreeGroup[]
   /** null = 로딩/실패 — 카운트 '–', 별 비활성, 즐겨찾기 스코프는 에러 카드+재시도 */
   favorites: Set<string> | null
   onToggleFavorite: (id: string) => void
   onRetryFavorites: () => void
-  initialLayout?: ExplorerLayout
+  layout: ExplorerLayout
+  onLayoutChange: (v: ExplorerLayout) => void
 }) {
   const { t } = useLocale()
   const [scopeRaw, setScopeRaw] = useState<Scope>({ kind: 'all' })
   const [collapsedTeams, setCollapsedTeams] = useState<Set<string>>(new Set())
-  const [layout, setLayout] = useState<ExplorerLayout>(initialLayout)
   const [visible, setVisible] = useState(PAGE_SIZE)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -80,8 +79,6 @@ export function MinutesExplorer({
       return next
     })
   }
-  function changeLayout(v: ExplorerLayout) { setLayout(v); queueUiPref({ minutesExplorerLayout: v }) }
-
   const allRows: LeafRow[] = useMemo(() =>
     groups
       .flatMap(g => g.bodies.flatMap(b => b.leaves.map(l => ({ ...l, team: g.teamCode, body: b.name }))))
@@ -253,7 +250,7 @@ export function MinutesExplorer({
             <SegmentedTabs<ExplorerLayout>
               tabs={[{ key: 'grid', label: t('min.exp.layout.grid'), icon: LayoutGrid },
                      { key: 'list', label: t('min.exp.layout.list'), icon: List }]}
-              value={layout} onChange={changeLayout} size="sm" />
+              value={layout} onChange={onLayoutChange} size="sm" />
           </div>
         </div>
 

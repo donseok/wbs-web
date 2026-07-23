@@ -78,6 +78,13 @@ export function MinutesView({
     initialFavorites != null ? new Set(initialFavorites) : 'idle')
   const favReqRef = useRef(0)
 
+  // 탐색기 레이아웃 — favState와 동일한 이유로 여기 소유(뷰 전환 언마운트에도 생존해야 함).
+  const [exLayout, setExLayout] = useState<ExplorerLayout>(explorerLayout)
+  function changeExplorerLayout(v: ExplorerLayout) {
+    setExLayout(v)
+    queueUiPref({ minutesExplorerLayout: v })
+  }
+
   async function loadFavorites() {
     const gen = ++favReqRef.current
     setFavState('loading')
@@ -372,7 +379,7 @@ export function MinutesView({
               favorites={favState instanceof Set ? favState : null}
               onToggleFavorite={id => void toggleFav(id)}
               onRetryFavorites={() => void loadFavorites()}
-              initialLayout={explorerLayout} />
+              layout={exLayout} onLayoutChange={changeExplorerLayout} />
           </div>
         )
       )}

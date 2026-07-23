@@ -13,8 +13,6 @@ vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) =>
     <a href={href} {...props}>{children}</a>,
 }))
-const queueUiPref = vi.fn()
-vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: (...a: unknown[]) => queueUiPref(...(a as [])) }))
 
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
@@ -44,17 +42,18 @@ const groups = [
 
 describe('MinutesExplorer', () => {
   let container: HTMLDivElement, root: Root
-  const onToggle = vi.fn(), onRetry = vi.fn()
+  const onToggle = vi.fn(), onRetry = vi.fn(), onLayoutChange = vi.fn()
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
-    root = createRoot(container); onToggle.mockClear(); onRetry.mockClear(); queueUiPref.mockClear()
+    root = createRoot(container); onToggle.mockClear(); onRetry.mockClear(); onLayoutChange.mockClear()
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
   async function mount(over: Partial<Parameters<typeof MinutesExplorer>[0]> = {}) {
     await act(async () => root.render(
       <MinutesExplorer groups={groups} favorites={new Set(['m1'])}
-        onToggleFavorite={onToggle} onRetryFavorites={onRetry} {...over} />,
+        onToggleFavorite={onToggle} onRetryFavorites={onRetry}
+        layout="grid" onLayoutChange={onLayoutChange} {...over} />,
     ))
   }
   function buttonByText(text: string): HTMLButtonElement {
@@ -132,10 +131,14 @@ describe('MinutesExplorer', () => {
     expect(container.querySelectorAll('a[href^="/minutes/x"]').length).toBe(35)
   })
 
-  it('레이아웃 토글 → queueUiPref({minutesExplorerLayout}) + 리스트 행 렌더', async () => {
+  it('레이아웃 토글 클릭 → onLayoutChange("list") 호출(레이아웃 상태는 MinutesView 소유)', async () => {
     await mount()
     await act(async () => buttonByText('min.exp.layout.list').click())
-    expect(queueUiPref).toHaveBeenCalledWith({ minutesExplorerLayout: 'list' })
+    expect(onLayoutChange).toHaveBeenCalledWith('list')
+  })
+
+  it('layout="list"로 마운트하면 카드 대신 리스트 행이 렌더된다', async () => {
+    await mount({ layout: 'list' })
     expect(container.querySelector('article')).toBeNull()   // 카드 대신 행
     expect(container.querySelector('a[href="/minutes/m1"]')).toBeTruthy()
   })
