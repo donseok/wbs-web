@@ -23,7 +23,7 @@ vi.mock('@/components/minutes/ArchiveChatPanel', () => ({ ArchiveChatPanel: () =
 vi.mock('@/app/actions/minutes', () => ({
   fetchMinutesRange: vi.fn(async () => []),
   fetchMinutesSearch: vi.fn(async () => []),
-  fetchMinutesTree: vi.fn(async () => ({ groups: [], total: 0, truncated: false })),
+  fetchMinutesExplorer: vi.fn(async () => ({ folders: [], leaves: [], total: 0, truncated: false })),
   fetchMinuteFavorites: vi.fn(async () => []),
   toggleMinuteFavorite: vi.fn(async () => true),
 }))

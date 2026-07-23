@@ -12,7 +12,7 @@ vi.mock('@/lib/ai/minutes-ingest', () => ({ ingestMinute: vi.fn() }))
 vi.mock('@/lib/ai/minutes-insights', () => ({ ensureMinuteInsights: vi.fn(), generateMinuteInsights: vi.fn() }))
 vi.mock('@/lib/data/meetings', () => ({ getProjectMeetingData: vi.fn() }))
 vi.mock('@/lib/data/minutes', () => ({
-  getMinuteDetail: vi.fn(), getMinutesPage: vi.fn(), getMinutesTree: vi.fn(), searchMinutes: vi.fn(),
+  getMinuteDetail: vi.fn(), getMinutesPage: vi.fn(), searchMinutes: vi.fn(),
   getMinuteFavorites: vi.fn(), getMinutesExplorer: vi.fn(),
 }))
 

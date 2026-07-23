@@ -1,9 +1,9 @@
 'use client'
 import { useRef, useState, type ChangeEvent } from 'react'
-import type { TeamCode } from '@/lib/domain/types'
+import type { FolderNode, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import {
   MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX,
-  MINUTE_BODY_MAX, TEAM_CODES, sanitizeFileName,
+  MINUTE_BODY_MAX, TEAM_CODES, buildFolderTree, sanitizeFileName,
 } from '@/lib/domain/minutes'
 import { createMinute, fetchProjectMeetingsLite, recordMinuteFile } from '@/app/actions/minutes'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -14,8 +14,19 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 
 const BUCKET = 'minutes'
 
+/** 셀렉트용 평탄화 — 트리 순서 유지 + depth 들여쓰기. */
+function folderOptions(folders: MinuteFolder[]): { id: string; name: string; depth: number }[] {
+  const { roots } = buildFolderTree(folders, [])
+  const out: { id: string; name: string; depth: number }[] = []
+  const walk = (nodes: FolderNode[], depth: number) => {
+    for (const n of nodes) { out.push({ id: n.folder.id, name: n.folder.name, depth }); walk(n.children, depth + 1) }
+  }
+  walk(roots, 0)
+  return out
+}
+
 export function MinuteUploadModal({
-  open, onClose, onSaved, todayIso, projects, defaultTeam,
+  open, onClose, onSaved, todayIso, projects, defaultTeam, folders, defaultFolderId,
 }: {
   open: boolean
   onClose: () => void
@@ -23,6 +34,8 @@ export function MinuteUploadModal({
   todayIso: string
   projects: { id: string; name: string }[]
   defaultTeam?: TeamCode | null
+  folders: MinuteFolder[]
+  defaultFolderId: string | null
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
@@ -35,6 +48,7 @@ export function MinuteUploadModal({
   const [projectId, setProjectId] = useState('')
   const [meetingId, setMeetingId] = useState('')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
+  const [folderId, setFolderId] = useState<string>(defaultFolderId ?? '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
@@ -76,7 +90,7 @@ export function MinuteUploadModal({
         const res = await createMinute({
           minuteDate: date, teamCode: team, title: title.trim() || bodyFile.name,
           bodyMd: bodyText, meetingId: meetingId || null,
-        })
+        }, folderId || null)
         if (!res.ok || !res.id) { setErr(res.error ?? t('min.err.upload')); return }
         minuteId = res.id
         progressRef.current = { id: minuteId, done: 0 }
@@ -166,6 +180,15 @@ export function MinuteUploadModal({
         <label className="block text-sm">
           <span className="mb-1 block font-medium">{t('min.form.title')}</span>
           <input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} className="app-input" />
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">{t('min.fold.form.folder')}</span>
+          <select value={folderId} onChange={e => setFolderId(e.target.value)} className="app-input">
+            <option value="">{t('min.fold.unfiled')}</option>
+            {folderOptions(folders).map(o => (
+              <option key={o.id} value={o.id}>{'  '.repeat(o.depth)}{o.name}</option>
+            ))}
+          </select>
         </label>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <label className="block">

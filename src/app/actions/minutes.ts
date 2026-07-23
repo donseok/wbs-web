@@ -9,9 +9,9 @@ import {
   type MinuteInput,
 } from '@/lib/domain/minutes'
 import {
-  getMinuteDetail, getMinuteFavorites, getMinutesExplorer, getMinutesPage, getMinutesTree, searchMinutes,
+  getMinuteDetail, getMinuteFavorites, getMinutesExplorer, getMinutesPage, searchMinutes,
 } from '@/lib/data/minutes'
-import type { ExplorerData, Minute, MinuteFolder, MinutesTreeGroup, TeamCode } from '@/lib/domain/types'
+import type { ExplorerData, Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64 } from '@/lib/minutes/blocks'
@@ -333,19 +333,10 @@ export async function fetchMinutesSearch(q: string, team: TeamCode | null): Prom
   return searchMinutes(q, team, 100)
 }
 
-/** 트리 뷰 진입/재시도/업로드 후 클라이언트 호출용.
+/** 탐색기 진입/재시도/업로드 후 클라이언트 호출용.
  *  기존 액션들의 [] 폴백과 달리 에러 상태를 UI까지 전달하기 위해 null을 반환한다(의도적 관례 이탈).
  *  미로그인/세션 만료도 v1에서는 구분하지 않는다 — 이 페이지는 인증 하에 있어 실사용상 만료 엣지뿐이며
  *  에러 카드+재시도로 수용(스펙 '서버 액션' 절). */
-export async function fetchMinutesTree(): Promise<
-  { groups: MinutesTreeGroup[]; total: number; truncated: boolean } | null
-> {
-  const user = await getSession()
-  if (!user) return null
-  return getMinutesTree()
-}
-
-/** 탐색기 v2 데이터 — 미로그인/실패 null (fetchMinutesTree 계약과 동일). */
 export async function fetchMinutesExplorer(): Promise<ExplorerData | null> {
   const user = await getSession()
   if (!user) return null
@@ -443,7 +434,7 @@ export async function moveMinuteToFolder(
   return { ok: true }
 }
 
-/** 탐색기 즐겨찾기 목록 — 미로그인/실패 null (fetchMinutesTree 관례와 동일). */
+/** 탐색기 즐겨찾기 목록 — 미로그인/실패 null (fetchMinutesExplorer 관례와 동일). */
 export async function fetchMinuteFavorites(): Promise<string[] | null> {
   const user = await getSession()
   if (!user) return null

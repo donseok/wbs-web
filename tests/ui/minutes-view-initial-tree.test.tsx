@@ -2,7 +2,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { MinutesTreeGroup } from '@/lib/domain/types'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -20,26 +19,27 @@ vi.mock('@/components/minutes/MinutesCalendar', () => ({ MinutesCalendar: () => 
 vi.mock('@/components/minutes/MinuteUploadModal', () => ({ MinuteUploadModal: () => null }))
 vi.mock('@/components/minutes/ArchiveChatPanel', () => ({ ArchiveChatPanel: () => null }))
 
-const fetchMinutesTree = vi.fn()
+const fetchMinutesExplorer = vi.fn()
 const fetchMinuteFavorites = vi.fn()
 vi.mock('@/app/actions/minutes', () => ({
   fetchMinutesRange: vi.fn(async () => []),
   fetchMinutesSearch: vi.fn(async () => []),
-  fetchMinutesTree: (...a: unknown[]) => fetchMinutesTree(...(a as [])),
+  fetchMinutesExplorer: (...a: unknown[]) => fetchMinutesExplorer(...(a as [])),
   fetchMinuteFavorites: (...a: unknown[]) => fetchMinuteFavorites(...(a as [])),
   toggleMinuteFavorite: vi.fn(async () => true),
 }))
 
 import { MinutesView } from '@/components/minutes/MinutesView'
 
-const groups = [{
-  teamCode: 'MES', count: 1,
-  bodies: [{
-    name: '물류공정', count: 1, latestDate: '2026-07-16',
-    leaves: [{ id: 'm1', minuteDate: '2026-07-16', title: '물류공정_260716', fileCount: 0, createdByName: null, bodyPreview: '', meetingCategory: null }],
+const serverTree = {
+  folders: [{ id: 'f1', name: '생산계획', parentId: null, sort: 5, createdBy: null }],
+  leaves: [{
+    id: 'm1', minuteDate: '2026-07-16', teamCode: 'MES', title: '물류공정_260716',
+    fileCount: 0, createdBy: null, createdByName: null,
+    bodyPreview: '', meetingCategory: null, folderId: 'f1',
   }],
-}] as MinutesTreeGroup[]
-const serverTree = { groups, total: 1, truncated: false }
+  total: 1, truncated: false,
+}
 
 /**
  * 서버 프리페치(initialTree) 경로 검증.
@@ -51,8 +51,8 @@ describe('MinutesView initialTree 서버 프리페치', () => {
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
     root = createRoot(container)
-    fetchMinutesTree.mockReset()
-    fetchMinutesTree.mockImplementation(async () => serverTree)
+    fetchMinutesExplorer.mockReset()
+    fetchMinutesExplorer.mockImplementation(async () => serverTree)
     fetchMinuteFavorites.mockReset()
     fetchMinuteFavorites.mockResolvedValue([])
   })
@@ -78,31 +78,31 @@ describe('MinutesView initialTree 서버 프리페치', () => {
   it('트리 뷰로 마운트 + 서버 트리 있음 → 클라이언트 재조회 0회, 즉시 렌더', async () => {
     await mount('tree', serverTree)
     // 예전에는 여기서 마운트 effect 가 서버액션 왕복을 한 번 더 돌았다("화면 뜬 뒤 또 로딩").
-    expect(fetchMinutesTree).not.toHaveBeenCalled()
+    expect(fetchMinutesExplorer).not.toHaveBeenCalled()
     expect(container.textContent).toContain('물류공정')
   })
 
   it('리스트로 마운트했다 트리로 전환해도 서버 트리를 재사용한다', async () => {
     await mount('list', serverTree)
     await act(async () => buttonByText('min.view.tree').click())
-    expect(fetchMinutesTree).not.toHaveBeenCalled()
+    expect(fetchMinutesExplorer).not.toHaveBeenCalled()
     expect(container.textContent).toContain('물류공정')
   })
 
   it('서버 트리가 null(조회 실패)이면 기존 클라이언트 폴백이 살아난다', async () => {
     await mount('tree', null)
-    expect(fetchMinutesTree).toHaveBeenCalledTimes(1)
+    expect(fetchMinutesExplorer).toHaveBeenCalledTimes(1)
     expect(container.textContent).toContain('물류공정')
   })
 
   // 계약 고정: 빈 트리 '객체'와 null 은 결과가 완전히 다르다.
   // minutes RLS 는 `to authenticated`(0021:77)라 세션 없는 서버 조회는 에러가 아니라 200+[] 로
-  // 돌아오고, getMinutesTree 는 그걸 null 이 아닌 빈 트리 객체로 반환한다. 그 객체를 그대로
+  // 돌아오고, getMinutesExplorer 는 그걸 null 이 아닌 빈 트리 객체로 반환한다. 그 객체를 그대로
   // 넘기면 아래처럼 '회의록 없음'으로 위장되고 클라이언트 self-heal 도 막힌다 —
   // 그래서 minutes/page.tsx 가 `initialTree={user ? tree : null}` 로 세션 게이트를 건다.
   it('빈 트리 객체를 넘기면 재조회 없이 "없음"으로 굳는다 — 페이지의 세션 게이트가 필요한 이유', async () => {
-    await mount('tree', { groups: [], total: 0, truncated: false })
-    expect(fetchMinutesTree).not.toHaveBeenCalled()
+    await mount('tree', { folders: [], leaves: [], total: 0, truncated: false })
+    expect(fetchMinutesExplorer).not.toHaveBeenCalled()
     expect(container.textContent).not.toContain('물류공정')
   })
 
@@ -111,7 +111,7 @@ describe('MinutesView initialTree 서버 프리페치', () => {
       <MinutesView initialMinutes={[]} todayIso="2026-07-17" initialView="tree"
         projects={[]} currentUserId="u1" role="pmo_admin" defaultTeam={null} />,
     ))
-    expect(fetchMinutesTree).toHaveBeenCalledTimes(1)
+    expect(fetchMinutesExplorer).toHaveBeenCalledTimes(1)
   })
 
   it('initialFavorites 프리페치 시 즐겨찾기 재조회 0회', async () => {

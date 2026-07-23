@@ -2,9 +2,9 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type {
   ExplorerData, ExplorerLeaf, InsightKind, MeetingCategory, Minute, MinuteFile, MinuteFolder, MinuteHighlight,
-  MinuteInsight, MinutesTreeGroup, TeamCode,
+  MinuteInsight, TeamCode,
 } from '@/lib/domain/types'
-import { buildMinutesTree, ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
+import { ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 
 type Row = Record<string, unknown>
@@ -89,29 +89,6 @@ export const searchMinutes = cache(async (
   // 표시용 검색 — 실패를 '검색 결과 0건'으로 위장하면 사용자는 회의록이 없다고 오인한다. 폴백은 유지하되 로깅.
   if (error) console.error('[searchMinutes] 조회 실패:', error.message)
   return (data ?? []).map((r: Row) => mapMinute(r))
-})
-
-/** 전 기간·전 팀 트리(구분→회의체→회의록). 실패 시 로깅 + null —
- *  빈 트리 []와 구분해 '회의록 없음'으로 위장되는 조용한 빈 화면을 방지한다.
- *  MINUTES_TREE_LIMIT(1000)은 PostgREST max_rows 하드 캡과 일치 — 서버 캡이 .limit보다 우선하므로
- *  이보다 큰 값은 성립하지 않는다. total은 집계에 사용된(표시되는) 행 수이며 실제 전체 건수가 아니다. */
-export const getMinutesTree = cache(async (): Promise<
-  { groups: MinutesTreeGroup[]; total: number; truncated: boolean } | null
-> => {
-  const sb = await createServerClient()
-  const { data, error } = await sb.from('minutes').select(LIST_COLS)
-    .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
-    .limit(MINUTES_TREE_LIMIT)
-  if (error) {
-    console.error('[getMinutesTree] 조회 실패:', error.message)
-    return null
-  }
-  const rows = (data ?? []).map((r: Row) => mapMinute(r))
-  return {
-    groups: buildMinutesTree(rows),
-    total: rows.length,
-    truncated: rows.length >= MINUTES_TREE_LIMIT,
-  }
 })
 
 /** 탐색기 v2 — 전 기간 리프 + 폴더 전량. 실패 시 로깅 + null(빈 결과 객체와 구분 —

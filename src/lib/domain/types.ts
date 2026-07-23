@@ -195,28 +195,6 @@ export interface Minute {
   folderId?: string | null  // 소속 폴더(0040, 목록 조회 전용 — null=미분류)
 }
 
-/** 트리 뷰(구분→회의체→회의록) — 서버 집계 결과. */
-export interface MinutesTreeLeaf {
-  id: string
-  minuteDate: string           // 'YYYY-MM-DD'
-  title: string
-  fileCount: number
-  createdByName: string | null
-  bodyPreview: string
-  meetingCategory: MeetingCategory | null
-}
-export interface MinutesTreeBody {
-  name: string                 // meetingBodyOf 추출 결과(그룹 키이자 표시명)
-  count: number
-  latestDate: string           // 첫 리프(최신)의 minuteDate — 정렬 기준
-  leaves: MinutesTreeLeaf[]
-}
-export interface MinutesTreeGroup {
-  teamCode: TeamCode
-  count: number
-  bodies: MinutesTreeBody[]
-}
-
 /* ── 탐색기 v2: 실제 폴더 디렉토리 (스펙 2026-07-23-minutes-folders-design.md) ── */
 
 export interface MinuteFolder {
