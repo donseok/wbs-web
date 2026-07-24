@@ -1,17 +1,16 @@
 'use client'
-// 이슈 목록 — KPI 3장(본문 배치) + 필터(상태·심각도·내담당) + 테이블 + ?focus= 딥링크.
+// 이슈 목록 — 필터(상태·심각도·내담당) + 테이블 + ?focus= 딥링크. (KPI 3장은 사용자 요청으로 제거)
 // 테이블 골격은 MeetingsView(가로 스크롤 + 행 키보드 패턴), 모달·focus 소비는 AnnouncementsView 복제.
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CircleAlert, CircleDashed, Clock3, Plus } from 'lucide-react'
-import { KpiCard } from '@/components/ui/KpiCard'
+import { CircleAlert, Plus } from 'lucide-react'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from './IssueModals'
 import {
   ISSUE_SEVERITIES, ISSUE_SEVERITY_META, ISSUE_STATUSES, ISSUE_STATUS_META,
-  canEditIssue, filterIssues, isOverdue, sortIssues, summarizeIssues,
+  canEditIssue, filterIssues, isOverdue, sortIssues,
   type Issue, type IssueSeverityFilter, type IssueStatusFilter,
 } from '@/lib/domain/issues'
 import type { ProjectMember } from '@/lib/domain/types'
@@ -49,7 +48,6 @@ export function IssuesView({
   const memberNameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members])
   const memberName = (id: string | null) => (id ? memberNameById.get(id) ?? null : null)
 
-  const kpi = useMemo(() => summarizeIssues(issues, today), [issues, today])
   const visible = useMemo(
     () => sortIssues(filterIssues(issues, { status: statusFilter, severity: severityFilter, mineOnly, myMemberIds: myIds }), today),
     [issues, statusFilter, severityFilter, mineOnly, myIds, today],
@@ -78,13 +76,6 @@ export function IssuesView({
 
   return (
     <div className="space-y-4">
-      {/* KPI 3장 — PageHero heroKpis 는 렌더되지 않는 죽은 prop 이라 본문 배치(스펙 §6) */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <KpiCard label={t('issue.kpi.open')} value={kpi.open} sub={t('issue.kpi.openSub')} icon={CircleAlert} tone="brand" />
-        <KpiCard label={t('issue.kpi.inProgress')} value={kpi.inProgress} sub={t('issue.kpi.inProgressSub')} icon={CircleDashed} />
-        <KpiCard label={t('issue.kpi.overdue')} value={kpi.overdue} sub={t('issue.kpi.overdueSub')} icon={Clock3} tone="danger" />
-      </div>
-
       {/* 툴바: 필터 + 등록 */}
       <div className="flex flex-wrap items-center gap-2">
         <SegmentedTabs tabs={statusTabs} value={statusFilter} onChange={setStatusFilter} size="sm" />

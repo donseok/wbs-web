@@ -97,19 +97,6 @@ export function sortIssues(issues: Issue[], today: string): Issue[] {
   })
 }
 
-/** KPI 3장: 열림 / 진행중 / 지연. 지연은 상태와 독립 집계(open·in_progress·on_hold 모두 포함 가능). */
-export function summarizeIssues(issues: Issue[], today: string): { open: number; inProgress: number; overdue: number } {
-  let open = 0
-  let inProgress = 0
-  let overdue = 0
-  for (const i of issues) {
-    if (i.status === 'open') open++
-    if (i.status === 'in_progress') inProgress++
-    if (isOverdue(i, today)) overdue++
-  }
-  return { open, inProgress, overdue }
-}
-
 export type IssueStatusFilter = 'all' | IssueStatus
 export type IssueSeverityFilter = 'all' | IssueSeverity
 

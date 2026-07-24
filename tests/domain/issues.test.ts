@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   ISSUE_STATUSES, ISSUE_SEVERITIES, STATUS_TRANSITIONS,
-  canTransition, isOverdue, nextResolvedAt, sortIssues, summarizeIssues, filterIssues, canEditIssue,
+  canTransition, isOverdue, nextResolvedAt, sortIssues, filterIssues, canEditIssue,
   type Issue,
 } from '@/lib/domain/issues'
 
@@ -91,21 +91,6 @@ describe('sortIssues — 미해결 → 지연 → 심각도 → 목표일 → �
     const src = [issue('b', { severity: 'low' }), issue('a', { severity: 'high' })]
     sortIssues(src, TODAY)
     expect(src.map(i => i.id)).toEqual(['b', 'a'])
-  })
-})
-
-describe('summarizeIssues — KPI 집계', () => {
-  it('open/in_progress/지연 3종을 센다 (지연은 상태와 독립 집계)', () => {
-    const r = summarizeIssues([
-      issue('a'),                                                     // open
-      issue('b', { status: 'in_progress', dueDate: '2026-07-01' }),   // in_progress + 지연
-      issue('c', { status: 'resolved', dueDate: '2026-07-01' }),      // resolved (지연 아님)
-      issue('d', { status: 'on_hold' }),
-    ], TODAY)
-    expect(r).toEqual({ open: 1, inProgress: 1, overdue: 1 })
-  })
-  it('빈 배열이면 전부 0', () => {
-    expect(summarizeIssues([], TODAY)).toEqual({ open: 0, inProgress: 0, overdue: 0 })
   })
 })
 
