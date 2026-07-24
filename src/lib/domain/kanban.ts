@@ -68,3 +68,31 @@ export function groupByStatus(items: ComputedItem[]): KanbanColumn[] {
     return { key: status, title: STATUS_LABEL[status], count: cards.length, cards, accentDot: STATUS_DOT[status] }
   })
 }
+
+/** 진척 버킷 키(파생 status 아님 — 원시 실적% 기준). */
+export type ProgressBucket = 'not_started' | 'in_progress' | 'done'
+
+/** 실적% → 버킷. 0·null·음수=시작전, 100 이상=완료, 그 사이=진행중. */
+export function bucketOf(pct: number | null): ProgressBucket {
+  const v = pct ?? 0
+  if (v <= 0) return 'not_started'
+  if (v >= 100) return 'done'
+  return 'in_progress'
+}
+
+const PROGRESS_ORDER: ProgressBucket[] = ['not_started', 'in_progress', 'done']
+const PROGRESS_LABEL: Record<ProgressBucket, string> = {
+  not_started: '시작전', in_progress: '진행중', done: '완료',
+}
+const PROGRESS_DOT: Record<ProgressBucket, string> = {
+  not_started: 'bg-pending', in_progress: 'bg-progress', done: 'bg-done',
+}
+
+/** 진척 3단 — 시작전(0%)/진행중(1~99%)/완료(100%). leaf.rolledActualPct 기준. */
+export function groupByProgress(items: ComputedItem[]): KanbanColumn[] {
+  const leaves = leavesOf(items)
+  return PROGRESS_ORDER.map(bucket => {
+    const cards = leaves.filter(leaf => bucketOf(leaf.rolledActualPct) === bucket)
+    return { key: bucket, title: PROGRESS_LABEL[bucket], count: cards.length, cards, accentDot: PROGRESS_DOT[bucket] }
+  })
+}

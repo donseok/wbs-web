@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ComputedItem, OwnerKind, Status, TeamCode } from '@/lib/domain/types'
-import { groupByPhase, groupByOwner, groupByStatus } from '@/lib/domain/kanban'
+import { groupByPhase, groupByOwner, groupByStatus, groupByProgress, bucketOf } from '@/lib/domain/kanban'
 
 type Owner = { team: TeamCode; kind: OwnerKind }
 
@@ -11,6 +11,8 @@ function node(
     status?: Status
     owners?: Owner[]
     children?: ComputedItem[]
+    actualPct?: number | null
+    rolledActualPct?: number
   } = {},
 ): ComputedItem {
   const children = opts.children ?? []
@@ -26,10 +28,10 @@ function node(
     plannedStart: '2026-09-01',
     plannedEnd: '2026-09-30',
     weight: null,
-    actualPct: children.length ? null : 0,
+    actualPct: opts.actualPct ?? (children.length ? null : 0),
     owners: opts.owners ?? [],
     plannedPct: 0,
-    rolledActualPct: 0,
+    rolledActualPct: opts.rolledActualPct ?? 0,
     achievement: null,
     status: opts.status ?? 'not_started',
     children,
@@ -116,5 +118,37 @@ describe('groupByStatus', () => {
     expect(by('delayed').cards.map(c => c.id)).toEqual(['A2'])
     expect(by('done').cards.map(c => c.id)).toEqual(['A1a'])
     expect(cols.reduce((n, c) => n + c.count, 0)).toBe(4)
+  })
+})
+
+describe('bucketOf', () => {
+  it('0·null·음수는 시작전, 100 이상은 완료, 그 사이는 진행중', () => {
+    expect(bucketOf(0)).toBe('not_started')
+    expect(bucketOf(null)).toBe('not_started')
+    expect(bucketOf(-5)).toBe('not_started')
+    expect(bucketOf(1)).toBe('in_progress')
+    expect(bucketOf(99)).toBe('in_progress')
+    expect(bucketOf(100)).toBe('done')
+    expect(bucketOf(120)).toBe('done')
+  })
+})
+
+describe('groupByProgress', () => {
+  it('시작전/진행중/완료 3컬럼을 rolledActualPct 기준으로 분류한다', () => {
+    const items = [
+      node('P', { children: [
+        node('L0', { rolledActualPct: 0 }),
+        node('L45', { rolledActualPct: 45 }),
+        node('L100', { rolledActualPct: 100 }),
+      ] }),
+    ]
+    const cols = groupByProgress(items)
+    expect(cols.map(c => c.key)).toEqual(['not_started', 'in_progress', 'done'])
+    expect(cols.map(c => c.title)).toEqual(['시작전', '진행중', '완료'])
+    const by = (k: string) => cols.find(c => c.key === k)!
+    expect(by('not_started').cards.map(c => c.id)).toEqual(['L0'])
+    expect(by('in_progress').cards.map(c => c.id)).toEqual(['L45'])
+    expect(by('done').cards.map(c => c.id)).toEqual(['L100'])
+    expect(cols.reduce((n, c) => n + c.count, 0)).toBe(3)
   })
 })
