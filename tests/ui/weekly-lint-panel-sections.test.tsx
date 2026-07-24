@@ -39,7 +39,7 @@ describe('주간보고 점검 패널 — 구분 단위', () => {
 
   it('지적을 구분별로 묶어 구분 순서대로 보여준다', () => {
     show([
-      mkRow('r2', '영업', 2, { thisContent: '나  ' }),
+      mkRow('r2', '영업', 2, { thisContent: '나\n나' }),
       mkRow('r1', 'PMO', 1, { thisContent: '가\n가', thisIssue: '1. 가\n3. 나' }),
     ])
     expect(sections().map(el => el.dataset.lintSection)).toEqual(['PMO', '영업'])
@@ -48,7 +48,7 @@ describe('주간보고 점검 패널 — 구분 단위', () => {
   it('구분 묶음 안에는 그 구분의 지적만 들어간다', () => {
     show([
       mkRow('r1', 'PMO', 1, { thisContent: '가\n가', thisIssue: '1. 가\n3. 나' }),
-      mkRow('r2', '영업', 2, { thisContent: '나  ' }),
+      mkRow('r2', '영업', 2, { thisContent: '나\n나' }),
     ])
     const counts = sections().map(el => el.querySelectorAll('li').length)
     expect(counts).toEqual([2, 1])
@@ -57,7 +57,7 @@ describe('주간보고 점검 패널 — 구분 단위', () => {
   it('묶음 머리글에 구분 이름과 건수가 보인다', () => {
     show([
       mkRow('r1', 'PMO', 1, { thisContent: '가\n가', thisIssue: '1. 가\n3. 나' }),
-      mkRow('r2', '영업', 2, { thisContent: '나  ' }),
+      mkRow('r2', '영업', 2, { thisContent: '나\n나' }),
     ])
     const heads = sections().map(el => el.querySelector('h3')!.textContent ?? '')
     expect(heads[0]).toContain('PMO')
@@ -68,10 +68,28 @@ describe('주간보고 점검 패널 — 구분 단위', () => {
 
   it('앞 구분에 정리 지적만 있어도 구분 순서가 뒤집히지 않는다', () => {
     show([
-      mkRow('r1', 'PMO', 1, { thisContent: '가  나' }),   // 정리 지적만
-      mkRow('r2', '영업', 2, { thisContent: '다\n다' }),  // 중복 지적
+      mkRow('r1', 'PMO', 1, { thisContent: '· 가' }),        // 정리(기호) 지적만
+      mkRow('r2', '영업', 2, { thisContent: '- 다\n- 다' }),  // 중복 지적 + 다수결 기호 공급
     ])
     expect(sections().map(el => el.dataset.lintSection)).toEqual(['PMO', '영업'])
+  })
+
+  it('완전 중복과 유사 중복이 다른 배지로 나뉜다', () => {
+    show([mkRow('r1', 'PMO', 1, {
+      thisContent: 'ERP 인터페이스 설계 진행 중 60%\nERP 인터페이스 설계 진행 중 60%',
+      thisIssue: 'ERP 인터페이스 설계 진행 중 60%\nERP 인터페이스 설계 진행 중 70%',
+    })])
+    expect(document.body.textContent).toContain('완전 중복')
+    expect(document.body.textContent).toContain('유사 중복')
+    expect(document.body.textContent).toContain('% 일치')
+  })
+
+  it('유사 중복 지적에는 적용 버튼이 없다 — 어느 줄을 남길지는 사람이 정한다', () => {
+    show([mkRow('r1', 'PMO', 1, {
+      thisIssue: 'ERP 인터페이스 설계 진행 중 60%\nERP 인터페이스 설계 진행 중 70%',
+    })])
+    expect([...document.querySelectorAll('li')]).toHaveLength(1)
+    expect([...document.querySelectorAll('button')].find(b => b.textContent === '적용')).toBeUndefined()
   })
 
   it('지적이 없으면 구분 묶음도 없다', () => {

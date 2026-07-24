@@ -1,4 +1,6 @@
-/* ── 주간보고 점검(순수) — 중복·체번·공백 규칙과 수정 편집 생성. I/O 없음.
+/* ── 주간보고 점검(순수) — 중복(완전·유사)·체번·글머리 기호 규칙과 수정 편집 생성. I/O 없음.
+ *  공백·빈 줄은 점검하지 않는다(사용자 결정, 2026-07-24) — tidyBlankLines 가 남아 있는 것은
+ *  검사가 아니라 중복 삭제가 남긴 빈 줄을 치우는 수정의 뒤처리이기 때문이다.
  *  모든 규칙은 **구분 안에서만** 본다. PMO의 줄과 영업의 줄을 견주는 일은 없다 —
  *  구분마다 담당이 다르고, 같은 문구가 두 구분에 있는 것은 보고서상 정상이기 때문이다.
  *  (예외: 글머리 기호 통일만 보고서 겉모습 문제라 시트 전체 다수결을 따른다.) ── */
@@ -8,7 +10,7 @@ import {
   type WeeklyCellEdit, type WeeklyCellKey, type WeeklySheetRow,
 } from './weeklySheet'
 
-export type LintKind = 'duplicate' | 'numbering' | 'format'
+export type LintKind = 'duplicate' | 'nearDuplicate' | 'numbering' | 'format'
 
 export interface LintFinding {
   /** 안정 키(React list). 같은 지적이면 재계산해도 같은 값이어야 한다. */
@@ -181,6 +183,139 @@ export function lintDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
   return out
 }
 
+/** 유사 중복 문턱. 이 값 이상이면 '90% 이상 동일'로 지적한다(완전 동일은 규칙 ①의 몫). */
+export const NEAR_DUPLICATE_THRESHOLD = 0.9
+
+function levenshtein(a: string, b: string): number {
+  const la = a.length, lb = b.length
+  if (la === 0) return lb
+  if (lb === 0) return la
+  let prev: number[] = Array.from({ length: lb + 1 }, (_, j) => j)
+  let cur: number[] = new Array(lb + 1)
+  for (let i = 1; i <= la; i++) {
+    cur[0] = i
+    const ca = a.charCodeAt(i - 1)
+    for (let j = 1; j <= lb; j++) {
+      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+    }
+    ;[prev, cur] = [cur, prev]
+  }
+  return prev[lb]
+}
+
+/** 두 정규화 줄의 유사도(0~1) — 1 - 편집거리/긴쪽 길이. '90% 이상 동일'의 판정 그 자체다. */
+export function lineSimilarity(a: string, b: string): number {
+  if (a === b) return 1
+  const max = Math.max(a.length, b.length)
+  if (max === 0) return 1
+  return 1 - levenshtein(a, b) / max
+}
+
+/** 규칙 ①-b — **한 구분·한 열 안에서** 90% 이상 비슷하지만 완전히 같지는 않은 줄들.
+ *  범위·들여쓰기 제외는 규칙 ①과 같다. 완전 동일은 정규화 키가 같아 여기 오지 않는다
+ *  (첫 등장만 견주므로).
+ *
+ *  지적 단위는 쌍이 아니라 **군집(연결 요소)**이다 — 비슷한 템플릿 줄 k개를 쌍마다 지적하면
+ *  k(k-1)/2 건으로 불어나 목록이 잠긴다. 유사도는 추이적이지 않지만(A~B·B~C여도 A~C는
+ *  아닐 수 있다) 정리할 줄들을 한 지적에 모아 보여주는 단위로는 연결 요소가 맞다.
+ *
+ *  **자동 수정은 없다(edits 빈 배열).** 완전 동일은 어느 줄을 지워도 결과가 같지만,
+ *  유사한 두 줄은 다르다 — "진행 중 60%"와 "진행 중 70%"에서 남길 쪽은 사람만 안다.
+ *  기계가 앞줄을 지우면 최신 값이, 뒷줄을 지우면 정정된 값이 사라질 수 있다.
+ *  그래서 이 지적은 위치를 보여 주고 셀로 데려가는 데서 멈춘다. */
+export function lintNearDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
+  const out: LintFinding[] = []
+
+  for (const { section, rows: group } of bySection(rows)) {
+    for (const cellKey of WEEKLY_CELL_KEYS) {
+      // 정규화 줄의 첫 등장만 모은다. 같은 줄의 2번째 이후 등장은 규칙 ①이 지운다.
+      const firsts: { norm: string; rowId: string; line: number }[] = []
+      const seen = new Set<string>()
+      for (const row of group) {
+        const lines = toLines(row[CELL_FIELD[cellKey]])
+        const top = topLevelIndent(lines)
+        lines.forEach((raw, line) => {
+          if (indentOf(raw) > top) return
+          const norm = normalizeForCompare(raw)
+          if (!norm || seen.has(norm)) return
+          seen.add(norm)
+          firsts.push({ norm, rowId: row.id, line })
+        })
+      }
+
+      // 문턱을 넘는 쌍을 간선으로 모은다.
+      const edges: { i: number; j: number; sim: number }[] = []
+      for (let i = 0; i < firsts.length; i++) {
+        for (let j = i + 1; j < firsts.length; j++) {
+          const a = firsts[i].norm, b = firsts[j].norm
+          const max = Math.max(a.length, b.length)
+          // 길이 차이만으로 문턱 미달인 쌍은 편집거리 계산을 건너뛴다 — n² 비교의 흔한 탈락 경로.
+          // 판정과 같은 산식(1 - 차이/긴쪽)으로 비교해야 한다. `차이/긴쪽 > 0.1` 꼴로 쓰면
+          // 부동소수점 오차(1/10 > 1-0.9) 탓에 정확히 90%인 삽입/삭제 쌍이 경계에서 떨어져 나간다.
+          if (1 - Math.abs(a.length - b.length) / max < NEAR_DUPLICATE_THRESHOLD) continue
+          const sim = lineSimilarity(a, b)
+          if (sim < NEAR_DUPLICATE_THRESHOLD) continue
+          edges.push({ i, j, sim })
+        }
+      }
+      if (edges.length === 0) continue
+
+      // 연결 요소로 묶는다(경로 압축 union-find).
+      const parent = firsts.map((_, i) => i)
+      const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])))
+      for (const e of edges) { const a = find(e.i), b = find(e.j); if (a !== b) parent[a] = b }
+      const byRoot = new Map<number, number[]>()
+      firsts.forEach((_, i) => {
+        const r = find(i)
+        const m = byRoot.get(r)
+        if (m) m.push(i)
+        else byRoot.set(r, [i])
+      })
+
+      for (const members of byRoot.values()) {
+        if (members.length < 2) continue // 간선 없는 홀로 줄
+        const ms = members.map(i => firsts[i]) // members 는 첫 등장 순서(오름차순 인덱스)
+        const rowIds = new Set(ms.map(m => m.rowId))
+
+        let detail: string
+        if (ms.length === 2) {
+          const [a, b] = ms
+          const sim = edges.find(e => e.i === members[0] && e.j === members[1])!.sim
+          // floor 를 쓴다 — 89.6% 를 반올림해 '90% 일치'로 적으면 문턱 미달이 문턱 문구를 달게 된다.
+          const where = rowIds.size > 1
+            ? '2개 행에 걸쳐 있음'
+            : `${a.line + 1}번째 줄과 ${b.line + 1}번째 줄`
+          detail = `비슷한 줄이 있습니다(${Math.floor(sim * 100)}% 일치): "${a.norm}" ↔ "${b.norm}" — ${where}. 같은 내용이면 한쪽을 지워 정리하세요(자동 수정 없음).`
+        } else {
+          // 군집이 크면 쌍마다 일치율이 달라 하나로 적을 수 없다 — 문턱만 밝힌다.
+          const quoted = ms.slice(0, 3).map(m => `"${m.norm}"`).join(' ↔ ')
+          const more = ms.length > 3 ? ` 외 ${ms.length - 3}줄` : ''
+          const where = rowIds.size > 1
+            ? `${rowIds.size}개 행에 걸쳐 있음`
+            : `${ms.map(m => m.line + 1).join('·')}번째 줄`
+          detail = `서로 ${Math.round(NEAR_DUPLICATE_THRESHOLD * 100)}% 이상 비슷한 줄이 ${ms.length}개 있습니다: ${quoted}${more} — ${where}. 같은 내용이면 하나만 남기고 정리하세요(자동 수정 없음).`
+        }
+
+        out.push({
+          // JSON 직렬화로 구분한다 — 본문에 흔한 '~'(기간 표기) 같은 문자를 구분자로 쓰면
+          // 서로 다른 두 지적이 같은 id 로 뭉갤 수 있다.
+          id: `nearDuplicate:${section}:${cellKey}:${JSON.stringify(ms.map(m => m.norm))}`,
+          kind: 'nearDuplicate',
+          section,
+          // 이동 목표는 맨 뒤에 등장한 줄 — 대개 나중에 붙여 넣거나 고쳐 쓴 쪽이라 볼 확률이 높다.
+          rowId: ms[ms.length - 1].rowId,
+          cellKey,
+          title: WEEKLY_CELL_LABEL[cellKey],
+          detail,
+          edits: [],
+        })
+      }
+    }
+  }
+  return out
+}
+
 /** 규칙 ② — 셀 안 줄 번호. 번호 줄이 2개 이상일 때만 검사하고, 1부터 1씩 증가하지 않으면 지적.
  *  셀 하나가 검사 범위라 애초에 구분을 넘지 않는다. 순회만 구분 순으로 맞춰 목록 순서를 통일한다. */
 export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
@@ -249,46 +384,31 @@ function dominantBullet(rows: WeeklySheetRow[]): string | null {
 
 interface FormatResult { next: string; notes: string[] }
 
-/** 셀 1개의 공백·빈줄·기호 정리. 바뀐 것이 없으면 notes가 빈 배열. */
+/** 셀 1개의 글머리 기호 통일. 바뀐 것이 없으면 notes가 빈 배열.
+ *  줄 끝 공백·연속 공백·전각 공백·빈 줄은 더 이상 손대지 않는다(파일 머리 주석의 사용자 결정). */
 function formatCell(content: string, bullet: string | null): FormatResult {
-  let fullwidth = 0, trailing = 0, multiSpace = 0, bulletFixed = 0, blank = 0
+  if (!bullet) return { next: content, notes: [] }
+  let bulletFixed = 0
 
-  const cleaned = toLines(content).map(line => {
-    let s = line
-    if (s.includes('　')) { fullwidth++; s = s.replace(/　/g, ' ') }
-    if (/\s+$/.test(s)) { trailing++; s = s.replace(/\s+$/, '') }
-    // 들여쓰기(줄 맨 앞 공백)는 보존하려고 앞에 \S를 요구한다.
-    const collapsed = s.replace(/(\S) {2,}/g, '$1 ')
-    if (collapsed !== s) { multiSpace++; s = collapsed }
-    if (bullet) {
-      const head = s.trimStart()
-      const m = BULLET_PREFIX.exec(head)
-      if (m && m[1] !== bullet) {
-        bulletFixed++
-        s = s.slice(0, s.length - head.length) + bullet + head.slice(1)
-      }
-    }
-    return s
+  const out = toLines(content).map(line => {
+    const head = line.trimStart()
+    // 판정만 전각 공백을 반각으로 보고 한다 — dominantBullet 의 집계와 같은 눈이어야
+    // '· 다(전각 공백)' 가 다수결에는 세어지고 통일에서는 빠지는 어긋남이 없다. 줄 자체는 바꾸지 않는다.
+    const m = BULLET_PREFIX.exec(head.replace(/　/g, ' '))
+    if (!m || m[1] === bullet) return line
+    bulletFixed++
+    return line.slice(0, line.length - head.length) + bullet + head.slice(1)
   })
 
-  const { kept: out, removed } = tidyBlankLines(cleaned)
-  blank += removed
-
-  const notes: string[] = []
-  if (trailing > 0) notes.push(`줄 끝 공백 ${trailing}곳`)
-  if (multiSpace > 0) notes.push(`연속 공백 ${multiSpace}곳`)
-  if (fullwidth > 0) notes.push(`전각 공백 ${fullwidth}곳`)
-  if (blank > 0) notes.push(`빈 줄 ${blank}곳`)
   // '시트 전체 기준'을 밝혀 둔다 — 자기 구분 안에서는 기호가 일관된 셀도 여기서 지적되기 때문에,
   // 근거를 적지 않으면 "우리 구분엔 ·밖에 없는데 왜?"가 되고 지적이 버그로 읽힌다.
-  if (bulletFixed > 0) notes.push(`글머리 기호 → ${bullet} (시트 전체 기준)`)
-
+  const notes = bulletFixed > 0 ? [`글머리 기호 → ${bullet} (시트 전체 기준)`] : []
   return { next: out.join('\n'), notes }
 }
 
-/** 규칙 ③ — 공백·빈줄·글머리 기호. 셀당 지적 1건.
- *  공백·빈줄은 셀 안 문제라 구분과 무관하고, 글머리 기호만 보고서 겉모습을 맞추려고
- *  시트 전체 다수결을 기준으로 삼는다(구분별 다수결이 아니다 — 의도된 유일한 예외). */
+/** 규칙 ③ — 글머리 기호 통일. 셀당 지적 1건.
+ *  보고서 겉모습을 맞추는 검사라 시트 전체 다수결을 기준으로 삼는다
+ *  (구분별 다수결이 아니다 — 구분 단위 원칙의 의도된 유일한 예외). */
 export function lintFormat(rows: WeeklySheetRow[]): LintFinding[] {
   const bullet = dominantBullet(rows)
   const out: LintFinding[] = []
@@ -314,8 +434,8 @@ export function lintFormat(rows: WeeklySheetRow[]): LintFinding[] {
   return out
 }
 
-/** 목록 안 정렬 우선순위 — 같은 구분 안에서 중대한 것(중복)부터. */
-const KIND_ORDER: Record<LintKind, number> = { duplicate: 0, numbering: 1, format: 2 }
+/** 목록 안 정렬 우선순위 — 같은 구분 안에서 중대한 것(중복)부터. 유사 중복은 완전 중복 바로 뒤. */
+const KIND_ORDER: Record<LintKind, number> = { duplicate: 0, nearDuplicate: 1, numbering: 2, format: 3 }
 
 /** 점검 진입점. 목록 순서는 **구분 → 부류 → 행 → 열**이다.
  *  부류를 바깥에 두고 이어붙이기만 하면, 위쪽 구분에 정리 지적만 있고 아래쪽 구분에 중복 지적이
@@ -326,7 +446,7 @@ export function lintWeeklySheet(rows: WeeklySheetRow[]): LintFinding[] {
   const rowRank = new Map(rows.map(r => [r.id, r.sortOrder]))
   const cellRank = new Map(WEEKLY_CELL_KEYS.map((k, i) => [k, i]))
   const at = (f: LintFinding) => sectionRank.get(f.section) ?? sectionRank.size
-  return [...lintDuplicates(rows), ...lintNumbering(rows), ...lintFormat(rows)]
+  return [...lintDuplicates(rows), ...lintNearDuplicates(rows), ...lintNumbering(rows), ...lintFormat(rows)]
     .sort((a, b) =>
       at(a) - at(b)
       || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]

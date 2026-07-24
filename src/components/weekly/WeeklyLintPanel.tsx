@@ -5,9 +5,12 @@ import { Modal } from '@/components/ui/Modal'
 import { lintWeeklySheet, type LintFinding, type LintKind } from '@/lib/domain/weeklyLint'
 import type { WeeklyCellEdit, WeeklyCellKey, WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
-const KIND_LABEL: Record<LintKind, string> = { duplicate: '중복', numbering: '체번', format: '정리' }
+const KIND_LABEL: Record<LintKind, string> = {
+  duplicate: '완전 중복', nearDuplicate: '유사 중복', numbering: '체번', format: '정리',
+}
 const KIND_TONE: Record<LintKind, string> = {
   duplicate: 'bg-amber-100 text-amber-800',
+  nearDuplicate: 'bg-orange-100 text-orange-800',
   numbering: 'bg-amber-100 text-amber-800',
   format: 'bg-sky-100 text-sky-800',
 }
@@ -104,7 +107,10 @@ function LintRow({ finding, onApply, onGo }: {
         </button>
         <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-ink-muted">{finding.detail}</p>
       </div>
-      <button type="button" className="btn btn-ghost shrink-0 text-xs" onClick={onApply}>적용</button>
+      {/* 유사 중복은 edits 가 없다(어느 줄을 남길지는 사람의 판단) — 적용 버튼 대신 제목 클릭으로 셀에 간다. */}
+      {finding.edits.length > 0 && (
+        <button type="button" className="btn btn-ghost shrink-0 text-xs" onClick={onApply}>적용</button>
+      )}
     </li>
   )
 }

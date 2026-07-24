@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  normalizeForCompare, lintDuplicates, lintNumbering, lintFormat, lintWeeklySheet,
+  normalizeForCompare, lineSimilarity, lintDuplicates, lintNearDuplicates,
+  lintNumbering, lintFormat, lintWeeklySheet, NEAR_DUPLICATE_THRESHOLD,
 } from '@/lib/domain/weeklyLint'
 import type { WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
@@ -208,6 +209,144 @@ describe('lintDuplicates', () => {
   })
 })
 
+describe('lineSimilarity', () => {
+  it('같은 문자열은 1', () => {
+    expect(lineSimilarity('설계 리뷰 완료', '설계 리뷰 완료')).toBe(1)
+    expect(lineSimilarity('', '')).toBe(1)
+  })
+
+  it('1 - 편집거리/긴쪽 길이', () => {
+    // 길이 4, 거리 1 → 0.75
+    expect(lineSimilarity('abcd', 'abcx')).toBe(0.75)
+    // 완전히 다른 문자열 → 0
+    expect(lineSimilarity('abcd', 'wxyz')).toBe(0)
+  })
+
+  it('대칭이다', () => {
+    expect(lineSimilarity('가나다라마바사', '가나다라마바'))
+      .toBe(lineSimilarity('가나다라마바', '가나다라마바사'))
+  })
+})
+
+describe('lintNearDuplicates', () => {
+  // 21자 중 1자 차이 → 95% — 문턱(90%) 위. 실제 흔한 패턴(지난주 줄 복사 후 진척률만 수정).
+  const A = 'ERP 인터페이스 설계 진행 중 60%'
+  const B = 'ERP 인터페이스 설계 진행 중 70%'
+
+  it('90% 이상 비슷한 두 줄을 유사 중복으로 지적한다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: `${A}\n견적 회신\n${B}` })]
+    const out = lintNearDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('nearDuplicate')
+    expect(out[0].section).toBe('PMO')
+    expect(out[0].cellKey).toBe('this_content')
+  })
+
+  it('자동 수정이 없다 — edits 는 빈 배열, 지적문에 그 사실을 밝힌다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: `${A}\n${B}` })]
+    const [f] = lintNearDuplicates(rows)
+    expect(f.edits).toEqual([])
+    expect(f.detail).toContain('자동 수정 없음')
+  })
+
+  it('지적문에 두 줄과 일치율·위치를 밝힌다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: `${A}\n견적 회신\n${B}` })]
+    const [f] = lintNearDuplicates(rows)
+    expect(f.detail).toContain(A)
+    expect(f.detail).toContain(B)
+    expect(f.detail).toContain('95% 일치')
+    expect(f.detail).toContain('1번째 줄과 3번째 줄')
+  })
+
+  it('완전히 같은 줄은 유사 중복이 아니다 — 규칙 ①(중복)의 몫', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: `${A}\n${A}` })]
+    expect(lintNearDuplicates(rows)).toEqual([])
+    expect(lintDuplicates(rows)).toHaveLength(1)
+  })
+
+  it('90% 미만은 지적하지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료\n개발 리뷰 완료' })]
+    expect(lintNearDuplicates(rows)).toEqual([])
+  })
+
+  it('글머리·번호 표기가 달라도 본문이 비슷하면 잡는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: `- ${A}\n1. ${B}` })]
+    expect(lintNearDuplicates(rows)).toHaveLength(1)
+  })
+
+  it('구분이 다르면 견주지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: A }),
+      mkRow('r2', '영업', 2, { thisContent: B }),
+    ]
+    expect(lintNearDuplicates(rows)).toEqual([])
+  })
+
+  it('같은 구분이라도 열이 다르면 견주지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: A, nextContent: B })]
+    expect(lintNearDuplicates(rows)).toEqual([])
+  })
+
+  it('한 구분의 여러 행을 가로질러 견주고, 이동 목표는 뒤에 등장한 행이다', () => {
+    const rows = [
+      mkRow('r1', '영업', 1, { thisContent: A }),
+      mkRow('r2', '영업', 2, { thisContent: B }),
+    ]
+    const out = lintNearDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].rowId).toBe('r2')
+    expect(out[0].detail).toContain('2개 행에 걸쳐')
+  })
+
+  it('들여쓴 줄(상위 항목에 딸린 줄)은 견주지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: `1. 항목\n - ${A}\n2. 딴 항목\n - ${B}` })]
+    expect(lintNearDuplicates(rows)).toEqual([])
+  })
+
+  it('서로 비슷한 줄 여러 개는 쌍이 아니라 군집 1건으로 묶는다', () => {
+    const C = 'ERP 인터페이스 설계 진행 중 80%'
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: `${A}\n${B}\n${C}` })]
+    const out = lintNearDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].detail).toContain('3개')
+    expect(out[0].detail).toContain(A)
+    expect(out[0].detail).toContain(C)
+    expect(out[0].detail).toContain('1·2·3번째 줄')
+  })
+
+  it('군집이 3줄을 넘으면 앞 3줄만 인용하고 나머지는 개수로 밝힌다', () => {
+    const lines = ['60%', '70%', '80%', '90%'].map(p => `ERP 인터페이스 설계 진행 중 ${p}`)
+    const [f] = lintNearDuplicates([mkRow('r1', 'PMO', 1, { thisContent: lines.join('\n') })])
+    expect(f.detail).toContain('4개')
+    expect(f.detail).toContain('외 1줄')
+  })
+
+  it('서로 무관한 두 군집은 지적도 둘, id 도 다르다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, {
+      thisContent: `${A}\n${B}\n7/25~8/29 통합 테스트 준비\n7/25~8/29 통합 테스트 준수`,
+    })]
+    const out = lintNearDuplicates(rows)
+    expect(out).toHaveLength(2)
+    expect(new Set(out.map(f => f.id)).size).toBe(2)
+  })
+
+  it('문턱은 정확히 90% — 딱 90%면 잡고, 그보다 낮으면 놓아준다', () => {
+    // 길이 10, 거리 1(치환) → 0.9 (딱 문턱)
+    const rows90 = [mkRow('r1', 'PMO', 1, { thisContent: 'abcdefghij\nabcdefghix' })]
+    expect(lintNearDuplicates(rows90)).toHaveLength(1)
+    expect(NEAR_DUPLICATE_THRESHOLD).toBe(0.9)
+    // 길이 9, 거리 1 → 0.888…
+    const rows88 = [mkRow('r1', 'PMO', 1, { thisContent: 'abcdefghi\nabcdefghx' })]
+    expect(lintNearDuplicates(rows88)).toEqual([])
+  })
+
+  it('길이가 다른 딱 90% 쌍(9자↔10자 삽입)도 놓치지 않는다 — 길이 사전탈락의 부동소수점 함정', () => {
+    // 거리 1(삽입), 긴쪽 10 → 0.9. |9-10|/10 > 1-0.9 꼴 비교는 부동소수점 오차로 이 쌍을 버린다.
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: 'abcdefghi\nabcdefghij' })]
+    expect(lintNearDuplicates(rows)).toHaveLength(1)
+  })
+})
+
 describe('lintNumbering', () => {
   const one = (content: string) => lintNumbering([mkRow('r1', 'PMO', 1, { thisContent: content })])
 
@@ -267,30 +406,24 @@ describe('lintNumbering', () => {
 
 describe('lintFormat', () => {
   const one = (content: string) => lintFormat([mkRow('r1', 'PMO', 1, { thisContent: content })])
-  const fixed = (content: string) => one(content)[0].edits[0].content
 
-  it('줄 끝 공백을 지운다', () => {
-    expect(fixed('가  \n나\t')).toBe('가\n나')
+  it('줄 끝 공백·연속 공백·전각 공백은 지적하지 않는다 — 공백 점검 제외(사용자 결정)', () => {
+    expect(one('가  \n나\t')).toEqual([])
+    expect(one('가  나')).toEqual([])
+    expect(one('가　나')).toEqual([])
   })
 
-  it('줄 안 연속 공백을 1칸으로 접는다', () => {
-    expect(fixed('가  나')).toBe('가 나')
+  it('앞뒤·연속 빈 줄도 지적하지 않는다', () => {
+    expect(one('\n\n가\n\n')).toEqual([])
+    expect(one('가\n\n\n\n나')).toEqual([])
   })
 
-  it('들여쓰기는 접지 않는다', () => {
-    expect(one('  가')).toEqual([])
-  })
-
-  it('전각 공백을 반각으로 바꾼다', () => {
-    expect(fixed('가　나')).toBe('가 나')
-  })
-
-  it('앞뒤 빈 줄을 지운다', () => {
-    expect(fixed('\n\n가\n\n')).toBe('가')
-  })
-
-  it('중간 연속 빈 줄을 1줄로 줄인다', () => {
-    expect(fixed('가\n\n\n\n나')).toBe('가\n\n나')
+  it('기호를 통일할 때 그 줄의 공백은 건드리지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '- 가\n- 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '· 다  라' }),
+    ]
+    expect(lintFormat(rows)[0].edits[0].content).toBe('- 다  라')
   })
 
   it('고칠 것이 없으면 지적하지 않는다', () => {
@@ -338,20 +471,30 @@ describe('lintFormat', () => {
     expect(lintFormat(rows)).toEqual([])
   })
 
-  it('셀 하나에 문제가 여러 개여도 지적은 1건', () => {
-    const out = one('가  \n\n\n나 ')
+  it('한 셀에 어긋난 기호가 여러 줄이어도 지적은 1건', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '- 가\n- 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '· 다\n· 라' }),
+    ]
+    const out = lintFormat(rows)
     expect(out).toHaveLength(1)
     expect(out[0].kind).toBe('format')
-    expect(out[0].edits[0].content).toBe('가\n\n나')
+    expect(out[0].edits[0].content).toBe('- 다\n- 라')
   })
 })
 
 describe('lintWeeklySheet', () => {
-  it('부류 순서대로 이어붙인다 — 중복 → 체번 → 정리', () => {
+  it('부류 순서대로 이어붙인다 — 완전 중복 → 유사 중복 → 체번 → 정리', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '설계 리뷰 완료\n설계 리뷰 완료', thisIssue: '1. 가\n3. 나', nextContent: '다  ' }),
+      mkRow('r1', 'PMO', 1, {
+        thisContent: '- 설계 리뷰 완료\n- 설계 리뷰 완료',
+        thisIssue: 'ERP 인터페이스 설계 진행 중 60%\nERP 인터페이스 설계 진행 중 70%',
+        nextContent: '1. 가\n3. 나',
+        nextIssue: '· 다',
+      }),
     ]
-    expect(lintWeeklySheet(rows).map(f => f.kind)).toEqual(['duplicate', 'numbering', 'format'])
+    expect(lintWeeklySheet(rows).map(f => f.kind))
+      .toEqual(['duplicate', 'nearDuplicate', 'numbering', 'format'])
   })
 
   it('id가 서로 겹치지 않는다', () => {
@@ -371,16 +514,24 @@ describe('lintWeeklySheet', () => {
     expect(lintWeeklySheet(rows)).toEqual([])
   })
 
-  it('모든 지적의 edits는 비어 있지 않다', () => {
+  it('유사 중복만 edits 가 비고, 나머지 지적의 edits 는 비어 있지 않다', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '가  \n1. 나\n3. 다\n가' }),
+      mkRow('r1', 'PMO', 1, {
+        thisContent: '가  \n1. 나\n3. 다\n가',
+        thisIssue: 'ERP 인터페이스 설계 진행 중 60%\nERP 인터페이스 설계 진행 중 70%',
+      }),
       mkRow('r2', '영업', 2, { thisContent: '가\n가' }),
     ]
-    for (const f of lintWeeklySheet(rows)) expect(f.edits.length).toBeGreaterThan(0)
+    const out = lintWeeklySheet(rows)
+    expect(out.some(f => f.kind === 'nearDuplicate')).toBe(true)
+    for (const f of out) {
+      if (f.kind === 'nearDuplicate') expect(f.edits).toEqual([])
+      else expect(f.edits.length).toBeGreaterThan(0)
+    }
   })
 
   it('모든 지적이 자기 구분을 달고 나온다 — 제목은 열 이름만', () => {
-    const rows = [mkRow('r1', '영업', 2, { thisContent: '가\n가', thisIssue: '1. 가\n3. 나', nextContent: '다  ' })]
+    const rows = [mkRow('r1', '영업', 2, { thisContent: '- 가\n- 가', thisIssue: '1. 가\n3. 나', nextContent: '· 다' })]
     const out = lintWeeklySheet(rows)
     expect(out).toHaveLength(3)
     for (const f of out) expect(f.section).toBe('영업')
@@ -389,17 +540,17 @@ describe('lintWeeklySheet', () => {
 
   it('지적 목록은 구분 순으로 나온다', () => {
     const rows = [
-      mkRow('r3', '구매', 3, { thisContent: '다  ' }),
-      mkRow('r1', 'PMO', 1, { thisContent: '가  ' }),
-      mkRow('r2', '영업', 2, { thisContent: '나  ' }),
+      mkRow('r3', '구매', 3, { thisContent: '다\n다' }),
+      mkRow('r1', 'PMO', 1, { thisContent: '가\n가' }),
+      mkRow('r2', '영업', 2, { thisContent: '나\n나' }),
     ]
     expect(lintWeeklySheet(rows).map(f => f.section)).toEqual(['PMO', '영업', '구매'])
   })
 
   it('앞 구분에 정리 지적만 있어도 구분 순서가 부류에 밀리지 않는다', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '가  나' }),   // 정리 지적만
-      mkRow('r2', '영업', 2, { thisContent: '다\n다' }),  // 중복 지적
+      mkRow('r1', 'PMO', 1, { thisContent: '· 가' }),        // 정리(기호) 지적만
+      mkRow('r2', '영업', 2, { thisContent: '- 다\n- 다' }),  // 중복 지적 + 다수결 기호(-) 공급
     ]
     const out = lintWeeklySheet(rows)
     expect(out.map(f => f.section)).toEqual(['PMO', '영업'])
@@ -407,8 +558,8 @@ describe('lintWeeklySheet', () => {
 
   it('한 구분 안에서는 중복 → 체번 → 정리 순서를 지킨다', () => {
     const rows = [
-      mkRow('r1', 'PMO', 1, { thisContent: '가\n가', thisIssue: '1. 가\n3. 나', nextContent: '다  ' }),
-      mkRow('r2', '영업', 2, { thisContent: '라  ' }),
+      mkRow('r1', 'PMO', 1, { thisContent: '- 가\n- 가', thisIssue: '1. 가\n3. 나', nextContent: '· 다' }),
+      mkRow('r2', '영업', 2, { thisContent: '· 라' }),
     ]
     const out = lintWeeklySheet(rows)
     expect(out.map(f => `${f.section}/${f.kind}`)).toEqual([
