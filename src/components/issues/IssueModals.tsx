@@ -89,10 +89,19 @@ export function IssueDetailModal({
   const dirty = issue !== null
     && (status !== issue.status || assigneesDirty || note !== issue.resolutionNote)
 
-  // 표시용 담당자 이름 — 가나다순. 조인 행은 멤버 삭제 시 cascade 로 사라지므로 이름 미해석은 과도기뿐이다.
-  const assigneeNames = issue
-    ? sortByKoreanName(issue.assigneeMemberIds.map(id => memberName(id) ?? '—'), n => n).join(', ')
-    : ''
+  // 표시용 담당자 칩 — 가나다순, 회의 상세 참석자 칩과 같은 표기(이름 · 팀코드).
+  // 여러 명이 쉼표 나열로 좁은 그리드 칸에 들어가면 화면이 빡빡해져 전체 폭 칩 줄로 편다.
+  // 조인 행은 멤버 삭제 시 cascade 로 사라지므로 이름 미해석('—')은 과도기뿐이다.
+  const memberById = new Map(members.map(m => [m.id, m]))
+  const assigneeChips = issue
+    ? sortByKoreanName(
+      issue.assigneeMemberIds.map(id => {
+        const m = memberById.get(id)
+        return { id, label: m ? (m.teamCode ? `${m.name} · ${m.teamCode}` : m.name) : (memberName(id) ?? '—') }
+      }),
+      a => a.label,
+    )
+    : []
 
   function saveProgress() {
     if (!issue || !dirty) return
@@ -149,11 +158,21 @@ export function IssueDetailModal({
             {overdue && <span className="chip bg-delayed-weak text-delayed">{t('issue.overdueBadge')}</span>}
           </div>
 
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
-            <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.col.assignee')}</dt>
-              <dd className="mt-0.5 text-ink">{assigneeNames || t('issue.unassigned')}</dd>
-            </div>
+          {/* 담당자는 그리드 밖 자기 줄 — 여러 명이면 한 칸 폭으로는 줄바꿈이 겹겹이 쌓인다 */}
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.col.assignee')}</div>
+            {assigneeChips.length === 0 ? (
+              <div className="mt-0.5 text-sm text-ink">{t('issue.unassigned')}</div>
+            ) : (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {assigneeChips.map(a => (
+                  <span key={a.id} className="chip bg-surface-2 text-ink">{a.label}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.col.due')}</dt>
               <dd className={`mt-0.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink'}`}>{issue.dueDate ?? t('issue.noDue')}</dd>
