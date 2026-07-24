@@ -335,9 +335,32 @@ export function lintNearDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
   return out
 }
 
-/** 규칙 ② — 셀 안 줄 번호. 번호 줄이 2개 이상일 때만 검사하고, 1부터 1씩 증가하지 않으면 지적.
- *  셀 하나가 검사 범위라 애초에 구분을 넘지 않는다. 순회만 구분 순으로 맞춰 목록 순서를 통일한다. */
+/** 시트 전체에서 다수결로 정한 번호 구분자. 번호 줄이 없으면 null(규칙 전체 침묵).
+ *  보고서 겉모습 문제라 글머리 기호처럼 시트 전체 기준이고, 동수면 . 이 이긴다.
+ *  한 종류뿐이어도 그 값을 반환한다 — 그 표기를 존중하되 공백 정규화의 기준으로 쓴다. */
+function dominantNumberSep(rows: WeeklySheetRow[]): '.' | ')' | null {
+  let dot = 0, paren = 0
+  for (const row of rows) {
+    for (const cellKey of WEEKLY_CELL_KEYS) {
+      for (const line of toLines(row[CELL_FIELD[cellKey]])) {
+        const ln = parseListNum(line.trimStart())
+        if (!ln) continue
+        if (ln.sep === '.') dot++
+        else paren++
+      }
+    }
+  }
+  if (dot === 0 && paren === 0) return null
+  return dot >= paren ? '.' : ')'
+}
+
+/** 규칙 ② — 셀 안 줄 번호: 체번 + 표기. 재부여는 기존대로 번호 줄 2개 이상이면서
+ *  1..n 이 아닐 때만 하고, 표기(구분자 시트 다수결·번호 뒤 공백 1칸)는 번호 줄 1개부터
+ *  맞춘다. 구분자만 시트 전체 기준이다(구분 단위 원칙의 의도된 예외 — 글머리 기호와 동일).
+ *  순서와 표기를 한 규칙이 소유해야 같은 줄을 두 지적이 서로 다르게 고치는 충돌이 없다. */
 export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
+  const sep = dominantNumberSep(rows)
+  if (sep === null) return []
   const out: LintFinding[] = []
   for (const { section, rows: group } of bySection(rows)) {
     for (const row of group) {
@@ -345,23 +368,29 @@ export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
         const content = row[CELL_FIELD[cellKey]]
         const lines = toLines(content)
         const numbered = lines
-          .map((line, i) => ({ i, m: NUM_PREFIX.exec(line.trimStart()) }))
-          .filter((x): x is { i: number; m: RegExpExecArray } => x.m !== null)
-        if (numbered.length < 2) continue
+          .map((line, i) => ({ i, ln: parseListNum(line.trimStart()) }))
+          .filter((x): x is { i: number; ln: ListNum } => x.ln !== null)
+        if (numbered.length === 0) continue
 
-        const nums = numbered.map(x => Number(x.m[1]))
-        if (nums.every((n, k) => n === k + 1)) continue
+        const nums = numbered.map(x => x.ln.num)
+        const renumber = numbered.length >= 2 && !nums.every((n, k) => n === k + 1)
 
-        // 첫 번호 줄의 표기(구분자, 구분자 뒤 공백)를 나머지에 그대로 적용한다.
-        const sep = numbered[0].m[2]
-        const gap = numbered[0].m[3]
+        // 구분자가 바뀌는 줄은 공백도 함께 다시 쓰이므로 else if — 표기 노트가 공백 노트를 포괄한다.
+        let sepFixed = 0, gapFixed = 0
         const next = [...lines]
         numbered.forEach((x, k) => {
           const line = lines[x.i]
           const indent = line.slice(0, line.length - line.trimStart().length)
-          const rest = line.trimStart().slice(x.m[0].length)
-          next[x.i] = `${indent}${k + 1}${sep}${gap}${rest}`
+          if (x.ln.sep !== sep) sepFixed++
+          else if (x.ln.gap !== ' ') gapFixed++
+          next[x.i] = `${indent}${renumber ? k + 1 : x.ln.num}${sep} ${x.ln.rest}`
         })
+        if (!renumber && sepFixed === 0 && gapFixed === 0) continue
+
+        const notes: string[] = []
+        if (renumber) notes.push(`줄 번호가 ${nums.join(', ')} 입니다 → ${nums.map((_, k) => k + 1).join(', ')}`)
+        if (sepFixed > 0) notes.push(`번호 표기 → '1${sep}' (시트 전체 기준)`)
+        else if (gapFixed > 0) notes.push('번호 뒤 공백 → 1칸')
 
         out.push({
           id: `numbering:${row.id}:${cellKey}`,
@@ -370,7 +399,7 @@ export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
           rowId: row.id,
           cellKey,
           title: WEEKLY_CELL_LABEL[cellKey],
-          detail: `줄 번호가 ${nums.join(', ')} 입니다 → ${nums.map((_, k) => k + 1).join(', ')}`,
+          detail: notes.join(', '),
           edits: [{ rowId: row.id, cellKey, content: next.join('\n') }],
         })
       }

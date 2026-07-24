@@ -400,9 +400,80 @@ describe('lintNumbering', () => {
     expect(one('- 가\n- 나')).toEqual([])
   })
 
-  it(') 스타일과 구분자 뒤 공백을 보존한다', () => {
+  it(') 표기가 시트에 유일하면 보존하고, 번호 뒤 공백은 1칸으로 맞춘다', () => {
     expect(one('1) 가\n3) 나')[0].edits[0].content).toBe('1) 가\n2) 나')
-    expect(one('1.가\n3.나')[0].edits[0].content).toBe('1.가\n2.나')
+    expect(one('1.가\n3.나')[0].edits[0].content).toBe('1. 가\n2. 나')
+  })
+
+  it('시트 다수결 표기로 통일한다 — 소수 표기 셀을 지적', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 다\n2) 라' }),
+      mkRow('r3', '구매', 3, { thisContent: '1. 마' }),
+    ]
+    const out = lintNumbering(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('numbering')
+    expect(out[0].rowId).toBe('r2')
+    expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_content', content: '1. 다\n2. 라' }])
+    expect(out[0].detail).toContain('시트 전체')
+  })
+
+  it('동수면 . 이 이긴다 — 번호 줄 1개짜리 셀도 표기가 어긋나면 지적한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1) 가' }),
+      mkRow('r2', '영업', 2, { thisContent: '1. 나' }),
+    ]
+    const out = lintNumbering(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].rowId).toBe('r1')
+    expect(out[0].edits[0].content).toBe('1. 가')
+  })
+
+  it('시트에 한 표기뿐이면 그 표기를 존중한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1) 가\n2) 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 다' }),
+    ]
+    expect(lintNumbering(rows)).toEqual([])
+  })
+
+  it('번호 뒤 공백을 1칸으로 맞춘다 — 없음·여러 칸·전각', () => {
+    const [f] = one('1.가\n2.  나\n3.　다')
+    expect(f.edits[0].content).toBe('1. 가\n2. 나\n3. 다')
+    expect(f.detail).toContain('공백 → 1칸')
+  })
+
+  it('날짜·소수 줄은 고치지도, 다수결에 세지도 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '2026.07.24 주간 회의\n1.5배 성능 개선' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 다\n2) 라' }),
+    ]
+    expect(lintNumbering(rows)).toEqual([])
+  })
+
+  it('번호만 있는 줄은 건드리지 않는다', () => {
+    expect(one('1.\n2.')).toEqual([])
+  })
+
+  it('체번과 표기 통일을 한 지적으로 함께 고친다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나\n3. 다' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 라\n3) 마' }),
+    ]
+    const out = lintNumbering(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].edits[0].content).toBe('1. 라\n2. 마')
+    expect(out[0].detail).toContain('1, 3')
+    expect(out[0].detail).toContain('번호 표기')
+  })
+
+  it('들여쓴 번호 줄도 표기를 맞추고 들여쓰기는 보존한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '  1) 다' }),
+    ]
+    expect(lintNumbering(rows)[0].edits[0].content).toBe('  1. 다')
   })
 
   it('번호 없는 줄은 순서를 유지하고 번호도 소비하지 않는다', () => {
