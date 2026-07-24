@@ -1,5 +1,6 @@
 export type Level = 'phase' | 'task' | 'activity'
-export type TeamCode = 'PMO' | 'ERP' | 'MES' | '가공' | 'MDM'
+/** 팀 코드 — 런타임 기준은 DB teams 마스터(관리자 화면에서 추가/비활성). 컴파일 타임 유니언 금지. */
+export type TeamCode = string
 export type OwnerKind = 'primary' | 'support'
 export type Status = 'not_started' | 'in_progress' | 'delayed' | 'done'
 export type DependencyType = 'FS' | 'SS'
