@@ -2,6 +2,7 @@
 import { revalidatePath } from 'next/cache'
 import { getMembership } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 import { isValidEmail } from '@/lib/domain/validate'
 import { compareKoreanName } from '@/lib/domain/nameSort'
 import {
@@ -57,7 +58,7 @@ async function resolveTeamId(admin: AdminClient, teamCode: TeamCode): Promise<st
 async function createOne(admin: AdminClient, input: AccountInput): Promise<AccountActionResult> {
   if (!isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
   if (!isValidPassword(input.password)) return { ok: false, error: '비밀번호는 8자 이상이어야 합니다.' }
-  if (!isTeamCode(input.teamCode)) return { ok: false, error: '알 수 없는 팀 코드' }
+  if (!isTeamCode(input.teamCode, activeTeamCodesSync())) return { ok: false, error: '알 수 없는 팀 코드' }
   if (!isAccountRole(input.role)) return { ok: false, error: '알 수 없는 권한' }
 
   const teamId = await resolveTeamId(admin, input.teamCode)
@@ -111,7 +112,7 @@ export async function bulkCreateAccounts(
 ): Promise<{ ok: boolean; error?: string; results: BulkResultRow[] }> {
   if (!(await isAdmin())) return { ok: false, error: '권한 없음', results: [] }
   const admin = createAdminClient()
-  const lines = parseBulkAccounts(text)
+  const lines = parseBulkAccounts(text, activeTeamCodesSync())
   if (lines.length === 0) return { ok: false, error: '처리할 행이 없습니다.', results: [] }
 
   const results: BulkResultRow[] = []
@@ -142,7 +143,7 @@ export async function updateAccountRole(
   userId: string, teamCode: string, role: string,
 ): Promise<AccountActionResult> {
   if (!(await isAdmin())) return { ok: false, error: '권한 없음' }
-  if (!isTeamCode(teamCode)) return { ok: false, error: '알 수 없는 팀 코드' }
+  if (!isTeamCode(teamCode, activeTeamCodesSync())) return { ok: false, error: '알 수 없는 팀 코드' }
   if (!isAccountRole(role)) return { ok: false, error: '알 수 없는 권한' }
   const admin = createAdminClient()
 

@@ -77,6 +77,8 @@ export interface RiskSignalInput {
   startDate: string | null   // 설계 시그니처 유지(일정 문맥 확장 예약) — 현 탐지기는 미사용
   endDate: string | null
   minuteSignals: MinuteActionSignal[]
+  /** 팀 집계 대상(활성 팀) — 미주입 시 기본 5팀(ALL_TEAMS). */
+  teams?: readonly TeamCode[]
 }
 
 export interface RiskSignalReport {
@@ -157,8 +159,8 @@ function detectDeadlineStall(leaves: ComputedItem[], today: string): RiskSignal 
 /* ── ③ 담당 팀 과부하 — teamProgress와 동일한 소유 판정(primary·support 모두)으로 팀별 집계 ──
  * 발화: 지연 리프 ≥3 집중 또는 활성(미완료) 리프가 배정 팀 평균의 2배(표본 바닥 4건).
  * 심각도: 팀 내 지연 ≥4면 red(riskModel red 경계 미러), 그 외 amber. */
-function detectOwnerOverload(leaves: ComputedItem[]): RiskSignal[] {
-  const perTeam = ALL_TEAMS.map(team => {
+function detectOwnerOverload(leaves: ComputedItem[], teams: readonly TeamCode[]): RiskSignal[] {
+  const perTeam = teams.map(team => {
     const assigned = leaves.filter(l => l.owners.some(o => o.team === team))
     return {
       team,
@@ -285,7 +287,7 @@ export function detectRiskSignals(input: RiskSignalInput): RiskSignalReport {
   if (trend) signals.push(trend)
   const stall = detectDeadlineStall(leaves, today)
   if (stall) signals.push(stall)
-  signals.push(...detectOwnerOverload(leaves))
+  signals.push(...detectOwnerOverload(leaves, input.teams ?? ALL_TEAMS))
   const overdue = detectOverdueAccumulation(leaves, today)
   if (overdue) signals.push(overdue)
   const staleActions = detectMeetingActionStale(minuteSignals, realToday)

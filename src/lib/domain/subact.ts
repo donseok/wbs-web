@@ -1,7 +1,8 @@
 import type { OwnerKind, TeamCode } from './types'
+import { DEFAULT_TEAM_CODES } from './teams'
 
-/** 담당 팀 표준 순서(PMO→ERP→MES→가공→MDM) — 트리/오너 정렬과 동일. */
-export const SUB_ACT_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+/** @deprecated 기본 5팀 폴백 — 호출처는 활성 팀 목록을 주입할 것(useTeamCodes/activeTeamCodesSync). */
+export const SUB_ACT_TEAMS: readonly TeamCode[] = DEFAULT_TEAM_CODES
 
 /** SUB-ACT 저장 이름 규칙 — 임포트 분리(splitLeafOwners)와 동일한 "{ACT명} ({팀} 주관/지원)".
  *  하류(검색·챗봇·보고·엑셀 라운드트립)가 리프 이름만으로 작업을 식별할 수 있어야 하므로 부모명을 접두로 유지한다. */
@@ -17,9 +18,12 @@ export function subActTeamsInUse(children: { owners: { team: TeamCode }[] }[]): 
 }
 
 /** 새 SUB-ACT 로 아직 배정 가능한 팀 목록(표준 순서 유지). */
-export function availableSubActTeams(children: { owners: { team: TeamCode }[] }[]): TeamCode[] {
+export function availableSubActTeams(
+  children: { owners: { team: TeamCode }[] }[],
+  teams: readonly TeamCode[] = SUB_ACT_TEAMS,
+): TeamCode[] {
   const used = subActTeamsInUse(children)
-  return SUB_ACT_TEAMS.filter(t => !used.has(t))
+  return teams.filter(t => !used.has(t))
 }
 
 /** 첫 SUB-ACT 추가 시 ACT 가 롤업 부모로 바뀌며 직접 입력된 실적%가 버려지는지 여부(경고 표시용). */

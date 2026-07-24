@@ -10,11 +10,11 @@ import {
   createAccount, bulkCreateAccounts, resetPassword, updateAccountRole,
   type AccountRow, type BulkResultRow,
 } from '@/app/actions/accounts'
-import { TEAM_CODES, ACCOUNT_ROLES, type AccountRole } from '@/lib/domain/accounts'
+import { ACCOUNT_ROLES, type AccountRole } from '@/lib/domain/accounts'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { isValidEmail } from '@/lib/domain/validate'
 import type { TeamCode } from '@/lib/domain/types'
 
-const TEAM_OPTIONS = TEAM_CODES as readonly TeamCode[]
 const ROLE_LABEL: Record<string, string> = { pmo_admin: 'PMO 관리자', team_editor: '팀 편집자' }
 
 /** 브라우저 crypto 로 임시 비밀번호(12자) 생성 — 리셋/추가 시 [생성] 버튼용. */
@@ -126,9 +126,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function AddAccountModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter()
   const { toast } = useToast()
+  const teamOptions = useTeamCodes()
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
-  const [teamCode, setTeamCode] = useState<TeamCode>('PMO')
+  const [teamCode, setTeamCode] = useState<TeamCode>(teamOptions[0] ?? 'PMO')
   const [role, setRole] = useState<AccountRole>('team_editor')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -136,8 +137,8 @@ function AddAccountModal({ open, onClose }: { open: boolean; onClose: () => void
 
   useEffect(() => {
     if (!open) return
-    setEmail(''); setName(''); setTeamCode('PMO'); setRole('team_editor'); setPassword(''); setError(null)
-  }, [open])
+    setEmail(''); setName(''); setTeamCode(teamOptions[0] ?? 'PMO'); setRole('team_editor'); setPassword(''); setError(null)
+  }, [open, teamOptions])
 
   function submit() {
     setError(null)
@@ -178,7 +179,7 @@ function AddAccountModal({ open, onClose }: { open: boolean; onClose: () => void
         <div className="grid grid-cols-2 gap-3">
           <Field label="팀">
             <select className="app-input" value={teamCode} onChange={(e) => setTeamCode(e.target.value as TeamCode)}>
-              {TEAM_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {teamOptions.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
           <Field label="권한">
@@ -360,17 +361,18 @@ function ResetPasswordModal({ account, onClose }: { account: AccountRow | null; 
 function RoleEditModal({ account, onClose }: { account: AccountRow | null; onClose: () => void }) {
   const router = useRouter()
   const { toast } = useToast()
-  const [teamCode, setTeamCode] = useState<TeamCode>('PMO')
+  const teamOptions = useTeamCodes()
+  const [teamCode, setTeamCode] = useState<TeamCode>(teamOptions[0] ?? 'PMO')
   const [role, setRole] = useState<AccountRole>('team_editor')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
   useEffect(() => {
     if (!account) return
-    setTeamCode((account.teamCode as TeamCode) ?? 'PMO')
+    setTeamCode((account.teamCode as TeamCode) ?? teamOptions[0] ?? 'PMO')
     setRole((account.role as AccountRole) === 'pmo_admin' ? 'pmo_admin' : 'team_editor')
     setError(null)
-  }, [account])
+  }, [account, teamOptions])
 
   function submit() {
     setError(null)
@@ -405,7 +407,7 @@ function RoleEditModal({ account, onClose }: { account: AccountRow | null; onClo
         <div className="grid grid-cols-2 gap-3">
           <Field label="팀">
             <select className="app-input" value={teamCode} onChange={(e) => setTeamCode(e.target.value as TeamCode)}>
-              {TEAM_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+              {teamOptions.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </Field>
           <Field label="권한">

@@ -2,6 +2,7 @@ import type {
   Announcement, AttendanceRecord, AttendanceType, ComputedItem, Level, Meeting, MeetingException, MeetingOccurrence,
   ProjectMember, Status, TeamCode,
 } from '@/lib/domain/types'
+import { DEFAULT_TEAM_CODES } from '@/lib/domain/teams'
 import { overallProgress } from '@/lib/domain/rollup'
 import { round1 } from '@/lib/domain/format'
 import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
@@ -13,7 +14,8 @@ import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
  * 금주 실적=진행중 leaf, 차주 계획=차주 기간과 겹치는 미완료 leaf, 워크로드=팀별, 근태=members+attendance.
  * ========================================================================== */
 
-export const REPORT_TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+/** @deprecated 기본 5팀 폴백 — 호출처는 opts.teams 로 활성 팀 목록을 주입할 것. */
+export const REPORT_TEAMS: readonly TeamCode[] = DEFAULT_TEAM_CODES
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금'] as const
 
 export interface WeeklyMeta {
@@ -288,8 +290,11 @@ export function buildWeeklyReportModel(
     members?: ProjectMember[]; attendance?: AttendanceRecord[]; generatedAt?: string
     meetings?: Meeting[]; meetingExceptions?: MeetingException[]
     announcements?: Announcement[]
+    /** 팀별 워크로드·미완료 요약 대상(활성 팀) — 미주입 시 기본 5팀. */
+    teams?: readonly TeamCode[]
   } = {},
 ): WeeklyReportModel {
+  const reportTeams = opts.teams ?? REPORT_TEAMS
   const roots = items
   const members = opts.members ?? []
   const attendance = opts.attendance ?? []
@@ -400,7 +405,7 @@ export function buildWeeklyReportModel(
   }))
 
   // ── 담당자(팀)별 워크로드 — 요일별 진행 작업 수 ──
-  const workload: WorkloadRow[] = REPORT_TEAMS.map(team => {
+  const workload: WorkloadRow[] = reportTeams.map(team => {
     const perDay = weekDays.map(day =>
       leafNodes.filter(
         n => n.status !== 'done' && n.owners.some(o => o.team === team) &&
@@ -502,7 +507,7 @@ export function buildWeeklyReportModel(
     }
   })
   // 담당자(팀)별 미완료 요약
-  const summaryParts = REPORT_TEAMS.map(team => {
+  const summaryParts = reportTeams.map(team => {
     const own = incomplete.filter(l => l.node.owners.some(o => o.team === team)).map(l => l.node)
     if (!own.length) return null
     const dl = own.filter(n => n.status === 'delayed').length

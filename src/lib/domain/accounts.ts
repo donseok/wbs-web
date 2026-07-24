@@ -6,11 +6,9 @@ import type { TeamCode } from '@/lib/domain/types'
 export const ACCOUNT_ROLES = ['pmo_admin', 'team_editor'] as const
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
 
-/** 팀 코드 런타임 화이트리스트 (teams.code CHECK 와 일치). */
-export const TEAM_CODES = ['PMO', '가공', 'ERP', 'MES', 'MDM'] as const satisfies readonly TeamCode[]
-
-export function isTeamCode(v: string): v is TeamCode {
-  return (TEAM_CODES as readonly string[]).includes(v)
+/** 팀 코드 검증 — 허용 목록은 호출처가 팀 마스터(활성 팀)에서 주입한다. */
+export function isTeamCode(v: string, codes: readonly string[]): v is TeamCode {
+  return codes.includes(v)
 }
 export function isAccountRole(v: string): v is AccountRole {
   return (ACCOUNT_ROLES as readonly string[]).includes(v)
@@ -40,7 +38,7 @@ export interface ParsedAccountLine {
  * 구분자는 콤마 또는 탭(엑셀 붙여넣기 대응). 빈 줄은 결과에서 제외한다.
  * 주의: 초기비번에는 콤마·탭을 쓸 수 없다(구분자로 해석됨).
  */
-export function parseBulkAccounts(text: string): ParsedAccountLine[] {
+export function parseBulkAccounts(text: string, teamCodes: readonly string[]): ParsedAccountLine[] {
   const out: ParsedAccountLine[] = []
   const lines = text.split(/\r?\n/)
   lines.forEach((raw, i) => {
@@ -57,7 +55,7 @@ export function parseBulkAccounts(text: string): ParsedAccountLine[] {
       out.push({ lineNo, raw: trimmed, ok: false, email, error: '이메일 형식 오류' })
       return
     }
-    if (!isTeamCode(teamCode)) {
+    if (!isTeamCode(teamCode, teamCodes)) {
       out.push({ lineNo, raw: trimmed, ok: false, email, error: `알 수 없는 팀: ${teamCode}` })
       return
     }

@@ -7,6 +7,7 @@
 import { buildWeeklyReportModel, type WeeklyReportModel } from '@/lib/report/weekly'
 import { overallProgress } from '@/lib/domain/rollup'
 import type { ComputedItem, ProjectMember, Status, TeamCode } from '@/lib/domain/types'
+import { DEFAULT_TEAM_CODES } from '@/lib/domain/teams'
 
 const STATUS_KO: Record<Status, string> = {
   not_started: '시작 전',
@@ -15,7 +16,6 @@ const STATUS_KO: Record<Status, string> = {
   done: '완료',
 }
 const LEVEL_KO = { phase: 'Phase', task: 'Task', activity: 'Activity' } as const
-const TEAMS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 export interface LeafCtx {
   node: ComputedItem
@@ -211,7 +211,11 @@ export function answerThisWeek(a: ProjectAnalysis): string {
   return [`이번 주(${a.weekRange}) 진행·예정 작업 ${a.activeThisWeek.length}건입니다.`, listWithCap(rows, 12)].join('\n')
 }
 
-export function answerByTeam(a: ProjectAnalysis, members: ProjectMember[]): string {
+export function answerByTeam(
+  a: ProjectAnalysis,
+  members: ProjectMember[],
+  teams: readonly TeamCode[] = DEFAULT_TEAM_CODES,
+): string {
   const memberByTeam = new Map<string, string[]>()
   for (const m of members) {
     const key = m.teamCode ?? '미배정'
@@ -221,7 +225,7 @@ export function answerByTeam(a: ProjectAnalysis, members: ProjectMember[]): stri
   }
 
   const buckets = new Map<string, ComputedItem[]>()
-  for (const t of TEAMS) buckets.set(t, [])
+  for (const t of teams) buckets.set(t, [])
   buckets.set('미배정', [])
   for (const l of a.leaves) {
     const primaries = [...new Set(l.node.owners.filter(o => o.kind === 'primary').map(o => o.team))]
@@ -230,7 +234,7 @@ export function answerByTeam(a: ProjectAnalysis, members: ProjectMember[]): stri
   }
 
   const rows: string[] = []
-  for (const team of [...TEAMS, '미배정']) {
+  for (const team of [...teams, '미배정']) {
     const cards = buckets.get(team) ?? []
     if (cards.length === 0 && team === '미배정') continue
     const c = emptyStatusCount()
