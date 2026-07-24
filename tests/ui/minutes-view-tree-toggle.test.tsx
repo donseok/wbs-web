@@ -76,7 +76,7 @@ describe('MinutesView 트리 뷰 배선', () => {
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
-  async function mount(initialView: 'list' | 'calendar' | 'tree' = 'list') {
+  async function mount(initialView: 'list' | 'calendar' | 'tree' = 'calendar') {
     await act(async () => root.render(
       <MinutesView initialMinutes={[]} todayIso="2026-07-17" initialView={initialView}
         projects={[]} currentUserId="u1" role="pmo_admin" defaultTeam={null} />,
@@ -89,7 +89,7 @@ describe('MinutesView 트리 뷰 배선', () => {
   }
 
   it('트리 탭 클릭 → fetchMinutesExplorer 1회 호출 + 트리 렌더 + 월 라벨이 전체 기간으로', async () => {
-    await mount('list')
+    await mount('calendar')
     expect(fetchMinutesExplorer).not.toHaveBeenCalled()
     await act(async () => buttonByText('min.view.tree').click())
     expect(fetchMinutesExplorer).toHaveBeenCalledTimes(1)
@@ -100,12 +100,19 @@ describe('MinutesView 트리 뷰 배선', () => {
     expect(prevBtn?.disabled).toBe(true)                            // 월 네비 비활성
   })
 
-  it('로드 완료 후 리스트로 갔다 트리로 복귀해도 재조회하지 않는다(캐시 재사용)', async () => {
-    await mount('list')
+  it('로드 완료 후 달력으로 갔다 트리로 복귀해도 재조회하지 않는다(캐시 재사용)', async () => {
+    await mount('calendar')
     await act(async () => buttonByText('min.view.tree').click())
-    await act(async () => buttonByText('min.view.list').click())
+    await act(async () => buttonByText('min.view.calendar').click())
     await act(async () => buttonByText('min.view.tree').click())
     expect(fetchMinutesExplorer).toHaveBeenCalledTimes(1)
+  })
+
+  it("구 저장값 'list'는 트리로 정규화 마운트되고 리스트 탭은 없다(뷰 폐지)", async () => {
+    await mount('list')
+    expect(fetchMinutesExplorer).toHaveBeenCalledTimes(1)     // 트리 자동 조회
+    expect(container.textContent).toContain('물류공정')
+    expect(container.textContent).not.toContain('min.view.list')
   })
 
   it('initialView=tree 마운트 시 자동 조회한다', async () => {
@@ -150,8 +157,8 @@ describe('MinutesView 트리 뷰 배선', () => {
     expect(last.to).toBeNull()
   })
 
-  it('리스트 뷰에서는 보관함 챗 범위가 현재 월이다', async () => {
-    await mount('list')
+  it('달력 뷰에서는 보관함 챗 범위가 현재 월이다', async () => {
+    await mount('calendar')
     const last = chatProps.mock.calls.at(-1)![0] as { from: string | null; to: string | null }
     expect(last.from).toBe('2026-07-01')
     expect(last.to).toBe('2026-07-31')
@@ -166,7 +173,7 @@ describe('MinutesView 트리 뷰 배선', () => {
   it('레이아웃 선택은 뷰 왕복에도 유지된다', async () => {
     await mount('tree')
     await act(async () => buttonByText('min.exp.layout.list').click())
-    await act(async () => buttonByText('min.view.list').click())
+    await act(async () => buttonByText('min.view.calendar').click())
     await act(async () => buttonByText('min.view.tree').click())
     // 탐색기가 언마운트·재마운트돼도 여전히 리스트 모드여야 한다(레이아웃 상태는 MinutesView 소유)
     expect(container.querySelector('article')).toBeNull()

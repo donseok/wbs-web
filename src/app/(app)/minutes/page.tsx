@@ -38,9 +38,10 @@ export default async function MinutesPage() {
     listProjects(),
     getServerLocale(),
   ])
-  // 기본값은 트리, 미지 값(구버전 롤백·스큐)도 트리로 클램프 — calendar/list만 저장값 유지
+  // 기본값은 트리, 미지 값(구버전 롤백·스큐)도 트리로 클램프 — calendar만 저장값 유지.
+  // 리스트 뷰는 폐지(2026-07-24) — 구 저장값 'list'도 트리로 정규화.
   const savedView = prefs.minutesView
-  const initialView = savedView === 'calendar' || savedView === 'list' ? savedView : 'tree'
+  const initialView = savedView === 'calendar' ? 'calendar' : 'tree'
   return (
     <ProjectPageShell
       hero={<PageHero

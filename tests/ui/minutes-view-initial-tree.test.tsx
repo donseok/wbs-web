@@ -83,9 +83,15 @@ describe('MinutesView initialTree 서버 프리페치', () => {
     expect(container.textContent).toContain('물류공정')
   })
 
-  it('리스트로 마운트했다 트리로 전환해도 서버 트리를 재사용한다', async () => {
-    await mount('list', serverTree)
+  it('달력으로 마운트했다 트리로 전환해도 서버 트리를 재사용한다', async () => {
+    await mount('calendar', serverTree)
     await act(async () => buttonByText('min.view.tree').click())
+    expect(fetchMinutesExplorer).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('물류공정')
+  })
+
+  it("구 저장값 'list'는 트리로 정규화되고 서버 트리를 그대로 쓴다(뷰 폐지)", async () => {
+    await mount('list', serverTree)
     expect(fetchMinutesExplorer).not.toHaveBeenCalled()
     expect(container.textContent).toContain('물류공정')
   })

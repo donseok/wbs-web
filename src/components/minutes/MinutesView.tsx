@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, Download, List, ListTree, Plus, Search } from 'lucide-react'
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, Download, ListTree, Plus, Search } from 'lucide-react'
 import type { ExplorerData, ExplorerLeaf, Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import { MINUTES_TREE_LIMIT, TEAM_CODES } from '@/lib/domain/minutes'
 import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesExplorer, fetchMinuteFavorites, toggleMinuteFavorite } from '@/app/actions/minutes'
@@ -52,7 +52,9 @@ export function MinutesView({
   const [initY, initM] = useMemo(() => todayIso.split('-').map(Number), [todayIso])
   const [year, setYear] = useState(initY)
   const [month0, setMonth0] = useState((initM || 1) - 1)
-  const [view, setView] = useState<ViewKey>(initialView)
+  // 리스트 뷰 폐지(사용자 결정 2026-07-24) — 구 저장값('list')은 트리로 정규화.
+  // 리스트 렌더 경로 자체는 검색 결과 표시용으로 남는다(isSearch).
+  const [view, setView] = useState<ViewKey>(initialView === 'list' ? 'tree' : initialView)
   const [team, setTeam] = useState<TeamKey>('ALL')
   const [minutes, setMinutes] = useState<Minute[]>(initialMinutes)
   const [query, setQuery] = useState('')
@@ -272,8 +274,7 @@ export function MinutesView({
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             <SegmentedTabs<ViewKey>
-              tabs={[{ key: 'list', label: t('min.view.list'), icon: List },
-                     { key: 'tree', label: t('min.view.tree'), icon: ListTree },
+              tabs={[{ key: 'tree', label: t('min.view.tree'), icon: ListTree },
                      { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
               value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
             <button onClick={() => void downloadAllMinutes()} disabled={exportBusy}
@@ -306,8 +307,8 @@ export function MinutesView({
         <p className="text-xs text-ink-subtle">{t('min.search.truncated')}</p>
       )}
 
-      {/* 리스트 뷰 (검색 중에는 강제 리스트) */}
-      {(view === 'list' || isSearch) && (
+      {/* 검색 결과 리스트 — 리스트 '뷰'는 폐지됐고 이 렌더는 검색 전용으로만 남는다 */}
+      {isSearch && (
         groups.length === 0 ? (
           <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
         ) : (
