@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Layers, Users, Columns3, Search, Inbox } from 'lucide-react'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
@@ -76,8 +76,29 @@ export function KanbanBoard({
   const [override, setOverride] = useState<Record<string, number>>({})
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
   const [liveMsg, setLiveMsg] = useState('')
-  // 서버 데이터가 새로 오면 낙관적 레이어를 비운다(재조정).
-  useEffect(() => { setOverride({}); setSavingIds(new Set()) }, [items])
+  // 같은 카드에 대한 commit 재진입 방지(더블클릭 등으로 두 번째 요청이 첫 번째보다 먼저 읽는 prev가
+  // 이미 낙관적 override로 오염되는 것을 막는다) — 렌더와 무관한 동기 가드라 ref로 관리.
+  const inFlightRef = useRef<Set<string>>(new Set())
+  // 원본 items(override 미적용) 리프 조회 맵 — 재조정 시 "서버가 이 override를 아직 반영했는지" 판단용.
+  const rawLeafById = useMemo(() => {
+    const m = new Map<string, ComputedItem>()
+    const walk = (ns: ComputedItem[]) => ns.forEach(n => { m.set(n.id, n); walk(n.children) })
+    walk(items)
+    return m
+  }, [items])
+  // 서버 데이터가 새로 오면, 서버 값이 아직 따라오지 못한 override만 남기고 나머지는 비운다(재조정).
+  // savingIds는 여기서 일괄 리셋하지 않는다 — 카드별로 commit의 finally가 소유한다.
+  useEffect(() => {
+    setOverride(prev => {
+      if (Object.keys(prev).length === 0) return prev
+      const next: Record<string, number> = {}
+      for (const [id, val] of Object.entries(prev)) {
+        const leaf = rawLeafById.get(id)
+        if (!leaf || leaf.rolledActualPct !== val) next[id] = val // 서버가 아직 이 값을 반영하지 않음 → 유지
+      }
+      return next
+    })
+  }, [rawLeafById])
   useBotPageContext({
     domain: 'kanban',
     projectId,
@@ -142,6 +163,8 @@ export function KanbanBoard({
   async function commit(card: ComputedItem, pct: number) {
     const prev = card.rolledActualPct
     if (prev === pct) return
+    if (inFlightRef.current.has(card.id)) return           // 같은 카드 재진입 방지(더블클릭 등)
+    inFlightRef.current.add(card.id)
     setOverride(o => ({ ...o, [card.id]: pct }))            // 낙관적 이동
     setSavingIds(s => new Set(s).add(card.id))
     try {
@@ -163,6 +186,7 @@ export function KanbanBoard({
       toast({ title: t('kanban.saveFailedTitle'), variant: 'error' })
     } finally {
       setSavingIds(s => { const n = new Set(s); n.delete(card.id); return n })
+      inFlightRef.current.delete(card.id)
     }
   }
 

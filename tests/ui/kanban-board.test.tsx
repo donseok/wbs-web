@@ -72,4 +72,21 @@ describe('KanbanBoard — 진행 모드 기본', () => {
     expect(container.textContent).toContain('50%')
     expect(toastFn).toHaveBeenCalled()
   })
+
+  it('같은 카드에 대한 재진입(빠른 연속 클릭)은 updateActual을 한 번만 부른다', async () => {
+    let resolvePending!: (v: { ok: boolean }) => void
+    updateActual.mockImplementationOnce(() => new Promise(res => { resolvePending = res }))
+    await act(async () => root.render(
+      <KanbanBoard projectId="p1" items={tree()} membership={ADMIN} today="2026-07-25" />,
+    ))
+    const complete = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('kanban.complete'))!
+    // 첫 요청이 아직 in-flight인 동안(동일 act 배치 내) 같은 버튼을 한 번 더 클릭.
+    await act(async () => {
+      complete.click()
+      complete.click()
+    })
+    expect(updateActual).toHaveBeenCalledTimes(1)
+    // 첫 요청을 정상 완료시켜 정리(펜딩 프라미스/act 경고 방지).
+    await act(async () => { resolvePending({ ok: true }) })
+  })
 })
