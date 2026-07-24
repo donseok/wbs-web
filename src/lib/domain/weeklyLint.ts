@@ -32,8 +32,26 @@ export interface LintFinding {
 /** 인정하는 글머리 기호. 배열 순서 = 다수결 동수 시 우선순위(- 우선). */
 export const BULLETS = ['-', '·', '*', '●'] as const
 
-/** 선두 줄 번호: 숫자 + (. 또는 )) + 뒤따르는 공백(없을 수도). */
-const NUM_PREFIX = /^(\d+)([.)])( *)/
+/** 선두 목록 번호: 숫자 1~2자리 + (. 또는 )) + 공백(반각·탭·전각) 0개 이상. */
+const NUM_PREFIX = /^(\d{1,2})([.)])([ \t　]*)/
+
+/** 목록 번호 해석 결과. rest는 표기 뒤 본문 — 빈 문자열이면 애초에 번호 줄이 아니다. */
+interface ListNum { num: number; sep: '.' | ')'; gap: string; rest: string }
+
+/** 들여쓰기를 뗀 줄머리에서 목록 번호를 해석한다. 번호 줄이 아니면 null.
+ *  `1.` 단독(본문 없음)과 공백 없이 숫자가 이어지는 꼴(`2026.07.24` 날짜, `1.5배` 소수,
+ *  `1.2 개요` 절 번호)은 번호 줄이 아니다 — 본문을 번호로 오인해 고쳐 쓰지 않기 위한
+ *  보수적 판정. 자리수 상한(2자리)도 같은 목적의 이중 안전장치다.
+ *  다수결 집계·체번 수정·중복 비교(normalizeForCompare)가 이 술어 하나를 공유한다 —
+ *  갈라지면 "집계엔 세는데 수정에선 빠지는" 어긋남이 생긴다(글머리 기호 규칙에서 배운 것). */
+function parseListNum(head: string): ListNum | null {
+  const m = NUM_PREFIX.exec(head)
+  if (!m) return null
+  const rest = head.slice(m[0].length)
+  if (rest === '') return null
+  if (m[3] === '' && /^\d/.test(rest)) return null
+  return { num: Number(m[1]), sep: m[2] as '.' | ')', gap: m[3], rest }
+}
 /** 글머리 기호로 인정하는 형태 — 기호 뒤에 공백이 반드시 온다.
  *  `-5%` 같은 본문을 기호로 오인해 고쳐 쓰지 않기 위한 보수적 판정. */
 const BULLET_PREFIX = /^([-·*●])( +)(?=\S)/
@@ -44,7 +62,8 @@ export function normalizeForCompare(line: string): string {
   let s = line.replace(/　/g, ' ').trim()
   // 기호와 번호가 겹쳐 붙은 경우(`- 1. 항목`)까지 커버하되, 무한 반복은 막는다.
   for (let i = 0; i < 2; i++) {
-    const next = s.replace(NUM_PREFIX, '').replace(/^[-·*●] */, '').trimStart()
+    const ln = parseListNum(s)
+    const next = (ln ? ln.rest : s).replace(/^[-·*●] */, '').trimStart()
     if (next === s) break
     s = next
   }

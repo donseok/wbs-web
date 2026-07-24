@@ -35,6 +35,16 @@ describe('normalizeForCompare', () => {
     expect(normalizeForCompare('   ')).toBe('')
     expect(normalizeForCompare('-')).toBe('')
   })
+
+  it('날짜·소수·절 번호는 목록 번호로 보지 않는다', () => {
+    expect(normalizeForCompare('2026.07.24 주간 회의')).toBe('2026.07.24 주간 회의')
+    expect(normalizeForCompare('1.5배 성능 개선')).toBe('1.5배 성능 개선')
+    expect(normalizeForCompare('1.2 개요 정리')).toBe('1.2 개요 정리')
+  })
+
+  it('번호만 있는 줄은 떼지 않는다', () => {
+    expect(normalizeForCompare('1.')).toBe('1.')
+  })
 })
 
 const mkRow = (id: string, section: string, sortOrder: number, over: Partial<WeeklySheetRow> = {}): WeeklySheetRow => ({
@@ -206,6 +216,11 @@ describe('lintDuplicates', () => {
     const out = lintDuplicates(rows)
     expect(out.map(f => f.section)).toEqual(['PMO', '영업'])
     expect(new Set(out.map(f => f.id)).size).toBe(2)
+  })
+
+  it('소수만 다른 두 줄이 중복으로 붙어 지워지지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1.5배 성능 개선\n2.5배 성능 개선' })]
+    expect(lintDuplicates(rows)).toEqual([])
   })
 })
 
