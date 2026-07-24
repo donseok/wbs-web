@@ -115,7 +115,7 @@ export async function createMinute(
 }
 
 export async function updateMinuteMeta(
-  id: string, patch: Omit<MinuteInput, 'bodyMd'>,
+  id: string, patch: Omit<MinuteInput, 'bodyMd'>, folderId?: string,
 ): Promise<MinuteActionResult> {
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
@@ -130,13 +130,28 @@ export async function updateMinuteMeta(
     const { data: mt } = await sb.from('meetings').select('id').eq('id', patch.meetingId).maybeSingle()
     if (!mt) return { ok: false, error: '연결할 회의를 찾을 수 없습니다.' }
   }
-  const { error } = await sb.from('minutes').update({
+  if (folderId) {
+    const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
+    if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+  }
+  // folderId 미전달 = 폴더 무접촉(수동 편철 존중). 전달 시에만 하위 구분 변경으로 이동.
+  const upd: Record<string, unknown> = {
     minute_date: patch.minuteDate, team_code: patch.teamCode, title: patch.title.trim(),
     meeting_id: patch.meetingId, updated_at: new Date().toISOString(),
-  }).eq('id', id)
+  }
+  if (folderId) upd.folder_id = folderId
+  const { error } = await sb.from('minutes').update(upd).eq('id', id)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
   return { ok: true }
+}
+
+/** 폴더 전량(라이트) — 수정 모달의 하위 구분 초기화·편철용. 실패는 빈 배열(하위 구분 숨김). */
+export async function fetchMinuteFoldersLite(): Promise<MinuteFolder[]> {
+  const user = await getSession()
+  if (!user) return []
+  const sb = await createServerClient()
+  return (await loadFolders(sb)) ?? []
 }
 
 /** 본문 교체 — 클라이언트가 새 .md 를 Storage 업로드한 뒤 호출. 기존 body 파일 0건 허용(복구 경로). */

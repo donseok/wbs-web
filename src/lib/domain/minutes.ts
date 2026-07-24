@@ -63,25 +63,32 @@ export function isTeamSeedFolder(
   return !!parent && isTeamRootFolder(parent)
 }
 
+/** 팀의 시드 루트 폴더 id — 시드(createdBy null) 한정, 동명 사용자 폴더 배제. */
+export function teamRootFolderIdOf(folders: MinuteFolder[], team: TeamCode): string | null {
+  return folders.find(f => f.parentId === null && f.createdBy === null && f.name === team)?.id ?? null
+}
+
 /** (팀, 하위 구분) → 편철 대상 시드 폴더 id. 자기 자신 하위는 팀 루트, 세부 하위는 시드 자식.
  *  자식 미존재(비정상)는 팀 루트로 강등, 루트조차 없으면 null(서버 자동 편철 폴백). 매칭은
  *  시드(createdBy null) 한정 — 동명 사용자 폴더 배제(resolveTeamRootFolderId 와 동일 원칙). */
 export function subgroupFolderId(
   folders: MinuteFolder[], team: TeamCode, sub: string,
 ): string | null {
-  const root = folders.find(f => f.parentId === null && f.createdBy === null && f.name === team)
-  if (!root) return null
+  const rootId = teamRootFolderIdOf(folders, team)
+  if (!rootId) return null
   const name = normalizeTeamSub(team, sub)
-  if (name === team) return root.id
-  const child = folders.find(f => f.parentId === root.id && f.createdBy === null && f.name === name)
-  return child?.id ?? root.id
+  if (name === team) return rootId
+  const child = folders.find(f => f.parentId === rootId && f.createdBy === null && f.name === name)
+  return child?.id ?? rootId
 }
 
-/** 폴더 id → (팀, 하위 구분) 역해석 — 탐색기에서 특정 폴더를 보며 업로드할 때 초기값.
- *  사용자 폴더면 시드 조상까지 걸어 올라가 판정(순환 가드), 시드 체인 밖이면 null. */
+/** 폴더 id → (팀, 하위 구분) 역해석 — 모달의 초기값. 사용자 폴더면 시드 조상까지 걸어 올라가
+ *  판정(순환 가드), 시드 체인 밖이면 null. sub 는 실제 시드 하위(또는 자기 자신 팀)에 닿을
+ *  때만 채워진다 — ERP/MES **루트** 편철·개명 드리프트는 sub null(하위 미지정, 추측 금지):
+ *  대표 폴백을 초기 선택으로 쓰면 실소속과 다른 하위가 '선택됨'으로 보이는 허위 표시가 된다. */
 export function teamSubOfFolder(
   folders: MinuteFolder[], folderId: string | null,
-): { team: TeamCode; sub: string } | null {
+): { team: TeamCode; sub: string | null } | null {
   if (!folderId) return null
   const byId = new Map(folders.map(f => [f.id, f]))
   const seen = new Set<string>()
@@ -92,17 +99,14 @@ export function teamSubOfFolder(
       if (cur.parentId === null) {
         if (isTeamRootName(cur.name)) {
           const team = cur.name as TeamCode
-          return { team, sub: normalizeTeamSub(team, cur.name) }
+          return { team, sub: resolveTeamSub(team, cur.name) }   // 단독 팀=자기 자신, ERP/MES 루트=null
         }
         return null  // 시드지만 팀 루트가 아님(0043 이전 형태) — 판정 불가
       }
       const parent = byId.get(cur.parentId)
       if (parent && parent.parentId === null && parent.createdBy === null && isTeamRootName(parent.name)) {
         const team = parent.name as TeamCode
-        // 시드 자식인데 목록 밖 이름(개명 드리프트)이면 추측하지 않는다 — 첫 항목 수렴은
-        // 보고 있던 폴더와 다른 형제로 오편철 초기화가 된다(리뷰 확정 발견)
-        const sub = resolveTeamSub(team, cur.name)
-        return sub ? { team, sub } : null
+        return { team, sub: resolveTeamSub(team, cur.name) }     // 드리프트면 sub null
       }
     }
     cur = cur.parentId ? byId.get(cur.parentId) : undefined

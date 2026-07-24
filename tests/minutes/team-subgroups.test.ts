@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import type { MinuteFolder } from '@/lib/domain/types'
 import {
-  TEAM_SUBGROUPS, isTeamSeedFolder, normalizeTeamSub, subgroupFolderId, teamSubOfFolder,
+  TEAM_SUBGROUPS, isTeamSeedFolder, normalizeTeamSub, subgroupFolderId,
+  teamRootFolderIdOf, teamSubOfFolder,
 } from '@/lib/domain/minutes'
 
 const F = (
@@ -58,10 +59,10 @@ describe('subgroupFolderId', () => {
   })
 })
 
-describe('teamSubOfFolder — 업로드 초기값 역해석', () => {
-  it('시드 자식 → (팀, 하위), 시드 루트 → (팀, 대표)', () => {
+describe('teamSubOfFolder — 모달 초기값 역해석', () => {
+  it('시드 자식 → (팀, 하위), 단독 팀 루트 → 자기 자신, ERP/MES 루트 → 하위 미지정(null)', () => {
     expect(teamSubOfFolder(tree, 'c-q')).toEqual({ team: 'MES', sub: '품질' })
-    expect(teamSubOfFolder(tree, 'r-erp')).toEqual({ team: 'ERP', sub: '영업' })
+    expect(teamSubOfFolder(tree, 'r-erp')).toEqual({ team: 'ERP', sub: null })   // 루트 편철=미지정(허위 선택 방지)
     expect(teamSubOfFolder(tree, 'r-pmo')).toEqual({ team: 'PMO', sub: 'PMO' })
   })
   it('사용자 폴더는 시드 조상 체인으로 판정', () => {
@@ -74,9 +75,16 @@ describe('teamSubOfFolder — 업로드 초기값 역해석', () => {
     const cyc = [F('x', 'A', 'y', 'u1'), F('y', 'B', 'x', 'u1')]
     expect(teamSubOfFolder(cyc, 'x')).toBeNull()
   })
-  it('개명 드리프트(시드 자식이 목록 밖 이름)는 추측 없이 null — 형제 오편철 방지(리뷰 반영)', () => {
+  it('개명 드리프트(시드 자식이 목록 밖 이름)는 추측 없이 하위 미지정 — 형제 오편철 방지(리뷰 반영)', () => {
     const drifted = [...tree.filter(f => f.id !== 'c-buy'), F('c-buy', '구매관리', 'r-erp')]
-    expect(teamSubOfFolder(drifted, 'c-buy')).toBeNull()
+    expect(teamSubOfFolder(drifted, 'c-buy')).toEqual({ team: 'ERP', sub: null })
+  })
+})
+
+describe('teamRootFolderIdOf', () => {
+  it('시드 루트만 매칭 — 동명 사용자 루트 배제', () => {
+    expect(teamRootFolderIdOf(tree, 'MES')).toBe('r-mes')
+    expect(teamRootFolderIdOf([F('u-erp', 'ERP', null, 'u1')], 'ERP')).toBeNull()
   })
 })
 

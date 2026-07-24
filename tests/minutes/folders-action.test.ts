@@ -39,7 +39,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import {
-  createMinuteFolder, deleteMinuteFolder, moveMinuteToFolder, renameMinuteFolder,
+  createMinuteFolder, deleteMinuteFolder, moveMinuteToFolder, renameMinuteFolder, updateMinuteMeta,
 } from '@/app/actions/minutes'
 
 const seedFolders = [
@@ -220,6 +220,39 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     createServerClient.mockResolvedValue(client)
     expect((await renameMinuteFolder('f1', '새이름')).ok).toBe(false)
     expect((await deleteMinuteFolder('f1')).ok).toBe(false)
+  })
+})
+
+describe('updateMinuteMeta 폴더 이동(하위 구분, 수정 모달)', () => {
+  const patch = { minuteDate: '2026-07-24', teamCode: 'MES' as const, title: '제목', meetingId: null }
+  it('folderId 전달 시 folder_id 포함 갱신', async () => {
+    const { client, calls } = fakeClient({
+      minutes: { data: { created_by: 'u1' }, error: null },
+      minute_folders: { data: { id: 'c-log' }, error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await updateMinuteMeta('m1', patch, 'c-log')
+    expect(r.ok).toBe(true)
+    const upd = calls['minutes']!.find(c => c.method === 'update')!
+    expect((upd.args[0] as Record<string, unknown>).folder_id).toBe('c-log')
+  })
+  it('folderId 미전달이면 folder_id 무접촉 — 수동 편철 존중', async () => {
+    const { client, calls } = fakeClient({ minutes: { data: { created_by: 'u1' }, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await updateMinuteMeta('m1', patch)
+    expect(r.ok).toBe(true)
+    const upd = calls['minutes']!.find(c => c.method === 'update')!
+    expect('folder_id' in (upd.args[0] as Record<string, unknown>)).toBe(false)
+  })
+  it('전달된 폴더 미존재는 거부 — 갱신 미도달', async () => {
+    const { client, calls } = fakeClient({
+      minutes: { data: { created_by: 'u1' }, error: null },
+      minute_folders: { data: null, error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await updateMinuteMeta('m1', patch, 'ghost')
+    expect(r.ok).toBe(false)
+    expect(calls['minutes']!.some(c => c.method === 'update')).toBe(false)
   })
 })
 
