@@ -12,6 +12,7 @@ const queueUiPref = vi.fn()
 vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: (...a: unknown[]) => queueUiPref(...(a as [])) }))
 
 import { Sidebar, SIDEBAR_TOGGLE_EVENT, dispatchSidebarToggle } from '@/components/app/Sidebar'
+import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
 
 describe('Sidebar 서버 동기화 배선', () => {
   let container: HTMLDivElement, root: Root
@@ -19,7 +20,11 @@ describe('Sidebar 서버 동기화 배선', () => {
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
   async function mount() {
-    await act(async () => root.render(<Sidebar projects={[]} />))
+    await act(async () => root.render(
+      <ProjectNavigationProvider projects={[]}>
+        <Sidebar projects={[]} />
+      </ProjectNavigationProvider>,
+    ))
   }
 
   it('dispatchSidebarToggle 는 localStorage 를 갱신하고 서버 쓰기는 하지 않는다', async () => {

@@ -175,6 +175,8 @@ export interface UiPrefs {
   minuteFontSize?: number   // 회의록 뷰어 본문 글자크기(px, 12~28)
   minutesExplorerLayout?: 'grid' | 'list'  // 회의록 탐색기 우측 카드 레이아웃
   notifRead?: Record<string, string[]> // 프로젝트 id → 읽음 처리한 알림 id('모두 읽음' 시점 피드)
+  lastProjectId?: string    // 전역 회의록·내 회의에서 유지할 최근 프로젝트 탐색 문맥
+  lastProjectHref?: string  // 최근 프로젝트에서 마지막으로 방문한 안전한 내부 경로
 }
 
 /* ── 회의록 (minutes) ── */

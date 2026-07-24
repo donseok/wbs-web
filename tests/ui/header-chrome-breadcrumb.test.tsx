@@ -49,8 +49,12 @@ vi.mock('@/components/app/HeaderAnnouncementTicker', () => ({
 vi.mock('@/components/account/ChangePasswordModal', () => ({
   ChangePasswordModal: () => null,
 }))
+vi.mock('@/lib/prefs/debouncedSave', () => ({
+  queueUiPref: vi.fn(),
+}))
 
 import { HeaderChrome } from '@/components/app/HeaderChrome'
+import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
 
 const projects = [{ id: 'p1', name: 'D-CUBE 프로젝트', status: 'active' as const }]
 
@@ -74,7 +78,13 @@ describe('HeaderChrome 브레드크럼', () => {
   async function renderAt(pathname: string) {
     mocks.pathname = pathname
     await act(async () => root.render(
-      <HeaderChrome membership={null} projects={projects} />,
+      <ProjectNavigationProvider
+        projects={projects}
+        initialLastProjectId="p1"
+        initialLastProjectHref="/p/p1/dashboard"
+      >
+        <HeaderChrome membership={null} projects={projects} />
+      </ProjectNavigationProvider>,
     ))
     return container.querySelector<HTMLElement>('nav[aria-label="현재 위치"]')
   }
@@ -95,5 +105,24 @@ describe('HeaderChrome 브레드크럼', () => {
     expect(globalBreadcrumb!.querySelectorAll('svg')).toHaveLength(2)
     expect(globalBreadcrumb!.textContent).toContain('워크스페이스')
     expect(globalBreadcrumb!.textContent).toContain(label)
+  })
+
+  it('모바일 회의록 메뉴에서도 최근 프로젝트 하위 메뉴와 복귀 링크를 유지한다', async () => {
+    await renderAt('/minutes')
+
+    const openButton = container.querySelector<HTMLButtonElement>('button[aria-label="메뉴 열기"]')
+    expect(openButton).not.toBeNull()
+    await act(async () => openButton!.click())
+
+    const menu = container.querySelector<HTMLElement>('[role="dialog"][aria-label="모바일 메뉴"]')
+    expect(menu).not.toBeNull()
+    expect(menu!.textContent).toContain('D-CUBE 프로젝트')
+    expect(menu!.textContent).toContain('프로젝트로 돌아가기')
+
+    const minutesLink = menu!.querySelector<HTMLAnchorElement>('a[href="/minutes"]')
+    expect(minutesLink?.getAttribute('aria-current')).toBe('page')
+    const wbsLink = menu!.querySelector<HTMLAnchorElement>('a[href="/p/p1/wbs"]')
+    expect(wbsLink).not.toBeNull()
+    expect(wbsLink?.getAttribute('aria-current')).toBeNull()
   })
 })

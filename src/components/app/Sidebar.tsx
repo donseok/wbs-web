@@ -2,9 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  ArrowLeft, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -12,6 +12,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import type { DictKey } from '@/lib/i18n/dict'
+import { useProjectNavigation } from './ProjectNavigationContext'
 
 export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'overdue' | 'done' | 'unknown'; baseDate?: string | null }
 
@@ -54,6 +55,13 @@ function projectMenu(base: string): { href: string; labelKey: DictKey; icon: Luc
 export function Sidebar({ projects }: { projects: SidebarProject[] }) {
   const pathname = usePathname()
   const { t } = useLocale()
+  const {
+    routeProjectId,
+    menuProjectId,
+    menuProject,
+    isGlobalBridge,
+    returnHref,
+  } = useProjectNavigation()
   const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
@@ -73,20 +81,20 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
     queueUiPref({ sidebarCollapsed: next }) // 사용자 액션만 서버 저장
   }
 
-  const activeId = useMemo(() => pathname.match(/^\/p\/([^/]+)/)?.[1] ?? null, [pathname])
   const activeCount = projects.filter(p => p.status === 'active').length
 
   // 안읽음 공지 배지 — 헤더 벨과 같은 "네비게이션당 1회 조회" 패턴.
+  // 회의록·내 회의에서는 보존한 프로젝트 메뉴의 배지를 유지한다.
   // pathname 키잉이라 공지 페이지를 다녀오면(워터마크 갱신 후) 재조회되어 배지가 사라진다.
   const [unread, setUnread] = useState(0)
   useEffect(() => {
-    if (!activeId) { setUnread(0); return }
+    if (!menuProjectId) { setUnread(0); return }
     let alive = true
-    getUnreadAnnouncementCount(activeId)
+    getUnreadAnnouncementCount(menuProjectId)
       .then(n => { if (alive) setUnread(n) })
       .catch(() => {})
     return () => { alive = false }
-  }, [activeId, pathname])
+  }, [menuProjectId, pathname])
 
   return (
     <aside
@@ -122,7 +130,7 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
       {/* 전역: 내 회의 */}
       <Tooltip label={t('nav.myMeetings')} side="right" disabled={!collapsed}>
-        <Link href="/meetings"
+        <Link href="/meetings" aria-current={pathname === '/meetings' ? 'page' : undefined}
           className={`side-link mt-2 ${pathname === '/meetings' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
           <CalendarRange className="h-[18px] w-[18px] shrink-0" />
           {!collapsed && <span className="flex-1">{t('nav.myMeetings')}</span>}
@@ -131,7 +139,7 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
 
       {/* 전역: 회의록 */}
       <Tooltip label={t('nav.minutes')} side="right" disabled={!collapsed}>
-        <Link href="/minutes"
+        <Link href="/minutes" aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
           className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
           <NotebookText className="h-[18px] w-[18px] shrink-0" />
           {!collapsed && <span className="flex-1">{t('nav.minutes')}</span>}
@@ -146,7 +154,8 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
         </div>
         <ul className="max-h-[42vh] shrink-0 space-y-1 overflow-y-auto">
           {projects.map(project => {
-            const active = activeId === project.id
+            const active = routeProjectId === project.id
+            const menuContext = !active && isGlobalBridge && menuProjectId === project.id
             const meta = STATUS_META[project.status]
             return (
               <li key={project.id}>
@@ -154,14 +163,15 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
                   <Link
                     href={`/p/${project.id}/dashboard`}
                     aria-current={active ? 'page' : undefined}
-                    className={`side-link group ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}
+                    className={`side-link group ${active ? 'side-link-active' : menuContext ? 'bg-sidebar-3/60 text-sidebar-ink' : ''} ${collapsed ? 'justify-center px-0' : ''}`}
                   >
-                    <FolderOpen className={`h-4 w-4 shrink-0 ${active ? 'text-sidebar-ink' : 'text-sidebar-ink-muted group-hover:text-sidebar-ink'}`} />
+                    <FolderOpen className={`h-4 w-4 shrink-0 ${active || menuContext ? 'text-sidebar-ink' : 'text-sidebar-ink-muted group-hover:text-sidebar-ink'}`} />
                     {!collapsed && (
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-[13px] leading-tight">{project.name}</span>
                         <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-sidebar-ink-subtle">
                           <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{meta.label}
+                          {menuContext && <span className="text-sidebar-ink-muted">· 메뉴 기준</span>}
                         </span>
                       </span>
                     )}
@@ -178,7 +188,11 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
         {/* 메뉴 섹션 */}
         <nav className="mt-4 shrink-0 border-t border-sidebar-line pt-3" aria-label="주요 메뉴">
           <div className="mb-1.5 flex items-center justify-between px-2">
-            {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">메뉴</span>}
+            {!collapsed && (
+              <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">
+                {isGlobalBridge && menuProject ? `${menuProject.name} 메뉴` : '메뉴'}
+              </span>
+            )}
             <Tooltip label={t('common.newProject')} side="right">
               <Link href="/projects" className={`flex h-6 w-6 items-center justify-center rounded-lg border border-sidebar-line text-sidebar-ink-muted transition hover:bg-sidebar-3 hover:text-sidebar-ink ${collapsed ? 'mx-auto' : ''}`} aria-label={t('common.newProject')}>
                 <Plus className="h-3.5 w-3.5" />
@@ -186,32 +200,50 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
             </Tooltip>
           </div>
           <div className="space-y-1">
-            {activeId ? (
-              projectMenu(`/p/${activeId}`).map(item => {
-                const active = pathname === item.match || pathname.startsWith(item.match + '/')
-                const ItemIcon = item.icon
-                const label = t(item.labelKey)
-                // 접힘 상태에서 공지 항목은 안읽음 수까지 툴팁에 노출(배지가 점으로 축약되므로)
-                const tip = collapsed && item.labelKey === 'nav.announcements' && unread > 0
-                  ? `${label} · ${unread > 99 ? '99+' : unread}`
-                  : label
-                return (
-                  <Tooltip key={item.href} label={tip} side="right" disabled={!collapsed}>
-                    <Link href={item.href} aria-current={active ? 'page' : undefined} className={`side-link relative ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
-                      <ItemIcon className="h-[18px] w-[18px] shrink-0" />
-                      {!collapsed && <span className="flex-1">{label}</span>}
-                      {!collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
-                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-secondary px-1.5 text-[10px] font-bold tabular-nums text-white">
-                          {unread > 99 ? '99+' : unread}
+            {menuProjectId ? (
+              <>
+                {isGlobalBridge && menuProject && returnHref && (
+                  <Tooltip label={`${menuProject.name}로 돌아가기`} side="right" disabled={!collapsed}>
+                    <Link
+                      href={returnHref}
+                      className={`side-link mb-2 border border-sidebar-line bg-sidebar-2/70 ${collapsed ? 'justify-center px-0' : ''}`}
+                    >
+                      <ArrowLeft className="h-[18px] w-[18px] shrink-0" />
+                      {!collapsed && (
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[12px] font-semibold">{menuProject.name}로 돌아가기</span>
                         </span>
-                      )}
-                      {collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
-                        <span aria-hidden className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent-secondary ring-2 ring-sidebar" />
                       )}
                     </Link>
                   </Tooltip>
-                )
-              })
+                )}
+                {projectMenu(`/p/${menuProjectId}`).map(item => {
+                  const active = pathname === item.match || pathname.startsWith(item.match + '/')
+                  const ItemIcon = item.icon
+                  const label = t(item.labelKey)
+                  const projectPrefix = isGlobalBridge && menuProject ? `${menuProject.name} · ` : ''
+                  // 접힘 상태에서 공지 항목은 안읽음 수까지 툴팁에 노출(배지가 점으로 축약되므로)
+                  const tip = collapsed && item.labelKey === 'nav.announcements' && unread > 0
+                    ? `${projectPrefix}${label} · ${unread > 99 ? '99+' : unread}`
+                    : `${projectPrefix}${label}`
+                  return (
+                    <Tooltip key={item.href} label={tip} side="right" disabled={!collapsed}>
+                      <Link href={item.href} aria-current={active ? 'page' : undefined} className={`side-link relative ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+                        <ItemIcon className="h-[18px] w-[18px] shrink-0" />
+                        {!collapsed && <span className="flex-1">{label}</span>}
+                        {!collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
+                          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-secondary px-1.5 text-[10px] font-bold tabular-nums text-white">
+                            {unread > 99 ? '99+' : unread}
+                          </span>
+                        )}
+                        {collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
+                          <span aria-hidden className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent-secondary ring-2 ring-sidebar" />
+                        )}
+                      </Link>
+                    </Tooltip>
+                  )
+                })}
+              </>
             ) : (
               <>
                 <Tooltip label={t('nav.home')} side="right" disabled={!collapsed}>
