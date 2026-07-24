@@ -89,4 +89,18 @@ describe('KanbanBoard — 진행 모드 기본', () => {
     // 첫 요청을 정상 완료시켜 정리(펜딩 프라미스/act 경고 방지).
     await act(async () => { resolvePending({ ok: true }) })
   })
+
+  it('내 팀 렌즈는 내 팀 담당 카드만 남긴다(team_editor)', async () => {
+    const items = [n('P', {}, [
+      n('mine', { rolledActualPct: 50, owners: [{ team: 'ERP', kind: 'primary' }] }),
+      n('other', { rolledActualPct: 50, owners: [{ team: 'PMO', kind: 'primary' }] }),
+    ])]
+    const EDITOR = { role: 'team_editor', teamCode: 'ERP', teamId: 't-erp' }
+    await act(async () => root.render(
+      <KanbanBoard projectId="p1" items={items} membership={EDITOR} today="2026-07-25" />,
+    ))
+    // 기본 렌즈=myTeam(ERP) → 'mine'만, 'other' 없음
+    expect(container.textContent).toContain('mine')
+    expect(container.textContent).not.toContain('other')
+  })
 })

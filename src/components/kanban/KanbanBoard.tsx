@@ -11,7 +11,8 @@ import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import {
   groupByPhase, groupByOwner, groupByProgress, bucketOf, dueSignal, leafPaths,
-  type KanbanColumn, type ProgressBucket,
+  lensCards, applyQuickFilters, sortCards,
+  type KanbanColumn, type ProgressBucket, type QuickFilters,
 } from '@/lib/domain/kanban'
 import { resolveDrop } from '@/lib/domain/kanban-drop'
 import { statusOf } from '@/lib/domain/progress'
@@ -24,7 +25,6 @@ import { ProgressPopover } from './ProgressPopover'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 type Mode = 'progress' | 'phase' | 'owner'
-type StatusFilter = 'all' | 'in_progress' | 'done'
 
 // 표시 전용 매핑 — 도메인(src/lib/domain/kanban.ts)이 만드는 한국어 컬럼 제목을 번역 키로 변환.
 // 매핑에 없는 값(동적 팀명·담당자명·Phase명)은 원본 그대로 표시한다.
@@ -62,7 +62,11 @@ export function KanbanBoard({
     if (view === 'status') return 'progress'
     return 'progress'
   })
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // 렌즈 기본값 — PMO 관리자이거나 소속 팀이 없으면 전체, 그 외(팀 소속 편집자 등)는 내 팀부터.
+  const [lens, setLens] = useState<'myTeam' | 'all'>(() =>
+    membership?.role === 'pmo_admin' || !membership?.teamCode ? 'all' : 'myTeam')
+  const [quick, setQuick] = useState<QuickFilters>({ overdue: false, dueThisWeek: false, inProgress: false, notStarted: false })
+  const toggleQuick = (k: keyof QuickFilters) => setQuick(q => ({ ...q, [k]: !q[k] }))
   // ?team= 은 검색어 초기값으로 소비한다 — 칸반 검색 대상에 담당팀 코드가 포함되며,
   // 검색창에 그대로 보여 사용자가 지울 수 있다(숨은 필터 금지).
   const [query, setQuery] = useState(() => {
@@ -104,7 +108,10 @@ export function KanbanBoard({
     projectId,
     view: mode,
     search: query || null,
-    filters: statusFilter === 'all' ? {} : { status: statusFilter },
+    filters: {
+      ...(lens === 'myTeam' ? { lens: 'myTeam' } : {}),
+      ...(Object.entries(quick).filter(([, v]) => v).reduce((a, [k]) => ({ ...a, [k]: true }), {})),
+    },
   })
 
   const editable = !readOnly && mode === 'progress'
@@ -143,19 +150,15 @@ export function KanbanBoard({
 
   const columns = useMemo<KanbanColumn[]>(() => {
     const q = query.trim().toLowerCase()
+    const myTeam = membership?.teamCode ?? null
     return baseColumns.map(col => {
-      const cards = col.cards.filter(card => {
-        if (statusFilter === 'in_progress' && card.status !== 'in_progress') return false
-        if (statusFilter === 'done' && card.status !== 'done') return false
-        if (q) {
-          const hay = `${card.name} ${card.code} ${card.owners.map(o => o.team).join(' ')}`.toLowerCase()
-          if (!hay.includes(q)) return false
-        }
-        return true
-      })
+      let cards = lensCards(col.cards, lens, myTeam)
+      cards = applyQuickFilters(cards, quick, today)
+      if (q) cards = cards.filter(card => `${card.name} ${card.code} ${card.owners.map(o => o.team).join(' ')}`.toLowerCase().includes(q))
+      cards = sortCards(cards, today)
       return { ...col, cards, count: cards.length }
     })
-  }, [baseColumns, statusFilter, query])
+  }, [baseColumns, lens, quick, query, membership, today])
 
   // 실적% 반영 — 낙관적으로 먼저 옮기고, 실패하면 롤백 + 토스트. CAS(expectedCurrent)로 동시 편집 충돌을 감지한다.
   // prev는 원시값(반올림 금지): 반올림하면 (a) 소수 실적(예: 99.6%)에서 가드가 조기 무력화돼 카드가 100%에 영영 못 닿고,
@@ -235,16 +238,31 @@ export function KanbanBoard({
           ]}
         />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <SegmentedTabs<StatusFilter>
+          <SegmentedTabs<'myTeam' | 'all'>
             size="sm"
-            value={statusFilter}
-            onChange={setStatusFilter}
+            value={lens}
+            onChange={setLens}
             tabs={[
-              { key: 'all', label: t('kanban.filterAll') },
-              { key: 'in_progress', label: t('status.in_progress') },
-              { key: 'done', label: t('status.done') },
+              { key: 'myTeam', label: t('kanban.lensMyTeam') },
+              { key: 'all', label: t('kanban.lensAll') },
             ]}
           />
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              ['overdue', 'kanban.qfOverdue'],
+              ['dueThisWeek', 'kanban.qfDueThisWeek'],
+              ['inProgress', 'kanban.qfInProgress'],
+              ['notStarted', 'kanban.qfNotStarted'],
+            ] as [keyof QuickFilters, DictKey][]).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={quick[k]}
+                onClick={() => toggleQuick(k)}
+                className={`badge transition ${quick[k] ? 'bg-brand text-white' : 'bg-surface-2 text-ink-muted hover:text-ink'}`}
+              >{t(label)}</button>
+            ))}
+          </div>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-subtle" />
             <input
@@ -252,7 +270,7 @@ export function KanbanBoard({
               onChange={e => setQuery(e.target.value)}
               placeholder={t('kanban.searchPlaceholder')}
               aria-label={t('kanban.searchPlaceholder')}
-              className="app-input pl-9 sm:w-64"
+              className="app-input pl-9 sm:w-56"
             />
           </div>
           {savingIds.size > 0 && <span className="text-[12px] text-brand">{t('kanban.saving')}</span>}
