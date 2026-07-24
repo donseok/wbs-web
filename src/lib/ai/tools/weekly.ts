@@ -17,7 +17,7 @@ import {
   shortExcerpt,
 } from './common'
 import type { BotSource, ReadOnlyBotTool } from './types'
-import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
+import { isRegisteredTeamCode } from '@/lib/teams/master'
 
 const WEEKLY_CAPABILITY = 'weekly:read' as const
 

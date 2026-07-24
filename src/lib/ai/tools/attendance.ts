@@ -16,7 +16,7 @@ import {
   validDateRange,
 } from './common'
 import type { BotSource, ReadOnlyBotTool } from './types'
-import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 const ATTENDANCE_CAPABILITY = 'attendance:read' as const
 const ATTENDANCE_TYPES = new Set<AttendanceType>([

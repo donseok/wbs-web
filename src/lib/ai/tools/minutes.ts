@@ -20,7 +20,7 @@ import {
   validDateRange,
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionResult } from './types'
-import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 const MINUTES_CAPABILITY = 'minutes:read' as const
 /** query·기간이 모두 없을 때 전 기간 무제한 조회를 막는 기본 조회 기간(일). */

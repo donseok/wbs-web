@@ -14,7 +14,7 @@ import {
   todayInSeoul,
 } from './common'
 import type { BotSource, ReadOnlyBotTool } from './types'
-import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 const KANBAN_CAPABILITY = 'kanban:read' as const
 
