@@ -222,23 +222,6 @@ export function MinutesView({
   }, [minutes])
 
   const ymLabel = `${year}-${String(month0 + 1).padStart(2, '0')}`
-  const kpiByTeam = useMemo(() => {
-    const c: Record<string, number> = {}
-    for (const tk of TEAM_CODES) c[tk] = 0
-    for (const mi of minutes) c[mi.teamCode] = (c[mi.teamCode] ?? 0) + 1
-    return c
-  }, [minutes])
-
-  // 트리 뷰 카운트: 전 기간·전 팀 트리 데이터 기준. 로딩·에러 중엔 null → '-' 표시(이전 월 숫자 잔존 금지).
-  const isTreeDisplay = view === 'tree' && !isSearch
-  const summary = useMemo(() => {
-    if (!isTreeDisplay) return { total: minutes.length, byTeam: kpiByTeam }
-    if (typeof treeState !== 'object') return null
-    const c: Record<string, number> = {}
-    for (const tk of TEAM_CODES) c[tk] = 0
-    for (const l of treeState.leaves) c[l.teamCode] = (c[l.teamCode] ?? 0) + 1
-    return { total: treeState.total, byTeam: c }
-  }, [isTreeDisplay, treeState, minutes.length, kpiByTeam])
 
   // 팀 탭은 재조회 없이 리프만 클라이언트 필터(폴더 레일은 항상 전부 — 스펙 v2)
   const explorerLeaves: ExplorerLeaf[] = typeof treeState === 'object'
@@ -248,7 +231,7 @@ export function MinutesView({
 
   return (
     <div className="space-y-4">
-      {/* 필터 바 + 카운트 요약 (스크롤 시 상단 고정) */}
+      {/* 필터 바 (스크롤 시 상단 고정) */}
       <div className="sticky top-0 z-20 -mx-1 space-y-3 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedTabs<TeamKey>
@@ -289,17 +272,6 @@ export function MinutesView({
               <Plus className="h-4 w-4" />{t('min.upload')}
             </button>
           </div>
-        </div>
-
-        {/* 담당별 카운트 요약 */}
-        <div className="flex flex-wrap gap-3 text-xs text-ink-muted">
-          <span className="font-medium text-ink">{t('min.team.all')} {summary ? summary.total : '-'}</span>
-          {TEAM_CODES.map(tk => (
-            <span key={tk} className="inline-flex items-center gap-1.5">
-              <span className={`inline-block h-2 w-2 rounded-full ${TEAM[tk].bar}`} />
-              {tk} {summary ? summary.byTeam[tk] : '-'}
-            </span>
-          ))}
         </div>
       </div>
 
