@@ -184,7 +184,8 @@ export function MinuteUploadModal({
         <label className="block text-sm">
           <span className="mb-1 block font-medium">{t('min.fold.form.folder')}</span>
           <select value={folderId} onChange={e => setFolderId(e.target.value)} className="app-input">
-            <option value="">{t('min.fold.unfiled')}</option>
+            {/* 미지정('')은 서버가 담당 팀 루트 폴더로 자동 편철(0043) — '미분류'가 아니라 '자동'으로 안내 */}
+            <option value="">{t('min.fold.autoTeam')}</option>
             {folderOptions(folders).map(o => (
               <option key={o.id} value={o.id}>{'  '.repeat(o.depth)}{o.name}</option>
             ))}

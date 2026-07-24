@@ -8,7 +8,7 @@ import {
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
 } from '@/lib/domain/types'
-import { buildFolderTree, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
+import { buildFolderTree, folderDepthOf, isTeamRootFolder, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
 import { MEETING_META } from '@/lib/domain/meetings'
 import { moveMinuteToFolder } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -160,20 +160,25 @@ export function MinutesExplorer({
                   <button aria-hidden tabIndex={-1} onClick={() => setMenuFor(null)}
                     className="fixed inset-0 z-10 cursor-default" />
                   <div className="absolute right-0 z-20 mt-1 w-36 rounded-xl border border-line bg-surface p-1 shadow-[var(--shadow-md)]">
-                    <button onClick={() => { setMenuFor(null); setManage({ mode: 'rename', folder: f }) }}
-                      className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
-                      {t('min.fold.rename')}
-                    </button>
+                    {/* 팀 기본 폴더(자동 편철 앵커)는 개명·삭제 불가 — 서버 액션 가드와 동일 기준(0043) */}
+                    {!isTeamRootFolder(f) && (
+                      <button onClick={() => { setMenuFor(null); setManage({ mode: 'rename', folder: f }) }}
+                        className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
+                        {t('min.fold.rename')}
+                      </button>
+                    )}
                     {folderDepthOf(folders, f.id) < MINUTE_FOLDER_DEPTH_MAX && (
                       <button onClick={() => { setMenuFor(null); setManage({ mode: 'create', parentId: f.id }) }}
                         className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
                         {t('min.fold.addSub')}
                       </button>
                     )}
-                    <button onClick={() => { setMenuFor(null); setManage({ mode: 'delete', folder: f }) }}
-                      className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-delayed hover:bg-surface-2">
-                      {t('min.fold.delete')}
-                    </button>
+                    {!isTeamRootFolder(f) && (
+                      <button onClick={() => { setMenuFor(null); setManage({ mode: 'delete', folder: f }) }}
+                        className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-delayed hover:bg-surface-2">
+                        {t('min.fold.delete')}
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -212,16 +217,20 @@ export function MinutesExplorer({
           </div>
           <ul className="ml-2 mt-0.5 border-l border-line pl-1.5">
             {roots.map(r => folderRow(r, 0))}
-            <li>
-              <div className="flex items-center gap-0.5">
-                <span aria-hidden className="w-[22px] shrink-0" />
-                <button onClick={() => go({ kind: 'unfiled' })} className={rowCls(scope.kind === 'unfiled')}>
-                  <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">{t('min.fold.unfiled')}</span>
-                  <span className="shrink-0 text-xs tabular-nums text-ink-muted">{unfiled.length}</span>
-                </button>
-              </div>
-            </li>
+            {/* 미분류는 예외 버킷(폴더 삭제 강등분) — 0건이면 숨김. 자동 편철(0043) 후 평시엔 비어 있다.
+                단, 현재 스코프가 미분류면 마지막 1건 이동 직후에도 행을 유지해 발 디딜 곳을 남긴다. */}
+            {(unfiled.length > 0 || scope.kind === 'unfiled') && (
+              <li>
+                <div className="flex items-center gap-0.5">
+                  <span aria-hidden className="w-[22px] shrink-0" />
+                  <button onClick={() => go({ kind: 'unfiled' })} className={rowCls(scope.kind === 'unfiled')}>
+                    <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">{t('min.fold.unfiled')}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-ink-muted">{unfiled.length}</span>
+                  </button>
+                </div>
+              </li>
+            )}
           </ul>
         </li>
       </ul>
@@ -260,13 +269,15 @@ export function MinutesExplorer({
           </span>
         </button>
       ))}
-      <button onClick={() => select({ kind: 'unfiled' })} className={folderCardCls}>
-        <span className="flex min-w-0 items-center gap-2">
-          <FolderOpen aria-hidden className="h-5 w-5 shrink-0 text-ink-subtle" />
-          <span className="truncate text-sm font-semibold text-ink">{t('min.fold.unfiled')}</span>
-        </span>
-        <span className="text-xs text-ink-muted">{t('min.exp.meetingCount').replace('{n}', String(unfiled.length))}</span>
-      </button>
+      {unfiled.length > 0 && (
+        <button onClick={() => select({ kind: 'unfiled' })} className={folderCardCls}>
+          <span className="flex min-w-0 items-center gap-2">
+            <FolderOpen aria-hidden className="h-5 w-5 shrink-0 text-ink-subtle" />
+            <span className="truncate text-sm font-semibold text-ink">{t('min.fold.unfiled')}</span>
+          </span>
+          <span className="text-xs text-ink-muted">{t('min.exp.meetingCount').replace('{n}', String(unfiled.length))}</span>
+        </button>
+      )}
     </div>
   ) : scope.kind === 'folder' && (nodeById.get(scope.id)?.children.length ?? 0) > 0 ? (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

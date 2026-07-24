@@ -8,6 +8,23 @@ export const MINUTE_ATTACHMENTS_MAX_COUNT = 10
 
 export const TEAM_CODES: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
+/* ── 팀 기본 폴더(0043): 루트의 팀코드 동명 시드 폴더는 자동 편철 앵커 ── */
+
+/** 루트 레벨에서 예약된 이름인지 — 사용자 루트 폴더의 생성·개명이 이 이름을 점유(스쿼팅)하면
+ *  팀 자동 편철이 하이재킹되므로 서버 액션에서 차단한다. */
+export function isTeamRootName(name: string): boolean {
+  return (TEAM_CODES as readonly string[]).includes(name.trim())
+}
+
+/** 시드 팀 루트 폴더인지(루트 + created_by null + 팀코드 동명) — 개명·삭제 금지 대상.
+ *  개명·삭제되면 해당 팀의 자동 편철이 소리 없이 끊긴다. */
+export function isTeamRootFolder(
+  f: Pick<MinuteFolder, 'name' | 'parentId' | 'createdBy'>,
+): boolean {
+  return f.parentId === null && f.createdBy === null
+    && typeof f.name === 'string' && isTeamRootName(f.name)
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export interface MinuteInput {

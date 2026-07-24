@@ -113,6 +113,34 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect(onFolderSelect).toHaveBeenLastCalledWith(null)
   })
 
+  it('미분류 0건이면 레일 행·전체 카드 모두 숨김 (0043 자동 편철 후 평시 상태)', async () => {
+    await mount({ leaves: leaves.filter(l => l.folderId !== null) })
+    expect(container.textContent).not.toContain('min.fold.unfiled')
+  })
+
+  it('미분류 스코프에서 마지막 1건이 빠져도 레일 행은 유지된다(발 디딜 곳)', async () => {
+    await mount()
+    await act(async () => buttonByText('min.fold.unfiled').click())
+    await mount({ leaves: leaves.filter(l => l.folderId !== null) })   // 재렌더: 미분류 0건
+    expect(container.textContent).toContain('min.fold.unfiled')
+  })
+
+  it('팀 기본 폴더(PMO)는 관리자 메뉴에서도 개명·삭제 숨김 — 하위 폴더 추가만(0043)', async () => {
+    await mount({ isAdmin: true })
+    const menuBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.menuAria"]')]
+      .find(b => b.closest('li')?.textContent?.includes('PMO'))!
+    await act(async () => menuBtn.click())
+    const li = menuBtn.closest('li')!
+    expect(li.textContent).toContain('min.fold.addSub')
+    expect(li.textContent).not.toContain('min.fold.rename')
+    expect(li.textContent).not.toContain('min.fold.delete')
+    // 일반 폴더(생산계획)는 개명·삭제 유지
+    const planBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.menuAria"]')]
+      .find(b => b.closest('li')?.textContent?.includes('생산계획'))!
+    await act(async () => planBtn.click())
+    expect(planBtn.closest('li')!.textContent).toContain('min.fold.rename')
+  })
+
   it('폴더 ⋯ 메뉴는 소유자/관리자에게만 — 시드 폴더는 일반 사용자에게 숨김', async () => {
     await mount()
     // 시드(createdBy null) PMO 행: 메뉴 없음 / 본인 소유 APS 회의: 메뉴 있음

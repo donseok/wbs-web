@@ -104,9 +104,22 @@ describe('createMinuteFolder', () => {
       return builder
     })
     createServerClient.mockResolvedValue(client)
-    const r = await createMinuteFolder('PMO', null)
+    // 'PMO' 등 팀코드는 예약어 가드에 먼저 걸리므로 일반 이름으로 중복 경로를 겨냥한다(0043)
+    const r = await createMinuteFolder('주간회의', null)
     expect(r.ok).toBe(false)
     expect(r.error).toContain('이미')
+  })
+  it('루트에 팀코드 동명(ERP)은 예약어로 거부 — DB 접근 없이 (스쿼팅 차단, 0043)', async () => {
+    const r = await createMinuteFolder('ERP', null)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('팀 기본 폴더명')
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('하위 레벨의 팀코드 동명은 허용 — 루트 예약어만 차단', async () => {
+    const { client } = fakeClient({ minute_folders: { data: seedFolders, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await createMinuteFolder('ERP', 'f1')
+    expect(r.ok).toBe(true)
   })
   it('상위 폴더 FK 위반(23503)은 삭제 안내 문구로 매핑', async () => {
     const { client, from } = fakeClient({ minute_folders: { data: seedFolders, error: null } })
@@ -150,6 +163,42 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     const empty = fakeClient({ minute_folders: { data: [], error: null } })
     createServerClient.mockResolvedValue(empty.client)
     expect((await deleteMinuteFolder('f2')).ok).toBe(false)
+  })
+  it('rename: 시드 팀 루트(MES)는 개명 금지 — 자동 편철 앵커 보호(0043)', async () => {
+    const { client } = fakeClient({
+      minute_folders: { data: { name: 'MES', parent_id: null, created_by: null }, error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await renameMinuteFolder('f-mes', '엠이에스')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('팀 기본 폴더')
+  })
+  it('rename: 일반 루트를 팀코드 동명(MDM)으로 바꾸는 것도 거부(앵커 사칭 방지)', async () => {
+    const { client } = fakeClient({
+      minute_folders: { data: { name: '내폴더', parent_id: null, created_by: 'u1' }, error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await renameMinuteFolder('f-mine', 'MDM')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('팀 기본 폴더명')
+  })
+  it('delete: 시드 팀 루트(ERP)는 삭제 금지 — cascade 소실 방지(0043)', async () => {
+    const { client, calls } = fakeClient({
+      minute_folders: { data: { name: 'ERP', parent_id: null, created_by: null }, error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await deleteMinuteFolder('f-erp')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('삭제할 수 없습니다')
+    expect(calls['minute_folders']!.some(c => c.method === 'delete')).toBe(false)
+  })
+  it('rename/delete: 가드 선행조회 실패는 중단(쓰기 선행조회 원칙)', async () => {
+    const { client } = fakeClient({
+      minute_folders: { data: null, error: { message: 'db down' } },
+    })
+    createServerClient.mockResolvedValue(client)
+    expect((await renameMinuteFolder('f1', '새이름')).ok).toBe(false)
+    expect((await deleteMinuteFolder('f1')).ok).toBe(false)
   })
 })
 

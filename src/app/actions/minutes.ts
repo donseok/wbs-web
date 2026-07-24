@@ -6,6 +6,7 @@ import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
+  isTeamRootName, isTeamRootFolder,
   type MinuteInput,
 } from '@/lib/domain/minutes'
 import {
@@ -20,6 +21,7 @@ import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/share'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
+import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
 
 const BUCKET = 'minutes'
 
@@ -92,13 +94,15 @@ export async function createMinute(
     const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
     if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
   }
+  // 폴더 미지정이면 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백
+  const effectiveFolderId = folderId ?? await resolveTeamRootFolderId(sb, input.teamCode)
   // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·다운스트림 전부 보정본 사용
   const fix = correctMinuteBodyTime(input.bodyMd)
   if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)
   const bodyMd = fix.body
   const { data, error } = await sb.from('minutes').insert({
     minute_date: input.minuteDate, team_code: input.teamCode, title: input.title.trim(),
-    body_md: bodyMd, meeting_id: input.meetingId, folder_id: folderId,
+    body_md: bodyMd, meeting_id: input.meetingId, folder_id: effectiveFolderId,
     created_by: user.id, created_by_name: displayNameFrom(user.user_metadata, user.email),
   }).select('id').single()
   if (error) return { ok: false, error: error.message }
@@ -365,6 +369,9 @@ export async function createMinuteFolder(
   if (!m) return { ok: false, error: '로그인 필요' }
   const nameErr = validateFolderName(name)
   if (nameErr) return { ok: false, error: nameErr }
+  // 루트의 팀코드 동명은 시드 전용(자동 편철 앵커) — 선점(스쿼팅)되면 전사 편철이 하이재킹된다
+  if (parentId === null && isTeamRootName(name))
+    return { ok: false, error: '팀 기본 폴더명(PMO·ERP·MES·가공·MDM)은 루트에 사용할 수 없습니다.' }
   const sb = await createServerClient()
   const folders = await loadFolders(sb)
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
@@ -391,6 +398,21 @@ export async function renameMinuteFolder(
   const nameErr = validateFolderName(name)
   if (nameErr) return { ok: false, error: nameErr }
   const sb = await createServerClient()
+  // 개명 가드 선행조회 — 실패하면 판정 불가이므로 중단(쓰기 선행조회 원칙)
+  const { data: target, error: targetErr } = await sb.from('minute_folders')
+    .select('name, parent_id, created_by').eq('id', id).maybeSingle()
+  if (targetErr) {
+    console.error('[renameMinuteFolder] 대상 조회 실패:', targetErr.message)
+    return { ok: false, error: '폴더 정보를 확인하지 못했습니다.' }
+  }
+  if (!target) return { ok: false, error: '폴더가 없습니다.' }
+  const row = target as { name: string; parent_id: string | null; created_by: string | null }
+  // 팀 기본 폴더(자동 편철 앵커)는 개명 금지 — 개명되면 그 팀 자동 편철이 소리 없이 끊긴다
+  if (isTeamRootFolder({ name: row.name, parentId: row.parent_id ?? null, createdBy: row.created_by ?? null }))
+    return { ok: false, error: '팀 기본 폴더는 이름을 변경할 수 없습니다.' }
+  // 루트에서 팀코드 동명으로의 개명도 차단(앵커 사칭 방지)
+  if (row.parent_id === null && isTeamRootName(name))
+    return { ok: false, error: '팀 기본 폴더명(PMO·ERP·MES·가공·MDM)은 루트에 사용할 수 없습니다.' }
   const { data, error } = await sb.from('minute_folders')
     .update({ name: name.trim(), updated_at: new Date().toISOString() })
     .eq('id', id).select('id')
@@ -409,6 +431,17 @@ export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; err
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
+  // 삭제 가드 선행조회 — 팀 기본 폴더(자동 편철 앵커)는 삭제 금지(cascade 로 하위까지 소실)
+  const { data: target, error: targetErr } = await sb.from('minute_folders')
+    .select('name, parent_id, created_by').eq('id', id).maybeSingle()
+  if (targetErr) {
+    console.error('[deleteMinuteFolder] 대상 조회 실패:', targetErr.message)
+    return { ok: false, error: '폴더 정보를 확인하지 못했습니다.' }
+  }
+  if (!target) return { ok: false, error: '폴더가 없습니다.' }
+  const row = target as { name: string; parent_id: string | null; created_by: string | null }
+  if (isTeamRootFolder({ name: row.name, parentId: row.parent_id ?? null, createdBy: row.created_by ?? null }))
+    return { ok: false, error: '팀 기본 폴더는 삭제할 수 없습니다.' }
   // 하위 폴더는 FK cascade, 소속 회의록은 set null(미분류 강등)이 정리한다
   const { data, error } = await sb.from('minute_folders').delete().eq('id', id).select('id')
   if (error) { console.error('[deleteMinuteFolder] 실패:', error.message); return { ok: false, error: error.message } }

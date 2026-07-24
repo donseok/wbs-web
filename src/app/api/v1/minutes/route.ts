@@ -1,6 +1,7 @@
 import { after, NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { TEAM_CODES } from '@/lib/domain/minutes'
+import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, gateMinutesApi,
   parseMinutePayload, parseUserEmail, resolveUserByEmail, runMinutePostProcessing,
@@ -86,9 +87,12 @@ async function handleExisting(
 async function insertNew(
   req: NextRequest, admin: AdminClient, p: ExternalMinutePayload, user: ResolvedUser,
 ): Promise<NextResponse> {
+  // 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백. 또박또박 업로드가
+  // 미분류에 쌓이지 않고 팀 폴더(PMO/ERP/MES/가공/MDM)에 바로 등록되게 한다.
+  const folderId = await resolveTeamRootFolderId(admin, p.teamCode)
   const { data, error } = await admin.from('minutes').insert({
     minute_date: p.minuteDate, team_code: p.teamCode, title: p.title, body_md: p.bodyMd,
-    meeting_id: p.meetingId, external_id: p.externalId,
+    meeting_id: p.meetingId, external_id: p.externalId, folder_id: folderId,
     created_by: user.id, created_by_name: user.name,
   }).select('id, created_at, updated_at').single()
   if (error || !data) {

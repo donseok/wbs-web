@@ -36,6 +36,7 @@ export const minutesKo = {
   'min.exp.starRemove': '즐겨찾기 해제',
   // 폴더 디렉토리 (스펙 2026-07-23-minutes-folders-design.md)
   'min.fold.unfiled': '미분류',
+  'min.fold.autoTeam': '자동 (담당 폴더)',
   'min.fold.new': '새 폴더',
   'min.fold.addSub': '하위 폴더 추가',
   'min.fold.rename': '이름 변경',
@@ -175,6 +176,7 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.exp.starAdd': 'Add to favorites',
   'min.exp.starRemove': 'Remove from favorites',
   'min.fold.unfiled': 'Unfiled',
+  'min.fold.autoTeam': 'Auto (team folder)',
   'min.fold.new': 'New folder',
   'min.fold.addSub': 'Add subfolder',
   'min.fold.rename': 'Rename',

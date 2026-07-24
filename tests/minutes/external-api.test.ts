@@ -285,6 +285,38 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
     expect(mocks.generateMinuteInsights).toHaveBeenCalledWith('m-1', payload.body_markdown)
   })
 
+  it('신규 insert는 담당 팀 루트 폴더로 자동 편철 — folder_id 세팅(0043)', async () => {
+    const { builders } = useAdmin({
+      minutes: [
+        { data: null },
+        { data: { id: 'm-1', created_at: '2026-07-24T01:00:00+00:00', updated_at: '2026-07-24T01:00:00+00:00' } },
+      ],
+      minute_folders: [{ data: { id: 'f-pmo' } }],
+    })
+    const res = await POST(post(payload))
+    expect(res.status).toBe(201)
+    const fq = builders.minute_folders[0]
+    expect(fq.is).toHaveBeenCalledWith('parent_id', null)     // 루트 한정
+    expect(fq.is).toHaveBeenCalledWith('created_by', null)    // 시드 고정(스쿼팅 배제)
+    expect(fq.eq).toHaveBeenCalledWith('name', 'PMO')         // 팀코드 동명 매칭
+    const inserted = builders.minutes[1].insert.mock.calls[0][0] as Record<string, unknown>
+    expect(inserted.folder_id).toBe('f-pmo')
+  })
+
+  it('팀 루트 폴더 조회 실패는 미분류(null) 폴백 — 등록은 막지 않는다(201)', async () => {
+    const { builders } = useAdmin({
+      minutes: [
+        { data: null },
+        { data: { id: 'm-1', created_at: '2026-07-24T01:00:00+00:00', updated_at: '2026-07-24T01:00:00+00:00' } },
+      ],
+      minute_folders: [{ data: null, error: { message: 'lookup down' } }],
+    })
+    const res = await POST(post(payload))
+    expect(res.status).toBe(201)
+    const inserted = builders.minutes[1].insert.mock.calls[0][0] as Record<string, unknown>
+    expect(inserted.folder_id).toBeNull()
+  })
+
   it('같은 external_id 재전송(기본 replace)은 200 replaced — D3 범위만 갱신, 소유권 불변', async () => {
     const { builders } = useAdmin({
       minutes: [
