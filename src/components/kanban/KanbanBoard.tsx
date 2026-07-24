@@ -117,6 +117,17 @@ export function KanbanBoard({
   const editable = !readOnly && mode === 'progress'
   const cardEditable = (card: ComputedItem) => editable && canEditActual(card, membership)
 
+  // 최초 방문 코치마크 — 진행 뷰(편집 가능) 진입 시 1회, localStorage 플래그로 재노출 방지.
+  const COACH_KEY = 'kanban.coach.v1'
+  const [showCoach, setShowCoach] = useState(false)
+  useEffect(() => {
+    if (editable && typeof window !== 'undefined' && !window.localStorage.getItem(COACH_KEY)) setShowCoach(true)
+  }, [editable])
+  const dismissCoach = () => {
+    setShowCoach(false)
+    try { window.localStorage.setItem(COACH_KEY, '1') } catch {}
+  }
+
   // 낙관적 override를 items 트리에 입힌 뷰. 저장 확정 전까지 카드가 즉시 옮겨 보이게 한다.
   const viewItems = useMemo<ComputedItem[]>(() => {
     const ids = Object.keys(override)
@@ -159,6 +170,9 @@ export function KanbanBoard({
       return { ...col, cards, count: cards.length }
     })
   }, [baseColumns, lens, quick, query, membership, today])
+
+  // 데이터는 있으나(items.length>0) 렌즈/빠른필터/검색으로 모든 컬럼이 걸러진 상태 — 데이터 0건과 구분해 안내한다.
+  const filteredEmpty = items.length > 0 && columns.every(c => c.cards.length === 0)
 
   // 실적% 반영 — 낙관적으로 먼저 옮기고, 실패하면 롤백 + 토스트. CAS(expectedCurrent)로 동시 편집 충돌을 감지한다.
   // prev는 원시값(반올림 금지): 반올림하면 (a) 소수 실적(예: 99.6%)에서 가드가 조기 무력화돼 카드가 100%에 영영 못 닿고,
@@ -281,6 +295,24 @@ export function KanbanBoard({
       {!editable && !readOnly && (
         <div className="flex shrink-0 items-center gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-2 text-[12px] text-ink-subtle">
           {t('kanban.readOnlyHint')}
+        </div>
+      )}
+
+      {/* 최초 방문 코치마크(진행 뷰) */}
+      {showCoach && editable && (
+        <div className="flex shrink-0 items-start justify-between gap-3 rounded-xl border border-brand-ring bg-brand-weak px-3.5 py-2.5">
+          <div>
+            <p className="text-[13px] font-semibold text-brand">{t('kanban.coachTitle')}</p>
+            <p className="mt-0.5 text-[12px] text-ink-muted">{t('kanban.coachDesc')}</p>
+          </div>
+          <button className="btn btn-ghost btn-sm shrink-0" onClick={dismissCoach}>{t('kanban.coachDismiss')}</button>
+        </div>
+      )}
+
+      {/* 필터 결과 0건 안내(데이터 자체는 있음) */}
+      {filteredEmpty && (
+        <div className="shrink-0 rounded-xl border border-dashed border-line px-4 py-3 text-center text-[12px] text-ink-subtle">
+          <span className="font-medium text-ink-muted">{t('kanban.noMatchTitle')}</span> · {t('kanban.noMatchDesc')}
         </div>
       )}
 

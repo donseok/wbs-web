@@ -43,6 +43,7 @@ describe('KanbanBoard — 진행 모드 기본', () => {
   let container: HTMLDivElement, root: Root
   beforeEach(() => { updateActual.mockClear(); toastFn.mockClear(); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
   afterEach(() => { act(() => root.unmount()); container.remove() })
+  afterEach(() => window.localStorage.clear())
 
   it('기본 뷰에서 시작전/진행중/완료 3컬럼과 각 카드 수를 보여준다', async () => {
     await act(async () => root.render(
@@ -102,5 +103,17 @@ describe('KanbanBoard — 진행 모드 기본', () => {
     // 기본 렌즈=myTeam(ERP) → 'mine'만, 'other' 없음
     expect(container.textContent).toContain('mine')
     expect(container.textContent).not.toContain('other')
+  })
+
+  it('최초 방문(로컬 플래그 없음·편집 가능)엔 코치마크가 뜨고, 닫으면 플래그가 저장된다', async () => {
+    window.localStorage.removeItem('kanban.coach.v1')
+    await act(async () => root.render(
+      <KanbanBoard projectId="p1" items={tree()} membership={ADMIN} today="2026-07-25" />,
+    ))
+    expect(container.textContent).toContain('kanban.coachTitle')
+    const dismiss = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('kanban.coachDismiss'))!
+    await act(async () => dismiss.click())
+    expect(window.localStorage.getItem('kanban.coach.v1')).toBe('1')
+    expect(container.textContent).not.toContain('kanban.coachTitle')
   })
 })
