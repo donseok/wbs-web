@@ -14,6 +14,7 @@ import {
   todayInSeoul,
 } from './common'
 import type { BotSource, ReadOnlyBotTool } from './types'
+import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
 
 const KANBAN_CAPABILITY = 'kanban:read' as const
 
@@ -24,7 +25,6 @@ const KANBAN_VIEWS = ['phase', 'owner', 'status'] as const
 type KanbanView = (typeof KANBAN_VIEWS)[number]
 
 const CARD_STATUSES: readonly Status[] = ['not_started', 'in_progress', 'delayed', 'done']
-const CARD_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 export interface KanbanCardRecord {
   id: string
@@ -77,7 +77,7 @@ function toCardRecord(card: ComputedItem): KanbanCardRecord {
 
 function groupColumns(view: KanbanView, computed: ComputedItem[]): KanbanColumn[] {
   if (view === 'phase') return groupByPhase(computed)
-  if (view === 'owner') return groupByOwner(computed)
+  if (view === 'owner') return groupByOwner(computed, activeTeamCodesSync())
   return groupByStatus(computed)
 }
 
@@ -97,7 +97,7 @@ export function createGetKanbanViewTool(repository: WbsBotRepository): ReadOnlyB
       if (view && !(KANBAN_VIEWS as readonly string[]).includes(view)) {
         return invalidArgument('알 수 없는 칸반 보기입니다.')
       }
-      if (team && !(CARD_TEAMS as readonly string[]).includes(team)) {
+      if (team && !activeTeamCodesSync().includes(team)) {
         return invalidArgument('알 수 없는 담당팀입니다.')
       }
       if (status && !(CARD_STATUSES as readonly string[]).includes(status)) {

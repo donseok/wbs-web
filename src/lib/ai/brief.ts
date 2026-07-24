@@ -29,6 +29,7 @@ import { generateAnswer } from './llm'
 import { hasLLM, llmConfig } from './provider'
 import { createEnsureGate, type EnsureState } from './ensure'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 /* ── 상한(프롬프트 예산 고정 — maxOutputTokens 4096 + 입력 ~6k자 캡) ── */
 const LIST_CAP = 10          // 목록형 팩트(마감 임박·회의록 인사이트) 상한 — «외 N건» 병기
@@ -78,6 +79,7 @@ export function buildBriefFacts(input: BriefFactsInput): BriefFacts {
   })
   const riskReport = detectRiskSignals({
     items, today: todayWbs, realToday, snapshots, startDate, endDate, minuteSignals,
+    teams: activeTeamCodesSync(),
   })
   const dueSoon = dueSoonLeaves(collectLeaves(items), todayWbs)
   // 회의는 실제 오늘 기준 7일 창(달력 카드와 동일 규칙 — expandMeetings+summarizeMeetings 재사용)

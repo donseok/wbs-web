@@ -8,6 +8,7 @@ import { loadProjectFacts } from '@/lib/ai/projectFacts'
 import { detectRiskSignals } from '@/lib/domain/riskSignals'
 import { ensureRiskBrief, sanitizeRiskItems, type RiskBriefItem } from '@/lib/ai/risk-brief'
 import { getAiBrief } from '@/lib/data/aiBriefs'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 export interface RiskBriefPayload {
   status: 'ready' | 'generated' | 'unavailable'
@@ -34,6 +35,7 @@ export async function ensureRiskBriefAction(projectId: string): Promise<RiskBrie
       startDate: src.startDate,
       endDate: src.endDate,
       minuteSignals: src.minuteSignals,
+      teams: activeTeamCodesSync(),
     })
     const status = await ensureRiskBrief(projectId, report)
     const row = await getAiBrief(projectId, 'risk', '')

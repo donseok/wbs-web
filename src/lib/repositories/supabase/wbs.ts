@@ -11,6 +11,8 @@ import {
   type WbsRepositoryItem,
 } from '@/lib/repositories/types'
 import { isRetryableReadError, nestedOne, type SupabaseServerClient } from './common'
+import { teamOrderMap } from '@/lib/domain/teams'
+import { teamsSync } from '@/lib/teams/master'
 
 type Row = Record<string, unknown>
 
@@ -35,7 +37,7 @@ interface WbsItemScope {
 
 function mapOwners(raw: unknown): WbsRow['owners'] {
   if (!Array.isArray(raw)) return []
-  const allowedTeams = new Set<TeamCode>(['PMO', 'ERP', 'MES', '가공', 'MDM'])
+  // 팀 코드는 teams FK 조인 결과라 등록 팀만 온다 — 하드코딩 화이트리스트 불필요(신규 팀 자동 수용).
   const allowedKinds = new Set<OwnerKind>(['primary', 'support'])
   const owners: WbsRow['owners'] = []
   for (const value of raw) {
@@ -44,13 +46,15 @@ function mapOwners(raw: unknown): WbsRow['owners'] {
     const team = nestedOne(row.teams as { code?: unknown } | { code?: unknown }[] | null)
     const code = team?.code
     const kind = row.kind
-    if (allowedTeams.has(code as TeamCode) && allowedKinds.has(kind as OwnerKind)) {
-      owners.push({ team: code as TeamCode, kind: kind as OwnerKind })
+    if (typeof code === 'string' && code !== '' && allowedKinds.has(kind as OwnerKind)) {
+      owners.push({ team: code, kind: kind as OwnerKind })
     }
   }
-  const order: Record<TeamCode, number> = { PMO: 0, ERP: 1, MES: 2, 가공: 3, MDM: 4 }
+  // 표시 순서는 팀 마스터 sort_order(비활성 포함 — 기존 데이터 정렬 안정). 미등록은 뒤로.
+  const order = teamOrderMap(teamsSync().map(t => t.code))
+  const rank = (t: TeamCode) => order.get(t) ?? Number.MAX_SAFE_INTEGER
   return owners.sort((a, b) =>
-    (a.kind === b.kind ? 0 : a.kind === 'primary' ? -1 : 1) || order[a.team] - order[b.team],
+    (a.kind === b.kind ? 0 : a.kind === 'primary' ? -1 : 1) || rank(a.team) - rank(b.team),
   )
 }
 
@@ -66,9 +70,8 @@ function safeAuditValue(value: unknown): string | null {
 }
 
 function teamCode(value: unknown): TeamCode | null {
-  return (['PMO', 'ERP', 'MES', '가공', 'MDM'] as unknown[]).includes(value)
-    ? value as TeamCode
-    : null
+  // 감사 로그 표시용 통과 파서 — 팀 목록 검증은 쓰기 경로(팀 마스터 대조)에서 이미 끝났다.
+  return typeof value === 'string' && value !== '' ? value : null
 }
 
 function actorRole(value: unknown): string | null {

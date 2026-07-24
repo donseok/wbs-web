@@ -21,9 +21,9 @@ import {
   todayInSeoul,
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionContext, ToolExecutionResult } from './types'
+import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
 
 const MEMBERS_CAPABILITY = 'members:read' as const
-const TEAM_CODES = ['PMO', 'ERP', 'MES', '가공', 'MDM'] as const
 const MEMBER_ROLES: readonly ProjectMemberRole[] = ['admin', 'contributor']
 // 설계 §9.1 — 개인 담당 관계를 추론하지 않는다는 사실을 응답에 항상 명시한다.
 const TEAM_AGGREGATION_WARNING = '개인별 담당 데이터가 등록되지 않아 팀 단위로 집계했습니다.'
@@ -52,7 +52,7 @@ export interface MemberWorkloadToolRecord {
 function readTeam(value: unknown): TeamCode | null | undefined {
   const team = readOptionalString(value, 30)
   if (team === undefined) return undefined
-  if (team === null || !(TEAM_CODES as readonly string[]).includes(team)) return null
+  if (team === null || !activeTeamCodesSync().includes(team)) return null
   return team as TeamCode
 }
 
@@ -208,7 +208,7 @@ export function createGetMemberWorkloadTool(
         else bucket.notStartedCount += 1
       }
 
-      const orderedKeys: Array<TeamCode | null> = [...TEAM_CODES, null]
+      const orderedKeys: Array<TeamCode | null> = [...activeTeamCodesSync(), null]
       const records: MemberWorkloadToolRecord[] = orderedKeys.flatMap(key => {
         if (team && key !== team) return []
         const bucket = buckets.get(key)

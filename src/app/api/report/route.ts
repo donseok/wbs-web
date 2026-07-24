@@ -17,6 +17,7 @@ import { briefToExtraSlide, type ExtraNarrativeSlide } from '@/lib/report/aiComm
 import { loadProjectFacts } from '@/lib/ai/projectFacts'
 import { briefFactsHash, buildBriefFacts } from '@/lib/ai/brief'
 import { getAiBrief } from '@/lib/data/aiBriefs'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 // exceljs·템플릿 zip 읽기(fs)는 Node 전용 → Edge 런타임 금지.
 export const runtime = 'nodejs'
@@ -106,6 +107,7 @@ export async function GET(req: NextRequest) {
   const model = buildWeeklyReportModel(items, project, today, {
     members, attendance, generatedAt: seoulNow(),
     meetings: meetingData.meetings, meetingExceptions: meetingData.exceptions, announcements,
+    teams: activeTeamCodesSync(),
   })
   const meta = FORMATS[format]
 

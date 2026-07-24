@@ -20,9 +20,9 @@ import {
   validDateRange,
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionResult } from './types'
+import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
 
 const MINUTES_CAPABILITY = 'minutes:read' as const
-const MINUTE_TEAMS: readonly string[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 /** query·기간이 모두 없을 때 전 기간 무제한 조회를 막는 기본 조회 기간(일). */
 const DEFAULT_SEARCH_WINDOW_DAYS = 90
 const BODY_MD_CAP = 4_000
@@ -114,7 +114,7 @@ export function createSearchMinutesTool(
         query === null || team === null || projectId === null
         || from === null || to === null || limit === null
       ) return invalidArgument()
-      if (team && !MINUTE_TEAMS.includes(team)) return invalidArgument('알 수 없는 담당팀입니다.')
+      if (team && !activeTeamCodesSync().includes(team)) return invalidArgument('알 수 없는 담당팀입니다.')
       if ((from === undefined) !== (to === undefined)) {
         return invalidArgument('회의록 조회 기간은 from·to를 함께 지정해야 합니다.')
       }

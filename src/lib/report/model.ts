@@ -69,6 +69,8 @@ export function buildReportModel(
   items: ComputedItem[],
   project: ReportProject,
   today: string,
+  /** '팀별 진척' 대상(progress_visible 활성 팀) — 미주입 시 기본(PROGRESS_TEAMS). */
+  progressTeams?: readonly TeamCode[],
 ): ReportModel {
   const roots = items
   // 대시보드/모달과 동일한 가중 롤업(단일 출처). 전체 실적/계획은 대시보드와 같은 소수 1자리 표기,
@@ -98,7 +100,7 @@ export function buildReportModel(
   }))
 
   // 팀별 진척 — 대시보드 '팀별 진척' 카드와 동일 정의(teamProgress 단일 출처)
-  const teams: ReportTeam[] = teamProgress(leaves)
+  const teams: ReportTeam[] = progressTeams ? teamProgress(leaves, progressTeams) : teamProgress(leaves)
 
   return {
     meta: {

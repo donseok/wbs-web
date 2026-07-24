@@ -4,6 +4,7 @@ import { getMembership } from '@/lib/auth'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { splitLeafOwners, validateAndLink } from '@/lib/excel/validate'
 import { ingestProject } from '@/lib/ai/ingest'
+import { teamsSync } from '@/lib/teams/master'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 
 export async function POST(req: NextRequest) {
@@ -15,6 +16,17 @@ export async function POST(req: NextRequest) {
   if (!file || !projectId) return NextResponse.json({ error: '파일/프로젝트 누락' }, { status: 400 })
 
   const parsed = parseWbsWorkbook(await file.arrayBuffer())
+
+  // 팀 마스터 대조 — 미등록 팀 헤더는 조용한 스킵 대신 팀명을 담아 명시 거부(마스터 등록 선행).
+  const registered = new Set(teamsSync().map(t => t.code))
+  const unknownTeams = [...new Set(parsed.rows.flatMap(r => r.owners.map(o => o.team)))]
+    .filter(t => !registered.has(t))
+  if (unknownTeams.length > 0) {
+    return NextResponse.json({
+      errors: [`등록되지 않은 팀 열이 있습니다: ${unknownTeams.join(', ')} — 관리자 화면(팀 관리)에서 먼저 등록하세요.`],
+    }, { status: 400 })
+  }
+
   const result = validateAndLink(parsed)
   if (!result.ok) return NextResponse.json({ errors: result.errors }, { status: 400 })
 

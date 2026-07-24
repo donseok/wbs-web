@@ -21,6 +21,7 @@ import {
 } from './analytics'
 import { extractSearchKeywords, type ChatIntent } from './intent'
 import type { ProjectMember } from '@/lib/domain/types'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 export const getProjectName = cache(async (projectId: string): Promise<string> => {
   const sb = await createServerClient()
@@ -96,7 +97,7 @@ export async function gatherKnowledge(intent: ChatIntent, projectId: string | nu
     case 'this_week_start':
       return only(answerThisWeekStart(analysis))
     case 'by_team':
-      return only(answerByTeam(analysis, members))
+      return only(answerByTeam(analysis, members, activeTeamCodesSync()))
     case 'weekly_summary':
       return only(answerWeeklySummary(analysis))
     case 'project_status':

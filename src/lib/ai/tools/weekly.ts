@@ -17,6 +17,7 @@ import {
   shortExcerpt,
 } from './common'
 import type { BotSource, ReadOnlyBotTool } from './types'
+import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
 
 const WEEKLY_CAPABILITY = 'weekly:read' as const
 
@@ -30,10 +31,18 @@ const WEEKLY_TEAM_SECTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
   MDM: new Set<string>(),
 }
 
+/** 팀 → 주간업무 구분 집합. 매핑에 없는 등록 팀은 동명 구분과 매칭(구분 신설 시 자동 활성).
+ *  미등록 팀은 null(알 수 없는 팀). */
+function sectionsForTeam(team: string): ReadonlySet<string> | null {
+  const known = WEEKLY_TEAM_SECTIONS[team]
+  if (known) return known
+  return isRegisteredTeamCode(team) ? new Set([team]) : null
+}
+
 /** team 인자 검증 — 미지 팀과 '매핑 구분 없음'을 구분해 명시 거부(조용한 빈 결과 금지). */
 function validateTeam(team: string | undefined): ReturnType<typeof invalidArgument> | null {
   if (!team) return null
-  const sections = WEEKLY_TEAM_SECTIONS[team]
+  const sections = sectionsForTeam(team)
   if (!sections) return invalidArgument('알 수 없는 담당팀입니다.')
   if (sections.size === 0) {
     return invalidArgument(`${team} 팀에 매핑된 주간업무 구분이 아직 없습니다. 주간업무 시트는 업무영역 구분 체계라 ${team} 전용 구분 신설 전까지 팀 필터를 지원하지 않습니다.`)
@@ -96,7 +105,7 @@ function matchesWeeklyScope(rowSection: string, section?: string, team?: string)
   const normalized = rowSection.trim().toLocaleLowerCase('ko-KR')
   if (section && normalized !== section.trim().toLocaleLowerCase('ko-KR')) return false
   if (!team) return true
-  const mapped = WEEKLY_TEAM_SECTIONS[team]
+  const mapped = sectionsForTeam(team)
   return !!mapped && [...mapped].some(value =>
     value.toLocaleLowerCase('ko-KR') === normalized,
   )
