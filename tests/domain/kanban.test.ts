@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ComputedItem, OwnerKind, Status, TeamCode } from '@/lib/domain/types'
-import { groupByPhase, groupByOwner, groupByStatus, groupByProgress, bucketOf } from '@/lib/domain/kanban'
+import { groupByPhase, groupByOwner, groupByStatus, groupByProgress, bucketOf, leafPaths, dueSignal } from '@/lib/domain/kanban'
 
 type Owner = { team: TeamCode; kind: OwnerKind }
 
@@ -150,5 +150,35 @@ describe('groupByProgress', () => {
     expect(by('in_progress').cards.map(c => c.id)).toEqual(['L45'])
     expect(by('done').cards.map(c => c.id)).toEqual(['L100'])
     expect(cols.reduce((n, c) => n + c.count, 0)).toBe(3)
+  })
+})
+
+describe('leafPaths', () => {
+  it('리프마다 루트→부모 이름 경로를 만든다', () => {
+    const items = [
+      node('A', { name: '준비', children: [
+        node('A1', { name: '설계', children: [ node('L', { name: '리프' }) ] }),
+      ] }),
+    ]
+    const m = leafPaths(items)
+    expect(m.get('L')).toEqual(['준비', '설계'])
+    expect(m.has('A')).toBe(false) // 중간 노드는 키 아님
+  })
+})
+
+describe('dueSignal', () => {
+  const today = '2026-07-25'
+  it('완료(100%)는 신호 없음', () => {
+    expect(dueSignal('2026-07-01', 100, today)).toBeNull()
+  })
+  it('기한 경과+미완은 overdue(경과 일수)', () => {
+    expect(dueSignal('2026-07-20', 40, today)).toEqual({ kind: 'overdue', days: 5 })
+  })
+  it('기한 이전은 due(남은 일수), 당일은 0', () => {
+    expect(dueSignal('2026-07-28', 40, today)).toEqual({ kind: 'due', days: 3 })
+    expect(dueSignal('2026-07-25', 0, today)).toEqual({ kind: 'due', days: 0 })
+  })
+  it('plannedEnd 없으면 null', () => {
+    expect(dueSignal(null, 40, today)).toBeNull()
   })
 })

@@ -96,3 +96,35 @@ export function groupByProgress(items: ComputedItem[]): KanbanColumn[] {
     return { key: bucket, title: PROGRESS_LABEL[bucket], count: cards.length, cards, accentDot: PROGRESS_DOT[bucket] }
   })
 }
+
+/** 리프 id → 조상 이름 배열(루트→부모 순, 카드 breadcrumb 용). */
+export function leafPaths(items: ComputedItem[]): Map<string, string[]> {
+  const map = new Map<string, string[]>()
+  const walk = (ns: ComputedItem[], path: string[]) => {
+    for (const n of ns) {
+      if (!n.children.length) map.set(n.id, path)
+      else walk(n.children, [...path, n.name])
+    }
+  }
+  walk(items, [])
+  return map
+}
+
+/** 두 'YYYY-MM-DD' 사이 캘린더 일수(to - from). 칸반 마감신호 전용(자기완결). */
+function dayDiff(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`)
+  const b = Date.parse(`${to}T00:00:00Z`)
+  return Math.round((b - a) / 86400000)
+}
+
+export type DueSignal =
+  | { kind: 'overdue'; days: number }
+  | { kind: 'due'; days: number }
+  | null
+
+/** 마감 신호(순수). 완료면 없음, 기한 경과+미완=overdue, 그 외=due(남은 일수). today·plannedEnd는 'YYYY-MM-DD'. */
+export function dueSignal(plannedEnd: string | null, cur: number, today: string): DueSignal {
+  if (!plannedEnd || cur >= 100) return null
+  const d = dayDiff(today, plannedEnd)
+  return d < 0 ? { kind: 'overdue', days: -d } : { kind: 'due', days: d }
+}
