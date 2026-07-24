@@ -5,6 +5,8 @@ import { HeaderChrome } from '@/components/app/HeaderChrome'
 import { DkBot } from '@/components/chat/DkBot'
 import { BotPageContextProvider } from '@/components/chat/BotPageContextProvider'
 import { PrefsSync } from '@/components/app/PrefsSync'
+import { TeamsProvider } from '@/components/app/TeamsProvider'
+import { teamsSync } from '@/lib/teams/master'
 import { projectLifecycleStatus } from '@/lib/domain/project-status'
 import { getProjectsCompletion } from '@/lib/data/wbs'
 
@@ -27,7 +29,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     baseDate: (p as { base_date?: string | null }).base_date ?? null,
   }))
 
+  // 활성 팀만 클라이언트로 — 비활성 팀은 탭·필터에서 숨긴다(전체 목록이 필요한 화면은 서버에서 별도 주입).
+  const activeTeams = teamsSync().filter(t => t.active)
+
   return (
+    <TeamsProvider teams={activeTeams}>
     <BotPageContextProvider>
       <div className="app-backdrop flex h-dvh overflow-hidden">
         <PrefsSync />
@@ -40,5 +46,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />
       </div>
     </BotPageContextProvider>
+    </TeamsProvider>
   )
 }
