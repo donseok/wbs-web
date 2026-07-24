@@ -56,9 +56,9 @@ export function WeeklyLintPanel({ open, rows, onClose, onApply, onGoToCell }: {
       ) : (
         <>
           {/* 왜 다른 구분의 같은 문구가 안 잡히는지 매번 묻지 않도록 점검 범위를 못박되,
-              글머리 기호만 시트 전체 기준이라는 예외까지 같이 적는다(안 적으면 그 지적이 버그로 읽힌다). */}
+              글머리 기호·번호 표기만 시트 전체 기준이라는 예외까지 같이 적는다(안 적으면 그 지적이 버그로 읽힌다). */}
           <p className="pb-2 text-xs text-ink-muted">
-            점검은 구분 안에서만 합니다 — 서로 다른 구분끼리는 견주지 않습니다. (글머리 기호 통일만 시트 전체 기준)
+            점검은 구분 안에서만 합니다 — 서로 다른 구분끼리는 견주지 않습니다. (글머리 기호·번호 표기 통일만 시트 전체 기준)
           </p>
           <div className="divide-y divide-line">
             {groups.map(g => (
