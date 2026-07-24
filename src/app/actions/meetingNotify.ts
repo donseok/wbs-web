@@ -1,7 +1,7 @@
 'use server'
 import { getMembership, getSession } from '@/lib/auth'
 import { getMeetingDetail } from '@/lib/data/meetings'
-import { classifyRecipients } from '@/lib/mail/recipients'
+import { classifyRecipients, MAX_EXTRA_EMAILS } from '@/lib/mail/recipients'
 import { renderMeetingInvite, type InviteKind } from '@/lib/mail/meetingInvite'
 import { getTransport } from '@/lib/mail/transport'
 import { displayNameFrom } from '@/lib/domain/display-name'
@@ -31,15 +31,27 @@ function toUserMessage(e: unknown): string {
 /**
  * 회의 참석자에게 안내(생성)·변경(수정) 메일을 보낸다.
  * createMeeting/updateMeeting 이 커밋된 뒤에 호출되므로, 여기서 무엇이 실패하든 회의 데이터는 남는다.
- * 인자가 meetingId·kind 뿐인 것은 의도적이다 — 수신자는 서버가 DB 에서 다시 읽는다.
- * 그래서 수정으로 참석자 명단에서 빠진 사람은 조회 결과에 아예 없고, 메일을 받을 길도 없다.
+ * 참석자 수신자는 서버가 DB 에서 다시 읽는다 — 수정으로 명단에서 빠진 사람은
+ * 조회 결과에 아예 없고, 메일을 받을 길도 없다.
+ * extraEmails 는 예외다: 폼에서만 살고 어디에도 저장되지 않는 외부 수신 주소라 DB 에서
+ * 읽을 원본이 없다. 작성자·pmo_admin 게이트를 지난 호출자만 넣을 수 있고,
+ * 개수 상한과 주소 검증(classifyRecipients)을 서버에서 다시 통과해야 To 에 실린다.
  */
 export async function notifyMeetingSaved(
   meetingId: string,
   kind: InviteKind,
+  extraEmails: string[] = [],
 ): Promise<MeetingNotifyResult> {
   const [membership, user] = await Promise.all([getMembership(), getSession()])
   if (!membership || !user) return { ok: false, error: '로그인 필요', ...NONE }
+
+  // 서버 액션 인자는 클라이언트가 임의로 만든다 — 타입과 개수를 여기서 다시 못박는다.
+  const extras = Array.isArray(extraEmails)
+    ? extraEmails.filter((e): e is string => typeof e === 'string')
+    : []
+  if (extras.length > MAX_EXTRA_EMAILS) {
+    return { ok: false, error: `추가 수신 이메일은 최대 ${MAX_EXTRA_EMAILS}개까지 입력할 수 있습니다.`, ...NONE }
+  }
 
   const detail = await getMeetingDetail(meetingId)
   if (!detail) return { ok: false, error: '회의를 찾을 수 없습니다.', ...NONE }
@@ -49,7 +61,7 @@ export async function notifyMeetingSaved(
   const isOwner = meeting.createdBy === user.id
   if (!isOwner && membership.role !== 'pmo_admin') return { ok: false, error: '권한 없음', ...NONE }
 
-  const { valid, skipped } = classifyRecipients(attendees)
+  const { valid, skipped } = classifyRecipients(attendees, extras)
   // 빈 To 로 SMTP 를 때리면 계정 평판만 깎인다.
   if (valid.length === 0) return { ok: true, sentTo: [], skipped }
 

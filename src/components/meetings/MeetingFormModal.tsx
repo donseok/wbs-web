@@ -11,6 +11,7 @@ import { MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
 import { MeetingAttendeePicker } from './MeetingAttendeePicker'
 import { createMeeting, updateMeeting, type MeetingInput } from '@/app/actions/meetings'
 import { notifyMeetingSaved } from '@/app/actions/meetingNotify'
+import { isValidEmail, MAX_EXTRA_EMAILS, parseExtraEmails } from '@/lib/mail/recipients'
 import { describeNotifyResult, type NotifyOutcome } from '@/lib/mail/outcome'
 // `import type` 을 유지한다 — 값으로 바꾸면 메일 본문 렌더러 전체가 클라이언트 번들에 실린다.
 import type { InviteKind } from '@/lib/mail/meetingInvite'
@@ -19,13 +20,14 @@ type FormState = {
   title: string; meetingDate: string; allDay: boolean; startTime: string; endTime: string
   location: string; category: MeetingCategory; recurrence: MeetingRecurrence
   recurrenceUntil: string; body: string; attendeeIds: string[]; notify: boolean
+  extraEmails: string
 }
 
 function initState(initial: Meeting | null, todayIso: string): FormState {
   if (!initial) return {
     title: '', meetingDate: todayIso, allDay: false, startTime: '10:00', endTime: '11:00',
     location: '', category: 'routine', recurrence: 'none', recurrenceUntil: '', body: '',
-    attendeeIds: [], notify: true,
+    attendeeIds: [], notify: true, extraEmails: '',
   }
   return {
     title: initial.title,
@@ -42,6 +44,8 @@ function initState(initial: Meeting | null, todayIso: string): FormState {
     // 수정은 옵트인이다. 수정의 대부분은 오타·메모 한 줄 고치기인데 기본값이 켜짐이면
     // 그때마다 참석자 전원에게 '변경' 메일이 나가 알림이 소음이 되고 아무도 읽지 않게 된다.
     notify: false,
+    // 추가 수신 이메일은 저장되지 않는다 — 수정 화면에서도 항상 빈칸으로 시작한다.
+    extraEmails: '',
   }
 }
 
@@ -88,8 +92,10 @@ export function MeetingFormModal({
   const locked = outcome !== null
   const busy = pending || sending
   // 생성·수정 모두 발송할 수 있다. 무엇을 보낼지는 kind 가 가르고, 보낼지 말지는
-  // notify 체크박스가 가른다(생성=켜짐, 수정=꺼짐). 여기서 막는 것은 수신자가 없는 경우뿐이다.
-  const canNotify = form.attendeeIds.length > 0
+  // notify 체크박스가 가른다(생성=켜짐, 수정=꺼짐). 여기서 막는 것은 수신자가 없는 경우뿐이다 —
+  // 참석자가 없어도 추가 수신 이메일이 있으면 보낼 수 있다.
+  const extraList = parseExtraEmails(form.extraEmails)
+  const canNotify = form.attendeeIds.length > 0 || extraList.length > 0
   const notifyKind: InviteKind = initial ? 'updated' : 'created'
 
   /**
@@ -117,9 +123,9 @@ export function MeetingFormModal({
    * 사용자가 하지도 않은 발송을 하고 있다고 말한다. 저장 구간은 pending, 발송 구간은 sending —
    * 두 값이 각자의 실제 구간만 나타내야 한다.
    */
-  async function sendInvite(run: number, meetingId: string, kind: InviteKind) {
+  async function sendInvite(run: number, meetingId: string, kind: InviteKind, extraEmails: string[]) {
     try {
-      report(run, describeNotifyResult(await notifyMeetingSaved(meetingId, kind), t))
+      report(run, describeNotifyResult(await notifyMeetingSaved(meetingId, kind, extraEmails), t))
     } catch {
       // 액션 호출 자체가 실패한 경우 — 회의가 사라진 게 아님을 반드시 알린다.
       report(run, { kind: 'panel', tone: 'error', message: t('meet.notify.unknown') })
@@ -129,6 +135,21 @@ export function MeetingFormModal({
   }
 
   function submit() {
+    // 발송이 실제로 일어날 입력일 때만 여기서 막는다 — notify 를 끈 저장까지 붙잡을 이유가 없다.
+    // 저장 전에 거르는 이유: 서버는 형식 오류 주소를 '제외'로 보고할 뿐 저장을 되돌리지 않으므로,
+    // 오타를 낸 사용자는 회의가 이미 저장된 뒤에야 알게 되고 고쳐 보낼 방법은 수정 화면뿐이다.
+    if (form.notify && canNotify) {
+      if (extraList.length > MAX_EXTRA_EMAILS) {
+        setErr(t('meet.form.extraEmailsMax').replace('{max}', String(MAX_EXTRA_EMAILS)))
+        return
+      }
+      const bad = extraList.filter(e => !isValidEmail(e))
+      if (bad.length > 0) {
+        setErr(`${t('meet.form.extraEmailsInvalid')} — ${bad.join(', ')}`)
+        return
+      }
+    }
+
     const input: MeetingInput = {
       title: form.title,
       meetingDate: form.meetingDate,
@@ -161,7 +182,7 @@ export function MeetingFormModal({
       if (!canNotify || !form.notify || !res.id) { if (isCurrent()) onSaved(); return }
 
       if (isCurrent()) setSending(true)
-      void sendInvite(run, res.id, notifyKind)
+      void sendInvite(run, res.id, notifyKind, extraList)
     })
   }
 
@@ -272,6 +293,26 @@ export function MeetingFormModal({
             </label>
             {!canNotify && (
               <p className="mt-1 pl-6 text-[11px] text-ink-subtle">{t('meet.form.notifyNoAttendees')}</p>
+            )}
+            {/* notify 블록 안에 둔다 — 이 주소들은 회의에 저장되는 값이 아니라 위 체크박스로
+                나가는 메일의 수신자에만 더해지는 값이다. 떨어져 있으면 저장되는 값처럼 읽힌다. */}
+            <label className="mt-3 block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('meet.form.extraEmails')}</span>
+              <input
+                value={form.extraEmails}
+                onChange={e => set('extraEmails', e.target.value)}
+                placeholder={t('meet.form.extraEmailsPlaceholder')}
+                className="app-input"
+              />
+            </label>
+            {/* notify 가 꺼진 채 주소만 적고 저장하면 발송·형식검증 모두 건너뛴다(수정 화면 기본 경로).
+                이 값은 저장되지 않으므로 그 저장은 곧 입력의 소리 없는 폐기다 — 저장 전에 여기서 알린다.
+                입력칸을 비활성화하는 방법은 참석자 0명일 때 체크박스와 서로를 잠그는 교착이 되어 쓸 수 없다. */}
+            {extraList.length > 0 && !form.notify && (
+              <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-5 text-ink-subtle">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-pending" />
+                {t('meet.form.extraEmailsNotifyOff')}
+              </p>
             )}
           </div>
 

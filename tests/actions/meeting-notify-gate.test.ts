@@ -151,6 +151,91 @@ describe('notifyMeetingSaved 발송', () => {
   })
 })
 
+describe('notifyMeetingSaved — 추가 수신 이메일', () => {
+  beforeEach(() => {
+    getTransport.mockClear(); send.mockReset()
+    vi.mocked(getMeetingDetail).mockClear()
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    vi.mocked(getMembership).mockResolvedValue({ role: 'team_editor' } as never)
+  })
+
+  it('추가 이메일을 참석자와 함께 To 에 넣고 주소를 sentTo 로 보고한다', async () => {
+    vi.mocked(getMeetingDetail).mockResolvedValue(
+      detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }]) as never)
+    send.mockResolvedValue({ rejected: [] })
+
+    const res = await notifyMeetingSaved('m1', 'created', ['guest@partner.co.kr'])
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      to: ['y@dongkuk.com', 'guest@partner.co.kr'],
+    }))
+    expect(res.sentTo).toEqual(['박영희', 'guest@partner.co.kr'])
+  })
+
+  it('참석자가 없어도 추가 이메일만으로 발송한다', async () => {
+    vi.mocked(getMeetingDetail).mockResolvedValue(detail([]) as never)
+    send.mockResolvedValue({ rejected: [] })
+
+    const res = await notifyMeetingSaved('m1', 'created', ['guest@partner.co.kr'])
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: ['guest@partner.co.kr'] }))
+    expect(res).toMatchObject({ ok: true, sentTo: ['guest@partner.co.kr'] })
+  })
+
+  it('참석자와 겹치는 추가 이메일은 한 번만 보낸다', async () => {
+    vi.mocked(getMeetingDetail).mockResolvedValue(
+      detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }]) as never)
+    send.mockResolvedValue({ rejected: [] })
+
+    const res = await notifyMeetingSaved('m1', 'created', ['Y@dongkuk.com'])
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: ['y@dongkuk.com'] }))
+    expect(res.sentTo).toEqual(['박영희'])
+  })
+
+  it('형식이 깨진 추가 이메일은 주소를 이름으로 skipped 에 보고한다', async () => {
+    vi.mocked(getMeetingDetail).mockResolvedValue(
+      detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }]) as never)
+    send.mockResolvedValue({ rejected: [] })
+
+    const res = await notifyMeetingSaved('m1', 'created', ['broken-email'])
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: ['y@dongkuk.com'] }))
+    expect(res.skipped).toEqual([{ name: 'broken-email', reason: 'invalid_email' }])
+  })
+
+  it('상한을 넘는 추가 이메일은 회의 조회 전에 거부한다', async () => {
+    const many = Array.from({ length: 21 }, (_, i) => `g${i}@x.com`)
+    const res = await notifyMeetingSaved('m1', 'created', many)
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('최대 20개')
+    expect(getMeetingDetail).not.toHaveBeenCalled()
+    expect(getTransport).not.toHaveBeenCalled()
+  })
+
+  it('문자열이 아닌 원소는 버린다 — 클라이언트가 임의 JSON 을 보내도 죽지 않는다', async () => {
+    vi.mocked(getMeetingDetail).mockResolvedValue(
+      detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }]) as never)
+    send.mockResolvedValue({ rejected: [] })
+
+    const res = await notifyMeetingSaved('m1', 'created', [42, null, 'guest@partner.co.kr'] as never)
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      to: ['y@dongkuk.com', 'guest@partner.co.kr'],
+    }))
+    expect(res.ok).toBe(true)
+  })
+
+  it('작성자도 pmo_admin 도 아니면 추가 이메일이 있어도 거부한다', async () => {
+    vi.mocked(getMeetingDetail).mockResolvedValue(
+      detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }], 'someone-else') as never)
+    const res = await notifyMeetingSaved('m1', 'created', ['guest@partner.co.kr'])
+    expect(res).toMatchObject({ ok: false, error: '권한 없음' })
+    expect(getTransport).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+  })
+})
+
 describe('notifyMeetingSaved — 변경 안내', () => {
   beforeEach(() => {
     getTransport.mockClear(); send.mockReset()

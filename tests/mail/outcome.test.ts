@@ -14,7 +14,7 @@ describe('describeNotifyResult', () => {
   it('전원 발송이면 토스트로 알린다', () => {
     const out = describeNotifyResult(res({ sentTo: ['김철수', '박영희'] }), t)
     expect(out.kind).toBe('toast')
-    expect(out.message).toBe('참석자 2명에게 회의 안내 메일을 보냈습니다.')
+    expect(out.message).toBe('수신자 2명에게 회의 안내 메일을 보냈습니다.')
   })
 
   it('일부 제외가 있으면 패널을 띄우고 이름과 사유를 적는다', () => {
@@ -34,7 +34,7 @@ describe('describeNotifyResult', () => {
       sentTo: [], skipped: [{ name: '박영희', reason: 'no_email' }],
     }), t)
     expect(out.kind).toBe('panel')
-    expect(out.message).toBe('회의가 저장되었습니다. 이메일이 있는 참석자가 없어 메일을 보내지 않았습니다.')
+    expect(out.message).toBe('회의가 저장되었습니다. 보낼 수 있는 수신자가 없어 메일을 보내지 않았습니다.')
   })
 
   it('발송 실패는 error 톤 패널이며 사유를 그대로 싣는다', () => {
