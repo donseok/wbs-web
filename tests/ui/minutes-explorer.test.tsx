@@ -82,16 +82,15 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     return found
   }
 
-  it('all 스코프: 루트 폴더 카드(재귀 카운트) + 미분류 카드 + 전체 리프 flat', async () => {
+  it('all 스코프: 폴더 카드 그리드 없이 전체 리프 flat — 탐색은 레일(카드 제거, 사용자 결정)', async () => {
     await mount()
-    expect(container.textContent).toContain('PMO')
-    expect(container.textContent).toContain('min.fold.unfiled')
-    // 생산계획 루트 카드의 재귀 카운트(직계 1 + APS 1 = 2)
-    const planCard = [...container.querySelectorAll('button')]
-      .find(b => b.textContent?.includes('생산계획') && b.textContent?.includes('min.exp.meetingCount'))!
-    expect(planCard.textContent).toContain('min.exp.subfolderCount')
     // 전체 flat: 3건 모두 렌더
     expect(container.querySelectorAll('a[href^="/minutes/m"]').length).toBe(3)
+    // 루트 카드 그리드 제거 — 카드 전용 문구(meetingCount)가 전체 스코프에 없다
+    expect(container.textContent).not.toContain('min.exp.meetingCount')
+    // 폴더·미분류는 레일에서 여전히 접근 가능
+    expect(container.textContent).toContain('PMO')
+    expect(container.textContent).toContain('min.fold.unfiled')
   })
 
   it('폴더 스코프: 직계 하위 폴더 카드 + 직계 리프만, 경로 표시', async () => {

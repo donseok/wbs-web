@@ -255,31 +255,9 @@ export function MinutesExplorer({
 
   const folderCardCls =
     'card flex flex-col gap-3 p-4 text-left transition-shadow duration-150 hover:shadow-[var(--shadow-md)]'
-  const folderCards = scope.kind === 'all' ? (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {roots.map(n => (
-        <button key={n.folder.id} onClick={() => select({ kind: 'folder', id: n.folder.id })} className={folderCardCls}>
-          <span className="flex min-w-0 items-center gap-2">
-            <Folder aria-hidden className="h-5 w-5 shrink-0 text-brand fill-brand-weak" />
-            <span className="truncate text-sm font-semibold text-ink">{n.folder.name}</span>
-          </span>
-          <span className="text-xs text-ink-muted">
-            {t('min.exp.meetingCount').replace('{n}', String(n.totalCount))}
-            {n.children.length > 0 && <> {' · '}{t('min.exp.subfolderCount').replace('{n}', String(n.children.length))}</>}
-          </span>
-        </button>
-      ))}
-      {unfiled.length > 0 && (
-        <button onClick={() => select({ kind: 'unfiled' })} className={folderCardCls}>
-          <span className="flex min-w-0 items-center gap-2">
-            <FolderOpen aria-hidden className="h-5 w-5 shrink-0 text-ink-subtle" />
-            <span className="truncate text-sm font-semibold text-ink">{t('min.fold.unfiled')}</span>
-          </span>
-          <span className="text-xs text-ink-muted">{t('min.exp.meetingCount').replace('{n}', String(unfiled.length))}</span>
-        </button>
-      )}
-    </div>
-  ) : scope.kind === 'folder' && (nodeById.get(scope.id)?.children.length ?? 0) > 0 ? (
+  // 전체 스코프의 루트 폴더 카드 그리드는 제거(사용자 결정 2026-07-24) — 레일과 중복이고
+  // 화면만 차지한다. 폴더 스코프의 하위 폴더 카드만 유지(폴더 안 탐색용).
+  const folderCards = scope.kind === 'folder' && (nodeById.get(scope.id)?.children.length ?? 0) > 0 ? (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {nodeById.get(scope.id)!.children.map(n => (
         <button key={n.folder.id} onClick={() => select({ kind: 'folder', id: n.folder.id })} className={folderCardCls}>
