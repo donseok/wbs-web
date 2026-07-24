@@ -93,13 +93,13 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect(container.textContent).toContain('min.fold.unfiled')
   })
 
-  it('폴더 스코프: 직계 하위 폴더 카드 + 직계 리프만, 경로 표시', async () => {
+  it('폴더 스코프: 직계 리프만 표시, 하위 폴더 진입은 레일로(카드 없음)', async () => {
     await mount()
     await act(async () => buttonByText('생산계획').click())   // 레일 행(첫 매치)
     expect(container.querySelector('a[href="/minutes/m2"]')).toBeTruthy()   // 직계
     expect(container.querySelector('a[href="/minutes/m1"]')).toBeNull()     // 하위 폴더 소속은 미표시
-    expect(container.textContent).toContain('APS 회의')                      // 하위 폴더 카드
-    await act(async () => buttonByText('APS 회의').click())
+    expect(container.textContent).not.toContain('min.exp.meetingCount')     // 하위 폴더 카드 없음
+    await act(async () => buttonByText('APS 회의').click())                  // 레일의 하위 폴더 행
     expect(container.querySelector('a[href="/minutes/m1"]')).toBeTruthy()
     expect(onFolderSelect).toHaveBeenLastCalledWith('f-aps')
   })

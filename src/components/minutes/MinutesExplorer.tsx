@@ -253,26 +253,8 @@ export function MinutesExplorer({
     return chain
   }, [scope, folderById])
 
-  const folderCardCls =
-    'card flex flex-col gap-3 p-4 text-left transition-shadow duration-150 hover:shadow-[var(--shadow-md)]'
-  // 전체 스코프의 루트 폴더 카드 그리드는 제거(사용자 결정 2026-07-24) — 레일과 중복이고
-  // 화면만 차지한다. 폴더 스코프의 하위 폴더 카드만 유지(폴더 안 탐색용).
-  const folderCards = scope.kind === 'folder' && (nodeById.get(scope.id)?.children.length ?? 0) > 0 ? (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {nodeById.get(scope.id)!.children.map(n => (
-        <button key={n.folder.id} onClick={() => select({ kind: 'folder', id: n.folder.id })} className={folderCardCls}>
-          <span className="flex min-w-0 items-center gap-2">
-            <Folder aria-hidden className="h-5 w-5 shrink-0 text-ink-subtle" />
-            <span className="truncate text-sm font-semibold text-ink">{n.folder.name}</span>
-          </span>
-          <span className="text-xs text-ink-muted">
-            {t('min.exp.meetingCount').replace('{n}', String(n.totalCount))}
-            {n.children.length > 0 && <> {' · '}{t('min.exp.subfolderCount').replace('{n}', String(n.children.length))}</>}
-          </span>
-        </button>
-      ))}
-    </div>
-  ) : null
+  // 폴더 카드 그리드는 전면 제거(사용자 결정 2026-07-24) — 전체 스코프 루트 카드에 이어
+  // 폴더 스코프의 하위 폴더 카드도 삭제. 폴더 탐색은 왼쪽 레일 트리로 일원화. 재도입 금지.
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
@@ -334,11 +316,10 @@ export function MinutesExplorer({
             action={<button onClick={onRetryFavorites} className="btn">{t('min.tree.retry')}</button>} />
         ) : (
           <>
-            {folderCards}
             {rows.length === 0 ? (
               scope.kind === 'favorites'
                 ? <EmptyState icon={Star} title={t('min.exp.favEmpty')} />
-                : !folderCards && <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
+                : <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
             ) : layout === 'grid' ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {shown.map(l => (
