@@ -35,6 +35,22 @@ describe('normalizeForCompare', () => {
     expect(normalizeForCompare('   ')).toBe('')
     expect(normalizeForCompare('-')).toBe('')
   })
+
+  it('날짜·소수·절 번호는 목록 번호로 보지 않는다', () => {
+    expect(normalizeForCompare('2026.07.24 주간 회의')).toBe('2026.07.24 주간 회의')
+    expect(normalizeForCompare('1.5배 성능 개선')).toBe('1.5배 성능 개선')
+    expect(normalizeForCompare('1.2 개요 정리')).toBe('1.2 개요 정리')
+  })
+
+  it('공백 있는 한국식 날짜(7. 28 / 26. 7. 24.)도 번호로 보지 않는다', () => {
+    expect(normalizeForCompare('7. 28(월) 정기 점검')).toBe('7. 28(월) 정기 점검')
+    expect(normalizeForCompare('26. 7. 24. 주간 회의')).toBe('26. 7. 24. 주간 회의')
+  })
+
+  it('번호만 있는 줄은 비교에서 빈 줄로 본다 — 되풀이돼도 지우지 않기 위함', () => {
+    expect(normalizeForCompare('1.')).toBe('')
+    expect(normalizeForCompare('12)')).toBe('')
+  })
 })
 
 const mkRow = (id: string, section: string, sortOrder: number, over: Partial<WeeklySheetRow> = {}): WeeklySheetRow => ({
@@ -206,6 +222,16 @@ describe('lintDuplicates', () => {
     const out = lintDuplicates(rows)
     expect(out.map(f => f.section)).toEqual(['PMO', '영업'])
     expect(new Set(out.map(f => f.id)).size).toBe(2)
+  })
+
+  it('소수만 다른 두 줄이 중복으로 붙어 지워지지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1.5배 성능 개선\n2.5배 성능 개선' })]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('번호만 있는 줄이 되풀이돼도 중복으로 지우지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1.\n설계 착수\n1.\n견적 회신' })]
+    expect(lintDuplicates(rows)).toEqual([])
   })
 })
 
@@ -385,9 +411,110 @@ describe('lintNumbering', () => {
     expect(one('- 가\n- 나')).toEqual([])
   })
 
-  it(') 스타일과 구분자 뒤 공백을 보존한다', () => {
+  it(') 표기가 시트에 유일하면 보존하고, 번호 뒤 공백은 1칸으로 맞춘다', () => {
     expect(one('1) 가\n3) 나')[0].edits[0].content).toBe('1) 가\n2) 나')
-    expect(one('1.가\n3.나')[0].edits[0].content).toBe('1.가\n2.나')
+    expect(one('1.가\n3.나')[0].edits[0].content).toBe('1. 가\n2. 나')
+  })
+
+  it('시트 다수결 표기로 통일한다 — 소수 표기 셀을 지적', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 다\n2) 라' }),
+      mkRow('r3', '구매', 3, { thisContent: '1. 마' }),
+    ]
+    const out = lintNumbering(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('numbering')
+    expect(out[0].rowId).toBe('r2')
+    expect(out[0].edits).toEqual([{ rowId: 'r2', cellKey: 'this_content', content: '1. 다\n2. 라' }])
+    expect(out[0].detail).toContain('시트 전체')
+  })
+
+  it('동수면 . 이 이긴다 — 번호 줄 1개짜리 셀도 표기가 어긋나면 지적한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1) 가' }),
+      mkRow('r2', '영업', 2, { thisContent: '1. 나' }),
+    ]
+    const out = lintNumbering(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].rowId).toBe('r1')
+    expect(out[0].edits[0].content).toBe('1. 가')
+  })
+
+  it('시트에 한 표기뿐이면 그 표기를 존중한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1) 가\n2) 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 다' }),
+    ]
+    expect(lintNumbering(rows)).toEqual([])
+  })
+
+  it('번호 뒤 공백을 1칸으로 맞춘다 — 없음·여러 칸·전각', () => {
+    const [f] = one('1.가\n2.  나\n3.　다')
+    expect(f.edits[0].content).toBe('1. 가\n2. 나\n3. 다')
+    expect(f.detail).toContain('공백 → 1칸')
+  })
+
+  it('날짜·소수 줄은 고치지도, 다수결에 세지도 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '2026.07.24 주간 회의\n1.5배 성능 개선' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 다\n2) 라' }),
+    ]
+    expect(lintNumbering(rows)).toEqual([])
+  })
+
+  it('공백 있는 한국식 날짜(7. 28)를 순번으로 덮어쓰지 않는다', () => {
+    // 다수결이 ) 여도 번호 줄 1개짜리 셀을 고치는 신규 동작이라 날짜가 위험했던 자리.
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1) 가\n2) 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '7. 28(월) 정기 점검 예정' }),
+    ]
+    expect(lintNumbering(rows)).toEqual([])
+  })
+
+  it('날짜 줄은 재부여 순번 계산에서도 빠진다', () => {
+    // 1,2 뒤의 `7. 28(월)`이 항목 7로 세어지면 3으로 재부여돼 날짜가 훼손된다 — 번호 줄은 1,2뿐이어야.
+    expect(one('1. 착수 보고\n2. 설계 검토\n7. 28(월) 킥오프 예정')).toEqual([])
+  })
+
+  it('번호 뒤 NBSP도 일반 공백 1칸으로 정규화한다', () => {
+    const NB = '\u00A0' // HWP/Word 붙여넣기가 흘리는 NBSP — 흡수 안 하면 수정이 공백 2칸을 만든다
+    const [f] = one(`1.${NB}가\n2.${NB}나`)
+    expect(f.edits[0].content).toBe('1. 가\n2. 나')
+    expect(f.detail).toContain('공백 → 1칸')
+  })
+
+  it('선행 0 번호는 다른 줄 수정에 휩쓸려도 보존한다', () => {
+    const [f] = one('01. 가\n2.나')
+    expect(f.edits[0].content).toBe('01. 가\n2. 나')
+  })
+
+  it('선행 0 번호만 있고 다른 문제 없으면 지적하지 않는다', () => {
+    expect(one('01. 가\n02. 나')).toEqual([])
+  })
+
+  it('번호만 있는 줄은 건드리지 않는다', () => {
+    expect(one('1.\n2.')).toEqual([])
+  })
+
+  it('체번과 표기 통일을 한 지적으로 함께 고친다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나\n3. 다' }),
+      mkRow('r2', '영업', 2, { thisContent: '1) 라\n3) 마' }),
+    ]
+    const out = lintNumbering(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].edits[0].content).toBe('1. 라\n2. 마')
+    expect(out[0].detail).toContain('1, 3')
+    expect(out[0].detail).toContain('번호 표기')
+  })
+
+  it('들여쓴 번호 줄도 표기를 맞추고 들여쓰기는 보존한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '  1) 다' }),
+    ]
+    expect(lintNumbering(rows)[0].edits[0].content).toBe('  1. 다')
   })
 
   it('번호 없는 줄은 순서를 유지하고 번호도 소비하지 않는다', () => {

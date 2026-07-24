@@ -3,7 +3,7 @@
  *  검사가 아니라 중복 삭제가 남긴 빈 줄을 치우는 수정의 뒤처리이기 때문이다.
  *  모든 규칙은 **구분 안에서만** 본다. PMO의 줄과 영업의 줄을 견주는 일은 없다 —
  *  구분마다 담당이 다르고, 같은 문구가 두 구분에 있는 것은 보고서상 정상이기 때문이다.
- *  (예외: 글머리 기호 통일만 보고서 겉모습 문제라 시트 전체 다수결을 따른다.) ── */
+ *  (예외: 글머리 기호·번호 표기 통일만 보고서 겉모습 문제라 시트 전체 다수결을 따른다.) ── */
 
 import {
   CELL_FIELD, sectionKeyOf, WEEKLY_CELL_KEYS, WEEKLY_CELL_LABEL,
@@ -32,8 +32,30 @@ export interface LintFinding {
 /** 인정하는 글머리 기호. 배열 순서 = 다수결 동수 시 우선순위(- 우선). */
 export const BULLETS = ['-', '·', '*', '●'] as const
 
-/** 선두 줄 번호: 숫자 + (. 또는 )) + 뒤따르는 공백(없을 수도). */
-const NUM_PREFIX = /^(\d+)([.)])( *)/
+/** 선두 목록 번호: 숫자 1~2자리 + (. 또는 )) + 공백(반각·탭·전각·NBSP) 0개 이상.
+ *  NBSP(U+00A0)를 gap 에 넣는 건 HWP/Word 붙여넣기가 번호 뒤에 NBSP 를 흘리기 때문 —
+ *  gap 으로 흡수해야 '공백 1칸' 정규화가 그 자리를 일반 공백으로 갈아끼운다. */
+const NUM_PREFIX = /^(\d{1,2})([.)])([ \t 　]*)/
+
+/** 목록 번호 해석 결과. raw 는 원문 숫자 문자열(선행 0 보존용), rest 는 표기 뒤 본문. */
+interface ListNum { num: number; raw: string; sep: '.' | ')'; gap: string; rest: string }
+
+/** 들여쓰기를 뗀 줄머리에서 목록 번호 접두를 해석한다. 날짜·소수·절 번호이면 null.
+ *  **구분자 뒤에 숫자가 오는 꼴은 공백 유무와 무관하게 번호로 보지 않는다** —
+ *  `2026.07.24`(no gap)뿐 아니라 `7. 28(월)`·`26. 7. 24.`(gap 있는 한국식 날짜)도 지킨다.
+ *  훼손 위험(날짜를 순번으로 덮어씀)이 놓침 위험(`1. 2024년…` 같은 실제 항목을 안 고침)보다
+ *  크므로, 숫자로 시작하는 본문은 통째로 보수적으로 제외한다. 자리수 상한(2자리)은 이중 안전장치.
+ *  본문 없는 접두(`1.` 단독)도 파싱은 낸다 — 어느 소비자가 어떻게 다룰지는 rest 로 각자 판단한다:
+ *  비교(normalizeForCompare)는 떼어 빈 줄로 만들어 제외하고, 체번은 공백을 덧붙이지 않도록 건너뛴다.
+ *  다수결 집계·체번 수정·중복 비교가 이 술어 하나를 공유한다 — 갈라지면
+ *  "집계엔 세는데 수정에선 빠지는" 어긋남이 생긴다(글머리 기호 규칙에서 배운 것). */
+function parseListNum(head: string): ListNum | null {
+  const m = NUM_PREFIX.exec(head)
+  if (!m) return null
+  const rest = head.slice(m[0].length)
+  if (/^\d/.test(rest)) return null
+  return { num: Number(m[1]), raw: m[1], sep: m[2] as '.' | ')', gap: m[3], rest }
+}
 /** 글머리 기호로 인정하는 형태 — 기호 뒤에 공백이 반드시 온다.
  *  `-5%` 같은 본문을 기호로 오인해 고쳐 쓰지 않기 위한 보수적 판정. */
 const BULLET_PREFIX = /^([-·*●])( +)(?=\S)/
@@ -44,7 +66,8 @@ export function normalizeForCompare(line: string): string {
   let s = line.replace(/　/g, ' ').trim()
   // 기호와 번호가 겹쳐 붙은 경우(`- 1. 항목`)까지 커버하되, 무한 반복은 막는다.
   for (let i = 0; i < 2; i++) {
-    const next = s.replace(NUM_PREFIX, '').replace(/^[-·*●] */, '').trimStart()
+    const ln = parseListNum(s)
+    const next = (ln ? ln.rest : s).replace(/^[-·*●] */, '').trimStart()
     if (next === s) break
     s = next
   }
@@ -316,9 +339,32 @@ export function lintNearDuplicates(rows: WeeklySheetRow[]): LintFinding[] {
   return out
 }
 
-/** 규칙 ② — 셀 안 줄 번호. 번호 줄이 2개 이상일 때만 검사하고, 1부터 1씩 증가하지 않으면 지적.
- *  셀 하나가 검사 범위라 애초에 구분을 넘지 않는다. 순회만 구분 순으로 맞춰 목록 순서를 통일한다. */
+/** 시트 전체에서 다수결로 정한 번호 구분자. 번호 줄이 없으면 null(규칙 전체 침묵).
+ *  보고서 겉모습 문제라 글머리 기호처럼 시트 전체 기준이고, 동수면 . 이 이긴다.
+ *  한 종류뿐이어도 그 값을 반환한다 — 그 표기를 존중하되 공백 정규화의 기준으로 쓴다. */
+function dominantNumberSep(rows: WeeklySheetRow[]): '.' | ')' | null {
+  let dot = 0, paren = 0
+  for (const row of rows) {
+    for (const cellKey of WEEKLY_CELL_KEYS) {
+      for (const line of toLines(row[CELL_FIELD[cellKey]])) {
+        const ln = parseListNum(line.trimStart())
+        if (!ln || ln.rest === '') continue // 본문 없는 접두(`1.` 단독)는 항목이 아니다 — 다수결에 세지 않는다.
+        if (ln.sep === '.') dot++
+        else paren++
+      }
+    }
+  }
+  if (dot === 0 && paren === 0) return null
+  return dot >= paren ? '.' : ')'
+}
+
+/** 규칙 ② — 셀 안 줄 번호: 체번 + 표기. 재부여는 기존대로 번호 줄 2개 이상이면서
+ *  1..n 이 아닐 때만 하고, 표기(구분자 시트 다수결·번호 뒤 공백 1칸)는 번호 줄 1개부터
+ *  맞춘다. 구분자만 시트 전체 기준이다(구분 단위 원칙의 의도된 예외 — 글머리 기호와 동일).
+ *  순서와 표기를 한 규칙이 소유해야 같은 줄을 두 지적이 서로 다르게 고치는 충돌이 없다. */
 export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
+  const sep = dominantNumberSep(rows)
+  if (sep === null) return []
   const out: LintFinding[] = []
   for (const { section, rows: group } of bySection(rows)) {
     for (const row of group) {
@@ -326,23 +372,32 @@ export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
         const content = row[CELL_FIELD[cellKey]]
         const lines = toLines(content)
         const numbered = lines
-          .map((line, i) => ({ i, m: NUM_PREFIX.exec(line.trimStart()) }))
-          .filter((x): x is { i: number; m: RegExpExecArray } => x.m !== null)
-        if (numbered.length < 2) continue
+          .map((line, i) => ({ i, ln: parseListNum(line.trimStart()) }))
+          // 본문 없는 접두(`1.` 단독)는 항목이 아니라 건너뛴다 — 공백을 덧붙여 `1. `로 만들지 않기 위함.
+          .filter((x): x is { i: number; ln: ListNum } => x.ln !== null && x.ln.rest !== '')
+        if (numbered.length === 0) continue
 
-        const nums = numbered.map(x => Number(x.m[1]))
-        if (nums.every((n, k) => n === k + 1)) continue
+        const nums = numbered.map(x => x.ln.num)
+        const renumber = numbered.length >= 2 && !nums.every((n, k) => n === k + 1)
 
-        // 첫 번호 줄의 표기(구분자, 구분자 뒤 공백)를 나머지에 그대로 적용한다.
-        const sep = numbered[0].m[2]
-        const gap = numbered[0].m[3]
+        // 구분자가 바뀌는 줄은 공백도 함께 다시 쓰이므로 else if — 표기 노트가 공백 노트를 포괄한다.
+        let sepFixed = 0, gapFixed = 0
         const next = [...lines]
         numbered.forEach((x, k) => {
           const line = lines[x.i]
           const indent = line.slice(0, line.length - line.trimStart().length)
-          const rest = line.trimStart().slice(x.m[0].length)
-          next[x.i] = `${indent}${k + 1}${sep}${gap}${rest}`
+          if (x.ln.sep !== sep) sepFixed++
+          else if (x.ln.gap !== ' ') gapFixed++
+          // 재부여가 아니면 원문 숫자(raw)를 그대로 둔다 — 선행 0(`01.`)이 이 규칙의 명시 범위(구분자·공백)
+          // 밖에서 조용히 사라지지 않도록. 재부여일 때만 k+1 로 다시 매긴다.
+          next[x.i] = `${indent}${renumber ? k + 1 : x.ln.raw}${sep} ${x.ln.rest}`
         })
+        if (!renumber && sepFixed === 0 && gapFixed === 0) continue
+
+        const notes: string[] = []
+        if (renumber) notes.push(`줄 번호가 ${nums.join(', ')} 입니다 → ${nums.map((_, k) => k + 1).join(', ')}`)
+        if (sepFixed > 0) notes.push(`번호 표기 → '1${sep}' (시트 전체 기준)`)
+        else if (gapFixed > 0) notes.push('번호 뒤 공백 → 1칸')
 
         out.push({
           id: `numbering:${row.id}:${cellKey}`,
@@ -351,7 +406,7 @@ export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
           rowId: row.id,
           cellKey,
           title: WEEKLY_CELL_LABEL[cellKey],
-          detail: `줄 번호가 ${nums.join(', ')} 입니다 → ${nums.map((_, k) => k + 1).join(', ')}`,
+          detail: notes.join(', '),
           edits: [{ rowId: row.id, cellKey, content: next.join('\n') }],
         })
       }
@@ -408,7 +463,7 @@ function formatCell(content: string, bullet: string | null): FormatResult {
 
 /** 규칙 ③ — 글머리 기호 통일. 셀당 지적 1건.
  *  보고서 겉모습을 맞추는 검사라 시트 전체 다수결을 기준으로 삼는다
- *  (구분별 다수결이 아니다 — 구분 단위 원칙의 의도된 유일한 예외). */
+ *  (구분별 다수결이 아니다 — 번호 표기 통일과 더불어 구분 단위 원칙의 의도된 예외). */
 export function lintFormat(rows: WeeklySheetRow[]): LintFinding[] {
   const bullet = dominantBullet(rows)
   const out: LintFinding[] = []
