@@ -23,7 +23,7 @@ export interface IssueInput {
   title: string
   body: string
   severity: IssueSeverity
-  assigneeMemberId: string | null
+  assigneeMemberIds: string[]
   dueDate: string | null
 }
 
@@ -31,12 +31,13 @@ export interface IssueProgressPatch {
   status?: IssueStatus
   /** status 를 보낼 때 필수 — 클라이언트가 화면에 보이는 상태(CAS 비교 기준). 서버가 방금 읽은 상태가 아니다. */
   expectedStatus?: IssueStatus
-  assigneeMemberId?: string | null
+  assigneeMemberIds?: string[]
   resolutionNote?: string
 }
 
 const TITLE_MAX = 200
 const TEXT_MAX = 20000
+const ASSIGNEES_MAX = 20
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 /** 형식 + 실재성(2026-02-30 반려) — announcements isValidDate 관례. */
@@ -46,15 +47,61 @@ function isValidDate(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
 }
 
+/** 서버 액션 인자는 클라이언트가 임의로 만든다 — 배열 형태·원소 타입·개수를 여기서 못박는다. */
+function validateAssignees(ids: unknown): string | null {
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) return '담당자 형식이 올바르지 않습니다.'
+  if (ids.length > ASSIGNEES_MAX) return `담당자는 최대 ${ASSIGNEES_MAX}명까지 지정할 수 있습니다.`
+  return null
+}
+
 function validateInput(input: IssueInput): string | null {
   const title = input.title.trim()
   if (!title) return '제목을 입력하세요.'
   if (title.length > TITLE_MAX) return `제목은 ${TITLE_MAX}자 이하여야 합니다.`
   if (input.body.length > TEXT_MAX) return `내용은 ${TEXT_MAX}자 이하여야 합니다.`
   if (!ISSUE_SEVERITIES.includes(input.severity)) return '잘못된 심각도입니다.'
+  const assigneeErr = validateAssignees(input.assigneeMemberIds)
+  if (assigneeErr) return assigneeErr
   // 과거 날짜는 허용(즉시 지연 표시 안내는 폼 몫) — 형식·실재성만 검증
   if (input.dueDate !== null && !isValidDate(input.dueDate)) return '목표 해결일 날짜 형식이 올바르지 않습니다.'
   return null
+}
+
+/**
+ * 담당자 전체 교체 — 회의 replaceAttendees 관례.
+ * 유효성 검증(해당 프로젝트 멤버인지)을 delete 보다 먼저 수행해, 잘못된 id 목록이
+ * 기존 담당자를 먼저 지워버리는 것을 막는다. 0042 복합 FK 가 DB 에서 이중 방어한다.
+ */
+async function replaceAssignees(
+  sb: Awaited<ReturnType<typeof createServerClient>>,
+  issueId: string,
+  projectId: string,
+  memberIds: string[],
+): Promise<string | null> {
+  const unique = [...new Set(memberIds)]
+  if (unique.length === 0) {
+    const { error: clrErr } = await sb.from('issue_assignees').delete().eq('issue_id', issueId)
+    return clrErr ? clrErr.message : null
+  }
+  const { data: valid, error: validErr } = await sb
+    .from('project_members')
+    .select('id')
+    .eq('project_id', projectId)
+    .in('id', unique)
+  // 쓰기 선행 검증 조회 실패를 '유효 멤버 0명'으로 오인하면 담당자 변경이 통째로 유실되며
+  // 액션은 성공을 보고한다 — 실패는 실패로 올린다(silent-empty 금지).
+  if (validErr) {
+    console.error('[replaceAssignees] 멤버 검증 조회 실패:', validErr.message)
+    return validErr.message
+  }
+  const validIds = (valid ?? []).map((r: { id: string }) => r.id)
+  if (validIds.length !== unique.length) return '프로젝트 멤버가 아닌 담당자가 있습니다. 새로고침 후 다시 시도하세요.'
+  const { error: delErr } = await sb.from('issue_assignees').delete().eq('issue_id', issueId)
+  if (delErr) return delErr.message // 삭제 실패를 삼키면 이어지는 insert 가 PK 충돌이 된다
+  const { error } = await sb
+    .from('issue_assignees')
+    .insert(validIds.map(id => ({ issue_id: issueId, member_id: id, project_id: projectId })))
+  return error ? error.message : null
 }
 
 function revalidateIssues(projectId: string) {
@@ -77,8 +124,6 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
       title: input.title.trim(),
       body: input.body,
       severity: input.severity,
-      // 담당자-프로젝트 정합은 0041 복합 FK 가 DB 에서 이중 방어(타 프로젝트 멤버면 FK 위반)
-      assignee_member_id: input.assigneeMemberId,
       due_date: input.dueDate,
       created_by: user.id,
       created_by_name: displayNameFrom(user.user_metadata, user.email),
@@ -86,8 +131,21 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
     .select('id')
     .single()
   if (error) return { ok: false, error: error.message }
+  const issueId = data.id as string
+
+  const assignErr = await replaceAssignees(sb, issueId, projectId, input.assigneeMemberIds)
+  if (assignErr) {
+    // 담당자 저장 실패 시 방금 만든 이슈를 롤백(보상)해 담당 없는 반쪽 이슈가 남지 않게 한다(회의 관례).
+    const { error: rbErr } = await sb.from('issues').delete().eq('id', issueId)
+    if (rbErr) {
+      console.error('[createIssue] 담당자 저장 실패 후 이슈 롤백 실패(담당 없는 이슈 잔존):', rbErr.message)
+      revalidateIssues(projectId)
+      return { ok: false, error: `담당자 저장에 실패했습니다(${assignErr}). 이슈가 생성됐을 수 있으니 목록을 확인하세요.` }
+    }
+    return { ok: false, error: assignErr }
+  }
   revalidateIssues(projectId)
-  return { ok: true, id: data.id as string }
+  return { ok: true, id: issueId }
 }
 
 /** 전체 편집(제목·내용·심각도·기한·담당자) — 작성자 또는 pmo_admin 만. */
@@ -112,7 +170,6 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
       title: input.title.trim(),
       body: input.body,
       severity: input.severity,
-      assignee_member_id: input.assigneeMemberId,
       due_date: input.dueDate,
       updated_at: new Date().toISOString(),
       // created_by / status / resolution_note 는 여기서 SET 하지 않음(전자 불변, 후자는 진행 액션 전용)
@@ -121,7 +178,12 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
     .select('id')
     .single()
   if (error) return { ok: false, error: error.message }
+  // 본문 수정은 이미 커밋됨 — 담당자 교체가 실패해도 변경분이 보이도록 revalidate 후 에러 보고(회의 관례).
+  const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, input.assigneeMemberIds)
   revalidateIssues(cur.project_id as string)
+  // 부분 실패는 부분 실패로 고지한다 — 맨 에러만 돌려주면 사용자가 전체 실패로 읽고
+  // 이미 저장된 제목·내용 변경을 모른 채 지나간다(updateIssueProgress 와 같은 문구 원칙).
+  if (assignErr) return { ok: false, error: `담당자 저장에 실패했습니다(${assignErr}). 제목·내용 등 나머지 변경은 저장되었습니다.` }
   return { ok: true }
 }
 
@@ -131,7 +193,7 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
   if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
-  if (patch.status === undefined && patch.assigneeMemberId === undefined && patch.resolutionNote === undefined) {
+  if (patch.status === undefined && patch.assigneeMemberIds === undefined && patch.resolutionNote === undefined) {
     return { ok: false, error: '변경할 내용이 없습니다.' }
   }
   if (patch.status !== undefined && patch.expectedStatus === undefined) {
@@ -140,14 +202,18 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
   if (patch.resolutionNote !== undefined && patch.resolutionNote.length > TEXT_MAX) {
     return { ok: false, error: `조치 메모는 ${TEXT_MAX}자 이하여야 합니다.` }
   }
+  if (patch.assigneeMemberIds !== undefined) {
+    const assigneeErr = validateAssignees(patch.assigneeMemberIds)
+    if (assigneeErr) return { ok: false, error: assigneeErr }
+  }
 
   const sb = await createServerClient()
   const { data: cur } = await sb.from('issues').select('project_id, created_by, status, resolved_at').eq('id', issueId).maybeSingle()
   if (!cur) return { ok: false, error: '이슈를 찾을 수 없습니다.' }
   const curStatus = cur.status as IssueStatus
 
+  // 담당자만 바꿔도 issues.updated_at 은 반드시 오른다 — AI 인덱스 신선도 가드의 입력(0041 헤더).
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (patch.assigneeMemberId !== undefined) payload.assignee_member_id = patch.assigneeMemberId
   if (patch.resolutionNote !== undefined) payload.resolution_note = patch.resolutionNote
   if (patch.status !== undefined) {
     // CAS 비교 기준은 서버가 방금 읽은 curStatus 가 아니라 클라이언트가 화면에서 관측한 expectedStatus.
@@ -183,6 +249,16 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
       .select('id')
     if (error) return { ok: false, error: error.message }
     if (!updated?.length) return { ok: false, error: '이슈가 삭제되어 저장할 수 없습니다.' }
+  }
+
+  // 담당자 교체는 상태 CAS 가 통과한 뒤에만 — 충돌 감지 시 담당자까지 절반만 저장되는 일이 없게 한다.
+  if (patch.assigneeMemberIds !== undefined) {
+    const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, patch.assigneeMemberIds)
+    if (assignErr) {
+      // 상태·메모는 이미 커밋됐다 — 화면이 그 변경을 반영하도록 revalidate 하고 실패는 실패로 알린다.
+      revalidateIssues(cur.project_id as string)
+      return { ok: false, error: `담당자 저장에 실패했습니다(${assignErr}). 나머지 변경은 저장되었습니다.` }
+    }
   }
   revalidateIssues(cur.project_id as string)
   return { ok: true }

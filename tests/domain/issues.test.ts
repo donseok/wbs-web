@@ -8,7 +8,7 @@ import {
 function issue(id: string, opts: Partial<Issue> = {}): Issue {
   return {
     id, issueNo: 1, projectId: 'p1', title: `이슈 ${id}`, body: '',
-    status: 'open', severity: 'medium', assigneeMemberId: null, dueDate: null,
+    status: 'open', severity: 'medium', assigneeMemberIds: [], dueDate: null,
     resolutionNote: '', resolvedAt: null, createdBy: 'u1', createdByName: '홍길동',
     createdAt: '2026-07-01T00:00:00+00:00', updatedAt: '2026-07-01T00:00:00+00:00', ...opts,
   }
@@ -96,9 +96,9 @@ describe('sortIssues — 미해결 → 지연 → 심각도 → 목표일 → �
 
 describe('filterIssues — 상태·심각도·내 담당', () => {
   const list = [
-    issue('a', { status: 'open', severity: 'high', assigneeMemberId: 'm1' }),
-    issue('b', { status: 'resolved', severity: 'low', assigneeMemberId: 'm2' }),
-    issue('c', { status: 'open', severity: 'low', assigneeMemberId: null }),
+    issue('a', { status: 'open', severity: 'high', assigneeMemberIds: ['m1'] }),
+    issue('b', { status: 'resolved', severity: 'low', assigneeMemberIds: ['m2', 'm3'] }),
+    issue('c', { status: 'open', severity: 'low', assigneeMemberIds: [] }),
   ]
   it('all 필터는 전량 통과', () => {
     expect(filterIssues(list, { status: 'all', severity: 'all', mineOnly: false, myMemberIds: new Set() })).toHaveLength(3)
@@ -110,6 +110,10 @@ describe('filterIssues — 상태·심각도·내 담당', () => {
   it('내 담당은 myMemberIds 포함 여부 — 미지정 담당은 제외', () => {
     const r = filterIssues(list, { status: 'all', severity: 'all', mineOnly: true, myMemberIds: new Set(['m1']) })
     expect(r.map(i => i.id)).toEqual(['a'])
+  })
+  it('여러 담당자 중 한 명만 나여도 내 담당이다', () => {
+    const r = filterIssues(list, { status: 'all', severity: 'all', mineOnly: true, myMemberIds: new Set(['m3']) })
+    expect(r.map(i => i.id)).toEqual(['b'])
   })
 })
 

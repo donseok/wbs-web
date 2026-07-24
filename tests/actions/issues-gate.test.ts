@@ -19,7 +19,7 @@ import { createIssue, updateIssue, updateIssueProgress, deleteIssue } from '@/ap
 const MEMBER = { role: 'team_editor', teamCode: 'PMO', teamId: 't1' } as const
 const USER = { id: 'me', email: 'me@x.com', user_metadata: {} } as const
 
-const INPUT = { title: '테스트 이슈', body: '', severity: 'medium', assigneeMemberId: null, dueDate: null } as const
+const INPUT = { title: '테스트 이슈', body: '', severity: 'medium' as const, assigneeMemberIds: [] as string[], dueDate: null }
 
 /** 선검증 조회(maybeSingle) 스텁 — from().select().eq().maybeSingle() 체인만 지원. */
 function sbWithCurrent(current: Record<string, unknown> | null, extra: Record<string, unknown> = {}) {
@@ -127,6 +127,34 @@ describe('입력 검증 — createIssue', () => {
     vi.mocked(getSession).mockResolvedValue(USER as never)
     const res = await createIssue('p1', { ...INPUT, dueDate: '2026-02-30' })
     expect(res.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('담당자 상한(20명) 초과 거부 (DB 미도달)', async () => {
+    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    const many = Array.from({ length: 21 }, (_, i) => `m${i}`)
+    const res = await createIssue('p1', { ...INPUT, assigneeMemberIds: many })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('최대 20명')
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('담당자가 배열이 아니면 거부 — 서버 액션 인자 위조 방어 (DB 미도달)', async () => {
+    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    const res = await createIssue('p1', { ...INPUT, assigneeMemberIds: 'm1' as never })
+    expect(res.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateIssueProgress — 담당자 검증', () => {
+  it('배열 아님·비문자열 원소는 DB 도달 전에 거부', async () => {
+    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    const bad = await updateIssueProgress('i1', { assigneeMemberIds: 'm1' as never })
+    expect(bad.ok).toBe(false)
+    const badElem = await updateIssueProgress('i1', { assigneeMemberIds: [42] as never })
+    expect(badElem.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
   })
 })

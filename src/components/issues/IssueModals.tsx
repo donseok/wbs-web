@@ -3,7 +3,7 @@
 // 공지 AnnouncementsView 의 3모달 구조를 파일 분리로 복제(스펙 §6).
 // 진행 필드(상태·담당자·조치메모)는 멤버 전체, 전체 편집·삭제 버튼은 canEdit(작성자/pmo)만 노출 —
 // 서버 액션이 같은 규칙을 재검증한다(UI 노출은 편의일 뿐 보안 경계가 아니다).
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, Pencil, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
@@ -14,6 +14,7 @@ import {
   isOverdue, type Issue, type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
+import { IssueAssigneePicker } from './IssueAssigneePicker'
 import type { ProjectMember } from '@/lib/domain/types'
 
 function ErrorBox({ message }: { message: string }) {
@@ -41,28 +42,11 @@ function SeverityChip({ severity }: { severity: IssueSeverity }) {
   return <span className={`chip ${ISSUE_SEVERITY_META[severity].chip}`}>{t(ISSUE_SEVERITY_META[severity].labelKey)}</span>
 }
 
-/** 담당자 단일 선택 — 회의 폼의 카테고리 셀렉트 관례(app-input). 이름 · 팀코드 병기, 가나다순. */
-function AssigneeSelect({
-  members, value, onChange,
-}: {
-  members: ProjectMember[]
-  value: string | null
-  onChange: (id: string | null) => void
-}) {
-  const { t } = useLocale()
-  const sorted = useMemo(() => sortByKoreanName(members, m => m.name), [members])
-  return (
-    <select
-      className="app-input"
-      value={value ?? ''}
-      onChange={e => onChange(e.target.value === '' ? null : e.target.value)}
-    >
-      <option value="">{t('issue.unassigned')}</option>
-      {sorted.map(m => (
-        <option key={m.id} value={m.id}>{m.teamCode ? `${m.name} · ${m.teamCode}` : m.name}</option>
-      ))}
-    </select>
-  )
+/** 순서 무시 동등 비교 — 피커가 중복 없는 배열을 보장하므로 정렬 후 비교로 충분하다. */
+function sameIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  const sa = [...a].sort(), sb = [...b].sort()
+  return sa.every((v, i) => v === sb[i])
 }
 
 export function IssueDetailModal({
@@ -81,30 +65,40 @@ export function IssueDetailModal({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [status, setStatus] = useState<IssueStatus>('open')
-  const [assignee, setAssignee] = useState<string | null>(null)
+  const [assignees, setAssignees] = useState<string[]>([])
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  // 대상 이슈가 바뀔 때마다 진행 편집 폼을 현재값으로 리셋
+  // 이슈 데이터가 갱신될 때마다 진행 편집 폼을 현재값으로 재베이스라인.
+  // 부분 실패 경로(담당자 저장 실패)는 액션이 revalidate 를 하고 에러를 반환하므로,
+  // 여기서 error 까지 지우면 새 RSC 커밋의 참조 갱신이 그 고지를 화면에서 소거한다 —
+  // 에러 초기화는 아래 이펙트(대상 이슈 '전환' 시점)만 담당한다(리뷰 F2).
   useEffect(() => {
     if (!issue) return
     setStatus(issue.status)
-    setAssignee(issue.assigneeMemberId)
+    setAssignees(issue.assigneeMemberIds)
     setNote(issue.resolutionNote)
-    setError(null)
   }, [issue])
+  const issueId = issue?.id
+  useEffect(() => { setError(null) }, [issueId])
 
   // null 이면 닫힘 — 공지 ReadModal 관례(단일 Modal, open={item !== null}).
   const overdue = issue ? isOverdue(issue, today) : false
   const statusOptions: IssueStatus[] = issue ? [issue.status, ...STATUS_TRANSITIONS[issue.status]] : []
+  const assigneesDirty = issue !== null && !sameIds(assignees, issue.assigneeMemberIds)
   const dirty = issue !== null
-    && (status !== issue.status || assignee !== issue.assigneeMemberId || note !== issue.resolutionNote)
+    && (status !== issue.status || assigneesDirty || note !== issue.resolutionNote)
+
+  // 표시용 담당자 이름 — 가나다순. 조인 행은 멤버 삭제 시 cascade 로 사라지므로 이름 미해석은 과도기뿐이다.
+  const assigneeNames = issue
+    ? sortByKoreanName(issue.assigneeMemberIds.map(id => memberName(id) ?? '—'), n => n).join(', ')
+    : ''
 
   function saveProgress() {
     if (!issue || !dirty) return
     const patch = {
       ...(status !== issue.status ? { status, expectedStatus: issue.status } : {}),
-      ...(assignee !== issue.assigneeMemberId ? { assigneeMemberId: assignee } : {}),
+      ...(assigneesDirty ? { assigneeMemberIds: assignees } : {}),
       ...(note !== issue.resolutionNote ? { resolutionNote: note } : {}),
     }
     startTransition(async () => {
@@ -158,7 +152,7 @@ export function IssueDetailModal({
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
             <div>
               <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.col.assignee')}</dt>
-              <dd className="mt-0.5 text-ink">{memberName(issue.assigneeMemberId) ?? t('issue.unassigned')}</dd>
+              <dd className="mt-0.5 text-ink">{assigneeNames || t('issue.unassigned')}</dd>
             </div>
             <div>
               <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.col.due')}</dt>
@@ -194,10 +188,11 @@ export function IssueDetailModal({
                   ))}
                 </select>
               </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.assignee')}</span>
-                <AssigneeSelect members={members} value={assignee} onChange={setAssignee} />
-              </label>
+            </div>
+            {/* 다중 선택 피커는 셀렉트보다 키가 커서 반 칸에 안 들어간다 — 전체 폭 배치 */}
+            <div>
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.assignee')}</span>
+              <IssueAssigneePicker members={members} selected={assignees} onChange={setAssignees} />
             </div>
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.detail.note')}</span>
@@ -231,7 +226,7 @@ export function IssueFormModal({
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [severity, setSeverity] = useState<IssueSeverity>('medium')
-  const [assignee, setAssignee] = useState<string | null>(null)
+  const [assignees, setAssignees] = useState<string[]>([])
   const [dueDate, setDueDate] = useState('')
   const [error, setError] = useState<string | null>(null)
   const isEdit = initial !== null
@@ -241,7 +236,7 @@ export function IssueFormModal({
     setTitle(initial?.title ?? '')
     setBody(initial?.body ?? '')
     setSeverity(initial?.severity ?? 'medium')
-    setAssignee(initial?.assigneeMemberId ?? null)
+    setAssignees(initial?.assigneeMemberIds ?? [])
     setDueDate(initial?.dueDate ?? '')
     setError(null)
   }, [open, initial])
@@ -251,7 +246,7 @@ export function IssueFormModal({
       setError(t('issue.err.titleRequired'))
       return
     }
-    const input = { title: title.trim(), body, severity, assigneeMemberId: assignee, dueDate: dueDate || null }
+    const input = { title: title.trim(), body, severity, assigneeMemberIds: assignees, dueDate: dueDate || null }
     startTransition(async () => {
       const res = isEdit ? await updateIssue(initial!.id, input) : await createIssue(projectId, input)
       if (res.ok) {
@@ -285,7 +280,7 @@ export function IssueFormModal({
           <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.body')}</span>
           <textarea className="app-textarea min-h-[120px] resize-y" value={body} onChange={e => setBody(e.target.value)} placeholder={t('issue.form.bodyPh')} />
         </label>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.severity')}</span>
             <select className="app-input" value={severity} onChange={e => setSeverity(e.target.value as IssueSeverity)}>
@@ -295,13 +290,14 @@ export function IssueFormModal({
             </select>
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.assignee')}</span>
-            <AssigneeSelect members={members} value={assignee} onChange={setAssignee} />
-          </label>
-          <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.due')}</span>
             <input type="date" className="app-input" value={dueDate} onChange={e => setDueDate(e.target.value)} />
           </label>
+        </div>
+        {/* 다중 선택 피커는 셀렉트보다 키가 커서 그리드 한 칸에 안 들어간다 — 전체 폭 배치 */}
+        <div>
+          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.assignee')}</span>
+          <IssueAssigneePicker members={members} selected={assignees} onChange={setAssignees} />
         </div>
         <p className="text-[11px] text-ink-subtle">{t('issue.form.dueHint')}</p>
         {error && <ErrorBox message={error} />}

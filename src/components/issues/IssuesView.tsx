@@ -8,6 +8,7 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from './IssueModals'
+import { sortByKoreanName } from '@/lib/domain/nameSort'
 import {
   ISSUE_SEVERITIES, ISSUE_SEVERITY_META, ISSUE_STATUSES, ISSUE_STATUS_META,
   canEditIssue, filterIssues, isOverdue, sortIssues,
@@ -47,6 +48,14 @@ export function IssuesView({
   const myIds = useMemo(() => new Set(myMemberIds), [myMemberIds])
   const memberNameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members])
   const memberName = (id: string | null) => (id ? memberNameById.get(id) ?? null : null)
+
+  /** 테이블 셀용 담당자 표기 — 가나다순, 2명까지 이름·나머지는 개수. 없으면 null(셀이 '담당 없음' 폴백). */
+  function assigneeLabel(issue: Issue): string | null {
+    if (issue.assigneeMemberIds.length === 0) return null
+    const names = sortByKoreanName(issue.assigneeMemberIds.map(id => memberNameById.get(id) ?? '—'), n => n)
+    if (names.length <= 2) return names.join(', ')
+    return `${names.slice(0, 2).join(', ')} ${t('issue.assigneeMore').replace('{n}', String(names.length - 2))}`
+  }
 
   const visible = useMemo(
     () => sortIssues(filterIssues(issues, { status: statusFilter, severity: severityFilter, mineOnly, myMemberIds: myIds }), today),
@@ -134,7 +143,7 @@ export function IssuesView({
                       <td className="whitespace-nowrap px-4 py-3">
                         <span className={`chip ${ISSUE_SEVERITY_META[issue.severity].chip}`}>{t(ISSUE_SEVERITY_META[issue.severity].labelKey)}</span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-ink-muted">{memberName(issue.assigneeMemberId) ?? t('issue.unassigned')}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-ink-muted">{assigneeLabel(issue) ?? t('issue.unassigned')}</td>
                       <td className={`whitespace-nowrap px-4 py-3 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
                         {issue.dueDate ?? '—'}{overdue && ` · ${t('issue.overdueBadge')}`}
                       </td>

@@ -16,7 +16,8 @@ export interface Issue {
   body: string
   status: IssueStatus
   severity: IssueSeverity
-  assigneeMemberId: string | null
+  /** 담당자 멤버 id 목록(0042 조인 테이블). 표시 순서는 뷰가 이름순으로 다시 정렬한다. */
+  assigneeMemberIds: string[]
   dueDate: string | null          // 'YYYY-MM-DD'
   resolutionNote: string
   resolvedAt: string | null
@@ -100,7 +101,7 @@ export function sortIssues(issues: Issue[], today: string): Issue[] {
 export type IssueStatusFilter = 'all' | IssueStatus
 export type IssueSeverityFilter = 'all' | IssueSeverity
 
-/** 필터 칩 적용. mineOnly 는 담당자가 내 멤버 id 집합에 속하는 이슈만(미지정 담당 제외). */
+/** 필터 칩 적용. mineOnly 는 담당자 중 한 명이라도 내 멤버 id 집합에 속하는 이슈만(미지정 담당 제외). */
 export function filterIssues(
   issues: Issue[],
   f: { status: IssueStatusFilter; severity: IssueSeverityFilter; mineOnly: boolean; myMemberIds: ReadonlySet<string> },
@@ -108,7 +109,7 @@ export function filterIssues(
   return issues.filter(i =>
     (f.status === 'all' || i.status === f.status)
     && (f.severity === 'all' || i.severity === f.severity)
-    && (!f.mineOnly || (i.assigneeMemberId !== null && f.myMemberIds.has(i.assigneeMemberId))))
+    && (!f.mineOnly || i.assigneeMemberIds.some(id => f.myMemberIds.has(id))))
 }
 
 /** 전체 편집(제목·내용·심각도·기한·담당자)·삭제 게이트 — 작성자 또는 pmo_admin. UI 노출용(서버 액션이 재검증). */
