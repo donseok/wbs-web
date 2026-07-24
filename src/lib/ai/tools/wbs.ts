@@ -23,7 +23,7 @@ import {
   validDateRange,
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionContext, ToolExecutionResult } from './types'
-import { activeTeamCodesSync, isRegisteredTeamCode } from '@/lib/teams/master'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 const WBS_CAPABILITY = 'wbs:read' as const
 
