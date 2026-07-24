@@ -1,9 +1,10 @@
 'use client'
 import { useRef, useState, type ChangeEvent } from 'react'
-import type { FolderNode, MinuteFolder, TeamCode } from '@/lib/domain/types'
+import type { MinuteFolder, TeamCode } from '@/lib/domain/types'
 import {
   MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX,
-  MINUTE_BODY_MAX, TEAM_CODES, buildFolderTree, sanitizeFileName,
+  MINUTE_BODY_MAX, TEAM_CODES, TEAM_SUBGROUPS, sanitizeFileName,
+  subgroupFolderId, teamSubOfFolder,
 } from '@/lib/domain/minutes'
 import { createMinute, fetchProjectMeetingsLite, recordMinuteFile } from '@/app/actions/minutes'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -13,17 +14,6 @@ import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 
 const BUCKET = 'minutes'
-
-/** 셀렉트용 평탄화 — 트리 순서 유지 + depth 들여쓰기. */
-function folderOptions(folders: MinuteFolder[]): { id: string; name: string; depth: number }[] {
-  const { roots } = buildFolderTree(folders, [])
-  const out: { id: string; name: string; depth: number }[] = []
-  const walk = (nodes: FolderNode[], depth: number) => {
-    for (const n of nodes) { out.push({ id: n.folder.id, name: n.folder.name, depth }); walk(n.children, depth + 1) }
-  }
-  walk(roots, 0)
-  return out
-}
 
 export function MinuteUploadModal({
   open, onClose, onSaved, todayIso, projects, defaultTeam, folders, defaultFolderId,
@@ -39,8 +29,11 @@ export function MinuteUploadModal({
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
+  // 탐색기에서 특정 폴더를 보며 열었으면 그 폴더의 (팀, 하위)를 초기값으로 — 시드 체인 밖이면 팀 탭 기본
+  const initial = teamSubOfFolder(folders, defaultFolderId)
   const [date, setDate] = useState(todayIso)
-  const [team, setTeam] = useState<TeamCode>(defaultTeam ?? 'PMO')
+  const [team, setTeamState] = useState<TeamCode>(initial?.team ?? defaultTeam ?? 'PMO')
+  const [sub, setSub] = useState<string>(initial?.sub ?? TEAM_SUBGROUPS[initial?.team ?? defaultTeam ?? 'PMO'][0])
   const [title, setTitle] = useState('')
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [bodyText, setBodyText] = useState('')
@@ -48,8 +41,12 @@ export function MinuteUploadModal({
   const [projectId, setProjectId] = useState('')
   const [meetingId, setMeetingId] = useState('')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
-  const [folderId, setFolderId] = useState<string>(defaultFolderId ?? '')
   const [busy, setBusy] = useState(false)
+
+  function setTeam(next: TeamCode) {
+    setTeamState(next)
+    setSub(TEAM_SUBGROUPS[next][0])  // 팀 전환 시 하위 구분은 그 팀의 대표(첫 항목)로 재설정
+  }
   const [err, setErr] = useState<string | null>(null)
   // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
   const progressRef = useRef<{ id: string; done: number } | null>(null)
@@ -87,10 +84,11 @@ export function MinuteUploadModal({
     try {
       let minuteId = progressRef.current?.id ?? null
       if (!minuteId) {
+        // 편철 폴더 = (팀, 하위 구분) → 시드 폴더. 해석 실패(null)면 서버가 팀 루트로 자동 편철
         const res = await createMinute({
           minuteDate: date, teamCode: team, title: title.trim() || bodyFile.name,
           bodyMd: bodyText, meetingId: meetingId || null,
-        }, folderId || null)
+        }, subgroupFolderId(folders, team, sub))
         if (!res.ok || !res.id) { setErr(res.error ?? t('min.err.upload')); return }
         minuteId = res.id
         progressRef.current = { id: minuteId, done: 0 }
@@ -149,6 +147,17 @@ export function MinuteUploadModal({
             tabs={TEAM_CODES.map(tk => ({ key: tk, label: tk }))}
             value={team} onChange={setTeam} size="sm" />
         </div>
+        {/* 폴더 목록 미확보(프리페치 실패 등)면 하위 구분을 숨긴다 — 선택을 보여주고 무시하는
+            허위 어포던스 방지. 이때는 서버가 담당 팀 루트로 자동 편철한다 */}
+        {folders.length > 0 && (
+          <div className="text-sm">
+            <span className="mb-1 block font-medium">{t('min.form.subTeam')}</span>
+            {/* 하위 구분 = 시드 폴더 트리(0043)와 동일. 단독 팀(PMO/가공/MDM)은 자기 자신 1개 */}
+            <SegmentedTabs
+              tabs={TEAM_SUBGROUPS[team].map(s => ({ key: s, label: s }))}
+              value={sub} onChange={setSub} size="sm" />
+          </div>
+        )}
         <label className="block text-sm">
           <span className="mb-1 block font-medium">{t('min.form.files')}</span>
           <input type="file" multiple onChange={e => void onFiles(e)} className="app-input pt-1.5" />
@@ -180,16 +189,6 @@ export function MinuteUploadModal({
         <label className="block text-sm">
           <span className="mb-1 block font-medium">{t('min.form.title')}</span>
           <input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} className="app-input" />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">{t('min.fold.form.folder')}</span>
-          <select value={folderId} onChange={e => setFolderId(e.target.value)} className="app-input">
-            {/* 미지정('')은 서버가 담당 팀 루트 폴더로 자동 편철(0043) — '미분류'가 아니라 '자동'으로 안내 */}
-            <option value="">{t('min.fold.autoTeam')}</option>
-            {folderOptions(folders).map(o => (
-              <option key={o.id} value={o.id}>{'  '.repeat(o.depth)}{o.name}</option>
-            ))}
-          </select>
         </label>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <label className="block">

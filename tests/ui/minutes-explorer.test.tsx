@@ -141,6 +141,19 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect(planBtn.closest('li')!.textContent).toContain('min.fold.rename')
   })
 
+  it('시드 하위 구분(품질)도 개명·삭제 숨김 — 이름 매칭 편철 앵커(리뷰 반영)', async () => {
+    const fs = [folder('f-mes', 'MES', null, 2), folder('f-q', '품질', 'f-mes', 0)]
+    await mount({ isAdmin: true, folders: fs, leaves: [] })
+    // 품질 자신의 행 li(중첩 안쪽)만 매칭 — MES 행 li 는 하위 li 를 포함하므로 'MES' 부재로 가른다
+    const qBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.menuAria"]')]
+      .find(b => b.closest('li')?.textContent?.includes('품질') && !b.closest('li')?.textContent?.includes('MES'))!
+    await act(async () => qBtn.click())
+    const li = qBtn.closest('li')!
+    expect(li.textContent).toContain('min.fold.addSub')
+    expect(li.textContent).not.toContain('min.fold.rename')
+    expect(li.textContent).not.toContain('min.fold.delete')
+  })
+
   it('폴더 ⋯ 메뉴는 소유자/관리자에게만 — 시드 폴더는 일반 사용자에게 숨김', async () => {
     await mount()
     // 시드(createdBy null) PMO 행: 메뉴 없음 / 본인 소유 APS 회의: 메뉴 있음
