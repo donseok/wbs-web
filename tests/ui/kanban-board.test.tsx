@@ -6,12 +6,12 @@ import type { ComputedItem } from '@/lib/domain/types'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-const { toastFn } = vi.hoisted(() => ({ toastFn: vi.fn() }))
+const { toastFn, refreshFn } = vi.hoisted(() => ({ toastFn: vi.fn(), refreshFn: vi.fn() }))
 
 const updateActual = vi.fn(async (): Promise<{ ok: boolean; error?: string; conflict?: boolean }> => ({ ok: true }))
 vi.mock('@/app/actions/wbs', () => ({ updateActual: (...a: unknown[]) => updateActual(...(a as [])) }))
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ refresh: refreshFn, push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(''),
 }))
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ locale: 'ko', t: (k: string) => k }) }))
@@ -41,7 +41,7 @@ function tree(): ComputedItem[] {
 
 describe('KanbanBoard — 진행 모드 기본', () => {
   let container: HTMLDivElement, root: Root
-  beforeEach(() => { updateActual.mockClear(); toastFn.mockClear(); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
+  beforeEach(() => { updateActual.mockClear(); toastFn.mockClear(); refreshFn.mockClear(); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
   afterEach(() => { act(() => root.unmount()); container.remove() })
   afterEach(() => window.localStorage.clear())
 
@@ -115,5 +115,36 @@ describe('KanbanBoard — 진행 모드 기본', () => {
     await act(async () => dismiss.click())
     expect(window.localStorage.getItem('kanban.coach.v1')).toBe('1')
     expect(container.textContent).not.toContain('kanban.coachTitle')
+  })
+
+  it('빠른 필터로 모든 컬럼이 비면(지연 카드 없음) 필터 결과 0건 안내를 보여준다', async () => {
+    await act(async () => root.render(
+      <KanbanBoard projectId="p1" items={tree()} membership={ADMIN} today="2026-07-25" />,
+    ))
+    // tree()엔 delayed 상태 카드가 없으므로 '지연' 빠른필터를 켜면 세 컬럼 모두 0건이 된다.
+    const overdueChip = [...container.querySelectorAll('button')].find(b => b.textContent === 'kanban.qfOverdue')!
+    await act(async () => overdueChip.click())
+    expect(container.textContent).toContain('kanban.noMatchTitle')
+  })
+
+  it('CAS 충돌(conflict) 응답 시 새로고침을 요청하고 충돌 토스트를 띄운다', async () => {
+    updateActual.mockResolvedValueOnce({ ok: false, conflict: true })
+    await act(async () => root.render(
+      <KanbanBoard projectId="p1" items={tree()} membership={ADMIN} today="2026-07-25" />,
+    ))
+    const inc = [...container.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'kanban.increase')!
+    await act(async () => inc.click())
+    expect(toastFn).toHaveBeenCalledWith(expect.objectContaining({ description: 'kanban.conflict' }))
+    expect(refreshFn).toHaveBeenCalled()
+  })
+
+  it("시작전 카드의 '착수' 클릭은 진척 입력 팝오버(ProgressPopover)를 연다", async () => {
+    await act(async () => root.render(
+      <KanbanBoard projectId="p1" items={tree()} membership={ADMIN} today="2026-07-25" />,
+    ))
+    const start = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('kanban.start'))!
+    await act(async () => start.click())
+    // Modal은 document.body로 포탈되므로 컨테이너가 아닌 body에서 확인한다.
+    expect(document.body.textContent).toContain('kanban.progressTitle')
   })
 })

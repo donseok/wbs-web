@@ -96,17 +96,17 @@ export function KanbanCard({
       {editable && (
         <div className="mt-2.5 flex items-center gap-1.5 border-t border-line pt-2.5" onClick={stop}>
           {bucket === 'not_started' && onStart && (
-            <button className="btn btn-ghost h-7 px-2 text-[12px] gap-1" onClick={onStart}><Play className="h-3.5 w-3.5" />{t('kanban.start')}</button>
+            <button className="btn btn-ghost h-7 px-2 text-[12px] gap-1" disabled={saving} onClick={onStart}><Play className="h-3.5 w-3.5" />{t('kanban.start')}</button>
           )}
           {bucket === 'in_progress' && (
             <>
-              {onStep && <button className="btn btn-ghost h-7 px-2 text-[12px]" aria-label={t('kanban.decrease')} onClick={() => onStep(-10)}><Minus className="h-3.5 w-3.5" /></button>}
-              {onStep && <button className="btn btn-ghost h-7 px-2 text-[12px]" aria-label={t('kanban.increase')} onClick={() => onStep(10)}><Plus className="h-3.5 w-3.5" /></button>}
-              {onComplete && <button className="btn btn-ghost h-7 px-2 text-[12px] ml-auto gap-1 text-done" onClick={onComplete}><Check className="h-3.5 w-3.5" />{t('kanban.complete')}</button>}
+              {onStep && <button className="btn btn-ghost h-7 px-2 text-[12px]" aria-label={t('kanban.decrease')} disabled={saving} onClick={() => onStep(-10)}><Minus className="h-3.5 w-3.5" /></button>}
+              {onStep && <button className="btn btn-ghost h-7 px-2 text-[12px]" aria-label={t('kanban.increase')} disabled={saving} onClick={() => onStep(10)}><Plus className="h-3.5 w-3.5" /></button>}
+              {onComplete && <button className="btn btn-ghost h-7 px-2 text-[12px] ml-auto gap-1 text-done" disabled={saving} onClick={onComplete}><Check className="h-3.5 w-3.5" />{t('kanban.complete')}</button>}
             </>
           )}
           {bucket === 'done' && onReopen && (
-            <button className="btn btn-ghost h-7 px-2 text-[12px] gap-1" onClick={onReopen}><RotateCcw className="h-3.5 w-3.5" />{t('kanban.reopen')}</button>
+            <button className="btn btn-ghost h-7 px-2 text-[12px] gap-1" disabled={saving} onClick={onReopen}><RotateCcw className="h-3.5 w-3.5" />{t('kanban.reopen')}</button>
           )}
         </div>
       )}
