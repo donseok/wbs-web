@@ -170,7 +170,7 @@ export function MeetingsView({
       )}
 
       <MeetingFormModal open={formOpen} projectId={projectId} members={members} initial={editing} todayIso={todayIso}
-        onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={onSaved} />
+        role={role} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={onSaved} />
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
         currentUserId={currentUserId} role={role}
         onClose={() => setDetailOcc(null)} onEditSeries={openEditFromDetail} onChanged={() => router.refresh()} />

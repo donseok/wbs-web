@@ -11,6 +11,7 @@ import { MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
 import { MeetingAttendeePicker } from './MeetingAttendeePicker'
 import { createMeeting, updateMeeting, type MeetingInput } from '@/app/actions/meetings'
 import { notifyMeetingSaved } from '@/app/actions/meetingNotify'
+import { createAnnouncementFromMeeting } from '@/app/actions/announcements'
 import { isValidEmail, MAX_EXTRA_EMAILS, parseExtraEmails } from '@/lib/mail/recipients'
 import { describeNotifyResult, type NotifyOutcome } from '@/lib/mail/outcome'
 // `import type` 을 유지한다 — 값으로 바꾸면 메일 본문 렌더러 전체가 클라이언트 번들에 실린다.
@@ -21,13 +22,15 @@ type FormState = {
   location: string; category: MeetingCategory; recurrence: MeetingRecurrence
   recurrenceUntil: string; body: string; attendeeIds: string[]; notify: boolean
   extraEmails: string
+  announce: boolean
 }
 
 function initState(initial: Meeting | null, todayIso: string): FormState {
   if (!initial) return {
     title: '', meetingDate: todayIso, allDay: false, startTime: '10:00', endTime: '11:00',
     location: '', category: 'routine', recurrence: 'none', recurrenceUntil: '', body: '',
-    attendeeIds: [], notify: true, extraEmails: '',
+    // announce 기본 꺼짐 — 공지는 프로젝트 전원에게 보이는 확성기라 명시적 옵트인만 받는다.
+    attendeeIds: [], notify: true, extraEmails: '', announce: false,
   }
   return {
     title: initial.title,
@@ -46,17 +49,21 @@ function initState(initial: Meeting | null, todayIso: string): FormState {
     notify: false,
     // 추가 수신 이메일은 저장되지 않는다 — 수정 화면에서도 항상 빈칸으로 시작한다.
     extraEmails: '',
+    // 공지 등록은 생성 전용 — 수정에서 켜지면 저장할 때마다 같은 회의의 공지가 한 장씩 늘어난다.
+    // 이미 만든 회의를 공지하려면 상세 모달의 '공지로 등록' 버튼이 그 용도다.
+    announce: false,
   }
 }
 
 export function MeetingFormModal({
-  open, projectId, members, initial, todayIso, onClose, onSaved,
+  open, projectId, members, initial, todayIso, role, onClose, onSaved,
 }: {
   open: boolean
   projectId: string
   members: ProjectMember[]
   initial: Meeting | null
   todayIso: string
+  role: string | null
   onClose: () => void
   onSaved: () => void
 }) {
@@ -97,6 +104,8 @@ export function MeetingFormModal({
   const extraList = parseExtraEmails(form.extraEmails)
   const canNotify = form.attendeeIds.length > 0 || extraList.length > 0
   const notifyKind: InviteKind = initial ? 'updated' : 'created'
+  // 공지 등록은 생성 전용 + pmo_admin 전용(상세 모달 버튼·서버 액션·RLS 와 같은 삼중 게이트의 UI 층).
+  const canAnnounce = !initial && role === 'pmo_admin'
 
   /**
    * 발송 결과를 어디에 표시할지 고른다.
@@ -131,6 +140,17 @@ export function MeetingFormModal({
       report(run, { kind: 'panel', tone: 'error', message: t('meet.notify.unknown') })
     } finally {
       if (run === runRef.current) setSending(false)
+    }
+  }
+
+  /** 저장 커밋 뒤의 공지 등록 — 결과는 성공·실패 모두 토스트(패널은 메일 결과 전용). */
+  async function postAnnouncement(meetingId: string, occurrenceDate: string) {
+    try {
+      const a = await createAnnouncementFromMeeting(meetingId, occurrenceDate)
+      if (a.ok) toast({ title: t('meet.form.announceOk'), variant: 'success' })
+      else toast({ title: `${t('meet.form.announceFailed')} — ${a.error ?? ''}`, variant: 'error' })
+    } catch {
+      toast({ title: t('meet.form.announceFailed'), variant: 'error' })
     }
   }
 
@@ -179,10 +199,26 @@ export function MeetingFormModal({
       }
 
       // 여기부터 회의는 이미 커밋됐다. 어떤 실패도 저장을 되돌리지 않는다.
-      if (!canNotify || !form.notify || !res.id) { if (isCurrent()) onSaved(); return }
+      // 공지·메일은 트랜지션 밖 분리 체인으로 — 트랜지션이 감싸는 것은 저장까지라는
+      // 이 파일의 불변식(위 주석) 그대로다. 공지 await 를 안에 두면 저장이 끝난 뒤에도
+      // 공지 왕복 내내 pending 이 새 폼의 버튼까지 잠근다. 순서는 공지 → 메일:
+      // 공지는 DB insert 한 번이라 짧고, SMTP 뒤에 두면 발송이 10초씩 붙잡힐 때
+      // 공지가 그만큼 늦게 올라간다. 실패는 토스트로 알리되 메일 발송을 막지 않는다
+      // (첫 회차 날짜·권한은 서버 액션이 재검증. 토스트는 앱 레벨이라 모달이 닫혀도 보인다).
+      const meetingId = res.id
+      const announce = canAnnounce && form.announce && !!meetingId
+      const willNotify = canNotify && form.notify && !!meetingId
 
+      if (!willNotify) {
+        if (announce) void postAnnouncement(meetingId!, input.meetingDate)
+        if (isCurrent()) onSaved()
+        return
+      }
       if (isCurrent()) setSending(true)
-      void sendInvite(run, res.id, notifyKind, extraList)
+      void (async () => {
+        if (announce) await postAnnouncement(meetingId!, input.meetingDate)
+        await sendInvite(run, meetingId!, notifyKind, extraList)
+      })()
     })
   }
 
@@ -315,6 +351,31 @@ export function MeetingFormModal({
               </p>
             )}
           </div>
+
+          {/* 생성 + pmo_admin 전용 — 저장 직후 첫 회차로 공지 1건을 만든다(상세 모달 '공지로 등록' 버튼과 같은 액션).
+              메일 블록 밖에 둔다: 메일 수신자 설정이 아니라 별개의 부가 동작이다. */}
+          {canAnnounce && (
+            <div>
+              <label className="flex items-center gap-2">
+                <input
+                  id="announce-meeting"
+                  type="checkbox"
+                  checked={form.announce}
+                  onChange={e => set('announce', e.target.checked)}
+                  className="h-4 w-4 accent-[var(--color-brand)]"
+                />
+                <span className="text-xs font-semibold text-ink-muted">{t('meet.form.announce')}</span>
+              </label>
+              {/* 상세 모달 경로는 특정 회차 위에서 누르니 범위가 자명하지만, 여기서는 시리즈를
+                  만들며 체크한다 — '시리즈 전체가 공지된다'는 오해를 저장 전에 바로잡는다. */}
+              {form.announce && form.recurrence !== 'none' && (
+                <p className="mt-1 flex items-start gap-1.5 pl-6 text-[11px] leading-5 text-ink-subtle">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-pending" />
+                  {t('meet.form.announceRecurHint')}
+                </p>
+              )}
+            </div>
+          )}
 
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('meet.form.body')}</span>
