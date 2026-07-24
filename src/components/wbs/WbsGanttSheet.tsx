@@ -1,8 +1,9 @@
 'use client'
-import { useState, useEffect, useId, useMemo, useRef } from 'react'
+import { useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, Membership, TaskDependency } from '@/lib/domain/types'
 import { computeDependencySchedule, type TaskSchedule } from '@/lib/domain/dependencySchedule'
+import { centeredTimelineScrollLeft } from '@/lib/domain/ganttScale'
 import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
@@ -172,6 +173,8 @@ export function WbsGanttSheet({
   const [flashId, setFlashId] = useState<string | null>(null) // focus 행 하이라이트(잠시 후 해제)
   const handledFocusRef = useRef<string | null>(null) // router.refresh(items 갱신)마다 재점프하지 않게 1회 처리
   const rootRef = useRef<HTMLDivElement>(null)
+  const timelineScrollRef = useRef<HTMLDivElement>(null)
+  const centeredViewRef = useRef<string | null>(null)
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
@@ -209,6 +212,7 @@ export function WbsGanttSheet({
   )
   const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
+  const FROZEN_W = visibleCols.filter(col => col.frozen).reduce((sum, col) => sum + col.w, 0)
 
   useEffect(() => {
     if (!toast) return
@@ -378,8 +382,10 @@ export function WbsGanttSheet({
   dependencySchedule.byId.forEach(schedule => {
     allDates.push(schedule.forecastStart, schedule.forecastEnd)
   })
-  const rangeStart = allDates.length ? allDates.reduce((a, b) => (a < b ? a : b)) : today
-  const rangeEnd = allDates.length ? allDates.reduce((a, b) => (a > b ? a : b)) : today
+  // WBS 진입 시 기준일 선을 항상 보여 줄 수 있도록 일정 범위 밖이어도 날짜 축에 포함한다.
+  const axisDates = [...allDates, today]
+  const rangeStart = axisDates.reduce((a, b) => (a < b ? a : b))
+  const rangeEnd = axisDates.reduce((a, b) => (a > b ? a : b))
   const start = new Date(rangeStart + 'T00:00:00Z')
   const end = new Date(rangeEnd + 'T00:00:00Z')
   const days: string[] = []
@@ -416,6 +422,23 @@ export function WbsGanttSheet({
   }
   const todayX = days.length && today >= rangeStart && today <= rangeEnd ? xOf(today) + dayPx / 2 : null
   const rowsH = flatRows.length * ROW_H
+
+  // 첫 페인트 전에 기준일을 sticky 열 오른쪽의 실제 가시 영역 중앙에 배치한다.
+  // 직접 scrollLeft를 지정해 사용자가 보는 애니메이션이나 뒤늦은 가로 이동을 만들지 않는다.
+  useLayoutEffect(() => {
+    const viewKey = `${projectId}:${timelineFocus ? 'timeline' : 'sheet'}`
+    if (centeredViewRef.current === viewKey || todayX == null) return
+    const el = timelineScrollRef.current
+    if (!el || el.clientWidth <= 0) return
+    el.scrollLeft = centeredTimelineScrollLeft({
+      timelineLeft: LEFT_W,
+      dateX: todayX,
+      frozenWidth: FROZEN_W,
+      viewportWidth: el.clientWidth,
+      scrollWidth: el.scrollWidth,
+    })
+    centeredViewRef.current = viewKey
+  }, [FROZEN_W, LEFT_W, projectId, timelineFocus, todayX])
 
   /* ── 편집 (WbsSheet 이식) ── */
   const isPmo = membership?.role === 'pmo_admin'
@@ -633,7 +656,12 @@ export function WbsGanttSheet({
       />
 
       {/* ── 단일 스크롤 컨테이너 ── */}
-      <div className={`card w-full max-w-full overflow-auto ${fullscreen ? '' : 'min-h-0 flex-1'}`} style={fullscreen ? { maxHeight: 'calc(100dvh - 150px)' } : undefined}>
+      <div
+        ref={timelineScrollRef}
+        data-wbs-scroll-region
+        className={`card w-full max-w-full overflow-auto ${fullscreen ? '' : 'min-h-0 flex-1'}`}
+        style={fullscreen ? { maxHeight: 'calc(100dvh - 150px)' } : undefined}
+      >
         <div className="relative" style={{ width: LEFT_W + ganttW }}>
           {/* 배경 격자 + 주말/공휴일 (행 뒤) */}
           <div

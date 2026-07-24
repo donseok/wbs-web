@@ -12,7 +12,7 @@ export interface GanttScale {
   /** 날짜 → 타임라인 좌측 오프셋(px) */
   xOf: (date: string) => number
   isWeekend: (date: string) => boolean
-  /** 기준일 세로선 위치(px). 범위 밖이면 null */
+  /** 기준일 세로선 위치(px). 날짜 범위가 기준일을 항상 포함하므로 정상 입력이면 항상 존재한다. */
   todayX: number | null
 }
 
@@ -22,8 +22,10 @@ function iso(d: Date): string {
 
 export function buildGanttScale(dates: string[], today: string, dayPx: number): GanttScale {
   const valid = dates.filter(Boolean)
-  const rangeStart = valid.length ? valid.reduce((a, b) => (a < b ? a : b)) : today
-  const rangeEnd = valid.length ? valid.reduce((a, b) => (a > b ? a : b)) : today
+  // WBS 첫 화면에서 기준일을 항상 보여 줄 수 있도록 일정 밖이어도 축에 포함한다.
+  const axisDates = [...valid, today]
+  const rangeStart = axisDates.reduce((a, b) => (a < b ? a : b))
+  const rangeEnd = axisDates.reduce((a, b) => (a > b ? a : b))
 
   const start = new Date(rangeStart + 'T00:00:00Z')
   const end = new Date(rangeEnd + 'T00:00:00Z')
@@ -62,6 +64,30 @@ export function buildGanttScale(dates: string[], today: string, dayPx: number): 
     days.length && today >= rangeStart && today <= rangeEnd ? xOf(today) + dayPx / 2 : null
 
   return { days, rangeStart, rangeEnd, months, weeks, ganttW, xOf, isWeekend, todayX }
+}
+
+/**
+ * sticky 열에 가리지 않도록 기준일을 실제 타임라인 가시 영역의 중앙에 놓는 초기 scrollLeft.
+ * timelineLeft/dateX는 스크롤 콘텐츠 좌표이고, frozenWidth만큼은 뷰포트 왼쪽을 계속 가린다.
+ */
+export function centeredTimelineScrollLeft({
+  timelineLeft,
+  dateX,
+  frozenWidth,
+  viewportWidth,
+  scrollWidth,
+}: {
+  timelineLeft: number
+  dateX: number
+  frozenWidth: number
+  viewportWidth: number
+  scrollWidth: number
+}): number {
+  if (viewportWidth <= 0 || scrollWidth <= viewportWidth) return 0
+  const occludedWidth = Math.min(Math.max(0, frozenWidth), viewportWidth)
+  const visibleTimelineWidth = viewportWidth - occludedWidth
+  const target = timelineLeft + dateX - occludedWidth - visibleTimelineWidth / 2
+  return Math.min(Math.max(0, scrollWidth - viewportWidth), Math.max(0, target))
 }
 
 /** 트리에서 모든 계획 일자를 평탄 수집 */
