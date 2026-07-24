@@ -1,13 +1,12 @@
 import * as XLSX from 'xlsx'
 import type { ComputedItem, TeamCode } from '@/lib/domain/types'
+import { DEFAULT_TEAM_CODES } from '@/lib/domain/teams'
 
 /**
- * WBS 익스포트 (순수). parse.ts와 동일한 열 배치로 써서 다시 임포트하면 라운드트립된다.
- * 열(0-base): A0 Biz · B1 Phase · C2 Task · D3 Activity · G6~K10 담당(●주관/△지원)
- *           · L11 산출물 · M12 계획시작 · N13 계획종료 · O14 가중치 · Q16 실적%
- * R17~ 는 사람이 읽기 위한 계산 컬럼(파서는 무시).
+ * WBS 익스포트 (순수). parse.ts(buildWbsColumnMap)가 읽는 3행 헤더 규약으로 써서
+ * 다시 임포트하면 라운드트립된다. 팀 열은 가변(팀 마스터): Activity(3) 뒤 6..base-1,
+ * 이후 산출물·시작·종료·가중치·(빈칸)·실적%·계산 컬럼 순으로 밀린다.
  */
-const TEAM_COL: Record<TeamCode, number> = { PMO: 6, ERP: 7, MES: 8, 가공: 9, MDM: 10 }
 const STATUS_LABEL: Record<ComputedItem['status'], string> = {
   not_started: '시작전', in_progress: '진행중', delayed: '지연', done: '완료',
 }
@@ -38,31 +37,54 @@ function isoToDate(iso: string | null): Date | '' {
   return new Date(iso + 'T00:00:00Z')
 }
 
+/** 팀 열 목록 확정 — 주입된 목록(활성 팀) ∪ 데이터에 실제 등장하는 담당 팀.
+ *  비활성 팀 담당이 열 부재로 조용히 유실되지 않게 뒤에 덧붙인다(등장 순). */
+function resolveTeamColumns(items: ComputedItem[], teamCodes: readonly TeamCode[]): TeamCode[] {
+  const cols = [...teamCodes]
+  const seen = new Set(cols)
+  const walk = (ns: ComputedItem[]) => ns.forEach(n => {
+    for (const o of n.owners) if (!seen.has(o.team)) { seen.add(o.team); cols.push(o.team) }
+    walk(n.children)
+  })
+  walk(items)
+  return cols
+}
+
 /** WBS 시트의 AOA(행 배열) 생성 — 테스트·검증용으로 분리 노출. */
-export function buildWbsAoa(items: ComputedItem[], projectName = 'WBS'): unknown[][] {
+export function buildWbsAoa(
+  items: ComputedItem[],
+  projectName = 'WBS',
+  teamCodes: readonly TeamCode[] = DEFAULT_TEAM_CODES,
+): unknown[][] {
+  const teams = resolveTeamColumns(items, teamCodes)
+  const base = 6 + teams.length // 팀 열 다음 첫 열(산출물) — 5팀이면 11(L), 기존 양식과 동일
+  const teamCol = new Map(teams.map((c, i) => [c, 6 + i]))
+
   const header1 = [projectName]
-  const header2 = ['', 'Phase', 'Task', 'Activity', '', '', '담당', '', '', '', '', '산출물', '계획', '']
-  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', 'MDM', '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
+  const header2 = ['', 'Phase', 'Task', 'Activity', '', '', '담당',
+    ...Array<string>(Math.max(0, teams.length - 1)).fill(''), '산출물', '계획', '']
+  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', ...teams,
+    '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
 
   const rows: unknown[][] = [header1, header2, header3]
   for (const it of flatten(items)) {
-    const row: unknown[] = new Array(20).fill('')
+    const row: unknown[] = new Array(base + 9).fill('')
     row[0] = it.biz ?? ''
     if (it.level === 'phase') row[1] = it.name
     else if (it.level === 'task') row[2] = it.name
     else row[3] = it.name
-    for (const o of it.owners) row[TEAM_COL[o.team]] = o.kind === 'primary' ? '●' : '△'
-    row[11] = it.deliverable ?? ''
-    row[12] = isoToDate(it.plannedStart)
-    row[13] = isoToDate(it.plannedEnd)
-    row[14] = it.weight ?? ''
-    // 실적%은 leaf(저장값)만 라운드트립. 상위는 계산값이므로 Q를 비워 임포트 시 무시되게 함.
+    for (const o of it.owners) row[teamCol.get(o.team)!] = o.kind === 'primary' ? '●' : '△'
+    row[base] = it.deliverable ?? ''
+    row[base + 1] = isoToDate(it.plannedStart)
+    row[base + 2] = isoToDate(it.plannedEnd)
+    row[base + 3] = it.weight ?? ''
+    // 실적%은 leaf(저장값)만 라운드트립. 상위는 계산값이므로 비워 임포트 시 무시되게 함.
     // 예외: sub-act 를 접은 activity 는 롤업값을 실어 재임포트 시 실적이 보존되게 한다.
-    row[16] = it.children.length === 0 ? (it.actualPct ?? '') : it.level === 'activity' ? Math.round(it.rolledActualPct) : ''
+    row[base + 5] = it.children.length === 0 ? (it.actualPct ?? '') : it.level === 'activity' ? Math.round(it.rolledActualPct) : ''
     // 읽기용 계산 컬럼 — 엑셀은 정수 표기 관례 유지(도메인 롤업은 소수 1자리)
-    row[17] = Math.round(it.plannedPct)
-    row[18] = Math.round(it.rolledActualPct)
-    row[19] = it.achievement == null ? '' : it.achievement
+    row[base + 6] = Math.round(it.plannedPct)
+    row[base + 7] = Math.round(it.rolledActualPct)
+    row[base + 8] = it.achievement == null ? '' : it.achievement
     row.push(STATUS_LABEL[it.status])
     rows.push(row)
   }
@@ -74,9 +96,10 @@ export function buildWbsWorkbook(
   items: ComputedItem[],
   holidays: { date: string; name: string }[] = [],
   projectName = 'WBS',
+  teamCodes: readonly TeamCode[] = DEFAULT_TEAM_CODES,
 ): ArrayBuffer {
   const wb = XLSX.utils.book_new()
-  const wbsSheet = XLSX.utils.aoa_to_sheet(buildWbsAoa(items, projectName), { cellDates: true })
+  const wbsSheet = XLSX.utils.aoa_to_sheet(buildWbsAoa(items, projectName, teamCodes), { cellDates: true })
   XLSX.utils.book_append_sheet(wb, wbsSheet, 'WBS')
 
   const holAoa: unknown[][] = [['날짜', '명칭'], ...holidays.map(h => [isoToDate(h.date), h.name])]

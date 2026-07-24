@@ -67,3 +67,31 @@ describe('buildWbsWorkbook round-trip', () => {
     expect(res.ok).toBe(true)
   })
 })
+
+/* ── 동적 팀 열(팀 마스터 대응) ── */
+import { buildWbsColumnMap } from '@/lib/excel/parse'
+import { buildWbsAoa } from '@/lib/excel/export'
+
+describe('buildWbsAoa 동적 팀 열', () => {
+  it('teamCodes 주입 시 header3에 팀 열이 생성되고 후속 열이 밀린다', () => {
+    const aoa = buildWbsAoa([], 'WBS', ['PMO', 'ERP', 'MES', '가공', 'MDM', '신팀'])
+    const h3 = aoa[2] as string[]
+    expect(h3.slice(6, 12)).toEqual(['PMO', 'ERP', 'MES', '가공', 'MDM', '신팀'])
+    expect(h3[12]).toBe('산출물')
+    expect(h3[h3.length - 1]).toBe('상태')
+  })
+
+  it('동적 헤더는 buildWbsColumnMap과 라운드트립된다', () => {
+    const aoa = buildWbsAoa([], 'WBS', ['PMO', '신팀'])
+    const m = buildWbsColumnMap(aoa[2] as unknown[])
+    expect(m.teams).toEqual([[6, 'PMO'], [7, '신팀']])
+    expect(m.deliverable).toBe(8)
+    expect(m.actualPct).toBe(13)
+  })
+
+  it('기본(5팀) 헤더는 기존 양식과 동일(하위 호환)', () => {
+    const aoa = buildWbsAoa([])
+    expect(aoa[2]).toEqual(['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', 'MDM',
+      '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태'])
+  })
+})
