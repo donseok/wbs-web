@@ -174,19 +174,18 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toContain('팀 기본 폴더')
   })
-  it('rename/delete: 시드 하위 구분(구매)도 금지 — 이름 매칭 편철 앵커(리뷰 반영)', async () => {
+  it('rename/delete: 시드 하위 구분(구매)은 허용 — 하위 구분이 실폴더 동적 유도로 바뀌어 앵커 보호 해제', async () => {
     const seedTree = [
       { id: 'r-erp', name: 'ERP', parent_id: null, sort: 1, created_by: null },
       { id: 'c-buy', name: '구매', parent_id: 'r-erp', sort: 1, created_by: null },
     ]
     const { client } = fakeClient({ minute_folders: { data: seedTree, error: null } })
     createServerClient.mockResolvedValue(client)
+    // fakeClient 는 갱신·삭제 결과로 테이블 데이터를 그대로 돌려주므로(비어있지 않음) 성공 경로에 도달
     const r = await renameMinuteFolder('c-buy', '구매관리')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('팀 기본 폴더')
+    expect(r.ok).toBe(true)
     const d = await deleteMinuteFolder('c-buy')
-    expect(d.ok).toBe(false)
-    expect(d.error).toContain('삭제할 수 없습니다')
+    expect(d.ok).toBe(true)
   })
   it('rename: 일반 루트를 팀코드 동명(MDM)으로 바꾸는 것도 거부(앵커 사칭 방지)', async () => {
     const { client } = fakeClient({

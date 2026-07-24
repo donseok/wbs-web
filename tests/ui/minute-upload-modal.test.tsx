@@ -14,10 +14,12 @@ vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }
 const createMinute = vi.fn<(input: unknown, folderId: string | null) => Promise<{ ok: boolean; id: string }>>(
   async () => ({ ok: true, id: 'm-new' }))
 const recordMinuteFile = vi.fn<(...a: unknown[]) => Promise<{ ok: boolean }>>(async () => ({ ok: true }))
+const fetchMinuteFoldersLite = vi.fn<() => Promise<MinuteFolder[]>>(async () => tree)
 vi.mock('@/app/actions/minutes', () => ({
   createMinute: (...a: unknown[]) => createMinute(...(a as [unknown, string | null])),
   recordMinuteFile: (...a: unknown[]) => recordMinuteFile(...a),
   fetchProjectMeetingsLite: vi.fn(async () => []),
+  fetchMinuteFoldersLite: () => fetchMinuteFoldersLite(),
 }))
 const upload = vi.fn(async () => ({ error: null }))
 vi.mock('@/lib/supabase/client', () => ({
@@ -31,21 +33,25 @@ const F = (
   createdBy: string | null = null, sort = 0,
 ): MinuteFolder => ({ id, name, parentId, sort, createdBy })
 
+// sort 는 프로덕션 시드값(0043) — 하위 구분이 실폴더(sort→이름순)에서 동적 유도되므로 순서가 계약
 const tree: MinuteFolder[] = [
-  F('r-pmo', 'PMO'),
-  F('r-erp', 'ERP'), F('c-sales', '영업', 'r-erp'), F('c-buy', '구매', 'r-erp'), F('c-acc', '관리회계', 'r-erp'),
-  F('r-mes', 'MES'), F('c-q', '품질', 'r-mes'), F('c-plan', '생산계획', 'r-mes'),
-  F('c-ops', '조업및표준화', 'r-mes'), F('c-log', '물류', 'r-mes'), F('c-fac', '설비및L2', 'r-mes'),
-  F('r-gk', '가공'), F('r-mdm', 'MDM'),
+  F('r-pmo', 'PMO', null, null, 0),
+  F('r-erp', 'ERP', null, null, 1),
+  F('c-sales', '영업', 'r-erp', null, 0), F('c-buy', '구매', 'r-erp', null, 1), F('c-acc', '관리회계', 'r-erp', null, 2),
+  F('r-mes', 'MES', null, null, 2),
+  F('c-q', '품질', 'r-mes', null, 0), F('c-plan', '생산계획', 'r-mes', null, 1),
+  F('c-ops', '조업및표준화', 'r-mes', null, 2), F('c-log', '물류', 'r-mes', null, 3), F('c-fac', '설비및L2', 'r-mes', null, 4),
+  F('r-gk', '가공', null, null, 3), F('r-mdm', 'MDM', null, null, 4),
 ]
 
-describe('MinuteUploadModal — 담당 하위 구분(시드 트리 연동)', () => {
+describe('MinuteUploadModal — 담당 하위 구분(실폴더 트리 연동)', () => {
   let container: HTMLDivElement, root: Root
   const onSaved = vi.fn()
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
     root = createRoot(container)
     createMinute.mockClear(); recordMinuteFile.mockClear(); upload.mockClear(); onSaved.mockClear()
+    fetchMinuteFoldersLite.mockImplementation(async () => tree)
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
@@ -103,8 +109,25 @@ describe('MinuteUploadModal — 담당 하위 구분(시드 트리 연동)', () 
   })
 
   it('폴더 목록 미확보(빈 배열)면 하위 구분을 숨긴다 — 허위 선택 방지(리뷰 반영)', async () => {
+    fetchMinuteFoldersLite.mockImplementation(async () => [])   // 재조회도 실패(빈 폴백)
     await mount({ folders: [] })
     expect(tablists().length).toBe(1)                 // 담당 탭만
     expect(dialog().textContent).not.toContain('min.form.subTeam')
+  })
+
+  it('열림 시 재조회가 stale prop 을 대체 — 타 세션이 삭제한 폴더 탭이 사라지고 대표로 재설정(리뷰 반영)', async () => {
+    // prop(stale)에는 MES 아래 '임시' 폴더가 있고 그 폴더를 보며 열었지만, 서버에는 이미 삭제됨
+    const stale = [...tree, F('c-x', '임시', 'r-mes', 'u1', 100)]
+    await mount({ folders: stale, defaultFolderId: 'c-x' })
+    expect(tabsOf(1).map(b => b.textContent)).toEqual(['품질', '생산계획', '조업및표준화', '물류', '설비및L2'])
+    expect(tabsOf(1).find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('품질')
+  })
+
+  it('재조회 응답의 신규 폴더가 탭에 반영 — 유효한 현재 선택은 무접촉', async () => {
+    fetchMinuteFoldersLite.mockImplementation(async () => [...tree, F('u-new', '신규구분', 'r-mes', 'u1', 100)])
+    await mount({ defaultFolderId: 'c-q' })           // (MES, 품질)로 열림
+    expect(tabsOf(1).map(b => b.textContent))
+      .toEqual(['품질', '생산계획', '조업및표준화', '물류', '설비및L2', '신규구분'])
+    expect(tabsOf(1).find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('품질')
   })
 })

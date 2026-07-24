@@ -1,12 +1,14 @@
 'use client'
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { MinuteFolder, TeamCode } from '@/lib/domain/types'
 import {
   MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX,
   MINUTE_BODY_MAX, sanitizeFileName, subgroupsOf,
   subgroupFolderId, teamSubOfFolder,
 } from '@/lib/domain/minutes'
-import { createMinute, fetchProjectMeetingsLite, recordMinuteFile } from '@/app/actions/minutes'
+import {
+  createMinute, fetchMinuteFoldersLite, fetchProjectMeetingsLite, recordMinuteFile,
+} from '@/app/actions/minutes'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
@@ -36,7 +38,12 @@ export function MinuteUploadModal({
   const fallbackTeam = teamCodes[0] ?? 'PMO'
   const [date, setDate] = useState(todayIso)
   const [team, setTeamState] = useState<TeamCode>(initial?.team ?? defaultTeam ?? fallbackTeam)
-  const [sub, setSub] = useState<string>(initial?.sub ?? subgroupsOf(initial?.team ?? defaultTeam ?? fallbackTeam)[0])
+  const [sub, setSub] = useState<string>(
+    initial?.sub ?? subgroupsOf(folders, initial?.team ?? defaultTeam ?? fallbackTeam)[0])
+  // 폴더 목록은 prop(탐색기 상태)으로 즉시 그리되 열림 시점에 재조회로 대체 — 하위 폴더가
+  // 삭제 가능해지면서 타 세션의 삭제·개명을 모르는 stale 목록이면 죽은 폴더 탭으로의 업로드가
+  // 새로고침 전까지 반복 실패한다(수정 모달의 열림 시 재조회와 동일 패턴, 리뷰 반영)
+  const [liveFolders, setLiveFolders] = useState<MinuteFolder[]>(folders)
   const [title, setTitle] = useState('')
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [bodyText, setBodyText] = useState('')
@@ -45,10 +52,27 @@ export function MinuteUploadModal({
   const [meetingId, setMeetingId] = useState('')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
   const [busy, setBusy] = useState(false)
+  // 재조회 응답 도착 시점의 사용자 팀 선택을 초기 팀이 덮지 않게 현재 팀 추적(수정 모달과 동일 경합 가드)
+  const teamRef = useRef<TeamCode>(initial?.team ?? defaultTeam ?? fallbackTeam)
+
+  useEffect(() => {
+    let alive = true
+    void fetchMinuteFoldersLite().then(fs => {
+      if (!alive || fs.length === 0) return   // 빈 응답(조회 실패 폴백)은 prop 목록 유지
+      setLiveFolders(fs)
+      // 현재 (팀, 하위)가 신선 목록에서도 유효하면 무접촉 — 사용자 선택 존중
+      setSub(cur => {
+        const names = subgroupsOf(fs, teamRef.current)
+        return names.includes(cur) ? cur : names[0]
+      })
+    }).catch(err => console.error('[MinuteUploadModal] 폴더 재조회 실패(프리페치 목록 사용):', err))
+    return () => { alive = false }
+  }, [])
 
   function setTeam(next: TeamCode) {
     setTeamState(next)
-    setSub(subgroupsOf(next)[0])  // 팀 전환 시 하위 구분은 그 팀의 대표(첫 항목)로 재설정
+    teamRef.current = next
+    setSub(subgroupsOf(liveFolders, next)[0])  // 팀 전환 시 하위 구분은 그 팀의 대표(첫 항목)로 재설정
   }
   const [err, setErr] = useState<string | null>(null)
   // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
@@ -87,11 +111,11 @@ export function MinuteUploadModal({
     try {
       let minuteId = progressRef.current?.id ?? null
       if (!minuteId) {
-        // 편철 폴더 = (팀, 하위 구분) → 시드 폴더. 해석 실패(null)면 서버가 팀 루트로 자동 편철
+        // 편철 폴더 = (팀, 하위 구분) → 실폴더. 해석 실패(null)면 서버가 팀 루트로 자동 편철
         const res = await createMinute({
           minuteDate: date, teamCode: team, title: title.trim() || bodyFile.name,
           bodyMd: bodyText, meetingId: meetingId || null,
-        }, subgroupFolderId(folders, team, sub))
+        }, subgroupFolderId(liveFolders, team, sub))
         if (!res.ok || !res.id) { setErr(res.error ?? t('min.err.upload')); return }
         minuteId = res.id
         progressRef.current = { id: minuteId, done: 0 }
@@ -152,12 +176,12 @@ export function MinuteUploadModal({
         </div>
         {/* 폴더 목록 미확보(프리페치 실패 등)면 하위 구분을 숨긴다 — 선택을 보여주고 무시하는
             허위 어포던스 방지. 이때는 서버가 담당 팀 루트로 자동 편철한다 */}
-        {folders.length > 0 && (
+        {liveFolders.length > 0 && (
           <div className="text-sm">
             <span className="mb-1 block font-medium">{t('min.form.subTeam')}</span>
-            {/* 하위 구분 = 시드 폴더 트리(0043)와 동일. 단독 팀(PMO/가공/MDM)은 자기 자신 1개 */}
+            {/* 하위 구분 = 팀 루트의 실제 하위 폴더(생성/개명/삭제 즉시 반영). 하위 폴더가 없는 팀은 자기 자신 1개 */}
             <SegmentedTabs
-              tabs={subgroupsOf(team).map(s => ({ key: s, label: s }))}
+              tabs={subgroupsOf(liveFolders, team).map(s => ({ key: s, label: s }))}
               value={sub} onChange={setSub} size="sm" />
           </div>
         )}

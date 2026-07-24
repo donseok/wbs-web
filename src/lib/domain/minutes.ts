@@ -29,72 +29,68 @@ export function isTeamRootFolder(
   return f.parentId === null && f.createdBy === null
 }
 
-/* ── 담당 하위 구분(업로드 편철): 시드 폴더 트리(0043)와 동일 ── */
+/* ── 담당 하위 구분(업로드 편철): 팀 루트의 실제 하위 폴더에서 동적 유도 ── */
 
-/** 팀별 하위 구분 — ERP/MES 는 시드 하위 폴더와 동일, 단독 팀(PMO/가공/MDM)은 자기 자신. */
-export const TEAM_SUBGROUPS: Record<TeamCode, readonly string[]> = {
-  PMO: ['PMO'],
-  ERP: ['영업', '구매', '관리회계'],
-  MES: ['품질', '생산계획', '조업및표준화', '물류', '설비및L2'],
-  가공: ['가공'],
-  MDM: ['MDM'],
-}
-
-/** 하위 구분 별칭 — APS 조직은 향후 MES 로 흡수되며 하위명이 생산계획으로 바뀐다(사용자 결정
- *  2026-07-24). 어느 입력 경로로든 'APS' 가 오면 생산계획으로 정규화한다. */
-const TEAM_SUB_ALIASES: Record<string, string> = { APS: '생산계획' }
-
-/** 팀별 하위 구분 조회 — 시드 트리에 없는(신규) 팀은 자기 자신 1개(별도 하위 없음). */
-export function subgroupsOf(team: TeamCode): readonly string[] {
-  return TEAM_SUBGROUPS[team] ?? [team]
-}
-
-/** 별칭 해소 + 목록 검증 — 해당 팀의 하위 구분이 아니면 null(추측 금지). */
-function resolveTeamSub(team: TeamCode, sub: string): string | null {
-  const resolved = TEAM_SUB_ALIASES[sub.trim()] ?? sub.trim()
-  return subgroupsOf(team).includes(resolved) ? resolved : null
-}
-
-/** 하위 구분 정규화 — 별칭 해소 후 해당 팀 목록에 없으면 첫 항목(대표)으로 수렴. */
-export function normalizeTeamSub(team: TeamCode, sub: string): string {
-  return resolveTeamSub(team, sub) ?? subgroupsOf(team)[0]
-}
-
-/** 팀 시드 폴더(루트 5축 + 그 시드 하위 구분)인지 — 편철 앵커라 개명·삭제 금지 대상.
- *  하위 구분은 TEAM_SUBGROUPS 하드코딩과 이름 매칭으로 결합되므로 시드 자식의 개명도
- *  루트와 동일하게 막아야 드리프트(조용한 오편철)가 없다. */
-export function isTeamSeedFolder(
-  folders: MinuteFolder[], f: Pick<MinuteFolder, 'name' | 'parentId' | 'createdBy'>,
-): boolean {
-  if (isTeamRootFolder(f)) return true
-  if (f.createdBy !== null || f.parentId === null) return false
-  const parent = folders.find(p => p.id === f.parentId)
-  return !!parent && isTeamRootFolder(parent)
-}
+/** 트리 표시와 동일한 정렬(sort asc → name ko asc) — buildFolderTree 의 bySort 와 일치해야
+ *  모달의 하위 구분 탭 순서와 탐색기 트리 순서가 어긋나지 않는다. */
+const byFolderOrder = (a: MinuteFolder, b: MinuteFolder) =>
+  a.sort - b.sort || a.name.localeCompare(b.name, 'ko')
 
 /** 팀의 시드 루트 폴더 id — 시드(createdBy null) 한정, 동명 사용자 폴더 배제. */
 export function teamRootFolderIdOf(folders: MinuteFolder[], team: TeamCode): string | null {
   return folders.find(f => f.parentId === null && f.createdBy === null && f.name === team)?.id ?? null
 }
 
-/** (팀, 하위 구분) → 편철 대상 시드 폴더 id. 자기 자신 하위는 팀 루트, 세부 하위는 시드 자식.
- *  자식 미존재(비정상)는 팀 루트로 강등, 루트조차 없으면 null(서버 자동 편철 폴백). 매칭은
- *  시드(createdBy null) 한정 — 동명 사용자 폴더 배제(resolveTeamRootFolderId 와 동일 원칙). */
+/** 팀 루트의 직계 하위 폴더 — 하위 구분의 원천. 시드·사용자 폴더를 가리지 않으므로 폴더
+ *  생성/개명/삭제가 업로드·수정 모달의 하위 구분 옵션에 그대로 반영된다. */
+function teamChildFolders(folders: MinuteFolder[], team: TeamCode): MinuteFolder[] {
+  const rootId = teamRootFolderIdOf(folders, team)
+  if (!rootId) return []
+  return folders.filter(f => f.parentId === rootId).sort(byFolderOrder)
+}
+
+/** 팀별 하위 구분 — 팀 루트의 실제 하위 폴더명. 하위 폴더가 없으면(팀 루트 부재 포함)
+ *  자기 자신 1개(상위 폴더=하위 폴더). */
+export function subgroupsOf(folders: MinuteFolder[], team: TeamCode): string[] {
+  const names = teamChildFolders(folders, team).map(f => f.name)
+  return names.length > 0 ? names : [team]
+}
+
+/** 하위 구분 별칭 — APS 조직은 향후 MES 로 흡수되며 하위명이 생산계획으로 바뀐다(사용자 결정
+ *  2026-07-24). 실폴더명 일치가 우선이고 별칭은 동명 폴더가 없을 때만 적용 — 'APS' 폴더가
+ *  실제로 생기면 그 폴더가 진실이지, 별칭이 가로채 다른 폴더로 편철하면 안 된다. */
+const TEAM_SUB_ALIASES: Record<string, string> = { APS: '생산계획' }
+
+/** 별칭 해소 + 목록 검증 — 해당 팀의 하위 구분이 아니면 null(추측 금지). */
+export function resolveTeamSub(folders: MinuteFolder[], team: TeamCode, sub: string): string | null {
+  const names = subgroupsOf(folders, team)
+  const trimmed = sub.trim()
+  if (names.includes(trimmed)) return trimmed
+  const alias = TEAM_SUB_ALIASES[trimmed]
+  return alias !== undefined && names.includes(alias) ? alias : null
+}
+
+/** (팀, 하위 구분) → 편철 대상 폴더 id. 하위 구분과 동명인 루트 직계 하위 폴더(시드·사용자
+ *  불문)가 있으면 그 폴더, 없으면(자기 자신 하위·목록 밖 값 포함) 팀 루트로 — 목록 밖 값을
+ *  대표 하위로 수렴시키면 요청과 다른 형제로 오편철되므로 추측 없이 루트로 강등한다.
+ *  루트조차 없으면 null(서버 자동 편철 폴백). 루트 매칭만 시드 한정 — 동명 사용자 **루트**
+ *  폴더(스쿼팅) 배제. */
 export function subgroupFolderId(
   folders: MinuteFolder[], team: TeamCode, sub: string,
 ): string | null {
   const rootId = teamRootFolderIdOf(folders, team)
   if (!rootId) return null
-  const name = normalizeTeamSub(team, sub)
-  if (name === team) return rootId
-  const child = folders.find(f => f.parentId === rootId && f.createdBy === null && f.name === name)
+  const name = resolveTeamSub(folders, team, sub)
+  if (name === null) return rootId
+  const child = folders.find(f => f.parentId === rootId && f.name === name)
   return child?.id ?? rootId
 }
 
-/** 폴더 id → (팀, 하위 구분) 역해석 — 모달의 초기값. 사용자 폴더면 시드 조상까지 걸어 올라가
- *  판정(순환 가드), 시드 체인 밖이면 null. sub 는 실제 시드 하위(또는 자기 자신 팀)에 닿을
- *  때만 채워진다 — ERP/MES **루트** 편철·개명 드리프트는 sub null(하위 미지정, 추측 금지):
- *  대표 폴백을 초기 선택으로 쓰면 실소속과 다른 하위가 '선택됨'으로 보이는 허위 표시가 된다. */
+/** 폴더 id → (팀, 하위 구분) 역해석 — 모달의 초기값. 조상 체인을 걸어 올라가(순환 가드) 시드
+ *  팀 루트에 닿으면, 루트 직전에 지나온 직계 하위 폴더의 이름이 하위 구분. 팀 루트 자체에
+ *  편철된 경우는 하위 폴더가 없는 팀만 자기 자신이고, 하위가 있는 팀은 sub null(하위 미지정,
+ *  추측 금지): 대표 폴백을 초기 선택으로 쓰면 실소속과 다른 하위가 '선택됨'으로 보이는 허위
+ *  표시가 된다. 시드 체인 밖(사용자 루트 폴더 등)은 null. */
 export function teamSubOfFolder(
   folders: MinuteFolder[], folderId: string | null,
 ): { team: TeamCode; sub: string | null } | null {
@@ -102,20 +98,17 @@ export function teamSubOfFolder(
   const byId = new Map(folders.map(f => [f.id, f]))
   const seen = new Set<string>()
   let cur = byId.get(folderId)
+  let below: MinuteFolder | undefined            // cur 직전에 지나온 폴더(= cur 의 직계 하위)
   while (cur && !seen.has(cur.id)) {
     seen.add(cur.id)
-    if (cur.createdBy === null) {
-      // 0043 이후 루트 시드 = 팀 루트(신규 팀 시드 포함) — 폴더명이 곧 팀 코드다.
-      if (cur.parentId === null) {
-        const team = cur.name
-        return { team, sub: resolveTeamSub(team, cur.name) }   // 단독 팀=자기 자신, ERP/MES 루트=null
-      }
-      const parent = byId.get(cur.parentId)
-      if (parent && parent.parentId === null && parent.createdBy === null) {
-        const team = parent.name
-        return { team, sub: resolveTeamSub(team, cur.name) }     // 드리프트면 sub null
-      }
+    if (isTeamRootFolder(cur)) {
+      const team = cur.name                      // 0043 이후 루트 시드 = 팀 루트 — 폴더명이 곧 팀 코드
+      if (below) return { team, sub: below.name }
+      const rootId = cur.id
+      const hasChildren = folders.some(f => f.parentId === rootId)
+      return { team, sub: hasChildren ? null : team }
     }
+    below = cur
     cur = cur.parentId ? byId.get(cur.parentId) : undefined
   }
   return null

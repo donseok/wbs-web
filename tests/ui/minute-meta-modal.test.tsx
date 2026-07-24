@@ -26,12 +26,15 @@ const F = (
   createdBy: string | null = null, sort = 0,
 ): MinuteFolder => ({ id, name, parentId, sort, createdBy })
 
+// sort 는 프로덕션 시드값(0043) — 하위 구분이 실폴더(sort→이름순)에서 동적 유도되므로 순서가 계약
 const tree: MinuteFolder[] = [
-  F('r-pmo', 'PMO'),
-  F('r-erp', 'ERP'), F('c-sales', '영업', 'r-erp'), F('c-buy', '구매', 'r-erp'), F('c-acc', '관리회계', 'r-erp'),
-  F('r-mes', 'MES'), F('c-q', '품질', 'r-mes'), F('c-plan', '생산계획', 'r-mes'),
-  F('c-ops', '조업및표준화', 'r-mes'), F('c-log', '물류', 'r-mes'), F('c-fac', '설비및L2', 'r-mes'),
-  F('r-gk', '가공'), F('r-mdm', 'MDM'),
+  F('r-pmo', 'PMO', null, null, 0),
+  F('r-erp', 'ERP', null, null, 1),
+  F('c-sales', '영업', 'r-erp', null, 0), F('c-buy', '구매', 'r-erp', null, 1), F('c-acc', '관리회계', 'r-erp', null, 2),
+  F('r-mes', 'MES', null, null, 2),
+  F('c-q', '품질', 'r-mes', null, 0), F('c-plan', '생산계획', 'r-mes', null, 1),
+  F('c-ops', '조업및표준화', 'r-mes', null, 2), F('c-log', '물류', 'r-mes', null, 3), F('c-fac', '설비및L2', 'r-mes', null, 4),
+  F('r-gk', '가공', null, null, 3), F('r-mdm', 'MDM', null, null, 4),
 ]
 
 const baseMinute = {

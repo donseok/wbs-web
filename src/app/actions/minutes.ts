@@ -6,7 +6,7 @@ import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
-  isTeamRootName, isTeamSeedFolder,
+  isTeamRootName, isTeamRootFolder,
   type MinuteInput,
 } from '@/lib/domain/minutes'
 import {
@@ -420,9 +420,9 @@ export async function renameMinuteFolder(
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
   const target = folders.find(f => f.id === id)
   if (!target) return { ok: false, error: '폴더가 없습니다.' }
-  // 팀 시드 폴더(루트 5축 + 하위 구분)는 개명 금지 — 이름 매칭 편철 앵커라 개명되면
-  // 자동 편철·업로드 하위 구분이 소리 없이 어긋난다
-  if (isTeamSeedFolder(folders, target))
+  // 팀 루트 시드만 개명 금지(팀명=자동 편철 앵커) — 하위 구분은 실폴더에서 동적 유도되므로
+  // 하위 폴더 개명은 곧 옵션 변경으로 반영된다(허용)
+  if (isTeamRootFolder(target))
     return { ok: false, error: '팀 기본 폴더는 이름을 변경할 수 없습니다.' }
   // 루트에서 팀코드 동명으로의 개명도 차단(앵커 사칭 방지)
   const teamNames = teamsSync().map(t => t.code)
@@ -446,12 +446,13 @@ export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; err
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
-  // 삭제 가드 선행조회 — 팀 시드 폴더(루트 5축 + 하위 구분)는 삭제 금지(편철 앵커 + cascade 소실)
+  // 삭제 가드 선행조회 — 팀 루트 시드만 삭제 금지(편철 앵커 + cascade 소실). 하위 구분
+  // 폴더는 실폴더 동적 유도라 삭제가 곧 옵션 제거로 반영된다(허용)
   const folders = await loadFolders(sb)
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
   const target = folders.find(f => f.id === id)
   if (!target) return { ok: false, error: '폴더가 없습니다.' }
-  if (isTeamSeedFolder(folders, target))
+  if (isTeamRootFolder(target))
     return { ok: false, error: '팀 기본 폴더는 삭제할 수 없습니다.' }
   // 하위 폴더는 FK cascade, 소속 회의록은 set null(미분류 강등)이 정리한다
   const { data, error } = await sb.from('minute_folders').delete().eq('id', id).select('id')

@@ -54,7 +54,7 @@ export function MinuteMetaModal({
     return () => { alive = false }
   }, [open, initialProjectId])
 
-  // 폴더 로드 후 현 소속 폴더의 (팀, 하위)로 초기화. 실제 시드 하위에 편철된 경우에만 선택
+  // 폴더 로드 후 현 소속 폴더의 (팀, 하위)로 초기화. 실제 하위 폴더에 편철된 경우에만 선택
   // 표시 — 팀 루트·미분류·타팀/체인 밖 폴더는 미지정('')으로 두어 실소속과 다른 하위가
   // '선택됨'으로 보이는 허위 표시를 막는다(대표 하위로의 이동도 이 덕에 변경으로 판정됨)
   useEffect(() => {
@@ -113,7 +113,7 @@ export function MinuteMetaModal({
           <div className="text-sm">
             <span className="mb-1 block font-medium">{t('min.form.subTeam')}</span>
             <SegmentedTabs
-              tabs={subgroupsOf(team).map(s => ({ key: s, label: s }))}
+              tabs={subgroupsOf(folders, team).map(s => ({ key: s, label: s }))}
               value={sub} onChange={setSub} size="sm" />
           </div>
         )}

@@ -8,7 +8,7 @@ import {
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
 } from '@/lib/domain/types'
-import { buildFolderTree, folderDepthOf, isTeamSeedFolder, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
+import { buildFolderTree, folderDepthOf, isTeamRootFolder, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
 import { MEETING_META } from '@/lib/domain/meetings'
 import { moveMinuteToFolder } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -160,8 +160,9 @@ export function MinutesExplorer({
                   <button aria-hidden tabIndex={-1} onClick={() => setMenuFor(null)}
                     className="fixed inset-0 z-10 cursor-default" />
                   <div className="absolute right-0 z-20 mt-1 w-36 rounded-xl border border-line bg-surface p-1 shadow-[var(--shadow-md)]">
-                    {/* 팀 시드 폴더(루트 5축+하위 구분, 편철 앵커)는 개명·삭제 불가 — 서버 가드와 동일 기준 */}
-                    {!isTeamSeedFolder(folders, f) && (
+                    {/* 팀 루트 시드(편철 앵커)만 개명·삭제 불가 — 하위 폴더는 개명·삭제가
+                        업로드·수정 모달의 하위 구분 옵션에 그대로 반영된다(서버 가드와 동일 기준) */}
+                    {!isTeamRootFolder(f) && (
                       <button onClick={() => { setMenuFor(null); setManage({ mode: 'rename', folder: f }) }}
                         className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
                         {t('min.fold.rename')}
@@ -173,7 +174,7 @@ export function MinutesExplorer({
                         {t('min.fold.addSub')}
                       </button>
                     )}
-                    {!isTeamSeedFolder(folders, f) && (
+                    {!isTeamRootFolder(f) && (
                       <button onClick={() => { setMenuFor(null); setManage({ mode: 'delete', folder: f }) }}
                         className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-delayed hover:bg-surface-2">
                         {t('min.fold.delete')}
