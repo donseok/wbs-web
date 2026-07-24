@@ -2,8 +2,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
-  ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, LayoutGrid, List,
-  MoreHorizontal, Paperclip, Star,
+  ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, Paperclip, Star,
 } from 'lucide-react'
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
@@ -13,7 +12,6 @@ import { MEETING_META } from '@/lib/domain/meetings'
 import { moveMinuteToFolder } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
-import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
 import { teamStyle } from '@/components/wbs/shared'
@@ -44,7 +42,7 @@ const rowCls = (active: boolean) =>
  *  leaves 는 팀 탭 필터가 이미 적용된 것 — 카운트·스코프가 필터와 정합. folders 는 항상 전부. */
 export function MinutesExplorer({
   folders, leaves, favorites, onToggleFavorite, onRetryFavorites,
-  layout, onLayoutChange, currentUserId, isAdmin, onChanged, onFolderSelect,
+  layout, currentUserId, isAdmin, onChanged, onFolderSelect,
 }: {
   folders: MinuteFolder[]
   leaves: ExplorerLeaf[]
@@ -52,7 +50,6 @@ export function MinutesExplorer({
   onToggleFavorite: (id: string) => void
   onRetryFavorites: () => void
   layout: ExplorerLayout
-  onLayoutChange: (v: ExplorerLayout) => void
   currentUserId: string | null
   isAdmin: boolean
   onChanged: () => void
@@ -238,22 +235,6 @@ export function MinutesExplorer({
     )
   }
 
-  // 경로 표시 — 폴더 스코프의 조상 체인(클릭 이동)
-  const crumbs: MinuteFolder[] = useMemo(() => {
-    if (scope.kind !== 'folder') return []
-    const chain: MinuteFolder[] = []
-    let cur: string | null = scope.id
-    const seen = new Set<string>()
-    while (cur && !seen.has(cur)) {
-      seen.add(cur)
-      const f = folderById.get(cur)
-      if (!f) break
-      chain.unshift(f)
-      cur = f.parentId
-    }
-    return chain
-  }, [scope, folderById])
-
   // 폴더 카드 그리드는 전면 제거(사용자 결정 2026-07-24) — 전체 스코프 루트 카드에 이어
   // 폴더 스코프의 하위 폴더 카드도 삭제. 폴더 탐색은 왼쪽 레일 트리로 일원화. 재도입 금지.
 
@@ -272,47 +253,7 @@ export function MinutesExplorer({
       </div>
 
       <section className="min-w-0 flex-1">
-        <div data-minutes-content-header className="flex flex-wrap items-center gap-2">
-          <div className="flex min-w-0 items-center gap-1.5 text-sm">
-            {scope.kind === 'favorites' ? (
-              <span className="font-semibold text-ink">{t('min.exp.favorites')}</span>
-            ) : scope.kind === 'unfiled' ? (
-              <>
-                <button onClick={() => select({ kind: 'all' })} className="text-ink-muted transition-colors hover:text-ink">
-                  {t('min.exp.all')}
-                </button>
-                <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                <span className="font-semibold text-ink">{t('min.fold.unfiled')}</span>
-              </>
-            ) : (
-              <>
-                <button onClick={() => select({ kind: 'all' })}
-                  className={scope.kind === 'all' ? 'font-semibold text-ink' : 'text-ink-muted transition-colors hover:text-ink'}>
-                  {t('min.exp.all')}
-                </button>
-                {crumbs.map((f, i) => (
-                  <span key={f.id} className="flex min-w-0 items-center gap-1.5">
-                    <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                    {i === crumbs.length - 1
-                      ? <span className="truncate font-semibold text-ink">{f.name}</span>
-                      : (
-                        <button onClick={() => select({ kind: 'folder', id: f.id })}
-                          className="truncate text-ink-muted transition-colors hover:text-ink">{f.name}</button>
-                      )}
-                  </span>
-                ))}
-              </>
-            )}
-          </div>
-          <div className="ml-auto">
-            <SegmentedTabs<ExplorerLayout>
-              tabs={[{ key: 'grid', label: t('min.exp.layout.grid'), icon: LayoutGrid },
-                     { key: 'list', label: t('min.exp.layout.list'), icon: List }]}
-              value={layout} onChange={onLayoutChange} size="sm" />
-          </div>
-        </div>
-
-        <div data-minutes-content-body className="mt-4 space-y-4 lg:mt-0.5">
+        <div data-minutes-content-body className="space-y-4">
           {scope.kind === 'favorites' && favorites === null ? (
             <EmptyState title={t('min.exp.favError')}
               action={<button onClick={onRetryFavorites} className="btn">{t('min.tree.retry')}</button>} />

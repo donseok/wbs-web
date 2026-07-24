@@ -2,7 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, Download, ListTree, Plus, Search } from 'lucide-react'
+import {
+  Bot, CalendarDays, ChevronLeft, ChevronRight, Download, LayoutGrid, List, ListTree, Plus, Search,
+} from 'lucide-react'
 import type { ExplorerData, ExplorerLeaf, Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import { MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
 import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesExplorer, fetchMinuteFavorites, toggleMinuteFavorite } from '@/app/actions/minutes'
@@ -257,11 +259,21 @@ export function MinutesView({
               placeholder={t('min.search.placeholder')}
               className="app-input h-9 w-full pl-8 sm:w-40" />
           </div>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-            <SegmentedTabs<ViewKey>
-              tabs={[{ key: 'tree', label: t('min.view.tree'), icon: ListTree },
-                     { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
-              value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
+          <div data-minutes-toolbar-actions className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
+              <SegmentedTabs<ViewKey>
+                tabs={[{ key: 'tree', label: t('min.view.tree'), icon: ListTree },
+                       { key: 'calendar', label: t('min.view.calendar'), icon: CalendarDays }]}
+                value={isSearch ? 'list' : view} onChange={changeView} size="sm" />
+              {view === 'tree' && !isSearch && (
+                <div data-minutes-tree-layout>
+                  <SegmentedTabs<ExplorerLayout>
+                    tabs={[{ key: 'grid', label: t('min.exp.layout.grid'), icon: LayoutGrid },
+                           { key: 'list', label: t('min.exp.layout.list'), icon: List }]}
+                    value={exLayout} onChange={changeExplorerLayout} size="sm" />
+                </div>
+              )}
+            </div>
             <button onClick={() => void downloadAllMinutes()} disabled={exportBusy}
               aria-busy={exportBusy} className="btn">
               <Download className="h-4 w-4" />
@@ -357,7 +369,7 @@ export function MinutesView({
               favorites={favState instanceof Set ? favState : null}
               onToggleFavorite={id => void toggleFav(id)}
               onRetryFavorites={() => void loadFavorites()}
-              layout={exLayout} onLayoutChange={changeExplorerLayout}
+              layout={exLayout}
               currentUserId={currentUserId} isAdmin={role === 'pmo_admin'}
               onChanged={() => { void loadTree(); router.refresh() }}
               onFolderSelect={id => { uploadFolderRef.current = id }} />

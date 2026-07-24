@@ -87,6 +87,10 @@ describe('MinutesView 트리 뷰 배선', () => {
     if (!found) throw new Error(`button not found: ${text}`)
     return found
   }
+  function tabByText(text: string): HTMLButtonElement | undefined {
+    return [...container.querySelectorAll<HTMLButtonElement>('button[role="tab"]')]
+      .find(b => b.textContent?.trim() === text)
+  }
 
   it('트리 탭 클릭 → fetchMinutesExplorer 1회 호출 + 트리 렌더 + 월 라벨이 전체 기간으로', async () => {
     await mount('calendar')
@@ -164,7 +168,30 @@ describe('MinutesView 트리 뷰 배선', () => {
     expect(last.to).toBe('2026-07-31')
   })
 
-  it('탐색기 레이아웃 변경은 queueUiPref로 동기화된다', async () => {
+  it('그리드/리스트는 트리 선택 중에만 상단 액션줄에 노출된다', async () => {
+    await mount('calendar')
+    expect(tabByText('min.exp.layout.grid')).toBeUndefined()
+    expect(tabByText('min.exp.layout.list')).toBeUndefined()
+
+    await act(async () => buttonByText('min.view.tree').click())
+    const toolbar = container.querySelector('[data-minutes-toolbar-actions]')
+    const layout = container.querySelector('[data-minutes-tree-layout]')
+    expect(layout).toBeTruthy()
+    expect(toolbar?.contains(layout)).toBe(true)
+    expect(tabByText('min.exp.layout.grid')).toBeTruthy()
+    expect(tabByText('min.exp.layout.list')).toBeTruthy()
+
+    const search = container.querySelector<HTMLInputElement>('input[placeholder="min.search.placeholder"]')!
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setValue?.call(search, '인터뷰')
+      search.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(tabByText('min.exp.layout.grid')).toBeUndefined()
+    expect(tabByText('min.exp.layout.list')).toBeUndefined()
+  })
+
+  it('상단 트리 레이아웃 변경은 queueUiPref로 동기화된다', async () => {
     await mount('tree')
     await act(async () => buttonByText('min.exp.layout.list').click())
     expect(queueUiPref).toHaveBeenCalledWith({ minutesExplorerLayout: 'list' })

@@ -45,11 +45,11 @@ const leaves = [
 
 describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
   let container: HTMLDivElement, root: Root
-  const onToggle = vi.fn(), onRetry = vi.fn(), onLayout = vi.fn(), onChanged = vi.fn(), onFolderSelect = vi.fn()
+  const onToggle = vi.fn(), onRetry = vi.fn(), onChanged = vi.fn(), onFolderSelect = vi.fn()
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
     root = createRoot(container)
-    onToggle.mockClear(); onRetry.mockClear(); onLayout.mockClear(); onChanged.mockClear()
+    onToggle.mockClear(); onRetry.mockClear(); onChanged.mockClear()
     onFolderSelect.mockClear(); moveMinuteToFolder.mockClear()
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
@@ -58,7 +58,7 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     await act(async () => root.render(
       <MinutesExplorer folders={folders} leaves={leaves} favorites={new Set(['m1'])}
         onToggleFavorite={onToggle} onRetryFavorites={onRetry}
-        layout="grid" onLayoutChange={onLayout}
+        layout="grid"
         currentUserId="u1" isAdmin={false} onChanged={onChanged} onFolderSelect={onFolderSelect}
         {...over} />,
     ))
@@ -198,31 +198,27 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
-  it('더 보기 30개 증분과 레이아웃 콜백 유지', async () => {
+  it('더 보기 30개 증분 유지', async () => {
     const many = Array.from({ length: 35 }, (_, i) => leaf(`x${i}`, '2026-07-01', `대량_${i}`, null))
     await mount({ leaves: many, folders: [] })
     expect(container.querySelectorAll('a[href^="/minutes/x"]').length).toBe(30)
     await act(async () => buttonByText('min.exp.more').click())
     expect(container.querySelectorAll('a[href^="/minutes/x"]').length).toBe(35)
-    await act(async () => buttonByText('min.exp.layout.list').click())
-    expect(onLayout).toHaveBeenCalledWith('list')
   })
 
   it.each(['grid', 'list'] as const)(
-    '데스크톱 %s 보기: 좌측 전체 행과 우측 결과가 같은 2px 시작 리듬을 쓴다',
+    '%s 보기: 내부 경로·보기 전환 행 없이 결과가 우측 열 맨 위에서 시작한다',
     async layout => {
       await mount({ layout })
 
-      const rail = container.querySelector('nav > ul')
-      const contentHeader = container.querySelector('[data-minutes-content-header]')
-      const contentBody = container.querySelector('[data-minutes-content-body]')
+      const contentBody = container.querySelector<HTMLElement>('[data-minutes-content-body]')
 
-      expect(rail?.classList).toContain('space-y-0.5')
-      expect(rail?.querySelector('button')?.classList).toContain('h-8')
-      expect(contentHeader?.parentElement?.classList).not.toContain('space-y-4')
-      expect(contentHeader?.nextElementSibling).toBe(contentBody)
-      expect(contentBody?.classList).toContain('mt-4')
-      expect(contentBody?.classList).toContain('lg:mt-0.5')
+      expect(container.querySelector('[data-minutes-content-header]')).toBeNull()
+      expect(contentBody?.parentElement?.firstElementChild).toBe(contentBody)
+      expect(contentBody?.parentElement?.children).toHaveLength(1)
+      expect(contentBody?.parentElement?.querySelector('[role="tablist"]')).toBeNull()
+      expect(contentBody?.classList).not.toContain('mt-4')
+      expect(contentBody?.classList).not.toContain('lg:mt-0.5')
       expect(contentBody?.classList).toContain('space-y-4')
     },
   )
