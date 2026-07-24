@@ -89,3 +89,36 @@ describe('parseWbsWorkbook', () => {
     expect(p.holidays).toContainEqual({ date: '2026-07-17', name: '제헌절' })
   })
 })
+
+/* ── 헤더 이름 기반 열 맵(팀 마스터 대응) ── */
+import { buildWbsColumnMap } from '@/lib/excel/parse'
+
+const H3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', 'MDM',
+  '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
+
+describe('buildWbsColumnMap', () => {
+  it('현행 5팀 헤더는 기존 고정 인덱스와 동일한 맵', () => {
+    expect(buildWbsColumnMap(H3)).toEqual({
+      teams: [[6, 'PMO'], [7, 'ERP'], [8, 'MES'], [9, '가공'], [10, 'MDM']],
+      deliverable: 11, start: 12, end: 13, weight: 14, actualPct: 16,
+    })
+  })
+
+  it('팀 열이 추가되면 팀·후속 열이 함께 밀린다', () => {
+    const h6 = [...H3.slice(0, 11), '신팀', ...H3.slice(11)]
+    const m = buildWbsColumnMap(h6)
+    expect(m.teams).toContainEqual([11, '신팀'])
+    expect(m.deliverable).toBe(12)
+    expect(m.start).toBe(13)
+    expect(m.actualPct).toBe(17)
+  })
+
+  it("'산출물' 헤더가 없으면 현행 고정 인덱스 폴백", () => {
+    expect(buildWbsColumnMap(['A', 'B']).teams).toEqual(
+      [[6, 'PMO'], [7, 'ERP'], [8, 'MES'], [9, '가공'], [10, 'MDM']])
+  })
+
+  it('헤더가 아예 없어도(빈 배열) 폴백', () => {
+    expect(buildWbsColumnMap([]).deliverable).toBe(11)
+  })
+})
