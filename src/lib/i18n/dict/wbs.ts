@@ -18,6 +18,8 @@ export const wbsKo = {
   'wbs.exitFullscreenTitle': '전체화면 닫기 (Esc)',
   'wbs.viewLarger': '크게 보기',
   'wbs.viewSmaller': '작게 보기',
+  'wbs.hidePlanningColumns': '담당~계획% 숨기기',
+  'wbs.showPlanningColumns': '담당~계획% 펼치기',
   'wbs.addPhase': 'Phase 추가',
   'wbs.ariaFullscreen': 'WBS 전체화면 보기',
   // 새 Phase 입력
@@ -171,6 +173,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.exitFullscreenTitle': 'Exit full screen (Esc)',
   'wbs.viewLarger': 'Full screen',
   'wbs.viewSmaller': 'Exit full screen',
+  'wbs.hidePlanningColumns': 'Hide owner–plan %',
+  'wbs.showPlanningColumns': 'Show owner–plan %',
   'wbs.addPhase': 'Add phase',
   'wbs.ariaFullscreen': 'WBS full-screen view',
   'wbs.newPhasePlaceholder': 'New phase name (e.g. 1. Prepare)',
