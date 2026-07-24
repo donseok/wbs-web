@@ -42,8 +42,14 @@ describe('normalizeForCompare', () => {
     expect(normalizeForCompare('1.2 개요 정리')).toBe('1.2 개요 정리')
   })
 
-  it('번호만 있는 줄은 떼지 않는다', () => {
-    expect(normalizeForCompare('1.')).toBe('1.')
+  it('공백 있는 한국식 날짜(7. 28 / 26. 7. 24.)도 번호로 보지 않는다', () => {
+    expect(normalizeForCompare('7. 28(월) 정기 점검')).toBe('7. 28(월) 정기 점검')
+    expect(normalizeForCompare('26. 7. 24. 주간 회의')).toBe('26. 7. 24. 주간 회의')
+  })
+
+  it('번호만 있는 줄은 비교에서 빈 줄로 본다 — 되풀이돼도 지우지 않기 위함', () => {
+    expect(normalizeForCompare('1.')).toBe('')
+    expect(normalizeForCompare('12)')).toBe('')
   })
 })
 
@@ -220,6 +226,11 @@ describe('lintDuplicates', () => {
 
   it('소수만 다른 두 줄이 중복으로 붙어 지워지지 않는다', () => {
     const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1.5배 성능 개선\n2.5배 성능 개선' })]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('번호만 있는 줄이 되풀이돼도 중복으로 지우지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1.\n설계 착수\n1.\n견적 회신' })]
     expect(lintDuplicates(rows)).toEqual([])
   })
 })
@@ -450,6 +461,36 @@ describe('lintNumbering', () => {
       mkRow('r2', '영업', 2, { thisContent: '1) 다\n2) 라' }),
     ]
     expect(lintNumbering(rows)).toEqual([])
+  })
+
+  it('공백 있는 한국식 날짜(7. 28)를 순번으로 덮어쓰지 않는다', () => {
+    // 다수결이 ) 여도 번호 줄 1개짜리 셀을 고치는 신규 동작이라 날짜가 위험했던 자리.
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1) 가\n2) 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '7. 28(월) 정기 점검 예정' }),
+    ]
+    expect(lintNumbering(rows)).toEqual([])
+  })
+
+  it('날짜 줄은 재부여 순번 계산에서도 빠진다', () => {
+    // 1,2 뒤의 `7. 28(월)`이 항목 7로 세어지면 3으로 재부여돼 날짜가 훼손된다 — 번호 줄은 1,2뿐이어야.
+    expect(one('1. 착수 보고\n2. 설계 검토\n7. 28(월) 킥오프 예정')).toEqual([])
+  })
+
+  it('번호 뒤 NBSP도 일반 공백 1칸으로 정규화한다', () => {
+    const NB = '\u00A0' // HWP/Word 붙여넣기가 흘리는 NBSP — 흡수 안 하면 수정이 공백 2칸을 만든다
+    const [f] = one(`1.${NB}가\n2.${NB}나`)
+    expect(f.edits[0].content).toBe('1. 가\n2. 나')
+    expect(f.detail).toContain('공백 → 1칸')
+  })
+
+  it('선행 0 번호는 다른 줄 수정에 휩쓸려도 보존한다', () => {
+    const [f] = one('01. 가\n2.나')
+    expect(f.edits[0].content).toBe('01. 가\n2. 나')
+  })
+
+  it('선행 0 번호만 있고 다른 문제 없으면 지적하지 않는다', () => {
+    expect(one('01. 가\n02. 나')).toEqual([])
   })
 
   it('번호만 있는 줄은 건드리지 않는다', () => {

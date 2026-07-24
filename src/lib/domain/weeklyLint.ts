@@ -32,25 +32,29 @@ export interface LintFinding {
 /** 인정하는 글머리 기호. 배열 순서 = 다수결 동수 시 우선순위(- 우선). */
 export const BULLETS = ['-', '·', '*', '●'] as const
 
-/** 선두 목록 번호: 숫자 1~2자리 + (. 또는 )) + 공백(반각·탭·전각) 0개 이상. */
-const NUM_PREFIX = /^(\d{1,2})([.)])([ \t　]*)/
+/** 선두 목록 번호: 숫자 1~2자리 + (. 또는 )) + 공백(반각·탭·전각·NBSP) 0개 이상.
+ *  NBSP(U+00A0)를 gap 에 넣는 건 HWP/Word 붙여넣기가 번호 뒤에 NBSP 를 흘리기 때문 —
+ *  gap 으로 흡수해야 '공백 1칸' 정규화가 그 자리를 일반 공백으로 갈아끼운다. */
+const NUM_PREFIX = /^(\d{1,2})([.)])([ \t 　]*)/
 
-/** 목록 번호 해석 결과. rest는 표기 뒤 본문 — 빈 문자열이면 애초에 번호 줄이 아니다. */
-interface ListNum { num: number; sep: '.' | ')'; gap: string; rest: string }
+/** 목록 번호 해석 결과. raw 는 원문 숫자 문자열(선행 0 보존용), rest 는 표기 뒤 본문. */
+interface ListNum { num: number; raw: string; sep: '.' | ')'; gap: string; rest: string }
 
-/** 들여쓰기를 뗀 줄머리에서 목록 번호를 해석한다. 번호 줄이 아니면 null.
- *  `1.` 단독(본문 없음)과 공백 없이 숫자가 이어지는 꼴(`2026.07.24` 날짜, `1.5배` 소수,
- *  `1.2 개요` 절 번호)은 번호 줄이 아니다 — 본문을 번호로 오인해 고쳐 쓰지 않기 위한
- *  보수적 판정. 자리수 상한(2자리)도 같은 목적의 이중 안전장치다.
- *  다수결 집계·체번 수정·중복 비교(normalizeForCompare)가 이 술어 하나를 공유한다 —
- *  갈라지면 "집계엔 세는데 수정에선 빠지는" 어긋남이 생긴다(글머리 기호 규칙에서 배운 것). */
+/** 들여쓰기를 뗀 줄머리에서 목록 번호 접두를 해석한다. 날짜·소수·절 번호이면 null.
+ *  **구분자 뒤에 숫자가 오는 꼴은 공백 유무와 무관하게 번호로 보지 않는다** —
+ *  `2026.07.24`(no gap)뿐 아니라 `7. 28(월)`·`26. 7. 24.`(gap 있는 한국식 날짜)도 지킨다.
+ *  훼손 위험(날짜를 순번으로 덮어씀)이 놓침 위험(`1. 2024년…` 같은 실제 항목을 안 고침)보다
+ *  크므로, 숫자로 시작하는 본문은 통째로 보수적으로 제외한다. 자리수 상한(2자리)은 이중 안전장치.
+ *  본문 없는 접두(`1.` 단독)도 파싱은 낸다 — 어느 소비자가 어떻게 다룰지는 rest 로 각자 판단한다:
+ *  비교(normalizeForCompare)는 떼어 빈 줄로 만들어 제외하고, 체번은 공백을 덧붙이지 않도록 건너뛴다.
+ *  다수결 집계·체번 수정·중복 비교가 이 술어 하나를 공유한다 — 갈라지면
+ *  "집계엔 세는데 수정에선 빠지는" 어긋남이 생긴다(글머리 기호 규칙에서 배운 것). */
 function parseListNum(head: string): ListNum | null {
   const m = NUM_PREFIX.exec(head)
   if (!m) return null
   const rest = head.slice(m[0].length)
-  if (rest === '') return null
-  if (m[3] === '' && /^\d/.test(rest)) return null
-  return { num: Number(m[1]), sep: m[2] as '.' | ')', gap: m[3], rest }
+  if (/^\d/.test(rest)) return null
+  return { num: Number(m[1]), raw: m[1], sep: m[2] as '.' | ')', gap: m[3], rest }
 }
 /** 글머리 기호로 인정하는 형태 — 기호 뒤에 공백이 반드시 온다.
  *  `-5%` 같은 본문을 기호로 오인해 고쳐 쓰지 않기 위한 보수적 판정. */
@@ -344,7 +348,7 @@ function dominantNumberSep(rows: WeeklySheetRow[]): '.' | ')' | null {
     for (const cellKey of WEEKLY_CELL_KEYS) {
       for (const line of toLines(row[CELL_FIELD[cellKey]])) {
         const ln = parseListNum(line.trimStart())
-        if (!ln) continue
+        if (!ln || ln.rest === '') continue // 본문 없는 접두(`1.` 단독)는 항목이 아니다 — 다수결에 세지 않는다.
         if (ln.sep === '.') dot++
         else paren++
       }
@@ -369,7 +373,8 @@ export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
         const lines = toLines(content)
         const numbered = lines
           .map((line, i) => ({ i, ln: parseListNum(line.trimStart()) }))
-          .filter((x): x is { i: number; ln: ListNum } => x.ln !== null)
+          // 본문 없는 접두(`1.` 단독)는 항목이 아니라 건너뛴다 — 공백을 덧붙여 `1. `로 만들지 않기 위함.
+          .filter((x): x is { i: number; ln: ListNum } => x.ln !== null && x.ln.rest !== '')
         if (numbered.length === 0) continue
 
         const nums = numbered.map(x => x.ln.num)
@@ -383,7 +388,9 @@ export function lintNumbering(rows: WeeklySheetRow[]): LintFinding[] {
           const indent = line.slice(0, line.length - line.trimStart().length)
           if (x.ln.sep !== sep) sepFixed++
           else if (x.ln.gap !== ' ') gapFixed++
-          next[x.i] = `${indent}${renumber ? k + 1 : x.ln.num}${sep} ${x.ln.rest}`
+          // 재부여가 아니면 원문 숫자(raw)를 그대로 둔다 — 선행 0(`01.`)이 이 규칙의 명시 범위(구분자·공백)
+          // 밖에서 조용히 사라지지 않도록. 재부여일 때만 k+1 로 다시 매긴다.
+          next[x.i] = `${indent}${renumber ? k + 1 : x.ln.raw}${sep} ${x.ln.rest}`
         })
         if (!renumber && sepFixed === 0 && gapFixed === 0) continue
 
@@ -456,7 +463,7 @@ function formatCell(content: string, bullet: string | null): FormatResult {
 
 /** 규칙 ③ — 글머리 기호 통일. 셀당 지적 1건.
  *  보고서 겉모습을 맞추는 검사라 시트 전체 다수결을 기준으로 삼는다
- *  (구분별 다수결이 아니다 — 구분 단위 원칙의 의도된 유일한 예외). */
+ *  (구분별 다수결이 아니다 — 번호 표기 통일과 더불어 구분 단위 원칙의 의도된 예외). */
 export function lintFormat(rows: WeeklySheetRow[]): LintFinding[] {
   const bullet = dominantBullet(rows)
   const out: LintFinding[] = []
