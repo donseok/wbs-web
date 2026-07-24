@@ -4,10 +4,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Bot, CalendarDays, ChevronLeft, ChevronRight, Download, ListTree, Plus, Search } from 'lucide-react'
 import type { ExplorerData, ExplorerLeaf, Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
-import { MINUTES_TREE_LIMIT, TEAM_CODES } from '@/lib/domain/minutes'
+import { MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
 import { fetchMinutesRange, fetchMinutesSearch, fetchMinutesExplorer, fetchMinuteFavorites, toggleMinuteFavorite } from '@/app/actions/minutes'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { CardSkeleton } from '@/components/ui/Skeleton'
@@ -49,6 +50,7 @@ export function MinutesView({
   const router = useRouter()
   const { t, locale } = useLocale()
   const { toast } = useToast()
+  const teamCodes = useTeamCodes()
   const [initY, initM] = useMemo(() => todayIso.split('-').map(Number), [todayIso])
   const [year, setYear] = useState(initY)
   const [month0, setMonth0] = useState((initM || 1) - 1)
@@ -235,7 +237,7 @@ export function MinutesView({
       <div className="sticky top-0 z-20 -mx-1 space-y-3 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedTabs<TeamKey>
-            tabs={[{ key: 'ALL', label: t('min.team.all') }, ...TEAM_CODES.map(tk => ({ key: tk, label: tk }))]}
+            tabs={[{ key: 'ALL', label: t('min.team.all') }, ...teamCodes.map(tk => ({ key: tk, label: tk }))]}
             value={team} onChange={changeTeam} size="sm" />
           <div className="flex items-center gap-1">
             <button onClick={() => shift(-1)} disabled={isSearch || view === 'tree'} className="chrome-icon disabled:opacity-40" aria-label="prev month">

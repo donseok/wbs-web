@@ -157,7 +157,8 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     expect(r.ok).toBe(false)
   })
   it('delete: 0행 삭제는 실패, 1행 삭제는 성공', async () => {
-    const { client } = fakeClient({ minute_folders: { data: [{ id: 'f2' }], error: null } })
+    // 루트+created_by null 은 새 계약(팀 마스터)에서 팀 시드로 보호되므로 사용자 소유로 명시
+    const { client } = fakeClient({ minute_folders: { data: [{ id: 'f2', parent_id: 'f1', created_by: 'u1' }], error: null } })
     createServerClient.mockResolvedValue(client)
     expect((await deleteMinuteFolder('f2')).ok).toBe(true)
     const empty = fakeClient({ minute_folders: { data: [], error: null } })

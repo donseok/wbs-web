@@ -2,10 +2,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import {
-  TEAM_CODES, TEAM_SUBGROUPS, subgroupFolderId, teamRootFolderIdOf, teamSubOfFolder,
+  subgroupFolderId, subgroupsOf, teamRootFolderIdOf, teamSubOfFolder,
 } from '@/lib/domain/minutes'
 import { fetchMinuteFoldersLite, fetchProjectMeetingsLite, updateMinuteMeta } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 
@@ -19,6 +20,7 @@ export function MinuteMetaModal({
   projects: { id: string; name: string }[]
 }) {
   const { t } = useLocale()
+  const teamCodes = useTeamCodes()
   const [date, setDate] = useState(minute.minuteDate)
   const [team, setTeamState] = useState<TeamCode>(minute.teamCode)
   // sub '' = 하위 미지정(무선택) — 팀 루트 편철·미분류가 여기 해당하며, 미지정 저장은 팀 루트로
@@ -103,7 +105,7 @@ export function MinuteMetaModal({
         </label>
         <div className="text-sm">
           <span className="mb-1 block font-medium">{t('min.form.team')}</span>
-          <SegmentedTabs<TeamCode> tabs={TEAM_CODES.map(tk => ({ key: tk, label: tk }))}
+          <SegmentedTabs<TeamCode> tabs={teamCodes.map(tk => ({ key: tk, label: tk }))}
             value={team} onChange={setTeam} size="sm" />
         </div>
         {/* 폴더 목록 미확보(로드 전/실패)면 하위 구분을 숨긴다 — 허위 어포던스 방지(업로드 모달과 동일) */}
@@ -111,7 +113,7 @@ export function MinuteMetaModal({
           <div className="text-sm">
             <span className="mb-1 block font-medium">{t('min.form.subTeam')}</span>
             <SegmentedTabs
-              tabs={TEAM_SUBGROUPS[team].map(s => ({ key: s, label: s }))}
+              tabs={subgroupsOf(team).map(s => ({ key: s, label: s }))}
               value={sub} onChange={setSub} size="sm" />
           </div>
         )}

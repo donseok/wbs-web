@@ -1,7 +1,7 @@
 import { after, NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { TEAM_CODES } from '@/lib/domain/minutes'
 import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, gateMinutesApi,
   parseMinutePayload, parseUserEmail, resolveUserByEmail, runMinutePostProcessing,
@@ -170,7 +170,7 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams
   const team = sp.get('team')
-  if (team && !(TEAM_CODES as string[]).includes(team)) return apiBadRequest('잘못된 담당입니다.')
+  if (team && !activeTeamCodesSync().includes(team)) return apiBadRequest('잘못된 담당입니다.')
   const dateFrom = sp.get('date_from')
   const dateTo = sp.get('date_to')
   if ((dateFrom && !DATE_RE.test(dateFrom)) || (dateTo && !DATE_RE.test(dateTo))) {

@@ -1,4 +1,5 @@
 import type { ExplorerLeaf, FolderNode, MinuteFolder, TeamCode } from './types'
+import { DEFAULT_TEAM_CODES } from './teams'
 
 export const MINUTE_TITLE_MAX = 200
 export const MINUTE_BODY_MAX = 100_000          // body_md 실효 한도(자)
@@ -6,23 +7,26 @@ export const MINUTE_BODY_FILE_MAX = 1_048_576   // 원시 .md 파일 안전망(1
 export const MINUTE_ATTACHMENT_MAX = 20_971_520 // 첨부 개당 20MB(버킷 file_size_limit와 일치)
 export const MINUTE_ATTACHMENTS_MAX_COUNT = 10
 
-export const TEAM_CODES: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+/** @deprecated 기본 5팀 폴백 — 런타임 기준은 팀 마스터. 호출처에서 활성 팀 목록을 주입할 것. */
+export const TEAM_CODES: readonly TeamCode[] = DEFAULT_TEAM_CODES
 
 /* ── 팀 기본 폴더(0043): 루트의 팀코드 동명 시드 폴더는 자동 편철 앵커 ── */
 
 /** 루트 레벨에서 예약된 이름인지 — 사용자 루트 폴더의 생성·개명이 이 이름을 점유(스쿼팅)하면
- *  팀 자동 편철이 하이재킹되므로 서버 액션에서 차단한다. */
-export function isTeamRootName(name: string): boolean {
-  return (TEAM_CODES as readonly string[]).includes(name.trim())
+ *  팀 자동 편철이 하이재킹되므로 서버 액션에서 차단한다.
+ *  teamCodes 는 **비활성 포함 전체 등록 팀**(teamsSync) — 비활성 팀 앵커도 보호한다. */
+export function isTeamRootName(name: string, teamCodes: readonly string[]): boolean {
+  return teamCodes.includes(name.trim())
 }
 
-/** 시드 팀 루트 폴더인지(루트 + created_by null + 팀코드 동명) — 개명·삭제 금지 대상.
+/** 시드 팀 루트 폴더인지(루트 + created_by null) — 개명·삭제 금지 대상.
+ *  0043 이후 루트의 created_by null 은 팀 시드뿐이고, 신규 팀 추가 액션도 같은 형태로
+ *  생성하므로 이름 목록 대조 없이 판정한다(팀 마스터 변화에 자동 추종).
  *  개명·삭제되면 해당 팀의 자동 편철이 소리 없이 끊긴다. */
 export function isTeamRootFolder(
   f: Pick<MinuteFolder, 'name' | 'parentId' | 'createdBy'>,
 ): boolean {
   return f.parentId === null && f.createdBy === null
-    && typeof f.name === 'string' && isTeamRootName(f.name)
 }
 
 /* ── 담당 하위 구분(업로드 편철): 시드 폴더 트리(0043)와 동일 ── */
@@ -40,15 +44,20 @@ export const TEAM_SUBGROUPS: Record<TeamCode, readonly string[]> = {
  *  2026-07-24). 어느 입력 경로로든 'APS' 가 오면 생산계획으로 정규화한다. */
 const TEAM_SUB_ALIASES: Record<string, string> = { APS: '생산계획' }
 
+/** 팀별 하위 구분 조회 — 시드 트리에 없는(신규) 팀은 자기 자신 1개(별도 하위 없음). */
+export function subgroupsOf(team: TeamCode): readonly string[] {
+  return TEAM_SUBGROUPS[team] ?? [team]
+}
+
 /** 별칭 해소 + 목록 검증 — 해당 팀의 하위 구분이 아니면 null(추측 금지). */
 function resolveTeamSub(team: TeamCode, sub: string): string | null {
   const resolved = TEAM_SUB_ALIASES[sub.trim()] ?? sub.trim()
-  return TEAM_SUBGROUPS[team].includes(resolved) ? resolved : null
+  return subgroupsOf(team).includes(resolved) ? resolved : null
 }
 
 /** 하위 구분 정규화 — 별칭 해소 후 해당 팀 목록에 없으면 첫 항목(대표)으로 수렴. */
 export function normalizeTeamSub(team: TeamCode, sub: string): string {
-  return resolveTeamSub(team, sub) ?? TEAM_SUBGROUPS[team][0]
+  return resolveTeamSub(team, sub) ?? subgroupsOf(team)[0]
 }
 
 /** 팀 시드 폴더(루트 5축 + 그 시드 하위 구분)인지 — 편철 앵커라 개명·삭제 금지 대상.
@@ -96,16 +105,14 @@ export function teamSubOfFolder(
   while (cur && !seen.has(cur.id)) {
     seen.add(cur.id)
     if (cur.createdBy === null) {
+      // 0043 이후 루트 시드 = 팀 루트(신규 팀 시드 포함) — 폴더명이 곧 팀 코드다.
       if (cur.parentId === null) {
-        if (isTeamRootName(cur.name)) {
-          const team = cur.name as TeamCode
-          return { team, sub: resolveTeamSub(team, cur.name) }   // 단독 팀=자기 자신, ERP/MES 루트=null
-        }
-        return null  // 시드지만 팀 루트가 아님(0043 이전 형태) — 판정 불가
+        const team = cur.name
+        return { team, sub: resolveTeamSub(team, cur.name) }   // 단독 팀=자기 자신, ERP/MES 루트=null
       }
       const parent = byId.get(cur.parentId)
-      if (parent && parent.parentId === null && parent.createdBy === null && isTeamRootName(parent.name)) {
-        const team = parent.name as TeamCode
+      if (parent && parent.parentId === null && parent.createdBy === null) {
+        const team = parent.name
         return { team, sub: resolveTeamSub(team, cur.name) }     // 드리프트면 sub null
       }
     }
@@ -125,12 +132,15 @@ export interface MinuteInput {
 }
 
 /** 회의록 입력 검증 — 에러 메시지 또는 null. create/updateMeta/replaceBody 가 공유. */
-export function validateMinuteInput(input: MinuteInput): string | null {
+export function validateMinuteInput(
+  input: MinuteInput,
+  teamCodes: readonly TeamCode[] = TEAM_CODES,
+): string | null {
   const title = input.title.trim()
   if (!title) return '제목을 입력하세요.'
   if (title.length > MINUTE_TITLE_MAX) return `제목은 ${MINUTE_TITLE_MAX}자 이하여야 합니다.`
   if (!DATE_RE.test(input.minuteDate)) return '날짜 형식이 올바르지 않습니다.'
-  if (!TEAM_CODES.includes(input.teamCode)) return '잘못된 담당입니다.'
+  if (!teamCodes.includes(input.teamCode)) return '잘못된 담당입니다.'
   if (input.bodyMd.length > MINUTE_BODY_MAX) return '본문은 100,000자 이하여야 합니다.'
   return null
 }

@@ -2,8 +2,8 @@
 import { useRef, useState } from 'react'
 import { Bot, RotateCcw, Send, X } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
-import { TEAM_CODES } from '@/lib/domain/minutes'
 import type { TeamCode } from '@/lib/domain/types'
 import { linkifyMinutePaths } from './linkify'
 
@@ -122,6 +122,7 @@ type TeamKey = 'ALL' | TeamCode
 /** 문서 모드 패널 — 뷰어 우측(좁은 화면에선 아래). 범위 토글로 전체 보관함 질문 가능. */
 export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   const { t } = useLocale()
+  const teamCodes = useTeamCodes()
   const [open, setOpen] = useState(true)
   const [scope, setScope] = useState<ChatScope>('doc')
   const [team, setTeam] = useState<TeamKey>('ALL')
@@ -164,7 +165,7 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
       {scope === 'archive' && (
         <div className="border-b border-line px-3 py-1.5">
           <SegmentedTabs<TeamKey>
-            tabs={[{ key: 'ALL', label: t('min.team.all') }, ...TEAM_CODES.map(tk => ({ key: tk, label: tk }))]}
+            tabs={[{ key: 'ALL', label: t('min.team.all') }, ...teamCodes.map(tk => ({ key: tk, label: tk }))]}
             value={team} onChange={setTeam} size="sm" />
         </div>
       )}

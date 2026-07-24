@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
-  MINUTE_ATTACHMENT_MAX, MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_BODY_MAX, TEAM_CODES,
+  MINUTE_ATTACHMENT_MAX, MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_BODY_MAX,
 } from '@/lib/domain/minutes'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 import {
   apiBadRequest, apiInternalError, apiNotFound, gateMinutesApi, isUuid, MINUTES_API_MAX_REQUEST_BYTES,
 } from '@/lib/minutes/externalApi'
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
     if (error) { console.error('[minutes-api] 프로젝트 목록 조회 실패:', error.message); return apiInternalError() }
 
     const body: Record<string, unknown> = {
-      teams: TEAM_CODES,
+      teams: activeTeamCodesSync(),
       projects: projects ?? [],
       limits: {
         max_body_chars: MINUTE_BODY_MAX,

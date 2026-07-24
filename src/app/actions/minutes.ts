@@ -22,6 +22,7 @@ import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/sha
 import { createAdminClient } from '@/lib/supabase/admin'
 import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
 import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
+import { activeTeamCodesSync, teamsSync } from '@/lib/teams/master'
 
 const BUCKET = 'minutes'
 
@@ -83,7 +84,7 @@ export async function createMinute(
   if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
-  const err = validateMinuteInput(input)
+  const err = validateMinuteInput(input, activeTeamCodesSync())
   if (err) return { ok: false, error: err }
   const sb = await createServerClient()
   if (input.meetingId) {
@@ -121,7 +122,7 @@ export async function updateMinuteMeta(
   if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
-  const err = validateMinuteInput({ ...patch, bodyMd: '' })
+  const err = validateMinuteInput({ ...patch, bodyMd: '' }, activeTeamCodesSync())
   if (err) return { ok: false, error: err }
   const sb = await createServerClient()
   const own = await checkOwner(sb, id, user.id, m.role)
@@ -385,8 +386,9 @@ export async function createMinuteFolder(
   const nameErr = validateFolderName(name)
   if (nameErr) return { ok: false, error: nameErr }
   // 루트의 팀코드 동명은 시드 전용(자동 편철 앵커) — 선점(스쿼팅)되면 전사 편철이 하이재킹된다
-  if (parentId === null && isTeamRootName(name))
-    return { ok: false, error: '팀 기본 폴더명(PMO·ERP·MES·가공·MDM)은 루트에 사용할 수 없습니다.' }
+  const teamNames = teamsSync().map(t => t.code)
+  if (parentId === null && isTeamRootName(name, teamNames))
+    return { ok: false, error: `팀 기본 폴더명(${teamNames.join('·')})은 루트에 사용할 수 없습니다.` }
   const sb = await createServerClient()
   const folders = await loadFolders(sb)
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
@@ -423,8 +425,9 @@ export async function renameMinuteFolder(
   if (isTeamSeedFolder(folders, target))
     return { ok: false, error: '팀 기본 폴더는 이름을 변경할 수 없습니다.' }
   // 루트에서 팀코드 동명으로의 개명도 차단(앵커 사칭 방지)
-  if (target.parentId === null && isTeamRootName(name))
-    return { ok: false, error: '팀 기본 폴더명(PMO·ERP·MES·가공·MDM)은 루트에 사용할 수 없습니다.' }
+  const teamNames = teamsSync().map(t => t.code)
+  if (target.parentId === null && isTeamRootName(name, teamNames))
+    return { ok: false, error: `팀 기본 폴더명(${teamNames.join('·')})은 루트에 사용할 수 없습니다.` }
   const { data, error } = await sb.from('minute_folders')
     .update({ name: name.trim(), updated_at: new Date().toISOString() })
     .eq('id', id).select('id')

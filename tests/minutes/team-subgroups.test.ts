@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { MinuteFolder } from '@/lib/domain/types'
 import {
-  TEAM_SUBGROUPS, isTeamSeedFolder, normalizeTeamSub, subgroupFolderId,
+  TEAM_SUBGROUPS, isTeamSeedFolder, normalizeTeamSub, subgroupFolderId, subgroupsOf,
   teamRootFolderIdOf, teamSubOfFolder,
 } from '@/lib/domain/minutes'
 
@@ -89,11 +89,23 @@ describe('teamRootFolderIdOf', () => {
 })
 
 describe('isTeamSeedFolder — 개명·삭제 금지 대상', () => {
-  it('팀 루트와 그 시드 하위 구분은 보호, 사용자 폴더·팀 외 시드 루트는 비보호', () => {
+  it('팀 루트와 그 시드 하위 구분은 보호, 사용자 폴더는 비보호', () => {
     expect(isTeamSeedFolder(tree, tree.find(f => f.id === 'r-mes')!)).toBe(true)
     expect(isTeamSeedFolder(tree, tree.find(f => f.id === 'c-q')!)).toBe(true)
     expect(isTeamSeedFolder(tree, tree.find(f => f.id === 'u-aps')!)).toBe(false)
-    const preHierarchy = F('r-old', '생산계획')   // 0043 이전 형태의 독립 시드 루트
-    expect(isTeamSeedFolder([preHierarchy], preHierarchy)).toBe(false)
+  })
+
+  it('루트 시드는 이름과 무관하게 보호 — 팀 마스터 신규 팀 시드 자동 보호(2026-07-24 계약 변경)', () => {
+    // 0043 이후 루트의 created_by null 은 팀 시드뿐이다(신규 팀 추가 액션 포함).
+    const newTeamRoot = F('r-new', '신팀')
+    expect(isTeamSeedFolder([newTeamRoot], newTeamRoot)).toBe(true)
+  })
+})
+
+describe('subgroupsOf — 팀 마스터 신규 팀 폴백', () => {
+  it('시드 트리의 팀은 하위 구분, 신규 팀은 자기 자신 1개', () => {
+    expect(subgroupsOf('MES')).toEqual(['품질', '생산계획', '조업및표준화', '물류', '설비및L2'])
+    expect(subgroupsOf('신팀')).toEqual(['신팀'])
+    expect(normalizeTeamSub('신팀', '아무거나')).toBe('신팀')
   })
 })

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { sanitizeHistory } from '@/lib/ai/answer'
 import { streamDocAnswer, streamArchiveAnswer } from '@/lib/ai/minutes-answer'
-import { TEAM_CODES } from '@/lib/domain/minutes'
 import type { TeamCode } from '@/lib/domain/types'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
     if (body.mode === 'archive') {
       const f = body.filters ?? {}
-      const team = typeof f.team === 'string' && (TEAM_CODES as string[]).includes(f.team)
+      const team = typeof f.team === 'string' && activeTeamCodesSync().includes(f.team)
         ? (f.team as TeamCode) : null
       const from = typeof f.from === 'string' && DATE_RE.test(f.from) ? f.from : null
       const to = typeof f.to === 'string' && DATE_RE.test(f.to) ? f.to : null

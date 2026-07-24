@@ -34,7 +34,7 @@ const leaf = (id: string, date: string, title: string, folderId: string | null, 
 
 const folders = [
   folder('f-pmo', 'PMO', null, 0),
-  folder('f-plan', '생산계획', null, 5),
+  folder('f-plan', '생산계획', null, 5, 'u1'),  // 일반(사용자) 폴더 — 루트 시드는 팀 앵커로 보호됨
   folder('f-aps', 'APS 회의', 'f-plan', 100, 'u1'),
 ]
 const leaves = [
@@ -155,9 +155,9 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
 
   it('폴더 ⋯ 메뉴는 소유자/관리자에게만 — 시드 폴더는 일반 사용자에게 숨김', async () => {
     await mount()
-    // 시드(createdBy null) PMO 행: 메뉴 없음 / 본인 소유 APS 회의: 메뉴 있음
+    // 시드(createdBy null) PMO 행: 메뉴 없음 / 본인 소유 생산계획·APS 회의: 메뉴 있음
     const menuBtns = [...container.querySelectorAll('button[aria-label="min.fold.menuAria"]')]
-    expect(menuBtns.length).toBe(1)
+    expect(menuBtns.length).toBe(2)
     await mount({ isAdmin: true })
     expect([...container.querySelectorAll('button[aria-label="min.fold.menuAria"]')].length).toBe(3)
   })

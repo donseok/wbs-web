@@ -3,12 +3,13 @@ import { useRef, useState, type ChangeEvent } from 'react'
 import type { MinuteFolder, TeamCode } from '@/lib/domain/types'
 import {
   MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX,
-  MINUTE_BODY_MAX, TEAM_CODES, TEAM_SUBGROUPS, sanitizeFileName,
+  MINUTE_BODY_MAX, sanitizeFileName, subgroupsOf,
   subgroupFolderId, teamSubOfFolder,
 } from '@/lib/domain/minutes'
 import { createMinute, fetchProjectMeetingsLite, recordMinuteFile } from '@/app/actions/minutes'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
@@ -31,9 +32,11 @@ export function MinuteUploadModal({
   const { toast } = useToast()
   // 탐색기에서 특정 폴더를 보며 열었으면 그 폴더의 (팀, 하위)를 초기값으로 — 시드 체인 밖이면 팀 탭 기본
   const initial = teamSubOfFolder(folders, defaultFolderId)
+  const teamCodes = useTeamCodes()
+  const fallbackTeam = teamCodes[0] ?? 'PMO'
   const [date, setDate] = useState(todayIso)
-  const [team, setTeamState] = useState<TeamCode>(initial?.team ?? defaultTeam ?? 'PMO')
-  const [sub, setSub] = useState<string>(initial?.sub ?? TEAM_SUBGROUPS[initial?.team ?? defaultTeam ?? 'PMO'][0])
+  const [team, setTeamState] = useState<TeamCode>(initial?.team ?? defaultTeam ?? fallbackTeam)
+  const [sub, setSub] = useState<string>(initial?.sub ?? subgroupsOf(initial?.team ?? defaultTeam ?? fallbackTeam)[0])
   const [title, setTitle] = useState('')
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [bodyText, setBodyText] = useState('')
@@ -45,7 +48,7 @@ export function MinuteUploadModal({
 
   function setTeam(next: TeamCode) {
     setTeamState(next)
-    setSub(TEAM_SUBGROUPS[next][0])  // 팀 전환 시 하위 구분은 그 팀의 대표(첫 항목)로 재설정
+    setSub(subgroupsOf(next)[0])  // 팀 전환 시 하위 구분은 그 팀의 대표(첫 항목)로 재설정
   }
   const [err, setErr] = useState<string | null>(null)
   // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
@@ -144,7 +147,7 @@ export function MinuteUploadModal({
         <div className="text-sm">
           <span className="mb-1 block font-medium">{t('min.form.team')}</span>
           <SegmentedTabs<TeamCode>
-            tabs={TEAM_CODES.map(tk => ({ key: tk, label: tk }))}
+            tabs={teamCodes.map(tk => ({ key: tk, label: tk }))}
             value={team} onChange={setTeam} size="sm" />
         </div>
         {/* 폴더 목록 미확보(프리페치 실패 등)면 하위 구분을 숨긴다 — 선택을 보여주고 무시하는
@@ -154,7 +157,7 @@ export function MinuteUploadModal({
             <span className="mb-1 block font-medium">{t('min.form.subTeam')}</span>
             {/* 하위 구분 = 시드 폴더 트리(0043)와 동일. 단독 팀(PMO/가공/MDM)은 자기 자신 1개 */}
             <SegmentedTabs
-              tabs={TEAM_SUBGROUPS[team].map(s => ({ key: s, label: s }))}
+              tabs={subgroupsOf(team).map(s => ({ key: s, label: s }))}
               value={sub} onChange={setSub} size="sm" />
           </div>
         )}
