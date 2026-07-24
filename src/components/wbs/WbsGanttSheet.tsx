@@ -12,6 +12,9 @@ import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
+import { WbsProgressLens } from './WbsProgressLens'
+import { WbsFontSizeControl } from './WbsFontSizeControl'
+import { useWbsFontScale } from './useWbsFontScale'
 import { ReportModal } from '@/components/report/ReportModal'
 import { usePagePresence } from '@/components/app/usePagePresence'
 import { PresenceStrip } from '@/components/app/PresenceStrip'
@@ -19,6 +22,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 import type { DictKey } from '@/lib/i18n/dict'
+import { wbsFontScaleVariables } from '@/lib/wbsFontScale'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
 type Col = { key: string; w: number; frozen?: boolean; sk?: number }
@@ -184,6 +188,12 @@ export function WbsGanttSheet({
   const dayPx = 24 // 간트 배율 — '기본' 고정 (축소 옵션 제거)
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
+  // 진척 돋보기는 사용자가 켰을 때만 행 hover/focus를 따라간다. 객체 대신 id만 저장해
+  // router.refresh 이후에도 itemById의 최신 롤업 값을 확대 카드에 표시한다.
+  const [progressLensEnabled, setProgressLensEnabled] = useState(false)
+  const [progressLensPreviewId, setProgressLensPreviewId] = useState<string | null>(null)
+  const [progressLensPinnedId, setProgressLensPinnedId] = useState<string | null>(null)
+  const fontScale = useWbsFontScale()
   // 타임라인 집중 모드는 대시보드 '간트' 링크(?view=timeline) 진입 시에만 활성.
   // 툴바 토글 버튼은 제거됨 — 값은 defaultView에서 파생.
   const timelineFocus = defaultView === 'timeline'
@@ -265,14 +275,34 @@ export function WbsGanttSheet({
   // 전체화면 팝업: Escape 로 닫기 + 배경 스크롤 잠금.
   useEffect(() => {
     if (!fullscreen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false) }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      // 확대 카드 선택과 내부 패널/편집이 열려 있으면 첫 Esc를 해당 UI에 양보한다.
+      if (
+        (progressLensEnabled && (progressLensPinnedId || progressLensPreviewId))
+        || selectedId
+        || reportOpen
+        || addPhase !== null
+        || edit
+      ) return
+      setFullscreen(false)
+    }
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
     }
-  }, [fullscreen])
+  }, [
+    addPhase,
+    edit,
+    fullscreen,
+    progressLensEnabled,
+    progressLensPinnedId,
+    progressLensPreviewId,
+    reportOpen,
+    selectedId,
+  ])
 
   const toggle = (id: string) => {
     if (forcedOpen.has(id)) {
@@ -352,7 +382,82 @@ export function WbsGanttSheet({
     [allFlatItems, dependencies, holidays, today],
   )
   const itemById = useMemo(() => new Map(allFlatItems.map(item => [item.id, item])), [allFlatItems])
+  const progressLensPathById = useMemo(() => {
+    const paths = new Map<string, string[]>()
+    const walk = (nodes: ComputedItem[], parents: string[]) => {
+      nodes.forEach(node => {
+        paths.set(node.id, parents)
+        walk(node.children, [...parents, node.name])
+      })
+    }
+    walk(items, [])
+    return paths
+  }, [items])
+  const progressLensActiveId = progressLensPinnedId ?? progressLensPreviewId
+  const progressLensItem = progressLensActiveId ? itemById.get(progressLensActiveId) ?? null : null
   const rowIndex = useMemo(() => new Map(flatRows.map((item, index) => [item.id, index])), [flatRows])
+
+  const clearProgressLensSelection = () => {
+    setProgressLensPreviewId(null)
+    setProgressLensPinnedId(null)
+  }
+  const toggleProgressLens = () => {
+    if (progressLensEnabled) {
+      clearProgressLensSelection()
+      setProgressLensEnabled(false)
+      return
+    }
+    setProgressLensEnabled(true)
+  }
+  const previewProgressLens = (id: string) => {
+    if (!progressLensEnabled || progressLensPinnedId) return
+    setProgressLensPreviewId(id)
+  }
+  const toggleProgressLensPin = () => {
+    if (progressLensPinnedId) {
+      setProgressLensPinnedId(null)
+      return
+    }
+    if (progressLensPreviewId) setProgressLensPinnedId(progressLensPreviewId)
+  }
+
+  // 삭제·재임포트로 선택 id가 사라지면 오래된 카드가 남지 않게 정리한다.
+  useEffect(() => {
+    if (progressLensPreviewId && !itemById.has(progressLensPreviewId)) {
+      setProgressLensPreviewId(null)
+    }
+    if (progressLensPinnedId && !itemById.has(progressLensPinnedId)) {
+      setProgressLensPinnedId(null)
+    }
+  }, [itemById, progressLensPinnedId, progressLensPreviewId])
+
+  // 상세/보고서/추가/인라인 편집의 Esc를 가로채지 않는다. 그 외에는 선택만 지우고
+  // 돋보기 모드는 유지해 사용자가 곧바로 다른 행을 탐색할 수 있게 한다.
+  useEffect(() => {
+    if (!progressLensEnabled || (!progressLensPreviewId && !progressLensPinnedId)) return
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key !== 'Escape'
+        || selectedId
+        || reportOpen
+        || addPhase !== null
+        || edit
+      ) return
+      e.preventDefault()
+      setProgressLensPreviewId(null)
+      setProgressLensPinnedId(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [
+    addPhase,
+    edit,
+    progressLensEnabled,
+    progressLensPinnedId,
+    progressLensPreviewId,
+    reportOpen,
+    selectedId,
+  ])
 
   const allCollapsed = collapsibleIds.size > 0 && [...collapsibleIds].every(id => effCollapsed.has(id))
   const toggleAll = () => {
@@ -529,13 +634,14 @@ export function WbsGanttSheet({
         else if (e.key === 'Escape') cancel()
       }}
       placeholder={current}
-      className="h-6 w-full rounded border border-brand bg-surface px-1 text-right text-[12px] tabular-nums text-ink outline-none focus:ring-2 focus:ring-brand-ring"
+      className="h-6 w-full rounded border border-brand bg-surface px-1 text-right tabular-nums text-ink outline-none focus:ring-2 focus:ring-brand-ring"
+      style={{ fontSize: 'var(--wbs-cell-font, 12px)' }}
     />
   )
 
   /* ── 셀 helpers ── */
   const headBase =
-    'box-border flex h-[var(--wbs-head-h)] shrink-0 items-center bg-sheet-head px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-muted border-b border-grid-strong'
+    'box-border flex h-[var(--wbs-head-h)] min-w-0 shrink-0 items-center overflow-hidden whitespace-nowrap bg-sheet-head px-2 font-semibold uppercase tracking-[0.08em] text-ink-muted border-b border-grid-strong'
   const cellBase = 'box-border flex h-full shrink-0 items-center border-b border-grid px-2'
 
   const headCell = (col: Col, label: string, align = 'justify-start', extra = '') => {
@@ -547,7 +653,12 @@ export function WbsGanttSheet({
         data-wbs-col={col.key}
         data-wbs-col-kind="header"
         className={`${headBase} ${align} ${isName ? 'freeze-edge' : 'border-r border-grid-strong'} ${extra}`}
-        style={{ width: col.w, ...(frozen ? { position: 'sticky', left: col.sk, zIndex: 50 } : {}) }}
+        style={{
+          width: col.w,
+          fontSize: 'var(--wbs-head-font, 10px)',
+          ...(frozen ? { position: 'sticky', left: col.sk, zIndex: 50 } : {}),
+        }}
+        title={label}
       >
         {label}
       </div>
@@ -558,6 +669,7 @@ export function WbsGanttSheet({
     <div
       ref={rootRef}
       data-wbs-gantt-sheet
+      data-wbs-font-scale={fontScale.scale}
       className={
         fullscreen
           ? 'fixed inset-0 z-[125] overflow-auto app-backdrop px-3 py-3 sm:px-6 sm:py-5'
@@ -609,6 +721,27 @@ export function WbsGanttSheet({
             {t(planningColsHidden ? 'wbs.showPlanningColumns' : 'wbs.hidePlanningColumns')}
           </button>
         )}
+        <button
+          type="button"
+          data-wbs-progress-lens-toggle
+          onClick={toggleProgressLens}
+          aria-pressed={progressLensEnabled}
+          title={t('wbs.progressLensTitle')}
+          className={`btn h-9 px-3 text-xs ${
+            progressLensEnabled ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'
+          }`}
+        >
+          <Icon name="search" className="h-3.5 w-3.5" />
+          {t('wbs.progressLens')}
+        </button>
+        <WbsFontSizeControl
+          scale={fontScale.scale}
+          onDecrease={fontScale.decrease}
+          onIncrease={fontScale.increase}
+          onReset={fontScale.reset}
+          canDecrease={fontScale.canDecrease}
+          canIncrease={fontScale.canIncrease}
+        />
         <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}
         </button>
@@ -682,10 +815,20 @@ export function WbsGanttSheet({
       <div
         ref={timelineScrollRef}
         data-wbs-scroll-region
-        className={`card w-full max-w-full overflow-auto ${fullscreen ? '' : 'min-h-0 flex-1'}`}
-        style={fullscreen ? { maxHeight: 'calc(100dvh - 150px)' } : undefined}
+        className={`card w-full max-w-full overflow-auto ${
+          progressLensEnabled ? 'scroll-pb-96 lg:scroll-pb-52' : ''
+        } ${fullscreen ? '' : 'min-h-0 flex-1'}`}
+        style={{
+          ...wbsFontScaleVariables(fontScale.scale),
+          ...(fullscreen ? { maxHeight: 'calc(100dvh - 150px)' } : {}),
+        } as React.CSSProperties}
       >
-        <div className="relative" style={{ width: LEFT_W + ganttW }}>
+        <div
+          data-wbs-scroll-content
+          data-lens-clearance={progressLensEnabled ? 'true' : undefined}
+          className={`relative ${progressLensEnabled ? 'pb-96 lg:pb-52' : ''}`}
+          style={{ width: LEFT_W + ganttW }}
+        >
           {/* 배경 격자 + 주말/공휴일 (행 뒤) */}
           <div
             className="pointer-events-none absolute z-0"
@@ -735,8 +878,8 @@ export function WbsGanttSheet({
               {months.map(m => (
                 <div
                   key={m.left}
-                  className="absolute top-0 box-border flex h-5 items-center border-r border-grid px-1.5 text-[10px] font-semibold text-ink-muted"
-                  style={{ left: m.left, width: m.width }}
+                  className="absolute top-0 box-border flex h-5 items-center overflow-hidden border-r border-grid px-1.5 font-semibold text-ink-muted"
+                  style={{ left: m.left, width: m.width, fontSize: 'var(--wbs-head-font, 10px)' }}
                 >
                   {m.label}
                 </div>
@@ -744,8 +887,13 @@ export function WbsGanttSheet({
               {weeks.map(w => (
                 <div
                   key={w.left}
-                  className="absolute box-border flex h-[19px] items-center gap-1 border-r border-grid px-1.5 text-[9.5px] font-medium text-ink-subtle"
-                  style={{ top: 20, left: w.left, width: w.width }}
+                  className="absolute box-border flex h-[19px] items-center gap-1 overflow-hidden border-r border-grid px-1.5 font-medium text-ink-subtle"
+                  style={{
+                    top: 20,
+                    left: w.left,
+                    width: w.width,
+                    fontSize: 'var(--wbs-timeline-font, 9.5px)',
+                  }}
                 >
                   <span className="font-semibold text-ink-muted">{w.label}</span>
                   <span>{w.sub}</span>
@@ -756,7 +904,7 @@ export function WbsGanttSheet({
                 days.map((d, i) => (
                   <div
                     key={d}
-                    className={`absolute box-border border-r border-grid text-center text-[9px] leading-[18px] ${
+                    className={`absolute box-border overflow-hidden border-r border-grid text-center leading-[18px] ${
                       holSet.has(d) || isWeekend(d) ? 'text-delayed/70' : 'text-ink-subtle'
                     }`}
                     style={{
@@ -764,6 +912,7 @@ export function WbsGanttSheet({
                       left: i * dayPx,
                       width: dayPx,
                       height: 19,
+                      fontSize: 'var(--wbs-day-font, 9px)',
                       background: holSet.has(d)
                         ? 'var(--color-holiday-band)'
                         : isWeekend(d)
@@ -797,7 +946,10 @@ export function WbsGanttSheet({
                     : 'bg-surface'
             // focus 플래시는 hover 와 같은 틴트(bg-brand-weak) + 좌측 브랜드 악센트 바로 강조 —
             // 악센트가 있어야 커서가 우연히 올라간 행(hover)과 도착 행이 구분된다.
-            const cellBg = `${isFlash ? 'bg-brand-weak' : rowBg} group-hover:bg-brand-weak`
+            const progressLensActive = progressLensActiveId === n.id
+            const cellBg = `${
+              isFlash || progressLensActive ? 'bg-brand-weak' : rowBg
+            } group-hover:bg-brand-weak`
             const subLabel = subActLabels.get(n.id)
             const nameWeight =
               n.level === 'phase'
@@ -824,14 +976,25 @@ export function WbsGanttSheet({
                 key={n.id}
                 data-row-id={n.id}
                 data-flash={isFlash ? 'true' : undefined}
+                data-lens-active={progressLensActive ? 'true' : undefined}
                 tabIndex={isFlash ? -1 : undefined}
                 className="group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none"
+                style={{ fontSize: 'var(--wbs-cell-font, 12px)' }}
+                onMouseEnter={() => previewProgressLens(n.id)}
+                onFocusCapture={() => previewProgressLens(n.id)}
+                onClick={e => {
+                  if (!progressLensEnabled) return
+                  const target = e.target as HTMLElement
+                  if (target.closest('button,input,select,textarea,a,[role="button"]')) return
+                  setProgressLensPreviewId(n.id)
+                  setProgressLensPinnedId(current => (current === n.id ? null : n.id))
+                }}
               >
                 {/* # */}
                 <div
                   data-wbs-col="no"
-                  className={`${cellBase} border-r border-grid-strong justify-center text-[11px] tabular-nums text-ink-subtle ${cellBg}`}
-                  style={frozen('no')}
+                  className={`${cellBase} border-r border-grid-strong justify-center tabular-nums text-ink-subtle ${cellBg}`}
+                  style={{ ...frozen('no'), fontSize: 'var(--wbs-index-font, 11px)' }}
                 >
                   {/* focus 도착 마커 — 동결(#) 셀 안에 두어 가로 스크롤에도 항상 보인다 */}
                   {isFlash && <span aria-hidden data-flash-accent className="absolute inset-y-0 left-0 w-1 bg-brand" />}
@@ -840,18 +1003,19 @@ export function WbsGanttSheet({
                 {/* 구분 */}
                 <div
                   data-wbs-col="level"
-                  className={`${cellBase} border-r border-grid-strong justify-center ${cellBg}`}
-                  style={frozen('level')}
+                  className={`${cellBase} overflow-hidden border-r border-grid-strong justify-center ${cellBg}`}
+                  style={{ ...frozen('level'), paddingInline: 4 }}
                 >
-                  <LevelBadge level={n.level} sub={subLabel != null} />
+                  <LevelBadge level={n.level} sub={subLabel != null} compact />
                 </div>
                 {/* 작업명 */}
-                <div data-wbs-col="name" className={`${cellBase} freeze-edge text-[12px] ${cellBg}`} style={frozen('name')}>
+                <div data-wbs-col="name" className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
                   <div className="flex min-w-0 items-center" style={{ paddingLeft: depth * 14 }}>
                     {canToggle ? (
                       <button
                         onClick={() => toggle(n.id)}
-                        className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[10px] text-ink-subtle hover:bg-line hover:text-ink"
+                        className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-line hover:text-ink"
+                        style={{ fontSize: 'var(--wbs-badge-font, 10px)' }}
                         aria-label={isCollapsed ? t('wbs.expand') : t('wbs.collapse')}
                         aria-expanded={!isCollapsed}
                       >
@@ -862,7 +1026,10 @@ export function WbsGanttSheet({
                     )}
                     <button
                       type="button"
-                      onClick={() => setSelectedId(n.id)}
+                      onClick={() => {
+                        clearProgressLensSelection()
+                        setSelectedId(n.id)
+                      }}
                       className={`truncate text-left ${nameWeight} ${isCritical ? 'font-semibold text-critical' : ''} hover:text-brand hover:underline`}
                       title={`${n.name} · ${t('wbs.rowDetailTitle')}${isCritical ? ` · ${t('wbs.criticalPath')}` : ''}`}
                     >
@@ -885,19 +1052,27 @@ export function WbsGanttSheet({
                     className={`${cellBase} border-r border-grid ${cellBg}`}
                     style={{ width: W('owners') }}
                   >
-                    <OwnerBadges owners={n.owners} />
+                    <OwnerBadges owners={n.owners} nowrap />
                   </div>
                 )}
                 {/* 상태 */}
                 {showCol('status') && (
                   <div
                     data-wbs-col="status"
-                    className={`${cellBase} border-r border-grid justify-center ${cellBg}`}
-                    style={{ width: W('status') }}
+                    className={`${cellBase} overflow-hidden border-r border-grid justify-center ${cellBg}`}
+                    style={{ width: W('status'), paddingInline: 4 }}
                   >
-                    <span className={`chip ${STATUS[n.status].chip}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${STATUS[n.status].dot}`} />
-                      {t(`status.${n.status}` as DictKey)}
+                    <span
+                      className={`chip max-w-full overflow-hidden whitespace-nowrap ${STATUS[n.status].chip}`}
+                      style={{
+                        fontSize: 'var(--wbs-chip-font, 11px)',
+                        paddingInline: 4,
+                      }}
+                      title={t(`status.${n.status}` as DictKey)}
+                      aria-label={t(`status.${n.status}` as DictKey)}
+                    >
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS[n.status].dot}`} />
+                      <span className="min-w-0 truncate">{t(`status.${n.status}` as DictKey)}</span>
                     </span>
                   </div>
                 )}
@@ -905,7 +1080,7 @@ export function WbsGanttSheet({
                 {showCol('deliverable') && (
                   <div
                     data-wbs-col="deliverable"
-                    className={`${cellBase} border-r border-grid text-[12px] text-ink-muted ${cellBg}`}
+                    className={`${cellBase} overflow-hidden border-r border-grid text-ink-muted ${cellBg}`}
                     style={{ width: W('deliverable') }}
                   >
                     <span className="block truncate" title={n.deliverable ?? undefined}>
@@ -917,7 +1092,7 @@ export function WbsGanttSheet({
                 {showCol('pstart') && (
                   <div
                     data-wbs-col="pstart"
-                    className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
+                    className={`${cellBase} overflow-hidden whitespace-nowrap border-r border-grid justify-center tabular-nums text-ink-muted ${cellBg}`}
                     style={{ width: W('pstart') }}
                   >
                     {fmtDate(n.plannedStart)}
@@ -927,7 +1102,7 @@ export function WbsGanttSheet({
                 {showCol('pend') && (
                   <div
                     data-wbs-col="pend"
-                    className={`${cellBase} border-r border-grid justify-center text-[12px] tabular-nums text-ink-muted ${cellBg}`}
+                    className={`${cellBase} overflow-hidden whitespace-nowrap border-r border-grid justify-center tabular-nums text-ink-muted ${cellBg}`}
                     style={{ width: W('pend') }}
                   >
                     {fmtDate(n.plannedEnd)}
@@ -936,7 +1111,7 @@ export function WbsGanttSheet({
                 {/* 가중치 — overflow-hidden: 표시 반올림을 우회하는 긴 값이 이웃 날짜 칸을 덮지 않게 */}
                 {showCol('weight') && <div
                   data-wbs-col="weight"
-                  className={`${cellBase} overflow-hidden border-r border-grid justify-end text-[12px] tabular-nums ${
+                  className={`${cellBase} overflow-hidden border-r border-grid justify-end tabular-nums ${
                     editableW ? 'cursor-pointer' : ''
                   } ${n.weight == null ? 'text-ink-subtle' : 'text-ink'} ${cellBg}`}
                   style={{ width: W('weight') }}
@@ -965,7 +1140,7 @@ export function WbsGanttSheet({
                 {showCol('pplan') && (
                 <div
                   data-wbs-col="pplan"
-                  className={`${cellBase} border-r border-grid justify-end text-[12px] tabular-nums text-ink-muted ${cellBg}`}
+                  className={`${cellBase} overflow-hidden border-r border-grid justify-end tabular-nums text-ink-muted ${cellBg}`}
                   style={{ width: W('pplan') }}
                 >
                   {formatPct1(n.plannedPct)}%
@@ -975,7 +1150,7 @@ export function WbsGanttSheet({
                 {showCol('pactual') && (
                 <div
                   data-wbs-col="pactual"
-                  className={`${cellBase} relative justify-end overflow-hidden border-r border-grid text-[12px] font-medium tabular-nums ${
+                  className={`${cellBase} relative justify-end overflow-hidden border-r border-grid font-medium tabular-nums ${
                     editableA ? 'cursor-pointer' : ''
                   } ${n.status === 'delayed' ? 'text-delayed' : 'text-ink'} ${cellBg}`}
                   style={{ width: W('pactual') }}
@@ -1019,7 +1194,7 @@ export function WbsGanttSheet({
                   style={{ width: W('achieve') }}
                 >
                   <span
-                    className={`text-[12px] leading-none ${
+                    className={`leading-none ${
                       n.achievement == null
                         ? 'text-ink-subtle'
                         : n.achievement >= 100
@@ -1094,8 +1269,8 @@ export function WbsGanttSheet({
             >
               <div className="absolute top-0 w-0.5 -translate-x-1/2 bg-today" style={{ left: todayX, height: rowsH }} />
               <div
-                className="absolute -translate-x-1/2 rounded-sm bg-today px-1 py-0.5 text-[8px] font-bold leading-none text-white"
-                style={{ left: todayX, top: 0 }}
+                className="absolute -translate-x-1/2 rounded-sm bg-today px-1 py-0.5 font-bold leading-none text-white"
+                style={{ left: todayX, top: 0, fontSize: 'var(--wbs-day-font, 9px)' }}
               >
                 {t('wbs.today')}
               </div>
@@ -1103,6 +1278,17 @@ export function WbsGanttSheet({
           )}
         </div>
       </div>
+
+      {progressLensEnabled && (
+        <div className="pointer-events-none fixed inset-x-3 bottom-4 z-[45] flex justify-center sm:inset-x-6">
+          <WbsProgressLens
+            item={progressLensItem}
+            parentPath={progressLensActiveId ? progressLensPathById.get(progressLensActiveId) ?? [] : []}
+            pinned={!!progressLensPinnedId}
+            onTogglePin={toggleProgressLensPin}
+          />
+        </div>
+      )}
 
       {/* ── 범례 ── */}
       <div className="mt-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
@@ -1323,8 +1509,8 @@ function Bar({
           />
           {showOutside && (
             <span
-              className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums ${critical ? 'font-semibold text-critical' : 'text-ink-muted'}`}
-              style={{ left: width }}
+              className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 tabular-nums ${critical ? 'font-semibold text-critical' : 'text-ink-muted'}`}
+              style={{ left: width, fontSize: 'var(--wbs-bar-font, 9px)' }}
             >
               {pctLabel}
             </span>
@@ -1348,14 +1534,20 @@ function Bar({
           />
         </div>
         {showInside && (
-          <span className="absolute top-1/2 -translate-x-full -translate-y-1/2 pr-1 text-[9px] font-medium tabular-nums text-white/95" style={{ left: `${pct}%` }}>
+          <span
+            className="absolute top-1/2 -translate-x-full -translate-y-1/2 pr-1 font-medium tabular-nums text-white/95"
+            style={{ left: `${pct}%`, fontSize: 'var(--wbs-bar-font, 9px)' }}
+          >
             {pctLabel}
           </span>
         )}
         {showOutside && (
           <span
-            className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 text-[9px] tabular-nums ${critical ? 'font-semibold text-critical' : 'text-ink-muted'}`}
-            style={{ left: Math.min(width, Math.max(0, width * pct / 100)) }}
+            className={`absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1 tabular-nums ${critical ? 'font-semibold text-critical' : 'text-ink-muted'}`}
+            style={{
+              left: Math.min(width, Math.max(0, width * pct / 100)),
+              fontSize: 'var(--wbs-bar-font, 9px)',
+            }}
           >
             {pctLabel}
           </span>

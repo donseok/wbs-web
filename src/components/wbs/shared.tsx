@@ -38,22 +38,58 @@ export function StatusChip({ status }: { status: Status }) {
   )
 }
 
-export function LevelBadge({ level, sub = false }: { level: Level; sub?: boolean }) {
+export function LevelBadge({
+  level,
+  sub = false,
+  compact = false,
+}: {
+  level: Level
+  sub?: boolean
+  compact?: boolean
+}) {
   const l = sub && level === 'activity' ? SUB_ACT : LEVEL[level]
-  return <span className={`lvl-badge ${l.cls}`}>{l.label}</span>
+  return (
+    <span
+      className={`lvl-badge ${l.cls}`}
+      style={{
+        fontSize: 'var(--wbs-badge-font, 10px)',
+        ...(compact
+          ? {
+              maxWidth: '100%',
+              overflow: 'hidden',
+              paddingInline: '3px',
+              letterSpacing: 0,
+              whiteSpace: 'nowrap',
+            }
+          : {}),
+      }}
+    >
+      {l.label}
+    </span>
+  )
 }
 
-export function OwnerBadges({ owners }: { owners: ComputedItem['owners'] }) {
+export function OwnerBadges({
+  owners,
+  nowrap = false,
+}: {
+  owners: ComputedItem['owners']
+  nowrap?: boolean
+}) {
   if (!owners.length) return <span className="text-ink-subtle">-</span>
   return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 overflow-hidden">
+    <div className={`flex items-center gap-x-1.5 gap-y-0.5 overflow-hidden ${nowrap ? 'flex-nowrap' : 'flex-wrap'}`}>
       {owners.map(o => (
         <span
           key={o.team + o.kind}
-          className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold leading-none"
+          className={`inline-flex items-center gap-0.5 font-semibold leading-none ${nowrap ? 'shrink-0' : ''}`}
+          style={{ fontSize: 'var(--wbs-owner-font, 10.5px)' }}
           title={o.kind === 'primary' ? `${o.team} 주관` : `${o.team} 지원`}
         >
-          <span className={`${teamStyle(o.team).fg} ${o.kind === 'support' ? 'opacity-60' : ''} text-[9px] leading-none`}>
+          <span
+            className={`${teamStyle(o.team).fg} ${o.kind === 'support' ? 'opacity-60' : ''} leading-none`}
+            style={{ fontSize: 'var(--wbs-owner-mark-font, 9px)' }}
+          >
             {o.kind === 'primary' ? '●' : '△'}
           </span>
           <span className="text-ink-muted">{o.team}</span>
