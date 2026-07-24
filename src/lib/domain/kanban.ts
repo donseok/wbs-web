@@ -128,3 +128,47 @@ export function dueSignal(plannedEnd: string | null, cur: number, today: string)
   const d = dayDiff(today, plannedEnd)
   return d < 0 ? { kind: 'overdue', days: -d } : { kind: 'due', days: d }
 }
+
+/** 렌즈: 'myTeam'=내 팀이 담당(primary/support)인 리프만, 'all'=전체. myTeam 미상이면 전체. */
+export function lensCards(leaves: ComputedItem[], lens: 'myTeam' | 'all', myTeam: string | null): ComputedItem[] {
+  if (lens === 'all' || !myTeam) return leaves
+  return leaves.filter(leaf => leaf.owners.some(o => o.team === myTeam))
+}
+
+export interface QuickFilters {
+  overdue: boolean
+  dueThisWeek: boolean
+  inProgress: boolean
+  notStarted: boolean
+}
+
+/** 빠른 필터(켜진 것만 AND). overdue=파생 지연, in/not=실적% 버킷, dueThisWeek=오늘~+6일 마감. */
+export function applyQuickFilters(leaves: ComputedItem[], f: QuickFilters, today: string): ComputedItem[] {
+  return leaves.filter(leaf => {
+    if (f.overdue && leaf.status !== 'delayed') return false
+    if (f.inProgress && bucketOf(leaf.rolledActualPct) !== 'in_progress') return false
+    if (f.notStarted && bucketOf(leaf.rolledActualPct) !== 'not_started') return false
+    if (f.dueThisWeek) {
+      if (!leaf.plannedEnd) return false
+      const d = dayDiff(today, leaf.plannedEnd)
+      if (d < 0 || d > 6) return false
+    }
+    return true
+  })
+}
+
+/** 정렬(원본 불변): 지연 우선 → 계획종료 오름차순(null 뒤) → 이름(ko). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- today는 시그니처 일관성용(현재 미사용)
+export function sortCards(cards: ComputedItem[], _today: string): ComputedItem[] {
+  return [...cards].sort((a, b) => {
+    const ad = a.status === 'delayed' ? 0 : 1
+    const bd = b.status === 'delayed' ? 0 : 1
+    if (ad !== bd) return ad - bd
+    if (a.plannedEnd !== b.plannedEnd) {
+      if (!a.plannedEnd) return 1
+      if (!b.plannedEnd) return -1
+      return a.plannedEnd < b.plannedEnd ? -1 : 1
+    }
+    return a.name.localeCompare(b.name, 'ko')
+  })
+}

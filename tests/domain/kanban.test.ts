@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ComputedItem, OwnerKind, Status, TeamCode } from '@/lib/domain/types'
-import { groupByPhase, groupByOwner, groupByStatus, groupByProgress, bucketOf, leafPaths, dueSignal } from '@/lib/domain/kanban'
+import { groupByPhase, groupByOwner, groupByStatus, groupByProgress, bucketOf, leafPaths, dueSignal, lensCards, applyQuickFilters, sortCards } from '@/lib/domain/kanban'
 
 type Owner = { team: TeamCode; kind: OwnerKind }
 
@@ -13,6 +13,8 @@ function node(
     children?: ComputedItem[]
     actualPct?: number | null
     rolledActualPct?: number
+    plannedStart?: string | null
+    plannedEnd?: string | null
   } = {},
 ): ComputedItem {
   const children = opts.children ?? []
@@ -25,8 +27,8 @@ function node(
     name: opts.name ?? id,
     biz: null,
     deliverable: null,
-    plannedStart: '2026-09-01',
-    plannedEnd: '2026-09-30',
+    plannedStart: opts.plannedStart ?? '2026-09-01',
+    plannedEnd: opts.plannedEnd ?? '2026-09-30',
     weight: null,
     actualPct: opts.actualPct ?? (children.length ? null : 0),
     owners: opts.owners ?? [],
@@ -180,5 +182,52 @@ describe('dueSignal', () => {
   })
   it('plannedEnd 없으면 null', () => {
     expect(dueSignal(null, 40, today)).toBeNull()
+  })
+})
+
+describe('lensCards', () => {
+  it("myTeam은 내 팀이 담당(primary/support)인 리프만, all은 전체", () => {
+    const leaves = [
+      node('a', { owners: [{ team: 'PMO', kind: 'primary' }] }),
+      node('b', { owners: [{ team: 'ERP', kind: 'support' }] }),
+    ]
+    expect(lensCards(leaves, 'myTeam', 'ERP').map(c => c.id)).toEqual(['b'])
+    expect(lensCards(leaves, 'all', 'ERP').map(c => c.id)).toEqual(['a', 'b'])
+    expect(lensCards(leaves, 'myTeam', null).map(c => c.id)).toEqual(['a', 'b']) // 팀 미상이면 전체
+  })
+})
+
+describe('applyQuickFilters', () => {
+  const today = '2026-07-25'
+  const leaves = [
+    node('over', { status: 'delayed', rolledActualPct: 30, plannedEnd: '2026-07-20' }),
+    node('soon', { status: 'in_progress', rolledActualPct: 30, plannedEnd: '2026-07-28' }),
+    node('far', { status: 'in_progress', rolledActualPct: 30, plannedEnd: '2026-09-01' }),
+    node('ns', { status: 'not_started', rolledActualPct: 0, plannedEnd: '2026-08-01' }),
+  ]
+  const off = { overdue: false, dueThisWeek: false, inProgress: false, notStarted: false }
+  it('아무것도 안 켜면 전부', () => {
+    expect(applyQuickFilters(leaves, off, today).length).toBe(4)
+  })
+  it('overdue=지연 status만', () => {
+    expect(applyQuickFilters(leaves, { ...off, overdue: true }, today).map(c => c.id)).toEqual(['over'])
+  })
+  it('dueThisWeek=오늘~+6일 마감', () => {
+    expect(applyQuickFilters(leaves, { ...off, dueThisWeek: true }, today).map(c => c.id)).toEqual(['soon'])
+    // over(-5)는 범위 밖(<0)이므로 제외되는지 확인: over의 plannedEnd 2026-07-20 < today → dueThisWeek 제외
+  })
+  it('notStarted=버킷 시작전만', () => {
+    expect(applyQuickFilters(leaves, { ...off, notStarted: true }, today).map(c => c.id)).toEqual(['ns'])
+  })
+})
+
+describe('sortCards', () => {
+  it('지연 우선 → 계획종료 오름차순 → 이름', () => {
+    const cards = [
+      node('c', { name: '가', status: 'in_progress', plannedEnd: '2026-08-10' }),
+      node('a', { name: '나', status: 'delayed', plannedEnd: '2026-08-20' }),
+      node('b', { name: '다', status: 'in_progress', plannedEnd: '2026-08-05' }),
+    ]
+    expect(sortCards(cards, '2026-07-25').map(c => c.id)).toEqual(['a', 'b', 'c'])
   })
 })
