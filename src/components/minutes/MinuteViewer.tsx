@@ -28,7 +28,7 @@ import { useMinuteTocSpy } from './useMinuteTocSpy'
 import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
 import { MinuteFontSizeControl } from './MinuteFontSizeControl'
 import { useMinuteFontSize } from './useMinuteFontSize'
-import { TEAM } from '@/components/wbs/shared'
+import { teamStyle } from '@/components/wbs/shared'
 
 export function MinuteViewer({
   minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
@@ -261,7 +261,7 @@ export function MinuteViewer({
             <ArrowLeft className="h-4 w-4" />{t('min.detail.back')}
           </Link>
           <span className="text-sm tabular-nums text-ink-muted">{minute.minuteDate}</span>
-          <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[minute.teamCode].bar}`}>
+          <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(minute.teamCode).bar}`}>
             {minute.teamCode}
           </span>
           <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-ink">{minute.title}</h1>

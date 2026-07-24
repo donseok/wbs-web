@@ -9,12 +9,13 @@ import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText, GitBranch } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
+import { LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { ReportModal } from '@/components/report/ReportModal'
 import { usePagePresence } from '@/components/app/usePagePresence'
 import { PresenceStrip } from '@/components/app/PresenceStrip'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -152,6 +153,7 @@ export function WbsGanttSheet({
 }) {
   const router = useRouter()
   const { t } = useLocale()
+  const legendTeams = useTeamCodes()
   // 담당별 분리 부모는 기본 접힘 — 첫 화면이 엑셀 원본과 같은 행 구성이 된다.
   // 계정에 저장된 접힘 상태가 있으면(initialCollapsed) 그 값을 우선한다.
   const [collapsed, setCollapsed] = useState<Set<string>>(
@@ -1047,9 +1049,9 @@ export function WbsGanttSheet({
           ))}
         </span>
         <span className="inline-flex items-center gap-2">
-          {(['PMO', 'ERP', 'MES', '가공', 'MDM'] as const).map(t => (
+          {legendTeams.map(t => (
             <span key={t} className="inline-flex items-center gap-0.5">
-              <span className={`${TEAM[t].fg} text-[9px]`}>●</span>
+              <span className={`${teamStyle(t).fg} text-[9px]`}>●</span>
               {t}
             </span>
           ))}

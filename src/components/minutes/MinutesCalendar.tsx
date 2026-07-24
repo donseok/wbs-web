@@ -5,7 +5,7 @@ import { monthMatrix } from '@/lib/domain/attendance'
 import { krSpecialDayMap } from '@/lib/domain/holidays'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
-import { TEAM } from '@/components/wbs/shared'
+import { teamStyle } from '@/components/wbs/shared'
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 
@@ -67,7 +67,7 @@ export function MinutesCalendar({
               <div className="mt-1 flex flex-wrap gap-1">
                 {rows.slice(0, 4).map(mi => (
                   <span key={mi.id}
-                    className={`inline-flex items-center rounded px-1 py-px text-[10px] font-bold text-white ${TEAM[mi.teamCode].bar}`}>
+                    className={`inline-flex items-center rounded px-1 py-px text-[10px] font-bold text-white ${teamStyle(mi.teamCode).bar}`}>
                     {mi.teamCode}
                   </span>
                 ))}

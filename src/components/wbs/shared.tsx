@@ -8,6 +8,11 @@ export const TEAM: Record<TeamCode, { fg: string; bar: string }> = {
   MDM: { fg: 'text-team-mdm', bar: 'bg-team-mdm' },
 }
 
+/** 팀 틴트 조회 — 팀별 CSS 토큰은 기존 5팀만 정의돼 있어 팀 마스터의 신규 팀은 중립 틴트. */
+export function teamStyle(team: TeamCode): { fg: string; bar: string } {
+  return TEAM[team] ?? { fg: 'text-ink-subtle', bar: 'bg-ink-subtle' }
+}
+
 export const STATUS: Record<Status, { label: string; chip: string; bar: string; dot: string }> = {
   not_started: { label: '시작전', chip: 'bg-pending-weak text-pending', bar: 'bg-pending', dot: 'bg-pending' },
   in_progress: { label: '진행중', chip: 'bg-progress-weak text-progress', bar: 'bg-progress', dot: 'bg-progress' },
@@ -48,7 +53,7 @@ export function OwnerBadges({ owners }: { owners: ComputedItem['owners'] }) {
           className="inline-flex items-center gap-0.5 text-[10.5px] font-semibold leading-none"
           title={o.kind === 'primary' ? `${o.team} 주관` : `${o.team} 지원`}
         >
-          <span className={`${TEAM[o.team].fg} ${o.kind === 'support' ? 'opacity-60' : ''} text-[9px] leading-none`}>
+          <span className={`${teamStyle(o.team).fg} ${o.kind === 'support' ? 'opacity-60' : ''} text-[9px] leading-none`}>
             {o.kind === 'primary' ? '●' : '△'}
           </span>
           <span className="text-ink-muted">{o.team}</span>

@@ -16,7 +16,7 @@ import type { DictKey } from '@/lib/i18n/dict'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
-import { TEAM } from '@/components/wbs/shared'
+import { teamStyle } from '@/components/wbs/shared'
 import { FolderManageModal } from './FolderManageModal'
 import { FolderPickModal } from './FolderPickModal'
 
@@ -411,7 +411,7 @@ function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName
         <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
         <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{l.title}</h4>
         {canMove && <MoveButton onMove={onMove} t={t} />}
-        <span className={`inline-flex shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[l.teamCode]?.bar ?? 'bg-ink-subtle'}`}>
+        <span className={`inline-flex shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(l.teamCode).bar}`}>
           {l.teamCode}
         </span>
       </div>
@@ -449,7 +449,7 @@ function MinuteRow({ l, fav, favDisabled, canMove, onMove, onToggle, folderName,
       <Link href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-lg" />
       <div className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors duration-100 hover:bg-surface-2">
         <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
-        <span className={`inline-flex w-12 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${TEAM[l.teamCode]?.bar ?? 'bg-ink-subtle'}`}>
+        <span className={`inline-flex w-12 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(l.teamCode).bar}`}>
           {l.teamCode}
         </span>
         <span className="min-w-0 flex-1">

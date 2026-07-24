@@ -11,13 +11,13 @@ import { Modal } from '@/components/ui/Modal'
 import { groupByPhase, groupByOwner, groupByStatus, type KanbanColumn } from '@/lib/domain/kanban'
 import { updateActual } from '@/app/actions/wbs'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { KanbanCard } from './KanbanCard'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
 type Mode = 'phase' | 'owner' | 'status'
 type StatusFilter = 'all' | 'in_progress' | 'done'
-const KANBAN_TEAM_CODES: readonly string[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 // 상태별 모드에서 드롭 시 실적값 매핑(완료=100, 시작전=0). 그 외 컬럼은 드롭 불가.
 const DROP_TARGET: Record<string, number> = { done: 100, not_started: 0 }
@@ -48,6 +48,7 @@ export function KanbanBoard({
 }) {
   const router = useRouter()
   const { t } = useLocale()
+  const teamCodes = useTeamCodes()
   const searchParams = useSearchParams()
   // 챗봇 딥링크 ?view= 초기 모드 — 무효 값은 조용히 무시(기본 phase).
   const [mode, setMode] = useState<Mode>(() => {
@@ -59,7 +60,7 @@ export function KanbanBoard({
   // 검색창에 그대로 보여 사용자가 지울 수 있다(숨은 필터 금지).
   const [query, setQuery] = useState(() => {
     const team = searchParams.get('team')
-    return team && KANBAN_TEAM_CODES.includes(team) ? team : ''
+    return team && teamCodes.includes(team) ? team : ''
   })
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
@@ -96,10 +97,10 @@ export function KanbanBoard({
   }
 
   const baseColumns = useMemo<KanbanColumn[]>(() => {
-    if (mode === 'owner') return groupByOwner(items)
+    if (mode === 'owner') return groupByOwner(items, teamCodes)
     if (mode === 'status') return groupByStatus(items)
     return groupByPhase(items)
-  }, [mode, items])
+  }, [mode, items, teamCodes])
 
   const columns = useMemo<KanbanColumn[]>(() => {
     const q = query.trim().toLowerCase()

@@ -5,8 +5,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { UserPlus, Pencil, Trash2, Mail, ShieldCheck, UserRound, AlertTriangle, Users, Unlink } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { TEAM } from '@/components/wbs/shared'
+import { teamStyle } from '@/components/wbs/shared'
 import { addMember, updateMember, removeMember } from '@/app/actions/members'
 import { isValidEmail } from '@/lib/domain/validate'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
@@ -19,8 +20,10 @@ const TEAM_META: Record<TeamCode, { chip: string; avatar: string }> = {
   MES: { chip: 'bg-team-mes-weak text-team-mes', avatar: 'from-team-mes to-brand' },
   MDM: { chip: 'bg-team-mdm-weak text-team-mdm', avatar: 'from-team-mdm to-brand' },
 }
+/** 팀별 CSS 토큰은 기존 5팀만 정의 — 팀 마스터의 신규 팀은 중립 메타. */
+const teamMeta = (team: TeamCode): { chip: string; avatar: string } =>
+  TEAM_META[team] ?? { chip: 'bg-surface-2 text-ink-muted', avatar: 'from-ink-subtle to-brand' }
 
-const TEAM_OPTIONS: TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 // 아바타 그라디언트 팔레트(디자인 토큰 재사용). 멤버 id 해시로 결정적 배정 —
 // 이름·이니셜이 같은(예: '테스트사용자'/'테스트QA' → 둘 다 '테스') 멤버도 색으로 구분된다.
@@ -64,11 +67,12 @@ export function MembersBoard({
   projectId: string
 }) {
   const { t, locale } = useLocale()
+  const teamCodes = useTeamCodes()
   const searchParams = useSearchParams()
   // 챗봇 딥링크 ?team= 초기 팀 필터 — 무효 값은 조용히 무시('all').
   const [teamFilter, setTeamFilter] = useState<TeamCode | 'all'>(() => {
     const team = searchParams.get('team')
-    return team && (TEAM_OPTIONS as string[]).includes(team) ? (team as TeamCode) : 'all'
+    return team && (teamCodes as readonly string[]).includes(team) ? (team as TeamCode) : 'all'
   })
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ProjectMember | null>(null)
@@ -111,7 +115,7 @@ export function MembersBoard({
             aria-label={locale === 'en' ? 'Team filter' : '팀 필터'}
           >
             <option value="all">{locale === 'en' ? 'All teams' : '전체 팀'}</option>
-            {TEAM_OPTIONS.map((code) => (
+            {teamCodes.map((code) => (
               <option key={code} value={code}>{code}</option>
             ))}
           </select>
@@ -224,8 +228,8 @@ function MemberCard({
           {t(role.labelKey)}
         </span>
         {member.teamCode ? (
-          <span className={`chip ${TEAM_META[member.teamCode].chip}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${TEAM[member.teamCode].bar}`} />
+          <span className={`chip ${teamMeta(member.teamCode).chip}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${teamStyle(member.teamCode).bar}`} />
             {member.teamCode}
           </span>
         ) : (
@@ -264,6 +268,7 @@ function MemberFormModal({
 }) {
   const router = useRouter()
   const { t } = useLocale()
+  const teamCodes = useTeamCodes()
   const isEdit = !!initial
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -361,7 +366,7 @@ function MemberFormModal({
               onChange={(e) => setTeamCode(e.target.value as TeamCode | '')}
             >
               <option value="">{t('members.noTeamOption')}</option>
-              {TEAM_OPTIONS.map((t) => (
+              {teamCodes.map((t) => (
                 <option key={t} value={t}>
                   {t}
                 </option>

@@ -3,7 +3,7 @@ import type { MatrixRow } from '@/lib/domain/dashboard'
 import { progressSignal, type Signal } from '@/lib/domain/dashboard'
 import type { TeamCode } from '@/lib/domain/types'
 import { SectionCard } from '@/components/ui/SectionCard'
-import { TEAM } from '@/components/wbs/shared'
+import { teamStyle } from '@/components/wbs/shared'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 
@@ -33,7 +33,7 @@ export async function ProgressMatrix({ rows, teams }: { rows: MatrixRow[]; teams
               {teams.map(team => (
                 <th key={team} className="px-2 pb-2 text-center font-semibold">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className={`h-2 w-2 rounded-full ${TEAM[team].bar}`} />{team}
+                    <span className={`h-2 w-2 rounded-full ${teamStyle(team).bar}`} />{team}
                   </span>
                 </th>
               ))}

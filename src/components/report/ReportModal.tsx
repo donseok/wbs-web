@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useTeams } from '@/components/app/TeamsProvider'
 import {
   Activity,
   AlertTriangle,
@@ -22,7 +23,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { ProgressBar } from '@/components/ui/ProgressBar'
-import { TEAM, OwnerBadges, fmtDate } from '@/components/wbs/shared'
+import { OwnerBadges, fmtDate, teamStyle } from '@/components/wbs/shared'
 
 /** 'YYYY-MM-DD' → '2026년 9월 15일' */
 function fmtFull(d?: string | null): string {
@@ -57,10 +58,13 @@ export function ReportModal({
   startDate?: string | null
   endDate?: string | null
 }) {
+  // '팀별 진척' 대상 = 활성 + progressVisible(팀 마스터) — 대시보드 카드와 동일 기준
+  const progressTeams = useTeams().filter(tm => tm.progressVisible).map(tm => tm.code)
   const model = buildReportModel(
     items,
     { name: projectName, description: projectDescription, start_date: startDate, end_date: endDate },
     today,
+    progressTeams,
   )
   const { meta, kpi, phases, delayed, teams } = model
 
@@ -296,12 +300,12 @@ export function ReportModal({
             {teams.map(s => (
               <div key={s.team} className="flex items-center gap-3">
                 <span className="flex w-14 shrink-0 items-center gap-2 text-sm font-semibold text-ink">
-                  <span className={`h-2 w-2 rounded-full ${TEAM[s.team].bar}`} />
+                  <span className={`h-2 w-2 rounded-full ${teamStyle(s.team).bar}`} />
                   {s.team}
                 </span>
                 <span className="w-20 shrink-0 text-xs text-ink-subtle">{s.count}개 작업</span>
                 <div className="flex-1">
-                  <ProgressBar value={s.pct ?? 0} tone={TEAM[s.team].bar} />
+                  <ProgressBar value={s.pct ?? 0} tone={teamStyle(s.team).bar} />
                 </div>
                 <span className="w-14 shrink-0 text-right text-sm font-semibold tabular-nums text-ink">
                   {s.pct == null ? '-' : `${s.pct}%`}

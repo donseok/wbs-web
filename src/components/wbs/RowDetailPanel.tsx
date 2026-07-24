@@ -12,8 +12,9 @@ import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { LevelBadge, OwnerBadges, STATUS, TEAM, fmtDate } from './shared'
+import { LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
 type Tr = (k: DictKey) => string
@@ -64,6 +65,7 @@ export function RowDetailPanel({
 }) {
   const router = useRouter()
   const { t } = useLocale()
+  const allTeamCodes = useTeamCodes()
   const [logs, setLogs] = useState<ChangeLogEntry[] | null>(null)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -108,7 +110,7 @@ export function RowDetailPanel({
   const childLevel = CHILD_LEVEL[item.level]
   // SUB-ACT 추가는 ACT(=자식 유무와 무관한 activity, 단 자신이 SUB-ACT 는 제외)에서만.
   const isAct = item.level === 'activity' && !subAct
-  const subTeams = useMemo(() => availableSubActTeams(item.children), [item.children])
+  const subTeams = useMemo(() => availableSubActTeams(item.children, allTeamCodes), [item.children, allTeamCodes])
   const flipWarn = willDiscardActual(item.children.length, item.actualPct)
   const itemById = useMemo(() => new Map(allItems.map(candidate => [candidate.id, candidate])), [allItems])
   const incomingDependencies = useMemo(
@@ -462,7 +464,7 @@ export function RowDetailPanel({
                             return (
                               <button key={tm} onClick={() => setSubTeam(tm)}
                                 className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${on ? 'border-brand bg-brand-weak text-brand' : 'border-line text-ink-muted hover:bg-surface-2'}`}>
-                                <span className={`h-1.5 w-1.5 rounded-full ${TEAM[tm].bar}`} />{tm}
+                                <span className={`h-1.5 w-1.5 rounded-full ${teamStyle(tm).bar}`} />{tm}
                               </button>
                             )
                           })}

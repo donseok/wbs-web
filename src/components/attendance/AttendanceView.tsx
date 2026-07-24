@@ -8,6 +8,7 @@ import {
 import type { AttendanceRecord, AttendanceType, ProjectMember, TeamCode } from '@/lib/domain/types'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useLocale } from '@/components/providers/LocaleProvider'
+import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -24,7 +25,6 @@ import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
 type ViewKey = 'calendar' | 'list'
 const ISO_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
-const FILTER_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 function dowClass(dow: number, base = 'text-ink') {
   if (dow === 0) return 'text-delayed'
@@ -40,14 +40,14 @@ interface BotDeepLinkFilter {
 }
 
 /** 챗봇 딥링크(?from&to&team&type) 초기 필터 — 유효값만 채택, 아무 것도 없으면 null. */
-function readBotFilter(params: { get(name: string): string | null }): BotDeepLinkFilter | null {
+function readBotFilter(params: { get(name: string): string | null }, teamCodes: readonly string[]): BotDeepLinkFilter | null {
   const rawFrom = params.get('from')
   const rawTo = params.get('to')
   // 기간은 from·to가 함께 유효할 때만 적용한다(도구 조회 계약과 동일).
   const rangeValid = !!rawFrom && !!rawTo
     && ISO_DAY_RE.test(rawFrom) && ISO_DAY_RE.test(rawTo) && rawFrom <= rawTo
   const rawTeam = params.get('team')
-  const team = rawTeam && (FILTER_TEAMS as readonly string[]).includes(rawTeam)
+  const team = rawTeam && (teamCodes as readonly string[]).includes(rawTeam)
     ? (rawTeam as TeamCode)
     : null
   const rawType = params.get('type')
@@ -73,8 +73,9 @@ export function AttendanceView({
   const typeLabel = (ty: AttendanceType) => t(`att.type.${ty}` as DictKey)
   const typeShort = (ty: AttendanceType) => t(`att.typeShort.${ty}` as DictKey)
   const searchParams = useSearchParams()
+  const teamCodes = useTeamCodes()
   // 챗봇 딥링크 필터는 최초 마운트에서 한 번만 읽고, 해제 전까지 달력·목록에 적용한다.
-  const [botFilter, setBotFilter] = useState(() => readBotFilter(searchParams))
+  const [botFilter, setBotFilter] = useState(() => readBotFilter(searchParams, teamCodes))
   const [initY, initM] = useMemo(() => initialDate.split('-').map(Number), [initialDate])
   const [year, setYear] = useState(botFilter?.from ? Number(botFilter.from.slice(0, 4)) : initY)
   const [month0, setMonth0] = useState(
