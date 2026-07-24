@@ -1,73 +1,115 @@
 'use client'
 
 import type { DragEvent, KeyboardEvent } from 'react'
-import { CalendarRange } from 'lucide-react'
+import { CalendarRange, GripVertical, Minus, Plus, Check, RotateCcw, Play, Loader2 } from 'lucide-react'
 import type { ComputedItem } from '@/lib/domain/types'
+import type { DueSignal, ProgressBucket } from '@/lib/domain/kanban'
 import { ProgressBar } from '@/components/ui/ProgressBar'
-import { StatusPill } from '@/components/ui/StatusPill'
-import { OwnerBadges, STATUS, fmtDate } from '@/components/wbs/shared'
+import { OwnerBadges, STATUS } from '@/components/wbs/shared'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import type { DictKey } from '@/lib/i18n/dict'
 
-/** 칸반 카드 — 작업명(2줄)·기간·진척바·상태·담당팀. 왼쪽에 상태색 액센트.
- *  status 모드에서 편집 가능하면 드래그 + 키보드(Enter/Space로 완료 토글)로 조작한다. */
+/** 칸반 카드 — 실행 보드용. 본문 클릭=WBS 딥링크, 진행중은 +/− 스텝퍼, 시작전=착수, 완료=재개.
+ *  드래그(진행 뷰·편집권한)로 버킷 이동. 파생 상태색 액센트 + 마감 배지 + 상위 단계 breadcrumb. */
 export function KanbanCard({
-  card, draggable = false, dragging = false, interactive = false,
-  onDragStart, onDragEnd, onActivate,
+  card, bucket, pathLabel, due,
+  draggable = false, dragging = false, editable = false, saving = false,
+  onOpen, onStart, onStep, onComplete, onReopen, onDragStart, onDragEnd,
 }: {
   card: ComputedItem
+  bucket: ProgressBucket
+  pathLabel?: string
+  due?: DueSignal
   draggable?: boolean
   dragging?: boolean
-  interactive?: boolean
+  editable?: boolean
+  saving?: boolean
+  onOpen?: () => void
+  onStart?: () => void
+  onStep?: (delta: number) => void
+  onComplete?: () => void
+  onReopen?: () => void
   onDragStart?: (e: DragEvent<HTMLDivElement>) => void
   onDragEnd?: (e: DragEvent<HTMLDivElement>) => void
-  onActivate?: () => void
 }) {
   const { t } = useLocale()
   const accent = STATUS[card.status].bar
-  const done = card.status === 'done'
-  const handleKeyDown = interactive && onActivate
-    ? (e: KeyboardEvent<HTMLDivElement>) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onActivate()
-        }
-      }
+  const pct = Math.round(card.rolledActualPct)
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation()
+
+  const openKey = onOpen
+    ? (e: KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }
     : undefined
+
+  const dueBadge = due && (
+    <span className={`badge ${due.kind === 'overdue' ? 'bg-delayed-weak text-delayed' : 'bg-surface-2 text-ink-muted'}`}>
+      {due.kind === 'overdue'
+        ? `${t('kanban.overduePrefix')}${due.days}${t('kanban.overdueSuffix')}`
+        : due.days === 0 ? t('kanban.ddayToday') : `${t('kanban.ddayPrefix')}${due.days}`}
+    </span>
+  )
+
   return (
     <div
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      tabIndex={interactive ? 0 : undefined}
-      role={interactive ? 'button' : undefined}
-      aria-roledescription={interactive ? t('kanban.card.roleDesc') : undefined}
-      aria-label={interactive ? `${card.name} — ${t('kanban.card.actual')} ${Math.round(card.rolledActualPct)}%, ${t(`status.${card.status}` as DictKey)}. ${done ? t('kanban.card.enterClear') : t('kanban.card.enterDone')}` : undefined}
-      onKeyDown={handleKeyDown}
       className={`group relative shrink-0 overflow-hidden rounded-xl border border-line bg-surface p-3.5 shadow-sm transition
         ${draggable ? 'cursor-grab select-none hover:border-line-strong hover:shadow-md active:cursor-grabbing' : ''}
-        ${interactive ? 'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring' : ''}
         ${dragging ? 'opacity-40' : ''}`}
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${accent}`} aria-hidden />
-      <div className="pl-1.5">
+      {draggable && (
+        <GripVertical className="pointer-events-none absolute right-2 top-2 h-3.5 w-3.5 text-ink-subtle opacity-0 transition group-hover:opacity-100" aria-hidden />
+      )}
+
+      {/* 본문(클릭=WBS 딥링크) */}
+      <div
+        data-card-body
+        role={onOpen ? 'button' : undefined}
+        tabIndex={onOpen ? 0 : undefined}
+        aria-label={onOpen ? `${card.name} — ${t('kanban.card.actual')} ${pct}%. ${t('kanban.openInWbs')}` : undefined}
+        onClick={onOpen}
+        onKeyDown={openKey}
+        className={`pl-1.5 ${onOpen ? 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring rounded' : ''}`}
+      >
+        {pathLabel && <p className="mb-1 truncate text-[10px] font-medium uppercase tracking-wide text-ink-subtle" title={pathLabel}>{pathLabel}</p>}
         <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-ink" title={card.name}>{card.name}</p>
 
-        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-subtle">
+        <div className="mt-2 flex items-center gap-2 text-[11px] text-ink-subtle">
           <CalendarRange className="h-3 w-3 shrink-0" />
-          <span className="tabular-nums">{fmtDate(card.plannedStart)} ~ {fmtDate(card.plannedEnd)}</span>
+          <span className="tabular-nums">{card.plannedEnd ?? '—'}</span>
+          {dueBadge}
         </div>
 
         <div className="mt-3 flex items-center gap-2">
           <ProgressBar value={card.rolledActualPct} tone={accent} height="h-1.5" label={`${card.name} ${t('kanban.card.actual')}`} />
-          <span className="shrink-0 text-[11px] font-semibold tabular-nums text-ink-muted">{Math.round(card.rolledActualPct)}%</span>
+          <span className="shrink-0 text-[11px] font-semibold tabular-nums text-ink-muted">{pct}%</span>
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          <StatusPill status={card.status} />
           <OwnerBadges owners={card.owners} />
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" aria-label={t('kanban.saving')} />}
         </div>
       </div>
+
+      {/* 액션 행(편집 권한 · 진행 뷰). 본문 클릭과 분리 위해 stopPropagation. */}
+      {editable && (
+        <div className="mt-2.5 flex items-center gap-1.5 border-t border-line pt-2.5" onClick={stop}>
+          {bucket === 'not_started' && onStart && (
+            <button className="btn btn-ghost text-[12px] px-2 py-1 gap-1" onClick={onStart}><Play className="h-3.5 w-3.5" />{t('kanban.start')}</button>
+          )}
+          {bucket === 'in_progress' && (
+            <>
+              {onStep && <button className="btn btn-ghost text-[12px] px-2 py-1" aria-label={t('kanban.decrease')} onClick={() => onStep(-10)}><Minus className="h-3.5 w-3.5" /></button>}
+              {onStep && <button className="btn btn-ghost text-[12px] px-2 py-1" aria-label={t('kanban.increase')} onClick={() => onStep(10)}><Plus className="h-3.5 w-3.5" /></button>}
+              {onComplete && <button className="btn btn-ghost text-[12px] px-2 py-1 ml-auto gap-1 text-done" onClick={onComplete}><Check className="h-3.5 w-3.5" />{t('kanban.complete')}</button>}
+            </>
+          )}
+          {bucket === 'done' && onReopen && (
+            <button className="btn btn-ghost text-[12px] px-2 py-1 gap-1" onClick={onReopen}><RotateCcw className="h-3.5 w-3.5" />{t('kanban.reopen')}</button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
