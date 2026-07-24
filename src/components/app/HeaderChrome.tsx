@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, ChevronRight, Clock4, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, X,
+  AlertTriangle, Bell, ChevronRight, Clock4, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
 } from 'lucide-react'
 import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
@@ -208,6 +208,9 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
                     <>
                       <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                         <UserCog className="h-4 w-4" />계정 관리
+                      </Link>
+                      <Link href="/admin/teams" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                        <Users className="h-4 w-4" />팀 관리
                       </Link>
                       {/* 서버 전역 LLM 설정 — 프로젝트 설정 페이지에도 진입 카드가 있지만,
                           프로젝트가 하나도 없는 관리자는 그 경로로 도달할 수 없어 여기에도 둔다. */}
