@@ -2,25 +2,27 @@
 
 import { useMemo, useState, useTransition, type DragEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Layers, Users, Columns3, Search, Inbox, MoveHorizontal } from 'lucide-react'
+import { Layers, Users, Columns3, Search, Inbox } from 'lucide-react'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
 import { canEditActual } from '@/lib/domain/permissions'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
-import { groupByPhase, groupByOwner, groupByStatus, type KanbanColumn } from '@/lib/domain/kanban'
+import {
+  groupByPhase, groupByOwner, groupByProgress, bucketOf, dueSignal, leafPaths,
+  type KanbanColumn, type ProgressBucket,
+} from '@/lib/domain/kanban'
+import { resolveDrop } from '@/lib/domain/kanban-drop'
 import { updateActual } from '@/app/actions/wbs'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { KanbanCard } from './KanbanCard'
+import { ProgressPopover } from './ProgressPopover'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 
-type Mode = 'phase' | 'owner' | 'status'
+type Mode = 'progress' | 'phase' | 'owner'
 type StatusFilter = 'all' | 'in_progress' | 'done'
-
-// 상태별 모드에서 드롭 시 실적값 매핑(완료=100, 시작전=0). 그 외 컬럼은 드롭 불가.
-const DROP_TARGET: Record<string, number> = { done: 100, not_started: 0 }
 
 // 표시 전용 매핑 — 도메인(src/lib/domain/kanban.ts)이 만드는 한국어 컬럼 제목을 번역 키로 변환.
 // 매핑에 없는 값(동적 팀명·담당자명·Phase명)은 원본 그대로 표시한다.
@@ -50,10 +52,12 @@ export function KanbanBoard({
   const { t } = useLocale()
   const teamCodes = useTeamCodes()
   const searchParams = useSearchParams()
-  // 챗봇 딥링크 ?view= 초기 모드 — 무효 값은 조용히 무시(기본 phase).
+  // 챗봇 딥링크 ?view= 초기 모드 — 레거시 'status' 딥링크는 'progress'로 흡수, 무효 값은 조용히 무시(기본 progress).
   const [mode, setMode] = useState<Mode>(() => {
     const view = searchParams.get('view')
-    return view === 'phase' || view === 'owner' || view === 'status' ? view : 'phase'
+    if (view === 'phase' || view === 'owner' || view === 'progress') return view
+    if (view === 'status') return 'progress'
+    return 'progress'
   })
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   // ?team= 은 검색어 초기값으로 소비한다 — 칸반 검색 대상에 담당팀 코드가 포함되며,
@@ -65,7 +69,8 @@ export function KanbanBoard({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [liveMsg, setLiveMsg] = useState('')
+  const [confirmCard, setConfirmCard] = useState<ComputedItem | null>(null)
+  const [promptState, setPromptState] = useState<{ card: ComputedItem; suggested: number } | null>(null)
   const [pending, startTransition] = useTransition()
   useBotPageContext({
     domain: 'kanban',
@@ -75,10 +80,7 @@ export function KanbanBoard({
     filters: statusFilter === 'all' ? {} : { status: statusFilter },
   })
 
-  const editable = !readOnly && mode === 'status'
-
-  // 카드가 이미 시작됐는지(기준일이 시작일 이후) — '시작전' 드롭 유효성 판정용.
-  const started = (card: ComputedItem) => !!card.plannedStart && today >= card.plannedStart
+  const editable = !readOnly && mode === 'progress'
   const cardEditable = (card: ComputedItem) => editable && canEditActual(card, membership)
 
   const cardById = useMemo(() => {
@@ -88,18 +90,13 @@ export function KanbanBoard({
     return m
   }, [items])
 
-  // 드롭 대상 컬럼이 이 카드를 받을 수 있는가(드롭 결과 상태 == 컬럼).
-  const dropValidFor = (card: ComputedItem, columnKey: string): boolean => {
-    if (!cardEditable(card) || DROP_TARGET[columnKey] === undefined) return false
-    if (columnKey === 'done') return true
-    if (columnKey === 'not_started') return !started(card) // 시작된 작업을 0%로 두면 '지연'이 되므로 불가
-    return false
-  }
+  // 리프 id → 조상 이름 배열(카드 breadcrumb 표시용).
+  const pathById = useMemo(() => leafPaths(items), [items])
 
   const baseColumns = useMemo<KanbanColumn[]>(() => {
     if (mode === 'owner') return groupByOwner(items, teamCodes)
-    if (mode === 'status') return groupByStatus(items)
-    return groupByPhase(items)
+    if (mode === 'phase') return groupByPhase(items)
+    return groupByProgress(items)
   }, [mode, items, teamCodes])
 
   const columns = useMemo<KanbanColumn[]>(() => {
@@ -118,14 +115,15 @@ export function KanbanBoard({
     })
   }, [baseColumns, statusFilter, query])
 
-  function commitActual(card: ComputedItem, target: number, landingLabel: string) {
+  // 실적% 반영(잠정 — 낙관적 업데이트/CAS는 후속 태스크). 값이 이미 같으면 서버 왕복 생략.
+  function commit(card: ComputedItem, pct: number) {
+    if (Math.round(card.rolledActualPct) === pct) return
     startTransition(async () => {
-      const res = await updateActual(card.id, target)
+      const res = await updateActual(card.id, pct)
       if (!res.ok) {
-        setErrorMsg(res.error ?? t('kanban.errStatusChange'))
+        setErrorMsg(res.error ?? t('kanban.errChange'))
         return
       }
-      setLiveMsg(`${t('kanban.movedP1')}${card.name}${t('kanban.movedP2')}${landingLabel}${t('kanban.movedP3')}`)
       router.refresh()
     })
   }
@@ -136,30 +134,19 @@ export function KanbanBoard({
     const id = e.dataTransfer.getData('text/plain')
     setDraggingId(null)
     const card = id ? cardById.get(id) : undefined
-    if (!card) return
-    if (!dropValidFor(card, columnKey)) {
-      if (columnKey === 'not_started' && started(card)) {
-        setErrorMsg(t('kanban.errNotStartedDrop'))
-      }
-      return
-    }
-    commitActual(card, DROP_TARGET[columnKey], columnKey === 'done' ? t('status.done') : t('status.not_started'))
+    if (!card || !cardEditable(card)) return
+    const r = resolveDrop(card, columnKey as ProgressBucket)
+    if (r.kind === 'noop') return
+    if (r.kind === 'set') commit(card, r.pct)
+    else if (r.kind === 'confirm-reset') setConfirmCard(card)
+    else if (r.kind === 'prompt') setPromptState({ card, suggested: r.suggested })
   }
 
-  // 키보드 토글(Enter/Space): 완료↔초기화. 상태는 계산값이라 토글 의미로만 동작.
-  function keyboardToggle(card: ComputedItem) {
-    if (!cardEditable(card)) return
-    if (card.status === 'done') {
-      setLiveMsg(`${t('kanban.clearedP1')}${card.name}${t('kanban.clearedP2')}`)
-      startTransition(async () => {
-        const res = await updateActual(card.id, 0)
-        if (!res.ok) setErrorMsg(res.error ?? t('kanban.errChange'))
-        else router.refresh()
-      })
-    } else {
-      commitActual(card, 100, t('status.done'))
-    }
-  }
+  const stepCard = (card: ComputedItem, delta: number) =>
+    commit(card, Math.max(0, Math.min(100, Math.round(card.rolledActualPct) + delta)))
+  const startCard = (card: ComputedItem) => setPromptState({ card, suggested: 30 })
+  const reopenCard = (card: ComputedItem) => setPromptState({ card, suggested: 90 })
+  const openInWbs = (card: ComputedItem) => router.push(`/p/${projectId}/wbs?focus=${card.id}`)
 
   if (items.length === 0) {
     return (
@@ -180,9 +167,9 @@ export function KanbanBoard({
           value={mode}
           onChange={setMode}
           tabs={[
+            { key: 'progress', label: t('kanban.byProgress'), icon: Columns3 },
             { key: 'phase', label: t('kanban.byPhase'), icon: Layers },
             { key: 'owner', label: t('kanban.byOwner'), icon: Users },
-            { key: 'status', label: t('kanban.byStatus'), icon: Columns3 },
           ]}
         />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -206,16 +193,14 @@ export function KanbanBoard({
               className="app-input pl-9 sm:w-64"
             />
           </div>
+          {pending && <span className="text-[12px] text-brand">{t('kanban.saving')}</span>}
         </div>
       </div>
 
-      {/* 드래그 안내 (상태별 + 편집 권한) */}
-      {editable && (
-        <div className="flex shrink-0 items-center gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-2 text-[12px] text-ink-muted">
-          <MoveHorizontal className="h-3.5 w-3.5 shrink-0 text-brand" />
-          {t('kanban.hint1')}<span className="font-semibold text-done">{t('status.done')}</span>{t('kanban.hint2')}
-          <span className="font-semibold text-pending">{t('status.not_started')}</span>{t('kanban.hint3')}
-          {pending && <span className="ml-1 text-brand">{t('kanban.saving')}</span>}
+      {/* 조회 전용 힌트(진행 뷰가 아닐 때) */}
+      {!editable && !readOnly && (
+        <div className="flex shrink-0 items-center gap-2 rounded-xl border border-line bg-surface-2 px-3.5 py-2 text-[12px] text-ink-subtle">
+          {t('kanban.readOnlyHint')}
         </div>
       )}
 
@@ -226,9 +211,9 @@ export function KanbanBoard({
           // 표시 시점에만 한국어 컬럼 제목을 번역 — 도메인의 Record 키('미배정' 등)는 건드리지 않는다.
           const titleKey = COLUMN_TITLE_KEY[col.title]
           const displayTitle = titleKey ? t(titleKey) : col.title
-          const isDropZone = editable && DROP_TARGET[col.key] !== undefined
+          const isDropZone = editable // 세 컬럼(시작전/진행중/완료) 모두 드롭 대상
           // 드래그 중인 카드를 이 컬럼이 받을 수 있을 때만 활성 하이라이트.
-          const accepts = isDropZone && (!draggingCard || dropValidFor(draggingCard, col.key))
+          const accepts = isDropZone && (!draggingCard || resolveDrop(draggingCard, col.key as ProgressBucket).kind !== 'noop')
           const active = accepts && dragOverKey === col.key && draggingId !== null
           return (
             <div
@@ -254,16 +239,24 @@ export function KanbanBoard({
                   </div>
                 ) : (
                   col.cards.map(card => {
-                    const canDragCard = cardEditable(card)
+                    const canDrag = cardEditable(card)
+                    const b = bucketOf(card.rolledActualPct)
                     return (
                       <KanbanCard
                         key={card.id}
                         card={card}
-                        draggable={canDragCard}
-                        interactive={canDragCard}
+                        bucket={b}
+                        pathLabel={pathById.get(card.id)?.[0]}
+                        due={dueSignal(card.plannedEnd, card.rolledActualPct, today)}
+                        draggable={canDrag}
+                        editable={canDrag}
                         dragging={draggingId === card.id}
-                        onActivate={canDragCard ? () => keyboardToggle(card) : undefined}
-                        onDragStart={canDragCard ? e => {
+                        onOpen={() => openInWbs(card)}
+                        onStart={canDrag ? () => startCard(card) : undefined}
+                        onStep={canDrag ? d => stepCard(card, d) : undefined}
+                        onComplete={canDrag ? () => commit(card, 100) : undefined}
+                        onReopen={canDrag ? () => reopenCard(card) : undefined}
+                        onDragStart={canDrag ? e => {
                           e.dataTransfer.setData('text/plain', card.id)
                           e.dataTransfer.effectAllowed = 'move'
                           setDraggingId(card.id)
@@ -279,9 +272,6 @@ export function KanbanBoard({
         })}
       </div>
 
-      {/* 스크린리더 상태 알림 */}
-      <div aria-live="polite" className="sr-only">{liveMsg}</div>
-
       <Modal
         open={errorMsg !== null}
         onClose={() => setErrorMsg(null)}
@@ -293,6 +283,32 @@ export function KanbanBoard({
       >
         <p className="text-sm leading-6 text-ink-muted">{errorMsg}</p>
       </Modal>
+
+      <Modal
+        open={confirmCard !== null}
+        onClose={() => setConfirmCard(null)}
+        eyebrow="KANBAN"
+        title={t('kanban.resetTitle')}
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button className="btn btn-ghost" onClick={() => setConfirmCard(null)}>{t('kanban.cancel')}</button>
+            <button className="btn btn-primary" onClick={() => { if (confirmCard) commit(confirmCard, 0); setConfirmCard(null) }}>{t('kanban.resetConfirm')}</button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-6 text-ink-muted">{t('kanban.resetDesc')}</p>
+      </Modal>
+
+      {promptState && (
+        <ProgressPopover
+          open
+          title={t('kanban.progressTitle')}
+          initial={promptState.suggested}
+          onClose={() => setPromptState(null)}
+          onSubmit={pct => { commit(promptState.card, pct); setPromptState(null) }}
+        />
+      )}
     </div>
   )
 }
