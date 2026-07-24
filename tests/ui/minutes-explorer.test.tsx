@@ -207,4 +207,23 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     await act(async () => buttonByText('min.exp.layout.list').click())
     expect(onLayout).toHaveBeenCalledWith('list')
   })
+
+  it.each(['grid', 'list'] as const)(
+    '데스크톱 %s 보기: 좌측 전체 행과 우측 결과가 같은 2px 시작 리듬을 쓴다',
+    async layout => {
+      await mount({ layout })
+
+      const rail = container.querySelector('nav > ul')
+      const contentHeader = container.querySelector('[data-minutes-content-header]')
+      const contentBody = container.querySelector('[data-minutes-content-body]')
+
+      expect(rail?.classList).toContain('space-y-0.5')
+      expect(rail?.querySelector('button')?.classList).toContain('h-8')
+      expect(contentHeader?.parentElement?.classList).not.toContain('space-y-4')
+      expect(contentHeader?.nextElementSibling).toBe(contentBody)
+      expect(contentBody?.classList).toContain('mt-4')
+      expect(contentBody?.classList).toContain('lg:mt-0.5')
+      expect(contentBody?.classList).toContain('space-y-4')
+    },
+  )
 })

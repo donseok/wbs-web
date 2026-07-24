@@ -271,8 +271,8 @@ export function MinutesExplorer({
         {mobileOpen && <div className="mt-2">{rail(() => setMobileOpen(false))}</div>}
       </div>
 
-      <section className="min-w-0 flex-1 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
+      <section className="min-w-0 flex-1">
+        <div data-minutes-content-header className="flex flex-wrap items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-sm">
             {scope.kind === 'favorites' ? (
               <span className="font-semibold text-ink">{t('min.exp.favorites')}</span>
@@ -312,45 +312,47 @@ export function MinutesExplorer({
           </div>
         </div>
 
-        {scope.kind === 'favorites' && favorites === null ? (
-          <EmptyState title={t('min.exp.favError')}
-            action={<button onClick={onRetryFavorites} className="btn">{t('min.tree.retry')}</button>} />
-        ) : (
-          <>
-            {rows.length === 0 ? (
-              scope.kind === 'favorites'
-                ? <EmptyState icon={Star} title={t('min.exp.favEmpty')} />
-                : <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
-            ) : layout === 'grid' ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {shown.map(l => (
-                  <MinuteCard key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
-                    fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
-                    canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
-                    onToggle={onToggleFavorite} />
-                ))}
-              </div>
-            ) : (
-              <div className="card p-2">
-                <ul className="divide-y divide-line/70">
+        <div data-minutes-content-body className="mt-4 space-y-4 lg:mt-0.5">
+          {scope.kind === 'favorites' && favorites === null ? (
+            <EmptyState title={t('min.exp.favError')}
+              action={<button onClick={onRetryFavorites} className="btn">{t('min.tree.retry')}</button>} />
+          ) : (
+            <>
+              {rows.length === 0 ? (
+                scope.kind === 'favorites'
+                  ? <EmptyState icon={Star} title={t('min.exp.favEmpty')} />
+                  : <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
+              ) : layout === 'grid' ? (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {shown.map(l => (
-                    <MinuteRow key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
+                    <MinuteCard key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
                       fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
                       canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
                       onToggle={onToggleFavorite} />
                   ))}
-                </ul>
-              </div>
-            )}
-            {remaining > 0 && (
-              <div className="flex justify-center">
-                <button onClick={() => setVisible(v => v + PAGE_SIZE)} className="btn">
-                  {t('min.exp.more').replace('{n}', String(remaining))}
-                </button>
-              </div>
-            )}
-          </>
-        )}
+                </div>
+              ) : (
+                <div className="card p-2">
+                  <ul className="divide-y divide-line/70">
+                    {shown.map(l => (
+                      <MinuteRow key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
+                        fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
+                        canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
+                        onToggle={onToggleFavorite} />
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {remaining > 0 && (
+                <div className="flex justify-center">
+                  <button onClick={() => setVisible(v => v + PAGE_SIZE)} className="btn">
+                    {t('min.exp.more').replace('{n}', String(remaining))}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </section>
 
       {manage && (
