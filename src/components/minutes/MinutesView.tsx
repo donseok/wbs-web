@@ -120,6 +120,7 @@ export function MinutesView({
 
   const teamOrNull = team === 'ALL' ? null : team
   const isSearch = query.trim().length > 0
+  const isTreeExplorer = view === 'tree' && !isSearch
 
   async function loadTree() {
     const gen = ++treeReqRef.current
@@ -234,9 +235,14 @@ export function MinutesView({
   const explorerFolders: MinuteFolder[] = typeof treeState === 'object' ? treeState.folders : []
 
   return (
-    <div className="space-y-4">
+    <div
+      data-minutes-view
+      className={isTreeExplorer
+        ? 'space-y-4 lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:gap-4 lg:space-y-0'
+        : 'space-y-4'}
+    >
       {/* 필터 바 (스크롤 시 상단 고정) */}
-      <div className="sticky top-0 z-20 -mx-1 space-y-3 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm">
+      <div className="sticky top-0 z-20 -mx-1 shrink-0 space-y-3 bg-canvas/95 px-1 pb-3 pt-1 backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedTabs<TeamKey>
             tabs={[{ key: 'ALL', label: t('min.team.all') }, ...teamCodes.map(tk => ({ key: tk, label: tk }))]}
@@ -359,9 +365,9 @@ export function MinutesView({
           <EmptyState title={t('min.tree.error')}
             action={<button onClick={() => void loadTree()} className="btn">{t('min.tree.retry')}</button>} />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:gap-2 lg:space-y-0">
             {treeState.truncated && (
-              <p className="text-xs text-ink-subtle">
+              <p className="shrink-0 text-xs text-ink-subtle">
                 {t('min.tree.truncated').replace('{n}', String(MINUTES_TREE_LIMIT))}
               </p>
             )}

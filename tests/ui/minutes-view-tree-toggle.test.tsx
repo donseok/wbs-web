@@ -197,6 +197,18 @@ describe('MinutesView 트리 뷰 배선', () => {
     expect(queueUiPref).toHaveBeenCalledWith({ minutesExplorerLayout: 'list' })
   })
 
+  it('트리 보기일 때만 탐색기가 남은 화면 높이를 사용한다', async () => {
+    await mount('tree')
+    const view = container.querySelector<HTMLElement>('[data-minutes-view]')
+
+    expect(view?.classList).toContain('lg:h-full')
+    expect(view?.classList).toContain('lg:min-h-0')
+    expect(view?.classList).toContain('lg:flex-col')
+
+    await act(async () => buttonByText('min.view.calendar').click())
+    expect(view?.classList).not.toContain('lg:h-full')
+  })
+
   it('레이아웃 선택은 뷰 왕복에도 유지된다', async () => {
     await mount('tree')
     await act(async () => buttonByText('min.exp.layout.list').click())

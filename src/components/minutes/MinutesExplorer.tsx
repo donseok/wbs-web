@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, Paperclip, Star,
@@ -68,6 +68,7 @@ export function MinutesExplorer({
   const [manage, setManage] = useState<ManageState>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [movingId, setMovingId] = useState<string | null>(null)   // 폴더 픽커 대상 회의록
+  const resultsScrollRef = useRef<HTMLElement>(null)
 
   const { roots, unfiled } = useMemo(() => buildFolderTree(folders, leaves), [folders, leaves])
   const nodeById = useMemo(() => {
@@ -85,6 +86,7 @@ export function MinutesExplorer({
 
   function select(next: Scope) {
     setScopeRaw(next); setVisible(PAGE_SIZE); setMenuFor(null)
+    if (resultsScrollRef.current) resultsScrollRef.current.scrollTop = 0
     onFolderSelect?.(next.kind === 'folder' ? next.id : null)
   }
   function toggleExpand(id: string) {
@@ -239,8 +241,16 @@ export function MinutesExplorer({
   // 폴더 스코프의 하위 폴더 카드도 삭제. 폴더 탐색은 왼쪽 레일 트리로 일원화. 재도입 금지.
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-      <nav className="card hidden w-[250px] shrink-0 p-2 lg:block">{rail()}</nav>
+    <div
+      data-minutes-explorer
+      className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row lg:items-stretch"
+    >
+      <nav
+        data-minutes-navigation
+        className="card hidden w-[250px] shrink-0 p-2 lg:block lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain"
+      >
+        {rail()}
+      </nav>
       <div className="card shrink-0 p-3 lg:hidden">
         <button onClick={() => setMobileOpen(o => !o)}
           className="flex w-full items-center gap-2 text-sm font-semibold text-ink">
@@ -252,7 +262,11 @@ export function MinutesExplorer({
         {mobileOpen && <div className="mt-2">{rail(() => setMobileOpen(false))}</div>}
       </div>
 
-      <section className="min-w-0 flex-1">
+      <section
+        ref={resultsScrollRef}
+        data-minutes-results-scroll-region
+        className="min-w-0 flex-1 lg:-mr-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain lg:pb-1 lg:pr-1"
+      >
         <div data-minutes-content-body className="space-y-4">
           {scope.kind === 'favorites' && favorites === null ? (
             <EmptyState title={t('min.exp.favError')}

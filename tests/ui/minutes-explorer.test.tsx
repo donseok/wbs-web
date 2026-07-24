@@ -222,4 +222,29 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
       expect(contentBody?.classList).toContain('space-y-4')
     },
   )
+
+  it('데스크톱은 왼쪽 탐색 메뉴를 고정하고 오른쪽 결과 영역만 독립 스크롤한다', async () => {
+    await mount()
+
+    const explorer = container.querySelector<HTMLElement>('[data-minutes-explorer]')
+    const navigation = container.querySelector<HTMLElement>('[data-minutes-navigation]')
+    const results = container.querySelector<HTMLElement>('[data-minutes-results-scroll-region]')
+
+    expect(explorer?.classList).toContain('lg:min-h-0')
+    expect(explorer?.classList).toContain('lg:items-stretch')
+    expect(navigation?.classList).toContain('lg:overflow-y-auto')
+    expect(results?.classList).toContain('lg:min-h-0')
+    expect(results?.classList).toContain('lg:overflow-y-auto')
+    expect(results?.classList).toContain('lg:overscroll-y-contain')
+  })
+
+  it('왼쪽 메뉴에서 범위를 바꾸면 오른쪽 목록을 맨 위로 되돌린다', async () => {
+    await mount()
+    const results = container.querySelector<HTMLElement>('[data-minutes-results-scroll-region]')!
+    results.scrollTop = 240
+
+    await act(async () => buttonByText('min.exp.favorites').click())
+
+    expect(results.scrollTop).toBe(0)
+  })
 })
