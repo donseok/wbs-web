@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition, type DragEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Layers, Users, Columns3, Search, Inbox } from 'lucide-react'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
@@ -8,11 +8,13 @@ import { canEditActual } from '@/lib/domain/permissions'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
+import { useToast } from '@/components/ui/Toast'
 import {
   groupByPhase, groupByOwner, groupByProgress, bucketOf, dueSignal, leafPaths,
   type KanbanColumn, type ProgressBucket,
 } from '@/lib/domain/kanban'
 import { resolveDrop } from '@/lib/domain/kanban-drop'
+import { statusOf } from '@/lib/domain/progress'
 import { updateActual } from '@/app/actions/wbs'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
@@ -50,6 +52,7 @@ export function KanbanBoard({
 }) {
   const router = useRouter()
   const { t } = useLocale()
+  const { toast } = useToast()
   const teamCodes = useTeamCodes()
   const searchParams = useSearchParams()
   // 챗봇 딥링크 ?view= 초기 모드 — 레거시 'status' 딥링크는 'progress'로 흡수, 무효 값은 조용히 무시(기본 progress).
@@ -68,10 +71,13 @@ export function KanbanBoard({
   })
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [confirmCard, setConfirmCard] = useState<ComputedItem | null>(null)
   const [promptState, setPromptState] = useState<{ card: ComputedItem; suggested: number } | null>(null)
-  const [pending, startTransition] = useTransition()
+  const [override, setOverride] = useState<Record<string, number>>({})
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
+  const [liveMsg, setLiveMsg] = useState('')
+  // 서버 데이터가 새로 오면 낙관적 레이어를 비운다(재조정).
+  useEffect(() => { setOverride({}); setSavingIds(new Set()) }, [items])
   useBotPageContext({
     domain: 'kanban',
     projectId,
@@ -83,21 +89,36 @@ export function KanbanBoard({
   const editable = !readOnly && mode === 'progress'
   const cardEditable = (card: ComputedItem) => editable && canEditActual(card, membership)
 
+  // 낙관적 override를 items 트리에 입힌 뷰. 저장 확정 전까지 카드가 즉시 옮겨 보이게 한다.
+  const viewItems = useMemo<ComputedItem[]>(() => {
+    const ids = Object.keys(override)
+    if (ids.length === 0) return items
+    const map = (ns: ComputedItem[]): ComputedItem[] => ns.map(n => {
+      if (!n.children.length && override[n.id] !== undefined) {
+        const pct = override[n.id]
+        return { ...n, actualPct: pct, rolledActualPct: pct, status: statusOf(pct, n.plannedPct, n.plannedStart, today) }
+      }
+      if (n.children.length) return { ...n, children: map(n.children) }
+      return n
+    })
+    return map(items)
+  }, [items, override, today])
+
   const cardById = useMemo(() => {
     const m = new Map<string, ComputedItem>()
     const walk = (ns: ComputedItem[]) => ns.forEach(n => { m.set(n.id, n); walk(n.children) })
-    walk(items)
+    walk(viewItems)
     return m
-  }, [items])
+  }, [viewItems])
 
   // 리프 id → 조상 이름 배열(카드 breadcrumb 표시용).
-  const pathById = useMemo(() => leafPaths(items), [items])
+  const pathById = useMemo(() => leafPaths(viewItems), [viewItems])
 
   const baseColumns = useMemo<KanbanColumn[]>(() => {
-    if (mode === 'owner') return groupByOwner(items, teamCodes)
-    if (mode === 'phase') return groupByPhase(items)
-    return groupByProgress(items)
-  }, [mode, items, teamCodes])
+    if (mode === 'owner') return groupByOwner(viewItems, teamCodes)
+    if (mode === 'phase') return groupByPhase(viewItems)
+    return groupByProgress(viewItems)
+  }, [mode, viewItems, teamCodes])
 
   const columns = useMemo<KanbanColumn[]>(() => {
     const q = query.trim().toLowerCase()
@@ -115,17 +136,34 @@ export function KanbanBoard({
     })
   }, [baseColumns, statusFilter, query])
 
-  // 실적% 반영(잠정 — 낙관적 업데이트/CAS는 후속 태스크). 값이 이미 같으면 서버 왕복 생략.
-  function commit(card: ComputedItem, pct: number) {
-    if (Math.round(card.rolledActualPct) === pct) return
-    startTransition(async () => {
-      const res = await updateActual(card.id, pct)
+  // 실적% 반영 — 낙관적으로 먼저 옮기고, 실패하면 롤백 + 토스트. CAS(expectedCurrent)로 동시 편집 충돌을 감지한다.
+  // prev는 원시값(반올림 금지): 반올림하면 (a) 소수 실적(예: 99.6%)에서 가드가 조기 무력화돼 카드가 100%에 영영 못 닿고,
+  // (b) updateActual의 CAS가 DB 원시값과 반올림값을 비교해 오탐 충돌을 낸다.
+  async function commit(card: ComputedItem, pct: number) {
+    const prev = card.rolledActualPct
+    if (prev === pct) return
+    setOverride(o => ({ ...o, [card.id]: pct }))            // 낙관적 이동
+    setSavingIds(s => new Set(s).add(card.id))
+    try {
+      const res = await updateActual(card.id, pct, prev)   // CAS: expectedCurrent = 현재값
       if (!res.ok) {
-        setErrorMsg(res.error ?? t('kanban.errChange'))
+        setOverride(o => { const n = { ...o }; delete n[card.id]; return n }) // 롤백
+        toast({
+          title: t('kanban.saveFailedTitle'),
+          description: res.conflict ? t('kanban.conflict') : (res.error ?? t('kanban.errChange')),
+          variant: 'error',
+        })
+        if (res.conflict) router.refresh()
         return
       }
-      router.refresh()
-    })
+      setLiveMsg(`${card.name} ${pct}%`)
+      router.refresh() // 성공 확정 — 새 items 도착 시 useEffect가 override 비움
+    } catch {
+      setOverride(o => { const n = { ...o }; delete n[card.id]; return n })
+      toast({ title: t('kanban.saveFailedTitle'), variant: 'error' })
+    } finally {
+      setSavingIds(s => { const n = new Set(s); n.delete(card.id); return n })
+    }
   }
 
   function handleDrop(e: DragEvent<HTMLDivElement>, columnKey: string) {
@@ -193,7 +231,7 @@ export function KanbanBoard({
               className="app-input pl-9 sm:w-64"
             />
           </div>
-          {pending && <span className="text-[12px] text-brand">{t('kanban.saving')}</span>}
+          {savingIds.size > 0 && <span className="text-[12px] text-brand">{t('kanban.saving')}</span>}
         </div>
       </div>
 
@@ -251,6 +289,7 @@ export function KanbanBoard({
                         draggable={canDrag}
                         editable={canDrag}
                         dragging={draggingId === card.id}
+                        saving={savingIds.has(card.id)}
                         onOpen={() => openInWbs(card)}
                         onStart={canDrag ? () => startCard(card) : undefined}
                         onStep={canDrag ? d => stepCard(card, d) : undefined}
@@ -272,17 +311,8 @@ export function KanbanBoard({
         })}
       </div>
 
-      <Modal
-        open={errorMsg !== null}
-        onClose={() => setErrorMsg(null)}
-        eyebrow="KANBAN"
-        title={t('kanban.errorModalTitle')}
-        footer={
-          <button className="btn btn-primary" onClick={() => setErrorMsg(null)}>{t('common.confirm')}</button>
-        }
-      >
-        <p className="text-sm leading-6 text-ink-muted">{errorMsg}</p>
-      </Modal>
+      {/* 스크린리더 진행률 변경 확정 안내 — 시각적으로는 숨김 */}
+      <div aria-live="polite" className="sr-only">{liveMsg}</div>
 
       <Modal
         open={confirmCard !== null}

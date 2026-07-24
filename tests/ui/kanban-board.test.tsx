@@ -6,7 +6,9 @@ import type { ComputedItem } from '@/lib/domain/types'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-const updateActual = vi.fn(async () => ({ ok: true }))
+const { toastFn } = vi.hoisted(() => ({ toastFn: vi.fn() }))
+
+const updateActual = vi.fn(async (): Promise<{ ok: boolean; error?: string; conflict?: boolean }> => ({ ok: true }))
 vi.mock('@/app/actions/wbs', () => ({ updateActual: (...a: unknown[]) => updateActual(...(a as [])) }))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -15,7 +17,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ locale: 'ko', t: (k: string) => k }) }))
 vi.mock('@/components/app/TeamsProvider', () => ({ useTeamCodes: () => ['PMO', 'ERP'] }))
 vi.mock('@/components/chat/BotPageContextProvider', () => ({ useBotPageContext: () => {} }))
-vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
+vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: toastFn }) }))
 
 import { KanbanBoard } from '@/components/kanban/KanbanBoard'
 
@@ -39,7 +41,7 @@ function tree(): ComputedItem[] {
 
 describe('KanbanBoard — 진행 모드 기본', () => {
   let container: HTMLDivElement, root: Root
-  beforeEach(() => { updateActual.mockClear(); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
+  beforeEach(() => { updateActual.mockClear(); toastFn.mockClear(); container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
   it('기본 뷰에서 시작전/진행중/완료 3컬럼과 각 카드 수를 보여준다', async () => {
@@ -50,12 +52,24 @@ describe('KanbanBoard — 진행 모드 기본', () => {
     expect(heads).toEqual(['status.not_started', 'status.in_progress', 'status.done'])
   })
 
-  it("진행중 카드의 '완료' 액션은 updateActual(id, 100)을 부른다", async () => {
+  it("진행중 카드의 '완료' 액션은 updateActual(id, 100, prev)를 부른다", async () => {
     await act(async () => root.render(
       <KanbanBoard projectId="p1" items={tree()} membership={ADMIN} today="2026-07-25" />,
     ))
     const complete = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('kanban.complete'))!
     await act(async () => complete.click())
-    expect(updateActual).toHaveBeenCalledWith('L50', 100)
+    expect(updateActual).toHaveBeenCalledWith('L50', 100, 50)
+  })
+
+  it('저장 실패 시 낙관적 이동을 롤백하고 토스트를 부른다', async () => {
+    updateActual.mockResolvedValueOnce({ ok: false, error: 'x' })
+    await act(async () => root.render(
+      <KanbanBoard projectId="p1" items={tree()} membership={ADMIN} today="2026-07-25" />,
+    ))
+    const inc = [...container.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'kanban.increase')!
+    await act(async () => inc.click())
+    // 실패 후 카드 %는 원복(50%)이어야 한다
+    expect(container.textContent).toContain('50%')
+    expect(toastFn).toHaveBeenCalled()
   })
 })
