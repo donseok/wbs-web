@@ -13,6 +13,7 @@ export const BOT_READ_CAPABILITIES = [
   'attendance:read',
   'announcements:read',
   'minutes:read',
+  'wiki:read',
   'kanban:read',
   'dashboard:read',
   'members:read',
@@ -37,6 +38,8 @@ export type CoreBotToolName =
   | 'search_announcements'
   | 'search_minutes'
   | 'get_minute_detail'
+  | 'search_wiki'
+  | 'get_wiki_topic'
   | 'get_kanban_view'
   | 'get_project_dashboard'
   | 'list_members'

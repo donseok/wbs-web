@@ -57,6 +57,7 @@ function inferDomain(pathname: string): BotDomain {
     case 'announcements':
     case 'meetings':
     case 'weekly':
+    case 'wiki':
     case 'settings':
       return projectMenu
   }

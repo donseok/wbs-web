@@ -17,6 +17,7 @@ import type {
   WbsProjectSnapshot,
   WbsRepositoryItem,
   WeeklySheetSnapshot,
+  WikiKnowledgeRecord,
 } from '@/lib/repositories/types'
 import type { Meeting, OwnerKind, TeamCode } from '@/lib/domain/types'
 
@@ -330,4 +331,87 @@ export const SETTINGS: Record<string, ProjectSettingsSnapshot> = {
     memberCount: 1,
     updatedAt: '2026-07-01T00:00:00Z',
   },
+}
+
+/** Wiki — 프로젝트 지식. 베타 항목은 알파 조회에 절대 섞이면 안 되는 canary다. */
+export const WIKI_TOPICS: Record<string, Array<{
+  id: string
+  projectId: string
+  title: string
+  type: string
+  ownerTeam: string | null
+  lastChangedAt: string
+}>> = {
+  [PROJECT_ALPHA]: [{
+    id: 'wiki-topic-alpha-1',
+    projectId: PROJECT_ALPHA,
+    title: 'ERP-MES 연계',
+    type: 'interface',
+    ownerTeam: 'ERP',
+    lastChangedAt: '2026-07-18T00:00:00Z',
+  }],
+  [PROJECT_BETA]: [{
+    id: 'wiki-topic-beta-1',
+    projectId: PROJECT_BETA,
+    title: `${BETA_MARKER} 연계`,
+    type: 'interface',
+    ownerTeam: 'ERP',
+    lastChangedAt: '2026-07-18T00:00:00Z',
+  }],
+}
+
+export const WIKI_ITEMS: Record<string, WikiKnowledgeRecord[]> = {
+  [PROJECT_ALPHA]: [
+    {
+      id: 'wiki-item-alpha-1',
+      projectId: PROJECT_ALPHA,
+      topicId: 'wiki-topic-alpha-1',
+      topicTitle: 'ERP-MES 연계',
+      kind: 'decision',
+      statement: 'ERP와 MES 연계는 REST API로 확정했다.',
+      lifecycleState: 'active',
+      certainty: 'explicit',
+      decisionState: 'confirmed',
+      ownerTeam: 'ERP',
+      dueDate: null,
+      observedAt: '2026-07-18T00:00:00Z',
+      updatedAt: '2026-07-18T00:00:00Z',
+      sourceMinuteIds: ['minute-alpha-1'],
+      evidenceExcerpt: 'REST API를 사용하기로 확정했다.',
+    },
+    {
+      id: 'wiki-item-alpha-2',
+      projectId: PROJECT_ALPHA,
+      topicId: 'wiki-topic-alpha-1',
+      topicTitle: 'ERP-MES 연계',
+      kind: 'action',
+      statement: '연계 규격서를 8월 초까지 공유한다.',
+      lifecycleState: 'open',
+      certainty: 'explicit',
+      decisionState: null,
+      ownerTeam: 'ERP',
+      dueDate: '2026-08-05',
+      observedAt: '2026-07-18T00:00:00Z',
+      updatedAt: '2026-07-18T00:00:00Z',
+      sourceMinuteIds: ['minute-alpha-1'],
+      evidenceExcerpt: null,
+    },
+  ],
+  [PROJECT_BETA]: [{
+    id: 'wiki-item-beta-1',
+    projectId: PROJECT_BETA,
+    topicId: 'wiki-topic-beta-1',
+    topicTitle: `${BETA_MARKER} 연계`,
+    kind: 'decision',
+    statement: `${BETA_MARKER} 결정 내용`,
+    lifecycleState: 'active',
+    certainty: 'explicit',
+    decisionState: 'confirmed',
+    ownerTeam: 'ERP',
+    dueDate: null,
+    observedAt: '2026-07-18T00:00:00Z',
+    updatedAt: '2026-07-18T00:00:00Z',
+    sourceMinuteIds: [],
+    evidenceExcerpt: null,
+  }],
 }

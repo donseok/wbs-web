@@ -51,7 +51,7 @@ export type DeterministicRoute =
 /** v2가 직접 처리하는 읽기 도메인의 단일 원천(리뷰 M-3). 라우팅 필터·문맥 승격·후속 대화 상속이 전부 이 집합에서 파생된다. */
 const V2_READ_DOMAINS = [
   'wbs', 'weekly', 'meetings', 'attendance',
-  'announcements', 'minutes', 'kanban', 'dashboard', 'members', 'settings',
+  'announcements', 'minutes', 'wiki', 'kanban', 'dashboard', 'members', 'settings',
 ] as const
 
 type V2ReadDomain = (typeof V2_READ_DOMAINS)[number]
@@ -78,6 +78,13 @@ const DOMAIN_TERMS: ReadonlyArray<{ domain: BotDomain; pattern: RegExp }> = [
   // '회의록'은 meetings 패턴의 (?!록)와 상보적으로 분리된다.
   { domain: 'minutes', pattern: /회의록|의사록/ },
   { domain: 'announcements', pattern: /공지/ },
+  // minutes(원문 검색)와 상보적: "무엇으로 정했나"는 정리된 결론이 있는 Wiki가 답한다.
+  // 다만 '회의록'이 함께 나오면 사용자가 원문을 지목한 것이므로 결론 표현이 있어도 minutes에 양보한다
+  // ("이 회의록 결정사항 정리해줘"는 Wiki 검색이 아니라 그 회의록 상세다).
+  {
+    domain: 'wiki',
+    pattern: /위키|\bwiki\b|^(?![\s\S]*(?:회의록|의사록))[\s\S]*(?:결정\s*사항|합의\s*사항|어떻게\s*(?:하기로|정했|결정했)|무엇으로\s*(?:정했|결정했)|결론이\s*(?:뭐|무엇))/i,
+  },
   {
     domain: 'members',
     pattern: /멤버|구성원|인원\s*구성|직책|직함|워크로드|업무량|팀\s*구성|누가\s*(?:무슨|뭐|어떤)/,
@@ -297,6 +304,7 @@ function entityDomain(type: BotEntityRef['type']): BotDomain | null {
   if (type === 'attendance_record') return 'attendance'
   if (type === 'announcement') return 'announcements'
   if (type === 'minute' || type === 'minute_block') return 'minutes'
+  if (type === 'wiki_topic' || type === 'wiki_item') return 'wiki'
   if (type === 'member' || type === 'team') return 'members'
   return null
 }
@@ -583,10 +591,34 @@ function settingsCall(input: ChatRequestV2): RoutedToolCall {
   }
 }
 
+/**
+ * Wiki 호출. 주제를 특정할 단서가 있으면 주제 조회, 아니면 지식 검색으로 보낸다.
+ * projectId가 없으면 도구가 반려하므로 라우터는 항상 프로젝트 힌트를 실어 보낸다.
+ */
+function wikiCall(input: ChatRequestV2): RoutedToolCall {
+  const projectId = projectHint(input)
+  const query = explicitSearchQuery(input)
+  const entity = referencedEntity(input, ['wiki_topic'])
+  if (entity) {
+    return {
+      id: 'call_wiki_topic', tool: 'get_wiki_topic', domain: 'wiki',
+      args: { ...(projectId ? { projectId } : {}), topicId: entity.id },
+    }
+  }
+  return {
+    id: 'call_wiki_search', tool: 'search_wiki', domain: 'wiki',
+    args: {
+      ...(projectId ? { projectId } : {}),
+      ...(query ? { query } : {}),
+      limit: 20,
+    },
+  }
+}
+
 function statusFor(domains: BotDomain[]): string {
   const labels: Partial<Record<BotDomain, string>> = {
     wbs: 'WBS', weekly: '주간업무', meetings: '회의', attendance: '근태',
-    announcements: '공지', minutes: '회의록', kanban: '칸반',
+    announcements: '공지', minutes: '회의록', wiki: '프로젝트 Wiki', kanban: '칸반',
     dashboard: '대시보드', members: '멤버', settings: '설정',
   }
   return `${domains.map(d => labels[d] ?? d).join('·')} 데이터를 확인하고 있습니다.`
@@ -704,6 +736,7 @@ export function routeChatRequest(input: ChatRequestV2, now = new Date()): Determ
     if (domain === 'attendance') return attendanceCall(input, now)
     if (domain === 'announcements') return announcementsCall(input, now)
     if (domain === 'minutes') return minutesCall(input, now)
+    if (domain === 'wiki') return wikiCall(input)
     if (domain === 'members') return membersCall(input)
     if (domain === 'kanban') return kanbanCall(input)
     if (domain === 'dashboard') return dashboardCall(input)

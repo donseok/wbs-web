@@ -12,6 +12,7 @@ import {
   buildWikiKnowledgeKey,
   canAutoApplyWikiChange,
   classifyWikiChange,
+  matchWikiTopicAlias,
   normalizeWikiKnowledgeKey,
   normalizeWikiStatement as normalizeDomainWikiStatement,
   normalizeWikiTitle,
@@ -39,6 +40,11 @@ export interface ExtractedWikiItem {
   topic: string
   topicType: WikiTopicType
   statement: string
+  /**
+   * LLM이 준 세부 속성 키. 최종 knowledge_key는 별칭으로 합쳐진 정본 주제를 확정한 뒤
+   * 반영 시점에 조립한다 — 추출 시점의 주제 표기로 굳히면 같은 주제로 합쳐도 키가 갈린다.
+   */
+  facet: string
   knowledgeKey: string
   certainty: WikiCertainty
   decisionState: WikiDecisionState | null
@@ -102,11 +108,16 @@ const EXTRACTION_SYSTEM = [
   '3. 같은 의미의 지식을 후속 회의에서도 찾을 수 있도록 knowledgeKey를 짧고 안정적인 명사구로 작성한다.',
   '4. evidence는 해당 내용을 직접 뒷받침하는 블록번호 배열이며 최소 1개다.',
   '5. 기존 내용을 철회/반박하면 relation="contradicts", 액션·리스크가 해소/완료되면 relation="resolves", 그 외 supports.',
-  '6. 기존 Wiki 항목은 입력에 없으므로 semanticRelation은 원문 문장 자체에 재확인/보완/변경/철회/반박/해소가 명시된 경우에만 해당 관계를 쓰고, 그 외에는 null이다.',
+  '6. semanticRelation은 원문 문장 자체에 재확인/보완/변경/철회/반박/해소가 명시된 경우에만 쓰고, 그 외에는 null이다.',
   '7. decisionState는 decision에만 proposed|tentative|confirmed|reversed 중 하나, 그 외 null.',
-  '8. owner/due/effective는 원문에 명시된 경우만 채우고 아니면 null.',
+  '8. ownerTeam/ownerName은 "OO팀이", "OO 담당", "OO이 진행" 처럼 수행 주체가 원문에 있으면 반드시 채운다.',
+  '   dueDate/effectiveDate도 "8월 말까지", "9/1부터" 처럼 시점이 명시되면 YYYY-MM-DD로 채운다.',
+  '   회의일 기준으로 연도를 보정하되, 원문에 없는 날짜를 지어내지는 마라. 없으면 null.',
   '9. 한 문장에 "기존 결정을 철회하고 새 대안을 확정"이 함께 있으면, 철회 항목과 새 확정 항목을 각각 분리해 출력한다.',
   '10. 최대 30개. JSON 외 텍스트를 출력하지 마라.',
+  '11. 입력에 [기존 프로젝트 지식]이 있으면, 같은 대상을 말하는 항목은 거기 적힌 topic과',
+  '    knowledgeKey를 글자 하나까지 그대로 복사한다. 새 이름을 지으면 같은 지식이 갈라져',
+  '    변경 이력이 끊긴다. 정말 새로운 대상일 때만 새 topic/knowledgeKey를 만든다.',
   '',
   '출력 형식:',
   '{"items":[{"kind":"decision","topic":"인터페이스 연계","topicType":"interface",',
@@ -170,8 +181,9 @@ function guardedSemanticRelation(
     case 'reverses': return REVERSE_RE.test(evidenceText) ? requested : null
     case 'contradicts': return CONTRADICTION_RE.test(evidenceText) ? requested : null
     case 'resolves': return RESOLVE_RE.test(evidenceText) ? requested : null
-    // 기존 항목을 프롬프트로 주지 않기 때문에 same/unrelated는 모델이 판정할 수 없다.
-    // 동일 문장은 statement hash가, 다른 key는 결정형 분류기가 각각 처리한다.
+    // same/unrelated는 채택하지 않는다. 잘못된 same은 실제 변경을 재확인으로 덮고,
+    // 잘못된 unrelated는 같은 key의 다른 문장을 충돌 대신 새 현재값으로 만든다.
+    // 동일 문장은 statement hash가, 다른 key는 결정형 분류기가 각각 안전하게 처리한다.
     case 'same':
     case 'unrelated':
     default:
@@ -257,6 +269,7 @@ export function parseExtractedWikiItems(
     const facet = nullableText(item.knowledgeKey, KEY_CAP) ?? statement.slice(0, 80)
     const knowledgeKey = buildWikiKnowledgeKey(normalizeWikiTopic(topic), kind, facet).slice(0, KEY_CAP)
     if (!knowledgeKey) continue
+
     const dedupeKey = `${kind}:${normalizeWikiTopic(topic)}:${knowledgeKey}:${wikiStatementHash(statement)}`
     if (seen.has(dedupeKey)) continue
     seen.add(dedupeKey)
@@ -269,6 +282,7 @@ export function parseExtractedWikiItems(
       topic,
       topicType,
       statement,
+      facet,
       knowledgeKey,
       certainty,
       decisionState,
@@ -287,19 +301,45 @@ export function parseExtractedWikiItems(
   return items
 }
 
+/** 반영에 쓰는 정본 주제. knowledge_key는 이 normalizedTitle로 조립해야 키가 갈리지 않는다. */
+interface ResolvedWikiTopic {
+  id: string
+  normalizedTitle: string
+}
+
+const TOPIC_ALIAS_SCAN_LIMIT = 500
+
 async function ensureTopic(
   admin: ReturnType<typeof createAdminClient>,
   projectId: string,
   item: ExtractedWikiItem,
-): Promise<string> {
+): Promise<ResolvedWikiTopic> {
   const normalized = normalizeWikiTopic(item.topic)
   const { data: existing, error: readError } = await admin.from('wiki_topics')
-    .select('id')
+    .select('id, normalized_title')
     .eq('project_id', projectId)
     .eq('normalized_title', normalized)
     .maybeSingle()
   if (readError) throw new Error(`TOPIC_READ:${readError.code ?? 'UNKNOWN'}`)
-  if (existing) return existing.id as string
+  if (existing) {
+    return { id: existing.id as string, normalizedTitle: existing.normalized_title as string }
+  }
+
+  // 정확히 같은 제목이 없을 때만 별칭을 본다. LLM이 회의마다 제목을 조금씩 다르게 지어도
+  // 같은 대상이면 기존 주제에 붙어야 재확인·구체화·충돌 판정이 작동한다.
+  const { data: candidateRows, error: candidateError } = await admin.from('wiki_topics')
+    .select('id, normalized_title')
+    .eq('project_id', projectId)
+    .limit(TOPIC_ALIAS_SCAN_LIMIT)
+  if (candidateError) throw new Error(`TOPIC_SCAN:${candidateError.code ?? 'UNKNOWN'}`)
+  const alias = matchWikiTopicAlias(
+    (candidateRows ?? []).map((row) => ({
+      id: row.id as string,
+      normalizedTitle: row.normalized_title as string,
+    })),
+    normalized,
+  )
+  if (alias) return alias
 
   const now = new Date().toISOString()
   const { data, error } = await admin.from('wiki_topics').insert({
@@ -309,15 +349,19 @@ async function ensureTopic(
     type: item.topicType,
     owner_team: item.ownerTeam,
     last_changed_at: now,
-  }).select('id').single()
-  if (!error && data) return data.id as string
+  }).select('id, normalized_title').single()
+  if (!error && data) {
+    return { id: data.id as string, normalizedTitle: data.normalized_title as string }
+  }
   if (error?.code === '23505') {
     const { data: raced } = await admin.from('wiki_topics')
-      .select('id')
+      .select('id, normalized_title')
       .eq('project_id', projectId)
       .eq('normalized_title', normalized)
       .single()
-    if (raced) return raced.id as string
+    if (raced) {
+      return { id: raced.id as string, normalizedTitle: raced.normalized_title as string }
+    }
   }
   throw new Error(`TOPIC_INSERT:${error?.code ?? 'UNKNOWN'}`)
 }
@@ -414,23 +458,34 @@ export async function applyExtractedItem(
     item: ExtractedWikiItem
   },
 ): Promise<keyof WikiProcessSummary> {
-  const topicId = await ensureTopic(admin, args.projectId, args.item)
-  const statementHash = wikiStatementHash(args.item.statement)
-  const semanticRelation: WikiSemanticRelation | null =
-    args.item.kind === 'decision' && args.item.decisionState === 'reversed'
-      ? 'reverses'
-      : args.item.semanticRelation
-        ?? (args.item.relation === 'contradicts'
-          ? 'contradicts'
-          : args.item.relation === 'resolves' ? 'resolves' : null)
-  const incoming = {
-    statement: args.item.statement,
-    knowledgeKey: args.item.knowledgeKey,
-    certainty: args.item.certainty,
-    observedAt: args.observedAt,
-    validFrom: args.item.effectiveDate ? `${args.item.effectiveDate}T00:00:00.000Z` : null,
+  const topic = await ensureTopic(admin, args.projectId, args.item)
+  const topicId = topic.id
+  // 별칭으로 기존 주제에 합쳐졌으면 정본 주제 표기로 knowledge_key를 다시 만든다.
+  // 추출 당시 표기로 굳히면 같은 주제인데 키가 달라 매번 새 항목이 생긴다.
+  const item: ExtractedWikiItem = {
+    ...args.item,
+    knowledgeKey: buildWikiKnowledgeKey(
+      topic.normalizedTitle,
+      args.item.kind,
+      args.item.facet,
+    ).slice(0, KEY_CAP),
   }
-  const sources = args.item.evidenceIndexes.map((index) => {
+  const statementHash = wikiStatementHash(item.statement)
+  const semanticRelation: WikiSemanticRelation | null =
+    item.kind === 'decision' && item.decisionState === 'reversed'
+      ? 'reverses'
+      : item.semanticRelation
+        ?? (item.relation === 'contradicts'
+          ? 'contradicts'
+          : item.relation === 'resolves' ? 'resolves' : null)
+  const incoming = {
+    statement: item.statement,
+    knowledgeKey: item.knowledgeKey,
+    certainty: item.certainty,
+    observedAt: args.observedAt,
+    validFrom: item.effectiveDate ? `${item.effectiveDate}T00:00:00.000Z` : null,
+  }
+  const sources = item.evidenceIndexes.map((index) => {
     const block = args.blocks[index]
     if (!block) throw new Error('WIKI_SOURCE_BLOCK_MISSING')
     return {
@@ -443,7 +498,7 @@ export async function applyExtractedItem(
     projectId: args.projectId,
     minuteVersionId: args.minuteVersionId,
     applyGeneration: args.applyGeneration,
-    item: args.item,
+    item,
     statementHash,
     sources,
   })
@@ -451,7 +506,7 @@ export async function applyExtractedItem(
   // 40001은 advisory lock 안에서 current가 달라졌다는 뜻이다. 같은 stale payload를
   // 재전송하지 않고 current 읽기와 결정형 분류부터 최대 세 번 다시 수행한다.
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const current = await findCurrentItem(admin, args.projectId, topicId, args.item)
+    const current = await findCurrentItem(admin, args.projectId, topicId, item)
     const comparable = current ? {
       statement: current.statement as string,
       knowledgeKey: current.knowledge_key as string,
@@ -474,20 +529,20 @@ export async function applyExtractedItem(
       p_minute_version_id: args.minuteVersionId,
       p_minute_version_no: args.minuteVersionNo,
       p_body_hash: args.bodyHash,
-      p_kind: args.item.kind,
-      p_statement: args.item.statement,
+      p_kind: item.kind,
+      p_statement: item.statement,
       p_statement_hash: statementHash,
-      p_knowledge_key: args.item.knowledgeKey,
-      p_certainty: args.item.certainty,
-      p_decision_state: args.item.decisionState,
-      p_source_relation: args.item.relation,
+      p_knowledge_key: item.knowledgeKey,
+      p_certainty: item.certainty,
+      p_decision_state: item.decisionState,
+      p_source_relation: item.relation,
       p_requested_change: change,
       p_can_auto_apply: canAutoApply,
       p_observed_at: args.observedAt,
       p_valid_from: incoming.validFrom,
-      p_owner_team: args.item.ownerTeam,
-      p_owner_name: args.item.ownerName,
-      p_due_date: args.item.dueDate,
+      p_owner_team: item.ownerTeam,
+      p_owner_name: item.ownerName,
+      p_due_date: item.dueDate,
       p_sources: sources,
       p_expected_current_id: current ? current.id as string : null,
       p_expected_current_hash: current ? current.statement_hash as string : null,
@@ -518,7 +573,73 @@ export async function applyExtractedItem(
   throw new Error('WIKI_APPLY_RACE_RETRY_EXHAUSTED')
 }
 
-async function extractItems(bodyMd: string, title: string, minuteDate: string): Promise<{
+const CATALOG_TOPIC_LIMIT = 60
+const CATALOG_ITEM_LIMIT = 80
+const CATALOG_STATEMENT_CAP = 160
+
+/**
+ * 프롬프트에 붙일 기존 프로젝트 지식 카탈로그.
+ *
+ * 이게 없으면 LLM은 매 회의마다 주제와 knowledgeKey를 새로 지어내고, 같은 key가 한 번도
+ * 겹치지 않아 재확인·구체화·대체·충돌 판정이 전혀 발동하지 않는다(= 회의별 추출 목록).
+ * 실패해도 추출 자체는 계속한다 — 카탈로그는 품질 보조이지 필수 입력이 아니다.
+ */
+async function loadWikiCatalog(
+  admin: ReturnType<typeof createAdminClient>,
+  projectId: string,
+): Promise<string> {
+  try {
+    const [topicsRes, itemsRes] = await Promise.all([
+      admin.from('wiki_topics')
+        .select('title, last_changed_at')
+        .eq('project_id', projectId)
+        .order('last_changed_at', { ascending: false })
+        .limit(CATALOG_TOPIC_LIMIT),
+      admin.from('wiki_items')
+        .select('kind, statement, knowledge_key, updated_at, wiki_topics!inner(title)')
+        .eq('project_id', projectId)
+        .in('lifecycle_state', ['active', 'open', 'conflicted'])
+        .order('updated_at', { ascending: false })
+        .limit(CATALOG_ITEM_LIMIT),
+    ])
+    if (topicsRes.error) throw topicsRes.error
+    if (itemsRes.error) throw itemsRes.error
+
+    const topics = (topicsRes.data ?? [])
+      .map((row) => (row.title as string | null) ?? '')
+      .filter(Boolean)
+    const items = (itemsRes.data ?? []).map((row) => {
+      const rawTopic = (row as Row).wiki_topics
+      const topicRow = (Array.isArray(rawTopic) ? rawTopic[0] : rawTopic) as Row | undefined
+      const topicTitle = (topicRow?.title as string | undefined) ?? ''
+      const facet = ((row.knowledge_key as string | null) ?? '').split(':').slice(2).join(':')
+      const statement = ((row.statement as string | null) ?? '').slice(0, CATALOG_STATEMENT_CAP)
+      return `- topic="${topicTitle}" kind=${row.kind as string} knowledgeKey="${facet}" :: ${statement}`
+    })
+    if (topics.length === 0 && items.length === 0) return ''
+
+    return [
+      '',
+      '[기존 프로젝트 지식] — 같은 대상이면 아래 topic/knowledgeKey를 그대로 재사용하라.',
+      topics.length > 0 ? `기존 주제: ${topics.join(' / ')}` : '',
+      ...items,
+      '',
+    ].filter(Boolean).join('\n')
+  } catch (error) {
+    console.error(
+      '[wiki] 기존 지식 카탈로그 조회 실패(추출은 계속):',
+      error instanceof Error ? error.message : 'UNKNOWN',
+    )
+    return ''
+  }
+}
+
+async function extractItems(
+  bodyMd: string,
+  title: string,
+  minuteDate: string,
+  catalog: string,
+): Promise<{
   blocks: MinuteBlock[]
   items: ExtractedWikiItem[]
 }> {
@@ -531,7 +652,7 @@ async function extractItems(bodyMd: string, title: string, minuteDate: string): 
     .join('\n')
   const raw = await generateAnswer(EXTRACTION_SYSTEM, [{
     role: 'user',
-    content: `회의록 제목: ${title}\n회의일: ${minuteDate}\n\n${source}`,
+    content: `회의록 제목: ${title}\n회의일: ${minuteDate}\n${catalog}\n[이번 회의록 원문]\n${source}`,
   }])
   if (raw === null) throw new Error('LLM_GENERATION_FAILED')
   const items = parseExtractedWikiItems(raw, blocks)
@@ -839,6 +960,7 @@ export async function processMinuteWikiJob(jobId: number): Promise<WikiProcessSu
       bodyMd,
       title,
       minuteDate,
+      await loadWikiCatalog(admin, job.project_id as string),
     )
     // LLM 호출 중 프로젝트 이동/보관이 발생할 수 있으므로 변경 직전에 scope를 다시 확인한다.
     const { data: scope, error: scopeError } = await admin.from('minutes')

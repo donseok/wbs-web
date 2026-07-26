@@ -19,6 +19,7 @@ export const BOT_DOMAINS = [
   'meetings',
   'weekly',
   'minutes',
+  'wiki',
   'settings',
   'unknown',
 ] as const
@@ -35,6 +36,8 @@ export const BOT_ENTITY_TYPES = [
   'meeting_occurrence',
   'minute',
   'minute_block',
+  'wiki_topic',
+  'wiki_item',
   'announcement',
   'weekly_report',
   'weekly_row',

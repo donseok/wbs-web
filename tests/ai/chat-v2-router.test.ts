@@ -431,3 +431,30 @@ describe('chat v2 router — Phase 2 신규 도메인', () => {
     expect(route.domains).toEqual(['announcements'])
   })
 })
+
+describe('chat v2 router — Wiki 도메인', () => {
+  it('"어떻게 하기로 했지" 류 질문은 정리된 결론이 있는 Wiki로 보낸다', () => {
+    const page = context('wiki', { projectId: 'p1', pathname: '/p/p1/wiki' })
+    const route = routeChatRequest(
+      { projectId: 'p1', message: '연계 방식 어떻게 하기로 했지?', history: [], pageContext: page },
+      NOW,
+    )
+    expect(route.kind).toBe('tools')
+    if (route.kind !== 'tools') return
+    expect(route.calls[0]).toMatchObject({ tool: 'search_wiki', args: { projectId: 'p1' } })
+  })
+
+  it('회의록을 지목한 질문은 결론 표현이 있어도 Wiki가 가로채지 않는다', () => {
+    const page = context('minutes', {
+      projectId: null, pathname: '/minutes',
+      selectedEntity: { type: 'minute', id: 'min-1' },
+    })
+    const route = routeChatRequest(
+      { projectId: null, message: '이 회의록 결정사항 정리해줘', history: [], pageContext: page },
+      NOW,
+    )
+    expect(route.kind).toBe('tools')
+    if (route.kind !== 'tools') return
+    expect(route.calls.map(call => call.domain)).not.toContain('wiki')
+  })
+})

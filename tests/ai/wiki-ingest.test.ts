@@ -559,8 +559,12 @@ describe('processMinuteWikiJob 버전 안전성', () => {
         },
         { data: { version_no: 1, body_hash: bodyHash } },
       ],
-      wiki_topics: [{ data: { id: 'topic-1' } }],
-      wiki_items: [{ data: null }],
+      // 추출 전 기존 지식 카탈로그 조회 → 주제 확정 순서로 소비된다.
+      wiki_topics: [
+        { data: [] },
+        { data: { id: 'topic-1', normalized_title: 'erp 연계' } },
+      ],
+      wiki_items: [{ data: [] }, { data: null }],
     }
     const builders: Record<string, ReturnType<typeof queryBuilder>[]> = {}
     const rpc = vi.fn((name: string) => {

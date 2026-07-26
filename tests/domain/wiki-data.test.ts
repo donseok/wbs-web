@@ -60,6 +60,7 @@ describe('Wiki UI 상태 집계', () => {
         blockHash: 'fedcba9876543210',
         evidenceExcerpt: '기존 안과 다른 일정으로 진행한다.',
         relation: 'contradicts',
+        createdAt: '2026-07-25T00:00:00.000Z',
         minuteTitle: '통합 회의',
         minuteDate: '2026-07-25',
       }],

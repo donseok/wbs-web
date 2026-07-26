@@ -13,31 +13,33 @@ import {
 import type { Locale } from '@/lib/i18n/dict'
 import { t } from '@/lib/i18n/dict'
 import {
-  isActiveWikiDecision,
-  isOpenWikiItem,
   type WikiItem,
   type WikiTopicDetailData,
 } from '@/lib/data/wiki'
+import {
+  isActiveWikiDecision,
+  isCurrentWikiKnowledge,
+  isOpenWikiItem,
+  isUnsettledWikiKnowledge,
+} from '@/lib/domain/wikiView'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { formatWikiDate, WikiChangeList, WikiItemCard } from './WikiShared'
 
 function currentKnowledge(items: WikiItem[]): WikiItem[] {
-  return items.filter((item) => (
-    ['fact', 'constraint', 'rationale'].includes(item.kind)
-    && item.certainty === 'explicit'
-    && item.lifecycleState.toLowerCase() === 'active'
-  ))
+  return items.filter(isCurrentWikiKnowledge)
 }
 
 function OpenGroup({
   kind,
   items,
   locale,
+  curateProjectId,
 }: {
   kind: 'action' | 'question' | 'risk'
   items: WikiItem[]
   locale: Locale
+  curateProjectId?: string
 }) {
   const meta = {
     action: {
@@ -70,7 +72,7 @@ function OpenGroup({
       </div>
       <div className="mt-3 space-y-3">
         {grouped.length > 0 ? grouped.map((item) => (
-          <WikiItemCard key={item.id} item={item} locale={locale} showEvidence />
+          <WikiItemCard key={item.id} item={item} locale={locale} showEvidence curateProjectId={curateProjectId} />
         )) : (
           <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink-muted">
             {t(locale, 'wiki.noItems')}
@@ -85,10 +87,13 @@ export function WikiTopicDetail({
   projectId,
   data,
   locale,
+  canCurate = false,
 }: {
   projectId: string
   data: WikiTopicDetailData
   locale: Locale
+  /** 큐레이션 버튼 노출 여부. 서버에서 멤버십으로 판정한다 — 실제 권한은 RPC가 다시 막는다. */
+  canCurate?: boolean
 }) {
   if (!data.topic) {
     return (
@@ -120,7 +125,11 @@ export function WikiTopicDetail({
     .filter((item) => item.kind === 'decision')
     .sort((a, b) => Number(isActiveWikiDecision(b)) - Number(isActiveWikiDecision(a)))
   const knowledge = currentKnowledge(data.items)
+  // 결정·현재 지식·열린 항목 어디에도 안 걸리는 잠정 사실/제약을 담는 그룹.
+  // 이 섹션이 없으면 조회는 되는데 화면에는 없는 항목이 생긴다.
+  const unsettled = data.items.filter(isUnsettledWikiKnowledge)
   const openItems = data.items.filter(isOpenWikiItem)
+  const curateProjectId = canCurate ? projectId : undefined
 
   return (
     <div className="space-y-5">
@@ -183,7 +192,7 @@ export function WikiTopicDetail({
             {knowledge.length > 0 ? (
               <div className="space-y-3">
                 {knowledge.map((item) => (
-                  <WikiItemCard key={item.id} item={item} locale={locale} showEvidence />
+                  <WikiItemCard key={item.id} item={item} locale={locale} showEvidence curateProjectId={curateProjectId} />
                 ))}
               </div>
             ) : (
@@ -204,7 +213,7 @@ export function WikiTopicDetail({
             {decisions.length > 0 ? (
               <div className="space-y-3">
                 {decisions.map((item) => (
-                  <WikiItemCard key={item.id} item={item} locale={locale} showEvidence />
+                  <WikiItemCard key={item.id} item={item} locale={locale} showEvidence curateProjectId={curateProjectId} />
                 ))}
               </div>
             ) : (
@@ -213,6 +222,23 @@ export function WikiTopicDetail({
               </p>
             )}
           </SectionCard>
+
+          {unsettled.length > 0 && (
+            <SectionCard
+              eyebrow={t(locale, 'wiki.section.unsettled.eyebrow')}
+              title={t(locale, 'wiki.section.unsettled.title')}
+              icon={CircleHelp}
+            >
+              <p className="-mt-2 mb-3 text-xs text-ink-muted">
+                {t(locale, 'wiki.section.unsettled.desc')}
+              </p>
+              <div className="space-y-3">
+                {unsettled.map((item) => (
+                  <WikiItemCard key={item.id} item={item} locale={locale} showEvidence curateProjectId={curateProjectId} />
+                ))}
+              </div>
+            </SectionCard>
+          )}
         </div>
 
         <SectionCard
@@ -238,9 +264,9 @@ export function WikiTopicDetail({
         </p>
         {openItems.length > 0 ? (
           <div className="grid items-start gap-3 xl:grid-cols-3">
-            <OpenGroup kind="action" items={openItems} locale={locale} />
-            <OpenGroup kind="question" items={openItems} locale={locale} />
-            <OpenGroup kind="risk" items={openItems} locale={locale} />
+            <OpenGroup kind="action" items={openItems} locale={locale} curateProjectId={curateProjectId} />
+            <OpenGroup kind="question" items={openItems} locale={locale} curateProjectId={curateProjectId} />
+            <OpenGroup kind="risk" items={openItems} locale={locale} curateProjectId={curateProjectId} />
           </div>
         ) : (
           <p className="rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-ink-muted">

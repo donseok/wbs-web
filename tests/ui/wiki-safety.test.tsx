@@ -101,7 +101,7 @@ describe('Wiki 상태 표시 안전성', () => {
     expect(html).not.toContain('>확정</span>')
   })
 
-  it('현재 지식에는 explicit이면서 active인 사실·제약·근거만 노출한다', () => {
+  it('현재 지식에는 explicit·active만 올리고 나머지 사실·제약은 논의 중 섹션에 남긴다', () => {
     const data: WikiTopicDetailData = {
       available: true,
       topic: topic(),
@@ -109,13 +109,13 @@ describe('Wiki 상태 표시 안전성', () => {
         item({ id: 'active-fact', statement: '표시할 명시적 사실' }),
         item({
           id: 'tentative-fact',
-          statement: '숨길 잠정 사실',
+          statement: '논의 중 잠정 사실',
           certainty: 'tentative',
         }),
         item({
           id: 'open-constraint',
           kind: 'constraint',
-          statement: '숨길 열린 제약',
+          statement: '논의 중 열린 제약',
           lifecycleState: 'open',
         }),
         item({
@@ -131,10 +131,31 @@ describe('Wiki 상태 표시 안전성', () => {
       <WikiTopicDetail projectId="project-1" data={data} locale="ko" />,
     )
 
-    expect(html).toContain('표시할 명시적 사실')
-    expect(html).toContain('표시할 명시적 근거')
-    expect(html).not.toContain('숨길 잠정 사실')
-    expect(html).not.toContain('숨길 열린 제약')
+    // 현재 지식 섹션 = CURRENT KNOWLEDGE eyebrow 이후 다음 섹션 eyebrow 전까지.
+    const current = html.slice(
+      html.indexOf('CURRENT KNOWLEDGE'),
+      html.indexOf('CURRENT DECISIONS'),
+    )
+    expect(current).toContain('표시할 명시적 사실')
+    expect(current).toContain('표시할 명시적 근거')
+    expect(current).not.toContain('논의 중 잠정 사실')
+    expect(current).not.toContain('논의 중 열린 제약')
+
+    // 조회는 되는데 어떤 섹션에도 없는 항목이 생기면 안 된다.
+    const discussion = html.slice(html.indexOf('IN DISCUSSION'))
+    expect(discussion).toContain('논의 중 잠정 사실')
+    expect(discussion).toContain('논의 중 열린 제약')
+  })
+
+  it('잠정 사실은 lifecycle이 active여도 현재 유효로 표시하지 않는다', () => {
+    const html = renderToStaticMarkup(
+      <WikiItemCard
+        locale="ko"
+        item={item({ kind: 'fact', certainty: 'tentative', lifecycleState: 'active' })}
+      />,
+    )
+    expect(html).toContain('>논의 중</span>')
+    expect(html).not.toContain('>현재 유효</span>')
   })
 
   it('변경 타임라인은 원문 당시 minute version으로 연결하고 없으면 현재 문서로 폴백한다', () => {

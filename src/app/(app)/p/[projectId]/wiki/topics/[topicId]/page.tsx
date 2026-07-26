@@ -1,4 +1,5 @@
 import { listProjects } from '@/app/actions/project'
+import { getMembership } from '@/lib/auth'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiTopicDetail } from '@/components/wiki/WikiTopicDetail'
@@ -12,10 +13,11 @@ export default async function WikiTopicPage({
   params: Promise<{ projectId: string; topicId: string }>
 }) {
   const { projectId, topicId } = await params
-  const [data, projects, locale] = await Promise.all([
+  const [data, projects, locale, membership] = await Promise.all([
     getWikiTopicDetail(projectId, topicId),
     listProjects(),
     getServerLocale(),
+    getMembership(),
   ])
   const project = projects.find((candidate) => candidate.id === projectId)
   const projectName = project?.name ?? t(locale, 'wiki.projectFallback')
@@ -25,7 +27,12 @@ export default async function WikiTopicPage({
 
   return (
     <ProjectPageShell hero={<PageHero title={title} />}>
-      <WikiTopicDetail projectId={projectId} data={data} locale={locale} />
+      <WikiTopicDetail
+        projectId={projectId}
+        data={data}
+        locale={locale}
+        canCurate={membership !== null}
+      />
     </ProjectPageShell>
   )
 }

@@ -12,18 +12,22 @@ import {
   LockKeyhole,
   Scale,
   ShieldAlert,
+  UserRoundCog,
   type LucideIcon,
 } from 'lucide-react'
 import type { DictKey, Locale } from '@/lib/i18n/dict'
 import { t } from '@/lib/i18n/dict'
-import {
-  isConflictedWikiItem,
-  type WikiChangeEvent,
-  type WikiItem,
-  type WikiItemKind,
-  type WikiSource,
+// 상태 판정은 순수 도메인 모듈에서 직접 가져온다. lib/data/wiki를 값으로 import하면
+// 클라이언트 번들에 서버 전용 supabase 클라이언트가 딸려 들어와 빌드가 깨진다.
+import { isConflictedWikiItem } from '@/lib/domain/wikiView'
+import type {
+  WikiChangeEvent,
+  WikiItem,
+  WikiItemKind,
+  WikiSource,
 } from '@/lib/data/wiki'
 import { minuteSourceHref } from '@/lib/minutes/source'
+import { WikiItemActions } from './WikiItemActions'
 
 interface KindMeta {
   icon: LucideIcon
@@ -114,6 +118,7 @@ const CHANGE_KEYS = new Set([
   'resolved',
   'resolve',
   'retract',
+  'curate',
 ])
 
 const TERMINAL_LIFECYCLE_STATES = new Set([
@@ -141,10 +146,20 @@ function kindMeta(kind: WikiItemKind): KindMeta {
  * 이미 충돌·대체·해결·보관된 항목을 과거 decisionState="confirmed" 때문에
  * 여전히 "확정"으로 보이지 않게 종료 lifecycle을 우선한다.
  */
+const KNOWLEDGE_KINDS = new Set(['fact', 'constraint', 'rationale'])
+
 function displayedState(item: WikiItem): string {
   const lifecycle = normalized(item.lifecycleState)
   if (TERMINAL_LIFECYCLE_STATES.has(lifecycle)) return lifecycle
-  return normalized(item.decisionState) || lifecycle
+  const decision = normalized(item.decisionState)
+  if (decision) return decision
+  // 사실·제약·근거는 결정 상태가 없어 lifecycle만으로 표시되는데, 잠정 지식까지
+  // "현재 유효"로 보이면 논의 중인 내용을 확정 사실로 읽게 된다.
+  // (액션·질문·리스크는 '열림'이 그 자체로 미결 신호라 그대로 둔다.)
+  if (KNOWLEDGE_KINDS.has(item.kind) && normalized(item.certainty) === 'tentative') {
+    return 'tentative'
+  }
+  return lifecycle
 }
 
 function stateLabel(locale: Locale, item: WikiItem): string {
@@ -269,10 +284,13 @@ export function WikiItemCard({
   item,
   locale,
   showEvidence = false,
+  curateProjectId,
 }: {
   item: WikiItem
   locale: Locale
   showEvidence?: boolean
+  /** 넘기면 큐레이션 버튼이 붙는다. 읽기 전용 문맥(회의록 영향 카드 등)에서는 생략한다. */
+  curateProjectId?: string
 }) {
   const meta = kindMeta(item.kind)
   const Icon = meta.icon
@@ -314,6 +332,9 @@ export function WikiItemCard({
             </div>
           )}
           <WikiSourceLinks sources={item.sources} locale={locale} showEvidence={showEvidence} />
+          {curateProjectId && (
+            <WikiItemActions item={item} projectId={curateProjectId} locale={locale} />
+          )}
         </div>
       </div>
     </article>
@@ -345,6 +366,9 @@ function changeTone(type: string): { dot: string; badge: string; icon: LucideIco
   const key = normalized(type)
   if (key === 'retract') {
     return { dot: 'bg-ink-subtle', badge: 'bg-surface-2 text-ink-subtle', icon: FileText }
+  }
+  if (key === 'curate') {
+    return { dot: 'bg-accent-warning', badge: 'bg-accent-warning/15 text-accent-warning', icon: UserRoundCog }
   }
   if (['conflict', 'conflicted', 'withdrawn', 'reverse'].includes(key)) {
     return { dot: 'bg-delayed', badge: 'bg-delayed-weak text-delayed', icon: AlertTriangle }

@@ -17,6 +17,8 @@ import {
   MEETING_DETAILS,
   MEMBERS,
   MINUTES_ARCHIVE,
+  WIKI_ITEMS,
+  WIKI_TOPICS,
   MINUTE_DETAILS,
   MY_MEETINGS,
   PROJECT_MEETINGS,
@@ -154,6 +156,37 @@ export function createFakeRepositories(options: FakeRepositoryOptions = {}): Cor
         return guard('MINUTE_DETAIL_READ_FAILED', true, () => {
           const detail = MINUTE_DETAILS[minuteId]
           return repositoryOk(detail ? clone(detail) : null)
+        })
+      },
+    },
+    wiki: {
+      async searchWikiKnowledge({ projectId, query, kind, limit }) {
+        return guard('WIKI_ITEMS_READ_FAILED', true, () => {
+          const needle = query?.toLowerCase() ?? null
+          const matched = (WIKI_ITEMS[projectId] ?? []).filter(record => {
+            if (kind && record.kind !== kind) return false
+            if (needle && !record.statement.toLowerCase().includes(needle)) return false
+            return true
+          })
+          return repositoryOk(clone({
+            items: matched.slice(0, limit),
+            scanTruncated: matched.length > limit,
+          }))
+        })
+      },
+      async getWikiTopic({ projectId, topicId, titleQuery }) {
+        return guard('WIKI_TOPICS_READ_FAILED', true, () => {
+          const topics = WIKI_TOPICS[projectId] ?? []
+          const topic = topicId
+            ? topics.find(candidate => candidate.id === topicId)
+            : topics.find(candidate => (
+              !!titleQuery && candidate.title.toLowerCase().includes(titleQuery.toLowerCase())
+            ))
+          if (!topic) return repositoryOk(null)
+          return repositoryOk(clone({
+            topic,
+            items: (WIKI_ITEMS[projectId] ?? []).filter(item => item.topicId === topic.id),
+          }))
         })
       },
     },

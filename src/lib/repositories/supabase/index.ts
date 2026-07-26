@@ -8,6 +8,7 @@ import { createSupabaseMinutesRepository } from './minutes'
 import { createSupabaseProjectSettingsRepository } from './settings'
 import { createSupabaseWbsRepository } from './wbs'
 import { createSupabaseWeeklyRepository } from './weekly'
+import { createSupabaseWikiRepository } from './wiki'
 
 /**
  * The request boundary owns client creation. This factory only adapts an
@@ -23,6 +24,7 @@ export function createSupabaseCoreBotRepositories(
     attendance: createSupabaseAttendanceRepository(client),
     announcements: createSupabaseAnnouncementRepository(client),
     minutes: createSupabaseMinutesRepository(client),
+    wiki: createSupabaseWikiRepository(client),
     members: createSupabaseMemberRepository(client),
     settings: createSupabaseProjectSettingsRepository(client),
   }
@@ -36,3 +38,4 @@ export { createSupabaseMinutesRepository } from './minutes'
 export { createSupabaseProjectSettingsRepository } from './settings'
 export { createSupabaseWbsRepository } from './wbs'
 export { createSupabaseWeeklyRepository } from './weekly'
+export { createSupabaseWikiRepository } from './wiki'

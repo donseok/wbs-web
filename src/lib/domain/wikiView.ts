@@ -1,0 +1,216 @@
+// 위키 표시 계층의 단일 정본 — I/O 없는 순수 규칙.
+// 상태 판정(현재 결정/열린 항목/상충)과 탐색기 필터를 여기서만 정의해, 홈·주제 상세·봇이
+// 같은 항목을 서로 다르게 세지 않게 한다. 데이터 계층(lib/data/wiki)은 이 규칙을 재수출한다.
+
+/** 항목이 닫힌 것으로 간주되는 lifecycle 값. LLM/과거 데이터의 동의어까지 포함한다. */
+const CLOSED_STATES = new Set([
+  'archived',
+  'closed',
+  'done',
+  'resolved',
+  'superseded',
+  'withdrawn',
+])
+
+const NON_CURRENT_DECISION_STATES = new Set([
+  'disputed',
+  'on_hold',
+  'proposed',
+  'reversed',
+  'superseded',
+  'tentative',
+  'withdrawn',
+])
+
+const CONFLICT_STATES = new Set([
+  'conflict',
+  'conflicted',
+  'disputed',
+])
+
+const OPEN_KINDS = new Set(['action', 'question', 'risk'])
+const KNOWLEDGE_KINDS = new Set(['fact', 'constraint', 'rationale'])
+
+export function normalizedWikiState(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase()
+}
+
+/** 상태 판정에 필요한 최소 구조. lib/data/wiki의 WikiItem이 그대로 만족한다. */
+export interface WikiViewSource {
+  relation: string
+  retractedAt?: string | null
+  evidenceExcerpt?: string | null
+}
+
+export interface WikiViewItem {
+  kind: string
+  statement: string
+  lifecycleState: string
+  certainty: string
+  decisionState: string | null
+  ownerTeam: string | null
+  dueDate: string | null
+  updatedAt: string
+  sources: WikiViewSource[]
+}
+
+/** 현재 유효한 결정인지 판정하는 표시 계층용 규칙. */
+export function isActiveWikiDecision(item: WikiViewItem): boolean {
+  if (item.kind !== 'decision') return false
+  const lifecycle = normalizedWikiState(item.lifecycleState)
+  if (CLOSED_STATES.has(lifecycle) || CONFLICT_STATES.has(lifecycle)) return false
+  return !NON_CURRENT_DECISION_STATES.has(normalizedWikiState(item.decisionState))
+}
+
+/** 실행·질문·리스크 중 아직 닫히지 않은 항목인지 판정한다. */
+export function isOpenWikiItem(item: WikiViewItem): boolean {
+  if (!OPEN_KINDS.has(item.kind)) return false
+  return !CLOSED_STATES.has(normalizedWikiState(item.lifecycleState))
+}
+
+/** 상태 또는 반대 근거가 있는 항목을 상충으로 센다. */
+export function isConflictedWikiItem(item: WikiViewItem): boolean {
+  if (
+    CONFLICT_STATES.has(normalizedWikiState(item.lifecycleState))
+    || CONFLICT_STATES.has(normalizedWikiState(item.decisionState))
+  ) return true
+  return item.sources.some((source) => (
+    !source.retractedAt && normalizedWikiState(source.relation) === 'contradicts'
+  ))
+}
+
+/**
+ * 지금 유효한 사실·제약·근거. 잠정(certainty=tentative)이거나 닫힌 항목은 제외한다.
+ * 제외된 잠정 항목은 사라지는 게 아니라 '논의 중' 뷰에서 그대로 노출된다.
+ */
+export function isCurrentWikiKnowledge(item: WikiViewItem): boolean {
+  if (!KNOWLEDGE_KINDS.has(item.kind)) return false
+  if (normalizedWikiState(item.certainty) !== 'explicit') return false
+  return normalizedWikiState(item.lifecycleState) === 'active'
+}
+
+/**
+ * 아직 확정되지 않은 채 살아 있는 항목(잠정 사실·제약, 제안/논의 중 결정).
+ * 이 뷰가 없으면 잠정 지식과 미확정 결정이 어떤 화면에도 나타나지 않는다.
+ */
+export function isDiscussingWikiItem(item: WikiViewItem): boolean {
+  if (CLOSED_STATES.has(normalizedWikiState(item.lifecycleState))) return false
+  if (isConflictedWikiItem(item)) return false
+  if (normalizedWikiState(item.certainty) === 'tentative') return true
+  return item.kind === 'decision' && !isActiveWikiDecision(item)
+}
+
+/**
+ * 사실·제약·근거 중 아직 현재 지식이 아닌 것(잠정이거나 상충·대체 상태).
+ * 주제 상세에서 결정/현재 지식/열린 항목 어디에도 속하지 않는 항목을 남김없이 담는 그릇이며,
+ * 이 그룹이 없으면 잠정 사실·제약이 조회는 되지만 어떤 화면에도 렌더되지 않는다.
+ */
+export function isUnsettledWikiKnowledge(item: WikiViewItem): boolean {
+  return KNOWLEDGE_KINDS.has(item.kind) && !isCurrentWikiKnowledge(item)
+}
+
+/** 사람이 숨긴 항목. 집계에서 빠지고 '숨김' 뷰에서만 보이며 되돌릴 수 있다. */
+export function isArchivedWikiItem(item: WikiViewItem): boolean {
+  return normalizedWikiState(item.lifecycleState) === 'archived'
+}
+
+export const WIKI_VIEWS = ['all', 'decision', 'open', 'discussing', 'conflict', 'archived'] as const
+export type WikiView = (typeof WIKI_VIEWS)[number]
+
+export function matchesWikiView(item: WikiViewItem, view: WikiView): boolean {
+  if (view === 'archived') return isArchivedWikiItem(item)
+  // 숨긴 항목은 '숨김' 뷰 밖에서는 어떤 목록에도 섞이지 않는다.
+  if (isArchivedWikiItem(item)) return false
+  switch (view) {
+    case 'decision': return isActiveWikiDecision(item)
+    case 'open': return isOpenWikiItem(item)
+    case 'discussing': return isDiscussingWikiItem(item)
+    case 'conflict': return isConflictedWikiItem(item)
+    default: return true
+  }
+}
+
+/** 탐색기 한 줄. 항목이 어느 주제에 속하는지 함께 보여야 검색 결과가 해석 가능하다. */
+export interface WikiExplorerEntry extends WikiViewItem {
+  id: string
+  topicId: string
+  topicTitle: string
+}
+
+export interface WikiExplorerFilter {
+  view: WikiView
+  kind: string | 'all'
+  query: string
+}
+
+function haystack(entry: WikiExplorerEntry): string {
+  return [
+    entry.statement,
+    entry.topicTitle,
+    entry.ownerTeam ?? '',
+    ...entry.sources.map((source) => source.evidenceExcerpt ?? ''),
+  ].join('\n').toLowerCase()
+}
+
+/** 공백으로 나눈 모든 토큰을 포함해야 통과하는 AND 검색. */
+export function matchesWikiQuery(entry: WikiExplorerEntry, query: string): boolean {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return true
+  const text = haystack(entry)
+  return tokens.every((token) => text.includes(token))
+}
+
+/**
+ * 열린 항목은 기한 → 최근 변경순, 나머지는 최근 변경순.
+ * 기한 없는 항목이 기한 있는 항목을 밀어내지 않게 기한 보유 항목을 먼저 놓는다.
+ */
+export function sortWikiEntries<T extends WikiExplorerEntry>(entries: T[], view: WikiView): T[] {
+  const sorted = [...entries]
+  if (view === 'open') {
+    sorted.sort((a, b) => {
+      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate)
+      if (a.dueDate) return -1
+      if (b.dueDate) return 1
+      return b.updatedAt.localeCompare(a.updatedAt)
+    })
+    return sorted
+  }
+  sorted.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return sorted
+}
+
+export function filterWikiEntries<T extends WikiExplorerEntry>(
+  entries: T[],
+  filter: WikiExplorerFilter,
+): T[] {
+  const filtered = entries.filter((entry) => (
+    matchesWikiView(entry, filter.view)
+    && (filter.kind === 'all' || entry.kind === filter.kind)
+    && matchesWikiQuery(entry, filter.query)
+  ))
+  return sortWikiEntries(filtered, filter.view)
+}
+
+/** 뷰 탭에 붙는 건수. 필터와 무관하게 전체 기준으로 세어 KPI와 어긋나지 않게 한다. */
+export function countWikiViews(entries: WikiExplorerEntry[]): Record<WikiView, number> {
+  const live = entries.filter((entry) => !isArchivedWikiItem(entry))
+  return {
+    all: live.length,
+    decision: live.filter(isActiveWikiDecision).length,
+    open: live.filter(isOpenWikiItem).length,
+    discussing: live.filter(isDiscussingWikiItem).length,
+    conflict: live.filter(isConflictedWikiItem).length,
+    archived: entries.length - live.length,
+  }
+}
+
+/** 주제 카드 검색 — 제목·담당팀·유형을 하나의 토큰 AND 검색으로 본다. */
+export function matchesWikiTopicQuery(
+  topic: { title: string; ownerTeam: string | null; type: string },
+  query: string,
+): boolean {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return true
+  const text = [topic.title, topic.ownerTeam ?? '', topic.type].join('\n').toLowerCase()
+  return tokens.every((token) => text.includes(token))
+}

@@ -10,11 +10,13 @@ import {
   classifyWikiChange,
   compareWikiTemporalOrder,
   initialWikiLifecycleState,
+  matchWikiTopicAlias,
   normalizeWikiKnowledgeKey,
   normalizeWikiStatement,
   normalizeWikiTitle,
   previousWikiLifecycleAfterChange,
   wikiStatementHash,
+  wikiTopicSimilarity,
   type WikiComparableItem,
   type WikiIncomingItem,
   type WikiSemanticRelation,
@@ -254,5 +256,64 @@ describe('Wiki lifecycle 순수 규칙', () => {
     expect(previousWikiLifecycleAfterChange('active', 'conflict')).toBe('conflicted')
     expect(previousWikiLifecycleAfterChange('open', 'refine')).toBe('open')
     expect(previousWikiLifecycleAfterChange('active', 'reaffirm')).toBe('active')
+  })
+})
+
+describe('matchWikiTopicAlias — 회의마다 새로 지어진 제목을 기존 주제로 수렴', () => {
+  function candidates(...titles: string[]) {
+    return titles.map((title, index) => ({
+      id: `topic-${index}`,
+      normalizedTitle: normalizeWikiTitle(title),
+    }))
+  }
+
+  function match(pool: string[], incoming: string) {
+    const found = matchWikiTopicAlias(candidates(...pool), normalizeWikiTitle(incoming))
+    return found ? pool[Number(found.id.split('-')[1])] : null
+  }
+
+  it('정확히 같은 정규화 제목은 그대로 같은 주제다', () => {
+    expect(match(['야드 관리 시스템'], '야드  관리   시스템')).toBe('야드 관리 시스템')
+  })
+
+  it('공유 어절이 충분하면 표현이 달라도 같은 주제로 본다', () => {
+    // 실제 프로덕션에서 갈라져 있던 쌍
+    expect(match(['입동 요청·취소 권한'], '입동 취소 권한 이관 검토')).toBe('입동 요청·취소 권한')
+  })
+
+  it('짧은 제목이 긴 제목에 완전히 포함되면 같은 주제다', () => {
+    expect(match(['야드 관리 시스템'], '야드 관리')).toBe('야드 관리 시스템')
+  })
+
+  it('어절 하나만 겹치는 다른 주제는 합치지 않는다', () => {
+    expect(match(['코드 체계 정비'], '컬러코드 정비')).toBeNull()
+    expect(match(['원가 산출'], '원가 배분')).toBeNull()
+    expect(match(['시스템 통합 방향'], '통합 조회 플랫폼 구축')).toBeNull()
+  })
+
+  it('한 어절짜리 제목은 포함만으로 합치지 않는다', () => {
+    expect(match(['배차'], '배차 시스템 현황')).toBeNull()
+  })
+
+  it('후보가 여럿이면 가장 유사한 하나만 고르고 결과는 결정적이다', () => {
+    const pool = ['야드 관리 시스템', '야드 관리 화면 개선 요청 목록']
+    expect(match(pool, '야드 관리')).toBe('야드 관리 시스템')
+    expect(match(pool, '야드 관리')).toBe('야드 관리 시스템')
+  })
+
+  it('빈 제목이나 빈 후보에서는 아무것도 고르지 않는다', () => {
+    expect(matchWikiTopicAlias([], 'anything')).toBeNull()
+    expect(matchWikiTopicAlias(candidates('야드 관리'), '')).toBeNull()
+  })
+})
+
+describe('wikiTopicSimilarity — 어절 집합 기반 Dice 계수', () => {
+  it('어절 순서에 영향받지 않고 완전 일치는 1이다', () => {
+    expect(wikiTopicSimilarity('가 나 다', '다 나 가')).toBe(1)
+  })
+
+  it('공유 어절이 없으면 0이다', () => {
+    expect(wikiTopicSimilarity('가 나', '다 라')).toBe(0)
+    expect(wikiTopicSimilarity('', '다 라')).toBe(0)
   })
 })

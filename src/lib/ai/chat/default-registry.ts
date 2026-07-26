@@ -19,6 +19,8 @@ import {
   createListWbsAttachmentsTool,
   createSearchAnnouncementsTool,
   createSearchMinutesTool,
+  createSearchWikiTool,
+  createGetWikiTopicTool,
 } from '@/lib/ai/tools'
 import { dkbotIndexStatus } from '@/lib/ai/health'
 import { createSupabaseCoreBotRepositories } from '@/lib/repositories/supabase'
@@ -54,6 +56,8 @@ export function createDefaultChatToolRegistry(client: SupabaseServerClient): Cha
     createSearchAnnouncementsTool(repositories.announcements),
     createSearchMinutesTool(repositories.minutes),
     createGetMinuteDetailTool(repositories.minutes),
+    createSearchWikiTool(repositories.wiki),
+    createGetWikiTopicTool(repositories.wiki),
     createGetKanbanViewTool(repositories.wbs),
     createGetProjectDashboardTool(repositories.wbs, repositories.meetings),
     createListMembersTool(repositories.members),

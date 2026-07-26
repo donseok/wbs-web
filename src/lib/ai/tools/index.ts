@@ -13,6 +13,7 @@ export {
 export { createGetMemberWorkloadTool, createListMembersTool } from './members'
 export { createGetMinuteDetailTool, createSearchMinutesTool } from './minutes'
 export { createGetSafeProjectSettingsTool } from './settings'
+export { createGetWikiTopicTool, createSearchWikiTool } from './wiki'
 export { createCompareWeeklySheetsTool, createGetWeeklySheetTool } from './weekly'
 export {
   createFindWbsItemsTool,

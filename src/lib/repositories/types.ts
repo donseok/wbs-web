@@ -21,6 +21,9 @@ export type RepositoryResult<T> =
   | { ok: false; errorCode: RepositoryErrorCode; retryable: boolean }
 
 export type RepositoryErrorCode =
+  | 'WIKI_TOPICS_READ_FAILED'
+  | 'WIKI_ITEMS_READ_FAILED'
+  | 'WIKI_SOURCES_READ_FAILED'
   | 'WBS_PROJECT_READ_FAILED'
   | 'WBS_ITEMS_READ_FAILED'
   | 'WBS_HOLIDAYS_READ_FAILED'
@@ -354,6 +357,57 @@ export interface ProjectSettingsRepository {
   getSafeSettings(projectId: string): Promise<RepositoryResult<ProjectSettingsSnapshot | null>>
 }
 
+
+/** Wiki — 회의록에서 자동 정리된 프로젝트 지식. 원문 근거 링크가 항상 함께 온다. */
+export interface WikiKnowledgeRecord {
+  id: string
+  projectId: string
+  topicId: string
+  topicTitle: string
+  kind: string
+  statement: string
+  lifecycleState: string
+  certainty: string
+  decisionState: string | null
+  ownerTeam: string | null
+  dueDate: string | null
+  observedAt: string | null
+  updatedAt: string
+  /** 이 문장을 뒷받침한 회의록. 봇 답변에 근거 링크로 그대로 노출된다. */
+  sourceMinuteIds: string[]
+  evidenceExcerpt: string | null
+}
+
+export interface WikiTopicRecord {
+  id: string
+  projectId: string
+  title: string
+  type: string
+  ownerTeam: string | null
+  lastChangedAt: string
+}
+
+export interface WikiTopicSnapshot {
+  topic: WikiTopicRecord
+  items: WikiKnowledgeRecord[]
+}
+
+export interface WikiRepository {
+  /** 지식 문장 검색. archived는 저장소 계층에서 이미 제외된다. */
+  searchWikiKnowledge(input: {
+    projectId: string
+    query: string | null
+    kind: string | null
+    limit: number
+  }): Promise<RepositoryResult<{ items: WikiKnowledgeRecord[]; scanTruncated: boolean }>>
+  /** null은 주제가 없거나 이 프로젝트 소속이 아님. */
+  getWikiTopic(input: {
+    projectId: string
+    topicId: string | null
+    titleQuery: string | null
+  }): Promise<RepositoryResult<WikiTopicSnapshot | null>>
+}
+
 export interface CoreBotRepositories {
   wbs: WbsBotRepository
   weekly: WeeklyRepository
@@ -361,6 +415,7 @@ export interface CoreBotRepositories {
   attendance: AttendanceRepository
   announcements: AnnouncementRepository
   minutes: MinutesRepository
+  wiki: WikiRepository
   members: MemberRepository
   settings: ProjectSettingsRepository
 }

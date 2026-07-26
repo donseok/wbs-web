@@ -88,6 +88,14 @@ export function minuteHref(minuteId: string): string {
   return `/minutes/${encodeURIComponent(minuteId)}`
 }
 
+export function wikiHref(projectId: string): string {
+  return projectMenuPath(projectId, 'wiki')
+}
+
+export function wikiTopicHref(projectId: string, topicId: string): string {
+  return `${projectMenuPath(projectId, 'wiki')}/topics/${encodeURIComponent(topicId)}`
+}
+
 export function dashboardHref(projectId: string): string {
   return projectMenuPath(projectId, 'dashboard')
 }

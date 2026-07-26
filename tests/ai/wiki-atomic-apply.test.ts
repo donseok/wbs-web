@@ -58,6 +58,7 @@ function extractedItem(overrides: Partial<ExtractedWikiItem> = {}): ExtractedWik
     topic: '인터페이스 연계',
     topicType: 'interface',
     statement: 'REST API를 사용한다.',
+    facet: '연계 방식',
     knowledgeKey: '인터페이스-연계:decision:연계-방식',
     certainty: 'explicit',
     decisionState: 'confirmed',
@@ -94,7 +95,7 @@ describe('applyExtractedItem 원자 RPC', () => {
       // 해시는 앱 정규화 후 계산되므로 대문자/끝 마침표가 있는 statement 자체와 다르다.
       statement: 'REST API를 사용한다.',
     })
-    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010' } })
+    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010', normalized_title: '인터페이스 연계' } })
     const currentQuery = queryBuilder({ data: null })
     const rpcQuery = queryBuilder({ data: { outcome: 'created' } })
     const from = vi.fn()
@@ -135,7 +136,7 @@ describe('applyExtractedItem 원자 RPC', () => {
 
   it('잠금 안 current 재검증이 40001을 반환하면 current 읽기와 분류부터 다시 수행한다', async () => {
     const item = extractedItem({ semanticRelation: 'supersedes' })
-    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010' } })
+    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010', normalized_title: '인터페이스 연계' } })
     const firstCurrent = queryBuilder({
       data: {
         id: '00000000-0000-4000-8000-000000000020',
@@ -197,7 +198,7 @@ describe('applyExtractedItem 원자 RPC', () => {
 
   it('수동 current는 잠금 플래그가 없어도 앱 gate에서 자동 변경을 허용하지 않는다', async () => {
     const item = extractedItem({ semanticRelation: 'supersedes' })
-    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010' } })
+    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010', normalized_title: '인터페이스 연계' } })
     const currentQuery = queryBuilder({
       data: {
         id: '00000000-0000-4000-8000-000000000020',
@@ -231,7 +232,7 @@ describe('applyExtractedItem 원자 RPC', () => {
 
   it('job lease fencing 40001은 stale current 재시도로 오인하지 않고 즉시 중단한다', async () => {
     const item = extractedItem()
-    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010' } })
+    const topicQuery = queryBuilder({ data: { id: '00000000-0000-4000-8000-000000000010', normalized_title: '인터페이스 연계' } })
     const currentQuery = queryBuilder({ data: null })
     const leaseLost = queryBuilder({
       error: { code: '40001', message: 'WIKI_JOB_LEASE_LOST' },

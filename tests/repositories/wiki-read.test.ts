@@ -143,9 +143,10 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
     expect(queries.wiki_item_sources[0].select).toHaveBeenCalledWith(
       expect.stringContaining('created_at'),
     )
+    // archived는 '숨김' 뷰에서 되돌릴 수 있어야 하므로 함께 읽고, 집계와 목록에서만 제외한다.
     expect(queries.wiki_items[0].in).toHaveBeenCalledWith(
       'lifecycle_state',
-      ['active', 'open', 'conflicted'],
+      ['active', 'open', 'conflicted', 'archived'],
     )
   })
 })

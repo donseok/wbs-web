@@ -175,6 +175,20 @@ export const PLANNER_TOOL_CATALOG: Record<CoreBotToolName, PlannerToolSpec> = {
     purpose: '단일 회의록 상세',
     argHints: 'minuteId 필수(projectId 인자 없음)',
   },
+  search_wiki: {
+    domain: 'wiki',
+    argKeys: ['projectId', 'query', 'kind', 'limit'],
+    requiresProjectId: true,
+    purpose: '회의록에서 정리된 프로젝트 지식(결정·사실·액션·질문·리스크·제약)을 검색. "무엇으로 결정했나"는 회의록 원문보다 여기가 먼저다',
+    argHints: 'query는 핵심 명사구 · kind는 decision|fact|action|question|risk|constraint|rationale 중 하나(선택)',
+  },
+  get_wiki_topic: {
+    domain: 'wiki',
+    argKeys: ['projectId', 'topicId', 'title'],
+    requiresProjectId: true,
+    purpose: '특정 Wiki 주제의 현재 지식·결정·열린 항목을 한 번에 조회',
+    argHints: 'topicId 또는 title 중 하나는 필수 · title은 주제 이름 일부',
+  },
   get_kanban_view: {
     domain: 'kanban',
     argKeys: ['projectId', 'view', 'team', 'status'],

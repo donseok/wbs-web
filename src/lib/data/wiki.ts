@@ -1,5 +1,11 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
+import {
+  isActiveWikiDecision,
+  isArchivedWikiItem,
+  isConflictedWikiItem,
+  isOpenWikiItem,
+} from '@/lib/domain/wikiView'
 import type {
   WikiCertainty,
   WikiChangeType,
@@ -28,6 +34,8 @@ export interface WikiSource {
   relation: WikiSourceRelation
   retractedAt?: string | null
   retractionReason?: string | null
+  /** 변경 이벤트를 당시 원문 버전으로 되돌려 잇는 데 쓰는 근거 생성 시각. */
+  createdAt: string | null
   minuteTitle: string | null
   minuteDate: string | null
 }
@@ -132,61 +140,15 @@ const EMPTY_OVERVIEW: WikiOverviewData = {
   summary: EMPTY_SUMMARY,
 }
 
-const CLOSED_STATES = new Set([
-  'archived',
-  'closed',
-  'done',
-  'resolved',
-  'superseded',
-  'withdrawn',
-])
-
-const NON_CURRENT_DECISION_STATES = new Set([
-  'disputed',
-  'on_hold',
-  'proposed',
-  'reversed',
-  'superseded',
-  'tentative',
-  'withdrawn',
-])
-
-const CONFLICT_STATES = new Set([
-  'conflict',
-  'conflicted',
-  'disputed',
-])
-
-function normalizedState(value: string | null | undefined): string {
-  return (value ?? '').trim().toLowerCase()
-}
-
-/** 현재 유효한 결정인지 판정하는 표시 계층용 규칙. */
-export function isActiveWikiDecision(item: WikiItem): boolean {
-  if (item.kind !== 'decision') return false
-  if (
-    CLOSED_STATES.has(normalizedState(item.lifecycleState))
-    || CONFLICT_STATES.has(normalizedState(item.lifecycleState))
-  ) return false
-  return !NON_CURRENT_DECISION_STATES.has(normalizedState(item.decisionState))
-}
-
-/** 실행·질문·리스크 중 아직 닫히지 않은 항목인지 판정한다. */
-export function isOpenWikiItem(item: WikiItem): boolean {
-  if (!['action', 'question', 'risk'].includes(item.kind)) return false
-  return !CLOSED_STATES.has(normalizedState(item.lifecycleState))
-}
-
-/** 상태 또는 반대 근거가 있는 항목을 상충으로 센다. */
-export function isConflictedWikiItem(item: WikiItem): boolean {
-  if (
-    CONFLICT_STATES.has(normalizedState(item.lifecycleState))
-    || CONFLICT_STATES.has(normalizedState(item.decisionState))
-  ) return true
-  return item.sources.some((source) => (
-    !source.retractedAt && normalizedState(source.relation) === 'contradicts'
-  ))
-}
+// 상태 판정은 lib/domain/wikiView가 단일 정본이다. 기존 호출부 호환을 위해 재수출한다.
+export {
+  isActiveWikiDecision,
+  isArchivedWikiItem,
+  isConflictedWikiItem,
+  isCurrentWikiKnowledge,
+  isDiscussingWikiItem,
+  isOpenWikiItem,
+} from '@/lib/domain/wikiView'
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
@@ -232,6 +194,7 @@ function mapSource(row: Row, minuteById: Map<string, { title: string; date: stri
     relation: asString(row.relation, 'supports') as WikiSourceRelation,
     retractedAt: asNullableString(row.retracted_at),
     retractionReason: asNullableString(row.retraction_reason),
+    createdAt: asNullableString(row.created_at),
     minuteTitle: minute?.title ?? null,
     minuteDate: minute?.date ?? null,
   }
@@ -279,18 +242,15 @@ function changeSourceKey(wikiItemId: string, minuteId: string): string {
  * 정확한 minute_version_id가 있다. 이벤트 시각 이전의 가장 최근 근거를 선택해 과거
  * 회의록 본문으로 연결한다. 이전 근거가 없으면(레거시/시계 오차) 가장 가까운 근거로 폴백한다.
  */
-function buildChangeSourceVersionIndex(sourceRows: Row[]): WikiChangeSourceVersionIndex {
+function buildChangeSourceVersionIndex(sources: WikiSource[]): WikiChangeSourceVersionIndex {
   const index: WikiChangeSourceVersionIndex = new Map()
-  for (const row of sourceRows) {
-    const wikiItemId = asString(row.wiki_item_id)
-    const minuteId = asString(row.minute_id)
-    const minuteVersionId = asString(row.minute_version_id)
-    if (!wikiItemId || !minuteId || !minuteVersionId) continue
-    const key = changeSourceKey(wikiItemId, minuteId)
+  for (const source of sources) {
+    if (!source.wikiItemId || !source.minuteId || !source.minuteVersionId) continue
+    const key = changeSourceKey(source.wikiItemId, source.minuteId)
     const refs = index.get(key) ?? []
     refs.push({
-      minuteVersionId,
-      createdAt: asNullableString(row.created_at),
+      minuteVersionId: source.minuteVersionId,
+      createdAt: source.createdAt,
     })
     index.set(key, refs)
   }
@@ -367,13 +327,15 @@ function latestIso(values: Array<string | null | undefined>): string | null {
   return present.sort((a, b) => b.localeCompare(a))[0]
 }
 
+/** 집계는 살아 있는 항목만 센다. 숨긴 항목이 주제 카드 숫자와 KPI를 부풀리면 안 된다. */
 function summarizeTopic(topic: WikiTopic, items: WikiItem[]): WikiTopicSummary {
+  const live = items.filter((item) => !isArchivedWikiItem(item))
   return {
     ...topic,
-    itemCount: items.length,
-    activeDecisionCount: items.filter(isActiveWikiDecision).length,
-    openItemCount: items.filter(isOpenWikiItem).length,
-    conflictCount: items.filter(isConflictedWikiItem).length,
+    itemCount: live.length,
+    activeDecisionCount: live.filter(isActiveWikiDecision).length,
+    openItemCount: live.filter(isOpenWikiItem).length,
+    conflictCount: live.filter(isConflictedWikiItem).length,
     lastChangedAt: latestIso([
       topic.lastChangedAt,
       ...items.map((item) => item.updatedAt),
@@ -395,6 +357,33 @@ function schemaMissing(error: { code?: string; message?: string } | null): boole
 function logWikiReadError(scope: string, error: { code?: string; message?: string }): void {
   const kind = schemaMissing(error) ? '스키마 준비 전' : '조회 실패'
   console.error(`[${scope}] Wiki ${kind}:`, error.message ?? error.code ?? 'unknown error')
+}
+
+type WikiMinuteMeta = Map<string, { title: string; date: string }>
+
+/** 근거·변경 링크에 붙일 회의록 제목/일자 보강. 실패해도 지식 자체는 유지한다. */
+async function fetchMinuteMeta(
+  sb: Awaited<ReturnType<typeof createServerClient>>,
+  minuteIds: string[],
+  scope: string,
+): Promise<WikiMinuteMeta> {
+  const minuteById: WikiMinuteMeta = new Map()
+  if (minuteIds.length === 0) return minuteById
+  const minutesRes = await sb.from('minutes')
+    .select('id, title, minute_date')
+    .in('id', minuteIds)
+  if (minutesRes.error) {
+    // 제목 보강 실패는 핵심 Wiki 지식의 부재가 아니므로 원문 링크는 id만으로 유지한다.
+    console.error(`[${scope}.minutes] 회의록 메타 조회 실패:`, minutesRes.error.message)
+    return minuteById
+  }
+  for (const row of (minutesRes.data ?? []) as Row[]) {
+    minuteById.set(asString(row.id), {
+      title: asString(row.title),
+      date: asString(row.minute_date),
+    })
+  }
+  return minuteById
 }
 
 /**
@@ -423,8 +412,9 @@ export const getWikiOverview = cache(async (projectId: string): Promise<WikiOver
     sb.from('wiki_items')
       .select('id, project_id, topic_id, kind, statement, lifecycle_state, certainty, decision_state, owner_team, owner_member_id, due_date, observed_at, valid_from, valid_to, origin, auto_update_locked, structured_data, created_at, updated_at')
       .eq('project_id', projectId)
-      // 현재 Wiki는 current projection만 읽고, superseded/archive 이력은 change event에서 본다.
-      .in('lifecycle_state', ['active', 'open', 'conflicted'])
+      // current projection + 사람이 숨긴 항목(되돌릴 수 있어야 하므로 '숨김' 뷰용으로 함께 읽는다).
+      // superseded/resolved 이력은 계속 change event에서만 본다.
+      .in('lifecycle_state', ['active', 'open', 'conflicted', 'archived'])
       .order('updated_at', { ascending: false })
       .limit(500),
     sb.from('wiki_change_events')
@@ -461,27 +451,11 @@ export const getWikiOverview = cache(async (projectId: string): Promise<WikiOver
     ...changeRows.map((row) => asString(row.minute_id)),
   ].filter(Boolean)))
 
-  const minuteById = new Map<string, { title: string; date: string }>()
-  if (minuteIds.length > 0) {
-    const minutesRes = await sb.from('minutes')
-      .select('id, title, minute_date')
-      .in('id', minuteIds)
-    if (minutesRes.error) {
-      // 제목 보강 실패는 핵심 Wiki 지식의 부재가 아니므로 원문 링크는 id만으로 유지한다.
-      console.error('[getWikiOverview.minutes] 회의록 메타 조회 실패:', minutesRes.error.message)
-    } else {
-      for (const row of (minutesRes.data ?? []) as Row[]) {
-        minuteById.set(asString(row.id), {
-          title: asString(row.title),
-          date: asString(row.minute_date),
-        })
-      }
-    }
-  }
+  const minuteById = await fetchMinuteMeta(sb, minuteIds, 'getWikiOverview')
 
   const sourcesByItem = new Map<string, WikiSource[]>()
-  for (const row of sourceRows) {
-    const source = mapSource(row, minuteById)
+  const allSources = sourceRows.map((row) => mapSource(row, minuteById))
+  for (const source of allSources) {
     const list = sourcesByItem.get(source.wikiItemId)
     if (list) list.push(source)
     else sourcesByItem.set(source.wikiItemId, [source])
@@ -500,9 +474,9 @@ export const getWikiOverview = cache(async (projectId: string): Promise<WikiOver
     .map((topic) => summarizeTopic(topic, itemByTopic.get(topic.id) ?? []))
     .sort((a, b) => b.lastChangedAt.localeCompare(a.lastChangedAt))
 
-  const changeSourceVersions = buildChangeSourceVersionIndex(sourceRows)
+  const changeSourceVersions = buildChangeSourceVersionIndex(allSources)
   const sourceVersionById = new Map(
-    sourceRows.map(row => [asString(row.id), asString(row.minute_version_id)] as const),
+    allSources.map(source => [source.id, source.minuteVersionId ?? ''] as const),
   )
   const changes = changeRows.map((row) => mapChange(
     row,
@@ -510,11 +484,12 @@ export const getWikiOverview = cache(async (projectId: string): Promise<WikiOver
     changeSourceVersions,
     sourceVersionById,
   ))
+  const live = items.filter((item) => !isArchivedWikiItem(item))
   const summary: WikiOverviewSummary = {
     topicCount: topics.length,
-    activeDecisionCount: items.filter(isActiveWikiDecision).length,
-    openItemCount: items.filter(isOpenWikiItem).length,
-    conflictCount: items.filter(isConflictedWikiItem).length,
+    activeDecisionCount: live.filter(isActiveWikiDecision).length,
+    openItemCount: live.filter(isOpenWikiItem).length,
+    conflictCount: live.filter(isConflictedWikiItem).length,
     lastChangedAt: latestIso([
       ...topics.map((topic) => topic.lastChangedAt),
       ...changes.map((change) => change.createdAt),
@@ -536,7 +511,14 @@ function snapshotItemId(snapshot: JsonObject | null): string | null {
     ?? asNullableString(snapshot.wikiItemId)
 }
 
-/** 주제 상세는 홈 읽기 모델을 재사용해 페이지 간 KPI·상태 판정이 어긋나지 않게 한다. */
+/** 프로젝트 전역 최근 변경 목록의 상한. 주제 타임라인은 여기에 의존하지 않는다. */
+const TOPIC_CHANGE_LIMIT = 300
+
+/**
+ * 주제 상세. 항목·KPI는 홈 읽기 모델을 재사용해 페이지 간 판정이 어긋나지 않게 하되,
+ * 변경 타임라인은 이 주제의 항목으로 직접 조회한다. 홈의 "최근 변경 100건"을 걸러
+ * 쓰면 변경이 100건을 넘는 순간 오래된 주제가 이력 없는 것처럼 보인다.
+ */
 export const getWikiTopicDetail = cache(async (
   projectId: string,
   topicId: string,
@@ -553,7 +535,10 @@ export const getWikiTopicDetail = cache(async (
 
   const items = overview.items.filter((item) => item.topicId === topicId)
   const itemIds = new Set(items.map((item) => item.id))
-  const changes = overview.changes.filter((change) => {
+
+  // 항목 FK가 없는 이벤트(항목이 archive된 뒤의 이력 등)는 스냅샷으로만 주제를 알 수 있어
+  // 홈 최근 목록에서 함께 건져 올린다. FK가 있는 이력은 아래 전용 조회가 상한 없이 덮는다.
+  const snapshotMatched = overview.changes.filter((change) => {
     if (change.wikiItemId && itemIds.has(change.wikiItemId)) return true
     const topicIds = [
       snapshotTopicId(change.beforeSnapshot),
@@ -566,6 +551,42 @@ export const getWikiTopicDetail = cache(async (
     ]
     return changeItemIds.some((itemId) => itemId !== null && itemIds.has(itemId))
   })
+
+  let scoped: WikiChangeEvent[] = []
+  if (itemIds.size > 0) {
+    const sb = await createServerClient()
+    const changesRes = await sb.from('wiki_change_events')
+      .select('id, project_id, wiki_item_id, minute_id, source_id, minute_version_id, source_body_hash, source_block_index, source_block_hash, change_type, before_snapshot, after_snapshot, reason, created_at')
+      .eq('project_id', projectId)
+      .in('wiki_item_id', Array.from(itemIds))
+      .order('created_at', { ascending: false })
+      .limit(TOPIC_CHANGE_LIMIT)
+
+    if (changesRes.error) {
+      // 전용 조회 실패는 타임라인 전체를 비우지 않고 홈에서 건진 이력으로 강등한다.
+      logWikiReadError('getWikiTopicDetail.changes', changesRes.error)
+    } else {
+      const changeRows = (changesRes.data ?? []) as Row[]
+      const sources = items.flatMap((item) => item.sources)
+      const minuteById = await fetchMinuteMeta(
+        sb,
+        Array.from(new Set(changeRows.map((row) => asString(row.minute_id)).filter(Boolean))),
+        'getWikiTopicDetail',
+      )
+      const sourceVersions = buildChangeSourceVersionIndex(sources)
+      const sourceVersionById = new Map(
+        sources.map((source) => [source.id, source.minuteVersionId ?? ''] as const),
+      )
+      scoped = changeRows.map((row) => mapChange(row, minuteById, sourceVersions, sourceVersionById))
+    }
+  }
+
+  const byId = new Map<string, WikiChangeEvent>()
+  for (const change of [...scoped, ...snapshotMatched]) {
+    if (!byId.has(change.id)) byId.set(change.id, change)
+  }
+  const changes = Array.from(byId.values())
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
   return { available: true, topic, items, changes }
 })

@@ -35,6 +35,7 @@ const DOMAIN_PATH = {
   meetings: projectId => projectId ? [`/p/${projectId}/meetings`, '/meetings'] : ['/meetings'],
   weekly: projectId => projectId ? [`/p/${projectId}/weekly`] : [],
   minutes: () => ['/minutes'],
+  wiki: projectId => projectId ? [`/p/${projectId}/wiki`] : [],
   settings: projectId => projectId ? [`/p/${projectId}/settings`] : [],
   unknown: () => [],
 } satisfies Record<BotDomain, (projectId: string | null) => string[]>
