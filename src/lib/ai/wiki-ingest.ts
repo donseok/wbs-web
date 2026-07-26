@@ -636,9 +636,13 @@ export async function applyExtractedItem(
   throw new Error('WIKI_APPLY_RACE_RETRY_EXHAUSTED')
 }
 
+// 카탈로그는 크게 넣을수록 좋은 게 아니다. 입력이 길어지면 gemini-3.5-flash가 thinking에
+// 출력 예산(maxOutputTokens 4096, thinking 합산)을 써버려 본문이 잘리거나 비고, 그러면
+// LLM_OUTPUT_INVALID로 그 회의록이 통째로 실패하고 재구축 큐가 멈춘다(2026-07-27 실측).
+// 키 재사용에 실제로 필요한 신호는 topic/knowledgeKey이고 문장은 같은 대상인지 가르는 보조다.
 const CATALOG_TOPIC_LIMIT = 60
-const CATALOG_ITEM_LIMIT = 80
-const CATALOG_STATEMENT_CAP = 160
+const CATALOG_ITEM_LIMIT = 40
+const CATALOG_STATEMENT_CAP = 90
 
 /**
  * 프롬프트에 붙일 기존 프로젝트 지식 카탈로그.
