@@ -1,11 +1,8 @@
 import Link from 'next/link'
 import {
   BookOpenText,
-  CheckCircle2,
-  CircleAlert,
   GitCompareArrows,
   LibraryBig,
-  ListTodo,
   Search,
   Tags,
 } from 'lucide-react'
@@ -14,32 +11,11 @@ import { t } from '@/lib/i18n/dict'
 import type { WikiOverviewData } from '@/lib/data/wiki'
 import type { WikiView } from '@/lib/domain/wikiView'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { formatWikiDate, WikiChangeList } from './WikiShared'
 import { WikiExplorer, type WikiExplorerItem } from './WikiExplorer'
 import { WikiTopicGrid } from './WikiTopicGrid'
 import { WikiMergeTopics } from './WikiMergeTopics'
-
-/** KPI는 탐색기의 해당 뷰로 들어가는 입구다. 숫자만 보여주고 목록이 없으면 도달할 수 없다. */
-function KpiLink({
-  projectId,
-  view,
-  children,
-}: {
-  projectId: string
-  view: WikiView
-  children: React.ReactNode
-}) {
-  return (
-    <Link
-      href={`/p/${projectId}/wiki?view=${view}#wiki-explorer`}
-      className="rounded-2xl transition hover:-translate-y-0.5 focus-visible:-translate-y-0.5"
-    >
-      {children}
-    </Link>
-  )
-}
 
 export function WikiOverview({
   projectId,
@@ -68,45 +44,6 @@ export function WikiOverview({
 
   return (
     <div className="space-y-5">
-      <section aria-label={t(locale, 'wiki.currentStatus')} className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <KpiLink projectId={projectId} view="all">
-          <KpiCard
-            label={t(locale, 'wiki.kpi.topics')}
-            value={data.summary.topicCount}
-            sub={t(locale, 'wiki.kpi.topicsSub')}
-            icon={Tags}
-            tone="brand"
-          />
-        </KpiLink>
-        <KpiLink projectId={projectId} view="decision">
-          <KpiCard
-            label={t(locale, 'wiki.kpi.decisions')}
-            value={data.summary.activeDecisionCount}
-            sub={t(locale, 'wiki.kpi.decisionsSub')}
-            icon={CheckCircle2}
-            tone="success"
-          />
-        </KpiLink>
-        <KpiLink projectId={projectId} view="open">
-          <KpiCard
-            label={t(locale, 'wiki.kpi.open')}
-            value={data.summary.openItemCount}
-            sub={t(locale, 'wiki.kpi.openSub')}
-            icon={ListTodo}
-            tone="warning"
-          />
-        </KpiLink>
-        <KpiLink projectId={projectId} view="conflict">
-          <KpiCard
-            label={t(locale, 'wiki.kpi.conflicts')}
-            value={data.summary.conflictCount}
-            sub={t(locale, 'wiki.kpi.conflictsSub')}
-            icon={CircleAlert}
-            tone={data.summary.conflictCount > 0 ? 'danger' : 'default'}
-          />
-        </KpiLink>
-      </section>
-
       {!hasKnowledge ? (
         <div>
           <EmptyState
