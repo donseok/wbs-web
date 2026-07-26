@@ -385,3 +385,24 @@ describe('병합 별칭 재사용 — 사람의 정리를 다음 회의가 되�
     )?.id).toBe('t')
   })
 })
+
+describe('별칭 매칭 오병합 방지 — 한정어 한 어절 차이', () => {
+  function match(pool: string[], incoming: string) {
+    const found = matchWikiTopicAlias(
+      pool.map((title, index) => ({ id: `t-${index}`, normalizedTitle: normalizeWikiTitle(title) })),
+      normalizeWikiTitle(incoming),
+    )
+    return found ? pool[Number(found.id.split('-')[1])] : null
+  }
+
+  it('시스템 이름만 다른 동일 구조 주제는 합치지 않는다', () => {
+    expect(match(['ERP 연계 방식'], 'MES 연계 방식')).toBeNull()
+    expect(match(['야드 관리 시스템'], '야드 관리 화면')).toBeNull()
+    expect(match(['입고 처리 기준'], '출고 처리 기준')).toBeNull()
+  })
+
+  it('포함 관계와 어절 수가 다른 실제 파편 쌍은 그대로 합친다', () => {
+    expect(match(['야드 관리 시스템'], '야드 관리')).toBe('야드 관리 시스템')
+    expect(match(['입동 요청·취소 권한'], '입동 취소 권한 이관 검토')).toBe('입동 요청·취소 권한')
+  })
+})

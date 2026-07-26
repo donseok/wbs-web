@@ -225,6 +225,15 @@ export function matchWikiTopicAlias(
     const score = (2 * shared) / (incomingSet.size + tokenSet.size)
     if (!contained && score < TOPIC_ALIAS_MIN_SIMILARITY) continue
 
+    // 어절 수가 같고 딱 한 어절만 다르면 그 한 어절이 대상을 가르는 한정어다.
+    // "ERP 연계 방식" vs "MES 연계 방식"(Dice 0.67)처럼 시스템 이름만 다른 별개 주제를
+    // 합치면 서로 다른 지식이 한 knowledge_key에서 충돌한다. 포함 관계일 때는 해당 없다.
+    if (
+      !contained
+      && incomingSet.size === tokenSet.size
+      && incomingSet.size - shared === 1
+    ) continue
+
     const effective = contained ? Math.max(score, TOPIC_ALIAS_MIN_SIMILARITY) : score
     if (
       !best
