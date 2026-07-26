@@ -40,15 +40,15 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
 function projectMenu(base: string): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
   return [
     { href: `${base}/dashboard`, labelKey: 'nav.dashboard', icon: LayoutDashboard, match: `${base}/dashboard` },
-    { href: `${base}/wiki`, labelKey: 'nav.wiki', icon: BookOpenText, match: `${base}/wiki` },
     { href: `${base}/wbs`, labelKey: 'nav.wbsGantt', icon: ListTree, match: `${base}/wbs` },
     { href: `${base}/kanban`, labelKey: 'nav.kanban', icon: Columns3, match: `${base}/kanban` },
-    { href: `${base}/issues`, labelKey: 'nav.issues', icon: CircleAlert, match: `${base}/issues` },
-    { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
-    { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
-    { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/meetings`, labelKey: 'nav.meetings', icon: CalendarClock, match: `${base}/meetings` },
     { href: `${base}/weekly`, labelKey: 'nav.weekly', icon: NotebookPen, match: `${base}/weekly` },
+    { href: `${base}/issues`, labelKey: 'nav.issues', icon: CircleAlert, match: `${base}/issues` },
+    { href: `${base}/wiki`, labelKey: 'nav.wiki', icon: BookOpenText, match: `${base}/wiki` },
+    { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
+    { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
+    { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
     { href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` },
   ]
 }
