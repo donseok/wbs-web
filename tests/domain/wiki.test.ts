@@ -10,7 +10,9 @@ import {
   classifyWikiChange,
   compareWikiTemporalOrder,
   initialWikiLifecycleState,
+  isAgendaStyleWikiTopic,
   matchWikiTopicAlias,
+  resolveWikiTopicTitle,
   normalizeWikiKnowledgeKey,
   normalizeWikiStatement,
   normalizeWikiTitle,
@@ -315,5 +317,42 @@ describe('wikiTopicSimilarity — 어절 집합 기반 Dice 계수', () => {
   it('공유 어절이 없으면 0이다', () => {
     expect(wikiTopicSimilarity('가 나', '다 라')).toBe(0)
     expect(wikiTopicSimilarity('', '다 라')).toBe(0)
+  })
+})
+
+describe('목차형 주제 차단 — 흡인체 주제 방지', () => {
+  it('회의 안건지의 목차는 주제로 인정하지 않는다', () => {
+    for (const title of [
+      '향후 추진 계획', '향후계획', '추진 일정', '기타', '기타 사항', '논의 사항',
+      '검토사항', '진행 상황', '후속 조치', '액션 아이템', '차기 회의', '안건',
+      '회의 결과', '주요 내용', '결정 사항', 'Next Steps', 'ETC', '',
+    ]) {
+      expect(isAgendaStyleWikiTopic(title), `${title} 가 목차로 안 걸림`).toBe(true)
+    }
+  })
+
+  it('대상이 들어간 제목은 목차로 오인하지 않는다', () => {
+    for (const title of [
+      '야드 관리 개선 사항', 'ERP-MES 연계', '통관 여부 확인 절차', '원가 산출',
+      '포장해체 프로세스 연계', 'MES 경량화', '식별 체계 표준', '재고 조회 기준',
+    ]) {
+      expect(isAgendaStyleWikiTopic(title), `${title} 가 목차로 오인됨`).toBe(false)
+    }
+  })
+
+  it('목차형 제목은 그 지식이 실제로 다루는 대상으로 바꾼다', () => {
+    expect(resolveWikiTopicTitle('향후 추진 계획', 'MES 경량화 및 데이터 플랫폼 이관'))
+      .toBe('MES 경량화 및 데이터 플랫폼 이관')
+    expect(resolveWikiTopicTitle('기타 사항', '통관 완료 입고실적 자동 반영'))
+      .toBe('통관 완료 입고실적 자동 반영')
+  })
+
+  it('facet마저 목차형이면 원래 제목을 유지한다 — 문장으로 주제를 지어내지 않는다', () => {
+    expect(resolveWikiTopicTitle('향후 추진 계획', '후속 조치')).toBe('향후 추진 계획')
+    expect(resolveWikiTopicTitle('기타', null)).toBe('기타')
+  })
+
+  it('정상 주제는 facet이 있어도 그대로 둔다', () => {
+    expect(resolveWikiTopicTitle('ERP-MES 연계', '연계 방식')).toBe('ERP-MES 연계')
   })
 })

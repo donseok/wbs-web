@@ -61,6 +61,9 @@ export function WikiOverview({
     ...item,
     topicTitle: topicTitleById.get(item.topicId) ?? t(locale, 'wiki.kind.other'),
   }))
+  // 항목이 하나도 남지 않은 주제는 지도에서 뺀다(빈 카드 102장이 지도를 덮는 실측 사례).
+  // topicTitleById는 전체 주제로 만든다 — 숨김 뷰의 항목도 주제 이름을 잃지 않아야 한다.
+  const visibleTopics = data.topics.filter((topic) => topic.itemCount > 0)
   const hasKnowledge = data.topics.length > 0 || data.items.length > 0 || data.changes.length > 0
 
   return (
@@ -176,10 +179,10 @@ export function WikiOverview({
             </p>
             {canMergeTopics && (
               <div className="mb-4">
-                <WikiMergeTopics projectId={projectId} topics={data.topics} locale={locale} />
+                <WikiMergeTopics projectId={projectId} topics={visibleTopics} locale={locale} />
               </div>
             )}
-            <WikiTopicGrid projectId={projectId} topics={data.topics} locale={locale} />
+            <WikiTopicGrid projectId={projectId} topics={visibleTopics} locale={locale} />
           </SectionCard>
         </>
       )}

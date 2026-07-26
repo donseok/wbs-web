@@ -12,10 +12,12 @@ import {
   buildWikiKnowledgeKey,
   canAutoApplyWikiChange,
   classifyWikiChange,
+  isAgendaStyleWikiTopic,
   matchWikiTopicAlias,
   normalizeWikiKnowledgeKey,
   normalizeWikiStatement as normalizeDomainWikiStatement,
   normalizeWikiTitle,
+  resolveWikiTopicTitle,
   wikiStatementHash,
   type WikiSemanticRelation,
 } from '@/lib/domain/wiki'
@@ -118,6 +120,11 @@ const EXTRACTION_SYSTEM = [
   '11. 입력에 [기존 프로젝트 지식]이 있으면, 같은 대상을 말하는 항목은 거기 적힌 topic과',
   '    knowledgeKey를 글자 하나까지 그대로 복사한다. 새 이름을 지으면 같은 지식이 갈라져',
   '    변경 이력이 끊긴다. 정말 새로운 대상일 때만 새 topic/knowledgeKey를 만든다.',
+  '12. topic은 회의를 넘어 지속되는 "대상"이다 — 시스템·프로세스·인터페이스·데이터·정책·용어.',
+  '    그날 안건지의 목차("향후 추진 계획", "기타 사항", "논의 사항", "진행 상황", "후속 조치",',
+  '    "결정 사항", "안건", "주요 내용")를 topic으로 쓰지 마라. 그런 문단 아래의 내용이라도',
+  '    그 문장이 실제로 다루는 대상(예: "MES 경량화", "야드 관리 시스템", "통관 확인 절차")을',
+  '    topic으로 삼는다. 목차를 topic으로 쓰면 서로 무관한 지식이 한 주제에 쌓여 쓸모가 없어진다.',
   '',
   '출력 형식:',
   '{"items":[{"kind":"decision","topic":"인터페이스 연계","topicType":"interface",',
@@ -231,10 +238,10 @@ export function parseExtractedWikiItems(
     if (typeof candidate !== 'object' || candidate === null) continue
     const item = candidate as Row
     const kind = oneOf(item.kind, ITEM_KINDS)
-    const topic = nullableText(item.topic, TOPIC_CAP)
+    const rawTopic = nullableText(item.topic, TOPIC_CAP)
     const topicType = oneOf(item.topicType, TOPIC_TYPES) ?? 'general'
     const rawStatement = nullableText(item.statement, STATEMENT_CAP)
-    if (!kind || !topic || !rawStatement) continue
+    if (!kind || !rawTopic || !rawStatement) continue
     const statement = normalizeWikiDisplayStatement(rawStatement)
     if (!statement) continue
 
@@ -267,6 +274,8 @@ export function parseExtractedWikiItems(
     if (relation === 'resolves' && !RESOLVE_RE.test(evidenceText)) relation = 'supports'
 
     const facet = nullableText(item.knowledgeKey, KEY_CAP) ?? statement.slice(0, 80)
+    // 프롬프트 규칙 12를 어기고 목차형 제목이 와도 흡인체 주제가 만들어지지 않게 코드가 되돌린다.
+    const topic = resolveWikiTopicTitle(rawTopic, facet).slice(0, TOPIC_CAP)
     const knowledgeKey = buildWikiKnowledgeKey(normalizeWikiTopic(topic), kind, facet).slice(0, KEY_CAP)
     if (!knowledgeKey) continue
 
@@ -605,16 +614,18 @@ async function loadWikiCatalog(
     if (topicsRes.error) throw topicsRes.error
     if (itemsRes.error) throw itemsRes.error
 
+    // 과거에 만들어진 목차형 주제를 후보로 다시 흘리면 흡인체가 되살아난다.
     const topics = (topicsRes.data ?? [])
       .map((row) => (row.title as string | null) ?? '')
-      .filter(Boolean)
-    const items = (itemsRes.data ?? []).map((row) => {
+      .filter((title) => Boolean(title) && !isAgendaStyleWikiTopic(title))
+    const items = (itemsRes.data ?? []).flatMap((row) => {
       const rawTopic = (row as Row).wiki_topics
       const topicRow = (Array.isArray(rawTopic) ? rawTopic[0] : rawTopic) as Row | undefined
       const topicTitle = (topicRow?.title as string | undefined) ?? ''
+      if (!topicTitle || isAgendaStyleWikiTopic(topicTitle)) return []
       const facet = ((row.knowledge_key as string | null) ?? '').split(':').slice(2).join(':')
       const statement = ((row.statement as string | null) ?? '').slice(0, CATALOG_STATEMENT_CAP)
-      return `- topic="${topicTitle}" kind=${row.kind as string} knowledgeKey="${facet}" :: ${statement}`
+      return [`- topic="${topicTitle}" kind=${row.kind as string} knowledgeKey="${facet}" :: ${statement}`]
     })
     if (topics.length === 0 && items.length === 0) return ''
 

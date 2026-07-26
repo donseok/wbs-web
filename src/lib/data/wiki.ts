@@ -486,7 +486,10 @@ export const getWikiOverview = cache(async (projectId: string): Promise<WikiOver
   ))
   const live = items.filter((item) => !isArchivedWikiItem(item))
   const summary: WikiOverviewSummary = {
-    topicCount: topics.length,
+    // 살아있는 지식이 하나도 없는 주제는 세지 않는다. 추출 규칙이 바뀌어 전량 재구축을 하면
+    // 예전 파편 주제가 항목 없이 남는데(2026-07-27 실측 102개), 그걸 세면 KPI가 지도에 실제로
+    // 보이는 주제 수와 어긋난다. 행 자체는 지우지 않는다 — 이후 회의의 별칭 매칭 후보로 쓰인다.
+    topicCount: topics.filter((topic) => topic.itemCount > 0).length,
     activeDecisionCount: live.filter(isActiveWikiDecision).length,
     openItemCount: live.filter(isOpenWikiItem).length,
     conflictCount: live.filter(isConflictedWikiItem).length,

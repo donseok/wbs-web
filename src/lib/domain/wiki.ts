@@ -119,6 +119,42 @@ export function buildWikiKnowledgeKey(
 }
 
 /**
+ * 회의 진행상의 묶음 제목. 지속되는 대상이 아니라 그날 안건지의 목차라서 주제가 될 수 없다.
+ *
+ * 이걸 막지 않으면 카탈로그가 흡인체를 만든다: 한 회의에서 "향후 추진 계획"이 주제로 한 번
+ * 생기면 이후 모든 회의의 LLM이 카탈로그에서 그 이름을 보고 온갖 지식을 거기에 몰아넣는다
+ * (2026-07-27 실측: 재구축 직후 156건 중 67건이 "향후 추진 계획" 한 주제에 쌓임).
+ *
+ * 부분 문자열이 아니라 제목 전체가 목차형일 때만 걸러야 한다 — "야드 관리 개선 사항"은
+ * 실재하는 대상이고 "개선 사항"만 목차다.
+ */
+const AGENDA_TOPIC_PATTERNS = [
+  /^(?:향후)?(?:추진)?(?:계획|일정)$/,
+  /^(?:기타|안건|논의|협의|검토|공유|보고|요청|참고|특이|개선|이슈|결정|합의|조치|확인)(?:사항|안건|내용)?$/,
+  /^(?:회의)?(?:안건|내용|결과|요약|목적|개요)$/,
+  /^(?:액션아이템|actionitems?|후속조치|차기회의|진행상황|진행현황|주요내용|주요논의|기타논의|논의사항정리)$/,
+  /^(?:general|misc|other|others|etc|todo|nextsteps?|followups?)$/,
+]
+
+export function isAgendaStyleWikiTopic(title: string): boolean {
+  const compact = normalizeWikiTitle(title).replace(/\s+/g, '')
+  if (!compact) return true
+  return AGENDA_TOPIC_PATTERNS.some((pattern) => pattern.test(compact))
+}
+
+/**
+ * 목차형 제목이 오면 그 지식이 실제로 다루는 대상(facet)을 주제로 삼는다.
+ * facet도 목차형이면 원래 제목을 그대로 둔다 — 문장에서 억지로 주제를 만들면
+ * 매 회의 다른 주제가 생겨 파편화가 되돌아온다.
+ */
+export function resolveWikiTopicTitle(rawTopic: string, facet: string | null | undefined): string {
+  if (!isAgendaStyleWikiTopic(rawTopic)) return rawTopic
+  const candidate = (facet ?? '').trim()
+  if (candidate && !isAgendaStyleWikiTopic(candidate)) return candidate
+  return rawTopic
+}
+
+/**
  * 정규화된 주제 제목의 비교용 토큰. 한국어는 형태소 분석 없이 어절 단위로 본다.
  * 조사가 붙은 어절은 다른 토큰이 되므로 매칭이 느슨해지지 않는다.
  */
