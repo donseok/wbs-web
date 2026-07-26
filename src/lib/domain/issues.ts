@@ -1,6 +1,7 @@
 // 이슈관리 도메인 — 순수 함수만(I/O 없음). 스펙: docs/superpowers/specs/2026-07-23-issues-mvp-design.md §3.
 // 상태 전환의 단일 정본은 STATUS_TRANSITIONS — UI(select 옵션)와 서버 액션(전환 검증)이
 // 이 맵만 참조한다. 5번째 상태를 추가할 때 이 파일 + 0041 check 제약만 바꾸면 되게 유지할 것.
+import type { IssueMinuteSource } from './issueMinuteSource'
 
 export const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'on_hold'] as const
 export type IssueStatus = (typeof ISSUE_STATUSES)[number]
@@ -18,7 +19,9 @@ export interface Issue {
   severity: IssueSeverity
   /** 담당자 멤버 id 목록(0042 조인 테이블). 표시 순서는 뷰가 이름순으로 다시 정렬한다. */
   assigneeMemberIds: string[]
+  startDate: string | null        // 'YYYY-MM-DD'
   dueDate: string | null          // 'YYYY-MM-DD'
+  minuteSources: IssueMinuteSource[]
   resolutionNote: string
   resolvedAt: string | null
   createdBy: string | null

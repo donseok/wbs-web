@@ -8,6 +8,8 @@ import { listProjects } from '@/app/actions/project'
 import { getUiPrefs } from '@/app/actions/preferences'
 import { MinuteViewer } from '@/components/minutes/MinuteViewer'
 import { parseMinuteSourceAnchor } from '@/lib/minutes/source'
+import { getMinuteLinkedIssues } from '@/lib/data/issues'
+import { getProjectMembers } from '@/lib/data/members'
 
 export default async function MinuteDetailPage({
   params, searchParams,
@@ -24,18 +26,22 @@ export default async function MinuteDetailPage({
   const sourceAnchor = parseMinuteSourceAnchor(query)
   const requestedVersionId = typeof query.version === 'string' ? query.version : null
   // prefs 는 기존 병렬 묶음에 합류 — 직렬 왕복 단수는 그대로다(스펙 §4.5)
-  const [detail, annotations, versions, requestedVersion, m, user, projects, prefs] = await Promise.all([
+  const [detail, annotations, versions, requestedVersion, m, user, projects, prefs, linkedIssues] = await Promise.all([
     getMinuteDetail(id), getMinuteAnnotations(id), getMinuteVersions(id),
     requestedVersionId ? getMinuteVersionBody(id, requestedVersionId) : Promise.resolve(null),
-    getMembership(), getSession(), listProjects(), getUiPrefs(),
+    getMembership(), getSession(), listProjects(), getUiPrefs(), getMinuteLinkedIssues(id),
   ])
   if (!detail) notFound()
   if (requestedVersionId && !requestedVersion) notFound()
-  const wikiImpact = await getMinuteWikiImpact(
-    id,
-    detail.minute.projectId ?? null,
-    detail.minute.projectName ?? null,
-  )
+  const issueProjectId = detail.minute.projectId ?? detail.minute.meetingProjectId ?? null
+  const [wikiImpact, issueMembers] = await Promise.all([
+    getMinuteWikiImpact(
+      id,
+      detail.minute.projectId ?? null,
+      detail.minute.projectName ?? null,
+    ),
+    issueProjectId ? getProjectMembers(issueProjectId) : Promise.resolve([]),
+  ])
   const historicalVersion = requestedVersion
     ? { id: requestedVersion.id, versionNo: requestedVersion.versionNo }
     : null
@@ -65,6 +71,7 @@ export default async function MinuteDetailPage({
       sourceAnchor={sourceAnchor} initialFontSize={prefs.minuteFontSize ?? null}
       versions={versions} wikiImpact={wikiImpact}
       historicalVersion={historicalVersion}
+      issueMembers={issueMembers} linkedIssues={linkedIssues}
     />
   )
 }

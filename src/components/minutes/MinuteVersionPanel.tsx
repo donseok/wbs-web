@@ -7,6 +7,9 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 export type MinuteVersionListItem = {
   id: string
   versionNo: number
+  /** 이 버전이 생성될 당시의 불변 회의록 메타데이터. */
+  title?: string | null
+  minuteDate?: string | null
   createdAt: string
   createdByName?: string | null
   fileName?: string | null

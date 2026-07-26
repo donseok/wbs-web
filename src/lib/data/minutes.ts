@@ -214,7 +214,7 @@ export const getMinuteVersions = cache(async (
 ): Promise<MinuteVersionListItem[]> => {
   const sb = await createServerClient()
   const { data, error } = await sb.from('minute_versions')
-    .select('id, version_no, file_name, file_path, created_by_name, created_at')
+    .select('id, version_no, title, minute_date, file_name, file_path, created_by_name, created_at')
     .eq('minute_id', id)
     .order('version_no', { ascending: false })
   if (error) {
@@ -237,6 +237,8 @@ export const getMinuteVersions = cache(async (
     return {
       id: row.id as string,
       versionNo: row.version_no as number,
+      title: (row.title as string | null) ?? null,
+      minuteDate: (row.minute_date as string | null) ?? null,
       createdAt: row.created_at as string,
       createdByName: (row.created_by_name as string | null) ?? null,
       fileName: (row.file_name as string | null) ?? null,

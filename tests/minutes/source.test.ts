@@ -14,6 +14,14 @@ describe('minute source deep link', () => {
       .toBe(`/minutes/m1?block=2&hash=${blocks[2].hash}&body=${bodyHash}`)
   })
 
+  it('불변 회의록 버전을 함께 지정할 수 있다', () => {
+    expect(minuteSourceHref(
+      'm1',
+      { blockIndex: 2, blockHash: blocks[2].hash, bodyHash },
+      'version-1',
+    )).toBe(`/minutes/m1?block=2&hash=${blocks[2].hash}&body=${bodyHash}&version=version-1`)
+  })
+
   it('정상 searchParams만 파싱한다', () => {
     expect(parseMinuteSourceAnchor({ block: '2', hash: blocks[2].hash, body: bodyHash }))
       .toEqual({ blockIndex: 2, blockHash: blocks[2].hash, bodyHash })

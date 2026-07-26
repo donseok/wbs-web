@@ -19,7 +19,14 @@ import { createIssue, updateIssue, updateIssueProgress, deleteIssue } from '@/ap
 const MEMBER = { role: 'team_editor', teamCode: 'PMO', teamId: 't1' } as const
 const USER = { id: 'me', email: 'me@x.com', user_metadata: {} } as const
 
-const INPUT = { title: '테스트 이슈', body: '', severity: 'medium' as const, assigneeMemberIds: [] as string[], dueDate: null }
+const INPUT = {
+  title: '테스트 이슈',
+  body: '',
+  severity: 'medium' as const,
+  assigneeMemberIds: [] as string[],
+  startDate: null,
+  dueDate: null,
+}
 
 /** 선검증 조회(maybeSingle) 스텁 — from().select().eq().maybeSingle() 체인만 지원. */
 function sbWithCurrent(current: Record<string, unknown> | null, extra: Record<string, unknown> = {}) {
@@ -127,6 +134,17 @@ describe('입력 검증 — createIssue', () => {
     vi.mocked(getSession).mockResolvedValue(USER as never)
     const res = await createIssue('p1', { ...INPUT, dueDate: '2026-02-30' })
     expect(res.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('시작일이 목표일보다 늦으면 거부', async () => {
+    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
+    vi.mocked(getSession).mockResolvedValue(USER as never)
+    const res = await createIssue('p1', {
+      ...INPUT,
+      startDate: '2026-08-04',
+      dueDate: '2026-08-03',
+    })
+    expect(res).toMatchObject({ ok: false, error: '이슈 시작일은 목표 해결일보다 늦을 수 없습니다.' })
     expect(createServerClient).not.toHaveBeenCalled()
   })
   it('담당자 상한(20명) 초과 거부 (DB 미도달)', async () => {

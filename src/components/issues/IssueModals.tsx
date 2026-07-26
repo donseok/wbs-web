@@ -3,17 +3,23 @@
 // 공지 AnnouncementsView 의 3모달 구조를 파일 분리로 복제(스펙 §6).
 // 진행 필드(상태·담당자·조치메모)는 멤버 전체, 전체 편집·삭제 버튼은 canEdit(작성자/pmo)만 노출 —
 // 서버 액션이 같은 규칙을 재검증한다(UI 노출은 편의일 뿐 보안 경계가 아니다).
-import { useEffect, useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle, Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, ExternalLink, FileText, Pencil, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { createIssue, deleteIssue, updateIssue, updateIssueProgress } from '@/app/actions/issues'
+import {
+  createIssue, deleteIssue, updateIssue, updateIssueProgress,
+  type IssueActionResult, type IssueInput,
+} from '@/app/actions/issues'
 import {
   ISSUE_SEVERITIES, ISSUE_SEVERITY_META, ISSUE_STATUS_META, STATUS_TRANSITIONS,
   isOverdue, type Issue, type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
+import { validateIssueDateRange } from '@/lib/domain/issueMinuteSource'
+import { minuteSourceHref } from '@/lib/minutes/source'
 import { IssueAssigneePicker } from './IssueAssigneePicker'
 import type { ProjectMember } from '@/lib/domain/types'
 
@@ -47,6 +53,56 @@ function sameIds(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false
   const sa = [...a].sort(), sb = [...b].sort()
   return sa.every((v, i) => v === sb[i])
+}
+
+/** 모달 외부 생성 훅에서도 서버 액션과 같은 입력 정본을 사용한다. */
+export type IssueFormInput = IssueInput
+
+/** 신규 등록 폼의 선택적 초깃값. 지정하지 않은 값은 일반 신규 등록 기본값을 쓴다. */
+export type IssueFormDraft = Partial<IssueFormInput>
+
+/** 회의록 등 이슈가 파생된 원문을 폼에서 읽기 전용으로 확인하기 위한 표시 모델. */
+export interface IssueSourcePreview {
+  title: string
+  date?: string | null
+  excerpt: string
+  /** 생략하면 공용 "회의록 원문" 번역을 사용한다. */
+  label?: string
+}
+
+export type IssueCreateHandler = (
+  projectId: string,
+  input: IssueFormInput,
+) => Promise<IssueActionResult>
+
+interface IssueFormSeed {
+  title: string
+  body: string
+  severity: IssueSeverity
+  assigneeMemberIds: string[]
+  startDate: string
+  dueDate: string
+}
+
+function issueFormSeed(initial: Issue | null, draft?: IssueFormDraft): IssueFormSeed {
+  if (initial) {
+    return {
+      title: initial.title,
+      body: initial.body,
+      severity: initial.severity,
+      assigneeMemberIds: [...initial.assigneeMemberIds],
+      startDate: initial.startDate ?? '',
+      dueDate: initial.dueDate ?? '',
+    }
+  }
+  return {
+    title: draft?.title ?? '',
+    body: draft?.body ?? '',
+    severity: draft?.severity ?? 'medium',
+    assigneeMemberIds: [...(draft?.assigneeMemberIds ?? [])],
+    startDate: draft?.startDate ?? '',
+    dueDate: draft?.dueDate ?? '',
+  }
 }
 
 export function IssueDetailModal({
@@ -84,6 +140,13 @@ export function IssueDetailModal({
 
   // null 이면 닫힘 — 공지 ReadModal 관례(단일 Modal, open={item !== null}).
   const overdue = issue ? isOverdue(issue, today) : false
+  const period = issue
+    ? issue.startDate && issue.dueDate
+      ? `${issue.startDate} → ${issue.dueDate}`
+      : issue.startDate
+        ? `${issue.startDate} → —`
+        : issue.dueDate ?? t('issue.noDue')
+    : ''
   const statusOptions: IssueStatus[] = issue ? [issue.status, ...STATUS_TRANSITIONS[issue.status]] : []
   const assigneesDirty = issue !== null && !sameIds(assignees, issue.assigneeMemberIds)
   const dirty = issue !== null
@@ -174,8 +237,8 @@ export function IssueDetailModal({
 
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
             <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.col.due')}</dt>
-              <dd className={`mt-0.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink'}`}>{issue.dueDate ?? t('issue.noDue')}</dd>
+              <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.col.period')}</dt>
+              <dd className={`mt-0.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink'}`}>{period}</dd>
             </div>
             <div>
               <dt className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.detail.reporter')}</dt>
@@ -194,6 +257,41 @@ export function IssueDetailModal({
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.detail.body')}</div>
               <p className="whitespace-pre-wrap text-sm leading-6 text-ink">{issue.body}</p>
             </div>
+          )}
+
+          {issue.minuteSources.length > 0 && (
+            <section>
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+                {t('issue.source.minute')}
+              </div>
+              <div className="space-y-2">
+                {issue.minuteSources.map(source => (
+                  <div key={source.id} className="rounded-2xl border border-line bg-surface-2 p-3">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <FileText className="h-3.5 w-3.5 text-brand" aria-hidden />
+                      <span className="text-sm font-semibold text-ink">{source.minuteTitle}</span>
+                      <span className="text-xs tabular-nums text-ink-subtle">{source.minuteDate}</span>
+                      <span className="chip bg-line text-ink-subtle">
+                        {t('issue.source.version').replace('{n}', String(source.minuteVersionNo))}
+                      </span>
+                      <Link
+                        href={minuteSourceHref(source.minuteId, {
+                          blockIndex: source.blockIndex,
+                          blockHash: source.blockHash,
+                          bodyHash: source.bodyHash,
+                        }, source.minuteVersionId)}
+                        className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-brand hover:text-brand-hover"
+                      >
+                        {t('issue.source.open')}<ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                      </Link>
+                    </div>
+                    <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-ink-muted">
+                      {source.excerpt}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
 
           <div className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">
@@ -231,47 +329,106 @@ export function IssueDetailModal({
 }
 
 export function IssueFormModal({
-  open, onClose, projectId, initial, members,
+  open, onClose, projectId, initial, members, draft, sourcePreview, onCreate, onCreated,
 }: {
   open: boolean
   onClose: () => void
   projectId: string
   initial: Issue | null
   members: ProjectMember[]
+  /** 신규 등록에만 적용된다. 편집 모드에서는 initial 이 항상 우선한다. */
+  draft?: IssueFormDraft
+  /** 신규 등록에만 표시되는 읽기 전용 출처 카드. */
+  sourcePreview?: IssueSourcePreview
+  /** 신규 등록 저장을 원문 연결 등과 합성해야 할 때 기본 createIssue 대신 사용한다. */
+  onCreate?: IssueCreateHandler
+  /** 신규 등록 성공 응답에 id가 있을 때 한 번 호출된다. */
+  onCreated?: (id: string) => void
 }) {
   const { t } = useLocale()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
+  // pending 렌더 전에 발생하는 빠른 연속 클릭도 막는다.
+  const submittingRef = useRef(false)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [severity, setSeverity] = useState<IssueSeverity>('medium')
   const [assignees, setAssignees] = useState<string[]>([])
+  const [startDate, setStartDate] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [error, setError] = useState<string | null>(null)
   const isEdit = initial !== null
+  // 호출부가 draft 객체/배열을 인라인으로 만들어도 매 렌더 입력을 덮어쓰지 않고,
+  // 실제 초깃값 내용이 바뀌거나 모달이 다시 열릴 때만 폼을 재베이스라인한다.
+  const seedKey = JSON.stringify(issueFormSeed(initial, draft))
+
+  function closeIfIdle() {
+    // 원자 생성 요청이 끝나기 전에 폼이 닫혔다가 다른 블록으로 다시 열리면, 이전
+    // 성공 콜백이 새 폼을 닫거나 두 요청이 겹칠 수 있다. 저장 중에는 모든 닫기 경로를 막는다.
+    if (submittingRef.current || pending) return
+    onClose()
+  }
 
   useEffect(() => {
-    if (!open) return
-    setTitle(initial?.title ?? '')
-    setBody(initial?.body ?? '')
-    setSeverity(initial?.severity ?? 'medium')
-    setAssignees(initial?.assigneeMemberIds ?? [])
-    setDueDate(initial?.dueDate ?? '')
+    if (!open) {
+      submittingRef.current = false
+      return
+    }
+    const seed = JSON.parse(seedKey) as IssueFormSeed
+    setTitle(seed.title)
+    setBody(seed.body)
+    setSeverity(seed.severity)
+    setAssignees(seed.assigneeMemberIds)
+    setStartDate(seed.startDate)
+    setDueDate(seed.dueDate)
     setError(null)
-  }, [open, initial])
+    submittingRef.current = false
+  }, [open, seedKey])
 
   function submit() {
+    if (submittingRef.current) return
     if (!title.trim()) {
       setError(t('issue.err.titleRequired'))
       return
     }
-    const input = { title: title.trim(), body, severity, assigneeMemberIds: assignees, dueDate: dueDate || null }
+    if (!validateIssueDateRange(startDate || null, dueDate || null)) {
+      setError(t('issue.err.dateRange'))
+      return
+    }
+    const input: IssueFormInput = {
+      title: title.trim(),
+      body,
+      severity,
+      assigneeMemberIds: assignees,
+      startDate: startDate || null,
+      dueDate: dueDate || null,
+    }
+    submittingRef.current = true
     startTransition(async () => {
-      const res = isEdit ? await updateIssue(initial!.id, input) : await createIssue(projectId, input)
+      let res: IssueActionResult
+      try {
+        // 편집은 커스텀 생성 훅의 영향을 받지 않고 기존 권한 검증 액션을 그대로 사용한다.
+        res = isEdit
+          ? await updateIssue(initial!.id, input)
+          : await (onCreate ?? createIssue)(projectId, input)
+      } catch (cause) {
+        submittingRef.current = false
+        setError(cause instanceof Error && cause.message ? cause.message : t('issue.err.saveFailed'))
+        return
+      }
       if (res.ok) {
+        if (!isEdit && res.id) {
+          // 생성은 이미 확정됐다. 알림 훅의 UI 오류가 재시도(중복 생성)로 이어지지 않게 분리한다.
+          try {
+            onCreated?.(res.id)
+          } catch (cause) {
+            console.error('[IssueFormModal] onCreated callback failed:', cause)
+          }
+        }
         onClose()
         router.refresh()
       } else {
+        submittingRef.current = false
         setError(res.error ?? t('issue.err.saveFailed'))
       }
     })
@@ -280,17 +437,35 @@ export function IssueFormModal({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={closeIfIdle}
       title={isEdit ? t('issue.edit') : t('issue.new')}
       size="lg"
       footer={
         <div className="flex w-full items-center justify-end gap-2">
-          <button onClick={onClose} className="btn btn-ghost text-xs">{t('issue.form.cancel')}</button>
-          <button onClick={submit} disabled={pending} className="btn btn-primary text-xs">{t('issue.form.save')}</button>
+          <button onClick={closeIfIdle} disabled={pending} className="btn btn-ghost text-xs">{t('issue.form.cancel')}</button>
+          <button onClick={submit} disabled={pending || submittingRef.current} className="btn btn-primary text-xs">{t('issue.form.save')}</button>
         </div>
       }
     >
       <div className="space-y-3">
+        {!isEdit && sourcePreview && (
+          <section
+            aria-label={sourcePreview.label ?? t('issue.source.minute')}
+            className="rounded-2xl border border-line bg-surface-2 p-4"
+          >
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+              {sourcePreview.label ?? t('issue.source.minute')}
+            </div>
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <p className="text-sm font-semibold text-ink">{sourcePreview.title}</p>
+              {sourcePreview.date && <time className="text-xs tabular-nums text-ink-subtle">{sourcePreview.date}</time>}
+            </div>
+            <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-ink-muted">
+              {sourcePreview.excerpt}
+            </p>
+          </section>
+        )}
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.title')}</span>
           <input className="app-input" value={title} onChange={e => setTitle(e.target.value)} placeholder={t('issue.form.titlePh')} maxLength={200} />
@@ -299,7 +474,7 @@ export function IssueFormModal({
           <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.body')}</span>
           <textarea className="app-textarea min-h-[120px] resize-y" value={body} onChange={e => setBody(e.target.value)} placeholder={t('issue.form.bodyPh')} />
         </label>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.severity')}</span>
             <select className="app-input" value={severity} onChange={e => setSeverity(e.target.value as IssueSeverity)}>
@@ -309,8 +484,24 @@ export function IssueFormModal({
             </select>
           </label>
           <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.start')}</span>
+            <input
+              type="date"
+              className="app-input"
+              value={startDate}
+              max={dueDate || undefined}
+              onChange={e => setStartDate(e.target.value)}
+            />
+          </label>
+          <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.due')}</span>
-            <input type="date" className="app-input" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+            <input
+              type="date"
+              className="app-input"
+              value={dueDate}
+              min={startDate || undefined}
+              onChange={e => setDueDate(e.target.value)}
+            />
           </label>
         </div>
         {/* 다중 선택 피커는 셀렉트보다 키가 커서 그리드 한 칸에 안 들어간다 — 전체 폭 배치 */}

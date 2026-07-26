@@ -3,13 +3,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Download, ExternalLink, History, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
-import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
+import type {
+  InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight, ProjectMember,
+} from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
 } from '@/lib/domain/minutes'
 import {
   getMinuteFileUrl, replaceMinuteBody, deleteMinute, toggleMinuteHighlight,
 } from '@/app/actions/minutes'
+import {
+  createIssueFromMinuteBlock, fetchIssueProjectMembers, type IssueInput,
+} from '@/app/actions/issues'
 import { fnv1a64, isMarkableBlock, splitMinuteBlocks, type BlockMarks } from '@/lib/minutes/blocks'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
 import { resolveMinuteSourceBlock, type MinuteSourceAnchor } from '@/lib/minutes/source'
@@ -31,6 +36,12 @@ import { useMinuteFontSize } from './useMinuteFontSize'
 import { MinuteVersionPanel, type MinuteVersionListItem } from './MinuteVersionPanel'
 import { MinuteWikiImpactCard, type MinuteWikiImpactCardProps } from './MinuteWikiImpactCard'
 import { teamStyle } from '@/components/wbs/shared'
+import {
+  issueDraftFromBlock,
+  type IssueMinuteSourceKind,
+  type MinuteLinkedIssue,
+} from '@/lib/domain/issueMinuteSource'
+import { IssueFormModal, type IssueFormDraft } from '@/components/issues/IssueModals'
 
 const EMPTY_WIKI_IMPACT: MinuteWikiImpactCardProps = {
   status: 'unlinked',
@@ -41,7 +52,7 @@ const EMPTY_WIKI_IMPACT: MinuteWikiImpactCardProps = {
 export function MinuteViewer({
   minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
   initialFontSize = null, versions = [], wikiImpact = EMPTY_WIKI_IMPACT,
-  historicalVersion = null,
+  historicalVersion = null, issueMembers = [], linkedIssues = [],
 }: {
   minute: Minute
   files: MinuteFile[]
@@ -54,6 +65,8 @@ export function MinuteViewer({
   versions?: MinuteVersionListItem[]
   wikiImpact?: MinuteWikiImpactCardProps
   historicalVersion?: { id: string; versionNo: number } | null
+  issueMembers?: ProjectMember[]
+  linkedIssues?: MinuteLinkedIssue[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -71,10 +84,24 @@ export function MinuteViewer({
   const bodyRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [hlBusy, setHlBusy] = useState(false)
+  const [issueBlockIndex, setIssueBlockIndex] = useState<number | null>(null)
+  const [issueFormOpen, setIssueFormOpen] = useState(false)
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  const [issueProjectId, setIssueProjectId] = useState(
+    minute.projectId ?? minute.meetingProjectId ?? '',
+  )
+  const [issueMemberOptions, setIssueMemberOptions] = useState<ProjectMember[]>(issueMembers)
+  const [issueBusy, setIssueBusy] = useState(false)
+  const [issueProjectError, setIssueProjectError] = useState<string | null>(null)
+  const issueProjectRequestRef = useRef(0)
 
   const blocks = useMemo(() => splitMinuteBlocks(minute.bodyMd), [minute.bodyMd])
   const { activeToc, jumpTo } = useMinuteTocSpy(blocks, bodyRef, { flash: true })
   const bodyHash = useMemo(() => fnv1a64(minute.bodyMd), [minute.bodyMd])
+  const currentVersion = useMemo(
+    () => [...versions].sort((a, b) => b.versionNo - a.versionNo)[0] ?? null,
+    [versions],
+  )
   const sourceBlockIndex = useMemo(
     () => sourceAnchor ? resolveMinuteSourceBlock(blocks, bodyHash, sourceAnchor) : null,
     [blocks, bodyHash, sourceAnchor],
@@ -124,6 +151,21 @@ export function MinuteViewer({
     () => visibleInsights(annotations.insights, blocks, bodyHash),
     [annotations.insights, blocks, bodyHash],
   )
+  const issueBlock = issueBlockIndex === null ? null : blocks[issueBlockIndex] ?? null
+  const issueInsight = useMemo(() => {
+    if (issueBlockIndex === null) return null
+    const candidates = insights.filter(i =>
+      i.blockIndex === issueBlockIndex && (i.kind === 'risk' || i.kind === 'action'))
+    return candidates.find(i => i.kind === 'risk') ?? candidates.find(i => i.kind === 'action') ?? null
+  }, [insights, issueBlockIndex])
+  const issueSourceKind: IssueMinuteSourceKind = issueInsight?.kind === 'risk'
+    ? 'risk'
+    : issueInsight?.kind === 'action' ? 'action' : 'manual'
+  const issueDraft = useMemo<IssueFormDraft | undefined>(() => {
+    if (!issueBlock) return undefined
+    const draft = issueDraftFromBlock(issueBlock.text, issueInsight?.label)
+    return { ...draft, severity: 'medium', assigneeMemberIds: [], startDate: null, dueDate: null }
+  }, [issueBlock, issueInsight])
 
   const marks = useMemo<BlockMarks>(() => {
     const m: BlockMarks = {}
@@ -186,6 +228,93 @@ export function MinuteViewer({
       setHlBusy(false)
       setPopover(null)
     }
+  }
+
+  function beginIssueCreate() {
+    if (!popover) return
+    issueProjectRequestRef.current += 1
+    setIssueBusy(false)
+    if (!currentVersion) {
+      toast({ title: t('min.issue.versionMissing'), variant: 'error' })
+      setPopover(null)
+      return
+    }
+    const idx = popover.blockIndex
+    setIssueBlockIndex(idx)
+    setPopover(null)
+    setIssueProjectError(null)
+    const fixedProjectId = minute.projectId ?? minute.meetingProjectId ?? ''
+    if (fixedProjectId) {
+      setIssueProjectId(fixedProjectId)
+      setIssueMemberOptions(issueMembers)
+      setIssueFormOpen(true)
+      return
+    }
+    setIssueProjectId('')
+    setIssueMemberOptions([])
+    setProjectPickerOpen(true)
+  }
+
+  async function continueWithProject() {
+    if (!issueProjectId) {
+      setIssueProjectError(t('min.issue.projectRequired'))
+      return
+    }
+    const requestedProjectId = issueProjectId
+    const requestId = ++issueProjectRequestRef.current
+    setIssueBusy(true)
+    setIssueProjectError(null)
+    try {
+      const result = await fetchIssueProjectMembers(requestedProjectId)
+      if (issueProjectRequestRef.current !== requestId) return
+      if (!result.ok) {
+        setIssueProjectError(result.error ?? t('min.issue.membersFailed'))
+        return
+      }
+      setIssueProjectId(requestedProjectId)
+      setIssueMemberOptions(result.members ?? [])
+      setProjectPickerOpen(false)
+      setIssueFormOpen(true)
+    } catch {
+      if (issueProjectRequestRef.current !== requestId) return
+      setIssueProjectError(t('min.issue.membersFailed'))
+    } finally {
+      if (issueProjectRequestRef.current === requestId) setIssueBusy(false)
+    }
+  }
+
+  function closeProjectPicker() {
+    issueProjectRequestRef.current += 1
+    setIssueBusy(false)
+    setProjectPickerOpen(false)
+    setIssueBlockIndex(null)
+  }
+
+  function createLinkedIssue(projectId: string, input: IssueInput) {
+    if (!issueBlock || !currentVersion) {
+      return Promise.resolve({ ok: false, error: t('min.issue.versionMissing') })
+    }
+    return createIssueFromMinuteBlock(projectId, input, {
+      minuteId: minute.id,
+      minuteVersionId: currentVersion.id,
+      bodyHash,
+      blockIndex: issueBlock.index,
+      blockHash: issueBlock.hash,
+      kind: issueSourceKind,
+    })
+  }
+
+  function closeIssueForm() {
+    setIssueFormOpen(false)
+    setIssueBlockIndex(null)
+  }
+
+  function onIssueCreated() {
+    toast({
+      title: t('min.issue.created'),
+      description: t('min.issue.createdDesc'),
+      variant: 'success',
+    })
   }
 
   // 원본 파일이 없는 회의록 — 본문 마크다운을 그대로 .md 파일로 내려받는다(클라이언트 Blob, 서버 왕복 없음)
@@ -260,6 +389,13 @@ export function MinuteViewer({
     : []
   const popKinds = popover
     ? [...new Set(insights.filter(i => i.blockIndex === popover.blockIndex).map(i => i.kind as InsightKind))]
+    : []
+  const popLinkedIssues = popover && currentVersion
+    ? linkedIssues.filter(link =>
+      link.minuteVersionId === currentVersion.id
+      && link.bodyHash === bodyHash
+      && link.blockIndex === popover.blockIndex
+      && link.blockHash === blocks[popover.blockIndex]?.hash)
     : []
 
   return (
@@ -390,7 +526,74 @@ export function MinuteViewer({
         <MinuteBlockPopover
           state={popover} mine={myIndexes.has(popover.blockIndex)}
           names={popNames} insKinds={popKinds} busy={hlBusy}
-          onToggle={() => void onToggleHighlight()} onClose={() => setPopover(null)}
+          linkedIssues={popLinkedIssues} issueBusy={issueBusy}
+          onToggle={() => void onToggleHighlight()}
+          onCreateIssue={beginIssueCreate}
+          onClose={() => setPopover(null)}
+        />
+      )}
+
+      <Modal
+        open={projectPickerOpen}
+        onClose={closeProjectPicker}
+        title={t('min.issue.projectTitle')}
+        size="sm"
+        footer={
+          <div className="flex w-full justify-end gap-2">
+            <button
+              onClick={closeProjectPicker}
+              className="btn btn-ghost text-xs"
+            >
+              {t('common.cancel')}
+            </button>
+            <button onClick={() => void continueWithProject()} disabled={issueBusy} className="btn btn-primary text-xs">
+              {t('min.issue.continue')}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm leading-6 text-ink-muted">{t('min.issue.projectDesc')}</p>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('min.form.project')}</span>
+            <select
+              className="app-input"
+              value={issueProjectId}
+              disabled={issueBusy}
+              onChange={e => {
+                issueProjectRequestRef.current += 1
+                setIssueProjectId(e.target.value)
+                setIssueProjectError(null)
+              }}
+            >
+              <option value="">{t('min.form.projectNone')}</option>
+              {projects.map(project => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+          </label>
+          {issueProjectError && <p className="text-sm text-delayed">{issueProjectError}</p>}
+        </div>
+      </Modal>
+
+      {issueBlock && (
+        <IssueFormModal
+          open={issueFormOpen}
+          onClose={closeIssueForm}
+          projectId={issueProjectId}
+          initial={null}
+          members={issueMemberOptions}
+          draft={issueDraft}
+          sourcePreview={{
+            // 링크에 저장될 불변 버전 메타를 그대로 미리 보여 줘, 메타데이터만
+            // 수정된 회의록에서도 확인 카드와 생성 후 상세의 출처명이 어긋나지 않는다.
+            title: currentVersion?.title ?? minute.title,
+            date: currentVersion?.minuteDate ?? minute.minuteDate,
+            excerpt: issueBlock.text,
+            label: `${t('min.issue.sourceLabel')} · v${currentVersion?.versionNo ?? 1}`,
+          }}
+          onCreate={createLinkedIssue}
+          onCreated={onIssueCreated}
         />
       )}
 

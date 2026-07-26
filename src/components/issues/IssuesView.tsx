@@ -107,7 +107,7 @@ export function IssuesView({
       {visible.length > 0 ? (
         <div className="card overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse text-sm">
+            <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line bg-surface-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
                   <th className="px-4 py-3">{t('issue.col.no')}</th>
@@ -115,7 +115,7 @@ export function IssuesView({
                   <th className="px-4 py-3">{t('issue.col.status')}</th>
                   <th className="px-4 py-3">{t('issue.col.severity')}</th>
                   <th className="px-4 py-3">{t('issue.col.assignee')}</th>
-                  <th className="px-4 py-3">{t('issue.col.due')}</th>
+                  <th className="px-4 py-3">{t('issue.col.period')}</th>
                   <th className="px-4 py-3">{t('issue.col.created')}</th>
                 </tr>
               </thead>
@@ -145,7 +145,12 @@ export function IssuesView({
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-ink-muted">{assigneeLabel(issue) ?? t('issue.unassigned')}</td>
                       <td className={`whitespace-nowrap px-4 py-3 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
-                        {issue.dueDate ?? '—'}{overdue && ` · ${t('issue.overdueBadge')}`}
+                        {issue.startDate && issue.dueDate
+                          ? `${issue.startDate} → ${issue.dueDate}`
+                          : issue.startDate
+                            ? `${issue.startDate} → —`
+                            : issue.dueDate ?? '—'}
+                        {overdue && ` · ${t('issue.overdueBadge')}`}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-ink-muted">
                         {issue.createdByName ?? '—'} · <span className="tabular-nums">{issue.createdAt.slice(0, 10)}</span>

@@ -11,13 +11,18 @@ type SearchValue = string | string[] | undefined
 const BLOCK_HASH_RE = /^[0-9a-f]{16}$/i
 const BLOCK_INDEX_RE = /^(0|[1-9]\d*)$/
 
-/** 대시보드 인사이트에서 회의록 원문 블록으로 이동하는 내부 링크. */
-export function minuteSourceHref(minuteId: string, source: MinuteSourceAnchor): string {
+/** 대시보드/이슈 출처에서 회의록 원문 블록으로 이동하는 내부 링크. 버전이 있으면 불변 원본을 연다. */
+export function minuteSourceHref(
+  minuteId: string,
+  source: MinuteSourceAnchor,
+  minuteVersionId?: string | null,
+): string {
   const params = new URLSearchParams({
     block: String(source.blockIndex),
     hash: source.blockHash,
     body: source.bodyHash,
   })
+  if (minuteVersionId) params.set('version', minuteVersionId)
   return `/minutes/${minuteId}?${params.toString()}`
 }
 

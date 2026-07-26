@@ -3,6 +3,7 @@
 // 보장하므로(0041 헤더 참조) 진행 필드 vs 전체 편집의 세분화는 여기서 강제한다.
 // updated_at 트리거 없음 — 모든 update 페이로드에 수동 포함(레포 관례).
 import { createServerClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getMembership, getSession } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { displayNameFrom } from '@/lib/domain/display-name'
@@ -10,11 +11,21 @@ import {
   ISSUE_SEVERITIES, canTransition, nextResolvedAt,
   type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
+import {
+  ISSUE_MINUTE_SOURCE_KINDS,
+  makeMinuteIssueSourceKey,
+  validateIssueDateRange,
+  type IssueMinuteSourceKind,
+} from '@/lib/domain/issueMinuteSource'
+import { fnv1a64, isMarkableBlock, splitMinuteBlocks } from '@/lib/minutes/blocks'
+import { sortByKoreanName } from '@/lib/domain/nameSort'
+import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 
 export interface IssueActionResult {
   ok: boolean
   error?: string
   id?: string
+  issueNo?: number
   /** CAS 0행 — 다른 사용자가 먼저 상태를 바꿨다. 클라이언트는 router.refresh() 후 안내. */
   conflict?: boolean
 }
@@ -24,6 +35,7 @@ export interface IssueInput {
   body: string
   severity: IssueSeverity
   assigneeMemberIds: string[]
+  startDate: string | null
   dueDate: string | null
 }
 
@@ -35,10 +47,63 @@ export interface IssueProgressPatch {
   resolutionNote?: string
 }
 
+export interface MinuteIssueSourceInput {
+  minuteId: string
+  minuteVersionId: string
+  bodyHash: string
+  blockIndex: number
+  blockHash: string
+  kind: IssueMinuteSourceKind
+}
+
+export interface IssueProjectMembersResult {
+  ok: boolean
+  members?: ProjectMember[]
+  error?: string
+}
+
+/** 프로젝트 미지정 회의록의 빠른 등록에서 프로젝트 선택 후 담당자 목록을 지연 로드한다. */
+export async function fetchIssueProjectMembers(projectId: string): Promise<IssueProjectMembersResult> {
+  const m = await getMembership()
+  if (!m || !projectId) return { ok: false, error: '로그인 필요' }
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  const { data, error } = await sb
+    .from('project_members')
+    .select('id, project_id, name, email, role, title, user_id, created_at, teams(code)')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: true })
+  if (error) {
+    console.error('[fetchIssueProjectMembers] 조회 실패:', error.message)
+    return { ok: false, error: '담당자 목록을 불러오지 못했습니다. 다시 시도하세요.' }
+  }
+  const rows = sortByKoreanName(data ?? [], row => (row as Record<string, unknown>).name as string)
+  return {
+    ok: true,
+    members: rows.map((row: Record<string, unknown>) => {
+      const team = row.teams as { code: TeamCode } | { code: TeamCode }[] | null
+      const teamCode = (Array.isArray(team) ? team[0]?.code : team?.code) ?? null
+      return {
+        id: row.id as string,
+        projectId: row.project_id as string,
+        name: row.name as string,
+        email: (row.email as string) ?? null,
+        teamCode: teamCode as TeamCode | null,
+        role: (row.role as ProjectMemberRole) ?? 'contributor',
+        title: (row.title as string) ?? null,
+        hasAccount: row.user_id != null,
+        createdAt: row.created_at as string,
+      }
+    }),
+  }
+}
+
 const TITLE_MAX = 200
 const TEXT_MAX = 20000
 const ASSIGNEES_MAX = 20
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const BLOCK_HASH_RE = /^[0-9a-f]{16}$/i
 
 /** 형식 + 실재성(2026-02-30 반려) — announcements isValidDate 관례. */
 function isValidDate(s: string): boolean {
@@ -63,7 +128,9 @@ function validateInput(input: IssueInput): string | null {
   const assigneeErr = validateAssignees(input.assigneeMemberIds)
   if (assigneeErr) return assigneeErr
   // 과거 날짜는 허용(즉시 지연 표시 안내는 폼 몫) — 형식·실재성만 검증
+  if (input.startDate !== null && !isValidDate(input.startDate)) return '이슈 시작일 날짜 형식이 올바르지 않습니다.'
   if (input.dueDate !== null && !isValidDate(input.dueDate)) return '목표 해결일 날짜 형식이 올바르지 않습니다.'
+  if (!validateIssueDateRange(input.startDate, input.dueDate)) return '이슈 시작일은 목표 해결일보다 늦을 수 없습니다.'
   return null
 }
 
@@ -124,6 +191,7 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
       title: input.title.trim(),
       body: input.body,
       severity: input.severity,
+      start_date: input.startDate,
       due_date: input.dueDate,
       created_by: user.id,
       created_by_name: displayNameFrom(user.user_metadata, user.email),
@@ -148,6 +216,128 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
   return { ok: true, id: issueId }
 }
 
+/**
+ * 회의록의 불변 버전 블록에서 이슈를 생성한다.
+ * 클라이언트가 보낸 원문/프로젝트를 신뢰하지 않고 서버에서 버전 본문을 다시 분할해 검증한 뒤,
+ * DB RPC가 이슈·담당자·원문 링크를 한 트랜잭션으로 저장한다.
+ */
+export async function createIssueFromMinuteBlock(
+  projectId: string,
+  input: IssueInput,
+  source: MinuteIssueSourceInput,
+): Promise<IssueActionResult> {
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
+  const inputErr = validateInput(input)
+  if (inputErr) return { ok: false, error: inputErr }
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+
+  if (
+    !projectId
+    || !source.minuteId
+    || !source.minuteVersionId
+    || !Number.isSafeInteger(source.blockIndex)
+    || source.blockIndex < 0
+    || !BLOCK_HASH_RE.test(source.blockHash)
+    || !BLOCK_HASH_RE.test(source.bodyHash)
+    || !ISSUE_MINUTE_SOURCE_KINDS.includes(source.kind)
+  ) {
+    return { ok: false, error: '회의록 원문 정보가 올바르지 않습니다. 블록을 다시 선택해 주세요.' }
+  }
+
+  const sb = await createServerClient()
+  const [versionRes, minuteRes] = await Promise.all([
+    sb
+      .from('minute_versions')
+      .select('id, minute_id, body_md, body_hash')
+      .eq('id', source.minuteVersionId)
+      .eq('minute_id', source.minuteId)
+      .maybeSingle(),
+    sb
+      .from('minutes')
+      .select('project_id, archived_at')
+      .eq('id', source.minuteId)
+      .maybeSingle(),
+  ])
+  const { data: version, error: versionErr } = versionRes
+  if (versionErr) {
+    console.error('[createIssueFromMinuteBlock] 원문 버전 조회 실패:', versionErr.message)
+    return { ok: false, error: '회의록 원문을 확인하지 못했습니다. 잠시 후 다시 시도하세요.' }
+  }
+  if (!version) return { ok: false, error: '회의록 원문 버전을 찾을 수 없습니다.' }
+  if (minuteRes.error) {
+    console.error('[createIssueFromMinuteBlock] 현재 회의록 조회 실패:', minuteRes.error.message)
+    return { ok: false, error: '회의록 상태를 확인하지 못했습니다. 잠시 후 다시 시도하세요.' }
+  }
+  if (!minuteRes.data) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
+  if (minuteRes.data.archived_at) {
+    return { ok: false, error: '보관된 회의록에서는 이슈를 등록할 수 없습니다.' }
+  }
+  // 버전의 project_id는 생성 당시의 불변 스냅샷이다. 프로젝트 이동 후에는 현재
+  // minutes.project_id를 대상 경계로 사용하고, 과거 프로젝트는 링크 출처로만 보존한다.
+  const currentProjectId = (minuteRes.data.project_id as string | null) ?? null
+  if (currentProjectId !== null && currentProjectId !== projectId) {
+    return { ok: false, error: '회의록과 이슈의 프로젝트가 일치하지 않습니다.' }
+  }
+
+  const bodyMd = version.body_md as string
+  const storedBodyHash = (version.body_hash as string).toLowerCase()
+  if (storedBodyHash !== source.bodyHash.toLowerCase() || fnv1a64(bodyMd) !== storedBodyHash) {
+    return { ok: false, error: '회의록 원문 버전이 변경되었습니다. 블록을 다시 선택해 주세요.' }
+  }
+  const blocks = splitMinuteBlocks(bodyMd)
+  const block = blocks[source.blockIndex]
+  if (!block || !isMarkableBlock(block) || block.hash !== source.blockHash.toLowerCase()) {
+    return { ok: false, error: '회의록 본문이 변경되었습니다. 블록을 다시 선택해 주세요.' }
+  }
+  const excerpt = block.text.length > 4000 ? `${block.text.slice(0, 3999)}…` : block.text
+  const sourceKey = makeMinuteIssueSourceKey({
+    minuteVersionId: source.minuteVersionId,
+    blockIndex: source.blockIndex,
+    blockHash: block.hash,
+    kind: source.kind,
+  })
+
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (cause) {
+    console.error('[createIssueFromMinuteBlock] service_role 설정 실패:', cause)
+    return { ok: false, error: '이슈 원문 연결 설정을 확인하세요.' }
+  }
+  // 이 RPC와 issue_links INSERT는 service_role 전용이다. 브라우저가 직접 호출해
+  // 검증된 block hash/excerpt를 위조하지 못하도록, 파싱 검증이 끝난 서버 액션만 진입한다.
+  const { data: created, error } = await admin.rpc('create_issue_from_minute_block', {
+    p_project_id: projectId,
+    p_title: input.title.trim(),
+    p_body: input.body,
+    p_severity: input.severity,
+    p_assignee_member_ids: [...new Set(input.assigneeMemberIds)],
+    p_start_date: input.startDate,
+    p_due_date: input.dueDate,
+    p_actor_id: user.id,
+    p_created_by_name: displayNameFrom(user.user_metadata, user.email),
+    p_minute_id: source.minuteId,
+    p_minute_version_id: source.minuteVersionId,
+    p_body_hash: storedBodyHash,
+    p_block_index: source.blockIndex,
+    p_block_hash: block.hash,
+    p_excerpt_snapshot: excerpt,
+    p_source_kind: source.kind,
+    p_source_key: sourceKey,
+  }).single()
+  if (error || !created) {
+    console.error('[createIssueFromMinuteBlock] 원자적 생성 실패:', error?.message ?? 'empty result')
+    return { ok: false, error: error?.message ?? '이슈 등록에 실패했습니다.' }
+  }
+
+  const row = created as { issue_id: string; issue_no: number | string }
+  revalidateIssues(projectId)
+  revalidatePath(`/minutes/${source.minuteId}`)
+  return { ok: true, id: row.issue_id, issueNo: Number(row.issue_no) }
+}
+
 /** 전체 편집(제목·내용·심각도·기한·담당자) — 작성자 또는 pmo_admin 만. */
 export async function updateIssue(issueId: string, input: IssueInput): Promise<IssueActionResult> {
   const m = await getMembership()
@@ -170,6 +360,7 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
       title: input.title.trim(),
       body: input.body,
       severity: input.severity,
+      start_date: input.startDate,
       due_date: input.dueDate,
       updated_at: new Date().toISOString(),
       // created_by / status / resolution_note 는 여기서 SET 하지 않음(전자 불변, 후자는 진행 액션 전용)
