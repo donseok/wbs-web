@@ -1,6 +1,11 @@
 import { after, NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
+import { fnv1a64 } from '@/lib/minutes/blocks'
+import {
+  enqueueMinuteWikiProcessing,
+  rebuildProjectWikiFromActiveMinutes,
+} from '@/lib/ai/wiki-ingest'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, gateMinutesApi,
@@ -17,15 +22,20 @@ export const dynamic = 'force-dynamic'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-const MINUTE_SELECT = 'id, minute_date, team_code, title, meeting_id, external_id, created_by_name, created_at, updated_at'
+const MINUTE_SELECT = 'id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, external_id, created_by, created_by_name, created_at, updated_at'
 
 interface ExistingRow {
   id: string
   minute_date: string
   team_code: string
   title: string
+  body_md: string
   meeting_id: string | null
+  project_id: string | null
+  meeting_occurrence_date: string | null
+  archived_at: string | null
   external_id: string
+  created_by: string | null
   created_by_name: string | null
   created_at: string
   updated_at: string
@@ -48,8 +58,16 @@ function respondMinute(req: NextRequest, status: number, args: {
 
 /** 동일 external_id 레코드가 이미 있을 때의 on_conflict 분기 — 계약 §4.2. */
 async function handleExisting(
-  req: NextRequest, admin: AdminClient, p: ExternalMinutePayload, existing: ExistingRow,
+  req: NextRequest,
+  admin: AdminClient,
+  p: ExternalMinutePayload,
+  existing: ExistingRow,
+  actor: ResolvedUser,
+  meetingProjectId: string | null,
 ): Promise<NextResponse> {
+  if (existing.archived_at) {
+    return apiFail(409, 'archived', '보관된 회의록입니다. 복원 후 다시 시도하세요.')
+  }
   if (p.onConflict === 'error') return apiFail(409, 'conflict', '이미 존재하는 external_id 입니다.')
   if (p.onConflict === 'skip') {
     return respondMinute(req, 200, {
@@ -62,55 +80,148 @@ async function handleExisting(
   // meeting_id 는 필드가 전송된 경우에만 갱신(부재=유지, null=해제 — v2.2) — 또박또박 v1은
   // 미전송이 기본이라 무조건 갱신하면 수동 연결분(E4)의 프로젝트 연관이 소리 없이 끊긴다.
   const nowIso = new Date().toISOString()
-  const patch: Record<string, unknown> = {
-    minute_date: p.minuteDate, team_code: p.teamCode, title: p.title,
-    body_md: p.bodyMd, updated_at: nowIso,
+  const targetProjectId = p.meetingIdProvided && p.meetingId
+    ? meetingProjectId
+    : existing.project_id
+  const metadata = {
+    minute_date: p.minuteDate,
+    team_code: p.teamCode,
+    title: p.title,
+    meeting_id: p.meetingIdProvided ? p.meetingId : existing.meeting_id,
+    project_id: targetProjectId,
+    meeting_occurrence_date: p.meetingIdProvided
+      ? (p.meetingId ? p.minuteDate : null)
+      : existing.meeting_occurrence_date,
   }
-  if (p.meetingIdProvided) patch.meeting_id = p.meetingId
-  const { data: updated, error } = await admin.from('minutes').update(patch)
-    .eq('id', existing.id).select('id, created_at, updated_at').single()
-  if (error || !updated) {
-    console.error('[minutes-api] replace 갱신 실패:', error?.message ?? 'no row')
+  // 불변 버전 append + 본문/메타 갱신 + 파일 없는 현재 원본 포인터 해제를 한
+  // DB 트랜잭션으로 처리한다. 이전 파일은 기존 minute_version이 계속 보존한다.
+  const { data: committedRaw, error } = await admin.rpc('commit_minute_body_version', {
+    p_minute_id: existing.id,
+    p_body_md: p.bodyMd,
+    p_body_hash: fnv1a64(p.bodyMd),
+    p_file_name: null,
+    p_file_path: null,
+    p_file_size: null,
+    p_file_mime: null,
+    p_actor_id: actor.id,
+    p_actor_name: actor.name,
+    p_metadata: metadata,
+  }).single()
+  if (error || !committedRaw) {
+    console.error('[minutes-api] replace 원자 커밋 실패:', error?.message ?? 'no row')
     return apiInternalError()
   }
-  after(async () => { await runMinutePostProcessing(existing.id, p.bodyMd, { rematch: true }) })
+  const committed = committedRaw as unknown as {
+    version_id: string
+    wiki_rebuild_required: boolean
+  }
+  const projectChanged = existing.project_id !== targetProjectId
+  const wikiJobId = committed.wiki_rebuild_required || projectChanged
+    ? await enqueueMinuteWikiProcessing({
+        projectId: targetProjectId,
+        minuteId: existing.id,
+        minuteVersionId: committed.version_id,
+        bodyMd: p.bodyMd,
+      })
+    : null
+  after(async () => {
+    await Promise.all([
+      runMinutePostProcessing(existing.id, p.bodyMd, {
+        rematch: true,
+        projectId: targetProjectId,
+        minuteVersionId: committed.version_id,
+        // 본문 교체/프로젝트 이동은 아래 전체 rebuild가 이 job까지 회의 시점 순서에
+        // 맞춰 처리한다. 여기서 따로 실행하면 과거 회의가 늦게 적용돼 거짓 충돌이 생긴다.
+        wikiJobId: committed.wiki_rebuild_required || projectChanged ? null : wikiJobId,
+      }),
+      projectChanged && existing.project_id
+        ? rebuildProjectWikiFromActiveMinutes(existing.project_id, existing.id)
+        : Promise.resolve(),
+      (committed.wiki_rebuild_required || projectChanged) && targetProjectId
+        ? rebuildProjectWikiFromActiveMinutes(targetProjectId)
+        : Promise.resolve(),
+    ])
+  })
   return respondMinute(req, 200, {
     id: existing.id, action: 'replaced', title: p.title, date: p.minuteDate,
     team: p.teamCode, meetingId: p.meetingIdProvided ? p.meetingId : existing.meeting_id,
     externalId: p.externalId,
     createdByName: existing.created_by_name,
-    createdAt: (updated.created_at as string | null) ?? existing.created_at,
-    updatedAt: (updated.updated_at as string | null) ?? nowIso,
+    createdAt: existing.created_at,
+    updatedAt: nowIso,
   })
 }
 
 async function insertNew(
-  req: NextRequest, admin: AdminClient, p: ExternalMinutePayload, user: ResolvedUser,
+  req: NextRequest,
+  admin: AdminClient,
+  p: ExternalMinutePayload,
+  user: ResolvedUser,
+  meetingProjectId: string | null,
 ): Promise<NextResponse> {
   // 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백. 또박또박 업로드가
   // 미분류에 쌓이지 않고 팀 폴더(PMO/ERP/MES/가공/MDM)에 바로 등록되게 한다.
   const folderId = await resolveTeamRootFolderId(admin, p.teamCode)
-  const { data, error } = await admin.from('minutes').insert({
-    minute_date: p.minuteDate, team_code: p.teamCode, title: p.title, body_md: p.bodyMd,
-    meeting_id: p.meetingId, external_id: p.externalId, folder_id: folderId,
-    created_by: user.id, created_by_name: user.name,
-  }).select('id, created_at, updated_at').single()
-  if (error || !data) {
+  const { data: createdRaw, error } = await admin.rpc('create_minute_with_version', {
+    p_minute_id: null,
+    p_minute_date: p.minuteDate,
+    p_team_code: p.teamCode,
+    p_title: p.title,
+    p_body_md: p.bodyMd,
+    p_body_hash: fnv1a64(p.bodyMd),
+    p_meeting_id: p.meetingId,
+    p_project_id: meetingProjectId,
+    p_meeting_occurrence_date: p.meetingId ? p.minuteDate : null,
+    p_folder_id: folderId,
+    p_external_id: p.externalId,
+    p_actor_id: user.id,
+    p_actor_name: user.name,
+    p_file_name: null,
+    p_file_path: null,
+    p_file_size: null,
+    p_file_mime: null,
+  }).single()
+  if (error || !createdRaw) {
     // 동시 전송 경합: 부분 unique 인덱스 위반(23505)이면 그 사이 생긴 레코드 기준으로 재분기.
     if (error?.code === '23505') {
       const { data: raced, error: reErr } = await admin.from('minutes')
         .select(MINUTE_SELECT).eq('external_id', p.externalId).maybeSingle()
-      if (!reErr && raced) return handleExisting(req, admin, p, raced as ExistingRow)
+      if (!reErr && raced) return handleExisting(req, admin, p, raced as ExistingRow, user, meetingProjectId)
     }
     console.error('[minutes-api] insert 실패:', error?.message ?? 'no row')
     return apiInternalError()
   }
-  after(async () => { await runMinutePostProcessing(data.id as string, p.bodyMd, { rematch: false }) })
+  const created = createdRaw as unknown as {
+    minute_id: string
+    version_id: string
+    created_at: string
+    updated_at: string
+    wiki_rebuild_required: boolean
+  }
+  const wikiJobId = await enqueueMinuteWikiProcessing({
+    projectId: meetingProjectId,
+    minuteId: created.minute_id,
+    minuteVersionId: created.version_id,
+    bodyMd: p.bodyMd,
+  })
+  after(async () => {
+    await Promise.all([
+      runMinutePostProcessing(created.minute_id, p.bodyMd, {
+        rematch: false,
+        projectId: meetingProjectId,
+        minuteVersionId: created.version_id,
+        wikiJobId: created.wiki_rebuild_required ? null : wikiJobId,
+      }),
+      created.wiki_rebuild_required && meetingProjectId
+        ? rebuildProjectWikiFromActiveMinutes(meetingProjectId)
+        : Promise.resolve(),
+    ])
+  })
   return respondMinute(req, 201, {
-    id: data.id as string, action: 'created', title: p.title, date: p.minuteDate,
+    id: created.minute_id, action: 'created', title: p.title, date: p.minuteDate,
     team: p.teamCode, meetingId: p.meetingId, externalId: p.externalId,
     createdByName: user.name,
-    createdAt: data.created_at as string, updatedAt: data.updated_at as string,
+    createdAt: created.created_at, updatedAt: created.updated_at,
   })
 }
 
@@ -136,12 +247,14 @@ export async function POST(req: NextRequest) {
     if ('error' in parsed) return apiBadRequest(parsed.error)
     const p = parsed.payload
 
+    let meetingProjectId: string | null = null
     if (p.meetingId) {
       const { data: mt, error: mtErr } = await admin.from('meetings')
-        .select('id').eq('id', p.meetingId).maybeSingle()
+        .select('id, project_id').eq('id', p.meetingId).maybeSingle()
       // 쓰기 선행조회 실패를 '회의 없음'으로 오인하면 정상 요청이 400으로 거짓 거절된다 — 실패는 실패로.
       if (mtErr) { console.error('[minutes-api] 회의 존재 확인 실패:', mtErr.message); return apiInternalError() }
       if (!mt) return apiBadRequest('연결할 회의를 찾을 수 없습니다.')
+      meetingProjectId = mt.project_id as string
     }
 
     // upsert 는 사전 select 후 insert/update 분기 — DB ON CONFLICT 구문은 부분 unique 인덱스가
@@ -150,8 +263,10 @@ export async function POST(req: NextRequest) {
       .select(MINUTE_SELECT).eq('external_id', p.externalId).maybeSingle()
     if (selErr) { console.error('[minutes-api] 기존 레코드 조회 실패:', selErr.message); return apiInternalError() }
 
-    if (existing) return await handleExisting(req, admin, p, existing as ExistingRow)
-    return await insertNew(req, admin, p, user)
+    if (existing) {
+      return await handleExisting(req, admin, p, existing as ExistingRow, user, meetingProjectId)
+    }
+    return await insertNew(req, admin, p, user, meetingProjectId)
   } catch (e) {
     console.error('[minutes-api] POST 처리 실패:', e instanceof Error ? e.message : e)
     return apiInternalError()
@@ -186,7 +301,7 @@ export async function GET(req: NextRequest) {
     let q = admin.from('minutes').select(
       'id, minute_date, team_code, title, external_id, created_by_name, created_at, updated_at',
       { count: 'exact' },
-    )
+    ).is('archived_at', null)
     const externalId = sp.get('external_id')
     if (externalId) q = q.eq('external_id', externalId)
     if (linked === 'true') q = q.not('external_id', 'is', null)
@@ -205,6 +320,7 @@ export async function GET(req: NextRequest) {
       // 같은 필터의 head 카운트로 total 만 채워 빈 페이지로 응답한다(500 아님).
       if (error.code === 'PGRST103') {
         let cq = admin.from('minutes').select('id', { count: 'exact', head: true })
+          .is('archived_at', null)
         if (externalId) cq = cq.eq('external_id', externalId)
         if (linked === 'true') cq = cq.not('external_id', 'is', null)
         if (linked === 'false') cq = cq.is('external_id', null)

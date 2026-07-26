@@ -20,7 +20,10 @@ export default async function SharedMinutePage({ params }: { params: Promise<{ t
   // 반환 컬럼 화이트리스트(스펙 §3.2) — 작성자 실명·첨부·하이라이트·인사이트 미노출
   const { data } = await admin.from('minutes')
     .select('minute_date, team_code, title, body_md')
-    .eq('share_token', token).eq('share_enabled', true).maybeSingle()
+    .eq('share_token', token)
+    .eq('share_enabled', true)
+    .is('archived_at', null)
+    .maybeSingle()
   if (!data) notFound()
   return (
     <ShareViewer

@@ -49,6 +49,7 @@ export function createSupabaseMinutesRepository(client: SupabaseServerClient): M
       let request = client
         .from('minutes')
         .select(`${MINUTE_COLUMNS}, ${relation}`)
+        .is('archived_at', null)
       if (query) {
         const pattern = ilikeOrPattern(query)
         request = request.or(`title.ilike.${pattern},body_md.ilike.${pattern}`)

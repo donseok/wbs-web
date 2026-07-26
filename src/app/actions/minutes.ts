@@ -23,6 +23,14 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
 import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
 import { activeTeamCodesSync, teamsSync } from '@/lib/teams/master'
+import { resolveMinuteProject } from '@/lib/minutes/project'
+import {
+  type MinuteVersionFile,
+} from '@/lib/minutes/versions'
+import {
+  enqueueMinuteWikiProcessing, processMinuteWikiJob,
+  rebuildProjectWikiFromActiveMinutes,
+} from '@/lib/ai/wiki-ingest'
 
 const BUCKET = 'minutes'
 
@@ -36,15 +44,27 @@ export interface MinuteActionResult {
 
 type Sb = Awaited<ReturnType<typeof createServerClient>>
 
+export interface MinuteCreateSource {
+  /** 클라이언트가 Storage 경로를 만들 때 선발급한 회의록 UUID. */
+  minuteId: string
+  file: MinuteVersionFile
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 /** 소유권 사전 확인 — RLS 0행 침묵 실패 방지. 반환: 에러 메시지 또는 null. */
 async function checkOwner(sb: Sb, minuteId: string, userId: string, role: string): Promise<string | null> {
-  const { data, error } = await sb.from('minutes').select('created_by').eq('id', minuteId).maybeSingle()
+  const { data, error } = await sb.from('minutes')
+    .select('created_by, archived_at')
+    .eq('id', minuteId)
+    .maybeSingle()
   // 보안 가드 조회 — 실패 시 소유자 판정 자체가 불가능하므로 거부(fail-closed).
   if (error) {
     console.error('[checkOwner] 소유권 조회 실패:', error.message)
     return '권한 확인에 실패했습니다. 잠시 후 다시 시도하세요.'
   }
   if (!data) return '회의록을 찾을 수 없습니다.'
+  if (data.archived_at) return '보관된 회의록은 변경할 수 없습니다.'
   if ((data.created_by as string | null) !== userId && role !== 'pmo_admin') return '권한 없음'
   return null
 }
@@ -78,7 +98,7 @@ async function rematchMinuteHighlights(minuteId: string, newBodyMd: string): Pro
 }
 
 export async function createMinute(
-  input: MinuteInput, folderId: string | null = null,
+  input: MinuteInput, folderId: string | null = null, source?: MinuteCreateSource,
 ): Promise<MinuteActionResult> {
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
@@ -86,11 +106,20 @@ export async function createMinute(
   if (!user) return { ok: false, error: '로그인 필요' }
   const err = validateMinuteInput(input, activeTeamCodesSync())
   if (err) return { ok: false, error: err }
-  const sb = await createServerClient()
-  if (input.meetingId) {
-    const { data: mt } = await sb.from('meetings').select('id').eq('id', input.meetingId).maybeSingle()
-    if (!mt) return { ok: false, error: '연결할 회의를 찾을 수 없습니다.' }
+  if (source) {
+    if (!UUID_RE.test(source.minuteId) || !isMinuteFilePathValid(source.minuteId, source.file.filePath)) {
+      return { ok: false, error: '잘못된 원본 파일 경로입니다.' }
+    }
+    if (!/\.(md|markdown)$/i.test(source.file.fileName)) {
+      return { ok: false, error: '.md 파일만 가능합니다.' }
+    }
   }
+  const sb = await createServerClient()
+  const resolvedProject = await resolveMinuteProject(sb, {
+    meetingId: input.meetingId,
+    projectId: input.projectId,
+  })
+  if (resolvedProject.error) return { ok: false, error: resolvedProject.error }
   if (folderId) {
     const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
     if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
@@ -101,18 +130,64 @@ export async function createMinute(
   const fix = correctMinuteBodyTime(input.bodyMd)
   if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)
   const bodyMd = fix.body
-  const { data, error } = await sb.from('minutes').insert({
-    minute_date: input.minuteDate, team_code: input.teamCode, title: input.title.trim(),
-    body_md: bodyMd, meeting_id: input.meetingId, folder_id: effectiveFolderId,
-    created_by: user.id, created_by_name: displayNameFrom(user.user_metadata, user.email),
-  }).select('id').single()
-  if (error) return { ok: false, error: error.message }
-  revalidatePath('/minutes')
-  after(async () => {
-    await ingestMinute(data.id as string, bodyMd)
-    await generateMinuteInsights(data.id as string, bodyMd)
+  const createdByName = displayNameFrom(user.user_metadata, user.email)
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '버전 저장 설정을 확인하세요.' }
+  }
+  // minutes + v1 + 현재 body 파일 포인터를 한 트랜잭션으로 만든다. 일반 인증
+  // 사용자의 minutes 직접 쓰기는 0045에서 닫혀 있어 모든 생성 경로가 이 불변식을 거친다.
+  const { data: createdRaw, error: createError } = await admin.rpc('create_minute_with_version', {
+    p_minute_id: source?.minuteId ?? null,
+    p_minute_date: input.minuteDate,
+    p_team_code: input.teamCode,
+    p_title: input.title.trim(),
+    p_body_md: bodyMd,
+    p_body_hash: fnv1a64(bodyMd),
+    p_meeting_id: input.meetingId,
+    p_project_id: resolvedProject.projectId,
+    p_meeting_occurrence_date: input.meetingId
+      ? (input.meetingOccurrenceDate ?? input.minuteDate)
+      : null,
+    p_folder_id: effectiveFolderId,
+    p_external_id: null,
+    p_actor_id: user.id,
+    p_actor_name: createdByName,
+    p_file_name: source?.file.fileName ?? null,
+    p_file_path: source?.file.filePath ?? null,
+    p_file_size: source?.file.size ?? null,
+    p_file_mime: source?.file.mime ?? null,
+  }).single()
+  if (createError || !createdRaw) {
+    return { ok: false, error: createError?.message ?? '회의록 생성에 실패했습니다.' }
+  }
+  const created = createdRaw as unknown as {
+    minute_id: string
+    version_id: string
+    wiki_rebuild_required: boolean
+  }
+  const minuteId = created.minute_id
+  const versionId = created.version_id
+  const wikiJobId = await enqueueMinuteWikiProcessing({
+    projectId: resolvedProject.projectId,
+    minuteId,
+    minuteVersionId: versionId,
+    bodyMd,
   })
-  return { ok: true, id: data.id as string, timeFix: fix.corrected ? { from: fix.from!, to: fix.to! } : undefined }
+  revalidatePath('/minutes')
+  if (resolvedProject.projectId) revalidatePath(`/p/${resolvedProject.projectId}/wiki`)
+  after(async () => {
+    await Promise.all([
+      ingestMinute(minuteId, bodyMd),
+      generateMinuteInsights(minuteId, bodyMd),
+      created.wiki_rebuild_required && resolvedProject.projectId
+        ? rebuildProjectWikiFromActiveMinutes(resolvedProject.projectId)
+        : wikiJobId === null ? Promise.resolve(null) : processMinuteWikiJob(wikiJobId),
+    ])
+  })
+  return { ok: true, id: minuteId, timeFix: fix.corrected ? { from: fix.from!, to: fix.to! } : undefined }
 }
 
 export async function updateMinuteMeta(
@@ -127,10 +202,11 @@ export async function updateMinuteMeta(
   const sb = await createServerClient()
   const own = await checkOwner(sb, id, user.id, m.role)
   if (own) return { ok: false, error: own }
-  if (patch.meetingId) {
-    const { data: mt } = await sb.from('meetings').select('id').eq('id', patch.meetingId).maybeSingle()
-    if (!mt) return { ok: false, error: '연결할 회의를 찾을 수 없습니다.' }
-  }
+  const resolvedProject = await resolveMinuteProject(sb, {
+    meetingId: patch.meetingId,
+    projectId: patch.projectId,
+  })
+  if (resolvedProject.error) return { ok: false, error: resolvedProject.error }
   if (folderId) {
     const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
     if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
@@ -138,12 +214,56 @@ export async function updateMinuteMeta(
   // folderId 미전달 = 폴더 무접촉(수동 편철 존중). 전달 시에만 하위 구분 변경으로 이동.
   const upd: Record<string, unknown> = {
     minute_date: patch.minuteDate, team_code: patch.teamCode, title: patch.title.trim(),
-    meeting_id: patch.meetingId, updated_at: new Date().toISOString(),
+    meeting_id: patch.meetingId,
+    project_id: resolvedProject.projectId,
+    meeting_occurrence_date: patch.meetingId
+      ? (patch.meetingOccurrenceDate ?? patch.minuteDate)
+      : null,
   }
   if (folderId) upd.folder_id = folderId
-  const { error } = await sb.from('minutes').update(upd).eq('id', id)
-  if (error) return { ok: false, error: error.message }
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '회의록 수정 설정을 확인하세요.' }
+  }
+  const { data: updateRaw, error } = await admin.rpc('update_minute_metadata_with_wiki_retraction', {
+    p_minute_id: id,
+    p_metadata: upd,
+  }).single()
+  if (error || !updateRaw) return { ok: false, error: error?.message ?? '회의록 수정에 실패했습니다.' }
+  const updateResult = updateRaw as unknown as {
+    old_project_id: string | null
+    new_project_id: string | null
+    wiki_rebuild_required: boolean
+  }
+  const projectChanged = updateResult.old_project_id !== updateResult.new_project_id
+  const wikiRebuildRequired = projectChanged || updateResult.wiki_rebuild_required === true
   revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
+  if (updateResult.old_project_id) {
+    revalidatePath(`/p/${updateResult.old_project_id}/wiki`)
+  }
+  if (updateResult.new_project_id) {
+    revalidatePath(`/p/${updateResult.new_project_id}/wiki`)
+  }
+  if (
+    resolvedProject.projectId
+    || (projectChanged && updateResult.old_project_id)
+    || wikiRebuildRequired
+  ) {
+    after(async () => {
+      await Promise.all([
+        projectChanged && updateResult.old_project_id
+          ? rebuildProjectWikiFromActiveMinutes(updateResult.old_project_id, id)
+          : Promise.resolve(),
+        wikiRebuildRequired && updateResult.new_project_id
+          // 과거 회의록이 새 프로젝트의 후속 지식보다 늦게 단독 적용돼 거짓 충돌을
+          // 만들지 않도록, 프로젝트 이동/시간축 변경은 회의 시점 순으로 다시 구성한다.
+          ? rebuildProjectWikiFromActiveMinutes(updateResult.new_project_id)
+          : Promise.resolve(),
+      ])
+    })
+  }
   return { ok: true }
 }
 
@@ -174,42 +294,59 @@ export async function replaceMinuteBody(
   const fix = correctMinuteBodyTime(bodyMd)
   if (fix.corrected) console.info(`[minutes] 본문 교체 시간 보정 적용: ${fix.from} → ${fix.to} (id=${id})`)
   const body = fix.body
-  // 기존 body 파일 경로는 DB에서 해석(클라이언트 신뢰 안 함) — 소유권 확인 후에만 Storage 삭제
-  const { data: old, error: oldErr } = await sb.from('minute_files')
-    .select('id, file_path').eq('minute_id', id).eq('role', 'body').maybeSingle()
-  // 삭제 대상 판단용 선행 조회 — 실패를 '기존 body 없음'으로 오인하면 아래 insert 로 role='body' 행이 2개가 되고,
-  // 그 뒤로는 이 maybeSingle 이 항상 복수 행으로 실패하는 자기 강화 고장이 된다. 실패는 실패로 반환한다.
-  if (oldErr) {
-    console.error('[replaceMinuteBody] 기존 본문 파일 조회 실패:', oldErr.message)
-    return { ok: false, error: oldErr.message }
+  const { data: minute, error: minuteErr } = await sb.from('minutes')
+    .select('project_id')
+    .eq('id', id)
+    .single()
+  if (minuteErr || !minute) return { ok: false, error: minuteErr?.message ?? '회의록을 찾을 수 없습니다.' }
+
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '버전 저장 설정을 확인하세요.' }
   }
-  if (old) {
-    // 순서 고정: 메타 행 delete 를 먼저 한다. Storage 를 먼저 지우면 행 delete 실패 시
-    // 행은 남고 그 file_path 가 가리키는 객체만 사라져 본문 다운로드가 영구히 깨진다(dangling pointer).
-    // 행 delete 가 실패하면 Storage 는 손대지 않은 원상이므로 그대로 중단한다.
-    const { error: delErr } = await sb.from('minute_files').delete().eq('id', old.id as string)
-    if (delErr) {
-      console.error('[replaceMinuteBody] 기존 본문 파일 메타 삭제 실패:', delErr.message)
-      return { ok: false, error: delErr.message }
-    }
-    // 행이 사라진 뒤의 Storage 삭제 실패는 고아 파일만 남기므로 로그 후 진행.
-    const { error: rmErr } = await sb.storage.from(BUCKET).remove([old.file_path as string])
-    if (rmErr) console.error('[replaceMinuteBody] 기존 본문 파일 Storage 삭제 실패(고아 파일 잔존):', rmErr.message)
+  // 버전 append + 현재 파일 포인터 + current body를 DB 함수 한 트랜잭션으로 커밋한다.
+  // 어느 단계에서든 실패하면 전부 롤백되며, 이전 Storage 객체는 함수가 삭제하지 않는다.
+  const { data: committedRaw, error: commitError } = await admin.rpc('commit_minute_body_version', {
+    p_minute_id: id,
+    p_body_md: body,
+    p_body_hash: fnv1a64(body),
+    p_file_name: file.fileName,
+    p_file_path: file.filePath,
+    p_file_size: file.size,
+    p_file_mime: file.mime,
+    p_actor_id: user.id,
+    p_actor_name: displayNameFrom(user.user_metadata, user.email),
+  }).single()
+  if (commitError || !committedRaw) {
+    console.error('[replaceMinuteBody] 원자 커밋 실패:', commitError?.message ?? 'no row')
+    return { ok: false, error: commitError?.message ?? '새 버전 저장에 실패했습니다.' }
   }
-  const { error: insErr } = await sb.from('minute_files').insert({
-    minute_id: id, role: 'body', file_name: file.fileName, file_path: file.filePath,
-    size: file.size, mime: file.mime, uploaded_by: user.id,
-  })
-  if (insErr) return { ok: false, error: insErr.message }
-  const { error } = await sb.from('minutes')
-    .update({ body_md: body, updated_at: new Date().toISOString() }).eq('id', id)
-  if (error) return { ok: false, error: error.message }
+  const committed = committedRaw as unknown as {
+    version_id: string
+    wiki_rebuild_required: boolean
+  }
+  const versionId = committed.version_id as string
+  const wikiJobId = committed.wiki_rebuild_required
+    ? await enqueueMinuteWikiProcessing({
+        projectId: (minute.project_id as string | null) ?? null,
+        minuteId: id,
+        minuteVersionId: versionId,
+        bodyMd: body,
+      })
+    : null
   revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
-  // ① 하이라이트 재매칭(delete→reinsert, service_role) → ② 재인제스트 → ③ 인사이트 재생성 — 스펙 §4.2
+  // ① 하이라이트 재매칭 → ② 검색/요약/Wiki 갱신. Wiki는 새 버전 ID를 근거로 보존한다.
   after(async () => {
     await rematchMinuteHighlights(id, body)
-    await ingestMinute(id, body)
-    await generateMinuteInsights(id, body)
+    await Promise.all([
+      ingestMinute(id, body),
+      generateMinuteInsights(id, body),
+      committed.wiki_rebuild_required && minute.project_id
+        ? rebuildProjectWikiFromActiveMinutes(minute.project_id as string)
+        : wikiJobId === null ? Promise.resolve(null) : processMinuteWikiJob(wikiJobId),
+    ])
   })
   return { ok: true, timeFix: fix.corrected ? { from: fix.from!, to: fix.to! } : undefined }
 }
@@ -229,6 +366,60 @@ export async function recordMinuteFile(
   const sb = await createServerClient()
   const own = await checkOwner(sb, minuteId, user.id, m.role)
   if (own) return { ok: false, error: own }
+  if (file.role === 'body') {
+    const { data: minute, error: minuteError } = await sb.from('minutes')
+      .select('body_md, project_id')
+      .eq('id', minuteId)
+      .single()
+    if (minuteError || !minute) {
+      return { ok: false, error: minuteError?.message ?? '회의록을 찾을 수 없습니다.' }
+    }
+    let admin: ReturnType<typeof createAdminClient>
+    try {
+      admin = createAdminClient()
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : '버전 저장 설정을 확인하세요.' }
+    }
+    // 파일 없는 기존 본문에 원본을 연결하는 경우에도 과거 버전을 수정하지 않고,
+    // 같은 본문+새 파일의 새 버전을 원자적으로 append한다.
+    const bodyMd = minute.body_md as string
+    const { data: committedRaw, error: commitError } = await admin.rpc('commit_minute_body_version', {
+      p_minute_id: minuteId,
+      p_body_md: bodyMd,
+      p_body_hash: fnv1a64(bodyMd),
+      p_file_name: file.fileName,
+      p_file_path: file.filePath,
+      p_file_size: file.size,
+      p_file_mime: file.mime,
+      p_actor_id: user.id,
+      p_actor_name: displayNameFrom(user.user_metadata, user.email),
+    }).single()
+    if (commitError || !committedRaw) {
+      return { ok: false, error: commitError?.message ?? '원본 버전 기록에 실패했습니다.' }
+    }
+    const committed = committedRaw as unknown as {
+      version_id: string
+      wiki_rebuild_required: boolean
+    }
+    const wikiJobId = committed.wiki_rebuild_required
+      ? await enqueueMinuteWikiProcessing({
+          projectId: (minute.project_id as string | null) ?? null,
+          minuteId,
+          minuteVersionId: committed.version_id,
+          bodyMd,
+        })
+      : null
+    after(async () => {
+      if (committed.wiki_rebuild_required && minute.project_id) {
+        await rebuildProjectWikiFromActiveMinutes(minute.project_id as string)
+      } else if (wikiJobId !== null) {
+        await processMinuteWikiJob(wikiJobId)
+      }
+    })
+    revalidatePath(`/minutes/${minuteId}`)
+    return { ok: true }
+  }
+
   const { error } = await sb.from('minute_files').insert({
     minute_id: minuteId, role: file.role, file_name: file.fileName, file_path: file.filePath,
     size: file.size, mime: file.mime, uploaded_by: user.id,
@@ -268,21 +459,37 @@ export async function deleteMinute(id: string): Promise<MinuteActionResult> {
   const sb = await createServerClient()
   const own = await checkOwner(sb, id, user.id, m.role)
   if (own) return { ok: false, error: own }
-  // 삭제 대상 파일 목록 조회 — 실패를 '첨부 0건'으로 오인한 채 minutes 행을 지우면
-  // Storage 파일을 가리키는 유일한 포인터가 사라져 영구 고아가 된다. 실패 시 삭제를 중단한다.
-  const { data: fs, error: fsErr } = await sb.from('minute_files').select('file_path').eq('minute_id', id)
-  if (fsErr) {
-    console.error('[deleteMinute] 첨부 파일 목록 조회 실패:', fsErr.message)
-    return { ok: false, error: fsErr.message }
+  const { data: minuteScope, error: scopeError } = await sb.from('minutes')
+    .select('project_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (scopeError || !minuteScope) {
+    return { ok: false, error: scopeError?.message ?? '회의록을 찾을 수 없습니다.' }
   }
-  const paths = (fs ?? []).map(f => f.file_path as string)
-  if (paths.length) {
-    const { error: rmErr } = await sb.storage.from(BUCKET).remove(paths)
-    if (rmErr) console.error('[deleteMinute] Storage 삭제 실패(고아 파일 잔존):', rmErr.message)
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '보관 설정을 확인하세요.' }
   }
-  const { error } = await sb.from('minutes').delete().eq('id', id).select('id').single()
-  if (error) return { ok: false, error: error.message }
+  // 사용자에게는 목록에서 사라지지만 원본·모든 버전·Storage 객체·Wiki 감사 근거는
+  // 삭제하지 않는다. Wiki 출처 철회와 보관 시각 기록도 DB 한 트랜잭션에서 수행한다.
+  const { error } = await admin.rpc('archive_minute_with_wiki_retraction', {
+    p_minute_id: id,
+    p_reason: '사용자가 회의록을 보관했습니다.',
+  })
+  if (error) {
+    console.error('[deleteMinute] 보관 실패:', error.message)
+    return { ok: false, error: error.message }
+  }
   revalidatePath('/minutes')
+  revalidatePath(`/minutes/${id}`)
+  if (minuteScope.project_id) {
+    revalidatePath(`/p/${minuteScope.project_id as string}/wiki`)
+    after(async () => {
+      await rebuildProjectWikiFromActiveMinutes(minuteScope.project_id as string, id)
+    })
+  }
   return { ok: true }
 }
 
@@ -328,6 +535,7 @@ export async function fetchMeetingMinutesLite(
   const { data, error } = await sb.from('minutes')
     .select('id, title, minute_date')
     .eq('meeting_id', meetingId)
+    .is('archived_at', null)
     .order('minute_date', { ascending: false })
   if (error) console.error('[fetchMeetingMinutesLite] 연결된 회의록 조회 실패:', error.message)
   return (data ?? []).map(r => ({
@@ -465,6 +673,8 @@ export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; err
 export async function moveMinuteToFolder(
   minuteId: string, folderId: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
@@ -472,8 +682,15 @@ export async function moveMinuteToFolder(
     const { data: f } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
     if (!f) return { ok: false, error: '이동할 폴더를 찾을 수 없습니다.' }
   }
-  // 권한은 update_own_minutes RLS(작성자 or pmo_admin)가 담당 — 0행이면 권한 없음으로 판정
-  const { data, error } = await sb.from('minutes')
+  const own = await checkOwner(sb, minuteId, user.id, m.role)
+  if (own) return { ok: false, error: own }
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '폴더 이동 설정을 확인하세요.' }
+  }
+  const { data, error } = await admin.from('minutes')
     .update({ folder_id: folderId, updated_at: new Date().toISOString() })
     .eq('id', minuteId).select('id')
   if (error) { console.error('[moveMinuteToFolder] 실패:', error.message); return { ok: false, error: error.message } }
@@ -515,8 +732,12 @@ export async function toggleMinuteHighlight(
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
-  const { data: minute } = await sb.from('minutes').select('body_md').eq('id', minuteId).maybeSingle()
+  const { data: minute } = await sb.from('minutes')
+    .select('body_md, archived_at')
+    .eq('id', minuteId)
+    .maybeSingle()
   if (!minute) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
+  if (minute.archived_at) return { ok: false, error: '보관된 회의록은 변경할 수 없습니다.' }
   const blocks = splitMinuteBlocks(minute.body_md as string)
   const block = blocks[blockIndex]
   if (!block || !isMarkableBlock(block) || block.hash !== blockHash)
@@ -568,8 +789,12 @@ export async function ensureMinuteInsightsAction(
   const user = await getSession()
   if (!user) return { status: 'unavailable' }
   const sb = await createServerClient()
-  const { data: minute } = await sb.from('minutes').select('body_md').eq('id', minuteId).maybeSingle()
+  const { data: minute } = await sb.from('minutes')
+    .select('body_md, archived_at')
+    .eq('id', minuteId)
+    .maybeSingle()
   if (!minute) return { status: 'unavailable' }
+  if (minute.archived_at) return { status: 'ready' }
   const bodyMd = minute.body_md as string
   if (!bodyMd.trim()) return { status: 'ready' }
   const status = await ensureMinuteInsights(minuteId, bodyMd, fnv1a64(bodyMd))
@@ -583,8 +808,9 @@ export interface MinuteShareResult { ok: boolean; enabled?: boolean; token?: str
 async function readShareRow(sb: Sb, id: string, userId: string, role: string):
   Promise<{ state: ShareState } | { error: string }> {
   const { data } = await sb.from('minutes')
-    .select('created_by, share_token, share_enabled').eq('id', id).maybeSingle()
+    .select('created_by, share_token, share_enabled, archived_at').eq('id', id).maybeSingle()
   if (!data) return { error: '회의록을 찾을 수 없습니다.' }
+  if (data.archived_at) return { error: '보관된 회의록은 공유 설정을 바꿀 수 없습니다.' }
   if ((data.created_by as string | null) !== userId && role !== 'pmo_admin') return { error: '권한 없음' }
   return { state: { token: (data.share_token as string | null) ?? null, enabled: !!data.share_enabled } }
 }
@@ -601,7 +827,7 @@ export async function getMinuteShare(id: string): Promise<MinuteShareResult> {
   return { ok: true, enabled: row.state.enabled, token: row.state.token }
 }
 
-/** 공유 토글/재발급 — 쓰기는 RLS update_own_minutes 가 최종 방어선. updated_at 은 건드리지 않는다(내용 편집 아님). */
+/** 공유 토글/재발급 — 서버에서 소유권을 확인한 뒤 service role로 허용 컬럼만 쓴다. */
 export async function setMinuteShare(id: string, op: ShareOp): Promise<MinuteShareResult> {
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
@@ -611,7 +837,13 @@ export async function setMinuteShare(id: string, op: ShareOp): Promise<MinuteSha
   const row = await readShareRow(sb, id, user.id, m.role)
   if ('error' in row) return { ok: false, error: row.error }
   const next = nextShareState(row.state, op, crypto.randomUUID())
-  const { error } = await sb.from('minutes')
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '공유 설정을 확인하세요.' }
+  }
+  const { error } = await admin.from('minutes')
     .update({ share_token: next.token, share_enabled: next.enabled }).eq('id', id)
   if (error) return { ok: false, error: error.message }
   return { ok: true, enabled: next.enabled, token: next.token }

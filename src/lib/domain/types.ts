@@ -187,11 +187,15 @@ export interface Minute {
   title: string
   bodyMd: string               // 목록 조회에선 ''
   meetingId: string | null
+  projectId?: string | null          // Wiki 귀속 프로젝트(회의 연결 없이도 지정 가능)
+  projectName?: string | null        // 목록/상세 표시용 프로젝트명
+  meetingOccurrenceDate?: string | null // 반복 회의의 실제 개최일
   meetingProjectId?: string | null  // 뷰어 전용 — 연결된 회의의 프로젝트(조인, 목록 조회엔 없음)
   createdBy: string | null
   createdByName: string | null
   createdAt: string
   updatedAt: string
+  archivedAt?: string | null       // 보관본은 직접/Wiki 근거 링크에서 읽기 전용으로 열 수 있음
   fileCount?: number           // 목록 뷰 전용(첨부 수, 서버 계산)
   bodyPreview?: string              // 카드 요약(0039 생성 컬럼, 목록/트리 조회 전용)
   meetingCategory?: MeetingCategory | null  // 연결 회의 유형(meetings 임베드, 미연결 null)
@@ -220,6 +224,8 @@ export interface ExplorerLeaf {
   bodyPreview: string
   meetingCategory: MeetingCategory | null
   folderId: string | null            // null = 미분류
+  projectId?: string | null          // Wiki 귀속 프로젝트
+  projectName?: string | null
 }
 
 export interface FolderNode {

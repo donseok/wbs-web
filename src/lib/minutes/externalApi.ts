@@ -7,6 +7,7 @@ import { splitMinuteBlocks } from '@/lib/minutes/blocks'
 import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { generateMinuteInsights } from '@/lib/ai/minutes-insights'
+import { enqueueAndProcessMinuteWiki, processMinuteWikiJob } from '@/lib/ai/wiki-ingest'
 import type { TeamCode } from '@/lib/domain/types'
 
 /**
@@ -203,9 +204,28 @@ async function rematchExternalMinuteHighlights(minuteId: string, newBodyMd: stri
  * 세 함수 모두 내부 try/catch 로 절대 throw 하지 않는 계약이라 순차 await 만 한다.
  */
 export async function runMinutePostProcessing(
-  minuteId: string, bodyMd: string, opts: { rematch: boolean },
+  minuteId: string,
+  bodyMd: string,
+  opts: {
+    rematch: boolean
+    projectId?: string | null
+    minuteVersionId?: string | null
+    wikiJobId?: number | null
+  },
 ): Promise<void> {
   if (opts.rematch) await rematchExternalMinuteHighlights(minuteId, bodyMd)
-  await ingestMinute(minuteId, bodyMd)
-  await generateMinuteInsights(minuteId, bodyMd)
+  await Promise.all([
+    ingestMinute(minuteId, bodyMd),
+    generateMinuteInsights(minuteId, bodyMd),
+    opts.wikiJobId === undefined
+      ? enqueueAndProcessMinuteWiki({
+        projectId: opts.projectId ?? null,
+        minuteId,
+        minuteVersionId: opts.minuteVersionId ?? null,
+        bodyMd,
+      })
+      : opts.wikiJobId === null
+        ? Promise.resolve(null)
+        : processMinuteWikiJob(opts.wikiJobId),
+  ])
 }

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Download, ExternalLink, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
+import { ArrowLeft, Download, ExternalLink, History, Maximize2, Minimize2, Paperclip, Share2 } from 'lucide-react'
 import type { InsightKind, Minute, MinuteFile, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import {
   MINUTE_BODY_FILE_MAX, MINUTE_BODY_MAX, sanitizeFileName,
@@ -28,11 +28,20 @@ import { useMinuteTocSpy } from './useMinuteTocSpy'
 import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
 import { MinuteFontSizeControl } from './MinuteFontSizeControl'
 import { useMinuteFontSize } from './useMinuteFontSize'
+import { MinuteVersionPanel, type MinuteVersionListItem } from './MinuteVersionPanel'
+import { MinuteWikiImpactCard, type MinuteWikiImpactCardProps } from './MinuteWikiImpactCard'
 import { teamStyle } from '@/components/wbs/shared'
+
+const EMPTY_WIKI_IMPACT: MinuteWikiImpactCardProps = {
+  status: 'unlinked',
+  counts: { created: 0, changed: 0, reaffirmed: 0, conflicted: 0 },
+  items: [],
+}
 
 export function MinuteViewer({
   minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
-  initialFontSize = null,
+  initialFontSize = null, versions = [], wikiImpact = EMPTY_WIKI_IMPACT,
+  historicalVersion = null,
 }: {
   minute: Minute
   files: MinuteFile[]
@@ -42,6 +51,9 @@ export function MinuteViewer({
   projects: { id: string; name: string }[]
   sourceAnchor?: MinuteSourceAnchor | null
   initialFontSize?: number | null
+  versions?: MinuteVersionListItem[]
+  wikiImpact?: MinuteWikiImpactCardProps
+  historicalVersion?: { id: string; versionNo: number } | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -53,8 +65,8 @@ export function MinuteViewer({
   const [focus, setFocus] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const fs = useMinuteFontSize({ initial: initialFontSize })
-  const bodyFile = files.find(f => f.role === 'body') ?? null
-  const attachments = files.filter(f => f.role === 'attachment')
+  const bodyFile = historicalVersion ? null : files.find(f => f.role === 'body') ?? null
+  const attachments = historicalVersion ? [] : files.filter(f => f.role === 'attachment')
 
   const bodyRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
@@ -320,11 +332,41 @@ export function MinuteViewer({
         {err && <p className="text-sm text-delayed">{err}</p>}
       </div>
 
+      {historicalVersion && (
+        <div className="card flex shrink-0 flex-wrap items-center gap-2 border-brand/30 bg-brand-weak/35 px-4 py-3">
+          <History className="h-4 w-4 text-brand" aria-hidden />
+          <p className="text-sm font-medium text-ink">
+            {t('min.version.viewingBanner').replace('{n}', String(historicalVersion.versionNo))}
+          </p>
+          <Link href={`/minutes/${minute.id}`} className="ml-auto text-xs font-medium text-brand hover:text-brand-hover">
+            {t('min.version.backCurrent')}
+          </Link>
+        </div>
+      )}
+      {minute.archivedAt && !historicalVersion && (
+        <div className="card flex shrink-0 items-center gap-2 border-line-strong bg-surface-2 px-4 py-3">
+          <History className="h-4 w-4 text-ink-muted" aria-hidden />
+          <p className="text-sm font-medium text-ink">{t('min.archive.banner')}</p>
+        </div>
+      )}
+
       {/* 핵심 요약 카드 — shrink-0 유지(xl 높이 체인) */}
-      <MinuteInsightCard
-        minuteId={minute.id} insights={annotations.insights} highlights={annotations.highlights}
-        blocks={blocks} bodyHash={bodyHash} onJump={jumpTo}
-      />
+      {!historicalVersion && (
+        <MinuteInsightCard
+          minuteId={minute.id} insights={annotations.insights} highlights={annotations.highlights}
+          blocks={blocks} bodyHash={bodyHash} onJump={jumpTo}
+        />
+      )}
+
+      {/* 기존 뷰어 흐름은 유지하고, 원본 보존과 Wiki 파생 결과만 보조 카드로 추가한다. */}
+      <div className="grid shrink-0 gap-4 xl:grid-cols-2">
+        <MinuteVersionPanel
+          versions={versions}
+          currentVersionNo={versions[0]?.versionNo ?? null}
+          selectedVersionNo={historicalVersion?.versionNo ?? null}
+        />
+        {!historicalVersion && <MinuteWikiImpactCard {...wikiImpact} />}
+      </div>
 
       {/* xl 미만 목차 아코디언은 MinuteToc 내부에서 분기 렌더 */}
       {/* 목차 + 본문 + (Task 17: 우측 채팅 패널) */}
@@ -337,11 +379,11 @@ export function MinuteViewer({
           />
         )}
         {/* 글자크기는 CSS 변수로만 내려보낸다 — MarkdownView props 가 그대로여야 재파싱이 없다(스펙 §3) */}
-        <div ref={bodyRef} onClick={onBodyClick} className="card min-w-0 flex-1 p-5 xl:overflow-y-auto"
+        <div ref={bodyRef} onClick={historicalVersion || minute.archivedAt ? undefined : onBodyClick} className="card min-w-0 flex-1 p-5 xl:overflow-y-auto"
           style={{ '--minutes-fs': `${fs.size}px` } as React.CSSProperties}>
           <MarkdownView content={minute.bodyMd} marks={marks} />
         </div>
-        {!focus && <MinuteChatPanel minuteId={minute.id} />}
+        {!focus && !historicalVersion && !minute.archivedAt && <MinuteChatPanel minuteId={minute.id} />}
       </div>
 
       {popover && (

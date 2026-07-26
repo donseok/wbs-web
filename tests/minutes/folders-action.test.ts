@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const getSession = vi.fn()
 const getMembership = vi.fn()
+const adminMocks = vi.hoisted(() => ({ createAdminClient: vi.fn() }))
 vi.mock('@/lib/auth', () => ({
   getSession: (...a: unknown[]) => getSession(...(a as [])),
   getMembership: (...a: unknown[]) => getMembership(...(a as [])),
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('next/server', () => ({ after: vi.fn() }))
-vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn() }))
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: adminMocks.createAdminClient,
+}))
 vi.mock('@/lib/ai/minutes-ingest', () => ({ ingestMinute: vi.fn() }))
 vi.mock('@/lib/ai/minutes-insights', () => ({ ensureMinuteInsights: vi.fn(), generateMinuteInsights: vi.fn() }))
 vi.mock('@/lib/data/meetings', () => ({ getProjectMeetingData: vi.fn() }))
@@ -33,6 +36,32 @@ function fakeClient(results: Record<string, TableResult>) {
   })
   return { client: { from }, calls, from }
 }
+
+function fakeMetadataAdmin(
+  data: {
+    old_project_id: string | null
+    new_project_id: string | null
+    wiki_rebuild_required: boolean
+  } = {
+    old_project_id: null,
+    new_project_id: null,
+    wiki_rebuild_required: false,
+  },
+) {
+  const rpc = vi.fn((fn: string, args: Record<string, unknown>) => {
+    void fn
+    void args
+    const result: TableResult = { data, error: null }
+    const builder: Record<string, unknown> = {
+      single: vi.fn(() => builder),
+    }
+    ;(builder as { then: (resolve: (value: TableResult) => void) => void }).then =
+      resolve => resolve(result)
+    return builder
+  })
+  return { client: { rpc, from: vi.fn() }, rpc }
+}
+
 const createServerClient = vi.fn()
 vi.mock('@/lib/supabase/server', () => ({
   createServerClient: (...a: unknown[]) => createServerClient(...(a as [])),
@@ -49,6 +78,7 @@ const seedFolders = [
 
 beforeEach(() => {
   getSession.mockReset(); createServerClient.mockReset(); getMembership.mockReset()
+  adminMocks.createAdminClient.mockReset()
   getSession.mockResolvedValue({ id: 'u1' })
   // 이 파일의 기존 케이스들은 멤버십 가드를 겨냥하지 않으므로 통과 기본값을 깔아준다 —
   // 개별 케이스(멤버십 null)만 아래서 오버라이드.
@@ -226,23 +256,32 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
 describe('updateMinuteMeta 폴더 이동(하위 구분, 수정 모달)', () => {
   const patch = { minuteDate: '2026-07-24', teamCode: 'MES' as const, title: '제목', meetingId: null }
   it('folderId 전달 시 folder_id 포함 갱신', async () => {
-    const { client, calls } = fakeClient({
+    const { client } = fakeClient({
       minutes: { data: { created_by: 'u1' }, error: null },
       minute_folders: { data: { id: 'c-log' }, error: null },
     })
+    const { client: admin, rpc } = fakeMetadataAdmin()
     createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
     const r = await updateMinuteMeta('m1', patch, 'c-log')
     expect(r.ok).toBe(true)
-    const upd = calls['minutes']!.find(c => c.method === 'update')!
-    expect((upd.args[0] as Record<string, unknown>).folder_id).toBe('c-log')
+    expect(rpc).toHaveBeenCalledWith(
+      'update_minute_metadata_with_wiki_retraction',
+      expect.objectContaining({
+        p_minute_id: 'm1',
+        p_metadata: expect.objectContaining({ folder_id: 'c-log' }),
+      }),
+    )
   })
   it('folderId 미전달이면 folder_id 무접촉 — 수동 편철 존중', async () => {
-    const { client, calls } = fakeClient({ minutes: { data: { created_by: 'u1' }, error: null } })
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1' }, error: null } })
+    const { client: admin, rpc } = fakeMetadataAdmin()
     createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
     const r = await updateMinuteMeta('m1', patch)
     expect(r.ok).toBe(true)
-    const upd = calls['minutes']!.find(c => c.method === 'update')!
-    expect('folder_id' in (upd.args[0] as Record<string, unknown>)).toBe(false)
+    const args = rpc.mock.calls[0][1]
+    expect('folder_id' in (args.p_metadata as Record<string, unknown>)).toBe(false)
   })
   it('전달된 폴더 미존재는 거부 — 갱신 미도달', async () => {
     const { client, calls } = fakeClient({
@@ -273,9 +312,13 @@ describe('moveMinuteToFolder', () => {
   it('1행 갱신이면 성공', async () => {
     const { client } = fakeClient({
       minute_folders: { data: { id: 'f1' }, error: null },
+      minutes: { data: { id: 'm1', created_by: 'u1' }, error: null },
+    })
+    const { client: admin } = fakeClient({
       minutes: { data: [{ id: 'm1' }], error: null },
     })
     createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
     expect((await moveMinuteToFolder('m1', 'f1')).ok).toBe(true)
   })
 })

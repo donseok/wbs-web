@@ -5,12 +5,25 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   ingestMinute: vi.fn(async () => {}),
   generateMinuteInsights: vi.fn(async () => {}),
+  enqueueAndProcessMinuteWiki: vi.fn(async () => {}),
+  enqueueMinuteWikiProcessing: vi.fn(async (args: { projectId?: string | null }) =>
+    args.projectId ? 71 : null),
+  processMinuteWikiJob: vi.fn(async () => ({
+    created: 0, changed: 0, reaffirmed: 0, conflicted: 0,
+  })),
+  rebuildProjectWikiFromActiveMinutes: vi.fn(async () => {}),
   afterCallbacks: [] as Array<() => Promise<void> | void>,
 }))
 
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/ai/minutes-ingest', () => ({ ingestMinute: mocks.ingestMinute }))
 vi.mock('@/lib/ai/minutes-insights', () => ({ generateMinuteInsights: mocks.generateMinuteInsights }))
+vi.mock('@/lib/ai/wiki-ingest', () => ({
+  enqueueAndProcessMinuteWiki: mocks.enqueueAndProcessMinuteWiki,
+  enqueueMinuteWikiProcessing: mocks.enqueueMinuteWikiProcessing,
+  processMinuteWikiJob: mocks.processMinuteWikiJob,
+  rebuildProjectWikiFromActiveMinutes: mocks.rebuildProjectWikiFromActiveMinutes,
+}))
 // after()는 요청 스코프 밖(vitest)에서 throw — 콜백을 수집해 테스트가 명시적으로 실행·단언한다.
 vi.mock('next/server', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/server')>()
@@ -25,6 +38,8 @@ const SECRET = 'test-minutes-secret'
 const EXTERNAL_ID = 'ddobak:0198c9f2-3a41-7c22-b1e4-9f3d2a8c1b77'
 const MINUTE_UUID = '3f2b9c4e-8a1d-4c7b-9e2f-1a5d8c3b7e90'
 const MEETING_UUID = '7c1d2e3f-4a5b-6c7d-8e9f-0a1b2c3d4e5f'
+const PROJECT_UUID = '90b95d7d-8d5c-4f8c-9915-4a07b876af27'
+const OLD_PROJECT_UUID = 'e91f75a0-8a6b-4ff9-9ceb-407fa8e73de0'
 const USER = { id: 'u-1', email: 'jerry@example.com', user_metadata: { full_name: '팀장' } }
 
 type QueryResponse = {
@@ -34,7 +49,7 @@ type QueryResponse = {
 }
 
 /** thenable query builder — 체인 메서드 전부 builder 반환, await 시 응답 resolve (index-worker 테스트 관례). */
-function queryBuilder(response: QueryResponse) {
+function queryBuilder(response: QueryResponse | (() => QueryResponse)) {
   const builder: Record<string, ReturnType<typeof vi.fn>> & {
     then?: (resolve: (v: unknown) => unknown, reject: (r: unknown) => unknown) => Promise<unknown>
   } = {}
@@ -42,12 +57,14 @@ function queryBuilder(response: QueryResponse) {
     'select', 'insert', 'update', 'delete', 'upsert', 'eq', 'neq', 'is', 'not',
     'gte', 'lte', 'in', 'or', 'order', 'range', 'limit', 'maybeSingle', 'single',
   ]) builder[method] = vi.fn(() => builder)
-  builder.then = (resolve, reject) =>
-    Promise.resolve({
-      data: response.data ?? null,
-      error: response.error ?? null,
-      count: response.count ?? null,
+  builder.then = (resolve, reject) => {
+    const result = typeof response === 'function' ? response() : response
+    return Promise.resolve({
+      data: result.data ?? null,
+      error: result.error ?? null,
+      count: result.count ?? null,
     }).then(resolve, reject)
+  }
   return builder
 }
 
@@ -62,9 +79,42 @@ function fakeAdmin(
   const builders: Record<string, ReturnType<typeof queryBuilder>[]> = {}
   const admin = {
     from: vi.fn((table: string) => {
-      const b = queryBuilder((tables[table] ?? []).shift() ?? { data: null, error: null })
+      const queued = (tables[table] ?? []).shift()
+      const b = queryBuilder(queued ?? { data: null, error: null })
       ;(builders[table] ??= []).push(b)
       return b
+    }),
+    // 회의록+v1 생성 및 본문+새 버전 교체는 0045 RPC 한 트랜잭션으로 수행된다.
+    // 기존 fixture의 두 번째 minutes 응답을 RPC 결과로 변환해 테스트 의도는 그대로 유지한다.
+    rpc: vi.fn((fn: string, args: Record<string, unknown>) => {
+      const queued = (tables.minutes ?? []).shift() ?? { data: null, error: null }
+      if (queued.error) return queryBuilder(queued)
+      const row = queued.data as Record<string, unknown> | null
+      if (fn === 'create_minute_with_version') {
+        return queryBuilder({
+          data: row
+            ? {
+                minute_id: row.id,
+                version_id: 'mv-1',
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+                wiki_rebuild_required:
+                  row.wiki_rebuild_required === true || args.p_project_id != null,
+              }
+            : null,
+        })
+      }
+      if (fn === 'commit_minute_body_version') {
+        return queryBuilder({
+          data: row
+            ? {
+                version_id: 'mv-2',
+                wiki_rebuild_required: row.wiki_rebuild_required === true,
+              }
+            : null,
+        })
+      }
+      return queryBuilder({ data: null, error: { message: `unexpected rpc: ${fn}` } })
     }),
     auth: {
       admin: {
@@ -126,7 +176,11 @@ const existingRow = {
   minute_date: '2026-07-01',
   team_code: 'PMO',
   title: '옛제목',
+  body_md: '# 옛 회의록\n\n기존 본문',
   meeting_id: null,
+  project_id: null,
+  meeting_occurrence_date: null,
+  archived_at: null,
   external_id: EXTERNAL_ID,
   created_by: 'u-original',
   created_by_name: '원작성자',
@@ -192,12 +246,13 @@ describe('POST /api/v1/minutes 검증 (§3.4, §6, §9.6 ③④)', () => {
   })
 
   it('이메일은 lower/trim 정규화 후 매칭된다', async () => {
-    const { builders } = useAdmin({
+    const { admin, builders } = useAdmin({
       minutes: [{ data: null }, { data: { id: 'm-9', created_at: 't', updated_at: 't' } }],
     })
     const res = await POST(post({ ...payload, user_email: '  Jerry@Example.COM ' }))
     expect(res.status).toBe(201)
-    expect(builders.minutes).toHaveLength(2)
+    expect(builders.minutes).toHaveLength(1)
+    expect(admin.rpc).toHaveBeenCalledWith('create_minute_with_version', expect.any(Object))
   })
 
   it('user_email 누락은 400', async () => {
@@ -258,7 +313,7 @@ describe('POST /api/v1/minutes 검증 (§3.4, §6, §9.6 ③④)', () => {
 
 describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
   it('신규는 201 created — external_id·작성자 귀속 저장 + 후처리(ingest→insights)', async () => {
-    const { builders } = useAdmin({
+    const { admin } = useAdmin({
       minutes: [
         { data: null },
         { data: { id: 'm-1', created_at: '2026-07-19T01:00:00+00:00', updated_at: '2026-07-19T01:00:00+00:00' } },
@@ -273,20 +328,30 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
       external_id: EXTERNAL_ID, created_by_name: '팀장',
       url: 'http://localhost/minutes/m-1',
     })
-    const inserted = builders.minutes[1].insert.mock.calls[0][0] as Record<string, unknown>
-    expect(inserted).toMatchObject({
-      minute_date: payload.date, team_code: 'PMO', title: payload.title,
-      body_md: payload.body_markdown, external_id: EXTERNAL_ID,
-      created_by: 'u-1', created_by_name: '팀장',
-    })
+    expect(admin.rpc).toHaveBeenCalledWith('create_minute_with_version', expect.objectContaining({
+      p_minute_date: payload.date,
+      p_team_code: 'PMO',
+      p_title: payload.title,
+      p_body_md: payload.body_markdown,
+      p_external_id: EXTERNAL_ID,
+      p_actor_id: 'u-1',
+      p_actor_name: '팀장',
+    }))
     expect(mocks.afterCallbacks).toHaveLength(1)
     await runAfterCallbacks()
     expect(mocks.ingestMinute).toHaveBeenCalledWith('m-1', payload.body_markdown)
     expect(mocks.generateMinuteInsights).toHaveBeenCalledWith('m-1', payload.body_markdown)
+    expect(mocks.enqueueMinuteWikiProcessing).toHaveBeenCalledWith(expect.objectContaining({
+      minuteId: 'm-1',
+      minuteVersionId: 'mv-1',
+      projectId: null,
+      bodyMd: payload.body_markdown,
+    }))
+    expect(mocks.processMinuteWikiJob).not.toHaveBeenCalled()
   })
 
   it('신규 insert는 담당 팀 루트 폴더로 자동 편철 — folder_id 세팅(0043)', async () => {
-    const { builders } = useAdmin({
+    const { admin, builders } = useAdmin({
       minutes: [
         { data: null },
         { data: { id: 'm-1', created_at: '2026-07-24T01:00:00+00:00', updated_at: '2026-07-24T01:00:00+00:00' } },
@@ -299,12 +364,14 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
     expect(fq.is).toHaveBeenCalledWith('parent_id', null)     // 루트 한정
     expect(fq.is).toHaveBeenCalledWith('created_by', null)    // 시드 고정(스쿼팅 배제)
     expect(fq.eq).toHaveBeenCalledWith('name', 'PMO')         // 팀코드 동명 매칭
-    const inserted = builders.minutes[1].insert.mock.calls[0][0] as Record<string, unknown>
-    expect(inserted.folder_id).toBe('f-pmo')
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version',
+      expect.objectContaining({ p_folder_id: 'f-pmo' }),
+    )
   })
 
   it('팀 루트 폴더 조회 실패는 미분류(null) 폴백 — 등록은 막지 않는다(201)', async () => {
-    const { builders } = useAdmin({
+    const { admin } = useAdmin({
       minutes: [
         { data: null },
         { data: { id: 'm-1', created_at: '2026-07-24T01:00:00+00:00', updated_at: '2026-07-24T01:00:00+00:00' } },
@@ -313,12 +380,14 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
     })
     const res = await POST(post(payload))
     expect(res.status).toBe(201)
-    const inserted = builders.minutes[1].insert.mock.calls[0][0] as Record<string, unknown>
-    expect(inserted.folder_id).toBeNull()
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version',
+      expect.objectContaining({ p_folder_id: null }),
+    )
   })
 
   it('같은 external_id 재전송(기본 replace)은 200 replaced — D3 범위만 갱신, 소유권 불변', async () => {
-    const { builders } = useAdmin({
+    const { admin } = useAdmin({
       minutes: [
         { data: existingRow },
         { data: { id: 'm-1', created_at: existingRow.created_at, updated_at: '2026-07-19T02:00:00+00:00' } },
@@ -329,17 +398,28 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
     expect(await res.json()).toMatchObject({
       ok: true, id: 'm-1', action: 'replaced', created_by_name: '원작성자',
     })
-    const updated = builders.minutes[1].update.mock.calls[0][0] as Record<string, unknown>
-    expect(updated).toMatchObject({
-      minute_date: payload.date, team_code: 'PMO', title: payload.title,
-      body_md: payload.body_markdown,
+    const commitCall = admin.rpc.mock.calls.find(
+      ([fn]) => fn === 'commit_minute_body_version',
+    )
+    expect(commitCall).toBeDefined()
+    const committed = commitCall![1]
+    expect(committed).toMatchObject({
+      p_minute_id: 'm-1',
+      p_body_md: payload.body_markdown,
+      p_actor_id: 'u-1',
+      p_metadata: expect.objectContaining({
+        minute_date: payload.date,
+        team_code: 'PMO',
+        title: payload.title,
+        project_id: null,
+      }),
     })
-    expect(updated).toHaveProperty('updated_at')
+    const metadata = committed.p_metadata as Record<string, unknown>
     // §0 D3 — 소유권·멱등키는 갱신 범위 밖, meeting_id는 미전송이므로 유지(v2.2)
-    expect(Object.keys(updated)).not.toContain('created_by')
-    expect(Object.keys(updated)).not.toContain('created_by_name')
-    expect(Object.keys(updated)).not.toContain('external_id')
-    expect(Object.keys(updated)).not.toContain('meeting_id')
+    expect(Object.keys(metadata)).not.toContain('created_by')
+    expect(Object.keys(metadata)).not.toContain('created_by_name')
+    expect(Object.keys(metadata)).not.toContain('external_id')
+    expect(metadata.meeting_id).toBe(existingRow.meeting_id)
     await runAfterCallbacks()
     expect(mocks.ingestMinute).toHaveBeenCalledWith('m-1', payload.body_markdown)
     expect(mocks.generateMinuteInsights).toHaveBeenCalledWith('m-1', payload.body_markdown)
@@ -375,14 +455,14 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
       '- **생성자**: jjinie73@gmail.com', '',
       '## AI 회의록',
     ].join('\n')
-    const { builders } = useAdmin({
+    const { admin } = useAdmin({
       minutes: [{ data: null }, { data: { id: 'm-3', created_at: 't', updated_at: 't' } }],
     })
     const res = await POST(post({ ...payload, body_markdown: ddobakBody }))
     expect(res.status).toBe(201)
-    const inserted = builders.minutes[1].insert.mock.calls[0][0] as Record<string, unknown>
-    expect(inserted.body_md).toBe(ddobakBody)
-    expect(inserted.body_md).toContain('14:00 ~ 15:10')
+    const args = admin.rpc.mock.calls[0][1] as Record<string, unknown>
+    expect(args.p_body_md).toBe(ddobakBody)
+    expect(args.p_body_md).toContain('14:00 ~ 15:10')
   })
 
   it('replace 경로도 4마커 본문을 무보정으로 저장한다 (§9.6 ⑨ — 또박또박 일상 흐름은 재전송)', async () => {
@@ -393,25 +473,63 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
       '- **상태**: 완료',
       '- **생성자**: jjinie73@gmail.com',
     ].join('\n')
-    const { builders } = useAdmin({
+    const { admin } = useAdmin({
       minutes: [{ data: existingRow }, { data: { id: 'm-1', created_at: 't', updated_at: 't' } }],
     })
     const res = await POST(post({ ...payload, body_markdown: ddobakBody }))
     expect(res.status).toBe(200)
-    const updated = builders.minutes[1].update.mock.calls[0][0] as Record<string, unknown>
-    expect(updated.body_md).toBe(ddobakBody)
-    expect(updated.body_md).toContain('14:00 ~ 15:10')
+    const args = admin.rpc.mock.calls[0][1] as Record<string, unknown>
+    expect(args.p_body_md).toBe(ddobakBody)
+    expect(args.p_body_md).toContain('14:00 ~ 15:10')
   })
 
-  it('meeting_id가 존재하면 201 — 값이 저장·응답에 전파된다 (§4.2 프로젝트 연결 유일 경로)', async () => {
-    const { builders } = useAdmin({
-      meetings: [{ data: { id: MEETING_UUID } }],
+  it('meeting_id가 존재하면 프로젝트 ordered rebuild로 저장·응답된다', async () => {
+    const { admin, builders } = useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
       minutes: [{ data: null }, { data: { id: 'm-5', created_at: 't', updated_at: 't' } }],
     })
     const res = await POST(post({ ...payload, meeting_id: MEETING_UUID }))
     expect(res.status).toBe(201)
     expect((await res.json()).meeting_id).toBe(MEETING_UUID)
-    expect((builders.minutes[1].insert.mock.calls[0][0] as Record<string, unknown>).meeting_id).toBe(MEETING_UUID)
+    expect(builders.meetings[0].select).toHaveBeenCalledWith('id, project_id')
+    expect(admin.rpc).toHaveBeenCalledWith('create_minute_with_version', expect.objectContaining({
+      p_meeting_id: MEETING_UUID,
+      p_project_id: PROJECT_UUID,
+    }))
+    await runAfterCallbacks()
+    expect(mocks.enqueueMinuteWikiProcessing).toHaveBeenCalledWith(expect.objectContaining({
+      minuteId: 'm-5',
+      projectId: PROJECT_UUID,
+      minuteVersionId: 'mv-1',
+    }))
+    expect(mocks.rebuildProjectWikiFromActiveMinutes).toHaveBeenCalledWith(PROJECT_UUID)
+    expect(mocks.processMinuteWikiJob).not.toHaveBeenCalled()
+  })
+
+  it('과거 시점 신규 회의록도 단일 job 선처리 대신 durable 프로젝트 rebuild를 진행한다', async () => {
+    useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
+      minutes: [
+        { data: null },
+        {
+          data: {
+            id: 'm-backdated',
+            created_at: '2026-07-26T01:00:00+00:00',
+            updated_at: '2026-07-26T01:00:00+00:00',
+            wiki_rebuild_required: true,
+          },
+        },
+      ],
+    })
+
+    const res = await POST(post({ ...payload, meeting_id: MEETING_UUID }))
+    expect(res.status).toBe(201)
+    await runAfterCallbacks()
+
+    expect(mocks.rebuildProjectWikiFromActiveMinutes)
+      .toHaveBeenCalledWith(PROJECT_UUID)
+    expect(mocks.processMinuteWikiJob).not.toHaveBeenCalled()
+    expect(mocks.ingestMinute).toHaveBeenCalledWith('m-backdated', payload.body_markdown)
   })
 
   it('replace: meeting_id 미전송은 기존 연결 유지, 명시적 null은 해제 (§0 D3 v2.2)', async () => {
@@ -423,8 +541,8 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
     let res = await POST(post(payload))
     expect(res.status).toBe(200)
     expect((await res.json()).meeting_id).toBe(MEETING_UUID)
-    let updated = fake.builders.minutes[1].update.mock.calls[0][0] as Record<string, unknown>
-    expect(Object.keys(updated)).not.toContain('meeting_id')
+    let metadata = fake.admin.rpc.mock.calls[0][1].p_metadata as Record<string, unknown>
+    expect(metadata.meeting_id).toBe(MEETING_UUID)
     // 명시적 null → 해제
     fake = useAdmin({
       minutes: [{ data: withMeeting }, { data: { id: 'm-1', created_at: 't', updated_at: 't' } }],
@@ -432,8 +550,58 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
     res = await POST(post({ ...payload, meeting_id: null }))
     expect(res.status).toBe(200)
     expect((await res.json()).meeting_id).toBeNull()
-    updated = fake.builders.minutes[1].update.mock.calls[0][0] as Record<string, unknown>
-    expect(updated.meeting_id).toBeNull()
+    metadata = fake.admin.rpc.mock.calls[0][1].p_metadata as Record<string, unknown>
+    expect(metadata.meeting_id).toBeNull()
+  })
+
+  it('replace로 프로젝트가 바뀌면 old/new Wiki를 모두 재구성하고 단일 job을 직접 처리하지 않는다', async () => {
+    useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
+      minutes: [
+        { data: { ...existingRow, project_id: OLD_PROJECT_UUID } },
+        { data: { id: 'm-1', created_at: 't', updated_at: 't' } },
+      ],
+    })
+
+    const res = await POST(post({ ...payload, meeting_id: MEETING_UUID }))
+    expect(res.status).toBe(200)
+    await runAfterCallbacks()
+
+    expect(mocks.rebuildProjectWikiFromActiveMinutes).toHaveBeenCalledTimes(2)
+    expect(mocks.rebuildProjectWikiFromActiveMinutes)
+      .toHaveBeenNthCalledWith(1, OLD_PROJECT_UUID, 'm-1')
+    expect(mocks.rebuildProjectWikiFromActiveMinutes)
+      .toHaveBeenNthCalledWith(2, PROJECT_UUID)
+    expect(mocks.enqueueMinuteWikiProcessing).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: PROJECT_UUID,
+      minuteId: 'm-1',
+      minuteVersionId: 'mv-2',
+    }))
+    expect(mocks.processMinuteWikiJob).not.toHaveBeenCalled()
+  })
+
+  it('replace에서 본문이 바뀌면 같은 프로젝트의 최신 회의록 버전을 시간순 재구성한다', async () => {
+    useAdmin({
+      minutes: [
+        { data: { ...existingRow, project_id: PROJECT_UUID } },
+        {
+          data: {
+            id: 'm-1',
+            created_at: 't',
+            updated_at: 't',
+            wiki_rebuild_required: true,
+          },
+        },
+      ],
+    })
+
+    const res = await POST(post(payload))
+    expect(res.status).toBe(200)
+    await runAfterCallbacks()
+
+    expect(mocks.rebuildProjectWikiFromActiveMinutes)
+      .toHaveBeenCalledWith(PROJECT_UUID)
+    expect(mocks.processMinuteWikiJob).not.toHaveBeenCalled()
   })
 
   it('동시 전송 경합(insert 23505)은 기존 레코드 기준 replace로 수렴한다', async () => {

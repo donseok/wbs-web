@@ -267,6 +267,27 @@ describe('createSupabaseIndexContentLoader', () => {
     await expect(loader(claimedJob())).resolves.toEqual({ ok: true, data: null })
   })
 
+  it('treats an archived minute as a deleted search source', async () => {
+    const loader = createSupabaseIndexContentLoader(clientFor({
+      minutes: {
+        data: {
+          id: 'm1',
+          project_id: 'p1',
+          archived_at: '2026-07-26T00:00:00.000Z',
+          meetings: { project_id: 'p1' },
+        },
+        error: null,
+      },
+    }) as never)
+
+    await expect(loader(claimedJob({
+      domain: 'minutes',
+      entityType: 'minute',
+      entityId: 'm1',
+      jobKey: 'v1:p1:minutes:minute:m1',
+    }))).resolves.toEqual({ ok: true, data: null })
+  })
+
   it('builds contiguous chunks without account or author PII and keeps embeddings null without a key', async () => {
     const client = clientFor({
       minutes: {

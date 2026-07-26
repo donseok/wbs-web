@@ -5,7 +5,7 @@ type QueryResponse = { data: unknown; error: unknown }
 
 function queryBuilder(response: QueryResponse) {
   const builder: Record<string, unknown> = {}
-  for (const method of ['select', 'eq', 'gte', 'lte', 'in', 'or', 'order', 'limit', 'maybeSingle']) {
+  for (const method of ['select', 'eq', 'gte', 'lte', 'in', 'is', 'or', 'order', 'limit', 'maybeSingle']) {
     builder[method] = vi.fn(() => builder)
   }
   for (const method of ['insert', 'upsert', 'update', 'delete']) {
@@ -65,6 +65,7 @@ describe('strict Supabase minutes repository', () => {
     expect(selected).toContain('meetings!inner(project_id)')
     // 목록 select에는 본문·Storage 경로·원시 auth ID가 없어야 한다.
     expect(selected).not.toMatch(/body_md|file_path|created_by(?!_name)/)
+    expect(query.is).toHaveBeenCalledWith('archived_at', null)
     expect(query.or).toHaveBeenCalledWith('title.ilike."%설계%",body_md.ilike."%설계%"')
     expect(query.eq).toHaveBeenCalledWith('team_code', 'ERP')
     expect(query.eq).toHaveBeenCalledWith('meetings.project_id', 'p1')

@@ -42,9 +42,12 @@ export async function POST(req: NextRequest) {
     if (!user) return apiFail(403, 'unknown_user', "해당 이메일의 D'Flow 사용자가 없습니다.")
 
     const { data: target, error: selErr } = await admin.from('minutes')
-      .select('id, external_id').eq('id', minuteId).maybeSingle()
+      .select('id, external_id, archived_at').eq('id', minuteId).maybeSingle()
     if (selErr) { console.error('[minutes-api] link 대상 조회 실패:', selErr.message); return apiInternalError() }
     if (!target) return apiFail(404, 'not_found', '회의록을 찾을 수 없습니다.')
+    if ((target as { archived_at: string | null }).archived_at) {
+      return apiFail(409, 'archived', '보관된 회의록은 연결할 수 없습니다.')
+    }
 
     const current = (target as { external_id: string | null }).external_id
     if (current === externalId) return linked(minuteId, externalId)  // 멱등 — 재호출 안전

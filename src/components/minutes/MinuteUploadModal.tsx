@@ -111,14 +111,35 @@ export function MinuteUploadModal({
     try {
       let minuteId = progressRef.current?.id ?? null
       if (!minuteId) {
+        // 원본 .md를 먼저 Storage에 올리고, 그 경로와 client-generated UUID를 본체 생성과 함께
+        // 전달한다. v1은 처음부터 파일 메타를 가진 불변 행으로 INSERT되며 사후 UPDATE하지 않는다.
+        const candidateId = crypto.randomUUID()
+        const bodyPath = `${candidateId}/${Date.now()}-${sanitizeFileName(bodyFile.name)}`
+        const sb = createBrowserClient()
+        const bodyUpload = await sb.storage.from(BUCKET).upload(bodyPath, bodyFile, { upsert: false })
+        if (bodyUpload.error) { setErr(`${t('min.err.upload')}: ${bodyUpload.error.message}`); return }
         // 편철 폴더 = (팀, 하위 구분) → 실폴더. 해석 실패(null)면 서버가 팀 루트로 자동 편철
         const res = await createMinute({
           minuteDate: date, teamCode: team, title: title.trim() || bodyFile.name,
-          bodyMd: bodyText, meetingId: meetingId || null,
-        }, subgroupFolderId(liveFolders, team, sub))
-        if (!res.ok || !res.id) { setErr(res.error ?? t('min.err.upload')); return }
+          bodyMd: bodyText, meetingId: meetingId || null, projectId: projectId || null,
+          meetingOccurrenceDate: meetingId ? date : null,
+        }, subgroupFolderId(liveFolders, team, sub), {
+          minuteId: candidateId,
+          file: {
+            fileName: bodyFile.name,
+            filePath: bodyPath,
+            size: bodyFile.size,
+            mime: bodyFile.type || 'text/markdown',
+          },
+        })
+        if (!res.ok || !res.id) {
+          await sb.storage.from(BUCKET).remove([bodyPath])
+          setErr(res.error ?? t('min.err.upload'))
+          return
+        }
         minuteId = res.id
-        progressRef.current = { id: minuteId, done: 0 }
+        // body는 createMinute가 메타와 v1까지 함께 기록했으므로 첨부 루프에서는 건너뛴다.
+        progressRef.current = { id: minuteId, done: 1 }
         if (res.timeFix) {
           toast({
             title: t('min.timeFix.title'),
@@ -221,7 +242,7 @@ export function MinuteUploadModal({
           <label className="block">
             <span className="mb-1 block font-medium">{t('min.form.project')}</span>
             <select value={projectId} onChange={e => void onProject(e.target.value)} className="app-input">
-              <option value="">{t('min.form.meetingNone')}</option>
+              <option value="">{t('min.form.projectNone')}</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>

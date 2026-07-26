@@ -83,7 +83,9 @@ export async function streamDocAnswer(input: {
   const sb = await createServerClient() // RLS 적용
   const { data: r } = await sb.from('minutes')
     .select('id, minute_date, team_code, title, body_md')
-    .eq('id', input.minuteId).maybeSingle()
+    .eq('id', input.minuteId)
+    .is('archived_at', null)
+    .maybeSingle()
   if (!r) return null
 
   const system = `${DOC_SYSTEM}\n\n[회의록] ${r.minute_date} · ${r.team_code} · ${r.title}\n${r.body_md as string}`
@@ -135,6 +137,7 @@ export async function streamArchiveAnswer(input: {
   if (keywords.length) {
     const pat = ilikeOrPattern(keywords[0])
     let q = sb.from('minutes').select('id, minute_date, team_code, title')
+      .is('archived_at', null)
       .or(`title.ilike.${pat},body_md.ilike.${pat}`)
       .order('minute_date', { ascending: false }).limit(10)
     if (input.filters.team) q = q.eq('team_code', input.filters.team)

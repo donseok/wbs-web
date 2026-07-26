@@ -46,6 +46,7 @@ export async function healMissingMinuteEmbeddings(limit = 3): Promise<void> {
       // anti-join: 임베딩이 하나도 없는 회의록 (embedded count — 행 수가 회의록 수라 max-rows 캡 무관)
       const { data: all } = await admin.from('minutes')
         .select('id, body_md, minute_embeddings(count)')
+        .is('archived_at', null)
         .neq('body_md', '')
         .order('minute_date', { ascending: false }).limit(200)
       const missing = (all ?? [])

@@ -2,7 +2,7 @@
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, Paperclip, Star,
+  BookOpenText, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, Paperclip, Star,
 } from 'lucide-react'
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
@@ -373,8 +373,13 @@ function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName
           {l.teamCode}
         </span>
       </div>
-      {(l.meetingCategory || folderName) && (
+      {(l.projectName || l.meetingCategory || folderName) && (
         <div className="flex flex-wrap items-center gap-1.5">
+          {l.projectName && (
+            <span className="chip bg-brand-weak text-brand">
+              <BookOpenText aria-hidden className="h-3 w-3" />{l.projectName}
+            </span>
+          )}
           {l.meetingCategory && <CategoryChip cat={l.meetingCategory} t={t} />}
           {folderName && (
             <span className="chip bg-surface-2 text-ink-muted">
@@ -415,6 +420,12 @@ function MinuteRow({ l, fav, favDisabled, canMove, onMove, onToggle, folderName,
           {l.bodyPreview && <span className="block truncate text-xs text-ink-subtle">{l.bodyPreview}</span>}
         </span>
         {l.meetingCategory && <span className="hidden shrink-0 sm:inline-flex"><CategoryChip cat={l.meetingCategory} t={t} /></span>}
+        {l.projectName && (
+          <span className="chip hidden max-w-40 shrink-0 bg-brand-weak text-brand lg:inline-flex">
+            <BookOpenText aria-hidden className="h-3 w-3" />
+            <span className="truncate">{l.projectName}</span>
+          </span>
+        )}
         {folderName && (
           <span className="chip hidden shrink-0 bg-surface-2 text-ink-muted md:inline-flex">
             <Folder aria-hidden className="h-3 w-3" />{folderName}

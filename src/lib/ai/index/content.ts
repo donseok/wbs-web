@@ -268,15 +268,19 @@ async function loadAnnouncement(client: SupabaseKnowledgeClient, job: ClaimedInd
 async function loadMinute(client: SupabaseKnowledgeClient, job: ClaimedIndexJob): Promise<IndexContentLoadResult> {
   // created_by(계정)·created_by_name(실명)·file_path(Storage 경로)는 select 자체에서 제외한다.
   const { data, error } = await client.from('minutes')
-    .select('id, minute_date, team_code, title, body_md, created_at, updated_at, meetings(project_id)')
+    .select('id, minute_date, team_code, title, body_md, project_id, archived_at, created_at, updated_at, meetings(project_id)')
     .eq('id', job.entityId)
     .maybeSingle()
   if (error) return readError('MINUTE_DETAIL_READ_FAILED', error)
   if (!data) return { ok: true, data: null }
   const row = data as Row
+  // soft archive는 원본 삭제가 아니지만 검색 지식에서는 삭제와 같다. 이미 대기 중이던
+  // 색인 job도 archived 원문을 다시 살리지 않고 기존 chunk를 제거하게 null로 반환한다.
+  if (row.archived_at) return { ok: true, data: null }
   const meeting = nestedOne(row.meetings as { project_id?: unknown } | { project_id?: unknown }[] | null)
   const meetingProjectId = typeof meeting?.project_id === 'string' ? meeting.project_id : null
-  if (meetingProjectId !== job.projectId) return scopeMismatch()
+  const minuteProjectId = str(row.project_id) ?? meetingProjectId
+  if (minuteProjectId !== job.projectId) return scopeMismatch()
 
   const minuteDate = safeDate(row.minute_date)
   const text = joinLines([

@@ -27,7 +27,7 @@ export function MinuteMetaModal({
   const [sub, setSub] = useState<string>('')
   const [folders, setFolders] = useState<MinuteFolder[]>([])
   const [title, setTitle] = useState(minute.title)
-  const [projectId, setProjectId] = useState(minute.meetingProjectId ?? '')
+  const [projectId, setProjectId] = useState(minute.projectId ?? minute.meetingProjectId ?? '')
   const [meetingId, setMeetingId] = useState(minute.meetingId ?? '')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
   const [busy, setBusy] = useState(false)
@@ -46,7 +46,7 @@ export function MinuteMetaModal({
   }
 
   // 기존 연결이 있으면 열릴 때 해당 프로젝트의 회의 목록을 채워 현재 선택이 보이게 한다
-  const initialProjectId = minute.meetingProjectId ?? ''
+  const initialProjectId = minute.projectId ?? minute.meetingProjectId ?? ''
   useEffect(() => {
     if (!open || !initialProjectId) return
     let alive = true
@@ -89,6 +89,7 @@ export function MinuteMetaModal({
       : null
     const res = await updateMinuteMeta(minute.id, {
       minuteDate: date, teamCode: team, title, meetingId: meetingId || null,
+      projectId: projectId || null, meetingOccurrenceDate: meetingId ? date : null,
     }, fid ?? undefined)
     setBusy(false)
     if (!res.ok) { setErr(res.error ?? 'error'); return }
@@ -125,7 +126,7 @@ export function MinuteMetaModal({
           <label className="block">
             <span className="mb-1 block font-medium">{t('min.form.project')}</span>
             <select value={projectId} onChange={e => void onProject(e.target.value)} className="app-input">
-              <option value="">{t('min.form.meetingNone')}</option>
+              <option value="">{t('min.form.projectNone')}</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>

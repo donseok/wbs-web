@@ -122,6 +122,10 @@ export interface MinuteInput {
   title: string
   bodyMd: string
   meetingId: string | null
+  /** 회의 선택 없이도 프로젝트 지식에 귀속할 수 있다. meetingId가 있으면 같은 프로젝트여야 한다. */
+  projectId?: string | null
+  /** 반복 회의의 실제 개최일. 생략하면 연결된 회의록의 minuteDate를 사용한다. */
+  meetingOccurrenceDate?: string | null
 }
 
 /** 회의록 입력 검증 — 에러 메시지 또는 null. create/updateMeta/replaceBody 가 공유. */
@@ -133,6 +137,8 @@ export function validateMinuteInput(
   if (!title) return '제목을 입력하세요.'
   if (title.length > MINUTE_TITLE_MAX) return `제목은 ${MINUTE_TITLE_MAX}자 이하여야 합니다.`
   if (!DATE_RE.test(input.minuteDate)) return '날짜 형식이 올바르지 않습니다.'
+  if (input.meetingOccurrenceDate && !DATE_RE.test(input.meetingOccurrenceDate))
+    return '회의 개최일 형식이 올바르지 않습니다.'
   if (!teamCodes.includes(input.teamCode)) return '잘못된 담당입니다.'
   if (input.bodyMd.length > MINUTE_BODY_MAX) return '본문은 100,000자 이하여야 합니다.'
   return null

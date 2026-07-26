@@ -6,6 +6,11 @@ import type {
 } from '@/lib/domain/types'
 import { ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
+import type { MinuteVersionListItem } from '@/components/minutes/MinuteVersionPanel'
+import type {
+  MinuteWikiImpactCardProps, MinuteWikiImpactCounts, MinuteWikiImpactItem, MinuteWikiSyncStatus,
+} from '@/components/minutes/MinuteWikiImpactCard'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 type Row = Record<string, unknown>
 
@@ -16,9 +21,10 @@ const INSIGHT_COLS = 'id, minute_id, body_hash, kind, label, block_index, block_
 export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8): Promise<MinuteSignal[]> => {
   const sb = await createServerClient()
   const { data, error } = await sb.from('minute_insights')
-    .select(`${INSIGHT_COLS}, minutes!inner(title, minute_date, meeting_id, meetings!inner(project_id))`)
+    .select(`${INSIGHT_COLS}, minutes!inner(title, minute_date, meeting_id, archived_at, meetings!inner(project_id))`)
     .in('kind', ['action', 'risk', 'decision', 'deadline'])
     .eq('minutes.meetings.project_id', projectId)
+    .is('minutes.archived_at', null)
     .order('created_at', { ascending: false }).limit(limit)
   if (error) {
     console.error('[getProjectMinuteSignals] 조회 실패:', error.message)
@@ -36,7 +42,7 @@ export const getProjectMinuteSignals = cache(async (projectId: string, limit = 8
 })
 
 const LIST_COLS =
-  'id, minute_date, team_code, title, meeting_id, created_by, created_by_name, created_at, updated_at, body_preview, folder_id, minute_files(count), meetings(category)'
+  'id, minute_date, team_code, title, meeting_id, project_id, meeting_occurrence_date, archived_at, created_by, created_by_name, created_at, updated_at, body_preview, folder_id, minute_files(count), meetings(category, project_id), projects(name)'
 
 function mapMinute(r: Row, bodyMd = ''): Minute {
   const files = r.minute_files as { count: number }[] | undefined
@@ -47,10 +53,15 @@ function mapMinute(r: Row, bodyMd = ''): Minute {
     title: r.title as string,
     bodyMd,
     meetingId: (r.meeting_id as string | null) ?? null,
+    projectId: (r.project_id as string | null)
+      ?? ((r.meetings as { project_id?: string } | null)?.project_id ?? null),
+    projectName: ((r.projects as { name?: string } | null)?.name) ?? null,
+    meetingOccurrenceDate: (r.meeting_occurrence_date as string | null) ?? null,
     createdBy: (r.created_by as string | null) ?? null,
     createdByName: (r.created_by_name as string | null) ?? null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
+    archivedAt: (r.archived_at as string | null) ?? null,
     fileCount: files?.[0]?.count ?? 0,
     bodyPreview: (r.body_preview as string | null) ?? '',
     meetingCategory: ((r.meetings as { category?: MeetingCategory } | null)?.category) ?? null,
@@ -64,6 +75,7 @@ export const getMinutesPage = cache(async (
 ): Promise<Minute[]> => {
   const sb = await createServerClient()
   let q = sb.from('minutes').select(LIST_COLS)
+    .is('archived_at', null)
     .gte('minute_date', rangeStart).lte('minute_date', rangeEnd)
     .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
   if (team) q = q.eq('team_code', team)
@@ -82,6 +94,7 @@ export const searchMinutes = cache(async (
   const sb = await createServerClient()
   const pat = ilikeOrPattern(needle)
   let q = sb.from('minutes').select(LIST_COLS)
+    .is('archived_at', null)
     .or(`title.ilike.${pat},body_md.ilike.${pat}`)
     .order('minute_date', { ascending: false }).limit(limit)
   if (team) q = q.eq('team_code', team)
@@ -98,6 +111,7 @@ export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> =
   const sb = await createServerClient()
   const [mRes, fRes] = await Promise.all([
     sb.from('minutes').select(LIST_COLS)
+      .is('archived_at', null)
       .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
       .limit(MINUTES_TREE_LIMIT),
     sb.from('minute_folders').select('id, name, parent_id, sort, created_by')
@@ -113,6 +127,7 @@ export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> =
     fileCount: mi.fileCount ?? 0, createdBy: mi.createdBy, createdByName: mi.createdByName,
     bodyPreview: mi.bodyPreview ?? '', meetingCategory: mi.meetingCategory ?? null,
     folderId: mi.folderId ?? null,
+    projectId: mi.projectId ?? null, projectName: mi.projectName ?? null,
   }))
   const folders: MinuteFolder[] = ((fRes.data ?? []) as Row[]).map(f => ({
     id: f.id as string, name: f.name as string,
@@ -128,7 +143,7 @@ export const getMinuteDetail = cache(async (
 ): Promise<{ minute: Minute; files: MinuteFile[] } | null> => {
   const sb = await createServerClient()
   const { data: r, error } = await sb.from('minutes')
-    .select('id, minute_date, team_code, title, body_md, meeting_id, created_by, created_by_name, created_at, updated_at, folder_id, meetings(project_id)')
+    .select('id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, created_by, created_by_name, created_at, updated_at, folder_id, meetings(project_id), projects(name)')
     .eq('id', id).maybeSingle()
   // null 은 호출자에서 404(삭제됨)로 렌더된다 — 조회 실패를 '행 없음'으로 위장하면
   // 멀쩡히 존재하는 회의록이 삭제된 것처럼 보인다. 실패는 실패로 터뜨린다.
@@ -150,7 +165,8 @@ export const getMinuteDetail = cache(async (
     createdAt: f.created_at as string,
   }))
   const minute = mapMinute(r as Row, (r as Row).body_md as string)
-  minute.meetingProjectId = ((r as Row).meetings as { project_id: string } | null)?.project_id ?? null
+  minute.meetingProjectId = ((r as Row).meetings as { project_id: string } | null)?.project_id
+    ?? minute.projectId ?? null
   return { minute, files }
 })
 
@@ -189,6 +205,215 @@ export const getMinuteAnnotations = cache(async (
       blockIndex: r.block_index as number,
       blockHash: r.block_hash as string,
     })),
+  }
+})
+
+/** 불변 원본 버전 목록. 파일이 있으면 한 시간 유효한 다운로드 URL을 함께 발급한다. */
+export const getMinuteVersions = cache(async (
+  id: string,
+): Promise<MinuteVersionListItem[]> => {
+  const sb = await createServerClient()
+  const { data, error } = await sb.from('minute_versions')
+    .select('id, version_no, file_name, file_path, created_by_name, created_at')
+    .eq('minute_id', id)
+    .order('version_no', { ascending: false })
+  if (error) {
+    // 0045 미적용 환경에서는 상세 본문 자체는 계속 볼 수 있게 버전 카드만 숨긴다.
+    console.error('[getMinuteVersions] 조회 실패:', error.message)
+    return []
+  }
+  return await Promise.all(((data ?? []) as Row[]).map(async row => {
+    const filePath = (row.file_path as string | null) ?? null
+    let downloadHref: string | null = null
+    if (filePath) {
+      const { data: signed, error: signedError } = await sb.storage.from('minutes').createSignedUrl(
+        filePath,
+        3600,
+        { download: ((row.file_name as string | null) ?? true) as string | true },
+      )
+      if (signedError) console.error('[getMinuteVersions] 서명 URL 발급 실패:', signedError.message)
+      downloadHref = signed?.signedUrl ?? null
+    }
+    return {
+      id: row.id as string,
+      versionNo: row.version_no as number,
+      createdAt: row.created_at as string,
+      createdByName: (row.created_by_name as string | null) ?? null,
+      fileName: (row.file_name as string | null) ?? null,
+      downloadHref,
+      viewHref: `/minutes/${id}?version=${encodeURIComponent(row.id as string)}`,
+    }
+  }))
+})
+
+export interface MinuteVersionBody {
+  id: string
+  versionNo: number
+  bodyMd: string
+  bodyHash: string
+  title: string | null
+  minuteDate: string | null
+  teamCode: TeamCode | null
+  meetingId: string | null
+  projectId: string | null
+  meetingOccurrenceDate: string | null
+  createdAt: string
+}
+
+/** Wiki 원문 링크가 교체 전 근거도 정확히 열 수 있도록 특정 불변 버전 본문을 조회한다. */
+export const getMinuteVersionBody = cache(async (
+  minuteId: string,
+  versionId: string,
+): Promise<MinuteVersionBody | null> => {
+  const sb = await createServerClient()
+  const { data, error } = await sb.from('minute_versions')
+    .select('id, version_no, body_md, body_hash, title, minute_date, team_code, meeting_id, project_id, meeting_occurrence_date, created_at')
+    .eq('id', versionId)
+    .eq('minute_id', minuteId)
+    .maybeSingle()
+  if (error) {
+    console.error('[getMinuteVersionBody] 조회 실패:', error.message)
+    return null
+  }
+  if (!data) return null
+  return {
+    id: data.id as string,
+    versionNo: data.version_no as number,
+    bodyMd: data.body_md as string,
+    bodyHash: data.body_hash as string,
+    title: (data.title as string | null) ?? null,
+    minuteDate: (data.minute_date as string | null) ?? null,
+    teamCode: (data.team_code as TeamCode | null) ?? null,
+    meetingId: (data.meeting_id as string | null) ?? null,
+    projectId: (data.project_id as string | null) ?? null,
+    meetingOccurrenceDate: (data.meeting_occurrence_date as string | null) ?? null,
+    createdAt: data.created_at as string,
+  }
+})
+
+const EMPTY_WIKI_COUNTS: MinuteWikiImpactCounts = {
+  created: 0,
+  changed: 0,
+  reaffirmed: 0,
+  conflicted: 0,
+}
+
+function jobSummary(payload: unknown): MinuteWikiImpactCounts {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { ...EMPTY_WIKI_COUNTS }
+  const summary = (payload as Row).summary
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return { ...EMPTY_WIKI_COUNTS }
+  const row = summary as Row
+  const count = (key: keyof MinuteWikiImpactCounts) =>
+    typeof row[key] === 'number' && Number.isFinite(row[key]) ? Math.max(0, row[key] as number) : 0
+  return {
+    created: count('created'),
+    changed: count('changed'),
+    reaffirmed: count('reaffirmed'),
+    conflicted: count('conflicted'),
+  }
+}
+
+function impactChange(changeType: string): keyof MinuteWikiImpactCounts {
+  if (changeType === 'new') return 'created'
+  if (changeType === 'reaffirm') return 'reaffirmed'
+  if (changeType === 'conflict') return 'conflicted'
+  return 'changed'
+}
+
+/** 회의록 상세의 "Wiki 반영 결과" 읽기 모델. 내부 큐는 service-role로만 조회한다. */
+export const getMinuteWikiImpact = cache(async (
+  minuteId: string,
+  projectId: string | null,
+  projectName: string | null,
+): Promise<MinuteWikiImpactCardProps> => {
+  if (!projectId) {
+    return {
+      status: 'unlinked',
+      counts: { ...EMPTY_WIKI_COUNTS },
+      items: [],
+      wikiHref: null,
+      projectName: null,
+      processedAt: null,
+    }
+  }
+
+  const fallback: MinuteWikiImpactCardProps = {
+    status: 'queued',
+    counts: { ...EMPTY_WIKI_COUNTS },
+    items: [],
+    wikiHref: `/p/${projectId}/wiki`,
+    projectName,
+    processedAt: null,
+  }
+  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return fallback
+
+  const admin = createAdminClient()
+  const { data: job, error: jobError } = await admin.from('wiki_processing_jobs')
+    .select('status, payload, updated_at')
+    .eq('minute_id', minuteId)
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (jobError) {
+    console.error('[getMinuteWikiImpact] 작업 조회 실패:', jobError.message)
+    return fallback
+  }
+
+  const counts = jobSummary(job?.payload)
+  let status: MinuteWikiSyncStatus = 'queued'
+  if (job?.status === 'running') status = 'processing'
+  else if (job?.status === 'dead_letter') status = 'failed'
+  else if (job?.status === 'done') status = counts.conflicted > 0 ? 'partial' : 'ready'
+
+  const { data: changes, error: changesError } = await admin.from('wiki_change_events')
+    .select('wiki_item_id, change_type, created_at')
+    .eq('minute_id', minuteId)
+    .eq('project_id', projectId)
+    .not('wiki_item_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  if (changesError) {
+    console.error('[getMinuteWikiImpact] 변경 이력 조회 실패:', changesError.message)
+    return { ...fallback, status, counts, processedAt: (job?.updated_at as string | null) ?? null }
+  }
+
+  const latestByItem = new Map<string, Row>()
+  for (const change of (changes ?? []) as Row[]) {
+    const itemId = change.wiki_item_id as string
+    if (itemId && !latestByItem.has(itemId)) latestByItem.set(itemId, change)
+  }
+  const itemIds = [...latestByItem.keys()]
+  let items: MinuteWikiImpactItem[] = []
+  if (itemIds.length > 0) {
+    const { data: wikiItems, error: itemError } = await admin.from('wiki_items')
+      .select('id, topic_id, kind, statement, lifecycle_state')
+      .in('id', itemIds)
+    if (itemError) {
+      console.error('[getMinuteWikiImpact] 항목 조회 실패:', itemError.message)
+    } else {
+      items = ((wikiItems ?? []) as Row[])
+        .filter(item => item.lifecycle_state !== 'archived')
+        .map(item => {
+          const change = latestByItem.get(item.id as string)
+          return {
+            id: item.id as string,
+            title: item.statement as string,
+            href: `/p/${projectId}/wiki/topics/${item.topic_id as string}#wiki-item-${item.id as string}`,
+            kindLabel: item.kind as string,
+            change: impactChange((change?.change_type as string | undefined) ?? 'new'),
+          }
+        })
+        .slice(0, 8)
+    }
+  }
+  return {
+    status,
+    counts,
+    items,
+    wikiHref: `/p/${projectId}/wiki`,
+    projectName,
+    processedAt: (job?.updated_at as string | null) ?? null,
   }
 })
 

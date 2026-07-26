@@ -51,7 +51,7 @@ function fakeClient(pageFactory: PageFactory) {
     if (table !== 'minutes') throw new Error(`unexpected table: ${table}`)
 
     const builder = {} as QueryBuilder
-    for (const method of ['select', 'lte', 'gt', 'order', 'limit']) {
+    for (const method of ['select', 'is', 'lte', 'gt', 'order', 'limit']) {
       builder[method] = vi.fn(() => builder)
     }
     builder.then = (resolve, reject) => {
@@ -135,6 +135,7 @@ describe('GET /api/minutes/export', () => {
     expect(fake.from).toHaveBeenNthCalledWith(2, 'minutes')
     for (const builder of fake.builders) {
       expect(builder.select).toHaveBeenCalledWith(expect.stringContaining('body_md'))
+      expect(builder.is).toHaveBeenCalledWith('archived_at', null)
       expect(builder.order).toHaveBeenCalledWith('id', { ascending: true })
       expect(builder.limit).toHaveBeenCalledWith(500)
       expect(builder.lte).toHaveBeenCalledWith('created_at', expect.any(String))

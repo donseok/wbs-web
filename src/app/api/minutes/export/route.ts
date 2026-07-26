@@ -68,6 +68,7 @@ async function loadAllMinutes(cutoffIso: string): Promise<MinuteExportRow[]> {
   for (;;) {
     let query = sb.from('minutes')
       .select(SELECT_COLUMNS)
+      .is('archived_at', null)
       .lte('created_at', cutoffIso)
       .order('id', { ascending: true })
       .limit(PAGE_SIZE)
