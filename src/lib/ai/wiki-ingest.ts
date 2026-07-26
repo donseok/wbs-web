@@ -125,6 +125,9 @@ const EXTRACTION_SYSTEM = [
   '    "결정 사항", "안건", "주요 내용")를 topic으로 쓰지 마라. 그런 문단 아래의 내용이라도',
   '    그 문장이 실제로 다루는 대상(예: "MES 경량화", "야드 관리 시스템", "통관 확인 절차")을',
   '    topic으로 삼는다. 목차를 topic으로 쓰면 서로 무관한 지식이 한 주제에 쌓여 쓸모가 없어진다.',
+  '13. [기존 프로젝트 지식]의 문장을 이번 회의록에서 나온 것처럼 출력하지 마라. 그 목록은',
+  '    topic/knowledgeKey를 맞추라고 주는 참고자료일 뿐이며, statement와 evidence는 반드시',
+  '    이번 회의록 블록에서만 가져온다. 이번 회의에서 다시 언급되지 않은 지식은 출력하지 않는다.',
   '',
   '출력 형식:',
   '{"items":[{"kind":"decision","topic":"인터페이스 연계","topicType":"interface",',
@@ -198,9 +201,51 @@ function guardedSemanticRelation(
   }
 }
 
+function looksLikeExtractedItem(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const row = value as Row
+  return typeof row.kind === 'string' && typeof row.statement === 'string'
+}
+
+/**
+ * 잘린 JSON에서 완결된 항목 객체만 건져낸다.
+ *
+ * maxOutputTokens(4096, thinking 토큰 합산)에 걸려 응답이 중간에서 끊기면 JSON.parse가
+ * 통째로 실패한다. 그러면 그 회의록은 지식 0건이 되고, 재구축 중이면 MINUTE_JOB_NOT_DONE으로
+ * 프로젝트 큐 전체가 그 회의록에서 멈춘다(2026-07-27 실측). 끊기기 전까지 나온 객체들은
+ * 아래 결정형 검증(근거 블록·열거값·날짜)을 그대로 통과하므로 버릴 이유가 없다.
+ */
+function salvageExtractedObjects(raw: string): unknown[] {
+  const salvaged: unknown[] = []
+  const starts: number[] = []
+  let inString = false
+  let escaped = false
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+    if (char === '"') { inString = true; continue }
+    if (char === '{') { starts.push(index); continue }
+    if (char === '}' && starts.length > 0) {
+      const start = starts.pop() as number
+      try {
+        const value: unknown = JSON.parse(raw.slice(start, index + 1))
+        if (looksLikeExtractedItem(value)) salvaged.push(value)
+      } catch {
+        // 완결되지 않은 조각은 조용히 버린다 — 여기서의 실패는 정상 경로다.
+      }
+    }
+  }
+  return salvaged
+}
+
 /**
  * LLM 응답을 관용적으로 파싱하되, 근거 블록·열거값·길이·날짜를 결정형으로 다시 검증한다.
- * 코드펜스/설명 문구가 붙어도 첫 객체 또는 배열만 해석한다.
+ * 코드펜스/설명 문구가 붙어도 첫 객체 또는 배열만 해석하고, 응답이 잘렸으면 완결된 항목만 건진다.
  */
 export function parseExtractedWikiItems(
   raw: string,
@@ -216,19 +261,27 @@ export function parseExtractedWikiItems(
       parsed = JSON.parse(raw.slice(objectStart, objectEnd + 1))
     } else if (arrayStart >= 0 && arrayEnd > arrayStart) {
       parsed = JSON.parse(raw.slice(arrayStart, arrayEnd + 1))
-    } else {
-      return null
     }
   } catch {
-    return null
+    // 아래 salvage로 넘어간다.
   }
 
-  const candidates = Array.isArray(parsed)
+  const strict = Array.isArray(parsed)
     ? parsed
     : typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as Row).items)
       ? (parsed as Row).items as unknown[]
       : null
-  if (!candidates) return null
+
+  // 엄격 파싱이 성공했으면 빈 배열도 그대로 존중한다 — "이 회의록에 남길 지식이 없다"는
+  // 정상 응답이며, 이걸 실패로 바꾸면 멀쩡한 회의록이 재시도를 소진하고 dead_letter로 간다.
+  let candidates: unknown[]
+  if (strict) {
+    candidates = strict
+  } else {
+    const salvaged = salvageExtractedObjects(raw)
+    if (salvaged.length === 0) return null
+    candidates = salvaged
+  }
 
   const teams = new Set<string>(activeTeamCodesSync())
   const seen = new Set<string>()
@@ -337,7 +390,7 @@ async function ensureTopic(
   // 정확히 같은 제목이 없을 때만 별칭을 본다. LLM이 회의마다 제목을 조금씩 다르게 지어도
   // 같은 대상이면 기존 주제에 붙어야 재확인·구체화·충돌 판정이 작동한다.
   const { data: candidateRows, error: candidateError } = await admin.from('wiki_topics')
-    .select('id, normalized_title')
+    .select('id, normalized_title, aliases')
     .eq('project_id', projectId)
     .limit(TOPIC_ALIAS_SCAN_LIMIT)
   if (candidateError) throw new Error(`TOPIC_SCAN:${candidateError.code ?? 'UNKNOWN'}`)
@@ -345,6 +398,7 @@ async function ensureTopic(
     (candidateRows ?? []).map((row) => ({
       id: row.id as string,
       normalizedTitle: row.normalized_title as string,
+      aliases: Array.isArray(row.aliases) ? (row.aliases as string[]) : [],
     })),
     normalized,
   )

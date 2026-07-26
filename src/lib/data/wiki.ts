@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import {
   isActiveWikiDecision,
-  isArchivedWikiItem,
+  isClosedByPersonWikiItem,
   isConflictedWikiItem,
   isOpenWikiItem,
 } from '@/lib/domain/wikiView'
@@ -144,10 +144,12 @@ const EMPTY_OVERVIEW: WikiOverviewData = {
 export {
   isActiveWikiDecision,
   isArchivedWikiItem,
+  isClosedByPersonWikiItem,
   isConflictedWikiItem,
   isCurrentWikiKnowledge,
   isDiscussingWikiItem,
   isOpenWikiItem,
+  isResolvedWikiItem,
 } from '@/lib/domain/wikiView'
 
 function asString(value: unknown, fallback = ''): string {
@@ -327,9 +329,9 @@ function latestIso(values: Array<string | null | undefined>): string | null {
   return present.sort((a, b) => b.localeCompare(a))[0]
 }
 
-/** 집계는 살아 있는 항목만 센다. 숨긴 항목이 주제 카드 숫자와 KPI를 부풀리면 안 된다. */
+/** 집계는 살아 있는 항목만 센다. 사람이 닫거나 숨긴 항목이 주제 카드 숫자와 KPI를 부풀리면 안 된다. */
 function summarizeTopic(topic: WikiTopic, items: WikiItem[]): WikiTopicSummary {
-  const live = items.filter((item) => !isArchivedWikiItem(item))
+  const live = items.filter((item) => !isClosedByPersonWikiItem(item))
   return {
     ...topic,
     itemCount: live.length,
@@ -412,9 +414,10 @@ export const getWikiOverview = cache(async (projectId: string): Promise<WikiOver
     sb.from('wiki_items')
       .select('id, project_id, topic_id, kind, statement, lifecycle_state, certainty, decision_state, owner_team, owner_member_id, due_date, observed_at, valid_from, valid_to, origin, auto_update_locked, structured_data, created_at, updated_at')
       .eq('project_id', projectId)
-      // current projection + 사람이 숨긴 항목(되돌릴 수 있어야 하므로 '숨김' 뷰용으로 함께 읽는다).
-      // superseded/resolved 이력은 계속 change event에서만 본다.
-      .in('lifecycle_state', ['active', 'open', 'conflicted', 'archived'])
+      // current projection + 사람이 닫거나 숨긴 항목. 되돌릴 수 있어야 하므로 '완료'·'숨김'
+      // 전용 뷰용으로 함께 읽는다 — 안 읽으면 오클릭 한 번이 영구 삭제가 된다.
+      // AI가 대체한 superseded 이력은 계속 change event에서만 본다.
+      .in('lifecycle_state', ['active', 'open', 'conflicted', 'archived', 'resolved'])
       .order('updated_at', { ascending: false })
       .limit(500),
     sb.from('wiki_change_events')
@@ -484,7 +487,7 @@ export const getWikiOverview = cache(async (projectId: string): Promise<WikiOver
     changeSourceVersions,
     sourceVersionById,
   ))
-  const live = items.filter((item) => !isArchivedWikiItem(item))
+  const live = items.filter((item) => !isClosedByPersonWikiItem(item))
   const summary: WikiOverviewSummary = {
     // 살아있는 지식이 하나도 없는 주제는 세지 않는다. 추출 규칙이 바뀌어 전량 재구축을 하면
     // 예전 파편 주제가 항목 없이 남는데(2026-07-27 실측 102개), 그걸 세면 KPI가 지도에 실제로
@@ -514,8 +517,20 @@ function snapshotItemId(snapshot: JsonObject | null): string | null {
     ?? asNullableString(snapshot.wikiItemId)
 }
 
+/**
+ * 주제 병합 이벤트는 스냅샷에 wiki_topics 행을 통째로 담는다(0048 merge_wiki_topics).
+ * 그 행의 id는 topic id이므로 항목 스냅샷과 구분해야 한다 — normalized_title은 주제 행에만 있다.
+ */
+function snapshotTopicRowId(snapshot: JsonObject | null): string | null {
+  if (!snapshot) return null
+  if (typeof snapshot.normalized_title !== 'string') return null
+  return asNullableString(snapshot.id)
+}
+
 /** 프로젝트 전역 최근 변경 목록의 상한. 주제 타임라인은 여기에 의존하지 않는다. */
 const TOPIC_CHANGE_LIMIT = 300
+/** 주제 단위 큐레이션(병합)은 드물어 소량만 훑어도 충분하다. */
+const TOPIC_CURATE_LIMIT = 50
 
 /**
  * 주제 상세. 항목·KPI는 홈 읽기 모델을 재사용해 페이지 간 판정이 어긋나지 않게 하되,
@@ -546,6 +561,8 @@ export const getWikiTopicDetail = cache(async (
     const topicIds = [
       snapshotTopicId(change.beforeSnapshot),
       snapshotTopicId(change.afterSnapshot),
+      snapshotTopicRowId(change.beforeSnapshot),
+      snapshotTopicRowId(change.afterSnapshot),
     ]
     if (topicIds.includes(topicId)) return true
     const changeItemIds = [
@@ -555,33 +572,52 @@ export const getWikiTopicDetail = cache(async (
     return changeItemIds.some((itemId) => itemId !== null && itemIds.has(itemId))
   })
 
-  let scoped: WikiChangeEvent[] = []
-  if (itemIds.size > 0) {
-    const sb = await createServerClient()
-    const changesRes = await sb.from('wiki_change_events')
-      .select('id, project_id, wiki_item_id, minute_id, source_id, minute_version_id, source_body_hash, source_block_index, source_block_hash, change_type, before_snapshot, after_snapshot, reason, created_at')
+  const sb = await createServerClient()
+  const CHANGE_COLUMNS = 'id, project_id, wiki_item_id, minute_id, source_id, minute_version_id, source_body_hash, source_block_index, source_block_hash, change_type, before_snapshot, after_snapshot, reason, created_at'
+  const [itemChangesRes, topicChangesRes] = await Promise.all([
+    itemIds.size > 0
+      ? sb.from('wiki_change_events')
+        .select(CHANGE_COLUMNS)
+        .eq('project_id', projectId)
+        .in('wiki_item_id', Array.from(itemIds))
+        .order('created_at', { ascending: false })
+        .limit(TOPIC_CHANGE_LIMIT)
+      : Promise.resolve({ data: [] as Row[], error: null }),
+    // 주제 병합처럼 항목이 아니라 주제에 일어난 사람의 정리. wiki_item_id가 없어 위 조회에
+    // 걸리지 않고, 홈 '최근 변경'은 상한이 있어 밀려나면 어디서도 볼 수 없게 된다.
+    sb.from('wiki_change_events')
+      .select(CHANGE_COLUMNS)
       .eq('project_id', projectId)
-      .in('wiki_item_id', Array.from(itemIds))
+      .eq('change_type', 'curate')
+      .is('wiki_item_id', null)
       .order('created_at', { ascending: false })
-      .limit(TOPIC_CHANGE_LIMIT)
+      .limit(TOPIC_CURATE_LIMIT),
+  ])
 
-    if (changesRes.error) {
-      // 전용 조회 실패는 타임라인 전체를 비우지 않고 홈에서 건진 이력으로 강등한다.
-      logWikiReadError('getWikiTopicDetail.changes', changesRes.error)
-    } else {
-      const changeRows = (changesRes.data ?? []) as Row[]
-      const sources = items.flatMap((item) => item.sources)
-      const minuteById = await fetchMinuteMeta(
-        sb,
-        Array.from(new Set(changeRows.map((row) => asString(row.minute_id)).filter(Boolean))),
-        'getWikiTopicDetail',
-      )
-      const sourceVersions = buildChangeSourceVersionIndex(sources)
-      const sourceVersionById = new Map(
-        sources.map((source) => [source.id, source.minuteVersionId ?? ''] as const),
-      )
-      scoped = changeRows.map((row) => mapChange(row, minuteById, sourceVersions, sourceVersionById))
-    }
+  let scoped: WikiChangeEvent[] = []
+  if (itemChangesRes.error || topicChangesRes.error) {
+    // 전용 조회 실패는 타임라인 전체를 비우지 않고 홈에서 건진 이력으로 강등한다.
+    if (itemChangesRes.error) logWikiReadError('getWikiTopicDetail.changes', itemChangesRes.error)
+    if (topicChangesRes.error) logWikiReadError('getWikiTopicDetail.curate', topicChangesRes.error)
+  } else {
+    const changeRows = [
+      ...((itemChangesRes.data ?? []) as Row[]),
+      ...((topicChangesRes.data ?? []) as Row[]).filter((row) => (
+        snapshotTopicRowId(asObject(row.before_snapshot)) === topicId
+        || snapshotTopicRowId(asObject(row.after_snapshot)) === topicId
+      )),
+    ]
+    const sources = items.flatMap((item) => item.sources)
+    const minuteById = await fetchMinuteMeta(
+      sb,
+      Array.from(new Set(changeRows.map((row) => asString(row.minute_id)).filter(Boolean))),
+      'getWikiTopicDetail',
+    )
+    const sourceVersions = buildChangeSourceVersionIndex(sources)
+    const sourceVersionById = new Map(
+      sources.map((source) => [source.id, source.minuteVersionId ?? ''] as const),
+    )
+    scoped = changeRows.map((row) => mapChange(row, minuteById, sourceVersions, sourceVersionById))
   }
 
   const byId = new Map<string, WikiChangeEvent>()

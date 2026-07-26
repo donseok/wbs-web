@@ -30,6 +30,7 @@ const VIEW_LABEL: Record<WikiView, DictKey> = {
   open: 'wiki.view.open',
   discussing: 'wiki.view.discussing',
   conflict: 'wiki.view.conflict',
+  resolved: 'wiki.view.resolved',
   archived: 'wiki.view.archived',
 }
 
@@ -39,6 +40,7 @@ const VIEW_HINT: Record<WikiView, DictKey> = {
   open: 'wiki.view.openHint',
   discussing: 'wiki.view.discussingHint',
   conflict: 'wiki.view.conflictHint',
+  resolved: 'wiki.view.resolvedHint',
   archived: 'wiki.view.archivedHint',
 }
 

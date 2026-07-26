@@ -356,3 +356,32 @@ describe('목차형 주제 차단 — 흡인체 주제 방지', () => {
     expect(resolveWikiTopicTitle('ERP-MES 연계', '연계 방식')).toBe('ERP-MES 연계')
   })
 })
+
+describe('병합 별칭 재사용 — 사람의 정리를 다음 회의가 되돌리지 않는다', () => {
+  it('문자열 유사도로는 못 잇는 쌍도 병합이 남긴 별칭으로 이어붙인다', () => {
+    // 실제 프로덕션 쌍. Dice 0.545라 자동 별칭 임계값(0.6)에는 미달한다.
+    const incoming = normalizeWikiTitle('A6 포장 해체장 무인 연계 기능 정의')
+    const withoutAlias = matchWikiTopicAlias(
+      [{ id: 'canonical', normalizedTitle: normalizeWikiTitle('포장 해체장 무인화 연계') }],
+      incoming,
+    )
+    expect(withoutAlias).toBeNull()
+
+    const withAlias = matchWikiTopicAlias(
+      [{
+        id: 'canonical',
+        normalizedTitle: normalizeWikiTitle('포장 해체장 무인화 연계'),
+        aliases: ['A6 포장 해체장 무인 연계 기능 정의'],
+      }],
+      incoming,
+    )
+    expect(withAlias?.id).toBe('canonical')
+  })
+
+  it('별칭이 비어 있어도 기존 판정은 그대로다', () => {
+    expect(matchWikiTopicAlias(
+      [{ id: 't', normalizedTitle: normalizeWikiTitle('야드 관리 시스템'), aliases: [] }],
+      normalizeWikiTitle('야드 관리'),
+    )?.id).toBe('t')
+  })
+})

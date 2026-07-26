@@ -14,7 +14,8 @@ vi.mock('next/link', () => ({
   }) => <a href={href} {...rest}>{children}</a>,
 }))
 
-import { WikiChangeList, WikiItemCard } from '@/components/wiki/WikiShared'
+import { WikiChangeList, WikiItemCard, wikiMinuteSourceHref } from '@/components/wiki/WikiShared'
+import { minuteSourceHref } from '@/lib/minutes/source'
 import { WikiTopicDetail } from '@/components/wiki/WikiTopicDetail'
 
 function item(overrides: Partial<WikiItem> = {}): WikiItem {
@@ -176,5 +177,43 @@ describe('Wiki 상태 표시 안전성', () => {
     expect(html).toContain('href="/minutes/minute-1?version=version-2"')
     expect(html).toContain('href="/minutes/minute-2"')
     expect(html).not.toContain('href="/minutes/minute-2?version=')
+  })
+})
+
+describe('Wiki 클라이언트 번들 격리', () => {
+  it('자체 원문 링크 빌더가 lib/minutes/source와 같은 URL을 만든다', () => {
+    const anchor = { blockIndex: 12, blockHash: 'fedcba9876543210', bodyHash: '0123456789abcdef' }
+    expect(wikiMinuteSourceHref('minute-1', anchor))
+      .toBe(minuteSourceHref('minute-1', anchor))
+    expect(wikiMinuteSourceHref('minute-1', anchor, 'version-9'))
+      .toBe(minuteSourceHref('minute-1', anchor, 'version-9'))
+  })
+})
+
+describe('사람이 닫거나 숨긴 항목', () => {
+  const closedData = (state: 'archived' | 'resolved'): WikiTopicDetailData => ({
+    available: true,
+    topic: topic(),
+    items: [
+      item({ id: 'live-fact', statement: '살아있는 사실' }),
+      item({ id: 'closed-fact', statement: '닫힌 사실', lifecycleState: state }),
+      item({
+        id: 'closed-decision',
+        kind: 'decision',
+        statement: '닫힌 결정',
+        lifecycleState: state,
+        decisionState: 'confirmed',
+      }),
+    ],
+    changes: [],
+  })
+
+  it.each(['archived', 'resolved'] as const)('%s 항목은 주제 상세 어느 섹션에도 렌더되지 않는다', (state) => {
+    const html = renderToStaticMarkup(
+      <WikiTopicDetail projectId="project-1" data={closedData(state)} locale="ko" />,
+    )
+    expect(html).toContain('살아있는 사실')
+    expect(html).not.toContain('닫힌 사실')
+    expect(html).not.toContain('닫힌 결정')
   })
 })

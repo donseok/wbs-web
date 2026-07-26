@@ -14,6 +14,7 @@ import { curateWikiItem, type WikiCurateAction } from '@/app/actions/wiki'
 import {
   isArchivedWikiItem,
   isConflictedWikiItem,
+  isResolvedWikiItem,
   normalizedWikiState,
 } from '@/lib/domain/wikiView'
 import type { WikiItem } from '@/lib/data/wiki'
@@ -30,15 +31,24 @@ interface ActionSpec {
 
 /** 현재 상태에서 의미 있는 동작만 노출한다. 불가능한 전이는 RPC가 다시 막는다. */
 function availableActions(item: WikiItem): ActionSpec[] {
+  // 되돌리기 경로가 항상 있어야 한다. 없으면 클릭 한 번이 UI에서의 영구 삭제가 된다.
   if (isArchivedWikiItem(item)) {
     return [{ action: 'restore', labelKey: 'wiki.curate.restore', icon: RotateCcw }]
+  }
+  if (isResolvedWikiItem(item)) {
+    return [{ action: 'reopen', labelKey: 'wiki.curate.reopen', icon: RotateCcw }]
   }
 
   const specs: ActionSpec[] = []
   const lifecycle = normalizedWikiState(item.lifecycleState)
 
   if (OPEN_KINDS.has(item.kind) && lifecycle !== 'resolved') {
-    specs.push({ action: 'resolve', labelKey: 'wiki.curate.resolve', icon: CheckCheck })
+    specs.push({
+      action: 'resolve',
+      labelKey: 'wiki.curate.resolve',
+      icon: CheckCheck,
+      confirmKey: 'wiki.curate.resolveConfirm',
+    })
   }
   if (isConflictedWikiItem(item) || normalizedWikiState(item.certainty) === 'tentative') {
     specs.push({ action: 'confirm', labelKey: 'wiki.curate.confirm', icon: ShieldCheck })

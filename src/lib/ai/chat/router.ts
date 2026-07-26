@@ -658,8 +658,13 @@ export function routeChatRequest(input: ChatRequestV2, now = new Date()): Determ
 
   const contextual = usefulContextDomain(input.pageContext)
   const conversational = conversationDomains(input)
+  const hasProject = Boolean(projectHint(input))
   const domains = uniq(explicit.length ? explicit : contextual ? [contextual] : conversational)
     .filter((d): d is V2ReadDomain => V2_READ_DOMAIN_SET.has(d))
+    // Wiki는 프로젝트 지식이라 프로젝트 없이는 조회 자체가 불가능하다. 전역 화면에서
+    // "결정 사항" 같은 표현만으로 wiki가 붙으면, 예전에 회의록 전역 검색으로 답하던 질문이
+    // 갑자기 "프로젝트를 선택하세요"로 막힌다 — 프로젝트가 없으면 wiki는 후보에서 뺀다.
+    .filter((d) => d !== 'wiki' || hasProject)
     .slice(0, 3)
 
   if (!domains.length) {

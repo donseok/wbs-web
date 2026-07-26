@@ -8,6 +8,7 @@ set search_path = public;
 drop function if exists public.merge_wiki_topics(uuid, uuid);
 drop function if exists public.curate_wiki_item(uuid, text, text);
 drop function if exists public.wiki_key_slug(text);
+drop function if exists public.wiki_item_has_live_source(uuid);
 
 -- delete from public.wiki_change_events where change_type = 'curate';
 

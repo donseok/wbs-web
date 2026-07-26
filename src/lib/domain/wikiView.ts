@@ -106,6 +106,7 @@ export function isDiscussingWikiItem(item: WikiViewItem): boolean {
  * 이 그룹이 없으면 잠정 사실·제약이 조회는 되지만 어떤 화면에도 렌더되지 않는다.
  */
 export function isUnsettledWikiKnowledge(item: WikiViewItem): boolean {
+  if (isClosedByPersonWikiItem(item)) return false
   return KNOWLEDGE_KINDS.has(item.kind) && !isCurrentWikiKnowledge(item)
 }
 
@@ -114,13 +115,29 @@ export function isArchivedWikiItem(item: WikiViewItem): boolean {
   return normalizedWikiState(item.lifecycleState) === 'archived'
 }
 
-export const WIKI_VIEWS = ['all', 'decision', 'open', 'discussing', 'conflict', 'archived'] as const
+/** 사람이 닫은 항목. '완료' 뷰에서만 보이며 다시 열 수 있다. */
+export function isResolvedWikiItem(item: WikiViewItem): boolean {
+  return normalizedWikiState(item.lifecycleState) === 'resolved'
+}
+
+/**
+ * 사람이 닫거나 숨긴 항목. 현재 지식 목록·집계 어디에도 섞이면 안 되고, 전용 뷰에서만 보인다.
+ * 전용 뷰가 없으면 되돌릴 수단이 사라져 한 번의 오클릭이 영구 삭제가 된다.
+ */
+export function isClosedByPersonWikiItem(item: WikiViewItem): boolean {
+  return isArchivedWikiItem(item) || isResolvedWikiItem(item)
+}
+
+export const WIKI_VIEWS = [
+  'all', 'decision', 'open', 'discussing', 'conflict', 'resolved', 'archived',
+] as const
 export type WikiView = (typeof WIKI_VIEWS)[number]
 
 export function matchesWikiView(item: WikiViewItem, view: WikiView): boolean {
   if (view === 'archived') return isArchivedWikiItem(item)
-  // 숨긴 항목은 '숨김' 뷰 밖에서는 어떤 목록에도 섞이지 않는다.
-  if (isArchivedWikiItem(item)) return false
+  if (view === 'resolved') return isResolvedWikiItem(item)
+  // 사람이 닫거나 숨긴 항목은 전용 뷰 밖 어떤 목록에도 섞이지 않는다.
+  if (isClosedByPersonWikiItem(item)) return false
   switch (view) {
     case 'decision': return isActiveWikiDecision(item)
     case 'open': return isOpenWikiItem(item)
@@ -193,14 +210,15 @@ export function filterWikiEntries<T extends WikiExplorerEntry>(
 
 /** 뷰 탭에 붙는 건수. 필터와 무관하게 전체 기준으로 세어 KPI와 어긋나지 않게 한다. */
 export function countWikiViews(entries: WikiExplorerEntry[]): Record<WikiView, number> {
-  const live = entries.filter((entry) => !isArchivedWikiItem(entry))
+  const live = entries.filter((entry) => !isClosedByPersonWikiItem(entry))
   return {
     all: live.length,
     decision: live.filter(isActiveWikiDecision).length,
     open: live.filter(isOpenWikiItem).length,
     discussing: live.filter(isDiscussingWikiItem).length,
     conflict: live.filter(isConflictedWikiItem).length,
-    archived: entries.length - live.length,
+    resolved: entries.filter(isResolvedWikiItem).length,
+    archived: entries.filter(isArchivedWikiItem).length,
   }
 }
 

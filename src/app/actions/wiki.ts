@@ -33,6 +33,9 @@ function friendlyError(message: string | undefined): string {
   if (message.includes('WIKI_MERGE_CROSS_PROJECT') || message.includes('WIKI_MERGE_SAME_TOPIC')) {
     return '같은 프로젝트의 서로 다른 주제만 병합할 수 있습니다.'
   }
+  if (message.includes('WIKI_CURATE_NO_LIVE_SOURCE')) {
+    return '원문 근거가 모두 철회된 항목이라 되돌릴 수 없습니다. 회의록이 보관되었거나 다른 프로젝트로 옮겨졌는지 확인하세요.'
+  }
   // PGRST202 = 함수 미존재. 마이그레이션 미적용 환경을 원인 그대로 알린다.
   if (message.includes('PGRST202') || message.includes('does not exist')) {
     return 'Wiki 정리 기능이 아직 이 환경에 배포되지 않았습니다.'

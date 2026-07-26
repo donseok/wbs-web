@@ -458,3 +458,16 @@ describe('chat v2 router — Wiki 도메인', () => {
     expect(route.calls.map(call => call.domain)).not.toContain('wiki')
   })
 })
+
+describe('chat v2 router — Wiki 도메인 회귀 방지', () => {
+  it('프로젝트가 없는 전역 화면에서는 결정 표현만으로 wiki가 붙지 않는다', () => {
+    const page = context('minutes', { projectId: null, pathname: '/minutes' })
+    const route = routeChatRequest(
+      { projectId: null, message: '이번 달 결정 사항 정리해줘', history: [], pageContext: page },
+      NOW,
+    )
+    expect(route.domains).not.toContain('wiki')
+    // 예전처럼 회의록 전역 검색으로 답해야 한다 — 프로젝트 선택 요구로 막히면 회귀다.
+    expect(route.kind).not.toBe('clarify')
+  })
+})

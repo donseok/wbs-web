@@ -18,6 +18,7 @@ import {
 } from '@/lib/data/wiki'
 import {
   isActiveWikiDecision,
+  isClosedByPersonWikiItem,
   isCurrentWikiKnowledge,
   isOpenWikiItem,
   isUnsettledWikiKnowledge,
@@ -121,14 +122,18 @@ export function WikiTopicDetail({
   }
 
   const topic = data.topic
-  const decisions = data.items
+  // 사람이 완료 처리하거나 숨긴 항목은 이 화면의 어떤 섹션에도 넣지 않는다.
+  // 되돌리기는 홈 탐색기의 '완료'·'숨김' 뷰가 담당한다 — 여기서 함께 렌더하면
+  // 숨김을 눌러도 카드가 그대로 남아 "숨김이 안 먹는다"로 보인다.
+  const items = data.items.filter((item) => !isClosedByPersonWikiItem(item))
+  const decisions = items
     .filter((item) => item.kind === 'decision')
     .sort((a, b) => Number(isActiveWikiDecision(b)) - Number(isActiveWikiDecision(a)))
-  const knowledge = currentKnowledge(data.items)
+  const knowledge = currentKnowledge(items)
   // 결정·현재 지식·열린 항목 어디에도 안 걸리는 잠정 사실/제약을 담는 그룹.
   // 이 섹션이 없으면 조회는 되는데 화면에는 없는 항목이 생긴다.
-  const unsettled = data.items.filter(isUnsettledWikiKnowledge)
-  const openItems = data.items.filter(isOpenWikiItem)
+  const unsettled = items.filter(isUnsettledWikiKnowledge)
+  const openItems = items.filter(isOpenWikiItem)
   const curateProjectId = canCurate ? projectId : undefined
 
   return (

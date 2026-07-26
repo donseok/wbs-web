@@ -865,3 +865,42 @@ describe('processWikiProjectRebuildStep durable cursor', () => {
     )
   })
 })
+
+describe('parseExtractedWikiItems — 잘린 응답 구제', () => {
+  const blocks = [
+    { index: 0, hash: 'block-hash-0', text: 'ERP와 MES 연계는 REST API로 확정했다.', rendered: true },
+    { index: 1, hash: 'block-hash-1', text: 'UAT는 8월에 진행하기로 합의했다.', rendered: true },
+  ]
+
+  it('maxOutputTokens에 잘린 JSON에서도 완결된 항목은 살린다', () => {
+    // 두 번째 항목 중간에서 끊긴 응답. JSON.parse는 통째로 실패한다.
+    const truncated = '{"items":[{"kind":"decision","topic":"연계","topicType":"interface",'
+      + '"statement":"ERP와 MES 연계는 REST API로 확정했다.","knowledgeKey":"연계 방식",'
+      + '"certainty":"explicit","decisionState":"confirmed","relation":"supports",'
+      + '"semanticRelation":null,"evidence":[0],"ownerTeam":null,"ownerName":null,'
+      + '"dueDate":null,"effectiveDate":null},{"kind":"decision","topic":"UAT","stat'
+
+    const items = parseExtractedWikiItems(truncated, blocks)
+
+    expect(items).not.toBeNull()
+    expect(items).toHaveLength(1)
+    expect(items?.[0].statement).toContain('REST API')
+  })
+
+  it('건질 항목이 하나도 없으면 여전히 null이다 — 실패를 성공으로 위장하지 않는다', () => {
+    expect(parseExtractedWikiItems('죄송합니다. 요청을 처리할 수 없습니다.', blocks)).toBeNull()
+    expect(parseExtractedWikiItems('{"items":[{"kind":"decisi', blocks)).toBeNull()
+  })
+
+  it('정상 응답은 기존대로 엄격 파싱한다', () => {
+    const valid = JSON.stringify({
+      items: [{
+        kind: 'decision', topic: '연계', topicType: 'interface',
+        statement: 'ERP와 MES 연계는 REST API로 확정했다.', knowledgeKey: '연계 방식',
+        certainty: 'explicit', decisionState: 'confirmed', relation: 'supports',
+        semanticRelation: null, evidence: [0],
+      }],
+    })
+    expect(parseExtractedWikiItems(valid, blocks)).toHaveLength(1)
+  })
+})

@@ -5,6 +5,7 @@ import {
   isCurrentWikiKnowledge,
   isDiscussingWikiItem,
   isUnsettledWikiKnowledge,
+  isClosedByPersonWikiItem,
   matchesWikiQuery,
   matchesWikiTopicQuery,
   sortWikiEntries,
@@ -100,5 +101,38 @@ describe('Wiki 표시 규칙', () => {
     expect(matchesWikiTopicQuery(topic, '물류 시스템')).toBe(true)
     expect(matchesWikiTopicQuery(topic, 'system')).toBe(true)
     expect(matchesWikiTopicQuery(topic, '배차')).toBe(false)
+  })
+})
+
+describe('사람이 닫거나 숨긴 항목 — 되돌릴 수 있어야 한다', () => {
+  it('완료·숨김 항목은 전용 뷰 밖 어떤 목록에도 섞이지 않는다', () => {
+    for (const state of ['resolved', 'archived'] as const) {
+      const closed = entry({ lifecycleState: state })
+      for (const view of ['all', 'decision', 'open', 'discussing', 'conflict'] as const) {
+        expect(
+          filterWikiEntries([closed], { view, kind: 'all', query: '' }),
+          `${state} 가 ${view} 뷰에 섞임`,
+        ).toHaveLength(0)
+      }
+    }
+  })
+
+  it('완료·숨김 항목은 각자의 전용 뷰에서 반드시 보인다', () => {
+    expect(filterWikiEntries([entry({ lifecycleState: 'resolved' })], { view: 'resolved', kind: 'all', query: '' })).toHaveLength(1)
+    expect(filterWikiEntries([entry({ lifecycleState: 'archived' })], { view: 'archived', kind: 'all', query: '' })).toHaveLength(1)
+  })
+
+  it('미확정 지식 그룹도 닫힌 항목을 다시 끌어올리지 않는다', () => {
+    expect(isUnsettledWikiKnowledge(entry({ lifecycleState: 'archived', certainty: 'tentative' }))).toBe(false)
+    expect(isUnsettledWikiKnowledge(entry({ lifecycleState: 'resolved', certainty: 'tentative' }))).toBe(false)
+  })
+
+  it('집계는 닫힌 항목을 살아있는 수에 넣지 않는다', () => {
+    const counts = countWikiViews([
+      entry({ id: 'a' }),
+      entry({ id: 'b', lifecycleState: 'resolved' }),
+      entry({ id: 'c', lifecycleState: 'archived' }),
+    ])
+    expect(counts).toMatchObject({ all: 1, resolved: 1, archived: 1 })
   })
 })

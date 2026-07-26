@@ -181,6 +181,8 @@ const TOPIC_ALIAS_MIN_SHARED_TOKENS = 2
 export interface WikiTopicCandidate {
   id: string
   normalizedTitle: string
+  /** 사람이 병합하며 흡수한 옛 제목들. 자동 매칭이 못 잇는 쌍을 사람이 이어준 결과다. */
+  aliases?: string[]
 }
 
 /**
@@ -204,6 +206,11 @@ export function matchWikiTopicAlias(
   let best: { candidate: WikiTopicCandidate; score: number } | null = null
   for (const candidate of candidates) {
     if (candidate.normalizedTitle === normalizedTitle) {
+      return candidate
+    }
+    // 사람이 병합으로 남긴 별칭은 문자열 유사도보다 강한 신호다. 이걸 안 보면 병합할 때마다
+    // 다음 회의가 옛 제목으로 주제를 되살려 사람이 같은 병합을 영원히 반복하게 된다.
+    if (candidate.aliases?.some((alias) => normalizeWikiTitle(alias) === normalizedTitle)) {
       return candidate
     }
     const tokens = wikiTopicTokens(candidate.normalizedTitle)

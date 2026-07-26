@@ -26,8 +26,29 @@ import type {
   WikiItemKind,
   WikiSource,
 } from '@/lib/data/wiki'
-import { minuteSourceHref } from '@/lib/minutes/source'
 import { WikiItemActions } from './WikiItemActions'
+
+/**
+ * 회의록 원문 블록 링크. lib/minutes/source의 minuteSourceHref와 같은 형식이지만 직접 만든다.
+ *
+ * 이 파일은 WikiExplorer/WikiTopicGrid(둘 다 'use client')가 import하면서 클라이언트 모듈
+ * 그래프에 들어간다. minutes/source는 blocks.ts를 값으로 가져오고 blocks.ts는 unified·remark-parse·
+ * remark-gfm을 끌어오므로, 링크 문자열 몇 줄 때문에 마크다운 파서 100KB가 Wiki 홈 번들에 실린다.
+ * 형식이 갈리지 않도록 tests/ui/wiki-safety.test.tsx가 두 구현의 결과를 대조한다.
+ */
+export function wikiMinuteSourceHref(
+  minuteId: string,
+  source: { blockIndex: number; blockHash: string; bodyHash: string },
+  minuteVersionId?: string | null,
+): string {
+  const params = new URLSearchParams({
+    block: String(source.blockIndex),
+    hash: source.blockHash,
+    body: source.bodyHash,
+  })
+  if (minuteVersionId) params.set('version', minuteVersionId)
+  return `/minutes/${minuteId}?${params.toString()}`
+}
 
 interface KindMeta {
   icon: LucideIcon
@@ -202,14 +223,11 @@ function sourceHref(source: WikiSource): string {
     && source.blockHash
     && source.blockIndex !== null
   ) {
-    const href = minuteSourceHref(source.minuteId, {
+    return wikiMinuteSourceHref(source.minuteId, {
       blockIndex: source.blockIndex,
       blockHash: source.blockHash,
       bodyHash: source.bodyHash,
-    })
-    return source.minuteVersionId
-      ? `${href}&version=${encodeURIComponent(source.minuteVersionId)}`
-      : href
+    }, source.minuteVersionId)
   }
   return source.minuteVersionId
     ? `/minutes/${source.minuteId}?version=${encodeURIComponent(source.minuteVersionId)}`
@@ -224,14 +242,11 @@ function changeSourceHref(change: WikiChangeEvent): string {
     && change.sourceBlockIndex !== null
     && change.sourceBlockIndex !== undefined
   ) {
-    const href = minuteSourceHref(change.minuteId, {
+    return wikiMinuteSourceHref(change.minuteId, {
       blockIndex: change.sourceBlockIndex,
       blockHash: change.sourceBlockHash,
       bodyHash: change.sourceBodyHash,
-    })
-    return change.minuteVersionId
-      ? `${href}&version=${encodeURIComponent(change.minuteVersionId)}`
-      : href
+    }, change.minuteVersionId)
   }
   return change.minuteVersionId
     ? `/minutes/${change.minuteId}?version=${encodeURIComponent(change.minuteVersionId)}`

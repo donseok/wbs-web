@@ -57,6 +57,25 @@ as $$
   )
 $$;
 
+-- ── 3) 근거 생존 여부 ──
+-- 시스템 철회로 archived된 항목과 사람이 숨긴 항목을 구분하는 유일한 신호다.
+-- 전자는 활성 근거가 하나도 없다(0045 retract_minute_wiki_sources가 근거를 회수하고 항목을 archive).
+create or replace function public.wiki_item_has_live_source(p_item_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.wiki_item_sources s
+    where s.wiki_item_id = p_item_id and s.retracted_at is null
+  ) or exists (
+    select 1 from public.wiki_items w
+    where w.id = p_item_id and w.origin = 'manual'
+  )
+$$;
+
 -- ── 3) 항목 큐레이션 ──
 -- 허용 동작만 수행하고, 그 외 값은 거부한다. statement 자체는 바꾸지 않는다 —
 -- 원문 근거와 어긋나는 문장을 사람이 덮어쓰면 "근거가 추적되는 지식"이라는 계약이 깨진다.
@@ -109,6 +128,9 @@ begin
     if v_item.lifecycle_state not in ('resolved','archived') then
       raise exception 'WIKI_CURATE_INVALID_TRANSITION' using errcode = '22023';
     end if;
+    if v_item.lifecycle_state = 'archived' and not public.wiki_item_has_live_source(p_item_id) then
+      raise exception 'WIKI_CURATE_NO_LIVE_SOURCE' using errcode = '22023';
+    end if;
     update public.wiki_items
       set lifecycle_state = case
             when v_item.kind in ('action','question','risk') then 'open'
@@ -130,6 +152,12 @@ begin
     if v_item.lifecycle_state <> 'archived' then
       raise exception 'WIKI_CURATE_INVALID_TRANSITION' using errcode = '22023';
     end if;
+    -- archived는 사람의 '숨김'만이 아니라 시스템 철회(회의록 보관·프로젝트 이동으로 근거가
+    -- 회수된 경우)로도 붙는다. 근거가 하나도 살아있지 않은 항목을 되살리면 원문으로 추적되지
+    -- 않는 지식이 현재값이 된다 — Wiki의 근본 계약이 깨지므로 막는다.
+    if not public.wiki_item_has_live_source(p_item_id) then
+      raise exception 'WIKI_CURATE_NO_LIVE_SOURCE' using errcode = '22023';
+    end if;
     update public.wiki_items
       set lifecycle_state = case
             when v_item.kind in ('action','question','risk') then 'open'
@@ -146,7 +174,9 @@ begin
   elsif p_action = 'confirm' then
     -- 충돌·논의 중 항목을 사람이 현재 정본으로 확정한다. 이후 AI가 다시 덮지 못하도록
     -- 함께 고정한다(canAutoApplyWikiChange가 auto_update_locked에서 멈춘다).
-    if v_item.lifecycle_state = 'archived' then
+    -- 이미 끝난 항목(대체·완료·숨김)에서는 확정할 수 없다. 그걸 허용하면 폐기된 문장이
+    -- 현재값으로 되살아난 뒤 고정까지 돼 그 knowledge_key가 영구 동결된다.
+    if v_item.lifecycle_state not in ('active','open','conflicted') then
       raise exception 'WIKI_CURATE_INVALID_TRANSITION' using errcode = '22023';
     end if;
     update public.wiki_items
@@ -232,6 +262,8 @@ begin
 
   -- 항목을 정본 주제로 옮기면서 knowledge_key의 주제 슬러그도 정본 것으로 다시 쓴다.
   -- 키를 그대로 두면 다음 회의의 같은 지식이 여전히 다른 키로 들어와 병합 효과가 사라진다.
+  -- updated_at은 건드리지 않는다 — 아래 승자 판정이 "언제 병합했는가"가 아니라
+  -- "어느 지식이 더 최근인가"를 보게 하려면 옮겼다는 사실이 시각을 바꾸면 안 된다.
   with moved as (
     update public.wiki_items w
       set topic_id = p_target_topic_id,
@@ -239,19 +271,29 @@ begin
             v_slug || ':' || split_part(w.knowledge_key, ':', 2) || ':'
               || nullif(regexp_replace(w.knowledge_key, '^[^:]*:[^:]*:', ''), ''),
             160
-          ),
-          updated_at = now()
+          )
       where w.topic_id = p_source_topic_id
       returning w.id
   )
   select count(*) into v_moved from moved;
 
-  -- 같은 (kind, knowledge_key)에 현재값이 여럿 생기면 최신 하나만 남기고 나머지는 상충으로 표시.
+  -- 같은 (kind, knowledge_key)에 현재값이 여럿 생기면 최신 지식만 남기고 나머지는 상충으로 보존.
+  --
+  -- 순서 기준은 지식의 실제 시점(valid_from → observed_at)이다. updated_at으로 정렬하면
+  -- 방금 옮겨온 항목이 항상 이겨서, 낡은 파편 주제를 정본으로 합치는 순간 정본의 최신 결정이
+  -- conflicted로 밀려나고 폐기된 문장이 현재값이 된다(감사 확정 결함).
+  --
+  -- 사람이 확정·고정한 항목(auto_update_locked)과 수동 항목은 절대 강등하지 않는다.
+  -- 병합 정리가 사람의 판정을 뒤집으면 canAutoApplyWikiChange가 지키는 고정 계약이 무너진다.
   with ranked as (
     select w.id,
            row_number() over (
              partition by w.kind, w.knowledge_key
-             order by w.updated_at desc, w.id desc
+             order by
+               (w.auto_update_locked or w.origin = 'manual') desc,
+               coalesce(w.valid_from, w.observed_at, w.updated_at) desc,
+               w.updated_at desc,
+               w.id desc
            ) as rn
     from public.wiki_items w
     where w.topic_id = p_target_topic_id
@@ -260,10 +302,23 @@ begin
     update public.wiki_items w
       set lifecycle_state = 'conflicted', updated_at = now()
       from ranked
-      where w.id = ranked.id and ranked.rn > 1
-      returning w.id
+      where w.id = ranked.id
+        and ranked.rn > 1
+        and not (w.auto_update_locked or w.origin = 'manual')
+      returning w.id, w.project_id, to_jsonb(w) as after_row
   )
-  select count(*) into v_conflicted from demoted;
+  -- 강등도 사람이 한 정리다. 항목별 이력을 남기지 않으면 사용자는 자기 결정이 왜 상충으로
+  -- 바뀌었는지 타임라인에서 추적할 수 없다(파일 헤더의 감사 계약).
+  , logged as (
+    insert into public.wiki_change_events (
+      project_id, wiki_item_id, change_type, after_snapshot, reason, actor_id
+    )
+    select demoted.project_id, demoted.id, 'curate', demoted.after_row,
+           format('merge_topic_demote: %s → %s', v_source.title, v_target.title), v_actor
+    from demoted
+    returning 1
+  )
+  select count(*) into v_conflicted from logged;
 
   update public.wiki_topics
     set aliases = (
@@ -295,8 +350,10 @@ end $$;
 revoke all on function public.curate_wiki_item(uuid, text, text) from public, anon;
 revoke all on function public.merge_wiki_topics(uuid, uuid) from public, anon;
 revoke all on function public.wiki_key_slug(text) from public, anon;
+revoke all on function public.wiki_item_has_live_source(uuid) from public, anon;
 grant execute on function public.curate_wiki_item(uuid, text, text) to authenticated, service_role;
 grant execute on function public.merge_wiki_topics(uuid, uuid) to authenticated, service_role;
 grant execute on function public.wiki_key_slug(text) to authenticated, service_role;
+grant execute on function public.wiki_item_has_live_source(uuid) to authenticated, service_role;
 
 reset search_path;

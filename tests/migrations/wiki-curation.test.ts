@@ -58,6 +58,38 @@ describe('0048 Wiki 큐레이션 migration 계약', () => {
     expect(migration).toContain('delete from public.wiki_topics where id = p_source_topic_id')
   })
 
+  it('승자는 병합 시각이 아니라 지식의 실제 시점으로 고른다', () => {
+    // 옮기는 UPDATE가 updated_at을 찍으면 방금 옮겨온 낡은 항목이 항상 이겨
+    // 정본 주제의 최신 결정이 conflicted로 밀려난다.
+    const moveStatement = migration.slice(
+      migration.indexOf('with moved as ('),
+      migration.indexOf('select count(*) into v_moved'),
+    )
+    expect(moveStatement).not.toContain('updated_at = now()')
+    expect(migration).toMatch(/order by[\s\S]*coalesce\(w\.valid_from, w\.observed_at, w\.updated_at\) desc/)
+  })
+
+  it('사람이 확정·고정한 항목은 병합 정리로 강등되지 않는다', () => {
+    expect(migration).toMatch(/and not \(w\.auto_update_locked or w\.origin = 'manual'\)/)
+  })
+
+  it('강등도 항목별 이력으로 남긴다 — 왜 상충이 됐는지 추적 가능해야 한다', () => {
+    expect(migration).toMatch(/insert into public\.wiki_change_events \([\s\S]*wiki_item_id[\s\S]*from demoted/)
+    expect(migration).toContain('merge_topic_demote')
+  })
+
+  it('근거가 모두 철회된 항목은 되살리지 못한다 — 시스템 철회와 사람의 숨김을 구분한다', () => {
+    expect(migration).toContain('wiki_item_has_live_source')
+    expect(migration).toMatch(/p_action = 'restore'[\s\S]*WIKI_CURATE_NO_LIVE_SOURCE/)
+    expect(migration).toMatch(/p_action = 'reopen'[\s\S]*WIKI_CURATE_NO_LIVE_SOURCE/)
+  })
+
+  it('확정은 이미 끝난 항목을 되살려 고정하지 않는다', () => {
+    expect(migration).toMatch(
+      /p_action = 'confirm'[\s\S]*lifecycle_state not in \('active','open','conflicted'\)/,
+    )
+  })
+
   it('교착을 피하려고 두 주제를 항상 같은 순서로 잠근다', () => {
     expect(migration).toMatch(/for update/)
     expect(migration).toMatch(/order by id\s+for update/)
