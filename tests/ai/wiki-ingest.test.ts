@@ -349,29 +349,19 @@ describe('processMinuteWikiJob 버전 안전성', () => {
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-role-key')
     const bodyMd = '# v1 회의록\n\nREST API 연계를 확정했다.'
     const bodyHash = fnv1a64(bodyMd)
+    const claimedJob = {
+      id: 41,
+      project_id: 'project-1',
+      minute_id: 'minute-1',
+      minute_version_id: 'version-1',
+      body_hash: bodyHash,
+      status: 'running',
+      attempts: 1,
+      max_attempts: 5,
+      locked_by: 'worker-41',
+      payload: {},
+    }
     const tables: Record<string, QueryResponse[]> = {
-      wiki_processing_jobs: [
-        {
-          data: {
-            attempts: 0,
-            max_attempts: 5,
-          },
-        },
-        {
-          data: {
-            id: 41,
-            project_id: 'project-1',
-            minute_id: 'minute-1',
-            minute_version_id: 'version-1',
-            body_hash: bodyHash,
-            status: 'running',
-            attempts: 0,
-            max_attempts: 5,
-            locked_by: 'worker-41',
-            payload: {},
-          },
-        },
-      ],
       minutes: [{
         data: {
           id: 'minute-1',
@@ -402,14 +392,18 @@ describe('processMinuteWikiJob 버전 안전성', () => {
         ;(builders[table] ??= []).push(builder)
         return builder
       }),
-      rpc: vi.fn(() => queryBuilder({
-        data: {
-          job_id: 41,
-          status: 'done',
-          apply_generation: 0,
-          rerun_requested: false,
-        },
-      })),
+      rpc: vi.fn((name: string) => queryBuilder(
+        name === 'claim_wiki_processing_job'
+          ? { data: claimedJob }
+          : {
+              data: {
+                job_id: 41,
+                status: 'done',
+                apply_generation: 0,
+                rerun_requested: false,
+              },
+            },
+      )),
     }
     mocks.createAdminClient.mockReturnValue(admin)
 
@@ -417,7 +411,12 @@ describe('processMinuteWikiJob 버전 안전성', () => {
 
     expect(summary).toEqual({ created: 0, changed: 0, reaffirmed: 0, conflicted: 0 })
     expect(mocks.generateAnswer).not.toHaveBeenCalled()
-    expect(builders.wiki_processing_jobs).toHaveLength(2)
+    expect(admin.from).not.toHaveBeenCalledWith('wiki_processing_jobs')
+    expect(admin.rpc).toHaveBeenNthCalledWith(
+      1,
+      'claim_wiki_processing_job',
+      expect.objectContaining({ p_job_id: 41 }),
+    )
     expect(admin.rpc).toHaveBeenCalledWith(
       'finish_wiki_processing_job',
       expect.objectContaining({
@@ -438,24 +437,19 @@ describe('processMinuteWikiJob 버전 안전성', () => {
     mocks.generateAnswer.mockResolvedValue('{"items":[]}')
     const bodyMd = '# v1 회의록\n\nREST API 연계를 확정했다.'
     const bodyHash = fnv1a64(bodyMd)
+    const claimedJob = {
+      id: 43,
+      project_id: 'project-1',
+      minute_id: 'minute-1',
+      minute_version_id: 'version-1',
+      body_hash: bodyHash,
+      status: 'running',
+      attempts: 1,
+      max_attempts: 5,
+      locked_by: 'worker-43',
+      payload: {},
+    }
     const tables: Record<string, QueryResponse[]> = {
-      wiki_processing_jobs: [
-        { data: { attempts: 0, max_attempts: 5 } },
-        {
-          data: {
-            id: 43,
-            project_id: 'project-1',
-            minute_id: 'minute-1',
-            minute_version_id: 'version-1',
-            body_hash: bodyHash,
-            status: 'running',
-            attempts: 1,
-            max_attempts: 5,
-            locked_by: 'worker-43',
-            payload: {},
-          },
-        },
-      ],
       minutes: [
         {
           data: {
@@ -486,14 +480,18 @@ describe('processMinuteWikiJob 버전 안전성', () => {
     const admin = {
       from: vi.fn((table: string) =>
         queryBuilder((tables[table] ?? []).shift() ?? { data: null })),
-      rpc: vi.fn(() => queryBuilder({
-        data: {
-          job_id: 43,
-          status: 'done',
-          apply_generation: 0,
-          rerun_requested: false,
-        },
-      })),
+      rpc: vi.fn((name: string) => queryBuilder(
+        name === 'claim_wiki_processing_job'
+          ? { data: claimedJob }
+          : {
+              data: {
+                job_id: 43,
+                status: 'done',
+                apply_generation: 0,
+                rerun_requested: false,
+              },
+            },
+      )),
     }
     mocks.createAdminClient.mockReturnValue(admin)
 
@@ -520,27 +518,22 @@ describe('processMinuteWikiJob 버전 안전성', () => {
     mocks.hasLLM.mockReturnValue(true)
     const bodyMd = '# 연계 방식\n\nERP와 MES 연계는 REST API를 사용하기로 확정했다.'
     const bodyHash = fnv1a64(bodyMd)
+    const claimedJob = {
+      id: 42,
+      project_id: 'project-1',
+      minute_id: 'minute-1',
+      minute_version_id: 'version-1',
+      body_hash: bodyHash,
+      status: 'running',
+      attempts: 1,
+      max_attempts: 5,
+      locked_by: 'worker-42',
+      payload: { applyGeneration: 3 },
+    }
     mocks.generateAnswer.mockResolvedValue(JSON.stringify({
       items: [item({ evidence: [1] })],
     }))
     const tables: Record<string, QueryResponse[]> = {
-      wiki_processing_jobs: [
-        { data: { attempts: 0, max_attempts: 5 } },
-        {
-          data: {
-            id: 42,
-            project_id: 'project-1',
-            minute_id: 'minute-1',
-            minute_version_id: 'version-1',
-            body_hash: bodyHash,
-            status: 'running',
-            attempts: 1,
-            max_attempts: 5,
-            locked_by: 'worker-42',
-            payload: { applyGeneration: 3 },
-          },
-        },
-      ],
       minutes: [
         {
           data: {
@@ -570,16 +563,24 @@ describe('processMinuteWikiJob 버전 안전성', () => {
       wiki_items: [{ data: null }],
     }
     const builders: Record<string, ReturnType<typeof queryBuilder>[]> = {}
-    const rpc = vi.fn(() => queryBuilder({
-      data: {
-        job_id: 42,
-        status: 'done',
-        apply_generation: 3,
-        rerun_requested: false,
-      },
-    })).mockReturnValueOnce(queryBuilder({
-      error: { code: '55000', message: 'WIKI_STALE_MINUTE_VERSION' },
-    }))
+    const rpc = vi.fn((name: string) => {
+      if (name === 'claim_wiki_processing_job') {
+        return queryBuilder({ data: claimedJob })
+      }
+      if (name === 'apply_wiki_extracted_item_atomic') {
+        return queryBuilder({
+          error: { code: '55000', message: 'WIKI_STALE_MINUTE_VERSION' },
+        })
+      }
+      return queryBuilder({
+        data: {
+          job_id: 42,
+          status: 'done',
+          apply_generation: 3,
+          rerun_requested: false,
+        },
+      })
+    })
     const admin = {
       from: vi.fn((table: string) => {
         const builder = queryBuilder((tables[table] ?? []).shift() ?? { data: null })
@@ -593,9 +594,9 @@ describe('processMinuteWikiJob 버전 안전성', () => {
     const summary = await processMinuteWikiJob(42)
 
     expect(summary).toEqual({ created: 0, changed: 0, reaffirmed: 0, conflicted: 0 })
-    expect(admin.rpc).toHaveBeenCalledTimes(2)
+    expect(admin.rpc).toHaveBeenCalledTimes(3)
     expect(admin.rpc).toHaveBeenNthCalledWith(
-      2,
+      3,
       'finish_wiki_processing_job',
       expect.objectContaining({
         p_job_id: 42,
@@ -609,6 +610,122 @@ describe('processMinuteWikiJob 버전 안전성', () => {
 })
 
 describe('runWikiWorkerOnce lease와 force 경합', () => {
+  it('DB 시각으로 새 minute job을 선점해 한 호출에서 project step을 limit까지 이어간다', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
+    vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-role-key')
+    mocks.hasLLM.mockReturnValue(true)
+    mocks.generateAnswer.mockResolvedValue('{"items":[]}')
+
+    const workerAdmin = {
+      from: vi.fn(() => queryBuilder({ data: [] })),
+      rpc: vi.fn(),
+    }
+    const projectAdmins = [1, 2].map((index) => ({
+      rpc: vi.fn((name: string) => queryBuilder(
+        name === 'claim_wiki_project_rebuild_step'
+          ? {
+              data: {
+                claimed_project_id: 'project-1',
+                rebuild_generation: 1,
+                minute_id: `minute-${index}`,
+                minute_version_id: `version-${index}`,
+                wiki_job_id: 100 + index,
+                wiki_apply_generation: 0,
+                finished: false,
+              },
+            }
+          : {
+              data: {
+                rebuilt_project_id: 'project-1',
+                rebuild_status: 'pending',
+                rebuild_generation: 1,
+                cursor_advanced: true,
+              },
+            },
+      )),
+    }))
+    const minuteAdmins = [1, 2].map((index) => {
+      const bodyMd = `# 회의록 ${index}\n\nREST API 적용을 확정했다.`
+      const bodyHash = fnv1a64(bodyMd)
+      const tables: Record<string, QueryResponse[]> = {
+        minutes: [
+          {
+            data: {
+              id: `minute-${index}`,
+              title: `회의록 ${index}`,
+              minute_date: '2026-07-26',
+              meeting_occurrence_date: '2026-07-26',
+              project_id: 'project-1',
+              archived_at: null,
+              created_at: `2026-07-26T0${index}:00:00.000Z`,
+            },
+          },
+          { data: { project_id: 'project-1', archived_at: null } },
+        ],
+        minute_versions: [
+          {
+            data: {
+              id: `version-${index}`,
+              version_no: 1,
+              body_md: bodyMd,
+              body_hash: bodyHash,
+              created_at: `2026-07-26T0${index}:00:00.000Z`,
+            },
+          },
+          { data: { version_no: 1, body_hash: bodyHash } },
+        ],
+      }
+      return {
+        from: vi.fn((table: string) =>
+          queryBuilder((tables[table] ?? []).shift() ?? { data: null })),
+        rpc: vi.fn((name: string) => queryBuilder(
+          name === 'claim_wiki_processing_job'
+            ? {
+                data: {
+                  id: 100 + index,
+                  project_id: 'project-1',
+                  minute_id: `minute-${index}`,
+                  minute_version_id: `version-${index}`,
+                  body_hash: bodyHash,
+                  status: 'running',
+                  attempts: 1,
+                  max_attempts: 5,
+                  locked_by: `worker-${index}`,
+                  apply_generation: 0,
+                  payload: {},
+                },
+              }
+            : {
+                data: {
+                  job_id: 100 + index,
+                  status: 'done',
+                  apply_generation: 0,
+                  rerun_requested: false,
+                },
+              },
+        )),
+      }
+    })
+    mocks.createAdminClient
+      .mockReturnValueOnce(workerAdmin)
+      .mockReturnValueOnce(projectAdmins[0])
+      .mockReturnValueOnce(minuteAdmins[0])
+      .mockReturnValueOnce(projectAdmins[1])
+      .mockReturnValueOnce(minuteAdmins[1])
+
+    await expect(runWikiWorkerOnce(2)).resolves.toEqual({ attempted: 2, completed: 2 })
+    for (const [index, minuteAdmin] of minuteAdmins.entries()) {
+      expect(minuteAdmin.rpc).toHaveBeenCalledWith(
+        'claim_wiki_processing_job',
+        expect.objectContaining({ p_job_id: 101 + index }),
+      )
+      expect(projectAdmins[index].rpc).toHaveBeenCalledWith(
+        'finish_wiki_project_rebuild_step',
+        expect.objectContaining({ p_last_error: '' }),
+      )
+    }
+  })
+
   it('force가 예약된 max-attempt stale lease도 finish RPC가 다음 generation pending으로 보존한다', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://test.supabase.co')
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-role-key')
@@ -718,7 +835,7 @@ describe('processWikiProjectRebuildStep durable cursor', () => {
     }
     // 다른 worker가 bound minute job을 이미 완료했다면 직접 claim은 null이다.
     const minuteAdmin = {
-      from: vi.fn(() => queryBuilder({ data: null })),
+      rpc: vi.fn(() => queryBuilder({ data: null })),
     }
     mocks.createAdminClient
       .mockReturnValueOnce(projectAdmin)

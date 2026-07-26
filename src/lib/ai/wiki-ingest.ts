@@ -729,35 +729,20 @@ export async function processMinuteWikiJob(jobId: number): Promise<WikiProcessSu
   if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return null
   const admin = createAdminClient()
   const workerId = `inline-${process.pid}-${crypto.randomUUID()}`
-  const now = new Date().toISOString()
-  const { data: queued, error: queuedError } = await admin.from('wiki_processing_jobs')
-    .select('attempts, max_attempts')
-    .eq('id', jobId)
-    .eq('status', 'pending')
-    .lte('run_after', now)
-    .maybeSingle()
-  if (queuedError || !queued) {
-    if (queuedError) console.error('[wiki] 처리 작업 선점 준비 실패:', queuedError.message)
-    return null
-  }
-  const nextAttempt = ((queued.attempts as number | undefined) ?? 0) + 1
-  const { data: job, error: claimError } = await admin.from('wiki_processing_jobs').update({
-    status: 'running',
-    attempts: nextAttempt,
-    locked_at: now,
-    locked_by: workerId,
-    rerun_requested: false,
-    updated_at: now,
-  }).eq('id', jobId)
-    .eq('status', 'pending')
-    .lte('run_after', now)
-    .select('*')
+  // project rebuild가 job을 DB 시각으로 즉시 예약하므로 due 판정도 DB 시각으로 해야 한다.
+  // 별도 SELECT 없이 pending → running을 원자 선점해 clock skew와 이중 선점을 함께 막는다.
+  const { data: claimedJob, error: claimError } = await admin
+    .rpc('claim_wiki_processing_job', {
+      p_job_id: jobId,
+      p_locked_by: workerId,
+    })
     .maybeSingle()
   if (claimError) {
     console.error('[wiki] 처리 작업 선점 실패:', claimError.message)
     return null
   }
-  if (!job) return null
+  if (!claimedJob) return null
+  const job = claimedJob as unknown as Row
 
   try {
     const minuteVersionId = job.minute_version_id as string | null
