@@ -598,6 +598,17 @@ describe('moveMinuteFolder (W21 — pmo_admin 전용, 가드 M1~M5)', () => {
 /* ── W10 연결 초기화 (§9.4) ────────────────────────────────────────────────── */
 
 describe('clearMinuteExternalId (W10 — 연결 초기화)', () => {
+  // 결정 §3 R3 한시 게이트 — ddobak-W14 배포 전까지 pmo_admin 만.
+  beforeEach(() => { getMembership.mockResolvedValue({ role: 'pmo_admin' }) })
+
+  it('pmo_admin 이 아니면 거부 — ddobak-W14 전까지 한시 게이트(§3 R3)', async () => {
+    getMembership.mockResolvedValue({ role: 'member' })
+    const r = await clearMinuteExternalId('m1')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('관리자')
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+
   it('미로그인은 거부', async () => {
     getSession.mockResolvedValue(null)
     expect((await clearMinuteExternalId('m1')).ok).toBe(false)
@@ -625,11 +636,12 @@ describe('clearMinuteExternalId (W10 — 연결 초기화)', () => {
     expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
   })
 
-  it('작성자도 pmo_admin 도 아니면 거부', async () => {
+  it('pmo_admin 은 남의 회의록도 초기화할 수 있다 — checkOwner 규약 유지', async () => {
     const { client } = fakeClient({ minutes: { data: { id: 'm1', created_by: 'other' }, error: null } })
+    const { client: admin } = fakeClient({ minutes: { data: [{ id: 'm1' }], error: null } })
     createServerClient.mockResolvedValue(client)
-    expect((await clearMinuteExternalId('m1')).ok).toBe(false)
-    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
+    adminMocks.createAdminClient.mockReturnValue(admin)
+    expect((await clearMinuteExternalId('m1')).ok).toBe(true)
   })
 
   it('0행 갱신은 실패로 보고한다', async () => {

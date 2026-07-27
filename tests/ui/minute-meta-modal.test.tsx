@@ -62,9 +62,12 @@ describe('MinuteMetaModal — 폴더 기준 수정 + 연동 식별자', () => {
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
-  async function mount(minute: Minute = baseMinute) {
+  // canResetLink 는 결정 §3 R3 의 한시 게이트(pmo_admin 한정). 연동 케이스는 기본 허용으로 두고
+  // 비관리자 차단은 전용 케이스에서 본다.
+  async function mount(minute: Minute = baseMinute, canResetLink = true) {
     await act(async () => root.render(
-      <MinuteMetaModal open onClose={() => {}} onSaved={onSaved} minute={minute} projects={[]} />,
+      <MinuteMetaModal open onClose={() => {}} onSaved={onSaved}
+        minute={minute} projects={[]} canResetLink={canResetLink} />,
     ))
   }
   const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!
@@ -156,6 +159,13 @@ describe('MinuteMetaModal — 폴더 기준 수정 + 연동 식별자', () => {
     expect(dialog().textContent).toContain('min.ext.none')
     expect(dialog().querySelector('code')).toBeNull()
     expect(byText('min.ext.reset')?.disabled).toBe(true)
+  })
+
+  it('R3 한시 게이트 — pmo_admin 이 아니면 초기화 버튼 비활성', async () => {
+    // ddobak-W14(연결 해제 안내) 배포 전까지는 관리자만. 그전에 일반 사용자가 끊으면
+    // 또박또박은 계속 '연결됨'으로 보고 재전송 시 중복 회의록 + 원본 고아가 된다.
+    await mount(baseMinute, false)
+    expect(byText('min.ext.reset')!.disabled).toBe(true)
   })
 
   it('보관 회의록은 연동이 있어도 초기화 비활성(재연결 불가 편도 방지)', async () => {

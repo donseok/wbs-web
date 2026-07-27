@@ -921,6 +921,13 @@ export async function clearMinuteExternalId(
   if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
+  // ⚠️ **한시 게이트**(결정 §3 R3) — ddobak-W14(연결 해제 안내) 배포가 확인될 때까지 pmo_admin 만.
+  // 초기화하면 D'Flow 는 연결을 끊지만 또박또박은 계속 '연결됨'으로 표시하고, 그 상태로
+  // 재전송하면 **중복 회의록 + 원본 고아**가 된다(자가 치유 안 됨). ddobak-W14 가 그 창을 닫는다.
+  // 그때 이 가드를 §9.4-2 원안(checkOwner = 작성자 또는 pmo_admin)으로 되돌릴 것.
+  if (m.role !== 'pmo_admin') {
+    return { ok: false, error: '연결 초기화는 현재 관리자만 할 수 있습니다.' }
+  }
   const sb = await createServerClient()
   const own = await checkOwner(sb, minuteId, user.id, m.role)
   if (own) return { ok: false, error: own }

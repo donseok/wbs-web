@@ -14,13 +14,15 @@ import { FolderTreeSelect } from './FolderTreeSelect'
 const DDOBAK_PREFIX = 'ddobak:'
 
 export function MinuteMetaModal({
-  open, onClose, onSaved, minute, projects,
+  open, onClose, onSaved, minute, projects, canResetLink = false,
 }: {
   open: boolean
   onClose: () => void
   onSaved: () => void
   minute: Minute
   projects: { id: string; name: string }[]
+  /** 연결 초기화 권한 — 한시적으로 pmo_admin 한정(결정 §3 R3, ddobak-W14 배포까지). */
+  canResetLink?: boolean
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
@@ -99,7 +101,7 @@ export function MinuteMetaModal({
   // ddobak: 프리픽스는 D'Flow 내부 멱등 키 형식이라 사용자에게는 또박또박이 아는 uuid 만 보인다
   const externalShown = isDdobak ? externalId.slice(DDOBAK_PREFIX.length) : externalId
   // 보관분은 link 경로가 409 로 막혀 재연결이 불가하다 — 초기화만 되는 편도 상태를 만들지 않는다(§9.4-6)
-  const resetDisabled = externalId == null || !!minute.archivedAt
+  const resetDisabled = externalId == null || !!minute.archivedAt || !canResetLink
 
   async function copyExternal() {
     if (!externalShown) return
