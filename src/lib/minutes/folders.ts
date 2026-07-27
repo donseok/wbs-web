@@ -8,7 +8,8 @@ type DbClient = Awaited<ReturnType<typeof createServerClient>> | ReturnType<type
 
 /** 담당 팀과 동명인 **시드** 루트 폴더 id — 신규 회의록 자동 편철용(0043 하이어라키: 루트=팀코드 5축).
  *  created_by null(시드) 고정 — 동명 사용자 폴더(스쿼팅)가 전사 편철 대상이 되면 안 됨.
- *  조회 실패·폴더 부재는 null(미분류 폴백)로 로그만 남긴다 — 편철이 등록 자체를 막으면 안 됨. */
+ *  조회 실패·폴더 부재는 null(미분류 폴백)로 로그만 남긴다 — 편철이 등록 자체를 막으면 안 됨.
+ *  folder_path 미전송(구버전 또박또박) 경로의 폴백으로 존치한다. */
 export async function resolveTeamRootFolderId(
   sb: DbClient, teamCode: TeamCode,
 ): Promise<string | null> {
@@ -21,33 +22,85 @@ export async function resolveTeamRootFolderId(
   return (data as { id: string } | null)?.id ?? null
 }
 
-/** 폴더 id → root-first 경로명. 응답 에코(§3.3)를 **항상 진실되게** 유지하기 위한 역해석 —
- *  folder_path 를 받지 않은 재전송(구버전 또박또박)·skip 응답에서도 현재 위치를 알려준다.
- *  미분류(null)·조회 실패·끊긴 체인은 null. 순환은 가드로 끊는다. */
-export async function folderPathOf(
-  sb: DbClient, folderId: string | null,
-): Promise<string[] | null> {
-  if (!folderId) return null
-  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id')
+/* ── 폴더 스냅샷 ─────────────────────────────────────────────────────────────
+ * minute_folders 는 작은 테이블이라 한 번에 읽어 인메모리로 걸어 다니는 편이
+ * 경로 해석(N단 왕복)·역해석·배치 재편철(200건) 모두에서 압도적으로 싸다.
+ * actions/minutes.ts 의 loadFolders 도 같은 전략이다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export interface FolderRow {
+  id: string
+  name: string
+  parentId: string | null
+  createdBy: string | null
+}
+
+export interface FolderSnapshot {
+  byId: Map<string, FolderRow>
+  /** `${parentId} ${name}` → id. parentId 는 uuid(공백 없음)라 구분자 충돌이 없다. */
+  byParentName: Map<string, string>
+  /** 시드 루트(parent_id null · created_by null) 이름 → id. 팀코드 동명이 팀 루트다. */
+  seedRoots: Map<string, string>
+}
+
+const childKey = (parentId: string, name: string) => `${parentId} ${name}`
+
+export function buildFolderSnapshot(rows: readonly FolderRow[]): FolderSnapshot {
+  const snap: FolderSnapshot = { byId: new Map(), byParentName: new Map(), seedRoots: new Map() }
+  for (const r of rows) addToFolderSnapshot(snap, r)
+  return snap
+}
+
+export function addToFolderSnapshot(snap: FolderSnapshot, row: FolderRow): void {
+  snap.byId.set(row.id, row)
+  if (row.parentId === null) {
+    if (row.createdBy === null) snap.seedRoots.set(row.name, row.id)
+  } else {
+    snap.byParentName.set(childKey(row.parentId, row.name), row.id)
+  }
+}
+
+/** 전량 로드. 실패는 null(fail-loud 로그) — 호출부가 '폴더 없음'과 구분해 처리한다. */
+export async function loadFolderSnapshot(sb: DbClient): Promise<FolderSnapshot | null> {
+  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id, created_by')
   if (error) {
-    console.error('[minutes] 폴더 경로 역해석 실패(에코 생략):', error.message)
+    console.error('[minutes] 폴더 스냅샷 로드 실패:', error.message)
     return null
   }
-  const byId = new Map<string, { name: string; parentId: string | null }>()
-  for (const r of (data ?? []) as Array<{ id: string; name: string; parent_id: string | null }>) {
-    byId.set(r.id, { name: r.name, parentId: r.parent_id })
-  }
+  const rows = ((data ?? []) as Array<Record<string, unknown>>).map(r => ({
+    id: r.id as string,
+    name: r.name as string,
+    parentId: (r.parent_id as string | null) ?? null,
+    createdBy: (r.created_by as string | null) ?? null,
+  }))
+  return buildFolderSnapshot(rows)
+}
+
+/** 폴더 id → root-first 경로명. 미분류(null)·끊긴 체인은 null. 순환은 가드로 끊는다. */
+export function folderPathOfSnapshot(
+  snap: FolderSnapshot, folderId: string | null,
+): string[] | null {
+  if (!folderId) return null
   const out: string[] = []
   const seen = new Set<string>()
   let cur: string | null = folderId
   while (cur && !seen.has(cur)) {
     seen.add(cur)
-    const node = byId.get(cur)
+    const node = snap.byId.get(cur)
     if (!node) return null                       // 끊긴 체인 — 추측하지 않는다
     out.unshift(node.name)
     cur = node.parentId
   }
   return out.length > 0 ? out : null
+}
+
+/** 응답 에코(§3.3)용 역해석 단건 — folder_path 를 받지 않은 재전송·skip 응답에서 쓴다. */
+export async function folderPathOf(
+  sb: DbClient, folderId: string | null,
+): Promise<string[] | null> {
+  if (!folderId) return null
+  const snap = await loadFolderSnapshot(sb)
+  return snap ? folderPathOfSnapshot(snap, folderId) : null
 }
 
 /* ── folder_path 편철 (계약 v2.3 §3.2) ───────────────────────────────────────── */
@@ -107,17 +160,18 @@ export function normalizeFolderPath(
 export type ResolveFolderPathResult =
   | {
       ok: true
+      /** 확보된 폴더 id. complete 가 false 면 목표 경로의 **조상**이다. */
       folderId: string
-      /** 실제 편철 결과 — 절단·한 칸 내림이 반영된 경로. 응답 에코(§3.3)의 원천. */
+      /** folderId 가 실제로 있는 경로 — 등록 응답 에코(§3.3)는 **이것**을 쓴다(진실된 위치). */
       resolvedPath: string[]
+      /** 목표 경로 전체 — 절단·한 칸 내림이 반영된 결과. 배치의 `to` 는 이것을 쓴다. */
+      targetPath: string[]
+      /** folderId 가 targetPath 의 끝인가. */
+      complete: boolean
+      /** complete 가 false 인 이유가 **생성 실패**인가(false = dry run 미생성). */
+      failed: boolean
       /** 깊이 5 초과로 절단됐는가(§3.2-4). */
       truncated: boolean
-      /**
-       * 하위 폴더 조회·생성이 중간에 실패해 **조상까지만** 편철됐는가.
-       * 등록(POST /minutes)은 그대로 진행한다(편철 실패가 등록을 막으면 안 됨).
-       * 배치(§8)는 이동 도구이므로 failed 로 보고한다 — 호출자가 정한다.
-       */
-      partial: boolean
     }
   | {
       ok: false
@@ -129,14 +183,14 @@ export type ResolveFolderPathResult =
       reason: string
     }
 
-/** 부모 아래 자식 폴더 확보 — 없으면 생성. 실패는 null(호출부가 partial 로 흡수).
+/** 부모 아래 자식 폴더 생성 — 실패는 null(호출부가 흡수).
  *
  *  C3: minute_folders_child_name_uniq 는 부분 인덱스(where parent_id is not null)라
  *  ON CONFLICT 가 conflict 대상 추론에 실패해 42P10 이 된다. 그래서 insert → 23505 면
  *  재조회로 동시 전송 경합을 흡수한다(minutes upsert 가 쓰는 것과 같은 우회).
  *  C4: created_by 는 전송 사용자 id — null 은 **시드 표식**이라 스쿼팅 방어와 0043 재실행이
  *  이 값으로 시드를 식별한다. */
-async function ensureChildFolder(
+async function createChildFolder(
   sb: DbClient, parentId: string, name: string, actorId: string,
 ): Promise<string | null> {
   const { data, error } = await sb.from('minute_folders')
@@ -163,23 +217,29 @@ async function ensureChildFolder(
  * ⚠️ teamCode 는 **필수·구체값**이다. 배치의 items[].team 이 선택인 것은 배치 라우트의 책임 —
  *    라우트가 먼저 team 을 확정한 뒤 확정값으로 이 함수를 부른다. 여기에 teamCode 옵션 분기를
  *    만들지 말 것(두 번째 정규화 구현이 생기는 통로다).
- *
- * 조회는 한 번에 하고 부족분만 순차 생성한다 — 깊은 경로에서 왕복을 최소화.
  */
 export async function resolveFolderPath(
   sb: DbClient,
   teamCode: TeamCode,
   path: readonly string[],
-  opts: { actorId: string; activeTeamCodes: readonly string[] },
+  opts: {
+    actorId: string
+    activeTeamCodes: readonly string[]
+    /** 배치가 미리 읽어 둔 스냅샷 — 항목당 왕복을 없앤다. 생성분은 여기 반영돼 다음 항목이 재사용한다. */
+    snapshot?: FolderSnapshot
+    /** false = 폴더를 만들지 않는다(dry run). 없는 경로는 complete:false·failed:false 로 보고. */
+    create?: boolean
+  },
 ): Promise<ResolveFolderPathResult> {
   const parsed = parseFolderPathValue(path)
   if (!parsed.ok) return { ok: false, kind: 'validation_failed', error: parsed.error, reason: parsed.reason }
   const norm = normalizeFolderPath(teamCode, parsed.path, opts.activeTeamCodes)
   if (!norm.ok) return { ok: false, kind: 'validation_failed', error: norm.error, reason: norm.reason }
 
-  const rootId = await resolveTeamRootFolderId(sb, teamCode)
+  const snap = opts.snapshot ?? await loadFolderSnapshot(sb)
+  const rootId = snap?.seedRoots.get(teamCode) ?? null
   if (!rootId) {
-    // §3.2-5. 원인은 거의 항상 0043 미적용이다.
+    // §3.2-5. 원인은 거의 항상 0043 미적용이다(스냅샷 로드 실패면 위에서 이미 로그가 남는다).
     return {
       ok: false,
       kind: 'no_team_root',
@@ -188,35 +248,21 @@ export async function resolveFolderPath(
     }
   }
 
-  const rest = norm.path.slice(1)
-  const resolvedPath = [norm.path[0]]
-  if (rest.length === 0) {
-    return { ok: true, folderId: rootId, resolvedPath, truncated: norm.truncated, partial: false }
-  }
-
-  // 한 번에 조회 — 이름 집합으로 긁어 (parent_id, name) 으로 걸어 내려간다. 동명 폴더가 여러
-  // 부모 아래 있어도 parent_id 로 갈리므로 안전하다.
-  const { data, error } = await sb.from('minute_folders')
-    .select('id, name, parent_id').in('name', Array.from(new Set(rest)))
-  if (error) {
-    console.error('[minutes] 하위 폴더 조회 실패(팀 루트까지만 편철):', error.message)
-    return { ok: true, folderId: rootId, resolvedPath, truncated: norm.truncated, partial: true }
-  }
-  const byParentName = new Map<string, string>()
-  for (const r of (data ?? []) as Array<{ id: string; name: string; parent_id: string | null }>) {
-    byParentName.set(`${r.parent_id ?? ''} ${r.name}`, r.id)
-  }
-
+  const create = opts.create !== false
+  const base = { targetPath: norm.path, truncated: norm.truncated } as const
   let cur = rootId
-  for (const name of rest) {
-    const hit = byParentName.get(`${cur} ${name}`)
+  const resolvedPath = [norm.path[0]]
+  for (const name of norm.path.slice(1)) {
+    const hit = snap!.byParentName.get(childKey(cur, name))
     if (hit) { cur = hit; resolvedPath.push(name); continue }
-    const created = await ensureChildFolder(sb, cur, name, opts.actorId)
-    if (!created) {
-      return { ok: true, folderId: cur, resolvedPath, truncated: norm.truncated, partial: true }
-    }
+    // dry run — 만들지 않고 "여기까지만 실재한다"를 보고한다(쓰기 0).
+    if (!create) return { ok: true, ...base, folderId: cur, resolvedPath, complete: false, failed: false }
+    const created = await createChildFolder(sb, cur, name, opts.actorId)
+    // 생성 실패는 조상까지만 편철 — 등록 자체를 막지 않는다. 배치는 이걸 failed 로 읽는다.
+    if (!created) return { ok: true, ...base, folderId: cur, resolvedPath, complete: false, failed: true }
+    addToFolderSnapshot(snap!, { id: created, name, parentId: cur, createdBy: opts.actorId })
     cur = created
     resolvedPath.push(name)
   }
-  return { ok: true, folderId: cur, resolvedPath, truncated: norm.truncated, partial: false }
+  return { ok: true, ...base, folderId: cur, resolvedPath, complete: true, failed: false }
 }

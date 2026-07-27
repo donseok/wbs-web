@@ -672,6 +672,9 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
 describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
   const created = { id: 'm-1', created_at: '2026-07-27T01:00:00+00:00', updated_at: '2026-07-27T01:00:00+00:00' }
   const insertQueue = [{ data: null }, { data: created }]
+  // resolveFolderPath 는 폴더 전량 스냅샷 1회 + 부족분 insert 순으로 질의한다.
+  const SEED_PMO = { id: 'f-pmo', name: 'PMO', parent_id: null, created_by: null }
+  const snapshot = (...rs: Array<Record<string, unknown>>) => ({ data: [SEED_PMO, ...rs] })
 
   /** 신규 등록 경로의 minute_folders 응답 큐를 세팅한다. */
   function useInsert(folderQueue: Array<{ data?: unknown; error?: { message?: string; code?: string } }>) {
@@ -680,8 +683,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
 
   it('경로대로 편철하고 응답에 folder_id·folder_path 를 에코한다', async () => {
     const { admin } = useInsert([
-      { data: { id: 'f-pmo' } },                                          // 팀 루트
-      { data: [{ id: 'f-q', name: '품질', parent_id: 'f-pmo' }] },        // 일괄 조회
+      snapshot({ id: 'f-q', name: '품질', parent_id: 'f-pmo', created_by: 'u-9' }),
       { data: { id: 'f-w' } },                                            // 주간정례 생성
     ])
     const res = await POST(post({ ...payload, folder_path: ['PMO', '품질', '주간정례'] }))
@@ -695,12 +697,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
   })
 
   it('자유 루트는 팀 루트 아래로 한 칸 내려 편철하고 그 경로를 에코한다(§3.2 ②)', async () => {
-    useInsert([
-      { data: { id: 'f-pmo' } },
-      { data: [] },
-      { data: { id: 'f-tf' } },
-      { data: { id: 'f-kick' } },
-    ])
+    useInsert([snapshot(), { data: { id: 'f-tf' } }, { data: { id: 'f-kick' } }])
     const res = await POST(post({ ...payload, folder_path: ['신규TF', '킥오프'] }))
     expect(res.status).toBe(201)
     expect(await res.json()).toMatchObject({
@@ -709,7 +706,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
   })
 
   it('folder_path: [] 는 팀 루트 편철 — folder_path 에코는 [팀코드]', async () => {
-    const { admin } = useInsert([{ data: { id: 'f-pmo' } }])
+    const { admin } = useInsert([snapshot()])
     const res = await POST(post({ ...payload, folder_path: [] }))
     expect(res.status).toBe(201)
     expect(await res.json()).toMatchObject({ folder_id: 'f-pmo', folder_path: ['PMO'] })
@@ -726,7 +723,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
   })
 
   it('시드 루트 부재 → folder_id·folder_path 둘 다 null (E1: [] 아님), 등록은 201', async () => {
-    const { admin } = useInsert([{ data: null }])
+    const { admin } = useInsert([{ data: [] }])
     const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
     expect(res.status).toBe(201)
     const json = await res.json()
@@ -739,8 +736,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
 
   it('6단 경로는 5단으로 절단해 편철하고 절단된 경로를 에코한다', async () => {
     useInsert([
-      { data: { id: 'f-pmo' } },
-      { data: [] },
+      snapshot(),
       { data: { id: 'f-a' } }, { data: { id: 'f-b' } },
       { data: { id: 'f-c' } }, { data: { id: 'f-d' } },
     ])
@@ -770,8 +766,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
 
   it('동시 전송 경합(23505) 흡수 — 500 없이 재조회한 폴더로 편철', async () => {
     useInsert([
-      { data: { id: 'f-pmo' } },
-      { data: [] },
+      snapshot(),
       { data: null, error: { code: '23505', message: 'dup' } },
       { data: { id: 'f-raced' } },
     ])
@@ -781,11 +776,9 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
   })
 
   it('자동 생성 폴더의 created_by 는 전송 사용자 — null(시드 표식) 금지(C4)', async () => {
-    const { builders } = useInsert([
-      { data: { id: 'f-pmo' } }, { data: [] }, { data: { id: 'f-q' } },
-    ])
+    const { builders } = useInsert([snapshot(), { data: { id: 'f-q' } }])
     await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
-    expect(builders.minute_folders[2].insert).toHaveBeenCalledWith({
+    expect(builders.minute_folders[1].insert).toHaveBeenCalledWith({
       name: '품질', parent_id: 'f-pmo', created_by: 'u-1',
     })
   })
@@ -805,7 +798,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
     it('키 부재 → metadata 에 folder_id 키가 없다(기존 위치 유지)', async () => {
       const { admin } = useAdmin({
         minutes: [...replaceQueue],
-        minute_folders: [{ data: [{ id: 'f-old', name: 'PMO', parent_id: null }] }],   // 에코용 역해석
+        minute_folders: [{ data: [{ id: 'f-old', name: 'PMO', parent_id: null, created_by: null }] }],  // 에코 역해석
       })
       const res = await POST(post(payload))
       expect(res.status).toBe(200)
@@ -816,7 +809,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
     it('[] → 팀 루트로 되돌림(metadata 에 팀 루트 id)', async () => {
       const { admin } = useAdmin({
         minutes: [...replaceQueue],
-        minute_folders: [{ data: { id: 'f-pmo' } }],
+        minute_folders: [snapshot()],
       })
       const res = await POST(post({ ...payload, folder_path: [] }))
       expect(res.status).toBe(200)
@@ -827,10 +820,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
     it('경로 → 그 경로로 이동', async () => {
       const { admin } = useAdmin({
         minutes: [...replaceQueue],
-        minute_folders: [
-          { data: { id: 'f-pmo' } },
-          { data: [{ id: 'f-q', name: '품질', parent_id: 'f-pmo' }] },
-        ],
+        minute_folders: [snapshot({ id: 'f-q', name: '품질', parent_id: 'f-pmo', created_by: 'u-9' })],
       })
       const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
       expect(res.status).toBe(200)
@@ -842,8 +832,8 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
       const { admin } = useAdmin({
         minutes: [...replaceQueue],
         minute_folders: [
-          { data: null },                                                    // 루트 조회 실패
-          { data: [{ id: 'f-old', name: 'PMO', parent_id: null }] },          // 에코용 역해석
+          { data: [] },                                                                 // 시드 루트 없음
+          { data: [{ id: 'f-old', name: 'PMO', parent_id: null, created_by: null }] },   // 에코 역해석
         ],
       })
       const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
@@ -855,10 +845,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
     it('folder_id 는 v_index_content_changed 대상이 아니다 — 폴더만 바뀌면 위키 잡 없음', async () => {
       useAdmin({
         minutes: [...replaceQueue],
-        minute_folders: [
-          { data: { id: 'f-pmo' } },
-          { data: [{ id: 'f-q', name: '품질', parent_id: 'f-pmo' }] },
-        ],
+        minute_folders: [snapshot({ id: 'f-q', name: '품질', parent_id: 'f-pmo', created_by: 'u-9' })],
       })
       await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
       expect(mocks.enqueueMinuteWikiProcessing).not.toHaveBeenCalled()

@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: vi.fn(() => ({})) }))
 
 import { parseFolderPathValue } from '@/lib/minutes/externalApi'
-import { folderPathOf, normalizeFolderPath, resolveFolderPath } from '@/lib/minutes/folders'
+import {
+  buildFolderSnapshot, folderPathOf, folderPathOfSnapshot,
+  normalizeFolderPath, resolveFolderPath,
+} from '@/lib/minutes/folders'
 
 const TEAMS = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
@@ -36,8 +39,10 @@ function fakeDb(queue: QueryResponse[]) {
   return { db: { from } as never, builders, from }
 }
 
-const ROOT = { data: { id: 'f-root' } }
-const NO_ROOT = { data: null }
+/** 폴더 전량 스냅샷 응답을 만든다 — resolveFolderPath 의 첫 질의. */
+const rows = (...rs: Array<Record<string, unknown>>) => ({ data: rs })
+const SEED_ROOT = { id: 'f-root', name: 'MES', parent_id: null, created_by: null }
+const QUALITY = { id: 'f-q', name: '품질', parent_id: 'f-root', created_by: 'u-9' }
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -123,67 +128,80 @@ describe('resolveFolderPath (경로 해석·생성)', () => {
   const opts = { actorId: 'u-1', activeTeamCodes: TEAMS }
 
   it('시드 팀 루트가 없으면 no_team_root — 호출자가 처리를 정한다', async () => {
-    const { db } = fakeDb([NO_ROOT])
+    const { db } = fakeDb([rows()])
     const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], opts)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.kind).toBe('no_team_root')
   })
 
-  it('[] → 팀 루트, 하위 조회 없음', async () => {
-    const { db, from } = fakeDb([ROOT])
+  it('동명 사용자 루트 폴더(스쿼팅)는 팀 루트로 인정하지 않는다', async () => {
+    const { db } = fakeDb([rows({ id: 'f-fake', name: 'MES', parent_id: null, created_by: 'u-9' })])
+    const r = await resolveFolderPath(db, 'MES', ['MES'], opts)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.kind).toBe('no_team_root')
+  })
+
+  it('스냅샷 로드 실패도 no_team_root — 조용히 미분류로 흘리지 않는다', async () => {
+    const { db } = fakeDb([{ data: null, error: { message: 'down' } }])
+    const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], opts)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.kind).toBe('no_team_root')
+  })
+
+  it('[] → 팀 루트. 질의는 스냅샷 1회뿐', async () => {
+    const { db, from } = fakeDb([rows(SEED_ROOT)])
     const r = await resolveFolderPath(db, 'MES', [], opts)
-    expect(r).toMatchObject({ ok: true, folderId: 'f-root', resolvedPath: ['MES'], partial: false })
-    expect(from).toHaveBeenCalledTimes(1)          // 루트 조회 1회뿐
+    expect(r).toMatchObject({
+      ok: true, folderId: 'f-root', resolvedPath: ['MES'], targetPath: ['MES'], complete: true, failed: false,
+    })
+    expect(from).toHaveBeenCalledTimes(1)
   })
 
   it('기존 하위 폴더가 있으면 재사용하고 생성하지 않는다', async () => {
-    const { db, from } = fakeDb([
-      ROOT,
-      { data: [{ id: 'f-q', name: '품질', parent_id: 'f-root' }] },
-    ])
+    const { db, from } = fakeDb([rows(SEED_ROOT, QUALITY)])
     const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], opts)
-    expect(r).toMatchObject({ ok: true, folderId: 'f-q', resolvedPath: ['MES', '품질'], partial: false })
-    expect(from).toHaveBeenCalledTimes(2)          // insert 없음
+    expect(r).toMatchObject({ ok: true, folderId: 'f-q', resolvedPath: ['MES', '품질'], complete: true })
+    expect(from).toHaveBeenCalledTimes(1)          // insert 없음
   })
 
   it('부족분만 순차 생성하고 created_by 에 전송 사용자를 넣는다(C4)', async () => {
-    const { db, builders } = fakeDb([
-      ROOT,
-      { data: [{ id: 'f-q', name: '품질', parent_id: 'f-root' }] },   // 품질만 존재
-      { data: { id: 'f-w' } },                                        // 주간정례 생성
-    ])
+    const { db, builders } = fakeDb([rows(SEED_ROOT, QUALITY), { data: { id: 'f-w' } }])
     const r = await resolveFolderPath(db, 'MES', ['MES', '품질', '주간정례'], opts)
-    expect(r).toMatchObject({ ok: true, folderId: 'f-w', resolvedPath: ['MES', '품질', '주간정례'] })
-    expect(builders[2].insert).toHaveBeenCalledWith({
+    expect(r).toMatchObject({
+      ok: true, folderId: 'f-w', resolvedPath: ['MES', '품질', '주간정례'], complete: true,
+    })
+    expect(builders[1].insert).toHaveBeenCalledWith({
       name: '주간정례', parent_id: 'f-q', created_by: 'u-1',
     })
   })
 
   it('동시 전송 경합 — 23505 면 재조회로 흡수한다(C3, ON CONFLICT 금지)', async () => {
     const { db } = fakeDb([
-      ROOT,
-      { data: [] },
+      rows(SEED_ROOT),
       { data: null, error: { code: '23505', message: 'dup' } },   // insert 충돌
       { data: { id: 'f-raced' } },                                // 재조회 성공
     ])
     const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], opts)
-    expect(r).toMatchObject({ ok: true, folderId: 'f-raced', resolvedPath: ['MES', '품질'], partial: false })
+    expect(r).toMatchObject({ ok: true, folderId: 'f-raced', resolvedPath: ['MES', '품질'], complete: true })
   })
 
-  it('생성 실패는 조상까지만 편철하고 partial 을 세운다 — 등록을 막지 않는다', async () => {
-    const { db } = fakeDb([
-      ROOT,
-      { data: [] },
-      { data: null, error: { code: '42501', message: 'denied' } },
-    ])
+  it('생성 실패는 조상까지만 + failed — 등록을 막지 않는다', async () => {
+    const { db } = fakeDb([rows(SEED_ROOT), { data: null, error: { code: '42501', message: 'denied' } }])
     const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], opts)
-    expect(r).toMatchObject({ ok: true, folderId: 'f-root', resolvedPath: ['MES'], partial: true })
+    expect(r).toMatchObject({
+      ok: true, folderId: 'f-root', resolvedPath: ['MES'], targetPath: ['MES', '품질'],
+      complete: false, failed: true,
+    })
   })
 
-  it('하위 조회 실패도 팀 루트까지만 + partial', async () => {
-    const { db } = fakeDb([ROOT, { data: null, error: { message: 'down' } }])
-    const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], opts)
-    expect(r).toMatchObject({ ok: true, folderId: 'f-root', resolvedPath: ['MES'], partial: true })
+  it('create:false(dry run)는 아무것도 만들지 않고 complete:false·failed:false 로 보고한다', async () => {
+    const { db, from } = fakeDb([rows(SEED_ROOT)])
+    const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], { ...opts, create: false })
+    expect(r).toMatchObject({
+      ok: true, folderId: 'f-root', resolvedPath: ['MES'], targetPath: ['MES', '품질'],
+      complete: false, failed: false,
+    })
+    expect(from).toHaveBeenCalledTimes(1)          // 스냅샷만 — insert 0
   })
 
   it('60자 초과는 DB 를 건드리기 전에 거절한다', async () => {
@@ -204,43 +222,57 @@ describe('resolveFolderPath (경로 해석·생성)', () => {
 
   it('한 칸 내림 경로도 팀 루트 아래에 만든다(C2 — 루트를 만들지 않는다)', async () => {
     const { db, builders } = fakeDb([
-      ROOT,
-      { data: [] },
-      { data: { id: 'f-tf' } },
-      { data: { id: 'f-kick' } },
+      rows(SEED_ROOT), { data: { id: 'f-tf' } }, { data: { id: 'f-kick' } },
     ])
     const r = await resolveFolderPath(db, 'MES', ['신규TF', '킥오프'], opts)
     expect(r).toMatchObject({ ok: true, folderId: 'f-kick', resolvedPath: ['MES', '신규TF', '킥오프'] })
-    expect(builders[2].insert).toHaveBeenCalledWith(
+    expect(builders[1].insert).toHaveBeenCalledWith(
       expect.objectContaining({ name: '신규TF', parent_id: 'f-root' }),
     )
   })
 
   it('같은 이름이 다른 부모 아래 있어도 parent_id 로 갈린다', async () => {
-    const { db } = fakeDb([
-      ROOT,
-      {
-        data: [
-          { id: 'f-other', name: '품질', parent_id: 'f-elsewhere' },
-          { id: 'f-mine', name: '품질', parent_id: 'f-root' },
-        ],
-      },
-    ])
+    const { db } = fakeDb([rows(
+      SEED_ROOT,
+      { id: 'f-other', name: '품질', parent_id: 'f-elsewhere', created_by: 'u-9' },
+      QUALITY,
+    )])
     const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], opts)
-    expect(r).toMatchObject({ ok: true, folderId: 'f-mine' })
+    expect(r).toMatchObject({ ok: true, folderId: 'f-q' })
+  })
+
+  it('스냅샷을 주면 질의 0회 — 배치가 항목마다 왕복하지 않게 하는 계약', async () => {
+    const { db, from } = fakeDb([])
+    const snapshot = buildFolderSnapshot([
+      { id: 'f-root', name: 'MES', parentId: null, createdBy: null },
+      { id: 'f-q', name: '품질', parentId: 'f-root', createdBy: 'u-9' },
+    ])
+    const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], { ...opts, snapshot })
+    expect(r).toMatchObject({ ok: true, folderId: 'f-q', complete: true })
+    expect(from).not.toHaveBeenCalled()
+  })
+
+  it('생성한 폴더는 스냅샷에 반영돼 다음 항목이 재사용한다(배치 멱등·중복 생성 없음)', async () => {
+    const { db, from } = fakeDb([{ data: { id: 'f-new' } }])
+    const snapshot = buildFolderSnapshot([
+      { id: 'f-root', name: 'MES', parentId: null, createdBy: null },
+    ])
+    const a = await resolveFolderPath(db, 'MES', ['MES', '품질'], { ...opts, snapshot })
+    const b = await resolveFolderPath(db, 'MES', ['MES', '품질'], { ...opts, snapshot })
+    expect(a).toMatchObject({ ok: true, folderId: 'f-new' })
+    expect(b).toMatchObject({ ok: true, folderId: 'f-new' })
+    expect(from).toHaveBeenCalledTimes(1)          // 두 번째는 insert 조차 없다
   })
 })
 
-describe('folderPathOf (응답 에코용 역해석)', () => {
-  const TREE = {
-    data: [
-      { id: 'f-root', name: 'MES', parent_id: null },
-      { id: 'f-q', name: '품질', parent_id: 'f-root' },
-      { id: 'f-w', name: '주간정례', parent_id: 'f-q' },
-    ],
-  }
+describe('folderPathOf / folderPathOfSnapshot (응답 에코용 역해석)', () => {
+  const TREE = rows(
+    SEED_ROOT,
+    QUALITY,
+    { id: 'f-w', name: '주간정례', parent_id: 'f-q', created_by: 'u-9' },
+  )
 
-  it('null 폴더는 null(미분류)', async () => {
+  it('null 폴더는 null(미분류) — 질의도 하지 않는다', async () => {
     const { db, from } = fakeDb([])
     expect(await folderPathOf(db, null)).toBeNull()
     expect(from).not.toHaveBeenCalled()
@@ -251,19 +283,17 @@ describe('folderPathOf (응답 에코용 역해석)', () => {
     expect(await folderPathOf(db, 'f-w')).toEqual(['MES', '품질', '주간정례'])
   })
 
-  it('끊긴 체인은 추측하지 않고 null', async () => {
-    const { db } = fakeDb([{ data: [{ id: 'f-x', name: 'X', parent_id: 'f-missing' }] }])
-    expect(await folderPathOf(db, 'f-x')).toBeNull()
+  it('끊긴 체인은 추측하지 않고 null', () => {
+    const snap = buildFolderSnapshot([{ id: 'f-x', name: 'X', parentId: 'f-missing', createdBy: null }])
+    expect(folderPathOfSnapshot(snap, 'f-x')).toBeNull()
   })
 
-  it('순환 참조는 가드로 끊는다(무한 루프 없음)', async () => {
-    const { db } = fakeDb([{
-      data: [
-        { id: 'a', name: 'A', parent_id: 'b' },
-        { id: 'b', name: 'B', parent_id: 'a' },
-      ],
-    }])
-    expect(await folderPathOf(db, 'a')).toEqual(['B', 'A'])
+  it('순환 참조는 가드로 끊는다(무한 루프 없음)', () => {
+    const snap = buildFolderSnapshot([
+      { id: 'a', name: 'A', parentId: 'b', createdBy: null },
+      { id: 'b', name: 'B', parentId: 'a', createdBy: null },
+    ])
+    expect(folderPathOfSnapshot(snap, 'a')).toEqual(['B', 'A'])
   })
 
   it('조회 실패는 null(에코 생략)', async () => {

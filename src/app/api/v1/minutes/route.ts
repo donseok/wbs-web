@@ -88,8 +88,10 @@ async function resolvePayloadFolder(
     console.error(`[minutes-api] ${res.error} 미분류 폴백 — 0043 적용 여부를 확인하세요.`)
     return { ok: true, provided: true, folderId: null, folderPath: null }
   }
-  if (res.partial) {
-    console.error('[minutes-api] 폴더 경로 일부만 편철됨:', res.resolvedPath.join('/'))
+  if (!res.complete) {
+    console.error(
+      `[minutes-api] 폴더 경로 일부만 편철됨: ${res.resolvedPath.join('/')} (목표 ${res.targetPath.join('/')})`,
+    )
   }
   return { ok: true, provided: true, folderId: res.folderId, folderPath: res.resolvedPath }
 }
