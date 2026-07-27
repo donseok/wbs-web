@@ -6,9 +6,10 @@ import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
-  isTeamRootName, isTeamRootFolder, isDescendantFolder, subtreeHeightOf, teamSubOfFolder,
+  isTeamRootName, isTeamRootFolder, teamSubOfFolder,
   type MinuteInput,
 } from '@/lib/domain/minutes'
+import { canDropFolder, type FolderDropReason } from '@/lib/domain/folder-drop'
 import {
   getMinuteDetail, getMinuteFavorites, getMinutesExplorer, getMinutesPage, searchMinutes,
 } from '@/lib/data/minutes'
@@ -777,6 +778,19 @@ export async function moveMinuteToFolder(
   return { ok: true }
 }
 
+/** canDropFolder 사유 → 사용자 문구. 탐색기는 같은 사유를 i18n 키로 옮긴다. */
+const FOLDER_DROP_ERRORS: Record<FolderDropReason, string> = {
+  'not-admin': '폴더 이동은 관리자만 할 수 있습니다.',
+  'seed-root': '팀 기본 폴더는 이동할 수 없습니다.',
+  'to-root': '폴더는 담당 팀 폴더 안에만 둘 수 있습니다.',
+  cycle: '폴더를 자기 하위 폴더 아래로 옮길 수 없습니다.',
+  depth: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.`,
+  'cross-team': '다른 담당 팀으로는 옮길 수 없습니다. 회의록을 개별로 옮기세요.',
+  'dup-name': FOLDER_DUP_MSG,
+  'unknown-folder': '폴더를 찾을 수 없습니다.',
+  'same-parent': '이미 그 폴더 안에 있습니다.',
+}
+
 /**
  * 폴더 이동(W21 · §6.5) — **pmo_admin 전용**.
  *
@@ -802,35 +816,11 @@ export async function moveMinuteFolder(
   const sb = await createServerClient()
   const folders = await loadFolders(sb)
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-  const target = folders.find(f => f.id === id)
-  if (!target) return { ok: false, error: '폴더가 없습니다.' }
-  const parent = folders.find(f => f.id === parentId)
-  if (!parent) return { ok: false, error: '상위 폴더를 찾을 수 없습니다.' }
 
-  // M1 — 시드 팀 루트는 0043 편철 앵커. 개명·삭제가 이미 금지돼 있고 이동도 같은 이유로 금지.
-  if (isTeamRootFolder(target)) return { ok: false, error: '팀 기본 폴더는 이동할 수 없습니다.' }
-  // M3 — 자손 밑으로 이동하면 그 서브트리가 트리에서 통째로 끊긴다.
-  if (isDescendantFolder(folders, id, parentId)) {
-    return { ok: false, error: '폴더를 자기 하위 폴더 아래로 옮길 수 없습니다.' }
-  }
-  // M4 — 자손이 함께 내려가므로 서브트리 높이까지 더해야 한다(folderDepthOf 만으로는 부족).
-  if (folderDepthOf(folders, parentId) + subtreeHeightOf(folders, id) > MINUTE_FOLDER_DEPTH_MAX) {
-    return { ok: false, error: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.` }
-  }
-  // 팀 간 이동은 v1 제외 — 서브트리 회의록 전체의 team_code 를 바꿔야 해서 위키 전면
-  // 재인덱싱이 드래그 한 번에 걸리고, 실패 시 부분 적용 상태가 남는다. 별도 티켓.
-  const fromTeam = teamSubOfFolder(folders, id)?.team ?? null
-  const toTeam = teamSubOfFolder(folders, parentId)?.team ?? null
-  if (fromTeam === null || toTeam === null) {
-    return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
-  }
-  if (fromTeam !== toTeam) {
-    return { ok: false, error: '다른 담당 팀으로는 옮길 수 없습니다. 회의록을 개별로 옮기세요.' }
-  }
-  // M5 — 부분 인덱스라 ON CONFLICT 를 쓸 수 없다(C3). 사전 조회 + 23505 폴백.
-  if (folders.some(f => f.parentId === parentId && f.name === target.name && f.id !== id)) {
-    return { ok: false, error: FOLDER_DUP_MSG }
-  }
+  // 가드 M1~M5 + 팀 간 이동 차단은 탐색기 드롭존과 **같은 순수 함수**로 판정한다 —
+  // 갈라지면 "놓을 수 있어 보였는데 서버가 거절"하거나 그 반대가 된다.
+  const verdict = canDropFolder(folders, id, parentId, true)
+  if (!verdict.ok) return { ok: false, error: FOLDER_DROP_ERRORS[verdict.reason] }
 
   // v1 은 부모만 바꾸고 형제 내 순서는 말단 배치(sort 100 = 사용자 생성 기본값).
   const { data, error } = await sb.from('minute_folders')
