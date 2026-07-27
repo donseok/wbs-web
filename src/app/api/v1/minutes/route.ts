@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
+import { folderPathOf, resolveFolderPath, resolveTeamRootFolderId } from '@/lib/minutes/folders'
 import { fnv1a64 } from '@/lib/minutes/blocks'
 import {
   enqueueMinuteWikiProcessing,
@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-const MINUTE_SELECT = 'id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, external_id, created_by, created_by_name, created_at, updated_at'
+const MINUTE_SELECT = 'id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, external_id, folder_id, created_by, created_by_name, created_at, updated_at'
 
 interface ExistingRow {
   id: string
@@ -35,25 +35,63 @@ interface ExistingRow {
   meeting_occurrence_date: string | null
   archived_at: string | null
   external_id: string
+  folder_id: string | null
   created_by: string | null
   created_by_name: string | null
   created_at: string
   updated_at: string
 }
 
+/**
+ * 계약 §4.3 응답. folder_id·folder_path 는 **둘 다 nullable**(v2.3 §3.3):
+ *   folder_id: null + folder_path: null  → 미분류(시드 루트 부재 폴백)
+ *   folder_id: <id> + folder_path: []    → 성립하지 않음 — 경로는 최소 [팀코드]다
+ * `[]`(팀 루트 편철 성공)와 `null`(미분류)을 뭉개면 또박또박이 정반대 안내를 한다.
+ */
 function respondMinute(req: NextRequest, status: number, args: {
   id: string; action: 'created' | 'replaced' | 'skipped'
   title: string; date: string; team: string; meetingId: string | null
   externalId: string; createdByName: string | null; createdAt: string; updatedAt: string
+  folderId: string | null; folderPath: string[] | null
 }) {
   return NextResponse.json({
     ok: true, id: args.id, action: args.action,
     title: args.title, date: args.date, team: args.team,
     meeting_id: args.meetingId, external_id: args.externalId,
+    folder_id: args.folderId, folder_path: args.folderPath,
     created_by_name: args.createdByName,
     url: `${req.nextUrl.origin}/minutes/${args.id}`,
     created_at: args.createdAt, updated_at: args.updatedAt,
   }, { status })
+}
+
+/**
+ * folder_path → 편철 대상 확정 (§3.1 3값 규약 · §3.2 정규화).
+ * `provided: false` = 키 부재 → 호출부가 "기존 위치 유지 / 팀 루트 폴백"을 각자 정한다.
+ * validation 실패만 400 이고, 시드 루트 부재(no_team_root)는 **등록을 막지 않는다**(§3.2-5).
+ */
+async function resolvePayloadFolder(
+  admin: AdminClient, p: ExternalMinutePayload, actorId: string,
+): Promise<
+  | { ok: true; provided: false }
+  | { ok: true; provided: true; folderId: string | null; folderPath: string[] | null }
+  | { ok: false; error: string }
+> {
+  if (!p.folderPathProvided || p.folderPath === null) return { ok: true, provided: false }
+  const res = await resolveFolderPath(admin, p.teamCode, p.folderPath, {
+    actorId, activeTeamCodes: activeTeamCodesSync(),
+  })
+  if (!res.ok) {
+    if (res.kind === 'validation_failed') return { ok: false, error: res.error }
+    // no_team_root — 편철 실패가 등록 자체를 막으면 안 된다(resolveTeamRootFolderId 관례 유지).
+    // 원인은 거의 항상 0043 미적용이다.
+    console.error(`[minutes-api] ${res.error} 미분류 폴백 — 0043 적용 여부를 확인하세요.`)
+    return { ok: true, provided: true, folderId: null, folderPath: null }
+  }
+  if (res.partial) {
+    console.error('[minutes-api] 폴더 경로 일부만 편철됨:', res.resolvedPath.join('/'))
+  }
+  return { ok: true, provided: true, folderId: res.folderId, folderPath: res.resolvedPath }
 }
 
 /** 동일 external_id 레코드가 이미 있을 때의 on_conflict 분기 — 계약 §4.2. */
@@ -74,6 +112,7 @@ async function handleExisting(
       id: existing.id, action: 'skipped', title: existing.title, date: existing.minute_date,
       team: existing.team_code, meetingId: existing.meeting_id, externalId: existing.external_id,
       createdByName: existing.created_by_name, createdAt: existing.created_at, updatedAt: existing.updated_at,
+      folderId: existing.folder_id, folderPath: await folderPathOf(admin, existing.folder_id),
     })
   }
   // replace — §0 D3: created_by/created_by_name/external_id 는 갱신 범위 밖(소유권·멱등키 불변).
@@ -83,6 +122,13 @@ async function handleExisting(
   const targetProjectId = p.meetingIdProvided && p.meetingId
     ? meetingProjectId
     : existing.project_id
+  // §3.1 D1=B: 재전송마다 또박또박이 폴더 위치의 SSOT다. 단 3값 — 키 부재면 metadata 에
+  // folder_id 키를 **넣지 않아야** 기존 위치가 유지된다(RPC 는 키가 있으면 null 도 적용해
+  // 미분류로 강등한다). 시드 루트 부재(folderId null)도 같은 이유로 키를 넣지 않는다 —
+  // 되돌릴 위치가 없다고 회의록을 미분류로 빼내면 안 된다.
+  const folder = await resolvePayloadFolder(admin, p, actor.id)
+  if (!folder.ok) return apiBadRequest(folder.error)
+  const folderUpdated = folder.provided && folder.folderId !== null
   const metadata = {
     minute_date: p.minuteDate,
     team_code: p.teamCode,
@@ -92,6 +138,7 @@ async function handleExisting(
     meeting_occurrence_date: p.meetingIdProvided
       ? (p.meetingId ? p.minuteDate : null)
       : existing.meeting_occurrence_date,
+    ...(folderUpdated ? { folder_id: folder.folderId } : {}),
   }
   // 불변 버전 append + 본문/메타 갱신 + 파일 없는 현재 원본 포인터 해제를 한
   // DB 트랜잭션으로 처리한다. 이전 파일은 기존 minute_version이 계속 보존한다.
@@ -142,6 +189,9 @@ async function handleExisting(
         : Promise.resolve(),
     ])
   })
+  // 에코는 **실제 편철 결과**다(§3.3) — 갱신했으면 새 위치, 아니면(키 부재·시드 루트 부재)
+  // 손대지 않은 현재 위치. 요청한 경로를 그대로 되돌려주면 안 된다.
+  const echoFolderId = folderUpdated ? folder.folderId : existing.folder_id
   return respondMinute(req, 200, {
     id: existing.id, action: 'replaced', title: p.title, date: p.minuteDate,
     team: p.teamCode, meetingId: p.meetingIdProvided ? p.meetingId : existing.meeting_id,
@@ -149,6 +199,8 @@ async function handleExisting(
     createdByName: existing.created_by_name,
     createdAt: existing.created_at,
     updatedAt: nowIso,
+    folderId: echoFolderId,
+    folderPath: folderUpdated ? folder.folderPath : await folderPathOf(admin, existing.folder_id),
   })
 }
 
@@ -159,9 +211,17 @@ async function insertNew(
   user: ResolvedUser,
   meetingProjectId: string | null,
 ): Promise<NextResponse> {
-  // 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백. 또박또박 업로드가
-  // 미분류에 쌓이지 않고 팀 폴더(PMO/ERP/MES/가공/MDM)에 바로 등록되게 한다.
-  const folderId = await resolveTeamRootFolderId(admin, p.teamCode)
+  // folder_path 를 받았으면 팀 루트 아래에 같은 폴더 트리를 만들어 편철하고(§3.2), 키가 아예
+  // 없으면(구버전 또박또박) 기존대로 담당 팀 루트로 편철한다(0043). 부재·실패는 미분류(null)
+  // 폴백 — 편철 실패가 등록 자체를 막으면 안 된다.
+  const folder = await resolvePayloadFolder(admin, p, user.id)
+  if (!folder.ok) return apiBadRequest(folder.error)
+  const folderId = folder.provided
+    ? folder.folderId
+    : await resolveTeamRootFolderId(admin, p.teamCode)
+  const folderPath = folder.provided
+    ? folder.folderPath
+    : (folderId ? [p.teamCode] : null)
   const { data: createdRaw, error } = await admin.rpc('create_minute_with_version', {
     p_minute_id: null,
     p_minute_date: p.minuteDate,
@@ -222,6 +282,7 @@ async function insertNew(
     team: p.teamCode, meetingId: p.meetingId, externalId: p.externalId,
     createdByName: user.name,
     createdAt: created.created_at, updatedAt: created.updated_at,
+    folderId, folderPath,
   })
 }
 
@@ -293,15 +354,24 @@ export async function GET(req: NextRequest) {
   }
   const linked = sp.get('linked')
   if (linked && linked !== 'true' && linked !== 'false') return apiBadRequest('linked는 true 또는 false여야 합니다.')
+  // v2.3 §5.1 — 보관분 포함 조회. 기본 false(현행 동작 유지). 이게 없으면 D'Flow 에서 보관만
+  // 해도 또박또박의 exists_on_dflow 가 false 가 되어 '연결 초기화됨'으로 오진하고, 안내하는
+  // 복구 두 갈래([D'Flow에서 찾기]·[새로 전송])가 **둘 다 막힌** 상태로 사용자를 보낸다.
+  const includeArchivedRaw = sp.get('include_archived')
+  if (includeArchivedRaw && includeArchivedRaw !== 'true' && includeArchivedRaw !== 'false') {
+    return apiBadRequest('include_archived는 true 또는 false여야 합니다.')
+  }
+  const includeArchived = includeArchivedRaw === 'true'
   const page = clampInt(sp.get('page'), 1, Number.MAX_SAFE_INTEGER, 1)
   const perPage = clampInt(sp.get('per_page'), 1, 100, 20)
 
   try {
     const admin = createAdminClient()
     let q = admin.from('minutes').select(
-      'id, minute_date, team_code, title, external_id, created_by_name, created_at, updated_at',
+      'id, minute_date, team_code, title, external_id, archived_at, created_by_name, created_at, updated_at',
       { count: 'exact' },
-    ).is('archived_at', null)
+    )
+    if (!includeArchived) q = q.is('archived_at', null)
     const externalId = sp.get('external_id')
     if (externalId) q = q.eq('external_id', externalId)
     if (linked === 'true') q = q.not('external_id', 'is', null)
@@ -320,7 +390,7 @@ export async function GET(req: NextRequest) {
       // 같은 필터의 head 카운트로 total 만 채워 빈 페이지로 응답한다(500 아님).
       if (error.code === 'PGRST103') {
         let cq = admin.from('minutes').select('id', { count: 'exact', head: true })
-          .is('archived_at', null)
+        if (!includeArchived) cq = cq.is('archived_at', null)
         if (externalId) cq = cq.eq('external_id', externalId)
         if (linked === 'true') cq = cq.not('external_id', 'is', null)
         if (linked === 'false') cq = cq.is('external_id', null)
@@ -341,6 +411,8 @@ export async function GET(req: NextRequest) {
       date: row.minute_date as string,
       team: row.team_code as string,
       external_id: (row.external_id as string | null) ?? null,
+      // 또박또박이 '초기화됨'과 '보관됨'을 구분해 안내하는 근거(§9.7 (a)).
+      archived: row.archived_at != null,
       created_by_name: (row.created_by_name as string | null) ?? null,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,

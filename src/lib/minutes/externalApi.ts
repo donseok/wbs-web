@@ -2,7 +2,8 @@ import { createHash, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { displayNameFrom } from '@/lib/domain/display-name'
-import { validateMinuteInput } from '@/lib/domain/minutes'
+import { MINUTE_FOLDER_NAME_MAX, validateMinuteInput } from '@/lib/domain/minutes'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 import { splitMinuteBlocks } from '@/lib/minutes/blocks'
 import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
@@ -117,7 +118,66 @@ export interface ExternalMinutePayload {
   meetingId: string | null
   /** §0 D3(v2.2): meeting_id 필드 부재=기존 값 유지, 명시적 null=해제 — replace 갱신 범위 판정용. */
   meetingIdProvided: boolean
+  /** §3.1(v2.3): 정규화 전 원본 경로(btrim 완료). 키 부재면 null. */
+  folderPath: string[] | null
+  /**
+   * §3.1(v2.3) 3값 규약 — 키 부재 / `[]` / 비어있지 않은 배열을 구분하는 플래그.
+   * meetingIdProvided 와 동형이되 `[]` 가 "명시적 폴더 없음(팀 루트로 되돌림)"이라는
+   * **유의미한 값**인 점이 다르다. `[]` 를 미전송과 뭉개면 또박또박에서 회의를 폴더 밖으로
+   * 뺀 조작만 영영 전파되지 않는다.
+   */
+  folderPathProvided: boolean
   onConflict: 'replace' | 'skip' | 'error'
+}
+
+/**
+ * folder_path 검증 결과 — 성공하면 btrim 된 세그먼트, 실패하면 400 메시지(error)와
+ * 배치 응답의 results[].reason(reason)을 함께 준다.
+ * POST /minutes(§3.1)와 배치 POST /minutes/folder(§8.2 요건 11)가 **같은 판정**을 쓰도록
+ * 한 곳에 둔다 — 두 경로가 갈라지면 마이그레이션 결과와 이후 전송 결과가 어긋난다.
+ */
+export type FolderPathParse =
+  | { ok: true; path: string[] }
+  | { ok: false; error: string; reason: string }
+
+/** §3.1 folder_path 원소 검증 — 타입 · btrim 후 1~60자. 절단하지 않는다(D3). */
+export function parseFolderPathValue(raw: unknown): FolderPathParse {
+  if (!Array.isArray(raw)) {
+    return {
+      ok: false,
+      error: 'folder_path는 문자열 배열이어야 합니다.',
+      reason: 'validation_failed: folder_path는 배열이어야 합니다.',
+    }
+  }
+  const path: string[] = []
+  for (const seg of raw) {
+    if (typeof seg !== 'string') {
+      return {
+        ok: false,
+        error: 'folder_path의 각 원소는 문자열이어야 합니다.',
+        reason: 'validation_failed: folder_path 원소는 문자열이어야 합니다.',
+      }
+    }
+    const name = seg.trim()
+    if (!name) {
+      return {
+        ok: false,
+        error: 'folder_path에 빈 폴더 이름이 있습니다.',
+        reason: 'validation_failed: 빈 폴더 이름',
+      }
+    }
+    // D3 = 400 거절. 절단하면 긴 이름끼리 같은 60자로 뭉개져 서로 다른 폴더가 한 폴더로
+    // 합쳐지는 조용한 사고가 난다 — 사용자가 또박또박에서 이름을 줄이면 된다.
+    if (name.length > MINUTE_FOLDER_NAME_MAX) {
+      return {
+        ok: false,
+        error: `폴더 이름은 ${MINUTE_FOLDER_NAME_MAX}자 이하여야 합니다: ${name}(${name.length}자)`,
+        reason: `folder_name_too_long: ${name}(${name.length}자)`,
+      }
+    }
+    path.push(name)
+  }
+  return { ok: true, path }
 }
 
 /**
@@ -153,15 +213,29 @@ export function parseMinutePayload(raw: unknown): { payload: ExternalMinutePaylo
     onConflict = b.on_conflict
   }
 
+  // §3.1 3값 규약 — 키 부재(=구버전 또박또박, 기존 동작) / [](=팀 루트) / 경로.
+  // 명시적 null 은 배열이 아니므로 400 — 3값 규약에 없는 값을 조용히 '키 부재'로 뭉개면
+  // 구버전 폴백과 구분이 사라진다.
+  let folderPath: string[] | null = null
+  const folderPathProvided = b.folder_path !== undefined
+  if (folderPathProvided) {
+    const parsedPath = parseFolderPathValue(b.folder_path)
+    if (!parsedPath.ok) return { error: parsedPath.error }
+    folderPath = parsedPath.path
+  }
+
+  // W1-b: 활성 팀 목록 주입 — 기본값 TEAM_CODES 는 @deprecated 하드코딩 5팀이라, 관리자가
+  // addTeam 으로 6번째 팀을 등록하면 meta 는 노출하는데 POST 만 400 으로 전건 거절한다.
   const err = validateMinuteInput({
     minuteDate: b.date, teamCode: b.team as TeamCode, title: b.title, bodyMd: b.body_markdown, meetingId,
-  })
+  }, activeTeamCodesSync())
   if (err) return { error: err }
 
   return {
     payload: {
       minuteDate: b.date, teamCode: b.team as TeamCode, title: b.title.trim(),
-      bodyMd: b.body_markdown, externalId, meetingId, meetingIdProvided, onConflict,
+      bodyMd: b.body_markdown, externalId, meetingId, meetingIdProvided,
+      folderPath, folderPathProvided, onConflict,
     },
   }
 }

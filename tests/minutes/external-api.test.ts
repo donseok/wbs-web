@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
   })),
   rebuildProjectWikiFromActiveMinutes: vi.fn(async () => {}),
   afterCallbacks: [] as Array<() => Promise<void> | void>,
+  // 팀 마스터는 런타임 캐시(TTL+DB) — 테스트는 활성 목록을 직접 갈아끼운다(W1-b 검증용).
+  activeTeamCodes: ['PMO', 'ERP', 'MES', '가공', 'MDM'] as string[],
 }))
+
+vi.mock('@/lib/teams/master', () => ({ activeTeamCodesSync: () => mocks.activeTeamCodes }))
 
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/ai/minutes-ingest', () => ({ ingestMinute: mocks.ingestMinute }))
@@ -196,6 +200,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.unstubAllEnvs()
   mocks.afterCallbacks.length = 0
+  mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공', 'MDM']
   vi.stubEnv('MINUTES_API_ENABLED', 'true')
   vi.stubEnv('MINUTES_API_SECRET', SECRET)
   // 후처리 rematch 래퍼의 env 가드가 확실히 잠기도록(하이라이트 경로는 이 스위트 범위 밖)
@@ -384,6 +389,26 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
       'create_minute_with_version',
       expect.objectContaining({ p_folder_id: null }),
     )
+  })
+
+  it('W1-b: 6번째 팀을 등록하면 meta 가 노출하는 그 팀으로 POST 가 통과한다', async () => {
+    // 수정 전에는 validateMinuteInput 이 @deprecated 하드코딩 5팀을 써서 전건 400 이었다.
+    mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공', 'MDM', '신설팀']
+    useAdmin({
+      minutes: [
+        { data: null },
+        { data: { id: 'm-1', created_at: '2026-07-27T01:00:00+00:00', updated_at: '2026-07-27T01:00:00+00:00' } },
+      ],
+      minute_folders: [{ data: { id: 'f-new' } }],
+    })
+    const res = await POST(post({ ...payload, team: '신설팀' }))
+    expect(res.status).toBe(201)
+  })
+
+  it('W1-b: 활성 목록에 없는 팀은 그대로 400', async () => {
+    const res = await POST(post({ ...payload, team: '없는팀' }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('잘못된 담당입니다.')
   })
 
   it('같은 external_id 재전송(기본 replace)은 200 replaced — D3 범위만 갱신, 소유권 불변', async () => {
@@ -644,6 +669,203 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
   })
 })
 
+describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
+  const created = { id: 'm-1', created_at: '2026-07-27T01:00:00+00:00', updated_at: '2026-07-27T01:00:00+00:00' }
+  const insertQueue = [{ data: null }, { data: created }]
+
+  /** 신규 등록 경로의 minute_folders 응답 큐를 세팅한다. */
+  function useInsert(folderQueue: Array<{ data?: unknown; error?: { message?: string; code?: string } }>) {
+    return useAdmin({ minutes: [...insertQueue], minute_folders: folderQueue })
+  }
+
+  it('경로대로 편철하고 응답에 folder_id·folder_path 를 에코한다', async () => {
+    const { admin } = useInsert([
+      { data: { id: 'f-pmo' } },                                          // 팀 루트
+      { data: [{ id: 'f-q', name: '품질', parent_id: 'f-pmo' }] },        // 일괄 조회
+      { data: { id: 'f-w' } },                                            // 주간정례 생성
+    ])
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질', '주간정례'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({
+      folder_id: 'f-w', folder_path: ['PMO', '품질', '주간정례'],
+    })
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version', expect.objectContaining({ p_folder_id: 'f-w' }),
+    )
+  })
+
+  it('자유 루트는 팀 루트 아래로 한 칸 내려 편철하고 그 경로를 에코한다(§3.2 ②)', async () => {
+    useInsert([
+      { data: { id: 'f-pmo' } },
+      { data: [] },
+      { data: { id: 'f-tf' } },
+      { data: { id: 'f-kick' } },
+    ])
+    const res = await POST(post({ ...payload, folder_path: ['신규TF', '킥오프'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({
+      folder_id: 'f-kick', folder_path: ['PMO', '신규TF', '킥오프'],
+    })
+  })
+
+  it('folder_path: [] 는 팀 루트 편철 — folder_path 에코는 [팀코드]', async () => {
+    const { admin } = useInsert([{ data: { id: 'f-pmo' } }])
+    const res = await POST(post({ ...payload, folder_path: [] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-pmo', folder_path: ['PMO'] })
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version', expect.objectContaining({ p_folder_id: 'f-pmo' }),
+    )
+  })
+
+  it('키 부재는 회귀 없음 — 기존 팀 루트 편철 + 에코 [팀코드]', async () => {
+    useInsert([{ data: { id: 'f-pmo' } }])
+    const res = await POST(post(payload))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-pmo', folder_path: ['PMO'] })
+  })
+
+  it('시드 루트 부재 → folder_id·folder_path 둘 다 null (E1: [] 아님), 등록은 201', async () => {
+    const { admin } = useInsert([{ data: null }])
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+    expect(res.status).toBe(201)
+    const json = await res.json()
+    expect(json.folder_id).toBeNull()
+    expect(json.folder_path).toBeNull()          // [] 로 두면 "팀 루트 편철됨"이라는 정반대 안내가 된다
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version', expect.objectContaining({ p_folder_id: null }),
+    )
+  })
+
+  it('6단 경로는 5단으로 절단해 편철하고 절단된 경로를 에코한다', async () => {
+    useInsert([
+      { data: { id: 'f-pmo' } },
+      { data: [] },
+      { data: { id: 'f-a' } }, { data: { id: 'f-b' } },
+      { data: { id: 'f-c' } }, { data: { id: 'f-d' } },
+    ])
+    const res = await POST(post({ ...payload, folder_path: ['신규TF', 'A', 'B', 'C', 'D'] }))
+    expect(res.status).toBe(201)
+    const json = await res.json()
+    expect(json.folder_path).toEqual(['PMO', '신규TF', 'A', 'B', 'C'])   // 5단
+    expect(json.folder_id).toBe('f-d')
+  })
+
+  it('타 팀의 팀코드가 최상위면 400 validation_failed (§3.2 ③)', async () => {
+    const res = await POST(post({ ...payload, folder_path: ['ERP', '영업'] }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('validation_failed')
+  })
+
+  it('61자 폴더명은 400 — 절단하지 않는다(D3)', async () => {
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '가'.repeat(61)] }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain('61자')
+  })
+
+  it('배열이 아니면 400', async () => {
+    expect((await POST(post({ ...payload, folder_path: 'PMO/품질' }))).status).toBe(400)
+    expect((await POST(post({ ...payload, folder_path: null }))).status).toBe(400)
+  })
+
+  it('동시 전송 경합(23505) 흡수 — 500 없이 재조회한 폴더로 편철', async () => {
+    useInsert([
+      { data: { id: 'f-pmo' } },
+      { data: [] },
+      { data: null, error: { code: '23505', message: 'dup' } },
+      { data: { id: 'f-raced' } },
+    ])
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-raced' })
+  })
+
+  it('자동 생성 폴더의 created_by 는 전송 사용자 — null(시드 표식) 금지(C4)', async () => {
+    const { builders } = useInsert([
+      { data: { id: 'f-pmo' } }, { data: [] }, { data: { id: 'f-q' } },
+    ])
+    await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+    expect(builders.minute_folders[2].insert).toHaveBeenCalledWith({
+      name: '품질', parent_id: 'f-pmo', created_by: 'u-1',
+    })
+  })
+
+  describe('replace 3값 규약 (D1=B · W5)', () => {
+    /** replace 경로의 metadata 인자를 꺼낸다. */
+    function metadataOf(admin: { rpc: { mock: { calls: unknown[][] } } }) {
+      const call = admin.rpc.mock.calls.find(([fn]) => fn === 'commit_minute_body_version')
+      return (call![1] as { p_metadata: Record<string, unknown> }).p_metadata
+    }
+
+    const replaceQueue = [
+      { data: { ...existingRow, folder_id: 'f-old' } },
+      { data: { id: 'm-1', created_at: existingRow.created_at, updated_at: '2026-07-27T02:00:00+00:00' } },
+    ]
+
+    it('키 부재 → metadata 에 folder_id 키가 없다(기존 위치 유지)', async () => {
+      const { admin } = useAdmin({
+        minutes: [...replaceQueue],
+        minute_folders: [{ data: [{ id: 'f-old', name: 'PMO', parent_id: null }] }],   // 에코용 역해석
+      })
+      const res = await POST(post(payload))
+      expect(res.status).toBe(200)
+      expect(metadataOf(admin)).not.toHaveProperty('folder_id')
+      expect(await res.json()).toMatchObject({ folder_id: 'f-old', folder_path: ['PMO'] })
+    })
+
+    it('[] → 팀 루트로 되돌림(metadata 에 팀 루트 id)', async () => {
+      const { admin } = useAdmin({
+        minutes: [...replaceQueue],
+        minute_folders: [{ data: { id: 'f-pmo' } }],
+      })
+      const res = await POST(post({ ...payload, folder_path: [] }))
+      expect(res.status).toBe(200)
+      expect(metadataOf(admin)).toMatchObject({ folder_id: 'f-pmo' })
+      expect(await res.json()).toMatchObject({ folder_id: 'f-pmo', folder_path: ['PMO'] })
+    })
+
+    it('경로 → 그 경로로 이동', async () => {
+      const { admin } = useAdmin({
+        minutes: [...replaceQueue],
+        minute_folders: [
+          { data: { id: 'f-pmo' } },
+          { data: [{ id: 'f-q', name: '품질', parent_id: 'f-pmo' }] },
+        ],
+      })
+      const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+      expect(res.status).toBe(200)
+      expect(metadataOf(admin)).toMatchObject({ folder_id: 'f-q' })
+      expect(await res.json()).toMatchObject({ folder_id: 'f-q', folder_path: ['PMO', '품질'] })
+    })
+
+    it('시드 루트 부재 → metadata 에 folder_id 키 없음 (미분류로 강등하지 않는다)', async () => {
+      const { admin } = useAdmin({
+        minutes: [...replaceQueue],
+        minute_folders: [
+          { data: null },                                                    // 루트 조회 실패
+          { data: [{ id: 'f-old', name: 'PMO', parent_id: null }] },          // 에코용 역해석
+        ],
+      })
+      const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+      expect(res.status).toBe(200)
+      expect(metadataOf(admin)).not.toHaveProperty('folder_id')
+      expect(await res.json()).toMatchObject({ folder_id: 'f-old' })
+    })
+
+    it('folder_id 는 v_index_content_changed 대상이 아니다 — 폴더만 바뀌면 위키 잡 없음', async () => {
+      useAdmin({
+        minutes: [...replaceQueue],
+        minute_folders: [
+          { data: { id: 'f-pmo' } },
+          { data: [{ id: 'f-q', name: '품질', parent_id: 'f-pmo' }] },
+        ],
+      })
+      await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+      expect(mocks.enqueueMinuteWikiProcessing).not.toHaveBeenCalled()
+    })
+  })
+})
+
 describe('GET /api/v1/minutes (§5.1, §9.6 ⑪)', () => {
   it('external_id 정확 일치 조회 + url 포함 응답', async () => {
     const { builders } = useAdmin({ minutes: [{ data: [existingRow], count: 1 }] })
@@ -659,6 +881,44 @@ describe('GET /api/v1/minutes (§5.1, §9.6 ⑪)', () => {
     expect(json.items[0]).not.toHaveProperty('body_md')
     expect(builders.minutes[0].eq).toHaveBeenCalledWith('external_id', EXTERNAL_ID)
     expect(builders.minutes[0].select).toHaveBeenCalledWith(expect.any(String), { count: 'exact' })
+  })
+
+  it('W24: 기본값은 보관분 제외 — archived_at is null 필터가 걸린다', async () => {
+    const { builders } = useAdmin({ minutes: [{ data: [existingRow], count: 1 }] })
+    const res = await GET(get('/api/v1/minutes'))
+    expect(res.status).toBe(200)
+    expect(builders.minutes[0].is).toHaveBeenCalledWith('archived_at', null)
+    expect((await res.json()).items[0].archived).toBe(false)
+  })
+
+  it('W24: include_archived=true 면 보관 필터를 걸지 않고 archived: true 를 실어 준다 (§9.7 (a))', async () => {
+    const { builders } = useAdmin({
+      minutes: [{ data: [{ ...existingRow, archived_at: '2026-07-20T00:00:00+00:00' }], count: 1 }],
+    })
+    const res = await GET(get(
+      `/api/v1/minutes?external_id=${encodeURIComponent(EXTERNAL_ID)}&include_archived=true`,
+    ))
+    expect(res.status).toBe(200)
+    expect(builders.minutes[0].is).not.toHaveBeenCalledWith('archived_at', null)
+    // 또박또박이 '초기화됨'과 '보관됨'을 구분하는 근거 — 이게 없으면 복구 두 갈래가 둘 다 막힌다
+    expect((await res.json()).items[0].archived).toBe(true)
+  })
+
+  it('W24: include_archived 는 true/false 만 받는다', async () => {
+    expect((await GET(get('/api/v1/minutes?include_archived=1'))).status).toBe(400)
+  })
+
+  it('W24: 범위 초과 폴백 카운트 쿼리도 include_archived 를 존중한다', async () => {
+    const { builders } = useAdmin({
+      minutes: [
+        { error: { code: 'PGRST103', message: 'Requested range not satisfiable' } },
+        { count: 7 },
+      ],
+    })
+    const res = await GET(get('/api/v1/minutes?include_archived=true&page=999'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ items: [], total: 7 })
+    expect(builders.minutes[1].is).not.toHaveBeenCalledWith('archived_at', null)
   })
 
   it('목록 응답은 본문을 제외한다 — 행에 body_md가 있어도 유출되지 않고 select도 화이트리스트 (§5.1)', async () => {
