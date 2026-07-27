@@ -144,7 +144,14 @@ async function handleExisting(
   // 되돌릴 위치가 없다고 회의록을 미분류로 빼내면 안 된다.
   const folder = await resolvePayloadFolder(admin, p, actor.id)
   if (!folder.ok) return apiBadRequest(folder.error)
-  let folderUpdated = folder.provided && folder.folderId !== null
+  // ⚠️ 부분 편철(중간 폴더 생성 실패)이면 폴더를 **건드리지 않는다**. 신규 등록은 원래 자리가
+  // 없으니 조상에 넣는 편이 미분류보다 낫지만, replace 는 이미 자리가 있는 회의록을 목표의
+  // 조상으로 **강등**시키는 셈이다 — 배치가 failed(folder_error) 로 명시 금지한 바로 그 동작이다.
+  const folderPartial = folder.provided && folder.status === 'partial'
+  if (folderPartial) {
+    console.error(`[minutes-api] 부분 편철 — 기존 위치를 유지한다(${p.externalId})`)
+  }
+  let folderUpdated = folder.provided && folder.folderId !== null && !folderPartial
   let teamMovedFolderId: string | null = null
   // 결정 §6 「구버전 replace 의 team 불일치」 — folder_path 키가 없는데 team 만 바뀐 재전송은
   // 폴더가 옛 팀 서브트리에 남아 "team=ERP 인데 폴더는 MES" 인 데이터를 만든다(§6.4 가 D&D

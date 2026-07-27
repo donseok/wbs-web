@@ -831,6 +831,22 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
       expect(await res.json()).toMatchObject({ folder_id: 'f-q', folder_path: ['PMO', '품질'] })
     })
 
+    it('부분 편철(중간 폴더 생성 실패)은 기존 위치를 유지한다 — 조상으로 강등하지 않는다', async () => {
+      const { admin } = useAdmin({
+        minutes: [...replaceQueue],
+        minute_folders: [
+          snapshot(),                                                   // 팀 루트만 존재
+          { data: null, error: { code: '42501', message: 'denied' } },  // '품질' 생성 실패
+          { data: [{ id: 'f-old', name: 'PMO', parent_id: null, created_by: null }] },  // 에코 역해석
+        ],
+      })
+      const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+      expect(res.status).toBe(200)
+      // 배치는 같은 상황을 failed(folder_error) 로 막는다 — replace 도 자리를 옮기지 않는다
+      expect(metadataOf(admin)).not.toHaveProperty('folder_id')
+      expect(await res.json()).toMatchObject({ folder_id: 'f-old' })
+    })
+
     it('시드 루트 부재 → metadata 에 folder_id 키 없음 (미분류로 강등하지 않는다)', async () => {
       const { admin } = useAdmin({
         minutes: [...replaceQueue],
