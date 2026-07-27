@@ -1,12 +1,13 @@
 # D'Flow 회의록 업로드 API 스펙 (또박또박 연동용)
 
-- 버전: **v2.3 (2026-07-27)** — **`folder_path` 편철 · 일괄 재편철 배치 · 연결 초기화를 반영한 개정** (하단 'v2.3 변경' 참조). v2.2 (2026-07-19): D'Flow 측 구현(F1~F6) 완료 반영. v2.1: wbs-web 레포 코드 직접 조사 후 전면 개정 + 전 미결사항 확정
+- 버전: **v2.4 (2026-07-27)** — **결정 정본 반영 개정: 조상 규칙 · `folder_path_status` · 전환 플래그 · 배치 `pmo_admin` 게이트** (하단 'v2.4 변경' 참조). ⚠️ **또박또박 송부본은 이 v2.4다** — v2.3은 송부 전 내부 개정이라 중간 이력을 만들지 않는다. v2.3 (2026-07-27): `folder_path` 편철 · 일괄 재편철 배치 · 연결 초기화 반영. v2.2 (2026-07-19): D'Flow 측 구현(F1~F6) 완료 반영. v2.1: wbs-web 레포 코드 직접 조사 후 전면 개정 + 전 미결사항 확정
 - 작성 목적: 또박또박(로컬 회의 녹음·전사·회의록 앱)이 생성한 회의록 마크다운을 D'Flow(https://wbs-web.vercel.app) 회의록 화면에 **자동 등록**할 수 있도록, 양측이 **동시에 개발해 한 번에 통합**할 수 있는 완결 사양을 정의한다.
 - 대상 독자: D'Flow 개발팀(팀장) + 또박또박 개발측
 - 근거: wbs-web 레포(https://github.com/donseok/wbs-web) 전체 조사 기반. "확인"은 코드 인용이 있는 사실, "제안"은 신규 설계 요청.
 - **문서 관계**: 본 문서가 **API 계약의 단일 출처(single source of truth)**다. 또박또박 측 상세 구현은 별도 문서(`ddobak-dflow-sender-spec.md`)가 다루되, 계약(필드·에러·의미)은 반드시 본 문서 §3~§7을 따른다. 계약 변경은 본 문서 개정 → 양측 반영 순서로만 한다.
 - **사본 관계 (v2.3 명문화)**: **정본은 wbs-web 레포 사본(`docs/design/dflow-minutes-upload-api-spec.md`)이다.** 또박또박 측 사본(`tasks/dflow-minutes-upload/artifacts/`, **v2.1에서 정지**)은 이 파일을 **뒤따라 동기화**한다 — 반대 방향(또박또박 사본 → 정본) 반영은 금지. 두 사본이 갈라진 채로 착수하면 또박또박 구현자가 자기 레포의 "API 계약 단일 출처"에서 **이번 개정과 모순된 지시**(접두 제목·`folder_path` 부재·"해제 API 없음")를 읽는다.
 - **v2.3 개정 근거**: `docs/design/dflow-folder-path-worklist-2026-07-27.md`(D'Flow 작업지시 — 결정 D1~D6·E1~E4 확정본). 본 문서는 그중 **계약(필드·의미·에러)** 만 옮긴다. 구현 순서·배포 차수의 정본은 그 문서 §11.2이고, 본 문서는 §14.1에서 1줄로만 참조한다.
+- **v2.4 개정 근거**: `docs/design/dflow-decisions-final-2026-07-27.md`(**결정 정본** — 개발 측 권고안과 어긋나는 항목은 그 문서가 이긴다) §2-A~§2-J, 특히 §2-E 표의 9건. v2.4 시점에 **D'Flow 구현은 이미 완료돼 있고**(브랜치), 본 개정은 **코드에 문서를 맞춘 것**이다 — 계약 문장과 구현이 어긋나면 코드가 사실이며 본 문서를 고친다.
 
 ---
 
@@ -37,6 +38,29 @@
 | T6 | export 호환 | 회의/폴더/프로젝트 export·import에 public_uid·매핑 포함 (다른 또박또박 인스턴스로 이동해도 D'Flow 연결 유지) |
 
 **적용**: 양측 동시 개발 → §14 순서로 한 번에 통합 (D'Flow는 env 미설정이면 API 전체 404라 먼저 배포해도 무해).
+
+### v2.4 변경 (결정 정본 반영 — **또박또박 송부본**)
+
+v2.3까지는 **송부 전 내부 개정**이었다. 결정 정본 §2-E 표의 9건을 반영한 **v2.4를 또박또박에 한 번에 송부**한다(중간 개정 이력을 만들지 않는다). 9건 모두 **D'Flow 측에서 이미 구현·테스트 완료**이며, 또박또박이 코드를 고쳐야 하는 것은 **B·C·D 3건뿐**이다(응답 타입 nullable, `folder_path_status` 배지, `include_archived` 호출부 3곳).
+
+| # | 변경 | 내용 | 절 | 또박또박 작업 |
+|---|---|---|---|---|
+| A | **조상 규칙** | 배치 재편철의 보호 판정이 "현재 위치가 **팀 루트**냐"에서 **"현재 위치가 목표 경로의 조상이냐"**로 바뀐다. 팀 루트는 그 특수 케이스로 흡수된다 | §4c.5 | 없음(해석만 달라짐) |
+| B | **`from`도 nullable** | 배치 응답 `from: string[] \| null` — `null` = **이동 전 미분류**. 계약 예시가 전부 배열이라 `Array`로 타입을 고정하면 런타임에 깨진다 | §4c.2 | 타입 완화 |
+| C | **`folder_path_status` 신설** | `exact`·`truncated`·`partial`·`unclassified` 4값 enum을 `POST /minutes` 응답과 배치 `results[]`에 싣는다. 깊이 절단·부분 편철·미분류를 **클라이언트가 구분할 유일한 수단** | §4.3 · §4c.2 | 배지 표시 |
+| D | **`include_archived` 사용 규약 확장** | 존재 확인뿐 아니라 **`linked=true` 페이지 순회**에도 켠다. ⚠️ **`linked=false`(연결 후보 조회)에는 켜지 말 것** — 보관분은 claim 대상이 아니다 | §5.1 | 호출부 3곳 |
+| E | **전환 플래그 명문화** | `MINUTES_FOLDER_PATH_ENABLED`(기본 `false`) — R1/R2 대상별 동작표·전환 조건 3개·순서 경고 | **§4.8** | 없음(순서 준수) |
+| F | **배치 건별 검증** | `items[].folder_path`·`items[].team` 오류는 **요청 전체 400이 아니라 건별 `failed(validation_failed)`**. 봉투 400의 범위를 정확히 열거한다 | §4c.1 · §4c.3 · §4c.4-12 | 없음 |
+| G | **배치 `pmo_admin` 게이트** | role 미달은 **403 `forbidden_role`**. `items: []` 프로브도 이 게이트를 통과해야 하므로 `ACTOR_EMAIL` 오설정이 **첫 프로브에서** 드러난다 | §4c 머리말 · §6 | 계정 확인 |
+| H | **폴더 개명 비전파 + NFC** | 또박또박에서 폴더를 개명해도 D'Flow의 **기존 편철은 그대로**이고 개명 후 재전송분만 새 폴더로 간다. 폴더명은 전 경로에서 **NFC 정규화** | **§4.9** | 없음(인지) |
+| I | **비활성 팀 재전송** | 500 → **400 `team_inactive`** + 명시 사유 | §6 | 문구 반영 |
+
+추가 동작 규약 2건 — 코드에는 이미 있고 v2.4에서 **계약으로 승격**한다:
+
+- **배치는 판정 전에 폴더를 만들지 않는다.** 생성은 "이동한다"가 확정된 뒤에만 일어난다 — 종전에는 곧이어 `skipped(manual_placement)`로 건너뛸 건의 목표 트리까지 실제로 생성돼, 아무 회의록도 들어가지 않는 **빈 폴더가 ACTOR 명의로** 트리에 남았다(§4c.4-13).
+- **D'Flow 폴더 삭제는 "비우기 우선"으로 바뀌었다.** 자식 폴더와 소속 회의록을 **부모로 승격**시킨 뒤 삭제한다. 종전 cascade는 그 안의 회의록을 **미분류로 강등**시켰다 — 외부 API·배치가 만든 폴더는 팀 루트 보호 밖이라 전송자 1명이 지우면 그 안이 전부 미분류가 될 수 있었다(§4.9).
+
+> **왜 조상 규칙인가(A) — 실측이 v2.3의 전제를 뒤집었다**: v2.3 §4c.5는 "기존 전송분은 팀 루트에 평평하게 쌓여 있다"를 전제로 "하위 폴더에 있다 = 사람이 옮겼다"로 판정했다. 운영 실측 결과 또박또박 연동 회의록 **19건 중 17건이 이미 사람 손으로 2단 하위 폴더에 정리**돼 있었다(팀 루트 잔류 **2건**). 종전 기준이면 그 17건이 전부 `skipped(manual_placement)`가 되어 **재편철이 사실상 전건 막힌다.** 조상 규칙은 "더 깊게 넣는 것은 사람의 정리를 훼손하지 않는다"만 허용하므로, 사람이 **다른 가지로** 옮긴 건은 계속 보호하면서 17건 중 상당수를 자동 처리한다. 상세 = §4c.5.
 
 ### v2.3 변경 (`folder_path` 편철 · 배치 재편철 · 연결 초기화 — 양측 필독)
 
@@ -89,7 +113,12 @@
 | D15 | 폴더 목록 노출 | **하지 않는다.** `GET /minutes/meta`에 폴더 목록을 싣지 않고, 폴더 조회 엔드포인트도 신설하지 않는다. 하위 폴더는 blind 자동 생성이라 **항상 성공**하므로 사전 미리보기가 없어도 전송이 실패하지 않는다. ⚠️ **대가**: 사전 미리보기를 포기했으므로 **응답 에코(§4.3)가 유일한 사후 피드백**이다 → 클라이언트의 `folder_path` 표시는 권장이 아니라 **필수** |
 | D16 | 기존 전송분 재편철 | **재전송(`replace`)으로 하지 않는다.** 전용 배치 엔드포인트 **`POST /minutes/folder`**(§4c)를 쓴다 — `dry_run` 기본 `true`, 200건/요청, 멱등, `updated_at`·버전·위키 무영향 |
 | D17 | 연결 초기화 | `minutes.external_id`를 `null`로 되돌리는 수단은 **D'Flow UI 조작**(회의 정보 수정 모달)이다. **해제용 API 엔드포인트는 v2.3에도 없다.** 재연결은 종전대로 `POST /minutes/link`(claim) — §4b-1 |
-| D18 | `folder_path` 차수의 배포 순서 | **일괄 재편철(§4c)이 또박또박의 전송 전환보다 앞선다.** 근거·차수표 정본 = D'Flow 작업지시 §11.2 (본 문서는 §14.1에서 참조만) |
+| D18 | `folder_path` 차수의 배포 순서 | **일괄 재편철(§4c)이 또박또박의 전송 전환보다 앞선다.** 근거·차수표 정본 = D'Flow 작업지시 §11.2 (본 문서는 §14.1에서 참조만). **★ v2.4: 그 순서를 클라이언트 배포 타이밍이 아니라 D'Flow 서버 플래그로 강제한다 — D19** |
+| D19 | 전환 플래그 `MINUTES_FOLDER_PATH_ENABLED` | **★ v2.4 신설. 기본 `false`.** `false`면 `POST /minutes`가 `folder_path`를 **키 부재와 완전히 동일하게** 취급한다 — 편철도, `replace`의 폴더 갱신도, **검증 400조차** 일어나지 않는다. 즉 R1 배포는 `POST /minutes` 동작을 **1비트도 바꾸지 않는다.** 배치(§4c)와 `include_archived`·`archived`(§5.1)는 **플래그와 무관하게 항상 활성**이다. 전환 조건·순서 경고 = **§4.8** |
+| D20 | 폴더명 정규화 | **NFC 고정.** 외부 API(`folder_path` 원소)·D'Flow UI의 폴더 생성·개명 **전 경로**가 `trim` + `normalize('NFC')`를 통과한다. macOS에서 만든 한글 폴더명은 NFD로 오는 경우가 있고, 그대로 비교·생성하면 **눈에 같은 이름의 폴더가 두 개** 생긴다(형제 이름 유니크 인덱스도 바이트가 달라 막지 못한다). 60자 검증도 NFC 이후 길이 기준 — §4.9 |
+| D21 | 폴더 개명의 전파 | **전파하지 않는다.** 또박또박에서 폴더 이름을 바꿔도 D'Flow의 **기존 편철은 옛 이름 폴더에 그대로 남고**, **개명 후 재전송분부터** 새 이름 폴더로 들어간다(같은 부모 아래 옛 이름·새 이름이 공존). 정리는 D'Flow 탐색기에서 사람이 하거나 배치(§4c)로 한다 — §4.9 |
+| D22 | 배치 실행 권한 | `POST /minutes/folder`는 **`pmo_admin` 계정으로만** 실행할 수 있다(**★ v2.4**). 미달은 **403 `forbidden_role`**, role 조회 실패는 **fail-closed로 403**. 다른 라우트의 계정 게이트는 `auth.users` 실재만 보므로, `ACTOR_EMAIL` 오타가 **실재하는 다른 직원**을 가리키면 배치가 조용히 성공하고 그 사람이 생성 폴더 트리의 유일한 관리자가 된다(되돌리려면 DB 직접 수정) — §4c 머리말 |
+| D23 | 비활성 팀 회의록의 재전송 | **400 `team_inactive`**(**★ v2.4** — 종전 500). D'Flow에서 팀을 비활성화하면 그 팀 회의록의 `replace`는 메타 갱신 RPC가 활성 팀을 요구해 **반드시 실패**한다. 원인 불명 장애로 보이지 않도록 명시 사유로 매핑한다 — §6 |
 
 ---
 
@@ -231,7 +260,7 @@ POST 요청 필드 `user_email`에 **또박또박에서 업로드를 실행한 �
 | `body_markdown` | string ≤ **100,000자** | ✅ | → `body_md` 원문 저장. 한도는 D'Flow 기존 검증 상수(`MINUTE_BODY_MAX`)와 정합 |
 | `external_id` | string ≤ 128자 | ✅ | **멱등 키**. 또박또박은 `ddobak:<회의 UUIDv7>` — 최초 업로드 시 발급하는 불변 `public_uid` (§10). unique |
 | `meeting_id` | uuid | — | D'Flow 회의 엔티티 연결(선택). uuid 형식·존재 검증 후 저장(비형식/불존재 400 — v2.2 C2). replace 시 필드 부재=기존 값 유지, 명시적 null=해제(v2.2 C1). **프로젝트 연결은 이 필드 경유가 유일** |
-| `folder_path` | **string[]** | — | ★ **v2.3 신설.** 회의가 속한 **폴더 경로**를 **root-first**(최상위 → 말단)로 보낸다. 예: `["MES","품질","주간정례"]`.<br>· 배열이 아니면 **400** `validation_failed`. 원소는 문자열만<br>· 각 원소는 `btrim` 후 **1~60자**. 벗어나면 **400 거절 — 절단하지 않는다**(§0 D12)<br>· 정규화(§4.7 ①②③) 후 **깊이 5 초과분은 절단**하고 5단째에 편철<br>· 실제 편철 결과는 응답에 **에코**된다(§4.3) — 절단·한 칸 내림이 반영된 값<br>· **키 부재 / `[]` / 비어있지 않은 배열을 3값으로 구분한다** → 아래 「3값 규약」<br>· 편철·자동 생성 규칙 전문 = **§4.7** |
+| `folder_path` | **string[]** | — | ★ **v2.3 신설.** 회의가 속한 **폴더 경로**를 **root-first**(최상위 → 말단)로 보낸다. 예: `["MES","품질","주간정례"]`.<br>· ⚠️ **★ v2.4: 서버 플래그 `MINUTES_FOLDER_PATH_ENABLED`가 `false`(기본)면 이 필드는 키 부재와 완전히 동일하게 취급된다** — 편철도 검증도 없다(400조차 나지 않는다). 전환 규약 = **§4.8**<br>· 배열이 아니면 **400** `validation_failed`. 원소는 문자열만<br>· 각 원소는 `btrim` + **NFC 정규화**(★ v2.4 — §0 D20) 후 **1~60자**. 벗어나면 **400 거절 — 절단하지 않는다**(§0 D12)<br>· 정규화(§4.7 ①②③) 후 **깊이 5 초과분은 절단**하고 5단째에 편철<br>· 실제 편철 결과는 응답에 **에코**된다(§4.3) — 절단·한 칸 내림이 반영된 값. **품질 신호는 `folder_path_status`**(★ v2.4)<br>· **키 부재 / `[]` / 비어있지 않은 배열을 3값으로 구분한다** → 아래 「3값 규약」<br>· 편철·자동 생성 규칙 전문 = **§4.7** |
 | `on_conflict` | `replace`\|`skip`\|`error` | — | 기본 `replace` |
 
 v1 스펙에 있던 `project_id`(minutes에 저장 컬럼 없음), `occurred_start_at/end_at`·`attendees`·`tags`(전부 minutes 컬럼 없음 — `meetings` 엔티티 속성), `external_source`·`external_instance`·`external_url`(컬럼 없음)은 **v1에서 제외**. 발신 시스템 식별은 `external_id`의 `ddobak:` prefix로 충분하다. 추가 메타 보존이 필요해지면 v1.1에서 `external_meta jsonb` 컬럼 1개로 수용(제안).
@@ -257,6 +286,7 @@ v1 스펙에 있던 `project_id`(minutes에 저장 컬럼 없음), `occurred_sta
 > ⚠️ **`[]`를 "키 부재와 동일"로 뭉개지 말 것.** 그러면 또박또박에서 회의를 **폴더 밖으로 뺀 조작만 영영 전파되지 않는** 유일한 케이스가 된다. `meeting_id`의 "필드가 전송된 경우에만 갱신"(v2.2 C1)과 동형이되, **`[]`가 유의미한 값**인 점이 다르다.
 
 - **`folder_path` 미전송 시 동작은 v2.2와 100% 동일하다** — 필드 도입만으로는 클라이언트 배포 순서를 강제하지 않는다(하위호환).
+- ⚠️ **★ v2.4 — 이 3값 규약은 플래그 `MINUTES_FOLDER_PATH_ENABLED = true`(R2)일 때만 발효한다.** `false`(R1)에서는 세 값이 **전부 「키 부재」 열로 접힌다**: 신규 생성은 팀 루트, `replace`는 기존 위치 유지. 응답 에코는 **요청 경로가 아니라 실제 편철 위치**(팀 루트 `["MES"]`)를 정직하게 돌려주므로, 또박또박이 보낸 경로와 받은 경로가 다르다고 해서 오류로 읽지 말 것 — 전환 전 구간의 정상 동작이다(§4.8).
 - `date`(→ `minute_date`)는 종전대로 재전송마다 갱신된다. `folder_id`와 달리 `minute_date`는 **위키 재인덱싱 대상**이므로 날짜가 바뀌면 철회·재빌드가 걸린다 — 날짜도 또박또박이 SSOT다.
 
 ### 4.3 응답
@@ -273,6 +303,7 @@ v1 스펙에 있던 `project_id`(minutes에 저장 컬럼 없음), `occurred_sta
   "team": "MES",
   "folder_id": "9f3c1d0a-52b7-4f88-9c31-6ad2e7b40f15",
   "folder_path": ["MES", "품질", "주간정례"],
+  "folder_path_status": "exact",
   "meeting_id": null,
   "external_id": "ddobak:0198c9f2-3a41-7c22-b1e4-9f3d2a8c1b77",
   "created_by_name": "홍길동",
@@ -301,6 +332,23 @@ v1 스펙에 있던 `project_id`(minutes에 저장 컬럼 없음), `occurred_sta
 > 그래서 클라이언트 타입은 반드시 **`folder_id: string | null`, `folder_path: string[] | null`** 이어야 한다. `string[]`로 고정하면 런타임에서 깨지고, `null`을 `[]`로 관대 변환하면 **"팀 루트에 편철됨"이라는 정반대 안내**를 하게 된다.
 >
 > 수용 기준: **`folder_id: null` 응답에서 클라이언트 다이얼로그가 "팀 루트"라고 말하지 않는다.**
+
+#### `folder_path_status` (★ v2.4 신설 — 편철 품질 신호)
+
+`POST /minutes` 응답에 **항상** 실리는 4값 enum이다(플래그 `false` 구간에서도 실린다). `folder_path`가 요청과 다를 때 **그 이유**를 알려준다.
+
+| 값 | 의미 | `folder_id` | 클라이언트가 할 일 |
+|---|---|---|---|
+| `exact` | 정규화 결과 **그대로** 편철됨. **② 한 칸 내림도 `exact`다** — 정상 동작이지 품질 저하가 아니다 | uuid | 조용히 성공 처리 |
+| `truncated` | 정규화 후 **깊이 5 초과분이 절단**돼 5단째에 편철됨(§4.7-4) | uuid | ⚠️ **배지 표시.** 서로 다른 하위 경로가 **같은 5단 폴더로 병합**됐을 수 있다 |
+| `partial` | 경로 중간 폴더 **생성에 실패**해 **조상까지만** 편철됨. 종전에는 200 성공으로 **완전히 침묵**하던 경로다 | uuid(조상) | ⚠️ **배지 표시.** 재전송으로 해소될 수 있는 DB 실패 계열 |
+| `unclassified` | 시드 팀 루트가 없어 **미분류**. 회의록 등록 자체는 성공(§4.7-5) | **`null`** | ⚠️ **"미분류로 등록됨 — D'Flow에서 편철 필요"** |
+
+- 판정은 **심각한 쪽부터**다: `unclassified` > `partial` > `truncated` > `exact`. 두 조건이 겹치면 더 심각한 값 하나만 실린다.
+- `folder_path`를 **보내지 않은**(또는 플래그 `false`인) 요청에서도 값은 실린다 — 팀 루트 편철에 성공하면 `exact`, 시드 루트 부재로 미분류면 `unclassified`.
+- `on_conflict=skip` 응답은 기존 레코드의 현재 위치를 그대로 보고한다(`folder_id`가 있으면 `exact`, 없으면 `unclassified`).
+
+> **왜 boolean 하나로는 안 되는가.** `folder_path_truncated: true` 하나만 넣으면 **오독이 늘어난다** — 받은 경로가 보낸 경로보다 짧아지는 원인이 **셋**이기 때문이다(깊이 절단 / 부분 편철 / ② 한 칸 내림은 오히려 길어진다). "보낸 경로와 받은 경로를 비교하면 되지 않나"도 성립하지 않는다: 정상 편철에서도 길이와 0번 원소가 바뀌므로, 또박또박이 스스로 판정하려면 **정규화 규칙 ①②③과 활성 팀코드 목록을 Ruby 쪽에 재구현**해야 한다. 그건 계약이 서버 측에 금지한 "두 번째 정규화 구현"(§4c.4-1)을 **클라이언트에 강요**하는 셈이고, 서버의 ② 판정은 팀 마스터 TTL 캐시에 의존해 클라이언트가 재현할 수도 없다.
 
 ### 4.4 요청 예시
 
@@ -333,6 +381,8 @@ curl -X POST https://wbs-web.vercel.app/api/v1/minutes \
 7. 저장 성공 후 **후처리 파이프라인 실행** (누락 시 검색·AI 챗·인사이트가 낡은 본문 참조): 신규 = `ingestMinute` + `generateMinuteInsights`, replace = `rematchMinuteHighlights` → `ingestMinute` → `generateMinuteInsights` (기존 순서 그대로, `actions/minutes.ts:95-98`·`178-182`).
 8. **(v2.3)** `folder_path` 편철은 **§4.7**. 신규 생성·`replace` 두 경로가 **같은 해석 함수를 공유**해야 한다 — 구현이 갈라지면 등록 결과와 재편철 결과가 어긋난다.
 9. **(v2.3)** `folder_id` 갱신 범위는 §4.2 3값 규약. 폴더 이동은 **버전 append도 위키 재인덱싱도 유발하지 않는다**(재인덱싱 대상은 `title`·`team_code`·`minute_date`뿐 — `folder_id`는 대상이 아니다). 이 "싼" 성질이 §4c 배치의 전제이므로, 폴더 갱신을 본문 커밋 경로에 얹지 말 것.
+10. **(★ v2.4)** 8·9는 **플래그 `MINUTES_FOLDER_PATH_ENABLED`가 `true`일 때만** 실행한다. `false`면 `folder_path` 키를 **읽기 전에** 버려 키 부재 경로로 합류시킨다 — **검증도 하지 않는다.** 「플래그를 검증 뒤에 두는」 구현은 금지다: 그러면 61자 폴더명·타 팀 루트가 섞인 회의가 편철은 안 되면서 **400으로 실패**해, 오늘 정상 전송되는 회의가 깨지는 회귀 창이 열린다(§4.8).
+11. **(★ v2.4)** `replace`에서 **`folder_path` 키가 없는데 `team`만 바뀐** 재전송은 회의록을 **새 팀 루트로 옮긴다**(구버전 클라이언트의 담당 정정 경로). 400 거절은 정상 조작을 막고, 현행 유지는 "`team`은 ERP인데 폴더는 MES 서브트리"인 데이터를 남긴다. 새 팀 루트가 없으면 폴더는 손대지 않는다(로그만). 에코는 그때의 실제 위치(`["ERP"]`)다.
 
 ### 4.6 external_id 정밀 정의 (계약)
 
@@ -386,6 +436,60 @@ curl -X POST https://wbs-web.vercel.app/api/v1/minutes \
    - 폴더명 길이 검증은 **생성 전에** 한다(60자 — §0 D12). DB CHECK에 맡기면 `23514`로 편철 전체가 실패한다.
 
 **요약(클라이언트 관점)**: 또박또박은 자기 폴더 트리를 그대로 root-first 배열로 보내면 된다. 루트가 팀코드면 그대로, 아니면 D'Flow가 팀 루트 아래로 한 칸 내려 준다. **다른 팀의 팀코드를 루트로 보내는 것만 금지**(400)이며, 실제 결과는 응답으로 확인한다.
+
+### 4.8 `MINUTES_FOLDER_PATH_ENABLED` — 전환 규약 (★ v2.4 신설 — 계약, §0 D19)
+
+`folder_path` 편철을 **언제 켤지**는 클라이언트 배포 타이밍이 아니라 **D'Flow 서버 env 플래그**가 정한다. 또박또박이 언제 `folder_path`를 싣기 시작하든 무해하도록 만드는 장치다.
+
+#### 대상별 동작
+
+| 대상 | **R1 — 플래그 `false`(기본)** | **R2 — 플래그 `true`** |
+|---|---|---|
+| `POST /minutes`의 `folder_path` | **완전히 무시** — 키 부재와 **동일**. 편철도 검증도 없다(**400조차 나지 않는다**) | §4.7대로 편철 |
+| 응답 `folder_id`·`folder_path` | **실제 편철 위치**(= 팀 루트)를 정직하게 에코. 요청 경로의 반향이 아니다 | 실제 편철 결과 |
+| 응답 `folder_path_status` | 실린다(팀 루트 편철 성공 = `exact`, 시드 루트 부재 = `unclassified`) | 실린다(4값 전부) |
+| 재전송(`replace`)의 폴더 갱신 | **일어나지 않음** — `[]`를 보내도 기존 위치가 유지된다 | 3값 규약대로(§4.2) |
+| `POST /minutes/folder`(배치 §4c) | **활성** | 활성 |
+| `include_archived`·`archived`(§5.1) | **활성** | 활성 |
+
+→ **R1은 `POST /minutes` 동작을 1비트도 바꾸지 않는다.** 새로 열리는 것은 배치와 보관 상태 노출뿐이다.
+
+#### 왜 필요한가 — 진짜 위험은 등록이 아니라 **재전송**이다
+
+`folder_path`가 실려 오기 시작하면 **재전송 1건마다** D'Flow의 폴더 위치가 덮인다. 그런데 또박또박에서 **폴더에 안 들어 있는 회의는 `[]`를 보내므로**, 사람이 D'Flow에서 정리해 둔 편철이 **팀 루트로 평평화**된다. `overwrite_manual`은 **배치에만** 걸리는 플래그라 이 경로를 막지 못한다. 플래그는 그 스위치를 D'Flow 손에 둔다.
+
+부수 이득: 또박또박이 `folder_path`를 **이미 싣고 있는지**를 D'Flow는 관측할 수 없다(구버전 파서가 미지 키를 조용히 무시했으므로 로그·DB에 흔적이 0). 플래그가 있으면 **그 답을 몰라도 안전하다.**
+
+#### `true`로 돌리는 조건 (셋 다 충족)
+
+1. **일괄 재편철 1회차 APPLY 완료**(§4c).
+2. **재편철 대조표 정리 완료** — 사람이 정리해 둔 건들의 목적지를 확정한 뒤.
+3. **또박또박 2차(전송 전환) 배포 준비 완료 통보.**
+
+> ⚠️ **또박또박의 전송 전환(제목 접두 제거 + `folder_path` 전송)은 반드시 R2 이후에 배포해야 한다.** 뒤집히면 그 구간 전송분은 **"접두도 없고 폴더도 안 잡힌"** 상태가 된다 — 제목으로도 폴더로도 위치를 알 수 없는 회의록이 쌓인다.
+>
+> ⚠️ 반대로 **`folder_path`를 싣는 것 자체는 언제 배포해도 무해하다.** R1 구간에서는 그냥 무시되기 때문이다. 순서 제약은 **"접두 제거"** 에만 걸린다.
+
+#### 롤백
+
+플래그를 `false`로 되돌리면 편철·재전송 동기화가 즉시 멈춘다(코드 배포 없이 env 전환 + 재배포). 단 **이미 이동한 회의록은 되돌아가지 않는다** — 되돌리려면 배치(§4c)로 목표 경로를 다시 지정해야 한다.
+
+### 4.9 폴더 조작의 전파 규약 (★ v2.4 신설 — 계약, §0 D20·D21)
+
+또박또박과 D'Flow는 폴더를 **경로 문자열로만** 주고받는다(폴더 id를 공유하지 않는다). 그래서 "폴더에 가한 조작"이 어느 방향으로 전파되는지 명시가 필요하다.
+
+| 조작 | 전파되는가 | 결과 |
+|---|---|---|
+| 또박또박에서 회의를 **다른 폴더로 이동** | ✅ (R2 이후) 재전송 시 | 다음 `replace`가 D'Flow 위치를 그 경로로 옮긴다(§4.2 3값 규약) |
+| 또박또박에서 **폴더 개명** | ❌ **전파되지 않는다** | D'Flow의 기존 편철은 **옛 이름 폴더에 그대로 남는다.** 개명 후 재전송분부터 **새 이름 폴더가 새로 생성**되어 거기로 들어간다 → 같은 부모 아래 **옛 이름·새 이름 폴더가 공존**한다 |
+| 또박또박에서 **폴더 삭제** | ❌ | D'Flow 폴더는 남는다(회의록도 그 자리에) |
+| D'Flow에서 **폴더 개명·이동·삭제** | ❌ | 또박또박은 알지 못한다. 다음 재전송이 **또박또박 경로로 되돌린다**(R2 이후 — 폴더 위치의 SSOT는 또박또박이다) |
+
+- **개명을 소급 반영하려면** 배치(§4c)로 새 경로를 지정하거나 D'Flow 탐색기에서 사람이 옮긴다. 자동 추적 수단은 **없다**(양측 어디에도 폴더 식별자 대응표가 없다 — 신설하지 않기로 한 설계다).
+- **폴더명은 전 경로에서 NFC로 정규화된다**(§0 D20). 외부 API의 `folder_path` 원소, D'Flow UI의 폴더 생성·개명이 모두 같은 함수를 통과한다. 또박또박이 NFD로 보내도 D'Flow에서는 NFC 한 벌로 수렴하므로 **같은 이름의 폴더가 둘 생기지 않는다.** 60자 검증도 NFC 이후 길이 기준이다.
+- **D'Flow의 폴더 삭제는 "비우기 우선"이다**(★ v2.4). 삭제 시 자식 폴더와 소속 회의록을 **부모로 승격**시킨 뒤 폴더를 지운다 — 회의록이 **미분류로 강등되지 않는다.** 상위에 같은 이름의 형제가 있어 승격할 수 없으면 **삭제를 중단**하고 이름 변경을 안내한다. 승격은 `updated_at`을 갱신하지 않으므로 또박또박 목록이 "방금 수정됨"으로 물들지 않는다.
+- **`folder_id`와 `team_code`의 정합은 서버가 강제한다.** 폴더가 주어지면 **`team`은 폴더에서 파생**되고(클라이언트가 보낸 값은 불신), **팀을 판정할 수 없는 폴더는 거절**한다. 외부 API 경로에서 이 불변식은 §4.7이 담당한다 — 정규화 결과의 첫 세그먼트가 **항상 팀코드**이므로 "`team`은 ERP인데 폴더는 MES 서브트리"인 데이터가 만들어지지 않는다.
+  - 클라이언트가 알아야 할 파급: D'Flow 사용자가 회의록을 **다른 팀 폴더로** 옮기면 `team_code`도 따라 바뀐다. 그 뒤 또박또박이 **옛 팀**으로 재전송하면 등록 경로는 회의록을 **다시 옛 팀 서브트리로** 되돌리고(키 부재면 §4.5-11의 팀 루트 이동, `folder_path`를 보내면 §4.7 정규화가 옛 팀 루트를 앞에 붙인다), **배치는 `failed(team_mismatch)`** 로 거절한다(§4c.1). → **팀 이동은 양측에서 함께 정정해야 한다.**
 
 ## 4b. POST /minutes/link — 기존 회의록 수동 연결 (claim)
 
@@ -448,7 +552,18 @@ v2.2까지 §4b는 "**해제 API는 제공하지 않음, 필요 시 D'Flow DB에
 > ⚠️ **재전송(`POST /minutes` `replace`)으로 대신하지 말 것.** 본문이 동일해도 **버전은 무조건 append**된다 → 회의록 N건이면 버전 N행 + 본문 전문 N회 복사. 게다가 후처리 파이프라인(하이라이트 재매칭 → 임베딩 → AI 인사이트)이 전건 재실행돼 **LLM 호출이 폭주**하고, 사용자에게는 "전 회의록이 방금 수정됨"으로 보인다.
 > 반면 **폴더만 바꾸는 것은 지극히 싸다** — `folder_id`는 위키 재인덱싱 대상이 아니고(§4.5-9) 버전도 만들지 않는다. 그래서 전용 경량 엔드포인트를 둔다.
 
-인증·게이트는 `/minutes*`와 동일하며 **순서가 계약이다**: env 2단 게이트(**404**) → Bearer 시크릿(**401**) → `user_email` 파싱 → 사용자 매칭(**403** `unknown_user`) → **페이로드 검증**(400). 즉 **계정이 불량이면 `items`를 보기 전에 403이 먼저 난다**(§4c.4-9의 프로브가 성립하는 근거).
+인증·게이트는 `/minutes*`와 동일하며 **순서가 계약이다**. **★ v2.4에서 `pmo_admin` 확인이 한 칸 추가**됐고, 위치는 **여전히 페이로드 검증보다 앞**이다:
+
+```
+env 2단 게이트(404) → Bearer 시크릿(401) → JSON 파싱(400) → user_email 파싱(400)
+  → 사용자 매칭(403 unknown_user) → ★ role 확인(403 forbidden_role) → 페이로드 검증(400)
+```
+
+- 즉 **계정이 불량이면 `items`를 보기 전에 403이 먼저 난다** — §4c.4-9의 `items: []` 프로브가 성립하는 근거이고, **v2.4의 role 게이트도 그 앞에 있으므로 프로브는 그대로 성립한다.** 오히려 프로브의 값어치가 커졌다: `ACTOR_EMAIL`이 **실재하지만 권한 없는 계정**을 가리키는 오설정이 **첫 프로브에서** 드러난다.
+- **`pmo_admin`이 아니면 `403 { "code": "forbidden_role" }`**(§0 D22). role 조회 자체가 실패해도 **fail-closed로 403**이다 — 보안 가드는 "모르면 통과"시키지 않는다.
+- 이 게이트가 필요한 이유: 배치가 만드는 폴더의 `created_by`는 **실행 계정(ACTOR) 명의**다. 다른 라우트의 계정 게이트는 `auth.users` 실재만 보므로, `ACTOR_EMAIL` 오타가 **실재하는 다른 직원**을 가리키면 배치가 **조용히 성공**하고 그 사람이 생성된 폴더 트리의 유일한 관리자가 된다(되돌리려면 DB 직접 수정).
+
+⚠️ **배치는 플래그 `MINUTES_FOLDER_PATH_ENABLED`와 무관하게 항상 활성이다**(§4.8) — R1 배포 직후부터 dry-run을 돌릴 수 있고, **그것이 이 차수의 설계 의도**다(재편철이 전송 전환보다 앞선다).
 
 ### 4c.1 요청
 
@@ -467,13 +582,26 @@ v2.2까지 §4b는 "**해제 API는 제공하지 않음, 필요 시 D'Flow DB에
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| `user_email` | string | ✅ | §3.3 동일 매칭. 없으면 403 `unknown_user` |
+| `user_email` | string | ✅ | §3.3 동일 매칭. **필드 자체가 없으면 400**, 일치하는 D'Flow 계정이 없으면 **403 `unknown_user`**, 계정은 있으나 `pmo_admin`이 아니면 **403 `forbidden_role`**(★ v2.4) |
 | `dry_run` | boolean | — | **기본 `true`**. **필드 부재 = dry run.** 실제 이동은 명시적 `false`가 있어야 한다 |
 | `overwrite_manual` | boolean | — | 기본 `false`. 사람이 옮겨 둔 것으로 판정된 건을 덮을지 — §4c.5 |
 | `items` | object[] | ✅ | **최대 200건/요청.** 초과는 **400**. 클라이언트가 나눠 보낸다. **빈 배열 `[]`도 유효**(§4c.4-9) |
-| `items[].external_id` | string | ✅ | 대상 회의록의 멱등키(§4.6). 불투명 문자열, 정확 일치 |
-| `items[].team` | string | — | **선택.** 생략하면 **그 회의록에 저장된 기존 `team_code`를 그대로 쓴다** |
-| `items[].folder_path` | string[] | ✅ | 목표 경로(root-first). 해석은 **§4.7 그대로**(별도 규칙 없음). `[]`면 팀 루트 |
+| `items[].external_id` | string | ✅ | 대상 회의록의 멱등키(§4.6). 불투명 문자열, 정확 일치. **없거나 128자 초과면 봉투 400**(아래 참조) |
+| `items[].team` | string | — | **선택.** 생략하면 **그 회의록에 저장된 기존 `team_code`를 그대로 쓴다**. 값이 문자열이 아니거나 공백뿐이면 **그 건만** `failed(validation_failed)` |
+| `items[].folder_path` | string[] | ✅ | 목표 경로(root-first). 해석은 **§4.7 그대로**(별도 규칙 없음). `[]`면 팀 루트. 타입·60자 오류는 **그 건만** `failed`(★ v2.4) |
+
+#### 봉투 400 vs 건별 `failed` (★ v2.4 — 결정 §2-E ⑥)
+
+**`items[]` 안의 내용 오류는 요청 전체를 400으로 떨구지 않는다.** 200건 중 1건의 `folder_path` 오타로 나머지 199건이 함께 죽으면 "부분 실패는 전체를 롤백하지 않는다"(§4c.4-7)는 계약과 정면으로 어긋난다.
+
+| 판정 | 대상 |
+|---|---|
+| **봉투 400** (요청 전체 거절) | ① `items`가 **배열이 아님** ② `items` **200건 초과** ③ `items`의 원소가 **객체가 아님** ④ `items[].external_id` **부재·빈 문자열·128자 초과** ＋ 봉투 필드(`user_email` 부재, `dry_run`·`overwrite_manual`이 boolean 아님, JSON 파싱 실패) |
+| **건별 `failed`** (나머지는 정상 처리) | `items[].folder_path`가 **배열이 아님**·**원소가 문자열이 아님**·**빈 이름**·**60자 초과**, `items[].team` **형식 오류**, §4.7 ③ **다른 팀 루트**, `no_team_root`, `team_mismatch`, DB 실패 계열 |
+
+> **`external_id`만 봉투인 이유**: 그것이 **건별 보고의 키**다. 없으면 응답에서 "어느 건이 실패했는지" 말할 방법이 없어 `results[]`가 성립하지 않는다.
+>
+> 클라이언트 함의: **400을 받으면 요청 자체를 고쳐야 하고, 200을 받으면 `results[]`를 건별로 읽어야 한다.** `ok: true`만 보고 성공으로 처리하면 `failed` 건이 조용히 묻힌다.
 
 > **`items[].team`이 왜 선택인가**: 또박또박은 **전송 당시 사용자가 고른 team을 기록하지 않는다.** 루트가 팀코드가 아니었던 회의는 마이그레이션 시점에 team을 재판정할 수 없다. **D'Flow에 이미 저장된 `team_code`가 그 시점의 정답**이므로 그것을 쓴다.
 >
@@ -488,10 +616,18 @@ v2.2까지 §4b는 "**해제 API는 제공하지 않음, 필요 시 D'Flow DB에
   // total = moved + already_correct + skipped + not_found + failed (200 = 173+1+21+3+2). total은 요청 상한 200을 넘지 않는다
   "results": [
     { "external_id": "ddobak:018f…", "status": "moved",
-      "from": ["MES"], "to": ["MES","품질","주간정례"], "folder_id": "9f3c…" },
+      "from": ["MES"], "to": ["MES","품질","주간정례"], "folder_id": "9f3c…",
+      "folder_path_status": "exact" },
+    { "external_id": "ddobak:018f…", "status": "moved",          // ★ v2.4: 이동 전 미분류
+      "from": null, "to": ["MES","품질"], "folder_id": "9f3c…",
+      "folder_path_status": "exact" },
+    { "external_id": "ddobak:018f…", "status": "moved",          // ★ v2.4: dry run + 목표 폴더 미생성
+      "from": ["MES"], "to": ["MES","품질","신규"], "folder_id": null,
+      "folder_path_status": "exact" },
     { "external_id": "ddobak:018f…", "status": "already_correct",
       "from": ["MES","품질"], "folder_id": "9f3c…" },
-    { "external_id": "ddobak:018f…", "status": "skipped", "reason": "manual_placement" },
+    { "external_id": "ddobak:018f…", "status": "skipped", "reason": "manual_placement",
+      "from": ["MES","조업및표준화"] },
     { "external_id": "ddobak:018f…", "status": "not_found" },
     { "external_id": "ddobak:018f…", "status": "failed", "reason": "folder_name_too_long: 현장품질개선…(72자)" },
     { "external_id": "ddobak:018f…", "status": "failed", "reason": "no_team_root",
@@ -502,7 +638,22 @@ v2.2까지 §4b는 "**해제 API는 제공하지 않음, 필요 시 D'Flow DB에
 
 - `summary`의 6개 카운트는 **항등식**을 만족한다: `total = moved + already_correct + skipped + not_found + failed`.
 - `dry_run: true`에서도 `results`는 **실행했을 때와 동일한 판정**을 담는다(`moved` = "이동 예정"). dry-run 결과와 실제 실행 결과가 어긋나면 계약 위반이다.
-- `from`은 이동 전 경로, `to`는 이동 후 경로(둘 다 root-first). **이동하지 않은 status에는 `to`·`folder_id`를 싣지 않는다** — 성공 형태와 구분되어야 한다.
+- `from`은 이동 전 경로, `to`는 이동 후 경로(둘 다 root-first). **이동하지 않은 status에는 `to`를 싣지 않는다** — 성공 형태와 구분되어야 한다. (`already_correct`는 이동은 없지만 **이미 목표 위치**이므로 `folder_id`를 싣는다.)
+
+#### `from`은 **`string[] | null`** 이다 (★ v2.4 — 결정 §2-D)
+
+**`null` = 이동 전 위치가 미분류**(`folder_id is null`)라는 뜻이다. v2.3 예시가 전부 배열이라 또박또박이 타입을 `Array`로 고정하면 **미분류 건에서 런타임 파싱 사고**가 난다 — 하필 그 건들이 **반드시 이동 대상**(§4c.5 1행)이라 정상 마이그레이션에서 흔하게 나온다.
+
+- 응답 `folder_path`(§4.3)와 **같은 규약**이다: `[]`가 아니라 `null`로 미분류를 표현한다. `[]`는 `from`에 **나오지 않는다**(편철돼 있으면 최소 `[팀코드]` 1원소다).
+- **필드 부재와 `null`을 구분할 것.** `from`은 **대상 회의록의 위치를 실제로 읽은 판정에만** 실린다 — `moved`·`already_correct`·`skipped(manual_placement)`·`failed`(`validation_failed`·`folder_name_too_long`·`no_team_root`·`folder_error`·`update_failed`). 대조표에서 "지금 어디 있는지"를 봐야 하는 판정들이다.
+- 반대로 **위치를 읽기 전에 끝나는 판정에는 아예 없다**: `not_found`(대상 자체가 없음), `skipped(archived)`, `failed(team_mismatch)`. 즉 **부재 = "보고 대상이 아님", `null` = "미분류"** 이며, 둘을 같은 값으로 뭉개지 말 것.
+
+#### `folder_path_status`가 `results[]`에도 실린다 (★ v2.4)
+
+값 집합·의미는 §4.3과 **동일**하다. 배치에서는 **`moved` 항목에만** 실린다 — 나머지 status는 이동이 없거나(`already_correct`·`skipped`) 실패 사유가 `reason`에 이미 실려 있기 때문이다.
+
+- 실제로 배치에서 나오는 값은 **`exact` / `truncated`** 둘뿐이다. `partial`(중간 폴더 생성 실패)과 `unclassified`(시드 루트 부재)는 배치에서 **`failed`로 막기** 때문이다(§4c.3) — 리포트(`to`)와 실제 트리가 어긋나면 안 되고, 배치가 회의록을 미분류로 빼내서도 안 된다.
+- ⚠️ **절단 신호는 등록 응답보다 배치에서 더 급하다.** 배치의 절단은 **성공으로 기록되는 오배치**이고 **자기 복구가 불가능**하다: APPLY 후에는 절단본 경로의 폴더가 실재하므로 재실행하면 영영 `already_correct`이고, 나중에 경로를 줄여 다시 돌려도 `skipped(manual_placement)`로 막힌다(**조상 규칙으로도 안 뚫린다** — 절단본은 목표의 조상이 아니라 목표 그 자체로 기록됐기 때문이다). → **dry-run 단계에서 `truncated`를 보고 APPLY 전에 경로를 줄이는 것이 유일한 저비용 해법이다.**
 
 ### 4c.3 `status` 값 집합 (계약 — 응답 예시에서 유추 금지)
 
@@ -514,8 +665,8 @@ v2.2까지 §4b는 "**해제 API는 제공하지 않음, 필요 시 D'Flow DB에
 | `skipped` | `archived` | `archived_at is not null` (§4c.4-4) |
 | `not_found` | — | 그 `external_id`의 회의록이 D'Flow에 없음 |
 | `failed` | `team_mismatch` | `items[].team`이 회의록의 기존 `team_code`와 다름 |
-| `failed` | `folder_name_too_long: <이름>(<n>자)` | 폴더명 60자 초과 (§0 D12) |
-| `failed` | `validation_failed: <사유>` | `folder_path` 타입 오류·§4.7 ③(다른 팀 루트) 등 |
+| `failed` | `folder_name_too_long: <이름>(<n>자)` | 폴더명 60자 초과 (§0 D12). **★ v2.4: 봉투 400이 아니라 건별** |
+| `failed` | `validation_failed: <사유>` | `folder_path` 타입 오류(배열 아님·원소가 문자열 아님·빈 이름)·`items[].team` 형식 오류·§4.7 ③(다른 팀 루트) 등. **★ v2.4: 봉투 400이 아니라 건별**(§4c.1) |
 | `failed` | `no_team_root` | 정규화 후 `path[0]`의 **시드 팀 루트가 없음** — §4.7-5 미분류 폴백을 **적용하지 않고** 이 상태로 보고한다 |
 | `failed` | `folder_error: <경로> 생성 실패` | APPLY 중 목표 경로의 중간 폴더를 만들지 못함. **조상에 떨구지 않는다** — 리포트(`to`)와 실제 트리가 어긋나면 안 되므로 이동 자체를 하지 않는다 |
 | `failed` | `update_failed: <사유>` | 폴더는 확정됐으나 `minutes` 갱신이 실패(0행 포함). 조용한 no-op을 성공으로 위장하지 않는다 |
@@ -523,6 +674,8 @@ v2.2까지 §4b는 "**해제 API는 제공하지 않음, 필요 시 D'Flow DB에
 > `folder_error`·`update_failed`는 **DB 실패 계열**이라 재실행으로 해소될 수 있다(멱등). 위 4개(`team_mismatch`·`folder_name_too_long`·`validation_failed`·`no_team_root`)는 **입력·전제 문제**라 재실행해도 같은 결과다 — 또박또박은 이 구분으로 "재시도 대상"과 "사람이 고칠 대상"을 갈라야 한다.
 
 **dry run의 `folder_id`**: dry run은 **폴더를 만들지 않는다**. 목표 경로의 폴더가 아직 없으면 `status: "moved"`(이동 예정) + **`folder_id: null`** 로 보고하고 `to`에 목표 경로를 싣는다. `folder_id`가 채워져 오는 것은 그 폴더가 **이미 실재**한다는 뜻이다.
+
+> ★ v2.4 — **`moved` + `folder_id: null`을 실패로 읽지 말 것.** `to`가 실려 있으면 이동 판정은 확정이고, 없는 마디는 APPLY 때 만들어진다. 클라이언트 타입은 `folder_id: string | null`이어야 한다(`from`·`folder_path`와 동일 규약). 반대로 **`failed`에는 `to`도 `folder_id`도 없다** — 형태만으로 둘을 구분할 수 있다.
 
 > ⚠️ **`no_team_root`를 `moved`로 집계하면 안 된다.** 배치는 '등록'이 아니라 **'이동'** 이다. 등록(`POST /minutes`)에서는 편철 실패가 등록을 막지 않도록 `null` 폴백이 옳지만, 배치에서 `folder_id`를 `null`로 만드는 것은 **회의록을 미분류로 빼내는 것**이라 목적과 정반대다. `moved`로 집계하면 **리포트는 성공인데 트리엔 반영이 없는** 상태가 되고, 멱등 재실행마다 같은 건이 또 `moved`로 나온다. → **`folder_id` 변경 없이 `failed(no_team_root)`.** 이 카테고리가 나오면 원인은 거의 항상 **팀 루트 시드(0043) 미적용**이다.
 >
@@ -545,23 +698,60 @@ v2.2까지 §4b는 "**해제 API는 제공하지 않음, 필요 시 D'Flow DB에
 10. **판정 선후 — `already_correct`가 `overwrite_manual` 판정보다 먼저다.** 현재 위치가 목표 위치와 **동일하면 §4c.5 판정 표 전체보다 먼저** `already_correct`로 확정한다(표의 어느 행에도 걸리지 않는다 — "팀 루트" 행 포함).
     - **이유**: 그러지 않으면 1차 실행으로 하위 폴더에 옮긴 건들이 **재실행 dry-run에서 전부 `manual_placement`로 집계**된다(현재 `folder_id`만 보면 하위 폴더이므로). 클라이언트는 그 수치를 `overwrite_manual`을 켤지 말지의 **판단 근거**로 쓰므로 근거가 오염된다. 최악은 담당자가 그 수치를 보고 `overwrite_manual: true`를 켜서 **진짜 사람이 옮긴 건까지 덮는 것**이다.
 11. **`status` 값 집합은 §4c.3이 계약**이다. 응답 예시에서 유추하지 말 것.
+12. **(★ v2.4) `items[]` 내용 오류는 건별 `failed`다** — 요청 전체를 400으로 떨구지 않는다. 봉투 400의 범위는 §4c.1 표에 **열거된 것뿐**이며, 거기에 없는 것은 전부 `results[]`로 보고한다.
+13. **(★ v2.4) 판정 전에는 폴더를 만들지 않는다.** 경로 해석은 **생성 없이**(존재하는 마디까지만) 수행하고, 실제 생성은 **"이동한다"가 확정된 뒤**에만 한다. 그러지 않으면 곧이어 `skipped(manual_placement)`로 건너뛸 건의 목표 트리까지 실제로 생성돼, **아무 회의록도 들어가지 않는 빈 폴더가 ACTOR 명의로** 남는다(사용자에게는 "누가 만든지 모를 폴더가 늘어난 것"으로 보이고, 그 폴더는 §4c.5의 판정 지형까지 바꾼다). 판정에는 생성이 필요 없다 — **조상 규칙은 이미 존재하는 조상 체인만 보면 되기 때문이다.**
+14. **(★ v2.4) `pmo_admin` 게이트를 페이로드 검증보다 먼저 통과시킨다**(§4c 머리말). role 조회 실패는 fail-closed 403. `items: []` 프로브는 이 게이트까지 통과해야 200이다.
+15. **(★ v2.4) 같은 `external_id`가 한 요청에 두 번 오면 두 번째는 갱신된 위치를 본다** — 첫 건의 이동 결과를 반영하지 않으면 이미 옮긴 건이 다시 `moved`로 집계돼 멱등이 깨진다(APPLY 기준. dry run은 판정만 하므로 둘 다 `moved`다).
 
-### 4c.5 `overwrite_manual` — 수동 이동분 보호
+### 4c.5 `overwrite_manual` — 수동 이동분 보호 (★ v2.4: **조상 규칙**으로 개정)
 
 D'Flow 사용자가 탐색기에서 직접 옮겨 둔 회의록을 마이그레이션이 덮으면 **사람이 한 일이 지워진다.** 판정 기준:
 
 > ⚠️ **게이트**: 아래 판정은 **현재 위치 ≠ 목표 위치**일 때만 적용한다 — 동일하면 §4c.4-10에 따라 `already_correct`로 먼저 확정한다.
 
-| 현재 `folder_id` | 해석 | `overwrite_manual: false`(기본) |
+| 현재 `folder_id` | 목표 경로와의 관계 | `overwrite_manual: false`(기본) |
 |---|---|---|
-| `null`(미분류) | 아직 편철 안 됨 | **이동** |
-| 팀 루트 = 외부 API가 자동 편철한 자리 | 자동 편철 그대로 | **이동** (목표도 팀 루트면 `already_correct`) |
-| 그 외(하위 폴더 어딘가) | 사람이 옮겼을 가능성 | **skip** (`reason: "manual_placement"`) — 단 목표 위치와 같으면 `already_correct`가 먼저 |
+| — | 목표 위치와 **동일** | **`already_correct`** (최우선 판정 — 아래 어느 행도 보지 않는다) |
+| `null`(미분류) | — | **이동** |
+| 목표 경로의 **조상** | 더 깊게 넣는 것 (**팀 루트는 그 특수 케이스**) | **이동** |
+| 그 외 — **형제·자손·무관한 가지** | 사람이 다른 곳으로 옮긴 것 | **skip** (`reason: "manual_placement"`) |
 
 `overwrite_manual: true`면 전부 이동. **dry run으로 `manual_placement` 건수를 먼저 확인한 뒤 결정**할 것.
 
-> ⚠️ **이 판정 표의 2·3행은 배포 순서에 의존한다.** "하위 폴더 = 사람이 옮긴 것"이라는 추론은 **등록 경로가 아직 팀 루트에만 떨구고 있을 때**만 참이다. 클라이언트가 `folder_path` 전송을 켜면 그 순간부터 **"하위 폴더에 있지만 사람이 옮긴 게 아닌"** 회의록이 생겨 3행의 추론이 무너진다.
-> → 그래서 **일괄 재편철을 전송 전환보다 앞세운다**(§0 D18 · §14.1). 순서를 뒤집으면 `manual_placement` 집계가 오염되고, 그 수치를 보고 `overwrite_manual`을 켜면 **진짜 수동 이동분까지 덮인다.**
+#### 무엇이 바뀌었나 (v2.3 → v2.4)
+
+v2.3의 판정 기준은 **"현재 위치가 팀 루트냐"** 였다. v2.4는 **"현재 위치가 목표 경로의 조상이냐"** 로 바꾼다. 팀 루트는 조상의 **특수 케이스**로 흡수되므로 종전 2행은 그대로 성립하고, **하위 폴더 중 "목표의 조상인 것"이 skip에서 이동으로 넘어온다.**
+
+```
+목표 = MES / 물류 / 2026-07
+
+현재 MES                  → 조상  → 이동   (종전 판정: 팀 루트라 이동 — 동일)
+현재 MES / 물류            → 조상  → 이동   (종전 판정: 하위 폴더라 skip — ★ 바뀐 부분)
+현재 MES / 물류 / 2026-07  → 동일  → already_correct
+현재 MES / 물류 / 주간      → 자손  → skip   (얕은 쪽으로 되돌리지 않는다)
+현재 MES / 조업및표준화     → 무관  → skip   (사람이 다른 가지로 옮긴 건 — 계속 보호)
+```
+
+#### 왜 바꾸는가 — 실측이 v2.3의 전제를 뒤집었다
+
+v2.3의 "하위 폴더에 있다 = 사람이 옮겼다"는 추론은 **"기존 전송분이 전부 팀 루트에 평평하게 쌓여 있다"** 를 전제로 했다. 운영 실측 결과 **그 전제가 거짓**이었다:
+
+- 또박또박 연동 회의록 **19건 중 17건이 이미 2단 하위 폴더**(물류·품질·기타·조업및표준화·영업·생산계획)에 들어 있었다. **팀 루트 잔류는 2건뿐.**
+- 시드 백필은 **미분류 → 팀 루트**까지만 하고 하위 폴더 편철 로직이 없다. 편철 위치가 제목 접두와도 일치하지 않는다. → **D'Flow 사용자가 직접 정리한 결과**다(PMO 확인 완료).
+
+즉 종전 기준으로는 **17/19(89%)가 전부 `skipped(manual_placement)`** 가 되어 재편철이 사실상 막힌다. 그리고 그 상황에서 담당자가 `overwrite_manual: true`를 켜면 **사람이 정리한 것을 전부 덮는** 최악의 경로로 간다.
+
+조상 규칙이 이 이지선다를 깬다:
+
+- 실측 17건 중 상당수는 **또박또박 목표 경로의 조상**에 있다(예: 현재 `MES/물류`, 목표 `MES/물류/2026-07`). 이런 건은 "사람이 옮긴 것"과 "아직 덜 편철된 것"이 **동시에 참**이고, **더 깊게 넣는 것은 사람의 정리를 훼손하지 않는다.**
+- 사람이 **다른 가지로** 옮긴 건(현재 `MES/조업및표준화`, 목표 `MES/기타/…`)은 조상이 아니므로 **계속 보호**된다.
+- **얕은 쪽으로 되돌리는 이동**(현재 `MES/물류/주간`, 목표 `MES/물류`)도 조상이 아니라 자손이므로 **skip** — 배치가 사람의 정리를 **평평하게 만들지 않는다.**
+- 스키마 변경 0 · 이력 테이블 불필요 · **또박또박 측 변경 0**이다. 다만 **dry-run 결과의 해석이 달라지므로** 재편철 실행 전에 반영한다.
+
+> ⚠️ **1회차 dry-run에 남는 `manual_placement` 건수를 장애로 읽지 말 것.** 조상 규칙 적용 후에도 **몇 건은 정상적으로 남는다** — 사람이 다른 가지로 옮긴 건이다. 이 수치는 **`overwrite_manual`을 켜는 근거가 아니다.** 남은 건은 대조표로 **어느 쪽이 정답인지 사람이 판정**하고, **D'Flow 위치가 정답인 건은 또박또박에서 그 회의의 폴더를 옮겨야 한다** — D'Flow만 고치면 다음 재전송(R2 이후)이 다시 덮는다.
+
+> ⚠️ **판정 표는 여전히 배포 순서에 의존한다(완화됐을 뿐이다).** 클라이언트가 `folder_path` 전송을 켜고 D'Flow 플래그가 `true`가 되면 그 순간부터 **"하위 폴더에 있지만 사람이 옮긴 게 아닌"** 회의록이 생겨 4행의 추론이 다시 흐려진다.
+> → 그래서 **일괄 재편철을 전송 전환보다 앞세운다**(§0 D18 · §4.8 · §14.1). v2.4의 플래그는 그 순서를 **D'Flow 서버가 강제**하도록 만든 장치다.
 
 ### 4c.6 이 배치가 **하지 않는** 것
 
@@ -613,9 +803,13 @@ v2.2까지 `GET /minutes`는 `archived_at is null` 필터를 **`external_id` 정
 | `GET /minutes?external_id=<id>&include_archived=true` | **0건** | 초기화 또는 삭제 → "연결이 해제되었습니다" + 두 갈래([D'Flow에서 찾기] 재연결 / 새로 전송) |
 | 〃 | **1건 + `archived: true`** | ⚠️ **"D'Flow에서 보관됨 — 복원 후 다시 시도"**. 이때 [새로 전송]·[재연결]을 **권하지 말 것**(둘 다 실패한다) |
 | 〃 | **1건 + `archived: false`** | 정상 연결 |
+| **★ v2.4** `GET /minutes?linked=true&page=…&include_archived=true` (**자동 링크의 페이지 순회**) | 보관분 포함 전량 | `archived: true` 행은 **"존재함(보관)"** 으로 처리해 **차집합에서 제외**한다 — claim 대상으로도, "D'Flow에 없음"으로도 삼지 않는다 |
+| **★ v2.4** `GET /minutes?linked=false&…` (**연결 후보 조회**) | — | ⚠️ **`include_archived`를 켜지 말 것**(아래) |
 
 - **존재 확인(status)에는 `include_archived=true`를 켠다.** 켜지 않으면 v2.2와 같은 오진이 그대로 남는다.
-- **연결 후보 조회(`linked=false`)에는 켜지 않는다.** 보관분을 claim 대상으로 삼으면 안 된다(`link`가 archived를 거절한다 — §4b-1).
+- **★ v2.4 — `linked=true` 페이지 순회에도 켠다.** 자동 링크가 "또박또박에는 있는데 D'Flow에는 없는 회의"를 차집합으로 계산하는데, **기본값에서는 보관분이 목록에 아예 없으므로 제외할 대상으로 인식되지도 않는다.** "보관분을 후보에서 제외한다"는 규칙만으로는 닫히지 않는다 — **먼저 보이게 해야** 제외할 수 있다. 켜지 않으면 D'Flow에 원본이 살아 있는데도 **엉뚱한 회의록을 claim하러** 들어간다.
+- ⚠️ **연결 후보 조회(`linked=false`)에는 켜지 않는다.** 보관분은 **claim 대상이 아니다** — `POST /minutes/link`가 archived를 **409로 거절**하므로(§4b-1), 켜면 **고를 수 없는 후보가 목록에 섞이고** 사용자가 그것을 골랐을 때만 실패를 알게 된다.
+  - ⚠️ **라우트는 `linked=false` + `include_archived=true` 조합을 막지 않는다**(각 파라미터는 독립 필터다). 즉 **이 규약은 서버가 강제하지 않는 「호출 측 규약」이다.** 또박또박이 지켜야 하며, 지켜지는지는 코드 리뷰로만 확인된다.
 
 ### 5.2 GET /minutes/meta
 
@@ -650,8 +844,10 @@ D'Flow 전 라우트의 기존 관례는 평면 `{ "error": string }` (공용 �
 | HTTP | code | 상황 |
 |---|---|---|
 | 400 | `validation_failed` | 필수 누락, 형식 오류, 허용 외 `team`, 본문 100,000자 초과, `meeting_id` 불존재<br>**(v2.3 추가)** `folder_path`가 배열이 아님·원소가 문자열이 아님, **폴더명 60자 초과**(절단하지 않고 거절 — §0 D12), **`folder_path[0]`이 다른 팀의 팀코드**(§4.7 ③), `POST /minutes/folder`의 `items` **200건 초과** |
+| 400 | `team_inactive` | **(★ v2.4 신설)** 재전송(`replace`) 대상의 `team`이 **D'Flow에서 비활성화된 팀**: "비활성 팀(MES)입니다. D'Flow에서 팀을 활성화한 뒤 다시 시도하세요." 메타 갱신 RPC가 활성 팀을 요구해 **반드시 실패**하는 조건이며, 종전에는 **500 `internal_error`** 로 나가 또박또박에서 원인 불명 장애로 보였다. **재시도해도 해소되지 않는다** — D'Flow 관리자가 팀을 다시 활성화하거나 담당을 바꿔야 한다. ※ 팀 비활성화가 D'Flow 팀 마스터 캐시에 반영된 뒤에는 같은 요청이 `validation_failed`(허용 외 `team`)로 더 일찍 걸린다 — **둘 다 "그 팀으로는 못 보낸다"는 같은 뜻**이다 |
 | 401 | `unauthorized` | 시크릿 없음/불일치 |
 | 403 | `unknown_user` | `user_email`에 해당하는 D'Flow 사용자 없음 (§3.3 — **요구사항: 반드시 실패**) |
+| 403 | `forbidden_role` | **(★ v2.4 신설)** `POST /minutes/folder` **전용**: `user_email` 계정이 실재하지만 **`pmo_admin`이 아님**(또는 role 조회 실패 — fail-closed). "일괄 재편철은 관리자 계정으로만 실행할 수 있습니다." **`items: []` 프로브에서도 난다** — 그것이 이 게이트의 목적이다(§4c 머리말 · §0 D22). `unknown_user`와 구분할 것: 전자는 "계정이 없다", 이것은 "계정은 있는데 권한이 없다" |
 | 404 | `not_found` | env 미설정 (존재 은닉, code 없이 Next 기본 404) / link 대상 `minute_id` 불존재 |
 | 409 | `conflict` | `on_conflict=error` + `external_id` 중복 |
 | 409 | `link_conflict` | link: 대상이 이미 다른 `external_id`를 가짐, 또는 `external_id`가 타 레코드에 사용 중 (§4b). **해소는 D'Flow UI의 연결 초기화 — §4b-1** |
@@ -670,7 +866,7 @@ Rate limit(429)은 **v1 제외** — 레포에 카운터 저장 인프라(Redis 
 | `body_markdown` | **100,000자 (확정, §0 D2)** | `MINUTE_BODY_MAX` (`domain/minutes.ts:4`) — 기존 UI 경로와 동일 검증기 공유. 또박또박은 **원본 텍스트 제외 export**(`include_transcript=false`)가 기본이며 전송 전 길이 검사·초과 시 안내(자동 절단 금지) |
 | 요청 전체 | 4MB | Vercel serverless 바디 한도(~4.5MB). `vercel.json` 없음(기본값 사용 중 — 확인) |
 | 첨부 | 개당 20MB, 10개 | Storage 버킷 `file_size_limit` + `MINUTE_ATTACHMENTS_MAX_COUNT` (확인). v1.1 |
-| **`folder_path` 원소(폴더명)** | **`btrim` 후 1~60자** | `minute_folders.name check (length(btrim(name)) between 1 and 60)`. **또박또박은 100자까지 허용**하므로 **전송 전 사전 차단 필요** — 초과는 **400 거절, 절단하지 않는다**(§0 D12) |
+| **`folder_path` 원소(폴더명)** | **`btrim` + NFC 후 1~60자** | `minute_folders.name check (length(btrim(name)) between 1 and 60)`. **또박또박은 100자까지 허용**하므로 **전송 전 사전 차단 필요** — 초과는 **400 거절, 절단하지 않는다**(§0 D12). **★ v2.4: 길이는 NFC 정규화 이후 기준**(§0 D20) — NFD 문자열은 자모가 분리돼 길이가 다르게 세어질 수 있으므로 클라이언트도 NFC 기준으로 사전 검사할 것 |
 | **`folder_path` 깊이** | **5단** (정규화 후) | 앱 상수 `MINUTE_FOLDER_DEPTH_MAX = 5` (DB 제약이 아니라 **앱 상수**). 초과분은 절단 후 5단째에 편철하고 **실제 결과를 응답에 에코**(§4.3). 더 깊게 만들면 UI가 만들 수 없는 깊이가 생겨 탐색기의 "하위 폴더 만들기"가 비활성인 채 트리만 깊어진다 |
 | **`POST /minutes/folder` `items`** | **200건 / 요청** | 초과는 400. 클라이언트가 나눠 보낸다 (§4c.4-5) |
 
@@ -725,6 +921,9 @@ create unique index if not exists minutes_external_id_uidx
 ```
 MINUTES_API_ENABLED=true            # 미설정이면 API 전체 404 (존재 은닉)
 MINUTES_API_SECRET=long-random      # openssl rand -base64 48
+MINUTES_FOLDER_PATH_ENABLED=false   # ★ v2.4. 기본 false(=R1). true 로 바꾸면 POST /minutes 의
+                                    # folder_path 편철·재전송 폴더 동기화가 살아난다(§4.8).
+                                    # 배치(§4c)·include_archived(§5.1)는 이 값과 무관하게 항상 활성
 ```
 
 ### 9.6 테스트 — `tests/minutes/external-api.test.ts` (vitest, 기존 `tests/minutes/` 관례)
@@ -775,6 +974,9 @@ MINUTES_API_SECRET=long-random      # openssl rand -base64 48
           on_conflict   ← replace
    └─ 4. 응답의 folder_id·folder_path를 전송 다이얼로그에 표시 (★ v2.3 필수 — §4.3)
           folder_id: null 이면 "미분류로 등록됨"으로 안내. "팀 루트"라고 말하지 말 것
+          ★ v2.4: folder_path_status 배지도 함께 (truncated·partial·unclassified 는 눈에 띄게)
+          ★ v2.4: D'Flow 플래그가 false 인 구간(R2 이전)에는 folder_path 를 보내도 팀 루트로
+                  편철된다 — 응답 경로가 요청과 달라도 오류가 아니다(§4.8)
 ```
 
 ### 10.1 public_uid / external_id 규칙 (정밀 정의)
@@ -809,7 +1011,7 @@ MINUTES_API_SECRET=long-random      # openssl rand -base64 48
 
 ```yaml
 openapi: 3.1.0
-info: { title: D'Flow Minutes API, version: "2.0-draft" }
+info: { title: D'Flow Minutes API, version: "2.4" }
 servers: [ { url: https://wbs-web.vercel.app/api/v1 } ]
 components:
   securitySchemes:
@@ -829,6 +1031,10 @@ components:
           type: [array, "null"]
           items: { type: string }
           description: "v2.3. 실제 편철 결과(root-first). null = 미분류. []는 응답에 나오지 않는다 — §4.3"
+        folder_path_status:
+          type: string
+          enum: [exact, truncated, partial, unclassified]
+          description: "v2.4. 편철 품질 신호 — 항상 실린다. 심각한 쪽부터 판정(unclassified > partial > truncated > exact). §4.3"
         meeting_id: { type: [string, "null"], format: uuid }
         external_id: { type: string }
         created_by_name: { type: [string, "null"] }
@@ -862,7 +1068,9 @@ paths:
                 folder_path:
                   type: array
                   items: { type: string, minLength: 1, maxLength: 60 }
-                  description: "v2.3. root-first. 키 부재/[]/비어있지 않은 배열이 3값 — §4.2. 정규화·편철 = §4.7"
+                  description: >-
+                    v2.3. root-first. 키 부재/[]/비어있지 않은 배열이 3값 — §4.2. 정규화·편철 = §4.7.
+                    v2.4: 서버 플래그 MINUTES_FOLDER_PATH_ENABLED=false(기본)면 키 부재와 동일하게 무시된다(검증 400도 없음) — §4.8
                 on_conflict: { type: string, enum: [replace, skip, error], default: replace }
       responses:
         "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/Minute" } } } }
@@ -929,9 +1137,13 @@ paths:
                       team: { type: string, description: "선택. 생략 시 회의록의 기존 team_code 사용" }
                       folder_path: { type: array, items: { type: string, minLength: 1, maxLength: 60 } }
       responses:
-        "200": { description: "summary + results[] (status = moved|already_correct|skipped|not_found|failed — §4c.3)" }
-        "400": { description: "validation_failed — items 200건 초과 등" }
-        "403": { description: unknown_user }
+        "200":
+          description: >-
+            summary + results[] (status = moved|already_correct|skipped|not_found|failed — §4c.3).
+            v2.4: results[].from 은 string[]|null(null = 이동 전 미분류), results[].folder_id 는 string|null(dry run 미생성),
+            moved 에는 folder_path_status 가 실린다. items[] 내용 오류는 400 이 아니라 건별 failed 다 — §4c.1
+        "400": { description: "validation_failed — 봉투 오류만(items 비배열·200건 초과·원소가 객체 아님·external_id 부재/초과) — §4c.1" }
+        "403": { description: "unknown_user(계정 없음) 또는 v2.4 forbidden_role(pmo_admin 아님 — items:[] 프로브에서도 난다)" }
 ```
 
 ## 12. 구현 힌트 (D'Flow, 실코드 기반)
@@ -973,7 +1185,7 @@ export async function POST(req: NextRequest) {
 | 단계 | 범위 |
 |---|---|
 | **v1 (최소)** | **MDM 팀 추가(§9.8, 선행)**, POST /minutes (JSON), POST /minutes/link, GET /minutes?external_id=, GET /minutes/meta, env 시크릿 + 이메일 매칭 인증, `external_id` 마이그레이션, 시간 보정 미적용, 후처리 파이프라인 |
-| **v1.2 (= 본 v2.3 개정 범위 · 현재 차수)** | `folder_path` 편철(§4.2·§4.7) + 응답 `folder_id`·`folder_path` 에코(§4.3) + `replace` 폴더 동기화(3값 규약) + **POST /minutes/folder** 일괄 재편철(§4c) + `GET /minutes`의 `include_archived`·`archived`(§5.1) + D'Flow UI 연결 초기화(§4b-1) + 제목 접두 폐지(§0 D10).<br>**스키마 마이그레이션 없음** — `folder_id`는 기존 컬럼이고 메타 갱신 allowlist에도 이미 있다. **v1.1보다 먼저 배포된다** |
+| **v1.2 (= 본 v2.3·v2.4 개정 범위 · 현재 차수)** | `folder_path` 편철(§4.2·§4.7) + 응답 `folder_id`·`folder_path` 에코(§4.3) + `replace` 폴더 동기화(3값 규약) + **POST /minutes/folder** 일괄 재편철(§4c) + `GET /minutes`의 `include_archived`·`archived`(§5.1) + D'Flow UI 연결 초기화(§4b-1) + 제목 접두 폐지(§0 D10).<br>**★ v2.4 추가**: 전환 플래그 `MINUTES_FOLDER_PATH_ENABLED`(§4.8) + 조상 규칙(§4c.5) + `folder_path_status`(§4.3·§4c.2) + 배치 `pmo_admin` 게이트(§4c) + 건별 검증(§4c.1) + NFC 정규화·폴더 삭제 비우기 우선(§4.9) + `team_inactive`(§6).<br>**스키마 마이그레이션 없음** — `folder_id`는 기존 컬럼이고 메타 갱신 allowlist에도 이미 있다. **v1.1보다 먼저 배포된다** |
 | v1.1 | multipart 첨부(개당 20MB·10개), GET /minutes/{id}, `external_meta jsonb`(발신 서버 추적 등), body 파일 서버 합성 |
 | v2 후보 | 사용자별 PAT 발급 UI(테이블+해시+revoke), rate limit, 웹훅, 삭제 API |
 
@@ -989,14 +1201,31 @@ v1만으로 또박또박 자동 등록 흐름은 완성된다.
 
 1. **[D'Flow]** 마이그레이션 **0034 + 0035(MDM, §9.8)** 적용 + 코드 배포 (env는 아직 미설정 → 라우트 404, 무해)
 2. **[D'Flow]** vitest 통과 확인 (§9.6 — 특히 시간 무보정 케이스)
-3. **[D'Flow]** Vercel env 설정 (`MINUTES_API_ENABLED=true`, `MINUTES_API_SECRET=...`) 후 재배포
-4. **[공통]** 아래 curl 스모크 4종 실행 (또박또박 없이 API 계약만 검증)
+3. **[D'Flow]** Vercel env 설정 (`MINUTES_API_ENABLED=true`, `MINUTES_API_SECRET=...`, **★ v2.4 `MINUTES_FOLDER_PATH_ENABLED=false`**) 후 재배포
+4. **[공통]** 아래 curl 스모크 실행 (또박또박 없이 API 계약만 검증 — ★ v2.4에서 배치 프로브 S5 추가)
 5. **[또박또박]** 설정 화면에 D'Flow URL·시크릿 입력 (매핑 구성 없음 — 자동 규칙)
 6. **[공통]** E2E 시나리오 (14.3)
 7. 이상 없으면 완료. 문제 시 D'Flow env만 지우면 즉시 전체 차단(롤백 불필요)
 
 > **v2.3 — `folder_path` 차수의 순서 1줄 (§0 D18)**: 이 차수에서는 **기존 전송분 일괄 재편철(§4c)이 또박또박의 전송 전환(접두 제거 + `folder_path` 전송)보다 앞선다.** 전송 전환이 먼저 나가면 "하위 폴더에 있지만 사람이 옮긴 게 아닌" 회의록이 쌓여 §4c.5의 `manual_placement` 판정이 무너지기 때문이다. 따라서 D'Flow는 **배치 엔드포인트(§4c)를 `folder_path` 코어와 함께(또는 먼저) 배포**한다.
 > **차수표의 정본은 본 문서가 아니다** — D'Flow 작업지시 `dflow-folder-path-worklist-2026-07-27.md` §11.2를 따른다. 본 문서는 계약(필드·의미·에러)만 규정한다.
+
+#### ★ v2.4 — 그 순서를 플래그로 강제한다 (§4.8)
+
+D'Flow는 코드를 **한 번에** 배포하고 전환만 env로 가른다. 계약이 규정하는 것은 **아래 3개의 순서 제약**뿐이다.
+
+```
+[D'Flow] R1  전체 코드 배포 + MINUTES_FOLDER_PATH_ENABLED = false
+             → POST /minutes 동작은 종전과 100% 동일. 배치·archived 노출만 새로 열린다
+  ── [또박또박] 계약 사본 v2.4 동기화 → 1차(folder_path 조립·응답 nullable·include_archived) ← 언제 내도 무해
+  ── [또박또박] 일괄 재편철 dry-run → 대조표 회신 → APPLY
+[D'Flow] R2  플래그 = true (코드 배포 없이 env 전환 + 재배포)
+  ── [또박또박] 전송 전환(제목 접두 제거 + folder_path 실전송) ← 반드시 R2 이후
+```
+
+1. **또박또박의 전송 전환(접두 제거)은 R2 이후.** 뒤집히면 "접두도 없고 폴더도 안 잡힌" 전송분이 생긴다.
+2. **재편철 1회차는 R2 이전.** `overwrite_manual`은 배치에만 걸리고 **재전송 경로는 막지 못한다.**
+3. **`include_archived`(R1) ≤ 또박또박의 보관/초기화 구분 안내 ≤ D'Flow의 연결 초기화 노출.** 앞서면 archived를 "연결 해제"로 오진하고, 뒤서면 D'Flow에서 초기화한 회의를 또박또박이 계속 '연결됨'으로 표시해 **중복 회의록 + 원본 고아**가 생긴다(자가 치유 안 됨).
 
 ### 14.2 curl 스모크 (D'Flow 단독 검증 — 팀장이 실행)
 
@@ -1020,6 +1249,11 @@ curl -s -X POST $BASE/minutes -H "Authorization: Bearer $SECRET" -H "Content-Typ
   -d '{"user_email":"'$EMAIL'","date":"2026-07-19","team":"PMO","title":"스모크_260719","body_markdown":"# 스모크","external_id":"smoke:e2e-1"}'
 curl -s "$BASE/minutes?external_id=smoke:e2e-1" -H "Authorization: Bearer $SECRET"
 # 확인 후 D'Flow UI에서 스모크 레코드 수동 삭제
+
+# S5. ★ v2.4 배치 실행 계정 프로브 → 200 + 전 카운트 0 (pmo_admin 이 아니면 403 forbidden_role)
+#     쓰기 0 · items 를 보기 전에 게이트가 판정한다 — 재편철 전에 반드시 1회 실행할 것
+curl -si -X POST $BASE/minutes/folder -H "Authorization: Bearer $SECRET" -H "Content-Type: application/json" \
+  -d '{"user_email":"'$EMAIL'","dry_run":true,"items":[]}' | head -1
 ```
 
 ### 14.3 E2E 시나리오 (양측 연동)
@@ -1036,6 +1270,13 @@ curl -s "$BASE/minutes?external_id=smoke:e2e-1" -H "Authorization: Bearer $SECRE
 | **E8** ★v2.3 | 기존 전송분을 `POST /minutes/folder`로 dry-run → apply → 같은 요청 재실행 | dry-run은 **아무것도 이동하지 않음** · apply 후 `minute_versions` 행 수·`updated_at` **불변**, 위키 잡 신규 **없음** · **재실행 dry-run에서 방금 옮긴 건이 `already_correct`**(`skipped(manual_placement)` 아님) |
 | **E9** ★v2.3 | D'Flow에서 회의록 **보관** 후 또박또박이 존재 확인 | `include_archived=true`로 **1건 + `archived: true`** · 또박또박이 **"보관됨 — 복원 후 재시도"** 안내(“초기화됨”으로 오진하지 않음) |
 | **E10** ★v2.3 | D'Flow에서 **연결 초기화** → 또박또박 [D'Flow에서 찾기] 재연결 | `external_id` null → `linked=false` 목록에 노출 → `POST /minutes/link` 200 `linked` · 본문·`updated_at` 불변 · 이후 재전송이 그 레코드를 replace(중복 미생성) |
+| **E11** ★v2.4 | **플래그 `false`(R1) 상태**에서 `folder_path`를 실어 전송 — 정상 경로 1건 + **61자 폴더명** 1건 + **타 팀 루트** 1건 + **배열이 아닌 값** 1건 | **4건 모두 201/200 성공**(400이 **하나도** 나지 않는다) · 편철 위치는 **전부 팀 루트** · 응답 `folder_path`가 **`["<팀코드>"]`**(요청 경로의 반향이 아님) · `folder_path_status: "exact"` · 재전송(`[]` 포함)해도 **기존 위치 불변**(`replace`의 폴더 갱신 미발생) |
+| **E12** ★v2.4 | **플래그를 `true`로 전환(R2)** 후 같은 요청 재전송 | 정상 경로는 **그 경로로 이동** · 61자·타 팀 루트는 이제 **400 `validation_failed`** · `[]` 재전송은 **팀 루트로 되돌아감** · **플래그 전환 외에 코드 배포가 없었음**을 확인 |
+| **E13** ★v2.4 | 배치를 **`pmo_admin`이 아닌 실재 계정**으로 호출 (`items: []` 프로브 포함) | **403 `forbidden_role`** · 폴더·회의록 조회 **이전에** 중단(DB 부작용 0) · 같은 요청을 `pmo_admin` 계정으로 하면 200 |
+| **E14** ★v2.4 | 배치 dry-run 200건 중 **1건의 `folder_path`를 잘못 보냄**(배열 아님/61자) | **요청 전체 400이 아니다** — 그 1건만 `failed`(`validation_failed` 또는 `folder_name_too_long`), 나머지 199건은 정상 판정 · `summary` 항등식 성립. ＋ 반대로 `items`를 **201건** 보내면 **봉투 400**(§4c.1) |
+| **E15** ★v2.4 | **조상 규칙** 검증 — ① 현재 `MES/물류` · 목표 `MES/물류/2026-07` ② 현재 `MES/물류/주간` · 목표 `MES/물류` ③ 현재 `MES/조업및표준화` · 목표 `MES/기타/…` | ① **`moved`**(조상이므로 더 깊게) ② **`skipped(manual_placement)`**(자손 — 평평화 금지) ③ **`skipped(manual_placement)`**(다른 가지 — 보호). ＋ **dry-run 후 트리에 새 폴더가 하나도 생기지 않았음**(판정 전 미생성) |
+| **E16** ★v2.4 | 배치 dry-run에서 **깊이 6단** 목표 경로 1건 | `to`가 **5단으로 절단** + **`folder_path_status: "truncated"`** · APPLY 전에 또박또박이 경로를 줄일 수 있다 |
+| **E17** ★v2.4 | D'Flow에서 회의록이 든 **하위 폴더를 삭제** | 그 폴더의 자식 폴더·회의록이 **부모로 승격**(미분류 강등 **없음**) · 승격분의 `updated_at` **불변**(또박또박 목록이 "방금 수정됨"으로 물들지 않음) · 상위에 동명 형제가 있으면 **삭제 중단 + 안내** |
 
 ### 14.4 계약 준수 체크리스트 (양측 개발 완료 선언 전 각자 확인)
 
@@ -1055,4 +1296,19 @@ curl -s "$BASE/minutes?external_id=smoke:e2e-1" -H "Authorization: Bearer $SECRE
 - [ ] 또박또박: 응답 `folder_path`를 전송 다이얼로그에 **표시(필수)**, 타입은 **`string[] | null`**, `folder_id: null`을 "팀 루트"로 안내하지 않음
 - [ ] 또박또박: 폴더명 **61자 이상 사전 차단**(D'Flow 400 원문 노출 금지), 경로 조립이 **root-first**(모델 체인이 leaf-first면 뒤집었는지)
 - [ ] 또박또박: 존재 확인에 **`include_archived=true`** 사용, `archived: true`를 "초기화됨"으로 안내하지 않음
-- [ ] 공통: 또박또박 측 계약 사본이 **본 문서 v2.3으로 동기화**됨(상단 「사본 관계」 — 정본은 wbs-web 사본)
+- [ ] 공통: 또박또박 측 계약 사본이 **본 문서 v2.4로 동기화**됨(상단 「사본 관계」 — 정본은 wbs-web 사본)
+
+**v2.4 추가분**
+
+- [ ] D'Flow: 플래그 `false`에서 `POST /minutes`가 **v2.2와 1비트도 다르지 않음**(E11) — 특히 **불량 `folder_path`가 400을 내지 않음**
+- [ ] D'Flow: 플래그 전환이 **env만으로** 되고 코드 배포가 필요 없음(E12)
+- [ ] D'Flow: 배치가 **판정 전에 폴더를 만들지 않음**(dry-run 후 신규 폴더 0건 — E15), `pmo_admin` 아니면 **403 `forbidden_role`**(프로브 포함 — E13)
+- [ ] D'Flow: 배치 **`items[]` 내용 오류가 요청 전체 400을 만들지 않음**(E14), 봉투 400 범위가 §4c.1 표와 정확히 일치
+- [ ] D'Flow: 조상 규칙 3케이스(E15) 통과 — **얕은 쪽으로 되돌리는 이동이 skip**인지 반드시 확인
+- [ ] D'Flow: 폴더명이 **NFC로 정규화**되어 저장·비교됨(NFD 입력으로 동명 폴더가 둘 생기지 않음), 폴더 삭제가 **비우기 우선**(E17)
+- [ ] D'Flow: 비활성 팀 재전송이 **400 `team_inactive`**(500 아님)
+- [ ] 또박또박: 배치 응답 타입이 **`from: string[] | null`**, **`folder_id: string | null`** — `moved` + `folder_id: null`(dry run)을 실패로 처리하지 않음
+- [ ] 또박또박: **`folder_path_status` 배지** 표시(`truncated`·`partial`·`unclassified`일 때 눈에 띄게)
+- [ ] 또박또박: **`linked=true` 순회에 `include_archived=true`** + `archived: true` 행을 차집합에서 제외, **`linked=false`에는 켜지 않음**(§5.1 — 서버가 막지 않는 호출 측 규약)
+- [ ] 또박또박: **전송 전환(제목 접두 제거)을 R2 이후에** 배포, **재편철 1회차를 R2 이전에** 완료(§14.1의 3제약)
+- [ ] 또박또박: 폴더 깊이 사전 경고의 "루트가 팀코드인가" 판정에 **팀 목록을 하드코딩하지 않음**(`GET /minutes/meta`의 `teams` 사용 — 팀은 런타임 마스터다)
