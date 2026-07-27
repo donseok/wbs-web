@@ -56,35 +56,35 @@ _(모든 항목이 DONE/BLOCKED가 되면 여기 채운다)_
 
 | # | 담당 파일 | 작업 | 상태 | 검증 | 커밋 |
 |---|---|---|---|---|---|
-| **W8** | `docs/design/dflow-minutes-upload-api-spec.md` | 계약 개정 §3·§8·§9 + 충돌 문장 3개 정리 + E1~E3 반영 | TODO | — | — |
-| **W1** | `src/lib/minutes/externalApi.ts` | `folderPath`·`folderPathProvided` + §3.1 검증 | TODO | — | — |
-| **W1-b** | `src/lib/minutes/externalApi.ts` | `validateMinuteInput(..., activeTeamCodesSync())` 주입 | TODO | — | — |
-| **W2** | `src/lib/minutes/folders.ts` | `resolveFolderPath` — §3.2 정규화 + 순차 해석 | TODO | — | — |
-| **W3** | `src/app/api/v1/minutes/route.ts` | `insertNew`가 `resolveFolderPath` 사용 | TODO | — | — |
-| **W4** | `src/app/api/v1/minutes/route.ts` | `respondMinute`에 `folder_id`·`folder_path`(둘 다 nullable — E1) | TODO | — | — |
-| **W5** | `src/app/api/v1/minutes/route.ts` | `handleExisting` metadata에 `folder_id`(3값 규약) | TODO | — | — |
-| **W6** | `src/app/api/v1/minutes/folder/route.ts` (신규) | 일괄 재편철 배치 엔드포인트 (§8) | TODO | — | — |
-| **W24** | `src/app/api/v1/minutes/route.ts` | ★ E3 신규 — `include_archived` 파라미터 + `archived` 필드 (§9.7 (a)) | TODO | — | — |
-| **W9** | `tests/` | 각 항목의 일부로 취급(별도 항목 아님) | TODO | — | — |
+| **W8** | `docs/design/dflow-minutes-upload-api-spec.md` | 계약 개정 §3·§8·§9 + 충돌 문장 3개 정리 + E1~E3 반영 | **DONE** | tsc·lint·vitest | `4387576` |
+| **W1** | `src/lib/minutes/externalApi.ts` | `folderPath`·`folderPathProvided` + §3.1 검증 | **DONE** | tsc·lint·vitest | `c769ee5` |
+| **W1-b** | `src/lib/minutes/externalApi.ts` | `validateMinuteInput(..., activeTeamCodesSync())` 주입 | **DONE** | tsc·lint·vitest | `c769ee5` |
+| **W2** | `src/lib/minutes/folders.ts` | `resolveFolderPath` — §3.2 정규화 + 순차 해석 | **DONE** | tsc·lint·vitest | `c769ee5` |
+| **W3** | `src/app/api/v1/minutes/route.ts` | `insertNew`가 `resolveFolderPath` 사용 | **DONE** | tsc·lint·vitest | `c769ee5` |
+| **W4** | `src/app/api/v1/minutes/route.ts` | `respondMinute`에 `folder_id`·`folder_path`(둘 다 nullable — E1) | **DONE** | tsc·lint·vitest | `c769ee5` |
+| **W5** | `src/app/api/v1/minutes/route.ts` | `handleExisting` metadata에 `folder_id`(3값 규약) | **DONE** | tsc·lint·vitest | `c769ee5` |
+| **W6** | `src/app/api/v1/minutes/folder/route.ts` (신규) | 일괄 재편철 배치 엔드포인트 (§8) | **DONE** | tsc·lint·vitest | `afc1943` |
+| **W24** | `src/app/api/v1/minutes/route.ts` | ★ E3 신규 — `include_archived` 파라미터 + `archived` 필드 (§9.7 (a)) | **DONE** | tsc·lint·vitest | `c769ee5` |
+| **W9** | `tests/` | 각 항목의 일부로 취급(별도 항목 아님) | **DONE** | tsc·lint·vitest | `각 항목` |
 
 ### 3.2 연결 초기화 (§9)
 
 | # | 담당 파일 | 작업 | 상태 | 검증 | 커밋 |
 |---|---|---|---|---|---|
-| **W10a** | `src/app/actions/minutes.ts` | `clearMinuteExternalId` 서버 액션 (§9.4) | TODO | — | — |
+| **W10a** | `src/app/actions/minutes.ts` | `clearMinuteExternalId` 서버 액션 (§9.4) | **DONE** | tsc·lint·vitest | `7df6c52` |
 | **W10b** | `src/components/minutes/MinuteMetaModal.tsx` | 연동 식별자 표시 + 초기화 버튼 + 확인 다이얼로그 | TODO | — | — |
 
 ### 3.3 폴더 중심 UI 재편 (§6)
 
 | # | 담당 파일 | 작업 | 상태 | 검증 | 커밋 |
 |---|---|---|---|---|---|
-| **W18** | `src/app/actions/minutes.ts:587` | `createMinuteFolder` — `parentId === null` 거절 | TODO | — | — |
+| **W18** | `src/app/actions/minutes.ts:587` | `createMinuteFolder` — `parentId === null` 거절 | **DONE** | tsc·lint·vitest | `7df6c52` |
 | **W19** | `src/components/minutes/MinuteUploadModal.tsx` | 담당·하위 구분 제거 → 폴더 트리 피커(필수) | TODO | — | — |
 | **W20a** | `src/components/minutes/MinuteMetaModal.tsx` | 담당·하위 구분 제거 → 폴더 트리 피커 | TODO | — | — |
-| **W20b** | `src/app/actions/minutes.ts:673` | `moveMinuteToFolder` — 팀 넘어 이동 시 `team_code` 동반 + 메타 RPC | TODO | — | — |
-| **W21** | `src/app/actions/minutes.ts` (신규) | `moveMinuteFolder` — `pmo_admin` 전용, 가드 M1~M5 | TODO | — | — |
+| **W20b** | `src/app/actions/minutes.ts:673` | `moveMinuteToFolder` — 팀 넘어 이동 시 `team_code` 동반 + 메타 RPC | **DONE** | tsc·lint·vitest | `7df6c52` |
+| **W21** | `src/app/actions/minutes.ts` (신규) | `moveMinuteFolder` — `pmo_admin` 전용, 가드 M1~M5 | **DONE** | tsc·lint·vitest | `7df6c52` |
 | **W22** | `src/components/minutes/MinutesExplorer.tsx` | 회의록·폴더 D&D + 드롭 가능 시각 표시 | TODO | — | — |
-| **W23** | 마이그레이션 | §2 조사 결과 **불변식 이미 성립 → 데이터 작업 없음** | TODO | — | — |
+| **W23** | 마이그레이션 | §2 조사 결과 **불변식 이미 성립 → 데이터 작업 없음** | **DONE** | tsc·lint·vitest | `—(불필요)` |
 
 ---
 
@@ -118,6 +118,8 @@ _(모든 항목이 DONE/BLOCKED가 되면 여기 채운다)_
 | # | 질문 | 근거 |
 |---|---|---|
 | **Q1** | 지시서 §10의 「비활성 팀 시나리오」 수용기준을 **신규 등록(insertNew) 경로로만** 검증하면 되는가? `update_minute_metadata_with_wiki_retraction`이 `t.active`를 요구해 **replace 경로는 비활성 팀에서 원래 실패**한다(§2 실측 관찰). | 실측 |
+| **Q2** ⚠️ | **§6.8 수용기준 「회의록 D&D 다른 팀으로 이동 → team_code 갱신 **&&** 위키 철회·재빌드 발생」은 현재 스키마로 달성 불가다.** RPC의 `wiki_rebuild_required := old_project_id is distinct from new_project_id or v_chronology_changed` — **`team_code`가 빠져 있다**(실측: 함수 정의 237–238행). `team_code`는 `v_index_content_changed`(109–111행)에만 들어가고 그 분기는 `queue_minute_ai_index_scope_change(..., 'upsert', ...)` 즉 **검색 인덱스(ai_documents) 재적재**만 한다. 프로젝트가 안 바뀌는 순수 팀 이동은 위키 철회가 일어나지 않는다.<br>**구현은 RPC 경유로 했다** — raw update보다 명백히 옳다(raw update는 ai_documents가 옛 team_code로 남는다). **수용기준 문구를 「검색 인덱스 재적재 발생」으로 정정할지**, 아니면 팀 이동 시 `rebuildProjectWikiFromActiveMinutes`를 명시 호출할지 팀장 판단 필요. | 실측 |
+| **Q3** | 배치 응답 `status` 값 집합에 **`failed(folder_error)`·`failed(update_failed)`를 추가**했다(지시서 §8.2 요건 11 표에 없던 값). DB 실패 계열을 기존 4개 사유 중 하나로 뭉개면 거짓 보고가 되기 때문. 계약서(W8)에도 반영했다. **또박또박에 통보 필요** — 재시도 대상(DB 실패)과 사람이 고칠 대상(입력·전제)을 가르는 구분이다. | 설계 |
 
 ---
 

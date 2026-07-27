@@ -410,6 +410,40 @@ describe('APPLY 실행 (요건 2·3)', () => {
   })
 })
 
+describe('summary 항등식 (§4c.2 응답 계약)', () => {
+  it('total = moved + already_correct + skipped + not_found + failed — 혼합 케이스', async () => {
+    useAdmin({
+      minute_folders: [{ data: TREE }],
+      minutes: [{ data: [
+        minute(1, { folder_id: 'f-mes' }),                       // → moved
+        minute(2, { folder_id: 'f-q' }),                         // → already_correct
+        minute(3, { folder_id: 'f-w' }),                         // → skipped(manual_placement)
+        minute(4, { folder_id: 'f-mes', archived_at: 'x' }),     // → skipped(archived)
+        minute(5, { folder_id: 'f-mes' }),                       // → failed(team_mismatch)
+      ] }],
+    })
+    const r = await POST(post(body({
+      items: [
+        { external_id: EID(1), folder_path: ['MES', '품질'] },
+        { external_id: EID(2), folder_path: ['MES', '품질'] },
+        { external_id: EID(3), folder_path: ['MES', '품질'] },
+        { external_id: EID(4), folder_path: ['MES', '품질'] },
+        { external_id: EID(5), team: 'ERP', folder_path: ['MES', '품질'] },
+        { external_id: EID(9), folder_path: ['MES', '품질'] },   // → not_found
+      ],
+    })))
+    const json = await r.json()
+    const s = json.summary
+    expect(s.total).toBe(6)
+    expect(s.moved + s.already_correct + s.skipped + s.not_found + s.failed).toBe(s.total)
+    expect(s).toEqual({ total: 6, moved: 1, already_correct: 1, skipped: 2, not_found: 1, failed: 1 })
+    // results 는 요청 items 순서를 보존한다 — 또박또박이 인덱스로 대조한다
+    expect(json.results.map((x: { status: string }) => x.status)).toEqual(
+      ['moved', 'already_correct', 'skipped', 'skipped', 'failed', 'not_found'],
+    )
+  })
+})
+
 describe('비활성 팀 시나리오 (§3.2 ① 단독 조건)', () => {
   it('team_code 가 비활성이어도 루트 세그먼트가 중복되지 않는다', async () => {
     mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공']        // MDM 비활성
