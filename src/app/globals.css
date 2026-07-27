@@ -466,3 +466,68 @@ textarea {
 .login-float-2 { animation: 7s ease-in-out -1s infinite loginFloat2; }
 .login-float-3 { animation: 8s ease-in-out -2.5s infinite loginFloat3; }
 .login-float-4 { animation: 5.5s ease-in-out -0.5s infinite loginFloat4; }
+
+/* ------------------------------------------------------------------ */
+/*  반응형 display 안전망 (UNLAYERED — 일부러 @layer 밖에 둔다)         */
+/*                                                                    */
+/*  증상: 넓은 화면인데도 `hidden lg:flex`(사이드바)·`hidden sm:flex`   */
+/*  (헤더 로고) 등 "기본 숨김 → 브레이크포인트에서 표시" 요소가 계속    */
+/*  숨겨진다. 원인은 배포 CSS의 캐스케이드 버그: Tailwind가 base       */
+/*  `.hidden` 과 반응형 `.lg:flex` 를 같은 `@layer utilities` 안에      */
+/*  올바른 순서(반응형이 뒤)로 emit 하는데도, 일부 브라우저가 layer     */
+/*  안에서 base `.hidden` 을 반응형 유틸보다 우선 적용한다. utilities   */
+/*  레이어를 다시 열어도 안 잡히고, "레이어 밖(unlayered)" 규칙만       */
+/*  확실히 이긴다(unlayered > 모든 named layer). 아래는 Tailwind 가      */
+/*  내는 것과 값이 완전히 동일하며, 정상 브라우저에서는 무해한 중복.    */
+/*  브레이크포인트는 Tailwind v4 기본값(sm40/md48/lg64/xl80/2xl96rem). */
+/* ------------------------------------------------------------------ */
+@media (min-width: 40rem) {
+  .sm\:flex { display: flex; }
+  .sm\:inline-flex { display: inline-flex; }
+  .sm\:block { display: block; }
+  .sm\:inline-block { display: inline-block; }
+  .sm\:inline { display: inline; }
+  .sm\:grid { display: grid; }
+  .sm\:table { display: table; }
+  .sm\:hidden { display: none; }
+}
+@media (min-width: 48rem) {
+  .md\:flex { display: flex; }
+  .md\:inline-flex { display: inline-flex; }
+  .md\:block { display: block; }
+  .md\:inline-block { display: inline-block; }
+  .md\:inline { display: inline; }
+  .md\:grid { display: grid; }
+  .md\:table { display: table; }
+  .md\:hidden { display: none; }
+}
+@media (min-width: 64rem) {
+  .lg\:flex { display: flex; }
+  .lg\:inline-flex { display: inline-flex; }
+  .lg\:block { display: block; }
+  .lg\:inline-block { display: inline-block; }
+  .lg\:inline { display: inline; }
+  .lg\:grid { display: grid; }
+  .lg\:table { display: table; }
+  .lg\:hidden { display: none; }
+}
+@media (min-width: 80rem) {
+  .xl\:flex { display: flex; }
+  .xl\:inline-flex { display: inline-flex; }
+  .xl\:block { display: block; }
+  .xl\:inline-block { display: inline-block; }
+  .xl\:inline { display: inline; }
+  .xl\:grid { display: grid; }
+  .xl\:table { display: table; }
+  .xl\:hidden { display: none; }
+}
+@media (min-width: 96rem) {
+  .\32 xl\:flex { display: flex; }
+  .\32 xl\:inline-flex { display: inline-flex; }
+  .\32 xl\:block { display: block; }
+  .\32 xl\:inline-block { display: inline-block; }
+  .\32 xl\:inline { display: inline; }
+  .\32 xl\:grid { display: grid; }
+  .\32 xl\:table { display: table; }
+  .\32 xl\:hidden { display: none; }
+}
