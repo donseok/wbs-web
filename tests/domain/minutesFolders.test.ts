@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildFolderTree, folderDepthOf, validateFolderName,
+  buildFolderTree, folderDepthOf, isDescendantFolder, subtreeHeightOf, validateFolderName,
   MINUTE_FOLDER_DEPTH_MAX, MINUTE_FOLDER_NAME_MAX,
 } from '@/lib/domain/minutes'
 import type { ExplorerLeaf, MinuteFolder, TeamCode } from '@/lib/domain/types'
@@ -73,5 +73,75 @@ describe('buildFolderTree', () => {
     ]
     const { roots } = buildFolderTree(fs, [])
     expect(roots.map(r => r.folder.name).sort()).toEqual(['고아', '순환X', '순환Y'].sort())
+  })
+})
+
+/* ── 폴더 이동 가드용 순수 함수 (W21 · §6.5 M3·M4) ────────────────────────── */
+
+describe('subtreeHeightOf', () => {
+  //  a ─ b ─ c
+  //    └ d
+  const tree = [
+    folder('a', 'A'), folder('b', 'B', 'a'), folder('c', 'C', 'b'), folder('d', 'D', 'a'),
+  ]
+
+  it('잎은 1', () => {
+    expect(subtreeHeightOf(tree, 'c')).toBe(1)
+    expect(subtreeHeightOf(tree, 'd')).toBe(1)
+  })
+
+  it('자손이 있으면 가장 깊은 갈래를 센다', () => {
+    expect(subtreeHeightOf(tree, 'b')).toBe(2)
+    expect(subtreeHeightOf(tree, 'a')).toBe(3)      // a→b→c 가 a→d 보다 깊다
+  })
+
+  it('목록에 없는 id 는 1(잎 취급)', () => {
+    expect(subtreeHeightOf(tree, 'ghost')).toBe(1)
+  })
+
+  it('순환에서도 유한하게 끝난다(무한 루프 없음) — seen 가드가 각 노드를 한 번만 센다', () => {
+    const cyclic = [folder('x', 'X', 'y'), folder('y', 'Y', 'x')]
+    expect(subtreeHeightOf(cyclic, 'x')).toBeLessThanOrEqual(MINUTE_FOLDER_DEPTH_MAX + 1)
+  })
+
+  it('순환 폴더는 M4 짝(folderDepthOf)이 막는다 — 높이만으로 판단하지 않는 이유', () => {
+    const cyclic = [folder('x', 'X', 'y'), folder('y', 'Y', 'x')]
+    // folderDepthOf 가 상한 초과로 수렴하므로 합산 판정이 반드시 거부된다
+    expect(folderDepthOf(cyclic, 'x')).toBeGreaterThan(MINUTE_FOLDER_DEPTH_MAX)
+    expect(folderDepthOf(cyclic, 'x') + subtreeHeightOf(cyclic, 'y'))
+      .toBeGreaterThan(MINUTE_FOLDER_DEPTH_MAX)
+  })
+
+  it('M4 판정 — folderDepthOf 만으로는 부족하다는 것을 보인다', () => {
+    // 3단 자리(depth 3)에 높이 3짜리 서브트리를 넣으면 6단이 된다
+    expect(folderDepthOf(tree, 'c')).toBe(3)
+    expect(folderDepthOf(tree, 'c') + subtreeHeightOf(tree, 'a')).toBeGreaterThan(MINUTE_FOLDER_DEPTH_MAX)
+    // 잎 하나만 옮기는 것은 통과
+    expect(folderDepthOf(tree, 'c') + subtreeHeightOf(tree, 'd')).toBeLessThanOrEqual(MINUTE_FOLDER_DEPTH_MAX)
+  })
+})
+
+describe('isDescendantFolder', () => {
+  const tree = [
+    folder('a', 'A'), folder('b', 'B', 'a'), folder('c', 'C', 'b'), folder('z', 'Z'),
+  ]
+
+  it('직계·간접 자손을 모두 잡는다', () => {
+    expect(isDescendantFolder(tree, 'a', 'b')).toBe(true)
+    expect(isDescendantFolder(tree, 'a', 'c')).toBe(true)
+  })
+
+  it('자기 자신은 자손이 아니다(호출부가 따로 막는다)', () => {
+    expect(isDescendantFolder(tree, 'a', 'a')).toBe(false)
+  })
+
+  it('조상 방향·무관 폴더는 false', () => {
+    expect(isDescendantFolder(tree, 'c', 'a')).toBe(false)
+    expect(isDescendantFolder(tree, 'a', 'z')).toBe(false)
+  })
+
+  it('순환 체인에서도 끝난다', () => {
+    const cyclic = [folder('x', 'X', 'y'), folder('y', 'Y', 'x')]
+    expect(isDescendantFolder(cyclic, 'ghost', 'x')).toBe(false)
   })
 })

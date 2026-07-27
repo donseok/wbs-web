@@ -200,6 +200,8 @@ export interface Minute {
   bodyPreview?: string              // 카드 요약(0039 생성 컬럼, 목록/트리 조회 전용)
   meetingCategory?: MeetingCategory | null  // 연결 회의 유형(meetings 임베드, 미연결 null)
   folderId?: string | null  // 소속 폴더(0040, 목록 조회 전용 — null=미분류)
+  /** 외부 연동 멱등 키(또박또박 `ddobak:<uuid>`). 상세 조회 전용 — null=연동 없음. */
+  externalId?: string | null
 }
 
 /* ── 탐색기 v2: 실제 폴더 디렉토리 (스펙 2026-07-23-minutes-folders-design.md) ── */

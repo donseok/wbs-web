@@ -66,6 +66,7 @@ function mapMinute(r: Row, bodyMd = ''): Minute {
     bodyPreview: (r.body_preview as string | null) ?? '',
     meetingCategory: ((r.meetings as { category?: MeetingCategory } | null)?.category) ?? null,
     folderId: (r.folder_id as string | null) ?? null,
+    externalId: (r.external_id as string | null) ?? null,
   }
 }
 
@@ -143,7 +144,7 @@ export const getMinuteDetail = cache(async (
 ): Promise<{ minute: Minute; files: MinuteFile[] } | null> => {
   const sb = await createServerClient()
   const { data: r, error } = await sb.from('minutes')
-    .select('id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, created_by, created_by_name, created_at, updated_at, folder_id, meetings(project_id), projects(name)')
+    .select('id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, external_id, created_by, created_by_name, created_at, updated_at, folder_id, meetings(project_id), projects(name)')
     .eq('id', id).maybeSingle()
   // null 은 호출자에서 404(삭제됨)로 렌더된다 — 조회 실패를 '행 없음'으로 위장하면
   // 멀쩡히 존재하는 회의록이 삭제된 것처럼 보인다. 실패는 실패로 터뜨린다.

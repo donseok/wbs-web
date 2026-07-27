@@ -224,6 +224,52 @@ export function folderDepthOf(folders: MinuteFolder[], folderId: string | null):
   return depth
 }
 
+/** folderId 서브트리의 높이(자기 자신 포함 단 수). 잎이면 1.
+ *  폴더 이동(M4) 판정에 필요하다 — `folderDepthOf(대상) + subtreeHeightOf(이동 폴더) ≤ 5`.
+ *  folderDepthOf 만으로는 부족하다: 자손이 함께 내려가므로 3단 폴더를 3단 자리로 끌면 5단을
+ *  넘는다. 순환·과깊이는 상한 초과 값으로 수렴시켜 호출부의 검증이 자연히 거부하게 한다. */
+export function subtreeHeightOf(folders: MinuteFolder[], folderId: string): number {
+  const childrenOf = new Map<string, string[]>()
+  for (const f of folders) {
+    if (f.parentId === null) continue
+    const list = childrenOf.get(f.parentId)
+    if (list) list.push(f.id)
+    else childrenOf.set(f.parentId, [f.id])
+  }
+  const seen = new Set<string>()
+  let height = 0
+  let level = [folderId]
+  while (level.length > 0) {
+    height += 1
+    if (height > MINUTE_FOLDER_DEPTH_MAX) return height   // 순환/과깊이 — 즉시 초과 반환
+    const next: string[] = []
+    for (const id of level) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const kids = childrenOf.get(id)
+      if (kids) next.push(...kids)
+    }
+    level = next
+  }
+  return height
+}
+
+/** candidateId 가 ancestorId 의 자손인가(자기 자신은 false). 조상 체인을 올라가며 순환 가드.
+ *  M3(사이클 금지) — 폴더를 자기 자손 밑으로 옮기면 그 서브트리가 트리에서 통째로 끊긴다. */
+export function isDescendantFolder(
+  folders: MinuteFolder[], ancestorId: string, candidateId: string,
+): boolean {
+  const byId = new Map(folders.map(f => [f.id, f]))
+  const seen = new Set<string>()
+  let cur = byId.get(candidateId)?.parentId ?? null
+  while (cur && !seen.has(cur)) {
+    if (cur === ancestorId) return true
+    seen.add(cur)
+    cur = byId.get(cur)?.parentId ?? null
+  }
+  return false
+}
+
 /** 폴더 + 리프 → 디렉토리 트리. 정렬은 sort asc·name asc(시드 0~9 우선), directLeaves 는 입력
  *  순서 보존(재정렬 없음). 방어: 부모가 목록에 없는 고아·순환 참조 폴더는 루트로 승격(조용히
  *  버리지 않음), 미존재 폴더를 가리키는 리프는 unfiled 로. */
