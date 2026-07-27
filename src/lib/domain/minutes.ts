@@ -207,6 +207,13 @@ export function meetingBodyOf(title: string): string {
 export const MINUTE_FOLDER_NAME_MAX = 60
 export const MINUTE_FOLDER_DEPTH_MAX = 5
 
+/** 폴더 이름 정규화 — trim + **NFC**. macOS 에서 만든 한글 폴더명은 NFD 로 들어올 수 있고,
+ *  그대로 저장하면 눈에 같은 이름의 폴더가 둘 생긴다(부분 유니크 인덱스도 바이트가 달라
+ *  막지 못한다). 저장·비교 경로 전부가 이 함수를 통과해야 한다. */
+export function normalizeFolderName(name: string): string {
+  return name.trim().normalize('NFC')
+}
+
 /** 폴더 이름 검증 — 에러 메시지 또는 null (validateMinuteInput 관례). */
 export function validateFolderName(name: string): string | null {
   const trimmed = name.trim()

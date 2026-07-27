@@ -94,6 +94,19 @@ export function folderPathOfSnapshot(
   return out.length > 0 ? out : null
 }
 
+/** folderId 와 그 조상 전부의 id 집합(자기 자신 포함). 순환·끊긴 체인은 거기서 끊는다.
+ *  배치의 **조상 규칙**(결정 §2-J) 판정용 — 현재 위치가 목표 경로의 조상이면 더 깊게 넣는 것이
+ *  사람의 정리를 훼손하지 않으므로 이동한다. */
+export function ancestorIdsOf(snap: FolderSnapshot, folderId: string | null): Set<string> {
+  const out = new Set<string>()
+  let cur: string | null = folderId
+  while (cur && !out.has(cur)) {
+    out.add(cur)
+    cur = snap.byId.get(cur)?.parentId ?? null
+  }
+  return out
+}
+
 /** 응답 에코(§3.3)용 역해석 단건 — folder_path 를 받지 않은 재전송·skip 응답에서 쓴다. */
 export async function folderPathOf(
   sb: DbClient, folderId: string | null,

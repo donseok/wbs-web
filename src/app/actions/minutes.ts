@@ -6,7 +6,7 @@ import { getMembership, getSession } from '@/lib/auth'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
-  isTeamRootName, isTeamRootFolder, teamSubOfFolder,
+  isTeamRootName, isTeamRootFolder, teamSubOfFolder, normalizeFolderName,
   type MinuteInput,
 } from '@/lib/domain/minutes'
 import { canDropFolder, type FolderDropReason } from '@/lib/domain/folder-drop'
@@ -608,7 +608,7 @@ export async function createMinuteFolder(
   if (folderDepthOf(folders, parentId) + 1 > MINUTE_FOLDER_DEPTH_MAX)
     return { ok: false, error: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.` }
   const { error } = await sb.from('minute_folders')
-    .insert({ name: name.trim(), parent_id: parentId, created_by: user.id })
+    .insert({ name: normalizeFolderName(name), parent_id: parentId, created_by: user.id })
   if (error) {
     if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
     if (error.code === '23503') return { ok: false, error: '상위 폴더가 방금 삭제되었습니다. 새로고침 후 다시 시도하세요.' }
@@ -641,7 +641,7 @@ export async function renameMinuteFolder(
   if (target.parentId === null && isTeamRootName(name, teamNames))
     return { ok: false, error: `팀 기본 폴더명(${teamNames.join('·')})은 루트에 사용할 수 없습니다.` }
   const { data, error } = await sb.from('minute_folders')
-    .update({ name: name.trim(), updated_at: new Date().toISOString() })
+    .update({ name: normalizeFolderName(name), updated_at: new Date().toISOString() })
     .eq('id', id).select('id')
   if (error) {
     if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
@@ -654,19 +654,66 @@ export async function renameMinuteFolder(
   return { ok: true }
 }
 
+/**
+ * 폴더 삭제 — **비우기 우선**(결정 §6 「폴더 삭제 가드」).
+ *
+ * 종전에는 FK cascade 로 하위 폴더가 함께 지워지고 소속 회의록은 `folder_id set null` 로
+ * **미분류 강등**됐다. §6.3 이후 `team_code` 를 폴더에서 파생하므로 미분류 강등은 곧
+ * **팀 파생이 끊긴 데이터**가 된다. 게다가 외부 API·배치가 만든 폴더는 `isTeamRootFolder`
+ * 보호 밖이라 전송자 1명이 지우면 그 안 회의록이 전부 미분류가 될 수 있었다.
+ *
+ * → 삭제 전에 자식 폴더와 소속 회의록을 **부모로 승격**시킨다. 스키마 변경 없이 UX 유지.
+ */
 export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; error?: string }> {
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
-  // 삭제 가드 선행조회 — 팀 루트 시드만 삭제 금지(편철 앵커 + cascade 소실). 하위 구분
-  // 폴더는 실폴더 동적 유도라 삭제가 곧 옵션 제거로 반영된다(허용)
   const folders = await loadFolders(sb)
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
   const target = folders.find(f => f.id === id)
   if (!target) return { ok: false, error: '폴더가 없습니다.' }
   if (isTeamRootFolder(target))
     return { ok: false, error: '팀 기본 폴더는 삭제할 수 없습니다.' }
-  // 하위 폴더는 FK cascade, 소속 회의록은 set null(미분류 강등)이 정리한다
+  // 승격 대상 = 부모. W18 이후 루트 폴더는 생기지 않으므로 삭제 가능한 폴더엔 항상 부모가 있다.
+  const parentId = target.parentId
+  if (!parentId) return { ok: false, error: '최상위 폴더는 삭제할 수 없습니다.' }
+  // RLS(0040)와 **같은 조건**을 명시 선판정한다 — 승격을 먼저 하기 때문에, 삭제가 나중에
+  // 권한으로 막히면 옮겨만 놓고 폴더가 남는 상태가 된다. 같은 조건이면 그 일이 없다.
+  if (target.createdBy !== user.id && m.role !== 'pmo_admin') {
+    return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
+  }
+
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '폴더 삭제 설정을 확인하세요.' }
+  }
+  // ① 자식 폴더 승격 — 같은 부모에 동명이 생기면 부분 유니크 인덱스가 23505 로 막는다.
+  //    그 경우 사용자가 이름을 바꾸도록 안내한다(조용히 cascade 로 지우지 않는다).
+  const children = folders.filter(f => f.parentId === id)
+  if (children.length > 0) {
+    const clash = children.find(c => folders.some(f => f.parentId === parentId && f.name === c.name))
+    if (clash) {
+      return { ok: false, error: `상위 폴더에 같은 이름('${clash.name}')이 있어 비울 수 없습니다. 먼저 이름을 바꾸세요.` }
+    }
+    const { error: cErr } = await admin.from('minute_folders')
+      .update({ parent_id: parentId, updated_at: new Date().toISOString() }).eq('parent_id', id)
+    if (cErr) {
+      console.error('[deleteMinuteFolder] 하위 폴더 승격 실패:', cErr.message)
+      return { ok: false, error: '하위 폴더를 옮기지 못해 삭제를 중단했습니다.' }
+    }
+  }
+  // ② 소속 회의록 승격 — updated_at 은 건드리지 않는다(조직 정리가 외부 연동 GET 에
+  //    '방금 수정됨'으로 비치면 안 된다 — 0043 4단계·배치와 같은 규칙).
+  const { error: mErr } = await admin.from('minutes').update({ folder_id: parentId }).eq('folder_id', id)
+  if (mErr) {
+    console.error('[deleteMinuteFolder] 회의록 승격 실패:', mErr.message)
+    return { ok: false, error: '회의록을 옮기지 못해 삭제를 중단했습니다.' }
+  }
+  // ③ 이제 빈 폴더다 — cascade 가 지울 것이 없다.
   const { data, error } = await sb.from('minute_folders').delete().eq('id', id).select('id')
   if (error) { console.error('[deleteMinuteFolder] 실패:', error.message); return { ok: false, error: error.message } }
   if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }

@@ -36,6 +36,36 @@ export function minutesApiEnabled(): boolean {
   return process.env.MINUTES_API_ENABLED === 'true' && !!process.env.MINUTES_API_SECRET
 }
 
+/**
+ * W25(결정 §2-A) — `POST /minutes` 의 folder_path 편철 전환 스위치.
+ *
+ * 꺼져 있으면 `folder_path` 를 **키 부재와 완전히 동일하게** 취급한다(검증 400 조차 내지 않는다).
+ * 즉 R1 배포는 `POST /minutes` 동작을 1비트도 바꾸지 않는다.
+ *
+ * 왜 필요한가: 진짜 위험은 W3(등록 편철)가 아니라 **W5(재전송 폴더 동기화)** 다.
+ * folder_path 가 실려 오기 시작하면 재전송 1건마다 D'Flow 위치가 덮이고, 또박또박에서 폴더에
+ * 안 들어 있는 회의는 `[]` 를 보내므로 **사람이 정리해 둔 편철이 팀 루트로 평평화**된다.
+ * `overwrite_manual` 은 배치에만 걸리는 플래그라 이 경로를 못 막는다.
+ * 배치(W6)와 보관 상태 노출(W24)은 이 플래그와 **무관하게 항상 활성**이다.
+ */
+export function folderPathEnabled(): boolean {
+  return process.env.MINUTES_FOLDER_PATH_ENABLED === 'true'
+}
+
+/**
+ * 관리자 전용 경로(배치)용 role 조회 — service_role 로 memberships 를 직접 읽는다.
+ * 보안 가드이므로 조회 실패는 fail-closed(null → 거절). getMembership 은 세션 기반이라
+ * 서버 간 호출 경로에서는 쓸 수 없다.
+ */
+export async function resolveUserRole(admin: AdminClient, userId: string): Promise<string | null> {
+  const { data, error } = await admin.from('memberships').select('role').eq('user_id', userId).maybeSingle()
+  if (error) {
+    console.error('[minutes-api] role 조회 실패(거절):', error.message)
+    return null
+  }
+  return (data as { role: string } | null)?.role ?? null
+}
+
 /** 시크릿 비교는 길이 노출·타이밍 채널을 피하기 위해 해시 후 상수시간으로 비교한다. */
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false
@@ -158,7 +188,9 @@ export function parseFolderPathValue(raw: unknown): FolderPathParse {
         reason: 'validation_failed: folder_path 원소는 문자열이어야 합니다.',
       }
     }
-    const name = seg.trim()
+    // NFC 정규화 — macOS 에서 만든 한글 폴더명은 NFD 로 오는 경우가 있다. 그대로 비교·생성하면
+    // 눈에 같은 이름의 폴더가 두 개 생긴다(부분 유니크 인덱스도 바이트가 달라 막지 못한다).
+    const name = seg.trim().normalize('NFC')
     if (!name) {
       return {
         ok: false,
@@ -217,7 +249,9 @@ export function parseMinutePayload(raw: unknown): { payload: ExternalMinutePaylo
   // 명시적 null 은 배열이 아니므로 400 — 3값 규약에 없는 값을 조용히 '키 부재'로 뭉개면
   // 구버전 폴백과 구분이 사라진다.
   let folderPath: string[] | null = null
-  const folderPathProvided = b.folder_path !== undefined
+  // W25 — 플래그가 꺼져 있으면 키 부재와 동일. 검증도 하지 않으므로 61자 폴더명이 섞인
+  // 회의가 오늘처럼 정상 전송된다(플래그 없이 W1 만 먼저 내면 열리는 회귀 창을 막는다).
+  const folderPathProvided = folderPathEnabled() && b.folder_path !== undefined
   if (folderPathProvided) {
     const parsedPath = parseFolderPathValue(b.folder_path)
     if (!parsedPath.ok) return { error: parsedPath.error }

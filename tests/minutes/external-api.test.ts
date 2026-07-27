@@ -203,6 +203,9 @@ beforeEach(() => {
   mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공', 'MDM']
   vi.stubEnv('MINUTES_API_ENABLED', 'true')
   vi.stubEnv('MINUTES_API_SECRET', SECRET)
+  // W25 — folder_path 편철 스위치. 이 스위트는 켠 상태를 기본으로 검증하고,
+  // 끈 상태(R1 배포 형상)는 전용 describe 에서 따로 본다.
+  vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'true')
   // 후처리 rematch 래퍼의 env 가드가 확실히 잠기도록(하이라이트 경로는 이 스위트 범위 밖)
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '')
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', '')
@@ -850,6 +853,55 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
       await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
       expect(mocks.enqueueMinuteWikiProcessing).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('W25 MINUTES_FOLDER_PATH_ENABLED = false (R1 배포 형상 · 결정 §2-A)', () => {
+  const created = { id: 'm-1', created_at: '2026-07-27T01:00:00+00:00', updated_at: '2026-07-27T01:00:00+00:00' }
+
+  it('folder_path 를 키 부재와 동일하게 무시하고 팀 루트로 편철한다', async () => {
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
+    const { admin } = useAdmin({
+      minutes: [{ data: null }, { data: created }],
+      minute_folders: [{ data: { id: 'f-pmo' } }],       // resolveTeamRootFolderId 경로
+    })
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질', '주간정례'] }))
+    expect(res.status).toBe(201)
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version', expect.objectContaining({ p_folder_id: 'f-pmo' }),
+    )
+    // 에코는 요청 경로가 아니라 **실제 편철 위치**(팀 루트)여야 한다
+    expect(await res.json()).toMatchObject({ folder_id: 'f-pmo', folder_path: ['PMO'] })
+  })
+
+  it('검증 400 조차 내지 않는다 — 61자 폴더명·타 팀 루트가 섞여도 오늘처럼 전송된다', async () => {
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
+    // 플래그 없이 W1 만 먼저 내면 이 세 입력이 400 이 되어 오늘 정상 전송되는 회의가 실패한다.
+    const queue = () => ({
+      minutes: [{ data: null }, { data: created }],
+      minute_folders: [{ data: { id: 'f-pmo' } }],
+    })
+    useAdmin(queue())
+    expect((await POST(post({ ...payload, folder_path: ['PMO', '가'.repeat(61)] }))).status).toBe(201)
+    useAdmin(queue())
+    expect((await POST(post({ ...payload, folder_path: ['ERP', '영업'] }))).status).toBe(201)
+    useAdmin(queue())
+    expect((await POST(post({ ...payload, folder_path: 'not-an-array' }))).status).toBe(201)
+  })
+
+  it('replace 의 폴더 갱신(W5)이 일어나지 않는다 — metadata 에 folder_id 키 없음', async () => {
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
+    const { admin } = useAdmin({
+      minutes: [
+        { data: { ...existingRow, folder_id: 'f-old' } },
+        { data: { id: 'm-1', created_at: existingRow.created_at, updated_at: '2026-07-27T02:00:00+00:00' } },
+      ],
+      minute_folders: [{ data: [{ id: 'f-old', name: 'PMO', parent_id: null, created_by: null }] }],
+    })
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+    expect(res.status).toBe(200)
+    const call = admin.rpc.mock.calls.find(c => c[0] === 'commit_minute_body_version')!
+    expect((call[1] as { p_metadata: Record<string, unknown> }).p_metadata).not.toHaveProperty('folder_id')
   })
 })
 

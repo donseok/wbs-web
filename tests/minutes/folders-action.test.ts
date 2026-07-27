@@ -194,10 +194,62 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     // 루트+created_by null 은 새 계약(팀 마스터)에서 팀 시드로 보호되므로 사용자 소유로 명시
     const { client } = fakeClient({ minute_folders: { data: [{ id: 'f2', parent_id: 'f1', created_by: 'u1' }], error: null } })
     createServerClient.mockResolvedValue(client)
+    const { client: admin } = fakeClient({
+      minute_folders: { data: [], error: null }, minutes: { data: [], error: null },
+    })
+    adminMocks.createAdminClient.mockReturnValue(admin)
     expect((await deleteMinuteFolder('f2')).ok).toBe(true)
     const empty = fakeClient({ minute_folders: { data: [], error: null } })
     createServerClient.mockResolvedValue(empty.client)
-    expect((await deleteMinuteFolder('f2')).ok).toBe(false)
+    expect((await deleteMinuteFolder('f2')).ok).toBe(false)   // 폴더 목록에 없음
+  })
+
+  it('delete: 비우기 우선 — 하위 폴더·소속 회의록을 부모로 승격한 뒤 지운다(§6)', async () => {
+    const tree = [
+      { id: 'f1', name: 'PMO', parent_id: null, sort: 0, created_by: null },
+      { id: 'f2', name: '대상', parent_id: 'f1', sort: 100, created_by: 'u1' },
+      { id: 'f3', name: '자식', parent_id: 'f2', sort: 100, created_by: 'u9' },
+    ]
+    const { client } = fakeClient({ minute_folders: { data: tree, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const { client: admin, calls: adminCalls } = fakeClient({
+      minute_folders: { data: [{ id: 'f3' }], error: null }, minutes: { data: [{ id: 'm1' }], error: null },
+    })
+    adminMocks.createAdminClient.mockReturnValue(admin)
+    expect((await deleteMinuteFolder('f2')).ok).toBe(true)
+    // 자식 폴더 승격
+    const folderUpd = adminCalls['minute_folders']!.find(c => c.method === 'update')!
+    expect(folderUpd.args[0]).toMatchObject({ parent_id: 'f1' })
+    // 회의록 승격 — updated_at 은 건드리지 않는다(조직 정리가 '방금 수정됨'으로 비치면 안 됨)
+    const minuteUpd = adminCalls['minutes']!.find(c => c.method === 'update')!
+    expect(minuteUpd.args[0]).toEqual({ folder_id: 'f1' })
+  })
+
+  it('delete: 승격 시 상위에 동명이 있으면 중단 — cascade 로 조용히 지우지 않는다', async () => {
+    const tree = [
+      { id: 'f1', name: 'PMO', parent_id: null, sort: 0, created_by: null },
+      { id: 'f2', name: '대상', parent_id: 'f1', sort: 100, created_by: 'u1' },
+      { id: 'f3', name: '겹침', parent_id: 'f2', sort: 100, created_by: 'u1' },
+      { id: 'f4', name: '겹침', parent_id: 'f1', sort: 100, created_by: 'u1' },
+    ]
+    const { client, calls } = fakeClient({ minute_folders: { data: tree, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await deleteMinuteFolder('f2')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('겹침')
+    expect(calls['minute_folders']!.some(c => c.method === 'delete')).toBe(false)
+  })
+
+  it('delete: 작성자도 pmo_admin 도 아니면 승격 전에 거절', async () => {
+    const tree = [
+      { id: 'f1', name: 'PMO', parent_id: null, sort: 0, created_by: null },
+      { id: 'f2', name: '남의폴더', parent_id: 'f1', sort: 100, created_by: 'other' },
+    ]
+    const { client } = fakeClient({ minute_folders: { data: tree, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await deleteMinuteFolder('f2')
+    expect(r.ok).toBe(false)
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
   })
   it('rename: 시드 팀 루트(MES)는 개명 금지 — 자동 편철 앵커 보호(0043)', async () => {
     const { client } = fakeClient({
@@ -218,6 +270,12 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     // fakeClient 는 갱신·삭제 결과로 테이블 데이터를 그대로 돌려주므로(비어있지 않음) 성공 경로에 도달
     const r = await renameMinuteFolder('c-buy', '구매관리')
     expect(r.ok).toBe(true)
+    // 삭제는 '비우기 우선'이라 admin 으로 승격 후 지운다. created_by null 이라 pmo_admin 이어야 한다.
+    getMembership.mockResolvedValue({ role: 'pmo_admin' })
+    const { client: admin } = fakeClient({
+      minute_folders: { data: [], error: null }, minutes: { data: [], error: null },
+    })
+    adminMocks.createAdminClient.mockReturnValue(admin)
     const d = await deleteMinuteFolder('c-buy')
     expect(d.ok).toBe(true)
   })

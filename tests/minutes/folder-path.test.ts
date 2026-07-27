@@ -78,6 +78,15 @@ describe('parseFolderPathValue (§3.1 원소 검증)', () => {
     if (!r.ok) expect(r.reason).toBe(`folder_name_too_long: ${'가'.repeat(61)}(61자)`)
   })
 
+  it('NFC 정규화 — macOS NFD 한글이 같은 폴더로 수렴한다(중복 폴더 방지)', () => {
+    const nfc = '품질'
+    const nfd = nfc.normalize('NFD')                           // macOS 파일시스템이 내주는 형태
+    expect(nfd).not.toBe(nfc)                                  // 입력은 서로 다른 코드포인트열
+    const r = parseFolderPathValue([nfd])
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.path[0]).toBe(nfc)                      // 저장·비교는 같은 값으로
+  })
+
   it('빈 배열은 유효 — 명시적 "폴더 없음"', () => {
     const r = parseFolderPathValue([])
     expect(r.ok).toBe(true)

@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 import {
-  folderPathOfSnapshot, loadFolderSnapshot, resolveFolderPath, type FolderSnapshot,
+  ancestorIdsOf, folderPathOfSnapshot, loadFolderSnapshot, resolveFolderPath, type FolderSnapshot,
 } from '@/lib/minutes/folders'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, EXTERNAL_ID_MAX,
-  gateMinutesApi, parseUserEmail, resolveUserByEmail, type AdminClient,
+  gateMinutesApi, parseFolderPathValue, parseUserEmail, resolveUserByEmail, resolveUserRole,
+  type AdminClient,
 } from '@/lib/minutes/externalApi'
 
 /**
@@ -33,15 +34,37 @@ interface BatchItem {
   /** 선택 — 생략하면 회의록의 기존 team_code 를 쓴다. 또박또박은 전송 당시 team 을 기록하지 않는다. */
   team: string | null
   folderPath: string[]
+  /**
+   * 건별 검증 실패 사유(§4c.4-7). **요청 전체를 400 으로 떨구지 않는다** — 200건 중 1건의
+   * folder_path 오타로 나머지 199건이 함께 죽으면 부분 실패 불가 계약과 어긋난다.
+   */
+  parseError?: string
 }
+
+/**
+ * 편철 품질 신호(결정 §2-C). 짧아진 경로를 만드는 원인이 3개라 boolean 하나로는 오독이 는다.
+ * 또박또박이 스스로 판정하려면 정규화 규칙 ①②③ + 활성 팀코드 캐시를 Ruby 에 재구현해야 하는데,
+ * 그건 계약이 서버에 금지한 '두 번째 정규화 구현'을 클라이언트에 강요하는 셈이다.
+ */
+type FolderPathStatus =
+  /** 정규화 결과 그대로 편철(한 칸 내림 포함 — 정상 동작). */
+  | 'exact'
+  /** 깊이 5 초과로 절단. 조상 폴더에 들어가므로 해상도 저하이지 위조는 아니다. */
+  | 'truncated'
+  /** 중간 폴더 생성 실패로 조상까지만 편철. 종전에는 완전히 침묵하던 경로. */
+  | 'partial'
+  /** 시드 팀 루트 부재로 미분류. */
+  | 'unclassified'
 
 interface ItemResult {
   external_id: string
   status: ItemStatus
   reason?: string
+  /** 이동 전 위치. **미분류였으면 null** — 계약 예시가 전부 배열이라 별도 명시가 필요하다(§2-D). */
   from?: string[] | null
   to?: string[]
   folder_id?: string | null
+  folder_path_status?: FolderPathStatus
 }
 
 interface ParsedBatch {
@@ -80,13 +103,23 @@ function parseBatchPayload(raw: unknown): { batch: ParsedBatch } | { error: stri
     if (externalId.length > EXTERNAL_ID_MAX) {
       return { error: `items[].external_id는 ${EXTERNAL_ID_MAX}자 이하여야 합니다.` }
     }
+    // 아래부터는 **건별** 검증이다 — 200건 중 1건의 오타로 나머지가 함께 죽으면 안 된다(§4c.4-7).
     let team: string | null = null
+    let parseError: string | undefined
     if (it.team !== undefined && it.team !== null) {
-      if (typeof it.team !== 'string' || !it.team.trim()) return { error: 'items[].team이 올바르지 않습니다.' }
-      team = it.team.trim()
+      if (typeof it.team !== 'string' || !it.team.trim()) parseError = 'validation_failed: items[].team이 올바르지 않습니다.'
+      else team = it.team.trim()
     }
-    if (!Array.isArray(it.folder_path)) return { error: 'items[].folder_path는 배열이어야 합니다.' }
-    items.push({ externalId, team, folderPath: it.folder_path as string[] })
+    const rawPath = it.folder_path
+    if (!parseError) {
+      const parsed = parseFolderPathValue(rawPath)
+      if (!parsed.ok) parseError = parsed.reason
+    }
+    items.push({
+      externalId, team,
+      folderPath: Array.isArray(rawPath) ? (rawPath as string[]) : [],
+      ...(parseError ? { parseError } : {}),
+    })
   }
   return { batch: { dryRun, overwriteManual, items } }
 }
@@ -99,10 +132,14 @@ interface MinuteRow {
   archived_at: string | null
 }
 
-/** §8.3 — 현재 위치가 '외부 API 가 자동 편철한 자리'인가. 시드 팀 루트면 사람 손이 닿지 않은 것으로 본다. */
-function isSeedRoot(snap: FolderSnapshot, folderId: string): boolean {
-  const f = snap.byId.get(folderId)
-  return f !== undefined && f.parentId === null && f.createdBy === null
+/** 편철 품질 신호(§2-C) — 심각한 쪽부터 판정한다. */
+function folderPathStatusOf(
+  args: { folderId: string | null; truncated: boolean; failed: boolean },
+): FolderPathStatus {
+  if (args.folderId === null) return 'unclassified'
+  if (args.failed) return 'partial'
+  if (args.truncated) return 'truncated'
+  return 'exact'
 }
 
 /** 회의록 한 건의 재편철 판정 + 실행. 부분 실패는 전체를 롤백하지 않는다(요건 7). */
@@ -118,6 +155,13 @@ async function processItem(
   const key = item.externalId
   if (!row) return { external_id: key, status: 'not_found' }
   if (row.archived_at) return { external_id: key, status: 'skipped', reason: 'archived' }
+  // 봉투가 아니라 건별로 떨어지는 검증 실패(folder_path 타입·60자·team 형식)
+  if (item.parseError) {
+    return {
+      external_id: key, status: 'failed', reason: item.parseError,
+      from: folderPathOfSnapshot(snap, row.folder_id),
+    }
+  }
 
   // 마이그레이션이 팀을 옮기는 도구가 되면 안 된다 — 팀 이동은 위키 재빌드를 유발한다.
   if (item.team !== null && item.team !== row.team_code) {
@@ -146,13 +190,24 @@ async function processItem(
     return { external_id: key, status: 'already_correct', from, folder_id: targetId }
   }
 
-  // §8.3 — 사람이 옮겨 둔 것으로 보이면 기본값에서는 건드리지 않는다.
-  if (!batch.overwriteManual && row.folder_id !== null && !isSeedRoot(snap, row.folder_id)) {
+  // §4c.5 **조상 규칙**(결정 §2-J) — 판정 기준이 "팀 루트냐"가 아니라 "현재 위치가 목표 경로의
+  // 조상이냐"다. 조상이면 더 깊게 넣는 것이므로 사람의 정리를 훼손하지 않는다(팀 루트는 그
+  // 특수 케이스일 뿐이다). 형제·자손·무관한 가지로 옮겨 둔 건은 그대로 보호된다 —
+  // 얕은 쪽으로 되돌리는 이동도 조상이 아니므로 skip 이라 배치가 트리를 평평하게 만들지 않는다.
+  const movable = row.folder_id === null || ancestorIdsOf(snap, resolved.folderId).has(row.folder_id)
+  if (!batch.overwriteManual && !movable) {
     return { external_id: key, status: 'skipped', reason: 'manual_placement', from }
   }
 
+  const pathStatus = folderPathStatusOf({
+    folderId: targetId ?? resolved.folderId, truncated: resolved.truncated, failed: resolved.failed,
+  })
+
   if (batch.dryRun) {
-    return { external_id: key, status: 'moved', from, to: resolved.targetPath, folder_id: targetId }
+    return {
+      external_id: key, status: 'moved', from, to: resolved.targetPath,
+      folder_id: targetId, folder_path_status: pathStatus,
+    }
   }
 
   // APPLY 인데 경로를 끝까지 못 만들었다 = 폴더 생성 실패. 조상에 떨구면 리포트와 트리가 어긋난다.
@@ -175,7 +230,7 @@ async function processItem(
   }
   return {
     external_id: key, status: 'moved', from,
-    to: resolved.targetPath, folder_id: resolved.folderId,
+    to: resolved.targetPath, folder_id: resolved.folderId, folder_path_status: pathStatus,
   }
 }
 
@@ -199,6 +254,13 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const user = await resolveUserByEmail(admin, userEmail)
     if (!user) return apiFail(403, 'unknown_user', "해당 이메일의 D'Flow 사용자가 없습니다.")
+    // 결정 §2-H — 다른 라우트의 계정 게이트는 auth.users 실재만 본다. 배치는 그 계정 명의로
+    // 폴더를 만들고 그 사람이 생성 트리의 유일한 관리자가 되므로, ACTOR_EMAIL 오타가
+    // **실재하는 다른 직원**을 가리키면 조용히 성공한다(되돌리려면 DB 직접 수정).
+    // items: [] 프로브도 이 게이트를 통과해야 하므로 오설정이 첫 호출에서 드러난다.
+    if (await resolveUserRole(admin, user.id) !== 'pmo_admin') {
+      return apiFail(403, 'forbidden_role', '일괄 재편철은 관리자 계정으로만 실행할 수 있습니다.')
+    }
 
     const parsed = parseBatchPayload(raw)
     if ('error' in parsed) return apiBadRequest(parsed.error)

@@ -31,9 +31,14 @@ function queryBuilder(response: QueryResponse) {
 /** 테이블별 응답 큐 — from(table) 호출 순서대로 소비. */
 function useAdmin(tables: Record<string, QueryResponse[]> = {}, users = [USER]) {
   const builders: Record<string, ReturnType<typeof queryBuilder>[]> = {}
+  // 배치는 pmo_admin 전용(결정 §2-H) — memberships 를 명시하지 않으면 통과 기본값을 깐다.
+  const roleQueue = tables.memberships ?? [{ data: { role: 'pmo_admin' } }]
   const admin = {
     from: vi.fn((table: string) => {
-      const b = queryBuilder((tables[table] ?? []).shift() ?? { data: null, error: null })
+      const queued = table === 'memberships'
+        ? (roleQueue.shift() ?? { data: { role: 'pmo_admin' } })
+        : ((tables[table] ?? []).shift() ?? { data: null, error: null })
+      const b = queryBuilder(queued)
       ;(builders[table] ??= []).push(b)
       return b
     }),
@@ -142,7 +147,34 @@ describe('ACTOR_EMAIL 프로브 (요건 9 · 게이트 순서)', () => {
       summary: { total: 0, moved: 0, already_correct: 0, skipped: 0, not_found: 0, failed: 0 },
       results: [],
     })
-    expect(admin.from).not.toHaveBeenCalled()          // 폴더·회의록 조회조차 하지 않는다
+    // role 게이트(memberships) 외에는 아무것도 건드리지 않는다 — 폴더·회의록 조회 0
+    const touched = admin.from.mock.calls.map(c => c[0])
+    expect(touched).toEqual(['memberships'])
+  })
+
+  it('pmo_admin 이 아니면 403 forbidden_role — ACTOR_EMAIL 오타를 첫 프로브에서 잡는다(§2-H)', async () => {
+    useAdmin({ memberships: [{ data: { role: 'member' } }] })
+    const res = await POST(post(body({ dry_run: true, items: [] })))
+    expect(res.status).toBe(403)
+    expect((await res.json()).code).toBe('forbidden_role')
+  })
+
+  it('role 조회 실패는 fail-closed(403) — 보안 가드는 통과시키지 않는다', async () => {
+    useAdmin({ memberships: [{ data: null, error: { message: 'down' } }] })
+    expect((await POST(post(body({ items: [] })))).status).toBe(403)
+  })
+
+  it('role 게이트는 실제 이동 요청도 막는다 — 폴더·회의록 조회 이전에', async () => {
+    const { admin } = useAdmin({
+      memberships: [{ data: { role: 'team_editor' } }],
+      minute_folders: [{ data: TREE }],
+      minutes: [{ data: [minute(1)] }],
+    })
+    const res = await POST(post(body({
+      dry_run: false, items: [{ external_id: EID(1), folder_path: ['MES', '품질'] }],
+    })))
+    expect(res.status).toBe(403)
+    expect(admin.from.mock.calls.map(c => c[0])).toEqual(['memberships'])
   })
 
   it("D'Flow 에 없는 user_email + items: [] 는 403 — 계정 게이트가 페이로드 검증보다 먼저", async () => {
@@ -407,6 +439,112 @@ describe('APPLY 실행 (요건 2·3)', () => {
     })))
     const json = await r.json()
     expect(json.summary).toMatchObject({ moved: 1, already_correct: 1 })
+  })
+})
+
+describe('조상 규칙 (§4c.5 · 결정 §2-J)', () => {
+  it('현재 위치가 목표의 조상이면 이동 — 더 깊게 넣는 것은 사람의 정리를 훼손하지 않는다', async () => {
+    // 현재 MES/품질, 목표 MES/품질/주간정례 → 조상이므로 이동
+    useBatch([minute(1, { folder_id: 'f-q' })])
+    const r = await POST(post(body({
+      items: [{ external_id: EID(1), folder_path: ['MES', '품질', '주간정례'] }],
+    })))
+    expect((await r.json()).results[0]).toMatchObject({
+      status: 'moved', from: ['MES', '품질'], to: ['MES', '품질', '주간정례'],
+    })
+  })
+
+  it('얕은 쪽으로 되돌리는 이동은 skip — 배치가 트리를 평평하게 만들지 않는다', async () => {
+    // 현재 MES/품질/주간정례, 목표 MES/품질 → 조상이 아니라 자손이다
+    useBatch([minute(1, { folder_id: 'f-w' })])
+    const r = await POST(post(body({ items: [{ external_id: EID(1), folder_path: ['MES', '품질'] }] })))
+    expect((await r.json()).results[0]).toMatchObject({ status: 'skipped', reason: 'manual_placement' })
+  })
+
+  it('다른 가지로 옮겨 둔 건은 계속 보호된다', async () => {
+    const tree = [...TREE, { id: 'f-etc', name: '기타', parent_id: 'f-mes', created_by: 'u-9' }]
+    useAdmin({
+      minute_folders: [{ data: tree }],
+      minutes: [{ data: [minute(1, { folder_id: 'f-etc' })] }],
+    })
+    const r = await POST(post(body({ items: [{ external_id: EID(1), folder_path: ['MES', '품질'] }] })))
+    expect((await r.json()).results[0]).toMatchObject({ status: 'skipped', reason: 'manual_placement' })
+  })
+
+  it('팀 루트는 조상 규칙의 특수 케이스로 흡수된다', async () => {
+    useBatch([minute(1, { folder_id: 'f-mes' })])
+    const r = await POST(post(body({
+      items: [{ external_id: EID(1), folder_path: ['MES', '품질', '주간정례'] }],
+    })))
+    expect((await r.json()).results[0].status).toBe('moved')
+  })
+})
+
+describe('건별 검증 실패 (계약 v2.4 ⑥ — 요청 전체 400 금지)', () => {
+  it('folder_path 타입 오류는 그 건만 failed, 나머지는 정상 처리된다', async () => {
+    useBatch([minute(1, { folder_id: 'f-mes' }), minute(2, { folder_id: 'f-mes' })])
+    const r = await POST(post(body({
+      items: [
+        { external_id: EID(1), folder_path: 'MES/품질' },        // 타입 오류
+        { external_id: EID(2), folder_path: ['MES', '품질'] },   // 정상
+      ],
+    })))
+    expect(r.status).toBe(200)                                   // 400 이 아니다
+    const json = await r.json()
+    expect(json.results[0]).toMatchObject({ status: 'failed' })
+    expect(json.results[0].reason).toContain('validation_failed')
+    expect(json.results[1].status).toBe('moved')
+    expect(json.summary).toMatchObject({ total: 2, moved: 1, failed: 1 })
+  })
+
+  it('60자 초과도 건별 failed', async () => {
+    useBatch([minute(1), minute(2, { folder_id: 'f-mes' })])
+    const r = await POST(post(body({
+      items: [
+        { external_id: EID(1), folder_path: ['MES', '가'.repeat(61)] },
+        { external_id: EID(2), folder_path: ['MES', '품질'] },
+      ],
+    })))
+    const json = await r.json()
+    expect(json.results[0].reason).toContain('folder_name_too_long')
+    expect(json.results[1].status).toBe('moved')
+  })
+})
+
+describe('folder_path_status (결정 §2-C)', () => {
+  it('정상 편철은 exact', async () => {
+    useBatch([minute(1, { folder_id: 'f-mes' })])
+    const r = await POST(post(body({ items: [{ external_id: EID(1), folder_path: ['MES', '품질'] }] })))
+    expect((await r.json()).results[0].folder_path_status).toBe('exact')
+  })
+
+  it('한 칸 내림도 exact — 정상 동작이지 품질 저하가 아니다', async () => {
+    useBatch([minute(1, { folder_id: 'f-mes' })])
+    const r = await POST(post(body({ items: [{ external_id: EID(1), folder_path: ['자유루트'] }] })))
+    const res = (await r.json()).results[0]
+    expect(res.to).toEqual(['MES', '자유루트'])
+    expect(res.folder_path_status).toBe('exact')
+  })
+
+  it('깊이 5 초과 절단은 truncated — 침묵하면 APPLY 후 영영 already_correct 가 된다', async () => {
+    useBatch([minute(1, { folder_id: 'f-mes' })])
+    const r = await POST(post(body({
+      items: [{ external_id: EID(1), folder_path: ['MES', 'A', 'B', 'C', 'D', 'E'] }],
+    })))
+    const res = (await r.json()).results[0]
+    expect(res.to).toHaveLength(5)
+    expect(res.folder_path_status).toBe('truncated')
+  })
+
+  it('APPLY 중 생성 실패는 partial 이 아니라 failed 로 막는다(리포트와 트리 불일치 방지)', async () => {
+    useAdmin({
+      minute_folders: [{ data: TREE }, { data: null, error: { code: '42501', message: 'denied' } }],
+      minutes: [{ data: [minute(1, { folder_id: 'f-mes' })] }],
+    })
+    const r = await POST(post(body({
+      dry_run: false, items: [{ external_id: EID(1), folder_path: ['MES', '신규'] }],
+    })))
+    expect((await r.json()).results[0].status).toBe('failed')
   })
 })
 
