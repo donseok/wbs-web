@@ -63,7 +63,7 @@ export default async function MinutesPage() {
       <MinutesView initialMinutes={minutes} initialTree={user ? tree : null} todayIso={today}
         initialFavorites={user ? favs : null}
         explorerLayout={prefs.minutesExplorerLayout === 'list' ? 'list' : 'grid'}
-        initialView={initialView} projects={projects} defaultTeam={m?.teamCode ?? null}
+        initialView={initialView} projects={projects}
         currentUserId={user?.id ?? null} role={m?.role ?? null} />
     </ProjectPageShell>
   )

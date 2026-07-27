@@ -1,47 +1,39 @@
 'use client'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import type { MinuteFolder, TeamCode } from '@/lib/domain/types'
+import type { MinuteFolder } from '@/lib/domain/types'
 import {
   MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX,
-  MINUTE_BODY_MAX, sanitizeFileName, subgroupsOf,
-  subgroupFolderId, teamSubOfFolder,
+  MINUTE_BODY_MAX, sanitizeFileName, teamSubOfFolder,
 } from '@/lib/domain/minutes'
 import {
   createMinute, fetchMinuteFoldersLite, fetchProjectMeetingsLite, recordMinuteFile,
 } from '@/app/actions/minutes'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
-import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import { FolderTreeSelect } from '@/components/minutes/FolderTreeSelect'
 
 const BUCKET = 'minutes'
 
 export function MinuteUploadModal({
-  open, onClose, onSaved, todayIso, projects, defaultTeam, folders, defaultFolderId,
+  open, onClose, onSaved, todayIso, projects, folders, defaultFolderId,
 }: {
   open: boolean
   onClose: () => void
   onSaved: () => void
   todayIso: string
   projects: { id: string; name: string }[]
-  defaultTeam?: TeamCode | null
   folders: MinuteFolder[]
   defaultFolderId: string | null
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
-  // 탐색기에서 특정 폴더를 보며 열었으면 그 폴더의 (팀, 하위)를 초기값으로 — 시드 체인 밖이면 팀 탭 기본
-  const initial = teamSubOfFolder(folders, defaultFolderId)
-  const teamCodes = useTeamCodes()
-  const fallbackTeam = teamCodes[0] ?? 'PMO'
   const [date, setDate] = useState(todayIso)
-  const [team, setTeamState] = useState<TeamCode>(initial?.team ?? defaultTeam ?? fallbackTeam)
-  const [sub, setSub] = useState<string>(
-    initial?.sub ?? subgroupsOf(folders, initial?.team ?? defaultTeam ?? fallbackTeam)[0])
+  // 편철 폴더가 곧 담당 팀의 유일한 출처다(§6.3). 탐색기에서 보던 폴더를 초기 선택으로 물려받는다
+  const [folderId, setFolderId] = useState<string | null>(defaultFolderId)
   // 폴더 목록은 prop(탐색기 상태)으로 즉시 그리되 열림 시점에 재조회로 대체 — 하위 폴더가
-  // 삭제 가능해지면서 타 세션의 삭제·개명을 모르는 stale 목록이면 죽은 폴더 탭으로의 업로드가
+  // 삭제 가능해지면서 타 세션의 삭제·개명을 모르는 stale 목록이면 죽은 폴더로의 업로드가
   // 새로고침 전까지 반복 실패한다(수정 모달의 열림 시 재조회와 동일 패턴, 리뷰 반영)
   const [liveFolders, setLiveFolders] = useState<MinuteFolder[]>(folders)
   const [title, setTitle] = useState('')
@@ -52,31 +44,25 @@ export function MinuteUploadModal({
   const [meetingId, setMeetingId] = useState('')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
   const [busy, setBusy] = useState(false)
-  // 재조회 응답 도착 시점의 사용자 팀 선택을 초기 팀이 덮지 않게 현재 팀 추적(수정 모달과 동일 경합 가드)
-  const teamRef = useRef<TeamCode>(initial?.team ?? defaultTeam ?? fallbackTeam)
+  const [err, setErr] = useState<string | null>(null)
+  // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
+  const progressRef = useRef<{ id: string; done: number } | null>(null)
 
   useEffect(() => {
     let alive = true
     void fetchMinuteFoldersLite().then(fs => {
       if (!alive || fs.length === 0) return   // 빈 응답(조회 실패 폴백)은 prop 목록 유지
       setLiveFolders(fs)
-      // 현재 (팀, 하위)가 신선 목록에서도 유효하면 무접촉 — 사용자 선택 존중
-      setSub(cur => {
-        const names = subgroupsOf(fs, teamRef.current)
-        return names.includes(cur) ? cur : names[0]
-      })
+      // 타 세션이 지운 폴더가 선택된 채로 남으면 저장이 서버에서 반복 실패하고 사용자는 이유를
+      // 모른다 — 사라진 선택만 비워 재선택을 강제한다. 유효한 선택은 무접촉(사용자 선택 존중)
+      setFolderId(cur => (cur !== null && fs.some(f => f.id === cur) ? cur : null))
     }).catch(err => console.error('[MinuteUploadModal] 폴더 재조회 실패(프리페치 목록 사용):', err))
     return () => { alive = false }
   }, [])
 
-  function setTeam(next: TeamCode) {
-    setTeamState(next)
-    teamRef.current = next
-    setSub(subgroupsOf(liveFolders, next)[0])  // 팀 전환 시 하위 구분은 그 팀의 대표(첫 항목)로 재설정
-  }
-  const [err, setErr] = useState<string | null>(null)
-  // 부분 실패 후 재시도 시 회의록 재생성·파일 중복 기록 방지 (모달은 열 때마다 리마운트되므로 세션 단위)
-  const progressRef = useRef<{ id: string; done: number } | null>(null)
+  // 담당 팀은 입력이 아니라 선택 폴더에서 파생한다(§6.3). 파생 불가(시드 팀 루트 체인 밖)를
+  // 기본 팀으로 조용히 폴백하면 폴더와 team_code 가 어긋난 행이 계속 쌓이므로 저장 자체를 막는다.
+  const derivedTeam = teamSubOfFolder(liveFolders, folderId)?.team ?? null
 
   /** 파일 일괄 선택(단일 입력 UX) — 본문이 비어 있으면 첫 .md가 본문, 나머지는 전부 첨부로 자동 분류.
    *  검증을 모두 통과한 뒤에만 상태를 반영해 부분 적용을 막는다. */
@@ -107,6 +93,10 @@ export function MinuteUploadModal({
 
   async function save() {
     if (!bodyFile) { setErr(t('min.err.bodyRequired')); return }
+    // 저장 버튼 disabled 와 별개의 이중 방어 — 폴더가 team_code 의 유일한 출처라(§6.3)
+    // 여기서 새면 서버가 거절하기 전까지 불변식 위반 입력이 그대로 흘러간다
+    if (!folderId) { setErr(t('min.form.folderRequired')); return }
+    if (!derivedTeam) { setErr(t('min.form.folderNoTeam')); return }
     setBusy(true); setErr(null)
     try {
       let minuteId = progressRef.current?.id ?? null
@@ -118,12 +108,13 @@ export function MinuteUploadModal({
         const sb = createBrowserClient()
         const bodyUpload = await sb.storage.from(BUCKET).upload(bodyPath, bodyFile, { upsert: false })
         if (bodyUpload.error) { setErr(`${t('min.err.upload')}: ${bodyUpload.error.message}`); return }
-        // 편철 폴더 = (팀, 하위 구분) → 실폴더. 해석 실패(null)면 서버가 팀 루트로 자동 편철
+        // 편철 폴더는 사용자가 고른 실폴더 그대로. team_code 는 그 폴더에서 파생한 값이라
+        // 둘이 어긋날 수 없다(2단 강등 없이 4단 폴더도 그대로 유지)
         const res = await createMinute({
-          minuteDate: date, teamCode: team, title: title.trim() || bodyFile.name,
+          minuteDate: date, teamCode: derivedTeam, title: title.trim() || bodyFile.name,
           bodyMd: bodyText, meetingId: meetingId || null, projectId: projectId || null,
           meetingOccurrenceDate: meetingId ? date : null,
-        }, subgroupFolderId(liveFolders, team, sub), {
+        }, folderId, {
           minuteId: candidateId,
           file: {
             fileName: bodyFile.name,
@@ -179,7 +170,8 @@ export function MinuteUploadModal({
     <Modal open={open} onClose={onClose} title={t('min.upload')} size="md"
       footer={
         <div className="flex justify-end gap-2">
-          <button onClick={save} disabled={busy || !bodyFile} className="btn btn-primary">
+          {/* 폴더 미선택·팀 파생 불가는 저장 자체가 불가 — 눌러 본 뒤 에러로 알리는 UX 금지 */}
+          <button onClick={save} disabled={busy || !bodyFile || !derivedTeam} className="btn btn-primary">
             {busy ? t('min.form.saving') : t('min.form.save')}
           </button>
         </div>
@@ -189,23 +181,19 @@ export function MinuteUploadModal({
           <span className="mb-1 block font-medium">{t('min.form.date')}</span>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="app-input" />
         </label>
+        {/* 담당·하위 구분 2단 셀렉트를 트리 한 개로 대체(§6.1-1). 2단 강등의 원인이던
+            (팀, 하위) → 실폴더 재해석이 사라지고, 고른 폴더가 그대로 저장된다 */}
         <div className="text-sm">
-          <span className="mb-1 block font-medium">{t('min.form.team')}</span>
-          <SegmentedTabs<TeamCode>
-            tabs={teamCodes.map(tk => ({ key: tk, label: tk }))}
-            value={team} onChange={setTeam} size="sm" />
+          <span className="mb-1 block font-medium">{t('min.form.folder')}</span>
+          <FolderTreeSelect folders={liveFolders} value={folderId}
+            onChange={setFolderId} ariaLabel={t('min.form.folderPick')} />
+          {/* 필수 입력임을 고르기 전에 알린다 — 저장 버튼이 disabled 라 클릭 후 안내가 불가능하다.
+              폴더 목록 미확보(프리페치·재조회 모두 실패)로 트리가 빈 경우도 이 문구가 받는다 */}
+          {!folderId && (
+            <span className="mt-1 block text-xs text-ink-subtle">{t('min.form.folderRequired')}</span>)}
+          {folderId && !derivedTeam && (
+            <span className="mt-1 block text-xs text-delayed">{t('min.form.folderNoTeam')}</span>)}
         </div>
-        {/* 폴더 목록 미확보(프리페치 실패 등)면 하위 구분을 숨긴다 — 선택을 보여주고 무시하는
-            허위 어포던스 방지. 이때는 서버가 담당 팀 루트로 자동 편철한다 */}
-        {liveFolders.length > 0 && (
-          <div className="text-sm">
-            <span className="mb-1 block font-medium">{t('min.form.subTeam')}</span>
-            {/* 하위 구분 = 팀 루트의 실제 하위 폴더(생성/개명/삭제 즉시 반영). 하위 폴더가 없는 팀은 자기 자신 1개 */}
-            <SegmentedTabs
-              tabs={subgroupsOf(liveFolders, team).map(s => ({ key: s, label: s }))}
-              value={sub} onChange={setSub} size="sm" />
-          </div>
-        )}
         <label className="block text-sm">
           <span className="mb-1 block font-medium">{t('min.form.files')}</span>
           <input type="file" multiple onChange={e => void onFiles(e)} className="app-input pt-1.5" />

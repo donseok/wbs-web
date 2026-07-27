@@ -67,7 +67,7 @@ describe('MinutesView initialTree 서버 프리페치', () => {
     await act(async () => root.render(
       <MinutesView initialMinutes={[]} initialTree={initialTree} todayIso="2026-07-17"
         initialView={initialView} projects={[]} currentUserId="u1" role="pmo_admin"
-        defaultTeam={null} initialFavorites={initialFavorites} />,
+        initialFavorites={initialFavorites} />,
     ))
   }
   function buttonByText(text: string): HTMLButtonElement {
@@ -116,7 +116,7 @@ describe('MinutesView initialTree 서버 프리페치', () => {
   it('initialTree 미전달(기본값)도 기존 동작을 유지한다 — 하위 호환', async () => {
     await act(async () => root.render(
       <MinutesView initialMinutes={[]} todayIso="2026-07-17" initialView="tree"
-        projects={[]} currentUserId="u1" role="pmo_admin" defaultTeam={null} />,
+        projects={[]} currentUserId="u1" role="pmo_admin" />,
     ))
     expect(fetchMinutesExplorer).toHaveBeenCalledTimes(1)
   })

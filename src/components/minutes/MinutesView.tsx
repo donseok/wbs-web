@@ -33,7 +33,7 @@ function monthRangeOf(year: number, month0: number): [string, string] {
 }
 
 export function MinutesView({
-  initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role, defaultTeam,
+  initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role,
   initialFavorites = null, explorerLayout = 'grid',
 }: {
   initialMinutes: Minute[]
@@ -44,7 +44,6 @@ export function MinutesView({
   projects: { id: string; name: string }[]
   currentUserId: string | null
   role: string | null
-  defaultTeam?: TeamCode | null
   /** 서버에서 미리 실어 보낸 즐겨찾기 id 목록. null 이면(조회 실패·미로그인) 트리 뷰 진입 시 클라이언트가 직접 가져온다. */
   initialFavorites?: string[] | null
   explorerLayout?: ExplorerLayout
@@ -396,7 +395,7 @@ export function MinutesView({
             if (treeState !== 'idle') void loadTree()
             router.refresh()
           }}
-          todayIso={todayIso} projects={projects} defaultTeam={defaultTeam}
+          todayIso={todayIso} projects={projects}
           folders={explorerFolders} defaultFolderId={uploadFolderRef.current} />
       )}
       {/* 트리 뷰는 화면이 전 기간이므로 챗 범위도 전 기간으로 일치시킨다(월 라벨 '전체 기간'과 정합) */}

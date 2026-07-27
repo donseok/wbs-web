@@ -50,7 +50,9 @@ function teamChildFolders(folders: MinuteFolder[], team: TeamCode): MinuteFolder
 }
 
 /** 팀별 하위 구분 — 팀 루트의 실제 하위 폴더명. 하위 폴더가 없으면(팀 루트 부재 포함)
- *  자기 자신 1개(상위 폴더=하위 폴더). */
+ *  자기 자신 1개(상위 폴더=하위 폴더).
+ *  @deprecated §6 폴더 중심 재편으로 (팀, 하위 구분) 2단 모델이 폐지되어 프로덕션 사용처가 0이다.
+ *  편철 폴더는 FolderTreeSelect 로 직접 고르고 team 은 teamSubOfFolder 로 파생한다. */
 export function subgroupsOf(folders: MinuteFolder[], team: TeamCode): string[] {
   const names = teamChildFolders(folders, team).map(f => f.name)
   return names.length > 0 ? names : [team]
@@ -61,7 +63,8 @@ export function subgroupsOf(folders: MinuteFolder[], team: TeamCode): string[] {
  *  실제로 생기면 그 폴더가 진실이지, 별칭이 가로채 다른 폴더로 편철하면 안 된다. */
 const TEAM_SUB_ALIASES: Record<string, string> = { APS: '생산계획' }
 
-/** 별칭 해소 + 목록 검증 — 해당 팀의 하위 구분이 아니면 null(추측 금지). */
+/** 별칭 해소 + 목록 검증 — 해당 팀의 하위 구분이 아니면 null(추측 금지).
+ *  @deprecated §6 재편으로 프로덕션 사용처 0. APS→생산계획 별칭 결정을 보존하기 위해 남겨 둔다. */
 export function resolveTeamSub(folders: MinuteFolder[], team: TeamCode, sub: string): string | null {
   const names = subgroupsOf(folders, team)
   const trimmed = sub.trim()
@@ -74,7 +77,9 @@ export function resolveTeamSub(folders: MinuteFolder[], team: TeamCode, sub: str
  *  불문)가 있으면 그 폴더, 없으면(자기 자신 하위·목록 밖 값 포함) 팀 루트로 — 목록 밖 값을
  *  대표 하위로 수렴시키면 요청과 다른 형제로 오편철되므로 추측 없이 루트로 강등한다.
  *  루트조차 없으면 null(서버 자동 편철 폴백). 루트 매칭만 시드 한정 — 동명 사용자 **루트**
- *  폴더(스쿼팅) 배제. */
+ *  폴더(스쿼팅) 배제.
+ *  @deprecated §6 재편으로 프로덕션 사용처 0. **이 함수가 3단 이상 경로를 2단으로 강등시키던
+ *  주범**이다(루트 직계 자식 id 를 반환) — 되살리지 말 것. 편철은 폴더를 직접 고르게 한다. */
 export function subgroupFolderId(
   folders: MinuteFolder[], team: TeamCode, sub: string,
 ): string | null {

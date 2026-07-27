@@ -79,7 +79,7 @@ describe('MinutesView 트리 뷰 배선', () => {
   async function mount(initialView: 'list' | 'calendar' | 'tree' = 'calendar') {
     await act(async () => root.render(
       <MinutesView initialMinutes={[]} todayIso="2026-07-17" initialView={initialView}
-        projects={[]} currentUserId="u1" role="pmo_admin" defaultTeam={null} />,
+        projects={[]} currentUserId="u1" role="pmo_admin" />,
     ))
   }
   function buttonByText(text: string): HTMLButtonElement {
