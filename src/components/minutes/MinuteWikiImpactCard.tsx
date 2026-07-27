@@ -34,6 +34,7 @@ export type MinuteWikiImpactCardProps = {
   wikiHref?: string | null
   projectName?: string | null
   processedAt?: string | null
+  embedded?: boolean
 }
 
 const COUNT_STYLE: Record<keyof MinuteWikiImpactCounts, string> = {
@@ -128,6 +129,7 @@ export function MinuteWikiImpactCard({
   wikiHref,
   projectName,
   processedAt,
+  embedded = false,
 }: MinuteWikiImpactCardProps) {
   const { locale, t } = useLocale()
   const meta = statusStyle(status)
@@ -135,7 +137,7 @@ export function MinuteWikiImpactCard({
   const countEntries = (Object.keys(counts) as (keyof MinuteWikiImpactCounts)[])
 
   return (
-    <section className="card shrink-0 p-4" aria-labelledby="minute-wiki-title">
+    <section className={embedded ? 'min-w-0' : 'card shrink-0 p-4'} aria-labelledby="minute-wiki-title">
       <div className="flex flex-wrap items-center gap-2">
         <BookOpen className="h-4 w-4 text-brand" aria-hidden />
         <h2 id="minute-wiki-title" className="text-sm font-bold text-ink">

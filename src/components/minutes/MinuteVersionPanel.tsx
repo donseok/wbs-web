@@ -21,6 +21,7 @@ export type MinuteVersionPanelProps = {
   versions: MinuteVersionListItem[]
   currentVersionNo?: number | null
   selectedVersionNo?: number | null
+  embedded?: boolean
 }
 
 function versionDate(value: string, locale: 'ko' | 'en') {
@@ -39,6 +40,7 @@ export function MinuteVersionPanel({
   versions,
   currentVersionNo,
   selectedVersionNo,
+  embedded = false,
 }: MinuteVersionPanelProps) {
   const { locale, t } = useLocale()
   const ordered = [...versions].sort((a, b) => b.versionNo - a.versionNo)
@@ -108,7 +110,7 @@ export function MinuteVersionPanel({
   }
 
   return (
-    <section className="card shrink-0 p-4" aria-labelledby="minute-version-title">
+    <section className={embedded ? 'min-w-0' : 'card shrink-0 p-4'} aria-labelledby="minute-version-title">
       <div className="flex items-center gap-2">
         <History className="h-4 w-4 text-brand" aria-hidden />
         <h2 id="minute-version-title" className="text-sm font-bold text-ink">

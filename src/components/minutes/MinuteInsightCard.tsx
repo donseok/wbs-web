@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import type { InsightKind, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
@@ -19,7 +19,7 @@ const KIND_CHIP: Record<InsightKind, { chip: string; dot: string }> = {
 }
 
 export function MinuteInsightCard({
-  minuteId, insights, highlights, blocks, bodyHash, onJump,
+  minuteId, insights, highlights, blocks, bodyHash, onJump, details,
 }: {
   minuteId: string
   insights: MinuteInsight[]
@@ -27,6 +27,7 @@ export function MinuteInsightCard({
   blocks: MinuteBlock[]
   bodyHash: string
   onJump: (blockIndex: number) => void
+  details?: ReactNode
 }) {
   const { t } = useLocale()
   const router = useRouter()
@@ -53,8 +54,8 @@ export function MinuteInsightCard({
     runHeal()
   }, [cardState, runHeal])
 
-  // 표시할 것이 전무하면(빈 본문 등) 카드 자체를 숨김
-  if (blocks.length === 0) return null
+  // 빈 본문이어도 함께 묶인 버전/Wiki 정보가 있으면 요약 진입점은 유지한다.
+  if (blocks.length === 0 && !details) return null
 
   const counts = INS_PRIORITY.map(k => [k, items.filter(i => i.kind === k).length] as const)
     .filter(([, n]) => n > 0)
@@ -80,51 +81,58 @@ export function MinuteInsightCard({
       </div>
 
       {open && (
-        <div className="mt-2 max-h-60 space-y-2 overflow-y-auto">
-          {cardState === 'pending' && healState !== 'failed' && (
-            <p className="text-sm text-ink-muted">{t('min.insight.preparing')}</p>
-          )}
-          {cardState === 'pending' && healState === 'failed' && (
-            <p className="text-sm text-ink-muted">
-              {t('min.insight.unavailable')}
-              <button onClick={runHeal} className="ml-2 text-brand underline underline-offset-2">
-                {t('min.insight.retry')}
-              </button>
-            </p>
-          )}
-          {cardState === 'empty' && (
-            <p className="text-sm text-ink-muted">{t('min.insight.none')}</p>
-          )}
-          {cardState === 'ready' && (
-            <ul className="space-y-1">
-              {INS_PRIORITY.flatMap(k => items.filter(i => i.kind === k)).map(i => (
-                <li key={i.id}>
-                  <button onClick={() => onJump(i.blockIndex)}
-                    className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left text-sm text-ink hover:bg-surface-2">
-                    <span className={`chip mt-0.5 shrink-0 ${KIND_CHIP[i.kind as InsightKind].chip}`}>
-                      {t(`min.insight.kind.${i.kind as InsightKind}`)}
-                    </span>
-                    {/* 순수 텍스트 렌더 — LLM 산출물 링크화 금지(프롬프트 인젝션 차단, 스펙 §6.2) */}
-                    <span className="min-w-0 flex-1">{i.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {attention.length > 0 && (
-            <div className="border-t border-line pt-2">
-              <p className="eyebrow mb-1">{t('min.insight.attention')}</p>
+        <div className="mt-2 max-h-96 space-y-3 overflow-y-auto">
+          <div className="space-y-2">
+            {cardState === 'pending' && healState !== 'failed' && (
+              <p className="text-sm text-ink-muted">{t('min.insight.preparing')}</p>
+            )}
+            {cardState === 'pending' && healState === 'failed' && (
+              <p className="text-sm text-ink-muted">
+                {t('min.insight.unavailable')}
+                <button onClick={runHeal} className="ml-2 text-brand underline underline-offset-2">
+                  {t('min.insight.retry')}
+                </button>
+              </p>
+            )}
+            {cardState === 'empty' && (
+              <p className="text-sm text-ink-muted">{t('min.insight.none')}</p>
+            )}
+            {cardState === 'ready' && (
               <ul className="space-y-1">
-                {attention.map(a => (
-                  <li key={a.blockIndex}>
-                    <button onClick={() => onJump(a.blockIndex)}
-                      className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-sm text-ink-muted hover:bg-surface-2">
-                      <span className="min-w-0 flex-1 truncate">“{a.excerpt}”</span>
-                      <span className="chip shrink-0 bg-accent-warning/15 text-accent-warning">👤 {a.count}</span>
+                {INS_PRIORITY.flatMap(k => items.filter(i => i.kind === k)).map(i => (
+                  <li key={i.id}>
+                    <button onClick={() => onJump(i.blockIndex)}
+                      className="flex w-full items-start gap-2 rounded-lg px-1.5 py-1 text-left text-sm text-ink hover:bg-surface-2">
+                      <span className={`chip mt-0.5 shrink-0 ${KIND_CHIP[i.kind as InsightKind].chip}`}>
+                        {t(`min.insight.kind.${i.kind as InsightKind}`)}
+                      </span>
+                      {/* 순수 텍스트 렌더 — LLM 산출물 링크화 금지(프롬프트 인젝션 차단, 스펙 §6.2) */}
+                      <span className="min-w-0 flex-1">{i.label}</span>
                     </button>
                   </li>
                 ))}
               </ul>
+            )}
+            {attention.length > 0 && (
+              <div className="border-t border-line pt-2">
+                <p className="eyebrow mb-1">{t('min.insight.attention')}</p>
+                <ul className="space-y-1">
+                  {attention.map(a => (
+                    <li key={a.blockIndex}>
+                      <button onClick={() => onJump(a.blockIndex)}
+                        className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-sm text-ink-muted hover:bg-surface-2">
+                        <span className="min-w-0 flex-1 truncate">“{a.excerpt}”</span>
+                        <span className="chip shrink-0 bg-accent-warning/15 text-accent-warning">👤 {a.count}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          {details && (
+            <div className="grid gap-4 border-t border-line pt-3 xl:grid-cols-2">
+              {details}
             </div>
           )}
         </div>

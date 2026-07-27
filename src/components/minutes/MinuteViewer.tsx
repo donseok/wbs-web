@@ -491,18 +491,27 @@ export function MinuteViewer({
         <MinuteInsightCard
           minuteId={minute.id} insights={annotations.insights} highlights={annotations.highlights}
           blocks={blocks} bodyHash={bodyHash} onJump={jumpTo}
+          details={
+            <>
+              <MinuteVersionPanel
+                versions={versions}
+                currentVersionNo={versions[0]?.versionNo ?? null}
+                embedded
+              />
+              <MinuteWikiImpactCard {...wikiImpact} embedded />
+            </>
+          }
         />
       )}
 
-      {/* 기존 뷰어 흐름은 유지하고, 원본 보존과 Wiki 파생 결과만 보조 카드로 추가한다. */}
-      <div className="grid shrink-0 gap-4 xl:grid-cols-2">
+      {/* 과거 버전에서는 핵심 요약을 숨기므로 버전 이동 패널만 기존 위치에 유지한다. */}
+      {historicalVersion && (
         <MinuteVersionPanel
           versions={versions}
           currentVersionNo={versions[0]?.versionNo ?? null}
           selectedVersionNo={historicalVersion?.versionNo ?? null}
         />
-        {!historicalVersion && <MinuteWikiImpactCard {...wikiImpact} />}
-      </div>
+      )}
 
       {/* xl 미만 목차 아코디언은 MinuteToc 내부에서 분기 렌더 */}
       {/* 목차 + 본문 + (Task 17: 우측 채팅 패널) */}
