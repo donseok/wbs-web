@@ -6,9 +6,34 @@
 
 ---
 
-## 0. 최종 요약
+## 0. 최종 요약 (2026-07-27)
 
-_(모든 항목이 DONE/BLOCKED가 되면 여기 채운다)_
+**완료 18 / 차단 0 / 확인 필요 3**
+
+지시서 §4 표(W1·W1-b·W2~W10)와 §6.6 표(W18~W23) 전 항목 + 사용자 결정 E3으로 신설된 W24까지 구현·검증했다.
+지시서가 ⚠️ 결정 필요로 남긴 3건은 착수 시점에 사용자 결정(E1~E3)을 받아 **BLOCKED 없이** 진행했다.
+
+| 커밋 | 범위 |
+|---|---|
+| `4387576` | W8 — 계약서 v2.3 (충돌 문장 3개 + 요약표·§1.2·§4.2 잔존 3곳 정정) |
+| `c769ee5` | W1·W1-b·W2·W3·W4·W5·W24 — `folder_path` 코어 + 보관 상태 노출 |
+| `afc1943` | W6 — 배치 재편철 + 스냅샷 리팩터 |
+| `7df6c52` | W10a·W18·W20b·W21 — 서버 액션 + 순수 함수 2개 + 데이터 배관 |
+| `cd057a1` | 공용 — `folder-drop.ts` · `FolderTreeSelect` · i18n 26키 |
+| `d098b9f` | 배치 summary 항등식 테스트 |
+| `e682f17` | W19·W20a·W10b·W22 — UI 재편 + 죽은 어포던스 정리 |
+
+**검증**: `npx tsc --noEmit` · `npm run lint`(신규 경고 0) · `npm test` **203 files / 2412 tests 전부 통과** · `npm run build` 통과.
+**푸시하지 않았다** — 로컬 브랜치 `feat/minutes-folder-path`에만 있다.
+
+### 구현 중 드러난 지시서 밖 조치 4건 (전부 본문에 근거 기록)
+
+1. **W24 신설** — E3 결정에 따른 `include_archived` + `archived`. 지시서에 없던 작업 항목.
+2. **배치 status 사유 2개 추가** — `failed(folder_error)`·`failed(update_failed)`. → Q3
+3. **탐색기 루트 '새 폴더' 버튼 제거** — W18이 루트 생성을 거절하면서 **항상 실패하는 죽은 어포던스**가 됐다.
+   지시서는 W18의 이 파급을 적지 않았다. 폴더는 팀 폴더 ⋯ 메뉴의 '하위 폴더 추가'로만 만든다.
+4. **`FolderPickModal` 미분류 항목 제거** — §6.4가 "드롭 대상에 미분류를 포함하지 않는다"고 했는데
+   같은 조작이 픽커에는 남아 있었다. 폴더가 `team_code`의 유일한 출처가 되면 미분류 강등은 팀 파생을 끊는다.
 
 ---
 
@@ -72,18 +97,18 @@ _(모든 항목이 DONE/BLOCKED가 되면 여기 채운다)_
 | # | 담당 파일 | 작업 | 상태 | 검증 | 커밋 |
 |---|---|---|---|---|---|
 | **W10a** | `src/app/actions/minutes.ts` | `clearMinuteExternalId` 서버 액션 (§9.4) | **DONE** | tsc·lint·vitest | `7df6c52` |
-| **W10b** | `src/components/minutes/MinuteMetaModal.tsx` | 연동 식별자 표시 + 초기화 버튼 + 확인 다이얼로그 | TODO | — | — |
+| **W10b** | `src/components/minutes/MinuteMetaModal.tsx` | 연동 식별자 표시 + 초기화 버튼 + 확인 다이얼로그 | **DONE** | tsc·lint·vitest·build | `e682f17` |
 
 ### 3.3 폴더 중심 UI 재편 (§6)
 
 | # | 담당 파일 | 작업 | 상태 | 검증 | 커밋 |
 |---|---|---|---|---|---|
 | **W18** | `src/app/actions/minutes.ts:587` | `createMinuteFolder` — `parentId === null` 거절 | **DONE** | tsc·lint·vitest | `7df6c52` |
-| **W19** | `src/components/minutes/MinuteUploadModal.tsx` | 담당·하위 구분 제거 → 폴더 트리 피커(필수) | TODO | — | — |
-| **W20a** | `src/components/minutes/MinuteMetaModal.tsx` | 담당·하위 구분 제거 → 폴더 트리 피커 | TODO | — | — |
+| **W19** | `src/components/minutes/MinuteUploadModal.tsx` | 담당·하위 구분 제거 → 폴더 트리 피커(필수) | **DONE** | tsc·lint·vitest·build | `e682f17` |
+| **W20a** | `src/components/minutes/MinuteMetaModal.tsx` | 담당·하위 구분 제거 → 폴더 트리 피커 | **DONE** | tsc·lint·vitest·build | `e682f17` |
 | **W20b** | `src/app/actions/minutes.ts:673` | `moveMinuteToFolder` — 팀 넘어 이동 시 `team_code` 동반 + 메타 RPC | **DONE** | tsc·lint·vitest | `7df6c52` |
 | **W21** | `src/app/actions/minutes.ts` (신규) | `moveMinuteFolder` — `pmo_admin` 전용, 가드 M1~M5 | **DONE** | tsc·lint·vitest | `7df6c52` |
-| **W22** | `src/components/minutes/MinutesExplorer.tsx` | 회의록·폴더 D&D + 드롭 가능 시각 표시 | TODO | — | — |
+| **W22** | `src/components/minutes/MinutesExplorer.tsx` | 회의록·폴더 D&D + 드롭 가능 시각 표시 | **DONE** | tsc·lint·vitest·build | `e682f17` |
 | **W23** | 마이그레이션 | §2 조사 결과 **불변식 이미 성립 → 데이터 작업 없음** | **DONE** | tsc·lint·vitest | `—(불필요)` |
 
 ---
@@ -125,4 +150,26 @@ _(모든 항목이 DONE/BLOCKED가 되면 여기 채운다)_
 
 ## 7. 또박또박에 통보할 것 (§11.2 차수 기준)
 
-_(작업 완료 시 정리)_
+D'Flow 측은 **W1~W6·W24가 한 브랜치에 다 들어 있다.** 즉 배포되는 순간 또박또박의 2차·3차 전제가
+**동시에** 풀린다. E2(재편철을 전송 전환보다 앞세움)에 따라 순서는 또박또박이 지킨다.
+
+| # | 통보 내용 | 근거 |
+|---|---|---|
+| **1** | **정본 계약서가 v2.3으로 개정됐다.** 또박또박 사본(v2.1)을 이 파일로 동기화할 것(반대 방향 금지). 접두 제목·`folder_path` 부재·"해제 API 없음" 3개 문장이 이번에 뒤집혔다 | §4 ⚠️ W8 |
+| **2** | **`W6`(배치)가 `W1~W5`와 함께 나간다** → 3차(재편철)를 2차(전송 전환)보다 **먼저** 실행할 수 있다. E2 결정대로 그렇게 할 것. §11.2 차수표와 §11.3 ⑤를 이 결정으로 개정해야 한다 | E2 |
+| **3** | **응답 타입을 nullable로** — `folder_id: string \| null`, `folder_path: string[] \| null`. 둘 다 `null`이면 **미분류**다. `[]`는 응답으로 오지 않는다(경로는 최소 `[팀코드]`). `[]`로 받아 "팀 루트 편철됨"이라 안내하면 **정반대**다 (= `ddobak-W9` + §11.3 ⑥) | E1 |
+| **4** | **`ddobak-W8`(응답 `folder_path` 표시)을 필수로 승격**해 달라. D5로 사전 미리보기를 포기했으므로 이 에코가 **유일한 사후 피드백**이고, 깊이 5 절단과 '한 칸 내림'은 이것 없이는 사용자에게 영영 안 보인다 | §11.3 ② |
+| **5** | **배치 `status` 사유 2개 추가** — `failed(folder_error: …)`, `failed(update_failed: …)`. **DB 실패 계열이라 재실행으로 해소된다.** 기존 4개(`team_mismatch`·`folder_name_too_long`·`validation_failed`·`no_team_root`)는 입력·전제 문제라 재실행해도 같다. 이 구분으로 재시도 대상을 갈라야 한다 | Q3 |
+| **6** | **dry run은 폴더를 만들지 않는다** → 목표 폴더가 아직 없으면 `status: "moved"` + **`folder_id: null`** + `to`에 목표 경로. `folder_id`가 채워져 오면 그 폴더가 이미 실재한다는 뜻이다 | §8.2-8 |
+| **7** | **`include_archived=true` + 응답 `archived` 필드가 생겼다**(§9.7 (a) 채택). `exists_on_dflow: false`를 "초기화됨"으로 단정하지 말고, `GET /minutes?external_id=…&include_archived=true`로 **보관 여부를 구분**해 "D'Flow에서 보관됨 — 복원 후 다시 시도"를 안내할 것. `ddobak-W14` 문구와 `ddobak-W15`의 `RELINK_RESET` 분류가 이것에 직결된다 | E3 |
+| **8** | **`ddobak-W14`·`ddobak-W17`을 1~2차로 앞당길 것**(§11.3 ⑦). 둘 다 D'Flow 변경이 0인데, `ddobak-W14`는 D'Flow `W10`(연결 초기화)이 만드는 위험의 **완화책**이라 지금 배치는 완화책이 위험보다 뒤에 있다 — 그 사이 초기화 → 또박또박은 '연결됨' 표시 → 재전송 → **중복 생성 + 원본 고아**가 자가 치유되지 않는다 | §11.3 ⑦ |
+| **9** | 배치 실행 계정(`ACTOR_EMAIL`)을 **사전 합의**할 것 — 그 계정이 재편철로 생기는 폴더의 `created_by`가 된다. 전용 서비스 계정으로 돌리면 그 트리를 일반 사용자가 개명·삭제할 수 없다(§12 미해결 항목) | §12 |
+
+### 아직 남은 것 (D'Flow)
+
+- **런타임 스모크 미실시** — 로컬 dev 서버가 프로덕션 DB를 공유하고(D-CUBE 데이터 보호), 운영 쓰기는 금지라
+  `POST /minutes`(folder_path)·`POST /minutes/folder`의 실호출 검증을 하지 않았다. 단위·통합 테스트로만 덮여 있다.
+  **전용 테스트 프로젝트 또는 스테이징에서 §14.3 E6~E10 시나리오를 돌려야 한다.**
+- **배포 안 됨** — 로컬 브랜치에만 있다. 푸시·머지·Vercel 배포는 별도 결정.
+- §12 미해결 항목은 그대로다(깊이 절단 정책 정본화, 폴더 삭제 가드, 오매칭 후 본문 복구, zip 그룹핑 분할,
+  초기화분 후보 잔존, 구버전 replace의 team 불일치).
