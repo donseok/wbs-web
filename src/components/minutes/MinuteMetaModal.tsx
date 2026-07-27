@@ -54,7 +54,12 @@ export function MinuteMetaModal({
   useEffect(() => {
     if (!open) return
     let alive = true
-    void fetchMinuteFoldersLite().then(fs => { if (alive) setFolders(fs) })
+    void fetchMinuteFoldersLite().then(fs => {
+      if (!alive) return
+      // null = 조회 실패. 빈 배열('고를 폴더가 없다')과 구분해 원인을 화면에 남긴다.
+      if (fs === null) { console.error('[MinuteMetaModal] 폴더 목록 조회 실패'); setFolderLoadFailed(true); return }
+      setFolders(fs)
+    })
       .catch((e: unknown) => {
         if (!alive) return
         // 빈 트리는 '고를 폴더가 없다'와 구분되지 않으므로 반드시 화면에 남긴다(조용한 빈 화면 금지)

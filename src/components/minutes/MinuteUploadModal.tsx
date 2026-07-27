@@ -51,7 +51,12 @@ export function MinuteUploadModal({
   useEffect(() => {
     let alive = true
     void fetchMinuteFoldersLite().then(fs => {
-      if (!alive || fs.length === 0) return   // 빈 응답(조회 실패 폴백)은 prop 목록 유지
+      // null = 조회 실패 → prop 프리페치 목록을 유지한다. 빈 배열은 '폴더가 정말 없다'는 뜻이라
+      // 그대로 반영해야 저장 불가 안내가 뜬다(조회 실패와 뭉개면 원인을 알 수 없다).
+      if (!alive || fs === null) {
+        if (alive) console.error('[MinuteUploadModal] 폴더 재조회 실패 — 프리페치 목록 사용')
+        return
+      }
       setLiveFolders(fs)
       // 타 세션이 지운 폴더가 선택된 채로 남으면 저장이 서버에서 반복 실패하고 사용자는 이유를
       // 모른다 — 사라진 선택만 비워 재선택을 강제한다. 유효한 선택은 무접촉(사용자 선택 존중)

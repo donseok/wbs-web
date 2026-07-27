@@ -511,6 +511,38 @@ describe('건별 검증 실패 (계약 v2.4 ⑥ — 요청 전체 400 금지)', 
   })
 })
 
+describe('폴더 생성 시점 — 판정 전에 만들지 않는다(리뷰 지적)', () => {
+  it('APPLY 에서 skip 될 건의 목표 트리를 미리 만들지 않는다 — 빈 고아 폴더 방지', async () => {
+    // 현재 MES/기타(다른 가지) → 목표 MES/품질/신규. 조상이 아니라 skip 되어야 하고,
+    // 그 과정에서 '신규' 폴더가 만들어지면 아무도 안 쓰는 ACTOR 명의 폴더가 트리에 남는다.
+    const tree = [...TREE, { id: 'f-etc', name: '기타', parent_id: 'f-mes', created_by: 'u-9' }]
+    const { builders } = useAdmin({
+      minute_folders: [{ data: tree }],
+      minutes: [{ data: [minute(1, { folder_id: 'f-etc' })] }],
+    })
+    const r = await POST(post(body({
+      dry_run: false, items: [{ external_id: EID(1), folder_path: ['MES', '품질', '신규'] }],
+    })))
+    expect((await r.json()).results[0]).toMatchObject({ status: 'skipped', reason: 'manual_placement' })
+    // 스냅샷 조회 1회뿐 — insert 가 한 번도 일어나지 않았다
+    expect(builders.minute_folders).toHaveLength(1)
+  })
+
+  it('이동이 확정된 건에 대해서는 APPLY 가 폴더를 만든다', async () => {
+    const { builders } = useAdmin({
+      minute_folders: [{ data: TREE }, { data: { id: 'f-new' } }],
+      minutes: [{ data: [minute(1, { folder_id: 'f-q' })] }, { data: [{ id: 'm-1' }] }],
+    })
+    const r = await POST(post(body({
+      dry_run: false, items: [{ external_id: EID(1), folder_path: ['MES', '품질', '신규'] }],
+    })))
+    expect((await r.json()).results[0]).toMatchObject({ status: 'moved', folder_id: 'f-new' })
+    expect(builders.minute_folders[1].insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: '신규', parent_id: 'f-q', created_by: 'u-1' }),
+    )
+  })
+})
+
 describe('folder_path_status (결정 §2-C)', () => {
   it('정상 편철은 exact', async () => {
     useBatch([minute(1, { folder_id: 'f-mes' })])

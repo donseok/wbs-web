@@ -317,23 +317,41 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
 
 describe('updateMinuteMeta 폴더 이동(하위 구분, 수정 모달)', () => {
   const patch = { minuteDate: '2026-07-24', teamCode: 'MES' as const, title: '제목', meetingId: null }
-  it('folderId 전달 시 folder_id 포함 갱신', async () => {
+  it('folderId 전달 시 folder_id 포함 갱신 + team_code 를 폴더에서 파생(클라이언트 값 불신)', async () => {
+    const tree = [
+      { id: 'r-erp', name: 'ERP', parent_id: null, sort: 1, created_by: null },
+      { id: 'c-log', name: '물류', parent_id: 'r-erp', sort: 1, created_by: 'u1' },
+    ]
     const { client } = fakeClient({
       minutes: { data: { created_by: 'u1' }, error: null },
-      minute_folders: { data: { id: 'c-log' }, error: null },
+      minute_folders: { data: tree, error: null },
     })
     const { client: admin, rpc } = fakeMetadataAdmin()
     createServerClient.mockResolvedValue(client)
     adminMocks.createAdminClient.mockReturnValue(admin)
-    const r = await updateMinuteMeta('m1', patch, 'c-log')
+    // patch.teamCode 는 'MES' 인데 폴더는 ERP 서브트리다 — 서버가 폴더를 이긴다
+    const r = await updateMinuteMeta('m1', { ...patch, teamCode: 'MES' }, 'c-log')
     expect(r.ok).toBe(true)
     expect(rpc).toHaveBeenCalledWith(
       'update_minute_metadata_with_wiki_retraction',
       expect.objectContaining({
         p_minute_id: 'm1',
-        p_metadata: expect.objectContaining({ folder_id: 'c-log' }),
+        p_metadata: expect.objectContaining({ folder_id: 'c-log', team_code: 'ERP' }),
       }),
     )
+  })
+
+  it('시드 체인 밖 폴더는 거절 — 팀을 추측하지 않는다(§6.3 서버 강제)', async () => {
+    const tree = [{ id: 'orphan', name: '떠돌이', parent_id: null, sort: 100, created_by: 'u1' }]
+    const { client, calls } = fakeClient({
+      minutes: { data: { created_by: 'u1' }, error: null },
+      minute_folders: { data: tree, error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await updateMinuteMeta('m1', patch, 'orphan')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('담당 팀을 판정할 수 없는')
+    expect(calls['minutes']!.some(c => c.method === 'update')).toBe(false)
   })
   it('folderId 미전달이면 folder_id 무접촉 — 수동 편철 존중', async () => {
     const { client } = fakeClient({ minutes: { data: { created_by: 'u1' }, error: null } })

@@ -121,12 +121,18 @@ export async function createMinute(
     projectId: input.projectId,
   })
   if (resolvedProject.error) return { ok: false, error: resolvedProject.error }
+  // §6.3 — 폴더가 주어지면 team 은 폴더에서 파생한다(클라이언트 teamCode 불신).
+  let effectiveTeam = input.teamCode
   if (folderId) {
-    const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
-    if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const folders = await loadFolders(sb)
+    if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
+    if (!folders.some(f => f.id === folderId)) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const derived = teamSubOfFolder(folders, folderId)
+    if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
+    effectiveTeam = derived.team
   }
   // 폴더 미지정이면 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백
-  const effectiveFolderId = folderId ?? await resolveTeamRootFolderId(sb, input.teamCode)
+  const effectiveFolderId = folderId ?? await resolveTeamRootFolderId(sb, effectiveTeam)
   // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·다운스트림 전부 보정본 사용
   const fix = correctMinuteBodyTime(input.bodyMd)
   if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)
@@ -143,7 +149,7 @@ export async function createMinute(
   const { data: createdRaw, error: createError } = await admin.rpc('create_minute_with_version', {
     p_minute_id: source?.minuteId ?? null,
     p_minute_date: input.minuteDate,
-    p_team_code: input.teamCode,
+    p_team_code: effectiveTeam,
     p_title: input.title.trim(),
     p_body_md: bodyMd,
     p_body_hash: fnv1a64(bodyMd),
@@ -208,13 +214,21 @@ export async function updateMinuteMeta(
     projectId: patch.projectId,
   })
   if (resolvedProject.error) return { ok: false, error: resolvedProject.error }
+  // §6.3 — 폴더가 주어지면 team 은 **폴더에서 파생**한다. 클라이언트가 보낸 teamCode 를 그대로
+  // 믿으면 "폴더는 MES 인데 team_code 는 ERP" 인 데이터를 서버가 직접 만든다(파생은 UI 에만
+  // 있었다). 파생 불가 폴더(시드 체인 밖)는 추측하지 않고 거절한다.
+  let effectiveTeam = patch.teamCode
   if (folderId) {
-    const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
-    if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const folders = await loadFolders(sb)
+    if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
+    if (!folders.some(f => f.id === folderId)) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const derived = teamSubOfFolder(folders, folderId)
+    if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
+    effectiveTeam = derived.team
   }
   // folderId 미전달 = 폴더 무접촉(수동 편철 존중). 전달 시에만 하위 구분 변경으로 이동.
   const upd: Record<string, unknown> = {
-    minute_date: patch.minuteDate, team_code: patch.teamCode, title: patch.title.trim(),
+    minute_date: patch.minuteDate, team_code: effectiveTeam, title: patch.title.trim(),
     meeting_id: patch.meetingId,
     project_id: resolvedProject.projectId,
     meeting_occurrence_date: patch.meetingId
@@ -269,11 +283,14 @@ export async function updateMinuteMeta(
 }
 
 /** 폴더 전량(라이트) — 수정 모달의 하위 구분 초기화·편철용. 실패는 빈 배열(하위 구분 숨김). */
-export async function fetchMinuteFoldersLite(): Promise<MinuteFolder[]> {
+/** 폴더 전량(라이트). **실패는 null** — 폴더 선택이 필수가 된 §6 이후로는 빈 배열이 곧
+ *  "고를 것이 없는 막다른 모달"이라 조회 실패와 구분되지 않으면 원인 표시가 불가능하다
+ *  (fetchMinutesExplorer 와 같은 관례). */
+export async function fetchMinuteFoldersLite(): Promise<MinuteFolder[] | null> {
   const user = await getSession()
-  if (!user) return []
+  if (!user) return null
   const sb = await createServerClient()
-  return (await loadFolders(sb)) ?? []
+  return await loadFolders(sb)
 }
 
 /** 본문 교체 — 클라이언트가 새 .md 를 Storage 업로드한 뒤 호출. 기존 body 파일 0건 허용(복구 경로). */
@@ -753,8 +770,10 @@ export async function moveMinuteToFolder(
   if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
+  // §6.3 불변식은 서버에서도 강제한다 — 폴더가 team_code 의 유일한 출처이므로 미분류로
+  // 빼내면 팀 파생이 끊긴다. UI 는 이미 이 조작을 제공하지 않지만 액션이 유일한 방어선이다.
+  if (folderId === null) return { ok: false, error: '회의록은 폴더 밖으로 옮길 수 없습니다.' }
   const sb = await createServerClient()
-  // 폴더 존재 확인이 소유권 확인보다 먼저다(기존 순서 유지). 미분류(null)로 뺄 때는 조회하지 않는다.
   let folders: MinuteFolder[] | null = null
   if (folderId) {
     folders = await loadFolders(sb)

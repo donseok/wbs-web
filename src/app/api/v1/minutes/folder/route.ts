@@ -170,8 +170,12 @@ async function processItem(
   const teamCode = item.team ?? row.team_code
   const from = folderPathOfSnapshot(snap, row.folder_id)
 
+  // ⚠️ 판정 단계에서는 **절대 폴더를 만들지 않는다**(create: false). APPLY 라고 여기서 만들면
+  // 뒤이어 skipped(manual_placement) 로 건너뛸 건의 목표 트리까지 실제로 생성돼, 아무 회의록도
+  // 들어가지 않는 빈 폴더가 ACTOR 명의로 트리에 남는다. 생성은 "이동한다"가 확정된 뒤에 한다.
+  // 판정에는 생성이 필요 없다 — 조상 규칙은 **이미 존재하는** 조상 체인만 보면 되기 때문이다.
   const resolved = await resolveFolderPath(admin, teamCode, item.folderPath, {
-    actorId, activeTeamCodes, snapshot: snap, create: !batch.dryRun,
+    actorId, activeTeamCodes, snapshot: snap, create: false,
   })
   if (!resolved.ok) {
     // no_team_root 는 moved 로 집계하면 안 된다 — 배치는 '등록'이 아니라 '이동'이라
@@ -199,28 +203,34 @@ async function processItem(
     return { external_id: key, status: 'skipped', reason: 'manual_placement', from }
   }
 
-  const pathStatus = folderPathStatusOf({
-    folderId: targetId ?? resolved.folderId, truncated: resolved.truncated, failed: resolved.failed,
-  })
-
   if (batch.dryRun) {
     return {
-      external_id: key, status: 'moved', from, to: resolved.targetPath,
-      folder_id: targetId, folder_path_status: pathStatus,
+      external_id: key, status: 'moved', from, to: resolved.targetPath, folder_id: targetId,
+      folder_path_status: folderPathStatusOf({
+        folderId: resolved.folderId, truncated: resolved.truncated, failed: false,
+      }),
     }
   }
 
-  // APPLY 인데 경로를 끝까지 못 만들었다 = 폴더 생성 실패. 조상에 떨구면 리포트와 트리가 어긋난다.
-  if (!resolved.complete) {
+  // 이동이 확정된 지금에서야 부족한 폴더를 만든다.
+  const applied = await resolveFolderPath(admin, teamCode, item.folderPath, {
+    actorId, activeTeamCodes, snapshot: snap, create: true,
+  })
+  if (!applied.ok) return { external_id: key, status: 'failed', reason: applied.reason, from }
+  // 경로를 끝까지 못 만들었다 = 생성 실패. 조상에 떨구면 리포트(to)와 실제 트리가 어긋난다.
+  if (!applied.complete) {
     return {
       external_id: key, status: 'failed',
-      reason: `folder_error: ${resolved.targetPath.join('/')} 생성 실패`, from,
+      reason: `folder_error: ${applied.targetPath.join('/')} 생성 실패`, from,
     }
   }
+  const pathStatus = folderPathStatusOf({
+    folderId: applied.folderId, truncated: applied.truncated, failed: applied.failed,
+  })
   // updated_at 을 갱신하지 않는다(요건 2) — 대량 마이그레이션이 또박또박 목록에서
   // 전건 '방금 수정됨'으로 보이면 안 된다. 버전 append 도 없다(요건 3) — RPC 경유 금지.
   const { data, error } = await admin.from('minutes')
-    .update({ folder_id: resolved.folderId }).eq('id', row.id).select('id')
+    .update({ folder_id: applied.folderId }).eq('id', row.id).select('id')
   if (error) {
     console.error(`[minutes-api] 재편철 실패(${key}):`, error.message)
     return { external_id: key, status: 'failed', reason: `update_failed: ${error.message}`, from }
@@ -230,7 +240,7 @@ async function processItem(
   }
   return {
     external_id: key, status: 'moved', from,
-    to: resolved.targetPath, folder_id: resolved.folderId, folder_path_status: pathStatus,
+    to: applied.targetPath, folder_id: applied.folderId, folder_path_status: pathStatus,
   }
 }
 
