@@ -219,6 +219,19 @@ describe('applyQuickFilters', () => {
   it('notStarted=버킷 시작전만', () => {
     expect(applyQuickFilters(leaves, { ...off, notStarted: true }, today).map(c => c.id)).toEqual(['ns'])
   })
+  it('inProgress+notStarted=합집합(배타 버킷이라 AND면 항상 0건)', () => {
+    const ids = applyQuickFilters(leaves, { ...off, inProgress: true, notStarted: true }, today).map(c => c.id)
+    expect(ids).toEqual(['over', 'soon', 'far', 'ns'])
+  })
+  it('완료(100%)는 진행중+미착수 합집합에서 빠진다', () => {
+    const withDone = [...leaves, node('done', { status: 'done', rolledActualPct: 100, plannedEnd: '2026-07-10' })]
+    const ids = applyQuickFilters(withDone, { ...off, inProgress: true, notStarted: true }, today).map(c => c.id)
+    expect(ids).not.toContain('done')
+  })
+  it('다른 갈래끼리는 AND — 지연 + (진행중∪미착수)', () => {
+    const ids = applyQuickFilters(leaves, { ...off, overdue: true, inProgress: true, notStarted: true }, today).map(c => c.id)
+    expect(ids).toEqual(['over'])
+  })
 })
 
 describe('sortCards', () => {
