@@ -1,0 +1,132 @@
+#!/bin/sh
+#
+# pre-push 가드 — wbs-web (1층 관문)
+#
+# 설치: npm install 이 자동으로 `git config core.hooksPath .githooks` 를 건다
+#       (package.json 의 prepare 스크립트). 리포에 커밋되므로 모든 PC 에 따라간다.
+#
+# 왜 build/lint/test 를 여기서 돌리지 않는가:
+#   2026-07-27 사이드바 실종 회귀는 next build·tsc·eslint·vitest 2438건을 전부
+#   통과했다. 이미 초록인 검사를 push 마다 다시 돌리는 것은 시간만 쓰고 아무것도
+#   막지 못한다. 대신 "되돌리기를 불가능하게 만드는 커밋"과 "화면 사고가 프로덕션에
+#   직행하는 경로"만 막는다. 빌드 자체는 Vercel 이 어차피 강제한다.
+#
+# 우회: SKIP_GUARD=1 git push   (긴급용 — 배포 후 npm run smoke:prod 필수)
+
+set -u
+
+if [ "${SKIP_GUARD:-}" = "1" ]; then
+  printf '\033[33m⚠  SKIP_GUARD=1 — push 가드를 건너뜁니다.\033[0m\n' >&2
+  printf '\033[33m   배포 후 반드시 `npm run smoke:prod` 로 확인하세요.\033[0m\n' >&2
+  exit 0
+fi
+
+ZERO='0000000000000000000000000000000000000000'
+RED='\033[31m'; YEL='\033[33m'; GRN='\033[32m'; DIM='\033[2m'; OFF='\033[0m'
+
+# UI 위험 경로 — 여기가 깨지면 전 화면이 영향받고, 자동 검증으로는 잡히지 않는다.
+#
+# diff-tree 를 쓰는 이유: `git diff <sha>` 는 그 커밋과 **작업 트리**를 비교하므로
+# 지금 편집 중인 파일이 전부 섞여 들어와 거짓 양성이 난다. 커밋 자체가 무엇을
+# 바꿨는지 보려면 diff-tree 로 부모와 비교해야 한다.
+ui_touched() {
+  git diff-tree --no-commit-id --name-only -r "$1" \
+    | grep -qE '^(src/app/globals\.css|src/app/layout\.tsx|src/app/\(app\)/layout\.tsx|src/components/app/)'
+}
+
+STDIN_BUF=$(cat)
+[ -z "$STDIN_BUF" ] && exit 0
+
+fail=0
+tmp_msgs=$(mktemp)
+trap 'rm -f "$tmp_msgs"' EXIT
+
+while read -r local_ref local_oid remote_ref remote_oid; do
+  [ -z "${local_ref:-}" ] && continue
+  # 브랜치 삭제 push 는 검사 대상이 아니다
+  [ "$local_oid" = "$ZERO" ] && continue
+
+  if [ "$remote_oid" = "$ZERO" ]; then
+    # 원격에 없던 브랜치 — 다른 원격 브랜치에 없는 커밋만 대상으로
+    range=$(git rev-list "$local_oid" --not --remotes=origin 2>/dev/null)
+  else
+    range=$(git rev-list "$remote_oid..$local_oid" 2>/dev/null)
+  fi
+  [ -z "$range" ] && continue
+
+  # ── G1. 마이그레이션 + 코드 혼합 커밋 차단 ────────────────────────────
+  # 최근 30일 마이그레이션 동반 커밋 54건 중 40건이 같은 커밋에 src/ 를 담고 있었다.
+  # 그런 커밋은 git revert 를 해도 코드만 되돌고 DB 는 남아 되돌리기가 무의미해진다.
+  for sha in $range; do
+    files=$(git diff-tree --no-commit-id --name-only -r "$sha")
+    has_mig=$(printf '%s\n' "$files" | grep -cE '^supabase/migrations/' || true)
+    has_src=$(printf '%s\n' "$files" | grep -cE '^src/' || true)
+    if [ "$has_mig" -gt 0 ] && [ "$has_src" -gt 0 ]; then
+      {
+        printf '%bG1 마이그레이션+코드 혼합 커밋%b  %s %s\n' "$RED" "$OFF" \
+          "$(git rev-parse --short "$sha")" "$(git log -1 --pretty=%s "$sha")"
+        printf '   이 커밋은 revert 해도 DB 가 그대로 남아 되돌리기가 반쪽이 됩니다.\n'
+        printf '   %bgit rebase -i%b 로 마이그레이션과 코드를 별도 커밋으로 나눠주세요.\n' "$DIM" "$OFF"
+      } >> "$tmp_msgs"
+      fail=1
+    fi
+  done
+
+  # ── G2. main 직접 push 에 UI 위험 파일이 섞였는가 ─────────────────────
+  # 승인된 경로는 "브랜치 → Vercel Preview 확인 → 머지" 다. 머지 커밋이 하나라도
+  # 있으면 그 경로를 탄 것으로 보고 통과시키되, 전부 직행 커밋이면 막는다.
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    ui_hit=''
+    for sha in $range; do
+      if ui_touched "$sha"; then ui_hit="$ui_hit $sha"; fi
+    done
+    if [ -n "$ui_hit" ]; then
+      merges=$(git rev-list --merges "${remote_oid}..${local_oid}" 2>/dev/null | wc -l | tr -d ' ')
+      if [ "${merges:-0}" -eq 0 ]; then
+        {
+          printf '%bG2 UI 위험 파일이 main 으로 직행합니다%b\n' "$RED" "$OFF"
+          for sha in $ui_hit; do
+            printf '   %s %s\n' "$(git rev-parse --short "$sha")" "$(git log -1 --pretty=%s "$sha")"
+          done
+          printf '   globals.css / layout.tsx / components/app/* 는 전 화면에 영향을 주고\n'
+          printf '   빌드·린트·테스트로는 깨짐이 잡히지 않습니다. Preview 로 눈 확인이 필요합니다.\n\n'
+          printf '   %b브랜치로 옮기기:%b\n' "$GRN" "$OFF"
+          printf '     git switch -c ui/$(date +%%m%%d)-<주제>\n'
+          printf '     git push -u origin HEAD        # Vercel Preview URL 확인\n'
+          printf '     # 화면 확인 후 → git switch main && git merge --no-ff - && git push\n'
+        } >> "$tmp_msgs"
+        fail=1
+      else
+        printf '%b! main push 에 UI 변경 포함 — 머지 커밋 %s개 확인, 통과%b\n' "$YEL" "$merges" "$OFF" >&2
+        printf '%b  Preview 에서 화면을 확인하셨길 바랍니다.%b\n' "$DIM" "$OFF" >&2
+      fi
+    fi
+  fi
+done <<STDIN_EOF
+$STDIN_BUF
+STDIN_EOF
+
+# ── G3. 브레이크포인트 desync 검사 ─────────────────────────────────────
+# globals.css 의 반응형 안전망은 브레이크포인트를 리터럴로 하드코딩하고 있다.
+# @theme 에 --breakpoint-* 가 추가되면 Tailwind 와 조용히 어긋나고, unlayered 인
+# 안전망이 무조건 이기기 때문에 전 화면 반응형이 틀린 폭에서 전환된다.
+if [ -x node_modules/.bin/vitest ]; then
+  if ! node_modules/.bin/vitest run tests/css/breakpoint-safety-net.test.ts \
+       --reporter=dot --silent >/dev/null 2>&1; then
+    {
+      printf '%bG3 반응형 안전망 검사 실패%b\n' "$RED" "$OFF"
+      printf '   npx vitest run tests/css/breakpoint-safety-net.test.ts 로 원인을 확인하세요.\n'
+    } >> "$tmp_msgs"
+    fail=1
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '\n' >&2
+  cat "$tmp_msgs" >&2
+  printf '\n%b긴급하면 우회:%b SKIP_GUARD=1 git push %b(배포 후 npm run smoke:prod 필수)%b\n\n' \
+    "$DIM" "$OFF" "$DIM" "$OFF" >&2
+  exit 1
+fi
+
+exit 0
