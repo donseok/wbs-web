@@ -21,6 +21,20 @@ describe('validateFolderName', () => {
     expect(validateFolderName('가'.repeat(MINUTE_FOLDER_NAME_MAX + 1))).toBeTruthy())
   it('trim 후 상한 이내면 null', () =>
     expect(validateFolderName(`  ${'가'.repeat(MINUTE_FOLDER_NAME_MAX)}  `)).toBeNull())
+
+  // 계약 §4.9 — "60자 검증도 NFC 이후 길이 기준". 저장은 normalizeFolderName(NFC)인데
+  // 검증만 원문 길이를 재면 경계가 어긋난다: macOS 에서 만든 한글 이름은 NFD 라 자모가
+  // 분해돼 길이가 2~3배로 잡히고, 20자 폴더명이 UI 에서 "60자 초과"로 거절되는데
+  // 같은 이름을 외부 API 로 보내면(그쪽은 NFC 후 검증) 통과한다.
+  it('NFD 로 들어온 한글도 NFC 길이 기준으로 판정한다 — UI 와 외부 API 경계 일치', () => {
+    const nfc = '가'.repeat(MINUTE_FOLDER_NAME_MAX)
+    const nfd = nfc.normalize('NFD')
+    expect(nfd.length).toBeGreaterThan(MINUTE_FOLDER_NAME_MAX)   // 전제: 실제로 길어진다
+    expect(validateFolderName(nfd)).toBeNull()                    // NFC 로 재면 정확히 상한
+  })
+
+  it('NFD 로 들어와도 NFC 기준 초과면 거절한다', () =>
+    expect(validateFolderName('가'.repeat(MINUTE_FOLDER_NAME_MAX + 1).normalize('NFD'))).toBeTruthy())
 })
 
 describe('folderDepthOf', () => {

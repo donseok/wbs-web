@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { displayNameFrom } from '@/lib/domain/display-name'
-import { MINUTE_FOLDER_NAME_MAX, validateMinuteInput } from '@/lib/domain/minutes'
+import { MINUTE_FOLDER_NAME_MAX, normalizeFolderName, validateMinuteInput } from '@/lib/domain/minutes'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 import { splitMinuteBlocks } from '@/lib/minutes/blocks'
 import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
@@ -190,7 +190,10 @@ export function parseFolderPathValue(raw: unknown): FolderPathParse {
     }
     // NFC 정규화 — macOS 에서 만든 한글 폴더명은 NFD 로 오는 경우가 있다. 그대로 비교·생성하면
     // 눈에 같은 이름의 폴더가 두 개 생긴다(부분 유니크 인덱스도 바이트가 달라 막지 못한다).
-    const name = seg.trim().normalize('NFC')
+    // 계약 §4.9 가 "외부 API 원소와 UI 폴더 생성·개명이 모두 같은 함수를 통과한다"고 약속하므로
+    // 인라인 복제(`seg.trim().normalize('NFC')`)가 아니라 그 함수를 그대로 쓴다 — 결과는 같지만
+    // 한쪽만 바뀌면 조용히 갈라지고, 그 순간 계약이 거짓이 된다.
+    const name = normalizeFolderName(seg)
     if (!name) {
       return {
         ok: false,

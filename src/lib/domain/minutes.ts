@@ -214,11 +214,17 @@ export function normalizeFolderName(name: string): string {
   return name.trim().normalize('NFC')
 }
 
-/** 폴더 이름 검증 — 에러 메시지 또는 null (validateMinuteInput 관례). */
+/** 폴더 이름 검증 — 에러 메시지 또는 null (validateMinuteInput 관례).
+ *
+ *  ⚠️ 반드시 `normalizeFolderName` 을 거친 값으로 재야 한다. 저장은 NFC 인데 검증만 원문
+ *  길이를 재면 경계가 어긋난다 — macOS 에서 만든 한글 이름은 NFD 라 자모가 분해돼 길이가
+ *  2~3배로 잡히고, 20자짜리 한글 폴더명이 "60자 초과"로 거절되면서 같은 이름을 외부 API 로
+ *  보내면 통과한다(외부 API 는 NFC 후 검증한다). 계약 §4.9 의 "60자 검증도 NFC 이후 길이
+ *  기준"을 UI 경로에서도 참으로 만든다. */
 export function validateFolderName(name: string): string | null {
-  const trimmed = name.trim()
-  if (!trimmed) return '폴더 이름을 입력하세요.'
-  if (trimmed.length > MINUTE_FOLDER_NAME_MAX) return `폴더 이름은 ${MINUTE_FOLDER_NAME_MAX}자 이하여야 합니다.`
+  const normalized = normalizeFolderName(name)
+  if (!normalized) return '폴더 이름을 입력하세요.'
+  if (normalized.length > MINUTE_FOLDER_NAME_MAX) return `폴더 이름은 ${MINUTE_FOLDER_NAME_MAX}자 이하여야 합니다.`
   return null
 }
 

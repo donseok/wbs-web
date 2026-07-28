@@ -921,6 +921,138 @@ describe('W25 MINUTES_FOLDER_PATH_ENABLED = false (R1 배포 형상 · 결정 §
   })
 })
 
+describe('folder_path_status 에코 (결정 §2-C — POST 응답)', () => {
+  // 배치 results[] 쪽은 folder-batch.test.ts 가 덮지만 등록 응답은 검증이 0이었다.
+  // 또박또박 ddobak-W8 배지가 이 값 하나에 걸려 있어(절단·부분편철·미분류가 보이는 유일한 경로)
+  // 조용히 잘못된 값이 나가면 사용자에게 "정상 편철"로 보인다.
+  const created = { id: 'm-1', created_at: '2026-07-27T01:00:00+00:00', updated_at: '2026-07-27T01:00:00+00:00' }
+  const SEED_PMO = { id: 'f-pmo', name: 'PMO', parent_id: null, created_by: null }
+  const insertQueue = () => [{ data: null }, { data: created }]
+
+  it('정상 편철 → exact', async () => {
+    useAdmin({
+      minutes: insertQueue(),
+      minute_folders: [
+        { data: [SEED_PMO, { id: 'f-q', name: '품질', parent_id: 'f-pmo', created_by: 'u-9' }] },
+      ],
+    })
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-q', folder_path_status: 'exact' })
+  })
+
+  it('깊이 5 초과 절단 → truncated (경로도 5단으로 잘려 에코)', async () => {
+    useAdmin({
+      minutes: insertQueue(),
+      minute_folders: [
+        { data: [SEED_PMO] },
+        { data: { id: 'f-a' } }, { data: { id: 'f-b' } }, { data: { id: 'f-c' } }, { data: { id: 'f-d' } },
+      ],
+    })
+    const res = await POST(post({ ...payload, folder_path: ['신규TF', 'A', 'B', 'C', 'D'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({
+      folder_path: ['PMO', '신규TF', 'A', 'B', 'C'],
+      folder_path_status: 'truncated',
+    })
+  })
+
+  it('시드 루트 부재 → unclassified (등록은 201, folder_id·folder_path 는 null)', async () => {
+    useAdmin({ minutes: insertQueue(), minute_folders: [{ data: [] }] })
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
+    expect(res.status).toBe(201)
+    const json = await res.json()
+    expect(json).toMatchObject({ folder_path_status: 'unclassified' })
+    expect(json.folder_id).toBeNull()
+    expect(json.folder_path).toBeNull()
+  })
+
+  it('중간 폴더 생성 실패 → partial (조상에 편철하고 200/201 을 그대로 낸다 — 종전엔 완전 침묵)', async () => {
+    useAdmin({
+      minutes: insertQueue(),
+      minute_folders: [
+        { data: [SEED_PMO] },
+        { error: { message: 'insert denied' } },   // '품질' 생성 실패 → 조상(f-pmo)에 떨어진다
+      ],
+    })
+    const res = await POST(post({ ...payload, folder_path: ['PMO', '품질', '주간정례'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({
+      folder_id: 'f-pmo', folder_path: ['PMO'], folder_path_status: 'partial',
+    })
+  })
+})
+
+describe('구버전 replace 의 team 불일치 (결정 §6 — 플래그와 무관하게 동작)', () => {
+  // ⚠️ 이 경로는 §2-A 「플래그 표」와 계약 §4.8 의 "R1 은 POST /minutes 동작을 1비트도 바꾸지
+  // 않는다"에 대한 **명시적 예외**다. folder_path 키가 없는 구버전 클라이언트가 담당만 정정해
+  // 재전송하면 R1 구간에서도 폴더가 새 팀 루트로 옮겨진다. 계약 §4.5-11 이 정본.
+  const replaced = { id: 'm-1', created_at: existingRow.created_at, updated_at: '2026-07-27T02:00:00+00:00' }
+  const metadataOf = (admin: { rpc: { mock: { calls: unknown[][] } } }) => {
+    const call = admin.rpc.mock.calls.find(([fn]) => fn === 'commit_minute_body_version')
+    return (call![1] as { p_metadata: Record<string, unknown> }).p_metadata
+  }
+
+  it('플래그 false + folder_path 키 부재 + team 변경 → 새 팀 루트로 폴더를 옮긴다', async () => {
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
+    const { admin } = useAdmin({
+      minutes: [{ data: { ...existingRow, folder_id: 'f-old' } }, { data: replaced }],
+      // resolveTeamRootFolderId(ERP) → f-erp, 그다음 응답은 에코 역해석용 스냅샷
+      minute_folders: [
+        { data: { id: 'f-erp' } },
+        { data: [{ id: 'f-erp', name: 'ERP', parent_id: null, created_by: null }] },
+      ],
+    })
+    const res = await POST(post({ ...payload, team: 'ERP' }))
+    expect(res.status).toBe(200)
+    expect(metadataOf(admin)).toMatchObject({ folder_id: 'f-erp', team_code: 'ERP' })
+    expect(await res.json()).toMatchObject({ folder_id: 'f-erp', folder_path: ['ERP'] })
+  })
+
+  it('team 이 그대로면 폴더를 건드리지 않는다 (metadata 에 folder_id 키 없음)', async () => {
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
+    const { admin } = useAdmin({
+      minutes: [{ data: { ...existingRow, folder_id: 'f-old' } }, { data: replaced }],
+      minute_folders: [{ data: [{ id: 'f-old', name: 'PMO', parent_id: null, created_by: null }] }],
+    })
+    const res = await POST(post(payload))
+    expect(res.status).toBe(200)
+    expect(metadataOf(admin)).not.toHaveProperty('folder_id')
+  })
+
+  it('새 팀 루트가 없으면 폴더를 유지한다 — 등록 자체는 실패시키지 않는다', async () => {
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
+    const { admin } = useAdmin({
+      minutes: [{ data: { ...existingRow, folder_id: 'f-old' } }, { data: replaced }],
+      minute_folders: [
+        { data: null },                                                              // 팀 루트 조회 실패
+        { data: [{ id: 'f-old', name: 'PMO', parent_id: null, created_by: null }] }, // 에코는 기존 위치
+      ],
+    })
+    const res = await POST(post({ ...payload, team: 'ERP' }))
+    expect(res.status).toBe(200)
+    expect(metadataOf(admin)).not.toHaveProperty('folder_id')
+    expect(await res.json()).toMatchObject({ folder_id: 'f-old' })
+  })
+
+  it('플래그 true + folder_path 가 실려 오면 team 이동 분기를 타지 않는다 (folder_path 가 이긴다)', async () => {
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'true')
+    const { admin } = useAdmin({
+      minutes: [{ data: { ...existingRow, folder_id: 'f-old' } }, { data: replaced }],
+      minute_folders: [
+        { data: [
+          { id: 'f-erp', name: 'ERP', parent_id: null, created_by: null },
+          { id: 'f-sales', name: '영업', parent_id: 'f-erp', created_by: 'u-9' },
+        ] },
+      ],
+    })
+    const res = await POST(post({ ...payload, team: 'ERP', folder_path: ['ERP', '영업'] }))
+    expect(res.status).toBe(200)
+    expect(metadataOf(admin)).toMatchObject({ folder_id: 'f-sales' })
+    expect(await res.json()).toMatchObject({ folder_id: 'f-sales', folder_path: ['ERP', '영업'] })
+  })
+})
+
 describe('GET /api/v1/minutes (§5.1, §9.6 ⑪)', () => {
   it('external_id 정확 일치 조회 + url 포함 응답', async () => {
     const { builders } = useAdmin({ minutes: [{ data: [existingRow], count: 1 }] })
