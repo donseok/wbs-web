@@ -29,6 +29,13 @@ D'Flow. Next.js 15 (App Router) + Tailwind v4 + Supabase. 프로덕션은 `origi
   ```
   pre-push 훅(G2)은 **"원격 어디에도 올라간 적 없는 UI 커밋"** 이 main 으로 가는 것만 막는다.
   브랜치로 한 번이라도 push 했다면 Preview 를 받은 것이므로 ff 머지든 `--no-ff` 든 통과한다.
+
+  ⚠️ **Preview 의 한계를 알고 쓸 것** — 이 프로젝트의 Vercel env 는 **전부 Production 대상이고
+  Preview 대상은 0건**이다(2026-07-28 `vercel env ls` 실측). 즉 Preview 배포는 Supabase 에
+  접근하지 못해 **로그인 뒤 화면을 볼 수 없다.** `globals.css` 변경은 로그인 페이지가 CSS 전량을
+  로드하므로 확인이 되지만, `src/components/app/*` 변경은 Preview 로 검증할 수 없다.
+  **G2 는 무심코 직행하는 것을 막는 속도 방지턱이지, 화면이 멀쩡하다는 보증이 아니다.**
+  (뒤집어 말하면 Preview 에서 운영 데이터가 훼손될 위험도 없다.)
   Preview 가 필요 없는 변경이라면 근거를 커밋에 남긴다:
   `git commit --amend --trailer "Preview-checked: n/a — 주석만 수정"`
 - **`git push --force origin main` 금지.** 병렬 세션의 커밋이 소리 없이 사라진다.

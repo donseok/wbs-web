@@ -11,7 +11,8 @@
 
 ## 1. 현재 상태
 
-**브랜치 `feat/minutes-folder-path` (origin에 푸시됨, 13커밋, `main` 미머지)**
+**브랜치 `feat/minutes-folder-path` (origin에 푸시됨, `main` 미머지)**
+※ 커밋 수는 계속 늘어 적지 않는다 — `git log --oneline origin/main..HEAD | wc -l` 로 확인할 것.
 
 | 구분 | 상태 |
 |---|---|
@@ -21,14 +22,32 @@
 | 배포 | **안 됨.** `main` 미머지 |
 | 런타임 스모크 | **미실시** (아래 §2-1) |
 
-### ⚠️ 푸시로 Vercel Preview가 뜬다 — 프로덕션 DB를 공유한다
+### ⚠️ Vercel Preview 는 **환경변수가 0건**이라 아무것도 못 한다 (2026-07-28 실측 정정)
 
-이 레포는 Preview도 **운영 Supabase를 그대로 본다**. Preview URL에서 폴더 D&D·폴더 삭제·회의록 이동을
-시험하면 **운영 데이터가 실제로 바뀐다.** 기능 확인이 필요하면 전용 테스트 프로젝트에서 하고,
-Preview에서는 화면 렌더 정도만 볼 것.
+**종전 서술("Preview 도 운영 Supabase 를 그대로 본다 → 운영 데이터가 실제로 바뀐다")은 거짓이었다.**
+`vercel env ls` 실측: 등록된 18개 변수가 **전부 Production(일부 Development) 대상**이고
+**Preview 대상은 0건**이다 — `NEXT_PUBLIC_SUPABASE_URL`·`ANON_KEY`·`SERVICE_ROLE_KEY` 모두 없다.
 
-단 외부 API(`/api/v1/minutes*`)는 `MINUTES_API_ENABLED` + 시크릿 2단 게이트라 Preview에 그 env가
-없으면 전 라우트 404다.
+따라서 실제 상태는 이렇다:
+
+| | 실제 |
+|---|---|
+| 운영 데이터 훼손 위험 | **없다** — DB 자격증명이 없어 접근 자체가 불가 |
+| 로그인 뒤 화면(사이드바·탐색기·D&D) 확인 | **불가** — 인증이 안 되므로 도달할 수 없다 |
+| 비인증 화면(로그인 페이지) CSS·렌더 확인 | 가능 |
+| 외부 API(`/api/v1/minutes*`) | `MINUTES_API_ENABLED` 부재 → 전 라우트 **404** |
+| 접근 자체 | Vercel SSO 로 보호됨(비로그인 `curl` 은 302) |
+
+**함의 2가지 — 그냥 넘기지 말 것**
+
+1. **Preview 를 스테이징으로 쓸 수 없다.** 런타임 스모크(§2-1)는 여전히 전용 테스트 Supabase 가 필요하다.
+   쓰려면 Preview 대상 env(테스트 프로젝트 향)를 심어야 하고, 그 순간 **운영 DB 를 가리키지 않도록**
+   반드시 별도 프로젝트를 써야 한다.
+2. **`main` 의 pre-push G2 가드가 기대만큼 강하지 않다.** G2 는 "브랜치로 push 했다 = Preview 를 받았다
+   = 눈으로 확인했다"를 전제하는데, Preview 에서 확인 가능한 것은 **로그인 페이지 수준**뿐이다.
+   `globals.css` 변경은 그래도 유효하지만(로그인 페이지가 CSS 전량을 로드한다),
+   `src/components/app/*` 변경은 Preview 로 검증할 수 없다. G2 는 "무심코 직행"을 막는 속도 방지턱이지
+   화면 검증의 보증이 아니다.
 
 ---
 
@@ -57,10 +76,22 @@ Preview에서는 화면 렌더 정도만 볼 것.
 
 ### 2-3. 배포 (R1)
 
-1. `main` 머지
-2. Vercel env에 **`MINUTES_FOLDER_PATH_ENABLED=false`** 설정 (없으면 기본 false지만 명시 권장)
-3. 배포 후 §2-1 스모크 1·2·3 재확인
-4. 또박또박에 §4 통보
+⚠️ **2026-07-28 부터 `main` 에 git 운영 가드레일이 있다**(`CLAUDE.md` · `docs/runbook-rollback.md`).
+아래 순서는 그 규칙을 반영한 것이다.
+
+1. **브랜치 최신화** — `git merge origin/main` (안 하면 pre-push 가드가 이 브랜치에서 돌지 않는다)
+2. 검증 재실행 — `npx tsc --noEmit` · `npx eslint` · `npx vitest run` · `npm run build`
+3. `main` 머지 — **`--no-ff`** 로. 되돌릴 때 머지 커밋 하나만 revert 하면 된다
+   ※ 이 브랜치는 `globals.css`·`components/app/*` 을 건드리므로 G2 대상이다. 브랜치가 이미
+     origin 에 push 돼 있으면 통과한다(= Preview 를 받았다는 판정). Preview 의 한계는 §1 참조
+4. Vercel env 에 **`MINUTES_FOLDER_PATH_ENABLED=false`** 명시 설정
+   (없어도 코드 기본값이 false 지만, R2 전환 때 "값을 false 로 바꾸는 것"과 "키를 새로 만드는 것"이
+    달라지므로 지금 만들어 두는 편이 안전하다). **`MINUTES_FOLDER_DND_ENABLED` 는 만들지 않는다**(R4 전까지 닫힘)
+5. 배포 확인 후 **`npm run smoke:prod`** — CSS 전달·구조 손실 검사(2층 관문). 실패하면 배포를 성공으로
+   보고하지 말고 `docs/runbook-rollback.md` 로
+6. §2-1 외부 API 스모크 1·2·3 재확인 (**주의**: 5번의 `smoke:prod` 와 다른 것이다 — 이쪽은 계약 §14.2 curl)
+7. 화면을 눈으로 확인한 뒤 **`npm run mark:good`** — 다음 사고 때 되돌아갈 좌표
+8. 또박또박에 통보 — `docs/design/ddobak-notice-2026-07-28.md` (계약 v2.4 동봉)
 
 ### 2-4. 재편철 1회차 (결정 §4) — 사람이 판단하는 유일한 구간
 
@@ -101,7 +132,7 @@ Preview에서는 화면 렌더 정도만 볼 것.
 
 ---
 
-## 3. 판단 필요 2건 (내가 임의로 진행하지 않은 것)
+## 3. 판단 필요 2건 — ✅ **전건 결정 완료 (2026-07-28)**
 
 ### 3-1. R1 / R4 분리 방식 — ✅ **결정됨 (2026-07-28): (c) UI에도 플래그**
 
