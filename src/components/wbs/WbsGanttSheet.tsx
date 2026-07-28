@@ -367,6 +367,14 @@ export function WbsGanttSheet({
     [items, effCollapsed, matchKeep],
   )
   const allFlatItems = useMemo(() => flatten(items, new Set()), [items])
+  // 가중치 헤더 밑 합계 — 1레벨(Phase) 가중치의 합. 가중치는 형제 그룹 안에서만 의미가 있어
+  // '전체 합'이 성립하는 층은 루트뿐이다(하위까지 더하면 그룹 수만큼 100%가 쌓인다).
+  // 100%에서 벗어나면 배분 누락·오타 신호이므로 색으로 구분한다.
+  const rootWeightTotalPct = useMemo(() => {
+    const weighted = items.filter(n => n.weight != null)
+    if (weighted.length === 0) return null
+    return Number(weighted.reduce((sum, n) => sum + weightToPct(n.weight as number), 0).toFixed(2))
+  }, [items])
   const dependencySchedule = useMemo(
     () => computeDependencySchedule(
       allFlatItems.map(item => ({
@@ -644,9 +652,16 @@ export function WbsGanttSheet({
     'box-border flex h-[var(--wbs-head-h)] min-w-0 shrink-0 items-center overflow-hidden whitespace-nowrap bg-sheet-head px-2 font-semibold uppercase tracking-[0.08em] text-ink-muted border-b border-grid-strong'
   const cellBase = 'box-border flex h-full shrink-0 items-center border-b border-grid px-2'
 
-  const headCell = (col: Col, label: string, align = 'justify-start', extra = '') => {
+  const headCell = (
+    col: Col,
+    label: string,
+    align = 'justify-start',
+    extra = '',
+    sub?: { text: string; title: string; warn?: boolean },
+  ) => {
     const frozen = col.frozen
     const isName = col.key === 'name'
+    const subAlign = align === 'justify-end' ? 'items-end' : align === 'justify-center' ? 'items-center' : 'items-start'
     return (
       <div
         key={col.key}
@@ -658,9 +673,23 @@ export function WbsGanttSheet({
           fontSize: 'var(--wbs-head-font, 10px)',
           ...(frozen ? { position: 'sticky', left: col.sk, zIndex: 50 } : {}),
         }}
-        title={label}
+        title={sub ? `${label} — ${sub.title}` : label}
       >
-        {label}
+        {sub ? (
+          <span className={`flex min-w-0 flex-col gap-0.5 leading-none ${subAlign}`}>
+            <span className="truncate">{label}</span>
+            <span
+              data-wbs-head-sub={col.key}
+              className={`truncate font-semibold normal-case tabular-nums tracking-normal ${
+                sub.warn ? 'text-delayed' : 'text-ink-subtle'
+              }`}
+            >
+              {sub.text}
+            </span>
+          </span>
+        ) : (
+          label
+        )}
       </div>
     )
   }
@@ -866,7 +895,19 @@ export function WbsGanttSheet({
             {showCol('deliverable') && headCell(COLS[5], t('wbs.colDeliverable'), 'justify-start')}
             {showCol('pstart') && headCell(COLS[6], t('wbs.colPlannedStart'), 'justify-center')}
             {showCol('pend') && headCell(COLS[7], t('wbs.colPlannedEnd'), 'justify-center')}
-            {showCol('weight') && headCell(COLS[8], t('wbs.colWeight'), 'justify-end')}
+            {showCol('weight') && headCell(
+              COLS[8],
+              t('wbs.colWeight'),
+              'justify-end',
+              '',
+              rootWeightTotalPct == null
+                ? undefined
+                : {
+                    text: `(${rootWeightTotalPct}%)`,
+                    title: t('wbs.weightTotalTitle'),
+                    warn: Math.abs(rootWeightTotalPct - 100) > 0.01,
+                  },
+            )}
             {showCol('pplan') && headCell(COLS[9], t('wbs.colPlannedPct'), 'justify-end')}
             {showCol('pactual') && headCell(COLS[10], t('wbs.colActualPct'), 'justify-end')}
             {showCol('achieve') && headCell(COLS[11], t('wbs.colAchievement'), 'justify-center')}
