@@ -87,7 +87,7 @@ const SPRING_OPEN_MS = 600
  *  leaves 는 팀 탭 필터가 이미 적용된 것 — 카운트·스코프가 필터와 정합. folders 는 항상 전부. */
 export function MinutesExplorer({
   folders, leaves, favorites, onToggleFavorite, onRetryFavorites,
-  layout, currentUserId, isAdmin, onChanged, onFolderSelect,
+  layout, currentUserId, isAdmin, dndEnabled = false, onChanged, onFolderSelect,
 }: {
   folders: MinuteFolder[]
   leaves: ExplorerLeaf[]
@@ -97,6 +97,10 @@ export function MinutesExplorer({
   layout: ExplorerLayout
   currentUserId: string | null
   isAdmin: boolean
+  /** R4 게이트(결정 §2-A C-2) — 끄면 **드래그앤드롭만** 닫힌다. [이동] 버튼의 폴더 픽커와
+   *  업로드·수정 모달의 폴더 트리 선택은 그대로 열려 있다. 서버 액션 `moveMinuteFolder` 도
+   *  같은 플래그로 막히므로 UI 를 우회해도 통하지 않는다. */
+  dndEnabled?: boolean
   onChanged: () => void
   onFolderSelect?: (folderId: string | null) => void
 }) {
@@ -229,6 +233,9 @@ export function MinutesExplorer({
 
   async function handleDrop(e: DragEvent<HTMLElement>, targetFolderId: string) {
     e.preventDefault()
+    // R4 게이트 — 드래그가 시작될 수 없으므로 정상 경로로는 여기 오지 않지만, 다른 창에서
+    // 온 드래그가 우연히 같은 페이로드 형식을 실어 오는 경우까지 막는다(fail-closed).
+    if (!dndEnabled) return
     const item = drag ?? parseDragItem(e.dataTransfer.getData('text/plain'))
     endDrag()
     if (!item) {
@@ -259,7 +266,9 @@ export function MinutesExplorer({
     const active = scope.kind === 'folder' && scope.id === f.id
     const FolderIcon = active || isExpanded ? FolderOpen : Folder
     // 시드 팀 루트는 0043 편철 앵커라 드래그 자체를 막는다(§6.8) — 서버 M1 과 같은 기준.
-    const canDragFolder = isAdmin && !isTeamRootFolder(f)
+    // R4 게이트 — 폴더 이동은 D&D 가 유일한 경로라 게이트가 곧 기능 차단이다.
+    // 서버 액션 moveMinuteFolder 도 같은 플래그로 막는다(UI 우회 방지).
+    const canDragFolder = dndEnabled && isAdmin && !isTeamRootFolder(f)
     const accepts = acceptingIds.has(f.id)
     const dropActive = accepts && dropTargetId === f.id
     return (
@@ -427,7 +436,8 @@ export function MinutesExplorer({
                   {shown.map(l => (
                     <MinuteCard key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
                       fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
-                      canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
+                      canMove={canMoveLeaf(l)} canDrag={dndEnabled && canMoveLeaf(l)}
+                      onMove={() => setMovingId(l.id)}
                       dragging={drag?.kind === 'minute' && drag.id === l.id}
                       onDragStart={e => startDrag(e, { kind: 'minute', id: l.id })} onDragEnd={endDrag}
                       onToggle={onToggleFavorite} />
@@ -439,7 +449,8 @@ export function MinutesExplorer({
                     {shown.map(l => (
                       <MinuteRow key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
                         fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
-                        canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
+                        canMove={canMoveLeaf(l)} canDrag={dndEnabled && canMoveLeaf(l)}
+                      onMove={() => setMovingId(l.id)}
                         dragging={drag?.kind === 'minute' && drag.id === l.id}
                         onDragStart={e => startDrag(e, { kind: 'minute', id: l.id })} onDragEnd={endDrag}
                         onToggle={onToggleFavorite} />
@@ -507,10 +518,14 @@ function CategoryChip({ cat, t }: { cat: MeetingCategory; t: T }) {
 }
 
 function MinuteCard({
-  l, fav, favDisabled, canMove, onMove, onToggle, folderName, t, dragging, onDragStart, onDragEnd,
+  l, fav, favDisabled, canMove, canDrag, onMove, onToggle, folderName, t, dragging, onDragStart, onDragEnd,
 }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
-  canMove: boolean; onMove: () => void
+  /** [이동] 버튼 노출 권한. R4 게이트와 무관하게 유지된다. */
+  canMove: boolean
+  /** 드래그 가능 여부 = 권한 && R4 게이트(dndEnabled). 버튼과 분리해 둔다. */
+  canDrag: boolean
+  onMove: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragging: boolean
   onDragStart: (e: DragEvent<HTMLElement>) => void
@@ -518,11 +533,11 @@ function MinuteCard({
 }) {
   return (
     <article
-      draggable={canMove}
-      onDragStart={canMove ? onDragStart : undefined}
-      onDragEnd={canMove ? onDragEnd : undefined}
+      draggable={canDrag}
+      onDragStart={canDrag ? onDragStart : undefined}
+      onDragEnd={canDrag ? onDragEnd : undefined}
       className={`card relative flex flex-col gap-2 p-4 transition-shadow duration-150 hover:shadow-[var(--shadow-md)] ${
-        canMove ? 'cursor-grab select-none active:cursor-grabbing' : ''} ${dragging ? 'opacity-40' : ''}`}
+        canDrag ? 'cursor-grab select-none active:cursor-grabbing' : ''} ${dragging ? 'opacity-40' : ''}`}
     >
       {/* draggable={false} 필수 — <a> 는 브라우저 기본 draggable 이라, 전면 오버레이인 이 Link 가
           카드 드래그를 가로채고 text/uri-list(주소)를 실어 보낸다(회의록 이동이 URL 드래그가 된다). */}
@@ -565,10 +580,14 @@ function MinuteCard({
 }
 
 function MinuteRow({
-  l, fav, favDisabled, canMove, onMove, onToggle, folderName, t, dragging, onDragStart, onDragEnd,
+  l, fav, favDisabled, canMove, canDrag, onMove, onToggle, folderName, t, dragging, onDragStart, onDragEnd,
 }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
-  canMove: boolean; onMove: () => void
+  /** [이동] 버튼 노출 권한. R4 게이트와 무관하게 유지된다. */
+  canMove: boolean
+  /** 드래그 가능 여부 = 권한 && R4 게이트(dndEnabled). 버튼과 분리해 둔다. */
+  canDrag: boolean
+  onMove: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragging: boolean
   onDragStart: (e: DragEvent<HTMLElement>) => void
@@ -576,10 +595,10 @@ function MinuteRow({
 }) {
   return (
     <li
-      draggable={canMove}
-      onDragStart={canMove ? onDragStart : undefined}
-      onDragEnd={canMove ? onDragEnd : undefined}
-      className={`relative ${canMove ? 'cursor-grab select-none active:cursor-grabbing' : ''} ${
+      draggable={canDrag}
+      onDragStart={canDrag ? onDragStart : undefined}
+      onDragEnd={canDrag ? onDragEnd : undefined}
+      className={`relative ${canDrag ? 'cursor-grab select-none active:cursor-grabbing' : ''} ${
         dragging ? 'opacity-40' : ''}`}
     >
       {/* draggable={false} 필수 — 카드와 같은 이유(전면 <a> 오버레이가 드래그를 가로챈다) */}

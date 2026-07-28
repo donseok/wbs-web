@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const getSession = vi.fn()
 const getMembership = vi.fn()
@@ -447,6 +447,12 @@ describe('moveMinuteToFolder', () => {
 /* ── W21 폴더 이동 (§6.5) ──────────────────────────────────────────────────── */
 
 describe('moveMinuteFolder (W21 — pmo_admin 전용, 가드 M1~M5)', () => {
+  // R4 게이트(결정 §2-A C-2) 이후 폴더 이동은 MINUTES_FOLDER_DND_ENABLED 뒤에 있다.
+  // 이 스위트는 **게이트가 열렸을 때의 가드 M1~M5** 를 검증하는 것이므로 플래그를 켠다.
+  // 게이트 자체(기본 닫힘·오설정 차단·인증보다 앞)는 tests/actions/minutes-dnd-gate.test.ts.
+  beforeEach(() => { vi.stubEnv('MINUTES_FOLDER_DND_ENABLED', 'true') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
   /** PMO(f1) / 하위(f2) / 하위-깊이2(f5) · MES(f3) / 품질(f4) */
   const tree = [
     { id: 'f1', name: 'PMO', parent_id: null, sort: 0, created_by: null },

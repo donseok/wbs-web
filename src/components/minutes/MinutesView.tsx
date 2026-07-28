@@ -34,7 +34,7 @@ function monthRangeOf(year: number, month0: number): [string, string] {
 
 export function MinutesView({
   initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role,
-  initialFavorites = null, explorerLayout = 'grid',
+  initialFavorites = null, explorerLayout = 'grid', dndEnabled = false,
 }: {
   initialMinutes: Minute[]
   /** 서버에서 미리 실어 보낸 트리. null 이면(조회 실패 포함) 마운트 후 클라이언트가 직접 가져온다. */
@@ -47,6 +47,9 @@ export function MinutesView({
   /** 서버에서 미리 실어 보낸 즐겨찾기 id 목록. null 이면(조회 실패·미로그인) 트리 뷰 진입 시 클라이언트가 직접 가져온다. */
   initialFavorites?: string[] | null
   explorerLayout?: ExplorerLayout
+  /** R4 게이트(결정 §2-A C-2) — 서버에서 `folderDndEnabled()` 로 평가해 내려준다.
+   *  클라이언트에서 직접 env 를 읽으면 항상 false 라 서버와 어긋난다. */
+  dndEnabled?: boolean
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
@@ -375,7 +378,7 @@ export function MinutesView({
               onToggleFavorite={id => void toggleFav(id)}
               onRetryFavorites={() => void loadFavorites()}
               layout={exLayout}
-              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'}
+              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'} dndEnabled={dndEnabled}
               onChanged={() => { void loadTree(); router.refresh() }}
               onFolderSelect={id => { uploadFolderRef.current = id }} />
           </div>

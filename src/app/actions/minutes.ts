@@ -10,6 +10,7 @@ import {
   type MinuteInput,
 } from '@/lib/domain/minutes'
 import { canDropFolder, type FolderDropReason } from '@/lib/domain/folder-drop'
+import { folderDndEnabled } from '@/lib/minutes/flags'
 import {
   getMinuteDetail, getMinuteFavorites, getMinutesExplorer, getMinutesPage, searchMinutes,
 } from '@/lib/data/minutes'
@@ -868,6 +869,10 @@ const FOLDER_DROP_ERRORS: Record<FolderDropReason, string> = {
 export async function moveMinuteFolder(
   id: string, parentId: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  // R4 게이트(결정 §2-A C-2) — 폴더 이동은 D&D 로만 들어온다(MinutesExplorer 드롭 핸들러가
+  // 유일한 호출부). UI 에서 draggable 을 끄는 것만으로는 액션이 열려 있으므로 여기서도 막는다.
+  // 재편철 1회차 APPLY 후 MINUTES_FOLDER_DND_ENABLED=true 로 개방한다.
+  if (!folderDndEnabled()) return { ok: false, error: '폴더 이동은 아직 열려 있지 않습니다.' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const m = await getMembership()

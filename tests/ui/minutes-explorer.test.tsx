@@ -61,7 +61,7 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
       <MinutesExplorer folders={folders} leaves={leaves} favorites={new Set(['m1'])}
         onToggleFavorite={onToggle} onRetryFavorites={onRetry}
         layout="grid"
-        currentUserId="u1" isAdmin={false} onChanged={onChanged} onFolderSelect={onFolderSelect}
+        currentUserId="u1" isAdmin={false} dndEnabled onChanged={onChanged} onFolderSelect={onFolderSelect}
         {...over} />,
     ))
   }
@@ -233,6 +233,30 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
   it('이동 버튼은 작성자가 아니고 관리자도 아니면 없다', async () => {
     await mount({ currentUserId: 'other' })
     expect(container.querySelectorAll('button[aria-label="min.fold.move"]').length).toBe(0)
+  })
+
+  // ── R4 게이트(결정 §2-A C-2) ───────────────────────────────────────────────
+  // 재편철 1회차 전에 사용자가 회의록·폴더를 옮기면 그 건이 배치에서 skipped(manual_placement)
+  // 로 빠져 부분 일치가 '완료'로 보고된다. 이 스위트의 나머지는 게이트가 열린 상태(mount 기본값
+  // dndEnabled)를 검증하므로, 닫힌 상태를 여기서 따로 고정한다.
+  it('dndEnabled=false 면 폴더·회의록 draggable 이 전부 꺼진다', async () => {
+    await mount({ isAdmin: true, dndEnabled: false })
+    const draggables = [...container.querySelectorAll('[draggable="true"]')]
+    expect(draggables).toHaveLength(0)
+  })
+
+  it('dndEnabled=false 여도 [이동] 버튼과 폴더 픽커는 그대로 동작한다 — 게이트 범위는 D&D 한정', async () => {
+    await mount({ dndEnabled: false })
+    const moveBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.move"]')]
+      .find(b => b.closest('article')?.textContent?.includes('APS 인터뷰'))!
+    await act(async () => moveBtn.click())
+    await act(async () => dialogButtonByText('APS 회의').click())
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m1', 'f-aps')
+  })
+
+  it('dndEnabled=true 면 관리자에게 폴더 draggable 이 살아난다 — 게이트 외 조건은 그대로', async () => {
+    await mount({ isAdmin: true, dndEnabled: true })
+    expect([...container.querySelectorAll('[draggable="true"]')].length).toBeGreaterThan(0)
   })
 
   it('선택 폴더가 사라지면(재조회 후) all 강등', async () => {
