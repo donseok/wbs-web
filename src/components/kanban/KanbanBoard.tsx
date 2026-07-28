@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Layers, Users, Columns3, Search, Inbox } from 'lucide-react'
 import type { ComputedItem, Membership } from '@/lib/domain/types'
@@ -261,20 +261,27 @@ export function KanbanBoard({
               { key: 'all', label: t('kanban.lensAll') },
             ]}
           />
-          <div className="flex flex-wrap gap-1.5">
+          {/* 빠른 필터 — 다중 선택. 일정(지연·이번주마감)과 진척(진행중·미착수)은 서로 다른 갈래라
+              AND로 좁히고, 같은 갈래 안(진행중·미착수)은 OR로 합친다. 구분선으로 갈래를 눈에 보이게. */}
+          <div className="flex flex-wrap items-center gap-1.5">
             {([
-              ['overdue', 'kanban.qfOverdue'],
-              ['dueThisWeek', 'kanban.qfDueThisWeek'],
-              ['inProgress', 'kanban.qfInProgress'],
-              ['notStarted', 'kanban.qfNotStarted'],
-            ] as [keyof QuickFilters, DictKey][]).map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={quick[k]}
-                onClick={() => toggleQuick(k)}
-                className={`badge transition ${quick[k] ? 'bg-brand text-white' : 'bg-surface-2 text-ink-muted hover:text-ink'}`}
-              >{t(label)}</button>
+              ['overdue', 'kanban.qfOverdue', 'schedule'],
+              ['dueThisWeek', 'kanban.qfDueThisWeek', 'schedule'],
+              ['inProgress', 'kanban.qfInProgress', 'bucket'],
+              ['notStarted', 'kanban.qfNotStarted', 'bucket'],
+            ] as [keyof QuickFilters, DictKey, 'schedule' | 'bucket'][]).map(([k, label, group], i, arr) => (
+              <Fragment key={k}>
+                {i > 0 && arr[i - 1][2] !== group && (
+                  <span aria-hidden className="h-4 w-px shrink-0 bg-grid" />
+                )}
+                <button
+                  type="button"
+                  aria-pressed={quick[k]}
+                  title={t(group === 'bucket' ? 'kanban.qfBucketHint' : 'kanban.qfScheduleHint')}
+                  onClick={() => toggleQuick(k)}
+                  className={`badge transition ${quick[k] ? 'bg-brand text-white' : 'bg-surface-2 text-ink-muted hover:text-ink'}`}
+                >{t(label)}</button>
+              </Fragment>
             ))}
           </div>
           <div className="relative">

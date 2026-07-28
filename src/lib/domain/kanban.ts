@@ -142,12 +142,19 @@ export interface QuickFilters {
   notStarted: boolean
 }
 
-/** 빠른 필터(켜진 것만 AND). overdue=파생 지연, in/not=실적% 버킷, dueThisWeek=오늘~+6일 마감. */
+/**
+ * 빠른 필터 — 다중 선택. 서로 다른 갈래끼리는 AND, 같은 갈래 안에서는 OR(패싯 검색과 같은 규칙).
+ * overdue=파생 지연, dueThisWeek=오늘~+6일 마감, inProgress·notStarted=실적% 버킷(한 갈래).
+ * 버킷을 AND로 묶으면 '진행중+미착수'가 서로 배타적이라 결과가 항상 0건이 된다 — 켤 수는 있는데
+ * 보드가 비어버리는 막다른 조합이 생기므로, 같은 갈래는 합집합으로 본다.
+ */
 export function applyQuickFilters(leaves: ComputedItem[], f: QuickFilters, today: string): ComputedItem[] {
+  const buckets: ProgressBucket[] = []
+  if (f.inProgress) buckets.push('in_progress')
+  if (f.notStarted) buckets.push('not_started')
   return leaves.filter(leaf => {
     if (f.overdue && leaf.status !== 'delayed') return false
-    if (f.inProgress && bucketOf(leaf.rolledActualPct) !== 'in_progress') return false
-    if (f.notStarted && bucketOf(leaf.rolledActualPct) !== 'not_started') return false
+    if (buckets.length > 0 && !buckets.includes(bucketOf(leaf.rolledActualPct))) return false
     if (f.dueThisWeek) {
       if (!leaf.plannedEnd) return false
       const d = dayDiff(today, leaf.plannedEnd)
