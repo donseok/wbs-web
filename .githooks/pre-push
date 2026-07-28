@@ -45,6 +45,12 @@ GIT='git -c core.quotePath=false'
 
 UI_RE='^(src/app/globals\.css|src/app/layout\.tsx|src/app/\(app\)/layout\.tsx|src/components/app/)'
 
+# 머지 커밋의 **자체 변경**(이른바 evil merge) — 충돌을 해결하며 어느 부모에도 없던 내용을
+# 끼워 넣은 것. `git log --no-merges` 로는 **보이지 않고**(파일 0건), 평범한 diff-tree 도
+# 머지 커밋에는 빈 출력을 낸다. `--cc` 만이 "모든 부모와 다른 변경"을 정확히 골라낸다.
+# 실측: 4개 파일을 끼운 머지에서 --no-merges=0건 / --cc=4건.
+evil_files() { $GIT diff-tree --cc --no-commit-id --name-only -r "$1" 2>/dev/null; }
+
 STDIN_BUF=$(cat)
 [ -z "$STDIN_BUF" ] && exit 0
 
@@ -71,6 +77,8 @@ while read -r local_ref local_oid remote_ref remote_oid; do
     continue
   fi
   [ -z "$range" ] && continue
+  # 같은 범위의 머지 커밋 — 아래 G1·G2 가 evil merge 를 따로 검사한다.
+  merges=$($GIT rev-list --merges "$local_oid" --not --remotes="$REMOTE" 2>/dev/null)
 
   # ── G1. 마이그레이션 + 코드 혼합 커밋 차단 ────────────────────────────
   # 최근 30일 마이그레이션 동반 커밋 54건 중 40건이 같은 커밋에 src/ 를 담고 있었다.
@@ -97,6 +105,18 @@ while read -r local_ref local_oid remote_ref remote_oid; do
         END { if (sha != "" && mig && src && !rev) print sha "\t" subj }
       '
   )
+  # 머지 커밋 자체 변경도 같은 기준으로 본다. revert 예외는 두지 않는다 —
+  # revert 를 머지 커밋 안에 숨기는 것은 정상 흐름이 아니다.
+  for sha in $merges; do
+    files=$(evil_files "$sha")
+    [ -z "$files" ] && continue
+    if printf '%s\n' "$files" | grep -qE '^supabase/migrations/' \
+       && printf '%s\n' "$files" | grep -qE '^src/'; then
+      g1="${g1}${g1:+
+}$sha	$($GIT log -1 --pretty=%s "$sha") [머지 커밋 자체 변경]"
+    fi
+  done
+
   if [ -n "$g1" ]; then
     {
       printf '%sG1 마이그레이션+코드 혼합 커밋%s\n' "$RED" "$OFF"
@@ -131,6 +151,18 @@ while read -r local_ref local_oid remote_ref remote_oid; do
           END { if (sha != "" && hit && checked == "") print sha "\t" subj }
         '
     )
+    # 머지 커밋이 충돌 해결을 빙자해 UI 위험 파일을 고쳤다면 그 변경은 어느 브랜치에도
+    # 없었으므로 Preview 를 받은 적이 없다 — 이 훅이 막으려는 바로 그 경로다.
+    for sha in $merges; do
+      files=$(evil_files "$sha")
+      [ -z "$files" ] && continue
+      printf '%s\n' "$files" | grep -qE "$UI_RE" || continue
+      checked=$($GIT log -1 --pretty='%(trailers:key=Preview-checked,valueonly)' "$sha" | tr -d ' \t\r\n')
+      [ -n "$checked" ] && continue
+      g2="${g2}${g2:+
+}$sha	$($GIT log -1 --pretty=%s "$sha") [머지 커밋 자체 변경]"
+    done
+
     if [ -n "$g2" ]; then
       {
         printf '%sG2 Preview 를 거치지 않은 UI 변경이 main 으로 직행합니다%s\n' "$RED" "$OFF"
