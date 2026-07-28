@@ -23,11 +23,14 @@ D'Flow. Next.js 15 (App Router) + Tailwind v4 + Supabase. 프로덕션은 `origi
   이 파일들은 전 화면에 영향을 주는데 **빌드·린트·타입체크·테스트로 깨짐이 잡히지 않는다**
   (2026-07-27 사고 때 vitest 2438건이 전부 통과했다). Vercel Preview 에서 눈으로 봐야 한다.
   ```bash
-  git switch -c ui/0728-<주제>
+  git switch -c ui/<주제>
   git push -u origin HEAD      # Preview URL 에서 화면 확인
-  git switch main && git merge --no-ff - && git push
+  git switch main && git merge ui/<주제> && git push   # ff 머지도 괜찮다
   ```
-  pre-push 훅(G2)이 머지 커밋 없는 main 직행을 막는다.
+  pre-push 훅(G2)은 **"원격 어디에도 올라간 적 없는 UI 커밋"** 이 main 으로 가는 것만 막는다.
+  브랜치로 한 번이라도 push 했다면 Preview 를 받은 것이므로 ff 머지든 `--no-ff` 든 통과한다.
+  Preview 가 필요 없는 변경이라면 근거를 커밋에 남긴다:
+  `git commit --amend --trailer "Preview-checked: n/a — 주석만 수정"`
 - **`git push --force origin main` 금지.** 병렬 세션의 커밋이 소리 없이 사라진다.
 
 ### 배포와 검증
@@ -45,11 +48,13 @@ npm run mark:good        # 화면까지 확인됐으면 known-good 태그를 남
 
 `.githooks/pre-push` — `npm install` 이 `core.hooksPath` 를 걸어 자동 설치된다(리포에 커밋되므로 모든 PC 에 따라감). 검사는 셋:
 
-| | 내용 |
-|---|---|
-| G1 | 마이그레이션+코드 혼합 커밋 차단 |
-| G2 | UI 위험 파일의 main 직행 차단 |
-| G3 | 반응형 안전망 desync·충돌 검사 |
+| | 내용 | 예외 |
+|---|---|---|
+| G1 | 마이그레이션+코드 혼합 커밋 차단 | 머지·revert 커밋은 제외 |
+| G2 | Preview 를 거치지 않은 UI 변경의 main 직행 차단 | `Preview-checked:` 트레일러 |
+| G3 | 반응형 안전망 desync·충돌 검사 | vitest 없으면 건너뛰고 그 사실을 알림 |
+
+검사 대상은 **이번 push 로 원격에 처음 올라가는 커밋**(`--not --remotes`)뿐이다. 브랜치에 `origin/main` 을 머지해도 남의 커밋이 검사에 끌려들어오지 않는다.
 
 빌드/테스트는 여기서 돌리지 않는다 — 이미 초록인 검사를 반복해 시간만 쓴다. 빌드는 Vercel 이 강제한다.
 긴급 우회는 `SKIP_GUARD=1 git push`. 우회했으면 배포 후 `npm run smoke:prod` 를 반드시 돌린다.

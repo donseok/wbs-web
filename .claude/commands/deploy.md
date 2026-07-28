@@ -43,8 +43,10 @@ allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git a
 
 | | 차단 조건 | 해소 |
 |---|---|---|
-| G1 | 마이그레이션과 `src/` 코드가 같은 커밋 | `git rebase -i`로 분리 |
-| G2 | UI 위험 파일(`globals.css`·`layout.tsx`·`components/app/*`)이 머지 없이 main 직행 | 브랜치 → Preview 확인 → `--no-ff` 머지 |
+| G1 | 마이그레이션과 `src/` 코드가 같은 커밋 (머지·revert 커밋은 제외) | `git rebase -i`로 분리 |
+| G2 | UI 위험 파일(`globals.css`·`layout.tsx`·`components/app/*`)이 **원격 어디에도 올라간 적 없이** main 직행 | 브랜치로 push해 Preview 확인 후 머지(ff 가능), 또는 `Preview-checked:` 트레일러 |
 | G3 | 반응형 안전망 desync·충돌 | `npx vitest run tests/css/breakpoint-safety-net.test.ts` |
+
+검사 대상은 이번 push로 원격에 처음 올라가는 커밋뿐이다(`--not --remotes`). 범위 계산이 실패하면 fail-closed로 막으므로, 그때는 `git fetch origin` 후 재시도한다.
 
 긴급 시 `SKIP_GUARD=1 git push`로 우회할 수 있으나, **우회했으면 배포 후 스모크(6번)는 반드시 돌린다.**

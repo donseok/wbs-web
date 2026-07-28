@@ -58,14 +58,25 @@ git log --oneline <태그>..origin/main       # 그 사이에 뭐가 들어왔�
 git switch main && git pull
 git revert <범인-sha>
 git push origin main
-
-# (b) 특정 못 하겠고 일단 화면부터 살려야 한다 — known-good 상태로 되돌린다.
-git switch -c hotfix/rollback-$(date +%m%d) <태그>
-git push -u origin HEAD                     # Preview 에서 눈으로 확인
-# 확인되면 main 에 머지
 ```
 
-**(b) 를 강제 push 로 하지 말 것.** `git push --force origin main` 은 병렬 세션이 올린 커밋을 소리 없이 날린다. 이 리포는 여러 PC·여러 세션이 동시에 쓴다.
+```bash
+# (b) 특정 못 하겠고 일단 화면부터 살려야 한다 — 트리를 known-good 상태로 되돌린다.
+git switch main && git pull
+git restore --source=<태그> --staged --worktree -- .   # 추가·삭제·수정 전부 되돌림
+git status                                             # 무엇이 되돌아가는지 눈으로 확인
+git commit -m "revert: <태그> 상태로 되돌림 — <사유>"
+git push origin main
+
+# 검산: 트리가 태그와 정확히 같아야 한다
+[ "$(git rev-parse HEAD^{tree})" = "$(git rev-parse <태그>^{tree})" ] && echo 되돌림 확인
+```
+
+> **`git merge <태그>` 로 되돌리려 하지 말 것.** known-good 태그는 `main` 의 **조상**이므로 머지는 "Already up to date" 로 끝나고 트리가 1바이트도 바뀌지 않는다. 재배포조차 트리거되지 않는데 운영자는 "롤백했다"고 믿게 된다. 되돌리려면 위처럼 **새 커밋으로 트리를 덮어써야** 한다.
+
+**강제 push 를 쓰지 말 것.** `git push --force origin main` 은 병렬 세션이 올린 커밋을 소리 없이 날린다. 이 리포는 여러 PC·여러 세션이 동시에 쓴다.
+
+(b) 를 실행하기 전에 Preview 로 먼저 보고 싶다면, 위 명령을 `main` 대신 새 브랜치에서 수행하고 push 해 Preview 를 받은 뒤 `main` 에 머지한다 — 이때는 되돌림 **커밋**을 머지하는 것이라 no-op 이 아니다.
 
 ## 4. DB 가 얽혀 있을 때 — 여기서 판단이 필요하다
 
@@ -87,7 +98,13 @@ git diff --name-only <태그>..origin/main -- supabase/migrations/
 | RLS 정책 변경 | ⚠️ 확인 필요 | 옛 코드의 접근 패턴이 새 정책에 막힐 수 있다 |
 | 데이터 백필 | ⚠️ 확인 필요 | 백필 자체는 보통 무해하나 되돌릴 수 없다 |
 
-역방향 마이그레이션은 `supabase/migrations/<번호>_*_rollback.sql` 로 있다 — **다만 전부는 아니다.** 없으면 손으로 써야 한다. 적용은 Supabase Management API 경유 ([[supabase-mgmt-api-recipe]] 메모리 참고). `supabase db push` 는 쓰지 않는다.
+역방향 마이그레이션은 `supabase/migrations/<번호>_*_rollback.sql` 로 있다 — **다만 전부는 아니다.** 정방향 47개 중 27개는 롤백 파일이 없어 손으로 써야 한다(0050부터는 테스트가 강제한다). 적용은 Supabase Management API 경유 ([[supabase-mgmt-api-recipe]] 메모리 참고). `supabase db push` 는 쓰지 않는다.
+
+> **적용 원장** — `0050_migration_ledger.sql` 은 "무엇이 언제 프로덕션에 적용됐는지"를 DB 에 남기기 위한 표다. **2026-07-28 현재 프로덕션 미적용이라 조회해도 0행이다.** 적용한 뒤부터는 위의 `git diff` 대신 아래가 더 정확하다(git 에는 파일만 있고 "적용됐는지"는 없다):
+> ```sql
+> select filename, applied_at, rollback_available from public.migration_ledger order by applied_at desc limit 20;
+> ```
+> 적용할 때 원장에 함께 기록하지 않으면 이 표는 영원히 비어 있다 — 적용 절차에 넣을 것.
 
 > **운영 데이터 보호**: D-CUBE 운영 데이터는 절대 훼손하지 않는다. 파괴적 SQL 은 전용 테스트 프로젝트에서 먼저 검증한다. 로컬 dev 도 프로덕션 DB 를 공유한다.
 

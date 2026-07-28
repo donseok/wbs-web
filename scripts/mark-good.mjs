@@ -5,16 +5,18 @@
  * 왜 필요한가:
  *   2026-07-27 화면이 깨졌을 때 "어디로 되돌리면 되는지" 아는 사람이 없었다.
  *   최근 30일 origin/main 에 699커밋이 들어왔지만 태그는 0개였다. 그래서 복구에
- *   다른 PC 를 동원해야 했다. 이 스크립트는 "이 시점은 눈으로 확인했다"를
- *   리포에 남긴다. 되돌릴 곳이 있어야 롤백이 실제 선택지가 된다.
+ *   다른 PC 를 동원해야 했다. 되돌릴 곳이 있어야 롤백이 실제 선택지가 된다.
  *
- * 규칙: 스모크를 통과한 커밋만 태그한다. 통과 못 하면 태그하지 않는다.
- *       (--skip-smoke 로 건너뛸 수 있지만, 그러면 태그의 의미가 없다.)
+ * 이 태그가 거짓말을 하면 안 되는 이유:
+ *   사고 한복판에서 이 좌표를 믿고 되돌린다. "스모크는 직전 배포를 봤는데 태그는
+ *   아직 배포도 안 된 새 커밋에 찍히는" 상황이 실제로 가능하다 — push 직후
+ *   Vercel 이 빌드 중일 때 mark:good 을 돌리면 그렇게 된다. 그래서 태그 대상
+ *   커밋이 현재 프로덕션 배포보다 **나중**이면 거부한다.
  *
  * 사용:
- *   npm run mark:good              # origin/main HEAD 를 스모크 후 태그+푸시
- *   npm run mark:good -- --dry-run # 무엇을 할지만 출력
- *   npm run mark:good -- --skip-smoke
+ *   npm run mark:good
+ *   npm run mark:good -- --dry-run
+ *   npm run mark:good -- --skip-smoke   (태그의 의미가 사라지므로 권장하지 않음)
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -28,13 +30,11 @@ const C = process.stdout.isTTY
   : { red: '', grn: '', yel: '', dim: '', off: '' }
 
 const git = (...a) => execFileSync('git', a, { encoding: 'utf8' }).trim()
-
-function die(msg) {
+const die = (msg) => {
   console.error(`${C.red}✗${C.off} ${msg}`)
   process.exit(1)
 }
 
-// 프로덕션은 origin/main 이다. 로컬 main 은 뒤처져 있을 수 있으므로 항상 원격 기준.
 console.log(`${C.dim}origin 최신화…${C.off}`)
 try {
   git('fetch', 'origin', 'main', '--tags')
@@ -45,33 +45,73 @@ try {
 const sha = git('rev-parse', 'origin/main')
 const short = sha.slice(0, 7)
 const subject = git('log', '-1', '--pretty=%s', sha)
+const commitEpoch = Number(git('log', '-1', '--pretty=%ct', sha)) * 1000
 
 console.log(`대상  ${C.grn}${short}${C.off} ${subject}`)
 
-// 이미 known-good 인 커밋이면 중복 태그하지 않는다.
-const existing = git('tag', '--points-at', sha)
-  .split('\n')
-  .filter((t) => t.startsWith('good-'))
+const existing = git('tag', '--points-at', sha).split('\n').filter((t) => t.startsWith('good-'))
 if (existing.length) {
-  console.log(`${C.yel}!${C.off} 이미 known-good 입니다: ${existing.join(', ')}`)
+  // 로컬에만 있고 원격에 없는 태그면(직전 push 실패) 다시 밀어준다.
+  const remote = git('ls-remote', '--tags', 'origin').split('\n')
+  const unpushed = existing.filter((t) => !remote.some((l) => l.endsWith(`refs/tags/${t}`)))
+  if (unpushed.length === 0) {
+    console.log(`${C.yel}!${C.off} 이미 known-good 입니다: ${existing.join(', ')}`)
+    process.exit(0)
+  }
+  console.log(`${C.yel}!${C.off} 로컬에만 있는 태그를 원격으로 밀어냅니다: ${unpushed.join(', ')}`)
+  if (!DRY) for (const t of unpushed) git('push', 'origin', t)
+  console.log(`${C.grn}✓${C.off} ${unpushed.join(', ')} 원격 반영`)
   process.exit(0)
 }
 
-if (!SKIP_SMOKE) {
-  console.log(`${C.dim}프로덕션 스모크 실행…${C.off}`)
-  const r = spawnSync(process.execPath, ['scripts/smoke-prod.mjs'], { stdio: 'inherit' })
-  if (r.status !== 0) {
-    die('스모크 실패 — 태그하지 않습니다. docs/runbook-rollback.md 를 보세요.')
-  }
-} else {
-  console.log(`${C.yel}!${C.off} --skip-smoke: 검증 없이 태그합니다`)
+// ── 태그 대상이 실제로 배포된 커밋인지 ────────────────────────────────
+// vercel CLI 는 커밋 SHA 를 노출하지 않는다. 대신 프로덕션 배포의 생성 시각과
+// 커밋 시각을 비교한다 — 커밋이 배포보다 나중이면 그 배포에 들어 있을 수 없다.
+function productionDeployment() {
+  const r = spawnSync('vercel', ['inspect', 'https://wbs-web.vercel.app'], { encoding: 'utf8' })
+  if (r.status !== 0) return null
+  const out = `${r.stdout || ''}${r.stderr || ''}`
+  const status = out.match(/^\s+status\s+.*?(Ready|Building|Error|Canceled)/m)?.[1]
+  const created = out.match(/^\s+created\s+(.+?)\s*$/m)?.[1]
+  const at = created ? Date.parse(created.replace(/\s*\[.*\]\s*$/, '')) : NaN
+  return { status, createdAt: Number.isNaN(at) ? null : at, raw: created }
 }
 
-// 태그명은 정렬하면 시간순이 되도록 UTC+9 로 고정 포맷.
-const now = new Date()
-const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
-const p = (n, w = 2) => String(n).padStart(w, '0')
-const tag = `good-${kst.getUTCFullYear()}${p(kst.getUTCMonth() + 1)}${p(kst.getUTCDate())}-${p(kst.getUTCHours())}${p(kst.getUTCMinutes())}`
+const dep = productionDeployment()
+if (!dep) {
+  console.log(`${C.yel}!${C.off} vercel CLI 로 프로덕션 배포를 확인하지 못했습니다 — 배포 시점 검증을 건너뜁니다`)
+} else {
+  if (dep.status !== 'Ready') die(`프로덕션 배포 상태가 ${dep.status} 입니다. Ready 가 된 뒤 다시 실행하세요.`)
+  if (dep.createdAt != null && commitEpoch > dep.createdAt) {
+    die(
+      `태그 대상 커밋이 현재 프로덕션 배포보다 나중입니다 — 아직 배포되지 않았습니다.\n` +
+        `    커밋   ${new Date(commitEpoch).toLocaleString('ko-KR')}  ${short}\n` +
+        `    배포   ${dep.raw}\n` +
+        `    배포가 끝난 뒤 다시 실행하세요.`,
+    )
+  }
+  console.log(`${C.dim}프로덕션 배포 Ready — ${dep.raw}${C.off}`)
+}
+
+// ── 스모크 ────────────────────────────────────────────────────────────
+if (SKIP_SMOKE) {
+  console.log(`${C.yel}!${C.off} --skip-smoke: 검증 없이 태그합니다`)
+} else {
+  console.log(`${C.dim}프로덕션 스모크 실행…${C.off}`)
+  const r = spawnSync(process.execPath, ['scripts/smoke-prod.mjs'], { stdio: 'inherit' })
+  if (r.status === 2) die('스모크가 네트워크·스크립트 오류로 판정하지 못했습니다. 배포 상태와 무관하므로 다시 실행하세요.')
+  if (r.status !== 0) die('스모크 실패 — 태그하지 않습니다. docs/runbook-rollback.md 를 보세요.')
+}
+
+// ── 태그 ──────────────────────────────────────────────────────────────
+const kst = new Date(Date.now() + 9 * 60 * 60 * 1000)
+const p = (n) => String(n).padStart(2, '0')
+const base = `good-${kst.getUTCFullYear()}${p(kst.getUTCMonth() + 1)}${p(kst.getUTCDate())}-${p(kst.getUTCHours())}${p(kst.getUTCMinutes())}`
+
+// 사고 대응 중엔 같은 분에 여러 번 찍는다. 충돌로 죽어서 좌표를 못 남기면 곤란하다.
+const taken = new Set(git('tag', '-l', `${base}*`).split('\n').filter(Boolean))
+let tag = base
+for (let i = 2; taken.has(tag); i++) tag = `${base}-${i}`
 
 const message = `known-good: 프로덕션 스모크 통과\n\n${short} ${subject}`
 
@@ -83,7 +123,14 @@ if (DRY) {
 }
 
 git('tag', '-a', tag, sha, '-m', message)
-git('push', 'origin', tag)
+try {
+  git('push', 'origin', tag)
+} catch (e) {
+  // 로컬 태그를 남겨두면 다음 실행이 "이미 known-good" 으로 오판한다.
+  // (위의 unpushed 복구 경로가 받아주긴 하지만, 실패 흔적을 남기지 않는 쪽이 낫다.)
+  try { git('tag', '-d', tag) } catch { /* 정리 실패는 무시 */ }
+  die(`태그 push 실패 — 로컬 태그를 되돌렸습니다.\n    ${e.message}`)
+}
 
 console.log(`\n${C.grn}✓${C.off} ${tag} → ${short}`)
-console.log(`${C.dim}되돌리려면: git switch -c hotfix ${tag}${C.off}\n`)
+console.log(`${C.dim}되돌리려면: docs/runbook-rollback.md 3번${C.off}\n`)

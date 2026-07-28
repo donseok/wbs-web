@@ -11,101 +11,141 @@
 #   막지 못한다. 대신 "되돌리기를 불가능하게 만드는 커밋"과 "화면 사고가 프로덕션에
 #   직행하는 경로"만 막는다. 빌드 자체는 Vercel 이 어차피 강제한다.
 #
+# 검사 대상 범위 — 이 훅의 핵심 설계:
+#   `<local> --not --remotes=<remote>` = "이번 push 로 원격에 **처음** 올라가는 커밋".
+#   단순히 `remote_oid..local_oid` 로 잡으면 브랜치에 origin/main 을 머지한 순간
+#   남이 이미 올린 커밋 수백 개가 검사 대상에 들어와, 고칠 수 없는 지적을 쏟아내고
+#   SKIP_GUARD 를 상습화시킨다. 이 범위 정의는 그 문제를 원천 제거하는 동시에
+#   G2 의 "Preview 를 거쳤는가" 판정 근거도 된다 — 원격 어딘가에 이미 있는 커밋은
+#   Preview 배포를 받았다는 뜻이고, 남아 있는 커밋은 아직 어디에도 없다는 뜻이다.
+#
 # 우회: SKIP_GUARD=1 git push   (긴급용 — 배포 후 npm run smoke:prod 필수)
 
 set -u
 
+REMOTE="${1:-origin}"
+ZERO='0000000000000000000000000000000000000000'
+
+# 색은 사람이 보는 터미널에서만. GUI 클라이언트·CI 로그에 제어문자를 흘리지 않는다.
+if [ -t 2 ]; then
+  RED='\033[31m'; YEL='\033[33m'; GRN='\033[32m'; DIM='\033[2m'; OFF='\033[0m'
+else
+  RED=''; YEL=''; GRN=''; DIM=''; OFF=''
+fi
+
 if [ "${SKIP_GUARD:-}" = "1" ]; then
-  printf '\033[33m⚠  SKIP_GUARD=1 — push 가드를 건너뜁니다.\033[0m\n' >&2
-  printf '\033[33m   배포 후 반드시 `npm run smoke:prod` 로 확인하세요.\033[0m\n' >&2
+  printf '%s⚠  SKIP_GUARD=1 — push 가드를 건너뜁니다.%s\n' "$YEL" "$OFF" >&2
+  printf '%s   배포 후 반드시 `npm run smoke:prod` 로 확인하세요.%s\n' "$YEL" "$OFF" >&2
   exit 0
 fi
 
-ZERO='0000000000000000000000000000000000000000'
-RED='\033[31m'; YEL='\033[33m'; GRN='\033[32m'; DIM='\033[2m'; OFF='\033[0m'
+# core.quotePath=true(기본)면 비ASCII 경로가 "src/\354\202\254..." 로 인용돼 나와
+# ^src/ 앵커가 빗나가고 가드가 조용히 fail-open 한다. 이 리포는 한국어를 쓴다.
+GIT='git -c core.quotePath=false'
 
-# UI 위험 경로 — 여기가 깨지면 전 화면이 영향받고, 자동 검증으로는 잡히지 않는다.
-#
-# diff-tree 를 쓰는 이유: `git diff <sha>` 는 그 커밋과 **작업 트리**를 비교하므로
-# 지금 편집 중인 파일이 전부 섞여 들어와 거짓 양성이 난다. 커밋 자체가 무엇을
-# 바꿨는지 보려면 diff-tree 로 부모와 비교해야 한다.
-ui_touched() {
-  git diff-tree --no-commit-id --name-only -r "$1" \
-    | grep -qE '^(src/app/globals\.css|src/app/layout\.tsx|src/app/\(app\)/layout\.tsx|src/components/app/)'
-}
+UI_RE='^(src/app/globals\.css|src/app/layout\.tsx|src/app/\(app\)/layout\.tsx|src/components/app/)'
 
 STDIN_BUF=$(cat)
 [ -z "$STDIN_BUF" ] && exit 0
 
 fail=0
-tmp_msgs=$(mktemp)
-trap 'rm -f "$tmp_msgs"' EXIT
+msgs=$(mktemp)
+trap 'rm -f "$msgs"' EXIT
 
 while read -r local_ref local_oid remote_ref remote_oid; do
   [ -z "${local_ref:-}" ] && continue
-  # 브랜치 삭제 push 는 검사 대상이 아니다
-  [ "$local_oid" = "$ZERO" ] && continue
+  [ "$local_oid" = "$ZERO" ] && continue          # 브랜치 삭제
+  case "$local_ref" in refs/tags/*) continue ;; esac  # 태그 push (mark:good) 는 대상 아님
 
-  if [ "$remote_oid" = "$ZERO" ]; then
-    # 원격에 없던 브랜치 — 다른 원격 브랜치에 없는 커밋만 대상으로
-    range=$(git rev-list "$local_oid" --not --remotes=origin 2>/dev/null)
-  else
-    range=$(git rev-list "$remote_oid..$local_oid" 2>/dev/null)
+  # 이번 push 로 원격에 처음 올라가는 커밋들. rev-list 가 실패하면 범위를 모른다는
+  # 뜻이므로 조용히 통과시키지 않는다(fail-closed) — force push 로 가드가 통째로
+  # 사라지던 구멍을 막는다.
+  if ! range=$($GIT rev-list "$local_oid" --not --remotes="$REMOTE" 2>&1); then
+    {
+      printf '%s범위 계산 실패 — 가드를 신뢰할 수 없습니다%s\n' "$RED" "$OFF"
+      printf '   git rev-list %s --not --remotes=%s\n' "$local_oid" "$REMOTE"
+      printf '   %s%s%s\n' "$DIM" "$range" "$OFF"
+      printf '   `git fetch %s` 후 다시 시도하세요.\n' "$REMOTE"
+    } >> "$msgs"
+    fail=1
+    continue
   fi
   [ -z "$range" ] && continue
 
   # ── G1. 마이그레이션 + 코드 혼합 커밋 차단 ────────────────────────────
   # 최근 30일 마이그레이션 동반 커밋 54건 중 40건이 같은 커밋에 src/ 를 담고 있었다.
-  # 그런 커밋은 git revert 를 해도 코드만 되돌고 DB 는 남아 되돌리기가 무의미해진다.
-  for sha in $range; do
-    files=$(git diff-tree --no-commit-id --name-only -r "$sha")
-    has_mig=$(printf '%s\n' "$files" | grep -cE '^supabase/migrations/' || true)
-    has_src=$(printf '%s\n' "$files" | grep -cE '^src/' || true)
-    if [ "$has_mig" -gt 0 ] && [ "$has_src" -gt 0 ]; then
-      {
-        printf '%bG1 마이그레이션+코드 혼합 커밋%b  %s %s\n' "$RED" "$OFF" \
-          "$(git rev-parse --short "$sha")" "$(git log -1 --pretty=%s "$sha")"
-        printf '   이 커밋은 revert 해도 DB 가 그대로 남아 되돌리기가 반쪽이 됩니다.\n'
-        printf '   %bgit rebase -i%b 로 마이그레이션과 코드를 별도 커밋으로 나눠주세요.\n' "$DIM" "$OFF"
-      } >> "$tmp_msgs"
-      fail=1
-    fi
-  done
+  # 그런 커밋은 revert 해도 DB 가 남아 되돌리기가 반쪽이 된다.
+  #
+  # 제외: 머지 커밋(자체 변경 없음), revert 커밋(되돌리는 행위를 막으면 훅이
+  # 스스로의 목적과 충돌한다 — 원본이 혼합이었으니 revert 도 혼합일 수밖에 없다).
+  #
+  # git 프로세스 하나로 전체를 훑는다. 커밋마다 diff-tree 를 부르면 범위가 클 때
+  # push 가 수 초씩 느려지고, 그 지연이 SKIP_GUARD 를 습관화시킨다.
+  g1=$(
+    printf '%s\n' "$range" \
+      | $GIT log --no-walk --no-merges --name-only --format='%x01%H%x02%s' --stdin 2>/dev/null \
+      | awk -v ui="$UI_RE" '
+        /^\001/ {
+          if (sha != "" && mig && src && !rev) print sha "\t" subj
+          split(substr($0,2), p, "\002"); sha = p[1]; subj = p[2]
+          mig = 0; src = 0
+          rev = (subj ~ /^Revert "/)
+          next
+        }
+        /^supabase\/migrations\// { mig = 1 }
+        /^src\//                  { src = 1 }
+        END { if (sha != "" && mig && src && !rev) print sha "\t" subj }
+      '
+  )
+  if [ -n "$g1" ]; then
+    {
+      printf '%sG1 마이그레이션+코드 혼합 커밋%s\n' "$RED" "$OFF"
+      printf '%s\n' "$g1" | while IFS="$(printf '\t')" read -r sha subj; do
+        printf '   %s %s\n' "$(echo "$sha" | cut -c1-7)" "$subj"
+      done
+      printf '   revert 해도 DB 가 그대로 남아 되돌리기가 반쪽이 됩니다.\n'
+      printf '   %sgit rebase -i%s 로 마이그레이션과 코드를 별도 커밋으로 나눠주세요.\n' "$DIM" "$OFF"
+    } >> "$msgs"
+    fail=1
+  fi
 
-  # ── G2. main 직접 push 에 UI 위험 파일이 섞였는가 ─────────────────────
-  # 승인된 경로는 "브랜치 → Vercel Preview 확인 → 머지" 다. 머지 커밋이 하나라도
-  # 있으면 그 경로를 탄 것으로 보고 통과시키되, 전부 직행 커밋이면 막는다.
+  # ── G2. Preview 를 거치지 않은 UI 변경이 main 으로 직행하는가 ─────────
+  # 범위가 이미 "원격 어디에도 없는 커밋"이므로, 여기 남아 있다는 것은 어떤
+  # 브랜치로도 push 된 적이 없다 = Vercel Preview 를 받은 적이 없다는 뜻이다.
+  # 브랜치를 거쳐 왔다면(ff 머지든 --no-ff 든) 그 커밋들은 origin/<branch> 에
+  # 있으므로 범위에서 이미 빠져 있다. 머지 커밋 개수를 세던 이전 방식은
+  # ff 머지를 막고 무관한 pull 머지를 통과시키는 양방향 오작동이었다.
   if [ "$remote_ref" = "refs/heads/main" ]; then
-    ui_hit=''
-    for sha in $range; do
-      if ui_touched "$sha"; then ui_hit="$ui_hit $sha"; fi
-    done
-    if [ -n "$ui_hit" ]; then
-      # 머지 카운트는 위에서 정한 것과 같은 범위여야 한다. 원격에 없던 ref 를
-      # push 하는 경우 remote_oid 가 0000… 이라 `0000..sha` 는 유효한 범위가 아니다.
-      if [ "$remote_oid" = "$ZERO" ]; then
-        merges=$(git rev-list --merges "$local_oid" --not --remotes=origin 2>/dev/null | wc -l | tr -d ' ')
-      else
-        merges=$(git rev-list --merges "${remote_oid}..${local_oid}" 2>/dev/null | wc -l | tr -d ' ')
-      fi
-      if [ "${merges:-0}" -eq 0 ]; then
-        {
-          printf '%bG2 UI 위험 파일이 main 으로 직행합니다%b\n' "$RED" "$OFF"
-          for sha in $ui_hit; do
-            printf '   %s %s\n' "$(git rev-parse --short "$sha")" "$(git log -1 --pretty=%s "$sha")"
-          done
-          printf '   globals.css / layout.tsx / components/app/* 는 전 화면에 영향을 주고\n'
-          printf '   빌드·린트·테스트로는 깨짐이 잡히지 않습니다. Preview 로 눈 확인이 필요합니다.\n\n'
-          printf '   %b브랜치로 옮기기:%b\n' "$GRN" "$OFF"
-          printf '     git switch -c ui/$(date +%%m%%d)-<주제>\n'
-          printf '     git push -u origin HEAD        # Vercel Preview URL 확인\n'
-          printf '     # 화면 확인 후 → git switch main && git merge --no-ff - && git push\n'
-        } >> "$tmp_msgs"
-        fail=1
-      else
-        printf '%b! main push 에 UI 변경 포함 — 머지 커밋 %s개 확인, 통과%b\n' "$YEL" "$merges" "$OFF" >&2
-        printf '%b  Preview 에서 화면을 확인하셨길 바랍니다.%b\n' "$DIM" "$OFF" >&2
-      fi
+    g2=$(
+      printf '%s\n' "$range" \
+        | $GIT log --no-walk --no-merges --name-only --format='%x01%H%x02%s%x02%(trailers:key=Preview-checked,valueonly)' --stdin 2>/dev/null \
+        | awk -v ui="$UI_RE" '
+          /^\001/ {
+            if (sha != "" && hit && checked == "") print sha "\t" subj
+            split(substr($0,2), p, "\002"); sha = p[1]; subj = p[2]; checked = p[3]
+            gsub(/[ \t\r\n]/, "", checked)
+            hit = 0
+            next
+          }
+          $0 ~ ui { hit = 1 }
+          END { if (sha != "" && hit && checked == "") print sha "\t" subj }
+        '
+    )
+    if [ -n "$g2" ]; then
+      {
+        printf '%sG2 Preview 를 거치지 않은 UI 변경이 main 으로 직행합니다%s\n' "$RED" "$OFF"
+        printf '%s\n' "$g2" | while IFS="$(printf '\t')" read -r sha subj; do
+          printf '   %s %s\n' "$(echo "$sha" | cut -c1-7)" "$subj"
+        done
+        printf '   globals.css / layout.tsx / components/app/* 는 전 화면에 영향을 주고\n'
+        printf '   빌드·린트·테스트로는 깨짐이 잡히지 않습니다(2026-07-27 사고 때 2438건 전부 통과).\n\n'
+        printf '   %s브랜치로 옮겨 Preview 를 받으세요:%s\n' "$GRN" "$OFF"
+        printf '     git switch -c ui/<주제> && git push -u %s HEAD\n' "$REMOTE"
+        printf '     # Preview 에서 화면 확인 후 → git switch main && git merge ui/<주제> && git push\n\n'
+        printf '   %sPreview 가 필요 없다고 판단했다면 커밋에 근거를 남기세요:%s\n' "$DIM" "$OFF"
+        printf '     git commit --amend --trailer "Preview-checked: n/a — 주석만 수정"\n'
+      } >> "$msgs"
+      fail=1
     fi
   fi
 done <<STDIN_EOF
@@ -116,21 +156,26 @@ STDIN_EOF
 # globals.css 의 반응형 안전망은 브레이크포인트를 리터럴로 하드코딩하고 있다.
 # @theme 에 --breakpoint-* 가 추가되면 Tailwind 와 조용히 어긋나고, unlayered 인
 # 안전망이 무조건 이기기 때문에 전 화면 반응형이 틀린 폭에서 전환된다.
-if [ -x node_modules/.bin/vitest ]; then
-  if ! node_modules/.bin/vitest run tests/css/breakpoint-safety-net.test.ts \
-       --reporter=dot --silent >/dev/null 2>&1; then
+G3_TEST='tests/css/breakpoint-safety-net.test.ts'
+ROOT=$($GIT rev-parse --show-toplevel 2>/dev/null || echo .)
+if [ -x "$ROOT/node_modules/.bin/vitest" ] && [ -f "$ROOT/$G3_TEST" ]; then
+  if ! (cd "$ROOT" && node_modules/.bin/vitest run "$G3_TEST" --reporter=dot --silent >/dev/null 2>&1); then
     {
-      printf '%bG3 반응형 안전망 검사 실패%b\n' "$RED" "$OFF"
-      printf '   npx vitest run tests/css/breakpoint-safety-net.test.ts 로 원인을 확인하세요.\n'
-    } >> "$tmp_msgs"
+      printf '%sG3 반응형 안전망 검사 실패%s\n' "$RED" "$OFF"
+      printf '   npx vitest run %s 로 원인을 확인하세요.\n' "$G3_TEST"
+    } >> "$msgs"
     fail=1
   fi
+else
+  # 조용히 넘어가면 3개 관문이 다 돌았다고 오해한다. worktree·--omit=dev 에서 흔하다.
+  printf '%s! G3 건너뜀 — vitest 없음(%s). 관문 2개만 돌았습니다.%s\n' \
+    "$YEL" "$ROOT/node_modules/.bin/vitest" "$OFF" >&2
 fi
 
 if [ "$fail" -ne 0 ]; then
   printf '\n' >&2
-  cat "$tmp_msgs" >&2
-  printf '\n%b긴급하면 우회:%b SKIP_GUARD=1 git push %b(배포 후 npm run smoke:prod 필수)%b\n\n' \
+  cat "$msgs" >&2
+  printf '\n%s긴급하면 우회:%s SKIP_GUARD=1 git push %s(배포 후 npm run smoke:prod 필수)%s\n\n' \
     "$DIM" "$OFF" "$DIM" "$OFF" >&2
   exit 1
 fi
