@@ -81,7 +81,13 @@ while read -r local_ref local_oid remote_ref remote_oid; do
       if ui_touched "$sha"; then ui_hit="$ui_hit $sha"; fi
     done
     if [ -n "$ui_hit" ]; then
-      merges=$(git rev-list --merges "${remote_oid}..${local_oid}" 2>/dev/null | wc -l | tr -d ' ')
+      # 머지 카운트는 위에서 정한 것과 같은 범위여야 한다. 원격에 없던 ref 를
+      # push 하는 경우 remote_oid 가 0000… 이라 `0000..sha` 는 유효한 범위가 아니다.
+      if [ "$remote_oid" = "$ZERO" ]; then
+        merges=$(git rev-list --merges "$local_oid" --not --remotes=origin 2>/dev/null | wc -l | tr -d ' ')
+      else
+        merges=$(git rev-list --merges "${remote_oid}..${local_oid}" 2>/dev/null | wc -l | tr -d ' ')
+      fi
       if [ "${merges:-0}" -eq 0 ]; then
         {
           printf '%bG2 UI 위험 파일이 main 으로 직행합니다%b\n' "$RED" "$OFF"
