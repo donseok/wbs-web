@@ -1,6 +1,31 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------ */
+/*  소스 스캔 제외                                                      */
+/*  Tailwind v4 는 리포 전체를 자동 스캔한다. 문서·테스트·스크립트에     */
+/*  적힌 "예시 클래스명"까지 실제 CSS 로 만들어 버린다. 제외 없이 이     */
+/*  브랜치를 빌드하면 tests/css/breakpoint-safety-net.test.ts 와         */
+/*  CLAUDE.md 에 적어둔 `group-hover:flex`·`print:hidden`·               */
+/*  `data-[state=open]:hidden` 이 유령 규칙으로 들어간다(실측 확인).     */
+/*  기존 docs/ 문서에서 온 죽은 규칙도 79개 있었다.                      */
+/*  이 파일들은 런타임 마크업을 만들지 않으므로 스캔 대상이 아니다.      */
+/*                                                                    */
+/*  ※ 제외만 한다 — src/ 는 그대로 자동 스캔되므로 클래스가 사라질       */
+/*    위험이 없다. src/ 밖에 마크업을 만드는 파일을 새로 두면 그때는     */
+/*    이 목록이 아니라 그 파일을 src/ 안으로 옮기는 게 맞다.            */
+/*  ※ 이 목록은 denylist 라 새 문서 디렉터리가 생기면 다시 샌다.        */
+/*    tests/css/breakpoint-safety-net.test.ts 가 목록을 지킨다.         */
+/* ------------------------------------------------------------------ */
+@source not "../../docs";
+@source not "../../tests";
+@source not "../../scripts";
+@source not "../../supabase";
+@source not "../../.githooks";
+@source not "../../.claude";
+@source not "../../CLAUDE.md";
+@source not "../../README.md";
+
 /* Tailwind v4 다크 변형: <html class="dark"> 하위에서 dark: 유틸 활성 */
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -466,3 +491,90 @@ textarea {
 .login-float-2 { animation: 7s ease-in-out -1s infinite loginFloat2; }
 .login-float-3 { animation: 8s ease-in-out -2.5s infinite loginFloat3; }
 .login-float-4 { animation: 5.5s ease-in-out -0.5s infinite loginFloat4; }
+
+/* ------------------------------------------------------------------ */
+/*  반응형 display 안전망 (UNLAYERED — 일부러 @layer 밖에 둔다)         */
+/*                                                                    */
+/*  ⚠ 근본원인 미확정 · 효과 미검증. 대증요법이다.                     */
+/*                                                                    */
+/*  증상(2026-07-27): 넓은 화면인데도 `hidden lg:flex`(사이드바)·       */
+/*  `hidden sm:flex`(헤더 로고) 등 "기본 숨김 → 브레이크포인트에서      */
+/*  표시" 요소가 프로덕션에서 계속 숨겨졌다.                            */
+/*                                                                    */
+/*  원래 이 블록은 "일부 브라우저가 layer 안에서 base `.hidden` 을      */
+/*  반응형 유틸보다 우선 적용한다"는 가설로 들어갔다. 이후 조사에서     */
+/*  그 가설은 빌드 산출물로 반증됐다:                                   */
+/*    · 픽스 이전 CSS 에서도 `.hidden`(33294) 이 `.lg\:flex`(104684)    */
+/*      보다 앞이고, 같은 @layer utilities, 같은 특이성(0,1,0)          */
+/*      → 스펙대로면 반응형이 이긴다. 순서가 뒤집힌 적이 없다.          */
+/*    · Chrome 150 헤드리스 1440px 에서 픽스 이전 CSS 를 그대로         */
+/*      로드해도 정상 렌더된다. 재현이 안 된다.                         */
+/*    · 이 블록은 구제 대상(규칙 #1345)보다 파일에서 뒤(#1461)에 있다.   */
+/*      "레이어가 커져 임계치 초과"가 원인이라면 이 블록이 먼저 잘린다.  */
+/*  증상이 사라진 것은 재배포로 CSS 해시가 바뀌어 캐시가 무효화된        */
+/*  결과일 가능성이 남아 있다.                                          */
+/*                                                                    */
+/*  그래도 남겨두는 이유: 현재 해가 없고(검증됨), 제거했다가 재발하면   */
+/*  판단 근거가 더 사라진다. 원인이 규명되면 이 블록을 지운다.          */
+/*                                                                    */
+/*  ⚠ unlayered 는 특이성과 무관하게 모든 named layer 를 이긴다:        */
+/*    · `group-hover:flex`·`data-[state=open]:hidden`·`print:hidden`    */
+/*      같은 상태 변형 display 유틸을 쓰면 여기에 져서 조용히 죽는다.   */
+/*    · 한 요소에 컨테이너 쿼리 display 와 반응형 display 를 같이       */
+/*      쓰면 컨테이너 쿼리 쪽이 무시된다.                               */
+/*    · @theme 에 --breakpoint-* 를 추가하면 아래 리터럴도 같이 고칠 것. */
+/*  셋 다 tests/css/breakpoint-safety-net.test.ts 가 검사한다.          */
+/*                                                                    */
+/*  값은 Tailwind v4 기본값(sm40/md48/lg64/xl80/2xl96rem)과 동일하며    */
+/*  정상 동작에서는 무해한 중복이다. 상세: docs/runbook-rollback.md     */
+/* ------------------------------------------------------------------ */
+@media (min-width: 40rem) {
+  .sm\:flex { display: flex; }
+  .sm\:inline-flex { display: inline-flex; }
+  .sm\:block { display: block; }
+  .sm\:inline-block { display: inline-block; }
+  .sm\:inline { display: inline; }
+  .sm\:grid { display: grid; }
+  .sm\:table { display: table; }
+  .sm\:hidden { display: none; }
+}
+@media (min-width: 48rem) {
+  .md\:flex { display: flex; }
+  .md\:inline-flex { display: inline-flex; }
+  .md\:block { display: block; }
+  .md\:inline-block { display: inline-block; }
+  .md\:inline { display: inline; }
+  .md\:grid { display: grid; }
+  .md\:table { display: table; }
+  .md\:hidden { display: none; }
+}
+@media (min-width: 64rem) {
+  .lg\:flex { display: flex; }
+  .lg\:inline-flex { display: inline-flex; }
+  .lg\:block { display: block; }
+  .lg\:inline-block { display: inline-block; }
+  .lg\:inline { display: inline; }
+  .lg\:grid { display: grid; }
+  .lg\:table { display: table; }
+  .lg\:hidden { display: none; }
+}
+@media (min-width: 80rem) {
+  .xl\:flex { display: flex; }
+  .xl\:inline-flex { display: inline-flex; }
+  .xl\:block { display: block; }
+  .xl\:inline-block { display: inline-block; }
+  .xl\:inline { display: inline; }
+  .xl\:grid { display: grid; }
+  .xl\:table { display: table; }
+  .xl\:hidden { display: none; }
+}
+@media (min-width: 96rem) {
+  .\32 xl\:flex { display: flex; }
+  .\32 xl\:inline-flex { display: inline-flex; }
+  .\32 xl\:block { display: block; }
+  .\32 xl\:inline-block { display: inline-block; }
+  .\32 xl\:inline { display: inline; }
+  .\32 xl\:grid { display: grid; }
+  .\32 xl\:table { display: table; }
+  .\32 xl\:hidden { display: none; }
+}
