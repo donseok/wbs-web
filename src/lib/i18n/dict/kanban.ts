@@ -37,6 +37,8 @@ export const kanbanKo = {
   'kanban.qfDueThisWeek': '이번 주 마감',
   'kanban.qfInProgress': '진행중',
   'kanban.qfNotStarted': '미착수',
+  'kanban.qfScheduleHint': '여러 개를 켜면 조건을 모두 만족하는 카드만 남습니다.',
+  'kanban.qfBucketHint': '진행중·미착수는 함께 켜면 둘 다 보여줍니다(합집합).',
   // 카드 액션·배지
   'kanban.start': '착수',
   'kanban.complete': '완료',
@@ -99,6 +101,8 @@ export const kanbanEn: Record<keyof typeof kanbanKo, string> = {
   'kanban.qfDueThisWeek': 'Due this week',
   'kanban.qfInProgress': 'In progress',
   'kanban.qfNotStarted': 'Not started',
+  'kanban.qfScheduleHint': 'Turning on several keeps only cards matching every condition.',
+  'kanban.qfBucketHint': 'In progress and Not started combine as a union when both are on.',
   'kanban.start': 'Start',
   'kanban.complete': 'Complete',
   'kanban.reopen': 'Reopen',

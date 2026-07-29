@@ -9,17 +9,15 @@ import type { Minute, MinuteFolder } from '@/lib/domain/types'
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ t: (k: string) => k, locale: 'ko' }),
 }))
-const toast = vi.fn<(t: { title: string; variant?: string }) => void>()
-vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast }) }))
 // 인자 시그니처를 제네릭으로 명시 — 인자 없는 vi.fn 은 mock.calls 가 빈 튜플로 추론돼 tsc(TS2493)가 깨진다
-const updateMinuteMeta = vi.fn<(id: string, patch: unknown, folderId?: string) => Promise<{ ok: boolean }>>(
+const updateMinuteMeta = vi.fn<(id: string, patch: unknown, folderId?: string | null) => Promise<{ ok: boolean; error?: string }>>(
   async () => ({ ok: true }))
-const clearMinuteExternalId = vi.fn<(id: string) => Promise<{ ok: boolean; error?: string }>>(
+const resetMinuteExternalId = vi.fn<(id: string) => Promise<{ ok: boolean; error?: string }>>(
   async () => ({ ok: true }))
 const fetchMinuteFoldersLite = vi.fn<() => Promise<MinuteFolder[]>>(async () => tree)
 vi.mock('@/app/actions/minutes', () => ({
   updateMinuteMeta: (...a: unknown[]) => updateMinuteMeta(...(a as [string, unknown, string?])),
-  clearMinuteExternalId: (id: string) => clearMinuteExternalId(id),
+  resetMinuteExternalId: (...a: unknown[]) => resetMinuteExternalId(...(a as [string])),
   fetchMinuteFoldersLite: () => fetchMinuteFoldersLite(),
   fetchProjectMeetingsLite: vi.fn(async () => []),
 }))
@@ -31,189 +29,144 @@ const F = (
   createdBy: string | null = null, sort = 0,
 ): MinuteFolder => ({ id, name, parentId, sort, createdBy })
 
-// 시드 루트(createdBy=null)가 팀 루트 — teamSubOfFolder 가 여기까지 올라가 team 을 파생한다.
-// g-weekly/m-202607 은 folder_path 로 들어오는 3·4단 — 저장 후에도 이 깊이가 유지돼야 한다(§6.8)
+// sort 는 프로덕션 시드값(0043) — 트리 표시 순서가 이 값에서 유도되므로 순서가 계약
 const tree: MinuteFolder[] = [
   F('r-pmo', 'PMO', null, null, 0),
   F('r-erp', 'ERP', null, null, 1),
-  F('c-sales', '영업', 'r-erp', null, 0), F('c-buy', '구매', 'r-erp', null, 1),
+  F('c-sales', '영업', 'r-erp', null, 0), F('c-buy', '구매', 'r-erp', null, 1), F('c-acc', '관리회계', 'r-erp', null, 2),
   F('r-mes', 'MES', null, null, 2),
-  F('c-q', '품질', 'r-mes', null, 0), F('c-log', '물류', 'r-mes', null, 3),
-  F('g-weekly', '주간정례', 'c-q', 'u1', 100),
-  F('m-202607', '2026-07', 'g-weekly', 'u1', 100),
+  F('c-q', '품질', 'r-mes', null, 0), F('c-plan', '생산계획', 'r-mes', null, 1),
 ]
 
 const baseMinute = {
   id: 'm1', minuteDate: '2026-07-24', teamCode: 'MES', title: '주간회의', bodyMd: '',
   meetingId: null, createdBy: 'u1', createdByName: '홍길동', createdAt: 't', updatedAt: 't',
   fileCount: 0, bodyPreview: '', meetingCategory: null, folderId: 'c-q', meetingProjectId: null,
-  externalId: null, archivedAt: null,
+  externalId: null,
 } as Minute
 
-describe('MinuteMetaModal — 폴더 기준 수정 + 연동 식별자', () => {
+describe('MinuteMetaModal — 폴더 직접 선택 + 또박또박 연결', () => {
   let container: HTMLDivElement, root: Root
   const onSaved = vi.fn()
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
     root = createRoot(container)
-    updateMinuteMeta.mockClear(); clearMinuteExternalId.mockClear(); onSaved.mockClear(); toast.mockClear()
-    clearMinuteExternalId.mockImplementation(async () => ({ ok: true }))
+    updateMinuteMeta.mockClear(); resetMinuteExternalId.mockClear(); onSaved.mockClear()
     fetchMinuteFoldersLite.mockImplementation(async () => tree)
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
-  // canResetLink 는 결정 §3 R3 의 한시 게이트(pmo_admin 한정). 연동 케이스는 기본 허용으로 두고
-  // 비관리자 차단은 전용 케이스에서 본다.
-  async function mount(minute: Minute = baseMinute, canResetLink = true) {
+  async function mount(minute: Minute = baseMinute) {
     await act(async () => root.render(
-      <MinuteMetaModal open onClose={() => {}} onSaved={onSaved}
-        minute={minute} projects={[]} canResetLink={canResetLink} />,
+      <MinuteMetaModal open onClose={() => {}} onSaved={onSaved} minute={minute} projects={[]} />,
     ))
   }
-  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!
-  const buttons = () => [...dialog().querySelectorAll<HTMLButtonElement>('button')]
-  const byText = (label: string) => buttons().find(b => b.textContent === label)
-  const options = () => [...dialog().querySelectorAll<HTMLButtonElement>('[role="option"]')]
-  const pickFolder = async (name: string) => {
-    const opt = options().find(b => b.textContent === name)!
-    await act(async () => opt.click())
+  const dialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')]
+  const mainDialog = () => dialogs()[0]
+  const pickerDialog = () => dialogs()[dialogs().length - 1]
+  const folderFieldBtn = () =>
+    [...mainDialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.getAttribute('type') === 'button')!
+  const openPicker = async () => { await act(async () => folderFieldBtn().click()) }
+  const pickFolder = async (label: string) => {
+    const btn = [...pickerDialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === label)!
+    await act(async () => btn.click())
   }
-  const save = async () => { await act(async () => byText('min.meta.save')!.click()) }
-  const patchOf = (i = 0) => updateMinuteMeta.mock.calls[i][1] as { teamCode: string; title: string }
+  const save = async () => {
+    const btn = [...mainDialog().querySelectorAll<HTMLButtonElement>('button')]
+      .find(b => b.textContent === 'min.meta.save')!
+    await act(async () => btn.click())
+  }
+  const btnByText = (label: string) =>
+    [...mainDialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === label)
 
-  it('담당·하위 구분 탭이 없고 폴더 트리로 대체된다', async () => {
+  it('현 소속 폴더(품질)로 필드 초기화', async () => {
     await mount()
-    expect(dialog().querySelectorAll('[role="tablist"]').length).toBe(0)
-    expect(dialog().querySelector('[role="listbox"]')).toBeTruthy()
-    // 현 소속 폴더가 선택 상태로 초기화
-    expect(options().find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('품질')
+    expect(folderFieldBtn().textContent).toContain('품질')
   })
 
-  it('4단 폴더 편철분을 저장해도 그 폴더 그대로 전달(2단 강등 없음) — §6.8', async () => {
-    await mount({ ...baseMinute, folderId: 'm-202607' })
-    expect(options().find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('2026-07')
-    await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('m-202607')
-    expect(patchOf().teamCode).toBe('MES')          // 4단에서도 팀 파생은 시드 루트까지 올라간다
-    expect(onSaved).toHaveBeenCalled()
-  })
-
-  it('폴더를 바꾸면 그 폴더 id 와 파생 팀이 함께 실린다', async () => {
+  it('폴더 변경(구매) 저장 → 그 폴더 id 그대로 전달, 담당은 그 폴더 소속 팀으로 파생', async () => {
     await mount()
-    await pickFolder('구매')                        // MES/품질 → ERP/구매 (팀 교차)
+    await openPicker()
+    await pickFolder('구매')
     await save()
     expect(updateMinuteMeta.mock.calls[0][2]).toBe('c-buy')
-    expect(patchOf().teamCode).toBe('ERP')
-  })
-
-  it('3단 폴더 선택도 팀 파생 후 그대로 전달', async () => {
-    await mount()
-    await pickFolder('주간정례')
-    await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('g-weekly')
-    expect(patchOf().teamCode).toBe('MES')
-  })
-
-  it('폴더 미선택(미분류)이면 저장 차단 + 안내', async () => {
-    await mount({ ...baseMinute, folderId: null })
-    await save()
-    expect(updateMinuteMeta).not.toHaveBeenCalled()
-    expect(dialog().textContent).toContain('min.form.folderRequired')
-    await pickFolder('물류')                        // 고르면 저장된다
-    await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('c-log')
-  })
-
-  it('팀 파생 불가 폴더(시드 체인 밖)는 선택 자체가 막힌다', async () => {
-    fetchMinuteFoldersLite.mockImplementation(async () => [
-      ...tree, F('x-root', '떠돌이', null, 'u1', 100),
-    ])
-    await mount()
-    expect(options().find(b => b.textContent === '떠돌이')?.disabled).toBe(true)
-  })
-
-  it('폴더 조회 실패는 표시한다(조용한 빈 화면 금지)', async () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    fetchMinuteFoldersLite.mockImplementation(async () => { throw new Error('boom') })
-    await mount()
-    expect(dialog().textContent).toContain('min.fold.error')
-    expect(spy).toHaveBeenCalled()
-    spy.mockRestore()
-  })
-
-  it('ddobak 연동은 uuid 만 보이고 초기화 버튼이 살아 있다', async () => {
-    await mount({ ...baseMinute, externalId: 'ddobak:abc-123' })
-    expect(dialog().textContent).toContain('min.ext.label')
-    expect(dialog().querySelector('code')?.textContent).toBe('abc-123')   // 프리픽스 제외
-    expect(byText('min.ext.reset')?.disabled).toBe(false)
-  })
-
-  it('ddobak 이 아닌 값은 원문 그대로 + 다른 라벨', async () => {
-    await mount({ ...baseMinute, externalId: 'legacy-77' })
-    expect(dialog().textContent).toContain('min.ext.other')
-    expect(dialog().querySelector('code')?.textContent).toBe('legacy-77')
-  })
-
-  it('연동 없음이면 초기화 버튼 비활성', async () => {
-    await mount()
-    expect(dialog().textContent).toContain('min.ext.none')
-    expect(dialog().querySelector('code')).toBeNull()
-    expect(byText('min.ext.reset')?.disabled).toBe(true)
-  })
-
-  it('R3 한시 게이트 — pmo_admin 이 아니면 초기화 버튼 비활성', async () => {
-    // ddobak-W14(연결 해제 안내) 배포 전까지는 관리자만. 그전에 일반 사용자가 끊으면
-    // 또박또박은 계속 '연결됨'으로 보고 재전송 시 중복 회의록 + 원본 고아가 된다.
-    await mount(baseMinute, false)
-    expect(byText('min.ext.reset')!.disabled).toBe(true)
-  })
-
-  it('보관 회의록은 연동이 있어도 초기화 비활성(재연결 불가 편도 방지)', async () => {
-    await mount({ ...baseMinute, externalId: 'ddobak:abc-123', archivedAt: '2026-07-01' })
-    expect(byText('min.ext.reset')?.disabled).toBe(true)
-  })
-
-  it('초기화는 확인 다이얼로그를 거쳐야 호출된다', async () => {
-    await mount({ ...baseMinute, externalId: 'ddobak:abc-123' })
-    await act(async () => byText('min.ext.reset')!.click())
-    expect(clearMinuteExternalId).not.toHaveBeenCalled()          // 확인 전에는 호출 0
-    expect(dialog().textContent).toContain('min.ext.resetWarn1')  // 3가지 경고를 모두 담는다
-    expect(dialog().textContent).toContain('min.ext.resetWarn2')
-    expect(dialog().textContent).toContain('min.ext.resetWarn3')
-    await act(async () => byText('min.ext.resetConfirm')!.click())
-    expect(clearMinuteExternalId).toHaveBeenCalledWith('m1')
-    expect(toast.mock.calls[0][0].title).toBe('min.ext.resetDone')
+    expect((updateMinuteMeta.mock.calls[0][1] as { teamCode: string }).teamCode).toBe('ERP')
     expect(onSaved).toHaveBeenCalled()
   })
 
-  it('확인 다이얼로그 취소는 초기화하지 않는다', async () => {
-    await mount({ ...baseMinute, externalId: 'ddobak:abc-123' })
-    await act(async () => byText('min.ext.reset')!.click())
-    await act(async () => byText('common.cancel')!.click())
-    expect(clearMinuteExternalId).not.toHaveBeenCalled()
-    expect(byText('min.ext.reset')).toBeTruthy()                  // 본 모달로 복귀
-  })
-
-  it('초기화 실패는 에러 토스트로 표시(삼키지 않는다)', async () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    clearMinuteExternalId.mockImplementation(async () => ({ ok: false, error: '권한이 없습니다.' }))
-    await mount({ ...baseMinute, externalId: 'ddobak:abc-123' })
-    await act(async () => byText('min.ext.reset')!.click())
-    await act(async () => byText('min.ext.resetConfirm')!.click())
-    expect(toast.mock.calls[0][0]).toEqual({ title: '권한이 없습니다.', variant: 'error' })
-    expect(onSaved).not.toHaveBeenCalled()
-    expect(spy).toHaveBeenCalled()
-    spy.mockRestore()
-  })
-
-  it('저장 실패는 문구로 표시하고 onSaved 를 부르지 않는다', async () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    updateMinuteMeta.mockImplementation(async () => ({ ok: false, error: '저장 실패' }))
+  it('무변경 저장은 폴더 무접촉(undefined) — 커스텀 편철 존중', async () => {
     await mount()
     await save()
-    expect(dialog().textContent).toContain('저장 실패')
-    expect(onSaved).not.toHaveBeenCalled()
-    updateMinuteMeta.mockImplementation(async () => ({ ok: true }))
-    spy.mockRestore()
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
+  })
+
+  it('미분류로 명시 이동 후 저장 → null 그대로 전달(무접촉과 구분)', async () => {
+    await mount()
+    await openPicker()
+    await pickFolder('min.fold.unfiled')
+    await save()
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeNull()
+  })
+
+  it('이미 미분류인 회의록의 무변경 저장은 그대로 무접촉(undefined) — 팀 루트로 되돌리지 않는다', async () => {
+    await mount({ ...baseMinute, folderId: null })
+    await save()
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
+  })
+
+  it('폴더를 골랐다가 원래 폴더로 되돌리면 다시 무접촉으로 판정', async () => {
+    await mount()
+    await openPicker()
+    await pickFolder('구매')
+    await openPicker()
+    await pickFolder('품질')
+    await save()
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
+  })
+
+  it('또박또박 연결 없음이면 "연결 없음" 표시, 초기화 버튼 없음', async () => {
+    await mount()
+    expect(mainDialog().textContent).toContain('min.ext.none')
+    expect(btnByText('min.ext.reset')).toBeUndefined()
+  })
+
+  it('연결 있으면 opaque 문자열 그대로 표시(파싱 없이)', async () => {
+    await mount({ ...baseMinute, externalId: 'ddobak:0192a1b2-aaaa-7bbb-8ccc-1234567890ab' })
+    expect(mainDialog().textContent).toContain('ddobak:0192a1b2-aaaa-7bbb-8ccc-1234567890ab')
+  })
+
+  it('연결 초기화 — 확인 단계를 거쳐 resetMinuteExternalId 호출, 성공 시 연결 없음으로 갱신', async () => {
+    await mount({ ...baseMinute, externalId: 'ddobak:ext-1' })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    expect(mainDialog().textContent).toContain('min.ext.resetConfirm')
+    expect(resetMinuteExternalId).not.toHaveBeenCalled()
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    expect(resetMinuteExternalId).toHaveBeenCalledWith('m1')
+    expect(mainDialog().textContent).toContain('min.ext.none')
+  })
+
+  it('연결 초기화 취소는 API 를 호출하지 않고 연결 표시를 유지', async () => {
+    await mount({ ...baseMinute, externalId: 'ddobak:ext-1' })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    await act(async () => { btnByText('common.cancel')!.click() })
+    expect(resetMinuteExternalId).not.toHaveBeenCalled()
+    expect(mainDialog().textContent).toContain('ddobak:ext-1')
+  })
+
+  it('연결 초기화 실패 시 에러를 보여주고 연결 표시는 유지', async () => {
+    resetMinuteExternalId.mockResolvedValueOnce({ ok: false, error: '권한 없음' })
+    await mount({ ...baseMinute, externalId: 'ddobak:ext-1' })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    expect(mainDialog().textContent).toContain('권한 없음')
+    expect(mainDialog().textContent).toContain('ddobak:ext-1')
+  })
+
+  it('폴더 목록 미확보(빈 배열)면 필드는 로딩 상태(…)로 표시 — 허위 미분류 표시 방지', async () => {
+    fetchMinuteFoldersLite.mockImplementation(async () => [])
+    await mount()
+    expect(folderFieldBtn().textContent).toContain('…')
+    await save()
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
   })
 })

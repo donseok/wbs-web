@@ -9,7 +9,6 @@ import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { MinutesView } from '@/components/minutes/MinutesView'
-import { folderDndEnabled } from '@/lib/minutes/flags'
 
 function seoulToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
@@ -64,9 +63,8 @@ export default async function MinutesPage() {
       <MinutesView initialMinutes={minutes} initialTree={user ? tree : null} todayIso={today}
         initialFavorites={user ? favs : null}
         explorerLayout={prefs.minutesExplorerLayout === 'list' ? 'list' : 'grid'}
-        initialView={initialView} projects={projects}
-        currentUserId={user?.id ?? null} role={m?.role ?? null}
-        dndEnabled={folderDndEnabled()} />
+        initialView={initialView} projects={projects} defaultTeam={m?.teamCode ?? null}
+        currentUserId={user?.id ?? null} role={m?.role ?? null} />
     </ProjectPageShell>
   )
 }

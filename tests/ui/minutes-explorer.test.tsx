@@ -15,7 +15,8 @@ vi.mock('next/link', () => ({
 }))
 vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 const moveMinuteToFolder = vi.fn(async () => ({ ok: true }))
-const moveMinuteFolder = vi.fn(async () => ({ ok: true }))
+const moveMinuteFolder = vi.fn<(...a: unknown[]) => Promise<{ ok: boolean; error?: string }>>(
+  async () => ({ ok: true }))
 vi.mock('@/app/actions/minutes', () => ({
   createMinuteFolder: vi.fn(async () => ({ ok: true })),
   renameMinuteFolder: vi.fn(async () => ({ ok: true })),
@@ -52,7 +53,8 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     container = document.createElement('div'); document.body.appendChild(container)
     root = createRoot(container)
     onToggle.mockClear(); onRetry.mockClear(); onChanged.mockClear()
-    onFolderSelect.mockClear(); moveMinuteToFolder.mockClear(); moveMinuteFolder.mockClear()
+    onFolderSelect.mockClear(); moveMinuteToFolder.mockClear()
+    moveMinuteFolder.mockClear(); moveMinuteFolder.mockResolvedValue({ ok: true })
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
@@ -61,9 +63,40 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
       <MinutesExplorer folders={folders} leaves={leaves} favorites={new Set(['m1'])}
         onToggleFavorite={onToggle} onRetryFavorites={onRetry}
         layout="grid"
-        currentUserId="u1" isAdmin={false} dndEnabled onChanged={onChanged} onFolderSelect={onFolderSelect}
+        currentUserId="u1" isAdmin={false} onChanged={onChanged} onFolderSelect={onFolderSelect}
+        teamCodes={['PMO', 'MES', 'ERP']}
         {...over} />,
     ))
+  }
+
+  // jsdom 은 DragEvent 를 구현하지 않는다 — bubbles:true 인 일반 Event 에 가짜 dataTransfer 를
+  // 붙여 React 루트까지 올려 보낸다(React 는 컨테이너에 위임 리스너를 단다).
+  function dragEvent(type: string): Event {
+    const ev = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(ev, 'dataTransfer', {
+      value: { setData: vi.fn(), getData: vi.fn(() => ''), effectAllowed: '', dropEffect: '' },
+    })
+    return ev
+  }
+  async function dragOver(source: Element, target: Element) {
+    await act(async () => { source.dispatchEvent(dragEvent('dragstart')) })
+    await act(async () => { target.dispatchEvent(dragEvent('dragover')) })
+  }
+  async function dragTo(source: Element, target: Element) {
+    await dragOver(source, target)
+    await act(async () => { target.dispatchEvent(dragEvent('drop')) })
+    await act(async () => { source.dispatchEvent(dragEvent('dragend')) })
+  }
+  function dropTarget(key: string): HTMLElement {
+    const found = container.querySelector<HTMLElement>(`[data-drop-target="${key}"]`)
+    if (!found) throw new Error(`drop target not found: ${key}`)
+    return found
+  }
+  function cardOf(title: string): HTMLElement {
+    const found = [...container.querySelectorAll<HTMLElement>('article')]
+      .find(a => a.textContent?.includes(title))
+    if (!found) throw new Error(`card not found: ${title}`)
+    return found
   }
   function buttonByText(text: string): HTMLButtonElement {
     const found = [...container.querySelectorAll('button')].find(b => b.textContent?.includes(text))
@@ -83,43 +116,6 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     if (!found) throw new Error(`dialog button not found: ${text}`)
     return found
   }
-  /** 레일의 폴더 행(div.group) — 드래그 핸들이자 드롭존. 하위 ul 은 형제 li 라 섞이지 않는다. */
-  function folderRowEl(name: string): HTMLElement {
-    const found = [...container.querySelectorAll<HTMLElement>('[data-minutes-navigation] .group')]
-      .find(d => d.textContent?.includes(name))
-    if (!found) throw new Error(`folder row not found: ${name}`)
-    return found
-  }
-  function articleByText(text: string): HTMLElement {
-    const found = [...container.querySelectorAll<HTMLElement>('article')].find(a => a.textContent?.includes(text))
-    if (!found) throw new Error(`article not found: ${text}`)
-    return found
-  }
-  // jsdom 에는 DragEvent 도 DataTransfer 도 없다. React 는 nativeEvent.dataTransfer 를 그대로
-  // 넘기므로 최소 구현만 붙이면 합성 이벤트가 성립한다.
-  function makeDataTransfer() {
-    const store = new Map<string, string>()
-    return {
-      dropEffect: 'none', effectAllowed: 'none',
-      setData: (k: string, v: string) => { store.set(k, v) },
-      getData: (k: string) => store.get(k) ?? '',
-    } as unknown as DataTransfer
-  }
-  function fireDrag(el: Element, type: string, dataTransfer: DataTransfer): Event {
-    const ev = new Event(type, { bubbles: true, cancelable: true })
-    Object.defineProperty(ev, 'dataTransfer', { value: dataTransfer })
-    el.dispatchEvent(ev)
-    return ev
-  }
-
-  // D&D 판정 검증용 폴더 세트 — 시드 팀 루트(createdBy null) 밑에만 팀 파생이 성립한다(§6.3).
-  const dndFolders = [
-    folder('f-mes', 'MES', null, 0),
-    folder('f-erp', 'ERP', null, 1),
-    folder('f-q', '품질', 'f-mes', 0, 'u1'),
-    folder('f-w', '주간정례', 'f-q', 0, 'u1'),
-    folder('f-prod', '생산계획', 'f-mes', 1, 'u1'),
-  ]
 
   it('all 스코프: 폴더 카드 그리드 없이 전체 리프 flat — 탐색은 레일(카드 제거, 사용자 결정)', async () => {
     await mount()
@@ -201,62 +197,24 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect([...container.querySelectorAll('button[aria-label="min.fold.menuAria"]')].length).toBe(3)
   })
 
-  it('W18: 루트 새 폴더 버튼이 없다 — 루트 생성이 거절되므로 죽은 어포던스', async () => {
-    await mount({ isAdmin: true })
-    // 폴더는 팀 폴더 ⋯ 메뉴의 '하위 폴더 추가'로만 만든다(§6.3 불변식)
-    const found = [...container.querySelectorAll('button')]
-      .filter(b => (b.textContent ?? '').includes('min.fold.new'))
-    expect(found).toHaveLength(0)
-  })
-
-  it('하위 폴더 추가는 ⋯ 메뉴에서 열린다 — 상위 폴더가 정해진 생성만 가능', async () => {
-    await mount({ isAdmin: true })
-    const menuBtn = container.querySelector<HTMLButtonElement>('button[aria-label="min.fold.menuAria"]')!
-    await act(async () => menuBtn.click())
-    await act(async () => buttonByText('min.fold.addSub').click())
-    expect(dialog().textContent).toContain('min.fold.name')          // FolderManageModal
-  })
-
-  it('이동 버튼 → 픽커 열림 후 폴더 선택 시 moveMinuteToFolder 호출·onChanged', async () => {
+  it('새 폴더 버튼 → 생성 모달 열림, 이동 버튼 → 픽커 열림 후 moveMinuteToFolder 호출·onChanged', async () => {
     await mount()
+    await act(async () => buttonByText('min.fold.new').click())
+    expect(dialog().textContent).toContain('min.fold.name')          // FolderManageModal
+    await act(async () => dialogButtonByText('min.fold.cancel').click())  // 없으면 Esc 대체 — 구현의 닫기 버튼 텍스트에 맞춤
+    // 이동: m1 카드의 이동 버튼(작성자 u1)
     const moveBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.move"]')]
       .find(b => b.closest('article')?.textContent?.includes('APS 인터뷰'))!
     await act(async () => moveBtn.click())
     expect(dialog().textContent).toContain('min.fold.pickTitle')
-    // §6.4: 픽커에 미분류 항목이 없다 — 폴더에서 빼는 조작은 제공하지 않는다
-    expect(dialog().textContent).not.toContain('min.fold.unfiled')
-    await act(async () => dialogButtonByText('APS 회의').click())
-    expect(moveMinuteToFolder).toHaveBeenCalledWith('m1', 'f-aps')
+    await act(async () => dialogButtonByText('min.fold.unfiled').click())   // 픽커에서 미분류 선택
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m1', null)
     expect(onChanged).toHaveBeenCalled()
   })
 
   it('이동 버튼은 작성자가 아니고 관리자도 아니면 없다', async () => {
     await mount({ currentUserId: 'other' })
     expect(container.querySelectorAll('button[aria-label="min.fold.move"]').length).toBe(0)
-  })
-
-  // ── R4 게이트(결정 §2-A C-2) ───────────────────────────────────────────────
-  // 재편철 1회차 전에 사용자가 회의록·폴더를 옮기면 그 건이 배치에서 skipped(manual_placement)
-  // 로 빠져 부분 일치가 '완료'로 보고된다. 이 스위트의 나머지는 게이트가 열린 상태(mount 기본값
-  // dndEnabled)를 검증하므로, 닫힌 상태를 여기서 따로 고정한다.
-  it('dndEnabled=false 면 폴더·회의록 draggable 이 전부 꺼진다', async () => {
-    await mount({ isAdmin: true, dndEnabled: false })
-    const draggables = [...container.querySelectorAll('[draggable="true"]')]
-    expect(draggables).toHaveLength(0)
-  })
-
-  it('dndEnabled=false 여도 [이동] 버튼과 폴더 픽커는 그대로 동작한다 — 게이트 범위는 D&D 한정', async () => {
-    await mount({ dndEnabled: false })
-    const moveBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.move"]')]
-      .find(b => b.closest('article')?.textContent?.includes('APS 인터뷰'))!
-    await act(async () => moveBtn.click())
-    await act(async () => dialogButtonByText('APS 회의').click())
-    expect(moveMinuteToFolder).toHaveBeenCalledWith('m1', 'f-aps')
-  })
-
-  it('dndEnabled=true 면 관리자에게 폴더 draggable 이 살아난다 — 게이트 외 조건은 그대로', async () => {
-    await mount({ isAdmin: true, dndEnabled: true })
-    expect([...container.querySelectorAll('[draggable="true"]')].length).toBeGreaterThan(0)
   })
 
   it('선택 폴더가 사라지면(재조회 후) all 강등', async () => {
@@ -315,6 +273,102 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect(results?.classList).toContain('lg:overscroll-y-contain')
   })
 
+  /* ── 드래그앤드롭 ── */
+
+  it('회의록을 폴더 행에 드롭하면 moveMinuteToFolder + onChanged', async () => {
+    await mount()
+    await dragTo(cardOf('미배정 회의록'), dropTarget('f-plan'))
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m3', 'f-plan')
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('회의록을 미분류 행에 드롭하면 folderId null 로 이동', async () => {
+    await mount()
+    await dragTo(cardOf('APS 인터뷰'), dropTarget('__unfiled__'))
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m1', null)
+  })
+
+  it('제자리(현재 폴더) 드롭은 서버를 부르지 않는다', async () => {
+    await mount()
+    await dragTo(cardOf('APS 인터뷰'), dropTarget('f-aps'))
+    expect(moveMinuteToFolder).not.toHaveBeenCalled()
+  })
+
+  it('회의록은 전체(루트) 행에 놓을 수 없다 — 폴더 전용 대상', async () => {
+    await mount()
+    await dragTo(cardOf('미배정 회의록'), dropTarget('__root__'))
+    expect(moveMinuteToFolder).not.toHaveBeenCalled()
+    expect(moveMinuteFolder).not.toHaveBeenCalled()
+  })
+
+  it('폴더를 다른 폴더에 드롭하면 moveMinuteFolder + 새 부모를 펼쳐 옮긴 폴더가 보인다', async () => {
+    // f-pmo 는 처음에 자식이 없어 expanded 에 없다 — 펼치지 않으면 옮긴 폴더가 사라져 보인다
+    await mount({ isAdmin: true })
+    await dragTo(dropTarget('f-aps'), dropTarget('f-pmo'))
+    expect(moveMinuteFolder).toHaveBeenCalledWith('f-aps', 'f-pmo')
+    // 재조회 결과(부모가 바뀐 트리)로 다시 렌더 — expanded 상태는 유지된다
+    await mount({
+      isAdmin: true,
+      folders: [folders[0], folders[1], { ...folders[2], parentId: 'f-pmo' }],
+    })
+    // 레일의 f-aps 행 자체를 확인한다 — 'APS 회의' 텍스트는 카드의 폴더 칩에도 나오므로
+    // textContent 로는 접힌 채 사라진 경우를 구분하지 못한다
+    expect(container.querySelector('[data-drop-target="f-aps"]')).toBeTruthy()
+  })
+
+  it('폴더를 전체(루트) 행에 드롭하면 부모 null 로 이동', async () => {
+    await mount()
+    await dragTo(dropTarget('f-aps'), dropTarget('__root__'))
+    expect(moveMinuteFolder).toHaveBeenCalledWith('f-aps', null)
+  })
+
+  it('폴더를 자기 자손에 드롭하면 서버 호출 없이 거부(순환)', async () => {
+    await mount()
+    await dragTo(dropTarget('f-plan'), dropTarget('f-aps'))
+    expect(moveMinuteFolder).not.toHaveBeenCalled()
+  })
+
+  it('폴더는 미분류 행에 놓을 수 없다 — 회의록 전용 대상', async () => {
+    await mount()
+    await dragTo(dropTarget('f-aps'), dropTarget('__unfiled__'))
+    expect(moveMinuteFolder).not.toHaveBeenCalled()
+  })
+
+  it('권한 없는 항목은 draggable=false — 리프도 폴더도', async () => {
+    await mount({ currentUserId: 'other' })
+    expect(cardOf('APS 인터뷰').getAttribute('draggable')).not.toBe('true')
+    expect(dropTarget('f-plan').getAttribute('draggable')).not.toBe('true')
+  })
+
+  it('팀 시드 루트 폴더는 관리자에게도 draggable=false (편철 앵커 보호)', async () => {
+    await mount({ isAdmin: true })
+    expect(dropTarget('f-pmo').getAttribute('draggable')).not.toBe('true')
+    expect(dropTarget('f-plan').getAttribute('draggable')).toBe('true')
+  })
+
+  it('dragOver 하이라이트: 수락 대상은 brand, 거부 대상은 delayed', async () => {
+    await mount()
+    await dragOver(dropTarget('f-aps'), dropTarget('__root__'))
+    expect(dropTarget('__root__').className).toContain('ring-brand-ring')
+    await mount()
+    await dragOver(dropTarget('f-plan'), dropTarget('f-aps'))   // 자손 = 순환 거부
+    expect(dropTarget('f-aps').className).toContain('ring-delayed')
+  })
+
+  it('회의록 카드의 전면 링크는 draggable=false — 카드 대신 링크가 끌리지 않게', async () => {
+    await mount()
+    const link = cardOf('APS 인터뷰').querySelector('a[href="/minutes/m1"]')!
+    expect(link.getAttribute('draggable')).toBe('false')
+  })
+
+  it('서버가 실패를 돌려주면 onChanged 를 부르지 않는다', async () => {
+    moveMinuteFolder.mockResolvedValue({ ok: false, error: '권한이 없거나 폴더가 없습니다.' })
+    await mount()
+    await dragTo(dropTarget('f-aps'), dropTarget('__root__'))
+    expect(moveMinuteFolder).toHaveBeenCalled()
+    expect(onChanged).not.toHaveBeenCalled()
+  })
+
   it('왼쪽 메뉴에서 범위를 바꾸면 오른쪽 목록을 맨 위로 되돌린다', async () => {
     await mount()
     const results = container.querySelector<HTMLElement>('[data-minutes-results-scroll-region]')!
@@ -323,84 +377,5 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     await act(async () => buttonByText('min.exp.favorites').click())
 
     expect(results.scrollTop).toBe(0)
-  })
-
-  /* ── D&D (§6 W22) ── */
-
-  it('폴더 드래그는 관리자만 — 시드 팀 루트는 draggable 자체가 없다(§6.8)', async () => {
-    await mount({ folders: dndFolders, leaves: [], isAdmin: false })
-    expect(container.querySelectorAll('[data-minutes-navigation] [draggable="true"]').length).toBe(0)
-
-    await mount({ folders: dndFolders, leaves: [], isAdmin: true })
-    expect(folderRowEl('품질').getAttribute('draggable')).toBe('true')
-    expect(folderRowEl('주간정례').getAttribute('draggable')).toBe('true')
-    expect(folderRowEl('MES').getAttribute('draggable')).toBe('false')
-    expect(folderRowEl('ERP').getAttribute('draggable')).toBe('false')
-  })
-
-  it('회의록 카드는 이동 권한이 있을 때만 draggable, 전면 Link 는 draggable=false', async () => {
-    await mount()
-    const card = articleByText('APS 인터뷰')
-    expect(card.getAttribute('draggable')).toBe('true')
-    // Link 가 기본 draggable 이면 오버레이가 드래그를 가로채 URL(text/uri-list)이 실려 나간다
-    expect(card.querySelector('a')?.getAttribute('draggable')).toBe('false')
-
-    await mount({ layout: 'list' })
-    const row = [...container.querySelectorAll<HTMLElement>('li')].find(li => li.textContent?.includes('APS 인터뷰'))!
-    expect(row.getAttribute('draggable')).toBe('true')
-    expect(row.querySelector('a')?.getAttribute('draggable')).toBe('false')
-
-    await mount({ currentUserId: 'other' })
-    expect(articleByText('APS 인터뷰').getAttribute('draggable')).toBe('false')
-  })
-
-  it('폴더 드롭존: 받을 수 있는 폴더만 preventDefault + 하이라이트, 드롭 시 moveMinuteFolder', async () => {
-    await mount({ folders: dndFolders, leaves: [], isAdmin: true })
-    const dt = makeDataTransfer()
-    await act(async () => { fireDrag(folderRowEl('품질'), 'dragstart', dt) })
-
-    // 자기 자손(주간정례)·현재 부모(MES)·다른 팀(ERP)은 모두 드롭 불가 → preventDefault 없음
-    for (const name of ['주간정례', 'MES', 'ERP']) {
-      const ev = fireDrag(folderRowEl(name), 'dragover', dt)
-      expect(ev.defaultPrevented, name).toBe(false)
-      expect(folderRowEl(name).className).not.toContain('border-brand')
-    }
-
-    // 같은 팀·깊이 여유 있는 형제(생산계획)만 허용
-    let ok: Event
-    await act(async () => { ok = fireDrag(folderRowEl('생산계획'), 'dragover', dt) })
-    expect(ok!.defaultPrevented).toBe(true)
-    expect(folderRowEl('생산계획').className).toContain('border-brand')
-    expect(folderRowEl('생산계획').className).toContain('ring-brand-ring')
-
-    await act(async () => { fireDrag(folderRowEl('생산계획'), 'drop', dt) })
-    expect(moveMinuteFolder).toHaveBeenCalledWith('f-q', 'f-prod')
-    expect(onChanged).toHaveBeenCalled()
-  })
-
-  it('회의록 드롭: 폴더 행에 놓으면 moveMinuteToFolder — 같은 폴더는 드롭존 비활성', async () => {
-    const ls = [leaf('m9', '2026-07-22', '품질 정례', 'f-q')]
-    await mount({ folders: dndFolders, leaves: ls, isAdmin: false })
-    const dt = makeDataTransfer()
-    await act(async () => { fireDrag(articleByText('품질 정례'), 'dragstart', dt) })
-
-    const same = fireDrag(folderRowEl('품질'), 'dragover', dt)
-    expect(same.defaultPrevented).toBe(false)          // 이미 그 폴더 소속 = 이동 아님
-
-    let ok: Event
-    await act(async () => { ok = fireDrag(folderRowEl('생산계획'), 'dragover', dt) })
-    expect(ok!.defaultPrevented).toBe(true)
-    await act(async () => { fireDrag(folderRowEl('생산계획'), 'drop', dt) })
-    expect(moveMinuteToFolder).toHaveBeenCalledWith('m9', 'f-prod')
-  })
-
-  it('이동 권한이 없는 회의록은 어떤 폴더도 드롭을 받지 않는다', async () => {
-    const ls = [leaf('m9', '2026-07-22', '품질 정례', 'f-q')]
-    await mount({ folders: dndFolders, leaves: ls, isAdmin: false, currentUserId: 'other' })
-    const dt = makeDataTransfer()
-    // draggable 이 아니라 dragstart 자체가 없지만, 상태가 없을 때 드롭존이 열리지 않는지 확인
-    const ev = fireDrag(folderRowEl('생산계획'), 'dragover', dt)
-    expect(ev.defaultPrevented).toBe(false)
-    expect(articleByText('품질 정례').getAttribute('draggable')).toBe('false')
   })
 })

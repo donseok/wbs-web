@@ -52,7 +52,7 @@ function teamChildFolders(folders: MinuteFolder[], team: TeamCode): MinuteFolder
 /** 팀별 하위 구분 — 팀 루트의 실제 하위 폴더명. 하위 폴더가 없으면(팀 루트 부재 포함)
  *  자기 자신 1개(상위 폴더=하위 폴더).
  *  @deprecated §6 폴더 중심 재편으로 (팀, 하위 구분) 2단 모델이 폐지되어 프로덕션 사용처가 0이다.
- *  편철 폴더는 FolderTreeSelect 로 직접 고르고 team 은 teamSubOfFolder 로 파생한다. */
+ *  편철 폴더는 FolderPickModal 로 직접 고르고 team 은 teamSubOfFolder 로 파생한다. */
 export function subgroupsOf(folders: MinuteFolder[], team: TeamCode): string[] {
   const names = teamChildFolders(folders, team).map(f => f.name)
   return names.length > 0 ? names : [team]

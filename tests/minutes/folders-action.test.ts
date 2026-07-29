@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const getSession = vi.fn()
 const getMembership = vi.fn()
@@ -68,8 +68,8 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import {
-  clearMinuteExternalId, createMinuteFolder, deleteMinuteFolder, moveMinuteFolder,
-  moveMinuteToFolder, renameMinuteFolder, updateMinuteMeta,
+  createMinuteFolder, deleteMinuteFolder, moveMinuteFolder, moveMinuteToFolder,
+  renameMinuteFolder, resetMinuteExternalId, updateMinuteMeta,
 } from '@/app/actions/minutes'
 
 const seedFolders = [
@@ -373,6 +373,153 @@ describe('updateMinuteMeta 폴더 이동(하위 구분, 수정 모달)', () => {
     expect(r.ok).toBe(false)
     expect(calls['minutes']!.some(c => c.method === 'update')).toBe(false)
   })
+  it('folderId 를 null 로 전달하면 명시적 미분류로 갱신 — 무접촉(undefined)과 구분', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1' }, error: null } })
+    const { client: admin, rpc } = fakeMetadataAdmin()
+    createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
+    const r = await updateMinuteMeta('m1', patch, null)
+    expect(r.ok).toBe(true)
+    const args = rpc.mock.calls[0][1]
+    const metadata = args.p_metadata as Record<string, unknown>
+    expect('folder_id' in metadata).toBe(true)
+    expect(metadata.folder_id).toBeNull()
+  })
+})
+
+describe('moveMinuteFolder (폴더 드래그앤드롭)', () => {
+  // 서버는 클라이언트 판정을 신뢰하지 않는다 — 거부 케이스마다 update 미도달까지 확인
+  const tree = [
+    { id: 'f-mes', name: 'MES', parent_id: null, sort: 2, created_by: null },   // 팀 시드 루트
+    { id: 'f-a', name: '가', parent_id: null, sort: 100, created_by: 'u1' },
+    { id: 'f-b', name: '나', parent_id: 'f-a', sort: 100, created_by: 'u1' },
+    { id: 'f-c', name: '다', parent_id: 'f-b', sort: 100, created_by: 'u1' },
+  ]
+  const withTree = () => fakeClient({ minute_folders: { data: tree, error: null } })
+
+  it('미로그인은 실패 + 클라이언트 미생성', async () => {
+    getSession.mockResolvedValue(null)
+    const r = await moveMinuteFolder('f-b', null)
+    expect(r.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('가드 선행조회 실패는 중단(쓰기 선행조회 원칙)', async () => {
+    const { client } = fakeClient({ minute_folders: { data: null, error: { message: 'db down' } } })
+    createServerClient.mockResolvedValue(client)
+    expect((await moveMinuteFolder('f-b', null)).ok).toBe(false)
+  })
+  it('없는 폴더는 실패', async () => {
+    const { client, calls } = withTree()
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('ghost', null)
+    expect(r.ok).toBe(false)
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
+  it('팀 시드 루트는 이동 금지 — update 미도달', async () => {
+    const { client, calls } = withTree()
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('f-mes', 'f-a')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('팀 기본 폴더')
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
+  it('자손으로의 이동(순환)은 거부 — update 미도달', async () => {
+    const { client, calls } = withTree()
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('f-a', 'f-c')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('하위 폴더')
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
+  it('없는 상위 폴더로의 이동은 거부', async () => {
+    const { client, calls } = withTree()
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('f-b', 'ghost')
+    expect(r.ok).toBe(false)
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
+  it('깊이 상한 초과는 거부 — 클라이언트가 통과시켜도 서버가 막는다', async () => {
+    const deep = [
+      { id: 'd1', name: '1', parent_id: null, sort: 0, created_by: 'u1' },
+      { id: 'd2', name: '2', parent_id: 'd1', sort: 0, created_by: 'u1' },
+      { id: 'd3', name: '3', parent_id: 'd2', sort: 0, created_by: 'u1' },
+      { id: 'd4', name: '4', parent_id: 'd3', sort: 0, created_by: 'u1' },
+      { id: 's', name: '이동', parent_id: null, sort: 0, created_by: 'u1' },
+      { id: 's2', name: '이동자식', parent_id: 's', sort: 0, created_by: 'u1' },
+    ]
+    const { client, calls } = fakeClient({ minute_folders: { data: deep, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('s', 'd4')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('5')
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
+  it('루트로 올릴 때 팀코드 동명(ERP)은 앵커 사칭으로 거부', async () => {
+    const squat = [
+      { id: 'p', name: '상위', parent_id: null, sort: 100, created_by: 'u1' },
+      { id: 'x', name: 'ERP', parent_id: 'p', sort: 100, created_by: 'u1' },
+    ]
+    const { client, calls } = fakeClient({ minute_folders: { data: squat, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('x', null)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('팀 기본 폴더명')
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
+  it('제자리(현재 부모) 드롭은 쓰기 없이 성공', async () => {
+    const { client, calls } = withTree()
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('f-b', 'f-a')
+    expect(r.ok).toBe(true)
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
+  it('정상 이동은 parent_id 갱신', async () => {
+    const { client, calls } = withTree()
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('f-c', null)
+    expect(r.ok).toBe(true)
+    const upd = calls['minute_folders']!.find(c => c.method === 'update')!
+    expect(upd.args[0]).toMatchObject({ parent_id: null })
+  })
+  it('0행 갱신(RLS 권한 없음)은 실패로 판정', async () => {
+    // 선행조회는 트리를, 갱신은 0행을 돌려주도록 호출 순서로 가른다
+    const { client, from } = withTree()
+    let call = 0
+    from.mockImplementation(() => {
+      call += 1
+      const result = call === 1 ? { data: tree, error: null } : { data: [], error: null }
+      const builder: Record<string, unknown> = {}
+      for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'maybeSingle', 'single']) {
+        builder[m] = vi.fn(() => builder)
+      }
+      ;(builder as { then: (r: (v: typeof result) => void) => void }).then = resolve => resolve(result)
+      return builder
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('f-c', null)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('권한')
+  })
+  it('유니크 위반(23505)은 동명 폴더 안내로 매핑', async () => {
+    const { client, from } = withTree()
+    let call = 0
+    from.mockImplementation(() => {
+      call += 1
+      const result = call === 1
+        ? { data: tree, error: null }
+        : { data: null, error: { message: 'duplicate key value', code: '23505' } }
+      const builder: Record<string, unknown> = {}
+      for (const m of ['select', 'insert', 'update', 'delete', 'eq', 'is', 'order', 'maybeSingle', 'single']) {
+        builder[m] = vi.fn(() => builder)
+      }
+      ;(builder as { then: (r: (v: typeof result) => void) => void }).then = resolve => resolve(result)
+      return builder
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('f-c', null)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('이미')
+  })
 })
 
 describe('moveMinuteToFolder', () => {
@@ -446,215 +593,37 @@ describe('moveMinuteToFolder', () => {
 
 /* ── W21 폴더 이동 (§6.5) ──────────────────────────────────────────────────── */
 
-describe('moveMinuteFolder (W21 — pmo_admin 전용, 가드 M1~M5)', () => {
-  // R4 게이트(결정 §2-A C-2) 이후 폴더 이동은 MINUTES_FOLDER_DND_ENABLED 뒤에 있다.
-  // 이 스위트는 **게이트가 열렸을 때의 가드 M1~M5** 를 검증하는 것이므로 플래그를 켠다.
-  // 게이트 자체(기본 닫힘·오설정 차단·인증보다 앞)는 tests/actions/minutes-dnd-gate.test.ts.
-  beforeEach(() => { vi.stubEnv('MINUTES_FOLDER_DND_ENABLED', 'true') })
-  afterEach(() => { vi.unstubAllEnvs() })
-
-  /** PMO(f1) / 하위(f2) / 하위-깊이2(f5) · MES(f3) / 품질(f4) */
-  const tree = [
-    { id: 'f1', name: 'PMO', parent_id: null, sort: 0, created_by: null },
-    { id: 'f2', name: '하위', parent_id: 'f1', sort: 100, created_by: 'u1' },
-    { id: 'f5', name: '더하위', parent_id: 'f2', sort: 100, created_by: 'u1' },
-    { id: 'f3', name: 'MES', parent_id: null, sort: 2, created_by: null },
-    { id: 'f4', name: '품질', parent_id: 'f3', sort: 100, created_by: 'u1' },
-  ]
-  const admin = () => {
-    getMembership.mockResolvedValue({ role: 'pmo_admin' })
-  }
-  const withTree = (folders = tree) => {
-    const fake = fakeClient({ minute_folders: { data: folders, error: null } })
-    createServerClient.mockResolvedValue(fake.client)
-    return fake
-  }
-
-  it('일반 사용자는 거부 — DB 접근 전에 막는다', async () => {
-    const r = await moveMinuteFolder('f2', 'f1')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('관리자')
-    expect(createServerClient).not.toHaveBeenCalled()
-  })
-
-  it('미로그인은 거부', async () => {
-    getSession.mockResolvedValue(null)
-    expect((await moveMinuteFolder('f2', 'f1')).ok).toBe(false)
-  })
-
-  it('M2 — 루트로 이동 금지(DB 접근 전)', async () => {
-    admin()
-    const r = await moveMinuteFolder('f2', null)
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('담당 팀 폴더 안에만')
-    expect(createServerClient).not.toHaveBeenCalled()
-  })
-
-  it('M3 — 자기 자신 아래로 이동 금지(DB 접근 전)', async () => {
-    admin()
-    expect((await moveMinuteFolder('f2', 'f2')).ok).toBe(false)
-    expect(createServerClient).not.toHaveBeenCalled()
-  })
-
-  it('M1 — 시드 팀 루트는 이동 불가', async () => {
-    admin(); const { calls } = withTree()
-    const r = await moveMinuteFolder('f1', 'f3')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('팀 기본 폴더')
-    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
-  })
-
-  it('M3 — 자손 아래로 이동 금지(f2 → f5)', async () => {
-    admin(); const { calls } = withTree()
-    const r = await moveMinuteFolder('f2', 'f5')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('하위 폴더')
-    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
-  })
-
-  it('M4 — 서브트리 높이까지 더해 깊이 5를 넘으면 거부', async () => {
-    admin()
-    // A(1)/B(2)/C(3) 아래로, 높이 3짜리 X(1)/Y(2)/Z(3) 를 옮기면 3+3=6 > 5
-    const deep = [
-      { id: 'a', name: 'PMO', parent_id: null, sort: 0, created_by: null },
-      { id: 'b', name: 'B', parent_id: 'a', sort: 100, created_by: 'u1' },
-      { id: 'c', name: 'C', parent_id: 'b', sort: 100, created_by: 'u1' },
-      { id: 'x', name: 'X', parent_id: 'a', sort: 100, created_by: 'u1' },
-      { id: 'y', name: 'Y', parent_id: 'x', sort: 100, created_by: 'u1' },
-      { id: 'z', name: 'Z', parent_id: 'y', sort: 100, created_by: 'u1' },
-    ]
-    const { calls } = withTree(deep)
-    const r = await moveMinuteFolder('x', 'c')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('5단')
-    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
-  })
-
-  it('M5 — 같은 부모에 동명 폴더가 있으면 거부(23505 원문 노출 아님)', async () => {
-    admin()
-    const dup = [
-      ...tree,
-      { id: 'f6', name: '품질', parent_id: 'f1', sort: 100, created_by: 'u1' },
-    ]
-    const { calls } = withTree(dup)
-    const r = await moveMinuteFolder('f4', 'f1')   // 팀 간 이동이라 그 가드가 먼저 걸린다
-    expect(r.ok).toBe(false)
-    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
-  })
-
-  it('같은 팀 안 동명 중복은 M5 로 거부', async () => {
-    admin()
-    const dup = [
-      ...tree,
-      { id: 'f7', name: '보고', parent_id: 'f1', sort: 100, created_by: 'u1' },
-      { id: 'f8', name: '보고', parent_id: 'f2', sort: 100, created_by: 'u1' },
-    ]
-    const { calls } = withTree(dup)
-    const r = await moveMinuteFolder('f8', 'f1')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('이미')
-    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
-  })
-
-  it('팀 간 이동은 v1 에서 차단 — 회의록 개별 이동으로 안내', async () => {
-    admin(); const { calls } = withTree()
-    const r = await moveMinuteFolder('f2', 'f3')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('다른 담당 팀')
-    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
-  })
-
-  /** 1회차 = loadFolders(트리), 2회차 = update 결과. 호출 순서로 결과를 가르는 이 파일 관례. */
-  function seqClient(updateRows: unknown) {
-    const args: unknown[][] = []
-    let n = 0
-    const from = vi.fn(() => {
-      n += 1
-      const result: TableResult = n === 1
-        ? { data: tree, error: null }
-        : { data: updateRows, error: null }
-      const builder: Record<string, unknown> = {}
-      for (const mth of ['select', 'eq']) builder[mth] = vi.fn(() => builder)
-      builder.update = vi.fn((a: unknown) => { args.push([a]); return builder })
-      ;(builder as { then: (r: (v: TableResult) => void) => void }).then = r => r(result)
-      return builder
-    })
-    createServerClient.mockResolvedValue({ from })
-    return { updateArgs: args }
-  }
-
-  it('같은 팀 안 이동은 성공하고 부모·sort·updated_at 을 갱신한다', async () => {
-    admin()
-    const { updateArgs } = seqClient([{ id: 'f5' }])
-    const r = await moveMinuteFolder('f5', 'f1')   // PMO/하위/더하위 → PMO/더하위
-    expect(r.ok).toBe(true)
-    expect(updateArgs[0][0]).toMatchObject({ parent_id: 'f1', sort: 100 })
-    expect(updateArgs[0][0]).toHaveProperty('updated_at')
-  })
-
-  it('RLS 0행은 조용한 no-op 이 아니라 실패로 보고한다', async () => {
-    admin()
-    seqClient([])
-    const r = await moveMinuteFolder('f5', 'f1')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('권한')
-  })
-})
-
-/* ── W10 연결 초기화 (§9.4) ────────────────────────────────────────────────── */
-
-describe('clearMinuteExternalId (W10 — 연결 초기화)', () => {
-  // 결정 §3 R3 한시 게이트 — ddobak-W14 배포 전까지 pmo_admin 만.
-  beforeEach(() => { getMembership.mockResolvedValue({ role: 'pmo_admin' }) })
-
-  it('pmo_admin 이 아니면 거부 — ddobak-W14 전까지 한시 게이트(§3 R3)', async () => {
-    getMembership.mockResolvedValue({ role: 'member' })
-    const r = await clearMinuteExternalId('m1')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('관리자')
-    expect(createServerClient).not.toHaveBeenCalled()
-  })
-
-  it('미로그인은 거부', async () => {
-    getSession.mockResolvedValue(null)
-    expect((await clearMinuteExternalId('m1')).ok).toBe(false)
-  })
-
-  it('external_id 를 null 로 갱신하고 updated_at 은 갱신한다(사용자 조작)', async () => {
-    const { client } = fakeClient({ minutes: { data: { id: 'm1', created_by: 'u1' }, error: null } })
-    const { client: admin, calls } = fakeClient({ minutes: { data: [{ id: 'm1' }], error: null } })
+describe('resetMinuteExternalId', () => {
+  it('소유자 아니고 pmo_admin 도 아니면 거부 — admin 클라이언트 미생성', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u2', archived_at: null }, error: null } })
     createServerClient.mockResolvedValue(client)
-    adminMocks.createAdminClient.mockReturnValue(admin)
-    expect((await clearMinuteExternalId('m1')).ok).toBe(true)
-    const upd = calls['minutes']!.find(c => c.method === 'update')!
-    expect(upd.args[0]).toMatchObject({ external_id: null })
-    expect(upd.args[0]).toHaveProperty('updated_at')
-  })
-
-  it('보관된 회의록은 초기화 불가 — 재연결이 막힌 편도 상태를 만들지 않는다', async () => {
-    const { client } = fakeClient({
-      minutes: { data: { id: 'm1', created_by: 'u1', archived_at: '2026-07-20' }, error: null },
-    })
-    createServerClient.mockResolvedValue(client)
-    const r = await clearMinuteExternalId('m1')
+    const r = await resetMinuteExternalId('m1')
     expect(r.ok).toBe(false)
-    expect(r.error).toContain('보관된')
     expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
   })
-
-  it('pmo_admin 은 남의 회의록도 초기화할 수 있다 — checkOwner 규약 유지', async () => {
-    const { client } = fakeClient({ minutes: { data: { id: 'm1', created_by: 'other' }, error: null } })
-    const { client: admin } = fakeClient({ minutes: { data: [{ id: 'm1' }], error: null } })
+  it('보관된 회의록은 거부', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1', archived_at: 't' }, error: null } })
     createServerClient.mockResolvedValue(client)
-    adminMocks.createAdminClient.mockReturnValue(admin)
-    expect((await clearMinuteExternalId('m1')).ok).toBe(true)
+    const r = await resetMinuteExternalId('m1')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('보관')
   })
-
-  it('0행 갱신은 실패로 보고한다', async () => {
-    const { client } = fakeClient({ minutes: { data: { id: 'm1', created_by: 'u1' }, error: null } })
+  it('0행 갱신(권한 없음·회의록 없음)은 명시적 실패 — 조용한 성공 위장 금지', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1', archived_at: null }, error: null } })
     const { client: admin } = fakeClient({ minutes: { data: [], error: null } })
     createServerClient.mockResolvedValue(client)
     adminMocks.createAdminClient.mockReturnValue(admin)
-    expect((await clearMinuteExternalId('m1')).ok).toBe(false)
+    const r = await resetMinuteExternalId('m1')
+    expect(r.ok).toBe(false)
+  })
+  it('소유자면 external_id 를 null 로 갱신 성공', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1', archived_at: null }, error: null } })
+    const { client: admin, calls } = fakeClient({ minutes: { data: [{ id: 'm1' }], error: null } })
+    createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
+    const r = await resetMinuteExternalId('m1')
+    expect(r.ok).toBe(true)
+    const updateCall = calls['minutes']!.find(c => c.method === 'update')
+    expect((updateCall!.args[0] as Record<string, unknown>).external_id).toBeNull()
   })
 })

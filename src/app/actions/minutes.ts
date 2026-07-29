@@ -9,8 +9,7 @@ import {
   isTeamRootName, isTeamRootFolder, teamSubOfFolder, normalizeFolderName,
   type MinuteInput,
 } from '@/lib/domain/minutes'
-import { canDropFolder, type FolderDropReason } from '@/lib/domain/folder-drop'
-import { folderDndEnabled } from '@/lib/minutes/flags'
+import { resolveFolderDrop, type MinuteDropReject } from '@/lib/domain/minutes-drop'
 import {
   getMinuteDetail, getMinuteFavorites, getMinutesExplorer, getMinutesPage, searchMinutes,
 } from '@/lib/data/minutes'
@@ -199,7 +198,7 @@ export async function createMinute(
 }
 
 export async function updateMinuteMeta(
-  id: string, patch: Omit<MinuteInput, 'bodyMd'>, folderId?: string,
+  id: string, patch: Omit<MinuteInput, 'bodyMd'>, folderId?: string | null,
 ): Promise<MinuteActionResult> {
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
@@ -227,7 +226,9 @@ export async function updateMinuteMeta(
     if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
     effectiveTeam = derived.team
   }
-  // folderId 미전달 = 폴더 무접촉(수동 편철 존중). 전달 시에만 하위 구분 변경으로 이동.
+  // folderId 미전달(undefined) = 폴더 무접촉(수동 편철 존중). null = 미분류로 이동.
+  // 문자열 = 해당 폴더로 이동. RPC 는 p_metadata 에 folder_id 키 존재 여부로 무접촉을 판정하므로
+  // 무접촉일 때는 키 자체를 넣지 않는다(값을 null 로 넣는 것과는 다르다).
   const upd: Record<string, unknown> = {
     minute_date: patch.minuteDate, team_code: effectiveTeam, title: patch.title.trim(),
     meeting_id: patch.meetingId,
@@ -236,7 +237,7 @@ export async function updateMinuteMeta(
       ? (patch.meetingOccurrenceDate ?? patch.minuteDate)
       : null,
   }
-  if (folderId) upd.folder_id = folderId
+  if (folderId !== undefined) upd.folder_id = folderId
   let admin: ReturnType<typeof createAdminClient>
   try {
     admin = createAdminClient()
@@ -280,6 +281,32 @@ export async function updateMinuteMeta(
       ])
     })
   }
+  return { ok: true }
+}
+
+/** 또박또박 연결 초기화 — external_id 를 null 로. 0045 이후 minutes 직접 쓰기가 닫혀 있어
+ *  admin(service_role) 경유. moveMinuteToFolder 와 동일하게 소유권 선확인 후 update. */
+export async function resetMinuteExternalId(id: string): Promise<{ ok: boolean; error?: string }> {
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  const own = await checkOwner(sb, id, user.id, m.role)
+  if (own) return { ok: false, error: own }
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '연결 초기화 설정을 확인하세요.' }
+  }
+  const { data, error } = await admin.from('minutes')
+    .update({ external_id: null, updated_at: new Date().toISOString() })
+    .eq('id', id).select('id')
+  if (error) { console.error('[resetMinuteExternalId] 실패:', error.message); return { ok: false, error: error.message } }
+  // RLS 가 소유자/pmo_admin 이 아니면 0행 — 조용한 no-op 을 성공으로 위장하지 않는다
+  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 회의록이 없습니다.' }
+  revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
   return { ok: true }
 }
 
@@ -754,6 +781,47 @@ function rpcErrorMessage(message: string | undefined, fallback: string): string 
   return fallback
 }
 
+/** 드롭 거부 사유 → 사용자 문구. 클라이언트도 같은 사유 코드로 토스트를 고르지만, 서버가
+ *  최종 판정자라 여기서도 사유별 안내를 돌려준다(원인을 모른 채 '실패'만 보이지 않게). */
+const FOLDER_MOVE_REJECT_MSG: Record<MinuteDropReject, string> = {
+  'team-root': '팀 기본 폴더는 이동할 수 없습니다.',
+  'not-found': '이동할 상위 폴더를 찾을 수 없습니다.',
+  cycle: '폴더를 자기 자신이나 하위 폴더로 옮길 수 없습니다.',
+  depth: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.`,
+  'anchor-squat': '팀 기본 폴더명은 루트에 사용할 수 없습니다.',
+}
+
+/** 폴더를 다른 폴더(또는 루트) 아래로 이동 — 탐색기 드래그앤드롭.
+ *  클라이언트가 이미 같은 규칙으로 걸렀더라도 서버에서 전부 다시 판정한다(fail-closed).
+ *  teamCodes 는 비활성 포함 전체 등록 팀 — 활성 팀만 아는 클라이언트보다 넓다. */
+export async function moveMinuteFolder(
+  id: string, newParentId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  // 이동 가드 선행조회 — 실패하면 판정 불가이므로 중단(쓰기 선행조회 원칙)
+  const folders = await loadFolders(sb)
+  if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
+  const target = folders.find(f => f.id === id)
+  if (!target) return { ok: false, error: '폴더가 없습니다.' }
+  const verdict = resolveFolderDrop(target, newParentId, folders, teamsSync().map(t => t.code))
+  if (verdict.kind === 'noop') return { ok: true }        // 제자리 — 쓰기 없이 성공
+  if (verdict.kind === 'reject') return { ok: false, error: FOLDER_MOVE_REJECT_MSG[verdict.reason] }
+  const { data, error } = await sb.from('minute_folders')
+    .update({ parent_id: newParentId, updated_at: new Date().toISOString() })
+    .eq('id', id).select('id')
+  if (error) {
+    if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
+    console.error('[moveMinuteFolder] 실패:', error.message)
+    return { ok: false, error: error.message }
+  }
+  // RLS 가 소유자/pmo_admin 이 아니면 0행 — 조용한 no-op 을 성공으로 위장하지 않는다
+  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
+  revalidatePath('/minutes')
+  return { ok: true }
+}
+
 /**
  * 회의록을 폴더로 이동 — 탐색기 드래그앤드롭·이동 메뉴.
  *
@@ -761,8 +829,7 @@ function rpcErrorMessage(message: string | undefined, fallback: string): string 
  * 아니면 "폴더는 MES인데 team_code 는 ERP"인 불일치가 생겨 목록 필터(?team=)와 트리가 서로
  * 다른 답을 준다. 같은 팀 안 이동(대부분)은 종전처럼 raw update — 싸고 위키에 무영향.
  *
- * 권한은 기존 checkOwner(작성자 또는 pmo_admin) 유지 — 관리자 전용으로 지정된 것은 **폴더** D&D다.
- * archived 차단도 checkOwner 가 이미 한다.
+ * 권한은 기존 checkOwner(작성자 또는 pmo_admin) 유지 — archived 차단도 checkOwner 가 한다.
  */
 export async function moveMinuteToFolder(
   minuteId: string, folderId: string | null,
@@ -771,9 +838,8 @@ export async function moveMinuteToFolder(
   if (!m) return { ok: false, error: '로그인 필요' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
-  // §6.3 불변식은 서버에서도 강제한다 — 폴더가 team_code 의 유일한 출처이므로 미분류로
-  // 빼내면 팀 파생이 끊긴다. UI 는 이미 이 조작을 제공하지 않지만 액션이 유일한 방어선이다.
-  if (folderId === null) return { ok: false, error: '회의록은 폴더 밖으로 옮길 수 없습니다.' }
+  // 미분류(null)로 빼내는 것은 탐색기 D&D 가 제공하는 조작이라 허용한다. 팀 파생은 대상
+  // 폴더가 있을 때만 다시 하고, 미분류면 현재 team_code 를 그대로 둔다(추측 금지).
   const sb = await createServerClient()
   let folders: MinuteFolder[] | null = null
   if (folderId) {
@@ -842,115 +908,6 @@ export async function moveMinuteToFolder(
   if (error) { console.error('[moveMinuteToFolder] 실패:', error.message); return { ok: false, error: error.message } }
   if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 회의록이 없습니다.' }
   revalidatePath('/minutes')
-  return { ok: true }
-}
-
-/** canDropFolder 사유 → 사용자 문구. 탐색기는 같은 사유를 i18n 키로 옮긴다. */
-const FOLDER_DROP_ERRORS: Record<FolderDropReason, string> = {
-  'not-admin': '폴더 이동은 관리자만 할 수 있습니다.',
-  'seed-root': '팀 기본 폴더는 이동할 수 없습니다.',
-  'to-root': '폴더는 담당 팀 폴더 안에만 둘 수 있습니다.',
-  cycle: '폴더를 자기 하위 폴더 아래로 옮길 수 없습니다.',
-  depth: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.`,
-  'cross-team': '다른 담당 팀으로는 옮길 수 없습니다. 회의록을 개별로 옮기세요.',
-  'dup-name': FOLDER_DUP_MSG,
-  'unknown-folder': '폴더를 찾을 수 없습니다.',
-  'same-parent': '이미 그 폴더 안에 있습니다.',
-}
-
-/**
- * 폴더 이동(W21 · §6.5) — **pmo_admin 전용**.
- *
- * RLS(0040)는 `created_by = auth.uid() or app_role() = 'pmo_admin'` 이라 더 넓다.
- * 서버 액션에서 좁히지 않으면 폴더 작성자도 트리를 옮길 수 있다 — 여기가 유일한 방어선이다.
- *
- * 가드 M1~M5 중 하나라도 빠지면 트리가 깨진다. DB에는 깊이 제약도 사이클 제약도 없다.
- */
-export async function moveMinuteFolder(
-  id: string, parentId: string | null,
-): Promise<{ ok: boolean; error?: string }> {
-  // R4 게이트(결정 §2-A C-2) — 폴더 이동은 D&D 로만 들어온다(MinutesExplorer 드롭 핸들러가
-  // 유일한 호출부). UI 에서 draggable 을 끄는 것만으로는 액션이 열려 있으므로 여기서도 막는다.
-  // 재편철 1회차 APPLY 후 MINUTES_FOLDER_DND_ENABLED=true 로 개방한다.
-  if (!folderDndEnabled()) return { ok: false, error: '폴더 이동은 아직 열려 있지 않습니다.' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  // 화이트리스트 비교 — role 은 자유 문자열이라 부정 목록으로 좁히면 새 역할이 통과한다.
-  if (m.role !== 'pmo_admin') return { ok: false, error: '폴더 이동은 관리자만 할 수 있습니다.' }
-  // M2 — 루트로 이동 금지(§6.3 불변식). 루트가 되는 순간 서브트리의 팀 파생이 끊긴다.
-  if (parentId === null) return { ok: false, error: '폴더는 담당 팀 폴더 안에만 둘 수 있습니다.' }
-  // M3 자기 자신 — DB 접근 전 순수 검증
-  if (id === parentId) return { ok: false, error: '폴더를 자기 자신 아래로 옮길 수 없습니다.' }
-
-  const sb = await createServerClient()
-  const folders = await loadFolders(sb)
-  if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-
-  // 가드 M1~M5 + 팀 간 이동 차단은 탐색기 드롭존과 **같은 순수 함수**로 판정한다 —
-  // 갈라지면 "놓을 수 있어 보였는데 서버가 거절"하거나 그 반대가 된다.
-  const verdict = canDropFolder(folders, id, parentId, true)
-  if (!verdict.ok) return { ok: false, error: FOLDER_DROP_ERRORS[verdict.reason] }
-
-  // v1 은 부모만 바꾸고 형제 내 순서는 말단 배치(sort 100 = 사용자 생성 기본값).
-  const { data, error } = await sb.from('minute_folders')
-    .update({ parent_id: parentId, sort: 100, updated_at: new Date().toISOString() })
-    .eq('id', id).select('id')
-  if (error) {
-    if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
-    console.error('[moveMinuteFolder] 실패:', error.message)
-    return { ok: false, error: error.message }
-  }
-  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
-  revalidatePath('/minutes')
-  return { ok: true }
-}
-
-/**
- * 또박또박 연결 초기화(W10 · §9.4) — external_id 를 null 로.
- *
- * external_id 는 메타 allowlist에 없어(0045) commit RPC 를 경유할 수 없고, minutes 의
- * authenticated 쓰기가 닫혀 있어 admin 이 필요하다. 버전 append 없음, 위키 무영향
- * (external_id 는 v_index_content_changed 대상이 아니다). updated_at 은 갱신한다 —
- * 사용자 조작이라 대량 마이그레이션(§8)과 다르다.
- *
- * ⚠️ 되돌리는 조작은 또박또박 쪽에서 한다([D'Flow에서 찾기] → POST /minutes/link claim).
- *    archived 회의록은 link 경로가 409로 막으므로 checkOwner 가 초기화도 막는다 —
- *    초기화만 되고 재연결이 안 되는 편도 상태를 만들지 않는다.
- */
-export async function clearMinuteExternalId(
-  minuteId: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
-  // ⚠️ **한시 게이트**(결정 §3 R3) — ddobak-W14(연결 해제 안내) 배포가 확인될 때까지 pmo_admin 만.
-  // 초기화하면 D'Flow 는 연결을 끊지만 또박또박은 계속 '연결됨'으로 표시하고, 그 상태로
-  // 재전송하면 **중복 회의록 + 원본 고아**가 된다(자가 치유 안 됨). ddobak-W14 가 그 창을 닫는다.
-  // 그때 이 가드를 §9.4-2 원안(checkOwner = 작성자 또는 pmo_admin)으로 되돌릴 것.
-  if (m.role !== 'pmo_admin') {
-    return { ok: false, error: '연결 초기화는 현재 관리자만 할 수 있습니다.' }
-  }
-  const sb = await createServerClient()
-  const own = await checkOwner(sb, minuteId, user.id, m.role)
-  if (own) return { ok: false, error: own }
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '연결 초기화 설정을 확인하세요.' }
-  }
-  const { data, error } = await admin.from('minutes')
-    .update({ external_id: null, updated_at: new Date().toISOString() })
-    .eq('id', minuteId).select('id')
-  if (error) {
-    console.error('[clearMinuteExternalId] 실패:', error.message)
-    return { ok: false, error: error.message }
-  }
-  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 회의록이 없습니다.' }
-  revalidatePath('/minutes'); revalidatePath(`/minutes/${minuteId}`)
   return { ok: true }
 }
 

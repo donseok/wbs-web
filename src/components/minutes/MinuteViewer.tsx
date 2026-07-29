@@ -50,15 +50,13 @@ const EMPTY_WIKI_IMPACT: MinuteWikiImpactCardProps = {
 }
 
 export function MinuteViewer({
-  minute, files, canManage, canResetLink = false, annotations, userId, projects, sourceAnchor = null,
+  minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
   initialFontSize = null, versions = [], wikiImpact = EMPTY_WIKI_IMPACT,
   historicalVersion = null, issueMembers = [], linkedIssues = [],
 }: {
   minute: Minute
   files: MinuteFile[]
   canManage: boolean
-  /** 연결 초기화 권한(pmo_admin 한정 — 결정 §3 R3). */
-  canResetLink?: boolean
   annotations: { highlights: MinuteHighlight[]; insights: MinuteInsight[] }
   userId: string | null
   projects: { id: string; name: string }[]
@@ -611,7 +609,7 @@ export function MinuteViewer({
       {/* 열 때마다 리마운트 — 이전 입력·회의 선택이 잔존하지 않게 현재 회의록 값으로 초기화 */}
       {metaOpen && (
         <MinuteMetaModal open onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }}
-          minute={minute} projects={projects} canResetLink={canResetLink} />
+          minute={minute} projects={projects} />
       )}
 
       <MinuteShareModal open={shareOpen} onClose={() => setShareOpen(false)} minuteId={minute.id} />

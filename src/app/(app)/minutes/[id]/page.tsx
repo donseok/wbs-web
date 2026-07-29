@@ -67,7 +67,6 @@ export default async function MinuteDetailPage({
   return (
     <MinuteViewer
       minute={displayMinute} files={detail.files} canManage={canManage}
-      canResetLink={m?.role === 'pmo_admin'}
       annotations={displayAnnotations} userId={user?.id ?? null} projects={projects}
       sourceAnchor={sourceAnchor} initialFontSize={prefs.minuteFontSize ?? null}
       versions={versions} wikiImpact={wikiImpact}

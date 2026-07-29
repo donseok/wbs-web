@@ -33,8 +33,8 @@ function monthRangeOf(year: number, month0: number): [string, string] {
 }
 
 export function MinutesView({
-  initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role,
-  initialFavorites = null, explorerLayout = 'grid', dndEnabled = false,
+  initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role, defaultTeam,
+  initialFavorites = null, explorerLayout = 'grid',
 }: {
   initialMinutes: Minute[]
   /** 서버에서 미리 실어 보낸 트리. null 이면(조회 실패 포함) 마운트 후 클라이언트가 직접 가져온다. */
@@ -44,12 +44,10 @@ export function MinutesView({
   projects: { id: string; name: string }[]
   currentUserId: string | null
   role: string | null
+  defaultTeam?: TeamCode | null
   /** 서버에서 미리 실어 보낸 즐겨찾기 id 목록. null 이면(조회 실패·미로그인) 트리 뷰 진입 시 클라이언트가 직접 가져온다. */
   initialFavorites?: string[] | null
   explorerLayout?: ExplorerLayout
-  /** R4 게이트(결정 §2-A C-2) — 서버에서 `folderDndEnabled()` 로 평가해 내려준다.
-   *  클라이언트에서 직접 env 를 읽으면 항상 false 라 서버와 어긋난다. */
-  dndEnabled?: boolean
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
@@ -378,7 +376,7 @@ export function MinutesView({
               onToggleFavorite={id => void toggleFav(id)}
               onRetryFavorites={() => void loadFavorites()}
               layout={exLayout}
-              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'} dndEnabled={dndEnabled}
+              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'} teamCodes={teamCodes}
               onChanged={() => { void loadTree(); router.refresh() }}
               onFolderSelect={id => { uploadFolderRef.current = id }} />
           </div>
@@ -398,7 +396,7 @@ export function MinutesView({
             if (treeState !== 'idle') void loadTree()
             router.refresh()
           }}
-          todayIso={todayIso} projects={projects}
+          todayIso={todayIso} projects={projects} defaultTeam={defaultTeam}
           folders={explorerFolders} defaultFolderId={uploadFolderRef.current} />
       )}
       {/* 트리 뷰는 화면이 전 기간이므로 챗 범위도 전 기간으로 일치시킨다(월 라벨 '전체 기간'과 정합) */}
