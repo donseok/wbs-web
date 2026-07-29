@@ -65,11 +65,21 @@ describe('MinuteViewer 편철 경로 breadcrumb', () => {
     return container.querySelector('nav[aria-label="min.detail.pathAria"]')
   }
 
-  it('경로 세그먼트를 root-first 순서로 전부 보여준다', () => {
+  it('경로 세그먼트를 root-first 순서로 보여준다 — 팀 배지와 겹치는 루트는 접는다', () => {
     const nav = render({ ...base, folderId: 'f3' }, ['MES', '기획팀', '2026'])
     expect(nav).not.toBeNull()
     // 구분자(chevron)는 svg 라 텍스트에 섞이지 않는다 — 세그먼트만 순서대로 남는다
-    expect(nav?.textContent).toBe('MES기획팀2026')
+    expect(nav?.textContent).toBe('기획팀2026')
+  })
+
+  it('루트가 팀 코드와 다르면 접지 않는다 — 시드 체인 밖 폴더의 위치를 숨기지 않는다', () => {
+    const nav = render({ ...base, folderId: 'f3' }, ['보관', '2025'])
+    expect(nav?.textContent).toBe('보관2025')
+  })
+
+  it('팀 루트에 바로 꽂힌 회의록(경로 1칸)은 접지 않는다 — 접으면 남는 게 없다', () => {
+    const nav = render({ ...base, folderId: 'f1' }, ['MES'])
+    expect(nav?.textContent).toBe('MES')
   })
 
   it('미분류(folderId 없음)는 미분류 문구', () => {
@@ -85,10 +95,18 @@ describe('MinuteViewer 편철 경로 breadcrumb', () => {
   })
 
   it('마지막 세그먼트만 강조 — 현재 위치가 어디인지 한눈에', () => {
-    const nav = render({ ...base, folderId: 'f3' }, ['MES', '기획팀'])
+    const nav = render({ ...base, folderId: 'f3' }, ['보관', '기획팀'])
     const segs = [...(nav?.querySelectorAll('span.truncate') ?? [])]
-    expect(segs.map(s => s.textContent)).toEqual(['MES', '기획팀'])
+    expect(segs.map(s => s.textContent)).toEqual(['보관', '기획팀'])
     expect(segs[0]?.className).not.toContain('font-medium')
     expect(segs[1]?.className).toContain('font-medium')
+  })
+
+  it('breadcrumb 은 메타 행 안에 있다 — 헤더가 두 줄로 커지지 않게', () => {
+    const nav = render({ ...base, folderId: 'f3' }, ['MES', '기획팀'])
+    const row = nav?.parentElement
+    // 같은 행에 제목(h1)과 뒤로가기 링크가 함께 있어야 한 줄이다
+    expect(row?.querySelector('h1')?.textContent).toBe(base.title)
+    expect(row?.querySelector('a[href="/minutes"]')).not.toBeNull()
   })
 })

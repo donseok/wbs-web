@@ -85,6 +85,12 @@ export function MinuteViewer({
   const fs = useMinuteFontSize({ initial: initialFontSize })
   const bodyFile = historicalVersion ? null : files.find(f => f.role === 'body') ?? null
   const attachments = historicalVersion ? [] : files.filter(f => f.role === 'attachment')
+  // breadcrumb 세그먼트 — 루트가 팀 코드면 접는다. 바로 왼쪽 배지가 이미 같은 글자를
+  // 보여주고 있어 'MES [MES › 생산계획]' 이 되고, 한 행에 넣으면 그 폭이 제목을 밀어낸다.
+  // 팀 루트에 바로 꽂힌 회의록(경로 1칸)은 접으면 남는 게 없으므로 그대로 둔다.
+  const pathSegments = folderPath && folderPath.length > 0
+    ? (folderPath.length > 1 && folderPath[0] === minute.teamCode ? folderPath.slice(1) : folderPath)
+    : null
 
   const bodyRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
@@ -417,6 +423,27 @@ export function MinuteViewer({
           <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(minute.teamCode).bar}`}>
             {minute.teamCode}
           </span>
+          {/* 편철 경로 breadcrumb — 메타 행 안에 둔다(별도 줄이면 헤더가 두 줄로 커진다).
+              표시 전용 링크 아님 — 탐색기가 아직 폴더 딥링크(?folder=)를 받지 않는다. */}
+          <nav aria-label={t('min.detail.pathAria')}
+            className="flex min-w-0 max-w-[18rem] items-center gap-1 text-xs text-ink-subtle">
+            <FolderOpen aria-hidden className="h-3.5 w-3.5 shrink-0" />
+            {pathSegments ? (
+              pathSegments.map((seg, i) => (
+                <span key={`${i}-${seg}`} className="flex min-w-0 items-center gap-1">
+                  {i > 0 && <ChevronRight aria-hidden className="h-3 w-3 shrink-0 opacity-60" />}
+                  <span className={`truncate ${i === pathSegments.length - 1 ? 'font-medium text-ink-muted' : ''}`}>
+                    {seg}
+                  </span>
+                </span>
+              ))
+            ) : (
+              // folderId 가 있는데 경로가 없다 = 조회 실패이거나 끊긴 체인. '미분류'로 위장하지 않는다.
+              <span className="truncate">
+                {minute.folderId ? t('min.detail.pathUnknown') : t('min.fold.unfiled')}
+              </span>
+            )}
+          </nav>
           <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-ink">{minute.title}</h1>
 
           <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
@@ -470,26 +497,6 @@ export function MinuteViewer({
             </button>
           </div>
         </div>
-        {/* 편철 경로 breadcrumb — 메타 행이 이미 제목·액션으로 가득 차 별도 줄로 둔다.
-            폴더가 담당 팀의 출처이므로 "이 회의록이 어디에 꽂혀 있는지"는 제목만큼 자주 찾는 정보다.
-            링크가 아닌 표시 전용 — 탐색기가 아직 폴더 딥링크(?folder=)를 받지 않는다. */}
-        <nav aria-label={t('min.detail.pathAria')}
-          className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-ink-subtle">
-          <FolderOpen aria-hidden className="h-3.5 w-3.5 shrink-0" />
-          {folderPath && folderPath.length > 0 ? (
-            folderPath.map((seg, i) => (
-              <span key={`${i}-${seg}`} className="flex min-w-0 items-center gap-1">
-                {i > 0 && <ChevronRight aria-hidden className="h-3 w-3 shrink-0 opacity-60" />}
-                <span className={`truncate ${i === folderPath.length - 1 ? 'font-medium text-ink-muted' : ''}`}>
-                  {seg}
-                </span>
-              </span>
-            ))
-          ) : (
-            // folderId 가 있는데 경로가 없다 = 조회 실패이거나 끊긴 체인. '미분류'로 위장하지 않는다.
-            <span>{minute.folderId ? t('min.detail.pathUnknown') : t('min.fold.unfiled')}</span>
-          )}
-        </nav>
         {err && <p className="text-sm text-delayed">{err}</p>}
       </div>
 
