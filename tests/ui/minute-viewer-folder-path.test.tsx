@@ -98,15 +98,43 @@ describe('MinuteViewer 편철 경로 breadcrumb', () => {
     const nav = render({ ...base, folderId: 'f3' }, ['보관', '기획팀'])
     const segs = [...(nav?.querySelectorAll('span.truncate') ?? [])]
     expect(segs.map(s => s.textContent)).toEqual(['보관', '기획팀'])
-    expect(segs[0]?.className).not.toContain('font-medium')
-    expect(segs[1]?.className).toContain('font-medium')
+    expect(segs[0]?.className).not.toContain('font-semibold')
+    expect(segs[1]?.className).toContain('font-semibold')
+    // 조상부터 줄이고 현재 위치는 지킨다
+    expect(segs[1]?.className).toContain('shrink-0')
   })
 
   it('breadcrumb 은 메타 행 안에 있다 — 헤더가 두 줄로 커지지 않게', () => {
     const nav = render({ ...base, folderId: 'f3' }, ['MES', '기획팀'])
-    const row = nav?.parentElement
+    // nav 의 부모는 팀 배지와 경로를 묶는 위치 칩, 그 부모가 메타 행
+    const row = nav?.parentElement?.parentElement
     // 같은 행에 제목(h1)과 뒤로가기 링크가 함께 있어야 한 줄이다
     expect(row?.querySelector('h1')?.textContent).toBe(base.title)
     expect(row?.querySelector('a[href="/minutes"]')).not.toBeNull()
+  })
+
+  it('팀 배지와 경로가 테두리 있는 한 칩으로 묶인다 — 잔글씨로 메타에 묻히지 않게', () => {
+    const nav = render({ ...base, folderId: 'f3' }, ['MES', '기획팀'])
+    const chip = nav?.parentElement
+    expect(chip?.className).toContain('border')
+    expect(chip?.className).toContain('rounded-full')
+    // 팀 배지가 칩 안에서 경로 앞에 온다
+    expect(chip?.firstElementChild?.textContent).toBe('MES')
+    // 칩은 메타 행의 첫 요소인 '목록으로' 링크 바로 뒤 — 행 맨 앞에서 먼저 읽힌다
+    const row = chip?.parentElement
+    expect(row?.children[0]?.tagName).toBe('A')
+    expect(row?.children[1]).toBe(chip)
+  })
+
+  it('편철이 없거나 경로를 못 읽으면 칩 테두리가 점선 — 실선(확정된 위치)과 구분된다', () => {
+    const unfiled = render({ ...base, folderId: null }, null)
+    expect(unfiled?.parentElement?.className).toContain('border-dashed')
+    const located = render({ ...base, folderId: 'f3' }, ['MES', '기획팀'])
+    expect(located?.parentElement?.className).not.toContain('border-dashed')
+  })
+
+  it('잘린 경로는 title 로 전체를 보여준다 — 접은 팀 루트까지 포함', () => {
+    const nav = render({ ...base, folderId: 'f3' }, ['MES', '기획팀', '2026'])
+    expect(nav?.getAttribute('title')).toBe('MES / 기획팀 / 2026')
   })
 })

@@ -91,6 +91,8 @@ export function MinuteViewer({
   const pathSegments = folderPath && folderPath.length > 0
     ? (folderPath.length > 1 && folderPath[0] === minute.teamCode ? folderPath.slice(1) : folderPath)
     : null
+  // 잘린 세그먼트는 hover 로 전체 경로를 확인한다 — 접은 팀 루트까지 포함한 원본을 쓴다.
+  const pathTitle = folderPath && folderPath.length > 0 ? folderPath.join(' / ') : undefined
 
   const bodyRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
@@ -419,31 +421,39 @@ export function MinuteViewer({
           <Link href="/minutes" className="inline-flex items-center gap-1 text-sm text-ink-muted hover:text-ink">
             <ArrowLeft className="h-4 w-4" />{t('min.detail.back')}
           </Link>
-          <span className="text-sm tabular-nums text-ink-muted">{minute.minuteDate}</span>
-          <span className={`inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(minute.teamCode).bar}`}>
-            {minute.teamCode}
-          </span>
-          {/* 편철 경로 breadcrumb — 메타 행 안에 둔다(별도 줄이면 헤더가 두 줄로 커진다).
+          {/* 편철 위치 — 팀 배지와 경로를 테두리 있는 한 덩어리 칩으로 묶어 메타 행 맨 앞에 둔다.
+              이전엔 배지·경로가 따로 놀고 경로가 잔글씨(ink-subtle)라 옆 메타에 묻혔다.
+              별도 줄로 빼지 않는 이유는 90627c7 — 헤더가 두 줄로 커진다.
               표시 전용 링크 아님 — 탐색기가 아직 폴더 딥링크(?folder=)를 받지 않는다. */}
-          <nav aria-label={t('min.detail.pathAria')}
-            className="flex min-w-0 max-w-[18rem] items-center gap-1 text-xs text-ink-subtle">
-            <FolderOpen aria-hidden className="h-3.5 w-3.5 shrink-0" />
-            {pathSegments ? (
-              pathSegments.map((seg, i) => (
-                <span key={`${i}-${seg}`} className="flex min-w-0 items-center gap-1">
-                  {i > 0 && <ChevronRight aria-hidden className="h-3 w-3 shrink-0 opacity-60" />}
-                  <span className={`truncate ${i === pathSegments.length - 1 ? 'font-medium text-ink-muted' : ''}`}>
-                    {seg}
+          <div className={`inline-flex min-w-0 max-w-[22rem] items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 shadow-sm ${
+            pathSegments ? 'border-line-strong bg-surface' : 'border-dashed border-line-strong bg-surface/60'}`}>
+            <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold text-white ${teamStyle(minute.teamCode).bar}`}>
+              {minute.teamCode}
+            </span>
+            <nav aria-label={t('min.detail.pathAria')} title={pathTitle}
+              className="flex min-w-0 items-center gap-1 text-xs">
+              <FolderOpen aria-hidden className={`h-3.5 w-3.5 shrink-0 ${pathSegments ? 'text-brand' : 'text-ink-subtle'}`} />
+              {pathSegments ? (
+                pathSegments.map((seg, i) => (
+                  <span key={`${i}-${seg}`} className="flex min-w-0 items-center gap-1">
+                    {i > 0 && <ChevronRight aria-hidden className="h-3 w-3 shrink-0 text-ink-subtle" />}
+                    {/* 현재 위치(마지막 칸)는 줄이지 않고 조상부터 줄인다 — 어디에 있는지가 먼저다 */}
+                    <span className={i === pathSegments.length - 1
+                      ? 'max-w-[11rem] shrink-0 truncate font-semibold text-ink'
+                      : 'truncate text-ink-muted'}>
+                      {seg}
+                    </span>
                   </span>
+                ))
+              ) : (
+                // folderId 가 있는데 경로가 없다 = 조회 실패이거나 끊긴 체인. '미분류'로 위장하지 않는다.
+                <span className={`truncate ${minute.folderId ? 'font-medium text-delayed' : 'text-ink-subtle'}`}>
+                  {minute.folderId ? t('min.detail.pathUnknown') : t('min.fold.unfiled')}
                 </span>
-              ))
-            ) : (
-              // folderId 가 있는데 경로가 없다 = 조회 실패이거나 끊긴 체인. '미분류'로 위장하지 않는다.
-              <span className="truncate">
-                {minute.folderId ? t('min.detail.pathUnknown') : t('min.fold.unfiled')}
-              </span>
-            )}
-          </nav>
+              )}
+            </nav>
+          </div>
+          <span className="text-sm tabular-nums text-ink-muted">{minute.minuteDate}</span>
           <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-ink">{minute.title}</h1>
 
           <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
