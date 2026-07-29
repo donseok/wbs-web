@@ -68,7 +68,8 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import {
-  createMinuteFolder, deleteMinuteFolder, moveMinuteToFolder, renameMinuteFolder, updateMinuteMeta,
+  createMinuteFolder, deleteMinuteFolder, moveMinuteToFolder, renameMinuteFolder,
+  resetMinuteExternalId, updateMinuteMeta,
 } from '@/app/actions/minutes'
 
 const seedFolders = [
@@ -293,6 +294,18 @@ describe('updateMinuteMeta 폴더 이동(하위 구분, 수정 모달)', () => {
     expect(r.ok).toBe(false)
     expect(calls['minutes']!.some(c => c.method === 'update')).toBe(false)
   })
+  it('folderId 를 null 로 전달하면 명시적 미분류로 갱신 — 무접촉(undefined)과 구분', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1' }, error: null } })
+    const { client: admin, rpc } = fakeMetadataAdmin()
+    createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
+    const r = await updateMinuteMeta('m1', patch, null)
+    expect(r.ok).toBe(true)
+    const args = rpc.mock.calls[0][1]
+    const metadata = args.p_metadata as Record<string, unknown>
+    expect('folder_id' in metadata).toBe(true)
+    expect(metadata.folder_id).toBeNull()
+  })
 })
 
 describe('moveMinuteToFolder', () => {
@@ -320,5 +333,40 @@ describe('moveMinuteToFolder', () => {
     createServerClient.mockResolvedValue(client)
     adminMocks.createAdminClient.mockReturnValue(admin)
     expect((await moveMinuteToFolder('m1', 'f1')).ok).toBe(true)
+  })
+})
+
+describe('resetMinuteExternalId', () => {
+  it('소유자 아니고 pmo_admin 도 아니면 거부 — admin 클라이언트 미생성', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u2', archived_at: null }, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await resetMinuteExternalId('m1')
+    expect(r.ok).toBe(false)
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
+  })
+  it('보관된 회의록은 거부', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1', archived_at: 't' }, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await resetMinuteExternalId('m1')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('보관')
+  })
+  it('0행 갱신(권한 없음·회의록 없음)은 명시적 실패 — 조용한 성공 위장 금지', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1', archived_at: null }, error: null } })
+    const { client: admin } = fakeClient({ minutes: { data: [], error: null } })
+    createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
+    const r = await resetMinuteExternalId('m1')
+    expect(r.ok).toBe(false)
+  })
+  it('소유자면 external_id 를 null 로 갱신 성공', async () => {
+    const { client } = fakeClient({ minutes: { data: { created_by: 'u1', archived_at: null }, error: null } })
+    const { client: admin, calls } = fakeClient({ minutes: { data: [{ id: 'm1' }], error: null } })
+    createServerClient.mockResolvedValue(client)
+    adminMocks.createAdminClient.mockReturnValue(admin)
+    const r = await resetMinuteExternalId('m1')
+    expect(r.ok).toBe(true)
+    const updateCall = calls['minutes']!.find(c => c.method === 'update')
+    expect((updateCall!.args[0] as Record<string, unknown>).external_id).toBeNull()
   })
 })

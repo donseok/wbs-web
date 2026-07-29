@@ -191,7 +191,7 @@ export async function createMinute(
 }
 
 export async function updateMinuteMeta(
-  id: string, patch: Omit<MinuteInput, 'bodyMd'>, folderId?: string,
+  id: string, patch: Omit<MinuteInput, 'bodyMd'>, folderId?: string | null,
 ): Promise<MinuteActionResult> {
   const m = await getMembership()
   if (!m) return { ok: false, error: '로그인 필요' }
@@ -211,7 +211,9 @@ export async function updateMinuteMeta(
     const { data: fd } = await sb.from('minute_folders').select('id').eq('id', folderId).maybeSingle()
     if (!fd) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
   }
-  // folderId 미전달 = 폴더 무접촉(수동 편철 존중). 전달 시에만 하위 구분 변경으로 이동.
+  // folderId 미전달(undefined) = 폴더 무접촉(수동 편철 존중). null = 미분류로 이동.
+  // 문자열 = 해당 폴더로 이동. RPC 는 p_metadata 에 folder_id 키 존재 여부로 무접촉을 판정하므로
+  // 무접촉일 때는 키 자체를 넣지 않는다(값을 null 로 넣는 것과는 다르다).
   const upd: Record<string, unknown> = {
     minute_date: patch.minuteDate, team_code: patch.teamCode, title: patch.title.trim(),
     meeting_id: patch.meetingId,
@@ -220,7 +222,7 @@ export async function updateMinuteMeta(
       ? (patch.meetingOccurrenceDate ?? patch.minuteDate)
       : null,
   }
-  if (folderId) upd.folder_id = folderId
+  if (folderId !== undefined) upd.folder_id = folderId
   let admin: ReturnType<typeof createAdminClient>
   try {
     admin = createAdminClient()
@@ -264,6 +266,32 @@ export async function updateMinuteMeta(
       ])
     })
   }
+  return { ok: true }
+}
+
+/** 또박또박 연결 초기화 — external_id 를 null 로. 0045 이후 minutes 직접 쓰기가 닫혀 있어
+ *  admin(service_role) 경유. moveMinuteToFolder 와 동일하게 소유권 선확인 후 update. */
+export async function resetMinuteExternalId(id: string): Promise<{ ok: boolean; error?: string }> {
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요' }
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  const own = await checkOwner(sb, id, user.id, m.role)
+  if (own) return { ok: false, error: own }
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '연결 초기화 설정을 확인하세요.' }
+  }
+  const { data, error } = await admin.from('minutes')
+    .update({ external_id: null, updated_at: new Date().toISOString() })
+    .eq('id', id).select('id')
+  if (error) { console.error('[resetMinuteExternalId] 실패:', error.message); return { ok: false, error: error.message } }
+  // RLS 가 소유자/pmo_admin 이 아니면 0행 — 조용한 no-op 을 성공으로 위장하지 않는다
+  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 회의록이 없습니다.' }
+  revalidatePath('/minutes'); revalidatePath(`/minutes/${id}`)
   return { ok: true }
 }
 

@@ -10,11 +10,14 @@ vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ t: (k: string) => k, locale: 'ko' }),
 }))
 // 인자 시그니처를 제네릭으로 명시 — 인자 없는 vi.fn 은 mock.calls 가 빈 튜플로 추론돼 tsc(TS2493)가 깨진다
-const updateMinuteMeta = vi.fn<(id: string, patch: unknown, folderId?: string) => Promise<{ ok: boolean }>>(
+const updateMinuteMeta = vi.fn<(id: string, patch: unknown, folderId?: string | null) => Promise<{ ok: boolean; error?: string }>>(
+  async () => ({ ok: true }))
+const resetMinuteExternalId = vi.fn<(id: string) => Promise<{ ok: boolean; error?: string }>>(
   async () => ({ ok: true }))
 const fetchMinuteFoldersLite = vi.fn<() => Promise<MinuteFolder[]>>(async () => tree)
 vi.mock('@/app/actions/minutes', () => ({
   updateMinuteMeta: (...a: unknown[]) => updateMinuteMeta(...(a as [string, unknown, string?])),
+  resetMinuteExternalId: (...a: unknown[]) => resetMinuteExternalId(...(a as [string])),
   fetchMinuteFoldersLite: () => fetchMinuteFoldersLite(),
   fetchProjectMeetingsLite: vi.fn(async () => []),
 }))
@@ -26,30 +29,29 @@ const F = (
   createdBy: string | null = null, sort = 0,
 ): MinuteFolder => ({ id, name, parentId, sort, createdBy })
 
-// sort 는 프로덕션 시드값(0043) — 하위 구분이 실폴더(sort→이름순)에서 동적 유도되므로 순서가 계약
+// sort 는 프로덕션 시드값(0043) — 트리 표시 순서가 이 값에서 유도되므로 순서가 계약
 const tree: MinuteFolder[] = [
   F('r-pmo', 'PMO', null, null, 0),
   F('r-erp', 'ERP', null, null, 1),
   F('c-sales', '영업', 'r-erp', null, 0), F('c-buy', '구매', 'r-erp', null, 1), F('c-acc', '관리회계', 'r-erp', null, 2),
   F('r-mes', 'MES', null, null, 2),
   F('c-q', '품질', 'r-mes', null, 0), F('c-plan', '생산계획', 'r-mes', null, 1),
-  F('c-ops', '조업및표준화', 'r-mes', null, 2), F('c-log', '물류', 'r-mes', null, 3), F('c-fac', '설비및L2', 'r-mes', null, 4),
-  F('r-gk', '가공', null, null, 3), F('r-mdm', 'MDM', null, null, 4),
 ]
 
 const baseMinute = {
   id: 'm1', minuteDate: '2026-07-24', teamCode: 'MES', title: '주간회의', bodyMd: '',
   meetingId: null, createdBy: 'u1', createdByName: '홍길동', createdAt: 't', updatedAt: 't',
   fileCount: 0, bodyPreview: '', meetingCategory: null, folderId: 'c-q', meetingProjectId: null,
+  externalId: null,
 } as Minute
 
-describe('MinuteMetaModal — 담당 하위 구분(수정)', () => {
+describe('MinuteMetaModal — 폴더 직접 선택 + 또박또박 연결', () => {
   let container: HTMLDivElement, root: Root
   const onSaved = vi.fn()
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container)
     root = createRoot(container)
-    updateMinuteMeta.mockClear(); onSaved.mockClear()
+    updateMinuteMeta.mockClear(); resetMinuteExternalId.mockClear(); onSaved.mockClear()
     fetchMinuteFoldersLite.mockImplementation(async () => tree)
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
@@ -59,29 +61,36 @@ describe('MinuteMetaModal — 담당 하위 구분(수정)', () => {
       <MinuteMetaModal open onClose={() => {}} onSaved={onSaved} minute={minute} projects={[]} />,
     ))
   }
-  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')!
-  const tablists = () => [...dialog().querySelectorAll<HTMLElement>('[role="tablist"]')]
-  const tabsOf = (i: number) => [...tablists()[i].querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-  const clickTab = async (i: number, label: string) => {
-    const tab = tabsOf(i).find(b => b.textContent === label)!
-    await act(async () => tab.click())
+  const dialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')]
+  const mainDialog = () => dialogs()[0]
+  const pickerDialog = () => dialogs()[dialogs().length - 1]
+  const folderFieldBtn = () =>
+    [...mainDialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.getAttribute('type') === 'button')!
+  const openPicker = async () => { await act(async () => folderFieldBtn().click()) }
+  const pickFolder = async (label: string) => {
+    const btn = [...pickerDialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === label)!
+    await act(async () => btn.click())
   }
   const save = async () => {
-    const btn = [...dialog().querySelectorAll<HTMLButtonElement>('button')]
+    const btn = [...mainDialog().querySelectorAll<HTMLButtonElement>('button')]
       .find(b => b.textContent === 'min.meta.save')!
     await act(async () => btn.click())
   }
+  const btnByText = (label: string) =>
+    [...mainDialog().querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === label)
 
-  it('현 소속 폴더(품질)로 하위 구분 초기화', async () => {
+  it('현 소속 폴더(품질)로 필드 초기화', async () => {
     await mount()
-    expect(tabsOf(1).find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('품질')
+    expect(folderFieldBtn().textContent).toContain('품질')
   })
 
-  it('하위 구분 변경(물류) 저장 → 해당 시드 폴더로 이동 전달', async () => {
+  it('폴더 변경(구매) 저장 → 그 폴더 id 그대로 전달, 담당은 그 폴더 소속 팀으로 파생', async () => {
     await mount()
-    await clickTab(1, '물류')
+    await openPicker()
+    await pickFolder('구매')
     await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('c-log')
+    expect(updateMinuteMeta.mock.calls[0][2]).toBe('c-buy')
+    expect((updateMinuteMeta.mock.calls[0][1] as { teamCode: string }).teamCode).toBe('ERP')
     expect(onSaved).toHaveBeenCalled()
   })
 
@@ -91,67 +100,72 @@ describe('MinuteMetaModal — 담당 하위 구분(수정)', () => {
     expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
   })
 
-  it('팀 전환(ERP)은 하위 미지정 — 저장 시 ERP 루트로, 하위를 고르면 그 시드 자식으로', async () => {
+  it('미분류로 명시 이동 후 저장 → null 그대로 전달(무접촉과 구분)', async () => {
     await mount()
-    await clickTab(0, 'ERP')
-    expect(tabsOf(1).map(b => b.textContent)).toEqual(['영업', '구매', '관리회계'])
-    expect(tabsOf(1).some(b => b.getAttribute('aria-selected') === 'true')).toBe(false)  // 미지정
+    await openPicker()
+    await pickFolder('min.fold.unfiled')
     await save()
-    expect((updateMinuteMeta.mock.calls[0][1] as { teamCode: string }).teamCode).toBe('ERP')
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('r-erp')
-    updateMinuteMeta.mockClear()
-    await clickTab(1, '구매')
-    await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('c-buy')
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeNull()
   })
 
-  it('팀 왕복(MES→ERP→MES)은 열림 시점 하위로 복원 — 저장해도 폴더 무접촉', async () => {
-    await mount()
-    await clickTab(0, 'ERP')
-    await clickTab(0, 'MES')
-    expect(tabsOf(1).find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('품질')
+  it('이미 미분류인 회의록의 무변경 저장은 그대로 무접촉(undefined) — 팀 루트로 되돌리지 않는다', async () => {
+    await mount({ ...baseMinute, folderId: null })
     await save()
     expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
   })
 
-  it('같은 팀 탭 재클릭은 하위 선택을 리셋하지 않는다', async () => {
+  it('폴더를 골랐다가 원래 폴더로 되돌리면 다시 무접촉으로 판정', async () => {
     await mount()
-    await clickTab(1, '물류')
-    await clickTab(0, 'MES')   // 이미 선택된 탭 재클릭
-    expect(tabsOf(1).find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('물류')
+    await openPicker()
+    await pickFolder('구매')
+    await openPicker()
+    await pickFolder('품질')
+    await save()
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
   })
 
-  it('팀 루트 편철(r-mes)은 하위 미지정으로 초기화 — 대표 하위(품질) 선택이 변경으로 판정돼 이동 가능', async () => {
-    await mount({ ...baseMinute, folderId: 'r-mes' })
-    expect(tabsOf(1).some(b => b.getAttribute('aria-selected') === 'true')).toBe(false)  // 허위 선택 없음
-    await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()   // 무변경=무접촉
-    updateMinuteMeta.mockClear()
-    await clickTab(1, '품질')
-    await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('c-q')       // 루트→대표 하위 이동 가능
-  })
-
-  it('미분류 회의록은 무변경 저장 시 담당 팀 루트로 편철(자기 치유)', async () => {
-    await mount({ ...baseMinute, folderId: null })
-    await save()
-    expect(updateMinuteMeta.mock.calls[0][2]).toBe('r-mes')
-  })
-
-  it('폴더 응답 전 팀 전환은 초기화가 덮지 않는다(경합 가드)', async () => {
-    let resolveFs!: (v: MinuteFolder[]) => void
-    fetchMinuteFoldersLite.mockImplementation(() => new Promise<MinuteFolder[]>(r => { resolveFs = r }))
+  it('또박또박 연결 없음이면 "연결 없음" 표시, 초기화 버튼 없음', async () => {
     await mount()
-    await clickTab(0, 'ERP')                       // 응답 전 팀 전환
-    await act(async () => { resolveFs(tree) })     // 이제 응답 도착
-    expect(tabsOf(0).find(b => b.getAttribute('aria-selected') === 'true')?.textContent).toBe('ERP')
-    expect(tabsOf(1).some(b => b.getAttribute('aria-selected') === 'true')).toBe(false)  // '품질'로 덮이지 않음
+    expect(mainDialog().textContent).toContain('min.ext.none')
+    expect(btnByText('min.ext.reset')).toBeUndefined()
   })
 
-  it('폴더 목록 미확보(빈 배열)면 하위 구분 숨김 + 폴더 무접촉', async () => {
+  it('연결 있으면 opaque 문자열 그대로 표시(파싱 없이)', async () => {
+    await mount({ ...baseMinute, externalId: 'ddobak:0192a1b2-aaaa-7bbb-8ccc-1234567890ab' })
+    expect(mainDialog().textContent).toContain('ddobak:0192a1b2-aaaa-7bbb-8ccc-1234567890ab')
+  })
+
+  it('연결 초기화 — 확인 단계를 거쳐 resetMinuteExternalId 호출, 성공 시 연결 없음으로 갱신', async () => {
+    await mount({ ...baseMinute, externalId: 'ddobak:ext-1' })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    expect(mainDialog().textContent).toContain('min.ext.resetConfirm')
+    expect(resetMinuteExternalId).not.toHaveBeenCalled()
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    expect(resetMinuteExternalId).toHaveBeenCalledWith('m1')
+    expect(mainDialog().textContent).toContain('min.ext.none')
+  })
+
+  it('연결 초기화 취소는 API 를 호출하지 않고 연결 표시를 유지', async () => {
+    await mount({ ...baseMinute, externalId: 'ddobak:ext-1' })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    await act(async () => { btnByText('common.cancel')!.click() })
+    expect(resetMinuteExternalId).not.toHaveBeenCalled()
+    expect(mainDialog().textContent).toContain('ddobak:ext-1')
+  })
+
+  it('연결 초기화 실패 시 에러를 보여주고 연결 표시는 유지', async () => {
+    resetMinuteExternalId.mockResolvedValueOnce({ ok: false, error: '권한 없음' })
+    await mount({ ...baseMinute, externalId: 'ddobak:ext-1' })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    await act(async () => { btnByText('min.ext.reset')!.click() })
+    expect(mainDialog().textContent).toContain('권한 없음')
+    expect(mainDialog().textContent).toContain('ddobak:ext-1')
+  })
+
+  it('폴더 목록 미확보(빈 배열)면 필드는 로딩 상태(…)로 표시 — 허위 미분류 표시 방지', async () => {
     fetchMinuteFoldersLite.mockImplementation(async () => [])
     await mount()
-    expect(tablists().length).toBe(1)
+    expect(folderFieldBtn().textContent).toContain('…')
     await save()
     expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
   })
