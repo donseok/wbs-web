@@ -5,6 +5,7 @@ import type {
   MinuteInsight, TeamCode,
 } from '@/lib/domain/types'
 import { ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
+import { folderPathOf } from '@/lib/minutes/folders'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 import type { MinuteVersionListItem } from '@/components/minutes/MinuteVersionPanel'
 import type {
@@ -169,6 +170,17 @@ export const getMinuteDetail = cache(async (
   minute.meetingProjectId = ((r as Row).meetings as { project_id: string } | null)?.project_id
     ?? minute.projectId ?? null
   return { minute, files }
+})
+
+/** 뷰어 breadcrumb 용 폴더 경로(root-first 이름 배열). 미분류·조회 실패·끊긴 체인은 null —
+ *  호출부는 minute.folderId 유무로 '미분류'와 '경로 확인 불가'를 구분해 표시한다(실패를
+ *  '미분류'로 위장하지 않는다). 실패는 folderPathOf 내부에서 이미 로깅된다. */
+export const getMinuteFolderPath = cache(async (
+  folderId: string | null,
+): Promise<string[] | null> => {
+  if (!folderId) return null
+  const sb = await createServerClient()
+  return folderPathOf(sb, folderId)
 })
 
 /** 뷰어 주석 데이터 — 하이라이트 전체 + AI 인사이트. 실패 시 빈 배열(뷰어는 주석 없이 동작). */

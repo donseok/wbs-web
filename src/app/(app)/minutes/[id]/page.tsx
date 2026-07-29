@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import {
   getMinuteDetail, getMinuteAnnotations, getMinuteVersions, getMinuteWikiImpact,
-  getMinuteVersionBody,
+  getMinuteVersionBody, getMinuteFolderPath,
 } from '@/lib/data/minutes'
 import { getMembership, getSession } from '@/lib/auth'
 import { listProjects } from '@/app/actions/project'
@@ -34,13 +34,16 @@ export default async function MinuteDetailPage({
   if (!detail) notFound()
   if (requestedVersionId && !requestedVersion) notFound()
   const issueProjectId = detail.minute.projectId ?? detail.minute.meetingProjectId ?? null
-  const [wikiImpact, issueMembers] = await Promise.all([
+  // folderPath 는 folderId 를 알아야 풀 수 있어 이 2단 묶음에 합류시킨다 — 위 Promise.all 로
+  // 끌어올릴 수 없고, 단독으로 await 하면 직렬 왕복이 한 단 더 붙는다.
+  const [wikiImpact, issueMembers, folderPath] = await Promise.all([
     getMinuteWikiImpact(
       id,
       detail.minute.projectId ?? null,
       detail.minute.projectName ?? null,
     ),
     issueProjectId ? getProjectMembers(issueProjectId) : Promise.resolve([]),
+    getMinuteFolderPath(detail.minute.folderId ?? null),
   ])
   const historicalVersion = requestedVersion
     ? { id: requestedVersion.id, versionNo: requestedVersion.versionNo }
@@ -72,6 +75,7 @@ export default async function MinuteDetailPage({
       versions={versions} wikiImpact={wikiImpact}
       historicalVersion={historicalVersion}
       issueMembers={issueMembers} linkedIssues={linkedIssues}
+      folderPath={folderPath}
     />
   )
 }
