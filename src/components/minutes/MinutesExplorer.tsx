@@ -142,6 +142,9 @@ export function MinutesExplorer({
 
   function select(next: Scope) {
     setScopeRaw(next); setVisible(PAGE_SIZE); setMenuFor(null)
+    // 스코프를 옮기면 고른 것도 버린다 — 화면에서 사라진 선택을 들고 다니면 다음 실행이
+    // 보이지 않는 건을 건드린다. 모드는 유지한다(폴더를 옮겨 가며 정리하는 동선이라).
+    setSelected(new Set())
     if (resultsScrollRef.current) resultsScrollRef.current.scrollTop = 0
     onFolderSelect?.(next.kind === 'folder' ? next.id : null)
   }
@@ -200,10 +203,14 @@ export function MinutesExplorer({
   // 지금 화면에 보이는 것만 — 사용자가 보지 않은 뒤쪽 페이지까지 잡아 200건을 바꾸면 안 된다
   const selectableShown = shown.filter(canMoveLeaf)
   const allShownSelected = selectableShown.length > 0 && selectableShown.every(l => selected.has(l.id))
+  /** 실행 대상 = 고른 것 ∩ 지금 화면에 있고 권한도 있는 것. selected 는 팀 탭을 바꿔도
+   *  (컴포넌트가 언마운트되지 않으므로) 살아남는데 rows 는 갈린다 — 교집합을 취하지 않으면
+   *  화면에 없는 건이 조용히 바뀐다. 표시 건수도 이 값을 쓴다(보이는 것과 세는 것이 같아야 한다). */
+  const selectedIds = selectableShown.filter(l => selected.has(l.id)).map(l => l.id)
 
   /** 선택분에 프로젝트를 일괄 지정. 건별 결과가 갈리므로 요약을 그대로 보여준다. */
   async function assignProject(projectId: string | null) {
-    const ids = [...selected]
+    const ids = selectedIds
     if (ids.length === 0) return
     setAssignBusy(true)
     try {
@@ -506,7 +513,7 @@ export function MinutesExplorer({
             selecting ? (
               <div className="card flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
                 <span className="font-medium text-ink">
-                  {t('min.exp.selectedN').replace('{n}', String(selected.size))}
+                  {t('min.exp.selectedN').replace('{n}', String(selectedIds.length))}
                 </span>
                 <button onClick={() => setSelected(prev => {
                   if (allShownSelected) {
@@ -518,7 +525,7 @@ export function MinutesExplorer({
                 })} className="btn h-8 px-2.5 text-xs">
                   {t(allShownSelected ? 'min.exp.selectNone' : 'min.exp.selectAll')}
                 </button>
-                <button onClick={() => setAssignOpen(true)} disabled={selected.size === 0}
+                <button onClick={() => setAssignOpen(true)} disabled={selectedIds.length === 0}
                   className="btn btn-primary h-8 px-2.5 text-xs">
                   {t('min.exp.assignProject')}
                 </button>
@@ -599,7 +606,7 @@ export function MinutesExplorer({
       )}
       <FolderPickModal open={movingId !== null} folders={folders}
         onClose={() => setMovingId(null)} onPick={id => void moveTo(id)} />
-      <ProjectAssignModal open={assignOpen} projects={projects} count={selected.size} busy={assignBusy}
+      <ProjectAssignModal open={assignOpen} projects={projects} count={selectedIds.length} busy={assignBusy}
         onClose={() => setAssignOpen(false)} onPick={pid => void assignProject(pid)} t={t} />
       {/* 목록에서 바로 여는 수정 모달 — 열 때마다 리마운트해 이전 회의록 값이 남지 않게 한다
           (뷰어의 metaOpen 과 같은 규약). 저장 성공은 onChanged 로 트리를 다시 읽는다. */}

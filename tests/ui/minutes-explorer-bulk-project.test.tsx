@@ -35,9 +35,9 @@ vi.mock('@/components/minutes/MinuteMetaModal', () => ({ MinuteMetaModal: () => 
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
 const folders: MinuteFolder[] = [{ id: 'f1', name: 'MES', parentId: null, sort: 0, createdBy: null }]
-const leaf = (id: string, createdBy: string | null): ExplorerLeaf => ({
+const leaf = (id: string, createdBy: string | null, folderId = 'f1'): ExplorerLeaf => ({
   id, minuteDate: '2026-07-24', teamCode: 'MES', title: `회의록 ${id}`, fileCount: 0,
-  createdBy, createdByName: '홍길동', bodyPreview: '', meetingCategory: null, folderId: 'f1',
+  createdBy, createdByName: '홍길동', bodyPreview: '', meetingCategory: null, folderId,
 })
 const leaves = [leaf('m1', 'u1'), leaf('m2', 'u1'), leaf('m3', 'other')]
 const projects = [{ id: 'p1', name: 'D-CUBE 프로젝트' }]
@@ -156,5 +156,29 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
   it('프로젝트가 없으면 선택 도구 자체가 없다 — 지정할 대상이 없다', async () => {
     await mount({ projects: [] })
     expect(byText('min.exp.select')).toBeUndefined()
+  })
+
+  // 아래 둘은 같은 사고의 두 경로다 — 선택은 컴포넌트가 언마운트되지 않는 한 살아남는데
+  // 화면(rows)은 갈린다. 교집합을 취하지 않으면 보이지 않는 건이 조용히 바뀐다.
+  it('스코프를 옮기면 화면에서 사라진 선택은 따라가지 않는다', async () => {
+    await mount({
+      folders: [...folders, { id: 'f2', name: 'PMO폴더', parentId: null, sort: 1, createdBy: null }],
+      leaves: [leaf('m1', 'u1'), leaf('m2', 'u1'), leaf('m4', 'u1', 'f2')],
+    })
+    await enterSelect()
+    await act(async () => checkboxes()[0].click())              // m1 선택(스코프 = 전체)
+    expect(byText('min.exp.assignProject')!.disabled).toBe(false)
+    await act(async () => byText('PMO폴더')!.click())            // m1 이 없는 폴더로 이동
+    expect(byText('min.exp.assignProject')!.disabled).toBe(true)
+  })
+
+  it('목록이 갈리면(팀 전환) 화면에 없는 선택은 서버로 가지 않는다', async () => {
+    await mount()
+    await enterSelect()
+    await act(async () => checkboxes()[0].click())              // m1 선택
+    expect(byText('min.exp.assignProject')!.disabled).toBe(false)
+    // 같은 위치에 다시 렌더 = 언마운트 없이 leaves 만 갈리는 팀 전환과 같은 상황
+    await mount({ leaves: [leaf('m2', 'u1'), leaf('m3', 'other')] })
+    expect(byText('min.exp.assignProject')!.disabled).toBe(true)
   })
 })
