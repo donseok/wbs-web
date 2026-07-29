@@ -7,6 +7,7 @@ import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
   isTeamRootName, isTeamRootFolder, teamSubOfFolder, normalizeFolderName,
+  MINUTES_PROJECT_BULK_MAX,
   type MinuteInput,
 } from '@/lib/domain/minutes'
 import { resolveFolderDrop, type MinuteDropReject } from '@/lib/domain/minutes-drop'
@@ -282,6 +283,132 @@ export async function updateMinuteMeta(
     })
   }
   return { ok: true }
+}
+
+type BulkProjectResult = {
+  ok: boolean
+  error?: string
+  /** 실제로 project_id 가 바뀐 건수 */
+  updated: number
+  /** 이미 그 프로젝트라 건드리지 않은 건수 */
+  unchanged: number
+  /** 건별 실패·거절 — 조용히 빠뜨리면 '전부 됐다'로 오인한다 */
+  skipped: { id: string; reason: string }[]
+}
+
+/**
+ * 여러 회의록의 프로젝트를 한 번에 지정/해제 — 탐색기 다중 선택.
+ *
+ * 건별로 updateMinuteMeta 와 **같은 메타 RPC** 를 태운다. raw update 로 하면 위키 회수·재적재가
+ * 빠져 옛 프로젝트 위키에 그 회의록 지식이 남는다(0045 §위키 연동).
+ *
+ * 회의에 연결된 회의록은 회의의 프로젝트가 정본이라(resolveMinuteProject 와 같은 규칙) 다른
+ * 프로젝트로 지정하는 것을 거절한다 — 조용히 덮으면 회의와 회의록이 서로 다른 프로젝트를 가리킨다.
+ *
+ * 위키 재적재는 프로젝트 단위로 **한 번씩만** 돈다(건별로 돌리면 200건이 200회 재적재가 된다).
+ */
+export async function assignMinutesProject(
+  ids: string[], projectId: string | null,
+): Promise<BulkProjectResult> {
+  const empty = { updated: 0, unchanged: 0, skipped: [] as { id: string; reason: string }[] }
+  const m = await getMembership()
+  if (!m) return { ok: false, error: '로그인 필요', ...empty }
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요', ...empty }
+  const targets = [...new Set(ids)].filter(id => UUID_RE.test(id))
+  if (targets.length === 0) return { ok: false, error: '선택된 회의록이 없습니다.', ...empty }
+  if (targets.length > MINUTES_PROJECT_BULK_MAX) {
+    return { ok: false, error: `한 번에 ${MINUTES_PROJECT_BULK_MAX}건까지 지정할 수 있습니다.`, ...empty }
+  }
+  const sb = await createServerClient()
+  // 대상 프로젝트 실재 확인 — 없는 id 로 200건을 돌리고 전건 실패하는 것을 막는다
+  if (projectId) {
+    const { data: p, error: pErr } = await sb.from('projects').select('id').eq('id', projectId).maybeSingle()
+    if (pErr) {
+      console.error('[assignMinutesProject] 프로젝트 조회 실패:', pErr.message)
+      return { ok: false, error: '프로젝트를 확인하지 못했습니다.', ...empty }
+    }
+    if (!p) return { ok: false, error: '프로젝트를 찾을 수 없습니다.', ...empty }
+  }
+  // 가드 선행조회 — 실패하면 소유권·보관 판정이 불가능하므로 중단(fail-closed, 건별 N회 왕복 회피)
+  const { data: rows, error: rowsErr } = await sb.from('minutes')
+    .select('id, created_by, archived_at, project_id, meeting_id')
+    .in('id', targets)
+  if (rowsErr) {
+    console.error('[assignMinutesProject] 대상 조회 실패:', rowsErr.message)
+    return { ok: false, error: '회의록을 불러오지 못했습니다.', ...empty }
+  }
+  type MinuteRow = {
+    id: string; created_by: string | null; archived_at: string | null
+    project_id: string | null; meeting_id: string | null
+  }
+  const byId = new Map((rows ?? []).map(r => [(r as MinuteRow).id, r as MinuteRow]))
+
+  // 연결된 회의의 프로젝트 — 회의별 1회만 읽는다
+  const meetingIds = [...new Set([...byId.values()].map(r => r.meeting_id).filter((v): v is string => !!v))]
+  const meetingProject = new Map<string, string | null>()
+  if (meetingIds.length > 0) {
+    const { data: ms, error: msErr } = await sb.from('meetings').select('id, project_id').in('id', meetingIds)
+    if (msErr) {
+      console.error('[assignMinutesProject] 회의 조회 실패:', msErr.message)
+      return { ok: false, error: '연결된 회의를 확인하지 못했습니다.', ...empty }
+    }
+    for (const r of ms ?? []) {
+      meetingProject.set((r as { id: string }).id, (r as { project_id: string | null }).project_id ?? null)
+    }
+  }
+
+  let admin: ReturnType<typeof createAdminClient>
+  try {
+    admin = createAdminClient()
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '프로젝트 지정 설정을 확인하세요.', ...empty }
+  }
+
+  const skipped: { id: string; reason: string }[] = []
+  const rebuildProjects = new Set<string>()
+  let updated = 0
+  let unchanged = 0
+
+  for (const id of targets) {
+    const row = byId.get(id)
+    if (!row) { skipped.push({ id, reason: '회의록을 찾을 수 없습니다.' }); continue }
+    if (row.archived_at) { skipped.push({ id, reason: '보관된 회의록' }); continue }
+    if (row.created_by !== user.id && m.role !== 'pmo_admin') { skipped.push({ id, reason: '권한 없음' }); continue }
+    if (row.meeting_id) {
+      const mp = meetingProject.get(row.meeting_id) ?? null
+      if (mp !== projectId) { skipped.push({ id, reason: '연결된 회의의 프로젝트와 다릅니다.' }); continue }
+    }
+    if (row.project_id === projectId) { unchanged += 1; continue }
+
+    const { data: raw, error } = await admin.rpc('update_minute_metadata_with_wiki_retraction', {
+      p_minute_id: id,
+      p_metadata: { project_id: projectId },
+    }).single()
+    if (error || !raw) {
+      console.error('[assignMinutesProject] 갱신 실패:', id, error?.message ?? 'no row')
+      skipped.push({ id, reason: rpcErrorMessage(error?.message, '지정에 실패했습니다.') })
+      continue
+    }
+    const res = raw as unknown as {
+      old_project_id: string | null; new_project_id: string | null; wiki_rebuild_required: boolean
+    }
+    if (res.old_project_id) rebuildProjects.add(res.old_project_id)
+    if (res.new_project_id) rebuildProjects.add(res.new_project_id)
+    updated += 1
+    revalidatePath(`/minutes/${id}`)
+  }
+
+  revalidatePath('/minutes')
+  for (const pid of rebuildProjects) revalidatePath(`/p/${pid}/wiki`)
+  if (updated > 0 && rebuildProjects.size > 0) {
+    const projects = [...rebuildProjects]
+    after(async () => {
+      // 순차 — 프로젝트별 재적재는 무겁고, 동시에 돌리면 같은 위키를 두 경로가 함께 만진다
+      for (const pid of projects) await rebuildProjectWikiFromActiveMinutes(pid)
+    })
+  }
+  return { ok: true, updated, unchanged, skipped }
 }
 
 /** 또박또박 연결 초기화 — external_id 를 null 로. 0045 이후 minutes 직접 쓰기가 닫혀 있어

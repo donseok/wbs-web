@@ -2,8 +2,8 @@
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  BookOpenText, ChevronDown, ChevronRight, ExternalLink, FileText, Folder, FolderOpen, FolderPlus,
-  MoreHorizontal, Paperclip, Star,
+  BookOpenText, CheckSquare, ChevronDown, ChevronRight, ExternalLink, FileText, Folder, FolderOpen,
+  FolderPlus, MoreHorizontal, Paperclip, Square, Star,
 } from 'lucide-react'
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, Minute, MinuteFolder,
@@ -13,12 +13,15 @@ import {
   resolveFolderDrop, resolveLeafDrop, type MinuteDropReject, type MinuteDropResult,
 } from '@/lib/domain/minutes-drop'
 import { MEETING_META } from '@/lib/domain/meetings'
-import { fetchMinuteDetail, moveMinuteFolder, moveMinuteToFolder } from '@/app/actions/minutes'
+import {
+  assignMinutesProject, fetchMinuteDetail, moveMinuteFolder, moveMinuteToFolder,
+} from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
 import { teamStyle } from '@/components/wbs/shared'
+import { Modal } from '@/components/ui/Modal'
 import { FolderManageModal } from './FolderManageModal'
 import { FolderPickModal } from './FolderPickModal'
 import { MinuteMetaModal } from './MinuteMetaModal'
@@ -100,6 +103,11 @@ export function MinutesExplorer({
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [movingId, setMovingId] = useState<string | null>(null)   // 폴더 픽커 대상 회의록
   const [leafMenuFor, setLeafMenuFor] = useState<string | null>(null)  // '...' 메뉴가 열린 회의록
+  // 다중 선택 — 평소에는 꺼 둔다. 체크박스를 상시 노출하면 '읽는 화면'이 '고르는 화면'이 된다.
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [assignBusy, setAssignBusy] = useState(false)
   // 카드에서 바로 여는 수정 모달. 트리는 ExplorerLeaf(요약)만 갖고 있어 메타 모달이 필요로 하는
   // meetingId·externalId 등이 없다 — 열 때 상세를 한 번 받아온다.
   const [editMinute, setEditMinute] = useState<Minute | null>(null)
@@ -175,6 +183,48 @@ export function MinutesExplorer({
       toast({ title: t('min.exp.editLoadFailed'), variant: 'error' })
     } finally {
       setEditLoadingId(null)
+    }
+  }
+
+  function exitSelect() { setSelecting(false); setSelected(new Set()) }
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  // 지금 화면에 보이는 것만 — 사용자가 보지 않은 뒤쪽 페이지까지 잡아 200건을 바꾸면 안 된다
+  const selectableShown = shown.filter(canMoveLeaf)
+  const allShownSelected = selectableShown.length > 0 && selectableShown.every(l => selected.has(l.id))
+
+  /** 선택분에 프로젝트를 일괄 지정. 건별 결과가 갈리므로 요약을 그대로 보여준다. */
+  async function assignProject(projectId: string | null) {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    setAssignBusy(true)
+    try {
+      const res = await assignMinutesProject(ids, projectId)
+      if (!res.ok) { toast({ title: res.error ?? t('min.fold.error'), variant: 'error' }); return }
+      // 건너뛴 건이 있으면 '전부 됐다'로 읽히지 않게 건수를 함께 알린다
+      if (res.skipped.length > 0) {
+        toast({
+          title: t('min.exp.assignPartial')
+            .replace('{n}', String(res.updated)).replace('{k}', String(res.skipped.length)),
+          description: res.skipped[0].reason,
+          variant: 'info',
+        })
+      } else {
+        toast({ title: t('min.exp.assignDone').replace('{n}', String(res.updated + res.unchanged)), variant: 'info' })
+      }
+      setAssignOpen(false)
+      exitSelect()
+      onChanged()
+    } catch (e) {
+      console.error('[MinutesExplorer] 프로젝트 일괄 지정 실패:', e)
+      toast({ title: t('min.fold.error'), variant: 'error' })
+    } finally {
+      setAssignBusy(false)
     }
   }
 
@@ -448,6 +498,39 @@ export function MinutesExplorer({
         className="min-w-0 flex-1 lg:-mr-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain lg:pb-1 lg:pr-1"
       >
         <div data-minutes-content-body className="space-y-4">
+          {/* 선택 도구 — 프로젝트가 하나도 없으면 지정할 대상이 없어 띄우지 않는다 */}
+          {rows.length > 0 && projects.length > 0 && (
+            selecting ? (
+              <div className="card flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                <span className="font-medium text-ink">
+                  {t('min.exp.selectedN').replace('{n}', String(selected.size))}
+                </span>
+                <button onClick={() => setSelected(prev => {
+                  if (allShownSelected) {
+                    const next = new Set(prev)
+                    for (const l of selectableShown) next.delete(l.id)
+                    return next
+                  }
+                  return new Set([...prev, ...selectableShown.map(l => l.id)])
+                })} className="btn h-8 px-2.5 text-xs">
+                  {t(allShownSelected ? 'min.exp.selectNone' : 'min.exp.selectAll')}
+                </button>
+                <button onClick={() => setAssignOpen(true)} disabled={selected.size === 0}
+                  className="btn btn-primary h-8 px-2.5 text-xs">
+                  {t('min.exp.assignProject')}
+                </button>
+                <button onClick={exitSelect} className="btn ml-auto h-8 px-2.5 text-xs">
+                  {t('min.exp.selectCancel')}
+                </button>
+              </div>
+            ) : (
+              <div className="flex justify-end">
+                <button onClick={() => setSelecting(true)} className="btn h-8 px-2.5 text-xs">
+                  <CheckSquare aria-hidden className="h-3.5 w-3.5" />{t('min.exp.select')}
+                </button>
+              </div>
+            )
+          )}
           {scope.kind === 'favorites' && favorites === null ? (
             <EmptyState title={t('min.exp.favError')}
               action={<button onClick={onRetryFavorites} className="btn">{t('min.tree.retry')}</button>} />
@@ -468,7 +551,9 @@ export function MinutesExplorer({
                       onEdit={() => void openEdit(l.id)}
                       dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
                       dragging={drag?.kind === 'leaf' && drag.id === l.id}
-                      onToggle={onToggleFavorite} />
+                      onToggle={onToggleFavorite}
+                      selecting={selecting && canMoveLeaf(l)} selected={selected.has(l.id)}
+                      onSelectToggle={() => toggleSelect(l.id)} />
                   ))}
                 </div>
               ) : (
@@ -483,7 +568,9 @@ export function MinutesExplorer({
                         onEdit={() => void openEdit(l.id)}
                         dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
                         dragging={drag?.kind === 'leaf' && drag.id === l.id}
-                        onToggle={onToggleFavorite} />
+                        onToggle={onToggleFavorite}
+                        selecting={selecting && canMoveLeaf(l)} selected={selected.has(l.id)}
+                        onSelectToggle={() => toggleSelect(l.id)} />
                     ))}
                   </ul>
                 </div>
@@ -509,6 +596,8 @@ export function MinutesExplorer({
       )}
       <FolderPickModal open={movingId !== null} folders={folders}
         onClose={() => setMovingId(null)} onPick={id => void moveTo(id)} />
+      <ProjectAssignModal open={assignOpen} projects={projects} count={selected.size} busy={assignBusy}
+        onClose={() => setAssignOpen(false)} onPick={pid => void assignProject(pid)} t={t} />
       {/* 목록에서 바로 여는 수정 모달 — 열 때마다 리마운트해 이전 회의록 값이 남지 않게 한다
           (뷰어의 metaOpen 과 같은 규약). 저장 성공은 onChanged 로 트리를 다시 읽는다. */}
       {editMinute && (
@@ -565,6 +654,55 @@ function StarButton({ id, fav, disabled, onToggle, t }: {
  *  카드 전면을 덮는 링크 오버레이(absolute inset-0) 위로 올라와야 하므로 z 를 준다.
  *  display 를 상태로 토글하는 변형 유틸은 쓰지 않는다(CLAUDE.md 반응형 안전망 제약) — 항상
  *  렌더하고 opacity 만 바꾼다(폴더 메뉴와 같은 방식). */
+/** 선택분에 지정할 프로젝트를 고르는 모달. '연결 없음'은 해제 — 위키에서 회수된다. */
+function ProjectAssignModal({ open, projects, count, busy, onClose, onPick, t }: {
+  open: boolean
+  projects: { id: string; name: string }[]
+  count: number
+  busy: boolean
+  onClose: () => void
+  onPick: (projectId: string | null) => void
+  t: T
+}) {
+  return (
+    <Modal open={open} onClose={onClose} title={t('min.exp.assignProject')} size="sm">
+      <p className="mb-2 text-sm text-ink-muted">
+        {t('min.exp.assignDesc').replace('{n}', String(count))}
+      </p>
+      <ul className="max-h-80 space-y-0.5 overflow-y-auto">
+        {projects.map(p => (
+          <li key={p.id}>
+            <button onClick={() => onPick(p.id)} disabled={busy}
+              className="flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-surface-2 disabled:opacity-40">
+              <BookOpenText aria-hidden className="h-4 w-4 shrink-0 text-brand" />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{p.name}</span>
+            </button>
+          </li>
+        ))}
+        <li>
+          <button onClick={() => onPick(null)} disabled={busy}
+            className="flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-100 hover:bg-surface-2 disabled:opacity-40">
+            <Square aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
+            <span className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">{t('min.exp.assignNone')}</span>
+          </button>
+        </li>
+      </ul>
+    </Modal>
+  )
+}
+
+/** 선택 모드 체크박스 — 링크 오버레이 위(z)에서 클릭을 받는다. */
+function SelectBox({ checked, onToggle, t }: { checked: boolean; onToggle: () => void; t: T }) {
+  const Icon = checked ? CheckSquare : Square
+  return (
+    <button onClick={onToggle} role="checkbox" aria-checked={checked} aria-label={t('min.exp.selectAria')}
+      className={`relative z-20 shrink-0 rounded-md p-1 transition-colors duration-100 hover:bg-surface-2 ${
+        checked ? 'text-brand' : 'text-ink-subtle'}`}>
+      <Icon aria-hidden className="h-4 w-4" />
+    </button>
+  )
+}
+
 function LeafMenu({ open, busy, onToggle, onEdit, onMove, t }: {
   open: boolean; busy: boolean
   onToggle: () => void; onEdit: () => void; onMove: () => void; t: T
@@ -622,23 +760,34 @@ function meetingLinkOf(l: ExplorerLeaf): string | null {
 
 function MinuteCard({
   l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
-  onToggle, folderName, t, dragProps, dragging,
+  onToggle, folderName, t, dragProps, dragging, selecting = false, selected = false, onSelectToggle,
 }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
+  /** 선택 모드 — 켜지면 카드 전체가 '열기'가 아니라 '고르기'가 된다(링크 오버레이 미렌더) */
+  selecting?: boolean; selected?: boolean; onSelectToggle?: () => void
 }) {
   const meetingProjectId = meetingLinkOf(l)
   return (
     <article {...dragProps}
       className={`card relative flex flex-col gap-2 p-4 transition-shadow duration-150 hover:shadow-[var(--shadow-md)] ${
         dragProps ? 'cursor-grab select-none active:cursor-grabbing' : ''} ${dragging ? 'opacity-40' : ''}`}>
-      {/* draggable=false 필수 — 앵커는 기본 draggable 이라 그대로 두면 카드 대신 링크(href)가 끌린다 */}
-      <Link draggable={false} href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-2xl" />
+      {/* 선택 모드에서는 링크를 렌더하지 않는다 — 고르려다 상세로 튕겨 나가면 선택 자체가 불가능하다.
+          draggable=false 필수 — 앵커는 기본 draggable 이라 그대로 두면 카드 대신 링크(href)가 끌린다 */}
+      {!selecting && (
+        <Link draggable={false} href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-2xl" />
+      )}
+      {selecting && (
+        <button aria-hidden tabIndex={-1} onClick={onSelectToggle}
+          className="absolute inset-0 cursor-pointer rounded-2xl" />
+      )}
       <div className="flex items-start gap-1.5">
-        <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
+        {selecting
+          ? <SelectBox checked={selected} onToggle={() => onSelectToggle?.()} t={t} />
+          : <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />}
         <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{l.title}</h4>
         {canMove && <LeafMenu open={menuOpen} busy={menuBusy} onToggle={onMenuToggle}
           onEdit={onEdit} onMove={onMove} t={t} />}
@@ -678,22 +827,33 @@ function MinuteCard({
 
 function MinuteRow({
   l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
-  onToggle, folderName, t, dragProps, dragging,
+  onToggle, folderName, t, dragProps, dragging, selecting = false, selected = false, onSelectToggle,
 }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
+  /** 선택 모드 — 켜지면 카드 전체가 '열기'가 아니라 '고르기'가 된다(링크 오버레이 미렌더) */
+  selecting?: boolean; selected?: boolean; onSelectToggle?: () => void
 }) {
   const meetingProjectId = meetingLinkOf(l)
   return (
     <li {...dragProps} className={`relative ${dragging ? 'opacity-40' : ''}`}>
-      {/* draggable=false 필수 — 앵커는 기본 draggable 이라 그대로 두면 행 대신 링크(href)가 끌린다 */}
-      <Link draggable={false} href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-lg" />
+      {/* 선택 모드에서는 링크를 렌더하지 않는다(카드와 같은 이유).
+          draggable=false 필수 — 앵커는 기본 draggable 이라 그대로 두면 행 대신 링크(href)가 끌린다 */}
+      {!selecting && (
+        <Link draggable={false} href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-lg" />
+      )}
+      {selecting && (
+        <button aria-hidden tabIndex={-1} onClick={onSelectToggle}
+          className="absolute inset-0 cursor-pointer rounded-lg" />
+      )}
       <div className={`flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors duration-100 hover:bg-surface-2 ${
         dragProps ? 'cursor-grab select-none active:cursor-grabbing' : ''}`}>
-        <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
+        {selecting
+          ? <SelectBox checked={selected} onToggle={() => onSelectToggle?.()} t={t} />
+          : <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />}
         <span className={`inline-flex w-12 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(l.teamCode).bar}`}>
           {l.teamCode}
         </span>

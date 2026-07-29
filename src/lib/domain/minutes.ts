@@ -207,6 +207,9 @@ export function meetingBodyOf(title: string): string {
 export const MINUTE_FOLDER_NAME_MAX = 60
 export const MINUTE_FOLDER_DEPTH_MAX = 5
 
+/** 프로젝트 일괄 지정 1회 상한. 건별로 위키 재적재가 뒤따르는 조작이라 무제한으로 열지 않는다. */
+export const MINUTES_PROJECT_BULK_MAX = 200
+
 /** 폴더 이름 정규화 — trim + **NFC**. macOS 에서 만든 한글 폴더명은 NFD 로 들어올 수 있고,
  *  그대로 저장하면 눈에 같은 이름의 폴더가 둘 생긴다(부분 유니크 인덱스도 바이트가 달라
  *  막지 못한다). 저장·비교 경로 전부가 이 함수를 통과해야 한다. */
