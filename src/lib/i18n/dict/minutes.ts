@@ -31,6 +31,8 @@ export const minutesKo = {
   'min.exp.favToggleError': '즐겨찾기 저장에 실패했습니다',
   'min.exp.starAdd': '즐겨찾기 추가',
   'min.exp.starRemove': '즐겨찾기 해제',
+  'min.exp.leafMenuAria': '회의록 메뉴',
+  'min.exp.editLoadFailed': '회의록을 불러오지 못해 수정할 수 없습니다',
   // 폴더 디렉토리 (스펙 2026-07-23-minutes-folders-design.md)
   'min.fold.unfiled': '미분류',
   'min.fold.new': '새 폴더',
@@ -226,6 +228,8 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.exp.favToggleError': 'Failed to save favorite',
   'min.exp.starAdd': 'Add to favorites',
   'min.exp.starRemove': 'Remove from favorites',
+  'min.exp.leafMenuAria': 'Minute menu',
+  'min.exp.editLoadFailed': 'Could not load the minute to edit',
   'min.fold.unfiled': 'Unfiled',
   'min.fold.new': 'New folder',
   'min.fold.addSub': 'Add subfolder',

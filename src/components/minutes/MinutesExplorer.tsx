@@ -6,14 +6,14 @@ import {
   Paperclip, Star,
 } from 'lucide-react'
 import type {
-  ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
+  ExplorerLeaf, FolderNode, MeetingCategory, Minute, MinuteFolder,
 } from '@/lib/domain/types'
 import { buildFolderTree, folderDepthOf, isTeamRootFolder, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
 import {
   resolveFolderDrop, resolveLeafDrop, type MinuteDropReject, type MinuteDropResult,
 } from '@/lib/domain/minutes-drop'
 import { MEETING_META } from '@/lib/domain/meetings'
-import { moveMinuteFolder, moveMinuteToFolder } from '@/app/actions/minutes'
+import { fetchMinuteDetail, moveMinuteFolder, moveMinuteToFolder } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -21,6 +21,7 @@ import { useToast } from '@/components/ui/Toast'
 import { teamStyle } from '@/components/wbs/shared'
 import { FolderManageModal } from './FolderManageModal'
 import { FolderPickModal } from './FolderPickModal'
+import { MinuteMetaModal } from './MinuteMetaModal'
 
 export type ExplorerLayout = 'grid' | 'list'
 type Scope =
@@ -67,7 +68,7 @@ const rowCls = (active: boolean) =>
  *  leaves 는 팀 탭 필터가 이미 적용된 것 — 카운트·스코프가 필터와 정합. folders 는 항상 전부. */
 export function MinutesExplorer({
   folders, leaves, favorites, onToggleFavorite, onRetryFavorites,
-  layout, currentUserId, isAdmin, onChanged, onFolderSelect, teamCodes = [],
+  layout, currentUserId, isAdmin, onChanged, onFolderSelect, teamCodes = [], projects = [],
 }: {
   folders: MinuteFolder[]
   leaves: ExplorerLeaf[]
@@ -82,6 +83,8 @@ export function MinutesExplorer({
   /** 루트 예약어(팀 앵커) 판정용. 여기서 훅으로 직접 읽지 않는 이유는 이 목록이 **활성** 팀이라
    *  비활성 팀 앵커를 놓칠 수 있어서다 — 최종 판정은 전체 등록 팀을 아는 서버가 한다(fail-closed). */
   teamCodes?: readonly string[]
+  /** 카드 [수정] 이 여는 메타 모달의 프로젝트 셀렉트 옵션. 빈 배열이면 '연결 없음'만 고를 수 있다. */
+  projects?: { id: string; name: string }[]
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
@@ -96,6 +99,11 @@ export function MinutesExplorer({
   const [manage, setManage] = useState<ManageState>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [movingId, setMovingId] = useState<string | null>(null)   // 폴더 픽커 대상 회의록
+  const [leafMenuFor, setLeafMenuFor] = useState<string | null>(null)  // '...' 메뉴가 열린 회의록
+  // 카드에서 바로 여는 수정 모달. 트리는 ExplorerLeaf(요약)만 갖고 있어 메타 모달이 필요로 하는
+  // meetingId·externalId 등이 없다 — 열 때 상세를 한 번 받아온다.
+  const [editMinute, setEditMinute] = useState<Minute | null>(null)
+  const [editLoadingId, setEditLoadingId] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragItem | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const resultsScrollRef = useRef<HTMLElement>(null)
@@ -152,6 +160,23 @@ export function MinutesExplorer({
   const shown = rows.slice(0, visible)
   const remaining = rows.length - shown.length
   const showFolderChip = scope.kind === 'all' || scope.kind === 'favorites'
+
+  /** 카드/행의 [수정] — 상세를 받아 메타 모달을 연다. 상세 없이 열면 모달이 빈 값으로 저장을
+   *  덮어써 meetingId·프로젝트 연결이 조용히 끊긴다. 실패는 토스트로 드러낸다(빈 모달 금지). */
+  async function openEdit(id: string) {
+    setLeafMenuFor(null)
+    setEditLoadingId(id)
+    try {
+      const detail = await fetchMinuteDetail(id)
+      if (!detail) { toast({ title: t('min.exp.editLoadFailed'), variant: 'error' }); return }
+      setEditMinute(detail.minute)
+    } catch (e) {
+      console.error('[MinutesExplorer] 회의록 상세 조회 실패:', e)
+      toast({ title: t('min.exp.editLoadFailed'), variant: 'error' })
+    } finally {
+      setEditLoadingId(null)
+    }
+  }
 
   async function moveTo(folderId: string | null) {
     const id = movingId
@@ -437,7 +462,10 @@ export function MinutesExplorer({
                   {shown.map(l => (
                     <MinuteCard key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
                       fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
-                      canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
+                      canMove={canMoveLeaf(l)} onMove={() => { setLeafMenuFor(null); setMovingId(l.id) }}
+                      menuOpen={leafMenuFor === l.id} menuBusy={editLoadingId === l.id}
+                      onMenuToggle={() => setLeafMenuFor(cur => (cur === l.id ? null : l.id))}
+                      onEdit={() => void openEdit(l.id)}
                       dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
                       dragging={drag?.kind === 'leaf' && drag.id === l.id}
                       onToggle={onToggleFavorite} />
@@ -449,7 +477,10 @@ export function MinutesExplorer({
                     {shown.map(l => (
                       <MinuteRow key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
                         fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
-                        canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
+                        canMove={canMoveLeaf(l)} onMove={() => { setLeafMenuFor(null); setMovingId(l.id) }}
+                        menuOpen={leafMenuFor === l.id} menuBusy={editLoadingId === l.id}
+                        onMenuToggle={() => setLeafMenuFor(cur => (cur === l.id ? null : l.id))}
+                        onEdit={() => void openEdit(l.id)}
                         dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
                         dragging={drag?.kind === 'leaf' && drag.id === l.id}
                         onToggle={onToggleFavorite} />
@@ -478,6 +509,13 @@ export function MinutesExplorer({
       )}
       <FolderPickModal open={movingId !== null} folders={folders}
         onClose={() => setMovingId(null)} onPick={id => void moveTo(id)} />
+      {/* 목록에서 바로 여는 수정 모달 — 열 때마다 리마운트해 이전 회의록 값이 남지 않게 한다
+          (뷰어의 metaOpen 과 같은 규약). 저장 성공은 onChanged 로 트리를 다시 읽는다. */}
+      {editMinute && (
+        <MinuteMetaModal open minute={editMinute} projects={projects}
+          onClose={() => setEditMinute(null)}
+          onSaved={() => { setEditMinute(null); onChanged() }} />
+      )}
 
       <DragGhost kind="leaf" innerRef={leafGhostRef} />
       <DragGhost kind="folder" innerRef={folderGhostRef} />
@@ -523,12 +561,39 @@ function StarButton({ id, fav, disabled, onToggle, t }: {
   )
 }
 
-function MoveButton({ onMove, t }: { onMove: () => void; t: T }) {
+/** 카드·행의 '...' 메뉴 — 상세 페이지로 들어가지 않고 목록에서 바로 수정·이동한다.
+ *  카드 전면을 덮는 링크 오버레이(absolute inset-0) 위로 올라와야 하므로 z 를 준다.
+ *  display 를 상태로 토글하는 변형 유틸은 쓰지 않는다(CLAUDE.md 반응형 안전망 제약) — 항상
+ *  렌더하고 opacity 만 바꾼다(폴더 메뉴와 같은 방식). */
+function LeafMenu({ open, busy, onToggle, onEdit, onMove, t }: {
+  open: boolean; busy: boolean
+  onToggle: () => void; onEdit: () => void; onMove: () => void; t: T
+}) {
   return (
-    <button onClick={onMove} aria-label={t('min.fold.move')} title={t('min.fold.move')}
-      className="relative z-10 shrink-0 rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2 hover:text-ink">
-      <FolderOpen aria-hidden className="h-4 w-4" />
-    </button>
+    <div className="relative z-20 shrink-0">
+      <button onClick={onToggle} disabled={busy}
+        aria-label={t('min.exp.leafMenuAria')} aria-expanded={open} aria-haspopup="menu"
+        className="rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2 hover:text-ink disabled:opacity-40">
+        <MoreHorizontal aria-hidden className="h-4 w-4" />
+      </button>
+      {open && (
+        <>
+          {/* 바깥 클릭 닫기 — 패널보다 낮고 카드 링크보다 높아야 한다 */}
+          <button aria-hidden tabIndex={-1} onClick={onToggle} className="fixed inset-0 z-20 cursor-default" />
+          <div role="menu"
+            className="absolute right-0 z-30 mt-1 w-32 rounded-xl border border-line bg-surface p-1 shadow-[var(--shadow-md)]">
+            <button role="menuitem" onClick={onEdit}
+              className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
+              {t('min.detail.edit')}
+            </button>
+            <button role="menuitem" onClick={onMove}
+              className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
+              {t('min.fold.move')}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -537,9 +602,13 @@ function CategoryChip({ cat, t }: { cat: MeetingCategory; t: T }) {
   return <span className={`chip ${meta.chip}`}>{t(meta.labelKey)}</span>
 }
 
-function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t, dragProps, dragging }: {
+function MinuteCard({
+  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
+  onToggle, folderName, t, dragProps, dragging,
+}: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
+  menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
 }) {
@@ -552,7 +621,8 @@ function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName
       <div className="flex items-start gap-1.5">
         <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
         <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{l.title}</h4>
-        {canMove && <MoveButton onMove={onMove} t={t} />}
+        {canMove && <LeafMenu open={menuOpen} busy={menuBusy} onToggle={onMenuToggle}
+          onEdit={onEdit} onMove={onMove} t={t} />}
         <span className={`inline-flex shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(l.teamCode).bar}`}>
           {l.teamCode}
         </span>
@@ -586,9 +656,13 @@ function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName
   )
 }
 
-function MinuteRow({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t, dragProps, dragging }: {
+function MinuteRow({
+  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
+  onToggle, folderName, t, dragProps, dragging,
+}: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
+  menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
 }) {
@@ -618,7 +692,8 @@ function MinuteRow({ l, fav, favDisabled, canMove, onMove, onToggle, folderName,
             <Folder aria-hidden className="h-3 w-3" />{folderName}
           </span>
         )}
-        {canMove && <MoveButton onMove={onMove} t={t} />}
+        {canMove && <LeafMenu open={menuOpen} busy={menuBusy} onToggle={onMenuToggle}
+          onEdit={onEdit} onMove={onMove} t={t} />}
         <span className="w-20 shrink-0 text-right text-xs tabular-nums text-ink-subtle">{l.minuteDate}</span>
       </div>
     </li>

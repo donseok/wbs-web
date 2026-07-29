@@ -205,9 +205,12 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     await act(async () => buttonByText('min.fold.new').click())
     expect(dialog().textContent).toContain('min.fold.name')          // FolderManageModal
     await act(async () => dialogButtonByText('min.fold.cancel').click())  // 없으면 Esc 대체 — 구현의 닫기 버튼 텍스트에 맞춤
-    // 이동: m1 카드의 이동 버튼(작성자 u1)
-    const moveBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.fold.move"]')]
+    // 이동: m1 카드의 '...' 메뉴 → [폴더 이동] (작성자 u1)
+    const menuBtn = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.exp.leafMenuAria"]')]
       .find(b => b.closest('article')?.textContent?.includes('APS 인터뷰'))!
+    await act(async () => menuBtn.click())
+    const moveBtn = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find(b => b.textContent?.includes('min.fold.move'))!
     await act(async () => moveBtn.click())
     expect(dialog().textContent).toContain('min.fold.pickTitle')
     await act(async () => dialogButtonByText('min.fold.unfiled').click())   // 픽커에서 미분류 선택
@@ -215,9 +218,9 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect(onChanged).toHaveBeenCalled()
   })
 
-  it('이동 버튼은 작성자가 아니고 관리자도 아니면 없다', async () => {
+  it("'...' 메뉴는 작성자가 아니고 관리자도 아니면 없다", async () => {
     await mount({ currentUserId: 'other' })
-    expect(container.querySelectorAll('button[aria-label="min.fold.move"]').length).toBe(0)
+    expect(container.querySelectorAll('button[aria-label="min.exp.leafMenuAria"]').length).toBe(0)
   })
 
   it('선택 폴더가 사라지면(재조회 후) all 강등', async () => {
