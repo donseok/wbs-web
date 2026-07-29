@@ -9,6 +9,7 @@ import {
   isTeamRootName, isTeamRootFolder,
   type MinuteInput,
 } from '@/lib/domain/minutes'
+import { resolveFolderDrop, type MinuteDropReject } from '@/lib/domain/minutes-drop'
 import {
   getMinuteDetail, getMinuteFavorites, getMinutesExplorer, getMinutesPage, searchMinutes,
 } from '@/lib/data/minutes'
@@ -693,6 +694,47 @@ export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; err
   // 하위 폴더는 FK cascade, 소속 회의록은 set null(미분류 강등)이 정리한다
   const { data, error } = await sb.from('minute_folders').delete().eq('id', id).select('id')
   if (error) { console.error('[deleteMinuteFolder] 실패:', error.message); return { ok: false, error: error.message } }
+  if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
+  revalidatePath('/minutes')
+  return { ok: true }
+}
+
+/** 드롭 거부 사유 → 사용자 문구. 클라이언트도 같은 사유 코드로 토스트를 고르지만, 서버가
+ *  최종 판정자라 여기서도 사유별 안내를 돌려준다(원인을 모른 채 '실패'만 보이지 않게). */
+const FOLDER_MOVE_REJECT_MSG: Record<MinuteDropReject, string> = {
+  'team-root': '팀 기본 폴더는 이동할 수 없습니다.',
+  'not-found': '이동할 상위 폴더를 찾을 수 없습니다.',
+  cycle: '폴더를 자기 자신이나 하위 폴더로 옮길 수 없습니다.',
+  depth: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.`,
+  'anchor-squat': '팀 기본 폴더명은 루트에 사용할 수 없습니다.',
+}
+
+/** 폴더를 다른 폴더(또는 루트) 아래로 이동 — 탐색기 드래그앤드롭.
+ *  클라이언트가 이미 같은 규칙으로 걸렀더라도 서버에서 전부 다시 판정한다(fail-closed).
+ *  teamCodes 는 비활성 포함 전체 등록 팀 — 활성 팀만 아는 클라이언트보다 넓다. */
+export async function moveMinuteFolder(
+  id: string, newParentId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  // 이동 가드 선행조회 — 실패하면 판정 불가이므로 중단(쓰기 선행조회 원칙)
+  const folders = await loadFolders(sb)
+  if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
+  const target = folders.find(f => f.id === id)
+  if (!target) return { ok: false, error: '폴더가 없습니다.' }
+  const verdict = resolveFolderDrop(target, newParentId, folders, teamsSync().map(t => t.code))
+  if (verdict.kind === 'noop') return { ok: true }        // 제자리 — 쓰기 없이 성공
+  if (verdict.kind === 'reject') return { ok: false, error: FOLDER_MOVE_REJECT_MSG[verdict.reason] }
+  const { data, error } = await sb.from('minute_folders')
+    .update({ parent_id: newParentId, updated_at: new Date().toISOString() })
+    .eq('id', id).select('id')
+  if (error) {
+    if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
+    console.error('[moveMinuteFolder] 실패:', error.message)
+    return { ok: false, error: error.message }
+  }
+  // RLS 가 소유자/pmo_admin 이 아니면 0행 — 조용한 no-op 을 성공으로 위장하지 않는다
   if (!data || data.length === 0) return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
   revalidatePath('/minutes')
   return { ok: true }

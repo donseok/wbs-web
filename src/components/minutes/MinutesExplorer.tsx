@@ -8,8 +8,11 @@ import type {
   ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
 } from '@/lib/domain/types'
 import { buildFolderTree, folderDepthOf, isTeamRootFolder, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
+import {
+  resolveFolderDrop, resolveLeafDrop, type MinuteDropReject, type MinuteDropResult,
+} from '@/lib/domain/minutes-drop'
 import { MEETING_META } from '@/lib/domain/meetings'
-import { moveMinuteToFolder } from '@/app/actions/minutes'
+import { moveMinuteFolder, moveMinuteToFolder } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -33,6 +36,27 @@ type ManageState =
 const PAGE_SIZE = 30
 type T = (k: DictKey) => string
 
+/** 드래그 중인 항목. 드롭 판정을 dataTransfer 가 아니라 이 상태에서 읽는다 — dragOver 단계에서도
+ *  같은 판정이 필요한데(수락 대상만 하이라이트), dataTransfer.getData 는 drop 전에는 빈 문자열이다. */
+type DragItem = { kind: 'leaf'; id: string } | { kind: 'folder'; id: string }
+/** dragSource() 가 돌려주는 소스 props — 카드·행 컴포넌트가 그대로 펼쳐 쓴다. */
+type DragSourceProps = {
+  draggable: true
+  onDragStart: (e: React.DragEvent) => void
+  onDragEnd: () => void
+}
+/** 드롭 대상 키 — 폴더는 id, 루트 레벨과 미분류는 예약 키. */
+const ROOT_KEY = '__root__'
+const UNFILED_KEY = '__unfiled__'
+
+const DROP_REJECT_KEY: Record<MinuteDropReject, DictKey> = {
+  'team-root': 'min.fold.dropTeamRoot',
+  'not-found': 'min.fold.dropNotFound',
+  cycle: 'min.fold.dropCycle',
+  depth: 'min.fold.dropDepth',
+  'anchor-squat': 'min.fold.dropAnchor',
+}
+
 const rowCls = (active: boolean) =>
   `flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left transition-colors duration-100 ${
     active ? 'bg-brand-weak font-semibold text-brand' : 'text-ink hover:bg-surface-2'}`
@@ -42,7 +66,7 @@ const rowCls = (active: boolean) =>
  *  leaves 는 팀 탭 필터가 이미 적용된 것 — 카운트·스코프가 필터와 정합. folders 는 항상 전부. */
 export function MinutesExplorer({
   folders, leaves, favorites, onToggleFavorite, onRetryFavorites,
-  layout, currentUserId, isAdmin, onChanged, onFolderSelect,
+  layout, currentUserId, isAdmin, onChanged, onFolderSelect, teamCodes = [],
 }: {
   folders: MinuteFolder[]
   leaves: ExplorerLeaf[]
@@ -54,6 +78,9 @@ export function MinutesExplorer({
   isAdmin: boolean
   onChanged: () => void
   onFolderSelect?: (folderId: string | null) => void
+  /** 루트 예약어(팀 앵커) 판정용. 여기서 훅으로 직접 읽지 않는 이유는 이 목록이 **활성** 팀이라
+   *  비활성 팀 앵커를 놓칠 수 있어서다 — 최종 판정은 전체 등록 팀을 아는 서버가 한다(fail-closed). */
+  teamCodes?: readonly string[]
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
@@ -68,7 +95,11 @@ export function MinutesExplorer({
   const [manage, setManage] = useState<ManageState>(null)
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [movingId, setMovingId] = useState<string | null>(null)   // 폴더 픽커 대상 회의록
+  const [drag, setDrag] = useState<DragItem | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const resultsScrollRef = useRef<HTMLElement>(null)
+  // 같은 드롭이 두 번 커밋되는 것을 막는 동기 가드(렌더와 무관하므로 ref)
+  const dropInFlightRef = useRef(false)
 
   const { roots, unfiled } = useMemo(() => buildFolderTree(folders, leaves), [folders, leaves])
   const nodeById = useMemo(() => {
@@ -78,6 +109,7 @@ export function MinutesExplorer({
     return map
   }, [roots])
   const folderById = useMemo(() => new Map(folders.map(f => [f.id, f])), [folders])
+  const leafById = useMemo(() => new Map(leaves.map(l => [l.id, l])), [leaves])
 
   // 재조회로 폴더가 사라지면 선택이 유령을 가리킬 수 있다 — 조용히 all 로 강등
   const scope: Scope = useMemo(() => (
@@ -126,15 +158,112 @@ export function MinutesExplorer({
     onChanged()
   }
 
+  /* ── 드래그앤드롭 ────────────────────────────────────────────────────────────
+     대상 키: 폴더 id / ROOT_KEY(전체 행 = 루트 레벨) / UNFILED_KEY(미분류 행).
+     회의록은 폴더·미분류에만, 폴더는 폴더·루트에만 놓을 수 있다 — 나머지 조합은 판정 null(무반응).
+     미분류 행은 0건이면 렌더되지 않으므로(위 rail 참조) 그때는 드롭으로 미분류에 보낼 수 없다.
+     이동 버튼의 폴더 픽커가 그 경로를 계속 담당한다.
+     권한은 draggable 단계에서 이미 걸러진다(canMoveLeaf/canManageFolder). */
+
+  /** item 을 target 에 놓았을 때의 판정. null = 이 조합은 드롭 대상이 아님.
+   *  dragOver(수락·하이라이트)와 drop(실행)이 같은 함수를 쓰므로 표시와 동작이 어긋나지 않는다. */
+  function verdictOf(item: DragItem | null, target: string): MinuteDropResult | null {
+    if (!item) return null
+    if (item.kind === 'leaf') {
+      if (target === ROOT_KEY) return null
+      const l = leafById.get(item.id)
+      return l ? resolveLeafDrop(l, target === UNFILED_KEY ? null : target) : null
+    }
+    if (target === UNFILED_KEY) return null
+    const f = folderById.get(item.id)
+    return f ? resolveFolderDrop(f, target === ROOT_KEY ? null : target, folders, teamCodes) : null
+  }
+
+  async function handleDrop(target: string) {
+    const item = drag
+    // 하이라이트·드래그 상태는 await 앞에서 비운다 — 실패해도 강조가 남지 않게
+    setDrag(null); setDragOverKey(null)
+    const v = verdictOf(item, target)
+    if (!item || !v || v.kind === 'noop' || dropInFlightRef.current) return
+    if (v.kind === 'reject') {
+      toast({
+        title: t(DROP_REJECT_KEY[v.reason]).replace('{n}', String(MINUTE_FOLDER_DEPTH_MAX)),
+        variant: 'error',
+      })
+      return
+    }
+    dropInFlightRef.current = true
+    try {
+      if (item.kind === 'leaf') {
+        const res = await moveMinuteToFolder(item.id, target === UNFILED_KEY ? null : target)
+        if (!res.ok) { toast({ title: res.error ?? t('min.fold.error'), variant: 'error' }); return }
+        toast({ title: t('min.fold.moved'), variant: 'info' })
+      } else {
+        const newParentId = target === ROOT_KEY ? null : target
+        const res = await moveMinuteFolder(item.id, newParentId)
+        if (!res.ok) { toast({ title: res.error ?? t('min.fold.error'), variant: 'error' }); return }
+        // expanded 는 최초 렌더 1회만 계산된다 — 지금까지 자식이 없던 폴더로 옮기면 그 부모가
+        // 집합에 없어 옮긴 폴더가 접힌 채 사라져 보인다. 재조회로도 복구되지 않으므로 여기서 펼친다.
+        if (newParentId) setExpanded(prev => new Set(prev).add(newParentId))
+        toast({ title: t('min.fold.folderMoved'), variant: 'info' })
+      }
+      onChanged()
+    } finally {
+      dropInFlightRef.current = false
+    }
+  }
+
+  /** 드롭 대상 행의 공통 props + 강조 클래스. 거부 대상도 preventDefault 한다 — 사유를
+   *  토스트로 알려주려면 drop 이 실제로 발생해야 하기 때문이다(dropEffect='none' 은 drop 을 없앤다).
+   *  대신 행 자체를 거부 색으로 칠해 시각적으로 구분한다. */
+  function dropTarget(target: string) {
+    const v = verdictOf(drag, target)
+    const over = dragOverKey === target && v !== null
+    return {
+      handlers: v === null ? {} : {
+        onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDragOverKey(target) },
+        onDragLeave: () => setDragOverKey(k => (k === target ? null : k)),
+        onDrop: (e: React.DragEvent) => { e.preventDefault(); void handleDrop(target) },
+      },
+      cls: !over || v.kind === 'noop' ? ''
+        : v.kind === 'move' ? 'bg-brand-weak ring-2 ring-brand-ring'
+          : 'bg-delayed-weak ring-2 ring-delayed',
+    }
+  }
+
+  /** 드래그 소스 props. dataTransfer.setData 는 Firefox 가 드래그를 시작하는 조건이라 필수지만,
+   *  판정은 drag 상태에서 읽는다(dragOver 시점엔 getData 가 빈 문자열). */
+  function dragSource(item: DragItem): DragSourceProps {
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        e.dataTransfer.setData('text/plain', item.id)
+        e.dataTransfer.effectAllowed = 'move'
+        setDrag(item)
+      },
+      onDragEnd: () => { setDrag(null); setDragOverKey(null) },
+    }
+  }
+
   function folderRow(node: FolderNode, depth: number): React.ReactNode {
     const f = node.folder
     const hasChildren = node.children.length > 0
     const isExpanded = expanded.has(f.id)
     const active = scope.kind === 'folder' && scope.id === f.id
     const FolderIcon = active || isExpanded ? FolderOpen : Folder
+    const drop = dropTarget(f.id)
+    const canDrag = canManageFolder(f) && !isTeamRootFolder(f)
+    const dragging = drag?.kind === 'folder' && drag.id === f.id
     return (
       <li key={f.id}>
-        <div className="group flex items-center gap-0.5" style={{ paddingLeft: `${depth * 12}px` }}>
+        {/* 드롭 핸들러는 이 행 div 에만 — li 에 걸면 아래 중첩 ul 의 자식 행 드롭까지 가로챈다 */}
+        <div
+          data-drop-target={f.id}
+          {...(canDrag ? dragSource({ kind: 'folder', id: f.id }) : {})}
+          {...drop.handlers}
+          className={`group flex items-center gap-0.5 rounded-lg ${drop.cls} ${
+            canDrag ? 'cursor-grab select-none active:cursor-grabbing' : ''} ${dragging ? 'opacity-40' : ''}`}
+          style={{ paddingLeft: `${depth * 12}px` }}>
           {hasChildren ? (
             <button onClick={() => toggleExpand(f.id)} aria-expanded={isExpanded} aria-label={f.name}
               className="shrink-0 rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2">
@@ -192,6 +321,9 @@ export function MinutesExplorer({
 
   function rail(onNavigate?: () => void) {
     const go = (s: Scope) => { select(s); onNavigate?.() }
+    // 전체 행 = 루트 레벨(폴더 전용), 미분류 행 = 회의록 전용
+    const rootDrop = dropTarget(ROOT_KEY)
+    const unfiledDrop = dropTarget(UNFILED_KEY)
     return (
       <ul className="space-y-0.5">
         <li>
@@ -202,7 +334,8 @@ export function MinutesExplorer({
           </button>
         </li>
         <li>
-          <div className="flex items-center gap-0.5">
+          <div data-drop-target={ROOT_KEY} {...rootDrop.handlers}
+            className={`flex items-center gap-0.5 rounded-lg ${rootDrop.cls}`}>
             <button onClick={() => go({ kind: 'all' })} className={rowCls(scope.kind === 'all')}>
               <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
               <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{t('min.exp.all')}</span>
@@ -221,7 +354,8 @@ export function MinutesExplorer({
                 단, 현재 스코프가 미분류면 마지막 1건 이동 직후에도 행을 유지해 발 디딜 곳을 남긴다. */}
             {(unfiled.length > 0 || scope.kind === 'unfiled') && (
               <li>
-                <div className="flex items-center gap-0.5">
+                <div data-drop-target={UNFILED_KEY} {...unfiledDrop.handlers}
+                  className={`flex items-center gap-0.5 rounded-lg ${unfiledDrop.cls}`}>
                   <span aria-hidden className="w-[22px] shrink-0" />
                   <button onClick={() => go({ kind: 'unfiled' })} className={rowCls(scope.kind === 'unfiled')}>
                     <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
@@ -283,6 +417,8 @@ export function MinutesExplorer({
                     <MinuteCard key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
                       fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
                       canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
+                      dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
+                      dragging={drag?.kind === 'leaf' && drag.id === l.id}
                       onToggle={onToggleFavorite} />
                   ))}
                 </div>
@@ -293,6 +429,8 @@ export function MinutesExplorer({
                       <MinuteRow key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
                         fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
                         canMove={canMoveLeaf(l)} onMove={() => setMovingId(l.id)}
+                        dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
+                        dragging={drag?.kind === 'leaf' && drag.id === l.id}
                         onToggle={onToggleFavorite} />
                     ))}
                   </ul>
@@ -357,14 +495,18 @@ function CategoryChip({ cat, t }: { cat: MeetingCategory; t: T }) {
   return <span className={`chip ${meta.chip}`}>{t(meta.labelKey)}</span>
 }
 
-function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t }: {
+function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t, dragProps, dragging }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
+  dragProps?: DragSourceProps; dragging?: boolean
 }) {
   return (
-    <article className="card relative flex flex-col gap-2 p-4 transition-shadow duration-150 hover:shadow-[var(--shadow-md)]">
-      <Link href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-2xl" />
+    <article {...dragProps}
+      className={`card relative flex flex-col gap-2 p-4 transition-shadow duration-150 hover:shadow-[var(--shadow-md)] ${
+        dragProps ? 'cursor-grab select-none active:cursor-grabbing' : ''} ${dragging ? 'opacity-40' : ''}`}>
+      {/* draggable=false 필수 — 앵커는 기본 draggable 이라 그대로 두면 카드 대신 링크(href)가 끌린다 */}
+      <Link draggable={false} href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-2xl" />
       <div className="flex items-start gap-1.5">
         <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
         <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{l.title}</h4>
@@ -402,15 +544,18 @@ function MinuteCard({ l, fav, favDisabled, canMove, onMove, onToggle, folderName
   )
 }
 
-function MinuteRow({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t }: {
+function MinuteRow({ l, fav, favDisabled, canMove, onMove, onToggle, folderName, t, dragProps, dragging }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
+  dragProps?: DragSourceProps; dragging?: boolean
 }) {
   return (
-    <li className="relative">
-      <Link href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-lg" />
-      <div className="flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors duration-100 hover:bg-surface-2">
+    <li {...dragProps} className={`relative ${dragging ? 'opacity-40' : ''}`}>
+      {/* draggable=false 필수 — 앵커는 기본 draggable 이라 그대로 두면 행 대신 링크(href)가 끌린다 */}
+      <Link draggable={false} href={`/minutes/${l.id}`} aria-label={l.title} className="absolute inset-0 rounded-lg" />
+      <div className={`flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors duration-100 hover:bg-surface-2 ${
+        dragProps ? 'cursor-grab select-none active:cursor-grabbing' : ''}`}>
         <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />
         <span className={`inline-flex w-12 shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(l.teamCode).bar}`}>
           {l.teamCode}

@@ -376,7 +376,7 @@ export function MinutesView({
               onToggleFavorite={id => void toggleFav(id)}
               onRetryFavorites={() => void loadFavorites()}
               layout={exLayout}
-              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'}
+              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'} teamCodes={teamCodes}
               onChanged={() => { void loadTree(); router.refresh() }}
               onFolderSelect={id => { uploadFolderRef.current = id }} />
           </div>

@@ -15,11 +15,14 @@ vi.mock('next/link', () => ({
 }))
 vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 const moveMinuteToFolder = vi.fn(async () => ({ ok: true }))
+const moveMinuteFolder = vi.fn<(...a: unknown[]) => Promise<{ ok: boolean; error?: string }>>(
+  async () => ({ ok: true }))
 vi.mock('@/app/actions/minutes', () => ({
   createMinuteFolder: vi.fn(async () => ({ ok: true })),
   renameMinuteFolder: vi.fn(async () => ({ ok: true })),
   deleteMinuteFolder: vi.fn(async () => ({ ok: true })),
   moveMinuteToFolder: (...a: unknown[]) => moveMinuteToFolder(...(a as [])),
+  moveMinuteFolder: (...a: unknown[]) => moveMinuteFolder(...(a as [])),
 }))
 
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
@@ -51,6 +54,7 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     root = createRoot(container)
     onToggle.mockClear(); onRetry.mockClear(); onChanged.mockClear()
     onFolderSelect.mockClear(); moveMinuteToFolder.mockClear()
+    moveMinuteFolder.mockClear(); moveMinuteFolder.mockResolvedValue({ ok: true })
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
@@ -60,8 +64,39 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
         onToggleFavorite={onToggle} onRetryFavorites={onRetry}
         layout="grid"
         currentUserId="u1" isAdmin={false} onChanged={onChanged} onFolderSelect={onFolderSelect}
+        teamCodes={['PMO', 'MES', 'ERP']}
         {...over} />,
     ))
+  }
+
+  // jsdom 은 DragEvent 를 구현하지 않는다 — bubbles:true 인 일반 Event 에 가짜 dataTransfer 를
+  // 붙여 React 루트까지 올려 보낸다(React 는 컨테이너에 위임 리스너를 단다).
+  function dragEvent(type: string): Event {
+    const ev = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(ev, 'dataTransfer', {
+      value: { setData: vi.fn(), getData: vi.fn(() => ''), effectAllowed: '', dropEffect: '' },
+    })
+    return ev
+  }
+  async function dragOver(source: Element, target: Element) {
+    await act(async () => { source.dispatchEvent(dragEvent('dragstart')) })
+    await act(async () => { target.dispatchEvent(dragEvent('dragover')) })
+  }
+  async function dragTo(source: Element, target: Element) {
+    await dragOver(source, target)
+    await act(async () => { target.dispatchEvent(dragEvent('drop')) })
+    await act(async () => { source.dispatchEvent(dragEvent('dragend')) })
+  }
+  function dropTarget(key: string): HTMLElement {
+    const found = container.querySelector<HTMLElement>(`[data-drop-target="${key}"]`)
+    if (!found) throw new Error(`drop target not found: ${key}`)
+    return found
+  }
+  function cardOf(title: string): HTMLElement {
+    const found = [...container.querySelectorAll<HTMLElement>('article')]
+      .find(a => a.textContent?.includes(title))
+    if (!found) throw new Error(`card not found: ${title}`)
+    return found
   }
   function buttonByText(text: string): HTMLButtonElement {
     const found = [...container.querySelectorAll('button')].find(b => b.textContent?.includes(text))
@@ -236,6 +271,102 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     expect(results?.classList).toContain('lg:min-h-0')
     expect(results?.classList).toContain('lg:overflow-y-auto')
     expect(results?.classList).toContain('lg:overscroll-y-contain')
+  })
+
+  /* ── 드래그앤드롭 ── */
+
+  it('회의록을 폴더 행에 드롭하면 moveMinuteToFolder + onChanged', async () => {
+    await mount()
+    await dragTo(cardOf('미배정 회의록'), dropTarget('f-plan'))
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m3', 'f-plan')
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('회의록을 미분류 행에 드롭하면 folderId null 로 이동', async () => {
+    await mount()
+    await dragTo(cardOf('APS 인터뷰'), dropTarget('__unfiled__'))
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m1', null)
+  })
+
+  it('제자리(현재 폴더) 드롭은 서버를 부르지 않는다', async () => {
+    await mount()
+    await dragTo(cardOf('APS 인터뷰'), dropTarget('f-aps'))
+    expect(moveMinuteToFolder).not.toHaveBeenCalled()
+  })
+
+  it('회의록은 전체(루트) 행에 놓을 수 없다 — 폴더 전용 대상', async () => {
+    await mount()
+    await dragTo(cardOf('미배정 회의록'), dropTarget('__root__'))
+    expect(moveMinuteToFolder).not.toHaveBeenCalled()
+    expect(moveMinuteFolder).not.toHaveBeenCalled()
+  })
+
+  it('폴더를 다른 폴더에 드롭하면 moveMinuteFolder + 새 부모를 펼쳐 옮긴 폴더가 보인다', async () => {
+    // f-pmo 는 처음에 자식이 없어 expanded 에 없다 — 펼치지 않으면 옮긴 폴더가 사라져 보인다
+    await mount({ isAdmin: true })
+    await dragTo(dropTarget('f-aps'), dropTarget('f-pmo'))
+    expect(moveMinuteFolder).toHaveBeenCalledWith('f-aps', 'f-pmo')
+    // 재조회 결과(부모가 바뀐 트리)로 다시 렌더 — expanded 상태는 유지된다
+    await mount({
+      isAdmin: true,
+      folders: [folders[0], folders[1], { ...folders[2], parentId: 'f-pmo' }],
+    })
+    // 레일의 f-aps 행 자체를 확인한다 — 'APS 회의' 텍스트는 카드의 폴더 칩에도 나오므로
+    // textContent 로는 접힌 채 사라진 경우를 구분하지 못한다
+    expect(container.querySelector('[data-drop-target="f-aps"]')).toBeTruthy()
+  })
+
+  it('폴더를 전체(루트) 행에 드롭하면 부모 null 로 이동', async () => {
+    await mount()
+    await dragTo(dropTarget('f-aps'), dropTarget('__root__'))
+    expect(moveMinuteFolder).toHaveBeenCalledWith('f-aps', null)
+  })
+
+  it('폴더를 자기 자손에 드롭하면 서버 호출 없이 거부(순환)', async () => {
+    await mount()
+    await dragTo(dropTarget('f-plan'), dropTarget('f-aps'))
+    expect(moveMinuteFolder).not.toHaveBeenCalled()
+  })
+
+  it('폴더는 미분류 행에 놓을 수 없다 — 회의록 전용 대상', async () => {
+    await mount()
+    await dragTo(dropTarget('f-aps'), dropTarget('__unfiled__'))
+    expect(moveMinuteFolder).not.toHaveBeenCalled()
+  })
+
+  it('권한 없는 항목은 draggable=false — 리프도 폴더도', async () => {
+    await mount({ currentUserId: 'other' })
+    expect(cardOf('APS 인터뷰').getAttribute('draggable')).not.toBe('true')
+    expect(dropTarget('f-plan').getAttribute('draggable')).not.toBe('true')
+  })
+
+  it('팀 시드 루트 폴더는 관리자에게도 draggable=false (편철 앵커 보호)', async () => {
+    await mount({ isAdmin: true })
+    expect(dropTarget('f-pmo').getAttribute('draggable')).not.toBe('true')
+    expect(dropTarget('f-plan').getAttribute('draggable')).toBe('true')
+  })
+
+  it('dragOver 하이라이트: 수락 대상은 brand, 거부 대상은 delayed', async () => {
+    await mount()
+    await dragOver(dropTarget('f-aps'), dropTarget('__root__'))
+    expect(dropTarget('__root__').className).toContain('ring-brand-ring')
+    await mount()
+    await dragOver(dropTarget('f-plan'), dropTarget('f-aps'))   // 자손 = 순환 거부
+    expect(dropTarget('f-aps').className).toContain('ring-delayed')
+  })
+
+  it('회의록 카드의 전면 링크는 draggable=false — 카드 대신 링크가 끌리지 않게', async () => {
+    await mount()
+    const link = cardOf('APS 인터뷰').querySelector('a[href="/minutes/m1"]')!
+    expect(link.getAttribute('draggable')).toBe('false')
+  })
+
+  it('서버가 실패를 돌려주면 onChanged 를 부르지 않는다', async () => {
+    moveMinuteFolder.mockResolvedValue({ ok: false, error: '권한이 없거나 폴더가 없습니다.' })
+    await mount()
+    await dragTo(dropTarget('f-aps'), dropTarget('__root__'))
+    expect(moveMinuteFolder).toHaveBeenCalled()
+    expect(onChanged).not.toHaveBeenCalled()
   })
 
   it('왼쪽 메뉴에서 범위를 바꾸면 오른쪽 목록을 맨 위로 되돌린다', async () => {
