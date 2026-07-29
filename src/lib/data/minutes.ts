@@ -58,6 +58,9 @@ function mapMinute(r: Row, bodyMd = ''): Minute {
       ?? ((r.meetings as { project_id?: string } | null)?.project_id ?? null),
     projectName: ((r.projects as { name?: string } | null)?.name) ?? null,
     meetingOccurrenceDate: (r.meeting_occurrence_date as string | null) ?? null,
+    // 목록/트리에서도 '연결된 회의' 링크를 걸려면 회의의 프로젝트가 필요하다(projectId 는 회의와 다른
+    // 프로젝트로 지정될 수 있어 대체재가 아니다). 조인이 비면 null — 링크를 만들지 않는다.
+    meetingProjectId: ((r.meetings as { project_id?: string } | null)?.project_id) ?? null,
     createdBy: (r.created_by as string | null) ?? null,
     createdByName: (r.created_by_name as string | null) ?? null,
     createdAt: r.created_at as string,
@@ -130,6 +133,7 @@ export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> =
     bodyPreview: mi.bodyPreview ?? '', meetingCategory: mi.meetingCategory ?? null,
     folderId: mi.folderId ?? null,
     projectId: mi.projectId ?? null, projectName: mi.projectName ?? null,
+    meetingId: mi.meetingId, meetingProjectId: mi.meetingProjectId ?? null,
   }))
   const folders: MinuteFolder[] = ((fRes.data ?? []) as Row[]).map(f => ({
     id: f.id as string, name: f.name as string,

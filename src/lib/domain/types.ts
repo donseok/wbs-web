@@ -190,7 +190,7 @@ export interface Minute {
   projectId?: string | null          // Wiki 귀속 프로젝트(회의 연결 없이도 지정 가능)
   projectName?: string | null        // 목록/상세 표시용 프로젝트명
   meetingOccurrenceDate?: string | null // 반복 회의의 실제 개최일
-  meetingProjectId?: string | null  // 뷰어 전용 — 연결된 회의의 프로젝트(조인, 목록 조회엔 없음)
+  meetingProjectId?: string | null  // 연결된 회의의 프로젝트(meetings 조인) — 회의 달력 링크 대상
   createdBy: string | null
   createdByName: string | null
   createdAt: string
@@ -228,6 +228,10 @@ export interface ExplorerLeaf {
   folderId: string | null            // null = 미분류
   projectId?: string | null          // Wiki 귀속 프로젝트
   projectName?: string | null
+  meetingId?: string | null          // 연결된 회의(없으면 null)
+  /** 연결 회의가 속한 프로젝트 — 회의 달력 링크 대상. 회의가 지워졌거나 볼 권한이 없으면 null 이라
+   *  meetingId 만으로 링크를 만들지 않는다(상세 뷰어와 같은 fail-closed 판정). */
+  meetingProjectId?: string | null
 }
 
 export interface FolderNode {

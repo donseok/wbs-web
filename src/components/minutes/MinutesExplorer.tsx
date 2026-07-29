@@ -2,8 +2,8 @@
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  BookOpenText, ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, MoreHorizontal,
-  Paperclip, Star,
+  BookOpenText, ChevronDown, ChevronRight, ExternalLink, FileText, Folder, FolderOpen, FolderPlus,
+  MoreHorizontal, Paperclip, Star,
 } from 'lucide-react'
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, Minute, MinuteFolder,
@@ -602,6 +602,24 @@ function CategoryChip({ cat, t }: { cat: MeetingCategory; t: T }) {
   return <span className={`chip ${meta.chip}`}>{t(meta.labelKey)}</span>
 }
 
+/** 연결된 회의 — 상세 뷰어와 같은 문구·같은 대상(그 회의가 속한 프로젝트의 회의 달력).
+ *  회의가 없거나 회의의 프로젝트를 못 읽으면 아예 렌더하지 않는다(호출부 판정).
+ *  z-10: 카드·행 전면을 덮는 링크 오버레이 위로 올려야 클릭이 회의로 간다.
+ *  draggable=false: 앵커는 기본 draggable 이라 그대로 두면 카드 대신 이 링크가 끌린다. */
+function LinkedMeetingChip({ projectId, t }: { projectId: string; t: T }) {
+  return (
+    <Link draggable={false} href={`/p/${projectId}/meetings`}
+      className="chip relative z-10 bg-brand-weak text-brand underline-offset-2 hover:underline">
+      <ExternalLink aria-hidden className="h-3 w-3 shrink-0" />{t('min.detail.linkedMeeting')}
+    </Link>
+  )
+}
+
+/** 카드·행 공통 판정 — 상세 뷰어와 같은 조건(둘 다 있어야 링크가 성립). */
+function meetingLinkOf(l: ExplorerLeaf): string | null {
+  return l.meetingId && l.meetingProjectId ? l.meetingProjectId : null
+}
+
 function MinuteCard({
   l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
   onToggle, folderName, t, dragProps, dragging,
@@ -612,6 +630,7 @@ function MinuteCard({
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
 }) {
+  const meetingProjectId = meetingLinkOf(l)
   return (
     <article {...dragProps}
       className={`card relative flex flex-col gap-2 p-4 transition-shadow duration-150 hover:shadow-[var(--shadow-md)] ${
@@ -627,7 +646,7 @@ function MinuteCard({
           {l.teamCode}
         </span>
       </div>
-      {(l.projectName || l.meetingCategory || folderName) && (
+      {(l.projectName || l.meetingCategory || folderName || meetingProjectId) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {l.projectName && (
             <span className="chip bg-brand-weak text-brand">
@@ -635,6 +654,7 @@ function MinuteCard({
             </span>
           )}
           {l.meetingCategory && <CategoryChip cat={l.meetingCategory} t={t} />}
+          {meetingProjectId && <LinkedMeetingChip projectId={meetingProjectId} t={t} />}
           {folderName && (
             <span className="chip bg-surface-2 text-ink-muted">
               <Folder aria-hidden className="h-3 w-3" />{folderName}
@@ -666,6 +686,7 @@ function MinuteRow({
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
 }) {
+  const meetingProjectId = meetingLinkOf(l)
   return (
     <li {...dragProps} className={`relative ${dragging ? 'opacity-40' : ''}`}>
       {/* draggable=false 필수 — 앵커는 기본 draggable 이라 그대로 두면 행 대신 링크(href)가 끌린다 */}
@@ -681,6 +702,11 @@ function MinuteRow({
           {l.bodyPreview && <span className="block truncate text-xs text-ink-subtle">{l.bodyPreview}</span>}
         </span>
         {l.meetingCategory && <span className="hidden shrink-0 sm:inline-flex"><CategoryChip cat={l.meetingCategory} t={t} /></span>}
+        {meetingProjectId && (
+          <span className="hidden shrink-0 sm:inline-flex">
+            <LinkedMeetingChip projectId={meetingProjectId} t={t} />
+          </span>
+        )}
         {l.projectName && (
           <span className="chip hidden max-w-40 shrink-0 bg-brand-weak text-brand lg:inline-flex">
             <BookOpenText aria-hidden className="h-3 w-3" />
