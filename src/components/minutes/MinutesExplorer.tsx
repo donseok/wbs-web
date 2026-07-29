@@ -2,7 +2,8 @@
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  BookOpenText, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, MoreHorizontal, Paperclip, Star,
+  BookOpenText, ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, MoreHorizontal,
+  Paperclip, Star,
 } from 'lucide-react'
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, MinuteFolder,
@@ -100,6 +101,10 @@ export function MinutesExplorer({
   const resultsScrollRef = useRef<HTMLElement>(null)
   // 같은 드롭이 두 번 커밋되는 것을 막는 동기 가드(렌더와 무관하므로 ref)
   const dropInFlightRef = useRef(false)
+  // 드래그 고스트(아래 DragGhost) — 종류별로 하나씩 화면 밖에 상주시킨다. 상태가 아니라 ref 인 이유는
+  // setDragImage 를 dragstart 안에서 동기적으로 불러야 해서다(리렌더를 기다릴 수 없다).
+  const leafGhostRef = useRef<HTMLDivElement>(null)
+  const folderGhostRef = useRef<HTMLDivElement>(null)
 
   const { roots, unfiled } = useMemo(() => buildFolderTree(folders, leaves), [folders, leaves])
   const nodeById = useMemo(() => {
@@ -231,6 +236,21 @@ export function MinutesExplorer({
     }
   }
 
+  /** 브라우저 기본 드래그 이미지는 끌고 있는 요소 전체를 그대로 스냅샷한다 — 그리드 카드(최대 3열 중 1열)
+   *  나 리스트 행(폭 전체)이라 커서 주변을 크게 덮어 정작 놓을 곳인 왼쪽 폴더 트리가 가려진다.
+   *  대신 문서·폴더 모양의 작은 칩을 스냅샷으로 쓴다. 커서 기준 오른쪽 아래로 펼쳐지도록 앵커를 잡아
+   *  왼쪽(트리 방향) 시야를 비운다. setDragImage 가 없는 환경(jsdom 등)에서는 기본 동작에 맡긴다. */
+  function applyDragGhost(e: React.DragEvent, item: DragItem) {
+    const ghost = (item.kind === 'leaf' ? leafGhostRef : folderGhostRef).current
+    if (!ghost || typeof e.dataTransfer.setDragImage !== 'function') return
+    const label = item.kind === 'leaf'
+      ? leafById.get(item.id)?.title
+      : folderById.get(item.id)?.name
+    const slot = ghost.querySelector('[data-drag-ghost-label]')
+    if (slot) slot.textContent = label ?? ''
+    e.dataTransfer.setDragImage(ghost, 14, 14)
+  }
+
   /** 드래그 소스 props. dataTransfer.setData 는 Firefox 가 드래그를 시작하는 조건이라 필수지만,
    *  판정은 drag 상태에서 읽는다(dragOver 시점엔 getData 가 빈 문자열). */
   function dragSource(item: DragItem): DragSourceProps {
@@ -239,6 +259,7 @@ export function MinutesExplorer({
       onDragStart: (e: React.DragEvent) => {
         e.dataTransfer.setData('text/plain', item.id)
         e.dataTransfer.effectAllowed = 'move'
+        applyDragGhost(e, item)
         setDrag(item)
       },
       onDragEnd: () => { setDrag(null); setDragOverKey(null) },
@@ -457,6 +478,27 @@ export function MinutesExplorer({
       )}
       <FolderPickModal open={movingId !== null} folders={folders}
         onClose={() => setMovingId(null)} onPick={id => void moveTo(id)} />
+
+      <DragGhost kind="leaf" innerRef={leafGhostRef} />
+      <DragGhost kind="folder" innerRef={folderGhostRef} />
+    </div>
+  )
+}
+
+/** 드래그 중 커서를 따라다니는 칩. 카드·행 전체를 스냅샷하는 기본 드래그 이미지 대신 쓴다(applyDragGhost).
+ *  화면 밖에 **상시 렌더**해 둔다 — display:none·visibility:hidden 이거나 DOM 에 없으면 브라우저가
+ *  스냅샷을 뜨지 못해 조용히 기본 이미지로 되돌아간다. 라벨은 dragstart 때 textContent 로 갈아끼운다
+ *  (그 시점에 상태 업데이트는 늦다). fixed 라 레이아웃에는 영향이 없다. */
+function DragGhost({ kind, innerRef }: {
+  kind: DragItem['kind']
+  innerRef: React.RefObject<HTMLDivElement | null>
+}) {
+  const Icon = kind === 'leaf' ? FileText : Folder
+  return (
+    <div ref={innerRef} aria-hidden data-drag-ghost={kind}
+      className="pointer-events-none fixed -top-[9999px] left-0 flex w-max max-w-[200px] items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] font-medium text-ink shadow-[var(--shadow-md)]">
+      <Icon aria-hidden className="h-4 w-4 shrink-0 text-brand" />
+      <span data-drag-ghost-label className="min-w-0 truncate" />
     </div>
   )
 }

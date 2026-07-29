@@ -71,10 +71,13 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
 
   // jsdom 은 DragEvent 를 구현하지 않는다 — bubbles:true 인 일반 Event 에 가짜 dataTransfer 를
   // 붙여 React 루트까지 올려 보낸다(React 는 컨테이너에 위임 리스너를 단다).
-  function dragEvent(type: string): Event {
+  function dragEvent(type: string, dt: Record<string, unknown> = {}): Event {
     const ev = new Event(type, { bubbles: true, cancelable: true })
     Object.defineProperty(ev, 'dataTransfer', {
-      value: { setData: vi.fn(), getData: vi.fn(() => ''), effectAllowed: '', dropEffect: '' },
+      value: {
+        setData: vi.fn(), getData: vi.fn(() => ''), setDragImage: vi.fn(),
+        effectAllowed: '', dropEffect: '', ...dt,
+      },
     })
     return ev
   }
@@ -359,6 +362,68 @@ describe('MinutesExplorer v2 (폴더 디렉토리)', () => {
     await mount()
     const link = cardOf('APS 인터뷰').querySelector('a[href="/minutes/m1"]')!
     expect(link.getAttribute('draggable')).toBe('false')
+  })
+
+  /* ── 드래그 이미지(고스트) ──
+     기본 드래그 이미지는 끌고 있는 요소를 통째로 스냅샷한다 — 카드·행이 커서 주변을 덮어
+     정작 놓을 곳인 왼쪽 폴더 트리가 가려진다. 그래서 작은 칩으로 바꿔 끈다. */
+
+  function ghostOf(kind: 'leaf' | 'folder'): HTMLElement {
+    const found = container.querySelector<HTMLElement>(`[data-drag-ghost="${kind}"]`)
+    if (!found) throw new Error(`drag ghost not found: ${kind}`)
+    return found
+  }
+  function labelOf(ghost: HTMLElement): string {
+    return ghost.querySelector('[data-drag-ghost-label]')?.textContent ?? ''
+  }
+
+  it('그리드 카드를 끌면 카드가 아니라 문서 칩이 드래그 이미지가 된다', async () => {
+    await mount()
+    const setDragImage = vi.fn()
+    await act(async () => {
+      cardOf('APS 인터뷰').dispatchEvent(dragEvent('dragstart', { setDragImage }))
+    })
+    expect(setDragImage).toHaveBeenCalledTimes(1)
+    expect(setDragImage.mock.calls[0][0]).toBe(ghostOf('leaf'))
+    expect(labelOf(ghostOf('leaf'))).toBe('APS 인터뷰')
+  })
+
+  it('리스트 행에서도 같은 문서 칩을 쓴다', async () => {
+    await mount({ layout: 'list' })
+    const setDragImage = vi.fn()
+    const row = [...container.querySelectorAll<HTMLElement>('li')]
+      .find(li => li.getAttribute('draggable') === 'true' && li.textContent?.includes('생산계획 정례'))!
+    await act(async () => { row.dispatchEvent(dragEvent('dragstart', { setDragImage })) })
+    expect(setDragImage.mock.calls[0][0]).toBe(ghostOf('leaf'))
+    expect(labelOf(ghostOf('leaf'))).toBe('생산계획 정례')
+  })
+
+  it('폴더를 끌면 폴더 칩 + 폴더 이름', async () => {
+    await mount()
+    const setDragImage = vi.fn()
+    await act(async () => {
+      dropTarget('f-plan').dispatchEvent(dragEvent('dragstart', { setDragImage }))
+    })
+    expect(setDragImage.mock.calls[0][0]).toBe(ghostOf('folder'))
+    expect(labelOf(ghostOf('folder'))).toBe('생산계획')
+  })
+
+  it('고스트는 화면 밖에 상주한다 — DOM 에 없거나 display:none 이면 스냅샷을 못 뜬다', async () => {
+    await mount()
+    // 레이아웃에 영향을 주지 않으면서(fixed) 스냅샷은 가능한 상태여야 한다
+    expect(ghostOf('leaf').className).toContain('fixed')
+    expect(ghostOf('leaf').className).not.toContain('hidden')
+  })
+
+  it('setDragImage 가 없는 환경에서도 드래그가 깨지지 않는다 — 기본 이미지로 폴백', async () => {
+    await mount()
+    // dragstart 자체에 setDragImage 가 없는 dataTransfer 를 넘긴다(구형 브라우저·jsdom)
+    await act(async () => {
+      cardOf('미배정 회의록').dispatchEvent(dragEvent('dragstart', { setDragImage: undefined }))
+    })
+    await act(async () => { dropTarget('f-plan').dispatchEvent(dragEvent('dragover')) })
+    await act(async () => { dropTarget('f-plan').dispatchEvent(dragEvent('drop')) })
+    expect(moveMinuteToFolder).toHaveBeenCalledWith('m3', 'f-plan')
   })
 
   it('서버가 실패를 돌려주면 onChanged 를 부르지 않는다', async () => {
