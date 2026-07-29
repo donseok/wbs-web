@@ -193,6 +193,11 @@ export function MinutesExplorer({
   }
 
   function exitSelect() { setSelecting(false); setSelected(new Set()) }
+  /** 진입은 카드·행의 '...' 메뉴에서만. 연 몇 번 쓰는 정리 작업이라 상시 버튼으로 한 줄을
+   *  차지할 값이 아니다. 연 회의록을 첫 선택으로 넣어 진입 직후 한 번 더 고르게 하지 않는다. */
+  function startSelect(id: string) {
+    setLeafMenuFor(null); setSelecting(true); setSelected(new Set([id]))
+  }
   function toggleSelect(id: string) {
     setSelected(prev => {
       const next = new Set(prev)
@@ -207,6 +212,8 @@ export function MinutesExplorer({
    *  (컴포넌트가 언마운트되지 않으므로) 살아남는데 rows 는 갈린다 — 교집합을 취하지 않으면
    *  화면에 없는 건이 조용히 바뀐다. 표시 건수도 이 값을 쓴다(보이는 것과 세는 것이 같아야 한다). */
   const selectedIds = selectableShown.filter(l => selected.has(l.id)).map(l => l.id)
+  // 지정할 프로젝트가 하나도 없으면 고를 이유도 없다 — 메뉴에 진입 항목을 내놓지 않는다
+  const canSelect = !selecting && projects.length > 0
 
   /** 선택분에 프로젝트를 일괄 지정. 건별 결과가 갈리므로 요약을 그대로 보여준다. */
   async function assignProject(projectId: string | null) {
@@ -508,38 +515,31 @@ export function MinutesExplorer({
         className="min-w-0 flex-1 lg:-mr-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-y-contain lg:pb-1 lg:pr-1"
       >
         <div data-minutes-content-body className="space-y-4">
-          {/* 선택 도구 — 프로젝트가 하나도 없으면 지정할 대상이 없어 띄우지 않는다 */}
-          {rows.length > 0 && projects.length > 0 && (
-            selecting ? (
-              <div className="card flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-                <span className="font-medium text-ink">
-                  {t('min.exp.selectedN').replace('{n}', String(selectedIds.length))}
-                </span>
-                <button onClick={() => setSelected(prev => {
-                  if (allShownSelected) {
-                    const next = new Set(prev)
-                    for (const l of selectableShown) next.delete(l.id)
-                    return next
-                  }
-                  return new Set([...prev, ...selectableShown.map(l => l.id)])
-                })} className="btn h-8 px-2.5 text-xs">
-                  {t(allShownSelected ? 'min.exp.selectNone' : 'min.exp.selectAll')}
-                </button>
-                <button onClick={() => setAssignOpen(true)} disabled={selectedIds.length === 0}
-                  className="btn btn-primary h-8 px-2.5 text-xs">
-                  {t('min.exp.assignProject')}
-                </button>
-                <button onClick={exitSelect} className="btn ml-auto h-8 px-2.5 text-xs">
-                  {t('min.exp.selectCancel')}
-                </button>
-              </div>
-            ) : (
-              <div className="flex justify-end">
-                <button onClick={() => setSelecting(true)} className="btn h-8 px-2.5 text-xs">
-                  <CheckSquare aria-hidden className="h-3.5 w-3.5" />{t('min.exp.select')}
-                </button>
-              </div>
-            )
+          {/* 선택 액션바 — 선택 모드일 때만. 평소에는 결과 위에 아무 것도 두지 않는다(진입은 카드 '...').
+              rows 가 비어도 띄운다 — 빈 폴더로 들어갔을 때 [취소]가 사라지면 빠져나올 곳이 없다. */}
+          {selecting && (
+            <div className="card flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+              <span className="font-medium text-ink">
+                {t('min.exp.selectedN').replace('{n}', String(selectedIds.length))}
+              </span>
+              <button onClick={() => setSelected(prev => {
+                if (allShownSelected) {
+                  const next = new Set(prev)
+                  for (const l of selectableShown) next.delete(l.id)
+                  return next
+                }
+                return new Set([...prev, ...selectableShown.map(l => l.id)])
+              })} disabled={selectableShown.length === 0} className="btn h-8 px-2.5 text-xs">
+                {t(allShownSelected ? 'min.exp.selectNone' : 'min.exp.selectAll')}
+              </button>
+              <button onClick={() => setAssignOpen(true)} disabled={selectedIds.length === 0}
+                className="btn btn-primary h-8 px-2.5 text-xs">
+                {t('min.exp.assignProject')}
+              </button>
+              <button onClick={exitSelect} className="btn ml-auto h-8 px-2.5 text-xs">
+                {t('min.exp.selectCancel')}
+              </button>
+            </div>
           )}
           {scope.kind === 'favorites' && favorites === null ? (
             <EmptyState title={t('min.exp.favError')}
@@ -562,6 +562,7 @@ export function MinutesExplorer({
                       dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
                       dragging={drag?.kind === 'leaf' && drag.id === l.id}
                       onToggle={onToggleFavorite}
+                      canSelect={canSelect} onSelect={() => startSelect(l.id)}
                       selecting={selecting && canMoveLeaf(l)} selected={selected.has(l.id)}
                       onSelectToggle={() => toggleSelect(l.id)} />
                   ))}
@@ -579,6 +580,7 @@ export function MinutesExplorer({
                         dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
                         dragging={drag?.kind === 'leaf' && drag.id === l.id}
                         onToggle={onToggleFavorite}
+                        canSelect={canSelect} onSelect={() => startSelect(l.id)}
                         selecting={selecting && canMoveLeaf(l)} selected={selected.has(l.id)}
                         onSelectToggle={() => toggleSelect(l.id)} />
                     ))}
@@ -713,12 +715,18 @@ function SelectBox({ checked, onToggle, t }: { checked: boolean; onToggle: () =>
   )
 }
 
-function LeafMenu({ open, busy, onToggle, onEdit, onMove, t }: {
+function LeafMenu({ open, busy, onToggle, onEdit, onMove, canSelect, onSelect, t }: {
   open: boolean; busy: boolean
-  onToggle: () => void; onEdit: () => void; onMove: () => void; t: T
+  onToggle: () => void; onEdit: () => void; onMove: () => void
+  /** 다중 선택 진입 — 이 메뉴가 유일한 진입 경로다(상시 버튼 없음) */
+  canSelect?: boolean; onSelect?: () => void
+  t: T
 }) {
   return (
-    <div className="relative z-20 shrink-0">
+    // Escape 로도 닫는다 — 바깥 클릭용 백드롭은 tabIndex=-1 이라 키보드로 닿지 않는다.
+    // 유일한 선택 진입 경로가 된 뒤로는 이 메뉴에서 빠져나올 키보드 길이 있어야 한다.
+    <div onKeyDown={e => { if (e.key === 'Escape' && open) { e.stopPropagation(); onToggle() } }}
+      className="relative z-20 shrink-0">
       <button onClick={onToggle} disabled={busy}
         aria-label={t('min.exp.leafMenuAria')} aria-expanded={open} aria-haspopup="menu"
         className="rounded-md p-1 text-ink-subtle transition-colors duration-100 hover:bg-surface-2 hover:text-ink disabled:opacity-40">
@@ -729,7 +737,7 @@ function LeafMenu({ open, busy, onToggle, onEdit, onMove, t }: {
           {/* 바깥 클릭 닫기 — 패널보다 낮고 카드 링크보다 높아야 한다 */}
           <button aria-hidden tabIndex={-1} onClick={onToggle} className="fixed inset-0 z-20 cursor-default" />
           <div role="menu"
-            className="absolute right-0 z-30 mt-1 w-32 rounded-xl border border-line bg-surface p-1 shadow-[var(--shadow-md)]">
+            className="absolute right-0 z-30 mt-1 w-36 rounded-xl border border-line bg-surface p-1 shadow-[var(--shadow-md)]">
             <button role="menuitem" onClick={onEdit}
               className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
               {t('min.detail.edit')}
@@ -738,6 +746,12 @@ function LeafMenu({ open, busy, onToggle, onEdit, onMove, t }: {
               className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
               {t('min.fold.move')}
             </button>
+            {canSelect && (
+              <button role="menuitem" onClick={onSelect}
+                className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-ink hover:bg-surface-2">
+                {t('min.exp.selectMulti')}
+              </button>
+            )}
           </div>
         </>
       )}
@@ -770,13 +784,16 @@ function meetingLinkOf(l: ExplorerLeaf): string | null {
 
 function MinuteCard({
   l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
-  onToggle, folderName, t, dragProps, dragging, selecting = false, selected = false, onSelectToggle,
+  onToggle, folderName, t, dragProps, dragging, canSelect, onSelect,
+  selecting = false, selected = false, onSelectToggle,
 }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
+  /** 다중 선택 진입 — '...' 메뉴 안에만 있다 */
+  canSelect?: boolean; onSelect?: () => void
   /** 선택 모드 — 켜지면 카드 전체가 '열기'가 아니라 '고르기'가 된다(링크 오버레이 미렌더) */
   selecting?: boolean; selected?: boolean; onSelectToggle?: () => void
 }) {
@@ -800,7 +817,7 @@ function MinuteCard({
           : <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />}
         <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{l.title}</h4>
         {canMove && <LeafMenu open={menuOpen} busy={menuBusy} onToggle={onMenuToggle}
-          onEdit={onEdit} onMove={onMove} t={t} />}
+          onEdit={onEdit} onMove={onMove} canSelect={canSelect} onSelect={onSelect} t={t} />}
         <span className={`inline-flex shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(l.teamCode).bar}`}>
           {l.teamCode}
         </span>
@@ -837,13 +854,16 @@ function MinuteCard({
 
 function MinuteRow({
   l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
-  onToggle, folderName, t, dragProps, dragging, selecting = false, selected = false, onSelectToggle,
+  onToggle, folderName, t, dragProps, dragging, canSelect, onSelect,
+  selecting = false, selected = false, onSelectToggle,
 }: {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
+  /** 다중 선택 진입 — '...' 메뉴 안에만 있다 */
+  canSelect?: boolean; onSelect?: () => void
   /** 선택 모드 — 켜지면 카드 전체가 '열기'가 아니라 '고르기'가 된다(링크 오버레이 미렌더) */
   selecting?: boolean; selected?: boolean; onSelectToggle?: () => void
 }) {
@@ -889,7 +909,7 @@ function MinuteRow({
           </span>
         )}
         {canMove && <LeafMenu open={menuOpen} busy={menuBusy} onToggle={onMenuToggle}
-          onEdit={onEdit} onMove={onMove} t={t} />}
+          onEdit={onEdit} onMove={onMove} canSelect={canSelect} onSelect={onSelect} t={t} />}
         <span className="w-20 shrink-0 text-right text-xs tabular-nums text-ink-subtle">{l.minuteDate}</span>
       </div>
     </li>

@@ -68,13 +68,43 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
   const dialogButton = (text: string) =>
     [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
       .find(b => b.textContent?.includes(text))
+  /** 카드·행의 '...' 버튼들 — 편집 권한이 있는 회의록에만 뜬다(m1, m2) */
+  const leafMenus = () =>
+    [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="min.exp.leafMenuAria"]')]
+  async function openLeafMenu(idx = 0) { await act(async () => leafMenus()[idx].click()) }
 
-  async function enterSelect() { await act(async () => byText('min.exp.select')!.click()) }
+  /** 진입은 카드 '...' → [여러 개 선택]. 그 회의록이 첫 선택으로 들어간다. */
+  async function enterSelect(idx = 0) {
+    await openLeafMenu(idx)
+    await act(async () => byText('min.exp.selectMulti')!.click())
+  }
 
   it('평소에는 체크박스가 없다 — 읽는 화면이 고르는 화면이 되지 않게', async () => {
     await mount()
     expect(checkboxes().length).toBe(0)
-    expect(byText('min.exp.select')).toBeTruthy()
+  })
+
+  it('상시 노출되는 선택 버튼이 없다 — 진입은 카드 메뉴 안에만 있다', async () => {
+    await mount()
+    // 메뉴를 열기 전에는 어디에도 진입점 문구가 없다(전용 행이 사라졌다는 뜻)
+    expect(byText('min.exp.selectMulti')).toBeUndefined()
+    await openLeafMenu()
+    expect(byText('min.exp.selectMulti')).toBeTruthy()
+  })
+
+  it('진입한 회의록이 첫 선택으로 들어간다 — 한 번 더 고르게 하지 않는다', async () => {
+    await mount()
+    await enterSelect()
+    await act(async () => byText('min.exp.assignProject')!.click())
+    await act(async () => dialogButton('D-CUBE 프로젝트')!.click())
+    expect(assignMinutesProject).toHaveBeenCalledWith(['m1'], 'p1')
+  })
+
+  it('선택 모드에서는 메뉴가 진입 항목을 다시 내놓지 않는다', async () => {
+    await mount()
+    await enterSelect()
+    await openLeafMenu()
+    expect(byText('min.exp.selectMulti')).toBeUndefined()
   })
 
   it('선택 모드에서 편집 권한 있는 회의록에만 체크박스가 뜬다', async () => {
@@ -93,10 +123,10 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
   it('선택 후 지정 — 선택한 id 만 서버로 간다', async () => {
     await mount()
     await enterSelect()
-    await act(async () => checkboxes()[0].click())
+    await act(async () => checkboxes()[1].click())   // m2 를 더한다(m1 은 진입으로 이미 선택)
     await act(async () => byText('min.exp.assignProject')!.click())
     await act(async () => dialogButton('D-CUBE 프로젝트')!.click())
-    expect(assignMinutesProject).toHaveBeenCalledWith(['m1'], 'p1')
+    expect(assignMinutesProject).toHaveBeenCalledWith(['m1', 'm2'], 'p1')
     expect(onChanged).toHaveBeenCalled()
   })
 
@@ -112,7 +142,6 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
   it("'연결 없음' 으로 해제도 된다", async () => {
     await mount()
     await enterSelect()
-    await act(async () => checkboxes()[0].click())
     await act(async () => byText('min.exp.assignProject')!.click())
     await act(async () => dialogButton('min.exp.assignNone')!.click())
     expect(assignMinutesProject).toHaveBeenCalledWith(['m1'], null)
@@ -138,7 +167,6 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
     })
     await mount()
     await enterSelect()
-    await act(async () => checkboxes()[0].click())
     await act(async () => byText('min.exp.assignProject')!.click())
     await act(async () => dialogButton('D-CUBE 프로젝트')!.click())
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'error' }))
@@ -155,7 +183,9 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
 
   it('프로젝트가 없으면 선택 도구 자체가 없다 — 지정할 대상이 없다', async () => {
     await mount({ projects: [] })
-    expect(byText('min.exp.select')).toBeUndefined()
+    await openLeafMenu()
+    expect(byText('min.exp.selectMulti')).toBeUndefined()
+    expect(byText('min.detail.edit')).toBeTruthy()   // 메뉴 자체는 살아 있다
   })
 
   // 아래 둘은 같은 사고의 두 경로다 — 선택은 컴포넌트가 언마운트되지 않는 한 살아남는데
@@ -165,8 +195,7 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
       folders: [...folders, { id: 'f2', name: 'PMO폴더', parentId: null, sort: 1, createdBy: null }],
       leaves: [leaf('m1', 'u1'), leaf('m2', 'u1'), leaf('m4', 'u1', 'f2')],
     })
-    await enterSelect()
-    await act(async () => checkboxes()[0].click())              // m1 선택(스코프 = 전체)
+    await enterSelect()                                        // m1 선택(스코프 = 전체)
     expect(byText('min.exp.assignProject')!.disabled).toBe(false)
     await act(async () => byText('PMO폴더')!.click())            // m1 이 없는 폴더로 이동
     expect(byText('min.exp.assignProject')!.disabled).toBe(true)
@@ -174,8 +203,7 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
 
   it('목록이 갈리면(팀 전환) 화면에 없는 선택은 서버로 가지 않는다', async () => {
     await mount()
-    await enterSelect()
-    await act(async () => checkboxes()[0].click())              // m1 선택
+    await enterSelect()                                        // m1 선택
     expect(byText('min.exp.assignProject')!.disabled).toBe(false)
     // 같은 위치에 다시 렌더 = 언마운트 없이 leaves 만 갈리는 팀 전환과 같은 상황
     await mount({ leaves: [leaf('m2', 'u1'), leaf('m3', 'other')] })
