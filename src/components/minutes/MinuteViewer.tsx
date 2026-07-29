@@ -56,6 +56,7 @@ export function MinuteViewer({
   minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
   initialFontSize = null, versions = [], wikiImpact = EMPTY_WIKI_IMPACT,
   historicalVersion = null, issueMembers = [], linkedIssues = [], folderPath = null,
+  myProjectIds = null,
 }: {
   minute: Minute
   files: MinuteFile[]
@@ -72,6 +73,8 @@ export function MinuteViewer({
   linkedIssues?: MinuteLinkedIssue[]
   /** 소속 폴더의 root-first 경로명. null = 미분류이거나 경로 해석 실패(둘은 렌더에서 구분). */
   folderPath?: string[] | null
+  /** 내가 멤버로 등록된 프로젝트 id — 수정 모달의 프로젝트 기본 선택 근거. */
+  myProjectIds?: string[] | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -651,7 +654,7 @@ export function MinuteViewer({
       {/* 열 때마다 리마운트 — 이전 입력·회의 선택이 잔존하지 않게 현재 회의록 값으로 초기화 */}
       {metaOpen && (
         <MinuteMetaModal open onClose={() => setMetaOpen(false)} onSaved={() => { setMetaOpen(false); router.refresh() }}
-          minute={minute} projects={projects} />
+          minute={minute} projects={projects} myProjectIds={myProjectIds} />
       )}
 
       <MinuteShareModal open={shareOpen} onClose={() => setShareOpen(false)} minuteId={minute.id} />

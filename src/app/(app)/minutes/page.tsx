@@ -3,6 +3,7 @@ import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { getMinuteFavorites, getMinutesExplorer, getMinutesPage } from '@/lib/data/minutes'
 import { getMembership, getSession } from '@/lib/auth'
+import { getMyProjectIds } from '@/lib/data/members'
 import { getUiPrefs } from '@/app/actions/preferences'
 import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
@@ -28,7 +29,7 @@ export default async function MinutesPage() {
   // 가져와서 "화면이 뜨고 나서 또 로딩이 도는" 왕복이 한 번 더 붙었다. 여기서 함께 싣는다.
   // prefs.minutesView 를 먼저 await 해 조건부로 부르면 안 된다 — 직렬 2단이 되고,
   // 아래 히어로 KPI(minutes.length)와 리스트/달력 전환용 월 목록까지 늦어진다.
-  const [minutes, tree, favs, m, user, prefs, projects, locale] = await Promise.all([
+  const [minutes, tree, favs, m, user, prefs, projects, locale, myProjectIds] = await Promise.all([
     getMinutesPage(rs, re, null),
     getMinutesExplorer(),
     getMinuteFavorites(),
@@ -37,6 +38,7 @@ export default async function MinutesPage() {
     getUiPrefs(),
     listProjects(),
     getServerLocale(),
+    getMyProjectIds(),
   ])
   // 기본값은 트리, 미지 값(구버전 롤백·스큐)도 트리로 클램프 — calendar만 저장값 유지.
   // 리스트 뷰는 폐지(2026-07-24) — 구 저장값 'list'도 트리로 정규화.
@@ -64,7 +66,7 @@ export default async function MinutesPage() {
         initialFavorites={user ? favs : null}
         explorerLayout={prefs.minutesExplorerLayout === 'list' ? 'list' : 'grid'}
         initialView={initialView} projects={projects} defaultTeam={m?.teamCode ?? null}
-        currentUserId={user?.id ?? null} role={m?.role ?? null} />
+        currentUserId={user?.id ?? null} role={m?.role ?? null} myProjectIds={myProjectIds} />
     </ProjectPageShell>
   )
 }

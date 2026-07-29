@@ -72,6 +72,7 @@ const rowCls = (active: boolean) =>
 export function MinutesExplorer({
   folders, leaves, favorites, onToggleFavorite, onRetryFavorites,
   layout, currentUserId, isAdmin, onChanged, onFolderSelect, teamCodes = [], projects = [],
+  myProjectIds = null,
 }: {
   folders: MinuteFolder[]
   leaves: ExplorerLeaf[]
@@ -88,6 +89,8 @@ export function MinutesExplorer({
   teamCodes?: readonly string[]
   /** 카드 [수정] 이 여는 메타 모달의 프로젝트 셀렉트 옵션. 빈 배열이면 '연결 없음'만 고를 수 있다. */
   projects?: { id: string; name: string }[]
+  /** 내가 멤버로 등록된 프로젝트 id — 수정 모달의 프로젝트 기본 선택 근거. */
+  myProjectIds?: string[] | null
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
@@ -601,7 +604,7 @@ export function MinutesExplorer({
       {/* 목록에서 바로 여는 수정 모달 — 열 때마다 리마운트해 이전 회의록 값이 남지 않게 한다
           (뷰어의 metaOpen 과 같은 규약). 저장 성공은 onChanged 로 트리를 다시 읽는다. */}
       {editMinute && (
-        <MinuteMetaModal open minute={editMinute} projects={projects}
+        <MinuteMetaModal open minute={editMinute} projects={projects} myProjectIds={myProjectIds}
           onClose={() => setEditMinute(null)}
           onSaved={() => { setEditMinute(null); onChanged() }} />
       )}

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Folder } from 'lucide-react'
 import type { Minute, MinuteFolder, TeamCode } from '@/lib/domain/types'
 import { teamSubOfFolder } from '@/lib/domain/minutes'
+import { pickDefaultProjectId, sortMyProjectsFirst } from '@/lib/domain/projectPick'
 import {
   fetchMinuteFoldersLite, fetchProjectMeetingsLite, resetMinuteExternalId, updateMinuteMeta,
 } from '@/app/actions/minutes'
@@ -11,13 +12,15 @@ import { Modal } from '@/components/ui/Modal'
 import { FolderPickModal } from './FolderPickModal'
 
 export function MinuteMetaModal({
-  open, onClose, onSaved, minute, projects,
+  open, onClose, onSaved, minute, projects, myProjectIds = null,
 }: {
   open: boolean
   onClose: () => void
   onSaved: () => void
   minute: Minute
   projects: { id: string; name: string }[]
+  /** 내가 멤버로 등록된 프로젝트 id — **비어 있는** 프로젝트를 채울 때만 쓴다. */
+  myProjectIds?: string[] | null
 }) {
   const { t } = useLocale()
   const [date, setDate] = useState(minute.minuteDate)
@@ -27,7 +30,15 @@ export function MinuteMetaModal({
   const [folderPickOpen, setFolderPickOpen] = useState(false)
   const [folders, setFolders] = useState<MinuteFolder[]>([])
   const [title, setTitle] = useState(minute.title)
-  const [projectId, setProjectId] = useState(minute.projectId ?? minute.meetingProjectId ?? '')
+  // 이미 귀속이 있으면 절대 건드리지 않는다 — 남의 회의록을 열었다는 이유만으로 프로젝트가
+  // 조용히 바뀌면 위키 귀속까지 따라 움직인다. 비어 있을 때만 내 소속으로 채운다.
+  const existingProjectId = minute.projectId ?? minute.meetingProjectId ?? ''
+  const [projectId, setProjectId] = useState(
+    existingProjectId || (pickDefaultProjectId(projects, myProjectIds) ?? ''),
+  )
+  const projectOptions = useMemo(
+    () => sortMyProjectsFirst(projects, myProjectIds), [projects, myProjectIds],
+  )
   const [meetingId, setMeetingId] = useState(minute.meetingId ?? '')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
   const [busy, setBusy] = useState(false)
@@ -130,7 +141,7 @@ export function MinuteMetaModal({
             <span className="mb-1 block font-medium">{t('min.form.project')}</span>
             <select value={projectId} onChange={e => void onProject(e.target.value)} className="app-input">
               <option value="">{t('min.form.projectNone')}</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
           <label className="block">

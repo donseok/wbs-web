@@ -9,7 +9,7 @@ import { getUiPrefs } from '@/app/actions/preferences'
 import { MinuteViewer } from '@/components/minutes/MinuteViewer'
 import { parseMinuteSourceAnchor } from '@/lib/minutes/source'
 import { getMinuteLinkedIssues } from '@/lib/data/issues'
-import { getProjectMembers } from '@/lib/data/members'
+import { getProjectMembers, getMyProjectIds } from '@/lib/data/members'
 
 export default async function MinuteDetailPage({
   params, searchParams,
@@ -36,7 +36,7 @@ export default async function MinuteDetailPage({
   const issueProjectId = detail.minute.projectId ?? detail.minute.meetingProjectId ?? null
   // folderPath 는 folderId 를 알아야 풀 수 있어 이 2단 묶음에 합류시킨다 — 위 Promise.all 로
   // 끌어올릴 수 없고, 단독으로 await 하면 직렬 왕복이 한 단 더 붙는다.
-  const [wikiImpact, issueMembers, folderPath] = await Promise.all([
+  const [wikiImpact, issueMembers, folderPath, myProjectIds] = await Promise.all([
     getMinuteWikiImpact(
       id,
       detail.minute.projectId ?? null,
@@ -44,6 +44,7 @@ export default async function MinuteDetailPage({
     ),
     issueProjectId ? getProjectMembers(issueProjectId) : Promise.resolve([]),
     getMinuteFolderPath(detail.minute.folderId ?? null),
+    getMyProjectIds(),
   ])
   const historicalVersion = requestedVersion
     ? { id: requestedVersion.id, versionNo: requestedVersion.versionNo }
@@ -75,7 +76,7 @@ export default async function MinuteDetailPage({
       versions={versions} wikiImpact={wikiImpact}
       historicalVersion={historicalVersion}
       issueMembers={issueMembers} linkedIssues={linkedIssues}
-      folderPath={folderPath}
+      folderPath={folderPath} myProjectIds={myProjectIds}
     />
   )
 }

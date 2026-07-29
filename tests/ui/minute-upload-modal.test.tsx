@@ -143,7 +143,37 @@ describe('MinuteUploadModal — 폴더 직접 선택', () => {
     expect(createMinute.mock.calls[0][0]).toMatchObject({ projectId: 'p1' })
   })
 
-  it('프로젝트가 둘 이상이면 기본 선택하지 않는다 — 틀린 값을 밀어 넣지 않는다', async () => {
+  it('여러 프로젝트 중 내가 멤버인 것이 하나면 그것으로 자동 선택', async () => {
+    await mount({
+      projects: [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }],
+      myProjectIds: ['p2'],
+    })
+    await attachBodyFile()
+    await clickSave()
+    expect(createMinute.mock.calls[0][0]).toMatchObject({ projectId: 'p2' })
+  })
+
+  it('내가 여러 프로젝트 멤버면 자동 선택하지 않는다 — 사람이 고른다', async () => {
+    await mount({
+      projects: [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }],
+      myProjectIds: ['p1', 'p2'],
+    })
+    await attachBodyFile()
+    await clickSave()
+    expect(createMinute.mock.calls[0][0]).toMatchObject({ projectId: null })
+  })
+
+  it('내 프로젝트가 셀렉트 앞쪽에 온다 — 여럿일 때 고르는 비용을 줄인다', async () => {
+    await mount({
+      projects: [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }, { id: 'p3', name: 'C' }],
+      myProjectIds: ['p3', 'p2'],
+    })
+    // 내 것이 앞으로 오되 그룹 안에서는 원래 목록 순서를 지킨다(sortMyProjectsFirst 계약)
+    const opts = [...mainDialog().querySelectorAll('option')].map(o => o.value).filter(Boolean)
+    expect(opts).toEqual(['p2', 'p3', 'p1'])
+  })
+
+  it('프로젝트가 둘 이상이고 소속 정보가 없으면 기본 선택하지 않는다', async () => {
     await mount({ projects: [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }] })
     await attachBodyFile()
     await clickSave()

@@ -37,3 +37,42 @@ export const getProjectMembers = cache(async (projectId: string): Promise<Projec
     }
   })
 })
+
+/**
+ * 로그인한 사람이 멤버로 등록된 프로젝트 id 목록 — 회의록 프로젝트 자동 선택의 근거.
+ *
+ * user_id 와 email 을 **둘 다** 본다(resolveMemberIds 와 같은 규칙). 0019 가 user_id 를
+ * 붙였지만 백필에서 놓친 행이 남을 수 있고(2026-07-29 실측 39명 중 1명 미연결), 그 사람만
+ * 자동 선택이 조용히 안 되는 상황을 만들지 않기 위해서다.
+ *
+ * 실패는 null — 빈 배열('어느 프로젝트에도 속하지 않음')과 구분한다. 호출부(pickDefaultProjectId)는
+ * 둘을 같은 폴백으로 처리하지만, 그건 그쪽의 판단이고 여기서 실패를 '소속 없음'으로 위장하지는 않는다.
+ */
+export const getMyProjectIds = cache(async (): Promise<string[] | null> => {
+  const sb = await createServerClient()
+  const { data: u } = await sb.auth.getUser()
+  const user = u.user
+  if (!user) return null
+  const email = user.email?.trim().toLowerCase() || null
+  const [byUser, byEmail] = await Promise.all([
+    sb.from('project_members').select('project_id').eq('user_id', user.id),
+    email
+      ? sb.from('project_members').select('project_id').eq('email', email)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (byUser.error && byEmail.error) {
+    console.error('[getMyProjectIds] 조회 실패:', byUser.error.message, byEmail.error.message)
+    return null
+  }
+  const ids = new Set<string>()
+  for (const [label, res] of [['user_id', byUser], ['email', byEmail]] as const) {
+    // 한쪽만 실패하면 남은 쪽으로 진행한다 — 자동 선택은 부가 기능이라 전부 막을 이유가 없다.
+    // 다만 조용히 좁아진 결과를 쓰는 것이므로 원인은 남긴다.
+    if (res.error) { console.error(`[getMyProjectIds] ${label} 조회 실패:`, res.error.message); continue }
+    for (const r of res.data ?? []) {
+      const pid = (r as { project_id?: string }).project_id
+      if (pid) ids.add(pid)
+    }
+  }
+  return [...ids]
+})

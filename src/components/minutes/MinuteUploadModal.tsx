@@ -6,6 +6,7 @@ import {
   MINUTE_ATTACHMENTS_MAX_COUNT, MINUTE_ATTACHMENT_MAX, MINUTE_BODY_FILE_MAX,
   MINUTE_BODY_MAX, sanitizeFileName, teamSubOfFolder,
 } from '@/lib/domain/minutes'
+import { pickDefaultProjectId, sortMyProjectsFirst } from '@/lib/domain/projectPick'
 import {
   createMinute, fetchMinuteFoldersLite, fetchProjectMeetingsLite, recordMinuteFile,
 } from '@/app/actions/minutes'
@@ -20,6 +21,7 @@ const BUCKET = 'minutes'
 
 export function MinuteUploadModal({
   open, onClose, onSaved, todayIso, projects, defaultTeam, folders, defaultFolderId,
+  myProjectIds = null,
 }: {
   open: boolean
   onClose: () => void
@@ -29,6 +31,8 @@ export function MinuteUploadModal({
   defaultTeam?: TeamCode | null
   folders: MinuteFolder[]
   defaultFolderId: string | null
+  /** 내가 멤버로 등록된 프로젝트 id — 기본 선택의 근거. null = 조회 실패(소속 없음과 같은 폴백). */
+  myProjectIds?: string[] | null
 }) {
   const { t } = useLocale()
   const { toast } = useToast()
@@ -46,10 +50,14 @@ export function MinuteUploadModal({
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [bodyText, setBodyText] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
-  // 프로젝트가 하나뿐이면 그것을 기본 선택으로 — 고르지 않고 올린 회의록이 프로젝트 연결 없이
-  // 쌓여 위키·이슈·대시보드 어디에도 잡히지 않는다(2026-07-29 실측: 42건 중 27건). 둘 이상이면
-  // 고르게 둔다 — 틀린 프로젝트를 기본값으로 밀어 넣는 쪽이 미연결보다 나쁘다.
-  const [projectId, setProjectId] = useState(projects.length === 1 ? projects[0].id : '')
+  // 올리는 사람의 프로젝트 소속에서 기본값을 유도한다(pickDefaultProjectId). 고르지 않고 올린
+  // 회의록은 위키·이슈·대시보드 어디에도 잡히지 않는다(2026-07-29 실측: 42건 중 27건).
+  const defaultProjectId = pickDefaultProjectId(projects, myProjectIds) ?? ''
+  const [projectId, setProjectId] = useState(defaultProjectId)
+  // 여럿일 때 고르는 비용을 줄인다 — 내가 속한 프로젝트가 먼저 나온다
+  const projectOptions = useMemo(
+    () => sortMyProjectsFirst(projects, myProjectIds), [projects, myProjectIds],
+  )
   const [meetingId, setMeetingId] = useState('')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
   const [busy, setBusy] = useState(false)
@@ -68,7 +76,6 @@ export function MinuteUploadModal({
 
   // 프로젝트가 기본 선택된 채로 열리면 회의 셀렉트는 활성인데 목록이 비어 있다 — 사용자는
   // '연결할 회의가 없다'고 오인한다. 기본값일 때만 도는 1회 조회(사용자 변경은 onProject 담당).
-  const defaultProjectId = projects.length === 1 ? projects[0].id : ''
   useEffect(() => {
     if (!defaultProjectId) return
     let alive = true
@@ -244,7 +251,7 @@ export function MinuteUploadModal({
             <span className="mb-1 block font-medium">{t('min.form.project')}</span>
             <select value={projectId} onChange={e => void onProject(e.target.value)} className="app-input">
               <option value="">{t('min.form.projectNone')}</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
           <label className="block">
