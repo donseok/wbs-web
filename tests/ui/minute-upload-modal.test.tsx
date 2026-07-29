@@ -135,4 +135,25 @@ describe('MinuteUploadModal — 폴더 직접 선택', () => {
     await openPicker()
     expect([...pickerDialog().querySelectorAll('button')].some(b => b.textContent === '신규폴더')).toBe(true)
   })
+
+  it('프로젝트가 하나뿐이면 기본 선택 — 고르지 않아 미연결로 쌓이는 것을 막는다', async () => {
+    await mount({ projects: [{ id: 'p1', name: 'D-CUBE 프로젝트' }] })
+    await attachBodyFile()
+    await clickSave()
+    expect(createMinute.mock.calls[0][0]).toMatchObject({ projectId: 'p1' })
+  })
+
+  it('프로젝트가 둘 이상이면 기본 선택하지 않는다 — 틀린 값을 밀어 넣지 않는다', async () => {
+    await mount({ projects: [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }] })
+    await attachBodyFile()
+    await clickSave()
+    expect(createMinute.mock.calls[0][0]).toMatchObject({ projectId: null })
+  })
+
+  it('프로젝트가 없으면 종전대로 미연결', async () => {
+    await mount()
+    await attachBodyFile()
+    await clickSave()
+    expect(createMinute.mock.calls[0][0]).toMatchObject({ projectId: null })
+  })
 })

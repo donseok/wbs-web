@@ -46,7 +46,10 @@ export function MinuteUploadModal({
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [bodyText, setBodyText] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
-  const [projectId, setProjectId] = useState('')
+  // 프로젝트가 하나뿐이면 그것을 기본 선택으로 — 고르지 않고 올린 회의록이 프로젝트 연결 없이
+  // 쌓여 위키·이슈·대시보드 어디에도 잡히지 않는다(2026-07-29 실측: 42건 중 27건). 둘 이상이면
+  // 고르게 둔다 — 틀린 프로젝트를 기본값으로 밀어 넣는 쪽이 미연결보다 나쁘다.
+  const [projectId, setProjectId] = useState(projects.length === 1 ? projects[0].id : '')
   const [meetingId, setMeetingId] = useState('')
   const [meetings, setMeetings] = useState<{ id: string; title: string; meetingDate: string }[]>([])
   const [busy, setBusy] = useState(false)
@@ -62,6 +65,18 @@ export function MinuteUploadModal({
     }).catch(err => console.error('[MinuteUploadModal] 폴더 재조회 실패(프리페치 목록 사용):', err))
     return () => { alive = false }
   }, [])
+
+  // 프로젝트가 기본 선택된 채로 열리면 회의 셀렉트는 활성인데 목록이 비어 있다 — 사용자는
+  // '연결할 회의가 없다'고 오인한다. 기본값일 때만 도는 1회 조회(사용자 변경은 onProject 담당).
+  const defaultProjectId = projects.length === 1 ? projects[0].id : ''
+  useEffect(() => {
+    if (!defaultProjectId) return
+    let alive = true
+    void fetchProjectMeetingsLite(defaultProjectId)
+      .then(list => { if (alive) setMeetings(list) })
+      .catch(err => console.error('[MinuteUploadModal] 회의 목록 조회 실패:', err))
+    return () => { alive = false }
+  }, [defaultProjectId])
 
   // 선택 폴더가 팀 시드 체인 안이면 그 팀, 밖(미분류·커스텀 폴더 등)이면 defaultTeam → 활성 팀 1순위
   const team: TeamCode = useMemo(
