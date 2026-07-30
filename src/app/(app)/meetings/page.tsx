@@ -3,7 +3,9 @@ import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { getMyMeetings } from '@/lib/data/meetings'
 import { expandMeetings, summarizeMeetings } from '@/lib/domain/meetings'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
+import { effectiveLegacyRole } from '@/lib/domain/authz'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
@@ -25,7 +27,7 @@ export default async function MyMeetingsPage() {
   const [gs, ge] = monthGrid(today)
   const [{ meetings, exceptions }, m, user, locale] = await Promise.all([
     getMyMeetings(gs, ge),
-    getMembership(),
+    getActor(),
     getSession(),
     getServerLocale(),
   ])
@@ -49,7 +51,7 @@ export default async function MyMeetingsPage() {
       />}
     >
       <MyMeetingsView initialMeetings={meetings} initialExceptions={exceptions}
-        todayIso={today} currentUserId={user?.id ?? null} role={m?.role ?? null} />
+        todayIso={today} currentUserId={user?.id ?? null} role={effectiveLegacyRole(m)} />
     </ProjectPageShell>
   )
 }

@@ -1,5 +1,6 @@
 import { listProjects } from '@/app/actions/project'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiTopicDetail } from '@/components/wiki/WikiTopicDetail'
@@ -17,7 +18,7 @@ export default async function WikiTopicPage({
     getWikiTopicDetail(projectId, topicId),
     listProjects(),
     getServerLocale(),
-    getMembership(),
+    getActor(),
   ])
   const project = projects.find((candidate) => candidate.id === projectId)
   const projectName = project?.name ?? t(locale, 'wiki.projectFallback')
@@ -31,7 +32,7 @@ export default async function WikiTopicPage({
         projectId={projectId}
         data={data}
         locale={locale}
-        canCurate={membership !== null}
+        canCurate={isProjectAdmin(membership, projectId)}
       />
     </ProjectPageShell>
   )

@@ -33,6 +33,28 @@ export function roleIn(actor: Actor | null, projectId: string | null): Effective
 }
 
 /**
+ * 옛 컴포넌트 계약('pmo_admin' | 'team_editor' | null)에 새 2축을 얹는 표시용 shim —
+ * DB 의 app_role() 과 같은 의미다. 클라이언트 컴포넌트 다수가 아직 이 문자열로
+ * 어포던스를 게이팅하므로, 페이지가 각자 ternary 를 하드코딩하는 대신 이 한 곳을 쓴다.
+ * 서버 액션은 이 값을 절대 판정에 쓰지 않는다(가드 3종이 재검증).
+ *
+ * projectId 를 주면 그 프로젝트 스코프로, 생략하면 전역(어느 프로젝트든) 기준으로 본다.
+ */
+export function effectiveLegacyRole(
+  actor: Actor | null, projectId?: string | null,
+): 'pmo_admin' | 'team_editor' | null {
+  if (!actor) return null
+  if (projectId != null) {
+    if (isProjectAdmin(actor, projectId)) return 'pmo_admin'
+    if (isProjectMember(actor, projectId)) return 'team_editor'
+    return null
+  }
+  if (isAnyProjectAdmin(actor)) return 'pmo_admin'
+  if (hasAnyProjectRole(actor)) return 'team_editor'
+  return null
+}
+
+/**
  * RSC 경계로 내릴 수 있는 직렬화 가능한 스냅샷 — Actor 의 Map 은 클라이언트 props 로
  * 직렬화되지 않는다. 프로젝트 화면은 자기 프로젝트 하나의 역할만 알면 되므로
  * 그 역할 하나를 평탄화해 내리고, 클라이언트에서 actorFromView 로 복원한다.

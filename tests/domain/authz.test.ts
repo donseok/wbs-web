@@ -73,6 +73,24 @@ describe('isAnyProjectAdmin / hasAnyProjectRole — 전역 성격 리소스용',
   })
 })
 
+describe('effectiveLegacyRole — 옛 컴포넌트 계약용 표시 shim', () => {
+  it('프로젝트 스코프: admin→pmo_admin, member→team_editor, viewer→null', async () => {
+    const { effectiveLegacyRole } = await import('@/lib/domain/authz')
+    expect(effectiveLegacyRole(superuser, P)).toBe('pmo_admin')
+    expect(effectiveLegacyRole(admin, P)).toBe('pmo_admin')
+    expect(effectiveLegacyRole(member, P)).toBe('team_editor')
+    expect(effectiveLegacyRole(viewer, P)).toBe(null)
+    expect(effectiveLegacyRole(null, P)).toBe(null)
+  })
+  it('전역(projectId 생략): 어느 프로젝트든 역할 기준 — DB app_role() 과 같은 의미', async () => {
+    const { effectiveLegacyRole } = await import('@/lib/domain/authz')
+    expect(effectiveLegacyRole(superuser)).toBe('pmo_admin')
+    expect(effectiveLegacyRole(admin)).toBe('pmo_admin')
+    expect(effectiveLegacyRole(member)).toBe('team_editor')
+    expect(effectiveLegacyRole(viewer)).toBe(null)
+  })
+})
+
 describe('toProjectActorView / actorFromView', () => {
   it('왕복해도 프로젝트 판정이 보존된다', () => {
     for (const a of [superuser, admin, member, viewer]) {

@@ -3,7 +3,8 @@ import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { getAnnouncements, getAnnouncementSeenAt } from '@/lib/data/announcements'
 import { summarizeAnnouncements } from '@/lib/domain/announcements'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -19,14 +20,14 @@ export default async function AnnouncementsPage({ params }: { params: Promise<{ 
   const [announcements, lastSeenAt, m, projects, locale] = await Promise.all([
     getAnnouncements(projectId),
     getAnnouncementSeenAt(projectId),
-    getMembership(),
+    getActor(),
     listProjects(),
     getServerLocale(),
   ])
 
   const project = projects.find((p) => p.id === projectId)
   const projectName = project?.name ?? t(locale, 'ann.projectFallback')
-  const canEdit = m?.role === 'pmo_admin'
+  const canEdit = isProjectAdmin(m, projectId)
   const { total, pinned, recent7d } = summarizeAnnouncements(announcements, seoulToday())
 
   return (
