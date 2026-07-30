@@ -1,6 +1,8 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
@@ -21,6 +23,12 @@ export interface ChangeLogEntry {
 /** 항목의 변경 이력 조회 — 실적%/가중치 편집 시 기록된 change_logs를 최신순으로.
  *  user_id의 표시 이름은 프로필 테이블이 없어 memberships의 팀/역할로 대체한다. */
 export async function getChangeLogs(itemId: string): Promise<ChangeLogEntry[]> {
+  // 서버 액션 직접 호출에 대비한 인증 재확인(RLS와 이중 방어). 반환 타입에 에러 채널이 없어
+  // listProjects 와 같은 관례로 빈 목록을 돌려주되, 조회 실패와 구분되도록 사유를 로그에 남긴다.
+  if (!(await getSession())) {
+    console.error('[getChangeLogs] 비로그인 호출 — 빈 이력 반환')
+    return []
+  }
   const sb = await createServerClient()
   // 표시 전용 조회 — 실패해도 빈 이력으로 폴백하되(화면은 비어도 안전), 원인은 로그에 남긴다.
   const { data: logs, error: logErr } = await sb
@@ -67,8 +75,11 @@ export async function updateActual(
   expectedCurrent?: number | null,
 ): Promise<{ ok: boolean; error?: string; conflict?: boolean }> {
   if (!Number.isFinite(newPct) || newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  // projectId 를 인자로 받지 않으므로 판정 전에 대상 행에서 읽는다 — 조회 실패는 쓰기 중단 사유.
+  const found = await resolveProjectId('wbs_items', itemId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectMember(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   // PGRST116 = 0행(항목 없음). 그 외 에러는 진성 조회 실패이므로 '항목 없음'으로 위장하지 않고 그대로 알린다.
   const { data: item, error: itemErr } = await sb.from('wbs_items').select('id, actual_pct, project_id').eq('id', itemId).single()
@@ -80,9 +91,12 @@ export async function updateActual(
   if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
   if (child) return { ok: false, error: '하위 항목이 있어 롤업으로 계산됩니다' }
 
-  if (m.role !== 'pmo_admin') {
+  // 관리자 이상은 담당 무관 전체 허용. 멤버는 자기 팀이 담당인 항목만.
+  if (!isProjectAdmin(g.actor, found.projectId)) {
+    // 팀이 없는 멤버는 item_owners 에 걸릴 수 없다 — 조회 없이 거부(fail-closed).
+    if (!g.actor.teamId) return { ok: false, error: '담당 작업이 아님' }
     // 권한 가드 — 조회 실패를 '담당 아님'이 아니라 통과로 흘려보내면 안 된다. 실패 = 거부(fail-closed).
-    const { data: owner, error: ownerErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', m.teamId).maybeSingle()
+    const { data: owner, error: ownerErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', g.actor.teamId).maybeSingle()
     if (ownerErr) return { ok: false, error: `담당 확인 실패: ${ownerErr.message}` }
     if (!owner) return { ok: false, error: '담당 작업이 아님' }
   }
@@ -103,10 +117,9 @@ export async function updateActual(
   if (upErr) return { ok: false, error: upErr.message }
   if (!updated?.length) return { ok: false, error: '저장 권한이 없습니다(담당 팀·PMO만 입력 가능)' }
 
-  const { data: u } = await sb.auth.getUser()
   // 본 저장은 이미 성공했다 — 이력 기록 실패로 되돌리지는 않되, 조용히 삼키지도 않는다(감사 추적 유실 원인 기록).
   const { error: logInsErr } = await sb.from('change_logs').insert({
-    user_id: u.user?.id, wbs_item_id: itemId, field: 'actual_pct',
+    user_id: g.actor.userId, wbs_item_id: itemId, field: 'actual_pct',
     old_value: old == null ? null : String(old), new_value: String(newPct),
   })
   if (logInsErr) console.error('[updateActual] 변경 이력 기록 실패:', logInsErr.message)
@@ -124,10 +137,11 @@ export async function updateWeight(
   if (weight != null && (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0)) {
     return { ok: false, error: '가중치는 0 이상이어야 함' }
   }
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  // 가중치는 구조/롤업에 영향 → PMO만 허용
-  if (m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  // 가중치는 구조/롤업에 영향 → 프로젝트 관리자 이상만 허용
+  const found = await resolveProjectId('wbs_items', itemId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
 
   const sb = await createServerClient()
   const { data: item, error: itemErr } = await sb.from('wbs_items').select('id, weight, project_id').eq('id', itemId).single()
@@ -145,9 +159,8 @@ export async function updateWeight(
   const { error: upErr } = await sb.from('wbs_items').update({ weight, updated_at: new Date().toISOString() }).eq('id', itemId)
   if (upErr) return { ok: false, error: upErr.message }
 
-  const { data: u } = await sb.auth.getUser()
   const { error: logInsErr } = await sb.from('change_logs').insert({
-    user_id: u.user?.id, wbs_item_id: itemId, field: 'weight',
+    user_id: g.actor.userId, wbs_item_id: itemId, field: 'weight',
     old_value: old == null ? null : String(old), new_value: weight == null ? null : String(weight),
   })
   if (logInsErr) console.error('[updateWeight] 변경 이력 기록 실패:', logInsErr.message) // 본 저장은 성공 — 이력만 유실
@@ -156,7 +169,7 @@ export async function updateWeight(
   return { ok: true }
 }
 
-/* ── PMO 수동 WBS 트리 편집 (구조·일정) — 모두 PMO 전용, change_logs 기록 ── */
+/* ── 수동 WBS 트리 편집 (구조·일정) — 모두 프로젝트 관리자 이상 전용, change_logs 기록 ── */
 
 type Sb = Awaited<ReturnType<typeof createServerClient>>
 
@@ -202,8 +215,8 @@ async function discardRolledUpActual(
 export async function addWbsItem(
   projectId: string, parentId: string | null, level: Level, name: string,
 ): Promise<{ ok: boolean; error?: string; id?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (!name.trim()) return { ok: false, error: '이름을 입력하세요' }
   const sb = await createServerClient()
   let q = sb.from('wbs_items').select('sort_order').eq('project_id', projectId)
@@ -220,11 +233,10 @@ export async function addWbsItem(
     .select('id')
     .single()
   if (error) return { ok: false, error: error.message }
-  const { data: u } = await sb.auth.getUser()
-  const { error: logInsErr } = await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: data.id, field: 'created', old_value: null, new_value: name.trim() })
+  const { error: logInsErr } = await sb.from('change_logs').insert({ user_id: g.actor.userId, wbs_item_id: data.id, field: 'created', old_value: null, new_value: name.trim() })
   if (logInsErr) console.error('[addWbsItem] 변경 이력 기록 실패:', logInsErr.message) // 항목 생성은 성공 — 이력만 유실
   // 부모가 방금 말단에서 롤업 부모로 바뀌었다면 남아 있던 직접 입력 실적%를 정리(sibs 는 위에서 검증된 실제 형제 목록).
-  if (parentId && sibs.length === 0) await discardRolledUpActual(sb, parentId, projectId, u.user?.id)
+  if (parentId && sibs.length === 0) await discardRolledUpActual(sb, parentId, projectId, g.actor.userId)
   revalidatePath(`/p/${projectId}`, 'layout')
   after(() => recordProgressSnapshot(projectId))
   return { ok: true, id: data.id as string }
@@ -239,8 +251,11 @@ export async function addWbsItem(
 export async function addSubAct(
   actId: string, team: TeamCode, kind: OwnerKind,
 ): Promise<{ ok: boolean; error?: string; id?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  // actId 는 wbs_items.id — 판정 대상 프로젝트를 그 행에서 읽는다.
+  const found = await resolveProjectId('wbs_items', actId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
 
   const { data: act, error: actErr } = await sb
@@ -305,11 +320,10 @@ export async function addSubAct(
     console.error('[addSubAct] 부모 ACT 담당 표기 보강 실패:', parentOwnerErr.message)
   }
 
-  const { data: u } = await sb.auth.getUser()
-  const { error: logInsErr } = await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: newId, field: 'created', old_value: null, new_value: name })
+  const { error: logInsErr } = await sb.from('change_logs').insert({ user_id: g.actor.userId, wbs_item_id: newId, field: 'created', old_value: null, new_value: name })
   if (logInsErr) console.error('[addSubAct] 변경 이력 기록 실패:', logInsErr.message) // SUB-ACT 생성은 성공 — 이력만 유실
   // 첫 SUB-ACT 면 ACT 가 방금 롤업 부모가 된 것 — 직접 입력돼 있던 실적%를 정리(sibIds 는 위에서 검증된 실제 형제 목록).
-  if (sibIds.length === 0) await discardRolledUpActual(sb, actId, act.project_id as string, u.user?.id)
+  if (sibIds.length === 0) await discardRolledUpActual(sb, actId, act.project_id as string, g.actor.userId)
   revalidatePath(`/p/${act.project_id}`, 'layout')
   after(() => recordProgressSnapshot(act.project_id))
   return { ok: true, id: newId }
@@ -320,8 +334,10 @@ export async function updateWbsFields(
   itemId: string,
   fields: { name?: string; plannedStart?: string | null; plannedEnd?: string | null; deliverable?: string | null; biz?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const found = await resolveProjectId('wbs_items', itemId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   // 아래 patch/logs 가 이 현재값과의 diff 로 만들어진다 — 조회 실패를 '항목 없음'으로 위장하면 안 되고,
   // 빈 현재값으로 진행하면 변경 없는 필드까지 덮어쓰고 이력의 old_value 도 거짓이 된다. 실패 = 중단.
@@ -367,9 +383,8 @@ export async function updateWbsFields(
   patch.updated_at = new Date().toISOString()
   const { error } = await sb.from('wbs_items').update(patch).eq('id', itemId)
   if (error) return { ok: false, error: error.message }
-  const { data: u } = await sb.auth.getUser()
   if (logs.length) {
-    const { error: logInsErr } = await sb.from('change_logs').insert(logs.map(l => ({ user_id: u.user?.id, wbs_item_id: itemId, field: l.field, old_value: l.old, new_value: l.new })))
+    const { error: logInsErr } = await sb.from('change_logs').insert(logs.map(l => ({ user_id: g.actor.userId, wbs_item_id: itemId, field: l.field, old_value: l.old, new_value: l.new })))
     if (logInsErr) console.error('[updateWbsFields] 변경 이력 기록 실패:', logInsErr.message) // 본 저장은 성공 — 이력만 유실
   }
   revalidatePath(`/p/${item.project_id}`, 'layout')
@@ -385,8 +400,8 @@ export async function addTaskDependency(
   type: DependencyType,
   lagDays = 0,
 ): Promise<{ ok: boolean; error?: string; id?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (!projectId || !predecessorId || !successorId) return { ok: false, error: '연결할 작업을 선택하세요' }
   if (predecessorId === successorId) return { ok: false, error: '같은 작업끼리는 연결할 수 없습니다' }
   if (type !== 'FS' && type !== 'SS') return { ok: false, error: '지원하지 않는 의존성 유형입니다' }
@@ -453,9 +468,8 @@ export async function addTaskDependency(
   if (error?.code === '23505') return { ok: false, error: '이미 연결된 선행 작업입니다' }
   if (error) return { ok: false, error: error.message }
 
-  const { data: u } = await sb.auth.getUser()
   const { error: logErr } = await sb.from('change_logs').insert({
-    user_id: u.user?.id,
+    user_id: g.actor.userId,
     wbs_item_id: successorId,
     field: 'dependency',
     old_value: null,
@@ -466,12 +480,14 @@ export async function addTaskDependency(
   return { ok: true, id: inserted.id as string }
 }
 
-/** 작업 의존성 삭제 — PMO 전용. */
+/** 작업 의존성 삭제 — 프로젝트 관리자 이상 전용. */
 export async function removeTaskDependency(
   dependencyId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const found = await resolveProjectId('task_dependencies', dependencyId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const { data: dependency, error: findErr } = await sb
     .from('task_dependencies')
@@ -489,9 +505,8 @@ export async function removeTaskDependency(
   if (error) return { ok: false, error: error.message }
   if (!deleted?.length) return { ok: false, error: '삭제 권한이 없습니다' }
 
-  const { data: u } = await sb.auth.getUser()
   const { error: logErr } = await sb.from('change_logs').insert({
-    user_id: u.user?.id,
+    user_id: g.actor.userId,
     wbs_item_id: dependency.successor_id,
     field: 'dependency',
     old_value: `${dependency.predecessor_id}|${dependency.dependency_type}|${dependency.lag_days}`,
@@ -502,30 +517,33 @@ export async function removeTaskDependency(
   return { ok: true }
 }
 
-/** 산출물 텍스트만 편집 — 산출물 첨부와 동일 권한(PMO 전체, 담당팀 편집자는 자기 담당 항목만).
- *  이름·일정·구조는 거버넌스라 PMO 전용(updateWbsFields)으로 분리 유지. 진척 무관 → 스냅샷 생략. */
+/** 산출물 텍스트만 편집 — 산출물 첨부와 동일 권한(관리자 이상은 전체, 멤버는 자기 팀 담당 항목만).
+ *  이름·일정·구조는 거버넌스라 관리자 전용(updateWbsFields)으로 분리 유지. 진척 무관 → 스냅샷 생략. */
 export async function updateDeliverable(
   itemId: string,
   deliverable: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const found = await resolveProjectId('wbs_items', itemId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectMember(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const { data: item, error: itemErr } = await sb
     .from('wbs_items').select('id, project_id, deliverable').eq('id', itemId).single()
   if (itemErr && itemErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
   if (!item) return { ok: false, error: '항목 없음' }
-  // 권한 — PMO 아니면 담당팀만(item_owners). attachments.canAttach 와 같은 판정.
-  if (m.role !== 'pmo_admin') {
-    const { data: own } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', m.teamId).maybeSingle()
+  // 권한 — 관리자 아니면 담당팀만(item_owners). attachments.canAttach 와 같은 판정.
+  if (!isProjectAdmin(g.actor, found.projectId)) {
+    if (!g.actor.teamId) return { ok: false, error: '담당 작업이 아닙니다.' } // 팀 없는 멤버는 담당이 될 수 없다
+    const { data: own, error: ownErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', g.actor.teamId).maybeSingle()
+    if (ownErr) return { ok: false, error: `담당 확인 실패: ${ownErr.message}` } // 실패를 '담당 아님'으로도, 통과로도 위장하지 않는다
     if (!own) return { ok: false, error: '담당 작업이 아닙니다.' }
   }
   const v = deliverable?.trim() || null
   if (v === item.deliverable) return { ok: true }
   const { error } = await sb.from('wbs_items').update({ deliverable: v, updated_at: new Date().toISOString() }).eq('id', itemId)
   if (error) return { ok: false, error: error.message }
-  const { data: u } = await sb.auth.getUser()
-  const { error: logErr } = await sb.from('change_logs').insert({ user_id: u.user?.id, wbs_item_id: itemId, field: 'deliverable', old_value: item.deliverable, new_value: v })
+  const { error: logErr } = await sb.from('change_logs').insert({ user_id: g.actor.userId, wbs_item_id: itemId, field: 'deliverable', old_value: item.deliverable, new_value: v })
   if (logErr) console.error('[updateDeliverable] 변경 이력 기록 실패:', logErr.message) // 본 저장은 성공 — 이력만 유실
   revalidatePath(`/p/${item.project_id}`, 'layout')
   return { ok: true }
@@ -533,8 +551,10 @@ export async function updateDeliverable(
 
 /** 항목 삭제(하위·담당·이력 cascade). */
 export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const found = await resolveProjectId('wbs_items', itemId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const { data: item, error: itemErr } = await sb.from('wbs_items').select('project_id').eq('id', itemId).single()
   if (itemErr && itemErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${itemErr.message}` } // 삭제 전 조회 실패 = 중단
@@ -548,8 +568,10 @@ export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; erro
 
 /** 형제 내 순서 이동(위/아래) — 인접 형제와 sort_order 교환. */
 export async function moveWbsItem(itemId: string, dir: 'up' | 'down'): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const found = await resolveProjectId('wbs_items', itemId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const { data: item, error: itemErr } = await sb.from('wbs_items').select('id, project_id, parent_id, sort_order').eq('id', itemId).single()
   if (itemErr && itemErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }

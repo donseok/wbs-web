@@ -73,7 +73,7 @@ describe('WbsGanttSheet — 진척 돋보기', () => {
         items={[item, secondItem]}
         holidays={[]}
         today="2026-07-03"
-        membership={null}
+        actorView={null}
         projectId="p1"
         readOnly
       />,

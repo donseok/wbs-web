@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership } from '@/lib/auth'
+import { requireProjectAdmin } from '@/lib/authz'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { splitLeafOwners, validateAndLink } from '@/lib/excel/validate'
 import { ingestProject } from '@/lib/ai/ingest'
 import { teamsSync } from '@/lib/teams/master'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 
+/** 가드 실패 사유 → HTTP status. 조회 실패는 거부가 아니라 서버 사정이므로 500(재시도 가능). */
+const AUTHZ_STATUS: Record<string, number> = { '로그인 필요': 401, '권한 없음': 403 }
+
 export async function POST(req: NextRequest) {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return NextResponse.json({ error: '권한 없음' }, { status: 403 })
+  // 판정 대상 프로젝트가 본문에 있어 폼을 먼저 읽는다 — 파싱·DB 접근은 가드 통과 후에만 한다.
   const form = await req.formData()
   const file = form.get('file') as File | null
   const projectId = String(form.get('projectId') ?? '')
   if (!file || !projectId) return NextResponse.json({ error: '파일/프로젝트 누락' }, { status: 400 })
+
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return NextResponse.json({ error: g.error }, { status: AUTHZ_STATUS[g.error] ?? 500 })
 
   const parsed = parseWbsWorkbook(await file.arrayBuffer())
 

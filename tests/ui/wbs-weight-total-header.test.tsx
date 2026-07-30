@@ -67,7 +67,7 @@ describe('WbsGanttSheet — 가중치 헤더 합계', () => {
         items={items}
         holidays={[]}
         today="2026-07-03"
-        membership={null}
+        actorView={null}
         projectId="p1"
         readOnly
       />,

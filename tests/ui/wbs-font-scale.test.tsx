@@ -145,7 +145,7 @@ describe('WbsGanttSheet — 표 글자 크기 3단계', () => {
         dependencies={dependencies}
         holidays={[]}
         today="2026-07-03"
-        membership={null}
+        actorView={null}
         projectId="p1"
         readOnly
       />,

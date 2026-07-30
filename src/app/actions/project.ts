@@ -1,6 +1,7 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { isValidDateRange } from '@/lib/domain/validate'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
@@ -25,8 +26,9 @@ export async function createProject(
   end: string | null,
   description: string | null = null,
 ) {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
+  // 프로젝트 생성은 전역 관리 — 슈퍼유저만.
+  const g = await requireSuperuser()
+  if (!g.ok) throw new Error(g.error)
   if (!isValidDateRange(start || null, end || null)) throw new Error('종료일은 시작일보다 빠를 수 없습니다.')
   const sb = await createServerClient()
   const { error } = await sb.from('projects').insert({ name, start_date: start, end_date: end, description })
@@ -38,8 +40,8 @@ export async function updateProject(
   projectId: string,
   fields: { name?: string; description?: string | null; start_date?: string | null; end_date?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const patch: Record<string, unknown> = {}
   if (fields.name !== undefined) {
     if (!fields.name.trim()) return { ok: false, error: '프로젝트명을 입력하세요' }
@@ -72,8 +74,8 @@ export async function updateProject(
 
 /** 공정율 기준일 설정. null이면 자동(오늘). 진척 산정 전체에 영향. */
 export async function setBaseDate(projectId: string, baseDate: string | null): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const { error } = await sb.from('projects').update({ base_date: baseDate || null }).eq('id', projectId)
   if (error) return { ok: false, error: error.message }
@@ -82,8 +84,8 @@ export async function setBaseDate(projectId: string, baseDate: string | null): P
 }
 
 export async function addHoliday(projectId: string, date: string, name: string) {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) throw new Error(g.error)
   const sb = await createServerClient()
   const { error } = await sb
     .from('holidays')
@@ -94,8 +96,8 @@ export async function addHoliday(projectId: string, date: string, name: string) 
 }
 
 export async function removeHoliday(projectId: string, date: string) {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') throw new Error('권한 없음')
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) throw new Error(g.error)
   const sb = await createServerClient()
   const { error } = await sb
     .from('holidays')
