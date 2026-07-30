@@ -1,5 +1,6 @@
 import { listProjects } from '@/app/actions/project'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiOverview } from '@/components/wiki/WikiOverview'
@@ -24,11 +25,11 @@ export default async function ProjectWikiPage({
 }) {
   const { projectId } = await params
   const { view } = await searchParams
-  const [data, projects, locale, membership] = await Promise.all([
+  const [data, projects, locale, actor] = await Promise.all([
     getWikiOverview(projectId),
     listProjects(),
     getServerLocale(),
-    getMembership(),
+    getActor(),
   ])
   const project = projects.find((candidate) => candidate.id === projectId)
   const projectName = project?.name ?? t(locale, 'wiki.projectFallback')
@@ -42,8 +43,8 @@ export default async function ProjectWikiPage({
         data={data}
         locale={locale}
         view={parseView(view)}
-        canCurate={membership !== null}
-        canMergeTopics={membership?.role === 'pmo_admin'}
+        canCurate={isProjectAdmin(actor, projectId)}
+        canMergeTopics={isProjectAdmin(actor, projectId)}
       />
     </ProjectPageShell>
   )

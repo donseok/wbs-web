@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { FolderKanban, Activity, CircleCheck, Gauge, Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight } from 'lucide-react'
 import { listProjects } from '@/app/actions/project'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { aggregateTaskStats } from '@/lib/domain/workspace'
 import { projectLifecycleStatus, type ProjectLifecycleStatus } from '@/lib/domain/project-status'
@@ -92,7 +92,7 @@ function ProjectCard({ project, status, locale }: { project: ProjectRow; status:
 }
 
 export default async function ProjectsHome() {
-  const [rawProjects, membership] = await Promise.all([listProjects(), getMembership()])
+  const [rawProjects, actor] = await Promise.all([listProjects(), getActor()])
   const locale = await getServerLocale()
   const projects = rawProjects as ProjectRow[]
   const today = seoulToday()
@@ -122,7 +122,8 @@ export default async function ProjectsHome() {
   const doneCount = withStatus.filter(x => x.status === 'done').length
   const activeRatio = total ? Math.round((activeCount / total) * 100) : 0
   const recent = withStatus.slice(0, 3)
-  const canCreate = membership?.role === 'pmo_admin'
+  // 프로젝트 생성은 슈퍼유저 전용(스펙 §5) — createProject 액션이 재검증한다
+  const canCreate = actor?.isSuperuser === true
 
   const heroStats = [
     { label: 'Tasks', value: taskStats.tasks },

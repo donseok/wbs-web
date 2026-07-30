@@ -1,6 +1,6 @@
 import { after } from 'next/server'
 import { redirect } from 'next/navigation'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
 import { PageHero } from '@/components/ui/PageHero'
 import { PeriodTabs } from '@/components/usage/PeriodTabs'
@@ -32,9 +32,9 @@ function seoulToday(): string {
 export default async function UsagePage({ searchParams }: {
   searchParams: Promise<{ days?: string; user?: string; menu?: string }>
 }) {
-  const m = await getMembership()
-  // 지금은 전원 통과. 관리자 전용 전환은 canViewUsage 한 곳에서 이뤄진다.
-  if (!canViewUsage(m)) redirect('/projects')
+  // 슈퍼유저 전용 — 판정은 canViewUsage 한 곳에서. 어포던스(사이드바 링크)도 같은 판정을 쓴다.
+  const actor = await getActor()
+  if (!canViewUsage(actor)) redirect('/projects')
 
   const [{ days, user, menu }, locale] = await Promise.all([searchParams, getServerLocale()])
   const period = parsePeriodDays(days)

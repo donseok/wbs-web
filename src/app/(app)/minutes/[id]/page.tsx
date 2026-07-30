@@ -3,7 +3,9 @@ import {
   getMinuteDetail, getMinuteAnnotations, getMinuteVersions, getMinuteWikiImpact,
   getMinuteVersionBody, getMinuteFolderPath,
 } from '@/lib/data/minutes'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { getUiPrefs } from '@/app/actions/preferences'
 import { MinuteViewer } from '@/components/minutes/MinuteViewer'
@@ -29,7 +31,7 @@ export default async function MinuteDetailPage({
   const [detail, annotations, versions, requestedVersion, m, user, projects, prefs, linkedIssues] = await Promise.all([
     getMinuteDetail(id), getMinuteAnnotations(id), getMinuteVersions(id),
     requestedVersionId ? getMinuteVersionBody(id, requestedVersionId) : Promise.resolve(null),
-    getMembership(), getSession(), listProjects(), getUiPrefs(), getMinuteLinkedIssues(id),
+    getActor(), getSession(), listProjects(), getUiPrefs(), getMinuteLinkedIssues(id),
   ])
   if (!detail) notFound()
   if (requestedVersionId && !requestedVersion) notFound()
@@ -64,10 +66,11 @@ export default async function MinuteDetailPage({
     }
     : detail.minute
   const displayAnnotations = requestedVersion ? { highlights: [], insights: [] } : annotations
+  // 미지정(projectId null) 회의록은 isProjectAdmin(m, null)=슈퍼유저만 — 서버 checkOwner 와 같은 규칙.
   const canManage = !requestedVersion
     && !detail.minute.archivedAt
     && !!user
-    && (detail.minute.createdBy === user.id || m?.role === 'pmo_admin')
+    && (detail.minute.createdBy === user.id || isProjectAdmin(m, detail.minute.projectId ?? null))
   return (
     <MinuteViewer
       minute={displayMinute} files={detail.files} canManage={canManage}

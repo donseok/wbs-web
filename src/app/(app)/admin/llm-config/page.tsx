@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { AlertTriangle } from 'lucide-react'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
 import { getLlmConfig } from '@/app/actions/llmConfig'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { LlmConfigManager } from '@/components/admin/LlmConfigManager'
@@ -8,8 +8,9 @@ import { LlmConfigManager } from '@/components/admin/LlmConfigManager'
 export const dynamic = 'force-dynamic' // 설정·프로필은 항상 최신 DB 값을 읽는다
 
 export default async function LlmConfigAdminPage() {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') redirect('/projects')
+  // LLM 설정은 서버 전역 — 슈퍼유저 전용(스펙 §5)
+  const actor = await getActor()
+  if (!actor?.isSuperuser) redirect('/projects')
 
   const res = await getLlmConfig()
 

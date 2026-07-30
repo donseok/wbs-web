@@ -83,7 +83,7 @@ describe('HeaderChrome 브레드크럼', () => {
         initialLastProjectId="p1"
         initialLastProjectHref="/p/p1/dashboard"
       >
-        <HeaderChrome membership={null} projects={projects} />
+        <HeaderChrome identity={null} projects={projects} />
       </ProjectNavigationProvider>,
     ))
     return container.querySelector<HTMLElement>('nav[aria-label="현재 위치"]')

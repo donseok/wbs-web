@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { Landmark, ListChecks, Users } from 'lucide-react'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
 import { listTeamsAdmin } from '@/app/actions/teams'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -9,8 +9,9 @@ import { TeamsManager } from '@/components/admin/TeamsManager'
 export const dynamic = 'force-dynamic' // 기준정보는 항상 최신 조회(관리 직후 반영)
 
 export default async function TeamsAdminPage() {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') redirect('/projects')
+  // 팀 기준정보는 서버 전역 — 슈퍼유저 전용(스펙 §5)
+  const actor = await getActor()
+  if (!actor?.isSuperuser) redirect('/projects')
 
   const teams = await listTeamsAdmin()
   const active = teams.filter(t => t.active).length
