@@ -1,7 +1,7 @@
 'use server'
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
-import { getSession } from '@/lib/auth'
+import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
 import { mondayIso } from '@/lib/report/week'
 import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, WEEKLY_CELL_MAX, type NewWeeklyRow, type WeeklyCellEdit } from '@/lib/domain/weeklySheet'
 import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
@@ -51,7 +51,9 @@ async function deleteReportIfEmpty(
 export async function createWeeklyReport(
   projectId: string, weekStartIso: string, carryOver: boolean,
 ): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  // 회차(주차 문서) 생성은 시트의 구조를 만드는 일이라 관리자 몫 — 셀 편집(멤버)과 급이 다르다.
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const weekStart = mondayIso(weekStartIso)
 
   // 이미 있으면 멱등 성공(동시 생성 경쟁 대비). 조회 실패는 throw로 오므로 정직하게 중단.
@@ -104,7 +106,8 @@ export async function createWeeklyReport(
 export async function saveWeeklyTitle(
   projectId: string, reportId: string, title: string,
 ): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const t = title.trim()
   if (t.length > TITLE_MAX) return { ok: false, error: `제목은 ${TITLE_MAX}자 이하여야 합니다.` }
 
@@ -120,7 +123,8 @@ export async function saveWeeklyTitle(
 export async function saveWeeklyCell(
   projectId: string, rowId: string, cellKey: string, content: string,
 ): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (!isWeeklyCellKey(cellKey)) return { ok: false, error: '잘못된 셀입니다.' }
   if (content.length > CELL_MAX) return { ok: false, error: `내용은 ${CELL_MAX}자 이하여야 합니다.` }
 
@@ -141,10 +145,11 @@ export async function saveWeeklyCell(
  * 배치는 멱등(같은 배치 통째 재시도 안전) — DB 에러 시 즉시 중단하되 롤백은 하지 않는다.
  */
 export async function saveWeeklyCells(
-  projectId: string,          // 시그니처 대칭·향후 로깅용(saveWeeklyCell 관례). update 쿼리에는 미사용
+  projectId: string,          // 권한 판정 기준·시그니처 대칭용(saveWeeklyCell 관례). update 쿼리에는 미사용
   edits: WeeklyCellEdit[],
 ): Promise<WeeklyBatchResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (edits.length === 0) return { ok: true }                                             // no-op — DB 접근 없음
   if (edits.length > BATCH_MAX) return { ok: false, error: '한 번에 저장할 수 있는 셀 수를 초과했습니다.' } // dedupe 전 원본 길이 기준
   for (const e of edits) {

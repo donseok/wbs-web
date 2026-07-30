@@ -1,6 +1,7 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActor, requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { revalidatePath } from 'next/cache'
 import { getMyMeetings, getMeetingDetail } from '@/lib/data/meetings'
 import { expandMeetings, MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
@@ -72,6 +73,26 @@ function revalidateMeetings(projectId: string) {
   revalidatePath('/meetings')
 }
 
+const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
+
+/**
+ * 수정·삭제 계열의 공통 게이트 — 대상 회의의 프로젝트를 먼저 확정한 뒤 그 프로젝트의
+ * 관리자면 무조건 통과시키고, 아니면 '작성자 본인' 판정을 호출부로 넘긴다(각 액션이 이미
+ * 자기 목적의 행을 조회하므로 created_by 비교는 거기서 한다).
+ * 비로그인·권한 조회 실패는 가드 문구 그대로 중단한다(fail-closed).
+ */
+type OwnerGate = { ok: true; isAdmin: boolean; userId: string } | { ok: false; error: string }
+async function adminOrOwnerGate(meetingId: string): Promise<OwnerGate> {
+  const found = await resolveProjectId('meetings', meetingId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (g.ok) return { ok: true, isAdmin: true, userId: g.actor.userId }
+  let actor: Awaited<ReturnType<typeof getActor>> = null
+  try { actor = await getActor() } catch { actor = null }
+  if (!actor) return { ok: false, error: g.error }
+  return { ok: true, isAdmin: false, userId: actor.userId }
+}
+
 /** 참석자 전체 교체(시리즈 단위). 소유권은 부모 RLS 가 강제. */
 async function replaceAttendees(sb: Awaited<ReturnType<typeof createServerClient>>, meetingId: string, projectId: string, memberIds: string[]): Promise<string | null> {
   const unique = [...new Set(memberIds)]
@@ -101,8 +122,8 @@ async function replaceAttendees(sb: Awaited<ReturnType<typeof createServerClient
 }
 
 export async function createMeeting(projectId: string, input: MeetingInput): Promise<MeetingActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const err = validate(input)
   if (err) return { ok: false, error: err }
 
@@ -140,23 +161,22 @@ export async function createMeeting(projectId: string, input: MeetingInput): Pro
 }
 
 export async function updateMeeting(id: string, input: MeetingInput): Promise<MeetingActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const gate = await adminOrOwnerGate(id)
+  if (!gate.ok) return { ok: false, error: gate.error }
   const err = validate(input)
   if (err) return { ok: false, error: err }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
 
   const sb = await createServerClient()
   // 소유권 선검증(RLS 와 동일 — 0-row 무음 성공 방지) + 규칙 변경 감지
-  const { data: cur } = await sb
+  const { data: cur, error: curErr } = await sb
     .from('meetings')
     .select('project_id, created_by, meeting_date, recurrence, recurrence_until')
     .eq('id', id)
     .maybeSingle()
+  if (curErr) return { ok: false, error: ERR_LOOKUP } // 소유권 판정의 입력이다 — 실패를 '없음'으로 위장하지 않는다
   if (!cur) return { ok: false, error: '회의를 찾을 수 없습니다.' }
-  const isOwner = (cur.created_by as string | null) === user.id
-  if (!isOwner && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const isOwner = (cur.created_by as string | null) === gate.userId
+  if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
   const projectId = cur.project_id as string
 
   const { error } = await sb
@@ -185,15 +205,14 @@ export async function updateMeeting(id: string, input: MeetingInput): Promise<Me
 }
 
 export async function deleteMeeting(id: string): Promise<MeetingActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const gate = await adminOrOwnerGate(id)
+  if (!gate.ok) return { ok: false, error: gate.error }
   const sb = await createServerClient()
-  const { data: cur } = await sb.from('meetings').select('project_id, created_by').eq('id', id).maybeSingle()
+  const { data: cur, error: curErr } = await sb.from('meetings').select('project_id, created_by').eq('id', id).maybeSingle()
+  if (curErr) return { ok: false, error: ERR_LOOKUP }
   if (!cur) return { ok: false, error: '회의를 찾을 수 없습니다.' }
-  const isOwner = (cur.created_by as string | null) === user.id
-  if (!isOwner && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const isOwner = (cur.created_by as string | null) === gate.userId
+  if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
 
   const { error } = await sb.from('meetings').delete().eq('id', id).select('id').single()
   if (error) return { ok: false, error: error.message }
@@ -202,15 +221,14 @@ export async function deleteMeeting(id: string): Promise<MeetingActionResult> {
 }
 
 export async function setMeetingAttendees(meetingId: string, memberIds: string[]): Promise<MeetingActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const gate = await adminOrOwnerGate(meetingId)
+  if (!gate.ok) return { ok: false, error: gate.error }
   const sb = await createServerClient()
-  const { data: cur } = await sb.from('meetings').select('project_id, created_by').eq('id', meetingId).maybeSingle()
+  const { data: cur, error: curErr } = await sb.from('meetings').select('project_id, created_by').eq('id', meetingId).maybeSingle()
+  if (curErr) return { ok: false, error: ERR_LOOKUP }
   if (!cur) return { ok: false, error: '회의를 찾을 수 없습니다.' }
-  const isOwner = (cur.created_by as string | null) === user.id
-  if (!isOwner && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const isOwner = (cur.created_by as string | null) === gate.userId
+  if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
   const attErr = await replaceAttendees(sb, meetingId, cur.project_id as string, memberIds)
   revalidateMeetings(cur.project_id as string)
   if (attErr) return { ok: false, error: attErr }
@@ -232,20 +250,19 @@ export async function cancelOccurrence(meetingId: string, occurrenceDate: string
 
 type Gate = { ok: true; sb: Awaited<ReturnType<typeof createServerClient>>; projectId: string } | { ok: false; error: string }
 async function occurrenceGate(meetingId: string, occurrenceDate: string): Promise<Gate> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const gate = await adminOrOwnerGate(meetingId)
+  if (!gate.ok) return { ok: false, error: gate.error }
   if (!DATE_RE.test(occurrenceDate)) return { ok: false, error: '잘못된 날짜입니다.' }
   const sb = await createServerClient()
-  const { data: r } = await sb
+  const { data: r, error: rErr } = await sb
     .from('meetings')
     .select('project_id, created_by, title, meeting_date, start_time, end_time, location, category, recurrence, recurrence_until, created_by_name, created_at, updated_at')
     .eq('id', meetingId)
     .maybeSingle()
+  if (rErr) return { ok: false, error: ERR_LOOKUP }
   if (!r) return { ok: false, error: '회의를 찾을 수 없습니다.' }
-  const isOwner = (r.created_by as string | null) === user.id
-  if (!isOwner && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const isOwner = (r.created_by as string | null) === gate.userId
+  if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
   if (r.recurrence === 'none') return { ok: false, error: '반복 회의만 회차를 취소할 수 있습니다.' }
   // 규칙상 실제 회차인지 검증 — 해당 날짜만 전개해 매칭
   const meeting = {

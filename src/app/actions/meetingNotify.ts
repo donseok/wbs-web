@@ -1,5 +1,6 @@
 'use server'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActor, requireProjectAdmin, resolveProjectId } from '@/lib/authz'
 import { getMeetingDetail } from '@/lib/data/meetings'
 import { classifyRecipients, MAX_EXTRA_EMAILS } from '@/lib/mail/recipients'
 import { renderMeetingInvite, type InviteKind } from '@/lib/mail/meetingInvite'
@@ -34,7 +35,7 @@ function toUserMessage(e: unknown): string {
  * 참석자 수신자는 서버가 DB 에서 다시 읽는다 — 수정으로 명단에서 빠진 사람은
  * 조회 결과에 아예 없고, 메일을 받을 길도 없다.
  * extraEmails 는 예외다: 폼에서만 살고 어디에도 저장되지 않는 외부 수신 주소라 DB 에서
- * 읽을 원본이 없다. 작성자·pmo_admin 게이트를 지난 호출자만 넣을 수 있고,
+ * 읽을 원본이 없다. 작성자·프로젝트 관리자 게이트를 지난 호출자만 넣을 수 있고,
  * 개수 상한과 주소 검증(classifyRecipients)을 서버에서 다시 통과해야 To 에 실린다.
  */
 export async function notifyMeetingSaved(
@@ -42,8 +43,13 @@ export async function notifyMeetingSaved(
   kind: InviteKind,
   extraEmails: string[] = [],
 ): Promise<MeetingNotifyResult> {
-  const [membership, user] = await Promise.all([getMembership(), getSession()])
-  if (!membership || !user) return { ok: false, error: '로그인 필요', ...NONE }
+  // 발송 대상 회의의 프로젝트를 먼저 확정한다 — 관리자 판정의 기준이 그 프로젝트다.
+  const found = await resolveProjectId('meetings', meetingId)
+  if (!found.ok) return { ok: false, error: found.error, ...NONE }
+  const g = await requireProjectAdmin(found.projectId)
+  let actor: Awaited<ReturnType<typeof getActor>> = null
+  try { actor = g.ok ? g.actor : await getActor() } catch { actor = null }
+  if (!g.ok && !actor) return { ok: false, error: g.error, ...NONE }
 
   // 서버 액션 인자는 클라이언트가 임의로 만든다 — 타입과 개수를 여기서 다시 못박는다.
   const extras = Array.isArray(extraEmails)
@@ -58,8 +64,12 @@ export async function notifyMeetingSaved(
   const { meeting, attendees } = detail
 
   // 남의 회의 ID 로 메일을 반복 발송하는 통로를 막는 유일한 지점.
-  const isOwner = meeting.createdBy === user.id
-  if (!isOwner && membership.role !== 'pmo_admin') return { ok: false, error: '권한 없음', ...NONE }
+  const isOwner = meeting.createdBy === actor?.userId
+  if (!g.ok && !isOwner) return { ok: false, error: '권한 없음', ...NONE }
+
+  // Reply-To·작성자 이름 폴백에 필요한 계정 정보는 Actor 에 없다(이메일은 auth.users 소관).
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요', ...NONE }
 
   const { valid, skipped } = classifyRecipients(attendees, extras)
   // 빈 To 로 SMTP 를 때리면 계정 평판만 깎인다.
@@ -79,7 +89,7 @@ export async function notifyMeetingSaved(
 
   try {
     // Reply-To 는 호출자다. 회의 작성자의 이메일은 auth.users 에 있어 anon 클라이언트로 읽을 수 없고,
-    // 사실상 작성 직후 본인이 호출한다(pmo_admin 대행은 예외적 경로).
+    // 사실상 작성 직후 본인이 호출한다(프로젝트 관리자 대행은 예외적 경로).
     const { rejected } = await transport.send({
       to: valid.map(v => v.email),
       replyTo: user.email ?? null,

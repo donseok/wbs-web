@@ -5,15 +5,45 @@ const { getTransport, send } = vi.hoisted(() => {
   const send = vi.fn()
   return { send, getTransport: vi.fn(() => ({ ok: true, send })) }
 })
-vi.mock('@/lib/auth', () => ({ getMembership: vi.fn(), getSession: vi.fn() }))
+const { requireProjectAdmin, resolveProjectId, getActor } = vi.hoisted(() => ({
+  requireProjectAdmin: vi.fn(), resolveProjectId: vi.fn(), getActor: vi.fn(),
+}))
+vi.mock('@/lib/auth', () => ({ getSession: vi.fn() }))
+vi.mock('@/lib/authz', () => ({ requireProjectAdmin, resolveProjectId, getActor }))
 vi.mock('@/lib/data/meetings', () => ({ getMeetingDetail: vi.fn() }))
 vi.mock('@/lib/mail/transport', () => ({ getTransport }))
 
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
 import { getMeetingDetail } from '@/lib/data/meetings'
 import { notifyMeetingSaved } from '@/app/actions/meetingNotify'
 
 const USER = { id: 'u1', email: 'me@dongkuk.com', user_metadata: { full_name: '김철수' } }
+const ACTOR = { userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false, projectRoles: new Map() }
+
+/** 로그인했지만 이 프로젝트의 관리자는 아니다 — 작성자 본인일 때만 통과해야 한다. */
+function asNonAdmin() {
+  requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+  getActor.mockResolvedValue(ACTOR)
+}
+/** 이 프로젝트의 관리자 — 남의 회의도 대행 발송할 수 있다. */
+function asProjectAdmin() {
+  requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+}
+/** 비로그인 — 가드가 '로그인 필요'를 내고 getActor 도 null 이다. */
+function asAnon() {
+  requireProjectAdmin.mockResolvedValue({ ok: false, error: '로그인 필요' })
+  getActor.mockResolvedValue(null)
+}
+
+beforeEach(() => {
+  getTransport.mockClear(); send.mockReset()
+  requireProjectAdmin.mockReset(); getActor.mockReset(); resolveProjectId.mockReset()
+  resolveProjectId.mockResolvedValue({ ok: true, projectId: 'p1' })
+  // getMeetingDetail 은 '호출되지 않았다' 를 단언하므로 매 테스트 초기화한다.
+  vi.mocked(getMeetingDetail).mockReset()
+  vi.mocked(getSession).mockResolvedValue(USER as never)
+  asNonAdmin()
+})
 
 const MEETING = {
   id: 'm1', projectId: 'p1', title: '주간 점검', meetingDate: '2026-07-25',
@@ -31,31 +61,39 @@ function detail(attendees: { id: string; name: string; email: string | null }[],
 }
 
 describe('notifyMeetingSaved 권한 게이트', () => {
-  beforeEach(() => {
-    getTransport.mockClear(); send.mockReset()
-    // getMeetingDetail 은 '호출되지 않았다' 를 단언하므로 매 테스트 초기화한다.
-    vi.mocked(getMeetingDetail).mockClear()
-    vi.mocked(getSession).mockResolvedValue(USER as never)
-    vi.mocked(getMembership).mockResolvedValue({ role: 'team_editor' } as never)
-  })
-
   it('로그인하지 않으면 거부하고 회의를 조회하지도 않는다', async () => {
+    asAnon()
     vi.mocked(getSession).mockResolvedValue(null as never)
-    vi.mocked(getMembership).mockResolvedValue(null as never)
     const res = await notifyMeetingSaved('m1', 'created')
     expect(res).toMatchObject({ ok: false, error: '로그인 필요' })
     expect(getMeetingDetail).not.toHaveBeenCalled()
     expect(getTransport).not.toHaveBeenCalled()
   })
 
+  // 권한 판정의 기준(회의가 속한 프로젝트)을 못 읽으면 발송으로 나아가지 않는다 — fail-closed.
+  it('대상 회의의 프로젝트를 확정하지 못하면 회의를 조회하지도 않는다', async () => {
+    resolveProjectId.mockResolvedValue({ ok: false, error: '권한을 확인할 수 없어 중단했습니다.' })
+    const res = await notifyMeetingSaved('m1', 'created')
+    expect(res).toMatchObject({ ok: false, error: '권한을 확인할 수 없어 중단했습니다.' })
+    expect(getMeetingDetail).not.toHaveBeenCalled()
+    expect(getTransport).not.toHaveBeenCalled()
+  })
+
   it('없는 회의는 거부한다', async () => {
+    resolveProjectId.mockResolvedValue({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    const res = await notifyMeetingSaved('m1', 'created')
+    expect(res).toMatchObject({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    expect(getTransport).not.toHaveBeenCalled()
+  })
+
+  it('게이트 통과 후 상세가 사라졌으면 거부한다', async () => {
     vi.mocked(getMeetingDetail).mockResolvedValue(null as never)
     const res = await notifyMeetingSaved('m1', 'created')
     expect(res).toMatchObject({ ok: false, error: '회의를 찾을 수 없습니다.' })
     expect(getTransport).not.toHaveBeenCalled()
   })
 
-  it('작성자도 pmo_admin 도 아니면 거부하고 트랜스포트를 만들지 않는다', async () => {
+  it('작성자도 프로젝트 관리자도 아니면 거부하고 트랜스포트를 만들지 않는다', async () => {
     vi.mocked(getMeetingDetail).mockResolvedValue(
       detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }], 'someone-else') as never)
     const res = await notifyMeetingSaved('m1', 'created')
@@ -64,8 +102,8 @@ describe('notifyMeetingSaved 권한 게이트', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('pmo_admin 은 남의 회의도 보낼 수 있다', async () => {
-    vi.mocked(getMembership).mockResolvedValue({ role: 'pmo_admin' } as never)
+  it('프로젝트 관리자는 남의 회의도 보낼 수 있다', async () => {
+    asProjectAdmin()
     vi.mocked(getMeetingDetail).mockResolvedValue(
       detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }], 'someone-else') as never)
     send.mockResolvedValue({ rejected: [] })
@@ -75,12 +113,6 @@ describe('notifyMeetingSaved 권한 게이트', () => {
 })
 
 describe('notifyMeetingSaved 발송', () => {
-  beforeEach(() => {
-    getTransport.mockClear(); send.mockReset()
-    vi.mocked(getSession).mockResolvedValue(USER as never)
-    vi.mocked(getMembership).mockResolvedValue({ role: 'team_editor' } as never)
-  })
-
   it('유효 주소가 없으면 전송을 시도하지 않고 ok:true 로 전원 제외를 보고한다', async () => {
     vi.mocked(getMeetingDetail).mockResolvedValue(
       detail([{ id: 'a1', name: '박영희', email: null }]) as never)
@@ -152,13 +184,6 @@ describe('notifyMeetingSaved 발송', () => {
 })
 
 describe('notifyMeetingSaved — 추가 수신 이메일', () => {
-  beforeEach(() => {
-    getTransport.mockClear(); send.mockReset()
-    vi.mocked(getMeetingDetail).mockClear()
-    vi.mocked(getSession).mockResolvedValue(USER as never)
-    vi.mocked(getMembership).mockResolvedValue({ role: 'team_editor' } as never)
-  })
-
   it('추가 이메일을 참석자와 함께 To 에 넣고 주소를 sentTo 로 보고한다', async () => {
     vi.mocked(getMeetingDetail).mockResolvedValue(
       detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }]) as never)
@@ -226,7 +251,7 @@ describe('notifyMeetingSaved — 추가 수신 이메일', () => {
     expect(res.ok).toBe(true)
   })
 
-  it('작성자도 pmo_admin 도 아니면 추가 이메일이 있어도 거부한다', async () => {
+  it('작성자도 프로젝트 관리자도 아니면 추가 이메일이 있어도 거부한다', async () => {
     vi.mocked(getMeetingDetail).mockResolvedValue(
       detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }], 'someone-else') as never)
     const res = await notifyMeetingSaved('m1', 'created', ['guest@partner.co.kr'])
@@ -237,13 +262,6 @@ describe('notifyMeetingSaved — 추가 수신 이메일', () => {
 })
 
 describe('notifyMeetingSaved — 변경 안내', () => {
-  beforeEach(() => {
-    getTransport.mockClear(); send.mockReset()
-    vi.mocked(getMeetingDetail).mockClear()
-    vi.mocked(getSession).mockResolvedValue(USER as never)
-    vi.mocked(getMembership).mockResolvedValue({ role: 'team_editor' } as never)
-  })
-
   it("kind:'updated' 는 변경 제목으로 전송한다", async () => {
     vi.mocked(getMeetingDetail).mockResolvedValue(
       detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }]) as never)
@@ -260,7 +278,7 @@ describe('notifyMeetingSaved — 변경 안내', () => {
   })
 
   // 수정 경로가 게이트를 건너뛰면 남의 회의 ID 로 참석자 전원에게 메일을 반복 발송할 수 있다.
-  it('수정 경로도 작성자·pmo_admin 이 아니면 거부하고 트랜스포트를 만들지 않는다', async () => {
+  it('수정 경로도 작성자·프로젝트 관리자가 아니면 거부하고 트랜스포트를 만들지 않는다', async () => {
     vi.mocked(getMeetingDetail).mockResolvedValue(
       detail([{ id: 'a1', name: '박영희', email: 'y@dongkuk.com' }], 'someone-else') as never)
     const res = await notifyMeetingSaved('m1', 'updated')
@@ -270,8 +288,8 @@ describe('notifyMeetingSaved — 변경 안내', () => {
   })
 
   it('수정 경로도 로그인하지 않으면 회의를 조회하지 않는다', async () => {
+    asAnon()
     vi.mocked(getSession).mockResolvedValue(null as never)
-    vi.mocked(getMembership).mockResolvedValue(null as never)
     const res = await notifyMeetingSaved('m1', 'updated')
     expect(res).toMatchObject({ ok: false, error: '로그인 필요' })
     expect(getMeetingDetail).not.toHaveBeenCalled()
