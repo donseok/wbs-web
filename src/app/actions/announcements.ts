@@ -1,6 +1,7 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { requireProjectAdmin, resolveProjectId } from '@/lib/authz'
 import { revalidatePath } from 'next/cache'
 import { getTopAnnouncements } from '@/lib/data/announcements'
 import type { AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/types'
@@ -61,13 +62,11 @@ export async function createAnnouncement(
   projectId: string,
   input: AnnouncementInput,
 ): Promise<AnnouncementActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  if (m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const err = validateInput(input)
   if (err) return { ok: false, error: err }
 
-  const user = await getSession()
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('announcements')
@@ -79,14 +78,14 @@ export async function createAnnouncement(
       is_pinned: input.isPinned,
       publish_from: input.publishFrom,
       publish_to: input.publishTo,
-      created_by: user?.id ?? null,
+      created_by: g.actor.userId,
     })
     .select('created_at')
     .single()
   if (error) return { ok: false, error: error.message }
   // 작성자 본인에게 방금 쓴 공지가 '안읽음'(NEW 칩·배지)으로 잡히지 않도록 워터마크 전진
-  if (user && data?.created_at) {
-    await advanceSeenWatermark(projectId, user.id, data.created_at as string)
+  if (data?.created_at) {
+    await advanceSeenWatermark(projectId, g.actor.userId, data.created_at as string)
   }
   revalidateAnnouncements(projectId)
   return { ok: true }
@@ -96,9 +95,11 @@ export async function updateAnnouncement(
   id: string,
   input: AnnouncementInput,
 ): Promise<AnnouncementActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  if (m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  // projectId 를 인자로 받지 않으므로 대상 행에서 먼저 읽는다 — 선행 조회 실패는 쓰기 중단 사유.
+  const found = await resolveProjectId('announcements', id)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const err = validateInput(input)
   if (err) return { ok: false, error: err }
 
@@ -123,9 +124,10 @@ export async function updateAnnouncement(
 }
 
 export async function deleteAnnouncement(id: string): Promise<AnnouncementActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  if (m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const found = await resolveProjectId('announcements', id)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
 
   const sb = await createServerClient()
   const { data, error } = await sb
@@ -224,18 +226,20 @@ export async function getUnreadAnnouncementCount(projectId: string): Promise<num
 
 /**
  * 회의 1회차를 바탕으로 공지사항 1건을 생성한다(원클릭 등록). 회의는 그대로 둔다.
- * pmo_admin 전용. occurrenceDate 가 실제 규칙상 회차인지 서버에서 재검증하고
+ * 해당 프로젝트의 관리자 전용. occurrenceDate 가 실제 규칙상 회차인지 서버에서 재검증하고
  * (클라이언트 값 불신), 본문은 composeAnnouncementFromMeeting 으로 조합한다.
  */
 export async function createAnnouncementFromMeeting(
   meetingId: string,
   occurrenceDate: string,
 ): Promise<AnnouncementActionResult> {
-  const m = await getMembership()
-  if (!m || m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  // 공지가 붙을 프로젝트는 회의 행이 정한다 — 클라이언트가 프로젝트를 고르게 하지 않는다.
+  const found = await resolveProjectId('meetings', meetingId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (!DATE_RE.test(occurrenceDate)) return { ok: false, error: '잘못된 날짜입니다.' }
 
-  const user = await getSession()
   const sb = await createServerClient()
   const { data: r } = await sb
     .from('meetings')
@@ -278,13 +282,13 @@ export async function createAnnouncementFromMeeting(
       is_pinned: input.isPinned,
       publish_from: input.publishFrom,
       publish_to: input.publishTo,
-      created_by: user?.id ?? null,
+      created_by: g.actor.userId,
     })
     .select('created_at')
     .single()
   if (error) return { ok: false, error: error.message }
-  if (user && data?.created_at) {
-    await advanceSeenWatermark(projectId, user.id, data.created_at as string)
+  if (data?.created_at) {
+    await advanceSeenWatermark(projectId, g.actor.userId, data.created_at as string)
   }
   revalidateAnnouncements(projectId)
   return { ok: true }

@@ -1,11 +1,11 @@
 'use server'
 // Wiki 큐레이션 액션 — 사람이 자동 반영 결과를 정리하는 유일한 경로.
 // 테이블 쓰기 정책은 0045/0048 모두 열지 않으므로 실제 변경은 security definer RPC가 하고,
-// 여기서는 세션·멤버십 fail-closed와 허용 동작 화이트리스트만 강제한다.
+// 여기서는 프로젝트 관리자 fail-closed와 허용 동작 화이트리스트만 강제한다.
 // 문장 자체는 어떤 경로로도 수정할 수 없다 — 잘못 추출된 항목은 archive(숨김)로 처리한다.
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership } from '@/lib/auth'
+import { requireProjectAdmin } from '@/lib/authz'
 
 export const WIKI_CURATE_ACTIONS = [
   'resolve', 'reopen', 'archive', 'restore', 'lock', 'unlock', 'confirm',
@@ -44,8 +44,9 @@ function friendlyError(message: string | undefined): string {
 }
 
 /**
- * 항목 상태 정리. projectId는 revalidate 대상이며 권한 판정은 RPC가 세션으로 다시 한다.
- * 클라이언트가 보낸 projectId를 신뢰해 권한을 넓히지 않는다.
+ * 항목 상태 정리. projectId는 revalidate 대상 겸 관리자 판정 기준이며, 대상 항목이 실제로
+ * 그 프로젝트 것인지는 RPC가 세션으로 다시 판정한다 — 클라이언트가 보낸 projectId만으로
+ * 남의 프로젝트 항목을 건드릴 수는 없다.
  */
 export async function curateWikiItem(args: {
   projectId: string
@@ -54,8 +55,8 @@ export async function curateWikiItem(args: {
   action: WikiCurateAction
   reason?: string
 }): Promise<WikiActionResult> {
-  const membership = await getMembership()
-  if (!membership) return { ok: false, error: '권한이 없습니다.' }
+  const g = await requireProjectAdmin(args.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (!(WIKI_CURATE_ACTIONS as readonly string[]).includes(args.action)) {
     return { ok: false, error: '알 수 없는 작업입니다.' }
   }
@@ -76,17 +77,14 @@ export async function curateWikiItem(args: {
   return { ok: true }
 }
 
-/** 갈라진 주제 병합. RPC가 pmo_admin만 허용하며 항목·knowledge_key까지 정본으로 옮긴다. */
+/** 갈라진 주제 병합. RPC도 관리자만 허용하며 항목·knowledge_key까지 정본으로 옮긴다. */
 export async function mergeWikiTopics(args: {
   projectId: string
   sourceTopicId: string
   targetTopicId: string
 }): Promise<WikiActionResult> {
-  const membership = await getMembership()
-  if (!membership) return { ok: false, error: '권한이 없습니다.' }
-  if (membership.role !== 'pmo_admin') {
-    return { ok: false, error: '주제 병합은 PMO 관리자만 할 수 있습니다.' }
-  }
+  const g = await requireProjectAdmin(args.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (args.sourceTopicId === args.targetTopicId) {
     return { ok: false, error: '서로 다른 주제를 선택하세요.' }
   }

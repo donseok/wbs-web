@@ -1,25 +1,22 @@
 'use server'
 
-// 팀 기준정보 관리(pmo_admin 전용) — 추가/활성 토글/정렬/진척표시.
+// 팀 기준정보 관리(슈퍼유저 전용) — 추가/활성 토글/정렬/진척표시. 팀은 전 프로젝트가 공유하는
+// 전역 기준정보라 프로젝트 관리자가 아니라 슈퍼유저만 손댄다(스펙 §4).
 // 삭제는 없다: 비활성화(active=false)가 삭제다(데이터 보존, 사용자 결정 2026-07-24).
 // 쓰기 후 refreshTeams()로 인메모리 캐시를 즉시 갱신한다(LLM 설정 액션과 동일 관례).
 
 import { revalidatePath } from 'next/cache'
-import { getMembership } from '@/lib/auth'
+import { requireSuperuser } from '@/lib/authz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizeNewTeamCode } from '@/lib/domain/teams'
 import { refreshTeams } from '@/lib/teams/master'
 
 export type TeamActionResult = { ok: true } | { ok: false; error: string }
 
-async function isAdmin(): Promise<boolean> {
-  const m = await getMembership()
-  return m?.role === 'pmo_admin'
-}
-
 /** 팀 추가 — teams insert + 자동 편철용 시드 루트 폴더(created_by null) 생성 + 캐시 즉시 갱신. */
 export async function addTeam(input: string): Promise<TeamActionResult> {
-  if (!(await isAdmin())) return { ok: false, error: 'PMO 관리자만 팀을 관리할 수 있습니다.' }
+  const g = await requireSuperuser()
+  if (!g.ok) return { ok: false, error: g.error }
   const norm = normalizeNewTeamCode(input)
   if (!norm.ok) return norm
   const admin = createAdminClient()
@@ -61,7 +58,8 @@ export async function updateTeam(
   id: string,
   patch: { active?: boolean; progressVisible?: boolean; sortOrder?: number },
 ): Promise<TeamActionResult> {
-  if (!(await isAdmin())) return { ok: false, error: 'PMO 관리자만 팀을 관리할 수 있습니다.' }
+  const g = await requireSuperuser()
+  if (!g.ok) return { ok: false, error: g.error }
   const row: Record<string, unknown> = {}
   if (typeof patch.active === 'boolean') row.active = patch.active
   if (typeof patch.progressVisible === 'boolean') row.progress_visible = patch.progressVisible
@@ -79,7 +77,12 @@ export async function updateTeam(
 export async function listTeamsAdmin(): Promise<
   Array<{ id: string; code: string; sortOrder: number; active: boolean; progressVisible: boolean }>
 > {
-  if (!(await isAdmin())) return []
+  const g = await requireSuperuser()
+  // 반환 타입에 에러 채널이 없어 빈 목록으로 폴백하되, 사유는 로그에 남긴다(표시 = 로깅).
+  if (!g.ok) {
+    console.error('[teams] 관리 목록 거부:', g.error)
+    return []
+  }
   const admin = createAdminClient()
   const { data, error } = await admin.from('teams')
     .select('id, code, sort_order, active, progress_visible')

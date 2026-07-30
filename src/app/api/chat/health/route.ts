@@ -1,13 +1,19 @@
 import { NextResponse } from 'next/server'
-import { getMembership } from '@/lib/auth'
+import { requireSuperuser } from '@/lib/authz'
 import { dkbotHealth } from '@/lib/ai/health'
 
 export const dynamic = 'force-dynamic'
 
-/** DK Bot 진단 — 키 설정/마이그레이션 적용 상태를 노출(관리자 전용). 설정 화면 배지와 동일 소스. */
+/** 가드 실패 → HTTP status. 비로그인 401 · 권한 없음 403 · 권한 조회 실패는 서버 문제라 500(라우트 관례). */
+function denyStatus(error: string): number {
+  if (error === '로그인 필요') return 401
+  return error === '권한 없음' ? 403 : 500
+}
+
+/** DK Bot 진단 — 키 설정/마이그레이션 적용 상태를 노출(슈퍼유저 전용). 설정 화면 배지와 동일 소스. */
 export async function GET() {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 })
+  const g = await requireSuperuser()
+  if (!g.ok) return NextResponse.json({ error: g.error }, { status: denyStatus(g.error) })
   try {
     return NextResponse.json(await dkbotHealth())
   } catch (e) {

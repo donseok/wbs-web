@@ -2,8 +2,8 @@
 // 위험 신호 AI 해설 서버 액션 — 지문 게이트 self-heal(D2)의 서버 종단.
 // 클라이언트가 보낸 신호/지문은 절대 믿지 않는다: 서버에서 loadProjectFacts →
 // detectRiskSignals 로 리포트를 재계산한 뒤 ensureRiskBrief 에 넘긴다.
-// 세션+멤버십 fail-closed(무료 쿼터 보호).
-import { getMembership, getSession } from '@/lib/auth'
+// 프로젝트 관리자 fail-closed(무료 쿼터 보호).
+import { requireProjectAdmin } from '@/lib/authz'
 import { loadProjectFacts } from '@/lib/ai/projectFacts'
 import { detectRiskSignals } from '@/lib/domain/riskSignals'
 import { ensureRiskBrief, sanitizeRiskItems, type RiskBriefItem } from '@/lib/ai/risk-brief'
@@ -20,10 +20,12 @@ export interface RiskBriefPayload {
 }
 
 export async function ensureRiskBriefAction(projectId: string): Promise<RiskBriefPayload> {
-  const m = await getMembership()
-  if (!m) return { status: 'unavailable' }
-  const user = await getSession()
-  if (!user) return { status: 'unavailable' }
+  const g = await requireProjectAdmin(projectId)
+  // 페이로드에 에러 채널이 없어 'unavailable' 로 강등하되, 사유는 로그에 남긴다(표시 = 로깅).
+  if (!g.ok) {
+    console.error('[risk-brief] ensureRiskBriefAction 거부:', g.error)
+    return { status: 'unavailable' }
+  }
   try {
     const src = await loadProjectFacts(projectId)
     if (!src) return { status: 'unavailable' }

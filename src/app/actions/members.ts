@@ -1,6 +1,6 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership } from '@/lib/auth'
+import { requireProjectAdmin, resolveProjectId } from '@/lib/authz'
 import { revalidatePath } from 'next/cache'
 import { isValidEmail } from '@/lib/domain/validate'
 import type { ProjectMemberRole, TeamCode } from '@/lib/domain/types'
@@ -37,8 +37,8 @@ function memberWriteError(error: { code?: string; message: string }): string {
 }
 
 export async function addMember(projectId: string, input: MemberInput): Promise<MemberActionResult> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
   const email = input.email?.trim() || null // DB CHECK(공백 불허)와 일치하도록 저장 전 정규화
   const sb = await createServerClient()
@@ -57,8 +57,11 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
 }
 
 export async function updateMember(memberId: string, input: MemberInput): Promise<MemberActionResult> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  // projectId 를 인자로 받지 않으므로 대상 행에서 먼저 읽는다 — 선행 조회 실패는 쓰기 중단 사유.
+  const found = await resolveProjectId('project_members', memberId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
   const email = input.email?.trim() || null // DB CHECK(공백 불허)와 일치하도록 저장 전 정규화
   const sb = await createServerClient()
@@ -81,8 +84,10 @@ export async function updateMember(memberId: string, input: MemberInput): Promis
 }
 
 export async function removeMember(memberId: string): Promise<MemberActionResult> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const found = await resolveProjectId('project_members', memberId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('project_members')

@@ -1,6 +1,6 @@
 'use server'
 import { revalidatePath } from 'next/cache'
-import { getMembership, getSession } from '@/lib/auth'
+import { requireSuperuser } from '@/lib/authz'
 import { createServerClient } from '@/lib/supabase/server'
 import { refreshLlmOverride } from '@/lib/ai/llm-override'
 import { normalizeBaseUrl } from '@/lib/ai/endpoints'
@@ -49,7 +49,6 @@ export interface ActionOk {
   warning?: string
 }
 
-const NO_PERMISSION = '권한이 없습니다'
 const REFRESH_WARNING = '저장은 됐지만 즉시 반영에 실패했습니다 — 최대 1분 내 자동 반영됩니다.'
 const CONFIG_PATH = '/admin/llm-config'
 /** auth_token 은 select 하지만 응답에는 마스킹만 싣는다(아래 toMasked). */
@@ -66,12 +65,6 @@ type ProfileRow = {
   auth_token: string | null
   max_input_tokens: number | null
   max_output_tokens: number | null
-}
-
-/** accounts.ts 의 isAdmin 은 모듈 로컬(export 안 됨) — 같은 판정을 여기 복제한다. RLS 는 이중 방어. */
-async function isAdmin(): Promise<boolean> {
-  const m = await getMembership()
-  return m?.role === 'pmo_admin'
 }
 
 function maskSync(token: string | null | undefined): string | null {
@@ -135,7 +128,8 @@ function translateWriteError(err: { code?: string; message: string }): string {
 }
 
 export async function listLlmProfiles(): Promise<{ profiles: LlmProfileMasked[] } | { error: string }> {
-  if (!(await isAdmin())) return { error: NO_PERMISSION }
+  const g = await requireSuperuser()
+  if (!g.ok) return { error: g.error }
   const sb = await createServerClient()
   const { data, error } = await sb.from('llm_profiles').select(PROFILE_COLUMNS).order('name')
   // 조회 실패를 빈 목록으로 폴백하면 '프로필이 하나도 없음'과 구별되지 않고,
@@ -147,7 +141,8 @@ export async function listLlmProfiles(): Promise<{ profiles: LlmProfileMasked[] 
 export async function createLlmProfile(
   input: LlmProfileInput,
 ): Promise<{ profile: LlmProfileMasked } | { error: string }> {
-  if (!(await isAdmin())) return { error: NO_PERMISSION }
+  const g = await requireSuperuser()
+  if (!g.ok) return { error: g.error }
   const invalid = validateProfile(input)
   if (invalid) return { error: invalid }
 
@@ -176,7 +171,8 @@ export async function updateLlmProfile(
   id: number,
   input: LlmProfileInput,
 ): Promise<{ profile: LlmProfileMasked } | { error: string }> {
-  if (!(await isAdmin())) return { error: NO_PERMISSION }
+  const g = await requireSuperuser()
+  if (!g.ok) return { error: g.error }
   const invalid = validateProfile(input)
   if (invalid) return { error: invalid }
 
@@ -208,7 +204,8 @@ export async function updateLlmProfile(
 }
 
 export async function deleteLlmProfile(id: number): Promise<ActionOk | { error: string }> {
-  if (!(await isAdmin())) return { error: NO_PERMISSION }
+  const g = await requireSuperuser()
+  if (!g.ok) return { error: g.error }
   const sb = await createServerClient()
   const { error } = await sb.from('llm_profiles').delete().eq('id', id)
   if (error) return { error: error.message }
@@ -222,7 +219,8 @@ export async function deleteLlmProfile(id: number): Promise<ActionOk | { error: 
 export async function getLlmConfig(): Promise<
   { mode: LlmMode; active_profile_id: number | null; profiles: LlmProfileMasked[] } | { error: string }
 > {
-  if (!(await isAdmin())) return { error: NO_PERMISSION }
+  const g = await requireSuperuser()
+  if (!g.ok) return { error: g.error }
   const sb = await createServerClient()
   const [cfgRes, listRes] = await Promise.all([
     sb.from('llm_config').select('mode, active_profile_id').eq('id', 1).maybeSingle(),
@@ -254,7 +252,8 @@ export async function saveLlmConfig(input: {
   mode: LlmMode
   active_profile_id?: number | null
 }): Promise<ActionOk | { error: string }> {
-  if (!(await isAdmin())) return { error: NO_PERMISSION }
+  const g = await requireSuperuser()
+  if (!g.ok) return { error: g.error }
   if (input?.mode !== 'env' && input?.mode !== 'profile' && input?.mode !== 'none') {
     return { error: '유효하지 않은 설정입니다' }
   }
@@ -277,14 +276,13 @@ export async function saveLlmConfig(input: {
     activeProfileId = Number(input.active_profile_id)
   }
 
-  const user = await getSession()
   const { error } = await sb.from('llm_config').upsert(
     {
       id: 1, // 싱글톤
       mode: input.mode,
       // env/none 은 활성 프로필 개념이 없다 — 남겨두면 다음 'profile' 전환이 옛 값을 물고 온다.
       active_profile_id: activeProfileId,
-      updated_by: user?.id ?? null,
+      updated_by: g.actor.userId,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'id' },
@@ -312,7 +310,8 @@ function redact(text: string, token: string | null): string {
 export async function testLlmConnection(
   input: TestLlmInput,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!(await isAdmin())) return { success: false, error: NO_PERMISSION }
+  const g = await requireSuperuser()
+  if (!g.ok) return { success: false, error: g.error }
   if (input?.provider !== 'gemini' && input?.provider !== 'openai') {
     return { success: false, error: '유효하지 않은 provider입니다' }
   }
