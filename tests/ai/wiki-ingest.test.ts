@@ -1053,6 +1053,32 @@ describe('ensureTopic — 포화 게이팅', () => {
     expect(result.insertedTopicTitle).toBeNull()
   })
 
+  it('단독 소유 facet은 별칭 매칭보다 먼저 구제된다 — §7.5 예외', async () => {
+    // 포화 '데이터 관리'가 action/데이터-이관-진행 을 단독 소유하는데, LLM의 변형 제목
+    // '데이터 이관 관리'가 비포화 '데이터 이관'과 containment 로 별칭 매칭되면 같은
+    // 대상의 현재 지식이 두 주제에 이중으로 살게 된다(2차 리뷰에서 실행으로 확인).
+    // 단독 소유 facet 일치는 같은 대상이라는 뜻이므로(스펙 §6 ①) 이력이 별칭을 이긴다.
+    const snapshot: WikiSaturationSnapshot = {
+      complete: true,
+      topics: [],
+      items: [],
+      saturatedNormalizedTitles: new Set(['데이터 관리']),
+      keyOwner: new Map([
+        ['action:데이터-이관-진행', { id: 'sat', normalizedTitle: '데이터 관리' }],
+      ]),
+    }
+    const result = await runApplyWithSnapshot({
+      snapshot,
+      item: { topic: '데이터 이관 관리', kind: 'action', facet: '데이터 이관 진행' },
+      existingTopics: [
+        { id: 'sat', normalized_title: '데이터 관리', aliases: [] },
+        { id: 'transfer', normalized_title: '데이터 이관', aliases: [] },
+      ],
+    })
+    expect(result.usedTopicId).toBe('sat')
+    expect(result.insertedTopicTitle).toBeNull()
+  })
+
   it('normalized_title 완전일치는 포화 여부와 무관하게 흡수한다', async () => {
     const snapshot: WikiSaturationSnapshot = {
       complete: true,

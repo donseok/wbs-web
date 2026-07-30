@@ -58,12 +58,13 @@ export async function loadWikiSaturation(
   projectId: string,
 ): Promise<WikiSaturationSnapshot> {
   const rows: Row[] = []
+  const seenIds = new Set<string>()
   let sawShortPage = false
   for (let offset = 0; offset < LIVE_SCAN_CAP; offset += LIVE_SCAN_PAGE) {
     const { data, error } = await admin.from('wiki_items')
       // 리터럴 문자열이어야 한다 — '+' 로 이어붙이면 타입이 string으로 넓어져
       // supabase-js 의 select 파서가 GenericStringError 로 빠진다.
-      .select('topic_id, kind, knowledge_key, statement, updated_at, wiki_topics!inner(id, title, normalized_title, last_changed_at)')
+      .select('id, topic_id, kind, knowledge_key, statement, updated_at, wiki_topics!inner(id, title, normalized_title, last_changed_at)')
       .eq('project_id', projectId)
       .in('lifecycle_state', [...WIKI_LIVE_STATES])
       // 재구축이 updated_at 을 대량 동률로 만들므로 id 2차 키가 없으면 페이지 경계에서
@@ -77,7 +78,17 @@ export async function loadWikiSaturation(
       return emptySaturationSnapshot()
     }
     const batch = (data ?? []) as Row[]
-    rows.push(...batch)
+    // offset 순회는 요청 사이 다른 워커의 쓰기로 전체 순서가 밀릴 수 있다. 밀려서
+    // 재등장한 행(중복)은 id 로 걸러 과대집계를 막는다. 반대 방향(행이 앞 페이지 영역으로
+    // 당겨져 누락)은 과소집계 = 게이팅이 덜 발동하는 안전한 쪽이고 다음 실행에서 낫는다.
+    for (const r of batch) {
+      const rowId = String(r.id ?? '')
+      if (rowId && seenIds.has(rowId)) continue
+      if (rowId) seenIds.add(rowId)
+      rows.push(r)
+    }
+    // 페이지 짧음 판정은 서버가 준 원본 길이 기준이다 — 중복 제거 후 길이로 재면
+    // 마지막 페이지가 아닌데 짧아 보일 수 있다.
     if (batch.length < LIVE_SCAN_PAGE) {
       sawShortPage = true
       break

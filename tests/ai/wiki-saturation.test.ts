@@ -7,8 +7,9 @@ import {
 
 type Row = Record<string, unknown>
 
-/** wiki_items 한 건. wiki_topics 는 임베드로 따라온다. */
+/** wiki_items 한 건. wiki_topics 는 임베드로 따라온다. id 는 페이지 중복 제거의 키다. */
 const row = (over: Row = {}): Row => ({
+  id: String(over.id ?? over.knowledge_key ?? '데이터 관리:decision:a-b'),
   topic_id: 't1',
   kind: 'decision',
   knowledge_key: '데이터 관리:decision:a-b',
@@ -112,6 +113,21 @@ describe('loadWikiSaturation', () => {
     const snap = await loadWikiSaturation(admin([{ data: page1 }, { data: page2 }]), 'p1')
     expect(snap.complete).toBe(true)
     expect(snap.topics[0].liveCount).toBe(LIVE_SCAN_PAGE + 5)
+  })
+
+  it('페이지 사이 쓰기로 밀려 재등장한 행은 한 번만 센다 — id 중복 제거', async () => {
+    // offset 순회는 요청 사이 다른 워커의 쓰기로 순서가 밀릴 수 있다. 경계 행이 다음
+    // 페이지에 다시 오면 liveCount 가 부풀어 14건 주제가 그 실행에서 포화로 오판된다.
+    const page1 = Array.from({ length: LIVE_SCAN_PAGE }, (_, i) => row({
+      knowledge_key: `데이터 관리:decision:p1-${i}`,
+    }))
+    const page2 = [
+      row({ knowledge_key: `데이터 관리:decision:p1-${LIVE_SCAN_PAGE - 1}` }),   // 재등장
+      row({ knowledge_key: '데이터 관리:decision:신규' }),
+    ]
+    const snap = await loadWikiSaturation(admin([{ data: page1 }, { data: page2 }]), 'p1')
+    expect(snap.complete).toBe(true)
+    expect(snap.topics[0].liveCount).toBe(LIVE_SCAN_PAGE + 1)   // 중복 1건은 안 센다
   })
 
   it('스캔 상한에 닿으면 불완전으로 표시하고 경고한다 (fail-closed)', async () => {

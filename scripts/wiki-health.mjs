@@ -232,7 +232,7 @@ async function main() {
   let jobs
   let processing
   let itemsRes
-  let sources
+  let sourcesRes
   let minutes
   let eventsRes
   let topicCount
@@ -252,11 +252,11 @@ async function main() {
     )
     resetAt = marker[0]?.created_at ?? ''
 
-    ;[jobs, processing, itemsRes, sources, minutes, eventsRes, topicCount] = await Promise.all([
+    ;[jobs, processing, itemsRes, sourcesRes, minutes, eventsRes, topicCount] = await Promise.all([
       rest('wiki_project_rebuild_jobs?select=*'),
       rest('wiki_processing_jobs?select=id,status,attempts,max_attempts,locked_at,last_error&status=neq.done'),
       restAll(`wiki_items?select=id,topic_id,knowledge_key,wiki_topics!inner(title)&${liveFilter}&order=id.asc`),
-      rest('wiki_item_sources?select=minute_id&retracted_at=is.null'),
+      restAll('wiki_item_sources?select=minute_id&retracted_at=is.null&order=id.asc'),
       rest('minutes?select=id,minute_date,meeting_occurrence_date,created_at&archived_at=is.null&project_id=not.is.null'),
       restAll(
         'wiki_change_events?select=change_type,created_at'
@@ -270,6 +270,7 @@ async function main() {
     process.exit(2)
   }
   const items = itemsRes.rows
+  const sources = sourcesRes.rows
   const events = eventsRes.rows
 
   const job = jobs[0] ?? null
@@ -306,6 +307,9 @@ async function main() {
   console.log(`             1항목 주제 ${gran.oneItem} · wiki_topics 총 ${topicCount}행`)
   if (!itemsRes.complete) {
     console.log(`  ⚠ 살아있는 항목이 스캔 상한 ${SCAN_CAP}행에 닿았다 — 입도·키 덤프가 불완전하다`)
+  }
+  if (!sourcesRes.complete) {
+    console.log(`  ⚠ 근거 행이 스캔 상한 ${SCAN_CAP}행에 닿았다 — '회의록 반영' 수치가 불완전하다`)
   }
 
   // 이벤트는 세대 리셋에도 삭제되지 않는 누적 원장이라, 마지막 리셋 마커 이후로
