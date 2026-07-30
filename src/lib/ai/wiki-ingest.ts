@@ -386,16 +386,6 @@ async function ensureTopic(
   item: ExtractedWikiItem,
   snapshot: WikiSaturationSnapshot,
 ): Promise<ResolvedWikiTopic> {
-  // 코드 구제: 같은 (kind, facet)이 포화 주제에 이미 살아 있으면 그 주제로 되돌린다.
-  // 프롬프트만으로는 이걸 보장할 수 없다 — 포화 8주제의 facet이 239개인데 프롬프트에
-  // 실을 수 있는 것은 주제당 12개(최대 96개)뿐이다. 정확 일치라 오병합 위험이 없다.
-  if (snapshot.complete) {
-    const owner = snapshot.keyOwner.get(
-      wikiSaturationKey(item.kind, wikiFacetPart(item.kind, item.facet)),
-    )
-    if (owner) return { id: owner.id, normalizedTitle: owner.normalizedTitle }
-  }
-
   const normalized = normalizeWikiTopic(item.topic)
   const { data: existing, error: readError } = await admin.from('wiki_topics')
     .select('id, normalized_title')
@@ -433,6 +423,22 @@ async function ensureTopic(
     ))
   const alias = matchWikiTopicAlias(candidates, normalized)
   if (alias) return alias
+
+  // 코드 구제 — 완전일치·별칭이 모두 실패한 뒤의 마지막 수단이다. LLM이 새 topic을
+  // 지어냈어도 같은 (kind, facet)이 포화 주제에 단독으로 살아 있으면 그 주제로 되돌린다.
+  // 프롬프트만으로는 이걸 보장할 수 없다 — 포화 8주제의 facet이 239개인데 프롬프트에
+  // 실을 수 있는 것은 주제당 12개(최대 96개)뿐이다.
+  //
+  // 순서가 중요하다: facet은 knowledge_key 구조상 주제 안에서만 유일하므로, 구제를
+  // 완전일치보다 먼저 돌리면 LLM이 기존 주제를 정확히 지목했는데도 같은 (kind,facet)을
+  // 가진 무관한 포화 주제로 항목이 납치된다. keyOwner가 단독 소유 키만 담는 것
+  // (wiki-saturation.ts)과 이 순서가 오병합을 막는 두 방어선이다.
+  if (snapshot.complete) {
+    const owner = snapshot.keyOwner.get(
+      wikiSaturationKey(item.kind, wikiFacetPart(item.kind, item.facet)),
+    )
+    if (owner) return { id: owner.id, normalizedTitle: owner.normalizedTitle }
+  }
 
   const now = new Date().toISOString()
   const { data, error } = await admin.from('wiki_topics').insert({

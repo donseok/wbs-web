@@ -1027,6 +1027,32 @@ describe('ensureTopic — 포화 게이팅', () => {
     expect(result.insertedTopicTitle).toBeNull()   // 새 주제를 만들지 않는다
   })
 
+  it('완전일치가 코드 구제보다 우선한다 — 다른 주제의 같은 facet에 납치되지 않는다', async () => {
+    // facet 은 주제 안에서만 유일하다. LLM이 기존 주제를 정확히 지목했는데 (kind,facet)
+    // 전역 일치가 먼저 발동하면 무관한 포화 주제로 항목이 끌려가 두 주제의 이력이 같이
+    // 오염된다(리뷰에서 실행으로 확인). 구제는 완전일치·별칭이 모두 실패한 뒤의 마지막
+    // 수단이어야 한다.
+    const snapshot: WikiSaturationSnapshot = {
+      complete: true,
+      topics: [],
+      items: [],
+      saturatedNormalizedTitles: new Set(['데이터 관리']),
+      keyOwner: new Map([
+        ['decision:공유-대상', { id: 'sat', normalizedTitle: '데이터 관리' }],
+      ]),
+    }
+    const result = await runApplyWithSnapshot({
+      snapshot,
+      item: { topic: '야드 관리 시스템', kind: 'decision', facet: '공유 대상' },
+      existingTopics: [
+        { id: 'sat', normalized_title: '데이터 관리', aliases: [] },
+        { id: 'yard', normalized_title: '야드 관리 시스템', aliases: [] },
+      ],
+    })
+    expect(result.usedTopicId).toBe('yard')
+    expect(result.insertedTopicTitle).toBeNull()
+  })
+
   it('normalized_title 완전일치는 포화 여부와 무관하게 흡수한다', async () => {
     const snapshot: WikiSaturationSnapshot = {
       complete: true,
