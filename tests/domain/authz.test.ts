@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  roleIn, isProjectAdmin, isProjectMember, toProjectActorView, actorFromView, type Actor,
+  roleIn, isProjectAdmin, isProjectMember, isAnyProjectAdmin, hasAnyProjectRole,
+  toProjectActorView, actorFromView, type Actor,
 } from '@/lib/domain/authz'
 
 const P = 'proj-1'
@@ -52,6 +53,23 @@ describe('isProjectAdmin', () => {
     expect(isProjectAdmin(member, P)).toBe(false)
     expect(isProjectAdmin(viewer, P)).toBe(false)
     expect(isProjectAdmin(null, P)).toBe(false)
+  })
+})
+
+describe('isAnyProjectAdmin / hasAnyProjectRole — 전역 성격 리소스용', () => {
+  it('isAnyProjectAdmin: 슈퍼유저·어느 프로젝트든 관리자면 true', () => {
+    expect(isAnyProjectAdmin(superuser)).toBe(true)
+    expect(isAnyProjectAdmin(admin)).toBe(true)
+    expect(isAnyProjectAdmin(member)).toBe(false)
+    expect(isAnyProjectAdmin(viewer)).toBe(false)
+    expect(isAnyProjectAdmin(null)).toBe(false)
+  })
+  it('hasAnyProjectRole: 역할이 하나라도 있으면 true — 조회 전용만 false', () => {
+    expect(hasAnyProjectRole(superuser)).toBe(true)
+    expect(hasAnyProjectRole(admin)).toBe(true)
+    expect(hasAnyProjectRole(member)).toBe(true)
+    expect(hasAnyProjectRole(viewer)).toBe(false)
+    expect(hasAnyProjectRole(null)).toBe(false)
   })
 })
 

@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const getSession = vi.fn()
-const getMembership = vi.fn()
+const getActor = vi.fn()
 const adminMocks = vi.hoisted(() => ({ createAdminClient: vi.fn() }))
 const afterMock = vi.hoisted(() => ({ after: vi.fn() }))
 vi.mock('@/lib/auth', () => ({
   getSession: (...a: unknown[]) => getSession(...(a as [])),
-  getMembership: (...a: unknown[]) => getMembership(...(a as [])),
+}))
+vi.mock('@/lib/authz', () => ({
+  getActor: (...a: unknown[]) => getActor(...(a as [])),
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('next/server', () => ({ after: (fn: () => Promise<void>) => afterMock.after(fn) }))
@@ -32,6 +34,14 @@ import { assignMinutesProject } from '@/app/actions/minutes'
 import { MINUTES_PROJECT_BULK_MAX } from '@/lib/domain/minutes'
 
 const P1 = '7a1c6034-a647-4673-ae85-d0b6daa2f6f3'
+
+// 권한 3단 이행 — 일괄 지정 진입 게이트는 '대상 프로젝트 관리자 이상'(스펙 §4.3)
+const adminActor = {
+  userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false,
+  projectRoles: new Map([[P1, 'admin' as const]]),
+}
+const memberActor = { ...adminActor, projectRoles: new Map([[P1, 'member' as const]]) }
+const superuserActor = { ...adminActor, isSuperuser: true }
 const M1 = '11111111-1111-4111-8111-111111111111'
 const M2 = '22222222-2222-4222-8222-222222222222'
 const M3 = '33333333-3333-4333-8333-333333333333'
@@ -69,18 +79,27 @@ const minuteRow = (id: string, over: Row = {}): Row => ({
 })
 
 beforeEach(() => {
-  getSession.mockReset(); getMembership.mockReset(); createServerClient.mockReset()
+  getSession.mockReset(); getActor.mockReset(); createServerClient.mockReset()
   adminMocks.createAdminClient.mockReset(); rebuild.fn.mockClear(); afterMock.after.mockReset()
   getSession.mockResolvedValue({ id: 'u1' })
-  getMembership.mockResolvedValue({ role: 'member' })
+  getActor.mockResolvedValue(adminActor)
   afterMock.after.mockImplementation(async (fn: () => Promise<void>) => { await fn() })
 })
 
 describe('assignMinutesProject', () => {
   it('미로그인은 거부 — DB 접근 없이', async () => {
     getSession.mockResolvedValue(null)
+    getActor.mockResolvedValue(null)
     const r = await assignMinutesProject([M1], P1)
     expect(r.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+
+  it('멤버는 대상 프로젝트로의 일괄 지정이 거부된다 — 관리자 이상만(스펙 §4.3)', async () => {
+    getActor.mockResolvedValue(memberActor)
+    const r = await assignMinutesProject([M1], P1)
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('권한 없음')
     expect(createServerClient).not.toHaveBeenCalled()
   })
 
@@ -150,8 +169,8 @@ describe('assignMinutesProject', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
-  it('pmo_admin 은 남의 회의록도 지정할 수 있다', async () => {
-    getMembership.mockResolvedValue({ role: 'pmo_admin' })
+  it('슈퍼유저는 남의 미지정 회의록도 지정할 수 있다 — 미지정은 프로젝트 판정 불가라 관리자로는 부족', async () => {
+    getActor.mockResolvedValue(superuserActor)
     createServerClient.mockResolvedValue(fakeDb({
       projects: { data: { id: P1 }, error: null },
       minutes: { data: [minuteRow(M1, { created_by: 'other' })], error: null },

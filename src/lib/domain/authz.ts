@@ -79,3 +79,25 @@ export function isProjectMember(actor: Actor | null, projectId: string | null): 
   const r = roleIn(actor, projectId)
   return r === 'superuser' || r === 'admin' || r === 'member'
 }
+
+/**
+ * 전역 성격 리소스(회의록 폴더 등 프로젝트에 속하지 않는 것)용 — 어느 프로젝트든
+ * 관리자면 통과. DB 의 app_role() shim 이 'pmo_admin' 을 돌려주는 조건과 같은 의미라
+ * 서버 액션과 RLS 판정이 갈라지지 않는다.
+ */
+export function isAnyProjectAdmin(actor: Actor | null): boolean {
+  if (!actor) return false
+  if (actor.isSuperuser) return true
+  for (const r of actor.projectRoles.values()) if (r === 'admin') return true
+  return false
+}
+
+/**
+ * 어느 프로젝트든 역할이 있으면 true — 조회 전용 계정 차단용.
+ * DB 의 `app_role() is not null` 과 같은 의미. 프로젝트 미지정 회의록 생성처럼
+ * 특정 프로젝트로 판정할 수 없는 쓰기의 최소 자격으로 쓴다.
+ */
+export function hasAnyProjectRole(actor: Actor | null): boolean {
+  if (!actor) return false
+  return actor.isSuperuser || actor.projectRoles.size > 0
+}
