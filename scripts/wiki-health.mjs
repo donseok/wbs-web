@@ -55,6 +55,25 @@ export function summarizeTopicGranularity(items) {
   return { maxSize, maxTitle, over20, saturated, saturatedItems, oneItem, topics: byTopic.size }
 }
 
+/**
+ * --dump-keys 인자 파싱. 경로 누락을 무음 no-op 으로 흘리면 재구축 전/후 A/B 증거물을
+ * 받은 줄 알고 잃는다 — 애매하면 에러로 세운다(fail-closed).
+ */
+export function parseDumpKeysArg(argv) {
+  const eq = argv.find((a) => a.startsWith('--dump-keys='))
+  if (eq) {
+    const path = eq.slice('--dump-keys='.length)
+    return path ? { path } : { error: '--dump-keys= 뒤에 경로가 비어 있다' }
+  }
+  const idx = argv.indexOf('--dump-keys')
+  if (idx === -1) return { path: null }
+  const next = argv[idx + 1]
+  if (!next || next.startsWith('--')) {
+    return { error: '--dump-keys 다음에 저장할 경로가 필요하다' }
+  }
+  return { path: next }
+}
+
 const LEVELS = { ok: 0, progress: 0, unknown: 0, warn: 0, fail: 1 }
 
 /**
@@ -160,6 +179,12 @@ async function main() {
     process.exit(2)
   }
 
+  const dump = parseDumpKeysArg(process.argv)
+  if (dump.error) {
+    console.error(`인자 오류 — ${dump.error}`)
+    process.exit(2)
+  }
+
   const rest = async (path) => {
     const res = await fetch(`${base.replace(/\/$/, '')}/rest/v1/${path}`, {
       headers: { apikey: key, Authorization: `Bearer ${key}` },
@@ -168,31 +193,84 @@ async function main() {
     return res.json()
   }
 
+  /**
+   * PostgREST max_rows 하드 캡(supabase/config.toml, 호스티드 동일). limit 파라미터도
+   * 이 값으로 깎이므로(2026-07-30 실측: limit=5000 → 1000행) 캡보다 큰 limit 은 성립하지
+   * 않고, 전량은 offset 페이지 순회로만 얻는다. 안정 페이지 경계를 위해 호출부는 반드시
+   * order 를 명시해야 한다.
+   */
+  const MAX_ROWS = 1000
+  const SCAN_CAP = 5000
+
+  /** cap 도달 시 complete=false — 조용한 절단 금지. */
+  const restAll = async (path) => {
+    const rows = []
+    for (let offset = 0; offset < SCAN_CAP; offset += MAX_ROWS) {
+      const batch = await rest(`${path}&limit=${MAX_ROWS}&offset=${offset}`)
+      rows.push(...batch)
+      if (batch.length < MAX_ROWS) return { rows, complete: true }
+    }
+    return { rows, complete: false }
+  }
+
+  /** 행 대신 총 행수만. content-range 총계는 max_rows 캡과 무관하게 정확하다(실측). */
+  const restCount = async (path) => {
+    const res = await fetch(`${base.replace(/\/$/, '')}/rest/v1/${path}`, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Prefer: 'count=exact',
+        Range: '0-0',
+      },
+    })
+    if (!res.ok) throw new Error(`${path} → ${res.status} ${await res.text()}`)
+    const total = /\/(\d+)$/.exec(res.headers.get('content-range') ?? '')
+    if (!total) throw new Error(`${path} → content-range 에 총계가 없다`)
+    return Number(total[1])
+  }
+
   let jobs
   let processing
-  let items
+  let itemsRes
   let sources
   let minutes
-  let events
-  let topicRows
+  let eventsRes
+  let topicCount
+  let resetAt
 
   // 살아있음의 정의를 게이트와 일치시킨다(기존 neq.archived 를 교체).
   const liveFilter = `lifecycle_state=in.(${LIVE_STATES.join(',')})`
 
   try {
-    ;[jobs, processing, items, sources, minutes, events, topicRows] = await Promise.all([
+    // 최신 리셋 마커는 별도로 정확히 조회한다 — 무순서 창(서버 캡 1000행)에서 max 를
+    // 고르면 마커가 창 밖으로 밀려 세대 경계가 한 세대 전으로 잡힌다(2026-07-30 실측:
+    // 원장 2,034행에서 실제 재현). 이벤트는 그 경계 이후만 긁는다.
+    const marker = await rest(
+      'wiki_change_events?select=created_at'
+      + '&idempotency_key=like.wiki-project-reset-v1%3A*'
+      + '&order=created_at.desc&limit=1',
+    )
+    resetAt = marker[0]?.created_at ?? ''
+
+    ;[jobs, processing, itemsRes, sources, minutes, eventsRes, topicCount] = await Promise.all([
       rest('wiki_project_rebuild_jobs?select=*'),
       rest('wiki_processing_jobs?select=id,status,attempts,max_attempts,locked_at,last_error&status=neq.done'),
-      rest(`wiki_items?select=id,topic_id,knowledge_key,wiki_topics!inner(title)&${liveFilter}&limit=5000`),
+      restAll(`wiki_items?select=id,topic_id,knowledge_key,wiki_topics!inner(title)&${liveFilter}&order=id.asc`),
       rest('wiki_item_sources?select=minute_id&retracted_at=is.null'),
       rest('minutes?select=id,minute_date,meeting_occurrence_date,created_at&archived_at=is.null&project_id=not.is.null'),
-      rest('wiki_change_events?select=change_type,created_at,idempotency_key&limit=5000'),
-      rest('wiki_topics?select=id&limit=5000'),
+      restAll(
+        'wiki_change_events?select=change_type,created_at'
+        + (resetAt ? `&created_at=gt.${encodeURIComponent(resetAt)}` : '')
+        + '&order=created_at.desc,id.desc',
+      ),
+      restCount('wiki_topics?select=id'),
     ])
   } catch (err) {
     console.error('조회 실패 —', err instanceof Error ? err.message : err)
     process.exit(2)
   }
+  const items = itemsRes.rows
+  const events = eventsRes.rows
 
   const job = jobs[0] ?? null
   const cursor = job?.cursor_observed_sort ? new Date(`${job.cursor_observed_sort}Z`) : null
@@ -225,28 +303,35 @@ async function main() {
   console.log(`  주제 입도: 최대 "${gran.maxTitle}" ${gran.maxSize}`
     + ` · 20건↑ 주제 ${gran.over20} · 상한(${TOPIC_ITEM_CAP})↑ 주제 ${gran.saturated}/${gran.topics}`
     + ` (항목 ${gran.saturatedItems}, ${pct}%)`)
-  console.log(`             1항목 주제 ${gran.oneItem} · wiki_topics 총 ${topicRows.length}행`)
-
-  // 이벤트는 세대 리셋에도 삭제되지 않는 누적 원장이다. 전량 집계로는 어떤 문턱도
-  // 영구히 통과하므로 마지막 리셋 이후로 스코프해야 한다.
-  const resetAt = events
-    .filter((e) => String(e.idempotency_key ?? '').startsWith('wiki-project-reset-v1:'))
-    .reduce((max, e) => (e.created_at > max ? e.created_at : max), '')
-  const gen = {}
-  for (const e of events) {
-    if (resetAt && e.created_at <= resetAt) continue
-    gen[e.change_type] = (gen[e.change_type] ?? 0) + 1
+  console.log(`             1항목 주제 ${gran.oneItem} · wiki_topics 총 ${topicCount}행`)
+  if (!itemsRes.complete) {
+    console.log(`  ⚠ 살아있는 항목이 스캔 상한 ${SCAN_CAP}행에 닿았다 — 입도·키 덤프가 불완전하다`)
   }
+
+  // 이벤트는 세대 리셋에도 삭제되지 않는 누적 원장이라, 마지막 리셋 마커 이후로
+  // 서버에서 스코프해 받았다(created_at=gt). 마커 자체(retract 행)도 경계에 걸려 빠진다.
+  const gen = {}
+  for (const e of events) gen[e.change_type] = (gen[e.change_type] ?? 0) + 1
   console.log(`  변경 이벤트(현 세대): `
     + ['new', 'reaffirm', 'refine', 'supersede', 'conflict', 'retract']
-      .map((k) => `${k} ${gen[k] ?? 0}`).join(' · '))
+      .map((k) => `${k} ${gen[k] ?? 0}`).join(' · ')
+    + (resetAt ? '' : ' · (리셋 마커 없음 — 전량 집계)'))
+  if (!eventsRes.complete) {
+    console.log(`  ⚠ 현 세대 이벤트가 스캔 상한 ${SCAN_CAP}행에 닿았다 — 분포가 불완전하다`)
+  }
 
-  const dumpIdx = process.argv.indexOf('--dump-keys')
-  if (dumpIdx !== -1 && process.argv[dumpIdx + 1]) {
+  if (dump.path) {
     const { writeFileSync } = await import('node:fs')
     const keys = [...new Set(items.map((i) => i.knowledge_key).filter(Boolean))].sort()
-    writeFileSync(process.argv[dumpIdx + 1], keys.join('\n') + '\n', 'utf8')
-    console.log(`  knowledge_key ${keys.length}개를 ${process.argv[dumpIdx + 1]} 에 저장했다`)
+    try {
+      writeFileSync(dump.path, keys.join('\n') + '\n', 'utf8')
+    } catch (err) {
+      // 쓰기 실패를 uncaught 로 흘리면 exit 1 이 되어 '재구축 멈춤' 판정으로 위장된다.
+      console.error(`덤프 실패 — ${err instanceof Error ? err.message : err}`)
+      process.exit(2)
+    }
+    console.log(`  knowledge_key ${keys.length}개를 ${dump.path} 에 저장했다`
+      + (itemsRes.complete ? '' : ' (⚠ 불완전 — 상한 절단)'))
   }
 
   if (processing.length > 0) {

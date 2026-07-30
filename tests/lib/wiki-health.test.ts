@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest'
 import {
   classifyRebuildHealth,
   LEASE_SECONDS,
+  parseDumpKeysArg,
   summarizeTopicGranularity,
 } from '../../scripts/wiki-health.mjs'
 
@@ -129,5 +130,24 @@ describe('summarizeTopicGranularity', () => {
       maxSize: 0, maxTitle: '', over20: 0, saturated: 0,
       saturatedItems: 0, oneItem: 0, topics: 0,
     })
+  })
+})
+
+describe('parseDumpKeysArg', () => {
+  it('플래그가 없으면 덤프하지 않는다', () => {
+    expect(parseDumpKeysArg(['node', 'wiki-health.mjs'])).toEqual({ path: null })
+  })
+
+  it('경로가 따라오면 그 경로다 — --dump-keys=path 형태도 받는다', () => {
+    expect(parseDumpKeysArg(['node', 's', '--dump-keys', '/tmp/k.txt']))
+      .toEqual({ path: '/tmp/k.txt' })
+    expect(parseDumpKeysArg(['node', 's', '--dump-keys=/tmp/k.txt']))
+      .toEqual({ path: '/tmp/k.txt' })
+  })
+
+  it('경로가 없거나 다음 인자가 플래그면 에러다 — 무음 no-op은 A/B 증거물을 잃는다', () => {
+    expect(parseDumpKeysArg(['node', 's', '--dump-keys']).error).toBeTruthy()
+    expect(parseDumpKeysArg(['node', 's', '--dump-keys', '--verbose']).error).toBeTruthy()
+    expect(parseDumpKeysArg(['node', 's', '--dump-keys=']).error).toBeTruthy()
   })
 })
