@@ -6,6 +6,7 @@ import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationCon
 import { DkBot } from '@/components/chat/DkBot'
 import { BotPageContextProvider } from '@/components/chat/BotPageContextProvider'
 import { PrefsSync } from '@/components/app/PrefsSync'
+import { UsageTracker } from '@/components/app/UsageTracker'
 import { TeamsProvider } from '@/components/app/TeamsProvider'
 import { teamsSync } from '@/lib/teams/master'
 import { projectLifecycleStatus } from '@/lib/domain/project-status'
@@ -49,6 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         >
           <div className="app-backdrop flex h-dvh overflow-hidden">
             <PrefsSync />
+            <UsageTracker />
             <a href="#main-content" className="fixed left-4 top-3 z-[200] -translate-y-20 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition focus:translate-y-0">본문 바로가기</a>
             <Sidebar projects={projectLinks} />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">

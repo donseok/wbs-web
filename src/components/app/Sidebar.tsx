@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  ArrowLeft, BookOpenText, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  ArrowLeft, BarChart3, BookOpenText, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -50,6 +50,9 @@ function projectMenu(base: string): { href: string; labelKey: DictKey; icon: Luc
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
     { href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` },
+    // 사용 현황은 전사 지표(접속·메뉴 사용량)라 프로젝트 스코프가 아니다 —
+    // 요구대로 설정 바로 아래에 두되 링크는 전역 /usage 로 보낸다.
+    { href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' },
   ]
 }
 
@@ -255,6 +258,13 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
                 <Tooltip label={t('nav.allProjects')} side="right" disabled={!collapsed}>
                   <Link href="/projects" className={`side-link ${collapsed ? 'justify-center px-0' : ''}`}>
                     <FolderOpen className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.allProjects')}</span>}
+                  </Link>
+                </Tooltip>
+                {/* 프로젝트를 고르지 않은 상태에서도 사용 현황에 닿을 수 있어야 한다 */}
+                <Tooltip label={t('nav.usage')} side="right" disabled={!collapsed}>
+                  <Link href="/usage" aria-current={pathname === '/usage' ? 'page' : undefined}
+                    className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+                    <BarChart3 className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.usage')}</span>}
                   </Link>
                 </Tooltip>
               </>
