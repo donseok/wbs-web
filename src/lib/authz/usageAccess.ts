@@ -11,6 +11,9 @@ import type { Membership } from '@/lib/domain/types'
  * 2026-07-30 기준 41계정 중 28명(68%)이 pmo_admin 이다. 진행 중인 권한 3단
  * 재설계(is_superuser)가 들어온 뒤 그 축에 거는 것을 전제로 한다.
  */
+// 인자를 지금 안 쓴다고 지우면, 잠글 때 모든 호출부의 시그니처를 함께 고쳐야 한다.
+// 호출부는 이미 멤버십을 넘기고 있으므로 전환은 이 함수 본문 한 줄 교체로 끝난다.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function canViewUsage(_m: Membership | null): boolean {
   return true
 }
