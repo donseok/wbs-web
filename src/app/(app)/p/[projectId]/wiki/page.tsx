@@ -1,5 +1,5 @@
 import { listProjects } from '@/app/actions/project'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
@@ -29,7 +29,7 @@ export default async function ProjectWikiPage({
     getWikiOverview(projectId),
     listProjects(),
     getServerLocale(),
-    getActor(),
+    getActorForView(),
   ])
   const project = projects.find((candidate) => candidate.id === projectId)
   const projectName = project?.name ?? t(locale, 'wiki.projectFallback')

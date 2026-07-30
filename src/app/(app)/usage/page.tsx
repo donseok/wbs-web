@@ -1,6 +1,6 @@
 import { after } from 'next/server'
 import { redirect } from 'next/navigation'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
 import { PageHero } from '@/components/ui/PageHero'
 import { PeriodTabs } from '@/components/usage/PeriodTabs'
@@ -33,7 +33,7 @@ export default async function UsagePage({ searchParams }: {
   searchParams: Promise<{ days?: string; user?: string; menu?: string }>
 }) {
   // 슈퍼유저 전용 — 판정은 canViewUsage 한 곳에서. 어포던스(사이드바 링크)도 같은 판정을 쓴다.
-  const actor = await getActor()
+  const actor = await getActorForView()
   if (!canViewUsage(actor)) redirect('/projects')
 
   const [{ days, user, menu }, locale] = await Promise.all([searchParams, getServerLocale()])

@@ -20,11 +20,12 @@ const report = (over: Partial<RiskSignalReport> = {}): RiskSignalReport => ({
   signals: [], overall: 'green', hygiene: cleanHygiene, trendSparse: false,
   fingerprint: 'f', today: '2026-07-15', ...over,
 })
-/** 통합 카드(D1) 필수 props — 브리핑 층 기본값. */
+/** 통합 카드(D1) 필수 props — 브리핑 층 기본값. 생성 권한은 관리자 기준으로 둔다(버튼 노출 검사용). */
 const briefProps = {
   kpiLine: '전체 실적 40.5% · 계획 50.0% · 편차 -9.5%p',
   baseDate: '2026-07-15',
   realToday: '2026-07-19',
+  canGenerateBrief: true,
 }
 
 describe('RiskSignalCard', () => {
@@ -105,6 +106,22 @@ describe('RiskSignalCard', () => {
     expect(html).toContain('진행 현황')
     expect(html).toContain('&lt;b&gt;주의&lt;/b&gt;') // 순수 텍스트 렌더 — 태그 이스케이프(인젝션 차단)
     expect(html).toContain('다시 생성')
+  })
+
+  // ensureProjectBriefAction 은 requireProjectAdmin — 버튼을 남기면 그 거부가 '생성 제한 또는
+  // 일시 실패'로 표시돼 권한 문제가 장애로 오인된다. 왜 못 하는지를 문구로 드러낸다.
+  it('생성 권한이 없으면 생성 버튼 대신 사유를 표기한다 — kpiLine·본문은 그대로 보인다', () => {
+    const html = renderToStaticMarkup(
+      <RiskSignalCard projectId="p1" {...briefProps} canGenerateBrief={false} report={report()} weeklyBrief={{
+        headline: '이번 주는 지연 관리가 관건', bodyMd: '- 실적 40.5%',
+        updatedAt: '2026-07-19T02:00:00Z', model: '', fresh: true,
+      }} />,
+    )
+    expect(html).not.toContain('다시 생성')
+    expect(html).not.toContain('AI 브리핑 생성')
+    expect(html).toContain('프로젝트 관리자만 생성할 수 있습니다')
+    expect(html).toContain('전체 실적 40.5% · 계획 50.0% · 편차 -9.5%p')
+    expect(html).toContain('이번 주는 지연 관리가 관건')
   })
 
   it('stale 브리핑에는 기준 데이터 변경 칩을 표기한다', () => {

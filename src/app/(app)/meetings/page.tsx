@@ -4,8 +4,8 @@ import { getServerLocale } from '@/lib/i18n/server'
 import { getMyMeetings } from '@/lib/data/meetings'
 import { expandMeetings, summarizeMeetings } from '@/lib/domain/meetings'
 import { getSession } from '@/lib/auth'
-import { getActor } from '@/lib/authz'
-import { effectiveLegacyRole } from '@/lib/domain/authz'
+import { getActorForView } from '@/lib/authz'
+import { adminProjectIds } from '@/lib/domain/authz'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
@@ -27,7 +27,7 @@ export default async function MyMeetingsPage() {
   const [gs, ge] = monthGrid(today)
   const [{ meetings, exceptions }, m, user, locale] = await Promise.all([
     getMyMeetings(gs, ge),
-    getActor(),
+    getActorForView(),
     getSession(),
     getServerLocale(),
   ])
@@ -50,8 +50,11 @@ export default async function MyMeetingsPage() {
         }
       />}
     >
+      {/* 항목마다 프로젝트가 다른 전역 목록 — 전역 shim 대신 '내가 관리자인 프로젝트 집합'을 내려
+          클라이언트가 열려 있는 회차의 프로젝트로 판정한다(서버 adminOrOwnerGate 와 같은 기준). */}
       <MyMeetingsView initialMeetings={meetings} initialExceptions={exceptions}
-        todayIso={today} currentUserId={user?.id ?? null} role={effectiveLegacyRole(m)} />
+        todayIso={today} currentUserId={user?.id ?? null}
+        adminProjectIds={adminProjectIds(m)} isSuperuser={m?.isSuperuser ?? false} />
     </ProjectPageShell>
   )
 }

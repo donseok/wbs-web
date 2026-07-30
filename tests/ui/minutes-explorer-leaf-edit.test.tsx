@@ -74,7 +74,7 @@ describe('MinutesExplorer — 카드에서 바로 수정', () => {
     await act(async () => root.render(
       <MinutesExplorer folders={folders} leaves={leaves} favorites={new Set()}
         onToggleFavorite={vi.fn()} onRetryFavorites={vi.fn()} layout="grid"
-        currentUserId="u1" isAdmin={false} onChanged={onChanged}
+        currentUserId="u1" isFolderAdmin={false} onChanged={onChanged}
         projects={[{ id: 'p1', name: 'D-CUBE' }]} {...over} />,
     ))
   }

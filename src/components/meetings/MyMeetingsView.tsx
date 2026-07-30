@@ -26,13 +26,21 @@ function gridRange(year: number, month0: number): [string, string] {
 }
 
 export function MyMeetingsView({
-  initialMeetings, initialExceptions, todayIso, currentUserId, role,
+  initialMeetings, initialExceptions, todayIso, currentUserId,
+  adminProjectIds = [], isSuperuser = false,
 }: {
   initialMeetings: Meeting[]
   initialExceptions: MeetingException[]
   todayIso: string
   currentUserId: string | null
-  role: string | null
+  /**
+   * 관리자 이상인 프로젝트 id. 이 화면은 여러 프로젝트의 회의가 섞인 목록이라 전역 shim 하나로는
+   * 판정할 수 없다 — 서버 adminOrOwnerGate 는 **그 회의 프로젝트의** requireProjectAdmin 이므로,
+   * A 프로젝트 관리자에게 B 프로젝트 회의의 수정·삭제·'공지로 등록'을 열면 전부 거부당한다.
+   */
+  adminProjectIds?: string[]
+  /** 슈퍼유저는 모든 프로젝트의 관리자 — 목록으로 표현되지 않으므로 별도로 받아 OR 로 결합한다. */
+  isSuperuser?: boolean
 }) {
   const router = useRouter()
   const { t, locale } = useLocale()
@@ -196,8 +204,10 @@ export function MyMeetingsView({
         </div>
       )}
 
+      {/* 열려 있는 회차의 프로젝트로 항목별 판정 — isProjectAdmin(actor, occ.projectId) 의 등가식. */}
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
-        currentUserId={currentUserId} role={role}
+        currentUserId={currentUserId}
+        isAdmin={isSuperuser || (!!detailOcc && adminProjectIds.includes(detailOcc.projectId))}
         onClose={() => setDetailOcc(null)} onEditSeries={(m) => router.push(meetingEditHref(m.projectId, m.id, detailOcc?.occurrenceDate))}
         onChanged={() => { setReloadKey(k => k + 1); router.refresh() }} />
     </div>

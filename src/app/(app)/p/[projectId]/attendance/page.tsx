@@ -1,7 +1,7 @@
 import { CalendarCheck, CalendarOff, PlaneTakeoff } from 'lucide-react'
 import { getAttendanceRecords } from '@/lib/data/attendance'
 import { getProjectMembers } from '@/lib/data/members'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { isProjectMember } from '@/lib/domain/authz'
 import { summarize } from '@/lib/domain/attendance'
 import { t } from '@/lib/i18n/dict'
@@ -16,7 +16,7 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
   const [records, members, m] = await Promise.all([
     getAttendanceRecords(projectId),
     getProjectMembers(projectId),
-    getActor(),
+    getActorForView(),
   ])
   const locale = await getServerLocale()
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())

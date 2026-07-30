@@ -1,5 +1,7 @@
 import { listProjects } from '@/app/actions/project'
 import { getSession } from '@/lib/auth'
+import { getActorForView } from '@/lib/authz'
+import { isProjectAdmin, isProjectMember } from '@/lib/domain/authz'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import { mondayIso, sheetWeekMeta } from '@/lib/report/week'
 import { getWeeklySheet, findCarryOverSource } from '@/lib/data/weeklySheet'
@@ -24,12 +26,14 @@ export default async function WeeklyPage({
   const weekStart = mondayIso(week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : seoulToday())
   const wk = sheetWeekMeta(weekStart)
 
-  const [sheet, carrySource, projects, locale, user] = await Promise.all([
+  const [sheet, carrySource, projects, locale, user, actor] = await Promise.all([
     getWeeklySheet(projectId, weekStart),
     findCarryOverSource(projectId, weekStart),
     listProjects(),
     getServerLocale(),
     getSession(),
+    // 어포던스 게이팅용 — 조회 실패는 null(조회 전용)로 열화한다. 쓰기는 서버 액션 가드가 다시 판정.
+    getActorForView(),
   ])
   const projectName = projects.find(p => p.id === projectId)?.name ?? ''
   // 프레즌스 신원 — 표시명 규칙은 헤더와 동일(full_name → name → 이메일 아이디)
@@ -53,6 +57,8 @@ export default async function WeeklyPage({
         initialRows={sheet?.rows ?? []}
         hasCarrySource={!!carrySource && carrySource.rows.length > 0}
         me={me}
+        canEditCells={isProjectMember(actor, projectId)}
+        canCreateRound={isProjectAdmin(actor, projectId)}
       />
     </ProjectPageShell>
   )

@@ -105,15 +105,19 @@ describe('occurrencesByDate', () => {
   })
 })
 
+// 3번째 인자는 '그 회의 프로젝트의 관리자인가' 불리언 — 호출부가 항목별로 판정해 넘긴다.
 describe('canEditMeeting', () => {
-  it('작성자 본인 → true', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u1', 'team_editor')).toBe(true))
-  it('pmo_admin → true(남의 것도)', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u2', 'pmo_admin')).toBe(true))
-  it('제3자 team_editor → false', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u2', 'team_editor')).toBe(false))
-  it('탈퇴자(null) → pmo만', () => {
-    expect(canEditMeeting({ createdBy: null }, 'u2', 'team_editor')).toBe(false)
-    expect(canEditMeeting({ createdBy: null }, 'u2', 'pmo_admin')).toBe(true)
+  it('작성자 본인 → true', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u1', false)).toBe(true))
+  it('해당 프로젝트 관리자 → true(남의 것도)', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u2', true)).toBe(true))
+  it('제3자 멤버 → false', () => expect(canEditMeeting({ createdBy: 'u1' }, 'u2', false)).toBe(false))
+  it('탈퇴자(null) → 관리자만', () => {
+    expect(canEditMeeting({ createdBy: null }, 'u2', false)).toBe(false)
+    expect(canEditMeeting({ createdBy: null }, 'u2', true)).toBe(true)
   })
-  it('비로그인 → false', () => expect(canEditMeeting({ createdBy: 'u1' }, null, null)).toBe(false))
+  it('비로그인 → false(관리자 플래그와 무관)', () => {
+    expect(canEditMeeting({ createdBy: 'u1' }, null, false)).toBe(false)
+    expect(canEditMeeting({ createdBy: 'u1' }, null, true)).toBe(false)
+  })
 })
 
 describe('MEETING_CATEGORIES', () => {

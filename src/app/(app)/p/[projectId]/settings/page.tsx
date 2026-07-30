@@ -4,7 +4,7 @@ import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRan
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getLlmConfig } from '@/app/actions/llmConfig'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { listProjectRoles } from '@/app/actions/projectRoles'
 import { ProjectRolesManager } from '@/components/settings/ProjectRolesManager'
@@ -96,7 +96,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       return null
     }),
     listProjects(),
-    getActor(),
+    getActorForView(),
     dkbotIndexStatus(projectId),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)

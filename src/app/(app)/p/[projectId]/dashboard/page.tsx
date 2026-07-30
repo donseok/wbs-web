@@ -7,8 +7,8 @@ import { getProjectMinuteSignals } from '@/lib/data/minutes'
 import { getProjectAiBriefs, briefFrom } from '@/lib/data/aiBriefs'
 import { listProjects } from '@/app/actions/project'
 import { getSession } from '@/lib/auth'
-import { getActor } from '@/lib/authz'
-import { effectiveLegacyRole } from '@/lib/domain/authz'
+import { getActorForView } from '@/lib/authz'
+import { effectiveLegacyRole, isProjectAdmin } from '@/lib/domain/authz'
 import { createServerClient } from '@/lib/supabase/server'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -34,7 +34,7 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
     createServerClient(),
     // 회의 카드에서 '작성자 본인이면 수정' 판정에 쓰는 식별자 — 기존 배치에 얹어 직렬 왕복을 늘리지 않는다.
     getSession(),
-    getActor(),
+    getActorForView(),
   ])
   const riskBriefRow = briefFrom(briefs, 'risk', '')
   const weeklyBriefRow = briefFrom(briefs, 'weekly', today)
@@ -67,6 +67,7 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         riskBriefRow={riskBriefRow}
         currentUserId={user?.id ?? null}
         role={effectiveLegacyRole(membership, projectId)}
+        canGenerateBrief={isProjectAdmin(membership, projectId)}
       />
     </ProjectPageShell>
   )

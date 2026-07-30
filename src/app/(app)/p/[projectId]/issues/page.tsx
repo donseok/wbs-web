@@ -2,7 +2,7 @@ import { getIssues } from '@/lib/data/issues'
 import { getProjectMembers } from '@/lib/data/members'
 import { resolveMemberIds } from '@/lib/data/meetings'
 import { getSession } from '@/lib/auth'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { effectiveLegacyRole } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { createServerClient } from '@/lib/supabase/server'
@@ -21,7 +21,7 @@ export default async function IssuesPage({ params }: { params: Promise<{ project
   const [issues, members, m, user, projects, locale] = await Promise.all([
     getIssues(projectId),
     getProjectMembers(projectId),
-    getActor(),
+    getActorForView(),
     getSession(),
     listProjects(),
     getServerLocale(),

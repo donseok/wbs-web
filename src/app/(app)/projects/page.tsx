@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { FolderKanban, Activity, CircleCheck, Gauge, Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight } from 'lucide-react'
 import { listProjects } from '@/app/actions/project'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { aggregateTaskStats } from '@/lib/domain/workspace'
 import { projectLifecycleStatus, type ProjectLifecycleStatus } from '@/lib/domain/project-status'
@@ -92,7 +92,7 @@ function ProjectCard({ project, status, locale }: { project: ProjectRow; status:
 }
 
 export default async function ProjectsHome() {
-  const [rawProjects, actor] = await Promise.all([listProjects(), getActor()])
+  const [rawProjects, actor] = await Promise.all([listProjects(), getActorForView()])
   const locale = await getServerLocale()
   const projects = rawProjects as ProjectRow[]
   const today = seoulToday()

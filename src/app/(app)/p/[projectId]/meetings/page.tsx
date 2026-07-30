@@ -5,7 +5,7 @@ import { getProjectMeetingData } from '@/lib/data/meetings'
 import { getProjectMembers } from '@/lib/data/members'
 import { expandMeetings, summarizeMeetings } from '@/lib/domain/meetings'
 import { getSession } from '@/lib/auth'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { effectiveLegacyRole } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
@@ -30,7 +30,7 @@ export default async function MeetingsPage({ params }: { params: Promise<{ proje
   const [{ meetings, exceptions }, members, m, user, projects, locale] = await Promise.all([
     getProjectMeetingData(projectId),
     getProjectMembers(projectId),
-    getActor(),
+    getActorForView(),
     getSession(),
     listProjects(),
     getServerLocale(),

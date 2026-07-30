@@ -67,6 +67,7 @@ function evidenceHref(e: EvidenceRef, projectId: string, bodyHashOf: Map<string,
 
 export function RiskSignalCard({
   report, projectId, minuteSignals = [], kpiLine, baseDate, realToday, weeklyBrief = null, riskBrief = null,
+  canGenerateBrief = false,
 }: {
   report: RiskSignalReport
   projectId: string
@@ -82,6 +83,8 @@ export function RiskSignalCard({
   weeklyBrief?: WeeklyBriefInitial | null
   /** 위험 해설 캐시(서버 조립: 지문 대조 완료). */
   riskBrief?: RiskBriefInitial | null
+  /** 주간 브리핑 생성 권한(프로젝트 관리자 이상). 기본 false = fail-closed. */
+  canGenerateBrief?: boolean
 }) {
   const bodyHashOf = new Map(minuteSignals.map(s => [anchorKey(s.minuteId, s.blockIndex, s.blockHash), s.bodyHash]))
   const overall = SIGNAL_META[report.overall]
@@ -113,7 +116,7 @@ export function RiskSignalCard({
       <div className="mb-4">
         <WeeklyBriefSection
           projectId={projectId} kpiLine={kpiLine} baseDate={baseDate} realToday={realToday}
-          initial={weeklyBrief}
+          initial={weeklyBrief} canGenerate={canGenerateBrief}
         />
       </div>
 

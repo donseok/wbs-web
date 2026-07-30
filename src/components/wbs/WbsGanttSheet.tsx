@@ -841,6 +841,7 @@ export function WbsGanttSheet({
         today={today}
         startDate={startDate}
         endDate={endDate}
+        canGenerate={isAdmin}
       />
 
       {/* ── 단일 스크롤 컨테이너 ── */}

@@ -1,7 +1,7 @@
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getSession } from '@/lib/auth'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { toProjectActorView } from '@/lib/domain/authz'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import { getWbsCollapse } from '@/app/actions/preferences'
@@ -25,7 +25,7 @@ export default async function WbsPage({
   const locale = await getServerLocale()
   const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user] = await Promise.all([
     getComputedWbs(projectId),
-    getActor(),
+    getActorForView(),
     listProjects(),
     getWbsCollapse(projectId),
     getSession(),

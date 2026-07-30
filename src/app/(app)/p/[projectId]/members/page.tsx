@@ -2,7 +2,7 @@ import { Users, ShieldCheck, UserRound } from 'lucide-react'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { getProjectMembers } from '@/lib/data/members'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
@@ -14,7 +14,7 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
   const { projectId } = await params
   const [members, m, projects, locale] = await Promise.all([
     getProjectMembers(projectId),
-    getActor(),
+    getActorForView(),
     listProjects(),
     getServerLocale(),
   ])

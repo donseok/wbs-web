@@ -50,8 +50,9 @@ export function MeetingScheduleList({ rows, today, currentUserId = null, role = 
           )
         })}
       </ul>
+      {/* 대시보드는 프로젝트 하나에 고정된 화면이라 role 이 이미 그 프로젝트 스코프 shim 이다. */}
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
-        currentUserId={currentUserId} role={role}
+        currentUserId={currentUserId} isAdmin={role === 'pmo_admin'}
         onClose={() => setDetailOcc(null)}
         onEditSeries={m => router.push(meetingEditHref(m.projectId, m.id, detailOcc?.occurrenceDate))}
         onChanged={() => router.refresh()} />

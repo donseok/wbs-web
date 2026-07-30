@@ -1,5 +1,5 @@
 import { getDisplayName } from '@/lib/auth'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { isAnyProjectAdmin, hasAnyProjectRole } from '@/lib/domain/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
 import { listProjects } from '@/app/actions/project'
@@ -22,7 +22,7 @@ function seoulToday(): string {
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const [actor, projects, userName, prefs] = await Promise.all([
-    getActor(),
+    getActorForView(),
     listProjects(),
     getDisplayName(),
     getUiPrefs(),

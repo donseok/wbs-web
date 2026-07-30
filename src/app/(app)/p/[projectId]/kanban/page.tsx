@@ -1,6 +1,6 @@
 import { ListChecks, Activity, Gauge } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
-import { getActor } from '@/lib/authz'
+import { getActorForView } from '@/lib/authz'
 import { toProjectActorView } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { t } from '@/lib/i18n/dict'
@@ -15,7 +15,7 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
   const { projectId } = await params
   const [{ items, today }, actor, projects, locale] = await Promise.all([
     getComputedWbs(projectId),
-    getActor(),
+    getActorForView(),
     listProjects(),
     getServerLocale(),
   ])

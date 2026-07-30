@@ -71,7 +71,8 @@ const rowCls = (active: boolean) =>
  *  leaves 는 팀 탭 필터가 이미 적용된 것 — 카운트·스코프가 필터와 정합. folders 는 항상 전부. */
 export function MinutesExplorer({
   folders, leaves, favorites, onToggleFavorite, onRetryFavorites,
-  layout, currentUserId, isAdmin, onChanged, onFolderSelect, teamCodes = [], projects = [],
+  layout, currentUserId, isFolderAdmin, adminProjectIds = [], isSuperuser = false,
+  onChanged, onFolderSelect, teamCodes = [], projects = [],
   myProjectIds = null,
 }: {
   folders: MinuteFolder[]
@@ -81,7 +82,12 @@ export function MinutesExplorer({
   onRetryFavorites: () => void
   layout: ExplorerLayout
   currentUserId: string | null
-  isAdmin: boolean
+  /** 폴더는 프로젝트에 속하지 않는 전역 리소스 — 서버 가드도 isAnyProjectAdmin 이라 전역 불리언 하나로 맞는다. */
+  isFolderAdmin: boolean
+  /** 회의록 개별 건은 **그 회의록 프로젝트의** 관리자 기준(서버 checkOwner). 관리자인 프로젝트 id 목록. */
+  adminProjectIds?: string[]
+  /** 프로젝트 미지정(projectId null) 회의록은 isProjectAdmin(actor, null)=슈퍼유저만 — fail-closed. */
+  isSuperuser?: boolean
   onChanged: () => void
   onFolderSelect?: (folderId: string | null) => void
   /** 루트 예약어(팀 앵커) 판정용. 여기서 훅으로 직접 읽지 않는 이유는 이 목록이 **활성** 팀이라
@@ -155,8 +161,15 @@ export function MinutesExplorer({
       return next
     })
   }
-  const canManageFolder = (f: MinuteFolder) => isAdmin || (f.createdBy !== null && f.createdBy === currentUserId)
-  const canMoveLeaf = (l: ExplorerLeaf) => isAdmin || (l.createdBy !== null && l.createdBy === currentUserId)
+  const canManageFolder = (f: MinuteFolder) => isFolderAdmin || (f.createdBy !== null && f.createdBy === currentUserId)
+  /** isProjectAdmin(actor, projectId) 의 클라이언트 등가식 — 슈퍼유저는 모든 프로젝트의 관리자다. */
+  const isAdminOf = (projectId: string | null | undefined) =>
+    isSuperuser || (projectId != null && adminProjectIds.includes(projectId))
+  // 서버 checkOwner 와 같은 식: 작성자 본인 또는 **그 회의록 프로젝트의** 관리자.
+  // 전역 shim(어느 프로젝트든 관리자)으로 판정하면 A 프로젝트 관리자에게 B 프로젝트 회의록의
+  // 이동·일괄지정 어포던스가 열리고 전부 서버에서 거부된다.
+  const canMoveLeaf = (l: ExplorerLeaf) =>
+    (l.createdBy !== null && l.createdBy === currentUserId) || isAdminOf(l.projectId)
 
   const total = leaves.length
   const favCount = favorites === null

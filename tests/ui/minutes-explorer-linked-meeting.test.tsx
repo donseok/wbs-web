@@ -49,7 +49,7 @@ describe('MinutesExplorer — 연결된 회의 칩', () => {
     await act(async () => root.render(
       <MinutesExplorer folders={folders} leaves={[leaf()]} favorites={new Set()}
         onToggleFavorite={vi.fn()} onRetryFavorites={vi.fn()} layout="grid"
-        currentUserId="u1" isAdmin={false} onChanged={vi.fn()} {...over} />,
+        currentUserId="u1" isFolderAdmin={false} onChanged={vi.fn()} {...over} />,
     ))
   }
   const meetingLink = () => container.querySelector<HTMLAnchorElement>('a[href="/p/p1/meetings"]')

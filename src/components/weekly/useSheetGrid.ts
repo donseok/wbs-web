@@ -62,6 +62,13 @@ export interface SheetGridApi {
 interface UseSheetGridArgs {
   rows: WeeklySheetRow[]
   enabled: boolean
+  /**
+   * 조회 전용 — 편집 진입(더블클릭·탭·Enter·F2·문자·IME)과 값 변이(지우기·붙여넣기·채우기·undo/redo)를
+   * 전부 막는다. 선택·이동·복사는 그대로 살려 표를 읽고 옮겨 담을 수는 있게 한다.
+   * 부모의 runBatch/commit 가드와 이중이지만, 여기서 막지 않으면 nativeSet 이 로컬 값을 비워
+   * '지워진 것처럼' 보이는 화면 거짓말이 남는다.
+   */
+  readOnly: boolean
   cellRefs: React.MutableRefObject<Map<string, HTMLTextAreaElement>>
   /** §2 배치 프로토콜 실행기(부모 소유). undoable=false면 undo 스택 push 생략(undo/redo 유발 배치). */
   runBatch: (edits: WeeklyCellEdit[], opts: { undoable: boolean }) => void
@@ -75,7 +82,7 @@ interface UseSheetGridArgs {
 }
 
 export function useSheetGrid({
-  rows, enabled, cellRefs, runBatch, requestUndo, requestRedo, beginEdit, endEdit, toast,
+  rows, enabled, readOnly, cellRefs, runBatch, requestUndo, requestRedo, beginEdit, endEdit, toast,
 }: UseSheetGridArgs): SheetGridApi {
   const rowIds = useMemo(() => rows.map(r => r.id), [rows])
   const rowsRef = useRef(rows)
@@ -139,13 +146,15 @@ export function useSheetGrid({
 
   // ── 배치 오퍼레이션(선택 기하 + 도메인 fn → runBatch) ──
   const doClear = useCallback((r: GridRect) => {
+    if (readOnly) return
     const edits = clearEdits(rowsRef.current, rowIdsRef.current, r)
     if (edits.length === 0) return // 이미 빈 셀만 — no-op(AC5.4)
     runBatch(edits, { undoable: true })
     setLive(`${edits.length}개 셀 지움`)
-  }, [runBatch])
+  }, [runBatch, readOnly])
 
   const doPasteText = useCallback((text: string, anchor: CellAddr) => {
+    if (readOnly) return
     const values = parseTsv(text)
     const { edits, clippedRows, clippedCols } = pasteEdits(rowIdsRef.current, anchor, values)
     // 시트는 업무영역 구분 10행 고정이라 행을 늘릴 수단이 없다 — 실행 가능한 대안(위쪽 행부터
@@ -176,9 +185,10 @@ export function useSheetGrid({
       setSel({ active: endAddr, anchor, editing: false })
     }
     setLive(`${edits.length}개 셀 붙여넣음`)
-  }, [runBatch, toast])
+  }, [runBatch, toast, readOnly])
 
   const doFill = useCallback((source: GridRect, target: GridRect) => {
+    if (readOnly) return
     const edits = fillEdits(rowsRef.current, rowIdsRef.current, source, target)
     if (edits.length === 0) return
     runBatch(edits, { undoable: true })
@@ -188,7 +198,7 @@ export function useSheetGrid({
     const activeAddr: CellAddr = { rowId: ids[target.bottom], col: CONTENT_COLS[target.right] }
     setSel({ active: activeAddr, anchor: anchorAddr, editing: false })
     setLive(`${edits.length}개 셀 채움`)
-  }, [runBatch])
+  }, [runBatch, readOnly])
 
   // ── 드래그(select/fill) 전역 종료 리스너 ── (doFill 정의 후 배선 — mouseup에 최신 fillPreview 반영)
   useEffect(() => {
@@ -243,13 +253,13 @@ export function useSheetGrid({
     if (cur.editing && addrEq(cur.active, addr)) return // 편집 중 자기 셀 클릭 — 네이티브 캐럿 이동 허용
     armedRef.current = true
     if (e.detail >= 2) { // 더블클릭 — preventDefault 없이 네이티브가 캐럿(클릭 위치/단어 선택)을 배치(F10)
-      setSingle(addr, true)
-      beginEdit(addr)
+      setSingle(addr, !readOnly)      // 조회 전용은 선택만
+      if (!readOnly) beginEdit(addr)
       return
     }
-    if (isCoarse()) { // 터치: 탭=바로 편집(회귀 #11)
-      setSingle(addr, true)
-      beginEdit(addr)
+    if (isCoarse()) { // 터치: 탭=바로 편집(회귀 #11). 조회 전용은 선택만.
+      setSingle(addr, !readOnly)
+      if (!readOnly) beginEdit(addr)
       return
     }
     e.preventDefault() // 네이티브 포커스/캐럿 억제 — 포커스는 아래 명시 포커스 + effect가 관리
@@ -258,7 +268,7 @@ export function useSheetGrid({
     setSingle(addr, false)
     dragModeRef.current = 'select'
     setDragging('select')
-  }, [isCoarse, setSingle, beginEdit, cellRefs])
+  }, [isCoarse, setSingle, beginEdit, cellRefs, readOnly])
 
   const onCellMouseEnter = useCallback((addr: CellAddr) => {
     const mode = dragModeRef.current
@@ -334,11 +344,12 @@ export function useSheetGrid({
     // 229 keydown 경로가 이미 편집 진입 + 덮어쓰기를 처리했으면 폴백을 건너뛴다.
     // (setSel editing이 아직 flush되지 않아 selRef.current.editing이 stale-false여도 baseline 재캡처를 막음.)
     if (pendingImeEditRef.current) { pendingImeEditRef.current = false; return }
+    if (readOnly) return
     if (!selRef.current.editing) { // 229 없이 조합이 시작된 IME 폴백 — 진입만(덮어쓰기 없음, 값 유지)
       beginEdit(selRef.current.active)
       setSel(s => ({ active: s.active, anchor: s.active, editing: true })) // 편집 진입 = 선택을 활성 1셀로 축소(§1.4)
     }
-  }, [beginEdit])
+  }, [beginEdit, readOnly])
   const onCompositionEnd = useCallback(() => { composingRef.current = false; pendingImeEditRef.current = false }, [])
 
   const onCellKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -349,6 +360,7 @@ export function useSheetGrid({
       // 탐색 모드의 한글 첫 입력도 라틴과 동일하게 덮어쓰기로 편집 진입(D5).
       if (!selRef.current.editing) {
         armedRef.current = true
+        if (readOnly) { e.preventDefault(); return }
         pendingImeEditRef.current = true // 뒤이을 compositionstart 폴백이 baseline을 재캡처하지 않게 신호
         beginEdit(selRef.current.active, true)
         setSel(s => ({ active: s.active, anchor: s.active, editing: true })) // 편집 진입 = 선택을 활성 1셀로 축소(§1.4)
@@ -395,8 +407,8 @@ export function useSheetGrid({
     }
 
     // ── 탐색 모드 ──
-    if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) { if (requestRedo()) setLive('다시 실행') } else if (requestUndo()) setLive('실행 취소'); return }
-    if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); if (requestRedo()) setLive('다시 실행'); return }
+    if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (readOnly) return; if (e.shiftKey) { if (requestRedo()) setLive('다시 실행') } else if (requestUndo()) setLive('실행 취소'); return }
+    if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); if (readOnly) return; if (requestRedo()) setLive('다시 실행'); return }
     // Ctrl/Cmd+C·X·V는 preventDefault하지 않음 → 네이티브 copy/cut/paste 이벤트가 onCellCopy/Cut/Paste로 처리.
     if (mod && 'cxv'.includes(e.key.toLowerCase())) return
     if (mod && (e.key === 'a' || e.key === 'A')) { // 전체 내용 셀 선택(v1)
@@ -428,6 +440,7 @@ export function useSheetGrid({
         // Shift+Enter는 위로 이동 유지.
         e.preventDefault()
         if (e.shiftKey) { setSingle(moveActive(ids, cur.active, -1, 0)); return }
+        if (readOnly) { setSingle(moveActive(ids, cur.active, 1, 0)); return } // 편집 없이 아래로만 이동
         beginEdit(cur.active, false)
         setSel(s => ({ active: s.active, anchor: s.active, editing: true })) // 편집 진입 = 선택을 활성 1셀로 축소(§1.4)
         {
@@ -437,6 +450,7 @@ export function useSheetGrid({
         return
       case 'F2':
         e.preventDefault()
+        if (readOnly) return
         beginEdit(cur.active, false)
         setSel(s => ({ active: s.active, anchor: s.active, editing: true })) // 편집 진입 = 선택을 활성 1셀로 축소(§1.4)
         {
@@ -460,12 +474,13 @@ export function useSheetGrid({
 
     // 인쇄 가능 문자 → 편집 진입 + 덮어쓰기(D5). preventDefault 안 함(문자 자연 착지).
     if (isPrintableKey(e)) {
+      if (readOnly) { e.preventDefault(); return }
       beginEdit(cur.active, true)
       setSel(s => ({ active: s.active, anchor: s.active, editing: true })) // 편집 진입 = 선택을 활성 1셀로 축소(§1.4)
       const el = e.currentTarget
       nativeSet(el, '') // 기존 값 비움 — 이어질 네이티브 문자가 빈 셀에 착지(덮어쓰기)
     }
-  }, [setSingle, beginEdit, endEdit, doClear, requestUndo, requestRedo, cellRefs])
+  }, [setSingle, beginEdit, endEdit, doClear, requestUndo, requestRedo, cellRefs, readOnly])
 
   return {
     sel, rect, fillPreview, dragging, live,
