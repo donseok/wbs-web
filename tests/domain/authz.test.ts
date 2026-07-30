@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { roleIn, isProjectAdmin, isProjectMember, type Actor } from '@/lib/domain/authz'
+import {
+  roleIn, isProjectAdmin, isProjectMember, toProjectActorView, actorFromView, type Actor,
+} from '@/lib/domain/authz'
 
 const P = 'proj-1'
 const Q = 'proj-2'
@@ -50,6 +52,26 @@ describe('isProjectAdmin', () => {
     expect(isProjectAdmin(member, P)).toBe(false)
     expect(isProjectAdmin(viewer, P)).toBe(false)
     expect(isProjectAdmin(null, P)).toBe(false)
+  })
+})
+
+describe('toProjectActorView / actorFromView', () => {
+  it('왕복해도 프로젝트 판정이 보존된다', () => {
+    for (const a of [superuser, admin, member, viewer]) {
+      const restored = actorFromView(toProjectActorView(a, P), P)
+      expect(roleIn(restored, P)).toBe(roleIn(a, P))
+      expect(isProjectAdmin(restored, P)).toBe(isProjectAdmin(a, P))
+      expect(isProjectMember(restored, P)).toBe(isProjectMember(a, P))
+    }
+  })
+  it('다른 프로젝트의 역할은 뷰에 실리지 않는다 — 뷰는 한 프로젝트 스코프다', () => {
+    const restored = actorFromView(toProjectActorView(admin, Q), Q)
+    expect(roleIn(restored, P)).toBe('viewer')
+    expect(roleIn(restored, Q)).toBe('viewer')
+  })
+  it('null 은 null', () => {
+    expect(toProjectActorView(null, P)).toBe(null)
+    expect(actorFromView(null, P)).toBe(null)
   })
 })
 

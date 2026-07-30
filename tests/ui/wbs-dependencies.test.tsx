@@ -45,7 +45,7 @@ describe('WBS 간트 작업 의존성', () => {
         dependencies={dependencies}
         holidays={[]}
         today="2026-07-01"
-        membership={null}
+        actorView={null}
         projectId="p1"
         readOnly
       />,

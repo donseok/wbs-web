@@ -3,7 +3,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Layers, Users, Columns3, Search, Inbox } from 'lucide-react'
-import type { ComputedItem, Membership } from '@/lib/domain/types'
+import type { ComputedItem } from '@/lib/domain/types'
+import { actorFromView, isProjectAdmin, type ProjectActorView } from '@/lib/domain/authz'
 import { canEditActual } from '@/lib/domain/permissions'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -39,13 +40,14 @@ const COLUMN_TITLE_KEY: Record<string, DictKey> = {
 export function KanbanBoard({
   projectId,
   items,
-  membership,
+  actorView,
   today,
   readOnly = false,
 }: {
   projectId: string
   items: ComputedItem[]
-  membership: Membership | null
+  /** 이 프로젝트 스코프의 직렬화 가능한 권한 스냅샷 — Actor(Map)는 RSC 경계를 못 넘는다. */
+  actorView: ProjectActorView | null
   today: string
   /** 데모 모드 등에서 편집 어포던스 비활성화 */
   readOnly?: boolean
@@ -62,9 +64,10 @@ export function KanbanBoard({
     if (view === 'status') return 'progress'
     return 'progress'
   })
-  // 렌즈 기본값 — PMO 관리자이거나 소속 팀이 없으면 전체, 그 외(팀 소속 편집자 등)는 내 팀부터.
+  // 렌즈 기본값 — 관리자 이상이거나 소속 팀이 없으면 전체, 그 외(팀 소속 멤버 등)는 내 팀부터.
+  const actor = useMemo(() => actorFromView(actorView, projectId), [actorView, projectId])
   const [lens, setLens] = useState<'myTeam' | 'all'>(() =>
-    membership?.role === 'pmo_admin' || !membership?.teamCode ? 'all' : 'myTeam')
+    isProjectAdmin(actorFromView(actorView, projectId), projectId) || !actorView?.teamCode ? 'all' : 'myTeam')
   const [quick, setQuick] = useState<QuickFilters>({ overdue: false, dueThisWeek: false, inProgress: false, notStarted: false })
   const toggleQuick = (k: keyof QuickFilters) => setQuick(q => ({ ...q, [k]: !q[k] }))
   // ?team= 은 검색어 초기값으로 소비한다 — 칸반 검색 대상에 담당팀 코드가 포함되며,
@@ -115,7 +118,7 @@ export function KanbanBoard({
   })
 
   const editable = !readOnly && mode === 'progress'
-  const cardEditable = (card: ComputedItem) => editable && canEditActual(card, membership)
+  const cardEditable = (card: ComputedItem) => editable && canEditActual(card, actor, projectId)
 
   // 최초 방문 코치마크 — 진행 뷰(편집 가능) 진입 시 1회, localStorage 플래그로 재노출 방지.
   const COACH_KEY = 'kanban.coach.v1'
@@ -161,7 +164,7 @@ export function KanbanBoard({
 
   const columns = useMemo<KanbanColumn[]>(() => {
     const q = query.trim().toLowerCase()
-    const myTeam = membership?.teamCode ?? null
+    const myTeam = actorView?.teamCode ?? null
     return baseColumns.map(col => {
       let cards = lensCards(col.cards, lens, myTeam)
       cards = applyQuickFilters(cards, quick, today)
@@ -169,7 +172,7 @@ export function KanbanBoard({
       cards = sortCards(cards, today)
       return { ...col, cards, count: cards.length }
     })
-  }, [baseColumns, lens, quick, query, membership, today])
+  }, [baseColumns, lens, quick, query, actorView, today])
 
   // 데이터는 있으나(items.length>0) 렌즈/빠른필터/검색으로 모든 컬럼이 걸러진 상태 — 데이터 0건과 구분해 안내한다.
   const filteredEmpty = items.length > 0 && columns.every(c => c.cards.length === 0)

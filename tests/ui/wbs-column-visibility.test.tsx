@@ -62,7 +62,7 @@ describe('WbsGanttSheet — 담당~계획% 열 숨기기', () => {
         items={[item]}
         holidays={[]}
         today="2026-07-03"
-        membership={null}
+        actorView={null}
         projectId="p1"
         readOnly
       />,

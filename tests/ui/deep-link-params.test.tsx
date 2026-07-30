@@ -277,7 +277,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
       }),
     ]
     await mount(
-      <KanbanBoard projectId="p1" items={items} membership={null} today="2026-07-19" />,
+      <KanbanBoard projectId="p1" items={items} actorView={null} today="2026-07-19" />,
     )
     // owner 모드 컬럼(PMO 헤더)과 team 검색어 프리필 + ERP 카드만 남는다.
     expect(container.textContent).toContain('PMO')
@@ -295,7 +295,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
           id: 'phase-1', parentId: null, level: 'phase', code: '1', name: '구축', owners: [],
           children: [kanbanLeaf({ id: 'leaf-1', name: 'ERP 인터페이스' })],
         }),
-      ]} membership={null} today="2026-07-19" />,
+      ]} actorView={null} today="2026-07-19" />,
     )
     // phase 모드면 컬럼 제목이 루트 이름(구축)이다.
     expect(container.textContent).toContain('구축')

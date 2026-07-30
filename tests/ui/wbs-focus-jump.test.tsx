@@ -52,7 +52,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
 
   it('기본 접힘에 숨은 항목을 focus하면 조상을 펼쳐 행을 드러내고 플래시+스크롤한다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="s1" />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
     // 기본 접힘이면 3행(sub 숨김) — focus가 a1을 펼쳐 5행이 된다.
     expect(rowCount(container)).toBe(5)
@@ -65,14 +65,14 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
 
   it('focus로 인한 펼침은 접힘 상태 저장(queueWbsCollapse)을 호출하지 않는다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="s1" />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
     expect(queueWbsCollapse).not.toHaveBeenCalled()
   })
 
   it('focus로 펼쳐진 부모를 사용자가 다시 접으면 행이 숨고, 저장 상태와 같으므로 저장하지 않는다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="s1" />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
     const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="wbs.collapse"]')
     expect(toggle).not.toBeNull()
@@ -83,7 +83,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
 
   it('트리에 없는 focusId면 펼치지 않되, 조용히 삼키지 않고 토스트로 알린다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="ghost" />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="ghost" />,
     ))
     expect(rowCount(container)).toBe(3)
     expect(scrollIntoView).not.toHaveBeenCalled()
@@ -94,7 +94,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
 
   it('플래시 행에는 hover 와 구분되는 도착 강조 마커(악센트)가 붙는다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="s1" />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
     const row = container.querySelector<HTMLElement>('[data-row-id="s1"]')
     expect(row!.querySelector('[data-flash-accent]')).not.toBeNull()
@@ -102,7 +102,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
 
   it('점프 후 키보드 포커스가 대상 행으로 이동한다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="s1" />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
     const row = container.querySelector<HTMLElement>('[data-row-id="s1"]')
     expect(document.activeElement).toBe(row)
@@ -110,7 +110,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
 
   it('focus 중 전체 접기를 눌러도 저장 상태와 내용이 같으면 저장하지 않는다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="s1" />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
     const btn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'wbs.collapseAll')
     expect(btn).not.toBeUndefined()
@@ -122,7 +122,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
   it('StrictMode 마운트에서도 focus 진입이 저장을 호출하지 않는다', async () => {
     await act(async () => root.render(
       <StrictMode>
-        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly focusId="s1" />
+        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />
       </StrictMode>,
     ))
     expect(rowCount(container)).toBe(5)
@@ -132,7 +132,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
   it('플래시가 끝난 뒤 같은 focus 로 재진입하면 다시 점프한다(뒤로가기/재클릭)', async () => {
     vi.useFakeTimers()
     try {
-      const props = { items: fixture(), holidays: [] as string[], today: '2026-07-03', membership: null, projectId: 'p1', readOnly: true }
+      const props = { items: fixture(), holidays: [] as string[], today: '2026-07-03', actorView: null, projectId: 'p1', readOnly: true }
       await act(async () => root.render(<WbsGanttSheet {...props} focusId="s1" />))
       expect(scrollIntoView).toHaveBeenCalledTimes(1)
       await act(async () => { vi.advanceTimersByTime(2500) }) // 플래시 해제
@@ -146,7 +146,7 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
 
   it('focusId가 없으면 기존 기본 접힘 그대로다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
     ))
     expect(rowCount(container)).toBe(3)
     expect(scrollIntoView).not.toHaveBeenCalled()

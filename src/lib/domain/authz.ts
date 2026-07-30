@@ -32,6 +32,42 @@ export function roleIn(actor: Actor | null, projectId: string | null): Effective
   return actor.projectRoles.get(projectId) ?? 'viewer'
 }
 
+/**
+ * RSC 경계로 내릴 수 있는 직렬화 가능한 스냅샷 — Actor 의 Map 은 클라이언트 props 로
+ * 직렬화되지 않는다. 프로젝트 화면은 자기 프로젝트 하나의 역할만 알면 되므로
+ * 그 역할 하나를 평탄화해 내리고, 클라이언트에서 actorFromView 로 복원한다.
+ */
+export interface ProjectActorView {
+  userId: string
+  teamCode: TeamCode | null
+  teamId: string | null
+  isSuperuser: boolean
+  /** 이 프로젝트에서의 역할. null = 조회 전용. */
+  projectRole: ProjectRole | null
+}
+
+export function toProjectActorView(actor: Actor | null, projectId: string): ProjectActorView | null {
+  if (!actor) return null
+  return {
+    userId: actor.userId,
+    teamCode: actor.teamCode,
+    teamId: actor.teamId,
+    isSuperuser: actor.isSuperuser,
+    projectRole: actor.projectRoles.get(projectId) ?? null,
+  }
+}
+
+export function actorFromView(view: ProjectActorView | null, projectId: string): Actor | null {
+  if (!view) return null
+  return {
+    userId: view.userId,
+    teamCode: view.teamCode,
+    teamId: view.teamId,
+    isSuperuser: view.isSuperuser,
+    projectRoles: new Map(view.projectRole ? [[projectId, view.projectRole]] : []),
+  }
+}
+
 /** 관리자 이상(슈퍼유저 포함). 등록·수정·삭제 전권. */
 export function isProjectAdmin(actor: Actor | null, projectId: string | null): boolean {
   const r = roleIn(actor, projectId)

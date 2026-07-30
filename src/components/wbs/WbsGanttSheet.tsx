@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import type { ComputedItem, Membership, TaskDependency } from '@/lib/domain/types'
+import type { ComputedItem, TaskDependency } from '@/lib/domain/types'
+import { actorFromView, isProjectAdmin, isProjectMember, type ProjectActorView } from '@/lib/domain/authz'
 import { computeDependencySchedule, type TaskSchedule } from '@/lib/domain/dependencySchedule'
 import { centeredTimelineScrollLeft } from '@/lib/domain/ganttScale'
 import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
@@ -124,7 +125,7 @@ export function WbsGanttSheet({
   dependencies = EMPTY_DEPENDENCIES,
   holidays,
   today,
-  membership,
+  actorView,
   me = null,
   projectId,
   projectName = '',
@@ -140,7 +141,8 @@ export function WbsGanttSheet({
   dependencies?: TaskDependency[]
   holidays: string[]
   today: string
-  membership: Membership | null
+  /** 이 프로젝트 스코프의 직렬화 가능한 권한 스냅샷 — Actor(Map)는 RSC 경계를 못 넘는다. */
+  actorView: ProjectActorView | null
   /** 프레즌스 신원 — 서버(getSession)에서 전달. 없으면 접속자 표시 비활성. */
   me?: { id: string; name: string } | null
   projectId: string
@@ -559,8 +561,9 @@ export function WbsGanttSheet({
   }, [FROZEN_W, LEFT_W, planningColsHidden, projectId, timelineFocus, todayX])
 
   /* ── 편집 (WbsSheet 이식) ── */
-  const isPmo = membership?.role === 'pmo_admin'
-  const canEditW = canEditWeight(membership) && !readOnly
+  const actor = useMemo(() => actorFromView(actorView, projectId), [actorView, projectId])
+  const isAdmin = isProjectAdmin(actor, projectId)
+  const canEditW = canEditWeight(actor, projectId) && !readOnly
   const startEdit = (id: string, field: 'weight' | 'actual', current: string, original = current) => {
     setEdit({ id, field })
     setDraft(current)
@@ -796,7 +799,7 @@ export function WbsGanttSheet({
             )}
           </button>
         )}
-        {isPmo && !readOnly && (
+        {isAdmin && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
             <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhase')}
           </button>
@@ -1004,7 +1007,7 @@ export function WbsGanttSheet({
             const editingWeight = edit?.id === n.id && edit.field === 'weight'
             const editingActual = edit?.id === n.id && edit.field === 'actual'
             const editableW = canEditW
-            const editableA = canEditActual(n, membership) && !readOnly
+            const editableA = canEditActual(n, actor, projectId) && !readOnly
             const weightLabel = n.weight == null ? t('wbs.weightEqual') : formatWeightPct(n.weight)
 
             const frozen = (key: string, z = 20): React.CSSProperties => {
@@ -1373,7 +1376,7 @@ export function WbsGanttSheet({
         <span className="text-ink-muted">
           {timelineFocus
             ? t('wbs.legendHintTimeline')
-            : isPmo
+            : isAdmin
               ? t('wbs.legendHintPmo')
               : t('wbs.legendHintOwner')}
         </span>
@@ -1398,9 +1401,9 @@ export function WbsGanttSheet({
           schedule={dependencySchedule.byId.get(selectedItem.id)}
           subAct={subActLabels.has(selectedItem.id)}
           onClose={() => setSelectedId(null)}
-          editable={isPmo && !readOnly}
-          canAttach={!readOnly && !!membership && (isPmo || selectedItem.owners.some(o => o.team === membership.teamCode))}
-          canEditDeliverable={!readOnly && canEditDeliverable(selectedItem, membership)}
+          editable={isAdmin && !readOnly}
+          canAttach={!readOnly && (isAdmin || (isProjectMember(actor, projectId) && selectedItem.owners.some(o => o.team === actorView?.teamCode)))}
+          canEditDeliverable={!readOnly && canEditDeliverable(selectedItem, actor, projectId)}
           projectId={projectId}
         />
       )}
