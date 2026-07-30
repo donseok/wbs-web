@@ -1322,19 +1322,41 @@ export function summarizeTopicGranularity(items) {
 `main()` 안의 조회를 고친다 — 항목 조회에 주제 제목을 붙이고, 세대 스코프 이벤트 분포와
 `--dump-keys` 를 더한다.
 
+현행 `main()` 은 `let jobs / processing / items / sources / minutes` 를 선언하고 `Promise.all`
+로 채운다(139-145행 부근). 여기에 `events` 와 `topicRows` 를 **선언과 조회 양쪽에** 더한다 —
+`topicRows` 는 판정 9(`wiki_topics` 총 행 수)의 원천이고, 살아있는 항목 조회로는 얻을 수 없다
+(살아있는 항목이 0건인 주제 170행이 빠지기 때문이다).
+
 ```js
+  let jobs
+  let processing
+  let items
+  let sources
+  let minutes
+  let events
+  let topicRows
+
   // 살아있음의 정의를 게이트와 일치시킨다(기존 neq.archived 를 교체).
   const liveFilter = `lifecycle_state=in.(${LIVE_STATES.join(',')})`
 
-  ;[jobs, processing, items, sources, minutes, events] = await Promise.all([
-    rest('wiki_project_rebuild_jobs?select=*'),
-    rest('wiki_processing_jobs?select=id,status,attempts,max_attempts,locked_at,last_error&status=neq.done'),
-    rest(`wiki_items?select=id,topic_id,knowledge_key,wiki_topics!inner(title)&${liveFilter}&limit=5000`),
-    rest('wiki_item_sources?select=minute_id&retracted_at=is.null&limit=5000'),
-    rest('minutes?select=id,minute_date,meeting_occurrence_date,created_at&archived_at=is.null&project_id=not.is.null'),
-    rest('wiki_change_events?select=change_type,created_at,idempotency_key&limit=5000'),
-  ])
+  try {
+    ;[jobs, processing, items, sources, minutes, events, topicRows] = await Promise.all([
+      rest('wiki_project_rebuild_jobs?select=*'),
+      rest('wiki_processing_jobs?select=id,status,attempts,max_attempts,locked_at,last_error&status=neq.done'),
+      rest(`wiki_items?select=id,topic_id,knowledge_key,wiki_topics!inner(title)&${liveFilter}&limit=5000`),
+      rest('wiki_item_sources?select=minute_id&retracted_at=is.null&limit=5000'),
+      rest('minutes?select=id,minute_date,meeting_occurrence_date,created_at&archived_at=is.null&project_id=not.is.null'),
+      rest('wiki_change_events?select=change_type,created_at,idempotency_key&limit=5000'),
+      rest('wiki_topics?select=id&limit=5000'),
+    ])
+  } catch (err) {
+    console.error('조회 실패 —', err instanceof Error ? err.message : err)
+    process.exit(2)
+  }
 ```
+
+현행 코드의 `jobs`·`processing`·`sources`·`minutes` 조회 문자열은 그대로 둔다 — 이 태스크가
+바꾸는 것은 `items`(제목 임베드 + live 정의 통일)와 새로 더하는 `events`·`topicRows` 뿐이다.
 
 ```js
   const gran = summarizeTopicGranularity(items.map((i) => ({
