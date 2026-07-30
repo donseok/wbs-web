@@ -95,6 +95,12 @@ update memberships m set is_superuser = true
 
 -- 프로젝트 역할 (설계 결정 D4) — 규칙으로 부여한다. 하드코딩 명단을 쓰지 않는다.
 -- PMO팀 pmo_admin → 관리자, 그 외 전원 → 멤버.
+--
+-- **1회성 이관이다.** cross join 은 실행 시점의 모든 프로젝트 × 모든 멤버십을 채우므로,
+-- 두 번째 프로젝트가 생긴 뒤 이 파일을 재실행하면 그 프로젝트에 41명 전원이 조용히
+-- 등록된다(신규 프로젝트는 빈 역할로 시작해야 한다는 새 체계와 정반대). 검증 블록도
+-- 그 변화를 감지하지 못한다. 그래서 project_roles 가 비어 있을 때만 돈다 —
+-- 이 가드가 있어야 "재실행 안전"이 권한 대량 부여를 뜻하지 않게 된다.
 insert into project_roles (project_id, user_id, role, granted_by, granted_at)
 select p.id, m.user_id,
        case when t.code = 'PMO' and m.role = 'pmo_admin' then 'admin' else 'member' end,
@@ -102,6 +108,7 @@ select p.id, m.user_id,
   from projects p
  cross join memberships m
   join teams t on t.id = m.team_id
+ where not exists (select 1 from project_roles)
     on conflict (project_id, user_id) do nothing;
 
 -- ── 6) app_role() 호환 shim ────────────────────────────────────────────────
@@ -128,7 +135,11 @@ returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   -- 서버·임포트 경로(service_role: auth.uid() is null)는 그대로 통과
   if auth.uid() is null then return new; end if;
-  if public.is_project_admin(new.project_id) then return new; end if;
+  -- 판정 기준은 **old.project_id** 다. new 로 보면 "A 의 멤버이자 B 의 관리자"가
+  -- project_id 를 B 로 바꾸는 UPDATE 한 번으로 컬럼 제한을 통째로 건너뛰고
+  -- 이름·일정·가중치까지 재작성할 수 있다(B 관리자로 판정되므로).
+  -- old 기준이면 project_id 변경 자체가 아래 diff 검사에 걸려 막힌다.
+  if public.is_project_admin(old.project_id) then return new; end if;
 
   -- 그 외 전원(멤버·조회 전용·미상): 실적%·산출물만 허용
   if (to_jsonb(new) - 'actual_pct' - 'deliverable' - 'updated_at')
