@@ -9,6 +9,7 @@
 // 그대로 적용되므로 같은 시각 Vercel cron이 돌아도 서로 덮어쓰지 않는다.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { IDLE_LIMIT, nextRebuildLoopState } from './lib/rebuild-loop.mjs'
 
 function loadEnvLocal(): void {
   const raw = readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
@@ -29,20 +30,29 @@ describe('wiki 전량 재구축', () => {
   it('더 처리할 작업이 없을 때까지 워커를 반복 실행한다', async () => {
     expect(process.env.SUPABASE_SERVICE_ROLE_KEY, '.env.local 로드 실패').toBeTruthy()
 
-    let round = 0
+    let state = { round: 0, idle: 0, stop: false, reason: null as string | null, waitMs: 0 }
     let totalAttempted = 0
     let totalCompleted = 0
-    // 무한 루프 방지 상한. 회의록 13건 기준 필요 라운드는 1~2회다.
-    while (round < 12) {
-      round += 1
+    while (!state.stop) {
       const result = await runWikiWorkerOnce(20)
       totalAttempted += result.attempted
       totalCompleted += result.completed
-      console.log(`[round ${round}] attempted=${result.attempted} completed=${result.completed}`)
-      if (result.attempted === 0) break
+      state = nextRebuildLoopState(state, result)
+      console.log(
+        `[round ${state.round}] attempted=${result.attempted} completed=${result.completed}`
+        + (state.idle > 0 ? ` idle=${state.idle}/${IDLE_LIMIT}` : ''),
+      )
+      // 빈손은 '할 일 없음'이 아니라 대개 finish 가 걸어둔 15초 백오프다. 기다렸다 다시 두드린다.
+      if (!state.stop && state.waitMs > 0) {
+        await new Promise((resolve) => { setTimeout(resolve, state.waitMs) })
+      }
     }
 
-    console.log(`총 시도 ${totalAttempted}건 / 전진 ${totalCompleted}건 (라운드 ${round})`)
-    expect(totalAttempted).toBeGreaterThan(0)
+    console.log(
+      `총 시도 ${totalAttempted}건 / 전진 ${totalCompleted}건`
+      + ` (라운드 ${state.round}, 종료 이유 ${state.reason})`,
+    )
+    // 상한에 걸려 끝났다면 아직 남은 작업이 있다는 뜻이다 — 초록으로 넘기지 않는다.
+    expect(state.reason, '라운드 상한 도달 — 남은 작업이 있다. 다시 실행할 것').toBe('drained')
   }, 3_600_000)
 })

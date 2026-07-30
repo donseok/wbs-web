@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke:prod": "node scripts/smoke-prod.mjs",
+    "wiki:health": "node scripts/wiki-health.mjs",
     "mark:good": "node scripts/mark-good.mjs",
     "prepare": "git config core.hooksPath .githooks || true"
   },

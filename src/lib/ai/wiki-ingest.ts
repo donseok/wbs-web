@@ -624,6 +624,15 @@ export async function applyExtractedItem(
       if (isWikiCurrentRace(error as WikiApplyError)) {
         throw new Error('WIKI_APPLY_RACE_RETRY_EXHAUSTED')
       }
+      // 22023 하나에 12개 raise 가 몰려 있어 code 만으로는 원인을 특정할 수 없다.
+      // last_error 컬럼은 짧게 유지하되 진단용 원문은 반드시 로그로 남긴다(표시 = 로깅).
+      console.error(
+        '[wiki] apply RPC 실패:',
+        error.code ?? 'UNKNOWN',
+        error.message ?? '',
+        (error as { details?: string }).details ?? '',
+        (error as { hint?: string }).hint ?? '',
+      )
       throw new Error(`WIKI_ATOMIC_APPLY:${error.code ?? 'UNKNOWN'}`)
     }
     const result = data as { outcome?: unknown } | null
