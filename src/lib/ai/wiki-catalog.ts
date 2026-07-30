@@ -31,8 +31,19 @@ const FACETS_FLOOR = 2
 const ITEM_LINES_FLOOR = 10
 const TOPIC_LINE_FLOOR = 20
 
-const FACET_LADDER = [CATALOG_FACETS_PER_TOPIC, 8, 4, FACETS_FLOOR]
-const ITEM_LADDER = [CATALOG_ITEM_LIMIT, 20, ITEM_LINES_FLOOR]
+/**
+ * 스펙 §8 축소 순서. 무한정 자라는 항(포화 목록 = 12 × 포화주제수)을 먼저 조이고,
+ * 상한이 박힌 항목 줄(비포화 재사용 신호)은 그 다음에만 깎는다 — 순서를 뒤집으면
+ * 재사용 신호가 불필요하게 잘려 파편화 해소라는 목적을 예산 압박 상황에서 역행한다.
+ * facet 2(FACETS_FLOOR)는 일반 단이 아니라 주제 줄 절단 이후의 최후 수단이다.
+ */
+const LADDER: ReadonlyArray<readonly [perTopic: number, itemCount: number]> = [
+  [CATALOG_FACETS_PER_TOPIC, CATALOG_ITEM_LIMIT],
+  [8, CATALOG_ITEM_LIMIT],
+  [4, CATALOG_ITEM_LIMIT],
+  [4, 20],
+  [4, ITEM_LINES_FLOOR],
+]
 
 export interface CatalogTopic {
   id: string
@@ -113,19 +124,29 @@ export function buildWikiCatalogText(args: {
     ))
     .slice(0, CATALOG_TOPIC_LIMIT)
 
+  // 정렬 동률 대비: 재구축이 updated_at을 대량 동률로 만들고, 같은 facet이 kind만 달라
+  // 공존하는 것은 정상 상태다(wikiSaturationKey 참조). kind·topicId 까지 걸어야 DB 반환
+  // 순서와 무관하게 결정적이다.
   const topicIds = new Set(usable.map((t) => t.id))
   const liveItems = args.items
     .filter((i) => topicIds.has(i.topicId))
     .sort((a, b) => (
-      b.updatedAt.localeCompare(a.updatedAt) || a.facetPart.localeCompare(b.facetPart)
+      b.updatedAt.localeCompare(a.updatedAt)
+      || a.facetPart.localeCompare(b.facetPart)
+      || a.kind.localeCompare(b.kind)
+      || a.topicId.localeCompare(b.topicId)
     ))
 
-  const nonSaturatedItems = liveItems.filter((i) => !saturatedIds.has(i.topicId))
-
   // 포화 주제별 (kind, facet) distinct. 같은 facet이 kind만 달라 여러 항목으로 존재한다.
+  // 절의 주제 순서는 주제 줄과 같은 (last_changed_at desc, id asc) — 입력 순서에 기대면
+  // 리셋 직후 비결정적이 된다.
+  const saturatedTopics = usable
+    .filter((t) => saturatedIds.has(t.id))
+    .sort((a, b) => (
+      b.lastChangedAt.localeCompare(a.lastChangedAt) || a.id.localeCompare(b.id)
+    ))
   const saturatedFacets = new Map<string, { title: string; entries: string[] }>()
-  for (const topic of usable) {
-    if (!saturatedIds.has(topic.id)) continue
+  for (const topic of saturatedTopics) {
     const seen = new Set<string>()
     const entries = liveItems
       .filter((i) => i.topicId === topic.id)
@@ -139,6 +160,7 @@ export function buildWikiCatalogText(args: {
         overlapScore(b.facetPart, haystack) - overlapScore(a.facetPart, haystack)
         || b.updatedAt.localeCompare(a.updatedAt)
         || a.facetPart.localeCompare(b.facetPart)
+        || a.kind.localeCompare(b.kind)
       ))
       .map((i) => `${i.kind}/${i.facetPart}`)
     if (entries.length > 0) saturatedFacets.set(topic.id, { title: topic.title, entries })
@@ -148,8 +170,12 @@ export function buildWikiCatalogText(args: {
     const names = advertised.slice(0, count).map((t) => t.title)
     return names.length > 0 ? `기존 주제: ${names.join(' / ')}` : null
   }
-  const renderItemLines = (count: number): string[] => nonSaturatedItems
+  // 규칙 5(스펙 §7.3): 창은 전체 최신순으로 뜨고, 그 창에서 포화 소속을 뺀다.
+  // 비포화 풀에서 창을 다시 채우면(리필) §8의 순변화 산식이 깨지고 프롬프트가 설계보다
+  // 커져 예산 사다리가 상시 발동한다.
+  const renderItemLines = (count: number): string[] => liveItems
     .slice(0, count)
+    .filter((i) => !saturatedIds.has(i.topicId))
     .map((i) => (
       `- topic="${i.topicTitle}" kind=${i.kind} knowledgeKey="${i.facetPart}"`
       + ` :: ${i.statement.slice(0, CATALOG_STATEMENT_CAP)}`
@@ -157,30 +183,26 @@ export function buildWikiCatalogText(args: {
   const renderSaturated = (perTopic: number): string[] => [...saturatedFacets.values()]
     .map((v) => `포화 "${v.title}" 기존대상: ${v.entries.slice(0, perTopic).join(', ')}`)
 
-  // 사다리: 무한정 자라는 항(포화 목록 = 12 × 포화주제수)을 먼저 조인다. 항목 줄은
-  // CATALOG_ITEM_LIMIT으로 상한이 박혀 있고 포화 주제가 늘면 자동으로 줄어든다.
   let topicCount = advertised.length
-  for (const perTopic of FACET_LADDER) {
-    for (const itemCount of ITEM_LADDER) {
-      const text = assemble(
-        renderTopicLine(topicCount), renderItemLines(itemCount), renderSaturated(perTopic),
-      )
-      if (text.length <= CATALOG_CHAR_BUDGET) {
-        if (perTopic !== CATALOG_FACETS_PER_TOPIC || itemCount !== CATALOG_ITEM_LIMIT) {
-          warnings.push(
-            `[wiki] 카탈로그 예산 축소: facet ${perTopic}/주제, 항목 ${itemCount}줄`,
-          )
-        }
-        return { text, warnings }
+  for (const [perTopic, itemCount] of LADDER) {
+    const text = assemble(
+      renderTopicLine(topicCount), renderItemLines(itemCount), renderSaturated(perTopic),
+    )
+    if (text.length <= CATALOG_CHAR_BUDGET) {
+      if (perTopic !== CATALOG_FACETS_PER_TOPIC || itemCount !== CATALOG_ITEM_LIMIT) {
+        warnings.push(
+          `[wiki] 카탈로그 예산 축소: facet ${perTopic}/주제, 항목 ${itemCount}줄`,
+        )
       }
+      return { text, warnings }
     }
   }
 
-  // 항목 줄과 포화 목록을 하한까지 내려도 넘으면 주제 줄을 앞에서부터 자른다.
+  // 사다리를 다 내려도 넘으면 주제 줄을 앞에서부터 자른다(§8 ③, facet 4 유지).
   while (topicCount > TOPIC_LINE_FLOOR) {
     topicCount = Math.max(TOPIC_LINE_FLOOR, Math.floor(topicCount / 2))
     const text = assemble(
-      renderTopicLine(topicCount), renderItemLines(ITEM_LINES_FLOOR), renderSaturated(FACETS_FLOOR),
+      renderTopicLine(topicCount), renderItemLines(ITEM_LINES_FLOOR), renderSaturated(4),
     )
     if (text.length <= CATALOG_CHAR_BUDGET) {
       warnings.push(`[wiki] 카탈로그 예산 축소: 주제 줄 ${topicCount}개로 절단`)
@@ -188,11 +210,16 @@ export function buildWikiCatalogText(args: {
     }
   }
 
-  // 여기까지 왔으면 예산을 넘긴 채 보낸다. 포화 목록을 0으로 만들면 이력 보호가 사라져
-  // 프롬프트 초과보다 나쁘다. 조용히 넘기지 않고 알린다.
+  // 최후 수단(§8 ④): 포화 목록을 주제당 하한까지 내린다. 그래도 넘으면 예산을 넘긴 채
+  // 보낸다 — 목록을 0으로 만들면 이력 보호가 사라져 프롬프트 초과보다 나쁘다.
+  // 조용히 넘기지 않고 알린다.
   const text = assemble(
-    renderTopicLine(TOPIC_LINE_FLOOR), renderItemLines(ITEM_LINES_FLOOR), renderSaturated(FACETS_FLOOR),
+    renderTopicLine(topicCount), renderItemLines(ITEM_LINES_FLOOR), renderSaturated(FACETS_FLOOR),
   )
+  if (text.length <= CATALOG_CHAR_BUDGET) {
+    warnings.push(`[wiki] 카탈로그 예산 축소: 포화 목록 주제당 ${FACETS_FLOOR}개(최후 수단)`)
+    return { text, warnings }
+  }
   warnings.push(
     `[wiki] 카탈로그 예산 ${CATALOG_CHAR_BUDGET}자 초과(${text.length}자) — `
     + `포화 목록을 주제당 ${FACETS_FLOOR}개로 유지한 채 전송한다`,
