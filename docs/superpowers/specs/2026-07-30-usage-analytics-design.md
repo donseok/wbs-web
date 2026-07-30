@@ -152,6 +152,7 @@ create policy read_usage_events on usage_events
 | `usage_daily_actives(p_from date, p_to date)` | `d date, active_users int, events int` | 추이 차트 |
 | `usage_menu_ranking(p_from date, p_to date)` | `menu_key text, events int, active_users int` | 많이 쓰는 프로그램 |
 | `usage_user_rollup(p_from date, p_to date)` | `user_id uuid, events int, active_days int, last_at timestamptz` | 사용자 현황 표 |
+| `usage_sessions(p_from date, p_to date, p_gap_minutes int)` | `integer` | 접속 횟수(§6 참조) |
 
 `grant execute … to authenticated`. 멱등(`create or replace`), 롤백 파일에서 `drop function if exists`.
 
@@ -214,13 +215,17 @@ export function extractProjectId(pathname: string): string | null
 | 2 | 일별 활성 사용자 추이 | `TrendChart.tsx`와 동형의 **자체 인라인 SVG**(차트 라이브러리 0 유지). 토큰 클래스(`stroke-brand`, `fill-ink-subtle`)라 다크모드 자동 |
 | 3 | 많이 쓰는 프로그램 | 메뉴별 조회수 + 순 사용자 수, 가로 바 순위. 라벨은 `t(labelKey)` 또는 fallback |
 | 4 | 사용자 현황 | 이름 / 이메일 / 팀 / 권한 / 가입일 / **마지막 로그인** / 최근 활동 / 기간 내 조회수 / 방문일수. **이벤트 0인 휴면 계정도 표시** |
-| 5 | 접속 로그 | 최근 이벤트(시각·사용자·메뉴·경로), 사용자/메뉴 필터, 200건 상한(상한 도달 시 화면에 명시) |
+| 5 | 접속 로그 | 최근 이벤트(시각·사용자·메뉴·경로), 사용자/메뉴 필터(`searchParams` 링크, 클라이언트 상태 0), 200건 상한(상한 도달 시 화면에 명시) |
+
+필터값은 허용 목록에 대조한다 — 메뉴는 `USAGE_MENUS` 키, 사용자는 실재하는 계정 id. 검증 없이 넘기면 존재하지 않는 값으로 영원히 빈 표가 나오고 그게 "기록 없음"과 구별되지 않는다(§8-1의 같은 원칙).
 
 `PageHero`는 **현재 `title`만 렌더한다**(`heroKpis`는 받되 그리지 않음, `PageHero.tsx:9`). 따라서 KPI는 반드시 본문에 배치한다.
 
 ### 접속 "횟수"의 정의
 
-로그인 이벤트 자체를 잡을 수 없으므로(§0), **연속된 이벤트 사이 간격이 30분을 넘으면 새 접속으로 센다.** 이 유도는 `src/lib/domain/usage.ts`의 순수 함수이며 화면에 "30분 무활동 기준"임을 명시한다. 추정을 사실처럼 표기하지 않는다.
+로그인 이벤트 자체를 잡을 수 없으므로(§0), **한 사용자의 연속된 이벤트 사이 간격이 30분을 넘으면 새 접속으로 센다.** 화면에 "30분 무활동 기준"임을 명시한다 — 추정을 사실처럼 표기하지 않는다.
+
+**반드시 사용자별로 끊어야 한다.** 전 사용자 이벤트를 한 스트림으로 섞으면 동시 사용 중에는 어떤 두 이벤트 사이에도 30분 간격이 생기지 않아 접속 수가 1로 붕괴한다(10명이 일주일 사용 시 실제 70 → 7, 표시 범위 200건 안에서는 1). 그래서 계산은 TS가 아니라 `usage_sessions` RPC의 `lag() over (partition by user_id)`가 한다 — 올바르게 세려면 기간 전체 이벤트가 필요하고 90일이면 수십만 행이라 JS로 끌어올 수 없다. TS에는 기준 상수 `SESSION_GAP_MINUTES`만 남기고 RPC 인자로 넘긴다.
 
 ### 표시 규약
 
@@ -272,7 +277,7 @@ export function canViewUsage(_m: Membership | null): boolean { return true }
 supabase/migrations/0051_usage_events.sql
 supabase/migrations/0051_usage_events_rollback.sql
 src/lib/domain/usageMenu.ts          경로 → 메뉴 키 (순수)
-src/lib/domain/usage.ts              집계·세션 유도·행 병합 (순수)
+src/lib/domain/usage.ts              집계·행 병합·필터 검증·링크 조립 (순수)
 src/lib/domain/usageTracking.ts      trackingEnabled (순수)
 src/lib/authz/usageAccess.ts         canViewUsage
 src/lib/data/usage.ts                RPC 조회 + 계정 디렉터리 + purge
@@ -291,6 +296,8 @@ tests/actions/usage-track-gate.test.ts
 **수정**
 ```
 src/components/app/Sidebar.tsx       설정 아래 '사용 현황' 링크 (+ 프로젝트 미선택 분기에도)
+src/components/app/HeaderChrome.tsx  MobileMenu 에 '사용 현황' — 사이드바가 hidden lg:flex 라
+                                     1024px 미만에서는 여기가 유일한 전역 진입점이다
 src/app/(app)/layout.tsx             <UsageTracker /> 마운트
 src/lib/i18n/dict/common.ts          'nav.usage' ko/en
 ```
