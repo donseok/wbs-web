@@ -2,7 +2,11 @@
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
+import {
+  isProjectAdmin, isProjectMember, isAnyProjectAdmin, hasAnyProjectRole, type Actor,
+} from '@/lib/domain/authz'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   validateMinuteInput, isMinuteFilePathValid, validateFolderName, folderDepthOf, MINUTE_FOLDER_DEPTH_MAX,
@@ -54,10 +58,29 @@ export interface MinuteCreateSource {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-/** 소유권 사전 확인 — RLS 0행 침묵 실패 방지. 반환: 에러 메시지 또는 null. */
-async function checkOwner(sb: Sb, minuteId: string, userId: string, role: string): Promise<string | null> {
+/**
+ * 이 파일 전용 로그인+Actor 게이트. minutes 계열은 RLS 쓰기 정책이 0개이고 앱이
+ * service_role 로 쓰므로(스펙 §1.5) **여기 게이트가 유일한 방어선**이다.
+ * 권한 조회 실패는 통과도 거부 위장도 아닌 별도 문구로 중단한다(에러 처리 3원칙).
+ */
+async function requireActor(): Promise<{ ok: true; actor: Actor } | { ok: false; error: string }> {
+  let actor: Actor | null
+  try {
+    actor = await getActor()
+  } catch {
+    return { ok: false, error: '권한을 확인할 수 없어 중단했습니다.' }
+  }
+  if (!actor) return { ok: false, error: '로그인 필요' }
+  return { ok: true, actor }
+}
+
+/** 소유권 사전 확인 — RLS 0행 침묵 실패 방지. 반환: 에러 메시지 또는 null.
+ *  프로젝트 미지정(project_id null) 회의록은 프로젝트로 판정할 수 없으므로
+ *  isProjectAdmin(actor, null)=슈퍼유저만 통과 — '작성자 본인 또는 슈퍼유저'로
+ *  좁아지는 것은 의도된 fail-closed 다(스펙 §3.5). */
+async function checkOwner(sb: Sb, minuteId: string, actor: Actor): Promise<string | null> {
   const { data, error } = await sb.from('minutes')
-    .select('created_by, archived_at')
+    .select('created_by, archived_at, project_id')
     .eq('id', minuteId)
     .maybeSingle()
   // 보안 가드 조회 — 실패 시 소유자 판정 자체가 불가능하므로 거부(fail-closed).
@@ -67,7 +90,8 @@ async function checkOwner(sb: Sb, minuteId: string, userId: string, role: string
   }
   if (!data) return '회의록을 찾을 수 없습니다.'
   if (data.archived_at) return '보관된 회의록은 변경할 수 없습니다.'
-  if ((data.created_by as string | null) !== userId && role !== 'pmo_admin') return '권한 없음'
+  if ((data.created_by as string | null) !== actor.userId
+      && !isProjectAdmin(actor, (data.project_id as string | null) ?? null)) return '권한 없음'
   return null
 }
 
@@ -102,8 +126,8 @@ async function rematchMinuteHighlights(minuteId: string, newBodyMd: string): Pro
 export async function createMinute(
   input: MinuteInput, folderId: string | null = null, source?: MinuteCreateSource,
 ): Promise<MinuteActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const err = validateMinuteInput(input, activeTeamCodesSync())
@@ -122,6 +146,11 @@ export async function createMinute(
     projectId: input.projectId,
   })
   if (resolvedProject.error) return { ok: false, error: resolvedProject.error }
+  // 회의록 생성은 멤버 이상(스펙 D8). 프로젝트가 정해지면 그 프로젝트의 멤버여야 하고,
+  // 미지정이면 어느 프로젝트든 역할이 있어야 한다(조회 전용 차단 — app_role() is not null 과 같은 의미).
+  if (resolvedProject.projectId
+    ? !isProjectMember(g.actor, resolvedProject.projectId)
+    : !hasAnyProjectRole(g.actor)) return { ok: false, error: '권한 없음' }
   // §6.3 — 폴더가 주어지면 team 은 폴더에서 파생한다(클라이언트 teamCode 불신).
   let effectiveTeam = input.teamCode
   if (folderId) {
@@ -201,20 +230,25 @@ export async function createMinute(
 export async function updateMinuteMeta(
   id: string, patch: Omit<MinuteInput, 'bodyMd'>, folderId?: string | null,
 ): Promise<MinuteActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const err = validateMinuteInput({ ...patch, bodyMd: '' }, activeTeamCodesSync())
   if (err) return { ok: false, error: err }
   const sb = await createServerClient()
-  const own = await checkOwner(sb, id, user.id, m.role)
+  const own = await checkOwner(sb, id, g.actor)
   if (own) return { ok: false, error: own }
   const resolvedProject = await resolveMinuteProject(sb, {
     meetingId: patch.meetingId,
     projectId: patch.projectId,
   })
   if (resolvedProject.error) return { ok: false, error: resolvedProject.error }
+  // **옮겨 넣을 프로젝트의 권한도 본다.** checkOwner 는 현재 프로젝트 기준이라, 작성자면
+  // 자기 회의록을 아무 프로젝트로나 옮길 수 있었다 — 그 프로젝트 위키에 지식이 적재되므로
+  // 일괄 지정(assignMinutesProject)이 요구하는 '대상 프로젝트 관리자' 조건이 단건 수정으로
+  // 우회된다. resolveMinuteProject 는 실재만 확인하고 역할은 보지 않는다.
+  if (resolvedProject.projectId && !isProjectMember(g.actor, resolvedProject.projectId)) {
+    return { ok: false, error: '그 프로젝트에 회의록을 넣을 권한이 없습니다.' }
+  }
   // §6.3 — 폴더가 주어지면 team 은 **폴더에서 파생**한다. 클라이언트가 보낸 teamCode 를 그대로
   // 믿으면 "폴더는 MES 인데 team_code 는 ERP" 인 데이터를 서버가 직접 만든다(파생은 UI 에만
   // 있었다). 파생 불가 폴더(시드 체인 밖)는 추측하지 않고 거절한다.
@@ -311,10 +345,10 @@ export async function assignMinutesProject(
   ids: string[], projectId: string | null,
 ): Promise<BulkProjectResult> {
   const empty = { updated: 0, unchanged: 0, skipped: [] as { id: string; reason: string }[] }
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요', ...empty }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요', ...empty }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error, ...empty }
+  // 대상 프로젝트로 지정하는 것은 그 프로젝트의 관리자 이상(스펙 §4.3). 해제(null)는 건별 판정만.
+  if (projectId && !isProjectAdmin(g.actor, projectId)) return { ok: false, error: '권한 없음', ...empty }
   const targets = [...new Set(ids)].filter(id => UUID_RE.test(id))
   if (targets.length === 0) return { ok: false, error: '선택된 회의록이 없습니다.', ...empty }
   if (targets.length > MINUTES_PROJECT_BULK_MAX) {
@@ -374,7 +408,8 @@ export async function assignMinutesProject(
     const row = byId.get(id)
     if (!row) { skipped.push({ id, reason: '회의록을 찾을 수 없습니다.' }); continue }
     if (row.archived_at) { skipped.push({ id, reason: '보관된 회의록' }); continue }
-    if (row.created_by !== user.id && m.role !== 'pmo_admin') { skipped.push({ id, reason: '권한 없음' }); continue }
+    // 미지정(project_id null) 회의록은 isProjectAdmin(actor, null)=슈퍼유저만 — 의도된 fail-closed.
+    if (row.created_by !== g.actor.userId && !isProjectAdmin(g.actor, row.project_id)) { skipped.push({ id, reason: '권한 없음' }); continue }
     if (row.meeting_id) {
       const mp = meetingProject.get(row.meeting_id) ?? null
       if (mp !== projectId) { skipped.push({ id, reason: '연결된 회의의 프로젝트와 다릅니다.' }); continue }
@@ -414,12 +449,10 @@ export async function assignMinutesProject(
 /** 또박또박 연결 초기화 — external_id 를 null 로. 0045 이후 minutes 직접 쓰기가 닫혀 있어
  *  admin(service_role) 경유. moveMinuteToFolder 와 동일하게 소유권 선확인 후 update. */
 export async function resetMinuteExternalId(id: string): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
-  const own = await checkOwner(sb, id, user.id, m.role)
+  const own = await checkOwner(sb, id, g.actor)
   if (own) return { ok: false, error: own }
   let admin: ReturnType<typeof createAdminClient>
   try {
@@ -453,15 +486,15 @@ export async function replaceMinuteBody(
   id: string, bodyMd: string,
   file: { fileName: string; filePath: string; size: number; mime: string },
 ): Promise<MinuteActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   if (bodyMd.length > 100_000) return { ok: false, error: '본문은 100,000자 이하여야 합니다.' }
   if (!isMinuteFilePathValid(id, file.filePath)) return { ok: false, error: '잘못된 파일 경로입니다.' }
   if (!/\.(md|markdown)$/i.test(file.fileName)) return { ok: false, error: '.md 파일만 가능합니다.' }
   const sb = await createServerClient()
-  const own = await checkOwner(sb, id, user.id, m.role)
+  const own = await checkOwner(sb, id, g.actor)
   if (own) return { ok: false, error: own }
   // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·재매칭·재인제스트 전부 보정본 사용
   const fix = correctMinuteBodyTime(bodyMd)
@@ -529,15 +562,15 @@ export async function recordMinuteFile(
   minuteId: string,
   file: { role: 'body' | 'attachment'; fileName: string; filePath: string; size: number; mime: string },
 ): Promise<MinuteActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   if (!isMinuteFilePathValid(minuteId, file.filePath)) return { ok: false, error: '잘못된 파일 경로입니다.' }
   if (file.role === 'body' && !/\.(md|markdown)$/i.test(file.fileName))
     return { ok: false, error: '.md 파일만 가능합니다.' }
   const sb = await createServerClient()
-  const own = await checkOwner(sb, minuteId, user.id, m.role)
+  const own = await checkOwner(sb, minuteId, g.actor)
   if (own) return { ok: false, error: own }
   if (file.role === 'body') {
     const { data: minute, error: minuteError } = await sb.from('minutes')
@@ -604,16 +637,14 @@ export async function recordMinuteFile(
 
 /** 첨부 삭제(role='attachment' 전용 — body 는 replaceMinuteBody 로만). 경로는 DB 해석. */
 export async function removeMinuteFile(fileId: string): Promise<MinuteActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const { data: f } = await sb.from('minute_files')
     .select('id, minute_id, role, file_path').eq('id', fileId).maybeSingle()
   if (!f) return { ok: false, error: '파일 없음' }
   if ((f.role as string) === 'body') return { ok: false, error: '본문 파일은 교체로만 변경할 수 있습니다.' }
-  const own = await checkOwner(sb, f.minute_id as string, user.id, m.role)
+  const own = await checkOwner(sb, f.minute_id as string, g.actor)
   if (own) return { ok: false, error: own }
   // Storage 삭제 실패는 고아 파일만 남기므로 로그 후 진행(메타 행 삭제는 계속한다).
   const { error: rmErr } = await sb.storage.from(BUCKET).remove([f.file_path as string])
@@ -625,12 +656,10 @@ export async function removeMinuteFile(fileId: string): Promise<MinuteActionResu
 }
 
 export async function deleteMinute(id: string): Promise<MinuteActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
-  const own = await checkOwner(sb, id, user.id, m.role)
+  const own = await checkOwner(sb, id, g.actor)
   if (own) return { ok: false, error: own }
   const { data: minuteScope, error: scopeError } = await sb.from('minutes')
     .select('project_id')
@@ -760,10 +789,10 @@ const FOLDER_DUP_MSG = '같은 폴더에 같은 이름이 이미 있습니다.'
 export async function createMinuteFolder(
   name: string, parentId: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
+  // 폴더는 프로젝트에 속하지 않는 전역 리소스 — 멤버 이상(조회 전용 차단)이 만든다.
+  if (!hasAnyProjectRole(g.actor)) return { ok: false, error: '권한 없음' }
   const nameErr = validateFolderName(name)
   if (nameErr) return { ok: false, error: nameErr }
   // W18(§6.3) — 루트 폴더 생성 금지. 회의록의 team_code 를 폴더에서 파생하려면 "모든 폴더는
@@ -780,7 +809,7 @@ export async function createMinuteFolder(
   if (folderDepthOf(folders, parentId) + 1 > MINUTE_FOLDER_DEPTH_MAX)
     return { ok: false, error: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.` }
   const { error } = await sb.from('minute_folders')
-    .insert({ name: normalizeFolderName(name), parent_id: parentId, created_by: user.id })
+    .insert({ name: normalizeFolderName(name), parent_id: parentId, created_by: g.actor.userId })
   if (error) {
     if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
     if (error.code === '23503') return { ok: false, error: '상위 폴더가 방금 삭제되었습니다. 새로고침 후 다시 시도하세요.' }
@@ -837,10 +866,8 @@ export async function renameMinuteFolder(
  * → 삭제 전에 자식 폴더와 소속 회의록을 **부모로 승격**시킨다. 스키마 변경 없이 UX 유지.
  */
 export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; error?: string }> {
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   const folders = await loadFolders(sb)
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
@@ -853,7 +880,8 @@ export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; err
   if (!parentId) return { ok: false, error: '최상위 폴더는 삭제할 수 없습니다.' }
   // RLS(0040)와 **같은 조건**을 명시 선판정한다 — 승격을 먼저 하기 때문에, 삭제가 나중에
   // 권한으로 막히면 옮겨만 놓고 폴더가 남는 상태가 된다. 같은 조건이면 그 일이 없다.
-  if (target.createdBy !== user.id && m.role !== 'pmo_admin') {
+  // isAnyProjectAdmin 은 app_role() shim 의 'pmo_admin' 과 같은 의미라 RLS 판정과 갈라지지 않는다.
+  if (target.createdBy !== g.actor.userId && !isAnyProjectAdmin(g.actor)) {
     return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
   }
 
@@ -961,10 +989,8 @@ export async function moveMinuteFolder(
 export async function moveMinuteToFolder(
   minuteId: string, folderId: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   // 미분류(null)로 빼내는 것은 탐색기 D&D 가 제공하는 조작이라 허용한다. 팀 파생은 대상
   // 폴더가 있을 때만 다시 하고, 미분류면 현재 team_code 를 그대로 둔다(추측 금지).
   const sb = await createServerClient()
@@ -974,7 +1000,7 @@ export async function moveMinuteToFolder(
     if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
     if (!folders.some(f => f.id === folderId)) return { ok: false, error: '이동할 폴더를 찾을 수 없습니다.' }
   }
-  const own = await checkOwner(sb, minuteId, user.id, m.role)
+  const own = await checkOwner(sb, minuteId, g.actor)
   if (own) return { ok: false, error: own }
 
   // 현재 팀 — 쓰기 선행조회 실패는 판정 불가이므로 중단(추측 금지)
@@ -1066,8 +1092,10 @@ export async function toggleMinuteFavorite(minuteId: string, on: boolean): Promi
 export async function toggleMinuteHighlight(
   minuteId: string, blockIndex: number, blockHash: string,
 ): Promise<{ ok: boolean; on?: boolean; error?: string }> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
+  // 하이라이트는 다른 사용자에게도 보이는 공유 표식 — 멤버 이상(조회 전용 차단).
+  if (!hasAnyProjectRole(g.actor)) return { ok: false, error: '권한 없음' }
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
@@ -1123,10 +1151,10 @@ export async function toggleMinuteHighlight(
 export async function ensureMinuteInsightsAction(
   minuteId: string,
 ): Promise<{ status: 'ready' | 'generated' | 'unavailable' }> {
-  const m = await getMembership()
-  if (!m) return { status: 'unavailable' }
-  const user = await getSession()
-  if (!user) return { status: 'unavailable' }
+  // 멤버십 게이트(무료 쿼터 보호) — 조회 전용은 self-heal 을 트리거하지 못한다.
+  const g = await requireActor()
+  if (!g.ok) return { status: 'unavailable' }
+  if (!hasAnyProjectRole(g.actor)) return { status: 'unavailable' }
   const sb = await createServerClient()
   const { data: minute } = await sb.from('minutes')
     .select('body_md, archived_at')
@@ -1143,37 +1171,35 @@ export async function ensureMinuteInsightsAction(
 
 export interface MinuteShareResult { ok: boolean; enabled?: boolean; token?: string | null; error?: string }
 
-/** 소유자/관리자 검증 + 공유 컬럼 단일 조회 — get/set 공용(왕복 1회, 소유권 규칙 한 곳). */
-async function readShareRow(sb: Sb, id: string, userId: string, role: string):
+/** 소유자/관리자 검증 + 공유 컬럼 단일 조회 — get/set 공용(왕복 1회, 소유권 규칙 한 곳).
+ *  미지정(project_id null) 회의록은 작성자 본인 또는 슈퍼유저만 — checkOwner 와 같은 fail-closed. */
+async function readShareRow(sb: Sb, id: string, actor: Actor):
   Promise<{ state: ShareState } | { error: string }> {
   const { data } = await sb.from('minutes')
-    .select('created_by, share_token, share_enabled, archived_at').eq('id', id).maybeSingle()
+    .select('created_by, share_token, share_enabled, archived_at, project_id').eq('id', id).maybeSingle()
   if (!data) return { error: '회의록을 찾을 수 없습니다.' }
   if (data.archived_at) return { error: '보관된 회의록은 공유 설정을 바꿀 수 없습니다.' }
-  if ((data.created_by as string | null) !== userId && role !== 'pmo_admin') return { error: '권한 없음' }
+  if ((data.created_by as string | null) !== actor.userId
+      && !isProjectAdmin(actor, (data.project_id as string | null) ?? null)) return { error: '권한 없음' }
   return { state: { token: (data.share_token as string | null) ?? null, enabled: !!data.share_enabled } }
 }
 
 /** 공유 상태 조회 — 토큰은 이 액션으로만 클라이언트에 전달(페이지 payload 미포함, 소유자/관리자 한정). */
 export async function getMinuteShare(id: string): Promise<MinuteShareResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
-  const row = await readShareRow(sb, id, user.id, m.role)
+  const row = await readShareRow(sb, id, g.actor)
   if ('error' in row) return { ok: false, error: row.error }
   return { ok: true, enabled: row.state.enabled, token: row.state.token }
 }
 
 /** 공유 토글/재발급 — 서버에서 소유권을 확인한 뒤 service role로 허용 컬럼만 쓴다. */
 export async function setMinuteShare(id: string, op: ShareOp): Promise<MinuteShareResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
-  const row = await readShareRow(sb, id, user.id, m.role)
+  const row = await readShareRow(sb, id, g.actor)
   if ('error' in row) return { ok: false, error: row.error }
   const next = nextShareState(row.state, op, crypto.randomUUID())
   let admin: ReturnType<typeof createAdminClient>

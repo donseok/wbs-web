@@ -82,6 +82,9 @@ export function IssuesView({
   }
 
   const filtered = statusFilter !== 'all' || severityFilter !== 'all' || mineOnly
+  // 조회 전용(role=null)에게는 등록 어포던스를 숨긴다 — 서버 createIssue 는 requireProjectMember(스펙 §6.3).
+  // role 은 이 화면의 프로젝트 스코프 shim 이라 그대로 판정에 쓸 수 있다.
+  const canWrite = role !== null
 
   return (
     <div className="space-y-4">
@@ -96,11 +99,13 @@ export function IssuesView({
         >
           {t('issue.filter.mine')}
         </button>
-        <div className="ml-auto">
-          <button onClick={openWrite} className="btn btn-primary inline-flex items-center gap-1.5 text-xs">
-            <Plus className="h-3.5 w-3.5" />{t('issue.new')}
-          </button>
-        </div>
+        {canWrite && (
+          <div className="ml-auto">
+            <button onClick={openWrite} className="btn btn-primary inline-flex items-center gap-1.5 text-xs">
+              <Plus className="h-3.5 w-3.5" />{t('issue.new')}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 테이블 (MeetingsView 골격) */}
@@ -167,7 +172,7 @@ export function IssuesView({
           icon={CircleAlert}
           title={filtered ? t('issue.emptyFiltered.title') : t('issue.empty.title')}
           description={filtered ? t('issue.emptyFiltered.desc') : t('issue.empty.desc')}
-          action={!filtered ? (
+          action={!filtered && canWrite ? (
             <button onClick={openWrite} className="btn btn-primary inline-flex items-center gap-1.5 text-xs">
               <Plus className="h-3.5 w-3.5" />{t('issue.new')}
             </button>

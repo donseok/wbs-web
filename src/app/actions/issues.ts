@@ -1,10 +1,11 @@
 'use server'
-// 이슈 쓰기 액션 — 전부 세션+멤버십 fail-closed. RLS 는 "멤버면 수정 가능" 백스톱까지만
+// 이슈 쓰기 액션 — 전부 프로젝트 역할 가드 fail-closed. RLS 는 "멤버면 수정 가능" 백스톱까지만
 // 보장하므로(0041 헤더 참조) 진행 필드 vs 전체 편집의 세분화는 여기서 강제한다.
 // updated_at 트리거 없음 — 모든 update 페이로드에 수동 포함(레포 관례).
 import { createServerClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActor, requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { revalidatePath } from 'next/cache'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
@@ -64,10 +65,9 @@ export interface IssueProjectMembersResult {
 
 /** 프로젝트 미지정 회의록의 빠른 등록에서 프로젝트 선택 후 담당자 목록을 지연 로드한다. */
 export async function fetchIssueProjectMembers(projectId: string): Promise<IssueProjectMembersResult> {
-  const m = await getMembership()
-  if (!m || !projectId) return { ok: false, error: '로그인 필요' }
+  // 조회 전용 — 담당자 후보 명단은 프로젝트 화면을 볼 수 있는 로그인 사용자면 읽을 수 있다.
   const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  if (!user || !projectId) return { ok: false, error: '로그인 필요' }
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('project_members')
@@ -175,9 +175,28 @@ function revalidateIssues(projectId: string) {
   revalidatePath(`/p/${projectId}/issues`)
 }
 
+const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
+
+/**
+ * 전체 편집·삭제의 공통 게이트 — 대상 이슈의 프로젝트를 먼저 확정한 뒤 그 프로젝트의
+ * 관리자면 무조건 통과시키고, 아니면 '작성자 본인' 판정을 호출부로 넘긴다(각 액션이 이미
+ * created_by 를 선검증 조회하므로 비교는 거기서 한다). 비로그인·권한 조회 실패는 중단(fail-closed).
+ */
+type OwnerGate = { ok: true; isAdmin: boolean; userId: string } | { ok: false; error: string }
+async function adminOrOwnerGate(issueId: string): Promise<OwnerGate> {
+  const found = await resolveProjectId('issues', issueId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectAdmin(found.projectId)
+  if (g.ok) return { ok: true, isAdmin: true, userId: g.actor.userId }
+  let actor: Awaited<ReturnType<typeof getActor>> = null
+  try { actor = await getActor() } catch { actor = null }
+  if (!actor) return { ok: false, error: g.error }
+  return { ok: true, isAdmin: false, userId: actor.userId }
+}
+
 export async function createIssue(projectId: string, input: IssueInput): Promise<IssueActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const err = validateInput(input)
   if (err) return { ok: false, error: err }
   const user = await getSession()
@@ -226,8 +245,8 @@ export async function createIssueFromMinuteBlock(
   input: IssueInput,
   source: MinuteIssueSourceInput,
 ): Promise<IssueActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const inputErr = validateInput(input)
   if (inputErr) return { ok: false, error: inputErr }
   const user = await getSession()
@@ -338,21 +357,20 @@ export async function createIssueFromMinuteBlock(
   return { ok: true, id: row.issue_id, issueNo: Number(row.issue_no) }
 }
 
-/** 전체 편집(제목·내용·심각도·기한·담당자) — 작성자 또는 pmo_admin 만. */
+/** 전체 편집(제목·내용·심각도·기한·담당자) — 작성자 또는 프로젝트 관리자만. */
 export async function updateIssue(issueId: string, input: IssueInput): Promise<IssueActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
+  const gate = await adminOrOwnerGate(issueId)
+  if (!gate.ok) return { ok: false, error: gate.error }
   const err = validateInput(input)
   if (err) return { ok: false, error: err }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
 
   const sb = await createServerClient()
   // 소유권 선검증(RLS 와 동일 — 0행 무음 성공 방지, meetings 관례)
-  const { data: cur } = await sb.from('issues').select('project_id, created_by').eq('id', issueId).maybeSingle()
+  const { data: cur, error: curErr } = await sb.from('issues').select('project_id, created_by').eq('id', issueId).maybeSingle()
+  if (curErr) return { ok: false, error: ERR_LOOKUP } // 소유권 판정의 입력이다 — 실패를 '없음'으로 위장하지 않는다
   if (!cur) return { ok: false, error: '이슈를 찾을 수 없습니다.' }
-  const isOwner = (cur.created_by as string | null) === user.id
-  if (!isOwner && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const isOwner = (cur.created_by as string | null) === gate.userId
+  if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
 
   const { error } = await sb
     .from('issues')
@@ -380,10 +398,11 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
 
 /** 진행 업데이트(상태·담당자·조치메모) — 멤버 전체. 상태 변경은 전환 맵 검증 + CAS. */
 export async function updateIssueProgress(issueId: string, patch: IssueProgressPatch): Promise<IssueActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  // 진행 업데이트는 그 이슈가 속한 프로젝트의 멤버면 누구나 — 대상 프로젝트를 먼저 확정한다.
+  const found = await resolveProjectId('issues', issueId)
+  if (!found.ok) return { ok: false, error: found.error }
+  const g = await requireProjectMember(found.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (patch.status === undefined && patch.assigneeMemberIds === undefined && patch.resolutionNote === undefined) {
     return { ok: false, error: '변경할 내용이 없습니다.' }
   }
@@ -456,16 +475,15 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
 }
 
 export async function deleteIssue(issueId: string): Promise<IssueActionResult> {
-  const m = await getMembership()
-  if (!m) return { ok: false, error: '로그인 필요' }
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const gate = await adminOrOwnerGate(issueId)
+  if (!gate.ok) return { ok: false, error: gate.error }
 
   const sb = await createServerClient()
-  const { data: cur } = await sb.from('issues').select('project_id, created_by').eq('id', issueId).maybeSingle()
+  const { data: cur, error: curErr } = await sb.from('issues').select('project_id, created_by').eq('id', issueId).maybeSingle()
+  if (curErr) return { ok: false, error: ERR_LOOKUP }
   if (!cur) return { ok: false, error: '이슈를 찾을 수 없습니다.' }
-  const isOwner = (cur.created_by as string | null) === user.id
-  if (!isOwner && m.role !== 'pmo_admin') return { ok: false, error: '권한 없음' }
+  const isOwner = (cur.created_by as string | null) === gate.userId
+  if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
 
   const { error } = await sb.from('issues').delete().eq('id', issueId).select('id').single()
   if (error) return { ok: false, error: error.message }

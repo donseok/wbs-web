@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// next/cache · auth · admin 클라이언트 · 팀 마스터 캐시를 모킹해 게이트·검증·시드 폴더 생성만 본다.
-const { db, createAdminClient, refreshTeams } = vi.hoisted(() => {
+// next/cache · authz 가드 · admin 클라이언트 · 팀 마스터 캐시를 모킹해 게이트·검증·시드 폴더 생성만 본다.
+// 팀 기준정보는 전역이라 프로젝트 관리자가 아니라 슈퍼유저만 손댈 수 있다(스펙 §4).
+const { db, createAdminClient, refreshTeams, requireSuperuser } = vi.hoisted(() => {
   const db = {
     teams: [] as Array<Record<string, unknown>>,
     folders: [] as Array<Record<string, unknown>>,
@@ -34,17 +35,20 @@ const { db, createAdminClient, refreshTeams } = vi.hoisted(() => {
   }
   const createAdminClient = vi.fn(() => ({ from: (n: 'teams' | 'minute_folders') => table(n) }))
   const refreshTeams = vi.fn(async () => true)
-  return { db, createAdminClient, refreshTeams }
+  const requireSuperuser = vi.fn()
+  return { db, createAdminClient, refreshTeams, requireSuperuser }
 })
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
-vi.mock('@/lib/auth', () => ({ getMembership: vi.fn() }))
+vi.mock('@/lib/authz', () => ({ requireSuperuser }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient }))
 vi.mock('@/lib/teams/master', () => ({ refreshTeams }))
 
-import { getMembership } from '@/lib/auth'
 import { addTeam, updateTeam } from '@/app/actions/teams'
 
-const asAdmin = () => vi.mocked(getMembership).mockResolvedValue({ role: 'pmo_admin', teamCode: 'PMO', teamId: 't1' })
+const SUPERUSER = {
+  userId: 'u-super', teamCode: 'PMO', teamId: 't1', isSuperuser: true, projectRoles: new Map(),
+}
+const asSuperuser = () => requireSuperuser.mockResolvedValue({ ok: true, actor: SUPERUSER })
 
 describe('팀 관리 서버액션', () => {
   beforeEach(() => {
@@ -55,24 +59,25 @@ describe('팀 관리 서버액션', () => {
     db.updated = []
     createAdminClient.mockClear()
     refreshTeams.mockClear()
+    requireSuperuser.mockReset()
   })
 
-  it('비-pmo_admin은 addTeam·updateTeam 거부(fail-closed)', async () => {
-    vi.mocked(getMembership).mockResolvedValue({ role: 'team_editor', teamCode: 'PMO', teamId: 't1' })
-    expect((await addTeam('신팀')).ok).toBe(false)
-    expect((await updateTeam('t1', { active: false })).ok).toBe(false)
+  it('슈퍼유저가 아니면 addTeam·updateTeam 거부(fail-closed)', async () => {
+    requireSuperuser.mockResolvedValue({ ok: false, error: '권한 없음' })
+    expect(await addTeam('신팀')).toEqual({ ok: false, error: '권한 없음' })
+    expect(await updateTeam('t1', { active: false })).toEqual({ ok: false, error: '권한 없음' })
     expect(createAdminClient).not.toHaveBeenCalled()
   })
 
   it('예약어·빈 이름 거부', async () => {
-    asAdmin()
+    asSuperuser()
     expect((await addTeam('산출물')).ok).toBe(false)
     expect((await addTeam('   ')).ok).toBe(false)
     expect(db.inserted.teams).toHaveLength(0)
   })
 
   it('중복 코드 거부', async () => {
-    asAdmin()
+    asSuperuser()
     db.teams = [{ id: 't-pmo', code: 'PMO', sort_order: 0 }]
     const r = await addTeam('PMO')
     expect(r.ok).toBe(false)
@@ -80,7 +85,7 @@ describe('팀 관리 서버액션', () => {
   })
 
   it('성공: teams insert + 시드 루트 폴더 insert + refreshTeams', async () => {
-    asAdmin()
+    asSuperuser()
     const r = await addTeam(' 신팀 ')
     expect(r.ok).toBe(true)
     expect(db.inserted.teams[0]).toMatchObject({ code: '신팀', name: '신팀' })
@@ -89,7 +94,7 @@ describe('팀 관리 서버액션', () => {
   })
 
   it('동명 시드 폴더가 이미 있으면 폴더 insert 는 생략하고 성공', async () => {
-    asAdmin()
+    asSuperuser()
     db.folders = [{ id: 'f1', code: undefined, name: '신팀', parent_id: null, created_by: null }]
     const r = await addTeam('신팀')
     expect(r.ok).toBe(true)
@@ -97,7 +102,7 @@ describe('팀 관리 서버액션', () => {
   })
 
   it('updateTeam: 빈 patch 거부, 정상 patch 는 스네이크케이스로 update', async () => {
-    asAdmin()
+    asSuperuser()
     expect((await updateTeam('t1', {})).ok).toBe(false)
     const r = await updateTeam('t1', { active: false, progressVisible: true, sortOrder: 3 })
     expect(r.ok).toBe(true)

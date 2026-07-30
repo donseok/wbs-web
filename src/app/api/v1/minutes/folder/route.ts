@@ -6,7 +6,7 @@ import {
 } from '@/lib/minutes/folders'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, EXTERNAL_ID_MAX,
-  gateMinutesApi, parseFolderPathValue, parseUserEmail, resolveUserByEmail, resolveUserRole,
+  gateMinutesApi, parseFolderPathValue, parseUserEmail, resolveUserByEmail, isBatchAuthorized,
   type AdminClient,
 } from '@/lib/minutes/externalApi'
 
@@ -268,7 +268,9 @@ export async function POST(req: NextRequest) {
     // 폴더를 만들고 그 사람이 생성 트리의 유일한 관리자가 되므로, ACTOR_EMAIL 오타가
     // **실재하는 다른 직원**을 가리키면 조용히 성공한다(되돌리려면 DB 직접 수정).
     // items: [] 프로브도 이 게이트를 통과해야 하므로 오설정이 첫 호출에서 드러난다.
-    if (await resolveUserRole(admin, user.id) !== 'pmo_admin') {
+    // 판정은 새 권한 축(is_superuser 또는 어느 프로젝트든 admin)으로 한다 —
+    // memberships.role 은 0054 에서 박제돼 갱신되지 않으므로 읽으면 드리프트가 쌓인다.
+    if (!(await isBatchAuthorized(admin, user.id))) {
       return apiFail(403, 'forbidden_role', '일괄 재편철은 관리자 계정으로만 실행할 수 있습니다.')
     }
 

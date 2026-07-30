@@ -53,17 +53,33 @@ export function folderPathEnabled(): boolean {
 }
 
 /**
- * 관리자 전용 경로(배치)용 role 조회 — service_role 로 memberships 를 직접 읽는다.
- * 보안 가드이므로 조회 실패는 fail-closed(null → 거절). getMembership 은 세션 기반이라
- * 서버 간 호출 경로에서는 쓸 수 없다.
+ * 관리자 전용 경로(배치)에서 **ACTOR_EMAIL 이 가리키는 사람이 관리자 이상인지** 판정한다.
+ * service_role 로 직접 읽는다 — 세션 기반 getActor 는 서버 간 호출 경로에서 쓸 수 없다.
+ *
+ * `memberships.role` 을 읽지 않는다. 그 컬럼은 0054 에서 deprecated 로 박제됐고 갱신되지
+ * 않으므로, 계속 읽으면 신규 관리자는 배치를 못 돌리고(동결값 'team_editor') 강등된 옛
+ * pmo_admin 은 계속 돌 수 있는 판정 드리프트가 시간이 갈수록 벌어진다.
+ * 판정 기준은 새 축 하나뿐이다 — `is_superuser` 또는 `project_roles.role='admin'`
+ * (앱의 isAnyProjectAdmin·DB app_role() shim 과 같은 의미).
+ *
+ * 보안 가드이므로 조회 실패는 fail-closed(false → 거절).
  */
-export async function resolveUserRole(admin: AdminClient, userId: string): Promise<string | null> {
-  const { data, error } = await admin.from('memberships').select('role').eq('user_id', userId).maybeSingle()
-  if (error) {
-    console.error('[minutes-api] role 조회 실패(거절):', error.message)
-    return null
+export async function isBatchAuthorized(admin: AdminClient, userId: string): Promise<boolean> {
+  const { data: mem, error: memErr } = await admin
+    .from('memberships').select('is_superuser').eq('user_id', userId).maybeSingle()
+  if (memErr) {
+    console.error('[minutes-api] 등급 조회 실패(거절):', memErr.message)
+    return false
   }
-  return (data as { role: string } | null)?.role ?? null
+  if (mem?.is_superuser) return true
+
+  const { data: roles, error: roleErr } = await admin
+    .from('project_roles').select('project_id').eq('user_id', userId).eq('role', 'admin').limit(1)
+  if (roleErr || !roles) {
+    console.error('[minutes-api] 프로젝트 역할 조회 실패(거절):', roleErr?.message)
+    return false
+  }
+  return roles.length > 0
 }
 
 /** 시크릿 비교는 길이 노출·타이밍 채널을 피하기 위해 해시 후 상수시간으로 비교한다. */

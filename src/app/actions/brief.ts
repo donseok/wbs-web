@@ -1,8 +1,9 @@
 'use server'
 // 주간 AI 브리핑 서버 액션 — ensureMinuteInsightsAction 미러의 게이트 구조.
-// 세션+멤버십 fail-closed(무료 쿼터 보호): 비로그인/비멤버는 LLM 경로 진입 자체가 불가.
+// 생성은 프로젝트 관리자 fail-closed(무료 쿼터 보호): 조회 전용·멤버는 LLM 경로 진입 자체가 불가.
 // 데이터는 클라이언트 입력을 믿지 않고 loadProjectFacts 로 서버에서 재로드한다.
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { requireProjectAdmin } from '@/lib/authz'
 import { loadProjectFacts } from '@/lib/ai/projectFacts'
 import { briefFactsHash, buildBriefFacts, ensureWeeklyBrief } from '@/lib/ai/brief'
 import { getAiBrief } from '@/lib/data/aiBriefs'
@@ -23,10 +24,12 @@ export interface WeeklyBriefPayload {
 export async function ensureProjectBriefAction(
   projectId: string, opts?: { force?: boolean },
 ): Promise<WeeklyBriefPayload> {
-  const m = await getMembership()
-  if (!m) return { state: 'unavailable' }
-  const user = await getSession()
-  if (!user) return { state: 'unavailable' }
+  const g = await requireProjectAdmin(projectId)
+  // 페이로드에 에러 채널이 없어 'unavailable' 로 강등하되, 사유는 로그에 남긴다(표시 = 로깅).
+  if (!g.ok) {
+    console.error('[brief] ensureProjectBriefAction 거부:', g.error)
+    return { state: 'unavailable' }
+  }
   try {
     const src = await loadProjectFacts(projectId)
     if (!src) return { state: 'unavailable' }
@@ -60,8 +63,11 @@ export interface BriefStatusPayload {
 
 /** ReportModal 신선도 조회 — LLM 0콜(캐시 읽기 + 해시 대조만). */
 export async function getProjectBriefAction(projectId: string): Promise<BriefStatusPayload> {
-  const m = await getMembership()
-  if (!m) return { fresh: false, hasBrief: false, baseDate: null }
+  // 캐시 신선도 조회뿐이라 로그인만 확인한다(LLM 호출 0회).
+  if (!(await getSession())) {
+    console.error('[brief] getProjectBriefAction 비로그인 호출')
+    return { fresh: false, hasBrief: false, baseDate: null }
+  }
   try {
     const src = await loadProjectFacts(projectId)
     if (!src) return { fresh: false, hasBrief: false, baseDate: null }

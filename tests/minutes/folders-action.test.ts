@@ -1,12 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const getSession = vi.fn()
-const getMembership = vi.fn()
+const getActor = vi.fn()
 const adminMocks = vi.hoisted(() => ({ createAdminClient: vi.fn() }))
 vi.mock('@/lib/auth', () => ({
   getSession: (...a: unknown[]) => getSession(...(a as [])),
-  getMembership: (...a: unknown[]) => getMembership(...(a as [])),
 }))
+vi.mock('@/lib/authz', () => ({
+  getActor: (...a: unknown[]) => getActor(...(a as [])),
+}))
+
+// 권한 3단 이행 — 역할 픽스처는 Actor 로 표현한다
+const memberActor = {
+  userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false,
+  projectRoles: new Map([['p1', 'member' as const]]),
+}
+const viewerActor = {
+  userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false,
+  projectRoles: new Map(),
+}
+const superuserActor = { ...memberActor, isSuperuser: true }
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('next/server', () => ({ after: vi.fn() }))
 vi.mock('@/lib/supabase/admin', () => ({
@@ -78,23 +91,24 @@ const seedFolders = [
 ]
 
 beforeEach(() => {
-  getSession.mockReset(); createServerClient.mockReset(); getMembership.mockReset()
+  getSession.mockReset(); createServerClient.mockReset(); getActor.mockReset()
   adminMocks.createAdminClient.mockReset()
   getSession.mockResolvedValue({ id: 'u1' })
-  // 이 파일의 기존 케이스들은 멤버십 가드를 겨냥하지 않으므로 통과 기본값을 깔아준다 —
-  // 개별 케이스(멤버십 null)만 아래서 오버라이드.
-  getMembership.mockResolvedValue({ role: 'member' })
+  // 이 파일의 기존 케이스들은 권한 가드를 겨냥하지 않으므로 통과 기본값(멤버)을 깔아준다 —
+  // 개별 케이스(조회 전용·미로그인)만 아래서 오버라이드.
+  getActor.mockResolvedValue(memberActor)
 })
 
 describe('createMinuteFolder', () => {
   it('미로그인은 실패 + 클라이언트 미생성', async () => {
     getSession.mockResolvedValue(null)
+    getActor.mockResolvedValue(null)
     const r = await createMinuteFolder('새폴더', null)
     expect(r.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
   })
-  it('멤버십 없음(세션은 존재)은 실패 + DB insert 미도달', async () => {
-    getMembership.mockResolvedValue(null)
+  it('조회 전용(프로젝트 역할 없음)은 실패 + DB insert 미도달', async () => {
+    getActor.mockResolvedValue(viewerActor)
     const r = await createMinuteFolder('새폴더', null)
     expect(r.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
@@ -270,8 +284,8 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     // fakeClient 는 갱신·삭제 결과로 테이블 데이터를 그대로 돌려주므로(비어있지 않음) 성공 경로에 도달
     const r = await renameMinuteFolder('c-buy', '구매관리')
     expect(r.ok).toBe(true)
-    // 삭제는 '비우기 우선'이라 admin 으로 승격 후 지운다. created_by null 이라 pmo_admin 이어야 한다.
-    getMembership.mockResolvedValue({ role: 'pmo_admin' })
+    // 삭제는 '비우기 우선'이라 admin 으로 승격 후 지운다. created_by null 이라 관리자 이상이어야 한다.
+    getActor.mockResolvedValue(superuserActor)
     const { client: admin } = fakeClient({
       minute_folders: { data: [], error: null }, minutes: { data: [], error: null },
     })
@@ -399,6 +413,7 @@ describe('moveMinuteFolder (폴더 드래그앤드롭)', () => {
 
   it('미로그인은 실패 + 클라이언트 미생성', async () => {
     getSession.mockResolvedValue(null)
+    getActor.mockResolvedValue(null)
     const r = await moveMinuteFolder('f-b', null)
     expect(r.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()

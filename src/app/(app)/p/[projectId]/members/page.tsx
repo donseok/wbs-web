@@ -2,7 +2,8 @@ import { Users, ShieldCheck, UserRound } from 'lucide-react'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { getProjectMembers } from '@/lib/data/members'
-import { getMembership } from '@/lib/auth'
+import { getActorForView } from '@/lib/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -13,14 +14,14 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
   const { projectId } = await params
   const [members, m, projects, locale] = await Promise.all([
     getProjectMembers(projectId),
-    getMembership(),
+    getActorForView(),
     listProjects(),
     getServerLocale(),
   ])
 
   const project = projects.find((p) => p.id === projectId)
   const projectName = project?.name ?? t(locale, 'members.projectFallback')
-  const canEdit = m?.role === 'pmo_admin'
+  const canEdit = isProjectAdmin(m, projectId)
 
   const teamSize = members.length
   const admins = members.filter((x) => x.role === 'admin').length

@@ -102,7 +102,7 @@ describe('WBS 기준일 초기 스크롤', () => {
           items={[item('2026-06-01', '2026-08-31')]}
           holidays={[]}
           today="2026-07-15"
-          membership={null}
+          actorView={null}
           projectId="p1"
           readOnly
           defaultView={defaultView}
@@ -120,7 +120,7 @@ describe('WBS 기준일 초기 스크롤', () => {
           items={[item('2026-08-01', '2026-08-10')]}
           holidays={[]}
           today="2026-07-24"
-          membership={null}
+          actorView={null}
           projectId="p1"
           readOnly
         />,

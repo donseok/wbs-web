@@ -35,6 +35,7 @@ function monthRangeOf(year: number, month0: number): [string, string] {
 export function MinutesView({
   initialMinutes, initialTree = null, todayIso, initialView, projects, currentUserId, role, defaultTeam,
   initialFavorites = null, explorerLayout = 'grid', myProjectIds = null,
+  adminProjectIds = [], isSuperuser = false,
 }: {
   initialMinutes: Minute[]
   /** 서버에서 미리 실어 보낸 트리. null 이면(조회 실패 포함) 마운트 후 클라이언트가 직접 가져온다. */
@@ -43,7 +44,13 @@ export function MinutesView({
   initialView: ViewKey
   projects: { id: string; name: string }[]
   currentUserId: string | null
+  /** 전역 shim — 이 화면은 프로젝트가 섞인 목록이라 **폴더 조작(전역)과 업로드 자격**에만 쓴다.
+   *  회의록 개별 건 판정은 adminProjectIds·isSuperuser 로 한다. */
   role: string | null
+  /** 관리자 이상인 프로젝트 id — 회의록 개별 건 조작의 항목별 판정 근거(서버 checkOwner 미러). */
+  adminProjectIds?: string[]
+  /** 슈퍼유저 — 프로젝트 미지정 회의록은 작성자 본인 또는 슈퍼유저만 조작 가능. */
+  isSuperuser?: boolean
   defaultTeam?: TeamCode | null
   /** 서버에서 미리 실어 보낸 즐겨찾기 id 목록. null 이면(조회 실패·미로그인) 트리 뷰 진입 시 클라이언트가 직접 가져온다. */
   initialFavorites?: string[] | null
@@ -120,6 +127,7 @@ export function MinutesView({
     }
   }
 
+  const canUpload = role !== null
   const teamOrNull = team === 'ALL' ? null : team
   const isSearch = query.trim().length > 0
   const isTreeExplorer = view === 'tree' && !isSearch
@@ -290,9 +298,13 @@ export function MinutesView({
             <button onClick={() => setChatOpen(true)} className="btn">
               <Bot className="h-4 w-4" />{t('min.chat.archive.title')}
             </button>
-            <button onClick={() => setUploadOpen(true)} className="btn btn-primary">
-              <Plus className="h-4 w-4" />{t('min.upload')}
-            </button>
+            {/* 조회 전용에게는 숨긴다 — 서버 createMinute 의 최소 자격이 '어느 프로젝트든 역할 보유'
+                (hasAnyProjectRole)이고, 전역 shim role!==null 이 그와 같은 의미다(스펙 §6.3). */}
+            {canUpload && (
+              <button onClick={() => setUploadOpen(true)} className="btn btn-primary">
+                <Plus className="h-4 w-4" />{t('min.upload')}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -378,7 +390,8 @@ export function MinutesView({
               onToggleFavorite={id => void toggleFav(id)}
               onRetryFavorites={() => void loadFavorites()}
               layout={exLayout}
-              currentUserId={currentUserId} isAdmin={role === 'pmo_admin'} teamCodes={teamCodes}
+              currentUserId={currentUserId} isFolderAdmin={role === 'pmo_admin'}
+              adminProjectIds={adminProjectIds} isSuperuser={isSuperuser} teamCodes={teamCodes}
               projects={projects} myProjectIds={myProjectIds}
               onChanged={() => { void loadTree(); router.refresh() }}
               onFolderSelect={id => { uploadFolderRef.current = id }} />

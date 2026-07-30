@@ -89,6 +89,22 @@ unlayered 규칙은 특이성과 무관하게 모든 named layer 를 이긴다. 
 - 마이그레이션 적용은 Supabase Management API 경유. `supabase db push` 는 쓰지 않는다.
 - 새 마이그레이션에는 `_rollback.sql` 을 함께 만든다.
 
+## 권한
+
+3단이다 — **슈퍼유저**(전역) · **관리자**(지정된 프로젝트) · **멤버**(지정된 프로젝트).
+프로젝트 역할이 없으면 조회 전용이다.
+
+- 판정은 `src/lib/domain/authz.ts`(순수) + `src/lib/authz/index.ts`(가드) 두 곳에서만 한다.
+  액션에 `role === '...'` 을 직접 적지 않는다.
+- 가드는 셋뿐이다: `requireSuperuser()` · `requireProjectAdmin(pid)` · `requireProjectMember(pid)`.
+  `projectId` 를 인자로 받지 않는 액션은 `resolveProjectId(table, id)` 로 먼저 읽는다.
+- `memberships.role` 은 **deprecated** 다(0054). 읽지 말 것. 전역 등급은 `is_superuser`,
+  프로젝트 역할은 `project_roles` 다. 옛 문자열 계약이 남은 화면은 `effectiveLegacyRole` shim 만 쓴다.
+- **회의록·위키·AI 브리핑은 RLS 쓰기 정책이 없다.** service_role 로 쓰기 때문에
+  RLS 2차 방어선이 없고 서버 액션 가드가 유일한 관문이다. 이 계열을 손댈 때 특히 주의할 것.
+- 사용 현황(`/usage`)은 슈퍼유저 전용 — `canViewUsage()` 와 0053 `read_usage_events` 가 쌍이다.
+- 설계 정본: `docs/superpowers/specs/2026-07-29-authz-three-tier-design.md`
+
 ## 에러 처리 3원칙
 
 - 조회 실패를 "데이터 없음"으로 위장하지 않는다 — 표시 = 로깅

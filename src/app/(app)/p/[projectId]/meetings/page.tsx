@@ -4,7 +4,9 @@ import { getServerLocale } from '@/lib/i18n/server'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { getProjectMembers } from '@/lib/data/members'
 import { expandMeetings, summarizeMeetings } from '@/lib/domain/meetings'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActorForView } from '@/lib/authz'
+import { effectiveLegacyRole } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -28,7 +30,7 @@ export default async function MeetingsPage({ params }: { params: Promise<{ proje
   const [{ meetings, exceptions }, members, m, user, projects, locale] = await Promise.all([
     getProjectMeetingData(projectId),
     getProjectMembers(projectId),
-    getMembership(),
+    getActorForView(),
     getSession(),
     listProjects(),
     getServerLocale(),
@@ -56,7 +58,7 @@ export default async function MeetingsPage({ params }: { params: Promise<{ proje
       />}
     >
       <MeetingsView projectId={projectId} meetings={meetings} exceptions={exceptions} members={members}
-        todayIso={today} currentUserId={user?.id ?? null} role={m?.role ?? null} />
+        todayIso={today} currentUserId={user?.id ?? null} role={effectiveLegacyRole(m, projectId)} />
     </ProjectPageShell>
   )
 }

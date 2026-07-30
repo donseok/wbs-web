@@ -4,7 +4,10 @@ import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRan
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getLlmConfig } from '@/app/actions/llmConfig'
-import { getMembership } from '@/lib/auth'
+import { getActorForView } from '@/lib/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
+import { listProjectRoles } from '@/app/actions/projectRoles'
+import { ProjectRolesManager } from '@/components/settings/ProjectRolesManager'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
@@ -83,7 +86,7 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
 export default async function SettingsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const locale = await getServerLocale()
-  const [wbs, projects, membership, dkIndex] = await Promise.all([
+  const [wbs, projects, actor, dkIndex] = await Promise.all([
     // 이 페이지가 트리에서 쓰는 건 표시용 스탯(taskCount)과 공휴일 목록뿐이다.
     // WBS 조회 실패로 페이지 전체가 에러 바운더리로 떨어지면 복구 경로인 엑셀 임포트 UI까지 함께 막힌다 —
     // 정확성 이득 없이 가용성만 잃으므로 이 페이지에서만 degrade 한다.
@@ -93,16 +96,18 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
       return null
     }),
     listProjects(),
-    getMembership(),
+    getActorForView(),
     dkbotIndexStatus(projectId),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
-  const isPmo = membership?.role === 'pmo_admin'
-  const canMutate = isPmo
+  const isAdmin = isProjectAdmin(actor, projectId)
+  const isSuperuser = actor?.isSuperuser === true
+  const canMutate = isAdmin
   const taskCount = wbs ? collectLeaves(wbs.items).length : '—'
   // 위 Promise.all 에 합류시키지 않는다 — 관리자에게만 필요한 부가 정보이고,
   // 이 조회의 실패가 페이지 본체(임포트·일정 등)를 막으면 안 된다.
-  const llm = isPmo ? await llmBadge(locale) : null
+  // LLM 설정은 서버 전역이라 슈퍼유저 전용(스펙 §5)
+  const llm = isSuperuser ? await llmBadge(locale) : null
 
   const scheduleLabel =
     project?.start_date || project?.end_date
@@ -170,7 +175,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <span className="tabular-nums">{project?.end_date ? fmtDate(project.end_date) : t(locale, 'settings.tbd')}</span>
           </InfoRow>
         </dl>
-        {!isPmo && (
+        {!isAdmin && (
           <p className="mt-4 flex items-center gap-1.5 text-xs leading-5 text-ink-subtle">
             <Lock className="h-3.5 w-3.5" />
             {t(locale, 'settings.pmoOnlyNotice')}
@@ -222,7 +227,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         actions={
           <div className="flex items-center gap-2">
             <span className={`badge px-2 py-1 ${dkbotBadge(dkIndex, locale).cls}`}>{dkbotBadge(dkIndex, locale).label}</span>
-            {canMutate ? (
+            {isSuperuser ? (
               <ReindexButton projectId={projectId} />
             ) : (
               <span className="badge bg-pending-weak px-2 py-1 text-pending">{t(locale, 'settings.pmoOnlyBadge')}</span>
@@ -239,8 +244,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         </p>
         </SectionCard>
 
-      {/* ── 서버 LLM 설정 (PMO 관리자 전용) ── */}
-        {isPmo && llm && (
+      {/* ── 서버 LLM 설정 (슈퍼유저 전용) ── */}
+        {isSuperuser && llm && (
           <SectionCard
             eyebrow="AI ASSISTANT"
             title={t(locale, 'settings.llmTitle')}
@@ -260,6 +265,27 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
               <br />
               <span className="text-ink-subtle">{t(locale, 'settings.llmDesc2')}</span>
             </p>
+          </SectionCard>
+        )}
+
+      {/* ── 권한 (관리자 이상) — 관리자 슬롯은 보이되 슈퍼유저만 만질 수 있다 ── */}
+        {isAdmin && (
+          <SectionCard
+            eyebrow="AUTHORIZATION"
+            title={locale === 'ko' ? '권한' : 'Roles'}
+            icon={Shield}
+          >
+            {await (async () => {
+              const res = await listProjectRoles(projectId)
+              if (!res.ok) return <p className="text-sm text-delayed">{res.error}</p>
+              return (
+                <ProjectRolesManager
+                  projectId={projectId}
+                  rows={res.rows}
+                  canManageAdmins={isSuperuser}
+                />
+              )
+            })()}
           </SectionCard>
         )}
 

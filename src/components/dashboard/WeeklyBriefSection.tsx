@@ -45,12 +45,16 @@ function BriefBody({ bodyMd }: { bodyMd: string }) {
   )
 }
 
-export function WeeklyBriefSection({ projectId, kpiLine, baseDate, realToday, initial }: {
+export function WeeklyBriefSection({ projectId, kpiLine, baseDate, realToday, initial, canGenerate }: {
   projectId: string
   kpiLine: string
   baseDate: string
   realToday: string
   initial: WeeklyBriefInitial | null
+  /** 생성 권한(프로젝트 관리자 이상) — ensureProjectBriefAction 의 requireProjectAdmin 과 같은 판정.
+   *  false 면 버튼을 렌더하지 않는다. 거부를 눌러 보고 알게 되면 '생성 제한 또는 일시 실패'로 표시돼
+   *  권한 문제가 장애로 오인된다. */
+  canGenerate: boolean
 }) {
   const [brief, setBrief] = useState<WeeklyBriefInitial | null>(initial)
   const [busy, setBusy] = useState(false)
@@ -95,14 +99,18 @@ export function WeeklyBriefSection({ projectId, kpiLine, baseDate, realToday, in
         {brief && !brief.fresh && (
           <span className="chip shrink-0 bg-pending-weak text-accent-warning">기준 데이터 변경됨</span>
         )}
-        <button type="button" onClick={generate} disabled={busy}
-          className="btn btn-ghost !px-2.5 !py-1 !text-xs disabled:opacity-60">
-          {busy
-            ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden /> 생성 중…</>
-            : brief
-              ? <><RefreshCw className="h-3 w-3" aria-hidden /> 다시 생성</>
-              : <><Sparkles className="h-3 w-3" aria-hidden /> AI 브리핑 생성</>}
-        </button>
+        {canGenerate ? (
+          <button type="button" onClick={generate} disabled={busy}
+            className="btn btn-ghost !px-2.5 !py-1 !text-xs disabled:opacity-60">
+            {busy
+              ? <><Loader2 className="h-3 w-3 animate-spin" aria-hidden /> 생성 중…</>
+              : brief
+                ? <><RefreshCw className="h-3 w-3" aria-hidden /> 다시 생성</>
+                : <><Sparkles className="h-3 w-3" aria-hidden /> AI 브리핑 생성</>}
+          </button>
+        ) : (
+          <span className="shrink-0 text-[11px] text-ink-subtle">프로젝트 관리자만 생성할 수 있습니다</span>
+        )}
       </div>
 
       {/* 결정형 KPI — 수치의 단일 출처는 대시보드 도메인 함수(LLM 산출 아님) */}
@@ -124,8 +132,10 @@ export function WeeklyBriefSection({ projectId, kpiLine, baseDate, realToday, in
 
       {!brief && !notice && (
         <p className="mt-1.5 text-xs leading-5 text-ink-subtle">
-          버튼을 누르면 현재 대시보드 수치를 근거로 AI가 이번 주 브리핑을 작성합니다.
-          진척·리스크는 기준일({baseDate}), 회의·회의록은 오늘({realToday}) 기준입니다.
+          {canGenerate
+            ? '버튼을 누르면 현재 대시보드 수치를 근거로 AI가 이번 주 브리핑을 작성합니다.'
+            : '아직 생성된 브리핑이 없습니다. 생성은 프로젝트 관리자가 합니다.'}
+          {' '}진척·리스크는 기준일({baseDate}), 회의·회의록은 오늘({realToday}) 기준입니다.
         </p>
       )}
     </div>

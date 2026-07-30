@@ -21,6 +21,7 @@ const statusWord = (sig: Signal, tr: (k: DictKey) => string): string =>
 
 export async function ExecSummary({
   items, projectId, projectName, projectDescription, startDate, endDate, today, announcements,
+  canGenerateBrief = false,
 }: {
   items: ComputedItem[]
   projectId: string
@@ -30,6 +31,8 @@ export async function ExecSummary({
   endDate: string | null
   today: string
   announcements: Announcement[]
+  /** 보고서 모달의 AI 브리핑 인라인 생성 권한(프로젝트 관리자 이상). 기본 false = fail-closed. */
+  canGenerateBrief?: boolean
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -72,6 +75,7 @@ export async function ExecSummary({
         <ReportButton
           variant="surface" label={tr('dash.exec.reportTitle')} projectId={projectId} items={items} projectName={projectName}
           projectDescription={projectDescription} today={today} startDate={startDate} endDate={endDate}
+          canGenerate={canGenerateBrief}
         />
       </div>
 

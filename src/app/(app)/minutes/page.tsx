@@ -2,7 +2,9 @@ import { NotebookText } from 'lucide-react'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { getMinuteFavorites, getMinutesExplorer, getMinutesPage } from '@/lib/data/minutes'
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
+import { getActorForView } from '@/lib/authz'
+import { adminProjectIds, effectiveLegacyRole } from '@/lib/domain/authz'
 import { getMyProjectIds } from '@/lib/data/members'
 import { getUiPrefs } from '@/app/actions/preferences'
 import { listProjects } from '@/app/actions/project'
@@ -33,7 +35,7 @@ export default async function MinutesPage() {
     getMinutesPage(rs, re, null),
     getMinutesExplorer(),
     getMinuteFavorites(),
-    getMembership(),
+    getActorForView(),
     getSession(),
     getUiPrefs(),
     listProjects(),
@@ -66,7 +68,8 @@ export default async function MinutesPage() {
         initialFavorites={user ? favs : null}
         explorerLayout={prefs.minutesExplorerLayout === 'list' ? 'list' : 'grid'}
         initialView={initialView} projects={projects} defaultTeam={m?.teamCode ?? null}
-        currentUserId={user?.id ?? null} role={m?.role ?? null} myProjectIds={myProjectIds} />
+        currentUserId={user?.id ?? null} role={effectiveLegacyRole(m)} myProjectIds={myProjectIds}
+        adminProjectIds={adminProjectIds(m)} isSuperuser={m?.isSuperuser ?? false} />
     </ProjectPageShell>
   )
 }

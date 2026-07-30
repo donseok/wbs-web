@@ -1,6 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getMembership } from '@/lib/auth'
+import { getActor } from '@/lib/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
@@ -116,7 +116,7 @@ export async function getRecentUsageEvents(o: {
  * last_sign_in_at 은 GoTrue 가 계속 채워온 값이라 수집 시작 이전까지 소급되는 유일한 데이터다.
  */
 export async function getUsageDirectory(): Promise<AccountRecord[]> {
-  if (!canViewUsage(await getMembership())) {
+  if (!canViewUsage(await getActor())) {
     throw new Error('사용 현황을 볼 권한이 없습니다.')
   }
   const admin = createAdminClient()

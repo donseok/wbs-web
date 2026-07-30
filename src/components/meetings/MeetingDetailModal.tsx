@@ -16,12 +16,14 @@ import { fetchMeetingMinutesLite } from '@/app/actions/minutes'
 type LinkedMinute = { id: string; title: string; minuteDate: string }
 
 export function MeetingDetailModal({
-  open, occurrence, currentUserId, role, onClose, onEditSeries, onChanged,
+  open, occurrence, currentUserId, isAdmin, onClose, onEditSeries, onChanged,
 }: {
   open: boolean
   occurrence: MeetingOccurrence | null
   currentUserId: string | null
-  role: string | null
+  /** **이 회의가 속한 프로젝트의** 관리자 여부. 서버 가드(adminOrOwnerGate·createAnnouncementFromMeeting)가
+   *  회의 행의 project_id 로 requireProjectAdmin 을 하므로, 전역 '어느 프로젝트든 관리자'로는 갈라진다. */
+  isAdmin: boolean
   onClose: () => void
   onEditSeries: (m: Meeting) => void
   onChanged: () => void
@@ -55,7 +57,7 @@ export function MeetingDetailModal({
 
   if (!occurrence) return null
   const meta = MEETING_META[occurrence.category]
-  const canEdit = detail ? canEditMeeting(detail.meeting, currentUserId, role) : false
+  const canEdit = detail ? canEditMeeting(detail.meeting, currentUserId, isAdmin) : false
   const timeLabel = occurrence.startTime
     ? `${occurrence.startTime}${occurrence.endTime ? `–${occurrence.endTime}` : ''}`
     : t('meet.allDay')
@@ -86,7 +88,7 @@ export function MeetingDetailModal({
         title={occurrence.title}
         footer={canEdit ? (
           <>
-            {role === 'pmo_admin' && (
+            {isAdmin && (
               posted ? (
                 <span className="btn btn-ghost mr-auto pointer-events-none text-progress"><Check className="h-4 w-4" />{t('meet.detail.postedAsAnnouncement')}</span>
               ) : (
@@ -96,7 +98,7 @@ export function MeetingDetailModal({
               )
             )}
             {occurrence.isRecurring && (
-              <button onClick={() => setConfirmCancel(true)} disabled={pending} className={`btn btn-ghost text-pending hover:bg-pending-weak ${role === 'pmo_admin' ? '' : 'mr-auto'}`}>
+              <button onClick={() => setConfirmCancel(true)} disabled={pending} className={`btn btn-ghost text-pending hover:bg-pending-weak ${isAdmin ? '' : 'mr-auto'}`}>
                 <Ban className="h-4 w-4" />{t('meet.detail.cancelOccurrence')}
               </button>
             )}

@@ -1,8 +1,8 @@
 'use server'
-import { getMembership } from '@/lib/auth'
+import { requireSuperuser } from '@/lib/authz'
 import { ingestProject } from '@/lib/ai/ingest'
 
-/** DK Bot 의미검색 색인 재생성(관리자 전용). 설정 화면/임포트 후 호출. */
+/** DK Bot 의미검색 색인 재생성(슈퍼유저 전용 — 전역 봇 인덱스). 설정 화면/임포트 후 호출. */
 export async function reindexProjectAction(projectId: string): Promise<{
   ok: boolean
   error?: string
@@ -11,8 +11,8 @@ export async function reindexProjectAction(projectId: string): Promise<{
   reason?: string
   skippedItems?: number
 }> {
-  const m = await getMembership()
-  if (m?.role !== 'pmo_admin') return { ok: false, error: '권한이 없습니다.' }
+  const g = await requireSuperuser()
+  if (!g.ok) return { ok: false, error: g.error }
   try {
     const r = await ingestProject(projectId)
     return { ok: true, count: r.count, skipped: r.skipped, reason: r.reason, skippedItems: r.skippedItems }

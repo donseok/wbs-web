@@ -91,7 +91,7 @@ describe('WBS sub-act 축약 표시 + 기본 접힘', () => {
           items={fixture()}
           holidays={[]}
           today="2026-07-03"
-          membership={null}
+          actorView={null}
           projectId="p1"
           readOnly
         />,

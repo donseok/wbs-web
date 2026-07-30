@@ -1,26 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// next/cache · auth · Supabase 클라이언트 · 오버라이드 캐시를 모두 모킹해 액션 로직만 검증한다.
+// next/cache · authz 가드 · Supabase 클라이언트 · 오버라이드 캐시를 모두 모킹해 액션 로직만 검증한다.
+// LLM 설정은 서버 전역이라 프로젝트 관리자가 아니라 슈퍼유저 전용이다(스펙 §4).
 // vi.mock 팩토리는 파일 최상단으로 호이스팅되므로 스파이는 vi.hoisted 로 먼저 만든다.
-const { createServerClient, refreshLlmOverride } = vi.hoisted(() => ({
+const { createServerClient, refreshLlmOverride, requireSuperuser } = vi.hoisted(() => ({
   createServerClient: vi.fn(() => {
     throw new Error('게이트 통과 전 createServerClient 호출 금지')
   }),
   refreshLlmOverride: vi.fn(async () => true),
+  requireSuperuser: vi.fn(),
 }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
-vi.mock('@/lib/auth', () => ({ getMembership: vi.fn(), getSession: vi.fn() }))
+vi.mock('@/lib/authz', () => ({ requireSuperuser }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
 vi.mock('@/lib/ai/llm-override', () => ({ refreshLlmOverride }))
 
-import { getMembership } from '@/lib/auth'
 import {
   listLlmProfiles, createLlmProfile, updateLlmProfile, deleteLlmProfile,
   getLlmConfig, saveLlmConfig, testLlmConnection, maskToken,
   type LlmProfileInput,
 } from '@/app/actions/llmConfig'
 
-const NON_ADMIN = [null, { role: 'team_editor', teamCode: 'PMO', teamId: 't1' }] as const
+/** 가드가 돌려주는 두 거부 사유 — 비로그인과 권한 부족(관리자·멤버·조회 전용)을 구분한다. */
+const DENIALS = ['로그인 필요', '권한 없음'] as const
+
+const SUPERUSER = {
+  userId: 'u-super', teamCode: 'PMO', teamId: 't1', isSuperuser: true, projectRoles: new Map(),
+}
+const asSuperuser = () => requireSuperuser.mockResolvedValue({ ok: true, actor: SUPERUSER })
 
 const VALID_INPUT: LlmProfileInput = {
   name: 'gemini-기본', preset_id: 'gemini', provider: 'gemini', model: 'gemini-3.5-flash',
@@ -61,14 +68,15 @@ describe('LLM 설정 서버액션 권한 게이트', () => {
   beforeEach(() => {
     createServerClient.mockClear()
     refreshLlmOverride.mockClear()
+    requireSuperuser.mockReset()
   })
 
-  const CASES = ACTIONS.flatMap(([name, run]) => NON_ADMIN.map(m => [name, run, m] as const))
+  const CASES = ACTIONS.flatMap(([name, run]) => DENIALS.map(e => [name, run, e] as const))
 
-  it.each(CASES)('비-pmo_admin(%s / %#)은 거부하고 DB에 손대지 않는다', async (_name, run, membership) => {
-    vi.mocked(getMembership).mockResolvedValue(membership as never)
+  it.each(CASES)('슈퍼유저가 아니면(%s / %s) 거부하고 DB에 손대지 않는다', async (_name, run, error) => {
+    requireSuperuser.mockResolvedValue({ ok: false, error })
     const res = (await run()) as { error?: string }
-    expect(res.error).toBe('권한이 없습니다')
+    expect(res.error).toBe(error)
     // 게이트가 첫 줄이어야 한다 — 통과 전 클라이언트를 만들면 위 모킹이 throw 한다.
     expect(createServerClient).not.toHaveBeenCalled()
     expect(refreshLlmOverride).not.toHaveBeenCalled()
@@ -97,7 +105,7 @@ describe('updateLlmProfile 키 유지 규칙', () => {
   beforeEach(() => {
     createServerClient.mockReset()
     refreshLlmOverride.mockClear()
-    vi.mocked(getMembership).mockResolvedValue({ role: 'pmo_admin', teamCode: 'PMO', teamId: 't1' } as never)
+    asSuperuser()
   })
 
   async function runUpdate(input: LlmProfileInput) {
@@ -151,7 +159,7 @@ function makeConfigSb(
 describe('getLlmConfig dangling 해석', () => {
   beforeEach(() => {
     createServerClient.mockReset()
-    vi.mocked(getMembership).mockResolvedValue({ role: 'pmo_admin', teamCode: 'PMO', teamId: 't1' } as never)
+    asSuperuser()
   })
 
   async function run(config: { mode: string; active_profile_id: number | null } | null, profiles = [PROFILE_ROW]) {
@@ -180,7 +188,7 @@ describe('saveLlmConfig 반영 실패 신호', () => {
   beforeEach(() => {
     createServerClient.mockReset()
     refreshLlmOverride.mockClear()
-    vi.mocked(getMembership).mockResolvedValue({ role: 'pmo_admin', teamCode: 'PMO', teamId: 't1' } as never)
+    asSuperuser()
     createServerClient.mockReturnValue(makeSbChain({ data: { id: 1 }, error: null }) as never)
   })
 
@@ -199,7 +207,7 @@ describe('saveLlmConfig 반영 실패 신호', () => {
 
 describe('testLlmConnection 오류 메시지 토큰 유출', () => {
   beforeEach(() => {
-    vi.mocked(getMembership).mockResolvedValue({ role: 'pmo_admin', teamCode: 'PMO', teamId: 't1' } as never)
+    asSuperuser()
   })
 
   it('200자 경계에 걸친 토큰도 잘려서 새지 않는다(자르기 전에 마스킹)', async () => {

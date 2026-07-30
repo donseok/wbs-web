@@ -30,9 +30,11 @@ function groupBySection(findings: LintFinding[]): { section: string; items: Lint
 /** 주간보고 점검 패널 — 현재 화면의 rows로 지적을 계산해 보여주고, 항목별로 수정을 적용한다.
  *  점검은 구분 안에서만 이뤄지므로(도메인 규칙) 목록도 구분별로 묶어 보여준다.
  *  저장은 부모가 넘긴 onApply(=runBatch)가 담당한다. 이 컴포넌트는 I/O를 하지 않는다. */
-export function WeeklyLintPanel({ open, rows, onClose, onApply, onGoToCell }: {
+export function WeeklyLintPanel({ open, rows, canApply = true, onClose, onApply, onGoToCell }: {
   open: boolean
   rows: WeeklySheetRow[]
+  /** 자동수정('적용') 노출 여부 = 셀 편집 자격(isProjectMember). 점검 자체는 조회 전용도 볼 수 있다. */
+  canApply?: boolean
   onClose: () => void
   onApply: (edits: WeeklyCellEdit[]) => void
   onGoToCell: (rowId: string, cellKey: WeeklyCellKey) => void
@@ -72,6 +74,7 @@ export function WeeklyLintPanel({ open, rows, onClose, onApply, onGoToCell }: {
                     <LintRow
                       key={f.id}
                       finding={f}
+                      canApply={canApply}
                       onApply={() => onApply(f.edits)}
                       // 셀 이동은 모달이 닫히는 커밋 '뒤'로 미룬다 — 같은 틱에 옮기면
                       // Modal이 닫히며 열 때 캡처한 트리거(점검 버튼)로 포커스를 되돌려 이동이 무효가 된다.
@@ -88,8 +91,8 @@ export function WeeklyLintPanel({ open, rows, onClose, onApply, onGoToCell }: {
   )
 }
 
-function LintRow({ finding, onApply, onGo }: {
-  finding: LintFinding; onApply: () => void; onGo: () => void
+function LintRow({ finding, canApply, onApply, onGo }: {
+  finding: LintFinding; canApply: boolean; onApply: () => void; onGo: () => void
 }) {
   return (
     <li className="flex items-start gap-3 py-3">
@@ -108,7 +111,7 @@ function LintRow({ finding, onApply, onGo }: {
         <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-ink-muted">{finding.detail}</p>
       </div>
       {/* 유사 중복은 edits 가 없다(어느 줄을 남길지는 사람의 판단) — 적용 버튼 대신 제목 클릭으로 셀에 간다. */}
-      {finding.edits.length > 0 && (
+      {canApply && finding.edits.length > 0 && (
         <button type="button" className="btn btn-ghost shrink-0 text-xs" onClick={onApply}>적용</button>
       )}
     </li>

@@ -2,7 +2,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { ComputedItem, Membership } from '@/lib/domain/types'
+import type { ComputedItem } from '@/lib/domain/types'
+import type { ProjectActorView } from '@/lib/domain/authz'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -19,8 +20,8 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({ queueWbsCollapse: vi.fn() }))
 
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 
-const pmo: Membership = { role: 'pmo_admin', teamCode: 'PMO', teamId: 'tp' }
-const dtEditor: Membership = { role: 'team_editor', teamCode: '가공', teamId: 'td' }
+const pmo: ProjectActorView = { userId: 'u-pmo', teamCode: 'PMO', teamId: 'tp', isSuperuser: false, projectRole: 'admin' }
+const dtEditor: ProjectActorView = { userId: 'u-dt', teamCode: '가공', teamId: 'td', isSuperuser: false, projectRole: 'member' }
 
 function item(over: Partial<ComputedItem>): ComputedItem {
   return {
@@ -65,9 +66,9 @@ describe('WbsGanttSheet — 단독 Task 실적% 입력', () => {
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
-  const mount = (membership: Membership | null, readOnly = false) =>
+  const mount = (actorView: ProjectActorView | null, readOnly = false) =>
     act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={membership} projectId="p1" readOnly={readOnly} />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={actorView} projectId="p1" readOnly={readOnly} />,
     ))
 
   it('PMO에게는 단독 Task 의 실적% 셀만 편집 가능하고, 롤업 Task·Phase 는 아니다', async () => {

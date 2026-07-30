@@ -9,15 +9,44 @@ const { createServerClient } = vi.hoisted(() => ({
     return state.client
   }),
 }))
+// 가드 자체의 판정은 tests/authz/guards.test.ts 가 본다. 여기서는 이슈 액션이 어떤 가드를 쓰는지만 본다.
+const { requireProjectMember, requireProjectAdmin, resolveProjectId, getActor } = vi.hoisted(() => ({
+  requireProjectMember: vi.fn(), requireProjectAdmin: vi.fn(), resolveProjectId: vi.fn(), getActor: vi.fn(),
+}))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
-vi.mock('@/lib/auth', () => ({ getMembership: vi.fn(), getSession: vi.fn() }))
+vi.mock('@/lib/auth', () => ({ getSession: vi.fn() }))
+vi.mock('@/lib/authz', () => ({ requireProjectMember, requireProjectAdmin, resolveProjectId, getActor }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
 
-import { getMembership, getSession } from '@/lib/auth'
+import { getSession } from '@/lib/auth'
 import { createIssue, updateIssue, updateIssueProgress, deleteIssue } from '@/app/actions/issues'
 
-const MEMBER = { role: 'team_editor', teamCode: 'PMO', teamId: 't1' } as const
 const USER = { id: 'me', email: 'me@x.com', user_metadata: {} } as const
+const ACTOR = { userId: 'me', teamCode: 'PMO', teamId: 't1', isSuperuser: false, projectRoles: new Map([['p1', 'member']]) }
+
+/** 이 프로젝트의 멤버지만 관리자는 아니다 — 남의 이슈 전체 편집·삭제는 거부돼야 한다. */
+function asMember() {
+  requireProjectMember.mockResolvedValue({ ok: true, actor: ACTOR })
+  requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+  getActor.mockResolvedValue(ACTOR)
+}
+/** 프로젝트 역할이 없는 조회 전용 사용자 — 쓰기는 전부 거부. */
+function asViewer() {
+  requireProjectMember.mockResolvedValue({ ok: false, error: '권한 없음' })
+  requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+  getActor.mockResolvedValue(ACTOR)
+}
+/** 이 프로젝트의 관리자 — 남의 이슈도 편집·삭제할 수 있다. */
+function asProjectAdmin() {
+  requireProjectMember.mockResolvedValue({ ok: true, actor: ACTOR })
+  requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+}
+/** 비로그인 — 가드가 '로그인 필요'를 내고 getActor 도 null 이다. */
+function asAnon() {
+  requireProjectMember.mockResolvedValue({ ok: false, error: '로그인 필요' })
+  requireProjectAdmin.mockResolvedValue({ ok: false, error: '로그인 필요' })
+  getActor.mockResolvedValue(null)
+}
 
 const INPUT = {
   title: '테스트 이슈',
@@ -44,61 +73,110 @@ function sbWithCurrent(current: Record<string, unknown> | null, extra: Record<st
 beforeEach(() => {
   state.client = undefined
   createServerClient.mockClear()
-  vi.mocked(getMembership).mockReset()
+  requireProjectMember.mockReset()
+  requireProjectAdmin.mockReset()
+  resolveProjectId.mockReset()
+  getActor.mockReset()
+  resolveProjectId.mockResolvedValue({ ok: true, projectId: 'p1' })
   vi.mocked(getSession).mockReset()
+  vi.mocked(getSession).mockResolvedValue(USER as never)
 })
 
-describe('멤버십 게이트 — 비멤버는 전부 거부 + DB 무접근', () => {
+describe('권한 게이트 — 비로그인은 전부 거부 + DB 무접근', () => {
   it.each([
     ['createIssue', () => createIssue('p1', { ...INPUT })],
     ['updateIssue', () => updateIssue('i1', { ...INPUT })],
-    ['updateIssueProgress', () => updateIssueProgress('i1', { status: 'in_progress' })],
+    ['updateIssueProgress', () => updateIssueProgress('i1', { status: 'in_progress', expectedStatus: 'open' })],
     ['deleteIssue', () => deleteIssue('i1')],
-  ] as const)('%s: 멤버십 없음 → ok:false, DB 미호출', async (_name, run) => {
-    vi.mocked(getMembership).mockResolvedValue(null)
+  ] as const)('%s: 비로그인 → ok:false, DB 미호출', async (_name, run) => {
+    asAnon()
     const res = await run()
-    expect(res.ok).toBe(false)
+    expect(res).toMatchObject({ ok: false, error: '로그인 필요' })
     expect(createServerClient).not.toHaveBeenCalled()
   })
 })
 
-describe('작성자/pmo 게이트 — updateIssue·deleteIssue', () => {
-  it('작성자도 pmo도 아니면 권한 없음 (선검증 조회까지만, update/delete 미호출)', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+describe('권한 게이트 — 조회 전용(프로젝트 역할 없음)은 쓰지 못한다', () => {
+  it.each([
+    ['createIssue', () => createIssue('p1', { ...INPUT })],
+    ['updateIssueProgress', () => updateIssueProgress('i1', { status: 'in_progress', expectedStatus: 'open' })],
+  ] as const)('%s: 멤버 가드에서 거부 + DB 미호출', async (_name, run) => {
+    asViewer()
+    const res = await run()
+    expect(res).toMatchObject({ ok: false, error: '권한 없음' })
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+
+  // 전체 편집·삭제는 '작성자 본인'과 OR 이므로 소유권 조회까지는 간다 — 거기서 끊긴다.
+  it('updateIssue·deleteIssue: 남의 이슈는 소유권 조회까지만 하고 거부한다', async () => {
+    asViewer()
+    state.client = sbWithCurrent({ project_id: 'p1', created_by: 'other' })
+    expect(await updateIssue('i1', { ...INPUT })).toMatchObject({ ok: false, error: '권한 없음' })
+    expect(await deleteIssue('i1')).toMatchObject({ ok: false, error: '권한 없음' })
+  })
+})
+
+describe('작성자/관리자 게이트 — updateIssue·deleteIssue', () => {
+  it('멤버여도 작성자도 관리자도 아니면 권한 없음 (선검증 조회까지만, update/delete 미호출)', async () => {
+    asMember()
     state.client = sbWithCurrent({ project_id: 'p1', created_by: 'other' })
     const up = await updateIssue('i1', { ...INPUT })
     expect(up).toMatchObject({ ok: false, error: '권한 없음' })
     const del = await deleteIssue('i1')
     expect(del).toMatchObject({ ok: false, error: '권한 없음' })
   })
+
   it('이슈가 없으면 안내 반환', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     state.client = sbWithCurrent(null)
     const res = await updateIssue('i1', { ...INPUT })
     expect(res.ok).toBe(false)
+  })
+
+  // 대상 이슈의 프로젝트를 못 읽으면 관리자 판정 자체가 불가능하다 — 쓰기로 나아가지 않는다.
+  it('프로젝트 확정에 실패하면 그 사유로 중단하고 DB 에 접근하지 않는다', async () => {
+    asMember()
+    resolveProjectId.mockResolvedValue({ ok: false, error: '권한을 확인할 수 없어 중단했습니다.' })
+    const res = await deleteIssue('i1')
+    expect(res).toMatchObject({ ok: false, error: '권한을 확인할 수 없어 중단했습니다.' })
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+
+  it('프로젝트 관리자는 남의 이슈도 편집할 수 있다', async () => {
+    asProjectAdmin()
+    state.client = {
+      from: vi.fn((table: string) => {
+        if (table === 'issue_assignees') {
+          return { delete: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) })) }
+        }
+        return {
+          select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: vi.fn(async () => ({ data: { project_id: 'p1', created_by: 'other' } })) })) })),
+          update: vi.fn(() => ({
+            eq: vi.fn(() => ({ select: vi.fn(() => ({ single: vi.fn(async () => ({ data: { id: 'i1' }, error: null })) })) })),
+          })),
+        }
+      }),
+    }
+    const res = await updateIssue('i1', { ...INPUT })
+    expect(res).toMatchObject({ ok: true })
   })
 })
 
 describe('updateIssueProgress — 전환 검증 + CAS', () => {
   it('전환 맵에 없는 전환은 거부 (resolved→on_hold)', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     state.client = sbWithCurrent({ project_id: 'p1', created_by: 'other', status: 'resolved', resolved_at: '2026-07-20T00:00:00Z' })
     const res = await updateIssueProgress('i1', { status: 'on_hold', expectedStatus: 'resolved' })
     expect(res.ok).toBe(false)
   })
   it('status 만 있고 expectedStatus 가 없으면 검증 에러 (DB 미도달)', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     const res = await updateIssueProgress('i1', { status: 'in_progress' })
     expect(res).toMatchObject({ ok: false, error: '상태 기준값이 없습니다. 새로고침 후 다시 시도하세요.' })
     expect(createServerClient).not.toHaveBeenCalled()
   })
   it('CAS 0행이면 conflict:true (다른 사용자 선변경)', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     state.client = {
       from: vi.fn(() => ({
         select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: vi.fn(async () => ({ data: { project_id: 'p1', created_by: 'other', status: 'open', resolved_at: null } })) })) })),
@@ -113,8 +191,7 @@ describe('updateIssueProgress — 전환 검증 + CAS', () => {
   it('클라이언트가 관측한 expectedStatus 가 서버 최신 상태와 다르면 즉시 conflict (stale 재오픈 저장 차단, update 미호출)', async () => {
     // A 가 open 을 보는 동안 B 가 resolved 로 바꿈. A 의 in_progress 저장(expectedStatus:'open')은
     // 선검증에서 즉시 conflict — 서버가 방금 읽은 status(resolved)가 아니라 클라이언트 관측값이 기준.
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     state.client = sbWithCurrent({ project_id: 'p1', created_by: 'other', status: 'resolved', resolved_at: '2026-07-20T00:00:00Z' })
     const res = await updateIssueProgress('i1', { status: 'in_progress', expectedStatus: 'open' })
     expect(res).toMatchObject({ ok: false, conflict: true })
@@ -123,22 +200,19 @@ describe('updateIssueProgress — 전환 검증 + CAS', () => {
 
 describe('입력 검증 — createIssue', () => {
   it('빈 제목 거부 (게이트 통과 후에도 DB insert 미도달)', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     const res = await createIssue('p1', { ...INPUT, title: '   ' })
     expect(res.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
   })
   it('잘못된 날짜 형식 거부', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     const res = await createIssue('p1', { ...INPUT, dueDate: '2026-02-30' })
     expect(res.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
   })
   it('시작일이 목표일보다 늦으면 거부', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     const res = await createIssue('p1', {
       ...INPUT,
       startDate: '2026-08-04',
@@ -148,8 +222,7 @@ describe('입력 검증 — createIssue', () => {
     expect(createServerClient).not.toHaveBeenCalled()
   })
   it('담당자 상한(20명) 초과 거부 (DB 미도달)', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     const many = Array.from({ length: 21 }, (_, i) => `m${i}`)
     const res = await createIssue('p1', { ...INPUT, assigneeMemberIds: many })
     expect(res.ok).toBe(false)
@@ -157,8 +230,7 @@ describe('입력 검증 — createIssue', () => {
     expect(createServerClient).not.toHaveBeenCalled()
   })
   it('담당자가 배열이 아니면 거부 — 서버 액션 인자 위조 방어 (DB 미도달)', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     const res = await createIssue('p1', { ...INPUT, assigneeMemberIds: 'm1' as never })
     expect(res.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
@@ -167,8 +239,7 @@ describe('입력 검증 — createIssue', () => {
 
 describe('updateIssueProgress — 담당자 검증', () => {
   it('배열 아님·비문자열 원소는 DB 도달 전에 거부', async () => {
-    vi.mocked(getMembership).mockResolvedValue(MEMBER as never)
-    vi.mocked(getSession).mockResolvedValue(USER as never)
+    asMember()
     const bad = await updateIssueProgress('i1', { assigneeMemberIds: 'm1' as never })
     expect(bad.ok).toBe(false)
     const badElem = await updateIssueProgress('i1', { assigneeMemberIds: [42] as never })

@@ -63,6 +63,11 @@ export function MeetingsView({
   const router = useRouter()
   const { t, locale } = useLocale()
   const searchParams = useSearchParams()
+  // 이 화면은 프로젝트 하나에 고정돼 있고 role 도 그 프로젝트 스코프 shim
+  // (effectiveLegacyRole(actor, projectId))이라 그대로 판정에 쓸 수 있다 — 항목마다 프로젝트가
+  // 섞이는 전역 목록(내 회의)과 다르다.
+  const isAdmin = role === 'pmo_admin'
+  const canWrite = role !== null
   // 챗봇 딥링크는 최초 마운트에서 한 번만 소비한다 — 이후 내비게이션은 화면 상태가 소유.
   const [initialFocus] = useState(() => resolveFocusOccurrence(
     meetings, exceptions, searchParams.get('focus'), searchParams.get('date'),
@@ -72,7 +77,7 @@ export function MeetingsView({
   const [initialEdit] = useState<Meeting | null>(() => {
     if (searchParams.get('edit') !== '1' || !initialFocus) return null
     const m = meetings.find(x => x.id === initialFocus.seriesId)
-    return m && canEditMeeting(m, currentUserId, role) ? m : null
+    return m && canEditMeeting(m, currentUserId, isAdmin) ? m : null
   })
   const [initY, initM] = useMemo(() => todayIso.split('-').map(Number), [todayIso])
   const [year, setYear] = useState(initialFocus ? Number(initialFocus.occurrenceDate.slice(0, 4)) : initY)
@@ -127,7 +132,10 @@ export function MeetingsView({
             tabs={[{ key: 'calendar', label: t('meet.view.calendar'), icon: CalendarDays }, { key: 'list', label: t('meet.view.list'), icon: List }]}
             value={view} onChange={setView} size="sm"
           />
-          <button onClick={() => { setEditing(null); setFormOpen(true) }} className="btn btn-primary"><Plus className="h-4 w-4" />{t('meet.addMeeting')}</button>
+          {/* 조회 전용(role=null)에게는 숨긴다 — 서버 createMeeting 은 requireProjectMember 다(스펙 §6.3). */}
+          {canWrite && (
+            <button onClick={() => { setEditing(null); setFormOpen(true) }} className="btn btn-primary"><Plus className="h-4 w-4" />{t('meet.addMeeting')}</button>
+          )}
         </div>
       </div>
 
@@ -172,7 +180,7 @@ export function MeetingsView({
       <MeetingFormModal open={formOpen} projectId={projectId} members={members} initial={editing} todayIso={todayIso}
         role={role} onClose={() => { setFormOpen(false); setEditing(null) }} onSaved={onSaved} />
       <MeetingDetailModal open={!!detailOcc} occurrence={detailOcc}
-        currentUserId={currentUserId} role={role}
+        currentUserId={currentUserId} isAdmin={isAdmin}
         onClose={() => setDetailOcc(null)} onEditSeries={openEditFromDetail} onChanged={() => router.refresh()} />
     </div>
   )

@@ -37,7 +37,7 @@ describe('WBS initialCollapsed', () => {
 
   it('initialCollapsed=[] 이면 기본 접힘을 무시하고 복수담당 부모가 펼쳐진 채 렌더된다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly initialCollapsed={[]} />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
     ))
     // 기본값이면 phase+task+act=3행(sub 숨김). initialCollapsed=[] 이면 sub 2개까지 5행.
     expect(rowCount(container)).toBe(5)
@@ -45,7 +45,7 @@ describe('WBS initialCollapsed', () => {
 
   it('initialCollapsed 미지정이면 기존 기본값(복수담당 부모 접힘)을 유지한다', async () => {
     await act(async () => root.render(
-      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly />,
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
     ))
     expect(rowCount(container)).toBe(3)
   })
@@ -55,7 +55,7 @@ describe('WBS initialCollapsed', () => {
     // 참조 비교 가드는 두 번째 setup에서도 collapsed 가 초기 참조 그대로이므로 저장을 건너뛴다.
     await act(async () => root.render(
       <StrictMode>
-        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly />
+        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />
       </StrictMode>,
     ))
     expect(queueWbsCollapse).not.toHaveBeenCalled()
@@ -64,7 +64,7 @@ describe('WBS initialCollapsed', () => {
   it('사용자가 접힘 토글을 누르면 저장을 정확히 1회 호출한다', async () => {
     await act(async () => root.render(
       <StrictMode>
-        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" membership={null} projectId="p1" readOnly />
+        <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />
       </StrictMode>,
     ))
     expect(queueWbsCollapse).not.toHaveBeenCalled()

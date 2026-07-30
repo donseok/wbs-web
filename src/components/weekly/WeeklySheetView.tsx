@@ -46,7 +46,7 @@ function fromRecord(r: Record<string, unknown>): WeeklySheetRow {
 
 export function WeeklySheetView({
   projectId, weekStart, weekLabel, weekTitle, thisRange, nextRange, projectName,
-  report, initialRows, hasCarrySource, me,
+  report, initialRows, hasCarrySource, me, canEditCells, canCreateRound,
 }: {
   projectId: string
   weekStart: string
@@ -59,6 +59,10 @@ export function WeeklySheetView({
   initialRows: WeeklySheetRow[]
   hasCarrySource: boolean
   me: { id: string; name: string } | null // 프레즌스 신원 — 서버(getSession)에서 전달
+  /** 셀·제목 편집 자격 = isProjectMember. saveWeeklyCell(s)·saveWeeklyTitle 의 requireProjectMember 미러. */
+  canEditCells: boolean
+  /** 주차 문서(회차) 생성 자격 = isProjectAdmin. createWeeklyReport 의 requireProjectAdmin 미러. */
+  canCreateRound: boolean
 }) {
   const router = useRouter()
   const { toast } = useToast()
@@ -170,6 +174,7 @@ export function WeeklySheetView({
   }, [reportId, router, cleanupRowKeys])
 
   const commit = useCallback((rowId: string, key: WeeklyCellKey) => {
+    if (!canEditCells) return // 조회 전용 — 서버도 거부하지만 저장 배지를 띄우고 실패하는 왕복을 만들지 않는다
     const k = `${rowId}:${key}`
     const timer = timersRef.current.get(k)
     if (timer) { clearTimeout(timer); timersRef.current.delete(k) }
@@ -202,7 +207,7 @@ export function WeeklySheetView({
       if (now === sent) { dirtyRef.current.delete(k); setStatus(s => ({ ...s, [k]: 'saved' })) }
       else commit(rowId, key) // 전송 중 재수정 — dirty 유지한 채 재저장
     })
-  }, [projectId, toast, cleanupRowKeys])
+  }, [projectId, toast, cleanupRowKeys, canEditCells])
 
   // PPT 내보내기 직전 미저장 셀 flush — export fetch와 blur commit이 경합하면 서버가
   // 저장 전 스냅샷으로 PPT를 만들 수 있다. 남은 dirty 키를 즉시 commit(디바운스 우회)하고
@@ -229,6 +234,7 @@ export function WeeklySheetView({
   }, [commit, toast])
 
   const onCellChange = (rowId: string, key: WeeklyCellKey, value: string) => {
+    if (!canEditCells) return // 조회 전용 — 로컬 값도 바꾸지 않는다(저장되지 않은 편집이 남으면 화면이 거짓말을 한다)
     const k = `${rowId}:${key}`
     dirtyRef.current.add(k)
     setRows(rs => rs.map(r => (r.id === rowId ? { ...r, [CELL_FIELD[key]]: value } : r)))
@@ -261,6 +267,7 @@ export function WeeklySheetView({
   // ── 배치 실행기(계약 §2 ①~⑥) — 붙여넣기/범위삭제/채우기/undo·redo가 공유. 단건 commit과 동일한
   //    dirty/status/timer/flush/Realtime 시맨틱 유지(회귀 #1·#2·#3의 핵심). ──
   const runBatch = useCallback((editsRaw: WeeklyCellEdit[], opts: { undoable: boolean }) => {
+    if (!canEditCells) return // 조회 전용 — 붙여넣기·범위삭제·채우기·undo/redo 전부 진입 불가(그리드도 막지만 이중으로)
     if (editsRaw.length === 0) return
     if (editsRaw.length > BATCH_MAX) { // §6-E 사전 검사(로컬 클램프 전 원본 크기)
       toast({ title: '붙여넣기 범위가 너무 큽니다', variant: 'error',
@@ -363,7 +370,7 @@ export function WeeklySheetView({
         })
     }
     send(edits, 0)
-  }, [projectId, toast, cleanupRowKeys, rebuildForRetry])
+  }, [projectId, toast, cleanupRowKeys, rebuildForRetry, canEditCells])
 
   const retryBatch = useCallback(() => {
     const failed = lastFailedBatchRef.current
@@ -438,7 +445,7 @@ export function WeeklySheetView({
   }, [endEdit, commit])
 
   const grid = useSheetGrid({
-    rows, enabled: !!report && rows.length > 0, cellRefs,
+    rows, enabled: !!report && rows.length > 0, readOnly: !canEditCells, cellRefs,
     runBatch, requestUndo, requestRedo, beginEdit, endEdit, toast,
   })
 
@@ -473,11 +480,15 @@ export function WeeklySheetView({
     return (
       <div className="space-y-4">
         <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled onBeforeExport={flushPendingSaves} />
+        {/* 회차 생성은 시트의 구조를 만드는 일이라 관리자 몫(createWeeklyReport=requireProjectAdmin).
+            권한이 없으면 버튼 대신 '누가 만들어야 하는지'를 알린다 — 눌러서 거부당해 알게 하지 않는다. */}
         <EmptyState
           icon={FileSpreadsheet}
           title={`${weekLabel} 시트가 없습니다`}
-          description="이전 주차에서 이월하거나 기본 시트(PMO·영업·품질·생산계획 등 업무영역 10개 구분)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다."
-          action={
+          description={canCreateRound
+            ? '이전 주차에서 이월하거나 기본 시트(PMO·영업·품질·생산계획 등 업무영역 10개 구분)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다.'
+            : '아직 이 주차의 시트가 만들어지지 않았습니다. 주차 시트 생성은 프로젝트 관리자가 합니다.'}
+          action={canCreateRound ? (
             <div className="flex gap-2">
               {hasCarrySource && (
                 <button className="btn btn-primary" disabled={isPending}
@@ -490,7 +501,7 @@ export function WeeklySheetView({
                 기본 시트로 시작
               </button>
             </div>
-          }
+          ) : undefined}
         />
       </div>
     )
@@ -518,6 +529,7 @@ export function WeeklySheetView({
             key={report.id}
             initial={report.title}
             fallback={`▣ 주간업무보고 - ${projectName}(${weekTitle})`}
+            readOnly={!canEditCells}
             onSave={async t => {
               const res = await saveWeeklyTitle(projectId, report.id, t)
               if (!res.ok) { toast({ title: '제목 저장 실패', description: res.error, variant: 'error' }); return false }
@@ -584,7 +596,8 @@ export function WeeklySheetView({
                           showFillBorder={!!fp && inFill}
                           fillTop={!!fp && i === fp.top} fillRight={!!fp && j === fp.right}
                           fillBottom={!!fp && i === fp.bottom} fillLeft={!!fp && j === fp.left}
-                          showFillHandle={!!gr && i === gr.bottom && j === gr.right && !grid.sel.editing && grid.dragging !== 'fill'}
+                          showFillHandle={canEditCells && !!gr && i === gr.bottom && j === gr.right && !grid.sel.editing && grid.dragging !== 'fill'}
+                          readOnly={!canEditCells}
                           batchActive={batchActive}
                           chip={active ? batchChip : null}
                           peers={presenceByCell.get(`${r.id}:${c.key}`) ?? null}
@@ -628,6 +641,7 @@ export function WeeklySheetView({
       <WeeklyLintPanel
         open={lintOpen}
         rows={rows}
+        canApply={canEditCells}
         onClose={() => setLintOpen(false)}
         onApply={edits => runBatch(edits, { undoable: true })}
         onGoToCell={(rowId, col) => grid.focusCell({ rowId, col })}
@@ -739,8 +753,8 @@ function ExportPptButton({ projectId, weekStart, disabled, onBeforeExport }: {
  *  기본 제목과 같은 값은 ''로 저장해 주차가 바뀌어도 기본 제목이 자연히 따라오게 한다.
  *  savedRef는 저장 '성공' 후에만 전진 — 실패 시 같은 값 blur로 재시도가 가능해야 한다(리뷰 확정).
  *  서버 제목 변경(타 사용자)은 router.refresh로 내려온 initial을 비포커스 상태에서만 채택. */
-function TitleEditor({ initial, fallback, onSave }: {
-  initial: string; fallback: string; onSave: (title: string) => Promise<boolean>
+function TitleEditor({ initial, fallback, readOnly, onSave }: {
+  initial: string; fallback: string; readOnly: boolean; onSave: (title: string) => Promise<boolean>
 }) {
   const [v, setV] = useState(initial || fallback)
   const savedRef = useRef(initial || fallback)
@@ -751,6 +765,7 @@ function TitleEditor({ initial, fallback, onSave }: {
   }, [initial, fallback])
   const onBlur = async () => {
     focusedRef.current = false
+    if (readOnly) return // saveWeeklyTitle 은 requireProjectMember — 조회 전용은 저장 시도조차 하지 않는다
     const t = v.trim()
     if (t === '') setV(fallback)
     const next = t === '' || t === fallback ? fallback : t
@@ -761,7 +776,7 @@ function TitleEditor({ initial, fallback, onSave }: {
     <input
       value={v} onChange={e => setV(e.target.value)} onBlur={onBlur}
       onFocus={() => { focusedRef.current = true }}
-      maxLength={200} aria-label="시트 제목"
+      readOnly={readOnly} maxLength={200} aria-label="시트 제목"
       className="w-full border-0 bg-white px-0.5 pb-1.5 pt-0.5 text-[15px] font-extrabold text-black outline-none placeholder:text-neutral-400 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-[#1a73e8]"
     />
   )

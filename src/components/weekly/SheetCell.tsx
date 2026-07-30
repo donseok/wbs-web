@@ -23,6 +23,8 @@ export interface SheetCellProps {
   showFillBorder: boolean
   fillTop: boolean; fillRight: boolean; fillBottom: boolean; fillLeft: boolean
   showFillHandle: boolean
+  /** 조회 전용 — 네이티브 입력·붙여넣기·IME 조합을 DOM 단계에서 차단(선택·복사는 유지). */
+  readOnly: boolean
   batchActive: boolean // true면 per-cell 배지 억제(활성 셀 칩만 노출)
   chip: BatchChip | null // 활성 셀에만 전달
   peers: PresencePeer[] | null // 이 셀에 있는 타 사용자(프레즌스) — 없으면 null
@@ -72,7 +74,8 @@ export function SheetCell(p: SheetCellProps) {
       {/* 배경(L0)은 <td>가 담당 → textarea는 bg-transparent라 틴트가 비쳐 보임(§0). */}
       <textarea
         ref={ref} value={p.value} rows={3} aria-label={p.ariaLabel} data-sheet-cell="1"
-        style={{ caretColor: p.editing ? '#000' : 'transparent' }}
+        readOnly={p.readOnly}
+        style={{ caretColor: p.editing && !p.readOnly ? '#000' : 'transparent' }}
         className={`block min-h-full w-full resize-none select-text rounded-none border-0 bg-transparent p-1.5 text-[13px] leading-[1.5] text-black outline-none focus:relative focus:z-10 focus:outline focus:outline-2 focus:-outline-offset-1 focus:outline-[#1a73e8] ${p.editing ? 'cursor-text' : 'cursor-cell'} ${p.editing ? 'shadow-[0_2px_6px_rgba(60,64,67,0.28)]' : ''}`}
         onChange={e => p.onChange(e.target.value)}
         onBlur={p.onBlur}

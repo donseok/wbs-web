@@ -2,8 +2,10 @@
 import { isValidEmail } from '@/lib/domain/validate'
 import type { TeamCode } from '@/lib/domain/types'
 
-/** 로그인 계정 권한 (memberships.role 화이트리스트). project_members.role 과 다르다. */
-export const ACCOUNT_ROLES = ['pmo_admin', 'team_editor'] as const
+/** 프로젝트 역할 화이트리스트. 'viewer' 는 project_roles 행을 만들지 않는다는 뜻.
+ *  project_members.role(직급 라벨)과 다르다. 옛 memberships.role 값(pmo_admin·team_editor)은
+ *  0054 에서 deprecated — 여기서 받지 않는다. */
+export const ACCOUNT_ROLES = ['admin', 'member', 'viewer'] as const
 export type AccountRole = (typeof ACCOUNT_ROLES)[number]
 
 /** 팀 코드 검증 — 허용 목록은 호출처가 팀 마스터(활성 팀)에서 주입한다. */
@@ -60,7 +62,12 @@ export function parseBulkAccounts(text: string, teamCodes: readonly string[]): P
       return
     }
     if (!isAccountRole(role)) {
-      out.push({ lineNo, raw: trimmed, ok: false, email, error: `알 수 없는 권한: ${role}` })
+      // 옛 포맷(pmo_admin·team_editor)을 조용히 흘리면 예전 일괄 등록 파일이 그대로 통과해
+      // 전원이 잘못된 권한으로 만들어진다. 사유를 밝혀 거부한다.
+      const hint = role === 'pmo_admin' || role === 'team_editor'
+        ? ' — 옛 권한 값입니다. admin·member·viewer 로 바꾸세요.'
+        : ''
+      out.push({ lineNo, raw: trimmed, ok: false, email, error: `알 수 없는 권한: ${role}${hint}` })
       return
     }
     if (!isValidPassword(password)) {

@@ -47,6 +47,7 @@ export function ReportModal({
   today,
   startDate,
   endDate,
+  canGenerate,
 }: {
   open: boolean
   onClose: () => void
@@ -57,6 +58,10 @@ export function ReportModal({
   today: string
   startDate?: string | null
   endDate?: string | null
+  /** 인라인 'AI 브리핑 생성' 노출 여부 = isProjectAdmin(actor, projectId).
+   *  ensureProjectBriefAction 은 requireProjectAdmin 이라 권한이 없으면 항상 실패한다 —
+   *  버튼을 남겨 두면 그 거부가 '생성 실패 — 다시 시도'로 표시돼 장애로 오인된다. */
+  canGenerate: boolean
 }) {
   // '팀별 진척' 대상 = 활성 + progressVisible(팀 마스터) — 대시보드 카드와 동일 기준
   const progressTeams = useTeams().filter(tm => tm.progressVisible).map(tm => tm.code)
@@ -150,11 +155,15 @@ export function ReportModal({
         AI 코멘트 포함
       </label>
       {(aiStatus === 'stale' || aiStatus === 'none' || aiStatus === 'failed') && (
-        <button type="button" onClick={generateBrief} disabled={aiBusy}
-          className="no-print btn btn-ghost !text-xs disabled:opacity-60">
-          {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-          {aiBusy ? '생성 중…' : aiStatus === 'failed' ? '생성 실패 — 다시 시도' : 'AI 브리핑 생성'}
-        </button>
+        canGenerate ? (
+          <button type="button" onClick={generateBrief} disabled={aiBusy}
+            className="no-print btn btn-ghost !text-xs disabled:opacity-60">
+            {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {aiBusy ? '생성 중…' : aiStatus === 'failed' ? '생성 실패 — 다시 시도' : 'AI 브리핑 생성'}
+          </button>
+        ) : (
+          <span className="no-print text-xs text-ink-subtle">AI 브리핑 생성은 프로젝트 관리자만 할 수 있습니다</span>
+        )
       )}
       <a
         href={`/api/report?projectId=${encodeURIComponent(projectId)}&format=xlsx`}

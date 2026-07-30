@@ -140,10 +140,17 @@ export function sortOccurrences(occ: MeetingOccurrence[]): MeetingOccurrence[] {
   })
 }
 
-/** 편집/삭제/회차취소 권한 — 작성자 본인 또는 pmo_admin. RLS 정책과 동일 식. */
-export function canEditMeeting(m: { createdBy: string | null }, userId: string | null, role: string | null): boolean {
+/**
+ * 편집/삭제/회차취소 권한 — 작성자 본인 또는 관리자. 서버 adminOrOwnerGate 와 동일 식.
+ *
+ * isAdmin 은 **그 회의가 속한 프로젝트의** 관리자 여부다(서버 가드가 회의 행에서 project_id 를
+ * 확정한 뒤 requireProjectAdmin 을 부른다). 프로젝트가 섞인 전역 목록(내 회의)에서 '어느
+ * 프로젝트든 관리자'를 넘기면 열리는 어포던스가 전부 서버에서 거부되므로, 호출부가 항목별로
+ * 판정해 넘겨야 한다.
+ */
+export function canEditMeeting(m: { createdBy: string | null }, userId: string | null, isAdmin: boolean): boolean {
   if (!userId) return false
-  if (role === 'pmo_admin') return true
+  if (isAdmin) return true
   return m.createdBy !== null && m.createdBy === userId
 }
 

@@ -1,4 +1,7 @@
-import { getMembership, getDisplayName } from '@/lib/auth'
+import { getDisplayName } from '@/lib/auth'
+import { getActorForView } from '@/lib/authz'
+import { isAnyProjectAdmin, hasAnyProjectRole } from '@/lib/domain/authz'
+import { canViewUsage } from '@/lib/authz/usageAccess'
 import { listProjects } from '@/app/actions/project'
 import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { HeaderChrome } from '@/components/app/HeaderChrome'
@@ -18,8 +21,8 @@ function seoulToday(): string {
 }
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const [m, projects, userName, prefs] = await Promise.all([
-    getMembership(),
+  const [actor, projects, userName, prefs] = await Promise.all([
+    getActorForView(),
     listProjects(),
     getDisplayName(),
     getUiPrefs(),
@@ -40,6 +43,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // 활성 팀만 클라이언트로 — 비활성 팀은 탭·필터에서 숨긴다(전체 목록이 필요한 화면은 서버에서 별도 주입).
   const activeTeams = teamsSync().filter(t => t.active)
 
+  // Actor(Map)는 직렬화되지 않는다 — 헤더·사이드바가 쓸 표시용 스냅샷만 평탄화해 내린다.
+  const identity = actor
+    ? {
+        roleLabel: actor.isSuperuser ? '슈퍼유저'
+          : isAnyProjectAdmin(actor) ? '관리자'
+            : hasAnyProjectRole(actor) ? '멤버' : '조회',
+        teamCode: actor.teamCode,
+        canManageAccounts: isAnyProjectAdmin(actor),
+        isSuperuser: actor.isSuperuser,
+        showUsage: canViewUsage(actor),
+      }
+    : null
+
   return (
     <TeamsProvider teams={activeTeams}>
       <BotPageContextProvider>
@@ -52,9 +68,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <PrefsSync />
             <UsageTracker />
             <a href="#main-content" className="fixed left-4 top-3 z-[200] -translate-y-20 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition focus:translate-y-0">본문 바로가기</a>
-            <Sidebar projects={projectLinks} />
+            <Sidebar projects={projectLinks} showUsage={identity?.showUsage ?? false} />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              <HeaderChrome membership={m} projects={projectLinks} userName={userName} />
+              <HeaderChrome identity={identity} projects={projectLinks} userName={userName} />
               <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-3 pb-4 pt-4 sm:px-5 sm:pt-6 lg:px-7">{children}</main>
             </div>
             <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />

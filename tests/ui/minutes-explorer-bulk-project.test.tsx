@@ -35,9 +35,9 @@ vi.mock('@/components/minutes/MinuteMetaModal', () => ({ MinuteMetaModal: () => 
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
 const folders: MinuteFolder[] = [{ id: 'f1', name: 'MES', parentId: null, sort: 0, createdBy: null }]
-const leaf = (id: string, createdBy: string | null, folderId = 'f1'): ExplorerLeaf => ({
+const leaf = (id: string, createdBy: string | null, folderId = 'f1', projectId: string | null = null): ExplorerLeaf => ({
   id, minuteDate: '2026-07-24', teamCode: 'MES', title: `회의록 ${id}`, fileCount: 0,
-  createdBy, createdByName: '홍길동', bodyPreview: '', meetingCategory: null, folderId,
+  createdBy, createdByName: '홍길동', bodyPreview: '', meetingCategory: null, folderId, projectId,
 })
 const leaves = [leaf('m1', 'u1'), leaf('m2', 'u1'), leaf('m3', 'other')]
 const projects = [{ id: 'p1', name: 'D-CUBE 프로젝트' }]
@@ -59,7 +59,7 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
     await act(async () => root.render(
       <MinutesExplorer folders={folders} leaves={leaves} favorites={new Set()}
         onToggleFavorite={vi.fn()} onRetryFavorites={vi.fn()} layout="grid"
-        currentUserId="u1" isAdmin={false} onChanged={onChanged} projects={projects} {...over} />,
+        currentUserId="u1" isFolderAdmin={false} onChanged={onChanged} projects={projects} {...over} />,
     ))
   }
   const byText = (text: string) =>
@@ -114,10 +114,25 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
     expect(checkboxes().length).toBe(2)
   })
 
-  it('관리자는 전부 고를 수 있다', async () => {
-    await mount({ isAdmin: true })
+  // 개별 건 판정은 '그 회의록 프로젝트의 관리자'다 — 프로젝트 미지정 건은 작성자 본인 또는
+  // 슈퍼유저만(서버 checkOwner 와 같은 fail-closed). 전역 '어느 프로젝트든 관리자'로는 열리지 않는다.
+  it('슈퍼유저는 전부 고를 수 있다 — 프로젝트 미지정 건까지', async () => {
+    await mount({ isSuperuser: true })
     await enterSelect()
     expect(checkboxes().length).toBe(3)
+  })
+
+  it('타인 작성 건은 그 회의록 프로젝트의 관리자일 때만 고를 수 있다', async () => {
+    // m3 를 p1 소속으로 두고 p1 관리자로 마운트하면 3건 전부 선택 가능
+    await mount({ leaves: [leaves[0], leaves[1], leaf('m3', 'other', 'f1', 'p1')], adminProjectIds: ['p1'] })
+    await enterSelect()
+    expect(checkboxes().length).toBe(3)
+  })
+
+  it('다른 프로젝트 관리자에게는 열리지 않는다 — 서버가 거절할 어포던스를 만들지 않는다', async () => {
+    await mount({ leaves: [leaves[0], leaves[1], leaf('m3', 'other', 'f1', 'p1')], adminProjectIds: ['p2'] })
+    await enterSelect()
+    expect(checkboxes().length).toBe(2)
   })
 
   it('선택 후 지정 — 선택한 id 만 서버로 간다', async () => {

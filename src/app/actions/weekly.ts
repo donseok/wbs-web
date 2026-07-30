@@ -1,7 +1,7 @@
 'use server'
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
-import { getSession } from '@/lib/auth'
+import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
 import { mondayIso } from '@/lib/report/week'
 import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, WEEKLY_CELL_MAX, type NewWeeklyRow, type WeeklyCellEdit } from '@/lib/domain/weeklySheet'
 import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
@@ -51,7 +51,9 @@ async function deleteReportIfEmpty(
 export async function createWeeklyReport(
   projectId: string, weekStartIso: string, carryOver: boolean,
 ): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  // 회차(주차 문서) 생성은 시트의 구조를 만드는 일이라 관리자 몫 — 셀 편집(멤버)과 급이 다르다.
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const weekStart = mondayIso(weekStartIso)
 
   // 이미 있으면 멱등 성공(동시 생성 경쟁 대비). 조회 실패는 throw로 오므로 정직하게 중단.
@@ -104,27 +106,58 @@ export async function createWeeklyReport(
 export async function saveWeeklyTitle(
   projectId: string, reportId: string, title: string,
 ): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const t = title.trim()
   if (t.length > TITLE_MAX) return { ok: false, error: `제목은 ${TITLE_MAX}자 이하여야 합니다.` }
 
   const sb = await createServerClient()
-  const { error } = await sb.from('weekly_reports')
-    .update({ title: t, updated_at: new Date().toISOString() }).eq('id', reportId)
+  // 대상 회차가 판정 기준 프로젝트의 것인지 쿼리에 못 박는다 — 인자 projectId 로만 판정하고
+  // 미결합 reportId 로 쓰면, A 의 멤버가 B 의 회차 제목을 고칠 수 있다(0053 이전에는 RLS 도
+  // using(true) 라 2차 방어선이 없었다). 0행이면 대상이 없거나 남의 프로젝트다.
+  const { data, error } = await sb.from('weekly_reports')
+    .update({ title: t, updated_at: new Date().toISOString() })
+    .eq('id', reportId).eq('project_id', projectId)
+    .select('id')
   if (error) return { ok: false, error: error.message }
+  if (!data || data.length === 0) return { ok: false, error: '대상 회차를 찾을 수 없습니다.' }
   revalidateWeekly(projectId)
   return { ok: true }
+}
+
+/**
+ * 주어진 행들이 **이 프로젝트의 회차** 소속인지 한 번에 확인한다.
+ * 셀 저장은 rowId 만 받으므로, 이 결합이 없으면 인자 projectId 로 가드를 통과한 뒤
+ * 남의 프로젝트 행을 쓸 수 있다. 조회 실패는 쓰기 중단 사유다(3원칙 ②).
+ */
+async function rowsInProject(
+  sb: Awaited<ReturnType<typeof createServerClient>>, projectId: string, rowIds: string[],
+): Promise<{ ok: true; allowed: Set<string> } | { ok: false; error: string }> {
+  const { data, error } = await sb.from('weekly_report_rows')
+    .select('id, weekly_reports!inner(project_id)')
+    .in('id', rowIds)
+    .eq('weekly_reports.project_id', projectId)
+  if (error) {
+    console.error('[weekly] 대상 행 소속 확인 실패:', error.message)
+    return { ok: false, error: '대상을 확인할 수 없어 저장을 중단했습니다.' }
+  }
+  return { ok: true, allowed: new Set((data ?? []).map(r => r.id as string)) }
 }
 
 /** 셀 저장 — 열 화이트리스트 강제(last-write-wins, 스펙 §2). */
 export async function saveWeeklyCell(
   projectId: string, rowId: string, cellKey: string, content: string,
 ): Promise<WeeklyActionResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (!isWeeklyCellKey(cellKey)) return { ok: false, error: '잘못된 셀입니다.' }
   if (content.length > CELL_MAX) return { ok: false, error: `내용은 ${CELL_MAX}자 이하여야 합니다.` }
 
   const sb = await createServerClient()
+  const scope = await rowsInProject(sb, projectId, [rowId])
+  if (!scope.ok) return { ok: false, error: scope.error }
+  // 소속이 아니면 '행 없음'과 같은 취급 — 남의 프로젝트 행의 존재를 알려 주지 않는다.
+  if (!scope.allowed.has(rowId)) return { ok: false, error: '행이 삭제되어 저장할 수 없습니다.', gone: true }
   const { data, error } = await sb.from('weekly_report_rows')
     .update({ [cellKey]: content, updated_at: new Date().toISOString() }) // updated_at 트리거 없음 — 수동(wbs.ts 관례)
     .eq('id', rowId)
@@ -141,10 +174,11 @@ export async function saveWeeklyCell(
  * 배치는 멱등(같은 배치 통째 재시도 안전) — DB 에러 시 즉시 중단하되 롤백은 하지 않는다.
  */
 export async function saveWeeklyCells(
-  projectId: string,          // 시그니처 대칭·향후 로깅용(saveWeeklyCell 관례). update 쿼리에는 미사용
+  projectId: string,          // 권한 판정 기준·시그니처 대칭용(saveWeeklyCell 관례). update 쿼리에는 미사용
   edits: WeeklyCellEdit[],
 ): Promise<WeeklyBatchResult> {
-  if (!(await getSession())) return { ok: false, error: '로그인 필요' }
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   if (edits.length === 0) return { ok: true }                                             // no-op — DB 접근 없음
   if (edits.length > BATCH_MAX) return { ok: false, error: '한 번에 저장할 수 있는 셀 수를 초과했습니다.' } // dedupe 전 원본 길이 기준
   for (const e of edits) {
@@ -158,8 +192,16 @@ export async function saveWeeklyCells(
   for (const e of edits) deduped.set(`${e.rowId}:${e.cellKey}`, e)
 
   const sb = await createServerClient()
+  // 배치 전체의 소속을 한 번에 확인한다(건별 왕복 회피). 소속 아닌 행은 삭제된 행과
+  // 같은 취급으로 goneRowIds 에 넣어 스킵 — 부분 실패 시맨틱을 유지한다.
+  const scope = await rowsInProject(sb, projectId, [...new Set([...deduped.values()].map(e => e.rowId))])
+  if (!scope.ok) return { ok: false, error: scope.error }
   const goneRowIds: string[] = []
   for (const e of deduped.values()) {
+    if (!scope.allowed.has(e.rowId)) {
+      if (!goneRowIds.includes(e.rowId)) goneRowIds.push(e.rowId)
+      continue
+    }
     const { data, error } = await sb.from('weekly_report_rows')
       .update({ [e.cellKey]: e.content, updated_at: new Date().toISOString() }) // updated_at 수동 갱신(트리거 없음, wbs.ts 관례)
       .eq('id', e.rowId)

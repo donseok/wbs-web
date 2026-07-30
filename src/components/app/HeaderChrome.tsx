@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle, Bell, ChevronRight, Clock4, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
 } from 'lucide-react'
-import type { Membership } from '@/lib/domain/types'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { getNotifications, markAllNotificationsRead, type NotificationItem } from '@/app/actions/notifications'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
@@ -24,7 +23,18 @@ const SECTION_LABEL: Record<string, string> = {
   members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', weekly: '주간업무', settings: '설정',
 }
 
-export function HeaderChrome({ membership, projects, userName }: { membership: Membership | null; projects: SidebarProject[]; userName?: string | null }) {
+/** 서버 레이아웃이 Actor 에서 평탄화해 내리는 신원 표시용 스냅샷 — Actor(Map)는 직렬화되지 않는다. */
+export interface HeaderIdentity {
+  roleLabel: string
+  teamCode: string | null
+  /** 어느 프로젝트든 관리자 이상 — 계정 관리 링크 노출 */
+  canManageAccounts: boolean
+  /** 팀 관리·LLM 설정·사용 현황 등 전역 메뉴 노출 */
+  isSuperuser: boolean
+  showUsage: boolean
+}
+
+export function HeaderChrome({ identity, projects, userName }: { identity: HeaderIdentity | null; projects: SidebarProject[]; userName?: string | null }) {
   const router = useRouter()
   const pathname = usePathname()
   const { theme, toggle } = useTheme()
@@ -89,10 +99,10 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
       .catch(() => setNotifs(snapshot))
   }
 
-  const roleLabel = membership?.role === 'pmo_admin' ? 'PMO 관리자' : membership ? '팀 편집자' : '게스트'
+  const roleLabel = identity?.roleLabel ?? '게스트'
   const displayName = userName?.trim() || null
   // 프로필 부제: 이름이 있으면 역할·팀을, 없으면 팀만.
-  const roleTeam = membership?.teamCode ? `${roleLabel} · ${membership.teamCode}` : roleLabel
+  const roleTeam = identity?.teamCode ? `${roleLabel} · ${identity.teamCode}` : roleLabel
 
   return (
     <>
@@ -192,28 +202,30 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
                 <span className="flex h-8 w-8 items-center justify-center rounded-full text-white" style={{ backgroundImage: 'var(--gradient-primary)' }}><User className="h-4 w-4" /></span>
                 <span className="hidden leading-tight sm:block">
                   <span className="block text-[11px] font-semibold text-ink">{displayName ?? roleLabel}</span>
-                  <span className="block text-[9px] text-ink-subtle">{displayName ? roleLabel : (membership?.teamCode ?? '—')}</span>
+                  <span className="block text-[9px] text-ink-subtle">{displayName ? roleLabel : (identity?.teamCode ?? '—')}</span>
                 </span>
               </button>
               {open === 'profile' && (
                 <Popover onClose={() => setOpen(null)}>
                   <div className="border-b border-line px-4 py-3">
                     <div className="text-sm font-semibold text-ink">{displayName ?? roleLabel}</div>
-                    <div className="mt-0.5 text-xs text-ink-subtle">{displayName ? roleTeam : (membership?.teamCode ? `${membership.teamCode} 팀` : '소속 미지정')}</div>
+                    <div className="mt-0.5 text-xs text-ink-subtle">{displayName ? roleTeam : (identity?.teamCode ? `${identity.teamCode} 팀` : '소속 미지정')}</div>
                   </div>
                   <button onClick={() => { setOpen(null); setPwOpen(true) }} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                     <KeyRound className="h-4 w-4" />비밀번호 변경
                   </button>
-                  {membership?.role === 'pmo_admin' && (
+                  {identity?.canManageAccounts && (
+                    <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                      <UserCog className="h-4 w-4" />계정 관리
+                    </Link>
+                  )}
+                  {identity?.isSuperuser && (
                     <>
-                      <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
-                        <UserCog className="h-4 w-4" />계정 관리
-                      </Link>
                       <Link href="/admin/teams" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                         <Users className="h-4 w-4" />팀 관리
                       </Link>
                       {/* 서버 전역 LLM 설정 — 프로젝트 설정 페이지에도 진입 카드가 있지만,
-                          프로젝트가 하나도 없는 관리자는 그 경로로 도달할 수 없어 여기에도 둔다. */}
+                          프로젝트가 하나도 없는 슈퍼유저는 그 경로로 도달할 수 없어 여기에도 둔다. */}
                       <Link href="/admin/llm-config" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                         <Cpu className="h-4 w-4" />LLM 설정
                       </Link>
@@ -229,7 +241,7 @@ export function HeaderChrome({ membership, projects, userName }: { membership: M
         </div>
       </header>
 
-      {menuOpen && <MobileMenu projects={projects} pathname={pathname} onClose={() => setMenuOpen(false)} roleLabel={roleLabel} membership={membership} displayName={displayName} />}
+      {menuOpen && <MobileMenu projects={projects} pathname={pathname} onClose={() => setMenuOpen(false)} roleLabel={roleLabel} identity={identity} displayName={displayName} />}
       <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
     </>
   )
@@ -245,8 +257,8 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
 }
 
 function MobileMenu({
-  projects, pathname, onClose, roleLabel, membership, displayName,
-}: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; membership: Membership | null; displayName: string | null }) {
+  projects, pathname, onClose, roleLabel, identity, displayName,
+}: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; identity: HeaderIdentity | null; displayName: string | null }) {
   const { t } = useLocale()
   const { routeProjectId, menuProjectId, menuProject, isGlobalBridge, returnHref } = useProjectNavigation()
 
@@ -291,8 +303,10 @@ function MobileMenu({
           <Link href="/projects" onClick={onClose} aria-current={pathname === '/projects' ? 'page' : undefined} className={`side-link ${pathname === '/projects' ? 'side-link-active' : ''}`}>{t('nav.allProjects')}</Link>
           <Link href="/meetings" onClick={onClose} aria-current={pathname === '/meetings' ? 'page' : undefined} className={`side-link ${pathname === '/meetings' ? 'side-link-active' : ''}`}>{t('nav.myMeetings')}</Link>
           <Link href="/minutes" onClick={onClose} aria-current={pathname.startsWith('/minutes') ? 'page' : undefined} className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''}`}>{t('nav.minutes')}</Link>
-          {/* 사이드바는 hidden lg:flex 라 lg 미만에서는 여기가 /usage 의 유일한 진입점이다 */}
-          <Link href="/usage" onClick={onClose} aria-current={pathname === '/usage' ? 'page' : undefined} className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''}`}>{t('nav.usage')}</Link>
+          {/* 사이드바는 hidden lg:flex 라 lg 미만에서는 여기가 /usage 의 유일한 진입점이다 — 슈퍼유저 전용 */}
+          {identity?.showUsage && (
+            <Link href="/usage" onClick={onClose} aria-current={pathname === '/usage' ? 'page' : undefined} className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''}`}>{t('nav.usage')}</Link>
+          )}
           {isGlobalBridge && menuProject && returnHref && (
             <Link
               href={returnHref}
@@ -339,10 +353,10 @@ function MobileMenu({
             </>
           )}
         </nav>
-        {membership && (
+        {identity && (
           <div className="mt-auto rounded-xl border border-sidebar-line bg-sidebar-2 p-3 text-xs text-sidebar-ink-muted">
             <div className="font-semibold text-sidebar-ink">{displayName ?? roleLabel}</div>
-            <div className="mt-0.5">{displayName ? `${roleLabel} · ${membership.teamCode} 팀` : `${membership.teamCode} 팀`}</div>
+            <div className="mt-0.5">{identity.teamCode ? (displayName ? `${roleLabel} · ${identity.teamCode} 팀` : `${identity.teamCode} 팀`) : roleLabel}</div>
           </div>
         )}
       </div>

@@ -49,6 +49,7 @@ export async function DashboardView({
   riskBriefRow = null,
   currentUserId = null,
   role = null,
+  canGenerateBrief = false,
 }: {
   items: ComputedItem[]
   projectId: string
@@ -69,6 +70,9 @@ export async function DashboardView({
   /** 회의 카드에서 작성자 본인/pmo_admin 에게 수정·삭제를 열기 위한 식별자. */
   currentUserId?: string | null
   role?: string | null
+  /** AI 브리핑 생성 권한 = isProjectAdmin(actor, projectId). ensureProjectBriefAction 의
+   *  requireProjectAdmin 과 같은 판정. 기본 false = fail-closed. */
+  canGenerateBrief?: boolean
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -111,7 +115,7 @@ export async function DashboardView({
       <ExecSummary
         items={items} projectId={projectId} projectName={projectName}
         projectDescription={projectDescription} startDate={startDate} endDate={endDate}
-        today={today} announcements={announcements}
+        today={today} announcements={announcements} canGenerateBrief={canGenerateBrief}
       />
 
       {/* B. 마일스톤 여정 */}
@@ -144,7 +148,7 @@ export async function DashboardView({
       <RiskSignalCard
         report={riskReport} projectId={projectId} minuteSignals={minuteSignals}
         kpiLine={facts.kpiLine} baseDate={today} realToday={realToday}
-        weeklyBrief={weeklyBrief} riskBrief={riskBrief}
+        weeklyBrief={weeklyBrief} riskBrief={riskBrief} canGenerateBrief={canGenerateBrief}
       />
     </div>
   )
