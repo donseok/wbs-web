@@ -217,4 +217,47 @@ describe('buildWikiCatalogText — fail-closed 와 예산', () => {
     })
     expect(text).toBe('')
   })
+
+  // 아래 두 건은 리뷰 지적(2026-07-30) 반영: 주제 줄 절단 while 루프와 최종 초과 폴백이
+  // 위 예산 테스트 두 건 모두 사다리 안에서 끝나 실행되지 않았다. f74fc5a(카탈로그 비대 →
+  // LLM_OUTPUT_INVALID → 재구축 큐 정지)의 재발을 막는 마지막 두 방어선이라 직접 태운다.
+  it('주제 줄이 아주 많고 길면 절단 while 루프가 실행돼 예산 안으로 들어온다', () => {
+    // items를 비워 topicCount(최대 CATALOG_TOPIC_LIMIT=160개)만이 예산을 결정하게 한다.
+    // 항목/포화 목록이 섞이면 어느 항이 절단을 만들었는지 구분할 수 없다.
+    const filler = '가'.repeat(50)
+    const topics = Array.from({ length: 400 }, (_, t) => topic({
+      id: `t${t}`, title: `주제-${filler}-${t}`, normalizedTitle: `t${t}`, liveCount: 2,
+    }))
+    const { text, warnings } = buildWikiCatalogText({
+      topics, items: [], bodyMd: '', gatingEnabled: true,
+    })
+    expect(text.length).toBeLessThanOrEqual(CATALOG_CHAR_BUDGET)
+    expect(warnings.some((w) => w.includes('주제 줄'))).toBe(true)
+    const topicLine = text.split('\n').find((l) => l.startsWith('기존 주제:')) ?? ''
+    // advertised는 160개로 캡되는데, 절단이 실제로 일어났다면 그보다 적게 보여야 한다.
+    expect(topicLine.split(' / ').length).toBeLessThan(160)
+  })
+
+  it('포화 주제가 아주 많으면 최종 폴백으로 예산을 넘긴 채 보내되 목록은 2개를 유지한다', () => {
+    // 포화 절은 topicCount 절단의 영향을 받지 않는다(모든 포화 주제를 나열) — 포화 주제
+    // 수만 충분히 늘리면 FACETS_FLOOR=2/주제로도 절대 예산 안에 들어오지 않는다.
+    const topics = Array.from({ length: 600 }, (_, t) => topic({
+      id: `t${t}`, title: `포화폭주${t}`, normalizedTitle: `s${t}`, liveCount: 20,
+    }))
+    const items = topics.flatMap((tp) => Array.from({ length: 3 }, (_, i) => item({
+      topicId: tp.id, topicTitle: tp.title, facetPart: `설비이상-정지-원인-분석-${tp.id}-${i}`,
+    })))
+    const { text, warnings } = buildWikiCatalogText({
+      topics, items, bodyMd: '', gatingEnabled: true,
+    })
+    expect(text.length).toBeGreaterThan(CATALOG_CHAR_BUDGET)
+    const saturatedLines = text.split('\n').filter((l) => l.startsWith('포화 '))
+    expect(saturatedLines.length).toBeGreaterThan(0)
+    for (const line of saturatedLines) {
+      expect(line.split(', ').length).toBeGreaterThanOrEqual(2)
+    }
+    // 경고에 초과 사실과 실제 문자수가 그대로 담겨야 한다 — text.length와 다른 값이면
+    // 부분 합으로 측정했다는 뜻이라 CATALOG_CHAR_BUDGET 주석의 계약을 어긴 것이다.
+    expect(warnings.some((w) => w.includes('초과') && w.includes(String(text.length)))).toBe(true)
+  })
 })
