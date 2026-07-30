@@ -2,6 +2,8 @@ import 'server-only'
 
 import { generateAnswer } from '@/lib/ai/llm'
 import { hasLLM } from '@/lib/ai/provider'
+import { buildWikiCatalogText } from '@/lib/ai/wiki-catalog'
+import { loadWikiSaturation, type WikiSaturationSnapshot } from '@/lib/ai/wiki-saturation'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 import {
@@ -12,7 +14,6 @@ import {
   buildWikiKnowledgeKey,
   canAutoApplyWikiChange,
   classifyWikiChange,
-  isAgendaStyleWikiTopic,
   matchWikiTopicAlias,
   normalizeWikiKnowledgeKey,
   normalizeWikiStatement as normalizeDomainWikiStatement,
@@ -128,6 +129,12 @@ const EXTRACTION_SYSTEM = [
   '13. [기존 프로젝트 지식]의 문장을 이번 회의록에서 나온 것처럼 출력하지 마라. 그 목록은',
   '    topic/knowledgeKey를 맞추라고 주는 참고자료일 뿐이며, statement와 evidence는 반드시',
   '    이번 회의록 블록에서만 가져온다. 이번 회의에서 다시 언급되지 않은 지식은 출력하지 않는다.',
+  '14. [포화 주제]에 적힌 주제는 이미 커서 새 대상을 더 받지 않는다.',
+  '    - 그 주제의 "기존대상" 목록에 있는 kind/knowledgeKey 조합이면 그 topic과',
+  '      knowledgeKey를 그대로 쓴다(kind까지 그대로). 같은 대상의 이력을 끊지 않기 위해서다.',
+  '    - 목록에 없는 새 대상이면 그 topic을 쓰지 말고, 이 회의록이 실제로 다루는 대상으로',
+  '      새 topic을 지어라. 예: "데이터 관리"가 아니라 "MES 메뉴 열람 권한", "공헌이익 산출 항목".',
+  '    - 새 topic도 규칙 12를 따른다 — 그날 안건지의 목차는 topic이 될 수 없다.',
   '',
   '출력 형식:',
   '{"items":[{"kind":"decision","topic":"인터페이스 연계","topicType":"interface",',
@@ -645,71 +652,27 @@ export async function applyExtractedItem(
   throw new Error('WIKI_APPLY_RACE_RETRY_EXHAUSTED')
 }
 
-// 카탈로그는 크게 넣을수록 좋은 게 아니다. 입력이 길어지면 gemini-3.5-flash가 thinking에
-// 출력 예산(maxOutputTokens 4096, thinking 합산)을 써버려 본문이 잘리거나 비고, 그러면
-// LLM_OUTPUT_INVALID로 그 회의록이 통째로 실패하고 재구축 큐가 멈춘다(2026-07-27 실측).
-// 키 재사용에 실제로 필요한 신호는 topic/knowledgeKey이고 문장은 같은 대상인지 가르는 보조다.
-const CATALOG_TOPIC_LIMIT = 60
-const CATALOG_ITEM_LIMIT = 40
-const CATALOG_STATEMENT_CAP = 90
-
 /**
  * 프롬프트에 붙일 기존 프로젝트 지식 카탈로그.
  *
  * 이게 없으면 LLM은 매 회의마다 주제와 knowledgeKey를 새로 지어내고, 같은 key가 한 번도
  * 겹치지 않아 재확인·구체화·대체·충돌 판정이 전혀 발동하지 않는다(= 회의별 추출 목록).
  * 실패해도 추출 자체는 계속한다 — 카탈로그는 품질 보조이지 필수 입력이 아니다.
+ *
+ * 조립 규칙은 wiki-catalog.ts가 정본이다(순수 함수라 목 없이 테스트된다).
  */
-async function loadWikiCatalog(
-  admin: ReturnType<typeof createAdminClient>,
-  projectId: string,
-): Promise<string> {
-  try {
-    const [topicsRes, itemsRes] = await Promise.all([
-      admin.from('wiki_topics')
-        .select('title, last_changed_at')
-        .eq('project_id', projectId)
-        .order('last_changed_at', { ascending: false })
-        .limit(CATALOG_TOPIC_LIMIT),
-      admin.from('wiki_items')
-        .select('kind, statement, knowledge_key, updated_at, wiki_topics!inner(title)')
-        .eq('project_id', projectId)
-        .in('lifecycle_state', ['active', 'open', 'conflicted'])
-        .order('updated_at', { ascending: false })
-        .limit(CATALOG_ITEM_LIMIT),
-    ])
-    if (topicsRes.error) throw topicsRes.error
-    if (itemsRes.error) throw itemsRes.error
-
-    // 과거에 만들어진 목차형 주제를 후보로 다시 흘리면 흡인체가 되살아난다.
-    const topics = (topicsRes.data ?? [])
-      .map((row) => (row.title as string | null) ?? '')
-      .filter((title) => Boolean(title) && !isAgendaStyleWikiTopic(title))
-    const items = (itemsRes.data ?? []).flatMap((row) => {
-      const rawTopic = (row as Row).wiki_topics
-      const topicRow = (Array.isArray(rawTopic) ? rawTopic[0] : rawTopic) as Row | undefined
-      const topicTitle = (topicRow?.title as string | undefined) ?? ''
-      if (!topicTitle || isAgendaStyleWikiTopic(topicTitle)) return []
-      const facet = ((row.knowledge_key as string | null) ?? '').split(':').slice(2).join(':')
-      const statement = ((row.statement as string | null) ?? '').slice(0, CATALOG_STATEMENT_CAP)
-      return [`- topic="${topicTitle}" kind=${row.kind as string} knowledgeKey="${facet}" :: ${statement}`]
-    })
-    if (topics.length === 0 && items.length === 0) return ''
-
-    return [
-      '',
-      '[기존 프로젝트 지식] — 같은 대상이면 아래 topic/knowledgeKey를 그대로 재사용하라.',
-      topics.length > 0 ? `기존 주제: ${topics.join(' / ')}` : '',
-      ...items,
-      '',
-    ].filter(Boolean).join('\n')
-  } catch (error) {
-    console.error(
-      '[wiki] 기존 지식 카탈로그 조회 실패(추출은 계속):',
-      error instanceof Error ? error.message : 'UNKNOWN',
-    )
-    return ''
-  }
+export function loadWikiCatalog(
+  bodyMd: string,
+  snapshot: WikiSaturationSnapshot,
+): string {
+  const { text, warnings } = buildWikiCatalogText({
+    topics: snapshot.topics,
+    items: snapshot.items,
+    bodyMd,
+    gatingEnabled: snapshot.complete,
+  })
+  for (const warning of warnings) console.warn(warning)
+  return text
 }
 
 async function extractItems(
@@ -1034,11 +997,12 @@ export async function processMinuteWikiJob(jobId: number): Promise<WikiProcessSu
         ?? (version.created_at as string),
     )
 
+    const saturation = await loadWikiSaturation(admin, job.project_id as string)
     const { blocks, items } = await extractItems(
       bodyMd,
       title,
       minuteDate,
-      await loadWikiCatalog(admin, job.project_id as string),
+      loadWikiCatalog(bodyMd, saturation),
     )
     // LLM 호출 중 프로젝트 이동/보관이 발생할 수 있으므로 변경 직전에 scope를 다시 확인한다.
     const { data: scope, error: scopeError } = await admin.from('minutes')

@@ -559,9 +559,9 @@ describe('processMinuteWikiJob 버전 안전성', () => {
         },
         { data: { version_no: 1, body_hash: bodyHash } },
       ],
-      // 추출 전 기존 지식 카탈로그 조회 → 주제 확정 순서로 소비된다.
+      // 포화 스냅샷(wiki_items 전량 스캔) → 주제 확정(wiki_topics) 순서로 소비된다.
+      // 카탈로그는 스냅샷을 재사용하므로 wiki_topics를 따로 조회하지 않는다.
       wiki_topics: [
-        { data: [] },
         { data: { id: 'topic-1', normalized_title: 'erp 연계' } },
       ],
       wiki_items: [{ data: [] }, { data: null }],
