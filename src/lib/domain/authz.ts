@@ -115,6 +115,21 @@ export function isAnyProjectAdmin(actor: Actor | null): boolean {
 }
 
 /**
+ * 관리자 이상인 프로젝트 id 목록 — 항목마다 프로젝트가 다른 전역 목록 화면(내 회의, 회의록
+ * 보관함)이 항목별로 판정할 수 있게 RSC 경계로 내리는 직렬화 가능 형태.
+ *
+ * 슈퍼유저는 '모든 프로젝트의 관리자'라 이 목록으로는 표현되지 않는다 — 호출부는
+ * isSuperuser 를 함께 받아 OR 로 결합해야 isProjectAdmin 과 같은 판정이 된다.
+ * 미지정(projectId null) 항목은 목록에 걸릴 수 없으므로 자동으로 '슈퍼유저만'이 된다.
+ */
+export function adminProjectIds(actor: Actor | null): string[] {
+  if (!actor) return []
+  const out: string[] = []
+  for (const [id, role] of actor.projectRoles) if (role === 'admin') out.push(id)
+  return out
+}
+
+/**
  * 어느 프로젝트든 역할이 있으면 true — 조회 전용 계정 차단용.
  * DB 의 `app_role() is not null` 과 같은 의미. 프로젝트 미지정 회의록 생성처럼
  * 특정 프로젝트로 판정할 수 없는 쓰기의 최소 자격으로 쓴다.

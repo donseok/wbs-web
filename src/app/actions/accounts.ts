@@ -48,7 +48,9 @@ export interface BulkResultRow {
 }
 
 /** 계정 생성·조회는 '어느 프로젝트 관리자 이상'(설계 D7 — 관리자도 계정을 만들 수 있다). */
-async function requireAnyAdmin(): Promise<{ ok: true; userId: string } | { ok: false; error: string }> {
+async function requireAnyAdmin(): Promise<
+  { ok: true; userId: string; isSuperuser: boolean } | { ok: false; error: string }
+> {
   let actor
   try {
     actor = await getActor()
@@ -57,7 +59,7 @@ async function requireAnyAdmin(): Promise<{ ok: true; userId: string } | { ok: f
   }
   if (!actor) return { ok: false, error: '로그인 필요' }
   if (!isAnyProjectAdmin(actor)) return { ok: false, error: '권한 없음' }
-  return { ok: true, userId: actor.userId }
+  return { ok: true, userId: actor.userId, isSuperuser: actor.isSuperuser }
 }
 
 async function resolveTeamId(admin: AdminClient, teamCode: TeamCode): Promise<string | null> {
@@ -173,12 +175,53 @@ export async function bulkCreateAccounts(
   return { ok: true, results }
 }
 
+/**
+ * 대상 계정이 나보다 높거나 같은 등급이면 슈퍼유저만 손댈 수 있다.
+ *
+ * 이 검사가 없으면 어느 한 프로젝트의 관리자가 **슈퍼유저 계정의 비밀번호를 초기화해
+ * 그 계정으로 로그인**할 수 있고, setProjectRole·createAccount 가 지키는
+ * '관리자 슬롯은 슈퍼유저만' 불변식이 통째로 우회된다. 등급 경계는 계정 조작
+ * 경로에서도 지켜져야 한다.
+ *
+ * 조회 실패는 거부다 — '슈퍼유저가 아니다'로 폴백하면 가드가 그 순간 사라진다.
+ */
+async function assertCanTouchAccount(
+  admin: AdminClient, targetUserId: string, callerIsSuperuser: boolean,
+): Promise<AccountActionResult> {
+  if (callerIsSuperuser) return { ok: true }
+
+  const { data: mem, error: memErr } = await admin
+    .from('memberships').select('is_superuser').eq('user_id', targetUserId).maybeSingle()
+  if (memErr) {
+    console.error('[assertCanTouchAccount] 대상 등급 조회 실패:', memErr.message)
+    return { ok: false, error: '권한을 확인할 수 없어 중단했습니다.' }
+  }
+  if (mem?.is_superuser) {
+    return { ok: false, error: '슈퍼유저 계정은 슈퍼유저만 변경할 수 있습니다.' }
+  }
+
+  // 관리자끼리도 서로의 계정을 만지지 못하게 한다 — 동급 탈취로 권한 경계가 흐려진다.
+  const { data: roles, error: roleErr } = await admin
+    .from('project_roles').select('project_id').eq('user_id', targetUserId).eq('role', 'admin')
+  if (roleErr || !roles) {
+    console.error('[assertCanTouchAccount] 대상 역할 조회 실패:', roleErr?.message)
+    return { ok: false, error: '권한을 확인할 수 없어 중단했습니다.' }
+  }
+  if (roles.length > 0) {
+    return { ok: false, error: '관리자 계정은 슈퍼유저만 변경할 수 있습니다.' }
+  }
+  return { ok: true }
+}
+
 /** 팀 변경 — 팀은 프로젝트 역할과 별개의 전역 속성(WBS 담당 판정용). role 컬럼은 건드리지 않는다. */
 export async function updateAccountTeam(userId: string, teamCode: string): Promise<AccountActionResult> {
   const g = await requireAnyAdmin()
   if (!g.ok) return { ok: false, error: g.error }
   if (!isTeamCode(teamCode, activeTeamCodesSync())) return { ok: false, error: '알 수 없는 팀 코드' }
   const admin = createAdminClient()
+  // 팀은 WBS 담당 판정의 근거다 — 슈퍼유저의 팀을 바꿔 실적 입력 범위를 흔들 수 없게 막는다.
+  const allowed = await assertCanTouchAccount(admin, userId, g.isSuperuser)
+  if (!allowed.ok) return allowed
   const teamId = await resolveTeamId(admin, teamCode)
   if (!teamId) return { ok: false, error: '팀을 찾을 수 없습니다.' }
   const { data: upd, error } = await admin
@@ -199,14 +242,28 @@ export async function resetPassword(userId: string, password: string): Promise<A
   if (!g.ok) return { ok: false, error: g.error }
   if (!isValidPassword(password)) return { ok: false, error: '비밀번호는 8자 이상이어야 합니다.' }
   const admin = createAdminClient()
+  // 비밀번호 초기화는 그 계정으로 로그인할 수 있게 만드는 조작이다 —
+  // 등급 경계를 지키지 않으면 관리자가 슈퍼유저 계정을 탈취하는 경로가 된다.
+  const allowed = await assertCanTouchAccount(admin, userId, g.isSuperuser)
+  if (!allowed.ok) return allowed
   const { error } = await admin.auth.admin.updateUserById(userId, { password })
   if (error) return { ok: false, error: error.message }
   return { ok: true }
 }
 
-export async function listAccounts(projectId: string): Promise<AccountRow[]> {
+/**
+ * 계정 목록. **권한 거부를 빈 배열로 돌려주지 않는다** — 이 화면은 그 자체가 권한 정보라
+ * '계정 0개'가 곧 오정보가 되고(관리자 0명으로 보인다), 관리자가 그걸 근거로 권한을
+ * 다시 부여하는 쓰기까지 유발한다. 아래 조회 실패 처리와 같은 기준(fail-loud).
+ */
+export async function listAccounts(
+  projectId: string,
+): Promise<{ ok: true; rows: AccountRow[] } | { ok: false; error: string }> {
   const g = await requireProjectAdmin(projectId)
-  if (!g.ok) return []
+  if (!g.ok) {
+    console.error('[listAccounts] 게이트 거부:', g.error, 'projectId=', projectId)
+    return { ok: false, error: g.error }
+  }
   const admin = createAdminClient()
 
   // 1) auth.users 전체 수집(페이지네이션·실패는 throw)
@@ -233,7 +290,7 @@ export async function listAccounts(projectId: string): Promise<AccountRow[]> {
   if (rolesErr || !roles) throw new Error('프로젝트 역할을 불러오지 못했습니다: ' + (rolesErr?.message ?? 'unknown'))
   const roleBy = new Map(roles.map(r => [r.user_id as string, r.role as AccountRole]))
 
-  return users
+  const rows = users
     .map<AccountRow>((u) => ({
       id: u.id,
       email: u.email,
@@ -246,4 +303,5 @@ export async function listAccounts(projectId: string): Promise<AccountRow[]> {
     // 계정 표에 '이름' 열이 있으므로 이름 가나다순으로 보여준다.
     // 이름이 비어 있는 계정(이메일만 등록)은 compareKoreanName 이 뒤로 보내고, 그 안에서는 이메일순.
     .sort((a, b) => compareKoreanName(a.name, b.name) || a.email.localeCompare(b.email))
+  return { ok: true, rows }
 }

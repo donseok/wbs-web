@@ -58,6 +58,41 @@ export async function getActor(): Promise<Actor | null> {
   }
 }
 
+/**
+ * 화면 계층용 — getActor 의 throw 를 삼키고 **조회 전용(null)** 으로 열화한다.
+ *
+ * 레이아웃·페이지에서 getActor() 를 그대로 부르면 project_roles 조회 실패 한 번이
+ * 인증 영역 전체를 500 으로 만든다(0052 롤백 직후가 가장 현실적인 트리거 —
+ * 테이블이 사라져 모든 요청이 PGRST205 로 실패한다). listProjects 가 이미
+ * 같은 판단으로 [] 폴백을 택했고, 이 함수는 그 예방책을 권한 축에도 맞춘다.
+ *
+ * fail-closed 는 유지된다 — null 은 어포던스 0(조회 전용)이며, 쓰기는 서버 액션의
+ * 가드가 다시 판정해 거부한다. 실패 사실은 로그로 남긴다(표시 = 로깅).
+ */
+export async function getActorForView(): Promise<Actor | null> {
+  try {
+    return await getActor()
+  } catch (e) {
+    // Next 의 제어 흐름 예외는 예외가 아니라 신호다 — 삼키면 정적/동적 판정과 리다이렉트가 깨진다.
+    // cookies() 는 정적 렌더 중 DYNAMIC_SERVER_USAGE 를 던져 "이 라우트는 동적"임을 알린다.
+    if (isFrameworkSignal(e)) throw e
+    console.error('[getActorForView] 권한 조회 실패 — 조회 전용으로 열화:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+/** Next 가 제어 흐름에 쓰는 예외(동적 사용·redirect·notFound·요청 취소)인지. */
+function isFrameworkSignal(e: unknown): boolean {
+  const digest = (e as { digest?: unknown })?.digest
+  if (typeof digest === 'string'
+    && (digest === 'DYNAMIC_SERVER_USAGE'
+      || digest === 'NEXT_NOT_FOUND'
+      || digest.startsWith('NEXT_REDIRECT')
+      || digest.startsWith('NEXT_HTTP_ERROR_FALLBACK'))) return true
+  // 프리렌더 중단·요청 취소도 우리 에러가 아니다.
+  return e instanceof Error && (e.name === 'DynamicServerError' || e.name === 'AbortError')
+}
+
 /** getActor 의 throw 를 GuardResult 로 감싼다 — 액션은 예외가 아니라 결과로 응답한다. */
 async function actorOrError(): Promise<GuardResult> {
   let actor: Actor | null

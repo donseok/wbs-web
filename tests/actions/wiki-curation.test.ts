@@ -6,13 +6,28 @@ const mocks = vi.hoisted(() => ({
   requireProjectAdmin: vi.fn(),
   rpc: vi.fn(),
   revalidatePath: vi.fn(),
+  // 대상 항목·주제가 그 프로젝트 것인지 확인하는 선행 조회(from). 기본은 '소속 맞음'.
+  from: vi.fn(),
 }))
 
 vi.mock('@/lib/authz', () => ({ requireProjectAdmin: mocks.requireProjectAdmin }))
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }))
 vi.mock('@/lib/supabase/server', () => ({
-  createServerClient: async () => ({ rpc: mocks.rpc }),
+  createServerClient: async () => ({ rpc: mocks.rpc, from: mocks.from }),
 }))
+
+/** wiki_items 단건(maybeSingle) / wiki_topics 다건(in) 두 형태를 함께 지원하는 최소 빌더. */
+function scopeOk() {
+  mocks.from.mockImplementation((table: string) => {
+    const result = table === 'wiki_topics'
+      ? { data: [{ id: 'topic-1' }, { id: 'topic-2' }], error: null }
+      : { data: { id: 'item-1' }, error: null }
+    const b: Record<string, unknown> = {}
+    for (const m of ['select', 'eq', 'in', 'maybeSingle']) b[m] = vi.fn(() => b)
+    ;(b as { then: (r: (v: unknown) => void) => void }).then = resolve => resolve(result)
+    return b
+  })
+}
 
 const { curateWikiItem, mergeWikiTopics } = await import('@/app/actions/wiki')
 
@@ -32,7 +47,9 @@ beforeEach(() => {
   mocks.requireProjectAdmin.mockReset()
   mocks.rpc.mockReset()
   mocks.revalidatePath.mockReset()
+  mocks.from.mockReset()
   mocks.rpc.mockResolvedValue({ data: null, error: null })
+  scopeOk()
 })
 
 describe('curateWikiItem — 관리자 fail-closed + 동작 화이트리스트', () => {
@@ -142,5 +159,52 @@ describe('mergeWikiTopics — 프로젝트 관리자 전용', () => {
     })
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/p/project-1/wiki/topics/a')
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/p/project-1/wiki/topics/b')
+  })
+})
+
+describe('대상 결합 — 클라이언트가 보낸 projectId 만으로는 통과하지 못한다', () => {
+  it('항목이 그 프로젝트 소속이 아니면 RPC 를 부르지 않는다', async () => {
+    asAdmin()
+    mocks.from.mockImplementation(() => {
+      const b: Record<string, unknown> = {}
+      for (const m of ['select', 'eq', 'in', 'maybeSingle']) b[m] = vi.fn(() => b)
+      ;(b as { then: (r: (v: unknown) => void) => void }).then = resolve => resolve({ data: null, error: null })
+      return b
+    })
+    const result = await curateWikiItem({ ...ARGS, action: 'resolve' })
+    expect(result.ok).toBe(false)
+    expect(mocks.rpc).not.toHaveBeenCalled()
+  })
+
+  it('소속 확인 조회가 실패하면 중단한다 — 통과시키지 않는다', async () => {
+    asAdmin()
+    mocks.from.mockImplementation(() => {
+      const b: Record<string, unknown> = {}
+      for (const m of ['select', 'eq', 'in', 'maybeSingle']) b[m] = vi.fn(() => b)
+      ;(b as { then: (r: (v: unknown) => void) => void }).then =
+        resolve => resolve({ data: null, error: { message: 'db down' } })
+      return b
+    })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const result = await curateWikiItem({ ...ARGS, action: 'resolve' })
+    spy.mockRestore()
+    expect(result.ok).toBe(false)
+    expect(mocks.rpc).not.toHaveBeenCalled()
+  })
+
+  it('병합은 두 주제가 모두 그 프로젝트 것이어야 한다 — 하나만 맞으면 거부', async () => {
+    asAdmin()
+    mocks.from.mockImplementation(() => {
+      const b: Record<string, unknown> = {}
+      for (const m of ['select', 'eq', 'in', 'maybeSingle']) b[m] = vi.fn(() => b)
+      ;(b as { then: (r: (v: unknown) => void) => void }).then =
+        resolve => resolve({ data: [{ id: 'topic-1' }], error: null })
+      return b
+    })
+    const result = await mergeWikiTopics({
+      projectId: 'project-1', sourceTopicId: 'topic-1', targetTopicId: 'topic-2',
+    })
+    expect(result.ok).toBe(false)
+    expect(mocks.rpc).not.toHaveBeenCalled()
   })
 })

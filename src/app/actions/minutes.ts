@@ -242,6 +242,13 @@ export async function updateMinuteMeta(
     projectId: patch.projectId,
   })
   if (resolvedProject.error) return { ok: false, error: resolvedProject.error }
+  // **옮겨 넣을 프로젝트의 권한도 본다.** checkOwner 는 현재 프로젝트 기준이라, 작성자면
+  // 자기 회의록을 아무 프로젝트로나 옮길 수 있었다 — 그 프로젝트 위키에 지식이 적재되므로
+  // 일괄 지정(assignMinutesProject)이 요구하는 '대상 프로젝트 관리자' 조건이 단건 수정으로
+  // 우회된다. resolveMinuteProject 는 실재만 확인하고 역할은 보지 않는다.
+  if (resolvedProject.projectId && !isProjectMember(g.actor, resolvedProject.projectId)) {
+    return { ok: false, error: '그 프로젝트에 회의록을 넣을 권한이 없습니다.' }
+  }
   // §6.3 — 폴더가 주어지면 team 은 **폴더에서 파생**한다. 클라이언트가 보낸 teamCode 를 그대로
   // 믿으면 "폴더는 MES 인데 team_code 는 ERP" 인 데이터를 서버가 직접 만든다(파생은 UI 에만
   // 있었다). 파생 불가 폴더(시드 체인 밖)는 추측하지 않고 거절한다.

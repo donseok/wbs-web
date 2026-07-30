@@ -154,3 +154,27 @@ describe('resolveProjectId', () => {
     })
   })
 })
+
+describe('getActorForView — 화면 계층 열화', () => {
+  it('권한 조회 실패는 조회 전용(null)으로 열화한다 — 인증 영역 전체 500 방지', async () => {
+    stubDb({
+      membership: { is_superuser: false, teams: { code: 'ERP', id: 't9' } },
+      roles: null, rolesError: { message: 'boom' },
+    })
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { getActorForView } = await import('@/lib/authz')
+    expect(await getActorForView()).toBe(null)
+    spy.mockRestore()
+  })
+
+  // Next 의 제어 흐름 예외를 삼키면 정적/동적 판정과 redirect 가 조용히 깨진다.
+  it.each([
+    ['DYNAMIC_SERVER_USAGE', { digest: 'DYNAMIC_SERVER_USAGE' }],
+    ['NEXT_REDIRECT', { digest: 'NEXT_REDIRECT;replace;/login;307;' }],
+    ['NEXT_NOT_FOUND', { digest: 'NEXT_NOT_FOUND' }],
+  ])('%s 신호는 그대로 다시 던진다', async (_n, thrown) => {
+    mockClient.auth.getUser.mockImplementation(() => { throw thrown })
+    const { getActorForView } = await import('@/lib/authz')
+    await expect(getActorForView()).rejects.toBe(thrown)
+  })
+})

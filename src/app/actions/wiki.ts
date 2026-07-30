@@ -44,9 +44,10 @@ function friendlyError(message: string | undefined): string {
 }
 
 /**
- * 항목 상태 정리. projectId는 revalidate 대상 겸 관리자 판정 기준이며, 대상 항목이 실제로
- * 그 프로젝트 것인지는 RPC가 세션으로 다시 판정한다 — 클라이언트가 보낸 projectId만으로
- * 남의 프로젝트 항목을 건드릴 수는 없다.
+ * 항목 상태 정리. projectId 는 revalidate 대상 겸 관리자 판정 기준이므로, **대상 항목이 실제로
+ * 그 프로젝트 것인지 여기서 결합해야 한다** — 클라이언트가 보낸 projectId 만 믿으면 자기가
+ * 관리자인 프로젝트를 적어 남의 프로젝트 항목을 정리할 수 있다.
+ * (0053 이 RPC 안의 판정도 대상 항목의 프로젝트 기준으로 바꿨다 — 여기가 1차, RPC 가 2차다.)
  */
 export async function curateWikiItem(args: {
   projectId: string
@@ -62,6 +63,15 @@ export async function curateWikiItem(args: {
   }
 
   const sb = await createServerClient()
+  // 대상 결합 — 조회 실패는 쓰기 중단 사유다(3원칙 ②).
+  const { data: item, error: itemErr } = await sb
+    .from('wiki_items').select('id').eq('id', args.itemId).eq('project_id', args.projectId).maybeSingle()
+  if (itemErr) {
+    console.error('[wiki] 대상 항목 소속 확인 실패:', itemErr.message)
+    return { ok: false, error: '대상을 확인할 수 없어 중단했습니다.' }
+  }
+  if (!item) return { ok: false, error: '대상을 찾을 수 없습니다. 이미 정리되었을 수 있습니다.' }
+
   const { error } = await sb.rpc('curate_wiki_item', {
     p_item_id: args.itemId,
     p_action: args.action,
@@ -90,6 +100,19 @@ export async function mergeWikiTopics(args: {
   }
 
   const sb = await createServerClient()
+  // 두 주제가 모두 판정 기준 프로젝트의 것인지 결합한다 — RPC 는 source·target 이 같은
+  // 프로젝트인지만 보므로, 결합이 없으면 남의 프로젝트 주제끼리 병합할 수 있다.
+  const { data: topics, error: topicErr } = await sb
+    .from('wiki_topics').select('id')
+    .in('id', [args.sourceTopicId, args.targetTopicId]).eq('project_id', args.projectId)
+  if (topicErr) {
+    console.error('[wiki] 대상 주제 소속 확인 실패:', topicErr.message)
+    return { ok: false, error: '대상을 확인할 수 없어 중단했습니다.' }
+  }
+  if (!topics || topics.length !== 2) {
+    return { ok: false, error: '같은 프로젝트의 서로 다른 주제만 병합할 수 있습니다.' }
+  }
+
   const { error } = await sb.rpc('merge_wiki_topics', {
     p_source_topic_id: args.sourceTopicId,
     p_target_topic_id: args.targetTopicId,

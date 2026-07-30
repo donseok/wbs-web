@@ -23,7 +23,9 @@ vi.mock('@/lib/ai/wiki-ingest', () => ({
   rebuildProjectWikiFromActiveMinutes: vi.fn(async () => {}),
 }))
 vi.mock('@/lib/minutes/project', () => ({
-  resolveMinuteProject: vi.fn(async () => ({ projectId: 'p1', error: null })),
+  // 실제 구현은 프로젝트의 '실재'만 확인하고 역할은 보지 않는다 — 그 성질을 그대로 흉내낸다.
+  resolveMinuteProject: vi.fn(async (_db: unknown, input: { projectId?: string | null }) =>
+    ({ projectId: input.projectId ?? 'p1', error: null })),
 }))
 
 const createServerClient = vi.fn()
@@ -105,6 +107,22 @@ describe('회의록 액션 권한 게이트 — RLS 2차 방어선이 없는 경
     }))
     const res = await setMinuteShare('m1', 'enable' as never)
     expect(res).toMatchObject({ ok: false, error: '권한 없음' })
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateMinuteMeta — 대상 프로젝트 권한도 본다', () => {
+  it('작성자여도 멤버가 아닌 프로젝트로는 옮길 수 없다 — 일괄 지정 규칙을 단건으로 우회 못 한다', async () => {
+    getActor.mockResolvedValue(memberOfP1)   // p1 의 멤버일 뿐
+    createServerClient.mockResolvedValue(fakeMinutes({
+      data: { created_by: 'u1', archived_at: null, project_id: P1 },   // 작성자 본인
+    }))
+    const { updateMinuteMeta } = await import('@/app/actions/minutes')
+    const res = await updateMinuteMeta('m1', {
+      minuteDate: '2026-07-30', teamCode: 'PMO', title: '제목', meetingId: null, projectId: 'p2',
+    } as never)
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('권한')
     expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
   })
 })

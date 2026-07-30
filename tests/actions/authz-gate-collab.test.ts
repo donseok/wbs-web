@@ -18,6 +18,10 @@ import { removeAttendance, upsertAttendance } from '@/app/actions/attendance'
 import { createMeeting } from '@/app/actions/meetings'
 
 const DENIED = { ok: false, error: '권한 없음' } as const
+const MEMBER = {
+  userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false,
+  projectRoles: new Map([['p1', 'member' as const]]),
+}
 const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
 
 const MEETING_INPUT = {
@@ -111,5 +115,64 @@ describe('회의 — 프로젝트 멤버 가드', () => {
     expect(res).toEqual({ ok: false, error: '권한 없음' })
     expect(requireProjectMember).toHaveBeenCalledWith('p1')
     expect(createServerClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('대상 결합 회귀 — 인자 projectId 만으로는 남의 행을 쓸 수 없다', () => {
+  it('upsertAttendance: 대상 멤버가 이 프로젝트 로스터가 아니면 거부', async () => {
+    requireProjectMember.mockResolvedValue({ ok: true, actor: MEMBER })
+    // project_members 대조가 0행 → 거부, attendance_records 로는 가지 않는다
+    const touched: string[] = []
+    createServerClient.mockResolvedValue({
+      from: vi.fn((table: string) => {
+        touched.push(table)
+        const b: Record<string, unknown> = {}
+        for (const m of ['select', 'eq', 'maybeSingle', 'upsert']) b[m] = vi.fn(() => b)
+        ;(b as { then: (r: (v: unknown) => void) => void }).then =
+          resolve => resolve({ data: null, error: null })
+        return b
+      }),
+    } as never)
+    const res = await upsertAttendance('p1', { memberId: 'm-other', date: '2026-07-30', type: 'work' } as never)
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('멤버')
+    expect(touched).not.toContain('attendance_records')
+  })
+
+  it('upsertAttendance: 로스터 확인 조회가 실패하면 중단한다 — fail-closed', async () => {
+    requireProjectMember.mockResolvedValue({ ok: true, actor: MEMBER })
+    createServerClient.mockResolvedValue({
+      from: vi.fn(() => {
+        const b: Record<string, unknown> = {}
+        for (const m of ['select', 'eq', 'maybeSingle', 'upsert']) b[m] = vi.fn(() => b)
+        ;(b as { then: (r: (v: unknown) => void) => void }).then =
+          resolve => resolve({ data: null, error: { message: 'db down' } })
+        return b
+      }),
+    } as never)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await upsertAttendance('p1', { memberId: 'm1', date: '2026-07-30', type: 'work' } as never)
+    spy.mockRestore()
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('확인할 수 없어')
+  })
+
+  it('saveWeeklyCell: 대상 행이 이 프로젝트 회차 소속이 아니면 쓰지 않는다', async () => {
+    requireProjectMember.mockResolvedValue({ ok: true, actor: MEMBER })
+    const methods: string[] = []
+    createServerClient.mockResolvedValue({
+      from: vi.fn(() => {
+        const b: Record<string, unknown> = {}
+        for (const m of ['select', 'eq', 'in', 'update']) {
+          b[m] = vi.fn(() => { methods.push(m); return b })
+        }
+        ;(b as { then: (r: (v: unknown) => void) => void }).then =
+          resolve => resolve({ data: [], error: null })   // 소속 0행
+        return b
+      }),
+    } as never)
+    const res = await saveWeeklyCell('p1', 'row-other', 'this_content', 'x')
+    expect(res.ok).toBe(false)
+    expect(methods).not.toContain('update')
   })
 })

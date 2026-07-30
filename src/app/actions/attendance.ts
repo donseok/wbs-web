@@ -14,6 +14,19 @@ export async function upsertAttendance(
   if (!g.ok) return { ok: false, error: g.error }
 
   const sb = await createServerClient()
+  // 대상 멤버가 **이 프로젝트 로스터** 소속인지 확인한다. 없으면 남의 프로젝트 멤버 id 로
+  // 이 프로젝트 근태 행을 만들 수 있고(로스터 읽기는 전면 개방이라 id 확보가 쉽다),
+  // unique(member_id,date) 때문에 그 회사 프로젝트의 정당한 입력이 이후 영구히 막힌다.
+  // meetings.replaceAttendees·issues.replaceAssignees 가 이미 쓰는 대조를 여기에도 둔다.
+  const { data: member, error: memberErr } = await sb
+    .from('project_members').select('id')
+    .eq('id', input.memberId).eq('project_id', projectId).maybeSingle()
+  if (memberErr) {
+    console.error('[upsertAttendance] 로스터 확인 실패:', memberErr.message)
+    return { ok: false, error: '대상 멤버를 확인할 수 없어 중단했습니다.' }
+  }
+  if (!member) return { ok: false, error: '이 프로젝트의 멤버가 아닙니다.' }
+
   const { error } = await sb
     .from('attendance_records')
     .upsert(

@@ -14,7 +14,7 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/authz', () => ({ requireProjectAdmin, requireSuperuser, getActor }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient }))
 
-import { createAccount, bulkCreateAccounts, resetPassword } from '@/app/actions/accounts'
+import { createAccount, bulkCreateAccounts, resetPassword, listAccounts } from '@/app/actions/accounts'
 import { setProjectRole, setSuperuser } from '@/app/actions/projectRoles'
 
 const DENIED = { ok: false as const, error: '권한 없음' }
@@ -58,6 +58,74 @@ describe('계정 서버액션 권한 게이트', () => {
     const res = await bulkCreateAccounts('a@b.com,PMO,member,password1', P1)
     expect(res.ok).toBe(false)
     expect(res.error).toBe('권한 없음')
+    expect(createAdminClient).not.toHaveBeenCalled()
+  })
+
+  // 등급 경계 회귀 방어: 이 검사가 없으면 어느 한 프로젝트의 관리자가 슈퍼유저 계정의
+  // 비밀번호를 초기화해 그 계정으로 로그인할 수 있다 — '관리자 슬롯은 슈퍼유저만' 불변식이 무의미해진다.
+  it('관리자는 슈퍼유저 계정의 비밀번호를 초기화할 수 없다', async () => {
+    getActor.mockResolvedValue(adminActor)
+    const maybeSingle = vi.fn(async () => ({ data: { is_superuser: true }, error: null }))
+    const updateUserById = vi.fn()
+    createAdminClient.mockReturnValue({
+      from: vi.fn(() => ({ select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) })),
+      auth: { admin: { updateUserById } },
+    } as never)
+    const res = await resetPassword('u-superuser', 'password1')
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('슈퍼유저')
+    expect(updateUserById).not.toHaveBeenCalled()
+  })
+
+  it('관리자는 다른 관리자 계정도 만질 수 없다 — 동급 탈취 차단', async () => {
+    getActor.mockResolvedValue(adminActor)
+    const updateUserById = vi.fn()
+    createAdminClient.mockReturnValue({
+      from: vi.fn((table: string) => {
+        if (table === 'memberships') {
+          return { select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: async () => ({ data: { is_superuser: false }, error: null }) })) })) }
+        }
+        return { select: vi.fn(() => ({ eq: vi.fn(() => ({ eq: async () => ({ data: [{ project_id: 'p9' }], error: null }) })) })) }
+      }),
+      auth: { admin: { updateUserById } },
+    } as never)
+    const res = await resetPassword('u-other-admin', 'password1')
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('관리자')
+    expect(updateUserById).not.toHaveBeenCalled()
+  })
+
+  it('대상 등급 조회가 실패하면 비밀번호 초기화를 중단한다 — fail-closed', async () => {
+    getActor.mockResolvedValue(adminActor)
+    const updateUserById = vi.fn()
+    createAdminClient.mockReturnValue({
+      from: vi.fn(() => ({ select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: async () => ({ data: null, error: { message: 'boom' } }) })) })) })),
+      auth: { admin: { updateUserById } },
+    } as never)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await resetPassword('u2', 'password1')
+    spy.mockRestore()
+    expect(res).toEqual({ ok: false, error: '권한을 확인할 수 없어 중단했습니다.' })
+    expect(updateUserById).not.toHaveBeenCalled()
+  })
+
+  it('슈퍼유저는 누구의 비밀번호든 초기화할 수 있다', async () => {
+    getActor.mockResolvedValue({ ...adminActor, isSuperuser: true })
+    const updateUserById = vi.fn(async () => ({ error: null }))
+    createAdminClient.mockReturnValue({
+      from: vi.fn(() => { throw new Error('슈퍼유저는 등급 조회 없이 통과한다') }),
+      auth: { admin: { updateUserById } },
+    } as never)
+    expect(await resetPassword('u-superuser', 'password1')).toEqual({ ok: true })
+    expect(updateUserById).toHaveBeenCalled()
+  })
+
+  it('listAccounts 는 권한 거부를 빈 배열로 위장하지 않는다', async () => {
+    requireProjectAdmin.mockResolvedValue(DENIED)
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = await listAccounts(P1)
+    spy.mockRestore()
+    expect(res).toEqual({ ok: false, error: '권한 없음' })
     expect(createAdminClient).not.toHaveBeenCalled()
   })
 
