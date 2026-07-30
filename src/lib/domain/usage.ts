@@ -57,6 +57,31 @@ export function parsePeriodDays(raw: string | undefined): number {
 }
 
 /**
+ * 쿼리스트링 필터값을 허용 목록에 대조한다. 모르는 값은 조용히 버린다(=필터 없음).
+ * 검증 없이 넘기면 존재하지 않는 값으로 영원히 빈 표가 나오고, 그게 '기록 없음'과
+ * 구별되지 않는다.
+ */
+export function pickAllowed(raw: string | undefined, allowed: Iterable<string>): string | undefined {
+  if (!raw) return undefined
+  for (const a of allowed) if (a === raw) return raw
+  return undefined
+}
+
+/** 현재 쿼리를 유지한 채 일부만 바꾼 /usage 링크. 값이 undefined 면 그 파라미터를 뺀다. */
+export function usageHref(
+  current: { days: number; user?: string; menu?: string },
+  patch: Partial<{ days: number; user?: string; menu?: string }>,
+): string {
+  const next = { ...current, ...patch }
+  const q = new URLSearchParams()
+  if (next.days !== 30) q.set('days', String(next.days))
+  if (next.user) q.set('user', next.user)
+  if (next.menu) q.set('menu', next.menu)
+  const s = q.toString()
+  return s ? `/usage?${s}` : '/usage'
+}
+
+/**
  * 구간의 모든 날짜를 만들고 데이터가 없는 날은 0으로 채운다.
  * 채우지 않으면 접속이 없던 날이 차트에서 사라져 추세선이 실제보다 촘촘해 보인다.
  */
@@ -89,17 +114,9 @@ export function mergeUserRows(accounts: AccountRecord[], rollups: UserRollup[]):
     .sort((x, y) => y.events - x.events || x.name.localeCompare(y.name, 'ko'))
 }
 
-/** 무활동 간격이 gapMinutes 를 넘을 때마다 새 접속으로 센다. 경계값은 같은 접속. */
-export function countSessions(timestampsIso: string[], gapMinutes = SESSION_GAP_MINUTES): number {
-  if (timestampsIso.length === 0) return 0
-  const ms = timestampsIso.map(t => new Date(t).getTime()).sort((a, b) => a - b)
-  const gap = gapMinutes * 60_000
-  let sessions = 1
-  for (let i = 1; i < ms.length; i++) {
-    if (ms[i] - ms[i - 1] > gap) sessions++
-  }
-  return sessions
-}
+// 접속 횟수 계산은 여기 두지 않는다. 반드시 사용자별로 끊어야 하는데(섞으면 동시 사용
+// 중 간격이 사라져 1로 붕괴한다) 그러려면 기간 전체 이벤트가 필요하고, 90일이면 수십만
+// 행이라 JS 로 끌어올 수 없다. SQL 의 lag() 로 옮겼다 — usage_sessions RPC(0051).
 
 /** 최대값 대비 막대 길이(%). 최대가 0이면 0 — 0으로 나누지 않는다. */
 export function barPct(value: number, max: number): number {

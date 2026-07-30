@@ -21,7 +21,7 @@ export function UsageSummary({ summary, days, sessions }: {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="TODAY" value={summary.todayUsers} sub="오늘 접속한 사용자" icon={CalendarCheck} tone="brand" />
         <KpiCard label={`ACTIVE ${days}D`} value={summary.activeUsers} sub={`최근 ${days}일 접속 사용자`} icon={Users} tone="success" />
-        <KpiCard label="SESSIONS" value={sessions} sub={`표시된 로그 기준 · ${SESSION_GAP_MINUTES}분 무활동 유도값`} icon={Activity} />
+        <KpiCard label={`SESSIONS ${days}D`} value={sessions.toLocaleString('ko-KR')} sub={`${SESSION_GAP_MINUTES}분 무활동 기준 유도값`} icon={Activity} />
         <KpiCard label={`VIEWS ${days}D`} value={summary.totalEvents.toLocaleString('ko-KR')} sub="화면 열람 건수" icon={MousePointerClick} />
       </div>
       <p className="text-[11px] text-ink-subtle">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addDaysIso, parsePeriodDays, fillDailySeries, mergeUserRows, countSessions, barPct,
+  addDaysIso, parsePeriodDays, fillDailySeries, mergeUserRows, barPct,
+  pickAllowed, usageHref,
   SESSION_GAP_MINUTES, type AccountRecord, type UserRollup,
 } from '@/lib/domain/usage'
 
@@ -82,33 +83,35 @@ describe('mergeUserRows — 활동이 0인 계정도 사라지지 않는다', ()
   })
 })
 
-describe('countSessions — 로그인 이벤트가 없으므로 무활동 간격으로 유도한다', () => {
-  it('기본 간격은 30분', () => {
+describe('접속 횟수의 기준 상수', () => {
+  // 계산 자체는 usage_sessions RPC(0051)가 사용자별 lag() 로 한다 — 여기서는 화면 문구와
+  // RPC 인자로 함께 쓰이는 기준값만 고정한다. 계약은 tests/migrations/usage-events.test.ts.
+  it('무활동 30분 기준', () => {
     expect(SESSION_GAP_MINUTES).toBe(30)
   })
+})
 
-  it('간격 이내 연속 이벤트는 한 접속', () => {
-    expect(countSessions([
-      '2026-07-30T01:00:00Z', '2026-07-30T01:20:00Z', '2026-07-30T01:45:00Z',
-    ])).toBe(1)
+describe('pickAllowed — 쿼리스트링 필터 검증', () => {
+  it('허용 목록에 있으면 통과', () => {
+    expect(pickAllowed('wbs', ['wbs', 'kanban'])).toBe('wbs')
   })
-
-  it('간격을 넘으면 새 접속', () => {
-    expect(countSessions([
-      '2026-07-30T01:00:00Z', '2026-07-30T02:00:00Z', '2026-07-30T02:10:00Z',
-    ])).toBe(2)
+  it('허용 목록에 없으면 필터 없음으로 떨어진다(빈 표를 만들지 않는다)', () => {
+    expect(pickAllowed('없는메뉴', ['wbs'])).toBeUndefined()
+    expect(pickAllowed('', ['wbs'])).toBeUndefined()
+    expect(pickAllowed(undefined, ['wbs'])).toBeUndefined()
   })
+})
 
-  it('정확히 경계값(30분)은 같은 접속으로 본다', () => {
-    expect(countSessions(['2026-07-30T01:00:00Z', '2026-07-30T01:30:00Z'])).toBe(1)
+describe('usageHref — 다른 필터를 보존한다', () => {
+  it('기본 기간(30일)은 URL 에 싣지 않는다', () => {
+    expect(usageHref({ days: 30 }, {})).toBe('/usage')
   })
-
-  it('순서가 뒤섞여 들어와도 정렬해서 센다', () => {
-    expect(countSessions(['2026-07-30T02:00:00Z', '2026-07-30T01:00:00Z'])).toBe(2)
+  it('기간을 바꿔도 사용자 필터가 남는다', () => {
+    expect(usageHref({ days: 30, user: 'u1' }, { days: 7 })).toBe('/usage?days=7&user=u1')
   })
-
-  it('빈 입력은 0', () => {
-    expect(countSessions([])).toBe(0)
+  it('필터를 undefined 로 지우면 파라미터가 빠진다', () => {
+    expect(usageHref({ days: 7, user: 'u1', menu: 'wbs' }, { user: undefined }))
+      .toBe('/usage?days=7&menu=wbs')
   })
 })
 

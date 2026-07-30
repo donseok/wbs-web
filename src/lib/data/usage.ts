@@ -69,6 +69,20 @@ export async function getUserRollup(from: string, to: string): Promise<UserRollu
   }))
 }
 
+/**
+ * 접속 횟수 — 무활동 간격으로 유도한 값(로그인이 서버에 기록되지 않는다).
+ * 반드시 사용자별로 끊어야 하므로 SQL 의 lag() 로 계산한다. 표시용 로그 200건이 아니라
+ * 기간 전체가 대상이라 다른 KPI 와 같은 축이다.
+ */
+export async function getUsageSessions(from: string, to: string, gapMinutes: number): Promise<number> {
+  const sb = await createServerClient()
+  const { data, error } = await sb.rpc('usage_sessions', {
+    p_from: from, p_to: to, p_gap_minutes: gapMinutes,
+  })
+  if (error) throw new Error('접속 횟수를 불러오지 못했습니다: ' + error.message)
+  return Number(data ?? 0)
+}
+
 export async function getRecentUsageEvents(o: {
   from: string; to: string; userId?: string; menuKey?: string; limit: number
 }): Promise<UsageEventRow[]> {

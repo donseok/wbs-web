@@ -291,6 +291,8 @@ function MobileMenu({
           <Link href="/projects" onClick={onClose} aria-current={pathname === '/projects' ? 'page' : undefined} className={`side-link ${pathname === '/projects' ? 'side-link-active' : ''}`}>{t('nav.allProjects')}</Link>
           <Link href="/meetings" onClick={onClose} aria-current={pathname === '/meetings' ? 'page' : undefined} className={`side-link ${pathname === '/meetings' ? 'side-link-active' : ''}`}>{t('nav.myMeetings')}</Link>
           <Link href="/minutes" onClick={onClose} aria-current={pathname.startsWith('/minutes') ? 'page' : undefined} className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''}`}>{t('nav.minutes')}</Link>
+          {/* 사이드바는 hidden lg:flex 라 lg 미만에서는 여기가 /usage 의 유일한 진입점이다 */}
+          <Link href="/usage" onClick={onClose} aria-current={pathname === '/usage' ? 'page' : undefined} className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''}`}>{t('nav.usage')}</Link>
           {isGlobalBridge && menuProject && returnHref && (
             <Link
               href={returnHref}

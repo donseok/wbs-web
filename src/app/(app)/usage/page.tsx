@@ -11,11 +11,13 @@ import { UsageUserTable } from '@/components/usage/UsageUserTable'
 import { UsageEventLog } from '@/components/usage/UsageEventLog'
 import { getServerLocale } from '@/lib/i18n/server'
 import {
-  USAGE_RETAIN_DAYS, addDaysIso, countSessions, fillDailySeries, mergeUserRows, parsePeriodDays,
+  SESSION_GAP_MINUTES, USAGE_RETAIN_DAYS, addDaysIso, fillDailySeries, mergeUserRows,
+  parsePeriodDays, pickAllowed,
 } from '@/lib/domain/usage'
+import { USAGE_MENUS } from '@/lib/domain/usageMenu'
 import {
   getDailyActives, getMenuRanking, getRecentUsageEvents, getUsageDirectory,
-  getUsageSummary, getUserRollup, purgeOldUsageEvents,
+  getUsageSessions, getUsageSummary, getUserRollup, purgeOldUsageEvents,
 } from '@/lib/data/usage'
 
 export const dynamic = 'force-dynamic' // 접속 지표는 항상 최신이어야 한다
@@ -28,35 +30,44 @@ function seoulToday(): string {
 }
 
 export default async function UsagePage({ searchParams }: {
-  searchParams: Promise<{ days?: string }>
+  searchParams: Promise<{ days?: string; user?: string; menu?: string }>
 }) {
   const m = await getMembership()
   // 지금은 전원 통과. 관리자 전용 전환은 canViewUsage 한 곳에서 이뤄진다.
   if (!canViewUsage(m)) redirect('/projects')
 
-  const [{ days }, locale] = await Promise.all([searchParams, getServerLocale()])
+  const [{ days, user, menu }, locale] = await Promise.all([searchParams, getServerLocale()])
   const period = parsePeriodDays(days)
   const today = seoulToday()
   const from = addDaysIso(today, -(period - 1))
+  // 메뉴 필터는 여기서 검증 가능하지만 사용자 필터는 계정 목록을 받아야 한다(아래 2단계).
+  const menuFilter = pickAllowed(menu, USAGE_MENUS.map(x => x.key))
 
   // 단일 왕복 — 직렬 2단째를 만들지 않는다(대시보드 관례).
-  const [summary, daily, ranks, rollup, directory, events] = await Promise.all([
+  const [summary, daily, ranks, rollup, directory, sessions] = await Promise.all([
     getUsageSummary(from, today, today),
     getDailyActives(from, today),
     getMenuRanking(from, today),
     getUserRollup(from, today),
     getUsageDirectory(),
-    getRecentUsageEvents({ from, to: today, limit: EVENT_LIMIT }),
+    getUsageSessions(from, today, SESSION_GAP_MINUTES),
   ])
+
+  // 사용자 필터는 실재하는 계정 id 만 허용한다 — 검증 없이 넘기면 존재하지 않는 id 로
+  // 영원히 빈 표가 나오고 그게 '기록 없음'과 구별되지 않는다.
+  const userFilter = pickAllowed(user, directory.map(a => a.id))
+  const events = await getRecentUsageEvents({
+    from, to: today, limit: EVENT_LIMIT, userId: userFilter, menuKey: menuFilter,
+  })
 
   const series = fillDailySeries(daily, from, today)
   const userRows = mergeUserRows(directory, rollup)
   const names = new Map(directory.map(a => [a.id, a.name]))
-  // 표시된 로그 범위 안에서의 접속 횟수 — 전 구간이 아니라 최근 EVENT_LIMIT 건 기준임을
-  // 카드 설명(30분 무활동 기준)과 함께 읽도록 둔다.
-  const sessions = countSessions(events.map(e => e.occurredAt))
+  const filter = { days: period, user: userFilter, menu: menuFilter }
 
-  after(() => { void purgeOldUsageEvents() })
+  // 프로미스를 반환한다 — void 로 버리면 Next 가 waitUntil 로 추적하지 못해
+  // 응답 직후 인스턴스가 얼면 DELETE 왕복이 끊긴다(리포의 다른 after() 9곳과 동일 형태).
+  after(() => purgeOldUsageEvents())
 
   return (
     <div className="space-y-6">
@@ -65,7 +76,7 @@ export default async function UsagePage({ searchParams }: {
         <p className="text-xs text-ink-muted">
           최근 {period}일 · 원시 기록은 {USAGE_RETAIN_DAYS}일간 보관됩니다.
         </p>
-        <PeriodTabs current={period} />
+        <PeriodTabs filter={filter} />
       </div>
       <UsageSummary summary={summary} days={period} sessions={sessions} />
       <div className="grid gap-5 lg:grid-cols-2">
@@ -73,7 +84,8 @@ export default async function UsagePage({ searchParams }: {
         <MenuRankingCard ranks={ranks} locale={locale} />
       </div>
       <UsageUserTable rows={userRows} days={period} />
-      <UsageEventLog events={events} names={names} limit={EVENT_LIMIT} locale={locale} />
+      <UsageEventLog events={events} names={names} limit={EVENT_LIMIT} locale={locale}
+        menus={ranks.map(r => r.menuKey)} filter={filter} />
     </div>
   )
 }
