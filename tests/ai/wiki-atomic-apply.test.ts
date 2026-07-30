@@ -12,6 +12,7 @@ import {
   applyExtractedItem,
   enqueueMinuteWikiProcessing,
 } from '@/lib/ai/wiki-ingest'
+import { emptySaturationSnapshot } from '@/lib/ai/wiki-saturation'
 import { wikiStatementHash } from '@/lib/domain/wiki'
 import { fnv1a64 } from '@/lib/minutes/blocks'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -86,6 +87,8 @@ function applyArgs(item: ExtractedWikiItem) {
     bodyHash: '0123456789abcdef',
     blocks: [evidence],
     item,
+    // 불완전 스냅샷 = 게이팅 꺼짐. 이 파일은 apply RPC 의미론만 검사하므로 현행 동작을 쓴다.
+    saturation: emptySaturationSnapshot(),
   }
 }
 

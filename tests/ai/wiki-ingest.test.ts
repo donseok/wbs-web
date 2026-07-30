@@ -16,11 +16,15 @@ vi.mock('@/lib/teams/master', () => ({
 }))
 
 import {
+  applyExtractedItem,
+  normalizeWikiTopic,
   parseExtractedWikiItems,
   processMinuteWikiJob,
   processWikiProjectRebuildStep,
   runWikiWorkerOnce,
+  type ExtractedWikiItem,
 } from '@/lib/ai/wiki-ingest'
+import type { WikiSaturationSnapshot } from '@/lib/ai/wiki-saturation'
 import { fnv1a64 } from '@/lib/minutes/blocks'
 
 const blocks: MinuteBlock[] = [
@@ -902,5 +906,155 @@ describe('parseExtractedWikiItems — 잘린 응답 구제', () => {
       }],
     })
     expect(parseExtractedWikiItems(valid, blocks)).toHaveLength(1)
+  })
+})
+
+/**
+ * applyExtractedItem을 스냅샷과 함께 직접 돌려 주제 확정 결과를 관찰한다.
+ * wiki_topics 응답 큐는 [완전일치 maybeSingle, 별칭 스캔, insert] 순서로 소비되고
+ * 도달하지 않은 단계의 응답은 소비되지 않은 채 남는다.
+ */
+async function runApplyWithSnapshot(args: {
+  snapshot: WikiSaturationSnapshot
+  item: { topic: string; kind: ExtractedWikiItem['kind']; facet: string }
+  existingTopics: Array<{ id: string; normalized_title: string; aliases: string[] }>
+}): Promise<{ usedTopicId: string | null; insertedTopicTitle: string | null }> {
+  const normalized = normalizeWikiTopic(args.item.topic)
+  const exact = args.existingTopics.find((t) => t.normalized_title === normalized) ?? null
+  const tables: Record<string, QueryResponse[]> = {
+    wiki_topics: [
+      { data: exact ? { id: exact.id, normalized_title: exact.normalized_title } : null },
+      { data: args.existingTopics },
+      { data: { id: 'inserted-topic', normalized_title: normalized } },
+    ],
+    wiki_items: [{ data: null }],
+  }
+  const builders: Record<string, ReturnType<typeof queryBuilder>[]> = {}
+  const rpc = vi.fn<
+    (name: string, payload: Record<string, unknown>) => ReturnType<typeof queryBuilder>
+  >(() => queryBuilder({ data: { outcome: 'created' } }))
+  const admin = {
+    from: vi.fn((table: string) => {
+      const builder = queryBuilder((tables[table] ?? []).shift() ?? { data: null })
+      ;(builders[table] ??= []).push(builder)
+      return builder
+    }),
+    rpc,
+  }
+
+  const fullItem: ExtractedWikiItem = {
+    kind: args.item.kind,
+    topic: args.item.topic,
+    topicType: 'general',
+    statement: '검증용 문장이다.',
+    facet: args.item.facet,
+    knowledgeKey: args.item.facet,
+    certainty: 'explicit',
+    decisionState: null,
+    relation: 'supports',
+    semanticRelation: null,
+    evidenceIndexes: [1],
+    ownerTeam: null,
+    ownerName: null,
+    dueDate: null,
+    effectiveDate: null,
+  }
+  await applyExtractedItem(admin as never, {
+    projectId: 'project-1',
+    jobId: 1,
+    jobLockedBy: 'worker-1',
+    minuteId: 'minute-1',
+    minuteVersionId: 'version-1',
+    minuteVersionNo: 1,
+    applyGeneration: 0,
+    observedAt: '2026-07-30T00:00:00.000Z',
+    bodyHash: 'hash',
+    blocks,
+    item: fullItem,
+    saturation: args.snapshot,
+  })
+
+  const applyCall = rpc.mock.calls.find(
+    (call) => call[0] === 'apply_wiki_extracted_item_atomic',
+  ) as unknown[] | undefined
+  const usedTopicId =
+    (applyCall?.[1] as { p_topic_id?: string } | undefined)?.p_topic_id ?? null
+  const insertBuilder = (builders.wiki_topics ?? []).find(
+    (b) => b.insert.mock.calls.length > 0,
+  )
+  const insertedTopicTitle =
+    (insertBuilder?.insert.mock.calls[0]?.[0] as { title?: string } | undefined)?.title ?? null
+  return { usedTopicId, insertedTopicTitle }
+}
+
+describe('ensureTopic — 포화 게이팅', () => {
+  it('포화 주제는 별칭 후보에서 빠진다 — "데이터 관리 기준"이 새 주제가 된다', async () => {
+    // 현행 matchWikiTopicAlias의 containment 분기는 유사도·한정어 가드를 모두 우회하므로
+    // 후보 풀에 '데이터 관리'가 남아 있으면 '데이터 관리 기준'이 흡수된다(실행으로 확인됨).
+    const snapshot: WikiSaturationSnapshot = {
+      complete: true,
+      topics: [],
+      items: [],
+      saturatedNormalizedTitles: new Set(['데이터 관리']),
+      keyOwner: new Map(),
+    }
+    const result = await runApplyWithSnapshot({
+      snapshot,
+      item: { topic: '데이터 관리 기준', kind: 'decision', facet: '신규-대상' },
+      existingTopics: [{ id: 'sat', normalized_title: '데이터 관리', aliases: [] }],
+    })
+    expect(result.insertedTopicTitle).toBe('데이터 관리 기준')
+    expect(result.usedTopicId).not.toBe('sat')
+  })
+
+  it('(kind, facet)이 포화 주제에 이미 살아 있으면 그 주제로 되돌린다', async () => {
+    const snapshot: WikiSaturationSnapshot = {
+      complete: true,
+      topics: [],
+      items: [],
+      saturatedNormalizedTitles: new Set(['데이터 관리']),
+      keyOwner: new Map([
+        ['decision:기존-대상', { id: 'sat', normalizedTitle: '데이터 관리' }],
+      ]),
+    }
+    const result = await runApplyWithSnapshot({
+      snapshot,
+      item: { topic: '완전히 다른 이름', kind: 'decision', facet: '기존 대상' },
+      existingTopics: [{ id: 'sat', normalized_title: '데이터 관리', aliases: [] }],
+    })
+    expect(result.usedTopicId).toBe('sat')
+    expect(result.insertedTopicTitle).toBeNull()   // 새 주제를 만들지 않는다
+  })
+
+  it('normalized_title 완전일치는 포화 여부와 무관하게 흡수한다', async () => {
+    const snapshot: WikiSaturationSnapshot = {
+      complete: true,
+      topics: [],
+      items: [],
+      saturatedNormalizedTitles: new Set(['데이터 관리']),
+      keyOwner: new Map(),
+    }
+    const result = await runApplyWithSnapshot({
+      snapshot,
+      item: { topic: '데이터 관리', kind: 'decision', facet: '새-대상' },
+      existingTopics: [{ id: 'sat', normalized_title: '데이터 관리', aliases: [] }],
+    })
+    expect(result.usedTopicId).toBe('sat')
+  })
+
+  it('스냅샷이 불완전하면 게이팅하지 않는다 — 현행 동작 유지', async () => {
+    const snapshot: WikiSaturationSnapshot = {
+      complete: false,
+      topics: [],
+      items: [],
+      saturatedNormalizedTitles: new Set<string>(),
+      keyOwner: new Map(),
+    }
+    const result = await runApplyWithSnapshot({
+      snapshot,
+      item: { topic: '데이터 관리 기준', kind: 'decision', facet: '신규-대상' },
+      existingTopics: [{ id: 'sat', normalized_title: '데이터 관리', aliases: [] }],
+    })
+    expect(result.usedTopicId).toBe('sat')   // containment로 흡수되는 현행 동작
   })
 })

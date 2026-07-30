@@ -19,6 +19,8 @@ import {
   normalizeWikiStatement as normalizeDomainWikiStatement,
   normalizeWikiTitle,
   resolveWikiTopicTitle,
+  wikiFacetPart,
+  wikiSaturationKey,
   wikiStatementHash,
   type WikiSemanticRelation,
 } from '@/lib/domain/wiki'
@@ -382,7 +384,18 @@ async function ensureTopic(
   admin: ReturnType<typeof createAdminClient>,
   projectId: string,
   item: ExtractedWikiItem,
+  snapshot: WikiSaturationSnapshot,
 ): Promise<ResolvedWikiTopic> {
+  // 코드 구제: 같은 (kind, facet)이 포화 주제에 이미 살아 있으면 그 주제로 되돌린다.
+  // 프롬프트만으로는 이걸 보장할 수 없다 — 포화 8주제의 facet이 239개인데 프롬프트에
+  // 실을 수 있는 것은 주제당 12개(최대 96개)뿐이다. 정확 일치라 오병합 위험이 없다.
+  if (snapshot.complete) {
+    const owner = snapshot.keyOwner.get(
+      wikiSaturationKey(item.kind, wikiFacetPart(item.kind, item.facet)),
+    )
+    if (owner) return { id: owner.id, normalizedTitle: owner.normalizedTitle }
+  }
+
   const normalized = normalizeWikiTopic(item.topic)
   const { data: existing, error: readError } = await admin.from('wiki_topics')
     .select('id, normalized_title')
@@ -391,24 +404,34 @@ async function ensureTopic(
     .maybeSingle()
   if (readError) throw new Error(`TOPIC_READ:${readError.code ?? 'UNKNOWN'}`)
   if (existing) {
+    // 완전일치는 포화 여부와 무관하게 흡수한다. (project_id, normalized_title)이 유니크라
+    // 완전일치는 곧 같은 주제이고, 이력을 지키는 쪽이 옳다.
     return { id: existing.id as string, normalizedTitle: existing.normalized_title as string }
   }
 
   // 정확히 같은 제목이 없을 때만 별칭을 본다. LLM이 회의마다 제목을 조금씩 다르게 지어도
   // 같은 대상이면 기존 주제에 붙어야 재확인·구체화·충돌 판정이 작동한다.
+  //
+  // 단 포화 주제는 후보에서 뺀다. matchWikiTopicAlias의 containment 분기
+  // (shared === shorterSize && shorterSize >= 2)는 유사도 검사와 한정어 거부 가드를
+  // 모두 우회하므로, '데이터 관리 기준'·'스케줄 관리 화면'처럼 한정어만 덧붙인 이름이
+  // 흡인체로 되돌아간다(2026-07-30 실행으로 확인). 함수 자체는 고치지 않는다 —
+  // f1482c5와 tests/domain/wiki.test.ts가 그대로 통과해야 한다.
   const { data: candidateRows, error: candidateError } = await admin.from('wiki_topics')
     .select('id, normalized_title, aliases')
     .eq('project_id', projectId)
     .limit(TOPIC_ALIAS_SCAN_LIMIT)
   if (candidateError) throw new Error(`TOPIC_SCAN:${candidateError.code ?? 'UNKNOWN'}`)
-  const alias = matchWikiTopicAlias(
-    (candidateRows ?? []).map((row) => ({
+  const candidates = (candidateRows ?? [])
+    .map((row) => ({
       id: row.id as string,
       normalizedTitle: row.normalized_title as string,
       aliases: Array.isArray(row.aliases) ? (row.aliases as string[]) : [],
-    })),
-    normalized,
-  )
+    }))
+    .filter((c) => !(
+      snapshot.complete && snapshot.saturatedNormalizedTitles.has(c.normalizedTitle)
+    ))
+  const alias = matchWikiTopicAlias(candidates, normalized)
   if (alias) return alias
 
   const now = new Date().toISOString()
@@ -526,9 +549,10 @@ export async function applyExtractedItem(
     bodyHash: string
     blocks: MinuteBlock[]
     item: ExtractedWikiItem
+    saturation: WikiSaturationSnapshot
   },
 ): Promise<keyof WikiProcessSummary> {
-  const topic = await ensureTopic(admin, args.projectId, args.item)
+  const topic = await ensureTopic(admin, args.projectId, args.item, args.saturation)
   const topicId = topic.id
   // 별칭으로 기존 주제에 합쳐졌으면 정본 주제 표기로 knowledge_key를 다시 만든다.
   // 추출 당시 표기로 굳히면 같은 주제인데 키가 달라 매번 새 항목이 생긴다.
@@ -1030,6 +1054,7 @@ export async function processMinuteWikiJob(jobId: number): Promise<WikiProcessSu
         bodyHash,
         blocks,
         item,
+        saturation,
       })
       summary[result] += 1
     }
