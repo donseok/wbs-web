@@ -23,6 +23,38 @@
 /** processWikiProjectRebuildStep 이 claim 에 넘기는 lease(초)와 같은 값이어야 한다. */
 export const LEASE_SECONDS = 15 * 60
 
+/**
+ * 살아있음의 정본은 src/lib/domain/wiki.ts 의 WIKI_LIVE_STATES 다. 이 스크립트는 .mjs 라
+ * 값을 복제하는데, 갈라지면 게이트와 판정표가 다른 모집단을 재게 된다.
+ */
+export const LIVE_STATES = ['active', 'open', 'conflicted']
+
+/** src/lib/domain/wiki.ts 의 WIKI_TOPIC_ITEM_CAP 과 같아야 한다. */
+export const TOPIC_ITEM_CAP = 15
+
+/** 주제 입도 요약. 판정 1~5의 원천이다. */
+export function summarizeTopicGranularity(items) {
+  const byTopic = new Map()
+  for (const it of items) {
+    const cur = byTopic.get(it.topicId)
+    if (cur) cur.n += 1
+    else byTopic.set(it.topicId, { title: it.topicTitle, n: 1 })
+  }
+  let maxSize = 0
+  let maxTitle = ''
+  let over20 = 0
+  let saturated = 0
+  let saturatedItems = 0
+  let oneItem = 0
+  for (const { title, n } of byTopic.values()) {
+    if (n > maxSize) { maxSize = n; maxTitle = title }
+    if (n >= 20) over20 += 1
+    if (n >= TOPIC_ITEM_CAP) { saturated += 1; saturatedItems += n }
+    if (n === 1) oneItem += 1
+  }
+  return { maxSize, maxTitle, over20, saturated, saturatedItems, oneItem, topics: byTopic.size }
+}
+
 const LEVELS = { ok: 0, progress: 0, unknown: 0, warn: 0, fail: 1 }
 
 /**
@@ -141,13 +173,21 @@ async function main() {
   let items
   let sources
   let minutes
+  let events
+  let topicRows
+
+  // 살아있음의 정의를 게이트와 일치시킨다(기존 neq.archived 를 교체).
+  const liveFilter = `lifecycle_state=in.(${LIVE_STATES.join(',')})`
+
   try {
-    ;[jobs, processing, items, sources, minutes] = await Promise.all([
+    ;[jobs, processing, items, sources, minutes, events, topicRows] = await Promise.all([
       rest('wiki_project_rebuild_jobs?select=*'),
       rest('wiki_processing_jobs?select=id,status,attempts,max_attempts,locked_at,last_error&status=neq.done'),
-      rest('wiki_items?select=id,topic_id,lifecycle_state&lifecycle_state=neq.archived'),
+      rest(`wiki_items?select=id,topic_id,knowledge_key,wiki_topics!inner(title)&${liveFilter}&limit=5000`),
       rest('wiki_item_sources?select=minute_id&retracted_at=is.null'),
       rest('minutes?select=id,minute_date,meeting_occurrence_date,created_at&archived_at=is.null&project_id=not.is.null'),
+      rest('wiki_change_events?select=change_type,created_at,idempotency_key&limit=5000'),
+      rest('wiki_topics?select=id&limit=5000'),
     ])
   } catch (err) {
     console.error('조회 실패 —', err instanceof Error ? err.message : err)
@@ -176,6 +216,38 @@ async function main() {
       + (health.lockAgeSec === null ? '' : ` · 락 ${health.lockAgeSec}s`))
   }
   console.log(`  회의록 반영 ${liveMinutes} / ${minutes.length} · 살아있는 항목 ${items.length} · 주제 ${liveTopics}`)
+
+  const gran = summarizeTopicGranularity(items.map((i) => ({
+    topicId: i.topic_id,
+    topicTitle: (Array.isArray(i.wiki_topics) ? i.wiki_topics[0] : i.wiki_topics)?.title ?? '(제목 없음)',
+  })))
+  const pct = items.length > 0 ? (gran.saturatedItems / items.length * 100).toFixed(1) : '0.0'
+  console.log(`  주제 입도: 최대 "${gran.maxTitle}" ${gran.maxSize}`
+    + ` · 20건↑ 주제 ${gran.over20} · 상한(${TOPIC_ITEM_CAP})↑ 주제 ${gran.saturated}/${gran.topics}`
+    + ` (항목 ${gran.saturatedItems}, ${pct}%)`)
+  console.log(`             1항목 주제 ${gran.oneItem} · wiki_topics 총 ${topicRows.length}행`)
+
+  // 이벤트는 세대 리셋에도 삭제되지 않는 누적 원장이다. 전량 집계로는 어떤 문턱도
+  // 영구히 통과하므로 마지막 리셋 이후로 스코프해야 한다.
+  const resetAt = events
+    .filter((e) => String(e.idempotency_key ?? '').startsWith('wiki-project-reset-v1:'))
+    .reduce((max, e) => (e.created_at > max ? e.created_at : max), '')
+  const gen = {}
+  for (const e of events) {
+    if (resetAt && e.created_at <= resetAt) continue
+    gen[e.change_type] = (gen[e.change_type] ?? 0) + 1
+  }
+  console.log(`  변경 이벤트(현 세대): `
+    + ['new', 'reaffirm', 'refine', 'supersede', 'conflict', 'retract']
+      .map((k) => `${k} ${gen[k] ?? 0}`).join(' · '))
+
+  const dumpIdx = process.argv.indexOf('--dump-keys')
+  if (dumpIdx !== -1 && process.argv[dumpIdx + 1]) {
+    const { writeFileSync } = await import('node:fs')
+    const keys = [...new Set(items.map((i) => i.knowledge_key).filter(Boolean))].sort()
+    writeFileSync(process.argv[dumpIdx + 1], keys.join('\n') + '\n', 'utf8')
+    console.log(`  knowledge_key ${keys.length}개를 ${process.argv[dumpIdx + 1]} 에 저장했다`)
+  }
 
   if (processing.length > 0) {
     console.log(`\n  미완 처리 잡 ${processing.length}건:`)

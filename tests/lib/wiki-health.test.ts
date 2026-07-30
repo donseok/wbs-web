@@ -3,7 +3,11 @@ import { describe, it, expect } from 'vitest'
 // 운영 스크립트의 판정 로직만 순수 함수로 떼어 검사한다. 2026-07-30 사고에서
 // 재구축 잡이 나흘간 status='running' 으로 멈춰 있었는데 아무 화면·로그·스크립트도
 // 그 사실을 말해주지 않았다. 이 판정이 그 침묵을 깨는 유일한 지점이므로 테스트로 박는다.
-import { classifyRebuildHealth, LEASE_SECONDS } from '../../scripts/wiki-health.mjs'
+import {
+  classifyRebuildHealth,
+  LEASE_SECONDS,
+  summarizeTopicGranularity,
+} from '../../scripts/wiki-health.mjs'
 
 const NOW = new Date('2026-07-30T02:00:00Z')
 
@@ -92,5 +96,38 @@ describe('classifyRebuildHealth', () => {
     )
     expect(r.level).toBe('progress')
     expect(r.stalled).toBe(false)
+  })
+})
+
+describe('summarizeTopicGranularity', () => {
+  const mk = (spec: Record<string, number>) =>
+    Object.entries(spec).flatMap(([title, n]) =>
+      Array.from({ length: n }, () => ({ topicId: title, topicTitle: title })))
+
+  it('최대 주제와 그 크기를 찾는다 — 판정 1의 핵심 지표', () => {
+    const r = summarizeTopicGranularity(mk({ '데이터 관리': 68, '작은 주제': 3 }))
+    expect(r.maxSize).toBe(68)
+    expect(r.maxTitle).toBe('데이터 관리')
+  })
+
+  it('20건 이상 주제와 상한(15) 초과 주제를 따로 센다', () => {
+    const r = summarizeTopicGranularity(mk({ a: 25, b: 20, c: 15, d: 14 }))
+    expect(r.over20).toBe(2)          // a, b
+    expect(r.saturated).toBe(3)       // a, b, c
+    expect(r.saturatedItems).toBe(60) // 25+20+15
+  })
+
+  it('1항목 주제와 전체 주제 수를 센다', () => {
+    const r = summarizeTopicGranularity(mk({ a: 1, b: 1, c: 5 }))
+    expect(r.oneItem).toBe(2)
+    expect(r.topics).toBe(3)
+  })
+
+  it('빈 입력에서 0으로 떨어지고 터지지 않는다', () => {
+    const r = summarizeTopicGranularity([])
+    expect(r).toEqual({
+      maxSize: 0, maxTitle: '', over20: 0, saturated: 0,
+      saturatedItems: 0, oneItem: 0, topics: 0,
+    })
   })
 })
