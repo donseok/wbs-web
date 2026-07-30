@@ -16,11 +16,16 @@ import {
 } from '@/lib/domain/wiki'
 import type { CatalogItem, CatalogTopic } from '@/lib/ai/wiki-catalog'
 
-/**
- * PostgREST 기본 max-rows가 1000이다. 명시 limit 없이 긁으면 조용히 1000행에서 잘려
- * 포화 주제가 비포화로 보인다. 상한을 그보다 크게 두고, 닿으면 게이팅을 끈다.
- */
+/** 전량 스캔 총 상한. 여기에 닿으면 카운트를 신뢰할 수 없어 게이팅을 끈다. */
 export const LIVE_SCAN_CAP = 2_000
+
+/**
+ * PostgREST max_rows 하드 캡(supabase/config.toml, 호스티드 동일). 2026-07-30 프로덕션
+ * 실측: 명시 limit=2000 요청도 1000행에서 조용히 깎인다(content-range 0-999/1219).
+ * 즉 캡보다 큰 limit 한 방은 성립하지 않고, 전량은 range 페이지 순회로만 얻을 수 있다 —
+ * limit(2000) 단발이면 rows.length가 2000에 절대 닿지 못해 절단 감시가 사문이 된다.
+ */
+export const LIVE_SCAN_PAGE = 1_000
 
 export interface WikiSaturationSnapshot {
   /** false면 카운트를 신뢰할 수 없다 — 게이팅을 켜지 않는다. */
@@ -52,20 +57,32 @@ export async function loadWikiSaturation(
   admin: ReturnType<typeof createAdminClient>,
   projectId: string,
 ): Promise<WikiSaturationSnapshot> {
-  const { data, error } = await admin.from('wiki_items')
-    // 리터럴 문자열이어야 한다 — '+' 로 이어붙이면 타입이 string으로 넓어져
-    // supabase-js 의 select 파서가 GenericStringError 로 빠진다.
-    .select('topic_id, kind, knowledge_key, statement, updated_at, wiki_topics!inner(id, title, normalized_title, last_changed_at)')
-    .eq('project_id', projectId)
-    .in('lifecycle_state', [...WIKI_LIVE_STATES])
-    .order('updated_at', { ascending: false })
-    .limit(LIVE_SCAN_CAP)
+  const rows: Row[] = []
+  let sawShortPage = false
+  for (let offset = 0; offset < LIVE_SCAN_CAP; offset += LIVE_SCAN_PAGE) {
+    const { data, error } = await admin.from('wiki_items')
+      // 리터럴 문자열이어야 한다 — '+' 로 이어붙이면 타입이 string으로 넓어져
+      // supabase-js 의 select 파서가 GenericStringError 로 빠진다.
+      .select('topic_id, kind, knowledge_key, statement, updated_at, wiki_topics!inner(id, title, normalized_title, last_changed_at)')
+      .eq('project_id', projectId)
+      .in('lifecycle_state', [...WIKI_LIVE_STATES])
+      // 재구축이 updated_at 을 대량 동률로 만들므로 id 2차 키가 없으면 페이지 경계에서
+      // 같은 행이 중복되거나 빠진다.
+      .order('updated_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + LIVE_SCAN_PAGE - 1)
 
-  if (error) {
-    console.error('[wiki] 포화 스냅샷 조회 실패(게이팅 없이 계속):', error.code ?? 'UNKNOWN')
-    return emptySaturationSnapshot()
+    if (error) {
+      console.error('[wiki] 포화 스냅샷 조회 실패(게이팅 없이 계속):', error.code ?? 'UNKNOWN')
+      return emptySaturationSnapshot()
+    }
+    const batch = (data ?? []) as Row[]
+    rows.push(...batch)
+    if (batch.length < LIVE_SCAN_PAGE) {
+      sawShortPage = true
+      break
+    }
   }
-  const rows = (data ?? []) as Row[]
 
   const topicMap = new Map<string, CatalogTopic>()
   const items: CatalogItem[] = []
@@ -97,7 +114,9 @@ export async function loadWikiSaturation(
     })
   }
 
-  const complete = rows.length < LIVE_SCAN_CAP
+  // 마지막 페이지가 짧게 끝났을 때만 전량이다. 짧은 페이지 없이 상한에 닿았다면
+  // 뒤에 더 있다는 뜻이므로 카운트를 신뢰하지 않는다(fail-closed).
+  const complete = sawShortPage
   if (!complete) {
     console.warn(
       `[wiki] 살아있는 항목이 스캔 상한 ${LIVE_SCAN_CAP}에 닿았다 — `
@@ -114,10 +133,22 @@ export async function loadWikiSaturation(
     saturatedNormalizedTitles.add(t.normalizedTitle)
     saturatedIds.add(t.id)
   }
+  // 소유 판정: 같은 (kind, facet)이 두 주제 이상에 살아 있으면 소유가 모호하다.
+  // facet 은 knowledge_key(`주제:kind:facet`) 구조상 주제 안에서만 유일하므로, 전역
+  // (kind, facet) 일치는 소유 증명이 아니다. 모호한 키로 구제하면 무관한 주제의 항목이
+  // 포화 주제로 끌려와 두 주제의 이력이 동시에 오염된다 — 단독 소유 키만 근거로 삼는다.
+  const topicsByKey = new Map<string, Set<string>>()
+  for (const i of items) {
+    const key = wikiSaturationKey(i.kind, i.facetPart)
+    const owners = topicsByKey.get(key) ?? new Set<string>()
+    owners.add(i.topicId)
+    topicsByKey.set(key, owners)
+  }
   const keyOwner = new Map<string, { id: string; normalizedTitle: string }>()
   for (const i of items) {
     if (!saturatedIds.has(i.topicId)) continue
     const key = wikiSaturationKey(i.kind, i.facetPart)
+    if ((topicsByKey.get(key)?.size ?? 0) !== 1) continue
     if (keyOwner.has(key)) continue
     const t = topicMap.get(i.topicId)
     if (t) keyOwner.set(key, { id: t.id, normalizedTitle: t.normalizedTitle })

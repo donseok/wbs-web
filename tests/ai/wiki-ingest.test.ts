@@ -336,7 +336,8 @@ function queryBuilder(response: QueryResponse) {
     ) => Promise<unknown>
   } = {}
   for (const method of [
-    'select', 'insert', 'update', 'eq', 'in', 'lt', 'lte', 'order', 'limit', 'maybeSingle', 'single',
+    'select', 'insert', 'update', 'eq', 'in', 'lt', 'lte', 'order', 'limit', 'range',
+    'maybeSingle', 'single',
   ]) {
     builder[method] = vi.fn(() => builder)
   }
