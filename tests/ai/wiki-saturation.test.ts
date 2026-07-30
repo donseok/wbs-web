@@ -63,7 +63,17 @@ describe('loadWikiSaturation', () => {
 
   it('스캔 상한에 닿으면 불완전으로 표시하고 경고한다 (fail-closed)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const rows = Array.from({ length: LIVE_SCAN_CAP }, (_, i) => row({
+    // 앞 15건은 한 주제('핫 주제')에 몰아 — 게이팅이 켜졌다면 반드시 포화로 잡혔을
+    // 입력이다. 그래도 cap 에 닿았기 때문에 포화 집계 자체가 비어야 한다(fail-closed).
+    const hotRows = Array.from({ length: 15 }, (_, i) => row({
+      topic_id: 'hot',
+      knowledge_key: `핫 주제:decision:f-${i}`,
+      wiki_topics: {
+        id: 'hot', title: '핫 주제', normalized_title: '핫 주제',
+        last_changed_at: '2026-07-30T00:00:00Z',
+      },
+    }))
+    const fillerRows = Array.from({ length: LIVE_SCAN_CAP - hotRows.length }, (_, i) => row({
       topic_id: `t${i}`,
       knowledge_key: `주제${i}:decision:f`,
       wiki_topics: {
@@ -71,8 +81,12 @@ describe('loadWikiSaturation', () => {
         last_changed_at: '2026-07-30T00:00:00Z',
       },
     }))
+    const rows = [...hotRows, ...fillerRows]
+    expect(rows).toHaveLength(LIVE_SCAN_CAP)
     const snap = await loadWikiSaturation(admin(rows), 'p1')
     expect(snap.complete).toBe(false)
+    expect(snap.saturatedNormalizedTitles.size).toBe(0)
+    expect(snap.keyOwner.size).toBe(0)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
@@ -82,6 +96,8 @@ describe('loadWikiSaturation', () => {
     const snap = await loadWikiSaturation(admin(null, { code: '42P01' }), 'p1')
     expect(snap.complete).toBe(false)
     expect(snap.topics).toHaveLength(0)
+    expect(snap.saturatedNormalizedTitles.size).toBe(0)
+    expect(snap.keyOwner.size).toBe(0)
     expect(err).toHaveBeenCalled()
     err.mockRestore()
   })
