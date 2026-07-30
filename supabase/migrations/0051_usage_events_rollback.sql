@@ -12,6 +12,7 @@ drop function if exists public.usage_summary(date, date, date);
 drop function if exists public.usage_daily_actives(date, date);
 drop function if exists public.usage_menu_ranking(date, date);
 drop function if exists public.usage_user_rollup(date, date);
+drop function if exists public.usage_sessions(date, date, integer);
 
 -- drop policy if exists 는 대상 테이블이 없으면 42P01 이므로 재실행을 위해 가드한다.
 do $$

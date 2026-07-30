@@ -39,8 +39,8 @@ describe('0051 사용 현황 수집 migration 계약', () => {
     expect(executable).not.toContain('current_team()')
   })
 
-  it('집계 RPC 4종은 KST 일자 기준이며 인덱스를 쓸 수 있는 범위 조건을 쓴다', () => {
-    for (const fn of ['usage_summary', 'usage_daily_actives', 'usage_menu_ranking', 'usage_user_rollup']) {
+  it('집계 RPC 5종은 KST 일자 기준이며 인덱스를 쓸 수 있는 범위 조건을 쓴다', () => {
+    for (const fn of ['usage_summary', 'usage_daily_actives', 'usage_menu_ranking', 'usage_user_rollup', 'usage_sessions']) {
       expect(migration).toContain(`create or replace function public.${fn}(`)
       expect(migration).toContain(`grant execute on function public.${fn}(`)
     }
@@ -54,8 +54,15 @@ describe('0051 사용 현황 수집 migration 계약', () => {
     expect(executable).not.toContain('security definer')
   })
 
+  it('접속 횟수는 사용자별로 끊는다 — 한 줄로 섞으면 동시 사용 시 1로 붕괴한다', () => {
+    expect(executable).toContain('lag(occurred_at) over (partition by user_id order by occurred_at)')
+    expect(executable).toContain('make_interval(mins => p_gap_minutes)')
+    // 세션 시작 행 = 앞 이벤트가 없거나 간격이 임계를 넘은 행
+    expect(executable).toContain('where prev_at is null')
+  })
+
   it('롤백은 RPC·정책·테이블을 멱등하게 제거한다', () => {
-    for (const fn of ['usage_summary', 'usage_daily_actives', 'usage_menu_ranking', 'usage_user_rollup']) {
+    for (const fn of ['usage_summary', 'usage_daily_actives', 'usage_menu_ranking', 'usage_user_rollup', 'usage_sessions']) {
       expect(rollback).toContain(`drop function if exists public.${fn}(`)
     }
     expect(rollback).toContain('drop table if exists public.usage_events')

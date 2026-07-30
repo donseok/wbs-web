@@ -3,8 +3,12 @@
 -- 핵심 계약
 --   1) 쓰기는 service_role(/api/track) 전용이다. INSERT/UPDATE/DELETE 정책을 만들지 않는
 --      것이 곧 쓰기 차단이다. 읽기만 authenticated 에 연다.
---   2) "초기 전원 공개 → 이후 관리자 전용" 전환은 read_usage_events 정책 한 줄 교체로
---      끝난다. GRANT 를 회수하는 0031·0050 방식은 되돌리기가 파괴적이라 쓰지 않는다.
+--   2) "초기 전원 공개 → 이후 관리자 전용" 전환의 **DB 쪽**은 read_usage_events 정책 한 줄
+--      교체로 끝난다. 다만 전환이 끝나려면 앱 쪽 게이트(src/lib/authz/usageAccess.ts 의
+--      canViewUsage)도 함께 바꿔야 한다 — 사용자 현황 표는 service_role 로 auth.users 를
+--      읽으므로 RLS 를 타지 않고 그 함수가 유일한 관문이다. 정책만 바꾸면 차트는 비지만
+--      계정 목록(이메일·마지막 로그인)은 그대로 노출된다.
+--      GRANT 를 회수하는 0031·0050 방식은 되돌리기가 파괴적이라 쓰지 않는다.
 --   3) app_role()/current_team() 에 의존하지 않는다 — 진행 중인 권한 3단 재설계가
 --      app_role() 을 shim 으로 재정의할 예정이라 하드 의존은 충돌 지점이 된다.
 --      (0017/0039 가 순수 auth.uid() 만 쓰는 이유와 같다.)
@@ -129,9 +133,33 @@ as $$
   group by user_id;
 $$;
 
+-- 접속 횟수 — 로그인이 서버에 기록되지 않으므로 무활동 간격으로 유도한다(스펙 §6).
+-- 반드시 **사용자별로** 끊어야 한다: 전 사용자 이벤트를 한 줄로 섞으면 동시 사용 중에는
+-- 어떤 두 이벤트 사이에도 30분 간격이 생기지 않아 접속 수가 1로 붕괴한다.
+-- lag() 를 user_id 로 partition 해 각 사용자의 '세션 시작' 행만 센다.
+create or replace function public.usage_sessions(p_from date, p_to date, p_gap_minutes integer default 30)
+returns integer
+language sql
+stable
+as $$
+  with ordered as (
+    select user_id,
+           occurred_at,
+           lag(occurred_at) over (partition by user_id order by occurred_at) as prev_at
+    from public.usage_events
+    where occurred_at >= (p_from::timestamp at time zone 'Asia/Seoul')
+      and occurred_at <  ((p_to + 1)::timestamp at time zone 'Asia/Seoul')
+  )
+  select count(*)::int
+  from ordered
+  where prev_at is null
+     or occurred_at - prev_at > make_interval(mins => p_gap_minutes);
+$$;
+
 grant execute on function public.usage_summary(date, date, date) to authenticated;
 grant execute on function public.usage_daily_actives(date, date)  to authenticated;
 grant execute on function public.usage_menu_ranking(date, date)   to authenticated;
 grant execute on function public.usage_user_rollup(date, date)    to authenticated;
+grant execute on function public.usage_sessions(date, date, integer) to authenticated;
 
 reset search_path;
