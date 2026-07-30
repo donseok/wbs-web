@@ -53,9 +53,12 @@ create policy read_usage_events on public.usage_events
   using (true);
 -- INSERT/UPDATE/DELETE 정책 없음 = 쓰기는 service_role 만.
 
-revoke all on public.usage_events from anon;
+-- authenticated 에게 남기는 것은 SELECT 하나뿐이다.
+-- Supabase 기본 GRANT 는 TRUNCATE 까지 주는데 **RLS 는 TRUNCATE 를 막지 못한다** —
+-- 정책만 믿으면 접속 기록이 통째로 지워지는 경로가 열린 채로 남는다. PostgREST 가
+-- TRUNCATE 를 노출하지는 않지만 감사 성격의 테이블이라 표면 자체를 없앤다(minutes 선례).
+revoke all on public.usage_events from anon, authenticated;
 grant select on public.usage_events to authenticated;
-revoke insert, update, delete on public.usage_events from anon, authenticated;
 
 -- bigserial 시퀀스도 함께 잠근다(쓰기 권한이 없으므로 필요 없지만 표면을 남기지 않는다).
 do $$

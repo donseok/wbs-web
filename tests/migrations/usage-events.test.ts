@@ -31,7 +31,9 @@ describe('0051 사용 현황 수집 migration 계약', () => {
     expect(migration).toContain('create policy read_usage_events on public.usage_events')
     expect(migration).toMatch(/for select\s+to authenticated\s+using \(true\)/)
     expect(migration).not.toMatch(/create policy \w+ on public\.usage_events\s+for (insert|update|delete)/)
-    expect(migration).toContain('revoke insert, update, delete on public.usage_events from anon, authenticated')
+    // RLS 는 TRUNCATE 를 막지 못한다 — 기본 GRANT 를 통째로 회수하고 SELECT 만 되돌려준다.
+    expect(migration).toContain('revoke all on public.usage_events from anon, authenticated')
+    expect(migration).toContain('grant select on public.usage_events to authenticated')
   })
 
   it('진행 중인 권한 재설계와 충돌하지 않도록 app_role() 에 의존하지 않는다', () => {
