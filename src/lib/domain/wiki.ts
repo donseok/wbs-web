@@ -107,6 +107,40 @@ export function normalizeWikiKnowledgeKey(value: string): string {
     .replace(/-+/g, '-')
 }
 
+/**
+ * 한 주제가 한 화면에서 읽히는 상한. 초과분을 쪼개지 않고 새 대상의 유입만 막는다.
+ *
+ * 15의 근거(2026-07-30 실측): 살아있는 주제 62개 중 8개(12.9%)만 걸린다 — 정상 주제의
+ * 동작을 바꾸지 않는 값이다. 값을 바꾸려면 이 비율을 함께 재고 커밋에 근거를 남긴다.
+ * 상한에 앉은 주제는 실패가 아니라 의도된 정상 상태다.
+ */
+export const WIKI_TOPIC_ITEM_CAP = 15
+
+/**
+ * '살아있는 항목'의 정본. 카탈로그의 포화 판정과 scripts/wiki-health.mjs 가 같은 모집단을
+ * 재야 한다 — 과거에는 한쪽이 neq.archived, 다른 쪽이 in(active,open,conflicted) 였다.
+ * resolved·superseded 가 0행이라 오늘은 두 값이 같지만 그건 우연이다.
+ */
+export const WIKI_LIVE_STATES = ['active', 'open', 'conflicted'] as const
+
+export function isSaturatedWikiTopic(liveItemCount: number): boolean {
+  return liveItemCount >= WIKI_TOPIC_ITEM_CAP
+}
+
+/** knowledge_key(`주제:kind:facet`)의 세 번째 조각. buildWikiKnowledgeKey와 규칙이 같아야 한다. */
+export function wikiFacetPart(kind: string, facet: string | null | undefined): string {
+  return normalizeWikiKnowledgeKey(facet ?? '') || kind
+}
+
+/**
+ * 포화 주제가 이미 담고 있는 '대상'의 식별자. kind를 반드시 포함한다 —
+ * findCurrentItem이 kind와 knowledge_key를 함께 걸어 조회하므로, 같은 facet이라도
+ * kind가 다르면 다른 대상이고 이력도 따로 간다.
+ */
+export function wikiSaturationKey(kind: string, facetPart: string): string {
+  return `${kind}:${facetPart}`
+}
+
 /** 프로젝트 내 topic/kind/facet 조합의 안정 knowledge_key. 빈 facet은 kind 자체를 쓴다. */
 export function buildWikiKnowledgeKey(
   normalizedTopic: string,

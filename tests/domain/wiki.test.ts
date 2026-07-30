@@ -3,7 +3,9 @@ import {
   WIKI_CHANGE_TYPES,
   WIKI_ITEM_KINDS,
   WIKI_LIFECYCLE_STATES,
+  WIKI_LIVE_STATES,
   WIKI_PROCESSING_STATUSES,
+  WIKI_TOPIC_ITEM_CAP,
   WIKI_TOPIC_TYPES,
   buildWikiKnowledgeKey,
   canAutoApplyWikiChange,
@@ -11,14 +13,17 @@ import {
   compareWikiTemporalOrder,
   initialWikiLifecycleState,
   isAgendaStyleWikiTopic,
+  isSaturatedWikiTopic,
   matchWikiTopicAlias,
   resolveWikiTopicTitle,
   normalizeWikiKnowledgeKey,
   normalizeWikiStatement,
   normalizeWikiTitle,
   previousWikiLifecycleAfterChange,
+  wikiSaturationKey,
   wikiStatementHash,
   wikiTopicSimilarity,
+  wikiFacetPart,
   type WikiComparableItem,
   type WikiIncomingItem,
   type WikiSemanticRelation,
@@ -404,5 +409,41 @@ describe('별칭 매칭 오병합 방지 — 한정어 한 어절 차이', () =>
   it('포함 관계와 어절 수가 다른 실제 파편 쌍은 그대로 합친다', () => {
     expect(match(['야드 관리 시스템'], '야드 관리')).toBe('야드 관리 시스템')
     expect(match(['입동 요청·취소 권한'], '입동 취소 권한 이관 검토')).toBe('입동 요청·취소 권한')
+  })
+})
+
+describe('주제 포화 판정', () => {
+  it('상한은 15이고 값을 바꾸려면 근거가 필요하다', () => {
+    // 2026-07-30 실측: 살아있는 주제 62개 중 8개(12.9%)만 걸린다.
+    expect(WIKI_TOPIC_ITEM_CAP).toBe(15)
+  })
+
+  it('경계값 — 14는 아니고 15부터 포화다', () => {
+    expect(isSaturatedWikiTopic(14)).toBe(false)
+    expect(isSaturatedWikiTopic(15)).toBe(true)
+    expect(isSaturatedWikiTopic(16)).toBe(true)
+    expect(isSaturatedWikiTopic(0)).toBe(false)
+  })
+
+  it('살아있음의 정본은 세 상태다', () => {
+    expect([...WIKI_LIVE_STATES]).toEqual(['active', 'open', 'conflicted'])
+  })
+})
+
+describe('facet 파트와 포화 키', () => {
+  it('facet 파트는 buildWikiKnowledgeKey 와 같은 정규화를 쓴다', () => {
+    const built = buildWikiKnowledgeKey('데이터 관리', 'decision', 'MES 데이터 조회 전용 한정')
+    expect(built.split(':').slice(2).join(':'))
+      .toBe(wikiFacetPart('decision', 'MES 데이터 조회 전용 한정'))
+  })
+
+  it('facet 이 비면 kind 로 대체한다 — buildWikiKnowledgeKey 와 동일 규칙', () => {
+    expect(wikiFacetPart('fact', '')).toBe('fact')
+    expect(wikiFacetPart('fact', null)).toBe('fact')
+  })
+
+  it('포화 키는 kind 를 포함한다 — kind 가 갈리면 knowledge_key 도 갈리기 때문', () => {
+    expect(wikiSaturationKey('decision', 'a-b')).toBe('decision:a-b')
+    expect(wikiSaturationKey('fact', 'a-b')).not.toBe(wikiSaturationKey('decision', 'a-b'))
   })
 })
