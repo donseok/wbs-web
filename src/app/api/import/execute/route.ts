@@ -66,6 +66,12 @@ export async function POST(req: NextRequest) {
   const parsed = parseWithProfile(await file.arrayBuffer(), profile)
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 })
 
+  // 구조 검증(linkByDepth) 을 팀 부트스트랩보다 먼저 통과시킨다(리뷰 Minor). 원래 순서는 팀 등록이
+  // 먼저라 링킹이 400 으로 실패해도 전역 팀 마스터에 이미 등록된 팀이 남는 부수효과가 있었다 — 검증에
+  // 실패하는 요청은 아무 부수효과도 남기지 않아야 한다.
+  const linked = linkByDepth(parsed.rows, { legacyLevelLabels: resolveLegacyLevelLabels(profile) })
+  if (!linked.ok) return NextResponse.json({ errors: linked.errors }, { status: 400 })
+
   // 팀 마스터 대조(§10.3) — 미등록 팀은 조용한 스킵이 아니라 명시 확인·부트스트랩 대상이다.
   const registered = new Set(teamsSync().map(t => t.code))
   const unknownTeams = [...new Set(parsed.rows.flatMap(r => r.owners.map(o => o.team)))]
@@ -88,8 +94,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const linked = linkByDepth(parsed.rows, { legacyLevelLabels: resolveLegacyLevelLabels(profile) })
-  if (!linked.ok) return NextResponse.json({ errors: linked.errors }, { status: 400 })
   const items = splitLeafOwners(linked.items)
 
   const sb = await createServerClient()

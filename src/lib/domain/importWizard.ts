@@ -62,6 +62,7 @@ export type WizardAction =
   | { type: 'executeValidationFailure'; errors: ImportError[] }
   | { type: 'executeSuccess'; result: ExecuteResult }
   | { type: 'reset' }
+  | { type: 'resetToDetected' }
 
 /** 2단계 진입 기본값 계약(§6.2): savedProfile ?? detection.profile. */
 export function reducer(state: WizardState, action: WizardAction): WizardState {
@@ -102,6 +103,11 @@ export function reducer(state: WizardState, action: WizardAction): WizardState {
       return { ...state, busy: false, step: 'done', result: action.result, error: null, errors: null, needsTeams: null }
     case 'reset':
       return initialWizardState
+    // 리뷰 Important #2 — savedProfile 로 시작한 2단계에서도 업로드 파일이 실제로 감지한 프로파일로
+    // 되돌릴 길이 있어야 한다(레거시 프로젝트가 새 양식 파일을 저장된 옛 프로파일로 잘못 해석해
+    // 임포트를 막아버리는 사고 방지). detection 이 없으면(있을 수 없는 상태지만) 무변화.
+    case 'resetToDetected':
+      return state.detection ? { ...state, profile: state.detection.profile } : state
     default:
       return state
   }

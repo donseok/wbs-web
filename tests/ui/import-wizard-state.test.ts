@@ -63,6 +63,22 @@ describe('importWizard reducer — 상태 전이(§6.2)', () => {
     const dirty = { ...initialWizardState, step: 'done' as const, fileName: 'a.xlsx' }
     expect(reducer(dirty, { type: 'reset' })).toEqual(initialWizardState)
   })
+
+  it('resetToDetected — savedProfile 로 시작했어도 detection.profile 로 되돌린다(리뷰 Important #2, 레거시 프로젝트+새 양식 파일 차단 해소)', () => {
+    const withSaved = reducer(initialWizardState, {
+      type: 'inspectSuccess', detection: DETECTION, savedProfile: { ...LEGACY_DCUBE_PROFILE, sheetName: 'SAVED' },
+    })
+    expect(withSaved.profile?.sheetName).toBe('SAVED')
+    // 편집도 반영한 뒤 되돌려도 detection.profile 로 정확히 복원돼야 한다(savedProfile 이 아니라).
+    const edited = reducer(withSaved, { type: 'profileChanged', profile: { ...withSaved.profile!, sheetName: 'EDITED' } })
+    const reverted = reducer(edited, { type: 'resetToDetected' })
+    expect(reverted.profile).toBe(DETECTION.profile)
+    expect(reverted.profile?.sheetName).not.toBe('SAVED')
+  })
+
+  it('resetToDetected — detection 이 없으면(1단계) 무변화', () => {
+    expect(reducer(initialWizardState, { type: 'resetToDetected' })).toBe(initialWizardState)
+  })
 })
 
 describe('switchHierarchyKind — columns↔outline 전환(§6.2 계층 방식 라디오)', () => {

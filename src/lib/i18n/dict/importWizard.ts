@@ -63,6 +63,9 @@ export const importWizardKo = {
 
   'importWizard.saveProfileLabel': '이 양식을 프로젝트 기본값으로 저장',
 
+  'importWizard.resetToDetectedButton': '감지 결과 사용',
+  'importWizard.resetToDetectedDesc': '업로드한 파일에서 감지한 설정으로 되돌립니다.',
+
   'importWizard.previewTitle': '미리보기(상위 10행)',
   'importWizard.previewHint': '계층 방식·논리 열을 바꾸면 아래 표가 즉시 갱신됩니다 — 실행 전 마지막 확인 지점입니다.',
   'importWizard.previewDepthCol': '깊이',
@@ -97,6 +100,12 @@ export const importWizardKo = {
   'importWizard.savedNo': '저장 안 함',
   'importWizard.gotoWbs': 'WBS 화면으로 이동',
   'importWizard.importAnother': '다른 파일 가져오기',
+
+  'importWizard.exportProfileTitle': '프로파일로 내보내기(펼침)',
+  'importWizard.exportProfileDesc': '세부업무(sub-act)를 별도 행으로 펼쳐서 이 양식 그대로 엑셀을 내려받습니다.',
+  'importWizard.exportProfileButton': '프로파일로 내보내기(펼침)',
+  'importWizard.exportProfileBusy': '내보내는 중…',
+  'importWizard.exportProfileFailedHttp': '내보내기에 실패했습니다',
 
   'importWizard.linkFromOldForm': '새 임포트 마법사(양식 자동 감지) →',
 } as const
@@ -164,6 +173,9 @@ export const importWizardEn: Record<keyof typeof importWizardKo, string> = {
 
   'importWizard.saveProfileLabel': 'Save this layout as the project default',
 
+  'importWizard.resetToDetectedButton': 'Use detected settings',
+  'importWizard.resetToDetectedDesc': 'Reverts to the settings detected from the file you uploaded.',
+
   'importWizard.previewTitle': 'Preview (first 10 rows)',
   'importWizard.previewHint': 'This table updates instantly when you change the hierarchy method or logical columns — your last check before running.',
   'importWizard.previewDepthCol': 'Depth',
@@ -198,6 +210,12 @@ export const importWizardEn: Record<keyof typeof importWizardKo, string> = {
   'importWizard.savedNo': 'Not saved',
   'importWizard.gotoWbs': 'Go to WBS',
   'importWizard.importAnother': 'Import another file',
+
+  'importWizard.exportProfileTitle': 'Export with profile (expanded)',
+  'importWizard.exportProfileDesc': 'Downloads an Excel file in this layout, with sub-acts expanded into separate rows.',
+  'importWizard.exportProfileButton': 'Export with profile (expanded)',
+  'importWizard.exportProfileBusy': 'Exporting…',
+  'importWizard.exportProfileFailedHttp': 'Export failed',
 
   'importWizard.linkFromOldForm': 'New import wizard (auto layout detection) →',
 }

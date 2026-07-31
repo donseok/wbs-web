@@ -196,6 +196,17 @@ describe('POST /api/import/execute — 검증 오류 400', () => {
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ errors: [{ excelRow: 5, message: '깊이 건너뜀' }] })
   })
+
+  it('미등록 팀 포함 + linkByDepth 구조 오류 → 팀 부트스트랩 전에 400, teamsSync·addTeam 미호출(리뷰 Minor — 검증 실패 요청은 전역 팀 마스터에 부수효과를 남기지 않는다)', async () => {
+    mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
+    mocks.linkByDepth.mockReturnValue({ ok: false, errors: [{ excelRow: 5, message: '깊이 건너뜀' }] })
+    const res = await POST(req(baseFields({ registerTeams: 'true' })))
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ errors: [{ excelRow: 5, message: '깊이 건너뜀' }] })
+    expect(mocks.teamsSync).not.toHaveBeenCalled()
+    expect(mocks.requireSuperuser).not.toHaveBeenCalled()
+    expect(mocks.addTeam).not.toHaveBeenCalled()
+  })
 })
 
 describe('POST /api/import/execute — 팀 부트스트랩(§10.3)', () => {

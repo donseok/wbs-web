@@ -4,7 +4,7 @@ import { useMemo, useReducer, useRef, useState, type ChangeEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  Upload, AlertTriangle, CheckCircle2, Trash2, Plus, ArrowRight, ShieldAlert, RotateCcw,
+  Upload, AlertTriangle, CheckCircle2, Trash2, Plus, ArrowRight, ShieldAlert, RotateCcw, Undo2, Download,
 } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -60,6 +60,35 @@ function downloadBackup(projectId: string, backup: { rows: unknown[]; generatedA
   URL.revokeObjectURL(url)
 }
 
+/** 프로파일 익스포트(§6.5, 리뷰 Important #1) — `/api/export?expand=1` 를 fetch→blob 로 받아
+ *  내려받는다. WeeklySheetView.downloadPpt 와 동일한 관례(fetch→Content-Disposition 파일명 파싱)를
+ *  재사용한다 — export.ts 를 건드리지 않고 이미 있는 라우트를 그대로 소비만 한다.
+ *  outline+펼침처럼 라우트가 400 으로 거부하는 조합은 그 에러 메시지를 그대로 토스트로 보여준다
+ *  (무증상 실패 금지 — 3원칙). */
+async function downloadProfileExport(
+  projectId: string,
+  toast: ReturnType<typeof useToast>['toast'],
+  failedTitle: string,
+) {
+  const res = await fetch(`/api/export?projectId=${encodeURIComponent(projectId)}&expand=1`)
+  if (!res.ok) {
+    const err = (await res.json().catch(() => null)) as { error?: string } | null
+    toast({ title: failedTitle, description: err?.error, variant: 'error' })
+    return
+  }
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const name = decodeURIComponent(cd.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? `wbs_export_${projectId}.xlsx`)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 function StepBadge({ n, label, active, done }: { n: number; label: string; active: boolean; done: boolean }) {
   return (
     <div className="flex items-center gap-2">
@@ -99,6 +128,7 @@ export function ImportWizard({
   const { t } = useLocale()
   const [state, dispatch] = useReducer(reducer, initialWizardState)
   const [markRows, setMarkRows] = useState<MarkRow[]>([])
+  const [exportBusy, setExportBusy] = useState(false)
   const fileRef = useRef<File | null>(null)
   const markIdRef = useRef(0)
 
@@ -131,6 +161,26 @@ export function ImportWizard({
     markIdRef.current = 0
     setMarkRows([])
     dispatch({ type: 'reset' })
+  }
+
+  /** 리뷰 Important #2 — savedProfile 로 시작했더라도 실제 업로드 파일이 감지한 프로파일로 되돌린다.
+   *  reducer 는 profile 필드만 순수하게 되돌리고(테스트 대상), 마크 사전 행 상태(markRows)는 컴포넌트
+   *  로컬이라 여기서 같이 재동기화한다(runInspect 의 초기 세팅과 동일 패턴). */
+  function resetToDetected() {
+    if (!state.detection) return
+    dispatch({ type: 'resetToDetected' })
+    const rows = recordToRows(state.detection.profile.ownerMarks)
+    setMarkRows(rows)
+    markIdRef.current = rows.length
+  }
+
+  async function runExportProfile() {
+    setExportBusy(true)
+    try {
+      await downloadProfileExport(projectId, toast, t('importWizard.exportProfileFailedHttp'))
+    } finally {
+      setExportBusy(false)
+    }
   }
 
   async function runInspect() {
@@ -257,6 +307,21 @@ export function ImportWizard({
           )}
 
           <div className="card space-y-6 p-6">
+            {/* 리뷰 Important #2 — savedProfile 을 기본값으로 시작한 경우에도(레거시 프로젝트 +
+                새 양식 파일) 업로드 파일이 실제로 감지한 프로파일로 되돌릴 길을 열어 둔다. */}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-2 px-3.5 py-2.5">
+              <p className="text-xs leading-5 text-ink-subtle">{t('importWizard.resetToDetectedDesc')}</p>
+              <button
+                type="button"
+                className="btn btn-ghost shrink-0"
+                disabled={state.busy}
+                onClick={resetToDetected}
+                aria-label={t('importWizard.resetToDetectedButton')}
+              >
+                <Undo2 className="h-4 w-4" />{t('importWizard.resetToDetectedButton')}
+              </button>
+            </div>
+
             {/* ── 계층 방식 ── */}
             <fieldset className="space-y-2.5">
               <legend className="mb-2 text-xs font-semibold text-ink-muted">{t('importWizard.hierarchyLegend')}</legend>
@@ -552,6 +617,25 @@ export function ImportWizard({
               </ul>
             </div>
           )}
+
+          {/* 리뷰 Important #1 — §6.5 프로파일 익스포트(펼침)가 UI 에서 도달 불가했다. 완료 화면이
+              이 프로파일로 다시 내보낼 수 있는 유일하고 자연스러운 지점(방금 쓴 프로파일이 최신 상태). */}
+          <div className="panel-soft flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <p className="text-sm font-semibold text-ink">{t('importWizard.exportProfileTitle')}</p>
+              <p className="mt-0.5 text-xs leading-5 text-ink-muted">{t('importWizard.exportProfileDesc')}</p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost shrink-0"
+              disabled={exportBusy}
+              onClick={runExportProfile}
+              aria-label={t('importWizard.exportProfileButton')}
+            >
+              <Download className="h-4 w-4" />
+              {exportBusy ? t('importWizard.exportProfileBusy') : t('importWizard.exportProfileButton')}
+            </button>
+          </div>
 
           <div className="flex flex-wrap gap-2">
             <Link href={`/p/${projectId}/wbs`} className="btn btn-primary">

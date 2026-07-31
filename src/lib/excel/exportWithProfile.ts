@@ -163,7 +163,10 @@ export function buildAoaWithProfile(
   if (deliverableCol != null) header2[deliverableCol] = '산출물'
   if (startCol != null) header2[startCol] = '계획'
 
-  // ── 헤더 3행(profile.headerRow 위치, parseWithProfile 이 실제로 읽는 라벨 행) ──
+  // ── 헤더 3행(rows 의 3번째 행=index 2로 항상 고정 출력 — profile.headerRow 값 자체는 읽지 않는다.
+  // parseWithProfile 이 실제 라벨 행으로 읽는 건 dataStart=profile.headerRow+1 이므로, 이 고정 3행
+  // 출력은 profile.headerRow=2 일 때만 그 위치와 일치한다. headerRow≠2 프로파일로 내보내면 어긋나
+  // 재임포트가 틀어진다 — buildWorkbookWithProfile 의 ⚠️ 참고, 이 라운드에서 고치지 않는다). ──
   // trailing 라벨은 3개뿐이다(계획%/계획대비%/상태) — 데이터 행의 4개(+성과율)와 폭이 다른 기존
   // buildWbsAoa 의 결함을 그대로 재현한다(무접촉 원칙 + 바이트 불변 회귀 기준 때문에 여기서 고치지
   // 않는다 — 계약 (a) 참조).
@@ -240,7 +243,14 @@ export function buildAoaWithProfile(
 /** WBS + Holiday 시트를 가진 xlsx ArrayBuffer 생성 — buildWbsWorkbook(export.ts)의 프로파일 버전.
  *  시트명은 profile.sheetName/profile.holidaySheetName 을 그대로 쓴다(재임포트 시 프로파일이 찾는
  *  이름과 일치해야 하므로). holidaySheetName 이 null 이면 Holiday 시트를 만들지 않는다.
- *  buildAoaWithProfile 이 실패(outline+펼침)하면 그대로 전파한다. */
+ *  buildAoaWithProfile 이 실패(outline+펼침)하면 그대로 전파한다.
+ *
+ *  ⚠️ 현재 headerRow=2(3행 헤더) 프로파일만 왕복 보장 — 그 외는 재임포트 불가. buildAoaWithProfile
+ *  이 항상 정확히 3행(header1/header2/header3)을 쓰고 profile.headerRow 값 자체는 읽지 않기 때문에,
+ *  headerRow가 2가 아닌 프로파일(예: 감지된 헤더가 1행·2행뿐인 양식)로 내보내면 실제 헤더 행 수와
+ *  프로파일이 선언한 headerRow가 어긋나 재임포트 시 parseWithProfile의 dataStart(=headerRow+1)가
+ *  틀린 행부터 데이터를 읽는다 — 무증상 오파싱. 펼침 익스포트는 저장 프로파일이 headerRow≠2 면
+ *  명시 거부 대상이다(후속 — 이 라운드에서는 코드 동작을 바꾸지 않고 한계만 문서화한다). */
 export function buildWorkbookWithProfile(
   items: ComputedItem[],
   profile: ExcelProfile,
