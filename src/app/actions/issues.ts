@@ -23,9 +23,20 @@ import {
   validateIssueDateRange,
   type IssueMinuteSourceKind,
 } from '@/lib/domain/issueMinuteSource'
-import { fnv1a64, isMarkableBlock, splitMinuteBlocks } from '@/lib/minutes/blocks'
+import {
+  fnv1a64, isMarkableBlock, splitMinuteBlocks, type MinuteBlock,
+} from '@/lib/minutes/blocks'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
+import { generateAnswer } from '@/lib/ai/llm'
+import { hasLLM } from '@/lib/ai/provider'
+import {
+  MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT,
+  buildFallbackMinuteIssueDraft,
+  buildMinuteIssueDraft,
+  buildMinuteIssueDraftPrompt,
+  type MinuteIssueDraft,
+} from '@/lib/ai/minute-issue-draft'
 
 export interface IssueActionResult {
   ok: boolean
@@ -66,6 +77,12 @@ export interface MinuteIssueSourceInput {
 export interface IssueProjectMembersResult {
   ok: boolean
   members?: ProjectMember[]
+  error?: string
+}
+
+export interface MinuteIssueDraftActionResult {
+  ok: boolean
+  draft?: MinuteIssueDraft
   error?: string
 }
 
@@ -110,6 +127,108 @@ const TEXT_MAX = 20000
 const ASSIGNEES_MAX = 20
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const BLOCK_HASH_RE = /^[0-9a-f]{16}$/i
+
+interface VerifiedMinuteIssueBlock {
+  storedBodyHash: string
+  block: MinuteBlock
+  insightLabel: string | null
+}
+
+type MinuteIssueBlockVerification =
+  | { ok: true; value: VerifiedMinuteIssueBlock }
+  | { ok: false; error: string }
+
+function validMinuteIssueSource(source: MinuteIssueSourceInput): boolean {
+  return Boolean(
+    source.minuteId
+    && source.minuteVersionId
+    && Number.isSafeInteger(source.blockIndex)
+    && source.blockIndex >= 0
+    && BLOCK_HASH_RE.test(source.blockHash)
+    && BLOCK_HASH_RE.test(source.bodyHash)
+    && ISSUE_MINUTE_SOURCE_KINDS.includes(source.kind),
+  )
+}
+
+/**
+ * 회의록 기반 초안 생성과 최종 저장이 같은 불변 원문 검증을 공유한다.
+ * 클라이언트는 버전/블록 앵커만 제시하며, 실제 AI 입력·저장 스냅샷은 여기서 찾은 블록만 사용한다.
+ */
+async function verifyMinuteIssueBlock(
+  projectId: string,
+  source: MinuteIssueSourceInput,
+  logLabel: string,
+  includeInsight = false,
+): Promise<MinuteIssueBlockVerification> {
+  if (!projectId || !validMinuteIssueSource(source)) {
+    return { ok: false, error: '회의록 원문 정보가 올바르지 않습니다. 블록을 다시 선택해 주세요.' }
+  }
+
+  const sb = await createServerClient()
+  const [versionRes, minuteRes] = await Promise.all([
+    sb
+      .from('minute_versions')
+      .select('id, minute_id, body_md, body_hash')
+      .eq('id', source.minuteVersionId)
+      .eq('minute_id', source.minuteId)
+      .maybeSingle(),
+    sb
+      .from('minutes')
+      .select('project_id, archived_at')
+      .eq('id', source.minuteId)
+      .maybeSingle(),
+  ])
+  const { data: version, error: versionErr } = versionRes
+  if (versionErr) {
+    console.error(`[${logLabel}] 원문 버전 조회 실패:`, versionErr.message)
+    return { ok: false, error: '회의록 원문을 확인하지 못했습니다. 잠시 후 다시 시도하세요.' }
+  }
+  if (!version) return { ok: false, error: '회의록 원문 버전을 찾을 수 없습니다.' }
+  if (minuteRes.error) {
+    console.error(`[${logLabel}] 현재 회의록 조회 실패:`, minuteRes.error.message)
+    return { ok: false, error: '회의록 상태를 확인하지 못했습니다. 잠시 후 다시 시도하세요.' }
+  }
+  if (!minuteRes.data) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
+  if (minuteRes.data.archived_at) {
+    return { ok: false, error: '보관된 회의록에서는 이슈를 등록할 수 없습니다.' }
+  }
+
+  // 버전의 project_id는 생성 당시 스냅샷이다. 이동 후에는 현재 회의록의 프로젝트만 경계로 쓴다.
+  const currentProjectId = (minuteRes.data.project_id as string | null) ?? null
+  if (currentProjectId !== null && currentProjectId !== projectId) {
+    return { ok: false, error: '회의록과 이슈의 프로젝트가 일치하지 않습니다.' }
+  }
+
+  const bodyMd = version.body_md as string
+  const storedBodyHash = (version.body_hash as string).toLowerCase()
+  if (storedBodyHash !== source.bodyHash.toLowerCase() || fnv1a64(bodyMd) !== storedBodyHash) {
+    return { ok: false, error: '회의록 원문 버전이 변경되었습니다. 블록을 다시 선택해 주세요.' }
+  }
+  const block = splitMinuteBlocks(bodyMd)[source.blockIndex]
+  if (!block || !isMarkableBlock(block) || block.hash !== source.blockHash.toLowerCase()) {
+    return { ok: false, error: '회의록 본문이 변경되었습니다. 블록을 다시 선택해 주세요.' }
+  }
+
+  let insightLabel: string | null = null
+  if (includeInsight && source.kind !== 'manual') {
+    const { data: insight, error: insightErr } = await sb
+      .from('minute_insights')
+      .select('label')
+      .eq('minute_id', source.minuteId)
+      .eq('body_hash', storedBodyHash)
+      .eq('block_index', source.blockIndex)
+      .eq('block_hash', block.hash)
+      .eq('kind', source.kind)
+      .maybeSingle()
+    if (insightErr) {
+      // 보조 라벨 조회 실패는 원문 검증 실패가 아니다. 본문만으로도 결정형 초안을 만들 수 있다.
+      console.error(`[${logLabel}] 인사이트 라벨 조회 실패(무시):`, insightErr.message)
+    } else if (typeof insight?.label === 'string') {
+      insightLabel = insight.label
+    }
+  }
+  return { ok: true, value: { storedBodyHash, block, insightLabel } }
+}
 
 /** 형식 + 실재성(2026-02-30 반려) — announcements isValidDate 관례. */
 function isValidDate(s: string): boolean {
@@ -280,6 +399,84 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
   }
 }
 
+// 동일한 불변 블록을 폼에서 다시 열 때마다 모델 비용·대기 시간을 만들지 않는다.
+// 서버리스 인스턴스 로컬 캐시이므로 정합성 경계로 사용하지 않으며, 원문 앵커는 매 요청 재검증한다.
+const MINUTE_DRAFT_CACHE_MAX = 200
+const minuteDraftCache = new Map<string, MinuteIssueDraft>()
+const minuteDraftInFlight = new Map<string, Promise<MinuteIssueDraft>>()
+
+function rememberMinuteDraft(key: string, draft: MinuteIssueDraft): void {
+  if (minuteDraftCache.size >= MINUTE_DRAFT_CACHE_MAX) {
+    const oldest = minuteDraftCache.keys().next().value as string | undefined
+    if (oldest) minuteDraftCache.delete(oldest)
+  }
+  minuteDraftCache.set(key, draft)
+}
+
+async function summarizeVerifiedMinuteBlock(
+  cacheKey: string,
+  blockText: string,
+  insightLabel: string | null,
+): Promise<MinuteIssueDraft> {
+  const fallback = buildFallbackMinuteIssueDraft(blockText, insightLabel)
+    ?? { title: '회의록 확인 필요', body: '[현황]\n- 원문 확인 필요\n\n[문제/영향]\n- 원문에 명시되지 않음\n\n[필요 조치]\n- 원문 확인 필요', mode: 'fallback' as const }
+  const cached = minuteDraftCache.get(cacheKey)
+  if (cached) return cached
+  if (!hasLLM()) return fallback
+
+  const existing = minuteDraftInFlight.get(cacheKey)
+  if (existing) return existing
+
+  const pending = (async (): Promise<MinuteIssueDraft> => {
+    const raw = await generateAnswer(
+      MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT,
+      [{ role: 'user', content: buildMinuteIssueDraftPrompt(blockText, insightLabel) }],
+      {
+        // 등록 버튼의 상호작용을 오래 가두지 않는다. 실패하면 즉시 결정형 초안으로 이어진다.
+        timeoutMs: 10_000,
+        // Gemini 3.x는 thinking 토큰도 이 상한에 포함한다. 1,200 이하에서 본문이 비는
+        // 회귀가 실측돼 있어, 실제 초안 길이는 파서(1,000자)로 제한하고 생성 예산은 확보한다.
+        maxOutputTokens: 4_096,
+        allowModelFallback: false,
+        retries: 0,
+        retryRateLimit: false,
+      },
+    )
+    const draft = buildMinuteIssueDraft({ sourceText: blockText, insightLabel, aiResponse: raw }) ?? fallback
+    // 일시 장애로 만든 폴백은 캐시하지 않아 다음 열기에서 AI를 다시 시도할 수 있게 한다.
+    if (draft.mode === 'ai') rememberMinuteDraft(cacheKey, draft)
+    return draft
+  })()
+  minuteDraftInFlight.set(cacheKey, pending)
+  try {
+    return await pending
+  } finally {
+    if (minuteDraftInFlight.get(cacheKey) === pending) minuteDraftInFlight.delete(cacheKey)
+  }
+}
+
+/**
+ * 회의록 블록을 이슈 폼용 핵심 초안으로 정리한다.
+ * 원문 문자열은 받지 않고 불변 앵커만 받아, 서버에서 검증한 블록만 모델 입력으로 사용한다.
+ */
+export async function prepareMinuteIssueDraft(
+  projectId: string,
+  source: MinuteIssueSourceInput,
+): Promise<MinuteIssueDraftActionResult> {
+  const gate = await requireProjectMember(projectId)
+  if (!gate.ok) return { ok: false, error: gate.error }
+
+  const verified = await verifyMinuteIssueBlock(projectId, source, 'prepareMinuteIssueDraft', true)
+  if (!verified.ok) return verified
+  const { block, insightLabel } = verified.value
+  const cacheKey = [
+    'minute-issue-draft-v2', source.minuteVersionId, source.blockIndex, block.hash, source.kind,
+    fnv1a64(insightLabel ?? ''),
+  ].join(':')
+  const draft = await summarizeVerifiedMinuteBlock(cacheKey, block.text, insightLabel)
+  return { ok: true, draft }
+}
+
 /**
  * 회의록의 불변 버전 블록에서 이슈를 생성한다.
  * 클라이언트가 보낸 원문/프로젝트를 신뢰하지 않고 서버에서 버전 본문을 다시 분할해 검증한 뒤,
@@ -298,64 +495,9 @@ export async function createIssueFromMinuteBlock(
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
 
-  if (
-    !projectId
-    || !source.minuteId
-    || !source.minuteVersionId
-    || !Number.isSafeInteger(source.blockIndex)
-    || source.blockIndex < 0
-    || !BLOCK_HASH_RE.test(source.blockHash)
-    || !BLOCK_HASH_RE.test(source.bodyHash)
-    || !ISSUE_MINUTE_SOURCE_KINDS.includes(source.kind)
-  ) {
-    return { ok: false, error: '회의록 원문 정보가 올바르지 않습니다. 블록을 다시 선택해 주세요.' }
-  }
-
-  const sb = await createServerClient()
-  const [versionRes, minuteRes] = await Promise.all([
-    sb
-      .from('minute_versions')
-      .select('id, minute_id, body_md, body_hash')
-      .eq('id', source.minuteVersionId)
-      .eq('minute_id', source.minuteId)
-      .maybeSingle(),
-    sb
-      .from('minutes')
-      .select('project_id, archived_at')
-      .eq('id', source.minuteId)
-      .maybeSingle(),
-  ])
-  const { data: version, error: versionErr } = versionRes
-  if (versionErr) {
-    console.error('[createIssueFromMinuteBlock] 원문 버전 조회 실패:', versionErr.message)
-    return { ok: false, error: '회의록 원문을 확인하지 못했습니다. 잠시 후 다시 시도하세요.' }
-  }
-  if (!version) return { ok: false, error: '회의록 원문 버전을 찾을 수 없습니다.' }
-  if (minuteRes.error) {
-    console.error('[createIssueFromMinuteBlock] 현재 회의록 조회 실패:', minuteRes.error.message)
-    return { ok: false, error: '회의록 상태를 확인하지 못했습니다. 잠시 후 다시 시도하세요.' }
-  }
-  if (!minuteRes.data) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
-  if (minuteRes.data.archived_at) {
-    return { ok: false, error: '보관된 회의록에서는 이슈를 등록할 수 없습니다.' }
-  }
-  // 버전의 project_id는 생성 당시의 불변 스냅샷이다. 프로젝트 이동 후에는 현재
-  // minutes.project_id를 대상 경계로 사용하고, 과거 프로젝트는 링크 출처로만 보존한다.
-  const currentProjectId = (minuteRes.data.project_id as string | null) ?? null
-  if (currentProjectId !== null && currentProjectId !== projectId) {
-    return { ok: false, error: '회의록과 이슈의 프로젝트가 일치하지 않습니다.' }
-  }
-
-  const bodyMd = version.body_md as string
-  const storedBodyHash = (version.body_hash as string).toLowerCase()
-  if (storedBodyHash !== source.bodyHash.toLowerCase() || fnv1a64(bodyMd) !== storedBodyHash) {
-    return { ok: false, error: '회의록 원문 버전이 변경되었습니다. 블록을 다시 선택해 주세요.' }
-  }
-  const blocks = splitMinuteBlocks(bodyMd)
-  const block = blocks[source.blockIndex]
-  if (!block || !isMarkableBlock(block) || block.hash !== source.blockHash.toLowerCase()) {
-    return { ok: false, error: '회의록 본문이 변경되었습니다. 블록을 다시 선택해 주세요.' }
-  }
+  const verified = await verifyMinuteIssueBlock(projectId, source, 'createIssueFromMinuteBlock')
+  if (!verified.ok) return verified
+  const { storedBodyHash, block } = verified.value
   const excerpt = block.text.length > 4000 ? `${block.text.slice(0, 3999)}…` : block.text
   const sourceKey = makeMinuteIssueSourceKey({
     minuteVersionId: source.minuteVersionId,

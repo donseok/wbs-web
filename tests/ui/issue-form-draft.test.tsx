@@ -114,6 +114,7 @@ describe('IssueFormModal 회의록 초안', () => {
             title: '주간회의',
             date: '2026-07-27',
             excerpt: '인터페이스 전환 지연 위험을 확인한다.',
+            organizedDraft: true,
           }}
           onCreate={onCreate}
           onCreated={onCreated}
@@ -131,6 +132,7 @@ describe('IssueFormModal 회의록 초안', () => {
     expect(labelSelect('issue.analysis.sourceType').disabled).toBe(true)
     expect(labelInput('issue.analysis.sourceDetail').value).toBe('주간회의 · 2026-07-27')
     expect(document.body.textContent).toContain('issue.analysis.minuteAutoLinked')
+    expect(document.body.textContent).toContain('issue.analysis.organizedDraft')
 
     const save = [...document.querySelectorAll('button')]
       .find(button => button.textContent === 'issue.form.save') as HTMLButtonElement

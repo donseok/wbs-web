@@ -80,6 +80,8 @@ export interface IssueSourcePreview {
   excerpt: string
   /** 생략하면 공용 "회의록 원문" 번역을 사용한다. */
   label?: string
+  /** 원문과 편집 가능한 정리 초안이 분리되어 있음을 안내한다. */
+  organizedDraft?: boolean
 }
 
 export type IssueCreateHandler = (
@@ -636,6 +638,11 @@ export function IssueFormModal({
             <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-ink-muted">
               {sourcePreview.excerpt}
             </p>
+            {sourcePreview.organizedDraft && (
+              <p className="mt-2 border-t border-line pt-2 text-[11px] leading-5 text-brand">
+                {t('issue.analysis.organizedDraft')}
+              </p>
+            )}
           </section>
         )}
         <label className="block">

@@ -16,7 +16,8 @@ import {
   getMinuteFileUrl, replaceMinuteBody, deleteMinute, toggleMinuteHighlight,
 } from '@/app/actions/minutes'
 import {
-  createIssueFromMinuteBlock, fetchIssueProjectMembers, type IssueInput,
+  createIssueFromMinuteBlock, fetchIssueProjectMembers, prepareMinuteIssueDraft,
+  type IssueInput, type MinuteIssueSourceInput,
 } from '@/app/actions/issues'
 import { fnv1a64, isMarkableBlock, splitMinuteBlocks, type BlockMarks } from '@/lib/minutes/blocks'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
@@ -44,6 +45,9 @@ import {
   type IssueMinuteSourceKind,
   type MinuteLinkedIssue,
 } from '@/lib/domain/issueMinuteSource'
+import {
+  buildFallbackMinuteIssueDraft, type MinuteIssueDraft,
+} from '@/lib/ai/minute-issue-draft'
 import { IssueFormModal, type IssueFormDraft } from '@/components/issues/IssueModals'
 
 const EMPTY_WIKI_IMPACT: MinuteWikiImpactCardProps = {
@@ -107,6 +111,7 @@ export function MinuteViewer({
     minute.projectId ?? minute.meetingProjectId ?? '',
   )
   const [issueMemberOptions, setIssueMemberOptions] = useState<ProjectMember[]>(issueMembers)
+  const [preparedIssueDraft, setPreparedIssueDraft] = useState<MinuteIssueDraft | null>(null)
   const [issueBusy, setIssueBusy] = useState(false)
   const [issueProjectError, setIssueProjectError] = useState<string | null>(null)
   const issueProjectRequestRef = useRef(0)
@@ -179,9 +184,11 @@ export function MinuteViewer({
     : issueInsight?.kind === 'action' ? 'action' : 'manual'
   const issueDraft = useMemo<IssueFormDraft | undefined>(() => {
     if (!issueBlock) return undefined
-    const draft = issueDraftFromBlock(issueBlock.text, issueInsight?.label)
+    const draft = preparedIssueDraft
+      ?? buildFallbackMinuteIssueDraft(issueBlock.text, issueInsight?.label)
+      ?? issueDraftFromBlock(issueBlock.text, issueInsight?.label)
     return { ...draft, severity: 'medium', assigneeMemberIds: [], startDate: null, dueDate: null }
-  }, [issueBlock, issueInsight])
+  }, [issueBlock, issueInsight, preparedIssueDraft])
 
   const marks = useMemo<BlockMarks>(() => {
     const m: BlockMarks = {}
@@ -246,9 +253,33 @@ export function MinuteViewer({
     }
   }
 
-  function beginIssueCreate() {
+  function issueContextAt(index: number) {
+    const block = blocks[index]
+    if (!block || !currentVersion) return null
+    const candidates = insights.filter(insight =>
+      insight.blockIndex === index && (insight.kind === 'risk' || insight.kind === 'action'))
+    const insight = candidates.find(candidate => candidate.kind === 'risk')
+      ?? candidates.find(candidate => candidate.kind === 'action')
+      ?? null
+    const kind: IssueMinuteSourceKind = insight?.kind === 'risk'
+      ? 'risk'
+      : insight?.kind === 'action' ? 'action' : 'manual'
+    const source: MinuteIssueSourceInput = {
+      minuteId: minute.id,
+      minuteVersionId: currentVersion.id,
+      bodyHash,
+      blockIndex: block.index,
+      blockHash: block.hash,
+      kind,
+    }
+    const fallback = buildFallbackMinuteIssueDraft(block.text, insight?.label)
+      ?? { ...issueDraftFromBlock(block.text, insight?.label), mode: 'fallback' as const }
+    return { source, fallback }
+  }
+
+  async function beginIssueCreate() {
     if (!popover) return
-    issueProjectRequestRef.current += 1
+    const requestId = ++issueProjectRequestRef.current
     setIssueBusy(false)
     if (!currentVersion) {
       toast({ title: t('min.issue.versionMissing'), variant: 'error' })
@@ -256,16 +287,48 @@ export function MinuteViewer({
       return
     }
     const idx = popover.blockIndex
+    const context = issueContextAt(idx)
+    if (!context) {
+      toast({ title: t('min.issue.versionMissing'), variant: 'error' })
+      setPopover(null)
+      return
+    }
     setIssueBlockIndex(idx)
-    setPopover(null)
+    setPreparedIssueDraft(null)
     setIssueProjectError(null)
     const fixedProjectId = minute.projectId ?? minute.meetingProjectId ?? ''
     if (fixedProjectId) {
       setIssueProjectId(fixedProjectId)
       setIssueMemberOptions(issueMembers)
+      setIssueBusy(true)
+      try {
+        const result = await prepareMinuteIssueDraft(fixedProjectId, context.source)
+        if (issueProjectRequestRef.current !== requestId) return
+        if (!result.ok || !result.draft) {
+          toast({
+            title: t('min.issue.prepareFailed'),
+            description: result.error,
+            variant: 'error',
+          })
+          setIssueBlockIndex(null)
+          setPopover(null)
+          return
+        }
+        setPreparedIssueDraft(result.draft)
+      } catch {
+        if (issueProjectRequestRef.current !== requestId) return
+        // 네트워크 단절은 원문 검증 실패와 다르다. 로컬 결정형 초안으로 편집 흐름을 계속한다.
+        setPreparedIssueDraft(context.fallback)
+        toast({ title: t('min.issue.fallbackUsed'), variant: 'info' })
+      } finally {
+        if (issueProjectRequestRef.current === requestId) setIssueBusy(false)
+      }
+      if (issueProjectRequestRef.current !== requestId) return
+      setPopover(null)
       setIssueFormOpen(true)
       return
     }
+    setPopover(null)
     setIssueProjectId('')
     setIssueMemberOptions([])
     setProjectPickerOpen(true)
@@ -280,15 +343,42 @@ export function MinuteViewer({
     const requestId = ++issueProjectRequestRef.current
     setIssueBusy(true)
     setIssueProjectError(null)
+    if (issueBlockIndex === null) {
+      setIssueProjectError(t('min.issue.versionMissing'))
+      setIssueBusy(false)
+      return
+    }
+    const context = issueContextAt(issueBlockIndex)
+    if (!context) {
+      setIssueProjectError(t('min.issue.versionMissing'))
+      setIssueBusy(false)
+      return
+    }
     try {
-      const result = await fetchIssueProjectMembers(requestedProjectId)
+      const [membersResult, draftResult] = await Promise.allSettled([
+        fetchIssueProjectMembers(requestedProjectId),
+        prepareMinuteIssueDraft(requestedProjectId, context.source),
+      ])
       if (issueProjectRequestRef.current !== requestId) return
-      if (!result.ok) {
-        setIssueProjectError(result.error ?? t('min.issue.membersFailed'))
+      if (membersResult.status === 'rejected' || !membersResult.value.ok) {
+        setIssueProjectError(
+          membersResult.status === 'fulfilled'
+            ? membersResult.value.error ?? t('min.issue.membersFailed')
+            : t('min.issue.membersFailed'),
+        )
         return
       }
+      if (draftResult.status === 'fulfilled' && (!draftResult.value.ok || !draftResult.value.draft)) {
+        setIssueProjectError(draftResult.value.error ?? t('min.issue.prepareFailed'))
+        return
+      }
+      const draft = draftResult.status === 'fulfilled' ? draftResult.value.draft! : context.fallback
+      if (draftResult.status === 'rejected') {
+        toast({ title: t('min.issue.fallbackUsed'), variant: 'info' })
+      }
       setIssueProjectId(requestedProjectId)
-      setIssueMemberOptions(result.members ?? [])
+      setIssueMemberOptions(membersResult.value.members ?? [])
+      setPreparedIssueDraft(draft)
       setProjectPickerOpen(false)
       setIssueFormOpen(true)
     } catch {
@@ -303,6 +393,7 @@ export function MinuteViewer({
     issueProjectRequestRef.current += 1
     setIssueBusy(false)
     setProjectPickerOpen(false)
+    setPreparedIssueDraft(null)
     setIssueBlockIndex(null)
   }
 
@@ -322,6 +413,7 @@ export function MinuteViewer({
 
   function closeIssueForm() {
     setIssueFormOpen(false)
+    setPreparedIssueDraft(null)
     setIssueBlockIndex(null)
   }
 
@@ -579,11 +671,19 @@ export function MinuteViewer({
       {popover && (
         <MinuteBlockPopover
           state={popover} mine={myIndexes.has(popover.blockIndex)}
-          names={popNames} insKinds={popKinds} busy={hlBusy}
+          names={popNames} insKinds={popKinds} busy={hlBusy || issueBusy}
           linkedIssues={popLinkedIssues} issueBusy={issueBusy}
           onToggle={() => void onToggleHighlight()}
-          onCreateIssue={beginIssueCreate}
-          onClose={() => setPopover(null)}
+          onCreateIssue={() => void beginIssueCreate()}
+          onClose={() => {
+            if (issueBusy) {
+              issueProjectRequestRef.current += 1
+              setIssueBusy(false)
+              setPreparedIssueDraft(null)
+              setIssueBlockIndex(null)
+            }
+            setPopover(null)
+          }}
         />
       )}
 
@@ -601,7 +701,7 @@ export function MinuteViewer({
               {t('common.cancel')}
             </button>
             <button onClick={() => void continueWithProject()} disabled={issueBusy} className="btn btn-primary text-xs">
-              {t('min.issue.continue')}
+              {issueBusy ? t('min.issue.summarizing') : t('min.issue.continue')}
             </button>
           </div>
         }
@@ -645,6 +745,7 @@ export function MinuteViewer({
             date: currentVersion?.minuteDate ?? minute.minuteDate,
             excerpt: issueBlock.text,
             label: `${t('min.issue.sourceLabel')} · v${currentVersion?.versionNo ?? 1}`,
+            organizedDraft: true,
           }}
           onCreate={createLinkedIssue}
           onCreated={onIssueCreated}

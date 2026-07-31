@@ -57,13 +57,23 @@ export async function parseRetryDelayMs(res: Response): Promise<number | null> {
  */
 export async function fetchWithRetry(
   make: (signal: AbortSignal) => Promise<Response>,
-  { retries = 1, baseMs = 700, timeoutMs }: { retries?: number; baseMs?: number; timeoutMs?: number } = {},
+  {
+    retries = 1,
+    baseMs = 700,
+    timeoutMs,
+    retryRateLimit = true,
+  }: {
+    retries?: number
+    baseMs?: number
+    timeoutMs?: number
+    retryRateLimit?: boolean
+  } = {},
 ): Promise<Response> {
   let retried429 = false
   for (let attempt = 0; ; attempt++) {
     const res = await withTimeout(make, timeoutMs)
     if (res.ok) return res
-    if (res.status === 429 && !retried429) {
+    if (res.status === 429 && retryRateLimit && !retried429) {
       const delay = await parseRetryDelayMs(res)
       if (delay !== null && delay <= MAX_429_WAIT_MS) {
         retried429 = true

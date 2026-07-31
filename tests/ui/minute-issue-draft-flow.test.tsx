@@ -1,0 +1,281 @@
+// @vitest-environment jsdom
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Minute } from '@/lib/domain/types'
+import { fnv1a64, splitMinuteBlocks } from '@/lib/minutes/blocks'
+
+;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
+
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason?: unknown) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve
+    reject = onReject
+  })
+  return { promise, resolve, reject }
+}
+
+const mocks = vi.hoisted(() => ({
+  prepareMinuteIssueDraft: vi.fn(),
+  fetchIssueProjectMembers: vi.fn(),
+  createIssueFromMinuteBlock: vi.fn(),
+  toast: vi.fn(),
+  issueFormProps: [] as Array<Record<string, unknown>>,
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}))
+vi.mock('next/link', () => ({
+  default: ({ children, href, ...rest }: { children: React.ReactNode; href: string }) => (
+    <a href={href} {...rest}>{children}</a>
+  ),
+}))
+vi.mock('@/components/providers/LocaleProvider', () => ({
+  useLocale: () => ({ t: (key: string) => key }),
+}))
+vi.mock('@/components/ui/Toast', () => ({
+  useToast: () => ({ toast: mocks.toast }),
+}))
+vi.mock('@/app/actions/issues', () => ({
+  prepareMinuteIssueDraft: mocks.prepareMinuteIssueDraft,
+  fetchIssueProjectMembers: mocks.fetchIssueProjectMembers,
+  createIssueFromMinuteBlock: mocks.createIssueFromMinuteBlock,
+}))
+vi.mock('@/components/minutes/useMinuteTocSpy', () => ({
+  useMinuteTocSpy: () => ({ activeToc: null, jumpTo: vi.fn() }),
+}))
+vi.mock('@/components/minutes/MarkdownView', () => ({
+  MarkdownView: ({ content }: { content: string }) => (
+    <p data-mblock="0" data-testid="minute-source-block">{content}</p>
+  ),
+}))
+vi.mock('@/components/minutes/MinuteInsightCard', () => ({ MinuteInsightCard: () => null }))
+vi.mock('@/components/minutes/MinuteToc', () => ({ MinuteToc: () => null }))
+vi.mock('@/components/minutes/MinuteChatPanel', () => ({ MinuteChatPanel: () => null }))
+vi.mock('@/components/minutes/MinuteMetaModal', () => ({ MinuteMetaModal: () => null }))
+vi.mock('@/components/minutes/MinuteShareModal', () => ({ MinuteShareModal: () => null }))
+vi.mock('@/components/minutes/MinuteVersionPanel', () => ({ MinuteVersionPanel: () => null }))
+vi.mock('@/components/minutes/MinuteWikiImpactCard', () => ({ MinuteWikiImpactCard: () => null }))
+vi.mock('@/components/minutes/MinuteFontSizeControl', () => ({ MinuteFontSizeControl: () => null }))
+vi.mock('@/components/minutes/MinuteBlockPopover', () => ({
+  MinuteBlockPopover: ({
+    issueBusy, onCreateIssue, onClose,
+  }: {
+    issueBusy?: boolean
+    onCreateIssue: () => void
+    onClose: () => void
+  }) => (
+    <div data-testid="minute-block-popover">
+      <span data-testid="issue-draft-busy">{issueBusy ? 'busy' : 'idle'}</span>
+      <button data-testid="create-minute-issue" onClick={onCreateIssue}>create</button>
+      <button data-testid="close-minute-popover" onClick={onClose}>close</button>
+    </div>
+  ),
+}))
+vi.mock('@/components/issues/IssueModals', () => ({
+  IssueFormModal: (props: Record<string, unknown>) => {
+    mocks.issueFormProps.push(props)
+    if (!props.open) return null
+    return <div data-testid="minute-issue-form">issue form</div>
+  },
+}))
+
+import { MinuteViewer } from '@/components/minutes/MinuteViewer'
+
+const originalExcerpt = [
+  '재고 인터페이스 전송 누락으로 월 마감 집계가 지연되고 있으며,',
+  '재처리 여부 확인과 인터페이스 보완 방안 협의가 필요합니다.',
+].join(' ')
+const blocks = splitMinuteBlocks(originalExcerpt)
+const bodyHash = fnv1a64(originalExcerpt)
+
+const minute: Minute = {
+  id: 'minute-1',
+  minuteDate: '2026-07-31',
+  teamCode: 'PMO',
+  title: '현재 회의록 제목',
+  bodyMd: originalExcerpt,
+  meetingId: null,
+  projectId: 'project-1',
+  createdBy: 'user-1',
+  createdByName: '작성자',
+  createdAt: '2026-07-31T00:00:00Z',
+  updatedAt: '2026-07-31T00:00:00Z',
+}
+
+const versions = [
+  {
+    id: 'version-2',
+    versionNo: 2,
+    title: '불변 버전 제목',
+    minuteDate: '2026-07-30',
+    createdAt: '2026-07-30T09:00:00Z',
+  },
+  {
+    id: 'version-1',
+    versionNo: 1,
+    title: '이전 제목',
+    minuteDate: '2026-07-29',
+    createdAt: '2026-07-29T09:00:00Z',
+  },
+]
+
+const conciseDraft = {
+  title: '재고 인터페이스 누락에 따른 월 마감 지연',
+  body: [
+    '[현황]',
+    '- 재고 인터페이스 전송이 누락됨',
+    '',
+    '[문제/영향]',
+    '- 월 마감 집계가 지연됨',
+    '',
+    '[필요 조치]',
+    '- 재처리 여부와 보완 방안을 협의해야 함',
+  ].join('\n'),
+  mode: 'ai' as const,
+}
+
+describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    mocks.prepareMinuteIssueDraft.mockReset()
+    mocks.fetchIssueProjectMembers.mockReset()
+    mocks.createIssueFromMinuteBlock.mockReset()
+    mocks.toast.mockReset()
+    mocks.issueFormProps.length = 0
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  async function mountAndOpenPopover() {
+    await act(async () => {
+      root.render(
+        <MinuteViewer
+          minute={minute}
+          files={[]}
+          canManage={false}
+          annotations={{ highlights: [], insights: [] }}
+          userId="user-1"
+          projects={[]}
+          versions={versions}
+        />,
+      )
+    })
+    act(() => {
+      container.querySelector<HTMLParagraphElement>('[data-testid="minute-source-block"]')!.click()
+    })
+    expect(container.querySelector('[data-testid="minute-block-popover"]')).not.toBeNull()
+  }
+
+  function clickCreate() {
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="create-minute-issue"]')!.click()
+    })
+  }
+
+  function openFormProps(): Record<string, unknown> {
+    const props = [...mocks.issueFormProps].reverse().find(candidate => candidate.open)
+    if (!props) throw new Error('열린 이슈 폼 props를 찾지 못했습니다')
+    return props
+  }
+
+  it('불변 원문 앵커로 초안을 요청하고, 완료 전에는 busy만 보인 뒤 정리된 폼을 연다', async () => {
+    const pending = deferred<{ ok: true; draft: typeof conciseDraft }>()
+    mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
+    await mountAndOpenPopover()
+
+    clickCreate()
+    await act(async () => { await Promise.resolve() })
+
+    expect(mocks.prepareMinuteIssueDraft).toHaveBeenCalledTimes(1)
+    expect(mocks.prepareMinuteIssueDraft).toHaveBeenCalledWith('project-1', {
+      minuteId: 'minute-1',
+      minuteVersionId: 'version-2',
+      bodyHash,
+      blockIndex: 0,
+      blockHash: blocks[0].hash,
+      kind: 'manual',
+    })
+    expect(container.querySelector('[data-testid="issue-draft-busy"]')?.textContent).toBe('busy')
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).toBeNull()
+
+    await act(async () => {
+      pending.resolve({ ok: true, draft: conciseDraft })
+      await pending.promise
+    })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
+    const props = openFormProps()
+    expect(props.draft).toMatchObject(conciseDraft)
+    expect(props.sourcePreview).toMatchObject({
+      title: '불변 버전 제목',
+      date: '2026-07-30',
+      excerpt: originalExcerpt,
+      organizedDraft: true,
+    })
+    expect((props.draft as { title: string }).title).not.toContain(originalExcerpt)
+  })
+
+  it('초안 호출이 reject되면 원문을 잃지 않고 정돈된 로컬 폴백으로 폼을 연다', async () => {
+    mocks.prepareMinuteIssueDraft.mockRejectedValueOnce(new Error('network disconnected'))
+    await mountAndOpenPopover()
+
+    clickCreate()
+    await act(async () => { await Promise.resolve() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
+    const props = openFormProps()
+    const draft = props.draft as { title: string; body: string; mode: string }
+    expect(draft.mode).toBe('fallback')
+    expect(Array.from(draft.title).length).toBeLessThanOrEqual(80)
+    expect(draft.body).toContain('[현황]')
+    expect(draft.body).toContain('[문제/영향]')
+    expect(draft.body).toContain('[필요 조치]')
+    expect(props.sourcePreview).toMatchObject({ excerpt: originalExcerpt, organizedDraft: true })
+    expect(mocks.toast).toHaveBeenCalledWith({
+      title: 'min.issue.fallbackUsed',
+      variant: 'info',
+    })
+  })
+
+  it('팝오버를 닫은 뒤 도착한 stale 초안 응답은 이슈 폼을 다시 열지 않는다', async () => {
+    const pending = deferred<{ ok: true; draft: typeof conciseDraft }>()
+    mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
+    await mountAndOpenPopover()
+
+    clickCreate()
+    await act(async () => { await Promise.resolve() })
+    expect(container.querySelector('[data-testid="issue-draft-busy"]')?.textContent).toBe('busy')
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>('[data-testid="close-minute-popover"]')!.click()
+    })
+    expect(container.querySelector('[data-testid="minute-block-popover"]')).toBeNull()
+
+    await act(async () => {
+      pending.resolve({ ok: true, draft: conciseDraft })
+      await pending.promise
+    })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).toBeNull()
+    expect(mocks.issueFormProps.some(props => props.open === true)).toBe(false)
+  })
+})
