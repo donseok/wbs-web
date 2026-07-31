@@ -122,6 +122,37 @@ describe('splitLeafOwners — 복수 담당 말단 분리', () => {
     expect(out).toHaveLength(2)
     expect(out.find(i => i.tempId === 't1')!.actualPct).toBe(100)
   })
+
+  // ImportItem 은 parentTempId 로 연결되는 순수 트리라 엑셀 3열 제약과 무관하게 4단+ 실 계층을
+  // 표현할 수 있다(파서 출력이 아니라 이 함수의 실제 입력 타입이 이미 depth-agnostic). willSplit 판정이
+  // 'level !== phase' + hasChild 만 보고 깊이를 세지 않음을 고정 — 3단 가정(예: "리프는 항상 2단
+  // 아래")이 되살아나면 이 케이스가 무너진다.
+  it('4단 이상 실 계층에서도 리프(자식 없음)만 분리 대상이다 — 깊이 무관', () => {
+    const src = [
+      imp({ tempId: 't0', level: 'phase', name: '1. 준비' }),
+      imp({ tempId: 't1', parentTempId: 't0', level: 'task', name: '1-1. 작업' }),
+      // 4번째 실 레벨(엑셀 3열 양식엔 없는 이름) — 복수 담당이어도 자식(t3)이 있어 분리 대상 아님
+      imp({
+        tempId: 't2', parentTempId: 't1', level: 'subtask', name: '1-1-1. 세부 작업',
+        owners: [{ team: 'PMO', kind: 'primary' }, { team: '가공', kind: 'support' }],
+      }),
+      imp({
+        tempId: 't3', parentTempId: 't2', name: '심층 리프',
+        owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'support' }],
+      }),
+    ]
+    const out = splitLeafOwners(src)
+    // t2: 자식이 있으므로 레벨명이 phase/task/activity 밖이어도 분리되지 않는다(hasChild 기준).
+    // parentTempId==='t2' 인 것은 실 자식 t3 하나뿐 — 분리로 생긴 sub-act 는 없어야 한다.
+    expect(out.find(i => i.tempId === 't2')).toBeDefined()
+    expect(out.filter(i => i.parentTempId === 't2').map(i => i.tempId)).toEqual(['t3'])
+    // t3: 깊이 4의 리프도 3단 리프와 동일하게 담당별로 분리된다.
+    const subs = out.filter(i => i.parentTempId === 't3')
+    expect(subs.map(s => s.name)).toEqual(['심층 리프 (가공 주관)', '심층 리프 (ERP 지원)'])
+    expect(subs.every(s => s.isOwnerSplit)).toBe(true)
+    expect(out.find(i => i.tempId === 't3')!.isOwnerSplit).toBe(false)
+    expect(out).toHaveLength(6) // t0,t1,t2,t3 + sub×2
+  })
 })
 
 function comp(over: Partial<ComputedItem>): ComputedItem {

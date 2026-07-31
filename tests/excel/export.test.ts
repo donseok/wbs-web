@@ -6,6 +6,11 @@ import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow } from '@/lib/domain/types'
 import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 
+// 4단+ 깊이 회귀 케이스는 여기 없음 — buildWbsAoa의 flatten()이 'activity' 레벨에서 의도적으로 접기를
+// 멈추는 3열 고정 양식이라(Plan B 전, export.ts:19 주석 참조) 실 4단 입력을 라운드트립시키는 케이스를
+// 만들면 알려진 손실을 재확인할 뿐이다. computeTree 자체의 4단 롤업 정확성은
+// tests/domain/edgecases.test.ts 'computeTree 4단+ 롤업' 참조.
+
 const OPTS = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
 const row = (over: Partial<WbsRow>): WbsRow => ({
   id: 'x', parentId: null, level: 'activity', code: 'x', sortOrder: 0, name: 'x',

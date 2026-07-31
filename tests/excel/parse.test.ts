@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest'
 import * as XLSX from 'xlsx'
 import { parseWbsWorkbook } from '@/lib/excel/parse'
 
+// 4단+ 깊이 회귀 케이스는 여기 없음 — Phase/Task/Activity 3열 고정 양식이라 파서 입력 자체로 4단을
+// 표현할 방법이 없다(Plan B 임포트 마법사 전). 도메인 통과 지점(buildTree→computeTree)의 4단 케이스는
+// tests/domain/edgecases.test.ts 'computeTree 4단+ 롤업' 참조.
+
 function makeBook(): ArrayBuffer {
   const wbs = XLSX.utils.aoa_to_sheet([
     ['Biz.', 'Phase', 'Task', 'Activity', '', '', '담당', '', '', '', 'Status', '산출물', '계획'],

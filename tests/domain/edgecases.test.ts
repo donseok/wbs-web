@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { plannedPct, achievementOf, statusOf } from '@/lib/domain/progress'
-import { buildTree, type BuildTreeOpts } from '@/lib/domain/tree'
+import { buildTree, collectLeaves, type BuildTreeOpts } from '@/lib/domain/tree'
 import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow } from '@/lib/domain/types'
 import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
@@ -88,5 +88,52 @@ describe('computeTree multi-level rollup', () => {
     const p = tree[0]
     expect(p.achievement).toBe(50) // 50/100
     expect(p.status).toBe('delayed') // 실적 50 < 계획 100
+  })
+})
+
+/* 4단+ 깊이 회귀 감시(스펙 §4.5). tests/excel/{parse,export,edgecases}.test.ts 는 Phase/Task/Activity
+ * 3열 고정 양식(Plan B 이전)이라 파서 입력 자체로 4단을 표현할 방법이 없다 — 그 세 파일이 검증하는
+ * "파싱된 값이 흘러가는" 도메인 통과 지점(buildTree→computeTree)의 4단 케이스를 여기 둔다.
+ * 형제 깊이가 혼재해도(한쪽은 4단, 한쪽은 3단) 롤업·리프 판정이 children.length 만으로 동작함을 고정 —
+ * 3단 가정(예: "리프는 항상 2단 아래"처럼 깊이를 하드코딩)이 되살아나면 여기서 무너진다. */
+describe('computeTree 4단+ 롤업 — 엑셀 3열 양식 밖(도메인 통과 지점, 혼재 깊이)', () => {
+  const rows: WbsRow[] = [
+    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0 }),
+    // 왼쪽 가지: Phase→Task→(엑셀엔 없는 4번째 실 레벨 'subtask')→Activity×2 — 깊이 4
+    row({ id: 'T1', parentId: 'P', level: 'task', code: '1-1', sortOrder: 0 }),
+    row({ id: 'ST1', parentId: 'T1', level: 'subtask', code: '1-1-1', sortOrder: 0 }),
+    row({
+      id: 'A1', parentId: 'ST1', level: 'activity', sortOrder: 0,
+      plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 100, weight: 3,
+    }),
+    row({
+      id: 'A2', parentId: 'ST1', level: 'activity', sortOrder: 1,
+      plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 0, weight: 1,
+    }),
+    // 오른쪽 가지: Phase→Task→Activity — 깊이 3(형제 T2 가 T1 보다 한 단 얕다)
+    row({ id: 'T2', parentId: 'P', level: 'task', code: '1-2', sortOrder: 1, weight: 1 }),
+    row({
+      id: 'A3', parentId: 'T2', level: 'activity', sortOrder: 0,
+      plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 50,
+    }),
+  ]
+  const tree = computeTree(rows, '2026-07-20', H, OPTS) // 기간 종료 후(기존 스위트와 동일 today)
+
+  it('리프(자식 없음)만 collectLeaves 에 잡힌다 — 중간 계층(ST1 포함) 제외, 문서 순서 보존', () => {
+    expect(collectLeaves(tree).map(l => l.id)).toEqual(['A1', 'A2', 'A3'])
+  })
+  it('4단 가지의 가중 롤업이 3단 위로 정확히 전파된다', () => {
+    const st1 = tree[0].children[0].children[0]
+    expect(st1.id).toBe('ST1')
+    expect(st1.rolledActualPct).toBe(75) // (100*3+0*1)/4
+    const t1 = tree[0].children[0]
+    expect(t1.rolledActualPct).toBe(75) // 외동 자식 통과
+  })
+  it('깊이가 다른 형제 가지(4단 vs 3단)가 공통 조상에서 올바르게 합산된다', () => {
+    const p = tree[0]
+    // T1(75, weight null→1) · T2(50, weight 1) → (75*1+50*1)/2
+    expect(p.rolledActualPct).toBe(62.5)
+    expect(p.achievement).toBe(63)
+    expect(p.status).toBe('delayed')
   })
 })

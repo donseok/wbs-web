@@ -4,6 +4,11 @@ import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { validateAndLink } from '@/lib/excel/validate'
 import type { ParsedWbs } from '@/lib/excel/parse'
 
+// 4단+ 깊이 회귀 케이스는 여기 없음 — validateAndLink 는 level 이 phase/task 가 아니면 무조건
+// lastTask 에 매달리는 3분기 구조라(3열 고정 양식, Plan B 전) 4단 입력 자체를 표현할 수 없다.
+// 도메인 통과 지점(buildTree→computeTree)의 4단 케이스는 tests/domain/edgecases.test.ts
+// 'computeTree 4단+ 롤업' 참조.
+
 const base = (over: Partial<ParsedWbs['rows'][0]>): ParsedWbs['rows'][0] => ({
   level: 'activity', code: 'x', name: 'n', biz: null, deliverable: null,
   plannedStart: '2026-07-01', plannedEnd: '2026-07-07', weight: null, actualPct: null,
