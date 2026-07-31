@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 
 /**
@@ -11,11 +11,11 @@ export function agentApiEnabled(): boolean {
   return process.env.AGENT_API_ENABLED === 'true' && !!process.env.AGENT_API_SECRET
 }
 
+/** 에이전트 API 시크릿 검증 — 길이 노출과 타이밍 채널을 피하기 위해 해시 후 상수시간 비교한다. */
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
+  const a = createHash('sha256').update(provided).digest()
+  const b = createHash('sha256').update(expected).digest()
   return timingSafeEqual(a, b)
 }
 
@@ -42,7 +42,7 @@ export function gateAgentApi(req: Request): NextResponse | null {
 /** 등록·enabled 프로젝트만 루프가 열린다(스펙 §1.1-2). 조회 실패는 404 로 위장하지 않고 throw. */
 export async function requireAgentProject(admin: AdminClient, projectId: string): Promise<boolean> {
   const { data, error } = await admin
-    .from('agent_projects').select('project_id, enabled').eq('project_id', projectId).maybeSingle()
+    .from('agent_projects').select('enabled').eq('project_id', projectId).maybeSingle()
   if (error) throw new Error(`agent_projects 조회 실패: ${error.message}`)
   return !!data && (data as { enabled: boolean }).enabled === true
 }
