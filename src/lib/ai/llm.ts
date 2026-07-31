@@ -6,6 +6,18 @@ export interface ChatMessage {
   content: string
 }
 
+/**
+ * 짧은 대화형 보조 기능이 전체 모델 폴백 체인 때문에 오래 멈추지 않도록 하는 호출별 제한.
+ * 생략하면 기존 전역 동작(재시도 + Gemini 모델 폴백 + 기본 출력 한도)을 그대로 유지한다.
+ */
+export interface GenerateAnswerOptions {
+  timeoutMs?: number
+  maxOutputTokens?: number
+  allowModelFallback?: boolean
+  retries?: number
+  retryRateLimit?: boolean
+}
+
 interface GeminiResp {
   candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
 }
@@ -17,13 +29,17 @@ interface OpenAIResp {
  * LLM 답변 생성. 제공자 비종속. 키가 없거나(=설정 안 됨) 오류/타임아웃이면 null 을
  * 반환하여 호출측이 결정형 답변으로 폴백하도록 한다. (UX 가 절대 끊기지 않음)
  */
-export async function generateAnswer(system: string, messages: ChatMessage[]): Promise<string | null> {
+export async function generateAnswer(
+  system: string,
+  messages: ChatMessage[],
+  options: GenerateAnswerOptions = {},
+): Promise<string | null> {
   const cfg = llmConfig()
   if (!cfg.apiKey) return null
   try {
     return cfg.provider === 'openai'
-      ? await openaiChat(cfg, system, messages)
-      : await geminiChat(cfg, system, messages)
+      ? await openaiChat(cfg, system, messages, options)
+      : await geminiChat(cfg, system, messages, options)
   } catch (e) {
     console.error('[dkbot] LLM 생성 실패 → 결정형 폴백:', e)
     return null
@@ -74,11 +90,17 @@ function geminiGenerationConfig(model: string, maxOutputTokens = 4096): Record<s
 }
 
 /** 주 모델 실패(429/5xx/빈 답변) 시 폴백 체인을 순서대로 시도. 전부 실패해야 상위 폴백으로. */
-async function geminiChat(cfg: LlmConfig, system: string, messages: ChatMessage[]): Promise<string | null> {
+async function geminiChat(
+  cfg: LlmConfig,
+  system: string,
+  messages: ChatMessage[],
+  options: GenerateAnswerOptions,
+): Promise<string | null> {
   let lastErr: unknown = null
-  for (const model of geminiModelChain(cfg.model)) {
+  const models = options.allowModelFallback === false ? [cfg.model] : geminiModelChain(cfg.model)
+  for (const model of models) {
     try {
-      const text = await geminiChatOne({ ...cfg, model }, system, messages)
+      const text = await geminiChatOne({ ...cfg, model }, system, messages, options)
       if (text) return text
       console.warn(`[dkbot] ${model} 이 빈 답변 반환 → 다음 모델 시도`)
     } catch (e) {
@@ -90,7 +112,12 @@ async function geminiChat(cfg: LlmConfig, system: string, messages: ChatMessage[
   return null
 }
 
-async function geminiChatOne(cfg: LlmConfig, system: string, messages: ChatMessage[]): Promise<string | null> {
+async function geminiChatOne(
+  cfg: LlmConfig,
+  system: string,
+  messages: ChatMessage[],
+  options: GenerateAnswerOptions,
+): Promise<string | null> {
   const url = `${cfg.baseUrl}/models/${cfg.model}:generateContent`
   const body = {
     system_instruction: { parts: [{ text: system }] },
@@ -98,7 +125,10 @@ async function geminiChatOne(cfg: LlmConfig, system: string, messages: ChatMessa
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     })),
-    generationConfig: geminiGenerationConfig(cfg.model, cfg.maxOutputTokens),
+    generationConfig: geminiGenerationConfig(
+      cfg.model,
+      options.maxOutputTokens ?? cfg.maxOutputTokens ?? 4096,
+    ),
   }
   // 비스트리밍은 전체 생성이 끝나야 응답이 오므로, maxOutputTokens 4096 완주를 감안해 타임아웃 상향.
   // (스트리밍 경로는 헤더 수신 시점에 타이머가 풀려 기본 25초로 충분)
@@ -110,7 +140,11 @@ async function geminiChatOne(cfg: LlmConfig, system: string, messages: ChatMessa
         body: JSON.stringify(body),
         signal,
       }),
-    { timeoutMs: 50_000 },
+    {
+      timeoutMs: options.timeoutMs ?? 50_000,
+      retries: options.retries ?? 1,
+      retryRateLimit: options.retryRateLimit ?? true,
+    },
   )
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`)
   const json = (await res.json()) as GeminiResp
@@ -123,22 +157,33 @@ async function geminiChatOne(cfg: LlmConfig, system: string, messages: ChatMessa
   return text || null
 }
 
-async function openaiChat(cfg: LlmConfig, system: string, messages: ChatMessage[]): Promise<string | null> {
+async function openaiChat(
+  cfg: LlmConfig,
+  system: string,
+  messages: ChatMessage[],
+  options: GenerateAnswerOptions,
+): Promise<string | null> {
   const url = `${cfg.baseUrl}/chat/completions`
+  const maxOutputTokens = options.maxOutputTokens ?? cfg.maxOutputTokens
   const body = {
     model: cfg.model,
     temperature: 0.3,
     // 프로필에 '최대 출력 토큰'이 지정된 경우에만 보낸다 — 미지정 시 서버 기본값을 그대로 쓴다.
-    ...(cfg.maxOutputTokens ? { max_tokens: cfg.maxOutputTokens } : {}),
+    ...(maxOutputTokens ? { max_tokens: maxOutputTokens } : {}),
     messages: [{ role: 'system', content: system }, ...messages.map(m => ({ role: m.role, content: m.content }))],
   }
-  const res = await fetchWithRetry(signal =>
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify(body),
-      signal,
-    }),
+  const res = await fetchWithRetry(
+    signal => fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+        body: JSON.stringify(body),
+        signal,
+      }),
+    {
+      timeoutMs: options.timeoutMs,
+      retries: options.retries ?? 1,
+      retryRateLimit: options.retryRateLimit ?? true,
+    },
   )
   if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 300)}`)
   const json = (await res.json()) as OpenAIResp

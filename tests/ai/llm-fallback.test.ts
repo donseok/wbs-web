@@ -108,6 +108,31 @@ describe('generateAnswer — 모델 폴백 체인', () => {
     const urls = new Set(fetchMock.mock.calls.map(c => String(c[0])))
     expect([...urls].every(u => u.includes('gemini-3.5-flash:'))).toBe(true)
   })
+
+  it('짧은 UI 호출은 429 재시도와 모델 폴백을 모두 끌 수 있다', async () => {
+    fetchMock.mockImplementation(async () => json429())
+
+    const result = await generateAnswer(
+      '시스템',
+      [{ role: 'user', content: '질문' }],
+      {
+        timeoutMs: 10_000,
+        maxOutputTokens: 1_024,
+        allowModelFallback: false,
+        retries: 0,
+        retryRateLimit: false,
+      },
+    )
+
+    expect(result).toBeNull()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('gemini-3.5-flash:')
+    const payload = JSON.parse(String(init?.body)) as {
+      generationConfig: { maxOutputTokens: number }
+    }
+    expect(payload.generationConfig.maxOutputTokens).toBe(1_024)
+  })
 })
 
 describe('generateAnswerStream — 스트림 폴백 체인', () => {

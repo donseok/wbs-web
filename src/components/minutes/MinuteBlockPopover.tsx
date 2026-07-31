@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { CircleAlert, ExternalLink, Highlighter, Users } from 'lucide-react'
+import { CircleAlert, ExternalLink, Highlighter, LoaderCircle, Users } from 'lucide-react'
 import type { InsightKind } from '@/lib/domain/types'
 import type { MinuteLinkedIssue } from '@/lib/domain/issueMinuteSource'
 import { ISSUE_STATUS_META } from '@/lib/domain/issues'
@@ -97,7 +97,7 @@ export function MinuteBlockPopover({
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium">
-                          {t('min.issue.open').replace('{n}', String(issue.issueNo))}
+                          {issue.piIssueCode ?? t('min.issue.open').replace('{n}', String(issue.issueNo))}
                         </span>
                         <span className="mt-0.5 block truncate text-[11px] text-ink-muted">
                           {issue.title}
@@ -121,8 +121,12 @@ export function MinuteBlockPopover({
             disabled={issueBusy || !canCreateIssue}
             className="btn btn-primary h-9 w-full"
           >
-            <CircleAlert className="h-4 w-4" />
-            {linkedIssues.length > 0 ? t('min.issue.createAnother') : t('min.issue.create')}
+            {issueBusy
+              ? <LoaderCircle className="h-4 w-4 animate-spin" />
+              : <CircleAlert className="h-4 w-4" />}
+            {issueBusy
+              ? t('min.issue.summarizing')
+              : linkedIssues.length > 0 ? t('min.issue.createAnother') : t('min.issue.create')}
           </button>
         </div>
         {names.length > 0 && (

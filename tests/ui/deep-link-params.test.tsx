@@ -105,8 +105,10 @@ function announcement(overrides: Partial<Announcement> = {}): Announcement {
 
 function issueFx(overrides: Partial<Issue> = {}): Issue {
   return {
-    id: 'iss-1', issueNo: 1, projectId: 'p1', title: '기준정보 오류', body: '',
+    id: 'iss-1', issueNo: 1, piIssueCode: null, projectId: 'p1',
+    megaCode: null, megaSeq: null, title: '기준정보 오류', body: '',
     status: 'open', severity: 'medium', assigneeMemberIds: [], startDate: null, dueDate: null,
+    subProcess: '', ownerDepartment: '', relatedSystems: [], sourceType: null, sourceDetail: '',
     minuteSources: [],
     resolutionNote: '', resolvedAt: null, createdBy: 'u1', createdByName: '홍길동',
     createdAt: '2026-07-01T00:00:00+00:00', updatedAt: '2026-07-01T00:00:00+00:00', ...overrides,

@@ -55,6 +55,12 @@ const INPUT = {
   assigneeMemberIds: [] as string[],
   startDate: null,
   dueDate: null,
+  megaCode: '00' as const,
+  subProcess: '기준정보 등록',
+  ownerDepartment: '경영관리팀',
+  relatedSystems: ['ERP'],
+  sourceType: 'interview' as const,
+  sourceDetail: '현업 인터뷰',
 }
 
 /** 선검증 조회(maybeSingle) 스텁 — from().select().eq().maybeSingle() 체인만 지원. */
@@ -162,6 +168,114 @@ describe('작성자/관리자 게이트 — updateIssue·deleteIssue', () => {
   })
 })
 
+describe('updateIssue — 회의록 원천 불변성/0055 이전 이슈 최초 분류', () => {
+  function updateClient(minuteLinkResult: {
+    data: { id: string } | null
+    error: { message: string } | null
+  }, currentSourceType: string | null = null) {
+    const update = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        select: vi.fn(() => ({
+          single: vi.fn(async () => ({
+            data: { id: 'i1', pi_issue_code: 'PI-I-00-01' },
+            error: null,
+          })),
+        })),
+      })),
+    }))
+    return {
+      update,
+      client: {
+        from: vi.fn((table: string) => {
+          if (table === 'issues') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  maybeSingle: vi.fn(async () => ({
+                    data: {
+                      project_id: 'p1',
+                      created_by: 'me',
+                      mega_code: null,
+                      source_type: currentSourceType,
+                    },
+                    error: null,
+                  })),
+                })),
+              })),
+              update,
+            }
+          }
+          if (table === 'issue_links') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn(() => ({
+                  eq: vi.fn(() => ({
+                    limit: vi.fn(() => ({
+                      maybeSingle: vi.fn(async () => minuteLinkResult),
+                    })),
+                  })),
+                })),
+              })),
+            }
+          }
+          if (table === 'issue_assignees') {
+            return {
+              delete: vi.fn(() => ({
+                eq: vi.fn(async () => ({ error: null })),
+              })),
+            }
+          }
+          throw new Error(`unexpected table: ${table}`)
+        }),
+      },
+    }
+  }
+
+  it('기존 source_type=null이어도 불변 minute_block 링크가 있으면 minutes 최초 분류를 허용한다', async () => {
+    asMember()
+    const fixture = updateClient({ data: { id: 'link-1' }, error: null })
+    state.client = fixture.client
+
+    const result = await updateIssue('i1', { ...INPUT, sourceType: 'minutes' })
+
+    expect(result).toMatchObject({ ok: true, piIssueCode: 'PI-I-00-01' })
+    expect(fixture.update).toHaveBeenCalledOnce()
+  })
+
+  it('minute_block 링크가 없거나 조회가 실패하면 minutes 사칭을 fail-closed로 막는다', async () => {
+    asMember()
+    const noLink = updateClient({ data: null, error: null })
+    state.client = noLink.client
+    expect(await updateIssue('i1', { ...INPUT, sourceType: 'minutes' })).toMatchObject({
+      ok: false,
+      error: '회의록 원천은 검증된 회의록 링크가 있는 이슈에만 지정할 수 있습니다.',
+    })
+    expect(noLink.update).not.toHaveBeenCalled()
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const lookupFailure = updateClient({ data: null, error: { message: 'lookup failed' } })
+    state.client = lookupFailure.client
+    expect(await updateIssue('i1', { ...INPUT, sourceType: 'minutes' })).toMatchObject({
+      ok: false,
+      error: '권한을 확인할 수 없어 중단했습니다.',
+    })
+    expect(lookupFailure.update).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('이미 다른 원천으로 분류된 이슈는 링크 유무와 무관하게 minutes로 바꾸지 못한다', async () => {
+    asMember()
+    const fixture = updateClient({ data: { id: 'link-1' }, error: null }, 'interview')
+    state.client = fixture.client
+
+    expect(await updateIssue('i1', { ...INPUT, sourceType: 'minutes' })).toMatchObject({
+      ok: false,
+      error: '등록된 이슈 원천을 회의록 원천으로 변경할 수 없습니다.',
+    })
+    expect(fixture.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('updateIssueProgress — 전환 검증 + CAS', () => {
   it('전환 맵에 없는 전환은 거부 (resolved→on_hold)', async () => {
     asMember()
@@ -199,6 +313,54 @@ describe('updateIssueProgress — 전환 검증 + CAS', () => {
 })
 
 describe('입력 검증 — createIssue', () => {
+  it('정규화한 분석 메타를 저장하고 발급된 PI 업무키를 반환한다', async () => {
+    asMember()
+    const insert = vi.fn(() => ({
+      select: vi.fn(() => ({
+        single: vi.fn(async () => ({
+          data: { id: 'i1', issue_no: 31, pi_issue_code: 'PI-I-00-04' },
+          error: null,
+        })),
+      })),
+    }))
+    state.client = {
+      from: vi.fn((table: string) => {
+        if (table === 'issues') return { insert }
+        if (table === 'issue_assignees') {
+          return {
+            delete: vi.fn(() => ({
+              eq: vi.fn(async () => ({ error: null })),
+            })),
+          }
+        }
+        throw new Error(`unexpected table: ${table}`)
+      }),
+    }
+
+    const result = await createIssue('p1', {
+      ...INPUT,
+      subProcess: '  기준정보 등록  ',
+      ownerDepartment: '  경영관리팀  ',
+      relatedSystems: [' ERP ', 'MDM', 'ERP'],
+      sourceDetail: '  현업 인터뷰  ',
+    })
+
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      mega_code: '00',
+      sub_process: '기준정보 등록',
+      owner_department: '경영관리팀',
+      related_systems: ['ERP', 'MDM'],
+      source_type: 'interview',
+      source_detail: '현업 인터뷰',
+    }))
+    expect(result).toEqual({
+      ok: true,
+      id: 'i1',
+      issueNo: 31,
+      piIssueCode: 'PI-I-00-04',
+    })
+  })
+
   it('빈 제목 거부 (게이트 통과 후에도 DB insert 미도달)', async () => {
     asMember()
     const res = await createIssue('p1', { ...INPUT, title: '   ' })
@@ -233,6 +395,29 @@ describe('입력 검증 — createIssue', () => {
     asMember()
     const res = await createIssue('p1', { ...INPUT, assigneeMemberIds: 'm1' as never })
     expect(res.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('Mega 화이트리스트 밖의 코드는 거부한다', async () => {
+    asMember()
+    const res = await createIssue('p1', { ...INPUT, megaCode: '99' as never })
+    expect(res).toMatchObject({ ok: false, error: '잘못된 Mega 영역입니다.' })
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('Sub Process와 주관부서는 공백일 수 없다', async () => {
+    asMember()
+    const noProcess = await createIssue('p1', { ...INPUT, subProcess: '  ' })
+    const noOwner = await createIssue('p1', { ...INPUT, ownerDepartment: '  ' })
+    expect(noProcess.ok).toBe(false)
+    expect(noOwner.ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('일반 등록에서는 회의록 원천을 사칭할 수 없다', async () => {
+    asMember()
+    const res = await createIssue('p1', { ...INPUT, sourceType: 'minutes' })
+    expect(res).toMatchObject({
+      ok: false,
+      error: '회의록 원천은 회의록의 이슈 등록 기능에서만 선택할 수 있습니다.',
+    })
     expect(createServerClient).not.toHaveBeenCalled()
   })
 })

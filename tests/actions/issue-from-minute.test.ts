@@ -21,15 +21,25 @@ const { createAdminClient } = vi.hoisted(() => ({
 const { requireProjectMember, requireProjectAdmin, resolveProjectId, getActor } = vi.hoisted(() => ({
   requireProjectMember: vi.fn(), requireProjectAdmin: vi.fn(), resolveProjectId: vi.fn(), getActor: vi.fn(),
 }))
+const ai = vi.hoisted(() => ({
+  generateAnswer: vi.fn(),
+  hasLLM: vi.fn(() => true),
+}))
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ getSession: vi.fn() }))
 vi.mock('@/lib/authz', () => ({ requireProjectMember, requireProjectAdmin, resolveProjectId, getActor }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient }))
+vi.mock('@/lib/ai/llm', () => ({ generateAnswer: ai.generateAnswer }))
+vi.mock('@/lib/ai/provider', () => ({ hasLLM: ai.hasLLM }))
 
 import { getSession } from '@/lib/auth'
-import { createIssueFromMinuteBlock, fetchIssueProjectMembers } from '@/app/actions/issues'
+import {
+  createIssueFromMinuteBlock,
+  fetchIssueProjectMembers,
+  prepareMinuteIssueDraft,
+} from '@/app/actions/issues'
 
 const USER = { id: 'user-1', email: 'user@example.com', user_metadata: { name: '홍길동' } } as const
 const ACTOR = { userId: USER.id, teamCode: 'PMO', teamId: 't1', isSuperuser: false, projectRoles: new Map([['project-1', 'member']]) }
@@ -43,6 +53,13 @@ const INPUT = {
   assigneeMemberIds: ['member-1'],
   startDate: '2026-07-27',
   dueDate: '2026-08-03',
+  megaCode: '02' as const,
+  subProcess: '수주 등록',
+  ownerDepartment: '영업팀',
+  relatedSystems: ['CRM', 'ERP'],
+  // 전용 액션은 이 값을 신뢰하지 않고 minutes로 강제해야 한다.
+  sourceType: 'other' as const,
+  sourceDetail: '주간 영업회의 위험 블록',
 }
 const SOURCE = {
   minuteId: 'minute-1',
@@ -63,7 +80,7 @@ function clientsWithVersion({
   archivedAt?: string | null
 } = {}) {
   const rpcSingle = vi.fn(async () => ({
-    data: { issue_id: 'issue-1', issue_no: 27 },
+    data: { issue_id: 'issue-1', issue_no: 27, pi_issue_code: 'PI-I-02-03' },
     error: null,
   }))
   const rpc = vi.fn(() => ({ single: rpcSingle }))
@@ -105,6 +122,19 @@ function clientsWithVersion({
           })),
         }
       }
+      if (table === 'minute_insights') {
+        const query = {
+          select: vi.fn(),
+          eq: vi.fn(),
+          maybeSingle: vi.fn(async () => ({
+            data: { label: '인터페이스 전환 지연 대응 필요' },
+            error: null,
+          })),
+        }
+        query.select.mockReturnValue(query)
+        query.eq.mockReturnValue(query)
+        return query
+      }
       throw new Error(`unexpected table: ${table}`)
     }),
   }
@@ -129,6 +159,97 @@ beforeEach(() => {
   resolveProjectId.mockResolvedValue({ ok: true, projectId: 'project-1' })
   vi.mocked(getSession).mockReset()
   vi.mocked(getSession).mockResolvedValue(USER as never)
+  ai.generateAnswer.mockReset()
+  ai.hasLLM.mockReset()
+  ai.hasLLM.mockReturnValue(true)
+})
+
+describe('prepareMinuteIssueDraft', () => {
+  it('프로젝트 역할이 없으면 원문 조회와 AI 호출 전에 거부한다', async () => {
+    requireProjectMember.mockResolvedValue({ ok: false, error: '권한 없음' })
+
+    const result = await prepareMinuteIssueDraft('project-1', SOURCE)
+
+    expect(result).toEqual({ ok: false, error: '권한 없음' })
+    expect(createServerClient).not.toHaveBeenCalled()
+    expect(ai.generateAnswer).not.toHaveBeenCalled()
+  })
+
+  it('서버에서 검증한 블록만 AI에 전달하고 구조화된 초안을 반환·캐시한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion()
+    state.client = fixture.client
+    ai.generateAnswer.mockResolvedValue(JSON.stringify({
+      title: '인터페이스 전환 지연 대응',
+      body: '[현황]\n- 인터페이스 전환이 지연되고 있습니다.\n\n[문제/영향]\n- 전환 일정에 차질 위험이 있습니다.\n\n[필요 조치]\n- 담당자와 대응 방안을 확인합니다.',
+    }))
+
+    const first = await prepareMinuteIssueDraft('project-1', SOURCE)
+    const second = await prepareMinuteIssueDraft('project-1', SOURCE)
+
+    expect(first).toEqual(second)
+    expect(first).toMatchObject({
+      ok: true,
+      draft: { title: '인터페이스 전환 지연 대응', mode: 'ai' },
+    })
+    expect(ai.generateAnswer).toHaveBeenCalledOnce()
+    const [, messages, options] = ai.generateAnswer.mock.calls[0]
+    expect(messages[0].content).toContain(BLOCK.text)
+    expect(options).toMatchObject({
+      timeoutMs: 10_000,
+      maxOutputTokens: 4_096,
+      allowModelFallback: false,
+      retries: 0,
+      retryRateLimit: false,
+    })
+  })
+
+  it('AI를 사용할 수 없으면 원문 복사 대신 편집 가능한 결정형 초안을 반환한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion()
+    state.client = fixture.client
+    ai.hasLLM.mockReturnValue(false)
+
+    const result = await prepareMinuteIssueDraft('project-1', { ...SOURCE, kind: 'action' })
+
+    expect(result.ok).toBe(true)
+    expect(result.draft?.mode).toBe('fallback')
+    expect(result.draft?.title).toBe('인터페이스 전환 지연 대응 필요')
+    expect(result.draft?.body).toContain('[현황]')
+    expect(result.draft?.body).toContain('[문제/영향]')
+    expect(result.draft?.body).toContain('[필요 조치]')
+    expect(result.draft?.body).not.toBe(BLOCK.text)
+    expect(ai.generateAnswer).not.toHaveBeenCalled()
+  })
+
+  it('AI 응답이 깨져도 등록을 막지 않고 결정형 초안으로 대체한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion()
+    state.client = fixture.client
+    ai.generateAnswer.mockResolvedValue('JSON이 아닌 응답')
+
+    const result = await prepareMinuteIssueDraft('project-1', { ...SOURCE, kind: 'manual' })
+
+    expect(result.ok).toBe(true)
+    expect(result.draft?.mode).toBe('fallback')
+    expect(result.draft?.body).not.toBe(BLOCK.text)
+    expect(ai.generateAnswer).toHaveBeenCalledOnce()
+  })
+
+  it('변조된 블록 앵커는 AI 호출 전에 거부한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion()
+    state.client = fixture.client
+
+    const result = await prepareMinuteIssueDraft('project-1', {
+      ...SOURCE,
+      kind: 'manual',
+      blockHash: '0000000000000000',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(ai.generateAnswer).not.toHaveBeenCalled()
+  })
 })
 
 describe('createIssueFromMinuteBlock', () => {
@@ -148,7 +269,12 @@ describe('createIssueFromMinuteBlock', () => {
 
     const result = await createIssueFromMinuteBlock('project-1', INPUT, SOURCE)
 
-    expect(result).toEqual({ ok: true, id: 'issue-1', issueNo: 27 })
+    expect(result).toEqual({
+      ok: true,
+      id: 'issue-1',
+      issueNo: 27,
+      piIssueCode: 'PI-I-02-03',
+    })
     expect(fixture.admin.rpc).toHaveBeenCalledWith('create_issue_from_minute_block', expect.objectContaining({
       p_project_id: 'project-1',
       p_actor_id: USER.id,
@@ -161,6 +287,12 @@ describe('createIssueFromMinuteBlock', () => {
       p_source_kind: 'risk',
       p_start_date: '2026-07-27',
       p_due_date: '2026-08-03',
+      p_mega_code: '02',
+      p_sub_process: '수주 등록',
+      p_owner_department: '영업팀',
+      p_related_systems: ['CRM', 'ERP'],
+      p_source_type: 'minutes',
+      p_source_detail: '주간 영업회의 위험 블록',
     }))
   })
 
