@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { ComputedItem } from '@/lib/domain/types'
+import type { ComputedItem, TeamCode } from '@/lib/domain/types'
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import {
   detectRiskSignals, riskFingerprint,
@@ -22,9 +22,11 @@ const msig = (over: Partial<MinuteActionSignal> = {}): MinuteActionSignal => ({
 })
 
 const TODAY = '2026-07-15'
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(DEFAULT_TEAM_CODES 미러) — owner_overload 픽스처가 'ERP' 등을 전제. */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 const input = (over: Partial<RiskSignalInput> = {}): RiskSignalInput => ({
   items: [], today: TODAY, realToday: TODAY, snapshots: [],
-  startDate: null, endDate: null, minuteSignals: [], ...over,
+  startDate: null, endDate: null, minuteSignals: [], teams: TEST_TEAMS, ...over,
 })
 const run = (over: Partial<RiskSignalInput> = {}) => detectRiskSignals(input(over))
 const find = (r: RiskSignalReport, kind: string) => r.signals.find(s => s.kind === kind)

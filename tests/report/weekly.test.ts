@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { buildWeeklyReportModel } from '@/lib/report/weekly'
-import type { Announcement, AttendanceRecord, ComputedItem, Meeting, ProjectMember } from '@/lib/domain/types'
+import { buildWeeklyReportModel as buildWeeklyReportModelReal } from '@/lib/report/weekly'
+import type { Announcement, AttendanceRecord, ComputedItem, Meeting, ProjectMember, TeamCode } from '@/lib/domain/types'
+
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(2026-07 기준 5팀 — DEFAULT_TEAM_CODES 미러).
+ *  buildWeeklyReportModel 은 teams 를 필수로 받으므로, 팀 목록에 무관한 기존 테스트는 이 래퍼로 주입한다. */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+function buildWeeklyReportModel(
+  items: Parameters<typeof buildWeeklyReportModelReal>[0],
+  project: Parameters<typeof buildWeeklyReportModelReal>[1],
+  today: Parameters<typeof buildWeeklyReportModelReal>[2],
+  opts: Partial<Parameters<typeof buildWeeklyReportModelReal>[3]> = {},
+) {
+  return buildWeeklyReportModelReal(items, project, today, { teams: TEST_TEAMS, ...opts })
+}
 
 const meeting = (over: Partial<Meeting>): Meeting => ({
   id: Math.random().toString(36).slice(2), projectId: 'p', title: '회의', meetingDate: '2026-07-01',
@@ -129,6 +141,13 @@ describe('buildWeeklyReportModel — 워크로드/근태', () => {
     // mem1 연차 1건 → 포함, mem2 정상근무만 → 제외
     expect(m.attendance.thisWeek.map(r => r.memberName)).toEqual(['홍길동'])
     expect(m.attendance.thisWeek[0].count).toBe(1)
+  })
+  it('주입 팀이 결과에 반영된다 — 팀 마스터가 바뀌면 워크로드도 따라온다(하드코딩 폴백 없음)', () => {
+    // 기본 5팀에 없는 팀을 주입하면 워크로드 행에 그대로 나타나야 한다(내부 상수로 되돌아가지 않음).
+    const injected = buildWeeklyReportModelReal(items, project, '2026-06-30', {
+      members, attendance, teams: ['신규팀', 'PMO'],
+    })
+    expect(injected.workload.map(w => w.name)).toEqual(['신규팀', 'PMO'])
   })
 })
 

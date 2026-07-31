@@ -17,7 +17,7 @@
 import type { ComputedItem, InsightKind, TeamCode } from './types'
 import type { HygieneModel, Signal } from './dashboard'
 import {
-  ALL_TEAMS, dataHygiene, delayAging, diffDaysCal, dueSoonLeaves, overallSignal, progressSignal,
+  dataHygiene, delayAging, diffDaysCal, dueSoonLeaves, overallSignal, progressSignal,
 } from './dashboard'
 import { round1 } from './format'
 import { collectLeaves } from './tree'
@@ -77,8 +77,8 @@ export interface RiskSignalInput {
   startDate: string | null   // 설계 시그니처 유지(일정 문맥 확장 예약) — 현 탐지기는 미사용
   endDate: string | null
   minuteSignals: MinuteActionSignal[]
-  /** 팀 집계 대상(활성 팀) — 미주입 시 기본 5팀(ALL_TEAMS). */
-  teams?: readonly TeamCode[]
+  /** 팀 집계 대상(활성 팀) — 호출처가 팀 마스터에서 주입한다(필수). */
+  teams: readonly TeamCode[]
 }
 
 export interface RiskSignalReport {
@@ -287,7 +287,7 @@ export function detectRiskSignals(input: RiskSignalInput): RiskSignalReport {
   if (trend) signals.push(trend)
   const stall = detectDeadlineStall(leaves, today)
   if (stall) signals.push(stall)
-  signals.push(...detectOwnerOverload(leaves, input.teams ?? ALL_TEAMS))
+  signals.push(...detectOwnerOverload(leaves, input.teams))
   const overdue = detectOverdueAccumulation(leaves, today)
   if (overdue) signals.push(overdue)
   const staleActions = detectMeetingActionStale(minuteSignals, realToday)

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  analyzeProject,
+  analyzeProject as analyzeProjectReal,
   summarizeProject,
   answerDelayed,
   answerCompleted,
@@ -8,9 +8,28 @@ import {
   answerByTeam,
   answerOverview,
   answerWeeklySummary,
-  buildDocuments,
+  buildDocuments as buildDocumentsReal,
 } from '@/lib/ai/analytics'
-import type { ComputedItem, ProjectMember } from '@/lib/domain/types'
+import type { ComputedItem, ProjectMember, TeamCode } from '@/lib/domain/types'
+
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(DEFAULT_TEAM_CODES 미러) — 이 파일 테스트는 팀 목록 자체를 검증하지 않는다. */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+function analyzeProject(
+  items: Parameters<typeof analyzeProjectReal>[0],
+  projectName: Parameters<typeof analyzeProjectReal>[1],
+  today: Parameters<typeof analyzeProjectReal>[2],
+  members?: Parameters<typeof analyzeProjectReal>[4],
+) {
+  return analyzeProjectReal(items, projectName, today, TEST_TEAMS, members)
+}
+function buildDocuments(
+  items: Parameters<typeof buildDocumentsReal>[0],
+  projectName: Parameters<typeof buildDocumentsReal>[1],
+  today: Parameters<typeof buildDocumentsReal>[2],
+  members?: Parameters<typeof buildDocumentsReal>[4],
+) {
+  return buildDocumentsReal(items, projectName, today, TEST_TEAMS, members)
+}
 
 const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
   id: Math.random().toString(36).slice(2),
