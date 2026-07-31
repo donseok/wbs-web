@@ -84,6 +84,18 @@ describe('ensureIssueAnalysisAction', () => {
     expect(mocks.ensureIssueAnalysis).not.toHaveBeenCalled()
   })
 
+  it('허용되지 않은 Mega 범위는 원본/AI 조회 전에 거부한다', async () => {
+    const result = await ensureIssueAnalysisAction('project-1', '99' as never)
+    expect(result).toMatchObject({
+      ok: false,
+      state: 'unavailable',
+      error: '잘못된 Mega 분석 범위입니다.',
+      preflight: null,
+    })
+    expect(mocks.loadIssueAnalysisIssues).not.toHaveBeenCalled()
+    expect(mocks.ensureIssueAnalysis).not.toHaveBeenCalled()
+  })
+
   it('엄격 로더의 부분 조회 실패를 unavailable로 명시하고 AI를 호출하지 않는다', async () => {
     mocks.loadIssueAnalysisIssues.mockRejectedValue(
       new Error('[issue-analysis] 담당자 조회 실패: database unavailable'),
@@ -147,11 +159,64 @@ describe('ensureIssueAnalysisAction', () => {
       },
     })
     expect(result.template.path).not.toContain('/Users/')
+    expect(mocks.loadIssueAnalysisIssues).toHaveBeenCalledWith('project-1', undefined)
     expect(mocks.ensureIssueAnalysis).toHaveBeenCalledWith(
       'project-1',
       expect.any(Array),
       'user-1',
     )
+  })
+
+  it('선택 Mega만 엄격 로더와 AI 입력 범위로 전달한다', async () => {
+    const salesIssue = readyIssue({
+      id: '550e8400-e29b-41d4-a716-446655440002',
+      megaCode: '02',
+      megaSeq: 1,
+      piIssueCode: 'PI-I-02-01',
+      title: '주문 승인 지연',
+    })
+    mocks.loadIssueAnalysisIssues.mockResolvedValue([salesIssue])
+    mocks.ensureIssueAnalysis.mockResolvedValue({
+      state: 'unavailable',
+      reason: 'llm_missing',
+      error: 'LLM 미설정',
+      inputHash: 'a'.repeat(64),
+    })
+
+    await ensureIssueAnalysisAction('project-1', '02')
+
+    expect(mocks.loadIssueAnalysisIssues).toHaveBeenCalledWith('project-1', '02')
+    expect(mocks.ensureIssueAnalysis).toHaveBeenCalledWith(
+      'project-1',
+      [salesIssue],
+      'user-1',
+    )
+  })
+
+  it('선택 Mega에 이슈가 없으면 빈 범위로 차단하고 AI를 호출하지 않는다', async () => {
+    mocks.loadIssueAnalysisIssues.mockResolvedValue([])
+
+    const result = await ensureIssueAnalysisAction('project-1', '07')
+
+    expect(result).toMatchObject({
+      ok: false,
+      state: 'blocked',
+      error: '분석할 이슈가 없습니다.',
+      preflight: { totalCount: 0 },
+    })
+    expect(mocks.ensureIssueAnalysis).not.toHaveBeenCalled()
+  })
+
+  it('로더가 선택 Mega 밖의 행을 반환하면 fail-closed로 중단한다', async () => {
+    mocks.loadIssueAnalysisIssues.mockResolvedValue([readyIssue({ megaCode: '00' })])
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await ensureIssueAnalysisAction('project-1', '02')
+
+    expect(result).toMatchObject({ ok: false, state: 'unavailable', preflight: null })
+    expect(result.error).toContain('범위 정합성')
+    expect(mocks.ensureIssueAnalysis).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 
   it('LLM 미설정/생성 실패를 명시적 unavailable로 전달한다', async () => {

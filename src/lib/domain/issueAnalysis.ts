@@ -14,6 +14,8 @@ export const ISSUE_MEGA_AREAS = [
 
 export type IssueMegaCode = (typeof ISSUE_MEGA_AREAS)[number]['code']
 export const ISSUE_MEGA_CODES = ISSUE_MEGA_AREAS.map(area => area.code) as readonly IssueMegaCode[]
+/** 이슈 목록과 분석서 작성이 공유하는 Mega 범위. */
+export type IssueMegaFilter = 'all' | IssueMegaCode
 
 export const ISSUE_SOURCE_TYPES = [
   'minutes',

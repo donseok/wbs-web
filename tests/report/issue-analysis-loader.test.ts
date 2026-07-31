@@ -4,12 +4,16 @@ type TableResult = { data: unknown[] | null; error: { message: string } | null }
 
 const state = vi.hoisted(() => ({
   results: {} as Record<string, TableResult>,
+  filters: [] as Array<[table: string, column: string, value: unknown]>,
 }))
 
-function thenableQuery(result: TableResult) {
+function thenableQuery(table: string, result: TableResult) {
   const query: Record<string, unknown> = {}
   query.select = vi.fn(() => query)
-  query.eq = vi.fn(() => query)
+  query.eq = vi.fn((column: string, value: unknown) => {
+    state.filters.push([table, column, value])
+    return query
+  })
   query.order = vi.fn(() => query)
   query.then = (
     resolve: (value: TableResult) => unknown,
@@ -19,7 +23,7 @@ function thenableQuery(result: TableResult) {
 }
 
 const createServerClient = vi.hoisted(() => vi.fn(async () => ({
-  from: (table: string) => thenableQuery(state.results[table]),
+  from: (table: string) => thenableQuery(table, state.results[table]),
 })))
 
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
@@ -54,6 +58,7 @@ const issueRow = {
 
 beforeEach(() => {
   createServerClient.mockClear()
+  state.filters = []
   state.results = {
     issues: { data: [issueRow], error: null },
     issue_assignees: {
@@ -102,6 +107,19 @@ describe('loadIssueAnalysisIssues', () => {
       minuteTitle: 'PI 회의',
       excerpt: '회의록 근거',
     })
+  })
+
+  it('Mega 범위가 있으면 프로젝트 조건과 함께 issues 쿼리에 강제한다', async () => {
+    await loadIssueAnalysisIssues('project-1', '00')
+    expect(state.filters).toContainEqual(['issues', 'project_id', 'project-1'])
+    expect(state.filters).toContainEqual(['issues', 'mega_code', '00'])
+  })
+
+  it('전체 범위는 issues 쿼리에 Mega 조건을 추가하지 않는다', async () => {
+    await loadIssueAnalysisIssues('project-1')
+    expect(state.filters.some(([table, column]) => (
+      table === 'issues' && column === 'mega_code'
+    ))).toBe(false)
   })
 
   it.each(['issues', 'issue_assignees', 'issue_links'])(

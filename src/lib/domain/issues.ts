@@ -2,7 +2,7 @@
 // 상태 전환의 단일 정본은 STATUS_TRANSITIONS — UI(select 옵션)와 서버 액션(전환 검증)이
 // 이 맵만 참조한다. 5번째 상태를 추가할 때 이 파일 + 0041 check 제약만 바꾸면 되게 유지할 것.
 import type { IssueMinuteSource } from './issueMinuteSource'
-import type { IssueMegaCode, IssueSourceType } from './issueAnalysis'
+import type { IssueMegaCode, IssueMegaFilter, IssueSourceType } from './issueAnalysis'
 
 export const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'on_hold'] as const
 export type IssueStatus = (typeof ISSUE_STATUSES)[number]
@@ -117,11 +117,18 @@ export type IssueSeverityFilter = 'all' | IssueSeverity
 /** 필터 칩 적용. mineOnly 는 담당자 중 한 명이라도 내 멤버 id 집합에 속하는 이슈만(미지정 담당 제외). */
 export function filterIssues(
   issues: Issue[],
-  f: { status: IssueStatusFilter; severity: IssueSeverityFilter; mineOnly: boolean; myMemberIds: ReadonlySet<string> },
+  f: {
+    status: IssueStatusFilter
+    severity: IssueSeverityFilter
+    mega: IssueMegaFilter
+    mineOnly: boolean
+    myMemberIds: ReadonlySet<string>
+  },
 ): Issue[] {
   return issues.filter(i =>
     (f.status === 'all' || i.status === f.status)
     && (f.severity === 'all' || i.severity === f.severity)
+    && (f.mega === 'all' || i.megaCode === f.mega)
     && (!f.mineOnly || i.assigneeMemberIds.some(id => f.myMemberIds.has(id))))
 }
 

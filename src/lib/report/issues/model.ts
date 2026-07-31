@@ -235,7 +235,7 @@ function compareIssues(a: IssueAnalysisIssueInput, b: IssueAnalysisIssueInput): 
 }
 
 /**
- * 프로젝트의 모든 이슈를 Mega 정본 순서로 집계한다. 상태 필터는 의도적으로 없다.
+ * 전달된 분석 범위의 이슈를 Mega 정본 순서로 집계한다. 상태 필터는 의도적으로 없다.
  * 하나라도 blocked 이면 호출부가 AI 생성 전에 중단할 수 있도록 상세 사유를 직렬화한다.
  */
 export function buildIssueAnalysisPreflight(

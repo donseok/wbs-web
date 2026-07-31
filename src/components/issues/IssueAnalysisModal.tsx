@@ -15,6 +15,10 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
 import type { Issue } from '@/lib/domain/issues'
 import {
+  ISSUE_MEGA_AREAS,
+  type IssueMegaFilter,
+} from '@/lib/domain/issueAnalysis'
+import {
   buildIssueAnalysisPreflight,
   type IssueAnalysisReport,
 } from '@/lib/report/issues/model'
@@ -33,32 +37,46 @@ export function IssueAnalysisModal({
   onClose,
   projectId,
   issues,
+  megaFilter = 'all',
 }: {
   open: boolean
   onClose: () => void
   projectId: string
   issues: Issue[]
+  megaFilter?: IssueMegaFilter
 }) {
-  const { t } = useLocale()
+  const { locale, t } = useLocale()
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const preflight = useMemo(() => buildIssueAnalysisPreflight(issues), [issues])
+  const scopedIssues = useMemo(
+    () => megaFilter === 'all'
+      ? issues
+      : issues.filter(issue => issue.megaCode === megaFilter),
+    [issues, megaFilter],
+  )
+  const preflight = useMemo(() => buildIssueAnalysisPreflight(scopedIssues), [scopedIssues])
   const populatedAreas = preflight.areas.filter(area => area.count > 0)
   const canGenerate = preflight.totalCount > 0 && preflight.blockedCount === 0
+  const selectedArea = megaFilter === 'all'
+    ? null
+    : ISSUE_MEGA_AREAS.find(area => area.code === megaFilter) ?? null
+  const scopeLabel = selectedArea
+    ? `${selectedArea.code} · ${locale === 'en' ? selectedArea.nameEn : selectedArea.nameKo}`
+    : t('issue.analysis.scopeAll')
 
   useEffect(() => {
     if (!open) return
     setResult(null)
     setError(null)
-  }, [open, issues])
+  }, [open, issues, megaFilter])
 
   function generate() {
     if (!canGenerate || pending) return
     setError(null)
     startTransition(async () => {
       try {
-        const response = await ensureIssueAnalysisAction(projectId)
+        const response = await ensureIssueAnalysisAction(projectId, megaFilter)
         if (
           response.ok
           && response.runId
@@ -141,6 +159,11 @@ export function IssueAnalysisModal({
     >
       <div className="space-y-5">
         <p className="text-sm leading-6 text-ink-muted">{t('issue.analysis.desc')}</p>
+
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface-2 px-4 py-3">
+          <span className="text-xs font-medium text-ink-muted">{t('issue.analysis.scope')}</span>
+          <span className="chip bg-brand-weak text-brand">{scopeLabel}</span>
+        </div>
 
         <section className="grid grid-cols-2 gap-3">
           <div className="rounded-2xl border border-done/30 bg-done-weak p-4">

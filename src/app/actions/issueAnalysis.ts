@@ -3,6 +3,10 @@
 import { requireProjectMember } from '@/lib/authz'
 import { loadIssueAnalysisIssues } from '@/lib/data/issueAnalysis'
 import {
+  isIssueMegaCode,
+  type IssueMegaFilter,
+} from '@/lib/domain/issueAnalysis'
+import {
   ensureIssueAnalysis,
   type EnsureIssueAnalysisResult,
 } from '@/lib/ai/issue-analysis'
@@ -89,6 +93,7 @@ function fromEnsureResult(
  */
 export async function ensureIssueAnalysisAction(
   projectId: string,
+  megaFilter: IssueMegaFilter = 'all',
 ): Promise<EnsureIssueAnalysisActionResult> {
   const guard = await requireProjectMember(projectId)
   const template = await safeTemplateDiagnostic()
@@ -103,10 +108,29 @@ export async function ensureIssueAnalysisAction(
       pptExport,
     }
   }
+  if (megaFilter !== 'all' && !isIssueMegaCode(megaFilter)) {
+    return {
+      ok: false,
+      state: 'unavailable',
+      error: '잘못된 Mega 분석 범위입니다.',
+      preflight: null,
+      template,
+      pptExport,
+    }
+  }
 
   let issues
   try {
-    issues = await loadIssueAnalysisIssues(projectId)
+    issues = await loadIssueAnalysisIssues(
+      projectId,
+      megaFilter === 'all' ? undefined : megaFilter,
+    )
+    if (
+      megaFilter !== 'all'
+      && issues.some(issue => issue.megaCode !== megaFilter)
+    ) {
+      throw new Error('[issue-analysis] Mega 분석 범위 정합성이 올바르지 않습니다.')
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : '이슈 분석 데이터를 불러오지 못했습니다.'
     console.error('[issue-analysis] 엄격 로더 실패:', message)

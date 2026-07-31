@@ -98,25 +98,29 @@ describe('sortIssues — 미해결 → 지연 → 심각도 → 목표일 → �
   })
 })
 
-describe('filterIssues — 상태·심각도·내 담당', () => {
+describe('filterIssues — 상태·심각도·Mega·내 담당', () => {
   const list = [
     issue('a', { status: 'open', severity: 'high', assigneeMemberIds: ['m1'] }),
-    issue('b', { status: 'resolved', severity: 'low', assigneeMemberIds: ['m2', 'm3'] }),
+    issue('b', { status: 'resolved', severity: 'low', megaCode: '02', assigneeMemberIds: ['m2', 'm3'] }),
     issue('c', { status: 'open', severity: 'low', assigneeMemberIds: [] }),
   ]
   it('all 필터는 전량 통과', () => {
-    expect(filterIssues(list, { status: 'all', severity: 'all', mineOnly: false, myMemberIds: new Set() })).toHaveLength(3)
+    expect(filterIssues(list, { status: 'all', severity: 'all', mega: 'all', mineOnly: false, myMemberIds: new Set() })).toHaveLength(3)
   })
   it('상태·심각도 AND 결합', () => {
-    const r = filterIssues(list, { status: 'open', severity: 'low', mineOnly: false, myMemberIds: new Set() })
+    const r = filterIssues(list, { status: 'open', severity: 'low', mega: 'all', mineOnly: false, myMemberIds: new Set() })
     expect(r.map(i => i.id)).toEqual(['c'])
   })
+  it('Mega 영역을 선택하면 해당 영역 이슈만 남긴다', () => {
+    const r = filterIssues(list, { status: 'all', severity: 'all', mega: '02', mineOnly: false, myMemberIds: new Set() })
+    expect(r.map(i => i.id)).toEqual(['b'])
+  })
   it('내 담당은 myMemberIds 포함 여부 — 미지정 담당은 제외', () => {
-    const r = filterIssues(list, { status: 'all', severity: 'all', mineOnly: true, myMemberIds: new Set(['m1']) })
+    const r = filterIssues(list, { status: 'all', severity: 'all', mega: 'all', mineOnly: true, myMemberIds: new Set(['m1']) })
     expect(r.map(i => i.id)).toEqual(['a'])
   })
   it('여러 담당자 중 한 명만 나여도 내 담당이다', () => {
-    const r = filterIssues(list, { status: 'all', severity: 'all', mineOnly: true, myMemberIds: new Set(['m3']) })
+    const r = filterIssues(list, { status: 'all', severity: 'all', mega: 'all', mineOnly: true, myMemberIds: new Set(['m3']) })
     expect(r.map(i => i.id)).toEqual(['b'])
   })
 })

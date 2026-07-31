@@ -140,13 +140,68 @@ describe('IssueAnalysisModal', () => {
       await Promise.resolve()
     })
 
-    expect(ensureIssueAnalysisAction).toHaveBeenCalledWith('project-1')
+    expect(ensureIssueAnalysisAction).toHaveBeenCalledWith('project-1', 'all')
     expect(document.body.textContent).toContain('주문 승인·입력 통합')
     expect(document.body.textContent).toContain('PI-I-02-01')
     expect(document.body.textContent).toContain('보호 해제된 표준 PPTX가 필요합니다.')
     const download = [...document.querySelectorAll('button')]
       .find(button => button.textContent?.includes('issue.analysis.download')) as HTMLButtonElement
     expect(download.disabled).toBe(true)
+  })
+
+  it('선택 Mega만 사전 점검하고 같은 범위를 서버 액션에 전달한다', async () => {
+    const current = issue()
+    const blockedOtherArea = issue({
+      id: 'issue-00',
+      megaCode: '00',
+      megaSeq: 1,
+      piIssueCode: 'PI-I-00-01',
+      subProcess: '',
+    })
+    const snapshot = buildIssueAnalysisInputSnapshot('project-1', [current])
+    const analysis = buildIssueAnalysisReport(snapshot, {
+      '02': [{
+        title: '주문 통합',
+        description: '표준 승인 흐름으로 통합한다.',
+        issueIds: [current.id],
+      }],
+    }, '2026-07-31T10:00:00Z')
+    ensureIssueAnalysisAction.mockResolvedValue({
+      ok: true,
+      state: 'ready',
+      runId: 'run-sales',
+      analysis,
+      preflight: null,
+      template: { status: 'ready', message: '사용 가능', path: 'template.pptx' },
+      pptExport: { status: 'ready', code: 'PPT_EXPORT_READY', message: '다운로드 가능' },
+    })
+
+    await act(async () => {
+      root.render(
+        <IssueAnalysisModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          issues={[current, blockedOtherArea]}
+          megaFilter="02"
+        />,
+      )
+    })
+
+    expect(document.body.textContent).toContain('02 · 영업')
+    expect(document.body.textContent).toContain('issue.analysis.readyCount')
+    expect(document.body.textContent).not.toContain('Sub Process가 없습니다.')
+    const generate = [...document.querySelectorAll('button')]
+      .find(button => button.textContent?.includes('issue.analysis.generate')) as HTMLButtonElement
+    expect(generate.disabled).toBe(false)
+
+    await act(async () => {
+      generate.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(ensureIssueAnalysisAction).toHaveBeenCalledWith('project-1', '02')
   })
 
   it('템플릿과 렌더러가 모두 준비되면 저장 runId 다운로드 링크를 연다', async () => {

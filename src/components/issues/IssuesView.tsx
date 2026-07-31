@@ -11,6 +11,10 @@ import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from './IssueModal
 import { IssueAnalysisModal } from './IssueAnalysisModal'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
 import {
+  ISSUE_MEGA_AREAS,
+  type IssueMegaFilter,
+} from '@/lib/domain/issueAnalysis'
+import {
   ISSUE_SEVERITIES, ISSUE_SEVERITY_META, ISSUE_STATUSES, ISSUE_STATUS_META,
   canEditIssue, filterIssues, isOverdue, sortIssues,
   type Issue, type IssueSeverityFilter, type IssueStatusFilter,
@@ -28,11 +32,12 @@ export function IssuesView({
   myMemberIds: string[]
   today: string
 }) {
-  const { t } = useLocale()
+  const { locale, t } = useLocale()
   const searchParams = useSearchParams()
 
   const [statusFilter, setStatusFilter] = useState<IssueStatusFilter>('all')
   const [severityFilter, setSeverityFilter] = useState<IssueSeverityFilter>('all')
+  const [megaFilter, setMegaFilter] = useState<IssueMegaFilter>('all')
   const [mineOnly, setMineOnly] = useState(false)
   // 딥링크 ?focus= — 최초 마운트에서 해당 이슈 상세를 연다. 무효 id 는 조용히 무시(공지·회의 관례).
   // viewing 은 id 만 상태로 갖고 issues 에서 파생한다 — conflict 후 router.refresh() 로 issues 가 새
@@ -60,8 +65,14 @@ export function IssuesView({
   }
 
   const visible = useMemo(
-    () => sortIssues(filterIssues(issues, { status: statusFilter, severity: severityFilter, mineOnly, myMemberIds: myIds }), today),
-    [issues, statusFilter, severityFilter, mineOnly, myIds, today],
+    () => sortIssues(filterIssues(issues, {
+      status: statusFilter,
+      severity: severityFilter,
+      mega: megaFilter,
+      mineOnly,
+      myMemberIds: myIds,
+    }), today),
+    [issues, statusFilter, severityFilter, megaFilter, mineOnly, myIds, today],
   )
 
   const statusTabs = [
@@ -83,7 +94,10 @@ export function IssuesView({
     setFormOpen(true)
   }
 
-  const filtered = statusFilter !== 'all' || severityFilter !== 'all' || mineOnly
+  const filtered = statusFilter !== 'all'
+    || severityFilter !== 'all'
+    || megaFilter !== 'all'
+    || mineOnly
   // 조회 전용(role=null)에게는 등록 어포던스를 숨긴다 — 서버 createIssue 는 requireProjectMember(스펙 §6.3).
   // role 은 이 화면의 프로젝트 스코프 shim 이라 그대로 판정에 쓸 수 있다.
   const canWrite = role !== null
@@ -94,6 +108,19 @@ export function IssuesView({
       <div className="flex flex-wrap items-center gap-2">
         <SegmentedTabs tabs={statusTabs} value={statusFilter} onChange={setStatusFilter} size="sm" />
         <SegmentedTabs tabs={severityTabs} value={severityFilter} onChange={setSeverityFilter} size="sm" />
+        <select
+          aria-label={t('issue.filter.mega')}
+          value={megaFilter}
+          onChange={event => setMegaFilter(event.target.value as IssueMegaFilter)}
+          className="app-input h-9 w-full min-w-[180px] text-xs sm:w-auto"
+        >
+          <option value="all">{t('issue.filter.megaAll')}</option>
+          {ISSUE_MEGA_AREAS.map(area => (
+            <option key={area.code} value={area.code}>
+              {area.code} · {locale === 'en' ? area.nameEn : area.nameKo}
+            </option>
+          ))}
+        </select>
         <button
           onClick={() => setMineOnly(v => !v)}
           aria-pressed={mineOnly}
@@ -220,6 +247,7 @@ export function IssuesView({
         onClose={() => setAnalysisOpen(false)}
         projectId={projectId}
         issues={issues}
+        megaFilter={megaFilter}
       />
     </div>
   )

@@ -2,6 +2,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import {
   isIssueMegaCode,
   isIssueSourceType,
+  type IssueMegaCode,
 } from '@/lib/domain/issueAnalysis'
 import type { IssueSeverity, IssueStatus } from '@/lib/domain/issues'
 import type {
@@ -39,37 +40,42 @@ function assertQuery(
  */
 export async function loadIssueAnalysisIssues(
   projectId: string,
+  megaCode?: IssueMegaCode,
 ): Promise<IssueAnalysisIssueInput[]> {
   const sb = await createServerClient()
+  const issuesQuery = sb.from('issues')
+    .select([
+      'id',
+      'issue_no',
+      'project_id',
+      'title',
+      'body',
+      'status',
+      'severity',
+      'start_date',
+      'due_date',
+      'resolution_note',
+      'resolved_at',
+      'created_by',
+      'created_by_name',
+      'created_at',
+      'updated_at',
+      'mega_code',
+      'mega_seq',
+      'pi_issue_code',
+      'sub_process',
+      'owner_department',
+      'related_systems',
+      'source_type',
+      'source_detail',
+    ].join(', '))
+    .eq('project_id', projectId)
+  const scopedIssuesQuery = megaCode === undefined
+    ? issuesQuery
+    : issuesQuery.eq('mega_code', megaCode)
+
   const [issuesResult, assigneesResult, linksResult] = await Promise.all([
-    sb.from('issues')
-      .select([
-        'id',
-        'issue_no',
-        'project_id',
-        'title',
-        'body',
-        'status',
-        'severity',
-        'start_date',
-        'due_date',
-        'resolution_note',
-        'resolved_at',
-        'created_by',
-        'created_by_name',
-        'created_at',
-        'updated_at',
-        'mega_code',
-        'mega_seq',
-        'pi_issue_code',
-        'sub_process',
-        'owner_department',
-        'related_systems',
-        'source_type',
-        'source_detail',
-      ].join(', '))
-      .eq('project_id', projectId)
-      .order('issue_no', { ascending: true }),
+    scopedIssuesQuery.order('issue_no', { ascending: true }),
     sb.from('issue_assignees')
       .select('issue_id, member_id')
       .eq('project_id', projectId)
