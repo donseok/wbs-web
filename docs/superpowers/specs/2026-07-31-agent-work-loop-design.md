@@ -76,7 +76,7 @@ P2(프로젝트 설정 계층)가 들어오면 이 테이블은 그 설정으로
 | `id` | uuid PK | |
 | `project_id` | uuid FK, not null | 게이트·조회용 비정규화 |
 | `wbs_item_id` | uuid FK wbs_items **on delete set null** | 항목 삭제 후에도 원장은 감사 기록으로 보존 |
-| `status` | text CHECK | `ready → claimed → reported → approved` / `rejected`→(claimed 복귀) / `cancelled` |
+| `status` | text CHECK | `ready → claimed → reported → approved` / `cancelled`. **`rejected` 상태는 없다** — 반려는 보고 행의 `review_action='reject'` 로 기록되고 주문은 `claimed` 로 복귀한다 |
 | `instructions` | text | 발행자 지시문(항목의 산출물·업무내용에 덧붙이는 맥락) |
 | `priority` | int default 0 | 목록 정렬 힌트 |
 | `claimed_by` | text | 에이전트 이름(자유 문자열) |
@@ -154,7 +154,7 @@ P2(프로젝트 설정 계층)가 들어오면 이 테이블은 그 설정으로
 ## 5. 관제 UI (`/agent-ops`)
 
 - **발행 탭**: 등록 프로젝트의 WBS 리프 트리에서 항목 선택 → 지시문 작성 → 발행.
-  항목의 산출물·업무내용·계획일이 지시서 미리보기에 자동 포함.
+  항목의 산출물·업무내용·계획일이 지시서 미리보기에 자동 포함. **발행 권한은 프로젝트 관리자 이상.**
 - **보드 탭**: 상태별 열(ready / claimed / 승인 대기 / 완료·반려). 카드에 점유 에이전트·최근 percent·경과 시간.
   `claimed_at` 이 24h 넘은 카드는 "응답 없음" 표시 + 사람 회수(ready 복귀) 버튼. 자동 회수는 없다.
 - **승인 화면**: 보고 타임라인 + 증적 링크 + 요약, 승인/반려(사유 필수). 승인 권한은 **프로젝트 관리자 이상**.
@@ -166,6 +166,8 @@ P2(프로젝트 설정 계층)가 들어오면 이 테이블은 그 설정으로
 
 - **3원칙**: 조회 실패는 표시=로깅(빈 목록 위장 금지) · 쓰기 선행 조회 실패는 중단 · 게이트 fail-closed.
 - CAS 충돌 409, 종료 상태(approved/cancelled)에 온 보고 409.
+  **`reported`(승인 대기) 상태에서도 추가 보고는 409** — 승인/반려 판정 전에는 원장을 움직이지 않는다.
+  반려로 `claimed` 복귀 후 재보고한다.
 - 시크릿 회전 = Vercel env 교체 1회. 에이전트별 키 분리는 하지 않는다(YAGNI — `agent` 필드로 식별만).
 - 서버가 LLM 을 호출하는 지점 없음 — 무료 티어 RPM 예산에 영향 0.
 
