@@ -12,7 +12,9 @@
 
 ## Global Constraints
 
-- **기존 테이블 ALTER 금지.** 마이그레이션은 CREATE(+RLS)만. ALTER 가 한 줄이라도 들어가면 스펙 §1.1 위반.
+- **기존 테이블 ALTER 0건.** 마이그레이션은 신규 테이블의 CREATE(+RLS)와 그 신규 테이블에 대한
+  리포 관례 보강(begin/commit 래핑·`if not exists` 멱등·revoke/grant 하드닝·search_path 핀)만 허용.
+  기존 테이블을 만지는 문장이 한 줄이라도 들어가면 스펙 §1.1 위반. (2026-07-31 사용자 결정 — Task 1 리뷰 반영)
 - **마이그레이션과 코드는 다른 커밋** (pre-push G1). `supabase/migrations/*` 는 항상 단독 커밋 + `_rollback.sql` 동반.
 - **`git add -A` 금지** — 파일명 명시 stage.
 - **사이드바 메뉴 추가 금지** (1차 범위 제외, 스펙 §5). `src/components/app/*` 는 이 계획에서 절대 건드리지 않는다.
