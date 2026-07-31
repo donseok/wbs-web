@@ -85,8 +85,12 @@ $$;
 -- (아직 아무도 커스텀 프로파일을 저장하지 않은 행만) — 이미 커스텀 값이 있는 프로젝트는 무접촉.
 -- 값은 src/lib/excel/profile.ts 의 LEGACY_DCUBE_PROFILE 를 그대로 JSON 직렬화한 것이다(키 순서 무관,
 -- 값 일치가 계약 — Task 1 report 의 좌표와 node JSON.parse 대조로 확인했다. Task 2 report 참조).
+-- 리뷰 픽스(2026-08-01, Task4 리뷰): ExcelProfile.logical 에 name 열이 추가됐다(outline 계층 전용 —
+-- columns 계층은 계층 열 자체가 이름의 출처라 항상 null). 0061 은 이 시점까지 아직 프로덕션에
+-- 적용되지 않았으므로("적용 전 파일 수정이 옳다") 새 컬럼을 추가한 별도 마이그레이션을 내지 않고
+-- 이 파일을 직접 고친다 — LEGACY_DCUBE_PROFILE 과의 값 일치가 계약이다(테스트가 실물 심볼을 import).
 update public.project_settings
-set excel_profile = '{"version":1,"sheetName":"WBS","holidaySheetName":"Holiday","headerRow":2,"hierarchy":{"kind":"columns","columns":[1,2,3]},"logical":{"extraAxis":0,"code":null,"deliverable":11,"start":12,"end":13,"weight":14,"actualPct":16},"teamColumns":[[6,"PMO"],[7,"ERP"],[8,"MES"],[9,"가공"],[10,"MDM"]],"ownerMarks":{"●":"primary","△":"support"}}'::jsonb
+set excel_profile = '{"version":1,"sheetName":"WBS","holidaySheetName":"Holiday","headerRow":2,"hierarchy":{"kind":"columns","columns":[1,2,3]},"logical":{"extraAxis":0,"code":null,"name":null,"deliverable":11,"start":12,"end":13,"weight":14,"actualPct":16},"teamColumns":[[6,"PMO"],[7,"ERP"],[8,"MES"],[9,"가공"],[10,"MDM"]],"ownerMarks":{"●":"primary","△":"support"}}'::jsonb
 where preset_applied = 'legacy-dcube' and excel_profile = '{}'::jsonb;
 
 reset search_path;
