@@ -87,7 +87,6 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
     queueUiPref({ sidebarCollapsed: next }) // 사용자 액션만 서버 저장
   }
 
-  const activeCount = projects.filter(p => p.status === 'active').length
   // 전역 화면에서는 최근 메뉴 문맥과 실제 선택을 구분한다. 빈 값이어야 사용자가
   // 최근 프로젝트 자체를 다시 골라도 change가 발생해 대시보드로 진입할 수 있다.
   const selectedProjectId = routeProjectId ?? ''
@@ -125,46 +124,8 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
         </Tooltip>
       </div>
 
-      {/* WORKSPACE 카드 */}
-      {!collapsed && (
-        <div className="mt-0.5 rounded-2xl border border-sidebar-line bg-sidebar-2 p-2">
-          <div className="flex items-baseline justify-between">
-            <span className="text-[9px] font-semibold uppercase leading-none tracking-[0.16em] text-sidebar-ink-subtle">Workspace</span>
-          </div>
-          <div className="mt-1 text-[13px] font-bold leading-none tracking-tight text-sidebar-ink">{t('workspace.title')}</div>
-          <div className="mt-1 grid grid-cols-2 gap-1.5">
-            <div className="rounded-lg border border-sidebar-line bg-sidebar-3/60 px-2 py-1">
-              <div className="text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-sidebar-ink-subtle">{t('workspace.projects')}</div>
-              <div className="mt-0.5 text-[15px] font-bold leading-none tabular-nums text-sidebar-ink">{projects.length}</div>
-            </div>
-            <div className="rounded-lg border border-sidebar-line bg-sidebar-3/60 px-2 py-1">
-              <div className="text-[9px] font-semibold uppercase leading-none tracking-[0.14em] text-sidebar-ink-subtle">{t('workspace.active')}</div>
-              <div className="mt-0.5 text-[15px] font-bold leading-none tabular-nums text-sidebar-ink">{activeCount}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 전역: 내 회의 */}
-      <Tooltip label={t('nav.myMeetings')} side="right" disabled={!collapsed}>
-        <Link href="/meetings" aria-current={pathname === '/meetings' ? 'page' : undefined}
-          className={`side-link mt-2 ${pathname === '/meetings' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
-          <CalendarRange className="h-[18px] w-[18px] shrink-0" />
-          {!collapsed && <span className="flex-1">{t('nav.myMeetings')}</span>}
-        </Link>
-      </Tooltip>
-
-      {/* 전역: 회의록 */}
-      <Tooltip label={t('nav.minutes')} side="right" disabled={!collapsed}>
-        <Link href="/minutes" aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
-          className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
-          <NotebookText className="h-[18px] w-[18px] shrink-0" />
-          {!collapsed && <span className="flex-1">{t('nav.minutes')}</span>}
-        </Link>
-      </Tooltip>
-
-      {/* 프로젝트 선택 — 목록을 펼치지 않아 프로젝트 수가 늘어도 사이드바 높이가 고정된다. */}
-      <div className="mt-4 flex shrink-0 flex-col">
+      {/* 프로젝트 선택 — 핵심 작업 문맥이므로 사이드바 최상단에 둔다. */}
+      <div className="mt-2 flex shrink-0 flex-col">
         <div className="mb-1.5 flex shrink-0 items-center justify-between px-2">
           {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</span>}
           {!collapsed && <Link href="/projects" className="text-[10px] font-medium text-sidebar-ink-muted transition hover:text-sidebar-ink">{t('common.viewAll')}</Link>}
@@ -219,9 +180,29 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
             </select>
           </div>
         )}
+      </div>
 
-        {/* 메뉴 섹션 */}
-        <nav className="mt-4 shrink-0 border-t border-sidebar-line pt-3" aria-label="주요 메뉴">
+      {/* 전역: 내 회의 */}
+      <Tooltip label={t('nav.myMeetings')} side="right" disabled={!collapsed}>
+        <Link href="/meetings" aria-current={pathname === '/meetings' ? 'page' : undefined}
+          className={`side-link mt-2 ${pathname === '/meetings' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+          <CalendarRange className="h-[18px] w-[18px] shrink-0" />
+          {!collapsed && <span className="flex-1">{t('nav.myMeetings')}</span>}
+        </Link>
+      </Tooltip>
+
+      {/* 전역: 회의록 */}
+      <Tooltip label={t('nav.minutes')} side="right" disabled={!collapsed}>
+        <Link href="/minutes" aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
+          className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+          <NotebookText className="h-[18px] w-[18px] shrink-0" />
+          {!collapsed && <span className="flex-1">{t('nav.minutes')}</span>}
+        </Link>
+      </Tooltip>
+
+      {/* 메뉴 섹션 */}
+      <div className="mt-4 flex shrink-0 flex-col">
+        <nav className="shrink-0 border-t border-sidebar-line pt-3" aria-label="주요 메뉴">
           <div className="mb-1.5 flex items-center justify-between px-2">
             {!collapsed && (
               <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">
