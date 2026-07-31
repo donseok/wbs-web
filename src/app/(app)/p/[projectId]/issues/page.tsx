@@ -11,10 +11,7 @@ import { getServerLocale } from '@/lib/i18n/server'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { IssuesView } from '@/components/issues/IssuesView'
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
+import { seoulToday } from '@/lib/domain/dates'
 
 export default async function IssuesPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params

@@ -5,10 +5,7 @@ import { computeCompletionMap, type ProjectCompletion } from '@/lib/domain/proje
 import { teamOrderMap } from '@/lib/domain/teams'
 import { teamsSync } from '@/lib/teams/master'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind, TaskDependency } from '@/lib/domain/types'
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
+import { seoulToday } from '@/lib/domain/dates'
 
 // 같은 요청 내 layout+page 중복 호출을 1회로 dedupe(React cache).
 export const getComputedWbs = cache(async (

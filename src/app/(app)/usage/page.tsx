@@ -19,15 +19,12 @@ import {
   getDailyActives, getMenuRanking, getRecentUsageEvents, getUsageDirectory,
   getUsageSessions, getUsageSummary, getUserRollup, purgeOldUsageEvents,
 } from '@/lib/data/usage'
+import { seoulToday } from '@/lib/domain/dates'
 
 export const dynamic = 'force-dynamic' // 접속 지표는 항상 최신이어야 한다
 
 /** 접속 로그 표시 상한. 넘치면 화면이 그 사실을 밝힌다. */
 const EVENT_LIMIT = 200
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 
 export default async function UsagePage({ searchParams }: {
   searchParams: Promise<{ days?: string; user?: string; menu?: string }>

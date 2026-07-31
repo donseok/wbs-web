@@ -20,10 +20,7 @@ import { RiskSignalCard } from './RiskSignalCard'
 import { RiskWorklist } from './RiskWorklist'
 import { TeamProgress } from './TeamProgress'
 import { MinuteSignals, type MinuteSignal } from './MinuteSignals'
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
+import { seoulToday } from '@/lib/domain/dates'
 
 // 회의 인사이트 카드 표시 상한 — 페치는 위험 신호 탐지 겸용으로 상향됐지만(page.tsx),
 // 협업 2열 카드의 기존 '최근 8건' 밀도는 유지한다.

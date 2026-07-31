@@ -12,10 +12,8 @@ import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { MinutesView } from '@/components/minutes/MinutesView'
+import { seoulToday } from '@/lib/domain/dates'
 
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 /** 해당 월 1일~말일 (달력 그리드 아님 — 목록은 월 단위 조회). */
 function monthRange(todayIso: string): [string, string] {
   const [y, m] = todayIso.split('-').map(Number)

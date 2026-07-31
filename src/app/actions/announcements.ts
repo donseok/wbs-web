@@ -8,6 +8,7 @@ import type { AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/typ
 import { expandMeetings } from '@/lib/domain/meetings'
 import { composeAnnouncementFromMeeting } from '@/lib/domain/announcements'
 import type { MeetingCategory, MeetingRecurrence } from '@/lib/domain/types'
+import { seoulToday } from '@/lib/domain/dates'
 
 export interface AnnouncementInput {
   title: string
@@ -27,11 +28,6 @@ const CATEGORIES: AnnouncementCategory[] = ['general', 'important', 'event']
 const TITLE_MAX = 200
 const BODY_MAX = 20000
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-/** 오늘 'YYYY-MM-DD' (Asia/Seoul) — publish_from/to(date) 비교 기준. 앱 날짜 표기 관례. */
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 
 /** 'YYYY-MM-DD' 형식 + 실재하는 날짜인지 (2026-02-30 등 반려) */
 function isValidDate(s: string): boolean {

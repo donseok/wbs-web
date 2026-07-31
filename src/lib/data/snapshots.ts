@@ -2,12 +2,9 @@ import { createServerClient } from '@/lib/supabase/server'
 import { computeTree, overallProgress } from '@/lib/domain/rollup'
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import type { WbsRow } from '@/lib/domain/types'
+import { seoulToday } from '@/lib/domain/dates'
 
 type Sb = Awaited<ReturnType<typeof createServerClient>>
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 
 /** 진척 스냅샷 조회(날짜 오름차순). numeric 컬럼은 문자열로 올 수 있어 Number 변환. */
 export async function getSnapshots(projectId: string): Promise<SnapshotPoint[]> {

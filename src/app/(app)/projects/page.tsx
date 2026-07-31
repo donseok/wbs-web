@@ -12,6 +12,7 @@ import { fmtDate } from '@/components/wbs/shared'
 import { t, type DictKey, type Locale } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import type { ComputedItem } from '@/lib/domain/types'
+import { seoulToday } from '@/lib/domain/dates'
 
 type ProjectRow = {
   id: string
@@ -28,10 +29,6 @@ const STATUS: Record<ProjectLifecycleStatus, { labelKey: DictKey; chip: string; 
   overdue: { labelKey: 'home.status_overdue' as DictKey, chip: 'bg-delayed-weak text-delayed', dot: 'bg-delayed' },
   done: { labelKey: 'home.status_done', chip: 'bg-done-weak text-done', dot: 'bg-done' },
   unknown: { labelKey: 'home.status_unknown' as DictKey, chip: 'bg-surface-2 text-ink-muted', dot: 'bg-ink-subtle' },
-}
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
 function initials(name: string): string {

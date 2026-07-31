@@ -10,6 +10,7 @@ import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { AttendanceView } from '@/components/attendance/AttendanceView'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
+import { seoulToday } from '@/lib/domain/dates'
 
 export default async function AttendancePage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -19,7 +20,7 @@ export default async function AttendancePage({ params }: { params: Promise<{ pro
     getActorForView(),
   ])
   const locale = await getServerLocale()
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const today = seoulToday()
   const s = summarize(records)
 
   return (

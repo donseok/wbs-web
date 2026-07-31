@@ -14,6 +14,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import type { ComputedItem, Meeting, MeetingException } from '@/lib/domain/types'
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
+import { seoulToday } from '@/lib/domain/dates'
 
 /** 위험 신호 탐지(회의 액션 경과)가 최근 8건보다 넓은 창을 본다 — dashboard/page.tsx 와 동일 값. */
 export const MINUTE_SIGNAL_FETCH = 30
@@ -35,10 +36,6 @@ export interface ProjectFactsSource {
   meetingExceptions: MeetingException[]
   /** 프로젝트 설정(project_settings)의 마일스톤 키워드 — 0058 시드 덕에 현행 상수와 동일(회귀 0). */
   milestoneKeywords: string[]
-}
-
-export function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
 /** 대시보드와 동일 소스 1회 병렬 로드. 프로젝트 행이 없으면(비멤버 RLS 포함) null. */

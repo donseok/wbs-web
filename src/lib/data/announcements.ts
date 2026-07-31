@@ -1,11 +1,7 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type { Announcement, AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/types'
-
-/** 오늘 'YYYY-MM-DD' (Asia/Seoul) — publish_from/to(date) 비교 기준. 앱 날짜 표기 관례. */
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
+import { seoulToday } from '@/lib/domain/dates'
 
 /** 프로젝트 공지 목록 — 고정 우선 → 최신순. 실패 시 [] (읽기 계층 관례). */
 export const getAnnouncements = cache(async (projectId: string): Promise<Announcement[]> => {

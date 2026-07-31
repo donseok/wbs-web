@@ -16,17 +16,13 @@ import {
 } from '@/app/actions/announcements'
 import type { Announcement, AnnouncementCategory } from '@/lib/domain/types'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
+import { seoulToday } from '@/lib/domain/dates'
 
 type CategoryFilter = 'all' | AnnouncementCategory
 
 /** 'YYYY-MM-DD' (Asia/Seoul) — 앱 날짜 표기 관례 */
 function fmtDate(iso: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(iso))
-}
-
-/** 오늘 'YYYY-MM-DD' (Asia/Seoul) — publish_from/to(date) 비교·폼 기본값 기준 */
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
 
 export function AnnouncementsView({

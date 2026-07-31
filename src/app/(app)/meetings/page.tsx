@@ -10,10 +10,8 @@ import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { MyMeetingsView } from '@/components/meetings/MyMeetingsView'
+import { seoulToday } from '@/lib/domain/dates'
 
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 function monthGrid(todayIso: string): [string, string] {
   const [y, m] = todayIso.split('-').map(Number)
   const first = new Date(Date.UTC(y, m - 1, 1)); const dow = first.getUTCDay()

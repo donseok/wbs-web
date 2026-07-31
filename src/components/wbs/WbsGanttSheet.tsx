@@ -5,6 +5,7 @@ import type { ComputedItem, TaskDependency } from '@/lib/domain/types'
 import { actorFromView, isProjectAdmin, isProjectMember, type ProjectActorView } from '@/lib/domain/authz'
 import { computeDependencySchedule, type TaskSchedule } from '@/lib/domain/dependencySchedule'
 import { centeredTimelineScrollLeft } from '@/lib/domain/ganttScale'
+import { isWeekendDow } from '@/lib/domain/dates'
 import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
@@ -513,10 +514,7 @@ export function WbsGanttSheet({
   const holSet = new Set(holidays)
   const xOf = (date: string) =>
     ((new Date(date + 'T00:00:00Z').getTime() - start.getTime()) / 86400000) * dayPx
-  const isWeekend = (d: string) => {
-    const dow = new Date(d + 'T00:00:00Z').getUTCDay()
-    return dow === 0 || dow === 6
-  }
+  const isWeekend = (d: string) => isWeekendDow(new Date(d + 'T00:00:00Z').getUTCDay())
   const ganttW = days.length * dayPx
 
   const months: { ym: string; label: string; left: number; width: number }[] = []

@@ -10,10 +10,7 @@ import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { AnnouncementsView } from '@/components/announcements/AnnouncementsView'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
+import { seoulToday } from '@/lib/domain/dates'
 
 export default async function AnnouncementsPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
