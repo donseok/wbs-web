@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Upload, Shield, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/components/ui/Toast'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -59,48 +60,53 @@ export function WbsImportForm({ projectId }: { projectId: string }) {
   }
 
   return (
-    <form onSubmit={onSubmit}>
-      <input type="hidden" name="projectId" value={projectId} />
-      <label className="group flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-surface-2 px-6 text-center transition hover:border-brand hover:bg-brand-weak/40">
-        <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-line bg-surface text-brand shadow-sm transition group-hover:border-brand-ring">
-          <Upload className="h-5 w-5" />
-        </span>
-        <span className="mt-4 text-sm font-semibold text-ink">{fileName ?? t('settings.chooseExcel')}</span>
-        <span className="mt-1 text-xs leading-5 text-ink-muted">{t('settings.xlsxOnly')}</span>
-        <input
-          type="file"
-          name="file"
-          accept=".xlsx"
-          required
-          disabled={busy}
-          onChange={event => { setFileName(event.target.files?.[0]?.name ?? null); setErrors(null) }}
-          className="mt-4 max-w-full text-xs text-ink-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-brand-weak file:px-3 file:py-2 file:font-semibold file:text-brand"
-        />
-      </label>
+    <>
+      <form onSubmit={onSubmit}>
+        <input type="hidden" name="projectId" value={projectId} />
+        <label className="group flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-surface-2 px-6 text-center transition hover:border-brand hover:bg-brand-weak/40">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-line bg-surface text-brand shadow-sm transition group-hover:border-brand-ring">
+            <Upload className="h-5 w-5" />
+          </span>
+          <span className="mt-4 text-sm font-semibold text-ink">{fileName ?? t('settings.chooseExcel')}</span>
+          <span className="mt-1 text-xs leading-5 text-ink-muted">{t('settings.xlsxOnly')}</span>
+          <input
+            type="file"
+            name="file"
+            accept=".xlsx"
+            required
+            disabled={busy}
+            onChange={event => { setFileName(event.target.files?.[0]?.name ?? null); setErrors(null) }}
+            className="mt-4 max-w-full text-xs text-ink-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-brand-weak file:px-3 file:py-2 file:font-semibold file:text-brand"
+          />
+        </label>
 
-      {errors && errors.length > 0 && (
-        <div role="alert" className="mt-4 rounded-xl border border-delayed/30 bg-delayed-weak/40 p-3.5">
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-delayed">
-            <AlertTriangle className="h-3.5 w-3.5" /> {t('settings.validationErrorsPrefix')}{errors.length}{t('settings.validationErrorsSuffix')}
+        {errors && errors.length > 0 && (
+          <div role="alert" className="mt-4 rounded-xl border border-delayed/30 bg-delayed-weak/40 p-3.5">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-delayed">
+              <AlertTriangle className="h-3.5 w-3.5" /> {t('settings.validationErrorsPrefix')}{errors.length}{t('settings.validationErrorsSuffix')}
+            </p>
+            <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-xs leading-5 text-ink-muted">
+              {errors.map((er, i) => (
+                <li key={i}>{t('settings.excelRowPrefix')}{er.excelRow}{t('settings.excelRowSuffix')}{er.message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+            <Shield className="h-3.5 w-3.5 text-done" />
+            {t('settings.uploadNote')}
           </p>
-          <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-xs leading-5 text-ink-muted">
-            {errors.map((er, i) => (
-              <li key={i}>{t('settings.excelRowPrefix')}{er.excelRow}{t('settings.excelRowSuffix')}{er.message}</li>
-            ))}
-          </ul>
+          <button className="btn btn-primary" disabled={busy}>
+            <Upload className="h-4 w-4" />
+            {busy ? t('settings.importing') : t('settings.validateAndImport')}
+          </button>
         </div>
-      )}
-
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="flex items-center gap-1.5 text-xs text-ink-muted">
-          <Shield className="h-3.5 w-3.5 text-done" />
-          {t('settings.uploadNote')}
-        </p>
-        <button className="btn btn-primary" disabled={busy}>
-          <Upload className="h-4 w-4" />
-          {busy ? t('settings.importing') : t('settings.validateAndImport')}
-        </button>
-      </div>
-    </form>
+      </form>
+      <Link href={`/p/${projectId}/import`} className="mt-3 inline-block text-xs font-semibold text-brand hover:underline">
+        {t('importWizard.linkFromOldForm')}
+      </Link>
+    </>
   )
 }
