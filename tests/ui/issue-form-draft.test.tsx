@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const router = { refresh: vi.fn() }
 vi.mock('next/navigation', () => ({ useRouter: () => router }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
-  useLocale: () => ({ t: (key: string) => key }),
+  useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
 }))
 vi.mock('@/app/actions/issues', () => ({
   createIssue: vi.fn(async () => ({ ok: true, id: 'default-issue' })),
@@ -17,7 +17,8 @@ vi.mock('@/app/actions/issues', () => ({
   deleteIssue: vi.fn(async () => ({ ok: true })),
 }))
 
-import { IssueFormModal } from '@/components/issues/IssueModals'
+import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from '@/components/issues/IssueModals'
+import type { Issue } from '@/lib/domain/issues'
 
 describe('IssueFormModal 회의록 초안', () => {
   let container: HTMLDivElement
@@ -44,6 +45,50 @@ describe('IssueFormModal 회의록 초안', () => {
     return input
   }
 
+  function labelSelect(labelKey: string): HTMLSelectElement {
+    const label = [...document.querySelectorAll('label')]
+      .find(node => node.textContent?.includes(labelKey))
+    const select = label?.querySelector('select')
+    if (!(select instanceof HTMLSelectElement)) throw new Error(`${labelKey} select not found`)
+    return select
+  }
+
+  const analysisDraft = {
+    megaCode: '02' as const,
+    subProcess: ' 02.02 주문관리 ',
+    ownerDepartment: ' 영업관리팀 ',
+    relatedSystems: [' SAP ', 'MES', 'SAP'],
+  }
+
+  const issue = (over: Partial<Issue> = {}): Issue => ({
+    id: 'issue-1',
+    issueNo: 17,
+    projectId: 'project-1',
+    title: '주문 처리 지연',
+    body: '주문 승인 대기 시간이 길다.',
+    status: 'open',
+    severity: 'high',
+    assigneeMemberIds: [],
+    startDate: null,
+    dueDate: null,
+    minuteSources: [],
+    resolutionNote: '',
+    resolvedAt: null,
+    createdBy: 'user-1',
+    createdByName: '홍길동',
+    createdAt: '2026-07-27T00:00:00Z',
+    updatedAt: '2026-07-27T00:00:00Z',
+    megaCode: '02',
+    megaSeq: 3,
+    piIssueCode: 'PI-I-02-03',
+    subProcess: '02.02 주문관리',
+    ownerDepartment: '영업관리팀',
+    relatedSystems: ['SAP', 'MES'],
+    sourceType: 'interview',
+    sourceDetail: '영업관리팀 인터뷰',
+    ...over,
+  })
+
   it('선택 블록·기간 초안을 표시하고 커스텀 생성 액션으로 전달한다', async () => {
     const onCreate = vi.fn(async () => ({ ok: true, id: 'linked-issue' }))
     const onCreated = vi.fn()
@@ -57,11 +102,13 @@ describe('IssueFormModal 회의록 초안', () => {
           initial={null}
           members={[]}
           draft={{
+            ...analysisDraft,
             title: '전환 지연 위험',
             body: '인터페이스 전환 지연 위험을 확인한다.',
             severity: 'high',
             startDate: '2026-07-27',
             dueDate: '2026-08-03',
+            sourceType: 'other',
           }}
           sourcePreview={{
             title: '주간회의',
@@ -79,6 +126,11 @@ describe('IssueFormModal 회의록 초안', () => {
     expect(labelInput('issue.form.title').value).toBe('전환 지연 위험')
     expect(labelInput('issue.form.start').value).toBe('2026-07-27')
     expect(labelInput('issue.form.due').value).toBe('2026-08-03')
+    expect(labelSelect('issue.analysis.mega').value).toBe('02')
+    expect(labelSelect('issue.analysis.sourceType').value).toBe('minutes')
+    expect(labelSelect('issue.analysis.sourceType').disabled).toBe(true)
+    expect(labelInput('issue.analysis.sourceDetail').value).toBe('주간회의 · 2026-07-27')
+    expect(document.body.textContent).toContain('issue.analysis.minuteAutoLinked')
 
     const save = [...document.querySelectorAll('button')]
       .find(button => button.textContent === 'issue.form.save') as HTMLButtonElement
@@ -94,6 +146,12 @@ describe('IssueFormModal 회의록 초안', () => {
       severity: 'high',
       startDate: '2026-07-27',
       dueDate: '2026-08-03',
+      megaCode: '02',
+      subProcess: '02.02 주문관리',
+      ownerDepartment: '영업관리팀',
+      relatedSystems: ['SAP', 'MES'],
+      sourceType: 'minutes',
+      sourceDetail: '주간회의 · 2026-07-27',
     }))
     expect(onCreated).toHaveBeenCalledWith('linked-issue')
     expect(onClose).toHaveBeenCalled()
@@ -141,7 +199,7 @@ describe('IssueFormModal 회의록 초안', () => {
           projectId="project-1"
           initial={null}
           members={[]}
-          draft={{ title: '중복 생성 방지' }}
+          draft={{ ...analysisDraft, title: '중복 생성 방지' }}
           onCreate={onCreate}
         />,
       )
@@ -167,5 +225,138 @@ describe('IssueFormModal 회의록 초안', () => {
       await Promise.resolve()
     })
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('일반 신규는 기타 원천으로 시작하고 필수 분석 정보와 관련 시스템을 정규화한다', async () => {
+    const onCreate = vi.fn(async () => ({ ok: true, id: 'manual-issue' }))
+    await act(async () => {
+      root.render(
+        <IssueFormModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          initial={null}
+          members={[]}
+          draft={{ ...analysisDraft, title: '수기 등록 이슈' }}
+          onCreate={onCreate}
+        />,
+      )
+    })
+
+    expect(labelSelect('issue.analysis.sourceType').value).toBe('other')
+    expect(labelSelect('issue.analysis.sourceType').disabled).toBe(false)
+
+    const save = [...document.querySelectorAll('button')]
+      .find(button => button.textContent === 'issue.form.save') as HTMLButtonElement
+    await act(async () => {
+      save.click()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(onCreate).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      megaCode: '02',
+      subProcess: '02.02 주문관리',
+      ownerDepartment: '영업관리팀',
+      relatedSystems: ['SAP', 'MES'],
+      sourceType: 'other',
+      sourceDetail: '',
+    }))
+  })
+
+  it('Mega·Sub Process·주관 부서·원천 누락은 서버 호출 전에 막는다', async () => {
+    const onCreate = vi.fn(async () => ({ ok: true, id: 'should-not-create' }))
+    await act(async () => {
+      root.render(
+        <IssueFormModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          initial={null}
+          members={[]}
+          draft={{ title: '분석 정보 누락' }}
+          onCreate={onCreate}
+        />,
+      )
+    })
+
+    const save = [...document.querySelectorAll('button')]
+      .find(button => button.textContent === 'issue.form.save') as HTMLButtonElement
+    act(() => save.click())
+
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('issue.err.megaRequired')
+  })
+
+  it('발급된 PI ID가 있으면 Mega를 잠그고 상세에서 분석 메타와 기존 번호를 함께 표시한다', async () => {
+    const current = issue()
+    await act(async () => {
+      root.render(
+        <IssueFormModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          initial={current}
+          members={[]}
+        />,
+      )
+    })
+
+    expect(labelSelect('issue.analysis.mega').disabled).toBe(true)
+
+    await act(async () => {
+      root.render(
+        <IssueDetailModal
+          issue={current}
+          members={[]}
+          memberName={() => null}
+          canEdit={false}
+          today="2026-07-31"
+          onClose={() => undefined}
+          onEdit={() => undefined}
+          onDelete={() => undefined}
+        />,
+      )
+    })
+
+    expect(document.body.textContent).toContain('PI-I-02-03 · #17')
+    expect(document.body.textContent).toContain('02 · 영업')
+    expect(document.body.textContent).toContain('02.02 주문관리')
+    expect(document.body.textContent).toContain('영업관리팀')
+    expect(document.body.textContent).toContain('SAP')
+    expect(document.body.textContent).toContain('issue.source.type.interview')
+    expect(document.body.textContent).toContain('영업관리팀 인터뷰')
+
+    await act(async () => {
+      root.render(<DeleteIssueModal issue={current} onClose={() => undefined} />)
+    })
+    expect(document.body.textContent).toContain('PI-I-02-03 · #17')
+  })
+
+  it('기존 미분류 이슈는 편집에서 최초 Mega 분류가 가능하다', async () => {
+    await act(async () => {
+      root.render(
+        <IssueFormModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          initial={issue({
+            megaCode: null,
+            megaSeq: null,
+            piIssueCode: null,
+            subProcess: '',
+            ownerDepartment: '',
+            relatedSystems: [],
+            sourceType: null,
+            sourceDetail: '',
+          })}
+          members={[]}
+        />,
+      )
+    })
+
+    expect(labelSelect('issue.analysis.mega').value).toBe('')
+    expect(labelSelect('issue.analysis.mega').disabled).toBe(false)
+    expect(labelSelect('issue.analysis.sourceType').value).toBe('')
   })
 })

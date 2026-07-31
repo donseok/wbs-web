@@ -43,6 +43,13 @@ const INPUT = {
   assigneeMemberIds: ['member-1'],
   startDate: '2026-07-27',
   dueDate: '2026-08-03',
+  megaCode: '02' as const,
+  subProcess: '수주 등록',
+  ownerDepartment: '영업팀',
+  relatedSystems: ['CRM', 'ERP'],
+  // 전용 액션은 이 값을 신뢰하지 않고 minutes로 강제해야 한다.
+  sourceType: 'other' as const,
+  sourceDetail: '주간 영업회의 위험 블록',
 }
 const SOURCE = {
   minuteId: 'minute-1',
@@ -63,7 +70,7 @@ function clientsWithVersion({
   archivedAt?: string | null
 } = {}) {
   const rpcSingle = vi.fn(async () => ({
-    data: { issue_id: 'issue-1', issue_no: 27 },
+    data: { issue_id: 'issue-1', issue_no: 27, pi_issue_code: 'PI-I-02-03' },
     error: null,
   }))
   const rpc = vi.fn(() => ({ single: rpcSingle }))
@@ -148,7 +155,12 @@ describe('createIssueFromMinuteBlock', () => {
 
     const result = await createIssueFromMinuteBlock('project-1', INPUT, SOURCE)
 
-    expect(result).toEqual({ ok: true, id: 'issue-1', issueNo: 27 })
+    expect(result).toEqual({
+      ok: true,
+      id: 'issue-1',
+      issueNo: 27,
+      piIssueCode: 'PI-I-02-03',
+    })
     expect(fixture.admin.rpc).toHaveBeenCalledWith('create_issue_from_minute_block', expect.objectContaining({
       p_project_id: 'project-1',
       p_actor_id: USER.id,
@@ -161,6 +173,12 @@ describe('createIssueFromMinuteBlock', () => {
       p_source_kind: 'risk',
       p_start_date: '2026-07-27',
       p_due_date: '2026-08-03',
+      p_mega_code: '02',
+      p_sub_process: '수주 등록',
+      p_owner_department: '영업팀',
+      p_related_systems: ['CRM', 'ERP'],
+      p_source_type: 'minutes',
+      p_source_detail: '주간 영업회의 위험 블록',
     }))
   })
 

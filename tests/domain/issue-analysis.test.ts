@@ -1,0 +1,68 @@
+import { describe, expect, it } from 'vitest'
+import {
+  ISSUE_MEGA_AREAS,
+  ISSUE_SOURCE_TYPES,
+  formatPiIssueCode,
+  normalizeIssueAnalysisInput,
+} from '@/lib/domain/issueAnalysis'
+
+const VALID = {
+  megaCode: '03' as const,
+  subProcess: '  설계 변경  ',
+  ownerDepartment: '  품질팀  ',
+  relatedSystems: [' PLM ', 'ERP', 'PLM'],
+  sourceType: 'deliverable' as const,
+  sourceDetail: '  As-Is 산출물  ',
+}
+
+describe('이슈 분석 메타 정본', () => {
+  it('PPT Mega 8개 코드와 명칭을 순서대로 고정한다', () => {
+    expect(ISSUE_MEGA_AREAS.map(({ code, nameKo }) => [code, nameKo])).toEqual([
+      ['00', '기준관리'],
+      ['01', '손익관리'],
+      ['02', '영업'],
+      ['03', '품질·설계'],
+      ['04', '생산계획'],
+      ['05', '조업'],
+      ['06', '출하'],
+      ['07', '원가'],
+    ])
+  })
+
+  it('원천 화이트리스트를 고정한다', () => {
+    expect(ISSUE_SOURCE_TYPES).toEqual([
+      'minutes',
+      'interview',
+      'deliverable',
+      'as_is_analysis',
+      'data_analysis',
+      'other',
+    ])
+  })
+
+  it('문자열을 trim하고 관련 시스템을 입력 순서대로 중복 제거한다', () => {
+    expect(normalizeIssueAnalysisInput(VALID)).toEqual({
+      ok: true,
+      value: {
+        megaCode: '03',
+        subProcess: '설계 변경',
+        ownerDepartment: '품질팀',
+        relatedSystems: ['PLM', 'ERP'],
+        sourceType: 'deliverable',
+        sourceDetail: 'As-Is 산출물',
+      },
+    })
+  })
+
+  it('일반 경로의 minutes 사칭은 막고 전용 경로에서만 허용한다', () => {
+    const minutes = { ...VALID, sourceType: 'minutes' as const }
+    expect(normalizeIssueAnalysisInput(minutes).ok).toBe(false)
+    expect(normalizeIssueAnalysisInput(minutes, { allowMinutesSource: true }).ok).toBe(true)
+  })
+
+  it('PI 업무키는 일련번호를 최소 두 자리로 표시하고 100 이상을 보존한다', () => {
+    expect(formatPiIssueCode('00', 1)).toBe('PI-I-00-01')
+    expect(formatPiIssueCode('07', 100)).toBe('PI-I-07-100')
+    expect(() => formatPiIssueCode('00', 0)).toThrow()
+  })
+})

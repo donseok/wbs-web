@@ -13,6 +13,11 @@ import {
   type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
 import {
+  normalizeIssueAnalysisInput,
+  type IssueAnalysisInput,
+  type NormalizedIssueAnalysisInput,
+} from '@/lib/domain/issueAnalysis'
+import {
   ISSUE_MINUTE_SOURCE_KINDS,
   makeMinuteIssueSourceKey,
   validateIssueDateRange,
@@ -27,11 +32,12 @@ export interface IssueActionResult {
   error?: string
   id?: string
   issueNo?: number
+  piIssueCode?: string | null
   /** CAS 0행 — 다른 사용자가 먼저 상태를 바꿨다. 클라이언트는 router.refresh() 후 안내. */
   conflict?: boolean
 }
 
-export interface IssueInput {
+export interface IssueInput extends IssueAnalysisInput {
   title: string
   body: string
   severity: IssueSeverity
@@ -119,19 +125,46 @@ function validateAssignees(ids: unknown): string | null {
   return null
 }
 
-function validateInput(input: IssueInput): string | null {
+type IssueInputMode = 'normal-create' | 'minute-create' | 'update'
+type NormalizedIssueInput = Omit<IssueInput, keyof IssueAnalysisInput> & NormalizedIssueAnalysisInput
+type IssueInputValidation =
+  | { ok: true; value: NormalizedIssueInput }
+  | { ok: false; error: string }
+
+function validateInput(input: IssueInput, mode: IssueInputMode): IssueInputValidation {
   const title = input.title.trim()
-  if (!title) return '제목을 입력하세요.'
-  if (title.length > TITLE_MAX) return `제목은 ${TITLE_MAX}자 이하여야 합니다.`
-  if (input.body.length > TEXT_MAX) return `내용은 ${TEXT_MAX}자 이하여야 합니다.`
-  if (!ISSUE_SEVERITIES.includes(input.severity)) return '잘못된 심각도입니다.'
+  if (!title) return { ok: false, error: '제목을 입력하세요.' }
+  if (title.length > TITLE_MAX) return { ok: false, error: `제목은 ${TITLE_MAX}자 이하여야 합니다.` }
+  if (input.body.length > TEXT_MAX) return { ok: false, error: `내용은 ${TEXT_MAX}자 이하여야 합니다.` }
+  if (!ISSUE_SEVERITIES.includes(input.severity)) return { ok: false, error: '잘못된 심각도입니다.' }
   const assigneeErr = validateAssignees(input.assigneeMemberIds)
-  if (assigneeErr) return assigneeErr
+  if (assigneeErr) return { ok: false, error: assigneeErr }
   // 과거 날짜는 허용(즉시 지연 표시 안내는 폼 몫) — 형식·실재성만 검증
-  if (input.startDate !== null && !isValidDate(input.startDate)) return '이슈 시작일 날짜 형식이 올바르지 않습니다.'
-  if (input.dueDate !== null && !isValidDate(input.dueDate)) return '목표 해결일 날짜 형식이 올바르지 않습니다.'
-  if (!validateIssueDateRange(input.startDate, input.dueDate)) return '이슈 시작일은 목표 해결일보다 늦을 수 없습니다.'
-  return null
+  if (input.startDate !== null && !isValidDate(input.startDate)) {
+    return { ok: false, error: '이슈 시작일 날짜 형식이 올바르지 않습니다.' }
+  }
+  if (input.dueDate !== null && !isValidDate(input.dueDate)) {
+    return { ok: false, error: '목표 해결일 날짜 형식이 올바르지 않습니다.' }
+  }
+  if (!validateIssueDateRange(input.startDate, input.dueDate)) {
+    return { ok: false, error: '이슈 시작일은 목표 해결일보다 늦을 수 없습니다.' }
+  }
+
+  // 회의록 생성은 클라이언트 sourceType을 신뢰하지 않고 검증된 원문 경로로 강제한다.
+  const analysis = normalizeIssueAnalysisInput(
+    mode === 'minute-create' ? { ...input, sourceType: 'minutes' } : input,
+    { allowMinutesSource: mode !== 'normal-create' },
+  )
+  if (!analysis.ok) return analysis
+
+  return {
+    ok: true,
+    value: {
+      ...input,
+      ...analysis.value,
+      title,
+    },
+  }
 }
 
 /**
@@ -197,8 +230,9 @@ async function adminOrOwnerGate(issueId: string): Promise<OwnerGate> {
 export async function createIssue(projectId: string, input: IssueInput): Promise<IssueActionResult> {
   const g = await requireProjectMember(projectId)
   if (!g.ok) return { ok: false, error: g.error }
-  const err = validateInput(input)
-  if (err) return { ok: false, error: err }
+  const checked = validateInput(input, 'normal-create')
+  if (!checked.ok) return { ok: false, error: checked.error }
+  const value = checked.value
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
 
@@ -207,20 +241,26 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
     .from('issues')
     .insert({
       project_id: projectId,
-      title: input.title.trim(),
-      body: input.body,
-      severity: input.severity,
-      start_date: input.startDate,
-      due_date: input.dueDate,
+      title: value.title,
+      body: value.body,
+      severity: value.severity,
+      start_date: value.startDate,
+      due_date: value.dueDate,
+      mega_code: value.megaCode,
+      sub_process: value.subProcess,
+      owner_department: value.ownerDepartment,
+      related_systems: value.relatedSystems,
+      source_type: value.sourceType,
+      source_detail: value.sourceDetail,
       created_by: user.id,
       created_by_name: displayNameFrom(user.user_metadata, user.email),
     })
-    .select('id')
+    .select('id, issue_no, pi_issue_code')
     .single()
   if (error) return { ok: false, error: error.message }
   const issueId = data.id as string
 
-  const assignErr = await replaceAssignees(sb, issueId, projectId, input.assigneeMemberIds)
+  const assignErr = await replaceAssignees(sb, issueId, projectId, value.assigneeMemberIds)
   if (assignErr) {
     // 담당자 저장 실패 시 방금 만든 이슈를 롤백(보상)해 담당 없는 반쪽 이슈가 남지 않게 한다(회의 관례).
     const { error: rbErr } = await sb.from('issues').delete().eq('id', issueId)
@@ -232,7 +272,12 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
     return { ok: false, error: assignErr }
   }
   revalidateIssues(projectId)
-  return { ok: true, id: issueId }
+  return {
+    ok: true,
+    id: issueId,
+    issueNo: Number(data.issue_no),
+    piIssueCode: (data.pi_issue_code as string | null) ?? null,
+  }
 }
 
 /**
@@ -247,8 +292,9 @@ export async function createIssueFromMinuteBlock(
 ): Promise<IssueActionResult> {
   const g = await requireProjectMember(projectId)
   if (!g.ok) return { ok: false, error: g.error }
-  const inputErr = validateInput(input)
-  if (inputErr) return { ok: false, error: inputErr }
+  const checked = validateInput(input, 'minute-create')
+  if (!checked.ok) return { ok: false, error: checked.error }
+  const value = checked.value
   const user = await getSession()
   if (!user) return { ok: false, error: '로그인 필요' }
 
@@ -329,12 +375,19 @@ export async function createIssueFromMinuteBlock(
   // 검증된 block hash/excerpt를 위조하지 못하도록, 파싱 검증이 끝난 서버 액션만 진입한다.
   const { data: created, error } = await admin.rpc('create_issue_from_minute_block', {
     p_project_id: projectId,
-    p_title: input.title.trim(),
-    p_body: input.body,
-    p_severity: input.severity,
-    p_assignee_member_ids: [...new Set(input.assigneeMemberIds)],
-    p_start_date: input.startDate,
-    p_due_date: input.dueDate,
+    p_title: value.title,
+    p_body: value.body,
+    p_severity: value.severity,
+    p_assignee_member_ids: [...new Set(value.assigneeMemberIds)],
+    p_start_date: value.startDate,
+    p_due_date: value.dueDate,
+    p_mega_code: value.megaCode,
+    p_sub_process: value.subProcess,
+    p_owner_department: value.ownerDepartment,
+    p_related_systems: value.relatedSystems,
+    // 클라이언트 값과 무관하게 minute 버전/블록 검증을 통과한 이 경로에서만 고정한다.
+    p_source_type: 'minutes',
+    p_source_detail: value.sourceDetail,
     p_actor_id: user.id,
     p_created_by_name: displayNameFrom(user.user_metadata, user.email),
     p_minute_id: source.minuteId,
@@ -351,40 +404,90 @@ export async function createIssueFromMinuteBlock(
     return { ok: false, error: error?.message ?? '이슈 등록에 실패했습니다.' }
   }
 
-  const row = created as { issue_id: string; issue_no: number | string }
+  const row = created as {
+    issue_id: string
+    issue_no: number | string
+    pi_issue_code: string | null
+  }
   revalidateIssues(projectId)
   revalidatePath(`/minutes/${source.minuteId}`)
-  return { ok: true, id: row.issue_id, issueNo: Number(row.issue_no) }
+  return {
+    ok: true,
+    id: row.issue_id,
+    issueNo: Number(row.issue_no),
+    piIssueCode: row.pi_issue_code,
+  }
 }
 
 /** 전체 편집(제목·내용·심각도·기한·담당자) — 작성자 또는 프로젝트 관리자만. */
 export async function updateIssue(issueId: string, input: IssueInput): Promise<IssueActionResult> {
   const gate = await adminOrOwnerGate(issueId)
   if (!gate.ok) return { ok: false, error: gate.error }
-  const err = validateInput(input)
-  if (err) return { ok: false, error: err }
+  const checked = validateInput(input, 'update')
+  if (!checked.ok) return { ok: false, error: checked.error }
+  const value = checked.value
 
   const sb = await createServerClient()
   // 소유권 선검증(RLS 와 동일 — 0행 무음 성공 방지, meetings 관례)
-  const { data: cur, error: curErr } = await sb.from('issues').select('project_id, created_by').eq('id', issueId).maybeSingle()
+  const { data: cur, error: curErr } = await sb
+    .from('issues')
+    .select('project_id, created_by, mega_code, source_type')
+    .eq('id', issueId)
+    .maybeSingle()
   if (curErr) return { ok: false, error: ERR_LOOKUP } // 소유권 판정의 입력이다 — 실패를 '없음'으로 위장하지 않는다
   if (!cur) return { ok: false, error: '이슈를 찾을 수 없습니다.' }
   const isOwner = (cur.created_by as string | null) === gate.userId
   if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
+  const currentMegaCode = (cur.mega_code as string | null) ?? null
+  if (currentMegaCode !== null && currentMegaCode !== value.megaCode) {
+    return { ok: false, error: '발급된 이슈 ID의 Mega 영역은 변경할 수 없습니다.' }
+  }
+  const currentSourceType = (cur.source_type as string | null) ?? null
+  if (currentSourceType === 'minutes' && value.sourceType !== 'minutes') {
+    return { ok: false, error: '회의록 원천은 검증된 원문 연결을 유지해야 하므로 변경할 수 없습니다.' }
+  }
+  if (value.sourceType === 'minutes' && currentSourceType !== 'minutes') {
+    if (currentSourceType !== null) {
+      return { ok: false, error: '등록된 이슈 원천을 회의록 원천으로 변경할 수 없습니다.' }
+    }
+    // 0055 이전에 생성된 회의록 파생 이슈는 source_type이 null이다. 이 경우에만 불변
+    // minute_block 링크를 strict 조회해 최초 분류를 허용한다. 링크 조회 실패/0행을
+    // '회의록 출처 없음'으로 뭉개면 provenance 사칭이나 정상 이슈의 분류 불능이 된다.
+    const { data: minuteLink, error: minuteLinkErr } = await sb
+      .from('issue_links')
+      .select('id')
+      .eq('issue_id', issueId)
+      .eq('link_type', 'minute_block')
+      .limit(1)
+      .maybeSingle()
+    if (minuteLinkErr) {
+      console.error('[updateIssue] 회의록 원천 링크 조회 실패:', minuteLinkErr.message)
+      return { ok: false, error: ERR_LOOKUP }
+    }
+    if (!minuteLink) {
+      return { ok: false, error: '회의록 원천은 검증된 회의록 링크가 있는 이슈에만 지정할 수 있습니다.' }
+    }
+  }
 
-  const { error } = await sb
+  const { data: updated, error } = await sb
     .from('issues')
     .update({
-      title: input.title.trim(),
-      body: input.body,
-      severity: input.severity,
-      start_date: input.startDate,
-      due_date: input.dueDate,
+      title: value.title,
+      body: value.body,
+      severity: value.severity,
+      start_date: value.startDate,
+      due_date: value.dueDate,
+      mega_code: value.megaCode,
+      sub_process: value.subProcess,
+      owner_department: value.ownerDepartment,
+      related_systems: value.relatedSystems,
+      source_type: value.sourceType,
+      source_detail: value.sourceDetail,
       updated_at: new Date().toISOString(),
       // created_by / status / resolution_note 는 여기서 SET 하지 않음(전자 불변, 후자는 진행 액션 전용)
     })
     .eq('id', issueId)
-    .select('id')
+    .select('id, pi_issue_code')
     .single()
   if (error) return { ok: false, error: error.message }
   // 본문 수정은 이미 커밋됨 — 담당자 교체가 실패해도 변경분이 보이도록 revalidate 후 에러 보고(회의 관례).
@@ -393,7 +496,10 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
   // 부분 실패는 부분 실패로 고지한다 — 맨 에러만 돌려주면 사용자가 전체 실패로 읽고
   // 이미 저장된 제목·내용 변경을 모른 채 지나간다(updateIssueProgress 와 같은 문구 원칙).
   if (assignErr) return { ok: false, error: `담당자 저장에 실패했습니다(${assignErr}). 제목·내용 등 나머지 변경은 저장되었습니다.` }
-  return { ok: true }
+  return {
+    ok: true,
+    piIssueCode: (updated.pi_issue_code as string | null) ?? null,
+  }
 }
 
 /** 진행 업데이트(상태·담당자·조치메모) — 멤버 전체. 상태 변경은 전환 맵 검증 + CAS. */

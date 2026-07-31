@@ -17,6 +17,18 @@ import {
   ISSUE_SEVERITIES, ISSUE_SEVERITY_META, ISSUE_STATUS_META, STATUS_TRANSITIONS,
   isOverdue, type Issue, type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
+import {
+  ISSUE_MEGA_AREAS,
+  ISSUE_OWNER_DEPARTMENT_MAX,
+  ISSUE_RELATED_SYSTEM_MAX,
+  ISSUE_RELATED_SYSTEMS_MAX,
+  ISSUE_SOURCE_DETAIL_MAX,
+  ISSUE_SOURCE_META,
+  ISSUE_SOURCE_TYPES,
+  ISSUE_SUB_PROCESS_MAX,
+  type IssueMegaCode,
+  type IssueSourceType,
+} from '@/lib/domain/issueAnalysis'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
 import { validateIssueDateRange } from '@/lib/domain/issueMinuteSource'
 import { minuteSourceHref } from '@/lib/minutes/source'
@@ -82,9 +94,24 @@ interface IssueFormSeed {
   assigneeMemberIds: string[]
   startDate: string
   dueDate: string
+  megaCode: IssueMegaCode | ''
+  subProcess: string
+  ownerDepartment: string
+  relatedSystems: string[]
+  sourceType: IssueSourceType | ''
+  sourceDetail: string
 }
 
-function issueFormSeed(initial: Issue | null, draft?: IssueFormDraft): IssueFormSeed {
+function sourcePreviewDetail(sourcePreview?: IssueSourcePreview): string {
+  if (!sourcePreview) return ''
+  return [sourcePreview.title.trim(), sourcePreview.date?.trim()].filter(Boolean).join(' · ')
+}
+
+function issueFormSeed(
+  initial: Issue | null,
+  draft?: IssueFormDraft,
+  sourcePreview?: IssueSourcePreview,
+): IssueFormSeed {
   if (initial) {
     return {
       title: initial.title,
@@ -93,8 +120,19 @@ function issueFormSeed(initial: Issue | null, draft?: IssueFormDraft): IssueForm
       assigneeMemberIds: [...initial.assigneeMemberIds],
       startDate: initial.startDate ?? '',
       dueDate: initial.dueDate ?? '',
+      megaCode: initial.megaCode ?? '',
+      subProcess: initial.subProcess,
+      ownerDepartment: initial.ownerDepartment,
+      relatedSystems: [...initial.relatedSystems],
+      sourceType: initial.sourceType ?? (initial.minuteSources.length > 0 ? 'minutes' : ''),
+      sourceDetail: initial.sourceDetail || (
+        initial.minuteSources[0]
+          ? [initial.minuteSources[0].minuteTitle, initial.minuteSources[0].minuteDate].filter(Boolean).join(' · ')
+          : ''
+      ),
     }
   }
+  const minuteSource = sourcePreview !== undefined
   return {
     title: draft?.title ?? '',
     body: draft?.body ?? '',
@@ -102,7 +140,26 @@ function issueFormSeed(initial: Issue | null, draft?: IssueFormDraft): IssueForm
     assigneeMemberIds: [...(draft?.assigneeMemberIds ?? [])],
     startDate: draft?.startDate ?? '',
     dueDate: draft?.dueDate ?? '',
+    megaCode: draft?.megaCode ?? '',
+    subProcess: draft?.subProcess ?? '',
+    ownerDepartment: draft?.ownerDepartment ?? '',
+    relatedSystems: [...(draft?.relatedSystems ?? [])],
+    sourceType: minuteSource
+      ? 'minutes'
+      : draft?.sourceType === 'minutes' ? 'other' : (draft?.sourceType ?? 'other'),
+    sourceDetail: draft?.sourceDetail?.trim() ? draft.sourceDetail : sourcePreviewDetail(sourcePreview),
   }
+}
+
+/** 쉼표 입력을 API 정본(string[])으로 바꾼다. 공백·빈 토큰 제거 후 최초 순서를 보존해 중복 제거. */
+export function normalizeRelatedSystems(raw: string): string[] {
+  return [...new Set(raw.split(/[,，]/).map(value => value.trim()).filter(Boolean))]
+}
+
+function megaAreaName(code: IssueMegaCode, locale: 'ko' | 'en' | undefined): string {
+  const area = ISSUE_MEGA_AREAS.find(candidate => candidate.code === code)
+  if (!area) return code
+  return `${area.code} · ${locale === 'en' ? area.nameEn : area.nameKo}`
 }
 
 export function IssueDetailModal({
@@ -117,7 +174,7 @@ export function IssueDetailModal({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [status, setStatus] = useState<IssueStatus>('open')
@@ -151,6 +208,8 @@ export function IssueDetailModal({
   const assigneesDirty = issue !== null && !sameIds(assignees, issue.assigneeMemberIds)
   const dirty = issue !== null
     && (status !== issue.status || assigneesDirty || note !== issue.resolutionNote)
+  const analysisMegaLabel = issue?.megaCode ? megaAreaName(issue.megaCode, locale) : '—'
+  const analysisSourceLabel = issue?.sourceType ? t(ISSUE_SOURCE_META[issue.sourceType].labelKey) : '—'
 
   // 표시용 담당자 칩 — 가나다순, 회의 상세 참석자 칩과 같은 표기(이름 · 팀코드).
   // 여러 명이 쉼표 나열로 좁은 그리드 칸에 들어가면 화면이 빡빡해져 전체 폭 칩 줄로 편다.
@@ -190,7 +249,11 @@ export function IssueDetailModal({
     <Modal
       open={issue !== null}
       onClose={onClose}
-      eyebrow={issue ? `#${issue.issueNo}` : undefined}
+      eyebrow={issue
+        ? issue.piIssueCode
+          ? `${issue.piIssueCode} · #${issue.issueNo}`
+          : `#${issue.issueNo}`
+        : undefined}
       title={issue?.title ?? ''}
       size="lg"
       footer={
@@ -258,6 +321,46 @@ export function IssueDetailModal({
               <p className="whitespace-pre-wrap text-sm leading-6 text-ink">{issue.body}</p>
             </div>
           )}
+
+          <section className="rounded-2xl border border-line bg-surface-2 p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+              {t('issue.analysis.fieldsTitle')}
+            </div>
+            <dl className="mt-3 grid gap-x-4 gap-y-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.mega')}</dt>
+                <dd className="mt-0.5 text-ink">{analysisMegaLabel}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.subProcess')}</dt>
+                <dd className="mt-0.5 whitespace-pre-wrap text-ink">{issue.subProcess || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.ownerDepartment')}</dt>
+                <dd className="mt-0.5 text-ink">{issue.ownerDepartment || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.sourceType')}</dt>
+                <dd className="mt-0.5 text-ink">{analysisSourceLabel}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.relatedSystems')}</dt>
+                <dd className="mt-1.5">
+                  {issue.relatedSystems.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {issue.relatedSystems.map(system => (
+                        <span key={system} className="chip bg-surface text-ink">{system}</span>
+                      ))}
+                    </div>
+                  ) : '—'}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.sourceDetail')}</dt>
+                <dd className="mt-0.5 whitespace-pre-wrap text-ink">{issue.sourceDetail || '—'}</dd>
+              </div>
+            </dl>
+          </section>
 
           {issue.minuteSources.length > 0 && (
             <section>
@@ -345,7 +448,7 @@ export function IssueFormModal({
   /** 신규 등록 성공 응답에 id가 있을 때 한 번 호출된다. */
   onCreated?: (id: string) => void
 }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   // pending 렌더 전에 발생하는 빠른 연속 클릭도 막는다.
@@ -356,11 +459,22 @@ export function IssueFormModal({
   const [assignees, setAssignees] = useState<string[]>([])
   const [startDate, setStartDate] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [megaCode, setMegaCode] = useState<IssueMegaCode | ''>('')
+  const [subProcess, setSubProcess] = useState('')
+  const [ownerDepartment, setOwnerDepartment] = useState('')
+  const [relatedSystemsText, setRelatedSystemsText] = useState('')
+  const [sourceType, setSourceType] = useState<IssueSourceType | ''>('')
+  const [sourceDetail, setSourceDetail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const isEdit = initial !== null
+  const minuteSourceLocked = (!isEdit && sourcePreview !== undefined)
+    || (isEdit && (initial?.sourceType === 'minutes' || Boolean(initial?.minuteSources.length)))
+  const megaLocked = isEdit && Boolean(initial?.piIssueCode)
+  const sourceOptions = ISSUE_SOURCE_TYPES.filter(type =>
+    type !== 'minutes' || minuteSourceLocked || initial?.sourceType === 'minutes')
   // 호출부가 draft 객체/배열을 인라인으로 만들어도 매 렌더 입력을 덮어쓰지 않고,
   // 실제 초깃값 내용이 바뀌거나 모달이 다시 열릴 때만 폼을 재베이스라인한다.
-  const seedKey = JSON.stringify(issueFormSeed(initial, draft))
+  const seedKey = JSON.stringify(issueFormSeed(initial, draft, sourcePreview))
 
   function closeIfIdle() {
     // 원자 생성 요청이 끝나기 전에 폼이 닫혔다가 다른 블록으로 다시 열리면, 이전
@@ -381,6 +495,12 @@ export function IssueFormModal({
     setAssignees(seed.assigneeMemberIds)
     setStartDate(seed.startDate)
     setDueDate(seed.dueDate)
+    setMegaCode(seed.megaCode)
+    setSubProcess(seed.subProcess)
+    setOwnerDepartment(seed.ownerDepartment)
+    setRelatedSystemsText(seed.relatedSystems.join(', '))
+    setSourceType(seed.sourceType)
+    setSourceDetail(seed.sourceDetail)
     setError(null)
     submittingRef.current = false
   }, [open, seedKey])
@@ -395,6 +515,51 @@ export function IssueFormModal({
       setError(t('issue.err.dateRange'))
       return
     }
+    if (!megaCode) {
+      setError(t('issue.err.megaRequired'))
+      return
+    }
+    const normalizedSubProcess = subProcess.trim()
+    if (!normalizedSubProcess) {
+      setError(t('issue.err.subProcessRequired'))
+      return
+    }
+    if (normalizedSubProcess.length > ISSUE_SUB_PROCESS_MAX) {
+      setError(t('issue.err.subProcessTooLong').replace('{n}', String(ISSUE_SUB_PROCESS_MAX)))
+      return
+    }
+    const normalizedOwnerDepartment = ownerDepartment.trim()
+    if (!normalizedOwnerDepartment) {
+      setError(t('issue.err.ownerDepartmentRequired'))
+      return
+    }
+    if (normalizedOwnerDepartment.length > ISSUE_OWNER_DEPARTMENT_MAX) {
+      setError(t('issue.err.ownerDepartmentTooLong').replace('{n}', String(ISSUE_OWNER_DEPARTMENT_MAX)))
+      return
+    }
+    const relatedSystems = normalizeRelatedSystems(relatedSystemsText)
+    if (relatedSystems.length > ISSUE_RELATED_SYSTEMS_MAX) {
+      setError(t('issue.err.relatedSystemsTooMany').replace('{n}', String(ISSUE_RELATED_SYSTEMS_MAX)))
+      return
+    }
+    if (relatedSystems.some(system => system.length > ISSUE_RELATED_SYSTEM_MAX)) {
+      setError(t('issue.err.relatedSystemTooLong').replace('{n}', String(ISSUE_RELATED_SYSTEM_MAX)))
+      return
+    }
+    const normalizedSourceType = minuteSourceLocked ? 'minutes' : sourceType
+    if (!normalizedSourceType) {
+      setError(t('issue.err.sourceTypeRequired'))
+      return
+    }
+    if (normalizedSourceType === 'minutes' && !minuteSourceLocked && !isEdit) {
+      setError(t('issue.err.minutesSourceOnly'))
+      return
+    }
+    const normalizedSourceDetail = sourceDetail.trim()
+    if (normalizedSourceDetail.length > ISSUE_SOURCE_DETAIL_MAX) {
+      setError(t('issue.err.sourceDetailTooLong').replace('{n}', String(ISSUE_SOURCE_DETAIL_MAX)))
+      return
+    }
     const input: IssueFormInput = {
       title: title.trim(),
       body,
@@ -402,6 +567,12 @@ export function IssueFormModal({
       assigneeMemberIds: assignees,
       startDate: startDate || null,
       dueDate: dueDate || null,
+      megaCode,
+      subProcess: normalizedSubProcess,
+      ownerDepartment: normalizedOwnerDepartment,
+      relatedSystems,
+      sourceType: normalizedSourceType,
+      sourceDetail: normalizedSourceDetail,
     }
     submittingRef.current = true
     startTransition(async () => {
@@ -450,12 +621,13 @@ export function IssueFormModal({
       <div className="space-y-3">
         {!isEdit && sourcePreview && (
           <section
-            aria-label={sourcePreview.label ?? t('issue.source.minute')}
+            aria-label={t('issue.analysis.minuteAutoLinked')}
             className="rounded-2xl border border-line bg-surface-2 p-4"
           >
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">
               <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-              {sourcePreview.label ?? t('issue.source.minute')}
+              {t('issue.analysis.minuteAutoLinked')}
+              {sourcePreview.label && <span className="chip bg-line text-ink-subtle">{sourcePreview.label}</span>}
             </div>
             <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <p className="text-sm font-semibold text-ink">{sourcePreview.title}</p>
@@ -474,6 +646,102 @@ export function IssueFormModal({
           <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.body')}</span>
           <textarea className="app-textarea min-h-[120px] resize-y" value={body} onChange={e => setBody(e.target.value)} placeholder={t('issue.form.bodyPh')} />
         </label>
+        <section className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">
+          <div>
+            <h3 className="text-xs font-bold text-ink">{t('issue.analysis.fieldsTitle')}</h3>
+            <p className="mt-0.5 text-[11px] leading-5 text-ink-subtle">{t('issue.analysis.fieldsDesc')}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.mega')}</span>
+              <select
+                className="app-input"
+                value={megaCode}
+                disabled={megaLocked}
+                required
+                aria-describedby={megaLocked ? 'issue-mega-locked' : undefined}
+                onChange={e => setMegaCode(e.target.value as IssueMegaCode | '')}
+              >
+                <option value="">{t('issue.analysis.megaPlaceholder')}</option>
+                {ISSUE_MEGA_AREAS.map(area => (
+                  <option key={area.code} value={area.code}>{megaAreaName(area.code, locale)}</option>
+                ))}
+              </select>
+              {megaLocked && (
+                <p id="issue-mega-locked" className="mt-1 text-[11px] leading-4 text-ink-subtle">
+                  {t('issue.analysis.megaLocked').replace('{id}', initial?.piIssueCode ?? '')}
+                </p>
+              )}
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.subProcess')}</span>
+              <input
+                className="app-input"
+                value={subProcess}
+                required
+                maxLength={ISSUE_SUB_PROCESS_MAX}
+                onChange={e => setSubProcess(e.target.value)}
+                placeholder={t('issue.analysis.subProcessPh')}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.ownerDepartment')}</span>
+              <input
+                className="app-input"
+                value={ownerDepartment}
+                required
+                maxLength={ISSUE_OWNER_DEPARTMENT_MAX}
+                onChange={e => setOwnerDepartment(e.target.value)}
+                placeholder={t('issue.analysis.ownerDepartmentPh')}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">
+                {t('issue.analysis.relatedSystems')} <span className="font-normal text-ink-subtle">{t('issue.analysis.optional')}</span>
+              </span>
+              <input
+                className="app-input"
+                value={relatedSystemsText}
+                onChange={e => setRelatedSystemsText(e.target.value)}
+                placeholder={t('issue.analysis.relatedSystemsPh')}
+              />
+              <span className="mt-1 block text-[11px] leading-4 text-ink-subtle">{t('issue.analysis.relatedSystemsHint')}</span>
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.sourceType')}</span>
+              <select
+                className="app-input"
+                value={sourceType}
+                disabled={minuteSourceLocked}
+                required
+                aria-describedby={minuteSourceLocked ? 'issue-source-locked' : undefined}
+                onChange={e => setSourceType(e.target.value as IssueSourceType | '')}
+              >
+                <option value="">{t('issue.analysis.sourceTypePlaceholder')}</option>
+                {sourceOptions.map(type => (
+                  <option key={type} value={type}>{t(ISSUE_SOURCE_META[type].labelKey)}</option>
+                ))}
+              </select>
+              {minuteSourceLocked && (
+                <p id="issue-source-locked" className="mt-1 text-[11px] leading-4 text-brand">
+                  {t('issue.analysis.minuteAutoLinked')}
+                </p>
+              )}
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">
+                {t('issue.analysis.sourceDetail')} <span className="font-normal text-ink-subtle">{t('issue.analysis.optional')}</span>
+              </span>
+              <input
+                className="app-input"
+                value={sourceDetail}
+                maxLength={ISSUE_SOURCE_DETAIL_MAX}
+                onChange={e => setSourceDetail(e.target.value)}
+                placeholder={t('issue.analysis.sourceDetailPh')}
+              />
+            </label>
+          </div>
+        </section>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="block">
             <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.severity')}</span>
@@ -551,7 +819,11 @@ export function DeleteIssueModal({ issue, onClose }: { issue: Issue | null; onCl
     >
       <div className="space-y-3">
         <p className="text-sm text-ink">{t('issue.delete.confirmPrefix')}</p>
-        {issue && <p className="rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-medium text-ink">#{issue.issueNo} {issue.title}</p>}
+        {issue && (
+          <p className="rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-medium text-ink">
+            {issue.piIssueCode ? `${issue.piIssueCode} · #${issue.issueNo}` : `#${issue.issueNo}`} {issue.title}
+          </p>
+        )}
         {error && <ErrorBox message={error} />}
       </div>
     </Modal>

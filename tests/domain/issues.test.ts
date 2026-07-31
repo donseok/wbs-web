@@ -7,8 +7,11 @@ import {
 
 function issue(id: string, opts: Partial<Issue> = {}): Issue {
   return {
-    id, issueNo: 1, projectId: 'p1', title: `이슈 ${id}`, body: '',
+    id, issueNo: 1, piIssueCode: 'PI-I-00-01', projectId: 'p1',
+    megaCode: '00', megaSeq: 1, title: `이슈 ${id}`, body: '',
     status: 'open', severity: 'medium', assigneeMemberIds: [], startDate: null, dueDate: null,
+    subProcess: '기준정보 등록', ownerDepartment: '경영관리팀', relatedSystems: ['ERP'],
+    sourceType: 'interview', sourceDetail: '현업 인터뷰',
     minuteSources: [],
     resolutionNote: '', resolvedAt: null, createdBy: 'u1', createdByName: '홍길동',
     createdAt: '2026-07-01T00:00:00+00:00', updatedAt: '2026-07-01T00:00:00+00:00', ...opts,

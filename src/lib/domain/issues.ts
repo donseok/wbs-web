@@ -2,6 +2,7 @@
 // 상태 전환의 단일 정본은 STATUS_TRANSITIONS — UI(select 옵션)와 서버 액션(전환 검증)이
 // 이 맵만 참조한다. 5번째 상태를 추가할 때 이 파일 + 0041 check 제약만 바꾸면 되게 유지할 것.
 import type { IssueMinuteSource } from './issueMinuteSource'
+import type { IssueMegaCode, IssueSourceType } from './issueAnalysis'
 
 export const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'on_hold'] as const
 export type IssueStatus = (typeof ISSUE_STATUSES)[number]
@@ -12,7 +13,11 @@ export type IssueSeverity = (typeof ISSUE_SEVERITIES)[number]
 export interface Issue {
   id: string
   issueNo: number
+  /** 보고서 업무키. 0055 이전 미분류 이슈는 null이며 최초 Mega 분류 때 한 번 발급된다. */
+  piIssueCode: string | null
   projectId: string
+  megaCode: IssueMegaCode | null
+  megaSeq: number | null
   title: string
   body: string
   status: IssueStatus
@@ -21,6 +26,11 @@ export interface Issue {
   assigneeMemberIds: string[]
   startDate: string | null        // 'YYYY-MM-DD'
   dueDate: string | null          // 'YYYY-MM-DD'
+  subProcess: string
+  ownerDepartment: string
+  relatedSystems: string[]
+  sourceType: IssueSourceType | null
+  sourceDetail: string
   minuteSources: IssueMinuteSource[]
   resolutionNote: string
   resolvedAt: string | null
