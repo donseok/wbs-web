@@ -383,7 +383,7 @@ Expected: FAIL — 모듈 없음
 
 ```ts
 import { NextResponse } from 'next/server'
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 
 /**
@@ -397,9 +397,10 @@ export function agentApiEnabled(): boolean {
 
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false
-  const a = Buffer.from(provided)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
+  // 해시 후 상수시간 비교 — 길이 조기반환이 시크릿 길이를 타이밍으로 노출하는 것을 막는다
+  // (회의록 API 관례, 2026-07-31 Task 3 리뷰 반영 사용자 결정).
+  const a = createHash('sha256').update(provided).digest()
+  const b = createHash('sha256').update(expected).digest()
   return timingSafeEqual(a, b)
 }
 
