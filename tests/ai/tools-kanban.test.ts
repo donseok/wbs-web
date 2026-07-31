@@ -24,7 +24,7 @@ function item(overrides: Partial<WbsRepositoryItem> & { id: string }): WbsReposi
   return {
     projectId: 'p1', parentId: null, level: 'task', code: '', sortOrder: 1,
     name: overrides.id, biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
-    weight: null, actualPct: null, owners: [], updatedAt: null,
+    weight: null, actualPct: null, owners: [], updatedAt: null, isOwnerSplit: false,
     ...overrides,
   }
 }

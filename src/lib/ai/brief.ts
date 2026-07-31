@@ -29,6 +29,7 @@ import { generateAnswer } from './llm'
 import { hasLLM, llmConfig } from './provider'
 import { createEnsureGate, type EnsureState } from './ensure'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { teamOrderMap } from '@/lib/domain/teams'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 
 /* ── 상한(프롬프트 예산 고정 — maxOutputTokens 4096 + 입력 ~6k자 캡) ── */
@@ -75,13 +76,15 @@ export function buildBriefFacts(input: BriefFactsInput): BriefFacts {
     projectName, items, startDate, endDate, todayWbs, realToday,
     holidays, snapshots, minuteSignals, meetings, meetingExceptions, milestoneKeywords,
   } = input
+  const teams = activeTeamCodesSync()
   const exec = buildExecSummary(items, { startDate, endDate, today: todayWbs }, milestoneKeywords)
   const trendModel = buildTrend({
     items, snapshots, holidays: new Set(holidays), startDate, endDate, today: todayWbs,
+    opts: { subActTeamOrder: teamOrderMap(teams) },
   })
   const riskReport = detectRiskSignals({
     items, today: todayWbs, realToday, snapshots, startDate, endDate, minuteSignals,
-    teams: activeTeamCodesSync(),
+    teams,
   })
   const dueSoon = dueSoonLeaves(collectLeaves(items), todayWbs)
   // 회의는 실제 오늘 기준 7일 창(달력 카드와 동일 규칙 — expandMeetings+summarizeMeetings 재사용)

@@ -11,6 +11,8 @@ import type { AiBriefRow } from '@/lib/data/aiBriefs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
+import { activeCodes, teamOrderMap } from '@/lib/domain/teams'
+import { teamsSync } from '@/lib/teams/master'
 import { ExecSummary } from './ExecSummary'
 import { TrendChart } from './TrendChart'
 import { SpiPanel } from './SpiPanel'
@@ -82,7 +84,11 @@ export async function DashboardView({
   }
 
   const { actual, planned } = overallProgress(items)
-  const trend = buildTrend({ items, snapshots, holidays: new Set(holidays), startDate, endDate, today })
+  const subActTeamOrder = teamOrderMap(activeCodes(teamsSync()))
+  const trend = buildTrend({
+    items, snapshots, holidays: new Set(holidays), startDate, endDate, today,
+    opts: { subActTeamOrder },
+  })
   const milestones = milestoneTimeline(items, today, milestoneKeywords)
   // 팩트 컨텍스트 — 기존 props 재조합만(신규 페치 없음). 위험 신호(detectRiskSignals)는
   // buildBriefFacts 내부에서 계산돼 riskReport 로 재사용된다(C3 — 브리핑·신호 카드 근거 단일화).

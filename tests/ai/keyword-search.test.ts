@@ -90,6 +90,7 @@ const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
   weight: null,
   actualPct: null,
   owners: [],
+  isOwnerSplit: false,
   plannedPct: 0,
   rolledActualPct: 0,
   achievement: null,

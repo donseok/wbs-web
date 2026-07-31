@@ -4,11 +4,13 @@ import { parseWbsWorkbook } from '@/lib/excel/parse'
 import { validateAndLink } from '@/lib/excel/validate'
 import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow } from '@/lib/domain/types'
+import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 
+const OPTS = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
 const row = (over: Partial<WbsRow>): WbsRow => ({
   id: 'x', parentId: null, level: 'activity', code: 'x', sortOrder: 0, name: 'x',
   biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
-  owners: [], ...over,
+  owners: [], isOwnerSplit: false, ...over,
 })
 
 const SRC: WbsRow[] = [
@@ -27,7 +29,7 @@ const SRC: WbsRow[] = [
 ]
 
 describe('buildWbsWorkbook round-trip', () => {
-  const items = computeTree(SRC, '2026-09-15', new Set())
+  const items = computeTree(SRC, '2026-09-15', new Set(), OPTS)
   const buf = buildWbsWorkbook(items, [{ date: '2026-07-17', name: '제헌절' }], '테스트 프로젝트')
   const parsed = parseWbsWorkbook(buf)
 

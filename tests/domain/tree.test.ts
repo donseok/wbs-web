@@ -1,45 +1,65 @@
 import { describe, it, expect } from 'vitest'
-import { buildTree } from '@/lib/domain/tree'
+import { buildTree, type BuildTreeOpts } from '@/lib/domain/tree'
 import type { WbsRow } from '@/lib/domain/types'
+import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 
-const row = (id: string, parentId: string | null, order: number): WbsRow => ({
-  id, parentId, level: 'activity', code: id, sortOrder: order, name: id,
+const row = (over: Partial<WbsRow> & { id: string }): WbsRow => ({
+  parentId: null, level: 'activity', code: over.id, sortOrder: 0, name: over.id,
   biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null,
-  actualPct: null, owners: [],
+  actualPct: null, owners: [], isOwnerSplit: false, ...over,
 })
+
+const OPTS: BuildTreeOpts = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
 
 describe('buildTree', () => {
   it('parentId로 중첩하고 sortOrder로 정렬', () => {
-    const rows = [row('p', null, 1), row('b', 'p', 2), row('a', 'p', 1)]
-    const tree = buildTree(rows)
+    const rows = [
+      row({ id: 'p', parentId: null, sortOrder: 1 }),
+      row({ id: 'b', parentId: 'p', sortOrder: 2 }),
+      row({ id: 'a', parentId: 'p', sortOrder: 1 }),
+    ]
+    const tree = buildTree(rows, OPTS)
     expect(tree).toHaveLength(1)
     expect(tree[0].id).toBe('p')
     expect(tree[0].children.map(c => c.id)).toEqual(['a', 'b'])
   })
 
-  it('act 하위 sub-act는 sortOrder와 무관하게 PMO→ERP→MES→가공 순', () => {
-    const sub = (id: string, order: number, team: '가공' | 'PMO' | 'ERP' | 'MES'): WbsRow => ({
-      ...row(id, 'act', order),
-      owners: [{ team, kind: 'primary' }],
-    })
+  it('owner-split 자식은 주입된 팀 순위로 정렬된다 (level 무관)', () => {
     const rows = [
-      row('act', null, 1),
-      sub('s가공', 2, '가공'),
-      sub('sERP', 3, 'ERP'),
-      sub('sMES', 4, 'MES'),
-      sub('sPMO', 5, 'PMO'),
+      row({ id: 'p', parentId: null }),
+      row({ id: 'a', parentId: 'p', sortOrder: 1, isOwnerSplit: true, owners: [{ team: 'MES', kind: 'primary' }] }),
+      row({ id: 'b', parentId: 'p', sortOrder: 2, isOwnerSplit: true, owners: [{ team: 'PMO', kind: 'primary' }] }),
     ]
-    const tree = buildTree(rows)
-    expect(tree[0].children.map(c => c.id)).toEqual(['sPMO', 'sERP', 'sMES', 's가공'])
+    const t = buildTree(rows, { subActTeamOrder: new Map([['PMO', 0], ['MES', 1]]) })
+    expect(t[0].children.map(c => c.id)).toEqual(['b', 'a'])
   })
 
-  it('activity가 아닌 부모의 자식은 sortOrder 순 유지', () => {
+  it('순위 맵에 없는 팀은 뒤로, 그 안에서는 sortOrder', () => {
     const rows = [
-      { ...row('t', null, 1), level: 'task' as const },
-      { ...row('b', 't', 2), owners: [{ team: 'PMO' as const, kind: 'primary' as const }] },
-      { ...row('a', 't', 1), owners: [{ team: '가공' as const, kind: 'primary' as const }] },
+      row({ id: 'p', parentId: null }),
+      row({ id: 'a', parentId: 'p', sortOrder: 1, isOwnerSplit: true, owners: [{ team: 'PMO', kind: 'primary' }] }),
+      row({ id: 'x', parentId: 'p', sortOrder: 2, isOwnerSplit: true, owners: [{ team: 'ZZZ', kind: 'primary' }] }),
+      row({ id: 'y', parentId: 'p', sortOrder: 1, isOwnerSplit: true, owners: [{ team: 'YYY', kind: 'primary' }] }),
     ]
-    const tree = buildTree(rows)
-    expect(tree[0].children.map(c => c.id)).toEqual(['a', 'b'])
+    const t = buildTree(rows, { subActTeamOrder: new Map([['PMO', 0]]) })
+    // ZZZ·YYY 는 순위 맵에 없어 뒤로 밀리고, 그 둘 사이는 sortOrder(y=1 < x=2)로 갈린다.
+    expect(t[0].children.map(c => c.id)).toEqual(['a', 'y', 'x'])
+  })
+
+  it('owner-split 아닌 형제는 sortOrder 만 따른다 — 깊이 5단이어도', () => {
+    const rows = [
+      row({ id: 'l1', parentId: null, sortOrder: 1 }),
+      row({ id: 'l2', parentId: 'l1', sortOrder: 1 }),
+      row({ id: 'l3', parentId: 'l2', sortOrder: 1 }),
+      row({ id: 'l4', parentId: 'l3', sortOrder: 1 }),
+      // 담당 팀이 지정돼 있어도 isOwnerSplit=false 면 팀 순위가 아니라 sortOrder 만 따른다 —
+      // '담당 있음'이 아니라 플래그가 유일한 판별 근거임을 확인.
+      row({ id: 'l5b', parentId: 'l4', sortOrder: 2, owners: [{ team: 'PMO', kind: 'primary' }] }),
+      row({ id: 'l5a', parentId: 'l4', sortOrder: 1, owners: [{ team: '가공', kind: 'primary' }] }),
+    ]
+    const t = buildTree(rows, OPTS)
+    const l4 = t[0].children[0].children[0].children[0]
+    expect(l4.id).toBe('l4')
+    expect(l4.children.map(c => c.id)).toEqual(['l5a', 'l5b'])
   })
 })

@@ -18,6 +18,7 @@ function imp(over: Partial<ImportItem>): ImportItem {
     weight: 0.05,
     actualPct: null,
     owners: [],
+    isOwnerSplit: false,
     ...over,
   }
 }
@@ -45,6 +46,8 @@ describe('splitLeafOwners — 복수 담당 말단 분리', () => {
     expect(parent.plannedStart).toBe('2026-07-01')
     expect(parent.weight).toBe(0.05)
     expect(parent.owners).toHaveLength(3)
+    // 원본 행은 sub-act 가 아니다 — RPC 화이트리스트(0060)가 이 값을 그대로 컬럼에 싣는다.
+    expect(parent.isOwnerSplit).toBe(false)
 
     const subs = out.filter(i => i.parentTempId === 't2')
     // 이름에 부모 작업명 포함 — 리프 이름만 소비하는 하류(검색·보고·알림)에서 식별 가능해야 함
@@ -55,6 +58,7 @@ describe('splitLeafOwners — 복수 담당 말단 분리', () => {
     ])
     for (const s of subs) {
       expect(s.level).toBe('activity')
+      expect(s.isOwnerSplit).toBe(true)
       expect(s.owners).toHaveLength(1)
       expect(s.plannedStart).toBe(parent.plannedStart) // 일정 승계
       expect(s.plannedEnd).toBe(parent.plannedEnd)
@@ -135,6 +139,7 @@ function comp(over: Partial<ComputedItem>): ComputedItem {
     weight: null,
     actualPct: null,
     owners: [],
+    isOwnerSplit: false,
     plannedPct: 50,
     rolledActualPct: 0,
     achievement: null,

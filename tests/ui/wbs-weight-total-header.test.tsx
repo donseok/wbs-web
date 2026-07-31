@@ -40,7 +40,7 @@ const phase = (id: string, weight: number | null, children: ComputedItem[] = [])
   plannedEnd: '2026-07-10',
   weight,
   actualPct: 0,
-  owners: [],
+  owners: [], isOwnerSplit: false,
   plannedPct: 0,
   rolledActualPct: 0,
   achievement: 0,

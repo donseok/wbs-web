@@ -18,7 +18,7 @@ type Row = Record<string, unknown>
 
 const WBS_COLUMNS = [
   'id', 'project_id', 'parent_id', 'level', 'code', 'sort_order', 'name', 'biz', 'deliverable',
-  'planned_start', 'planned_end', 'weight', 'actual_pct', 'updated_at',
+  'planned_start', 'planned_end', 'weight', 'actual_pct', 'updated_at', 'is_owner_split',
   'item_owners(kind, teams(code))',
 ].join(', ')
 
@@ -128,6 +128,7 @@ function mapItem(row: Row): WbsRepositoryItem {
     actualPct: nullableNumber(row.actual_pct),
     owners: mapOwners(row.item_owners),
     updatedAt: (row.updated_at as string | null) ?? null,
+    isOwnerSplit: row.is_owner_split === true,
   }
 }
 

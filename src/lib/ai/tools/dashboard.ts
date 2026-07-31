@@ -10,6 +10,8 @@ import { round1 } from '@/lib/domain/format'
 import { expandMeetings, summarizeMeetings } from '@/lib/domain/meetings'
 import { computeTree, overallProgress } from '@/lib/domain/rollup'
 import { collectLeaves } from '@/lib/domain/tree'
+import { activeCodes, teamOrderMap } from '@/lib/domain/teams'
+import { teamsSync } from '@/lib/teams/master'
 import type { Status } from '@/lib/domain/types'
 import type {
   MeetingBotRepository,
@@ -77,7 +79,9 @@ export function createGetProjectDashboardTool(
       // WBS 신호는 기준일(base_date 우선), 회의 신호는 실제 오늘 — 대시보드 화면의 이중 시계 관례.
       const realToday = todayInSeoul(context.now)
       const calculationDate = snapshot.baseDate ?? realToday
-      const roots = computeTree(snapshot.items, calculationDate, new Set(snapshot.holidays))
+      const roots = computeTree(snapshot.items, calculationDate, new Set(snapshot.holidays), {
+        subActTeamOrder: teamOrderMap(activeCodes(teamsSync())),
+      })
       const leaves = collectLeaves(roots)
       const statusCount = (status: Status) => leaves.filter(leaf => leaf.status === status).length
       const { actual, planned } = overallProgress(roots)

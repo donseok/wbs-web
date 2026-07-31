@@ -27,6 +27,8 @@ export interface WbsRow {
   weight: number | null         // null이면 형제 균등
   actualPct: number | null      // leaf만 의미 있음, 0~100
   owners: { team: TeamCode; kind: OwnerKind }[]
+  /** 담당별 자동 분리(sub-act) 항목 여부. 레벨·이름이 아니라 이 플래그가 판별 근거(스펙 §5.2). */
+  isOwnerSplit: boolean
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */

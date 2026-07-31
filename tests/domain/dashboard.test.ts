@@ -63,7 +63,7 @@ import type { ComputedItem } from '@/lib/domain/types'
 const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
   id: Math.random().toString(36).slice(2), parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
-  owners: [], plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'in_progress', children: [], ...over,
+  owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'in_progress', children: [], ...over,
 })
 
 describe('detectMilestones', () => {

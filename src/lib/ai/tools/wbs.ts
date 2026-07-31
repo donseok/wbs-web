@@ -23,6 +23,7 @@ import {
   validDateRange,
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionContext, ToolExecutionResult } from './types'
+import { teamOrderMap } from '@/lib/domain/teams'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 
 const WBS_CAPABILITY = 'wbs:read' as const
@@ -123,7 +124,9 @@ function computedSnapshot(
   context: ToolExecutionContext,
 ): { flat: FlatItem[]; updatedAtById: Map<string, string | null>; today: string } {
   const today = baseDate ?? todayInSeoul(context.now)
-  const computed = computeTree(rows, today, new Set(holidays))
+  const computed = computeTree(rows, today, new Set(holidays), {
+    subActTeamOrder: teamOrderMap(activeTeamCodesSync()),
+  })
   return {
     flat: flatten(computed),
     updatedAtById: new Map(rows.map(row => [row.id, row.updatedAt])),

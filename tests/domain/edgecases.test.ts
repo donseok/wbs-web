@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { plannedPct, achievementOf, statusOf } from '@/lib/domain/progress'
-import { buildTree } from '@/lib/domain/tree'
+import { buildTree, type BuildTreeOpts } from '@/lib/domain/tree'
 import { computeTree } from '@/lib/domain/rollup'
 import type { WbsRow } from '@/lib/domain/types'
+import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 
 const H = new Set<string>()
+const OPTS: BuildTreeOpts = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
 const row = (over: Partial<WbsRow>): WbsRow => ({
   id: 'x', parentId: null, level: 'activity', code: 'x', sortOrder: 0, name: 'x',
   biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
-  owners: [], ...over,
+  owners: [], isOwnerSplit: false, ...over,
 })
 
 describe('plannedPct edge cases', () => {
@@ -55,7 +57,7 @@ describe('achievementOf edge cases', () => {
 
 describe('buildTree edge cases', () => {
   it('부모가 없는 parentId는 루트로 승격', () => {
-    const tree = buildTree([row({ id: 'a', parentId: 'ghost', sortOrder: 1 })])
+    const tree = buildTree([row({ id: 'a', parentId: 'ghost', sortOrder: 1 })], OPTS)
     expect(tree).toHaveLength(1)
     expect(tree[0].id).toBe('a')
   })
@@ -63,7 +65,7 @@ describe('buildTree edge cases', () => {
     const tree = buildTree([
       row({ id: 'b', parentId: null, sortOrder: 2 }),
       row({ id: 'a', parentId: null, sortOrder: 1 }),
-    ])
+    ], OPTS)
     expect(tree.map(t => t.id)).toEqual(['a', 'b'])
   })
 })
@@ -75,7 +77,7 @@ describe('computeTree multi-level rollup', () => {
     row({ id: 'A1', parentId: 'T', level: 'activity', sortOrder: 2, plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 100 }),
     row({ id: 'A2', parentId: 'T', level: 'activity', sortOrder: 3, plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 0 }),
   ]
-  const tree = computeTree(rows, '2026-07-20', H) // 기간 종료 후
+  const tree = computeTree(rows, '2026-07-20', H, OPTS) // 기간 종료 후
 
   it('Phase는 자식(Task)의 롤업을 그대로 받는다', () => {
     const p = tree[0]

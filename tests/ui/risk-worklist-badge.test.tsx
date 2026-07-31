@@ -15,7 +15,7 @@ const today = '2026-07-14'
 const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
   id: Math.random().toString(36).slice(2), parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
-  owners: [], plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'in_progress', children: [], ...over,
+  owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'in_progress', children: [], ...over,
 })
 
 // 실행 큐 배지는 리스크 타일(riskModel)과 같은 숫자를 말해야 한다.
