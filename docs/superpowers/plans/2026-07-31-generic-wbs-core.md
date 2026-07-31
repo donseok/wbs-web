@@ -15,7 +15,7 @@
 - **UI 위험 파일 무접촉**: 이 계획은 `src/components/app/*`·`globals.css`·`layout.tsx` 를 건드리지 않는다. `WbsGanttSheet.tsx` 도 이 계획 범위 밖(Plan C).
 - **에러 3원칙**: 설정 조회 — 행 없음=기본값(정상), 조회 실패=throw(위장 금지). 백필 검증 — 건수 대조.
 - **`level` 컬럼은 이 계획에서 drop 하지 않는다**(스펙 §4.2 3단계 제거 — drop 은 Plan C 검증 후). 기존 쓰기 경로는 하위호환용으로 legacy 문자열을 계속 쓴다. **신규 코드는 `level` 을 읽지 않는다**가 규율이고, UI 표시용 잔존 참조(shared.tsx·RowDetailPanel·WbsGanttSheet)는 Plan C 범위로 명시 이월한다.
-- 다음 마이그레이션 번호: **0058**(project_settings), **0059**(level CHECK 해제+is_owner_split). 선행 확인: `ls supabase/migrations | tail`.
+- 다음 마이그레이션 번호: **0058**(project_settings), **0059**(level CHECK 해제+is_owner_split), **0060**(Task 9 에서 import_wbs RPC 화이트리스트 갱신용으로 추가됨). 선행 확인: `ls supabase/migrations | tail`.
 - 커밋 메시지는 한국어 "왜" 중심 + 트레일러 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`. `git add -A` 금지.
 - 미결 사항 잠정값(스펙 §12, 이 계획의 결정): Q2 `max_depth` 기본 null(무제한, UI 상한은 Plan C 에서 재론) · Q5 `biz` 유지(그림자 컬럼 그대로 — D-CUBE 행 `extra_axis_label='Biz'`) · Q6 마일스톤 부분 일치 유지(현행 동일). Q1/Q3/Q4 는 Plan B 에서 결정.
 
@@ -750,11 +750,23 @@ it('owner-split 아닌 형제는 sortOrder 만 따른다 — 깊이 5단이어�
 
 - [ ] **Step 1: 통합 검증** — `npm run test && npm run lint && npm run build` 전량 초록.
 - [ ] **Step 2: 배포 전 스냅샷 채취(회귀 비교 기준)** — 프로덕션에서 ① D-CUBE WBS 엑셀 익스포트 파일 다운로드 보관 ② 대시보드 KPI 값 기록(Management API 읽기 전용 쿼리 또는 화면 캡처) ③ `select count(*), sum(actual_pct) from wbs_items where project_id='7a1c6034-...'` 기록.
-- [ ] **Step 3: 0058 적용** — Management API(키체인 레시피). 검증: `select preset_applied, level_labels from project_settings` → 전 프로젝트 `legacy-dcube` 행. **0058 은 코드 배포보다 먼저** (로더는 행 없음도 처리하지만, 시드가 먼저 있어야 주입 전환 순간부터 현행값이 보장된다).
-- [ ] **Step 4: 코드 배포** — main 머지·push(브랜치 경유), Ready 확인, `npm run smoke:prod`.
-- [ ] **Step 5: 0059 적용** — 적용 전 `select count(*) from wbs_items c join wbs_items p on c.parent_id=p.id where c.level='activity' and p.level='activity'` (백필 예상 건수), 적용 후 `select count(*) from wbs_items where is_owner_split` 대조(§5.2 건수 검증). D-CUBE 팀 순서 확인: `select code, sort_order from teams where active order by sort_order` → PMO,ERP,MES,가공,MDM.
-- [ ] **Step 6: 회귀 0 판정** — Step 2 스냅샷과 재비교(익스포트 셀 비교는 파일 diff, KPI 는 값 대조). 다르면 **즉시 중단·원인 규명**(롤백 좌표: 0059_rollback → 0058_rollback → git revert).
-- [ ] **Step 7: `npm run mark:good`** (화면 확인 후) + 메모리 기록.
+- [ ] **Step 3: 0058 적용** — Management API(키체인 레시피). 검증: `select preset_applied, level_labels from project_settings` → 전 프로젝트 `legacy-dcube` 행.
+- [ ] **Step 4: 0059 적용** — 적용 전 `select count(*) from wbs_items c join wbs_items p on c.parent_id=p.id where c.level='activity' and p.level='activity'` (백필 예상 건수) 기록, 적용 후 `select count(*) from wbs_items where is_owner_split` (백필 실측 건수) 로 두 값을 대조(§5.2 건수 검증 — 불일치하면 중단). D-CUBE 팀 순서 확인: `select code, sort_order from teams where active order by sort_order` → PMO,ERP,MES,가공,MDM(Task 9 의 정렬 주입이 이 순서와 동치라 회귀 0 이 성립한다).
+- [ ] **Step 5: 0060 적용** — `import_wbs` RPC 를 `is_owner_split` 화이트리스트 포함 버전으로 교체(Task 9 발견 — 0006 은 insert 컬럼 화이트리스트라 0059 만으로는 엑셀 임포트가 플래그를 조용히 드롭한다). 검증: `select pg_get_functiondef('import_wbs(uuid,jsonb,jsonb)'::regprocedure)` 결과에 `is_owner_split` 문자열이 포함되는지 확인.
+- [ ] **Step 6: 코드 배포** — 브랜치 선푸시로 G2 통과(Preview 확인 또는 근거 있으면 `Preview-checked:` 트레일러) → main 머지·push → Vercel Ready 확인 → `npm run smoke:prod`. **0058·0059·0060 은 반드시 이 단계보다 먼저 적용이 끝나 있어야 한다** — 신코드는 `wbs_items.is_owner_split` 을 select 하고(`src/lib/data/wbs.ts`) `project_settings` 를 조회한다(`getProjectConfig`). 스키마가 없는 채로 신코드가 뜨면 그 select 가 42703(undefined_column)으로 죽는다 — DB 선행·코드 후행이 순서의 근거다.
+- [ ] **Step 7: 0059 백필 UPDATE 멱등 재실행 1회** — Step 4(0059 적용)와 Step 6(코드 배포) 사이의 배포 창에는 **구코드가 계속 서비스 중이다.** 구코드의 `addSubAct` 는 `is_owner_split` 을 모르는 채로 항목을 만들므로, 그 창에서 생성된 sub-act 는 구조적으로는 (부모·자신 둘 다 `level='activity'`) 기존 판별식과 일치하지만 플래그는 기본값 `false` 로 남는다. Step 4 시점 백필은 그 이전 데이터만 잡았으므로, 코드가 뜬 뒤 같은 UPDATE 를 한 번 더 돌려 배포 창의 누락분을 회수한다:
+  ```sql
+  -- 0059 백필의 재실행 — 신규 마이그레이션이 아니라 기존 UPDATE 문을 Management API 로 다시 실행하는 것뿐이다.
+  -- WHERE 절이 이미 true 인 행은 건드리지 않으므로(c.is_owner_split = false) 몇 번을 돌려도 최종 상태가 같다(멱등) — 안전하게 반복 가능.
+  update public.wbs_items c set is_owner_split = true
+  from public.wbs_items p
+  where c.parent_id = p.id and c.level = 'activity' and p.level = 'activity'
+    and c.is_owner_split = false;
+  ```
+  재실행 후 `select count(*) from wbs_items where is_owner_split` 을 Step 4 실측값과 다시 대조 — 배포 창에 생성분이 있었다면 값이 늘어나는 것이 정상이다.
+- [ ] **Step 8: 회귀 0 판정** — Step 2 스냅샷과 재비교(익스포트 셀 비교는 파일 diff, KPI 는 값 대조). 다르면 **즉시 중단·원인 규명**.
+- [ ] **Step 9: 롤백 좌표(순서 교정)** — 되돌릴 때는 **0060_rollback → 코드 revert 배포 → 0059_rollback → 0058_rollback** 순서를 지킨다. `0060_rollback`은 함수 교체뿐(컬럼·테이블 drop 없음)이라 코드 상태와 무관하게 먼저 실행해도 안전하다. 반면 `0059_rollback`(`is_owner_split` 컬럼 drop)·`0058_rollback`(`project_settings` 테이블 drop)은 **신코드가 아직 가동 중일 때 실행하면 신코드의 select 경로가 42703(undefined_column)으로 전면 에러가 난다** — 그래서 이 둘은 반드시 코드를 먼저 되돌린 다음에 온다(Step 6 의 DB 선행·코드 후행과 대칭인 이유).
+- [ ] **Step 10: `npm run mark:good`** (화면 확인 후) + 메모리 기록.
 
 ---
 
