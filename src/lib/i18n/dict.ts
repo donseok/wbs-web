@@ -17,6 +17,7 @@ import { holidaysKo, holidaysEn } from './dict/holidays'
 import { minutesKo, minutesEn } from './dict/minutes'
 import { issuesKo, issuesEn } from './dict/issues'
 import { wikiKo, wikiEn } from './dict/wiki'
+import { agentOpsKo, agentOpsEn } from './dict/agentOps'
 
 export type Locale = 'ko' | 'en'
 
@@ -38,6 +39,7 @@ export const DICT = {
     ...minutesKo,
     ...issuesKo,
     ...wikiKo,
+    ...agentOpsKo,
   },
   en: {
     ...commonEn,
@@ -56,6 +58,7 @@ export const DICT = {
     ...minutesEn,
     ...issuesEn,
     ...wikiEn,
+    ...agentOpsEn,
   },
 } as const
 
