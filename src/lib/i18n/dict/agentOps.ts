@@ -9,6 +9,7 @@ export const agentOpsKo = {
   'agentops.issueInstructions': '지시문',
   'agentops.issuePriority': '우선순위',
   'agentops.issueSubmit': '발행',
+  'agentops.issueItemPlaceholder': 'WBS 항목 ID (트리에서 복사)',
   'agentops.col.ready': '대기',
   'agentops.col.claimed': '작업 중',
   'agentops.col.reported': '승인 대기',
@@ -24,6 +25,7 @@ export const agentOpsKo = {
   'agentops.empty': '작업이 없습니다',
   'agentops.error': '불러오지 못했습니다',
   'agentops.actionFailed': '처리에 실패했습니다',
+  'agentops.itemDeleted': '(항목 삭제됨)',
 }
 
 export const agentOpsEn: Record<keyof typeof agentOpsKo, string> = {
@@ -37,6 +39,7 @@ export const agentOpsEn: Record<keyof typeof agentOpsKo, string> = {
   'agentops.issueInstructions': 'Instructions',
   'agentops.issuePriority': 'Priority',
   'agentops.issueSubmit': 'Issue',
+  'agentops.issueItemPlaceholder': 'WBS item ID (copy from the tree)',
   'agentops.col.ready': 'Ready',
   'agentops.col.claimed': 'In progress',
   'agentops.col.reported': 'Awaiting approval',
@@ -52,4 +55,5 @@ export const agentOpsEn: Record<keyof typeof agentOpsKo, string> = {
   'agentops.empty': 'No work orders',
   'agentops.error': 'Failed to load',
   'agentops.actionFailed': 'Action failed',
+  'agentops.itemDeleted': '(item deleted)',
 }

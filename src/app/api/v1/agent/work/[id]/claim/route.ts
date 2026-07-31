@@ -34,8 +34,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return apiInternalError()
     }
     if (!updated || (updated as unknown[]).length === 0) {
-      const { data: cur } = await admin
+      const { data: cur, error: curErr } = await admin
         .from('agent_work_orders').select('status').eq('id', id).maybeSingle()
+      // 표시=로깅 원칙 — 재조회 실패도 조용히 unknown 으로 삼키지 않고 남긴다(동작은 폴백 유지).
+      if (curErr) console.error('[agent-api] claim 충돌 재조회 실패:', curErr.message)
       return NextResponse.json(
         { error: '이미 다른 에이전트가 점유했거나 점유 불가 상태입니다.', code: 'conflict', status: (cur as { status?: string } | null)?.status ?? 'unknown' },
         { status: 409 },

@@ -23,6 +23,9 @@ export async function applyAgentProgress(
   if (!item) return { ok: false, error: '항목 없음' }
   const row = item as { id: string; actual_pct: number | null; project_id: string }
 
+  // 동일값 재보고 단락 — updateActual 관례(src/app/actions/wbs.ts). 중복 보고 멱등화 + change_logs 로그 노이즈 방지.
+  if (Number(row.actual_pct) === percent) return { ok: true, projectId: row.project_id }
+
   const { data: child, error: childErr } = await admin
     .from('wbs_items').select('id').eq('parent_id', wbsItemId).limit(1).maybeSingle()
   if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }

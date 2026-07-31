@@ -28,6 +28,12 @@ describe('applyAgentProgress', () => {
     const r = await applyAgentProgress(a, { wbsItemId: 'w1', percent: 55, actorUserId: 'u1' })
     expect(r).toEqual({ ok: true, projectId: 'p1' })
   })
+  it('동일값 재보고는 no-op — update·change_logs 없이 통과(wbs_items 큐 1건만 소비)', async () => {
+    const a = admin({ wbs_items: [{ data: ITEM }] }) // 항목 조회만 소비, 자식 확인·update 는 없음
+    const r = await applyAgentProgress(a, { wbsItemId: 'w1', percent: 30, actorUserId: 'u1' })
+    expect(r).toEqual({ ok: true, projectId: 'p1' })
+    expect((a as unknown as { from: ReturnType<typeof vi.fn> }).from).toHaveBeenCalledTimes(1)
+  })
   it('항목 조회 실패는 중단 — 없음으로 위장하지 않는다', async () => {
     const a = admin({ wbs_items: [{ data: null, error: { message: 'db down' } }] })
     const r = await applyAgentProgress(a, { wbsItemId: 'w1', percent: 10, actorUserId: 'u1' })

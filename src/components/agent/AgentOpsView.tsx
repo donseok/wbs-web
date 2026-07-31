@@ -65,7 +65,7 @@ export function AgentOpsView({ projects, loadError }: {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-lg font-semibold">{t('agentops.title')}</h1>
-        <select className="app-input h-9 w-56" value={projectId} onChange={e => setProjectId(e.target.value)}>
+        <select className="app-input h-9 w-56" aria-label={t('agentops.title')} value={projectId} onChange={e => setProjectId(e.target.value)}>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
         {registered ? (
@@ -93,7 +93,7 @@ export function AgentOpsView({ projects, loadError }: {
                 {byCol[col].map(o => (
                   <button key={o.id} className="block w-full rounded-md border border-line p-2 text-left text-sm"
                     onClick={() => setDetail(o)}>
-                    <div className="font-medium">{o.item_code} {o.item_name ?? '(항목 삭제됨)'}</div>
+                    <div className="font-medium">{o.item_code} {o.item_name ?? t('agentops.itemDeleted')}</div>
                     <div className="text-xs text-ink-subtle">
                       {o.claimed_by ?? '—'}
                       {o.status === 'claimed' && isClaimStale(o.claimed_at) && (
@@ -113,7 +113,7 @@ export function AgentOpsView({ projects, loadError }: {
         <div className="space-y-3">
           <label className="block text-sm">{t('agentops.issueItem')}
             <input className="app-input mt-1 w-full" value={issueItemId}
-              onChange={e => setIssueItemId(e.target.value)} placeholder="WBS 항목 ID (트리에서 복사)" />
+              onChange={e => setIssueItemId(e.target.value)} placeholder={t('agentops.issueItemPlaceholder')} />
           </label>
           <label className="block text-sm">{t('agentops.issueInstructions')}
             <textarea className="app-input mt-1 h-28 w-full" value={issueInstructions}
@@ -160,7 +160,7 @@ export function AgentOpsView({ projects, loadError }: {
                 <>
                   <button className="btn btn-primary" disabled={busy}
                     onClick={() => void run(() => approveAgentCompletion(detail.id))}>{t('agentops.approve')}</button>
-                  <input className="app-input h-9 w-56" placeholder={t('agentops.rejectNote')}
+                  <input className="app-input h-9 w-56" aria-label={t('agentops.rejectNote')} placeholder={t('agentops.rejectNote')}
                     value={rejectNote} onChange={e => setRejectNote(e.target.value)} />
                   <button className="btn" disabled={busy || !rejectNote.trim()}
                     onClick={() => void run(() => rejectAgentCompletion(detail.id, rejectNote))}>{t('agentops.reject')}</button>
