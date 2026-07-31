@@ -22,6 +22,10 @@ export const LOGICAL_ALIASES: Record<keyof ExcelProfile['logical'], readonly str
   end: ['종료', '종료일', 'End', 'End Date', '완료일'],
   weight: ['가중치', 'Weight', '비중'],
   actualPct: ['실적%', '실적', 'Actual', 'Actual%', '진척률', '진척율'],
+  // outline 계층 전용(규칙 5 물). columns 계층은 계층 열 자체가 이름의 출처라 이 별칭을 쓰지 않는다
+  // (detectWorkbook 조립부가 hierarchy.kind==='columns' 면 무조건 null 로 강제한다) — 맨 뒤에 둬서
+  // 기존 6개 필드의 열 선점 우선순위를 건드리지 않는다(리뷰 픽스: outline+1 무검증 관례 대체).
+  name: ['이름', '업무명', '작업명', '제목', '내용', 'Name', 'Title'],
 }
 
 /** 담당 마크 방식(규칙 6)의 기본 마크 사전. */
@@ -37,7 +41,7 @@ const OUTLINE_RE = /^\d+([.\-]\d+)*$/
 
 const FIELD_LABELS: Record<keyof ExcelProfile['logical'], string> = {
   extraAxis: '업무영역', code: '코드', deliverable: '산출물', start: '시작일',
-  end: '종료일', weight: '가중치', actualPct: '실적%',
+  end: '종료일', weight: '가중치', actualPct: '실적%', name: '이름',
 }
 
 const ALL_ALIASES: string[] = Object.values(LOGICAL_ALIASES).flat().map(a => a.trim().toLowerCase())
@@ -280,15 +284,32 @@ export function detectWorkbook(buf: ArrayBuffer): { ok: true; result: DetectionR
   // 규칙 5
   const logicalRes = detectLogicalColumns(headerLabels, logicalExcluded)
   warnings.push(...logicalRes.warnings)
-  const matchedLogical = Object.values(logicalRes.logical).filter(v => v !== null).length
-  const exactMatchedLogical = matchedLogical - logicalRes.partialMatchCount
+
+  // name 열은 outline 계층에서만 유효하다(columns 계층은 계층 열 자체가 이름의 출처 — 리뷰 픽스).
+  // outline 인데 별칭으로 못 찾았으면 '코드 열 바로 다음 열' 관례로 폴백하되, 이건 확정이 아니라
+  // 추정이므로 부분일치와 동일하게 confidence 를 깎고 warning 을 남긴다(무검증 침묵 관례였던 것을
+  // 명시 열로 승격 + 실패 시에도 최소한 사람이 보게 만든다).
+  let nameCol = logicalRes.logical.name
+  let namePartial = 0
+  if (hierarchy.kind === 'columns') {
+    nameCol = null
+  } else if (nameCol === null) {
+    nameCol = hierarchy.column + 1
+    namePartial = 1
+    warnings.push("'이름' 열을 찾지 못해 코드 열 다음 열로 추정했습니다 — 2단계에서 확인하세요")
+  }
+  const logical: ExcelProfile['logical'] = { ...logicalRes.logical, name: nameCol }
+  const partialMatchCount = logicalRes.partialMatchCount + namePartial
+
+  const matchedLogical = Object.values(logical).filter(v => v !== null).length
+  const exactMatchedLogical = matchedLogical - partialMatchCount
   // 부분일치는 완전일치의 절반 가중치만 인정 — 추정임을 confidence 에도 반영한다.
   const confidenceLogical =
-    (exactMatchedLogical + logicalRes.partialMatchCount * 0.5) / Object.keys(LOGICAL_ALIASES).length
+    (exactMatchedLogical + partialMatchCount * 0.5) / Object.keys(LOGICAL_ALIASES).length
 
   // 규칙 6
   const logicalColumns = new Set<number>(
-    Object.values(logicalRes.logical).filter((v): v is number => v !== null),
+    Object.values(logical).filter((v): v is number => v !== null),
   )
   const excludedForTeams = new Set<number>([...hierarchyColumns, ...logicalColumns])
   const teamRes = detectTeamColumns(headerLabels, dataRows, excludedForTeams)
@@ -300,7 +321,7 @@ export function detectWorkbook(buf: ArrayBuffer): { ok: true; result: DetectionR
     holidaySheetName,
     headerRow,
     hierarchy,
-    logical: logicalRes.logical,
+    logical,
     teamColumns: teamRes.teamColumns,
     ownerMarks: { ...DEFAULT_OWNER_MARKS },
   }

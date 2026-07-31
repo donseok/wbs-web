@@ -184,6 +184,61 @@ describe('detectWorkbook — 논리 열 부분일치 리뷰 픽스', () => {
   })
 })
 
+/* ── 리뷰 픽스(2026-08-01): ExcelProfile.logical.name — outline "코드 열+1" 관례가 무검증
+ * 침묵 오독 경로였다('코드,비고,이름' 형 파일이면 비고가 이름으로 잘못 읽힌다). 이제 name 은
+ * 별칭 매치를 우선 시도하고, outline 인데도 못 찾을 때만 코드+1 폴백을 쓰며 그 사실을 warning +
+ * confidence 감점으로 남긴다. columns 계층은 계층 열 자체가 이름의 출처라 항상 null 로 강제한다. */
+describe('detectWorkbook — logical.name(리뷰 픽스)', () => {
+  it("outline + 별칭 매치 — '코드,비고,업무명' 헤더는 업무명 열(2)을 이름으로 인식(코드+1 폴백을 쓰지 않는다)", () => {
+    const aoa: unknown[][] = [
+      ['코드', '비고', '업무명'],
+      ['1', 'x', '준비'],
+      ['1.1', 'y', '거버넌스'],
+      ['2', 'z', '실행'],
+    ]
+    const res = detectWorkbook(makeBook([{ name: 'Sheet1', aoa }]))
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.result.profile.hierarchy).toEqual({ kind: 'outline', column: 0 })
+    // 폴백(코드+1=1)이 아니라 별칭이 실제로 찾은 열(2)이어야 한다 — '비고'를 이름으로 오독하지 않는다.
+    expect(res.result.profile.logical.name).toBe(2)
+    expect(res.result.warnings.some(w => w.includes("'이름' 열을 찾지 못해"))).toBe(false)
+  })
+
+  it("outline + 별칭 미발견 — '코드,비고' 헤더는 코드 열 다음 열(1)로 폴백하고 경고+confidence 감점을 남긴다", () => {
+    const aliasAoa: unknown[][] = [
+      ['코드', '비고', '업무명'],
+      ['1', 'x', '준비'], ['1.1', 'y', '거버넌스'], ['2', 'z', '실행'],
+    ]
+    const fallbackAoa: unknown[][] = [
+      ['코드', '비고'],
+      ['1', 'x'], ['1.1', 'y'], ['2', 'z'],
+    ]
+    const aliasRes = detectWorkbook(makeBook([{ name: 'Sheet1', aoa: aliasAoa }]))
+    const fallbackRes = detectWorkbook(makeBook([{ name: 'Sheet1', aoa: fallbackAoa }]))
+    expect(aliasRes.ok && fallbackRes.ok).toBe(true)
+    if (!aliasRes.ok || !fallbackRes.ok) return
+    expect(fallbackRes.result.profile.logical.name).toBe(1) // hierarchy.column(0) + 1
+    expect(fallbackRes.result.warnings).toContain("'이름' 열을 찾지 못해 코드 열 다음 열로 추정했습니다 — 2단계에서 확인하세요")
+    // 폴백은 부분일치와 동일한 가중치로 confidence 를 깎는다 — 별칭으로 확정된 케이스보다 낮아야 한다.
+    expect(fallbackRes.result.confidence.logical).toBeLessThan(aliasRes.result.confidence.logical)
+  })
+
+  it('columns 계층은 헤더에 이름스러운 열이 있어도 항상 name:null(계층 열 자체가 이름의 출처)', () => {
+    const aoa: unknown[][] = [
+      ['', 'Phase', 'Task', 'Activity', '이름'],
+      ['', '1. 준비'],
+      ['', '', '1-1. 거버넌스'],
+      ['', '', '', 'TFT 구성', '무관한값'],
+    ]
+    const res = detectWorkbook(makeBook([{ name: 'Sheet1', aoa }]))
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.result.profile.hierarchy.kind).toBe('columns')
+    expect(res.result.profile.logical.name).toBeNull()
+  })
+})
+
 /* ── (d) 시트 0개 / 헤더 불명 ── */
 describe('detectWorkbook — (d) 실패·저신뢰 경로', () => {
   it('시트 0개 → ok:false — pickSheets([]) 로 검증(§본문 참고: xlsx 라이브러리가 시트 0개 워크북의 write 자체를 거부해 실제 버퍼로 왕복 재현이 불가능함을 확인했다)', () => {
@@ -275,7 +330,10 @@ describe('detectLogicalColumns (규칙 5)', () => {
     expect(logical.code).toBeNull()
     expect(logical.weight).toBeNull()
     expect(logical.actualPct).toBeNull()
-    expect(warnings).toHaveLength(4)
+    // name 은 이 순수 함수 레벨에서는 다른 필드와 동일하게 별칭 매치만 시도한다(outline 전용 처리·
+    // 코드+1 폴백은 detectWorkbook 조립부의 책임 — 리뷰 픽스).
+    expect(logical.name).toBeNull()
+    expect(warnings).toHaveLength(5)
   })
   it('완전일치 실패 시 부분일치로 대체한다', () => {
     const { logical, warnings, partialMatchCount } = detectLogicalColumns(['산출물명(구)'])

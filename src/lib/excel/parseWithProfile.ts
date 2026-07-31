@@ -118,9 +118,13 @@ export function parseWithProfile(
       // 깊이 = 구분자 수(0-based). '1' → 0, '1.1' → 1, '1.1.1.1' → 3.
       depth = (raw.match(/[.\-]/g) ?? []).length
       outlineCode = raw
-      // 설계 결정(Task4): ExcelProfile 에 별도 '이름' 논리 열이 없다 — 아웃라인 모드에서는
-      // 코드 열 바로 오른쪽 열을 이름으로 관례화한다(코드|이름 순 배치가 일반적인 아웃라인 WBS 표 관례).
-      name = String(r[profile.hierarchy.column + 1] ?? '').trim()
+      // 리뷰 픽스: profile.logical.name 이 정본이다 — 명시 지정이 있으면 그 열을 쓴다.
+      // '코드 열 바로 오른쪽 열' 관례는 detect.ts 가 별칭으로도 못 찾았을 때만 쓰는 최후 폴백이었고,
+      // 그 폴백값이 여기까지 profile.logical.name 에 실려 온다(detectWorkbook 이 이미 채워 둔다).
+      // 이 함수 자체가 폴백을 다시 계산하는 건 프로파일이 아예 수동으로 만들어져 name 이 비어 있는
+      // 극단적 경우에 대한 방어일 뿐 — 정상 경로는 항상 profile.logical.name 을 그대로 신뢰한다.
+      const nameCol = profile.logical.name ?? (profile.hierarchy.column + 1)
+      name = String(r[nameCol] ?? '').trim()
     }
 
     let code: string | null = null

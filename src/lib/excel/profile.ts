@@ -11,7 +11,13 @@ export interface ExcelProfile {
     | { kind: 'columns'; columns: number[] }   // 열=계층: 왼쪽=얕음. 한 행에 정확히 하나 채워짐
     | { kind: 'outline'; column: number }      // 아웃라인 코드(1.2.3) 열. 깊이=구분자 수+1
   logical: {
-    extraAxis: number | null; code: number | null; deliverable: number | null
+    extraAxis: number | null; code: number | null
+    /** 이름 열 — outline 계층에서만 쓰인다(columns 계층은 계층 열 자체가 이름의 출처라 항상 null,
+     *  리뷰 픽스: outline+1 관례가 무검증 침묵 오독 경로였다 — '코드,비고,이름' 형 파일에서 '비고'를
+     *  이름으로 잘못 읽는 사고를 막기 위해 명시 열로 승격했다). 이 필드 도입 이전에 저장된 프로파일은
+     *  키 자체가 없을 수 있다 — validateProfile 이 그 경우를 null 로 정규화해 반환한다(전방호환). */
+    name: number | null
+    deliverable: number | null
     start: number | null; end: number | null; weight: number | null; actualPct: number | null
   }
   teamColumns: [number, string][]
@@ -83,9 +89,12 @@ export function validateProfile(p: unknown): { ok: true; profile: ExcelProfile }
     return { ok: false, error: 'logical must be an object' }
   }
 
-  const logicalFields = ['extraAxis', 'code', 'deliverable', 'start', 'end', 'weight', 'actualPct']
+  const logicalFields = ['extraAxis', 'code', 'name', 'deliverable', 'start', 'end', 'weight', 'actualPct']
   for (const field of logicalFields) {
     const value = (p.logical as Record<string, unknown>)[field]
+    // name 은 이 필드가 생기기 전에 저장된 프로파일엔 키 자체가 없을 수 있다 — 부재(undefined)를
+    // null 과 동등하게 수용한다(전방호환). 다른 필드는 처음부터 필수였으므로 그대로 엄격 검증.
+    if (field === 'name' && value === undefined) continue
     if (value !== null && (!Number.isInteger(value) || (value as number) < 0)) {
       return { ok: false, error: `logical.${field} must be null or integer >= 0` }
     }
@@ -120,9 +129,12 @@ export function validateProfile(p: unknown): { ok: true; profile: ExcelProfile }
     }
   }
 
+  // name 키가 부재(undefined)였다면 여기서 null 로 정규화한다 — 이후 모든 소비자(parseWithProfile 등)는
+  // profile.logical.name 이 항상 number|null 이라고 믿을 수 있어야 한다(undefined 를 흘려보내지 않는다).
+  const normalizedLogical = { ...(p.logical as ExcelProfile['logical']), name: (p.logical as Record<string, unknown>).name ?? null }
   return {
     ok: true,
-    profile: p as unknown as ExcelProfile,
+    profile: { ...(p as unknown as ExcelProfile), logical: normalizedLogical as ExcelProfile['logical'] },
   }
 }
 
@@ -133,7 +145,8 @@ export const LEGACY_DCUBE_PROFILE: ExcelProfile = {
   holidaySheetName: 'Holiday',
   headerRow: 2,
   hierarchy: { kind: 'columns', columns: [1, 2, 3] },
-  logical: { extraAxis: 0, code: null, deliverable: 11, start: 12, end: 13, weight: 14, actualPct: 16 },
+  // name: null — columns 계층(Phase/Task/Activity)은 계층 열 자체가 이름의 출처라 별도 이름 열이 없다.
+  logical: { extraAxis: 0, code: null, name: null, deliverable: 11, start: 12, end: 13, weight: 14, actualPct: 16 },
   teamColumns: [[6, 'PMO'], [7, 'ERP'], [8, 'MES'], [9, '가공'], [10, 'MDM']],
   ownerMarks: { '●': 'primary', '△': 'support' },
 }

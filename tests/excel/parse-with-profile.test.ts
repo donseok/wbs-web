@@ -110,7 +110,7 @@ describe('parseWithProfile + linkByDepth — (b) 아웃라인 4단 + 팀명 직�
     holidaySheetName: null,
     headerRow: 0,
     hierarchy: { kind: 'outline', column: 0 },
-    logical: { extraAxis: null, code: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
+    logical: { extraAxis: null, code: null, name: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
     teamColumns: [[2, '*']],
     ownerMarks: {},
   }
@@ -160,6 +160,37 @@ describe('parseWithProfile + linkByDepth — (b) 아웃라인 4단 + 팀명 직�
   })
 })
 
+/* ── 리뷰 픽스(2026-08-01): profile.logical.name 이 정본이고, 'outline+1' 관례는 최후 폴백일 뿐이다.
+ * '코드,비고,이름' 형 파일에서 순진한 code_col+1 관례를 그대로 썼다면 '비고'(1열)를 이름으로
+ * 잘못 읽었을 것 — logical.name=2 를 명시하면 그 오독이 재현되지 않아야 한다. */
+describe('parseWithProfile — logical.name 이 명시되면 우선한다(코드+1 관례를 덮어씀)', () => {
+  const aoa: unknown[][] = [
+    ['코드', '비고', '이름'],
+    ['1', '메모A', '준비'],
+    ['1.1', '메모B', '거버넌스'],
+  ]
+  const profile: ExcelProfile = {
+    version: 1,
+    sheetName: 'Sheet1',
+    holidaySheetName: null,
+    headerRow: 0,
+    hierarchy: { kind: 'outline', column: 0 },
+    // logical.name = 2('이름' 열) — 명시했으므로 code_col+1(=1, '비고' 열) 관례는 쓰이지 않아야 한다.
+    logical: { extraAxis: null, code: null, name: 2, deliverable: null, start: null, end: null, weight: null, actualPct: null },
+    teamColumns: [],
+    ownerMarks: {},
+  }
+  const buf = makeBook([{ name: 'Sheet1', aoa }])
+  const parsed = parseWithProfile(buf, profile)
+
+  it('이름이 명시 열(2, "이름")에서 온다 — 폴백 열(1, "비고")이 아니다', () => {
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.rows.map(r => r.name)).toEqual(['준비', '거버넌스'])
+    expect(parsed.rows.map(r => r.name)).not.toEqual(['메모A', '메모B'])
+  })
+})
+
 /* ── (c) 코드 열 없는 4열 계층(columns) → 자동 채번 '1','1.1','1.1.1','1.1.1.1' ── */
 describe('parseWithProfile + linkByDepth — (c) 코드 열 없는 4열 계층(columns) → 자동 채번', () => {
   const aoa: unknown[][] = [
@@ -175,7 +206,7 @@ describe('parseWithProfile + linkByDepth — (c) 코드 열 없는 4열 계층(c
     holidaySheetName: null,
     headerRow: 0,
     hierarchy: { kind: 'columns', columns: [1, 2, 3, 4] },
-    logical: { extraAxis: null, code: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
+    logical: { extraAxis: null, code: null, name: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
     teamColumns: [],
     ownerMarks: {},
   }
@@ -229,7 +260,7 @@ describe('parseWithProfile + linkByDepth — (d) 깊이 점프 → 에러 행 �
     holidaySheetName: null,
     headerRow: 0,
     hierarchy: { kind: 'columns', columns: [1, 2, 3] },
-    logical: { extraAxis: null, code: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
+    logical: { extraAxis: null, code: null, name: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
     teamColumns: [],
     ownerMarks: {},
   }
@@ -261,7 +292,7 @@ describe('parseWithProfile — 계층 열 다중 채움 방어', () => {
     const profile: ExcelProfile = {
       version: 1, sheetName: 'Sheet1', holidaySheetName: null, headerRow: 0,
       hierarchy: { kind: 'columns', columns: [1, 2] },
-      logical: { extraAxis: null, code: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
+      logical: { extraAxis: null, code: null, name: null, deliverable: null, start: null, end: null, weight: null, actualPct: null },
       teamColumns: [], ownerMarks: {},
     }
     const buf = makeBook([{ name: 'Sheet1', aoa }])
