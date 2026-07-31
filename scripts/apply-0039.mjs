@@ -18,7 +18,17 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const PROJECT_REF = 'rglfgrwwwwdqejohdnty'
+// 운영 DB 오적용 방지(스펙 §10.11) — ref 하드코딩 금지. 반드시 env 로 받고 화면에 밝힌다.
+const PROJECT_REF = process.env.SUPABASE_PROJECT_REF
+if (!PROJECT_REF) {
+  console.error('SUPABASE_PROJECT_REF 가 필요합니다. 예: SUPABASE_PROJECT_REF=<ref> node scripts/apply-0039.mjs')
+  process.exit(1)
+}
+if (process.env.APPLY_CONFIRM !== PROJECT_REF) {
+  console.error(`대상 프로젝트: ${PROJECT_REF}`)
+  console.error(`확인을 위해 APPLY_CONFIRM=${PROJECT_REF} 를 함께 지정해 다시 실행하세요.`)
+  process.exit(1)
+}
 
 function readEnvLocal(key) {
   try {
