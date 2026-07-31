@@ -5,6 +5,8 @@ export const minutesKo = {
   'min.kpi.month': '이달 회의록',
   'min.kpi.monthSub': '이번 달 기준',
   'min.upload': '회의록 업로드',
+  // 툴바 버튼 전용 축약 라벨 — 모달 제목은 min.upload 를 유지한다(버튼만 줄이려는 요구).
+  'min.upload.short': '등록',
   'min.export.all': '전체 내려받기',
   'min.export.progress': '내려받는 중…',
   'min.export.failed': '전체 회의록을 내려받지 못했습니다.',
@@ -214,6 +216,7 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.kpi.month': 'This month',
   'min.kpi.monthSub': 'this month',
   'min.upload': 'Upload minutes',
+  'min.upload.short': 'Upload',
   'min.export.all': 'Download all',
   'min.export.progress': 'Downloading…',
   'min.export.failed': 'Failed to download all minutes.',

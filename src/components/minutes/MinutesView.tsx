@@ -302,7 +302,7 @@ export function MinutesView({
                 (hasAnyProjectRole)이고, 전역 shim role!==null 이 그와 같은 의미다(스펙 §6.3). */}
             {canUpload && (
               <button onClick={() => setUploadOpen(true)} className="btn btn-primary">
-                <Plus className="h-4 w-4" />{t('min.upload')}
+                <Plus className="h-4 w-4" />{t('min.upload.short')}
               </button>
             )}
           </div>
