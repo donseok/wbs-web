@@ -259,8 +259,12 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
 function MobileMenu({
   projects, pathname, onClose, roleLabel, identity, displayName,
 }: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; identity: HeaderIdentity | null; displayName: string | null }) {
+  const router = useRouter()
   const { t } = useLocale()
   const { routeProjectId, menuProjectId, menuProject, isGlobalBridge, returnHref } = useProjectNavigation()
+  // 최근 메뉴 문맥은 아래 복귀 링크/하위 메뉴로 유지하되, 콤보는 실제 URL 프로젝트만
+  // 선택한다. 그래야 전역 화면에서 최근 프로젝트 자체를 골라도 change가 발생한다.
+  const selectedProjectId = routeProjectId ?? ''
 
   // 안읽음 공지 배지 — 데스크탑 사이드바와 동일한 지표를 모바일 메뉴에서도 노출.
   // 메뉴가 열릴 때(마운트)만 조회하므로 추가 비용은 열람 시 1회.
@@ -321,17 +325,29 @@ function MobileMenu({
             </Link>
           )}
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>
-          {projects.map(p => (
-            <Link
-              key={p.id}
-              onClick={onClose}
-              href={`/p/${p.id}/dashboard`}
-              aria-current={routeProjectId === p.id ? 'page' : undefined}
-              className={`side-link ${routeProjectId === p.id ? 'side-link-active' : ''}`}
+          <div className="mx-1">
+            <select
+              aria-label={t('common.selectProject')}
+              value={selectedProjectId}
+              disabled={projects.length === 0}
+              onChange={event => {
+                const projectId = event.target.value
+                if (!projects.some(project => project.id === projectId)) return
+                router.push(`/p/${encodeURIComponent(projectId)}/dashboard`)
+                onClose()
+              }}
+              className="h-10 w-full rounded-xl border border-sidebar-line bg-sidebar-2 px-3 text-[13px] font-medium text-sidebar-ink outline-none transition focus:border-sidebar-ink-subtle disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span className="truncate">{p.name}</span>
-            </Link>
-          ))}
+              <option value="" disabled={projects.length > 0}>
+                {projects.length === 0 ? t('common.noProjects') : t('common.selectProject')}
+              </option>
+              {projects.map(project => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </div>
           {links.length > 0 && (
             <>
               <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">

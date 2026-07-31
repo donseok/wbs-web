@@ -7,10 +7,12 @@ import { createRoot, type Root } from 'react-dom/client'
 
 const mocks = vi.hoisted(() => ({
   pathname: '/minutes',
+  push: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
   usePathname: () => mocks.pathname,
+  useRouter: () => ({ push: mocks.push }),
 }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ t: (key: string) => key }),
@@ -37,6 +39,7 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
 
   beforeEach(() => {
     mocks.pathname = '/minutes'
+    mocks.push.mockReset()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)

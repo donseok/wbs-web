@@ -5,7 +5,10 @@ import { createRoot, type Root } from 'react-dom/client'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/p/p1/wbs' }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/p/p1/wbs',
+  useRouter: () => ({ push: vi.fn() }),
+}))
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t: (k: string) => k }) }))
 vi.mock('@/app/actions/announcements', () => ({ getUnreadAnnouncementCount: vi.fn(async () => 0) }))
 const queueUiPref = vi.fn()

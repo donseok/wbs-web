@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
   ArrowLeft, BarChart3, BookOpenText, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
@@ -58,6 +58,7 @@ function projectMenu(base: string, showUsage: boolean): { href: string; labelKey
 }
 
 export function Sidebar({ projects, showUsage = false }: { projects: SidebarProject[]; showUsage?: boolean }) {
+  const router = useRouter()
   const pathname = usePathname()
   const { t } = useLocale()
   const {
@@ -87,6 +88,17 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
   }
 
   const activeCount = projects.filter(p => p.status === 'active').length
+  // 전역 화면에서는 최근 메뉴 문맥과 실제 선택을 구분한다. 빈 값이어야 사용자가
+  // 최근 프로젝트 자체를 다시 골라도 change가 발생해 대시보드로 진입할 수 있다.
+  const selectedProjectId = routeProjectId ?? ''
+  const selectedProject = selectedProjectId
+    ? projects.find(project => project.id === selectedProjectId) ?? null
+    : null
+
+  const selectProject = (projectId: string) => {
+    if (!projects.some(project => project.id === projectId)) return
+    router.push(`/p/${encodeURIComponent(projectId)}/dashboard`)
+  }
 
   // 안읽음 공지 배지 — 헤더 벨과 같은 "네비게이션당 1회 조회" 패턴.
   // 회의록·내 회의에서는 보존한 프로젝트 메뉴의 배지를 유지한다.
@@ -151,44 +163,62 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
         </Link>
       </Tooltip>
 
-      {/* 프로젝트 리스트 */}
+      {/* 프로젝트 선택 — 목록을 펼치지 않아 프로젝트 수가 늘어도 사이드바 높이가 고정된다. */}
       <div className="mt-4 flex shrink-0 flex-col">
         <div className="mb-1.5 flex shrink-0 items-center justify-between px-2">
           {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</span>}
           {!collapsed && <Link href="/projects" className="text-[10px] font-medium text-sidebar-ink-muted transition hover:text-sidebar-ink">{t('common.viewAll')}</Link>}
         </div>
-        <ul className="max-h-[42vh] shrink-0 space-y-1 overflow-y-auto">
-          {projects.map(project => {
-            const active = routeProjectId === project.id
-            const menuContext = !active && isGlobalBridge && menuProjectId === project.id
-            const meta = STATUS_META[project.status]
-            return (
-              <li key={project.id}>
-                <Tooltip label={collapsed ? `${project.name} · ${meta.label}` : project.name} side="right">
-                  <Link
-                    href={`/p/${project.id}/dashboard`}
-                    aria-current={active ? 'page' : undefined}
-                    className={`side-link group ${active ? 'side-link-active' : menuContext ? 'bg-sidebar-3/60 text-sidebar-ink' : ''} ${collapsed ? 'justify-center px-0' : ''}`}
-                  >
-                    <FolderOpen className={`h-4 w-4 shrink-0 ${active || menuContext ? 'text-sidebar-ink' : 'text-sidebar-ink-muted group-hover:text-sidebar-ink'}`} />
-                    {!collapsed && (
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-[13px] leading-tight">{project.name}</span>
-                        <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-sidebar-ink-subtle">
-                          <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{meta.label}
-                          {menuContext && <span className="text-sidebar-ink-muted">· 메뉴 기준</span>}
-                        </span>
-                      </span>
-                    )}
-                  </Link>
-                </Tooltip>
-              </li>
-            )
-          })}
-          {projects.length === 0 && !collapsed && (
-            <li className="px-3 py-4 text-center text-xs leading-5 text-sidebar-ink-subtle">첫 프로젝트를 만들어 시작하세요.</li>
-          )}
-        </ul>
+        {collapsed ? (
+          <Tooltip
+            label={projects.length === 0
+              ? t('common.noProjects')
+              : selectedProject
+                ? `${selectedProject.name} · ${STATUS_META[selectedProject.status].label}`
+                : t('common.selectProject')}
+            side="right"
+          >
+            <div className="relative mx-auto flex h-9 w-10 items-center justify-center rounded-xl border border-sidebar-line bg-sidebar-2 text-sidebar-ink-muted transition focus-within:border-sidebar-ink-subtle focus-within:ring-2 focus-within:ring-sidebar-line hover:bg-sidebar-3 hover:text-sidebar-ink">
+              <FolderOpen className="h-[18px] w-[18px]" aria-hidden />
+              <select
+                aria-label={t('common.selectProject')}
+                value={selectedProjectId}
+                disabled={projects.length === 0}
+                onChange={event => selectProject(event.target.value)}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              >
+                <option value="" disabled={projects.length > 0}>
+                  {projects.length === 0 ? t('common.noProjects') : t('common.selectProject')}
+                </option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.name} · {STATUS_META[project.status].label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </Tooltip>
+        ) : (
+          <div className="relative">
+            <FolderOpen className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-sidebar-ink-muted" aria-hidden />
+            <select
+              aria-label={t('common.selectProject')}
+              value={selectedProjectId}
+              disabled={projects.length === 0}
+              onChange={event => selectProject(event.target.value)}
+              className="h-11 w-full cursor-pointer rounded-xl border border-sidebar-line bg-sidebar-2 py-2 pl-9 pr-2 text-[13px] font-medium text-sidebar-ink outline-none transition hover:border-sidebar-ink-subtle focus:border-sidebar-ink-subtle focus:ring-2 focus:ring-sidebar-line disabled:cursor-not-allowed disabled:text-sidebar-ink-subtle"
+            >
+              <option value="" disabled={projects.length > 0}>
+                {projects.length === 0 ? t('common.noProjects') : t('common.selectProject')}
+              </option>
+              {projects.map(project => (
+                <option key={project.id} value={project.id}>
+                  {project.name} · {STATUS_META[project.status].label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* 메뉴 섹션 */}
         <nav className="mt-4 shrink-0 border-t border-sidebar-line pt-3" aria-label="주요 메뉴">
