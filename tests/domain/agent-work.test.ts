@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  AGENT_CLAIM_STALE_HOURS, AGENT_NAME_RE, canTransition, isClaimStale, validateReport,
+  AGENT_CLAIM_STALE_HOURS, AGENT_NAME_RE, canTransition, isClaimStale, validateReport, isUuidLike,
 } from '@/lib/domain/agentWork'
 
 describe('agentWork 상태 머신', () => {
@@ -45,5 +45,10 @@ describe('agentWork 상태 머신', () => {
     expect(AGENT_NAME_RE.test('')).toBe(false)
     expect(AGENT_NAME_RE.test('이름에 공백')).toBe(false)
     expect(AGENT_NAME_RE.test('x'.repeat(65))).toBe(false)
+  })
+  it('UUID 형식 검증', () => {
+    expect(isUuidLike('11111111-1111-4111-8111-111111111111')).toBe(true)
+    expect(isUuidLike('invalid-id')).toBe(false)
+    expect(isUuidLike('11111111111141118111111111111111')).toBe(false)
   })
 })

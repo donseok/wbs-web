@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isUuid } from '@/lib/minutes/externalApi'
+import { isUuidLike } from '@/lib/domain/agentWork'
 import {
   apiBadRequest, apiInternalError, apiNotFound, gateAgentApi, requireAgentProject,
 } from '@/lib/agent/externalApi'
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const gate = gateAgentApi(req)
   if (gate) return gate
   const projectId = req.nextUrl.searchParams.get('project_id') ?? ''
-  if (!projectId || !isUuid(projectId)) return apiBadRequest('project_id가 필요합니다.')
+  if (!projectId || !isUuidLike(projectId)) return apiBadRequest('project_id가 필요합니다.')
   try {
     const admin = createAdminClient()
     if (!(await requireAgentProject(admin, projectId))) return apiNotFound()

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isUuid } from '@/lib/minutes/externalApi'
-import { isClaimStale } from '@/lib/domain/agentWork'
+import { isUuidLike, isClaimStale } from '@/lib/domain/agentWork'
 import {
   apiBadRequest, apiInternalError, apiNotFound, gateAgentApi, requireAgentProject,
 } from '@/lib/agent/externalApi'
@@ -13,7 +12,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const gate = gateAgentApi(req)
   if (gate) return gate
   const { id } = await ctx.params
-  if (!isUuid(id)) return apiBadRequest('유효한 작업 ID가 필요합니다.')
+  if (!isUuidLike(id)) return apiBadRequest('유효한 작업 ID가 필요합니다.')
   try {
     const admin = createAdminClient()
     const { data: order, error } = await admin

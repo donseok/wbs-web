@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isUuid } from '@/lib/minutes/externalApi'
+import { isUuidLike } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { apiBadRequest, apiInternalError, apiNotFound, gateAgentApi } from '@/lib/agent/externalApi'
 import { loadGatedOrder, parseAgentActor } from '@/lib/agent/routeShared'
@@ -10,7 +10,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const gate = gateAgentApi(req)
   if (gate) return gate
   const { id } = await ctx.params
-  if (!isUuid(id)) return apiBadRequest('경로 id 형식이 올바르지 않습니다.')
+  if (!isUuidLike(id)) return apiBadRequest('경로 id 형식이 올바르지 않습니다.')
   let raw: unknown
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
   const actor = parseAgentActor(raw)

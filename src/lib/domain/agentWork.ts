@@ -9,6 +9,7 @@ export const AGENT_CLAIM_STALE_HOURS = 24
 /** 식별 라벨일 뿐 권한 주체가 아니다(권한은 user_email 계정) — 형식만 좁게 잡는다. */
 export const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 export const AGENT_LINKS_MAX = 20
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const TRANSITIONS: Record<AgentOrderStatus, readonly AgentOrderStatus[]> = {
   ready: ['claimed', 'cancelled'],
@@ -38,4 +39,8 @@ export function isClaimStale(claimedAt: string | null, now: Date = new Date()): 
   const t = Date.parse(claimedAt)
   if (Number.isNaN(t)) return false
   return now.getTime() - t > AGENT_CLAIM_STALE_HOURS * 3600_000
+}
+
+export function isUuidLike(v: string): boolean {
+  return UUID_RE.test(v)
 }

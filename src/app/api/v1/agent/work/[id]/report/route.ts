@@ -2,11 +2,10 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
-import { AGENT_LINKS_MAX, validateReport, type AgentReportKind } from '@/lib/domain/agentWork'
+import { AGENT_LINKS_MAX, validateReport, isUuidLike, type AgentReportKind } from '@/lib/domain/agentWork'
 import { applyAgentProgress } from '@/lib/agent/applyProgress'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound, gateAgentApi } from '@/lib/agent/externalApi'
 import { loadGatedOrder, parseAgentActor } from '@/lib/agent/routeShared'
-import { isUuid } from '@/lib/minutes/externalApi'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,7 +29,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const gate = gateAgentApi(req)
   if (gate) return gate
   const { id } = await ctx.params
-  if (!isUuid(id)) return apiBadRequest('id 형식이 올바르지 않습니다.')
+  if (!isUuidLike(id)) return apiBadRequest('id 형식이 올바르지 않습니다.')
   let raw: unknown
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
   const actor = parseAgentActor(raw)
