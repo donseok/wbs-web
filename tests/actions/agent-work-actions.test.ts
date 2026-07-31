@@ -64,15 +64,21 @@ describe('createAgentWorkOrder', () => {
     expect(r.error).toBe('잘못된 요청입니다.')
   })
   it('리프가 아닌 항목은 발행 거부', async () => {
-    admin({ wbs_items: [
-      { data: { id: W1, project_id: P1 } }, // 항목
-      { data: { id: 'child' } },                // 자식 있음
-    ] })
+    admin({
+      agent_projects: [{ data: { project_id: P1, enabled: true } }],
+      wbs_items: [
+        { data: { id: W1, project_id: P1 } }, // 항목
+        { data: { id: 'child' } },                // 자식 있음
+      ],
+    })
     const r = await createAgentWorkOrder(P1, W1, '지시', 0)
     expect(r.ok).toBe(false)
   })
   it('타 프로젝트 항목은 발행 거부', async () => {
-    admin({ wbs_items: [{ data: { id: W1, project_id: 'OTHER' } }] })
+    admin({
+      agent_projects: [{ data: { project_id: P1, enabled: true } }],
+      wbs_items: [{ data: { id: W1, project_id: 'OTHER' } }],
+    })
     const r = await createAgentWorkOrder(P1, W1, '지시', 0)
     expect(r.ok).toBe(false)
   })
@@ -80,6 +86,24 @@ describe('createAgentWorkOrder', () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
     const r = await createAgentWorkOrder(P1, W1, '지시', 0)
     expect(r).toEqual({ ok: false, error: '권한 없음' })
+  })
+  it('에이전트 루프 미등록 프로젝트는 발행 거부', async () => {
+    admin({ agent_projects: [{ data: null }] })
+    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('에이전트 루프가 등록되지 않은 프로젝트입니다.')
+  })
+  it('등록됐지만 비활성(enabled:false) 이면 발행 거부', async () => {
+    admin({ agent_projects: [{ data: { project_id: P1, enabled: false } }] })
+    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('에이전트 루프가 등록되지 않은 프로젝트입니다.')
+  })
+  it('등록 조회 실패 시 중단(3원칙 — 실패를 미등록으로 위장하지 않는다)', async () => {
+    admin({ agent_projects: [{ data: null, error: { message: 'permission denied' } }] })
+    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('등록 조회 실패')
   })
 })
 
@@ -110,6 +134,19 @@ describe('approveAgentCompletion', () => {
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(false)
     expect(mocks.updateActual).not.toHaveBeenCalled()
+  })
+  it('CAS 0행 + 재조회 claimed → 반려 경합 안내 메시지(실적은 이미 100)', async () => {
+    admin({
+      agent_work_orders: [
+        { data: ORDER },              // loadOrderForAdmin 조회
+        { data: [] },                  // CAS 0행 — 다른 관리자가 그 사이 반려함
+        { data: { status: 'claimed' } }, // 경합 재조회
+      ],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('다른 관리자의 반려와 경합했습니다')
+    expect(r.error).toContain('WBS 실적이 이미 100%로 반영되었으니')
   })
 })
 

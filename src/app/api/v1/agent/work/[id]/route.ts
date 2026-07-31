@@ -48,10 +48,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       }
       item = (items ?? [])[0] ?? null
     }
-    const { project_id: _, ...orderWithoutProject } = order
+    const full = order as {
+      id: string; status: string; priority: number; instructions: string
+      claimed_by: string | null; claimed_at: string | null; wbs_item_id: string | null
+    }
     return NextResponse.json({
       ok: true,
-      order: { ...orderWithoutProject, item, stale: isClaimStale(row.claimed_at) },
+      order: {
+        id: full.id, status: full.status, priority: full.priority, instructions: full.instructions,
+        claimed_by: full.claimed_by, claimed_at: full.claimed_at, wbs_item_id: full.wbs_item_id,
+        item, stale: isClaimStale(row.claimed_at),
+      },
       reports: reports ?? [],
     })
   } catch (e) {

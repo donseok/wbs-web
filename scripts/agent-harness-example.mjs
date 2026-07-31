@@ -45,18 +45,20 @@ try {
   const lastJson = out.trim().split('\n').reverse().find(l => l.trim().startsWith('{'))
   result = lastJson ? JSON.parse(lastJson) : { summary: out.slice(-2000), links: [] }
 } catch (e) {
-  // 실패 = 진척 없음으로 보고하고 점유 반납 — 침묵이 좀비 점유로 남지 않게 한다.
-  // 규약: 에이전트 실패(비정상 종료·타임아웃·권한 오류) 시
-  //   1. progress 0 보고 (WBS 반영 시도 없음, applied_to_wbs: false)
-  //   2. release 로 점유 반납
-  // 이 조합이 좀비 점유(침묵한 claimed 상태)를 막는 유일한 방법이다.
-  // 만약 progress 만 하고 release 하지 않으면, 주문은 claimed 로 남아
-  // 24시간 뒤 보드에 "응답 없음"으로 표시되고 사람이 수동 회수해야 한다.
-  await api(`/agent/work/${order.id}/report`, {
-    method: 'POST',
-    body: JSON.stringify({ ...actor, kind: 'progress', percent: 0, summary: `실패: ${e.message}`.slice(0, 2000) }),
-  })
-  await api(`/agent/work/${order.id}/release`, { method: 'POST', body: JSON.stringify(actor) })
+  // 실패 = release 로 점유만 반납한다 — 진척(progress) 은 절대 보고하지 않는다.
+  // progress 보고는 호출 즉시 WBS 실적(actual_pct)에 반영되므로(계약 §3.3), 실패했다고
+  // percent:0 을 보고하면 이미 쌓여 있던 정상 실적을 0 으로 덮어써 버린다 — 침묵보다 더 나쁜 사고다.
+  // 규약: 에이전트 실패(비정상 종료·타임아웃·권한 오류) 시 release 만 시도한다.
+  // release 호출 자체는 자체 try/catch 로 감싸 항상 시도되게 하고, 실패해도 콘솔에만 남긴다
+  // (여기서 또 던지면 이 catch 블록 자체가 실패해 release 시도 여부가 불명확해진다).
+  // release 마저 실패하면 주문은 claimed 로 남아 24시간 뒤 보드에 "응답 없음"으로 표시되고
+  // 사람이 수동 회수해야 한다 — 그래도 실적을 훼손하는 것보다 낫다.
+  try {
+    await api(`/agent/work/${order.id}/release`, { method: 'POST', body: JSON.stringify(actor) })
+  } catch (releaseErr) {
+    console.error(`release 실패: ${releaseErr.message}`)
+  }
+  console.error(`작업 실패: ${e.message}`)
   process.exit(1)
 }
 

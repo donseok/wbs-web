@@ -49,6 +49,14 @@ export async function createAgentWorkOrder(
   const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
   const admin = createAdminClient()
+  // 등록 게이트 — 에이전트 루프가 이 프로젝트에 열려 있지 않으면 발행 자체를 막는다.
+  // 외부 API(§2 "프로젝트 게이트")와 같은 조건이라 여기서도 통과 못 하면 애초에 claim 될 수 없는 주문이 쌓인다.
+  const { data: reg, error: regErr } = await admin
+    .from('agent_projects').select('project_id, enabled').eq('project_id', projectId).maybeSingle()
+  if (regErr) return { ok: false, error: `등록 조회 실패: ${regErr.message}` }
+  if (!reg || !(reg as { enabled: boolean }).enabled) {
+    return { ok: false, error: '에이전트 루프가 등록되지 않은 프로젝트입니다.' }
+  }
   // 쓰기 선행조회 — 항목 실재·프로젝트 일치·리프 여부. 실패는 중단(3원칙).
   const { data: item, error: itemErr } = await admin
     .from('wbs_items').select('id, project_id').eq('id', wbsItemId).maybeSingle()
@@ -113,6 +121,20 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
   if (casErr) return { ok: false, error: casErr.message }
   if (!updated || updated.length === 0) {
     // WBS 는 100 이 됐는데 주문 전이가 경합으로 밀렸다 — 재시도하면 updateActual(100) 은 멱등.
+    // 경합 시나리오: 승인자 A 가 updateActual(100) 을 실행하는 사이 다른 관리자 B 가 같은 주문을
+    // 반려(reported→claimed)하면, 이 CAS(.eq('status','reported')) 는 0행이 된다. 이때 WBS 실적은
+    // 이미 100%로 반영된 채 남고 주문은 claimed(반려됨)로 보인다 — 침묵하면 사람이 그 사실을 놓친다.
+    // 그래서 현재 상태를 재조회해 claimed 면 "실적이 이미 100%로 반영됐다"고 명시적으로 알린다.
+    const { data: current, error: reErr } = await admin
+      .from('agent_work_orders').select('status').eq('id', orderId).maybeSingle()
+    if (reErr) {
+      console.error('[agentWork] 승인 경합 재조회 실패:', reErr.message)
+    } else if ((current as { status?: string } | null)?.status === 'claimed') {
+      return {
+        ok: false,
+        error: '다른 관리자의 반려와 경합했습니다. WBS 실적이 이미 100%로 반영되었으니 확인 후 정정하세요.',
+      }
+    }
     return { ok: false, error: '상태가 바뀌어 승인하지 못했습니다. 다시 시도하세요.' }
   }
   const { data: latest, error: latestErr } = await admin
