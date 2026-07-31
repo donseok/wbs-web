@@ -15,7 +15,7 @@ const STATUS_KO: Record<Status, string> = {
   delayed: '지연',
   done: '완료',
 }
-const LEVEL_KO = { phase: 'Phase', task: 'Task', activity: 'Activity' } as const
+const LEVEL_KO: Record<string, string | undefined> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
 
 export interface LeafCtx {
   node: ComputedItem
@@ -365,7 +365,7 @@ export function buildDocuments(
     const n = l.node
     const lines = [
       `[${projectName}] ${l.phaseName} > ${n.name}`,
-      `구분 ${LEVEL_KO[n.level]} · 담당 ${ownersText(n.owners)} · 상태 ${STATUS_KO[n.status]}`,
+      `구분 ${LEVEL_KO[n.level] ?? n.level} · 담당 ${ownersText(n.owners)} · 상태 ${STATUS_KO[n.status]}`,
       `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)} · 계획 ${Math.round(n.plannedPct)}% / 실적 ${Math.round(n.rolledActualPct)}%`,
     ]
     if (n.deliverable) lines.push(`산출물 ${n.deliverable}`)

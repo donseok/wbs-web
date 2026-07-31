@@ -24,7 +24,8 @@ const FIELD_KEY: Record<string, DictKey> = {
   planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
   dependency: 'wbs.dependencies',
 }
-const CHILD_LEVEL: Record<Level, Level | null> = { phase: 'task', task: 'activity', activity: null }
+/** DEPRECATED(Plan C 에서 depth+maxDepth 판정으로 대체) — 미정의 레벨은 자식 추가 버튼을 숨긴다(안전측). */
+const CHILD_LEVEL: Record<string, Level | null | undefined> = { phase: 'task', task: 'activity', activity: null }
 
 function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
@@ -107,7 +108,7 @@ export function RowDetailPanel({
     return () => { alive = false }
   }, [item.id, item.name, item.plannedStart, item.plannedEnd, item.deliverable])
 
-  const childLevel = CHILD_LEVEL[item.level]
+  const childLevel = CHILD_LEVEL[item.level] ?? null
   // SUB-ACT 추가는 ACT(=자식 유무와 무관한 activity, 단 자신이 SUB-ACT 는 제외)에서만.
   const isAct = item.level === 'activity' && !subAct
   const subTeams = useMemo(() => availableSubActTeams(item.children, allTeamCodes), [item.children, allTeamCodes])

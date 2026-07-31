@@ -20,11 +20,13 @@ export const STATUS: Record<Status, { label: string; chip: string; bar: string; 
   done: { label: '완료', chip: 'bg-done-weak text-done', bar: 'bg-done', dot: 'bg-done' },
 }
 
-const LEVEL: Record<Level, { label: string; cls: string }> = {
+const LEVEL: Record<string, { label: string; cls: string } | undefined> = {
   phase: { label: 'PHASE', cls: 'bg-brand-weak text-brand' },
   task: { label: 'TASK', cls: 'bg-progress-weak text-progress' },
   activity: { label: 'ACT', cls: 'bg-pending-weak text-pending' },
 }
+/** 미정의·null 레벨 폴백 — 크래시 대신 중립 배지(Plan C 에서 depth 기반으로 대체). */
+const LEVEL_FALLBACK = { label: 'ITEM', cls: 'bg-surface-2 text-ink-muted' }
 /* act 하위의 담당자별 분리 항목(임포트 시 자동 생성) 전용 표기 — 일반 ACT 와 시각 구분 */
 const SUB_ACT = { label: 'SUB-ACT', cls: 'bg-surface-2 text-ink-muted' }
 
@@ -47,7 +49,7 @@ export function LevelBadge({
   sub?: boolean
   compact?: boolean
 }) {
-  const l = sub && level === 'activity' ? SUB_ACT : LEVEL[level]
+  const l = sub && level === 'activity' ? SUB_ACT : (LEVEL[level] ?? LEVEL_FALLBACK)
   return (
     <span
       className={`lvl-badge ${l.cls}`}

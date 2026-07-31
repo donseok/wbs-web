@@ -251,7 +251,7 @@ function overlaps(aStart: string | null, aEnd: string | null, bStart: string, bE
   return s <= bEnd && e >= bStart
 }
 
-const LEVEL_LABEL: Record<Level, string> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
+const LEVEL_LABEL: Record<string, string | undefined> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
 const STATUS_KR: Record<Status, string> = {
   not_started: '대기', in_progress: '진행중', delayed: '지연', done: '완료',
 }
@@ -482,7 +482,7 @@ export function buildWeeklyReportModel(
   const flat = (node: ComputedItem, depth: number) => {
     no++
     wbs.push({
-      no, level: node.level, levelLabel: LEVEL_LABEL[node.level], depth,
+      no, level: node.level, levelLabel: LEVEL_LABEL[node.level] ?? (node.level || '-'), depth,
       name: node.name, deliverable: node.deliverable ?? '', ownerText: ownersText(node.owners),
       weight: node.weight, plannedStart: node.plannedStart, plannedEnd: node.plannedEnd,
       plannedPct: round1(node.plannedPct), actualPct: round1(node.rolledActualPct),
