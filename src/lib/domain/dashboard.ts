@@ -58,16 +58,21 @@ export function scheduleModel(input: {
   return { ...base, projectedEnd, slipDays, signal, label: 'onTrack' }
 }
 
-// 마일스톤 키워드(소문자, WBS 도메인 데이터 기준). 이름에 부분문자열(대소문자 무시) 매칭.
-const MILESTONE_KEYWORDS = ['착수보고', '중간보고', '보고회', '마스터 플랜', 'bmt', '최종 선정', '승인', '준공', 'kick-off', '킥오프']
+/**
+ * @deprecated 주입 전환(스펙 §7.4) — 설정 미로딩 호출처의 임시 주입원.
+ * 신규 코드는 ProjectConfig.milestoneKeywords 를 주입할 것(src/lib/data/projectConfig.ts).
+ * 마일스톤 키워드(소문자, WBS 도메인 데이터 기준). 이름에 부분문자열(대소문자 무시) 매칭.
+ */
+export const LEGACY_MILESTONE_KEYWORDS: readonly string[] =
+  ['착수보고', '중간보고', '보고회', '마스터 플랜', 'bmt', '최종 선정', '승인', '준공', 'kick-off', '킥오프']
 
 export interface MilestoneModel {
   name: string | null; date: string | null; dday: number | null; overdue: boolean; signal: Signal
 }
 
-function isMilestoneLeaf(l: ComputedItem): boolean {
+function isMilestoneLeaf(l: ComputedItem, keywords: readonly string[]): boolean {
   const name = l.name.toLowerCase()
-  const kw = MILESTONE_KEYWORDS.some(k => name.includes(k))
+  const kw = keywords.some(k => name.includes(k))
   const singleDay =
     l.plannedStart != null && l.plannedStart === l.plannedEnd && !!(l.deliverable && l.deliverable.trim())
   return kw || singleDay
@@ -75,9 +80,9 @@ function isMilestoneLeaf(l: ComputedItem): boolean {
 const byEndThenOrder = (a: ComputedItem, b: ComputedItem) =>
   a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : a.sortOrder - b.sortOrder
 
-export function detectMilestones(items: ComputedItem[], today: string): MilestoneModel {
+export function detectMilestones(items: ComputedItem[], today: string, keywords: readonly string[]): MilestoneModel {
   const cands = collectLeaves(items).filter(
-    l => isMilestoneLeaf(l) && l.plannedEnd != null && l.status !== 'done',
+    l => isMilestoneLeaf(l, keywords) && l.plannedEnd != null && l.status !== 'done',
   )
   const overdue = cands.filter(l => l.plannedEnd! < today).sort(byEndThenOrder)
   if (overdue.length > 0) {
@@ -142,6 +147,7 @@ export interface ExecSummary {
 export function buildExecSummary(
   items: ComputedItem[],
   opts: { startDate: string | null; endDate: string | null; today: string },
+  milestoneKeywords: readonly string[],
 ): ExecSummary {
   const { actual, planned } = overallProgress(items)
   // round1 없이 빼면 FP 노이즈(예: 6.3-8.3 = -2.000000000000001)가 progressSignal의
@@ -153,7 +159,7 @@ export function buildExecSummary(
     overallActual: actual, overallPlanned: planned,
   })
   const risk = riskModel(items, opts.today)
-  const milestone = detectMilestones(items, opts.today)
+  const milestone = detectMilestones(items, opts.today, milestoneKeywords)
   const overall = { signal: overallSignal([progress.signal, schedule.signal, risk.signal, milestone.signal]) }
   return { overall, progress, schedule, risk, milestone }
 }
@@ -219,9 +225,9 @@ export function varianceRanking(leaves: ComputedItem[], today: string, limit = 8
 export type MilestoneStatus = 'done' | 'overdue' | 'upcoming'
 export interface MilestonePoint { id: string; name: string; date: string; status: MilestoneStatus; dday: number }
 
-export function milestoneTimeline(items: ComputedItem[], today: string): MilestonePoint[] {
+export function milestoneTimeline(items: ComputedItem[], today: string, keywords: readonly string[]): MilestonePoint[] {
   return collectLeaves(items)
-    .filter(l => isMilestoneLeaf(l) && l.plannedEnd != null)
+    .filter(l => isMilestoneLeaf(l, keywords) && l.plannedEnd != null)
     .map(l => ({
       id: l.id, name: l.name, date: l.plannedEnd!,
       status: (l.status === 'done' ? 'done' : l.plannedEnd! < today ? 'overdue' : 'upcoming') as MilestoneStatus,

@@ -2,6 +2,7 @@ import { dashboardHref, wbsItemHref } from '@/lib/ai/chat/deep-links'
 import {
   addDaysCal,
   detectMilestones,
+  LEGACY_MILESTONE_KEYWORDS,
   progressSignal,
   scheduleModel,
 } from '@/lib/domain/dashboard'
@@ -93,7 +94,10 @@ export function createGetProjectDashboardTool(
         startDate, endDate, today: calculationDate,
         overallActual: actual, overallPlanned: planned,
       })
-      const milestone = detectMilestones(roots, calculationDate)
+      // @deprecated 주입원 — 봇 도구는 WbsBotRepository 스냅샷만 받아 프로젝트 설정(project_settings)
+      // 로딩 체인이 없다(스펙 §7.4). 값은 0058 시드와 동일하므로 회귀 0. 추적은 LEGACY_MILESTONE_KEYWORDS
+      // 참조 검색으로 한다(설정 로더가 봇 리포지토리 경로까지 확장되면 이 자리를 교체할 것).
+      const milestone = detectMilestones(roots, calculationDate, LEGACY_MILESTONE_KEYWORDS)
 
       const sources: BotSource[] = [{
         id: `dashboard:${projectId}`,

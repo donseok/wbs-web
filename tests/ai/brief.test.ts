@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ComputedItem } from '@/lib/domain/types'
+import { LEGACY_MILESTONE_KEYWORDS } from '@/lib/domain/dashboard'
 import {
   buildBriefFacts, briefFactsHash, factsToPrompt, parseBrief, verifyBriefNumbers,
   type BriefFactsInput,
@@ -17,7 +18,8 @@ const TODAY = '2026-07-15'
 const input = (over: Partial<BriefFactsInput> = {}): BriefFactsInput => ({
   projectName: '테스트 프로젝트', items: [], startDate: '2026-01-01', endDate: '2026-12-31',
   todayWbs: TODAY, realToday: '2026-07-19', holidays: [], snapshots: [],
-  minuteSignals: [], meetings: [], meetingExceptions: [], ...over,
+  minuteSignals: [], meetings: [], meetingExceptions: [],
+  milestoneKeywords: [...LEGACY_MILESTONE_KEYWORDS], ...over,
 })
 
 describe('buildBriefFacts', () => {

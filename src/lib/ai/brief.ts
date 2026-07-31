@@ -65,15 +65,17 @@ export interface BriefFactsInput {
   minuteSignals: MinuteActionSignal[]
   meetings: Meeting[]
   meetingExceptions: MeetingException[]
+  /** 프로젝트 설정(project_settings)의 마일스톤 키워드 — loadProjectFacts 가 주입원(§7.4). */
+  milestoneKeywords: string[]
 }
 
 /** 도메인 함수 반환값을 그대로 담는다 — 임계값·수치 재정의 금지(단일 출처 계약). */
 export function buildBriefFacts(input: BriefFactsInput): BriefFacts {
   const {
     projectName, items, startDate, endDate, todayWbs, realToday,
-    holidays, snapshots, minuteSignals, meetings, meetingExceptions,
+    holidays, snapshots, minuteSignals, meetings, meetingExceptions, milestoneKeywords,
   } = input
-  const exec = buildExecSummary(items, { startDate, endDate, today: todayWbs })
+  const exec = buildExecSummary(items, { startDate, endDate, today: todayWbs }, milestoneKeywords)
   const trendModel = buildTrend({
     items, snapshots, holidays: new Set(holidays), startDate, endDate, today: todayWbs,
   })

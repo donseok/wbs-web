@@ -50,6 +50,7 @@ export async function DashboardView({
   currentUserId = null,
   role = null,
   canGenerateBrief = false,
+  milestoneKeywords,
 }: {
   items: ComputedItem[]
   projectId: string
@@ -73,6 +74,8 @@ export async function DashboardView({
   /** AI 브리핑 생성 권한 = isProjectAdmin(actor, projectId). ensureProjectBriefAction 의
    *  requireProjectAdmin 과 같은 판정. 기본 false = fail-closed. */
   canGenerateBrief?: boolean
+  /** 프로젝트 설정(project_settings)의 마일스톤 키워드 — page.tsx 가 getProjectConfig 로 주입. */
+  milestoneKeywords: readonly string[]
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
@@ -83,7 +86,7 @@ export async function DashboardView({
 
   const { actual, planned } = overallProgress(items)
   const trend = buildTrend({ items, snapshots, holidays: new Set(holidays), startDate, endDate, today })
-  const milestones = milestoneTimeline(items, today)
+  const milestones = milestoneTimeline(items, today, milestoneKeywords)
   // 팩트 컨텍스트 — 기존 props 재조합만(신규 페치 없음). 위험 신호(detectRiskSignals)는
   // buildBriefFacts 내부에서 계산돼 riskReport 로 재사용된다(C3 — 브리핑·신호 카드 근거 단일화).
   // WBS 신호는 today(base_date 우선 — ExecSummary와 동일 판정), 회의·회의록은 실제 오늘(이중 시계).
@@ -91,6 +94,7 @@ export async function DashboardView({
   const facts = buildBriefFacts({
     projectName, items, startDate, endDate, todayWbs: today, realToday,
     holidays, snapshots, minuteSignals, meetings, meetingExceptions,
+    milestoneKeywords: [...milestoneKeywords],
   })
   const riskReport = facts.riskReport
   const factsHash = briefFactsHash(facts)
@@ -116,6 +120,7 @@ export async function DashboardView({
         items={items} projectId={projectId} projectName={projectName}
         projectDescription={projectDescription} startDate={startDate} endDate={endDate}
         today={today} announcements={announcements} canGenerateBrief={canGenerateBrief}
+        milestoneKeywords={milestoneKeywords}
       />
 
       {/* B. 마일스톤 여정 */}

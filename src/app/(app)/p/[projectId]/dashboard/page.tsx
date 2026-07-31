@@ -5,6 +5,7 @@ import { getAnnouncements } from '@/lib/data/announcements'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { getProjectMinuteSignals } from '@/lib/data/minutes'
 import { getProjectAiBriefs, briefFrom } from '@/lib/data/aiBriefs'
+import { getProjectConfig } from '@/lib/data/projectConfig'
 import { listProjects } from '@/app/actions/project'
 import { getSession } from '@/lib/auth'
 import { getActorForView } from '@/lib/authz'
@@ -19,7 +20,7 @@ import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, briefs, sb, user, membership] = await Promise.all([
+  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, briefs, sb, user, membership, config] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getAnnouncements(projectId),
@@ -35,6 +36,8 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
     // 회의 카드에서 '작성자 본인이면 수정' 판정에 쓰는 식별자 — 기존 배치에 얹어 직렬 왕복을 늘리지 않는다.
     getSession(),
     getActorForView(),
+    // 마일스톤 키워드 등 프로젝트 설정(project_settings) — 0058 시드 덕에 값은 LEGACY_MILESTONE_KEYWORDS와 동일(회귀 0).
+    getProjectConfig(projectId),
   ])
   const riskBriefRow = briefFrom(briefs, 'risk', '')
   const weeklyBriefRow = briefFrom(briefs, 'weekly', today)
@@ -68,6 +71,7 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         currentUserId={user?.id ?? null}
         role={effectiveLegacyRole(membership, projectId)}
         canGenerateBrief={isProjectAdmin(membership, projectId)}
+        milestoneKeywords={config.milestoneKeywords}
       />
     </ProjectPageShell>
   )

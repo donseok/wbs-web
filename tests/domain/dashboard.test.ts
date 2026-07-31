@@ -57,7 +57,7 @@ describe('scheduleModel', () => {
   })
 })
 
-import { detectMilestones } from '@/lib/domain/dashboard'
+import { detectMilestones, LEGACY_MILESTONE_KEYWORDS } from '@/lib/domain/dashboard'
 import type { ComputedItem } from '@/lib/domain/types'
 
 const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
@@ -69,38 +69,45 @@ const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
 describe('detectMilestones', () => {
   const today = '2026-07-08'
   it('키워드 매칭 + 임박(D-14 이내) → amber', () => {
-    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-17', sortOrder: 1 })], today)
+    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-17', sortOrder: 1 })], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.name).toBe('중간보고'); expect(r.signal).toBe('amber'); expect(r.dday).toBe(9)
   })
   it('여유(D-15+) → green', () => {
-    const r = detectMilestones([leaf({ name: '착수보고회', plannedEnd: '2026-08-01' })], today)
+    const r = detectMilestones([leaf({ name: '착수보고회', plannedEnd: '2026-08-01' })], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.signal).toBe('green')
   })
   it('단일일 + 산출물 → 감지', () => {
-    const r = detectMilestones([leaf({ name: '워크샵', plannedStart: '2026-07-20', plannedEnd: '2026-07-20', deliverable: '결과보고' })], today)
+    const r = detectMilestones([leaf({ name: '워크샵', plannedStart: '2026-07-20', plannedEnd: '2026-07-20', deliverable: '결과보고' })], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.name).toBe('워크샵')
   })
   it('날짜 null + 산출물 리프는 감지 안 함(null===null 함정 방지)', () => {
-    const r = detectMilestones([leaf({ name: '일반작업', deliverable: '산출물', plannedStart: null, plannedEnd: null })], today)
+    const r = detectMilestones([leaf({ name: '일반작업', deliverable: '산출물', plannedStart: null, plannedEnd: null })], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.name).toBeNull(); expect(r.signal).toBe('neutral')
   })
   it('지연 마일스톤(예정일 경과+미완료) → red', () => {
-    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-01', status: 'delayed' })], today)
+    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-01', status: 'delayed' })], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.overdue).toBe(true); expect(r.signal).toBe('red')
   })
   it('완료된 마일스톤은 제외', () => {
-    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-20', status: 'done' })], today)
+    const r = detectMilestones([leaf({ name: '중간보고', plannedEnd: '2026-07-20', status: 'done' })], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.name).toBeNull()
   })
   it('미감지 → neutral', () => {
-    expect(detectMilestones([leaf({ name: '일반작업', plannedEnd: '2026-07-20' })], today).signal).toBe('neutral')
+    expect(detectMilestones([leaf({ name: '일반작업', plannedEnd: '2026-07-20' })], today, LEGACY_MILESTONE_KEYWORDS).signal).toBe('neutral')
   })
   it('다음 마일스톤 동점은 sortOrder로 결정', () => {
     const r = detectMilestones([
       leaf({ name: '중간보고 B', plannedEnd: '2026-07-20', sortOrder: 5 }),
       leaf({ name: '중간보고 A', plannedEnd: '2026-07-20', sortOrder: 2 }),
-    ], today)
+    ], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.name).toBe('중간보고 A')
+  })
+  it('마일스톤 키워드는 주입된다 — 주입값이 다르면 판정도 달라진다', () => {
+    const item = leaf({ name: '릴리스 준비', plannedEnd: '2026-08-10' })
+    const withHit = detectMilestones([item], '2026-08-01', ['릴리스'])
+    const withoutHit = detectMilestones([item], '2026-08-01', ['착수보고'])
+    expect(withHit.name).toBe('릴리스 준비')
+    expect(withoutHit.name).toBeNull()
   })
 })
 
@@ -174,7 +181,7 @@ describe('buildExecSummary', () => {
       weight: null, plannedPct: 40, rolledActualPct: 20, status: 'delayed',
       children: [leaf({ status: 'delayed', plannedEnd: '2026-07-20' })],
     })]
-    const r = buildExecSummary(items, { startDate: '2026-01-01', endDate: '2026-12-31', today })
+    const r = buildExecSummary(items, { startDate: '2026-01-01', endDate: '2026-12-31', today }, LEGACY_MILESTONE_KEYWORDS)
     expect(r.progress.actual).toBe(20)
     expect(r.progress.planned).toBe(40)
     expect(r.progress.variance).toBe(-20)
@@ -200,7 +207,7 @@ describe('보강 — 경계·필드 검증', () => {
     const r = detectMilestones([
       leaf({ name: '중간보고 예정', plannedEnd: '2026-07-20', sortOrder: 1 }),
       leaf({ name: '착수보고 지연', plannedEnd: '2026-07-01', status: 'delayed', sortOrder: 2 }),
-    ], today)
+    ], today, LEGACY_MILESTONE_KEYWORDS)
     expect(r.name).toBe('착수보고 지연'); expect(r.overdue).toBe(true); expect(r.signal).toBe('red')
   })
   it('riskModel — dueSoon 필드 집계', () => {
@@ -267,7 +274,7 @@ describe('milestoneTimeline (완료 포함 전체)', () => {
       leaf({ name: '중간보고', plannedEnd: '2026-07-01', status: 'in_progress' }),
       leaf({ name: '최종 선정', plannedEnd: '2026-07-20', status: 'not_started' }),
       leaf({ name: '일반 작업', plannedEnd: '2026-07-15', status: 'in_progress' }),  // 키워드/단일일+산출물 아님 → 제외
-    ], today)
+    ], today, LEGACY_MILESTONE_KEYWORDS)
     expect(out.map(m => m.name)).toEqual(['착수보고', '중간보고', '최종 선정'])
     expect(out.map(m => m.status)).toEqual(['done', 'overdue', 'upcoming'])
     expect(out[2].dday).toBe(11)
@@ -275,7 +282,7 @@ describe('milestoneTimeline (완료 포함 전체)', () => {
   it('단일일 + 산출물 leaf도 감지', () => {
     const out = milestoneTimeline([
       leaf({ name: '워크샵', plannedStart: '2026-07-20', plannedEnd: '2026-07-20', deliverable: '결과보고' }),
-    ], today)
+    ], today, LEGACY_MILESTONE_KEYWORDS)
     expect(out).toHaveLength(1)
   })
 })
