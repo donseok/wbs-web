@@ -6,6 +6,7 @@ import { embedDocuments } from './embeddings'
 import { hasEmbeddings } from './provider'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { chunked } from './util'
+import { activeTeamCodesSync } from '@/lib/teams/master'
 
 export interface IngestResult {
   count: number
@@ -27,7 +28,7 @@ export async function ingestProject(projectId: string): Promise<IngestResult> {
     getProjectMembers(projectId),
     getProjectName(projectId),
   ])
-  const docs = buildDocuments(items, name, today, members)
+  const docs = buildDocuments(items, name, today, activeTeamCodesSync(), members)
   if (docs.length === 0) return { count: 0 }
 
   const vectors = await embedDocuments(

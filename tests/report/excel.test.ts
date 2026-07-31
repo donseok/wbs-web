@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
-import type { ComputedItem } from '@/lib/domain/types'
+import type { ComputedItem, TeamCode } from '@/lib/domain/types'
+
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(DEFAULT_TEAM_CODES 미러). */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 const node = (over: Partial<ComputedItem>): ComputedItem =>
   ({
@@ -24,7 +27,7 @@ const items: ComputedItem[] = [
 const project = { name: 'D-CUBE PI', description: null, start_date: null, end_date: null }
 
 async function loadWorkbook(): Promise<ExcelJS.Workbook> {
-  const model = buildWeeklyReportModel(items, project, '2026-06-30')
+  const model = buildWeeklyReportModel(items, project, '2026-06-30', { teams: TEST_TEAMS })
   const buf = await buildReportWorkbook(model)
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buf)

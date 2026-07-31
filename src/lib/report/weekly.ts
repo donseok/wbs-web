@@ -2,7 +2,6 @@ import type {
   Announcement, AttendanceRecord, AttendanceType, ComputedItem, Level, Meeting, MeetingException, MeetingOccurrence,
   ProjectMember, Status, TeamCode,
 } from '@/lib/domain/types'
-import { DEFAULT_TEAM_CODES } from '@/lib/domain/teams'
 import { overallProgress } from '@/lib/domain/rollup'
 import { round1 } from '@/lib/domain/format'
 import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
@@ -14,8 +13,6 @@ import { expandMeetings, sortOccurrences } from '@/lib/domain/meetings'
  * 금주 실적=진행중 leaf, 차주 계획=차주 기간과 겹치는 미완료 leaf, 워크로드=팀별, 근태=members+attendance.
  * ========================================================================== */
 
-/** @deprecated 기본 5팀 폴백 — 호출처는 opts.teams 로 활성 팀 목록을 주입할 것. */
-export const REPORT_TEAMS: readonly TeamCode[] = DEFAULT_TEAM_CODES
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금'] as const
 
 export interface WeeklyMeta {
@@ -251,7 +248,7 @@ function overlaps(aStart: string | null, aEnd: string | null, bStart: string, bE
   return s <= bEnd && e >= bStart
 }
 
-const LEVEL_LABEL: Record<Level, string> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
+const LEVEL_LABEL: Record<string, string | undefined> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
 const STATUS_KR: Record<Status, string> = {
   not_started: '대기', in_progress: '진행중', delayed: '지연', done: '완료',
 }
@@ -290,11 +287,11 @@ export function buildWeeklyReportModel(
     members?: ProjectMember[]; attendance?: AttendanceRecord[]; generatedAt?: string
     meetings?: Meeting[]; meetingExceptions?: MeetingException[]
     announcements?: Announcement[]
-    /** 팀별 워크로드·미완료 요약 대상(활성 팀) — 미주입 시 기본 5팀. */
-    teams?: readonly TeamCode[]
-  } = {},
+    /** 팀별 워크로드·미완료 요약 대상(활성 팀) — 호출처가 팀 마스터에서 주입한다(필수). */
+    teams: readonly TeamCode[]
+  },
 ): WeeklyReportModel {
-  const reportTeams = opts.teams ?? REPORT_TEAMS
+  const reportTeams = opts.teams
   const roots = items
   const members = opts.members ?? []
   const attendance = opts.attendance ?? []
@@ -482,7 +479,7 @@ export function buildWeeklyReportModel(
   const flat = (node: ComputedItem, depth: number) => {
     no++
     wbs.push({
-      no, level: node.level, levelLabel: LEVEL_LABEL[node.level], depth,
+      no, level: node.level, levelLabel: LEVEL_LABEL[node.level] ?? (node.level || '-'), depth,
       name: node.name, deliverable: node.deliverable ?? '', ownerText: ownersText(node.owners),
       weight: node.weight, plannedStart: node.plannedStart, plannedEnd: node.plannedEnd,
       plannedPct: round1(node.plannedPct), actualPct: round1(node.rolledActualPct),

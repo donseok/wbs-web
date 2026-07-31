@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { buildWeeklyReportModel } from '@/lib/report/weekly'
-import type { Announcement, AttendanceRecord, ComputedItem, Meeting, ProjectMember } from '@/lib/domain/types'
+import { buildWeeklyReportModel as buildWeeklyReportModelReal } from '@/lib/report/weekly'
+import type { Announcement, AttendanceRecord, ComputedItem, Meeting, ProjectMember, TeamCode } from '@/lib/domain/types'
+
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(2026-07 기준 5팀 — DEFAULT_TEAM_CODES 미러).
+ *  buildWeeklyReportModel 은 teams 를 필수로 받으므로, 팀 목록에 무관한 기존 테스트는 이 래퍼로 주입한다. */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+function buildWeeklyReportModel(
+  items: Parameters<typeof buildWeeklyReportModelReal>[0],
+  project: Parameters<typeof buildWeeklyReportModelReal>[1],
+  today: Parameters<typeof buildWeeklyReportModelReal>[2],
+  opts: Partial<Parameters<typeof buildWeeklyReportModelReal>[3]> = {},
+) {
+  return buildWeeklyReportModelReal(items, project, today, { teams: TEST_TEAMS, ...opts })
+}
 
 const meeting = (over: Partial<Meeting>): Meeting => ({
   id: Math.random().toString(36).slice(2), projectId: 'p', title: '회의', meetingDate: '2026-07-01',
@@ -110,6 +122,44 @@ describe('buildWeeklyReportModel — 이슈/WBS/Dev', () => {
   })
 })
 
+// 4단+ 깊이 회귀 감시(스펙 §4.5). 리프 수집(walk)·WBS 플랫(flat)·Dev 는 모두 node.children.length 만
+// 보고 level 문자열을 재귀 깊이 판정에 쓰지 않는다 — 3단 가정(예: "리프는 항상 depth 2")이 되살아나면
+// 여기서 무너진다. 표준 3레벨(phase/task/activity) 밖의 레벨명도 그대로 통과해야 한다.
+describe('buildWeeklyReportModel — 4단+ 실 계층에서도 리프/평탄화가 깊이 무관', () => {
+  const deepItems: ComputedItem[] = [
+    phase('심화', [
+      node({
+        name: '중간 계층', level: 'task', status: 'in_progress', children: [
+          node({
+            // 표준 3레벨(phase/task/activity) 밖의 레벨명 — LEVEL_LABEL 매핑이 없어도 원문 그대로 노출돼야 함
+            name: '세부 계층', level: 'stage', status: 'in_progress', children: [
+              node({
+                name: '막내 리프', status: 'in_progress', rolledActualPct: 40, plannedPct: 60,
+                owners: [{ team: 'PMO', kind: 'primary' }],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ], { weight: 1 }),
+  ]
+  const m = buildWeeklyReportModel(deepItems, project, '2026-06-30')
+
+  it('리프 카운트는 실제 자식 없는 노드만(중간 계층 2개는 제외)', () => {
+    expect(m.kpi.total).toBe(1)
+  })
+  it('WBS 플랫은 4개 노드 전부, depth는 0..3 순서대로', () => {
+    expect(m.wbs).toHaveLength(4)
+    expect(m.wbs.map(w => w.depth)).toEqual([0, 1, 2, 3])
+    expect(m.wbs[2].levelLabel).toBe('stage') // 매핑 없는 레벨은 원문 폴백
+  })
+  it('Dev(미완료)에도 4단 리프가 그대로 잡히고 바로 위 계층 이름을 보존한다', () => {
+    expect(m.dev).toHaveLength(1)
+    expect(m.dev[0].name).toBe('막내 리프')
+    expect(m.dev[0].parentName).toBe('세부 계층')
+  })
+})
+
 describe('buildWeeklyReportModel — 워크로드/근태', () => {
   const members: ProjectMember[] = [
     { id: 'mem1', projectId: 'p', name: '홍길동', email: null, teamCode: '가공', role: 'contributor', title: null, hasAccount: false, createdAt: '2026-01-01' },
@@ -129,6 +179,13 @@ describe('buildWeeklyReportModel — 워크로드/근태', () => {
     // mem1 연차 1건 → 포함, mem2 정상근무만 → 제외
     expect(m.attendance.thisWeek.map(r => r.memberName)).toEqual(['홍길동'])
     expect(m.attendance.thisWeek[0].count).toBe(1)
+  })
+  it('주입 팀이 결과에 반영된다 — 팀 마스터가 바뀌면 워크로드도 따라온다(하드코딩 폴백 없음)', () => {
+    // 기본 5팀에 없는 팀을 주입하면 워크로드 행에 그대로 나타나야 한다(내부 상수로 되돌아가지 않음).
+    const injected = buildWeeklyReportModelReal(items, project, '2026-06-30', {
+      members, attendance, teams: ['신규팀', 'PMO'],
+    })
+    expect(injected.workload.map(w => w.name)).toEqual(['신규팀', 'PMO'])
   })
 })
 

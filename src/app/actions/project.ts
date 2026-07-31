@@ -1,8 +1,10 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import { requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { isValidDateRange } from '@/lib/domain/validate'
+import { PRESETS } from '@/lib/domain/projectPresets'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
@@ -31,8 +33,25 @@ export async function createProject(
   if (!g.ok) throw new Error(g.error)
   if (!isValidDateRange(start || null, end || null)) throw new Error('종료일은 시작일보다 빠를 수 없습니다.')
   const sb = await createServerClient()
-  const { error } = await sb.from('projects').insert({ name, start_date: start, end_date: end, description })
+  const { data, error } = await sb
+    .from('projects')
+    .insert({ name, start_date: start, end_date: end, description })
+    .select('id')
+    .single()
   if (error) throw new Error(error.message)
+  // 프리셋 선택 UI 는 Plan B — 그때까지 신규 프로젝트는 pi(D-CUBE 형) 기본. §7.4: 키워드 빈 행 방치는 마일스톤 카드 무증상 소실.
+  // project_settings 는 쓰기 정책이 없다(0058 — service_role 전용 관문) — projects insert 와 달리 admin 클라이언트가 필요하다.
+  const admin = createAdminClient()
+  const { error: settingsErr } = await admin.from('project_settings').insert({
+    project_id: data.id,
+    level_labels: PRESETS.pi.levelLabels,
+    max_depth: PRESETS.pi.maxDepth,
+    extra_axis_label: PRESETS.pi.extraAxisLabel,
+    milestone_keywords: PRESETS.pi.milestoneKeywords,
+    preset_applied: 'pi',
+  })
+  // 실패해도 프로젝트 생성은 성공 — 행이 없으면 getProjectConfig 가 DEFAULT_PROJECT_CONFIG 로 폴백한다(이력 기록 실패와 동일 관례).
+  if (settingsErr) console.error('[createProject] project_settings 시드 실패:', settingsErr.message)
   revalidatePath('/projects')
 }
 

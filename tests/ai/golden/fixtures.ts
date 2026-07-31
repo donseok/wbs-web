@@ -74,6 +74,7 @@ function wbsItem(partial: {
     actualPct: partial.actualPct ?? null,
     owners: partial.owners ?? [],
     updatedAt: partial.updatedAt ?? null,
+    isOwnerSplit: false,
   }
 }
 

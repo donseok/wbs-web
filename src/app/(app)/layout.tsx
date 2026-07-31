@@ -15,10 +15,7 @@ import { teamsSync } from '@/lib/teams/master'
 import { projectLifecycleStatus } from '@/lib/domain/project-status'
 import { getProjectsCompletion } from '@/lib/data/wbs'
 import { getUiPrefs } from '@/app/actions/preferences'
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
+import { seoulToday } from '@/lib/domain/dates'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const [actor, projects, userName, prefs] = await Promise.all([

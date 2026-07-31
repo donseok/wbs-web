@@ -37,7 +37,7 @@ function item(over: Partial<ComputedItem>): ComputedItem {
     plannedEnd: '2026-07-10',
     weight: null,
     actualPct: 0,
-    owners: [],
+    owners: [], isOwnerSplit: false,
     plannedPct: 0,
     rolledActualPct: 0,
     achievement: null,

@@ -9,10 +9,12 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { getSnapshots } from '@/lib/data/snapshots'
 import { getProjectMeetingData } from '@/lib/data/meetings'
 import { getProjectMinuteSignals } from '@/lib/data/minutes'
+import { getProjectConfig } from '@/lib/data/projectConfig'
 import { createServerClient } from '@/lib/supabase/server'
 import type { ComputedItem, Meeting, MeetingException } from '@/lib/domain/types'
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
+import { seoulToday } from '@/lib/domain/dates'
 
 /** 위험 신호 탐지(회의 액션 경과)가 최근 8건보다 넓은 창을 본다 — dashboard/page.tsx 와 동일 값. */
 export const MINUTE_SIGNAL_FETCH = 30
@@ -32,21 +34,20 @@ export interface ProjectFactsSource {
   minuteSignals: MinuteSignal[]
   meetings: Meeting[]
   meetingExceptions: MeetingException[]
-}
-
-export function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+  /** 프로젝트 설정(project_settings)의 마일스톤 키워드 — 0058 시드 덕에 현행 상수와 동일(회귀 0). */
+  milestoneKeywords: string[]
 }
 
 /** 대시보드와 동일 소스 1회 병렬 로드. 프로젝트 행이 없으면(비멤버 RLS 포함) null. */
 export async function loadProjectFacts(projectId: string): Promise<ProjectFactsSource | null> {
   const sb = await createServerClient()
-  const [{ items, holidays, today }, snapshots, meetingData, minuteSignals, project] = await Promise.all([
+  const [{ items, holidays, today }, snapshots, meetingData, minuteSignals, project, config] = await Promise.all([
     getComputedWbs(projectId),
     getSnapshots(projectId),
     getProjectMeetingData(projectId),
     getProjectMinuteSignals(projectId, MINUTE_SIGNAL_FETCH),
     sb.from('projects').select('name, start_date, end_date').eq('id', projectId).maybeSingle(),
+    getProjectConfig(projectId, sb),
   ])
   if (project.error) throw new Error(`[projectFacts] 프로젝트 조회 실패: ${project.error.message}`)
   if (!project.data) return null
@@ -63,5 +64,6 @@ export async function loadProjectFacts(projectId: string): Promise<ProjectFactsS
     minuteSignals,
     meetings: meetingData.meetings,
     meetingExceptions: meetingData.exceptions,
+    milestoneKeywords: config.milestoneKeywords,
   }
 }

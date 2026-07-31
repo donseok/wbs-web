@@ -17,7 +17,7 @@ import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 function item(over: Partial<ComputedItem>): ComputedItem {
   return { id: 'x', parentId: null, level: 'activity', code: '1', sortOrder: 0, name: '항목', biz: null,
     deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-10', weight: null, actualPct: 0,
-    owners: [], plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], ...over }
+    owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], ...over }
 }
 function fixture(): ComputedItem[] {
   const subs = [
@@ -29,6 +29,19 @@ function fixture(): ComputedItem[] {
   return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })]
 }
 function rowCount(c: HTMLElement) { return c.querySelectorAll('.group.relative.z-10').length }
+// 3단 가정(‘항상 phase→task→activity 세 겹만 접힌 채 보인다’)이 되살아나면 이 중간 계층이 기본
+// 접힘 판정을 흔들 수 있다 — multi(복수담당 activity) 는 그대로 두고 위에 실 계층만 하나 더 얹는다.
+// splitParentIds 는 재귀 walk 라 깊이를 세지 않으므로, 얼마나 깊이 파묻혀 있어도 multi 를 찾아야 한다.
+function fixtureDeep(): ComputedItem[] {
+  const subs = [
+    item({ id: 's1', parentId: 'a1', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }] }),
+    item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }] }),
+  ]
+  const multi = item({ id: 'a1', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
+  const subtask = item({ id: 'st1', level: 'task', name: '1-1-1. 세부 작업', children: [multi] })
+  const task = item({ id: 't1', level: 'task', name: '1-1. 작업', children: [subtask] })
+  return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })]
+}
 
 describe('WBS initialCollapsed', () => {
   let container: HTMLDivElement, root: Root
@@ -48,6 +61,22 @@ describe('WBS initialCollapsed', () => {
       <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
     ))
     expect(rowCount(container)).toBe(3)
+  })
+
+  it('4단+ 깊이(중간 실 계층 하나 더)에서도 기본 접힘이 복수담당 부모를 찾는다', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixtureDeep()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
+    ))
+    // 기본값이면 phase+task+세부작업+act=4행(sub 숨김). 얕은 fixture 의 3행보다 중간 계층만큼 늘었을 뿐,
+    // multi 는 여전히 접혀야 한다.
+    expect(rowCount(container)).toBe(4)
+  })
+
+  it('4단+ 깊이에서 initialCollapsed=[] 이면 그대로 전부 펼쳐진다', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixtureDeep()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
+    ))
+    expect(rowCount(container)).toBe(6)
   })
 
   it('마운트 시(StrictMode 이중 실행 포함) 저장을 호출하지 않는다', async () => {

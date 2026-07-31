@@ -15,7 +15,7 @@ const STATUS_KO: Record<Status, string> = {
   delayed: '지연',
   done: '완료',
 }
-const LEVEL_KO = { phase: 'Phase', task: 'Task', activity: 'Activity' } as const
+const LEVEL_KO: Record<string, string | undefined> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
 
 export interface LeafCtx {
   node: ComputedItem
@@ -90,14 +90,16 @@ function emptyStatusCount(): Record<Status, number> {
   return { not_started: 0, in_progress: 0, delayed: 0, done: 0 }
 }
 
-/** 단일 프로젝트 트리 분석 → 의도별 포매터가 쓰는 구조화 사실. */
+/** 단일 프로젝트 트리 분석 → 의도별 포매터가 쓰는 구조화 사실.
+ *  teams(워크로드 집계 대상)는 호출처가 팀 마스터(활성 팀)에서 주입한다(필수). */
 export function analyzeProject(
   items: ComputedItem[],
   projectName: string,
   today: string,
+  teams: readonly TeamCode[],
   members: ProjectMember[] = [],
 ): ProjectAnalysis {
-  const weekly = buildWeeklyReportModel(items, { name: projectName }, today, { members })
+  const weekly = buildWeeklyReportModel(items, { name: projectName }, today, { members, teams })
   const leaves = collectLeaves(items)
   const statusCount = emptyStatusCount()
   for (const l of leaves) statusCount[l.node.status]++
@@ -347,14 +349,16 @@ export interface EmbedDoc {
   content: string
 }
 
-/** 프로젝트의 WBS 리프·요약·멤버를 의미검색용 문서로 변환. */
+/** 프로젝트의 WBS 리프·요약·멤버를 의미검색용 문서로 변환.
+ *  teams 는 analyzeProject 로 그대로 전달(호출처가 팀 마스터에서 주입). */
 export function buildDocuments(
   items: ComputedItem[],
   projectName: string,
   today: string,
+  teams: readonly TeamCode[],
   members: ProjectMember[] = [],
 ): EmbedDoc[] {
-  const analysis = analyzeProject(items, projectName, today, members)
+  const analysis = analyzeProject(items, projectName, today, teams, members)
   const docs: EmbedDoc[] = []
 
   // 1) 프로젝트 요약 문서
@@ -365,7 +369,7 @@ export function buildDocuments(
     const n = l.node
     const lines = [
       `[${projectName}] ${l.phaseName} > ${n.name}`,
-      `구분 ${LEVEL_KO[n.level]} · 담당 ${ownersText(n.owners)} · 상태 ${STATUS_KO[n.status]}`,
+      `구분 ${LEVEL_KO[n.level] ?? n.level} · 담당 ${ownersText(n.owners)} · 상태 ${STATUS_KO[n.status]}`,
       `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)} · 계획 ${Math.round(n.plannedPct)}% / 실적 ${Math.round(n.rolledActualPct)}%`,
     ]
     if (n.deliverable) lines.push(`산출물 ${n.deliverable}`)

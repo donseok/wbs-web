@@ -32,6 +32,7 @@ function node(
     weight: null,
     actualPct: opts.actualPct ?? (children.length ? null : 0),
     owners: opts.owners ?? [],
+    isOwnerSplit: false,
     plannedPct: 0,
     rolledActualPct: opts.rolledActualPct ?? 0,
     achievement: null,

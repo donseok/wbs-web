@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
 import { buildWeeklyReportModel } from '@/lib/report/weekly'
 import { buildReportWorkbook } from '@/lib/report/excel'
-import type { ComputedItem } from '@/lib/domain/types'
+import type { ComputedItem, TeamCode } from '@/lib/domain/types'
+
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(DEFAULT_TEAM_CODES 미러). */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 
 const node = (over: Partial<ComputedItem>): ComputedItem =>
   ({
@@ -24,8 +27,8 @@ const sampleItems: ComputedItem[] = [
   ], { weight: 1, plannedPct: 50, rolledActualPct: 45, status: 'delayed' }),
 ]
 const project = { name: 'D-CUBE PI', description: 'PI Master Plan', start_date: '2026-01-01', end_date: '2026-12-31' }
-const model = buildWeeklyReportModel(sampleItems, project, '2026-06-30', { generatedAt: '2026-06-30 13:20' })
-const emptyModel = buildWeeklyReportModel([], { name: '빈 프로젝트' }, '2026-06-30')
+const model = buildWeeklyReportModel(sampleItems, project, '2026-06-30', { generatedAt: '2026-06-30 13:20', teams: TEST_TEAMS })
+const emptyModel = buildWeeklyReportModel([], { name: '빈 프로젝트' }, '2026-06-30', { teams: TEST_TEAMS })
 
 describe('buildReportWorkbook (보라 공정보고 2시트)', () => {
   it('2개 시트(공정보고/WBS) — 프로그램개발현황 제외', async () => {

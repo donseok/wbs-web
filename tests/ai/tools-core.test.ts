@@ -39,19 +39,19 @@ const wbsSnapshot: WbsProjectSnapshot = {
     {
       id: 'phase-1', projectId: 'p1', parentId: null, level: 'phase', code: '1', sortOrder: 1,
       name: '구축', biz: null, deliverable: null, plannedStart: '2026-07-20', plannedEnd: '2026-07-31',
-      weight: null, actualPct: null, owners: [], updatedAt: '2026-07-20T00:00:00Z',
+      weight: null, actualPct: null, owners: [], isOwnerSplit: false, updatedAt: '2026-07-20T00:00:00Z',
     },
     {
       id: 'task-1', projectId: 'p1', parentId: 'phase-1', level: 'task', code: '1.1', sortOrder: 1,
       name: 'ERP 설계', biz: 'ERP 프로세스 설계', deliverable: '설계서',
       plannedStart: '2026-07-20', plannedEnd: '2026-07-22', weight: null, actualPct: 50,
-      owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-20T01:00:00Z',
+      owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: false, updatedAt: '2026-07-20T01:00:00Z',
     },
     {
       id: 'task-2', projectId: 'p1', parentId: 'phase-1', level: 'task', code: '1.2', sortOrder: 2,
       name: 'ERP 개발', biz: '개발', deliverable: '프로그램',
       plannedStart: '2026-07-23', plannedEnd: '2026-07-27', weight: null, actualPct: 0,
-      owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-20T02:00:00Z',
+      owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: false, updatedAt: '2026-07-20T02:00:00Z',
     },
   ],
   dependencies: [{

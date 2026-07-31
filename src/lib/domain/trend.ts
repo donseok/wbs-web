@@ -1,7 +1,7 @@
 import type { ComputedItem, WbsRow } from './types'
 import { round1 } from './format'
 import { computeTree, overallProgress } from './rollup'
-import { buildTree, collectLeaves, type TreeNode } from './tree'
+import { buildTree, collectLeaves, type BuildTreeOpts, type TreeNode } from './tree'
 import { isBusinessDay } from './dates'
 import { addDaysCal } from './dashboard'
 
@@ -36,7 +36,7 @@ export function flattenRows(items: ComputedItem[]): WbsRow[] {
         id: n.id, parentId: n.parentId, level: n.level, code: n.code, sortOrder: n.sortOrder,
         name: n.name, biz: n.biz, deliverable: n.deliverable,
         plannedStart: n.plannedStart, plannedEnd: n.plannedEnd,
-        weight: n.weight, actualPct: n.actualPct, owners: n.owners,
+        weight: n.weight, actualPct: n.actualPct, owners: n.owners, isOwnerSplit: n.isOwnerSplit,
       })
       walk(n.children)
     })
@@ -46,8 +46,8 @@ export function flattenRows(items: ComputedItem[]): WbsRow[] {
 
 /** 임의 날짜의 전체 계획% — computeTree를 해당 날짜로 재실행(주말·공휴일 규칙 재사용).
  *  단일 시점 조회용. 여러 날짜를 평가할 때는 plannedCurve 를 쓸 것(동일 수치, 큰 비용 차). */
-export function plannedAt(rows: WbsRow[], date: string, holidays: Set<string>): number {
-  return overallProgress(computeTree(rows, date, holidays)).planned
+export function plannedAt(rows: WbsRow[], date: string, holidays: Set<string>, opts: BuildTreeOpts): number {
+  return overallProgress(computeTree(rows, date, holidays, opts)).planned
 }
 
 /**
@@ -58,9 +58,11 @@ export function plannedAt(rows: WbsRow[], date: string, holidays: Set<string>): 
  * 여기는 트리 1회 + 축 범위 영업일 누적 인덱스 1회 + 날짜당 O(N) 워크다.
  * (대시보드 fast-follow 2026-07-09: 71행 ~104ms/요청 실측, 600 leaf 외삽 ~1.3s 해소)
  */
-export function plannedCurve(rows: WbsRow[], dates: string[], holidays: Set<string>): TrendPoint[] {
+export function plannedCurve(
+  rows: WbsRow[], dates: string[], holidays: Set<string>, opts: BuildTreeOpts,
+): TrendPoint[] {
   if (dates.length === 0) return []
-  const tree = buildTree(rows)
+  const tree = buildTree(rows, opts)
 
   // 영업일 누적 인덱스 — 계획일·샘플일 전체를 덮는 구간의 날짜별 누적 영업일 수(양끝 포함)
   const bounds: string[] = [...dates]
@@ -128,8 +130,9 @@ export function buildTrend(input: {
   startDate: string | null
   endDate: string | null
   today: string
+  opts: BuildTreeOpts
 }): TrendModel {
-  const { items, holidays, startDate, endDate, today } = input
+  const { items, holidays, startDate, endDate, today, opts } = input
 
   // 축 — 프로젝트 기간 우선, 없으면 WBS leaf 날짜 min/max
   const leafDates = collectLeaves(items)
@@ -145,7 +148,7 @@ export function buildTrend(input: {
   for (let d = axisStart; d <= axisEnd; d = addDaysCal(d, 7)) sampleDates.add(d)
   sampleDates.add(axisEnd)
   if (today >= axisStart && today <= axisEnd) sampleDates.add(today)
-  const plannedSeries = plannedCurve(rows, [...sampleDates].sort(), holidays)
+  const plannedSeries = plannedCurve(rows, [...sampleDates].sort(), holidays, opts)
 
   // 실적 이력 — 오늘 이후 제외, carry-forward로 오늘까지 연장.
   // '실적선은 항상 보인다' 불변식: 이력이 축 시작 이후에야 시작되면 (축 시작, 0)에서 직선 보간으로

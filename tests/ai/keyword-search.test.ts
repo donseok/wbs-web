@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import { extractSearchKeywords, classifyIntent } from '@/lib/ai/intent'
-import { keywordMatchLines, analyzeProject } from '@/lib/ai/analytics'
-import type { ComputedItem } from '@/lib/domain/types'
+import { keywordMatchLines, analyzeProject as analyzeProjectReal } from '@/lib/ai/analytics'
+import type { ComputedItem, TeamCode } from '@/lib/domain/types'
+
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(DEFAULT_TEAM_CODES 미러) — 이 파일 테스트는 팀 목록을 검증하지 않는다. */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+function analyzeProject(
+  items: Parameters<typeof analyzeProjectReal>[0],
+  projectName: Parameters<typeof analyzeProjectReal>[1],
+  today: Parameters<typeof analyzeProjectReal>[2],
+) {
+  return analyzeProjectReal(items, projectName, today, TEST_TEAMS)
+}
 
 describe('extractSearchKeywords — 키워드 검색 질문 감지', () => {
   it('"X 단어가 들어간" 패턴 (사용자 실제 질문)', () => {
@@ -80,6 +90,7 @@ const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
   weight: null,
   actualPct: null,
   owners: [],
+  isOwnerSplit: false,
   plannedPct: 0,
   rolledActualPct: 0,
   achievement: null,

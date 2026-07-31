@@ -5,7 +5,6 @@ import {
   isCurrentWikiKnowledge,
   isDiscussingWikiItem,
   isUnsettledWikiKnowledge,
-  isClosedByPersonWikiItem,
   matchesWikiQuery,
   matchesWikiTopicQuery,
   sortWikiEntries,

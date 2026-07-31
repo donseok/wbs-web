@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import type { ComputedItem } from '@/lib/domain/types'
+import type { ComputedItem, TeamCode } from '@/lib/domain/types'
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import {
   detectRiskSignals, riskFingerprint,
@@ -12,7 +12,7 @@ let seq = 0
 const leaf = (over: Partial<ComputedItem> = {}): ComputedItem => ({
   id: `L${seq++}`, parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
-  weight: null, actualPct: null, owners: [], plannedPct: 0, rolledActualPct: 0,
+  weight: null, actualPct: null, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
   achievement: null, status: 'in_progress', children: [], ...over,
 })
 const snap = (date: string, actual: number, planned: number): SnapshotPoint => ({ date, actual, planned })
@@ -22,9 +22,11 @@ const msig = (over: Partial<MinuteActionSignal> = {}): MinuteActionSignal => ({
 })
 
 const TODAY = '2026-07-15'
+/** 팀 마스터 대신 쓰는 테스트 지역 상수(DEFAULT_TEAM_CODES 미러) — owner_overload 픽스처가 'ERP' 등을 전제. */
+const TEST_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공', 'MDM']
 const input = (over: Partial<RiskSignalInput> = {}): RiskSignalInput => ({
   items: [], today: TODAY, realToday: TODAY, snapshots: [],
-  startDate: null, endDate: null, minuteSignals: [], ...over,
+  startDate: null, endDate: null, minuteSignals: [], teams: TEST_TEAMS, ...over,
 })
 const run = (over: Partial<RiskSignalInput> = {}) => detectRiskSignals(input(over))
 const find = (r: RiskSignalReport, kind: string) => r.signals.find(s => s.kind === kind)

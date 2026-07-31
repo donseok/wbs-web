@@ -5,10 +5,7 @@ import { computeCompletionMap, type ProjectCompletion } from '@/lib/domain/proje
 import { teamOrderMap } from '@/lib/domain/teams'
 import { teamsSync } from '@/lib/teams/master'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind, TaskDependency } from '@/lib/domain/types'
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
+import { seoulToday } from '@/lib/domain/dates'
 
 // 같은 요청 내 layout+page 중복 호출을 1회로 dedupe(React cache).
 export const getComputedWbs = cache(async (
@@ -83,6 +80,7 @@ export const getComputedWbs = cache(async (
     weight: (r.weight as number) ?? null,
     actualPct: (r.actual_pct as number) ?? null,
     owners: ownerMap.get(r.id as string) ?? [],
+    isOwnerSplit: r.is_owner_split === true,
   }))
 
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
@@ -96,7 +94,12 @@ export const getComputedWbs = cache(async (
   }))
   // base_date(공정율 기준일)가 설정돼 있으면 그 날짜로, 없으면 오늘(자동)로 산정
   const today = (proj as { base_date: string | null } | null)?.base_date ?? seoulToday()
-  return { items: computeTree(rows, today, holidays), dependencies, holidays: [...holidays], today }
+  return {
+    items: computeTree(rows, today, holidays, { subActTeamOrder: teamOrder }),
+    dependencies,
+    holidays: [...holidays],
+    today,
+  }
 })
 
 // 사이드바용 경량 완료율 맵 — 프로젝트 전체를 1쿼리로 (트리 로드 없이)

@@ -219,12 +219,18 @@ export async function addWbsItem(
   if (!g.ok) return { ok: false, error: g.error }
   if (!name.trim()) return { ok: false, error: '이름을 입력하세요' }
   const sb = await createServerClient()
-  let q = sb.from('wbs_items').select('sort_order').eq('project_id', projectId)
+  let q = sb.from('wbs_items').select('sort_order, is_owner_split').eq('project_id', projectId)
   q = parentId ? q.eq('parent_id', parentId) : q.is('parent_id', null)
   // 형제 조회 실패를 '형제 0개'로 오인하면 (1) sort_order 가 1로 충돌하고 (2) 아래에서 '첫 자식'으로 착각해
   // 부모의 직접 입력 실적%를 지운다. 둘 다 되돌릴 수 없으니 쓰기 전에 중단한다.
   const { data: sibs, error: sibErr } = await q
   if (sibErr || !sibs) return { ok: false, error: `형제 항목 조회 실패: ${sibErr?.message ?? '알 수 없는 오류'}` }
+  // addSubAct 가드 ①의 대칭 — 부모의 기존 자식에 SUB-ACT 가 섞여 있으면 일반 항목을 추가할 수 없다.
+  // 혼재 형제 집합은 tree.ts 의 팀 정렬 분기(형제 중 isOwnerSplit 존재)와 엑셀 라운드트립(sub-act 접기)
+  // 계약을 둘 다 깬다(Task 9 리뷰 발견). 기존 자식이 전부 일반 항목이거나 없으면 영향 없음.
+  if (parentId && sibs.some(s => s.is_owner_split === true)) {
+    return { ok: false, error: 'SUB-ACT 형제로는 일반 항목을 추가할 수 없습니다' }
+  }
   const nextOrder = sibs.reduce((mx, r) => Math.max(mx, Number(r.sort_order) || 0), 0) + 1
   const code = name.trim().split(/[.\s]/)[0] || level
   const { data, error } = await sb
@@ -242,12 +248,13 @@ export async function addWbsItem(
   return { ok: true, id: data.id as string }
 }
 
-/** ACT(자식 있는/없는 activity) 하위에 담당 팀별 SUB-ACT(활동 자식) 1개 추가 — PMO 전용.
+/** ACT(자식 있는/없는 활동) 하위에 담당 팀별 SUB-ACT(활동 자식) 1개 추가 — PMO 전용.
  *  임포트 분리(splitLeafOwners)와 같은 모양을 손으로 재현한다:
- *   - level='activity', 이름 "{ACT명} ({팀} 주관/지원)", 코드·계획일정·biz·산출물 상속, 가중치 균등, 실적 0(=null).
+ *   - is_owner_split=true, 이름 "{ACT명} ({팀} 주관/지원)", 코드·계획일정·biz·산출물 상속, 가중치 균등, 실적 0(=null).
  *   - 담당 1팀(item_owners) 필수 — 없으면 팀 배지가 없고 정렬 맨 뒤, 팀 편집자가 실적% 입력 불가.
  *   - 부모 ACT 에도 그 팀 담당 표기를 넣어 엑셀 내보내기→재임포트 라운드트립에서 SUB-ACT 가 사라지지 않게 한다.
- *  1단계만 허용(SUB-ACT 아래엔 불가) — 엑셀 3단(Phase/Task/Activity) 형식을 유지하기 위함. */
+ *  판별은 레벨이 아니라 플래그로 한다(스펙 §5.2) — 대상은 리프여야 하고(기존 SUB-ACT 형제에 추가하는
+ *  경로는 예외), 대상 자신이 SUB-ACT면 거부(1단계 제한 유지, 엑셀 3단 형식 보존). */
 export async function addSubAct(
   actId: string, team: TeamCode, kind: OwnerKind,
 ): Promise<{ ok: boolean; error?: string; id?: string }> {
@@ -260,17 +267,22 @@ export async function addSubAct(
 
   const { data: act, error: actErr } = await sb
     .from('wbs_items')
-    .select('id, project_id, parent_id, level, code, name, biz, deliverable, planned_start, planned_end')
+    .select('id, project_id, code, name, biz, deliverable, planned_start, planned_end, is_owner_split')
     .eq('id', actId).single()
   if (actErr && actErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${actErr.message}` } // 0행(PGRST116)만 '항목 없음'
   if (!act) return { ok: false, error: '항목 없음' }
-  if (act.level !== 'activity') return { ok: false, error: 'SUB-ACT는 ACT(활동) 하위에만 추가할 수 있습니다' }
-  // 1단계 제한: 부모가 activity(=자기 자신이 SUB-ACT)면 그 아래로는 불가.
-  // 구조 가드 — 조회 실패를 '부모 아님'으로 흘리면 SUB-ACT 아래 SUB-ACT 가 생겨 엑셀 3단 구조가 깨진다. 실패 = 거부.
-  if (act.parent_id) {
-    const { data: parent, error: parentErr } = await sb.from('wbs_items').select('level').eq('id', act.parent_id).maybeSingle()
-    if (parentErr) return { ok: false, error: `상위 항목 확인 실패: ${parentErr.message}` }
-    if (parent?.level === 'activity') return { ok: false, error: 'SUB-ACT 아래에는 추가할 수 없습니다' }
+  // 가드 ②: 대상 자신이 SUB-ACT면 거부 — 1단계 제한(엑셀 3단 형식 보존).
+  if (act.is_owner_split) return { ok: false, error: 'SUB-ACT 아래에는 추가할 수 없습니다' }
+
+  // 형제(기존 SUB-ACT) 조회 — 가드 ①(리프 판정) + 중복 팀 방지 + sort_order 채번.
+  // 조회 실패를 '형제 0개'로 오인하면 가드 ①이 오통과하고, sort_order 충돌 + 중복 팀 검사 무력화 +
+  // '첫 SUB-ACT' 오판으로 ACT 의 직접 입력 실적%까지 지운다. 쓰기 전에 중단한다.
+  const { data: sibs, error: sibErr } = await sb.from('wbs_items').select('id, sort_order, is_owner_split').eq('parent_id', actId)
+  if (sibErr || !sibs) return { ok: false, error: `기존 SUB-ACT 조회 실패: ${sibErr?.message ?? '알 수 없는 오류'}` }
+  // 가드 ①: 대상은 리프여야 한다 — 자식이 있으면 거부한다. 단, 자식 전원이 SUB-ACT면 예외 허용
+  // (기존 SUB-ACT 형제에 새 팀을 추가하는 정상 경로).
+  if (sibs.length > 0 && !sibs.every(s => s.is_owner_split === true)) {
+    return { ok: false, error: 'SUB-ACT가 아닌 하위 항목이 있는 곳에는 추가할 수 없습니다' }
   }
 
   const { data: teamRow, error: teamErr } = await sb.from('teams').select('id').eq('code', team).maybeSingle()
@@ -278,11 +290,6 @@ export async function addSubAct(
   if (!teamRow) return { ok: false, error: '담당 팀을 찾을 수 없습니다' }
   const teamId = teamRow.id as string
 
-  // 형제(기존 SUB-ACT) 조회 — 중복 팀 방지 + sort_order 채번.
-  // 조회 실패를 '형제 0개'로 오인하면 sort_order 충돌 + 중복 팀 검사 무력화 + '첫 SUB-ACT' 오판으로
-  // ACT 의 직접 입력 실적%까지 지운다. 쓰기 전에 중단한다.
-  const { data: sibs, error: sibErr } = await sb.from('wbs_items').select('id, sort_order').eq('parent_id', actId)
-  if (sibErr || !sibs) return { ok: false, error: `기존 SUB-ACT 조회 실패: ${sibErr?.message ?? '알 수 없는 오류'}` }
   const sibIds = sibs.map(s => s.id as string)
   if (sibIds.length) {
     const { data: dup, error: dupErr } = await sb
@@ -293,10 +300,11 @@ export async function addSubAct(
   const nextOrder = sibs.reduce((mx, r) => Math.max(mx, Number(r.sort_order) || 0), 0) + 1
 
   const name = subActName(act.name as string, team, kind)
+  // 가드 ③: is_owner_split=true 가 판별의 진실. level:'activity' 는 하위호환 기록용(신규 코드는 읽지 않는다).
   const { data: inserted, error: insErr } = await sb
     .from('wbs_items')
     .insert({
-      project_id: act.project_id, parent_id: actId, level: 'activity', code: act.code,
+      project_id: act.project_id, parent_id: actId, level: 'activity', is_owner_split: true, code: act.code,
       sort_order: nextOrder, name, biz: act.biz, deliverable: act.deliverable,
       planned_start: act.planned_start, planned_end: act.planned_end, weight: null, actual_pct: null,
     })

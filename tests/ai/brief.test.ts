@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ComputedItem } from '@/lib/domain/types'
+import { LEGACY_MILESTONE_KEYWORDS } from '@/lib/domain/dashboard'
 import {
   buildBriefFacts, briefFactsHash, factsToPrompt, parseBrief, verifyBriefNumbers,
   type BriefFactsInput,
@@ -10,14 +11,15 @@ let seq = 0
 const leaf = (over: Partial<ComputedItem> = {}): ComputedItem => ({
   id: `L${seq++}`, parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
-  weight: null, actualPct: null, owners: [], plannedPct: 0, rolledActualPct: 0,
+  weight: null, actualPct: null, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
   achievement: null, status: 'in_progress', children: [], ...over,
 })
 const TODAY = '2026-07-15'
 const input = (over: Partial<BriefFactsInput> = {}): BriefFactsInput => ({
   projectName: '테스트 프로젝트', items: [], startDate: '2026-01-01', endDate: '2026-12-31',
   todayWbs: TODAY, realToday: '2026-07-19', holidays: [], snapshots: [],
-  minuteSignals: [], meetings: [], meetingExceptions: [], ...over,
+  minuteSignals: [], meetings: [], meetingExceptions: [],
+  milestoneKeywords: [...LEGACY_MILESTONE_KEYWORDS], ...over,
 })
 
 describe('buildBriefFacts', () => {

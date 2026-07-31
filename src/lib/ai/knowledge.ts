@@ -41,7 +41,7 @@ export const loadProjectAnalysis = cache(async (projectId: string): Promise<Load
     getProjectMembers(projectId),
     getProjectName(projectId),
   ])
-  return { analysis: analyzeProject(items, name, today, members), members, name }
+  return { analysis: analyzeProject(items, name, today, activeTeamCodesSync(), members), members, name }
 })
 
 async function allProjectSummaries(): Promise<{ summaries: ProjectSummary[]; excludedCount: number }> {
@@ -50,7 +50,7 @@ async function allProjectSummaries(): Promise<{ summaries: ProjectSummary[]; exc
     projects.map(async p => {
       try {
         const { items, today } = await getComputedWbs(p.id)
-        return summarizeProject(analyzeProject(items, p.name, today))
+        return summarizeProject(analyzeProject(items, p.name, today, activeTeamCodesSync()))
       } catch (e) {
         console.error(`[dkbot] 전사 요약 — 프로젝트 "${p.name}" 분석 실패(제외):`, e instanceof Error ? e.message : e)
         return null

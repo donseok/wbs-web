@@ -252,7 +252,7 @@ describe('fetchAgentOps', () => {
   })
   it('미등록 프로젝트 → registered:false', async () => {
     const sb = {
-      from: vi.fn((table: string) => {
+      from: vi.fn(() => {
         const b: Record<string, unknown> = {}
         for (const k of ['select', 'eq', 'in', 'order']) b[k] = () => b
         b.maybeSingle = async () => ({ data: null, error: null })
@@ -262,7 +262,7 @@ describe('fetchAgentOps', () => {
     mocks.createServerClient.mockResolvedValue(sb)
     const r = await fetchAgentOps(P1)
     expect(r.ok).toBe(true)
-    expect((r as any).registered).toBe(false)
+    expect((r as unknown as { registered: boolean }).registered).toBe(false)
   })
   it('agent_projects 조회 실패 → ok:false (빈 목록 위장 금지)', async () => {
     const sb = {
@@ -278,7 +278,7 @@ describe('fetchAgentOps', () => {
     mocks.createServerClient.mockResolvedValue(sb)
     const r = await fetchAgentOps(P1)
     expect(r.ok).toBe(false)
-    expect((r as any).error).toContain('등록 조회 실패')
+    expect((r as unknown as { error: string }).error).toContain('등록 조회 실패')
   })
   it('agent_work_orders 조회 실패 → ok:false', async () => {
     const sb = {
@@ -296,10 +296,9 @@ describe('fetchAgentOps', () => {
     mocks.createServerClient.mockResolvedValue(sb)
     const r = await fetchAgentOps(P1)
     expect(r.ok).toBe(false)
-    expect((r as any).error).toContain('주문 조회')
+    expect((r as unknown as { error: string }).error).toContain('주문 조회')
   })
   it('정상 조립 — item 매핑 + reports 그룹핑', async () => {
-    const W2 = '44444444-4444-4444-8444-444444444444'
     const O2 = '55555555-5555-4555-8555-555555555555'
     const R1 = '66666666-6666-4666-8666-666666666666'
     const R2 = '77777777-7777-4777-8777-777777777777'
@@ -326,7 +325,7 @@ describe('fetchAgentOps', () => {
             error: null,
           },
         }
-        const resp = (responses as any)[table]
+        const resp = (responses as unknown as Record<string, unknown>)[table]
         const b: Record<string, unknown> = {}
         for (const k of ['select', 'eq', 'in', 'order']) b[k] = () => b
         b.maybeSingle = async () => resp

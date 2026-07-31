@@ -40,7 +40,7 @@ function item(plannedStart: string, plannedEnd: string): ComputedItem {
     plannedEnd,
     weight: null,
     actualPct: 0,
-    owners: [],
+    owners: [], isOwnerSplit: false,
     plannedPct: 0,
     rolledActualPct: 0,
     achievement: null,

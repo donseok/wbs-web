@@ -1,10 +1,12 @@
-import { buildTree, type TreeNode } from './tree'
+import { buildTree, type BuildTreeOpts, type TreeNode } from './tree'
 import { round1 } from './format'
 import { plannedPct, achievementOf, statusOf } from './progress'
 import type { ComputedItem, WbsRow } from './types'
 
-export function computeTree(rows: WbsRow[], today: string, holidays: Set<string>): ComputedItem[] {
-  const tree = buildTree(rows)
+export function computeTree(
+  rows: WbsRow[], today: string, holidays: Set<string>, opts: BuildTreeOpts,
+): ComputedItem[] {
+  const tree = buildTree(rows, opts)
   return tree.map(node => computeNode(node, today, holidays))
 }
 

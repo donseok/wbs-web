@@ -143,7 +143,7 @@ const DISPLAY_LABELS: Readonly<Record<string, string>> = {
 }
 
 const DISPLAY_ENUMS: Readonly<Record<string, string>> = {
-  phase: 'Phase', task: 'Task', subtask: 'Sub-task',
+  phase: 'Phase', task: 'Task', activity: 'Activity', subtask: 'Sub-task',
   not_started: '미착수', in_progress: '진행 중', delayed: '지연', done: '완료',
   annual: '연차', half: '반차', quarter: '반반차', sick: '병가', trip: '출장',
   remote: '재택', official: '공가', absent: '결근', work: '정상 근무',

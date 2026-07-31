@@ -4,6 +4,7 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { buildWbsWorkbook } from '@/lib/excel/export'
 import { activeTeamCodesSync } from '@/lib/teams/master'
+import { seoulToday } from '@/lib/domain/dates'
 
 // 현재 WBS를 xlsx로 내보낸다(읽기 전용 — 로그인 사용자 누구나). 임포트 포맷과 라운드트립.
 export async function GET(req: NextRequest) {
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   const name = project?.name ?? 'WBS'
 
   const buf = buildWbsWorkbook(items, holidays.map(d => ({ date: d, name: '' })), name, activeTeamCodesSync())
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
+  const today = seoulToday()
   const filename = `WBS_${name}_${today}.xlsx`.replace(/[^\w가-힣.\-]+/g, '_')
 
   return new NextResponse(buf, {

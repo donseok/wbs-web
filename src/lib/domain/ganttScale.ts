@@ -2,6 +2,8 @@
  * 간트 타임라인 스케일 계산 (순수 함수). WBS·간트 통합 시트와 전용 간트 뷰가 공유한다.
  * 입력은 계획 일자 목록(ISO 'YYYY-MM-DD')과 기준일·일당 픽셀. DB/DOM 의존 없음.
  */
+import { isWeekendDow } from './dates'
+
 export interface GanttScale {
   days: string[]
   rangeStart: string
@@ -34,10 +36,7 @@ export function buildGanttScale(dates: string[], today: string, dayPx: number): 
 
   const xOf = (date: string) =>
     ((new Date(date + 'T00:00:00Z').getTime() - start.getTime()) / 86_400_000) * dayPx
-  const isWeekend = (d: string) => {
-    const dow = new Date(d + 'T00:00:00Z').getUTCDay()
-    return dow === 0 || dow === 6
-  }
+  const isWeekend = (d: string) => isWeekendDow(new Date(d + 'T00:00:00Z').getUTCDay())
   const ganttW = days.length * dayPx
 
   const months: GanttScale['months'] = []

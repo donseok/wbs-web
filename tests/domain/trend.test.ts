@@ -1,15 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import { computeTree } from '@/lib/domain/rollup'
+import type { BuildTreeOpts } from '@/lib/domain/tree'
 import type { WbsRow } from '@/lib/domain/types'
+import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 import { buildTrend, plannedAt, plannedCurve, flattenRows, type SnapshotPoint } from '@/lib/domain/trend'
 
 const row = (over: Partial<WbsRow>): WbsRow => ({
   id: over.id ?? Math.random().toString(36).slice(2), parentId: null, level: 'activity', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
-  weight: null, actualPct: null, owners: [], ...over,
+  weight: null, actualPct: null, owners: [], isOwnerSplit: false, ...over,
 })
 const TODAY = '2026-02-20'
-const items = (rows: WbsRow[]) => computeTree(rows, TODAY, new Set())
+const OPTS: BuildTreeOpts = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
+const items = (rows: WbsRow[]) => computeTree(rows, TODAY, new Set(), OPTS)
 const snap = (date: string, actual: number, planned: number): SnapshotPoint => ({ date, actual, planned })
 
 const baseRows = [row({ plannedStart: '2026-01-01', plannedEnd: '2026-04-10', actualPct: 30 })]
@@ -17,13 +20,13 @@ const baseRows = [row({ plannedStart: '2026-01-01', plannedEnd: '2026-04-10', ac
 describe('plannedAt', () => {
   const rows = flattenRows(items(baseRows))
   it('시작 전 = 0, 종료 후 = 100', () => {
-    expect(plannedAt(rows, '2025-12-31', new Set())).toBe(0)
-    expect(plannedAt(rows, '2026-05-01', new Set())).toBe(100)
+    expect(plannedAt(rows, '2025-12-31', new Set(), OPTS)).toBe(0)
+    expect(plannedAt(rows, '2026-05-01', new Set(), OPTS)).toBe(100)
   })
   it('구간 내 단조 비감소, 0 < 중간값 < 100', () => {
-    const mid = plannedAt(rows, '2026-02-20', new Set())
+    const mid = plannedAt(rows, '2026-02-20', new Set(), OPTS)
     expect(mid).toBeGreaterThan(0); expect(mid).toBeLessThan(100)
-    expect(plannedAt(rows, '2026-03-20', new Set())).toBeGreaterThanOrEqual(mid)
+    expect(plannedAt(rows, '2026-03-20', new Set(), OPTS)).toBeGreaterThanOrEqual(mid)
   })
 })
 
@@ -67,30 +70,30 @@ describe('plannedCurve — plannedAt 등가성(성능 최적화의 정확성 계
       }
       const sampled: string[] = []
       for (let d = '2026-01-01'; d <= '2026-07-31'; d = addDays(d, 7)) sampled.push(d)
-      const fast = plannedCurve(rows, sampled, holidays)
-      const slow = sampled.map(date => ({ date, pct: plannedAt(rows, date, holidays) }))
+      const fast = plannedCurve(rows, sampled, holidays, OPTS)
+      const slow = sampled.map(date => ({ date, pct: plannedAt(rows, date, holidays, OPTS) }))
       expect(fast).toEqual(slow)
     }
   })
 
   it('빈 rows·빈 dates 경계에서도 동일', () => {
-    expect(plannedCurve([], ['2026-01-01'], new Set())).toEqual([{ date: '2026-01-01', pct: plannedAt([], '2026-01-01', new Set()) }])
-    expect(plannedCurve([row({})], [], new Set())).toEqual([])
+    expect(plannedCurve([], ['2026-01-01'], new Set(), OPTS)).toEqual([{ date: '2026-01-01', pct: plannedAt([], '2026-01-01', new Set(), OPTS) }])
+    expect(plannedCurve([row({})], [], new Set(), OPTS)).toEqual([])
   })
 })
 
 describe('buildTrend — 축/빈 상태', () => {
   it('기간도 WBS 날짜도 없으면 empty', () => {
-    const m = buildTrend({ items: items([row({})]), snapshots: [], holidays: new Set(), startDate: null, endDate: null, today: TODAY })
+    const m = buildTrend({ items: items([row({})]), snapshots: [], holidays: new Set(), startDate: null, endDate: null, today: TODAY, opts: OPTS })
     expect(m.empty).toBe(true)
   })
   it('프로젝트 기간 null이면 WBS 날짜 min/max로 축 대체', () => {
-    const m = buildTrend({ items: items(baseRows), snapshots: [], holidays: new Set(), startDate: null, endDate: null, today: TODAY })
+    const m = buildTrend({ items: items(baseRows), snapshots: [], holidays: new Set(), startDate: null, endDate: null, today: TODAY, opts: OPTS })
     expect(m.empty).toBe(false)
     expect(m.axisStart).toBe('2026-01-01'); expect(m.axisEnd).toBe('2026-04-10')
   })
   it('계획 곡선은 시작~종료 전 구간 + 오늘 포함, 마지막 점 100%', () => {
-    const m = buildTrend({ items: items(baseRows), snapshots: [], holidays: new Set(), startDate: '2026-01-01', endDate: '2026-04-10', today: TODAY })
+    const m = buildTrend({ items: items(baseRows), snapshots: [], holidays: new Set(), startDate: '2026-01-01', endDate: '2026-04-10', today: TODAY, opts: OPTS })
     const dates = m.plannedSeries.map(p => p.date)
     expect(dates[0]).toBe('2026-01-01')
     expect(dates[dates.length - 1]).toBe('2026-04-10')
@@ -102,7 +105,7 @@ describe('buildTrend — 축/빈 상태', () => {
 
 describe('buildTrend — 실적 이력', () => {
   const mk = (snaps: SnapshotPoint[]) =>
-    buildTrend({ items: items(baseRows), snapshots: snaps, holidays: new Set(), startDate: '2026-01-01', endDate: '2026-04-10', today: TODAY })
+    buildTrend({ items: items(baseRows), snapshots: snaps, holidays: new Set(), startDate: '2026-01-01', endDate: '2026-04-10', today: TODAY, opts: OPTS })
 
   it('carry-forward: 마지막 스냅샷 이후 오늘까지 직전 값 유지 + 축 시작(0%)에서 보간 시작', () => {
     const m = mk([snap('2026-02-10', 10, 40), snap('2026-02-17', 20, 50)])
@@ -129,14 +132,14 @@ describe('buildTrend — 실적 이력', () => {
   it('스냅샷 0건 + 오늘이 종료 이후면 합성 선의 끝은 축 종료일', () => {
     const m = buildTrend({
       items: items(baseRows), snapshots: [], holidays: new Set(),
-      startDate: '2026-01-01', endDate: '2026-02-01', today: TODAY, // TODAY(02-20) > 종료(02-01)
+      startDate: '2026-01-01', endDate: '2026-02-01', today: TODAY, opts: OPTS, // TODAY(02-20) > 종료(02-01)
     })
     expect(m.actualSeries[m.actualSeries.length - 1].date).toBe('2026-02-01')
   })
   it('스냅샷 0건 + 오늘이 시작 이전이면 실적선 없음', () => {
     const m = buildTrend({
       items: items(baseRows), snapshots: [], holidays: new Set(),
-      startDate: '2026-03-01', endDate: '2026-04-10', today: TODAY, // TODAY(02-20) < 시작(03-01)
+      startDate: '2026-03-01', endDate: '2026-04-10', today: TODAY, opts: OPTS, // TODAY(02-20) < 시작(03-01)
     })
     expect(m.actualSeries).toEqual([])
   })
@@ -144,7 +147,7 @@ describe('buildTrend — 실적 이력', () => {
 
 describe('buildTrend — SPI / velocity', () => {
   const mk = (snaps: SnapshotPoint[]) =>
-    buildTrend({ items: items(baseRows), snapshots: snaps, holidays: new Set(), startDate: '2026-01-01', endDate: '2026-04-10', today: TODAY })
+    buildTrend({ items: items(baseRows), snapshots: snaps, holidays: new Set(), startDate: '2026-01-01', endDate: '2026-04-10', today: TODAY, opts: OPTS })
 
   it('SPI = actual/planned (소수 2자리), planned<5 시점은 제외', () => {
     const m = mk([snap('2026-01-05', 1, 3), snap('2026-02-10', 10, 40), snap('2026-02-17', 20, 50)])

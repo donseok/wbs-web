@@ -32,7 +32,7 @@ function item(over: Partial<ComputedItem>): ComputedItem {
   return {
     id: 'x', parentId: null, level: 'activity', code: '1', sortOrder: 0, name: '항목',
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-10',
-    weight: null, actualPct: 0, owners: [], plannedPct: 0, rolledActualPct: 0,
+    weight: null, actualPct: 0, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
     achievement: null, status: 'not_started', children: [], ...over,
   }
 }

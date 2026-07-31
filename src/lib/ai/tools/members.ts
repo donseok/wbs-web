@@ -21,6 +21,7 @@ import {
   todayInSeoul,
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionContext, ToolExecutionResult } from './types'
+import { teamOrderMap } from '@/lib/domain/teams'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 
 const MEMBERS_CAPABILITY = 'members:read' as const
@@ -173,7 +174,9 @@ export function createGetMemberWorkloadTool(
       ) return repositoryScopeViolation()
 
       const today = wbsResult.data.baseDate ?? todayInSeoul(context.now)
-      const computed = computeTree(wbsResult.data.items, today, new Set(wbsResult.data.holidays))
+      const computed = computeTree(wbsResult.data.items, today, new Set(wbsResult.data.holidays), {
+        subActTeamOrder: teamOrderMap(activeTeamCodesSync()),
+      })
       const leaves = collectLeaves(computed)
 
       const buckets = new Map<TeamCode | null, MemberWorkloadToolRecord & { actualSum: number }>()

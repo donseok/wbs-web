@@ -2,12 +2,11 @@ import { createServerClient } from '@/lib/supabase/server'
 import { computeTree, overallProgress } from '@/lib/domain/rollup'
 import type { SnapshotPoint } from '@/lib/domain/trend'
 import type { WbsRow } from '@/lib/domain/types'
+import { seoulToday } from '@/lib/domain/dates'
+import { activeCodes, teamOrderMap } from '@/lib/domain/teams'
+import { teamsSync } from '@/lib/teams/master'
 
 type Sb = Awaited<ReturnType<typeof createServerClient>>
-
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
-}
 
 /** 진척 스냅샷 조회(날짜 오름차순). numeric 컬럼은 문자열로 올 수 있어 Number 변환. */
 export async function getSnapshots(projectId: string): Promise<SnapshotPoint[]> {
@@ -39,7 +38,7 @@ export async function recordProgressSnapshot(projectId: string, client?: Sb): Pr
     const sb = client ?? (await createServerClient())
     const [{ data: items, error: itemsErr }, { data: hol, error: holErr }] = await Promise.all([
       sb.from('wbs_items')
-        .select('id, parent_id, level, code, sort_order, name, planned_start, planned_end, weight, actual_pct')
+        .select('id, parent_id, level, code, sort_order, name, planned_start, planned_end, weight, actual_pct, is_owner_split')
         .eq('project_id', projectId),
       sb.from('holidays').select('date').eq('project_id', projectId),
     ])
@@ -63,10 +62,12 @@ export async function recordProgressSnapshot(projectId: string, client?: Sb): Pr
       weight: (r.weight as number) ?? null,
       actualPct: (r.actual_pct as number) ?? null,
       owners: [],
+      isOwnerSplit: r.is_owner_split === true,
     }))
     const today = seoulToday()
     const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
-    const { actual, planned } = overallProgress(computeTree(rows, today, holidays))
+    const opts = { subActTeamOrder: teamOrderMap(activeCodes(teamsSync())) }
+    const { actual, planned } = overallProgress(computeTree(rows, today, holidays, opts))
     const { error: upsertErr } = await sb.from('wbs_progress_snapshots').upsert(
       { project_id: projectId, snap_date: today, actual_pct: actual, planned_pct: planned, updated_at: new Date().toISOString() },
       { onConflict: 'project_id,snap_date' },

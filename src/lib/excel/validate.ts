@@ -7,6 +7,8 @@ export interface ImportItem {
   plannedStart: string | null; plannedEnd: string | null
   weight: number | null; actualPct: number | null
   owners: { team: TeamCode; kind: OwnerKind }[]
+  /** 담당별 자동 분리(sub-act) 생성 항목 여부 — import_wbs RPC 가 is_owner_split 컬럼에 그대로 싣는다. */
+  isOwnerSplit: boolean
 }
 export interface ImportError { excelRow: number; message: string }
 
@@ -37,7 +39,7 @@ export function validateAndLink(
     items.push({
       tempId, parentTempId, level: r.level, code: r.code, sortOrder: order++,
       name: r.name, biz: r.biz, deliverable: r.deliverable, plannedStart: s, plannedEnd: e,
-      weight: r.weight, actualPct: r.actualPct, owners: r.owners,
+      weight: r.weight, actualPct: r.actualPct, owners: r.owners, isOwnerSplit: false,
     })
   })
 
@@ -82,6 +84,7 @@ export function splitLeafOwners(items: ImportItem[]): ImportItem[] {
         weight: null,
         actualPct: it.actualPct,
         owners: [o],
+        isOwnerSplit: true,
       })
     })
   }

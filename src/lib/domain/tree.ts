@@ -1,18 +1,21 @@
-import type { ComputedItem, TeamCode, WbsRow } from './types'
+import type { ComputedItem, WbsRow } from './types'
 
 export type TreeNode = WbsRow & { children: TreeNode[] }
 
-/* sub-act(act 하위 팀별 분리 항목) 고정 표시 순서 — 임포트 시 저장된 sortOrder와 무관하게 항상 이 순서.
- * 순수 모듈이라 팀 마스터를 읽지 않는다: 목록 밖 신규 팀은 기본 5팀 뒤에 sortOrder 순으로 온다. */
-const SUB_ACT_TEAM_ORDER: Record<TeamCode, number> = { PMO: 0, ERP: 1, MES: 2, 가공: 3, MDM: 4 }
-
-function subActTeamRank(n: TreeNode): number {
-  const team = n.owners.find(o => o.kind === 'primary')?.team ?? n.owners[0]?.team
-  if (team == null) return Number.MAX_SAFE_INTEGER
-  return SUB_ACT_TEAM_ORDER[team] ?? Number.MAX_SAFE_INTEGER - 1
+/** tree.ts — 정렬 순서는 주입이 계약(스펙 §5.3). 인자 필수라 tsc 가 전 호출처를 드러낸다.
+ *  순수 도메인 모듈은 팀 마스터를 읽지 않는다: 호출부가 팀 마스터의 sort_order 를 주입한다. */
+export interface BuildTreeOpts {
+  /** 팀코드→표시순위. teamOrderMap(activeCodes(teams)) 를 넘길 것. 미등재 팀은 뒤로. */
+  subActTeamOrder: ReadonlyMap<string, number>
 }
 
-export function buildTree(rows: WbsRow[]): TreeNode[] {
+function subActTeamRank(n: TreeNode, order: ReadonlyMap<string, number>): number {
+  const team = n.owners.find(o => o.kind === 'primary')?.team ?? n.owners[0]?.team
+  if (team == null) return Number.MAX_SAFE_INTEGER
+  return order.get(team) ?? Number.MAX_SAFE_INTEGER - 1
+}
+
+export function buildTree(rows: WbsRow[], opts: BuildTreeOpts): TreeNode[] {
   const byId = new Map<string, TreeNode>()
   rows.forEach(r => byId.set(r.id, { ...r, children: [] }))
   const roots: TreeNode[] = []
@@ -23,13 +26,15 @@ export function buildTree(rows: WbsRow[]): TreeNode[] {
       roots.push(node)
     }
   })
-  const sort = (ns: TreeNode[], parent?: TreeNode) => {
-    if (parent?.level === 'activity') {
-      ns.sort((a, b) => subActTeamRank(a) - subActTeamRank(b) || a.sortOrder - b.sortOrder)
+  // 정렬 규칙(스펙 §5.3): 형제 집합에 isOwnerSplit 이 하나라도 있으면 팀 순위→sortOrder,
+  // 아니면 sortOrder 만. 예전 parent?.level === 'activity' 분기를 대체 — 백필된 데이터에서 동치.
+  const sort = (ns: TreeNode[]) => {
+    if (ns.some(n => n.isOwnerSplit)) {
+      ns.sort((a, b) => subActTeamRank(a, opts.subActTeamOrder) - subActTeamRank(b, opts.subActTeamOrder) || a.sortOrder - b.sortOrder)
     } else {
       ns.sort((a, b) => a.sortOrder - b.sortOrder)
     }
-    ns.forEach(n => sort(n.children, n))
+    ns.forEach(n => sort(n.children))
   }
   sort(roots)
   return roots

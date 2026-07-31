@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { buildReportModel } from '@/lib/report/model'
-import type { ComputedItem } from '@/lib/domain/types'
+import { buildReportModel as buildReportModelReal } from '@/lib/report/model'
+import type { ComputedItem, TeamCode } from '@/lib/domain/types'
+
+/** '팀별 진척' 표시 대상 테스트 지역 상수(기존 PROGRESS_TEAMS 미러 — MDM 제외). */
+const TEST_PROGRESS_TEAMS: readonly TeamCode[] = ['PMO', 'ERP', 'MES', '가공']
+function buildReportModel(
+  items: Parameters<typeof buildReportModelReal>[0],
+  project: Parameters<typeof buildReportModelReal>[1],
+  today: Parameters<typeof buildReportModelReal>[2],
+  progressTeams: Parameters<typeof buildReportModelReal>[3] = TEST_PROGRESS_TEAMS,
+) {
+  return buildReportModelReal(items, project, today, progressTeams)
+}
 
 /** ComputedItem 빌더 (테스트용). */
 const node = (over: Partial<ComputedItem>): ComputedItem =>

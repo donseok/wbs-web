@@ -14,6 +14,7 @@ import {
   todayInSeoul,
 } from './common'
 import type { BotSource, ReadOnlyBotTool } from './types'
+import { teamOrderMap } from '@/lib/domain/teams'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 
 const KANBAN_CAPABILITY = 'kanban:read' as const
@@ -120,7 +121,9 @@ export function createGetKanbanViewTool(repository: WbsBotRepository): ReadOnlyB
       if (!isScopedWbsSnapshot(repoResult.data, projectId)) return repositoryScopeViolation()
 
       const today = repoResult.data.baseDate ?? todayInSeoul(context.now)
-      const computed = computeTree(repoResult.data.items, today, new Set(repoResult.data.holidays))
+      const computed = computeTree(repoResult.data.items, today, new Set(repoResult.data.holidays), {
+        subActTeamOrder: teamOrderMap(activeTeamCodesSync()),
+      })
       const effectiveView = (view ?? 'status') as KanbanView
       const columns = groupColumns(effectiveView, computed)
       const teamFilter = team as TeamCode | undefined

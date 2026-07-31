@@ -1,5 +1,4 @@
 import type { ComputedItem, TeamCode } from './types'
-import { DEFAULT_TEAM_CODES } from './teams'
 import { round1 } from './format'
 import { collectLeaves } from './tree'
 import { overallProgress } from './rollup'
@@ -58,16 +57,21 @@ export function scheduleModel(input: {
   return { ...base, projectedEnd, slipDays, signal, label: 'onTrack' }
 }
 
-// 마일스톤 키워드(소문자, WBS 도메인 데이터 기준). 이름에 부분문자열(대소문자 무시) 매칭.
-const MILESTONE_KEYWORDS = ['착수보고', '중간보고', '보고회', '마스터 플랜', 'bmt', '최종 선정', '승인', '준공', 'kick-off', '킥오프']
+/**
+ * @deprecated 주입 전환(스펙 §7.4) — 설정 미로딩 호출처의 임시 주입원.
+ * 신규 코드는 ProjectConfig.milestoneKeywords 를 주입할 것(src/lib/data/projectConfig.ts).
+ * 마일스톤 키워드(소문자, WBS 도메인 데이터 기준). 이름에 부분문자열(대소문자 무시) 매칭.
+ */
+export const LEGACY_MILESTONE_KEYWORDS: readonly string[] =
+  ['착수보고', '중간보고', '보고회', '마스터 플랜', 'bmt', '최종 선정', '승인', '준공', 'kick-off', '킥오프']
 
 export interface MilestoneModel {
   name: string | null; date: string | null; dday: number | null; overdue: boolean; signal: Signal
 }
 
-function isMilestoneLeaf(l: ComputedItem): boolean {
+function isMilestoneLeaf(l: ComputedItem, keywords: readonly string[]): boolean {
   const name = l.name.toLowerCase()
-  const kw = MILESTONE_KEYWORDS.some(k => name.includes(k))
+  const kw = keywords.some(k => name.includes(k))
   const singleDay =
     l.plannedStart != null && l.plannedStart === l.plannedEnd && !!(l.deliverable && l.deliverable.trim())
   return kw || singleDay
@@ -75,9 +79,9 @@ function isMilestoneLeaf(l: ComputedItem): boolean {
 const byEndThenOrder = (a: ComputedItem, b: ComputedItem) =>
   a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : a.sortOrder - b.sortOrder
 
-export function detectMilestones(items: ComputedItem[], today: string): MilestoneModel {
+export function detectMilestones(items: ComputedItem[], today: string, keywords: readonly string[]): MilestoneModel {
   const cands = collectLeaves(items).filter(
-    l => isMilestoneLeaf(l) && l.plannedEnd != null && l.status !== 'done',
+    l => isMilestoneLeaf(l, keywords) && l.plannedEnd != null && l.status !== 'done',
   )
   const overdue = cands.filter(l => l.plannedEnd! < today).sort(byEndThenOrder)
   if (overdue.length > 0) {
@@ -142,6 +146,7 @@ export interface ExecSummary {
 export function buildExecSummary(
   items: ComputedItem[],
   opts: { startDate: string | null; endDate: string | null; today: string },
+  milestoneKeywords: readonly string[],
 ): ExecSummary {
   const { actual, planned } = overallProgress(items)
   // round1 없이 빼면 FP 노이즈(예: 6.3-8.3 = -2.000000000000001)가 progressSignal의
@@ -153,7 +158,7 @@ export function buildExecSummary(
     overallActual: actual, overallPlanned: planned,
   })
   const risk = riskModel(items, opts.today)
-  const milestone = detectMilestones(items, opts.today)
+  const milestone = detectMilestones(items, opts.today, milestoneKeywords)
   const overall = { signal: overallSignal([progress.signal, schedule.signal, risk.signal, milestone.signal]) }
   return { overall, progress, schedule, risk, milestone }
 }
@@ -187,14 +192,11 @@ export function progressMatrix(roots: ComputedItem[], teams: readonly TeamCode[]
 }
 
 /* ── 팀별 진척 — 대시보드 카드와 주간 보고서 모달(By owner)이 공유하는 단일 정의 ── */
-/** @deprecated 기본 5팀 폴백 — 런타임 기준은 팀 마스터. 호출처에서 활성 팀 목록을 주입할 것. */
-export const ALL_TEAMS: readonly TeamCode[] = DEFAULT_TEAM_CODES
-/** '팀별 진척현황' 표시 대상 기본값 — 런타임은 progress_visible 팀 목록을 주입(기존 MDM 제외 규칙). */
-export const PROGRESS_TEAMS: readonly TeamCode[] = ALL_TEAMS.filter(t => t !== 'MDM')
 export interface TeamProgressEntry { team: TeamCode; count: number; pct: number | null }
 
-/** 팀이 담당(primary·support 모두)인 leaf들의 rolledActual 단순 평균(정수). 무배정 팀은 pct null. */
-export function teamProgress(leaves: ComputedItem[], teams: readonly TeamCode[] = PROGRESS_TEAMS): TeamProgressEntry[] {
+/** 팀이 담당(primary·support 모두)인 leaf들의 rolledActual 단순 평균(정수). 무배정 팀은 pct null.
+ *  teams(표시 대상)는 호출처가 팀 마스터에서 주입한다(progress_visible 활성 팀 — 기존 MDM 제외 규칙). */
+export function teamProgress(leaves: ComputedItem[], teams: readonly TeamCode[]): TeamProgressEntry[] {
   const avg = (ns: number[]) => Math.round(ns.reduce((a, b) => a + b, 0) / ns.length)
   return teams.map(team => {
     const assigned = leaves.filter(l => l.owners.some(o => o.team === team))
@@ -219,9 +221,9 @@ export function varianceRanking(leaves: ComputedItem[], today: string, limit = 8
 export type MilestoneStatus = 'done' | 'overdue' | 'upcoming'
 export interface MilestonePoint { id: string; name: string; date: string; status: MilestoneStatus; dday: number }
 
-export function milestoneTimeline(items: ComputedItem[], today: string): MilestonePoint[] {
+export function milestoneTimeline(items: ComputedItem[], today: string, keywords: readonly string[]): MilestonePoint[] {
   return collectLeaves(items)
-    .filter(l => isMilestoneLeaf(l) && l.plannedEnd != null)
+    .filter(l => isMilestoneLeaf(l, keywords) && l.plannedEnd != null)
     .map(l => ({
       id: l.id, name: l.name, date: l.plannedEnd!,
       status: (l.status === 'done' ? 'done' : l.plannedEnd! < today ? 'overdue' : 'upcoming') as MilestoneStatus,

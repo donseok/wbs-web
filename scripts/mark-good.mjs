@@ -24,6 +24,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 const args = process.argv.slice(2)
 const DRY = args.includes('--dry-run')
 const SKIP_SMOKE = args.includes('--skip-smoke')
+const PROD_URL = (process.env.SMOKE_URL || 'https://wbs-web.vercel.app').replace(/\/$/, '')
 
 const C = process.stdout.isTTY
   ? { red: '\x1b[31m', grn: '\x1b[32m', yel: '\x1b[33m', dim: '\x1b[2m', off: '\x1b[0m' }
@@ -68,7 +69,7 @@ if (existing.length) {
 // vercel CLI 는 커밋 SHA 를 노출하지 않는다. 대신 프로덕션 배포의 생성 시각과
 // 커밋 시각을 비교한다 — 커밋이 배포보다 나중이면 그 배포에 들어 있을 수 없다.
 function productionDeployment() {
-  const r = spawnSync('vercel', ['inspect', 'https://wbs-web.vercel.app'], { encoding: 'utf8' })
+  const r = spawnSync('vercel', ['inspect', PROD_URL], { encoding: 'utf8' })
   if (r.status !== 0) return null
   const out = `${r.stdout || ''}${r.stderr || ''}`
   const status = out.match(/^\s+status\s+.*?(Ready|Building|Error|Canceled)/m)?.[1]

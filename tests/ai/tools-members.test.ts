@@ -58,33 +58,33 @@ const wbsSnapshot: WbsProjectSnapshot = {
     {
       id: 'phase-1', projectId: 'p1', parentId: null, level: 'phase', code: '1', sortOrder: 1,
       name: '구축', biz: null, deliverable: null, plannedStart: '2026-07-13', plannedEnd: '2026-07-24',
-      weight: null, actualPct: null, owners: [], updatedAt: null,
+      weight: null, actualPct: null, owners: [], isOwnerSplit: false, updatedAt: null,
     },
     {
       id: 'e1', projectId: 'p1', parentId: 'phase-1', level: 'task', code: '1.1', sortOrder: 1,
       name: 'ERP 설계', biz: null, deliverable: null, plannedStart: '2026-07-13', plannedEnd: '2026-07-17',
-      weight: null, actualPct: 100, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: null,
+      weight: null, actualPct: 100, owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: false, updatedAt: null,
     },
     {
       id: 'e2', projectId: 'p1', parentId: 'phase-1', level: 'task', code: '1.2', sortOrder: 2,
       name: 'ERP 개발', biz: null, deliverable: null, plannedStart: '2026-07-20', plannedEnd: '2026-07-24',
-      weight: null, actualPct: 30, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: null,
+      weight: null, actualPct: 30, owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: false, updatedAt: null,
     },
     {
       id: 'm1', projectId: 'p1', parentId: 'phase-1', level: 'task', code: '1.3', sortOrder: 3,
       name: 'MES 개발', biz: null, deliverable: null, plannedStart: '2026-07-20', plannedEnd: '2026-07-24',
-      weight: null, actualPct: 70, owners: [{ team: 'MES', kind: 'primary' }], updatedAt: null,
+      weight: null, actualPct: 70, owners: [{ team: 'MES', kind: 'primary' }], isOwnerSplit: false, updatedAt: null,
     },
     {
       id: 'u1', projectId: 'p1', parentId: 'phase-1', level: 'task', code: '1.4', sortOrder: 4,
       name: '미배정 작업', biz: null, deliverable: null, plannedStart: '2026-07-23', plannedEnd: '2026-07-24',
-      weight: null, actualPct: 0, owners: [], updatedAt: null,
+      weight: null, actualPct: 0, owners: [], isOwnerSplit: false, updatedAt: null,
     },
     {
       // support 담당만 있는 leaf는 primary 미배정으로 취급되어야 한다.
       id: 's1', projectId: 'p1', parentId: 'phase-1', level: 'task', code: '1.5', sortOrder: 5,
       name: '지원 전용 작업', biz: null, deliverable: null, plannedStart: '2026-07-23', plannedEnd: '2026-07-24',
-      weight: null, actualPct: 0, owners: [{ team: 'PMO', kind: 'support' }], updatedAt: null,
+      weight: null, actualPct: 0, owners: [{ team: 'PMO', kind: 'support' }], isOwnerSplit: false, updatedAt: null,
     },
   ],
 }

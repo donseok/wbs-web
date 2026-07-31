@@ -21,6 +21,7 @@ const statusWord = (sig: Signal, tr: (k: DictKey) => string): string =>
 
 export async function ExecSummary({
   items, projectId, projectName, projectDescription, startDate, endDate, today, announcements,
+  milestoneKeywords,
   canGenerateBrief = false,
 }: {
   items: ComputedItem[]
@@ -31,12 +32,14 @@ export async function ExecSummary({
   endDate: string | null
   today: string
   announcements: Announcement[]
+  /** 프로젝트 설정(project_settings)의 마일스톤 키워드 — page.tsx 가 getProjectConfig 로 주입. */
+  milestoneKeywords: readonly string[]
   /** 보고서 모달의 AI 브리핑 인라인 생성 권한(프로젝트 관리자 이상). 기본 false = fail-closed. */
   canGenerateBrief?: boolean
 }) {
   const locale = await getServerLocale()
   const tr = (k: DictKey) => t(locale, k)
-  const s = buildExecSummary(items, { startDate, endDate, today })
+  const s = buildExecSummary(items, { startDate, endDate, today }, milestoneKeywords)
 
   // 게이지 중앙 배지는 진척(실적 vs 계획) 판정만 반영한다. 큰 실적%·편차와 같은 위계라
   // 종합(worst-of)을 얹으면 "+0.3%p 앞서는데 위험"처럼 수치와 모순돼 읽힌다.

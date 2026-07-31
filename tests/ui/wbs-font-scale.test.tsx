@@ -40,7 +40,7 @@ const itemA: ComputedItem = {
   plannedEnd: '2026-07-05',
   weight: 0.5,
   actualPct: 48,
-  owners: [{ team: 'PMO', kind: 'primary' }],
+  owners: [{ team: 'PMO', kind: 'primary' }], isOwnerSplit: false,
   plannedPct: 65,
   rolledActualPct: 48,
   achievement: 74,

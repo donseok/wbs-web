@@ -26,6 +26,7 @@ function n(id: string, over: Partial<ComputedItem> = {}, children: ComputedItem[
     id, parentId: null, level: children.length ? 'phase' : 'activity', code: id, sortOrder: 0, name: id,
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-30', weight: null,
     actualPct: children.length ? null : (over.rolledActualPct ?? 0), owners: over.owners ?? [{ team: 'PMO', kind: 'primary' }],
+    isOwnerSplit: over.isOwnerSplit ?? false,
     plannedPct: 0, rolledActualPct: over.rolledActualPct ?? 0, achievement: null, status: over.status ?? 'in_progress', children,
   }
 }
