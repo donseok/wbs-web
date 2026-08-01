@@ -25,6 +25,31 @@ export const ISSUE_ANALYSIS_CAUSES_PER_ISSUE_MAX = 4
 export const ISSUE_ANALYSIS_DIRECT_CAUSE_MAX = 400
 export const ISSUE_ANALYSIS_ROOT_CAUSE_MAX = 800
 
+// 프로세스 정의(트리/정의 페이지 초안)의 길이 상한 — 템플릿 박스 실측(셈플 최대
+// 3줄 ≈110자)에 여유를 둔 값이며 프롬프트·검증·저장 파서가 같은 값을 공유한다.
+export const ISSUE_ANALYSIS_MEGA_DEFINITION_MAX = 200
+export const ISSUE_ANALYSIS_MAJOR_DEFINITION_MAX = 150
+
+/** 로더가 전달하는 프로젝트 전체 Major 기준정보(0062). */
+export interface IssueAnalysisMajorProcess {
+  id: string
+  megaCode: IssueMegaCode
+  majorSeq: number
+  name: string
+}
+
+/** 영역 스냅샷/보고서 내부의 Major 표현 — megaCode는 소속 영역이 이미 말해준다. */
+export interface IssueAnalysisAreaMajor {
+  id: string
+  majorSeq: number
+  name: string
+}
+
+export interface IssueAnalysisAreaProcessDefinitions {
+  megaDefinition: string
+  majors: Array<{ majorId: string; definition: string }>
+}
+
 /**
  * 0055 적용 전후의 읽기 경계를 명시한다. Issue 본체에도 같은 필드가 존재하지만,
  * 보고서 순수 계층이 실제로 요구하는 분석 필드를 한 곳에서 볼 수 있게 유지한다.
@@ -99,6 +124,8 @@ export interface IssueAnalysisReportIssue {
   piIssueCode: string
   megaCode: IssueMegaCode
   megaSeq: number | null
+  /** 0062 이전 분류 레거시 이슈는 null — 트리에서 '(미지정)'으로 표시된다. */
+  majorId: string | null
   title: string
   body: string
   status: IssueStatus
@@ -143,6 +170,9 @@ export interface IssueAnalysisReportArea {
   megaCode: IssueMegaCode
   megaName: string
   megaNameEn: string
+  /** v2 이전 저장 실행에는 없다. 신규 실행은 processDefinitions와 항상 함께 저장한다. */
+  majors?: IssueAnalysisAreaMajor[]
+  processDefinitions?: IssueAnalysisAreaProcessDefinitions
   summary: IssueAnalysisAreaSummary
   issues: IssueAnalysisReportIssue[]
   /**
@@ -157,7 +187,12 @@ export interface IssueAnalysisInputSnapshot {
   schemaVersion: typeof ISSUE_ANALYSIS_SCHEMA_VERSION
   projectId: string
   issueCount: number
-  areas: Omit<IssueAnalysisReportArea, 'causeAnalyses' | 'opportunities'>[]
+  areas: Array<
+    Omit<
+      IssueAnalysisReportArea,
+      'causeAnalyses' | 'opportunities' | 'processDefinitions' | 'majors'
+    > & { majors: IssueAnalysisAreaMajor[] }
+  >
   /** Mega가 없는 레거시 이슈도 hard delete 감사 입력에서 사라지지 않게 보존한다. */
   unclassifiedIssues: Array<{
     id: string
@@ -350,6 +385,7 @@ export function toIssueAnalysisReportIssue(
     megaSeq: Number.isSafeInteger(issue.megaSeq) && Number(issue.megaSeq) > 0
       ? Number(issue.megaSeq)
       : null,
+    majorId: issue.majorId ?? null,
     title: compact(issue.title),
     body: issue.body.trim(),
     status: issue.status,
@@ -392,16 +428,31 @@ function buildAreaSummary(issues: readonly IssueAnalysisReportIssue[]): IssueAna
 export function buildIssueAnalysisInputSnapshot(
   projectId: string,
   issues: readonly IssueAnalysisIssueInput[],
+  majors: readonly IssueAnalysisMajorProcess[] = [],
 ): IssueAnalysisInputSnapshot {
   const areas = ISSUE_MEGA_AREAS.map(area => {
     const areaIssues = issues
       .filter(issue => issue.megaCode === area.code)
       .sort(compareIssues)
       .map(toIssueAnalysisReportIssue)
+    const areaMajors = majors
+      .filter(major => major.megaCode === area.code)
+      .sort((a, b) => a.majorSeq - b.majorSeq)
+      .map(major => ({ id: major.id, majorSeq: major.majorSeq, name: major.name }))
+    // FK가 보장하는 정합이 로드 경계에서 깨졌다면 잘못된 공식 산출물을 만들지 않는다.
+    const areaMajorIds = new Set(areaMajors.map(major => major.id))
+    for (const issue of areaIssues) {
+      if (issue.majorId !== null && !areaMajorIds.has(issue.majorId)) {
+        throw new Error(
+          `[issue-analysis] ${issue.piIssueCode} 이슈의 Major가 기준정보에 없습니다: ${issue.majorId}`,
+        )
+      }
+    }
     return {
       megaCode: area.code,
       megaName: area.nameKo,
       megaNameEn: area.nameEn,
+      majors: areaMajors,
       summary: buildAreaSummary(areaIssues),
       issues: areaIssues,
     }
@@ -430,6 +481,9 @@ export function buildIssueAnalysisReport(
   opportunities: Partial<Record<IssueMegaCode, IssueAnalysisOpportunity[]>>,
   generatedAt: string,
   causeAnalyses: Partial<Record<IssueMegaCode, IssueAnalysisIssueCauseAnalysis[]>> = {},
+  processDefinitions: Partial<
+    Record<IssueMegaCode, IssueAnalysisAreaProcessDefinitions>
+  > = {},
 ): IssueAnalysisReport {
   return {
     schemaVersion: ISSUE_ANALYSIS_SCHEMA_VERSION,
@@ -438,6 +492,7 @@ export function buildIssueAnalysisReport(
     generatedAt,
     areas: snapshot.areas.map(area => {
       const areaCauseAnalyses = causeAnalyses[area.megaCode]
+      const areaProcessDefinitions = processDefinitions[area.megaCode]
       return {
         ...area,
         ...(areaCauseAnalyses === undefined
@@ -447,6 +502,14 @@ export function buildIssueAnalysisReport(
                 issueId: analysis.issueId,
                 causes: analysis.causes.map(cause => ({ ...cause })),
               })),
+            }),
+        ...(areaProcessDefinitions === undefined
+          ? {}
+          : {
+              processDefinitions: {
+                megaDefinition: areaProcessDefinitions.megaDefinition,
+                majors: areaProcessDefinitions.majors.map(major => ({ ...major })),
+              },
             }),
         opportunities: opportunities[area.megaCode]?.map(opportunity => ({
           title: opportunity.title,

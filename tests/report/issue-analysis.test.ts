@@ -210,3 +210,97 @@ describe('이슈 분석 입력/결과 모델', () => {
     expect(JSON.parse(JSON.stringify(report))).toEqual(report)
   })
 })
+
+const MAJOR_A = {
+  id: '31000000-0000-4000-8000-000000000001',
+  megaCode: '02' as const,
+  majorSeq: 1,
+  name: '주문관리',
+}
+const MAJOR_B = {
+  id: '31000000-0000-4000-8000-000000000002',
+  megaCode: '02' as const,
+  majorSeq: 2,
+  name: '수출관리',
+}
+const MAJOR_OTHER_MEGA = {
+  id: '31000000-0000-4000-8000-000000000003',
+  megaCode: '00' as const,
+  majorSeq: 1,
+  name: '품목기준정보',
+}
+
+const salesIssue = (id: string, over: Partial<IssueAnalysisIssueInput> = {}) =>
+  issue(id, {
+    megaCode: '02',
+    piIssueCode: 'PI-I-02-01',
+    majorId: MAJOR_A.id,
+    ...over,
+  })
+
+describe('스냅샷 Major 기준정보', () => {
+  it('영역별로 Mega가 일치하는 Major만 seq 순으로 담고 이슈 majorId를 보존한다', () => {
+    const snapshot = buildIssueAnalysisInputSnapshot(
+      'project-1',
+      [salesIssue('sales-1')],
+      [MAJOR_B, MAJOR_A, MAJOR_OTHER_MEGA],
+    )
+    const area = snapshot.areas.find(candidate => candidate.megaCode === '02')
+    expect(area?.majors).toEqual([
+      { id: MAJOR_A.id, majorSeq: 1, name: '주문관리' },
+      { id: MAJOR_B.id, majorSeq: 2, name: '수출관리' },
+    ])
+    expect(area?.issues[0].majorId).toBe(MAJOR_A.id)
+    expect(snapshot.areas.find(candidate => candidate.megaCode === '00')?.majors)
+      .toEqual([{ id: MAJOR_OTHER_MEGA.id, majorSeq: 1, name: '품목기준정보' }])
+  })
+
+  it('이슈가 기준정보에 없는 Major를 참조하면 throw한다', () => {
+    expect(() =>
+      buildIssueAnalysisInputSnapshot('project-1', [salesIssue('sales-1')], []))
+      .toThrow('기준정보에 없습니다')
+  })
+
+  it('majors 생략(구 시그니처)은 빈 기준정보로 동작한다', () => {
+    const snapshot = buildIssueAnalysisInputSnapshot('project-1', [issue('legacy-1')])
+    expect(snapshot.areas.every(area => area.majors.length === 0)).toBe(true)
+    expect(snapshot.areas[0].issues[0].majorId).toBeNull()
+  })
+})
+
+describe('보고서 processDefinitions', () => {
+  it('전달된 Mega에만 정의를 붙이고 나머지는 키 자체가 없다', () => {
+    const snapshot = buildIssueAnalysisInputSnapshot(
+      'project-1',
+      [salesIssue('sales-1')],
+      [MAJOR_A, MAJOR_B],
+    )
+    const definitions = {
+      megaDefinition: '고객 주문 이행 전반을 관리하는 프로세스임',
+      majors: [
+        { majorId: MAJOR_A.id, definition: '주문 접수부터 납기까지 관리하는 프로세스' },
+        { majorId: MAJOR_B.id, definition: '수출 이행 전반을 관리하는 프로세스' },
+      ],
+    }
+    const report = buildIssueAnalysisReport(snapshot, {
+      '02': [{
+        title: '주문 프로세스 표준화',
+        description: '주문 입력 실수를 줄인다.',
+        issueIds: ['sales-1'],
+      }],
+    }, '2026-08-02T00:00:00Z', {}, { '02': definitions })
+
+    const area = report.areas.find(candidate => candidate.megaCode === '02')
+    expect(area?.processDefinitions).toEqual(definitions)
+    expect(area?.processDefinitions).not.toBe(definitions)
+    expect(area?.majors).toEqual([
+      { id: MAJOR_A.id, majorSeq: 1, name: '주문관리' },
+      { id: MAJOR_B.id, majorSeq: 2, name: '수출관리' },
+    ])
+    expect(Object.prototype.hasOwnProperty.call(
+      report.areas.find(candidate => candidate.megaCode === '00'),
+      'processDefinitions',
+    )).toBe(false)
+    expect(JSON.parse(JSON.stringify(report))).toEqual(report)
+  })
+})

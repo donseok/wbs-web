@@ -189,3 +189,120 @@ describe('parseStoredIssueAnalysisReport', () => {
     expect(parseStoredIssueAnalysisReport(uncovered, 'project-1')).toBeNull()
   })
 })
+
+const MAJOR_A = {
+  id: 'major-uuid-1',
+  megaCode: '00' as const,
+  majorSeq: 1,
+  name: '품목기준정보',
+}
+const MAJOR_B = {
+  id: 'major-uuid-2',
+  megaCode: '00' as const,
+  majorSeq: 2,
+  name: '거래처기준정보',
+}
+
+function storedReportWithProcess() {
+  const snapshot = buildIssueAnalysisInputSnapshot(
+    'project-1',
+    [{ ...issue(), majorId: MAJOR_A.id }],
+    [MAJOR_A, MAJOR_B],
+  )
+  return buildIssueAnalysisReport(snapshot, {
+    '00': [{
+      title: '기준정보 단일화',
+      description: '중복 등록을 통제한다.',
+      issueIds: ['issue-uuid-1'],
+    }],
+  }, '2026-07-31T00:00:00Z', {}, {
+    '00': {
+      megaDefinition: '기준정보 전반을 관리하는 프로세스임',
+      majors: [
+        { majorId: MAJOR_A.id, definition: '품목 기준정보를 관리하는 프로세스' },
+        { majorId: MAJOR_B.id, definition: '거래처 기준정보를 관리하는 프로세스' },
+      ],
+    },
+  })
+}
+
+describe('Major·프로세스 정의 하위호환 파싱', () => {
+  it('구버전(majors·majorId·processDefinitions 없음) 저장본은 그대로 통과한다', () => {
+    const legacy = JSON.parse(JSON.stringify(validStoredReport())) as {
+      areas: Array<Record<string, unknown> & { issues: Array<Record<string, unknown>> }>
+    }
+    for (const area of legacy.areas) {
+      delete area.majors
+      for (const item of area.issues) delete item.majorId
+    }
+    const parsed = parseStoredIssueAnalysisReport(legacy, 'project-1')
+    expect(parsed).not.toBeNull()
+    expect(Object.prototype.hasOwnProperty.call(parsed!.areas[0], 'majors')).toBe(false)
+    expect(Object.prototype.hasOwnProperty.call(parsed!.areas[0], 'processDefinitions'))
+      .toBe(false)
+    expect(parsed!.areas[0].issues[0].majorId).toBeNull()
+  })
+
+  it('신버전 저장본은 majors·majorId·processDefinitions를 왕복 보존한다', () => {
+    const source = storedReportWithProcess()
+    const parsed = parseStoredIssueAnalysisReport(
+      JSON.parse(JSON.stringify(source)),
+      'project-1',
+    )
+    expect(parsed).toEqual(source)
+    expect(parsed?.areas[0].processDefinitions).not.toBe(source.areas[0].processDefinitions)
+  })
+
+  it('majorId가 majors 목록에 없으면 거부한다', () => {
+    const orphan = storedReportWithProcess()
+    orphan.areas[0].majors = [MAJOR_B].map(major => ({
+      id: major.id, majorSeq: 1, name: major.name,
+    }))
+    orphan.areas[0].processDefinitions!.majors =
+      [orphan.areas[0].processDefinitions!.majors[1]]
+    expect(parseStoredIssueAnalysisReport(orphan, 'project-1')).toBeNull()
+  })
+
+  it('majors 없이 processDefinitions만 있으면 거부한다', () => {
+    const dangling = JSON.parse(JSON.stringify(storedReportWithProcess())) as {
+      areas: Array<Record<string, unknown> & { issues: Array<Record<string, unknown>> }>
+    }
+    for (const area of dangling.areas) {
+      delete area.majors
+      for (const item of area.issues) delete item.majorId
+    }
+    expect(parseStoredIssueAnalysisReport(dangling, 'project-1')).toBeNull()
+  })
+
+  it('정의가 Major와 1:1이 아니면 거부한다', () => {
+    const missing = storedReportWithProcess()
+    missing.areas[0].processDefinitions!.majors.pop()
+    expect(parseStoredIssueAnalysisReport(missing, 'project-1')).toBeNull()
+
+    const duplicated = storedReportWithProcess()
+    duplicated.areas[0].processDefinitions!.majors = [
+      duplicated.areas[0].processDefinitions!.majors[0],
+      duplicated.areas[0].processDefinitions!.majors[0],
+    ]
+    expect(parseStoredIssueAnalysisReport(duplicated, 'project-1')).toBeNull()
+  })
+
+  it('majorSeq가 강증가가 아니면 거부한다', () => {
+    const unsorted = storedReportWithProcess()
+    unsorted.areas[0].majors = [
+      { id: MAJOR_B.id, majorSeq: 2, name: MAJOR_B.name },
+      { id: MAJOR_A.id, majorSeq: 1, name: MAJOR_A.name },
+    ]
+    expect(parseStoredIssueAnalysisReport(unsorted, 'project-1')).toBeNull()
+  })
+
+  it('정의 길이 상한을 강제한다', () => {
+    const longMega = storedReportWithProcess()
+    longMega.areas[0].processDefinitions!.megaDefinition = '가'.repeat(201)
+    expect(parseStoredIssueAnalysisReport(longMega, 'project-1')).toBeNull()
+
+    const longMajor = storedReportWithProcess()
+    longMajor.areas[0].processDefinitions!.majors[0].definition = '가'.repeat(151)
+    expect(parseStoredIssueAnalysisReport(longMajor, 'project-1')).toBeNull()
+  })
+})

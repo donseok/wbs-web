@@ -15,8 +15,12 @@ import {
   ISSUE_ANALYSIS_CAUSE_CATEGORIES,
   ISSUE_ANALYSIS_CAUSES_PER_ISSUE_MAX,
   ISSUE_ANALYSIS_DIRECT_CAUSE_MAX,
+  ISSUE_ANALYSIS_MAJOR_DEFINITION_MAX,
+  ISSUE_ANALYSIS_MEGA_DEFINITION_MAX,
   ISSUE_ANALYSIS_ROOT_CAUSE_MAX,
   ISSUE_ANALYSIS_SCHEMA_VERSION,
+  type IssueAnalysisAreaMajor,
+  type IssueAnalysisAreaProcessDefinitions,
   type IssueAnalysisAreaSummary,
   type IssueAnalysisIssueCauseAnalysis,
   type IssueAnalysisMinuteSourceSnapshot,
@@ -114,6 +118,13 @@ function parseIssue(
   const status = object.status
   const severity = object.severity
   const source = record(object.source)
+  // 0062 이전 저장본은 majorId 키 자체가 없다 — null과 동일하게 취급한다.
+  let majorId: string | null = null
+  if (Object.prototype.hasOwnProperty.call(object, 'majorId') && object.majorId !== null) {
+    const parsedMajorId = nonEmpty(object.majorId)
+    if (!parsedMajorId) return null
+    majorId = parsedMajorId
+  }
   if (
     !id
     || issueNo === null
@@ -154,6 +165,7 @@ function parseIssue(
     piIssueCode,
     megaCode: expectedMegaCode,
     megaSeq,
+    majorId,
     title,
     body,
     status: status as IssueStatus,
@@ -254,6 +266,66 @@ function parseOpportunities(
 
 const UNSAFE_ANALYSIS_CONTROL_RE =
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u
+
+function parseAreaMajors(value: unknown): IssueAnalysisAreaMajor[] | null {
+  if (!Array.isArray(value)) return null
+  const ids = new Set<string>()
+  const majors: IssueAnalysisAreaMajor[] = []
+  let lastSeq = 0
+  for (const raw of value) {
+    const object = record(raw)
+    const id = object && nonEmpty(object.id)
+    const majorSeq = object ? positiveInteger(object.majorSeq) : null
+    const name = object && nonEmpty(object.name)
+    if (
+      !object || !id || majorSeq === null || !name
+      || name.length > 100
+      || ids.has(id)
+      // 체번(0062)은 결번 없는 오름차순 정본이다 — 흐트러진 저장본은 산출물로 쓰지 않는다.
+      || majorSeq <= lastSeq
+    ) return null
+    ids.add(id)
+    lastSeq = majorSeq
+    majors.push({ id, majorSeq, name })
+  }
+  return majors
+}
+
+function parseProcessDefinitions(
+  value: unknown,
+  majors: readonly IssueAnalysisAreaMajor[],
+): IssueAnalysisAreaProcessDefinitions | null {
+  const object = record(value)
+  const megaDefinition = object && nonEmpty(object.megaDefinition)
+  if (
+    !object || !megaDefinition
+    || megaDefinition.length > ISSUE_ANALYSIS_MEGA_DEFINITION_MAX
+    || UNSAFE_ANALYSIS_CONTROL_RE.test(megaDefinition)
+    || !Array.isArray(object.majors)
+    || object.majors.length !== majors.length
+  ) return null
+  const byId = new Map<string, string>()
+  for (const raw of object.majors) {
+    const item = record(raw)
+    const majorId = item && nonEmpty(item.majorId)
+    const definition = item && nonEmpty(item.definition)
+    if (
+      !item || !majorId || !definition
+      || definition.length > ISSUE_ANALYSIS_MAJOR_DEFINITION_MAX
+      || UNSAFE_ANALYSIS_CONTROL_RE.test(definition)
+      || byId.has(majorId)
+    ) return null
+    byId.set(majorId, definition)
+  }
+  if (majors.some(major => !byId.has(major.id))) return null
+  return {
+    megaDefinition,
+    majors: majors.map(major => ({
+      majorId: major.id,
+      definition: byId.get(major.id) as string,
+    })),
+  }
+}
 
 function parseCauseAnalyses(
   value: unknown,
@@ -367,6 +439,24 @@ export function parseStoredIssueAnalysisReport(
     const typedIssues = issues as IssueAnalysisReportIssue[]
     if (typedIssues.some(issue => allIds.has(issue.id))) return null
     typedIssues.forEach(issue => allIds.add(issue.id))
+
+    const hasMajors = Object.prototype.hasOwnProperty.call(areaObject, 'majors')
+    const majors = hasMajors ? parseAreaMajors(areaObject.majors) : undefined
+    if (hasMajors && majors === null) return null
+    const majorIds = new Set((majors ?? []).map(major => major.id))
+    if (typedIssues.some(issue =>
+      issue.majorId !== null && !majorIds.has(issue.majorId))) return null
+
+    const hasProcessDefinitions = Object.prototype.hasOwnProperty.call(
+      areaObject,
+      'processDefinitions',
+    )
+    if (hasProcessDefinitions && majors === undefined) return null
+    const processDefinitions = hasProcessDefinitions
+      ? parseProcessDefinitions(areaObject.processDefinitions, majors ?? [])
+      : undefined
+    if (hasProcessDefinitions && processDefinitions === null) return null
+
     const summary = parseSummary(areaObject.summary, typedIssues)
     const opportunities = parseOpportunities(areaObject.opportunities, typedIssues)
     const hasCauseAnalyses = Object.prototype.hasOwnProperty.call(
@@ -382,6 +472,10 @@ export function parseStoredIssueAnalysisReport(
       megaCode: expected.code,
       megaName: expected.nameKo,
       megaNameEn: expected.nameEn,
+      ...(majors === undefined || majors === null ? {} : { majors }),
+      ...(processDefinitions === undefined || processDefinitions === null
+        ? {}
+        : { processDefinitions }),
       summary,
       issues: typedIssues,
       ...(causeAnalyses === undefined || causeAnalyses === null

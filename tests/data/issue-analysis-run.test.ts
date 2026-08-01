@@ -64,7 +64,9 @@ function issue(): IssueAnalysisIssueInput {
 }
 
 function report() {
-  const snapshot = buildIssueAnalysisInputSnapshot('project-1', [issue()])
+  const snapshot = buildIssueAnalysisInputSnapshot('project-1', [issue()], [
+    { id: 'major-1', megaCode: '00', majorSeq: 1, name: '기준정보 표준화' },
+  ])
   return buildIssueAnalysisReport(snapshot, {
     '00': [{
       title: '기준정보 단일화',
