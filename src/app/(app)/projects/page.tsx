@@ -1,11 +1,10 @@
 import Link from 'next/link'
-import { FolderKanban, Activity, CircleCheck, Gauge, Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight } from 'lucide-react'
+import { Calendar, FolderPlus, LayoutGrid, ArrowDown, History, ArrowRight } from 'lucide-react'
 import { listProjects } from '@/app/actions/project'
 import { getActorForView } from '@/lib/authz'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { aggregateTaskStats } from '@/lib/domain/workspace'
 import { projectLifecycleStatus, type ProjectLifecycleStatus } from '@/lib/domain/project-status'
-import { KpiCard } from '@/components/ui/KpiCard'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { NewProjectModal } from '@/components/home/NewProjectModal'
 import { fmtDate } from '@/components/wbs/shared'
@@ -115,9 +114,6 @@ export default async function ProjectsHome() {
     }
   })
   const total = withStatus.length
-  const activeCount = withStatus.filter(x => x.status === 'active').length
-  const doneCount = withStatus.filter(x => x.status === 'done').length
-  const activeRatio = total ? Math.round((activeCount / total) * 100) : 0
   const recent = withStatus.slice(0, 3)
   // 프로젝트 생성은 슈퍼유저 전용(스펙 §5) — createProject 액션이 재검증한다
   const canCreate = actor?.isSuperuser === true
@@ -166,14 +162,6 @@ export default async function ProjectsHome() {
           </a>
         </div>
       </section>
-
-      {/* ── KPI 카드 ── */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <KpiCard label={t(locale, 'nav.allProjects')} value={total} sub={t(locale, 'home.kpiTotalSub')} icon={FolderKanban} tone="brand" />
-        <KpiCard label={t(locale, 'home.status_active')} value={activeCount} sub={t(locale, 'home.kpiActiveSub')} icon={Activity} tone="default" />
-        <KpiCard label={t(locale, 'home.status_done')} value={doneCount} sub={t(locale, 'home.kpiDoneSub')} icon={CircleCheck} tone="success" />
-        <KpiCard label="Active ratio" value={`${activeRatio}%`} sub={t(locale, 'home.kpiRatioSub')} icon={Gauge} tone="warning" />
-      </div>
 
       {/* ── 최근 프로젝트 (QUICK ACCESS) ── */}
       {total > 3 && (

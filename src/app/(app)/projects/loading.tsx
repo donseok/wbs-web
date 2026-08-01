@@ -1,15 +1,10 @@
-import { Skeleton, KpiSkeleton } from '@/components/ui/Skeleton'
+import { Skeleton } from '@/components/ui/Skeleton'
 
 export default function Loading() {
   return (
     <div className="space-y-6" role="status" aria-label="프로젝트를 불러오는 중">
       {/* 풀폭 히어로 */}
       <Skeleton className="h-[260px] rounded-3xl" />
-
-      {/* KPI 그리드 */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => <KpiSkeleton key={i} />)}
-      </div>
 
       {/* 프로젝트 라이브러리 */}
       <div>
