@@ -66,12 +66,12 @@ function flatten(items: ComputedItem[], collapsed: Set<string>): ComputedItem[] 
   walk(items)
   return out
 }
-/* 담당별 분리 부모(자식 있는 activity) id — 기본 접힘 대상 */
+/* 담당별 분리 부모(isOwnerSplit 자식을 가진 노드) id — 기본 접힘 대상 */
 function splitParentIds(items: ComputedItem[]): Set<string> {
   const s = new Set<string>()
   const walk = (ns: ComputedItem[]) =>
     ns.forEach(n => {
-      if (n.level === 'activity' && n.children.length) s.add(n.id)
+      if (n.children.some(c => c.isOwnerSplit)) s.add(n.id)
       walk(n.children)
     })
   walk(items)
@@ -350,7 +350,7 @@ export function WbsGanttSheet({
     const m = new Map<string, string>()
     const walk = (ns: ComputedItem[]) =>
       ns.forEach(n => {
-        if (n.level === 'activity') n.children.forEach(c => m.set(c.id, subActLabel(c.name, n.name)))
+        n.children.filter(c => c.isOwnerSplit).forEach(c => m.set(c.id, subActLabel(c.name, n.name)))
         walk(n.children)
       })
     walk(items)
@@ -986,9 +986,9 @@ export function WbsGanttSheet({
             const isCritical = schedule?.critical ?? false
             const rowNo = idx + 1
             const rowBg =
-              n.level === 'phase'
+              depth === 0
                 ? 'bg-[#f1f4f9]'
-                : n.level === 'task'
+                : depth === 1
                   ? 'bg-[#f8faff]'
                   : rowNo % 2 === 0
                     ? 'bg-zebra'
@@ -1001,9 +1001,9 @@ export function WbsGanttSheet({
             } group-hover:bg-brand-weak`
             const subLabel = subActLabels.get(n.id)
             const nameWeight =
-              n.level === 'phase'
+              depth === 0
                 ? 'font-semibold text-ink'
-                : n.level === 'task'
+                : depth === 1
                   ? 'font-medium text-ink'
                   : subLabel != null
                     ? 'text-ink-muted'
@@ -1547,7 +1547,7 @@ function Bar({
     />
   ) : null
 
-  if (n.level === 'phase') {
+  if (n.depth === 0) {
     return (
       <>
         <div

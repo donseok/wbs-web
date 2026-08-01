@@ -52,9 +52,9 @@ function item(over: Partial<ComputedItem>): ComputedItem {
 function fixture(): ComputedItem[] {
   const parentName = 'CBO 개발 프로그램 사용 현황 분석'
   const subs = [
-    item({ id: 's1', parentId: 'a1', name: `${parentName} (가공 주관)`, owners: [{ team: '가공', kind: 'primary' }] }),
-    item({ id: 's2', parentId: 'a1', name: `${parentName} (ERP 주관)`, owners: [{ team: 'ERP', kind: 'primary' }] }),
-    item({ id: 's3', parentId: 'a1', name: '수동으로 바꾼 이름', owners: [{ team: 'MES', kind: 'support' }] }),
+    item({ id: 's1', parentId: 'a1', name: `${parentName} (가공 주관)`, owners: [{ team: '가공', kind: 'primary' }], isOwnerSplit: true }),
+    item({ id: 's2', parentId: 'a1', name: `${parentName} (ERP 주관)`, owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
+    item({ id: 's3', parentId: 'a1', name: '수동으로 바꾼 이름', owners: [{ team: 'MES', kind: 'support' }], isOwnerSplit: true }),
   ]
   const multi = item({
     id: 'a1', name: parentName,
