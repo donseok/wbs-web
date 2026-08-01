@@ -60,6 +60,7 @@ export default async function WbsPage({
         initialCollapsed={initialCollapsed ?? undefined}
         focusId={focus ?? null}
         levelLabels={projectConfig.levelLabels}
+        maxDepth={projectConfig.maxDepth}
       />
     </ProjectPageShell>
   )

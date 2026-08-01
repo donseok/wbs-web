@@ -37,7 +37,7 @@ function item(over: Partial<ComputedItem>): ComputedItem {
   }
 }
 const child = (team: TeamCode, kind: OwnerKind = 'primary'): ComputedItem =>
-  item({ id: `s-${team}`, parentId: 'a1', name: `A (${team})`, owners: [{ team, kind }] })
+  item({ id: `s-${team}`, parentId: 'a1', name: `A (${team})`, owners: [{ team, kind }], isOwnerSplit: true })
 
 describe('RowDetailPanel — SUB-ACT 추가 어포던스', () => {
   let container: HTMLDivElement
@@ -54,10 +54,10 @@ describe('RowDetailPanel — SUB-ACT 추가 어포던스', () => {
     container.remove()
   })
 
-  async function mount(node: ComputedItem, opts: { editable?: boolean; subAct?: boolean } = {}) {
+  async function mount(node: ComputedItem, opts: { editable?: boolean } = {}) {
     await act(async () =>
       root.render(
-        <RowDetailPanel item={node} onClose={() => {}} projectId="p1" editable={opts.editable ?? true} subAct={opts.subAct ?? false} />,
+        <RowDetailPanel item={node} onClose={() => {}} projectId="p1" editable={opts.editable ?? true} />,
       ),
     )
   }
@@ -70,8 +70,8 @@ describe('RowDetailPanel — SUB-ACT 추가 어포던스', () => {
     expect(byText(/wbs\.addSubAct/)).toHaveLength(1)
   })
 
-  it('SUB-ACT(subAct=true)에는 버튼이 없다 — 1단계 제한', async () => {
-    await mount(item({ id: 's1', parentId: 'a1', owners: [{ team: '가공', kind: 'primary' }] }), { subAct: true })
+  it('SUB-ACT(isOwnerSplit=true)에는 버튼이 없다 — 1단계 제한', async () => {
+    await mount(item({ id: 's1', parentId: 'a1', owners: [{ team: '가공', kind: 'primary' }], isOwnerSplit: true }))
     expect(byText(/wbs\.addSubAct/)).toHaveLength(0)
   })
 

@@ -138,6 +138,7 @@ export function WbsGanttSheet({
   initialCollapsed,
   focusId = null,
   levelLabels = DEFAULT_LEVEL_LABELS,
+  maxDepth = null,
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
@@ -163,6 +164,8 @@ export function WbsGanttSheet({
   focusId?: string | null
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
   levelLabels?: string[]
+  /** 프로젝트별 최대 깊이(§7.3 ProjectConfig, null=무제한) — RowDetailPanel 자식추가 어포던스 판정에 전파. */
+  maxDepth?: number | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -1402,13 +1405,13 @@ export function WbsGanttSheet({
           allItems={allFlatItems}
           dependencies={dependencies}
           schedule={dependencySchedule.byId.get(selectedItem.id)}
-          subAct={subActLabels.has(selectedItem.id)}
           onClose={() => setSelectedId(null)}
           editable={isAdmin && !readOnly}
           canAttach={!readOnly && (isAdmin || (isProjectMember(actor, projectId) && selectedItem.owners.some(o => o.team === actorView?.teamCode)))}
           canEditDeliverable={!readOnly && canEditDeliverable(selectedItem, actor, projectId)}
           projectId={projectId}
           levelLabels={levelLabels}
+          maxDepth={maxDepth}
         />
       )}
     </div>

@@ -2,13 +2,14 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
-import type { ComputedItem, DeliverableAttachment, DependencyType, Level, OwnerKind, TaskDependency, TeamCode } from '@/lib/domain/types'
+import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, TaskDependency, TeamCode } from '@/lib/domain/types'
 import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
 import {
   getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem,
   addTaskDependency, removeTaskDependency, type ChangeLogEntry,
 } from '@/app/actions/wbs'
 import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
+import { canAddChild, canSplit } from '@/lib/domain/wbsAffordance'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1 } from '@/lib/domain/format'
@@ -24,8 +25,15 @@ const FIELD_KEY: Record<string, DictKey> = {
   planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
   dependency: 'wbs.dependencies',
 }
-/** DEPRECATED(Plan C 에서 depth+maxDepth 판정으로 대체) — 미정의 레벨은 자식 추가 버튼을 숨긴다(안전측). */
-const CHILD_LEVEL: Record<string, Level | null | undefined> = { phase: 'task', task: 'activity', activity: null }
+/** D-CUBE(levelLabels=[Phase,Task,Activity]) 하위호환 — addWbsItem 의 level 인자는 문자열 유니언이 아니라
+ *  자유 문자열(Level=string, DEPRECATED)이라 이 세 값만 재현하면 된다. depth 3 이상은 값 자체가 무의미(§4.4
+ *  스펙상 그 깊이는 maxDepth 로 막히거나, maxDepth 무제한 프로젝트에선 판정에 쓰이지 않음)하므로 'activity' 유지.
+ *  level 은 하위호환 기록 — Task 6 에서 addWbsItem 시그니처와 함께 제거. */
+const LEGACY_CHILD_LEVEL = ['phase', 'task', 'activity'] as const
+function legacyChildLevel(depth: number): string {
+  const childDepth = depth + 1
+  return childDepth < LEGACY_CHILD_LEVEL.length ? LEGACY_CHILD_LEVEL[childDepth] : 'activity'
+}
 
 function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
@@ -49,7 +57,7 @@ function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
-  canEditDeliverable = false, projectId, subAct = false, levelLabels = DEFAULT_LEVEL_LABELS,
+  canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -61,10 +69,10 @@ export function RowDetailPanel({
   /** 산출물 텍스트 인라인 편집 권한 — PMO 또는 담당팀(첨부와 동일). editable(PMO 전체 폼)과 별개. */
   canEditDeliverable?: boolean
   projectId: string
-  /** act 하위의 담당자별 분리 항목 — 구분 배지를 SUB-ACT 로 표기 */
-  subAct?: boolean
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 상위(WbsGanttSheet)가 서버 페이지에서 받아 전파. */
   levelLabels?: string[]
+  /** 프로젝트별 최대 깊이(§7.3 ProjectConfig, null=무제한) — 자식 추가 어포던스 판정(canAddChild)에 사용. */
+  maxDepth?: number | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -110,9 +118,10 @@ export function RowDetailPanel({
     return () => { alive = false }
   }, [item.id, item.name, item.plannedStart, item.plannedEnd, item.deliverable])
 
-  const childLevel = CHILD_LEVEL[item.level] ?? null
-  // SUB-ACT 추가는 ACT(=자식 유무와 무관한 activity, 단 자신이 SUB-ACT 는 제외)에서만.
-  const isAct = item.level === 'activity' && !subAct
+  const canChild = canAddChild(item.depth, maxDepth)
+  // SUB-ACT 추가는 스스로 SUB-ACT 가 아니고, 자식이 없거나 자식 전원이 이미 SUB-ACT 일 때만
+  // (addSubAct 서버 가드 ①②와 동치 — 기존 SUB-ACT 형제에 팀을 추가하는 경로는 리프가 아니어도 허용).
+  const isAct = canSplit(item.isOwnerSplit, item.children.some(c => !c.isOwnerSplit))
   const subTeams = useMemo(() => availableSubActTeams(item.children, allTeamCodes), [item.children, allTeamCodes])
   const flipWarn = willDiscardActual(item.children.length, item.actualPct)
   const itemById = useMemo(() => new Map(allItems.map(candidate => [candidate.id, candidate])), [allItems])
@@ -178,8 +187,9 @@ export function RowDetailPanel({
   }
 
   const addChild = () => {
-    if (!childLevel || !addName?.trim()) return
-    run(() => addWbsItem(projectId, item.id, childLevel, addName.trim()), () => setAddName(null))
+    if (!canChild || !addName?.trim()) return
+    // level 은 하위호환 기록 — Task 6 에서 addWbsItem 시그니처와 함께 제거.
+    run(() => addWbsItem(projectId, item.id, legacyChildLevel(item.depth), addName.trim()), () => setAddName(null))
   }
   const addSub = () => {
     if (!subTeam) return
@@ -425,7 +435,7 @@ export function RowDetailPanel({
             <section className="rounded-xl border border-line bg-surface-2/50 p-3">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{t('wbs.structureEdit')}</div>
               <div className="flex flex-wrap gap-2">
-                {childLevel && (
+                {canChild && (
                   <button onClick={() => setAddName(addName == null ? '' : null)} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs">
                     <Plus className="h-3.5 w-3.5" /> {t('wbs.addChild')}
                   </button>
@@ -439,13 +449,13 @@ export function RowDetailPanel({
                 <button onClick={() => run(() => moveWbsItem(item.id, 'down'))} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs" aria-label={t('wbs.moveDown')}><ChevronDown className="h-3.5 w-3.5" /></button>
                 <button onClick={() => setConfirmDel(true)} disabled={busy} className="btn btn-ghost h-8 px-2.5 text-xs text-delayed hover:bg-delayed-weak"><Trash2 className="h-3.5 w-3.5" /> {t('common.delete')}</button>
               </div>
-              {addName != null && childLevel && (
+              {addName != null && canChild && (
                 <div className="mt-2 space-y-2">
                   {flipWarn && (
                     <p className="rounded-lg bg-pending-weak px-2.5 py-1.5 text-[11px] leading-snug text-pending">{t('wbs.addChildLeafWarn')}</p>
                   )}
                   <div className="flex gap-2">
-                    <input autoFocus value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addChild() }} placeholder={`${childLevel === 'task' ? 'Task' : 'Activity'} ${t('wbs.namePlaceholderSuffix')}`} className="app-input h-8 text-xs" />
+                    <input autoFocus value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addChild() }} placeholder={`${levelLabels[item.depth + 1] ?? '항목'} ${t('wbs.namePlaceholderSuffix')}`} className="app-input h-8 text-xs" />
                     <button onClick={addChild} disabled={busy || !addName.trim()} className="btn btn-primary h-8 px-3 text-xs">{t('common.add')}</button>
                   </div>
                 </div>
