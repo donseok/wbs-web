@@ -251,10 +251,12 @@ export function renderProcessDefinitionSlide(
   xml = setShapeText(xml, DEFINITION_TAG_ID, '2. 영역 별 이슈 및 원인 분석서')
   xml = setShapeText(xml, DEFINITION_HEADLINE_ID, slide.headline, true)
   xml = setShapeText(xml, DEFINITION_MEGA_BOX_ID, `${slide.megaCode}. ${slide.megaName}`, true)
-  xml = setShapeText(xml, DEFINITION_MEGA_TEXT_ID, slide.megaDefinition, true)
+  // 셈플의 정의 문장 표기(▪ 문장). 템플릿 원본 불릿은 Wingdings `§`라 뷰어에 따라
+  // 깨질 수 있어(원인분석 표와 같은 선례) 텍스트 기호로 통일한다.
+  xml = setShapeText(xml, DEFINITION_MEGA_TEXT_ID, `▪ ${slide.megaDefinition}`, true)
   slide.rows.forEach((row, index) => {
     xml = setShapeText(xml, DEFINITION_NAME_IDS[index], `${row.seqLabel} ${row.name}`, true)
-    xml = setShapeText(xml, DEFINITION_TEXT_IDS[index], row.definition, true)
+    xml = setShapeText(xml, DEFINITION_TEXT_IDS[index], `▪ ${row.definition}`, true)
   })
   for (let index = slide.rows.length; index < DEFINITION_NAME_IDS.length; index += 1) {
     xml = deleteShapeOrConnector(xml, DEFINITION_NAME_IDS[index])

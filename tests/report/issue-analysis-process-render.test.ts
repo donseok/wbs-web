@@ -160,6 +160,36 @@ describe('프로세스 정의 슬라이드 렌더', () => {
     expect(definition).not.toMatch(/<p:cNvPr\b[^>]*\bid="60"/)
     expect(definition).not.toMatch(/<p:cNvPr\b[^>]*\bid="67"/)
   })
+
+  it('정의 문장은 셈플처럼 ▪ 글머리 기호로 시작한다', async () => {
+    const plan = buildIssueAnalysisDeckPlan(reportFixture(), META)
+    const slides = await renderedSlides(plan)
+    const definition = slides.find(xml => xml.includes('02.01 주문관리'))!
+    expect(definition).toContain('▪ 고객 주문 이행 전반을 관리하는 프로세스임')
+    expect(definition).toContain('▪ 주문 접수부터 납기까지 관리하는 프로세스')
+    // 이름 박스(02.01 …)에는 글머리 기호를 붙이지 않는다.
+    expect(definition).not.toContain('▪ 02.01')
+  })
+})
+
+describe('영역 이슈 종합 서식(셈플 정합)', () => {
+  it('첫 페이지 헤더는 템플릿 원문(구분 (Sub Process))을 유지한다', async () => {
+    const plan = buildIssueAnalysisDeckPlan(reportFixture(), META)
+    const slides = await renderedSlides(plan)
+    const summary = slides.find(xml => xml.includes('영역별 이슈 종합'))!
+    // 템플릿 헤더는 '구분 '+'('+'Sub Process)' 세 run으로 나뉘어 있다 — run 경계와
+    // 무관한 조각으로 원문 유지를 확인한다.
+    expect(summary).toContain('Sub Process)')
+  })
+
+  it('주관부서·관련 시스템·이슈 원천 줄에 ▪ 기호를 붙인다', async () => {
+    const plan = buildIssueAnalysisDeckPlan(reportFixture(), META)
+    const slides = await renderedSlides(plan)
+    const summary = slides.find(xml => xml.includes('영역별 이슈 종합'))!
+    expect(summary).toContain('▪ 영업팀')
+    expect(summary).toContain('▪ ERP')
+    expect(summary).toContain('▪ 현업 인터뷰')
+  })
 })
 
 describe('덱 검증', () => {

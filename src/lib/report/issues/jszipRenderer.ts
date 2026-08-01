@@ -242,7 +242,8 @@ function fillIssueTable(
           `[issue-analysis] 표에 배치할 이슈 행 수가 ${issues.length}개입니다. 허용값은 1~${capacity}개입니다.`,
         )
       }
-      let updated = setTableCellText(frameXml, 0, 3, '구분')
+      // 헤더는 템플릿 원문을 유지한다 — 8은 '구분 (Sub Process)', 9·10은 '구분'(셈플 동일).
+      let updated = frameXml
       for (let index = 0; index < issues.length; index += 1) {
         const values = issueRowValues(issues[index])
         for (let column = 0; column < values.length; column += 1) {
@@ -708,8 +709,19 @@ function renderSlide(
       xml = setShapeText(xml, '100', '2. 영역 별 이슈 종합')
       xml = setShapeText(xml, '48', 'Mega')
       xml = setShapeText(xml, '49', `${slide.megaCode} ${slide.megaName}`)
-      xml = setShapeText(xml, '51', slide.ownerDepartmentLines.join('\n'), true)
-      xml = setShapeText(xml, '53', slide.relatedSystemLines.join('\n'), true)
+      // 셈플의 나열 셀 표기(▪ 항목). 머리글 줄은 페이지 분할이 없어 렌더 시점 접두가 안전하다.
+      xml = setShapeText(
+        xml,
+        '51',
+        slide.ownerDepartmentLines.map(line => `▪ ${line}`).join('\n'),
+        true,
+      )
+      xml = setShapeText(
+        xml,
+        '53',
+        slide.relatedSystemLines.map(line => `▪ ${line}`).join('\n'),
+        true,
+      )
       xml = fillIssueTable(xml, slide.issues, 3)
       break
     case 'area-summary-continuation':

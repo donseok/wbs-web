@@ -269,7 +269,9 @@ function toDeckIssue(issue: IssueAnalysisReportIssue): IssueAnalysisDeckIssue {
     title: compact(issue.title),
     body: normalizeIssueAnalysisMultilineText(issue.body),
     subProcess: compact(issue.subProcess),
-    sourceLines: fullSourceLines(issueSourceLines(issue)),
+    // 셈플의 원천 표기(▪ 항목). 페이지 분할 전에 접두해야 계속 조각의 중간 줄에
+    // 기호가 잘못 반복되지 않고, 열 너비 계산에도 기호 폭이 반영된다.
+    sourceLines: fullSourceLines(issueSourceLines(issue)).map(line => `▪ ${line}`),
   }
 }
 
