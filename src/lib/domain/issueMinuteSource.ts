@@ -6,6 +6,8 @@ export interface MinuteIssueSourceKeyInput {
   blockIndex: number
   blockHash: string
   kind: IssueMinuteSourceKind
+  /** 드래그 선택 발췌의 공백 제거 fnv1a64 — 선택 등록만 채운다(블록 전체 등록과 조회 키 구분). */
+  selectionHash?: string | null
 }
 
 export interface IssueMinuteSource {
@@ -47,13 +49,15 @@ export interface MinuteLinkedIssue {
  * 기존 연결을 사용자에게 안내하는 조회 키로 사용한다.
  */
 export function makeMinuteIssueSourceKey(input: MinuteIssueSourceKeyInput): string {
-  return [
+  const parts = [
     'minute',
     encodeURIComponent(input.minuteVersionId),
     String(input.blockIndex),
     input.blockHash.toLowerCase(),
     input.kind,
-  ].join(':')
+  ]
+  if (input.selectionHash) parts.push('sel', input.selectionHash.toLowerCase())
+  return parts.join(':')
 }
 
 function compactTitle(value: string): string {

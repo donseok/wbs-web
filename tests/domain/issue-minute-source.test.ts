@@ -28,6 +28,22 @@ describe('makeMinuteIssueSourceKey', () => {
 
     expect(new Set(keys).size).toBe(keys.length)
   })
+
+  it('선택 발췌 해시가 있으면 :sel:<hash> 접미사로 블록 전체 키와 구분한다', () => {
+    const base = {
+      minuteVersionId: 'version-1',
+      blockIndex: 3,
+      blockHash: 'ABCDEF0123456789',
+      kind: 'manual' as const,
+    }
+    expect(makeMinuteIssueSourceKey({ ...base, selectionHash: 'FEDCBA9876543210' }))
+      .toBe('minute:version-1:3:abcdef0123456789:manual:sel:fedcba9876543210')
+    // null/미전송은 기존 키와 바이트 단위 동일(하위 호환)
+    expect(makeMinuteIssueSourceKey({ ...base, selectionHash: null }))
+      .toBe('minute:version-1:3:abcdef0123456789:manual')
+    expect(makeMinuteIssueSourceKey(base))
+      .toBe('minute:version-1:3:abcdef0123456789:manual')
+  })
 })
 
 describe('issueDraftFromBlock', () => {
