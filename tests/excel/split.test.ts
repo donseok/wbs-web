@@ -183,15 +183,17 @@ function comp(over: Partial<ComputedItem>): ComputedItem {
 
 describe('buildWbsAoa — sub-act 접기(라운드트립 보호)', () => {
   it('activity 하위 sub-act 는 행으로 내보내지 않고 부모 실적%에 롤업값을 싣는다', () => {
+    // comp()는 computeTree 를 거치지 않는 수제 트리라 depth 를 실제 계층에 맞춰 명시해야 한다
+    // (buildWbsAoa 가 이제 it.level 이 아니라 it.depth 로 열을 배치하므로).
     const sub = (id: string, team: '가공' | 'ERP', pct: number) =>
-      comp({ id, parentId: 'a1', name: `${team} 주관`, owners: [{ team, kind: 'primary' }], actualPct: pct, rolledActualPct: pct, isOwnerSplit: true })
+      comp({ id, parentId: 'a1', name: `${team} 주관`, owners: [{ team, kind: 'primary' }], actualPct: pct, rolledActualPct: pct, isOwnerSplit: true, depth: 3 })
     const parent = comp({
-      id: 'a1', name: '복수 담당 작업', rolledActualPct: 40,
+      id: 'a1', name: '복수 담당 작업', rolledActualPct: 40, depth: 2,
       owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }],
       children: [sub('s1', '가공', 50), sub('s2', 'ERP', 30)],
     })
-    const task = comp({ id: 't1', level: 'task', name: '1-1. 작업', children: [parent], rolledActualPct: 40 })
-    const aoa = buildWbsAoa([comp({ id: 'p1', level: 'phase', name: '1. 준비', children: [task], rolledActualPct: 40 })])
+    const task = comp({ id: 't1', level: 'task', name: '1-1. 작업', children: [parent], rolledActualPct: 40, depth: 1 })
+    const aoa = buildWbsAoa([comp({ id: 'p1', level: 'phase', name: '1. 준비', children: [task], rolledActualPct: 40, depth: 0 })])
 
     const bodies = aoa.slice(3) as unknown[][]
     // phase + task + 접힌 activity = 3행 (sub-act 2행은 미출력)
@@ -203,9 +205,9 @@ describe('buildWbsAoa — sub-act 접기(라운드트립 보호)', () => {
   })
 
   it('task 하위 일반 activity 는 기존대로 모두 내보낸다', () => {
-    const acts = [comp({ id: 'a1', name: 'A', actualPct: 10 }), comp({ id: 'a2', name: 'B', actualPct: 20 })]
-    const task = comp({ id: 't1', level: 'task', name: '1-1. 작업', children: acts })
-    const aoa = buildWbsAoa([comp({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })])
+    const acts = [comp({ id: 'a1', name: 'A', actualPct: 10, depth: 2 }), comp({ id: 'a2', name: 'B', actualPct: 20, depth: 2 })]
+    const task = comp({ id: 't1', level: 'task', name: '1-1. 작업', children: acts, depth: 1 })
+    const aoa = buildWbsAoa([comp({ id: 'p1', level: 'phase', name: '1. 준비', children: [task], depth: 0 })])
     expect(aoa.slice(3)).toHaveLength(4)
   })
 })

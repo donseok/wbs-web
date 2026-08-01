@@ -1,5 +1,5 @@
 import type {
-  Announcement, AttendanceRecord, AttendanceType, ComputedItem, Level, Meeting, MeetingException, MeetingOccurrence,
+  Announcement, AttendanceRecord, AttendanceType, ComputedItem, Meeting, MeetingException, MeetingOccurrence,
   ProjectMember, Status, TeamCode,
 } from '@/lib/domain/types'
 import { overallProgress } from '@/lib/domain/rollup'
@@ -138,7 +138,6 @@ export interface WeeklyAnnouncements {
 
 export interface WbsFlatRow {
   no: number
-  level: Level
   levelLabel: string
   depth: number
   name: string
@@ -248,7 +247,6 @@ function overlaps(aStart: string | null, aEnd: string | null, bStart: string, bE
   return s <= bEnd && e >= bStart
 }
 
-const LEVEL_LABEL: Record<string, string | undefined> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
 const STATUS_KR: Record<Status, string> = {
   not_started: '대기', in_progress: '진행중', delayed: '지연', done: '완료',
 }
@@ -289,9 +287,12 @@ export function buildWeeklyReportModel(
     announcements?: Announcement[]
     /** 팀별 워크로드·미완료 요약 대상(활성 팀) — 호출처가 팀 마스터에서 주입한다(필수). */
     teams: readonly TeamCode[]
+    /** depth→라벨 매핑(프로젝트 설정). 기본은 기존 3레벨 표기와 동일 — 무인자 호출은 바이트 불변. */
+    levelLabels?: readonly string[]
   },
 ): WeeklyReportModel {
   const reportTeams = opts.teams
+  const levelLabels = opts.levelLabels ?? ['Phase', 'Task', 'Activity']
   const roots = items
   const members = opts.members ?? []
   const attendance = opts.attendance ?? []
@@ -479,7 +480,7 @@ export function buildWeeklyReportModel(
   const flat = (node: ComputedItem, depth: number) => {
     no++
     wbs.push({
-      no, level: node.level, levelLabel: LEVEL_LABEL[node.level] ?? (node.level || '-'), depth,
+      no, levelLabel: levelLabels[Math.min(depth, levelLabels.length - 1)], depth,
       name: node.name, deliverable: node.deliverable ?? '', ownerText: ownersText(node.owners),
       weight: node.weight, plannedStart: node.plannedStart, plannedEnd: node.plannedEnd,
       plannedPct: round1(node.plannedPct), actualPct: round1(node.rolledActualPct),

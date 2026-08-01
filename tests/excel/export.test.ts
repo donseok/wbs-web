@@ -117,6 +117,30 @@ describe('flatten isOwnerSplit 기준 재귀', () => {
 import { buildWbsColumnMap } from '@/lib/excel/parse'
 import { buildWbsAoa } from '@/lib/excel/export'
 
+describe('buildWbsAoa: 계층 열은 depth로 배치, levelLabels로 헤더 커스터마이즈', () => {
+  const items = computeTree(SRC, '2026-09-15', new Set(), OPTS)
+
+  it('무인자 호출은 기존과 바이트 동일 — 헤더는 기본 Phase/Task/Activity, 데이터행은 row[1+depth]', () => {
+    const aoa = buildWbsAoa(items, 'P', ['PMO', 'ERP', 'MES', '가공', 'MDM'])
+    // aoa[0]=header1, aoa[1]=header2, aoa[2]=header3, aoa[3..]=데이터행
+    expect(aoa[1][1]).toBe('Phase')
+    expect(aoa[2][2]).toBe('Task')
+    expect(aoa[2][3]).toBe('Activity')
+    // 데이터행: phase명은 열1(row[3]), task명은 열2(row[4]), activity명은 열3(row[5])
+    expect(aoa[3][1]).toBe('1. 준비')
+    expect(aoa[4][2]).toBe('1-1. 거버넌스')
+    expect(aoa[5][3]).toBe('TFT R&R 확정')
+  })
+
+  it('커스텀 levelLabels가 header2·header3 열1에 반영된다', () => {
+    const aoa = buildWbsAoa(items, 'P', ['PMO'], ['단계', '기능', '작업'])
+    expect(aoa[1][1]).toBe('단계') // header2
+    expect(aoa[2][1]).toBe('단계') // header3
+    expect(aoa[2][2]).toBe('기능')
+    expect(aoa[2][3]).toBe('작업')
+  })
+})
+
 describe('buildWbsAoa 동적 팀 열', () => {
   it('teamCodes 주입 시 header3에 팀 열이 생성되고 후속 열이 밀린다', () => {
     const aoa = buildWbsAoa([], 'WBS', ['PMO', 'ERP', 'MES', '가공', 'MDM', '신팀'])

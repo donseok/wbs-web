@@ -52,7 +52,18 @@ export async function GET(req: NextRequest) {
     if (!built.ok) return NextResponse.json({ error: built.error }, { status: 400 })
     buf = built.buffer
   } else {
-    buf = buildWbsWorkbook(items, holidays.map(d => ({ date: d, name: '' })), name, activeTeamCodesSync())
+    let config: Awaited<ReturnType<typeof getProjectConfig>>
+    try {
+      config = await getProjectConfig(projectId)
+    } catch (e) {
+      // 3원칙 — 조회 실패를 기본 라벨 위장으로 덮지 않는다(expand 분기와 동일 관례).
+      console.error('[export] 프로젝트 설정 조회 실패:', e)
+      const message = e instanceof Error ? e.message : '프로젝트 설정을 확인할 수 없습니다'
+      return NextResponse.json({ error: message }, { status: 500 })
+    }
+    buf = buildWbsWorkbook(
+      items, holidays.map(d => ({ date: d, name: '' })), name, activeTeamCodesSync(), config.levelLabels,
+    )
   }
   const today = seoulToday()
   const filename = `WBS_${name}_${today}.xlsx`.replace(/[^\w가-힣.\-]+/g, '_')

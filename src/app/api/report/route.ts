@@ -18,6 +18,7 @@ import { loadProjectFacts } from '@/lib/ai/projectFacts'
 import { briefFactsHash, buildBriefFacts } from '@/lib/ai/brief'
 import { getAiBrief } from '@/lib/data/aiBriefs'
 import { activeTeamCodesSync } from '@/lib/teams/master'
+import { getProjectConfig } from '@/lib/data/projectConfig'
 
 // exceljs·템플릿 zip 읽기(fs)는 Node 전용 → Edge 런타임 금지.
 export const runtime = 'nodejs'
@@ -95,9 +96,9 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const [{ items, today }, projects, members, attendance, meetingData, announcements] = await Promise.all([
+  const [{ items, today }, projects, members, attendance, meetingData, announcements, config] = await Promise.all([
     getComputedWbs(projectId), listProjects(), getProjectMembers(projectId), getAttendanceRecords(projectId),
-    getProjectMeetingData(projectId), getAnnouncements(projectId),
+    getProjectMeetingData(projectId), getAnnouncements(projectId), getProjectConfig(projectId),
   ])
   const project = (projects as { id: string; name: string; description?: string | null; start_date?: string | null; end_date?: string | null }[]).find(
     p => p.id === projectId,
@@ -107,7 +108,7 @@ export async function GET(req: NextRequest) {
   const model = buildWeeklyReportModel(items, project, today, {
     members, attendance, generatedAt: seoulNow(),
     meetings: meetingData.meetings, meetingExceptions: meetingData.exceptions, announcements,
-    teams: activeTeamCodesSync(),
+    teams: activeTeamCodesSync(), levelLabels: config.levelLabels,
   })
   const meta = FORMATS[format]
 

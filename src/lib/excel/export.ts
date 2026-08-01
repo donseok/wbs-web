@@ -57,32 +57,34 @@ export function buildWbsAoa(
   items: ComputedItem[],
   projectName = 'WBS',
   teamCodes: readonly TeamCode[] = DEFAULT_TEAM_CODES,
+  levelLabels: readonly string[] = ['Phase', 'Task', 'Activity'],
 ): unknown[][] {
   const teams = resolveTeamColumns(items, teamCodes)
   const base = 6 + teams.length // 팀 열 다음 첫 열(산출물) — 5팀이면 11(L), 기존 양식과 동일
   const teamCol = new Map(teams.map((c, i) => [c, 6 + i]))
 
   const header1 = [projectName]
-  const header2 = ['', 'Phase', 'Task', 'Activity', '', '', '담당',
+  const header2 = ['', levelLabels[0], levelLabels[1], levelLabels[2], '', '', '담당',
     ...Array<string>(Math.max(0, teams.length - 1)).fill(''), '산출물', '계획', '']
-  const header3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', ...teams,
+  const header3 = ['Biz', levelLabels[0], levelLabels[1], levelLabels[2], '', '', ...teams,
     '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
 
   const rows: unknown[][] = [header1, header2, header3]
   for (const it of flatten(items)) {
     const row: unknown[] = new Array(base + 9).fill('')
     row[0] = it.biz ?? ''
-    if (it.level === 'phase') row[1] = it.name
-    else if (it.level === 'task') row[2] = it.name
-    else row[3] = it.name
+    // 3열 고정 레거시 양식(parse.ts가 col 1/2/3만 읽음) — depth 2 이상은 전부 col3(Activity)로
+    // 접는다(Global Constraint: N단 열 확장 금지, 기존 손실 계약 유지).
+    row[1 + Math.min(it.depth, 2)] = it.name
     for (const o of it.owners) row[teamCol.get(o.team)!] = o.kind === 'primary' ? '●' : '△'
     row[base] = it.deliverable ?? ''
     row[base + 1] = isoToDate(it.plannedStart)
     row[base + 2] = isoToDate(it.plannedEnd)
     row[base + 3] = it.weight ?? ''
     // 실적%은 leaf(저장값)만 라운드트립. 상위는 계산값이므로 비워 임포트 시 무시되게 함.
-    // 예외: sub-act 를 접은 activity 는 롤업값을 실어 재임포트 시 실적이 보존되게 한다.
-    row[base + 5] = it.children.length === 0 ? (it.actualPct ?? '') : it.level === 'activity' ? Math.round(it.rolledActualPct) : ''
+    // 예외: sub-act 를 접은 activity(자식이 owner-split인 노드) 는 롤업값을 실어 재임포트 시 실적이 보존되게 한다.
+    const childrenAreSubActs = it.children.length > 0 && it.children[0].isOwnerSplit
+    row[base + 5] = it.children.length === 0 ? (it.actualPct ?? '') : childrenAreSubActs ? Math.round(it.rolledActualPct) : ''
     // 읽기용 계산 컬럼 — 엑셀은 정수 표기 관례 유지(도메인 롤업은 소수 1자리)
     row[base + 6] = Math.round(it.plannedPct)
     row[base + 7] = Math.round(it.rolledActualPct)
@@ -99,9 +101,10 @@ export function buildWbsWorkbook(
   holidays: { date: string; name: string }[] = [],
   projectName = 'WBS',
   teamCodes: readonly TeamCode[] = DEFAULT_TEAM_CODES,
+  levelLabels: readonly string[] = ['Phase', 'Task', 'Activity'],
 ): ArrayBuffer {
   const wb = XLSX.utils.book_new()
-  const wbsSheet = XLSX.utils.aoa_to_sheet(buildWbsAoa(items, projectName, teamCodes), { cellDates: true })
+  const wbsSheet = XLSX.utils.aoa_to_sheet(buildWbsAoa(items, projectName, teamCodes, levelLabels), { cellDates: true })
   XLSX.utils.book_append_sheet(wb, wbsSheet, 'WBS')
 
   const holAoa: unknown[][] = [['날짜', '명칭'], ...holidays.map(h => [isoToDate(h.date), h.name])]

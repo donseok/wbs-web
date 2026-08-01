@@ -195,8 +195,8 @@ function buildWbsSheet(ws: Worksheet, model: WeeklyReportModel) {
   ])
   let r = 4
   for (const row of model.wbs) {
-    const bg = row.level === 'phase' ? PX.phaseRow : row.level === 'task' ? PX.actRow : r % 2 === 0 ? PX.zebra : PX.white
-    const bold = row.level === 'phase' || row.level === 'task'
+    const bg = row.depth === 0 ? PX.phaseRow : row.depth === 1 ? PX.actRow : r % 2 === 0 ? PX.zebra : PX.white
+    const bold = row.depth <= 1
     setCell(ws.getCell(r, 1), row.no, { bg, bold, align: 'center' })
     setCell(ws.getCell(r, 2), row.levelLabel, { bg, bold })
     setCell(ws.getCell(r, 3), `${'  '.repeat(row.depth)}${row.name}`, { bg, bold })

@@ -66,3 +66,36 @@ describe('buildReportWorkbook — 공정율 소수 1자리 표기', () => {
     expect(ws.getCell(4, 12).numFmt).toBe('0.0')
   })
 })
+
+describe('buildReportWorkbook — WBS 시트 Lv 열·행 배경/볼드는 depth 유래(level 필드 폐기 후 회귀)', () => {
+  // Phase > Task > Activity > sub-act(isOwnerSplit=true, depth 3) — depth 0/1/2/3.
+  const deepItems: ComputedItem[] = [
+    node({
+      level: 'phase', name: 'P', weight: 1, children: [
+        node({
+          level: 'task', name: 'T', children: [
+            node({
+              level: 'activity', name: 'A', children: [
+                node({ level: 'activity', name: 'SA', isOwnerSplit: true }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }),
+  ]
+
+  it('Lv 라벨은 depth 클램프(Phase/Task/Activity/Activity), 볼드는 depth<=1(T/T/F/F)', async () => {
+    const model = buildWeeklyReportModel(deepItems, project, '2026-06-30', { teams: TEST_TEAMS })
+    const buf = await buildReportWorkbook(model)
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buf)
+    const ws = wb.getWorksheet('2.WBS')!
+    // 4~7행 = P/T/A/SA (헤더 3행 다음)
+    const labels = [4, 5, 6, 7].map(r => ws.getCell(r, 2).value)
+    // exceljs는 bold:false를 명시 값이 아니라 속성 생략으로 직렬화한다(재로드 시 undefined) — 진위만 비교.
+    const bolds = [4, 5, 6, 7].map(r => !!ws.getCell(r, 2).font?.bold)
+    expect(labels).toEqual(['Phase', 'Task', 'Activity', 'Activity'])
+    expect(bolds).toEqual([true, true, false, false])
+  })
+})
