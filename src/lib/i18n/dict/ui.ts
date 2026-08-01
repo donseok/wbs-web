@@ -7,6 +7,10 @@ export const uiKo = {
   'ui.heroCollapse': '히어로 접기',
   'ui.toastRegion': '알림',
   'ui.toastDismiss': '알림 닫기',
+  'ui.memberPicker.viewLabel': '보기 방식',
+  'ui.memberPicker.nameOrder': '이름순',
+  'ui.memberPicker.categoryOrder': '담당 카테고리별',
+  'ui.memberPicker.unassigned': '담당 미지정',
 } as const
 
 export const uiEn: Record<keyof typeof uiKo, string> = {
@@ -16,4 +20,8 @@ export const uiEn: Record<keyof typeof uiKo, string> = {
   'ui.heroCollapse': 'Collapse hero',
   'ui.toastRegion': 'Notifications',
   'ui.toastDismiss': 'Dismiss notification',
+  'ui.memberPicker.viewLabel': 'View',
+  'ui.memberPicker.nameOrder': 'By name',
+  'ui.memberPicker.categoryOrder': 'By responsibility',
+  'ui.memberPicker.unassigned': 'Unassigned',
 }

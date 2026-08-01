@@ -11,6 +11,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { Modal } from '@/components/ui/Modal'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import { MemberPickerViewToggle, MemberSelectOptions } from '@/components/members/MemberPicker'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { DayPopover, type DayPopoverAnchor } from '@/components/ui/DayPopover'
 import { fmtDate } from '@/components/wbs/shared'
@@ -18,6 +19,7 @@ import {
   ATTENDANCE_META, ATTENDANCE_TYPES, monthMatrix, recordsByDate,
 } from '@/lib/domain/attendance'
 import { compareKoreanName } from '@/lib/domain/nameSort'
+import type { MemberPickerView } from '@/lib/domain/memberPicker'
 import { krSpecialDayMap } from '@/lib/domain/holidays'
 import { upsertAttendance, removeAttendance } from '@/app/actions/attendance'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
@@ -82,6 +84,7 @@ export function AttendanceView({
     botFilter?.from ? Number(botFilter.from.slice(5, 7)) - 1 : (initM || 1) - 1,
   )
   const [memberFilter, setMemberFilter] = useState<string>('all')
+  const [memberPickerView, setMemberPickerView] = useState<MemberPickerView>('name')
   const [view, setView] = useState<ViewKey>('calendar')
   const [more, setMore] = useState<DayPopoverAnchor | null>(null)
 
@@ -246,6 +249,7 @@ export function AttendanceView({
             <button onClick={goToday} className="btn btn-ghost h-10">{t('att.today')}</button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <MemberPickerViewToggle value={memberPickerView} onChange={setMemberPickerView} compact />
             <select
               value={memberFilter}
               onChange={e => setMemberFilter(e.target.value)}
@@ -253,9 +257,7 @@ export function AttendanceView({
               aria-label={t('att.memberFilter')}
             >
               <option value="all">{t('att.allMembers')}</option>
-              {members.map(m => (
-                <option key={m.id} value={m.id}>{m.name}{m.teamCode ? ` · ${m.teamCode}` : ''}</option>
-              ))}
+              <MemberSelectOptions members={members} view={memberPickerView} categoryOrder={teamCodes} />
             </select>
             <SegmentedTabs<ViewKey>
               tabs={[
@@ -426,20 +428,24 @@ export function AttendanceView({
         }
       >
         <div className="space-y-4">
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('att.form.member')}</span>
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <label htmlFor="attendance-member" className="text-xs font-semibold text-ink-muted">
+                {t('att.form.member')}
+              </label>
+              <MemberPickerViewToggle value={memberPickerView} onChange={setMemberPickerView} compact />
+            </div>
             <select
+              id="attendance-member"
               value={form.memberId}
               onChange={e => setForm(f => ({ ...f, memberId: e.target.value }))}
               disabled={!!editingId}
               className="app-input disabled:opacity-60"
             >
               {members.length === 0 && <option value="">{t('att.form.noMembers')}</option>}
-              {members.map(m => (
-                <option key={m.id} value={m.id}>{m.name}{m.teamCode ? ` · ${m.teamCode}` : ''}</option>
-              ))}
+              <MemberSelectOptions members={members} view={memberPickerView} categoryOrder={teamCodes} />
             </select>
-          </label>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('att.form.date')}</span>
