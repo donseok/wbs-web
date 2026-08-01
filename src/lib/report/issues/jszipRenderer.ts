@@ -746,6 +746,10 @@ function expectedSourceSlide(slide: IssueAnalysisDeckSlide): number {
     case 'area-summary-continuation': return 9
     case 'cause-analysis': return 10
     case 'opportunity': return 12
+    default: {
+      const exhaustive: never = slide
+      throw new Error(`[issue-analysis] 알 수 없는 슬라이드 유형입니다: ${String(exhaustive)}`)
+    }
   }
 }
 
