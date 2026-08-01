@@ -18,6 +18,14 @@ export interface Issue {
   projectId: string
   megaCode: IssueMegaCode | null
   megaSeq: number | null
+  /**
+   * Major Process 연결(0062). 레거시(0062 이전 분류) 이슈는 null — 편집으로 백필된다.
+   * optional 인 이유: 0062 이전에 만들어진 Issue 픽스처·스냅샷과의 호환(생략 = 미연결).
+   * 데이터 계층(getIssues·loadIssueAnalysisIssues)은 항상 세 필드를 채워 반환한다.
+   */
+  majorId?: string | null
+  majorSeq?: number | null
+  majorName?: string | null
   title: string
   body: string
   status: IssueStatus

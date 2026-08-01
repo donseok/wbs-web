@@ -56,6 +56,7 @@ const INPUT = {
   startDate: null,
   dueDate: null,
   megaCode: '00' as const,
+  majorName: '기준정보관리',
   subProcess: '기준정보 등록',
   ownerDepartment: '경영관리팀',
   relatedSystems: ['ERP'],
@@ -74,6 +75,38 @@ function sbWithCurrent(current: Record<string, unknown> | null, extra: Record<st
       ...extra,
     })),
   }
+}
+
+/**
+ * issue_major_processes resolve-or-create 스텁(0062) —
+ * select('id').eq(project_id).eq(mega_code).eq(name).maybeSingle() 조회는 selectResults
+ * 큐에서 순서대로 소진하고(23505 경합 재조회 대비 마지막 결과를 반복), insert().select().single()
+ * 은 insertResult 를 돌려준다. insert 스파이를 노출해 "기존 행 재사용 시 미호출"을 검증한다.
+ */
+type MajorRow = { id: string }
+type MajorErr = { message: string; code?: string }
+function majorProcessesTable(opts: {
+  selectResults: Array<{ data: MajorRow | null; error: MajorErr | null }>
+  insertResult?: { data: MajorRow | null; error: MajorErr | null }
+}) {
+  let selectCall = 0
+  const maybeSingle = vi.fn(async () => {
+    const r = opts.selectResults[Math.min(selectCall, opts.selectResults.length - 1)]
+    selectCall += 1
+    return r
+  })
+  const insert = vi.fn(() => ({
+    select: vi.fn(() => ({
+      single: vi.fn(async () => opts.insertResult ?? { data: null, error: { message: '예상치 못한 major insert 호출' } }),
+    })),
+  }))
+  const table = {
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({ eq: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle })) })) })),
+    })),
+    insert,
+  }
+  return { table, insert }
 }
 
 beforeEach(() => {
@@ -155,6 +188,9 @@ describe('작성자/관리자 게이트 — updateIssue·deleteIssue', () => {
         if (table === 'issue_assignees') {
           return { delete: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) })) }
         }
+        if (table === 'issue_major_processes') {
+          return majorProcessesTable({ selectResults: [{ data: { id: 'major-1' }, error: null }] }).table
+        }
         return {
           select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: vi.fn(async () => ({ data: { project_id: 'p1', created_by: 'other' } })) })) })),
           update: vi.fn(() => ({
@@ -224,6 +260,10 @@ describe('updateIssue — 회의록 원천 불변성/0055 이전 이슈 최초 �
                 eq: vi.fn(async () => ({ error: null })),
               })),
             }
+          }
+          // 원천 검증을 통과한 뒤에만 도달한다 — 기존 major 행 재사용 경로.
+          if (table === 'issue_major_processes') {
+            return majorProcessesTable({ selectResults: [{ data: { id: 'major-1' }, error: null }] }).table
           }
           throw new Error(`unexpected table: ${table}`)
         }),
@@ -326,6 +366,9 @@ describe('입력 검증 — createIssue', () => {
     state.client = {
       from: vi.fn((table: string) => {
         if (table === 'issues') return { insert }
+        if (table === 'issue_major_processes') {
+          return majorProcessesTable({ selectResults: [{ data: { id: 'major-1' }, error: null }] }).table
+        }
         if (table === 'issue_assignees') {
           return {
             delete: vi.fn(() => ({
@@ -347,6 +390,7 @@ describe('입력 검증 — createIssue', () => {
 
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({
       mega_code: '00',
+      major_id: 'major-1',
       sub_process: '기준정보 등록',
       owner_department: '경영관리팀',
       related_systems: ['ERP', 'MDM'],
@@ -411,6 +455,12 @@ describe('입력 검증 — createIssue', () => {
     expect(noOwner.ok).toBe(false)
     expect(createServerClient).not.toHaveBeenCalled()
   })
+  it('Major Process 이름은 공백일 수 없다 (DB 미도달)', async () => {
+    asMember()
+    const res = await createIssue('p1', { ...INPUT, majorName: '   ' })
+    expect(res).toMatchObject({ ok: false, error: 'Major Process를 입력하세요.' })
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
   it('일반 등록에서는 회의록 원천을 사칭할 수 없다', async () => {
     asMember()
     const res = await createIssue('p1', { ...INPUT, sourceType: 'minutes' })
@@ -419,6 +469,78 @@ describe('입력 검증 — createIssue', () => {
       error: '회의록 원천은 회의록의 이슈 등록 기능에서만 선택할 수 있습니다.',
     })
     expect(createServerClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('createIssue — Major Process resolve-or-create(0062)', () => {
+  function issueInsertOk() {
+    return vi.fn(() => ({
+      select: vi.fn(() => ({
+        single: vi.fn(async () => ({
+          data: { id: 'i1', issue_no: 7, pi_issue_code: 'PI-I-00-07' },
+          error: null,
+        })),
+      })),
+    }))
+  }
+  function clientWith(major: ReturnType<typeof majorProcessesTable>, issueInsert: ReturnType<typeof issueInsertOk>) {
+    return {
+      from: vi.fn((table: string) => {
+        if (table === 'issue_major_processes') return major.table
+        if (table === 'issues') return { insert: issueInsert }
+        if (table === 'issue_assignees') {
+          return { delete: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) })) }
+        }
+        throw new Error(`unexpected table: ${table}`)
+      }),
+    }
+  }
+
+  it('같은 이름이면 기존 major 행을 재사용한다 (major insert 미호출)', async () => {
+    asMember()
+    const major = majorProcessesTable({ selectResults: [{ data: { id: 'major-1' }, error: null }] })
+    const insert = issueInsertOk()
+    state.client = clientWith(major, insert)
+
+    const res = await createIssue('p1', { ...INPUT })
+
+    expect(res).toMatchObject({ ok: true, id: 'i1' })
+    expect(major.insert).not.toHaveBeenCalled()
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ major_id: 'major-1' }))
+  })
+
+  it('선행 조회가 실패하면 그 사유로 중단하고 이슈 insert 에 도달하지 않는다 (fail-closed)', async () => {
+    asMember()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const major = majorProcessesTable({ selectResults: [{ data: null, error: { message: 'select boom' } }] })
+    const insert = issueInsertOk()
+    state.client = clientWith(major, insert)
+
+    const res = await createIssue('p1', { ...INPUT })
+
+    expect(res).toMatchObject({ ok: false, error: 'Major Process 정보를 확인할 수 없어 중단했습니다.' })
+    expect(major.insert).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('동시 등록 경합(23505)은 승자 행 재조회로 수렴해 이슈 등록에 성공한다', async () => {
+    asMember()
+    const major = majorProcessesTable({
+      selectResults: [
+        { data: null, error: null }, // 최초 조회: 아직 없음 → insert 시도
+        { data: { id: 'major-2' }, error: null }, // 경합 재조회: 먼저 들어간 승자 행
+      ],
+      insertResult: { data: null, error: { message: 'duplicate key value violates unique constraint', code: '23505' } },
+    })
+    const insert = issueInsertOk()
+    state.client = clientWith(major, insert)
+
+    const res = await createIssue('p1', { ...INPUT })
+
+    expect(res).toMatchObject({ ok: true, id: 'i1' })
+    expect(major.insert).toHaveBeenCalledOnce()
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ major_id: 'major-2' }))
   })
 })
 

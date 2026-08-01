@@ -34,6 +34,9 @@ const readyIssue = (over: Partial<IssueAnalysisIssueInput> = {}): IssueAnalysisI
   projectId: 'project-1',
   megaCode: '00',
   megaSeq: 1,
+  majorId: 'major-1',
+  majorSeq: 1,
+  majorName: '기준정보 표준화',
   title: '기준정보 중복',
   body: '자재 코드가 중복 등록된다.',
   status: 'open',
@@ -114,7 +117,10 @@ describe('ensureIssueAnalysisAction', () => {
 
   it('사전 점검 누락을 상세 preflight와 함께 blocked로 반환한다', async () => {
     mocks.loadIssueAnalysisIssues.mockResolvedValue([
-      readyIssue({ megaCode: null, megaSeq: null, piIssueCode: null }),
+      readyIssue({
+        megaCode: null, megaSeq: null, piIssueCode: null,
+        majorId: null, majorSeq: null, majorName: null,
+      }),
     ])
     const result = await ensureIssueAnalysisAction('project-1')
     expect(result).toMatchObject({

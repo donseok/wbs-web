@@ -49,6 +49,8 @@ vi.mock('@/app/actions/issues', () => ({
   prepareMinuteIssueDraft: mocks.prepareMinuteIssueDraft,
   fetchIssueProjectMembers: mocks.fetchIssueProjectMembers,
   createIssueFromMinuteBlock: mocks.createIssueFromMinuteBlock,
+  // IssueFormModal(여기서는 mock)이 열릴 때 호출하는 Major 정본 조회 — export 누락이면 import가 죽는다.
+  fetchIssueMajorProcesses: vi.fn().mockResolvedValue({ ok: true, majors: [] }),
 }))
 vi.mock('@/components/minutes/useMinuteTocSpy', () => ({
   useMinuteTocSpy: () => ({ activeToc: null, jumpTo: vi.fn() }),
@@ -150,6 +152,7 @@ const organizedDraft = {
     '- 동일 누락의 재발 방지 기준을 확인해야 함',
   ].join('\n'),
   megaCode: '00' as const,
+  majorProcess: '재고관리',
   subProcess: '재고정보 연계',
   mode: 'ai' as const,
 }
@@ -234,7 +237,8 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
     expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
     const props = openFormProps()
     expect(props.draft).toMatchObject(organizedDraft)
-    expect(props.draft).toMatchObject({ megaCode: '00', subProcess: '재고정보 연계' })
+    // AI 스키마의 majorProcess 는 폼 입력 정본 majorName 으로 변환되어 내려간다.
+    expect(props.draft).toMatchObject({ megaCode: '00', majorName: '재고관리', subProcess: '재고정보 연계' })
     expect(props.sourcePreview).toMatchObject({
       title: '불변 버전 제목',
       date: '2026-07-30',
@@ -267,8 +271,10 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
 
     expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
     const props = openFormProps()
-    const draft = props.draft as { title: string; body: string; mode: string }
+    const draft = props.draft as { title: string; body: string; mode: string; majorName?: string }
     expect(draft.mode).toBe('fallback')
+    // AI 없는 로컬 폴백은 Major 추천을 지어내지 않는다 — 사용자가 직접 입력해야 한다.
+    expect(draft.majorName).toBeUndefined()
     expect(Array.from(draft.title).length).toBeLessThanOrEqual(200)
     expect(draft.body).toContain('[현황]')
     expect(draft.body).toContain('[문제/영향]')
@@ -426,6 +432,7 @@ describe('MinuteViewer 드래그 선택 → 이슈 등록', () => {
 
     expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
     const props = [...mocks.issueFormProps].reverse().find(candidate => candidate.open)!
+    expect((props.draft as { majorName?: string }).majorName).toBe('재고관리')
     const preview = props.sourcePreview as { excerpt: string; label: string }
     // jsdom Selection.toString() 은 블록 경계 개행을 넣지 않으므로 개행에 의존하지 않고 비교한다.
     expect(preview.excerpt.replace(/\s+/g, '')).toBe('전송누락위험을다룬다.두번째문단은재처리')

@@ -5,6 +5,7 @@ import {
   MINUTE_ISSUE_DRAFT_INSIGHT_MAX,
   MINUTE_ISSUE_DRAFT_PROCESS_REFERENCES_MAX,
   MINUTE_ISSUE_DRAFT_PROMPT_SOURCE_MAX,
+  MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT,
   MINUTE_ISSUE_DRAFT_TITLE_MAX,
   buildFallbackMinuteIssueDraft,
   buildMinuteIssueDraft,
@@ -12,6 +13,7 @@ import {
   minuteIssueDraftLength,
   parseMinuteIssueDraftResponse,
 } from '@/lib/ai/minute-issue-draft'
+import { ISSUE_MAJOR_NAME_MAX } from '@/lib/domain/issueAnalysis'
 
 const VALID_BODY = [
   '[현황]',
@@ -26,6 +28,7 @@ const VALID_BODY = [
 
 const VALID_CLASSIFICATION = {
   megaCode: '02' as const,
+  majorProcess: '주문관리',
   subProcess: '주문접수/등록',
 }
 
@@ -43,6 +46,7 @@ describe('parseMinuteIssueDraftResponse', () => {
     const raw = aiResponse({
       title: '  주문   인터페이스 지연  ',
       body: VALID_BODY.replace('[문제/영향]', '\n\n[문제/영향]'),
+      majorProcess: '  주문관리  ',
     })
 
     expect(parseMinuteIssueDraftResponse(raw)).toEqual({
@@ -71,6 +75,16 @@ describe('parseMinuteIssueDraftResponse', () => {
     ['빈 제목', aiResponse({ title: '   ' })],
     ['본문 타입 오류', aiResponse({ title: '제목', body: 1 })],
     ['잘못된 Mega', aiResponse({ megaCode: '99' })],
+    ['Major Process 누락(4키)', JSON.stringify({
+      title: '주문 인터페이스 지연',
+      body: VALID_BODY,
+      megaCode: VALID_CLASSIFICATION.megaCode,
+      subProcess: VALID_CLASSIFICATION.subProcess,
+    })],
+    ['빈 Major Process', aiResponse({ majorProcess: '   ' })],
+    ['번호 접두 Major Process', aiResponse({ majorProcess: '02.01 주문관리' })],
+    ['공백 없는 번호 접두 Major Process', aiResponse({ majorProcess: '02.01주문관리' })],
+    ['괄호형 번호 접두 Major Process', aiResponse({ majorProcess: '[02.01] 주문관리' })],
     ['빈 Sub Process', aiResponse({ subProcess: '   ' })],
     ['Major Process를 넣은 Sub Process', aiResponse({ subProcess: '02.02 주문관리' })],
     ['공백 없는 Major Process를 넣은 Sub Process', aiResponse({ subProcess: '02.02주문관리' })],
@@ -107,6 +121,15 @@ describe('parseMinuteIssueDraftResponse', () => {
     }))).toBeNull()
     expect(parseMinuteIssueDraftResponse(aiResponse({
       title: '😀'.repeat((MINUTE_ISSUE_DRAFT_TITLE_MAX / 2) + 1),
+    }))).toBeNull()
+  })
+
+  it('Major Process 이름은 저장 한도까지 허용하고 초과는 거부한다', () => {
+    const atLimit = '가'.repeat(ISSUE_MAJOR_NAME_MAX)
+    expect(parseMinuteIssueDraftResponse(aiResponse({ majorProcess: atLimit }))?.majorProcess)
+      .toBe(atLimit)
+    expect(parseMinuteIssueDraftResponse(aiResponse({
+      majorProcess: '가'.repeat(ISSUE_MAJOR_NAME_MAX + 1),
     }))).toBeNull()
   })
 
@@ -333,7 +356,9 @@ describe('buildMinuteIssueDraft', () => {
     })
 
     expect(result).toEqual({ title: 'AI 제목', body: VALID_BODY, ...VALID_CLASSIFICATION, mode: 'ai' })
-    expect(Object.keys(result ?? {}).sort()).toEqual(['body', 'megaCode', 'mode', 'subProcess', 'title'])
+    expect(Object.keys(result ?? {}).sort()).toEqual(
+      ['body', 'majorProcess', 'megaCode', 'mode', 'subProcess', 'title'],
+    )
     expect(JSON.stringify(result)).not.toContain('SOURCE-ONLY-991')
     expect(sourceText).toBe('원문 고유 표식 SOURCE-ONLY-991')
   })
@@ -425,5 +450,67 @@ describe('buildMinuteIssueDraftPrompt', () => {
     expect(payload.knownSubProcesses.length).toBeLessThanOrEqual(
       MINUTE_ISSUE_DRAFT_PROCESS_REFERENCES_MAX,
     )
+  })
+
+  it('체번된 Major Process 후보를 이름 그대로 입력 JSON에 전달한다', () => {
+    const prompt = buildMinuteIssueDraftPrompt('주문 입력 오류가 반복됩니다.', '주문 오류', {
+      knownMajorProcesses: [
+        { megaCode: '07', name: '원가 배부 관리' },
+        { megaCode: '02', name: '출하 요청 관리' },
+        { megaCode: '02', name: '출하 요청 관리' },
+        { megaCode: '02', name: '주문관리' },
+        { megaCode: '02', name: '   ' },
+      ],
+    })
+    const payload = JSON.parse(prompt.split('\n')[1]) as {
+      knownMajorProcesses: Array<{ megaCode: string; name: string }>
+    }
+
+    // Mega 코드순으로 묶되, 같은 Mega 안에서는 호출자가 넘긴 체번 순서를 보존한다.
+    // ('주문관리'가 사전순으로 앞서지만 '출하 요청 관리' 뒤에 남아야 한다.)
+    expect(payload.knownMajorProcesses).toEqual([
+      { megaCode: '02', name: '출하 요청 관리' },
+      { megaCode: '02', name: '주문관리' },
+      { megaCode: '07', name: '원가 배부 관리' },
+    ])
+  })
+
+  it('Major Process 후보도 Mega별 상한으로 제한하되 입력 순서를 유지한다', () => {
+    const knownMajorProcesses = [
+      ...Array.from({ length: 40 }, (_, index) => ({
+        megaCode: '00' as const,
+        name: `기준 묶음 ${String(index).padStart(2, '0')}`,
+      })),
+      ...Array.from({ length: 40 }, (_, index) => ({
+        megaCode: '07' as const,
+        name: `원가 묶음 ${String(39 - index).padStart(2, '0')}`,
+      })),
+    ]
+    const prompt = buildMinuteIssueDraftPrompt('원문', null, { knownMajorProcesses })
+    const payload = JSON.parse(prompt.split('\n')[1]) as {
+      knownMajorProcesses: Array<{ megaCode: string; name: string }>
+    }
+
+    expect(payload.knownMajorProcesses).toHaveLength(50)
+    const master = payload.knownMajorProcesses.filter(item => item.megaCode === '00')
+    const cost = payload.knownMajorProcesses.filter(item => item.megaCode === '07')
+    expect(master.map(item => item.name)).toEqual(
+      Array.from({ length: 25 }, (_, index) => `기준 묶음 ${String(index).padStart(2, '0')}`),
+    )
+    // 07은 역순으로 넘겼다 — 정렬로 재배열하지 않고 입력(체번) 순서 그대로 자른다.
+    expect(cost.map(item => item.name)).toEqual(
+      Array.from({ length: 25 }, (_, index) => `원가 묶음 ${String(39 - index).padStart(2, '0')}`),
+    )
+    expect(payload.knownMajorProcesses.length).toBeLessThanOrEqual(
+      MINUTE_ISSUE_DRAFT_PROCESS_REFERENCES_MAX,
+    )
+  })
+})
+
+describe('MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT', () => {
+  it('majorProcess 추천 지침과 예시 JSON을 포함한다', () => {
+    expect(MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT).toContain('majorProcess')
+    expect(MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT).toContain('knownMajorProcesses')
+    expect(MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT).toContain('"majorProcess":"주문관리"')
   })
 })

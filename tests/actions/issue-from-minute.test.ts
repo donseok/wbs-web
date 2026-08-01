@@ -55,6 +55,7 @@ const INPUT = {
   startDate: '2026-07-27',
   dueDate: '2026-08-03',
   megaCode: '02' as const,
+  majorName: '주문관리',
   subProcess: '수주 등록',
   ownerDepartment: '영업팀',
   relatedSystems: ['CRM', 'ERP'],
@@ -101,6 +102,7 @@ function aiResponseForAction(title: string): string {
     title,
     body: '[현황]\n- 주문 입력을 처리하고 있습니다.\n[문제/영향]\n- 입력 오류와 납기 지연이 발생합니다.\n[필요 조치]\n- 주문 등록 절차 개선이 필요합니다.',
     megaCode: '02',
+    majorProcess: '주문관리',
     subProcess: '주문접수/등록',
   })
 }
@@ -111,6 +113,10 @@ function clientsWithVersion({
   archivedAt = null,
   body = BODY,
   bodyHash = fnv1a64(body),
+  knownMajorProcesses = [
+    { mega_code: '02', name: '주문관리' },
+    { mega_code: '07', name: '원가관리' },
+  ],
   knownSubProcesses = [
     { mega_code: '02', sub_process: '주문접수/등록' },
     { mega_code: '07', sub_process: '원가손익분석' },
@@ -121,6 +127,7 @@ function clientsWithVersion({
   archivedAt?: string | null
   body?: string
   bodyHash?: string
+  knownMajorProcesses?: Array<{ mega_code: string; name: string }>
   knownSubProcesses?: Array<{ mega_code: string; sub_process: string }>
 } = {}) {
   const rpcSingle = vi.fn(async () => ({
@@ -192,6 +199,17 @@ function clientsWithVersion({
           })),
         }
       }
+      if (table === 'issue_major_processes') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              order: vi.fn(() => ({
+                order: vi.fn(async () => ({ data: knownMajorProcesses, error: null })),
+              })),
+            })),
+          })),
+        }
+      }
       throw new Error(`unexpected table: ${table}`)
     }),
   }
@@ -240,6 +258,7 @@ describe('prepareMinuteIssueDraft', () => {
       title: '인터페이스 전환 지연 대응',
       body: '[현황]\n- 인터페이스 전환이 지연되고 있습니다.\n\n[문제/영향]\n- 전환 일정에 차질 위험이 있습니다.\n\n[필요 조치]\n- 담당자와 대응 방안을 확인합니다.',
       megaCode: '02',
+      majorProcess: '주문관리',
       subProcess: '주문접수/등록',
     }))
 
@@ -252,6 +271,7 @@ describe('prepareMinuteIssueDraft', () => {
       draft: {
         title: '인터페이스 전환 지연 대응',
         megaCode: '02',
+        majorProcess: '주문관리',
         subProcess: '주문접수/등록',
         mode: 'ai',
       },
@@ -261,6 +281,7 @@ describe('prepareMinuteIssueDraft', () => {
     expect(messages[0].content).toContain(BLOCK.text)
     expect(messages[0].content).toContain('영업 PI 주간회의')
     expect(messages[0].content).toContain('상위 섹션')
+    expect(messages[0].content).toContain('주문관리')
     expect(messages[0].content).toContain('주문접수/등록')
     expect(options).toMatchObject({
       timeoutMs: 15_000,
@@ -362,6 +383,7 @@ describe('prepareMinuteIssueDraft', () => {
       title: '첫 분류 기준의 주문 이슈',
       body: '[현황]\n- 주문 입력을 처리하고 있습니다.\n[문제/영향]\n- 입력 오류가 발생합니다.\n[필요 조치]\n- 등록 절차를 확인해야 합니다.',
       megaCode: '02',
+      majorProcess: '주문관리',
       subProcess: '주문접수/등록',
     }))
     const source = { ...SOURCE, kind: 'action' as const }
@@ -375,6 +397,7 @@ describe('prepareMinuteIssueDraft', () => {
       title: '변경된 분류 기준의 주문 이슈',
       body: '[현황]\n- 주문 진행 정보를 관리하고 있습니다.\n[문제/영향]\n- 진행 정보가 부정확합니다.\n[필요 조치]\n- 관리 절차를 확인해야 합니다.',
       megaCode: '02',
+      majorProcess: '주문관리',
       subProcess: '주문진행관리',
     }))
     const second = await prepareMinuteIssueDraft('project-1', source)
@@ -382,6 +405,44 @@ describe('prepareMinuteIssueDraft', () => {
     expect(first.draft?.subProcess).toBe('주문접수/등록')
     expect(second.draft?.subProcess).toBe('주문진행관리')
     expect(ai.generateAnswer).toHaveBeenCalledTimes(2)
+  })
+
+  it('체번된 Major Process 사례가 바뀌면 이전 AI 캐시를 재사용하지 않는다', async () => {
+    asMember()
+    state.client = clientsWithVersion({
+      knownMajorProcesses: [{ mega_code: '02', name: '주문관리' }],
+    }).client
+    ai.generateAnswer.mockResolvedValueOnce(JSON.stringify({
+      title: '기존 Major 기준의 주문 이슈',
+      body: '[현황]\n- 주문 입력을 처리하고 있습니다.\n[문제/영향]\n- 입력 오류가 발생합니다.\n[필요 조치]\n- 등록 절차를 확인해야 합니다.',
+      megaCode: '02',
+      majorProcess: '주문관리',
+      subProcess: '주문접수/등록',
+    }))
+    const source = { ...SOURCE, kind: 'action' as const }
+    const first = await prepareMinuteIssueDraft('project-1', source)
+
+    state.client = clientsWithVersion({
+      knownMajorProcesses: [{ mega_code: '02', name: '수주관리' }],
+    }).client
+    ai.generateAnswer.mockResolvedValueOnce(JSON.stringify({
+      title: '개명된 Major 기준의 주문 이슈',
+      body: '[현황]\n- 수주 정보를 관리하고 있습니다.\n[문제/영향]\n- 수주 정보가 부정확합니다.\n[필요 조치]\n- 관리 절차를 확인해야 합니다.',
+      megaCode: '02',
+      majorProcess: '수주관리',
+      subProcess: '주문접수/등록',
+    }))
+    const second = await prepareMinuteIssueDraft('project-1', source)
+
+    expect(first.draft?.majorProcess).toBe('주문관리')
+    expect(second.draft?.majorProcess).toBe('수주관리')
+    expect(ai.generateAnswer).toHaveBeenCalledTimes(2)
+    // 입력 JSON에는 체번 정본 이름이 knownMajorProcesses 로 직렬화돼 재사용을 유도한다.
+    const firstPrompt = ai.generateAnswer.mock.calls[0][1][0].content as string
+    const firstPayload = JSON.parse(firstPrompt.split('\n')[1]) as {
+      knownMajorProcesses: Array<{ megaCode: string; name: string }>
+    }
+    expect(firstPayload.knownMajorProcesses).toEqual([{ megaCode: '02', name: '주문관리' }])
   })
 
   it('변조된 블록 앵커는 AI 호출 전에 거부한다', async () => {
@@ -453,6 +514,7 @@ describe('createIssueFromMinuteBlock', () => {
       p_start_date: '2026-07-27',
       p_due_date: '2026-08-03',
       p_mega_code: '02',
+      p_major_name: '주문관리',
       p_sub_process: '수주 등록',
       p_owner_department: '영업팀',
       p_related_systems: ['CRM', 'ERP'],

@@ -68,13 +68,14 @@ export async function loadIssueAnalysisIssues(
       'related_systems',
       'source_type',
       'source_detail',
+      'major_id',
     ].join(', '))
     .eq('project_id', projectId)
   const scopedIssuesQuery = megaCode === undefined
     ? issuesQuery
     : issuesQuery.eq('mega_code', megaCode)
 
-  const [issuesResult, assigneesResult, linksResult] = await Promise.all([
+  const [issuesResult, assigneesResult, linksResult, majorsResult] = await Promise.all([
     scopedIssuesQuery.order('issue_no', { ascending: true }),
     sb.from('issue_assignees')
       .select('issue_id, member_id')
@@ -102,11 +103,20 @@ export async function loadIssueAnalysisIssues(
       .eq('project_id', projectId)
       .eq('link_type', 'minute_block')
       .order('created_at', { ascending: true }),
+    sb.from('issue_major_processes')
+      .select('id, mega_code, major_seq, name')
+      .eq('project_id', projectId),
   ])
 
   assertQuery(issuesResult as QueryResult, '이슈')
   assertQuery(assigneesResult as QueryResult, '담당자')
   assertQuery(linksResult as QueryResult, '회의록 출처')
+  assertQuery(majorsResult as QueryResult, 'Major Process')
+
+  const majorById = new Map<string, { majorSeq: number; name: string }>()
+  for (const raw of majorsResult.data as unknown as Record<string, unknown>[]) {
+    majorById.set(String(raw.id), { majorSeq: Number(raw.major_seq), name: String(raw.name ?? '') })
+  }
 
   const assigneesByIssue = new Map<string, string[]>()
   for (const raw of assigneesResult.data as unknown as Record<string, unknown>[]) {
@@ -146,7 +156,12 @@ export async function loadIssueAnalysisIssues(
     const id = String(raw.id)
     const rawMegaCode = raw.mega_code
     const rawSourceType = raw.source_type
+    const majorId = typeof raw.major_id === 'string' ? raw.major_id : null
+    const major = majorId ? majorById.get(majorId) ?? null : null
     return {
+      majorId,
+      majorSeq: major?.majorSeq ?? null,
+      majorName: major?.name ?? null,
       id,
       issueNo: Number(raw.issue_no),
       projectId: String(raw.project_id),

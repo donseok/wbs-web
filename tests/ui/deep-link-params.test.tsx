@@ -58,6 +58,7 @@ vi.mock('@/app/actions/issues', () => ({
   updateIssue: vi.fn(async () => ({ ok: true })),
   updateIssueProgress: vi.fn(async () => ({ ok: true })),
   deleteIssue: vi.fn(async () => ({ ok: true })),
+  fetchIssueMajorProcesses: vi.fn().mockResolvedValue({ ok: true, majors: [] }),
 }))
 
 import { MeetingsView } from '@/components/meetings/MeetingsView'

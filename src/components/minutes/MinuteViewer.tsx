@@ -209,7 +209,15 @@ export function MinuteViewer({
         issueOrigin?.type === 'block' ? issueInsight?.label : null,
       )
     if (!draft) return undefined
-    return { ...draft, severity: 'medium', assigneeMemberIds: [], startDate: null, dueDate: null }
+    return {
+      ...draft,
+      // AI 초안 스키마의 majorProcess 를 폼 입력 정본(majorName)으로 경계에서 변환한다.
+      majorName: draft.majorProcess,
+      severity: 'medium',
+      assigneeMemberIds: [],
+      startDate: null,
+      dueDate: null,
+    }
   }, [issueBlock, issueInsight, issueOrigin, issueSourceText, preparedIssueDraft])
 
   const marks = useMemo<BlockMarks>(() => {
