@@ -94,6 +94,14 @@ describe('IssuesView Mega 필터', () => {
     expect(mega).not.toBeNull()
     expect(mega?.textContent).toContain('00 · 기준관리')
     expect(mega?.textContent).toContain('02 · 영업')
+    expect(container.textContent).toContain('issue.col.mega')
+    expect(container.textContent).toContain('00 · 기준관리')
+    expect(container.textContent).toContain('02 · 영업')
+
+    const titleCell = [...container.querySelectorAll('td')]
+      .find(cell => cell.textContent === '기준정보 중복')
+    expect(titleCell?.className).toContain('whitespace-nowrap')
+    expect(container.querySelector('table')?.className).toContain('min-w-[1260px]')
 
     await act(async () => {
       if (!mega) return

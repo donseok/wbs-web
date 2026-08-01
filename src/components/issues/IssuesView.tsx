@@ -149,22 +149,24 @@ export function IssuesView({
       {visible.length > 0 ? (
         <div className="card overflow-hidden p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-collapse text-sm">
+            <table className="w-full min-w-[1260px] border-collapse text-[13px]">
               <thead>
-                <tr className="border-b border-line bg-surface-2 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
-                  <th className="px-4 py-3">{t('issue.col.no')}</th>
-                  <th className="px-4 py-3">{t('issue.col.title')}</th>
-                  <th className="px-4 py-3">{t('issue.col.status')}</th>
-                  <th className="px-4 py-3">{t('issue.col.severity')}</th>
-                  <th className="px-4 py-3">{t('issue.col.assignee')}</th>
-                  <th className="px-4 py-3">{t('issue.col.period')}</th>
-                  <th className="px-4 py-3">{t('issue.col.created')}</th>
+                <tr className="whitespace-nowrap border-b border-line bg-surface-2 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">
+                  <th className="px-3 py-2.5">{t('issue.col.no')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.mega')}</th>
+                  <th className="min-w-[360px] px-3 py-2.5">{t('issue.col.title')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.status')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.severity')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.assignee')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.period')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.created')}</th>
                 </tr>
               </thead>
               <tbody>
                 {visible.map(issue => {
                   const sMeta = ISSUE_STATUS_META[issue.status]
                   const overdue = isOverdue(issue, today)
+                  const megaArea = ISSUE_MEGA_AREAS.find(area => area.code === issue.megaCode)
                   return (
                     <tr
                       key={issue.id}
@@ -174,28 +176,37 @@ export function IssuesView({
                       onKeyDown={e => { if (e.key === 'Enter') setViewingId(issue.id) }}
                       className="cursor-pointer border-b border-line/70 transition last:border-0 hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2"
                     >
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums">
+                      <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">
                         {issue.piIssueCode ? (
                           <>
-                            <span className="block font-semibold text-ink">{issue.piIssueCode}</span>
-                            <span className="block text-[11px] text-ink-subtle">#{issue.issueNo}</span>
+                            <span className="font-semibold text-ink">{issue.piIssueCode}</span>
+                            <span className="ml-1.5 text-[10px] text-ink-subtle">#{issue.issueNo}</span>
                           </>
                         ) : (
                           <span className="text-ink-muted">#{issue.issueNo}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-medium text-ink">{issue.title}</td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <span className={`chip ${sMeta.chip}`}>
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        {megaArea ? (
+                          <span className="inline-flex items-center rounded-lg border border-brand-ring bg-brand-weak px-2 py-1 text-[11px] font-semibold text-brand">
+                            {megaArea.code} · {locale === 'en' ? megaArea.nameEn : megaArea.nameKo}
+                          </span>
+                        ) : (
+                          <span className="text-ink-subtle">—</span>
+                        )}
+                      </td>
+                      <td className="min-w-[360px] whitespace-nowrap px-3 py-2.5 font-medium text-ink">{issue.title}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        <span className={`chip px-2 py-0.5 text-[11px] ${sMeta.chip}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${sMeta.dot}`} />
                           {t(sMeta.labelKey)}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3">
-                        <span className={`chip ${ISSUE_SEVERITY_META[issue.severity].chip}`}>{t(ISSUE_SEVERITY_META[issue.severity].labelKey)}</span>
+                      <td className="whitespace-nowrap px-3 py-2.5">
+                        <span className={`chip px-2 py-0.5 text-[11px] ${ISSUE_SEVERITY_META[issue.severity].chip}`}>{t(ISSUE_SEVERITY_META[issue.severity].labelKey)}</span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-ink-muted">{assigneeLabel(issue) ?? t('issue.unassigned')}</td>
-                      <td className={`whitespace-nowrap px-4 py-3 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-ink-muted">{assigneeLabel(issue) ?? t('issue.unassigned')}</td>
+                      <td className={`whitespace-nowrap px-3 py-2.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
                         {issue.startDate && issue.dueDate
                           ? `${issue.startDate} → ${issue.dueDate}`
                           : issue.startDate
@@ -203,7 +214,7 @@ export function IssuesView({
                             : issue.dueDate ?? '—'}
                         {overdue && ` · ${t('issue.overdueBadge')}`}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-ink-muted">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-ink-muted">
                         {issue.createdByName ?? '—'} · <span className="tabular-nums">{issue.createdAt.slice(0, 10)}</span>
                       </td>
                     </tr>
