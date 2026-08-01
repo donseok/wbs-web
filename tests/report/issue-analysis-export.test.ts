@@ -148,28 +148,59 @@ describe('이슈 분석서 PPT 내보내기', () => {
     expect(opportunity).not.toContain('제품별로 부정확한 원가정보 제공')
   })
 
-  it('여러 Mega와 개선기회에서 원본 8·12페이지를 독립 복제한다', async () => {
+  it('여러 Mega의 개선기회를 한 페이지에 묶고 동적 shape 연결을 유효하게 만든다', async () => {
     const bytes = await renderIssueAnalysisPpt(plan([
       area('00', 1, 1),
       area('02', 8, 5),
     ]))
     const zip = await JSZip.loadAsync(bytes)
     const presentation = await zipText(zip, 'ppt/presentation.xml')
-    expect(presentation.match(/<p:sldId\b/g)).toHaveLength(10)
+    expect(presentation.match(/<p:sldId\b/g)).toHaveLength(9)
 
     expect(await zipText(zip, 'ppt/slides/slide5.xml')).toContain('PI-I-00-01')
     expect(await zipText(zip, 'ppt/slides/slide6.xml')).toContain('PI-I-02-01')
 
-    const masterOpportunity = await zipText(zip, 'ppt/slides/slide9.xml')
-    expect(masterOpportunity).toContain('00-기준관리')
-    for (const unusedId of ['54', '55', '57', '58', '60', '61', '63', '64']) {
-      expect(masterOpportunity).not.toContain(`<p:cNvPr id="${unusedId}"`)
-    }
+    const opportunity = await zipText(zip, 'ppt/slides/slide9.xml')
+    expect(opportunity).toContain('주요 이슈 및 개선 기회 (1/1)')
+    expect(opportunity).toContain('00-기준관리 · 기준정보 단일화')
+    expect(opportunity).toContain('02-영업 · 주문 접수·진행 통합')
+    expect(opportunity).toContain('PI-I-00-01')
+    expect(opportunity).toContain('PI-I-02-05')
+    expect(opportunity).not.toContain('제품별로 부정확한 원가정보 제공')
 
-    const salesOpportunity = await zipText(zip, 'ppt/slides/slide10.xml')
-    expect(salesOpportunity).toContain('02-영업')
-    expect(salesOpportunity).toContain('<p:cNvPr id="64"')
-    expect(salesOpportunity).toContain('<p:cNvPr id="74"')
+    const shapeIds = [...opportunity.matchAll(/<p:cNvPr\b[^>]*\bid="(\d+)"/g)]
+      .map(match => match[1])
+    expect(new Set(shapeIds).size).toBe(shapeIds.length)
+    const connectorTargetIds = [...opportunity.matchAll(/<a:(?:st|end)Cxn\b[^>]*\bid="(\d+)"/g)]
+      .map(match => match[1])
+    expect(connectorTargetIds.length).toBeGreaterThan(0)
+    expect(connectorTargetIds.every(id => new Set(shapeIds).has(id))).toBe(true)
+  })
+
+  it('개선기회가 많을 때만 12페이지 형식을 2·3페이지로 늘린다', async () => {
+    const sales = area('02', 5, 1)
+    sales.opportunities = Array.from({ length: 11 }, (_, index) => ({
+      title: `개선기회 ${index + 1}`,
+      description: `업무 개선 방향 ${index + 1}`,
+      issueIds: [sales.issues[index % sales.issues.length].id],
+    }))
+    const compactPlan = plan([sales])
+    const opportunityEntries = compactPlan.slides
+      .map((slide, index) => ({ slide, outputPage: index + 1 }))
+      .filter(({ slide }) => slide.kind === 'opportunity')
+    expect(opportunityEntries).toHaveLength(3)
+
+    const bytes = await renderIssueAnalysisPpt(compactPlan)
+    const zip = await JSZip.loadAsync(bytes)
+    const opportunityXml: string[] = []
+    for (const { outputPage } of opportunityEntries) {
+      opportunityXml.push(await zipText(zip, `ppt/slides/slide${outputPage}.xml`))
+    }
+    expect(opportunityXml[0]).toContain('주요 이슈 및 개선 기회 (1/3)')
+    expect(opportunityXml[2]).toContain('주요 이슈 및 개선 기회 (3/3)')
+    for (let index = 1; index <= 11; index += 1) {
+      expect(opportunityXml.join('\n')).toContain(`개선기회 ${index}`)
+    }
   })
 
   it('장문 이슈를 말줄임 없이 여러 표 페이지에 배치하고 행 높이·자동 맞춤을 적용한다', async () => {

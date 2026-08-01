@@ -147,10 +147,38 @@ describe('buildIssueAnalysisDeckPlan', () => {
       generatedAt: '2026-07-31T00:00:00Z',
     })
     const opportunities = plan.slides.filter(slide => slide.kind === 'opportunity')
-    expect(opportunities.map(slide => slide.megaCode)).toEqual(['00', '02'])
-    expect(opportunities[1]).toMatchObject({
+    expect(opportunities).toHaveLength(1)
+    expect(opportunities[0].blocks.map(block => block.megaCode)).toEqual(['00', '02'])
+    expect(opportunities[0].blocks[1]).toMatchObject({
+      opportunityNo: 2,
       issues: [{ id: 'issue-1', piIssueCode: 'PI-I-02-01', title: '이슈 1' }],
     })
+  })
+
+  it('짧은 개선기회는 한 페이지에 묶고 높이가 찰 때만 2·3페이지를 만든다', () => {
+    const sales = area(5)
+    sales.opportunities = Array.from({ length: 11 }, (_, index) => ({
+      title: `개선기회 ${index + 1}`,
+      description: `개선 방향 ${index + 1}`,
+      issueIds: [sales.issues[index % sales.issues.length].id],
+    }))
+    const plan = buildIssueAnalysisDeckPlan(report([sales]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const opportunityPages = plan.slides.filter(slide => slide.kind === 'opportunity')
+
+    expect(opportunityPages).toHaveLength(3)
+    expect(opportunityPages.map(slide => slide.blocks.length)).toEqual([5, 5, 1])
+    expect(opportunityPages.map(slide => slide.pageInSection)).toEqual([1, 2, 3])
+    expect(opportunityPages.every(slide => slide.pageCount === 3)).toBe(true)
+    expect(opportunityPages.flatMap(slide => slide.blocks).map(block => block.opportunityNo))
+      .toEqual(Array.from({ length: 11 }, (_, index) => index + 1))
+    expect(opportunityPages.every(slide =>
+      slide.blocks.reduce((sum, block) => sum + block.rowUnits, 0) <= 10))
+      .toBe(true)
   })
 
   it('영역 밖 이슈와 5건 초과 연결을 방어한다', () => {
@@ -273,10 +301,37 @@ describe('PPT 표시 정규화', () => {
       const capacity = slide.kind === 'area-summary' ? 3 : 5
       expect(slide.issues.reduce((sum, row) => sum + row.rowUnits, 0)).toBeLessThanOrEqual(capacity)
     }
-    const opportunity = plan.slides.find(slide => slide.kind === 'opportunity')
-    expect(opportunity).toMatchObject({
-      kind: 'opportunity',
-      issues: [{ title: expect.stringContaining('TITLE-END') }],
+    const opportunityRows = plan.slides
+      .filter(slide => slide.kind === 'opportunity')
+      .flatMap(slide => slide.blocks)
+      .filter(block => block.opportunityNo === 1)
+      .flatMap(block => block.issues)
+    expect(opportunityRows.map(row => row.title).join('')).toContain('TITLE-END')
+    expect(opportunityRows.map(row => row.title).join('')).not.toContain('…')
+  })
+
+  it('장문 개선기회 설명을 계속 블록으로 나눠 마지막 문자까지 보존한다', () => {
+    const sales = area(1)
+    const description = `${'기준정보를 단일 원천으로 관리하고 책임 부서를 명확히 합니다. '.repeat(65)}😀OPPORTUNITY-END`
+    sales.opportunities[0] = {
+      title: `${'기준정보 통합 관리 '.repeat(8)}TITLE-END`,
+      description,
+      issueIds: [sales.issues[0].id],
+    }
+    const plan = buildIssueAnalysisDeckPlan(report([sales]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
     })
+    const pages = plan.slides.filter(slide => slide.kind === 'opportunity')
+    const blocks = pages.flatMap(slide => slide.blocks)
+
+    expect(pages.length).toBeGreaterThan(1)
+    expect(blocks.map(block => block.description).join(''))
+      .toBe(normalizeIssueAnalysisMultilineText(description))
+    expect(blocks.every(block => block.continuationCount === blocks.length)).toBe(true)
+    expect(blocks.map(block => block.description).join('')).toContain('😀OPPORTUNITY-END')
+    expect(blocks.map(block => `${block.title}${block.description}`).join('')).not.toContain('…')
   })
 })
