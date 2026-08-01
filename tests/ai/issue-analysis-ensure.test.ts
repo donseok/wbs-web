@@ -159,7 +159,7 @@ describe('ensureIssueAnalysis', () => {
       issue_count: 3,
       created_by: 'user-1',
       status: 'ready',
-      prompt_version: 'issue-causes-opportunities-v2',
+      prompt_version: 'issue-causes-opportunities-defs-v3',
     })
     expect(mocks.upserts[0]).toMatchObject({
       analysis_json: {

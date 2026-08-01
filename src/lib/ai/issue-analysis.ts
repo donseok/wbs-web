@@ -9,10 +9,14 @@ import {
   ISSUE_ANALYSIS_CAUSE_CATEGORIES,
   ISSUE_ANALYSIS_CAUSES_PER_ISSUE_MAX,
   ISSUE_ANALYSIS_DIRECT_CAUSE_MAX,
+  ISSUE_ANALYSIS_MAJOR_DEFINITION_MAX,
+  ISSUE_ANALYSIS_MEGA_DEFINITION_MAX,
   ISSUE_ANALYSIS_ROOT_CAUSE_MAX,
   buildIssueAnalysisInputSnapshot,
   buildIssueAnalysisPreflight,
   buildIssueAnalysisReport,
+  type IssueAnalysisAreaMajor,
+  type IssueAnalysisAreaProcessDefinitions,
   type IssueAnalysisIssueCauseAnalysis,
   type IssueAnalysisInputSnapshot,
   type IssueAnalysisIssueInput,
@@ -21,7 +25,7 @@ import {
   type IssueAnalysisReportIssue,
 } from '@/lib/report/issues/model'
 
-export const ISSUE_ANALYSIS_PROMPT_VERSION = 'issue-causes-opportunities-v2'
+export const ISSUE_ANALYSIS_PROMPT_VERSION = 'issue-causes-opportunities-defs-v3'
 export const ISSUE_ANALYSIS_MAX_MEGA_PROMPT_CHARS = 24_000
 export const ISSUE_ANALYSIS_MAX_ISSUE_EVIDENCE_CHARS = 2_400
 const ISSUE_ANALYSIS_MIN_ISSUE_EVIDENCE_CHARS = 160
@@ -37,8 +41,11 @@ export const ISSUE_ANALYSIS_SYSTEM_PROMPT = [
   '유사한 이슈를 실행 가능한 개선기회로 묶되 모든 입력 이슈를 최소 한 기회에 연결하라.',
   '한 개선기회의 issueIds에는 입력에 실제 존재하는 UUID만 1~5개 넣어라.',
   '다른 Mega의 이슈를 섞지 마라.',
+  'majors 배열의 각 Major에 대해 processDefinitions를 함께 작성하라. 해당 Major의 이슈·Sub Process를 근거로 하되, 이슈가 없는 Major는 이름을 근거로 일반적인 정의 초안을 작성하라.',
+  `megaDefinition은 ${ISSUE_ANALYSIS_MEGA_DEFINITION_MAX}자, 각 Major definition은 ${ISSUE_ANALYSIS_MAJOR_DEFINITION_MAX}자를 넘지 않는 명사형 종결("…을 관리하는 프로세스")의 완결된 문장으로 작성하라.`,
+  'processDefinitions.majors에는 입력 majors의 각 majorId가 정확히 한 번씩 나타나야 하며, 입력에 없는 majorId를 만들지 마라. majors가 비어 있으면 "majors":[]로 출력하라.',
   '응답은 설명, Markdown, 코드 펜스 없이 아래 스키마의 JSON 객체 하나만 출력하라.',
-  '{"opportunities":[{"title":"간결한 개선기회명","description":"근거 이슈에 기반한 개선 방향","issueIds":["입력 UUID"]}]}',
+  '{"opportunities":[{"title":"간결한 개선기회명","description":"근거 이슈에 기반한 개선 방향","issueIds":["입력 UUID"]}],"processDefinitions":{"megaDefinition":"Mega 프로세스 정의","majors":[{"majorId":"입력 majorId","definition":"Major 프로세스 정의"}]}}',
 ].join('\n')
 
 export const ISSUE_ANALYSIS_CAUSE_SYSTEM_PROMPT = [
@@ -146,17 +153,28 @@ function safePromptJson(value: unknown): string {
     .replace(/>/g, '\\u003e')
 }
 
+/** v3 개선기회 호출에 함께 실리는 Major 요약 — 프롬프트 예산에서 절삭하지 않는다. */
+export interface IssueAnalysisPromptMajor {
+  majorId: string
+  seqLabel: string
+  name: string
+  subProcesses: string[]
+  issueCount: number
+}
+
 function promptPayload(
   megaCode: IssueMegaCode,
   megaName: string,
   issues: readonly IssueAnalysisReportIssue[],
   evidenceLimit: number,
+  majors?: readonly IssueAnalysisPromptMajor[],
 ): string {
   const bodyLimit = Math.floor(evidenceLimit * 0.6)
   const sourceLimit = evidenceLimit - bodyLimit
   return safePromptJson({
     megaCode,
     megaName,
+    ...(majors === undefined ? {} : { majors }),
     issues: issues.map(issue => ({
       // id/title은 예산이 부족해도 절대 생략하거나 축약하지 않는다.
       id: issue.id,
@@ -182,10 +200,11 @@ export function buildIssueAnalysisMegaPrompt(
   megaCode: IssueMegaCode,
   megaName: string,
   issues: readonly IssueAnalysisReportIssue[],
+  majors?: readonly IssueAnalysisPromptMajor[],
 ): string {
   if (!issues.length) throw new IssueAnalysisPromptError('분석할 이슈가 없습니다.')
   const envelope = (json: string) => `<issue_data_json>\n${json}\n</issue_data_json>`
-  const minimum = envelope(promptPayload(megaCode, megaName, issues, 0))
+  const minimum = envelope(promptPayload(megaCode, megaName, issues, 0, majors))
   if (minimum.length > ISSUE_ANALYSIS_MAX_MEGA_PROMPT_CHARS) {
     throw new IssueAnalysisPromptError(
       `${megaName} 영역은 이슈 ID/제목을 보존한 최소 입력도 프롬프트 상한(${ISSUE_ANALYSIS_MAX_MEGA_PROMPT_CHARS.toLocaleString()}자)을 초과합니다.`,
@@ -203,7 +222,7 @@ export function buildIssueAnalysisMegaPrompt(
     )
   }
 
-  let result = envelope(promptPayload(megaCode, megaName, issues, evidenceLimit))
+  let result = envelope(promptPayload(megaCode, megaName, issues, evidenceLimit, majors))
   // JSON escape 문자까지 반영해 실제 직렬화 길이가 상한 안에 들어오도록 보수적으로 재조정한다.
   while (
     result.length > ISSUE_ANALYSIS_MAX_MEGA_PROMPT_CHARS
@@ -213,7 +232,7 @@ export function buildIssueAnalysisMegaPrompt(
       ISSUE_ANALYSIS_MIN_ISSUE_EVIDENCE_CHARS,
       Math.floor(evidenceLimit * 0.85),
     )
-    result = envelope(promptPayload(megaCode, megaName, issues, evidenceLimit))
+    result = envelope(promptPayload(megaCode, megaName, issues, evidenceLimit, majors))
   }
   if (result.length > ISSUE_ANALYSIS_MAX_MEGA_PROMPT_CHARS) {
     throw new IssueAnalysisPromptError(
@@ -446,6 +465,77 @@ function cleanJsonResponse(raw: string): string {
   return (fenced?.[1] ?? trimmed).trim()
 }
 
+export type ProcessDefinitionsValidationResult =
+  | { ok: true; value: IssueAnalysisAreaProcessDefinitions }
+  | { ok: false; error: string }
+
+/**
+ * 정의-Major 연결 불변식: 입력 majors 전원이 정확히 한 번, 조작 id 금지,
+ * 길이 상한·제어문자 금지. 출력은 입력 majors 순서로 정규화한다.
+ */
+export function validateIssueAnalysisProcessDefinitions(
+  value: unknown,
+  majors: readonly Pick<IssueAnalysisAreaMajor, 'id'>[],
+): ProcessDefinitionsValidationResult {
+  const object = record(value)
+  if (!object) return { ok: false, error: 'processDefinitions가 객체가 아닙니다.' }
+  const megaDefinition = typeof object.megaDefinition === 'string'
+    ? object.megaDefinition.trim()
+    : ''
+  if (
+    !megaDefinition
+    || megaDefinition.length > ISSUE_ANALYSIS_MEGA_DEFINITION_MAX
+    || UNSAFE_ANALYSIS_CONTROL_RE.test(megaDefinition)
+  ) {
+    return { ok: false, error: 'Mega 프로세스 정의가 없거나 너무 깁니다.' }
+  }
+  if (!Array.isArray(object.majors)) {
+    return { ok: false, error: 'processDefinitions.majors가 배열이 아닙니다.' }
+  }
+  if (object.majors.length !== majors.length) {
+    return {
+      ok: false,
+      error: `Major 정의 수(${object.majors.length})가 입력 Major 수(${majors.length})와 일치하지 않습니다.`,
+    }
+  }
+  const validIds = new Set(majors.map(major => major.id))
+  const byId = new Map<string, string>()
+  for (let index = 0; index < object.majors.length; index += 1) {
+    const item = record(object.majors[index])
+    const majorId = item && typeof item.majorId === 'string' ? item.majorId.trim() : ''
+    const definition = item && typeof item.definition === 'string'
+      ? item.definition.trim()
+      : ''
+    if (!majorId || !validIds.has(majorId)) {
+      return {
+        ok: false,
+        error: `${index + 1}번째 Major 정의가 입력에 없는 majorId를 참조합니다.`,
+      }
+    }
+    if (byId.has(majorId)) {
+      return { ok: false, error: `Major ${majorId}의 정의가 중복되었습니다.` }
+    }
+    if (
+      !definition
+      || definition.length > ISSUE_ANALYSIS_MAJOR_DEFINITION_MAX
+      || UNSAFE_ANALYSIS_CONTROL_RE.test(definition)
+    ) {
+      return { ok: false, error: `${index + 1}번째 Major 정의가 없거나 너무 깁니다.` }
+    }
+    byId.set(majorId, definition)
+  }
+  return {
+    ok: true,
+    value: {
+      megaDefinition,
+      majors: majors.map(major => ({
+        majorId: major.id,
+        definition: byId.get(major.id) as string,
+      })),
+    },
+  }
+}
+
 export function parseIssueAnalysisAreaResponse(
   raw: string,
   issues: readonly Pick<IssueAnalysisReportIssue, 'id'>[],
@@ -459,6 +549,41 @@ export function parseIssueAnalysisAreaResponse(
   const object = record(parsed)
   if (!object) return { ok: false, error: 'AI 응답 최상위 값이 객체가 아닙니다.' }
   return validateIssueAnalysisOpportunities(object.opportunities, issues)
+}
+
+export interface IssueAnalysisAreaGeneration {
+  opportunities: IssueAnalysisOpportunity[]
+  processDefinitions: IssueAnalysisAreaProcessDefinitions
+}
+
+/** v3 개선기회 호출의 응답 하나에서 개선기회와 프로세스 정의를 함께 검증한다. */
+export function parseIssueAnalysisAreaGeneration(
+  raw: string,
+  issues: readonly Pick<IssueAnalysisReportIssue, 'id'>[],
+  majors: readonly Pick<IssueAnalysisAreaMajor, 'id'>[],
+): { ok: true; value: IssueAnalysisAreaGeneration } | { ok: false; error: string } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(cleanJsonResponse(raw))
+  } catch {
+    return { ok: false, error: 'AI 응답이 유효한 JSON이 아닙니다.' }
+  }
+  const object = record(parsed)
+  if (!object) return { ok: false, error: 'AI 응답 최상위 값이 객체가 아닙니다.' }
+  const opportunities = validateIssueAnalysisOpportunities(object.opportunities, issues)
+  if (!opportunities.ok) return opportunities
+  const processDefinitions = validateIssueAnalysisProcessDefinitions(
+    object.processDefinitions,
+    majors,
+  )
+  if (!processDefinitions.ok) return processDefinitions
+  return {
+    ok: true,
+    value: {
+      opportunities: opportunities.value,
+      processDefinitions: processDefinitions.value,
+    },
+  }
 }
 
 export function parseIssueAnalysisCauseAreaResponse(

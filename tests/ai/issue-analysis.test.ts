@@ -3,13 +3,17 @@ import type { IssueAnalysisReportIssue } from '@/lib/report/issues/model'
 import {
   ISSUE_ANALYSIS_MAX_MEGA_PROMPT_CHARS,
   ISSUE_ANALYSIS_CAUSE_SYSTEM_PROMPT,
+  ISSUE_ANALYSIS_PROMPT_VERSION,
+  ISSUE_ANALYSIS_SYSTEM_PROMPT,
   buildIssueAnalysisCausePrompt,
   buildIssueAnalysisMegaPrompt,
   issueAnalysisInputHash,
+  parseIssueAnalysisAreaGeneration,
   parseIssueAnalysisAreaResponse,
   parseIssueAnalysisCauseAreaResponse,
   validateIssueAnalysisCauseAnalyses,
   validateIssueAnalysisOpportunities,
+  validateIssueAnalysisProcessDefinitions,
 } from '@/lib/ai/issue-analysis'
 import {
   buildIssueAnalysisInputSnapshot,
@@ -53,6 +57,7 @@ const reportIssue = (
   piIssueCode: 'PI-I-00-01',
   megaCode: '00',
   megaSeq: 1,
+  majorId: null,
   title: '기준정보 중복',
   body: 'A'.repeat(20_000),
   status: 'open',
@@ -299,5 +304,148 @@ describe('이슈별 원인분석 AI 출력 검증', () => {
       causes: [{ category: 'process', directCause: '직접 원인', rootCause: '가'.repeat(801) }],
     }], singleIssue)
     expect(longRoot).toMatchObject({ ok: false })
+  })
+})
+
+const PROMPT_MAJORS = [
+  {
+    majorId: 'aaaa0000-0000-4000-8000-000000000001',
+    seqLabel: '00.01',
+    name: '품목기준정보',
+    subProcesses: ['자재 등록'],
+    issueCount: 1,
+  },
+  {
+    majorId: 'aaaa0000-0000-4000-8000-000000000002',
+    seqLabel: '00.02',
+    name: '거래처기준정보',
+    subProcesses: [],
+    issueCount: 0,
+  },
+]
+const VALID_DEFS = {
+  megaDefinition: '기준정보 등록과 표준화를 관리하는 프로세스임',
+  majors: [
+    {
+      majorId: PROMPT_MAJORS[0].majorId,
+      definition: '품목 기준정보의 등록과 중복 통제를 관리하는 프로세스',
+    },
+    {
+      majorId: PROMPT_MAJORS[1].majorId,
+      definition: '거래처 기준정보를 관리하는 프로세스',
+    },
+  ],
+}
+
+describe('프로세스 정의 검증', () => {
+  const majors = PROMPT_MAJORS.map(major => ({ id: major.majorId }))
+
+  it('정상 정의를 입력 majors 순서로 정규화해 통과시킨다', () => {
+    const reversed = { ...VALID_DEFS, majors: [...VALID_DEFS.majors].reverse() }
+    const result = validateIssueAnalysisProcessDefinitions(reversed, majors)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.majors.map(major => major.majorId))
+        .toEqual(majors.map(major => major.id))
+    }
+  })
+
+  it('입력에 없는 majorId 조작을 거부한다', () => {
+    const forged = {
+      ...VALID_DEFS,
+      majors: [
+        VALID_DEFS.majors[0],
+        { majorId: 'ffff0000-0000-4000-8000-000000000009', definition: '조작 정의' },
+      ],
+    }
+    expect(validateIssueAnalysisProcessDefinitions(forged, majors).ok).toBe(false)
+  })
+
+  it('Major 누락·중복을 거부한다', () => {
+    expect(validateIssueAnalysisProcessDefinitions(
+      { ...VALID_DEFS, majors: [VALID_DEFS.majors[0]] }, majors).ok).toBe(false)
+    expect(validateIssueAnalysisProcessDefinitions(
+      { ...VALID_DEFS, majors: [VALID_DEFS.majors[0], VALID_DEFS.majors[0]] },
+      majors,
+    ).ok).toBe(false)
+  })
+
+  it('길이 상한과 빈 정의를 거부한다', () => {
+    expect(validateIssueAnalysisProcessDefinitions(
+      { ...VALID_DEFS, megaDefinition: '가'.repeat(201) }, majors).ok).toBe(false)
+    expect(validateIssueAnalysisProcessDefinitions(
+      {
+        ...VALID_DEFS,
+        majors: [
+          VALID_DEFS.majors[0],
+          { majorId: majors[1].id, definition: '가'.repeat(151) },
+        ],
+      },
+      majors,
+    ).ok).toBe(false)
+    expect(validateIssueAnalysisProcessDefinitions(
+      { ...VALID_DEFS, megaDefinition: '  ' }, majors).ok).toBe(false)
+  })
+
+  it('majors가 빈 입력이면 빈 배열 + megaDefinition을 요구한다', () => {
+    expect(validateIssueAnalysisProcessDefinitions(
+      { megaDefinition: '영역 정의', majors: [] }, []).ok).toBe(true)
+    expect(validateIssueAnalysisProcessDefinitions(
+      { megaDefinition: '영역 정의', majors: VALID_DEFS.majors }, []).ok).toBe(false)
+  })
+})
+
+describe('v3 프롬프트·통합 파스', () => {
+  it('프롬프트 버전이 v3다', () => {
+    expect(ISSUE_ANALYSIS_PROMPT_VERSION).toBe('issue-causes-opportunities-defs-v3')
+  })
+
+  it('majors가 minimum envelope에 포함된다', () => {
+    const prompt = buildIssueAnalysisMegaPrompt(
+      '00',
+      '기준관리',
+      [reportIssue('uuid-1')],
+      PROMPT_MAJORS,
+    )
+    expect(prompt).toContain('majorId')
+    expect(prompt).toContain('00.01')
+    expect(prompt).toContain('품목기준정보')
+  })
+
+  it('시스템 프롬프트가 processDefinitions 스키마를 요구한다', () => {
+    expect(ISSUE_ANALYSIS_SYSTEM_PROMPT).toContain('processDefinitions')
+    expect(ISSUE_ANALYSIS_SYSTEM_PROMPT).toContain('megaDefinition')
+  })
+
+  it('개선기회+정의를 한 응답에서 파스한다', () => {
+    const raw = JSON.stringify({
+      opportunities: [{
+        title: '기준정보 거버넌스 정립',
+        description: '등록 승인과 중복 검사를 표준화한다.',
+        issueIds: ['uuid-1'],
+      }],
+      processDefinitions: VALID_DEFS,
+    })
+    const result = parseIssueAnalysisAreaGeneration(
+      raw,
+      [{ id: 'uuid-1' }],
+      PROMPT_MAJORS.map(major => ({ id: major.majorId })),
+    )
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.opportunities).toHaveLength(1)
+      expect(result.value.processDefinitions.majors).toHaveLength(2)
+    }
+  })
+
+  it('정의가 빠진 응답을 거부한다', () => {
+    const raw = JSON.stringify({
+      opportunities: [{
+        title: '기준정보 거버넌스 정립',
+        description: '등록 승인과 중복 검사를 표준화한다.',
+        issueIds: ['uuid-1'],
+      }],
+    })
+    expect(parseIssueAnalysisAreaGeneration(raw, [{ id: 'uuid-1' }], []).ok).toBe(false)
   })
 })
