@@ -1,4 +1,5 @@
 import { getComputedWbs } from '@/lib/data/wbs'
+import { getProjectConfig } from '@/lib/data/projectConfig'
 import { listProjects } from '@/app/actions/project'
 import { getSession } from '@/lib/auth'
 import { getActorForView } from '@/lib/authz'
@@ -23,12 +24,13 @@ export default async function WbsPage({
   const { projectId } = await params
   const { view, focus } = await searchParams
   const locale = await getServerLocale()
-  const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user] = await Promise.all([
+  const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user, projectConfig] = await Promise.all([
     getComputedWbs(projectId),
     getActorForView(),
     listProjects(),
     getWbsCollapse(projectId),
     getSession(),
+    getProjectConfig(projectId),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   // 프레즌스 신원 — 주간 시트와 동일하게 서버 세션에서 전달
@@ -57,6 +59,8 @@ export default async function WbsPage({
         defaultView={view === 'timeline' ? 'timeline' : 'sheet'}
         initialCollapsed={initialCollapsed ?? undefined}
         focusId={focus ?? null}
+        levelLabels={projectConfig.levelLabels}
+        maxDepth={projectConfig.maxDepth}
       />
     </ProjectPageShell>
   )

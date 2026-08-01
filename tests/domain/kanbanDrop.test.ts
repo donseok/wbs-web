@@ -7,7 +7,7 @@ function card(rolledActualPct: number): ComputedItem {
     id: 'c', parentId: null, level: 'activity', code: 'c', sortOrder: 0, name: 'c',
     biz: null, deliverable: null, plannedStart: '2026-09-01', plannedEnd: '2026-09-30',
     weight: null, actualPct: rolledActualPct, owners: [], isOwnerSplit: false, plannedPct: 0,
-    rolledActualPct, achievement: null, status: 'in_progress', children: [],
+    rolledActualPct, achievement: null, status: 'in_progress', children: [], depth: 0,
   }
 }
 

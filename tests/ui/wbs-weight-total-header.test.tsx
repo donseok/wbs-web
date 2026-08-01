@@ -46,6 +46,7 @@ const phase = (id: string, weight: number | null, children: ComputedItem[] = [])
   achievement: 0,
   status: 'in_progress',
   children,
+  depth: 0,
 })
 
 const child = (id: string, weight: number | null): ComputedItem => ({

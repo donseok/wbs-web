@@ -33,7 +33,7 @@ function item(over: Partial<ComputedItem>): ComputedItem {
     id: 'x', parentId: null, level: 'task', code: '1-3', sortOrder: 0, name: '1-3. 프로젝트 착수 보고회',
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-01',
     weight: null, actualPct: 0, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
-    achievement: null, status: 'not_started', children: [], ...over,
+    achievement: null, status: 'not_started', children: [], depth: 0, ...over,
   }
 }
 
@@ -82,7 +82,8 @@ describe('RowDetailPanel — 하위 추가 시 실적% 폐기 경고', () => {
   })
 
   it('경고와 무관하게 하위 추가는 activity 레벨로 진행된다', async () => {
-    await mount(item({ id: 't1', actualPct: 70 }))
+    // depth 1(task) 의 자식은 depth 2 → 하위호환 레벨 문자열 'activity'(§4.4 legacyChildLevel).
+    await mount(item({ id: 't1', actualPct: 70, depth: 1 }))
     await openAddChild()
     const input = container.querySelector('input')!
     await act(async () => {

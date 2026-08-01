@@ -1,4 +1,4 @@
-import type { ComputedItem, Level, Status, TeamCode } from '@/lib/domain/types'
+import type { ComputedItem, Status, TeamCode } from '@/lib/domain/types'
 
 export const TEAM: Record<TeamCode, { fg: string; bar: string }> = {
   PMO: { fg: 'text-team-pmo', bar: 'bg-team-pmo' },
@@ -20,15 +20,35 @@ export const STATUS: Record<Status, { label: string; chip: string; bar: string; 
   done: { label: '완료', chip: 'bg-done-weak text-done', bar: 'bg-done', dot: 'bg-done' },
 }
 
-const LEVEL: Record<string, { label: string; cls: string } | undefined> = {
-  phase: { label: 'PHASE', cls: 'bg-brand-weak text-brand' },
-  task: { label: 'TASK', cls: 'bg-progress-weak text-progress' },
-  activity: { label: 'ACT', cls: 'bg-pending-weak text-pending' },
-}
-/** 미정의·null 레벨 폴백 — 크래시 대신 중립 배지(Plan C 에서 depth 기반으로 대체). */
-const LEVEL_FALLBACK = { label: 'ITEM', cls: 'bg-surface-2 text-ink-muted' }
-/* act 하위의 담당자별 분리 항목(임포트 시 자동 생성) 전용 표기 — 일반 ACT 와 시각 구분 */
+/** ProjectConfig 미주입(구 테스트·데모 등) 폴백 — lib/data/projectConfig.DEFAULT_PROJECT_CONFIG.levelLabels(D-CUBE)와 값이 같아야
+ * 회귀 0. shared.tsx 는 클라이언트 컴포넌트에서도 import 되므로, next/headers 를 물고 있는 그 서버 전용 모듈은 참조하지
+ * 않고 값만 복제해 둔다. */
+export const DEFAULT_LEVEL_LABELS = ['Phase', 'Task', 'Activity']
+
+/** depth(0-based) 별 배지 색 팔레트 — 옛 LEVEL 상수의 cls 를 그대로 재활용(회귀 0). depth 3+ 는 pending 재사용. */
+const DEPTH_CLASS = [
+  'bg-brand-weak text-brand',       // depth 0 (구 phase)
+  'bg-progress-weak text-progress', // depth 1 (구 task)
+  'bg-pending-weak text-pending',   // depth 2 (구 activity)
+]
+const DEPTH_CLASS_FALLBACK = 'bg-surface-2 text-ink-muted' // depth 3+
+/* act 하위의 담당자별 분리 항목(임포트 시 자동 생성) 전용 표기 — 일반 배지와 시각 구분 */
 const SUB_ACT = { label: 'SUB-ACT', cls: 'bg-surface-2 text-ink-muted' }
+/** D-CUBE(levelLabels=[Phase,Task,Activity]) 하위호환 축약 테이블 — 그 외 라벨은 원문 그대로(회귀 0). */
+const LEGACY_LABEL_ABBR: Record<string, string> = { Phase: 'PHASE', Task: 'TASK', Activity: 'ACT' }
+
+/** 배지 텍스트 — isOwnerSplit 이면 SUB-ACT, 아니면 levelLabels[depth](D-CUBE 축약 규칙 우선), 라벨 밖 깊이는 'N단'. */
+export function levelBadgeText(depth: number, isOwnerSplit: boolean, levelLabels: readonly string[]): string {
+  if (isOwnerSplit) return SUB_ACT.label
+  const label = levelLabels[depth]
+  return LEGACY_LABEL_ABBR[label] ?? label ?? `${depth + 1}단`
+}
+
+/** 배지 색 — isOwnerSplit 이면 SUB-ACT 톤, 아니면 depth 기반 팔레트(depth 3+ 는 폴백 재사용). */
+export function levelBadgeClass(depth: number, isOwnerSplit: boolean): string {
+  if (isOwnerSplit) return SUB_ACT.cls
+  return DEPTH_CLASS[depth] ?? DEPTH_CLASS_FALLBACK
+}
 
 export function StatusChip({ status }: { status: Status }) {
   const s = STATUS[status]
@@ -41,18 +61,19 @@ export function StatusChip({ status }: { status: Status }) {
 }
 
 export function LevelBadge({
-  level,
-  sub = false,
+  depth,
+  isOwnerSplit = false,
+  levelLabels,
   compact = false,
 }: {
-  level: Level
-  sub?: boolean
+  depth: number
+  isOwnerSplit?: boolean
+  levelLabels: readonly string[]
   compact?: boolean
 }) {
-  const l = sub && level === 'activity' ? SUB_ACT : (LEVEL[level] ?? LEVEL_FALLBACK)
   return (
     <span
-      className={`lvl-badge ${l.cls}`}
+      className={`lvl-badge ${levelBadgeClass(depth, isOwnerSplit)}`}
       style={{
         fontSize: 'var(--wbs-badge-font, 10px)',
         ...(compact
@@ -66,7 +87,7 @@ export function LevelBadge({
           : {}),
       }}
     >
-      {l.label}
+      {levelBadgeText(depth, isOwnerSplit, levelLabels)}
     </span>
   )
 }

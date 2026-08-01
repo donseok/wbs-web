@@ -120,7 +120,7 @@ function kanbanLeaf(overrides: Partial<ComputedItem> = {}): ComputedItem {
     id: 'leaf-1', parentId: 'phase-1', level: 'task', code: '1.1', sortOrder: 1, name: '작업',
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-31',
     weight: null, actualPct: 50, owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: false,
-    plannedPct: 50, rolledActualPct: 50, achievement: 1, status: 'in_progress', children: [],
+    plannedPct: 50, rolledActualPct: 50, achievement: 1, status: 'in_progress', children: [], depth: 0,
     ...overrides,
   }
 }

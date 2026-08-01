@@ -8,6 +8,15 @@
 
 **Tech Stack:** Next.js 15 · Supabase(Management API) · vitest · 기존 주입 패턴(Plan A getProjectConfig, teamOrderMap)
 
+
+> **2026-08-01 범위 조정(사용자 결정):** C6(WbsRow.level 제거·RPC 교체)과 C7(level 컬럼 drop·구 임포트 제거)은
+> **Plan D로 분리**한다. C6 착수 중 `WbsRow.level` 제거가 계획이 예상 못한 비-UI 소비처 7곳
+> (DK Bot RAG 임베딩 `analytics.ts`, phase 감지 `match.ts`, 봇 도구 스키마 `ai/tools/wbs.ts`,
+> 엑셀 `buildWbsAoa` 3열 하드코딩, 주간보고 `weekly.ts`·`report/excel.ts`, 리포지토리 매핑)을 노출했고,
+> 이들은 전부 회귀 0 대상(챗봇·주간 PPT·엑셀)이라 각자 Task 2급 depth+levelLabels 재설계가 필요하다.
+> 따라서 **이 계획은 C1~C5(UI depth화 + 엑셀 접기)까지만 실행**하고 `level` 컬럼·필드는 DEPRECATED로 남긴다
+> (UI는 안 읽으므로 무해). 비-UI 7곳 전환과 컬럼 drop은 Plan D.
+
 ## Global Constraints
 
 - **회귀 0이 유일한 합격 기준**(§2-4): 각 배포 후 D-CUBE의 ① WBS 화면(레벨 배지 텍스트 `PHASE/TASK/ACT`·SUB-ACT, 트리 구조, 행 배경, 자식추가 버튼 노출)이 육안 동일 ② 엑셀 익스포트 셀 단위 동일 ③ 대시보드 KPI·스냅샷 동일 ④ `npm run test`·`npm run smoke:prod` 초록.

@@ -12,7 +12,7 @@ const STATUS_LABEL: Record<ComputedItem['status'], string> = {
 }
 
 /**
- * 트리 평탄화. 단, activity 하위의 담당별 sub-activity(임포트 시 자동 생성)는 부모 행으로
+ * 트리 평탄화. 단, 담당별 자동 분리(sub-activity, isOwnerSplit=true)는 부모 행으로
  * 접는다 — 엑셀 3단(Phase/Task/Activity) 형식엔 4단째 자리가 없어 그대로 쓰면 재임포트 때
  * 엉뚱한 부모(직전 Task) 밑으로 들어가 중복 분리가 생긴다. 부모의 담당 표기(●/△)가 남아
  * 있으므로 재임포트 시 sub-act 는 구조적으로 동일하게 재생성된다.
@@ -24,8 +24,10 @@ function flatten(items: ComputedItem[]): ComputedItem[] {
   const out: ComputedItem[] = []
   const walk = (ns: ComputedItem[]) =>
     ns.forEach(n => {
-      out.push(n)
-      if (n.level !== 'activity') walk(n.children)
+      if (!n.isOwnerSplit) {
+        out.push(n)
+        walk(n.children)
+      }
     })
   walk(items)
   return out

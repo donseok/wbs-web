@@ -47,6 +47,7 @@ export interface ComputedItem extends WbsRow {
   achievement: number | null  // rolledActual/planned, planned=0이면 null
   status: Status
   children: ComputedItem[]
+  depth: number
 }
 
 /* ── 멤버 관리 ── */

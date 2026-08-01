@@ -17,12 +17,12 @@ import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 function item(over: Partial<ComputedItem>): ComputedItem {
   return { id: 'x', parentId: null, level: 'activity', code: '1', sortOrder: 0, name: '항목', biz: null,
     deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-10', weight: null, actualPct: 0,
-    owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], ...over }
+    owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], depth: 0, ...over }
 }
 function fixture(): ComputedItem[] {
   const subs = [
-    item({ id: 's1', parentId: 'a1', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }] }),
-    item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }] }),
+    item({ id: 's1', parentId: 'a1', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }], isOwnerSplit: true }),
+    item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
   ]
   const multi = item({ id: 'a1', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
   const task = item({ id: 't1', level: 'task', name: '1-1. 작업', children: [multi] })
@@ -34,13 +34,36 @@ function rowCount(c: HTMLElement) { return c.querySelectorAll('.group.relative.z
 // splitParentIds 는 재귀 walk 라 깊이를 세지 않으므로, 얼마나 깊이 파묻혀 있어도 multi 를 찾아야 한다.
 function fixtureDeep(): ComputedItem[] {
   const subs = [
-    item({ id: 's1', parentId: 'a1', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }] }),
-    item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }] }),
+    item({ id: 's1', parentId: 'a1', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }], isOwnerSplit: true }),
+    item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
   ]
   const multi = item({ id: 'a1', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
   const subtask = item({ id: 'st1', level: 'task', name: '1-1-1. 세부 작업', children: [multi] })
   const task = item({ id: 't1', level: 'task', name: '1-1. 작업', children: [subtask] })
   return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })]
+}
+// level 문자열이 'activity'/'phase'/'task' 관례를 전혀 따르지 않는 N단 트리 — 접기 대상 판정이
+// n.level 문자열이 아니라 isOwnerSplit 플래그만 보는지 증명하는 회귀선(§4.4). 이 fixture는 구현이
+// level 참조로 남아 있으면 RED, depth/isOwnerSplit 로 전환되면 GREEN이어야 한다.
+function fixtureLevelAgnostic(): ComputedItem[] {
+  const subs = [
+    item({ id: 's1', parentId: 'a1', level: 'x', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }], isOwnerSplit: true }),
+    item({ id: 's2', parentId: 'a1', level: 'x', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
+  ]
+  const multi = item({ id: 'a1', level: 'custom-stage', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
+  const mid = item({ id: 'm1', level: 'custom-mid', name: '중간 계층', children: [multi] })
+  const task = item({ id: 't1', level: 'custom-task', name: '1-1. 작업', children: [mid] })
+  return [item({ id: 'p1', level: 'custom-root', name: '1. 준비', children: [task] })]
+}
+// Bar()는 depthMap을 재계산하는 flatRows 스코프 밖의 별도 함수라 n.depth 필드를 직접 읽는다(WbsGanttSheet.tsx).
+// 위의 다른 fixture들은 item() 기본값 depth:0을 아무도 덮어쓰지 않아 모든 노드가 "depth 0"으로 보이므로
+// Bar의 depth===0 분기를 실제로 가르지 못한다 — 이 fixture만 실제 중첩과 일치하는 depth를 명시로 부여한다.
+// level 문자열은 일부러 'phase'/'task' 관례를 안 따르게(custom-*) 지어 Bar가 n.level 이 아니라 n.depth 를
+// 읽는다는 것 자체를 증명한다 — level 을 'phase'로 뒀다면 구현이 실수로 level 로 되돌아가도 이 테스트가
+// 통과해버려 회귀를 못 잡는다.
+function fixtureBarDepth(): ComputedItem[] {
+  const task = item({ id: 't1', level: 'custom-task', name: '1-1. 작업', depth: 1 })
+  return [item({ id: 'p1', level: 'custom-root', name: '1. 준비', depth: 0, children: [task] })]
 }
 
 describe('WBS initialCollapsed', () => {
@@ -77,6 +100,37 @@ describe('WBS initialCollapsed', () => {
       <WbsGanttSheet items={fixtureDeep()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
     ))
     expect(rowCount(container)).toBe(6)
+  })
+
+  it('level 문자열이 activity/phase/task 관례를 따르지 않아도 isOwnerSplit 자식을 가진 노드가 기본 접힘 대상이다', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixtureLevelAgnostic()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
+    ))
+    // 기본값이면 root+task+중간계층+multi=4행(sub 2개 숨김).
+    expect(rowCount(container)).toBe(4)
+  })
+
+  it('level 문자열이 관례를 따르지 않아도 initialCollapsed=[] 이면 그대로 전부 펼쳐진다', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixtureLevelAgnostic()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
+    ))
+    expect(rowCount(container)).toBe(6)
+  })
+
+  it('Bar — depth 0 은 phase 전용 바 스타일(bg-phasebar)을, depth 1 은 진행 바(bg-plan-track)를 받는다(level 문자열과 무관)', async () => {
+    // 회귀 0: D-CUBE에서는 depth 0 이 항상 루트 Phase와 일치하므로(level:'phase'), 이 결과는 구현 이전
+    // n.level==='phase' 분기가 내던 스타일과 실데이터 기준으로 동일하다(§4.4). bg-phasebar(굵은 phase 바)
+    // vs bg-plan-track(얇은 진행 바)는 육안으로 색·굵기 차이가 나는 스타일이라 최종 확인은 T8 배포 육안
+    // 체크리스트 대상 — 이 테스트는 클래스명 수준의 코드 회귀만 잡는다.
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixtureBarDepth()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
+    ))
+    const phaseRow = container.querySelector('[data-row-id="p1"]')!
+    const taskRow = container.querySelector('[data-row-id="t1"]')!
+    expect(phaseRow.querySelector('.bg-phasebar')).not.toBeNull()
+    expect(phaseRow.querySelector('.bg-plan-track')).toBeNull()
+    expect(taskRow.querySelector('.bg-plan-track')).not.toBeNull()
+    expect(taskRow.querySelector('.bg-phasebar')).toBeNull()
   })
 
   it('마운트 시(StrictMode 이중 실행 포함) 저장을 호출하지 않는다', async () => {

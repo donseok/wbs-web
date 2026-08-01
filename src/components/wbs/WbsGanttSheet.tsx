@@ -12,7 +12,7 @@ import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText, GitBranch } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { WbsProgressLens } from './WbsProgressLens'
 import { WbsFontSizeControl } from './WbsFontSizeControl'
@@ -66,12 +66,12 @@ function flatten(items: ComputedItem[], collapsed: Set<string>): ComputedItem[] 
   walk(items)
   return out
 }
-/* 담당별 분리 부모(자식 있는 activity) id — 기본 접힘 대상 */
+/* 담당별 분리 부모(isOwnerSplit 자식을 가진 노드) id — 기본 접힘 대상 */
 function splitParentIds(items: ComputedItem[]): Set<string> {
   const s = new Set<string>()
   const walk = (ns: ComputedItem[]) =>
     ns.forEach(n => {
-      if (n.level === 'activity' && n.children.length) s.add(n.id)
+      if (n.children.some(c => c.isOwnerSplit)) s.add(n.id)
       walk(n.children)
     })
   walk(items)
@@ -137,6 +137,8 @@ export function WbsGanttSheet({
   defaultView = 'sheet',
   initialCollapsed,
   focusId = null,
+  levelLabels = DEFAULT_LEVEL_LABELS,
+  maxDepth = null,
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
@@ -160,6 +162,10 @@ export function WbsGanttSheet({
   initialCollapsed?: string[]
   /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
   focusId?: string | null
+  /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
+  levelLabels?: string[]
+  /** 프로젝트별 최대 깊이(§7.3 ProjectConfig, null=무제한) — RowDetailPanel 자식추가 어포던스 판정에 전파. */
+  maxDepth?: number | null
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -344,7 +350,7 @@ export function WbsGanttSheet({
     const m = new Map<string, string>()
     const walk = (ns: ComputedItem[]) =>
       ns.forEach(n => {
-        if (n.level === 'activity') n.children.forEach(c => m.set(c.id, subActLabel(c.name, n.name)))
+        n.children.filter(c => c.isOwnerSplit).forEach(c => m.set(c.id, subActLabel(c.name, n.name)))
         walk(n.children)
       })
     walk(items)
@@ -980,9 +986,9 @@ export function WbsGanttSheet({
             const isCritical = schedule?.critical ?? false
             const rowNo = idx + 1
             const rowBg =
-              n.level === 'phase'
+              depth === 0
                 ? 'bg-[#f1f4f9]'
-                : n.level === 'task'
+                : depth === 1
                   ? 'bg-[#f8faff]'
                   : rowNo % 2 === 0
                     ? 'bg-zebra'
@@ -995,9 +1001,9 @@ export function WbsGanttSheet({
             } group-hover:bg-brand-weak`
             const subLabel = subActLabels.get(n.id)
             const nameWeight =
-              n.level === 'phase'
+              depth === 0
                 ? 'font-semibold text-ink'
-                : n.level === 'task'
+                : depth === 1
                   ? 'font-medium text-ink'
                   : subLabel != null
                     ? 'text-ink-muted'
@@ -1049,7 +1055,7 @@ export function WbsGanttSheet({
                   className={`${cellBase} overflow-hidden border-r border-grid-strong justify-center ${cellBg}`}
                   style={{ ...frozen('level'), paddingInline: 4 }}
                 >
-                  <LevelBadge level={n.level} sub={subLabel != null} compact />
+                  <LevelBadge depth={n.depth} isOwnerSplit={n.isOwnerSplit} levelLabels={levelLabels} compact />
                 </div>
                 {/* 작업명 */}
                 <div data-wbs-col="name" className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
@@ -1329,6 +1335,7 @@ export function WbsGanttSheet({
             parentPath={progressLensActiveId ? progressLensPathById.get(progressLensActiveId) ?? [] : []}
             pinned={!!progressLensPinnedId}
             onTogglePin={toggleProgressLensPin}
+            levelLabels={levelLabels}
           />
         </div>
       )}
@@ -1398,12 +1405,13 @@ export function WbsGanttSheet({
           allItems={allFlatItems}
           dependencies={dependencies}
           schedule={dependencySchedule.byId.get(selectedItem.id)}
-          subAct={subActLabels.has(selectedItem.id)}
           onClose={() => setSelectedId(null)}
           editable={isAdmin && !readOnly}
           canAttach={!readOnly && (isAdmin || (isProjectMember(actor, projectId) && selectedItem.owners.some(o => o.team === actorView?.teamCode)))}
           canEditDeliverable={!readOnly && canEditDeliverable(selectedItem, actor, projectId)}
           projectId={projectId}
+          levelLabels={levelLabels}
+          maxDepth={maxDepth}
         />
       )}
     </div>
@@ -1539,7 +1547,7 @@ function Bar({
     />
   ) : null
 
-  if (n.level === 'phase') {
+  if (n.depth === 0) {
     return (
       <>
         <div

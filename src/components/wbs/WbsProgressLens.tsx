@@ -6,18 +6,21 @@ import { formatPct1, formatPp1 } from '@/lib/domain/format'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { ProgressBar } from '@/components/ui/ProgressBar'
-import { LevelBadge, OwnerBadges, STATUS, fmtDate } from './shared'
+import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate } from './shared'
 
 export function WbsProgressLens({
   item,
   parentPath,
   pinned,
   onTogglePin,
+  levelLabels = DEFAULT_LEVEL_LABELS,
 }: {
   item: ComputedItem | null
   parentPath: string[]
   pinned: boolean
   onTogglePin: () => void
+  /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 상위(WbsGanttSheet)가 서버 페이지에서 받아 전파. */
+  levelLabels?: string[]
 }) {
   const { t } = useLocale()
 
@@ -54,7 +57,7 @@ export function WbsProgressLens({
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 text-xs text-ink-subtle">
-                <LevelBadge level={item.level} />
+                <LevelBadge depth={item.depth} isOwnerSplit={item.isOwnerSplit} levelLabels={levelLabels} />
                 <span data-lens-field="path" className="truncate">{pathLabel}</span>
               </div>
               <h3 data-lens-field="name" className="mt-1 truncate text-lg font-bold tracking-tight text-ink">
