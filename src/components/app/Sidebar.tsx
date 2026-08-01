@@ -193,7 +193,12 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
 
       {/* 전역: 회의록 */}
       <Tooltip label={t('nav.minutes')} side="right" disabled={!collapsed}>
-        <Link href="/minutes" aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
+        <Link href="/minutes" onClick={() => {
+          // 회의록은 본문 작업 영역을 넓게 쓰는 화면이므로 진입과 동시에 사이드바를 접는다.
+          // 사용자 선택으로 발생한 변경이므로 다음 세션에도 유지되도록 서버 설정도 갱신한다.
+          dispatchSidebarToggle(true)
+          queueUiPref({ sidebarCollapsed: true })
+        }} aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
           className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
           <NotebookText className="h-[18px] w-[18px] shrink-0" />
           {!collapsed && <span className="flex-1">{t('nav.minutes')}</span>}
