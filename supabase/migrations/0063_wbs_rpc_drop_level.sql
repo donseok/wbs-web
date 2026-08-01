@@ -1,4 +1,4 @@
--- 0062: import_wbs·replace_wbs RPC 에서 level insert 제거 — level 컬럼 drop 준비(Task 4, 2026-08-01).
+-- 0063: import_wbs·replace_wbs RPC 에서 level insert 제거 — level 컬럼 drop 준비(Task 4, 2026-08-01).
 --
 -- level 컬럼은 deprecated 다(N단 WBS 코어 전환 이후 depth/parent_id 기반 판정으로 대체됨 — Plan D,
 -- generic-wbs-core). 이 마이그레이션은 두 RPC(0060 의 import_wbs, 0061 의 replace_wbs)의 INSERT

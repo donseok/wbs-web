@@ -1,5 +1,5 @@
 -- 롤백 — import_wbs·replace_wbs 를 0060/0061 정의(level insert 포함)로 복원한다.
--- project_settings.excel_profile 백필은 0062 가 재실행하지 않았으므로 여기서도 손대지 않는다.
+-- project_settings.excel_profile 백필은 0063 이 재실행하지 않았으므로 여기서도 손대지 않는다.
 begin;
 set search_path = public, extensions;
 
