@@ -93,6 +93,30 @@ function opportunityResponse(prompt: string): string {
   })
 }
 
+function causeResponse(prompt: string): string {
+  const match = prompt.match(/<issue_data_json>\n([\s\S]+)\n<\/issue_data_json>/)
+  if (!match) throw new Error('prompt payload missing')
+  const payload = JSON.parse(match[1]) as {
+    issues: Array<{ id: string; title: string }>
+  }
+  return JSON.stringify({
+    causeAnalyses: payload.issues.map(item => ({
+      issueId: item.id,
+      causes: [{
+        category: 'process',
+        directCause: `${item.title}의 처리 절차와 기준이 표준화되어 있지 않다.`,
+        rootCause: '업무 기준의 관리 책임과 정기 검토 체계가 정의되지 않았다.',
+      }],
+    })),
+  })
+}
+
+function analysisResponse(system: string, prompt: string): string {
+  return system.includes('causeAnalyses')
+    ? causeResponse(prompt)
+    : opportunityResponse(prompt)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.cached = null
@@ -114,7 +138,7 @@ describe('ensureIssueAnalysis', () => {
       active += 1
       maxActive = Math.max(maxActive, active)
       await new Promise(resolve => setTimeout(resolve, 5))
-      const response = opportunityResponse(messages[0].content)
+      const response = analysisResponse(_system, messages[0].content)
       active -= 1
       return response
     })
@@ -127,7 +151,7 @@ describe('ensureIssueAnalysis', () => {
 
     expect(first).toMatchObject({ state: 'generated', runId: 'generated-run' })
     expect(duplicate).toEqual(first)
-    expect(mocks.generateAnswer).toHaveBeenCalledTimes(3)
+    expect(mocks.generateAnswer).toHaveBeenCalledTimes(6)
     expect(maxActive).toBe(2)
     expect(mocks.cacheReads).toBe(1)
     expect(mocks.upserts).toHaveLength(1)
@@ -135,7 +159,20 @@ describe('ensureIssueAnalysis', () => {
       issue_count: 3,
       created_by: 'user-1',
       status: 'ready',
-      prompt_version: 'issue-opportunities-v1',
+      prompt_version: 'issue-causes-opportunities-v2',
+    })
+    expect(mocks.upserts[0]).toMatchObject({
+      analysis_json: {
+        areas: expect.arrayContaining([
+          expect.objectContaining({
+            megaCode: '00',
+            causeAnalyses: [expect.objectContaining({
+              issueId: issues[0].id,
+              causes: [expect.objectContaining({ category: 'process' })],
+            })],
+          }),
+        ]),
+      },
     })
   })
 
@@ -143,7 +180,7 @@ describe('ensureIssueAnalysis', () => {
     mocks.generateAnswer.mockImplementation(async (
       _system: string,
       messages: Array<{ content: string }>,
-    ) => opportunityResponse(messages[0].content))
+    ) => analysisResponse(_system, messages[0].content))
     const issues = [issue('00', 1)]
     const generated = await ensureIssueAnalysis('project-1', issues, 'user-1')
     expect(generated.state).toBe('generated')
@@ -164,11 +201,36 @@ describe('ensureIssueAnalysis', () => {
     expect(mocks.generateAnswer).not.toHaveBeenCalled()
   })
 
+  it('현재 prompt 버전 캐시에 원인분석이 없으면 원인 없는 결과로 재사용하지 않는다', async () => {
+    mocks.generateAnswer.mockImplementation(async (
+      system: string,
+      messages: Array<{ content: string }>,
+    ) => analysisResponse(system, messages[0].content))
+    const issues = [issue('00', 1)]
+    const generated = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    expect(generated.state).toBe('generated')
+    const legacyAnalysis = JSON.parse(JSON.stringify(mocks.upserts[0].analysis_json)) as {
+      areas: Array<Record<string, unknown>>
+    }
+    legacyAnalysis.areas.forEach(area => delete area.causeAnalyses)
+    mocks.cached = {
+      id: 'legacy-cache',
+      analysis_json: legacyAnalysis,
+      model: 'test-model',
+    }
+    mocks.generateAnswer.mockClear()
+
+    const cached = await ensureIssueAnalysis('project-1', issues, 'user-1')
+
+    expect(cached).toMatchObject({ state: 'unavailable', reason: 'storage_failed' })
+    expect(mocks.generateAnswer).not.toHaveBeenCalled()
+  })
+
   it('현재 설정 모델과 다른 캐시는 miss로 보고 같은 unique 행을 새 모델 결과로 교체한다', async () => {
     mocks.generateAnswer.mockImplementation(async (
       _system: string,
       messages: Array<{ content: string }>,
-    ) => opportunityResponse(messages[0].content))
+    ) => analysisResponse(_system, messages[0].content))
     const issues = [issue('00', 1)]
     const first = await ensureIssueAnalysis('project-1', issues, 'user-1')
     expect(first.state).toBe('generated')
@@ -181,7 +243,7 @@ describe('ensureIssueAnalysis', () => {
 
     const regenerated = await ensureIssueAnalysis('project-1', issues, 'user-1')
     expect(regenerated).toMatchObject({ state: 'generated', model: 'test-model' })
-    expect(mocks.generateAnswer).toHaveBeenCalledTimes(1)
+    expect(mocks.generateAnswer).toHaveBeenCalledTimes(2)
     expect(mocks.upserts).toHaveLength(2)
     expect(mocks.upserts[1]).toMatchObject({ model: 'test-model' })
   })
@@ -193,7 +255,7 @@ describe('ensureIssueAnalysis', () => {
     ) => {
       if (messages[0].content.includes('"megaCode":"01"')) return null
       await new Promise(resolve => setTimeout(resolve, 5))
-      return opportunityResponse(messages[0].content)
+      return analysisResponse(_system, messages[0].content)
     })
     const result = await ensureIssueAnalysis('project-1', [
       issue('00', 1),
@@ -201,6 +263,56 @@ describe('ensureIssueAnalysis', () => {
       issue('02', 3),
     ], 'user-1')
     expect(result).toMatchObject({ state: 'unavailable', reason: 'llm_failed' })
+    expect(mocks.upserts).toHaveLength(0)
+  })
+
+  it('한 Mega의 원인분석을 최대 3개 이슈 chunk로 나누고 전체 UUID를 한 번씩 저장한다', async () => {
+    const causeChunkSizes: number[] = []
+    mocks.generateAnswer.mockImplementation(async (
+      system: string,
+      messages: Array<{ content: string }>,
+    ) => {
+      if (system.includes('causeAnalyses')) {
+        const match = messages[0].content.match(/<issue_data_json>\n([\s\S]+)\n<\/issue_data_json>/)
+        const payload = JSON.parse(match?.[1] ?? '{}') as { issues?: unknown[] }
+        causeChunkSizes.push(payload.issues?.length ?? 0)
+      }
+      return analysisResponse(system, messages[0].content)
+    })
+    const issues = Array.from({ length: 4 }, (_, index) => ({
+      ...issue('00', index + 1),
+      id: `550e8400-e29b-41d4-a716-4466554400${index}`,
+      issueNo: index + 1,
+      megaSeq: index + 1,
+      piIssueCode: `PI-I-00-${String(index + 1).padStart(2, '0')}`,
+      title: `기준관리 이슈 ${index + 1}`,
+    }))
+
+    const result = await ensureIssueAnalysis('project-1', issues, 'user-1')
+
+    expect(result).toMatchObject({ state: 'generated' })
+    expect(mocks.generateAnswer).toHaveBeenCalledTimes(3)
+    expect(causeChunkSizes).toEqual([3, 1])
+    expect(mocks.upserts).toHaveLength(1)
+    const analysis = mocks.upserts[0].analysis_json as {
+      areas: Array<{ megaCode: string; causeAnalyses?: Array<{ issueId: string }> }>
+    }
+    expect(analysis.areas.find(area => area.megaCode === '00')?.causeAnalyses?.map(item => item.issueId))
+      .toEqual(issues.map(item => item.id))
+  })
+
+  it('원인분석 chunk가 이슈를 누락하면 개선기회만 부분 저장하지 않는다', async () => {
+    mocks.generateAnswer.mockImplementation(async (
+      system: string,
+      messages: Array<{ content: string }>,
+    ) => {
+      if (system.includes('causeAnalyses')) return JSON.stringify({ causeAnalyses: [] })
+      return opportunityResponse(messages[0].content)
+    })
+
+    const result = await ensureIssueAnalysis('project-1', [issue('00', 1)], 'user-1')
+
+    expect(result).toMatchObject({ state: 'unavailable', reason: 'invalid_response' })
     expect(mocks.upserts).toHaveLength(0)
   })
 })

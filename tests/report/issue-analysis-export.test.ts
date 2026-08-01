@@ -5,7 +5,10 @@ import type {
   IssueAnalysisReportArea,
   IssueAnalysisReportIssue,
 } from '@/lib/report/issues/model'
-import { buildIssueAnalysisDeckPlan } from '@/lib/report/issues/deckPlan'
+import {
+  buildIssueAnalysisDeckPlan,
+  normalizeIssueAnalysisMultilineText,
+} from '@/lib/report/issues/deckPlan'
 import {
   buildIssueAnalysisFilename,
   getIssueAnalysisPptExportDiagnostic,
@@ -87,6 +90,38 @@ async function zipText(zip: JSZip, path: string): Promise<string> {
   return file.async('string')
 }
 
+function xmlParagraphContaining(xml: string, text: string): string {
+  const paragraph = (xml.match(/<a:p(?:\s[^>]*)?>[\s\S]*?<\/a:p>/g) ?? [])
+    .find(candidate => candidate.includes(text))
+  if (!paragraph) throw new Error(`missing paragraph in test XML: ${text}`)
+  return paragraph
+}
+
+function expectCanonicalIssueParagraph(
+  paragraph: string,
+  expected: { marL: string; indent: string; lvl: '0' | '1' },
+): void {
+  const pPr = paragraph.match(
+    /<a:pPr\b[^>]*\/>|<a:pPr\b[\s\S]*?<\/a:pPr>/,
+  )?.[0]
+  expect(pPr).toBeDefined()
+  expect(pPr).toContain(`marL="${expected.marL}"`)
+  expect(pPr).toContain(`indent="${expected.indent}"`)
+  expect(pPr).toContain(`lvl="${expected.lvl}"`)
+  expect(pPr?.match(/\bmarL=/g)).toHaveLength(1)
+  expect(pPr?.match(/\bindent=/g)).toHaveLength(1)
+  expect(pPr?.match(/\blvl=/g)).toHaveLength(1)
+  expect(paragraph).toContain('<a:buNone/>')
+  expect(paragraph).not.toMatch(/<a:bu(?:Char|Font|AutoNum|Blip)\b/)
+  expect(paragraph).not.toContain('Wingdings')
+  const bulletIndex = pPr?.indexOf('<a:buNone') ?? -1
+  expect(bulletIndex).toBeGreaterThanOrEqual(0)
+  for (const successor of ['<a:tabLst', '<a:defRPr', '<a:extLst']) {
+    const successorIndex = pPr?.indexOf(successor) ?? -1
+    if (successorIndex >= 0) expect(bulletIndex).toBeLessThan(successorIndex)
+  }
+}
+
 describe('이슈 분석서 PPT 내보내기', () => {
   it('프로젝트명과 서울 날짜로 안전한 파일명을 만든다', () => {
     expect(buildIssueAnalysisFilename(
@@ -146,6 +181,200 @@ describe('이슈 분석서 PPT 내보내기', () => {
       expect(opportunity).not.toContain(`<p:cNvPr id="${unusedId}"`)
     }
     expect(opportunity).not.toContain('제품별로 부정확한 원가정보 제공')
+  })
+
+  it('이슈 본문의 최상위·하위 항목 기호를 텍스트로 고정하고 템플릿 bullet을 제거한다', async () => {
+    const sales = area('02', 1, 1)
+    const body = [
+      '[현황]',
+      '- 최상위 대시 항목 TOP-DASH',
+      '* 최상위 별표 항목 TOP-STAR',
+      '• 최상위 원형 항목 TOP-DOT',
+      '  - 들여쓴 하위 항목 CHILD-INDENT',
+      '✓ 명시 체크 항목 CHILD-CHECK',
+      '✔ 명시 굵은 체크 항목 CHILD-BOLD-CHECK',
+      '☑ 명시 상자 체크 항목 CHILD-BOX-CHECK',
+      '일반 설명 문장 PLAIN-END',
+    ].join('\n')
+    sales.issues[0] = { ...sales.issues[0], body }
+    sales.opportunities[0].issueIds = [sales.issues[0].id]
+    const bulletPlan = plan([sales])
+    const issueEntry = bulletPlan.slides
+      .map((slide, index) => ({ slide, outputPage: index + 1 }))
+      .find(({ slide }) => slide.kind === 'area-summary')
+    expect(issueEntry?.slide.kind).toBe('area-summary')
+    if (!issueEntry || issueEntry.slide.kind !== 'area-summary') {
+      throw new Error('missing issue summary slide')
+    }
+    expect(issueEntry.slide.issues.map(row => row.body).join(''))
+      .toBe(normalizeIssueAnalysisMultilineText(body))
+
+    const bytes = await renderIssueAnalysisPpt(bulletPlan)
+    const zip = await JSZip.loadAsync(bytes)
+    const issueXml = await zipText(zip, `ppt/slides/slide${issueEntry.outputPage}.xml`)
+    const expectedItems: Array<{
+      text: string
+      marL: string
+      indent: string
+      lvl: '0' | '1'
+    }> = [
+      { text: '• 최상위 대시 항목 TOP-DASH', marL: '171450', indent: '-171450', lvl: '0' },
+      { text: '• 최상위 별표 항목 TOP-STAR', marL: '171450', indent: '-171450', lvl: '0' },
+      { text: '• 최상위 원형 항목 TOP-DOT', marL: '171450', indent: '-171450', lvl: '0' },
+      { text: '✓ 들여쓴 하위 항목 CHILD-INDENT', marL: '358775', indent: '-184150', lvl: '1' },
+      { text: '✓ 명시 체크 항목 CHILD-CHECK', marL: '358775', indent: '-184150', lvl: '1' },
+      { text: '✓ 명시 굵은 체크 항목 CHILD-BOLD-CHECK', marL: '358775', indent: '-184150', lvl: '1' },
+      { text: '✓ 명시 상자 체크 항목 CHILD-BOX-CHECK', marL: '358775', indent: '-184150', lvl: '1' },
+      { text: '• 일반 설명 문장 PLAIN-END', marL: '171450', indent: '-171450', lvl: '0' },
+    ]
+    for (const item of expectedItems) {
+      expect(issueXml).toContain(`<a:t>${item.text}</a:t>`)
+      const paragraph = xmlParagraphContaining(issueXml, item.text)
+      expectCanonicalIssueParagraph(paragraph, item)
+    }
+    expect(issueXml).not.toContain('<a:buChar char="§"/>')
+    expect(issueXml).not.toContain('<a:t>- 최상위 대시 항목')
+    expect(issueXml).not.toContain('<a:t>* 최상위 별표 항목')
+    expect(issueXml).not.toContain('<a:t>✔ 명시 굵은 체크 항목')
+    expect(issueXml).not.toContain('<a:t>☑ 명시 상자 체크 항목')
+    expect(issueXml).not.toContain('…')
+  })
+
+  it('장문 목록의 계속 조각은 같은 단계와 0 들여쓰기를 유지하고 marker를 반복하지 않는다', async () => {
+    const sales = area('02', 1, 1)
+    const topText = Array.from(
+      { length: 100 },
+      (_, index) => `TOP-${String(index).padStart(3, '0')}-상위항목설명`,
+    ).join(' ')
+    const childText = Array.from(
+      { length: 100 },
+      (_, index) => `CHILD-${String(index).padStart(3, '0')}-하위항목설명`,
+    ).join(' ')
+    sales.issues[0] = {
+      ...sales.issues[0],
+      body: ['[현황]', `- ${topText}`, `  - ${childText}`].join('\n'),
+    }
+    sales.opportunities[0].issueIds = [sales.issues[0].id]
+
+    const longListPlan = plan([sales])
+    const issueEntries = longListPlan.slides
+      .map((slide, index) => ({ slide, outputPage: index + 1 }))
+      .filter(({ slide }) =>
+        slide.kind === 'area-summary' || slide.kind === 'area-summary-continuation')
+    const paragraphEntries = issueEntries.flatMap(({ slide, outputPage }) => {
+      if (slide.kind !== 'area-summary' && slide.kind !== 'area-summary-continuation') return []
+      return slide.issues.flatMap(row => row.bodyParagraphs.map(paragraph => ({
+        paragraph,
+        outputPage,
+      })))
+    }).filter(({ paragraph }) => !paragraph.heading && paragraph.text)
+    const topMarkerIndex = paragraphEntries.findIndex(({ paragraph }) =>
+      paragraph.marker === 'bullet')
+    const childMarkerIndex = paragraphEntries.findIndex(({ paragraph }) =>
+      paragraph.marker === 'check')
+    const topMarker = paragraphEntries[topMarkerIndex]
+    const topContinuation = paragraphEntries
+      .slice(topMarkerIndex + 1, childMarkerIndex)
+      .find(({ paragraph }) => paragraph.level === 0 && paragraph.marker === null)
+    const childMarker = paragraphEntries[childMarkerIndex]
+    const childContinuation = paragraphEntries
+      .slice(childMarkerIndex + 1)
+      .find(({ paragraph }) => paragraph.level === 1 && paragraph.marker === null)
+
+    expect(issueEntries.length).toBeGreaterThan(1)
+    expect(topMarker).toBeDefined()
+    expect(topContinuation).toBeDefined()
+    expect(childMarker).toBeDefined()
+    expect(childContinuation).toBeDefined()
+    expect(paragraphEntries.filter(({ paragraph }) => paragraph.marker === 'bullet'))
+      .toHaveLength(1)
+    expect(paragraphEntries.filter(({ paragraph }) => paragraph.marker === 'check'))
+      .toHaveLength(1)
+
+    const bytes = await renderIssueAnalysisPpt(longListPlan)
+    const zip = await JSZip.loadAsync(bytes)
+    const xmlByPage = new Map<number, string>()
+    for (const { outputPage } of issueEntries) {
+      xmlByPage.set(outputPage, await zipText(zip, `ppt/slides/slide${outputPage}.xml`))
+    }
+    const checks = [
+      { entry: topMarker, marker: '• ', marL: '171450', indent: '-171450', lvl: '0' as const },
+      { entry: topContinuation, marker: '', marL: '171450', indent: '0', lvl: '0' as const },
+      { entry: childMarker, marker: '✓ ', marL: '358775', indent: '-184150', lvl: '1' as const },
+      { entry: childContinuation, marker: '', marL: '358775', indent: '0', lvl: '1' as const },
+    ]
+    for (const check of checks) {
+      if (!check.entry) throw new Error('missing long-list paragraph fixture')
+      const xml = xmlByPage.get(check.entry.outputPage)
+      if (!xml) throw new Error(`missing long-list slide XML: ${check.entry.outputPage}`)
+      const renderedText = `${check.marker}${check.entry.paragraph.text}`
+      const paragraph = xmlParagraphContaining(xml, renderedText)
+      expectCanonicalIssueParagraph(paragraph, check)
+      if (!check.marker) {
+        expect(paragraph).not.toMatch(/<a:t(?:\s[^>]*)?>• /)
+        expect(paragraph).not.toMatch(/<a:t(?:\s[^>]*)?>✓ /)
+      }
+    }
+    const issueXml = [...xmlByPage.values()].join('\n')
+    expect(issueXml.match(/<a:t(?:\s[^>]*)?>• /g)).toHaveLength(1)
+    expect(issueXml.match(/<a:t(?:\s[^>]*)?>✓ /g)).toHaveLength(1)
+    expect(issueXml).not.toContain('…')
+  })
+
+  it('원본 10페이지에 이슈별 직접·근본 원인을 자동 작성하고 미확정 원인을 명시한다', async () => {
+    const sales = area('02', 1, 1) as IssueAnalysisReportArea & {
+      causeAnalyses: Array<{
+        issueId: string
+        causes: Array<{
+          category: 'process' | 'it'
+          directCause: string
+          rootCause: string | null
+        }>
+      }>
+    }
+    sales.causeAnalyses = [{
+      issueId: sales.issues[0].id,
+      causes: [{
+        category: 'process',
+        directCause: '주문 승인과 입력 절차가 채널별로 다르다.',
+        rootCause: '표준 주문 정책의 관리 책임과 정기 검토 체계가 정의되지 않았다.',
+      }, {
+        category: 'it',
+        directCause: '주문 입력 단계에서 필수값을 자동 검증하는 기능이 없다.',
+        rootCause: null,
+      }],
+    }]
+    const causePlan = plan([sales])
+    const causeEntry = causePlan.slides
+      .map((slide, index) => ({ slide, outputPage: index + 1 }))
+      .find(({ slide }) => slide.kind === 'cause-analysis')
+    expect(causeEntry).toBeDefined()
+
+    const bytes = await renderIssueAnalysisPpt(causePlan)
+    const zip = await JSZip.loadAsync(bytes)
+    const causeXml = await zipText(
+      zip,
+      `ppt/slides/slide${causeEntry?.outputPage}.xml`,
+    )
+
+    expect(causeXml).toContain('이슈별 원인 분석 – 02_영업')
+    expect(causeXml).toContain('2. 영역 별 이슈 및 원인 분석서')
+    expect(causeXml).toContain('PI-I-02-01')
+    expect(causeXml).toContain('자동 이슈 1')
+    expect(causeXml).toContain('자동 이슈 1 상세 내용')
+    expect(causeXml).toContain('Sub 1')
+    expect(causeXml).toContain('현업 인터뷰 1')
+    expect(causeXml).toContain('P · 프로세스')
+    expect(causeXml).toContain('I · IT')
+    expect(causeXml).toContain('[직접 원인]')
+    expect(causeXml).toContain('주문 승인과 입력 절차가 채널별로 다르다.')
+    expect(causeXml).toContain('[근본 원인]')
+    expect(causeXml).toContain('표준 주문 정책의 관리 책임과 정기 검토 체계가 정의되지 않았다.')
+    expect(causeXml).toContain('추가 확인 필요')
+    expect(causeXml).toContain('<a:normAutofit/>')
+    expect(causeXml).not.toContain('PI-I-02-03')
+    expect(causeXml).not.toContain('복잡하고 반복적인 주문 입력 업무')
+    expect(causeXml).not.toContain('엑셀,PDF,카톡 주문접수내역')
   })
 
   it('여러 Mega의 개선기회를 한 페이지에 묶고 동적 shape 연결을 유효하게 만든다', async () => {

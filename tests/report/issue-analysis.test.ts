@@ -172,6 +172,41 @@ describe('이슈 분석 입력/결과 모델', () => {
       generatedAt: '2026-07-31T00:00:00Z',
     })
     expect(report.areas[0].opportunities[0].issueIds).toEqual(['i-1'])
+    expect(report.areas[0]).not.toHaveProperty('causeAnalyses')
+    expect(JSON.parse(JSON.stringify(report))).toEqual(report)
+  })
+
+  it('이슈별 직접·근본 원인을 UUID 기준으로 직렬화하고 입력 스냅샷과 분리한다', () => {
+    const snapshot = buildIssueAnalysisInputSnapshot('project-1', [issue('i-1')])
+    const causeAnalyses = {
+      '00': [{
+        issueId: 'i-1',
+        causes: [
+          {
+            category: 'process' as const,
+            directCause: '자재 등록 전에 중복 여부를 확인하는 표준 절차가 없다.',
+            rootCause: '기준정보 정책의 관리 책임과 정기 검토 체계가 정의되지 않았다.',
+          },
+          {
+            category: 'it' as const,
+            directCause: 'ERP 등록 화면에 중복 후보를 자동으로 확인하는 기능이 없다.',
+            rootCause: null,
+          },
+        ],
+      }],
+    }
+    const report = buildIssueAnalysisReport(snapshot, {
+      '00': [{
+        title: '기준정보 단일화',
+        description: '중복 등록을 통제한다.',
+        issueIds: ['i-1'],
+      }],
+    }, '2026-07-31T00:00:00Z', causeAnalyses)
+
+    expect(report.areas[0].causeAnalyses).toEqual(causeAnalyses['00'])
+    expect(report.areas[0].causeAnalyses).not.toBe(causeAnalyses['00'])
+    expect(report.areas[0].causeAnalyses?.[0].causes).not.toBe(causeAnalyses['00'][0].causes)
+    expect(snapshot.areas[0]).not.toHaveProperty('causeAnalyses')
     expect(JSON.parse(JSON.stringify(report))).toEqual(report)
   })
 })

@@ -81,6 +81,22 @@ function report(areas: IssueAnalysisReportArea[]): IssueAnalysisReport {
   }
 }
 
+type CauseAnalysisFixture = {
+  issueId: string
+  causes: Array<{
+    category: 'strategy_policy' | 'process' | 'organization' | 'it'
+    directCause: string
+    rootCause: string | null
+  }>
+}
+
+function withCauseAnalyses(
+  target: IssueAnalysisReportArea,
+  causeAnalyses: CauseAnalysisFixture[],
+): IssueAnalysisReportArea & { causeAnalyses: CauseAnalysisFixture[] } {
+  return Object.assign(target, { causeAnalyses })
+}
+
 describe('buildIssueAnalysisDeckPlan', () => {
   it('고정 페이지를 유지하고 8건을 3+5 이슈 페이지로 나눈다', () => {
     const plan = buildIssueAnalysisDeckPlan(report([area(8)]), {
@@ -153,6 +169,136 @@ describe('buildIssueAnalysisDeckPlan', () => {
       opportunityNo: 2,
       issues: [{ id: 'issue-1', piIssueCode: 'PI-I-02-01', title: '이슈 1' }],
     })
+  })
+
+  it('저장된 이슈별 원인을 원본 10페이지에 자동 배치한다', () => {
+    const sales = area(1)
+    withCauseAnalyses(sales, [{
+      issueId: sales.issues[0].id,
+      causes: [{
+        category: 'process',
+        directCause: '주문 승인과 입력 절차가 채널별로 다르다.',
+        rootCause: '표준 주문 접수 정책의 관리 책임이 정의되지 않았다.',
+      }],
+    }])
+
+    const plan = buildIssueAnalysisDeckPlan(report([sales]), {
+      projectName: 'D-Cube',
+      authorName: '작성자',
+      authorTeam: 'PI팀',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const causeSlides = plan.slides.filter(slide => slide.kind === 'cause-analysis')
+
+    expect(plan.slides.map(slide => slide.sourceSlide)).toEqual([
+      1, 2, 3, 4, 8, 10, 11, 12,
+    ])
+    expect(causeSlides).toHaveLength(1)
+    expect(causeSlides[0]).toMatchObject({
+      sourceSlide: 10,
+      megaCode: '02',
+      megaName: '영업',
+      issueId: sales.issues[0].id,
+      piIssueCode: 'PI-I-02-01',
+      pageInIssue: 1,
+      pageCount: 1,
+      issue: {
+        title: '이슈 1',
+        body: '이슈 1 상세 내용',
+        subProcess: 'Sub 1',
+      },
+      causes: [{
+        category: 'process',
+        categoryLabel: 'P · 프로세스',
+        analysis: [
+          '[직접 원인]',
+          '주문 승인과 입력 절차가 채널별로 다르다.',
+          '[근본 원인]',
+          '표준 주문 접수 정책의 관리 책임이 정의되지 않았다.',
+        ].join('\n'),
+      }],
+    })
+  })
+
+  it('원인분석을 Mega와 PI 이슈 순서로 생성하고 이슈별 페이지 번호를 독립 관리한다', () => {
+    const master = area(2, '00')
+    const sales = area(1, '02')
+    withCauseAnalyses(master, master.issues.map(item => ({
+      issueId: item.id,
+      causes: [{ category: 'strategy_policy', directCause: `${item.title} 직접 원인`, rootCause: null }],
+    })))
+    withCauseAnalyses(sales, [{
+      issueId: sales.issues[0].id,
+      causes: [{ category: 'it', directCause: '영업 IT 직접 원인', rootCause: null }],
+    }])
+
+    const plan = buildIssueAnalysisDeckPlan(report([master, sales]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const causeSlides = plan.slides.filter(slide => slide.kind === 'cause-analysis')
+
+    expect(causeSlides.map(slide => slide.megaCode)).toEqual(['00', '00', '02'])
+    expect(causeSlides.map(slide => slide.piIssueCode)).toEqual([
+      'PI-I-00-01', 'PI-I-00-02', 'PI-I-02-01',
+    ])
+    expect(causeSlides.map(slide => slide.pageInIssue)).toEqual([1, 1, 1])
+    expect(plan.slides.findIndex(slide => slide.sourceSlide === 11))
+      .toBeGreaterThan(plan.slides.map(slide => slide.sourceSlide).lastIndexOf(10))
+  })
+
+  it('원인분석의 중복·영역 밖 이슈와 지원하지 않는 Category를 방어한다', () => {
+    const duplicate = area(1)
+    const valid: CauseAnalysisFixture = {
+      issueId: duplicate.issues[0].id,
+      causes: [{ category: 'process', directCause: '직접 원인', rootCause: null }],
+    }
+    withCauseAnalyses(duplicate, [valid, { ...valid }])
+    expect(() => buildIssueAnalysisDeckPlan(report([duplicate]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })).toThrow('중복 이슈')
+
+    const foreign = area(1)
+    withCauseAnalyses(foreign, [{ ...valid, issueId: 'other-area' }])
+    expect(() => buildIssueAnalysisDeckPlan(report([foreign]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })).toThrow('영역 밖 이슈')
+
+    const uncovered = area(2)
+    withCauseAnalyses(uncovered, [{
+      issueId: uncovered.issues[0].id,
+      causes: [{ category: 'process', directCause: '직접 원인', rootCause: null }],
+    }])
+    expect(() => buildIssueAnalysisDeckPlan(report([uncovered]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })).toThrow('정확히 1건')
+
+    const unsupported = area(1)
+    withCauseAnalyses(unsupported, [{
+      issueId: unsupported.issues[0].id,
+      causes: [{
+        category: 'unknown' as CauseAnalysisFixture['causes'][number]['category'],
+        directCause: '직접 원인',
+        rootCause: null,
+      }],
+    }])
+    expect(() => buildIssueAnalysisDeckPlan(report([unsupported]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })).toThrow('지원하지 않는 원인 Category')
   })
 
   it('짧은 개선기회는 한 페이지에 묶고 높이가 찰 때만 2·3페이지를 만든다', () => {
@@ -253,6 +399,117 @@ describe('PPT 표시 정규화', () => {
     expect(chunks.some(chunk => chunk.startsWith('\ude00'))).toBe(false)
   })
 
+  it('장문 목록을 여러 행·슬라이드로 나눠도 marker는 첫 조각에만 표시한다', () => {
+    const sales = area(1)
+    const topText = `${'상위 항목의 배경과 영향을 충분히 설명합니다. '.repeat(80)}TOP-LIST-END`
+    const childText = `${'하위 항목의 확인 조치와 책임을 충분히 설명합니다. '.repeat(80)}CHILD-LIST-END`
+    const originalBody = [
+      '[현황]',
+      `- ${topText}`,
+      `  - ${childText}`,
+    ].join('\n')
+    sales.issues[0] = { ...sales.issues[0], body: originalBody }
+    sales.opportunities[0].issueIds = [sales.issues[0].id]
+
+    const plan = buildIssueAnalysisDeckPlan(report([sales]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const issueSlides = plan.slides.filter(slide =>
+      slide.kind === 'area-summary' || slide.kind === 'area-summary-continuation')
+    const rows = issueSlides.flatMap(slide => slide.issues)
+    const paragraphs = rows
+      .flatMap(row => row.bodyParagraphs)
+      .filter(paragraph => !paragraph.heading && paragraph.text)
+    const topStart = paragraphs.findIndex(paragraph => paragraph.marker === 'bullet')
+    const childStart = paragraphs.findIndex(paragraph => paragraph.marker === 'check')
+
+    expect(issueSlides.length).toBeGreaterThan(1)
+    expect(rows.length).toBeGreaterThan(1)
+    expect(topStart).toBeGreaterThanOrEqual(0)
+    expect(childStart).toBeGreaterThan(topStart)
+    expect(paragraphs.filter(paragraph => paragraph.marker === 'bullet')).toHaveLength(1)
+    expect(paragraphs.filter(paragraph => paragraph.marker === 'check')).toHaveLength(1)
+
+    const topFragments = paragraphs.slice(topStart, childStart)
+    expect(topFragments.length).toBeGreaterThan(1)
+    expect(topFragments[0]).toMatchObject({ level: 0, marker: 'bullet' })
+    expect(topFragments.slice(1).every(paragraph =>
+      paragraph.level === 0 && paragraph.marker === null)).toBe(true)
+    expect(topFragments.map(paragraph => paragraph.text).join('')).toBe(topText)
+
+    const childFragments = paragraphs.slice(childStart)
+    expect(childFragments.length).toBeGreaterThan(1)
+    expect(childFragments[0]).toMatchObject({ level: 1, marker: 'check' })
+    expect(childFragments.slice(1).every(paragraph =>
+      paragraph.level === 1 && paragraph.marker === null)).toBe(true)
+    expect(childFragments.map(paragraph => paragraph.text).join('')).toBe(childText)
+    expect(paragraphs.map(paragraph => paragraph.text).join('')).not.toContain('…')
+  })
+
+  it('페이지가 목록 marker 직후에 갈려도 다음 첫 내용 조각에 marker를 표시한다', () => {
+    const sales = area(1)
+    const prefixLines = Array.from(
+      { length: 14 },
+      (_, index) => `선행 문장 ${String(index + 1).padStart(2, '0')}의 업무 현황을 설명합니다.`,
+    )
+    const target = '나'.repeat(1_000)
+    const originalBody = [...prefixLines, `- ${target}`].join('\n')
+    sales.issues[0] = { ...sales.issues[0], body: originalBody }
+    sales.opportunities[0].issueIds = [sales.issues[0].id]
+
+    const plan = buildIssueAnalysisDeckPlan(report([sales]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const rows = plan.slides.flatMap(slide =>
+      slide.kind === 'area-summary' || slide.kind === 'area-summary-continuation'
+        ? slide.issues
+        : [])
+    const targetFragments = rows
+      .flatMap(row => row.bodyParagraphs)
+      .filter(paragraph => paragraph.text.includes('나'))
+
+    expect(rows.map(row => row.body).join('')).toBe(originalBody)
+    expect(targetFragments.length).toBeGreaterThan(1)
+    expect(targetFragments[0]).toMatchObject({ level: 0, marker: 'bullet' })
+    expect(targetFragments.slice(1).every(fragment =>
+      fragment.level === 0 && fragment.marker === null)).toBe(true)
+    expect(targetFragments.filter(fragment => fragment.marker === 'bullet')).toHaveLength(1)
+    expect(targetFragments.map(fragment => fragment.text).join('')).toBe(target)
+  })
+
+  it('페이지 분할점의 개행 구분자를 빈 문단으로 중복 생성하지 않는다', () => {
+    const sales = area(1)
+    const originalBody = Array.from(
+      { length: 40 },
+      (_, index) => `- 업무 현황 ${String(index + 1).padStart(2, '0')}의 원인과 영향을 확인합니다.`,
+    ).join('\n')
+    sales.issues[0] = { ...sales.issues[0], body: originalBody }
+    sales.opportunities[0].issueIds = [sales.issues[0].id]
+
+    const plan = buildIssueAnalysisDeckPlan(report([sales]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const rows = plan.slides.flatMap(slide =>
+      slide.kind === 'area-summary' || slide.kind === 'area-summary-continuation'
+        ? slide.issues
+        : [])
+    const paragraphs = rows.flatMap(row => row.bodyParagraphs)
+
+    expect(rows.length).toBeGreaterThan(1)
+    expect(rows.map(row => row.body).join('')).toBe(originalBody)
+    expect(paragraphs.filter(paragraph => paragraph.text === '')).toHaveLength(0)
+    expect(paragraphs.filter(paragraph => paragraph.marker === 'bullet')).toHaveLength(40)
+  })
+
   it('장문 제목·본문·Sub Process·원천을 전부 보존하며 내용량에 따라 페이지를 늘린다', () => {
     const long = area(1)
     const originalBody = [
@@ -333,5 +590,60 @@ describe('PPT 표시 정규화', () => {
     expect(blocks.every(block => block.continuationCount === blocks.length)).toBe(true)
     expect(blocks.map(block => block.description).join('')).toContain('😀OPPORTUNITY-END')
     expect(blocks.map(block => `${block.title}${block.description}`).join('')).not.toContain('…')
+  })
+
+  it('장문 이슈 문맥과 원인분석을 계속 페이지로 나눠 마지막 문자까지 보존한다', () => {
+    const sales = area(1)
+    const issueBody = [
+      '[현황]',
+      `${'주문 채널별 입력 양식과 검증 기준이 서로 다릅니다. '.repeat(80)}`,
+      '[문제/영향]',
+      `${'수기 재입력과 확인 지연이 반복됩니다. '.repeat(80)}BODY-END`,
+    ].join('\n')
+    const directCause = `${'채널별 주문 접수와 승인 절차가 표준화되어 있지 않습니다. '.repeat(80)}😀DIRECT-END`
+    const rootCause = `${'주문 정책의 관리 책임과 정기 검토 체계가 정의되지 않았습니다. '.repeat(80)}ROOT-END`
+    sales.issues[0] = { ...sales.issues[0], body: issueBody }
+    sales.opportunities[0].issueIds = [sales.issues[0].id]
+    withCauseAnalyses(sales, [{
+      issueId: sales.issues[0].id,
+      causes: [{ category: 'process', directCause, rootCause }],
+    }])
+
+    const plan = buildIssueAnalysisDeckPlan(report([sales]), {
+      projectName: 'D-Cube',
+      authorName: '',
+      authorTeam: '',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const pages = plan.slides.filter(slide => slide.kind === 'cause-analysis')
+    const causeRows = pages.flatMap(slide => slide.causes)
+
+    expect(pages.length).toBeGreaterThan(1)
+    expect(pages.map(slide => slide.pageInIssue)).toEqual(
+      Array.from({ length: pages.length }, (_, index) => index + 1),
+    )
+    expect(pages.every(slide => slide.pageCount === pages.length)).toBe(true)
+    expect(causeRows.map(row => row.analysis).join('')).toBe([
+      '[직접 원인]',
+      normalizeIssueAnalysisMultilineText(directCause),
+      '[근본 원인]',
+      normalizeIssueAnalysisMultilineText(rootCause),
+    ].join('\n'))
+    expect(pages.map(slide => slide.issue.body).join(''))
+      .toBe(normalizeIssueAnalysisMultilineText(issueBody))
+    expect(causeRows.map(row => row.analysis).join('')).toContain('😀DIRECT-END')
+    expect(causeRows.map(row => row.analysis).join('')).toContain('ROOT-END')
+    expect(pages.map(slide => slide.issue.body).join('')).toContain('BODY-END')
+    expect(pages.flatMap(slide => slide.causes).every(row =>
+      row.continuationIndex >= 1 && row.continuationIndex <= row.continuationCount))
+      .toBe(true)
+    expect(pages.every(slide =>
+      slide.issue.rowUnits + slide.causes.reduce((sum, row) => sum + row.rowUnits, 0) <= 4))
+      .toBe(true)
+    expect(pages.map(slide => [
+      slide.issue.title,
+      slide.issue.body,
+      ...slide.causes.map(row => row.analysis),
+    ].join('')).join('')).not.toContain('…')
   })
 })

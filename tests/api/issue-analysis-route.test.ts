@@ -75,7 +75,16 @@ function report() {
       description: '중복 등록을 통제한다.',
       issueIds: ['issue-1'],
     }],
-  }, '2026-07-31T00:00:00Z')
+  }, '2026-07-31T00:00:00Z', {
+    '00': [{
+      issueId: 'issue-1',
+      causes: [{
+        category: 'process',
+        directCause: '자재 등록 전에 중복 여부를 확인하는 표준 절차가 없다.',
+        rootCause: '기준정보 정책의 관리 책임과 정기 검토 체계가 정의되지 않았다.',
+      }],
+    }],
+  })
 }
 
 beforeEach(() => {
@@ -141,6 +150,7 @@ describe('GET /api/issue-analysis', () => {
       issueCount: 1,
       slides: expect.arrayContaining([
         expect.objectContaining({ sourceSlide: 8 }),
+        expect.objectContaining({ sourceSlide: 10 }),
         expect.objectContaining({ sourceSlide: 12 }),
       ]),
     }))

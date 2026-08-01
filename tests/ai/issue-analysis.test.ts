@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { IssueAnalysisReportIssue } from '@/lib/report/issues/model'
 import {
   ISSUE_ANALYSIS_MAX_MEGA_PROMPT_CHARS,
+  ISSUE_ANALYSIS_CAUSE_SYSTEM_PROMPT,
+  buildIssueAnalysisCausePrompt,
   buildIssueAnalysisMegaPrompt,
   issueAnalysisInputHash,
   parseIssueAnalysisAreaResponse,
+  parseIssueAnalysisCauseAreaResponse,
+  validateIssueAnalysisCauseAnalyses,
   validateIssueAnalysisOpportunities,
 } from '@/lib/ai/issue-analysis'
 import {
@@ -87,6 +91,35 @@ describe('이슈 분석 AI 입력', () => {
     expect(prompt).toContain('두 번째 이슈')
     expect(prompt).not.toContain('A'.repeat(10_000))
   })
+
+  it('원인분석 프롬프트에 이슈 UUID와 근거를 보존하고 근거 없는 단정을 금지한다', () => {
+    const issues = [
+      reportIssue('uuid-1', { body: '등록 전에 중복 여부를 확인하는 절차가 없다.' }),
+      reportIssue('uuid-2', {
+        piIssueCode: 'PI-I-00-02',
+        megaSeq: 2,
+        title: '승인 책임 불명확',
+        body: '승인 단계별 담당 부서가 문서에 정의되어 있지 않다.',
+      }),
+    ]
+    const prompt = buildIssueAnalysisCausePrompt('00', '기준관리', issues)
+
+    expect(prompt).toContain('uuid-1')
+    expect(prompt).toContain('uuid-2')
+    expect(prompt).toContain('등록 전에 중복 여부를 확인하는 절차가 없다.')
+    expect(prompt).toContain('승인 책임 불명확')
+    expect(ISSUE_ANALYSIS_CAUSE_SYSTEM_PROMPT).toMatch(/근거|제공된 사실/)
+    expect(ISSUE_ANALYSIS_CAUSE_SYSTEM_PROMPT).toMatch(/확인 필요|단정하지|추측하지/)
+  })
+
+  it('원인분석 호출은 출력 안정성을 위해 최대 3개 이슈로 제한한다', () => {
+    const issues = Array.from({ length: 4 }, (_, index) => reportIssue(`uuid-${index + 1}`, {
+      piIssueCode: `PI-I-00-${String(index + 1).padStart(2, '0')}`,
+      megaSeq: index + 1,
+    }))
+
+    expect(() => buildIssueAnalysisCausePrompt('00', '기준관리', issues)).toThrow('최대 3개')
+  })
 })
 
 describe('이슈 분석 AI 출력 검증', () => {
@@ -139,5 +172,132 @@ describe('이슈 분석 AI 출력 검증', () => {
     }], issues)
     expect(result).toMatchObject({ ok: false })
     if (!result.ok) expect(result.error).toContain('연결되지 않은')
+  })
+})
+
+describe('이슈별 원인분석 AI 출력 검증', () => {
+  const issues = [{ id: 'uuid-1' }, { id: 'uuid-2' }]
+
+  const valid = [{
+    issueId: 'uuid-1',
+    causes: [{
+      category: 'process',
+      directCause: '등록 전 중복 확인 절차가 없다.',
+      rootCause: '기준정보 정책의 관리 책임이 정의되지 않았다.',
+    }],
+  }, {
+    issueId: 'uuid-2',
+    causes: [{
+      category: 'it',
+      directCause: '중복 후보를 자동으로 알리는 기능이 없다.',
+      rootCause: null,
+    }],
+  }]
+
+  it('strict JSON을 파싱하고 모든 입력 이슈의 직접·근본 원인을 보존한다', () => {
+    const result = parseIssueAnalysisCauseAreaResponse(
+      JSON.stringify({ causeAnalyses: valid }),
+      issues,
+    )
+
+    expect(result).toEqual({ ok: true, value: valid })
+  })
+
+  it('모든 허용 Category를 검증한다', () => {
+    const singleIssue = [{ id: 'uuid-1' }]
+    const result = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [
+        { category: 'strategy_policy', directCause: '정책 원인', rootCause: null },
+        { category: 'process', directCause: '프로세스 원인', rootCause: null },
+        { category: 'organization', directCause: '조직 원인', rootCause: null },
+        { category: 'it', directCause: 'IT 원인', rootCause: null },
+      ],
+    }], singleIssue)
+
+    expect(result).toMatchObject({ ok: true })
+  })
+
+  it('영역 밖·중복·미분석 이슈를 거부한다', () => {
+    const foreign = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'other-mega',
+      causes: [{ category: 'process', directCause: '직접 원인', rootCause: null }],
+    }], [{ id: 'uuid-1' }])
+    expect(foreign).toMatchObject({ ok: false })
+    if (!foreign.ok) expect(foreign.error).toContain('현재')
+
+    const duplicate = validateIssueAnalysisCauseAnalyses([
+      valid[0],
+      { ...valid[0] },
+    ], issues)
+    expect(duplicate).toMatchObject({ ok: false })
+    if (!duplicate.ok) expect(duplicate.error).toContain('중복')
+
+    const uncovered = validateIssueAnalysisCauseAnalyses([valid[0]], issues)
+    expect(uncovered).toMatchObject({ ok: false })
+    if (!uncovered.ok) expect(uncovered.error).toMatch(/누락|분석되지|연결되지|일치하지/)
+  })
+
+  it('빈 원인·허용되지 않은 Category·잘못된 근본 원인을 거부한다', () => {
+    const singleIssue = [{ id: 'uuid-1' }]
+    const empty = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [],
+    }], singleIssue)
+    expect(empty).toMatchObject({ ok: false })
+
+    const unsupported = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [{ category: 'people', directCause: '직접 원인', rootCause: null }],
+    }], singleIssue)
+    expect(unsupported).toMatchObject({ ok: false })
+    if (!unsupported.ok) expect(unsupported.error).toMatch(/category/i)
+
+    const blankDirect = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [{ category: 'process', directCause: '   ', rootCause: null }],
+    }], singleIssue)
+    expect(blankDirect).toMatchObject({ ok: false })
+
+    const invalidRoot = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [{ category: 'process', directCause: '직접 원인', rootCause: 123 }],
+    }], singleIssue)
+    expect(invalidRoot).toMatchObject({ ok: false })
+  })
+
+  it('이슈당 원인 수·Category 중복·직접 및 근본 원인 길이 상한을 강제한다', () => {
+    const singleIssue = [{ id: 'uuid-1' }]
+    const tooMany = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: Array.from({ length: 5 }, (_, index) => ({
+        category: ['strategy_policy', 'process', 'organization', 'it', 'process'][index],
+        directCause: `직접 원인 ${index + 1}`,
+        rootCause: null,
+      })),
+    }], singleIssue)
+    expect(tooMany).toMatchObject({ ok: false })
+
+    const duplicateCategory = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [
+        { category: 'process', directCause: '직접 원인 1', rootCause: null },
+        { category: 'process', directCause: '직접 원인 2', rootCause: null },
+      ],
+    }], singleIssue)
+    expect(duplicateCategory).toMatchObject({ ok: false })
+    if (!duplicateCategory.ok) expect(duplicateCategory.error).toContain('중복')
+
+    const longDirect = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [{ category: 'process', directCause: '가'.repeat(401), rootCause: null }],
+    }], singleIssue)
+    expect(longDirect).toMatchObject({ ok: false })
+
+    const longRoot = validateIssueAnalysisCauseAnalyses([{
+      issueId: 'uuid-1',
+      causes: [{ category: 'process', directCause: '직접 원인', rootCause: '가'.repeat(801) }],
+    }], singleIssue)
+    expect(longRoot).toMatchObject({ ok: false })
   })
 })

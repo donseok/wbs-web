@@ -9,6 +9,22 @@ import type { IssueMinuteSource } from '@/lib/domain/issueMinuteSource'
 
 export const ISSUE_ANALYSIS_SCHEMA_VERSION = 'issue-analysis.v1' as const
 
+/** 표준 템플릿의 원인 유형 정본(전략/규정, 프로세스, 조직, IT). */
+export const ISSUE_ANALYSIS_CAUSE_CATEGORIES = [
+  'strategy_policy',
+  'process',
+  'organization',
+  'it',
+] as const
+export type IssueAnalysisCauseCategory =
+  (typeof ISSUE_ANALYSIS_CAUSE_CATEGORIES)[number]
+
+// LLM 출력과 저장 JSON의 비정상적인 팽창을 막는 계약 상한이다. PPT 페이지 분할은
+// 이 상한 안의 원문을 줄이지 않고 별도로 처리한다.
+export const ISSUE_ANALYSIS_CAUSES_PER_ISSUE_MAX = 4
+export const ISSUE_ANALYSIS_DIRECT_CAUSE_MAX = 400
+export const ISSUE_ANALYSIS_ROOT_CAUSE_MAX = 800
+
 /**
  * 0055 적용 전후의 읽기 경계를 명시한다. Issue 본체에도 같은 필드가 존재하지만,
  * 보고서 순수 계층이 실제로 요구하는 분석 필드를 한 곳에서 볼 수 있게 유지한다.
@@ -109,12 +125,31 @@ export interface IssueAnalysisOpportunity {
   issueIds: string[]
 }
 
+export interface IssueAnalysisCause {
+  category: IssueAnalysisCauseCategory
+  /** 관찰된 문제를 직접 유발하는 업무·통제·시스템상의 메커니즘. */
+  directCause: string
+  /** 제공 근거만으로 확정할 수 없으면 사실을 만들지 않고 null로 둔다. */
+  rootCause: string | null
+}
+
+export interface IssueAnalysisIssueCauseAnalysis {
+  /** DB UUID만 허용하며 같은 Mega의 각 이슈가 정확히 한 번 나타나야 한다. */
+  issueId: string
+  causes: IssueAnalysisCause[]
+}
+
 export interface IssueAnalysisReportArea {
   megaCode: IssueMegaCode
   megaName: string
   megaNameEn: string
   summary: IssueAnalysisAreaSummary
   issues: IssueAnalysisReportIssue[]
+  /**
+   * v1 초기에 저장된 실행에는 이 필드가 없다. 신규 AI 생성 결과는 모든 이슈를
+   * 정확히 한 번 포함하며, 저장/캐시 파서가 그 coverage를 검증한다.
+   */
+  causeAnalyses?: IssueAnalysisIssueCauseAnalysis[]
   opportunities: IssueAnalysisOpportunity[]
 }
 
@@ -122,7 +157,7 @@ export interface IssueAnalysisInputSnapshot {
   schemaVersion: typeof ISSUE_ANALYSIS_SCHEMA_VERSION
   projectId: string
   issueCount: number
-  areas: Omit<IssueAnalysisReportArea, 'opportunities'>[]
+  areas: Omit<IssueAnalysisReportArea, 'causeAnalyses' | 'opportunities'>[]
   /** Mega가 없는 레거시 이슈도 hard delete 감사 입력에서 사라지지 않게 보존한다. */
   unclassifiedIssues: Array<{
     id: string
@@ -394,19 +429,31 @@ export function buildIssueAnalysisReport(
   snapshot: IssueAnalysisInputSnapshot,
   opportunities: Partial<Record<IssueMegaCode, IssueAnalysisOpportunity[]>>,
   generatedAt: string,
+  causeAnalyses: Partial<Record<IssueMegaCode, IssueAnalysisIssueCauseAnalysis[]>> = {},
 ): IssueAnalysisReport {
   return {
     schemaVersion: ISSUE_ANALYSIS_SCHEMA_VERSION,
     projectId: snapshot.projectId,
     issueCount: snapshot.issueCount,
     generatedAt,
-    areas: snapshot.areas.map(area => ({
-      ...area,
-      opportunities: opportunities[area.megaCode]?.map(opportunity => ({
-        title: opportunity.title,
-        description: opportunity.description,
-        issueIds: [...opportunity.issueIds],
-      })) ?? [],
-    })),
+    areas: snapshot.areas.map(area => {
+      const areaCauseAnalyses = causeAnalyses[area.megaCode]
+      return {
+        ...area,
+        ...(areaCauseAnalyses === undefined
+          ? {}
+          : {
+              causeAnalyses: areaCauseAnalyses.map(analysis => ({
+                issueId: analysis.issueId,
+                causes: analysis.causes.map(cause => ({ ...cause })),
+              })),
+            }),
+        opportunities: opportunities[area.megaCode]?.map(opportunity => ({
+          title: opportunity.title,
+          description: opportunity.description,
+          issueIds: [...opportunity.issueIds],
+        })) ?? [],
+      }
+    }),
   }
 }

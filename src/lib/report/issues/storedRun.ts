@@ -12,8 +12,13 @@ import {
   type IssueStatus,
 } from '@/lib/domain/issues'
 import {
+  ISSUE_ANALYSIS_CAUSE_CATEGORIES,
+  ISSUE_ANALYSIS_CAUSES_PER_ISSUE_MAX,
+  ISSUE_ANALYSIS_DIRECT_CAUSE_MAX,
+  ISSUE_ANALYSIS_ROOT_CAUSE_MAX,
   ISSUE_ANALYSIS_SCHEMA_VERSION,
   type IssueAnalysisAreaSummary,
+  type IssueAnalysisIssueCauseAnalysis,
   type IssueAnalysisMinuteSourceSnapshot,
   type IssueAnalysisOpportunity,
   type IssueAnalysisReport,
@@ -247,6 +252,79 @@ function parseOpportunities(
   return opportunities
 }
 
+const UNSAFE_ANALYSIS_CONTROL_RE =
+  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u
+
+function parseCauseAnalyses(
+  value: unknown,
+  issues: readonly IssueAnalysisReportIssue[],
+): IssueAnalysisIssueCauseAnalysis[] | null {
+  if (!Array.isArray(value) || value.length !== issues.length) return null
+
+  const validIds = new Set(issues.map(issue => issue.id))
+  const byIssueId = new Map<string, IssueAnalysisIssueCauseAnalysis>()
+  for (const rawAnalysis of value) {
+    const analysis = record(rawAnalysis)
+    const issueId = analysis && nonEmpty(analysis.issueId)
+    if (
+      !analysis
+      || !issueId
+      || !validIds.has(issueId)
+      || byIssueId.has(issueId)
+      || !Array.isArray(analysis.causes)
+      || analysis.causes.length < 1
+      || analysis.causes.length > ISSUE_ANALYSIS_CAUSES_PER_ISSUE_MAX
+    ) return null
+
+    const categories = new Set<string>()
+    const causes: IssueAnalysisIssueCauseAnalysis['causes'] = []
+    for (const rawCause of analysis.causes) {
+      const cause = record(rawCause)
+      const category = cause?.category
+      const directCause = typeof cause?.directCause === 'string'
+        ? cause.directCause.trim()
+        : ''
+      if (
+        !cause
+        || typeof category !== 'string'
+        || !(ISSUE_ANALYSIS_CAUSE_CATEGORIES as readonly string[]).includes(category)
+        || categories.has(category)
+        || !directCause
+        || directCause.length > ISSUE_ANALYSIS_DIRECT_CAUSE_MAX
+        || UNSAFE_ANALYSIS_CONTROL_RE.test(directCause)
+      ) return null
+
+      let rootCause: string | null
+      if (cause.rootCause === null) {
+        rootCause = null
+      } else if (typeof cause.rootCause === 'string') {
+        rootCause = cause.rootCause.trim()
+        if (
+          !rootCause
+          || rootCause.length > ISSUE_ANALYSIS_ROOT_CAUSE_MAX
+          || UNSAFE_ANALYSIS_CONTROL_RE.test(rootCause)
+        ) return null
+      } else {
+        return null
+      }
+
+      categories.add(category)
+      causes.push({
+        category: category as IssueAnalysisIssueCauseAnalysis['causes'][number]['category'],
+        directCause,
+        rootCause,
+      })
+    }
+    causes.sort((left, right) =>
+      ISSUE_ANALYSIS_CAUSE_CATEGORIES.indexOf(left.category)
+      - ISSUE_ANALYSIS_CAUSE_CATEGORIES.indexOf(right.category))
+    byIssueId.set(issueId, { issueId, causes })
+  }
+
+  if (issues.some(issue => !byIssueId.has(issue.id))) return null
+  return issues.map(issue => byIssueId.get(issue.id)!)
+}
+
 /**
  * 다운로드는 브라우저가 보낸 분석 JSON을 신뢰하지 않고 DB의 저장 실행을 다시 읽는다.
  * 이 파서는 저장 JSON이 현재 v1 계약과 한 항목이라도 다르면 null로 거부한다.
@@ -291,13 +369,24 @@ export function parseStoredIssueAnalysisReport(
     typedIssues.forEach(issue => allIds.add(issue.id))
     const summary = parseSummary(areaObject.summary, typedIssues)
     const opportunities = parseOpportunities(areaObject.opportunities, typedIssues)
+    const hasCauseAnalyses = Object.prototype.hasOwnProperty.call(
+      areaObject,
+      'causeAnalyses',
+    )
+    const causeAnalyses = hasCauseAnalyses
+      ? parseCauseAnalyses(areaObject.causeAnalyses, typedIssues)
+      : undefined
     if (!summary || !opportunities) return null
+    if (hasCauseAnalyses && causeAnalyses === null) return null
     areas.push({
       megaCode: expected.code,
       megaName: expected.nameKo,
       megaNameEn: expected.nameEn,
       summary,
       issues: typedIssues,
+      ...(causeAnalyses === undefined || causeAnalyses === null
+        ? {}
+        : { causeAnalyses }),
       opportunities,
     })
   }

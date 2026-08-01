@@ -4,7 +4,10 @@ import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
 import { ISSUE_ANALYSIS_TEMPLATE_PATH } from './template'
 import {
+  ISSUE_ANALYSIS_CAUSE_PAGE_CAPACITY,
   ISSUE_ANALYSIS_OPPORTUNITY_PAGE_CAPACITY,
+  type IssueAnalysisDeckBodyParagraph,
+  type IssueAnalysisDeckCauseRow,
   type IssueAnalysisDeckIssueRow,
   type IssueAnalysisDeckOpportunityBlock,
   type IssueAnalysisDeckPlan,
@@ -83,6 +86,21 @@ function mapShape(
     shapeXml => id.test(shapeXml),
     mapper,
     `shape ${shapeId}`,
+  )
+}
+
+function mapGraphicFrame(
+  slideXml: string,
+  shapeId: string,
+  mapper: (frameXml: string) => string,
+): string {
+  const id = shapeIdPattern(shapeId)
+  return mapSingleXmlElement(
+    slideXml,
+    GRAPHIC_FRAME_RE,
+    frameXml => id.test(frameXml),
+    mapper,
+    `graphicFrame ${shapeId}`,
   )
 }
 
@@ -165,6 +183,23 @@ interface ElementTransform {
   flipV?: boolean
 }
 
+function withGraphicFrameTransform(
+  frameXml: string,
+  transform: Omit<ElementTransform, 'flipV'>,
+): string {
+  for (const value of [transform.x, transform.y, transform.cx, transform.cy]) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error('[issue-analysis] 동적 표 좌표가 올바르지 않습니다.')
+    }
+  }
+  const source = frameXml.match(/<p:xfrm\b[^>]*>[\s\S]*?<\/p:xfrm>/)?.[0]
+  if (!source) throw new Error('[issue-analysis] 동적 표의 좌표 구조가 없습니다.')
+  const updated = source
+    .replace(/<a:off\b[^>]*\/>/, `<a:off x="${transform.x}" y="${transform.y}"/>`)
+    .replace(/<a:ext\b[^>]*\/>/, `<a:ext cx="${transform.cx}" cy="${transform.cy}"/>`)
+  return frameXml.replace(source, () => updated)
+}
+
 function withElementTransform(elementXml: string, transform: ElementTransform): string {
   for (const value of [transform.x, transform.y, transform.cx, transform.cy]) {
     if (!Number.isSafeInteger(value) || value < 0) {
@@ -229,31 +264,48 @@ function toRunProperties(endProperties: string): string {
 }
 
 type ParagraphKind = 'plain' | 'heading' | 'body' | 'bullet'
-type TextBodyMode = 'plain' | 'issue-body' | 'opportunity'
+type TextBodyMode = 'plain' | 'issue-body' | 'cause-analysis' | 'opportunity'
 
 const BULLET_PROPERTIES_RE = new RegExp([
+  '<a:bu(Clr|Blip)\\b[^>]*>[\\s\\S]*?<\\/a:bu\\1>',
   '<a:bu(?:ClrTx|SzTx|FontTx|None)\\b[^>]*\\/>',
-  '<a:bu(?:Clr|SzPct|SzPts|Font|AutoNum|Char)\\b[^>]*\\/>',
-  '<a:buBlip\\b[\\s\\S]*?<\\/a:buBlip>',
+  '<a:bu(?:Clr|SzPct|SzPts|Font|AutoNum|Char|Blip)\\b[^>]*\\/>',
 ].join('|'), 'g')
 
-function appendParagraphProperty(pPr: string, property: string): string {
-  if (!pPr) return `<a:pPr>${property}</a:pPr>`
-  if (/\/>$/.test(pPr)) return pPr.replace(/\/>$/, `>${property}</a:pPr>`)
-  return pPr.replace('</a:pPr>', `${property}</a:pPr>`)
+function insertParagraphBulletChoice(pPr: string, bullet: string): string {
+  if (!pPr) return `<a:pPr>${bullet}</a:pPr>`
+  const expanded = /\/>$/.test(pPr)
+    ? pPr.replace(/\/>$/, '></a:pPr>')
+    : pPr
+  return expanded.replace(
+    /(?=<a:(?:tabLst|defRPr|extLst)\b|<\/a:pPr>)/,
+    bullet,
+  )
 }
 
 function withoutBullet(pPr: string): string {
   const cleaned = pPr
     .replace(BULLET_PROPERTIES_RE, '')
-    .replace(/\s(?:marL|indent)="-?\d+"/g, '')
-  return appendParagraphProperty(cleaned, '<a:buNone/>')
+    .replace(/\s(?:marL|indent|lvl)="-?\d+"/g, '')
+  return insertParagraphBulletChoice(cleaned, '<a:buNone/>')
+}
+
+function withIssueParagraphLevel(
+  pPr: string,
+  level: 0 | 1,
+  hanging: boolean,
+): string {
+  const marginLeft = level === 0 ? 171_450 : 358_775
+  const indent = hanging ? (level === 0 ? -171_450 : -184_150) : 0
+  return withoutBullet(pPr).replace(
+    /^<a:pPr\b/,
+    `<a:pPr marL="${marginLeft}" indent="${indent}" lvl="${level}"`,
+  )
 }
 
 function withBullet(pPr: string): string {
-  const cleaned = pPr.replace(/<a:buNone\b[^>]*\/>/g, '')
-  if (/<a:bu(?:AutoNum|Char|Blip)\b/.test(cleaned)) return cleaned
-  return appendParagraphProperty(cleaned, '<a:buChar char="•"/>')
+  const cleaned = pPr.replace(BULLET_PROPERTIES_RE, '')
+  return insertParagraphBulletChoice(cleaned, '<a:buChar char="•"/>')
 }
 
 function withBold(runProperties: string): string {
@@ -274,10 +326,16 @@ function rebuildParagraph(
   paragraphXml: string,
   value: string,
   kind: ParagraphKind = 'plain',
+  issueLevel?: 0 | 1,
+  issueMarker = false,
 ): string {
   const open = paragraphXml.match(/^<a:p(?:\s[^>]*)?>/)?.[0] ?? '<a:p>'
   const sourcePPr = paragraphXml.match(PPR_RE)?.[0] ?? ''
-  const pPr = kind === 'bullet' ? withBullet(sourcePPr) : withoutBullet(sourcePPr)
+  const pPr = kind === 'bullet'
+    ? withBullet(sourcePPr)
+    : issueLevel === undefined
+      ? withoutBullet(sourcePPr)
+      : withIssueParagraphLevel(sourcePPr, issueLevel, issueMarker)
   const sourceEnd = paragraphXml.match(END_RPR_RE)?.[0] ?? ''
   const sourceRPr = paragraphXml.match(RPR_RE)?.[0]
     ?? (sourceEnd ? toRunProperties(sourceEnd) : '<a:rPr/>')
@@ -310,6 +368,7 @@ function rebuildTextBody(
   value: string,
   normalAutofit = false,
   mode: TextBodyMode = 'plain',
+  issueParagraphs?: readonly IssueAnalysisDeckBodyParagraph[],
 ): string {
   const open = textBodyXml.match(/^<(?:p|a):txBody\b[^>]*>/)?.[0]
   const close = textBodyXml.match(/<\/(?:p|a):txBody>$/)?.[0]
@@ -327,6 +386,24 @@ function rebuildTextBody(
     throw new Error('[issue-analysis] 텍스트 본문에 서식 문단이 없습니다.')
   }
 
+  if (mode === 'issue-body' && issueParagraphs?.length) {
+    const paragraphs = issueParagraphs.map((paragraph, index) => {
+      const marker = paragraph.marker === 'bullet'
+        ? '• '
+        : paragraph.marker === 'check'
+          ? '✓ '
+          : ''
+      return rebuildParagraph(
+        sourceParagraphs[Math.min(index, sourceParagraphs.length - 1)],
+        `${marker}${paragraph.text}`,
+        paragraph.heading ? 'heading' : 'body',
+        paragraph.heading ? undefined : paragraph.level,
+        paragraph.marker !== null,
+      )
+    })
+    return `${open}${bodyPr}${listStyle}${paragraphs.join('')}${close}`
+  }
+
   const lines = value.split(/\r?\n/)
   const paragraphs = lines.map((line, index) => {
     let valueForLine = line
@@ -337,6 +414,15 @@ function rebuildTextBody(
       } else if (/^-\s+\S/.test(line.trimStart())) {
         kind = 'bullet'
         valueForLine = line.trimStart().replace(/^-\s+/, '')
+      }
+    } else if (mode === 'cause-analysis') {
+      if (/^\[(?:직접 원인|근본 원인|원인 분석)\]$/.test(line.trim())) {
+        kind = 'heading'
+      } else if (line.trim()) {
+        // 원본 원인 표의 Wingdings `§` 글머리표는 LibreOffice 등에서 가위
+        // 기호로 치환될 수 있어 텍스트 글머리표로 고정한다.
+        kind = 'body'
+        valueForLine = `• ${line.trim()}`
       }
     } else if (mode === 'opportunity') {
       kind = index === 0 ? 'heading' : 'body'
@@ -457,6 +543,8 @@ function setTableCellText(
   rowIndex: number,
   columnIndex: number,
   value: string,
+  mode?: TextBodyMode,
+  issueParagraphs?: readonly IssueAnalysisDeckBodyParagraph[],
 ): string {
   const target = cellAt(tableXml, rowIndex, columnIndex)
   if (!target) {
@@ -476,7 +564,8 @@ function setTableCellText(
       textBody,
       value,
       true,
-      rowIndex > 0 && columnIndex === 2 ? 'issue-body' : 'plain',
+      mode ?? (rowIndex > 0 && columnIndex === 2 ? 'issue-body' : 'plain'),
+      issueParagraphs,
     ),
   )
   let row = -1
@@ -559,11 +648,13 @@ function fillIssueTable(
   slideXml: string,
   issues: IssueAnalysisDeckIssueRow[],
   capacity: number,
+  shapeId?: string,
 ): string {
+  const id = shapeId ? shapeIdPattern(shapeId) : null
   return mapSingleXmlElement(
     slideXml,
     GRAPHIC_FRAME_RE,
-    frameXml => frameXml.includes('<a:tbl>'),
+    frameXml => frameXml.includes('<a:tbl>') && (!id || id.test(frameXml)),
     frameXml => {
       const rowCount = frameXml.match(TABLE_ROW_RE)?.length ?? 0
       if (rowCount !== capacity + 1) {
@@ -580,7 +671,14 @@ function fillIssueTable(
       for (let index = 0; index < issues.length; index += 1) {
         const values = issueRowValues(issues[index])
         for (let column = 0; column < values.length; column += 1) {
-          updated = setTableCellText(updated, index + 1, column, values[column])
+          updated = setTableCellText(
+            updated,
+            index + 1,
+            column,
+            values[column],
+            undefined,
+            column === 2 ? issues[index].bodyParagraphs : undefined,
+          )
         }
       }
       const rows = updated.match(TABLE_ROW_RE) ?? []
@@ -593,7 +691,7 @@ function fillIssueTable(
         return setTableRowHeight(rowXml, heights[rowIndex - 1])
       })
     },
-    '이슈 표',
+    shapeId ? `이슈 표 ${shapeId}` : '이슈 표',
   )
 }
 
@@ -607,6 +705,193 @@ function setPageFooter(
   let updated = setShapeText(slideXml, pageShapeId, pageNumber)
   updated = setShapeText(updated, footerShapeId, `작성자_${authorName}`, true)
   return updated
+}
+
+const CAUSE_CONTENT_TOP = 642_241
+const CAUSE_CONTENT_BOTTOM = 6_250_000
+const CAUSE_TABLE_GAP = 100_000
+const CAUSE_ISSUE_TABLE_X = 279_578
+const CAUSE_ISSUE_TABLE_WIDTH = 9_280_800
+const CAUSE_ISSUE_HEADER_HEIGHT = 286_617
+const CAUSE_TABLE_X = 287_762
+const CAUSE_TABLE_WIDTH = 9_272_616
+const CAUSE_HEADER_HEIGHT = 493_776
+const CAUSE_MAX_UNIT_HEIGHT = 1_520_782
+
+function replaceTableRows(tableXml: string, nextRows: readonly string[]): string {
+  const rows = tableXml.match(TABLE_ROW_RE) ?? []
+  if (!rows.length) throw new Error('[issue-analysis] 원인분석 표 행이 없습니다.')
+  const start = tableXml.indexOf(rows[0]!)
+  const last = rows.at(-1) ?? ''
+  const endStart = tableXml.lastIndexOf(last)
+  if (start < 0 || endStart < start) {
+    throw new Error('[issue-analysis] 원인분석 표 행 범위를 찾을 수 없습니다.')
+  }
+  return `${tableXml.slice(0, start)}${nextRows.join('')}${tableXml.slice(endStart + last.length)}`
+}
+
+function withTableRowId(rowXml: string, value: number): string {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error('[issue-analysis] 동적 표 행 ID가 올바르지 않습니다.')
+  }
+  if (!/<a16:rowId\b[^>]*\bval="\d+"/.test(rowXml)) return rowXml
+  return rowXml.replace(
+    /(<a16:rowId\b[^>]*\bval=")\d+("[^>]*\/>)/,
+    `$1${value}$2`,
+  )
+}
+
+function causeCategoryText(cause: IssueAnalysisDeckCauseRow): string {
+  if (cause.continuationCount === 1) return cause.categoryLabel
+  return `${cause.categoryLabel}\n계속 ${cause.continuationIndex}/${cause.continuationCount}`
+}
+
+interface CauseSlideLayout {
+  unitHeight: number
+  issueBodyHeight: number
+  issueFrameHeight: number
+  causeY: number
+  causeBodyHeights: number[]
+  causeFrameHeight: number
+}
+
+function causeSlideLayout(
+  issue: IssueAnalysisDeckIssueRow,
+  causes: readonly IssueAnalysisDeckCauseRow[],
+): CauseSlideLayout {
+  const causeUnits = causes.reduce((sum, cause) => sum + cause.rowUnits, 0)
+  const totalUnits = issue.rowUnits + causeUnits
+  if (
+    !causes.length
+    || issue.rowUnits < 1
+    || causeUnits < 1
+    || totalUnits > ISSUE_ANALYSIS_CAUSE_PAGE_CAPACITY
+  ) {
+    throw new Error('[issue-analysis] 원인분석 페이지 높이 예산이 올바르지 않습니다.')
+  }
+  const bodyHeight = CAUSE_CONTENT_BOTTOM
+    - CAUSE_CONTENT_TOP
+    - CAUSE_ISSUE_HEADER_HEIGHT
+    - CAUSE_HEADER_HEIGHT
+    - CAUSE_TABLE_GAP
+  const unitHeight = Math.min(
+    CAUSE_MAX_UNIT_HEIGHT,
+    Math.floor(bodyHeight / totalUnits),
+  )
+  if (unitHeight < 1) {
+    throw new Error('[issue-analysis] 원인분석 표 높이를 계산할 수 없습니다.')
+  }
+  const issueBodyHeight = issue.rowUnits * unitHeight
+  const issueFrameHeight = CAUSE_ISSUE_HEADER_HEIGHT + issueBodyHeight
+  const causeY = CAUSE_CONTENT_TOP + issueFrameHeight + CAUSE_TABLE_GAP
+  const causeBodyHeights = causes.map(cause => cause.rowUnits * unitHeight)
+  const causeFrameHeight = CAUSE_HEADER_HEIGHT
+    + causeBodyHeights.reduce((sum, height) => sum + height, 0)
+  return {
+    unitHeight,
+    issueBodyHeight,
+    issueFrameHeight,
+    causeY,
+    causeBodyHeights,
+    causeFrameHeight,
+  }
+}
+
+function resizeCauseIssueTable(
+  slideXml: string,
+  layout: CauseSlideLayout,
+): string {
+  return mapGraphicFrame(slideXml, '14', frameXml => {
+    const rows = frameXml.match(TABLE_ROW_RE) ?? []
+    if (rows.length !== 2) {
+      throw new Error(`[issue-analysis] 원인분석 이슈 표 행이 ${rows.length}개입니다.`)
+    }
+    const nextRows = [
+      setTableRowHeight(rows[0], CAUSE_ISSUE_HEADER_HEIGHT),
+      setTableRowHeight(rows[1], layout.issueBodyHeight),
+    ]
+    return withGraphicFrameTransform(replaceTableRows(frameXml, nextRows), {
+      x: CAUSE_ISSUE_TABLE_X,
+      y: CAUSE_CONTENT_TOP,
+      cx: CAUSE_ISSUE_TABLE_WIDTH,
+      cy: layout.issueFrameHeight,
+    })
+  })
+}
+
+function fillCauseTable(
+  slideXml: string,
+  causes: readonly IssueAnalysisDeckCauseRow[],
+  layout: CauseSlideLayout,
+): string {
+  return mapGraphicFrame(slideXml, '13', frameXml => {
+    const sourceRows = frameXml.match(TABLE_ROW_RE) ?? []
+    if (sourceRows.length !== 2) {
+      throw new Error(`[issue-analysis] 원인분석 원인 표 행이 ${sourceRows.length}개입니다.`)
+    }
+    const header = setTableRowHeight(sourceRows[0], CAUSE_HEADER_HEIGHT)
+    const prototype = sourceRows[1]
+    const bodyRows = causes.map((cause, index) => withTableRowId(
+      setTableRowHeight(prototype, layout.causeBodyHeights[index]),
+      10_001 + index,
+    ))
+    let updated = replaceTableRows(frameXml, [header, ...bodyRows])
+    for (let index = 0; index < causes.length; index += 1) {
+      updated = setTableCellText(
+        updated,
+        index + 1,
+        0,
+        causeCategoryText(causes[index]),
+      )
+      updated = setTableCellText(
+        updated,
+        index + 1,
+        1,
+        causes[index].analysis,
+        'cause-analysis',
+      )
+    }
+    return withGraphicFrameTransform(updated, {
+      x: CAUSE_TABLE_X,
+      y: layout.causeY,
+      cx: CAUSE_TABLE_WIDTH,
+      cy: layout.causeFrameHeight,
+    })
+  })
+}
+
+function renderCauseAnalysisSlide(
+  sourceXml: string,
+  slide: Extract<IssueAnalysisDeckSlide, { kind: 'cause-analysis' }>,
+  plan: IssueAnalysisDeckPlan,
+  outputPage: number,
+): string {
+  const displayCauses: IssueAnalysisDeckCauseRow[] = slide.causes.length
+    ? slide.causes
+    : [{
+        category: 'continuation',
+        categoryLabel: '계속',
+        analysis: `[원인 분석]\n${slide.causeDisplayMessage ?? ''}`,
+        rowUnits: 1,
+        continuationIndex: 1,
+        continuationCount: 1,
+      }]
+  const layout = causeSlideLayout(slide.issue, displayCauses)
+  const continuation = slide.pageCount > 1
+    ? ` (${slide.pageInIssue}/${slide.pageCount})`
+    : ''
+  let xml = setPageFooter(sourceXml, outputPage, plan.meta.authorName)
+  xml = setShapeText(
+    xml,
+    '146',
+    `이슈별 원인 분석 – ${slide.megaCode}_${slide.megaName}${continuation}`,
+    true,
+  )
+  xml = setShapeText(xml, '100', '2. 영역 별 이슈 및 원인 분석서')
+  xml = fillIssueTable(xml, [slide.issue], 1, '14')
+  xml = resizeCauseIssueTable(xml, layout)
+  xml = fillCauseTable(xml, displayCauses, layout)
+  return xml
 }
 
 const OPPORTUNITY_CONTENT_TOP = 1_680_000
@@ -838,7 +1123,7 @@ function renderSlide(
       xml = setShapeText(
         xml,
         '16',
-        '이슈 분석 Approach\n영역별 이슈 종합\n개선기회 도출',
+        '이슈 분석 Approach\n영역별 이슈 및 원인 분석\n개선기회 도출',
       )
       break
     case 'approach':
@@ -868,6 +1153,9 @@ function renderSlide(
       xml = setShapeText(xml, '100', '2. 영역 별 이슈 종합')
       xml = fillIssueTable(xml, slide.issues, 5)
       break
+    case 'cause-analysis':
+      xml = renderCauseAnalysisSlide(sourceXml, slide, plan, outputPage)
+      break
     case 'opportunity':
       xml = renderOpportunitySlide(sourceXml, slide, plan, outputPage)
       break
@@ -885,6 +1173,7 @@ function expectedSourceSlide(slide: IssueAnalysisDeckSlide): number {
     case 'approach': return 3
     case 'area-summary': return 8
     case 'area-summary-continuation': return 9
+    case 'cause-analysis': return 10
     case 'opportunity': return 12
   }
 }
@@ -939,6 +1228,37 @@ function validatePlan(plan: IssueAnalysisDeckPlan): void {
         }
       }
     }
+    if (slide.kind === 'cause-analysis') {
+      const causeUnits = slide.causes.reduce((sum, cause) => sum + cause.rowUnits, 0)
+      const displayUnits = causeUnits || (slide.causeDisplayMessage ? 1 : 0)
+      const usedUnits = slide.issue.rowUnits + displayUnits
+      if (
+        (!slide.causes.length && !slide.causeDisplayMessage)
+        || usedUnits < 2
+        || usedUnits > ISSUE_ANALYSIS_CAUSE_PAGE_CAPACITY
+        || slide.pageInIssue < 1
+        || slide.pageInIssue > slide.pageCount
+        || slide.issue.id !== slide.issueId
+        || slide.issue.piIssueCode !== slide.piIssueCode
+      ) {
+        throw new Error(
+          `[issue-analysis] 출력 ${index + 1}페이지의 원인분석 배치가 올바르지 않습니다.`,
+        )
+      }
+      for (const cause of slide.causes) {
+        if (
+          cause.rowUnits < 1
+          || cause.continuationIndex < 1
+          || cause.continuationIndex > cause.continuationCount
+          || !cause.analysis
+          || !cause.categoryLabel
+        ) {
+          throw new Error(
+            `[issue-analysis] ${slide.piIssueCode} 원인분석 행 정보가 올바르지 않습니다.`,
+          )
+        }
+      }
+    }
   })
 
   const opportunitySlides = plan.slides.filter(slide => slide.kind === 'opportunity')
@@ -950,6 +1270,23 @@ function validatePlan(plan: IssueAnalysisDeckPlan): void {
   ) {
     throw new Error('[issue-analysis] 개선기회 페이지 순서가 올바르지 않습니다.')
   }
+
+  const causeSlidesByIssue = new Map<string, Array<Extract<
+    IssueAnalysisDeckSlide,
+    { kind: 'cause-analysis' }
+  >>>()
+  for (const slide of plan.slides) {
+    if (slide.kind !== 'cause-analysis') continue
+    const slides = causeSlidesByIssue.get(slide.issueId) ?? []
+    slides.push(slide)
+    causeSlidesByIssue.set(slide.issueId, slides)
+  }
+  for (const [issueId, slides] of causeSlidesByIssue) {
+    if (slides.some((slide, index) =>
+      slide.pageInIssue !== index + 1 || slide.pageCount !== slides.length)) {
+      throw new Error(`[issue-analysis] ${issueId} 원인분석 페이지 순서가 올바르지 않습니다.`)
+    }
+  }
 }
 
 function slideMetadataTitle(slide: IssueAnalysisDeckSlide): string {
@@ -958,13 +1295,15 @@ function slideMetadataTitle(slide: IssueAnalysisDeckSlide): string {
       return `${slide.projectName} (이슈 분석서)`
     case 'contents':
       if (slide.sourceSlide === 2) return '이슈 분석 목차'
-      if (slide.sourceSlide === 4) return '영역별 이슈 종합'
+      if (slide.sourceSlide === 4) return '영역별 이슈 및 원인 분석'
       return '개선기회 도출'
     case 'approach':
       return '이슈 분석 수행 방법'
     case 'area-summary':
     case 'area-summary-continuation':
       return `영역별 이슈 종합 – ${slide.megaCode}_${slide.megaName}`
+    case 'cause-analysis':
+      return `이슈별 원인 분석 – ${slide.piIssueCode} (${slide.pageInIssue}/${slide.pageCount})`
     case 'opportunity':
       return `이슈별 개선기회 도출 – ${slide.pageInSection}/${slide.pageCount}`
   }
