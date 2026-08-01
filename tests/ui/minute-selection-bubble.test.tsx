@@ -111,6 +111,69 @@ describe('MinuteSelectionBubble', () => {
     expect(target.text.replace(/\s+/g, '')).toBe(
       '전송 누락 위험을 다룬다.두 번째 문단은 재처리'.replace(/\s+/g, ''),
     )
+    // 발췌는 클라 선택 문자열이 아니라 서버 대조 함수가 원문에서 재구성한 값이다.
+    expect(target.excerpt).toBe('전송 누락 위험을 다룬다.\n두 번째 문단은 재처리')
+  })
+
+  it('트리플클릭형 끝 앵커(다음 블록 offset 0)는 실제 기여 블록으로 클램프한다', () => {
+    const onCreateIssue = vi.fn()
+    const { bodyRef } = renderWithBody({ onCreateIssue })
+    const [p0, p1] = Array.from(bodyRef.current!.querySelectorAll('p'))
+    // Chrome 트리플클릭·문단 끝 넘김 드래그 재현 — 끝 앵커가 다음 블록 요소의 offset 0.
+    selectAcross(p0.firstChild!, 0, p1, 0)
+    fireSelectionDone()
+
+    const button = document.querySelector('button')
+    expect(button).not.toBeNull()
+    act(() => { button!.click() })
+    const target = onCreateIssue.mock.calls[0][0] as MinuteSelectionTarget
+    expect(target.startIndex).toBe(0)
+    expect(target.endIndex).toBe(0)
+    expect(target.endHash).toBe(blocks[0].hash)
+    expect(target.excerpt).toBe('첫 번째 문단은 전송 누락 위험을 다룬다.')
+  })
+
+  it('원문과 대조되지 않는 선택(렌더 전용 텍스트)은 버블을 띄우지 않는다', () => {
+    // blocks 는 실제 본문이지만 DOM 에 다른 텍스트가 렌더된 상황(머메이드·이미지 alt 등) 재현.
+    const { bodyRef } = renderWithBody({
+      bodyHtml: '<p data-mblock="0">렌더 전용 다이어그램 캡션 텍스트</p>'
+        + '<p data-mblock="1">두 번째 문단은 재처리 확인이 필요하다.</p>',
+    })
+    const p0 = bodyRef.current!.querySelector('p')!
+    selectAcross(p0.firstChild!, 0, p0.firstChild!, 10)
+    fireSelectionDone()
+    expect(document.querySelector('button')).toBeNull()
+  })
+
+  it('바깥 pointerdown 으로 표출 중이던 버블이 사라질 때 onDismiss 를 호출한다', () => {
+    const onDismiss = vi.fn()
+    const bodyRef = createRef<HTMLDivElement>()
+    mount(
+      <>
+        <div
+          ref={bodyRef}
+          dangerouslySetInnerHTML={{
+            __html: '<p data-mblock="0">첫 번째 문단은 전송 누락 위험을 다룬다.</p>'
+              + '<p data-mblock="1">두 번째 문단은 재처리 확인이 필요하다.</p>',
+          }}
+        />
+        <MinuteSelectionBubble
+          bodyRef={bodyRef}
+          blocks={blocks}
+          disabled={false}
+          busy={false}
+          onCreateIssue={vi.fn()}
+          onDismiss={onDismiss}
+        />
+      </>,
+    )
+    const [p0, p1] = Array.from(bodyRef.current!.querySelectorAll('p'))
+    selectAcross(p0.firstChild!, 0, p1.firstChild!, 12)
+    fireSelectionDone()
+    expect(document.querySelector('button')).not.toBeNull()
+    act(() => { document.dispatchEvent(new Event('pointerdown')) })
+    expect(document.querySelector('button')).toBeNull()
+    expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 
   it('공백 제거 5자 미만 선택은 버블을 띄우지 않는다', () => {

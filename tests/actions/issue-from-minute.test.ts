@@ -647,6 +647,70 @@ describe('드래그 선택 이슈 등록', () => {
     expect(res.error).toContain('선택 영역을 회의록 원문과 대조하지 못했습니다')
     expect(fixture.admin.rpc).not.toHaveBeenCalled()
   })
+
+  it('selection이 null 이면 500 없이 블록 흐름으로 처리한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, {
+      ...SELECTION_SOURCE,
+      selection: null as never,
+    })
+
+    expect(res.ok).toBe(true)
+    const rpcArgs = fixture.admin.rpc.mock.calls[0][1] as Record<string, unknown>
+    expect(rpcArgs.p_excerpt_snapshot).toBe(MULTI_BLOCKS[1].text)
+    expect(String(rpcArgs.p_source_key)).not.toContain(':sel:')
+  })
+
+  it('상한 초과 선택은 형식 오류가 아니라 범위 축소 안내 문구로 거절한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, {
+      ...SELECTION_SOURCE,
+      selection: { ...SELECTION_SOURCE.selection, text: '가'.repeat(20_001) },
+    })
+
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('선택 범위가 너무 큽니다')
+    expect(fixture.admin.rpc).not.toHaveBeenCalled()
+  })
+
+  it('4,000자 캡은 저장 발췌만 자르고 source_key 해시는 전문 기준을 유지한다', async () => {
+    asMember()
+    const longBody = `장애 대응 지연 문제 ${'상세 '.repeat(1_500)}종결.`
+    const longBlocks = splitMinuteBlocks(longBody)
+    const longHash = fnv1a64(longBody)
+    const fixture = clientsWithVersion({ body: longBody, bodyHash: longHash })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, {
+      ...SELECTION_SOURCE,
+      bodyHash: longHash,
+      blockIndex: longBlocks[0].index,
+      blockHash: longBlocks[0].hash,
+      selection: { text: longBody, endBlockIndex: 0, endBlockHash: longBlocks[0].hash },
+    })
+
+    expect(res.ok).toBe(true)
+    const rpcArgs = fixture.admin.rpc.mock.calls[0][1] as Record<string, unknown>
+    const storedExcerpt = String(rpcArgs.p_excerpt_snapshot)
+    expect(storedExcerpt.length).toBeLessThanOrEqual(4_000)
+    expect(storedExcerpt).toContain('[전체 내용은 연결된 회의록 원문에서 확인]')
+    // 해시는 절단 전 전체 발췌(서버 재구성본) 기준 — 캡 이후로 바뀌면 조회 키가 흔들린다.
+    const fullMatch = matchMinuteSelection(
+      longBlocks, 0, longBlocks[0].hash, 0, longBlocks[0].hash, longBody,
+    )
+    expect(fullMatch.ok).toBe(true)
+    if (!fullMatch.ok) return
+    expect(String(rpcArgs.p_source_key)).toContain(`:sel:${minuteSelectionKeyHash(fullMatch.excerpt)}`)
+  })
 })
 
 describe('fetchIssueProjectMembers', () => {

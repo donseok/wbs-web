@@ -28,7 +28,8 @@ import {
   fnv1a64, isMarkableBlock, minuteBlockDraftText, splitMinuteBlocks, type MinuteBlock,
 } from '@/lib/minutes/blocks'
 import {
-  MINUTE_SELECTION_MAX_BLOCK_SPAN, matchMinuteSelection, minuteSelectionKeyHash,
+  MINUTE_SELECTION_MAX_BLOCK_SPAN, MINUTE_SELECTION_MAX_CHARS,
+  matchMinuteSelection, minuteSelectionKeyHash,
 } from '@/lib/minutes/selection'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
@@ -218,13 +219,14 @@ function validMinuteIssueSource(source: MinuteIssueSourceInput): boolean {
   )
   if (!base) return false
   const selection = source.selection
-  if (selection === undefined) return true
+  // null 도 '선택 없음'으로 취급한다 — 임의 JSON 페이로드가 TypeError(500)를 만들지 않게.
+  if (selection == null) return true
   // 선택 등록은 인사이트 kind 를 얹지 않는다 — manual 만 유효(스펙 §4.1).
   return Boolean(
     source.kind === 'manual'
     && typeof selection.text === 'string'
     && selection.text.length > 0
-    && selection.text.length <= TEXT_MAX
+    && selection.text.length <= MINUTE_SELECTION_MAX_CHARS
     && Number.isSafeInteger(selection.endBlockIndex)
     && selection.endBlockIndex >= source.blockIndex
     && selection.endBlockIndex - source.blockIndex <= MINUTE_SELECTION_MAX_BLOCK_SPAN
@@ -242,6 +244,20 @@ async function verifyMinuteIssueBlock(
   logLabel: string,
   includeInsight = false,
 ): Promise<MinuteIssueBlockVerification> {
+  // 상한 초과는 형식 오류가 아니라 사용자가 고칠 수 있는 입력이다 — 오도 문구와 분리한다.
+  if (
+    source.selection
+    && typeof source.selection.text === 'string'
+    && (
+      source.selection.text.length > MINUTE_SELECTION_MAX_CHARS
+      || (
+        Number.isSafeInteger(source.selection.endBlockIndex)
+        && source.selection.endBlockIndex - source.blockIndex > MINUTE_SELECTION_MAX_BLOCK_SPAN
+      )
+    )
+  ) {
+    return { ok: false, error: '선택 범위가 너무 큽니다. 더 작은 범위를 선택해 주세요.' }
+  }
   if (!projectId || !validMinuteIssueSource(source)) {
     return { ok: false, error: '회의록 원문 정보가 올바르지 않습니다. 블록을 다시 선택해 주세요.' }
   }

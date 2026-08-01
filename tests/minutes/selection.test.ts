@@ -56,7 +56,21 @@ describe('matchMinuteSelection', () => {
   })
   it('표 셀을 가로지르는 선택(탭·개행 차이)을 공백 제거 대조로 흡수한다', () => {
     const res = matchMinuteSelection(blocks, 3, blocks[3].hash, 3, blocks[3].hash, 'CRM\t지연')
-    expect(res.ok).toBe(true)
+    // 발췌는 서버 원문(mdast 평문 — 표는 셀이 무간격으로 이어진다) 기준으로 재구성된다.
+    expect(res).toEqual({ ok: true, excerpt: 'CRM지연' })
+  })
+  it('공백을 조작한 선택도 발췌는 서버 원문 간격으로 복원된다(위조 차단)', () => {
+    // '전송누락' 처럼 공백을 지워 보내도 저장 발췌는 원문 '전송 누락' 간격을 따른다.
+    const res = matchMinuteSelection(
+      blocks, 1, blocks[1].hash, 1, blocks[1].hash, '전송누락 위험을다룬다',
+    )
+    expect(res).toEqual({ ok: true, excerpt: '전송 누락 위험을 다룬다' })
+  })
+  it('임의 줄바꿈을 주입해도 발췌는 블록 경계에서만 줄이 나뉜다(위조 차단)', () => {
+    const res = matchMinuteSelection(
+      blocks, 1, blocks[1].hash, 1, blocks[1].hash, '누락 위험을\n다룬다',
+    )
+    expect(res).toEqual({ ok: true, excerpt: '누락 위험을 다룬다' })
   })
   it('원문에 없는 텍스트는 text 사유로 거절한다', () => {
     const res = matchMinuteSelection(blocks, 1, blocks[1].hash, 1, blocks[1].hash, '존재하지 않는 문장')
@@ -90,5 +104,16 @@ describe('matchMinuteSelection', () => {
   })
   it('MINUTE_SELECTION_MIN_CHARS 상수를 노출한다(버블 게이트 공유)', () => {
     expect(MINUTE_SELECTION_MIN_CHARS).toBe(5)
+  })
+  it('반복 문구가 많은 대형 본문도 전수 순회 없이 즉시 판정한다', () => {
+    // 유효 창 단일 indexOf 등가 판정의 회귀 가드 — O(H×N) 이면 이 케이스가 수 초 걸린다.
+    const repeated = `반복 문구입니다. ${'같은 말. '.repeat(6_000)}끝.`
+    const big = splitMinuteBlocks(repeated)
+    const startedAt = performance.now()
+    const res = matchMinuteSelection(
+      big, 0, big[0].hash, 0, big[0].hash, '같은 말. '.repeat(2_000),
+    )
+    expect(res.ok).toBe(true)
+    expect(performance.now() - startedAt).toBeLessThan(500)
   })
 })

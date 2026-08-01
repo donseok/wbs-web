@@ -437,4 +437,44 @@ describe('MinuteViewer 드래그 선택 → 이슈 등록', () => {
     makeSelection()
     expect(bubbleButton()).toBeNull()
   })
+
+  it('선택 초안 호출이 reject 되면 발췌 기반 로컬 폴백으로 폼을 연다', async () => {
+    mocks.prepareMinuteIssueDraft.mockRejectedValueOnce(new Error('network disconnected'))
+    await mountViewer()
+
+    makeSelection()
+    await act(async () => { bubbleButton()!.click() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
+    const props = [...mocks.issueFormProps].reverse().find(candidate => candidate.open)!
+    const draft = props.draft as { mode: string; body: string }
+    expect(draft.mode).toBe('fallback')
+    expect(draft.body.replace(/\s+/g, '')).toContain('전송누락위험을다룬다')
+    expect(mocks.toast).toHaveBeenCalledWith({
+      title: 'min.issue.fallbackUsed',
+      variant: 'info',
+    })
+  })
+
+  it('선택 prepare 진행 중 버블을 벗어나면 요청을 취소해 폼이 돌발 오픈되지 않는다', async () => {
+    const pending = deferred<{ ok: true; draft: typeof organizedDraft }>()
+    mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
+    await mountViewer()
+
+    makeSelection()
+    await act(async () => { bubbleButton()!.click() })
+    expect(mocks.prepareMinuteIssueDraft).toHaveBeenCalledTimes(1)
+
+    // 진행 중 바깥 클릭 — 버블 dismiss 가 요청을 취소한다.
+    act(() => { document.dispatchEvent(new Event('pointerdown')) })
+
+    await act(async () => {
+      pending.resolve({ ok: true, draft: organizedDraft })
+      await pending.promise
+    })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).toBeNull()
+    expect(mocks.issueFormProps.some(props => props.open === true)).toBe(false)
+  })
 })

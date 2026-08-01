@@ -22,7 +22,6 @@ import {
 import {
   fnv1a64, isMarkableBlock, minuteBlockDraftText, splitMinuteBlocks, type BlockMarks,
 } from '@/lib/minutes/blocks'
-import { normalizeSelectionText } from '@/lib/minutes/selection'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
 import { resolveMinuteSourceBlock, type MinuteSourceAnchor } from '@/lib/minutes/source'
 import { compareKoreanName } from '@/lib/domain/nameSort'
@@ -69,7 +68,7 @@ type IssueOrigin =
       startHash: string
       endHash: string
       text: string
-      /** normalizeSelectionText(text) — 미리보기·폴백 초안·발췌가 서버 저장 계약과 일치. */
+      /** 버블이 클라에서 대조해 얻은 서버 파생 발췌 — 미리보기·폴백 초안이 저장 발췌와 일치. */
       excerpt: string
     }
 
@@ -408,9 +407,19 @@ export function MinuteViewer({
   }
 
   function onSelectionIssue(target: MinuteSelectionTarget) {
-    const excerpt = normalizeSelectionText(target.text)
-    if (!excerpt) return
-    void beginIssueCreateFrom({ type: 'selection', ...target, excerpt })
+    if (!target.excerpt) return
+    void beginIssueCreateFrom({ type: 'selection', ...target })
+  }
+
+  // 선택 흐름의 prepare 진행 중 사용자가 버블을 떠나면(바깥 클릭·선택 해제) 요청을 취소해
+  // 뒤늦게 도착한 응답이 이슈 폼을 돌발 오픈하지 않게 한다(팝오버 onClose 와 같은 원칙).
+  function onSelectionDismiss() {
+    if (!issueBusy || issueOrigin?.type !== 'selection') return
+    if (issueFormOpen || projectPickerOpen) return
+    issueProjectRequestRef.current += 1
+    setIssueBusy(false)
+    setPreparedIssueDraft(null)
+    setIssueOrigin(null)
   }
 
   async function continueWithProject() {
@@ -779,6 +788,7 @@ export function MinuteViewer({
           disabled={issueFormOpen || projectPickerOpen}
           busy={issueBusy}
           onCreateIssue={onSelectionIssue}
+          onDismiss={onSelectionDismiss}
         />
       )}
 
