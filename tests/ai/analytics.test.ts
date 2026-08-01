@@ -187,4 +187,19 @@ describe('buildDocuments — 임베딩 문서', () => {
     expect(docs.some(d => d.kind === 'member' && d.content.includes('김담당'))).toBe(true)
     expect(docs.find(d => d.content.includes('T1'))?.content).toContain('설계서')
   })
+
+  it('depth-3 sub-act 리프의 구분이 클램프로 Activity를 유지한다(재색인 불필요)', () => {
+    // phase(depth0) → task(depth1) → activity(depth2, 자식이 있어 리프 아님) → sub-act(depth3, isOwnerSplit, 리프)
+    // level 필드는 일부러 levelLabels 어디에도 없는 값으로 둔다 — 구현이 여전히 n.level(구 방식)을
+    // 읽으면 이 문자열이 그대로 새어나가 테스트가 실패한다(depth 클램프로 전환됐는지 판별).
+    const subAct = leaf({ id: 'sub1', name: 'sub-act 리프명', level: 'sub_act', depth: 3, isOwnerSplit: true })
+    const activity = leaf({ id: 'act1', name: 'Activity X', depth: 2, children: [subAct] })
+    const task = leaf({ id: 'task1', name: 'Task X', depth: 1, children: [activity] })
+    const ph = phase([task])
+    const docs = buildDocumentsReal([ph], 'P', TODAY, ['PMO'], [], ['Phase', 'Task', 'Activity'])
+    const subActDoc = docs.find(d => d.content.includes('sub-act 리프명'))
+    expect(subActDoc).toBeDefined()
+    // levelLabels[min(3, 3-1)] = levelLabels[2] = 'Activity' — 클램프가 없으면 undefined.
+    expect(subActDoc!.content).toContain('구분 Activity')
+  })
 })

@@ -32,7 +32,8 @@ export interface WbsToolItemRecord {
   id: string
   projectId: string
   parentId: string | null
-  level: ComputedItem['level']
+  // Task 3에서 ComputedItem['level'] 필드가 제거될 예정이라 리터럴로 독립시켰다(depth에서 재생성).
+  level: 'phase' | 'task' | 'activity'
   code: string
   name: string
   path: string
@@ -140,7 +141,8 @@ function toRecord(flat: FlatItem, updatedAt: string | null): WbsToolItemRecord {
     id: item.id,
     projectId: (item as ComputedItem & { projectId?: string }).projectId ?? '',
     parentId: item.parentId,
-    level: item.level,
+    // enum 키를 depth에서 재생성(클램프) — orchestrator의 DISPLAY_ENUMS가 동일하게 렌더해 출력 바이트 불변.
+    level: (['phase', 'task', 'activity'] as const)[Math.min(item.depth, 2)],
     code: item.code,
     name: item.name,
     path,

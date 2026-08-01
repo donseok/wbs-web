@@ -7,6 +7,7 @@ import { hasEmbeddings } from './provider'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { chunked } from './util'
 import { activeTeamCodesSync } from '@/lib/teams/master'
+import { getProjectConfig } from '@/lib/data/projectConfig'
 
 export interface IngestResult {
   count: number
@@ -23,12 +24,13 @@ export interface IngestResult {
 export async function ingestProject(projectId: string): Promise<IngestResult> {
   if (!hasEmbeddings()) return { count: 0, skipped: true, reason: 'no_embedding_key' }
 
-  const [{ items, today }, members, name] = await Promise.all([
+  const [{ items, today }, members, name, config] = await Promise.all([
     getComputedWbs(projectId),
     getProjectMembers(projectId),
     getProjectName(projectId),
+    getProjectConfig(projectId),
   ])
-  const docs = buildDocuments(items, name, today, activeTeamCodesSync(), members)
+  const docs = buildDocuments(items, name, today, activeTeamCodesSync(), members, config.levelLabels)
   if (docs.length === 0) return { count: 0 }
 
   const vectors = await embedDocuments(

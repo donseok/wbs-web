@@ -8,7 +8,7 @@ export function collectCandidates(items: ComputedItem[]): CommandCandidate[] {
   const out: CommandCandidate[] = []
   const walk = (nodes: ComputedItem[], phaseName: string) => {
     for (const n of nodes) {
-      const ph = n.level === 'phase' ? n.name : phaseName
+      const ph = n.depth === 0 ? n.name : phaseName
       if (n.children.length) {
         walk(n.children, ph)
       } else {

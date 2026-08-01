@@ -15,7 +15,6 @@ const STATUS_KO: Record<Status, string> = {
   delayed: '지연',
   done: '완료',
 }
-const LEVEL_KO: Record<string, string | undefined> = { phase: 'Phase', task: 'Task', activity: 'Activity' }
 
 export interface LeafCtx {
   node: ComputedItem
@@ -350,13 +349,17 @@ export interface EmbedDoc {
 }
 
 /** 프로젝트의 WBS 리프·요약·멤버를 의미검색용 문서로 변환.
- *  teams 는 analyzeProject 로 그대로 전달(호출처가 팀 마스터에서 주입). */
+ *  teams 는 analyzeProject 로 그대로 전달(호출처가 팀 마스터에서 주입).
+ *  levelLabels 는 프로젝트별 구분 라벨(호출처가 getProjectConfig 에서 주입) — 기본값은
+ *  D-CUBE 현행과 동일해 무인자 호출은 임베딩 텍스트가 바이트 단위로 불변이다. depth 가
+ *  labels 배열 길이를 넘어서면(sub-act 등) 마지막 라벨로 클램프한다(회귀 0의 필수 장치). */
 export function buildDocuments(
   items: ComputedItem[],
   projectName: string,
   today: string,
   teams: readonly TeamCode[],
   members: ProjectMember[] = [],
+  levelLabels: readonly string[] = ['Phase', 'Task', 'Activity'],
 ): EmbedDoc[] {
   const analysis = analyzeProject(items, projectName, today, teams, members)
   const docs: EmbedDoc[] = []
@@ -367,9 +370,10 @@ export function buildDocuments(
   // 2) WBS 리프 작업 문서
   for (const l of analysis.leaves) {
     const n = l.node
+    const levelLabel = levelLabels[Math.min(n.depth, levelLabels.length - 1)]
     const lines = [
       `[${projectName}] ${l.phaseName} > ${n.name}`,
-      `구분 ${LEVEL_KO[n.level] ?? n.level} · 담당 ${ownersText(n.owners)} · 상태 ${STATUS_KO[n.status]}`,
+      `구분 ${levelLabel} · 담당 ${ownersText(n.owners)} · 상태 ${STATUS_KO[n.status]}`,
       `기간 ${dd(n.plannedStart)}~${dd(n.plannedEnd)} · 계획 ${Math.round(n.plannedPct)}% / 실적 ${Math.round(n.rolledActualPct)}%`,
     ]
     if (n.deliverable) lines.push(`산출물 ${n.deliverable}`)

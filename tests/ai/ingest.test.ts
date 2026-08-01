@@ -7,6 +7,7 @@ vi.mock('@/lib/data/wbs', () => ({ getComputedWbs: vi.fn() }))
 vi.mock('@/lib/data/members', () => ({ getProjectMembers: vi.fn() }))
 vi.mock('@/lib/ai/knowledge', () => ({ getProjectName: vi.fn() }))
 vi.mock('@/lib/ai/analytics', () => ({ buildDocuments: vi.fn() }))
+vi.mock('@/lib/data/projectConfig', () => ({ getProjectConfig: vi.fn() }))
 
 import { hasEmbeddings } from '@/lib/ai/provider'
 import { embedDocuments } from '@/lib/ai/embeddings'
@@ -15,6 +16,7 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { getProjectMembers } from '@/lib/data/members'
 import { getProjectName } from '@/lib/ai/knowledge'
 import { buildDocuments } from '@/lib/ai/analytics'
+import { getProjectConfig } from '@/lib/data/projectConfig'
 import { ingestProject } from '@/lib/ai/ingest'
 
 const mHasEmb = vi.mocked(hasEmbeddings)
@@ -36,6 +38,7 @@ const mWbs = vi.mocked(getComputedWbs)
 const mMembers = vi.mocked(getProjectMembers)
 const mName = vi.mocked(getProjectName)
 const mDocs = vi.mocked(buildDocuments)
+const mConfig = vi.mocked(getProjectConfig)
 
 describe('ingestProject — 재색인(전체 교체)', () => {
   beforeEach(() => {
@@ -44,6 +47,7 @@ describe('ingestProject — 재색인(전체 교체)', () => {
     mWbs.mockResolvedValue({ items: [], today: '2026-01-01' } as never)
     mMembers.mockResolvedValue([] as never)
     mName.mockResolvedValue('프로젝트 A')
+    mConfig.mockResolvedValue({ levelLabels: ['Phase', 'Task', 'Activity'] } as never)
   })
   afterEach(() => vi.restoreAllMocks())
 
