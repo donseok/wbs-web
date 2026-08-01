@@ -75,6 +75,44 @@ describe('buildWbsWorkbook round-trip', () => {
   })
 })
 
+/* ── flatten: isOwnerSplit 기준 재귀 중단(§6.5) ── */
+describe('flatten isOwnerSplit 기준 재귀', () => {
+  it('sub-act(isOwnerSplit=true)는 접혀 행 출력 안 됨 — 회귀', () => {
+    // 3단 D-CUBE 트리: Phase > Task > Activity > sub-activity(isOwnerSplit=true, 자식 없음)
+    // 기존 동작: activity 레벨에서 재귀 중단 → 4단째(sub-act) 노드 미출력
+    // 신규 동작: isOwnerSplit=true 노드에서 재귀 중단 → 동일 결과
+    const srcRows: WbsRow[] = [
+      row({ id: 'P', parentId: null, level: 'phase', code: '1', name: 'Phase' }),
+      row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', name: 'Task' }),
+      row({ id: 'A', parentId: 'T', level: 'activity', code: 'a', name: 'Activity', isOwnerSplit: false }),
+      row({ id: 'SA', parentId: 'A', level: 'activity', code: 'a-1', name: 'sub-act', isOwnerSplit: true }),
+    ]
+    const items = computeTree(srcRows, '2026-09-15', new Set(), OPTS)
+    const aoa = buildWbsAoa(items)
+    // header 3줄 + data rows
+    const dataRows = aoa.slice(3)
+    expect(dataRows.length).toBe(3) // Phase, Task, Activity만 (sub-act는 접힘)
+    expect(dataRows.map(r => r[1] || r[2] || r[3])).toEqual(['Phase', 'Task', 'Activity'])
+  })
+
+  it('4단 일반 트리(isOwnerSplit 전부 false)는 4단까지 전개', () => {
+    // 4단 일반 트리(isOwnerSplit=false): Phase > Task > Activity > Sub > SubSub
+    // 신규 동작: isOwnerSplit=false 노드는 모두 재귀 → 4단까지 행 출력
+    const srcRows: WbsRow[] = [
+      row({ id: 'P', parentId: null, level: 'phase', code: '1', name: 'Phase', isOwnerSplit: false }),
+      row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', name: 'Task', isOwnerSplit: false }),
+      row({ id: 'A', parentId: 'T', level: 'activity', code: 'a', name: 'Activity', isOwnerSplit: false }),
+      row({ id: 'S', parentId: 'A', level: 'sub', code: 'a-1', name: 'SubActivity', isOwnerSplit: false }),
+      row({ id: 'SS', parentId: 'S', level: 'subsub', code: 'a-1-1', name: 'SubSubActivity', isOwnerSplit: false }),
+    ]
+    const items = computeTree(srcRows, '2026-09-15', new Set(), OPTS)
+    const aoa = buildWbsAoa(items)
+    const dataRows = aoa.slice(3)
+    expect(dataRows.length).toBe(5) // 모든 5개 행 출력
+    expect(dataRows.map(r => r[1] || r[2] || r[3])).toEqual(['Phase', 'Task', 'Activity', 'SubActivity', 'SubSubActivity'])
+  })
+})
+
 /* ── 동적 팀 열(팀 마스터 대응) ── */
 import { buildWbsColumnMap } from '@/lib/excel/parse'
 import { buildWbsAoa } from '@/lib/excel/export'
