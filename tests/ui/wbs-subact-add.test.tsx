@@ -75,6 +75,19 @@ describe('RowDetailPanel — SUB-ACT 추가 어포던스', () => {
     expect(byText(/wbs\.addSubAct/)).toHaveLength(0)
   })
 
+  it('리프 Task(level 무관, depth 1, isOwnerSplit=false, 자식 없음)에도 SUB-ACT 추가 버튼이 보인다 — 서버 정합 개선(사용자 수용 결정)', async () => {
+    await mount(item({ id: 't1', parentId: 'a1', level: 'task', depth: 1, children: [] }))
+    expect(byText(/wbs\.addSubAct/)).toHaveLength(1)
+  })
+
+  it('같은 리프라도 스스로가 SUB-ACT(isOwnerSplit=true)면 버튼이 없다', async () => {
+    await mount(item({
+      id: 't1', parentId: 'a1', level: 'task', depth: 1, children: [],
+      isOwnerSplit: true, owners: [{ team: '가공', kind: 'primary' }],
+    }))
+    expect(byText(/wbs\.addSubAct/)).toHaveLength(0)
+  })
+
   it('비편집(PMO 아님)이면 구조 편집 섹션 자체가 없어 버튼이 없다', async () => {
     await mount(item({ id: 'a1', name: 'A', children: [child('가공')] }), { editable: false })
     expect(byText(/wbs\.addSubAct/)).toHaveLength(0)

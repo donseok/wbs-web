@@ -6,8 +6,8 @@ export function canAddChild(depth: number, maxDepth: number | null): boolean {
   return maxDepth == null || depth + 1 < maxDepth
 }
 
-/** SUB-ACT(담당자별 분리) 추가 가능 여부 — 대상이 리프(자식 없음)이고 스스로가 이미 SUB-ACT 가 아니어야 한다.
- *  Plan A 의 addSubAct 서버 가드(리프 한정 + SUB-ACT 형제 제한)와 동치인 클라이언트 표시 판정. */
-export function canSplit(isOwnerSplit: boolean, hasChildren: boolean): boolean {
-  return !isOwnerSplit && !hasChildren
+/** SUB-ACT(담당자별 분리) 추가 가능 여부 — 비-SUB-ACT 자식이 하나라도 있으면 분리 불가(addSubAct 서버가드 ①과
+ *  동치). 리프이거나 자식 전원이 이미 SUB-ACT 면 허용. 스스로가 이미 SUB-ACT 인 경우도 불가(서버가드 ②). */
+export function canSplit(isOwnerSplit: boolean, hasNonSplitChildren: boolean): boolean {
+  return !isOwnerSplit && !hasNonSplitChildren
 }

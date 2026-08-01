@@ -61,6 +61,17 @@ const secondItem: ComputedItem = {
   status: 'done',
 }
 
+// isOwnerSplit(SUB-ACT) 항목 — C2 에서 LevelBadge 로 depth+isOwnerSplit 배선을 잡은 잠복버그의 회귀 방지 픽스처.
+const subActItem: ComputedItem = {
+  ...item,
+  id: 's1',
+  code: '1.1 (가공)',
+  sortOrder: 2,
+  name: 'ERP 전환 준비 (가공)',
+  owners: [{ team: '가공', kind: 'primary' }],
+  isOwnerSplit: true,
+}
+
 describe('WbsGanttSheet — 진척 돋보기', () => {
   let container: HTMLDivElement
   let root: Root
@@ -71,7 +82,7 @@ describe('WbsGanttSheet — 진척 돋보기', () => {
     root = createRoot(container)
     await act(async () => root.render(
       <WbsGanttSheet
-        items={[item, secondItem]}
+        items={[item, secondItem, subActItem]}
         holidays={[]}
         today="2026-07-03"
         actorView={null}
@@ -245,5 +256,13 @@ describe('WbsGanttSheet — 진척 돋보기', () => {
     expect(actualBar.getAttribute('aria-valuenow')).toBe('48')
     expect((plannedBar.firstElementChild as HTMLElement).style.width).toBe('65%')
     expect((actualBar.firstElementChild as HTMLElement).style.width).toBe('48%')
+  })
+
+  it('SUB-ACT(isOwnerSplit=true) 항목을 hover 하면 카드 배지가 SUB-ACT 로 뜬다', async () => {
+    await enable()
+    hoverRow('s1')
+
+    expect(card()?.dataset.itemId).toBe('s1')
+    expect(card()!.querySelector('.lvl-badge')?.textContent).toBe('SUB-ACT')
   })
 })
