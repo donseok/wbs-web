@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ShieldCheck } from 'lucide-react'
+import { ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react'
 import { setProjectRole, type ProjectRoleRow } from '@/app/actions/projectRoles'
 import { ACCOUNT_ROLES, type AccountRole } from '@/lib/domain/accounts'
 
@@ -22,6 +22,7 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   const router = useRouter()
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
   const [, startTransition] = useTransition()
 
   function change(row: ProjectRoleRow, role: AccountRole) {
@@ -45,61 +46,75 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[560px] text-sm">
-        <thead>
-          <tr className="border-b border-line text-left text-xs font-semibold uppercase tracking-wide text-ink-subtle">
-            <th className="py-2 pr-3">이름</th>
-            <th className="py-2 pr-3">이메일</th>
-            <th className="py-2 pr-3">팀</th>
-            <th className="py-2 pr-3">역할</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(row => {
-            const locked = !canManageAdmins && row.role === 'admin'
-            return (
-              <tr key={row.userId} className="border-b border-line/60 align-top">
-                <td className="py-2.5 pr-3 font-medium text-ink">
-                  <span className="inline-flex items-center gap-1.5">
-                    {row.name ?? '—'}
-                    {row.isSuperuser && (
-                      <span className="chip bg-done-weak text-done" title="슈퍼유저 — 모든 프로젝트 관리 권한">
-                        <ShieldCheck className="h-3 w-3" />SU
-                      </span>
-                    )}
-                  </span>
-                </td>
-                <td className="py-2.5 pr-3 text-ink-muted">{row.email}</td>
-                <td className="py-2.5 pr-3">
-                  {row.teamCode ? <span className="chip bg-surface-2 text-ink-muted">{row.teamCode}</span> : <span className="text-ink-subtle">—</span>}
-                </td>
-                <td className="py-2.5 pr-3">
-                  <select
-                    className="app-input h-8 w-auto text-xs"
-                    value={row.role}
-                    disabled={locked || savingId === row.userId}
-                    title={locked ? '관리자의 역할 변경은 슈퍼유저만 할 수 있습니다.' : undefined}
-                    onChange={(e) => change(row, e.target.value as AccountRole)}
-                  >
-                    {ACCOUNT_ROLES.map(r => (
-                      <option key={r} value={r} disabled={r === 'admin' && !canManageAdmins}>
-                        {ROLE_LABEL[r]}{r === 'admin' && !canManageAdmins ? ' (슈퍼유저 전용)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {errors[row.userId] ? (
-                    <p role="alert" className="mt-1 text-xs font-medium text-delayed">{errors[row.userId]}</p>
-                  ) : null}
-                </td>
+    <div className="space-y-3">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between rounded-xl border border-line bg-surface-2/50 px-3 py-2.5 text-left text-sm font-medium text-ink transition hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring"
+        aria-expanded={expanded}
+        aria-controls="project-roles-table"
+        onClick={() => setExpanded(value => !value)}
+      >
+        <span>{expanded ? '권한 목록 접기' : '권한 목록 펼치기'}</span>
+        {expanded ? <ChevronUp className="h-4 w-4 text-ink-subtle" /> : <ChevronDown className="h-4 w-4 text-ink-subtle" />}
+      </button>
+      {expanded && (
+        <div id="project-roles-table" className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-xs font-semibold uppercase tracking-wide text-ink-subtle">
+                <th className="py-2 pr-3">이름</th>
+                <th className="py-2 pr-3">이메일</th>
+                <th className="py-2 pr-3">팀</th>
+                <th className="py-2 pr-3">역할</th>
               </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      <p className="mt-3 text-xs leading-5 text-ink-subtle">
-        역할이 없는 계정은 조회 전용입니다. 관리자 지정·해제는 슈퍼유저만 할 수 있습니다.
-      </p>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const locked = !canManageAdmins && row.role === 'admin'
+                return (
+                  <tr key={row.userId} className="border-b border-line/60 align-top">
+                    <td className="py-2.5 pr-3 font-medium text-ink">
+                      <span className="inline-flex items-center gap-1.5">
+                        {row.name ?? '—'}
+                        {row.isSuperuser && (
+                          <span className="chip bg-done-weak text-done" title="슈퍼유저 — 모든 프로젝트 관리 권한">
+                            <ShieldCheck className="h-3 w-3" />SU
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3 text-ink-muted">{row.email}</td>
+                    <td className="py-2.5 pr-3">
+                      {row.teamCode ? <span className="chip bg-surface-2 text-ink-muted">{row.teamCode}</span> : <span className="text-ink-subtle">—</span>}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <select
+                        className="app-input h-8 w-auto text-xs"
+                        value={row.role}
+                        disabled={locked || savingId === row.userId}
+                        title={locked ? '관리자의 역할 변경은 슈퍼유저만 할 수 있습니다.' : undefined}
+                        onChange={(e) => change(row, e.target.value as AccountRole)}
+                      >
+                        {ACCOUNT_ROLES.map(r => (
+                          <option key={r} value={r} disabled={r === 'admin' && !canManageAdmins}>
+                            {ROLE_LABEL[r]}{r === 'admin' && !canManageAdmins ? ' (슈퍼유저 전용)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {errors[row.userId] ? (
+                        <p role="alert" className="mt-1 text-xs font-medium text-delayed">{errors[row.userId]}</p>
+                      ) : null}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs leading-5 text-ink-subtle">
+            역할이 없는 계정은 조회 전용입니다. 관리자 지정·해제는 슈퍼유저만 할 수 있습니다.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
