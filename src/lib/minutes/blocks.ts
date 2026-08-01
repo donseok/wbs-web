@@ -2,7 +2,7 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import { toString as mdastToString } from 'mdast-util-to-string'
-import type { Root, RootContent } from 'mdast'
+import type { Nodes, Root, RootContent } from 'mdast'
 import type { InsightKind } from '@/lib/domain/types'
 
 export type { InsightKind } from '@/lib/domain/types'
@@ -11,6 +11,8 @@ export interface MinuteBlock {
   index: number          // mdast 루트 children 순번 (비렌더 블록도 인덱스 차지)
   hash: string           // fnv1a64(정규화 텍스트)
   text: string           // includeHtml:false 추출 후 정규화
+  /** 이슈 초안용 표시 텍스트. hash/text 계약은 유지하면서 목록·표 항목 경계를 보존한다. */
+  draftText?: string
   rendered: boolean      // 제자리 렌더 여부 (html·footnoteDefinition·definition 은 false)
   headingDepth?: number  // heading 이면 1~6
 }
@@ -34,6 +36,48 @@ function normalize(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim()
 }
 
+function draftNodeText(node: Nodes): string {
+  if (node.type === 'html') return ''
+  if (node.type === 'break') return '\n'
+  if (node.type === 'image' || node.type === 'imageReference') return node.alt ?? ''
+  if (node.type === 'table') {
+    return node.children.map(draftNodeText).filter(Boolean).join('\n')
+  }
+  if (node.type === 'tableRow') {
+    return node.children.map(draftNodeText).join(' | ')
+  }
+  if (node.type === 'listItem') {
+    const text = node.children.map(draftNodeText).filter(Boolean).join('\n')
+    const status = node.checked === true
+      ? '[완료] '
+      : node.checked === false ? '[미완료] ' : ''
+    return `${status}${text}`
+  }
+  if (
+    node.type === 'root'
+    || node.type === 'blockquote'
+    || node.type === 'list'
+  ) {
+    return node.children.map(draftNodeText).filter(Boolean).join('\n')
+  }
+  if ('value' in node && typeof node.value === 'string') return node.value
+  if ('children' in node) return node.children.map(draftNodeText).join('')
+  return ''
+}
+
+function normalizeDraft(raw: string): string {
+  return raw
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+function draftTextOf(node: RootContent, rendered: boolean): string {
+  return rendered ? normalizeDraft(draftNodeText(node)) : ''
+}
+
 // 서버·클라이언트가 동일 파이프라인을 공유 — react-markdown 내부(remark-parse + remarkPlugins)와 같은 조합
 function parseRoot(bodyMd: string): Root {
   return unified().use(remarkParse).use(remarkGfm).parse(bodyMd) as Root
@@ -49,10 +93,16 @@ export function splitMinuteBlocks(bodyMd: string): MinuteBlock[] {
       index,
       hash: fnv1a64(text),
       text,
+      draftText: draftTextOf(node, rendered),
       rendered,
       ...(node.type === 'heading' ? { headingDepth: node.depth } : {}),
     }
   })
+}
+
+/** AI/폼 표시에는 목록·표 경계를 보존하고, 과거/수기 블록 객체는 기존 text로 호환한다. */
+export function minuteBlockDraftText(block: MinuteBlock): string {
+  return block.draftText?.trim() || block.text
 }
 
 /** 하이라이트·AI 마킹 가능 블록 — 클라 팝오버 발동/서버 토글 허용/AI 입력 포함의 공통 기준. */

@@ -3,10 +3,12 @@ import 'server-only'
 import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
 import { ISSUE_ANALYSIS_TEMPLATE_PATH } from './template'
-import type {
-  IssueAnalysisDeckIssue,
-  IssueAnalysisDeckPlan,
-  IssueAnalysisDeckSlide,
+import {
+  ISSUE_ANALYSIS_OPPORTUNITY_PAGE_CAPACITY,
+  type IssueAnalysisDeckIssueRow,
+  type IssueAnalysisDeckOpportunityBlock,
+  type IssueAnalysisDeckPlan,
+  type IssueAnalysisDeckSlide,
 } from './deckPlan'
 
 const SLIDE_CONTENT_TYPE =
@@ -15,6 +17,7 @@ const SLIDE_RELATIONSHIP =
   'http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide'
 
 const SHAPE_RE = /<p:sp\b[^>]*>[\s\S]*?<\/p:sp>/g
+const GROUP_SHAPE_RE = /<p:grpSp\b[^>]*>[\s\S]*?<\/p:grpSp>/g
 const CONNECTOR_RE = /<p:cxnSp\b[^>]*>[\s\S]*?<\/p:cxnSp>/g
 const GRAPHIC_FRAME_RE = /<p:graphicFrame\b[^>]*>[\s\S]*?<\/p:graphicFrame>/g
 const TABLE_ROW_RE = /<a:tr\b[^>]*>[\s\S]*?<\/a:tr>/g
@@ -104,6 +107,115 @@ function deleteShapeOrConnector(slideXml: string, shapeId: string): string {
   return updated
 }
 
+function singleElementById(
+  xml: string,
+  matcher: RegExp,
+  shapeId: string,
+  label: string,
+): string {
+  const id = shapeIdPattern(shapeId)
+  const matches = (xml.match(matcher) ?? []).filter(elementXml => id.test(elementXml))
+  if (matches.length !== 1) {
+    throw new Error(
+      `[issue-analysis] ${label} ${shapeId} 요소가 ${matches.length}개입니다. 표준 템플릿을 확인하세요.`,
+    )
+  }
+  return matches[0]
+}
+
+function deleteGroupShape(slideXml: string, shapeId: string): string {
+  const id = shapeIdPattern(shapeId)
+  let count = 0
+  const updated = slideXml.replace(GROUP_SHAPE_RE, groupXml => {
+    if (!id.test(groupXml)) return groupXml
+    count += 1
+    return ''
+  })
+  if (count !== 1) {
+    throw new Error(
+      `[issue-analysis] 삭제 대상 group ${shapeId}가 ${count}개입니다. 표준 템플릿을 확인하세요.`,
+    )
+  }
+  return updated
+}
+
+function withElementId(elementXml: string, shapeId: number): string {
+  if (!Number.isSafeInteger(shapeId) || shapeId < 1) {
+    throw new Error('[issue-analysis] 동적 shape ID가 올바르지 않습니다.')
+  }
+  let count = 0
+  const updated = elementXml.replace(
+    /(<p:cNvPr\b[^>]*\bid=")\d+("(?=[\s/>]))/,
+    (_, before: string, after: string) => {
+      count += 1
+      return `${before}${shapeId}${after}`
+    },
+  )
+  if (count !== 1) {
+    throw new Error('[issue-analysis] 동적 shape의 ID를 변경할 수 없습니다.')
+  }
+  return updated
+}
+
+interface ElementTransform {
+  x: number
+  y: number
+  cx: number
+  cy: number
+  flipV?: boolean
+}
+
+function withElementTransform(elementXml: string, transform: ElementTransform): string {
+  for (const value of [transform.x, transform.y, transform.cx, transform.cy]) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error('[issue-analysis] 동적 shape 좌표가 올바르지 않습니다.')
+    }
+  }
+  const source = elementXml.match(/<a:xfrm\b[^>]*>[\s\S]*?<\/a:xfrm>/)?.[0]
+  if (!source) throw new Error('[issue-analysis] 동적 shape의 좌표 구조가 없습니다.')
+
+  const open = source.match(/^<a:xfrm\b[^>]*>/)?.[0]
+  if (!open) throw new Error('[issue-analysis] 동적 shape의 좌표 시작 태그가 없습니다.')
+  let nextOpen = open.replace(/\sflipV="[01]"/g, '')
+  if (transform.flipV) nextOpen = nextOpen.replace(/>$/, ' flipV="1">')
+  let updated = source.replace(open, nextOpen)
+  updated = updated.replace(
+    /<a:off\b[^>]*\/>/,
+    `<a:off x="${transform.x}" y="${transform.y}"/>`,
+  )
+  updated = updated.replace(
+    /<a:ext\b[^>]*\/>/,
+    `<a:ext cx="${transform.cx}" cy="${transform.cy}"/>`,
+  )
+  return elementXml.replace(source, updated)
+}
+
+function withConnectorTargets(
+  connectorXml: string,
+  startShapeId: number,
+  endShapeId: number,
+): string {
+  let updated = connectorXml.replace(
+    /<a:stCxn\b[^>]*\/>/,
+    `<a:stCxn id="${startShapeId}" idx="3"/>`,
+  )
+  updated = updated.replace(
+    /<a:endCxn\b[^>]*\/>/,
+    `<a:endCxn id="${endShapeId}" idx="1"/>`,
+  )
+  return updated
+}
+
+function appendShapeTreeElements(slideXml: string, elements: readonly string[]): string {
+  if (!slideXml.includes('</p:spTree>')) {
+    throw new Error('[issue-analysis] 슬라이드 shape tree가 없습니다.')
+  }
+  return slideXml.replace(
+    '</p:spTree>',
+    () => `${elements.join('')}</p:spTree>`,
+  )
+}
+
 function toEndRunProperties(runProperties: string): string {
   return runProperties
     .replace(/^<a:rPr/, '<a:endParaRPr')
@@ -116,25 +228,97 @@ function toRunProperties(endProperties: string): string {
     .replace(/<\/a:endParaRPr>$/, '</a:rPr>')
 }
 
-function rebuildParagraph(paragraphXml: string, value: string): string {
+type ParagraphKind = 'plain' | 'heading' | 'body' | 'bullet'
+type TextBodyMode = 'plain' | 'issue-body' | 'opportunity'
+
+const BULLET_PROPERTIES_RE = new RegExp([
+  '<a:bu(?:ClrTx|SzTx|FontTx|None)\\b[^>]*\\/>',
+  '<a:bu(?:Clr|SzPct|SzPts|Font|AutoNum|Char)\\b[^>]*\\/>',
+  '<a:buBlip\\b[\\s\\S]*?<\\/a:buBlip>',
+].join('|'), 'g')
+
+function appendParagraphProperty(pPr: string, property: string): string {
+  if (!pPr) return `<a:pPr>${property}</a:pPr>`
+  if (/\/>$/.test(pPr)) return pPr.replace(/\/>$/, `>${property}</a:pPr>`)
+  return pPr.replace('</a:pPr>', `${property}</a:pPr>`)
+}
+
+function withoutBullet(pPr: string): string {
+  const cleaned = pPr
+    .replace(BULLET_PROPERTIES_RE, '')
+    .replace(/\s(?:marL|indent)="-?\d+"/g, '')
+  return appendParagraphProperty(cleaned, '<a:buNone/>')
+}
+
+function withBullet(pPr: string): string {
+  const cleaned = pPr.replace(/<a:buNone\b[^>]*\/>/g, '')
+  if (/<a:bu(?:AutoNum|Char|Blip)\b/.test(cleaned)) return cleaned
+  return appendParagraphProperty(cleaned, '<a:buChar char="•"/>')
+}
+
+function withBold(runProperties: string): string {
+  if (/\bb="[01]"/.test(runProperties)) {
+    return runProperties.replace(/\bb="[01]"/, 'b="1"')
+  }
+  return runProperties.replace(/^<a:rPr\b/, '<a:rPr b="1"')
+}
+
+function withoutBold(runProperties: string): string {
+  if (/\bb="[01]"/.test(runProperties)) {
+    return runProperties.replace(/\bb="[01]"/, 'b="0"')
+  }
+  return runProperties.replace(/^<a:rPr\b/, '<a:rPr b="0"')
+}
+
+function rebuildParagraph(
+  paragraphXml: string,
+  value: string,
+  kind: ParagraphKind = 'plain',
+): string {
   const open = paragraphXml.match(/^<a:p(?:\s[^>]*)?>/)?.[0] ?? '<a:p>'
-  const pPr = paragraphXml.match(PPR_RE)?.[0] ?? ''
+  const sourcePPr = paragraphXml.match(PPR_RE)?.[0] ?? ''
+  const pPr = kind === 'bullet' ? withBullet(sourcePPr) : withoutBullet(sourcePPr)
   const sourceEnd = paragraphXml.match(END_RPR_RE)?.[0] ?? ''
-  const rPr = paragraphXml.match(RPR_RE)?.[0]
+  const sourceRPr = paragraphXml.match(RPR_RE)?.[0]
     ?? (sourceEnd ? toRunProperties(sourceEnd) : '<a:rPr/>')
+  const rPr = kind === 'heading'
+    ? withBold(sourceRPr)
+    : kind === 'body'
+      ? withoutBold(sourceRPr)
+      : sourceRPr
   const end = sourceEnd || toEndRunProperties(rPr)
   if (!value) return `${open}${pPr}${end}</a:p>`
   return `${open}${pPr}<a:r>${rPr}${textNode(value)}</a:r>${end}</a:p>`
 }
 
-function rebuildTextBody(textBodyXml: string, value: string): string {
+function withNormalAutofit(bodyPrXml: string): string {
+  const withoutAutofit = bodyPrXml.replace(
+    /<a:(?:noAutofit|normAutofit|spAutoFit)\b[^>]*\/>/g,
+    '',
+  )
+  if (/\/>$/.test(withoutAutofit)) {
+    return withoutAutofit.replace(/\/>$/, '><a:normAutofit/></a:bodyPr>')
+  }
+  if (!/<\/a:bodyPr>$/.test(withoutAutofit)) {
+    throw new Error('[issue-analysis] 텍스트 자동 맞춤 구조가 올바르지 않습니다.')
+  }
+  return withoutAutofit.replace('</a:bodyPr>', '<a:normAutofit/></a:bodyPr>')
+}
+
+function rebuildTextBody(
+  textBodyXml: string,
+  value: string,
+  normalAutofit = false,
+  mode: TextBodyMode = 'plain',
+): string {
   const open = textBodyXml.match(/^<(?:p|a):txBody\b[^>]*>/)?.[0]
   const close = textBodyXml.match(/<\/(?:p|a):txBody>$/)?.[0]
   if (!open || !close) throw new Error('[issue-analysis] 텍스트 본문 구조가 올바르지 않습니다.')
 
-  const bodyPr = textBodyXml.match(
+  const sourceBodyPr = textBodyXml.match(
     /<a:bodyPr\b[^>]*\/>|<a:bodyPr\b[\s\S]*?<\/a:bodyPr>/,
   )?.[0] ?? '<a:bodyPr/>'
+  const bodyPr = normalAutofit ? withNormalAutofit(sourceBodyPr) : sourceBodyPr
   const listStyle = textBodyXml.match(
     /<a:lstStyle\b[^>]*\/>|<a:lstStyle\b[\s\S]*?<\/a:lstStyle>/,
   )?.[0] ?? '<a:lstStyle/>'
@@ -144,61 +328,91 @@ function rebuildTextBody(textBodyXml: string, value: string): string {
   }
 
   const lines = value.split(/\r?\n/)
-  const paragraphs = lines.map((line, index) => rebuildParagraph(
-    sourceParagraphs[Math.min(index, sourceParagraphs.length - 1)],
-    line,
-  ))
+  const paragraphs = lines.map((line, index) => {
+    let valueForLine = line
+    let kind: ParagraphKind = 'plain'
+    if (mode === 'issue-body') {
+      if (/^\[(?:현황|문제[·/]영향|필요 조치)\]$/.test(line.trim())) {
+        kind = 'heading'
+      } else if (/^-\s+\S/.test(line.trimStart())) {
+        kind = 'bullet'
+        valueForLine = line.trimStart().replace(/^-\s+/, '')
+      }
+    } else if (mode === 'opportunity') {
+      kind = index === 0 ? 'heading' : 'body'
+    }
+    return rebuildParagraph(
+      sourceParagraphs[Math.min(index, sourceParagraphs.length - 1)],
+      valueForLine,
+      kind,
+    )
+  })
   return `${open}${bodyPr}${listStyle}${paragraphs.join('')}${close}`
 }
 
-function setShapeText(slideXml: string, shapeId: string, value: string | number): string {
-  return mapShape(slideXml, shapeId, shapeXml => {
-    const textBody = shapeXml.match(/<p:txBody\b[^>]*>[\s\S]*?<\/p:txBody>/)?.[0]
-    if (!textBody) {
-      throw new Error(`[issue-analysis] shape ${shapeId}에 텍스트 본문이 없습니다.`)
-    }
-    return shapeXml.replace(textBody, () => rebuildTextBody(textBody, String(value)))
-  })
+function setShapeElementText(
+  shapeXml: string,
+  value: string | number,
+  normalAutofit = false,
+  mode: TextBodyMode = 'plain',
+): string {
+  const textBody = shapeXml.match(/<p:txBody\b[^>]*>[\s\S]*?<\/p:txBody>/)?.[0]
+  if (!textBody) throw new Error('[issue-analysis] 동적 shape에 텍스트 본문이 없습니다.')
+  return shapeXml.replace(
+    textBody,
+    () => rebuildTextBody(textBody, String(value), normalAutofit, mode),
+  )
 }
 
-function setShapeTextInset(
+function setShapeText(
   slideXml: string,
   shapeId: string,
+  value: string | number,
+  normalAutofit = false,
+): string {
+  return mapShape(
+    slideXml,
+    shapeId,
+    shapeXml => setShapeElementText(shapeXml, value, normalAutofit),
+  )
+}
+
+function setShapeElementInset(
+  shapeXml: string,
   side: 'lIns' | 'rIns',
   value: number,
 ): string {
-  return mapShape(slideXml, shapeId, shapeXml => {
-    const textBody = shapeXml.match(/<p:txBody\b[^>]*>[\s\S]*?<\/p:txBody>/)?.[0]
-    const bodyPr = textBody?.match(
-      /<a:bodyPr\b[^>]*\/>|<a:bodyPr\b[\s\S]*?<\/a:bodyPr>/,
-    )?.[0]
-    if (!textBody || !bodyPr) {
-      throw new Error(`[issue-analysis] shape ${shapeId}의 텍스트 여백을 찾을 수 없습니다.`)
-    }
-    const sidePattern = new RegExp(`\\b${side}="\\d+"`)
-    const updatedBodyPr = sidePattern.test(bodyPr)
-      ? bodyPr.replace(sidePattern, `${side}="${value}"`)
-      : bodyPr.replace('<a:bodyPr', `<a:bodyPr ${side}="${value}"`)
-    return shapeXml.replace(
-      textBody,
-      () => textBody.replace(bodyPr, () => updatedBodyPr),
-    )
-  })
+  const textBody = shapeXml.match(/<p:txBody\b[^>]*>[\s\S]*?<\/p:txBody>/)?.[0]
+  const bodyPr = textBody?.match(
+    /<a:bodyPr\b[^>]*\/>|<a:bodyPr\b[\s\S]*?<\/a:bodyPr>/,
+  )?.[0]
+  if (!textBody || !bodyPr) {
+    throw new Error('[issue-analysis] 동적 shape의 텍스트 여백을 찾을 수 없습니다.')
+  }
+  const sidePattern = new RegExp(`\\b${side}="\\d+"`)
+  const updatedBodyPr = sidePattern.test(bodyPr)
+    ? bodyPr.replace(sidePattern, `${side}="${value}"`)
+    : bodyPr.replace('<a:bodyPr', `<a:bodyPr ${side}="${value}"`)
+  return shapeXml.replace(
+    textBody,
+    () => textBody.replace(bodyPr, () => updatedBodyPr),
+  )
 }
 
 function rebuildCoverTitle(textBodyXml: string, projectName: string): string {
   const open = textBodyXml.match(/^<p:txBody\b[^>]*>/)?.[0]
   const close = textBodyXml.match(/<\/p:txBody>$/)?.[0]
-  const bodyPr = textBodyXml.match(
+  const sourceBodyPr = textBodyXml.match(
     /<a:bodyPr\b[^>]*\/>|<a:bodyPr\b[\s\S]*?<\/a:bodyPr>/,
   )?.[0]
   const listStyle = textBodyXml.match(
     /<a:lstStyle\b[^>]*\/>|<a:lstStyle\b[\s\S]*?<\/a:lstStyle>/,
   )?.[0]
   const paragraph = textBodyXml.match(PARAGRAPH_RE)?.[0]
-  if (!open || !close || !bodyPr || !listStyle || !paragraph) {
+  if (!open || !close || !sourceBodyPr || !listStyle || !paragraph) {
     throw new Error('[issue-analysis] 표지 제목 구조가 올바르지 않습니다.')
   }
+  const bodyPr = withNormalAutofit(sourceBodyPr)
 
   const pOpen = paragraph.match(/^<a:p(?:\s[^>]*)?>/)?.[0] ?? '<a:p>'
   const pPr = paragraph.match(PPR_RE)?.[0] ?? ''
@@ -258,7 +472,12 @@ function setTableCellText(
   }
   const replacement = target.replace(
     textBody,
-    () => rebuildTextBody(textBody, value),
+    () => rebuildTextBody(
+      textBody,
+      value,
+      true,
+      rowIndex > 0 && columnIndex === 2 ? 'issue-body' : 'plain',
+    ),
   )
   let row = -1
   return tableXml.replace(TABLE_ROW_RE, rowXml => {
@@ -272,10 +491,13 @@ function setTableCellText(
   })
 }
 
-function issueRowValues(issue: IssueAnalysisDeckIssue | undefined): string[] {
+function issueRowValues(issue: IssueAnalysisDeckIssueRow | undefined): string[] {
   if (!issue) return ['', '', '', '', '']
+  const continuation = issue.continuationCount > 1
+    ? `\n(계속 ${issue.continuationIndex}/${issue.continuationCount})`
+    : ''
   return [
-    issue.piIssueCode,
+    `${issue.piIssueCode}${continuation}`,
     issue.title,
     issue.body,
     issue.subProcess,
@@ -283,9 +505,59 @@ function issueRowValues(issue: IssueAnalysisDeckIssue | undefined): string[] {
   ]
 }
 
+function tableRowHeight(rowXml: string): number {
+  const value = Number(rowXml.match(/<a:tr\b[^>]*\bh="(\d+)"/)?.[1] ?? 0)
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error('[issue-analysis] 표 행 높이가 올바르지 않습니다.')
+  }
+  return value
+}
+
+function setTableRowHeight(rowXml: string, value: number): string {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error('[issue-analysis] 계산된 표 행 높이가 올바르지 않습니다.')
+  }
+  if (!/<a:tr\b[^>]*\bh="\d+"/.test(rowXml)) {
+    throw new Error('[issue-analysis] 높이를 변경할 표 행을 찾을 수 없습니다.')
+  }
+  return rowXml.replace(
+    /(<a:tr\b[^>]*\bh=")\d+("[^>]*>)/,
+    `$1${value}$2`,
+  )
+}
+
+function issueRowHeights(
+  rows: readonly string[],
+  issues: readonly IssueAnalysisDeckIssueRow[],
+): number[] {
+  const totalHeight = rows.slice(1).reduce((sum, row) => sum + tableRowHeight(row), 0)
+  const totalUnits = issues.reduce((sum, issue) => sum + issue.rowUnits, 0)
+  if (!issues.length || totalUnits < 1) {
+    throw new Error('[issue-analysis] 이슈 표 페이지가 비어 있습니다.')
+  }
+
+  let remainingHeight = totalHeight
+  let remainingUnits = totalUnits
+  return issues.map((issue, index) => {
+    if (
+      !Number.isSafeInteger(issue.rowUnits)
+      || issue.rowUnits < 1
+      || issue.rowUnits > totalUnits
+    ) {
+      throw new Error(`[issue-analysis] ${issue.piIssueCode} 이슈 행 비율이 올바르지 않습니다.`)
+    }
+    const height = index === issues.length - 1
+      ? remainingHeight
+      : Math.floor((remainingHeight * issue.rowUnits) / remainingUnits)
+    remainingHeight -= height
+    remainingUnits -= issue.rowUnits
+    return height
+  })
+}
+
 function fillIssueTable(
   slideXml: string,
-  issues: IssueAnalysisDeckIssue[],
+  issues: IssueAnalysisDeckIssueRow[],
   capacity: number,
 ): string {
   return mapSingleXmlElement(
@@ -299,14 +571,27 @@ function fillIssueTable(
           `[issue-analysis] 표 행 수가 ${rowCount}개입니다. 예상값은 ${capacity + 1}개입니다.`,
         )
       }
+      if (!issues.length || issues.length > capacity) {
+        throw new Error(
+          `[issue-analysis] 표에 배치할 이슈 행 수가 ${issues.length}개입니다. 허용값은 1~${capacity}개입니다.`,
+        )
+      }
       let updated = setTableCellText(frameXml, 0, 3, '구분')
-      for (let index = 0; index < capacity; index += 1) {
+      for (let index = 0; index < issues.length; index += 1) {
         const values = issueRowValues(issues[index])
         for (let column = 0; column < values.length; column += 1) {
           updated = setTableCellText(updated, index + 1, column, values[column])
         }
       }
-      return updated
+      const rows = updated.match(TABLE_ROW_RE) ?? []
+      const heights = issueRowHeights(rows, issues)
+      let rowIndex = -1
+      return updated.replace(TABLE_ROW_RE, rowXml => {
+        rowIndex += 1
+        if (rowIndex === 0) return rowXml
+        if (rowIndex > issues.length) return ''
+        return setTableRowHeight(rowXml, heights[rowIndex - 1])
+      })
     },
     '이슈 표',
   )
@@ -320,8 +605,221 @@ function setPageFooter(
   footerShapeId = '6',
 ): string {
   let updated = setShapeText(slideXml, pageShapeId, pageNumber)
-  updated = setShapeText(updated, footerShapeId, `작성자_${authorName}`)
+  updated = setShapeText(updated, footerShapeId, `작성자_${authorName}`, true)
   return updated
+}
+
+const OPPORTUNITY_CONTENT_TOP = 1_680_000
+const OPPORTUNITY_CONTENT_BOTTOM = 6_250_000
+const OPPORTUNITY_BLOCK_GAP = 100_000
+const OPPORTUNITY_ISSUE_GAP = 55_000
+const OPPORTUNITY_MAX_UNIT_HEIGHT = 600_000
+const OPPORTUNITY_CODE_X = 432_286
+const OPPORTUNITY_CODE_WIDTH = 930_565
+const OPPORTUNITY_TITLE_X = 1_429_229
+const OPPORTUNITY_TITLE_WIDTH = 3_256_080
+const OPPORTUNITY_BOX_X = 5_750_817
+const OPPORTUNITY_BOX_WIDTH = 3_024_000
+const OPPORTUNITY_BADGE_X = 5_749_829
+const OPPORTUNITY_BADGE_WIDTH = 265_846
+const OPPORTUNITY_BADGE_HEIGHT = 288_000
+
+interface OpportunityBlockLayout {
+  block: IssueAnalysisDeckOpportunityBlock
+  y: number
+  height: number
+  unitHeight: number
+}
+
+function opportunityBlockLayouts(
+  blocks: readonly IssueAnalysisDeckOpportunityBlock[],
+): OpportunityBlockLayout[] {
+  if (!blocks.length) throw new Error('[issue-analysis] 개선기회 페이지가 비어 있습니다.')
+  const totalUnits = blocks.reduce((sum, block) => sum + block.rowUnits, 0)
+  if (totalUnits < 1 || totalUnits > ISSUE_ANALYSIS_OPPORTUNITY_PAGE_CAPACITY) {
+    throw new Error('[issue-analysis] 개선기회 페이지 높이 예산이 올바르지 않습니다.')
+  }
+  const contentHeight = OPPORTUNITY_CONTENT_BOTTOM - OPPORTUNITY_CONTENT_TOP
+  const gapHeight = OPPORTUNITY_BLOCK_GAP * (blocks.length - 1)
+  const unitHeight = Math.min(
+    OPPORTUNITY_MAX_UNIT_HEIGHT,
+    Math.floor((contentHeight - gapHeight) / totalUnits),
+  )
+  if (unitHeight < 1) {
+    throw new Error('[issue-analysis] 개선기회 블록 높이를 계산할 수 없습니다.')
+  }
+  const usedHeight = totalUnits * unitHeight + gapHeight
+  let y = OPPORTUNITY_CONTENT_TOP + Math.floor((contentHeight - usedHeight) / 2)
+  return blocks.map(block => {
+    const layout = { block, y, height: block.rowUnits * unitHeight, unitHeight }
+    y += layout.height + OPPORTUNITY_BLOCK_GAP
+    return layout
+  })
+}
+
+function proportionalHeights(
+  units: readonly number[],
+  totalHeight: number,
+  gap: number,
+): number[] {
+  if (!units.length) return []
+  const available = totalHeight - gap * (units.length - 1)
+  const totalUnits = units.reduce((sum, unit) => sum + unit, 0)
+  if (available < units.length || totalUnits < 1) {
+    throw new Error('[issue-analysis] 개선기회 이슈 행 높이를 계산할 수 없습니다.')
+  }
+  let remainingHeight = available
+  let remainingUnits = totalUnits
+  return units.map((unit, index) => {
+    const height = index === units.length - 1
+      ? remainingHeight
+      : Math.floor((remainingHeight * unit) / remainingUnits)
+    remainingHeight -= height
+    remainingUnits -= unit
+    return height
+  })
+}
+
+function opportunityIssueCode(
+  issue: IssueAnalysisDeckOpportunityBlock['issues'][number],
+): string {
+  if (issue.continuationCount === 1) return issue.piIssueCode
+  return `${issue.piIssueCode}\n계속 ${issue.continuationIndex}/${issue.continuationCount}`
+}
+
+function renderOpportunitySlide(
+  sourceXml: string,
+  slide: Extract<IssueAnalysisDeckSlide, { kind: 'opportunity' }>,
+  plan: IssueAnalysisDeckPlan,
+  outputPage: number,
+): string {
+  const issueTitlePrototype = singleElementById(sourceXml, SHAPE_RE, '54', 'shape')
+  const issueCodePrototype = singleElementById(sourceXml, SHAPE_RE, '55', 'shape')
+  const opportunityPrototype = singleElementById(sourceXml, SHAPE_RE, '45', 'shape')
+  const badgePrototype = singleElementById(sourceXml, SHAPE_RE, '46', 'shape')
+  const connectorPrototype = singleElementById(sourceXml, CONNECTOR_RE, '71', 'connector')
+
+  let xml = setPageFooter(sourceXml, outputPage, plan.meta.authorName, '3', '6')
+  xml = setShapeText(
+    xml,
+    '89',
+    `주요 이슈 및 개선 기회 (${slide.pageInSection}/${slide.pageCount})`,
+  )
+  xml = deleteGroupShape(xml, '47')
+  for (const dynamicId of [
+    '45', '46', '50', '54', '55', '57', '58', '60', '61', '63', '64',
+    '71', '72', '73', '74',
+  ]) {
+    xml = deleteShapeOrConnector(xml, dynamicId)
+  }
+
+  let nextShapeId = 1_000
+  const connectors: string[] = []
+  const shapes: string[] = []
+  for (const { block, y, height, unitHeight } of opportunityBlockLayouts(slide.blocks)) {
+    const opportunityShapeId = nextShapeId
+    nextShapeId += 1
+    const badgeShapeId = nextShapeId
+    nextShapeId += 1
+
+    const opportunityHeight = Math.min(
+      height,
+      Math.max(2, block.opportunityUnits) * unitHeight,
+    )
+    const opportunityY = y + Math.floor((height - opportunityHeight) / 2)
+    const continuation = block.continuationCount > 1
+      ? ` (계속 ${block.continuationIndex}/${block.continuationCount})`
+      : ''
+    const opportunityText = [
+      `${block.megaCode}-${block.megaName} · ${block.title}${continuation}`,
+      block.description,
+    ].filter(Boolean).join('\n')
+
+    let opportunityShape = withElementId(opportunityPrototype, opportunityShapeId)
+    opportunityShape = withElementTransform(opportunityShape, {
+      x: OPPORTUNITY_BOX_X,
+      y: opportunityY,
+      cx: OPPORTUNITY_BOX_WIDTH,
+      cy: opportunityHeight,
+    })
+    opportunityShape = setShapeElementText(
+      opportunityShape,
+      opportunityText,
+      true,
+      'opportunity',
+    )
+    opportunityShape = setShapeElementInset(opportunityShape, 'lIns', 360_000)
+    shapes.push(opportunityShape)
+
+    let badgeShape = withElementId(badgePrototype, badgeShapeId)
+    badgeShape = withElementTransform(badgeShape, {
+      x: OPPORTUNITY_BADGE_X,
+      y: opportunityY,
+      cx: OPPORTUNITY_BADGE_WIDTH,
+      cy: Math.min(OPPORTUNITY_BADGE_HEIGHT, opportunityHeight),
+    })
+    badgeShape = setShapeElementText(badgeShape, block.opportunityNo)
+    shapes.push(badgeShape)
+
+    if (!block.issues.length) continue
+    const issueContentHeight = Math.min(height, block.issueUnits * unitHeight)
+    const issueHeights = proportionalHeights(
+      block.issues.map(issue => issue.rowUnits),
+      issueContentHeight,
+      OPPORTUNITY_ISSUE_GAP,
+    )
+    let issueY = y + Math.floor((height - issueContentHeight) / 2)
+    for (let index = 0; index < block.issues.length; index += 1) {
+      const issue = block.issues[index]
+      const issueHeight = issueHeights[index]
+      const issueTitleShapeId = nextShapeId
+      nextShapeId += 1
+      const issueCodeShapeId = nextShapeId
+      nextShapeId += 1
+      const connectorShapeId = nextShapeId
+      nextShapeId += 1
+
+      let issueTitleShape = withElementId(issueTitlePrototype, issueTitleShapeId)
+      issueTitleShape = withElementTransform(issueTitleShape, {
+        x: OPPORTUNITY_TITLE_X,
+        y: issueY,
+        cx: OPPORTUNITY_TITLE_WIDTH,
+        cy: issueHeight,
+      })
+      issueTitleShape = setShapeElementText(issueTitleShape, issue.title, true)
+      shapes.push(issueTitleShape)
+
+      let issueCodeShape = withElementId(issueCodePrototype, issueCodeShapeId)
+      issueCodeShape = withElementTransform(issueCodeShape, {
+        x: OPPORTUNITY_CODE_X,
+        y: issueY,
+        cx: OPPORTUNITY_CODE_WIDTH,
+        cy: issueHeight,
+      })
+      issueCodeShape = setShapeElementText(issueCodeShape, opportunityIssueCode(issue), true)
+      shapes.push(issueCodeShape)
+
+      const issueCenterY = issueY + Math.floor(issueHeight / 2)
+      const opportunityCenterY = opportunityY + Math.floor(opportunityHeight / 2)
+      const connectorY = Math.min(issueCenterY, opportunityCenterY)
+      let connector = withElementId(connectorPrototype, connectorShapeId)
+      connector = withElementTransform(connector, {
+        x: OPPORTUNITY_TITLE_X + OPPORTUNITY_TITLE_WIDTH,
+        y: connectorY,
+        cx: OPPORTUNITY_BOX_X - (OPPORTUNITY_TITLE_X + OPPORTUNITY_TITLE_WIDTH),
+        cy: Math.abs(opportunityCenterY - issueCenterY),
+        flipV: opportunityCenterY < issueCenterY,
+      })
+      connector = withConnectorTargets(
+        connector,
+        issueTitleShapeId,
+        opportunityShapeId,
+      )
+      connectors.push(connector)
+      issueY += issueHeight + OPPORTUNITY_ISSUE_GAP
+    }
+  }
+  return appendShapeTreeElements(xml, [...connectors, ...shapes])
 }
 
 function renderSlide(
@@ -334,7 +832,7 @@ function renderSlide(
   switch (slide.kind) {
     case 'cover':
       xml = setCoverTitle(xml, slide.projectName)
-      xml = setShapeText(xml, '5', `${slide.authorLine}｜${slide.dateLabel}`)
+      xml = setShapeText(xml, '5', `${slide.authorLine}｜${slide.dateLabel}`, true)
       break
     case 'contents':
       xml = setShapeText(
@@ -356,8 +854,8 @@ function renderSlide(
       xml = setShapeText(xml, '100', '2. 영역 별 이슈 종합')
       xml = setShapeText(xml, '48', 'Mega')
       xml = setShapeText(xml, '49', `${slide.megaCode} ${slide.megaName}`)
-      xml = setShapeText(xml, '51', slide.ownerDepartmentLines.join('\n'))
-      xml = setShapeText(xml, '53', slide.relatedSystemLines.join('\n'))
+      xml = setShapeText(xml, '51', slide.ownerDepartmentLines.join('\n'), true)
+      xml = setShapeText(xml, '53', slide.relatedSystemLines.join('\n'), true)
       xml = fillIssueTable(xml, slide.issues, 3)
       break
     case 'area-summary-continuation':
@@ -370,34 +868,9 @@ function renderSlide(
       xml = setShapeText(xml, '100', '2. 영역 별 이슈 종합')
       xml = fillIssueTable(xml, slide.issues, 5)
       break
-    case 'opportunity': {
-      xml = setPageFooter(xml, outputPage, plan.meta.authorName, '3', '6')
-      xml = setShapeText(xml, '89', `${slide.megaCode}-${slide.megaName}`)
-      xml = setShapeText(xml, '45', `${slide.title}\n${slide.description}`)
-      // 개선기회 번호 배지가 상자 왼쪽 위를 덮는 원본 구조이므로 본문만 안쪽으로 이동한다.
-      xml = setShapeTextInset(xml, '45', 'lIns', 360_000)
-      xml = setShapeText(xml, '46', slide.opportunityNo)
-      const cardIds = [
-        { title: '48', code: '49', connector: '50' },
-        { title: '54', code: '55', connector: '71' },
-        { title: '57', code: '58', connector: '72' },
-        { title: '60', code: '61', connector: '73' },
-        { title: '63', code: '64', connector: '74' },
-      ]
-      for (let index = 0; index < cardIds.length; index += 1) {
-        const card = cardIds[index]
-        const issue = slide.issues[index]
-        if (issue) {
-          xml = setShapeText(xml, card.title, issue.title)
-          xml = setShapeText(xml, card.code, issue.piIssueCode)
-        } else {
-          xml = deleteShapeOrConnector(xml, card.title)
-          xml = deleteShapeOrConnector(xml, card.code)
-          xml = deleteShapeOrConnector(xml, card.connector)
-        }
-      }
+    case 'opportunity':
+      xml = renderOpportunitySlide(sourceXml, slide, plan, outputPage)
       break
-    }
   }
   return xml.replace(
     /<p14:creationId\b([^>]*)\bval="\d+"([^>]*)\/>/,
@@ -438,7 +911,45 @@ function validatePlan(plan: IssueAnalysisDeckPlan): void {
         `[issue-analysis] 출력 ${index + 1}페이지의 목차 원본 매핑이 올바르지 않습니다.`,
       )
     }
+    if (slide.kind === 'opportunity') {
+      const usedUnits = slide.blocks.reduce((sum, block) => sum + block.rowUnits, 0)
+      if (
+        !slide.blocks.length
+        || usedUnits < 1
+        || usedUnits > ISSUE_ANALYSIS_OPPORTUNITY_PAGE_CAPACITY
+        || slide.pageInSection < 1
+        || slide.pageInSection > slide.pageCount
+      ) {
+        throw new Error(
+          `[issue-analysis] 출력 ${index + 1}페이지의 개선기회 배치가 올바르지 않습니다.`,
+        )
+      }
+      for (const block of slide.blocks) {
+        const issueUnits = block.issues.reduce((sum, issue) => sum + issue.rowUnits, 0)
+        if (
+          block.issueUnits !== issueUnits
+          || block.rowUnits < Math.max(2, block.issueUnits, block.opportunityUnits)
+          || block.rowUnits > ISSUE_ANALYSIS_OPPORTUNITY_PAGE_CAPACITY
+          || block.continuationIndex < 1
+          || block.continuationIndex > block.continuationCount
+        ) {
+          throw new Error(
+            `[issue-analysis] 개선기회 ${block.opportunityNo}의 높이 정보가 올바르지 않습니다.`,
+          )
+        }
+      }
+    }
   })
+
+  const opportunitySlides = plan.slides.filter(slide => slide.kind === 'opportunity')
+  if (
+    !opportunitySlides.length
+    || opportunitySlides.some((slide, index) =>
+      slide.pageInSection !== index + 1
+      || slide.pageCount !== opportunitySlides.length)
+  ) {
+    throw new Error('[issue-analysis] 개선기회 페이지 순서가 올바르지 않습니다.')
+  }
 }
 
 function slideMetadataTitle(slide: IssueAnalysisDeckSlide): string {
@@ -455,7 +966,7 @@ function slideMetadataTitle(slide: IssueAnalysisDeckSlide): string {
     case 'area-summary-continuation':
       return `영역별 이슈 종합 – ${slide.megaCode}_${slide.megaName}`
     case 'opportunity':
-      return `이슈별 개선기회 도출 – ${slide.opportunityNo}. ${slide.title}`
+      return `이슈별 개선기회 도출 – ${slide.pageInSection}/${slide.pageCount}`
   }
 }
 

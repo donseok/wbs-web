@@ -28,6 +28,22 @@ describe('makeMinuteIssueSourceKey', () => {
 
     expect(new Set(keys).size).toBe(keys.length)
   })
+
+  it('선택 발췌 해시가 있으면 :sel:<hash> 접미사로 블록 전체 키와 구분한다', () => {
+    const base = {
+      minuteVersionId: 'version-1',
+      blockIndex: 3,
+      blockHash: 'ABCDEF0123456789',
+      kind: 'manual' as const,
+    }
+    expect(makeMinuteIssueSourceKey({ ...base, selectionHash: 'FEDCBA9876543210' }))
+      .toBe('minute:version-1:3:abcdef0123456789:manual:sel:fedcba9876543210')
+    // null/미전송은 기존 키와 바이트 단위 동일(하위 호환)
+    expect(makeMinuteIssueSourceKey({ ...base, selectionHash: null }))
+      .toBe('minute:version-1:3:abcdef0123456789:manual')
+    expect(makeMinuteIssueSourceKey(base))
+      .toBe('minute:version-1:3:abcdef0123456789:manual')
+  })
 })
 
 describe('issueDraftFromBlock', () => {
@@ -38,6 +54,7 @@ describe('issueDraftFromBlock', () => {
     expect(draft.body).toBe(text)
     expect(draft.title.length).toBeGreaterThan(0)
     expect(draft.title.length).toBeLessThanOrEqual(200)
+    expect(draft.title).not.toMatch(/…|\.{3,}/)
   })
 
   it('인사이트 라벨이 있으면 블록 텍스트보다 제목으로 우선 사용한다', () => {
@@ -53,6 +70,7 @@ describe('issueDraftFromBlock', () => {
     const draft = issueDraftFromBlock('원문', '위험'.repeat(120))
 
     expect(draft.title.length).toBeLessThanOrEqual(200)
+    expect(draft.title).not.toMatch(/…|\.{3,}/)
     expect(draft.body).toBe('원문')
   })
 })

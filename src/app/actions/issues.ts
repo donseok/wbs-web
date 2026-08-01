@@ -13,6 +13,7 @@ import {
   type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
 import {
+  isIssueMegaCode,
   normalizeIssueAnalysisInput,
   type IssueAnalysisInput,
   type NormalizedIssueAnalysisInput,
@@ -24,8 +25,12 @@ import {
   type IssueMinuteSourceKind,
 } from '@/lib/domain/issueMinuteSource'
 import {
-  fnv1a64, isMarkableBlock, splitMinuteBlocks, type MinuteBlock,
+  fnv1a64, isMarkableBlock, minuteBlockDraftText, splitMinuteBlocks, type MinuteBlock,
 } from '@/lib/minutes/blocks'
+import {
+  MINUTE_SELECTION_MAX_BLOCK_SPAN, MINUTE_SELECTION_MAX_CHARS,
+  matchMinuteSelection, minuteSelectionKeyHash,
+} from '@/lib/minutes/selection'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 import { generateAnswer } from '@/lib/ai/llm'
@@ -36,6 +41,7 @@ import {
   buildMinuteIssueDraft,
   buildMinuteIssueDraftPrompt,
   type MinuteIssueDraft,
+  type MinuteIssueSubProcessReference,
 } from '@/lib/ai/minute-issue-draft'
 
 export interface IssueActionResult {
@@ -72,6 +78,12 @@ export interface MinuteIssueSourceInput {
   blockIndex: number
   blockHash: string
   kind: IssueMinuteSourceKind
+  /** 드래그 선택 등록일 때만 존재. blockIndex/blockHash 는 시작 블록 앵커가 된다. */
+  selection?: {
+    text: string
+    endBlockIndex: number
+    endBlockHash: string
+  }
 }
 
 export interface IssueProjectMembersResult {
@@ -132,14 +144,71 @@ interface VerifiedMinuteIssueBlock {
   storedBodyHash: string
   block: MinuteBlock
   insightLabel: string | null
+  draftContextText: string
+  /** 드래그 선택 등록이면 검증·정규화된 발췌, 블록 등록이면 null. */
+  selectionExcerpt: string | null
 }
 
 type MinuteIssueBlockVerification =
   | { ok: true; value: VerifiedMinuteIssueBlock }
   | { ok: false; error: string }
 
+function minuteIssueDraftContext(
+  blocks: readonly MinuteBlock[],
+  selectedIndex: number,
+  version: { title?: unknown; minute_date?: unknown },
+): string {
+  const lines: string[] = []
+  const title = typeof version.title === 'string' ? version.title.trim() : ''
+  const date = typeof version.minute_date === 'string' ? version.minute_date.trim() : ''
+  if (title || date) lines.push(`회의록: ${[title, date].filter(Boolean).join(' · ')}`)
+
+  // 선택 블록이 속한 heading 계층만 추적한다. 같은 문서의 다른 절 제목을 섞지 않는다.
+  const headings: MinuteBlock[] = []
+  let parentDepth = Number.POSITIVE_INFINITY
+  for (let index = selectedIndex - 1; index >= 0; index -= 1) {
+    const candidate = blocks[index]
+    if (!candidate?.headingDepth || candidate.headingDepth >= parentDepth) continue
+    headings.unshift(candidate)
+    parentDepth = candidate.headingDepth
+    if (parentDepth === 1) break
+  }
+  if (headings.length) lines.push(`상위 섹션: ${headings.map(heading => heading.text).join(' > ')}`)
+
+  // 한 블록만으로 대명사나 대상이 불명확할 때를 위해 같은 절의 바로 앞·뒤 본문만 보조로 준다.
+  const neighbors: string[] = []
+  for (const direction of [-1, 1] as const) {
+    for (let index = selectedIndex + direction; index >= 0 && index < blocks.length; index += direction) {
+      const candidate = blocks[index]
+      if (candidate.headingDepth) break
+      if (isMarkableBlock(candidate)) {
+        neighbors.push(
+          `${direction < 0 ? '직전 문맥' : '직후 문맥'}: ${minuteBlockDraftText(candidate)}`,
+        )
+        break
+      }
+    }
+  }
+  lines.push(...neighbors)
+  return lines.join('\n')
+}
+
+/** 선택이 걸친 블록 전체 원문 — 잘린 문장 경계를 AI 가 원문으로 보완할 수 있게 컨텍스트로 준다. */
+function selectionRangeContext(
+  blocks: readonly MinuteBlock[],
+  startIndex: number,
+  endIndex: number,
+): string {
+  const texts: string[] = []
+  for (let index = startIndex; index <= endIndex && index < blocks.length; index += 1) {
+    const candidate = blocks[index]
+    if (candidate && isMarkableBlock(candidate)) texts.push(minuteBlockDraftText(candidate))
+  }
+  return texts.length ? `선택 범위 블록 원문:\n${texts.join('\n')}` : ''
+}
+
 function validMinuteIssueSource(source: MinuteIssueSourceInput): boolean {
-  return Boolean(
+  const base = Boolean(
     source.minuteId
     && source.minuteVersionId
     && Number.isSafeInteger(source.blockIndex)
@@ -147,6 +216,21 @@ function validMinuteIssueSource(source: MinuteIssueSourceInput): boolean {
     && BLOCK_HASH_RE.test(source.blockHash)
     && BLOCK_HASH_RE.test(source.bodyHash)
     && ISSUE_MINUTE_SOURCE_KINDS.includes(source.kind),
+  )
+  if (!base) return false
+  const selection = source.selection
+  // null 도 '선택 없음'으로 취급한다 — 임의 JSON 페이로드가 TypeError(500)를 만들지 않게.
+  if (selection == null) return true
+  // 선택 등록은 인사이트 kind 를 얹지 않는다 — manual 만 유효(스펙 §4.1).
+  return Boolean(
+    source.kind === 'manual'
+    && typeof selection.text === 'string'
+    && selection.text.length > 0
+    && selection.text.length <= MINUTE_SELECTION_MAX_CHARS
+    && Number.isSafeInteger(selection.endBlockIndex)
+    && selection.endBlockIndex >= source.blockIndex
+    && selection.endBlockIndex - source.blockIndex <= MINUTE_SELECTION_MAX_BLOCK_SPAN
+    && BLOCK_HASH_RE.test(selection.endBlockHash),
   )
 }
 
@@ -160,6 +244,20 @@ async function verifyMinuteIssueBlock(
   logLabel: string,
   includeInsight = false,
 ): Promise<MinuteIssueBlockVerification> {
+  // 상한 초과는 형식 오류가 아니라 사용자가 고칠 수 있는 입력이다 — 오도 문구와 분리한다.
+  if (
+    source.selection
+    && typeof source.selection.text === 'string'
+    && (
+      source.selection.text.length > MINUTE_SELECTION_MAX_CHARS
+      || (
+        Number.isSafeInteger(source.selection.endBlockIndex)
+        && source.selection.endBlockIndex - source.blockIndex > MINUTE_SELECTION_MAX_BLOCK_SPAN
+      )
+    )
+  ) {
+    return { ok: false, error: '선택 범위가 너무 큽니다. 더 작은 범위를 선택해 주세요.' }
+  }
   if (!projectId || !validMinuteIssueSource(source)) {
     return { ok: false, error: '회의록 원문 정보가 올바르지 않습니다. 블록을 다시 선택해 주세요.' }
   }
@@ -168,7 +266,7 @@ async function verifyMinuteIssueBlock(
   const [versionRes, minuteRes] = await Promise.all([
     sb
       .from('minute_versions')
-      .select('id, minute_id, body_md, body_hash')
+      .select('id, minute_id, body_md, body_hash, title, minute_date')
       .eq('id', source.minuteVersionId)
       .eq('minute_id', source.minuteId)
       .maybeSingle(),
@@ -204,9 +302,37 @@ async function verifyMinuteIssueBlock(
   if (storedBodyHash !== source.bodyHash.toLowerCase() || fnv1a64(bodyMd) !== storedBodyHash) {
     return { ok: false, error: '회의록 원문 버전이 변경되었습니다. 블록을 다시 선택해 주세요.' }
   }
-  const block = splitMinuteBlocks(bodyMd)[source.blockIndex]
+  const blocks = splitMinuteBlocks(bodyMd)
+  const block = blocks[source.blockIndex]
   if (!block || !isMarkableBlock(block) || block.hash !== source.blockHash.toLowerCase()) {
     return { ok: false, error: '회의록 본문이 변경되었습니다. 블록을 다시 선택해 주세요.' }
+  }
+
+  let selectionExcerpt: string | null = null
+  if (source.selection) {
+    const match = matchMinuteSelection(
+      blocks,
+      source.blockIndex,
+      source.blockHash,
+      source.selection.endBlockIndex,
+      source.selection.endBlockHash,
+      source.selection.text,
+    )
+    if (!match.ok) {
+      return {
+        ok: false,
+        error: '선택 영역을 회의록 원문과 대조하지 못했습니다. 범위를 다시 선택하거나 블록 단위로 등록해 주세요.',
+      }
+    }
+    // 제목만의 선택으로는 이슈를 만들지 않는다 — 블록 흐름의 heading 거절과 같은 원칙.
+    const endIndex = source.selection.endBlockIndex
+    const hasBody = blocks.some((candidate, index) =>
+      index >= source.blockIndex && index <= endIndex
+      && isMarkableBlock(candidate) && !candidate.headingDepth)
+    if (!hasBody) {
+      return { ok: false, error: '제목이 아닌 실제 이슈 내용이 있는 범위를 선택해 주세요.' }
+    }
+    selectionExcerpt = match.excerpt
   }
 
   let insightLabel: string | null = null
@@ -227,7 +353,21 @@ async function verifyMinuteIssueBlock(
       insightLabel = insight.label
     }
   }
-  return { ok: true, value: { storedBodyHash, block, insightLabel } }
+  return {
+    ok: true,
+    value: {
+      storedBodyHash,
+      block,
+      insightLabel,
+      selectionExcerpt,
+      draftContextText: source.selection
+        ? [
+            minuteIssueDraftContext(blocks, source.blockIndex, version),
+            selectionRangeContext(blocks, source.blockIndex, source.selection.endBlockIndex),
+          ].filter(Boolean).join('\n')
+        : minuteIssueDraftContext(blocks, source.blockIndex, version),
+    },
+  }
 }
 
 /** 형식 + 실재성(2026-02-30 반려) — announcements isValidDate 관례. */
@@ -403,7 +543,7 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
 // 서버리스 인스턴스 로컬 캐시이므로 정합성 경계로 사용하지 않으며, 원문 앵커는 매 요청 재검증한다.
 const MINUTE_DRAFT_CACHE_MAX = 200
 const minuteDraftCache = new Map<string, MinuteIssueDraft>()
-const minuteDraftInFlight = new Map<string, Promise<MinuteIssueDraft>>()
+const minuteDraftInFlight = new Map<string, Promise<MinuteIssueDraft | null>>()
 
 function rememberMinuteDraft(key: string, draft: MinuteIssueDraft): void {
   if (minuteDraftCache.size >= MINUTE_DRAFT_CACHE_MAX) {
@@ -417,9 +557,9 @@ async function summarizeVerifiedMinuteBlock(
   cacheKey: string,
   blockText: string,
   insightLabel: string | null,
-): Promise<MinuteIssueDraft> {
+  prompt: string,
+): Promise<MinuteIssueDraft | null> {
   const fallback = buildFallbackMinuteIssueDraft(blockText, insightLabel)
-    ?? { title: '회의록 확인 필요', body: '[현황]\n- 원문 확인 필요\n\n[문제/영향]\n- 원문에 명시되지 않음\n\n[필요 조치]\n- 원문 확인 필요', mode: 'fallback' as const }
   const cached = minuteDraftCache.get(cacheKey)
   if (cached) return cached
   if (!hasLLM()) return fallback
@@ -427,24 +567,33 @@ async function summarizeVerifiedMinuteBlock(
   const existing = minuteDraftInFlight.get(cacheKey)
   if (existing) return existing
 
-  const pending = (async (): Promise<MinuteIssueDraft> => {
-    const raw = await generateAnswer(
-      MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT,
-      [{ role: 'user', content: buildMinuteIssueDraftPrompt(blockText, insightLabel) }],
-      {
-        // 등록 버튼의 상호작용을 오래 가두지 않는다. 실패하면 즉시 결정형 초안으로 이어진다.
-        timeoutMs: 10_000,
-        // Gemini 3.x는 thinking 토큰도 이 상한에 포함한다. 1,200 이하에서 본문이 비는
-        // 회귀가 실측돼 있어, 실제 초안 길이는 파서(1,000자)로 제한하고 생성 예산은 확보한다.
-        maxOutputTokens: 4_096,
-        allowModelFallback: false,
-        retries: 0,
-        retryRateLimit: false,
-      },
-    )
+  const pending = (async (): Promise<MinuteIssueDraft | null> => {
+    let raw: string | null
+    try {
+      raw = await generateAnswer(
+        MINUTE_ISSUE_DRAFT_SYSTEM_PROMPT,
+        [{ role: 'user', content: prompt }],
+        {
+          // 충실한 초안을 만들 생성 여유를 주되, 장애 시에는 결정형 초안으로 이어진다.
+          timeoutMs: 15_000,
+          // Gemini 3.x는 thinking 토큰도 이 상한에 포함하므로 사고 예산과 복수 근거 bullet을
+          // 함께 수용한다. 저장 한도는 응답을 자르지 않는 파서가 별도로 검증한다.
+          maxOutputTokens: 8_192,
+          allowModelFallback: false,
+          retries: 0,
+          retryRateLimit: false,
+        },
+      )
+    } catch (cause) {
+      console.error(
+        '[prepareMinuteIssueDraft] AI 초안 생성 실패(결정형 초안 사용):',
+        cause instanceof Error ? cause.message : cause,
+      )
+      return fallback
+    }
     const draft = buildMinuteIssueDraft({ sourceText: blockText, insightLabel, aiResponse: raw }) ?? fallback
     // 일시 장애로 만든 폴백은 캐시하지 않아 다음 열기에서 AI를 다시 시도할 수 있게 한다.
-    if (draft.mode === 'ai') rememberMinuteDraft(cacheKey, draft)
+    if (draft?.mode === 'ai') rememberMinuteDraft(cacheKey, draft)
     return draft
   })()
   minuteDraftInFlight.set(cacheKey, pending)
@@ -453,6 +602,42 @@ async function summarizeVerifiedMinuteBlock(
   } finally {
     if (minuteDraftInFlight.get(cacheKey) === pending) minuteDraftInFlight.delete(cacheKey)
   }
+}
+
+async function loadKnownSubProcesses(projectId: string): Promise<MinuteIssueSubProcessReference[]> {
+  let rows: Array<Record<string, unknown>> = []
+  try {
+    const sb = await createServerClient()
+    const { data, error } = await sb
+      .from('issues')
+      .select('mega_code, sub_process')
+      .eq('project_id', projectId)
+    if (error) throw error
+    rows = (data ?? []) as Array<Record<string, unknown>>
+  } catch (cause) {
+    // 기존 분류 사례는 추천 품질을 높이는 보조 정보다. 조회 실패가 등록 흐름을 막지는 않는다.
+    console.error(
+      '[prepareMinuteIssueDraft] Sub Process 사례 조회 실패(무시):',
+      cause instanceof Error ? cause.message : cause,
+    )
+    return []
+  }
+  const seen = new Set<string>()
+  const references: MinuteIssueSubProcessReference[] = []
+  for (const row of rows) {
+    const megaCode = row.mega_code
+    const subProcess = typeof row.sub_process === 'string'
+      ? row.sub_process.trim()
+      : ''
+    if (!isIssueMegaCode(megaCode) || !subProcess) continue
+    const key = `${megaCode}\u0000${subProcess}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    references.push({ megaCode, subProcess })
+  }
+  return references.sort((a, b) =>
+    a.megaCode.localeCompare(b.megaCode)
+    || a.subProcess.localeCompare(b.subProcess, 'ko'))
 }
 
 /**
@@ -468,13 +653,40 @@ export async function prepareMinuteIssueDraft(
 
   const verified = await verifyMinuteIssueBlock(projectId, source, 'prepareMinuteIssueDraft', true)
   if (!verified.ok) return verified
-  const { block, insightLabel } = verified.value
+  const { block, insightLabel, draftContextText, selectionExcerpt } = verified.value
+  if (!source.selection && block.headingDepth) {
+    return { ok: false, error: '제목이 아닌 실제 이슈 내용이 있는 블록을 선택해 주세요.' }
+  }
+  const knownSubProcesses = await loadKnownSubProcesses(projectId)
+  const blockText = selectionExcerpt ?? minuteBlockDraftText(block)
+  const prompt = buildMinuteIssueDraftPrompt(blockText, insightLabel, {
+    contextText: draftContextText,
+    knownSubProcesses,
+  })
   const cacheKey = [
-    'minute-issue-draft-v2', source.minuteVersionId, source.blockIndex, block.hash, source.kind,
-    fnv1a64(insightLabel ?? ''),
+    'minute-issue-draft-v3', projectId, source.minuteVersionId, source.blockIndex, block.hash,
+    source.kind, fnv1a64(prompt),
   ].join(':')
-  const draft = await summarizeVerifiedMinuteBlock(cacheKey, block.text, insightLabel)
+  const draft = await summarizeVerifiedMinuteBlock(cacheKey, blockText, insightLabel, prompt)
+  if (!draft) {
+    return {
+      ok: false,
+      error: '선택한 범위를 사실 손실 없이 이슈 초안으로 정리할 수 없습니다. 내용이 더 구체적이거나 작은 블록을 선택해 주세요.',
+    }
+  }
   return { ok: true, draft }
+}
+
+const MINUTE_ISSUE_SOURCE_EXCERPT_MAX = 4_000
+const MINUTE_ISSUE_SOURCE_EXCERPT_NOTICE = '\n[전체 내용은 연결된 회의록 원문에서 확인]'
+
+function minuteIssueSourceExcerpt(value: string): string {
+  if (value.length <= MINUTE_ISSUE_SOURCE_EXCERPT_MAX) return value
+  const budget = MINUTE_ISSUE_SOURCE_EXCERPT_MAX - MINUTE_ISSUE_SOURCE_EXCERPT_NOTICE.length
+  let prefix = value.slice(0, budget)
+  // 서로게이트 쌍 중간에서 자르면 깨진 문자가 저장되므로 경계만 한 글자 당긴다.
+  if (/[\uD800-\uDBFF]$/.test(prefix)) prefix = prefix.slice(0, -1)
+  return `${prefix.trimEnd()}${MINUTE_ISSUE_SOURCE_EXCERPT_NOTICE}`
 }
 
 /**
@@ -497,13 +709,14 @@ export async function createIssueFromMinuteBlock(
 
   const verified = await verifyMinuteIssueBlock(projectId, source, 'createIssueFromMinuteBlock')
   if (!verified.ok) return verified
-  const { storedBodyHash, block } = verified.value
-  const excerpt = block.text.length > 4000 ? `${block.text.slice(0, 3999)}…` : block.text
+  const { storedBodyHash, block, selectionExcerpt } = verified.value
+  const excerpt = minuteIssueSourceExcerpt(selectionExcerpt ?? minuteBlockDraftText(block))
   const sourceKey = makeMinuteIssueSourceKey({
     minuteVersionId: source.minuteVersionId,
     blockIndex: source.blockIndex,
     blockHash: block.hash,
     kind: source.kind,
+    selectionHash: selectionExcerpt ? minuteSelectionKeyHash(selectionExcerpt) : null,
   })
 
   let admin: ReturnType<typeof createAdminClient>
