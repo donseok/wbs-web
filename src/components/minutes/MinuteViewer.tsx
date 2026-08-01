@@ -131,6 +131,11 @@ export function MinuteViewer({
   const [issueBusy, setIssueBusy] = useState(false)
   const [issueProjectError, setIssueProjectError] = useState<string | null>(null)
   const issueProjectRequestRef = useRef(0)
+  // 선택 흐름 prepare 의 진행 중 여부 — issueBusy 상태로 판정하면 안 된다. 성공 연속 코드의
+  // removeAllRanges 가 만든 selectionchange 는 React 커밋보다 먼저 실행될 수 있어, 그 시점의
+  // 클로저는 아직 busy=true 로 보이고 dismiss 취소가 방금 연 폼의 origin 을 지워
+  // issueFormOpen=true·issueBlock=null 유령 상태(폼 미렌더 + 버블 영구 비활성)를 만든다.
+  const issuePrepareInFlightRef = useRef(false)
 
   const blocks = useMemo(() => splitMinuteBlocks(minute.bodyMd), [minute.bodyMd])
   const { activeToc, jumpTo } = useMinuteTocSpy(blocks, bodyRef, { flash: true })
@@ -364,6 +369,7 @@ export function MinuteViewer({
       setIssueProjectId(fixedProjectId)
       setIssueMemberOptions(issueMembers)
       setIssueBusy(true)
+      issuePrepareInFlightRef.current = true
       try {
         const result = await prepareMinuteIssueDraft(fixedProjectId, context.source)
         if (issueProjectRequestRef.current !== requestId) return
@@ -393,7 +399,11 @@ export function MinuteViewer({
         setPreparedIssueDraft(context.fallback)
         toast({ title: t('min.issue.fallbackUsed'), variant: 'info' })
       } finally {
-        if (issueProjectRequestRef.current === requestId) setIssueBusy(false)
+        // requestId 가 낡았다면 취소 주체가 이미 정리했다 — 새 요청의 플래그를 건드리지 않는다.
+        if (issueProjectRequestRef.current === requestId) {
+          issuePrepareInFlightRef.current = false
+          setIssueBusy(false)
+        }
       }
       if (issueProjectRequestRef.current !== requestId) return
       setPopover(null)
@@ -422,8 +432,11 @@ export function MinuteViewer({
   // 선택 흐름의 prepare 진행 중 사용자가 버블을 떠나면(바깥 클릭·선택 해제) 요청을 취소해
   // 뒤늦게 도착한 응답이 이슈 폼을 돌발 오픈하지 않게 한다(팝오버 onClose 와 같은 원칙).
   function onSelectionDismiss() {
-    if (!issueBusy || issueOrigin?.type !== 'selection') return
+    // 진행 중 판정은 동기 ref 로만 한다 — selectionchange 가 커밋을 앞지르면 issueBusy
+    // 클로저는 낡은 true 라서, 완료된 요청을 취소하며 방금 연 폼의 origin 을 지운다.
+    if (!issuePrepareInFlightRef.current || issueOrigin?.type !== 'selection') return
     if (issueFormOpen || projectPickerOpen) return
+    issuePrepareInFlightRef.current = false
     issueProjectRequestRef.current += 1
     setIssueBusy(false)
     setPreparedIssueDraft(null)

@@ -464,6 +464,38 @@ describe('MinuteViewer 드래그 선택 → 이슈 등록', () => {
     })
   })
 
+  it('선택 해제의 selectionchange 가 커밋보다 먼저 와도 폼 오픈이 유실되지 않는다', async () => {
+    // 실브라우저 태스크 순서 재현: prepare 성공 연속 코드(removeAllRanges + 상태 큐잉) →
+    // selectionchange 태스크 → React 커밋. 버블 dismiss 가 낡은 busy 클로저로 취소를 실행하면
+    // issueFormOpen=true·issueOrigin=null 유령 상태가 되어 폼이 영영 열리지 않는다(2026-08-02 사고).
+    const pending = deferred<{ ok: true; draft: typeof organizedDraft }>()
+    mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
+    await mountViewer()
+
+    makeSelection()
+    await act(async () => { bubbleButton()!.click() })
+    expect(mocks.prepareMinuteIssueDraft).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      // 컴포넌트 연속 코드가 같은 promise 에 먼저 붙어 있으므로 이 then 은 그 직후,
+      // React 가 큐잉된 상태를 커밋하기 전에 실행된다 — 브라우저의 selectionchange 타이밍.
+      const raced = pending.promise.then(() => {
+        document.dispatchEvent(new Event('selectionchange'))
+      })
+      pending.resolve({ ok: true, draft: organizedDraft })
+      await raced
+    })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
+    const props = [...mocks.issueFormProps].reverse().find(candidate => candidate.open)!
+    expect((props.draft as { majorName?: string }).majorName).toBe('재고관리')
+
+    // 유령 disabled 고착 회귀 방지 — 폼을 닫으면 새 선택에 버블이 다시 떠야 한다.
+    act(() => { (props.onClose as () => void)() })
+    makeSelection()
+    expect(bubbleButton()).not.toBeNull()
+  })
+
   it('선택 prepare 진행 중 버블을 벗어나면 요청을 취소해 폼이 돌발 오픈되지 않는다', async () => {
     const pending = deferred<{ ok: true; draft: typeof organizedDraft }>()
     mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
