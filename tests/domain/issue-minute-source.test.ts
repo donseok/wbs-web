@@ -38,6 +38,7 @@ describe('issueDraftFromBlock', () => {
     expect(draft.body).toBe(text)
     expect(draft.title.length).toBeGreaterThan(0)
     expect(draft.title.length).toBeLessThanOrEqual(200)
+    expect(draft.title).not.toMatch(/…|\.{3,}/)
   })
 
   it('인사이트 라벨이 있으면 블록 텍스트보다 제목으로 우선 사용한다', () => {
@@ -53,6 +54,7 @@ describe('issueDraftFromBlock', () => {
     const draft = issueDraftFromBlock('원문', '위험'.repeat(120))
 
     expect(draft.title.length).toBeLessThanOrEqual(200)
+    expect(draft.title).not.toMatch(/…|\.{3,}/)
     expect(draft.body).toBe('원문')
   })
 })

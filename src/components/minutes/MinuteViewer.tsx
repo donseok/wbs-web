@@ -17,9 +17,11 @@ import {
 } from '@/app/actions/minutes'
 import {
   createIssueFromMinuteBlock, fetchIssueProjectMembers, prepareMinuteIssueDraft,
-  type IssueInput, type MinuteIssueSourceInput,
+  type IssueActionResult, type IssueInput, type MinuteIssueSourceInput,
 } from '@/app/actions/issues'
-import { fnv1a64, isMarkableBlock, splitMinuteBlocks, type BlockMarks } from '@/lib/minutes/blocks'
+import {
+  fnv1a64, isMarkableBlock, minuteBlockDraftText, splitMinuteBlocks, type BlockMarks,
+} from '@/lib/minutes/blocks'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
 import { resolveMinuteSourceBlock, type MinuteSourceAnchor } from '@/lib/minutes/source'
 import { compareKoreanName } from '@/lib/domain/nameSort'
@@ -41,7 +43,6 @@ import { MinuteVersionPanel, type MinuteVersionListItem } from './MinuteVersionP
 import { MinuteWikiImpactCard, type MinuteWikiImpactCardProps } from './MinuteWikiImpactCard'
 import { teamStyle } from '@/components/wbs/shared'
 import {
-  issueDraftFromBlock,
   type IssueMinuteSourceKind,
   type MinuteLinkedIssue,
 } from '@/lib/domain/issueMinuteSource'
@@ -184,9 +185,10 @@ export function MinuteViewer({
     : issueInsight?.kind === 'action' ? 'action' : 'manual'
   const issueDraft = useMemo<IssueFormDraft | undefined>(() => {
     if (!issueBlock) return undefined
+    const sourceText = minuteBlockDraftText(issueBlock)
     const draft = preparedIssueDraft
-      ?? buildFallbackMinuteIssueDraft(issueBlock.text, issueInsight?.label)
-      ?? issueDraftFromBlock(issueBlock.text, issueInsight?.label)
+      ?? buildFallbackMinuteIssueDraft(sourceText, issueInsight?.label)
+    if (!draft) return undefined
     return { ...draft, severity: 'medium', assigneeMemberIds: [], startDate: null, dueDate: null }
   }, [issueBlock, issueInsight, preparedIssueDraft])
 
@@ -272,8 +274,8 @@ export function MinuteViewer({
       blockHash: block.hash,
       kind,
     }
-    const fallback = buildFallbackMinuteIssueDraft(block.text, insight?.label)
-      ?? { ...issueDraftFromBlock(block.text, insight?.label), mode: 'fallback' as const }
+    const sourceText = minuteBlockDraftText(block)
+    const fallback = buildFallbackMinuteIssueDraft(sourceText, insight?.label)
     return { source, fallback }
   }
 
@@ -318,6 +320,15 @@ export function MinuteViewer({
       } catch {
         if (issueProjectRequestRef.current !== requestId) return
         // 네트워크 단절은 원문 검증 실패와 다르다. 로컬 결정형 초안으로 편집 흐름을 계속한다.
+        if (!context.fallback) {
+          toast({
+            title: t('min.issue.draftUnavailable'),
+            variant: 'error',
+          })
+          setIssueBlockIndex(null)
+          setPopover(null)
+          return
+        }
         setPreparedIssueDraft(context.fallback)
         toast({ title: t('min.issue.fallbackUsed'), variant: 'info' })
       } finally {
@@ -372,10 +383,16 @@ export function MinuteViewer({
         setIssueProjectError(draftResult.value.error ?? t('min.issue.prepareFailed'))
         return
       }
-      const draft = draftResult.status === 'fulfilled' ? draftResult.value.draft! : context.fallback
       if (draftResult.status === 'rejected') {
+        if (!context.fallback) {
+          setIssueProjectError(
+            t('min.issue.draftUnavailable'),
+          )
+          return
+        }
         toast({ title: t('min.issue.fallbackUsed'), variant: 'info' })
       }
+      const draft = draftResult.status === 'fulfilled' ? draftResult.value.draft! : context.fallback!
       setIssueProjectId(requestedProjectId)
       setIssueMemberOptions(membersResult.value.members ?? [])
       setPreparedIssueDraft(draft)
@@ -417,10 +434,12 @@ export function MinuteViewer({
     setIssueBlockIndex(null)
   }
 
-  function onIssueCreated() {
+  function onIssueCreated(_id: string, result: IssueActionResult) {
     toast({
       title: t('min.issue.created'),
-      description: t('min.issue.createdDesc'),
+      description: result.piIssueCode
+        ? t('min.issue.createdCode').replace('{code}', result.piIssueCode)
+        : t('min.issue.createdDesc'),
       variant: 'success',
     })
   }
@@ -673,6 +692,7 @@ export function MinuteViewer({
           state={popover} mine={myIndexes.has(popover.blockIndex)}
           names={popNames} insKinds={popKinds} busy={hlBusy || issueBusy}
           linkedIssues={popLinkedIssues} issueBusy={issueBusy}
+          canCreateIssue={!blocks[popover.blockIndex]?.headingDepth}
           onToggle={() => void onToggleHighlight()}
           onCreateIssue={() => void beginIssueCreate()}
           onClose={() => {
@@ -743,9 +763,11 @@ export function MinuteViewer({
             // 수정된 회의록에서도 확인 카드와 생성 후 상세의 출처명이 어긋나지 않는다.
             title: currentVersion?.title ?? minute.title,
             date: currentVersion?.minuteDate ?? minute.minuteDate,
-            excerpt: issueBlock.text,
+            excerpt: minuteBlockDraftText(issueBlock),
             label: `${t('min.issue.sourceLabel')} · v${currentVersion?.versionNo ?? 1}`,
             organizedDraft: true,
+            classificationRecommended: preparedIssueDraft?.mode === 'ai'
+              && Boolean(preparedIssueDraft.megaCode && preparedIssueDraft.subProcess),
           }}
           onCreate={createLinkedIssue}
           onCreated={onIssueCreated}

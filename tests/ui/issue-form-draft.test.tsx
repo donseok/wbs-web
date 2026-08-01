@@ -55,7 +55,7 @@ describe('IssueFormModal 회의록 초안', () => {
 
   const analysisDraft = {
     megaCode: '02' as const,
-    subProcess: ' 02.02 주문관리 ',
+    subProcess: ' 주문접수/등록 ',
     ownerDepartment: ' 영업관리팀 ',
     relatedSystems: [' SAP ', 'MES', 'SAP'],
   }
@@ -81,7 +81,7 @@ describe('IssueFormModal 회의록 초안', () => {
     megaCode: '02',
     megaSeq: 3,
     piIssueCode: 'PI-I-02-03',
-    subProcess: '02.02 주문관리',
+    subProcess: '주문접수/등록',
     ownerDepartment: '영업관리팀',
     relatedSystems: ['SAP', 'MES'],
     sourceType: 'interview',
@@ -115,6 +115,7 @@ describe('IssueFormModal 회의록 초안', () => {
             date: '2026-07-27',
             excerpt: '인터페이스 전환 지연 위험을 확인한다.',
             organizedDraft: true,
+            classificationRecommended: true,
           }}
           onCreate={onCreate}
           onCreated={onCreated}
@@ -133,6 +134,21 @@ describe('IssueFormModal 회의록 초안', () => {
     expect(labelInput('issue.analysis.sourceDetail').value).toBe('주간회의 · 2026-07-27')
     expect(document.body.textContent).toContain('issue.analysis.minuteAutoLinked')
     expect(document.body.textContent).toContain('issue.analysis.organizedDraft')
+    expect(document.body.textContent).toContain('issue.analysis.classificationRecommended')
+    expect(document.body.textContent).toContain('issue.analysis.megaRecommended')
+    expect(document.body.textContent).toContain('issue.analysis.subProcessRecommended')
+
+    await act(async () => {
+      const mega = labelSelect('issue.analysis.mega')
+      mega.value = '07'
+      mega.dispatchEvent(new Event('change', { bubbles: true }))
+      const process = labelInput('issue.analysis.subProcess')
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!
+        .set!.call(process, '원가손익분석')
+      process.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(document.body.textContent).not.toContain('issue.analysis.megaRecommended')
+    expect(document.body.textContent).not.toContain('issue.analysis.subProcessRecommended')
 
     const save = [...document.querySelectorAll('button')]
       .find(button => button.textContent === 'issue.form.save') as HTMLButtonElement
@@ -148,14 +164,14 @@ describe('IssueFormModal 회의록 초안', () => {
       severity: 'high',
       startDate: '2026-07-27',
       dueDate: '2026-08-03',
-      megaCode: '02',
-      subProcess: '02.02 주문관리',
+      megaCode: '07',
+      subProcess: '원가손익분석',
       ownerDepartment: '영업관리팀',
       relatedSystems: ['SAP', 'MES'],
       sourceType: 'minutes',
       sourceDetail: '주간회의 · 2026-07-27',
     }))
-    expect(onCreated).toHaveBeenCalledWith('linked-issue')
+    expect(onCreated).toHaveBeenCalledWith('linked-issue', { ok: true, id: 'linked-issue' })
     expect(onClose).toHaveBeenCalled()
   })
 
@@ -258,7 +274,7 @@ describe('IssueFormModal 회의록 초안', () => {
 
     expect(onCreate).toHaveBeenCalledWith('project-1', expect.objectContaining({
       megaCode: '02',
-      subProcess: '02.02 주문관리',
+      subProcess: '주문접수/등록',
       ownerDepartment: '영업관리팀',
       relatedSystems: ['SAP', 'MES'],
       sourceType: 'other',
@@ -323,7 +339,7 @@ describe('IssueFormModal 회의록 초안', () => {
 
     expect(document.body.textContent).toContain('PI-I-02-03 · #17')
     expect(document.body.textContent).toContain('02 · 영업')
-    expect(document.body.textContent).toContain('02.02 주문관리')
+    expect(document.body.textContent).toContain('주문접수/등록')
     expect(document.body.textContent).toContain('영업관리팀')
     expect(document.body.textContent).toContain('SAP')
     expect(document.body.textContent).toContain('issue.source.type.interview')

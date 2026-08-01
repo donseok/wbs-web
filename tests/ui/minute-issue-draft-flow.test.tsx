@@ -129,7 +129,7 @@ const versions = [
   },
 ]
 
-const conciseDraft = {
+const organizedDraft = {
   title: '재고 인터페이스 누락에 따른 월 마감 지연',
   body: [
     '[현황]',
@@ -137,10 +137,14 @@ const conciseDraft = {
     '',
     '[문제/영향]',
     '- 월 마감 집계가 지연됨',
+    '- 재고 수량과 마감 자료의 정합성을 확인하기 어려움',
     '',
     '[필요 조치]',
     '- 재처리 여부와 보완 방안을 협의해야 함',
+    '- 동일 누락의 재발 방지 기준을 확인해야 함',
   ].join('\n'),
+  megaCode: '00' as const,
+  subProcess: '재고정보 연계',
   mode: 'ai' as const,
 }
 
@@ -164,11 +168,11 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
     container.remove()
   })
 
-  async function mountAndOpenPopover() {
+  async function mountAndOpenPopover(minuteValue: Minute = minute) {
     await act(async () => {
       root.render(
         <MinuteViewer
-          minute={minute}
+          minute={minuteValue}
           files={[]}
           canManage={false}
           annotations={{ highlights: [], insights: [] }}
@@ -197,7 +201,7 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
   }
 
   it('불변 원문 앵커로 초안을 요청하고, 완료 전에는 busy만 보인 뒤 정리된 폼을 연다', async () => {
-    const pending = deferred<{ ok: true; draft: typeof conciseDraft }>()
+    const pending = deferred<{ ok: true; draft: typeof organizedDraft }>()
     mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
     await mountAndOpenPopover()
 
@@ -217,20 +221,34 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
     expect(container.querySelector('[data-testid="minute-issue-form"]')).toBeNull()
 
     await act(async () => {
-      pending.resolve({ ok: true, draft: conciseDraft })
+      pending.resolve({ ok: true, draft: organizedDraft })
       await pending.promise
     })
 
     expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
     const props = openFormProps()
-    expect(props.draft).toMatchObject(conciseDraft)
+    expect(props.draft).toMatchObject(organizedDraft)
+    expect(props.draft).toMatchObject({ megaCode: '00', subProcess: '재고정보 연계' })
     expect(props.sourcePreview).toMatchObject({
       title: '불변 버전 제목',
       date: '2026-07-30',
       excerpt: originalExcerpt,
       organizedDraft: true,
+      classificationRecommended: true,
     })
     expect((props.draft as { title: string }).title).not.toContain(originalExcerpt)
+
+    act(() => {
+      (props.onCreated as (id: string, result: Record<string, unknown>) => void)(
+        'issue-1',
+        { ok: true, id: 'issue-1', piIssueCode: 'PI-I-00-04' },
+      )
+    })
+    expect(mocks.toast).toHaveBeenCalledWith({
+      title: 'min.issue.created',
+      description: 'min.issue.createdCode',
+      variant: 'success',
+    })
   })
 
   it('초안 호출이 reject되면 원문을 잃지 않고 정돈된 로컬 폴백으로 폼을 연다', async () => {
@@ -245,11 +263,16 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
     const props = openFormProps()
     const draft = props.draft as { title: string; body: string; mode: string }
     expect(draft.mode).toBe('fallback')
-    expect(Array.from(draft.title).length).toBeLessThanOrEqual(80)
+    expect(Array.from(draft.title).length).toBeLessThanOrEqual(200)
     expect(draft.body).toContain('[현황]')
     expect(draft.body).toContain('[문제/영향]')
     expect(draft.body).toContain('[필요 조치]')
-    expect(props.sourcePreview).toMatchObject({ excerpt: originalExcerpt, organizedDraft: true })
+    expect(`${draft.title}\n${draft.body}`).not.toMatch(/…|\.{3,}/)
+    expect(props.sourcePreview).toMatchObject({
+      excerpt: originalExcerpt,
+      organizedDraft: true,
+      classificationRecommended: false,
+    })
     expect(mocks.toast).toHaveBeenCalledWith({
       title: 'min.issue.fallbackUsed',
       variant: 'info',
@@ -257,7 +280,7 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
   })
 
   it('팝오버를 닫은 뒤 도착한 stale 초안 응답은 이슈 폼을 다시 열지 않는다', async () => {
-    const pending = deferred<{ ok: true; draft: typeof conciseDraft }>()
+    const pending = deferred<{ ok: true; draft: typeof organizedDraft }>()
     mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
     await mountAndOpenPopover()
 
@@ -271,11 +294,30 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
     expect(container.querySelector('[data-testid="minute-block-popover"]')).toBeNull()
 
     await act(async () => {
-      pending.resolve({ ok: true, draft: conciseDraft })
+      pending.resolve({ ok: true, draft: organizedDraft })
       await pending.promise
     })
 
     expect(container.querySelector('[data-testid="minute-issue-form"]')).toBeNull()
     expect(mocks.issueFormProps.some(props => props.open === true)).toBe(false)
+  })
+
+  it('긴 원문에서 서버 호출도 실패하면 불완전한 로컬 초안을 열지 않는다', async () => {
+    const longMinute = {
+      ...minute,
+      bodyMd: `처리 지연 문제가 ${'가'.repeat(21_000)}`,
+    }
+    mocks.prepareMinuteIssueDraft.mockRejectedValueOnce(new Error('network disconnected'))
+    await mountAndOpenPopover(longMinute)
+
+    clickCreate()
+    await act(async () => { await Promise.resolve() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).toBeNull()
+    expect(mocks.toast).toHaveBeenCalledWith({
+      title: 'min.issue.draftUnavailable',
+      variant: 'error',
+    })
   })
 })

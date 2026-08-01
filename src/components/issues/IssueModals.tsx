@@ -82,6 +82,8 @@ export interface IssueSourcePreview {
   label?: string
   /** 원문과 편집 가능한 정리 초안이 분리되어 있음을 안내한다. */
   organizedDraft?: boolean
+  /** Mega/Sub Process 추천이 실제 AI 응답에 포함됐을 때만 표시한다. */
+  classificationRecommended?: boolean
 }
 
 export type IssueCreateHandler = (
@@ -447,8 +449,8 @@ export function IssueFormModal({
   sourcePreview?: IssueSourcePreview
   /** 신규 등록 저장을 원문 연결 등과 합성해야 할 때 기본 createIssue 대신 사용한다. */
   onCreate?: IssueCreateHandler
-  /** 신규 등록 성공 응답에 id가 있을 때 한 번 호출된다. */
-  onCreated?: (id: string) => void
+  /** 신규 등록 성공 응답에 id가 있을 때, DB가 확정한 체번 결과와 함께 한 번 호출된다. */
+  onCreated?: (id: string, result: IssueActionResult) => void
 }) {
   const { t, locale } = useLocale()
   const router = useRouter()
@@ -593,7 +595,7 @@ export function IssueFormModal({
         if (!isEdit && res.id) {
           // 생성은 이미 확정됐다. 알림 훅의 UI 오류가 재시도(중복 생성)로 이어지지 않게 분리한다.
           try {
-            onCreated?.(res.id)
+            onCreated?.(res.id, res)
           } catch (cause) {
             console.error('[IssueFormModal] onCreated callback failed:', cause)
           }
@@ -643,6 +645,11 @@ export function IssueFormModal({
                 {t('issue.analysis.organizedDraft')}
               </p>
             )}
+            {sourcePreview.classificationRecommended && (
+              <p className="mt-1 text-[11px] leading-5 text-brand">
+                {t('issue.analysis.classificationRecommended')}
+              </p>
+            )}
           </section>
         )}
         <label className="block">
@@ -651,7 +658,7 @@ export function IssueFormModal({
         </label>
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.body')}</span>
-          <textarea className="app-textarea min-h-[120px] resize-y" value={body} onChange={e => setBody(e.target.value)} placeholder={t('issue.form.bodyPh')} />
+          <textarea className="app-textarea min-h-[220px] resize-y" value={body} onChange={e => setBody(e.target.value)} placeholder={t('issue.form.bodyPh')} maxLength={20_000} />
         </label>
         <section className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">
           <div>
@@ -679,6 +686,15 @@ export function IssueFormModal({
                   {t('issue.analysis.megaLocked').replace('{id}', initial?.piIssueCode ?? '')}
                 </p>
               )}
+              {!isEdit
+                && sourcePreview?.classificationRecommended
+                && draft?.megaCode
+                && megaCode === draft.megaCode
+                && (
+                <p className="mt-1 text-[11px] leading-4 text-brand">
+                  {t('issue.analysis.megaRecommended').replace('{code}', draft.megaCode)}
+                </p>
+              )}
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.subProcess')}</span>
@@ -690,6 +706,17 @@ export function IssueFormModal({
                 onChange={e => setSubProcess(e.target.value)}
                 placeholder={t('issue.analysis.subProcessPh')}
               />
+              {!isEdit
+                && sourcePreview?.classificationRecommended
+                && draft?.subProcess?.trim()
+                && draft.megaCode
+                && megaCode === draft.megaCode
+                && subProcess.trim() === draft.subProcess.trim()
+                && (
+                <p className="mt-1 text-[11px] leading-4 text-brand">
+                  {t('issue.analysis.subProcessRecommended')}
+                </p>
+              )}
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.ownerDepartment')}</span>
