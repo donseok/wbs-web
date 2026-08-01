@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const sql = readFileSync('supabase/migrations/0062_wbs_rpc_drop_level.sql', 'utf8')
-const rollback = readFileSync('supabase/migrations/0062_wbs_rpc_drop_level_rollback.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/0063_wbs_rpc_drop_level.sql', 'utf8')
+const rollback = readFileSync('supabase/migrations/0063_wbs_rpc_drop_level_rollback.sql', 'utf8')
 
-describe('0062 wbs_rpc_drop_level 계약', () => {
+describe('0063 wbs_rpc_drop_level 계약', () => {
   it('멱등(create or replace)·트랜잭션', () => {
     expect(sql).toMatch(/^begin;/m)
     expect(sql).toMatch(/^commit;/m)
