@@ -15,7 +15,7 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({ queueWbsCollapse: (...a: unknown[]
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 
 function item(over: Partial<ComputedItem>): ComputedItem {
-  return { id: 'x', parentId: null, level: 'activity', code: '1', sortOrder: 0, name: '항목', biz: null,
+  return { id: 'x', parentId: null, code: '1', sortOrder: 0, name: '항목', biz: null,
     deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-10', weight: null, actualPct: 0,
     owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], depth: 0, ...over }
 }
@@ -26,8 +26,8 @@ function fixture(): ComputedItem[] {
     item({ id: 's2', parentId: 'a1', name: '현황 파악 (MES 주관)', owners: [{ team: 'MES', kind: 'primary' }], isOwnerSplit: true }),
   ]
   const multi = item({ id: 'a1', name: '현황 파악', owners: [{ team: 'ERP', kind: 'primary' }, { team: 'MES', kind: 'primary' }], children: subs })
-  const task = item({ id: 't1', level: 'task', name: '1-1. 착수', children: [multi] })
-  return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })]
+  const task = item({ id: 't1', name: '1-1. 착수', children: [multi] })
+  return [item({ id: 'p1', name: '1. 준비', children: [task] })]
 }
 function rowCount(c: HTMLElement) { return c.querySelectorAll('.group.relative.z-10').length }
 

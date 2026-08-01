@@ -168,7 +168,7 @@ describe('addSubAct 가드 ②', () => {
 })
 
 describe('addSubAct 가드 ③ — insert 페이로드', () => {
-  it('성공 insert 에 is_owner_split:true 와 level:\'activity\'(하위호환)를 싣는다', async () => {
+  it('성공 insert 에 is_owner_split:true 를 싣는다(level 컬럼은 더 이상 쓰지 않는다)', async () => {
     db.wbs_items = [
       { id: 'act-4', project_id: 'p1', code: '4', name: '데이터 이관', biz: '가공', deliverable: '이관 결과서',
         planned_start: '2026-02-01', planned_end: '2026-02-10', is_owner_split: false },
@@ -181,7 +181,6 @@ describe('addSubAct 가드 ③ — insert 페이로드', () => {
     expect(inserted).toMatchObject({
       project_id: 'p1',
       parent_id: 'act-4',
-      level: 'activity',
       is_owner_split: true,
       code: '4',
       biz: '가공',
@@ -199,7 +198,7 @@ describe('addWbsItem 대칭 가드 — SUB-ACT 형제가 있으면 일반 항목
     db.wbs_items = [
       { id: 'sib-1', project_id: 'p1', parent_id: 'parent-1', sort_order: 1, is_owner_split: true },
     ]
-    const r = await addWbsItem('p1', 'parent-1', 'activity', '새 항목')
+    const r = await addWbsItem('p1', 'parent-1', '새 항목')
     expect(r).toEqual({ ok: false, error: 'SUB-ACT 형제로는 일반 항목을 추가할 수 없습니다' })
     expect(db.wbs_items).toHaveLength(1)
   })
@@ -208,7 +207,7 @@ describe('addWbsItem 대칭 가드 — SUB-ACT 형제가 있으면 일반 항목
     db.wbs_items = [
       { id: 'sib-2', project_id: 'p1', parent_id: 'parent-2', sort_order: 1, is_owner_split: false },
     ]
-    const r = await addWbsItem('p1', 'parent-2', 'activity', '새 항목')
+    const r = await addWbsItem('p1', 'parent-2', '새 항목')
     expect(r.ok).toBe(true)
   })
 })

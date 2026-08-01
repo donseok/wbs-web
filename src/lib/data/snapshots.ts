@@ -38,7 +38,7 @@ export async function recordProgressSnapshot(projectId: string, client?: Sb): Pr
     const sb = client ?? (await createServerClient())
     const [{ data: items, error: itemsErr }, { data: hol, error: holErr }] = await Promise.all([
       sb.from('wbs_items')
-        .select('id, parent_id, level, code, sort_order, name, planned_start, planned_end, weight, actual_pct, is_owner_split')
+        .select('id, parent_id, code, sort_order, name, planned_start, planned_end, weight, actual_pct, is_owner_split')
         .eq('project_id', projectId),
       sb.from('holidays').select('date').eq('project_id', projectId),
     ])
@@ -51,7 +51,6 @@ export async function recordProgressSnapshot(projectId: string, client?: Sb): Pr
     const rows: WbsRow[] = items.map((r: Record<string, unknown>) => ({
       id: r.id as string,
       parentId: (r.parent_id as string) ?? null,
-      level: r.level as WbsRow['level'],
       code: r.code as string,
       sortOrder: r.sort_order as number,
       name: r.name as string,

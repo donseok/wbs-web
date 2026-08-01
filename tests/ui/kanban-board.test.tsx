@@ -23,7 +23,7 @@ import { KanbanBoard } from '@/components/kanban/KanbanBoard'
 
 function n(id: string, over: Partial<ComputedItem> = {}, children: ComputedItem[] = []): ComputedItem {
   return {
-    id, parentId: null, level: children.length ? 'phase' : 'activity', code: id, sortOrder: 0, name: id,
+    id, parentId: null, code: id, sortOrder: 0, name: id,
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-30', weight: null,
     actualPct: children.length ? null : (over.rolledActualPct ?? 0), owners: over.owners ?? [{ team: 'PMO', kind: 'primary' }],
     isOwnerSplit: over.isOwnerSplit ?? false,

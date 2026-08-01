@@ -93,7 +93,7 @@ describe('관리자 가드 — 멤버(관리자 아님)는 구조·일정·가�
     ['deleteWbsItem', () => deleteWbsItem('i1')],
     ['moveWbsItem', () => moveWbsItem('i1', 'up')],
     ['removeTaskDependency', () => removeTaskDependency('d1')],
-    ['addWbsItem', () => addWbsItem('p1', null, 'phase', '신규')],
+    ['addWbsItem', () => addWbsItem('p1', null, '신규')],
     ['addTaskDependency', () => addTaskDependency('p1', 'i1', 'i2', 'FS', 0)],
   ] as const)('%s: 거부', async (_name, run) => {
     requireProjectAdmin.mockResolvedValue(DENIED)
@@ -110,7 +110,7 @@ describe('관리자 가드 — 멤버(관리자 아님)는 구조·일정·가�
 
   it('projectId 를 인자로 받는 액션은 resolveProjectId 를 쓰지 않는다', async () => {
     requireProjectAdmin.mockResolvedValue(DENIED)
-    await addWbsItem('p1', null, 'phase', '신규')
+    await addWbsItem('p1', null, '신규')
     await addTaskDependency('p1', 'i1', 'i2', 'FS', 0)
     expect(resolveProjectId).not.toHaveBeenCalled()
   })

@@ -17,7 +17,7 @@ import { teamsSync } from '@/lib/teams/master'
 type Row = Record<string, unknown>
 
 const WBS_COLUMNS = [
-  'id', 'project_id', 'parent_id', 'level', 'code', 'sort_order', 'name', 'biz', 'deliverable',
+  'id', 'project_id', 'parent_id', 'code', 'sort_order', 'name', 'biz', 'deliverable',
   'planned_start', 'planned_end', 'weight', 'actual_pct', 'updated_at', 'is_owner_split',
   'item_owners(kind, teams(code))',
 ].join(', ')
@@ -116,7 +116,6 @@ function mapItem(row: Row): WbsRepositoryItem {
     id: row.id as string,
     projectId: row.project_id as string,
     parentId: (row.parent_id as string | null) ?? null,
-    level: row.level as WbsRow['level'],
     code: row.code as string,
     sortOrder: Number(row.sort_order) || 0,
     name: row.name as string,

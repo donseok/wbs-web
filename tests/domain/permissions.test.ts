@@ -30,11 +30,11 @@ describe('canEditActual', () => {
     expect(canEditActual(item({ owners: [] }), admin, P)).toBe(true)
     expect(canEditActual(item({ owners: [] }), superuser, P)).toBe(true)
   })
-  // 롤업(computeNode)이 자식 유무로 말단을 판정하므로, 자식 없는 task/phase 도 자기
-  // actual_pct 를 그대로 상위로 올린다. 입력을 막으면 그 항목은 영영 0% 로 남는다.
-  it('자식 없는 task/phase(단독 항목)도 편집 가능', () => {
-    expect(canEditActual(item({ level: 'task' }), admin, P)).toBe(true)
-    expect(canEditActual(item({ level: 'phase' }), admin, P)).toBe(true)
+  // 롤업(computeNode)이 자식 유무로 말단을 판정하므로, 트리 어느 깊이(task든 phase든)의
+  // 자식 없는 항목도 자기 actual_pct 를 그대로 상위로 올린다. 입력을 막으면 그 항목은 영영 0% 로 남는다.
+  it('자식 없는 항목은 깊이(depth)와 무관하게 편집 가능', () => {
+    expect(canEditActual(item({ depth: 1 }), admin, P)).toBe(true)
+    expect(canEditActual(item({ depth: 0 }), admin, P)).toBe(true)
   })
   it('멤버는 자기 팀 담당(primary/support)만 가능', () => {
     expect(canEditActual(item({ owners: [{ team: '가공', kind: 'primary' }] }), gagongMember, P)).toBe(true)
@@ -48,11 +48,10 @@ describe('canEditActual', () => {
   it('다른 프로젝트의 멤버는 불가', () => {
     expect(canEditActual(item({ owners: [{ team: '가공', kind: 'primary' }] }), gagongMember, 'proj-2')).toBe(false)
   })
-  it('자식이 있으면(롤업 항목) 불가 — level 무관', () => {
+  it('자식이 있으면(롤업 항목) 불가 — 역할이 높아도 예외 없음', () => {
     expect(canEditActual(item({ children: [item({})] }), admin, P)).toBe(false)
-    expect(canEditActual(item({ level: 'task', children: [item({})] }), admin, P)).toBe(false)
-    expect(canEditActual(item({ level: 'phase', children: [item({})] }), superuser, P)).toBe(false)
-    expect(canEditActual(item({ level: 'task', children: [item({})], owners: [{ team: '가공', kind: 'primary' }] }), gagongMember, P)).toBe(false)
+    expect(canEditActual(item({ children: [item({})] }), superuser, P)).toBe(false)
+    expect(canEditActual(item({ children: [item({})], owners: [{ team: '가공', kind: 'primary' }] }), gagongMember, P)).toBe(false)
   })
 })
 

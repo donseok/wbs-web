@@ -25,7 +25,7 @@ const dtEditor: ProjectActorView = { userId: 'u-dt', teamCode: '가공', teamId:
 
 function item(over: Partial<ComputedItem>): ComputedItem {
   return {
-    id: 'x', parentId: null, level: 'activity', code: '1', sortOrder: 0, name: '항목', biz: null,
+    id: 'x', parentId: null, code: '1', sortOrder: 0, name: '항목', biz: null,
     deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-10', weight: null, actualPct: 0,
     owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], depth: 0, ...over,
   }
@@ -36,14 +36,14 @@ function item(over: Partial<ComputedItem>): ComputedItem {
  *   - '1-1. 작업' = activity 자식을 가진 Task(롤업 부모) */
 function fixture(): ComputedItem[] {
   const loneTask = item({
-    id: 't-lone', level: 'task', code: '1-3', name: '1-3. 프로젝트 착수 보고회',
+    id: 't-lone', code: '1-3', name: '1-3. 프로젝트 착수 보고회',
     owners: [{ team: 'PMO', kind: 'primary' }], sortOrder: 0,
   })
   const rollupTask = item({
-    id: 't-parent', level: 'task', code: '1-1', name: '1-1. 작업', sortOrder: 1,
+    id: 't-parent', code: '1-1', name: '1-1. 작업', sortOrder: 1,
     children: [item({ id: 'a1', parentId: 't-parent', name: '활동', owners: [{ team: '가공', kind: 'primary' }] })],
   })
-  return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [loneTask, rollupTask] })]
+  return [item({ id: 'p1', name: '1. 준비', children: [loneTask, rollupTask] })]
 }
 
 /** 실적% 셀은 편집 가능할 때만 role=button + title=wbs.editActualTitle 을 갖는다. */

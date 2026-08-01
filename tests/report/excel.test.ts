@@ -18,7 +18,7 @@ const node = (over: Partial<ComputedItem>): ComputedItem =>
 // 대시보드 롤업과 동일한 소수 1자리 공정율이 엑셀 셀에 그대로 담기는지 검증한다.
 const items: ComputedItem[] = [
   node({
-    level: 'phase', name: '설계', weight: 1, plannedPct: 43.7, rolledActualPct: 21.3, status: 'in_progress',
+    name: '설계', weight: 1, plannedPct: 43.7, rolledActualPct: 21.3, status: 'in_progress',
     children: [
       node({ name: '화면 설계', status: 'in_progress', plannedPct: 43.7, rolledActualPct: 21.3, plannedStart: '2026-06-01', plannedEnd: '2026-07-31' }),
     ],
@@ -71,12 +71,12 @@ describe('buildReportWorkbook — WBS 시트 Lv 열·행 배경/볼드는 depth 
   // Phase > Task > Activity > sub-act(isOwnerSplit=true, depth 3) — depth 0/1/2/3.
   const deepItems: ComputedItem[] = [
     node({
-      level: 'phase', name: 'P', weight: 1, children: [
+      name: 'P', weight: 1, children: [
         node({
-          level: 'task', name: 'T', children: [
+          name: 'T', children: [
             node({
-              level: 'activity', name: 'A', children: [
-                node({ level: 'activity', name: 'SA', isOwnerSplit: true }),
+              name: 'A', children: [
+                node({ name: 'SA', isOwnerSplit: true }),
               ],
             }),
           ],

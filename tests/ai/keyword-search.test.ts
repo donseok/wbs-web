@@ -79,7 +79,6 @@ describe('classifyIntent — 키워드 검색이 구조화 의도를 선점', ()
 const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
   id: Math.random().toString(36).slice(2),
   parentId: 'P',
-  level: 'activity',
   code: '1',
   sortOrder: 1,
   name: 'task',
@@ -101,7 +100,6 @@ const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
 })
 const phase = (children: ComputedItem[]): ComputedItem => ({
   ...leaf({}),
-  level: 'phase',
   name: '1. 준비',
   children,
 })

@@ -61,7 +61,7 @@ import { detectMilestones, LEGACY_MILESTONE_KEYWORDS } from '@/lib/domain/dashbo
 import type { ComputedItem } from '@/lib/domain/types'
 
 const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
-  id: Math.random().toString(36).slice(2), parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
+  id: Math.random().toString(36).slice(2), parentId: 'p', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
   owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'in_progress', children: [], depth: 0, ...over,
 })
@@ -134,7 +134,7 @@ describe('delayedLeaves / dueSoonLeaves', () => {
 import { riskModel } from '@/lib/domain/dashboard'
 
 const phase = (over: Partial<ComputedItem>): ComputedItem =>
-  leaf({ level: 'phase', parentId: null, ...over })
+  leaf({ parentId: null, ...over })
 
 describe('riskModel', () => {
   const today = '2026-07-08'

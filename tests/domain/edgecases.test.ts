@@ -8,7 +8,7 @@ import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 const H = new Set<string>()
 const OPTS: BuildTreeOpts = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
 const row = (over: Partial<WbsRow>): WbsRow => ({
-  id: 'x', parentId: null, level: 'activity', code: 'x', sortOrder: 0, name: 'x',
+  id: 'x', parentId: null, code: 'x', sortOrder: 0, name: 'x',
   biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
   owners: [], isOwnerSplit: false, ...over,
 })
@@ -72,10 +72,10 @@ describe('buildTree edge cases', () => {
 
 describe('computeTree multi-level rollup', () => {
   const rows: WbsRow[] = [
-    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0 }),
-    row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', sortOrder: 1 }),
-    row({ id: 'A1', parentId: 'T', level: 'activity', sortOrder: 2, plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 100 }),
-    row({ id: 'A2', parentId: 'T', level: 'activity', sortOrder: 3, plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 0 }),
+    row({ id: 'P', parentId: null, code: '1', sortOrder: 0 }),
+    row({ id: 'T', parentId: 'P', code: '1-1', sortOrder: 1 }),
+    row({ id: 'A1', parentId: 'T', sortOrder: 2, plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 100 }),
+    row({ id: 'A2', parentId: 'T', sortOrder: 3, plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 0 }),
   ]
   const tree = computeTree(rows, '2026-07-20', H, OPTS) // 기간 종료 후
 
@@ -98,22 +98,22 @@ describe('computeTree multi-level rollup', () => {
  * 3단 가정(예: "리프는 항상 2단 아래"처럼 깊이를 하드코딩)이 되살아나면 여기서 무너진다. */
 describe('computeTree 4단+ 롤업 — 엑셀 3열 양식 밖(도메인 통과 지점, 혼재 깊이)', () => {
   const rows: WbsRow[] = [
-    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0 }),
+    row({ id: 'P', parentId: null, code: '1', sortOrder: 0 }),
     // 왼쪽 가지: Phase→Task→(엑셀엔 없는 4번째 실 레벨 'subtask')→Activity×2 — 깊이 4
-    row({ id: 'T1', parentId: 'P', level: 'task', code: '1-1', sortOrder: 0 }),
-    row({ id: 'ST1', parentId: 'T1', level: 'subtask', code: '1-1-1', sortOrder: 0 }),
+    row({ id: 'T1', parentId: 'P', code: '1-1', sortOrder: 0 }),
+    row({ id: 'ST1', parentId: 'T1', code: '1-1-1', sortOrder: 0 }),
     row({
-      id: 'A1', parentId: 'ST1', level: 'activity', sortOrder: 0,
+      id: 'A1', parentId: 'ST1', sortOrder: 0,
       plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 100, weight: 3,
     }),
     row({
-      id: 'A2', parentId: 'ST1', level: 'activity', sortOrder: 1,
+      id: 'A2', parentId: 'ST1', sortOrder: 1,
       plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 0, weight: 1,
     }),
     // 오른쪽 가지: Phase→Task→Activity — 깊이 3(형제 T2 가 T1 보다 한 단 얕다)
-    row({ id: 'T2', parentId: 'P', level: 'task', code: '1-2', sortOrder: 1, weight: 1 }),
+    row({ id: 'T2', parentId: 'P', code: '1-2', sortOrder: 1, weight: 1 }),
     row({
-      id: 'A3', parentId: 'T2', level: 'activity', sortOrder: 0,
+      id: 'A3', parentId: 'T2', sortOrder: 0,
       plannedStart: '2026-07-06', plannedEnd: '2026-07-10', actualPct: 50,
     }),
   ]

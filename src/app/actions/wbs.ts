@@ -6,7 +6,7 @@ import { isProjectAdmin } from '@/lib/domain/authz'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
-import type { DependencyType, Level, OwnerKind, TeamCode } from '@/lib/domain/types'
+import type { DependencyType, OwnerKind, TeamCode } from '@/lib/domain/types'
 import { subActName } from '@/lib/domain/subact'
 import { businessDaysBetween } from '@/lib/domain/dates'
 
@@ -211,9 +211,9 @@ async function discardRolledUpActual(
   })
 }
 
-/** 하위(또는 루트 Phase) 항목 추가. level은 호출자가 부모 기준으로 결정. */
+/** 하위(또는 루트 Phase) 항목 추가. 깊이는 parentId 기준 트리에서 파생되며 여기서는 결정하지 않는다. */
 export async function addWbsItem(
-  projectId: string, parentId: string | null, level: Level, name: string,
+  projectId: string, parentId: string | null, name: string,
 ): Promise<{ ok: boolean; error?: string; id?: string }> {
   const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
@@ -232,14 +232,15 @@ export async function addWbsItem(
     return { ok: false, error: 'SUB-ACT 형제로는 일반 항목을 추가할 수 없습니다' }
   }
   const nextOrder = sibs.reduce((mx, r) => Math.max(mx, Number(r.sort_order) || 0), 0) + 1
-  const code = name.trim().split(/[.\s]/)[0] || level
+  const trimmedName = name.trim()
+  const code = trimmedName.split(/[.\s]/)[0] || trimmedName
   const { data, error } = await sb
     .from('wbs_items')
-    .insert({ project_id: projectId, parent_id: parentId, level, code, sort_order: nextOrder, name: name.trim() })
+    .insert({ project_id: projectId, parent_id: parentId, code, sort_order: nextOrder, name: trimmedName })
     .select('id')
     .single()
   if (error) return { ok: false, error: error.message }
-  const { error: logInsErr } = await sb.from('change_logs').insert({ user_id: g.actor.userId, wbs_item_id: data.id, field: 'created', old_value: null, new_value: name.trim() })
+  const { error: logInsErr } = await sb.from('change_logs').insert({ user_id: g.actor.userId, wbs_item_id: data.id, field: 'created', old_value: null, new_value: trimmedName })
   if (logInsErr) console.error('[addWbsItem] 변경 이력 기록 실패:', logInsErr.message) // 항목 생성은 성공 — 이력만 유실
   // 부모가 방금 말단에서 롤업 부모로 바뀌었다면 남아 있던 직접 입력 실적%를 정리(sibs 는 위에서 검증된 실제 형제 목록).
   if (parentId && sibs.length === 0) await discardRolledUpActual(sb, parentId, projectId, g.actor.userId)
@@ -300,11 +301,11 @@ export async function addSubAct(
   const nextOrder = sibs.reduce((mx, r) => Math.max(mx, Number(r.sort_order) || 0), 0) + 1
 
   const name = subActName(act.name as string, team, kind)
-  // 가드 ③: is_owner_split=true 가 판별의 진실. level:'activity' 는 하위호환 기록용(신규 코드는 읽지 않는다).
+  // 가드 ③: is_owner_split=true 가 판별의 진실(level 컬럼은 더 이상 쓰지 않는다 — 컬럼 자체는 Task 5에서 drop).
   const { data: inserted, error: insErr } = await sb
     .from('wbs_items')
     .insert({
-      project_id: act.project_id, parent_id: actId, level: 'activity', is_owner_split: true, code: act.code,
+      project_id: act.project_id, parent_id: actId, is_owner_split: true, code: act.code,
       sort_order: nextOrder, name, biz: act.biz, deliverable: act.deliverable,
       planned_start: act.planned_start, planned_end: act.planned_end, weight: null, actual_pct: null,
     })

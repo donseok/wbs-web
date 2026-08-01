@@ -9,7 +9,7 @@ import {
 /* ── 픽스처 — riskSignals.test 의 leaf 관례 재사용 ── */
 let seq = 0
 const leaf = (over: Partial<ComputedItem> = {}): ComputedItem => ({
-  id: `L${seq++}`, parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
+  id: `L${seq++}`, parentId: 'p', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
   weight: null, actualPct: null, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
   achievement: null, status: 'in_progress', children: [], depth: 0, ...over,

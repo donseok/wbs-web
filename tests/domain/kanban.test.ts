@@ -21,7 +21,6 @@ function node(
   return {
     id,
     parentId: null,
-    level: children.length ? 'phase' : 'activity',
     code: id,
     sortOrder: 0,
     name: opts.name ?? id,

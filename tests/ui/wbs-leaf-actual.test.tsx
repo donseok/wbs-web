@@ -30,7 +30,7 @@ import { RowDetailPanel } from '@/components/wbs/RowDetailPanel'
 
 function item(over: Partial<ComputedItem>): ComputedItem {
   return {
-    id: 'x', parentId: null, level: 'task', code: '1-3', sortOrder: 0, name: '1-3. 프로젝트 착수 보고회',
+    id: 'x', parentId: null, code: '1-3', sortOrder: 0, name: '1-3. 프로젝트 착수 보고회',
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-01',
     weight: null, actualPct: 0, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
     achievement: null, status: 'not_started', children: [], depth: 0, ...over,
@@ -76,13 +76,13 @@ describe('RowDetailPanel — 하위 추가 시 실적% 폐기 경고', () => {
   })
 
   it('이미 자식이 있으면(롤업 부모) 경고가 없다 — 둘째 자식 추가는 잃을 값이 없다', async () => {
-    await mount(item({ actualPct: 70, children: [item({ id: 'c', level: 'activity' })] }))
+    await mount(item({ actualPct: 70, children: [item({ id: 'c' })] }))
     await openAddChild()
     expect(container.textContent).not.toContain('wbs.addChildLeafWarn')
   })
 
-  it('경고와 무관하게 하위 추가는 activity 레벨로 진행된다', async () => {
-    // depth 1(task) 의 자식은 depth 2 → 하위호환 레벨 문자열 'activity'(§4.4 legacyChildLevel).
+  it('경고와 무관하게 하위 추가는 그대로 진행된다', async () => {
+    // addWbsItem 은 더 이상 level 인자를 받지 않는다(Task 3) — projectId·parentId·name 만 전달.
     await mount(item({ id: 't1', actualPct: 70, depth: 1 }))
     await openAddChild()
     const input = container.querySelector('input')!
@@ -92,6 +92,6 @@ describe('RowDetailPanel — 하위 추가 시 실적% 폐기 경고', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
     await act(async () => byText(/^common\.add$/)[0].click())
-    expect(addWbsItem).toHaveBeenCalledWith('p1', 't1', 'activity', '킥오프 준비')
+    expect(addWbsItem).toHaveBeenCalledWith('p1', 't1', '킥오프 준비')
   })
 })

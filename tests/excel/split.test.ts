@@ -159,7 +159,6 @@ function comp(over: Partial<ComputedItem>): ComputedItem {
   return {
     id: 'x',
     parentId: null,
-    level: 'activity',
     code: '1',
     sortOrder: 0,
     name: '항목',
@@ -192,8 +191,8 @@ describe('buildWbsAoa — sub-act 접기(라운드트립 보호)', () => {
       owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }],
       children: [sub('s1', '가공', 50), sub('s2', 'ERP', 30)],
     })
-    const task = comp({ id: 't1', level: 'task', name: '1-1. 작업', children: [parent], rolledActualPct: 40, depth: 1 })
-    const aoa = buildWbsAoa([comp({ id: 'p1', level: 'phase', name: '1. 준비', children: [task], rolledActualPct: 40, depth: 0 })])
+    const task = comp({ id: 't1', name: '1-1. 작업', children: [parent], rolledActualPct: 40, depth: 1 })
+    const aoa = buildWbsAoa([comp({ id: 'p1', name: '1. 준비', children: [task], rolledActualPct: 40, depth: 0 })])
 
     const bodies = aoa.slice(3) as unknown[][]
     // phase + task + 접힌 activity = 3행 (sub-act 2행은 미출력)
@@ -206,8 +205,8 @@ describe('buildWbsAoa — sub-act 접기(라운드트립 보호)', () => {
 
   it('task 하위 일반 activity 는 기존대로 모두 내보낸다', () => {
     const acts = [comp({ id: 'a1', name: 'A', actualPct: 10, depth: 2 }), comp({ id: 'a2', name: 'B', actualPct: 20, depth: 2 })]
-    const task = comp({ id: 't1', level: 'task', name: '1-1. 작업', children: acts, depth: 1 })
-    const aoa = buildWbsAoa([comp({ id: 'p1', level: 'phase', name: '1. 준비', children: [task], depth: 0 })])
+    const task = comp({ id: 't1', name: '1-1. 작업', children: acts, depth: 1 })
+    const aoa = buildWbsAoa([comp({ id: 'p1', name: '1. 준비', children: [task], depth: 0 })])
     expect(aoa.slice(3)).toHaveLength(4)
   })
 })

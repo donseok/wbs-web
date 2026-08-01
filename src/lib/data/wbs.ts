@@ -69,7 +69,6 @@ export const getComputedWbs = cache(async (
   const rows: WbsRow[] = (items ?? []).map((r: Record<string, unknown>) => ({
     id: r.id as string,
     parentId: r.parent_id as string | null,
-    level: r.level as WbsRow['level'],
     code: r.code as string,
     sortOrder: r.sort_order as number,
     name: r.name as string,

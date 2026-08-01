@@ -23,7 +23,7 @@ const node = (over: Partial<ComputedItem>): ComputedItem =>
   }) as ComputedItem
 
 const phase = (name: string, children: ComputedItem[], over: Partial<ComputedItem> = {}): ComputedItem =>
-  node({ level: 'phase', name, children, ...over })
+  node({ name, children, ...over })
 
 const project = { name: '테스트 프로젝트', description: '설명', start_date: '2026-01-01', end_date: '2026-12-31' }
 

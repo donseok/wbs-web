@@ -629,7 +629,7 @@ export function WbsGanttSheet({
   async function submitAddPhase() {
     if (!addPhase?.trim() || addBusy) return
     setAddBusy(true)
-    const res = await addWbsItem(projectId, null, 'phase', addPhase.trim())
+    const res = await addWbsItem(projectId, null, addPhase.trim())
     setAddBusy(false)
     if (res.ok) { setAddPhase(null); setToast({ kind: 'ok', msg: t('wbs.toastPhaseAdded') }); router.refresh() }
     else setToast({ kind: 'err', msg: res.error ?? t('wbs.toastAddFail') })

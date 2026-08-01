@@ -10,7 +10,7 @@ import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 
 const OPTS = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
 const row = (over: Partial<WbsRow>): WbsRow => ({
-  id: 'x', parentId: null, level: 'activity', code: 'x', sortOrder: 0, name: 'x',
+  id: 'x', parentId: null, code: 'x', sortOrder: 0, name: 'x',
   biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
   owners: [], isOwnerSplit: false, ...over,
 })
@@ -23,15 +23,15 @@ function unwrap(built: ReturnType<typeof buildAoaWithProfile>): unknown[][] {
 /* ── (a) LEGACY_DCUBE_PROFILE + 접기 == 기존 buildWbsAoa (셀 단위 동일, 라운드트립 회귀 기준) ── */
 describe('buildAoaWithProfile — (a) LEGACY_DCUBE_PROFILE 접기는 기존 buildWbsAoa 와 셀 단위 동일', () => {
   const SRC: WbsRow[] = [
-    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0, name: '1. 준비', biz: 'PI' }),
-    row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
+    row({ id: 'P', parentId: null, code: '1', sortOrder: 0, name: '1. 준비', biz: 'PI' }),
+    row({ id: 'T', parentId: 'P', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
     row({
-      id: 'A1', parentId: 'T', level: 'activity', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
+      id: 'A1', parentId: 'T', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
       deliverable: '업무분장표', plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
       weight: 2, actualPct: 50, owners: [{ team: 'PMO', kind: 'primary' }, { team: '가공', kind: 'support' }],
     }),
     row({
-      id: 'A2', parentId: 'T', level: 'activity', code: 'a2', sortOrder: 3, name: '현황 파악',
+      id: 'A2', parentId: 'T', code: 'a2', sortOrder: 3, name: '현황 파악',
       plannedStart: '2026-07-08', plannedEnd: '2026-07-14', actualPct: 100,
       owners: [{ team: 'ERP', kind: 'primary' }],
     }),
@@ -55,21 +55,21 @@ describe('buildAoaWithProfile — (a) LEGACY_DCUBE_PROFILE 접기는 기존 buil
  *  규칙 적용) — 그래서 팀 마크 열은 헤더에서 동적으로 찾는다(구현 좌표를 하드코딩하지 않는다). ── */
 describe('buildAoaWithProfile — (b) expandSubActs:true 는 sub-act 를 4번째 계층 열 행으로 펼친다', () => {
   const SRC: WbsRow[] = [
-    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0, name: '1. 준비' }),
-    row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
+    row({ id: 'P', parentId: null, code: '1', sortOrder: 0, name: '1. 준비' }),
+    row({ id: 'T', parentId: 'P', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
     row({
-      id: 'A1', parentId: 'T', level: 'activity', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
+      id: 'A1', parentId: 'T', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
       plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
       owners: [{ team: 'PMO', kind: 'primary' }, { team: '가공', kind: 'support' }],
       actualPct: null, // splitLeafOwners 규약(validate.ts) — 분리된 부모는 실적을 자식에 넘기고 비운다.
     }),
     row({
-      id: 'A1s0', parentId: 'A1', level: 'activity', code: 'a1', sortOrder: 3,
+      id: 'A1s0', parentId: 'A1', code: 'a1', sortOrder: 3,
       name: 'TFT R&R 확정 (PMO 주관)', plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
       actualPct: 60, owners: [{ team: 'PMO', kind: 'primary' }], isOwnerSplit: true,
     }),
     row({
-      id: 'A1s1', parentId: 'A1', level: 'activity', code: 'a1', sortOrder: 4,
+      id: 'A1s1', parentId: 'A1', code: 'a1', sortOrder: 4,
       name: 'TFT R&R 확정 (가공 지원)', plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
       actualPct: 40, owners: [{ team: '가공', kind: 'support' }], isOwnerSplit: true,
     }),
@@ -130,14 +130,14 @@ describe('buildAoaWithProfile — (b-2) 삽입-시프트: 계층 다음 열 충�
     ownerMarks: { '●': 'primary', '△': 'support' },
   }
   const SRC: WbsRow[] = [
-    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0, name: 'P' }),
-    row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', sortOrder: 1, name: 'T' }),
+    row({ id: 'P', parentId: null, code: '1', sortOrder: 0, name: 'P' }),
+    row({ id: 'T', parentId: 'P', code: '1-1', sortOrder: 1, name: 'T' }),
     row({
-      id: 'A1', parentId: 'T', level: 'activity', code: 'a1', sortOrder: 2, name: 'A1',
+      id: 'A1', parentId: 'T', code: 'a1', sortOrder: 2, name: 'A1',
       deliverable: '설계서', owners: [{ team: 'PMO', kind: 'primary' }], actualPct: null,
     }),
     row({
-      id: 'A1s0', parentId: 'A1', level: 'activity', code: 'a1', sortOrder: 3,
+      id: 'A1s0', parentId: 'A1', code: 'a1', sortOrder: 3,
       name: 'A1 (PMO 주관)', deliverable: '설계서', actualPct: 80,
       owners: [{ team: 'PMO', kind: 'primary' }], isOwnerSplit: true,
     }),
@@ -176,10 +176,10 @@ describe('buildAoaWithProfile — (b-2) 삽입-시프트: 계층 다음 열 충�
 /* ── (신설, 리뷰 Important #2) 프로파일 밖 팀 동적 확장 — 조용한 유실 금지 ── */
 describe('buildAoaWithProfile — 프로파일 밖 팀은 말미에 열을 추가해 유실 없이 싣는다', () => {
   const SRC: WbsRow[] = [
-    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0, name: 'P' }),
-    row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', sortOrder: 1, name: 'T' }),
+    row({ id: 'P', parentId: null, code: '1', sortOrder: 0, name: 'P' }),
+    row({ id: 'T', parentId: 'P', code: '1-1', sortOrder: 1, name: 'T' }),
     row({
-      id: 'A1', parentId: 'T', level: 'activity', code: 'a1', sortOrder: 2, name: 'A1',
+      id: 'A1', parentId: 'T', code: 'a1', sortOrder: 2, name: 'A1',
       owners: [{ team: 'PMO', kind: 'primary' }, { team: '신팀6', kind: 'support' }], actualPct: 30,
     }),
   ]
@@ -213,25 +213,25 @@ describe('buildAoaWithProfile — 프로파일 밖 팀은 말미에 열을 추�
  *  Task3 책임 밖). */
 describe('buildAoaWithProfile — (c) 펼침 산출물의 detect→parseWithProfile 왕복', () => {
   const SRC: WbsRow[] = [
-    row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0, name: '1. 준비' }),
-    row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
+    row({ id: 'P', parentId: null, code: '1', sortOrder: 0, name: '1. 준비' }),
+    row({ id: 'T', parentId: 'P', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
     row({
-      id: 'A1', parentId: 'T', level: 'activity', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
+      id: 'A1', parentId: 'T', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
       plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
       owners: [{ team: 'PMO', kind: 'primary' }, { team: '가공', kind: 'support' }], actualPct: null,
     }),
     row({
-      id: 'A1s0', parentId: 'A1', level: 'activity', code: 'a1', sortOrder: 3,
+      id: 'A1s0', parentId: 'A1', code: 'a1', sortOrder: 3,
       name: 'TFT R&R 확정 (PMO 주관)', plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
       actualPct: 60, owners: [{ team: 'PMO', kind: 'primary' }], isOwnerSplit: true,
     }),
     row({
-      id: 'A1s1', parentId: 'A1', level: 'activity', code: 'a1', sortOrder: 4,
+      id: 'A1s1', parentId: 'A1', code: 'a1', sortOrder: 4,
       name: 'TFT R&R 확정 (가공 지원)', plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
       actualPct: 40, owners: [{ team: '가공', kind: 'support' }], isOwnerSplit: true,
     }),
     row({
-      id: 'A2', parentId: 'T', level: 'activity', code: 'a2', sortOrder: 5, name: '현황 파악',
+      id: 'A2', parentId: 'T', code: 'a2', sortOrder: 5, name: '현황 파악',
       plannedStart: '2026-07-08', plannedEnd: '2026-07-14', actualPct: 100,
       owners: [{ team: 'ERP', kind: 'primary' }],
     }),
@@ -282,7 +282,7 @@ describe('buildAoaWithProfile — outline 계층 + 펼침은 명시적으로 거
     teamColumns: [], ownerMarks: { '●': 'primary', '△': 'support' },
   }
   const items = computeTree(
-    [row({ id: 'A', parentId: null, level: 'activity', code: '1', sortOrder: 0, name: 'A' })],
+    [row({ id: 'A', parentId: null, code: '1', sortOrder: 0, name: 'A' })],
     '2026-09-15', new Set(), OPTS,
   )
 

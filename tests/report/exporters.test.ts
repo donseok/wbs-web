@@ -15,7 +15,7 @@ const node = (over: Partial<ComputedItem>): ComputedItem =>
     ...over,
   }) as ComputedItem
 const phase = (name: string, children: ComputedItem[], over: Partial<ComputedItem> = {}): ComputedItem =>
-  node({ level: 'phase', name, children, ...over })
+  node({ name, children, ...over })
 
 const sampleItems: ComputedItem[] = [
   phase('착수', [

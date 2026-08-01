@@ -15,7 +15,7 @@ import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 
 function item(id: string, start: string, end: string): ComputedItem {
   return {
-    id, parentId: null, level: 'activity', code: id, sortOrder: id === 'A' ? 1 : 2, name: `작업 ${id}`,
+    id, parentId: null, code: id, sortOrder: id === 'A' ? 1 : 2, name: `작업 ${id}`,
     biz: null, deliverable: null, plannedStart: start, plannedEnd: end, weight: null, actualPct: 100,
     owners: [], isOwnerSplit: false, plannedPct: 100, rolledActualPct: 100, achievement: 100, status: 'done', children: [], depth: 0,
   }

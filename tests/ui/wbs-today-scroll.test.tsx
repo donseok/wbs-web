@@ -30,7 +30,6 @@ function item(plannedStart: string, plannedEnd: string): ComputedItem {
   return {
     id: 'a1',
     parentId: null,
-    level: 'activity',
     code: '1',
     sortOrder: 0,
     name: '일정 항목',

@@ -13,21 +13,21 @@ import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 
 const OPTS = { subActTeamOrder: teamOrderMap(DEFAULT_TEAM_CODES) }
 const row = (over: Partial<WbsRow>): WbsRow => ({
-  id: 'x', parentId: null, level: 'activity', code: 'x', sortOrder: 0, name: 'x',
+  id: 'x', parentId: null, code: 'x', sortOrder: 0, name: 'x',
   biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
   owners: [], isOwnerSplit: false, ...over,
 })
 
 const SRC: WbsRow[] = [
-  row({ id: 'P', parentId: null, level: 'phase', code: '1', sortOrder: 0, name: '1. 준비', biz: 'PI' }),
-  row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
+  row({ id: 'P', parentId: null, code: '1', sortOrder: 0, name: '1. 준비', biz: 'PI' }),
+  row({ id: 'T', parentId: 'P', code: '1-1', sortOrder: 1, name: '1-1. 거버넌스' }),
   row({
-    id: 'A1', parentId: 'T', level: 'activity', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
+    id: 'A1', parentId: 'T', code: 'a1', sortOrder: 2, name: 'TFT R&R 확정',
     deliverable: '업무분장표', plannedStart: '2026-07-01', plannedEnd: '2026-07-07',
     weight: 2, actualPct: 50, owners: [{ team: 'PMO', kind: 'primary' }, { team: '가공', kind: 'support' }],
   }),
   row({
-    id: 'A2', parentId: 'T', level: 'activity', code: 'a2', sortOrder: 3, name: '현황 파악',
+    id: 'A2', parentId: 'T', code: 'a2', sortOrder: 3, name: '현황 파악',
     plannedStart: '2026-07-08', plannedEnd: '2026-07-14', actualPct: 100,
     owners: [{ team: 'ERP', kind: 'primary' }],
   }),
@@ -82,10 +82,10 @@ describe('flatten isOwnerSplit 기준 재귀', () => {
     // 기존 동작: activity 레벨에서 재귀 중단 → 4단째(sub-act) 노드 미출력
     // 신규 동작: isOwnerSplit=true 노드에서 재귀 중단 → 동일 결과
     const srcRows: WbsRow[] = [
-      row({ id: 'P', parentId: null, level: 'phase', code: '1', name: 'Phase' }),
-      row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', name: 'Task' }),
-      row({ id: 'A', parentId: 'T', level: 'activity', code: 'a', name: 'Activity', isOwnerSplit: false }),
-      row({ id: 'SA', parentId: 'A', level: 'activity', code: 'a-1', name: 'sub-act', isOwnerSplit: true }),
+      row({ id: 'P', parentId: null, code: '1', name: 'Phase' }),
+      row({ id: 'T', parentId: 'P', code: '1-1', name: 'Task' }),
+      row({ id: 'A', parentId: 'T', code: 'a', name: 'Activity', isOwnerSplit: false }),
+      row({ id: 'SA', parentId: 'A', code: 'a-1', name: 'sub-act', isOwnerSplit: true }),
     ]
     const items = computeTree(srcRows, '2026-09-15', new Set(), OPTS)
     const aoa = buildWbsAoa(items)
@@ -99,11 +99,11 @@ describe('flatten isOwnerSplit 기준 재귀', () => {
     // 4단 일반 트리(isOwnerSplit=false): Phase > Task > Activity > Sub > SubSub
     // 신규 동작: isOwnerSplit=false 노드는 모두 재귀 → 4단까지 행 출력
     const srcRows: WbsRow[] = [
-      row({ id: 'P', parentId: null, level: 'phase', code: '1', name: 'Phase', isOwnerSplit: false }),
-      row({ id: 'T', parentId: 'P', level: 'task', code: '1-1', name: 'Task', isOwnerSplit: false }),
-      row({ id: 'A', parentId: 'T', level: 'activity', code: 'a', name: 'Activity', isOwnerSplit: false }),
-      row({ id: 'S', parentId: 'A', level: 'sub', code: 'a-1', name: 'SubActivity', isOwnerSplit: false }),
-      row({ id: 'SS', parentId: 'S', level: 'subsub', code: 'a-1-1', name: 'SubSubActivity', isOwnerSplit: false }),
+      row({ id: 'P', parentId: null, code: '1', name: 'Phase', isOwnerSplit: false }),
+      row({ id: 'T', parentId: 'P', code: '1-1', name: 'Task', isOwnerSplit: false }),
+      row({ id: 'A', parentId: 'T', code: 'a', name: 'Activity', isOwnerSplit: false }),
+      row({ id: 'S', parentId: 'A', code: 'a-1', name: 'SubActivity', isOwnerSplit: false }),
+      row({ id: 'SS', parentId: 'S', code: 'a-1-1', name: 'SubSubActivity', isOwnerSplit: false }),
     ]
     const items = computeTree(srcRows, '2026-09-15', new Set(), OPTS)
     const aoa = buildWbsAoa(items)

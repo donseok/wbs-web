@@ -4,7 +4,7 @@ import type { WbsRow } from '@/lib/domain/types'
 import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 
 const row = (over: Partial<WbsRow> & { id: string }): WbsRow => ({
-  parentId: null, level: 'activity', code: over.id, sortOrder: 0, name: over.id,
+  parentId: null, code: over.id, sortOrder: 0, name: over.id,
   biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null,
   actualPct: null, owners: [], isOwnerSplit: false, ...over,
 })

@@ -16,7 +16,7 @@ const leaf = (over: Partial<ComputedItem>): ComputedItem =>
 // phaseName 판정은 depth===0 기준(match.ts) — 루트는 depth 0, 자식은 depth 1로 명시한다.
 const tree: ComputedItem[] = [
   leaf({
-    id: 'ph1', name: '2. As-Is 분석', level: 'phase', depth: 0,
+    id: 'ph1', name: '2. As-Is 분석', depth: 0,
     children: [
       leaf({ id: 'a', name: 'ERP 인터페이스 설계', owners: [{ team: 'ERP', kind: 'primary' }] }),
       leaf({ id: 'b', name: 'ERP 인터페이스 설계 검토' }),

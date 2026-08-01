@@ -49,7 +49,7 @@ describe('ProgressPopover', () => {
 
 function leaf(over: Partial<ComputedItem> = {}): ComputedItem {
   return {
-    id: 'L', parentId: null, level: 'activity', code: '1-1', sortOrder: 0, name: '리프작업',
+    id: 'L', parentId: null, code: '1-1', sortOrder: 0, name: '리프작업',
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-30',
     weight: null, actualPct: 40, owners: [{ team: 'PMO', kind: 'primary' }], isOwnerSplit: false,
     plannedPct: 0, rolledActualPct: 40, achievement: null, status: 'in_progress', children: [], depth: 0, ...over,

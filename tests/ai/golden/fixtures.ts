@@ -46,7 +46,6 @@ function wbsItem(partial: {
   id: string
   projectId: string
   parentId: string | null
-  level: WbsRepositoryItem['level']
   code: string
   sortOrder: number
   name: string
@@ -62,7 +61,6 @@ function wbsItem(partial: {
     id: partial.id,
     projectId: partial.projectId,
     parentId: partial.parentId,
-    level: partial.level,
     code: partial.code,
     sortOrder: partial.sortOrder,
     name: partial.name,
@@ -82,25 +80,25 @@ function wbsItem(partial: {
 // 과거 구간(종료<오늘) → 계획율 100, 미래 구간(시작>오늘) → 계획율 0 으로 상태를 결정형으로 고정한다.
 // 리프 상태: 완료 2 · 지연 2 · 미착수 3 · 진행중 1 (미래 시작+실적>0 은 진행중으로 계산됨).
 const ALPHA_WBS_ITEMS: WbsRepositoryItem[] = [
-  wbsItem({ id: 'a-p1', projectId: PROJECT_ALPHA, parentId: null, level: 'phase', code: '1', sortOrder: 1, name: 'ERP 착수', updatedAt: '2026-07-10T00:00:00Z' }),
-  wbsItem({ id: 'a-t11', projectId: PROJECT_ALPHA, parentId: 'a-p1', level: 'task', code: '1.1', sortOrder: 1, name: 'ERP 요건정의', updatedAt: '2026-07-11T00:00:00Z' }),
-  wbsItem({ id: 'a-s111', projectId: PROJECT_ALPHA, parentId: 'a-t11', level: 'activity', code: '1.1.1', sortOrder: 1, name: 'AS-IS 분석', biz: '현행 프로세스 분석', deliverable: '현황 분석서', plannedStart: '2026-06-01', plannedEnd: '2026-06-15', actualPct: 100, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-06-15T00:00:00Z' }),
-  wbsItem({ id: 'a-s112', projectId: PROJECT_ALPHA, parentId: 'a-t11', level: 'activity', code: '1.1.2', sortOrder: 2, name: 'TO-BE 설계', biz: '개선 프로세스 설계', deliverable: 'TO-BE 설계서', plannedStart: '2026-06-16', plannedEnd: '2026-06-30', actualPct: 40, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-17T02:00:00Z' }),
-  wbsItem({ id: 'a-t12', projectId: PROJECT_ALPHA, parentId: 'a-p1', level: 'task', code: '1.2', sortOrder: 2, name: 'ERP 킥오프', biz: '착수 보고', deliverable: '킥오프 자료', plannedStart: '2026-07-24', plannedEnd: '2026-07-24', actualPct: 0, owners: [{ team: 'PMO', kind: 'primary' }], updatedAt: '2026-07-05T00:00:00Z' }),
-  wbsItem({ id: 'a-p2', projectId: PROJECT_ALPHA, parentId: null, level: 'phase', code: '2', sortOrder: 2, name: 'ERP 구축', updatedAt: '2026-07-10T00:00:00Z' }),
-  wbsItem({ id: 'a-t21', projectId: PROJECT_ALPHA, parentId: 'a-p2', level: 'task', code: '2.1', sortOrder: 1, name: 'ERP 개발', updatedAt: '2026-07-11T00:00:00Z' }),
-  wbsItem({ id: 'a-s211', projectId: PROJECT_ALPHA, parentId: 'a-t21', level: 'activity', code: '2.1.1', sortOrder: 1, name: '인터페이스 개발', biz: '연계 개발', deliverable: '연계 프로그램', plannedStart: '2026-08-03', plannedEnd: '2026-08-14', actualPct: 0, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-12T00:00:00Z' }),
-  wbsItem({ id: 'a-s212', projectId: PROJECT_ALPHA, parentId: 'a-t21', level: 'activity', code: '2.1.2', sortOrder: 2, name: '단위 테스트', biz: '단위 시험', deliverable: '시험 결과서', plannedStart: '2026-08-17', plannedEnd: '2026-08-28', actualPct: 30, owners: [{ team: 'MES', kind: 'primary' }], updatedAt: '2026-07-12T00:00:00Z' }),
-  wbsItem({ id: 'a-t22', projectId: PROJECT_ALPHA, parentId: 'a-p2', level: 'task', code: '2.2', sortOrder: 2, name: '데이터 이관', biz: '기준정보 이관', deliverable: '이관 결과서', plannedStart: '2026-06-01', plannedEnd: '2026-06-20', actualPct: 100, owners: [{ team: '가공', kind: 'primary' }], updatedAt: '2026-06-20T00:00:00Z' }),
-  wbsItem({ id: 'a-p3', projectId: PROJECT_ALPHA, parentId: null, level: 'phase', code: '3', sortOrder: 3, name: 'MES 준비', updatedAt: '2026-07-10T00:00:00Z' }),
-  wbsItem({ id: 'a-t31', projectId: PROJECT_ALPHA, parentId: 'a-p3', level: 'task', code: '3.1', sortOrder: 1, name: 'MES 현황조사', biz: '현장 조사', deliverable: '조사 보고서', plannedStart: '2026-05-01', plannedEnd: '2026-05-20', actualPct: 55, owners: [{ team: 'MES', kind: 'primary' }], updatedAt: '2026-07-16T00:00:00Z' }),
-  wbsItem({ id: 'a-t32', projectId: PROJECT_ALPHA, parentId: 'a-p3', level: 'task', code: '3.2', sortOrder: 2, name: 'MES 마스터 플랜', biz: '마스터플랜 수립', deliverable: '마스터플랜 보고서', plannedStart: '2026-07-30', plannedEnd: '2026-07-30', actualPct: 0, owners: [{ team: 'PMO', kind: 'primary' }], updatedAt: '2026-07-06T00:00:00Z' }),
+  wbsItem({ id: 'a-p1', projectId: PROJECT_ALPHA, parentId: null, code: '1', sortOrder: 1, name: 'ERP 착수', updatedAt: '2026-07-10T00:00:00Z' }),
+  wbsItem({ id: 'a-t11', projectId: PROJECT_ALPHA, parentId: 'a-p1', code: '1.1', sortOrder: 1, name: 'ERP 요건정의', updatedAt: '2026-07-11T00:00:00Z' }),
+  wbsItem({ id: 'a-s111', projectId: PROJECT_ALPHA, parentId: 'a-t11', code: '1.1.1', sortOrder: 1, name: 'AS-IS 분석', biz: '현행 프로세스 분석', deliverable: '현황 분석서', plannedStart: '2026-06-01', plannedEnd: '2026-06-15', actualPct: 100, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-06-15T00:00:00Z' }),
+  wbsItem({ id: 'a-s112', projectId: PROJECT_ALPHA, parentId: 'a-t11', code: '1.1.2', sortOrder: 2, name: 'TO-BE 설계', biz: '개선 프로세스 설계', deliverable: 'TO-BE 설계서', plannedStart: '2026-06-16', plannedEnd: '2026-06-30', actualPct: 40, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-17T02:00:00Z' }),
+  wbsItem({ id: 'a-t12', projectId: PROJECT_ALPHA, parentId: 'a-p1', code: '1.2', sortOrder: 2, name: 'ERP 킥오프', biz: '착수 보고', deliverable: '킥오프 자료', plannedStart: '2026-07-24', plannedEnd: '2026-07-24', actualPct: 0, owners: [{ team: 'PMO', kind: 'primary' }], updatedAt: '2026-07-05T00:00:00Z' }),
+  wbsItem({ id: 'a-p2', projectId: PROJECT_ALPHA, parentId: null, code: '2', sortOrder: 2, name: 'ERP 구축', updatedAt: '2026-07-10T00:00:00Z' }),
+  wbsItem({ id: 'a-t21', projectId: PROJECT_ALPHA, parentId: 'a-p2', code: '2.1', sortOrder: 1, name: 'ERP 개발', updatedAt: '2026-07-11T00:00:00Z' }),
+  wbsItem({ id: 'a-s211', projectId: PROJECT_ALPHA, parentId: 'a-t21', code: '2.1.1', sortOrder: 1, name: '인터페이스 개발', biz: '연계 개발', deliverable: '연계 프로그램', plannedStart: '2026-08-03', plannedEnd: '2026-08-14', actualPct: 0, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-12T00:00:00Z' }),
+  wbsItem({ id: 'a-s212', projectId: PROJECT_ALPHA, parentId: 'a-t21', code: '2.1.2', sortOrder: 2, name: '단위 테스트', biz: '단위 시험', deliverable: '시험 결과서', plannedStart: '2026-08-17', plannedEnd: '2026-08-28', actualPct: 30, owners: [{ team: 'MES', kind: 'primary' }], updatedAt: '2026-07-12T00:00:00Z' }),
+  wbsItem({ id: 'a-t22', projectId: PROJECT_ALPHA, parentId: 'a-p2', code: '2.2', sortOrder: 2, name: '데이터 이관', biz: '기준정보 이관', deliverable: '이관 결과서', plannedStart: '2026-06-01', plannedEnd: '2026-06-20', actualPct: 100, owners: [{ team: '가공', kind: 'primary' }], updatedAt: '2026-06-20T00:00:00Z' }),
+  wbsItem({ id: 'a-p3', projectId: PROJECT_ALPHA, parentId: null, code: '3', sortOrder: 3, name: 'MES 준비', updatedAt: '2026-07-10T00:00:00Z' }),
+  wbsItem({ id: 'a-t31', projectId: PROJECT_ALPHA, parentId: 'a-p3', code: '3.1', sortOrder: 1, name: 'MES 현황조사', biz: '현장 조사', deliverable: '조사 보고서', plannedStart: '2026-05-01', plannedEnd: '2026-05-20', actualPct: 55, owners: [{ team: 'MES', kind: 'primary' }], updatedAt: '2026-07-16T00:00:00Z' }),
+  wbsItem({ id: 'a-t32', projectId: PROJECT_ALPHA, parentId: 'a-p3', code: '3.2', sortOrder: 2, name: 'MES 마스터 플랜', biz: '마스터플랜 수립', deliverable: '마스터플랜 보고서', plannedStart: '2026-07-30', plannedEnd: '2026-07-30', actualPct: 0, owners: [{ team: 'PMO', kind: 'primary' }], updatedAt: '2026-07-06T00:00:00Z' }),
 ]
 
 // ── proj-beta WBS(소량, 교차 검증용) ── 실제 조회는 차단되지만 selectedEntity 무시/차단 케이스에 쓰인다.
 const BETA_WBS_ITEMS: WbsRepositoryItem[] = [
-  wbsItem({ id: 'b-p1', projectId: PROJECT_BETA, parentId: null, level: 'phase', code: '1', sortOrder: 1, name: 'BETA 페이즈', updatedAt: '2026-07-01T00:00:00Z' }),
-  wbsItem({ id: 'b-t1', projectId: PROJECT_BETA, parentId: 'b-p1', level: 'task', code: '1.1', sortOrder: 1, name: `${BETA_MARKER} 작업`, biz: '베타 전용 업무', deliverable: '베타 산출물', plannedStart: '2026-06-01', plannedEnd: '2026-06-30', actualPct: 70, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-01T00:00:00Z' }),
+  wbsItem({ id: 'b-p1', projectId: PROJECT_BETA, parentId: null, code: '1', sortOrder: 1, name: 'BETA 페이즈', updatedAt: '2026-07-01T00:00:00Z' }),
+  wbsItem({ id: 'b-t1', projectId: PROJECT_BETA, parentId: 'b-p1', code: '1.1', sortOrder: 1, name: `${BETA_MARKER} 작업`, biz: '베타 전용 업무', deliverable: '베타 산출물', plannedStart: '2026-06-01', plannedEnd: '2026-06-30', actualPct: 70, owners: [{ team: 'ERP', kind: 'primary' }], updatedAt: '2026-07-01T00:00:00Z' }),
 ]
 
 export const WBS_SNAPSHOTS: Record<string, WbsProjectSnapshot> = {

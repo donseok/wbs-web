@@ -6,7 +6,7 @@ import { DEFAULT_TEAM_CODES, teamOrderMap } from '@/lib/domain/teams'
 import { buildTrend, plannedAt, plannedCurve, flattenRows, type SnapshotPoint } from '@/lib/domain/trend'
 
 const row = (over: Partial<WbsRow>): WbsRow => ({
-  id: over.id ?? Math.random().toString(36).slice(2), parentId: null, level: 'activity', code: 'x', sortOrder: 0,
+  id: over.id ?? Math.random().toString(36).slice(2), parentId: null, code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
   weight: null, actualPct: null, owners: [], isOwnerSplit: false, ...over,
 })
@@ -43,18 +43,18 @@ describe('plannedCurve — plannedAt 등가성(성능 최적화의 정확성 계
       const phases = 1 + Math.floor(rnd() * 3)
       for (let p = 0; p < phases; p++) {
         const pid = `p${id++}`
-        rows.push(row({ id: pid, level: 'phase', weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10 }))
+        rows.push(row({ id: pid, weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10 }))
         const tasks = 1 + Math.floor(rnd() * 3)
         for (let k = 0; k < tasks; k++) {
           const tid = `t${id++}`
-          rows.push(row({ id: tid, parentId: pid, level: 'task', weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10 }))
+          rows.push(row({ id: tid, parentId: pid, weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10 }))
           const acts = 1 + Math.floor(rnd() * 4)
           for (let a = 0; a < acts; a++) {
             const noDates = rnd() < 0.15 // 날짜 없는 항목(0% 가드 경로)도 섞는다
             const sm = 1 + Math.floor(rnd() * 6)
             const em = sm + Math.floor(rnd() * (7 - sm))
             rows.push(row({
-              id: `a${id++}`, parentId: tid, level: 'activity',
+              id: `a${id++}`, parentId: tid,
               plannedStart: noDates ? null : `2026-${pad(sm)}-${pad(1 + Math.floor(rnd() * 27))}`,
               plannedEnd: noDates ? null : `2026-${pad(em)}-${pad(1 + Math.floor(rnd() * 27))}`,
               weight: rnd() < 0.3 ? null : Math.round(rnd() * 50) / 10,

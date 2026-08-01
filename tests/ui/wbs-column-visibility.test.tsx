@@ -31,7 +31,6 @@ const HIDEABLE_COLS = ['owners', 'status', 'deliverable', 'pstart', 'pend', 'wei
 const item: ComputedItem = {
   id: 'a1',
   parentId: null,
-  level: 'activity',
   code: '1',
   sortOrder: 0,
   name: '일정 항목',

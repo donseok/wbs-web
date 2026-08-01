@@ -30,7 +30,6 @@ import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 const phase = (id: string, weight: number | null, children: ComputedItem[] = []): ComputedItem => ({
   id,
   parentId: null,
-  level: 'activity',
   code: id,
   sortOrder: 0,
   name: `단계 ${id}`,
@@ -52,7 +51,6 @@ const phase = (id: string, weight: number | null, children: ComputedItem[] = [])
 const child = (id: string, weight: number | null): ComputedItem => ({
   ...phase(id, weight),
   parentId: 'p',
-  level: 'task',
 })
 
 describe('WbsGanttSheet — 가중치 헤더 합계', () => {

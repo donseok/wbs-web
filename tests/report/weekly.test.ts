@@ -29,7 +29,7 @@ const node = (over: Partial<ComputedItem>): ComputedItem =>
     ...over,
   }) as ComputedItem
 const phase = (name: string, children: ComputedItem[], over: Partial<ComputedItem> = {}): ComputedItem =>
-  node({ level: 'phase', name, children, ...over })
+  node({ name, children, ...over })
 
 // today = 2026-06-30 (화), ISO 27주차, 주: 6/29(월)~7/5(일), 차주: 7/6~7/12
 const items: ComputedItem[] = [
@@ -129,10 +129,10 @@ describe('buildWeeklyReportModel — 4단+ 실 계층에서도 리프/평탄화�
   const deepItems: ComputedItem[] = [
     phase('심화', [
       node({
-        name: '중간 계층', level: 'task', status: 'in_progress', children: [
+        name: '중간 계층', status: 'in_progress', children: [
           node({
             // level 필드는 더 이상 라벨 산출에 쓰이지 않는다 — depth(=2)만으로 levelLabels[2]='Activity' 결정.
-            name: '세부 계층', level: 'stage', status: 'in_progress', children: [
+            name: '세부 계층', status: 'in_progress', children: [
               node({
                 name: '막내 리프', status: 'in_progress', rolledActualPct: 40, plannedPct: 60,
                 owners: [{ team: 'PMO', kind: 'primary' }],

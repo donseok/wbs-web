@@ -15,7 +15,7 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({ queueWbsCollapse: (...a: unknown[]
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 
 function item(over: Partial<ComputedItem>): ComputedItem {
-  return { id: 'x', parentId: null, level: 'activity', code: '1', sortOrder: 0, name: '항목', biz: null,
+  return { id: 'x', parentId: null, code: '1', sortOrder: 0, name: '항목', biz: null,
     deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-10', weight: null, actualPct: 0,
     owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], depth: 0, ...over }
 }
@@ -25,8 +25,8 @@ function fixture(): ComputedItem[] {
     item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
   ]
   const multi = item({ id: 'a1', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
-  const task = item({ id: 't1', level: 'task', name: '1-1. 작업', children: [multi] })
-  return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })]
+  const task = item({ id: 't1', name: '1-1. 작업', children: [multi] })
+  return [item({ id: 'p1', name: '1. 준비', children: [task] })]
 }
 function rowCount(c: HTMLElement) { return c.querySelectorAll('.group.relative.z-10').length }
 // 3단 가정(‘항상 phase→task→activity 세 겹만 접힌 채 보인다’)이 되살아나면 이 중간 계층이 기본
@@ -38,32 +38,31 @@ function fixtureDeep(): ComputedItem[] {
     item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
   ]
   const multi = item({ id: 'a1', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
-  const subtask = item({ id: 'st1', level: 'task', name: '1-1-1. 세부 작업', children: [multi] })
-  const task = item({ id: 't1', level: 'task', name: '1-1. 작업', children: [subtask] })
-  return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })]
+  const subtask = item({ id: 'st1', name: '1-1-1. 세부 작업', children: [multi] })
+  const task = item({ id: 't1', name: '1-1. 작업', children: [subtask] })
+  return [item({ id: 'p1', name: '1. 준비', children: [task] })]
 }
-// level 문자열이 'activity'/'phase'/'task' 관례를 전혀 따르지 않는 N단 트리 — 접기 대상 판정이
-// n.level 문자열이 아니라 isOwnerSplit 플래그만 보는지 증명하는 회귀선(§4.4). 이 fixture는 구현이
-// level 참조로 남아 있으면 RED, depth/isOwnerSplit 로 전환되면 GREEN이어야 한다.
+// ComputedItem 에 level 필드 자체가 없다(Task 3) — id/name 도 'phase'/'task'/'activity' 관례를
+// 전혀 따르지 않는 N단 트리로 지어, 접기 대상 판정이 isOwnerSplit 플래그만 보는지 증명하는
+// 회귀선(§4.4)이다. depth/isOwnerSplit 로 전환되지 않으면 여기서 무너진다.
 function fixtureLevelAgnostic(): ComputedItem[] {
   const subs = [
-    item({ id: 's1', parentId: 'a1', level: 'x', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }], isOwnerSplit: true }),
-    item({ id: 's2', parentId: 'a1', level: 'x', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
+    item({ id: 's1', parentId: 'a1', name: 'CBO (가공 주관)', owners: [{ team: '가공', kind: 'primary' }], isOwnerSplit: true }),
+    item({ id: 's2', parentId: 'a1', name: 'CBO (ERP 주관)', owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: true }),
   ]
-  const multi = item({ id: 'a1', level: 'custom-stage', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
-  const mid = item({ id: 'm1', level: 'custom-mid', name: '중간 계층', children: [multi] })
-  const task = item({ id: 't1', level: 'custom-task', name: '1-1. 작업', children: [mid] })
-  return [item({ id: 'p1', level: 'custom-root', name: '1. 준비', children: [task] })]
+  const multi = item({ id: 'a1', name: 'CBO', owners: [{ team: '가공', kind: 'primary' }, { team: 'ERP', kind: 'primary' }], children: subs })
+  const mid = item({ id: 'm1', name: '중간 계층', children: [multi] })
+  const task = item({ id: 't1', name: '1-1. 작업', children: [mid] })
+  return [item({ id: 'p1', name: '1. 준비', children: [task] })]
 }
 // Bar()는 depthMap을 재계산하는 flatRows 스코프 밖의 별도 함수라 n.depth 필드를 직접 읽는다(WbsGanttSheet.tsx).
 // 위의 다른 fixture들은 item() 기본값 depth:0을 아무도 덮어쓰지 않아 모든 노드가 "depth 0"으로 보이므로
 // Bar의 depth===0 분기를 실제로 가르지 못한다 — 이 fixture만 실제 중첩과 일치하는 depth를 명시로 부여한다.
-// level 문자열은 일부러 'phase'/'task' 관례를 안 따르게(custom-*) 지어 Bar가 n.level 이 아니라 n.depth 를
-// 읽는다는 것 자체를 증명한다 — level 을 'phase'로 뒀다면 구현이 실수로 level 로 되돌아가도 이 테스트가
-// 통과해버려 회귀를 못 잡는다.
+// id/name 도 'phase'/'task' 관례를 안 따르게 지어 Bar가 (없는) level 이 아니라 n.depth 를 읽는다는
+// 것 자체를 증명한다.
 function fixtureBarDepth(): ComputedItem[] {
-  const task = item({ id: 't1', level: 'custom-task', name: '1-1. 작업', depth: 1 })
-  return [item({ id: 'p1', level: 'custom-root', name: '1. 준비', depth: 0, children: [task] })]
+  const task = item({ id: 't1', name: '1-1. 작업', depth: 1 })
+  return [item({ id: 'p1', name: '1. 준비', depth: 0, children: [task] })]
 }
 
 describe('WBS initialCollapsed', () => {

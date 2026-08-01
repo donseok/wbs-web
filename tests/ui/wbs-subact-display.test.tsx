@@ -27,7 +27,6 @@ function item(over: Partial<ComputedItem>): ComputedItem {
   return {
     id: 'x',
     parentId: null,
-    level: 'activity',
     code: '1',
     sortOrder: 0,
     name: '항목',
@@ -66,8 +65,8 @@ function fixture(): ComputedItem[] {
     children: subs,
   })
   const single = item({ id: 'a2', name: '단일 담당 작업', owners: [{ team: '가공', kind: 'primary' }] })
-  const task = item({ id: 't1', level: 'task', name: '1-1. 작업', children: [multi, single] })
-  return [item({ id: 'p1', level: 'phase', name: '1. 준비', children: [task] })]
+  const task = item({ id: 't1', name: '1-1. 작업', children: [multi, single] })
+  return [item({ id: 'p1', name: '1. 준비', children: [task] })]
 }
 
 describe('WBS sub-act 축약 표시 + 기본 접힘', () => {

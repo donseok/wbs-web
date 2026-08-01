@@ -22,7 +22,7 @@ const context: ToolExecutionContext = {
 
 function item(overrides: Partial<WbsRepositoryItem> & { id: string }): WbsRepositoryItem {
   return {
-    projectId: 'p1', parentId: null, level: 'task', code: '', sortOrder: 1,
+    projectId: 'p1', parentId: null, code: '', sortOrder: 1,
     name: overrides.id, biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
     weight: null, actualPct: null, owners: [], updatedAt: null, isOwnerSplit: false,
     ...overrides,
@@ -36,7 +36,7 @@ const snapshot: WbsProjectSnapshot = {
   baseDate: '2026-07-20',
   holidays: [],
   items: [
-    item({ id: 'phase-1', level: 'phase', code: '1', name: '구축' }),
+    item({ id: 'phase-1', code: '1', name: '구축' }),
     item({
       id: 'task-1', parentId: 'phase-1', code: '1.1', name: 'ERP 설계', sortOrder: 1,
       plannedStart: '2026-07-13', plannedEnd: '2026-07-17', actualPct: 100,
@@ -56,7 +56,7 @@ const snapshot: WbsProjectSnapshot = {
       id: 'task-4', parentId: 'phase-1', code: '1.4', name: '미배정 작업', sortOrder: 4,
       plannedStart: '2026-07-27', plannedEnd: '2026-07-31', actualPct: 0,
     }),
-    item({ id: 'phase-2', level: 'phase', code: '2', name: '오픈', sortOrder: 2 }),
+    item({ id: 'phase-2', code: '2', name: '오픈', sortOrder: 2 }),
     item({
       id: 'task-5', parentId: 'phase-2', code: '2.1', name: '오픈 준비', sortOrder: 1,
       plannedStart: '2026-08-03', plannedEnd: '2026-08-07', actualPct: 0,
@@ -194,7 +194,7 @@ describe('get_kanban_view', () => {
     const manyTasks: WbsProjectSnapshot = {
       projectId: 'p1', baseDate: '2026-07-20', holidays: [], dependencies: [],
       items: [
-        item({ id: 'phase-1', level: 'phase', code: '1', name: '구축' }),
+        item({ id: 'phase-1', code: '1', name: '구축' }),
         ...Array.from({ length: 12 }, (_, index) => item({
           id: `task-${index}`, parentId: 'phase-1', code: `1.${index}`, sortOrder: index,
           plannedStart: '2026-08-03', plannedEnd: '2026-08-07', actualPct: 0,

@@ -33,7 +33,7 @@ export function flattenRows(items: ComputedItem[]): WbsRow[] {
   const walk = (ns: ComputedItem[]) =>
     ns.forEach(n => {
       out.push({
-        id: n.id, parentId: n.parentId, level: n.level, code: n.code, sortOrder: n.sortOrder,
+        id: n.id, parentId: n.parentId, code: n.code, sortOrder: n.sortOrder,
         name: n.name, biz: n.biz, deliverable: n.deliverable,
         plannedStart: n.plannedStart, plannedEnd: n.plannedEnd,
         weight: n.weight, actualPct: n.actualPct, owners: n.owners, isOwnerSplit: n.isOwnerSplit,

@@ -117,7 +117,7 @@ function issueFx(overrides: Partial<Issue> = {}): Issue {
 
 function kanbanLeaf(overrides: Partial<ComputedItem> = {}): ComputedItem {
   return {
-    id: 'leaf-1', parentId: 'phase-1', level: 'task', code: '1.1', sortOrder: 1, name: '작업',
+    id: 'leaf-1', parentId: 'phase-1', code: '1.1', sortOrder: 1, name: '작업',
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-31',
     weight: null, actualPct: 50, owners: [{ team: 'ERP', kind: 'primary' }], isOwnerSplit: false,
     plannedPct: 50, rolledActualPct: 50, achievement: 1, status: 'in_progress', children: [], depth: 0,
@@ -271,7 +271,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
     currentSearch = 'view=owner&team=ERP'
     const items: ComputedItem[] = [
       kanbanLeaf({
-        id: 'phase-1', parentId: null, level: 'phase', code: '1', name: '구축', owners: [],
+        id: 'phase-1', parentId: null, code: '1', name: '구축', owners: [],
         children: [
           kanbanLeaf({ id: 'leaf-1', name: 'ERP 인터페이스' }),
           kanbanLeaf({ id: 'leaf-2', name: '설비 점검', owners: [{ team: 'MES', kind: 'primary' }] }),
@@ -294,7 +294,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
     await mount(
       <KanbanBoard projectId="p1" items={[
         kanbanLeaf({
-          id: 'phase-1', parentId: null, level: 'phase', code: '1', name: '구축', owners: [],
+          id: 'phase-1', parentId: null, code: '1', name: '구축', owners: [],
           children: [kanbanLeaf({ id: 'leaf-1', name: 'ERP 인터페이스' })],
         }),
       ]} actorView={null} today="2026-07-19" />,

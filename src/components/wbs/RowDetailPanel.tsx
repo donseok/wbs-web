@@ -25,16 +25,6 @@ const FIELD_KEY: Record<string, DictKey> = {
   planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
   dependency: 'wbs.dependencies',
 }
-/** D-CUBE(levelLabels=[Phase,Task,Activity]) 하위호환 — addWbsItem 의 level 인자는 문자열 유니언이 아니라
- *  자유 문자열(Level=string, DEPRECATED)이라 이 세 값만 재현하면 된다. depth 3 이상은 값 자체가 무의미(§4.4
- *  스펙상 그 깊이는 maxDepth 로 막히거나, maxDepth 무제한 프로젝트에선 판정에 쓰이지 않음)하므로 'activity' 유지.
- *  level 은 하위호환 기록 — Task 6 에서 addWbsItem 시그니처와 함께 제거. */
-const LEGACY_CHILD_LEVEL = ['phase', 'task', 'activity'] as const
-function legacyChildLevel(depth: number): string {
-  const childDepth = depth + 1
-  return childDepth < LEGACY_CHILD_LEVEL.length ? LEGACY_CHILD_LEVEL[childDepth] : 'activity'
-}
-
 function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
   if (field === 'dependency') return t('wbs.dependencyLink')
@@ -188,8 +178,7 @@ export function RowDetailPanel({
 
   const addChild = () => {
     if (!canChild || !addName?.trim()) return
-    // level 은 하위호환 기록 — Task 6 에서 addWbsItem 시그니처와 함께 제거.
-    run(() => addWbsItem(projectId, item.id, legacyChildLevel(item.depth), addName.trim()), () => setAddName(null))
+    run(() => addWbsItem(projectId, item.id, addName.trim()), () => setAddName(null))
   }
   const addSub = () => {
     if (!subTeam) return

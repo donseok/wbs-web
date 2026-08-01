@@ -16,7 +16,6 @@ export interface Membership {
 export interface WbsRow {
   id: string
   parentId: string | null
-  level: Level
   code: string
   sortOrder: number
   name: string

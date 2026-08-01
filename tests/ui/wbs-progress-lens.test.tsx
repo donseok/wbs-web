@@ -29,7 +29,6 @@ import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 const item: ComputedItem = {
   id: 'a1',
   parentId: null,
-  level: 'activity',
   code: '1.1',
   sortOrder: 0,
   name: 'ERP 전환 준비',
