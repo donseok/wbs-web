@@ -54,8 +54,14 @@ vi.mock('@/components/minutes/useMinuteTocSpy', () => ({
   useMinuteTocSpy: () => ({ activeToc: null, jumpTo: vi.fn() }),
 }))
 vi.mock('@/components/minutes/MarkdownView', () => ({
+  // 문단 경계(\n\n)로 나눠 실제 splitMinuteBlocks 인덱스와 맞춘다 — 단일 문단 본문은
+  // 기존처럼 data-mblock="0" 하나만 렌더된다(문단만 있는 픽스처 전제).
   MarkdownView: ({ content }: { content: string }) => (
-    <p data-mblock="0" data-testid="minute-source-block">{content}</p>
+    <div>
+      {content.split('\n\n').map((segment, index) => (
+        <p key={index} data-mblock={index} data-testid="minute-source-block">{segment}</p>
+      ))}
+    </div>
   ),
 }))
 vi.mock('@/components/minutes/MinuteInsightCard', () => ({ MinuteInsightCard: () => null }))
@@ -319,5 +325,116 @@ describe('MinuteViewer 회의록 → 이슈 정리 초안', () => {
       title: 'min.issue.draftUnavailable',
       variant: 'error',
     })
+  })
+})
+
+describe('MinuteViewer 드래그 선택 → 이슈 등록', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  const selectionBody = [
+    '첫 번째 문단은 전송 누락 위험을 다룬다.',
+    '두 번째 문단은 재처리 확인이 필요하다.',
+  ].join('\n\n')
+  const selectionBlocks = splitMinuteBlocks(selectionBody)
+  const selectionBodyHash = fnv1a64(selectionBody)
+  const selectionMinute: Minute = { ...minute, bodyMd: selectionBody }
+
+  type RectCarrier = { getBoundingClientRect?: () => DOMRect }
+  const RECT = {
+    top: 100, bottom: 120, left: 40, right: 240, width: 200, height: 20, x: 40, y: 100,
+    toJSON: () => ({}),
+  } as DOMRect
+
+  beforeEach(() => {
+    mocks.prepareMinuteIssueDraft.mockReset()
+    mocks.fetchIssueProjectMembers.mockReset()
+    mocks.createIssueFromMinuteBlock.mockReset()
+    mocks.toast.mockReset()
+    mocks.issueFormProps.length = 0
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    ;(Range.prototype as RectCarrier).getBoundingClientRect = () => RECT
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    window.getSelection()?.removeAllRanges()
+    delete (Range.prototype as RectCarrier).getBoundingClientRect
+  })
+
+  async function mountViewer(extraProps: Partial<Parameters<typeof MinuteViewer>[0]> = {}) {
+    await act(async () => {
+      root.render(
+        <MinuteViewer
+          minute={selectionMinute}
+          files={[]}
+          canManage={false}
+          annotations={{ highlights: [], insights: [] }}
+          userId="user-1"
+          projects={[]}
+          versions={versions}
+          {...extraProps}
+        />,
+      )
+    })
+  }
+
+  function makeSelection() {
+    const paragraphs = Array.from(container.querySelectorAll('[data-mblock]'))
+    const range = document.createRange()
+    range.setStart(paragraphs[0].firstChild!, 8)
+    range.setEnd(paragraphs[1].firstChild!, 12)
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    act(() => { document.dispatchEvent(new Event('pointerup')) })
+  }
+
+  function bubbleButton(): HTMLButtonElement | null {
+    return container.querySelector<HTMLButtonElement>('button.btn-primary')
+  }
+
+  it('선택 → 버블 → AI 초안 → 모달이 selection 페이로드로 이어진다', async () => {
+    const pending = deferred<{ ok: true; draft: typeof organizedDraft }>()
+    mocks.prepareMinuteIssueDraft.mockReturnValueOnce(pending.promise)
+    await mountViewer()
+
+    makeSelection()
+    const button = bubbleButton()
+    expect(button?.textContent).toContain('min.sel.create')
+    await act(async () => { button!.click() })
+
+    expect(mocks.prepareMinuteIssueDraft).toHaveBeenCalledTimes(1)
+    const source = mocks.prepareMinuteIssueDraft.mock.calls[0][1] as Record<string, unknown>
+    expect(source.minuteVersionId).toBe('version-2')
+    expect(source.bodyHash).toBe(selectionBodyHash)
+    expect(source.blockIndex).toBe(0)
+    expect(source.blockHash).toBe(selectionBlocks[0].hash)
+    expect(source.kind).toBe('manual')
+    const selection = source.selection as Record<string, unknown>
+    expect(selection.endBlockIndex).toBe(1)
+    expect(selection.endBlockHash).toBe(selectionBlocks[1].hash)
+    expect(String(selection.text).replace(/\s+/g, '')).toContain('전송누락위험을다룬다')
+
+    await act(async () => {
+      pending.resolve({ ok: true, draft: organizedDraft })
+      await pending.promise
+    })
+
+    expect(container.querySelector('[data-testid="minute-issue-form"]')).not.toBeNull()
+    const props = [...mocks.issueFormProps].reverse().find(candidate => candidate.open)!
+    const preview = props.sourcePreview as { excerpt: string; label: string }
+    // jsdom Selection.toString() 은 블록 경계 개행을 넣지 않으므로 개행에 의존하지 않고 비교한다.
+    expect(preview.excerpt.replace(/\s+/g, '')).toBe('전송누락위험을다룬다.두번째문단은재처리')
+    expect(preview.label).toContain('min.sel.sourceLabel')
+  })
+
+  it('과거 버전 열람 중에는 선택 버블이 뜨지 않는다', async () => {
+    await mountViewer({ historicalVersion: { id: 'version-1', versionNo: 1 } })
+    makeSelection()
+    expect(bubbleButton()).toBeNull()
   })
 })

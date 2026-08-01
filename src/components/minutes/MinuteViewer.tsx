@@ -22,6 +22,7 @@ import {
 import {
   fnv1a64, isMarkableBlock, minuteBlockDraftText, splitMinuteBlocks, type BlockMarks,
 } from '@/lib/minutes/blocks'
+import { normalizeSelectionText } from '@/lib/minutes/selection'
 import { INS_PRIORITY, hlTier, visibleHighlights, visibleInsights } from '@/lib/minutes/annotations'
 import { resolveMinuteSourceBlock, type MinuteSourceAnchor } from '@/lib/minutes/source'
 import { compareKoreanName } from '@/lib/domain/nameSort'
@@ -37,6 +38,7 @@ import { MinuteInsightCard } from './MinuteInsightCard'
 import { MinuteToc } from './MinuteToc'
 import { useMinuteTocSpy } from './useMinuteTocSpy'
 import { MinuteBlockPopover, type PopoverState } from './MinuteBlockPopover'
+import { MinuteSelectionBubble, type MinuteSelectionTarget } from './MinuteSelectionBubble'
 import { MinuteFontSizeControl } from './MinuteFontSizeControl'
 import { useMinuteFontSize } from './useMinuteFontSize'
 import { MinuteVersionPanel, type MinuteVersionListItem } from './MinuteVersionPanel'
@@ -56,6 +58,20 @@ const EMPTY_WIKI_IMPACT: MinuteWikiImpactCardProps = {
   counts: { created: 0, changed: 0, reaffirmed: 0, conflicted: 0 },
   items: [],
 }
+
+/** 이슈 등록의 원천 — 블록 팝오버(블록 전체)와 드래그 선택(부분 발췌)이 같은 상태 기계를 공유한다. */
+type IssueOrigin =
+  | { type: 'block'; index: number }
+  | {
+      type: 'selection'
+      startIndex: number
+      endIndex: number
+      startHash: string
+      endHash: string
+      text: string
+      /** normalizeSelectionText(text) — 미리보기·폴백 초안·발췌가 서버 저장 계약과 일치. */
+      excerpt: string
+    }
 
 export function MinuteViewer({
   minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
@@ -105,7 +121,7 @@ export function MinuteViewer({
   const bodyRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
   const [hlBusy, setHlBusy] = useState(false)
-  const [issueBlockIndex, setIssueBlockIndex] = useState<number | null>(null)
+  const [issueOrigin, setIssueOrigin] = useState<IssueOrigin | null>(null)
   const [issueFormOpen, setIssueFormOpen] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const [issueProjectId, setIssueProjectId] = useState(
@@ -173,24 +189,29 @@ export function MinuteViewer({
     () => visibleInsights(annotations.insights, blocks, bodyHash),
     [annotations.insights, blocks, bodyHash],
   )
-  const issueBlock = issueBlockIndex === null ? null : blocks[issueBlockIndex] ?? null
+  const issueAnchorIndex = issueOrigin === null
+    ? null
+    : issueOrigin.type === 'block' ? issueOrigin.index : issueOrigin.startIndex
+  const issueBlock = issueAnchorIndex === null ? null : blocks[issueAnchorIndex] ?? null
   const issueInsight = useMemo(() => {
-    if (issueBlockIndex === null) return null
+    if (issueOrigin?.type !== 'block') return null
     const candidates = insights.filter(i =>
-      i.blockIndex === issueBlockIndex && (i.kind === 'risk' || i.kind === 'action'))
+      i.blockIndex === issueOrigin.index && (i.kind === 'risk' || i.kind === 'action'))
     return candidates.find(i => i.kind === 'risk') ?? candidates.find(i => i.kind === 'action') ?? null
-  }, [insights, issueBlockIndex])
-  const issueSourceKind: IssueMinuteSourceKind = issueInsight?.kind === 'risk'
-    ? 'risk'
-    : issueInsight?.kind === 'action' ? 'action' : 'manual'
+  }, [insights, issueOrigin])
+  const issueSourceText = issueOrigin?.type === 'selection'
+    ? issueOrigin.excerpt
+    : issueBlock ? minuteBlockDraftText(issueBlock) : ''
   const issueDraft = useMemo<IssueFormDraft | undefined>(() => {
-    if (!issueBlock) return undefined
-    const sourceText = minuteBlockDraftText(issueBlock)
+    if (!issueBlock || !issueSourceText) return undefined
     const draft = preparedIssueDraft
-      ?? buildFallbackMinuteIssueDraft(sourceText, issueInsight?.label)
+      ?? buildFallbackMinuteIssueDraft(
+        issueSourceText,
+        issueOrigin?.type === 'block' ? issueInsight?.label : null,
+      )
     if (!draft) return undefined
     return { ...draft, severity: 'medium', assigneeMemberIds: [], startDate: null, dueDate: null }
-  }, [issueBlock, issueInsight, preparedIssueDraft])
+  }, [issueBlock, issueInsight, issueOrigin, issueSourceText, preparedIssueDraft])
 
   const marks = useMemo<BlockMarks>(() => {
     const m: BlockMarks = {}
@@ -255,9 +276,8 @@ export function MinuteViewer({
     }
   }
 
-  function issueContextAt(index: number) {
-    const block = blocks[index]
-    if (!block || !currentVersion) return null
+  /** 블록의 인사이트 파생 kind·라벨 — 소스 빌더와 폴백 초안이 공유한다. */
+  function blockInsightAt(index: number) {
     const candidates = insights.filter(insight =>
       insight.blockIndex === index && (insight.kind === 'risk' || insight.kind === 'action'))
     const insight = candidates.find(candidate => candidate.kind === 'risk')
@@ -266,21 +286,56 @@ export function MinuteViewer({
     const kind: IssueMinuteSourceKind = insight?.kind === 'risk'
       ? 'risk'
       : insight?.kind === 'action' ? 'action' : 'manual'
-    const source: MinuteIssueSourceInput = {
+    return { insight, kind }
+  }
+
+  /** 초안 준비(prepare)와 최종 저장(create)이 같은 원문 앵커를 쓰도록 원천에서 소스를 만든다. */
+  function issueSourceInputFor(origin: IssueOrigin): MinuteIssueSourceInput | null {
+    if (!currentVersion) return null
+    if (origin.type === 'block') {
+      const block = blocks[origin.index]
+      if (!block) return null
+      return {
+        minuteId: minute.id,
+        minuteVersionId: currentVersion.id,
+        bodyHash,
+        blockIndex: block.index,
+        blockHash: block.hash,
+        kind: blockInsightAt(origin.index).kind,
+      }
+    }
+    const start = blocks[origin.startIndex]
+    const end = blocks[origin.endIndex]
+    if (!start || !end) return null
+    return {
       minuteId: minute.id,
       minuteVersionId: currentVersion.id,
       bodyHash,
-      blockIndex: block.index,
-      blockHash: block.hash,
-      kind,
+      blockIndex: start.index,
+      blockHash: start.hash,
+      kind: 'manual',
+      selection: { text: origin.text, endBlockIndex: end.index, endBlockHash: end.hash },
     }
-    const sourceText = minuteBlockDraftText(block)
-    const fallback = buildFallbackMinuteIssueDraft(sourceText, insight?.label)
-    return { source, fallback }
   }
 
-  async function beginIssueCreate() {
-    if (!popover) return
+  function issueContextFor(origin: IssueOrigin) {
+    const source = issueSourceInputFor(origin)
+    if (!source) return null
+    if (origin.type === 'selection') {
+      return { source, fallback: buildFallbackMinuteIssueDraft(origin.excerpt, null) }
+    }
+    const block = blocks[origin.index]
+    if (!block) return null
+    return {
+      source,
+      fallback: buildFallbackMinuteIssueDraft(
+        minuteBlockDraftText(block),
+        blockInsightAt(origin.index).insight?.label,
+      ),
+    }
+  }
+
+  async function beginIssueCreateFrom(origin: IssueOrigin) {
     const requestId = ++issueProjectRequestRef.current
     setIssueBusy(false)
     if (!currentVersion) {
@@ -288,14 +343,13 @@ export function MinuteViewer({
       setPopover(null)
       return
     }
-    const idx = popover.blockIndex
-    const context = issueContextAt(idx)
+    const context = issueContextFor(origin)
     if (!context) {
       toast({ title: t('min.issue.versionMissing'), variant: 'error' })
       setPopover(null)
       return
     }
-    setIssueBlockIndex(idx)
+    setIssueOrigin(origin)
     setPreparedIssueDraft(null)
     setIssueProjectError(null)
     const fixedProjectId = minute.projectId ?? minute.meetingProjectId ?? ''
@@ -312,7 +366,7 @@ export function MinuteViewer({
             description: result.error,
             variant: 'error',
           })
-          setIssueBlockIndex(null)
+          setIssueOrigin(null)
           setPopover(null)
           return
         }
@@ -325,7 +379,7 @@ export function MinuteViewer({
             title: t('min.issue.draftUnavailable'),
             variant: 'error',
           })
-          setIssueBlockIndex(null)
+          setIssueOrigin(null)
           setPopover(null)
           return
         }
@@ -336,13 +390,27 @@ export function MinuteViewer({
       }
       if (issueProjectRequestRef.current !== requestId) return
       setPopover(null)
+      // 선택 흐름은 폼이 열리면 선택을 해제해 버블을 정리한다(블록 흐름에는 영향 없음).
+      window.getSelection()?.removeAllRanges()
       setIssueFormOpen(true)
       return
     }
     setPopover(null)
+    window.getSelection()?.removeAllRanges()
     setIssueProjectId('')
     setIssueMemberOptions([])
     setProjectPickerOpen(true)
+  }
+
+  function beginIssueCreate() {
+    if (!popover) return
+    void beginIssueCreateFrom({ type: 'block', index: popover.blockIndex })
+  }
+
+  function onSelectionIssue(target: MinuteSelectionTarget) {
+    const excerpt = normalizeSelectionText(target.text)
+    if (!excerpt) return
+    void beginIssueCreateFrom({ type: 'selection', ...target, excerpt })
   }
 
   async function continueWithProject() {
@@ -354,12 +422,12 @@ export function MinuteViewer({
     const requestId = ++issueProjectRequestRef.current
     setIssueBusy(true)
     setIssueProjectError(null)
-    if (issueBlockIndex === null) {
+    if (issueOrigin === null) {
       setIssueProjectError(t('min.issue.versionMissing'))
       setIssueBusy(false)
       return
     }
-    const context = issueContextAt(issueBlockIndex)
+    const context = issueContextFor(issueOrigin)
     if (!context) {
       setIssueProjectError(t('min.issue.versionMissing'))
       setIssueBusy(false)
@@ -411,27 +479,24 @@ export function MinuteViewer({
     setIssueBusy(false)
     setProjectPickerOpen(false)
     setPreparedIssueDraft(null)
-    setIssueBlockIndex(null)
+    setIssueOrigin(null)
   }
 
   function createLinkedIssue(projectId: string, input: IssueInput) {
-    if (!issueBlock || !currentVersion) {
+    if (!issueOrigin || !currentVersion) {
       return Promise.resolve({ ok: false, error: t('min.issue.versionMissing') })
     }
-    return createIssueFromMinuteBlock(projectId, input, {
-      minuteId: minute.id,
-      minuteVersionId: currentVersion.id,
-      bodyHash,
-      blockIndex: issueBlock.index,
-      blockHash: issueBlock.hash,
-      kind: issueSourceKind,
-    })
+    const source = issueSourceInputFor(issueOrigin)
+    if (!source) {
+      return Promise.resolve({ ok: false, error: t('min.issue.versionMissing') })
+    }
+    return createIssueFromMinuteBlock(projectId, input, source)
   }
 
   function closeIssueForm() {
     setIssueFormOpen(false)
     setPreparedIssueDraft(null)
-    setIssueBlockIndex(null)
+    setIssueOrigin(null)
   }
 
   function onIssueCreated(_id: string, result: IssueActionResult) {
@@ -700,10 +765,20 @@ export function MinuteViewer({
               issueProjectRequestRef.current += 1
               setIssueBusy(false)
               setPreparedIssueDraft(null)
-              setIssueBlockIndex(null)
+              setIssueOrigin(null)
             }
             setPopover(null)
           }}
+        />
+      )}
+
+      {!historicalVersion && !minute.archivedAt && (
+        <MinuteSelectionBubble
+          bodyRef={bodyRef}
+          blocks={blocks}
+          disabled={issueFormOpen || projectPickerOpen}
+          busy={issueBusy}
+          onCreateIssue={onSelectionIssue}
         />
       )}
 
@@ -763,8 +838,10 @@ export function MinuteViewer({
             // 수정된 회의록에서도 확인 카드와 생성 후 상세의 출처명이 어긋나지 않는다.
             title: currentVersion?.title ?? minute.title,
             date: currentVersion?.minuteDate ?? minute.minuteDate,
-            excerpt: minuteBlockDraftText(issueBlock),
-            label: `${t('min.issue.sourceLabel')} · v${currentVersion?.versionNo ?? 1}`,
+            excerpt: issueSourceText,
+            label: `${issueOrigin?.type === 'selection'
+              ? t('min.sel.sourceLabel')
+              : t('min.issue.sourceLabel')} · v${currentVersion?.versionNo ?? 1}`,
             organizedDraft: true,
             classificationRecommended: preparedIssueDraft?.mode === 'ai'
               && Boolean(preparedIssueDraft.megaCode && preparedIssueDraft.subProcess),
