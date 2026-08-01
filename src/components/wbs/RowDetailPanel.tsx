@@ -12,7 +12,7 @@ import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -49,7 +49,7 @@ function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
-  canEditDeliverable = false, projectId, subAct = false,
+  canEditDeliverable = false, projectId, subAct = false, levelLabels = DEFAULT_LEVEL_LABELS,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -63,6 +63,8 @@ export function RowDetailPanel({
   projectId: string
   /** act 하위의 담당자별 분리 항목 — 구분 배지를 SUB-ACT 로 표기 */
   subAct?: boolean
+  /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 상위(WbsGanttSheet)가 서버 페이지에서 받아 전파. */
+  levelLabels?: string[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -214,7 +216,7 @@ export function RowDetailPanel({
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <LevelBadge level={item.level} sub={subAct} />
+              <LevelBadge depth={item.depth} isOwnerSplit={item.isOwnerSplit} levelLabels={levelLabels} />
               {item.code && <span className="text-[11px] font-semibold tabular-nums text-ink-subtle">{item.code}</span>}
             </div>
             <h2 className="mt-1.5 break-words text-[16px] font-bold leading-snug text-ink">{item.name}</h2>

@@ -12,7 +12,7 @@ import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
 import { Maximize2, Minimize2, FileText, GitBranch } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { WbsProgressLens } from './WbsProgressLens'
 import { WbsFontSizeControl } from './WbsFontSizeControl'
@@ -137,6 +137,7 @@ export function WbsGanttSheet({
   defaultView = 'sheet',
   initialCollapsed,
   focusId = null,
+  levelLabels = DEFAULT_LEVEL_LABELS,
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
@@ -160,6 +161,8 @@ export function WbsGanttSheet({
   initialCollapsed?: string[]
   /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
   focusId?: string | null
+  /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
+  levelLabels?: string[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -1049,7 +1052,7 @@ export function WbsGanttSheet({
                   className={`${cellBase} overflow-hidden border-r border-grid-strong justify-center ${cellBg}`}
                   style={{ ...frozen('level'), paddingInline: 4 }}
                 >
-                  <LevelBadge level={n.level} sub={subLabel != null} compact />
+                  <LevelBadge depth={n.depth} isOwnerSplit={n.isOwnerSplit} levelLabels={levelLabels} compact />
                 </div>
                 {/* 작업명 */}
                 <div data-wbs-col="name" className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
@@ -1329,6 +1332,7 @@ export function WbsGanttSheet({
             parentPath={progressLensActiveId ? progressLensPathById.get(progressLensActiveId) ?? [] : []}
             pinned={!!progressLensPinnedId}
             onTogglePin={toggleProgressLensPin}
+            levelLabels={levelLabels}
           />
         </div>
       )}
@@ -1404,6 +1408,7 @@ export function WbsGanttSheet({
           canAttach={!readOnly && (isAdmin || (isProjectMember(actor, projectId) && selectedItem.owners.some(o => o.team === actorView?.teamCode)))}
           canEditDeliverable={!readOnly && canEditDeliverable(selectedItem, actor, projectId)}
           projectId={projectId}
+          levelLabels={levelLabels}
         />
       )}
     </div>
