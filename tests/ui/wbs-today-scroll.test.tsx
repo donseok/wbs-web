@@ -46,6 +46,7 @@ function item(plannedStart: string, plannedEnd: string): ComputedItem {
     achievement: null,
     status: 'not_started',
     children: [],
+    depth: 0,
   }
 }
 

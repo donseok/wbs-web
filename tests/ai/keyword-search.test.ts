@@ -96,6 +96,7 @@ const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
   achievement: null,
   status: 'not_started',
   children: [],
+  depth: 0,
   ...over,
 })
 const phase = (children: ComputedItem[]): ComputedItem => ({

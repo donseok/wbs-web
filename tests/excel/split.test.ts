@@ -176,6 +176,7 @@ function comp(over: Partial<ComputedItem>): ComputedItem {
     achievement: null,
     status: 'in_progress',
     children: [],
+    depth: 0,
     ...over,
   }
 }

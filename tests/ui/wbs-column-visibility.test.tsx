@@ -47,6 +47,7 @@ const item: ComputedItem = {
   achievement: 87,
   status: 'in_progress',
   children: [],
+  depth: 0,
 }
 
 describe('WbsGanttSheet — 담당~계획% 열 숨기기', () => {

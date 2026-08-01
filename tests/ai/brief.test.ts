@@ -12,7 +12,7 @@ const leaf = (over: Partial<ComputedItem> = {}): ComputedItem => ({
   id: `L${seq++}`, parentId: 'p', level: 'activity', code: 'x', sortOrder: 0,
   name: '작업', biz: null, deliverable: null, plannedStart: null, plannedEnd: null,
   weight: null, actualPct: null, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
-  achievement: null, status: 'in_progress', children: [], ...over,
+  achievement: null, status: 'in_progress', children: [], depth: 0, ...over,
 })
 const TODAY = '2026-07-15'
 const input = (over: Partial<BriefFactsInput> = {}): BriefFactsInput => ({

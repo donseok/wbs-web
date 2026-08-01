@@ -6,7 +6,7 @@ const leaf = (status: Status): ComputedItem =>
   ({
     id: Math.random().toString(36).slice(2), parentId: null, level: 'activity', code: '1', sortOrder: 1,
     name: 'n', biz: null, deliverable: null, plannedStart: null, plannedEnd: null, weight: null, actualPct: null,
-    owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status, children: [],
+    owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status, children: [], depth: 0,
   }) as ComputedItem
 const phase = (children: ComputedItem[]): ComputedItem =>
   ({ ...leaf('not_started'), level: 'phase', children }) as ComputedItem

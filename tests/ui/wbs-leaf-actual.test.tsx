@@ -33,7 +33,7 @@ function item(over: Partial<ComputedItem>): ComputedItem {
     id: 'x', parentId: null, level: 'task', code: '1-3', sortOrder: 0, name: '1-3. 프로젝트 착수 보고회',
     biz: null, deliverable: null, plannedStart: '2026-07-01', plannedEnd: '2026-07-01',
     weight: null, actualPct: 0, owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0,
-    achievement: null, status: 'not_started', children: [], ...over,
+    achievement: null, status: 'not_started', children: [], depth: 0, ...over,
   }
 }
 

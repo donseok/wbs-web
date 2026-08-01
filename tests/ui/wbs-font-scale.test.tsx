@@ -46,6 +46,7 @@ const itemA: ComputedItem = {
   achievement: 74,
   status: 'in_progress',
   children: [],
+  depth: 0,
 }
 
 const itemB: ComputedItem = {

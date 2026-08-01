@@ -62,4 +62,24 @@ describe('buildTree', () => {
     expect(l4.id).toBe('l4')
     expect(l4.children.map(c => c.id)).toEqual(['l5a', 'l5b'])
   })
+
+  it('buildTree가 트리 순회로 depth를 부여한다(0-based)', () => {
+    const rows = [
+      row({ id: 'p', parentId: null }),
+      row({ id: 't', parentId: 'p' }),
+      row({ id: 'a', parentId: 't' }),
+      row({ id: 'a2', parentId: 'a' }),   // 4단
+    ]
+    const tree = buildTree(rows, OPTS)
+    const depthOf = (id: string): number => {
+      let found = -1
+      const walk = (ns: typeof tree) => ns.forEach(n => { if (n.id === id) found = n.depth; walk(n.children) })
+      walk(tree)
+      return found
+    }
+    expect(depthOf('p')).toBe(0)
+    expect(depthOf('t')).toBe(1)
+    expect(depthOf('a')).toBe(2)
+    expect(depthOf('a2')).toBe(3)
+  })
 })

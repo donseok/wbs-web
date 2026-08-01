@@ -1,6 +1,6 @@
 import type { ComputedItem, WbsRow } from './types'
 
-export type TreeNode = WbsRow & { children: TreeNode[] }
+export type TreeNode = WbsRow & { children: TreeNode[]; depth: number }
 
 /** tree.ts — 정렬 순서는 주입이 계약(스펙 §5.3). 인자 필수라 tsc 가 전 호출처를 드러낸다.
  *  순수 도메인 모듈은 팀 마스터를 읽지 않는다: 호출부가 팀 마스터의 sort_order 를 주입한다. */
@@ -17,7 +17,7 @@ function subActTeamRank(n: TreeNode, order: ReadonlyMap<string, number>): number
 
 export function buildTree(rows: WbsRow[], opts: BuildTreeOpts): TreeNode[] {
   const byId = new Map<string, TreeNode>()
-  rows.forEach(r => byId.set(r.id, { ...r, children: [] }))
+  rows.forEach(r => byId.set(r.id, { ...r, children: [], depth: 0 }))
   const roots: TreeNode[] = []
   byId.forEach(node => {
     if (node.parentId && byId.has(node.parentId)) {
@@ -37,6 +37,12 @@ export function buildTree(rows: WbsRow[], opts: BuildTreeOpts): TreeNode[] {
     ns.forEach(n => sort(n.children))
   }
   sort(roots)
+  // depth를 0-based로 부여
+  const assignDepth = (n: TreeNode, d: number): void => {
+    n.depth = d
+    n.children.forEach(c => assignDepth(c, d + 1))
+  }
+  roots.forEach(r => assignDepth(r, 0))
   return roots
 }
 

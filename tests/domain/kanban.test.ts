@@ -38,6 +38,7 @@ function node(
     achievement: null,
     status: opts.status ?? 'not_started',
     children,
+    depth: 0,
   }
 }
 

@@ -43,6 +43,7 @@ function item(over: Partial<ComputedItem>): ComputedItem {
     achievement: null,
     status: 'not_started',
     children: [],
+    depth: 0,
     ...over,
   }
 }

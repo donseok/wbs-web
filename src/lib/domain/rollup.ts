@@ -53,5 +53,6 @@ function computeNode(node: TreeNode, today: string, holidays: Set<string>): Comp
     achievement: achievementOf(rolledActual, rolledPlanned),
     status: statusOf(rolledActual, rolledPlanned, node.plannedStart, today),
     children,
+    depth: node.depth,
   }
 }
