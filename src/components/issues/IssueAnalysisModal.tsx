@@ -56,6 +56,10 @@ export function IssueAnalysisModal({
     [issues, megaFilter],
   )
   const preflight = useMemo(() => buildIssueAnalysisPreflight(scopedIssues), [scopedIssues])
+  const majorUnsetCount = useMemo(
+    () => scopedIssues.filter(issue => issue.megaCode && !issue.majorId).length,
+    [scopedIssues],
+  )
   const populatedAreas = preflight.areas.filter(area => area.count > 0)
   const canGenerate = preflight.totalCount > 0 && preflight.blockedCount === 0
   const selectedArea = megaFilter === 'all'
@@ -231,6 +235,13 @@ export function IssueAnalysisModal({
               ))}
             </div>
           </section>
+        )}
+
+        {majorUnsetCount > 0 && (
+          <div className="flex items-start gap-2 rounded-2xl border border-pending/35 bg-pending-weak p-4 text-xs leading-5 text-pending">
+            <FileWarning className="mt-0.5 h-4 w-4 shrink-0" />
+            {t('issue.analysis.majorUnsetNotice').replace('{n}', String(majorUnsetCount))}
+          </div>
         )}
 
         {error && (

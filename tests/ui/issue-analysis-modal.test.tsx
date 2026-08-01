@@ -68,6 +68,36 @@ describe('IssueAnalysisModal', () => {
     document.body.querySelectorAll('[role="dialog"]').forEach(node => node.remove())
   })
 
+  it('Major 미지정 이슈가 있으면 (미지정) 표시 예고를 보여준다', async () => {
+    await act(async () => {
+      root.render(
+        <IssueAnalysisModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          issues={[issue({ majorId: null })]}
+        />,
+      )
+    })
+
+    expect(document.body.textContent).toContain('issue.analysis.majorUnsetNotice')
+  })
+
+  it('모든 이슈에 Major가 지정되면 미지정 안내가 없다', async () => {
+    await act(async () => {
+      root.render(
+        <IssueAnalysisModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          issues={[issue({ majorId: 'major-1', majorSeq: 1, majorName: '주문관리' })]}
+        />,
+      )
+    })
+
+    expect(document.body.textContent).not.toContain('issue.analysis.majorUnsetNotice')
+  })
+
   it('필수 메타가 빠진 이슈가 있으면 생성 호출 전에 차단하고 사유를 보여준다', async () => {
     await act(async () => {
       root.render(
