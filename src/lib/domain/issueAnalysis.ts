@@ -39,14 +39,32 @@ export const ISSUE_SOURCE_META: Record<
   other: { labelKey: 'issue.source.type.other' },
 }
 
+export const ISSUE_MAJOR_NAME_MAX = 100
+/**
+ * 02.01 같은 체번 접두가 이름에 박히는 것을 막는다 — 번호 정본은 DB 체번 + formatIssueMajorCode.
+ * 템플릿 표기('02.01 주문관리')를 복사해 붙이면 dedupe 키가 갈라져 같은 Major가 이중 체번된다.
+ * 0062 테이블 check·RPC 검증과 같은 패턴을 사용한다.
+ */
+export const ISSUE_MAJOR_NAME_NUMBERED_RE = /^\s*[\[({（【]?\s*\d{2}(?:\.\d{2})+/
 export const ISSUE_SUB_PROCESS_MAX = 200
 export const ISSUE_OWNER_DEPARTMENT_MAX = 100
 export const ISSUE_RELATED_SYSTEMS_MAX = 20
 export const ISSUE_RELATED_SYSTEM_MAX = 100
 export const ISSUE_SOURCE_DETAIL_MAX = 1000
 
+/** 프로젝트×Mega 범위의 Major Process 기준정보(0062). major_seq 는 DB 트리거만 발급한다. */
+export interface IssueMajorProcess {
+  id: string
+  projectId: string
+  megaCode: IssueMegaCode
+  majorSeq: number
+  name: string
+}
+
 export interface IssueAnalysisInput {
   megaCode: IssueMegaCode
+  /** Major Process 이름. 같은 이름은 기존 체번을 재사용하고 새 이름은 다음 번호를 받는다. */
+  majorName: string
   subProcess: string
   ownerDepartment: string
   relatedSystems: string[]
@@ -79,6 +97,17 @@ export function normalizeIssueAnalysisInput(
   options: { allowMinutesSource?: boolean } = {},
 ): IssueAnalysisValidationResult {
   if (!isIssueMegaCode(input?.megaCode)) return { ok: false, error: '잘못된 Mega 영역입니다.' }
+
+  if (typeof input.majorName !== 'string' || !input.majorName.trim()) {
+    return { ok: false, error: 'Major Process를 입력하세요.' }
+  }
+  const majorName = input.majorName.trim()
+  if (majorName.length > ISSUE_MAJOR_NAME_MAX) {
+    return { ok: false, error: `Major Process는 ${ISSUE_MAJOR_NAME_MAX}자 이하여야 합니다.` }
+  }
+  if (ISSUE_MAJOR_NAME_NUMBERED_RE.test(majorName)) {
+    return { ok: false, error: 'Major Process는 번호 없이 이름만 입력하세요. 번호(02.01…)는 저장 시 자동 채번됩니다.' }
+  }
 
   if (typeof input.subProcess !== 'string' || !input.subProcess.trim()) {
     return { ok: false, error: 'Sub Process를 입력하세요.' }
@@ -125,6 +154,7 @@ export function normalizeIssueAnalysisInput(
     ok: true,
     value: {
       megaCode: input.megaCode,
+      majorName,
       subProcess,
       ownerDepartment,
       relatedSystems: [...new Set(relatedSystems)],
@@ -138,4 +168,10 @@ export function normalizeIssueAnalysisInput(
 export function formatPiIssueCode(megaCode: IssueMegaCode, sequence: number): string {
   if (!Number.isSafeInteger(sequence) || sequence <= 0) throw new Error('이슈 일련번호는 양의 정수여야 합니다.')
   return `PI-I-${megaCode}-${String(sequence).padStart(2, '0')}`
+}
+
+/** Major 표시 계약(템플릿 슬라이드 6·7 실측): `02.01` — pi 코드와 같은 패딩 규칙. */
+export function formatIssueMajorCode(megaCode: IssueMegaCode, sequence: number): string {
+  if (!Number.isSafeInteger(sequence) || sequence <= 0) throw new Error('Major 일련번호는 양의 정수여야 합니다.')
+  return `${megaCode}.${String(sequence).padStart(2, '0')}`
 }

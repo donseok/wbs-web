@@ -16,6 +16,8 @@ import {
   isIssueMegaCode,
   normalizeIssueAnalysisInput,
   type IssueAnalysisInput,
+  type IssueMajorProcess,
+  type IssueMegaCode,
   type NormalizedIssueAnalysisInput,
 } from '@/lib/domain/issueAnalysis'
 import {
@@ -41,6 +43,7 @@ import {
   buildMinuteIssueDraft,
   buildMinuteIssueDraftPrompt,
   type MinuteIssueDraft,
+  type MinuteIssueMajorProcessReference,
   type MinuteIssueSubProcessReference,
 } from '@/lib/ai/minute-issue-draft'
 
@@ -96,6 +99,39 @@ export interface MinuteIssueDraftActionResult {
   ok: boolean
   draft?: MinuteIssueDraft
   error?: string
+}
+
+export interface IssueMajorProcessesResult {
+  ok: boolean
+  majors?: IssueMajorProcess[]
+  error?: string
+}
+
+/** 폼의 Major Process 자동완성 후보 — 조회 전용(로그인 사용자, 이슈 읽기 관례와 동일 범위). */
+export async function fetchIssueMajorProcesses(projectId: string): Promise<IssueMajorProcessesResult> {
+  const user = await getSession()
+  if (!user || !projectId) return { ok: false, error: '로그인 필요' }
+  const sb = await createServerClient()
+  const { data, error } = await sb
+    .from('issue_major_processes')
+    .select('id, project_id, mega_code, major_seq, name')
+    .eq('project_id', projectId)
+    .order('mega_code', { ascending: true })
+    .order('major_seq', { ascending: true })
+  if (error) {
+    console.error('[fetchIssueMajorProcesses] 조회 실패:', error.message)
+    return { ok: false, error: 'Major Process 목록을 불러오지 못했습니다. 다시 시도하세요.' }
+  }
+  return {
+    ok: true,
+    majors: ((data ?? []) as Record<string, unknown>[]).map(row => ({
+      id: row.id as string,
+      projectId: row.project_id as string,
+      megaCode: row.mega_code as IssueMegaCode,
+      majorSeq: Number(row.major_seq),
+      name: row.name as string,
+    })),
+  }
 }
 
 /** 프로젝트 미지정 회의록의 빠른 등록에서 프로젝트 선택 후 담당자 목록을 지연 로드한다. */
@@ -467,6 +503,51 @@ function revalidateIssues(projectId: string) {
   revalidatePath(`/p/${projectId}/issues`)
 }
 
+/**
+ * Major Process resolve-or-create — 같은 (project, mega, 이름)은 기존 체번을 재사용하고,
+ * 새 이름은 insert 때 0062 트리거가 advisory lock 아래 다음 번호(01, 02, 03…)를 발급한다.
+ * 동시 등록 경합의 유니크 충돌(23505)은 승자 행 재조회로 수렴. 조회 실패는 중단(쓰기 선행 조회 원칙).
+ */
+async function resolveIssueMajorId(
+  sb: Awaited<ReturnType<typeof createServerClient>>,
+  projectId: string,
+  megaCode: IssueMegaCode,
+  majorName: string,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const findExisting = async () => sb
+    .from('issue_major_processes')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('mega_code', megaCode)
+    .eq('name', majorName)
+    .maybeSingle()
+
+  const { data: existing, error: selErr } = await findExisting()
+  if (selErr) {
+    console.error('[resolveIssueMajorId] 선행 조회 실패:', selErr.message)
+    return { ok: false, error: 'Major Process 정보를 확인할 수 없어 중단했습니다.' }
+  }
+  if (existing) return { ok: true, id: existing.id as string }
+
+  const { data: inserted, error: insErr } = await sb
+    .from('issue_major_processes')
+    .insert({ project_id: projectId, mega_code: megaCode, name: majorName })
+    .select('id')
+    .single()
+  if (!insErr && inserted) return { ok: true, id: inserted.id as string }
+
+  if (insErr?.code === '23505') {
+    const { data: winner, error: reErr } = await findExisting()
+    if (reErr) {
+      console.error('[resolveIssueMajorId] 경합 재조회 실패:', reErr.message)
+      return { ok: false, error: 'Major Process 정보를 확인할 수 없어 중단했습니다.' }
+    }
+    if (winner) return { ok: true, id: winner.id as string }
+  }
+  console.error('[resolveIssueMajorId] 등록 실패:', insErr?.message ?? 'empty result')
+  return { ok: false, error: 'Major Process 등록에 실패했습니다. 다시 시도하세요.' }
+}
+
 const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
 
 /**
@@ -496,6 +577,8 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
   if (!user) return { ok: false, error: '로그인 필요' }
 
   const sb = await createServerClient()
+  const major = await resolveIssueMajorId(sb, projectId, value.megaCode, value.majorName)
+  if (!major.ok) return { ok: false, error: major.error }
   const { data, error } = await sb
     .from('issues')
     .insert({
@@ -506,6 +589,7 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
       start_date: value.startDate,
       due_date: value.dueDate,
       mega_code: value.megaCode,
+      major_id: major.id,
       sub_process: value.subProcess,
       owner_department: value.ownerDepartment,
       related_systems: value.relatedSystems,
@@ -604,6 +688,32 @@ async function summarizeVerifiedMinuteBlock(
   }
 }
 
+async function loadKnownMajorProcesses(projectId: string): Promise<MinuteIssueMajorProcessReference[]> {
+  try {
+    const sb = await createServerClient()
+    const { data, error } = await sb
+      .from('issue_major_processes')
+      .select('mega_code, name')
+      .eq('project_id', projectId)
+      .order('mega_code', { ascending: true })
+      .order('major_seq', { ascending: true })
+    if (error) throw error
+    return ((data ?? []) as Array<Record<string, unknown>>).flatMap(row => {
+      const megaCode = row.mega_code
+      const name = typeof row.name === 'string' ? row.name.trim() : ''
+      if (!isIssueMegaCode(megaCode) || !name) return []
+      return [{ megaCode, name }]
+    })
+  } catch (cause) {
+    // 기존 Major 사례는 이름 재사용을 돕는 보조 정보다. 조회 실패가 등록 흐름을 막지는 않는다.
+    console.error(
+      '[prepareMinuteIssueDraft] Major Process 사례 조회 실패(무시):',
+      cause instanceof Error ? cause.message : cause,
+    )
+    return []
+  }
+}
+
 async function loadKnownSubProcesses(projectId: string): Promise<MinuteIssueSubProcessReference[]> {
   let rows: Array<Record<string, unknown>> = []
   try {
@@ -657,14 +767,19 @@ export async function prepareMinuteIssueDraft(
   if (!source.selection && block.headingDepth) {
     return { ok: false, error: '제목이 아닌 실제 이슈 내용이 있는 블록을 선택해 주세요.' }
   }
-  const knownSubProcesses = await loadKnownSubProcesses(projectId)
+  const [knownMajorProcesses, knownSubProcesses] = await Promise.all([
+    loadKnownMajorProcesses(projectId),
+    loadKnownSubProcesses(projectId),
+  ])
   const blockText = selectionExcerpt ?? minuteBlockDraftText(block)
   const prompt = buildMinuteIssueDraftPrompt(blockText, insightLabel, {
     contextText: draftContextText,
+    knownMajorProcesses,
     knownSubProcesses,
   })
   const cacheKey = [
-    'minute-issue-draft-v3', projectId, source.minuteVersionId, source.blockIndex, block.hash,
+    // v4: majorProcess 5키 스키마 — 구버전 4키 캐시 초안과 섞이지 않게 버전으로 격리한다.
+    'minute-issue-draft-v4', projectId, source.minuteVersionId, source.blockIndex, block.hash,
     source.kind, fnv1a64(prompt),
   ].join(':')
   const draft = await summarizeVerifiedMinuteBlock(cacheKey, blockText, insightLabel, prompt)
@@ -737,6 +852,7 @@ export async function createIssueFromMinuteBlock(
     p_start_date: value.startDate,
     p_due_date: value.dueDate,
     p_mega_code: value.megaCode,
+    p_major_name: value.majorName,
     p_sub_process: value.subProcess,
     p_owner_department: value.ownerDepartment,
     p_related_systems: value.relatedSystems,
@@ -824,6 +940,10 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
     }
   }
 
+  // Major 는 오분류 교정·레거시 백필을 위해 편집에서 바꿀 수 있다(mega 와 달리 이슈 ID 와 무관).
+  const major = await resolveIssueMajorId(sb, cur.project_id as string, value.megaCode, value.majorName)
+  if (!major.ok) return { ok: false, error: major.error }
+
   const { data: updated, error } = await sb
     .from('issues')
     .update({
@@ -833,6 +953,7 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
       start_date: value.startDate,
       due_date: value.dueDate,
       mega_code: value.megaCode,
+      major_id: major.id,
       sub_process: value.subProcess,
       owner_department: value.ownerDepartment,
       related_systems: value.relatedSystems,

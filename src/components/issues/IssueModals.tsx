@@ -10,7 +10,7 @@ import { AlertTriangle, ExternalLink, FileText, Pencil, Trash2 } from 'lucide-re
 import { Modal } from '@/components/ui/Modal'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import {
-  createIssue, deleteIssue, updateIssue, updateIssueProgress,
+  createIssue, deleteIssue, fetchIssueMajorProcesses, updateIssue, updateIssueProgress,
   type IssueActionResult, type IssueInput,
 } from '@/app/actions/issues'
 import {
@@ -18,6 +18,8 @@ import {
   isOverdue, type Issue, type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
 import {
+  ISSUE_MAJOR_NAME_MAX,
+  ISSUE_MAJOR_NAME_NUMBERED_RE,
   ISSUE_MEGA_AREAS,
   ISSUE_OWNER_DEPARTMENT_MAX,
   ISSUE_RELATED_SYSTEM_MAX,
@@ -26,6 +28,8 @@ import {
   ISSUE_SOURCE_META,
   ISSUE_SOURCE_TYPES,
   ISSUE_SUB_PROCESS_MAX,
+  formatIssueMajorCode,
+  type IssueMajorProcess,
   type IssueMegaCode,
   type IssueSourceType,
 } from '@/lib/domain/issueAnalysis'
@@ -99,6 +103,7 @@ interface IssueFormSeed {
   startDate: string
   dueDate: string
   megaCode: IssueMegaCode | ''
+  majorName: string
   subProcess: string
   ownerDepartment: string
   relatedSystems: string[]
@@ -125,6 +130,7 @@ function issueFormSeed(
       startDate: initial.startDate ?? '',
       dueDate: initial.dueDate ?? '',
       megaCode: initial.megaCode ?? '',
+      majorName: initial.majorName ?? '',
       subProcess: initial.subProcess,
       ownerDepartment: initial.ownerDepartment,
       relatedSystems: [...initial.relatedSystems],
@@ -145,6 +151,7 @@ function issueFormSeed(
     startDate: draft?.startDate ?? '',
     dueDate: draft?.dueDate ?? '',
     megaCode: draft?.megaCode ?? '',
+    majorName: draft?.majorName ?? '',
     subProcess: draft?.subProcess ?? '',
     ownerDepartment: draft?.ownerDepartment ?? '',
     relatedSystems: [...(draft?.relatedSystems ?? [])],
@@ -213,6 +220,11 @@ export function IssueDetailModal({
   const dirty = issue !== null
     && (status !== issue.status || assigneesDirty || note !== issue.resolutionNote)
   const analysisMegaLabel = issue?.megaCode ? megaAreaName(issue.megaCode, locale) : '—'
+  const analysisMajorLabel = issue?.majorName
+    ? issue.megaCode && issue.majorSeq
+      ? `${formatIssueMajorCode(issue.megaCode, issue.majorSeq)} · ${issue.majorName}`
+      : issue.majorName
+    : '—'
   const analysisSourceLabel = issue?.sourceType ? t(ISSUE_SOURCE_META[issue.sourceType].labelKey) : '—'
 
   // 표시용 담당자 칩 — 가나다순, 회의 상세 참석자 칩과 같은 표기(이름 · 팀코드).
@@ -334,6 +346,10 @@ export function IssueDetailModal({
               <div>
                 <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.mega')}</dt>
                 <dd className="mt-0.5 text-ink">{analysisMegaLabel}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.majorProcess')}</dt>
+                <dd className="mt-0.5 text-ink">{analysisMajorLabel}</dd>
               </div>
               <div>
                 <dt className="text-[11px] font-semibold text-ink-subtle">{t('issue.analysis.subProcess')}</dt>
@@ -464,6 +480,8 @@ export function IssueFormModal({
   const [startDate, setStartDate] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [megaCode, setMegaCode] = useState<IssueMegaCode | ''>('')
+  const [majorName, setMajorName] = useState('')
+  const [majorOptions, setMajorOptions] = useState<IssueMajorProcess[]>([])
   const [subProcess, setSubProcess] = useState('')
   const [ownerDepartment, setOwnerDepartment] = useState('')
   const [relatedSystemsText, setRelatedSystemsText] = useState('')
@@ -500,6 +518,7 @@ export function IssueFormModal({
     setStartDate(seed.startDate)
     setDueDate(seed.dueDate)
     setMegaCode(seed.megaCode)
+    setMajorName(seed.majorName)
     setSubProcess(seed.subProcess)
     setOwnerDepartment(seed.ownerDepartment)
     setRelatedSystemsText(seed.relatedSystems.join(', '))
@@ -508,6 +527,32 @@ export function IssueFormModal({
     setError(null)
     submittingRef.current = false
   }, [open, seedKey])
+
+  // Major 자동완성 후보 — 같은 이름 재사용이 기존 체번(02.01…)을 유지하는 핵심이라
+  // 열 때마다 프로젝트의 정본 목록을 불러온다. 실패는 입력을 막지 않되 로그로 남긴다.
+  useEffect(() => {
+    if (!open || !projectId) {
+      setMajorOptions([])
+      return
+    }
+    let cancelled = false
+    fetchIssueMajorProcesses(projectId)
+      .then(res => {
+        if (cancelled) return
+        if (res.ok && res.majors) {
+          setMajorOptions(res.majors)
+        } else {
+          console.error('[IssueFormModal] Major Process 목록 로드 실패:', res.error ?? 'unknown')
+          setMajorOptions([])
+        }
+      })
+      .catch(cause => {
+        if (cancelled) return
+        console.error('[IssueFormModal] Major Process 목록 로드 실패:', cause)
+        setMajorOptions([])
+      })
+    return () => { cancelled = true }
+  }, [open, projectId])
 
   function submit() {
     if (submittingRef.current) return
@@ -521,6 +566,19 @@ export function IssueFormModal({
     }
     if (!megaCode) {
       setError(t('issue.err.megaRequired'))
+      return
+    }
+    const normalizedMajorName = majorName.trim()
+    if (!normalizedMajorName) {
+      setError(t('issue.err.majorRequired'))
+      return
+    }
+    if (normalizedMajorName.length > ISSUE_MAJOR_NAME_MAX) {
+      setError(t('issue.err.majorTooLong').replace('{n}', String(ISSUE_MAJOR_NAME_MAX)))
+      return
+    }
+    if (ISSUE_MAJOR_NAME_NUMBERED_RE.test(normalizedMajorName)) {
+      setError(t('issue.err.majorNumberedName'))
       return
     }
     const normalizedSubProcess = subProcess.trim()
@@ -572,6 +630,7 @@ export function IssueFormModal({
       startDate: startDate || null,
       dueDate: dueDate || null,
       megaCode,
+      majorName: normalizedMajorName,
       subProcess: normalizedSubProcess,
       ownerDepartment: normalizedOwnerDepartment,
       relatedSystems,
@@ -693,6 +752,44 @@ export function IssueFormModal({
                 && (
                 <p className="mt-1 text-[11px] leading-4 text-brand">
                   {t('issue.analysis.megaRecommended').replace('{code}', draft.megaCode)}
+                </p>
+              )}
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.majorProcess')}</span>
+              <input
+                className="app-input"
+                value={majorName}
+                required
+                maxLength={ISSUE_MAJOR_NAME_MAX}
+                list="issue-major-process-options"
+                onChange={e => setMajorName(e.target.value)}
+                placeholder={t('issue.analysis.majorProcessPh')}
+              />
+              {/* 같은 이름 재사용 = 기존 번호 유지가 체번 계약의 핵심이라, 선택된 Mega의
+                  정본 목록(02.01 · 이름)을 자동완성으로 보여 준다. Mega 미선택 상태에서
+                  타 Mega 후보를 골라 엉뚱한 영역에 신규 체번되는 것을 막기 위해 후보는
+                  Mega 선택 후에만 노출한다. */}
+              <datalist id="issue-major-process-options">
+                {(megaCode ? majorOptions.filter(major => major.megaCode === megaCode) : [])
+                  .map(major => (
+                    <option key={major.id} value={major.name}>
+                      {`${formatIssueMajorCode(major.megaCode, major.majorSeq)} · ${major.name}`}
+                    </option>
+                  ))}
+              </datalist>
+              <span className="mt-1 block text-[11px] leading-4 text-ink-subtle">
+                {t('issue.analysis.majorProcessHint')}
+              </span>
+              {!isEdit
+                && sourcePreview?.classificationRecommended
+                && draft?.majorName?.trim()
+                && draft.megaCode
+                && megaCode === draft.megaCode
+                && majorName.trim() === draft.majorName.trim()
+                && (
+                <p className="mt-1 text-[11px] leading-4 text-brand">
+                  {t('issue.analysis.majorProcessRecommended')}
                 </p>
               )}
             </label>

@@ -49,6 +49,7 @@ const issueRow = {
   mega_code: '00',
   mega_seq: 2,
   pi_issue_code: 'PI-I-00-02',
+  major_id: 'major-1',
   sub_process: '자재 등록',
   owner_department: '기준정보팀',
   related_systems: ['ERP', 'MES'],
@@ -85,6 +86,10 @@ beforeEach(() => {
       }],
       error: null,
     },
+    issue_major_processes: {
+      data: [{ id: 'major-1', mega_code: '00', major_seq: 1, name: '자재관리' }],
+      error: null,
+    },
   }
 })
 
@@ -97,6 +102,9 @@ describe('loadIssueAnalysisIssues', () => {
       piIssueCode: 'PI-I-00-02',
       megaCode: '00',
       megaSeq: 2,
+      majorId: 'major-1',
+      majorSeq: 1,
+      majorName: '자재관리',
       status: 'resolved',
       assigneeMemberIds: ['member-1'],
       relatedSystems: ['ERP', 'MES'],
@@ -122,7 +130,7 @@ describe('loadIssueAnalysisIssues', () => {
     ))).toBe(false)
   })
 
-  it.each(['issues', 'issue_assignees', 'issue_links'])(
+  it.each(['issues', 'issue_assignees', 'issue_links', 'issue_major_processes'])(
     '%s 조회 하나라도 실패하면 부분 결과 대신 throw한다',
     async table => {
       state.results[table] = { data: null, error: { message: `${table} down` } }

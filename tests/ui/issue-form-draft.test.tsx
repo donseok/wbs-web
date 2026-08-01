@@ -10,11 +10,15 @@ vi.mock('next/navigation', () => ({ useRouter: () => router }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
 }))
+const { fetchIssueMajorProcesses } = vi.hoisted(() => ({
+  fetchIssueMajorProcesses: vi.fn(),
+}))
 vi.mock('@/app/actions/issues', () => ({
   createIssue: vi.fn(async () => ({ ok: true, id: 'default-issue' })),
   updateIssue: vi.fn(async () => ({ ok: true })),
   updateIssueProgress: vi.fn(async () => ({ ok: true })),
   deleteIssue: vi.fn(async () => ({ ok: true })),
+  fetchIssueMajorProcesses,
 }))
 
 import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from '@/components/issues/IssueModals'
@@ -26,6 +30,7 @@ describe('IssueFormModal 회의록 초안', () => {
 
   beforeEach(() => {
     router.refresh.mockClear()
+    fetchIssueMajorProcesses.mockReset().mockResolvedValue({ ok: true, majors: [] })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -55,6 +60,7 @@ describe('IssueFormModal 회의록 초안', () => {
 
   const analysisDraft = {
     megaCode: '02' as const,
+    majorName: ' 주문관리 ',
     subProcess: ' 주문접수/등록 ',
     ownerDepartment: ' 영업관리팀 ',
     relatedSystems: [' SAP ', 'MES', 'SAP'],
@@ -81,6 +87,9 @@ describe('IssueFormModal 회의록 초안', () => {
     megaCode: '02',
     megaSeq: 3,
     piIssueCode: 'PI-I-02-03',
+    majorId: 'major-1',
+    majorSeq: 1,
+    majorName: '주문관리',
     subProcess: '주문접수/등록',
     ownerDepartment: '영업관리팀',
     relatedSystems: ['SAP', 'MES'],
@@ -129,6 +138,7 @@ describe('IssueFormModal 회의록 초안', () => {
     expect(labelInput('issue.form.start').value).toBe('2026-07-27')
     expect(labelInput('issue.form.due').value).toBe('2026-08-03')
     expect(labelSelect('issue.analysis.mega').value).toBe('02')
+    expect(labelInput('issue.analysis.majorProcess').value).toBe(' 주문관리 ')
     expect(labelSelect('issue.analysis.sourceType').value).toBe('minutes')
     expect(labelSelect('issue.analysis.sourceType').disabled).toBe(true)
     expect(labelInput('issue.analysis.sourceDetail').value).toBe('주간회의 · 2026-07-27')
@@ -136,6 +146,7 @@ describe('IssueFormModal 회의록 초안', () => {
     expect(document.body.textContent).toContain('issue.analysis.organizedDraft')
     expect(document.body.textContent).toContain('issue.analysis.classificationRecommended')
     expect(document.body.textContent).toContain('issue.analysis.megaRecommended')
+    expect(document.body.textContent).toContain('issue.analysis.majorProcessRecommended')
     expect(document.body.textContent).toContain('issue.analysis.subProcessRecommended')
 
     await act(async () => {
@@ -148,6 +159,7 @@ describe('IssueFormModal 회의록 초안', () => {
       process.dispatchEvent(new Event('input', { bubbles: true }))
     })
     expect(document.body.textContent).not.toContain('issue.analysis.megaRecommended')
+    expect(document.body.textContent).not.toContain('issue.analysis.majorProcessRecommended')
     expect(document.body.textContent).not.toContain('issue.analysis.subProcessRecommended')
 
     const save = [...document.querySelectorAll('button')]
@@ -165,6 +177,7 @@ describe('IssueFormModal 회의록 초안', () => {
       startDate: '2026-07-27',
       dueDate: '2026-08-03',
       megaCode: '07',
+      majorName: '주문관리',
       subProcess: '원가손익분석',
       ownerDepartment: '영업관리팀',
       relatedSystems: ['SAP', 'MES'],
@@ -274,12 +287,48 @@ describe('IssueFormModal 회의록 초안', () => {
 
     expect(onCreate).toHaveBeenCalledWith('project-1', expect.objectContaining({
       megaCode: '02',
+      majorName: '주문관리',
       subProcess: '주문접수/등록',
       ownerDepartment: '영업관리팀',
       relatedSystems: ['SAP', 'MES'],
       sourceType: 'other',
       sourceDetail: '',
     }))
+  })
+
+  it('열릴 때 프로젝트 Major 정본을 불러와 선택 Mega의 후보만 자동완성으로 보여준다', async () => {
+    fetchIssueMajorProcesses.mockResolvedValue({
+      ok: true,
+      majors: [
+        { id: 'major-1', projectId: 'project-1', megaCode: '02', majorSeq: 1, name: '주문관리' },
+        { id: 'major-2', projectId: 'project-1', megaCode: '07', majorSeq: 2, name: '원가배부' },
+      ],
+    })
+    await act(async () => {
+      root.render(
+        <IssueFormModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          initial={null}
+          members={[]}
+          draft={{ ...analysisDraft, title: 'Major 자동완성' }}
+        />,
+      )
+    })
+
+    expect(fetchIssueMajorProcesses).toHaveBeenCalledWith('project-1')
+    const options = () => [...document.querySelectorAll('#issue-major-process-options option')]
+      .map(option => ({ value: (option as HTMLOptionElement).value, label: option.textContent }))
+    // Mega '02' 선택 상태 — 같은 Mega의 정본만 '코드 · 이름' 표기로 노출된다.
+    expect(options()).toEqual([{ value: '주문관리', label: '02.01 · 주문관리' }])
+
+    await act(async () => {
+      const mega = labelSelect('issue.analysis.mega')
+      mega.value = '07'
+      mega.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(options()).toEqual([{ value: '원가배부', label: '07.02 · 원가배부' }])
   })
 
   it('Mega·Sub Process·주관 부서·원천 누락은 서버 호출 전에 막는다', async () => {
@@ -306,6 +355,55 @@ describe('IssueFormModal 회의록 초안', () => {
     expect(document.body.textContent).toContain('issue.err.megaRequired')
   })
 
+  it('Major Process 누락은 Mega 다음·Sub Process 이전 순서로 서버 호출 전에 막는다', async () => {
+    const onCreate = vi.fn(async () => ({ ok: true, id: 'should-not-create' }))
+    await act(async () => {
+      root.render(
+        <IssueFormModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          initial={null}
+          members={[]}
+          draft={{ ...analysisDraft, title: 'Major 누락', majorName: '   ', subProcess: '' }}
+          onCreate={onCreate}
+        />,
+      )
+    })
+
+    const save = [...document.querySelectorAll('button')]
+      .find(button => button.textContent === 'issue.form.save') as HTMLButtonElement
+    act(() => save.click())
+
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('issue.err.majorRequired')
+    expect(document.body.textContent).not.toContain('issue.err.subProcessRequired')
+  })
+
+  it('100자를 넘는 Major Process는 서버 호출 전에 막는다', async () => {
+    const onCreate = vi.fn(async () => ({ ok: true, id: 'should-not-create' }))
+    await act(async () => {
+      root.render(
+        <IssueFormModal
+          open
+          onClose={() => undefined}
+          projectId="project-1"
+          initial={null}
+          members={[]}
+          draft={{ ...analysisDraft, title: 'Major 길이 초과', majorName: '가'.repeat(101) }}
+          onCreate={onCreate}
+        />,
+      )
+    })
+
+    const save = [...document.querySelectorAll('button')]
+      .find(button => button.textContent === 'issue.form.save') as HTMLButtonElement
+    act(() => save.click())
+
+    expect(onCreate).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('issue.err.majorTooLong')
+  })
+
   it('발급된 PI ID가 있으면 Mega를 잠그고 상세에서 분석 메타와 기존 번호를 함께 표시한다', async () => {
     const current = issue()
     await act(async () => {
@@ -321,6 +419,7 @@ describe('IssueFormModal 회의록 초안', () => {
     })
 
     expect(labelSelect('issue.analysis.mega').disabled).toBe(true)
+    expect(labelInput('issue.analysis.majorProcess').value).toBe('주문관리')
 
     await act(async () => {
       root.render(
@@ -339,6 +438,7 @@ describe('IssueFormModal 회의록 초안', () => {
 
     expect(document.body.textContent).toContain('PI-I-02-03 · #17')
     expect(document.body.textContent).toContain('02 · 영업')
+    expect(document.body.textContent).toContain('02.01 · 주문관리')
     expect(document.body.textContent).toContain('주문접수/등록')
     expect(document.body.textContent).toContain('영업관리팀')
     expect(document.body.textContent).toContain('SAP')
@@ -362,6 +462,9 @@ describe('IssueFormModal 회의록 초안', () => {
             megaCode: null,
             megaSeq: null,
             piIssueCode: null,
+            majorId: null,
+            majorSeq: null,
+            majorName: null,
             subProcess: '',
             ownerDepartment: '',
             relatedSystems: [],
@@ -375,6 +478,7 @@ describe('IssueFormModal 회의록 초안', () => {
 
     expect(labelSelect('issue.analysis.mega').value).toBe('')
     expect(labelSelect('issue.analysis.mega').disabled).toBe(false)
+    expect(labelInput('issue.analysis.majorProcess').value).toBe('')
     expect(labelSelect('issue.analysis.sourceType').value).toBe('')
   })
 })

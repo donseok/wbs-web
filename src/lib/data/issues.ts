@@ -17,9 +17,9 @@ import type {
  */
 export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
   const sb = await createServerClient()
-  const [issuesRes, assigneesRes, linksRes] = await Promise.all([
+  const [issuesRes, assigneesRes, linksRes, majorsRes] = await Promise.all([
     sb.from('issues')
-      .select('id, issue_no, pi_issue_code, project_id, mega_code, mega_seq, title, body, status, severity, start_date, due_date, sub_process, owner_department, related_systems, source_type, source_detail, resolution_note, resolved_at, created_by, created_by_name, created_at, updated_at')
+      .select('id, issue_no, pi_issue_code, project_id, mega_code, mega_seq, major_id, title, body, status, severity, start_date, due_date, sub_process, owner_department, related_systems, source_type, source_detail, resolution_note, resolved_at, created_by, created_by_name, created_at, updated_at')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false }),
     // 지정 순서(created_at)로 정렬해 두 번 실행해도 배열 순서가 같게 한다 — 뷰 정렬과 무관한 안정성.
@@ -33,12 +33,16 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
       .eq('project_id', projectId)
       .eq('link_type', 'minute_block')
       .order('created_at', { ascending: true }),
+    sb.from('issue_major_processes')
+      .select('id, mega_code, major_seq, name')
+      .eq('project_id', projectId),
   ])
 
   if (issuesRes.error) console.error('[getIssues] 조회 실패:', issuesRes.error.message)
   // 담당자 조회 실패를 삼키고 전부 '담당 없음'으로 그리면 조용한 오표시가 된다 — 로그 필수(읽기 계층 관례).
   if (assigneesRes.error) console.error('[getIssues] 담당자 조회 실패:', assigneesRes.error.message)
   if (linksRes.error) console.error('[getIssues] 회의록 출처 조회 실패:', linksRes.error.message)
+  if (majorsRes.error) console.error('[getIssues] Major Process 조회 실패:', majorsRes.error.message)
 
   const assigneesByIssue = new Map<string, string[]>()
   for (const r of (assigneesRes.data ?? []) as { issue_id: string; member_id: string }[]) {
@@ -71,13 +75,24 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
     else linksByIssue.set(source.issueId, [source])
   }
 
-  return (issuesRes.data ?? []).map((r: Record<string, unknown>) => ({
+  const majorById = new Map<string, { majorSeq: number; name: string }>()
+  for (const r of (majorsRes.data ?? []) as { id: string; major_seq: number | string; name: string }[]) {
+    majorById.set(r.id, { majorSeq: Number(r.major_seq), name: r.name })
+  }
+
+  return (issuesRes.data ?? []).map((r: Record<string, unknown>) => {
+    const majorId = (r.major_id as string | null) ?? null
+    const major = majorId ? majorById.get(majorId) ?? null : null
+    return {
     id: r.id as string,
     issueNo: Number(r.issue_no),
     piIssueCode: (r.pi_issue_code as string | null) ?? null,
     projectId: r.project_id as string,
     megaCode: (r.mega_code as IssueMegaCode | null) ?? null,
     megaSeq: r.mega_seq == null ? null : Number(r.mega_seq),
+    majorId,
+    majorSeq: major?.majorSeq ?? null,
+    majorName: major?.name ?? null,
     title: r.title as string,
     body: (r.body as string) ?? '',
     status: r.status as IssueStatus,
@@ -99,8 +114,12 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
     createdByName: (r.created_by_name as string | null) ?? null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
-  }))
+    }
+  })
 })
+
+// 폼 자동완성용 Major 목록은 fetchIssueMajorProcesses 서버 액션이 단일 경로다 —
+// 여기 중복 로더를 두면 쿼리·매핑이 두 곳에서 드리프트한다(적대적 리뷰 반영).
 
 /** 회의록 블록 팝오버에 표시할 연결 이슈. 현재/과거 버전 링크를 모두 읽고 뷰에서 bodyHash로 거른다. */
 export const getMinuteLinkedIssues = cache(async (minuteId: string): Promise<MinuteLinkedIssue[]> => {

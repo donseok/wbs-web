@@ -36,6 +36,7 @@ describe('이슈 분석 메타 DB 매핑', () => {
           project_id: 'p-map',
           mega_code: '03',
           mega_seq: 2,
+          major_id: 'mj1',
           title: '설계 변경 지연',
           body: '',
           status: 'open',
@@ -61,6 +62,7 @@ describe('이슈 분석 메타 DB 매핑', () => {
           project_id: 'p-map',
           mega_code: null,
           mega_seq: null,
+          major_id: null,
           title: '기존 이슈',
           body: '',
           status: 'open',
@@ -87,11 +89,16 @@ describe('이슈 분석 메타 DB 매핑', () => {
       error: null,
     })
     const links = query({ data: [], error: null })
+    const majors = query({
+      data: [{ id: 'mj1', mega_code: '03', major_seq: 1, name: '설계관리' }],
+      error: null,
+    })
     state.client = {
       from: vi.fn((table: string) => {
         if (table === 'issues') return issues
         if (table === 'issue_assignees') return assignees
         if (table === 'issue_links') return links
+        if (table === 'issue_major_processes') return majors
         throw new Error(`unexpected table: ${table}`)
       }),
     }
@@ -102,6 +109,9 @@ describe('이슈 분석 메타 DB 매핑', () => {
       piIssueCode: 'PI-I-03-02',
       megaCode: '03',
       megaSeq: 2,
+      majorId: 'mj1',
+      majorSeq: 1,
+      majorName: '설계관리',
       subProcess: '설계 변경',
       ownerDepartment: '품질팀',
       relatedSystems: ['PLM', 'ERP'],
@@ -113,6 +123,9 @@ describe('이슈 분석 메타 DB 매핑', () => {
       piIssueCode: null,
       megaCode: null,
       megaSeq: null,
+      majorId: null,
+      majorSeq: null,
+      majorName: null,
       subProcess: '',
       ownerDepartment: '',
       relatedSystems: [],
