@@ -74,6 +74,7 @@ PPT 생성 시 자동으로 포함한다. 현재 `deckPlan.ts`는 "5~7 프로세
     columns: Array<{ label: string, continuation: boolean, subs: string[] }> }  // ≤8열, subs ≤6
 | { kind: 'process-definition', sourceSlide: 6,
     megaCode, megaName, pageInSeries, pageCount,
+    headline: string,        // 셈플 6·7페이지가 트리 요약문을 반복하므로 정의 페이지에도 포함
     megaDefinition: string,
     rows: Array<{ seqLabel: string, name: string, definition: string }> }       // ≤4행
 ```

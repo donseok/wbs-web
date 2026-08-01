@@ -7,6 +7,11 @@ import type {
   IssueAnalysisReportArea,
   IssueAnalysisReportIssue,
 } from './model'
+import {
+  buildIssueAnalysisProcessSlides,
+  type IssueAnalysisDeckProcessDefinitionSlide,
+  type IssueAnalysisDeckProcessTreeSlide,
+} from './processPages'
 
 export const ISSUE_ANALYSIS_FIRST_PAGE_CAPACITY = 3
 export const ISSUE_ANALYSIS_CONTINUATION_CAPACITY = 5
@@ -135,6 +140,8 @@ export type IssueAnalysisDeckSlide =
       kind: 'approach'
       sourceSlide: 3
     }
+  | IssueAnalysisDeckProcessTreeSlide
+  | IssueAnalysisDeckProcessDefinitionSlide
   | {
       kind: 'area-summary'
       sourceSlide: 8
@@ -993,7 +1000,8 @@ function opportunitySlides(
  * 표준 템플릿의 고정/동적 슬라이드를 결정하는 단일 계약.
  *
  * - 1~4 유지
- * - 5~7 프로세스 체계 제외
+ * - 5 프로세스 트리, 6 프로세스 정의 — processDefinitions가 저장된 실행에서만
+ *   Mega 섹션 선두에 반복 (7은 6과 같은 레이아웃의 셈플 변형이라 사용하지 않음)
  * - 8 첫 페이지 높이 예산 3, 9 이후 높이 예산 5로 내용량에 맞춰 반복
  * - 10 저장된 원인분석이 있을 때 이슈별로 반복하고 장문은 손실 없이 계속 페이지 생성
  * - 11 유지
@@ -1029,6 +1037,7 @@ export function buildIssueAnalysisDeckPlan(
   ]
 
   for (const area of populatedAreas) {
+    slides.push(...buildIssueAnalysisProcessSlides(area))
     slides.push(...areaSlides(area))
     slides.push(...causeAnalysisSlides(area))
   }
