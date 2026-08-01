@@ -15,7 +15,7 @@
 - **drop 안전성 실측 완료**: D-CUBE는 stored level ≡ 트리 depth 완전 일치(mismatch 0). 전 프로젝트 mismatch 6건은 비운영 샘플의 아웃라인 임포트 트리(level 전부 'activity')이며 봇·주간보고·엑셀은 D-CUBE에서만 동작해 무관.
 - **컬럼 drop(Task 5)은 Task 1~4 배포·`mark:good` 완료 후에만.** 비가역. drop 전까지 컬럼·insert는 level을 계속 써도 무방하나 UI·신규 코드는 안 읽는다.
 - **buildWbsAoa는 N단 열로 확장하지 않는다.** 레거시 파서(`parse.ts`)가 3열만 읽어 4단 라운드트립이 구조적으로 불가능하고, 진짜 N단 익스포트는 이미 프로파일 경로(`exportWithProfile.ts`, `?expand=1`)가 담당한다. 이 계획은 buildWbsAoa에서 **level만 제거**하고 4단 유실은 기존 손실 계약(export.ts:19 주석)을 유지한다.
-- 마이그레이션(0062 RPC 교체, 0063 drop)은 단독 커밋 + `_rollback.sql`(G1). 적용 Management API. 번호는 착수 시 `ls supabase/migrations | tail`로 재확인.
+- 마이그레이션(0063 RPC 교체, 0064 drop)은 단독 커밋 + `_rollback.sql`(G1). 적용 Management API. 0062는 Major Process가 사용하므로 번호는 착수 시 `ls supabase/migrations | tail`로 재확인.
 - `git add -A` 금지. 커밋 한국어 "왜" + 트레일러 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 
 ---
@@ -129,10 +129,10 @@ tools/wbs.ts:143: `level: item.level` → **`level: (['phase','task','activity']
 
 ---
 
-### Task 4: 0062 마이그레이션 — import_wbs·replace_wbs에서 level insert 제거
+### Task 4: 0063 마이그레이션 — import_wbs·replace_wbs에서 level insert 제거
 
 **Files:**
-- Create: `supabase/migrations/0062_wbs_rpc_drop_level.sql` + rollback
+- Create: `supabase/migrations/0063_wbs_rpc_drop_level.sql` + rollback
 - Test: `tests/migrations/wbs-rpc-drop-level.test.ts`
 
 **Interfaces:**
@@ -145,10 +145,10 @@ tools/wbs.ts:143: `level: item.level` → **`level: (['phase','task','activity']
 
 ---
 
-### Task 5: 0063 마이그레이션 — level 컬럼 drop (게이트: Task 1~4 배포·mark:good 후)
+### Task 5: 0064 마이그레이션 — level 컬럼 drop (게이트: Task 1~4 배포·mark:good 후)
 
 **Files:**
-- Create: `supabase/migrations/0063_drop_wbs_level.sql` + rollback
+- Create: `supabase/migrations/0064_drop_wbs_level.sql` + rollback
 - Test: `tests/migrations/drop-wbs-level.test.ts`
 
 **⚠️ Task 1~4가 프로덕션 배포되고 `mark:good`된 뒤에만 실행.** level을 읽는 코드가 프로덕션에 0임을 확인한 상태에서만 drop이 안전(Global Constraints).
@@ -157,7 +157,7 @@ tools/wbs.ts:143: `level: item.level` → **`level: (['phase','task','activity']
 - Produces: `alter table public.wbs_items drop column level`. 롤백은 `add column level text`(nullable, 데이터 복원 불가 — 주석: is_owner_split·트리로 재파생 가능하나 이 마이그레이션은 컬럼만 되살린다).
 
 - [ ] **Step 1: drop 전 최종 grep** — `grep -rn "\.level\b\|'level'\|\"level\"\|->>'level'" src/ supabase/ | grep -v level_labels | grep -v levelLabels | grep -v minute | grep -v folder` → wbs_items.level 참조 0건(민트·폴더 등 다른 level 제외). RPC도 `pg_get_functiondef`로 level 미참조 확인.
-- [ ] **Step 2: 0063 SQL + 롤백** — begin/commit·search_path 핀. drop column. 롤백은 add column nullable + 미복원 주석.
+- [ ] **Step 2: 0064 SQL + 롤백** — begin/commit·search_path 핀. drop column. 롤백은 add column nullable + 미복원 주석.
 - [ ] **Step 3: 계약 테스트** — drop column 존재·롤백 add column·데이터 미복원 주석 assert.
 - [ ] **Step 4: 커밋** — 마이그레이션 단독 / 테스트 별도.
 
@@ -185,9 +185,9 @@ tools/wbs.ts:143: `level: item.level` → **`level: (['phase','task','activity']
 
 - [ ] **Step 1**: `npm run test && npm run lint && npm run build` 전량.
 - [ ] **Step 2: 배포 전 스냅샷** — D-CUBE ① WBS 엑셀 익스포트 파일 ② 주간보고 PPT·엑셀 다운로드(있으면) ③ 봇 답변 샘플 ④ `select md5(...) from wbs_items where project_id=7a1c...` 해시.
-- [ ] **Step 3: Task 1~4 배포** — 브랜치 push(UI 위험 파일 없음 — 서버·라이브러리·라우트만) → main 머지·push → Ready → `npm run smoke:prod`. **0062는 코드 배포 후 적용**(RPC가 level 생략 — 컬럼은 아직 존재).
-- [ ] **Step 4: 회귀 0 판정** — Step 2 스냅샷과 재비교: 엑셀 익스포트 셀 diff, 주간보고 산출물, 봇 답변(임베딩 텍스트 'Activity' 유지 → 재색인 불필요 확인), 대시보드 KPI. **다르면 즉시 롤백**(0062_rollback → 코드 revert). 통과 시 `npm run mark:good`.
-- [ ] **Step 5: Task 5·6 실행(별도 배포)** — Step 4 mark:good 후에만. grep으로 level 참조 0 재확인 → 0063 적용(drop) + 구 경로 제거 코드 배포 → smoke → 육안(WBS·마법사·봇·주간보고 정상) → `mark:good`. 롤백: 0063_rollback(컬럼만 복원) → 코드 revert.
+- [ ] **Step 3: Task 1~4 배포** — 브랜치 push(UI 위험 파일 없음 — 서버·라이브러리·라우트만) → main 머지·push → Ready → `npm run smoke:prod`. **0063은 코드 배포 후 적용**(RPC가 level 생략 — 컬럼은 아직 존재).
+- [ ] **Step 4: 회귀 0 판정** — Step 2 스냅샷과 재비교: 엑셀 익스포트 셀 diff, 주간보고 산출물, 봇 답변(임베딩 텍스트 'Activity' 유지 → 재색인 불필요 확인), 대시보드 KPI. **다르면 즉시 롤백**(0063_rollback → 코드 revert). 통과 시 `npm run mark:good`.
+- [ ] **Step 5: Task 5·6 실행(별도 배포)** — Step 4 mark:good 후에만. grep으로 level 참조 0 재확인 → 0064 적용(drop) + 구 경로 제거 코드 배포 → smoke → 육안(WBS·마법사·봇·주간보고 정상) → `mark:good`. 롤백: 0064_rollback(컬럼만 복원) → 코드 revert.
 - [ ] **Step 6**: 메모리 갱신 — 범용화 로드맵 P1·P2·§6·단계 5·6 전부 완료. `generic-wbs-core`·`ntier-ui-feature` 메모의 "Plan D" 항목 해소. 남은 건 P3(메뉴)·P4(주간보고 구분 마스터)·P5(브랜드)·P6(전역 축)·P7(로케일).
 
 ---

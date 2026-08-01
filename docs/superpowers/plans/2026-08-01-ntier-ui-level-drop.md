@@ -22,7 +22,7 @@
 - **회귀 0이 유일한 합격 기준**(§2-4): 각 배포 후 D-CUBE의 ① WBS 화면(레벨 배지 텍스트 `PHASE/TASK/ACT`·SUB-ACT, 트리 구조, 행 배경, 자식추가 버튼 노출)이 육안 동일 ② 엑셀 익스포트 셀 단위 동일 ③ 대시보드 KPI·스냅샷 동일 ④ `npm run test`·`npm run smoke:prod` 초록.
 - **`level` 컬럼 drop(T7)은 T1~T6 배포·`mark:good` 완료 후에만.** 비가역이므로 UI가 depth로 정상 동작함을 프로덕션에서 확인한 뒤 별도 배포. drop 전까지 insert 경로는 `level`을 계속 써도 무방하나 UI·신규 코드는 읽지 않는다.
 - **UI 위험 파일 규칙**(CLAUDE.md·§10.8): `WbsGanttSheet.tsx`·`RowDetailPanel.tsx`·`shared.tsx`·`WbsProgressLens.tsx`는 브랜치 push로 G2 통과 후 배포, **배포 후 smoke+육안 필수**(Preview는 로그인 화면 못 봄). `src/components/app/*`·`globals.css`·`layout.tsx`는 이 계획에서 절대 무접촉.
-- 마이그레이션(0062 RPC 교체, 0063 drop)은 단독 커밋 + `_rollback.sql`(G1). 적용은 Management API. 다음 번호는 착수 시 `ls supabase/migrations | tail`로 재확인(기준 0062·0063).
+- 마이그레이션(0063 RPC 교체, 0064 drop)은 단독 커밋 + `_rollback.sql`(G1). 적용은 Management API. 0062는 Major Process가 사용하므로 다음 번호는 착수 시 `ls supabase/migrations | tail`로 재확인(기준 0063·0064).
 - 에러 3원칙 유지. `git add -A` 금지. 커밋 한국어 "왜" + 트레일러 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 - **D-CUBE 설정 실측(회귀 기준값)**: `level_labels=['Phase','Task','Activity']`, `max_depth=3`, sub-act는 `is_owner_split=true`(depth에 미포함). 배지 현행: `LEVEL[phase]={PHASE,brand}`, `[task]={TASK,progress}`, `[activity]={ACT,pending}`, SUB-ACT={SUB-ACT, surface-2}(shared.tsx:23-31).
 
@@ -212,27 +212,27 @@ it('sub-act 분리 = 리프이고 자기 자신이 sub-act 아님', () => {
 - Modify: `src/app/actions/wbs.ts` addWbsItem(level 인자 제거·insert에서 level 제외)·addSubAct(insert에서 `level:'activity'` 제외)
 - Modify: `src/lib/domain/types.ts` (WbsRow에서 `level` 제거)
 - Modify: `src/lib/data/wbs.ts:72`·`snapshots.ts:54`·`trend.ts:36` (level 매핑 제거)
-- Create: `supabase/migrations/0062_wbs_rpc_drop_level.sql` + rollback (import_wbs·replace_wbs가 level을 insert하지 않게 `create or replace`)
-- Test: 기존 addWbsItem/addSubAct·import 테스트 회귀 + 0062 계약 테스트
+- Create: `supabase/migrations/0063_wbs_rpc_drop_level.sql` + rollback (import_wbs·replace_wbs가 level을 insert하지 않게 `create or replace`)
+- Test: 기존 addWbsItem/addSubAct·import 테스트 회귀 + 0063 계약 테스트
 
 **Interfaces:**
 - Consumes: Task 2·3의 depth 어포던스(addWbsItem 호출부가 level을 안 넘겨도 되게 이미 정리됨).
-- Produces: `addWbsItem(projectId, parentId, name)` — level 인자 제거. insert에서 level 컬럼 안 씀(0062 이후 컬럼이 nullable이라 안 넣어도 됨 — drop은 T7). import_wbs·replace_wbs RPC가 level을 insert하지 않게 교체(is_owner_split·code 등은 유지). `WbsRow`에서 level 필드 제거 → tsc가 남은 소비처 전수 노출(Task 2~4에서 이미 걷어냈으므로 data 매핑 3곳만 남아야 함).
+- Produces: `addWbsItem(projectId, parentId, name)` — level 인자 제거. insert에서 level 컬럼 안 씀(0063 이후 컬럼이 nullable이라 안 넣어도 됨 — drop은 T7). import_wbs·replace_wbs RPC가 level을 insert하지 않게 교체(is_owner_split·code 등은 유지). `WbsRow`에서 level 필드 제거 → tsc가 남은 소비처 전수 노출(Task 2~4에서 이미 걷어냈으므로 data 매핑 3곳만 남아야 함).
 
 - [ ] **Step 1: WbsRow.level 제거 후 tsc로 잔존 소비처 확인** — `npx tsc --noEmit`이 드러내는 곳이 정확히 data/wbs·snapshots·trend(매핑)와 addWbsItem 시그니처뿐이어야 한다. UI에 남아 있으면 Task 2~4 미완 — 되돌아가 정리.
-- [ ] **Step 2: 액션·매핑·RPC 정리** — addWbsItem 시그니처·insert, addSubAct insert, data 매핑 3곳 제거. 0062 마이그레이션: import_wbs·replace_wbs를 level 없이 `create or replace`(0060/0061 본문에서 level insert 라인만 제거 — 나머지 바이트 동일). 롤백은 0060/0061 정의 복원.
-- [ ] **Step 3: 계약 테스트** — 0062가 두 RPC에서 level 미포함·is_owner_split 유지·롤백 복원을 assert.
+- [ ] **Step 2: 액션·매핑·RPC 정리** — addWbsItem 시그니처·insert, addSubAct insert, data 매핑 3곳 제거. 0063 마이그레이션: import_wbs·replace_wbs를 level 없이 `create or replace`(0060/0061 본문에서 level insert 라인만 제거 — 나머지 바이트 동일). 롤백은 0060/0061 정의 복원.
+- [ ] **Step 3: 계약 테스트** — 0063이 두 RPC에서 level 미포함·is_owner_split 유지·롤백 복원을 assert.
 - [ ] **Step 4: GREEN** — `npx vitest run` 전량 + tsc + eslint. (level 컬럼은 아직 존재·nullable이라 insert 생략이 안전.)
-- [ ] **Step 5: 커밋 2개** — 코드(액션·타입·매핑) 단독 / 마이그레이션 0062 단독(G1).
+- [ ] **Step 5: 커밋 2개** — 코드(액션·타입·매핑) 단독 / 마이그레이션 0063 단독(G1).
 
 ---
 
-### Task 7: 0063 — level 컬럼 drop (게이트: T1~T6 배포·mark:good 후) + 구 임포트 경로 제거
+### Task 7: 0064 — level 컬럼 drop (게이트: T1~T6 배포·mark:good 후) + 구 임포트 경로 제거
 
 **Files:**
-- Create: `supabase/migrations/0063_drop_wbs_level.sql` + rollback
+- Create: `supabase/migrations/0064_drop_wbs_level.sql` + rollback
 - Modify/Delete: 구 임포트 라우트(`src/app/api/import/route.ts`)·`src/lib/excel/parse.ts`·`validate.ts`의 구 export 중 Plan B가 대체한 것(§11 단계 6 — 마법사가 대체하므로 제거. 단 `splitLeafOwners`는 parseWithProfile이 재사용하므로 유지)
-- Test: 0063 계약 테스트 + 제거 라우트의 참조 0 확인
+- Test: 0064 계약 테스트 + 제거 라우트의 참조 0 확인
 
 **⚠️ 이 태스크는 T1~T6가 프로덕션 배포되고 `mark:good`된 뒤에만 실행한다**(Global Constraints). level을 읽는 코드가 프로덕션에 하나도 없음을 확인한 상태에서만 drop이 안전하다.
 
@@ -240,10 +240,10 @@ it('sub-act 분리 = 리프이고 자기 자신이 sub-act 아님', () => {
 - Produces: `alter table wbs_items drop column level`. 구 임포트 라우트/파서 제거로 코드가 level을 참조하는 곳이 0. 롤백은 `add column level text`(nullable, 데이터 복원 불가 — 주석 명시: is_owner_split·트리로 재파생 가능하나 이 마이그레이션은 컬럼만 되살린다).
 
 - [ ] **Step 1: drop 전 최종 확인** — `grep -rn "\.level\b\|'level'\|\"level\"" src/ | grep -v level_labels | grep -v levelLabels` → wbs_items.level 참조 0건(민트·폴더 등 다른 level은 제외). RPC도 `pg_get_functiondef`로 level 미참조 확인.
-- [ ] **Step 2: 0063 SQL + 롤백** — begin/commit·search_path 핀. drop column. 롤백은 add column nullable + 데이터 미복원 주석.
+- [ ] **Step 2: 0064 SQL + 롤백** — begin/commit·search_path 핀. drop column. 롤백은 add column nullable + 데이터 미복원 주석.
 - [ ] **Step 3: 구 임포트 라우트·파서 제거** — `src/app/api/import/route.ts` 삭제(마법사가 대체), `parse.ts`의 `parseWbsWorkbook`·`LEGACY_COLUMN_MAP` 등 Plan B가 대체한 export 제거. **`splitLeafOwners`(validate.ts)는 parseWithProfile이 import하므로 유지** — 제거 전 `grep -rn "splitLeafOwners\|validateAndLink\|parseWbsWorkbook"`로 잔존 참조 확인. WbsImportForm의 구 폼도 제거하고 마법사 링크만 남길지 결정(구현 시 — 사용자 확인 대상일 수 있어 리포트에 명시).
 - [ ] **Step 4: GREEN** — `npx vitest run` 전량 + tsc + build. 제거로 깨지는 테스트가 있으면 그 테스트도 구 경로 전용인지 확인 후 제거.
-- [ ] **Step 5: 커밋 2개** — 코드(구 경로 제거) 단독 / 마이그레이션 0063 단독.
+- [ ] **Step 5: 커밋 2개** — 코드(구 경로 제거) 단독 / 마이그레이션 0064 단독.
 
 ---
 
@@ -251,9 +251,9 @@ it('sub-act 분리 = 리프이고 자기 자신이 sub-act 아님', () => {
 
 - [ ] **Step 1**: `npm run test && npm run lint && npm run build` 전량.
 - [ ] **Step 2**: 배포 전 D-CUBE 스냅샷 — WBS 엑셀 익스포트 파일 보관 + 화면 캡처(레벨 배지·트리·자식추가 버튼) + `select md5(...) from wbs_items where project_id=7a1c6034...` 해시.
-- [ ] **Step 3: T1~T6 배포** — 브랜치 push(G2, UI 위험 파일 포함) → main 머지·push → Ready → `npm run smoke:prod`. **0062는 코드 배포 후 적용**(RPC가 level 생략 — 컬럼은 아직 존재).
-- [ ] **Step 4: 회귀 0 육안 판정** — D-CUBE WBS 화면 열어 ① 레벨 배지 텍스트/색 동일 ② 트리·행 배경 동일 ③ 자식추가 버튼 노출 위치 동일 ④ 엑셀 재익스포트 셀 비교(Step 2 파일과 diff) ⑤ 대시보드 KPI 동일. **다르면 즉시 롤백**(0062_rollback → 코드 revert). 통과 시 `npm run mark:good`.
-- [ ] **Step 5: T7 실행(별도 배포)** — Step 4 mark:good 후에만. grep으로 level 참조 0 재확인 → 0063 적용(drop) + 구 경로 제거 코드 배포 → smoke → 육안(WBS·임포트 마법사 정상) → `mark:good`. 롤백: 0063_rollback(컬럼만 복원) → 코드 revert.
+- [ ] **Step 3: T1~T6 배포** — 브랜치 push(G2, UI 위험 파일 포함) → main 머지·push → Ready → `npm run smoke:prod`. **0063은 코드 배포 후 적용**(RPC가 level 생략 — 컬럼은 아직 존재).
+- [ ] **Step 4: 회귀 0 육안 판정** — D-CUBE WBS 화면 열어 ① 레벨 배지 텍스트/색 동일 ② 트리·행 배경 동일 ③ 자식추가 버튼 노출 위치 동일 ④ 엑셀 재익스포트 셀 비교(Step 2 파일과 diff) ⑤ 대시보드 KPI 동일. **다르면 즉시 롤백**(0063_rollback → 코드 revert). 통과 시 `npm run mark:good`.
+- [ ] **Step 5: T7 실행(별도 배포)** — Step 4 mark:good 후에만. grep으로 level 참조 0 재확인 → 0064 적용(drop) + 구 경로 제거 코드 배포 → smoke → 육안(WBS·임포트 마법사 정상) → `mark:good`. 롤백: 0064_rollback(컬럼만 복원) → 코드 revert.
 - [ ] **Step 6**: 메모리 갱신(Plan C 완료, level 컬럼 제거, 구 임포트 경로 제거) + `generic-wbs-core` 메모리의 "Plan C 선행조건" 해소 기록.
 
 ---
