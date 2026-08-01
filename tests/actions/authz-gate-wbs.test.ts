@@ -32,11 +32,6 @@ vi.mock('@/lib/auth', () => ({ getSession, getMembership: vi.fn(), getDisplayNam
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
 vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: vi.fn() }))
 vi.mock('@/lib/ai/ingest', () => ({ ingestProject: vi.fn(async () => ({ count: 0 })) }))
-vi.mock('@/lib/excel/parse', () => ({ parseWbsWorkbook: vi.fn(() => ({ rows: [], holidays: [] })) }))
-vi.mock('@/lib/excel/validate', () => ({
-  validateAndLink: vi.fn(() => ({ ok: true, items: [] })), splitLeafOwners: vi.fn((i: unknown) => i),
-}))
-vi.mock('@/lib/teams/master', () => ({ teamsSync: vi.fn(() => []) }))
 
 import {
   updateActual, updateWeight, updateDeliverable, addWbsItem, addSubAct,
@@ -44,15 +39,11 @@ import {
   getChangeLogs,
 } from '@/app/actions/wbs'
 import { createProject, updateProject, setBaseDate, addHoliday, removeHoliday } from '@/app/actions/project'
-import { POST as IMPORT_POST } from '@/app/api/import/route'
 
 const DENIED = { ok: false as const, error: '권한 없음' }
 const ANON = { ok: false as const, error: '로그인 필요' }
 const LOOKUP_FAILED = { ok: false as const, error: '권한을 확인할 수 없어 중단했습니다.' }
 const MISSING = { ok: false as const, error: '대상을 찾을 수 없습니다.' }
-const ACTOR = {
-  userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false, projectRoles: new Map(),
-}
 
 beforeEach(() => {
   state.client = undefined
@@ -177,51 +168,5 @@ describe('프로젝트 액션', () => {
     getSession.mockResolvedValue(null)
     expect(await getChangeLogs('i1')).toEqual([])
     expect(createServerClient).not.toHaveBeenCalled()
-  })
-})
-
-describe('임포트 라우트 — 본문 projectId 로 관리자 판정, 상태코드 유지', () => {
-  function reqWith(fields: Record<string, string | Blob>) {
-    const form = new FormData()
-    for (const [k, v] of Object.entries(fields)) form.append(k, v)
-    return { formData: async () => form } as unknown as Parameters<typeof IMPORT_POST>[0]
-  }
-  const FILE = new Blob(['x'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-
-  it('권한 없음 → 403', async () => {
-    requireProjectAdmin.mockResolvedValue(DENIED)
-    const res = await IMPORT_POST(reqWith({ file: FILE, projectId: 'p1' }))
-    expect(res.status).toBe(403)
-    expect(await res.json()).toEqual({ error: '권한 없음' })
-    expect(requireProjectAdmin).toHaveBeenCalledWith('p1')
-    expect(createServerClient).not.toHaveBeenCalled()
-  })
-
-  it('비로그인 → 401', async () => {
-    requireProjectAdmin.mockResolvedValue(ANON)
-    const res = await IMPORT_POST(reqWith({ file: FILE, projectId: 'p1' }))
-    expect(res.status).toBe(401)
-    expect(await res.json()).toEqual({ error: '로그인 필요' })
-  })
-
-  it('권한 조회 실패 → 500(거부가 아니라 서버 사정)', async () => {
-    requireProjectAdmin.mockResolvedValue(LOOKUP_FAILED)
-    const res = await IMPORT_POST(reqWith({ file: FILE, projectId: 'p1' }))
-    expect(res.status).toBe(500)
-    expect(await res.json()).toEqual({ error: LOOKUP_FAILED.error })
-  })
-
-  it('projectId 누락 → 400, 가드 호출 없음', async () => {
-    const res = await IMPORT_POST(reqWith({ file: FILE }))
-    expect(res.status).toBe(400)
-    expect(requireProjectAdmin).not.toHaveBeenCalled()
-  })
-
-  it('가드 통과 시 비로소 DB 로 간다', async () => {
-    requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
-    state.client = { rpc: vi.fn(async () => ({ data: 0, error: null })) }
-    const res = await IMPORT_POST(reqWith({ file: FILE, projectId: 'p1' }))
-    expect(res.status).toBe(200)
-    expect(createServerClient).toHaveBeenCalled()
   })
 })

@@ -75,6 +75,14 @@ function owners(row: unknown[], teamCols: readonly [number, TeamCode][]): Parsed
   return out
 }
 
+/**
+ * 정본(5팀 고정 양식) 워크북 파서.
+ *
+ * ⚠️ 프로덕션 임포트는 마법사(`parseWithProfile`)가 담당한다 — 구 `/api/import` 라우트를
+ * 제거하면서(§11 단계 6) 이 함수의 런타임 호출자는 사라졌다. 이제 이 파서는 **테스트 전용
+ * 오라클**이다: `parse-with-profile.test.ts`가 마법사 파서의 등가성을, `export.test.ts`가
+ * 익스포트 라운드트립을 이 함수 기준으로 검증한다. 삭제하면 그 등가성 증명이 함께 사라진다.
+ */
 export function parseWbsWorkbook(buf: ArrayBuffer): ParsedWbs {
   // cellDates:false — 날짜를 시리얼(정수)로 유지해 toIso 에서 타임존 무관 변환(위 참조).
   const wb = XLSX.read(buf, { type: 'array', cellDates: false })

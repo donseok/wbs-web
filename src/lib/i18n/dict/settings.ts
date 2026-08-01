@@ -31,7 +31,8 @@ export const settingsKo = {
   'settings.pmoOnlyBadge': 'PMO 관리자 전용',
   // WBS 가져오기 · 내보내기
   'settings.importExportTitle': 'WBS 데이터 가져오기 · 내보내기',
-  'settings.importDesc': 'Excel 형식의 작업 구조와 일정을 프로젝트에 반영합니다.',
+  'settings.importDesc': 'Excel 형식의 작업 구조와 일정을 프로젝트에 반영합니다. 어떤 양식이든 마법사가 자동 감지합니다.',
+  'settings.openImportWizard': '가져오기 마법사 열기',
   'settings.noImportPermission': '가져오기 권한이 없습니다',
   'settings.noImportPermissionDesc': '프로젝트의 PMO 관리자에게 WBS 업데이트를 요청하세요.',
   'settings.exportDesc': '현재 WBS·일정·담당·실적을 Excel로 내려받습니다. 같은 형식으로 다시 가져올 수 있어요.',
@@ -166,7 +167,8 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   'settings.pmoOnlyBadge': 'PMO admins only',
   // WBS import · export
   'settings.importExportTitle': 'WBS data import · export',
-  'settings.importDesc': 'Apply an Excel work structure and schedule to this project.',
+  'settings.importDesc': 'Apply an Excel work structure and schedule to this project. The wizard auto-detects any layout.',
+  'settings.openImportWizard': 'Open import wizard',
   'settings.noImportPermission': 'No import permission',
   'settings.noImportPermissionDesc': 'Ask the project PMO admin to update the WBS.',
   'settings.exportDesc': 'Download the current WBS, schedule, owners, and actuals as Excel. The same format can be re-imported.',

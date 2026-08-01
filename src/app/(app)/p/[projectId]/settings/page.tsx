@@ -14,7 +14,6 @@ import { SectionCard } from '@/components/ui/SectionCard'
 import { collectLeaves, fmtDate } from '@/components/wbs/shared'
 import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButton'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
-import { WbsImportForm } from '@/components/settings/WbsImportForm'
 import { ReindexButton } from '@/components/settings/ReindexButton'
 import { dkbotIndexStatus, type IndexStatus } from '@/lib/ai/health'
 import { t, type Locale } from '@/lib/i18n/dict'
@@ -194,7 +193,11 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
           {t(locale, 'settings.importDesc')}
         </p>
         {canMutate ? (
-          <WbsImportForm projectId={projectId} />
+          <Link href={`/p/${projectId}/import`} className="btn btn-primary">
+            <Upload className="h-4 w-4" />
+            {t(locale, 'settings.openImportWizard')}
+            <ArrowUpRight className="h-4 w-4" />
+          </Link>
         ) : (
           <div className="panel-soft flex items-center gap-4 p-5">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pending-weak text-pending">
