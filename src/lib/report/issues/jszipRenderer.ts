@@ -14,6 +14,15 @@ import {
   type IssueAnalysisDeckSlide,
 } from './deckPlan'
 import {
+  ISSUE_ANALYSIS_DEFINITION_ROW_CAPACITY,
+  ISSUE_ANALYSIS_TREE_COLUMN_CAPACITY,
+  ISSUE_ANALYSIS_TREE_SUB_CAPACITY,
+} from './processPages'
+import {
+  renderProcessDefinitionSlide,
+  renderProcessTreeSlide,
+} from './processSlideRenderer'
+import {
   CONNECTOR_RE,
   END_RPR_RE,
   GRAPHIC_FRAME_RE,
@@ -683,6 +692,12 @@ function renderSlide(
     case 'approach':
       xml = setPageFooter(xml, outputPage, plan.meta.authorName)
       break
+    case 'process-tree':
+      xml = renderProcessTreeSlide(sourceXml, slide, plan, outputPage)
+      break
+    case 'process-definition':
+      xml = renderProcessDefinitionSlide(sourceXml, slide, plan, outputPage)
+      break
     case 'area-summary':
       xml = setPageFooter(xml, outputPage, plan.meta.authorName)
       xml = setShapeText(
@@ -725,6 +740,8 @@ function expectedSourceSlide(slide: IssueAnalysisDeckSlide): number {
     case 'cover': return 1
     case 'contents': return slide.sourceSlide
     case 'approach': return 3
+    case 'process-tree': return 5
+    case 'process-definition': return 6
     case 'area-summary': return 8
     case 'area-summary-continuation': return 9
     case 'cause-analysis': return 10
@@ -753,6 +770,38 @@ function validatePlan(plan: IssueAnalysisDeckPlan): void {
       throw new Error(
         `[issue-analysis] 출력 ${index + 1}페이지의 목차 원본 매핑이 올바르지 않습니다.`,
       )
+    }
+    if (slide.kind === 'process-tree') {
+      if (
+        !slide.columns.length
+        || slide.columns.length > ISSUE_ANALYSIS_TREE_COLUMN_CAPACITY
+        || slide.pageInSeries < 1
+        || slide.pageInSeries > slide.pageCount
+        || !slide.headline
+        || slide.columns.some(column =>
+          !column.label
+          || column.subs.length > ISSUE_ANALYSIS_TREE_SUB_CAPACITY
+          || column.subs.some(sub => !sub))
+      ) {
+        throw new Error(
+          `[issue-analysis] 출력 ${index + 1}페이지의 프로세스 트리 배치가 올바르지 않습니다.`,
+        )
+      }
+    }
+    if (slide.kind === 'process-definition') {
+      if (
+        !slide.rows.length
+        || slide.rows.length > ISSUE_ANALYSIS_DEFINITION_ROW_CAPACITY
+        || !slide.megaDefinition
+        || !slide.headline
+        || slide.pageInSeries < 1
+        || slide.pageInSeries > slide.pageCount
+        || slide.rows.some(row => !row.seqLabel || !row.name || !row.definition)
+      ) {
+        throw new Error(
+          `[issue-analysis] 출력 ${index + 1}페이지의 프로세스 정의 배치가 올바르지 않습니다.`,
+        )
+      }
     }
     if (slide.kind === 'opportunity') {
       const usedUnits = slide.blocks.reduce((sum, block) => sum + block.rowUnits, 0)
@@ -853,6 +902,10 @@ function slideMetadataTitle(slide: IssueAnalysisDeckSlide): string {
       return '개선기회 도출'
     case 'approach':
       return '이슈 분석 수행 방법'
+    case 'process-tree':
+      return `As-Is 프로세스 체계 – ${slide.megaCode}_${slide.megaName}`
+    case 'process-definition':
+      return `As-Is 프로세스 정의 – ${slide.megaCode}_${slide.megaName}`
     case 'area-summary':
     case 'area-summary-continuation':
       return `영역별 이슈 종합 – ${slide.megaCode}_${slide.megaName}`
