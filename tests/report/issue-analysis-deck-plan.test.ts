@@ -5,11 +5,13 @@ import type {
   IssueAnalysisReportIssue,
 } from '@/lib/report/issues/model'
 import {
-  boundedHeaderLines,
-  boundedSourceLines,
   buildIssueAnalysisDeckPlan,
+  estimateIssueAnalysisLineCount,
+  fullHeaderLines,
+  fullSourceLines,
   issueSourceLines,
-  truncateIssueAnalysisText,
+  normalizeIssueAnalysisMultilineText,
+  splitIssueAnalysisTextForRows,
 } from '@/lib/report/issues/deckPlan'
 
 function issue(index: number, megaCode = '02'): IssueAnalysisReportIssue {
@@ -181,23 +183,100 @@ describe('PPT 표시 정규화', () => {
     ])
   })
 
-  it('헤더 용량을 넘으면 생략 수를 명시한다', () => {
-    expect(boundedHeaderLines(['A', 'B', 'C', 'D'], 3)).toEqual([
-      'A', 'B', '외 2개',
-    ])
-    expect(boundedHeaderLines(['A', 'A', 'B'], 3)).toEqual(['A', 'B'])
-  })
-
-  it('고정 템플릿 셀을 넘는 본문과 복수 원천을 명시적 말줄임으로 제한한다', () => {
-    expect(truncateIssueAnalysisText('가'.repeat(100), 10)).toBe(`${'가'.repeat(9)}…`)
-    expect(boundedSourceLines([
+  it('헤더와 원천은 중복만 제거하고 모든 값을 보존한다', () => {
+    expect(fullHeaderLines(['A', 'B', 'C', 'D'])).toEqual(['A', 'B', 'C', 'D'])
+    expect(fullHeaderLines(['A', 'A', 'B'])).toEqual(['A', 'B'])
+    expect(fullSourceLines([
       '현업 인터뷰',
       '기존 산출물',
       '회의록 · 2026-07-30 PI 주간회의',
       '데이터 분석',
     ])).toEqual([
       '현업 인터뷰',
-      '외 3개 원천',
+      '기존 산출물',
+      '회의록 · 2026-07-30 PI 주간회의',
+      '데이터 분석',
     ])
+  })
+
+  it('본문 구역과 개행을 보존하고 과도한 빈 줄만 정리한다', () => {
+    expect(normalizeIssueAnalysisMultilineText(
+      '[현황]\r\n- 기준 불일치  \r\n\r\n\r\n[문제/영향]\r\n- 확인 지연',
+    )).toBe('[현황]\n- 기준 불일치\n\n[문제/영향]\n- 확인 지연')
+  })
+
+  it('긴 텍스트를 유니코드 손실이나 말줄임 없이 표시 행으로 나눈다', () => {
+    const text = `저장위치·플랜트 기준 불일치 ${'가'.repeat(500)} 마지막 조치 문장.`
+    const chunks = splitIssueAnalysisTextForRows(text, 12, 5)
+    expect(chunks.length).toBeGreaterThan(1)
+    expect(chunks.join('')).toBe(text)
+    expect(chunks.every(chunk => estimateIssueAnalysisLineCount(chunk, 12) <= 5)).toBe(true)
+    expect(chunks.join('')).not.toContain('…')
+  })
+
+  it('저장 상한인 20,000자 본문도 마지막 코드포인트까지 보존한다', () => {
+    const text = `${'가'.repeat(19_990)}😀BODY-END`
+    expect(text.length).toBe(20_000)
+    const chunks = splitIssueAnalysisTextForRows(text, 34)
+    expect(chunks.length).toBeGreaterThan(1)
+    expect(chunks.join('')).toBe(text)
+    expect(chunks.every(chunk => estimateIssueAnalysisLineCount(chunk, 34) <= 15)).toBe(true)
+    expect(chunks.some(chunk => chunk.endsWith('\ud83d'))).toBe(false)
+    expect(chunks.some(chunk => chunk.startsWith('\ude00'))).toBe(false)
+  })
+
+  it('장문 제목·본문·Sub Process·원천을 전부 보존하며 내용량에 따라 페이지를 늘린다', () => {
+    const long = area(1)
+    const originalBody = [
+      '[현황]',
+      `- ${'기준 정보가 시스템별로 다릅니다. '.repeat(80)}`,
+      '[문제/영향]',
+      `- ${'확인과 정산이 지연됩니다. '.repeat(80)}`,
+      '[필요 조치]',
+      '- 관련 부서가 기준 일치화 방안을 확정해야 합니다. BODY-END',
+    ].join('\n')
+    long.issues[0] = {
+      ...long.issues[0],
+      title: `${'저장위치·플랜트·계정 기준 불일치 '.repeat(8)}TITLE-END`,
+      body: originalBody,
+      subProcess: `${'기준정보 정합성 검증/'.repeat(12)}SUB-END`,
+      source: {
+        manual: {
+          type: 'interview',
+          detail: Array.from({ length: 20 }, (_, index) => `관련 부서 인터뷰 ${index + 1}`).join(';'),
+        },
+        minutes: [],
+      },
+    }
+    long.opportunities[0].issueIds = [long.issues[0].id]
+
+    const plan = buildIssueAnalysisDeckPlan(report([long]), {
+      projectName: 'D-Cube',
+      authorName: '작성자',
+      authorTeam: 'PI팀',
+      generatedAt: '2026-07-31T00:00:00Z',
+    })
+    const issueSlides = plan.slides.filter(slide =>
+      slide.kind === 'area-summary' || slide.kind === 'area-summary-continuation')
+    const rows = issueSlides.flatMap(slide => slide.issues)
+
+    expect(issueSlides.length).toBeGreaterThan(1)
+    expect(rows.map(row => row.body).join('')).toBe(normalizeIssueAnalysisMultilineText(originalBody))
+    expect(rows.map(row => row.title).join('')).toContain('TITLE-END')
+    expect(rows.map(row => row.subProcess).join('')).toContain('SUB-END')
+    expect(rows.flatMap(row => row.sourceLines).join('\n')).toContain('관련 부서 인터뷰 20')
+    expect(rows.every(row => row.continuationCount === rows.length)).toBe(true)
+    expect(rows.map(row => `${row.title}${row.body}${row.subProcess}${row.sourceLines.join('')}`).join(''))
+      .not.toContain('…')
+
+    for (const slide of issueSlides) {
+      const capacity = slide.kind === 'area-summary' ? 3 : 5
+      expect(slide.issues.reduce((sum, row) => sum + row.rowUnits, 0)).toBeLessThanOrEqual(capacity)
+    }
+    const opportunity = plan.slides.find(slide => slide.kind === 'opportunity')
+    expect(opportunity).toMatchObject({
+      kind: 'opportunity',
+      issues: [{ title: expect.stringContaining('TITLE-END') }],
+    })
   })
 })

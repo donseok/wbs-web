@@ -4,7 +4,7 @@ import JSZip from 'jszip'
 import { readFile } from 'node:fs/promises'
 import { ISSUE_ANALYSIS_TEMPLATE_PATH } from './template'
 import type {
-  IssueAnalysisDeckIssue,
+  IssueAnalysisDeckIssueRow,
   IssueAnalysisDeckPlan,
   IssueAnalysisDeckSlide,
 } from './deckPlan'
@@ -116,25 +116,86 @@ function toRunProperties(endProperties: string): string {
     .replace(/<\/a:endParaRPr>$/, '</a:rPr>')
 }
 
-function rebuildParagraph(paragraphXml: string, value: string): string {
+type ParagraphKind = 'plain' | 'heading' | 'bullet'
+type TextBodyMode = 'plain' | 'issue-body'
+
+const BULLET_PROPERTIES_RE = new RegExp([
+  '<a:bu(?:ClrTx|SzTx|FontTx|None)\\b[^>]*\\/>',
+  '<a:bu(?:Clr|SzPct|SzPts|Font|AutoNum|Char)\\b[^>]*\\/>',
+  '<a:buBlip\\b[\\s\\S]*?<\\/a:buBlip>',
+].join('|'), 'g')
+
+function appendParagraphProperty(pPr: string, property: string): string {
+  if (!pPr) return `<a:pPr>${property}</a:pPr>`
+  if (/\/>$/.test(pPr)) return pPr.replace(/\/>$/, `>${property}</a:pPr>`)
+  return pPr.replace('</a:pPr>', `${property}</a:pPr>`)
+}
+
+function withoutBullet(pPr: string): string {
+  const cleaned = pPr
+    .replace(BULLET_PROPERTIES_RE, '')
+    .replace(/\s(?:marL|indent)="-?\d+"/g, '')
+  return appendParagraphProperty(cleaned, '<a:buNone/>')
+}
+
+function withBullet(pPr: string): string {
+  const cleaned = pPr.replace(/<a:buNone\b[^>]*\/>/g, '')
+  if (/<a:bu(?:AutoNum|Char|Blip)\b/.test(cleaned)) return cleaned
+  return appendParagraphProperty(cleaned, '<a:buChar char="•"/>')
+}
+
+function withBold(runProperties: string): string {
+  if (/\bb="[01]"/.test(runProperties)) {
+    return runProperties.replace(/\bb="[01]"/, 'b="1"')
+  }
+  return runProperties.replace(/^<a:rPr\b/, '<a:rPr b="1"')
+}
+
+function rebuildParagraph(
+  paragraphXml: string,
+  value: string,
+  kind: ParagraphKind = 'plain',
+): string {
   const open = paragraphXml.match(/^<a:p(?:\s[^>]*)?>/)?.[0] ?? '<a:p>'
-  const pPr = paragraphXml.match(PPR_RE)?.[0] ?? ''
+  const sourcePPr = paragraphXml.match(PPR_RE)?.[0] ?? ''
+  const pPr = kind === 'bullet' ? withBullet(sourcePPr) : withoutBullet(sourcePPr)
   const sourceEnd = paragraphXml.match(END_RPR_RE)?.[0] ?? ''
-  const rPr = paragraphXml.match(RPR_RE)?.[0]
+  const sourceRPr = paragraphXml.match(RPR_RE)?.[0]
     ?? (sourceEnd ? toRunProperties(sourceEnd) : '<a:rPr/>')
+  const rPr = kind === 'heading' ? withBold(sourceRPr) : sourceRPr
   const end = sourceEnd || toEndRunProperties(rPr)
   if (!value) return `${open}${pPr}${end}</a:p>`
   return `${open}${pPr}<a:r>${rPr}${textNode(value)}</a:r>${end}</a:p>`
 }
 
-function rebuildTextBody(textBodyXml: string, value: string): string {
+function withNormalAutofit(bodyPrXml: string): string {
+  const withoutAutofit = bodyPrXml.replace(
+    /<a:(?:noAutofit|normAutofit|spAutoFit)\b[^>]*\/>/g,
+    '',
+  )
+  if (/\/>$/.test(withoutAutofit)) {
+    return withoutAutofit.replace(/\/>$/, '><a:normAutofit/></a:bodyPr>')
+  }
+  if (!/<\/a:bodyPr>$/.test(withoutAutofit)) {
+    throw new Error('[issue-analysis] 텍스트 자동 맞춤 구조가 올바르지 않습니다.')
+  }
+  return withoutAutofit.replace('</a:bodyPr>', '<a:normAutofit/></a:bodyPr>')
+}
+
+function rebuildTextBody(
+  textBodyXml: string,
+  value: string,
+  normalAutofit = false,
+  mode: TextBodyMode = 'plain',
+): string {
   const open = textBodyXml.match(/^<(?:p|a):txBody\b[^>]*>/)?.[0]
   const close = textBodyXml.match(/<\/(?:p|a):txBody>$/)?.[0]
   if (!open || !close) throw new Error('[issue-analysis] 텍스트 본문 구조가 올바르지 않습니다.')
 
-  const bodyPr = textBodyXml.match(
+  const sourceBodyPr = textBodyXml.match(
     /<a:bodyPr\b[^>]*\/>|<a:bodyPr\b[\s\S]*?<\/a:bodyPr>/,
   )?.[0] ?? '<a:bodyPr/>'
+  const bodyPr = normalAutofit ? withNormalAutofit(sourceBodyPr) : sourceBodyPr
   const listStyle = textBodyXml.match(
     /<a:lstStyle\b[^>]*\/>|<a:lstStyle\b[\s\S]*?<\/a:lstStyle>/,
   )?.[0] ?? '<a:lstStyle/>'
@@ -144,20 +205,41 @@ function rebuildTextBody(textBodyXml: string, value: string): string {
   }
 
   const lines = value.split(/\r?\n/)
-  const paragraphs = lines.map((line, index) => rebuildParagraph(
-    sourceParagraphs[Math.min(index, sourceParagraphs.length - 1)],
-    line,
-  ))
+  const paragraphs = lines.map((line, index) => {
+    let valueForLine = line
+    let kind: ParagraphKind = 'plain'
+    if (mode === 'issue-body') {
+      if (/^\[(?:현황|문제[·/]영향|필요 조치)\]$/.test(line.trim())) {
+        kind = 'heading'
+      } else if (/^-\s+\S/.test(line.trimStart())) {
+        kind = 'bullet'
+        valueForLine = line.trimStart().replace(/^-\s+/, '')
+      }
+    }
+    return rebuildParagraph(
+      sourceParagraphs[Math.min(index, sourceParagraphs.length - 1)],
+      valueForLine,
+      kind,
+    )
+  })
   return `${open}${bodyPr}${listStyle}${paragraphs.join('')}${close}`
 }
 
-function setShapeText(slideXml: string, shapeId: string, value: string | number): string {
+function setShapeText(
+  slideXml: string,
+  shapeId: string,
+  value: string | number,
+  normalAutofit = false,
+): string {
   return mapShape(slideXml, shapeId, shapeXml => {
     const textBody = shapeXml.match(/<p:txBody\b[^>]*>[\s\S]*?<\/p:txBody>/)?.[0]
     if (!textBody) {
       throw new Error(`[issue-analysis] shape ${shapeId}에 텍스트 본문이 없습니다.`)
     }
-    return shapeXml.replace(textBody, () => rebuildTextBody(textBody, String(value)))
+    return shapeXml.replace(
+      textBody,
+      () => rebuildTextBody(textBody, String(value), normalAutofit),
+    )
   })
 }
 
@@ -189,16 +271,17 @@ function setShapeTextInset(
 function rebuildCoverTitle(textBodyXml: string, projectName: string): string {
   const open = textBodyXml.match(/^<p:txBody\b[^>]*>/)?.[0]
   const close = textBodyXml.match(/<\/p:txBody>$/)?.[0]
-  const bodyPr = textBodyXml.match(
+  const sourceBodyPr = textBodyXml.match(
     /<a:bodyPr\b[^>]*\/>|<a:bodyPr\b[\s\S]*?<\/a:bodyPr>/,
   )?.[0]
   const listStyle = textBodyXml.match(
     /<a:lstStyle\b[^>]*\/>|<a:lstStyle\b[\s\S]*?<\/a:lstStyle>/,
   )?.[0]
   const paragraph = textBodyXml.match(PARAGRAPH_RE)?.[0]
-  if (!open || !close || !bodyPr || !listStyle || !paragraph) {
+  if (!open || !close || !sourceBodyPr || !listStyle || !paragraph) {
     throw new Error('[issue-analysis] 표지 제목 구조가 올바르지 않습니다.')
   }
+  const bodyPr = withNormalAutofit(sourceBodyPr)
 
   const pOpen = paragraph.match(/^<a:p(?:\s[^>]*)?>/)?.[0] ?? '<a:p>'
   const pPr = paragraph.match(PPR_RE)?.[0] ?? ''
@@ -258,7 +341,12 @@ function setTableCellText(
   }
   const replacement = target.replace(
     textBody,
-    () => rebuildTextBody(textBody, value),
+    () => rebuildTextBody(
+      textBody,
+      value,
+      true,
+      rowIndex > 0 && columnIndex === 2 ? 'issue-body' : 'plain',
+    ),
   )
   let row = -1
   return tableXml.replace(TABLE_ROW_RE, rowXml => {
@@ -272,10 +360,13 @@ function setTableCellText(
   })
 }
 
-function issueRowValues(issue: IssueAnalysisDeckIssue | undefined): string[] {
+function issueRowValues(issue: IssueAnalysisDeckIssueRow | undefined): string[] {
   if (!issue) return ['', '', '', '', '']
+  const continuation = issue.continuationCount > 1
+    ? `\n(계속 ${issue.continuationIndex}/${issue.continuationCount})`
+    : ''
   return [
-    issue.piIssueCode,
+    `${issue.piIssueCode}${continuation}`,
     issue.title,
     issue.body,
     issue.subProcess,
@@ -283,9 +374,59 @@ function issueRowValues(issue: IssueAnalysisDeckIssue | undefined): string[] {
   ]
 }
 
+function tableRowHeight(rowXml: string): number {
+  const value = Number(rowXml.match(/<a:tr\b[^>]*\bh="(\d+)"/)?.[1] ?? 0)
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error('[issue-analysis] 표 행 높이가 올바르지 않습니다.')
+  }
+  return value
+}
+
+function setTableRowHeight(rowXml: string, value: number): string {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error('[issue-analysis] 계산된 표 행 높이가 올바르지 않습니다.')
+  }
+  if (!/<a:tr\b[^>]*\bh="\d+"/.test(rowXml)) {
+    throw new Error('[issue-analysis] 높이를 변경할 표 행을 찾을 수 없습니다.')
+  }
+  return rowXml.replace(
+    /(<a:tr\b[^>]*\bh=")\d+("[^>]*>)/,
+    `$1${value}$2`,
+  )
+}
+
+function issueRowHeights(
+  rows: readonly string[],
+  issues: readonly IssueAnalysisDeckIssueRow[],
+): number[] {
+  const totalHeight = rows.slice(1).reduce((sum, row) => sum + tableRowHeight(row), 0)
+  const totalUnits = issues.reduce((sum, issue) => sum + issue.rowUnits, 0)
+  if (!issues.length || totalUnits < 1) {
+    throw new Error('[issue-analysis] 이슈 표 페이지가 비어 있습니다.')
+  }
+
+  let remainingHeight = totalHeight
+  let remainingUnits = totalUnits
+  return issues.map((issue, index) => {
+    if (
+      !Number.isSafeInteger(issue.rowUnits)
+      || issue.rowUnits < 1
+      || issue.rowUnits > totalUnits
+    ) {
+      throw new Error(`[issue-analysis] ${issue.piIssueCode} 이슈 행 비율이 올바르지 않습니다.`)
+    }
+    const height = index === issues.length - 1
+      ? remainingHeight
+      : Math.floor((remainingHeight * issue.rowUnits) / remainingUnits)
+    remainingHeight -= height
+    remainingUnits -= issue.rowUnits
+    return height
+  })
+}
+
 function fillIssueTable(
   slideXml: string,
-  issues: IssueAnalysisDeckIssue[],
+  issues: IssueAnalysisDeckIssueRow[],
   capacity: number,
 ): string {
   return mapSingleXmlElement(
@@ -299,14 +440,27 @@ function fillIssueTable(
           `[issue-analysis] 표 행 수가 ${rowCount}개입니다. 예상값은 ${capacity + 1}개입니다.`,
         )
       }
+      if (!issues.length || issues.length > capacity) {
+        throw new Error(
+          `[issue-analysis] 표에 배치할 이슈 행 수가 ${issues.length}개입니다. 허용값은 1~${capacity}개입니다.`,
+        )
+      }
       let updated = setTableCellText(frameXml, 0, 3, '구분')
-      for (let index = 0; index < capacity; index += 1) {
+      for (let index = 0; index < issues.length; index += 1) {
         const values = issueRowValues(issues[index])
         for (let column = 0; column < values.length; column += 1) {
           updated = setTableCellText(updated, index + 1, column, values[column])
         }
       }
-      return updated
+      const rows = updated.match(TABLE_ROW_RE) ?? []
+      const heights = issueRowHeights(rows, issues)
+      let rowIndex = -1
+      return updated.replace(TABLE_ROW_RE, rowXml => {
+        rowIndex += 1
+        if (rowIndex === 0) return rowXml
+        if (rowIndex > issues.length) return ''
+        return setTableRowHeight(rowXml, heights[rowIndex - 1])
+      })
     },
     '이슈 표',
   )
@@ -320,7 +474,7 @@ function setPageFooter(
   footerShapeId = '6',
 ): string {
   let updated = setShapeText(slideXml, pageShapeId, pageNumber)
-  updated = setShapeText(updated, footerShapeId, `작성자_${authorName}`)
+  updated = setShapeText(updated, footerShapeId, `작성자_${authorName}`, true)
   return updated
 }
 
@@ -334,7 +488,7 @@ function renderSlide(
   switch (slide.kind) {
     case 'cover':
       xml = setCoverTitle(xml, slide.projectName)
-      xml = setShapeText(xml, '5', `${slide.authorLine}｜${slide.dateLabel}`)
+      xml = setShapeText(xml, '5', `${slide.authorLine}｜${slide.dateLabel}`, true)
       break
     case 'contents':
       xml = setShapeText(
@@ -356,8 +510,8 @@ function renderSlide(
       xml = setShapeText(xml, '100', '2. 영역 별 이슈 종합')
       xml = setShapeText(xml, '48', 'Mega')
       xml = setShapeText(xml, '49', `${slide.megaCode} ${slide.megaName}`)
-      xml = setShapeText(xml, '51', slide.ownerDepartmentLines.join('\n'))
-      xml = setShapeText(xml, '53', slide.relatedSystemLines.join('\n'))
+      xml = setShapeText(xml, '51', slide.ownerDepartmentLines.join('\n'), true)
+      xml = setShapeText(xml, '53', slide.relatedSystemLines.join('\n'), true)
       xml = fillIssueTable(xml, slide.issues, 3)
       break
     case 'area-summary-continuation':
@@ -373,7 +527,7 @@ function renderSlide(
     case 'opportunity': {
       xml = setPageFooter(xml, outputPage, plan.meta.authorName, '3', '6')
       xml = setShapeText(xml, '89', `${slide.megaCode}-${slide.megaName}`)
-      xml = setShapeText(xml, '45', `${slide.title}\n${slide.description}`)
+      xml = setShapeText(xml, '45', `${slide.title}\n${slide.description}`, true)
       // 개선기회 번호 배지가 상자 왼쪽 위를 덮는 원본 구조이므로 본문만 안쪽으로 이동한다.
       xml = setShapeTextInset(xml, '45', 'lIns', 360_000)
       xml = setShapeText(xml, '46', slide.opportunityNo)
@@ -388,7 +542,7 @@ function renderSlide(
         const card = cardIds[index]
         const issue = slide.issues[index]
         if (issue) {
-          xml = setShapeText(xml, card.title, issue.title)
+          xml = setShapeText(xml, card.title, issue.title, true)
           xml = setShapeText(xml, card.code, issue.piIssueCode)
         } else {
           xml = deleteShapeOrConnector(xml, card.title)

@@ -171,4 +171,70 @@ describe('이슈 분석서 PPT 내보내기', () => {
     expect(salesOpportunity).toContain('<p:cNvPr id="64"')
     expect(salesOpportunity).toContain('<p:cNvPr id="74"')
   })
+
+  it('장문 이슈를 말줄임 없이 여러 표 페이지에 배치하고 행 높이·자동 맞춤을 적용한다', async () => {
+    const sales = area('02', 1, 1)
+    sales.issues[0] = {
+      ...sales.issues[0],
+      title: `${'저장위치·플랜트·계정 기준이 시스템 간 상이함 '.repeat(8)}TITLE-END`,
+      body: [
+        '[현황]',
+        `- ${'시스템별 기준값과 관리 주체를 확인하고 있습니다. '.repeat(90)}`,
+        '[문제/영향]',
+        `- ${'기준 불일치로 확인과 후속 처리가 지연됩니다. '.repeat(90)}`,
+        '[필요 조치]',
+        '- 관련 부서가 기준 일치화와 관리 원칙을 확정해야 합니다. BODY-END',
+      ].join('\n'),
+      subProcess: `${'기준정보 정합성 검증/'.repeat(12)}SUB-END`,
+      source: {
+        manual: {
+          type: 'interview',
+          detail: Array.from({ length: 20 }, (_, index) => `관련 부서 인터뷰 ${index + 1}`).join(';'),
+        },
+        minutes: [],
+      },
+    }
+    sales.opportunities[0].issueIds = [sales.issues[0].id]
+
+    const longPlan = plan([sales])
+    const issueSlideEntries = longPlan.slides
+      .map((slide, index) => ({ slide, outputPage: index + 1 }))
+      .filter(({ slide }) =>
+        slide.kind === 'area-summary' || slide.kind === 'area-summary-continuation')
+    expect(issueSlideEntries.length).toBeGreaterThan(1)
+
+    const bytes = await renderIssueAnalysisPpt(longPlan)
+    const zip = await JSZip.loadAsync(bytes)
+    const issueXmlParts: string[] = []
+    for (const { slide, outputPage } of issueSlideEntries) {
+      if (slide.kind !== 'area-summary' && slide.kind !== 'area-summary-continuation') continue
+      const xml = await zipText(zip, `ppt/slides/slide${outputPage}.xml`)
+      issueXmlParts.push(xml)
+      expect(xml.match(/<a:tr\b/g)).toHaveLength(slide.issues.length + 1)
+      expect(xml).toContain('<a:normAutofit/>')
+      if (slide.issues[0].continuationCount > 1) {
+        expect(xml).toContain('(계속 ')
+      }
+    }
+    const issueXml = issueXmlParts.join('\n')
+    expect(issueXml).toContain('TITLE-END')
+    expect(issueXml).toContain('BODY-END')
+    expect(issueXml).toContain('SUB-END')
+    expect(issueXml).toContain('관련 부서 인터뷰 20')
+    expect(issueXml).toContain('[현황]')
+    expect(issueXml).toContain('[문제/영향]')
+    expect(issueXml).toContain('[필요 조치]')
+    expect(issueXml).not.toContain('…')
+
+    const opportunityEntry = longPlan.slides
+      .map((slide, index) => ({ slide, outputPage: index + 1 }))
+      .find(({ slide }) => slide.kind === 'opportunity')
+    expect(opportunityEntry).toBeDefined()
+    const opportunityXml = await zipText(
+      zip,
+      `ppt/slides/slide${opportunityEntry?.outputPage}.xml`,
+    )
+    expect(opportunityXml).toContain('TITLE-END')
+    expect(opportunityXml).toContain('<a:normAutofit/>')
+  })
 })
