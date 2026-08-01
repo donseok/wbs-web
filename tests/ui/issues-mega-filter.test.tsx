@@ -100,7 +100,11 @@ describe('IssuesView Mega 필터', () => {
 
     const titleCell = [...container.querySelectorAll('td')]
       .find(cell => cell.textContent === '기준정보 중복')
-    expect(titleCell?.className).toContain('whitespace-nowrap')
+    expect(titleCell?.className).toContain('whitespace-normal')
+    expect(titleCell?.className).toContain('break-words')
+    expect(titleCell?.className).not.toContain('whitespace-nowrap')
+    expect(container.querySelector('table')?.className).toContain('table-fixed')
+    expect(container.querySelectorAll('colgroup col')).toHaveLength(8)
     expect(container.querySelector('table')?.className).not.toContain('min-w-[')
     expect(container.querySelector('table')?.parentElement?.className).not.toContain('overflow-x-auto')
     expect(container.textContent).toContain('issue.col.endDate')
@@ -108,6 +112,10 @@ describe('IssuesView Mega 필터', () => {
     expect(container.textContent).not.toContain('2026-07-01')
     expect(container.textContent).not.toContain('2026-07-31')
     expect(container.textContent).toContain('테스터')
+    const reporterCell = [...container.querySelectorAll('td')]
+      .find(cell => cell.textContent === '테스터')
+    expect(reporterCell?.className).toContain('break-words')
+    expect(reporterCell?.className).not.toContain('overflow-hidden')
 
     await act(async () => {
       if (!mega) return

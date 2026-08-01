@@ -149,17 +149,27 @@ export function IssuesView({
       {visible.length > 0 ? (
         <div className="card overflow-hidden p-0">
           <div>
-            <table className="w-full border-collapse text-[13px]">
+            <table className="w-full table-fixed border-collapse text-[13px]">
+              <colgroup>
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '28%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '17%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '9%' }} />
+              </colgroup>
               <thead>
                 <tr className="whitespace-nowrap border-b border-line bg-surface-2 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">
-                  <th className="px-3 py-2.5">{t('issue.col.no')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.mega')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.title')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.status')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.severity')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.assignee')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.endDate')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.created')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.no')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.mega')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.title')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.status')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.severity')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.assignee')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.endDate')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.created')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -167,6 +177,7 @@ export function IssuesView({
                   const sMeta = ISSUE_STATUS_META[issue.status]
                   const overdue = isOverdue(issue, today)
                   const megaArea = ISSUE_MEGA_AREAS.find(area => area.code === issue.megaCode)
+                  const assignees = assigneeLabel(issue) ?? t('issue.unassigned')
                   return (
                     <tr
                       key={issue.id}
@@ -176,7 +187,7 @@ export function IssuesView({
                       onKeyDown={e => { if (e.key === 'Enter') setViewingId(issue.id) }}
                       className="cursor-pointer border-b border-line/70 transition last:border-0 hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2"
                     >
-                      <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">
+                      <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5 tabular-nums">
                         {issue.piIssueCode ? (
                           <>
                             <span className="font-semibold text-ink">{issue.piIssueCode}</span>
@@ -186,30 +197,35 @@ export function IssuesView({
                           <span className="text-ink-muted">#{issue.issueNo}</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
+                      <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5">
                         {megaArea ? (
-                          <span className="inline-flex items-center rounded-lg border border-brand-ring bg-brand-weak px-2 py-1 text-[11px] font-semibold text-brand">
+                          <span
+                            className="inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-lg border border-brand-ring bg-brand-weak px-2 py-1 text-[11px] font-semibold text-brand"
+                            title={`${megaArea.code} · ${locale === 'en' ? megaArea.nameEn : megaArea.nameKo}`}
+                          >
                             {megaArea.code} · {locale === 'en' ? megaArea.nameEn : megaArea.nameKo}
                           </span>
                         ) : (
                           <span className="text-ink-subtle">—</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-medium text-ink">{issue.title}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
+                      <td className="whitespace-normal break-words px-2.5 py-2.5 font-medium leading-5 text-ink" title={issue.title}>{issue.title}</td>
+                      <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5">
                         <span className={`chip px-2 py-0.5 text-[11px] ${sMeta.chip}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${sMeta.dot}`} />
                           {t(sMeta.labelKey)}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
+                      <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5">
                         <span className={`chip px-2 py-0.5 text-[11px] ${ISSUE_SEVERITY_META[issue.severity].chip}`}>{t(ISSUE_SEVERITY_META[issue.severity].labelKey)}</span>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-ink-muted">{assigneeLabel(issue) ?? t('issue.unassigned')}</td>
-                      <td className={`whitespace-nowrap px-3 py-2.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
+                      <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5 text-ink-muted" title={assignees}>
+                        <span className="block truncate">{assignees}</span>
+                      </td>
+                      <td className={`overflow-hidden whitespace-nowrap px-2.5 py-2.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
                         {issue.dueDate ?? '—'}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-ink-muted">
+                      <td className="whitespace-normal break-words px-2.5 py-2.5 text-ink-muted">
                         {issue.createdByName ?? '—'}
                       </td>
                     </tr>

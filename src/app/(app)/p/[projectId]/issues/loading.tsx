@@ -9,13 +9,19 @@ export default function Loading() {
       </div>
       <div className="card space-y-2.5 p-4">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-2.5">
-            <Skeleton className="h-4 w-24 rounded" />
-            <Skeleton className="h-6 w-20 rounded-lg" />
-            <Skeleton className="h-4 flex-1 rounded" />
-            <Skeleton className="h-5 w-16 rounded-full" />
-            <Skeleton className="h-5 w-14 rounded-full" />
-            <Skeleton className="h-4 w-20 rounded" />
+          <div
+            key={i}
+            className="grid items-center gap-2.5"
+            style={{ gridTemplateColumns: '12fr 10fr 28fr 7fr 7fr 17fr 10fr 9fr' }}
+          >
+            <Skeleton className="h-4 w-full rounded" />
+            <Skeleton className="h-6 w-full rounded-lg" />
+            <Skeleton className="h-4 w-full rounded" />
+            <Skeleton className="h-5 w-full rounded-full" />
+            <Skeleton className="h-5 w-full rounded-full" />
+            <Skeleton className="h-4 w-full rounded" />
+            <Skeleton className="h-4 w-full rounded" />
+            <Skeleton className="h-4 w-full rounded" />
           </div>
         ))}
       </div>
