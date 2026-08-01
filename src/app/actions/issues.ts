@@ -27,6 +27,9 @@ import {
 import {
   fnv1a64, isMarkableBlock, minuteBlockDraftText, splitMinuteBlocks, type MinuteBlock,
 } from '@/lib/minutes/blocks'
+import {
+  MINUTE_SELECTION_MAX_BLOCK_SPAN, matchMinuteSelection, minuteSelectionKeyHash,
+} from '@/lib/minutes/selection'
 import { sortByKoreanName } from '@/lib/domain/nameSort'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 import { generateAnswer } from '@/lib/ai/llm'
@@ -74,6 +77,12 @@ export interface MinuteIssueSourceInput {
   blockIndex: number
   blockHash: string
   kind: IssueMinuteSourceKind
+  /** 드래그 선택 등록일 때만 존재. blockIndex/blockHash 는 시작 블록 앵커가 된다. */
+  selection?: {
+    text: string
+    endBlockIndex: number
+    endBlockHash: string
+  }
 }
 
 export interface IssueProjectMembersResult {
@@ -135,6 +144,8 @@ interface VerifiedMinuteIssueBlock {
   block: MinuteBlock
   insightLabel: string | null
   draftContextText: string
+  /** 드래그 선택 등록이면 검증·정규화된 발췌, 블록 등록이면 null. */
+  selectionExcerpt: string | null
 }
 
 type MinuteIssueBlockVerification =
@@ -181,8 +192,22 @@ function minuteIssueDraftContext(
   return lines.join('\n')
 }
 
+/** 선택이 걸친 블록 전체 원문 — 잘린 문장 경계를 AI 가 원문으로 보완할 수 있게 컨텍스트로 준다. */
+function selectionRangeContext(
+  blocks: readonly MinuteBlock[],
+  startIndex: number,
+  endIndex: number,
+): string {
+  const texts: string[] = []
+  for (let index = startIndex; index <= endIndex && index < blocks.length; index += 1) {
+    const candidate = blocks[index]
+    if (candidate && isMarkableBlock(candidate)) texts.push(minuteBlockDraftText(candidate))
+  }
+  return texts.length ? `선택 범위 블록 원문:\n${texts.join('\n')}` : ''
+}
+
 function validMinuteIssueSource(source: MinuteIssueSourceInput): boolean {
-  return Boolean(
+  const base = Boolean(
     source.minuteId
     && source.minuteVersionId
     && Number.isSafeInteger(source.blockIndex)
@@ -190,6 +215,20 @@ function validMinuteIssueSource(source: MinuteIssueSourceInput): boolean {
     && BLOCK_HASH_RE.test(source.blockHash)
     && BLOCK_HASH_RE.test(source.bodyHash)
     && ISSUE_MINUTE_SOURCE_KINDS.includes(source.kind),
+  )
+  if (!base) return false
+  const selection = source.selection
+  if (selection === undefined) return true
+  // 선택 등록은 인사이트 kind 를 얹지 않는다 — manual 만 유효(스펙 §4.1).
+  return Boolean(
+    source.kind === 'manual'
+    && typeof selection.text === 'string'
+    && selection.text.length > 0
+    && selection.text.length <= TEXT_MAX
+    && Number.isSafeInteger(selection.endBlockIndex)
+    && selection.endBlockIndex >= source.blockIndex
+    && selection.endBlockIndex - source.blockIndex <= MINUTE_SELECTION_MAX_BLOCK_SPAN
+    && BLOCK_HASH_RE.test(selection.endBlockHash),
   )
 }
 
@@ -253,6 +292,33 @@ async function verifyMinuteIssueBlock(
     return { ok: false, error: '회의록 본문이 변경되었습니다. 블록을 다시 선택해 주세요.' }
   }
 
+  let selectionExcerpt: string | null = null
+  if (source.selection) {
+    const match = matchMinuteSelection(
+      blocks,
+      source.blockIndex,
+      source.blockHash,
+      source.selection.endBlockIndex,
+      source.selection.endBlockHash,
+      source.selection.text,
+    )
+    if (!match.ok) {
+      return {
+        ok: false,
+        error: '선택 영역을 회의록 원문과 대조하지 못했습니다. 범위를 다시 선택하거나 블록 단위로 등록해 주세요.',
+      }
+    }
+    // 제목만의 선택으로는 이슈를 만들지 않는다 — 블록 흐름의 heading 거절과 같은 원칙.
+    const endIndex = source.selection.endBlockIndex
+    const hasBody = blocks.some((candidate, index) =>
+      index >= source.blockIndex && index <= endIndex
+      && isMarkableBlock(candidate) && !candidate.headingDepth)
+    if (!hasBody) {
+      return { ok: false, error: '제목이 아닌 실제 이슈 내용이 있는 범위를 선택해 주세요.' }
+    }
+    selectionExcerpt = match.excerpt
+  }
+
   let insightLabel: string | null = null
   if (includeInsight && source.kind !== 'manual') {
     const { data: insight, error: insightErr } = await sb
@@ -277,7 +343,13 @@ async function verifyMinuteIssueBlock(
       storedBodyHash,
       block,
       insightLabel,
-      draftContextText: minuteIssueDraftContext(blocks, source.blockIndex, version),
+      selectionExcerpt,
+      draftContextText: source.selection
+        ? [
+            minuteIssueDraftContext(blocks, source.blockIndex, version),
+            selectionRangeContext(blocks, source.blockIndex, source.selection.endBlockIndex),
+          ].filter(Boolean).join('\n')
+        : minuteIssueDraftContext(blocks, source.blockIndex, version),
     },
   }
 }
@@ -565,12 +637,12 @@ export async function prepareMinuteIssueDraft(
 
   const verified = await verifyMinuteIssueBlock(projectId, source, 'prepareMinuteIssueDraft', true)
   if (!verified.ok) return verified
-  const { block, insightLabel, draftContextText } = verified.value
-  if (block.headingDepth) {
+  const { block, insightLabel, draftContextText, selectionExcerpt } = verified.value
+  if (!source.selection && block.headingDepth) {
     return { ok: false, error: '제목이 아닌 실제 이슈 내용이 있는 블록을 선택해 주세요.' }
   }
   const knownSubProcesses = await loadKnownSubProcesses(projectId)
-  const blockText = minuteBlockDraftText(block)
+  const blockText = selectionExcerpt ?? minuteBlockDraftText(block)
   const prompt = buildMinuteIssueDraftPrompt(blockText, insightLabel, {
     contextText: draftContextText,
     knownSubProcesses,
@@ -621,13 +693,14 @@ export async function createIssueFromMinuteBlock(
 
   const verified = await verifyMinuteIssueBlock(projectId, source, 'createIssueFromMinuteBlock')
   if (!verified.ok) return verified
-  const { storedBodyHash, block } = verified.value
-  const excerpt = minuteIssueSourceExcerpt(minuteBlockDraftText(block))
+  const { storedBodyHash, block, selectionExcerpt } = verified.value
+  const excerpt = minuteIssueSourceExcerpt(selectionExcerpt ?? minuteBlockDraftText(block))
   const sourceKey = makeMinuteIssueSourceKey({
     minuteVersionId: source.minuteVersionId,
     blockIndex: source.blockIndex,
     blockHash: block.hash,
     kind: source.kind,
+    selectionHash: selectionExcerpt ? minuteSelectionKeyHash(selectionExcerpt) : null,
   })
 
   let admin: ReturnType<typeof createAdminClient>

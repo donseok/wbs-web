@@ -35,6 +35,7 @@ vi.mock('@/lib/ai/llm', () => ({ generateAnswer: ai.generateAnswer }))
 vi.mock('@/lib/ai/provider', () => ({ hasLLM: ai.hasLLM }))
 
 import { getSession } from '@/lib/auth'
+import { matchMinuteSelection, minuteSelectionKeyHash } from '@/lib/minutes/selection'
 import {
   createIssueFromMinuteBlock,
   fetchIssueProjectMembers,
@@ -68,6 +69,31 @@ const SOURCE = {
   blockIndex: BLOCK.index,
   blockHash: BLOCK.hash,
   kind: 'risk' as const,
+}
+
+const MULTI_BODY = [
+  '# 주간회의',
+  '',
+  '첫 번째 문단은 인터페이스 전송 누락 위험을 다룬다.',
+  '',
+  '- 재처리 여부 확인',
+  '- 인터페이스 보완 방안 협의',
+].join('\n')
+const MULTI_BLOCKS = splitMinuteBlocks(MULTI_BODY)
+const MULTI_HASH = fnv1a64(MULTI_BODY)
+const SELECTION_RAW = '누락 위험을 다룬다.\n재처리 여부 확인'
+const SELECTION_SOURCE = {
+  minuteId: 'minute-1',
+  minuteVersionId: 'version-1',
+  bodyHash: MULTI_HASH,
+  blockIndex: MULTI_BLOCKS[1].index,
+  blockHash: MULTI_BLOCKS[1].hash,
+  kind: 'manual' as const,
+  selection: {
+    text: SELECTION_RAW,
+    endBlockIndex: MULTI_BLOCKS[2].index,
+    endBlockHash: MULTI_BLOCKS[2].hash,
+  },
 }
 
 function aiResponseForAction(title: string): string {
@@ -509,6 +535,116 @@ describe('createIssueFromMinuteBlock', () => {
     })
 
     expect(result.ok).toBe(false)
+    expect(fixture.admin.rpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('드래그 선택 이슈 등록', () => {
+  const expectedMatch = matchMinuteSelection(
+    MULTI_BLOCKS, 1, MULTI_BLOCKS[1].hash, 2, MULTI_BLOCKS[2].hash, SELECTION_RAW,
+  )
+
+  it('검증된 선택 발췌를 excerpt·:sel: source_key로 저장한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, SELECTION_SOURCE)
+
+    expect(res.ok).toBe(true)
+    expect(expectedMatch.ok).toBe(true)
+    if (!expectedMatch.ok) return
+    const rpcArgs = fixture.admin.rpc.mock.calls[0][1] as Record<string, unknown>
+    expect(rpcArgs.p_excerpt_snapshot).toBe(expectedMatch.excerpt)
+    expect(rpcArgs.p_block_index).toBe(1)
+    expect(rpcArgs.p_source_kind).toBe('manual')
+    expect(rpcArgs.p_source_key).toBe(
+      `minute:version-1:1:${MULTI_BLOCKS[1].hash}:manual:sel:${minuteSelectionKeyHash(expectedMatch.excerpt)}`,
+    )
+  })
+
+  it('원문에 없는 선택 텍스트는 fail-closed로 거절하고 RPC를 호출하지 않는다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, {
+      ...SELECTION_SOURCE,
+      selection: { ...SELECTION_SOURCE.selection, text: '원문에 없는 문장이다' },
+    })
+
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('선택 영역을 회의록 원문과 대조하지 못했습니다')
+    expect(fixture.admin.rpc).not.toHaveBeenCalled()
+  })
+
+  it('selection이 있는데 kind가 manual이 아니면 형식 오류로 거절한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, {
+      ...SELECTION_SOURCE,
+      kind: 'risk' as const,
+    })
+
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('회의록 원문 정보가 올바르지 않습니다')
+    expect(fixture.admin.rpc).not.toHaveBeenCalled()
+  })
+
+  it('제목(heading)만의 선택은 거절한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, {
+      ...SELECTION_SOURCE,
+      blockIndex: MULTI_BLOCKS[0].index,
+      blockHash: MULTI_BLOCKS[0].hash,
+      selection: { text: '주간회의', endBlockIndex: 0, endBlockHash: MULTI_BLOCKS[0].hash },
+    })
+
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('제목이 아닌 실제 이슈 내용')
+    expect(fixture.admin.rpc).not.toHaveBeenCalled()
+  })
+
+  it('prepare는 선택 발췌를 AI 원문으로 쓰고 범위 블록 원문을 컨텍스트에 담는다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    ai.generateAnswer.mockResolvedValue(aiResponseForAction('선택 발췌 제목'))
+
+    const res = await prepareMinuteIssueDraft('project-1', SELECTION_SOURCE)
+
+    expect(res.ok).toBe(true)
+    expect(expectedMatch.ok).toBe(true)
+    if (!expectedMatch.ok) return
+    const prompt = ai.generateAnswer.mock.calls[0][1][0].content as string
+    const payload = JSON.parse(prompt.split('\n')[1]) as { sourceText: string; contextText: string }
+    expect(payload.sourceText).toBe(expectedMatch.excerpt)
+    expect(payload.contextText).toContain('선택 범위 블록 원문')
+    expect(payload.contextText).toContain('인터페이스 보완 방안 협의')
+  })
+
+  it('시작 블록 안에서 끝나는 선택이 끝 블록을 부풀려 주장하면 거절한다', async () => {
+    asMember()
+    const fixture = clientsWithVersion({ body: MULTI_BODY })
+    state.client = fixture.client
+    state.admin = fixture.admin
+
+    const res = await createIssueFromMinuteBlock('project-1', INPUT, {
+      ...SELECTION_SOURCE,
+      selection: { ...SELECTION_SOURCE.selection, text: '전송 누락 위험' },
+    })
+
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('선택 영역을 회의록 원문과 대조하지 못했습니다')
     expect(fixture.admin.rpc).not.toHaveBeenCalled()
   })
 })
