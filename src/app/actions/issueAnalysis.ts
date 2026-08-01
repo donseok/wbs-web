@@ -120,11 +120,14 @@ export async function ensureIssueAnalysisAction(
   }
 
   let issues
+  let majors
   try {
-    issues = await loadIssueAnalysisIssues(
+    const loaded = await loadIssueAnalysisIssues(
       projectId,
       megaFilter === 'all' ? undefined : megaFilter,
     )
+    issues = loaded.issues
+    majors = loaded.majors
     if (
       megaFilter !== 'all'
       && issues.some(issue => issue.megaCode !== megaFilter)
@@ -167,7 +170,7 @@ export async function ensureIssueAnalysisAction(
   }
 
   try {
-    const result = await ensureIssueAnalysis(projectId, issues, guard.actor.userId)
+    const result = await ensureIssueAnalysis(projectId, issues, majors, guard.actor.userId)
     return fromEnsureResult(result, preflight, template)
   } catch (error) {
     // ensure 계층은 정상적으로는 never-throw 결과를 주지만, 예기치 않은 프로그래밍/IO

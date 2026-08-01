@@ -27,6 +27,19 @@ vi.mock('@/lib/report/issues/template', async importOriginal => {
 
 import { ensureIssueAnalysisAction } from '@/app/actions/issueAnalysis'
 
+const READY_MAJOR = {
+  id: 'major-1',
+  megaCode: '00' as const,
+  majorSeq: 1,
+  name: '기준정보 표준화',
+}
+const SALES_MAJOR = {
+  id: 'major-2',
+  megaCode: '02' as const,
+  majorSeq: 1,
+  name: '주문관리',
+}
+
 const readyIssue = (over: Partial<IssueAnalysisIssueInput> = {}): IssueAnalysisIssueInput => ({
   id: '550e8400-e29b-41d4-a716-446655440000',
   issueNo: 1,
@@ -65,7 +78,10 @@ beforeEach(() => {
     ok: true,
     actor: { userId: 'user-1' },
   })
-  mocks.loadIssueAnalysisIssues.mockResolvedValue([readyIssue()])
+  mocks.loadIssueAnalysisIssues.mockResolvedValue({
+    issues: [readyIssue()],
+    majors: [READY_MAJOR],
+  })
   mocks.diagnoseIssueAnalysisTemplate.mockResolvedValue({
     status: 'ready',
     message: '사용 가능',
@@ -116,12 +132,13 @@ describe('ensureIssueAnalysisAction', () => {
   })
 
   it('사전 점검 누락을 상세 preflight와 함께 blocked로 반환한다', async () => {
-    mocks.loadIssueAnalysisIssues.mockResolvedValue([
-      readyIssue({
+    mocks.loadIssueAnalysisIssues.mockResolvedValue({
+      issues: [readyIssue({
         megaCode: null, megaSeq: null, piIssueCode: null,
         majorId: null, majorSeq: null, majorName: null,
-      }),
-    ])
+      })],
+      majors: [],
+    })
     const result = await ensureIssueAnalysisAction('project-1')
     expect(result).toMatchObject({
       ok: false,
@@ -169,6 +186,7 @@ describe('ensureIssueAnalysisAction', () => {
     expect(mocks.ensureIssueAnalysis).toHaveBeenCalledWith(
       'project-1',
       expect.any(Array),
+      [READY_MAJOR],
       'user-1',
     )
   })
@@ -181,7 +199,10 @@ describe('ensureIssueAnalysisAction', () => {
       piIssueCode: 'PI-I-02-01',
       title: '주문 승인 지연',
     })
-    mocks.loadIssueAnalysisIssues.mockResolvedValue([salesIssue])
+    mocks.loadIssueAnalysisIssues.mockResolvedValue({
+      issues: [salesIssue],
+      majors: [SALES_MAJOR],
+    })
     mocks.ensureIssueAnalysis.mockResolvedValue({
       state: 'unavailable',
       reason: 'llm_missing',
@@ -195,12 +216,13 @@ describe('ensureIssueAnalysisAction', () => {
     expect(mocks.ensureIssueAnalysis).toHaveBeenCalledWith(
       'project-1',
       [salesIssue],
+      [SALES_MAJOR],
       'user-1',
     )
   })
 
   it('선택 Mega에 이슈가 없으면 빈 범위로 차단하고 AI를 호출하지 않는다', async () => {
-    mocks.loadIssueAnalysisIssues.mockResolvedValue([])
+    mocks.loadIssueAnalysisIssues.mockResolvedValue({ issues: [], majors: [] })
 
     const result = await ensureIssueAnalysisAction('project-1', '07')
 
@@ -214,7 +236,10 @@ describe('ensureIssueAnalysisAction', () => {
   })
 
   it('로더가 선택 Mega 밖의 행을 반환하면 fail-closed로 중단한다', async () => {
-    mocks.loadIssueAnalysisIssues.mockResolvedValue([readyIssue({ megaCode: '00' })])
+    mocks.loadIssueAnalysisIssues.mockResolvedValue({
+      issues: [readyIssue({ megaCode: '00' })],
+      majors: [READY_MAJOR],
+    })
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     const result = await ensureIssueAnalysisAction('project-1', '02')

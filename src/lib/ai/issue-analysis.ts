@@ -20,6 +20,7 @@ import {
   type IssueAnalysisIssueCauseAnalysis,
   type IssueAnalysisInputSnapshot,
   type IssueAnalysisIssueInput,
+  type IssueAnalysisMajorProcess,
   type IssueAnalysisOpportunity,
   type IssueAnalysisReport,
   type IssueAnalysisReportIssue,
@@ -649,6 +650,9 @@ function reportFromCache(
   if (!object || !Array.isArray(object.areas) || typeof object.generatedAt !== 'string') return null
   const opportunities: Partial<Record<IssueMegaCode, IssueAnalysisOpportunity[]>> = {}
   const causeAnalyses: Partial<Record<IssueMegaCode, IssueAnalysisIssueCauseAnalysis[]>> = {}
+  const processDefinitions: Partial<
+    Record<IssueMegaCode, IssueAnalysisAreaProcessDefinitions>
+  > = {}
   for (const area of snapshot.areas) {
     const cachedArea = object.areas.find(candidate => record(candidate)?.megaCode === area.megaCode)
     const cachedAreaObject = record(cachedArea)
@@ -656,6 +660,11 @@ function reportFromCache(
     if (
       !cachedAreaObject
       || !Object.prototype.hasOwnProperty.call(cachedAreaObject, 'causeAnalyses')
+    ) return null
+    // v3 캐시는 이슈가 있는 영역에 프로세스 정의가 함께 저장돼 있어야 한다.
+    if (
+      area.issues.length
+      && !Object.prototype.hasOwnProperty.call(cachedAreaObject, 'processDefinitions')
     ) return null
     const validated = validateIssueAnalysisOpportunities(
       cachedAreaObject.opportunities,
@@ -667,10 +676,24 @@ function reportFromCache(
       area.issues,
     )
     if (!validatedCauses.ok) return null
+    if (area.issues.length) {
+      const validatedDefinitions = validateIssueAnalysisProcessDefinitions(
+        cachedAreaObject.processDefinitions,
+        area.majors,
+      )
+      if (!validatedDefinitions.ok) return null
+      processDefinitions[area.megaCode] = validatedDefinitions.value
+    }
     opportunities[area.megaCode] = validated.value
     causeAnalyses[area.megaCode] = validatedCauses.value
   }
-  return buildIssueAnalysisReport(snapshot, opportunities, object.generatedAt, causeAnalyses)
+  return buildIssueAnalysisReport(
+    snapshot,
+    opportunities,
+    object.generatedAt,
+    causeAnalyses,
+    processDefinitions,
+  )
 }
 
 async function readCachedRun(
@@ -725,6 +748,27 @@ async function writeRun(
   return data.id as string
 }
 
+/** v3 개선기회 호출에 실리는 영역 Major 요약 — 이슈의 구분(sub_process)을 근거로 붙인다. */
+function promptMajors(
+  area: IssueAnalysisInputSnapshot['areas'][number],
+): IssueAnalysisPromptMajor[] {
+  return area.majors.map(major => {
+    const majorIssues = area.issues.filter(issue => issue.majorId === major.id)
+    const subProcesses: string[] = []
+    for (const issue of majorIssues) {
+      const sub = compact(issue.subProcess)
+      if (sub && !subProcesses.includes(sub)) subProcesses.push(sub)
+    }
+    return {
+      majorId: major.id,
+      seqLabel: `${area.megaCode}.${String(major.majorSeq).padStart(2, '0')}`,
+      name: major.name,
+      subProcesses,
+      issueCount: majorIssues.length,
+    }
+  })
+}
+
 async function ensureIssueAnalysisSnapshot(
   projectId: string,
   createdBy: string,
@@ -763,6 +807,9 @@ async function ensureIssueAnalysisSnapshot(
 
   const opportunities: Partial<Record<IssueMegaCode, IssueAnalysisOpportunity[]>> = {}
   const causeAnalyses: Partial<Record<IssueMegaCode, IssueAnalysisIssueCauseAnalysis[]>> = {}
+  const processDefinitions: Partial<
+    Record<IssueMegaCode, IssueAnalysisAreaProcessDefinitions>
+  > = {}
   const causeChunkResults: Partial<
     Record<IssueMegaCode, IssueAnalysisIssueCauseAnalysis[][]>
   > = {}
@@ -772,6 +819,7 @@ async function ensureIssueAnalysisSnapshot(
         megaCode: IssueMegaCode
         megaName: string
         issues: IssueAnalysisReportIssue[]
+        majors: IssueAnalysisAreaMajor[]
         prompt: string
       }
     | {
@@ -795,7 +843,13 @@ async function ensureIssueAnalysisSnapshot(
         megaCode: area.megaCode,
         megaName: area.megaName,
         issues: area.issues,
-        prompt: buildIssueAnalysisMegaPrompt(area.megaCode, area.megaName, area.issues),
+        majors: area.majors,
+        prompt: buildIssueAnalysisMegaPrompt(
+          area.megaCode,
+          area.megaName,
+          area.issues,
+          promptMajors(area),
+        ),
       })
       const chunks: IssueAnalysisIssueCauseAnalysis[][] = []
       causeChunkResults[area.megaCode] = chunks
@@ -850,7 +904,7 @@ async function ensureIssueAnalysisSnapshot(
         return
       }
       if (task.kind === 'opportunity') {
-        const parsed = parseIssueAnalysisAreaResponse(raw, task.issues)
+        const parsed = parseIssueAnalysisAreaGeneration(raw, task.issues, task.majors)
         if (!parsed.ok) {
           failure.value = {
             state: 'unavailable',
@@ -860,7 +914,8 @@ async function ensureIssueAnalysisSnapshot(
           }
           return
         }
-        opportunities[task.megaCode] = parsed.value
+        opportunities[task.megaCode] = parsed.value.opportunities
+        processDefinitions[task.megaCode] = parsed.value.processDefinitions
       } else {
         const parsed = parseIssueAnalysisCauseAreaResponse(raw, task.issues)
         if (!parsed.ok) {
@@ -915,6 +970,7 @@ async function ensureIssueAnalysisSnapshot(
     opportunities,
     new Date().toISOString(),
     causeAnalyses,
+    processDefinitions,
   )
   try {
     const runId = await writeRun(projectId, createdBy, inputHash, snapshot, analysis, model)
@@ -943,6 +999,7 @@ async function ensureIssueAnalysisSnapshot(
 export function ensureIssueAnalysis(
   projectId: string,
   issues: readonly IssueAnalysisIssueInput[],
+  majors: readonly IssueAnalysisMajorProcess[],
   createdBy: string,
 ): Promise<EnsureIssueAnalysisResult> {
   const preflight = buildIssueAnalysisPreflight(issues)
@@ -956,7 +1013,7 @@ export function ensureIssueAnalysis(
     })
   }
 
-  const snapshot = buildIssueAnalysisInputSnapshot(projectId, issues)
+  const snapshot = buildIssueAnalysisInputSnapshot(projectId, issues, majors)
   const inputHash = issueAnalysisInputHash(snapshot)
   const model = llmConfig().model
   const gateKey = `${projectId}:${ISSUE_ANALYSIS_PROMPT_VERSION}:${model}:${inputHash}`

@@ -95,9 +95,9 @@ beforeEach(() => {
 
 describe('loadIssueAnalysisIssues', () => {
   it('이슈·담당자·불변 회의록 스냅샷을 하나의 분석 입력으로 결합한다', async () => {
-    const result = await loadIssueAnalysisIssues('project-1')
-    expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({
+    const { issues } = await loadIssueAnalysisIssues('project-1')
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({
       id: 'issue-1',
       piIssueCode: 'PI-I-00-02',
       megaCode: '00',
@@ -110,11 +110,35 @@ describe('loadIssueAnalysisIssues', () => {
       relatedSystems: ['ERP', 'MES'],
       sourceType: 'minutes',
     })
-    expect(result[0].minuteSources[0]).toMatchObject({
+    expect(issues[0].minuteSources[0]).toMatchObject({
       id: 'link-1',
       minuteTitle: 'PI 회의',
       excerpt: '회의록 근거',
     })
+  })
+
+  it('Major 기준정보를 mega·seq 순으로 함께 반환한다', async () => {
+    state.results.issue_major_processes = {
+      data: [
+        { id: 'm2', mega_code: '02', major_seq: 2, name: '수출관리' },
+        { id: 'm1', mega_code: '02', major_seq: 1, name: '주문관리' },
+        { id: 'major-1', mega_code: '00', major_seq: 1, name: '자재관리' },
+      ],
+      error: null,
+    }
+    const { majors } = await loadIssueAnalysisIssues('project-1')
+    expect(majors.map(major => major.id)).toEqual(['major-1', 'm1', 'm2'])
+    expect(majors[1]).toEqual({
+      id: 'm1', megaCode: '02', majorSeq: 1, name: '주문관리',
+    })
+  })
+
+  it('알 수 없는 Mega 코드의 Major 행이 오면 throw한다', async () => {
+    state.results.issue_major_processes = {
+      data: [{ id: 'm9', mega_code: '99', major_seq: 1, name: '유령 프로세스' }],
+      error: null,
+    }
+    await expect(loadIssueAnalysisIssues('project-1')).rejects.toThrow('Major')
   })
 
   it('Mega 범위가 있으면 프로젝트 조건과 함께 issues 쿼리에 강제한다', async () => {

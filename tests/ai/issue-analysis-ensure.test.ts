@@ -47,6 +47,14 @@ function adminClient() {
   }
 }
 
+const majorFor = (megaCode: '00' | '01' | '02') => ({
+  id: `aaaa0000-0000-4000-8000-0000000000${megaCode}`,
+  megaCode,
+  majorSeq: 1,
+  name: `${megaCode} 대표 프로세스`,
+})
+const MAJORS = [majorFor('00'), majorFor('01'), majorFor('02')]
+
 const issue = (
   megaCode: '00' | '01' | '02',
   index: number,
@@ -57,6 +65,7 @@ const issue = (
   projectId: 'project-1',
   megaCode,
   megaSeq: 1,
+  majorId: majorFor(megaCode).id,
   title: `${megaCode} 영역 이슈`,
   body: '업무 처리 기준이 표준화되어 있지 않다.',
   status: index % 2 ? 'resolved' : 'open',
@@ -83,6 +92,7 @@ function opportunityResponse(prompt: string): string {
   if (!match) throw new Error('prompt payload missing')
   const payload = JSON.parse(match[1]) as {
     issues: Array<{ id: string; title: string }>
+    majors?: Array<{ majorId: string; name: string }>
   }
   return JSON.stringify({
     opportunities: payload.issues.map(item => ({
@@ -90,6 +100,13 @@ function opportunityResponse(prompt: string): string {
       description: '표준 절차와 통제 기준을 정립한다.',
       issueIds: [item.id],
     })),
+    processDefinitions: {
+      megaDefinition: '영역 업무 전반을 관리하는 프로세스임',
+      majors: (payload.majors ?? []).map(major => ({
+        majorId: major.majorId,
+        definition: `${major.name}를 관리하는 프로세스`,
+      })),
+    },
   })
 }
 
@@ -145,8 +162,8 @@ describe('ensureIssueAnalysis', () => {
     const issues = [issue('00', 1), issue('01', 2), issue('02', 3)]
 
     const [first, duplicate] = await Promise.all([
-      ensureIssueAnalysis('project-1', issues, 'user-1'),
-      ensureIssueAnalysis('project-1', issues, 'user-2'),
+      ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1'),
+      ensureIssueAnalysis('project-1', issues, MAJORS, 'user-2'),
     ])
 
     expect(first).toMatchObject({ state: 'generated', runId: 'generated-run' })
@@ -182,7 +199,7 @@ describe('ensureIssueAnalysis', () => {
       messages: Array<{ content: string }>,
     ) => analysisResponse(_system, messages[0].content))
     const issues = [issue('00', 1)]
-    const generated = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    const generated = await ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1')
     expect(generated.state).toBe('generated')
     const saved = mocks.upserts[0]
     mocks.cached = {
@@ -192,7 +209,7 @@ describe('ensureIssueAnalysis', () => {
     }
     mocks.generateAnswer.mockClear()
 
-    const cached = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    const cached = await ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1')
     expect(cached).toMatchObject({
       state: 'ready',
       runId: 'cached-run',
@@ -207,7 +224,7 @@ describe('ensureIssueAnalysis', () => {
       messages: Array<{ content: string }>,
     ) => analysisResponse(system, messages[0].content))
     const issues = [issue('00', 1)]
-    const generated = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    const generated = await ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1')
     expect(generated.state).toBe('generated')
     const legacyAnalysis = JSON.parse(JSON.stringify(mocks.upserts[0].analysis_json)) as {
       areas: Array<Record<string, unknown>>
@@ -220,7 +237,7 @@ describe('ensureIssueAnalysis', () => {
     }
     mocks.generateAnswer.mockClear()
 
-    const cached = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    const cached = await ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1')
 
     expect(cached).toMatchObject({ state: 'unavailable', reason: 'storage_failed' })
     expect(mocks.generateAnswer).not.toHaveBeenCalled()
@@ -232,7 +249,7 @@ describe('ensureIssueAnalysis', () => {
       messages: Array<{ content: string }>,
     ) => analysisResponse(_system, messages[0].content))
     const issues = [issue('00', 1)]
-    const first = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    const first = await ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1')
     expect(first.state).toBe('generated')
     mocks.cached = {
       id: 'old-model-run',
@@ -241,7 +258,7 @@ describe('ensureIssueAnalysis', () => {
     }
     mocks.generateAnswer.mockClear()
 
-    const regenerated = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    const regenerated = await ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1')
     expect(regenerated).toMatchObject({ state: 'generated', model: 'test-model' })
     expect(mocks.generateAnswer).toHaveBeenCalledTimes(2)
     expect(mocks.upserts).toHaveLength(2)
@@ -261,7 +278,7 @@ describe('ensureIssueAnalysis', () => {
       issue('00', 1),
       issue('01', 2),
       issue('02', 3),
-    ], 'user-1')
+    ], MAJORS, 'user-1')
     expect(result).toMatchObject({ state: 'unavailable', reason: 'llm_failed' })
     expect(mocks.upserts).toHaveLength(0)
   })
@@ -288,7 +305,7 @@ describe('ensureIssueAnalysis', () => {
       title: `기준관리 이슈 ${index + 1}`,
     }))
 
-    const result = await ensureIssueAnalysis('project-1', issues, 'user-1')
+    const result = await ensureIssueAnalysis('project-1', issues, MAJORS, 'user-1')
 
     expect(result).toMatchObject({ state: 'generated' })
     expect(mocks.generateAnswer).toHaveBeenCalledTimes(3)
@@ -310,7 +327,69 @@ describe('ensureIssueAnalysis', () => {
       return opportunityResponse(messages[0].content)
     })
 
-    const result = await ensureIssueAnalysis('project-1', [issue('00', 1)], 'user-1')
+    const result = await ensureIssueAnalysis('project-1', [issue('00', 1)], MAJORS, 'user-1')
+
+    expect(result).toMatchObject({ state: 'unavailable', reason: 'invalid_response' })
+    expect(mocks.upserts).toHaveLength(0)
+  })
+
+  it('생성 결과에 majors와 processDefinitions가 저장된다', async () => {
+    mocks.generateAnswer.mockImplementation(async (
+      system: string,
+      messages: Array<{ content: string }>,
+    ) => analysisResponse(system, messages[0].content))
+
+    const result = await ensureIssueAnalysis('project-1', [issue('02', 1)], MAJORS, 'user-1')
+
+    expect(result.state).toBe('generated')
+    if (result.state !== 'generated') return
+    const area = result.analysis.areas.find(candidate => candidate.megaCode === '02')
+    expect(area?.majors).toEqual([{
+      id: majorFor('02').id,
+      majorSeq: 1,
+      name: '02 대표 프로세스',
+    }])
+    expect(area?.processDefinitions).toEqual({
+      megaDefinition: '영역 업무 전반을 관리하는 프로세스임',
+      majors: [{
+        majorId: majorFor('02').id,
+        definition: '02 대표 프로세스를 관리하는 프로세스',
+      }],
+    })
+    const stored = mocks.upserts[0]?.analysis_json as {
+      areas: Array<Record<string, unknown> & { megaCode: string }>
+    }
+    expect(Object.prototype.hasOwnProperty.call(
+      stored.areas.find(candidate => candidate.megaCode === '02'),
+      'processDefinitions',
+    )).toBe(true)
+    // 이슈가 없는 영역은 정의 없이 majors 기준정보만 유지한다.
+    expect(Object.prototype.hasOwnProperty.call(
+      stored.areas.find(candidate => candidate.megaCode === '00'),
+      'processDefinitions',
+    )).toBe(false)
+  })
+
+  it('정의가 빠진 개선기회 응답은 invalid_response로 실패한다', async () => {
+    mocks.generateAnswer.mockImplementation(async (
+      system: string,
+      messages: Array<{ content: string }>,
+    ) => {
+      if (system.includes('causeAnalyses')) return causeResponse(messages[0].content)
+      const match = messages[0].content.match(/<issue_data_json>\n([\s\S]+)\n<\/issue_data_json>/)
+      const payload = JSON.parse(match?.[1] ?? '{}') as {
+        issues?: Array<{ id: string; title: string }>
+      }
+      return JSON.stringify({
+        opportunities: (payload.issues ?? []).map(item => ({
+          title: `${item.title} 개선`,
+          description: '표준 절차를 정립한다.',
+          issueIds: [item.id],
+        })),
+      })
+    })
+
+    const result = await ensureIssueAnalysis('project-1', [issue('00', 1)], MAJORS, 'user-1')
 
     expect(result).toMatchObject({ state: 'unavailable', reason: 'invalid_response' })
     expect(mocks.upserts).toHaveLength(0)

@@ -11,6 +11,7 @@ import type {
 } from '@/lib/domain/issueMinuteSource'
 import type {
   IssueAnalysisIssueInput,
+  IssueAnalysisMajorProcess,
   IssueAnalysisReport,
 } from '@/lib/report/issues/model'
 import { parseStoredIssueAnalysisReport } from '@/lib/report/issues/storedRun'
@@ -29,19 +30,25 @@ function assertQuery(
   }
 }
 
+export interface IssueAnalysisLoadResult {
+  issues: IssueAnalysisIssueInput[]
+  /** 프로젝트 전체 Major 기준정보 — Mega 분석 범위와 무관하게 전량이다. */
+  majors: IssueAnalysisMajorProcess[]
+}
+
 /**
  * 분석서 생성 전용 엄격 로더.
  *
  * 일반 화면의 getIssues는 화면 열화 정책상 일부 쿼리 실패를 빈 배열로 표시할 수 있지만,
- * 분석서는 그 상태로 생성하면 잘못된 공식 산출물이 된다. 따라서 이슈/담당자/회의록 링크
- * 셋 중 어느 하나라도 실패하면 즉시 throw하고 부분 결과를 절대 반환하지 않는다.
+ * 분석서는 그 상태로 생성하면 잘못된 공식 산출물이 된다. 따라서 이슈/담당자/회의록 링크/
+ * Major 기준정보 중 어느 하나라도 실패하면 즉시 throw하고 부분 결과를 절대 반환하지 않는다.
  *
  * 호출 전에 서버 액션이 requireProjectMember(projectId)를 통과해야 한다.
  */
 export async function loadIssueAnalysisIssues(
   projectId: string,
   megaCode?: IssueMegaCode,
-): Promise<IssueAnalysisIssueInput[]> {
+): Promise<IssueAnalysisLoadResult> {
   const sb = await createServerClient()
   const issuesQuery = sb.from('issues')
     .select([
@@ -113,9 +120,27 @@ export async function loadIssueAnalysisIssues(
   assertQuery(linksResult as QueryResult, '회의록 출처')
   assertQuery(majorsResult as QueryResult, 'Major Process')
 
+  const majors: IssueAnalysisMajorProcess[] = (
+    majorsResult.data as unknown as Record<string, unknown>[]
+  ).map(raw => {
+    const rawMegaCode = raw.mega_code
+    if (!isIssueMegaCode(rawMegaCode)) {
+      throw new Error(
+        `[issue-analysis] Major 기준정보의 Mega 코드가 올바르지 않습니다: ${String(rawMegaCode)}`,
+      )
+    }
+    const majorSeq = Number(raw.major_seq)
+    const name = typeof raw.name === 'string' ? raw.name.trim() : ''
+    if (!Number.isSafeInteger(majorSeq) || majorSeq < 1 || !name) {
+      throw new Error('[issue-analysis] Major 기준정보 행이 올바르지 않습니다.')
+    }
+    return { id: String(raw.id), megaCode: rawMegaCode, majorSeq, name }
+  }).sort((a, b) =>
+    a.megaCode.localeCompare(b.megaCode) || a.majorSeq - b.majorSeq)
+
   const majorById = new Map<string, { majorSeq: number; name: string }>()
-  for (const raw of majorsResult.data as unknown as Record<string, unknown>[]) {
-    majorById.set(String(raw.id), { majorSeq: Number(raw.major_seq), name: String(raw.name ?? '') })
+  for (const major of majors) {
+    majorById.set(major.id, { majorSeq: major.majorSeq, name: major.name })
   }
 
   const assigneesByIssue = new Map<string, string[]>()
@@ -152,7 +177,7 @@ export async function loadIssueAnalysisIssues(
     else linksByIssue.set(issueId, [source])
   }
 
-  return (issuesResult.data as unknown as Record<string, unknown>[]).map(raw => {
+  const issues = (issuesResult.data as unknown as Record<string, unknown>[]).map(raw => {
     const id = String(raw.id)
     const rawMegaCode = raw.mega_code
     const rawSourceType = raw.source_type
@@ -193,6 +218,7 @@ export async function loadIssueAnalysisIssues(
       sourceDetail: String(raw.source_detail ?? ''),
     }
   })
+  return { issues, majors }
 }
 
 export interface SavedIssueAnalysisRun {
