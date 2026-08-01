@@ -38,8 +38,8 @@ function issue(id: string, megaCode: '00' | '02', title: string): Issue {
     status: 'open',
     severity: 'medium',
     assigneeMemberIds: [],
-    startDate: null,
-    dueDate: null,
+    startDate: '2026-07-01',
+    dueDate: '2026-08-31',
     subProcess: '업무 처리',
     ownerDepartment: 'PI팀',
     relatedSystems: ['ERP'],
@@ -101,7 +101,13 @@ describe('IssuesView Mega 필터', () => {
     const titleCell = [...container.querySelectorAll('td')]
       .find(cell => cell.textContent === '기준정보 중복')
     expect(titleCell?.className).toContain('whitespace-nowrap')
-    expect(container.querySelector('table')?.className).toContain('min-w-[1260px]')
+    expect(container.querySelector('table')?.className).not.toContain('min-w-[')
+    expect(container.querySelector('table')?.parentElement?.className).not.toContain('overflow-x-auto')
+    expect(container.textContent).toContain('issue.col.endDate')
+    expect(container.textContent).toContain('2026-08-31')
+    expect(container.textContent).not.toContain('2026-07-01')
+    expect(container.textContent).not.toContain('2026-07-31')
+    expect(container.textContent).toContain('테스터')
 
     await act(async () => {
       if (!mega) return

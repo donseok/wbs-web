@@ -148,17 +148,17 @@ export function IssuesView({
       {/* 테이블 (MeetingsView 골격) */}
       {visible.length > 0 ? (
         <div className="card overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1260px] border-collapse text-[13px]">
+          <div>
+            <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr className="whitespace-nowrap border-b border-line bg-surface-2 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">
                   <th className="px-3 py-2.5">{t('issue.col.no')}</th>
                   <th className="px-3 py-2.5">{t('issue.col.mega')}</th>
-                  <th className="min-w-[360px] px-3 py-2.5">{t('issue.col.title')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.title')}</th>
                   <th className="px-3 py-2.5">{t('issue.col.status')}</th>
                   <th className="px-3 py-2.5">{t('issue.col.severity')}</th>
                   <th className="px-3 py-2.5">{t('issue.col.assignee')}</th>
-                  <th className="px-3 py-2.5">{t('issue.col.period')}</th>
+                  <th className="px-3 py-2.5">{t('issue.col.endDate')}</th>
                   <th className="px-3 py-2.5">{t('issue.col.created')}</th>
                 </tr>
               </thead>
@@ -195,7 +195,7 @@ export function IssuesView({
                           <span className="text-ink-subtle">—</span>
                         )}
                       </td>
-                      <td className="min-w-[360px] whitespace-nowrap px-3 py-2.5 font-medium text-ink">{issue.title}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-medium text-ink">{issue.title}</td>
                       <td className="whitespace-nowrap px-3 py-2.5">
                         <span className={`chip px-2 py-0.5 text-[11px] ${sMeta.chip}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${sMeta.dot}`} />
@@ -207,15 +207,10 @@ export function IssuesView({
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-ink-muted">{assigneeLabel(issue) ?? t('issue.unassigned')}</td>
                       <td className={`whitespace-nowrap px-3 py-2.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
-                        {issue.startDate && issue.dueDate
-                          ? `${issue.startDate} → ${issue.dueDate}`
-                          : issue.startDate
-                            ? `${issue.startDate} → —`
-                            : issue.dueDate ?? '—'}
-                        {overdue && ` · ${t('issue.overdueBadge')}`}
+                        {issue.dueDate ?? '—'}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-ink-muted">
-                        {issue.createdByName ?? '—'} · <span className="tabular-nums">{issue.createdAt.slice(0, 10)}</span>
+                        {issue.createdByName ?? '—'}
                       </td>
                     </tr>
                   )
