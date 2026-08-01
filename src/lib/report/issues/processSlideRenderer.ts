@@ -3,8 +3,10 @@ import 'server-only'
 import { ISSUE_MEGA_AREAS } from '@/lib/domain/issueAnalysis'
 import {
   CONNECTOR_RE,
+  GROUP_SHAPE_RE,
   SHAPE_RE,
   appendShapeTreeElements,
+  deleteGroupShape,
   deleteShapeOrConnector,
   readElementTransform,
   setPageFooter,
@@ -27,6 +29,9 @@ const TREE_HEADLINE_ID = '145'
 const TREE_TAG_ID = '100'
 const TREE_MAJOR_BOX_IDS = ['116', '102', '111', '51', '70', '77', '103', '92'] as const
 const TREE_CHEVRON_IDS = ['128', '125', '135', '126', '134', '127', '129', '130'] as const
+// 체브론 8개는 그룹(124) 안에 있고, 그룹은 자식 좌표계를 슬라이드 좌표로 확대·이동한다.
+// 복제는 그룹 밖(top-level)에 추가하므로 자식 좌표를 반드시 슬라이드 좌표로 매핑해야 한다.
+const TREE_CHEVRON_GROUP_ID = '124'
 const TREE_CHEVRON_ACTIVE_ID = '135'
 const TREE_CHEVRON_INACTIVE_ID = '128'
 const TREE_SUB_PROTOTYPE_ID = '108'
@@ -34,8 +39,9 @@ const TREE_SUB_SECOND_ID = '107'
 // Sub 프로토타입(108)이 속한 열(2열)의 Major 슬롯 — 상대 오프셋 기준점.
 const TREE_SUB_PROTOTYPE_COLUMN = 1
 const TREE_SPINE_PROTOTYPE_ID = '101'
+// 95는 음수 y 좌표의 회전 bentConnector — 초기 실측에서 누락됐던 16번째 커넥터다.
 const TREE_CONNECTOR_IDS = [
-  '55', '60', '63', '66', '69', '73', '76', '83', '91',
+  '55', '60', '63', '66', '69', '73', '76', '83', '91', '95',
   '101', '105', '106', '114', '115', '117',
 ] as const
 const TREE_SUB_BOX_IDS = [
@@ -46,6 +52,36 @@ const TREE_SUB_BOX_IDS = [
 
 function seriesSuffix(pageInSeries: number, pageCount: number): string {
   return pageCount > 1 ? ` (${pageInSeries}/${pageCount})` : ''
+}
+
+interface Transform {
+  x: number
+  y: number
+  cx: number
+  cy: number
+}
+
+/** 그룹 자식 좌표를 슬라이드 좌표로 사상하는 함수를 만든다. */
+function groupChildMapper(groupXml: string): (child: Transform) => Transform {
+  const xfrm = groupXml.match(/<a:xfrm[^>]*>[\s\S]*?<\/a:xfrm>/)?.[0]
+  const off = xfrm?.match(/<a:off x="(-?\d+)" y="(-?\d+)"\/>/)
+  const ext = xfrm?.match(/<a:ext cx="(\d+)" cy="(\d+)"\/>/)
+  const childOff = xfrm?.match(/<a:chOff x="(-?\d+)" y="(-?\d+)"\/>/)
+  const childExt = xfrm?.match(/<a:chExt cx="(\d+)" cy="(\d+)"\/>/)
+  if (!off || !ext || !childOff || !childExt) {
+    throw new Error('[issue-analysis] 체브론 그룹 좌표 구조를 읽을 수 없습니다.')
+  }
+  const scaleX = Number(ext[1]) / Number(childExt[1])
+  const scaleY = Number(ext[2]) / Number(childExt[2])
+  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) {
+    throw new Error('[issue-analysis] 체브론 그룹 배율이 올바르지 않습니다.')
+  }
+  return child => ({
+    x: Number(off[1]) + Math.round((child.x - Number(childOff[1])) * scaleX),
+    y: Number(off[2]) + Math.round((child.y - Number(childOff[2])) * scaleY),
+    cx: Math.round(child.cx * scaleX),
+    cy: Math.round(child.cy * scaleY),
+  })
 }
 
 /**
@@ -65,8 +101,11 @@ export function renderProcessTreeSlide(
   }
 
   // 프로토타입·슬롯 좌표는 삭제 전에 원본에서 확보한다.
+  const mapChevronChild = groupChildMapper(
+    singleElementById(sourceXml, GROUP_SHAPE_RE, TREE_CHEVRON_GROUP_ID, 'group'),
+  )
   const chevronSlots = TREE_CHEVRON_IDS.map(id =>
-    readElementTransform(singleElementById(sourceXml, SHAPE_RE, id, 'shape')))
+    mapChevronChild(readElementTransform(singleElementById(sourceXml, SHAPE_RE, id, 'shape'))))
   const chevronActivePrototype =
     singleElementById(sourceXml, SHAPE_RE, TREE_CHEVRON_ACTIVE_ID, 'shape')
   const chevronInactivePrototype =
@@ -104,7 +143,8 @@ export function renderProcessTreeSlide(
 
   for (const id of TREE_CONNECTOR_IDS) xml = deleteShapeOrConnector(xml, id)
   for (const id of TREE_SUB_BOX_IDS) xml = deleteShapeOrConnector(xml, id)
-  for (const id of TREE_CHEVRON_IDS) xml = deleteShapeOrConnector(xml, id)
+  // 체브론은 멤버 8개를 포함한 그룹째 지우고 슬라이드 좌표로 다시 세운다.
+  xml = deleteGroupShape(xml, TREE_CHEVRON_GROUP_ID)
   for (let slot = slide.columns.length; slot < TREE_MAJOR_BOX_IDS.length; slot += 1) {
     xml = deleteShapeOrConnector(xml, TREE_MAJOR_BOX_IDS[slot])
   }

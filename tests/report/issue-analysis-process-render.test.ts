@@ -138,8 +138,11 @@ describe('프로세스 트리 슬라이드 렌더', () => {
     // 3열(주문관리·수출관리·미지정)만 사용 → 4~8번째 슬롯 박스 부재
     expect(tree).not.toMatch(/<p:cNvPr\b[^>]*\bid="51"/)
     expect(tree).not.toMatch(/<p:cNvPr\b[^>]*\bid="92"/)
-    // 템플릿 셈플 커넥터(부채꼴·스파인)도 전량 삭제 후 재구성된다.
+    // 템플릿 셈플 커넥터(부채꼴·스파인·음수좌표 회전 커넥터)도 전량 삭제 후 재구성된다.
     expect(tree).not.toMatch(/<p:cNvPr\b[^>]*\bid="117"/)
+    expect(tree).not.toMatch(/<p:cNvPr\b[^>]*\bid="95"/)
+    // 체브론 원본 그룹은 통째로 사라지고 슬라이드 좌표의 복제만 남는다.
+    expect(tree).not.toContain('<p:grpSp>')
   })
 })
 
