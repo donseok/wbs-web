@@ -123,7 +123,7 @@ describe('프로세스 트리 슬라이드 렌더', () => {
     expect(tree).toContain('(미지정)')
     expect(tree).toContain('미지정업무')
     expect(tree).toContain('표준가격산정')
-    expect(tree).toContain('2개의 Major 프로세스와 3개의 Sub 프로세스')
+    expect(tree).toContain('2개의 Major 프로세스로 구성되며, 이슈가 확인된 Sub 프로세스는 3개임')
     // 템플릿 셈플 Sub·Major는 전량 삭제/치환된다.
     expect(tree).not.toContain('견적관리')
     expect(tree).not.toContain('경매관리자')

@@ -145,7 +145,7 @@ describe('buildIssueAnalysisProcessSlides', () => {
     expect(tree.columns.map(column => column.label)).toEqual(['프로세스1', '프로세스2'])
     expect(tree.columns[0].subs).toEqual(['프로세스1-업무1', '프로세스1-업무2'])
     expect(tree.headline).toBe(
-      '현행 영업 프로세스는 프로세스1,프로세스2 2개의 Major 프로세스와 4개의 Sub 프로세스로 구성됨',
+      '현행 영업 프로세스는 프로세스1,프로세스2 2개의 Major 프로세스로 구성되며, 이슈가 확인된 Sub 프로세스는 4개임',
     )
     const definition = slides[1]
     if (definition.kind !== 'process-definition') throw new Error('unexpected kind')
@@ -198,7 +198,7 @@ describe('buildIssueAnalysisProcessSlides', () => {
     const tree = treeSlides(slides)[0]
     expect(tree.columns.at(-1)?.label).toBe(ISSUE_ANALYSIS_UNCLASSIFIED_MAJOR_LABEL)
     expect(tree.columns.at(-1)?.subs).toEqual(['미지정업무1', '미지정업무2'])
-    expect(tree.headline).toContain('1개의 Major 프로세스와 3개의 Sub 프로세스')
+    expect(tree.headline).toContain('1개의 Major 프로세스로 구성되며, 이슈가 확인된 Sub 프로세스는 3개임')
     const definitions = slides.filter(slide => slide.kind === 'process-definition')
     expect(definitions).toHaveLength(1)
     expect(definitions[0].kind === 'process-definition' && definitions[0].rows)
@@ -211,7 +211,7 @@ describe('buildIssueAnalysisProcessSlides', () => {
     )
     expect(slides.every(slide => slide.kind === 'process-tree')).toBe(true)
     expect(slides[0].headline).toBe(
-      '현행 영업 프로세스는 Major 미지정 2개의 Sub 프로세스로 구성됨',
+      '현행 영업 프로세스에서 이슈가 확인된 Sub 프로세스는 2개임 (Major 미지정)',
     )
   })
 

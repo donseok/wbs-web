@@ -112,13 +112,15 @@ function treeHeadline(
 ): string {
   const majors = area.majors ?? []
   const subCount = columns.reduce((sum, column) => sum + column.subs.length, 0)
+  // Sub 마스터가 없어 트리의 Sub는 이슈의 구분에서 관찰된 것만이다(디자인 감사 #1).
+  // 셈플처럼 "M개의 Sub로 구성됨"이라고 쓰면 전체 체계 수처럼 읽히므로 출처를 정직하게 쓴다.
   if (!majors.length) {
-    return `현행 ${area.megaName} 프로세스는 Major 미지정 ${subCount}개의 Sub 프로세스로 구성됨`
+    return `현행 ${area.megaName} 프로세스에서 이슈가 확인된 Sub 프로세스는 ${subCount}개임 (Major 미지정)`
   }
   const names = majors.map(major => major.name)
   const listed = names.slice(0, 3).join(',')
   const suffix = names.length > 3 ? ' 등' : ''
-  return `현행 ${area.megaName} 프로세스는 ${listed}${suffix} ${majors.length}개의 Major 프로세스와 ${subCount}개의 Sub 프로세스로 구성됨`
+  return `현행 ${area.megaName} 프로세스는 ${listed}${suffix} ${majors.length}개의 Major 프로세스로 구성되며, 이슈가 확인된 Sub 프로세스는 ${subCount}개임`
 }
 
 /**
