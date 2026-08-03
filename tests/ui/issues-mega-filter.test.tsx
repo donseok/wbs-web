@@ -6,11 +6,16 @@ import type { Issue } from '@/lib/domain/issues'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
+const mocks = vi.hoisted(() => ({ toast: vi.fn() }))
+
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
+}))
+vi.mock('@/components/ui/Toast', () => ({
+  useToast: () => ({ toast: mocks.toast }),
 }))
 vi.mock('@/components/issues/IssueModals', () => ({
   DeleteIssueModal: () => null,
@@ -60,6 +65,7 @@ describe('IssuesView Mega 필터', () => {
   let root: Root
 
   beforeEach(() => {
+    mocks.toast.mockReset()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -68,6 +74,32 @@ describe('IssuesView Mega 필터', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+  })
+
+  it('Mega 전체에서는 분석서 모달을 열지 않고 한 가지 선택 경고를 표시한다', async () => {
+    await act(async () => {
+      root.render(
+        <IssuesView
+          projectId="project-1"
+          currentUserId="user-1"
+          role="team_editor"
+          myMemberIds={[]}
+          today="2026-07-31"
+          members={[]}
+          issues={[issue('issue-00', '00', '기준정보 중복')]}
+        />,
+      )
+    })
+
+    const analysisButton = [...container.querySelectorAll('button')]
+      .find(button => button.textContent?.includes('issue.analysis.open'))
+    await act(async () => analysisButton?.click())
+
+    expect(mocks.toast).toHaveBeenCalledWith({
+      title: 'issue.analysis.selectOneMega',
+      variant: 'error',
+    })
+    expect(container.querySelector('[data-analysis-mega]')).toBeNull()
   })
 
   it('선택 Mega로 목록을 좁히고 같은 범위를 분석서 모달에 전달한다', async () => {

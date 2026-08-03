@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { CircleAlert, Plus, Presentation } from 'lucide-react'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { useToast } from '@/components/ui/Toast'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from './IssueModals'
 import { IssueAnalysisModal } from './IssueAnalysisModal'
@@ -33,6 +34,7 @@ export function IssuesView({
   today: string
 }) {
   const { locale, t } = useLocale()
+  const { toast } = useToast()
   const searchParams = useSearchParams()
 
   const [statusFilter, setStatusFilter] = useState<IssueStatusFilter>('all')
@@ -93,6 +95,13 @@ export function IssuesView({
     setEditing(issue)
     setFormOpen(true)
   }
+  function openAnalysis() {
+    if (megaFilter === 'all') {
+      toast({ title: t('issue.analysis.selectOneMega'), variant: 'error' })
+      return
+    }
+    setAnalysisOpen(true)
+  }
 
   const filtered = statusFilter !== 'all'
     || severityFilter !== 'all'
@@ -132,7 +141,7 @@ export function IssuesView({
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setAnalysisOpen(true)}
+              onClick={openAnalysis}
               className="btn btn-ghost inline-flex items-center gap-1.5 text-xs"
             >
               <Presentation className="h-3.5 w-3.5" />
