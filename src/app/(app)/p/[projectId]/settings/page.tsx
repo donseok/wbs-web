@@ -7,7 +7,9 @@ import { getLlmConfig } from '@/app/actions/llmConfig'
 import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { listProjectRoles } from '@/app/actions/projectRoles'
+import { listProjectInvites } from '@/app/actions/projectInvites'
 import { ProjectRolesManager } from '@/components/settings/ProjectRolesManager'
+import { ProjectInviteManager } from '@/components/settings/ProjectInviteManager'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
@@ -107,6 +109,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   // 이 조회의 실패가 페이지 본체(임포트·일정 등)를 막으면 안 된다.
   // LLM 설정은 서버 전역이라 슈퍼유저 전용(스펙 §5)
   const llm = isSuperuser ? await llmBadge(locale) : null
+  // 초대 목록도 관리자에게만 필요하다. 실패는 아래에서 안내로 드러낸다 —
+  // 빈 목록으로 위장하면 관리자가 같은 주소로 다시 발급하다 중복 제약에 막힌다.
+  const invites = isAdmin ? await listProjectInvites(projectId) : null
 
   const scheduleLabel =
     project?.start_date || project?.end_date
@@ -289,6 +294,13 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
                 />
               )
             })()}
+            <div className="mt-6 border-t border-line pt-5">
+              <ProjectInviteManager
+                projectId={projectId}
+                rows={invites?.ok ? invites.rows : []}
+                loadError={invites && !invites.ok ? invites.error : null}
+              />
+            </div>
           </SectionCard>
         )}
 
