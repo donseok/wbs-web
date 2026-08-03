@@ -1056,9 +1056,21 @@ const MEMBER_CASES: GoldenCase[] = [
     },
   },
   {
+    // 옛 표기('관리자')로 물어도 잡혀야 한다 — 화면 문구를 '리더'로 바꿨어도 사용자는 옛 말을 쓴다.
     name: 'members: 관리자 역할',
     menu: 'members',
     request: req('관리자 멤버 알려줘', { pageContext: memPage() }),
+    expect: {
+      routeKind: 'tools', tools: ['list_members'],
+      argsSubset: { list_members: { role: 'admin' } },
+      deltaIncludes: ['인원: 1명', '박피엠'],
+    },
+  },
+  {
+    // 현재 화면 표기('리더')로 물었을 때도 같은 명단 구분에 걸린다.
+    name: 'members: 리더 구분',
+    menu: 'members',
+    request: req('리더 멤버 알려줘', { pageContext: memPage() }),
     expect: {
       routeKind: 'tools', tools: ['list_members'],
       argsSubset: { list_members: { role: 'admin' } },

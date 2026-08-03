@@ -49,7 +49,13 @@ export interface ComputedItem extends WbsRow {
   depth: number
 }
 
-/* ── 멤버 관리 ── */
+/* ── 멤버 관리 — 참여 인력 명단(project_members). 권한 체계가 아니다. ── */
+/**
+ * 명단상의 구분(화면 표기: 리더 / 실무)이다. **권한이 아니다.**
+ * 이 프로젝트에서 무엇을 할 수 있는지는 `project_roles`(admin|member, 행 부재=조회 전용)와
+ * `memberships.is_superuser` 가 결정한다 — `@/lib/domain/authz` 를 볼 것.
+ * DB 값이 'admin' 인 것은 0003 의 잔재이며 값을 바꾸지 않고 표시만 분리했다.
+ */
 export type ProjectMemberRole = 'admin' | 'contributor'
 export interface ProjectMember {
   id: string

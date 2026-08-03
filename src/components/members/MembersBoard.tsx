@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { UserPlus, Pencil, Trash2, Mail, ShieldCheck, UserRound, AlertTriangle, Users, Unlink } from 'lucide-react'
+import Link from 'next/link'
+import { UserPlus, Pencil, Trash2, Mail, UserCog, UserRound, AlertTriangle, Users, Unlink, Info, ArrowUpRight } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
@@ -43,9 +44,10 @@ function avatarGradient(seed: string): string {
   return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length]
 }
 
+/** 명단상의 구분(리더/실무)이다. 권한이 아니므로 방패(ShieldCheck) 계열 아이콘을 쓰지 않는다. */
 function roleMeta(role: ProjectMemberRole) {
   return role === 'admin'
-    ? { labelKey: 'members.roleAdmin' as const, chip: 'bg-brand-weak text-brand', Icon: ShieldCheck }
+    ? { labelKey: 'members.roleAdmin' as const, chip: 'bg-brand-weak text-brand', Icon: UserCog }
     : { labelKey: 'members.roleContributor' as const, chip: 'bg-progress-weak text-progress', Icon: UserRound }
 }
 
@@ -126,6 +128,22 @@ export function MembersBoard({
             </button>
           )}
         </div>
+      </div>
+
+      {/* 명단 ≠ 권한. 이 화면의 '리더'는 직책이고, 로그인 권한은 설정 › 권한에 있다.
+          링크는 관리자에게만 — 멤버가 눌러 가면 권한 섹션이 보이지 않아 막다른 길이 된다. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface-2 px-5 py-2.5 sm:px-6">
+        <Info className="h-3.5 w-3.5 shrink-0 text-ink-subtle" aria-hidden />
+        <p className="text-xs leading-5 text-ink-muted">{t('members.rosterNotice')}</p>
+        {canEdit && (
+          <Link
+            href={`/p/${projectId}/settings`}
+            className="inline-flex items-center gap-0.5 text-xs font-semibold text-brand hover:underline"
+          >
+            {t('members.rosterNoticeLink')}
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+          </Link>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-5 sm:p-6">

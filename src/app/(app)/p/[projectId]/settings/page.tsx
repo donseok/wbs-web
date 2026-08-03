@@ -283,6 +283,17 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             title={locale === 'ko' ? '권한' : 'Roles'}
             icon={Shield}
           >
+            {/* 명단(팀 구성)과 혼동되지 않게 한 줄로 못박는다 — 이 섹션은 로그인 계정의 권한이다. */}
+            <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
+              {locale === 'ko'
+                ? '로그인 계정의 이 프로젝트 권한입니다. 참여 인력 명단은 팀 구성에 있습니다.'
+                : 'Project permissions for login accounts. The participant roster lives under Members.'}
+              {' '}
+              <Link href={`/p/${projectId}/members`} className="font-semibold text-brand hover:underline">
+                {locale === 'ko' ? '팀 구성 열기' : 'Open Members'}
+                <ArrowUpRight className="ml-0.5 inline h-3.5 w-3.5" aria-hidden />
+              </Link>
+            </p>
             {await (async () => {
               const res = await listProjectRoles(projectId)
               if (!res.ok) return <p className="text-sm text-delayed">{res.error}</p>
