@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildFolderTree, folderDepthOf, isDescendantFolder, subtreeHeightOf, validateFolderName,
+  buildFolderTree, folderDepthOf, folderSubtreeIds, isDescendantFolder, subtreeHeightOf,
+  teamChildFoldersOf, validateFolderName,
   MINUTE_FOLDER_DEPTH_MAX, MINUTE_FOLDER_NAME_MAX,
 } from '@/lib/domain/minutes'
 import type { ExplorerLeaf, MinuteFolder, TeamCode } from '@/lib/domain/types'
@@ -157,5 +158,60 @@ describe('isDescendantFolder', () => {
   it('순환 체인에서도 끝난다', () => {
     const cyclic = [folder('x', 'X', 'y'), folder('y', 'Y', 'x')]
     expect(isDescendantFolder(cyclic, 'ghost', 'x')).toBe(false)
+  })
+})
+
+describe('folderSubtreeIds', () => {
+  // A ─ B ─ C, A ─ D, 별개 루트 Z
+  const tree = [
+    folder('a', 'A'), folder('b', 'B', 'a'), folder('c', 'C', 'b'),
+    folder('d', 'D', 'a'), folder('z', 'Z'),
+  ]
+
+  it('자기 자신 + 자손 전부(형제 루트 배제)', () => {
+    expect(new Set(folderSubtreeIds(tree, 'a'))).toEqual(new Set(['a', 'b', 'c', 'd']))
+  })
+
+  it('리프는 자기 자신만', () => {
+    expect(folderSubtreeIds(tree, 'c')).toEqual(['c'])
+  })
+
+  it('중간 노드는 그 아래만', () => {
+    expect(new Set(folderSubtreeIds(tree, 'b'))).toEqual(new Set(['b', 'c']))
+  })
+
+  it('부재 id 도 자기 자신 1개 — 필터가 소리 없이 전체로 넓어지지 않는다', () => {
+    expect(folderSubtreeIds(tree, 'ghost')).toEqual(['ghost'])
+  })
+
+  it('순환 참조에서도 끝난다', () => {
+    const cyclic = [folder('x', 'X', 'y'), folder('y', 'Y', 'x')]
+    expect(new Set(folderSubtreeIds(cyclic, 'x'))).toEqual(new Set(['x', 'y']))
+  })
+})
+
+describe('teamChildFoldersOf', () => {
+  const seedRoot = (id: string, name: string, sort = 100): MinuteFolder =>
+    ({ id, name, parentId: null, sort, createdBy: null })
+  const userFolder = (id: string, name: string, parentId: string | null, sort = 100): MinuteFolder =>
+    ({ id, name, parentId, sort, createdBy: 'user-1' })
+
+  it('시드 팀 루트의 직계 하위만, 트리와 같은 정렬(sort asc → name ko asc)', () => {
+    const fs = [
+      seedRoot('r', 'MES'),
+      userFolder('c2', '나중', 'r', 200), userFolder('c1', '가나', 'r', 100),
+      userFolder('g', '손자', 'c1'),
+    ]
+    expect(teamChildFoldersOf(fs, 'MES' as TeamCode).map(f => f.id)).toEqual(['c1', 'c2'])
+  })
+
+  it('동명 사용자 루트(스쿼팅)는 팀 루트가 아니다', () => {
+    const fs = [userFolder('fake', 'MES', null), userFolder('c', '하위', 'fake')]
+    expect(teamChildFoldersOf(fs, 'MES' as TeamCode)).toEqual([])
+  })
+
+  it('팀 루트 부재·하위 없음은 빈 배열', () => {
+    expect(teamChildFoldersOf([], 'MES' as TeamCode)).toEqual([])
+    expect(teamChildFoldersOf([seedRoot('r', 'MES')], 'MES' as TeamCode)).toEqual([])
   })
 })

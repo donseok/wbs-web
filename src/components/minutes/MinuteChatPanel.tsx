@@ -1,10 +1,12 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Bot, RotateCcw, Send, X } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
-import type { TeamCode } from '@/lib/domain/types'
+import { fetchMinuteFoldersLite } from '@/app/actions/minutes'
+import { teamChildFoldersOf } from '@/lib/domain/minutes'
+import type { MinuteFolder, TeamCode } from '@/lib/domain/types'
 import { linkifyMinutePaths } from './linkify'
 
 type Msg = { id: number; role: 'user' | 'assistant'; content: string }
@@ -126,13 +128,26 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   const [open, setOpen] = useState(true)
   const [scope, setScope] = useState<ChatScope>('doc')
   const [team, setTeam] = useState<TeamKey>('ALL')
+  // 하위 폴더 필터 — null 은 '팀 전체'. 팀 변경 시 리셋(타 팀 폴더가 남으면 서버가 400 으로 거른다).
+  const [folderId, setFolderId] = useState<string | null>(null)
+  const [folders, setFolders] = useState<MinuteFolder[] | 'idle' | 'loading' | 'error'>('idle')
+  // archive 첫 진입 시 1회 지연 로드 — 문서 질문만 쓰는 대다수 세션에 폴더 조회를 물리지 않는다.
+  useEffect(() => {
+    if (scope !== 'archive' || folders !== 'idle') return
+    setFolders('loading')
+    fetchMinuteFoldersLite()
+      .then(r => setFolders(r ?? 'error'))
+      .catch(() => setFolders('error'))
+  }, [scope, folders])
   // 범위별 독립 스레드 — 전환해도 각 대화가 보존되고 LLM 컨텍스트가 섞이지 않는다.
   const doc = useMinutesChat((message, history) => ({ mode: 'doc', minuteId, message, history }))
   const archive = useMinutesChat((message, history) => ({
     mode: 'archive', message, history,
-    filters: { team: team === 'ALL' ? null : team, from: null, to: null },
+    filters: { team: team === 'ALL' ? null : team, folderId, from: null, to: null },
   }))
   const chat = scope === 'doc' ? doc : archive
+  const subFolders = scope === 'archive' && team !== 'ALL' && Array.isArray(folders)
+    ? teamChildFoldersOf(folders, team) : []
 
   if (!open) {
     return (
@@ -163,10 +178,23 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
         </span>
       </div>
       {scope === 'archive' && (
-        <div className="border-b border-line px-3 py-1.5">
-          <SegmentedTabs<TeamKey>
-            tabs={[{ key: 'ALL', label: t('min.team.all') }, ...teamCodes.map(tk => ({ key: tk, label: tk }))]}
-            value={team} onChange={setTeam} size="sm" />
+        <div className="space-y-1.5 border-b border-line px-3 py-1.5">
+          <div className="overflow-x-auto">
+            <SegmentedTabs<TeamKey>
+              tabs={[{ key: 'ALL', label: t('min.team.all') }, ...teamCodes.map(tk => ({ key: tk, label: tk }))]}
+              value={team} onChange={tk => { setTeam(tk); setFolderId(null) }} size="sm" />
+          </div>
+          {subFolders.length > 0 && (
+            <div className="overflow-x-auto">
+              <SegmentedTabs<string>
+                tabs={[{ key: 'ALL', label: t('min.team.all') },
+                       ...subFolders.map(f => ({ key: f.id, label: f.name }))]}
+                value={folderId ?? 'ALL'} onChange={k => setFolderId(k === 'ALL' ? null : k)} size="sm" />
+            </div>
+          )}
+          {team !== 'ALL' && folders === 'error' && (
+            <p className="text-xs text-ink-subtle">{t('min.chat.folder.error')}</p>
+          )}
         </div>
       )}
       <div className="flex-1 space-y-2 overflow-y-auto p-3">

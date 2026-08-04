@@ -104,7 +104,8 @@ export async function streamDocAnswer(input: {
 /** 보관함 모드 — 벡터 검색 + 키워드 정확 일치, 출처 부기. */
 export async function streamArchiveAnswer(input: {
   message: string; history: ChatMessage[]
-  filters: { team?: TeamCode | null; from?: string | null; to?: string | null }
+  /** folderIds: 선택 폴더의 하위 트리 전체(자기 포함) — 라우트가 검증·확장을 끝낸 값. */
+  filters: { team?: TeamCode | null; from?: string | null; to?: string | null; folderIds?: string[] | null }
 }): Promise<ReadableStream<Uint8Array>> {
   const sb = await createServerClient()
   await healMissingMinuteEmbeddings() // 회의록 단위 갭 회수(쿨다운·dedupe 내장, 절대 throw 안 함)
@@ -119,6 +120,7 @@ export async function streamArchiveAnswer(input: {
         p_team: input.filters.team ?? null,
         p_date_from: input.filters.from ?? null,
         p_date_to: input.filters.to ?? null,
+        p_folder_ids: input.filters.folderIds ?? null,
       })
       if (error) console.error('[minutes] match_minute_documents 실패:', error.message)
       matches = ((data as Record<string, unknown>[] | null) ?? [])
@@ -141,6 +143,7 @@ export async function streamArchiveAnswer(input: {
       .or(`title.ilike.${pat},body_md.ilike.${pat}`)
       .order('minute_date', { ascending: false }).limit(10)
     if (input.filters.team) q = q.eq('team_code', input.filters.team)
+    if (input.filters.folderIds) q = q.in('folder_id', input.filters.folderIds)
     const { data } = await q
     keywordRows = (data ?? []).map(r => ({
       minuteId: r.id as string, minuteDate: r.minute_date as string,

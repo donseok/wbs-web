@@ -42,11 +42,33 @@ export function teamRootFolderIdOf(folders: MinuteFolder[], team: TeamCode): str
 }
 
 /** 팀 루트의 직계 하위 폴더 — 하위 구분의 원천. 시드·사용자 폴더를 가리지 않으므로 폴더
- *  생성/개명/삭제가 업로드·수정 모달의 하위 구분 옵션에 그대로 반영된다. */
-function teamChildFolders(folders: MinuteFolder[], team: TeamCode): MinuteFolder[] {
+ *  생성/개명/삭제가 챗 필터 칩·업로드·수정 모달의 하위 구분 옵션에 그대로 반영된다. */
+export function teamChildFoldersOf(folders: MinuteFolder[], team: TeamCode): MinuteFolder[] {
   const rootId = teamRootFolderIdOf(folders, team)
   if (!rootId) return []
   return folders.filter(f => f.parentId === rootId).sort(byFolderOrder)
+}
+
+/** 폴더 하위 트리 id(자기 자신 포함) — 챗 폴더 필터의 검색 범위. BFS·순환 가드.
+ *  부재 id 도 자기 자신 1개로 반환한다 — 빈 배열을 돌려주면 호출부의 "필터 없음" 분기와
+ *  구분되지 않아 필터가 소리 없이 전체로 넓어진다(fail-closed). */
+export function folderSubtreeIds(
+  folders: readonly Pick<MinuteFolder, 'id' | 'parentId'>[], rootId: string,
+): string[] {
+  const children = new Map<string, string[]>()
+  for (const f of folders) {
+    if (f.parentId === null) continue
+    const arr = children.get(f.parentId)
+    if (arr) arr.push(f.id); else children.set(f.parentId, [f.id])
+  }
+  const out = new Set<string>([rootId])
+  const queue = [rootId]
+  while (queue.length) {
+    for (const c of children.get(queue.pop()!) ?? []) {
+      if (!out.has(c)) { out.add(c); queue.push(c) }
+    }
+  }
+  return [...out]
 }
 
 /** 팀별 하위 구분 — 팀 루트의 실제 하위 폴더명. 하위 폴더가 없으면(팀 루트 부재 포함)
@@ -54,7 +76,7 @@ function teamChildFolders(folders: MinuteFolder[], team: TeamCode): MinuteFolder
  *  @deprecated §6 폴더 중심 재편으로 (팀, 하위 구분) 2단 모델이 폐지되어 프로덕션 사용처가 0이다.
  *  편철 폴더는 FolderPickModal 로 직접 고르고 team 은 teamSubOfFolder 로 파생한다. */
 export function subgroupsOf(folders: MinuteFolder[], team: TeamCode): string[] {
-  const names = teamChildFolders(folders, team).map(f => f.name)
+  const names = teamChildFoldersOf(folders, team).map(f => f.name)
   return names.length > 0 ? names : [team]
 }
 
