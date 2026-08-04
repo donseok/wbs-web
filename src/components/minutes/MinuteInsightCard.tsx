@@ -61,7 +61,7 @@ export function MinuteInsightCard({
     .filter(([, n]) => n > 0)
 
   return (
-    <div className="card shrink-0 p-4">
+    <div className="card shrink-0 px-4 py-2">
       <div className="flex items-center gap-2">
         <Sparkles className="h-4 w-4 text-brand" />
         <span className="text-sm font-bold text-ink">{t('min.insight.title')}</span>

@@ -18,7 +18,7 @@ export function PageHero({
 }) {
   return (
     <section className="grid gap-4">
-      <div className="hero-glow hero-card flex flex-col px-6 py-4 sm:px-8">
+      <div className="hero-glow hero-card flex flex-col px-6 py-3 sm:px-8">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <h1 className="truncate text-lg font-bold leading-tight tracking-tight text-hero-ink">

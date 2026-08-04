@@ -623,10 +623,10 @@ export function MinuteViewer({
   return (
     // 폭은 레이아웃 main(헤더와 동일 px 스케일)에 맡긴다 — 자체 max-w/패딩을 두면 헤더 기준선보다 안쪽으로 좁아짐
     // xl↑는 뷰포트 높이에 고정하고 본문 카드가 자체 스크롤 — 메타 헤더·채팅 패널은 스크롤과 무관하게 상주
-    <div className="flex flex-col gap-4 xl:h-full xl:min-h-0">
+    <div className="flex flex-col gap-3 xl:h-full xl:min-h-0">
       {/* 메타 헤더 — 메타·액션 단일 행(접기 없음). 좁은 폭에서만 wrap */}
-      <div className="card shrink-0 space-y-2 p-4">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="card shrink-0 space-y-2 px-4 py-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <Link href="/minutes" className="inline-flex items-center gap-1 text-sm text-ink-muted hover:text-ink">
             <ArrowLeft className="h-4 w-4" />{t('min.detail.back')}
           </Link>
@@ -720,7 +720,7 @@ export function MinuteViewer({
       </div>
 
       {historicalVersion && (
-        <div className="card flex shrink-0 flex-wrap items-center gap-2 border-brand/30 bg-brand-weak/35 px-4 py-3">
+        <div className="card flex shrink-0 flex-wrap items-center gap-2 border-brand/30 bg-brand-weak/35 px-4 py-2">
           <History className="h-4 w-4 text-brand" aria-hidden />
           <p className="text-sm font-medium text-ink">
             {t('min.version.viewingBanner').replace('{n}', String(historicalVersion.versionNo))}
@@ -731,7 +731,7 @@ export function MinuteViewer({
         </div>
       )}
       {minute.archivedAt && !historicalVersion && (
-        <div className="card flex shrink-0 items-center gap-2 border-line-strong bg-surface-2 px-4 py-3">
+        <div className="card flex shrink-0 items-center gap-2 border-line-strong bg-surface-2 px-4 py-2">
           <History className="h-4 w-4 text-ink-muted" aria-hidden />
           <p className="text-sm font-medium text-ink">{t('min.archive.banner')}</p>
         </div>
@@ -766,7 +766,7 @@ export function MinuteViewer({
 
       {/* xl 미만 목차 아코디언은 MinuteToc 내부에서 분기 렌더 */}
       {/* 목차 + 본문 + (Task 17: 우측 채팅 패널) */}
-      <div className="flex flex-col gap-4 xl:min-h-0 xl:flex-1 xl:flex-row">
+      <div className="flex flex-col gap-3 xl:min-h-0 xl:flex-1 xl:flex-row">
         {/* 집중 모드 — 목차·채팅을 숨겨 본문이 전체 폭 사용 */}
         {!focus && (
           <MinuteToc
@@ -775,7 +775,7 @@ export function MinuteViewer({
           />
         )}
         {/* 글자크기는 CSS 변수로만 내려보낸다 — MarkdownView props 가 그대로여야 재파싱이 없다(스펙 §3) */}
-        <div ref={bodyRef} onClick={historicalVersion || minute.archivedAt ? undefined : onBodyClick} className="card min-w-0 flex-1 p-5 xl:overflow-y-auto"
+        <div ref={bodyRef} onClick={historicalVersion || minute.archivedAt ? undefined : onBodyClick} className="card min-w-0 flex-1 p-4 xl:overflow-y-auto"
           style={{ '--minutes-fs': `${fs.size}px` } as React.CSSProperties}>
           <MarkdownView content={minute.bodyMd} marks={marks} />
         </div>
