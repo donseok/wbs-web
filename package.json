@@ -11,6 +11,9 @@
     "test:watch": "vitest",
     "smoke:prod": "node scripts/smoke-prod.mjs",
     "wiki:health": "node scripts/wiki-health.mjs",
+    "wbs:merge": "node scripts/wbs/merge-groups.mjs",
+    "wbs:validate": "node scripts/wbs/validate.mjs",
+    "wbs:build": "node scripts/wbs/build-xlsx.mjs",
     "mark:good": "node scripts/mark-good.mjs",
     "prepare": "git config core.hooksPath .githooks || true"
   },
