@@ -58,6 +58,13 @@ const EMPTY_WIKI_IMPACT: MinuteWikiImpactCardProps = {
   items: [],
 }
 
+/**
+ * `linkedIssues = []` 기본값을 인라인으로 두면 **렌더마다 새 배열**이라 activeLinkedIssues →
+ * marks 의 useMemo 가 연쇄로 다시 돌고, MarkdownView 의 memo 가 뚫려 글자크기 1px 조절마다
+ * 본문 전체가 재파싱된다(스펙 §3 성능 계약, tests/ui/minute-font-size.test.tsx 가 가드).
+ */
+const EMPTY_LINKED_ISSUES: MinuteLinkedIssue[] = []
+
 /** 이슈 등록의 원천 — 블록 팝오버(블록 전체)와 드래그 선택(부분 발췌)이 같은 상태 기계를 공유한다. */
 type IssueOrigin =
   | { type: 'block'; index: number }
@@ -75,7 +82,7 @@ type IssueOrigin =
 export function MinuteViewer({
   minute, files, canManage, annotations, userId, projects, sourceAnchor = null,
   initialFontSize = null, versions = [], wikiImpact = EMPTY_WIKI_IMPACT,
-  historicalVersion = null, issueMembers = [], linkedIssues = [], folderPath = null,
+  historicalVersion = null, issueMembers = [], linkedIssues = EMPTY_LINKED_ISSUES, folderPath = null,
   myProjectIds = null,
 }: {
   minute: Minute
