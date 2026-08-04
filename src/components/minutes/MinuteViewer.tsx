@@ -144,6 +144,14 @@ export function MinuteViewer({
     () => [...versions].sort((a, b) => b.versionNo - a.versionNo)[0] ?? null,
     [versions],
   )
+  const activeLinkedIssues = useMemo(() => {
+    const versionId = historicalVersion?.id ?? currentVersion?.id
+    if (!versionId) return []
+    return linkedIssues.filter(link =>
+      link.minuteVersionId === versionId
+      && link.bodyHash === bodyHash
+      && blocks[link.blockIndex]?.hash === link.blockHash)
+  }, [blocks, bodyHash, currentVersion?.id, historicalVersion?.id, linkedIssues])
   const sourceBlockIndex = useMemo(
     () => sourceAnchor ? resolveMinuteSourceBlock(blocks, bodyHash, sourceAnchor) : null,
     [blocks, bodyHash, sourceAnchor],
@@ -247,8 +255,15 @@ export function MinuteViewer({
     for (const [idx, users] of counts) {
       m[idx] = { ...m[idx], hlTier: hlTier(users.size), hlCount: users.size }
     }
+    const issueCounts = new Map<number, number>()
+    for (const issue of activeLinkedIssues) {
+      issueCounts.set(issue.blockIndex, (issueCounts.get(issue.blockIndex) ?? 0) + 1)
+    }
+    for (const [idx, count] of issueCounts) {
+      m[idx] = { ...m[idx], issueCount: count }
+    }
     return m
-  }, [insights, others, myIndexes])
+  }, [activeLinkedIssues, insights, others, myIndexes])
 
   // 블록 클릭 → 팝오버 (이벤트 위임 — 링크/버튼/드래그 선택 제외, 스펙 §6.4)
   const onBodyClick = useCallback((e: React.MouseEvent) => {
@@ -612,12 +627,8 @@ export function MinuteViewer({
   const popKinds = popover
     ? [...new Set(insights.filter(i => i.blockIndex === popover.blockIndex).map(i => i.kind as InsightKind))]
     : []
-  const popLinkedIssues = popover && currentVersion
-    ? linkedIssues.filter(link =>
-      link.minuteVersionId === currentVersion.id
-      && link.bodyHash === bodyHash
-      && link.blockIndex === popover.blockIndex
-      && link.blockHash === blocks[popover.blockIndex]?.hash)
+  const popLinkedIssues = popover
+    ? activeLinkedIssues.filter(link => link.blockIndex === popover.blockIndex)
     : []
 
   return (
@@ -741,7 +752,7 @@ export function MinuteViewer({
       {!historicalVersion && (
         <MinuteInsightCard
           minuteId={minute.id} insights={annotations.insights} highlights={annotations.highlights}
-          blocks={blocks} bodyHash={bodyHash} onJump={jumpTo}
+          blocks={blocks} bodyHash={bodyHash} onJump={jumpTo} linkedIssues={activeLinkedIssues}
           details={
             <>
               <MinuteVersionPanel
@@ -771,7 +782,7 @@ export function MinuteViewer({
         {!focus && (
           <MinuteToc
             blocks={blocks} insights={insights} highlights={annotations.highlights}
-            onJump={jumpTo} activeIndex={activeToc}
+            linkedIssues={activeLinkedIssues} onJump={jumpTo} activeIndex={activeToc}
           />
         )}
         {/* 글자크기는 CSS 변수로만 내려보낸다 — MarkdownView props 가 그대로여야 재파싱이 없다(스펙 §3) */}

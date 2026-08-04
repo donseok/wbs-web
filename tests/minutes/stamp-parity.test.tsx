@@ -36,10 +36,14 @@ describe('stamp parity — splitMinuteBlocks ↔ MarkdownView DOM', () => {
     expect(stampedIndexes(html)).toEqual(expected)
   })
 
-  it('marks 부여 — data-ins/data-hl/data-hl-count 속성이 해당 블록에 스탬프', () => {
-    const marks: BlockMarks = { 1: { ins: 'decision' }, 3: { hlTier: 2, hlCount: 3 } }
+  it('marks 부여 — 인사이트·하이라이트·연결 이슈 속성이 해당 블록에 스탬프', () => {
+    const marks: BlockMarks = {
+      1: { ins: 'decision', issueCount: 2 },
+      3: { hlTier: 2, hlCount: 3 },
+    }
     const html = renderToStaticMarkup(<MarkdownView content={RICH_MD} marks={marks} />)
     expect(html).toMatch(/data-mblock="1"[^>]*data-ins="decision"|data-ins="decision"[^>]*data-mblock="1"/)
+    expect(html).toContain('data-issue-count="2"')
     expect(html).toContain('data-hl="2"')
     expect(html).toContain('data-hl-count="3"')
   })

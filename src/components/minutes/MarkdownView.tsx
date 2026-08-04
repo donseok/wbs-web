@@ -9,7 +9,7 @@ import { remarkAnnotateBlocks, type BlockMarks } from '@/lib/minutes/blocks'
 // pre 오버라이드가 이 키들을 pre/MermaidBlock 으로 "호이스팅"할 때 원본 <code> 에도 남아있으면
 // data-mblock 이 두 번(래퍼+자식) 찍혀 서버 분할기와의 인덱스 파리티가 깨진다 — 그래서 호이스팅 후
 // code 자식에서는 반드시 제거(이동)해야 한다.
-const ANCHOR_KEYS = ['data-mblock', 'data-ins', 'data-hl', 'data-hl-count'] as const
+const ANCHOR_KEYS = ['data-mblock', 'data-ins', 'data-hl', 'data-hl-count', 'data-issue-count'] as const
 
 let mermaidSeq = 0
 

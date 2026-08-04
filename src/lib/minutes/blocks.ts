@@ -115,6 +115,7 @@ export type BlockMarks = Record<number, {
   ins?: InsightKind
   hlTier?: 1 | 2 | 3
   hlCount?: number
+  issueCount?: number
 }>
 
 /**
@@ -136,6 +137,7 @@ export function remarkAnnotateBlocks(marks: BlockMarks) {
         props['data-hl'] = m.hlTier
         props['data-hl-count'] = m.hlCount ?? 1
       }
+      if (m?.issueCount) props['data-issue-count'] = m.issueCount
       const data = (node.data ??= {}) as { hProperties?: Record<string, unknown> }
       data.hProperties = { ...data.hProperties, ...props }
     })

@@ -1,8 +1,9 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, List, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleAlert, List, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { InsightKind, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import type { MinuteBlock } from '@/lib/minutes/blocks'
+import type { MinuteLinkedIssue } from '@/lib/domain/issueMinuteSource'
 import { visibleHighlights } from '@/lib/minutes/annotations'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
@@ -16,11 +17,13 @@ interface TocEntry {
   text: string
   kinds: InsightKind[]   // 담당 구간에 존재하는 kind (중복 제거)
   hlCount: number        // 담당 구간 하이라이트 블록 수
+  issueCount: number
+  firstIssueBlock: number | null
 }
 
 /** 담당 구간 = 이 헤딩 ~ 다음 depth≤3 헤딩 직전 (h4+ 하위 구간은 상위 항목 귀속 — 스펙 §6.6). */
-function buildEntries(
-  blocks: MinuteBlock[], insights: MinuteInsight[], highlights: MinuteHighlight[],
+export function buildMinuteTocEntries(
+  blocks: MinuteBlock[], insights: MinuteInsight[], highlights: MinuteHighlight[], linkedIssues: MinuteLinkedIssue[],
 ): TocEntry[] {
   const heads = blocks.filter(b => b.headingDepth !== undefined && b.headingDepth <= 3)
   if (heads.length === 0) return []
@@ -32,31 +35,40 @@ function buildEntries(
       insights.filter(x => x.kind !== 'none' && inRange(x.blockIndex)).map(x => x.kind as InsightKind),
     )]
     const hlCount = new Set(vis.filter(x => inRange(x.blockIndex)).map(x => x.blockIndex)).size
-    return { blockIndex: h.index, depth: h.headingDepth!, text: h.text, kinds, hlCount }
+    const sectionIssues = linkedIssues.filter(issue => inRange(issue.blockIndex))
+    return {
+      blockIndex: h.index, depth: h.headingDepth!, text: h.text, kinds, hlCount,
+      issueCount: sectionIssues.length,
+      firstIssueBlock: sectionIssues[0]?.blockIndex ?? null,
+    }
   })
 }
 
 export function MinuteToc({
-  blocks, insights, highlights, onJump, activeIndex,
+  blocks, insights, highlights, linkedIssues = [], onJump, activeIndex,
 }: {
   blocks: MinuteBlock[]
   insights: MinuteInsight[]
   highlights: MinuteHighlight[]
+  linkedIssues?: MinuteLinkedIssue[]
   onJump: (blockIndex: number) => void
   activeIndex: number | null
 }) {
   const { t } = useLocale()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
-  const entries = useMemo(() => buildEntries(blocks, insights, highlights), [blocks, insights, highlights])
+  const entries = useMemo(
+    () => buildMinuteTocEntries(blocks, insights, highlights, linkedIssues),
+    [blocks, highlights, insights, linkedIssues],
+  )
   if (entries.length === 0) return null
 
   const list = (onItem?: () => void) => (
     <ul className="space-y-0.5">
       {entries.map(e => (
-        <li key={e.blockIndex}>
+        <li key={e.blockIndex} className="flex items-center gap-0.5">
           <button onClick={() => { onJump(e.blockIndex); onItem?.() }}
-            className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[13px] transition
+            className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[13px] transition
               ${activeIndex === e.blockIndex ? 'bg-brand-weak font-semibold text-brand' : 'text-ink-muted hover:bg-surface-2 hover:text-ink'}`}
             style={{ paddingLeft: `${8 + (e.depth - 1) * 12}px` }}>
             <span className="min-w-0 flex-1 truncate">{e.text}</span>
@@ -65,6 +77,16 @@ export function MinuteToc({
               {e.hlCount > 0 && <span className="h-1.5 w-1.5 rounded-full bg-accent-warning" />}
             </span>
           </button>
+          {e.firstIssueBlock !== null && (
+            <button
+              onClick={() => { onJump(e.firstIssueBlock!); onItem?.() }}
+              title={t('min.issue.tocJump').replace('{n}', String(e.issueCount))}
+              aria-label={t('min.issue.tocJump').replace('{n}', String(e.issueCount))}
+              className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md bg-progress-weak px-1.5 text-[10px] font-semibold text-progress hover:ring-1 hover:ring-progress/30"
+            >
+              <CircleAlert className="h-3 w-3" aria-hidden />{e.issueCount}
+            </button>
+          )}
         </li>
       ))}
     </ul>

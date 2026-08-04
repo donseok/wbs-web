@@ -311,6 +311,18 @@ textarea {
     @apply absolute -top-2 right-1 rounded-full bg-accent-warning px-1.5 py-0.5 text-[10px] font-bold leading-none text-white;
   }
 
+  /* 이슈 연결 블록 — 본문을 다시 열어도 등록 여부가 보이고, 클릭하면 기존 블록 팝오버에서 이슈를 연다. */
+  .minutes-md [data-issue-count] {
+    @apply relative;
+    box-shadow: inset 3px 0 var(--color-progress);
+    padding-left: 0.6em;
+  }
+  .minutes-md [data-issue-count]::before {
+    content: '⚑ ' attr(data-issue-count);
+    @apply absolute -top-2 right-1 rounded-full bg-progress px-1.5 py-0.5 text-[10px] font-bold leading-none text-white;
+  }
+  .minutes-md [data-issue-count][data-hl-count]::before { right: 3rem; }
+
   /* 점프 도착 강조 — 정적 ring(상태 기반, prefers-reduced-motion 에서도 유효) */
   .minutes-md .mblock-flash { @apply outline outline-2 outline-brand; }
 

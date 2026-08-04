@@ -1,9 +1,12 @@
 'use client'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
+import Link from 'next/link'
+import { ChevronDown, ChevronUp, CircleAlert, ExternalLink, Sparkles } from 'lucide-react'
 import type { InsightKind, MinuteHighlight, MinuteInsight } from '@/lib/domain/types'
 import type { MinuteBlock } from '@/lib/minutes/blocks'
+import type { MinuteLinkedIssue } from '@/lib/domain/issueMinuteSource'
+import { ISSUE_STATUS_META } from '@/lib/domain/issues'
 import {
   INS_PRIORITY, insightCardState, topHighlightedBlocks, visibleInsights,
 } from '@/lib/minutes/annotations'
@@ -19,7 +22,7 @@ const KIND_CHIP: Record<InsightKind, { chip: string; dot: string }> = {
 }
 
 export function MinuteInsightCard({
-  minuteId, insights, highlights, blocks, bodyHash, onJump, details,
+  minuteId, insights, highlights, blocks, bodyHash, onJump, linkedIssues = [], details,
 }: {
   minuteId: string
   insights: MinuteInsight[]
@@ -27,6 +30,7 @@ export function MinuteInsightCard({
   blocks: MinuteBlock[]
   bodyHash: string
   onJump: (blockIndex: number) => void
+  linkedIssues?: MinuteLinkedIssue[]
   details?: ReactNode
 }) {
   const { t } = useLocale()
@@ -72,6 +76,12 @@ export function MinuteInsightCard({
               {t(`min.insight.kind.${k}`)} {n}
             </span>
           ))}
+          {linkedIssues.length > 0 && (
+            <button onClick={() => setOpen(true)} className="chip bg-progress-weak text-progress">
+              <CircleAlert className="h-3 w-3" aria-hidden />
+              {t('min.issue.count').replace('{n}', String(linkedIssues.length))}
+            </button>
+          )}
         </span>
         <button onClick={() => setOpen(o => !o)}
           className="ml-auto inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink">
@@ -126,6 +136,40 @@ export function MinuteInsightCard({
                       </button>
                     </li>
                   ))}
+                </ul>
+              </div>
+            )}
+            {linkedIssues.length > 0 && (
+              <div className="border-t border-line pt-2">
+                <p className="eyebrow mb-1.5">{t('min.issue.linked')}</p>
+                <ul className="space-y-1.5">
+                  {linkedIssues.map(issue => {
+                    const meta = ISSUE_STATUS_META[issue.status]
+                    return (
+                      <li key={issue.linkId} className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => onJump(issue.blockIndex)}
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-left text-xs text-ink hover:bg-surface-2"
+                        >
+                          <CircleAlert className="h-3.5 w-3.5 shrink-0 text-progress" aria-hidden />
+                          <span className="shrink-0 font-semibold text-progress">
+                            {issue.piIssueCode ?? t('min.issue.open').replace('{n}', String(issue.issueNo))}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{issue.title}</span>
+                          <span className={`chip shrink-0 ${meta.chip}`}>{t(meta.labelKey)}</span>
+                          <span className="shrink-0 text-[11px] text-brand">{t('min.issue.jump')}</span>
+                        </button>
+                        <Link
+                          href={`/p/${issue.projectId}/issues?focus=${encodeURIComponent(issue.issueId)}`}
+                          title={t('min.issue.openManagement')}
+                          aria-label={t('min.issue.openManagement')}
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-surface-2 hover:text-brand"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                        </Link>
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             )}
