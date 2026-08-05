@@ -14,6 +14,10 @@ import { createServerClient } from '@/lib/supabase/server'
 const BUCKET = 'issue-attachments'
 const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
 
+export type IssueAttachmentList =
+  | { ok: true; items: IssueAttachment[] }
+  | { ok: false; error: string }
+
 /**
  * 첨부 추가·삭제 게이트 — 이슈 수정 권한과 같다(작성자 또는 프로젝트 관리자).
  * 0068 의 `can_edit_issue()` SQL 헬퍼와 같은 정의이며, RLS 가 2차 방어선으로 한 번 더 본다.
@@ -55,12 +59,17 @@ async function requireIssueEditable(issueId: string): Promise<
   return { ok: true, projectId, userId: actor.userId }
 }
 
-/** 이슈의 첨부 목록(서명 URL 포함, 최신순). 다운로드는 로그인 사용자 전체에 열려 있다. */
-export async function listIssueAttachments(issueId: string): Promise<IssueAttachment[]> {
-  // 반환 타입에 에러 채널이 없어 빈 목록으로 폴백하되, 조회 실패와 구분되도록 사유를 로그에 남긴다.
+/**
+ * 이슈의 첨부 목록(서명 URL 포함, 최신순). 다운로드는 로그인 사용자 전체에 열려 있다.
+ *
+ * 빈 배열이 아니라 에러 채널을 둔 이유: 목록 화면의 클립 배지는 getIssues 의 **별도 쿼리**에서
+ * 오므로, 여기서 실패를 [] 로 뭉개면 목록은 '첨부 3개'라고 하는데 상세는 '첨부 없음'이 된다.
+ * 사용자는 파일이 소실됐다고 읽는다(에러 3원칙 ①).
+ */
+export async function listIssueAttachments(issueId: string): Promise<IssueAttachmentList> {
   if (!(await getSession())) {
-    console.error('[listIssueAttachments] 비로그인 호출 — 빈 목록 반환')
-    return []
+    console.error('[listIssueAttachments] 비로그인 호출')
+    return { ok: false, error: '로그인 필요' }
   }
   const sb = await createServerClient()
   const { data, error } = await sb
@@ -70,7 +79,7 @@ export async function listIssueAttachments(issueId: string): Promise<IssueAttach
     .order('created_at', { ascending: false })
   if (error) {
     console.error('[listIssueAttachments] 첨부 조회 실패:', error.message)
-    return []
+    return { ok: false, error: ERR_LOOKUP }
   }
 
   const out: IssueAttachment[] = []
@@ -97,7 +106,7 @@ export async function listIssueAttachments(issueId: string): Promise<IssueAttach
       url: signed?.signedUrl ?? null,
     })
   }
-  return out
+  return { ok: true, items: out }
 }
 
 /**
@@ -166,8 +175,16 @@ export async function removeIssueAttachment(id: string): Promise<{ ok: boolean; 
   // remove() 는 아무것도 지우지 못해도 error 가 null 이라 성공 여부를 판정할 수 없다.
   // 대신 멱등이라 재실행이 안전하므로, 감지에 기대지 않고 메타 삭제로 진행한다.
   await sb.storage.from(BUCKET).remove([att.file_path as string])
-  const { error } = await sb.from('issue_attachments').delete().eq('id', id)
+  // .select() 로 실제 지워진 행을 확인한다 — supabase-js 는 RLS 거부·경합으로 0행이 지워져도
+  // error 를 주지 않는다. 그대로 ok 를 반환하면 객체는 사라졌는데 메타는 남아
+  // 목록에 영구히 죽은 링크가 뜨고 사용자에게는 '삭제 완료'로 보인다.
+  const { data: gone, error } = await sb
+    .from('issue_attachments').delete().eq('id', id).select('id').maybeSingle()
   if (error) return { ok: false, error: error.message }
+  if (!gone) {
+    console.error('[removeIssueAttachment] 메타 행이 지워지지 않았습니다:', id)
+    return { ok: false, error: '첨부 삭제에 실패했습니다.' }
+  }
   revalidatePath(`/p/${g.projectId}/issues`)
   return { ok: true }
 }

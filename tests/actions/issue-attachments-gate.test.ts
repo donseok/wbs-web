@@ -61,6 +61,8 @@ function makeClient(opts: {
   listRows?: { data: Array<Record<string, unknown>> | null; error: { message: string } | null }
   insertError?: { message: string } | null
   deleteError?: { message: string } | null
+  /** 메타 delete 가 0행을 지웠을 때를 흉내낸다. */
+  deleteResult?: { data: { id: string } | null; error: { message: string } | null }
   signed?: { data: { signedUrl: string } | null; error: { message: string } | null }
 }) {
   const calls = opts.calls ?? []
@@ -82,7 +84,16 @@ function makeClient(opts: {
   const attachTable = {
     select: vi.fn(() => ({ eq: vi.fn(attachChain) })),
     insert,
-    delete: vi.fn(() => ({ eq: vi.fn(async () => { calls.push('meta.delete'); return { error: opts.deleteError ?? null } }) })),
+    delete: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        select: vi.fn(() => ({
+          maybeSingle: vi.fn(async () => {
+            calls.push('meta.delete')
+            return opts.deleteResult ?? { data: { id: 'a1' }, error: opts.deleteError ?? null }
+          }),
+        })),
+      })),
+    })),
   }
   return {
     calls,
@@ -247,6 +258,18 @@ describe('removeIssueAttachment', () => {
     expect(m.calls).toEqual(['storage.remove', 'meta.delete'])
   })
 
+  it('메타가 0행 지워지면 성공으로 둔갑시키지 않는다', async () => {
+    // Storage 객체는 이미 지웠는데 메타가 남으면 목록에 죽은 링크가 영구히 남는다.
+    // supabase-js 는 0행 삭제에 error 를 주지 않으므로 .select() 로 직접 확인해야 한다.
+    asOwner()
+    const m = makeClient({
+      attachment: { data: { id: 'a1', file_path: `${ISSUE}/1-x.pdf`, issue_id: ISSUE }, error: null },
+      deleteResult: { data: null, error: null },
+    })
+    state.client = m.client
+    expect((await removeIssueAttachment('a1')).ok).toBe(false)
+  })
+
   it('권한이 없으면 Storage 에 손대지 않는다', async () => {
     asOtherMember()
     const m = makeClient({
@@ -260,10 +283,21 @@ describe('removeIssueAttachment', () => {
 })
 
 describe('listIssueAttachments', () => {
-  it('비로그인은 빈 목록이지만 조용히 넘어가지 않고 로그를 남긴다', async () => {
+  it('비로그인은 실패로 알린다 — 빈 목록으로 위장하지 않는다', async () => {
     vi.mocked(getSession).mockResolvedValue(null as never)
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    expect(await listIssueAttachments(ISSUE)).toEqual([])
+    expect(await listIssueAttachments(ISSUE)).toMatchObject({ ok: false })
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('조회 실패를 "첨부 없음"으로 위장하지 않는다', async () => {
+    // 목록 배지는 getIssues 의 별도 쿼리에서 오므로, 여기서 [] 를 돌려주면
+    // 목록은 '첨부 3개'인데 상세는 '없음'이 되어 사용자가 파일 소실로 읽는다.
+    const m = makeClient({ listRows: { data: null, error: { message: 'boom' } } })
+    state.client = m.client
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await listIssueAttachments(ISSUE)).toMatchObject({ ok: false })
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
@@ -279,8 +313,10 @@ describe('listIssueAttachments', () => {
     state.client = m.client
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const out = await listIssueAttachments(ISSUE)
-    expect(out).toHaveLength(1)
-    expect(out[0]?.url).toBeNull()
+    expect(out.ok).toBe(true)
+    const items = (out as { items: Array<{ url: string | null }> }).items
+    expect(items).toHaveLength(1)
+    expect(items[0]?.url).toBeNull()
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })

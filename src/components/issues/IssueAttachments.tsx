@@ -40,25 +40,43 @@ export interface IssueAttachmentsProps {
   /** 등록 폼 전용: 아직 올리지 않은 파일들(부모 소유). */
   pending?: readonly File[]
   onPendingChange?: (files: File[]) => void
+  /** 부모가 저장·업로드 중일 때 잠근다 — 그때 고른 파일은 이미 캡처된 배열에 못 들어간다. */
+  disabled?: boolean
 }
 
-export function IssueAttachments({ issueId, editable, pending, onPendingChange }: IssueAttachmentsProps) {
+export function IssueAttachments({ issueId, editable, pending, onPendingChange, disabled }: IssueAttachmentsProps) {
   const router = useRouter()
   const { t } = useLocale()
   const [list, setList] = useState<IssueAttachment[] | null>(issueId ? null : [])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // 실패 '여부'만 담는다. 번역문을 state 에 넣으면 load 콜백이 t 에 의존하게 되는데,
+  // t 의 identity 가 렌더마다 바뀌면 load → effect 가 매 렌더 재실행돼 무한 루프가 된다.
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const load = useCallback(() => {
     if (!issueId) { setList([]); return }
-    listIssueAttachments(issueId).then(setList).catch(() => setList([]))
+    listIssueAttachments(issueId)
+      .then(res => {
+        if (res.ok) { setList(res.items); setLoadFailed(false); return }
+        // 조회 실패를 '첨부 없음'으로 위장하지 않는다 — 목록의 클립 배지는 별도 쿼리에서 오므로
+        // 여기서 뭉개면 '목록엔 3개, 상세엔 없음'이 되어 사용자가 파일 소실로 읽는다.
+        console.error('[IssueAttachments] 첨부 조회 실패:', res.error)
+        setList([]); setLoadFailed(true)
+      })
+      .catch((cause: unknown) => {
+        console.error('[IssueAttachments] 첨부 조회 호출 실패:', cause)
+        setList([]); setLoadFailed(true)
+      })
   }, [issueId])
   useEffect(() => { if (issueId) setList(null); load() }, [issueId, load])
 
   const saved = list ?? []
   const pendingFiles = pending ?? []
   const total = saved.length + pendingFiles.length
-  const remaining = remainingIssueAttachmentSlots(total)
+  // 로딩 중에는 기존 개수를 모른다. 0 으로 치면 이미 8개인 이슈에서 10개를 더 고를 수 있으므로
+  // NaN 을 넘겨 fail-closed(0슬롯) 로 만든다 — 도메인 모듈이 그렇게 판정한다.
+  const remaining = remainingIssueAttachmentSlots(list === null ? Number.NaN : total)
 
   async function onPick(e: ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(e.target.files ?? [])
@@ -83,10 +101,13 @@ export function IssueAttachments({ issueId, editable, pending, onPendingChange }
     try {
       const res = await uploadIssueAttachments(issueId, picked)
       if (!res.ok) {
+        // 서버가 준 사유를 버리지 않는다 — 권한 없음·상한 초과·세션 만료가 전부 같은 문구가 되면
+        // 사용자는 재시도해도 소용없는 경우를 구분할 수 없다(표시 = 로깅).
+        console.error('[IssueAttachments] 업로드 실패:', res.reason, res.fileName, res.error)
         setErr(
           res.reason === 'too-large'
             ? t('issue.err.attachTooLarge').replace('{name}', res.fileName).replace('{mb}', String(MAX_MB))
-            : t('issue.err.attachUploadFailed').replace('{name}', res.fileName),
+            : `${t('issue.err.attachUploadFailed').replace('{name}', res.fileName)}${res.error ? ` ${res.error}` : ''}`,
         )
         // 일부라도 올라갔으면 목록에 반영한다.
         if (res.doneCount > 0) { load(); router.refresh() }
@@ -115,7 +136,7 @@ export function IssueAttachments({ issueId, editable, pending, onPendingChange }
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
           <Paperclip className="h-3.5 w-3.5" /> {t('issue.attach.section')}
         </div>
-        {editable && remaining > 0 && (
+        {editable && remaining > 0 && !disabled && (
           <label className="btn btn-ghost h-7 cursor-pointer px-2.5 text-xs">
             <Upload className="h-3.5 w-3.5" /> {busy ? t('issue.attach.uploading') : t('issue.attach.add')}
             {/* 숨김 input 은 Modal 포커스 트랩에서 빠진다(offsetParent 필터). 라벨로 연다. */}
@@ -128,6 +149,9 @@ export function IssueAttachments({ issueId, editable, pending, onPendingChange }
         <p className="mb-2 text-[11px] text-ink-subtle">
           {t('issue.attach.limit').replace('{mb}', String(MAX_MB)).replace('{n}', String(ISSUE_ATTACHMENT_MAX_COUNT))}
         </p>
+      )}
+      {loadFailed && (
+        <p className="mb-2 text-xs font-medium text-delayed">{t('issue.err.attachLoadFailed')}</p>
       )}
       {err && <p className="mb-2 text-xs font-medium text-delayed">{err}</p>}
 
@@ -175,6 +199,7 @@ export function IssueAttachments({ issueId, editable, pending, onPendingChange }
               <button
                 type="button"
                 onClick={() => dropPending(i)}
+                disabled={disabled}
                 aria-label={t('issue.attach.remove')}
                 title={t('issue.attach.remove')}
                 className="shrink-0 rounded p-1 text-ink-subtle hover:text-delayed"

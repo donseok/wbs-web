@@ -480,10 +480,12 @@ export function IssueFormModal({
   // pending 렌더 전에 발생하는 빠른 연속 클릭도 막는다.
   const submittingRef = useRef(false)
   // 첨부 파일은 이 폼이 소유한다 — IssueAttachments 안에 두면 저장 성공 후 업로드를 await 하는
-  // 코드(submit)가 값에 닿을 수 없다. uploadedRef 는 부분 실패 후 재시도할 때 이미 올린 것을
-  // 건너뛰는 재개 지점이다(없으면 3개 중 2번째가 실패했을 때 1번째가 중복 업로드된다).
+  // 코드(submit)가 값에 닿을 수 없다.
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  const uploadedRef = useRef(0)
+  // 첨부 업로드가 부분 실패하면 모달을 닫지 않고 재시도하게 하는데, 그때 저장 버튼을 다시 누르면
+  // createIssue 가 또 돌아 **같은 이슈가 두 건 생긴다.** 한 번 만들어진 id 를 여기 걸어 두고,
+  // 이후의 저장은 생성을 건너뛰고 남은 첨부만 올린다.
+  const createdIdRef = useRef<string | null>(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [severity, setSeverity] = useState<IssueSeverity>('medium')
@@ -523,7 +525,7 @@ export function IssueFormModal({
       // 즉 **모달이 열려 있는 중에도** 다시 도는데 거기서 비우면 사용자가 고른 파일이
       // 조용히 사라진다. IssuesView 는 이 모달을 항상 마운트해 두므로 명시적 리셋이 필요하다.
       setPendingFiles([])
-      uploadedRef.current = 0
+      createdIdRef.current = null
       return
     }
     const seed = JSON.parse(seedKey) as IssueFormSeed
@@ -656,39 +658,53 @@ export function IssueFormModal({
     submittingRef.current = true
     startTransition(async () => {
       let res: IssueActionResult
-      try {
-        // 편집은 커스텀 생성 훅의 영향을 받지 않고 기존 권한 검증 액션을 그대로 사용한다.
-        res = isEdit
-          ? await updateIssue(initial!.id, input)
-          : await (onCreate ?? createIssue)(projectId, input)
-      } catch (cause) {
-        submittingRef.current = false
-        setError(cause instanceof Error && cause.message ? cause.message : t('issue.err.saveFailed'))
-        return
+      // 첨부 실패로 남아 있는 재시도라면 이슈는 이미 만들어져 있다. 다시 만들면 같은 내용의
+      // 이슈가 두 건 생긴다(회의록 경로는 원문 링크·토스트까지 중복된다).
+      const alreadyCreated = !isEdit && createdIdRef.current !== null
+      if (alreadyCreated) {
+        res = { ok: true, id: createdIdRef.current! }
+      } else {
+        try {
+          // 편집은 커스텀 생성 훅의 영향을 받지 않고 기존 권한 검증 액션을 그대로 사용한다.
+          res = isEdit
+            ? await updateIssue(initial!.id, input)
+            : await (onCreate ?? createIssue)(projectId, input)
+        } catch (cause) {
+          submittingRef.current = false
+          setError(cause instanceof Error && cause.message ? cause.message : t('issue.err.saveFailed'))
+          return
+        }
       }
       if (res.ok) {
         if (!isEdit && res.id) {
+          createdIdRef.current = res.id
           // 생성은 이미 확정됐다. 알림 훅의 UI 오류가 재시도(중복 생성)로 이어지지 않게 분리한다.
-          try {
-            onCreated?.(res.id, res)
-          } catch (cause) {
-            console.error('[IssueFormModal] onCreated callback failed:', cause)
+          // 재시도 경로에서는 이미 한 번 불렀으므로 다시 부르지 않는다.
+          if (!alreadyCreated) {
+            try {
+              onCreated?.(res.id, res)
+            } catch (cause) {
+              console.error('[IssueFormModal] onCreated callback failed:', cause)
+            }
           }
           // 첨부는 여기서 await 한다 — onCreated 에 걸면 콜백이 반환되자마자 아래 onClose 가
           // 모달을 닫아 파일 state 가 사라진 뒤 업로드가 돈다. 그동안 pending 이 유지되어
           // 닫기 버튼이 막히는데, 업로드 중 창이 닫히지 않는 편이 낫다.
           if (pendingFiles.length > 0) {
-            const up = await uploadIssueAttachments(res.id, pendingFiles, {
-              startAt: uploadedRef.current,
-              onDone: n => { uploadedRef.current = n },
-            })
+            const up = await uploadIssueAttachments(res.id, pendingFiles)
             if (!up.ok) {
               // 이슈는 이미 만들어졌다. 되돌리면 사용자가 입력을 통째로 잃으므로 되돌리지 않고,
               // 모달을 닫지 않아 재시도하게 한다. 성공 경로는 이 ref 를 해제하지 않으므로 직접 푼다.
+              //
+              // 성공분은 목록에서 걷어낸다 — 남은 것만 남겨야 재시도가 중복 업로드로 가지 않고,
+              // 인덱스를 들고 다니지 않으므로 사용자가 목록을 편집해도 어긋나지 않는다.
+              const rest = pendingFiles.slice(up.doneCount)
+              setPendingFiles(rest)
               submittingRef.current = false
               setError(
-                t('issue.err.attachPartial')
-                  .replace('{n}', String(pendingFiles.length - up.doneCount)),
+                up.error
+                  ? `${t('issue.err.attachUploadFailed').replace('{name}', up.fileName)} ${up.error}`
+                  : t('issue.err.attachPartial').replace('{n}', String(rest.length)),
               )
               router.refresh()
               return
@@ -952,6 +968,7 @@ export function IssueFormModal({
           editable
           pending={isEdit ? undefined : pendingFiles}
           onPendingChange={setPendingFiles}
+          disabled={pending}
         />
         {error && <ErrorBox message={error} />}
       </div>

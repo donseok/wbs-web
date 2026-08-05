@@ -55,18 +55,41 @@ describe('uploadIssueAttachments', () => {
     expect(res).toMatchObject({ ok: false, doneCount: 1, fileName: 'b.txt' })
   })
 
-  it('재개하면 이미 올린 파일을 다시 올리지 않는다 — 중복 업로드 방지', async () => {
-    // 2번째에서 실패 → 사용자가 재시도. 1번째가 또 올라가면 첨부가 중복된다.
+  it('성공분을 걷어내고 재시도하면 중복 업로드가 없다', async () => {
+    // 재개를 인덱스로 하면 pending 목록이 편집될 때 인덱스가 밀려 남은 파일이 유실된다.
+    // 대신 호출부가 doneCount 만큼 앞에서 잘라내 '남은 파일'만 다시 넘긴다.
     upload.mockResolvedValueOnce({ error: null })
     upload.mockResolvedValueOnce({ error: { message: '네트워크' } })
     const first = await uploadIssueAttachments(ISSUE, FILES, { now })
-    expect(first.ok).toBe(false)
+    expect(first).toMatchObject({ ok: false, doneCount: 1 })
 
+    const rest = FILES.slice((first as { doneCount: number }).doneCount)
     upload.mockReset(); upload.mockResolvedValue({ error: null })
-    const again = await uploadIssueAttachments(ISSUE, FILES, { now, startAt: (first as { doneCount: number }).doneCount })
+    const again = await uploadIssueAttachments(ISSUE, rest, { now })
     expect(again.ok).toBe(true)
     expect(upload).toHaveBeenCalledTimes(2)
     expect(upload).not.toHaveBeenCalledWith(expect.stringContaining('a.txt'), expect.anything(), expect.anything())
+  })
+
+  it('업로드가 throw 해도 결과 객체로 돌려준다 — 예외가 호출부로 새지 않는다', async () => {
+    // 서버 액션·네트워크는 결과가 아니라 reject 로 실패할 수 있다. 예외가 새면
+    // 화면에 아무 표시도 없이 끝나고 저장 버튼이 잠긴 채 남는다.
+    upload.mockRejectedValue(new Error('연결 끊김'))
+    const res = await uploadIssueAttachments(ISSUE, [FILES[0]!], { now })
+    expect(res).toMatchObject({ ok: false, reason: 'upload', doneCount: 0 })
+  })
+
+  it('메타 기록이 throw 해도 보상 삭제를 하고 결과로 돌려준다', async () => {
+    recordIssueAttachment.mockRejectedValue(new Error('연결 끊김'))
+    const res = await uploadIssueAttachments(ISSUE, [FILES[0]!], { now })
+    expect(res).toMatchObject({ ok: false, reason: 'record' })
+    expect(remove).toHaveBeenCalledWith([`${ISSUE}/1700000000000-a.txt`])
+  })
+
+  it('서버가 준 실패 사유를 버리지 않는다', async () => {
+    recordIssueAttachment.mockResolvedValueOnce({ ok: false, error: '첨부는 이슈당 10개까지입니다.' })
+    const res = await uploadIssueAttachments(ISSUE, [FILES[0]!], { now })
+    expect(res).toMatchObject({ ok: false, error: '첨부는 이슈당 10개까지입니다.' })
   })
 
   it('메타 기록이 실패하면 방금 올린 객체를 지운다 — 고아를 남기지 않는다', async () => {

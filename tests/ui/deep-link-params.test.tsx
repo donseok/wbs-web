@@ -60,6 +60,12 @@ vi.mock('@/app/actions/issues', () => ({
   deleteIssue: vi.fn(async () => ({ ok: true })),
   fetchIssueMajorProcesses: vi.fn().mockResolvedValue({ ok: true, majors: [] }),
 }))
+// 상세 모달이 첨부 목록을 조회한다(0068). 서버 액션이라 여기서 막지 않으면 딥링크 테스트가 멈춘다.
+vi.mock('@/app/actions/issueAttachments', () => ({
+  listIssueAttachments: vi.fn(async () => ({ ok: true, items: [] })),
+  recordIssueAttachment: vi.fn(async () => ({ ok: true })),
+  removeIssueAttachment: vi.fn(async () => ({ ok: true })),
+}))
 
 import { MeetingsView } from '@/components/meetings/MeetingsView'
 import { MyMeetingsView } from '@/components/meetings/MyMeetingsView'

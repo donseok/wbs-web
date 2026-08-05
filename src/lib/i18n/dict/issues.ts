@@ -147,6 +147,7 @@ export const issuesKo = {
   'issue.err.attachUploadFailed': '{name} 업로드에 실패했습니다.',
   'issue.err.attachPartial': '이슈는 등록됐지만 첨부 {n}건이 실패했습니다. 다시 시도하세요.',
   'issue.err.attachRemoveFailed': '첨부 삭제에 실패했습니다.',
+  'issue.err.attachLoadFailed': '첨부 목록을 불러오지 못했습니다. 파일이 지워진 것은 아닙니다.',
 } as const
 
 export const issuesEn: Record<keyof typeof issuesKo, string> = {
@@ -295,4 +296,5 @@ export const issuesEn: Record<keyof typeof issuesKo, string> = {
   'issue.err.attachUploadFailed': 'Failed to upload {name}.',
   'issue.err.attachPartial': 'The issue was created but {n} attachment(s) failed. Please retry.',
   'issue.err.attachRemoveFailed': 'Failed to remove the attachment.',
+  'issue.err.attachLoadFailed': 'Could not load attachments. The files have not been deleted.',
 }
