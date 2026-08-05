@@ -928,6 +928,10 @@ export async function processMinuteWikiJob(jobId: number): Promise<WikiProcessSu
     .rpc('claim_wiki_processing_job', {
       p_job_id: jobId,
       p_locked_by: workerId,
+      // 0067 — lease 가 만료된 running job 도 회수한다. 워커가 죽으면 회수자가 없어
+      // 그 회의록의 위키 반영이 영구히 멈춘다(재적재는 status 를 유지한 채 플래그만 켠다).
+      // 프로젝트 rebuild claim(0046)과 같은 15분.
+      p_lease_seconds: 15 * 60,
     })
     .maybeSingle()
   if (claimError) {

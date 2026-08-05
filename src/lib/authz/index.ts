@@ -70,14 +70,29 @@ export async function getActor(): Promise<Actor | null> {
  * 가드가 다시 판정해 거부한다. 실패 사실은 로그로 남긴다(표시 = 로깅).
  */
 export async function getActorForView(): Promise<Actor | null> {
+  return (await getActorViewState()).actor
+}
+
+/**
+ * getActorForView 와 같은 열화를 하되 **실패했다는 사실을 함께 돌려준다**.
+ *
+ * `actor: null` 하나로는 "권한이 없는 사람"과 "권한을 못 읽은 상태"가 구분되지 않는다.
+ * 화면은 그 둘을 똑같이 '게스트'로 그렸고, 2026-08-05 REST 장애 때 전 사용자가 게스트 +
+ * '등록된 프로젝트 없음' 으로 보였다. 로그인 실패로 오인돼 원인 추적이 늦어졌다.
+ * 에러 처리 3원칙의 '표시 = 로깅' 중 로깅만 있고 표시가 없던 자리다.
+ *
+ * fail-closed 는 그대로다 — degraded 여도 어포던스는 0이고 쓰기는 서버 액션 가드가 다시 막는다.
+ * 달라지는 건 화면이 이 상태를 **정상인 척하지 않는다**는 것뿐이다.
+ */
+export async function getActorViewState(): Promise<{ actor: Actor | null; degraded: boolean }> {
   try {
-    return await getActor()
+    return { actor: await getActor(), degraded: false }
   } catch (e) {
     // Next 의 제어 흐름 예외는 예외가 아니라 신호다 — 삼키면 정적/동적 판정과 리다이렉트가 깨진다.
     // cookies() 는 정적 렌더 중 DYNAMIC_SERVER_USAGE 를 던져 "이 라우트는 동적"임을 알린다.
     if (isFrameworkSignal(e)) throw e
     console.error('[getActorForView] 권한 조회 실패 — 조회 전용으로 열화:', e instanceof Error ? e.message : e)
-    return null
+    return { actor: null, degraded: true }
   }
 }
 
