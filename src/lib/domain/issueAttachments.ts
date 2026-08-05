@@ -14,6 +14,18 @@ export const ISSUE_ATTACHMENT_MAX_BYTES = 52_428_800
 /** 이슈당 첨부 개수 상한. DB 제약이 아니라 서버 액션과 UI 가 검사한다. */
 export const ISSUE_ATTACHMENT_MAX_COUNT = 10
 
+/** 화면이 쓰는 읽기 모델. `url` 은 조회 시점에 만든 서명 URL 이며 실패하면 null 이다. */
+export interface IssueAttachment {
+  id: string
+  issueId: string
+  fileName: string
+  filePath: string
+  size: number | null
+  mime: string | null
+  createdAt: string
+  url: string | null
+}
+
 /**
  * Storage 객체 키. 첫 세그먼트가 이슈 id 라는 규약을 스토리지 RLS 정책이 그대로 쓴다
  * (`split_part(name, '/', 1)::uuid`). 원본 파일명은 file_name 컬럼이 보관하고
