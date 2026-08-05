@@ -233,6 +233,81 @@ describe('lintDuplicates', () => {
     const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1.\n설계 착수\n1.\n견적 회신' })]
     expect(lintDuplicates(rows)).toEqual([])
   })
+
+  it('셀 안 [머리글]로 나뉜 구획이 다르면 같은 줄이어도 지우지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n1. 이슈 도출\n\n[표준화]\n1. 이슈 도출' })]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('같은 구획 안에서 되풀이된 줄은 여전히 잡는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n이슈 도출\n이슈 도출' })]
+    const out = lintDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].edits[0].content).toBe('[조업]\n이슈 도출')
+  })
+
+  it('머리글 줄 자체는 견주지 않는다 — 같은 머리글이 두 번 나와도 지우지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n가\n[조업]\n나' })]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('행이 달라도 같은 이름의 구획이면 견준다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n가' }),
+      mkRow('r2', 'PMO', 2, { thisContent: '[조업]\n가' }),
+    ]
+    expect(lintDuplicates(rows)).toHaveLength(1)
+  })
+
+  it('행이 다르고 구획 이름도 다르면 견주지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n가' }),
+      mkRow('r2', 'PMO', 2, { thisContent: '[표준화]\n가' }),
+    ]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('본문이 뒤따르는 대괄호는 머리글이 아니라 본문 줄이다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '[참고] 확정 예정\n가\n[참고] 확정 예정' })]
+    expect(lintDuplicates(rows)).toHaveLength(1)
+  })
+
+  it('머리글 아래로 항목을 들여써도 그 구획 안 중복은 잡는다 — 머리글은 들여쓰기 기준선에서 뺀다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n  1. 가\n  2. 가' })]
+    const out = lintDuplicates(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].edits[0].content).toBe('[조업]\n  1. 가')
+  })
+
+  it('구획의 마지막 항목이 지워지면 남은 머리글 껍데기도 함께 치운다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n가\n[조업]\n가' })]
+    expect(lintDuplicates(rows)[0].edits[0].content).toBe('[조업]\n가')
+  })
+
+  it('머리글까지 지워질 때만 그 사실을 지적문에 적는다', () => {
+    const withHeader = [mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n가\n[조업]\n가' })]
+    expect(lintDuplicates(withHeader)[0].detail).toContain('구획 머리글 1줄도 함께 지웁니다')
+    const plain = [mkRow('r1', 'PMO', 1, { thisContent: '- 가\n- 가' })]
+    expect(lintDuplicates(plain)[0].detail).not.toContain('머리글')
+  })
+
+  it('원래부터 비어 있던 머리글은 다른 줄을 고치는 김에 지우지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n가\n가\n[표준화]' })]
+    expect(lintDuplicates(rows)[0].edits[0].content).toBe('[조업]\n가\n[표준화]')
+  })
+
+  it('머리글을 쓴 행과 안 쓴 행은 견주지 않는다 — 어느 영역인지 모르면 지우지 않는다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '[조업]\n가' }),
+      mkRow('r2', 'PMO', 2, { thisContent: '가' }),
+    ]
+    expect(lintDuplicates(rows)).toEqual([])
+  })
+
+  it('들여쓴 대괄호 줄은 머리글이 아니라 딸린 줄이라 검사를 가르지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '가\n    [보류]\n가' })]
+    expect(lintDuplicates(rows)).toHaveLength(1)
+  })
 })
 
 describe('lineSimilarity', () => {
@@ -364,6 +439,36 @@ describe('lintNearDuplicates', () => {
     // 길이 9, 거리 1 → 0.888…
     const rows88 = [mkRow('r1', 'PMO', 1, { thisContent: 'abcdefghi\nabcdefghx' })]
     expect(lintNearDuplicates(rows88)).toEqual([])
+  })
+
+  it('셀 안 [머리글]로 나뉜 구획이 다르면 비슷해도 견주지 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, {
+      thisContent: '[조업]\nERP 인터페이스 설계 진행 중 60%\n[표준화]\nERP 인터페이스 설계 진행 중 70%',
+    })]
+    expect(lintNearDuplicates(rows)).toEqual([])
+  })
+
+  it('구획마다 유사 쌍이 따로 있으면 지적도 구획마다 나온다 — 인용문이 같아도 id는 달라야 한다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, {
+      thisContent: [
+        '[조업]',
+        'ERP 인터페이스 설계 진행 중 60%',
+        'ERP 인터페이스 설계 진행 중 70%',
+        '[표준화]',
+        'ERP 인터페이스 설계 진행 중 60%',
+        'ERP 인터페이스 설계 진행 중 70%',
+      ].join('\n'),
+    })]
+    const out = lintNearDuplicates(rows)
+    expect(out).toHaveLength(2)
+    expect(new Set(out.map(f => f.id)).size).toBe(2)
+  })
+
+  it('같은 구획 안에서 비슷한 줄은 여전히 잡는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, {
+      thisContent: '[조업]\nERP 인터페이스 설계 진행 중 60%\nERP 인터페이스 설계 진행 중 70%',
+    })]
+    expect(lintNearDuplicates(rows)).toHaveLength(1)
   })
 
   it('길이가 다른 딱 90% 쌍(9자↔10자 삽입)도 놓치지 않는다 — 길이 사전탈락의 부동소수점 함정', () => {
@@ -528,6 +633,107 @@ describe('lintNumbering', () => {
   it('4개 열을 모두 검사한다', () => {
     const rows = [mkRow('r1', 'PMO', 1, { nextIssue: '1. 가\n3. 나' })]
     expect(lintNumbering(rows)[0].cellKey).toBe('next_issue')
+  })
+
+  it('셀 안 [머리글]로 나뉜 구획마다 번호가 1부터 다시 시작한다 — 중복 번호가 아니다', () => {
+    expect(one('[조업]\n1. 가\n[표준화]\n1. 나')).toEqual([])
+  })
+
+  it('머리글 앞 구획도 독립이다', () => {
+    expect(one('1. 가\n[조업]\n1. 나')).toEqual([])
+  })
+
+  it('어긋난 구획만 다시 매기고 성한 구획은 그대로 둔다', () => {
+    const [f] = one('[조업]\n1. 가\n2. 나\n[표준화]\n1. 다\n3. 라')
+    expect(f.edits[0].content).toBe('[조업]\n1. 가\n2. 나\n[표준화]\n1. 다\n2. 라')
+    expect(f.detail).toContain('[표준화]')
+    expect(f.detail).not.toContain('[조업]')
+  })
+
+  it('여러 구획이 어긋나면 구획마다 밝힌다', () => {
+    const [f] = one('[조업]\n1. 가\n1. 나\n[표준화]\n1. 다\n3. 라')
+    expect(f.edits[0].content).toBe('[조업]\n1. 가\n2. 나\n[표준화]\n1. 다\n2. 라')
+    expect(f.detail).toContain('[조업]')
+    expect(f.detail).toContain('[표준화]')
+  })
+
+  it('머리글 뒤 번호가 1로 다시 시작하지 않으면 이어 쓴 목록으로 보고 앞과 합쳐 센다', () => {
+    // `[완료]`·`[8/7]` 같은 주석 표기와 담당 영역 머리글은 형태로 구별되지 않는다. 번호가 밝히게 한다.
+    // 합쳐 세면 예전(구획 개념이 없던 때)과 같은 결과가 나온다 — 뒤만 떼어 1부터 덮어쓰지 않는다.
+    expect(one('1. 가\n2. 나\n[완료]\n3. 다\n4. 라\n6. 마')[0].edits[0].content)
+      .toBe('1. 가\n2. 나\n[완료]\n3. 다\n4. 라\n5. 마')
+    expect(one('1. 가\n3. 나\n[완료]\n4. 다\n5. 라')[0].edits[0].content)
+      .toBe('1. 가\n2. 나\n[완료]\n3. 다\n4. 라')
+    expect(one('1. 가\n[8/7]\n2. 나\n[8/7]\n4. 다')[0].edits[0].content)
+      .toBe('1. 가\n[8/7]\n2. 나\n[8/7]\n3. 다')
+  })
+
+  it('셀 전체로 봐서 성한 번호는 구획을 갈라도 건드리지 않는다 — 대괄호 줄이 늘 영역 머리글은 아니다', () => {
+    // 잠금장치. `[완료]`·`[8/7]` 같은 주석성 표기 뒤로 번호를 이어 쓴 셀에서 3·4가 1·2로 덮어써지면
+    // 되돌릴 수 없다. 구획 분할은 지적을 줄이기만 해야 한다.
+    expect(one('[조업]\n1. 가\n2. 나\n[표준화]\n3. 다\n4. 라')).toEqual([])
+    expect(one('1. 가\n2. 나\n[완료]\n3. 다\n4. 라\n5. 마')).toEqual([])
+    expect(one('1. 설계 검토\n[진행중]\n2. 코드 리뷰\n3. 배포')).toEqual([])
+  })
+
+  it('들여쓴 대괄호 줄은 머리글이 아니다 — 상위 목록을 갈라 번호를 덮어쓰지 않는다', () => {
+    expect(one('1. 설계\n   [보류]\n2. 개발\n3. 검토')).toEqual([])
+    // 상위 목록이 실제로 어긋나 있으면 들여쓴 대괄호와 무관하게 예전처럼 다시 매긴다.
+    expect(one('1. 설계\n   [보류]\n2. 개발\n4. 검토')[0].edits[0].content)
+      .toBe('1. 설계\n   [보류]\n2. 개발\n3. 검토')
+  })
+
+  it('떨어져 있어도 같은 이름 구획이면 한 목록으로 센다 — 중복 규칙과 같은 구획 정의', () => {
+    const [f] = one('[조업]\n1. 가\n[표준화]\n1. 나\n[조업]\n1. 다')
+    expect(f.edits[0].content).toBe('[조업]\n1. 가\n[표준화]\n1. 나\n[조업]\n2. 다')
+    expect(f.detail).toContain('[조업] 줄 번호가 1, 1 입니다 → 1, 2')
+  })
+
+  it('지적문의 구획 라벨은 원문 표기를 그대로 쓴다', () => {
+    expect(one('【조업】\n1. 가\n1. 나')[0].detail).toContain('【조업】 줄 번호가')
+  })
+
+  it('앞 목록에 오타가 있어도 주석 대괄호 뒤 번호를 1부터 덮어쓰지 않는다 — 적대적 검토 회수 케이스', () => {
+    // 잠금장치(셀 전체 1..n)만으로는 못 막던 자리다. 지적이 나는 셀은 정의상 잠금이 열려 있으므로,
+    // 경계 자체를 '뒤 번호가 1로 다시 시작할 때만'으로 좁혀야 이 부류가 막힌다.
+    expect(one('1. 가\n2. 나\n[완료]\n3. 다\n4. 라\n6. 마')[0].edits[0].content)
+      .toBe('1. 가\n2. 나\n[완료]\n3. 다\n4. 라\n5. 마')
+    expect(one('[조업]\n1. 이슈 분석서 작성 (~8/7)\n2. As-Is 검토\n[8/7 완료]\n3. 리뷰 반영\n5. 산출물 정리')[0].edits[0].content)
+      .toBe('[조업]\n1. 이슈 분석서 작성 (~8/7)\n2. As-Is 검토\n[8/7 완료]\n3. 리뷰 반영\n4. 산출물 정리')
+    // 오타는 앞 구획에 있는데 뒤 구획이 덮어써지던 자리 — 뒤는 그대로 이어져야 한다.
+    expect(one('1. 가\n3. 나\n[완료]\n4. 다\n5. 라')[0].edits[0].content)
+      .toBe('1. 가\n2. 나\n[완료]\n3. 다\n4. 라')
+  })
+
+  it('수정을 적용하면 한 셀에 1이 둘 남지 않고 다시 지적되지도 않는다', () => {
+    const rows = [mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나\n[완료]\n3. 다\n4. 라\n6. 마' })]
+    const [f] = lintNumbering(rows)
+    const applied = rows.map(r => ({ ...r, thisContent: f.edits[0].content }))
+    expect(lintWeeklySheet(applied)).toEqual([])
+  })
+
+  it('머리글 없는 셀은 구획 이름을 지적문에 붙이지 않는다', () => {
+    expect(one('1. 가\n2. 나\n4. 다')[0].detail).toMatch(/^줄 번호가/)
+  })
+
+  it('전각 대괄호·【】도 머리글로 본다', () => {
+    expect(one('【조업】\n1. 가\n［표준화］\n1. 나')).toEqual([])
+  })
+
+  it('본문이 뒤따르는 대괄호는 머리글이 아니라 본문 줄이다', () => {
+    expect(one('1. 가\n[참고] 확정 예정\n3. 나')[0].edits[0].content)
+      .toBe('1. 가\n[참고] 확정 예정\n2. 나')
+  })
+
+  it('표기·공백 통일은 구획과 무관하게 셀 전체에 적용한다', () => {
+    const rows = [
+      mkRow('r1', 'PMO', 1, { thisContent: '1. 가\n2. 나' }),
+      mkRow('r2', '영업', 2, { thisContent: '[조업]\n1) 다\n[표준화]\n1) 라' }),
+    ]
+    const out = lintNumbering(rows)
+    expect(out).toHaveLength(1)
+    expect(out[0].edits[0].content).toBe('[조업]\n1. 다\n[표준화]\n1. 라')
+    expect(out[0].detail).not.toContain('줄 번호가')
   })
 })
 
@@ -701,6 +907,22 @@ describe('lintWeeklySheet', () => {
     ]
     expect(lintWeeklySheet(rows).map(f => `${f.rowId}/${f.cellKey}`))
       .toEqual(['r1/next_issue', 'r3/this_content'])
+  })
+
+  it('실제 시트의 [조업]/[표준화] 두 구획 셀은 아무 지적도 내지 않는다', () => {
+    const rows = [mkRow('r1', '조업및표준화', 7, {
+      thisContent: [
+        '[조업]',
+        '1. 이슈 분석서 작성 (~8/7)',
+        ' - As-Is 분석서 기반 이슈 도출 및 분석',
+        '',
+        '[표준화]',
+        '1. 이슈 도출',
+        ' - As-Is 분석 기반 이슈 도출',
+        ' - 추가 요구사항 파악 및 필요 내용 정리',
+      ].join('\n'),
+    })]
+    expect(lintWeeklySheet(rows)).toEqual([])
   })
 
   it('중복 수정을 한 번 적용하면 곧바로 다른 지적이 생기지 않는다', () => {
