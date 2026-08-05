@@ -22,11 +22,11 @@ import { isRegisteredTeamCode } from '@/lib/teams/master'
 const WEEKLY_CAPABILITY = 'weekly:read' as const
 
 const WEEKLY_TEAM_SECTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
-  ERP: new Set(['ERP', '영업', '구매', '관리회계', '재무회계', '생산계획']),
+  ERP: new Set(['ERP', '영업', '구매', '관리회계', '생산계획']),
   MES: new Set(['MES', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공']),
   PMO: new Set(['PMO']),
   가공: new Set(['가공']),
-  // 주간업무 구분(업무영역 11종)에 MDM 이 아직 없다 — 빈 매핑은 '알려진 팀이지만 조회 불가'로
+  // 주간업무 구분(업무영역 10종)에 MDM 이 아직 없다 — 빈 매핑은 '알려진 팀이지만 조회 불가'로
   // 명시 거부된다(validateTeam). 구분 신설 시 여기에 채우면 자동 활성.
   MDM: new Set<string>(),
 }

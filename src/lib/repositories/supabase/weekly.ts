@@ -5,7 +5,6 @@ import {
   type WeeklyRepositoryRow,
   type WeeklySheetSnapshot,
 } from '@/lib/repositories/types'
-import { sortWeeklyRows } from '@/lib/domain/weeklySheet'
 import { isRetryableReadError, type SupabaseServerClient } from './common'
 
 type Row = Record<string, unknown>
@@ -69,7 +68,7 @@ export function createSupabaseWeeklyRepository(client: SupabaseServerClient): We
           title: (reportRow.title as string | null) ?? '',
           updatedAt: (reportRow.updated_at as string | null) ?? null,
         },
-        rows: sortWeeklyRows(((rowsResult.data ?? []) as unknown as Row[]).map(mapRow)),
+        rows: ((rowsResult.data ?? []) as unknown as Row[]).map(mapRow),
       }
       return repositoryOk(snapshot)
     },

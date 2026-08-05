@@ -6,7 +6,7 @@
  *  (예외: 글머리 기호·번호 표기 통일만 보고서 겉모습 문제라 시트 전체 다수결을 따른다.) ── */
 
 import {
-  CELL_FIELD, sectionKeyOf, sortWeeklyRows, WEEKLY_CELL_KEYS, WEEKLY_CELL_LABEL,
+  CELL_FIELD, sectionKeyOf, WEEKLY_CELL_KEYS, WEEKLY_CELL_LABEL,
   type WeeklyCellEdit, type WeeklyCellKey, type WeeklySheetRow,
 } from './weeklySheet'
 
@@ -77,18 +77,18 @@ export function normalizeForCompare(line: string): string {
 /** 점검의 유일한 단위 — 구분별 묶음. 화면 표시 순서(sortOrder)를 그대로 물려받으므로
  *  묶음 순서 = 구분 순서, 묶음 안 행 순서 = 화면 순서(중복 규칙의 '남길 행' 기준)다.
  *  묶음 키는 PPT 페이지 단위와 같은 sectionKeyOf다 — 레거시 시트에서 section이 ERP 하나로
- *  뭉뚱그려진 영업·구매·관리회계·재무회계를 서로 견주지 않으려면 모듈까지 봐야 하고, 반대로 PPT가 한 장에
+ *  뭉뚱그려진 영업·구매·관리회계를 서로 견주지 않으려면 모듈까지 봐야 하고, 반대로 PPT가 한 장에
  *  싣는 행들은 점검도 한 묶음으로 봐야 '점검 통과한 시트가 PPT에서 중복'인 상태가 생기지 않는다.
  *  표준 시트는 구분당 1행이지만, 한 구분에 행이 여럿이면(옛 시트·백업 백필) 그 행들이 한 묶음이 된다.
- *  이월(carryOverRows)이 합치는 단위(mapLegacySection)와는 다르다 — 옛 시트에서 같은 표준 구분으로
- *  매핑되는 여러 행이 이월 뒤 한 셀로 합쳐지면, 그때 새 시트에서 중복으로 잡힌다.
+ *  이월(carryOverRows)이 합치는 단위(mapLegacySection: FI/TR+CO → 관리회계)와는 다르다 —
+ *  옛 시트에서 갈라 본 두 모듈이 이월 뒤 한 셀로 합쳐지면, 그때 새 시트에서 중복으로 잡힌다.
  *  같은 구분 행이 떨어져 있어도 하나로 모은다 — 인접 여부가 아니라 이름이 기준이다. */
 interface SectionGroup { section: string; rows: WeeklySheetRow[] }
 
 function bySection(rows: WeeklySheetRow[]): SectionGroup[] {
   const out: SectionGroup[] = []
   const at = new Map<string, number>()
-  for (const row of sortWeeklyRows(rows)) {
+  for (const row of [...rows].sort((a, b) => a.sortOrder - b.sortOrder)) {
     const section = sectionKeyOf(row)
     const i = at.get(section)
     if (i === undefined) { at.set(section, out.length); out.push({ section, rows: [row] }) }

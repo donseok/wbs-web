@@ -40,7 +40,7 @@ export function WeeklyLintPanel({ open, rows, canApply = true, onClose, onApply,
   onGoToCell: (rowId: string, cellKey: WeeklyCellKey) => void
 }) {
   // 열려 있는 동안 rows가 바뀔 때마다 재계산 — 적용 직후에도, 타인의 Realtime 수정에도 목록이 따라간다.
-  // 11행 × 4열이라 비용은 무시할 만하다. 닫혀 있으면 계산하지 않는다.
+  // 10행 × 4열이라 비용은 무시할 만하다. 닫혀 있으면 계산하지 않는다.
   const findings = useMemo(() => (open ? lintWeeklySheet(rows) : []), [open, rows])
   const groups = useMemo(() => groupBySection(findings), [findings])
 

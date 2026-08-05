@@ -149,7 +149,6 @@ describe('menu-detail read tools', () => {
     const sheet = weeklySnapshot('r1', '2026-07-20', [
       { id: 'sales', section: '영업', thisContent: '영업 업무' },
       { id: 'buy', section: '구매', thisContent: '구매 업무' },
-      { id: 'finance', section: '재무회계', thisContent: '재무 업무' },
       { id: 'quality', section: '품질', thisContent: '품질 업무' },
       { id: 'legacy-erp', section: 'ERP', thisContent: '레거시 ERP' },
       { id: 'legacy-mes', section: 'MES', thisContent: '레거시 MES' },
@@ -165,7 +164,7 @@ describe('menu-detail read tools', () => {
       { projectId: 'p1', weekStart: '2026-07-20', team: 'MES' }, context,
     )
 
-    expect(erp.ok && erp.result.records.map(row => row.section)).toEqual(['영업', '구매', '재무회계', 'ERP'])
+    expect(erp.ok && erp.result.records.map(row => row.section)).toEqual(['영업', '구매', 'ERP'])
     expect(mes.ok && mes.result.records.map(row => row.section)).toEqual(['품질', 'MES'])
   })
 
