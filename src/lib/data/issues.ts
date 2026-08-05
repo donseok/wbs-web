@@ -17,7 +17,7 @@ import type {
  */
 export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
   const sb = await createServerClient()
-  const [issuesRes, assigneesRes, linksRes, majorsRes] = await Promise.all([
+  const [issuesRes, assigneesRes, linksRes, majorsRes, attachRes] = await Promise.all([
     sb.from('issues')
       .select('id, issue_no, pi_issue_code, project_id, mega_code, mega_seq, major_id, title, body, status, severity, start_date, due_date, sub_process, owner_department, related_systems, source_type, source_detail, resolution_note, resolved_at, created_by, created_by_name, created_at, updated_at')
       .eq('project_id', projectId)
@@ -36,6 +36,11 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
     sb.from('issue_major_processes')
       .select('id, mega_code, major_seq, name')
       .eq('project_id', projectId),
+    // 첨부 개수(0068). project_id 로 프로젝트 한 방에 긁는다 — .in('issue_id', ids) 로 하면
+    // 이슈 조회 결과를 기다려야 해서 이 Promise.all 병렬이 깨지고 왕복이 1회 늘어난다.
+    sb.from('issue_attachments')
+      .select('issue_id')
+      .eq('project_id', projectId),
   ])
 
   if (issuesRes.error) console.error('[getIssues] 조회 실패:', issuesRes.error.message)
@@ -43,6 +48,8 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
   if (assigneesRes.error) console.error('[getIssues] 담당자 조회 실패:', assigneesRes.error.message)
   if (linksRes.error) console.error('[getIssues] 회의록 출처 조회 실패:', linksRes.error.message)
   if (majorsRes.error) console.error('[getIssues] Major Process 조회 실패:', majorsRes.error.message)
+  // 첨부가 있는데 배지가 안 뜨는 것도 조용한 오표시다 — 목록은 계속 뜨되 사유는 남긴다.
+  if (attachRes.error) console.error('[getIssues] 첨부 조회 실패:', attachRes.error.message)
 
   const assigneesByIssue = new Map<string, string[]>()
   for (const r of (assigneesRes.data ?? []) as { issue_id: string; member_id: string }[]) {
@@ -75,6 +82,11 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
     else linksByIssue.set(source.issueId, [source])
   }
 
+  const attachCountByIssue = new Map<string, number>()
+  for (const r of (attachRes.data ?? []) as { issue_id: string }[]) {
+    attachCountByIssue.set(r.issue_id, (attachCountByIssue.get(r.issue_id) ?? 0) + 1)
+  }
+
   const majorById = new Map<string, { majorSeq: number; name: string }>()
   for (const r of (majorsRes.data ?? []) as { id: string; major_seq: number | string; name: string }[]) {
     majorById.set(r.id, { majorSeq: Number(r.major_seq), name: r.name })
@@ -98,6 +110,7 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
     status: r.status as IssueStatus,
     severity: r.severity as IssueSeverity,
     assigneeMemberIds: assigneesByIssue.get(r.id as string) ?? [],
+    attachmentCount: attachCountByIssue.get(r.id as string) ?? 0,
     startDate: (r.start_date as string | null) ?? null,
     dueDate: (r.due_date as string | null) ?? null,
     subProcess: (r.sub_process as string | null) ?? '',

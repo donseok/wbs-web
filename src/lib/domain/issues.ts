@@ -26,6 +26,13 @@ export interface Issue {
   majorId?: string | null
   majorSeq?: number | null
   majorName?: string | null
+  /**
+   * 첨부 개수(0068) — 목록의 클립 배지 전용.
+   * optional 인 이유는 majorId 와 같다: 이 타입으로 객체를 만드는 14곳(src 2 + tests 12)이
+   * 필수 필드에 전부 깨진다. **getIssues 는 항상 채워 반환하고**, 다른 데이터 계층은 채우지
+   * 않는다(분석서 경로가 첨부 조회 실패에 끌려 들어가지 않게). 소비처는 `?? 0` 으로 읽는다.
+   */
+  attachmentCount?: number
   title: string
   body: string
   status: IssueStatus

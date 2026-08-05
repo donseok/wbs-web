@@ -1067,8 +1067,29 @@ export async function deleteIssue(issueId: string): Promise<IssueActionResult> {
   const isOwner = (cur.created_by as string | null) === gate.userId
   if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
 
+  // 첨부 정리(0068). 메타 행은 복합 FK cascade 로 사라지지만 버킷 객체는 영구 잔존한다.
+  //
+  // 경로를 **먼저 읽고** 이슈를 지운 뒤 객체를 지운다. 순서가 중요하다 —
+  // 객체를 먼저 지우면 이슈 삭제가 실패했을 때(RLS·FK·경합) 파일만 사라지고 메타는 남아
+  // 화면에 죽은 링크가 보이며, 되돌릴 방법이 없다.
+  //
+  // 조회 실패는 **중단 사유로 삼지 않는다.** 이 조회가 실패해도 이슈 삭제 자체는 안전하고,
+  // 최악의 결과는 아래 remove 실패와 똑같은 '고아 객체'다. 그런데 중단으로 처리하면
+  // 0068 미적용·롤백 상태에서 첨부와 무관한 이슈까지 **아무도 못 지우게** 된다.
+  const { data: atts, error: attErr } = await sb
+    .from('issue_attachments').select('file_path').eq('issue_id', issueId)
+  if (attErr) console.error('[deleteIssue] 첨부 경로 조회 실패(고아 잔존 가능):', attErr.message)
+  const paths = (atts ?? []).map(a => a.file_path as string)
+
   const { error } = await sb.from('issues').delete().eq('id', issueId).select('id').single()
   if (error) return { ok: false, error: error.message }
+
+  if (paths.length > 0) {
+    // remove() 는 아무것도 지우지 못해도 error 가 null 이라 성공을 판정할 수 없다.
+    // 이슈는 이미 지워졌으므로 여기서 실패해도 되돌리지 않고 고아만 남긴다.
+    const { error: rmErr } = await sb.storage.from('issue-attachments').remove(paths)
+    if (rmErr) console.error('[deleteIssue] 첨부 객체 삭제 실패(고아 잔존):', rmErr.message)
+  }
   revalidateIssues(cur.project_id as string)
   return { ok: true }
 }
