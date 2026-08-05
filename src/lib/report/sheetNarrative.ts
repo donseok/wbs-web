@@ -1,4 +1,4 @@
-import { rowSectionLabel, sectionKeyOf, WEEKLY_SECTIONS, type WeeklySheetRow } from '@/lib/domain/weeklySheet'
+import { rowSectionLabel, sectionKeyOf, sortWeeklyRows, WEEKLY_SECTIONS, type WeeklySheetRow } from '@/lib/domain/weeklySheet'
 
 /* ============================================================================
  * 주간업무 시트 → PPT 변환(순수). 스펙 §6.
@@ -31,14 +31,6 @@ export function cellLines(text: string): string[] {
  *  구분이 없으면 모듈로 폴백하고 둘 다 없으면 '기타'('[] '가 노출되지 않게). */
 export const rowLabel = (r: WeeklySheetRow): string => rowSectionLabel(r)
 
-/** 보고 순서상의 자리 — 시트 행 순서와 동일한 WEEKLY_SECTIONS가 단일 출처.
- *  행의 sort_order가 아니라 구분명으로 정렬하므로, 아직 정리되지 않은 레거시 시트를 내보내도
- *  PPT는 항상 정해진 순서로 나온다. 목록에 없는 구분(레거시·자유 입력)은 뒤로 밀되 서로는 sortOrder 순. */
-const sectionRank = (r: WeeklySheetRow): number => {
-  const i = (WEEKLY_SECTIONS as readonly string[]).indexOf(r.section.trim())
-  return i < 0 ? WEEKLY_SECTIONS.length : i
-}
-
 /** 한 구분(페이지)의 4셀 줄 묶음. items가 비면 그 셀은 헤더만/대체 문구로 렌더된다. */
 export interface SheetSectionCells {
   section: string       // 구분명(콘텐츠 셀 헤더로 표기)
@@ -56,11 +48,11 @@ function joinCells(parts: string[][]): string[] {
   return out
 }
 
-/** 시트 rows → 구분별 4셀 묶음. 표준 10구분 전부(내용 없는 구분도)를 순서대로 포함하고,
+/** 시트 rows → 구분별 4셀 묶음. 표준 11구분 전부(내용 없는 구분도)를 순서대로 포함하고,
  *  그 뒤에 비표준(레거시·자유 입력) 구분을 붙인다. 같은 구분에 여러 행이 있으면 sortOrder 순으로 이어붙인다. */
 export function buildSheetSections(rows: WeeklySheetRow[]): SheetSectionCells[] {
-  const sorted = [...rows].sort((a, b) => sectionRank(a) - sectionRank(b) || a.sortOrder - b.sortOrder)
-  // 구분 키: 표준이면 구분명, 비표준이면 rowLabel(모듈 병기). 표준 10구분은 항상 전부 포함.
+  const sorted = sortWeeklyRows(rows)
+  // 구분 키: 표준이면 구분명, 비표준이면 rowLabel(모듈 병기). 표준 11구분은 항상 전부 포함.
   // 주간보고 점검(weeklyLint)도 같은 키로 묶는다 — 어긋나면 점검을 통과한 시트가 PPT에서 중복이 된다.
   const keyOf = sectionKeyOf
   const keys: string[] = [...WEEKLY_SECTIONS]

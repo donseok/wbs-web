@@ -15,9 +15,9 @@ export interface WeeklySheetRow {
 export type NewWeeklyRow = Omit<WeeklySheetRow, 'id' | 'reportId'>
 
 /** D-CUBE 주간보고 양식의 업무영역 구분 — 시트 행 순서이자 PPT 보고 순서(단일 출처).
- *  PMO(사업 관리)를 맨 앞에 두고, 사업/원가(영업·구매·관리회계)에 이어 현장(품질·생산·조업·물류·설비·가공)이 뒤따른다. */
+ *  PMO(사업 관리)를 맨 앞에 두고, 사업/회계(영업·구매·관리회계·재무회계)에 이어 현장(품질·생산·조업·물류·설비·가공)이 뒤따른다. */
 export const WEEKLY_SECTIONS = [
-  'PMO', '영업', '구매', '관리회계', '품질', '생산계획',
+  'PMO', '영업', '구매', '관리회계', '재무회계', '품질', '생산계획',
   '조업및표준화', '물류', '설비및L2', '가공',
 ] as const
 
@@ -30,7 +30,7 @@ const LEGACY_SECTION_MAP: Record<string, string> = {
   'MD/PP': '생산계획',
   'APS': '생산계획',
   'MM': '구매',
-  'FI/TR': '관리회계',
+  'FI/TR': '재무회계',
   'CO': '관리회계',
   '품질': '품질',
   '조업 및 표준화': '조업및표준화',
@@ -40,6 +40,19 @@ const LEGACY_SECTION_MAP: Record<string, string> = {
 }
 
 const isWeeklySection = (v: string): boolean => (WEEKLY_SECTIONS as readonly string[]).includes(v)
+
+/** 표준 구분은 WEEKLY_SECTIONS의 업무 순서로, 비표준(레거시·자유 입력) 행은 그 뒤에서
+ *  기존 sortOrder 순으로 정렬한다. 과거 주차에 중간 구분을 백필할 때 임시 sortOrder가 달라도
+ *  화면·점검·읽기 저장소의 행 순서가 흔들리지 않게 하는 공용 정렬이다. */
+export function sortWeeklyRows<T extends Pick<WeeklySheetRow, 'section' | 'sortOrder'>>(
+  rows: readonly T[],
+): T[] {
+  const rank = (section: string) => {
+    const i = (WEEKLY_SECTIONS as readonly string[]).indexOf(section.trim())
+    return i < 0 ? WEEKLY_SECTIONS.length : i
+  }
+  return [...rows].sort((a, b) => rank(a.section) - rank(b.section) || a.sortOrder - b.sortOrder)
+}
 
 /** 소유 프로퍼티만 조회 — 'toString'·'constructor' 같은 Object.prototype 상속 키가 함수를 돌려주면
  *  ?? 폴백이 발동하지 않아 흡수 계약이 깨지고 그 행의 이월 내용이 통째로 사라진다. */
@@ -63,7 +76,7 @@ export function rowSectionLabel(row: Pick<WeeklySheetRow, 'section' | 'module'>)
 
 /** 한 '구분'으로 묶이는 단위의 키 — PPT 페이지 합성(buildSheetSections)과 주간보고 점검이 공유한다.
  *  표준 구분명이면 모듈과 무관하게 구분명 하나로 묶고(PPT가 한 장으로 싣는 단위), 레거시 행은
- *  라벨(구분 · 모듈)로 가른다 — section이 ERP뿐이라 모듈까지 봐야 영업·구매·관리회계가 갈린다.
+ *  라벨(구분 · 모듈)로 가른다 — section이 ERP뿐이라 모듈까지 봐야 영업·구매·관리회계·재무회계가 갈린다.
  *  두 곳이 서로 다른 단위를 쓰면, 점검을 통과한 시트가 PPT에서는 중복으로 인쇄된다. */
 export function sectionKeyOf(row: Pick<WeeklySheetRow, 'section' | 'module'>): string {
   const sec = row.section.trim()
@@ -73,7 +86,7 @@ export function sectionKeyOf(row: Pick<WeeklySheetRow, 'section' | 'module'>): s
 /** 셀 1개 상한 — 서버 액션·클라이언트 클램프·이월 병합이 공유하는 단일 출처. */
 export const WEEKLY_CELL_MAX = 20000
 
-/** 새 주차 기본 스켈레톤 — 업무영역 10행(구분당 1행, 셀은 빈값). 신규 행의 module은 항상 ''. */
+/** 새 주차 기본 스켈레톤 — 업무영역 11행(구분당 1행, 셀은 빈값). 신규 행의 module은 항상 ''. */
 export function defaultWeeklyRows(): NewWeeklyRow[] {
   return WEEKLY_SECTIONS.map((section, i) => ({
     section, module: '', sortOrder: i + 1,
@@ -106,9 +119,9 @@ export interface WeeklyCellEdit {
   content: string         // 저장할 새 값(0~CELL_MAX)
 }
 
-/** 새 주차 이월: 결과는 **항상 표준 10행**이다. 전주 차주계획 → 금주실적, next는 비움.
+/** 새 주차 이월: 결과는 **항상 표준 11행**이다. 전주 차주계획 → 금주실적, next는 비움.
  *  레거시(공통/ERP/MES) 시트는 mapLegacySection으로 신규 구분에 흡수하고, 같은 구분으로
- *  모이는 내용(FI/TR + CO → 관리회계)은 sortOrder 순서대로 줄바꿈으로 이어붙인다.
+ *  모이는 내용은 sortOrder 순서대로 줄바꿈으로 이어붙인다.
  *  이 정규화가 없으면 레거시 시트에서 이월한 새 주차가 다시 구 13행 구조로 태어난다. */
 export function carryOverRows(prev: WeeklySheetRow[]): NewWeeklyRow[] {
   const out = defaultWeeklyRows()

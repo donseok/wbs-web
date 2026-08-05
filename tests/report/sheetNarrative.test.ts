@@ -78,7 +78,7 @@ describe('rowLabel', () => {
 describe('보고 순서', () => {
   it('시트 행 순서와 PPT 보고 순서는 WEEKLY_SECTIONS 하나로 정의된다(PMO 선두)', () => {
     expect(WEEKLY_SECTIONS).toEqual([
-      'PMO', '영업', '구매', '관리회계', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공',
+      'PMO', '영업', '구매', '관리회계', '재무회계', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공',
     ])
     expect(WEEKLY_SECTIONS.indexOf('PMO')).toBeLessThan(WEEKLY_SECTIONS.indexOf('영업')) // PMO가 영업 위
   })
@@ -93,7 +93,7 @@ describe('buildSheetSections', () => {
   const secs = buildSheetSections(rows)
   const byName = (name: string) => secs.find(s => s.section === name)!
 
-  it('표준 10구분을 전부 WEEKLY_SECTIONS 순서로 포함한다(내용 없는 구분 포함, PMO 선두)', () => {
+  it('표준 11구분을 전부 WEEKLY_SECTIONS 순서로 포함한다(내용 없는 구분 포함, PMO 선두)', () => {
     expect(secs.map(s => s.section)).toEqual([...WEEKLY_SECTIONS])
     expect(secs[0].section).toBe('PMO')
   })
@@ -116,7 +116,7 @@ describe('buildSheetSections', () => {
       row({ id: `r${i}`, sortOrder: i + 1, section, thisContent: `${section} 실적` }))
     expect(buildSheetSections(shuffled).map(s => s.section)).toEqual([...WEEKLY_SECTIONS])
   })
-  it('비표준 구분(레거시·자유 입력)은 표준 10구분 뒤에, 서로는 sortOrder 순', () => {
+  it('비표준 구분(레거시·자유 입력)은 표준 11구분 뒤에, 서로는 sortOrder 순', () => {
     const built = buildSheetSections([
       row({ id: 'x', sortOrder: 1, section: 'ERP', module: 'SD/LE', thisContent: '레거시B' }),
       row({ id: 'z', sortOrder: 0, section: '기타', module: '', thisContent: '레거시A' }),
