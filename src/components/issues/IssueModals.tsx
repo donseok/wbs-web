@@ -36,7 +36,9 @@ import {
 import { sortByKoreanName } from '@/lib/domain/nameSort'
 import { validateIssueDateRange } from '@/lib/domain/issueMinuteSource'
 import { minuteSourceHref } from '@/lib/minutes/source'
+import { uploadIssueAttachments } from '@/lib/issues/uploadIssueAttachments'
 import { IssueAssigneePicker } from './IssueAssigneePicker'
+import { IssueAttachments } from './IssueAttachments'
 import type { ProjectMember } from '@/lib/domain/types'
 
 function ErrorBox({ message }: { message: string }) {
@@ -417,6 +419,10 @@ export function IssueDetailModal({
             </section>
           )}
 
+          {/* 첨부는 읽기 전용이다 — 다운로드는 로그인 사용자 전체에 열려 있고, 추가·삭제는 수정 폼에서 한다.
+              진행 편집 블록 안이 아니라 그 앞에 둔다(푸터 '진행 저장' 버튼의 대상이 흐려지지 않게). */}
+          <IssueAttachments issueId={issue.id} />
+
           <div className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.detail.progress')}</div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -473,6 +479,11 @@ export function IssueFormModal({
   const [pending, startTransition] = useTransition()
   // pending 렌더 전에 발생하는 빠른 연속 클릭도 막는다.
   const submittingRef = useRef(false)
+  // 첨부 파일은 이 폼이 소유한다 — IssueAttachments 안에 두면 저장 성공 후 업로드를 await 하는
+  // 코드(submit)가 값에 닿을 수 없다. uploadedRef 는 부분 실패 후 재시도할 때 이미 올린 것을
+  // 건너뛰는 재개 지점이다(없으면 3개 중 2번째가 실패했을 때 1번째가 중복 업로드된다).
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const uploadedRef = useRef(0)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [severity, setSeverity] = useState<IssueSeverity>('medium')
@@ -508,6 +519,11 @@ export function IssueFormModal({
   useEffect(() => {
     if (!open) {
       submittingRef.current = false
+      // 첨부 state 는 여기(!open)에서만 비운다. 아래 open 분기는 seedKey 가 바뀔 때마다,
+      // 즉 **모달이 열려 있는 중에도** 다시 도는데 거기서 비우면 사용자가 고른 파일이
+      // 조용히 사라진다. IssuesView 는 이 모달을 항상 마운트해 두므로 명시적 리셋이 필요하다.
+      setPendingFiles([])
+      uploadedRef.current = 0
       return
     }
     const seed = JSON.parse(seedKey) as IssueFormSeed
@@ -657,6 +673,26 @@ export function IssueFormModal({
             onCreated?.(res.id, res)
           } catch (cause) {
             console.error('[IssueFormModal] onCreated callback failed:', cause)
+          }
+          // 첨부는 여기서 await 한다 — onCreated 에 걸면 콜백이 반환되자마자 아래 onClose 가
+          // 모달을 닫아 파일 state 가 사라진 뒤 업로드가 돈다. 그동안 pending 이 유지되어
+          // 닫기 버튼이 막히는데, 업로드 중 창이 닫히지 않는 편이 낫다.
+          if (pendingFiles.length > 0) {
+            const up = await uploadIssueAttachments(res.id, pendingFiles, {
+              startAt: uploadedRef.current,
+              onDone: n => { uploadedRef.current = n },
+            })
+            if (!up.ok) {
+              // 이슈는 이미 만들어졌다. 되돌리면 사용자가 입력을 통째로 잃으므로 되돌리지 않고,
+              // 모달을 닫지 않아 재시도하게 한다. 성공 경로는 이 ref 를 해제하지 않으므로 직접 푼다.
+              submittingRef.current = false
+              setError(
+                t('issue.err.attachPartial')
+                  .replace('{n}', String(pendingFiles.length - up.doneCount)),
+              )
+              router.refresh()
+              return
+            }
           }
         }
         onClose()
@@ -909,6 +945,14 @@ export function IssueFormModal({
           <IssueAssigneePicker members={members} selected={assignees} onChange={setAssignees} />
         </div>
         <p className="text-[11px] text-ink-subtle">{t('issue.form.dueHint')}</p>
+        {/* 수정 폼은 이슈가 이미 있으니 고르는 즉시 올린다. 등록 폼은 id 가 없어 담아만 두고,
+            저장이 성공한 뒤 submit() 이 발급된 id 로 올린다. */}
+        <IssueAttachments
+          issueId={isEdit ? initial!.id : null}
+          editable
+          pending={isEdit ? undefined : pendingFiles}
+          onPendingChange={setPendingFiles}
+        />
         {error && <ErrorBox message={error} />}
       </div>
     </Modal>

@@ -1067,6 +1067,22 @@ export async function deleteIssue(issueId: string): Promise<IssueActionResult> {
   const isOwner = (cur.created_by as string | null) === gate.userId
   if (!gate.isAdmin && !isOwner) return { ok: false, error: '권한 없음' }
 
+  // 첨부 정리(0068). 메타 행은 복합 FK cascade 로 사라지지만 버킷 객체는 영구 잔존한다.
+  // 경로 조회가 실패하면 중단한다 — 지울 대상을 모르는 채 이슈를 지우면 객체를 다시 찾을 수 없다.
+  const { data: atts, error: attErr } = await sb
+    .from('issue_attachments').select('file_path').eq('issue_id', issueId)
+  if (attErr) {
+    console.error('[deleteIssue] 첨부 경로 조회 실패:', attErr.message)
+    return { ok: false, error: ERR_LOOKUP }
+  }
+  const paths = (atts ?? []).map(a => a.file_path as string)
+  if (paths.length > 0) {
+    // remove() 는 아무것도 지우지 못해도 error 가 null 이라 성공을 판정할 수 없다.
+    // 여기서 막으면 이슈를 못 지우게 되므로, 최악의 결과인 '고아 객체'를 감수하고 진행한다.
+    const { error: rmErr } = await sb.storage.from('issue-attachments').remove(paths)
+    if (rmErr) console.error('[deleteIssue] 첨부 객체 삭제 실패(고아 잔존):', rmErr.message)
+  }
+
   const { error } = await sb.from('issues').delete().eq('id', issueId).select('id').single()
   if (error) return { ok: false, error: error.message }
   revalidateIssues(cur.project_id as string)
