@@ -93,12 +93,16 @@ describe('이슈 분석 메타 DB 매핑', () => {
       data: [{ id: 'mj1', mega_code: '03', major_seq: 1, name: '설계관리' }],
       error: null,
     })
+    // 첨부 개수(0068)는 tests/data/issue-attachment-count.test.ts 가 본다. 여기서는
+    // 매핑 검증에 끼어들지 않게 빈 결과만 준다.
+    const attachments = query({ data: [], error: null })
     state.client = {
       from: vi.fn((table: string) => {
         if (table === 'issues') return issues
         if (table === 'issue_assignees') return assignees
         if (table === 'issue_links') return links
         if (table === 'issue_major_processes') return majors
+        if (table === 'issue_attachments') return attachments
         throw new Error(`unexpected table: ${table}`)
       }),
     }

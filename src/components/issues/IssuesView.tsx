@@ -3,7 +3,7 @@
 // 테이블 골격은 MeetingsView(가로 스크롤 + 행 키보드 패턴), 모달·focus 소비는 AnnouncementsView 복제.
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CircleAlert, Plus, Presentation } from 'lucide-react'
+import { CircleAlert, Paperclip, Plus, Presentation } from 'lucide-react'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
@@ -218,7 +218,23 @@ export function IssuesView({
                           <span className="text-ink-subtle">—</span>
                         )}
                       </td>
-                      <td className="whitespace-normal break-words px-2.5 py-2.5 font-medium leading-5 text-ink" title={issue.title}>{issue.title}</td>
+                      <td className="whitespace-normal break-words px-2.5 py-2.5 font-medium leading-5 text-ink" title={issue.title}>
+                        {issue.title}
+                        {/* 새 열을 만들지 않는다 — colgroup 8열 폭(합 100)을 재배분해야 하고 어긋나면
+                            table-fixed 가 조용히 뭉갠다. 셀에 이미 title 이 걸려 있어 배지에 자체 title 을 준다.
+                            표시 토글은 JSX 조건부 렌더로 한다. 상태 변형 display 유틸은 globals.css 끝의
+                            unlayered 안전망에 져서 조용히 동작하지 않는다(breakpoint-safety-net 테스트가 검사). */}
+                        {(issue.attachmentCount ?? 0) > 0 && (
+                          <span
+                            className="ml-1.5 inline-flex items-center gap-0.5 align-middle text-[11px] font-normal text-ink-subtle"
+                            title={t('issue.attach.count').replace('{n}', String(issue.attachmentCount))}
+                            aria-label={t('issue.attach.count').replace('{n}', String(issue.attachmentCount))}
+                          >
+                            <Paperclip className="h-3 w-3" aria-hidden />
+                            {issue.attachmentCount}
+                          </span>
+                        )}
+                      </td>
                       <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5">
                         <span className={`chip px-2 py-0.5 text-[11px] ${sMeta.chip}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${sMeta.dot}`} />
