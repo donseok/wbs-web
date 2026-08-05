@@ -1,10 +1,11 @@
 import { getDisplayName } from '@/lib/auth'
-import { getActorForView } from '@/lib/authz'
+import { getActorViewState } from '@/lib/authz'
 import { isAnyProjectAdmin, hasAnyProjectRole } from '@/lib/domain/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
-import { listProjects } from '@/app/actions/project'
+import { listProjectsWithState } from '@/app/actions/project'
 import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { HeaderChrome } from '@/components/app/HeaderChrome'
+import { DegradedNotice } from '@/components/app/DegradedNotice'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
 import { DkBot } from '@/components/chat/DkBot'
 import { BotPageContextProvider } from '@/components/chat/BotPageContextProvider'
@@ -18,12 +19,17 @@ import { getUiPrefs } from '@/app/actions/preferences'
 import { seoulToday } from '@/lib/domain/dates'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const [actor, projects, userName, prefs] = await Promise.all([
-    getActorForView(),
-    listProjects(),
+  const [actorState, projectState, userName, prefs] = await Promise.all([
+    getActorViewState(),
+    listProjectsWithState(),
     getDisplayName(),
     getUiPrefs(),
   ])
+  const actor = actorState.actor
+  const projects = projectState.projects
+  // 권한이나 프로젝트 목록을 못 읽었다 = 화면이 사실과 다르다. 이 상태를 정상인 척 그리면
+  // 2026-08-05 처럼 REST 장애가 '로그인 실패'로 신고된다(에러 처리 3원칙 ① 표시 = 로깅).
+  // 표시는 DegradedNotice 가 맡는다(아래 main 선두).
   const today = seoulToday()
   const completion = await getProjectsCompletion(projects.map(p => p.id))
   const projectLinks: SidebarProject[] = projects.map(p => ({
@@ -41,6 +47,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const activeTeams = teamsSync().filter(t => t.active)
 
   // Actor(Map)는 직렬화되지 않는다 — 헤더·사이드바가 쓸 표시용 스냅샷만 평탄화해 내린다.
+  // degraded 면 등급을 **주장하지 않는다**. 여기서 '게스트'로 떨어뜨리면 화면이 거짓말을 한다.
   const identity = actor
     ? {
         roleLabel: actor.isSuperuser ? '슈퍼유저'
@@ -51,7 +58,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         isSuperuser: actor.isSuperuser,
         showUsage: canViewUsage(actor),
       }
-    : null
+    : actorState.degraded
+      ? {
+          roleLabel: '확인 불가',
+          teamCode: null,
+          canManageAccounts: false,
+          isSuperuser: false,
+          showUsage: false,
+        }
+      : null
 
   return (
     <TeamsProvider teams={activeTeams}>
@@ -68,7 +83,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Sidebar projects={projectLinks} showUsage={identity?.showUsage ?? false} />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <HeaderChrome identity={identity} projects={projectLinks} userName={userName} />
-              <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-3 pb-4 pt-3 sm:px-5 lg:px-7">{children}</main>
+              <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-3 pb-4 pt-3 sm:px-5 lg:px-7">
+                <DegradedNotice
+                  actorFailed={actorState.degraded}
+                  projectsFailed={projectState.degraded}
+                />
+                {children}
+              </main>
             </div>
             <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />
           </div>

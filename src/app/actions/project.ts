@@ -10,16 +10,35 @@ import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 
 export async function listProjects() {
+  return (await listProjectsWithState()).projects
+}
+
+/**
+ * listProjects 와 같은 폴백을 하되 **실패했다는 사실을 함께 돌려준다**.
+ *
+ * `[]` 하나로는 "프로젝트가 없는 계정"과 "목록을 못 읽은 상태"가 구분되지 않는다.
+ * 2026-08-05 REST 장애 때 화면이 후자를 전자로 그려 '첫 프로젝트를 만들어 보세요' 를
+ * 띄웠다 — 데이터가 멀쩡한데 신규 가입자 화면처럼 보였다. 로그는 남았지만 표시가 없었다.
+ */
+export async function listProjectsWithState() {
   // 서버 액션 직접 호출에 대비한 인증 재확인(RLS와 이중 방어).
-  if (!(await getSession())) return []
-  const sb = await createServerClient()
-  const { data, error } = await sb.from('projects').select('*').order('created_at', { ascending: false })
+  // 비로그인은 '조회 실패' 가 아니다 — degraded=false 여야 미들웨어가 /login 으로 보내는
+  // 정상 흐름에 경고 배너가 딸려붙지 않는다.
+  if (!(await getSession())) return { projects: [] as ProjectRow[], degraded: false }
+  const { data, error } = await fetchProjects()
   // 순수 표시용 조회라 폴백([])을 유지한다 — throw 하면 (app)/layout.tsx 가 호출하므로
   // 프로젝트 목록 하나 깨진 것으로 앱 전 페이지가 에러 화면이 된다(로그인 후 아무 데도 못 감).
   // 이 목록의 '0건'을 근거로 쓰기/삭제를 판단하는 경로는 없어서(생성은 채번·중복검사에 쓰지 않음)
   // 데이터가 손상되지는 않는다. 대신 빈 사이드바의 원인이 사라지지 않도록 로그는 반드시 남긴다.
   if (error) console.error('[listProjects] 조회 실패:', error.message)
-  return data ?? []
+  return { projects: data ?? [], degraded: Boolean(error) }
+}
+
+type ProjectRow = NonNullable<Awaited<ReturnType<typeof fetchProjects>>['data']>[number]
+
+async function fetchProjects() {
+  const sb = await createServerClient()
+  return sb.from('projects').select('*').order('created_at', { ascending: false })
 }
 
 export async function createProject(
