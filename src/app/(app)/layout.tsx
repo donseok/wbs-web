@@ -5,6 +5,7 @@ import { canViewUsage } from '@/lib/authz/usageAccess'
 import { listProjectsWithState } from '@/app/actions/project'
 import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { HeaderChrome } from '@/components/app/HeaderChrome'
+import { DegradedNotice } from '@/components/app/DegradedNotice'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
 import { DkBot } from '@/components/chat/DkBot'
 import { BotPageContextProvider } from '@/components/chat/BotPageContextProvider'
@@ -28,7 +29,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const projects = projectState.projects
   // 권한이나 프로젝트 목록을 못 읽었다 = 화면이 사실과 다르다. 이 상태를 정상인 척 그리면
   // 2026-08-05 처럼 REST 장애가 '로그인 실패'로 신고된다(에러 처리 3원칙 ① 표시 = 로깅).
-  const degraded = actorState.degraded || projectState.degraded
+  // 표시는 DegradedNotice 가 맡는다(아래 main 선두).
   const today = seoulToday()
   const completion = await getProjectsCompletion(projects.map(p => p.id))
   const projectLinks: SidebarProject[] = projects.map(p => ({
@@ -83,23 +84,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <HeaderChrome identity={identity} projects={projectLinks} userName={userName} />
               <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-3 pb-4 pt-3 sm:px-5 lg:px-7">
-                {degraded && (
-                  <div
-                    role="alert"
-                    data-degraded-banner
-                    className="mb-3 rounded-2xl border border-delayed/40 bg-delayed-weak/50 px-4 py-3"
-                  >
-                    <p className="text-sm font-bold text-delayed">일부 정보를 불러오지 못했습니다</p>
-                    <p className="mt-1 text-xs text-ink-muted">
-                      {actorState.degraded && projectState.degraded ? '권한과 프로젝트 목록을'
-                        : actorState.degraded ? '권한 정보를'
-                          : '프로젝트 목록을'}
-                      {' '}읽지 못해 메뉴·목록이 실제와 다르게 보일 수 있습니다.
-                      계정이나 데이터가 바뀐 것이 아니니 잠시 뒤 새로고침하세요.
-                      계속되면 관리자에게 알려 주세요.
-                    </p>
-                  </div>
-                )}
+                <DegradedNotice
+                  actorFailed={actorState.degraded}
+                  projectsFailed={projectState.degraded}
+                />
                 {children}
               </main>
             </div>
