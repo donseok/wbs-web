@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExtractedWikiItem } from '@/lib/ai/wiki-ingest'
 import type { MinuteBlock } from '@/lib/minutes/blocks'
 
@@ -16,6 +16,13 @@ import { emptySaturationSnapshot } from '@/lib/ai/wiki-saturation'
 import { wikiStatementHash } from '@/lib/domain/wiki'
 import { fnv1a64 } from '@/lib/minutes/blocks'
 import { createAdminClient } from '@/lib/supabase/admin'
+
+// 위키 자동 반영은 2026-08-05 부터 기본 중단이다(wikiServiceEnabled, 기본 꺼짐).
+// 코드를 지운 게 아니라 스위치만 내린 것이므로, **되살릴 때 동작이 멀쩡한지**는 계속
+// 검증해야 한다. 이 파일은 그 내부 로직을 보는 테스트라 스위치를 켠 상태로 돌린다.
+beforeEach(() => { process.env.WIKI_SERVICE_ENABLED = 'true' })
+
+afterEach(() => { delete process.env.WIKI_SERVICE_ENABLED })
 
 type QueryResponse = {
   data?: unknown

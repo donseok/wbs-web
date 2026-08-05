@@ -25,6 +25,28 @@ import {
   type WikiSemanticRelation,
 } from '@/lib/domain/wiki'
 
+/**
+ * 위키 **자동 반영 전역 중단 스위치** (2026-08-05, 사용자 지시).
+ *
+ * 회의록 저장·외부 API 업로드·크론 워커가 모두 이 파일의 진입점을 거쳐 위키를 자동으로
+ * 고쳐 쓴다. 그 자동 쓰기에 위험이 있다고 판단해 **일단 전부 멈춘다.**
+ *
+ * 기본값이 '꺼짐'인 이유: env 를 못 읽는 환경(로컬·프리뷰·새 배포)에서 조용히 다시 도는
+ * 것보다 조용히 멈춰 있는 편이 안전하다. 되살릴 때는 **명시적으로**
+ * `WIKI_SERVICE_ENABLED=true` 를 넣는다.
+ *
+ * 코드는 지우지 않는다 — 스위치만 내린 상태이며 조회(위키 페이지·봇 검색)는 그대로 동작한다.
+ * 막는 것은 **자동 쓰기**뿐이다.
+ */
+export function wikiServiceEnabled(): boolean {
+  return process.env.WIKI_SERVICE_ENABLED === 'true'
+}
+
+/** 중단 상태에서 진입점이 불렸을 때의 로그 — 조용히 사라지면 나중에 원인을 못 찾는다. */
+function logWikiSuspended(entry: string): void {
+  console.info(`[wiki] 중단 상태로 건너뜀: ${entry} (되살리려면 WIKI_SERVICE_ENABLED=true)`)
+}
+
 const ITEM_KINDS = [
   'decision', 'fact', 'action', 'question', 'risk', 'constraint', 'rationale',
 ] as const
@@ -763,6 +785,7 @@ export async function enqueueMinuteWikiProcessing(args: {
   bodyMd: string
   force?: boolean
 }): Promise<number | null> {
+  if (!wikiServiceEnabled()) { logWikiSuspended('enqueueMinuteWikiProcessing'); return null }
   if (!args.projectId) return null
   if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return null
   const admin = createAdminClient()
@@ -919,6 +942,7 @@ async function completeJob(
 }
 
 export async function processMinuteWikiJob(jobId: number): Promise<WikiProcessSummary | null> {
+  if (!wikiServiceEnabled()) { logWikiSuspended('processMinuteWikiJob'); return null }
   if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return null
   const admin = createAdminClient()
   const workerId = `inline-${process.pid}-${crypto.randomUUID()}`
@@ -1110,6 +1134,10 @@ interface WikiProjectRebuildStepResult {
 export async function processWikiProjectRebuildStep(
   projectId: string | null = null,
 ): Promise<WikiProjectRebuildStepResult> {
+  if (!wikiServiceEnabled()) {
+    logWikiSuspended('processWikiProjectRebuildStep')
+    return { attempted: false, completed: false, finished: false }
+  }
   if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) {
     return { attempted: false, completed: false, finished: false }
   }
@@ -1179,6 +1207,7 @@ export async function runWikiWorkerOnce(limit = 5): Promise<{
   attempted: number
   completed: number
 }> {
+  if (!wikiServiceEnabled()) { logWikiSuspended('runWikiWorkerOnce'); return { attempted: 0, completed: 0 } }
   if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) {
     return { attempted: 0, completed: 0 }
   }
@@ -1244,6 +1273,7 @@ export async function enqueueAndProcessMinuteWiki(args: {
   bodyMd: string
   force?: boolean
 }): Promise<void> {
+  if (!wikiServiceEnabled()) { logWikiSuspended('enqueueAndProcessMinuteWiki'); return }
   const jobId = await enqueueMinuteWikiProcessing(args)
   if (jobId !== null) await processMinuteWikiJob(jobId)
 }
@@ -1257,6 +1287,7 @@ export async function rebuildProjectWikiFromActiveMinutes(
   projectId: string | null,
   excludeMinuteId: string | null = null,
 ): Promise<void> {
+  if (!wikiServiceEnabled()) { logWikiSuspended('rebuildProjectWikiFromActiveMinutes'); return }
   if (!projectId) return
   void excludeMinuteId
   for (let step = 0; step < 5; step += 1) {
