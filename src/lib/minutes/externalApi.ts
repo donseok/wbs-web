@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { displayNameFrom } from '@/lib/domain/display-name'
+import { MEETING_CATEGORIES } from '@/lib/domain/meetings'
 import { MINUTE_FOLDER_NAME_MAX, normalizeFolderName, validateMinuteInput } from '@/lib/domain/minutes'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 import { splitMinuteBlocks } from '@/lib/minutes/blocks'
@@ -9,7 +10,7 @@ import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { ingestMinute } from '@/lib/ai/minutes-ingest'
 import { generateMinuteInsights } from '@/lib/ai/minutes-insights'
 import { enqueueAndProcessMinuteWiki, processMinuteWikiJob } from '@/lib/ai/wiki-ingest'
-import type { TeamCode } from '@/lib/domain/types'
+import type { MeetingCategory, TeamCode } from '@/lib/domain/types'
 
 /**
  * 회의록 외부 업로드 API(/api/v1/minutes*) 공용 유틸 — 또박또박 연동.
@@ -155,6 +156,19 @@ export function parseUserEmail(raw: unknown): string | null {
   return email || null
 }
 
+/** v2.5 §4.2 — inline `meeting`(회의 생성+연결) 입력. 파싱을 통과하면 title 은 trim 완료 상태다. */
+export interface ExternalMeetingInput {
+  projectId: string
+  title: string
+  date: string
+  category: MeetingCategory
+}
+
+/** 내부 회의 생성의 제목 상한과 동일(actions/meetings.ts TITLE_MAX=200 — 'use server' 파일이라 import 불가). */
+const MEETING_TITLE_MAX = 200
+/** 날짜 형식 — 리포 관례상 로컬 재선언(route.ts·actions/meetings.ts 와 동일 패턴). */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
 export interface ExternalMinutePayload {
   minuteDate: string
   teamCode: TeamCode
@@ -164,6 +178,13 @@ export interface ExternalMinutePayload {
   meetingId: string | null
   /** §0 D3(v2.2): meeting_id 필드 부재=기존 값 유지, 명시적 null=해제 — replace 갱신 범위 판정용. */
   meetingIdProvided: boolean
+  /**
+   * v2.5 §4.2: inline meeting — 키 존재 기준 추적(meetingIdProvided 와 동형)이며 meeting_id 와
+   * 상호배타. 라우트가 회의를 확보한 뒤 meetingId/meetingIdProvided 에 주입해 이후 흐름은
+   * meeting_id 전송과 완전히 같게 동작한다.
+   */
+  meetingProvided: boolean
+  meeting: ExternalMeetingInput | null
   /** §3.1(v2.3): 정규화 전 원본 경로(btrim 완료). 키 부재면 null. */
   folderPath: string[] | null
   /**
@@ -256,6 +277,38 @@ export function parseMinutePayload(raw: unknown): { payload: ExternalMinutePaylo
     meetingId = b.meeting_id
   }
 
+  // v2.5 §4.2 — inline meeting. meeting_id 와는 키 존재 기준 상호배타다: `meeting_id: null`(해제)과
+  // meeting(신규 연결)을 함께 보내는 것도 의도가 상충하므로 거절한다.
+  let meeting: ExternalMeetingInput | null = null
+  const meetingProvided = b.meeting !== undefined
+  if (meetingProvided) {
+    if (meetingIdProvided) return { error: 'meeting과 meeting_id는 함께 보낼 수 없습니다.' }
+    if (typeof b.meeting !== 'object' || b.meeting === null || Array.isArray(b.meeting)) {
+      return { error: 'meeting은 객체여야 합니다.' }
+    }
+    const m = b.meeting as Record<string, unknown>
+    if (typeof m.project_id !== 'string' || !isUuid(m.project_id)) {
+      return { error: 'meeting.project_id 형식이 올바르지 않습니다.' }
+    }
+    const title = typeof m.title === 'string' ? m.title.trim() : ''
+    if (!title) return { error: 'meeting.title이 필요합니다.' }
+    if (title.length > MEETING_TITLE_MAX) {
+      return { error: `meeting.title은 ${MEETING_TITLE_MAX}자 이하여야 합니다.` }
+    }
+    if (typeof m.date !== 'string' || !DATE_RE.test(m.date)) {
+      return { error: 'meeting.date 형식이 올바르지 않습니다.' }
+    }
+    // meta 와 같은 소스(MEETING_CATEGORIES)로 검증 — 하드코딩 금지(§2.1).
+    let category: MeetingCategory = 'general'
+    if (m.category !== undefined) {
+      if (typeof m.category !== 'string' || !(MEETING_CATEGORIES as readonly string[]).includes(m.category)) {
+        return { error: 'meeting.category가 올바르지 않습니다.' }
+      }
+      category = m.category as MeetingCategory
+    }
+    meeting = { projectId: m.project_id, title, date: m.date, category }
+  }
+
   let onConflict: ExternalMinutePayload['onConflict'] = 'replace'
   if (b.on_conflict !== undefined) {
     if (b.on_conflict !== 'replace' && b.on_conflict !== 'skip' && b.on_conflict !== 'error') {
@@ -288,7 +341,7 @@ export function parseMinutePayload(raw: unknown): { payload: ExternalMinutePaylo
     payload: {
       minuteDate: b.date, teamCode: b.team as TeamCode, title: b.title.trim(),
       bodyMd: b.body_markdown, externalId, meetingId, meetingIdProvided,
-      folderPath, folderPathProvided, onConflict,
+      meetingProvided, meeting, folderPath, folderPathProvided, onConflict,
     },
   }
 }

@@ -41,11 +41,14 @@ export async function GET(req: NextRequest) {
     // 회의 목록은 프로젝트 종속 — project_id 지정 시에만 포함(계약 §5.2)
     if (projectId) {
       const { data: meetings, error: mErr } = await admin.from('meetings')
-        .select('id, title, meeting_date').eq('project_id', projectId)
+        .select('id, title, meeting_date, category, recurrence').eq('project_id', projectId)
         .order('meeting_date', { ascending: false })
       if (mErr) { console.error('[minutes-api] 회의 목록 조회 실패:', mErr.message); return apiInternalError() }
       body.meetings = ((meetings ?? []) as Record<string, unknown>[]).map(m => ({
         id: m.id as string, title: m.title as string, date: m.meeting_date as string,
+        // v2.5 — 또박또박 배지용. DB check 제약이 값 집합을 보장하므로 raw 전달로 충분.
+        // 반복 회의는 시리즈 1행(첫 회차 date)만 나온다 — 전개하지 않는 현행 조회 유지.
+        category: m.category as string, recurrence: m.recurrence as string,
       }))
     }
 

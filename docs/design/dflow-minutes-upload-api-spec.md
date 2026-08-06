@@ -1,6 +1,6 @@
 # D'Flow 회의록 업로드 API 스펙 (또박또박 연동용)
 
-- 버전: **v2.4 (2026-07-27)** — **결정 정본 반영 개정: 조상 규칙 · `folder_path_status` · 전환 플래그 · 배치 `pmo_admin` 게이트** (하단 'v2.4 변경' 참조). ⚠️ **또박또박 송부본은 이 v2.4다** — v2.3은 송부 전 내부 개정이라 중간 이력을 만들지 않는다. v2.3 (2026-07-27): `folder_path` 편철 · 일괄 재편철 배치 · 연결 초기화 반영. v2.2 (2026-07-19): D'Flow 측 구현(F1~F6) 완료 반영. v2.1: wbs-web 레포 코드 직접 조사 후 전면 개정 + 전 미결사항 확정
+- 버전: **v2.5 (2026-08-06)** — **회의 연결·생성 확장: inline `meeting` 객체(회의 생성+연결) · meta 회의 목록 `category`/`recurrence` · 403 `not_project_member` 신설** (하단 'v2.5 변경' 참조). v2.4 (2026-07-27): 결정 정본 반영 개정 — 조상 규칙 · `folder_path_status` · 전환 플래그 · 배치 `pmo_admin` 게이트 (⚠️ 또박또박 최초 송부본). v2.3은 송부 전 내부 개정이라 중간 이력을 만들지 않는다. v2.3 (2026-07-27): `folder_path` 편철 · 일괄 재편철 배치 · 연결 초기화 반영. v2.2 (2026-07-19): D'Flow 측 구현(F1~F6) 완료 반영. v2.1: wbs-web 레포 코드 직접 조사 후 전면 개정 + 전 미결사항 확정
 - 작성 목적: 또박또박(로컬 회의 녹음·전사·회의록 앱)이 생성한 회의록 마크다운을 D'Flow(https://wbs-web.vercel.app) 회의록 화면에 **자동 등록**할 수 있도록, 양측이 **동시에 개발해 한 번에 통합**할 수 있는 완결 사양을 정의한다.
 - 대상 독자: D'Flow 개발팀(팀장) + 또박또박 개발측
 - 근거: wbs-web 레포(https://github.com/donseok/wbs-web) 전체 조사 기반. "확인"은 코드 인용이 있는 사실, "제안"은 신규 설계 요청.
@@ -8,6 +8,7 @@
 - **사본 관계 (v2.3 명문화)**: **정본은 wbs-web 레포 사본(`docs/design/dflow-minutes-upload-api-spec.md`)이다.** 또박또박 측 사본(`tasks/dflow-minutes-upload/artifacts/`, **v2.1에서 정지**)은 이 파일을 **뒤따라 동기화**한다 — 반대 방향(또박또박 사본 → 정본) 반영은 금지. 두 사본이 갈라진 채로 착수하면 또박또박 구현자가 자기 레포의 "API 계약 단일 출처"에서 **이번 개정과 모순된 지시**(접두 제목·`folder_path` 부재·"해제 API 없음")를 읽는다.
 - **v2.3 개정 근거**: `docs/design/dflow-folder-path-worklist-2026-07-27.md`(D'Flow 작업지시 — 결정 D1~D6·E1~E4 확정본). 본 문서는 그중 **계약(필드·의미·에러)** 만 옮긴다. 구현 순서·배포 차수의 정본은 그 문서 §11.2이고, 본 문서는 §14.1에서 1줄로만 참조한다.
 - **v2.4 개정 근거**: `docs/design/dflow-decisions-final-2026-07-27.md`(**결정 정본** — 개발 측 권고안과 어긋나는 항목은 그 문서가 이긴다) §2-A~§2-J, 특히 §2-E 표의 9건. v2.4 시점에 **D'Flow 구현은 이미 완료돼 있고**(브랜치), 본 개정은 **코드에 문서를 맞춘 것**이다 — 계약 문장과 구현이 어긋나면 코드가 사실이며 본 문서를 고친다.
+- **v2.5 개정 근거**: `docs/design/dflow-meeting-create-spec.md` v1.0(또박또박 발주 — 전송 다이얼로그 "회의 연결(선택)" 기능). 변경은 전부 **additive**라 `meeting`을 보내지 않는 v2.4 요청·응답은 바이트 수준 그대로다.
 
 ---
 
@@ -38,6 +39,19 @@
 | T6 | export 호환 | 회의/폴더/프로젝트 export·import에 public_uid·매핑 포함 (다른 또박또박 인스턴스로 이동해도 D'Flow 연결 유지) |
 
 **적용**: 양측 동시 개발 → §14 순서로 한 번에 통합 (D'Flow는 env 미설정이면 API 전체 404라 먼저 배포해도 무해).
+
+### v2.5 변경 (회의 연결·생성 확장 — **또박또박 송부본**)
+
+또박또박 전송 다이얼로그의 "회의 연결(선택)" — 사용자가 D'Flow 프로젝트를 고르고 그 프로젝트의 회의를 선택하거나, 없으면 그 자리에서 신규 회의를 등록한 뒤 회의록을 전송한다 — 을 위해 **W1·W2** 두 건을 추가한다(발주 스펙 = `docs/design/dflow-meeting-create-spec.md`). 별도 `POST /meetings` 엔드포인트는 만들지 않았다(inline A안 채택 — 회의 생성+회의록 전송이 한 요청).
+
+| # | 변경 | 내용 | 절 | 또박또박 작업 |
+|---|---|---|---|---|
+| W1 | **meta 회의 목록 확장** | `GET /minutes/meta?project_id=`의 `meetings[]`에 `category`·`recurrence` 추가(기존 3필드 유지). 반복 회의는 시리즈 1행(첫 회차 date)만 나온다 — "반복" 배지용 | §5.2 | 배지 표시 |
+| W2 | **inline `meeting` 객체** | `POST /minutes`에 선택 필드 `meeting { project_id, title, date, category? }` — 서버가 회의를 **생성(또는 dedup 재사용)** 한 뒤 이후 처리는 `meeting_id` 전송과 완전히 같다. `meeting_id`와 **키 존재 기준 상호배타**. 응답에 `meeting_created`(boolean, 조건부 키) 동봉 | §4.2 · §4.3 · §4.5-12 | 다이얼로그 연동 |
+| — | **403 `not_project_member` 신설** | `meeting.project_id` 프로젝트의 명단(project_members)에 연결되지 않은 `user_email`은 회의를 만들 수 없다 | §6 | 문구 반영 |
+
+- **배포 순서: D'Flow 먼저 → 또박또박.** 구버전 D'Flow 파서는 미지 키를 조용히 무시하므로(§8 화이트리스트 검증) 역순이면 `meeting` 필드가 400 없이 **연결 의도만 소실**된다. 순서만 지키면 전환 플래그 불요. 또박또박은 사용자가 회의 연결을 명시적으로 선택한 요청에만 `meeting`/`meeting_id`를 보낸다.
+- 외부 API가 만드는 회의는 항상 **단발**(`recurrence: 'none'`)·참석자 없음·본문 빈 값이다. 회의 수정·삭제·참석자·시간·장소·반복 생성은 범위 밖.
 
 ### v2.4 변경 (결정 정본 반영 — **또박또박 송부본**)
 
@@ -259,11 +273,12 @@ POST 요청 필드 `user_email`에 **또박또박에서 업로드를 실행한 �
 | `title` | string ≤ 200자 | ✅ | 회의록 제목. **v2.3: `folder_path`를 함께 보내면 `<하위폴더명>-` 접두 없이 원제목 그대로**(§0 D10) — 폴더는 `folder_path`가 나르므로 제목으로 흉내낼 이유가 없다. `folder_path`를 보내지 않는 구버전 경로에서만 종전 접두 관례가 유효하다. D'Flow는 어느 쪽도 형식을 강제하지 않고 200자 검증만 한다 |
 | `body_markdown` | string ≤ **100,000자** | ✅ | → `body_md` 원문 저장. 한도는 D'Flow 기존 검증 상수(`MINUTE_BODY_MAX`)와 정합 |
 | `external_id` | string ≤ 128자 | ✅ | **멱등 키**. 또박또박은 `ddobak:<회의 UUIDv7>` — 최초 업로드 시 발급하는 불변 `public_uid` (§10). unique |
-| `meeting_id` | uuid | — | D'Flow 회의 엔티티 연결(선택). uuid 형식·존재 검증 후 저장(비형식/불존재 400 — v2.2 C2). replace 시 필드 부재=기존 값 유지, 명시적 null=해제(v2.2 C1). **프로젝트 연결은 이 필드 경유가 유일** |
+| `meeting_id` | uuid | — | D'Flow 회의 엔티티 연결(선택). uuid 형식·존재 검증 후 저장(비형식/불존재 400 — v2.2 C2). replace 시 필드 부재=기존 값 유지, 명시적 null=해제(v2.2 C1). **프로젝트 연결은 이 필드 경유가 유일**(★ v2.5: `meeting` 객체도 회의 확보 후 이 경로에 합류한다 — 아래 행) |
+| `meeting` | object | — | ★ **v2.5 신설.** 회의 **생성+연결**을 한 요청으로: `{ "project_id": "<uuid, 필수>", "title": "<필수, trim 후 1~200자>", "date": "<YYYY-MM-DD, 필수>", "category": "<선택, 기본 general>" }`.<br>· `meeting_id`와 **키 존재 기준 상호배타** — 함께 보내면 400. `meeting_id: null`과의 조합도 거절한다(해제와 신규 연결 의도가 상충)<br>· `category` 허용값 = meta `meetings[].category`와 같은 6종(`routine`·`general`·`kickoff`·`review`·`report`·`external`)<br>· 서버가 회의를 확보한 뒤에는 **`meeting_id`가 전송된 것과 완전히 동일**하게 동작한다 — 프로젝트 연결·`meeting_occurrence_date = date` 파생·replace 갱신 규약 전부<br>· **dedup 멱등**: 같은 `(project_id, date, trim(title))` 회의가 이미 있으면 생성하지 않고 재사용한다(복수 매칭 시 `created_at` 최신 1건) — 재시도(응답 유실 후 재전송)가 회의를 중복 생성하지 않는 안전망<br>· **권한**: `user_email` 계정이 그 프로젝트 **명단(project_members)에 연결**돼 있어야 한다. 미달 403 `not_project_member`(§6) — dedup 재사용 경로에도 먼저 적용<br>· `on_conflict=skip`/`error`로 분기되거나 대상이 보관(409 `archived`)이면 **회의를 만들지 않는다**(§4.5-12)<br>· 생성 회의는 단발(`recurrence 'none'`)·참석자 없음·본문 빈 값·작성자 = `user_email` 계정 |
 | `folder_path` | **string[]** | — | ★ **v2.3 신설.** 회의가 속한 **폴더 경로**를 **root-first**(최상위 → 말단)로 보낸다. 예: `["MES","품질","주간정례"]`.<br>· ⚠️ **★ v2.4: 서버 플래그 `MINUTES_FOLDER_PATH_ENABLED`가 `false`(기본)면 이 필드는 키 부재와 완전히 동일하게 취급된다** — 편철도 검증도 없다(400조차 나지 않는다). 전환 규약 = **§4.8**<br>· 배열이 아니면 **400** `validation_failed`. 원소는 문자열만<br>· 각 원소는 `btrim` + **NFC 정규화**(★ v2.4 — §0 D20) 후 **1~60자**. 벗어나면 **400 거절 — 절단하지 않는다**(§0 D12)<br>· 정규화(§4.7 ①②③) 후 **깊이 5 초과분은 절단**하고 5단째에 편철<br>· 실제 편철 결과는 응답에 **에코**된다(§4.3) — 절단·한 칸 내림이 반영된 값. **품질 신호는 `folder_path_status`**(★ v2.4)<br>· **키 부재 / `[]` / 비어있지 않은 배열을 3값으로 구분한다** → 아래 「3값 규약」<br>· 편철·자동 생성 규칙 전문 = **§4.7** |
 | `on_conflict` | `replace`\|`skip`\|`error` | — | 기본 `replace` |
 
-v1 스펙에 있던 `project_id`(minutes에 저장 컬럼 없음), `occurred_start_at/end_at`·`attendees`·`tags`(전부 minutes 컬럼 없음 — `meetings` 엔티티 속성), `external_source`·`external_instance`·`external_url`(컬럼 없음)은 **v1에서 제외**. 발신 시스템 식별은 `external_id`의 `ddobak:` prefix로 충분하다. 추가 메타 보존이 필요해지면 v1.1에서 `external_meta jsonb` 컬럼 1개로 수용(제안).
+v1 스펙에 있던 `project_id`(minutes에 저장 컬럼 없음), `occurred_start_at/end_at`·`attendees`·`tags`(전부 minutes 컬럼 없음 — `meetings` 엔티티 속성), `external_source`·`external_instance`·`external_url`(컬럼 없음)은 **v1에서 제외**. 발신 시스템 식별은 `external_id`의 `ddobak:` prefix로 충분하다. 추가 메타 보존이 필요해지면 v1.1에서 `external_meta jsonb` 컬럼 1개로 수용(제안). (※ ★ v2.5의 중첩 `meeting.project_id`는 이 제외와 별개다 — minutes 최상위 필드가 아니라 **생성할 회의**의 소속 프로젝트다.)
 
 **`on_conflict` 의미** (동일 `external_id` 기존 레코드 존재 시):
 
@@ -350,6 +365,14 @@ v1 스펙에 있던 `project_id`(minutes에 저장 컬럼 없음), `occurred_sta
 
 > **왜 boolean 하나로는 안 되는가.** `folder_path_truncated: true` 하나만 넣으면 **오독이 늘어난다** — 받은 경로가 보낸 경로보다 짧아지는 원인이 **셋**이기 때문이다(깊이 절단 / 부분 편철 / ② 한 칸 내림은 오히려 길어진다). "보낸 경로와 받은 경로를 비교하면 되지 않나"도 성립하지 않는다: 정상 편철에서도 길이와 0번 원소가 바뀌므로, 또박또박이 스스로 판정하려면 **정규화 규칙 ①②③과 활성 팀코드 목록을 Ruby 쪽에 재구현**해야 한다. 그건 계약이 서버 측에 금지한 "두 번째 정규화 구현"(§4c.4-1)을 **클라이언트에 강요**하는 셈이고, 서버의 ② 판정은 팀 마스터 TTL 캐시에 의존해 클라이언트가 재현할 수도 없다.
 
+#### `meeting_created` (★ v2.5 신설 — **조건부 키**)
+
+`meeting` 객체를 처리한 요청(`created`/`replaced`)의 응답에**만** 실린다:
+
+- `true` = 회의 신규 생성, `false` = dedup 재사용. 어느 쪽이든 `meeting_id`에는 확보된 회의 uuid가 실린다.
+- `meeting` 미전송 요청에는 **키 자체가 없다** — v2.4 요청의 응답 JSON은 그대로다(하위호환). **항상 실리는** `folder_path_status`와 규약이 다르니 클라이언트 타입은 optional(`meeting_created?: boolean`)로 둘 것.
+- `on_conflict=skip`의 `skipped` 응답에는 싣지 않는다 — 그 분기는 회의를 만들지 않는다(§4.5-12).
+
 ### 4.4 요청 예시
 
 ```bash
@@ -383,6 +406,7 @@ curl -X POST https://wbs-web.vercel.app/api/v1/minutes \
 9. **(v2.3)** `folder_id` 갱신 범위는 §4.2 3값 규약. 폴더 이동은 **버전 append도 위키 재인덱싱도 유발하지 않는다**(재인덱싱 대상은 `title`·`team_code`·`minute_date`뿐 — `folder_id`는 대상이 아니다). 이 "싼" 성질이 §4c 배치의 전제이므로, 폴더 갱신을 본문 커밋 경로에 얹지 말 것.
 10. **(★ v2.4)** 8·9는 **플래그 `MINUTES_FOLDER_PATH_ENABLED`가 `true`일 때만** 실행한다. `false`면 `folder_path` 키를 **읽기 전에** 버려 키 부재 경로로 합류시킨다 — **검증도 하지 않는다.** 「플래그를 검증 뒤에 두는」 구현은 금지다: 그러면 61자 폴더명·타 팀 루트가 섞인 회의가 편철은 안 되면서 **400으로 실패**해, 오늘 정상 전송되는 회의가 깨지는 회귀 창이 열린다(§4.8).
 11. **(★ v2.4)** `replace`에서 **`folder_path` 키가 없는데 `team`만 바뀐** 재전송은 회의록을 **새 팀 루트로 옮긴다**(구버전 클라이언트의 담당 정정 경로). 400 거절은 정상 조작을 막고, 현행 유지는 "`team`은 ERP인데 폴더는 MES 서브트리"인 데이터를 남긴다. 새 팀 루트가 없으면 폴더는 손대지 않는다(로그만). 에코는 그때의 실제 위치(`["ERP"]`)다.
+12. **(★ v2.5)** inline `meeting`의 회의 확보(생성/dedup 재사용)는 **existing 분기 판정 뒤**에 한다 — 보관(409 `archived`)·`skip`·`error`로 빠지는 요청에서 회의를 먼저 만들면 실패·무시 응답 뒤에 **고아 회의**가 남는다. 확보 순서는 프로젝트 실존 → **멤버십(project_members)** → dedup → insert이며, 확보 후에는 규칙 3의 `meeting_id` 경로에 합류한다. **알려진 잔여 위험(수용됨)**: 회의 insert와 회의록 저장은 별개 DB 호출이라 회의 생성 직후 회의록 저장이 실패하면 회의만 남는다 — 재시도가 dedup으로 같은 회의를 재사용하므로 중복은 없고, 잔존 회의는 D'Flow UI에서 정상 회의로 보인다(무해).
 
 ### 4.6 external_id 정밀 정의 (계약)
 
@@ -836,7 +860,8 @@ v2.2까지 `GET /minutes`는 `archived_at is null` 필터를 **`external_id` 정
 
 - `teams`는 `TEAM_CODES` 상수(`src/lib/domain/minutes.ts:9`) 재사용.
 - `projects`에 `status` 컬럼 없음 (확인).
-- 회의 목록은 프로젝트 종속이므로 별도 파라미터: **`GET /minutes/meta?project_id=<uuid>`** 일 때만 `meetings: [{id, title, date}]` 포함 (기존 `fetchProjectMeetingsLite`가 projectId 필수 — 확인).
+- 회의 목록은 프로젝트 종속이므로 별도 파라미터: **`GET /minutes/meta?project_id=<uuid>`** 일 때만 `meetings: [{id, title, date, category, recurrence}]` 포함 (기존 `fetchProjectMeetingsLite`가 projectId 필수 — 확인).
+- ★ **v2.5**: `category`·`recurrence` 추가(기존 3필드 유지 — additive). 값 집합은 DB CHECK가 보장한다 — `category` 6종(`routine`·`general`·`kickoff`·`review`·`report`·`external`), `recurrence` 5종(`none`·`daily`·`weekly`·`biweekly`·`monthly`). **반복 회의는 시리즈 1행(첫 회차 `date`)만 나온다** — 회차 전개 없음. 또박또박은 `recurrence ≠ 'none'`을 "반복" 배지로 쓴다. 정렬은 종전대로 `date` 내림차순.
 
 ### 5.3 GET /minutes/{id} (v1.1)
 
@@ -854,11 +879,12 @@ D'Flow 전 라우트의 기존 관례는 평면 `{ "error": string }` (공용 �
 
 | HTTP | code | 상황 |
 |---|---|---|
-| 400 | `validation_failed` | 필수 누락, 형식 오류, 허용 외 `team`, 본문 100,000자 초과, `meeting_id` 불존재<br>**(v2.3 추가)** `folder_path`가 배열이 아님·원소가 문자열이 아님, **폴더명 60자 초과**(절단하지 않고 거절 — §0 D12), **`folder_path[0]`이 다른 팀의 팀코드**(§4.7 ③), `POST /minutes/folder`의 `items` **200건 초과** |
+| 400 | `validation_failed` | 필수 누락, 형식 오류, 허용 외 `team`, 본문 100,000자 초과, `meeting_id` 불존재<br>**(v2.3 추가)** `folder_path`가 배열이 아님·원소가 문자열이 아님, **폴더명 60자 초과**(절단하지 않고 거절 — §0 D12), **`folder_path[0]`이 다른 팀의 팀코드**(§4.7 ③), `POST /minutes/folder`의 `items` **200건 초과**<br>**(★ v2.5 추가)** `meeting`+`meeting_id` **동시 전송**("meeting과 meeting_id는 함께 보낼 수 없습니다." — `meeting_id: null` 조합 포함), `meeting` 필드 형식·범위 위반(비객체·비uuid `project_id`·빈/200자 초과 `title`·형식 외 `date`·허용 외 `category`), **`meeting.project_id` 실존하지 않음**("프로젝트를 찾을 수 없습니다.") |
 | 400 | `team_inactive` | **(★ v2.4 신설)** 재전송(`replace`) 대상의 `team`이 **D'Flow에서 비활성화된 팀**: "비활성 팀(MES)입니다. D'Flow에서 팀을 활성화한 뒤 다시 시도하세요." 메타 갱신 RPC가 활성 팀을 요구해 **반드시 실패**하는 조건이며, 종전에는 **500 `internal_error`** 로 나가 또박또박에서 원인 불명 장애로 보였다. **재시도해도 해소되지 않는다** — D'Flow 관리자가 팀을 다시 활성화하거나 담당을 바꿔야 한다. ※ 팀 비활성화가 D'Flow 팀 마스터 캐시에 반영된 뒤에는 같은 요청이 `validation_failed`(허용 외 `team`)로 더 일찍 걸린다 — **둘 다 "그 팀으로는 못 보낸다"는 같은 뜻**이다 |
 | 401 | `unauthorized` | 시크릿 없음/불일치 |
 | 403 | `unknown_user` | `user_email`에 해당하는 D'Flow 사용자 없음 (§3.3 — **요구사항: 반드시 실패**) |
 | 403 | `forbidden_role` | **(★ v2.4 신설)** `POST /minutes/folder` **전용**: `user_email` 계정이 실재하지만 **`pmo_admin`이 아님**(또는 role 조회 실패 — fail-closed). "일괄 재편철은 관리자 계정으로만 실행할 수 있습니다." **`items: []` 프로브에서도 난다** — 그것이 이 게이트의 목적이다(§4c 머리말 · §0 D22). `unknown_user`와 구분할 것: 전자는 "계정이 없다", 이것은 "계정은 있는데 권한이 없다" |
+| 403 | `not_project_member` | **(★ v2.5 신설)** inline `meeting` **전용**: `user_email` 계정이 실재하지만 `meeting.project_id` 프로젝트의 **명단(project_members)에 연결돼 있지 않음**: "해당 프로젝트의 멤버가 아닙니다." 판정 축은 프로젝트 **인력 명단**이다 — 명단 행이 계정과 연결(email 매칭)되지 않은 사용자도 거절된다(의도된 동작). **dedup 재사용 경로에도 먼저 적용**된다 — 비멤버가 제목·날짜를 맞춰 타 프로젝트 회의에 연결하는 우회 차단. ※ 기존 `meeting_id` 직접 전송 경로는 종전대로 멤버십을 검증하지 않는다(v2.4 하위호환 — 이번에 강화하지 않음). 조회 실패는 fail-closed 500 |
 | 404 | `not_found` | env 미설정 (존재 은닉, code 없이 Next 기본 404) / link 대상 `minute_id` 불존재 |
 | 409 | `conflict` | `on_conflict=error` + `external_id` 중복 |
 | 409 | `link_conflict` | link: 대상이 이미 다른 `external_id`를 가짐, 또는 `external_id`가 타 레코드에 사용 중 (§4b). **해소는 D'Flow UI의 연결 초기화 — §4b-1** |
@@ -1022,7 +1048,7 @@ MINUTES_FOLDER_PATH_ENABLED=false   # ★ v2.4. 기본 false(=R1). true 로 바�
 
 ```yaml
 openapi: 3.1.0
-info: { title: D'Flow Minutes API, version: "2.4" }
+info: { title: D'Flow Minutes API, version: "2.5" }
 servers: [ { url: https://wbs-web.vercel.app/api/v1 } ]
 components:
   securitySchemes:
@@ -1047,6 +1073,9 @@ components:
           enum: [exact, truncated, partial, unclassified]
           description: "v2.4. 편철 품질 신호 — 항상 실린다. 심각한 쪽부터 판정(unclassified > partial > truncated > exact). §4.3"
         meeting_id: { type: [string, "null"], format: uuid }
+        meeting_created:
+          type: boolean
+          description: "v2.5. 조건부 키 — inline meeting 처리 요청에만 실린다(true=신규 생성, false=dedup 재사용). meeting 미전송 요청·skipped 응답에는 키 자체가 없다 — §4.3"
         external_id: { type: string }
         created_by_name: { type: [string, "null"] }
         url: { type: string, format: uri }
@@ -1076,6 +1105,15 @@ paths:
                 body_markdown: { type: string, maxLength: 100000 }
                 external_id: { type: string, maxLength: 128 }
                 meeting_id: { type: string, format: uuid }
+                meeting:
+                  type: object
+                  required: [project_id, title, date]
+                  description: "v2.5. 회의 생성+연결 — meeting_id와 키 존재 기준 상호배타. dedup 멱등·권한(project_members)·skip/error 시 미생성 = §4.2"
+                  properties:
+                    project_id: { type: string, format: uuid }
+                    title: { type: string, maxLength: 200 }
+                    date: { type: string, format: date }
+                    category: { type: string, enum: [routine, general, kickoff, review, report, external], default: general }
                 folder_path:
                   type: array
                   items: { type: string, minLength: 1, maxLength: 60 }
@@ -1086,7 +1124,7 @@ paths:
       responses:
         "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/Minute" } } } }
         "200": { description: replaced/skipped, content: { application/json: { schema: { $ref: "#/components/schemas/Minute" } } } }
-        "403": { description: unknown_user — user_email에 해당하는 D'Flow 계정 없음 }
+        "403": { description: "unknown_user — user_email에 해당하는 D'Flow 계정 없음 / v2.5 not_project_member — meeting.project_id 프로젝트의 명단(project_members)에 미연결" }
         "4XX": { description: error, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
     get:
       summary: 존재/동기화 확인
@@ -1105,7 +1143,7 @@ paths:
       summary: 구분·프로젝트(·회의) 목록 + 제한값
       parameters:
         - { name: project_id, in: query, schema: { type: string, format: uuid }, description: "지정 시 해당 프로젝트의 meetings 포함" }
-      responses: { "200": { description: meta } }
+      responses: { "200": { description: "meta — v2.5: meetings[]에 category·recurrence 포함(반복 회의는 시리즈 1행) — §5.2" } }
   /minutes/link:
     post:
       summary: 기존 회의록에 external_id 부여 (수동 연결)

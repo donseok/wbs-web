@@ -12,6 +12,7 @@ import {
   parseMinutePayload, parseUserEmail, resolveUserByEmail, runMinutePostProcessing,
   type AdminClient, type ExternalMinutePayload, type ResolvedUser,
 } from '@/lib/minutes/externalApi'
+import { resolveOrCreateExternalMeeting } from '@/lib/minutes/meetings'
 
 /**
  * POST /api/v1/minutes — 회의록 생성/갱신(upsert by external_id), GET — 목록/존재 확인.
@@ -60,11 +61,14 @@ function respondMinute(req: NextRequest, status: number, args: {
   externalId: string; createdByName: string | null; createdAt: string; updatedAt: string
   folderId: string | null; folderPath: string[] | null
   folderPathStatus: FolderPathStatus
+  /** v2.5 §4.3 — inline meeting 처리 시에만 값이 있다. undefined 면 키 자체를 넣지 않아 기존 응답 불변. */
+  meetingCreated?: boolean
 }) {
   return NextResponse.json({
     ok: true, id: args.id, action: args.action,
     title: args.title, date: args.date, team: args.team,
     meeting_id: args.meetingId, external_id: args.externalId,
+    ...(args.meetingCreated === undefined ? {} : { meeting_created: args.meetingCreated }),
     folder_id: args.folderId, folder_path: args.folderPath,
     folder_path_status: args.folderPathStatus,
     created_by_name: args.createdByName,
@@ -117,6 +121,7 @@ async function handleExisting(
   existing: ExistingRow,
   actor: ResolvedUser,
   meetingProjectId: string | null,
+  meetingCreated?: boolean,
 ): Promise<NextResponse> {
   if (existing.archived_at) {
     return apiFail(409, 'archived', '보관된 회의록입니다. 복원 후 다시 시도하세요.')
@@ -236,6 +241,8 @@ async function handleExisting(
     id: existing.id, action: 'replaced', title: p.title, date: p.minuteDate,
     team: p.teamCode, meetingId: p.meetingIdProvided ? p.meetingId : existing.meeting_id,
     externalId: p.externalId,
+    // skipped 응답(위)에는 싣지 않는다 — v2.5 §4.3: created/replaced 전용.
+    meetingCreated,
     createdByName: existing.created_by_name,
     createdAt: existing.created_at,
     updatedAt: nowIso,
@@ -255,6 +262,7 @@ async function insertNew(
   p: ExternalMinutePayload,
   user: ResolvedUser,
   meetingProjectId: string | null,
+  meetingCreated?: boolean,
 ): Promise<NextResponse> {
   // folder_path 를 받았으면 팀 루트 아래에 같은 폴더 트리를 만들어 편철하고(§3.2), 키가 아예
   // 없으면(구버전 또박또박) 기존대로 담당 팀 루트로 편철한다(0043). 부재·실패는 미분류(null)
@@ -291,7 +299,7 @@ async function insertNew(
     if (error?.code === '23505') {
       const { data: raced, error: reErr } = await admin.from('minutes')
         .select(MINUTE_SELECT).eq('external_id', p.externalId).maybeSingle()
-      if (!reErr && raced) return handleExisting(req, admin, p, raced as ExistingRow, user, meetingProjectId)
+      if (!reErr && raced) return handleExisting(req, admin, p, raced as ExistingRow, user, meetingProjectId, meetingCreated)
     }
     console.error('[minutes-api] insert 실패:', error?.message ?? 'no row')
     return apiInternalError()
@@ -325,6 +333,7 @@ async function insertNew(
   return respondMinute(req, 201, {
     id: created.minute_id, action: 'created', title: p.title, date: p.minuteDate,
     team: p.teamCode, meetingId: p.meetingId, externalId: p.externalId,
+    meetingCreated,
     createdByName: user.name,
     createdAt: created.created_at, updatedAt: created.updated_at,
     folderId, folderPath,
@@ -372,10 +381,31 @@ export async function POST(req: NextRequest) {
       .select(MINUTE_SELECT).eq('external_id', p.externalId).maybeSingle()
     if (selErr) { console.error('[minutes-api] 기존 레코드 조회 실패:', selErr.message); return apiInternalError() }
 
+    // v2.5 — skip/error/보관 분기가 회의 확보보다 먼저다. 이 분기들은 회의록을 갱신하지 않는
+    // 응답이라 회의를 만들면 실패·무시 응답 뒤에 고아 회의가 남는다(409 archived 포함).
     if (existing) {
-      return await handleExisting(req, admin, p, existing as ExistingRow, user, meetingProjectId)
+      const ex = existing as ExistingRow
+      if (ex.archived_at !== null || p.onConflict !== 'replace') {
+        return await handleExisting(req, admin, p, ex, user, meetingProjectId)
+      }
     }
-    return await insertNew(req, admin, p, user, meetingProjectId)
+
+    // created 또는 replace 진입 확정 후에만 회의를 확보(생성/dedup 재사용)한다. 확보되면
+    // meeting_id 가 전송된 것과 완전히 같게 동작하도록 파싱 결과에 주입한다(v2.5 §4.2).
+    let meetingCreated: boolean | undefined
+    if (p.meeting) {
+      const got = await resolveOrCreateExternalMeeting(admin, p.meeting, user)
+      if (!got.ok) return apiFail(got.status, got.code, got.error)
+      p.meetingId = got.meetingId
+      p.meetingIdProvided = true
+      meetingProjectId = got.projectId
+      meetingCreated = got.created
+    }
+
+    if (existing) {
+      return await handleExisting(req, admin, p, existing as ExistingRow, user, meetingProjectId, meetingCreated)
+    }
+    return await insertNew(req, admin, p, user, meetingProjectId, meetingCreated)
   } catch (e) {
     console.error('[minutes-api] POST 처리 실패:', e instanceof Error ? e.message : e)
     return apiInternalError()

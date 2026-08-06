@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
+  revalidatePath: vi.fn(),
   ingestMinute: vi.fn(async () => {}),
   generateMinuteInsights: vi.fn(async () => {}),
   enqueueAndProcessMinuteWiki: vi.fn(async () => {}),
@@ -20,6 +21,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/teams/master', () => ({ activeTeamCodesSync: () => mocks.activeTeamCodes }))
 
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
+// inline meeting 헬퍼(minutes/meetings.ts)가 revalidatePath 를 호출한다 — vitest(요청 스코프 밖)
+// 에서는 throw 하므로 after() 와 같은 이유로 목킹한다.
+vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }))
 vi.mock('@/lib/ai/minutes-ingest', () => ({ ingestMinute: mocks.ingestMinute }))
 vi.mock('@/lib/ai/minutes-insights', () => ({ generateMinuteInsights: mocks.generateMinuteInsights }))
 vi.mock('@/lib/ai/wiki-ingest', () => ({
@@ -1053,6 +1057,173 @@ describe('구버전 replace 의 team 불일치 (결정 §6 — 플래그와 무�
   })
 })
 
+describe('inline meeting — 회의 생성+연결 (v2.5 §4.2·§4.3)', () => {
+  const meetingReq = {
+    ...payload,
+    meeting: { project_id: PROJECT_UUID, title: '킥오프 회의', date: '2026-08-06', category: 'kickoff' },
+  }
+  const createdMinute = {
+    id: 'm-1', created_at: '2026-08-06T01:00:00+00:00', updated_at: '2026-08-06T01:00:00+00:00',
+  }
+
+  /** 회의 확보 성공 경로 큐 — projects 실존 → 멤버십 1행 → meetings dedup miss → insert. */
+  function useMeetingAdmin(over: Record<string, QueryResponse[]> = {}) {
+    return useAdmin({
+      minutes: [{ data: null }, { data: createdMinute }],
+      projects: [{ data: { id: PROJECT_UUID } }],
+      project_members: [{ data: [{ id: 'pm-1' }] }],
+      meetings: [{ data: null }, { data: { id: MEETING_UUID } }],
+      ...over,
+    })
+  }
+
+  it('meeting 유효 → 201 + 회의 생성(meeting_created: true) + 연결·파생은 meeting_id 전송과 동일', async () => {
+    const { admin, builders } = useMeetingAdmin()
+    const res = await POST(post(meetingReq))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({
+      action: 'created', meeting_id: MEETING_UUID, meeting_created: true,
+    })
+    // 고정 속성 — 단발(recurrence none)·참석자 없음·작성자 귀속(§4.2)
+    expect(builders.meetings[1].insert).toHaveBeenCalledWith({
+      project_id: PROJECT_UUID, title: '킥오프 회의', meeting_date: '2026-08-06', category: 'kickoff',
+      body: '', recurrence: 'none', recurrence_until: null,
+      start_time: null, end_time: null, location: null,
+      created_by: 'u-1', created_by_name: '팀장',
+    })
+    expect(admin.rpc).toHaveBeenCalledWith('create_minute_with_version', expect.objectContaining({
+      p_meeting_id: MEETING_UUID,
+      p_project_id: PROJECT_UUID,
+      p_meeting_occurrence_date: payload.date,
+    }))
+    // 내부 회의 화면 캐시 갱신 — revalidateMeetings 와 동일 경로
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(`/p/${PROJECT_UUID}/meetings`)
+    expect(mocks.revalidatePath).toHaveBeenCalledWith('/meetings')
+  })
+
+  it('같은 (project, date, title) 회의는 재사용 — meeting_created: false, insert 없음 (dedup 멱등)', async () => {
+    const { builders } = useMeetingAdmin({ meetings: [{ data: { id: MEETING_UUID } }] })
+    const res = await POST(post({ ...meetingReq, external_id: 'ddobak:재전송-2' }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ meeting_id: MEETING_UUID, meeting_created: false })
+    expect(builders.meetings).toHaveLength(1)          // dedup 조회뿐 — insert 없음
+    expect(mocks.revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('meeting + meeting_id 동시 전송은 400 — meeting_id: null(해제)과의 조합도 거절', async () => {
+    const { builders } = useAdmin()                    // 파싱 단계 거절 — 테이블 큐 소비 없음
+    for (const meetingId of [MEETING_UUID, null]) {
+      const res = await POST(post({ ...meetingReq, meeting_id: meetingId }))
+      expect(res.status).toBe(400)
+      expect(await res.json()).toMatchObject({ code: 'validation_failed' })
+    }
+    expect(builders.projects).toBeUndefined()          // DB 미접근
+  })
+
+  it('category 생략은 general 로 생성, 허용 외 값은 400', async () => {
+    const { builders } = useMeetingAdmin()
+    const noCategory = { project_id: PROJECT_UUID, title: '킥오프 회의', date: '2026-08-06' }
+    expect((await POST(post({ ...meetingReq, meeting: noCategory }))).status).toBe(201)
+    expect(builders.meetings[1].insert).toHaveBeenCalledWith(expect.objectContaining({ category: 'general' }))
+    expect((await POST(post({
+      ...meetingReq, meeting: { ...meetingReq.meeting, category: 'offsite' },
+    }))).status).toBe(400)
+  })
+
+  it('meeting 필드 형식 오류는 400 — 비객체·비uuid project_id·빈/201자 title·잘못된 date', async () => {
+    const cases: unknown[] = [
+      'not-an-object',
+      { ...meetingReq.meeting, project_id: 'abc' },
+      { ...meetingReq.meeting, title: '  ' },
+      { ...meetingReq.meeting, title: '가'.repeat(201) },
+      { ...meetingReq.meeting, date: '2026/08/06' },
+    ]
+    useAdmin()                                         // 전부 파싱 단계 거절 — 테이블 큐 소비 없음
+    for (const meeting of cases) {
+      const res = await POST(post({ ...meetingReq, meeting }))
+      expect(res.status).toBe(400)
+      expect(await res.json()).toMatchObject({ code: 'validation_failed' })
+    }
+  })
+
+  it('프로젝트 미존재는 400, 비멤버는 403 not_project_member — dedup 조회 이전 차단', async () => {
+    useMeetingAdmin({ projects: [{ data: null }] })
+    const notFound = await POST(post(meetingReq))
+    expect(notFound.status).toBe(400)
+    expect((await notFound.json()).error).toBe('프로젝트를 찾을 수 없습니다.')
+
+    const { builders } = useMeetingAdmin({ project_members: [{ data: [] }] })
+    const denied = await POST(post(meetingReq))
+    expect(denied.status).toBe(403)
+    expect(await denied.json()).toMatchObject({ code: 'not_project_member' })
+    expect(builders.meetings).toBeUndefined()          // 비멤버는 dedup 재사용 우회도 못 탄다
+  })
+
+  it('기존 external_id + on_conflict=skip 은 회의를 만들지 않는다 — skipped 응답에 meeting_created 없음', async () => {
+    const { builders } = useAdmin({ minutes: [{ data: existingRow }] })
+    const res = await POST(post({ ...meetingReq, on_conflict: 'skip' }))
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json).toMatchObject({ action: 'skipped' })
+    expect(json).not.toHaveProperty('meeting_created')
+    expect(builders.projects).toBeUndefined()          // 회의 확보 시도 자체가 없다
+    expect(builders.meetings).toBeUndefined()
+  })
+
+  it('보관된 레코드(409 archived)도 회의를 만들지 않는다 — 실패 응답 뒤 고아 회의 방지', async () => {
+    const { builders } = useAdmin({
+      minutes: [{ data: { ...existingRow, archived_at: '2026-08-01T00:00:00+00:00' } }],
+    })
+    const res = await POST(post(meetingReq))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toMatchObject({ code: 'archived' })
+    expect(builders.projects).toBeUndefined()
+  })
+
+  it('replace + meeting 은 회의 확보 후 연결 갱신 — metadata 에 meeting_id·project_id·occurrence 파생', async () => {
+    const { admin } = useMeetingAdmin({
+      minutes: [
+        { data: existingRow },
+        { data: { id: 'm-1', created_at: existingRow.created_at, updated_at: '2026-08-06T02:00:00+00:00' } },
+      ],
+    })
+    const res = await POST(post(meetingReq))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      action: 'replaced', meeting_id: MEETING_UUID, meeting_created: true,
+    })
+    const call = admin.rpc.mock.calls.find(([fn]) => fn === 'commit_minute_body_version')!
+    expect((call[1] as { p_metadata: Record<string, unknown> }).p_metadata).toMatchObject({
+      meeting_id: MEETING_UUID,
+      project_id: PROJECT_UUID,
+      meeting_occurrence_date: payload.date,
+    })
+  })
+
+  it('meeting 미전송 요청의 응답에는 meeting_created 키 자체가 없다 (v2.4 하위호환)', async () => {
+    useAdmin({ minutes: [{ data: null }, { data: createdMinute }] })
+    const createdRes = await POST(post(payload))
+    expect(createdRes.status).toBe(201)
+    expect(await createdRes.json()).not.toHaveProperty('meeting_created')
+
+    useAdmin({ minutes: [{ data: existingRow }, { data: createdMinute }] })
+    const replacedRes = await POST(post(payload))
+    expect(replacedRes.status).toBe(200)
+    expect(await replacedRes.json()).not.toHaveProperty('meeting_created')
+  })
+
+  it('회의 확보 경로의 조회·insert 실패는 500 — 실패를 없음으로 위장하지 않는다(fail-closed)', async () => {
+    useMeetingAdmin({ projects: [{ error: { message: 'down' } }] })
+    expect((await POST(post(meetingReq))).status).toBe(500)
+    useMeetingAdmin({ project_members: [{ error: { message: 'down' } }] })
+    expect((await POST(post(meetingReq))).status).toBe(500)
+    useMeetingAdmin({ meetings: [{ error: { message: 'down' } }] })
+    expect((await POST(post(meetingReq))).status).toBe(500)
+    useMeetingAdmin({ meetings: [{ data: null }, { error: { message: 'down' } }] })
+    expect((await POST(post(meetingReq))).status).toBe(500)
+  })
+})
+
 describe('GET /api/v1/minutes (§5.1, §9.6 ⑪)', () => {
   it('external_id 정확 일치 조회 + url 포함 응답', async () => {
     const { builders } = useAdmin({ minutes: [{ data: [existingRow], count: 1 }] })
@@ -1170,14 +1341,22 @@ describe('GET /api/v1/minutes/meta (§5.2)', () => {
     expect(json).not.toHaveProperty('meetings')
   })
 
-  it('project_id 지정 시 해당 프로젝트 meetings 포함', async () => {
+  it('project_id 지정 시 해당 프로젝트 meetings 포함 — v2.5: category·recurrence 동봉', async () => {
     const { builders } = useAdmin({
       projects: [{ data: [] }],
-      meetings: [{ data: [{ id: 'mt-1', title: '주간 정례', meeting_date: '2026-07-14' }] }],
+      meetings: [{
+        data: [{
+          id: 'mt-1', title: '주간 정례', meeting_date: '2026-07-14',
+          category: 'routine', recurrence: 'weekly',
+        }],
+      }],
     })
     const res = await META(get(`/api/v1/minutes/meta?project_id=${MINUTE_UUID}`))
     const json = await res.json()
-    expect(json.meetings).toEqual([{ id: 'mt-1', title: '주간 정례', date: '2026-07-14' }])
+    expect(json.meetings).toEqual([{
+      id: 'mt-1', title: '주간 정례', date: '2026-07-14', category: 'routine', recurrence: 'weekly',
+    }])
+    expect(builders.meetings[0].select).toHaveBeenCalledWith('id, title, meeting_date, category, recurrence')
     expect(builders.meetings[0].eq).toHaveBeenCalledWith('project_id', MINUTE_UUID)
   })
 
