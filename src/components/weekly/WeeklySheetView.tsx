@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FileSpreadsheet, Sparkles } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
   applyServerRow, rowSectionLabel, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX, WEEKLY_CELL_LABEL,
@@ -12,8 +12,8 @@ import {
 import { type CellAddr } from '@/lib/domain/sheetSelection'
 import { emptyUndo, pushUndo, undo as undoOp, redo as redoOp, type UndoState } from '@/lib/domain/sheetUndo'
 import {
-  createWeeklyReport, saveWeeklyCell, saveWeeklyCells, saveWeeklyTitle,
-  type WeeklyActionResult, type WeeklyBatchResult,
+  createWeeklyReport, prepareWeeklyCellRewrite, saveWeeklyCell, saveWeeklyCells, saveWeeklyTitle,
+  type WeeklyActionResult, type WeeklyBatchResult, type WeeklyRewriteInput,
 } from '@/app/actions/weekly'
 import { shiftWeeks } from '@/lib/report/week'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -22,9 +22,13 @@ import { buildPresenceMap, onlinePeers } from '@/lib/domain/sheetPresence'
 import { PresenceStrip } from '@/components/app/PresenceStrip'
 import { useSheetGrid } from './useSheetGrid'
 import { WeeklyLintPanel } from './WeeklyLintPanel'
+import { WeeklyAiRewriteModal, type WeeklyAiRewriteItem } from './WeeklyAiRewriteModal'
 import { usePresence } from './usePresence'
 import { SheetCell, type BatchChip } from './SheetCell'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
+import {
+  buildWeeklyRewriteSelection, prepareApplicableWeeklyRewriteEdits, type WeeklyRewriteTarget,
+} from '@/lib/domain/weeklyRewrite'
 
 type CellStatus = 'saving' | 'saved' | 'error'
 const DEBOUNCE_MS = 1500
@@ -68,6 +72,13 @@ export function WeeklySheetView({
   const { toast } = useToast()
   const [rows, setRows] = useState<WeeklySheetRow[]>(initialRows)
   const [lintOpen, setLintOpen] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiItems, setAiItems] = useState<WeeklyAiRewriteItem[]>([])
+  const [hasFocusedCell, setHasFocusedCell] = useState(false)
+  const aiTargetsRef = useRef<WeeklyRewriteTarget[]>([])
+  const aiRequestRef = useRef(0)
   const [status, setStatus] = useState<Record<string, CellStatus>>({}) // key = `${rowId}:${cellKey}`
   const dirtyRef = useRef<Set<string>>(new Set())
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -132,8 +143,15 @@ export function WeeklySheetView({
     undoRef.current = emptyUndo
     lastFailedBatchRef.current = null
     editSessionRef.current = null
+    aiRequestRef.current += 1
+    aiTargetsRef.current = []
     setBatchChip(null)
     setBatchActive(false)
+    setHasFocusedCell(false)
+    setAiOpen(false)
+    setAiBusy(false)
+    setAiError(null)
+    setAiItems([])
   }, [reportId])
 
   // Realtime 구독 — 행 단위 이벤트를 셀 단위 병합
@@ -449,6 +467,100 @@ export function WeeklySheetView({
     runBatch, requestUndo, requestRedo, beginEdit, endEdit, toast,
   })
 
+  const requestAiRewrite = useCallback(async (targets: WeeklyRewriteTarget[]) => {
+    if (!canEditCells || targets.length === 0) return
+    const requestId = aiRequestRef.current + 1
+    aiRequestRef.current = requestId
+    aiTargetsRef.current = targets
+    setAiOpen(true)
+    setAiBusy(true)
+    setAiError(null)
+    setAiItems([])
+
+    const inputs: WeeklyRewriteInput[] = targets.map(target => ({
+      rowId: target.rowId,
+      cellKey: target.cellKey,
+      content: target.original,
+    }))
+    try {
+      const result = await prepareWeeklyCellRewrite(projectId, inputs)
+      if (aiRequestRef.current !== requestId) return
+      setAiBusy(false)
+      if (!result.ok) {
+        setAiError(result.error)
+        return
+      }
+
+      const source = new Map(targets.map(target => [`${target.rowId}:${target.cellKey}`, target]))
+      const items = result.edits.flatMap(edit => {
+        const target = source.get(`${edit.rowId}:${edit.cellKey}`)
+        if (!target || edit.original !== target.original) return []
+        return [{ ...edit, section: target.section, label: target.label }]
+      })
+      if (items.length !== targets.length) {
+        setAiError('AI 응답의 대상이 선택 범위와 일치하지 않습니다. 원문은 변경되지 않았습니다.')
+        setAiItems([])
+        return
+      }
+      setAiItems(items)
+    } catch {
+      if (aiRequestRef.current !== requestId) return
+      setAiBusy(false)
+      setAiError('네트워크 오류로 AI 제안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.')
+    }
+  }, [canEditCells, projectId])
+
+  const openAiRewrite = useCallback(() => {
+    if (!hasFocusedCell || !grid.rect) {
+      toast({ title: '셀을 먼저 선택해 주세요', description: '다듬을 셀 하나를 클릭하거나 범위로 선택해 주세요.', variant: 'info' })
+      return
+    }
+    const targets = buildWeeklyRewriteSelection(rowsRef.current, grid.rect)
+    if (targets.length === 0) {
+      toast({ title: '작성된 내용이 없습니다', description: '선택 범위의 빈 셀은 AI로 다듬지 않습니다.', variant: 'info' })
+      return
+    }
+    setAiItems([])
+    void requestAiRewrite(targets)
+  }, [grid.rect, hasFocusedCell, requestAiRewrite, toast])
+
+  const retryAiRewrite = useCallback(() => {
+    const latest = aiTargetsRef.current.flatMap(target => {
+      const row = rowsRef.current.find(candidate => candidate.id === target.rowId)
+      if (!row) return []
+      const original = row[CELL_FIELD[target.cellKey]]
+      return original.trim() ? [{ ...target, original }] : []
+    })
+    if (latest.length === 0) {
+      setAiError('다시 생성할 원문을 찾을 수 없습니다. 모달을 닫고 셀을 다시 선택해 주세요.')
+      return
+    }
+    void requestAiRewrite(latest)
+  }, [requestAiRewrite])
+
+  const closeAiRewrite = useCallback(() => {
+    aiRequestRef.current += 1
+    aiTargetsRef.current = []
+    setAiOpen(false)
+    setAiBusy(false)
+    setAiError(null)
+    setAiItems([])
+  }, [])
+
+  const applyAiRewrite = useCallback((candidates: Parameters<typeof prepareApplicableWeeklyRewriteEdits>[1]) => {
+    const applicable = prepareApplicableWeeklyRewriteEdits(rowsRef.current, candidates)
+    if (!applicable.ok) {
+      setAiError('AI 생성 후 원본 내용이 변경되었습니다. 변경 내용을 보호하기 위해 적용하지 않았습니다. 다시 생성해 주세요.')
+      return
+    }
+    if (applicable.edits.length === 0) {
+      toast({ title: '적용할 변경이 없습니다', variant: 'info' })
+      return
+    }
+    runBatch(applicable.edits, { undoable: true })
+    closeAiRewrite()
+  }, [closeAiRewrite, runBatch, toast])
+
   // 프레즌스 — 같은 주차 문서를 보는 다른 사용자의 위치/편집 상태(구글시트의 색상 커서 대응).
   // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
   const presencePeers = usePresence({
@@ -470,6 +582,7 @@ export function WeeklySheetView({
   // 언마운트 시 디바운스/재시도 타이머 정리 — 정리 안 하면 사라진 컴포넌트에 setState 호출됨.
   // 훅 규칙: 아래 EmptyState 조기 return보다 반드시 먼저 호출(렌더마다 훅 순서 고정).
   useEffect(() => () => {
+    aiRequestRef.current += 1
     for (const t of timersRef.current.values()) clearTimeout(t)
     timersRef.current.clear()
     if (batchShowTimerRef.current) clearTimeout(batchShowTimerRef.current)
@@ -521,7 +634,17 @@ export function WeeklySheetView({
 
   return (
     <div className="space-y-3">
-      <WeekNav projectId={projectId} weekStart={weekStart} weekLabel={weekLabel} exportDisabled={false} onBeforeExport={flushPendingSaves} presence={presenceStrip} onLint={() => setLintOpen(true)} />
+      <WeekNav
+        projectId={projectId}
+        weekStart={weekStart}
+        weekLabel={weekLabel}
+        exportDisabled={false}
+        onBeforeExport={flushPendingSaves}
+        presence={presenceStrip}
+        onAiRewrite={canEditCells ? openAiRewrite : undefined}
+        aiRewriteDisabled={!hasFocusedCell}
+        onLint={() => setLintOpen(true)}
+      />
       <div className="overflow-x-auto">
         <div className={`min-w-[1240px] bg-white p-1.5 shadow-sm ring-1 ring-neutral-300 ${grid.dragging === 'fill' ? 'cursor-crosshair select-none' : grid.dragging === 'select' ? 'cursor-cell select-none' : ''}`}>
           {/* 제목 행 — 레퍼런스 시트의 B1. 자유 편집(''이면 기본 제목 합성). key로 주차 전환 시 초기화 */}
@@ -608,7 +731,7 @@ export function WeeklySheetView({
                           onChipRetry={retryBatch}
                           onMouseDown={e => grid.onCellMouseDown(e, addr)}
                           onMouseEnter={() => grid.onCellMouseEnter(addr)}
-                          onFocus={() => grid.onCellFocus(addr)}
+                          onFocus={() => { setHasFocusedCell(true); grid.onCellFocus(addr) }}
                           onDoubleClick={grid.onCellDoubleClick}
                           onKeyDown={grid.onCellKeyDown}
                           onCopy={grid.onCellCopy}
@@ -646,14 +769,28 @@ export function WeeklySheetView({
         onApply={edits => runBatch(edits, { undoable: true })}
         onGoToCell={(rowId, col) => grid.focusCell({ rowId, col })}
       />
+      <WeeklyAiRewriteModal
+        open={aiOpen}
+        busy={aiBusy}
+        error={aiError}
+        items={aiItems}
+        onClose={closeAiRewrite}
+        onRetry={retryAiRewrite}
+        onApply={applyAiRewrite}
+      />
     </div>
   )
 }
 
-function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExport, presence, onLint }: {
+function WeekNav({
+  projectId, weekStart, weekLabel, exportDisabled, onBeforeExport, presence,
+  onAiRewrite, aiRewriteDisabled = false, onLint,
+}: {
   projectId: string; weekStart: string; weekLabel: string; exportDisabled: boolean
   onBeforeExport: () => Promise<boolean>
   presence?: React.ReactNode // 온라인 사용자 스트립(프레즌스) — 내보내기 버튼 왼쪽
+  onAiRewrite?: () => void   // 현재 선택 셀 AI 미리보기. 조회 전용·빈 시트에서는 넘기지 않는다.
+  aiRewriteDisabled?: boolean
   onLint?: () => void        // 주간보고 점검 패널 열기. 시트가 없는 빈 상태에서는 점검할 것이 없어 넘기지 않는다.
 }) {
   const base = `/p/${projectId}/weekly`
@@ -673,6 +810,18 @@ function WeekNav({ projectId, weekStart, weekLabel, exportDisabled, onBeforeExpo
         {presence}
         <div className="flex items-center gap-2">
           {/* 내보내기 전에 점검하는 순서가 자연스러워 왼쪽에 둔다. */}
+          {onAiRewrite && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={aiRewriteDisabled}
+              onClick={onAiRewrite}
+              title={aiRewriteDisabled ? '시트에서 다듬을 셀을 먼저 선택해 주세요.' : undefined}
+              data-weekly-ai-rewrite
+            >
+              <Sparkles className="mr-1 h-4 w-4 text-violet-600" />AI로 다시 작성
+            </button>
+          )}
           {onLint && <button type="button" className="btn btn-ghost" onClick={onLint}>주간보고 점검</button>}
           <ExportSummaryPptButton projectId={projectId} />
           <ExportPptButton projectId={projectId} weekStart={weekStart} disabled={exportDisabled} onBeforeExport={onBeforeExport} />

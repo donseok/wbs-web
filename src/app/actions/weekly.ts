@@ -3,8 +3,17 @@ import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
 import { mondayIso } from '@/lib/report/week'
-import { carryOverRows, defaultWeeklyRows, isWeeklyCellKey, WEEKLY_CELL_MAX, type NewWeeklyRow, type WeeklyCellEdit } from '@/lib/domain/weeklySheet'
+import {
+  carryOverRows, defaultWeeklyRows, isWeeklyCellKey, rowSectionLabel, WEEKLY_CELL_LABEL, WEEKLY_CELL_MAX,
+  type NewWeeklyRow, type WeeklyCellEdit, type WeeklyCellKey,
+} from '@/lib/domain/weeklySheet'
 import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
+import { generateAnswer } from '@/lib/ai/llm'
+import { hasLLM } from '@/lib/ai/provider'
+import {
+  buildWeeklyRewritePrompt, parseWeeklyRewriteResponse, WEEKLY_REWRITE_MAX_CELLS,
+  WEEKLY_REWRITE_MAX_TOTAL_CHARS, WEEKLY_REWRITE_SYSTEM_PROMPT,
+} from '@/lib/ai/weekly-rewrite'
 
 export interface WeeklyActionResult {
   ok: boolean
@@ -20,9 +29,37 @@ export interface WeeklyBatchResult {
   goneRowIds?: string[]   // ok:true여도 존재 가능 — 저장 시점 이미 삭제된 행(스킵됨). FE가 그 행만 정리
 }
 
+export interface WeeklyRewriteInput {
+  rowId: string
+  cellKey: WeeklyCellKey
+  content: string
+}
+
+export interface WeeklyRewriteSuggestion extends WeeklyRewriteInput {
+  original: string
+}
+
+export type WeeklyRewriteResult =
+  | { ok: true; edits: WeeklyRewriteSuggestion[] }
+  | { ok: false; error: string }
+
 const CELL_MAX = WEEKLY_CELL_MAX // 셀 1개 상한(도메인 단일 출처) — 이월 병합 클램프와 동일 값
 const BATCH_MAX = 500         // 한 배치의 최대 edit 수(페이로드 크기 방어)
 const TITLE_MAX = 200         // 시트 제목 상한
+const WEEKLY_REWRITE_COOLDOWN_MS = 3_000 // Gemini 무료 RPM 보호 — 사용자·프로젝트별 호출 하한
+const WEEKLY_REWRITE_GATE_MAX = 500
+const weeklyRewriteInFlight = new Map<string, Promise<string | null>>()
+const weeklyRewriteLastAttempt = new Map<string, number>()
+
+function rememberWeeklyRewriteAttempt(key: string, now: number) {
+  if (!weeklyRewriteLastAttempt.has(key) && weeklyRewriteLastAttempt.size >= WEEKLY_REWRITE_GATE_MAX) {
+    const oldest = weeklyRewriteLastAttempt.keys().next().value as string | undefined
+    if (oldest) weeklyRewriteLastAttempt.delete(oldest)
+  }
+  // 기존 키도 맨 뒤로 옮겨 오래 활동하지 않은 사용자부터 제거되게 한다.
+  weeklyRewriteLastAttempt.delete(key)
+  weeklyRewriteLastAttempt.set(key, now)
+}
 
 function revalidateWeekly(projectId: string) {
   revalidatePath(`/p/${projectId}/weekly`)
@@ -142,6 +179,117 @@ async function rowsInProject(
     return { ok: false, error: '대상을 확인할 수 없어 저장을 중단했습니다.' }
   }
   return { ok: true, allowed: new Set((data ?? []).map(r => r.id as string)) }
+}
+
+/**
+ * 선택한 주간업무 셀을 AI가 다듬은 **미리보기**만 만든다.
+ * 현재 로컬 입력(자동 저장 전 값 포함)은 클라이언트가 보내고, DB 조회는 프로젝트 소속 확인과
+ * 구분 라벨에만 쓴다. 이 액션에서는 어떤 셀도 저장하지 않는다.
+ */
+export async function prepareWeeklyCellRewrite(
+  projectId: string,
+  inputs: WeeklyRewriteInput[],
+): Promise<WeeklyRewriteResult> {
+  const g = await requireProjectMember(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  if (!Array.isArray(inputs) || inputs.length === 0)
+    return { ok: false, error: '다듬을 내용이 없습니다.' }
+  if (inputs.length > WEEKLY_REWRITE_MAX_CELLS)
+    return { ok: false, error: `한 번에 최대 ${WEEKLY_REWRITE_MAX_CELLS}개 셀까지 다듬을 수 있습니다.` }
+
+  const addresses = new Set<string>()
+  let totalChars = 0
+  for (const input of inputs) {
+    if (!input || typeof input.rowId !== 'string' || !input.rowId)
+      return { ok: false, error: '잘못된 대상이 포함되어 있습니다.' }
+    if (!isWeeklyCellKey(input.cellKey))
+      return { ok: false, error: '잘못된 셀이 포함되어 있습니다.' }
+    if (typeof input.content !== 'string' || !input.content.trim())
+      return { ok: false, error: '빈 셀은 AI로 다듬을 수 없습니다.' }
+    if (input.content.length > CELL_MAX)
+      return { ok: false, error: `내용은 ${CELL_MAX}자 이하여야 합니다.` }
+    const address = `${input.rowId}:${input.cellKey}`
+    if (addresses.has(address))
+      return { ok: false, error: '같은 셀이 중복으로 선택되었습니다.' }
+    addresses.add(address)
+    totalChars += input.content.length
+  }
+  if (totalChars > WEEKLY_REWRITE_MAX_TOTAL_CHARS)
+    return { ok: false, error: '선택한 내용이 너무 깁니다. 범위를 나눠 다시 시도해 주세요.' }
+
+  const sb = await createServerClient()
+  const rowIds = [...new Set(inputs.map(input => input.rowId))]
+  const scope = await rowsInProject(sb, projectId, rowIds)
+  if (!scope.ok) return { ok: false, error: scope.error }
+  if (rowIds.some(rowId => !scope.allowed.has(rowId)))
+    return { ok: false, error: '선택한 셀을 확인할 수 없습니다.' }
+  if (!hasLLM())
+    return { ok: false, error: 'AI 모델이 설정되어 있지 않습니다. 관리자에게 AI 설정을 요청해 주세요.' }
+
+  const { data: labelRows, error: labelError } = await sb.from('weekly_report_rows')
+    .select('id, section, module')
+    .in('id', rowIds)
+  if (labelError || !labelRows || labelRows.length !== rowIds.length) {
+    if (labelError) console.error('[weekly] AI 재작성 대상 라벨 조회 실패:', labelError.message)
+    return { ok: false, error: '선택한 셀을 확인할 수 없습니다.' }
+  }
+
+  const labels = new Map(labelRows.map(row => [
+    row.id as string,
+    rowSectionLabel({ section: String(row.section ?? ''), module: String(row.module ?? '') }),
+  ]))
+  const promptCells = inputs.map((input, index) => ({
+    id: `c${index}`,
+    section: labels.get(input.rowId) ?? '기타',
+    field: WEEKLY_CELL_LABEL[input.cellKey],
+    content: input.content,
+  }))
+  const prompt = buildWeeklyRewritePrompt(promptCells)
+  const gateKey = `${g.actor.userId}:${projectId}`
+  const exactRequestKey = `${gateKey}:${prompt}`
+  let raw: string | null
+  const running = weeklyRewriteInFlight.get(exactRequestKey)
+  if (running) {
+    raw = await running
+  } else {
+    const now = Date.now()
+    if (now - (weeklyRewriteLastAttempt.get(gateKey) ?? 0) < WEEKLY_REWRITE_COOLDOWN_MS)
+      return { ok: false, error: 'AI 요청이 너무 빠릅니다. 잠시 후 다시 시도해 주세요.' }
+    rememberWeeklyRewriteAttempt(gateKey, now)
+    const pending = generateAnswer(
+      WEEKLY_REWRITE_SYSTEM_PROMPT,
+      [{ role: 'user', content: prompt }],
+      {
+        timeoutMs: 15_000,
+        maxOutputTokens: 8_192,
+        allowModelFallback: false,
+        retries: 0,
+        retryRateLimit: false,
+      },
+    )
+    weeklyRewriteInFlight.set(exactRequestKey, pending)
+    try {
+      raw = await pending
+    } finally {
+      if (weeklyRewriteInFlight.get(exactRequestKey) === pending)
+        weeklyRewriteInFlight.delete(exactRequestKey)
+    }
+  }
+  if (!raw)
+    return { ok: false, error: 'AI가 내용을 다듬지 못했습니다. 잠시 후 다시 시도해 주세요.' }
+  const rewritten = parseWeeklyRewriteResponse(raw, promptCells)
+  if (!rewritten)
+    return { ok: false, error: 'AI 응답을 확인하지 못했습니다. 원문은 변경되지 않았습니다.' }
+
+  return {
+    ok: true,
+    edits: inputs.map((input, index) => ({
+      rowId: input.rowId,
+      cellKey: input.cellKey,
+      original: input.content,
+      content: rewritten[index].content,
+    })),
+  }
 }
 
 /** 셀 저장 — 열 화이트리스트 강제(last-write-wins, 스펙 §2). */
