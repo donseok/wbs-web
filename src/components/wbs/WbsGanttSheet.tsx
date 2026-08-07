@@ -1270,7 +1270,11 @@ export function WbsGanttSheet({
                 </div>
                 )}
                 {/* 간트 셀 */}
-                <div className={`relative box-border h-full shrink-0 border-b border-grid ${isFlash ? 'bg-brand-weak/60' : ''}`} style={{ width: ganttW }}>
+                <div
+                  data-wbs-col="gantt"
+                  className={`relative box-border h-full shrink-0 border-b border-grid ${isFlash || progressLensActive ? 'bg-brand-weak/60' : ''} group-hover:bg-brand-weak`}
+                  style={{ width: ganttW }}
+                >
                   {n.plannedStart && n.plannedEnd && <Bar n={n} schedule={schedule} xOf={xOf} dayPx={dayPx} />}
                 </div>
               </div>
