@@ -373,6 +373,9 @@ function MemberFormModal({
             onChange={(e) => setEmail(e.target.value)}
             placeholder={t('members.phEmail')}
           />
+          <span className="mt-1.5 block text-[11px] leading-4 text-ink-subtle">
+            {t('members.identityHint')}
+          </span>
         </label>
 
         <div className="grid grid-cols-2 gap-3">
