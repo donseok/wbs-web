@@ -116,6 +116,8 @@ export type BlockMarks = Record<number, {
   hlTier?: 1 | 2 | 3
   hlCount?: number
   issueCount?: number
+  /** 현재 사용자가 하이라이트/이슈 등록 대상으로 지정한 임시 영역. 저장하지 않는다. */
+  activeSelection?: boolean
 }>
 
 /**
@@ -138,6 +140,7 @@ export function remarkAnnotateBlocks(marks: BlockMarks) {
         props['data-hl-count'] = m.hlCount ?? 1
       }
       if (m?.issueCount) props['data-issue-count'] = m.issueCount
+      if (m?.activeSelection) props['data-active-selection'] = 'true'
       const data = (node.data ??= {}) as { hProperties?: Record<string, unknown> }
       data.hProperties = { ...data.hProperties, ...props }
     })

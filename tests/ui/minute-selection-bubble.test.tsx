@@ -66,6 +66,7 @@ function renderWithBody(opts: {
   bodyHtml?: string
   disabled?: boolean
   onCreateIssue?: (target: MinuteSelectionTarget) => void
+  onTargetChange?: (target: MinuteSelectionTarget | null) => void
 } = {}) {
   const bodyRef = createRef<HTMLDivElement>()
   const onCreateIssue = opts.onCreateIssue ?? vi.fn()
@@ -85,6 +86,7 @@ function renderWithBody(opts: {
         disabled={opts.disabled ?? false}
         busy={false}
         onCreateIssue={onCreateIssue}
+        onTargetChange={opts.onTargetChange}
       />
     </>,
   )
@@ -92,6 +94,24 @@ function renderWithBody(opts: {
 }
 
 describe('MinuteSelectionBubble', () => {
+  it('선택된 영역을 본문 하이라이트용 콜백으로 전달하고 해제 시 비운다', () => {
+    const onTargetChange = vi.fn()
+    const { bodyRef } = renderWithBody({ onTargetChange })
+    const [p0, p1] = Array.from(bodyRef.current!.querySelectorAll('p'))
+    selectAcross(p0.firstChild!, 8, p1.firstChild!, 12)
+    fireSelectionDone()
+
+    const target = onTargetChange.mock.calls.at(-1)?.[0] as MinuteSelectionTarget
+    expect(target.startIndex).toBe(0)
+    expect(target.endIndex).toBe(1)
+
+    act(() => {
+      window.getSelection()!.removeAllRanges()
+      document.dispatchEvent(new Event('selectionchange'))
+    })
+    expect(onTargetChange.mock.calls.at(-1)?.[0]).toBeNull()
+  })
+
   it('두 블록에 걸친 선택 후 pointerup 에 버블이 뜨고 target 을 전달한다', () => {
     const onCreateIssue = vi.fn()
     const { bodyRef } = renderWithBody({ onCreateIssue })

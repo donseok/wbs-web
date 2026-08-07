@@ -126,6 +126,8 @@ export function MinuteViewer({
 
   const bodyRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<PopoverState | null>(null)
+  // 현재 사용자가 하이라이트/이슈 등록 대상으로 지정한 영역(저장 전 임시 표시).
+  const [selectionPreview, setSelectionPreview] = useState<{ startIndex: number; endIndex: number } | null>(null)
   const [hlBusy, setHlBusy] = useState(false)
   const [issueOrigin, setIssueOrigin] = useState<IssueOrigin | null>(null)
   const [issueFormOpen, setIssueFormOpen] = useState(false)
@@ -269,8 +271,21 @@ export function MinuteViewer({
     for (const [idx, count] of issueCounts) {
       m[idx] = { ...m[idx], issueCount: count }
     }
+    // 저장된 마킹과 구분되는 현재 작업 영역 — 이슈 폼을 열어도 지정 범위를 유지한다.
+    const activeRange = issueOrigin
+      ? issueOrigin.type === 'selection'
+        ? { startIndex: issueOrigin.startIndex, endIndex: issueOrigin.endIndex }
+        : { startIndex: issueOrigin.index, endIndex: issueOrigin.index }
+      : popover
+        ? { startIndex: popover.blockIndex, endIndex: popover.blockIndex }
+        : selectionPreview
+    if (activeRange) {
+      for (let idx = activeRange.startIndex; idx <= activeRange.endIndex; idx += 1) {
+        m[idx] = { ...m[idx], activeSelection: true }
+      }
+    }
     return m
-  }, [activeLinkedIssues, insights, others, myIndexes])
+  }, [activeLinkedIssues, insights, issueOrigin, myIndexes, others, popover, selectionPreview])
 
   // 블록 클릭 → 팝오버 (이벤트 위임 — 링크/버튼/드래그 선택 제외, 스펙 §6.4)
   const onBodyClick = useCallback((e: React.MouseEvent) => {
@@ -827,6 +842,9 @@ export function MinuteViewer({
           disabled={issueFormOpen || projectPickerOpen}
           busy={issueBusy}
           onCreateIssue={onSelectionIssue}
+          onTargetChange={target => setSelectionPreview(
+            target ? { startIndex: target.startIndex, endIndex: target.endIndex } : null,
+          )}
           onDismiss={onSelectionDismiss}
         />
       )}

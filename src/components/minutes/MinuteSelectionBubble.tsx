@@ -58,13 +58,15 @@ function rangeTextWithin(range: Range, el: HTMLElement): string {
  * 스크롤·리사이즈는 rAF 로 위치만 추적한다. 선택 해제 시 즉시 소멸.
  */
 export function MinuteSelectionBubble({
-  bodyRef, blocks, disabled, busy, onCreateIssue, onDismiss,
+  bodyRef, blocks, disabled, busy, onCreateIssue, onDismiss, onTargetChange,
 }: {
   bodyRef: RefObject<HTMLDivElement | null>
   blocks: MinuteBlock[]
   disabled: boolean
   busy: boolean
   onCreateIssue: (target: MinuteSelectionTarget) => void
+  /** 현재 선택된 블록 범위를 본문에 임시 하이라이트로 반영한다. */
+  onTargetChange?: (target: MinuteSelectionTarget | null) => void
   /** 표출 중이던 버블이 바깥 클릭·선택 해제로 사라질 때 — 진행 중 요청 취소의 신호. */
   onDismiss?: () => void
 }) {
@@ -73,12 +75,16 @@ export function MinuteSelectionBubble({
   const boxRef = useRef<HTMLDivElement>(null)
   const visibleRef = useRef(false)
   const onDismissRef = useRef(onDismiss)
+  const onTargetChangeRef = useRef(onTargetChange)
   useEffect(() => {
     visibleRef.current = state !== null
   }, [state])
   useEffect(() => {
     onDismissRef.current = onDismiss
   }, [onDismiss])
+  useEffect(() => {
+    onTargetChangeRef.current = onTargetChange
+  }, [onTargetChange])
 
   const readTarget = useCallback((): BubbleState | null => {
     const selection = window.getSelection()
@@ -144,10 +150,15 @@ export function MinuteSelectionBubble({
   useEffect(() => {
     if (disabled) {
       setState(null)
+      onTargetChangeRef.current?.(null)
       return
     }
     let frame = 0
-    const evaluate = () => setState(readTarget())
+    const evaluate = () => {
+      const next = readTarget()
+      setState(next)
+      onTargetChangeRef.current?.(next?.target ?? null)
+    }
     const evaluateSoon = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(evaluate)
@@ -155,6 +166,7 @@ export function MinuteSelectionBubble({
     const dismiss = () => {
       if (visibleRef.current) onDismissRef.current?.()
       setState(null)
+      onTargetChangeRef.current?.(null)
     }
     const onPointerDown = (event: Event) => {
       // 버블 내부 pointerdown(버튼 클릭)은 선택을 유지해야 하므로 숨기지 않는다.

@@ -323,6 +323,13 @@ textarea {
   }
   .minutes-md [data-issue-count][data-hl-count]::before { right: 3rem; }
 
+  /* 현재 사용자가 지정 중인 하이라이트/이슈 영역 — 저장된 마킹과 구분되는 임시 표시.
+     블록 전체에 적용해 표·목록·제목도 같은 영역으로 인식되게 한다. */
+  .minutes-md [data-active-selection='true'] {
+    @apply bg-brand-weak/75 outline outline-2 outline-brand/45;
+    box-shadow: inset 4px 0 var(--color-brand);
+  }
+
   /* 점프 도착 강조 — 정적 ring(상태 기반, prefers-reduced-motion 에서도 유효) */
   .minutes-md .mblock-flash { @apply outline outline-2 outline-brand; }
 
