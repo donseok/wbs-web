@@ -1,4 +1,7 @@
-import { Users } from 'lucide-react'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { SectionCard } from '@/components/ui/SectionCard'
 import type { UsageUserRow } from '@/lib/domain/usage'
 
@@ -8,12 +11,23 @@ function fmtDate(iso: string | null): string {
 }
 
 const ROLE_LABEL: Record<string, string> = { pmo_admin: '관리자', team_editor: '팀 편집자' }
+const USER_PAGE_SIZE = 15
 
 /**
  * 사용자 현황 — 계정 기준이라 활동이 0인 휴면 계정도 표시된다.
  * last_sign_in_at 은 수집 시작 이전까지 소급되므로 배포 첫날부터 채워진다.
  */
 export function UsageUserTable({ rows, days }: { rows: UsageUserRow[]; days: number }) {
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(1, Math.ceil(rows.length / USER_PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const pageStart = (currentPage - 1) * USER_PAGE_SIZE
+  const visibleRows = rows.slice(pageStart, pageStart + USER_PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(current => Math.min(current, pageCount))
+  }, [pageCount])
+
   return (
     <SectionCard eyebrow="USERS" title="사용자 현황" icon={Users}
       actions={<span className="badge bg-brand-weak text-brand">{rows.length}명</span>}>
@@ -33,7 +47,7 @@ export function UsageUserTable({ rows, days }: { rows: UsageUserRow[]; days: num
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {visibleRows.map(r => (
               <tr key={r.id} className="border-b border-line/60">
                 <td className="py-2 pr-3 font-medium text-ink">{r.name}</td>
                 <td className="py-2 pr-3 text-ink-muted">{r.email}</td>
@@ -49,6 +63,36 @@ export function UsageUserTable({ rows, days }: { rows: UsageUserRow[]; days: num
           </tbody>
         </table>
       </div>
+      {rows.length > USER_PAGE_SIZE && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs text-ink-muted">
+          <span className="tabular-nums">
+            {pageStart + 1}–{Math.min(pageStart + USER_PAGE_SIZE, rows.length)} / {rows.length}명
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="btn btn-ghost inline-flex items-center gap-1 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="이전 사용자 페이지"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              이전
+            </button>
+            <span className="tabular-nums px-1">{currentPage} / {pageCount}</span>
+            <button
+              type="button"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage === pageCount}
+              className="btn btn-ghost inline-flex items-center gap-1 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="다음 사용자 페이지"
+            >
+              다음
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
+        </div>
+      )}
     </SectionCard>
   )
 }

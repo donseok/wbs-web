@@ -1,5 +1,8 @@
+'use client'
+
 import Link from 'next/link'
-import { ScrollText, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight, ScrollText, X } from 'lucide-react'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { MiniEmpty } from '@/components/dashboard/bits'
 import { menuLabel } from '@/lib/domain/usageMenu'
@@ -13,9 +16,11 @@ function fmtDateTime(iso: string): string {
   }).format(new Date(iso))
 }
 
+const EVENT_PAGE_SIZE = 20
+
 /**
  * 접속 로그 — 최신순. 상한에 걸리면 그 사실을 화면에 밝힌다(잘린 목록을 전부처럼 보이지 않게).
- * 필터는 searchParams 기반 링크다 — 클라이언트 상태가 없어야 서버 렌더 한 번으로 끝난다.
+ * 필터는 searchParams 기반 링크로 유지하고, 긴 목록의 페이지 이동만 클라이언트 상태로 처리한다.
  */
 export function UsageEventLog({ events, names, limit, locale, menus, filter }: {
   events: UsageEventRow[]
@@ -26,6 +31,16 @@ export function UsageEventLog({ events, names, limit, locale, menus, filter }: {
   menus: string[]
   filter: { days: number; user?: string; menu?: string }
 }) {
+  const [page, setPage] = useState(1)
+  const pageCount = Math.max(1, Math.ceil(events.length / EVENT_PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount)
+  const pageStart = (currentPage - 1) * EVENT_PAGE_SIZE
+  const visibleEvents = events.slice(pageStart, pageStart + EVENT_PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(current => Math.min(current, pageCount))
+  }, [pageCount])
+
   const translate = (k: DictKey) => t(locale, k)
   const chip = (active: boolean) =>
     `chip ${active ? 'bg-brand text-white' : 'text-ink-muted transition hover:text-ink'}`
@@ -65,7 +80,7 @@ export function UsageEventLog({ events, names, limit, locale, menus, filter }: {
               </tr>
             </thead>
             <tbody>
-              {events.map(e => (
+              {visibleEvents.map(e => (
                 <tr key={e.id} className="border-b border-line/60">
                   <td className="py-2 pr-3 tabular-nums text-ink-muted">{fmtDateTime(e.occurredAt)}</td>
                   {/* 계정 목록에 없는 id 는 이름을 지어내지 않는다. 이름 클릭 = 그 사용자로 필터. */}
@@ -80,6 +95,36 @@ export function UsageEventLog({ events, names, limit, locale, menus, filter }: {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {events.length > EVENT_PAGE_SIZE && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs text-ink-muted">
+          <span className="tabular-nums">
+            {pageStart + 1}–{Math.min(pageStart + EVENT_PAGE_SIZE, events.length)} / {events.length}건
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="btn btn-ghost inline-flex items-center gap-1 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="이전 접속 로그 페이지"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              이전
+            </button>
+            <span className="tabular-nums px-1">{currentPage} / {pageCount}</span>
+            <button
+              type="button"
+              onClick={() => setPage(currentPage + 1)}
+              disabled={currentPage === pageCount}
+              className="btn btn-ghost inline-flex items-center gap-1 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="다음 접속 로그 페이지"
+            >
+              다음
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
         </div>
       )}
     </SectionCard>
