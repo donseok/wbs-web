@@ -476,13 +476,17 @@ export function WbsGanttSheet({
     selectedId,
   ])
 
-  const allCollapsed = collapsibleIds.size > 0 && [...collapsibleIds].every(id => effCollapsed.has(id))
+  // 전체 접기/펼치기는 개별 act 토글과 의미가 다르다.
+  // 접기: 루트 phase만 남기고 하위 전체를 숨긴다. 펼치기: 저장된 접힘 상태와 무관하게
+  // phase → task → act → sub-act 전부 보이게 한다.
+  const phaseIds = useMemo(() => items.map(item => item.id), [items])
+  const allCollapsed = phaseIds.length > 0 && phaseIds.every(id => effCollapsed.has(id))
   const toggleAll = () => {
     setForcedOpen(s => (s.size ? new Set() : s)) // 전체 토글은 임시 펼침도 함께 정리
     // focus 임시 펼침만 걷어내는 경우 목표 집합이 저장 상태와 같을 수 있다 — 그때는 참조를
     // 유지해 내용이 같은 값의 불필요한 계정 저장을 막는다(저장 가드는 참조 비교).
     setCollapsed(s => {
-      const target = allCollapsed ? new Set<string>() : new Set(collapsibleIds)
+      const target = allCollapsed ? new Set<string>() : new Set(phaseIds)
       if (target.size === s.size && [...target].every(id => s.has(id))) return s
       return target
     })

@@ -108,15 +108,35 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
     expect(document.activeElement).toBe(row)
   })
 
-  it('focus 중 전체 접기를 눌러도 저장 상태와 내용이 같으면 저장하지 않는다', async () => {
+  it('focus 중 전체 접기는 phase만 남기고 저장한다', async () => {
     await act(async () => root.render(
       <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
     const btn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'wbs.collapseAll')
     expect(btn).not.toBeUndefined()
     await act(async () => btn!.click())
-    expect(rowCount(container)).toBe(3)
-    expect(queueWbsCollapse).not.toHaveBeenCalled()
+    expect(rowCount(container)).toBe(1)
+    expect(queueWbsCollapse).toHaveBeenCalledWith('p1', ['p1'])
+  })
+
+  it('전체 접기/펼치기는 phase만 남기거나 sub-act까지 모두 표시한다', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
+    ))
+    const collapse = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'wbs.collapseAll')
+    expect(collapse).not.toBeUndefined()
+
+    await act(async () => collapse!.click())
+    expect(rowCount(container)).toBe(1)
+    expect(container.querySelector('[data-row-id="p1"]')).not.toBeNull()
+    expect(container.querySelector('[data-row-id="t1"]')).toBeNull()
+
+    const expand = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'wbs.expandAll')
+    expect(expand).not.toBeUndefined()
+    await act(async () => expand!.click())
+    expect(rowCount(container)).toBe(5)
+    expect(container.querySelector('[data-row-id="s1"]')).not.toBeNull()
+    expect(container.querySelector('[data-row-id="s2"]')).not.toBeNull()
   })
 
   it('StrictMode 마운트에서도 focus 진입이 저장을 호출하지 않는다', async () => {
