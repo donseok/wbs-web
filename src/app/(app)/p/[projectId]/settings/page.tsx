@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles, Cpu, ArrowUpRight } from 'lucide-react'
+import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles, Cpu, ArrowUpRight, Users } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getLlmConfig } from '@/app/actions/llmConfig'
@@ -8,8 +8,10 @@ import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { listProjectRoles } from '@/app/actions/projectRoles'
 import { listProjectInvites } from '@/app/actions/projectInvites'
+import { projectTeamRowsSync } from '@/lib/teams/master'
 import { ProjectRolesManager } from '@/components/settings/ProjectRolesManager'
 import { ProjectInviteManager } from '@/components/settings/ProjectInviteManager'
+import { ProjectTeamsManager } from '@/components/settings/ProjectTeamsManager'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
@@ -114,6 +116,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   // 초대 목록도 관리자에게만 필요하다. 실패는 아래에서 안내로 드러낸다 —
   // 빈 목록으로 위장하면 관리자가 같은 주소로 다시 발급하다 중복 제약에 막힌다.
   const invites = isAdmin ? await listProjectInvites(projectId) : null
+  const projectTeamRows = projectTeamRowsSync(projectId)
 
   const scheduleLabel =
     project?.start_date || project?.end_date
@@ -330,6 +333,26 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
                 loadError={invites && !invites.ok ? invites.error : null}
               />
             </div>
+          </SectionCard>
+        )}
+
+      {/* ── 팀 관리 (관리자 이상) — 프로젝트 스코프 팀(0071). 전역 팀은 /admin/teams. ── */}
+        {isAdmin && (
+          <SectionCard
+            eyebrow="TEAMS"
+            title={locale === 'ko' ? '팀 관리' : 'Teams'}
+            icon={Users}
+          >
+            <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
+              {locale === 'ko'
+                ? '이 프로젝트의 팀 목록입니다. WBS 담당·명단·칸반·보고서가 이 목록을 씁니다. 정의하지 않으면 전역 팀을 상속합니다.'
+                : 'Teams for this project, used by WBS owners, roster, kanban and reports. Inherits global teams until defined.'}
+            </p>
+            <ProjectTeamsManager
+              projectId={projectId}
+              teams={projectTeamRows.map(t => ({ id: t.id, code: t.code, sortOrder: t.sortOrder, active: t.active, progressVisible: t.progressVisible }))}
+              inherited={projectTeamRows.length === 0}
+            />
           </SectionCard>
         )}
 
