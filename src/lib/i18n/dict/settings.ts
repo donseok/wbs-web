@@ -134,6 +134,16 @@ export const settingsKo = {
   'settings.reindexAria': 'DK Bot 의미검색 색인 재생성',
   'settings.reindexing': '색인 중…',
   'settings.reindexButton': 'AI 색인 재생성',
+  // ProjectPrivacyToggle — 공개 범위 (슈퍼유저 전용)
+  'settings.privacyTitle': '공개 범위',
+  'settings.privacyPrivateChip': '비공개',
+  'settings.privacyPublicChip': '전체 공개',
+  'settings.privacyDesc1': '비공개로 전환하면 이 프로젝트는 ',
+  'settings.privacyDescStrong': '역할(관리자·멤버) 보유자와 슈퍼유저',
+  'settings.privacyDesc2': '에게만 프로젝트 목록·챗봇·회의록 화면에 노출됩니다. 링크(URL) 직접 접근까지 막는 잠금은 아닙니다.',
+  'settings.privacyToPrivate': '비공개로 전환',
+  'settings.privacyToPublic': '전체 공개로 전환',
+  'settings.privacyApplied': '공개 범위를 변경했습니다.',
 } as const
 
 export const settingsEn: Record<keyof typeof settingsKo, string> = {
@@ -271,4 +281,14 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   'settings.reindexAria': 'Rebuild the DK Bot semantic search index',
   'settings.reindexing': 'Indexing…',
   'settings.reindexButton': 'Rebuild AI index',
+  // ProjectPrivacyToggle — visibility (superuser only)
+  'settings.privacyTitle': 'Visibility',
+  'settings.privacyPrivateChip': 'Private',
+  'settings.privacyPublicChip': 'Everyone',
+  'settings.privacyDesc1': 'When private, this project is shown in the project list, chatbot, and minutes screens only to ',
+  'settings.privacyDescStrong': 'role holders (admin/member) and superusers',
+  'settings.privacyDesc2': '. This is not a lock — direct URL access is still possible.',
+  'settings.privacyToPrivate': 'Make private',
+  'settings.privacyToPublic': 'Make public',
+  'settings.privacyApplied': 'Visibility updated.',
 }

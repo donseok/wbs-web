@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ createServerClient: vi.fn() }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
+// 이 테스트의 관심사는 회의 링크 매핑이다 — 비공개 프로젝트 숨김(0070)은 항목 필터 테스트
+// (private-project-hidden.test.ts)가 따로 검증하므로 여기서는 '숨김 없음'으로 고정한다.
+vi.mock('@/lib/authz/visibility', () => ({ getHiddenProjectIds: vi.fn(async () => new Set()) }))
 
 import { getMinutesExplorer } from '@/lib/data/minutes'
 

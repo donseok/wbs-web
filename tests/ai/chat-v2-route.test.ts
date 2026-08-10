@@ -21,9 +21,15 @@ function request(body: unknown): NextRequest {
   })
 }
 
+// accessScope 는 projects(비공개 플래그 포함)·project_roles·memberships 세 테이블을 읽는다(0070).
+// 여기서는 전 프로젝트 공개·역할 없음·비슈퍼유저로 고정 — 비공개 스코프 제외는 accessScope 전용 테스트가 검증한다.
 function client(projects: string[], error: { message: string } | null = null) {
   return {
-    from: () => ({ select: async () => ({ data: error ? null : projects.map(id => ({ id })), error }) }),
+    from: (table: string) => {
+      if (table === 'project_roles') return { select: () => ({ eq: async () => ({ data: [], error: null }) }) }
+      if (table === 'memberships') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { is_superuser: false }, error: null }) }) }) }
+      return { select: async () => ({ data: error ? null : projects.map(id => ({ id, is_private: false })), error }) }
+    },
   }
 }
 

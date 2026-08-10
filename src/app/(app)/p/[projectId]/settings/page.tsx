@@ -15,6 +15,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { collectLeaves, fmtDate } from '@/components/wbs/shared'
 import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButton'
+import { ProjectPrivacyToggle } from '@/components/settings/ProjectPrivacyToggle'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
 import { ReindexButton } from '@/components/settings/ReindexButton'
 import { dkbotIndexStatus, type IndexStatus } from '@/lib/ai/health'
@@ -30,6 +31,7 @@ type ProjectRow = {
   end_date: string | null
   base_date?: string | null
   created_at?: string | null
+  is_private?: boolean | null
 }
 
 /** DK Bot 색인 신선도 → 배지 라벨/색상. 무신호 실패(키 미설정·마이그레이션 미적용·stale)를 가시화. */
@@ -272,6 +274,22 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
               {t(locale, 'settings.llmDesc1')}
               <br />
               <span className="text-ink-subtle">{t(locale, 'settings.llmDesc2')}</span>
+            </p>
+          </SectionCard>
+        )}
+
+      {/* ── 공개 범위 (슈퍼유저 전용) — 관리자에게도 열지 않는다(전역 가시성 정책은 전역 등급이 쥔다) ── */}
+        {isSuperuser && (
+          <SectionCard
+            eyebrow="AUTHORIZATION"
+            title={t(locale, 'settings.privacyTitle')}
+            icon={Lock}
+            actions={<ProjectPrivacyToggle projectId={projectId} isPrivate={Boolean(project?.is_private)} />}
+          >
+            <p className="-mt-2 text-xs leading-5 text-ink-muted">
+              {t(locale, 'settings.privacyDesc1')}
+              <strong className="text-ink">{t(locale, 'settings.privacyDescStrong')}</strong>
+              {t(locale, 'settings.privacyDesc2')}
             </p>
           </SectionCard>
         )}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   roleIn, isProjectAdmin, isProjectMember, isAnyProjectAdmin, hasAnyProjectRole,
-  toProjectActorView, actorFromView, type Actor,
+  toProjectActorView, actorFromView, canSeeProject, type Actor,
 } from '@/lib/domain/authz'
 
 const P = 'proj-1'
@@ -122,5 +122,31 @@ describe('isProjectMember', () => {
   it('다른 프로젝트에는 전이되지 않는다', () => {
     expect(isProjectMember(member, Q)).toBe(false)
     expect(isProjectMember(admin, Q)).toBe(false)
+  })
+})
+
+describe('canSeeProject — 비공개 프로젝트 UI 숨김 (0070)', () => {
+  const pub = { id: P, is_private: false }
+  const priv = { id: P, is_private: true }
+  it('공개 프로젝트는 비로그인 포함 전원에게 보인다 (기존 동작 유지)', () => {
+    expect(canSeeProject(null, pub)).toBe(true)
+    expect(canSeeProject(viewer, pub)).toBe(true)
+  })
+  it('is_private 미지정(구 데이터·컬럼 미적용)은 공개로 본다', () => {
+    expect(canSeeProject(viewer, { id: P })).toBe(true)
+    expect(canSeeProject(viewer, { id: P, is_private: null })).toBe(true)
+  })
+  it('비공개는 역할 보유자(admin/member)와 슈퍼유저에게만 보인다', () => {
+    expect(canSeeProject(superuser, priv)).toBe(true)
+    expect(canSeeProject(admin, priv)).toBe(true)
+    expect(canSeeProject(member, priv)).toBe(true)
+  })
+  it('비공개는 viewer·비로그인에게 숨긴다 — fail-closed', () => {
+    expect(canSeeProject(viewer, priv)).toBe(false)
+    expect(canSeeProject(null, priv)).toBe(false)
+  })
+  it('다른 프로젝트의 역할로는 볼 수 없다', () => {
+    expect(canSeeProject(admin, { id: Q, is_private: true })).toBe(false)
+    expect(canSeeProject(member, { id: Q, is_private: true })).toBe(false)
   })
 })

@@ -103,6 +103,21 @@ export function isProjectMember(actor: Actor | null, projectId: string | null): 
 }
 
 /**
+ * 비공개 프로젝트 UI 숨김 판정 (0070). 보안 경계가 아니라 노출 억제다 —
+ * RLS 는 개방 그대로이고 URL 직접 접근도 막지 않는다(설계 2026-08-10).
+ * is_private 이 없거나 null 이면 공개로 본다(컬럼 미적용·구 스냅샷 호환).
+ * 비공개는 역할(admin/member) 보유자와 슈퍼유저에게만 보이고, 비로그인·viewer 는 숨김.
+ */
+export function canSeeProject(
+  actor: Actor | null,
+  project: { id: string; is_private?: boolean | null },
+): boolean {
+  if (!project.is_private) return true
+  if (!actor) return false
+  return actor.isSuperuser || actor.projectRoles.has(project.id)
+}
+
+/**
  * 전역 성격 리소스(회의록 폴더 등 프로젝트에 속하지 않는 것)용 — 어느 프로젝트든
  * 관리자면 통과. DB 의 app_role() shim 이 'pmo_admin' 을 돌려주는 조건과 같은 의미라
  * 서버 액션과 RLS 판정이 갈라지지 않는다.

@@ -22,6 +22,8 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/minutes/ShareViewer', () => ({
   ShareViewer: () => null,
 }))
+// 관심사는 보관(archive) 필터다 — 비공개 프로젝트 숨김(0070)은 전용 테스트가 검증하므로 '숨김 없음' 고정.
+vi.mock('@/lib/authz/visibility', () => ({ getHiddenProjectIds: vi.fn(async () => new Set()) }))
 
 import SharedMinutePage from '@/app/share/minutes/[token]/page'
 import { searchMinutes } from '@/lib/data/minutes'

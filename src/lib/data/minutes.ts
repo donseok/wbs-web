@@ -12,8 +12,15 @@ import type {
   MinuteWikiImpactCardProps, MinuteWikiImpactCounts, MinuteWikiImpactItem, MinuteWikiSyncStatus,
 } from '@/components/minutes/MinuteWikiImpactCard'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getHiddenProjectIds } from '@/lib/authz/visibility'
 
 type Row = Record<string, unknown>
+
+/** 비공개 프로젝트(0070) 회의록을 목록 표면에서 뺀다. 미지정(projectId null)은 유지. */
+export function dropHidden<T extends { projectId?: string | null }>(rows: T[], hidden: ReadonlySet<string>): T[] {
+  if (hidden.size === 0) return rows
+  return rows.filter(r => !r.projectId || !hidden.has(r.projectId))
+}
 
 /** 인사이트 조회 컬럼 — 다른 테이블을 임베드하지 않는다.
  *  임베드로 묶으면 그 테이블/관계가 어긋난 순간 PostgREST가 쿼리 전체를 거절해 인사이트가 통째로 사라진다(2026-07 실제 사고). */
@@ -84,10 +91,10 @@ export const getMinutesPage = cache(async (
     .gte('minute_date', rangeStart).lte('minute_date', rangeEnd)
     .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
   if (team) q = q.eq('team_code', team)
-  const { data, error } = await q
+  const [{ data, error }, hidden] = await Promise.all([q, getHiddenProjectIds()])
   // 표시용 목록 — 실패를 삼키면 보관함이 '회의록 없음' 빈 화면으로 위장돼 재업로드를 유발한다. 최소한 원인은 남긴다.
   if (error) console.error('[getMinutesPage] 조회 실패:', error.message)
-  return (data ?? []).map((r: Row) => mapMinute(r))
+  return dropHidden((data ?? []).map((r: Row) => mapMinute(r)), hidden)
 })
 
 /** 전 기간 제목/본문 ILIKE 검색 — minute_date desc, 최대 limit건. */
@@ -103,10 +110,10 @@ export const searchMinutes = cache(async (
     .or(`title.ilike.${pat},body_md.ilike.${pat}`)
     .order('minute_date', { ascending: false }).limit(limit)
   if (team) q = q.eq('team_code', team)
-  const { data, error } = await q
+  const [{ data, error }, hidden] = await Promise.all([q, getHiddenProjectIds()])
   // 표시용 검색 — 실패를 '검색 결과 0건'으로 위장하면 사용자는 회의록이 없다고 오인한다. 폴백은 유지하되 로깅.
   if (error) console.error('[searchMinutes] 조회 실패:', error.message)
-  return (data ?? []).map((r: Row) => mapMinute(r))
+  return dropHidden((data ?? []).map((r: Row) => mapMinute(r)), hidden)
 })
 
 /** 탐색기 v2 — 전 기간 리프 + 폴더 전량. 실패 시 로깅 + null(빈 결과 객체와 구분 —
@@ -114,19 +121,20 @@ export const searchMinutes = cache(async (
  *  먼저 적용해야 하므로 서버 조립은 성립하지 않는다. */
 export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> => {
   const sb = await createServerClient()
-  const [mRes, fRes] = await Promise.all([
+  const [mRes, fRes, hidden] = await Promise.all([
     sb.from('minutes').select(LIST_COLS)
       .is('archived_at', null)
       .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
       .limit(MINUTES_TREE_LIMIT),
     sb.from('minute_folders').select('id, name, parent_id, sort, created_by')
       .order('sort').order('name'),
+    getHiddenProjectIds(),
   ])
   if (mRes.error || fRes.error) {
     console.error('[getMinutesExplorer] 조회 실패:', mRes.error?.message ?? fRes.error?.message)
     return null
   }
-  const rows = (mRes.data ?? []).map((r: Row) => mapMinute(r))
+  const rows = dropHidden((mRes.data ?? []).map((r: Row) => mapMinute(r)), hidden)
   const leaves: ExplorerLeaf[] = rows.map(mi => ({
     id: mi.id, minuteDate: mi.minuteDate, teamCode: mi.teamCode, title: mi.title,
     fileCount: mi.fileCount ?? 0, createdBy: mi.createdBy, createdByName: mi.createdByName,
@@ -140,7 +148,8 @@ export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> =
     parentId: (f.parent_id as string | null) ?? null,
     sort: f.sort as number, createdBy: (f.created_by as string | null) ?? null,
   }))
-  return { folders, leaves, total: rows.length, truncated: rows.length >= MINUTES_TREE_LIMIT }
+  // truncated 는 필터 전 페치 건수 기준 — 숨김으로 줄어든 것을 '전량 수신'으로 위장하지 않는다.
+  return { folders, leaves, total: rows.length, truncated: (mRes.data ?? []).length >= MINUTES_TREE_LIMIT }
 })
 
 /** 뷰어 상세 — body_md + 파일 목록(서명 URL 없이 메타만). 없으면 null. */
