@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildGanttScale, centeredTimelineScrollLeft, collectPlannedDates } from '@/lib/domain/ganttScale'
+import { buildGanttScale, centeredTimelineScrollLeft, collectPlannedDates, groupGanttMilestones } from '@/lib/domain/ganttScale'
 
 describe('buildGanttScale', () => {
   it('양끝 일자 포함하여 day 배열 생성', () => {
@@ -95,5 +95,50 @@ describe('collectPlannedDates', () => {
     expect(dates).toContain('2026-07-09')
     expect(dates).toContain('2026-07-07')
     expect(dates).not.toContain(null as unknown as string)
+  })
+})
+
+describe('groupGanttMilestones', () => {
+  const p = (id: string, name: string, date: string, status: 'done' | 'overdue' | 'upcoming', dday: number) =>
+    ({ id, name, date, status, dday })
+
+  it('빈 입력은 빈 배열', () => {
+    expect(groupGanttMilestones([])).toEqual([])
+  })
+
+  it('같은 날짜는 마커 1개로 병합하고 이름을 입력 순서대로 모은다', () => {
+    const out = groupGanttMilestones([
+      p('a', '분석 완료', '2026-08-01', 'done', -9),
+      p('b', '설계 승인', '2026-08-01', 'done', -9),
+      p('c', '개발 착수', '2026-08-20', 'upcoming', 10),
+    ])
+    expect(out).toHaveLength(2)
+    expect(out[0].names).toEqual(['분석 완료', '설계 승인'])
+    expect(out[0].dday).toBe(-9)
+    expect(out[1].names).toEqual(['개발 착수'])
+  })
+
+  it('대표 상태는 overdue > upcoming > done 우선', () => {
+    const mixed = groupGanttMilestones([
+      p('a', 'A', '2026-08-01', 'done', 0),
+      p('b', 'B', '2026-08-01', 'overdue', 0),
+      p('c', 'C', '2026-08-01', 'upcoming', 0),
+    ])
+    expect(mixed[0].status).toBe('overdue')
+    const noOverdue = groupGanttMilestones([
+      p('a', 'A', '2026-08-01', 'done', 0),
+      p('c', 'C', '2026-08-01', 'upcoming', 0),
+    ])
+    expect(noOverdue[0].status).toBe('upcoming')
+  })
+
+  it('마커는 날짜 오름차순 정렬, tier는 0/1 교차', () => {
+    const out = groupGanttMilestones([
+      p('c', 'C', '2026-09-01', 'upcoming', 40),
+      p('a', 'A', '2026-07-01', 'done', -20),
+      p('b', 'B', '2026-08-01', 'done', -9),
+    ])
+    expect(out.map(m => m.date)).toEqual(['2026-07-01', '2026-08-01', '2026-09-01'])
+    expect(out.map(m => m.tier)).toEqual([0, 1, 0])
   })
 })

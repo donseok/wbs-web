@@ -3,6 +3,7 @@
  * 입력은 계획 일자 목록(ISO 'YYYY-MM-DD')과 기준일·일당 픽셀. DB/DOM 의존 없음.
  */
 import { isWeekendDow } from './dates'
+import type { MilestonePoint, MilestoneStatus } from './dashboard'
 
 export interface GanttScale {
   days: string[]
@@ -87,6 +88,35 @@ export function centeredTimelineScrollLeft({
   const visibleTimelineWidth = viewportWidth - occludedWidth
   const target = timelineLeft + dateX - occludedWidth - visibleTimelineWidth / 2
   return Math.min(Math.max(0, scrollWidth - viewportWidth), Math.max(0, target))
+}
+
+/* ── 간트 마일스톤 세로 기준선 — 같은 날짜는 마커 1개로 병합, 라벨 칩은 위/아래 2단 교차 배치 ── */
+export interface GanttMilestoneMarker {
+  date: string
+  status: MilestoneStatus
+  names: string[]
+  dday: number
+  tier: 0 | 1
+}
+
+const MS_STATUS_PRIORITY: readonly MilestoneStatus[] = ['overdue', 'upcoming', 'done']
+
+export function groupGanttMilestones(points: readonly MilestonePoint[]): GanttMilestoneMarker[] {
+  const byDate = new Map<string, MilestonePoint[]>()
+  for (const pt of points) {
+    const group = byDate.get(pt.date)
+    if (group) group.push(pt)
+    else byDate.set(pt.date, [pt])
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, group], i) => ({
+      date,
+      status: MS_STATUS_PRIORITY.find(s => group.some(g => g.status === s)) ?? 'done',
+      names: group.map(g => g.name),
+      dday: group[0].dday,
+      tier: (i % 2) as 0 | 1,
+    }))
 }
 
 /** 트리에서 모든 계획 일자를 평탄 수집 */
