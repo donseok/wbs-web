@@ -247,6 +247,12 @@ export function WbsGanttSheet({
   const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
   const FROZEN_W = visibleCols.filter(col => col.frozen).reduce((sum, col) => sum + col.w, 0)
+  // 타임라인 오버레이(이정표·오늘선·의존선)의 동결 열 침범 방지 clip.
+  // 행이 z-10 스태킹 컨텍스트라 동결 셀 zIndex는 행 내부에서만 유효하고, 형제인 오버레이가 항상
+  // 그 위에 그려진다 — z 로는 "행 콘텐츠 위 + 동결 셀 아래"를 동시에 만족할 수 없어 clip 으로 자른다.
+  // 동결 열은 스크롤 위치 S 부터 S+FROZEN_W 까지를 덮으므로, 오버레이(콘텐츠 x = LEFT_W 시작)의
+  // 왼쪽을 S - (LEFT_W - FROZEN_W) 만큼 잘라내면 경계가 정확히 일치한다.
+  const frozenClipPath = `inset(0 0 0 max(0px, calc(var(--wbs-scroll-x, 0px) - ${LEFT_W - FROZEN_W}px)))`
 
   useEffect(() => {
     if (!toast) return
@@ -575,6 +581,9 @@ export function WbsGanttSheet({
       viewportWidth: el.clientWidth,
       scrollWidth: el.scrollWidth,
     })
+    // 프로그래매틱 스크롤의 scroll 이벤트는 비동기라, 첫 페인트에 오버레이 clip 이 구식 값(0)으로
+    // 남지 않게 변수를 즉시 동기화한다.
+    el.style.setProperty('--wbs-scroll-x', `${el.scrollLeft}px`)
     centeredViewRef.current = viewKey
   }, [FROZEN_W, LEFT_W, planningColsHidden, projectId, timelineFocus, todayX])
 
@@ -889,6 +898,7 @@ export function WbsGanttSheet({
       <div
         ref={timelineScrollRef}
         data-wbs-scroll-region
+        onScroll={e => e.currentTarget.style.setProperty('--wbs-scroll-x', `${e.currentTarget.scrollLeft}px`)}
         className={`card w-full max-w-full overflow-auto ${
           progressLensEnabled ? 'scroll-pb-96 lg:scroll-pb-52' : ''
         } ${fullscreen ? '' : 'min-h-0 flex-1'}`}
@@ -1327,6 +1337,7 @@ export function WbsGanttSheet({
               width={ganttW}
               height={rowsH}
               left={LEFT_W}
+              clipPath={frozenClipPath}
             />
           )}
 
@@ -1354,8 +1365,9 @@ export function WbsGanttSheet({
           {/* 이정표 세로 기준선 (오늘선 아래 레이어) — 같은 날짜는 병합, 칩은 2단 교차 배치 */}
           {showMilestones && milestoneMarkers.length > 0 && (
             <div
+              data-wbs-milestone-overlay
               className="pointer-events-none absolute z-[25]"
-              style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH }}
+              style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH, clipPath: frozenClipPath }}
             >
               {milestoneMarkers.map(m => {
                 const x = xOf(m.date) + dayPx / 2
@@ -1385,8 +1397,9 @@ export function WbsGanttSheet({
           {/* 오늘 세로선 (행 위) */}
           {todayX != null && (
             <div
+              data-wbs-today-overlay
               className="pointer-events-none absolute z-30"
-              style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH }}
+              style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH, clipPath: frozenClipPath }}
             >
               <div className="absolute top-0 w-0.5 -translate-x-1/2 bg-today" style={{ left: todayX, height: rowsH }} />
               <div
@@ -1511,6 +1524,7 @@ function DependencyOverlay({
   width,
   height,
   left,
+  clipPath,
 }: {
   dependencies: TaskDependency[]
   itemById: Map<string, ComputedItem>
@@ -1523,6 +1537,8 @@ function DependencyOverlay({
   width: number
   height: number
   left: number
+  /** 동결 열 침범 방지 clip (frozenClipPath) — 오늘선·이정표 오버레이와 동일 규칙 */
+  clipPath: string
 }) {
   const uid = useId().replace(/:/g, '')
   const normalMarker = `dependency-arrow-${uid}`
@@ -1533,7 +1549,7 @@ function DependencyOverlay({
   return (
     <svg
       className="pointer-events-none absolute z-20 overflow-visible"
-      style={{ left, top: 'var(--wbs-head-h)' }}
+      style={{ left, top: 'var(--wbs-head-h)', clipPath }}
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
