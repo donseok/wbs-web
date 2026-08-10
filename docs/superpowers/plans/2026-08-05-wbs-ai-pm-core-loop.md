@@ -26,33 +26,37 @@
 
 ## File Structure
 
-| 경로 | 책임 |
-|---|---|
-| `src/db/schema.ts` | Kysely 테이블 타입 정의 |
-| `src/db/connection.ts` | 커넥션 풀 생성 |
-| `src/db/migrate.ts` | 마이그레이션 러너 |
-| `migrations/*.sql` | 순수 SQL 마이그레이션 |
-| `src/core/domain/rollup.ts` | 진척 롤업 (순수) |
-| `src/core/domain/report.ts` | 보고 검증 규칙 (순수) |
-| `src/core/domain/transition.ts` | 주문 상태 전이 (순수) |
-| `src/core/repo/workOrders.ts` | 주문 claim/보고/회수 쿼리 |
-| `src/core/repo/wbs.ts` | WBS 항목 쿼리 |
-| `src/core/auth/runnerToken.ts` | 러너 토큰 발급·검증 |
-| `src/core/auth/session.ts` | 사람 세션 |
-| `src/routes/internal/agent.ts` | 러너 API (내부 평면) |
-| `src/routes/public/approval.ts` | 승인 API (공개 평면) |
-| `src/server.ts` | Fastify 조립·평면 분리 |
-| `tests/**` | 위 각 단위의 테스트 |
+
+| 경로                              | 책임                |
+| ------------------------------- | ----------------- |
+| `src/db/schema.ts`              | Kysely 테이블 타입 정의  |
+| `src/db/connection.ts`          | 커넥션 풀 생성          |
+| `src/db/migrate.ts`             | 마이그레이션 러너         |
+| `migrations/*.sql`              | 순수 SQL 마이그레이션     |
+| `src/core/domain/rollup.ts`     | 진척 롤업 (순수)        |
+| `src/core/domain/report.ts`     | 보고 검증 규칙 (순수)     |
+| `src/core/domain/transition.ts` | 주문 상태 전이 (순수)     |
+| `src/core/repo/workOrders.ts`   | 주문 claim/보고/회수 쿼리 |
+| `src/core/repo/wbs.ts`          | WBS 항목 쿼리         |
+| `src/core/auth/runnerToken.ts`  | 러너 토큰 발급·검증       |
+| `src/core/auth/session.ts`      | 사람 세션             |
+| `src/routes/internal/agent.ts`  | 러너 API (내부 평면)    |
+| `src/routes/public/approval.ts` | 승인 API (공개 평면)    |
+| `src/server.ts`                 | Fastify 조립·평면 분리  |
+| `tests/**`                      | 위 각 단위의 테스트       |
+
 
 ---
 
 ### Task 1: 프로젝트 스캐폴딩과 DB 연결
 
 **Files:**
+
 - Create: `package.json` · `tsconfig.json` · `vitest.config.ts` · `docker-compose.yml` · `src/db/connection.ts` · `src/db/schema.ts` · `src/db/migrate.ts` · `migrations/0001_core.sql`
 - Test: `tests/db/connection.test.ts`
 
 **Interfaces:**
+
 - Consumes: 없음 (첫 태스크)
 - Produces: `getDb(): Kysely<DB>` · `runMigrations(dir: string): Promise<void>` · `DB` 타입
 
@@ -211,11 +215,13 @@ git commit -m "feat: 프로젝트 스캐폴딩과 UTC 고정 DB 커넥션"
 ### Task 2: 코어 스키마
 
 **Files:**
+
 - Create: `migrations/0001_core.sql`
 - Modify: `src/db/schema.ts`
 - Test: `tests/db/migrate.test.ts`
 
 **Interfaces:**
+
 - Consumes: `runMigrations`, `getDb` (Task 1)
 - Produces: 테이블 `projects` · `users` · `project_members` · `wbs_items` · `task_types`. Kysely 타입 `ProjectsTable` · `WbsItemsTable` · `TaskTypesTable` · `UsersTable` · `ProjectMembersTable`
 
@@ -355,10 +361,12 @@ git commit -m "feat: 코어 스키마 — level 컬럼 없이 parent_id 로 N단
 ### Task 3: 진척 롤업 (순수 함수)
 
 **Files:**
+
 - Create: `src/core/domain/rollup.ts`
 - Test: `tests/core/domain/rollup.test.ts`
 
 **Interfaces:**
+
 - Consumes: 없음 (DB를 모른다)
 - Produces: `type RollupNode = { id: string; parentId: string | null; actualPct: number }` · `rollup(nodes: RollupNode[]): Map<string, number>`
 
@@ -466,11 +474,13 @@ git commit -m "feat: 진척 롤업 — 임의 깊이, 소수 1자리"
 ### Task 4: 작업 루프 스키마
 
 **Files:**
+
 - Create: `migrations/0002_work_loop.sql`
 - Modify: `src/db/schema.ts`
 - Test: `tests/db/work-loop-schema.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 2의 테이블
 - Produces: 테이블 `runners` · `work_orders` · `work_reports`. 타입 `RunnersTable` · `WorkOrdersTable` · `WorkReportsTable`
 
@@ -605,10 +615,12 @@ git commit -m "feat: 작업 루프 스키마 — claim_count 와 fencing_token �
 ### Task 5: 러너 토큰 발급·검증
 
 **Files:**
+
 - Create: `src/core/auth/runnerToken.ts`
 - Test: `tests/core/auth/runnerToken.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getDb` (Task 1), `runners` 테이블 (Task 4)
 - Produces: `issueRunnerToken(name: string, ownerUserId: string): Promise<{ runnerId: string; token: string }>` · `verifyRunnerToken(token: string): Promise<string | null>` (러너 id 또는 null) · `revokeRunner(runnerId: string): Promise<void>`
 
@@ -726,10 +738,12 @@ git commit -m "feat: 러너 토큰 — argon2 해시 저장, 폐기 경로 포�
 ### Task 6: 평면 분리 — 러너 API 는 공개 경로에서 404
 
 **Files:**
+
 - Create: `src/server.ts` · `src/routes/internal/agent.ts`
 - Test: `tests/routes/plane-isolation.test.ts`
 
 **Interfaces:**
+
 - Consumes: `verifyRunnerToken` (Task 5)
 - Produces: `buildServer(opts: { plane: 'public' | 'internal' }): FastifyInstance`
 
@@ -823,11 +837,13 @@ git commit -m "feat: 평면 분리 — 러너 라우트를 공개 서버에 등�
 ### Task 7: claim-next — 원자성·claim_count·fencing
 
 **Files:**
+
 - Create: `src/core/repo/workOrders.ts`
 - Modify: `src/routes/internal/agent.ts`
 - Test: `tests/core/repo/claim.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getDb` (Task 1), `work_orders` (Task 4)
 - Produces: `claimNext(projectId: string, runnerId: string, leaseMinutes: number): Promise<{ orderId: string; wbsItemId: string; fencingToken: number } | null>`
 
@@ -997,10 +1013,12 @@ git commit -m "feat: claim-next — SKIP LOCKED 원자 claim, claim_count 와 fe
 ### Task 8: 보고 검증 규칙 (순수) — S2
 
 **Files:**
+
 - Create: `src/core/domain/report.ts`
 - Test: `tests/core/domain/report.test.ts`
 
 **Interfaces:**
+
 - Consumes: 없음 (순수)
 - Produces: `type ReportInput = { kind: 'progress' | 'completion' | 'failure'; percent: number | null }` · `type ReportVerdict = { ok: true } | { ok: false; reason: string }` · `validateReport(input: ReportInput, currentPct: number): ReportVerdict`
 
@@ -1101,10 +1119,12 @@ git commit -m "feat: 보고 검증 S2 — progress 0·하향·100 거부, failur
 ### Task 9: 보고 엔드포인트 — fencing 검증 포함 (S4)
 
 **Files:**
+
 - Modify: `src/core/repo/workOrders.ts` · `src/routes/internal/agent.ts`
 - Test: `tests/routes/report.test.ts`
 
 **Interfaces:**
+
 - Consumes: `validateReport` (Task 8), `claimNext` (Task 7)
 - Produces: `submitReport(args: { orderId: string; runnerId: string; fencingToken: number; kind: 'progress'|'completion'|'failure'; percent: number|null; summary: string|null; artifactUrl: string|null }): Promise<{ ok: true } | { ok: false; code: number; reason: string }>`
 
@@ -1268,10 +1288,12 @@ git commit -m "feat: 보고 엔드포인트 — fencing 검증으로 뒤늦은 �
 ### Task 10: lease 회수와 claim 상한 → blocked (S3·S4)
 
 **Files:**
+
 - Modify: `src/core/repo/workOrders.ts`
 - Test: `tests/core/repo/reclaim.test.ts`
 
 **Interfaces:**
+
 - Consumes: `claimNext` (Task 7)
 - Produces: `reclaimExpired(now: Date): Promise<number>` (회수 건수) · `claimNext` 가 상한 도달 시 `blocked` 로 전이
 
@@ -1366,11 +1388,13 @@ git commit -m "feat: lease 회수와 claim 상한 — 침묵 실패도 세어 bl
 ### Task 11: 사람 세션 인증
 
 **Files:**
+
 - Create: `src/core/auth/session.ts` · `migrations/0003_sessions.sql`
 - Modify: `src/db/schema.ts`
 - Test: `tests/core/auth/session.test.ts`
 
 **Interfaces:**
+
 - Consumes: `users` (Task 2)
 - Produces: `login(email: string, password: string): Promise<string | null>` (세션 토큰) · `resolveSession(token: string): Promise<string | null>` (user id) · `logout(token: string): Promise<void>`
 
@@ -1510,11 +1534,13 @@ git commit -m "feat: 사람 세션 인증 — argon2, 세션 토큰 해시 저�
 ### Task 12: 승인 — S1 과 S6
 
 **Files:**
+
 - Create: `src/core/repo/approval.ts` · `src/routes/public/approval.ts`
 - Modify: `src/server.ts`
 - Test: `tests/core/repo/approval.test.ts`
 
 **Interfaces:**
+
 - Consumes: `submitReport` (Task 9), `resolveSession` (Task 11), `rollup` (Task 3)
 - Produces: `approve(args: { orderId: string; approverId: string }): Promise<{ ok: true; selfApproved: boolean } | { ok: false; code: number; reason: string }>`
 
@@ -1735,10 +1761,12 @@ git commit -m "feat: 승인 — 담당자만, 100% 는 승인 전용(S1), 자기
 ### Task 13: 모듈 경계 정적 테스트
 
 **Files:**
+
 - Create: `tests/architecture/module-boundary.test.ts`
 - Test: 자기 자신
 
 **Interfaces:**
+
 - Consumes: 없음 (파일시스템만 읽는다)
 - Produces: 없음 (가드 테스트)
 
@@ -1799,22 +1827,26 @@ git commit -m "test: 모듈 경계를 문서가 아니라 테스트로 강제한
 
 스펙 §11의 1차 완료 조건 중 **4개**가 여기서 충족된다.
 
-| 완료 조건 | 충족 태스크 |
-|---|---|
-| 2. S2 — `progress 0`·하향 보고 거부 | Task 8·9 |
-| 3. S3 — claim 상한 → `blocked` | Task 10 |
-| 4. S4 — 옛 fencing 토큰 보고 거부 | Task 9·10 |
-| 5. 경계 — 공개 경로에서 러너 API 404 | Task 6 |
+
+| 완료 조건                         | 충족 태스크    |
+| ----------------------------- | --------- |
+| 2. S2 — `progress 0`·하향 보고 거부 | Task 8·9  |
+| 3. S3 — claim 상한 → `blocked`  | Task 10   |
+| 4. S4 — 옛 fencing 토큰 보고 거부    | Task 9·10 |
+| 5. 경계 — 공개 경로에서 러너 API 404    | Task 6    |
+
 
 **남는 조건 둘은 후속 계획이 담당한다** — 조건 1(성공 경로 E2E)은 러너 클라이언트 계획, 조건 6(복구 리허설)은 배포·운영 계획.
 
 ## 후속 계획 (이 계획이 돌아간 뒤 작성)
 
-| 계획 | 범위 | 선행 |
-|---|---|---|
+
+| 계획          | 범위                                                              | 선행   |
+| ----------- | --------------------------------------------------------------- | ---- |
 | P2 러너 클라이언트 | 맥북 러너: claim → Claude Code 구동 → PR 생성 → 보고. 타임아웃·워크트리 정리·디스크 하한 | 이 계획 |
-| P3 웹 UI | WBS 트리 화면, 작업 목록, 승인 화면, 로그인. `self_approved` 표시 | 이 계획 |
-| P4 엑셀 임포트 | 프로필, 계층 3방식 파서, 병합 셀 forward-fill, 재임포트 행 매칭 | P3 |
-| P5 배포·운영 | 맥미니 설치, Tailscale/Cloudflare 평면, 백업·복구 리허설, macOS 무인 운영 | P2 |
+| P3 웹 UI     | WBS 트리 화면, 작업 목록, 승인 화면, 로그인. `self_approved` 표시                | 이 계획 |
+| P4 엑셀 임포트   | 프로필, 계층 3방식 파서, 병합 셀 forward-fill, 재임포트 행 매칭                    | P3   |
+| P5 배포·운영    | 맥미니 설치, Tailscale/Cloudflare 평면, 백업·복구 리허설, macOS 무인 운영         | P2   |
+
 
 계획을 나눈 이유는 각각이 **독립적으로 동작하는 소프트웨어**를 내놓기 때문이다. 이 계획만 끝나도 서버는 돌고, API로 루프 전체를 검증할 수 있다.
