@@ -823,7 +823,9 @@ git add src/app/actions/members.ts src/app/actions/projectInvites.ts src/app/act
 git commit -m "teams 코드 해석 스코프 소탕 — 동명 2행(복합 유니크)에서 .single() 파손·임의 행 방지"
 ```
 
----### Task 7: 프로젝트 팀 관리 — 액션 + UI
+---
+
+### Task 7: 프로젝트 팀 관리 — 액션 + UI
 
 **Files:**
 - Create: `src/app/actions/projectTeams.ts`
