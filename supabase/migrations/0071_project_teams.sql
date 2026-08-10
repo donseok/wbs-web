@@ -14,9 +14,9 @@ set search_path = public, extensions;
 -- ── 1) 스코프 컬럼 + 인덱스 ─────────────────────────────────────────────
 alter table public.teams add column if not exists project_id uuid references public.projects(id) on delete cascade;
 create index if not exists idx_teams_project on public.teams(project_id);
--- getActor 의 rosterTeams 조회와 아래 RLS 합집합 서브쿼리가 user_id 단독 탐색을 한다.
--- 0019 의 (project_id,user_id) 부분 유니크는 선두 컬럼이 달라 이 탐색을 받치지 못한다.
-create index if not exists idx_project_members_user on public.project_members(user_id) where user_id is not null;
+-- getActor 의 rosterTeams 조회와 아래 RLS 합집합 서브쿼리가 필요로 하는 user_id 단독 탐색은
+-- 0019_project_member_user_link.sql:74-75 의 project_members_user_idx(동일 정의)가 이미 받친다.
+-- 신규 인덱스 불필요(리뷰 fix round 1 — 이름이 달라 if not exists 로 못 막는 중복이었다).
 
 -- ── 2) 코드 유니크 재편 — 위키 무동작 FK 선행 제거(의존 객체) 후 복합 유니크 ──
 -- 제약 실명은 적용 직전 프로덕션에서 확인한다(Task 2 Step 1). if exists 로 방어하되,

@@ -1,8 +1,10 @@
 -- 0071 롤백. 순서: 앱 코드 롤백 선배포 → 이 파일 적용(0044 관례).
 -- ⚠️ 전제: 프로젝트 팀 행(project_id is not null)이 남아 있으면 teams_code_key 재추가가
 -- 동명 충돌로 실패할 수 있다 — 아래 delete 가 프로젝트 팀 행을 제거한다(전역 행 무접촉).
--- item_owners 등이 프로젝트 팀 행을 참조 중이면 FK(on delete cascade)로 함께 지워진다:
--- 롤백은 프로젝트 팀 기능 전체의 철회이므로 의도된 동작이다.
+-- item_owners.team_id 는 on delete cascade(0001_init.sql) 라 그 행을 참조하던 item_owners 행이
+-- 함께 지워진다. project_members.team_id 는 on delete set null(0003_ops.sql:13) 이라 지워지지
+-- 않고 명단의 팀 배정만 null 로 남는다(로스터 행 자체는 보존). 롤백은 프로젝트 팀 기능 전체의
+-- 철회이므로 둘 다 의도된 동작이다.
 begin;
 set search_path = public, extensions;
 
@@ -320,7 +322,6 @@ alter table public.wiki_items
   add constraint wiki_items_owner_team_fkey foreign key (owner_team)
   references public.teams(code) on update cascade on delete set null;
 drop index if exists idx_teams_project;
-drop index if exists idx_project_members_user;
 alter table public.teams drop column if exists project_id;
 alter table public.project_members drop column if exists role_label;
 
