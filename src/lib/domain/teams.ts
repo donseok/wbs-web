@@ -9,15 +9,17 @@ export interface Team {
   active: boolean
   /** 대시보드 '팀별 진척현황' 노출 여부(기존 MDM 제외 규칙의 데이터화). */
   progressVisible: boolean
+  /** null = 전역 팀(회의록·또박또박·계정의 유일한 축). 값 = 그 프로젝트 전용 팀(0071). */
+  projectId: string | null
 }
 
 /** 콜드스타트 폴백 + 테스트 기본값(2026-07 기준 5팀). 런타임 기준은 항상 DB teams. */
 export const DEFAULT_TEAMS: readonly Team[] = [
-  { id: 'default-pmo', code: 'PMO', sortOrder: 0, active: true, progressVisible: true },
-  { id: 'default-erp', code: 'ERP', sortOrder: 1, active: true, progressVisible: true },
-  { id: 'default-mes', code: 'MES', sortOrder: 2, active: true, progressVisible: true },
-  { id: 'default-gagong', code: '가공', sortOrder: 3, active: true, progressVisible: true },
-  { id: 'default-mdm', code: 'MDM', sortOrder: 4, active: true, progressVisible: false },
+  { id: 'default-pmo', code: 'PMO', sortOrder: 0, active: true, progressVisible: true, projectId: null },
+  { id: 'default-erp', code: 'ERP', sortOrder: 1, active: true, progressVisible: true, projectId: null },
+  { id: 'default-mes', code: 'MES', sortOrder: 2, active: true, progressVisible: true, projectId: null },
+  { id: 'default-gagong', code: '가공', sortOrder: 3, active: true, progressVisible: true, projectId: null },
+  { id: 'default-mdm', code: 'MDM', sortOrder: 4, active: true, progressVisible: false, projectId: null },
 ]
 
 export const DEFAULT_TEAM_CODES: readonly TeamCode[] = DEFAULT_TEAMS.map(t => t.code)
@@ -54,4 +56,12 @@ export function normalizeNewTeamCode(
     return { ok: false, error: `'${code}'는 엑셀 양식 예약어라 팀 이름으로 쓸 수 없습니다.` }
   }
   return { ok: true, code }
+}
+
+/** 프로젝트 화면의 팀 목록 해석 — 프로젝트 행이 하나라도 있으면(비활성 포함) 그것만, 없으면 전역 폴백.
+ *  비활성 포함으로 판정해야 "전 팀 비활성화"가 전역 상속으로 오해 복귀하지 않는다(스펙 §2). */
+export function resolveTeamsForProject(all: readonly Team[], projectId: string): Team[] {
+  const own = all.filter(t => t.projectId === projectId)
+  if (own.length > 0) return own
+  return all.filter(t => t.projectId === null)
 }

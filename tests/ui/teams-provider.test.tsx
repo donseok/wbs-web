@@ -18,9 +18,9 @@ describe('TeamsProvider', () => {
 
   it('주입된 팀 목록을 정렬·활성 필터해 반환', () => {
     const teams: Team[] = [
-      { id: '2', code: '신팀', sortOrder: 5, active: true, progressVisible: false },
-      { id: '1', code: 'PMO', sortOrder: 0, active: true, progressVisible: true },
-      { id: '3', code: '구팀', sortOrder: 9, active: false, progressVisible: true },
+      { id: '2', code: '신팀', sortOrder: 5, active: true, progressVisible: false, projectId: null },
+      { id: '1', code: 'PMO', sortOrder: 0, active: true, progressVisible: true, projectId: null },
+      { id: '3', code: '구팀', sortOrder: 9, active: false, progressVisible: true, projectId: null },
     ]
     expect(renderToStaticMarkup(<TeamsProvider teams={teams}><Codes /></TeamsProvider>))
       .toContain('PMO,신팀')

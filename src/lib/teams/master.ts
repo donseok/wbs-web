@@ -6,7 +6,7 @@ import 'server-only'
 // service_role 로 읽는 이유: 캐시는 프로세스 전역이라 사용자 세션 컨텍스트가 없다(읽기 전용 select).
 // ============================================================================
 
-import { activeCodes, DEFAULT_TEAMS, type Team } from '@/lib/domain/teams'
+import { activeCodes, DEFAULT_TEAMS, resolveTeamsForProject, type Team } from '@/lib/domain/teams'
 import type { TeamCode } from '@/lib/domain/types'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -27,7 +27,7 @@ async function fetchTeams(): Promise<readonly Team[]> {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('teams')
-    .select('id, code, sort_order, active, progress_visible')
+    .select('id, code, sort_order, active, progress_visible, project_id')
     .order('sort_order')
     .order('code')
   if (error) throw new Error(error.message)
@@ -40,9 +40,11 @@ async function fetchTeams(): Promise<readonly Team[]> {
       sortOrder: Number(r.sort_order ?? 0),
       active: r.active !== false,
       progressVisible: r.progress_visible !== false,
+      projectId: (r.project_id as string | null) ?? null,
     }))
   // 빈 목록은 폴백 유지 — teams 테이블이 비는 건 정상 상태가 아니다(전 화면 팀 축 소실 방지).
-  if (teams.length === 0) throw new Error('teams 테이블이 비어 있습니다')
+  // 판정은 전역 행 기준: 프로젝트 행만 남고 전역이 빈 것도 비정상이다.
+  if (teams.filter(t => t.projectId === null).length === 0) throw new Error('전역 teams 행이 비어 있습니다')
   return teams
 }
 
@@ -82,27 +84,55 @@ export function refreshTeams(): Promise<boolean> {
   return next
 }
 
-/** 전체 팀(비활성 포함, sort_order 정렬). TTL 만료 시 백그라운드 갱신만 트리거. */
-export function teamsSync(): readonly Team[] {
+/** 전체 캐시(전역+프로젝트, 비활성 포함). 내부용 — 외부는 아래 스코프 접근자를 쓴다. */
+function allTeamsSync(): readonly Team[] {
   if (!background && Date.now() >= nextRefreshAt) {
     background = refreshTeams().catch(() => false).finally(() => { background = null })
   }
   return cache
 }
 
-/** 활성 팀 코드(정렬됨) — 탭·필터·검증 공용. */
+/** 전역 팀(비활성 포함) — 회의록·또박또박·계정 등 프로젝트 축 없는 화면의 유일한 소스.
+ *  프로젝트 팀은 여기 절대 섞이지 않는다(스펙 봉쇄 지점). */
+export function teamsSync(): readonly Team[] {
+  return allTeamsSync().filter(t => t.projectId === null)
+}
+
+/** 활성 팀 코드(정렬됨) — 탭·필터·검증 공용(전역 전용). */
 export function activeTeamCodesSync(): TeamCode[] {
   return activeCodes(teamsSync())
 }
 
-/** 비활성 포함 등록 여부 — 기존 데이터 표시·시드 폴더 앵커 보호·엑셀 임포트 검증용. */
+/** 비활성 포함 등록 여부(전역 전용) — 기존 데이터 표시·시드 폴더 앵커 보호·엑셀 임포트 검증용. */
 export function isRegisteredTeamCode(code: string): boolean {
   return teamsSync().some(t => t.code === code)
 }
 
-/** 활성 팀 여부 — 신규 입력 검증용(비활성 팀으로의 새 등록은 거부). */
+/** 활성 팀 여부(전역 전용) — 신규 입력 검증용(비활성 팀으로의 새 등록은 거부). */
 export function isActiveTeamCode(code: string): boolean {
   return teamsSync().some(t => t.active && t.code === code)
+}
+
+/** 프로젝트 화면용 — 프로젝트 행 있으면 그것만, 없으면 전역 폴백(비활성 포함). */
+export function teamsForProjectSync(projectId: string): readonly Team[] {
+  return resolveTeamsForProject(allTeamsSync(), projectId)
+}
+
+/** 폴백 없는 프로젝트 행 원본(비활성 포함) — 설정 화면의 "전역 상속 중" 판정·목록용. */
+export function projectTeamRowsSync(projectId: string): readonly Team[] {
+  return allTeamsSync().filter(t => t.projectId === projectId)
+}
+
+export function activeTeamCodesForProjectSync(projectId: string): TeamCode[] {
+  return activeCodes(teamsForProjectSync(projectId))
+}
+
+export function isRegisteredTeamCodeForProject(code: string, projectId: string): boolean {
+  return teamsForProjectSync(projectId).some(t => t.code === code)
+}
+
+export function isActiveTeamCodeForProject(code: string, projectId: string): boolean {
+  return teamsForProjectSync(projectId).some(t => t.active && t.code === code)
 }
 
 // 모듈 초기화에서 최초 1회를 await 한다. lazy 면 콜드스타트 인스턴스의 첫 요청들이

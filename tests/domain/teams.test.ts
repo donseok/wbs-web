@@ -12,9 +12,9 @@ describe('domain/teams', () => {
 
   it('activeCodes는 active만 sortOrder→code 순 정렬', () => {
     const teams: Team[] = [
-      { id: '3', code: 'C', sortOrder: 2, active: false, progressVisible: true },
-      { id: '2', code: 'B', sortOrder: 1, active: true, progressVisible: true },
-      { id: '1', code: 'A', sortOrder: 1, active: true, progressVisible: true },
+      { id: '3', code: 'C', sortOrder: 2, active: false, progressVisible: true, projectId: null },
+      { id: '2', code: 'B', sortOrder: 1, active: true, progressVisible: true, projectId: null },
+      { id: '1', code: 'A', sortOrder: 1, active: true, progressVisible: true, projectId: null },
     ]
     expect(activeCodes(teams)).toEqual(['A', 'B'])
   })
