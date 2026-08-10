@@ -12,7 +12,7 @@ import {
 } from '@/lib/repositories/types'
 import { isRetryableReadError, nestedOne, type SupabaseServerClient } from './common'
 import { teamOrderMap } from '@/lib/domain/teams'
-import { teamsSync } from '@/lib/teams/master'
+import { teamsForProjectSync } from '@/lib/teams/master'
 
 type Row = Record<string, unknown>
 
@@ -35,7 +35,7 @@ interface WbsItemScope {
   updatedAt: string | null
 }
 
-function mapOwners(raw: unknown): WbsRow['owners'] {
+function mapOwners(raw: unknown, projectId: string): WbsRow['owners'] {
   if (!Array.isArray(raw)) return []
   // 팀 코드는 teams FK 조인 결과라 등록 팀만 온다 — 하드코딩 화이트리스트 불필요(신규 팀 자동 수용).
   const allowedKinds = new Set<OwnerKind>(['primary', 'support'])
@@ -51,7 +51,7 @@ function mapOwners(raw: unknown): WbsRow['owners'] {
     }
   }
   // 표시 순서는 팀 마스터 sort_order(비활성 포함 — 기존 데이터 정렬 안정). 미등록은 뒤로.
-  const order = teamOrderMap(teamsSync().map(t => t.code))
+  const order = teamOrderMap(teamsForProjectSync(projectId).map(t => t.code))
   const rank = (t: TeamCode) => order.get(t) ?? Number.MAX_SAFE_INTEGER
   return owners.sort((a, b) =>
     (a.kind === b.kind ? 0 : a.kind === 'primary' ? -1 : 1) || rank(a.team) - rank(b.team),
@@ -111,7 +111,7 @@ async function readItemScope(
   })
 }
 
-function mapItem(row: Row): WbsRepositoryItem {
+function mapItem(row: Row, projectId: string): WbsRepositoryItem {
   return {
     id: row.id as string,
     projectId: row.project_id as string,
@@ -125,7 +125,7 @@ function mapItem(row: Row): WbsRepositoryItem {
     plannedEnd: (row.planned_end as string | null) ?? null,
     weight: nullableNumber(row.weight),
     actualPct: nullableNumber(row.actual_pct),
-    owners: mapOwners(row.item_owners),
+    owners: mapOwners(row.item_owners, projectId),
     updatedAt: (row.updated_at as string | null) ?? null,
     isOwnerSplit: row.is_owner_split === true,
   }
@@ -173,7 +173,7 @@ export function createSupabaseWbsRepository(client: SupabaseServerClient): WbsBo
       const snapshot: WbsProjectSnapshot = {
         projectId,
         baseDate: (project.base_date as string | null) ?? null,
-        items: ((itemsResult.data ?? []) as unknown as Row[]).map(mapItem),
+        items: ((itemsResult.data ?? []) as unknown as Row[]).map(row => mapItem(row, projectId)),
         holidays: ((holidaysResult.data ?? []) as Row[]).map(row => row.date as string),
         dependencies: ((dependenciesResult.data ?? []) as Row[]).map(mapDependency),
       }

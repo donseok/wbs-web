@@ -4,7 +4,7 @@ import type { SnapshotPoint } from '@/lib/domain/trend'
 import type { WbsRow } from '@/lib/domain/types'
 import { seoulToday } from '@/lib/domain/dates'
 import { activeCodes, teamOrderMap } from '@/lib/domain/teams'
-import { teamsSync } from '@/lib/teams/master'
+import { teamsForProjectSync } from '@/lib/teams/master'
 
 type Sb = Awaited<ReturnType<typeof createServerClient>>
 
@@ -65,7 +65,7 @@ export async function recordProgressSnapshot(projectId: string, client?: Sb): Pr
     }))
     const today = seoulToday()
     const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
-    const opts = { subActTeamOrder: teamOrderMap(activeCodes(teamsSync())) }
+    const opts = { subActTeamOrder: teamOrderMap(activeCodes(teamsForProjectSync(projectId))) }
     const { actual, planned } = overallProgress(computeTree(rows, today, holidays, opts))
     const { error: upsertErr } = await sb.from('wbs_progress_snapshots').upsert(
       { project_id: projectId, snap_date: today, actual_pct: actual, planned_pct: planned, updated_at: new Date().toISOString() },

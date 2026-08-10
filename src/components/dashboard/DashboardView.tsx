@@ -12,7 +12,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { activeCodes, teamOrderMap } from '@/lib/domain/teams'
-import { teamsSync } from '@/lib/teams/master'
+import { teamsForProjectSync } from '@/lib/teams/master'
 import { ExecSummary } from './ExecSummary'
 import { TrendChart } from './TrendChart'
 import { SpiPanel } from './SpiPanel'
@@ -84,7 +84,7 @@ export async function DashboardView({
   }
 
   const { actual, planned } = overallProgress(items)
-  const subActTeamOrder = teamOrderMap(activeCodes(teamsSync()))
+  const subActTeamOrder = teamOrderMap(activeCodes(teamsForProjectSync(projectId)))
   const trend = buildTrend({
     items, snapshots, holidays: new Set(holidays), startDate, endDate, today,
     opts: { subActTeamOrder },
@@ -137,7 +137,7 @@ export async function DashboardView({
       </div>
 
       {/* 팀별 진척 — 실행 큐로 내려가기 전에 팀 단위 진행 현황을 한눈에 */}
-      <TeamProgress items={items} />
+      <TeamProgress items={items} teams={teamsForProjectSync(projectId)} />
 
       {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
       <RiskWorklist items={items} projectId={projectId} today={today} />

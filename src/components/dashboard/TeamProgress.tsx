@@ -1,17 +1,18 @@
 import { Users } from 'lucide-react'
 import type { ComputedItem } from '@/lib/domain/types'
+import type { Team } from '@/lib/domain/teams'
 import { teamProgress } from '@/lib/domain/dashboard'
-import { teamsSync } from '@/lib/teams/master'
 import { collectLeaves } from '@/lib/domain/tree'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { teamStyle } from '@/components/wbs/shared'
 
-/** 팀별 진척 — 주간 보고서 모달의 By owner 섹션과 같은 정의(teamProgress)를 대시보드에 상설 노출.
+/** 팀별 진척 — 팀 목록은 DashboardView 가 프로젝트 인식으로 주입한다(0071).
+ *  주간 보고서 모달의 By owner 섹션과 같은 정의(teamProgress)를 대시보드에 상설 노출.
  *  담당 없는 팀은 바 0 + '-' 표기(0%와 구분). */
-export function TeamProgress({ items }: { items: ComputedItem[] }) {
+export function TeamProgress({ items, teams }: { items: ComputedItem[]; teams: readonly Team[] }) {
   // 표시 대상 = 활성 + progress_visible(팀 마스터) — 기존 'MDM 제외' 규칙의 데이터화
-  const progressTeams = teamsSync().filter(tm => tm.active && tm.progressVisible).map(tm => tm.code)
+  const progressTeams = teams.filter(tm => tm.active && tm.progressVisible).map(tm => tm.code)
   const rows = teamProgress(collectLeaves(items), progressTeams)
 
   return (

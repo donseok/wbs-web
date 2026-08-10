@@ -3,7 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { computeTree } from '@/lib/domain/rollup'
 import { computeCompletionMap, type ProjectCompletion } from '@/lib/domain/project-status'
 import { teamOrderMap } from '@/lib/domain/teams'
-import { teamsSync } from '@/lib/teams/master'
+import { teamsForProjectSync } from '@/lib/teams/master'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind, TaskDependency } from '@/lib/domain/types'
 import { seoulToday } from '@/lib/domain/dates'
 
@@ -58,7 +58,7 @@ export const getComputedWbs = cache(async (
   })
   // DB가 순서를 보장하지 않으므로 표시 순서를 고정: 주관 먼저, 팀은 팀 마스터 sort_order.
   // (담당별 행 분리 UI에서 순서가 요청마다 바뀌면 같은 항목의 행 배치가 흔들린다.)
-  const teamOrder = teamOrderMap(teamsSync().map(t => t.code))
+  const teamOrder = teamOrderMap(teamsForProjectSync(projectId).map(t => t.code))
   const rank = (t: TeamCode) => teamOrder.get(t) ?? Number.MAX_SAFE_INTEGER
   ownerMap.forEach(arr =>
     arr.sort((a, b) =>

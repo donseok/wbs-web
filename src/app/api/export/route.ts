@@ -4,7 +4,7 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { buildWbsWorkbook } from '@/lib/excel/export'
 import { buildWorkbookWithProfile } from '@/lib/excel/exportWithProfile'
-import { activeTeamCodesSync } from '@/lib/teams/master'
+import { activeTeamCodesForProjectSync } from '@/lib/teams/master'
 import { seoulToday } from '@/lib/domain/dates'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { validateProfile, LEGACY_DCUBE_PROFILE } from '@/lib/excel/profile'
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 500 })
     }
     buf = buildWbsWorkbook(
-      items, holidays.map(d => ({ date: d, name: '' })), name, activeTeamCodesSync(), config.levelLabels,
+      items, holidays.map(d => ({ date: d, name: '' })), name, activeTeamCodesForProjectSync(projectId), config.levelLabels,
     )
   }
   const today = seoulToday()
