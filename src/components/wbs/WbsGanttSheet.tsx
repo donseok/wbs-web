@@ -225,8 +225,11 @@ export function WbsGanttSheet({
   const toggleHideDone = () => {
     // 토글 조작은 명시적 의사표시 — focus 임시 노출을 함께 걷어낸다(스펙 §데이터 흐름 3).
     setHideExempt(s => (s.size ? new Set() : s))
-    queueUiPref({ wbsHideDone: !hideDone })
-    setHideDone(v => !v)
+    // 다음 값을 한 번 계산해 화면(setHideDone)과 저장(queueUiPref)이 같은 소스를 쓴다
+    // — 클로저/함수형 업데이트 혼용으로 화면·저장값이 어긋나는 창을 없앤다.
+    const next = !hideDone
+    setHideDone(next)
+    queueUiPref({ wbsHideDone: next })
   }
   // 숨김 판정 — 여기(상태 블록)에 선언해야 아래쪽 focus 효과(Task 3)의 의존성 배열이
   // 선언 전 참조(TDZ)가 되지 않는다. flatRows 근처(394행대)에 두면 렌더 시점에 터진다.
