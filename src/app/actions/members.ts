@@ -27,10 +27,15 @@ const MEMBER_IDENTITY_RENAME_FORBIDDEN =
   '여러 프로젝트에서 사용하는 이름은 슈퍼유저만 변경할 수 있습니다.'
 const MEMBER_UPDATE_RETRY = '다른 요청이 멤버 정보를 변경했습니다. 다시 시도해 주세요.'
 
-async function resolveTeamId(sb: ServerClient, teamCode: TeamCode | null): Promise<string | null> {
+/** 팀 코드 → teams.id — 프로젝트 행 우선, 전역 폴백(0071 스코프. import RPC 와 같은 규칙). */
+async function resolveTeamId(sb: ServerClient, teamCode: TeamCode | null, projectId: string): Promise<string | null> {
   if (!teamCode) return null
-  const { data } = await sb.from('teams').select('id').eq('code', teamCode).single()
-  return (data?.id as string | undefined) ?? null
+  const { data } = await sb.from('teams')
+    .select('id, project_id')
+    .eq('code', teamCode)
+    .or(`project_id.eq.${projectId},project_id.is.null`)
+  const rows = (data ?? []) as Array<{ id: string; project_id: string | null }>
+  return (rows.find(r => r.project_id !== null) ?? rows[0])?.id ?? null
 }
 
 /** 0019 의 부분 유니크 인덱스 위반을 사용자 언어로 옮긴다 — 원시 Postgres 문자열 노출 방지. */
@@ -100,7 +105,7 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
   const sb = await createServerClient()
   const identity = await validateMemberIdentity(sb, email, name)
   if (!identity.ok) return identity
-  const teamId = await resolveTeamId(sb, input.teamCode)
+  const teamId = await resolveTeamId(sb, input.teamCode, projectId)
   const { error } = await sb.from('project_members').insert({
     project_id: projectId,
     name,
@@ -125,7 +130,7 @@ export async function updateMember(memberId: string, input: MemberInput): Promis
   if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
   const email = input.email?.trim().toLowerCase() || null // 0019 trigger·0070 정본 키와 같은 정규화
   const sb = await createServerClient()
-  const teamId = await resolveTeamId(sb, input.teamCode)
+  const teamId = await resolveTeamId(sb, input.teamCode, found.projectId!)
   // 이름 정본 변경과 현재 프로젝트 속성 수정을 한 RPC 트랜잭션으로 묶는다.
   // 단일 프로젝트 email은 해당 관리자가 교정할 수 있고, 여러 프로젝트가 공유하면
   // DB가 슈퍼유저만 허용한다. 두 요청으로 나누면 한쪽만 저장되는 반쪽 성공이 생긴다.

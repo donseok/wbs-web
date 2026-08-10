@@ -52,6 +52,9 @@ const { db, resetDb, createServerClient, requireProjectAdmin, resolveProjectId }
       eq: chain((c, v) => filters.push([String(c), v, 'eq'])),
       is: chain((c, v) => filters.push([String(c), v, 'eq'])),
       in: chain((c, v) => filters.push([String(c), v, 'in'])),
+      // or 는 이 모의의 AND-필터 엔진으로 표현하지 않는다 — 테스트 데이터가 code 당 1행이라
+      // eq('code', ...) 만으로 이미 유일하게 걸린다(스코프 우선순위는 addSubAct 쪽 find 가 담당).
+      or: chain(),
       limit: chain((n) => { limitN = n as number }),
       order: chain(),
       single: async () => {

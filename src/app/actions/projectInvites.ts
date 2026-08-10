@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { requireProjectAdmin } from '@/lib/authz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { listAllAuthUsers } from '@/lib/data/accounts'
-import { activeTeamCodesSync } from '@/lib/teams/master'
+import { activeTeamCodesForProjectSync } from '@/lib/teams/master'
 import { isTeamCode } from '@/lib/domain/accounts'
 import { isValidEmail } from '@/lib/domain/validate'
 import { displayNameFrom } from '@/lib/domain/display-name'
@@ -98,13 +98,17 @@ function toMailMessage(e: unknown): string {
   return '메일 발송 중 오류가 발생했습니다.'
 }
 
-/** 팀 코드 → teams.id. accounts.ts 의 동명 함수와 같은 형태(그쪽은 export 되지 않는다). */
-async function resolveTeamId(admin: AdminClient, teamCode: string): Promise<string | null> {
-  const { data, error } = await admin.from('teams').select('id').eq('code', teamCode).single()
+/** 팀 코드 → teams.id — 프로젝트 행 우선, 전역 폴백(0071 스코프. import RPC 와 같은 규칙). */
+async function resolveTeamId(admin: AdminClient, teamCode: string, projectId: string): Promise<string | null> {
+  const { data, error } = await admin.from('teams')
+    .select('id, project_id')
+    .eq('code', teamCode)
+    .or(`project_id.eq.${projectId},project_id.is.null`)
   // 쓰기 직전의 조회 — null 이면 호출부가 발급을 중단하므로 이미 fail-closed다.
   // 다만 '팀이 없음'과 '조회가 깨짐'이 화면에서 같은 문구가 되므로 원인은 로그로 남긴다.
   if (error) console.error('[projectInvites.resolveTeamId] 조회 실패:', error.message)
-  return (data?.id as string | undefined) ?? null
+  const rows = (data ?? []) as Array<{ id: string; project_id: string | null }>
+  return (rows.find(r => r.project_id !== null) ?? rows[0])?.id ?? null
 }
 
 type RawInvite = {
@@ -189,7 +193,7 @@ export async function createProjectInvite(
   if (!isValidEmail(email)) return { ok: false, error: ERR_EMAIL }
   const domains = parseAllowedDomains(process.env.INVITE_ALLOWED_DOMAINS)
   if (!isAllowedInviteDomain(email, domains)) return { ok: false, error: domainError(domains) }
-  if (!isTeamCode(input.teamCode, activeTeamCodesSync())) return { ok: false, error: ERR_TEAM }
+  if (!isTeamCode(input.teamCode, activeTeamCodesForProjectSync(projectId))) return { ok: false, error: ERR_TEAM }
   const days = normalizeInviteDays(input.days ?? DEFAULT_INVITE_DAYS)
   if (days === null) return { ok: false, error: ERR_DAYS }
 
@@ -214,7 +218,7 @@ export async function createProjectInvite(
   }
   if (!project) return { ok: false, error: '프로젝트를 찾을 수 없습니다.' }
 
-  const teamId = await resolveTeamId(admin, input.teamCode)
+  const teamId = await resolveTeamId(admin, input.teamCode, projectId)
   if (!teamId) return { ok: false, error: '팀을 찾을 수 없습니다.' }
 
   // 기존 계정이 있으면 링크가 '로그인하고 합류' 경로가 된다 — 발급을 막지는 않고 안내만 한다.

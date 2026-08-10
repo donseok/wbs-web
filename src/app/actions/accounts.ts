@@ -62,8 +62,9 @@ async function requireAnyAdmin(): Promise<
   return { ok: true, userId: actor.userId, isSuperuser: actor.isSuperuser }
 }
 
+/** 계정은 전역 축(스펙 §5) — 프로젝트 팀은 절대 잡지 않는다. */
 async function resolveTeamId(admin: AdminClient, teamCode: TeamCode): Promise<string | null> {
-  const { data, error } = await admin.from('teams').select('id').eq('code', teamCode).single()
+  const { data, error } = await admin.from('teams').select('id').eq('code', teamCode).is('project_id', null).single()
   // 쓰기 직전의 채번 조회 — null 을 돌려주면 호출부가 저장을 중단(ok:false)하므로 실패는 이미 fail-closed다.
   // 다만 '팀이 없음'과 '조회가 깨짐'이 화면에서 같은 문구로 보이므로 원인은 로그로 남긴다.
   if (error) console.error('[resolveTeamId] 조회 실패:', error.message)

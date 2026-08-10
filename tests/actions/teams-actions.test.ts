@@ -27,9 +27,20 @@ const { db, createAdminClient, refreshTeams, requireSuperuser } = vi.hoisted(() 
         return { data: found ?? (filters.length === 0 ? rows()[0] ?? null : null), error: null }
       },
       insert: async (row: unknown) => { db.inserted[name].push(row); return { error: null } },
-      update: (patch: unknown) => ({
-        eq: async (_c: string, id: unknown) => { db.updated.push({ patch, id }); return { error: null } },
-      }),
+      // update 체인도 eq/is 를 함께 받는다(updateTeam 의 .eq('id', id).is('project_id', null) 방어).
+      // .then 을 구현해 어느 지점에서 await 하든(체인 중간이든 끝이든) 실행되게 한다.
+      update: (patch: unknown) => {
+        let id: unknown
+        const upd: Record<string, unknown> = {
+          eq: (_c: string, v: unknown) => { id = v; return upd },
+          is: () => upd,
+          then: (resolve: (v: { error: null }) => void) => {
+            db.updated.push({ patch, id })
+            resolve({ error: null })
+          },
+        }
+        return upd
+      },
     })
     return q
   }

@@ -25,7 +25,7 @@ vi.mock('@/lib/mail/transport', () => ({ getTransport }))
 // 팀 마스터는 모듈 로드 시 DB 를 읽는다(캐시 프라이밍). 여기서는 코드 검증 규칙만 필요하므로
 // 실물을 태우지 않는다 — 태우면 TTL 만료 시점에 createAdminClient 호출 단언이 흔들린다.
 vi.mock('@/lib/teams/master', () => ({
-  activeTeamCodesSync: () => ['PMO', 'ERP', 'MES', '가공', 'MDM'],
+  activeTeamCodesForProjectSync: () => ['PMO', 'ERP', 'MES', '가공', 'MDM'],
 }))
 vi.mock('@/lib/data/accounts', () => ({ listAllAuthUsers: vi.fn(async () => []) }))
 
@@ -85,6 +85,7 @@ interface Chain {
   eq: (...a: unknown[]) => Chain
   is: (...a: unknown[]) => Chain
   in: (...a: unknown[]) => Chain
+  or: (...a: unknown[]) => Chain
   order: (...a: unknown[]) => Chain
   single: () => Promise<QueryResult>
   maybeSingle: () => Promise<QueryResult>
@@ -92,7 +93,7 @@ interface Chain {
 }
 function chainOf(result: QueryResult): Chain {
   const chain: Chain = {
-    select: () => chain, eq: () => chain, is: () => chain, in: () => chain, order: () => chain,
+    select: () => chain, eq: () => chain, is: () => chain, in: () => chain, or: () => chain, order: () => chain,
     single: async () => result,
     maybeSingle: async () => result,
     then: (res, rej) => Promise.resolve(result).then(res, rej),
@@ -126,7 +127,8 @@ function createClient(o: {
 
   const from = vi.fn((table: string) => {
     if (table === 'projects') return chainOf({ data: { name: 'D-CUBE' }, error: null })
-    if (table === 'teams') return chainOf({ data: { id: 'team-1' }, error: null })
+    // resolveTeamId 는 .single() 없이 배열로 받는다(0071 스코프 — 프로젝트 행 우선, 전역 폴백).
+    if (table === 'teams') return chainOf({ data: [{ id: 'team-1', project_id: null }], error: null })
     return {
       ...chainOf({ data: o.blockingError ? null : (o.blocking ?? []), error: o.blockingError ?? null }),
       insert, update, delete: del,

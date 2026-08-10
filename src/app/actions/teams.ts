@@ -21,12 +21,15 @@ export async function addTeam(input: string): Promise<TeamActionResult> {
   if (!norm.ok) return norm
   const admin = createAdminClient()
 
-  const dup = await admin.from('teams').select('id').eq('code', norm.code).maybeSingle()
+  // 0071: 전역·프로젝트 행이 같은 code 를 가질 수 있다. 이 화면은 전역 행만 다루므로
+  // project_id is null 로 고정 — 안 고정하면 어느 프로젝트가 같은 code 를 쓰는 순간
+  // "이미 존재합니다"로 전역 생성이 오차단된다(임의 행을 잡는 사례).
+  const dup = await admin.from('teams').select('id').eq('code', norm.code).is('project_id', null).maybeSingle()
   if (dup.error) return { ok: false, error: `팀 조회 실패: ${dup.error.message}` }
   if (dup.data) return { ok: false, error: `'${norm.code}' 팀이 이미 존재합니다.` }
 
   const max = await admin.from('teams')
-    .select('sort_order').order('sort_order', { ascending: false }).limit(1).maybeSingle()
+    .select('sort_order').is('project_id', null).order('sort_order', { ascending: false }).limit(1).maybeSingle()
   if (max.error) return { ok: false, error: `팀 조회 실패: ${max.error.message}` }
   const sortOrder = Number((max.data as { sort_order?: number } | null)?.sort_order ?? -1) + 1
 
@@ -66,7 +69,10 @@ export async function updateTeam(
   if (typeof patch.sortOrder === 'number' && Number.isInteger(patch.sortOrder)) row.sort_order = patch.sortOrder
   if (Object.keys(row).length === 0) return { ok: false, error: '변경할 항목이 없습니다.' }
   const admin = createAdminClient()
-  const upd = await admin.from('teams').update(row).eq('id', id)
+  // .is('project_id', null) 를 함께 건다 — 슈퍼유저 가드가 통과한 전역 행만 만진다
+  // (projectTeams.ts 의 updateProjectTeam 과 대칭되는 방어; id 자체는 이미 유니크하지만
+  // 목록이 전역 전용으로 좁혀지지 않았을 경우까지 방어한다).
+  const upd = await admin.from('teams').update(row).eq('id', id).is('project_id', null)
   if (upd.error) return { ok: false, error: `팀 수정 실패: ${upd.error.message}` }
   await refreshTeams()
   revalidatePath('/admin/teams')
@@ -84,8 +90,10 @@ export async function listTeamsAdmin(): Promise<
     return []
   }
   const admin = createAdminClient()
+  // 전역 관리 화면 — project_id is null 로 고정해 프로젝트 팀(0071)이 섞여 들어오지 않게 한다.
   const { data, error } = await admin.from('teams')
     .select('id, code, sort_order, active, progress_visible')
+    .is('project_id', null)
     .order('sort_order').order('code')
   if (error) {
     console.error('[teams] 관리 목록 조회 실패:', error.message)
