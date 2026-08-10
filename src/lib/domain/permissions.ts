@@ -36,6 +36,14 @@ export function canEditActual(item: ComputedItem, actor: Actor | null, projectId
   return item.owners.some(o => mine.includes(o.team))
 }
 
+/** 산출물 첨부 어포던스 — attachments.ts 서버 재검증(can_attach RLS)과 같은 합집합 규칙. */
+export function canAttachDeliverable(item: ComputedItem, actor: Actor | null, projectId: string): boolean {
+  if (isProjectAdmin(actor, projectId)) return true
+  if (!isProjectMember(actor, projectId)) return false
+  const mine = actorTeamCodesFor(actor!, projectId)
+  return item.owners.some(o => mine.includes(o.team))
+}
+
 /** 가중치 편집 권한 — 구조/롤업 영향이라 관리자 이상만. */
 export function canEditWeight(actor: Actor | null, projectId: string): boolean {
   return isProjectAdmin(actor, projectId)

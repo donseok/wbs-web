@@ -2,12 +2,12 @@
 import { useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, TaskDependency } from '@/lib/domain/types'
-import { actorFromView, isProjectAdmin, isProjectMember, type ProjectActorView } from '@/lib/domain/authz'
+import { actorFromView, isProjectAdmin, type ProjectActorView } from '@/lib/domain/authz'
 import { computeDependencySchedule, type TaskSchedule } from '@/lib/domain/dependencySchedule'
 import { centeredTimelineScrollLeft, groupGanttMilestones } from '@/lib/domain/ganttScale'
 import { milestoneTimeline, type MilestoneStatus } from '@/lib/domain/dashboard'
 import { isWeekendDow } from '@/lib/domain/dates'
-import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
+import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable } from '@/lib/domain/permissions'
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
@@ -1578,7 +1578,7 @@ export function WbsGanttSheet({
           schedule={dependencySchedule.byId.get(selectedItem.id)}
           onClose={() => setSelectedId(null)}
           editable={isAdmin && !readOnly}
-          canAttach={!readOnly && (isAdmin || (isProjectMember(actor, projectId) && selectedItem.owners.some(o => o.team === actorView?.teamCode)))}
+          canAttach={!readOnly && canAttachDeliverable(selectedItem, actor, projectId)}
           canEditDeliverable={!readOnly && canEditDeliverable(selectedItem, actor, projectId)}
           projectId={projectId}
           levelLabels={levelLabels}

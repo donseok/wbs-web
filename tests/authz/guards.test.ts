@@ -66,6 +66,30 @@ describe('getActor', () => {
     })
     await expect(getActor()).rejects.toThrow(/권한 정보/)
   })
+
+  // 0071: project_members 조회 결과가 rosterTeams(projectId → {teamId, teamCode})로 정확히
+  // 조립되는지 — teams(code) 임베드 캐스트 경유라 실값이 아니라 undefined 로 새는 회귀를 잡는다.
+  it('명단 팀 조회 결과를 rosterTeams 로 조립한다', async () => {
+    stubDb({
+      membership: { is_superuser: false, teams: { code: 'ERP', id: 't9' } },
+      roles: [{ project_id: 'p1', role: 'member' }],
+      rosterRows: [{ project_id: 'p1', team_id: 't-dev', teams: { code: '개발' } }],
+    })
+    const a = await getActor()
+    expect(a?.rosterTeams.get('p1')).toEqual({ teamId: 't-dev', teamCode: '개발' })
+    expect(a?.rosterTeams.get('p2')).toBeUndefined()
+  })
+
+  // memberships·project_roles 축과 동일 계약: 명단 팀 조회 실패도 '명단 팀 없음'으로 폴백하지
+  // 않고 예외로 드러낸다(fail-closed) — 조용히 좁아진 권한이 아니라 중단이어야 한다.
+  it('project_members 조회가 실패하면 예외를 던진다', async () => {
+    stubDb({
+      membership: { is_superuser: false, teams: { code: 'ERP', id: 't9' } },
+      roles: [{ project_id: 'p1', role: 'member' }],
+      rosterRows: null, rosterError: { message: 'boom' },
+    })
+    await expect(getActor()).rejects.toThrow(/권한 정보/)
+  })
 })
 
 describe('requireSuperuser', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canEditActual, actorTeamCodesFor } from '@/lib/domain/permissions'
+import { canEditActual, canAttachDeliverable, actorTeamCodesFor } from '@/lib/domain/permissions'
 import type { Actor } from '@/lib/domain/authz'
 import type { ComputedItem } from '@/lib/domain/types'
 
@@ -33,5 +33,21 @@ describe('실적 편집 — 내 팀 = 계정 전역 팀 ∪ 프로젝트 명단 
     const a = actor({ teamCode: 'ERP', teamId: 't-erp',
       rosterTeams: new Map([[P, { teamId: 't-erp', teamCode: 'ERP' }]]) })
     expect(actorTeamCodesFor(a, P)).toEqual(['ERP'])
+  })
+})
+
+describe('산출물 첨부 어포던스 — canAttachDeliverable (WbsGanttSheet, attachments.ts can_attach RLS와 동일 합집합)', () => {
+  it('명단 팀만 있는 멤버는 첨부할 수 있다 — 계정 팀이 없어도 명단 팀으로 허용', () => {
+    const a = actor({ teamCode: null, teamId: null,
+      rosterTeams: new Map([[P, { teamId: 't-dev', teamCode: '개발' }]]) })
+    expect(canAttachDeliverable(leaf('개발'), a, P)).toBe(true)
+  })
+  it('관리자는 담당 무관 전체 첨부 가능', () => {
+    const a = actor({ projectRoles: new Map([[P, 'admin']]) })
+    expect(canAttachDeliverable(leaf('QA'), a, P)).toBe(true)
+  })
+  it('계정 팀도 명단 팀도 없는 멤버는 첨부할 수 없다', () => {
+    const a = actor({ teamCode: null, teamId: null })
+    expect(canAttachDeliverable(leaf('개발'), a, P)).toBe(false)
   })
 })
