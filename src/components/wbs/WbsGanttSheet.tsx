@@ -231,8 +231,7 @@ export function WbsGanttSheet({
     setHideDone(next)
     queueUiPref({ wbsHideDone: next })
   }
-  // 숨김 판정 — 여기(상태 블록)에 선언해야 아래쪽 focus 효과(Task 3)의 의존성 배열이
-  // 선언 전 참조(TDZ)가 되지 않는다. flatRows 근처(394행대)에 두면 렌더 시점에 터진다.
+  // 숨김 판정 — 아래쪽 focus 효과의 의존성 배열이 참조하므로 그보다 먼저 선언해야 한다(TDZ).
   const hideDoneResult = useMemo(() => computeHideDone(items), [items])
   const fontScale = useWbsFontScale()
   // 타임라인 집중 모드는 대시보드 '간트' 링크(?view=timeline) 진입 시에만 활성.

@@ -119,4 +119,11 @@ describe('computeHideDone', () => {
     expect(r.hiddenIds.has('solo')).toBe(false)
     expect(r.dimIds.has('solo')).toBe(true)
   })
+
+  it('빈 트리 — 숨김·흐림·카운트 전부 빈 결과', () => {
+    const r = computeHideDone([])
+    expect(r.hiddenIds.size).toBe(0)
+    expect(r.dimIds.size).toBe(0)
+    expect(r.hiddenCount).toBe(0)
+  })
 })

@@ -37,7 +37,7 @@ export function computeHideDone(items: ComputedItem[]): HideDoneResult {
     hiddenIds.add(n.id)
     n.children.forEach(collect)
   }
-  // 자식을 가진(=구간) 전부 완료 노드만 숨긴다. 리프는 구간이 아니라 부모를 통해서만 숨�다
+  // 자식을 가진(=구간) 전부 완료 노드만 숨긴다. 리프는 구간이 아니라 부모를 통해서만 숨는다
   // — 최상위 완료 리프가 흐림으로 남는 규칙의 근거.
   const mark = (ns: ComputedItem[]) => {
     for (const n of ns) {
