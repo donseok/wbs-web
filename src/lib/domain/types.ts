@@ -186,6 +186,7 @@ export interface UiPrefs {
   notifRead?: Record<string, string[]> // 프로젝트 id → 읽음 처리한 알림 id('모두 읽음' 시점 피드)
   lastProjectId?: string    // 전역 회의록·내 회의에서 유지할 최근 프로젝트 탐색 문맥
   lastProjectHref?: string  // 최근 프로젝트에서 마지막으로 방문한 안전한 내부 경로
+  wbsHideDone?: boolean     // WBS 완료 숨김 토글 — 전 프로젝트 공통(스펙 2026-08-10-wbs-hide-completed)
 }
 
 /* ── 회의록 (minutes) ── */

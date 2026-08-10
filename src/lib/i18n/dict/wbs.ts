@@ -90,6 +90,8 @@ export const wbsKo = {
   // 간트 마일스톤 기준선
   'wbs.milestones': '마일스톤',
   'wbs.milestonesToggleTitle': '마일스톤 기준선 표시/숨기기',
+  'wbs.hideDone': '완료 숨김',
+  'wbs.hideDoneTitle': '완료된 작업 숨기기 — 전부 완료된 구간만 숨기고, 진행 중 구간의 완료 작업은 흐리게 유지',
   'wbs.msUpcoming': '예정',
   'wbs.msDone': '완료',
   'wbs.msOverdue': '지연',
@@ -260,6 +262,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   // 간트 마일스톤 기준선
   'wbs.milestones': 'Milestones',
   'wbs.milestonesToggleTitle': 'Show or hide milestone guide lines',
+  'wbs.hideDone': 'Hide done',
+  'wbs.hideDoneTitle': 'Hide completed work — only fully-done sections are hidden; done tasks in active sections are dimmed',
   'wbs.msUpcoming': 'Upcoming',
   'wbs.msDone': 'Done',
   'wbs.msOverdue': 'Overdue',

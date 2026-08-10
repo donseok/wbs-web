@@ -5,7 +5,7 @@ import { getSession } from '@/lib/auth'
 import { getActorForView } from '@/lib/authz'
 import { toProjectActorView } from '@/lib/domain/authz'
 import { displayNameFrom } from '@/lib/domain/display-name'
-import { getWbsCollapse } from '@/app/actions/preferences'
+import { getWbsCollapse, getUiPrefs } from '@/app/actions/preferences'
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 import { PageHero } from '@/components/ui/PageHero'
 import { t } from '@/lib/i18n/dict'
@@ -24,13 +24,14 @@ export default async function WbsPage({
   const { projectId } = await params
   const { view, focus } = await searchParams
   const locale = await getServerLocale()
-  const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user, projectConfig] = await Promise.all([
+  const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user, projectConfig, uiPrefs] = await Promise.all([
     getComputedWbs(projectId),
     getActorForView(),
     listProjects(),
     getWbsCollapse(projectId),
     getSession(),
     getProjectConfig(projectId),
+    getUiPrefs(),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   // 프레즌스 신원 — 주간 시트와 동일하게 서버 세션에서 전달
@@ -62,6 +63,7 @@ export default async function WbsPage({
         levelLabels={projectConfig.levelLabels}
         maxDepth={projectConfig.maxDepth}
         milestoneKeywords={projectConfig.milestoneKeywords}
+        initialHideDone={uiPrefs.wbsHideDone ?? false}
       />
     </ProjectPageShell>
   )

@@ -8,9 +8,10 @@ import { centeredTimelineScrollLeft, groupGanttMilestones } from '@/lib/domain/g
 import { milestoneTimeline, type MilestoneStatus } from '@/lib/domain/dashboard'
 import { isWeekendDow } from '@/lib/domain/dates'
 import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
+import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
-import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText, GitBranch, Flag } from 'lucide-react'
+import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
+import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
@@ -143,6 +144,7 @@ export function WbsGanttSheet({
   readOnly = false,
   defaultView = 'sheet',
   initialCollapsed,
+  initialHideDone = false,
   focusId = null,
   levelLabels = DEFAULT_LEVEL_LABELS,
   maxDepth = null,
@@ -168,6 +170,8 @@ export function WbsGanttSheet({
   defaultView?: 'sheet' | 'timeline'
   /** 계정에 저장된 접힘 id 목록. 있으면 기본 접힘 대신 이 값으로 초기화. */
   initialCollapsed?: string[]
+  /** 계정에 저장된 완료 숨김 토글(UiPrefs.wbsHideDone) — 전 프로젝트 공통. */
+  initialHideDone?: boolean
   /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
   focusId?: string | null
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
@@ -214,6 +218,19 @@ export function WbsGanttSheet({
   const [progressLensEnabled, setProgressLensEnabled] = useState(false)
   const [progressLensPreviewId, setProgressLensPreviewId] = useState<string | null>(null)
   const [progressLensPinnedId, setProgressLensPinnedId] = useState<string | null>(null)
+  // 완료 숨김 — 계정 전역 저장(UiPrefs.wbsHideDone). 접힘(user_wbs_state)과 달리 프로젝트 무관.
+  const [hideDone, setHideDone] = useState(initialHideDone)
+  // focus 딥링크가 숨겨진 구간을 가리킬 때의 임시 노출 — forcedOpen 과 같은 계열(계정 저장 무접촉)
+  const [hideExempt, setHideExempt] = useState<Set<string>>(() => new Set())
+  const toggleHideDone = () => {
+    // 토글 조작은 명시적 의사표시 — focus 임시 노출을 함께 걷어낸다(스펙 §데이터 흐름 3).
+    setHideExempt(s => (s.size ? new Set() : s))
+    queueUiPref({ wbsHideDone: !hideDone })
+    setHideDone(v => !v)
+  }
+  // 숨김 판정 — 여기(상태 블록)에 선언해야 아래쪽 focus 효과(Task 3)의 의존성 배열이
+  // 선언 전 참조(TDZ)가 되지 않는다. flatRows 근처(394행대)에 두면 렌더 시점에 터진다.
+  const hideDoneResult = useMemo(() => computeHideDone(items), [items])
   const fontScale = useWbsFontScale()
   // 타임라인 집중 모드는 대시보드 '간트' 링크(?view=timeline) 진입 시에만 활성.
   // 툴바 토글 버튼은 제거됨 — 값은 defaultView에서 파생.
@@ -388,11 +405,13 @@ export function WbsGanttSheet({
 
   const q = query.trim().toLowerCase()
   const matchKeep = useMemo(() => (q ? buildMatch(items, q) : null), [items, q])
-  const flatRows = useMemo(
-    () =>
-      matchKeep ? flatten(items, new Set()).filter(n => matchKeep.has(n.id)) : flatten(items, effCollapsed),
-    [items, effCollapsed, matchKeep],
-  )
+  const flatRows = useMemo(() => {
+    // 검색이 우선 — 완료 작업도 검색으로 찾을 수 있어야 하므로 숨김 미적용(스펙 §결정 사항)
+    if (matchKeep) return flatten(items, new Set()).filter(n => matchKeep.has(n.id))
+    const rows = flatten(items, effCollapsed)
+    if (!hideDone) return rows
+    return rows.filter(n => !hideDoneResult.hiddenIds.has(n.id) || hideExempt.has(n.id))
+  }, [items, effCollapsed, matchKeep, hideDone, hideDoneResult, hideExempt])
   const allFlatItems = useMemo(() => flatten(items, new Set()), [items])
   // 가중치 헤더 밑 합계 — 1레벨(Phase) 가중치의 합. 가중치는 형제 그룹 안에서만 의미가 있어
   // '전체 합'이 성립하는 층은 루트뿐이다(하위까지 더하면 그룹 수만큼 100%가 쌓인다).
@@ -805,6 +824,19 @@ export function WbsGanttSheet({
           <Icon name="search" className="h-3.5 w-3.5" />
           {t('wbs.progressLens')}
         </button>
+        <button
+          type="button"
+          data-wbs-hide-done-toggle
+          onClick={toggleHideDone}
+          aria-pressed={hideDone}
+          title={t('wbs.hideDoneTitle')}
+          className={`btn h-9 px-3 text-xs ${hideDone ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
+        >
+          <ListChecks className="h-3.5 w-3.5" />
+          {t('wbs.hideDone')}
+          {/* N = 접힘 무관 '감춘 작업 수'. 검색 중엔 숨김이 일시 미적용이라 거짓 신호 방지 위해 생략 */}
+          {hideDone && !q && <span className="tabular-nums">· {hideDoneResult.hiddenCount}</span>}
+        </button>
         <WbsFontSizeControl
           scale={fontScale.scale}
           onDecrease={fontScale.decrease}
@@ -1033,6 +1065,7 @@ export function WbsGanttSheet({
             const isFlash = flashId === n.id
             const schedule = dependencySchedule.byId.get(n.id)
             const isCritical = schedule?.critical ?? false
+            const isDim = hideDone && hideDoneResult.dimIds.has(n.id)
             const rowNo = idx + 1
             const rowBg =
               depth === 0
@@ -1076,7 +1109,7 @@ export function WbsGanttSheet({
                 data-flash={isFlash ? 'true' : undefined}
                 data-lens-active={progressLensActive ? 'true' : undefined}
                 tabIndex={isFlash ? -1 : undefined}
-                className="group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none"
+                className={`group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none ${isDim ? 'opacity-50' : ''}`}
                 style={{ fontSize: 'var(--wbs-cell-font, 12px)' }}
                 onMouseEnter={() => previewProgressLens(n.id)}
                 onFocusCapture={() => previewProgressLens(n.id)}
