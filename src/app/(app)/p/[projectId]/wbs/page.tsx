@@ -61,6 +61,7 @@ export default async function WbsPage({
         focusId={focus ?? null}
         levelLabels={projectConfig.levelLabels}
         maxDepth={projectConfig.maxDepth}
+        milestoneKeywords={projectConfig.milestoneKeywords}
       />
     </ProjectPageShell>
   )

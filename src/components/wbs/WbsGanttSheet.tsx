@@ -4,12 +4,13 @@ import { useRouter } from 'next/navigation'
 import type { ComputedItem, TaskDependency } from '@/lib/domain/types'
 import { actorFromView, isProjectAdmin, isProjectMember, type ProjectActorView } from '@/lib/domain/authz'
 import { computeDependencySchedule, type TaskSchedule } from '@/lib/domain/dependencySchedule'
-import { centeredTimelineScrollLeft } from '@/lib/domain/ganttScale'
+import { centeredTimelineScrollLeft, groupGanttMilestones } from '@/lib/domain/ganttScale'
+import { milestoneTimeline, type MilestoneStatus } from '@/lib/domain/dashboard'
 import { isWeekendDow } from '@/lib/domain/dates'
 import { canEditActual, canEditWeight, canEditDeliverable } from '@/lib/domain/permissions'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText, GitBranch } from 'lucide-react'
+import { Maximize2, Minimize2, FileText, GitBranch, Flag } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
@@ -52,6 +53,10 @@ const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart',
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
 const ROW_H = 40
 const EMPTY_DEPENDENCIES: TaskDependency[] = []
+const EMPTY_MILESTONE_KEYWORDS: readonly string[] = []
+/* 마일스톤 기준선 색 — 대시보드 MilestoneTimeline의 상태 3색(MS_TONE)과 동일 토큰 */
+const MS_LINE: Record<MilestoneStatus, string> = { done: 'border-done', overdue: 'border-delayed', upcoming: 'border-brand' }
+const MS_CHIP: Record<MilestoneStatus, string> = { done: 'bg-done', overdue: 'bg-delayed', upcoming: 'bg-brand' }
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -139,6 +144,7 @@ export function WbsGanttSheet({
   focusId = null,
   levelLabels = DEFAULT_LEVEL_LABELS,
   maxDepth = null,
+  milestoneKeywords = EMPTY_MILESTONE_KEYWORDS,
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
@@ -166,6 +172,8 @@ export function WbsGanttSheet({
   levelLabels?: string[]
   /** 프로젝트별 최대 깊이(§7.3 ProjectConfig, null=무제한) — RowDetailPanel 자식추가 어포던스 판정에 전파. */
   maxDepth?: number | null
+  /** 프로젝트별 마일스톤 키워드(§7.4 ProjectConfig) — 빈 배열이면 마커 0건이 정답(설정 부재 신호, 폴백 금지). */
+  milestoneKeywords?: readonly string[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -197,6 +205,8 @@ export function WbsGanttSheet({
   const dayPx = 24 // 간트 배율 — '기본' 고정 (축소 옵션 제거)
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
+  // 이정표 기준선 — 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 켜짐이며 계정에 저장하지 않는다.
+  const [showMilestones, setShowMilestones] = useState(true)
   // 진척 돋보기는 사용자가 켰을 때만 행 hover/focus를 따라간다. 객체 대신 id만 저장해
   // router.refresh 이후에도 itemById의 최신 롤업 값을 확대 카드에 표시한다.
   const [progressLensEnabled, setProgressLensEnabled] = useState(false)
@@ -568,6 +578,16 @@ export function WbsGanttSheet({
     centeredViewRef.current = viewKey
   }, [FROZEN_W, LEFT_W, planningColsHidden, projectId, timelineFocus, todayX])
 
+  /* ── 마일스톤 기준선 — 판정·정렬은 대시보드와 단일 출처(milestoneTimeline) ── */
+  const milestoneMarkers = useMemo(
+    () => groupGanttMilestones(milestoneTimeline(items, today, milestoneKeywords)),
+    [items, today, milestoneKeywords],
+  )
+  const milestoneCount = useMemo(
+    () => milestoneMarkers.reduce((n, m) => n + m.names.length, 0),
+    [milestoneMarkers],
+  )
+
   /* ── 편집 (WbsSheet 이식) ── */
   const actor = useMemo(() => actorFromView(actorView, projectId), [actorView, projectId])
   const isAdmin = isProjectAdmin(actor, projectId)
@@ -805,6 +825,19 @@ export function WbsGanttSheet({
                 +{dependencySchedule.projectDelayBusinessDays}{t('wbs.businessDaysUnit')}
               </span>
             )}
+          </button>
+        )}
+        {milestoneMarkers.length > 0 && (
+          <button
+            type="button"
+            data-wbs-milestones-toggle
+            onClick={() => setShowMilestones(value => !value)}
+            aria-pressed={showMilestones}
+            title={t('wbs.milestonesToggleTitle')}
+            className={`btn h-9 px-3 text-xs ${showMilestones ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
+          >
+            <Flag className="h-3.5 w-3.5" />
+            {t('wbs.milestones')} {milestoneCount}
           </button>
         )}
         {isAdmin && !readOnly && (
@@ -1318,6 +1351,37 @@ export function WbsGanttSheet({
             </div>
           )}
 
+          {/* 이정표 세로 기준선 (오늘선 아래 레이어) — 같은 날짜는 병합, 칩은 2단 교차 배치 */}
+          {showMilestones && milestoneMarkers.length > 0 && (
+            <div
+              className="pointer-events-none absolute z-[25]"
+              style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH }}
+            >
+              {milestoneMarkers.map(m => {
+                const x = xOf(m.date) + dayPx / 2
+                const dday = m.status === 'upcoming' ? ` · D-${m.dday}` : m.status === 'overdue' ? ` · D+${-m.dday}` : ''
+                const label = m.names[0] + (m.names.length > 1 ? ` +${m.names.length - 1}` : '') + dday
+                return (
+                  <div key={m.date}>
+                    <div
+                      data-wbs-milestone-line
+                      className={`absolute top-0 w-0 -translate-x-1/2 border-l-2 border-dashed opacity-60 ${MS_LINE[m.status]}`}
+                      style={{ left: x, height: rowsH }}
+                    />
+                    <div
+                      data-wbs-milestone-chip
+                      className={`pointer-events-auto absolute -translate-x-1/2 truncate rounded-sm px-1 py-0.5 font-bold leading-none text-white ${MS_CHIP[m.status]}`}
+                      style={{ left: x, top: m.tier === 0 ? 0 : 14, maxWidth: 120, fontSize: 'var(--wbs-day-font, 9px)' }}
+                      title={`${m.names.join(', ')} — ${fmtDate(m.date)}`}
+                    >
+                      {label}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {/* 오늘 세로선 (행 위) */}
           {todayX != null && (
             <div
@@ -1379,6 +1443,14 @@ export function WbsGanttSheet({
             <span className="inline-flex items-center gap-1"><span className="w-5 border-t border-dashed border-ink-subtle" />SS</span>
             <span className="inline-flex items-center gap-1"><span className="h-2 w-4 rounded-full border-2 border-critical" />{t('wbs.criticalPath')}</span>
             <span className="inline-flex items-center gap-1"><span className="w-5 border-t-2 border-dashed border-pending" />{t('wbs.forecast')}</span>
+          </span>
+        )}
+        {milestoneMarkers.length > 0 && (
+          <span className="inline-flex items-center gap-2">
+            <span>{t('wbs.milestones')}</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-0 border-l-2 border-dashed border-brand" />{t('wbs.msUpcoming')}</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-0 border-l-2 border-dashed border-done" />{t('wbs.msDone')}</span>
+            <span className="inline-flex items-center gap-1"><span className="h-3 w-0 border-l-2 border-dashed border-delayed" />{t('wbs.msOverdue')}</span>
           </span>
         )}
         <span className="inline-flex items-center gap-1">

@@ -87,6 +87,12 @@ export const wbsKo = {
   'wbs.month11': '11월',
   'wbs.month12': '12월',
   'wbs.today': '오늘',
+  // 간트 마일스톤 기준선
+  'wbs.milestones': '이정표',
+  'wbs.milestonesToggleTitle': '이정표 기준선 표시/숨기기',
+  'wbs.msUpcoming': '예정',
+  'wbs.msDone': '완료',
+  'wbs.msOverdue': '지연',
   // 작업 의존성 · 예상 일정
   'wbs.dependencies': '작업 의존성',
   'wbs.dependencyLink': '의존성 연결',
@@ -251,6 +257,12 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.month11': 'Nov',
   'wbs.month12': 'Dec',
   'wbs.today': 'Today',
+  // 간트 마일스톤 기준선
+  'wbs.milestones': 'Milestones',
+  'wbs.milestonesToggleTitle': 'Show or hide milestone guide lines',
+  'wbs.msUpcoming': 'Upcoming',
+  'wbs.msDone': 'Done',
+  'wbs.msOverdue': 'Overdue',
   'wbs.dependencies': 'Task dependencies',
   'wbs.dependencyLink': 'Dependency link',
   'wbs.toggleDependenciesTitle': 'Show or hide dependency links',
