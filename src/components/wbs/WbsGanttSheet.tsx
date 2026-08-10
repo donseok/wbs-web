@@ -812,7 +812,7 @@ export function WbsGanttSheet({
             onChange={e => setQuery(e.target.value)}
             placeholder={t('wbs.searchPlaceholder')}
             aria-label={t('wbs.searchAria')}
-            className="app-input h-9 w-full pl-9 text-[13px] sm:w-52"
+            className="app-input h-9 w-full pl-9 text-[13px] sm:w-40"
           />
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
@@ -831,7 +831,7 @@ export function WbsGanttSheet({
             }`}
           >
             <Icon name={planningColsHidden ? 'eye' : 'eyeOff'} className="h-3.5 w-3.5" />
-            {t(planningColsHidden ? 'wbs.showPlanningColumns' : 'wbs.hidePlanningColumns')}
+            {t(planningColsHidden ? 'wbs.showPlanningColumnsShort' : 'wbs.hidePlanningColumnsShort')}
           </button>
         )}
         <button
@@ -845,7 +845,7 @@ export function WbsGanttSheet({
           }`}
         >
           <Icon name="search" className="h-3.5 w-3.5" />
-          {t('wbs.progressLens')}
+          {t('wbs.progressLensShort')}
         </button>
         <button
           type="button"
@@ -907,12 +907,12 @@ export function WbsGanttSheet({
           </button>
         )}
         {isAdmin && !readOnly && (
-          <button onClick={() => setAddPhase(p => (p == null ? '' : null))} className="btn btn-ghost h-9 px-3 text-xs">
-            <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhase')}
+          <button onClick={() => setAddPhase(p => (p == null ? '' : null))} title={t('wbs.addPhase')} className="btn btn-ghost h-9 px-3 text-xs">
+            <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhaseShort')}
           </button>
         )}
-        <button onClick={() => setReportOpen(true)} className="btn btn-ghost h-9 px-3 text-xs">
-          <FileText className="h-3.5 w-3.5" /> 주간보고서
+        <button onClick={() => setReportOpen(true)} title={t('wbs.weeklyReportTitle')} className="btn btn-ghost h-9 px-3 text-xs">
+          <FileText className="h-3.5 w-3.5" /> {t('wbs.weeklyReport')}
         </button>
         {/* 접속자 아바타 — 지금 이 WBS 메뉴를 보고 있는 사용자(본인 포함) */}
         <div className="ml-auto hidden sm:block">
