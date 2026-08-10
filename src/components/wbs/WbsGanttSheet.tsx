@@ -1380,13 +1380,22 @@ export function WbsGanttSheet({
                       className={`absolute top-0 w-0 -translate-x-1/2 border-l-2 border-dashed opacity-60 ${MS_LINE[m.status]}`}
                       style={{ left: x, height: rowsH }}
                     />
-                    <div
-                      data-wbs-milestone-chip
-                      className={`pointer-events-auto absolute -translate-x-1/2 truncate rounded-sm px-1 py-0.5 font-bold leading-none text-white ${MS_CHIP[m.status]}`}
-                      style={{ left: x, top: m.tier === 0 ? 0 : 14, maxWidth: 120, fontSize: 'var(--wbs-day-font, 9px)' }}
-                      title={`${m.names.join(', ')} — ${fmtDate(m.date)}`}
-                    >
-                      {label}
+                    {/* 칩은 세로 스크롤을 따라오도록 sticky — 0폭 컬럼 안에서 헤더 바로 아래에 붙는다 */}
+                    <div className="absolute top-0 h-full w-0" style={{ left: x }}>
+                      <div
+                        data-wbs-milestone-chip
+                        className={`pointer-events-auto sticky truncate rounded-sm px-1 py-0.5 font-bold leading-none text-white ${MS_CHIP[m.status]}`}
+                        style={{
+                          top: m.tier === 0 ? 'var(--wbs-head-h)' : 'calc(var(--wbs-head-h) + 14px)',
+                          width: 'max-content',
+                          maxWidth: 120,
+                          transform: 'translateX(-50%)',
+                          fontSize: 'var(--wbs-day-font, 9px)',
+                        }}
+                        title={`${m.names.join(', ')} — ${fmtDate(m.date)}`}
+                      >
+                        {label}
+                      </div>
                     </div>
                   </div>
                 )
@@ -1402,11 +1411,15 @@ export function WbsGanttSheet({
               style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH, clipPath: frozenClipPath }}
             >
               <div className="absolute top-0 w-0.5 -translate-x-1/2 bg-today" style={{ left: todayX, height: rowsH }} />
-              <div
-                className="absolute -translate-x-1/2 rounded-sm bg-today px-1 py-0.5 font-bold leading-none text-white"
-                style={{ left: todayX, top: 0, fontSize: 'var(--wbs-day-font, 9px)' }}
-              >
-                {t('wbs.today')}
+              {/* '오늘' 칩도 이정표 칩과 같이 sticky — 세로 스크롤을 따라온다 */}
+              <div className="absolute top-0 h-full w-0" style={{ left: todayX }}>
+                <div
+                  data-wbs-today-chip
+                  className="sticky rounded-sm bg-today px-1 py-0.5 font-bold leading-none text-white"
+                  style={{ top: 'var(--wbs-head-h)', width: 'max-content', transform: 'translateX(-50%)', fontSize: 'var(--wbs-day-font, 9px)' }}
+                >
+                  {t('wbs.today')}
+                </div>
               </div>
             </div>
           )}

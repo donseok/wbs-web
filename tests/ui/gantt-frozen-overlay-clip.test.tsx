@@ -95,6 +95,19 @@ describe('간트 오버레이 동결 열 클리핑', () => {
     expect(today!.style.clipPath).toContain('var(--wbs-scroll-x')
   })
 
+  it('칩(이정표·오늘)은 세로 스크롤을 따라오도록 sticky로 붙는다', () => {
+    renderSheet()
+    const msChip = document.querySelector('[data-wbs-milestone-chip]') as HTMLElement | null
+    const todayChip = document.querySelector('[data-wbs-today-chip]') as HTMLElement | null
+    expect(msChip).not.toBeNull()
+    expect(todayChip).not.toBeNull()
+    // position은 Tailwind 'sticky' 클래스로 적용된다 — jsdom은 클래스 CSS를 계산하지 않으므로 클래스로 검증
+    expect(msChip!.classList.contains('sticky')).toBe(true)
+    expect(msChip!.style.top).toContain('--wbs-head-h')
+    expect(todayChip!.classList.contains('sticky')).toBe(true)
+    expect(todayChip!.style.top).toContain('--wbs-head-h')
+  })
+
   it('가로 스크롤이 --wbs-scroll-x 변수를 갱신한다', () => {
     renderSheet()
     const region = document.querySelector('[data-wbs-scroll-region]') as HTMLElement
