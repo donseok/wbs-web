@@ -72,8 +72,11 @@ export async function updateTeam(
   // .is('project_id', null) 를 함께 건다 — 슈퍼유저 가드가 통과한 전역 행만 만진다
   // (projectTeams.ts 의 updateProjectTeam 과 대칭되는 방어; id 자체는 이미 유니크하지만
   // 목록이 전역 전용으로 좁혀지지 않았을 경우까지 방어한다).
-  const upd = await admin.from('teams').update(row).eq('id', id).is('project_id', null)
+  // .select('id') 로 영향 행을 확인한다 — id 가 프로젝트 팀이면 이 필터에 걸려 0행 update 가
+  // 조용히 ok:true 로 위장할 수 있다(조용한 no-op 금지 관례, revokeProjectInvite 와 동일).
+  const upd = await admin.from('teams').update(row).eq('id', id).is('project_id', null).select('id')
   if (upd.error) return { ok: false, error: `팀 수정 실패: ${upd.error.message}` }
+  if (!upd.data || upd.data.length === 0) return { ok: false, error: '전역 팀이 아니거나 존재하지 않습니다.' }
   await refreshTeams()
   revalidatePath('/admin/teams')
   return { ok: true }

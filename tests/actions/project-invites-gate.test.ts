@@ -112,6 +112,8 @@ function createClient(o: {
   blocking?: Record<string, unknown>[]
   blockingError?: { message: string } | null
   insertError?: { code?: string; message: string } | null
+  /** resolveTeamId 의 teams 조회 응답을 덮어쓴다 — 동명 2행(전역+프로젝트) 우선순위 검증용. */
+  teamsRows?: Array<{ id: string; project_id: string | null }>
 } = {}) {
   const insert = vi.fn((payload: Record<string, unknown>) => chainOf({
     data: o.insertError ? null : {
@@ -128,7 +130,9 @@ function createClient(o: {
   const from = vi.fn((table: string) => {
     if (table === 'projects') return chainOf({ data: { name: 'D-CUBE' }, error: null })
     // resolveTeamId 는 .single() 없이 배열로 받는다(0071 스코프 — 프로젝트 행 우선, 전역 폴백).
-    if (table === 'teams') return chainOf({ data: [{ id: 'team-1', project_id: null }], error: null })
+    if (table === 'teams') {
+      return chainOf({ data: o.teamsRows ?? [{ id: 'team-1', project_id: null }], error: null })
+    }
     return {
       ...chainOf({ data: o.blockingError ? null : (o.blocking ?? []), error: o.blockingError ?? null }),
       insert, update, delete: del,
@@ -302,6 +306,21 @@ describe('createProjectInvite 성공 경로 — 저장·링크·메일', () => {
     expect(res.row.url).toBe(`${APP_URL}/invite/${token}`)
     expect(send).toHaveBeenCalledTimes(1)
     expect(revalidatePath).toHaveBeenCalledWith(`/p/${P1}/settings`)
+  })
+
+  // 0071 회귀: 같은 code 로 전역+프로젝트 행이 동시에 존재해도(복합 유니크가 허용하는 상태)
+  // resolveTeamId 는 프로젝트 행을 고른다 — 이 태스크(스코프 소탕)의 존재 이유 자체를 검증한다.
+  it('같은 팀 code 의 전역·프로젝트 행 2개 중 프로젝트 행을 선택한다', async () => {
+    const { client, insert } = createClient({
+      teamsRows: [
+        { id: 'team-global', project_id: null },
+        { id: 'team-proj', project_id: P1 },
+      ],
+    })
+    createAdminClient.mockReturnValue(client as never)
+    const res = await createProjectInvite(P1, VALID)
+    expect(res).toMatchObject({ ok: true })
+    expect(insertedPayload(insert).team_id).toBe('team-proj')
   })
 
   // 토큰은 초대 링크 그 자체다. UI 가 읽지도 않는 필드로 전 초대의 원본 토큰이

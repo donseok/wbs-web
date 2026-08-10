@@ -158,6 +158,25 @@ describe('addSubAct 가드 ① — 대상은 리프여야 한다', () => {
   })
 })
 
+describe('addSubAct — 0071 회귀: 동명 2행(전역+프로젝트) 우선순위', () => {
+  // 이 태스크(스코프 소탕)의 존재 이유 자체 — 복합 유니크로 같은 code 의 전역 행과
+  // 이 프로젝트(p1) 행이 동시에 존재해도 프로젝트 행을 담당으로 골라야 한다.
+  it('같은 code 로 전역+프로젝트 팀 2행이 있으면 프로젝트 팀을 item_owners 에 넣는다', async () => {
+    db.wbs_items = [
+      { id: 'act-5', project_id: 'p1', code: '5', name: '스코프 우선순위 작업', biz: null, deliverable: null,
+        planned_start: null, planned_end: null, is_owner_split: false },
+    ]
+    db.teams = [
+      { id: 't-global', code: 'ERP', project_id: null },
+      { id: 't-proj', code: 'ERP', project_id: 'p1' },
+    ]
+    const r = await addSubAct('act-5', 'ERP', 'primary')
+    expect(r.ok).toBe(true)
+    const owner = db.inserted.item_owners?.find(row => row.wbs_item_id === r.id)
+    expect(owner).toMatchObject({ team_id: 't-proj' })
+  })
+})
+
 describe('addSubAct 가드 ②', () => {
   it('대상 자신이 SUB-ACT면 거부한다', async () => {
     db.wbs_items = [

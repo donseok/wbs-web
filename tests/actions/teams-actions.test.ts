@@ -28,16 +28,22 @@ const { db, createAdminClient, refreshTeams, requireSuperuser } = vi.hoisted(() 
       },
       insert: async (row: unknown) => { db.inserted[name].push(row); return { error: null } },
       // update 체인도 eq/is 를 함께 받는다(updateTeam 의 .eq('id', id).is('project_id', null) 방어).
-      // .then 을 구현해 어느 지점에서 await 하든(체인 중간이든 끝이든) 실행되게 한다.
+      // .select('id') 가 종결 — 실제로 매칭되는 행이 있어야 db.updated 에 반영된다(조용한 no-op
+      // 을 성공으로 위장하지 않는 프로덕션 코드의 영향행 확인을 모의도 똑같이 강제한다).
+      // .then 도 구현해 .select() 없이 바로 await 하는 경로까지 호환한다.
       update: (patch: unknown) => {
         let id: unknown
+        let requireGlobal = false
+        const finalize = () => {
+          const target = rows().find(r => r.id === id && (!requireGlobal || (r.project_id ?? null) === null))
+          if (target) db.updated.push({ patch, id })
+          return { data: target ? [{ id }] : [], error: null }
+        }
         const upd: Record<string, unknown> = {
           eq: (_c: string, v: unknown) => { id = v; return upd },
-          is: () => upd,
-          then: (resolve: (v: { error: null }) => void) => {
-            db.updated.push({ patch, id })
-            resolve({ error: null })
-          },
+          is: (_c: string, v: unknown) => { requireGlobal = v === null; return upd },
+          select: async (_cols: string) => finalize(),
+          then: (resolve: (v: { error: null }) => void) => resolve({ error: finalize().error }),
         }
         return upd
       },
@@ -114,10 +120,25 @@ describe('팀 관리 서버액션', () => {
 
   it('updateTeam: 빈 patch 거부, 정상 patch 는 스네이크케이스로 update', async () => {
     asSuperuser()
+    db.teams = [{ id: 't1', code: 'PMO', project_id: null }]
     expect((await updateTeam('t1', {})).ok).toBe(false)
     const r = await updateTeam('t1', { active: false, progressVisible: true, sortOrder: 3 })
     expect(r.ok).toBe(true)
     expect(db.updated[0]).toMatchObject({ id: 't1', patch: { active: false, progress_visible: true, sort_order: 3 } })
     expect(refreshTeams).toHaveBeenCalled()
+  })
+
+  // 조용한 no-op 을 성공으로 위장하지 않는다(revokeProjectInvite 와 동일 관례) — id 가
+  // 존재하지 않거나 프로젝트 팀(0071)이면 .is('project_id', null) 필터에 걸려 0행이 된다.
+  it('updateTeam: 존재하지 않거나 프로젝트 팀인 id 는 실패로 보고한다(조용한 no-op 금지)', async () => {
+    asSuperuser()
+    db.teams = [{ id: 't-proj', code: 'ERP', project_id: 'p1' }]
+    const r = await updateTeam('t-proj', { active: false })
+    expect(r).toEqual({ ok: false, error: '전역 팀이 아니거나 존재하지 않습니다.' })
+    expect(db.updated).toHaveLength(0)
+    expect(refreshTeams).not.toHaveBeenCalled()
+
+    const r2 = await updateTeam('no-such-id', { active: false })
+    expect(r2).toEqual({ ok: false, error: '전역 팀이 아니거나 존재하지 않습니다.' })
   })
 })
