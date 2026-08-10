@@ -93,6 +93,10 @@ describe('간트 오버레이 동결 열 클리핑', () => {
     expect(today).not.toBeNull()
     expect(ms!.style.clipPath).toContain('var(--wbs-scroll-x')
     expect(today!.style.clipPath).toContain('var(--wbs-scroll-x')
+    // 예정 마일스톤 선은 바이올렛(#7c3aed) — 간트의 초록 포화 때문에 대시보드 배색과 의도적으로 다르다
+    const line = document.querySelector('[data-wbs-milestone-line]') as HTMLElement | null
+    expect(line).not.toBeNull()
+    expect(line!.className).toContain('border-[#7c3aed]')
   })
 
   it('칩(이정표·오늘)은 세로 스크롤을 따라오도록 sticky로 붙는다', () => {

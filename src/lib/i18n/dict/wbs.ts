@@ -88,8 +88,8 @@ export const wbsKo = {
   'wbs.month12': '12월',
   'wbs.today': '오늘',
   // 간트 마일스톤 기준선
-  'wbs.milestones': '이정표',
-  'wbs.milestonesToggleTitle': '이정표 기준선 표시/숨기기',
+  'wbs.milestones': '마일스톤',
+  'wbs.milestonesToggleTitle': '마일스톤 기준선 표시/숨기기',
   'wbs.msUpcoming': '예정',
   'wbs.msDone': '완료',
   'wbs.msOverdue': '지연',

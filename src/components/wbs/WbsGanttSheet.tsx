@@ -54,9 +54,11 @@ const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart',
 const ROW_H = 40
 const EMPTY_DEPENDENCIES: TaskDependency[] = []
 const EMPTY_MILESTONE_KEYWORDS: readonly string[] = []
-/* 마일스톤 기준선 색 — 대시보드 MilestoneTimeline의 상태 3색(MS_TONE)과 동일 토큰 */
-const MS_LINE: Record<MilestoneStatus, string> = { done: 'border-done', overdue: 'border-delayed', upcoming: 'border-brand' }
-const MS_CHIP: Record<MilestoneStatus, string> = { done: 'bg-done', overdue: 'bg-delayed', upcoming: 'bg-brand' }
+/* 마일스톤 기준선 색 — 간트는 초록·청록(brand/done)이 바·상태색으로 포화라 대시보드 배색(MS_TONE)과
+   의도적으로 다르다. 예정=바이올렛(#7c3aed, 팔레트의 team-erp 계열·팀 원색처럼 양 테마 고정 hex),
+   완료=phasebar 슬레이트(가라앉음·다크 자동 대응), 지연=delayed 빨강(전역 지연 경보와 일치). */
+const MS_LINE: Record<MilestoneStatus, string> = { done: 'border-phasebar', overdue: 'border-delayed', upcoming: 'border-[#7c3aed]' }
+const MS_CHIP: Record<MilestoneStatus, string> = { done: 'bg-phasebar', overdue: 'bg-delayed', upcoming: 'bg-[#7c3aed]' }
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10)
@@ -1474,9 +1476,9 @@ export function WbsGanttSheet({
         {milestoneMarkers.length > 0 && (
           <span className="inline-flex items-center gap-2">
             <span>{t('wbs.milestones')}</span>
-            <span className="inline-flex items-center gap-1"><span className="h-3 w-0 border-l-2 border-dashed border-brand" />{t('wbs.msUpcoming')}</span>
-            <span className="inline-flex items-center gap-1"><span className="h-3 w-0 border-l-2 border-dashed border-done" />{t('wbs.msDone')}</span>
-            <span className="inline-flex items-center gap-1"><span className="h-3 w-0 border-l-2 border-dashed border-delayed" />{t('wbs.msOverdue')}</span>
+            <span className="inline-flex items-center gap-1"><span className={`h-3 w-0 border-l-2 border-dashed ${MS_LINE.upcoming}`} />{t('wbs.msUpcoming')}</span>
+            <span className="inline-flex items-center gap-1"><span className={`h-3 w-0 border-l-2 border-dashed ${MS_LINE.done}`} />{t('wbs.msDone')}</span>
+            <span className="inline-flex items-center gap-1"><span className={`h-3 w-0 border-l-2 border-dashed ${MS_LINE.overdue}`} />{t('wbs.msOverdue')}</span>
           </span>
         )}
         <span className="inline-flex items-center gap-1">
