@@ -298,8 +298,28 @@ export function WbsGanttSheet({
       return
     }
     if (path.length) setForcedOpen(new Set(path))
+    // 대상이 숨겨진 구간 안이면 조상 경로+대상 서브트리를 임시 노출(스펙 §데이터 흐름 3).
+    // flashId 와 같은 배치로 set — 스크롤 효과는 다음 렌더 후 DOM 을 찾으므로 순서 문제 없음.
+    if (hideDone && (hideDoneResult.hiddenIds.has(focusId) || path.some(id => hideDoneResult.hiddenIds.has(id)))) {
+      const exempt = new Set(path)
+      const findNode = (ns: ComputedItem[]): ComputedItem | null => {
+        for (const n of ns) {
+          if (n.id === focusId) return n
+          const c = findNode(n.children)
+          if (c) return c
+        }
+        return null
+      }
+      const addSubtree = (n: ComputedItem) => {
+        exempt.add(n.id)
+        n.children.forEach(addSubtree)
+      }
+      const target = findNode(items)
+      if (target) addSubtree(target)
+      setHideExempt(exempt)
+    }
     setFlashId(focusId)
-  }, [focusId, items, t])
+  }, [focusId, items, t, hideDone, hideDoneResult])
 
   // 플래시 해제 — toast 와 동일한 타이머 패턴(StrictMode 이중 실행 안전). 2000ms 는 minutes
   // 소스 점프(mblock-flash)와 같은 지속시간.
@@ -523,6 +543,7 @@ export function WbsGanttSheet({
   const allCollapsed = phaseIds.length > 0 && phaseIds.every(id => effCollapsed.has(id))
   const toggleAll = () => {
     setForcedOpen(s => (s.size ? new Set() : s)) // 전체 토글은 임시 펼침도 함께 정리
+    setHideExempt(s => (s.size ? new Set() : s)) // 전체 토글은 숨김 임시 노출도 함께 정리
     // focus 임시 펼침만 걷어내는 경우 목표 집합이 저장 상태와 같을 수 있다 — 그때는 참조를
     // 유지해 내용이 같은 값의 불필요한 계정 저장을 막는다(저장 가드는 참조 비교).
     setCollapsed(s => {
@@ -1379,7 +1400,7 @@ export function WbsGanttSheet({
             />
           )}
 
-          {/* 빈 상태 — 항목 없음 / 검색 결과 없음 (가로 스크롤에도 좌측 고정) */}
+          {/* 빈 상태 — 항목 없음 / 검색 결과 없음 / 전량 완료 숨김 (가로 스크롤에도 좌측 고정) */}
           {flatRows.length === 0 && (
             <div
               className="sticky left-0 z-10 flex flex-col items-center justify-center gap-1.5 py-10 text-center"
@@ -1387,16 +1408,23 @@ export function WbsGanttSheet({
               role="status"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-weak text-brand" aria-hidden>
-                <Icon name={items.length === 0 ? 'folder' : 'search'} />
+                <Icon name={items.length === 0 ? 'folder' : q ? 'search' : 'eyeOff'} />
               </span>
               <span className="text-sm font-medium text-ink-muted">
                 {items.length === 0
                   ? t('wbs.emptyNoItems')
-                  : `${t('wbs.noResultsPrefix')}${query.trim()}${t('wbs.noResultsSuffix')}`}
+                  : q
+                    ? `${t('wbs.noResultsPrefix')}${query.trim()}${t('wbs.noResultsSuffix')}`
+                    : t('wbs.allDoneHidden')}
               </span>
               <span className="text-[12px] text-ink-subtle">
-                {items.length === 0 ? t('wbs.emptyNoItemsHint') : t('wbs.noResultsHint')}
+                {items.length === 0 ? t('wbs.emptyNoItemsHint') : q ? t('wbs.noResultsHint') : t('wbs.allDoneHiddenHint')}
               </span>
+              {items.length > 0 && !q && (
+                <button type="button" onClick={toggleHideDone} className="btn btn-ghost mt-1 h-8 px-3 text-xs">
+                  {t('wbs.showDone')}
+                </button>
+              )}
             </div>
           )}
 
