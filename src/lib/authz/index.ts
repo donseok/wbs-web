@@ -45,6 +45,23 @@ export async function getActor(): Promise<Actor | null> {
     throw new Error('권한 정보를 불러오지 못했습니다: ' + (rolesErr?.message ?? 'unknown'))
   }
 
+  // 0071: 프로젝트 명단의 내 팀 — WBS 실적·첨부의 합집합 판정 재료. 조회 실패는 다른 축과
+  // 동일하게 throw(fail-closed) — 명단 팀만 빠진 Actor 는 '권한 없음'으로 조용히 좁아진다.
+  const { data: rosterRows, error: rosterErr } = await sb
+    .from('project_members')
+    .select('project_id, team_id, teams(code)')
+    .eq('user_id', u.user.id)
+    .not('team_id', 'is', null)
+  if (rosterErr || !rosterRows) {
+    console.error('[getActor] 명단 팀 조회 실패:', rosterErr?.message)
+    throw new Error('권한 정보를 불러오지 못했습니다: ' + (rosterErr?.message ?? 'unknown'))
+  }
+  const rosterTeams = new Map<string, { teamId: string; teamCode: TeamCode }>()
+  for (const r of rosterRows) {
+    const t = (r.teams ?? null) as unknown as { code: TeamCode } | null
+    if (r.team_id && t?.code) rosterTeams.set(r.project_id as string, { teamId: r.team_id as string, teamCode: t.code })
+  }
+
   const team = (mem?.teams ?? null) as unknown as { code: TeamCode; id: string } | null
   const map = new Map<string, ProjectRole>()
   for (const r of roles) map.set(r.project_id as string, r.role as ProjectRole)
@@ -55,6 +72,7 @@ export async function getActor(): Promise<Actor | null> {
     teamId: team?.id ?? null,
     isSuperuser: Boolean(mem?.is_superuser),
     projectRoles: map,
+    rosterTeams,
   }
 }
 

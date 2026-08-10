@@ -7,7 +7,7 @@ const P = 'proj-1'
 
 const actor = (over: Partial<Actor>): Actor => ({
   userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false,
-  projectRoles: new Map(), ...over,
+  projectRoles: new Map(), rosterTeams: new Map(), ...over,
 })
 const superuser = actor({ isSuperuser: true })
 const admin = actor({ projectRoles: new Map([[P, 'admin' as const]]) })

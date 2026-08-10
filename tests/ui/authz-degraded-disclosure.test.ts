@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   memberships: vi.fn(),
   projectRoles: vi.fn(),
+  projectMembers: vi.fn(),
   projects: vi.fn(),
   session: vi.fn(),
 }))
@@ -20,9 +21,10 @@ const mocks = vi.hoisted(() => ({
 function table(name: string) {
   const resp = name === 'memberships' ? mocks.memberships
     : name === 'project_roles' ? mocks.projectRoles
-      : mocks.projects
+      : name === 'project_members' ? mocks.projectMembers
+        : mocks.projects
   const q: Record<string, unknown> = {}
-  for (const m of ['select', 'eq', 'order']) q[m] = vi.fn(() => q)
+  for (const m of ['select', 'eq', 'order', 'not']) q[m] = vi.fn(() => q)
   q.maybeSingle = vi.fn(() => resp())
   q.then = (res: (v: unknown) => unknown, rej: (r: unknown) => unknown) =>
     Promise.resolve(resp()).then(res, rej)
@@ -45,6 +47,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.getUser.mockResolvedValue({ data: { user: USER } })
   mocks.session.mockResolvedValue(USER)
+  // 0071 명단 팀 조회 — 이 스위트는 memberships/project_roles 축을 다루므로 기본값은 정상 빈 결과.
+  mocks.projectMembers.mockReturnValue({ data: [], error: null })
 })
 
 describe('getActorViewState — 조회 실패를 권한 없음으로 위장하지 않는다', () => {

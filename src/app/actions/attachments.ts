@@ -3,6 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
+import { actorTeamIdsFor } from '@/lib/domain/permissions'
 import { revalidatePath } from 'next/cache'
 import type { DeliverableAttachment } from '@/lib/domain/types'
 
@@ -28,7 +29,8 @@ async function requireAttachPermission(itemId: string): Promise<
     console.error('[attachments] 담당 팀 조회 실패:', ownErr?.message)
     return { ok: false, error: '권한을 확인할 수 없어 중단했습니다.' }
   }
-  if (!owners.some(o => o.team_id === g.actor.teamId)) return { ok: false, error: '권한 없음' }
+  const myTeamIds = actorTeamIdsFor(g.actor, found.projectId ?? '')
+  if (!owners.some(o => myTeamIds.includes(o.team_id as string))) return { ok: false, error: '권한 없음' }
   return granted
 }
 

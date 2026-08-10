@@ -30,7 +30,7 @@ function n(id: string, over: Partial<ComputedItem> = {}, children: ComputedItem[
     plannedPct: 0, rolledActualPct: over.rolledActualPct ?? 0, achievement: null, status: over.status ?? 'in_progress', children, depth: 0,
   }
 }
-const ADMIN = { userId: 'u-admin', teamCode: 'PMO', teamId: 't-pmo', isSuperuser: false, projectRole: 'admin' as const }
+const ADMIN = { userId: 'u-admin', teamCode: 'PMO', teamId: 't-pmo', isSuperuser: false, projectRole: 'admin' as const, rosterTeamId: null, rosterTeamCode: null }
 
 function tree(): ComputedItem[] {
   return [n('Phase', {}, [
@@ -97,7 +97,7 @@ describe('KanbanBoard — 진행 모드 기본', () => {
       n('mine', { rolledActualPct: 50, owners: [{ team: 'ERP', kind: 'primary' }] }),
       n('other', { rolledActualPct: 50, owners: [{ team: 'PMO', kind: 'primary' }] }),
     ])]
-    const EDITOR = { userId: 'u-editor', teamCode: 'ERP', teamId: 't-erp', isSuperuser: false, projectRole: 'member' as const }
+    const EDITOR = { userId: 'u-editor', teamCode: 'ERP', teamId: 't-erp', isSuperuser: false, projectRole: 'member' as const, rosterTeamId: null, rosterTeamCode: null }
     await act(async () => root.render(
       <KanbanBoard projectId="p1" items={items} actorView={EDITOR} today="2026-07-25" />,
     ))

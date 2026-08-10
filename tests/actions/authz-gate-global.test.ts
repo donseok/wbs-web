@@ -52,6 +52,7 @@ function actor(over: Partial<Actor> & { role?: 'admin' | 'member' | null }): Act
   return {
     userId: 'u1', teamCode: 'ERP', teamId: 't-erp', isSuperuser: false,
     projectRoles: new Map(role ? [[PID, role]] : []),
+    rosterTeams: new Map(),
     ...rest,
   }
 }

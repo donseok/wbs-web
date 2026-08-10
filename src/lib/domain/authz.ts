@@ -16,6 +16,9 @@ export interface Actor {
   isSuperuser: boolean
   /** projectId → role. 없는 키 = 그 프로젝트에서는 조회 전용. */
   projectRoles: ReadonlyMap<string, ProjectRole>
+  /** projectId → 그 프로젝트 명단(project_members)의 내 팀. 없는 키 = 명단 팀 없음.
+   *  WBS 실적·첨부의 '내 팀' 판정은 teamCode/teamId 와 이 값의 합집합이다(0071 RLS와 동일). */
+  rosterTeams: ReadonlyMap<string, { teamId: string; teamCode: TeamCode }>
 }
 
 /**
@@ -66,6 +69,9 @@ export interface ProjectActorView {
   isSuperuser: boolean
   /** 이 프로젝트에서의 역할. null = 조회 전용. */
   projectRole: ProjectRole | null
+  /** 이 프로젝트 명단의 내 팀(0071 합집합 판정용). null = 명단 팀 없음. */
+  rosterTeamId: string | null
+  rosterTeamCode: TeamCode | null
 }
 
 export function toProjectActorView(actor: Actor | null, projectId: string): ProjectActorView | null {
@@ -76,6 +82,8 @@ export function toProjectActorView(actor: Actor | null, projectId: string): Proj
     teamId: actor.teamId,
     isSuperuser: actor.isSuperuser,
     projectRole: actor.projectRoles.get(projectId) ?? null,
+    rosterTeamId: actor.rosterTeams.get(projectId)?.teamId ?? null,
+    rosterTeamCode: actor.rosterTeams.get(projectId)?.teamCode ?? null,
   }
 }
 
@@ -87,6 +95,8 @@ export function actorFromView(view: ProjectActorView | null, projectId: string):
     teamId: view.teamId,
     isSuperuser: view.isSuperuser,
     projectRoles: new Map(view.projectRole ? [[projectId, view.projectRole]] : []),
+    rosterTeams: new Map(view.rosterTeamId && view.rosterTeamCode
+      ? [[projectId, { teamId: view.rosterTeamId, teamCode: view.rosterTeamCode }]] : []),
   }
 }
 

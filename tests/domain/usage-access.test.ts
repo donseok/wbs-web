@@ -5,7 +5,7 @@ import { DICT } from '@/lib/i18n/dict'
 
 const actor = (over: Partial<Actor>): Actor => ({
   userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false,
-  projectRoles: new Map(), ...over,
+  projectRoles: new Map(), rosterTeams: new Map(), ...over,
 })
 
 describe('canViewUsage — 슈퍼유저 전용(2026-07-30 사용자 결정)', () => {

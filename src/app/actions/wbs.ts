@@ -3,6 +3,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
+import { actorTeamIdsFor } from '@/lib/domain/permissions'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
@@ -94,9 +95,10 @@ export async function updateActual(
   // 관리자 이상은 담당 무관 전체 허용. 멤버는 자기 팀이 담당인 항목만.
   if (!isProjectAdmin(g.actor, found.projectId)) {
     // 팀이 없는 멤버는 item_owners 에 걸릴 수 없다 — 조회 없이 거부(fail-closed).
-    if (!g.actor.teamId) return { ok: false, error: '담당 작업이 아님' }
+    const myTeamIds = actorTeamIdsFor(g.actor, found.projectId!)
+    if (myTeamIds.length === 0) return { ok: false, error: '담당 작업이 아님' }
     // 권한 가드 — 조회 실패를 '담당 아님'이 아니라 통과로 흘려보내면 안 된다. 실패 = 거부(fail-closed).
-    const { data: owner, error: ownerErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', g.actor.teamId).maybeSingle()
+    const { data: owner, error: ownerErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).in('team_id', myTeamIds).limit(1).maybeSingle()
     if (ownerErr) return { ok: false, error: `담당 확인 실패: ${ownerErr.message}` }
     if (!owner) return { ok: false, error: '담당 작업이 아님' }
   }
@@ -543,8 +545,9 @@ export async function updateDeliverable(
   if (!item) return { ok: false, error: '항목 없음' }
   // 권한 — 관리자 아니면 담당팀만(item_owners). attachments.canAttach 와 같은 판정.
   if (!isProjectAdmin(g.actor, found.projectId)) {
-    if (!g.actor.teamId) return { ok: false, error: '담당 작업이 아닙니다.' } // 팀 없는 멤버는 담당이 될 수 없다
-    const { data: own, error: ownErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).eq('team_id', g.actor.teamId).maybeSingle()
+    const myTeamIds = actorTeamIdsFor(g.actor, found.projectId!) // 팀 없는 멤버는 담당이 될 수 없다
+    if (myTeamIds.length === 0) return { ok: false, error: '담당 작업이 아닙니다.' }
+    const { data: own, error: ownErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).in('team_id', myTeamIds).limit(1).maybeSingle()
     if (ownErr) return { ok: false, error: `담당 확인 실패: ${ownErr.message}` } // 실패를 '담당 아님'으로도, 통과로도 위장하지 않는다
     if (!own) return { ok: false, error: '담당 작업이 아닙니다.' }
   }

@@ -9,12 +9,14 @@ import { getActor, requireSuperuser, requireProjectAdmin, requireProjectMember, 
 
 const USER = { id: 'u1', email: 'a@b.com' }
 
-/** memberships 단건 조회와 project_roles 목록 조회를 순서대로 흉내낸다. */
+/** memberships 단건 조회·project_roles 목록 조회·project_members(0071 명단 팀) 조회를 순서대로 흉내낸다. */
 function stubDb(opts: {
   membership?: { is_superuser: boolean; teams: { code: string; id: string } } | null
   membershipError?: { message: string } | null
   roles?: { project_id: string; role: string }[] | null
   rolesError?: { message: string } | null
+  rosterRows?: { project_id: string; team_id: string; teams: { code: string } | null }[] | null
+  rosterError?: { message: string } | null
 }) {
   mockClient.auth.getUser.mockResolvedValue({ data: { user: USER } })
   mockClient.from.mockImplementation((table: string) => {
@@ -25,6 +27,10 @@ function stubDb(opts: {
     if (table === 'project_roles') {
       return { select: () => ({ eq: async () => ({
         data: opts.roles ?? null, error: opts.rolesError ?? null }) }) }
+    }
+    if (table === 'project_members') {
+      return { select: () => ({ eq: () => ({ not: async () => ({
+        data: opts.rosterRows ?? [], error: opts.rosterError ?? null }) }) }) }
     }
     throw new Error(`예상치 못한 테이블: ${table}`)
   })

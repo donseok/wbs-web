@@ -25,7 +25,7 @@ const PRIV = { id: 'p-priv', name: '비공개', is_private: true }
 
 const actor = (over: Partial<Actor>): Actor => ({
   userId: 'u1', teamCode: null, teamId: null, isSuperuser: false,
-  projectRoles: new Map(), ...over,
+  projectRoles: new Map(), rosterTeams: new Map(), ...over,
 })
 
 function stubProjects(rows: unknown[], error: { message: string } | null = null) {

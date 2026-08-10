@@ -20,8 +20,8 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({ queueWbsCollapse: vi.fn() }))
 
 import { WbsGanttSheet } from '@/components/wbs/WbsGanttSheet'
 
-const pmo: ProjectActorView = { userId: 'u-pmo', teamCode: 'PMO', teamId: 'tp', isSuperuser: false, projectRole: 'admin' }
-const dtEditor: ProjectActorView = { userId: 'u-dt', teamCode: '가공', teamId: 'td', isSuperuser: false, projectRole: 'member' }
+const pmo: ProjectActorView = { userId: 'u-pmo', teamCode: 'PMO', teamId: 'tp', isSuperuser: false, projectRole: 'admin', rosterTeamId: null, rosterTeamCode: null }
+const dtEditor: ProjectActorView = { userId: 'u-dt', teamCode: '가공', teamId: 'td', isSuperuser: false, projectRole: 'member', rosterTeamId: null, rosterTeamCode: null }
 
 function item(over: Partial<ComputedItem>): ComputedItem {
   return {
