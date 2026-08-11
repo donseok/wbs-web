@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/check-env-target.mjs",
     "dev": "next dev",
+    "env:staging": "node scripts/env-swap.mjs staging",
+    "env:prod": "node scripts/env-swap.mjs prod",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -15,6 +18,8 @@
     "wbs:validate": "node scripts/wbs/validate.mjs",
     "wbs:build": "node scripts/wbs/build-xlsx.mjs",
     "mark:good": "node scripts/mark-good.mjs",
+    "staging:sync": "node scripts/staging-sync.mjs",
+    "db:apply": "node scripts/db-apply.mjs",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
