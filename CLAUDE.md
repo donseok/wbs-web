@@ -65,7 +65,7 @@ npm run mark:good        # 화면까지 확인됐으면 known-good 태그를 남
 
 ### pre-push 훅
 
-`.githooks/pre-push` — `npm install` 이 `core.hooksPath` 를 걸어 자동 설치된다(리포에 커밋되므로 모든 PC 에 따라감). 검사는 셋:
+`.githooks/pre-push` — `npm install` 이 `core.hooksPath` 를 걸어 자동 설치된다(리포에 커밋되므로 모든 PC 에 따라감). 검사는 넷:
 
 | | 내용 | 예외 |
 |---|---|---|
@@ -103,7 +103,7 @@ unlayered 규칙은 특이성과 무관하게 모든 named layer 를 이긴다. 
   운영 전환 후엔 복귀가 예절이고 predev 가드가 잊음을 잡는다). 운영을 향한 `npm run dev` 는
   `FORCE_PROD_DEV=1` 없이는 차단된다. 쓰기 검증은 스테이징에서.
 - 마이그레이션은 **스테이징 리허설 후** Supabase Management API 로 적용(`npm run db:apply`).
-  `supabase db push` 는 쓰지 않는다. — 상세는 docs/runbook-staging.md
+  `supabase db push` 는 쓰지 않는다.
 - 새 마이그레이션에는 `_rollback.sql` 을 함께 만든다.
 
 ### Supabase 계정 (2026-08-05 실측)
