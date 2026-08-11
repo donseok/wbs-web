@@ -77,4 +77,19 @@ describe('emitNotification', () => {
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
+  it('actor 미지정 + 미링크 멤버 → recipient row가 유지된다', async () => {
+    const { inserted } = admin({
+      project_members: [{ data: [{ id: 'm1', user_id: null }] }],
+      notification_events: [{ data: { id: 'ev1' } }],
+      notification_recipients: [{ data: null }],
+    })
+    const r = await emitNotification({
+      type: 'system.pat_expiring', projectId: null,
+      payload: { title: 'T' }, recipientMemberIds: ['m1'],
+    })
+    expect(r.ok).toBe(true)
+    expect(r.recipients).toBe(1)
+    const rows = inserted.notification_recipients[0] as { member_id: string | null; user_id: string | null }[]
+    expect(rows).toEqual([{ event_id: 'ev1', member_id: 'm1', user_id: null }])
+  })
 })

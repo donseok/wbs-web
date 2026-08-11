@@ -32,7 +32,7 @@ export async function emitNotification(input: EmitInput): Promise<EmitResult> {
         return { ok: false }
       }
       for (const m of data ?? []) {
-        if (m.user_id !== actor) rows.push({ member_id: m.id, user_id: m.user_id ?? null })
+        if (actor === null || m.user_id !== actor) rows.push({ member_id: m.id, user_id: m.user_id ?? null })
       }
     }
     for (const uid of new Set(input.recipientUserIds ?? [])) {
