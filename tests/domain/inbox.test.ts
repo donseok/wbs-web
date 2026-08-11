@@ -29,6 +29,11 @@ describe('isTypeEnabled — 조회 시점 필터', () => {
   it('REQUIRED 는 끌 수 없다', () => {
     expect(isTypeEnabled({ 'work.reported': false }, 'work.reported')).toBe(true)
   })
+  it('카탈로그 밖 타입은 false — throw 없이 fail-closed', () => {
+    const unknown = 'meeting.unknown' as unknown as import('@/lib/domain/inbox').NotificationType
+    expect(() => isTypeEnabled(undefined, unknown)).not.toThrow()
+    expect(isTypeEnabled(undefined, unknown)).toBe(false)
+  })
 })
 
 describe('normalizeRecipientUserIds', () => {

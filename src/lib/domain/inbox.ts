@@ -33,9 +33,11 @@ export function categoryOf(type: NotificationType): NotificationCategory {
   return NOTIFICATION_CATALOG[type].category
 }
 
-/** 조회 시점 필터 — 발행 시 수신자별 prefs 조회를 피하고, 토글이 소급 적용되게 한다. */
+/** 조회 시점 필터 — 발행 시 수신자별 prefs 조회를 피하고, 토글이 소급 적용되게 한다.
+ * type 이 카탈로그 밖(미지·삭제된 타입)이면 fail-closed 로 숨긴다 — 피드 전체를 죽이지 않는다. */
 export function isTypeEnabled(prefs: Record<string, boolean> | undefined, type: NotificationType): boolean {
-  const entry = NOTIFICATION_CATALOG[type]
+  const entry: (typeof NOTIFICATION_CATALOG)[NotificationType] | undefined = NOTIFICATION_CATALOG[type]
+  if (!entry) return false
   if (entry.required) return true
   return prefs?.[type] ?? entry.defaultOn
 }

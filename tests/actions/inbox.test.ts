@@ -75,6 +75,18 @@ describe('getInboxFeed', () => {
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
+  it('prefs 조회 실패는 로깅하고 카탈로그 기본값으로 열화 — 피드는 죽이지 않는다', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.createServerClient.mockResolvedValue(client({
+      notification_recipients: [{ data: [row()] }],
+      user_preferences: [{ data: null, error: { message: 'prefs boom' } }],
+    }))
+    const r = await getInboxFeed()
+    expect(r.failed).toBeUndefined()
+    expect(r.items).toHaveLength(1)
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
+  })
 })
 
 describe('markInboxSeen', () => {

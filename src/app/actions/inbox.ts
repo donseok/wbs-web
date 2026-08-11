@@ -48,8 +48,10 @@ export async function getInboxFeed(limit = 30): Promise<{ items: InboxItem[]; un
     return { items: [], unseen: 0, failed: true }
   }
 
-  const { data: prefRow } = await sb
+  const { data: prefRow, error: prefError } = await sb
     .from('user_preferences').select('prefs').eq('user_id', user.id).maybeSingle()
+  // prefs 는 부차 데이터 — 조회 실패해도 피드는 죽이지 않고 카탈로그 기본값으로 열화(로깅은 남긴다).
+  if (prefError) console.error('[inbox] prefs 조회 실패', prefError.message)
   const notifPrefs = ((prefRow?.prefs as UiPrefs | null)?.notif) ?? undefined
 
   const items: InboxItem[] = []
