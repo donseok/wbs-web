@@ -75,7 +75,7 @@ npm run staging:sync -- --yes      # 프롬프트 + 활성 접속 가드 함께 
 - 임베딩 벡터(`pgvector`)는 일반 컬럼 데이터로 pg_dump/restore 에 그대로 실려온다 (별도 재생성 없음)
 
 **제약 및 주의**:
-- **UAT 진행 중에는 금지** — 활성 접속이 있으면 프롬프트로 경고한다. 조율 없이 실행하면 테스트 데이터 손실.
+- **UAT 진행 중에는 금지** — 활성 접속이 있으면 즉시 중단한다(경고 출력). 조율 후 `npm run staging:sync -- --yes` 로 재실행.
 - **대규모 마이그레이션 리허설 전에는 일정 조율** — 여러 팀이 동시에 데이터를 손상시킬 수 있다.
 - `--yes` 플래그를 쓰면 **확인 프롬프트와 활성 접속 가드가 함께 무시**되므로 자동화 시나리오에서만 사용.
 
@@ -223,6 +223,43 @@ npm run dev               # 권장 — predev 실행
 
 ---
 
+## 새 PC 온보딩 (predev에 처음 차단됐을 때)
+
+merge 이후 다른 PC 의 `npm run dev` 는 `.env.local` 이 운영을 가리키면 차단된다. 절차:
+
+### 1단계: 운영 원복용 보존
+
+```bash
+cp .env.local .env.local.prod
+```
+
+`.env.local.prod` 첫 줄에 주석 추가:
+
+```
+# ⚠ 운영 — 사용 후 npm run env:staging 복귀
+```
+
+### 2단계: 스테이징 환경파일 생성
+
+`.env.local.example` 을 참고해 `.env.local.staging` 생성. 값 출처:
+
+- **`NEXT_PUBLIC_SUPABASE_URL`**: `https://abtyahghvvkcriawffty.supabase.co`
+- **anon/service_role 키**: 스테이징 Supabase 대시보드(조직 `dflow-staging`) → Settings → API Keys 에서 복사
+  - 또는 Management API: `GET /v1/projects/abtyahghvvkcriawffty/api-keys` (키체인 "Supabase CLI" 토큰)
+- **`GEMINI_API_KEY`**: 스테이징용 무료 키 (발급 전이면 빈 값 — 봇은 결정형 폴백으로 동작)
+- **`SUPABASE_DB_URL` 줄은 넣지 않는다** — 운영 직결 URL 잔존 방지
+
+### 3단계: 스테이징으로 전환 후 실행
+
+```bash
+npm run env:staging
+npm run dev
+```
+
+> **주의**: `FORCE_PROD_DEV=1` 은 의도적 운영 접속 전용이다 — 온보딩 우회 수단이 아니다.
+
+---
+
 ## 6. 무료 티어 일시정지 복구
 
 Supabase 무료 조직은 **1주일 미사용 시 정지**(복구 가능 1년).
@@ -263,10 +300,8 @@ Supabase 무료 조직은 **1주일 미사용 시 정지**(복구 가능 1년).
    **쌍이 main 으로 흐르면** 수용한다 (이후 운영 배포에서 같이 리버트되므로 무해).
 
 2. **Vercel Instant Rollback** (빠름, 코드만 되돌림)
-   ```bash
-   vercel rollback <직전-배포-URL> --yes
-   vercel rollback status dflow-staging
-   ```
+   
+   대시보드: Vercel → dflow-staging → Deployments 에서 직전 배포의 `⋯` → **Instant Rollback** → 배포 상태는 Deployments 에서 확인.
 
 ### 대규모 오염 (예외 절차)
 
@@ -295,7 +330,7 @@ Task 1~2 의 체크리스트를 다시 수행:
 
 - [ ] Supabase 대시보드에서 새 프로젝트 생성 (`dflow-staging`, ap-northeast-2)
 - [ ] **Site URL**: `https://dflow-staging.vercel.app` 설정
-- [ ] **Redirect 허용 목록**: `https://dflow-staging.vercel.app`, `https://localhost:3000`
+- [ ] **Redirect 허용 목록**: `https://dflow-staging.vercel.app`, `http://localhost:3000/**`
 - [ ] **이메일 발송 차단** (가짜 SMTP + rate limit):
   - Auth → Email → SMTP Settings → `127.0.0.1:2525`
   - Rate limit → `1` (0은 API 하한이므로 불가)
@@ -355,17 +390,11 @@ npm run staging:sync
 
 발급 후 세 곳에 등록:
 
-1. **Vercel `dflow-staging` 프로젝트**:
-   ```bash
-   vercel env add GEMINI_API_KEY --project dflow-staging --environment production
-   ```
+1. **Vercel 대시보드에서**:
+   - `dflow-staging` 프로젝트 → Settings → Environment Variables 에 `GEMINI_API_KEY` (Production 스코프) 추가
+   - 기존 `wbs-web` 프로젝트 → Settings → Environment Variables 에 같은 이름으로 Preview 스코프 추가 (다른 키)
 
-2. **Vercel 운영 프로젝트** (Preview 스코프, 스테이징과 다른 key 설정):
-   ```bash
-   vercel env add GEMINI_API_KEY --project wbs-web --environment preview
-   ```
-
-3. **로컬 `.env.local.staging`**:
+2. **로컬 `.env.local.staging`**:
    ```
    GEMINI_API_KEY=<발급받은키>
    ```
