@@ -35,7 +35,7 @@ vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification }))
 
 import { getSession } from '@/lib/auth'
-import { updateIssue } from '@/app/actions/issues'
+import { updateIssue, updateIssueProgress } from '@/app/actions/issues'
 
 const USER = { id: 'me', email: 'me@x.com', user_metadata: {} } as const
 const ACTOR = { userId: 'me', teamCode: 'PMO', teamId: 't1', isSuperuser: false, projectRoles: new Map([['p1', 'member']]) }
@@ -134,6 +134,61 @@ describe('updateIssue — replaceAssignees diff 발행 배선', () => {
     expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'issue.assigned',
       recipientMemberIds: ['m2'],
+    }))
+  })
+})
+
+describe('updateIssueProgress — 진행/칸반 경로에서도 담당자 diff 발행', () => {
+  it('기존 이슈 조회에서 얻은 title 로 신규 담당자에게만 발행', async () => {
+    state.client = {
+      from: vi.fn((table: string) => {
+        if (table === 'issues') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                maybeSingle: vi.fn(async () => ({
+                  data: {
+                    project_id: 'p1', created_by: 'other', status: 'open', resolved_at: null,
+                    title: '칸반에서 담당 변경',
+                  },
+                })),
+              })),
+            })),
+            update: vi.fn(() => ({
+              eq: vi.fn(() => ({ select: vi.fn(async () => ({ data: [{ id: 'i1' }], error: null })) })),
+            })),
+          }
+        }
+        if (table === 'issue_assignees') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(async () => ({ data: [{ member_id: 'm1' }], error: null })),
+            })),
+            delete: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) })),
+            insert: vi.fn(async () => ({ error: null })),
+          }
+        }
+        if (table === 'project_members') {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                in: vi.fn(async () => ({ data: [{ id: 'm1' }, { id: 'm2' }], error: null })),
+              })),
+            })),
+          }
+        }
+        throw new Error(`unexpected table: ${table}`)
+      }),
+    }
+
+    const res = await updateIssueProgress('i1', { assigneeMemberIds: ['m1', 'm2'] })
+
+    expect(res).toMatchObject({ ok: true })
+    expect(emitNotification).toHaveBeenCalledOnce()
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'issue.assigned',
+      recipientMemberIds: ['m2'],
+      payload: expect.objectContaining({ title: '칸반에서 담당 변경' }),
     }))
   })
 })

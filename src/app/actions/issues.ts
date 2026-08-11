@@ -1035,7 +1035,7 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
   }
 
   const sb = await createServerClient()
-  const { data: cur } = await sb.from('issues').select('project_id, created_by, status, resolved_at').eq('id', issueId).maybeSingle()
+  const { data: cur } = await sb.from('issues').select('project_id, created_by, status, resolved_at, title').eq('id', issueId).maybeSingle()
   if (!cur) return { ok: false, error: '이슈를 찾을 수 없습니다.' }
   const curStatus = cur.status as IssueStatus
 
@@ -1080,7 +1080,8 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
 
   // 담당자 교체는 상태 CAS 가 통과한 뒤에만 — 충돌 감지 시 담당자까지 절반만 저장되는 일이 없게 한다.
   if (patch.assigneeMemberIds !== undefined) {
-    const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, patch.assigneeMemberIds)
+    const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, patch.assigneeMemberIds,
+      { issueTitle: cur.title as string, actorUserId: g.actor.userId })
     if (assignErr) {
       // 상태·메모는 이미 커밋됐다 — 화면이 그 변경을 반영하도록 revalidate 하고 실패는 실패로 알린다.
       revalidateIssues(cur.project_id as string)
