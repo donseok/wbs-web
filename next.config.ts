@@ -14,15 +14,23 @@ const nextConfig: NextConfig = {
     "/p/[projectId]/issues": [issueAnalysisTemplate],
   },
   async headers() {
+    const rules: Awaited<ReturnType<NonNullable<NextConfig["headers"]>>> = [];
+    // 스테이징은 검색엔진에 노출하지 않는다 (스펙 §5 — STAGING=1 은 스테이징 배포에만 설정).
+    if (process.env.STAGING === "1") {
+      rules.push({
+        source: "/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      });
+    }
     // 프로덕션 배포에서만 Vercel Toolbar 숨김(공식 x-vercel-skip-toolbar 헤더).
     // Preview 배포의 코멘트/피드백 기능은 유지한다. (BUG-07)
-    if (process.env.VERCEL_ENV !== "production") return [];
-    return [
-      {
+    if (process.env.VERCEL_ENV === "production") {
+      rules.push({
         source: "/:path*",
         headers: [{ key: "x-vercel-skip-toolbar", value: "1" }],
-      },
-    ];
+      });
+    }
+    return rules;
   },
 };
 
