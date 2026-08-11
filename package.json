@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/check-env-target.mjs",
     "dev": "next dev",
+    "env:staging": "node scripts/env-swap.mjs staging",
+    "env:prod": "node scripts/env-swap.mjs prod",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
