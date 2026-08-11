@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
   linkByDepth: vi.fn(),
   resolveLegacyLevelLabels: vi.fn(),
   splitLeafOwners: vi.fn(),
-  teamsSync: vi.fn(),
+  projectTeamRowsSync: vi.fn(),
+  teamsForProjectSync: vi.fn(),
   addTeam: vi.fn(),
+  addProjectTeam: vi.fn(),
   createServerClient: vi.fn(),
   createAdminClient: vi.fn(),
   recordProgressSnapshot: vi.fn(),
@@ -27,8 +29,11 @@ vi.mock('@/lib/excel/parseWithProfile', () => ({
   resolveLegacyLevelLabels: mocks.resolveLegacyLevelLabels,
 }))
 vi.mock('@/lib/excel/validate', () => ({ splitLeafOwners: mocks.splitLeafOwners }))
-vi.mock('@/lib/teams/master', () => ({ teamsSync: mocks.teamsSync }))
+vi.mock('@/lib/teams/master', () => ({
+  projectTeamRowsSync: mocks.projectTeamRowsSync, teamsForProjectSync: mocks.teamsForProjectSync,
+}))
 vi.mock('@/app/actions/teams', () => ({ addTeam: mocks.addTeam }))
+vi.mock('@/app/actions/projectTeams', () => ({ addProjectTeam: mocks.addProjectTeam }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
@@ -113,8 +118,11 @@ beforeEach(() => {
   mocks.resolveLegacyLevelLabels.mockReturnValue(true)
   mocks.linkByDepth.mockReturnValue({ ok: true, items: [LINKED_ITEM] })
   mocks.splitLeafOwners.mockImplementation((items: unknown) => items)
-  mocks.teamsSync.mockReturnValue(KNOWN_TEAMS)
+  // 기본: projectTeamRowsSync 빈 배열 = 전역 상속 프로젝트(D-CUBE 동치) — 기존 동작을 보존한다.
+  mocks.projectTeamRowsSync.mockReturnValue([])
+  mocks.teamsForProjectSync.mockReturnValue(KNOWN_TEAMS)
   mocks.addTeam.mockResolvedValue({ ok: true })
+  mocks.addProjectTeam.mockResolvedValue({ ok: true })
   mocks.recordProgressSnapshot.mockResolvedValue(undefined)
   mocks.ingestProject.mockResolvedValue({ count: 3 })
   mocks.createServerClient.mockImplementation(async () => makeSbClient())
@@ -187,7 +195,7 @@ describe('POST /api/import/execute — 검증 오류 400', () => {
     const res = await POST(req(baseFields()))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: '시트를 찾을 수 없습니다: WBS' })
-    expect(mocks.teamsSync).not.toHaveBeenCalled()
+    expect(mocks.teamsForProjectSync).not.toHaveBeenCalled()
   })
 
   it('linkByDepth 구조 오류 → errors 배열 그대로 400', async () => {
@@ -197,42 +205,46 @@ describe('POST /api/import/execute — 검증 오류 400', () => {
     expect(await res.json()).toEqual({ errors: [{ excelRow: 5, message: '깊이 건너뜀' }] })
   })
 
-  it('미등록 팀 포함 + linkByDepth 구조 오류 → 팀 부트스트랩 전에 400, teamsSync·addTeam 미호출(리뷰 Minor — 검증 실패 요청은 전역 팀 마스터에 부수효과를 남기지 않는다)', async () => {
+  it('미등록 팀 포함 + linkByDepth 구조 오류 → 팀 부트스트랩 전에 400, 팀 대조·등록 전부 미호출(리뷰 Minor — 검증 실패 요청은 팀 마스터에 부수효과를 남기지 않는다)', async () => {
     mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
     mocks.linkByDepth.mockReturnValue({ ok: false, errors: [{ excelRow: 5, message: '깊이 건너뜀' }] })
     const res = await POST(req(baseFields({ registerTeams: 'true' })))
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ errors: [{ excelRow: 5, message: '깊이 건너뜀' }] })
-    expect(mocks.teamsSync).not.toHaveBeenCalled()
+    expect(mocks.projectTeamRowsSync).not.toHaveBeenCalled()
+    expect(mocks.teamsForProjectSync).not.toHaveBeenCalled()
     expect(mocks.requireSuperuser).not.toHaveBeenCalled()
     expect(mocks.addTeam).not.toHaveBeenCalled()
+    expect(mocks.addProjectTeam).not.toHaveBeenCalled()
   })
 })
 
-describe('POST /api/import/execute — 팀 부트스트랩(§10.3)', () => {
-  it('미등록 팀 + registerTeams=false → 409 needsTeams, DB 무접근', async () => {
+describe('POST /api/import/execute — 팀 부트스트랩(§10.3, 전역 상속 프로젝트 — projectTeamRowsSync 빈 배열)', () => {
+  it('미등록 팀 + registerTeams=false → 409 needsTeams scope:global, DB 무접근', async () => {
     mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
     const res = await POST(req(baseFields()))
     expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({ needsTeams: ['NEWTEAM'] })
+    expect(await res.json()).toEqual({ needsTeams: ['NEWTEAM'], scope: 'global' })
     expect(mocks.requireSuperuser).not.toHaveBeenCalled()
     expect(mocks.createServerClient).not.toHaveBeenCalled()
   })
 
-  it('미등록 팀 + registerTeams=true + 비슈퍼유저 → 403, addTeam 미호출', async () => {
+  it('미등록 팀 + registerTeams=true + 비슈퍼유저 → 403, addTeam·addProjectTeam 미호출', async () => {
     mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
     mocks.requireSuperuser.mockResolvedValue({ ok: false, error: '권한 없음' })
     const res = await POST(req(baseFields({ registerTeams: 'true' })))
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: '팀 등록은 슈퍼유저 권한' })
     expect(mocks.addTeam).not.toHaveBeenCalled()
+    expect(mocks.addProjectTeam).not.toHaveBeenCalled()
   })
 
-  it('미등록 팀 + registerTeams=true + 슈퍼유저 → addTeam 호출 후 임포트 성공', async () => {
+  it('미등록 팀 + registerTeams=true + 슈퍼유저 → addTeam(전역) 호출 후 임포트 성공, addProjectTeam 미호출', async () => {
     mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
     mocks.requireSuperuser.mockResolvedValue({ ok: true, actor: SUPER_ACTOR })
     const res = await POST(req(baseFields({ registerTeams: 'true' })))
     expect(mocks.addTeam).toHaveBeenCalledWith('NEWTEAM')
+    expect(mocks.addProjectTeam).not.toHaveBeenCalled()
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(true)
@@ -246,6 +258,55 @@ describe('POST /api/import/execute — 팀 부트스트랩(§10.3)', () => {
     const res = await POST(req(baseFields({ registerTeams: 'true' })))
     expect(res.status).toBe(500)
     expect(mocks.createServerClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/import/execute — 팀 부트스트랩(0071, 프로젝트 스코프 — projectTeamRowsSync 비어있지 않음)', () => {
+  const PROJECT_TEAM_ROWS = [{ code: 'PMO', projectId: PROJECT_ID }]
+
+  it('팀 정의 프로젝트 + 미등록 팀 + registerTeams=false → 409 needsTeams scope:project, 슈퍼유저 가드 미호출', async () => {
+    mocks.projectTeamRowsSync.mockReturnValue(PROJECT_TEAM_ROWS)
+    mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
+    const res = await POST(req(baseFields()))
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ needsTeams: ['NEWTEAM'], scope: 'project' })
+    expect(mocks.requireSuperuser).not.toHaveBeenCalled()
+    expect(mocks.createServerClient).not.toHaveBeenCalled()
+  })
+
+  it('팀 정의 프로젝트 + registerTeams=true(비슈퍼유저 관리자로 충분) → addProjectTeam 경유, 전역 addTeam·requireSuperuser 미호출', async () => {
+    mocks.projectTeamRowsSync.mockReturnValue(PROJECT_TEAM_ROWS)
+    mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
+    // requireSuperuser 기본 mock 은 ok:false 지만(beforeEach), 프로젝트 스코프 분기는 이를 아예 호출하지 않는다 —
+    // 상단 requireProjectAdmin(라우트 진입 가드)만으로 충분하다는 것이 이 테스트의 핵심 단언.
+    const res = await POST(req(baseFields({ registerTeams: 'true' })))
+    expect(mocks.addProjectTeam).toHaveBeenCalledWith(PROJECT_ID, 'NEWTEAM')
+    expect(mocks.addTeam).not.toHaveBeenCalled()
+    expect(mocks.requireSuperuser).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.ok).toBe(true)
+  })
+
+  it('addProjectTeam 실패 → 500, 사유를 위장하지 않고 그대로 전달, RPC 미호출', async () => {
+    mocks.projectTeamRowsSync.mockReturnValue(PROJECT_TEAM_ROWS)
+    mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
+    mocks.addProjectTeam.mockResolvedValue({ ok: false, error: '팀 생성 실패: db down' })
+    const res = await POST(req(baseFields({ registerTeams: 'true' })))
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.error).toContain('db down')
+    expect(mocks.createServerClient).not.toHaveBeenCalled()
+  })
+
+  it('teamsForProjectSync 가 이미(비활성 포함) 등록된 것으로 보고하면 대조 통과 — 등록 액션 자체가 호출되지 않는다', async () => {
+    mocks.projectTeamRowsSync.mockReturnValue(PROJECT_TEAM_ROWS)
+    mocks.teamsForProjectSync.mockReturnValue([...KNOWN_TEAMS, { code: 'NEWTEAM' }])
+    mocks.parseWithProfile.mockReturnValue({ ok: true, rows: [ROW_UNKNOWN_TEAM], holidays: [] })
+    const res = await POST(req(baseFields()))
+    expect(res.status).toBe(200)
+    expect(mocks.addProjectTeam).not.toHaveBeenCalled()
+    expect(mocks.addTeam).not.toHaveBeenCalled()
   })
 })
 

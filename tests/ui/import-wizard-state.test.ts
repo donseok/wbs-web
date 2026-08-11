@@ -39,24 +39,33 @@ describe('importWizard reducer — 상태 전이(§6.2)', () => {
     expect(next.busy).toBe(false)
   })
 
-  it('executeStart — 이전 실패 상태(error/errors/needsTeams)를 전부 지운다', () => {
+  it('executeStart — 이전 실패 상태(error/errors/needsTeams/needsTeamsScope)를 전부 지운다', () => {
     const dirty: typeof initialWizardState = {
-      ...initialWizardState, error: 'x', errors: [{ excelRow: 1, message: 'y' }], needsTeams: ['A팀'],
+      ...initialWizardState, error: 'x', errors: [{ excelRow: 1, message: 'y' }], needsTeams: ['A팀'], needsTeamsScope: 'global',
     }
     const next = reducer(dirty, { type: 'executeStart' })
-    expect(next).toMatchObject({ busy: true, error: null, errors: null, needsTeams: null })
+    expect(next).toMatchObject({ busy: true, error: null, errors: null, needsTeams: null, needsTeamsScope: null })
   })
 
-  it('executeNeedsTeams — busy 를 풀고 팀 목록을 싣는다(409 다이얼로그 트리거)', () => {
-    const next = reducer({ ...initialWizardState, busy: true }, { type: 'executeNeedsTeams', teams: ['신팀'] })
-    expect(next).toMatchObject({ busy: false, needsTeams: ['신팀'] })
+  it('executeNeedsTeams — busy 를 풀고 팀 목록+스코프를 싣는다(409 다이얼로그 트리거, 0071 scope)', () => {
+    const project = reducer({ ...initialWizardState, busy: true }, { type: 'executeNeedsTeams', teams: ['신팀'], scope: 'project' })
+    expect(project).toMatchObject({ busy: false, needsTeams: ['신팀'], needsTeamsScope: 'project' })
+
+    const global = reducer({ ...initialWizardState, busy: true }, { type: 'executeNeedsTeams', teams: ['신팀'], scope: 'global' })
+    expect(global).toMatchObject({ busy: false, needsTeams: ['신팀'], needsTeamsScope: 'global' })
   })
 
-  it('executeSuccess — done 단계로 전이하고 에러류를 전부 비운다', () => {
-    const dirty = { ...initialWizardState, errors: [{ excelRow: 1, message: 'z' }], needsTeams: ['T'] }
+  it('dismissNeedsTeams — needsTeams 와 함께 scope 도 지운다', () => {
+    const dirty = { ...initialWizardState, needsTeams: ['T'], needsTeamsScope: 'project' as const }
+    const next = reducer(dirty, { type: 'dismissNeedsTeams' })
+    expect(next).toMatchObject({ needsTeams: null, needsTeamsScope: null })
+  })
+
+  it('executeSuccess — done 단계로 전이하고 에러류(scope 포함)를 전부 비운다', () => {
+    const dirty = { ...initialWizardState, errors: [{ excelRow: 1, message: 'z' }], needsTeams: ['T'], needsTeamsScope: 'global' as const }
     const result = { count: 3, mode: 'append' as const, reindexed: 3, profileSaved: true }
     const next = reducer(dirty, { type: 'executeSuccess', result })
-    expect(next).toMatchObject({ step: 'done', result, error: null, errors: null, needsTeams: null })
+    expect(next).toMatchObject({ step: 'done', result, error: null, errors: null, needsTeams: null, needsTeamsScope: null })
   })
 
   it('reset — 완전 초기 상태로 되돌린다', () => {

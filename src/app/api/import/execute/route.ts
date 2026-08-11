@@ -5,8 +5,9 @@ import { requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { validateProfile } from '@/lib/excel/profile'
 import { parseWithProfile, linkByDepth, resolveLegacyLevelLabels } from '@/lib/excel/parseWithProfile'
 import { splitLeafOwners } from '@/lib/excel/validate'
-import { teamsSync } from '@/lib/teams/master'
+import { projectTeamRowsSync, teamsForProjectSync } from '@/lib/teams/master'
 import { addTeam } from '@/app/actions/teams'
+import { addProjectTeam } from '@/app/actions/projectTeams'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { ingestProject } from '@/lib/ai/ingest'
 import { isUuidLike } from '@/lib/domain/agentWork'
@@ -72,24 +73,33 @@ export async function POST(req: NextRequest) {
   const linked = linkByDepth(parsed.rows, { legacyLevelLabels: resolveLegacyLevelLabels(profile) })
   if (!linked.ok) return NextResponse.json({ errors: linked.errors }, { status: 400 })
 
-  // 팀 마스터 대조(§10.3) — 미등록 팀은 조용한 스킵이 아니라 명시 확인·부트스트랩 대상이다.
-  const registered = new Set(teamsSync().map(t => t.code))
+  // 팀 마스터 대조(§10.3) — 대조 기준도 등록 스코프도 프로젝트 팀 정의 여부를 따른다(0071).
+  const projectDefined = projectTeamRowsSync(projectId).length > 0
+  const registered = new Set(teamsForProjectSync(projectId).map(t => t.code))
   const unknownTeams = [...new Set(parsed.rows.flatMap(r => r.owners.map(o => o.team)))]
     .filter(t => !registered.has(t))
 
   if (unknownTeams.length > 0) {
     if (!registerTeams) {
-      return NextResponse.json({ needsTeams: unknownTeams }, { status: 409 })
+      return NextResponse.json({ needsTeams: unknownTeams, scope: projectDefined ? 'project' : 'global' }, { status: 409 })
     }
-    // 팀 마스터는 전역 기준정보 — 프로젝트 관리자가 아니라 슈퍼유저만 등록(addTeam 과 동일 게이트).
-    const su = await requireSuperuser()
-    if (!su.ok) return NextResponse.json({ error: '팀 등록은 슈퍼유저 권한' }, { status: 403 })
-    for (const team of unknownTeams) {
-      // /admin/teams 의 addTeam 액션을 그대로 재사용 — code·sort_order 말번 채번·active(DB 기본값 true) 관례를
-      // 새로 베끼지 않는다(report/export 라우트가 이미 서버 액션을 직접 호출하는 선례가 있다).
-      const added = await addTeam(team)
-      if (!added.ok) {
-        return NextResponse.json({ error: `팀 등록 실패: ${team} — ${added.error}` }, { status: 500 })
+    if (projectDefined) {
+      // 프로젝트 팀으로 등록 — 라우트 상단 가드(관리자)로 충분, 시드 폴더 없음(addProjectTeam 계약).
+      for (const team of unknownTeams) {
+        const added = await addProjectTeam(projectId, team)
+        if (!added.ok) {
+          return NextResponse.json({ error: `팀 등록 실패: ${team} — ${added.error}` }, { status: 500 })
+        }
+      }
+    } else {
+      // 전역 상속 프로젝트(D-CUBE)는 현행 유지 — 전역 마스터 등록은 슈퍼유저만.
+      const su = await requireSuperuser()
+      if (!su.ok) return NextResponse.json({ error: '팀 등록은 슈퍼유저 권한' }, { status: 403 })
+      for (const team of unknownTeams) {
+        const added = await addTeam(team)
+        if (!added.ok) {
+          return NextResponse.json({ error: `팀 등록 실패: ${team} — ${added.error}` }, { status: 500 })
+        }
       }
     }
   }

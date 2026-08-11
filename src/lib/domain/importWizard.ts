@@ -30,6 +30,9 @@ export interface WizardState {
   error: string | null
   errors: ImportError[] | null
   needsTeams: string[] | null
+  /** 409 응답의 등록 스코프(0071) — 팀 정의 프로젝트는 'project'(관리자 게이트로 충분),
+   *  전역 상속 프로젝트는 'global'(기존대로 슈퍼유저 게이트). needsTeams 와 함께 지운다. */
+  needsTeamsScope: 'project' | 'global' | null
   result: ExecuteResult | null
 }
 
@@ -44,6 +47,7 @@ export const initialWizardState: WizardState = {
   error: null,
   errors: null,
   needsTeams: null,
+  needsTeamsScope: null,
   result: null,
 }
 
@@ -56,7 +60,7 @@ export type WizardAction =
   | { type: 'modeChanged'; mode: ImportMode }
   | { type: 'saveProfileChanged'; saveProfile: boolean }
   | { type: 'executeStart' }
-  | { type: 'executeNeedsTeams'; teams: string[] }
+  | { type: 'executeNeedsTeams'; teams: string[]; scope: 'project' | 'global' }
   | { type: 'dismissNeedsTeams' }
   | { type: 'executeFailure'; error: string }
   | { type: 'executeValidationFailure'; errors: ImportError[] }
@@ -90,17 +94,17 @@ export function reducer(state: WizardState, action: WizardAction): WizardState {
     case 'saveProfileChanged':
       return { ...state, saveProfile: action.saveProfile }
     case 'executeStart':
-      return { ...state, busy: true, error: null, errors: null, needsTeams: null }
+      return { ...state, busy: true, error: null, errors: null, needsTeams: null, needsTeamsScope: null }
     case 'executeNeedsTeams':
-      return { ...state, busy: false, needsTeams: action.teams }
+      return { ...state, busy: false, needsTeams: action.teams, needsTeamsScope: action.scope }
     case 'dismissNeedsTeams':
-      return { ...state, needsTeams: null }
+      return { ...state, needsTeams: null, needsTeamsScope: null }
     case 'executeFailure':
-      return { ...state, busy: false, error: action.error, needsTeams: null }
+      return { ...state, busy: false, error: action.error, needsTeams: null, needsTeamsScope: null }
     case 'executeValidationFailure':
-      return { ...state, busy: false, errors: action.errors, needsTeams: null }
+      return { ...state, busy: false, errors: action.errors, needsTeams: null, needsTeamsScope: null }
     case 'executeSuccess':
-      return { ...state, busy: false, step: 'done', result: action.result, error: null, errors: null, needsTeams: null }
+      return { ...state, busy: false, step: 'done', result: action.result, error: null, errors: null, needsTeams: null, needsTeamsScope: null }
     case 'reset':
       return initialWizardState
     // 리뷰 Important #2 — savedProfile 로 시작한 2단계에서도 업로드 파일이 실제로 감지한 프로파일로

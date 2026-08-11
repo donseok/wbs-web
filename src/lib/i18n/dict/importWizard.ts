@@ -87,6 +87,7 @@ export const importWizardKo = {
   'importWizard.needsTeamsTitle': '등록되지 않은 팀이 있습니다',
   'importWizard.needsTeamsDesc': '이 팀들을 등록하시겠습니까? 등록 후 가져오기를 계속 진행합니다.',
   'importWizard.needsTeamsSuperuserOnly': '팀 등록은 슈퍼유저만 할 수 있습니다.',
+  'importWizard.needsTeamsProjectScope': '이 프로젝트의 팀으로 등록됩니다(전역 팀에는 영향 없음).',
   'importWizard.registerTeams': '등록하고 계속',
   'importWizard.registering': '등록 중…',
 
@@ -197,6 +198,7 @@ export const importWizardEn: Record<keyof typeof importWizardKo, string> = {
   'importWizard.needsTeamsTitle': 'Some teams are not registered',
   'importWizard.needsTeamsDesc': 'Register these teams and continue the import?',
   'importWizard.needsTeamsSuperuserOnly': 'Only superusers can register teams.',
+  'importWizard.needsTeamsProjectScope': 'These will be registered as teams for this project only (global teams are unaffected).',
   'importWizard.registerTeams': 'Register & continue',
   'importWizard.registering': 'Registering…',
 

@@ -227,7 +227,8 @@ export function ImportWizard({
       const data: Record<string, unknown> = await res.json().catch(() => ({}))
 
       if (res.status === 409 && Array.isArray(data.needsTeams)) {
-        dispatch({ type: 'executeNeedsTeams', teams: data.needsTeams as string[] })
+        const scope = data.scope === 'project' ? 'project' : 'global'
+        dispatch({ type: 'executeNeedsTeams', teams: data.needsTeams as string[], scope })
         return
       }
       if (res.ok && data.ok) {
@@ -657,7 +658,7 @@ export function ImportWizard({
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!isSuperuser || state.busy}
+              disabled={state.needsTeamsScope === 'project' ? state.busy : (!isSuperuser || state.busy)}
               onClick={() => runExecute(true)}
             >
               {state.busy ? t('importWizard.registering') : t('importWizard.registerTeams')}
@@ -671,7 +672,9 @@ export function ImportWizard({
             <li key={team} className="badge bg-brand-weak px-2 py-1 text-brand">{team}</li>
           ))}
         </ul>
-        {!isSuperuser && (
+        {state.needsTeamsScope === 'project' ? (
+          <p className="mt-3 text-xs leading-5 text-ink-subtle">{t('importWizard.needsTeamsProjectScope')}</p>
+        ) : !isSuperuser && (
           <p className="mt-3 flex items-center gap-1.5 text-xs text-pending">
             <ShieldAlert className="h-3.5 w-3.5" />{t('importWizard.needsTeamsSuperuserOnly')}
           </p>
