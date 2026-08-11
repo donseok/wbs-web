@@ -7,7 +7,7 @@
 |---|---|---|
 | wbs-web | 이 파일 ⓪·① | 알림함 · 연동 본편 |
 | dev-plugin | `dev-plugin/docs/kickoff-dflow-toolchain.md` | 툴체인 DEV-02·03 (② — 아래 사본은 참고용, 그쪽이 정위치) |
-| dev-workflow(로컬, git 아님) | `~/project/dev-workflow/docs/kickoff-wbs-wsf-local.md` | wbs-wsf 스킬 오버라이드·프로그램 리스트 어댑터(DEV-04) |
+| wbs-wsf 스킬 | `docs/superpowers/2026-08-11-kickoff-wbs-wsf.md` (이 리포로 이관 — 기존 dev-workflow 로컬 오버라이드는 2026-08-11 삭제) | 프로그램 리스트 어댑터(DEV-04)·새 스킬 위치 확정 |
 
 **실행 순서:**
 
