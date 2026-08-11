@@ -4,16 +4,18 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, ChevronRight, Clock4, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
+  Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { getNotifications, markAllNotificationsRead, type NotificationItem } from '@/app/actions/notifications'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
+import { getInboxFeed, markInboxSeen, markAllInboxRead, markInboxItemRead, type InboxItem } from '@/app/actions/inbox'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { HeaderAnnouncementTicker } from './HeaderAnnouncementTicker'
+import { InboxPanel } from './InboxPanel'
 import { useProjectNavigation } from './ProjectNavigationContext'
 import type { SidebarProject } from './Sidebar'
 import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
@@ -44,6 +46,10 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
   const [pwOpen, setPwOpen] = useState(false)
   const [notifs, setNotifs] = useState<NotificationItem[]>([])
   const [notifLoading, setNotifLoading] = useState(false)
+  const [inbox, setInbox] = useState<InboxItem[]>([])
+  const [inboxLoading, setInboxLoading] = useState(true)
+  const [inboxFailed, setInboxFailed] = useState(false)
+  const [unreadAnn, setUnreadAnn] = useState(0)
 
   const { routeProjectId } = useProjectNavigation()
 
@@ -59,6 +65,23 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
       .finally(() => { if (alive) setNotifLoading(false) })
     return () => { alive = false }
   }, [routeProjectId])
+
+  // 개인 알림함 로드 — 파생(프로젝트 의존)과 달리 프로젝트 무관, 경로 변경마다 재조회.
+  // 공지 안읽음 합산도 여기서 같이 갱신(routeProjectId 의존). notifLoading(파생 전용)과
+  // 별도 로딩 플래그를 둔다 — 프로젝트 미선택 시 notifLoading이 false로 고정돼 있어
+  // 이 피드에 얹으면 로딩 중에도 "새 알림 없음"으로 보이는 거짓 빈 상태가 생긴다.
+  useEffect(() => {
+    let alive = true
+    setInboxLoading(true)
+    getInboxFeed()
+      .then(r => { if (!alive) return; setInbox(r.items); setInboxFailed(r.failed === true) })
+      .catch(() => { if (alive) setInboxFailed(true) })
+      .finally(() => { if (alive) setInboxLoading(false) })
+    if (routeProjectId) {
+      getUnreadAnnouncementCount(routeProjectId).then(n => { if (alive) setUnreadAnn(n) }).catch(() => {})
+    } else setUnreadAnn(0)
+    return () => { alive = false }
+  }, [pathname, routeProjectId])
 
   const context = useMemo(() => {
     const globalSection = pathname === '/meetings'
@@ -97,6 +120,32 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
     markAllNotificationsRead(routeProjectId, snapshot.map(n => n.id))
       .then(r => { if (!r.ok) setNotifs(snapshot) }) // 실패 시 복원(다음 로드가 서버 상태로 재정렬)
       .catch(() => setNotifs(snapshot))
+  }
+
+  // 배지 합산 — 개인 unseen + 파생 안읽음 + 공지 안읽음(결정 N3: 한 벨, 합산 배지)
+  const unseenInbox = useMemo(() => inbox.filter(n => !n.seen).length, [inbox])
+  const badge = unseenInbox + unreadNotifs + unreadAnn
+
+  // 벨 열람 = seen 소등(read 는 항목 클릭에서 처리)
+  const openNotif = () => {
+    const next = open === 'notif' ? null : 'notif'
+    setOpen(next)
+    if (next === 'notif' && unseenInbox > 0) {
+      setInbox(ns => ns.map(n => ({ ...n, seen: true }))) // 낙관 반영
+      markInboxSeen().catch(() => {})
+    }
+  }
+
+  const onInboxItemClick = (item: InboxItem) => {
+    setInbox(ns => ns.map(n => (n.recipientId === item.recipientId ? { ...n, read: true } : n)))
+    markInboxItemRead(item.recipientId).catch(() => {})
+    if (item.href) { setOpen(null); router.push(item.href) }
+  }
+
+  const onMarkAllRead = () => {
+    setInbox(ns => ns.map(n => ({ ...n, read: true, seen: true })))
+    markAllInboxRead().catch(() => {})
+    markAllRead() // 기존 파생 구획 읽음 처리 재사용
   }
 
   const roleLabel = identity?.roleLabel ?? '게스트'
@@ -147,51 +196,20 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
             {/* 알림 */}
             <div className="relative">
               <Tooltip label={t('chrome.notifications')} side="bottom" disabled={open === 'notif'}>
-                <button onClick={() => setOpen(open === 'notif' ? null : 'notif')} className="chrome-icon relative" aria-label={t('chrome.notifications')}>
+                <button onClick={openNotif} className="chrome-icon relative" aria-label={t('chrome.notifications')}>
                   <Bell className="h-4 w-4" />
-                  {unreadNotifs > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-secondary px-1 text-[9px] font-bold text-white ring-2 ring-surface">{unreadNotifs}</span>
+                  {badge > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-secondary px-1 text-[9px] font-bold text-white ring-2 ring-surface">{badge}</span>
                   )}
                 </button>
               </Tooltip>
               {open === 'notif' && (
                 <Popover onClose={() => setOpen(null)}>
-                  <div className="flex items-center justify-between border-b border-line px-4 py-3">
-                    <span className="text-sm font-semibold text-ink">{t('chrome.notifications')}</span>
-                    <span className="flex items-center gap-2">
-                      {unreadNotifs > 0 && <span className="chip bg-delayed-weak text-delayed">{unreadNotifs}</span>}
-                      {unreadNotifs > 0 && (
-                        <button onClick={markAllRead} className="text-[11px] font-medium text-ink-muted underline-offset-2 hover:text-ink hover:underline">
-                          모두 읽음
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto">
-                    {!routeProjectId ? (
-                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">프로젝트를 선택하면 지연·마감 알림이 표시됩니다.</div>
-                    ) : notifLoading ? (
-                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">불러오는 중…</div>
-                    ) : visibleNotifs.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-xs text-ink-subtle">새 알림이 없습니다. 👍</div>
-                    ) : (
-                      <ul className="divide-y divide-line">
-                        {visibleNotifs.map(n => (
-                          <li key={n.id}>
-                            <Link href={`/p/${routeProjectId}/kanban`} className="flex gap-3 px-4 py-3 transition hover:bg-surface-2">
-                              <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${n.severity === 'danger' ? 'bg-delayed-weak text-delayed' : 'bg-pending-weak text-accent-warning'}`}>
-                                {n.type === 'delayed' ? <AlertTriangle className="h-3.5 w-3.5" /> : <Clock4 className="h-3.5 w-3.5" />}
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block truncate text-[13px] font-medium text-ink">{n.title}</span>
-                                <span className="block text-[11px] text-ink-muted">{n.detail}</span>
-                              </span>
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  <InboxPanel
+                    items={inbox} derived={visibleNotifs} unreadAnnouncements={unreadAnn}
+                    projectId={routeProjectId} loading={inboxLoading || notifLoading} failed={inboxFailed}
+                    onItemClick={onInboxItemClick} onMarkAllRead={onMarkAllRead}
+                  />
                 </Popover>
               )}
             </div>
@@ -251,7 +269,7 @@ function Popover({ children, onClose }: { children: React.ReactNode; onClose: ()
   return (
     <>
       <button className="fixed inset-0 z-[90] cursor-default" aria-label="닫기" onClick={onClose} />
-      <div className="absolute right-0 top-12 z-[95] w-64 overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--shadow-lg)]">{children}</div>
+      <div className="absolute right-0 top-12 z-[95] w-80 overflow-hidden rounded-2xl border border-line bg-surface shadow-[var(--shadow-lg)]">{children}</div>
     </>
   )
 }
