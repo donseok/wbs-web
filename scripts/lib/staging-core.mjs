@@ -26,12 +26,12 @@ export function authTokenFixSql() {
 }
 
 export function detectEnvTarget(envText, { stagingRef, prodRef }) {
-  const url = envText.match(/^\s*NEXT_PUBLIC_SUPABASE_URL\s*=\s*(\S+)/m)?.[1] ?? ''
+  const url = envText.match(/^\s*NEXT_PUBLIC_SUPABASE_URL\s*=[ \t]*(\S*)/m)?.[1] ?? ''
   if (url.includes(prodRef)) return 'prod'
   if (url.includes(stagingRef)) return 'staging'
   return 'unknown'
 }
 
 export function maskDsn(dsn) {
-  return dsn.replace(/(:\/\/[^:@/]+:)[^@]+@/, '$1***@')
+  return dsn.replace(/(:\/\/[^:@/]+:).+@/, '$1***@')
 }

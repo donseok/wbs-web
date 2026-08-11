@@ -44,11 +44,25 @@ describe('detectEnvTarget', () => {
   it('둘 다 아니면 unknown (fail-closed 판정은 호출부 몫)', () => {
     expect(detectEnvTarget('NEXT_PUBLIC_SUPABASE_URL=https://other.supabase.co', cfg)).toBe('unknown')
   })
+  it('[회귀] 빈 값은 다음 줄을 URL로 오인하지 않는다', () => {
+    // 버그: \s*이 개행을 넘어 다음 줄의 prod ref를 캐치했음
+    const envWithEmpty = `NEXT_PUBLIC_SUPABASE_URL=\n\nX=https://${cfg.prodRef}.supabase.co`
+    expect(detectEnvTarget(envWithEmpty, cfg)).toBe('unknown')
+  })
 })
 
 describe('maskDsn', () => {
   it('비밀번호를 가린다', () => {
     expect(maskDsn(dsn(cfg.stagingRef))).not.toContain(':pw@')
     expect(maskDsn(dsn(cfg.stagingRef))).toContain('***')
+  })
+  it('[회귀] @ 포함 비밀번호도 전부 가린다', () => {
+    // 버그: [^@]+이 첫 @에서 멈춰 'my@pass@host...' → '***@pass@host...'로 pass가 유출
+    const dsnWithAtInPw = `postgresql://postgres.${cfg.stagingRef}:my@pass@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres`
+    const masked = maskDsn(dsnWithAtInPw)
+    expect(masked).not.toContain('my@pass')
+    expect(masked).not.toContain('pass') // 비밀번호 일부 노출 금지
+    expect(masked).toContain('***@')
+    expect(masked).toContain('aws-0-ap-northeast-2.pooler.supabase.com') // 호스트는 남음
   })
 })
