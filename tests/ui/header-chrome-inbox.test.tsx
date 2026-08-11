@@ -133,4 +133,49 @@ describe('HeaderChrome 벨 통합', () => {
     // 패널에는 여전히 미읍음 항목으로 표시(읽음 처리 아님 — inbox.personal 구획에 노출)
     expect(container.textContent).toContain('이슈 A')
   })
+
+  it('markInboxSeen 실패({ok:false})면 seen 낙관 반영을 롤백하고 배지를 복원한다', async () => {
+    mocks.markInboxSeen.mockResolvedValueOnce({ ok: false })
+    await renderHeader()
+    const bellButton = container.querySelector<HTMLButtonElement>('button[aria-label="chrome.notifications"]')!
+    // mock이 즉시 resolve 하므로 클릭 한 번의 act 안에서 낙관 반영→실패 응답→롤백까지 모두 flush 된다.
+    // 성공 케이스(위 테스트, mockResolvedValue 기본값 ok:true)는 '3'에 머물지만 여기선 '4'로 복원돼야 한다.
+    await act(async () => { bellButton.click() })
+    expect(mocks.markInboxSeen).toHaveBeenCalledTimes(1)
+    expect(bellButton.textContent).toContain('4') // 롤백 — seen 소등 취소, 배지 원복
+  })
+
+  it('프로젝트를 벗어나면 notifLoading이 리셋되어 패널이 무기한 로딩에 갇히지 않는다', async () => {
+    let resolveNotifs: (v: { items: unknown[] }) => void = () => {}
+    mocks.getNotifications.mockImplementationOnce(
+      () => new Promise(resolve => { resolveNotifs = resolve }),
+    )
+    await renderHeader() // pathname: /p/p1/dashboard (beforeEach 기본값)
+
+    const bellButton = container.querySelector<HTMLButtonElement>('button[aria-label="chrome.notifications"]')!
+    await act(async () => { bellButton.click() })
+    // getNotifications가 아직 응답하지 않아 notifLoading이 true — 패널은 로딩 표시
+    expect(container.textContent).toContain('…')
+
+    // 응답이 오기 전에 프로젝트 페이지를 벗어난다(routeProjectId: 'p1' → null)
+    mocks.pathname = '/projects'
+    await act(async () => root.render(
+      <ProjectNavigationProvider
+        projects={projects}
+        initialLastProjectId="p1"
+        initialLastProjectHref="/p/p1/dashboard"
+      >
+        <HeaderChrome identity={null} projects={projects} />
+      </ProjectNavigationProvider>,
+    ))
+    await act(async () => {})
+
+    // pathname 변경으로 팝오버가 자동 닫힌다 — 다시 열어서 로딩 게이트 상태를 확인
+    const bellButton2 = container.querySelector<HTMLButtonElement>('button[aria-label="chrome.notifications"]')!
+    await act(async () => { bellButton2.click() })
+    expect(container.textContent).not.toContain('…')
+
+    resolveNotifs({ items: [] }) // 늦게 도착한 응답 — alive=false라 상태에 반영되지 않아야 정상
+    await act(async () => {})
+  })
 })

@@ -56,7 +56,9 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
   useEffect(() => { setMenuOpen(false); setOpen(null) }, [pathname])
   // 활성 프로젝트의 지연·마감 알림 로드
   useEffect(() => {
-    if (!routeProjectId) { setNotifs([]); return }
+    // 프로젝트를 벗어나면 로딩 플래그도 함께 리셋 — 안 하면 true로 고정돼 공유 게이트
+    // (loading={inboxLoading || notifLoading})가 무기한 스피너에 갇힌다.
+    if (!routeProjectId) { setNotifs([]); setNotifLoading(false); return }
     let alive = true
     setNotifLoading(true)
     getNotifications(routeProjectId)
@@ -127,24 +129,35 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
   const badge = unseenInbox + unreadNotifs + unreadAnn
 
   // 벨 열람 = seen 소등(read 는 항목 클릭에서 처리)
+  // 세 액션(markInbox*) 모두 throw 하지 않고 {ok:false}를 반환하므로, 낙관 반영 후
+  // r.ok 를 봐야 실패를 감지할 수 있다 — markAllRead(파생 구획, 위)와 동일한 스냅샷/롤백 패턴.
   const openNotif = () => {
     const next = open === 'notif' ? null : 'notif'
     setOpen(next)
     if (next === 'notif' && unseenInbox > 0) {
+      const snapshot = inbox
       setInbox(ns => ns.map(n => ({ ...n, seen: true }))) // 낙관 반영
-      markInboxSeen().catch(() => {})
+      markInboxSeen()
+        .then(r => { if (!r.ok) setInbox(snapshot) })
+        .catch(() => setInbox(snapshot))
     }
   }
 
   const onInboxItemClick = (item: InboxItem) => {
+    const snapshot = inbox
     setInbox(ns => ns.map(n => (n.recipientId === item.recipientId ? { ...n, read: true } : n)))
-    markInboxItemRead(item.recipientId).catch(() => {})
+    markInboxItemRead(item.recipientId)
+      .then(r => { if (!r.ok) setInbox(snapshot) })
+      .catch(() => setInbox(snapshot))
     if (item.href) { setOpen(null); router.push(item.href) }
   }
 
   const onMarkAllRead = () => {
+    const snapshot = inbox
     setInbox(ns => ns.map(n => ({ ...n, read: true, seen: true })))
-    markAllInboxRead().catch(() => {})
+    markAllInboxRead()
+      .then(r => { if (!r.ok) setInbox(snapshot) })
+      .catch(() => setInbox(snapshot))
     markAllRead() // 기존 파생 구획 읽음 처리 재사용
   }
 
