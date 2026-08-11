@@ -232,6 +232,37 @@ PRD/TRD 또는 프로그램 리스트 → /wbs-wsf → docs/<모듈>/wbs.md   �
 
 서버는 로컬 git을 볼 수 없으므로 산출물 검사는 클라이언트에서만 가능하다(이 사실이 §3의 MCP 비채택 근거와 같은 것이다). 차단 해제는 사람 판단 경로(`fp` 강제 진행)로만.
 
+#### 2.10 알림 발행(outbound) — 알림함 연동 지점 (2026-08-11 추가)
+
+작업 루프의 사건들을 [알림함 설계](2026-08-11-notification-inbox-design.md)로 발행한다.
+알림함 자체(테이블·수신 모델·벨 UI)는 그 문서가 정본이고, **이 절은 발행 지점만** 규정한다.
+
+원칙 셋:
+
+- **발행은 전부 서버측.** dev-workflow·`dflow.sh` 변경 0 — "AI 작업 시작/종료" 알림도 claim/report API를
+  처리하는 서버가 발행한다(클라이언트는 알림의 존재를 모른다).
+- **fire-and-forget + 로깅.** 알림 발행 실패가 본 동작(claim·승인·import)을 실패시키지 않는다 —
+  단 실패는 반드시 로깅한다(에러 3원칙 — 조용한 유실 금지).
+- **이 계획의 서버 Task들은 emit를 포함하지 않는다.** 발행 훅 retrofit은 알림함 구현 계획(WP-N3)의 몫 —
+  두 프로젝트는 선후 무관하게 배포 가능하고, 먼저 배포된 쪽 지점만큼만 발행된다.
+
+| 사건 | 발행 지점 (이 설계의 구현 위치) | 타입 |
+|---|---|---|
+| 담당자 배정 | 배정 서버 액션(WP-07 TSK-07-02) · `/wbs/import` 담당자 매칭(TSK-07-04) | `work.assigned` |
+| 주문 자동 발행 | `ensureOrderForAssignedLeaf`(TSK-07-05) — dedupe_key로 멱등 no-op 경로 보호 | `work.order_created` |
+| 작업 시작 | `claim/route.ts` 성공 시 | `work.claimed` |
+| 승인 대기 | `report/route.ts` completion → `reported` 전이 시 — 프로젝트 관리자 수신, **REQUIRED** | `work.reported` |
+| 승인/반려 | `approveAgentCompletion`·반려 액션(`src/app/actions/agentWork.ts`) | `work.approved` / `work.rejected` |
+| 실패·반납 | `release/route.ts` | `work.released` |
+| 회수·취소 | 관리자 회수 액션 | `work.revoked` |
+| 착수 가능 | `stage`가 `im` 이상 도달 시 `depends` 역참조로 후행 담당자에게 | `work.unblocked` |
+| 사람 게이트 | 403 `human_gate` 응답 지점(§2.5-②) | `work.human_gate` |
+| import 결과 | `/wbs/import` 응답 확정 시 실행자에게(미매칭 담당자 수 포함) | `system.import_result` |
+| PAT 만료 임박 | 주기 스캔(WP-05 계열) | `system.pat_expiring` |
+
+수신자 판정은 §2.5-④의 로스터 다리를 재사용한다 — 프로젝트 사건의 수신자 키는 `member_id`(user_id nullable 함정 회피),
+프로젝트 밖 사건(`system.pat_expiring`)만 `user_id` 직접.
+
 ---
 
 ### 3. 클라이언트
