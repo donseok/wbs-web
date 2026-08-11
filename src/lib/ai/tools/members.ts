@@ -22,7 +22,7 @@ import {
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionContext, ToolExecutionResult } from './types'
 import { teamOrderMap } from '@/lib/domain/teams'
-import { activeTeamCodesSync } from '@/lib/teams/master'
+import { activeTeamCodesForProjectSync } from '@/lib/teams/master'
 
 const MEMBERS_CAPABILITY = 'members:read' as const
 const MEMBER_ROLES: readonly ProjectMemberRole[] = ['admin', 'contributor']
@@ -50,10 +50,10 @@ export interface MemberWorkloadToolRecord {
   avgActualPct: number | null
 }
 
-function readTeam(value: unknown): TeamCode | null | undefined {
+function readTeam(value: unknown, projectId: string): TeamCode | null | undefined {
   const team = readOptionalString(value, 30)
   if (team === undefined) return undefined
-  if (team === null || !activeTeamCodesSync().includes(team)) return null
+  if (team === null || !activeTeamCodesForProjectSync(projectId).includes(team)) return null
   return team as TeamCode
 }
 
@@ -78,10 +78,11 @@ export function createListMembersTool(repository: MemberRepository): ReadOnlyBot
     async execute(args, context) {
       if (!isRecord(args)) return invalidArgument()
       const projectId = readRequiredString(args.projectId)
-      const team = readTeam(args.team)
+      if (!projectId) return invalidArgument()
+      const team = readTeam(args.team, projectId)
       const role = readOptionalString(args.role, 30)
       const limit = readLimit(args.limit)
-      if (!projectId || role === null || limit === null) return invalidArgument()
+      if (role === null || limit === null) return invalidArgument()
       if (team === null) return invalidArgument('알 수 없는 담당팀입니다.')
       if (role && !(MEMBER_ROLES as readonly string[]).includes(role)) {
         return invalidArgument('알 수 없는 멤버 역할입니다.')
@@ -151,8 +152,8 @@ export function createGetMemberWorkloadTool(
     async execute(args, context) {
       if (!isRecord(args)) return invalidArgument()
       const projectId = readRequiredString(args.projectId)
-      const team = readTeam(args.team)
       if (!projectId) return invalidArgument()
+      const team = readTeam(args.team, projectId)
       if (team === null) return invalidArgument('알 수 없는 담당팀입니다.')
       const denied = checkProjectAccess(context, projectId, MEMBERS_CAPABILITY)
       if (denied) return denied
@@ -174,8 +175,9 @@ export function createGetMemberWorkloadTool(
       ) return repositoryScopeViolation()
 
       const today = wbsResult.data.baseDate ?? todayInSeoul(context.now)
+      const teamCodes = activeTeamCodesForProjectSync(projectId)
       const computed = computeTree(wbsResult.data.items, today, new Set(wbsResult.data.holidays), {
-        subActTeamOrder: teamOrderMap(activeTeamCodesSync()),
+        subActTeamOrder: teamOrderMap(teamCodes),
       })
       const leaves = collectLeaves(computed)
 
@@ -211,7 +213,7 @@ export function createGetMemberWorkloadTool(
         else bucket.notStartedCount += 1
       }
 
-      const orderedKeys: Array<TeamCode | null> = [...activeTeamCodesSync(), null]
+      const orderedKeys: Array<TeamCode | null> = [...teamCodes, null]
       const records: MemberWorkloadToolRecord[] = orderedKeys.flatMap(key => {
         if (team && key !== team) return []
         const bucket = buckets.get(key)

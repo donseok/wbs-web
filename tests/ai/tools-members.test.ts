@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGetMemberWorkloadTool, createListMembersTool } from '@/lib/ai/tools/members'
 import type { ToolExecutionContext } from '@/lib/ai/tools/types'
 import type {
@@ -8,6 +8,15 @@ import type {
   WbsProjectSnapshot,
 } from '@/lib/repositories/types'
 import { repositoryError, repositoryOk } from '@/lib/repositories/types'
+
+// 다른 봇 도구 테스트와 동일하게 실 DB 접근 없이 전역 폴백(DEFAULT_TEAMS)을 재현하는 게 기본값이고,
+// '0071 팀 스코프' describe만 프로젝트 전용 팀 목록으로 재정의한다.
+const mocks = vi.hoisted(() => ({
+  activeTeamCodesForProjectSync: vi.fn((_projectId: string): string[] => ['PMO', 'ERP', 'MES', '가공', 'MDM']),
+}))
+vi.mock('@/lib/teams/master', () => ({
+  activeTeamCodesForProjectSync: mocks.activeTeamCodesForProjectSync,
+}))
 
 const context: ToolExecutionContext = {
   userId: 'user-1',
@@ -315,5 +324,36 @@ describe('get_member_workload tool', () => {
     expect(results[3]).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
     expect(members.listMembers).not.toHaveBeenCalled()
     expect(wbs.getProjectSnapshot).not.toHaveBeenCalled()
+  })
+})
+
+describe('team scoping (0071) — readTeam은 프로젝트 팀 목록으로 검증한다', () => {
+  const scopedContext: ToolExecutionContext = { ...context, allowedProjectIds: ['p-scoped'] }
+
+  beforeEach(() => {
+    // 'p-scoped'는 자체 팀(DEV/QA)만 등록했다고 가정 — 그 외 프로젝트는 기존 전역 폴백 그대로.
+    mocks.activeTeamCodesForProjectSync.mockImplementation((projectId: string) =>
+      projectId === 'p-scoped' ? ['DEV', 'QA'] : ['PMO', 'ERP', 'MES', '가공', 'MDM'])
+  })
+  afterEach(() => {
+    mocks.activeTeamCodesForProjectSync.mockImplementation(() => ['PMO', 'ERP', 'MES', '가공', 'MDM'])
+  })
+
+  it('list_members는 프로젝트 전용 팀 코드(전역 목록엔 없는 DEV)를 통과시킨다', async () => {
+    const rows: MemberRepositoryRecord[] = [{
+      id: 'dev-1', projectId: 'p-scoped', name: '김DEV', teamCode: 'DEV', role: 'admin',
+      title: null, hasAccount: true, createdAt: '2026-08-01T00:00:00Z',
+    }]
+    const result = await createListMembersTool(memberRepository(rows)).execute(
+      { projectId: 'p-scoped', team: 'DEV' }, scopedContext,
+    )
+    expect(result.ok && result.result.records.map(record => record.name)).toEqual(['김DEV'])
+  })
+
+  it('list_members는 팀을 정의한 프로젝트에서 전역 목록에만 있는 코드(PMO)를 거부한다', async () => {
+    const result = await createListMembersTool(memberRepository([])).execute(
+      { projectId: 'p-scoped', team: 'PMO' }, scopedContext,
+    )
+    expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_ARGUMENT' } })
   })
 })

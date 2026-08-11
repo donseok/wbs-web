@@ -15,7 +15,7 @@ import {
 } from './common'
 import type { BotSource, ReadOnlyBotTool } from './types'
 import { teamOrderMap } from '@/lib/domain/teams'
-import { activeTeamCodesSync } from '@/lib/teams/master'
+import { activeTeamCodesForProjectSync } from '@/lib/teams/master'
 
 const KANBAN_CAPABILITY = 'kanban:read' as const
 
@@ -76,9 +76,9 @@ function toCardRecord(card: ComputedItem): KanbanCardRecord {
   }
 }
 
-function groupColumns(view: KanbanView, computed: ComputedItem[]): KanbanColumn[] {
+function groupColumns(view: KanbanView, computed: ComputedItem[], teamCodes: readonly string[]): KanbanColumn[] {
   if (view === 'phase') return groupByPhase(computed)
-  if (view === 'owner') return groupByOwner(computed, activeTeamCodesSync())
+  if (view === 'owner') return groupByOwner(computed, teamCodes)
   return groupByStatus(computed)
 }
 
@@ -90,6 +90,7 @@ export function createGetKanbanViewTool(repository: WbsBotRepository): ReadOnlyB
       if (!isRecord(args)) return invalidArgument()
       const projectId = readRequiredString(args.projectId)
       if (!projectId) return invalidArgument()
+      const teamCodes = activeTeamCodesForProjectSync(projectId)
       const view = readOptionalString(args.view, 20)
       const team = readOptionalString(args.team, 30)
       const status = readOptionalString(args.status, 30)
@@ -98,7 +99,7 @@ export function createGetKanbanViewTool(repository: WbsBotRepository): ReadOnlyB
       if (view && !(KANBAN_VIEWS as readonly string[]).includes(view)) {
         return invalidArgument('알 수 없는 칸반 보기입니다.')
       }
-      if (team && !activeTeamCodesSync().includes(team)) {
+      if (team && !teamCodes.includes(team)) {
         return invalidArgument('알 수 없는 담당팀입니다.')
       }
       if (status && !(CARD_STATUSES as readonly string[]).includes(status)) {
@@ -122,10 +123,10 @@ export function createGetKanbanViewTool(repository: WbsBotRepository): ReadOnlyB
 
       const today = repoResult.data.baseDate ?? todayInSeoul(context.now)
       const computed = computeTree(repoResult.data.items, today, new Set(repoResult.data.holidays), {
-        subActTeamOrder: teamOrderMap(activeTeamCodesSync()),
+        subActTeamOrder: teamOrderMap(teamCodes),
       })
       const effectiveView = (view ?? 'status') as KanbanView
-      const columns = groupColumns(effectiveView, computed)
+      const columns = groupColumns(effectiveView, computed, teamCodes)
       const teamFilter = team as TeamCode | undefined
       const statusFilter = status as Status | undefined
 

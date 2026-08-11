@@ -24,7 +24,7 @@ import {
 } from './common'
 import type { BotSource, ReadOnlyBotTool, ToolExecutionContext, ToolExecutionResult } from './types'
 import { teamOrderMap } from '@/lib/domain/teams'
-import { activeTeamCodesSync } from '@/lib/teams/master'
+import { activeTeamCodesForProjectSync } from '@/lib/teams/master'
 
 const WBS_CAPABILITY = 'wbs:read' as const
 
@@ -123,10 +123,11 @@ function computedSnapshot(
   baseDate: string | null,
   holidays: string[],
   context: ToolExecutionContext,
+  teamCodes: readonly string[],
 ): { flat: FlatItem[]; updatedAtById: Map<string, string | null>; today: string } {
   const today = baseDate ?? todayInSeoul(context.now)
   const computed = computeTree(rows, today, new Set(holidays), {
-    subActTeamOrder: teamOrderMap(activeTeamCodesSync()),
+    subActTeamOrder: teamOrderMap(teamCodes),
   })
   return {
     flat: flatten(computed),
@@ -187,6 +188,7 @@ export function createFindWbsItemsTool(repository: WbsRepository): ReadOnlyBotTo
     async execute(args, context) {
       const parsed = loadArgs(args)
       if (!parsed) return invalidArgument()
+      const teamCodes = activeTeamCodesForProjectSync(parsed.projectId)
       const query = readOptionalString(parsed.raw.query)
       const team = readOptionalString(parsed.raw.team, 30)
       const limit = readLimit(parsed.raw.limit)
@@ -201,7 +203,7 @@ export function createFindWbsItemsTool(repository: WbsRepository): ReadOnlyBotTo
       if (status && !(['not_started', 'in_progress', 'delayed', 'done'] as string[]).includes(status)) {
         return invalidArgument('알 수 없는 WBS 상태입니다.')
       }
-      if (team && !activeTeamCodesSync().includes(team)) {
+      if (team && !teamCodes.includes(team)) {
         return invalidArgument('알 수 없는 담당팀입니다.')
       }
       if ((from === undefined) !== (to === undefined)) {
@@ -237,6 +239,7 @@ export function createFindWbsItemsTool(repository: WbsRepository): ReadOnlyBotTo
         repoResult.data.baseDate,
         repoResult.data.holidays,
         context,
+        teamCodes,
       )
       const needle = query?.toLocaleLowerCase('ko-KR')
       const matches = snapshot.flat.filter(({ item, path }) => {
@@ -302,6 +305,7 @@ export function createGetWbsItemDetailTool(repository: WbsRepository): ReadOnlyB
       if (!isScopedWbsSnapshot(repoResult.data, parsed.projectId)) return repositoryScopeViolation()
       const snapshot = computedSnapshot(
         repoResult.data.items, repoResult.data.baseDate, repoResult.data.holidays, context,
+        activeTeamCodesForProjectSync(parsed.projectId),
       )
       const flat = snapshot.flat.find(value => value.item.id === itemId)
       if (!flat) return emptyWbsDetail(context, true)
@@ -355,6 +359,7 @@ export function createGetWbsDependenciesTool(
       if (!isScopedWbsSnapshot(repoResult.data, parsed.projectId)) return repositoryScopeViolation()
       const snapshot = computedSnapshot(
         repoResult.data.items, repoResult.data.baseDate, repoResult.data.holidays, context,
+        activeTeamCodesForProjectSync(parsed.projectId),
       )
       const byId = new Map(snapshot.flat.map(value => [value.item.id, value]))
       if (itemId && !byId.has(itemId)) return emptyDependencies(context, true, false)
