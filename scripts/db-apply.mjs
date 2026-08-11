@@ -7,11 +7,26 @@ import { createInterface } from 'node:readline/promises'
 import { PROD_REF, STAGING_REF } from './lib/staging.config.mjs'
 
 const args = process.argv.slice(2)
-const file = args.find(a => !a.startsWith('--'))
-const target = args[args.indexOf('--target') + 1]
+// 인자 파싱 — 순서 무관·엄밀하게. args.find(!startsWith('--'))는 `--target staging file.sql`
+// 순서에서 'staging'을 파일로 잘못 집고 진짜 파일을 조용히 버리는 결함이 있었다(리뷰 지적).
+// --target 의 위치를 먼저 고정한 뒤, 그 두 칸(플래그+값)과 다른 '--' 플래그를 모두 제외한
+// 나머지가 정확히 1개일 때만 그것을 SQL 파일로 받는다.
+const ti = args.indexOf('--target')
+const target = ti !== -1 ? args[ti + 1] : undefined
+const positionals = args.filter((a, i) => (ti === -1 || (i !== ti && i !== ti + 1)) && !a.startsWith('--'))
+const file = positionals.length === 1 ? positionals[0] : undefined
 const REFS = { staging: STAGING_REF, prod: PROD_REF }   // allowlist — 이 둘뿐
-if (!file || !REFS[target]) {
-  console.error('사용법: npm run db:apply -- <sql파일> --target staging|prod')
+const usage = '사용법: npm run db:apply -- <sql파일> --target staging|prod'
+if (ti === -1 || target === undefined) {
+  console.error(`${usage} (--target 플래그가 없거나 값이 없음)`)
+  process.exit(1)
+}
+if (positionals.length !== 1) {
+  console.error(`${usage} (SQL 파일 인자가 정확히 1개여야 함 — 현재 ${positionals.length}개: ${JSON.stringify(positionals)})`)
+  process.exit(1)
+}
+if (!REFS[target]) {
+  console.error(`${usage} ("${target}"은 staging|prod 중 하나가 아님)`)
   process.exit(1)
 }
 const ref = REFS[target]
