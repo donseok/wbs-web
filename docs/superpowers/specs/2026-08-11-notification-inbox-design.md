@@ -72,21 +72,20 @@ create table notification_recipients (    -- audience='direct'일 때만 행 생
 -- 멱등: 같은 이벤트 중복 수신 불가 (수신자 축별 부분 유니크)
 create unique index on notification_recipients (event_id, member_id) where member_id is not null;
 create unique index on notification_recipients (event_id, user_id) where member_id is null;
-create index on notification_recipients (user_id) where read_at is null;  -- 배지 count 전용
+create index on notification_recipients (user_id) where seen_at is null;  -- 배지(unseen) count 전용
 
-create table notification_watermarks (    -- audience='project'|'global' 확인 모델 (0012 승격)
-  user_id    uuid not null,
-  scope      text not null,               -- 'global' 또는 project_id 문자열
-  seen_until timestamptz not null,
-  primary key (user_id, scope)
-);
+-- 전체 알림 확인 모델: 별도 테이블을 만들지 않는다 (2026-08-11 실측 정정).
+-- 기존 announcements + announcement_seen(0012 워터마크)이 이미 정확히 그 구조다 —
+-- 벨은 배지 합산·피드 구획으로 "통합 수신"만 구현한다. audience='project'|'global' 값은
+-- 훗날 공지 외 전체 알림이 생길 때를 위한 예약(v1 발행은 전부 'direct').
 ```
 
 - **RLS**: 3테이블 모두 `enable row level security` + **쓰기 정책 0개**(발행은 service_role — 0051/0057 관례,
   서버 액션 가드가 유일 관문 계열임을 헤더에 명시). SELECT는 recipients·watermarks 본인 행,
   events는 수신 가능 범위(direct=내 행 존재 ∪ project=멤버 ∪ global).
-- **배지 쿼리**: `count(*)` + 부분 인덱스(`where read_at is null`) — unread 카운터 컬럼을 따로 두지 않는다(드리프트 원천).
-  전체분은 `created_at > seen_until` 카운트를 합산.
+- **배지 쿼리**: `count(*)` + 부분 인덱스(`where seen_at is null`) — 카운터 컬럼을 따로 두지 않는다(드리프트 원천).
+  배지 기준은 **unseen**(벨 열람 = 배지 소등, Knock 관례) — `read_at`은 항목의 읽음 흐림용.
+  전체분은 기존 `getUnreadAnnouncementCount`(announcement_seen 워터마크 이후)를 합산.
 - **retention**: 읽음 90일 경과 행 삭제(주기 잡). 안읽음은 보존.
 
 ## 알림 카탈로그
@@ -114,12 +113,15 @@ create table notification_watermarks (    -- audience='project'|'global' 확인 
 
 | 타입 | 트리거 | 수신자 | 기본 |
 |---|---|---|---|
-| `issue.assigned` | 이슈 담당자 지정 | 담당자 | ON |
+| `issue.assigned` | 이슈 담당자 지정(신규 추가분만 — `replaceAssignees`가 delete-then-insert라 diff 필수) | 담당자 | ON |
 | `issue.status` | 내 담당 이슈 상태 변경 | 담당자 | ON |
-| `meeting.action_item` | 회의록 액션아이템 담당 지정 | 담당자 | ON |
 | `member.invited` | 프로젝트 멤버 등록 | 대상자 | ON |
 | `member.joined` | 초대 수락·계정 링크 | 프로젝트 관리자 | OFF |
-| `announce.posted` | 공지 게시 | **audience=project/global** (수신자 행 없음) | ON |
+| `announce.posted` | 공지 게시 — **v1은 이벤트를 발행하지 않는다.** 기존 announcements가 곧 전체 알림이며 벨이 재사용(배지 합산·피드 구획) | 프로젝트 멤버 전원 | ON |
+
+> **회의록 액션아이템 담당 지정은 카탈로그에서 제외(2026-08-11 실측)** — `minute_insights`는 AI 분류 라벨뿐
+> 담당자 컬럼이 없다. 담당 지정의 유일한 실경로는 블록→이슈 전환(`createIssueFromMinuteBlock`)이고
+> 그것은 `issue.assigned`가 커버한다.
 
 ### C. 시스템 (audience=direct)
 
@@ -149,10 +151,11 @@ create table notification_watermarks (    -- audience='project'|'global' 확인 
 
 - 3단계: **unseen → seen → read** (+ `archived` 독립 축) — Knock/Novu 관례.
   벨 열람 = 피드 항목 일괄 `seen_at`(배지 소등), 항목 클릭 = `read_at`, 정리 = `archived_at`(자동 아카이브 없음).
-- **배지 = 개인 `read_at is null` + 전체(워터마크 이후) 합산** (결정 N3).
+- **배지 = 개인 unseen(`seen_at is null`) + 공지 안읽음(워터마크 이후) 합산** (결정 N3).
 - 피드: 최신순, 카테고리 필터 탭, 같은 entity 연속 알림은 **UI에서 그룹 렌더**
   (서버측 배칭·다이제스트는 만들지 않는다 — Jira의 3~10분 배칭은 이메일 채널 문제였고 인앱은 그룹 렌더로 충분).
-- 설정: 사용자별 타입 ON/OFF(`user_ui_prefs.prefs.notif` 확장 — 새 테이블 불필요). REQUIRED 타입은 UI에서 토글 비활성.
+- 설정: 사용자별 타입 ON/OFF(`user_preferences.prefs.notif` 확장 — 새 테이블 불필요, 0017 테이블·`UiPrefs` 타입).
+  판정은 **조회 시점 필터**(발행 시 수신자별 prefs N회 조회 회피 + 토글이 소급 적용). REQUIRED 타입은 UI에서 토글 비활성.
 
 ## Realtime
 
@@ -189,12 +192,17 @@ create table notification_watermarks (    -- audience='project'|'global' 확인 
 
 ## 로드맵 스케치 (별도 WBS — 구현 계획 작성 시 확정)
 
-1. **WP-N1 저장·발행** — 0074 마이그레이션(단독 커밋) + `emit.ts` + 카탈로그 중 이미 존재하는 트리거 3곳
-   (이슈 담당·회의 액션아이템·공지) retrofit. 연동 기능이 아직 없어도 단독 가치 있음.
-2. **WP-N2 벨 UI 통합** — 패널 교체(G2 브랜치)·배지 합산·파생 구획 흡수·설정.
-3. **WP-N3 작업 루프 retrofit** — 8/10 연동 서버 Task들이 배포한 지점에 emit 훅(부록 §2.10 표).
-   연동 구현과 알림함 구현의 **선후 무관** — 먼저 배포된 쪽만큼만 발행된다.
-4. **WP-N4 realtime** — 트리거·private 채널·클라 구독.
+**알림함을 연동보다 먼저 개발한다(2026-08-11 사용자 결정)** — 선행 의존이 없고, 알림함이 먼저 있으면
+연동 서버 Task가 emit 훅을 직접 포함해 retrofit 단계가 소멸한다.
+구현 계획: [`docs/superpowers/plans/2026-08-11-notification-inbox.md`](../plans/2026-08-11-notification-inbox.md)
+
+1. **WP-N1 저장·발행** — 0074 마이그레이션(단독 커밋) + `emit.ts` + 이미 존재하는 발행 지점 retrofit은
+   **이슈 계열 2곳**(`replaceAssignees` diff — 신규 추가분만 · `createIssueFromMinuteBlock` RPC 경로).
+   공지는 재발행 없이 재사용. 연동 기능이 아직 없어도 단독 가치 있음.
+2. **WP-N2 벨 UI 통합** — 패널 교체(G2 브랜치)·배지 합산(개인 unseen + 공지 안읽음)·파생 구획 흡수·설정.
+3. **WP-N3 작업 루프 발행** — ~~retrofit~~ → **연동 서버 Task가 emit를 직접 포함**(알림함 선행이므로).
+   부록 §2.10 표가 지점 정본. 연동이 먼저 나가는 예외 상황에만 retrofit으로 후속.
+4. **WP-N4 realtime** — 0075 트리거·private 채널·클라 구독.
 
 dev-workflow(플러그인·스킬) 변경은 **0** — 발행은 전부 D'Flow 서버측이고, AI 작업 시작/종료 알림도
 claim/report API 처리 중 서버가 발행한다.

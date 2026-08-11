@@ -23,6 +23,7 @@
 - 기존 테스트 8개(`tests/agent/` 5 + `tests/domain/agent-work.test.ts` + `tests/actions/agent-work-actions.test.ts` + `tests/migrations/agent-work-loop.test.ts`)는 항상 초록. 의도적 계약 변경은 단 1건 — `agentApiEnabled()`의 시크릿 요건 제거(Task 4에 명시, 해당 테스트 1개 수정).
 - 테스트 실행: `npx vitest run <파일>` (단건) / `npm run test` (전체). 커밋 전 해당 태스크 테스트 + `npm run lint` 통과.
 - 커밋 메시지는 한국어, "무엇"보다 "왜".
+- **알림 발행(2026-08-11 추가)**: 알림함이 이 계획보다 먼저 개발된다 — 각 서버 Task 구현 시 부록 §2.10 표에 해당하는 지점(claim·reported·approve/reject·release·회수·배정·자동 발행·import 결과)에 `emitNotification`(`src/lib/notify/emit.ts`) 호출 1줄을 포함한다. fire-and-forget이므로 본 로직·기존 테스트에 영향 없다. 알림함 미배포 상태면 생략하고 알림함 계획(WP-N3)이 retrofit.
 - **미결 항목은 권고안 기준으로 구현하고 코드 주석에 `미결 ①` 형식으로 표기한다**: ① 발급 권한(본인 자율=읽기 스코프 한정, `work:report`는 관리자 발급만 — 이 계획은 본인 자율 발급까지만 구현) · ③ progress 즉시 반영 유지(v1 동작) · ⑪ 잔여(claim 시 `as`→`ip` 자동 전이 — **구현하지 않음**, TSK-01-01에서 확정 후 후속) · ⑫ 필드 소유권(구조·일정=파일, stage·담당·실적=웹 — 권고안대로 구현).
 
 **확정 결정 (2026-08-10 사용자, 부록보다 우선):**
