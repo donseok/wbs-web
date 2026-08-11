@@ -42,6 +42,12 @@ export function isTypeEnabled(prefs: Record<string, boolean> | undefined, type: 
   return prefs?.[type] ?? entry.defaultOn
 }
 
+/** delete-then-insert 담당자 교체에서 "새로 배정된" 사람만 — 재알림 스팸 방지. */
+export function computeAddedAssignees(existing: readonly string[], next: readonly string[]): string[] {
+  const had = new Set(existing)
+  return next.filter(id => !had.has(id))
+}
+
 /** 중복·null 제거 + 행위자 제외 — 자기 행위는 자기에게 알리지 않는다. */
 export function normalizeRecipientUserIds(
   userIds: ReadonlyArray<string | null | undefined>, actorUserId: string | null | undefined,
