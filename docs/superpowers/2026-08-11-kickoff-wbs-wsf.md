@@ -1,5 +1,17 @@
 # 킥오프 — wbs-wsf 스킬 (프로그램 리스트 입력)
 
+> ✅ **실행 완료 (2026-08-11).** 스킬 위치 확정·생성·검증까지 끝났다 — 아래 프롬프트를 다시 실행하지 말 것.
+> - 실물: **`~/.claude/skills/wbs-wsf/`** — 사용자 결정으로 리포 밖 **완전 독립 패키지**다.
+>   SKILL.md + `scripts/`(dev 플러그인 1.7.1 스냅샷 5종: wbs-parse·wbs-validate·dep-analysis·
+>   prd-validate·decision-log) + `references/`(dev-config-template·output-format 발췌본).
+>   플러그인·리포 어디에도 의존하지 않는다. 다른 PC 배포는 이 폴더 복사.
+>   생성 시점 사본은 git 이력 `7eb98c3`(리포에서는 이후 이동·삭제됨).
+> - 계획(2026-08-10-wbs-wsf-skill-local-changes.md) Task 1~6·9 반영 + 검증 A(CSV·3단계 11 Task)·B(XLSX·4단계 19 Task)·재생성 ID 불변·export 왕복 통과.
+> - 계획 대비 의도된 이탈: ① 6상태 서술 전면 제거(전이 정본 = D'Flow stage, 아래 전제) ② 실행 플로우의
+>   state-machine.json `phases` 블록 단계 제거(로컬 6상태 워크플로우 유물) ③ 편집 대상을 dev-workflow
+>   로컬 오버라이드 → wbs-web 리포 정본으로 변경(git 이 있으므로 `.bak` 불필요) ④ 계획 자체모순 해소
+>   (모듈 계약 Task 는 모듈 수 무관 항상 생성 — Task 5·검증 기대치 쪽으로 통일).
+
 작성 2026-08-11. **스킬 수정 작업은 wbs-web 리포에서 관리한다**(사용자 결정 2026-08-11).
 기존 로컬 오버라이드(`~/project/dev-workflow/.claude/skills/wbs-wsf/` — 6상태 버전)는
 같은 날 **삭제됐다** — 6상태 로컬 실행이 WBS 중앙관리 결정으로 무의미해졌기 때문.
