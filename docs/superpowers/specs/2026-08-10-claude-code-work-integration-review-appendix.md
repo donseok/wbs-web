@@ -482,7 +482,7 @@ Task 분해: **TSK-04-01** dflow.sh(`dev`, depends: 01-01) → **TSK-04-02** SKI
 진입 게이트: 검증 대상인 WP-02·03·04·07 말단이 `[im]` 이상 (WP-05는 게이트 아님 — fast-tracking).
 `itest`는 force·bypass 금지. 결함은 여기 쌓지 않는다 — 해당 기능 WP에 `defect` Task 신설 후 재실행.
 
-- **TSK-06-01 수직 E2E** (depends: 03-02, 04-02, 07-05) — **wbs.md 업로드→배정→자동 발행**→조회→claim→브랜치→progress(WBS 반영 확인)→completion→PM 승인 한 세션 통과 + PC A claim → PC B report + 재업로드 멱등(주문 중복 0건)
+- **TSK-06-01 수직 E2E** (depends: 03-02, 04-02, 07-05) — **wbs.md 업로드→배정→자동 발행**→조회→claim→브랜치→progress(WBS 반영 확인)→completion→PM 승인 한 세션 통과 + PC A claim → PC B report + 재업로드 멱등(주문 중복 0건) + **알림 검증(§2.10): 배정·자동 발행·claim·reported(관리자)·승인 각 단계에서 대상자 알림 발행, 행위자 본인 무발행, 재업로드 시 중복 알림 0건**
 - **TSK-06-02 보안 매트릭스** (depends: 03-02, 07-03) — WP-02 수용 기준 (a)~(e) 전수 + 교차 소유 양방향 403 + 비멤버 404 + 배정 항목의 타인 claim 403 + **선행 미완 claim 403 `dependency_not_met` + push 미도달 `done` 거부(§2.9)** + **운영 D-CUBE 행 변화 0건**
 - **TSK-06-03 온보딩 실측** (depends: 06-01) — 신규 개발자 3단계(발급→env→`ln -s`) 10분 이내, MES 리포에서 "내 D'Flow 작업 보여줘" 동작
 

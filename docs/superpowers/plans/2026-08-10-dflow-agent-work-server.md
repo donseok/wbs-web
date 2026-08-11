@@ -35,6 +35,26 @@
 
 **선행 게이트(코드 착수 전 확인):** 부록 미결 ⓪①②가 결정돼 `decisions.md`에 기록돼 있어야 한다(TSK-00-01). 테스트 환경 실측(TSK-00-02)은 Task 9 이후의 실배포 검증에만 필요 — Task 1~8은 vitest 단위로 진행 가능.
 
+## 알림 발행 삽입 지점 (2026-08-11 추가)
+
+알림함(`docs/superpowers/plans/2026-08-11-notification-inbox.md`)이 이 계획보다 먼저 개발된다.
+아래 Task를 구현할 때 해당 스텝에 `emitNotification` 호출을 포함한다 — **개인 알림의 핵심 셋이
+태스크 할당(`work.assigned`)·구현 시작(`work.claimed`)·완료/승인 대기(`work.reported`)다.**
+시그니처 정본은 `src/lib/notify/emit.ts`(알림함 Task 3). fire-and-forget이므로 실패해도 본 로직·기존
+테스트에 영향 없다. import는 `import { emitNotification } from '@/lib/notify/emit'`.
+
+| 계획 Task | 지점 | 삽입 코드 (골격) |
+|---|---|---|
+| Task 12 배정 액션 | 담당자 배정 성공 후 | `emitNotification({ type: 'work.assigned', projectId, actorUserId: g.actor.userId, entityType: 'wbs_item', entityId: itemId, payload: { title: item.name, detail: '작업 담당자로 지정되었습니다', href: \`/p/${projectId}/wbs\` }, recipientMemberIds: [assigneeMemberId] })` |
+| Task 13 자동 발행 | `ensureOrderForAssignedLeaf`가 주문을 실제 생성한 분기 | `emitNotification({ type: 'work.order_created', projectId, entityType: 'agent_order', entityId: orderId, payload: { title: item.name, detail: '작업 주문이 발행되었습니다', href: \`/p/${projectId}/wbs\` }, recipientMemberIds: [item.assignee_member_id], dedupeKey: \`order_created:${item.id}:${orderId}\` })` — 멱등 no-op 분기에서는 발행하지 않는다 |
+| Task 15 claim 라우트 | CAS 성공 직후 | `emitNotification({ type: 'work.claimed', projectId, actorUserId: principal.userId ?? null, entityType: 'agent_order', entityId: orderId, payload: { title: item.name, detail: '작업이 시작되었습니다', href: '/agent-ops' }, recipientMemberIds: item.assignee_member_id ? [item.assignee_member_id] : [] })` — 본인 배정 작업을 본인 PAT로 claim하면 행위자 제외 규칙으로 자동 무발행(정상) |
+| Task 10 report 라우트 | completion → `reported` 전이 성공 직후 | 프로젝트 관리자 조회 후: `const { data: admins } = await admin.from('project_roles').select('user_id').eq('project_id', projectId).eq('role', 'admin')` → `emitNotification({ type: 'work.reported', projectId, actorUserId: principal.userId ?? null, entityType: 'agent_order', entityId: orderId, payload: { title: item.name, detail: '완료 보고 — 승인 대기', href: '/agent-ops' }, recipientUserIds: (admins ?? []).map(a => a.user_id) })` — progress 보고는 발행하지 않는다(카탈로그 기본 OFF) |
+| Task 10 release 라우트 | 반납 성공 직후 | `work.released` — claim과 동일 골격, detail '작업이 반납되었습니다' |
+| (Task 10에 부기) `approveAgentCompletion`·반려 액션 | `src/app/actions/agentWork.ts` — 이 계획의 기존 Task 범위 밖이므로 Task 10 커밋에 함께 수정 | 승인: `work.approved` / 반려: `work.rejected` — 수신자 `recipientMemberIds: [item.assignee_member_id]`(+ 레거시 claim 라벨만 있으면 생략), actor = 승인자. 승인이 `stage`를 `im` 이상으로 만들면 `depends`가 이 항목을 가리키는 후행 리프의 담당자에게 `work.unblocked` 추가 발행 |
+| Task 14 import | 응답 확정 직후 | `system.import_result` — 실행자에게(`recipientUserIds: [principal.userId]`), detail에 `upserted`·`unmatched_assignees` 수. 담당자 매칭된 항목들은 Task 12와 같은 `work.assigned`를 항목별 발행(`dedupeKey: \`assigned:${external_ref}:${assigneeMemberId}\`` — 재업로드 멱등) |
+
+알림함이 아직 미배포인 예외 상황이면 위 삽입을 생략하고 알림함 계획 WP-N3가 retrofit한다(부록 §2.10).
+
 ---
 
 ### Task 1: 계약 동결 — api-contract.md
