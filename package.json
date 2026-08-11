@@ -16,6 +16,7 @@
     "wbs:build": "node scripts/wbs/build-xlsx.mjs",
     "mark:good": "node scripts/mark-good.mjs",
     "staging:sync": "node scripts/staging-sync.mjs",
+    "db:apply": "node scripts/db-apply.mjs",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
