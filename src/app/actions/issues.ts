@@ -142,7 +142,7 @@ export async function fetchIssueProjectMembers(projectId: string): Promise<Issue
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('project_members')
-    .select('id, project_id, name, email, role, title, user_id, created_at, teams(code)')
+    .select('id, project_id, name, email, role, title, role_label, user_id, created_at, teams(code)')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true })
   if (error) {
@@ -163,6 +163,7 @@ export async function fetchIssueProjectMembers(projectId: string): Promise<Issue
         teamCode: teamCode as TeamCode | null,
         role: (row.role as ProjectMemberRole) ?? 'contributor',
         title: (row.title as string) ?? null,
+        roleLabel: (row.role_label as string) ?? null,
         hasAccount: row.user_id != null,
         createdAt: row.created_at as string,
       }

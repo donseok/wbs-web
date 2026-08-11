@@ -65,6 +65,7 @@ export interface ProjectMember {
   teamCode: TeamCode | null
   role: ProjectMemberRole
   title: string | null      // 직함/역할 설명
+  roleLabel: string | null  // 자유 입력 역할(예: PM·개발·QA). role(리더/실무)·title(직함)과 별개 축(0071)
   hasAccount: boolean       // 로그인 계정(auth.users)과 연결됨. auth uuid 자체는 클라이언트로 보내지 않는다
   createdAt: string
 }

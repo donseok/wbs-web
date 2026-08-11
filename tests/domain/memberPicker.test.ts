@@ -11,6 +11,7 @@ function member(id: string, name: string, teamCode: TeamCode | null): ProjectMem
     teamCode,
     role: 'contributor',
     title: null,
+    roleLabel: null,
     hasAccount: true,
     createdAt: '2026-08-02T00:00:00.000Z',
   }

@@ -11,6 +11,7 @@ export interface MemberInput {
   teamCode: TeamCode | null
   role: ProjectMemberRole
   title: string | null
+  roleLabel: string | null
 }
 
 export interface MemberActionResult {
@@ -113,6 +114,7 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
     team_id: teamId,
     role: input.role,
     title: input.title,
+    role_label: input.roleLabel?.trim() || null,
   })
   if (error) return { ok: false, error: memberWriteError(error) }
   revalidatePath('/p/' + projectId + '/members')
@@ -141,6 +143,7 @@ export async function updateMember(memberId: string, input: MemberInput): Promis
     p_team_id: teamId,
     p_role: input.role,
     p_title: input.title,
+    p_role_label: input.roleLabel?.trim() || null,
   })
   if (error) return { ok: false, error: memberWriteError(error) }
   revalidatePath('/p/' + found.projectId + '/members')

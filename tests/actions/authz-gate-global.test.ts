@@ -74,7 +74,7 @@ const ANNOUNCEMENT = {
   title: '제목', body: '본문', category: 'general' as const, isPinned: false,
   publishFrom: '2026-07-30', publishTo: '2026-07-31',
 }
-const MEMBER_INPUT = { name: '홍길동', email: null, teamCode: null, role: 'contributor' as const, title: null }
+const MEMBER_INPUT = { name: '홍길동', email: null, teamCode: null, role: 'contributor' as const, title: null, roleLabel: null }
 const LLM_INPUT: LlmProfileInput = { name: 'gemini-기본', preset_id: 'gemini', provider: 'gemini', model: 'gemini-3.5-flash' }
 
 beforeEach(() => {

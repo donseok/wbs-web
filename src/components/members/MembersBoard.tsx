@@ -216,8 +216,13 @@ function MemberCard({
           <div className="truncate text-[15px] font-semibold text-ink" title={member.name}>
             {member.name}
           </div>
-          <div className="mt-0.5 truncate text-xs text-ink-muted" title={member.title ?? undefined}>
-            {member.title ?? t('members.noTitle')}
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-muted">
+            <span className="truncate" title={member.title ?? undefined}>
+              {member.title ?? t('members.noTitle')}
+            </span>
+            {member.roleLabel && (
+              <span className="chip shrink-0 bg-brand-weak text-brand">{member.roleLabel}</span>
+            )}
           </div>
         </div>
         {canEdit && (
@@ -285,7 +290,7 @@ function MemberFormModal({
   initial: ProjectMember | null
 }) {
   const router = useRouter()
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const teamCodes = useTeamCodes()
   const isEdit = !!initial
   const [name, setName] = useState('')
@@ -293,6 +298,7 @@ function MemberFormModal({
   const [teamCode, setTeamCode] = useState<TeamCode | ''>('')
   const [role, setRole] = useState<ProjectMemberRole>('contributor')
   const [title, setTitle] = useState('')
+  const [roleLabel, setRoleLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -303,6 +309,7 @@ function MemberFormModal({
     setTeamCode(initial?.teamCode ?? '')
     setRole(initial?.role ?? 'contributor')
     setTitle(initial?.title ?? '')
+    setRoleLabel(initial?.roleLabel ?? '')
     setError(null)
   }, [open, initial])
 
@@ -323,6 +330,7 @@ function MemberFormModal({
       teamCode: teamCode || null,
       role,
       title: title.trim() || null,
+      roleLabel: roleLabel.trim() || null,
     }
     startTransition(async () => {
       const res = isEdit ? await updateMember(initial!.id, input) : await addMember(projectId, input)
@@ -416,6 +424,13 @@ function MemberFormModal({
             onChange={(e) => setTitle(e.target.value)}
             placeholder={t('members.phTitle')}
           />
+        </label>
+
+        {/* 신규 문구는 dict 미보유 → locale 분기(근태 삭제 확인 문구 관례) */}
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{locale === 'en' ? 'Role' : '역할'}</span>
+          <input className="app-input" value={roleLabel} onChange={(e) => setRoleLabel(e.target.value)}
+            placeholder={locale === 'en' ? 'e.g. PM, Dev, QA' : '예: PM · 개발 · QA'} maxLength={30} />
         </label>
 
         {error && (

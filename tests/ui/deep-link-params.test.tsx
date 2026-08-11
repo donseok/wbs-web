@@ -89,7 +89,7 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
 function member(overrides: Partial<ProjectMember> = {}): ProjectMember {
   return {
     id: 'mem-1', projectId: 'p1', name: '김이알피', email: null, teamCode: 'ERP',
-    role: 'contributor', title: null, hasAccount: true, createdAt: '2026-01-01',
+    role: 'contributor', title: null, roleLabel: null, hasAccount: true, createdAt: '2026-01-01',
     ...overrides,
   }
 }

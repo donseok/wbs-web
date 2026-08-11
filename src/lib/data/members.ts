@@ -8,7 +8,7 @@ export const getProjectMembers = cache(async (projectId: string): Promise<Projec
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('project_members')
-    .select('id, project_id, name, email, role, title, user_id, created_at, teams(code)')
+    .select('id, project_id, name, email, role, title, role_label, user_id, created_at, teams(code)')
     .eq('project_id', projectId)
     // 정렬은 아래 sortByKoreanName 이 담당한다. created_at 은 동명이인의 순서를 고정하기 위한 tiebreak.
     // (DB collation 에 이름 정렬을 맡기지 않는다 — 인스턴스 collation 에 따라 가나다순이 깨진다.)
@@ -32,6 +32,7 @@ export const getProjectMembers = cache(async (projectId: string): Promise<Projec
       teamCode: teamCode as TeamCode | null,
       role: (r.role as ProjectMemberRole) ?? 'contributor',
       title: (r.title as string) ?? null,
+      roleLabel: (r.role_label as string) ?? null,
       hasAccount: r.user_id != null,
       createdAt: r.created_at as string,
     }

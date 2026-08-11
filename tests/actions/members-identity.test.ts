@@ -22,6 +22,7 @@ const INPUT: MemberInput = {
   teamCode: null,
   role: 'contributor',
   title: null,
+  roleLabel: null,
 }
 
 interface ClientOptions {
@@ -149,6 +150,7 @@ describe('멤버 이메일 전역 이름 정합성', () => {
       p_team_id: null,
       p_role: 'contributor',
       p_title: 'PM',
+      p_role_label: null,
     })
     expect(revalidatePath).toHaveBeenCalledWith(`/p/${PROJECT_ID}/members`)
   })
@@ -190,5 +192,47 @@ describe('멤버 이메일 전역 이름 정합성', () => {
       error: '이름을 입력하세요.',
     })
     expect(createServerClient).not.toHaveBeenCalled()
+  })
+})
+
+describe('멤버 역할 라벨(role_label) 회귀 잠금', () => {
+  // RPC 마지막 UPDATE 는 role_label = p_role_label 직접 대입(full-replace) —
+  // p_role_label 을 안 넘기면 default null 로 라벨이 매번 지워진다(Task 1 리뷰 확정 사실).
+  it('추가 시 role_label을 트림해 저장한다', async () => {
+    const db = makeClient()
+
+    expect(await addMember(PROJECT_ID, { ...INPUT, roleLabel: '  PM  ' })).toEqual({ ok: true })
+
+    expect(db.insert).toHaveBeenCalledWith(expect.objectContaining({ role_label: 'PM' }))
+  })
+
+  it('추가 시 공백만 있는 role_label은 null로 정규화한다', async () => {
+    const db = makeClient()
+
+    expect(await addMember(PROJECT_ID, { ...INPUT, roleLabel: '   ' })).toEqual({ ok: true })
+
+    expect(db.insert).toHaveBeenCalledWith(expect.objectContaining({ role_label: null }))
+  })
+
+  it('수정 RPC 호출은 p_role_label을 항상 넘긴다 — 누락되면 DB default null로 라벨이 소실된다', async () => {
+    const db = makeClient()
+
+    expect(await updateMember(MEMBER_ID, { ...INPUT, roleLabel: '  개발  ' })).toEqual({ ok: true })
+
+    expect(db.rpc).toHaveBeenCalledWith(
+      'update_project_member_with_identity',
+      expect.objectContaining({ p_role_label: '개발' }),
+    )
+  })
+
+  it('수정 시 공백만 있는 role_label은 null로 정규화해 RPC에 넘긴다', async () => {
+    const db = makeClient()
+
+    expect(await updateMember(MEMBER_ID, { ...INPUT, roleLabel: '   ' })).toEqual({ ok: true })
+
+    expect(db.rpc).toHaveBeenCalledWith(
+      'update_project_member_with_identity',
+      expect.objectContaining({ p_role_label: null }),
+    )
   })
 })

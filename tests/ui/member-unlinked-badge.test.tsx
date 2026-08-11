@@ -17,7 +17,7 @@ import { MembersBoard } from '@/components/members/MembersBoard'
 
 const base: ProjectMember = {
   id: 'm1', projectId: 'p1', name: '홍춘식', email: 'chunsik.hong@dongkuk.com',
-  teamCode: 'PMO', role: 'admin', title: null, hasAccount: true, createdAt: '2026-01-01',
+  teamCode: 'PMO', role: 'admin', title: null, roleLabel: null, hasAccount: true, createdAt: '2026-01-01',
 }
 
 // 실 DB 에서는 37행이 모두 연결되어 배지가 0건이라 눈으로 확인할 수 없다.
