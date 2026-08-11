@@ -40,6 +40,18 @@ D'Flow. Next.js 15 (App Router) + Tailwind v4 + Supabase. 프로덕션은 `origi
   `git commit --amend --trailer "Preview-checked: n/a — 주석만 수정"`
 - **`git push --force origin main` 금지.** 병렬 세션의 커밋이 소리 없이 사라진다.
 
+### 스테이징 (2026-08-11 이후 표준)
+
+상시 스테이징: `staging` 브랜치 → dflow-staging.vercel.app (스테이징 Supabase, 운영과 격리).
+운영 절차·좌표는 `docs/runbook-staging.md`.
+
+- **새 화면·신규 기능은 스테이징 URL에서 확인 후 main 머지** (관례 — 훅 강제는 아래 둘뿐).
+- **마이그레이션은 스테이징 리허설 필수** — `staging:sync` → `db:apply --target staging` → 검증 →
+  커밋 트레일러 `Staging-verified:` → staging push → `db:apply --target prod` → main push. G4 훅이 막는다. — 상세는 docs/runbook-staging.md
+- staging push 전 `origin/main` back-merge(각 세션 책임). staging→main 머지 커밋은 정상. force push 금지.
+- staging 에는 main 에 갈 커밋만 올린다. 실험은 별도 브랜치 + Preview(이제 Preview 도 로그인 된다).
+- 소액 변경(오타·주석·문서)은 종전대로 main 직행 허용.
+
 ### 배포와 검증
 
 ```bash
@@ -60,6 +72,7 @@ npm run mark:good        # 화면까지 확인됐으면 known-good 태그를 남
 | G1 | 마이그레이션+코드 혼합 커밋 차단 | 머지·revert 커밋은 제외 |
 | G2 | Preview 를 거치지 않은 UI 변경의 main 직행 차단 | `Preview-checked:` 트레일러 |
 | G3 | 반응형 안전망 desync·충돌 검사 | vitest 없으면 건너뛰고 그 사실을 알림 |
+| G4 | 0072+ 마이그레이션의 main 직행 차단(스테이징 리허설 트레일러) | 범위 내 빈 커밋 트레일러로도 인정 |
 
 검사 대상은 **이번 push 로 원격에 처음 올라가는 커밋**(`--not --remotes`)뿐이다. 브랜치에 `origin/main` 을 머지해도 남의 커밋이 검사에 끌려들어오지 않는다.
 
@@ -85,8 +98,12 @@ unlayered 규칙은 특이성과 무관하게 모든 named layer 를 이긴다. 
 
 ## 데이터
 
-- **운영 D-CUBE 데이터를 훼손하지 않는다.** 로컬 dev 도 프로덕션 Supabase 를 공유한다. 쓰기 검증은 전용 테스트 프로젝트에서.
-- 마이그레이션 적용은 Supabase Management API 경유. `supabase db push` 는 쓰지 않는다.
+- **운영 D-CUBE 데이터를 훼손하지 않는다.** 로컬 dev 기본값은 **스테이징 DB**다
+  (`npm run env:staging`/`env:prod` 로 전환 — 파일 교체라 이 PC 의 모든 병렬 세션에 즉시 영향,
+  운영 전환 후엔 복귀가 예절이고 predev 가드가 잊음을 잡는다). 운영을 향한 `npm run dev` 는
+  `FORCE_PROD_DEV=1` 없이는 차단된다. 쓰기 검증은 스테이징에서.
+- 마이그레이션은 **스테이징 리허설 후** Supabase Management API 로 적용(`npm run db:apply`).
+  `supabase db push` 는 쓰지 않는다. — 상세는 docs/runbook-staging.md
 - 새 마이그레이션에는 `_rollback.sql` 을 함께 만든다.
 
 ### Supabase 계정 (2026-08-05 실측)
