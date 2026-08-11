@@ -65,6 +65,74 @@ while read -r local_ref local_oid remote_ref remote_oid; do
   [ "$local_oid" = "$ZERO" ] && continue          # 브랜치 삭제
   case "$local_ref" in refs/tags/*) continue ;; esac  # 태그 push (mark:good) 는 대상 아님
 
+  # ── G4. 스테이징 DB 리허설 없이 마이그레이션이 main 으로 가는가 ────────
+  # G1·G2 의 `range`(--not --remotes, 아래)에 편승하지 않고 독립 블록으로 둔 이유:
+  # `range` 는 "원격 어디에도 없는 커밋"이라 staging 에 이미 올라간 커밋은 여기서
+  # 비게 되고, `[ -z "$range" ] && continue` 아래 있었다면 G4 도 같이 스킵된다(실측
+  # 확인 — 2026-08-11 리뷰). `printf '%s\n' "" | git log --stdin` 이 빈 입력을
+  # "무시"가 아니라 HEAD 로 폴백하는 git 실동작(2.50.1 실측) 때문에, `range` 가 빌 때
+  # G1·G2 파이프라인에 얹혀가려던 이전 시도는 이미 게이트를 지난 상태에서 HEAD 커밋을
+  # false positive 로 잘못 검사하는 새 버그를 냈다 — 그래서 G1·G2 의 `range` 계산과
+  # `continue` 게이트보다 앞, 완전히 별도의 블록으로 둔다.
+  # 범위가 G1·G2(--not --remotes)와 다른 이유: 표준 흐름에서 마이그레이션 커밋은
+  # origin/staging 에 먼저 올라가므로 --not --remotes 로는 main push 시점에 이미
+  # 검사망을 빠져나가 있다. 여기서는 "origin/main 에 새로 들어가는 커밋"을 본다.
+  # 검사 단위는 커밋이 아니라 push 범위 — 이미 원격에 있는 커밋은 amend 가 불가능해
+  # 커밋 단위 강제는 '고칠 수 없는 차단 → SKIP_GUARD 상습화'를 낳는다(G2 헤더 참조).
+  # 컷오프 0072: 이미 프로덕션에 적용된 채 병렬 세션에 남아 있는 0069~0071 을
+  # 소급 차단하지 않는다.
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    if ! g4_range=$($GIT rev-list "$local_oid" --not "refs/remotes/$REMOTE/main" 2>&1); then
+      {
+        printf '%sG4 범위 계산 실패 — 가드를 신뢰할 수 없습니다%s\n' "$RED" "$OFF"
+        printf '   %s%s%s\n' "$DIM" "$g4_range" "$OFF"
+        printf '   `git fetch %s` 후 다시 시도하세요.\n' "$REMOTE"
+      } >> "$msgs"
+      fail=1
+    elif [ -n "$g4_range" ]; then
+      # 0072 이상 마이그레이션을 건드린 일반 커밋 ("supabase/migrations/" = 20자, 번호는 21~24열)
+      g4_hits=$(
+        printf '%s\n' "$g4_range" \
+          | $GIT log --no-walk --no-merges --name-only --format='%x01%H%x02%s' --stdin 2>/dev/null \
+          | awk '
+            /^\001/ { if (sha != "" && hit) print sha "\t" subj
+                      split(substr($0,2), p, "\002"); sha = p[1]; subj = p[2]; hit = 0; next }
+            /^supabase\/migrations\/[0-9][0-9][0-9][0-9]/ { if (substr($0,21,4) + 0 >= 72) hit = 1 }
+            END { if (sha != "" && hit) print sha "\t" subj }
+          '
+      )
+      # 머지 커밋 자체 변경(evil merge)도 같은 기준으로 (기존 evil_files 재사용)
+      g4_merges=$($GIT rev-list --merges "$local_oid" --not "refs/remotes/$REMOTE/main" 2>/dev/null)
+      for sha in $g4_merges; do
+        files=$(evil_files "$sha")
+        [ -z "$files" ] && continue
+        hit=$(printf '%s\n' "$files" | awk '/^supabase\/migrations\/[0-9][0-9][0-9][0-9]/ { if (substr($0,21,4) + 0 >= 72) { print "y"; exit } }')
+        [ -z "$hit" ] && continue
+        g4_hits="${g4_hits}${g4_hits:+
+}$sha	$($GIT log -1 --pretty=%s "$sha") [머지 커밋 자체 변경]"
+      done
+
+      if [ -n "$g4_hits" ]; then
+        # push 범위 내 아무 커밋의 Staging-verified 트레일러로 통과 (빈 커밋도 인정 — 복구 경로)
+        g4_ok=$(printf '%s\n' "$g4_range" \
+          | $GIT log --no-walk --format='%(trailers:key=Staging-verified,valueonly)' --stdin 2>/dev/null \
+          | tr -d ' \t\r\n')
+        if [ -z "$g4_ok" ]; then
+          {
+            printf '%sG4 스테이징 리허설 기록 없이 마이그레이션이 main 으로 갑니다%s\n' "$RED" "$OFF"
+            printf '%s\n' "$g4_hits" | while IFS="$(printf '\t')" read -r sha subj; do
+              printf '   %s %s\n' "$(echo "$sha" | cut -c1-7)" "$subj"
+            done
+            printf '   순서: staging:sync → db:apply --target staging → 검증 → prod (docs/runbook-staging.md)\n\n'
+            printf '   %s리허설을 마쳤다면 기록을 남기세요(커밋 시점에, 또는 빈 커밋으로):%s\n' "$GRN" "$OFF"
+            printf '     git commit --allow-empty -m "마이그레이션 스테이징 리허설" --trailer "Staging-verified: $(date +%%F) db 리허설 통과"\n'
+          } >> "$msgs"
+          fail=1
+        fi
+      fi
+    fi
+  fi
+
   # 이번 push 로 원격에 처음 올라가는 커밋들. rev-list 가 실패하면 범위를 모른다는
   # 뜻이므로 조용히 통과시키지 않는다(fail-closed) — force push 로 가드가 통째로
   # 사라지던 구멍을 막는다.
@@ -78,15 +146,7 @@ while read -r local_ref local_oid remote_ref remote_oid; do
     fail=1
     continue
   fi
-  # main 이 아니면(피처/스테이징 브랜치 push) G1·G2 는 여기서 끝 — $range 가 비면 할 일이 없다.
-  # main push 인데 $range 가 비어 있는 경우는 남긴다: staging 을 거친 커밋은 이미
-  # --not --remotes 범위를 빠져나가 있어 G1·G2 관점에선 "새 커밋 없음"이지만, G4 는
-  # --not origin/main 이라는 별도(더 넓은) 범위를 스스로 계산하므로 여기서 끊으면 안 된다.
-  # G1·G2 는 $range 가 비어 있으면 원래도 결과가 비므로(빈 입력→빈 매치) 이 조건 완화가
-  # G1·G2 의 판정 결과를 바꾸지 않는다 — 아래에서 도는 횟수만 늘어난다.
-  if [ -z "$range" ] && [ "$remote_ref" != "refs/heads/main" ]; then
-    continue
-  fi
+  [ -z "$range" ] && continue
   # 같은 범위의 머지 커밋 — 아래 G1·G2 가 evil merge 를 따로 검사한다.
   merges=$($GIT rev-list --merges "$local_oid" --not --remotes="$REMOTE" 2>/dev/null)
 
@@ -188,64 +248,6 @@ while read -r local_ref local_oid remote_ref remote_oid; do
         printf '     git commit --amend --trailer "Preview-checked: n/a — 주석만 수정"\n'
       } >> "$msgs"
       fail=1
-    fi
-
-    # ── G4. 스테이징 DB 리허설 없이 마이그레이션이 main 으로 가는가 ────────
-    # 범위가 G1·G2(--not --remotes)와 다른 이유: 표준 흐름에서 마이그레이션 커밋은
-    # origin/staging 에 먼저 올라가므로 --not --remotes 로는 main push 시점에 이미
-    # 검사망을 빠져나가 있다. 여기서는 "origin/main 에 새로 들어가는 커밋"을 본다.
-    # 검사 단위는 커밋이 아니라 push 범위 — 이미 원격에 있는 커밋은 amend 가 불가능해
-    # 커밋 단위 강제는 '고칠 수 없는 차단 → SKIP_GUARD 상습화'를 낳는다(G2 헤더 참조).
-    # 컷오프 0072: 이미 프로덕션에 적용된 채 병렬 세션에 남아 있는 0069~0071 을
-    # 소급 차단하지 않는다.
-    if ! g4_range=$($GIT rev-list "$local_oid" --not "refs/remotes/$REMOTE/main" 2>&1); then
-      {
-        printf '%sG4 범위 계산 실패 — 가드를 신뢰할 수 없습니다%s\n' "$RED" "$OFF"
-        printf '   %s%s%s\n' "$DIM" "$g4_range" "$OFF"
-        printf '   `git fetch %s` 후 다시 시도하세요.\n' "$REMOTE"
-      } >> "$msgs"
-      fail=1
-    elif [ -n "$g4_range" ]; then
-      # 0072 이상 마이그레이션을 건드린 일반 커밋 ("supabase/migrations/" = 20자, 번호는 21~24열)
-      g4_hits=$(
-        printf '%s\n' "$g4_range" \
-          | $GIT log --no-walk --no-merges --name-only --format='%x01%H%x02%s' --stdin 2>/dev/null \
-          | awk '
-            /^\001/ { if (sha != "" && hit) print sha "\t" subj
-                      split(substr($0,2), p, "\002"); sha = p[1]; subj = p[2]; hit = 0; next }
-            /^supabase\/migrations\/[0-9][0-9][0-9][0-9]/ { if (substr($0,21,4) + 0 >= 72) hit = 1 }
-            END { if (sha != "" && hit) print sha "\t" subj }
-          '
-      )
-      # 머지 커밋 자체 변경(evil merge)도 같은 기준으로 (기존 evil_files 재사용)
-      g4_merges=$($GIT rev-list --merges "$local_oid" --not "refs/remotes/$REMOTE/main" 2>/dev/null)
-      for sha in $g4_merges; do
-        files=$(evil_files "$sha")
-        [ -z "$files" ] && continue
-        hit=$(printf '%s\n' "$files" | awk '/^supabase\/migrations\/[0-9][0-9][0-9][0-9]/ { if (substr($0,21,4) + 0 >= 72) { print "y"; exit } }')
-        [ -z "$hit" ] && continue
-        g4_hits="${g4_hits}${g4_hits:+
-}$sha	$($GIT log -1 --pretty=%s "$sha") [머지 커밋 자체 변경]"
-      done
-
-      if [ -n "$g4_hits" ]; then
-        # push 범위 내 아무 커밋의 Staging-verified 트레일러로 통과 (빈 커밋도 인정 — 복구 경로)
-        g4_ok=$(printf '%s\n' "$g4_range" \
-          | $GIT log --no-walk --format='%(trailers:key=Staging-verified,valueonly)' --stdin 2>/dev/null \
-          | tr -d ' \t\r\n')
-        if [ -z "$g4_ok" ]; then
-          {
-            printf '%sG4 스테이징 리허설 기록 없이 마이그레이션이 main 으로 갑니다%s\n' "$RED" "$OFF"
-            printf '%s\n' "$g4_hits" | while IFS="$(printf '\t')" read -r sha subj; do
-              printf '   %s %s\n' "$(echo "$sha" | cut -c1-7)" "$subj"
-            done
-            printf '   순서: staging:sync → db:apply --target staging → 검증 → prod (docs/runbook-staging.md)\n\n'
-            printf '   %s리허설을 마쳤다면 기록을 남기세요(커밋 시점에, 또는 빈 커밋으로):%s\n' "$GRN" "$OFF"
-            printf '     git commit --allow-empty -m "마이그레이션 스테이징 리허설" --trailer "Staging-verified: $(date +%%F) db 리허설 통과"\n'
-          } >> "$msgs"
-          fail=1
-        fi
-      fi
     fi
   fi
 done <<STDIN_EOF
