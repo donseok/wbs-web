@@ -17,7 +17,8 @@
   - `"DFlow Prod Reader"`: 운영 읽기 전용 `staging_reader` 역할의 DSN (sync 용)
   - `"Supabase CLI"`: Management API 토큰 (`go-keyring-base64:` 인코딩)
 - **좌표 정본**: `scripts/lib/staging.config.mjs`
-  - 여기서 `STAGING_REF`, `STAGING_URL`, `PROD_DSN_KEY`, `STAGING_DSN_KEY` 가 정의된다.
+  - 실제 exports: `PROD_REF`, `STAGING_REF`, `POOLER_HOST`(스테이징용 aws-0 풀러) 셋뿐
+  - 키체인 서비스명(`"DFlow Staging DB"` 등)은 스크립트(`staging-sync.mjs`, `db-apply.mjs`) 내 리터럴 문자열로 정의됨
 
 ### Vercel 스테이징
 
@@ -61,7 +62,7 @@ npm run mark:good                             # known-good 태그
 
 ```bash
 npm run staging:sync               # 표준 실행 (활성 접속 중이면 프롬프트)
-npm run staging:sync --yes         # 프롬프트 + 활성 접속 가드 함께 우회 (자동화 전용)
+npm run staging:sync -- --yes      # 프롬프트 + 활성 접속 가드 함께 우회 (자동화 전용; npm은 `--` 뒤 인자만 스크립트에 전달)
 ```
 
 **동작**:
@@ -71,7 +72,7 @@ npm run staging:sync --yes         # 프롬프트 + 활성 접속 가드 함께 
 
 **첨부파일**:
 - 실체(파일 내용) 는 복사되지 않음 — S3/R2  파일 목록만 복제되어 404 가 정상
-- 임베딩 벡터(`pgvector`) 는 자동 생성됨 (스펙대로 sync 스크립트가 RPC 호출)
+- 임베딩 벡터(`pgvector`)는 일반 컬럼 데이터로 pg_dump/restore 에 그대로 실려온다 (별도 재생성 없음)
 
 **제약 및 주의**:
 - **UAT 진행 중에는 금지** — 활성 접속이 있으면 프롬프트로 경고한다. 조율 없이 실행하면 테스트 데이터 손실.
@@ -95,16 +96,9 @@ alter role staging_reader bypassrls;
 
 ## 4. 마이그레이션 (G4 와 한 몸)
 
-**규칙**: 마이그레이션은 절대 운영에서 **첫 실행이 아니다.** 필수 순서는:
+**규칙**: 마이그레이션은 절대 운영에서 **첫 실행이 아니다.** 스테이징에서 리허설하고 증명서(Staging-verified 트레일러)를 남긴 뒤 운영으로 진행한다.
 
-1. **스테이징 리허설** (npm run staging:sync → npm run db:apply --target staging)
-2. **검증** (스테이징 배포 후 쿼리·로직 테스트)
-3. **Staging-verified 트레일러 추가** (커밋 단위가 아니라 push 범위 단위)
-4. **스테이징 배포 후 앱 통합 검증**
-5. **운영 적용** (npm run db:apply --target prod)
-6. **운영 배포 및 smoke:prod**
-
-### Step 0: 마이그레이션 파일 작성
+### 마이그레이션 파일 작성
 
 새 마이그레이션 파일을 `supabase/migrations/` 에 생성:
 
@@ -115,15 +109,17 @@ supabase/migrations/00NN_descriptive_name_rollback.sql   # 2026-07-28 이후 필
 
 > **rollback 파일 규칙**: 2026-07-28 이후 모든 정방향 마이그레이션은 대응하는 `_rollback.sql` 을 강제한다. 테스트가 검증한다.
 
-### Step 1: 스테이징 sync
+### 6단계 리허설 절차
+
+#### 1단계: 스테이징과 운영을 같은 출발점으로
 
 ```bash
-npm run staging:sync                 # 운영 데이터를 스테이징에 복제
+npm run staging:sync -- --yes       # 운영 데이터를 스테이징에 복제 (확인 프롬프트 우회)
 ```
 
-**활성 접속이 있으면 프롬프트가 나온다.** 무시하고 진행하면 사용자가 작업하던 데이터가 손실되므로 조율할 것.
+**활성 접속이 있는 UAT 진행 중에는 금지** — 무시하면 사용자 데이터 손실.
 
-### Step 2: 스테이징 적용 (워킹트리 파일)
+#### 2단계: 워킹트리 파일로 스테이징에 리허설
 
 마이그레이션을 **커밋하지 말고** 워킹트리 파일 상태로 적용:
 
@@ -135,58 +131,57 @@ npm run db:apply -- supabase/migrations/00NN_descriptive_name.sql --target stagi
 - 성공: SQL 쿼리 실행 결과 표시
 - 실패: 에러 메시지 (예: 문법 오류, 제약 위반)
 
-### Step 3: 스테이징에서 검증
+#### 3단계: 검증 후 로컬 main 에서 커밋 + 트레일러
+
+스테이징 쿼리가 정상인지 (Supabase Studio 또는 API) 확인한 뒤, 로컬 main 브랜치에서 마이그레이션 파일만 커밋(G1 — 코드와 분리):
 
 ```bash
-git switch staging && git merge origin/main
-git push origin staging                       # 앱 배포
-# https://dflow-staging.vercel.app 에서 눈으로 검증
+git switch main && git pull origin main
+git add supabase/migrations/00NN_descriptive_name*.sql
+git commit -m "<마이그레이션 이유>" \
+  --trailer "Staging-verified: $(date +%F) db 리허설 통과"
+```
+
+**트레일러 형식**: `Staging-verified: YYYY-MM-DD db 리허설 통과` (날짜 자동, "db 리허설 통과" 고정)
+
+#### 4단계: 스테이징 병합 → 앱 레벨 검증
+
+```bash
+git switch staging && git merge main && git push && git switch main
+# https://dflow-staging.vercel.app 에서 눈으로 앱 통합 테스트
 ```
 
 **확인 사항**:
-- 쿼리가 정상 작동하는가 (스튜디오 또는 앱)
-- 로직이 새 스키마와 호환하는가
-- 데이터 백필이 정상인가
+- 로그인 후 흐름이 정상인가
+- 새 필드/쿼리가 의도대로 동작하는가
 
-### Step 4: Staging-verified 트레일러 추가
+**실패하면**: 수정 커밋을 2단계부터 쌓는다 (히스토리 재작성 금지). 2→3→4 반복.
 
-**중요**: 트레일러는 **커밋 단위가 아니라 push 범위 단위**로 검사된다.
-
-- 0072 이상의 마이그레이션만 G4 가드에 걸린다.
-- 이미 staging 브랜치에 push 된 커밋이라면 새 커밋을 만들어 트레일러를 추가:
-
-```bash
-git commit --allow-empty -m "마이그레이션 스테이징 리허설" \
-  --trailer "Staging-verified: 2026-08-11 db 리허설 통과"
-git push origin staging
-```
-
-**트레일러 형식**: `Staging-verified: YYYY-MM-DD db 리허설 통과` (날짜와 "db 리허설 통과" 고정)
-
-### Step 5: 스테이징 앱 검증
-
-```bash
-# staging 브랜치가 이미 배포된 상태
-# https://dflow-staging.vercel.app 에서 앱 통합 테스트
-```
-
-### Step 6: 운영 적용
+#### 5단계: 운영 적용
 
 ```bash
 npm run db:apply -- supabase/migrations/00NN_descriptive_name.sql --target prod
 ```
 
-**주의**: `--target prod` 는 대화형으로 ref 를 입력하도록 요구한다. `--yes` 플래그는 무시되므로 **손수 입력해야 한다.**
+**주의**: `--target prod` 는 대화형으로 운영 ref 를 입력하도록 요구한다. 확인 프롬프트에 **운영 ref 문자열을 정확히 입력**할 것. `--yes` 플래그는 무시된다.
 
-### Step 7: 운영 배포
+#### 6단계: 운영 배포
 
 ```bash
-git add supabase/migrations/00NN_descriptive_name*.sql
-git commit -m "마이그레이션: <설명>"    # 트레일러는 이미 포함됨
 git push origin main
 ```
 
-### Step 8: 검증
+**G4 가드**: push 범위 안에 `Staging-verified:` 트레일러가 **하나라도 있으면** 통과한다.
+
+**트레일러를 빠뜨렸으면**: no-op 커밋으로 추가:
+
+```bash
+git commit --allow-empty -m "마이그레이션 스테이징 리허설" \
+  --trailer "Staging-verified: $(date +%F) db 리허설 통과"
+git push origin main
+```
+
+### 배포 후 검증
 
 ```bash
 npm run smoke:prod
@@ -254,7 +249,7 @@ Supabase 무료 조직은 **1주일 미사용 시 정지**(복구 가능 1년).
 
 ## 7. staging 오염 복구
 
-스테이징에 실수로 잘못된 데이터나 커밋이 들어왔을 때.
+**이 절의 범위**: staging **브랜치**(git)에 올라간 잘못된 커밋 복구. 스테이징 DB 오염은 구조적으로 불가능 (sync는 운영에 읽기 전용 역할).
 
 ### 원칙
 
@@ -264,26 +259,28 @@ Supabase 무료 조직은 **1주일 미사용 시 정지**(복구 가능 1년).
    git revert <범인-sha>
    git push origin staging
    ```
+   **쌍이 main 으로 흐르면** 수용한다 (이후 운영 배포에서 g 리버트되므로 무해).
 
-2. **Vercel Instant Rollback** (빠름, 코드 변경 0)
+2. **Vercel Instant Rollback** (빠름, 코드만 되돌림)
    ```bash
    vercel rollback <직전-배포-URL> --yes
    vercel rollback status dflow-staging
    ```
 
-3. **force push는 금지** — 병렬 세션의 커밋이 소리 없이 사라진다.
+### 대규모 오염 (예외 절차)
 
-### 대규모 오염 (전 세션 공지 후)
-
-예: 스테이징 DB 를 실수로 운영으로 덮어씀
+원인 불명의 다수 커밋이 staging 브랜치에 쌓인 경우만, **전 세션 공지와 동기화 후**:
 
 ```bash
-git switch staging && git reset --hard origin/main   # staging = main 동기화
-git push --force origin staging                      # 주의: 병렬 작업 있나 확인
-npm run staging:sync                                 # DB 재복제
+git switch staging && git reset --hard origin/main   # staging = main
+git push --force origin staging                      # 예외: 여기서만 force push 허용
 ```
 
-**force push 전에 전 팀에 공지하고, 실행 후 `staging:sync` 로 DB 를 다시 초기화할 것.**
+**주의**: 전 팀이 현재 진행 중인 작업을 먼저 확인하고, 공지 후 실행할 것.
+
+### DB 오염 복구
+
+운영 데이터 보호는 이 문서 범위 밖: `docs/runbook-rollback.md` + Supabase 일 백업 참고.
 
 ---
 
@@ -349,15 +346,28 @@ npm run staging:sync
 
 **상태**: 미발급 (사용자 대기)
 
+이 프로젝트의 환경변수명은 **`GEMINI_API_KEY` 하나**다 (스코프로 구분).
+
 봇 기능이 필요할 때까지:
-- `GEMINI_API_KEY_STAGING` 환경변수는 설정되지 않음
+- `GEMINI_API_KEY` 는 설정되지 않음
 - 챗봇 도구 중 AI 기반 기능은 결정형 폴백으로 동작 (도움말 제시 등)
 
-발급 후 Vercel 환경변수 설정:
+발급 후 세 곳에 등록:
 
-```bash
-vercel env add GEMINI_API_KEY_STAGING --project dflow-staging
-```
+1. **Vercel `dflow-staging` 프로젝트**:
+   ```bash
+   vercel env add GEMINI_API_KEY --project dflow-staging --environment production
+   ```
+
+2. **Vercel 운영 프로젝트** (Preview 스코프, 스테이징과 다른 key 설정):
+   ```bash
+   vercel env add GEMINI_API_KEY --project wbs-web --environment preview
+   ```
+
+3. **로컬 `.env.local.staging`**:
+   ```
+   GEMINI_API_KEY=<발급받은키>
+   ```
 
 ---
 
