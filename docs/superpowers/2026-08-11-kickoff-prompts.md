@@ -7,7 +7,7 @@
 |---|---|---|
 | wbs-web | 이 파일 ⓪·① | 알림함 · 연동 본편 |
 | dev-plugin | `dev-plugin/docs/kickoff-dflow-toolchain.md` | 툴체인 DEV-02·03 (② — 아래 사본은 참고용, 그쪽이 정위치) |
-| wbs-wsf 스킬 | `docs/superpowers/2026-08-11-kickoff-wbs-wsf.md` — ✅ **완료(2026-08-11)**: 정본 `docs/agent/claude-skill/wbs-wsf/SKILL.md` + `~/.claude/skills/wbs-wsf` 심링크 | 프로그램 리스트 어댑터(DEV-04) 반영·검증 완료 |
+| wbs-wsf 스킬 | `docs/superpowers/2026-08-11-kickoff-wbs-wsf.md` — ✅ **완료(2026-08-11)**: 실물 `~/.claude/skills/wbs-wsf/` (스크립트·레퍼런스 동봉 독립 패키지, 리포 밖) | 프로그램 리스트 어댑터(DEV-04) 반영·검증 완료 |
 
 **실행 순서:**
 
