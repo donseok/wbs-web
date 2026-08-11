@@ -30,6 +30,7 @@ Jira 이슈를 Claude Code로 처리하듯, D'Flow의 작업을 Claude Code가
 | 선행 차단 | **하드 차단 2겹** — 서버: claim 시 `depends` 선행 stage 게이트(403 `dependency_not_met`) · 클라이언트: 선행 head_sha 로컬 미도달 시 메시지 출력 후 실행 거부, `done`은 push 미도달 시 보고 거부. **완료 = push 완료** | 부록 §2.9 |
 | 서버 | 인증 게이트를 PAT 리졸버로 확장 + 신규 API 3개: `GET /agent/me`(진단), `GET /agent/work/mine`(내 작업), `POST /wbs/import`(모듈별 WBS 업로드) + **`/account` 페이지 신설**(비밀번호 변경 통합 + PAT 발급·복사·폐기) | 기존 5개 계약 불변 |
 | 클라이언트 | 스킬 `docs/agent/claude-skill/dflow-work/`(리포 정본, `ln -s`로 설치) + `dflow.sh`(curl 래퍼 — exit code 계약·압축 출력·git 증적 자동 첨부·claim 시 명세 캐시·선행 도달 검사). **다중 프로필 `DFLOW_PATS`** — 한 PC에 1~N명 PAT 등록, 신원은 `/agent/me`로 해석 | 부록 §2.7·§3 |
+| 알림 연동 | 작업 루프 사건(배정·자동 발행·claim·승인 대기·승인/반려·실패 등)을 **알림함으로 서버측 발행** — 발행 지점 표는 부록 §2.10, 알림함 자체(저장·수신·벨 UI)는 [2026-08-11 알림함 설계](2026-08-11-notification-inbox-design.md) 별도 WBS. dev-workflow 변경 0, 두 프로젝트 선후 무관 배포 | 부록 §2.10 (2026-08-11 추가) |
 
 안 만드는 것과 이유: **MCP 서버**(도구 7개에 상시 컨텍스트 비용 부적합, 로컬 git 접근 불가) ·
 **npm 패키지**(배포 단위·버전 스큐 증가) · **`/approve` REST**(완료 승인은 사람 몫 유지).
