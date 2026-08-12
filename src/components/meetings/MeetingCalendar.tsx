@@ -17,19 +17,22 @@ function dowClass(dow: number, base = 'text-ink') {
   return base
 }
 
-function OccurrenceChip({ o, onSelect, t }: {
+function OccurrenceChip({ o, onSelect, t, projectDotClass }: {
   o: MeetingOccurrence
   onSelect: (o: MeetingOccurrence) => void
   t: (k: DictKey) => string
+  projectDotClass?: (projectId: string) => string | null
 }) {
   const meta = MEETING_META[o.category]
   const timeLabel = o.startTime ?? t('meet.allDay')
+  const dotClass = projectDotClass?.(o.projectId)
   return (
     <button
       onClick={() => onSelect(o)}
       className={`flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10.5px] font-medium ${meta.chip} cursor-pointer transition hover:ring-1 hover:ring-brand-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ring`}
       title={`${timeLabel} · ${o.title}`}
     >
+      {dotClass && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />}
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`} />
       <span className="shrink-0 tabular-nums opacity-80">{timeLabel}</span>
       <span className="truncate">{o.title}</span>
@@ -38,13 +41,15 @@ function OccurrenceChip({ o, onSelect, t }: {
 }
 
 export function MeetingCalendar({
-  year, month0, todayIso, occurrences, onSelectOccurrence,
+  year, month0, todayIso, occurrences, onSelectOccurrence, projectDotClass,
 }: {
   year: number
   month0: number
   todayIso: string
   occurrences: MeetingOccurrence[]
   onSelectOccurrence: (o: MeetingOccurrence) => void
+  /** 내 회의 뷰(여러 프로젝트 혼재)에서만 전달 — 프로젝트별 색점. 프로젝트별 달력(/p/[id]/meetings)은 미전달로 무변경. */
+  projectDotClass?: (projectId: string) => string | null
 }) {
   const { t } = useLocale()
   const [more, setMore] = useState<DayPopoverAnchor | null>(null)
@@ -88,7 +93,7 @@ export function MeetingCalendar({
               </div>
               <div className="mt-1 space-y-1">
                 {dayOcc.slice(0, 3).map(o => (
-                  <OccurrenceChip key={o.occurrenceId} o={o} t={t} onSelect={onSelectOccurrence} />
+                  <OccurrenceChip key={o.occurrenceId} o={o} t={t} onSelect={onSelectOccurrence} projectDotClass={projectDotClass} />
                 ))}
                 {dayOcc.length > 3 && (
                   <button
@@ -109,7 +114,7 @@ export function MeetingCalendar({
       {more && (
         <DayPopover anchor={more} count={moreOcc.length} onClose={() => setMore(null)}>
           {moreOcc.map(o => (
-            <OccurrenceChip key={o.occurrenceId} o={o} t={t} onSelect={occ => { setMore(null); onSelectOccurrence(occ) }} />
+            <OccurrenceChip key={o.occurrenceId} o={o} t={t} onSelect={occ => { setMore(null); onSelectOccurrence(occ) }} projectDotClass={projectDotClass} />
           ))}
         </DayPopover>
       )}

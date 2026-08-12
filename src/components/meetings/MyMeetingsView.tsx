@@ -10,6 +10,7 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { fmtDate } from '@/components/wbs/shared'
 import { expandMeetings, sortOccurrences, MEETING_META, meetingEditHref } from '@/lib/domain/meetings'
+import { projectColorClass } from '@/lib/domain/projectColors'
 import { MeetingCalendar } from './MeetingCalendar'
 import { MeetingDetailModal } from './MeetingDetailModal'
 import { fetchMyMeetings } from '@/app/actions/meetings'
@@ -59,6 +60,8 @@ export function MyMeetingsView({
   )
   const [view, setView] = useState<ViewKey>('calendar')
   const [onlyMine, setOnlyMine] = useState(true)
+  // 프로젝트 필터 — 저장 안 함(스펙 §5), 세션 로컬 상태.
+  const [projectFilter, setProjectFilter] = useState<string | null>(null)
   const initialRange = useMemo(() => gridRange(initY, (initM || 1) - 1).join('|'), [initY, initM])
   const [data, setData] = useState<{ meetings: Meeting[]; exceptions: MeetingException[]; range: string }>(
     { meetings: initialMeetings, exceptions: initialExceptions, range: initialRange },
@@ -124,10 +127,27 @@ export function MyMeetingsView({
         .find(o => o.seriesId === target.focus)
     if (occurrence) setDetailOcc(occurrence)
   }, [isStale, data, gridStart, gridEnd])
-  const filteredMeetings = useMemo(
-    () => isStale ? [] : (onlyMine ? data.meetings.filter(m => m.isMine) : data.meetings),
-    [data.meetings, onlyMine, isStale],
+  // 로드된 회의에서 (projectId, projectName) 유니크 목록 — 칩 행 + 색상 인덱스 기준.
+  const projectOptions = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const m of data.meetings) {
+      if (!byId.has(m.projectId)) byId.set(m.projectId, m.projectName ?? m.projectId)
+    }
+    return [...byId.entries()]
+      .map(([projectId, projectName]) => ({ projectId, projectName }))
+      .sort((a, b) => a.projectName.localeCompare(b.projectName, 'ko'))
+  }, [data.meetings])
+  const allProjectIds = useMemo(() => projectOptions.map(p => p.projectId), [projectOptions])
+  const showProjectChips = projectOptions.length > 1
+  const projectDotClass = useMemo(
+    () => showProjectChips ? (projectId: string) => projectColorClass(allProjectIds, projectId) : undefined,
+    [showProjectChips, allProjectIds],
   )
+  const filteredMeetings = useMemo(() => {
+    if (isStale) return []
+    const base = onlyMine ? data.meetings.filter(m => m.isMine) : data.meetings
+    return projectFilter ? base.filter(m => m.projectId === projectFilter) : base
+  }, [data.meetings, onlyMine, isStale, projectFilter])
   const occurrences = useMemo(
     () => expandMeetings(filteredMeetings, isStale ? [] : data.exceptions, gridStart, gridEnd),
     [filteredMeetings, data.exceptions, gridStart, gridEnd, isStale],
@@ -164,8 +184,33 @@ export function MyMeetingsView({
         </div>
       </div>
 
+      {showProjectChips && (
+        <div className="-mt-1 overflow-x-auto">
+          <div className="flex items-center gap-1.5 pb-1">
+            <button
+              onClick={() => setProjectFilter(null)}
+              aria-pressed={projectFilter === null}
+              className={`chip cursor-pointer whitespace-nowrap border transition ${projectFilter === null ? 'border-brand bg-brand-weak text-brand' : 'border-line bg-surface text-ink-muted hover:text-ink'}`}
+            >
+              {t('meet.allProjects')}
+            </button>
+            {projectOptions.map(p => (
+              <button
+                key={p.projectId}
+                onClick={() => setProjectFilter(p.projectId)}
+                aria-pressed={projectFilter === p.projectId}
+                className={`chip cursor-pointer whitespace-nowrap border transition ${projectFilter === p.projectId ? 'border-brand bg-brand-weak text-brand' : 'border-line bg-surface text-ink-muted hover:text-ink'}`}
+              >
+                <span className={`inline-block size-2 rounded-full ${projectColorClass(allProjectIds, p.projectId)}`} />
+                {p.projectName}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {view === 'calendar' ? (
-        <MeetingCalendar year={year} month0={month0} todayIso={todayIso} occurrences={occurrences} onSelectOccurrence={setDetailOcc} />
+        <MeetingCalendar year={year} month0={month0} todayIso={todayIso} occurrences={occurrences} onSelectOccurrence={setDetailOcc} projectDotClass={projectDotClass} />
       ) : listRows.length === 0 ? (
         <EmptyState icon={CalendarX2}
           title={onlyMine ? t('meet.empty.mineTitle') : t('meet.empty.title')}
@@ -193,7 +238,14 @@ export function MyMeetingsView({
                       <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-ink">{fmtDate(o.occurrenceDate)}</td>
                       <td className="whitespace-nowrap px-4 py-3 tabular-nums text-ink-muted">{o.startTime ?? t('meet.allDay')}</td>
                       <td className="px-4 py-3 text-ink">{o.title}</td>
-                      <td className="px-4 py-3 text-ink-muted">{o.projectName ?? '-'}</td>
+                      <td className="px-4 py-3 text-ink-muted">
+                        {o.projectName ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            {projectDotClass && <span className={`inline-block size-2 shrink-0 rounded-full ${projectDotClass(o.projectId)}`} />}
+                            {o.projectName}
+                          </span>
+                        ) : '-'}
+                      </td>
                       <td className="px-4 py-3"><span className={`chip ${meta.chip}`}><span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{t(meta.labelKey as DictKey)}</span></td>
                     </tr>
                   )
