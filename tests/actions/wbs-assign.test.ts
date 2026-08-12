@@ -26,6 +26,8 @@ const P1 = '11111111-1111-4111-8111-111111111111'
 const P2 = '99999999-9999-4999-8999-999999999999'
 const W1 = '33333333-3333-4333-8333-333333333333'
 const M1 = '44444444-4444-4444-8444-444444444444'
+const M2 = '55555555-5555-4555-8555-555555555555'
+const W2 = '66666666-6666-4666-8666-666666666666'
 
 type Resp = { data?: unknown; error?: { message: string } | null }
 
@@ -39,6 +41,9 @@ function admin(queues: Record<string, Resp[]>) {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
       for (const k of ['select', 'eq', 'in', 'order', 'limit']) b[k] = () => b
+      b.contains = (col: string, val: unknown) => {
+        (captured[`${table}.contains`] ??= []).push([col, val]); return b
+      }
       b.update = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.insert = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
@@ -202,6 +207,173 @@ describe('setWbsStage', () => {
     const r = await setWbsStage(W1, 'dd' as never)
     expect(r.ok).toBe(false)
     expect(calls).toHaveLength(0)
+  })
+
+  it('(a) fp→im 전이 시 depends 로 이 항목을 참조하는 후행 리프 담당자에게 work.unblocked 발행(미배정 후행은 건너뜀)', async () => {
+    const W3 = '77777777-7777-4777-8777-777777777777'
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [
+          { id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1'] },
+          { id: W3, name: 'Task C', assignee_member_id: null, depends: ['mod/1'] }, // 미배정 후행 — 발행 대상 아님(선행 조회도 스킵)
+        ] },
+        { data: [{ external_ref: 'mod/1', stage: 'im' }] }, // W2 의 depends 전체(mod/1 단일) 도달 확인
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.unblocked',
+      projectId: P1,
+      actorUserId: 'admin-1',
+      entityType: 'wbs_item',
+      entityId: W2,
+      recipientMemberIds: [M2],
+      dedupeKey: `unblocked:${W2}:${W1}`,
+    }))
+    expect(captured['wbs_items.contains']).toEqual([['depends', ['mod/1']]])
+  })
+
+  it('(e) 후행의 depends 2개 중 하나만 im — 전체 미충족이라 무발행', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
+        // mod/1(지금 im 도달) + mod/2(아직 fp) — 전체 미충족
+        { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: 'fp' }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('(f) 후행의 depends 2개 중 마지막 선행이 im 도달 — 1회 발행', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
+        // mod/1(지금 im 도달) + mod/2(이미 im) — 전체 충족, 이 전이에서 1회만 발행
+        { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: 'im' }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.unblocked',
+      entityId: W2,
+      dedupeKey: `unblocked:${W2}:${W1}`,
+    }))
+  })
+
+  it('depends 에 같은 external_ref 가 중복돼도 정상 발행(길이 대신 고유 개수로 비교)', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/1'] } ] },
+        // .in() 은 중복 없이 실제 존재하는 행만 1개 반환한다 — dependsRefs.length(2) 가 아니라
+        // new Set(dependsRefs).size(1) 과 비교해야 여기서 통과한다.
+        { data: [{ external_ref: 'mod/1', stage: 'im' }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.unblocked',
+      entityId: W2,
+      dedupeKey: `unblocked:${W2}:${W1}`,
+    }))
+  })
+
+  it('후행 목록에 자기 자신(자기 참조 depends)이 있으면 건너뛴다 — 본인에게 알림 가지 않음', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        // 후행 조회가 자기 자신을 포함해 반환(자기 참조 depends) — 선행 확인 쿼리 없이 즉시 skip.
+        { data: [{ id: W1, name: 'Task A', assignee_member_id: M1, depends: ['mod/1'] }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('(b) im→xx(이미 im 이상) 전이는 unblocked 무발행', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'im' } },
+        { data: [{ id: W1 }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'xx')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('(c) 후행 리프가 없으면 무발행', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('(d) 후행 조회 실패 시 발행 생략 + setWbsStage 는 ok:true 유지', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: null, error: { message: 'boom' } },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('external_ref 가 없으면 후행 조회 자체를 하지 않는다', async () => {
+    const { calls } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: null } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+    expect(calls.filter(t => t === 'wbs_items')).toHaveLength(3)
   })
 })
 
