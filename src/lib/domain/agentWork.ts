@@ -5,6 +5,18 @@
 export type AgentOrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
 export type AgentReportKind = 'progress' | 'completion'
 
+/** WBS Task 단계 순서(§2.5) — depends 선행 게이트(결정 C-①)의 판정 축. */
+export const STAGE_ORDER = ['todo', 'as', 'fp', 'ip', 'im', 'xx'] as const
+
+/** stage 가 min 이상인지 — null·미지 값은 false(fail-closed). 순수 함수. */
+export function stageAtLeast(stage: string | null, min: 'im'): boolean {
+  if (stage === null) return false
+  const stageIdx = STAGE_ORDER.indexOf(stage as (typeof STAGE_ORDER)[number])
+  if (stageIdx === -1) return false
+  const minIdx = STAGE_ORDER.indexOf(min)
+  return stageIdx >= minIdx
+}
+
 export const AGENT_CLAIM_STALE_HOURS = 24
 /** 식별 라벨일 뿐 권한 주체가 아니다(권한은 user_email 계정) — 형식만 좁게 잡는다. */
 export const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/

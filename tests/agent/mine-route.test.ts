@@ -84,7 +84,7 @@ describe('GET /agent/work/mine', () => {
     expect(body.available).toBeUndefined()
   })
 
-  it('scope=all — claimed 구획을 먼저, available 을 나중에 채운다', async () => {
+  it('scope=all — claimed → assigned → available 순으로 구획을 채운다', async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
       agent_projects: [{ data: [{ project_id: P1 }] }],
@@ -94,19 +94,21 @@ describe('GET /agent/work/mine', () => {
         { data: [{ id: 'o-2', project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' }] },
         { data: [{ id: 'o-1', project_id: P1, status: 'ready', priority: 5, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' }] },
       ],
+      project_members: [{ data: [] }], // myMemberIdsAcrossProjects — 배정 없음
       wbs_items: [{ data: [] }],
     })
     const res = await mineGET(get('http://l/api/v1/agent/work/mine?scope=all', PAT.token))
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(Object.keys(body)).toEqual(['ok', 'scope', 'claimed', 'available'])
+    expect(Object.keys(body)).toEqual(['ok', 'scope', 'claimed', 'assigned', 'available'])
     expect(body.claimed).toHaveLength(1)
+    expect(body.assigned).toHaveLength(0)
     expect(body.available).toHaveLength(1)
   })
 
   it('지원하지 않는 scope → 400 unsupported_scope', async () => {
     useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }] })
-    const res = await mineGET(get('http://l/api/v1/agent/work/mine?scope=assigned', PAT.token))
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine?scope=bogus', PAT.token))
     expect(res.status).toBe(400)
     expect((await res.json()).code).toBe('unsupported_scope')
   })
