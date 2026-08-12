@@ -328,3 +328,35 @@ export async function resolveFolderPath(
   }
   return { ok: true, ...base, folderId: cur, resolvedPath, complete: true, failed: false }
 }
+
+/** 프로젝트 이동 후 폴더 추종 — 같은 경로를 새 프로젝트 트리에 확보해 folder_id 만 바꾼다.
+ *  실패해도 프로젝트 이동 자체를 되돌리지 않는다(편철은 등록·이동을 막지 않는다).
+ *  updateMinuteMeta·assignMinutesProject 가 프로젝트가 실제로 바뀐 뒤에만 부른다. */
+export async function refileMinuteAfterProjectChange(
+  admin: DbClient,
+  args: {
+    minuteId: string
+    teamCode: TeamCode
+    oldFolderId: string | null
+    newProjectId: string | null
+    actorId: string
+    activeTeamCodes: readonly string[]
+    /** 배치가 미리 읽어 둔 스냅샷 — 건별 로드를 없앤다. resolveFolderPath 가 생성분을
+     *  이 스냅샷에 반영하므로 다음 항목이 재사용한다(assignMinutesProject 200건 상한). */
+    snapshot?: FolderSnapshot
+  },
+): Promise<void> {
+  if (!args.oldFolderId) return                       // 미분류는 미분류로 남긴다(추측 금지)
+  const snap = args.snapshot ?? await loadFolderSnapshot(admin)
+  if (!snap) return                                    // 실패 로그는 loadFolderSnapshot 이 남김
+  const oldPath = folderPathOfSnapshot(snap, args.oldFolderId)
+  if (!oldPath) return                                 // 끊긴 체인 — 건드리지 않는다
+  const res = await resolveFolderPath(admin, args.teamCode, oldPath, {
+    actorId: args.actorId, activeTeamCodes: args.activeTeamCodes,
+    snapshot: snap, projectId: args.newProjectId,
+  })
+  const folderId = res.ok ? res.folderId : null        // no_team_root → 미분류 강등
+  // updated_at 무접촉 — 편철 정리가 외부 연동 GET 에 '방금 수정됨'으로 비치면 안 된다(0043 규칙)
+  const { error } = await admin.from('minutes').update({ folder_id: folderId }).eq('id', args.minuteId)
+  if (error) console.error('[minutes] 프로젝트 이동 재편철 실패:', args.minuteId, error.message)
+}

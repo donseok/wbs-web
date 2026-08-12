@@ -71,7 +71,17 @@ function fakeAdmin(reply: (args: Row) => Row | null) {
       resolve => resolve(data ? { data, error: null } : { data: null, error: { message: 'boom' } })
     return b
   })
-  return { client: { rpc, from: vi.fn() }, rpc }
+  // 재편철 배치가 부르는 admin.from(...) 최소 스텁 — loadFolderSnapshot(minute_folders) 을
+  // 빈 스냅샷으로 통과시킨다. 이 스위트의 minuteRow 는 folder_id 를 주지 않으므로(undefined)
+  // refileMinuteAfterProjectChange 는 그 즉시 no-op 이라(oldFolderId 없음) 그 이상의 from
+  // 호출(minutes.update)은 발생하지 않는다 — 지정/스킵 로직 자체는 이 스텁과 무관하다.
+  const from = vi.fn(() => {
+    const b: Record<string, unknown> = {}
+    for (const m of ['select', 'update', 'eq', 'is', 'in', 'maybeSingle', 'single']) b[m] = vi.fn(() => b)
+    ;(b as { then: (r: (v: unknown) => void) => void }).then = resolve => resolve({ data: [], error: null })
+    return b
+  })
+  return { client: { rpc, from }, rpc, from }
 }
 
 const minuteRow = (id: string, over: Row = {}): Row => ({

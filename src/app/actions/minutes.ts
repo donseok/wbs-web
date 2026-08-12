@@ -27,8 +27,8 @@ import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/share'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
-import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
-import { activeTeamCodesSync, teamsSync } from '@/lib/teams/master'
+import { resolveTeamRootFolderId, refileMinuteAfterProjectChange, loadFolderSnapshot } from '@/lib/minutes/folders'
+import { activeTeamCodesSync, activeTeamCodesForProjectSync, teamsSync } from '@/lib/teams/master'
 import { resolveMinuteProject } from '@/lib/minutes/project'
 import {
   type MinuteVersionFile,
@@ -273,6 +273,15 @@ export async function updateMinuteMeta(
       : null,
   }
   if (folderId !== undefined) upd.folder_id = folderId
+  // 프로젝트 이동 시 자동 재편철(아래)의 old 값 — RPC 뒤에 읽으면 왕복이 하나 늘고 그 사이
+  // 다른 갱신이 끼어들 여지가 생기므로 쓰기 전에 미리 확보한다. folderId 가 명시되면(사용자가
+  // 폴더를 직접 골랐다) 그 선택이 우선이라 재편철 자체를 돌리지 않으므로 조회도 건너뛴다.
+  let curFolderId: string | null = null
+  if (folderId === undefined) {
+    const { data: cur, error: curErr } = await sb.from('minutes').select('folder_id').eq('id', id).maybeSingle()
+    if (curErr) console.error('[updateMinuteMeta] 재편철 사전 조회 실패(재편철 생략):', curErr.message)
+    else curFolderId = (cur?.folder_id as string | null) ?? null
+  }
   let admin: ReturnType<typeof createAdminClient>
   try {
     admin = createAdminClient()
@@ -297,6 +306,17 @@ export async function updateMinuteMeta(
   }
   if (updateResult.new_project_id) {
     revalidatePath(`/p/${updateResult.new_project_id}/wiki`)
+  }
+  // 프로젝트 이동 시 폴더 자동 추종 — 사용자가 폴더를 직접 고르지 않았을 때만(folderId===undefined).
+  // 위키 재적재보다 먼저·동기로 끝내 재적재가 새 folder_id 반영 이후 상태를 본다.
+  if (projectChanged && folderId === undefined) {
+    await refileMinuteAfterProjectChange(admin, {
+      minuteId: id, teamCode: effectiveTeam, oldFolderId: curFolderId,
+      newProjectId: updateResult.new_project_id, actorId: g.actor.userId,
+      activeTeamCodes: updateResult.new_project_id
+        ? activeTeamCodesForProjectSync(updateResult.new_project_id)
+        : activeTeamCodesSync(),
+    })
   }
   if (
     resolvedProject.projectId
@@ -366,7 +386,7 @@ export async function assignMinutesProject(
   }
   // 가드 선행조회 — 실패하면 소유권·보관 판정이 불가능하므로 중단(fail-closed, 건별 N회 왕복 회피)
   const { data: rows, error: rowsErr } = await sb.from('minutes')
-    .select('id, created_by, archived_at, project_id, meeting_id')
+    .select('id, created_by, archived_at, project_id, meeting_id, team_code, folder_id')
     .in('id', targets)
   if (rowsErr) {
     console.error('[assignMinutesProject] 대상 조회 실패:', rowsErr.message)
@@ -375,6 +395,7 @@ export async function assignMinutesProject(
   type MinuteRow = {
     id: string; created_by: string | null; archived_at: string | null
     project_id: string | null; meeting_id: string | null
+    team_code: TeamCode; folder_id: string | null
   }
   const byId = new Map((rows ?? []).map(r => [(r as MinuteRow).id, r as MinuteRow]))
 
@@ -398,6 +419,9 @@ export async function assignMinutesProject(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '프로젝트 지정 설정을 확인하세요.', ...empty }
   }
+  // 재편철용 폴더 스냅샷 — 건별 로드 대신 배치 전체가 1회 공유(200건 상한이라 필수는 아니지만,
+  // 하면 왕복이 크게 준다). 실패해도 재편철만 생략될 뿐 지정 자체는 계속 진행한다.
+  const folderSnapshot = (await loadFolderSnapshot(admin)) ?? undefined
 
   const skipped: { id: string; reason: string }[] = []
   const rebuildProjects = new Set<string>()
@@ -428,6 +452,16 @@ export async function assignMinutesProject(
     const res = raw as unknown as {
       old_project_id: string | null; new_project_id: string | null; wiki_rebuild_required: boolean
     }
+    // 프로젝트가 실제로 바뀐 건만 폴더도 추종시킨다(위에서 unchanged 는 이미 걸러졌지만,
+    // res.new_project_id 는 RPC 가 정한 정본이라 그 값을 기준으로 한다).
+    await refileMinuteAfterProjectChange(admin, {
+      minuteId: id, teamCode: row.team_code, oldFolderId: row.folder_id,
+      newProjectId: res.new_project_id, actorId: g.actor.userId,
+      activeTeamCodes: res.new_project_id
+        ? activeTeamCodesForProjectSync(res.new_project_id)
+        : activeTeamCodesSync(),
+      snapshot: folderSnapshot,
+    })
     if (res.old_project_id) rebuildProjects.add(res.old_project_id)
     if (res.new_project_id) rebuildProjects.add(res.new_project_id)
     updated += 1
