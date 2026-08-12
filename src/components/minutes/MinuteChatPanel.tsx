@@ -121,8 +121,12 @@ export function ChatComposer({ onSend, loading }: { onSend: (v: string) => void;
 type ChatScope = 'doc' | 'archive'
 type TeamKey = 'ALL' | TeamCode
 
-/** 문서 모드 패널 — 뷰어 우측(좁은 화면에선 아래). 범위 토글로 전체 보관함 질문 가능. */
-export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
+/** 문서 모드 패널 — 뷰어 우측(좁은 화면에선 아래). 범위 토글로 전체 보관함 질문 가능.
+ *  projects 는 하위 구분 칩의 프로젝트 라벨용(0076). */
+export function MinuteChatPanel({ minuteId, projects = [] }: {
+  minuteId: string
+  projects?: { id: string; name: string }[]
+}) {
   const { t } = useLocale()
   const teamCodes = useTeamCodes()
   const [open, setOpen] = useState(true)
@@ -148,6 +152,20 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
   const chat = scope === 'doc' ? doc : archive
   const subFolders = scope === 'archive' && team !== 'ALL' && Array.isArray(folders)
     ? teamChildFoldersOf(folders, team) : []
+  // teamChildFoldersOf(→teamRootFolderIdOf)는 이름이 일치하는 팀 루트 중 첫 번째 것만 본다 —
+  // 0076 이후 같은 팀 이름의 루트가 프로젝트마다 있을 수 있어(각 프로젝트의 PMO 등), 어느
+  // 프로젝트 것이 뽑혔는지 화면에서 알 길이 없었다. 동명 루트가 하나뿐일 때(지금의 보통 상태)는
+  // 종전과 똑같이 보이고, 여럿일 때만 지금 뽑힌 루트의 프로젝트 이름을 칩에 붙인다.
+  const ambiguousTeamRoot = Array.isArray(folders)
+    && folders.filter(f => f.parentId === null && f.createdBy === null && f.name === team).length > 1
+  const pickedRootProjectId = Array.isArray(folders)
+    ? folders.find(f => f.parentId === null && f.createdBy === null && f.name === team)?.projectId ?? null
+    : null
+  const subFolderProjectLabel = ambiguousTeamRoot
+    ? (pickedRootProjectId ? (projects.find(p => p.id === pickedRootProjectId)?.name ?? null) : t('min.grp.unassigned'))
+    : null
+  const subFolderLabel = (f: MinuteFolder) =>
+    subFolderProjectLabel ? `${subFolderProjectLabel} · ${f.name}` : f.name
 
   if (!open) {
     return (
@@ -188,7 +206,7 @@ export function MinuteChatPanel({ minuteId }: { minuteId: string }) {
             <div className="overflow-x-auto">
               <SegmentedTabs<string>
                 tabs={[{ key: 'ALL', label: t('min.team.all') },
-                       ...subFolders.map(f => ({ key: f.id, label: f.name }))]}
+                       ...subFolders.map(f => ({ key: f.id, label: subFolderLabel(f) }))]}
                 value={folderId ?? 'ALL'} onChange={k => setFolderId(k === 'ALL' ? null : k)} size="sm" />
             </div>
           )}

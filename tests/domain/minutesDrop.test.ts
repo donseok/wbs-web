@@ -4,7 +4,8 @@ import type { MinuteFolder } from '@/lib/domain/types'
 
 const f = (
   id: string, name: string, parentId: string | null = null, createdBy: string | null = 'u1',
-): MinuteFolder => ({ id, name, parentId, sort: 100, createdBy })
+  projectId: string | null = null,
+): MinuteFolder => ({ id, name, parentId, sort: 100, createdBy, projectId })
 
 const TEAMS = ['PMO', 'MES', 'ERP', 'APS'] as const
 
@@ -140,5 +141,24 @@ describe('resolveFolderDrop — 방어(순환·고아 입력)', () => {
     const orphan = f('o', '고아', 'gone')
     const target = f('t', '대상', null)
     expect(resolveFolderDrop(orphan, 't', [orphan, target], TEAMS)).toEqual({ kind: 'move' })
+  })
+})
+
+describe('resolveFolderDrop — 교차 프로젝트', () => {
+  it('교차 프로젝트 드롭은 cross-project 로 거부한다', () => {
+    const target = f('f1', 'a', 'p1-root', 'u1', 'P1')
+    const newParent = f('g-root', 'PMO', null, null, null)
+    const verdict = resolveFolderDrop(target, 'g-root', [target, newParent], ['PMO'])
+    expect(verdict).toEqual({ kind: 'reject', reason: 'cross-project' })
+  })
+  it('같은 프로젝트 하위로의 이동은 허용', () => {
+    const root = f('p1-root', 'P1', null, 'u1', 'P1')
+    const target = f('f1', 'a', 'p1-root', 'u1', 'P1')
+    const dest = f('p1-b', 'B', 'p1-root', 'u1', 'P1')
+    expect(resolveFolderDrop(target, 'p1-b', [root, target, dest], [])).toEqual({ kind: 'move' })
+  })
+  it('프로젝트 폴더를 루트로 옮기는 것은 cross-project 대상이 아니다(자기 스코프 루트 취급)', () => {
+    const target = f('f1', 'a', 'p1-root', 'u1', 'P1')
+    expect(resolveFolderDrop(target, null, [target], [])).toEqual({ kind: 'move' })
   })
 })

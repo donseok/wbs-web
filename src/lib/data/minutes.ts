@@ -126,7 +126,7 @@ export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> =
       .is('archived_at', null)
       .order('minute_date', { ascending: false }).order('created_at', { ascending: false })
       .limit(MINUTES_TREE_LIMIT),
-    sb.from('minute_folders').select('id, name, parent_id, sort, created_by')
+    sb.from('minute_folders').select('id, name, parent_id, sort, created_by, project_id')
       .order('sort').order('name'),
     getHiddenProjectIds(),
   ])
@@ -143,11 +143,15 @@ export const getMinutesExplorer = cache(async (): Promise<ExplorerData | null> =
     projectId: mi.projectId ?? null, projectName: mi.projectName ?? null,
     meetingId: mi.meetingId, meetingProjectId: mi.meetingProjectId ?? null,
   }))
-  const folders: MinuteFolder[] = ((fRes.data ?? []) as Row[]).map(f => ({
+  const allFolders: MinuteFolder[] = ((fRes.data ?? []) as Row[]).map(f => ({
     id: f.id as string, name: f.name as string,
     parentId: (f.parent_id as string | null) ?? null,
     sort: f.sort as number, createdBy: (f.created_by as string | null) ?? null,
+    projectId: (f.project_id as string | null) ?? null,
   }))
+  // 숨김 프로젝트의 폴더 제거 — 리프는 dropHidden 이 이미 걸렀다. 폴더까지 걸러야
+  // 비공개 프로젝트 이름이 폴더 트리(이름만으로도)로 노출되지 않는다.
+  const folders = allFolders.filter(f => f.projectId === null || !hidden.has(f.projectId))
   // truncated 는 필터 전 페치 건수 기준 — 숨김으로 줄어든 것을 '전량 수신'으로 위장하지 않는다.
   return { folders, leaves, total: rows.length, truncated: (mRes.data ?? []).length >= MINUTES_TREE_LIMIT }
 })

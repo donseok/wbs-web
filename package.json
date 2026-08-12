@@ -20,6 +20,7 @@
     "mark:good": "node scripts/mark-good.mjs",
     "staging:sync": "node scripts/staging-sync.mjs",
     "db:apply": "node scripts/db-apply.mjs",
+    "backfill:0076": "vitest run --config scripts/backfill-0076.vitest.ts --reporter=verbose",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

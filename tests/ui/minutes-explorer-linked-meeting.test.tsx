@@ -26,7 +26,7 @@ vi.mock('@/app/actions/minutes', () => ({
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
 const folders: MinuteFolder[] = [
-  { id: 'f-plan', name: '생산계획', parentId: null, sort: 5, createdBy: 'u1' },
+  { id: 'f-plan', name: '생산계획', parentId: null, sort: 5, createdBy: 'u1', projectId: null },
 ]
 const leaf = (over: Partial<ExplorerLeaf> = {}): ExplorerLeaf => ({
   id: 'm1', minuteDate: '2026-07-24', teamCode: 'MES', title: 'APS 인터뷰',

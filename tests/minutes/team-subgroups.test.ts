@@ -8,7 +8,7 @@ import {
 const F = (
   id: string, name: string, parentId: string | null = null,
   createdBy: string | null = null, sort = 100,
-): MinuteFolder => ({ id, name, parentId, sort, createdBy })
+): MinuteFolder => ({ id, name, parentId, sort, createdBy, projectId: null })
 
 // 0043 시드 트리(sort 는 프로덕션 시드값) + 사용자 폴더 — 하위 구분은 이 실폴더에서 동적 유도된다
 const tree: MinuteFolder[] = [

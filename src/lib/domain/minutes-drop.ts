@@ -12,6 +12,7 @@ export type MinuteDropReject =
   | 'cycle'         // 자기 자신/자손으로 이동 — 서브트리가 트리에서 떨어져 나간다
   | 'depth'         // 이동 후 서브트리 최심 깊이가 상한 초과
   | 'anchor-squat'  // 루트로 이동 시 팀코드 동명 — 앵커 사칭(createMinuteFolder 가드와 동일 규칙)
+  | 'cross-project' // 새 부모의 프로젝트가 자신과 다름 — 서브트리가 남의 프로젝트 트리에 붙는 것을 막는다
 
 export type MinuteDropResult =
   | { kind: 'noop' }
@@ -49,6 +50,12 @@ export function resolveFolderDrop(
     return { kind: 'reject', reason: 'depth' }
   if (targetParentId === null && isTeamRootName(folder.name, teamCodes))
     return { kind: 'reject', reason: 'anchor-squat' }
+  // 새 부모(null=루트는 target 유지 스코프)와 프로젝트가 다르면 거부 — 폴더 서브트리가
+  // 통째로 남의 프로젝트 트리에 붙는 것을 막는다. 프로젝트 간 이동은 회의록 단위로만.
+  const parentProject = targetParentId === null
+    ? folder.projectId   // 루트로의 이동은 자기 스코프 루트 — 프로젝트 불변
+    : (folders.find(f => f.id === targetParentId)?.projectId ?? null)
+  if (parentProject !== folder.projectId) return { kind: 'reject', reason: 'cross-project' }
   return { kind: 'move' }
 }
 

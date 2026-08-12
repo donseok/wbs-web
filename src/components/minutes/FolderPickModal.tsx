@@ -1,21 +1,30 @@
 'use client'
+import { useMemo } from 'react'
 import { Folder, FolderOpen } from 'lucide-react'
 import type { FolderNode, MinuteFolder } from '@/lib/domain/types'
 import { buildFolderTree } from '@/lib/domain/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Modal } from '@/components/ui/Modal'
 
-/** 이동 대상 폴더 픽커 — 트리 들여쓰기 + 미분류. 선택 즉시 onPick(닫기는 호출부). */
+/** 이동 대상 폴더 픽커 — 트리 들여쓰기 + 미분류. 선택 즉시 onPick(닫기는 호출부).
+ *  scopeProjectId 로 그 프로젝트 소속 폴더만 보여준다 — 교차 프로젝트 편철은 서버도 거부하므로
+ *  (moveMinuteToFolder·createMinuteFolder 의 자식=부모 프로젝트 불변식) 애초에 고를 수 없게 한다.
+ *  null = 미지정 폴더만. */
 export function FolderPickModal({
-  open, folders, onClose, onPick,
+  open, folders, scopeProjectId, onClose, onPick,
 }: {
   open: boolean
   folders: MinuteFolder[]
+  scopeProjectId: string | null
   onClose: () => void
   onPick: (folderId: string | null) => void
 }) {
   const { t } = useLocale()
-  const { roots } = buildFolderTree(folders, [])
+  const scoped = useMemo(
+    () => folders.filter(f => (f.projectId ?? null) === scopeProjectId),
+    [folders, scopeProjectId],
+  )
+  const { roots } = buildFolderTree(scoped, [])
 
   function rows(nodes: FolderNode[], depth: number): React.ReactNode[] {
     return nodes.flatMap(n => [

@@ -29,7 +29,7 @@ vi.mock('@/components/minutes/ArchiveChatPanel', () => ({
 }))
 
 const treeResult = {
-  folders: [{ id: 'f1', name: '생산계획', parentId: null, sort: 5, createdBy: null }],
+  folders: [{ id: 'f1', name: '생산계획', parentId: null, sort: 5, createdBy: null, projectId: null }],
   leaves: [{
     id: 'm1', minuteDate: '2026-07-16', teamCode: 'MES', title: '물류공정_260716',
     fileCount: 0, createdBy: null, createdByName: null,
@@ -40,7 +40,7 @@ const treeResult = {
 // CRUD 재조회(silent refresh) 계약 테스트 전용 — m2 는 f1 이 아닌 다른 폴더(f2) 소속이라
 // 폴더 스코프(f1)에서는 보이지 않아야 한다. 리마운트로 스코프가 all 로 튕기면 노출된다.
 const treeResultTwoLeaves = {
-  folders: [...treeResult.folders, { id: 'f2', name: '운영', parentId: null, sort: 10, createdBy: null }],
+  folders: [...treeResult.folders, { id: 'f2', name: '운영', parentId: null, sort: 10, createdBy: null, projectId: null }],
   leaves: [
     ...treeResult.leaves,
     {

@@ -812,7 +812,9 @@ export function MinuteViewer({
           style={{ '--minutes-fs': `${fs.size}px` } as React.CSSProperties}>
           <MarkdownView content={minute.bodyMd} marks={marks} />
         </div>
-        {!focus && !historicalVersion && !minute.archivedAt && <MinuteChatPanel minuteId={minute.id} />}
+        {!focus && !historicalVersion && !minute.archivedAt && (
+          <MinuteChatPanel minuteId={minute.id} projects={projects} />
+        )}
       </div>
 
       {popover && (

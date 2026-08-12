@@ -365,3 +365,42 @@ export function buildFolderTree(
 
   return { roots, unfiled }
 }
+
+/** 탐색기 최상위 프로젝트 그룹. */
+export interface ExplorerProjectGroup {
+  projectId: string | null              // null = 미지정
+  projectName: string | null            // 미지정이면 null — 라벨은 표시측 i18n
+  folders: MinuteFolder[]
+  leaves: ExplorerLeaf[]
+}
+
+/** 탐색기 최상위 프로젝트 그룹핑(0076). projects 순서 유지(호출부가 내 프로젝트 우선으로
+ *  정렬해 넘긴다) → 명단 밖 projectId 그룹(이름 미상 — listProjects 실패·부분 응답 방어,
+ *  남의 그룹에 섞지 않는다) → 미지정(null) 마지막. 폴더도 리프도 없는 그룹은 내지 않는다. */
+export function groupExplorerByProject(
+  folders: MinuteFolder[], leaves: ExplorerLeaf[],
+  projects: readonly { id: string; name: string }[],
+): ExplorerProjectGroup[] {
+  const byProject = new Map<string | null, ExplorerProjectGroup>()
+  const ensure = (projectId: string | null, projectName: string | null) => {
+    let g = byProject.get(projectId)
+    if (!g) { g = { projectId, projectName, folders: [], leaves: [] }; byProject.set(projectId, g) }
+    return g
+  }
+  for (const f of folders) ensure(f.projectId, null).folders.push(f)
+  for (const l of leaves) ensure(l.projectId ?? null, null).leaves.push(l)
+  const known = new Map(projects.map(p => [p.id, p.name]))
+  const ordered: ExplorerProjectGroup[] = []
+  for (const p of projects) {
+    const g = byProject.get(p.id)
+    if (g) { g.projectName = p.name; ordered.push(g); byProject.delete(p.id) }
+  }
+  for (const [pid, g] of byProject) {
+    if (pid === null) continue
+    g.projectName = known.get(pid) ?? null
+    ordered.push(g)
+  }
+  const unassigned = byProject.get(null)
+  if (unassigned) ordered.push(unassigned)
+  return ordered
+}

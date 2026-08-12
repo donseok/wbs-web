@@ -90,6 +90,13 @@ export function MinuteMetaModal({
 
   async function onProject(pid: string) {
     setProjectId(pid); setMeetingId(''); setMeetings([])
+    // 사용자가 프로젝트를 바꾸면 고른 폴더가 새 스코프 밖일 수 있다 — 해제(미분류)한다.
+    // 초기값(minute.folderId)은 여기서 건드리지 않는다 — 커스텀 편철 존중은 이 모달의 핵심 계약
+    // (위 save() 참조). folders 가 아직 비어 있으면(재조회 경합) 판정 불가이므로 손대지 않는다.
+    if (folderId !== null && folders.length > 0) {
+      const f = folders.find(x => x.id === folderId)
+      if (!f || (f.projectId ?? null) !== (pid || null)) setFolderId(null)
+    }
     if (pid) setMeetings(await fetchProjectMeetingsLite(pid))
   }
 
@@ -173,7 +180,7 @@ export function MinuteMetaModal({
           {extErr && <p className="text-xs text-delayed">{extErr}</p>}
         </div>
       </div>
-      <FolderPickModal open={folderPickOpen} folders={folders}
+      <FolderPickModal open={folderPickOpen} folders={folders} scopeProjectId={projectId || null}
         onClose={() => setFolderPickOpen(false)}
         onPick={id => { setFolderId(id); setFolderPickOpen(false) }} />
     </Modal>

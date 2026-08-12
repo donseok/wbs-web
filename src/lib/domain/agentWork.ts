@@ -5,6 +5,18 @@
 export type AgentOrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
 export type AgentReportKind = 'progress' | 'completion'
 
+/** WBS Task 단계 순서(§2.5) — depends 선행 게이트(결정 C-①)의 판정 축. */
+export const STAGE_ORDER = ['todo', 'as', 'fp', 'ip', 'im', 'xx'] as const
+
+/** stage 가 min 이상인지 — null·미지 값은 false(fail-closed). 순수 함수. */
+export function stageAtLeast(stage: string | null, min: 'im'): boolean {
+  if (stage === null) return false
+  const stageIdx = STAGE_ORDER.indexOf(stage as (typeof STAGE_ORDER)[number])
+  if (stageIdx === -1) return false
+  const minIdx = STAGE_ORDER.indexOf(min)
+  return stageIdx >= minIdx
+}
+
 export const AGENT_CLAIM_STALE_HOURS = 24
 /** 식별 라벨일 뿐 권한 주체가 아니다(권한은 user_email 계정) — 형식만 좁게 잡는다. */
 export const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -43,4 +55,50 @@ export function isClaimStale(claimedAt: string | null, now: Date = new Date()): 
 
 export function isUuidLike(v: string): boolean {
   return UUID_RE.test(v)
+}
+
+const SHA_RE = /^[0-9a-f]{40}$/i
+const EVIDENCE_KEYS = new Set(['branch', 'base_sha', 'head_sha', 'repo_url', 'pr_url', 'checks'])
+
+/** evidence 는 형식 검증만 — 실재·일치는 서버가 확인하지 않는다(§6). */
+export function validateEvidence(raw: unknown):
+  { ok: true; evidence: Record<string, unknown> } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, evidence: {} }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: 'evidence는 객체여야 합니다.' }
+  const e = raw as Record<string, unknown>
+  for (const k of Object.keys(e)) {
+    if (!EVIDENCE_KEYS.has(k)) return { ok: false, error: `evidence에 알 수 없는 필드: ${k}` }
+  }
+  for (const k of ['base_sha', 'head_sha'] as const) {
+    if (e[k] !== undefined && (typeof e[k] !== 'string' || !SHA_RE.test(e[k] as string))) {
+      return { ok: false, error: `${k}는 40자 hex여야 합니다.` }
+    }
+  }
+  for (const k of ['repo_url', 'pr_url'] as const) {
+    if (e[k] !== undefined && (typeof e[k] !== 'string' || !/^https?:\/\//.test(e[k] as string))) {
+      return { ok: false, error: `${k}는 http(s) URL이어야 합니다.` }
+    }
+  }
+  if (e.branch !== undefined && typeof e.branch !== 'string') return { ok: false, error: 'branch는 문자열이어야 합니다.' }
+  if (e.checks !== undefined) {
+    if (!Array.isArray(e.checks)) return { ok: false, error: 'checks는 배열이어야 합니다.' }
+    for (const c of e.checks) {
+      if (typeof c !== 'object' || c === null) return { ok: false, error: 'checks 원소는 객체여야 합니다.' }
+      const cc = c as Record<string, unknown>
+      if (typeof cc.name !== 'string' || typeof cc.status !== 'string') return { ok: false, error: 'checks 원소는 {name,status} 문자열 필드가 필요합니다.' }
+    }
+  }
+  return { ok: true, evidence: e }
+}
+
+export const ORDER_PRIORITY_BY_LABEL = { critical: 100, high: 50, medium: 10, low: 0 } as const
+
+/**
+ * WBS 항목 priority 라벨을 order.priority 정수로 매핑.
+ * 미기재·미지 라벨은 0(low)으로 수렴한다.
+ */
+export function orderPriorityFromLabel(label: string | null): number {
+  if (!label) return 0
+  const priority = ORDER_PRIORITY_BY_LABEL[label as keyof typeof ORDER_PRIORITY_BY_LABEL]
+  return priority !== undefined ? priority : 0
 }

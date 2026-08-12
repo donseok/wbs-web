@@ -38,12 +38,14 @@ export async function addTeam(input: string): Promise<TeamActionResult> {
 
   // 자동 편철 앵커(0043 계약): 팀코드 동명 시드 루트 폴더. 실패해도 팀은 유지하되 관리자에게
   // 표시한다(편철은 미분류 폴백이라 치명적이진 않지만 조용히 넘기지 않는다 — 에러 3원칙).
+  // 0071 이후 project_id 로도 스코프해야 한다 — 안 하면 어느 프로젝트가 같은 이름의 프로젝트
+  // 루트 폴더를 먼저 만들었을 때 그 행을 "이미 있다"로 오인해 전역 루트 시드 생성이 스킵된다.
   const seed = await admin.from('minute_folders')
-    .select('id').is('parent_id', null).is('created_by', null).eq('name', norm.code).maybeSingle()
+    .select('id').is('parent_id', null).is('created_by', null).is('project_id', null).eq('name', norm.code).maybeSingle()
   let seedError: string | null = seed.error ? seed.error.message : null
   if (!seed.error && !seed.data) {
     const folder = await admin.from('minute_folders')
-      .insert({ name: norm.code, parent_id: null, created_by: null, sort: 100 + sortOrder })
+      .insert({ name: norm.code, parent_id: null, created_by: null, project_id: null, sort: 100 + sortOrder })
     if (folder.error) seedError = folder.error.message
   }
 

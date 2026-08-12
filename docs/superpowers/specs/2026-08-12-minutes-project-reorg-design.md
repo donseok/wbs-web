@@ -66,6 +66,7 @@ alter table minute_folders add column project_id uuid
 ## 4. 화면 — 회의록 보관함 `/minutes`
 
 - 트리 최상위 = **프로젝트 노드**(내 프로젝트 우선 정렬 `sortMyProjectsFirst` 관례) + **미지정** 노드. 그 아래는 기존 폴더 트리 UI(MinutesExplorer) 재사용.
+  접기 기본값은 "내 프로젝트 펼침·그 외 접힘"이되, **미지정은 예외로 항상 펼침**(Task 7 승인된 편차) — 멤버십 개념이 없는 catch-all 버킷이라 "그 외"로 접으면 첫 화면이 빈 헤더 하나로 보이고(특히 0076 백필 전 전량이 미지정인 과도기), 기존 UI 테스트 다수가 미지정 트리를 바로 볼 수 있다고 가정한다.
 - 비공개 프로젝트는 기존 `dropHidden`/`getHiddenProjectIds` 규칙으로 노드째 숨김(그 프로젝트 회의록은 이미 걸러진다).
 - 폴더 CRUD 모달(FolderManageModal·FolderPickModal)에 프로젝트 컨텍스트 전달. 시드 루트 보호(개명·삭제 불가) 유지. 폴더 이동은 **같은 프로젝트 안에서만** — 프로젝트 간 이동은 회의록 단위(메타 수정)로만 한다.
 - 챗 폴더 칩(0066)은 folder_id 기반이라 동작 유지. 폴더 픽커에 프로젝트 그룹 라벨만 추가.

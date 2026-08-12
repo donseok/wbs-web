@@ -4,9 +4,15 @@ import { NextRequest } from 'next/server'
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   activeTeamCodes: ['PMO', 'ERP', 'MES', '가공', 'MDM'] as string[],
+  // Task 6 — 프로젝트 스코프 활성 팀 목록. 기본 구현은 beforeEach 에서 건다(초기화 시점에
+  // mocks.activeTeamCodes 를 참조하면 자기 참조로 TS 순환 추론 에러가 난다).
+  activeTeamCodesForProject: vi.fn<(projectId: string) => string[]>(),
 }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
-vi.mock('@/lib/teams/master', () => ({ activeTeamCodesSync: () => mocks.activeTeamCodes }))
+vi.mock('@/lib/teams/master', () => ({
+  activeTeamCodesSync: () => mocks.activeTeamCodes,
+  activeTeamCodesForProjectSync: (projectId: string) => mocks.activeTeamCodesForProject(projectId),
+}))
 
 import { DELETE, GET, POST } from '@/app/api/v1/minutes/folder/route'
 
@@ -65,9 +71,9 @@ const F_QUALITY = { id: 'f-q', name: '품질', parent_id: 'f-mes', created_by: '
 const F_WEEKLY = { id: 'f-w', name: '주간정례', parent_id: 'f-q', created_by: 'u-9' }
 const TREE = [SEED_MES, SEED_ERP, F_QUALITY, F_WEEKLY]
 
-/** minutes 행 — 배치가 조회하는 컬럼만. */
+/** minutes 행 — 배치가 조회하는 컬럼만. project_id 기본 null(전역 트리, 기존 동작). */
 const minute = (n: number, over: Partial<Record<string, unknown>> = {}) => ({
-  id: `m-${n}`, external_id: EID(n), team_code: 'MES',
+  id: `m-${n}`, external_id: EID(n), team_code: 'MES', project_id: null,
   folder_id: 'f-mes', archived_at: null, ...over,
 })
 
@@ -87,6 +93,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.unstubAllEnvs()
   mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+  // clearAllMocks 는 mockImplementation 을 지우지 않는다 — 개별 테스트의 override 가 다음
+  // 테스트로 새지 않도록 기본 구현을 매번 다시 건다.
+  mocks.activeTeamCodesForProject.mockImplementation(() => mocks.activeTeamCodes)
   vi.stubEnv('MINUTES_API_ENABLED', 'true')
   vi.stubEnv('MINUTES_API_SECRET', SECRET)
   useAdmin()
@@ -408,7 +417,7 @@ describe('APPLY 실행 (요건 2·3)', () => {
       status: 'moved', folder_id: 'f-new', to: ['MES', '신규'],
     })
     expect(builders.minute_folders[1].insert).toHaveBeenCalledWith({
-      name: '신규', parent_id: 'f-mes', created_by: 'u-1',
+      name: '신규', parent_id: 'f-mes', created_by: 'u-1', project_id: null,
     })
   })
 
@@ -646,5 +655,63 @@ describe('비활성 팀 시나리오 (§3.2 ① 단독 조건)', () => {
     })))
     // ①이 캐시를 봤다면 ②로 떨어져 ["MDM","MDM","품질"]가 된다
     expect((await r.json()).results[0].to).toEqual(['MDM', '품질'])
+  })
+})
+
+describe('편철 기준 트리 — 회의록 프로젝트 스코프 (0076 · Task 6)', () => {
+  const PROJECT_UUID = '90b95d7d-8d5c-4f8c-9915-4a07b876af27'
+  // 같은 이름 'MES' 루트가 전역(f-mes)과 프로젝트(f-mes-p)에 각각 존재 — 스코프를 안 가리면
+  // 전역 루트와 뒤섞인다.
+  const SEED_MES_PROJECT = { id: 'f-mes-p', name: 'MES', parent_id: null, created_by: null, project_id: PROJECT_UUID }
+  const TREE_WITH_PROJECT = [...TREE, SEED_MES_PROJECT]
+
+  it('회의록의 project_id 스코프 루트를 기준으로 판정한다 — 전역 루트와 혼동하지 않는다', async () => {
+    useAdmin({
+      minute_folders: [{ data: TREE_WITH_PROJECT }],
+      minutes: [{ data: [minute(1, { project_id: PROJECT_UUID, folder_id: 'f-mes-p' })] }],
+    })
+    // 목표는 팀 루트([]) — 전역 스코프로 해석하면 f-mes 가 되어 row.folder_id(f-mes-p)와
+    // 어긋나 manual_placement 로 skip 된다. 프로젝트 스코프로 바르게 해석하면 already_correct.
+    const r = await POST(post(body({ items: [{ external_id: EID(1), folder_path: [] }] })))
+    expect((await r.json()).results[0]).toMatchObject({ status: 'already_correct', folder_id: 'f-mes-p' })
+  })
+
+  it('APPLY 도 회의록의 프로젝트 트리 안에서 폴더를 만든다', async () => {
+    const { builders } = useAdmin({
+      minute_folders: [{ data: TREE_WITH_PROJECT }, { data: { id: 'f-new-p' } }],
+      minutes: [
+        { data: [minute(1, { project_id: PROJECT_UUID, folder_id: 'f-mes-p' })] },
+        { data: [{ id: 'm-1' }] },
+      ],
+    })
+    const r = await POST(post(body({
+      dry_run: false, items: [{ external_id: EID(1), folder_path: ['MES', '신규'] }],
+    })))
+    expect((await r.json()).results[0]).toMatchObject({ status: 'moved', folder_id: 'f-new-p' })
+    expect(builders.minute_folders[1].insert).toHaveBeenCalledWith({
+      name: '신규', parent_id: 'f-mes-p', created_by: 'u-1', project_id: PROJECT_UUID,
+    })
+  })
+
+  it('활성 팀 목록도 회의록의 프로젝트 스코프로 조회한다', async () => {
+    mocks.activeTeamCodesForProject.mockImplementation((projectId: string) =>
+      projectId === PROJECT_UUID ? ['PMO', 'ERP', 'MES', '가공', 'MDM', '신설팀'] : mocks.activeTeamCodes)
+    const tree = [...TREE_WITH_PROJECT, {
+      id: 'f-newteam-p', name: '신설팀', parent_id: null, created_by: null, project_id: PROJECT_UUID,
+    }]
+    useAdmin({
+      minute_folders: [{ data: tree }],
+      minutes: [{ data: [minute(1, {
+        project_id: PROJECT_UUID, team_code: '신설팀', folder_id: 'f-newteam-p',
+      })] }],
+    })
+    const r = await POST(post(body({
+      items: [{ external_id: EID(1), folder_path: ['신설팀', '품질'] }],
+    })))
+    const json = await r.json()
+    // 전역 activeTeamCodes 만 봤다면 '신설팀'이 활성 팀 아님 취급되어 한 칸 내려 중복된다
+    // (["신설팀","신설팀","품질"]).
+    expect(json.results[0].to).toEqual(['신설팀', '품질'])
+    expect(mocks.activeTeamCodesForProject).toHaveBeenCalledWith(PROJECT_UUID)
   })
 })

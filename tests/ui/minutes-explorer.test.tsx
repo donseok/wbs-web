@@ -28,7 +28,7 @@ vi.mock('@/app/actions/minutes', () => ({
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
 const folder = (id: string, name: string, parentId: string | null = null, sort = 100, createdBy: string | null = null): MinuteFolder =>
-  ({ id, name, parentId, sort, createdBy })
+  ({ id, name, parentId, sort, createdBy, projectId: null })
 const leaf = (id: string, date: string, title: string, folderId: string | null, extra: Partial<ExplorerLeaf> = {}): ExplorerLeaf => ({
   id, minuteDate: date, teamCode: 'MES', title, fileCount: 0,
   createdBy: 'u1', createdByName: '홍길동', bodyPreview: '', meetingCategory: null,

@@ -33,7 +33,7 @@ vi.mock('@/app/actions/minutes', () => ({
 import { MinutesView } from '@/components/minutes/MinutesView'
 
 const serverTree: ExplorerData = {
-  folders: [{ id: 'f1', name: '생산계획', parentId: null, sort: 5, createdBy: null }],
+  folders: [{ id: 'f1', name: '생산계획', parentId: null, sort: 5, createdBy: null, projectId: null }],
   leaves: [{
     id: 'm1', minuteDate: '2026-07-16', teamCode: 'MES', title: '물류공정_260716',
     fileCount: 0, createdBy: null, createdByName: null,
