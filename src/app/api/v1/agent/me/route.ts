@@ -1,23 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { AdminClient } from '@/lib/minutes/externalApi'
 import {
-  AGENT_CONTRACT_VERSION, apiFail, apiInternalError,
+  AGENT_CONTRACT_VERSION, agentMemberRole, apiFail, apiInternalError, apiNotFound,
   patProjectAllowed, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
 
 /** GET /api/v1/agent/me — whoami. 404 존재 은닉 아래의 유일한 진단 창구(계약 v2.0). PAT 전용. */
 export const dynamic = 'force-dynamic'
-
-/** 프로젝트별 사용자 역할 조회 — superuser/admin/member. fail-closed = null. */
-async function memberRole(admin: AdminClient, userId: string, projectId: string): Promise<string | null> {
-  const { data: mem } = await admin.from('memberships').select('is_superuser').eq('user_id', userId).maybeSingle()
-  if ((mem as { is_superuser?: boolean } | null)?.is_superuser) return 'superuser'
-  const { data: roles, error } = await admin
-    .from('project_roles').select('role').eq('user_id', userId).eq('project_id', projectId).limit(1)
-  if (error || !roles || roles.length === 0) return null // fail-closed
-  return (roles[0] as { role: string }).role
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -52,7 +41,7 @@ export async function GET(req: NextRequest) {
     const projects: Array<{ id: string; name: string; role: string }> = []
     for (const pid of candidateIds) {
       // 프로젝트별 멤버십 판정 — enabled 프로젝트 수는 소수라 순회 비용 무시 가능.
-      const role = await memberRole(admin, principal.userId, pid)
+      const role = await agentMemberRole(admin, principal.userId, pid)
       if (role) {
         projects.push({ id: pid, name: nameById.get(pid) ?? '', role })
       }
@@ -68,7 +57,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export const POST = () => apiFail(404, 'not_found', 'Not Found')
+export const POST = apiNotFound
 export const PUT = POST
 export const DELETE = POST
 export const PATCH = POST

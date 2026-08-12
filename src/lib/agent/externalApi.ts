@@ -74,6 +74,30 @@ export async function isAgentProjectMember(
   return roles.length > 0
 }
 
+/**
+ * 프로젝트별 사용자 역할 조회 — 'superuser'|'admin'|'member'|null.
+ * 보안 가드이므로 조회 실패는 null(fail-closed). 위장하지 않고 로깅한다.
+ */
+export async function agentMemberRole(
+  admin: AdminClient, userId: string, projectId: string,
+): Promise<'superuser' | 'admin' | 'member' | null> {
+  const { data: mem, error: memErr } = await admin
+    .from('memberships').select('is_superuser').eq('user_id', userId).maybeSingle()
+  if (memErr) {
+    console.error('[agent-api] memberships 조회 실패(거절):', memErr.message)
+    return null
+  }
+  if ((mem as { is_superuser?: boolean } | null)?.is_superuser) return 'superuser'
+  const { data: roles, error: roleErr } = await admin
+    .from('project_roles').select('role').eq('user_id', userId).eq('project_id', projectId).limit(1)
+  if (roleErr) {
+    console.error('[agent-api] project_roles 조회 실패(거절):', roleErr.message)
+    return null
+  }
+  if (!roles || roles.length === 0) return null
+  return (roles[0] as { role: string }).role as 'admin' | 'member'
+}
+
 export const AGENT_CONTRACT_VERSION = '2.0'
 
 export type AgentPrincipal =
