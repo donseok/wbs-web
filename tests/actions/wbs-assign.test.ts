@@ -2,15 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   requireProjectAdmin: vi.fn(),
+  requireProjectMember: vi.fn(),
+  resolveProjectId: vi.fn(),
   createAdminClient: vi.fn(),
   createServerClient: vi.fn(),
-  getSession: vi.fn(),
   emitNotification: vi.fn(),
 }))
-vi.mock('@/lib/authz', () => ({ requireProjectAdmin: mocks.requireProjectAdmin }))
+vi.mock('@/lib/authz', () => ({
+  requireProjectAdmin: mocks.requireProjectAdmin,
+  requireProjectMember: mocks.requireProjectMember,
+  resolveProjectId: mocks.resolveProjectId,
+}))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
-vi.mock('@/lib/auth', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
@@ -51,6 +55,8 @@ const ACTOR = { ok: true, actor: { userId: 'admin-1' } }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
+  mocks.requireProjectMember.mockResolvedValue(ACTOR)
+  mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
   mocks.emitNotification.mockResolvedValue({ ok: true, recipients: 1 })
 })
 
@@ -144,8 +150,9 @@ describe('setWbsStage', () => {
 })
 
 describe('getWbsAssigneeStage', () => {
-  it('로그인 + 조회 성공 → 현재 값 반환', async () => {
-    mocks.getSession.mockResolvedValue({ user: { id: 'u1' } })
+  it('같은 프로젝트 멤버 + 조회 성공 → 현재 값 반환', async () => {
+    mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
+    mocks.requireProjectMember.mockResolvedValue(ACTOR)
     mocks.createServerClient.mockResolvedValue({
       from: () => ({
         select: () => ({
@@ -156,11 +163,27 @@ describe('getWbsAssigneeStage', () => {
       }),
     })
     const r = await getWbsAssigneeStage(W1)
+    expect(mocks.resolveProjectId).toHaveBeenCalledWith('wbs_items', W1)
+    expect(mocks.requireProjectMember).toHaveBeenCalledWith(P1)
     expect(r).toEqual({ assigneeMemberId: M1, stage: 'ip' })
   })
 
-  it('조회 실패 → null(미배정으로 위장하지 않는다)', async () => {
-    mocks.getSession.mockResolvedValue({ user: { id: 'u1' } })
+  it('이 프로젝트 멤버가 아니면 거부 → null(조회 자체를 하지 않는다)', async () => {
+    mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
+    mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '권한 없음' })
+    const r = await getWbsAssigneeStage(W1)
+    expect(r).toBeNull()
+    expect(mocks.createServerClient).not.toHaveBeenCalled()
+  })
+
+  it('소속 프로젝트 조회 실패 → null(미배정으로 위장하지 않는다)', async () => {
+    mocks.resolveProjectId.mockResolvedValue({ ok: false, error: '권한을 확인할 수 없어 중단했습니다.' })
+    const r = await getWbsAssigneeStage(W1)
+    expect(r).toBeNull()
+    expect(mocks.requireProjectMember).not.toHaveBeenCalled()
+  })
+
+  it('멤버 확인 통과 후 값 조회 실패 → null(미배정으로 위장하지 않는다)', async () => {
     mocks.createServerClient.mockResolvedValue({
       from: () => ({
         select: () => ({

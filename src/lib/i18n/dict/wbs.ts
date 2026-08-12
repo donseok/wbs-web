@@ -201,7 +201,6 @@ export const wbsKo = {
   'wbs.stageXx': '완료',
   'wbs.assigneeStageLoadFail': '현재 값을 불러오지 못했습니다. 다시 열어 주세요.',
   'wbs.assigneeStageReadOnly': '보기 전용 — 프로젝트 관리자만 변경할 수 있습니다.',
-  'wbs.assigneeStageClose': '패널 닫기',
 } as const
 
 export const wbsEn: Record<keyof typeof wbsKo, string> = {
@@ -392,5 +391,4 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.stageXx': 'Done',
   'wbs.assigneeStageLoadFail': 'Could not load current values. Please reopen.',
   'wbs.assigneeStageReadOnly': 'Read-only — only project admins can change this.',
-  'wbs.assigneeStageClose': 'Close panel',
 }

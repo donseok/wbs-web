@@ -3,8 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
-import { getSession } from '@/lib/auth'
-import { requireProjectAdmin } from '@/lib/authz'
+import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 
@@ -110,6 +109,11 @@ export async function setWbsStage(
  * 선택된 항목의 현재 담당자·단계 조회 — 패널이 선택 변경 시 읽는다(RowDetailPanel의
  * getChangeLogs 관례와 동일하게 클라이언트에서 별도 로드; ComputedItem 을 확장하지 않는다).
  *
+ * itemId만 받는 액션이라 getSession() 만으로는 "이 프로젝트 멤버인가"를 판정하지 못한다
+ * (리뷰 라운드 1 — 로그인만 확인하면 타 프로젝트 멤버도 읽을 수 있었다). resolveProjectId로
+ * 소속 프로젝트를 먼저 읽고 requireProjectMember로 재판정한다 — 가드는 이 둘만 쓴다
+ * (role === '...' 직접 비교·memberships.role 참조 없음).
+ *
  * 실패는 null — 3원칙 ①: "조회 안 됨"을 "미배정"으로 위장하면 관리자가 실제 값을 못 본 채
  * 셀렉트를 건드려 조용히 덮어쓸 수 있다. 패널은 null 을 "표시 불가" 상태로 렌더해야 한다.
  */
@@ -117,8 +121,14 @@ export async function getWbsAssigneeStage(
   itemId: string,
 ): Promise<{ assigneeMemberId: string | null; stage: string | null } | null> {
   if (!isUuidLike(itemId)) return null
-  if (!(await getSession())) {
-    console.error('[getWbsAssigneeStage] 비로그인 호출')
+  const resolved = await resolveProjectId('wbs_items', itemId)
+  if (!resolved.ok) {
+    console.error('[getWbsAssigneeStage] 프로젝트 조회 실패:', resolved.error)
+    return null
+  }
+  const g = await requireProjectMember(resolved.projectId)
+  if (!g.ok) {
+    console.error('[getWbsAssigneeStage] 권한 없음:', g.error)
     return null
   }
   const sb = await createServerClient()

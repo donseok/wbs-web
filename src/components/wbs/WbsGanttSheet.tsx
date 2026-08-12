@@ -16,7 +16,6 @@ import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
-import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { WbsProgressLens } from './WbsProgressLens'
 import { WbsFontSizeControl } from './WbsFontSizeControl'
 import { useWbsFontScale } from './useWbsFontScale'
@@ -1588,16 +1587,7 @@ export function WbsGanttSheet({
           projectId={projectId}
           levelLabels={levelLabels}
           maxDepth={maxDepth}
-        />
-      )}
-
-      {selectedItem && (
-        <WbsAssigneeStagePanel
-          itemId={selectedItem.id}
-          itemName={selectedItem.name}
           members={members}
-          editable={isAdmin && !readOnly}
-          onClose={() => setSelectedId(null)}
         />
       )}
     </div>

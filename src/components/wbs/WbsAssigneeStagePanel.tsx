@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { X } from 'lucide-react'
+import { User } from 'lucide-react'
 import type { ProjectMember } from '@/lib/domain/types'
 import { MemberSelectOptions } from '@/components/members/MemberPicker'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
@@ -18,18 +18,22 @@ const STAGE_KEYS: Record<Stage, DictKey> = {
 const STAGES: Stage[] = ['todo', 'as', 'fp', 'ip', 'im', 'xx']
 
 /**
- * 선택된 WBS 항목의 담당자(로스터 축)·단계 편집 — §2.5. ComputedItem 을 확장하지 않고
- * RowDetailPanel의 getChangeLogs 관례처럼 선택 변경 시 클라이언트에서 별도 로드한다.
- * 편집은 프로젝트 관리자만(editable=false 면 읽기 전용으로 렌더).
+ * 선택된 WBS 항목의 담당자(로스터 축)·단계 편집 — §2.5.
+ *
+ * RowDetailPanel 내부 섹션으로 임베드된다(리뷰 라운드 1 — 별도 fixed 오버레이가
+ * RowDetailPanel(aria-modal) 뒤에 숨어 키보드·스크린리더로 도달 불가했다. 하나의
+ * 항목에 dialog 하나만 뜨도록 이 컴포넌트는 더는 자체 오버레이/닫기 버튼을 갖지 않고
+ * 호출부(RowDetailPanel)가 배치를 맡는다).
+ *
+ * ComputedItem 을 확장하지 않고 RowDetailPanel의 getChangeLogs 관례처럼 선택 변경 시
+ * 클라이언트에서 별도 로드한다. 편집은 프로젝트 관리자만(editable=false 면 읽기 전용).
  */
 export function WbsAssigneeStagePanel({
-  itemId, itemName, members, editable, onClose,
+  itemId, members, editable,
 }: {
   itemId: string
-  itemName: string
   members: ProjectMember[]
   editable: boolean
-  onClose: () => void
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -67,28 +71,12 @@ export function WbsAssigneeStagePanel({
   const memberName = (id: string | null) => id ? members.find(m => m.id === id)?.name ?? id : null
 
   return (
-    <aside
-      className="fixed bottom-6 left-6 z-[120] w-72 rounded-2xl border border-line bg-surface shadow-[var(--shadow-xl)]"
-      role="dialog"
-      aria-label={`${itemName} · ${t('wbs.assigneeStagePanelTitle')}`}
-    >
-      <header className="flex items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-            {t('wbs.assigneeStagePanelTitle')}
-          </div>
-          <div className="truncate text-[13px] font-semibold text-ink" title={itemName}>{itemName}</div>
-        </div>
-        <button
-          onClick={onClose}
-          aria-label={t('wbs.assigneeStageClose')}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-subtle transition hover:bg-surface-2 hover:text-ink"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </header>
+    <section className="rounded-xl border border-line bg-surface-2/40 p-3">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+        <User className="h-3.5 w-3.5" /> {t('wbs.assigneeStagePanelTitle')}
+      </div>
 
-      <div className="space-y-3 px-3.5 py-3">
+      <div className="mt-2 space-y-3">
         {loaded === null ? (
           <p className="text-xs text-ink-subtle">{t('common.loading')}</p>
         ) : loaded === 'error' ? (
@@ -136,6 +124,6 @@ export function WbsAssigneeStagePanel({
           </>
         )}
       </div>
-    </aside>
+    </section>
   )
 }
