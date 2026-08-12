@@ -2,11 +2,20 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { FileText, Pencil } from 'lucide-react'
 import { getWbsSpec, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
-import { MarkdownView } from '@/components/minutes/MarkdownView'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
+
+// react-markdown·remark-gfm·unified·mermaid 체인(minutes 전용으로 만들어짐)을 정적 import 하면
+// /p/[projectId]/wbs 초기 JS 에 +47KB 가 항상 실린다(실측: 정적 252KB → 299KB, 회의록을 한 번도
+// 열지 않는 사용자도 그 비용을 진다). WikiShared.tsx 의 "블록 몇 줄 때문에 파서 100KB" 경고와
+// 같은 함정이라 동적 import 로 명세 패널을 실제로 펼칠 때만 로드한다.
+const MarkdownView = dynamic(
+  () => import('@/components/minutes/MarkdownView').then(m => m.MarkdownView),
+  { ssr: false },
+)
 
 const PRIORITIES: WbsPriority[] = ['critical', 'high', 'medium', 'low']
 const PRIORITY_KEYS: Record<WbsPriority, DictKey> = {

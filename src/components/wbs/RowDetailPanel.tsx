@@ -26,6 +26,9 @@ const FIELD_KEY: Record<string, DictKey> = {
   actual_pct: 'wbs.colActualPct', weight: 'wbs.colWeight', name: 'wbs.fieldName', planned_start: 'wbs.colPlannedStart',
   planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
   dependency: 'wbs.dependencies',
+  // Task 12(stage)·Task 12A(spec) 가 change_logs 에 기록하는 필드명 — 매핑이 없으면 이 화면의
+  // 변경 이력 라벨이 원문 그대로("stage"/"spec") 노출된다(fmtValue 는 값만 다루고 라벨은 이 맵이 정본).
+  stage: 'wbs.stageLabel', spec: 'wbs.specPanelTitle',
 }
 function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
