@@ -278,6 +278,45 @@ describe('setWbsStage', () => {
     }))
   })
 
+  it('depends 에 같은 external_ref 가 중복돼도 정상 발행(길이 대신 고유 개수로 비교)', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/1'] } ] },
+        // .in() 은 중복 없이 실제 존재하는 행만 1개 반환한다 — dependsRefs.length(2) 가 아니라
+        // new Set(dependsRefs).size(1) 과 비교해야 여기서 통과한다.
+        { data: [{ external_ref: 'mod/1', stage: 'im' }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.unblocked',
+      entityId: W2,
+      dedupeKey: `unblocked:${W2}:${W1}`,
+    }))
+  })
+
+  it('후행 목록에 자기 자신(자기 참조 depends)이 있으면 건너뛴다 — 본인에게 알림 가지 않음', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        // 후행 조회가 자기 자신을 포함해 반환(자기 참조 depends) — 선행 확인 쿼리 없이 즉시 skip.
+        { data: [{ id: W1, name: 'Task A', assignee_member_id: M1, depends: ['mod/1'] }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
   it('(b) im→xx(이미 im 이상) 전이는 unblocked 무발행', async () => {
     admin({
       wbs_items: [

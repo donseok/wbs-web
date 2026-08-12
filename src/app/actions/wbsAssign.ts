@@ -56,7 +56,9 @@ async function allPredecessorsReached(
     .in('external_ref', dependsRefs)
   if (error) return null
   const rows = (data ?? []) as { external_ref: string; stage: string | null }[]
-  if (rows.length < dependsRefs.length) return false // 일부 선행 미발견 — fail-closed
+  // dependsRefs 에 중복 external_ref 가 있으면 .in() 은 실제 존재 행만 반환해 항상 짧다 —
+  // 배열 길이가 아니라 고유 개수로 비교해야 정상 depends 에서도 영구 미충족이 되지 않는다.
+  if (rows.length < new Set(dependsRefs).size) return false // 일부 선행 미발견 — fail-closed
   return rows.every(r => REACHED_STAGES.has(r.stage ?? ''))
 }
 
@@ -85,6 +87,7 @@ async function notifySuccessorsOnReached(
     }
     type Successor = { id: string; name: string; assignee_member_id: string | null; depends: string[] | null }
     for (const s of (successors ?? []) as Successor[]) {
+      if (s.id === item.id) continue // 자기 참조 — 방금 갱신된 자신의 stage로 게이트를 통과해 본인에게 알림 가는 것 방지
       if (!s.assignee_member_id) continue
       const reached = await allPredecessorsReached(admin, item.project_id, s.depends ?? [])
       if (reached === null) {
