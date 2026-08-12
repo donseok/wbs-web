@@ -249,9 +249,9 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
                     <div className="text-sm font-semibold text-ink">{displayName ?? roleLabel}</div>
                     <div className="mt-0.5 text-xs text-ink-subtle">{displayName ? roleTeam : (identity?.teamCode ? `${identity.teamCode} 팀` : '소속 미지정')}</div>
                   </div>
-                  <button onClick={() => { setOpen(null); setPwOpen(true) }} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
-                    <KeyRound className="h-4 w-4" />비밀번호 변경
-                  </button>
+                  <Link href="/account" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                    <KeyRound className="h-4 w-4" />내 계정
+                  </Link>
                   {identity?.canManageAccounts && (
                     <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                       <UserCog className="h-4 w-4" />계정 관리
