@@ -38,9 +38,34 @@ async function loadItem(itemId: string): Promise<
 const REACHED_STAGES = new Set(['im', 'xx'])
 
 /**
+ * 후행의 depends 전체가 im/xx 에 도달했는지 확인 — §2.10 알림 의미("착수 가능")와 T15 claim
+ * 게이트(depends 전부 stage ≥ im 이어야 통과)를 맞춘다. 선행 하나 도달마다 발행하면 depends
+ * 가 여러 개인 후행에게 아직 착수 불가한데 "착수 가능합니다" 라는 거짓 알림이 나간다.
+ * 조회 실패·일부 선행 미발견은 fail-closed(false 취급) — 호출부가 발행을 생략한다.
+ */
+async function allPredecessorsReached(
+  admin: ReturnType<typeof createAdminClient>,
+  projectId: string,
+  dependsRefs: string[],
+): Promise<boolean | null> {
+  if (dependsRefs.length === 0) return true
+  const { data, error } = await admin
+    .from('wbs_items')
+    .select('external_ref, stage')
+    .eq('project_id', projectId)
+    .in('external_ref', dependsRefs)
+  if (error) return null
+  const rows = (data ?? []) as { external_ref: string; stage: string | null }[]
+  if (rows.length < dependsRefs.length) return false // 일부 선행 미발견 — fail-closed
+  return rows.every(r => REACHED_STAGES.has(r.stage ?? ''))
+}
+
+/**
  * 부록 §2.10 — "stage 가 im 이상에 도달 시" depends 역참조로 후행 리프 담당자에게
  * work.unblocked 발행. 승인 액션이 아니라 여기(stage 를 실제로 쓰는 유일한 경로)에 배선한다.
- * 조회·발행 실패는 로깅만 하고 삼킨다 — setWbsStage 의 반환값(ok:true)에 영향을 주지 않는다.
+ * 발행은 후행의 depends 전부가 im/xx 에 도달했을 때만 — 다중 depends 후행은 마지막 선행이
+ * 도달하는 순간 1회만 발행된다. 조회·발행 실패는 로깅만 하고 삼킨다 — setWbsStage 의
+ * 반환값(ok:true)에 영향을 주지 않는다.
  */
 async function notifySuccessorsOnReached(
   admin: ReturnType<typeof createAdminClient>,
@@ -51,15 +76,22 @@ async function notifySuccessorsOnReached(
     if (!item.external_ref) return
     const { data: successors, error } = await admin
       .from('wbs_items')
-      .select('id, name, assignee_member_id')
+      .select('id, name, assignee_member_id, depends')
       .eq('project_id', item.project_id)
       .contains('depends', [item.external_ref])
     if (error) {
       console.error('[wbsAssign] 후행 리프 조회 실패:', error.message)
       return
     }
-    for (const s of (successors ?? []) as { id: string; name: string; assignee_member_id: string | null }[]) {
+    type Successor = { id: string; name: string; assignee_member_id: string | null; depends: string[] | null }
+    for (const s of (successors ?? []) as Successor[]) {
       if (!s.assignee_member_id) continue
+      const reached = await allPredecessorsReached(admin, item.project_id, s.depends ?? [])
+      if (reached === null) {
+        console.error(`[wbsAssign] 후행(${s.id}) 선행 완료 여부 확인 실패 — 발행 생략`)
+        continue
+      }
+      if (!reached) continue
       await emitNotification({
         type: 'work.unblocked',
         projectId: item.project_id,

@@ -217,9 +217,10 @@ describe('setWbsStage', () => {
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         { data: [
-          { id: W2, name: 'Task B', assignee_member_id: M2 },
-          { id: W3, name: 'Task C', assignee_member_id: null }, // 미배정 후행 — 발행 대상 아님
+          { id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1'] },
+          { id: W3, name: 'Task C', assignee_member_id: null, depends: ['mod/1'] }, // 미배정 후행 — 발행 대상 아님(선행 조회도 스킵)
         ] },
+        { data: [{ external_ref: 'mod/1', stage: 'im' }] }, // W2 의 depends 전체(mod/1 단일) 도달 확인
       ],
       change_logs: [{ data: [{ id: 'log1' }] }],
     })
@@ -236,6 +237,45 @@ describe('setWbsStage', () => {
       dedupeKey: `unblocked:${W2}:${W1}`,
     }))
     expect(captured['wbs_items.contains']).toEqual([['depends', ['mod/1']]])
+  })
+
+  it('(e) 후행의 depends 2개 중 하나만 im — 전체 미충족이라 무발행', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
+        // mod/1(지금 im 도달) + mod/2(아직 fp) — 전체 미충족
+        { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: 'fp' }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('(f) 후행의 depends 2개 중 마지막 선행이 im 도달 — 1회 발행', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: { stage: 'fp' } },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
+        // mod/1(지금 im 도달) + mod/2(이미 im) — 전체 충족, 이 전이에서 1회만 발행
+        { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: 'im' }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.unblocked',
+      entityId: W2,
+      dedupeKey: `unblocked:${W2}:${W1}`,
+    }))
   })
 
   it('(b) im→xx(이미 im 이상) 전이는 unblocked 무발행', async () => {
