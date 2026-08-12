@@ -44,3 +44,15 @@ export function isClaimStale(claimedAt: string | null, now: Date = new Date()): 
 export function isUuidLike(v: string): boolean {
   return UUID_RE.test(v)
 }
+
+export const ORDER_PRIORITY_BY_LABEL = { critical: 100, high: 50, medium: 10, low: 0 } as const
+
+/**
+ * WBS 항목 priority 라벨을 order.priority 정수로 매핑.
+ * 미기재·미지 라벨은 0(low)으로 수렴한다.
+ */
+export function orderPriorityFromLabel(label: string | null): number {
+  if (!label) return 0
+  const priority = ORDER_PRIORITY_BY_LABEL[label as keyof typeof ORDER_PRIORITY_BY_LABEL]
+  return priority !== undefined ? priority : 0
+}
