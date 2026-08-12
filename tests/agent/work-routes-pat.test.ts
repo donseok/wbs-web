@@ -155,4 +155,24 @@ describe('GET /agent/work/[id] — PAT 멤버십 게이트', () => {
     const res = await detail('legacy-secret')
     expect(res.status).toBe(200)
   })
+  it('PAT — claimed_by_user_email 은 게이팅 없이 타인 점유에도 노출된다(계약 원문)', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{
+        data: {
+          id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '',
+          claimed_by: 'other-cli', claimed_by_user_id: 'u-2', claimed_at: null, wbs_item_id: null,
+        },
+      }],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_reports: [{ data: [] }],
+    })
+    const res = await detail(PAT.token)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.order.mine).toBe(false) // u-1(호출자) != u-2(점유자)
+    expect(body.order.claimed_by_user_email).toBe('dev@example.com') // 타인 점유라도 노출
+  })
 })
