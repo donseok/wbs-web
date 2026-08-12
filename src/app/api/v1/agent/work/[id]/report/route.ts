@@ -52,7 +52,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!actor.ok) return actor.res
 
     const loaded = actor.principal.kind === 'pat'
-      ? await loadGatedOrderForUser(admin, id, actor.userId as string, actor.principal.userEmail)
+      ? await loadGatedOrderForUser(admin, id, actor.userId as string, actor.principal.userEmail, actor.principal)
       : await loadGatedOrder(admin, id, (parseAgentActor(raw) as { userEmail: string }).userEmail)
     if (!loaded.ok) return loaded.res
     const order = loaded.order

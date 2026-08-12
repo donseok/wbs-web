@@ -30,11 +30,14 @@ const W1 = '33333333-3333-4333-8333-333333333333'
 
 type Resp = { data?: unknown; error?: { message: string } | null }
 function admin(queues: Record<string, Resp[]>) {
+  const captured: Record<string, unknown[]> = {}
   const client = {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'insert', 'update', 'delete', 'eq', 'in', 'order', 'limit', 'contains']) b[k] = () => b
+      for (const k of ['select', 'delete', 'eq', 'in', 'order', 'limit', 'contains']) b[k] = () => b
+      b.update = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
+      b.insert = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.single = b.maybeSingle
       b.then = (r: (v: unknown) => unknown) =>
@@ -43,7 +46,7 @@ function admin(queues: Record<string, Resp[]>) {
     }),
   }
   mocks.createAdminClient.mockReturnValue(client)
-  return client
+  return { client, captured }
 }
 const ACTOR = { ok: true, actor: { userId: 'admin-1' } }
 
@@ -174,21 +177,18 @@ describe('approveAgentCompletion', () => {
     expect(r.ok).toBe(true)
     expect(emitNotification).not.toHaveBeenCalled()
   })
-  it('승인으로 stage 가 im 이상이면 후행 리프 담당자에게 work.unblocked 추가 발행', async () => {
+  it('승인해도 work.unblocked 는 발행하지 않는다 — 정본은 setWbsStage(I2, 최종 리뷰)', async () => {
     admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
       wbs_items: [
         { data: { name: '로그인', assignee_member_id: 'm-1', stage: 'im', external_ref: 'MES/TSK-01-00' } }, // 알림용 항목 조회
-        { data: [{ id: 'w-2', name: '후행 작업', assignee_member_id: 'm-2' }] }, // depends 역참조
-        { data: null }, // 리프 확인(자식 없음)
       ],
     })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(true)
-    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'work.unblocked', entityType: 'wbs_item', entityId: 'w-2', recipientMemberIds: ['m-2'],
-    }))
+    expect(emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.unblocked' }))
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({ type: 'work.approved' }))
   })
 })
 
@@ -280,6 +280,14 @@ describe('reclaimAgentOrder', () => {
     const r = await reclaimAgentOrder(O1)
     expect(r.ok).toBe(false)
     expect(r.error).toContain('바뀌어')
+  })
+  it('회수 성공 시 claimed_by_user_id 도 null 로 정리한다(release/route.ts 와 동일, I1)', async () => {
+    const { captured } = admin({ agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }] })
+    const r = await reclaimAgentOrder(O1)
+    expect(r.ok).toBe(true)
+    expect(captured.agent_work_orders[0]).toMatchObject({
+      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
+    })
   })
 })
 

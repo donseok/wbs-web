@@ -104,9 +104,8 @@ async function loadOrderForAdmin(orderId: string): Promise<
 
 /**
  * 승인/반려 알림 — fire-and-forget. 수신자는 그 항목의 배정자(없으면 발행 생략).
- * 승인이 stage 를 im 이상으로 만들면 depends 가 이 항목(external_ref)을 가리키는 후행 리프
- * 담당자에게 work.unblocked 를 추가 발행한다. 이 액션은 stage 를 쓰지 않는다(Task 12의 setWbsStage
- * 소유) — 그래서 이 조건은 항목 stage 가 이미 im 이상으로 설정돼 있을 때만 성립한다.
+ * work.unblocked 는 여기서 발행하지 않는다 — 정본은 setWbsStage(wbsAssign.ts)의 전체-선행-충족
+ * 게이트 경로 하나다. 이 액션은 게이트·dedupeKey 없이 판단해 거짓 알림을 낼 수 있었다(최종 리뷰 I2).
  */
 async function notifyReviewResult(
   admin: AdminClient,
@@ -116,55 +115,27 @@ async function notifyReviewResult(
 ) {
   if (!order.wbs_item_id) return
   const { data: itemRow, error } = await admin
-    .from('wbs_items').select('name, assignee_member_id, stage, external_ref')
+    .from('wbs_items').select('name, assignee_member_id')
     .eq('id', order.wbs_item_id).maybeSingle()
   if (error) {
     console.error('[agentWork] 알림용 항목 조회 실패:', error.message)
     return
   }
   if (!itemRow) return
-  const item = itemRow as { name: string; assignee_member_id: string | null; stage: string | null; external_ref: string | null }
-  if (item.assignee_member_id) {
-    emitNotification({
-      type, projectId: order.project_id, actorUserId,
-      entityType: 'agent_order', entityId: order.id,
-      payload: {
-        title: item.name,
-        detail: type === 'work.approved' ? '완료가 승인되었습니다' : '완료가 반려되었습니다',
-        href: AGENT_OPS_PATH,
-      },
-      recipientMemberIds: [item.assignee_member_id],
-    }).catch(() => {
-      // 알림 실패는 로깅만 하고 본 동작에 영향을 주지 않는다.
-    })
-  }
-
-  if (type !== 'work.approved' || !item.external_ref || !['im', 'xx'].includes(item.stage ?? '')) return
-  const { data: dependents, error: depErr } = await admin
-    .from('wbs_items').select('id, name, assignee_member_id')
-    .eq('project_id', order.project_id).contains('depends', [item.external_ref])
-  if (depErr) {
-    console.error('[agentWork] 후행 항목 조회 실패:', depErr.message)
-    return
-  }
-  for (const dep of (dependents ?? []) as Array<{ id: string; name: string; assignee_member_id: string | null }>) {
-    if (!dep.assignee_member_id) continue
-    const { data: child, error: childErr } = await admin
-      .from('wbs_items').select('id').eq('parent_id', dep.id).limit(1).maybeSingle()
-    if (childErr) {
-      console.error('[agentWork] 후행 리프 확인 실패:', childErr.message)
-      continue
-    }
-    if (child) continue // 리프만 착수 가능 알림 대상
-    emitNotification({
-      type: 'work.unblocked', projectId: order.project_id, actorUserId,
-      entityType: 'wbs_item', entityId: dep.id,
-      payload: { title: dep.name, detail: '선행 작업이 완료되어 착수할 수 있습니다', href: AGENT_OPS_PATH },
-      recipientMemberIds: [dep.assignee_member_id],
-    }).catch(() => {
-      // 알림 실패는 로깅만 하고 본 동작에 영향을 주지 않는다.
-    })
-  }
+  const item = itemRow as { name: string; assignee_member_id: string | null }
+  if (!item.assignee_member_id) return
+  emitNotification({
+    type, projectId: order.project_id, actorUserId,
+    entityType: 'agent_order', entityId: order.id,
+    payload: {
+      title: item.name,
+      detail: type === 'work.approved' ? '완료가 승인되었습니다' : '완료가 반려되었습니다',
+      href: AGENT_OPS_PATH,
+    },
+    recipientMemberIds: [item.assignee_member_id],
+  }).catch(() => {
+    // 알림 실패는 로깅만 하고 본 동작에 영향을 주지 않는다.
+  })
 }
 
 /** 승인 — WBS 100% 반영이 먼저다. 반영 실패면 주문은 reported 로 남아 재시도 가능해야 한다. */
@@ -261,7 +232,10 @@ export async function reclaimAgentOrder(orderId: string): Promise<ActionResult> 
   const admin = createAdminClient()
   const { data: updated, error } = await admin
     .from('agent_work_orders')
-    .update({ status: 'ready', claimed_by: null, claimed_at: null, updated_at: new Date().toISOString() })
+    .update({
+      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', orderId).eq('status', 'claimed')
     .select('id')
   if (error) return { ok: false, error: error.message }

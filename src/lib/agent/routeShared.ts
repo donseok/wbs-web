@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { resolveUserByEmail, type AdminClient } from '@/lib/minutes/externalApi'
 import { AGENT_NAME_RE } from '@/lib/domain/agentWork'
 import {
-  apiBadRequest, apiFail, apiInternalError, apiNotFound, isAgentProjectMember, requireAgentProject,
-  requireScope, resolveAgentPrincipal, type AgentPrincipal,
+  apiBadRequest, apiFail, apiInternalError, apiNotFound, isAgentProjectMember, patProjectAllowed,
+  requireAgentProject, requireScope, resolveAgentPrincipal, type AgentPrincipal,
 } from '@/lib/agent/externalApi'
 
 /**
@@ -63,9 +63,11 @@ export async function loadGatedOrder(admin: AdminClient, id: string, userEmail: 
 /**
  * loadGatedOrder 의 PAT 변형 — principal 의 userId 로 직접 멤버십을 판정한다.
  * resolveUserByEmail 스캔(전체 사용자 목록 조회)이 필요 없다 — PAT 는 이미 신원이 해석돼 있다.
+ * principal: patProjectAllowed 로 project_id 한정을 강제한다 — 읽기 라우트(work/route.ts,
+ * work/[id]/route.ts)와 동일하게 존재 은닉(404)로 응답한다.
  */
 export async function loadGatedOrderForUser(
-  admin: AdminClient, id: string, userId: string, userEmail: string,
+  admin: AdminClient, id: string, userId: string, userEmail: string, principal: AgentPrincipal,
 ): Promise<
   | { ok: true; order: OrderRow; userId: string }
   | { ok: false; res: NextResponse }
@@ -73,6 +75,7 @@ export async function loadGatedOrderForUser(
   const loaded = await fetchOrderRow(admin, id)
   if (!loaded.ok) return loaded
   const row = loaded.row
+  if (!patProjectAllowed(principal, row.project_id)) return { ok: false, res: apiNotFound() }
   if (!(await requireAgentProject(admin, row.project_id))) return { ok: false, res: apiNotFound() }
   if (!(await isAgentProjectMember(admin, userId, row.project_id))) {
     console.error(`[agent-api] PAT 멤버십 거절: user=${userEmail} project=${row.project_id}`)

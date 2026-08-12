@@ -21,6 +21,7 @@ import { POST as releasePOST } from '@/app/api/v1/agent/work/[id]/release/route'
 const P1 = '11111111-1111-4111-8111-111111111111'
 const O1 = '22222222-2222-4222-8222-222222222222'
 const W1 = '33333333-3333-4333-8333-333333333333'
+const P2 = '99999999-9999-4999-8999-999999999999'
 type Resp = { data?: unknown; error?: { message: string } | null }
 
 const PAT = generateAgentToken()
@@ -32,6 +33,9 @@ const RUNNER = {
 const CLAIM_SCOPES = { ...RUNNER, scopes: ['work:read', 'work:claim'] }
 const REPORT_SCOPES = { ...RUNNER, scopes: ['work:read', 'work:claim', 'work:report'] }
 const ORDER = { id: O1, project_id: P1, status: 'ready', claimed_by: null, claimed_by_user_id: null, wbs_item_id: null }
+// P2 한정 PAT — 주문은 P1 소속. 멤버십 조회까지 가지 않고 주문 로드 직후 404 여야 한다(C1).
+const CLAIM_SCOPES_P2 = { ...CLAIM_SCOPES, project_id: P2 }
+const REPORT_SCOPES_P2 = { ...REPORT_SCOPES, project_id: P2 }
 const ctx = { params: Promise.resolve({ id: O1 }) }
 
 function useAdmin(queues: Record<string, Resp[]>) {
@@ -183,5 +187,35 @@ describe('PAT 쓰기 루프', () => {
     })
     const res2 = await releasePOST(post(`http://l/api/v1/agent/work/${O1}/release`, { agent: 'a' }, PAT.token), ctx)
     expect(res2.status).toBe(200)
+  })
+
+  it('C1: 프로젝트 한정(P2) PAT 로 "멤버인" 타 프로젝트(P1) 주문 claim → 404(존재 은닉)', async () => {
+    // 멤버십 큐(agent_projects/memberships/project_roles)를 채워둔다 — patProjectAllowed 가 없다면
+    // 이 멤버십 판정까지 통과해 200이 나온다(회귀 시 이 테스트가 실패로 그것을 잡는다).
+    useAdmin({
+      agent_runners: [{ data: CLAIM_SCOPES_P2 }, { data: null }], // 조회, last_seen
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }], // 로드(P1), CAS
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      wbs_items: [{ data: null }], // 배정 확인(무배정)
+    })
+    const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
+    expect(res.status).toBe(404)
+  })
+
+  it('C1: 프로젝트 한정(P2) PAT 로 "멤버인" 타 프로젝트(P1) 주문 report → 404(존재 은닉)', async () => {
+    useAdmin({
+      agent_runners: [{ data: REPORT_SCOPES_P2 }, { data: null }],
+      agent_work_orders: [
+        { data: { ...ORDER, status: 'claimed', claimed_by: 'pat-r1', claimed_by_user_id: 'u-1' } }, // 로드
+        { data: [{ id: O1 }] }, // updated_at 갱신(progress)
+      ],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+    })
+    const res = await reportPOST(post(`http://l/api/v1/agent/work/${O1}/report`, { agent: 'a', kind: 'progress', percent: 10, summary: 's' }, PAT.token), ctx)
+    expect(res.status).toBe(404)
   })
 })

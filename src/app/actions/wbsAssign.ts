@@ -20,6 +20,24 @@ type LoadedItem = {
   assignee_member_id: string | null; external_ref: string | null
 }
 
+/**
+ * itemId → project_id 존재/소속 판별 — RLS 스코프(resolveProjectId, 세션 클라이언트)로만 한다.
+ * admin(service_role)으로 먼저 존재를 확인하면 RLS 를 우회해 "존재하지만 권한 없음"과 "존재
+ * 자체가 없음"이 다른 에러로 갈라져 비멤버가 타 프로젝트 항목의 존재를 추정할 수 있다
+ * (존재 오라클 — wbsSpec.ts loadItemProject 와 동일 문제·동일 해법, 최종 리뷰 권장사항).
+ */
+async function resolveItemProjectId(itemId: string): Promise<
+  | { ok: true; projectId: string }
+  | { ok: false; error: string }
+> {
+  if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
+  const resolved = await resolveProjectId('wbs_items', itemId)
+  if (!resolved.ok) return { ok: false, error: resolved.error }
+  if (resolved.projectId === null) return { ok: false, error: '대상을 찾을 수 없습니다.' }
+  return { ok: true, projectId: resolved.projectId }
+}
+
+/** 가드 통과 후 admin으로 상세를 로드한다(존재 판별용이 아니다 — 그 역할은 resolveItemProjectId). */
 async function loadItem(itemId: string): Promise<
   | { ok: true; item: LoadedItem }
   | { ok: false; error: string }
@@ -118,11 +136,13 @@ async function notifySuccessorsOnReached(
 export async function setWbsAssignee(
   itemId: string, memberId: string | null,
 ): Promise<{ ok: boolean; error?: string; orderCreated?: boolean }> {
+  const resolved = await resolveItemProjectId(itemId)
+  if (!resolved.ok) return resolved
+  const g = await requireProjectAdmin(resolved.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const loaded = await loadItem(itemId)
   if (!loaded.ok) return loaded
   const { item } = loaded
-  const g = await requireProjectAdmin(item.project_id)
-  if (!g.ok) return { ok: false, error: g.error }
   // 이미 같은 담당자면 쓰기·알림 없이 성공 — 알림 멱등은 dedupeKey(영구 억제)가 아니라
   // 상태 비교로 확보한다. dedupeKey를 쓰면 재배정 순환(M1→M2→M1)에서 두 번째 M1 배정이
   // 조용히 무발행된다(23505를 성공으로 처리하는 emit.ts 특성).
@@ -176,11 +196,13 @@ export async function setWbsStage(
   itemId: string, stage: 'todo' | 'as' | 'fp' | 'ip' | 'im' | 'xx' | null,
 ): Promise<{ ok: boolean; error?: string }> {
   if (stage !== null && !STAGES.has(stage)) return { ok: false, error: '허용되지 않는 단계입니다.' }
+  const resolved = await resolveItemProjectId(itemId)
+  if (!resolved.ok) return resolved
+  const g = await requireProjectAdmin(resolved.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
   const loaded = await loadItem(itemId)
   if (!loaded.ok) return loaded
   const { item } = loaded
-  const g = await requireProjectAdmin(item.project_id)
-  if (!g.ok) return { ok: false, error: g.error }
   const admin = createAdminClient()
   const { data: cur, error: curErr } = await admin
     .from('wbs_items').select('stage').eq('id', itemId).maybeSingle()
