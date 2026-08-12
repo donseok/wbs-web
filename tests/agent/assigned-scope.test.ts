@@ -136,7 +136,7 @@ describe('claim 배정 제한', () => {
     expect(body.status).toBe('claimed')
     expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'work.claimed', projectId: P1, entityType: 'agent_order', entityId: O1,
-      recipientMemberIds: ['m1'],
+      actorUserId: 'u-1', recipientMemberIds: ['m1'],
     }))
   })
 
@@ -186,5 +186,23 @@ describe('claim 배정 제한', () => {
     expect(res.status).toBe(403)
     expect((await res.json()).code).toBe('not_assignee')
     expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('레거시 경로 + 무배정 항목 → 200 + 알림 actorUserId=loaded.userId(자기제외 근거 — null 로 새지 않는다)', async () => {
+    useAdmin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }], // 로드, CAS
+      agent_projects: [{ data: { project_id: P1, enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      wbs_items: [{ data: { ...ITEM_COMMON, assignee_member_id: null } }],
+    }, [{ id: 'u-legacy', email: 'dev@example.com', user_metadata: {} }])
+    const res = await claimPOST(
+      post(`http://l/api/v1/agent/work/${O1}/claim`, { user_email: 'dev@example.com', agent: 'claude-cli-dev1' }, 'legacy-secret'),
+      ctx,
+    )
+    expect(res.status).toBe(200)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.claimed', actorUserId: 'u-legacy',
+    }))
   })
 })

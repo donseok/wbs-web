@@ -34,7 +34,7 @@ const TARGET_ITEM = {
 }
 const ctx = { params: Promise.resolve({ id: O1 }) }
 
-function useAdmin(queues: Record<string, Resp[]>) {
+function useAdmin(queues: Record<string, Resp[]>, users: Array<{ id: string; email: string; user_metadata: unknown }> = []) {
   const admin = {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
@@ -48,6 +48,7 @@ function useAdmin(queues: Record<string, Resp[]>) {
     auth: {
       admin: {
         getUserById: vi.fn(async () => ({ data: { user: { id: 'u-1', email: 'dev@example.com' } }, error: null })),
+        listUsers: vi.fn(async () => ({ data: { users }, error: null })), // resolveUserByEmail(레거시 경로)
       },
     },
   }
@@ -115,6 +116,31 @@ describe('claim 선행 게이트', () => {
       ],
     })
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.code).toBe('dependency_not_met')
+    expect(body.unmet).toEqual([{ external_ref: DEP_REF, stage: 'ip' }])
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('레거시 경로 + 선행 stage=ip → 403 dependency_not_met(동일 게이트 적용)', async () => {
+    useAdmin({
+      agent_work_orders: [
+        { data: ORDER }, // 로드
+        { data: null }, // 선행의 approved 주문 없음
+      ],
+      agent_projects: [{ data: { project_id: P1, enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      wbs_items: [
+        { data: TARGET_ITEM },
+        { data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'ip' }] },
+      ],
+    }, [{ id: 'u-legacy', email: 'dev@example.com', user_metadata: {} }])
+    const res = await claimPOST(
+      post(`http://l/api/v1/agent/work/${O1}/claim`, { user_email: 'dev@example.com', agent: 'claude-cli-dev1' }, 'legacy-secret'),
+      ctx,
+    )
     expect(res.status).toBe(403)
     const body = await res.json()
     expect(body.code).toBe('dependency_not_met')

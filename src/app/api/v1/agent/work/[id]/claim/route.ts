@@ -95,9 +95,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }
 
     // claim 알림 — fire-and-forget. 본인 배정 작업 본인 claim 은 행위자 제외 규칙(emitNotification)으로 자동 무발행.
+    // actorUserId 는 legacy 도 loaded.userId 로 채운다(release/report 관례) — principal.userId 는
+    // legacy 에서 undefined 라 null 로 새면 자기제외가 비활성화되어 본인 claim 에도 알림이 간다.
     emitNotification({
       type: 'work.claimed', projectId: loaded.order.project_id,
-      actorUserId: actor.principal.kind === 'pat' ? actor.principal.userId : null,
+      actorUserId: loaded.userId,
       entityType: 'agent_order', entityId: id,
       payload: { title: item?.name ?? '작업', detail: '작업이 시작되었습니다', href: '/agent-ops' },
       recipientMemberIds: item?.assignee_member_id ? [item.assignee_member_id] : [],
