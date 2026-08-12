@@ -1,5 +1,6 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { orderPriorityFromLabel } from '@/lib/domain/agentWork'
+import { emitNotification } from '@/lib/notify/emit'
 
 /**
  * 배정 기반 자동 발행 — §2.8. "담당자가 배정된 리프 Task 는 주문이 자동으로 존재한다."
@@ -47,25 +48,29 @@ export async function ensureOrderForAssignedLeaf(
   if (activeErr) return { ok: false, error: `활성 주문 확인 실패: ${activeErr.message}` }
   if (active) return { ok: true, created: false, reason: 'active_exists' }
 
-  // Step 4: 항목 조회 — priority 라벨과 설명 정보
+  // Step 4: 항목 조회 — priority 라벨과 설명 정보, 담당자 ID
   // 주문 priority = 항목 priority 라벨의 정수 매핑(계약 v2.0: critical=100/high=50/medium=10/low=0).
   // 수용 기준은 주문에 복제하지 않는다 — 정본은 wbs_items.acceptance jsonb 이고 claim/show 응답이 실어 나른다(결정 B).
   const { data: item, error: itemErr } = await admin
     .from('wbs_items')
-    .select('name, priority, external_ref')
+    .select('name, priority, external_ref, assignee_member_id')
     .eq('id', wbsItemId)
     .maybeSingle()
   if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
-  const row = item as { name: string; priority: string | null; external_ref: string | null } | null
+  const row = item as { name: string; priority: string | null; external_ref: string | null; assignee_member_id: string | null } | null
 
   // Step 5: 주문 발행 시도
-  const { error } = await admin.from('agent_work_orders').insert({
-    project_id: projectId,
-    wbs_item_id: wbsItemId,
-    instructions: args.instructions?.trim() || (row ? `${row.external_ref ?? ''} ${row.name}`.trim() : ''),
-    priority: orderPriorityFromLabel(row?.priority ?? null),
-    created_by: actorUserId,
-  })
+  const { data: orderData, error } = await admin
+    .from('agent_work_orders')
+    .insert({
+      project_id: projectId,
+      wbs_item_id: wbsItemId,
+      instructions: args.instructions?.trim() || (row ? `${row.external_ref ?? ''} ${row.name}`.trim() : ''),
+      priority: orderPriorityFromLabel(row?.priority ?? null),
+      created_by: actorUserId,
+    })
+    .select('id')
+    .single()
 
   if (error) {
     // 부분 유니크 경합 — 다른 트리거가 먼저 발행했다. 멱등 no-op.
@@ -73,6 +78,26 @@ export async function ensureOrderForAssignedLeaf(
       return { ok: true, created: false, reason: 'active_exists' }
     }
     return { ok: false, error: error.message }
+  }
+
+  // 실제 생성 성공 — 알림 발행 (fire-and-forget, 본 로직 실패로 이어지지 않음)
+  const orderId = (orderData as { id: string }).id
+  if (row?.assignee_member_id) {
+    emitNotification({
+      type: 'work.order_created',
+      projectId,
+      entityType: 'agent_order',
+      entityId: orderId,
+      payload: {
+        title: row.name,
+        detail: '작업 주문이 발행되었습니다',
+        href: `/p/${projectId}/wbs`,
+      },
+      recipientMemberIds: [row.assignee_member_id],
+      dedupeKey: `order_created:${wbsItemId}:${orderId}`,
+    }).catch(() => {
+      // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않음
+    })
   }
 
   return { ok: true, created: true }
