@@ -22,7 +22,9 @@ describe('0076 minute_folders 프로젝트 소속 migration 계약', () => {
     expect(migration).toMatch(/where\s+active\s+and\s+project_id\s+is\s+null/)
     expect(migration).toContain('not exists (select 1 from teams t2 where t2.project_id = p.id')
     // 시드 표식: created_by 미지정(null) — 0043 스쿼팅 방어 관례
-    expect(migration).not.toMatch(/insert into minute_folders[^;]*created_by/s)
+    // [^;]* 는 개행도 포함하므로 dotall(/s) 플래그가 필요 없다(대상 es2018 미만에서 타입 에러) —
+    // 의미는 동일하게 유지된다.
+    expect(migration).not.toMatch(/insert into minute_folders[^;]*created_by/)
   })
 
   it('롤백은 프로젝트 루트 삭제 → 인덱스 원복 → 컬럼 drop 순서다(동명 충돌 방지)', () => {

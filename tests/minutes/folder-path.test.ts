@@ -369,4 +369,20 @@ describe('프로젝트 스코프 경로 해석 (0076)', () => {
     })
     expect(!res.ok && res.kind).toBe('no_team_root')
   })
+
+  it('스냅샷 로드 실패는 지연 생성을 시도하지 않고 no_team_root — 쓰기 전 선행 조회 실패는 중단한다', async () => {
+    // snapshot 미지정 → resolveFolderPath 가 내부에서 loadFolderSnapshot(sb) 를 부른다.
+    // 그 조회가 실패(data:null,error)하면 snap 은 null. 두 번째 큐 응답(insert 성공)이
+    // 소비되면(=지연 생성을 시도했다는 뜻) addToFolderSnapshot(snap!, …) 이 널 역참조로
+    // 크래시한다 — 고쳐지지 않았다면 이 테스트는 assertion 이 아니라 uncaught TypeError 로 죽는다.
+    const { db, from } = fakeDb([
+      { data: null, error: { message: 'boom' } },   // 스냅샷 로드 실패
+      { data: { id: 'new-root' } },                  // (버그 상태에서만 소비되는) insert 성공
+    ])
+    const res = await resolveFolderPath(db, 'PMO', ['PMO'], {
+      actorId: 'u1', activeTeamCodes: ['PMO'], create: true, projectId: P1,
+    })
+    expect(!res.ok && res.kind).toBe('no_team_root')
+    expect(from).toHaveBeenCalledTimes(1)   // 스냅샷 조회 1회뿐 — insert 시도 없음
+  })
 })

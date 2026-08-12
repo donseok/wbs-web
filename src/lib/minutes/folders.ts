@@ -286,10 +286,14 @@ export async function resolveFolderPath(
   const snap = opts.snapshot ?? await loadFolderSnapshot(sb)
   const rootId0 = snap?.seedRoots.get(rootKey(opts.projectId, teamCode)) ?? null
   let rootId = rootId0
-  if (!rootId && opts.projectId && opts.create !== false && opts.activeTeamCodes.includes(teamCode)) {
+  // snap 을 앞세운다 — loadFolderSnapshot 실패(null)면 조회 자체가 실패한 것이라 지연 생성도
+  // 하지 않는다(쓰기 전 선행 조회 실패는 중단). snap 이 있어야만 아래 addToFolderSnapshot(snap, …)
+  // 의 "rootId 가 있으면 snap 도 있다" 불변식이 성립한다.
+  if (snap && !rootId && opts.projectId && opts.create !== false
+    && opts.activeTeamCodes.includes(teamCode)) {
     rootId = await ensureProjectTeamRoot(sb, opts.projectId, teamCode)
     if (rootId) {
-      addToFolderSnapshot(snap!, {
+      addToFolderSnapshot(snap, {
         id: rootId, name: teamCode, parentId: null, createdBy: null, projectId: opts.projectId,
       })
     }
