@@ -19,6 +19,7 @@ import { issuesKo, issuesEn } from './dict/issues'
 import { wikiKo, wikiEn } from './dict/wiki'
 import { agentOpsKo, agentOpsEn } from './dict/agentOps'
 import { importWizardKo, importWizardEn } from './dict/importWizard'
+import { inboxKo, inboxEn } from './dict/inbox'
 
 export type Locale = 'ko' | 'en'
 
@@ -42,6 +43,7 @@ export const DICT = {
     ...wikiKo,
     ...agentOpsKo,
     ...importWizardKo,
+    ...inboxKo,
   },
   en: {
     ...commonEn,
@@ -62,6 +64,7 @@ export const DICT = {
     ...wikiEn,
     ...agentOpsEn,
     ...importWizardEn,
+    ...inboxEn,
   },
 } as const
 
