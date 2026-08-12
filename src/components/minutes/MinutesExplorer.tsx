@@ -8,10 +8,14 @@ import {
 import type {
   ExplorerLeaf, FolderNode, MeetingCategory, Minute, MinuteFolder,
 } from '@/lib/domain/types'
-import { buildFolderTree, folderDepthOf, isTeamRootFolder, MINUTE_FOLDER_DEPTH_MAX } from '@/lib/domain/minutes'
+import {
+  buildFolderTree, folderDepthOf, groupExplorerByProject, isTeamRootFolder, MINUTE_FOLDER_DEPTH_MAX,
+  type ExplorerProjectGroup,
+} from '@/lib/domain/minutes'
 import {
   resolveFolderDrop, resolveLeafDrop, type MinuteDropReject, type MinuteDropResult,
 } from '@/lib/domain/minutes-drop'
+import { sortMyProjectsFirst } from '@/lib/domain/projectPick'
 import { MEETING_META } from '@/lib/domain/meetings'
 import {
   assignMinutesProject, fetchMinuteDetail, moveMinuteFolder, moveMinuteToFolder,
@@ -30,7 +34,7 @@ export type ExplorerLayout = 'grid' | 'list'
 type Scope =
   | { kind: 'all' }
   | { kind: 'favorites' }
-  | { kind: 'unfiled' }
+  | { kind: 'unfiled'; projectId: string | null }
   | { kind: 'folder'; id: string }
 type ManageState =
   | { mode: 'create'; parentId: string | null }
@@ -53,6 +57,12 @@ type DragSourceProps = {
 /** 드롭 대상 키 — 폴더는 id, 루트 레벨과 미분류는 예약 키. */
 const ROOT_KEY = '__root__'
 const UNFILED_KEY = '__unfiled__'
+/** 미분류는 이제 프로젝트 그룹별이다 — 전역 키(UNFILED_KEY, 미지정 그룹과 하위 호환)는 그대로 두고
+ *  실제 프로젝트가 있는 그룹은 접미사로 구분한다. */
+const unfiledKeyOf = (projectId: string | null) => (projectId === null ? UNFILED_KEY : `${UNFILED_KEY}:${projectId}`)
+const isUnfiledKey = (key: string) => key === UNFILED_KEY || key.startsWith(`${UNFILED_KEY}:`)
+/** 프로젝트 그룹 접기 상태 키 — 폴더 id와 섞이지 않게 접두사를 둔다(기존 expanded Set에 합류). */
+const groupKeyOf = (projectId: string | null) => `proj:${projectId ?? 'unassigned'}`
 
 const DROP_REJECT_KEY: Record<MinuteDropReject, DictKey> = {
   'team-root': 'min.fold.dropTeamRoot',
@@ -104,9 +114,15 @@ export function MinutesExplorer({
   const [scopeRaw, setScopeRaw] = useState<Scope>({ kind: 'all' })
   // 기본 전체 펼침(부모 id 집합) — 시드 트리가 얕아(깊이 상한 5) 접힌 채 시작하면 하위 폴더 메뉴·이동이
   // 첫 렌더에 발견 불가능해진다. 최초 렌더 1회만 계산(폴더 추가/삭제는 토글로 사용자가 직접 관리).
-  const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(folders.map(f => f.parentId).filter((id): id is string => id !== null)),
-  )
+  // 프로젝트 그룹 접기 상태도 같은 Set에 합류(groupKeyOf) — 내 프로젝트·미지정은 펼침, 그 외는 접힘.
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const base = new Set(folders.map(f => f.parentId).filter((id): id is string => id !== null))
+    const myIds = new Set(myProjectIds ?? [])
+    for (const g of groupExplorerByProject(folders, leaves, projects)) {
+      if (g.projectId === null || myIds.has(g.projectId)) base.add(groupKeyOf(g.projectId))
+    }
+    return base
+  })
   const [visible, setVisible] = useState(PAGE_SIZE)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [manage, setManage] = useState<ManageState>(null)
@@ -132,20 +148,40 @@ export function MinutesExplorer({
   const leafGhostRef = useRef<HTMLDivElement>(null)
   const folderGhostRef = useRef<HTMLDivElement>(null)
 
-  const { roots, unfiled } = useMemo(() => buildFolderTree(folders, leaves), [folders, leaves])
+  // 탐색기 최상위 = 프로젝트 그룹(0076) — 내 프로젝트 우선 정렬 후 그룹핑, 그룹별로 독립된
+  // buildFolderTree. 그룹 하나(전부 미지정)뿐이면 종전과 사실상 동일한 트리가 된다.
+  const orderedProjects = useMemo(() => sortMyProjectsFirst(projects, myProjectIds), [projects, myProjectIds])
+  const groups = useMemo(
+    () => groupExplorerByProject(folders, leaves, orderedProjects),
+    [folders, leaves, orderedProjects],
+  )
+  const trees = useMemo(
+    () => groups.map(g => ({ group: g, ...buildFolderTree(g.folders, g.leaves) })),
+    [groups],
+  )
   const nodeById = useMemo(() => {
     const map = new Map<string, FolderNode>()
     const walk = (nodes: FolderNode[]) => { for (const n of nodes) { map.set(n.folder.id, n); walk(n.children) } }
-    walk(roots)
+    for (const tr of trees) walk(tr.roots)
     return map
-  }, [roots])
+  }, [trees])
+  // 그룹별 미분류 — 전역 '미분류' 행은 그룹별 행으로 대체된다(리프의 projectId 기준 그룹핑이라
+  // 폴더가 다른 그룹 소속이면 이 그룹 트리에서는 unfiled로 수용된다 — groupExplorerByProject 계약).
+  const unfiledByGroup = useMemo(() => {
+    const map = new Map<string | null, ExplorerLeaf[]>()
+    for (const tr of trees) map.set(tr.group.projectId, tr.unfiled)
+    return map
+  }, [trees])
+  const groupProjectIds = useMemo(() => new Set(trees.map(tr => tr.group.projectId)), [trees])
   const folderById = useMemo(() => new Map(folders.map(f => [f.id, f])), [folders])
   const leafById = useMemo(() => new Map(leaves.map(l => [l.id, l])), [leaves])
 
-  // 재조회로 폴더가 사라지면 선택이 유령을 가리킬 수 있다 — 조용히 all 로 강등
-  const scope: Scope = useMemo(() => (
-    scopeRaw.kind === 'folder' && !nodeById.has(scopeRaw.id) ? { kind: 'all' } : scopeRaw
-  ), [scopeRaw, nodeById])
+  // 재조회로 폴더·그룹이 사라지면 선택이 유령을 가리킬 수 있다 — 조용히 all 로 강등
+  const scope: Scope = useMemo(() => {
+    if (scopeRaw.kind === 'folder' && !nodeById.has(scopeRaw.id)) return { kind: 'all' }
+    if (scopeRaw.kind === 'unfiled' && !groupProjectIds.has(scopeRaw.projectId)) return { kind: 'all' }
+    return scopeRaw
+  }, [scopeRaw, nodeById, groupProjectIds])
 
   function select(next: Scope) {
     setScopeRaw(next); setVisible(PAGE_SIZE); setMenuFor(null)
@@ -181,10 +217,10 @@ export function MinutesExplorer({
     switch (scope.kind) {
       case 'all': return leaves
       case 'favorites': return favorites ? leaves.filter(l => favorites.has(l.id)) : []
-      case 'unfiled': return unfiled
+      case 'unfiled': return unfiledByGroup.get(scope.projectId) ?? []
       case 'folder': return nodeById.get(scope.id)?.directLeaves ?? []
     }
-  }, [scope, leaves, favorites, unfiled, nodeById])
+  }, [scope, leaves, favorites, unfiledByGroup, nodeById])
   const shown = rows.slice(0, visible)
   const remaining = rows.length - shown.length
   const showFolderChip = scope.kind === 'all' || scope.kind === 'favorites'
@@ -283,9 +319,9 @@ export function MinutesExplorer({
     if (item.kind === 'leaf') {
       if (target === ROOT_KEY) return null
       const l = leafById.get(item.id)
-      return l ? resolveLeafDrop(l, target === UNFILED_KEY ? null : target) : null
+      return l ? resolveLeafDrop(l, isUnfiledKey(target) ? null : target) : null
     }
-    if (target === UNFILED_KEY) return null
+    if (isUnfiledKey(target)) return null
     const f = folderById.get(item.id)
     return f ? resolveFolderDrop(f, target === ROOT_KEY ? null : target, folders, teamCodes) : null
   }
@@ -306,7 +342,7 @@ export function MinutesExplorer({
     dropInFlightRef.current = true
     try {
       if (item.kind === 'leaf') {
-        const res = await moveMinuteToFolder(item.id, target === UNFILED_KEY ? null : target)
+        const res = await moveMinuteToFolder(item.id, isUnfiledKey(target) ? null : target)
         if (!res.ok) { toast({ title: res.error ?? t('min.fold.error'), variant: 'error' }); return }
         toast({ title: t('min.fold.moved'), variant: 'info' })
       } else {
@@ -450,7 +486,56 @@ export function MinutesExplorer({
     const go = (s: Scope) => { select(s); onNavigate?.() }
     // 전체 행 = 루트 레벨(폴더 전용), 미분류 행 = 회의록 전용
     const rootDrop = dropTarget(ROOT_KEY)
-    const unfiledDrop = dropTarget(UNFILED_KEY)
+
+    /** 프로젝트 그룹 헤더 행 — 접기 상태는 폴더와 같은 expanded Set(groupKeyOf 접두사)을 쓴다.
+     *  그룹 자체는 스코프를 갖지 않는다(선택 대상 아님, 접기만) — 하위 폴더·미분류 행이 스코프다. */
+    function groupRow(
+      entry: { group: ExplorerProjectGroup; roots: FolderNode[]; unfiled: ExplorerLeaf[] },
+    ): React.ReactNode {
+      const { group, roots: groupRoots, unfiled: groupUnfiled } = entry
+      const gKey = groupKeyOf(group.projectId)
+      const isExpanded = expanded.has(gKey)
+      const label = group.projectId === null
+        ? t('min.grp.unassigned')
+        : group.projectName ?? t('min.grp.unknownProject')
+      const unfiledKey = unfiledKeyOf(group.projectId)
+      const unfiledDrop = dropTarget(unfiledKey)
+      const isUnfiledScope = scope.kind === 'unfiled' && scope.projectId === group.projectId
+      return (
+        <li key={gKey}>
+          <button onClick={() => toggleExpand(gKey)} aria-expanded={isExpanded} aria-label={label}
+            className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left text-[13px] font-semibold text-ink-muted transition-colors duration-100 hover:bg-surface-2">
+            <ChevronRight aria-hidden
+              className={`h-3.5 w-3.5 shrink-0 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+            <BookOpenText aria-hidden className="h-4 w-4 shrink-0 text-brand" />
+            <span className="min-w-0 flex-1 truncate">{label}</span>
+            <span className="shrink-0 text-xs tabular-nums text-ink-muted">{group.leaves.length}</span>
+          </button>
+          {isExpanded && (
+            <ul className="ml-2 mt-0.5 border-l border-line pl-1.5">
+              {groupRoots.map(r => folderRow(r, 0))}
+              {/* 미분류는 예외 버킷(폴더 삭제 강등분) — 0건이면 숨김. 자동 편철(0043) 후 평시엔 비어 있다.
+                  단, 현재 스코프가 이 그룹의 미분류면 마지막 1건 이동 직후에도 행을 유지한다. */}
+              {(groupUnfiled.length > 0 || isUnfiledScope) && (
+                <li>
+                  <div data-drop-target={unfiledKey} {...unfiledDrop.handlers}
+                    className={`flex items-center gap-0.5 rounded-lg ${unfiledDrop.cls}`}>
+                    <span aria-hidden className="w-[22px] shrink-0" />
+                    <button onClick={() => go({ kind: 'unfiled', projectId: group.projectId })}
+                      className={rowCls(isUnfiledScope)}>
+                      <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">{t('min.fold.unfiled')}</span>
+                      <span className="shrink-0 text-xs tabular-nums text-ink-muted">{groupUnfiled.length}</span>
+                    </button>
+                  </div>
+                </li>
+              )}
+            </ul>
+          )}
+        </li>
+      )
+    }
+
     return (
       <ul className="space-y-0.5">
         <li>
@@ -475,23 +560,10 @@ export function MinutesExplorer({
               <span className="sr-only">{t('min.fold.new')}</span>
             </button>
           </div>
+          {/* 탐색기 최상위 = 프로젝트 그룹(0076) — 그룹 하나(전부 미지정)뿐이면 헤더 하나 아래
+              종전과 같은 플랫 트리가 보인다. */}
           <ul className="ml-2 mt-0.5 border-l border-line pl-1.5">
-            {roots.map(r => folderRow(r, 0))}
-            {/* 미분류는 예외 버킷(폴더 삭제 강등분) — 0건이면 숨김. 자동 편철(0043) 후 평시엔 비어 있다.
-                단, 현재 스코프가 미분류면 마지막 1건 이동 직후에도 행을 유지해 발 디딜 곳을 남긴다. */}
-            {(unfiled.length > 0 || scope.kind === 'unfiled') && (
-              <li>
-                <div data-drop-target={UNFILED_KEY} {...unfiledDrop.handlers}
-                  className={`flex items-center gap-0.5 rounded-lg ${unfiledDrop.cls}`}>
-                  <span aria-hidden className="w-[22px] shrink-0" />
-                  <button onClick={() => go({ kind: 'unfiled' })} className={rowCls(scope.kind === 'unfiled')}>
-                    <FolderOpen aria-hidden className="h-4 w-4 shrink-0 text-ink-subtle" />
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-muted">{t('min.fold.unfiled')}</span>
-                    <span className="shrink-0 text-xs tabular-nums text-ink-muted">{unfiled.length}</span>
-                  </button>
-                </div>
-              </li>
-            )}
+            {trees.map(groupRow)}
           </ul>
         </li>
       </ul>
@@ -620,7 +692,10 @@ export function MinutesExplorer({
           onClose={() => setManage(null)}
           onDone={() => { setManage(null); onChanged() }} />
       )}
+      {/* 이동 픽커는 옮기는 회의록 자신의 프로젝트로 스코프한다 — 교차 프로젝트 폴더는 서버도
+          거부하므로(moveMinuteToFolder) 애초에 고를 수 없게 한다. */}
       <FolderPickModal open={movingId !== null} folders={folders}
+        scopeProjectId={movingId ? (leafById.get(movingId)?.projectId ?? null) : null}
         onClose={() => setMovingId(null)} onPick={id => void moveTo(id)} />
       <ProjectAssignModal open={assignOpen} projects={projects} count={selectedIds.length} busy={assignBusy}
         onClose={() => setAssignOpen(false)} onPick={pid => void assignProject(pid)} t={t} />

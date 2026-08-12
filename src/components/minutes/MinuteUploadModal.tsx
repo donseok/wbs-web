@@ -39,8 +39,18 @@ export function MinuteUploadModal({
   const teamCodes = useTeamCodes()
   const fallbackTeam = teamCodes[0] ?? 'PMO'
   const [date, setDate] = useState(todayIso)
-  // 탐색기에서 보던 폴더를 초기 선택으로 — 폴더가 곧 편철 대상이므로 팀은 여기서 파생된다
-  const [folderId, setFolderId] = useState<string | null>(defaultFolderId)
+  // 올리는 사람의 프로젝트 소속에서 기본값을 유도한다(pickDefaultProjectId). 고르지 않고 올린
+  // 회의록은 위키·이슈·대시보드 어디에도 잡히지 않는다(2026-07-29 실측: 42건 중 27건).
+  const defaultProjectId = pickDefaultProjectId(projects, myProjectIds) ?? ''
+  // 탐색기에서 보던 폴더를 초기 선택으로 — 폴더가 곧 편철 대상이므로 팀은 여기서 파생된다.
+  // 단, 그 폴더가 자동 선택된 프로젝트(defaultProjectId) 밖이면 쓰지 않는다 — 탐색기는
+  // 프로젝트 그룹별 트리라 "보던 폴더"와 "자동 선택된 프로젝트"가 다를 수 있다(0076).
+  // 어긋난 채로 보여주면 서버도 거부할 조합이 필드에 그대로 남는다.
+  const [folderId, setFolderId] = useState<string | null>(() => {
+    if (defaultFolderId === null) return null
+    const f = folders.find(x => x.id === defaultFolderId)
+    return f && (f.projectId ?? null) === (defaultProjectId || null) ? defaultFolderId : null
+  })
   const [folderPickOpen, setFolderPickOpen] = useState(false)
   // 폴더 목록은 prop(탐색기 상태)으로 즉시 그리되 열림 시점에 재조회로 대체 — 하위 폴더가
   // 삭제 가능해지면서 타 세션의 삭제·개명을 모르는 stale 목록이면 죽은 폴더로의 업로드가
@@ -50,9 +60,6 @@ export function MinuteUploadModal({
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [bodyText, setBodyText] = useState('')
   const [attachments, setAttachments] = useState<File[]>([])
-  // 올리는 사람의 프로젝트 소속에서 기본값을 유도한다(pickDefaultProjectId). 고르지 않고 올린
-  // 회의록은 위키·이슈·대시보드 어디에도 잡히지 않는다(2026-07-29 실측: 42건 중 27건).
-  const defaultProjectId = pickDefaultProjectId(projects, myProjectIds) ?? ''
   const [projectId, setProjectId] = useState(defaultProjectId)
   // 여럿일 때 고르는 비용을 줄인다 — 내가 속한 프로젝트가 먼저 나온다
   const projectOptions = useMemo(
@@ -119,6 +126,12 @@ export function MinuteUploadModal({
 
   async function onProject(pid: string) {
     setProjectId(pid); setMeetingId(''); setMeetings([])
+    // 고른 폴더가 새 프로젝트 스코프 밖이면 해제한다(미분류로) — 교차 프로젝트 폴더는 서버도
+    // 거부한다. liveFolders 가 아직 비어 있으면(재조회 경합) 판정 불가이므로 손대지 않는다.
+    if (folderId !== null && liveFolders.length > 0) {
+      const f = liveFolders.find(x => x.id === folderId)
+      if (!f || (f.projectId ?? null) !== (pid || null)) setFolderId(null)
+    }
     if (pid) setMeetings(await fetchProjectMeetingsLite(pid))
   }
 
@@ -264,7 +277,7 @@ export function MinuteUploadModal({
         </div>
         {err && <p className="text-sm text-delayed">{err}</p>}
       </div>
-      <FolderPickModal open={folderPickOpen} folders={liveFolders}
+      <FolderPickModal open={folderPickOpen} folders={liveFolders} scopeProjectId={projectId || null}
         onClose={() => setFolderPickOpen(false)}
         onPick={id => { setFolderId(id); setFolderPickOpen(false) }} />
     </Modal>

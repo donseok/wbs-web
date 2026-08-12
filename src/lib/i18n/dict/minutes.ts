@@ -46,6 +46,9 @@ export const minutesKo = {
   'min.exp.assignNone': '연결 없음(해제)',
   'min.exp.assignDone': '{n}건에 프로젝트를 지정했습니다',
   'min.exp.assignPartial': '{n}건 지정 · {k}건 건너뜀',
+  // 탐색기 최상위 프로젝트 그룹 (0076, 스펙 2026-08-12-minutes-project-reorg-design.md)
+  'min.grp.unassigned': '미지정',
+  'min.grp.unknownProject': '이름 미상 프로젝트',
   // 폴더 디렉토리 (스펙 2026-07-23-minutes-folders-design.md)
   'min.fold.unfiled': '미분류',
   'min.fold.new': '새 폴더',
@@ -270,6 +273,8 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.exp.assignNone': 'No project (unlink)',
   'min.exp.assignDone': 'Assigned a project to {n} minutes',
   'min.exp.assignPartial': '{n} assigned · {k} skipped',
+  'min.grp.unassigned': 'Unassigned',
+  'min.grp.unknownProject': 'Unnamed project',
   'min.fold.unfiled': 'Unfiled',
   'min.fold.new': 'New folder',
   'min.fold.addSub': 'Add subfolder',

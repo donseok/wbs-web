@@ -186,4 +186,72 @@ describe('MinuteUploadModal — 폴더 직접 선택', () => {
     await clickSave()
     expect(createMinute.mock.calls[0][0]).toMatchObject({ projectId: null })
   })
+
+  /* ── 폴더 픽커 프로젝트 스코프(0076) ── */
+
+  const projectSelect = () => mainDialog().querySelector<HTMLSelectElement>('select')!
+  async function chooseProject(pid: string) {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
+      setter.call(projectSelect(), pid)
+      projectSelect().dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+
+  it('폴더 픽커는 선택된 프로젝트 소속 폴더만 보여준다 — 교차 프로젝트 편철은 서버도 거부한다', async () => {
+    const scoped: MinuteFolder[] = [
+      { id: 'r-a', name: '루트A', parentId: null, sort: 0, createdBy: null, projectId: 'pA' },
+      { id: 'r-b', name: '루트B', parentId: null, sort: 1, createdBy: null, projectId: 'pB' },
+    ]
+    fetchMinuteFoldersLite.mockImplementation(async () => scoped)
+    await mount({ folders: scoped, projects: [{ id: 'pA', name: 'A' }, { id: 'pB', name: 'B' }] })
+    await chooseProject('pA')
+    await openPicker()
+    expect([...pickerDialog().querySelectorAll('button')].some(b => b.textContent === '루트A')).toBe(true)
+    expect([...pickerDialog().querySelectorAll('button')].some(b => b.textContent === '루트B')).toBe(false)
+  })
+
+  it('프로젝트를 바꾸면 스코프 밖 폴더 선택이 미분류로 해제된다', async () => {
+    const scoped: MinuteFolder[] = [
+      { id: 'r-a', name: '루트A', parentId: null, sort: 0, createdBy: null, projectId: 'pA' },
+      { id: 'r-b', name: '루트B', parentId: null, sort: 1, createdBy: null, projectId: 'pB' },
+    ]
+    fetchMinuteFoldersLite.mockImplementation(async () => scoped)
+    // myProjectIds로 pA를 자동 선택시켜 폴더(r-a)·프로젝트(pA)가 처음부터 정합하게 시작한다
+    await mount({
+      folders: scoped, defaultFolderId: 'r-a', myProjectIds: ['pA'],
+      projects: [{ id: 'pA', name: 'A' }, { id: 'pB', name: 'B' }],
+    })
+    expect(folderFieldBtn().textContent).toContain('루트A')
+    await chooseProject('pB')
+    expect(folderFieldBtn().textContent).toContain('min.fold.unfiled')
+  })
+
+  it('같은 프로젝트를 유지하거나 스코프 안의 폴더면 선택을 건드리지 않는다', async () => {
+    const scoped: MinuteFolder[] = [
+      { id: 'r-a', name: '루트A', parentId: null, sort: 0, createdBy: null, projectId: 'pA' },
+    ]
+    fetchMinuteFoldersLite.mockImplementation(async () => scoped)
+    await mount({
+      folders: scoped, defaultFolderId: 'r-a', myProjectIds: ['pA'],
+      projects: [{ id: 'pA', name: 'A' }, { id: 'pB', name: 'B' }],
+    })
+    expect(folderFieldBtn().textContent).toContain('루트A')
+    await chooseProject('pA')   // 이미 그 프로젝트 소속 — 무접촉
+    expect(folderFieldBtn().textContent).toContain('루트A')
+  })
+
+  it('탐색기에서 보던 폴더가 자동 선택된 프로젝트 밖이면 초기값으로 쓰지 않는다', async () => {
+    const scoped: MinuteFolder[] = [
+      { id: 'r-a', name: '루트A', parentId: null, sort: 0, createdBy: null, projectId: 'pA' },
+      { id: 'r-b', name: '루트B', parentId: null, sort: 1, createdBy: null, projectId: 'pB' },
+    ]
+    fetchMinuteFoldersLite.mockImplementation(async () => scoped)
+    // pB가 자동 선택(내 유일 소속)되는데 탐색기에서 보던 폴더는 pA 소속 — 어긋난 채로 보여주지 않는다
+    await mount({
+      folders: scoped, defaultFolderId: 'r-a', myProjectIds: ['pB'],
+      projects: [{ id: 'pA', name: 'A' }, { id: 'pB', name: 'B' }],
+    })
+    expect(folderFieldBtn().textContent).toContain('min.fold.unfiled')
+  })
 })

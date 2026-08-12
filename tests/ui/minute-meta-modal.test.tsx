@@ -56,9 +56,9 @@ describe('MinuteMetaModal — 폴더 직접 선택 + 또박또박 연결', () =>
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
-  async function mount(minute: Minute = baseMinute) {
+  async function mount(minute: Minute = baseMinute, projects: { id: string; name: string }[] = []) {
     await act(async () => root.render(
-      <MinuteMetaModal open onClose={() => {}} onSaved={onSaved} minute={minute} projects={[]} />,
+      <MinuteMetaModal open onClose={() => {}} onSaved={onSaved} minute={minute} projects={projects} />,
     ))
   }
   const dialogs = () => [...document.querySelectorAll<HTMLElement>('[role="dialog"]')]
@@ -168,5 +168,46 @@ describe('MinuteMetaModal — 폴더 직접 선택 + 또박또박 연결', () =>
     expect(folderFieldBtn().textContent).toContain('…')
     await save()
     expect(updateMinuteMeta.mock.calls[0][2]).toBeUndefined()
+  })
+
+  /* ── 폴더 픽커 프로젝트 스코프(0076) ── */
+
+  const projectSelect = () => mainDialog().querySelector<HTMLSelectElement>('select')!
+  async function chooseProject(pid: string) {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
+      setter.call(projectSelect(), pid)
+      projectSelect().dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+
+  it('폴더 픽커는 선택된 프로젝트 소속 폴더만 보여준다', async () => {
+    const scoped: MinuteFolder[] = [
+      { id: 'r-erp', name: 'ERP', parentId: null, sort: 0, createdBy: null, projectId: 'pA' },
+      { id: 'r-mes2', name: 'MES(B)', parentId: null, sort: 1, createdBy: null, projectId: 'pB' },
+    ]
+    fetchMinuteFoldersLite.mockImplementation(async () => scoped)
+    await mount({ ...baseMinute, projectId: 'pA' }, [{ id: 'pA', name: 'A' }, { id: 'pB', name: 'B' }])
+    await openPicker()
+    expect([...pickerDialog().querySelectorAll('button')].some(b => b.textContent === 'ERP')).toBe(true)
+    expect([...pickerDialog().querySelectorAll('button')].some(b => b.textContent === 'MES(B)')).toBe(false)
+  })
+
+  it('프로젝트를 바꾸면 스코프 밖 폴더 선택이 미분류로 해제된다 — 기존 편철(초기값)은 무접촉', async () => {
+    const scoped: MinuteFolder[] = [
+      { id: 'r-a', name: '루트A', parentId: null, sort: 0, createdBy: null, projectId: 'pA' },
+      { id: 'r-b', name: '루트B', parentId: null, sort: 1, createdBy: null, projectId: 'pB' },
+    ]
+    fetchMinuteFoldersLite.mockImplementation(async () => scoped)
+    await mount(
+      { ...baseMinute, projectId: 'pA', folderId: 'r-a' },
+      [{ id: 'pA', name: 'A' }, { id: 'pB', name: 'B' }],
+    )
+    expect(folderFieldBtn().textContent).toContain('루트A')
+    await chooseProject('pB')
+    expect(folderFieldBtn().textContent).toContain('min.fold.unfiled')
+    await save()
+    // 명시적으로 미분류로 바꿨으므로 null 그대로 전달(무접촉 undefined와 구분)
+    expect(updateMinuteMeta.mock.calls[0][2]).toBeNull()
   })
 })
