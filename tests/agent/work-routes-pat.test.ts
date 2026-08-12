@@ -175,4 +175,62 @@ describe('GET /agent/work/[id] — PAT 멤버십 게이트', () => {
     expect(body.order.mine).toBe(false) // u-1(호출자) != u-2(점유자)
     expect(body.order.claimed_by_user_email).toBe('dev@example.com') // 타인 점유라도 노출
   })
+
+  it('PAT + wbs_item_id 있음 → item 이 ITEM_DETAIL_COLUMNS 로 확장 + depends_evidence 포함', async () => {
+    const W1 = '33333333-3333-4333-8333-333333333333'
+    const DEP_ID = '44444444-4444-4444-8444-444444444444'
+    const DEP_REF = 'MES/TSK-01-00'
+    const ITEM = {
+      id: W1, code: 'C1', name: '항목1', external_ref: 'MES/TSK-02-00', stage: 'fp',
+      category: 'dev', domain: 'd', priority: 'high', model: 'm', tags: ['t'], depends: [DEP_REF],
+      prd_ref: 'p', entry_point: 'e', acceptance: [], spec: 's', assignee_member_id: 'm1',
+      planned_start: null, planned_end: null,
+    }
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [
+        {
+          data: {
+            id: O1, project_id: P1, status: 'reported', priority: 0, instructions: '',
+            claimed_by: null, claimed_by_user_id: null, claimed_at: null, wbs_item_id: W1,
+          },
+        }, // 주문 로드
+        { data: null }, // loadDependsInfo — 선행의 approved 주문 없음
+      ],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_reports: [{ data: [] }],
+      wbs_items: [
+        { data: [ITEM] }, // ITEM_DETAIL_COLUMNS 로드(.in('id', [wbs_item_id]))
+        { data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }, // loadDependsInfo 의 선행 조회
+      ],
+    })
+    const res = await detail(PAT.token)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.order.item).toEqual(ITEM) // ITEM_DETAIL_COLUMNS 전 필드 — v1(id,code,name,biz,deliverable,planned_*)보다 확장됨
+    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null }])
+  })
+
+  it('레거시 시크릿 + wbs_item_id 있음 → item 은 v1 컬럼 그대로, depends_evidence 없음(회귀 기준선)', async () => {
+    const W1 = '33333333-3333-4333-8333-333333333333'
+    const LEGACY_ITEM = { id: W1, code: 'C1', name: '항목1', biz: null, deliverable: null, planned_start: null, planned_end: null }
+    useAdmin({
+      agent_work_orders: [{
+        data: {
+          id: O1, project_id: P1, status: 'reported', priority: 0, instructions: '',
+          claimed_by: null, claimed_at: null, wbs_item_id: W1,
+        },
+      }],
+      agent_projects: [{ data: { enabled: true } }],
+      agent_work_reports: [{ data: [] }],
+      wbs_items: [{ data: [LEGACY_ITEM] }],
+    })
+    const res = await detail('legacy-secret')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.order.item).toEqual(LEGACY_ITEM)
+    expect(body.depends_evidence).toBeUndefined()
+  })
 })

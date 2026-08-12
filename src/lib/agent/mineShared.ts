@@ -1,5 +1,6 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { isAgentProjectMember, patProjectAllowed, type AgentPrincipal } from '@/lib/agent/externalApi'
+import { myMemberIds } from '@/lib/agent/assignee'
 
 /**
  * PAT 가 접근 가능한 프로젝트 ID 목록 — enabled agent_projects ∩ 멤버 프로젝트.
@@ -17,4 +18,20 @@ export async function accessibleProjectIds(
     if (await isAgentProjectMember(admin, principal.userId, r.project_id)) out.push(r.project_id)
   }
   return out
+}
+
+/**
+ * scope=assigned 재료 — 접근 가능 프로젝트별로 myMemberIds 를 구해 합집합·중복 제거.
+ * Task 15: /work/mine?scope=assigned.
+ */
+export async function myMemberIdsAcrossProjects(
+  admin: AdminClient,
+  args: { userId: string; userEmail: string; projectIds: string[] },
+): Promise<string[]> {
+  const out = new Set<string>()
+  for (const projectId of args.projectIds) {
+    const ids = await myMemberIds(admin, { userId: args.userId, userEmail: args.userEmail, projectId })
+    for (const id of ids) out.add(id)
+  }
+  return [...out]
 }

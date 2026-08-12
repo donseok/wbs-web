@@ -5,6 +5,9 @@ import {
   apiBadRequest, apiInternalError, apiNotFound, isAgentProjectMember, patProjectAllowed,
   requireAgentProject, requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
+import { ITEM_DETAIL_COLUMNS, loadDependsInfo, type DependInfo } from '@/lib/agent/depends'
+
+const LEGACY_ITEM_COLUMNS = 'id, code, name, biz, deliverable, planned_start, planned_end' // v1 회귀 기준선 — 확장 금지
 
 /** GET /api/v1/agent/work/{id} — 상태 폴링. 에이전트는 여기서 승인/반려·반려 사유를 읽는다(스펙 §3.4-2). */
 export const dynamic = 'force-dynamic'
@@ -46,17 +49,27 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       console.error('[agent-api] 보고 이력 조회 실패:', repErr.message)
       return apiInternalError()
     }
+    // PAT 응답만 ITEM_DETAIL_COLUMNS 로 확장한다(클라이언트 spec.md 캐시 재료 — 결정 A).
+    // 레거시 응답은 v1 그대로 — 회귀 기준선.
+    const itemColumns = principal.kind === 'pat' ? ITEM_DETAIL_COLUMNS : LEGACY_ITEM_COLUMNS
     let item: unknown = null
     if (row.wbs_item_id) {
       const { data: items, error: itemErr } = await admin
         .from('wbs_items')
-        .select('id, code, name, biz, deliverable, planned_start, planned_end')
+        .select(itemColumns)
         .in('id', [row.wbs_item_id])
       if (itemErr) {
         console.error('[agent-api] 항목 컨텍스트 조회 실패:', itemErr.message)
         return apiInternalError()
       }
       item = (items ?? [])[0] ?? null
+    }
+    let dependsInfo: DependInfo[] = []
+    if (principal.kind === 'pat' && item) {
+      const depends = (item as { depends?: string[] | null }).depends ?? []
+      if (depends.length > 0) {
+        dependsInfo = await loadDependsInfo(admin, { projectId: row.project_id, depends })
+      }
     }
     const full = order as {
       id: string; status: string; priority: number; instructions: string
@@ -87,6 +100,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         item, stale: isClaimStale(row.claimed_at), ...extra,
       },
       reports: reports ?? [],
+      // 레거시 응답은 v1 그대로(회귀 기준선) — depends_evidence 는 PAT 전용 확장.
+      ...(principal.kind === 'pat' ? { depends_evidence: dependsInfo } : {}),
     })
   } catch (e) {
     console.error('[agent-api] 상세 처리 실패:', e instanceof Error ? e.message : e)

@@ -4,12 +4,12 @@ import {
   apiBadRequest, apiFail, apiInternalError,
   requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
-import { accessibleProjectIds } from '@/lib/agent/mineShared'
+import { accessibleProjectIds, myMemberIdsAcrossProjects } from '@/lib/agent/mineShared'
 
 /** GET /api/v1/agent/work/mine — 크로스 프로젝트 "내 작업". PAT 전용(계약 v2.0). */
 export const dynamic = 'force-dynamic'
 
-const SUPPORTED_SCOPES = ['available', 'claimed', 'all'] as const // Task 15: +assigned
+const SUPPORTED_SCOPES = ['available', 'claimed', 'all', 'assigned'] as const
 
 type Row = { wbs_item_id: string | null } & Record<string, unknown>
 
@@ -29,21 +29,24 @@ export async function GET(req: NextRequest) {
       return apiFail(400, 'unsupported_scope', `지원하지 않는 scope 입니다: ${scope}`)
     }
     const wantClaimed = scope === 'claimed' || scope === 'all'
+    const wantAssigned = scope === 'assigned' || scope === 'all'
     const wantAvailable = scope === 'available' || scope === 'all'
 
     const projectIds = await accessibleProjectIds(admin, principal)
     if (projectIds.length === 0) {
       const empty: Record<string, unknown> = { ok: true, scope }
       if (wantClaimed) empty.claimed = []
+      if (wantAssigned) empty.assigned = []
       if (wantAvailable) empty.available = []
       return NextResponse.json(empty)
     }
 
     let claimedRows: Row[] = []
+    let assignedRows: Row[] = []
     let availableRows: Row[] = []
 
-    // §2.4 — all 응답은 claimed 구획을 먼저 채운다: available 의 limit 절단이 방금 claim한
-    // 주문을 밀어내 "내 작업이 안 보이는" 문제를 구획 분리로 막는다.
+    // §2.4 — all 응답은 claimed → assigned → available 순으로 구획을 채운다: available 의
+    // limit 절단이 방금 claim/배정된 주문을 밀어내 "내 작업이 안 보이는" 문제를 구획 분리로 막는다.
     if (wantClaimed) {
       const { data: claimed, error: claimedErr } = await admin
         .from('agent_work_orders')
@@ -56,6 +59,36 @@ export async function GET(req: NextRequest) {
         return apiInternalError()
       }
       claimedRows = (claimed ?? []) as Row[]
+    }
+    if (wantAssigned) {
+      const memberIds = await myMemberIdsAcrossProjects(admin, {
+        userId: principal.userId, userEmail: principal.userEmail, projectIds,
+      })
+      if (memberIds.length > 0) {
+        const { data: assignedItems, error: assignedItemErr } = await admin
+          .from('wbs_items').select('id')
+          .in('project_id', projectIds).in('assignee_member_id', memberIds)
+        if (assignedItemErr) {
+          console.error('[agent-api] mine 배정 항목 조회 실패:', assignedItemErr.message)
+          return apiInternalError()
+        }
+        const assignedItemIds = (assignedItems ?? []).map((i) => (i as { id: string }).id)
+        if (assignedItemIds.length > 0) {
+          const { data: assigned, error: assignedErr } = await admin
+            .from('agent_work_orders')
+            .select('id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at')
+            // project_id 방어 — wbs_item_id→project_id 를 잇는 DB 제약이 없다(0057, 복합 FK 아님).
+            // 항목이 접근 가능해도 주문 project_id 는 별도로 다시 좁힌다(claimed·available 과 동일 관례).
+            .in('project_id', projectIds).in('wbs_item_id', assignedItemIds).in('status', ['ready', 'claimed', 'reported'])
+            .order('priority', { ascending: false }).order('created_at', { ascending: true })
+            .limit(limit)
+          if (assignedErr) {
+            console.error('[agent-api] mine assigned 조회 실패:', assignedErr.message)
+            return apiInternalError()
+          }
+          assignedRows = (assigned ?? []) as Row[]
+        }
+      }
     }
     if (wantAvailable) {
       const { data: orders, error } = await admin
@@ -71,7 +104,7 @@ export async function GET(req: NextRequest) {
       availableRows = (orders ?? []) as Row[]
     }
 
-    const allRows = [...claimedRows, ...availableRows]
+    const allRows = [...claimedRows, ...assignedRows, ...availableRows]
     const itemIds = [...new Set(allRows.map(o => o.wbs_item_id).filter((v): v is string => !!v))]
     const itemById = new Map<string, unknown>()
     if (itemIds.length > 0) {
@@ -88,6 +121,7 @@ export async function GET(req: NextRequest) {
 
     const body: Record<string, unknown> = { ok: true, scope }
     if (wantClaimed) body.claimed = withItem(claimedRows)
+    if (wantAssigned) body.assigned = withItem(assignedRows)
     if (wantAvailable) body.available = withItem(availableRows)
     return NextResponse.json(body)
   } catch (e) {
