@@ -49,6 +49,9 @@ function admin(queues: Record<string, Resp[]>) {
       b.in = (col: string, val: unknown) => {
         (captured[`${table}.in`] ??= []).push([col, val]); return b
       }
+      b.is = (col: string, val: unknown) => {
+        (captured[`${table}.is`] ??= []).push([col, val]); return b
+      }
       b.update = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.insert = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
@@ -201,19 +204,22 @@ describe('setWbsAssigneeCascade', () => {
     { id: W6, parent_id: W2, name: 'Grandchild D', assignee_member_id: null },
   ]
 
-  it('(a) 미지정 하위만 갱신 — 이미 배정된 항목(W5)은 건너뛴다', async () => {
+  it('(a) 미지정 하위만 갱신 — 이미 배정된 항목(W5)은 건너뛴다, 본인(W1)은 별도 무조건 UPDATE', async () => {
     const { captured } = admin({
       project_members: [{ data: { id: M1, project_id: P1 } }],
       wbs_items: [
-        { data: TREE },
-        { data: [{ id: W1 }, { id: W2 }, { id: W6 }] },
+        { data: TREE },                              // 트리 read
+        { data: [{ id: W1 }] },                       // 본인 UPDATE(.eq)
+        { data: [{ id: W2 }, { id: W6 }] },            // 하위 UPDATE(.in + .is null)
       ],
     })
     const r = await setWbsAssigneeCascade(W1, M1)
     expect(r).toEqual({ ok: true, count: 3 })
     const [, idsArg] = captured['wbs_items.in'][0] as [string, string[]]
-    expect(new Set(idsArg)).toEqual(new Set([W1, W2, W6]))
+    expect(new Set(idsArg)).toEqual(new Set([W2, W6]))
+    expect(idsArg).not.toContain(W1) // 본인은 .in 이 아니라 별도 .eq UPDATE
     expect(idsArg).not.toContain(W5)
+    expect(captured['wbs_items.is'][0]).toEqual(['assignee_member_id', null])
   })
 
   it('(b) 요약 알림 1건만 — 항목별 스팸 없음, detail 은 "외 N건" 요약', async () => {
@@ -221,7 +227,8 @@ describe('setWbsAssigneeCascade', () => {
       project_members: [{ data: { id: M1, project_id: P1 } }],
       wbs_items: [
         { data: TREE },
-        { data: [{ id: W1 }, { id: W2 }, { id: W6 }] },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2 }, { id: W6 }] },
       ],
     })
     const r = await setWbsAssigneeCascade(W1, M1)
@@ -243,7 +250,8 @@ describe('setWbsAssigneeCascade', () => {
       project_members: [{ data: { id: M1, project_id: P1 } }],
       wbs_items: [
         { data: TREE },
-        { data: [{ id: W1 }, { id: W2 }, { id: W6 }] },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2 }, { id: W6 }] },
       ],
     })
     const r = await setWbsAssigneeCascade(W1, M1)
@@ -256,7 +264,6 @@ describe('setWbsAssigneeCascade', () => {
   })
 
   it('(d) 하위 트리 조회 실패 시 중단 — 갱신·알림·주문 발행 모두 없음(부분 적용 강행 금지)', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const { captured } = admin({
       project_members: [{ data: { id: M1, project_id: P1 } }],
       wbs_items: [
@@ -268,18 +275,17 @@ describe('setWbsAssigneeCascade', () => {
     expect(captured.wbs_items ?? []).toHaveLength(0)
     expect(mocks.emitNotification).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
-    errSpy.mockRestore()
   })
 
   it('(e) 본인이 이미 다른 담당자면 본인은 갱신하되(단건 액션과 동일) 이미 배정된 하위는 건너뛴다', async () => {
-    admin({
+    const { captured } = admin({
       project_members: [{ data: { id: M1, project_id: P1 } }],
       wbs_items: [
         { data: [
           { id: W1, parent_id: null, name: 'Root', assignee_member_id: M2 },
           { id: W2, parent_id: W1, name: 'Child B', assignee_member_id: M2 },
         ] },
-        { data: [{ id: W1 }] },
+        { data: [{ id: W1 }] }, // 본인 UPDATE만 — 하위 후보 없음(전부 이미 배정) → 하위 UPDATE 호출 자체가 없다
       ],
     })
     const r = await setWbsAssigneeCascade(W1, M1)
@@ -287,10 +293,11 @@ describe('setWbsAssigneeCascade', () => {
     expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ detail: "'Root' 작업 담당자로 지정되었습니다" }),
     }))
+    expect(captured['wbs_items.is'] ?? []).toHaveLength(0) // 하위 UPDATE 없었음
   })
 
-  it('(e2) 본인이 이미 같은 담당자이고 하위도 전부 배정 완료면 count:0, 무발행(진짜 no-op)', async () => {
-    admin({
+  it('(e2) 본인이 이미 같은 담당자이고 하위도 전부 배정 완료면 count:0, 무발행(진짜 no-op, UPDATE 자체를 안 함)', async () => {
+    const { calls } = admin({
       project_members: [{ data: { id: M1, project_id: P1 } }],
       wbs_items: [
         { data: [
@@ -303,6 +310,31 @@ describe('setWbsAssigneeCascade', () => {
     expect(r).toEqual({ ok: true, count: 0 })
     expect(mocks.emitNotification).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
+    expect(calls.filter(t => t === 'wbs_items')).toHaveLength(1) // 트리 read 1회뿐, UPDATE 없음
+  })
+
+  it('(h) TOCTOU — 하위 후보였지만 실제 UPDATE(.is null)에서 걸러진 항목은 건수·알림·주문발행 모두에서 제외', async () => {
+    // 후보는 [W2, W6] 이지만, 그 사이 다른 관리자가 W2 를 먼저 배정했다고 가정 —
+    // .is('assignee_member_id', null) 조건에 걸려 DB는 W6 만 실제로 갱신했다고 응답한다.
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: TREE },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W6 }] }, // W2 는 후보였지만 실제 갱신에서 빠짐
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r).toEqual({ ok: true, count: 2 }) // W1 + W6 만 — 후보 개수(W2,W6=2)가 아니라 실제 갱신 기준
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ detail: "'Root' 외 1건의 작업 담당자로 지정되었습니다" }),
+    }))
+    // W2 는 실제로 갱신되지 않았으므로 리프 자동주문 대상에서도 제외(부모 W1은 자식 있어 제외).
+    expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledTimes(1)
+    expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ wbsItemId: W6 }),
+    )
   })
 
   it('(f) 다른 프로젝트의 member_id → 거부, 조회 없음', async () => {

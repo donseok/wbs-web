@@ -207,6 +207,18 @@ type TreeRow = { id: string; parent_id: string | null; name: string; assignee_me
  *
  * 하위 트리 조회는 프로젝트 전체 wbs_items 를 한 번에 읽어 메모리에서 부모→자식을
  * 구성한다(3원칙 ② — 이 단일 조회가 실패하면 갱신 없이 중단, 부분 적용 강행 금지).
+ * 순회는 visited Set 으로 순환을 가드한다(parent_id 데이터 오류로 순환이 생겨도 무한루프 없음).
+ *
+ * 하위 항목의 실제 UPDATE 는 `.is('assignee_member_id', null)` 을 DB 조건으로 그대로
+ * 실어 보낸다(리뷰 라운드 1 — TOCTOU) — 트리를 읽은 시점과 쓰는 시점 사이에 다른 관리자가
+ * 먼저 배정했다면, 메모리상의 "미지정 후보" 판정이 낡았어도 이 조건이 그 행을 걸러내
+ * 덮어쓰지 않는다. 실제로 몇 건이 바뀌었는지는 이 UPDATE 의 반환(select)으로만 집계한다 —
+ * 사전 후보 목록 크기가 아니다. 본인 항목은 단건 액션과 동일한 무조건 갱신이라 이 조건에서
+ * 제외하고 별도 UPDATE 로 처리한다.
+ *
+ * 요약 알림은 실제로 갱신된 항목이 1건 이상일 때만 발행하고(리뷰 라운드 1 — 귀속 오류),
+ * 명칭·건수도 실제 갱신 결과 기준이다(본인이 갱신되지 않았으면 실제로 갱신된 첫 항목의
+ * 이름을 쓴다).
  */
 export async function setWbsAssigneeCascade(
   itemId: string, memberId: string,
@@ -248,53 +260,87 @@ export async function setWbsAssigneeCascade(
   }
 
   const subtree: TreeRow[] = []
+  const visited = new Set<string>()
   const stack: TreeRow[] = [root]
   while (stack.length > 0) {
     const cur = stack.pop() as TreeRow
+    if (visited.has(cur.id)) continue
+    visited.add(cur.id)
     subtree.push(cur)
-    for (const c of childrenOf.get(cur.id) ?? []) stack.push(c)
+    for (const c of childrenOf.get(cur.id) ?? []) {
+      if (!visited.has(c.id)) stack.push(c)
+    }
   }
-  // 본인(itemId)은 값이 다를 때만(단건 액션과 동일한 no-op 판정), 하위는 미지정만.
-  const targets = subtree.filter(r => (
-    r.id === itemId ? r.assignee_member_id !== memberId : r.assignee_member_id === null
-  ))
-  if (targets.length === 0) return { ok: true, count: 0 }
 
-  const targetIds = targets.map(r => r.id)
-  const { data: updated, error: updErr } = await admin
-    .from('wbs_items')
-    .update({ assignee_member_id: memberId, updated_at: new Date().toISOString() })
-    .in('id', targetIds)
-    .select('id')
-  if (updErr) return { ok: false, error: updErr.message }
-  const count = updated?.length ?? 0
+  // 하위(본인 제외) 중 이번 읽기 시점에 미지정이었던 후보 — 실제 반영 여부는 아래 UPDATE의
+  // .is('assignee_member_id', null) 조건이 쓰기 시점 기준으로 다시 판정한다.
+  const descendantCandidateIds = subtree
+    .filter(r => r.id !== itemId && r.assignee_member_id === null)
+    .map(r => r.id)
+  const rootNeedsUpdate = root.assignee_member_id !== memberId
+
+  if (!rootNeedsUpdate && descendantCandidateIds.length === 0) return { ok: true, count: 0 }
+
+  const nowIso = new Date().toISOString()
+  const updatedIds: string[] = []
+
+  // 본인 — 단건 액션(setWbsAssignee)과 동일한 무조건 갱신. 조건부 하위 UPDATE 와 분리한다.
+  if (rootNeedsUpdate) {
+    const { data: updatedRoot, error: rootErr } = await admin
+      .from('wbs_items')
+      .update({ assignee_member_id: memberId, updated_at: nowIso })
+      .eq('id', itemId)
+      .select('id')
+    if (rootErr) return { ok: false, error: rootErr.message }
+    for (const r of (updatedRoot ?? []) as { id: string }[]) updatedIds.push(r.id)
+  }
+
+  // 하위 — DB 조건(.is null)으로 TOCTOU 방어. 후보였지만 그 사이 다른 관리자가 먼저
+  // 배정했다면 조건에 걸려 갱신되지 않고, 갱신 건수 집계에도 잡히지 않는다.
+  if (descendantCandidateIds.length > 0) {
+    const { data: updatedDesc, error: descErr } = await admin
+      .from('wbs_items')
+      .update({ assignee_member_id: memberId, updated_at: nowIso })
+      .in('id', descendantCandidateIds)
+      .is('assignee_member_id', null)
+      .select('id')
+    if (descErr) return { ok: false, error: descErr.message }
+    for (const r of (updatedDesc ?? []) as { id: string }[]) updatedIds.push(r.id)
+  }
+
+  const count = updatedIds.length
   if (count === 0) return { ok: true, count: 0 }
 
   revalidatePath(`/p/${resolved.projectId}`, 'layout')
 
-  // 요약 알림 1건만 — 항목별 발행은 하위 트리가 큰 경우 스팸이 된다.
+  // 요약 알림 1건만, 실제로 갱신된 항목이 있을 때만 — 명칭·건수도 실제 갱신 기준.
+  // 본인이 갱신 대상에 없으면(이미 같은 담당자 등) 실제로 갱신된 첫 항목의 이름을 쓴다.
+  const titleItemId = updatedIds.includes(itemId) ? itemId : updatedIds[0]
+  const titleItem = byId.get(titleItemId)
+  const titleName = titleItem?.name ?? ''
   const extra = count - 1
   const detail = extra > 0
-    ? `'${root.name}' 외 ${extra}건의 작업 담당자로 지정되었습니다`
-    : `'${root.name}' 작업 담당자로 지정되었습니다`
+    ? `'${titleName}' 외 ${extra}건의 작업 담당자로 지정되었습니다`
+    : `'${titleName}' 작업 담당자로 지정되었습니다`
   await emitNotification({
     type: 'work.assigned',
     projectId: resolved.projectId,
     actorUserId: g.actor.userId,
     entityType: 'wbs_item',
-    entityId: itemId,
-    payload: { title: root.name, detail, href: `/p/${resolved.projectId}/wbs` },
+    entityId: titleItemId,
+    payload: { title: titleName, detail, href: `/p/${resolved.projectId}/wbs` },
     recipientMemberIds: [memberId],
   })
 
   // 새로 배정된 각 리프에 대해 자동 주문 발행 — 실패 격리(배정 성공은 유지, 로깅만).
   // 리프 판정은 이번에 읽은 전체 트리 기준(부모로 등장한 적 없는 항목 = 자식 없음).
-  for (const target of targets) {
-    if (hasChildren.has(target.id)) continue
+  // 대상은 실제로 갱신된 항목만(TOCTOU 조건에 걸려 갱신되지 않은 후보는 제외).
+  for (const id of updatedIds) {
+    if (hasChildren.has(id)) continue
     try {
       const orderRes = await ensureOrderForAssignedLeaf(admin, {
         projectId: resolved.projectId,
-        wbsItemId: target.id,
+        wbsItemId: id,
         actorUserId: g.actor.userId,
       })
       if (!orderRes.ok) console.error('[wbsAssign] cascade 자동 주문 발행 실패:', orderRes.error)

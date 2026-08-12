@@ -54,6 +54,16 @@ export function AssigneeComboBox({
 
   useEffect(() => { setActiveIndex(0) }, [query, open])
 
+  // 옵션 7개+ 목록에서 화살표로 하이라이트를 옮기면 스크롤 밖으로 나갈 수 있다 —
+  // 하이라이트가 바뀔 때마다 해당 option을 목록 안으로 스크롤한다(리뷰 라운드 1).
+  useEffect(() => {
+    if (!open) return
+    const opt = options[activeIndex]
+    if (!opt) return
+    const elId = `${listboxId}-opt-${opt.id || 'unassigned'}`
+    document.getElementById(elId)?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, open, options, listboxId])
+
   useEffect(() => {
     if (!open) return
     function onClickOutside(e: MouseEvent) {

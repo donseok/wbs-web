@@ -63,7 +63,7 @@ export function WbsAssigneeStagePanel({
       ? await setWbsAssigneeCascade(itemId, memberId)
       : await setWbsAssignee(itemId, memberId)
     setBusy(null)
-    if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
+    if (!res.ok) { setErr(res.error ?? (useCascade ? t('wbs.assigneeCascadeFail') : t('wbs.errGeneric'))); return }
     // 본인 항목은 setWbsAssigneeCascade 도 단건 액션과 동일하게 항상 반영하므로(값이 다를
     // 때) 낙관적 갱신이 그대로 맞다 — 하위 트리만 별도의 null 필터를 적용한다.
     setLoaded(prev => (prev && prev !== 'error' ? { ...prev, assigneeMemberId: memberId } : prev))
