@@ -6,12 +6,14 @@ import { createServerClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import { getActor, requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
+import { emitNotification } from '@/lib/notify/emit'
 import { revalidatePath } from 'next/cache'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
   ISSUE_SEVERITIES, canTransition, nextResolvedAt,
   type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
+import { computeAddedAssignees } from '@/lib/domain/inbox'
 import {
   isIssueMegaCode,
   normalizeIssueAnalysisInput,
@@ -473,6 +475,7 @@ async function replaceAssignees(
   issueId: string,
   projectId: string,
   memberIds: string[],
+  notify?: { issueTitle: string; actorUserId: string },
 ): Promise<string | null> {
   const unique = [...new Set(memberIds)]
   if (unique.length === 0) {
@@ -492,12 +495,34 @@ async function replaceAssignees(
   }
   const validIds = (valid ?? []).map((r: { id: string }) => r.id)
   if (validIds.length !== unique.length) return '프로젝트 멤버가 아닌 담당자가 있습니다. 새로고침 후 다시 시도하세요.'
+
+  // 발행용 diff — delete 전에 기존 담당자를 스냅샷한다. 이 조회가 실패해도 담당자 저장 자체는
+  // 막지 않는다(알림은 부차 기능) — 실패는 로깅만 하고 알림을 생략한다.
+  let added: string[] = []
+  if (notify) {
+    const { data: prev, error: prevErr } = await sb
+      .from('issue_assignees').select('member_id').eq('issue_id', issueId)
+    if (prevErr) console.error('[notify] 기존 담당자 조회 실패 — 알림 생략:', prevErr.message)
+    else added = computeAddedAssignees((prev ?? []).map((p: { member_id: string }) => p.member_id), validIds)
+  }
+
   const { error: delErr } = await sb.from('issue_assignees').delete().eq('issue_id', issueId)
   if (delErr) return delErr.message // 삭제 실패를 삼키면 이어지는 insert 가 PK 충돌이 된다
   const { error } = await sb
     .from('issue_assignees')
     .insert(validIds.map(id => ({ issue_id: issueId, member_id: id, project_id: projectId })))
-  return error ? error.message : null
+  if (error) return error.message
+
+  if (notify && added.length > 0) {
+    await emitNotification({
+      type: 'issue.assigned', projectId, actorUserId: notify.actorUserId,
+      entityType: 'issue', entityId: issueId,
+      payload: { title: notify.issueTitle, detail: '이슈 담당자로 지정되었습니다', href: `/p/${projectId}/issues` },
+      recipientMemberIds: added,
+      dedupeKey: `issue.assigned:${issueId}:${added.slice().sort().join(',')}`,
+    })
+  }
+  return null
 }
 
 function revalidateIssues(projectId: string) {
@@ -604,7 +629,8 @@ export async function createIssue(projectId: string, input: IssueInput): Promise
   if (error) return { ok: false, error: error.message }
   const issueId = data.id as string
 
-  const assignErr = await replaceAssignees(sb, issueId, projectId, value.assigneeMemberIds)
+  const assignErr = await replaceAssignees(sb, issueId, projectId, value.assigneeMemberIds,
+    { issueTitle: value.title, actorUserId: g.actor.userId })
   if (assignErr) {
     // 담당자 저장 실패 시 방금 만든 이슈를 롤백(보상)해 담당 없는 반쪽 이슈가 남지 않게 한다(회의 관례).
     const { error: rbErr } = await sb.from('issues').delete().eq('id', issueId)
@@ -881,6 +907,13 @@ export async function createIssueFromMinuteBlock(
     issue_no: number | string
     pi_issue_code: string | null
   }
+  await emitNotification({
+    type: 'issue.assigned', projectId, actorUserId: user.id,
+    entityType: 'issue', entityId: row.issue_id,
+    payload: { title: value.title, detail: '회의록에서 생성된 이슈의 담당자로 지정되었습니다', href: `/p/${projectId}/issues` },
+    recipientMemberIds: [...new Set(value.assigneeMemberIds)],
+    dedupeKey: `issue.assigned:${row.issue_id}:init`,
+  })
   revalidateIssues(projectId)
   revalidatePath(`/minutes/${source.minuteId}`)
   return {
@@ -968,7 +1001,8 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
     .single()
   if (error) return { ok: false, error: error.message }
   // 본문 수정은 이미 커밋됨 — 담당자 교체가 실패해도 변경분이 보이도록 revalidate 후 에러 보고(회의 관례).
-  const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, input.assigneeMemberIds)
+  const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, input.assigneeMemberIds,
+    { issueTitle: value.title, actorUserId: gate.userId })
   revalidateIssues(cur.project_id as string)
   // 부분 실패는 부분 실패로 고지한다 — 맨 에러만 돌려주면 사용자가 전체 실패로 읽고
   // 이미 저장된 제목·내용 변경을 모른 채 지나간다(updateIssueProgress 와 같은 문구 원칙).
@@ -1001,7 +1035,7 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
   }
 
   const sb = await createServerClient()
-  const { data: cur } = await sb.from('issues').select('project_id, created_by, status, resolved_at').eq('id', issueId).maybeSingle()
+  const { data: cur } = await sb.from('issues').select('project_id, created_by, status, resolved_at, title').eq('id', issueId).maybeSingle()
   if (!cur) return { ok: false, error: '이슈를 찾을 수 없습니다.' }
   const curStatus = cur.status as IssueStatus
 
@@ -1046,7 +1080,8 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
 
   // 담당자 교체는 상태 CAS 가 통과한 뒤에만 — 충돌 감지 시 담당자까지 절반만 저장되는 일이 없게 한다.
   if (patch.assigneeMemberIds !== undefined) {
-    const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, patch.assigneeMemberIds)
+    const assignErr = await replaceAssignees(sb, issueId, cur.project_id as string, patch.assigneeMemberIds,
+      { issueTitle: cur.title as string, actorUserId: g.actor.userId })
     if (assignErr) {
       // 상태·메모는 이미 커밋됐다 — 화면이 그 변경을 반영하도록 revalidate 하고 실패는 실패로 알린다.
       revalidateIssues(cur.project_id as string)
