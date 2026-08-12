@@ -9,7 +9,9 @@ import { accessibleProjectIds } from '@/lib/agent/mineShared'
 /** GET /api/v1/agent/work/mine — 크로스 프로젝트 "내 작업". PAT 전용(계약 v2.0). */
 export const dynamic = 'force-dynamic'
 
-const SUPPORTED_SCOPES = ['available'] as const // Task 10: +claimed,all · Task 15: +assigned
+const SUPPORTED_SCOPES = ['available', 'claimed', 'all'] as const // Task 15: +assigned
+
+type Row = { wbs_item_id: string | null } & Record<string, unknown>
 
 export async function GET(req: NextRequest) {
   const scope = req.nextUrl.searchParams.get('scope') ?? 'available'
@@ -26,22 +28,51 @@ export async function GET(req: NextRequest) {
     if (!(SUPPORTED_SCOPES as readonly string[]).includes(scope)) {
       return apiFail(400, 'unsupported_scope', `지원하지 않는 scope 입니다: ${scope}`)
     }
+    const wantClaimed = scope === 'claimed' || scope === 'all'
+    const wantAvailable = scope === 'available' || scope === 'all'
 
     const projectIds = await accessibleProjectIds(admin, principal)
-    if (projectIds.length === 0) return NextResponse.json({ ok: true, scope, available: [] })
-
-    const { data: orders, error } = await admin
-      .from('agent_work_orders')
-      .select('id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at')
-      .in('project_id', projectIds).eq('status', 'ready')
-      .order('priority', { ascending: false }).order('created_at', { ascending: true })
-      .limit(limit)
-    if (error) {
-      console.error('[agent-api] mine 목록 조회 실패:', error.message)
-      return apiInternalError()
+    if (projectIds.length === 0) {
+      const empty: Record<string, unknown> = { ok: true, scope }
+      if (wantClaimed) empty.claimed = []
+      if (wantAvailable) empty.available = []
+      return NextResponse.json(empty)
     }
-    const rows = (orders ?? []) as Array<{ wbs_item_id: string | null } & Record<string, unknown>>
-    const itemIds = [...new Set(rows.map(o => o.wbs_item_id).filter((v): v is string => !!v))]
+
+    let claimedRows: Row[] = []
+    let availableRows: Row[] = []
+
+    // §2.4 — all 응답은 claimed 구획을 먼저 채운다: available 의 limit 절단이 방금 claim한
+    // 주문을 밀어내 "내 작업이 안 보이는" 문제를 구획 분리로 막는다.
+    if (wantClaimed) {
+      const { data: claimed, error: claimedErr } = await admin
+        .from('agent_work_orders')
+        .select('id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at')
+        .in('project_id', projectIds).eq('claimed_by_user_id', principal.userId).in('status', ['claimed', 'reported'])
+        .order('priority', { ascending: false }).order('created_at', { ascending: true })
+        .limit(limit)
+      if (claimedErr) {
+        console.error('[agent-api] mine claimed 조회 실패:', claimedErr.message)
+        return apiInternalError()
+      }
+      claimedRows = (claimed ?? []) as Row[]
+    }
+    if (wantAvailable) {
+      const { data: orders, error } = await admin
+        .from('agent_work_orders')
+        .select('id, project_id, status, priority, instructions, claimed_at, wbs_item_id, created_at')
+        .in('project_id', projectIds).eq('status', 'ready')
+        .order('priority', { ascending: false }).order('created_at', { ascending: true })
+        .limit(limit)
+      if (error) {
+        console.error('[agent-api] mine 목록 조회 실패:', error.message)
+        return apiInternalError()
+      }
+      availableRows = (orders ?? []) as Row[]
+    }
+
+    const allRows = [...claimedRows, ...availableRows]
+    const itemIds = [...new Set(allRows.map(o => o.wbs_item_id).filter((v): v is string => !!v))]
     const itemById = new Map<string, unknown>()
     if (itemIds.length > 0) {
       const { data: items, error: itemErr } = await admin
@@ -52,10 +83,13 @@ export async function GET(req: NextRequest) {
       }
       for (const it of (items ?? []) as Array<{ id: string }>) itemById.set(it.id, it)
     }
-    return NextResponse.json({
-      ok: true, scope,
-      available: rows.map(o => ({ ...o, item: o.wbs_item_id ? itemById.get(o.wbs_item_id) ?? null : null })),
-    })
+    const withItem = (rows: Row[]) =>
+      rows.map(o => ({ ...o, item: o.wbs_item_id ? itemById.get(o.wbs_item_id) ?? null : null }))
+
+    const body: Record<string, unknown> = { ok: true, scope }
+    if (wantClaimed) body.claimed = withItem(claimedRows)
+    if (wantAvailable) body.available = withItem(availableRows)
+    return NextResponse.json(body)
   } catch (e) {
     console.error('[agent-api] mine 처리 실패:', e instanceof Error ? e.message : e)
     return apiInternalError()

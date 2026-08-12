@@ -1,30 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { apiBadRequest, apiInternalError, apiNotFound, gateAgentApi } from '@/lib/agent/externalApi'
-import { loadGatedOrder, parseAgentActor } from '@/lib/agent/routeShared'
+import { apiBadRequest, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
+import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const gate = gateAgentApi(req)
-  if (gate) return gate
   const { id } = await ctx.params
   if (!isUuidLike(id)) return apiBadRequest('경로 id 형식이 올바르지 않습니다.')
   let raw: unknown
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
-  const actor = parseAgentActor(raw)
-  if ('error' in actor) return apiBadRequest(actor.error)
   try {
     const admin = createAdminClient()
-    const loaded = await loadGatedOrder(admin, id, actor.userEmail)
+    const actor = await resolveWriteActor(req, admin, raw, 'work:claim')
+    if (!actor.ok) return actor.res
+
+    const loaded = actor.principal.kind === 'pat'
+      ? await loadGatedOrderForUser(admin, id, actor.userId as string, actor.principal.userEmail)
+      : await loadGatedOrder(admin, id, (parseAgentActor(raw) as { userEmail: string }).userEmail)
     if (!loaded.ok) return loaded.res
 
     // CAS: ready 일 때만 점유된다 — 동시 claim 은 한쪽이 0행을 본다.
+    // claimed_by_user_id 는 PAT 경로에서만 서버 유도값으로 기록한다(body 에서 받지 않는다).
     const { data: updated, error: casErr } = await admin
       .from('agent_work_orders')
       .update({
-        status: 'claimed', claimed_by: actor.agent,
+        status: 'claimed', claimed_by: actor.agentLabel,
+        claimed_by_user_id: actor.principal.kind === 'pat' ? actor.userId : null,
         claimed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
       })
       .eq('id', id).eq('status', 'ready')
