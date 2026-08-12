@@ -300,7 +300,7 @@ export function RowDetailPanel({
               별도 오버레이가 아니라 이 패널의 섹션으로 둔다(리뷰 라운드 1 — 두 번째
               fixed dialog는 aria-modal 뒤에서 키보드·스크린리더로 도달 불가했다). */}
           {!editing && (
-            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} />
+            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} hasChildren={item.children.length > 0} />
           )}
 
           {!editing && (

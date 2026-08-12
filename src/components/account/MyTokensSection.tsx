@@ -5,6 +5,8 @@ import { Check, Copy, KeyRound, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
+import { useLocale } from '@/components/providers/LocaleProvider'
+import type { DictKey } from '@/lib/i18n/dict'
 import {
   createAgentToken, listMyAgentTokens, revokeAgentToken,
 } from '@/app/actions/agentTokens'
@@ -14,9 +16,11 @@ type TokenRow = {
   project_id: string | null; expires_at: string; revoked_at: string | null; last_seen_at: string | null
 }
 
-const SCOPE_OPTIONS = [
-  { value: 'work:read', label: '조회 (work:read)' },
-  { value: 'work:claim', label: 'claim/release (work:claim)' },
+// 스코프 설명(스테이징 실사용 피드백 2026-08-11) — 52명+ 로스터에서 claim 스코프가 조회를
+// 포함한다는 사실이 체크박스 라벨만으론 드러나지 않아 오발급 문의가 있었다.
+const SCOPE_OPTIONS: readonly { value: string; label: string; descKey: DictKey }[] = [
+  { value: 'work:read', label: '조회 (work:read)', descKey: 'account.scope.workRead.desc' },
+  { value: 'work:claim', label: 'claim/release (work:claim)', descKey: 'account.scope.workClaim.desc' },
 ] as const
 
 const EXPIRES_OPTIONS = [30, 90, 180] as const
@@ -27,6 +31,7 @@ const EXPIRES_OPTIONS = [30, 90, 180] as const
  */
 export function MyTokensSection({ projects }: { projects: { id: string; name: string }[] }) {
   const { toast } = useToast()
+  const { t } = useLocale()
   const [tokens, setTokens] = useState<TokenRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -183,9 +188,12 @@ export function MyTokensSection({ projects }: { projects: { id: string; name: st
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">스코프</span>
               <div className="flex flex-col gap-1.5">
                 {SCOPE_OPTIONS.map((opt) => (
-                  <label key={opt.value} className="flex items-center gap-2 text-sm text-ink">
-                    <input type="checkbox" checked={scopes.includes(opt.value)} onChange={() => toggleScope(opt.value)} disabled={issuing} />
-                    {opt.label}
+                  <label key={opt.value} className="flex items-start gap-2 text-sm text-ink">
+                    <input type="checkbox" checked={scopes.includes(opt.value)} onChange={() => toggleScope(opt.value)} disabled={issuing} className="mt-0.5" />
+                    <span>
+                      {opt.label}
+                      <span className="block text-xs text-ink-subtle">{t(opt.descKey)}</span>
+                    </span>
                   </label>
                 ))}
               </div>
@@ -200,6 +208,7 @@ export function MyTokensSection({ projects }: { projects: { id: string; name: st
             <button onClick={submitIssue} className="btn btn-primary w-full" disabled={issuing}>
               {issuing ? '발급 중…' : '토큰 발급'}
             </button>
+            <p className="text-[11px] text-ink-subtle">{t('account.scope.reportAdminOnly')}</p>
           </div>
 
           {issued && (

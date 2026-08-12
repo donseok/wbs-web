@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { User } from 'lucide-react'
 import type { ProjectMember } from '@/lib/domain/types'
-import { MemberSelectOptions } from '@/components/members/MemberPicker'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { getWbsAssigneeStage, setWbsAssignee, setWbsStage } from '@/app/actions/wbsAssign'
+import { getWbsAssigneeStage, setWbsAssignee, setWbsAssigneeCascade, setWbsStage } from '@/app/actions/wbsAssign'
 import { WbsSpecPanel } from './WbsSpecPanel'
+import { AssigneeComboBox } from './AssigneeComboBox'
 import type { DictKey } from '@/lib/i18n/dict'
 
 type Stage = 'todo' | 'as' | 'fp' | 'ip' | 'im' | 'xx'
@@ -30,18 +30,24 @@ const STAGES: Stage[] = ['todo', 'as', 'fp', 'ip', 'im', 'xx']
  * 클라이언트에서 별도 로드한다. 편집은 프로젝트 관리자만(editable=false 면 읽기 전용).
  */
 export function WbsAssigneeStagePanel({
-  itemId, members, editable,
+  itemId, members, editable, hasChildren = false,
 }: {
   itemId: string
   members: ProjectMember[]
   editable: boolean
+  /** 하위 항목이 있으면 "미지정 하위 항목에도 적용" 체크박스를 노출한다(스테이징 피드백). */
+  hasChildren?: boolean
 }) {
   const router = useRouter()
   const { t } = useLocale()
   const teamCodes = useTeamCodes()
+  const assigneeLabelId = useId()
   const [loaded, setLoaded] = useState<{ assigneeMemberId: string | null; stage: string | null } | 'error' | null>(null)
   const [busy, setBusy] = useState<'assignee' | 'stage' | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [cascade, setCascade] = useState(true)
+  const [cascadeResult, setCascadeResult] = useState<number | null>(null)
+  const [cascadeWarn, setCascadeWarn] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -52,11 +58,20 @@ export function WbsAssigneeStagePanel({
   }, [itemId])
 
   async function onAssigneeChange(memberId: string | null) {
-    setBusy('assignee'); setErr(null)
-    const res = await setWbsAssignee(itemId, memberId)
+    setBusy('assignee'); setErr(null); setCascadeResult(null); setCascadeWarn(false)
+    const useCascade = hasChildren && cascade && memberId !== null
+    const res = useCascade
+      ? await setWbsAssigneeCascade(itemId, memberId)
+      : await setWbsAssignee(itemId, memberId)
     setBusy(null)
-    if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
+    if (!res.ok) { setErr(res.error ?? (useCascade ? t('wbs.assigneeCascadeFail') : t('wbs.errGeneric'))); return }
+    // 본인 항목은 setWbsAssigneeCascade 도 단건 액션과 동일하게 항상 반영하므로(값이 다를
+    // 때) 낙관적 갱신이 그대로 맞다 — 하위 트리만 별도의 null 필터를 적용한다.
     setLoaded(prev => (prev && prev !== 'error' ? { ...prev, assigneeMemberId: memberId } : prev))
+    if (useCascade && 'count' in res && typeof res.count === 'number' && res.count > 0) setCascadeResult(res.count)
+    // 하위 UPDATE 만 실패한 부분 성공(리뷰 라운드 2) — 본인 반영은 확정됐으므로 성공 취급하되
+    // "하위 일괄 적용은 실패했다"는 사실은 별도 경고로 알린다(assigneeCascadeFail 키 재사용).
+    if (useCascade && 'cascadeFailed' in res && res.cascadeFailed) setCascadeWarn(true)
     router.refresh()
   }
 
@@ -85,22 +100,49 @@ export function WbsAssigneeStagePanel({
             <p className="text-xs font-medium text-delayed">{t('wbs.assigneeStageLoadFail')}</p>
           ) : (
             <>
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.assigneeLabel')}</span>
+              <div>
+                {/* <label> 아님 — 안의 콤보박스가 role=listbox/option 을 갖는 상호작용 콘텐츠라
+                    <label> 로 감싸면 옵션 클릭이 label 활성화(입력 재포커스)와 충돌한다.
+                    aria-labelledby 로만 라벨을 연결한다. */}
+                <span id={assigneeLabelId} className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.assigneeLabel')}</span>
                 {editable ? (
-                  <select
-                    value={loaded.assigneeMemberId ?? ''}
+                  <AssigneeComboBox
+                    members={members}
+                    value={loaded.assigneeMemberId}
                     disabled={busy === 'assignee'}
-                    onChange={e => onAssigneeChange(e.target.value || null)}
-                    className="app-input h-9 text-xs"
-                  >
-                    <option value="">{t('wbs.assigneeUnassignedOption')}</option>
-                    <MemberSelectOptions members={members} view="name" categoryOrder={teamCodes} />
-                  </select>
+                    onChange={onAssigneeChange}
+                    categoryOrder={teamCodes}
+                    unassignedLabel={t('wbs.assigneeUnassignedOption')}
+                    placeholder={t('wbs.assigneeSearchPlaceholder')}
+                    noResultsLabel={t('wbs.assigneeSearchNoResults')}
+                    ariaLabelledBy={assigneeLabelId}
+                  />
                 ) : (
                   <p className="text-sm text-ink">{memberName(loaded.assigneeMemberId) ?? t('wbs.assigneeUnassignedOption')}</p>
                 )}
-              </label>
+              </div>
+
+              {editable && hasChildren && (
+                <label className="flex items-center gap-2 text-xs text-ink-muted">
+                  <input
+                    type="checkbox"
+                    checked={cascade}
+                    onChange={e => setCascade(e.target.checked)}
+                    disabled={busy === 'assignee'}
+                  />
+                  {t('wbs.assigneeCascadeLabel')}
+                </label>
+              )}
+              {cascadeResult !== null && (
+                <p className="text-xs font-medium text-brand">
+                  {t('wbs.assigneeCascadeResult').replace('{n}', String(cascadeResult))}
+                </p>
+              )}
+              {cascadeWarn && (
+                <p className="text-xs font-medium text-delayed" role="alert">
+                  {t('wbs.assigneeCascadeFail')}
+                </p>
+              )}
 
               <label className="block">
                 <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.stageLabel')}</span>
