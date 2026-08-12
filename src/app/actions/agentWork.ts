@@ -3,9 +3,11 @@
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
+import type { AdminClient } from '@/lib/minutes/externalApi'
 import { requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { updateActual } from '@/app/actions/wbs'
 import { isUuidLike } from '@/lib/domain/agentWork'
+import { emitNotification } from '@/lib/notify/emit'
 
 /**
  * 에이전트 작업 루프 UI 서버 액션 — 스펙 §5.
@@ -100,6 +102,42 @@ async function loadOrderForAdmin(orderId: string): Promise<
   return { ok: true, order: row, actor: g.actor }
 }
 
+/**
+ * 승인/반려 알림 — fire-and-forget. 수신자는 그 항목의 배정자(없으면 발행 생략).
+ * work.unblocked 는 여기서 발행하지 않는다 — 정본은 setWbsStage(wbsAssign.ts)의 전체-선행-충족
+ * 게이트 경로 하나다. 이 액션은 게이트·dedupeKey 없이 판단해 거짓 알림을 낼 수 있었다(최종 리뷰 I2).
+ */
+async function notifyReviewResult(
+  admin: AdminClient,
+  order: { id: string; project_id: string; wbs_item_id: string | null },
+  type: 'work.approved' | 'work.rejected',
+  actorUserId: string,
+) {
+  if (!order.wbs_item_id) return
+  const { data: itemRow, error } = await admin
+    .from('wbs_items').select('name, assignee_member_id')
+    .eq('id', order.wbs_item_id).maybeSingle()
+  if (error) {
+    console.error('[agentWork] 알림용 항목 조회 실패:', error.message)
+    return
+  }
+  if (!itemRow) return
+  const item = itemRow as { name: string; assignee_member_id: string | null }
+  if (!item.assignee_member_id) return
+  emitNotification({
+    type, projectId: order.project_id, actorUserId,
+    entityType: 'agent_order', entityId: order.id,
+    payload: {
+      title: item.name,
+      detail: type === 'work.approved' ? '완료가 승인되었습니다' : '완료가 반려되었습니다',
+      href: AGENT_OPS_PATH,
+    },
+    recipientMemberIds: [item.assignee_member_id],
+  }).catch(() => {
+    // 알림 실패는 로깅만 하고 본 동작에 영향을 주지 않는다.
+  })
+}
+
 /** 승인 — WBS 100% 반영이 먼저다. 반영 실패면 주문은 reported 로 남아 재시도 가능해야 한다. */
 export async function approveAgentCompletion(orderId: string): Promise<ActionResult> {
   const loaded = await loadOrderForAdmin(orderId)
@@ -148,6 +186,7 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
       .eq('id', (latest as { id: string }).id).select('id')
     if (revErr) console.error('[agentWork] 승인 기록 실패:', revErr.message)
   }
+  await notifyReviewResult(admin, order, 'work.approved', actor.userId)
   revalidatePath(AGENT_OPS_PATH)
   return { ok: true }
 }
@@ -181,6 +220,7 @@ export async function rejectAgentCompletion(orderId: string, note: string): Prom
       .eq('id', (latest as { id: string }).id).select('id')
     if (revErr) console.error('[agentWork] 반려 기록 실패:', revErr.message)
   }
+  await notifyReviewResult(admin, order, 'work.rejected', actor.userId)
   revalidatePath(AGENT_OPS_PATH)
   return { ok: true }
 }
@@ -192,7 +232,10 @@ export async function reclaimAgentOrder(orderId: string): Promise<ActionResult> 
   const admin = createAdminClient()
   const { data: updated, error } = await admin
     .from('agent_work_orders')
-    .update({ status: 'ready', claimed_by: null, claimed_at: null, updated_at: new Date().toISOString() })
+    .update({
+      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', orderId).eq('status', 'claimed')
     .select('id')
   if (error) return { ok: false, error: error.message }

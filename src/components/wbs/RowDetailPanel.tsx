@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
-import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, TaskDependency, TeamCode } from '@/lib/domain/types'
+import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, ProjectMember, TaskDependency, TeamCode } from '@/lib/domain/types'
 import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
 import {
   getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem,
@@ -14,9 +14,12 @@ import { listAttachments, recordAttachment, removeAttachment } from '@/app/actio
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
+import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 import type { DictKey } from '@/lib/i18n/dict'
+const EMPTY_MEMBERS: ProjectMember[] = []
 
 type Tr = (k: DictKey) => string
 const ROLE_KEY: Record<string, DictKey> = { pmo_admin: 'wbs.rolePmoAdmin', team_editor: 'wbs.roleTeamEditor' }
@@ -24,11 +27,17 @@ const FIELD_KEY: Record<string, DictKey> = {
   actual_pct: 'wbs.colActualPct', weight: 'wbs.colWeight', name: 'wbs.fieldName', planned_start: 'wbs.colPlannedStart',
   planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
   dependency: 'wbs.dependencies',
+  // Task 12(stage)·Task 12A(spec) 가 change_logs 에 기록하는 필드명 — 매핑이 없으면 이 화면의
+  // 변경 이력 라벨이 원문 그대로("stage"/"spec") 노출된다(fmtValue 는 값만 다루고 라벨은 이 맵이 정본).
+  stage: 'wbs.stageLabel', spec: 'wbs.specPanelTitle',
 }
 function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
   if (field === 'dependency') return t('wbs.dependencyLink')
   if (field === 'weight' && !Number.isNaN(Number(v))) return formatWeightPct(Number(v))
+  // spec 은 본문 전문을 로그에 넣지 않고 로케일 중립 토큰만 저장한다(wbsSpecLog.ts) — 여기서
+  // 사전 키로 변환. 리터럴 한국어를 그대로 저장하면 en 사용자 이력에도 노출된다(리뷰 라운드 1).
+  if (field === 'spec' && v === SPEC_UPDATED_TOKEN) return t('wbs.specUpdatedLogValue')
   return field === 'actual_pct' ? `${v}%` : v
 }
 function fmtAt(iso: string): string {
@@ -48,6 +57,7 @@ function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
+  members = EMPTY_MEMBERS,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -63,6 +73,8 @@ export function RowDetailPanel({
   levelLabels?: string[]
   /** 프로젝트별 최대 깊이(§7.3 ProjectConfig, null=무제한) — 자식 추가 어포던스 판정(canAddChild)에 사용. */
   maxDepth?: number | null
+  /** 프로젝트 로스터 — 담당·단계 섹션(WbsAssigneeStagePanel)의 담당자 셀렉트 데이터 소스(§2.5). */
+  members?: ProjectMember[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -282,6 +294,13 @@ export function RowDetailPanel({
                 )}
               </Field>
             </>
+          )}
+
+          {/* 담당(로스터 축)·단계(§2.5) — 팀 단위 owners(위 Field)와 별개인 개인 배정.
+              별도 오버레이가 아니라 이 패널의 섹션으로 둔다(리뷰 라운드 1 — 두 번째
+              fixed dialog는 aria-modal 뒤에서 키보드·스크린리더로 도달 불가했다). */}
+          {!editing && (
+            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} hasChildren={item.children.length > 0} />
           )}
 
           {!editing && (

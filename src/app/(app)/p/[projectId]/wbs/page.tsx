@@ -1,4 +1,5 @@
 import { getComputedWbs } from '@/lib/data/wbs'
+import { getProjectMembers } from '@/lib/data/members'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { listProjects } from '@/app/actions/project'
 import { getSession } from '@/lib/auth'
@@ -24,7 +25,7 @@ export default async function WbsPage({
   const { projectId } = await params
   const { view, focus } = await searchParams
   const locale = await getServerLocale()
-  const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user, projectConfig, uiPrefs] = await Promise.all([
+  const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user, projectConfig, uiPrefs, members] = await Promise.all([
     getComputedWbs(projectId),
     getActorForView(),
     listProjects(),
@@ -32,6 +33,7 @@ export default async function WbsPage({
     getSession(),
     getProjectConfig(projectId),
     getUiPrefs(),
+    getProjectMembers(projectId),
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   // 프레즌스 신원 — 주간 시트와 동일하게 서버 세션에서 전달
@@ -64,6 +66,7 @@ export default async function WbsPage({
         maxDepth={projectConfig.maxDepth}
         milestoneKeywords={projectConfig.milestoneKeywords}
         initialHideDone={uiPrefs.wbsHideDone ?? false}
+        members={members}
       />
     </ProjectPageShell>
   )
