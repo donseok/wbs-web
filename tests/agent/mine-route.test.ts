@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({ createAdminClient: vi.fn() }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 
 import { GET as mineGET } from '@/app/api/v1/agent/work/mine/route'
+import { accessibleProjectIds } from '@/lib/agent/mineShared'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
 const P2 = '22222222-2222-4222-8222-222222222222'
@@ -153,5 +154,65 @@ describe('GET /agent/work/mine', () => {
     const body = await res.json()
     expect(body.available).toHaveLength(1)
     expect(body.available[0].id).toBe('o-1')
+  })
+})
+
+describe('accessibleProjectIds — 직접 단위 테스트', () => {
+  const patPrincipal = {
+    kind: 'pat' as const, runnerId: 'r-1', userId: 'u-1', userEmail: 'dev@example.com',
+    scopes: ['work:read'], projectId: null, runnerKind: 'user_pat' as const,
+    tokenExpiresAt: '2099-01-01T00:00:00Z',
+  }
+
+  it('(a) enabled 프로젝트 P1·P2, PAT 소유자 P1만 멤버 → ["P1"] (P2 부재 직접 단언)', async () => {
+    useAdmin({
+      agent_projects: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      memberships: [
+        { data: { is_superuser: false } }, // P1 체크
+        { data: { is_superuser: false } }, // P2 체크
+      ],
+      project_roles: [
+        { data: [{ role: 'member' }] }, // P1: 멤버
+        { data: [] }, // P2: 비멤버
+      ],
+    })
+    const admin = mocks.createAdminClient()
+    const result = await accessibleProjectIds(admin, patPrincipal)
+    expect(result).toEqual([P1])
+    expect(result).not.toContain(P2)
+  })
+
+  it('(b) PAT project_id 한정 P1 → ["P1"] (P2 멤버여도 patProjectAllowed 배제)', async () => {
+    const patP1Scoped = { ...patPrincipal, projectId: P1 }
+    useAdmin({
+      agent_projects: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      memberships: [
+        { data: { is_superuser: false } }, // P1 체크만 필요 (P2는 patProjectAllowed 에서 스킵)
+      ],
+      project_roles: [
+        { data: [{ role: 'member' }] }, // P1: 멤버
+      ],
+    })
+    const admin = mocks.createAdminClient()
+    const result = await accessibleProjectIds(admin, patP1Scoped)
+    expect(result).toEqual([P1])
+    expect(result).not.toContain(P2)
+  })
+
+  it('(c) P2 멤버십 조회 실패 → ["P1"] (fail-closed 로 P2 배제)', async () => {
+    useAdmin({
+      agent_projects: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      memberships: [
+        { data: { is_superuser: false } }, // P1: 성공
+        { error: { message: 'DB error' } }, // P2: 실패
+      ],
+      project_roles: [
+        { data: [{ role: 'member' }] }, // P1: 멤버
+      ],
+    })
+    const admin = mocks.createAdminClient()
+    const result = await accessibleProjectIds(admin, patPrincipal)
+    expect(result).toEqual([P1])
+    expect(result).not.toContain(P2)
   })
 })
