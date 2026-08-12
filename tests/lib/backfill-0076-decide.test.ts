@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 // 0076 백필 러너의 per-minute 판정만 떼어 검사한다(scripts/backfill-0076.runner.ts 자체는 실
 // DB 를 부르므로 import 하지 않는다 — wiki-rebuild-loop.test.ts 와 같은 관례).
 import { buildFolderSnapshot } from '@/lib/minutes/folders'
-import { decideBackfillAction } from '../../scripts/lib/backfill-0076-decide'
+import { buildPreSnapshot, decideBackfillAction } from '../../scripts/lib/backfill-0076-decide'
 
 const PROJECT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 const PROJECT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
@@ -49,5 +49,24 @@ describe('decideBackfillAction', () => {
       snap, { id: 'm5', projectId: PROJECT_A, folderId: 'ghost-folder-id' },
     )
     expect(got).toEqual({ action: 'unfiled' })
+  })
+})
+
+describe('buildPreSnapshot', () => {
+  it('조회된 행 전체를 kept/unfiled/resolve 판정과 무관하게 그대로 옮긴다', () => {
+    const got = buildPreSnapshot([
+      { id: 'm1', folder_id: 'child-a-quality' },
+      { id: 'm2', folder_id: null },
+      { id: 'm3', folder_id: 'ghost-folder-id' },
+    ])
+    expect(got).toEqual([
+      { minuteId: 'm1', oldFolderId: 'child-a-quality' },
+      { minuteId: 'm2', oldFolderId: null },
+      { minuteId: 'm3', oldFolderId: 'ghost-folder-id' },
+    ])
+  })
+
+  it('빈 목록은 빈 스냅샷 — 대상이 없는 target 도 파일은 남긴다', () => {
+    expect(buildPreSnapshot([])).toEqual([])
   })
 })

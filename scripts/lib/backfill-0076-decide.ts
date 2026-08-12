@@ -28,3 +28,22 @@ export function decideBackfillAction(
   if (!path) return { action: 'unfiled' }
   return { action: 'resolve', path }
 }
+
+/** 사후 로그(outputs/*.json 의 log[])의 세부 사유 — decideBackfillAction 의 3-way action 보다
+ *  세분화돼 있다: 'resolve' 액션의 I/O 결과가 성공(moved)/실패(no-target) 로 더 갈리기 때문.
+ *  Task 10 운영자가 "왜 미분류로 남았는가"(끊긴 체인 vs 대상 해석 실패)를 구분하는 용도. */
+export type BackfillLogReason = 'kept' | 'broken-chain' | 'no-target' | 'moved'
+
+export interface BackfillPreSnapshotEntry {
+  minuteId: string
+  oldFolderId: string | null
+}
+
+/** apply 이전 사전 스냅샷 — 대상 회의록 전량의 (id, 기존 folder_id) 를 그대로 옮긴다.
+ *  DB I/O 없는 순수 함수. 롤백 복원용이라 이후의 kept/unfiled/resolve 판정과 무관하게
+ *  조회된 행 전체를 포함해야 한다 — 어떤 것이 실제로 update 될지는 이 시점엔 아직 모른다. */
+export function buildPreSnapshot(
+  minutes: readonly { id: string; folder_id: string | null }[],
+): BackfillPreSnapshotEntry[] {
+  return minutes.map(m => ({ minuteId: m.id, oldFolderId: m.folder_id ?? null }))
+}
