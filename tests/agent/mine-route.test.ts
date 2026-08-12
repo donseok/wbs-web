@@ -63,9 +63,48 @@ describe('GET /agent/work/mine', () => {
     expect(body.claimed).toBeUndefined()
   })
 
-  it('scope=claimed 는 Phase 1 에서 400 unsupported_scope', async () => {
-    useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }] })
+  it('scope=claimed — 본인 점유(claimed_by_user_id) 주문만', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [{ data: [
+        { id: 'o-2', project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_at: '2026-08-01T00:00:00Z', wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' },
+      ] }],
+      wbs_items: [{ data: [] }],
+    })
     const res = await mineGET(get('http://l/api/v1/agent/work/mine?scope=claimed', PAT.token))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.scope).toBe('claimed')
+    expect(body.claimed).toHaveLength(1)
+    expect(body.available).toBeUndefined()
+  })
+
+  it('scope=all — claimed 구획을 먼저, available 을 나중에 채운다', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }] }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_orders: [
+        { data: [{ id: 'o-2', project_id: P1, status: 'claimed', priority: 0, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' }] },
+        { data: [{ id: 'o-1', project_id: P1, status: 'ready', priority: 5, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' }] },
+      ],
+      wbs_items: [{ data: [] }],
+    })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine?scope=all', PAT.token))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(Object.keys(body)).toEqual(['ok', 'scope', 'claimed', 'available'])
+    expect(body.claimed).toHaveLength(1)
+    expect(body.available).toHaveLength(1)
+  })
+
+  it('지원하지 않는 scope → 400 unsupported_scope', async () => {
+    useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }] })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine?scope=assigned', PAT.token))
     expect(res.status).toBe(400)
     expect((await res.json()).code).toBe('unsupported_scope')
   })

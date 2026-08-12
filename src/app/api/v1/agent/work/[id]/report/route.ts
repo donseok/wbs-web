@@ -2,10 +2,13 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
-import { AGENT_LINKS_MAX, validateReport, isUuidLike, type AgentReportKind } from '@/lib/domain/agentWork'
+import {
+  AGENT_LINKS_MAX, validateEvidence, validateReport, isUuidLike, type AgentReportKind,
+} from '@/lib/domain/agentWork'
 import { applyAgentProgress } from '@/lib/agent/applyProgress'
-import { apiBadRequest, apiFail, apiInternalError, apiNotFound, gateAgentApi } from '@/lib/agent/externalApi'
-import { loadGatedOrder, parseAgentActor } from '@/lib/agent/routeShared'
+import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
+import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
+import { emitNotification } from '@/lib/notify/emit'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,15 +29,11 @@ function parseLinks(raw: unknown): Link[] | { error: string } {
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const gate = gateAgentApi(req)
-  if (gate) return gate
   const { id } = await ctx.params
   if (!isUuidLike(id)) return apiBadRequest('id 형식이 올바르지 않습니다.')
   let raw: unknown
   try { raw = await req.json() } catch { return apiBadRequest('잘못된 요청입니다.') }
-  const actor = parseAgentActor(raw)
-  if ('error' in actor) return apiBadRequest(actor.error)
-  const b = raw as Record<string, unknown>
+  const b = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
   const kind = b.kind
   if (kind !== 'progress' && kind !== 'completion') return apiBadRequest('kind는 progress 또는 completion이어야 합니다.')
   const percent = typeof b.percent === 'number' ? b.percent : NaN
@@ -44,18 +43,39 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!summary) return apiBadRequest('summary가 필요합니다.')
   const links = parseLinks(b.links)
   if ('error' in links) return apiBadRequest(links.error)
+  const ev = validateEvidence(b.evidence)
+  if (!ev.ok) return apiBadRequest(ev.error)
 
   try {
     const admin = createAdminClient()
-    const loaded = await loadGatedOrder(admin, id, actor.userEmail)
+    const actor = await resolveWriteActor(req, admin, raw, 'work:report')
+    if (!actor.ok) return actor.res
+
+    const loaded = actor.principal.kind === 'pat'
+      ? await loadGatedOrderForUser(admin, id, actor.userId as string, actor.principal.userEmail)
+      : await loadGatedOrder(admin, id, (parseAgentActor(raw) as { userEmail: string }).userEmail)
     if (!loaded.ok) return loaded.res
     const order = loaded.order
-    // 보고는 점유 상태에서만, 본인 점유만. reported(승인 대기)는 판정 전 원장 동결(스펙 §6).
+    // 보고는 점유 상태에서만. reported(승인 대기)는 판정 전 원장 동결(스펙 §6).
     if (order.status !== 'claimed') {
       return apiFail(409, 'conflict', `보고 가능한 상태가 아닙니다(현재: ${order.status}).`)
     }
-    if (order.claimed_by !== actor.agent) {
-      return apiFail(403, 'not_claim_owner', '본인이 점유한 주문만 보고할 수 있습니다.')
+
+    // 소유 판정(§2.3) — 교차 소유는 양방향 모두 403 not_claim_owner.
+    if (actor.principal.kind === 'pat') {
+      if (order.claimed_by_user_id === null) {
+        return apiFail(403, 'not_claim_owner', '레거시 세션이 점유한 주문입니다.')
+      }
+      if (order.claimed_by_user_id !== actor.userId) {
+        return apiFail(403, 'not_claim_owner', '본인이 점유한 주문만 처리할 수 있습니다.')
+      }
+    } else {
+      if (order.claimed_by_user_id !== null) {
+        return apiFail(403, 'not_claim_owner', 'PAT 사용자가 점유한 주문입니다.')
+      }
+      if (order.claimed_by !== actor.agentLabel) {
+        return apiFail(403, 'not_claim_owner', '본인이 점유한 주문만 보고할 수 있습니다.')
+      }
     }
 
     let appliedToWbs = false
@@ -76,8 +96,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { data: report, error: repErr } = await admin
       .from('agent_work_reports')
       .insert({
-        work_order_id: id, kind, percent, summary, links,
-        agent: actor.agent, actor_user_id: loaded.userId, applied_to_wbs: appliedToWbs,
+        work_order_id: id, kind, percent, summary, links, evidence: ev.evidence,
+        agent: actor.agentLabel, actor_user_id: loaded.userId, applied_to_wbs: appliedToWbs,
       })
       .select('id')
     if (repErr || !report || (report as unknown[]).length === 0) {
@@ -88,11 +108,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     // completion 은 CAS 로 reported 전이 — 경합 시 cleanup(고아 행 무해) + 409.
     if (kind === 'completion') {
-      const { data: updated, error: casErr } = await admin
+      const casQuery = admin
         .from('agent_work_orders')
         .update({ status: 'reported', updated_at: new Date().toISOString() })
-        .eq('id', id).eq('status', 'claimed').eq('claimed_by', actor.agent)
-        .select('id')
+        .eq('id', id).eq('status', 'claimed')
+      const { data: updated, error: casErr } = await (
+        actor.principal.kind === 'pat'
+          ? casQuery.eq('claimed_by_user_id', actor.userId as string)
+          : casQuery.eq('claimed_by', actor.agentLabel)
+      ).select('id')
       if (casErr) {
         console.error('[agent-api] completion 전이 실패:', casErr.message)
         // Cleanup: best-effort delete 보고 행
@@ -108,6 +132,25 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         if (cleanupErr) console.error('[agent-api] 보고 행 cleanup 실패(고아 행 남음):', cleanupErr.message)
         return apiFail(409, 'conflict', '완료 요청 가능한 상태가 아닙니다.')
       }
+      // 알림 발행 — completion→reported 전이 성공 직후. progress 보고에는 발행하지 않는다(fire-and-forget).
+      const { data: admins, error: adminsErr } = await admin
+        .from('project_roles').select('user_id').eq('project_id', order.project_id).eq('role', 'admin')
+      if (adminsErr) console.error('[agent-api] 관리자 조회 실패(알림 생략):', adminsErr.message)
+      let itemName = '작업'
+      if (order.wbs_item_id) {
+        const { data: itemRow, error: itemNameErr } = await admin
+          .from('wbs_items').select('name').eq('id', order.wbs_item_id).maybeSingle()
+        if (itemNameErr) console.error('[agent-api] 항목 이름 조회 실패(알림 계속):', itemNameErr.message)
+        else if (itemRow) itemName = (itemRow as { name: string }).name
+      }
+      emitNotification({
+        type: 'work.reported', projectId: order.project_id, actorUserId: loaded.userId ?? null,
+        entityType: 'agent_order', entityId: id,
+        payload: { title: itemName, detail: '완료 보고 — 승인 대기', href: '/agent-ops' },
+        recipientUserIds: ((admins ?? []) as Array<{ user_id: string }>).map(a => a.user_id),
+      }).catch(() => {
+        // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.
+      })
     } else {
       // progress 는 상태 유지 — updated_at 만 갱신해 보드의 활동 시각을 살린다.
       const { error: touchErr } = await admin

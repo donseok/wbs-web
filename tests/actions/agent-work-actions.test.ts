@@ -15,11 +15,13 @@ vi.mock('@/app/actions/wbs', () => ({ updateActual: mocks.updateActual }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+vi.mock('@/lib/notify/emit', () => ({ emitNotification: vi.fn().mockResolvedValue(undefined) }))
 
 import {
   approveAgentCompletion, createAgentWorkOrder, rejectAgentCompletion,
   registerAgentProject, unregisterAgentProject, reclaimAgentOrder, cancelAgentOrder, fetchAgentOps,
 } from '@/app/actions/agentWork'
+import { emitNotification } from '@/lib/notify/emit'
 
 // UUID 형식 테스트 픽스처
 const P1 = '11111111-1111-4111-8111-111111111111'
@@ -32,7 +34,7 @@ function admin(queues: Record<string, Resp[]>) {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'insert', 'update', 'delete', 'eq', 'in', 'order', 'limit']) b[k] = () => b
+      for (const k of ['select', 'insert', 'update', 'delete', 'eq', 'in', 'order', 'limit', 'contains']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.single = b.maybeSingle
       b.then = (r: (v: unknown) => unknown) =>
@@ -148,6 +150,46 @@ describe('approveAgentCompletion', () => {
     expect(r.error).toContain('다른 관리자의 반려와 경합했습니다')
     expect(r.error).toContain('WBS 실적이 이미 100%로 반영되었으니')
   })
+  it('배정자에게 work.approved 발행', async () => {
+    admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+      wbs_items: [{ data: { name: '로그인', assignee_member_id: 'm-1', stage: null, external_ref: null } }],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.approved', projectId: P1, actorUserId: 'admin-1',
+      entityType: 'agent_order', entityId: O1,
+      recipientMemberIds: ['m-1'],
+    }))
+  })
+  it('배정자 없으면 발행 생략', async () => {
+    admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+      wbs_items: [{ data: { name: '로그인', assignee_member_id: null, stage: null, external_ref: null } }],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(emitNotification).not.toHaveBeenCalled()
+  })
+  it('승인으로 stage 가 im 이상이면 후행 리프 담당자에게 work.unblocked 추가 발행', async () => {
+    admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+      wbs_items: [
+        { data: { name: '로그인', assignee_member_id: 'm-1', stage: 'im', external_ref: 'MES/TSK-01-00' } }, // 알림용 항목 조회
+        { data: [{ id: 'w-2', name: '후행 작업', assignee_member_id: 'm-2' }] }, // depends 역참조
+        { data: null }, // 리프 확인(자식 없음)
+      ],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.unblocked', entityType: 'wbs_item', entityId: 'w-2', recipientMemberIds: ['m-2'],
+    }))
+  })
 })
 
 describe('rejectAgentCompletion', () => {
@@ -168,6 +210,20 @@ describe('rejectAgentCompletion', () => {
     })
     const r = await rejectAgentCompletion(O1, '거절 사유')
     expect(r.ok).toBe(true)
+  })
+  it('배정자에게 work.rejected 발행', async () => {
+    admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+      wbs_items: [{ data: { name: '로그인', assignee_member_id: 'm-1', stage: null, external_ref: null } }],
+    })
+    const r = await rejectAgentCompletion(O1, '거절 사유')
+    expect(r.ok).toBe(true)
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.rejected', projectId: P1, actorUserId: 'admin-1',
+      entityType: 'agent_order', entityId: O1,
+      recipientMemberIds: ['m-1'],
+    }))
   })
 })
 
