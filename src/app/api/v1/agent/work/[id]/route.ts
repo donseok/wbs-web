@@ -2,19 +2,25 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isUuidLike, isClaimStale } from '@/lib/domain/agentWork'
 import {
-  apiBadRequest, apiInternalError, apiNotFound, gateAgentApi, requireAgentProject,
+  apiBadRequest, apiInternalError, apiNotFound, isAgentProjectMember, patProjectAllowed,
+  requireAgentProject, requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
 
 /** GET /api/v1/agent/work/{id} — 상태 폴링. 에이전트는 여기서 승인/반려·반려 사유를 읽는다(스펙 §3.4-2). */
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const gate = gateAgentApi(req)
-  if (gate) return gate
   const { id } = await ctx.params
   if (!isUuidLike(id)) return apiBadRequest('유효한 작업 ID가 필요합니다.')
   try {
     const admin = createAdminClient()
+    const principal = await resolveAgentPrincipal(req, admin)
+    if (principal instanceof NextResponse) return principal
+    if (principal.kind === 'pat') {
+      const scopeErr = requireScope(principal, 'work:read')
+      if (scopeErr) return scopeErr
+    }
+
     const { data: order, error } = await admin
       .from('agent_work_orders')
       .select('id, project_id, status, priority, instructions, claimed_by, claimed_at, wbs_item_id')
@@ -25,8 +31,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     }
     if (!order) return apiNotFound()
     const row = order as { project_id: string; claimed_at: string | null; wbs_item_id: string | null }
+    if (principal.kind === 'pat' && !patProjectAllowed(principal, row.project_id)) return apiNotFound()
     // 미등록 프로젝트의 주문은 존재 자체를 숨긴다 — 게이트 순서상 등록 해제 뒤에도 새지 않게.
     if (!(await requireAgentProject(admin, row.project_id))) return apiNotFound()
+    if (principal.kind === 'pat' && !(await isAgentProjectMember(admin, principal.userId, row.project_id))) {
+      return apiNotFound() // 비멤버 404 — 존재 은닉 관례(§2.2)
+    }
 
     const { data: reports, error: repErr } = await admin
       .from('agent_work_reports')
