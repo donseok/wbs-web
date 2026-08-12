@@ -34,7 +34,7 @@ vi.mock('@/components/minutes/MinuteMetaModal', () => ({ MinuteMetaModal: () => 
 
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
-const folders: MinuteFolder[] = [{ id: 'f1', name: 'MES', parentId: null, sort: 0, createdBy: null }]
+const folders: MinuteFolder[] = [{ id: 'f1', name: 'MES', parentId: null, sort: 0, createdBy: null, projectId: null }]
 const leaf = (id: string, createdBy: string | null, folderId = 'f1', projectId: string | null = null): ExplorerLeaf => ({
   id, minuteDate: '2026-07-24', teamCode: 'MES', title: `회의록 ${id}`, fileCount: 0,
   createdBy, createdByName: '홍길동', bodyPreview: '', meetingCategory: null, folderId, projectId,
@@ -207,7 +207,7 @@ describe('MinutesExplorer — 프로젝트 일괄 지정', () => {
   // 화면(rows)은 갈린다. 교집합을 취하지 않으면 보이지 않는 건이 조용히 바뀐다.
   it('스코프를 옮기면 화면에서 사라진 선택은 따라가지 않는다', async () => {
     await mount({
-      folders: [...folders, { id: 'f2', name: 'PMO폴더', parentId: null, sort: 1, createdBy: null }],
+      folders: [...folders, { id: 'f2', name: 'PMO폴더', parentId: null, sort: 1, createdBy: null, projectId: null }],
       leaves: [leaf('m1', 'u1'), leaf('m2', 'u1'), leaf('m4', 'u1', 'f2')],
     })
     await enterSelect()                                        // m1 선택(스코프 = 전체)

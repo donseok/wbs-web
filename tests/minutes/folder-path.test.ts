@@ -39,6 +39,16 @@ function fakeDb(queue: QueryResponse[]) {
   return { db: { from } as never, builders, from }
 }
 
+/** 스냅샷이 이미 채워져 있어 DB 왕복이 없는 경로용 최소 스텁. */
+function fakeSb() {
+  return fakeDb([]).db
+}
+
+/** insert(...).select('id').single() 이 { id } 를 돌려주는 스텁 — ensureProjectTeamRoot 지연 생성용. */
+function fakeSbInsertReturning(id: string) {
+  return fakeDb([{ data: { id } }]).db
+}
+
 /** 폴더 전량 스냅샷 응답을 만든다 — resolveFolderPath 의 첫 질의. */
 const rows = (...rs: Array<Record<string, unknown>>) => ({ data: rs })
 const SEED_ROOT = { id: 'f-root', name: 'MES', parent_id: null, created_by: null }
@@ -134,7 +144,7 @@ describe('normalizeFolderPath (§3.2 정규화 3분기)', () => {
 })
 
 describe('resolveFolderPath (경로 해석·생성)', () => {
-  const opts = { actorId: 'u-1', activeTeamCodes: TEAMS }
+  const opts = { actorId: 'u-1', activeTeamCodes: TEAMS, projectId: null }
 
   it('시드 팀 루트가 없으면 no_team_root — 호출자가 처리를 정한다', async () => {
     const { db } = fakeDb([rows()])
@@ -180,7 +190,7 @@ describe('resolveFolderPath (경로 해석·생성)', () => {
       ok: true, folderId: 'f-w', resolvedPath: ['MES', '품질', '주간정례'], complete: true,
     })
     expect(builders[1].insert).toHaveBeenCalledWith({
-      name: '주간정례', parent_id: 'f-q', created_by: 'u-1',
+      name: '주간정례', parent_id: 'f-q', created_by: 'u-1', project_id: null,
     })
   })
 
@@ -253,8 +263,8 @@ describe('resolveFolderPath (경로 해석·생성)', () => {
   it('스냅샷을 주면 질의 0회 — 배치가 항목마다 왕복하지 않게 하는 계약', async () => {
     const { db, from } = fakeDb([])
     const snapshot = buildFolderSnapshot([
-      { id: 'f-root', name: 'MES', parentId: null, createdBy: null },
-      { id: 'f-q', name: '품질', parentId: 'f-root', createdBy: 'u-9' },
+      { id: 'f-root', name: 'MES', parentId: null, createdBy: null, projectId: null },
+      { id: 'f-q', name: '품질', parentId: 'f-root', createdBy: 'u-9', projectId: null },
     ])
     const r = await resolveFolderPath(db, 'MES', ['MES', '품질'], { ...opts, snapshot })
     expect(r).toMatchObject({ ok: true, folderId: 'f-q', complete: true })
@@ -264,7 +274,7 @@ describe('resolveFolderPath (경로 해석·생성)', () => {
   it('생성한 폴더는 스냅샷에 반영돼 다음 항목이 재사용한다(배치 멱등·중복 생성 없음)', async () => {
     const { db, from } = fakeDb([{ data: { id: 'f-new' } }])
     const snapshot = buildFolderSnapshot([
-      { id: 'f-root', name: 'MES', parentId: null, createdBy: null },
+      { id: 'f-root', name: 'MES', parentId: null, createdBy: null, projectId: null },
     ])
     const a = await resolveFolderPath(db, 'MES', ['MES', '품질'], { ...opts, snapshot })
     const b = await resolveFolderPath(db, 'MES', ['MES', '품질'], { ...opts, snapshot })
@@ -293,14 +303,16 @@ describe('folderPathOf / folderPathOfSnapshot (응답 에코용 역해석)', () 
   })
 
   it('끊긴 체인은 추측하지 않고 null', () => {
-    const snap = buildFolderSnapshot([{ id: 'f-x', name: 'X', parentId: 'f-missing', createdBy: null }])
+    const snap = buildFolderSnapshot([
+      { id: 'f-x', name: 'X', parentId: 'f-missing', createdBy: null, projectId: null },
+    ])
     expect(folderPathOfSnapshot(snap, 'f-x')).toBeNull()
   })
 
   it('순환 참조는 가드로 끊는다(무한 루프 없음)', () => {
     const snap = buildFolderSnapshot([
-      { id: 'a', name: 'A', parentId: 'b', createdBy: null },
-      { id: 'b', name: 'B', parentId: 'a', createdBy: null },
+      { id: 'a', name: 'A', parentId: 'b', createdBy: null, projectId: null },
+      { id: 'b', name: 'B', parentId: 'a', createdBy: null, projectId: null },
     ])
     expect(folderPathOfSnapshot(snap, 'a')).toEqual(['B', 'A'])
   })
@@ -308,5 +320,69 @@ describe('folderPathOf / folderPathOfSnapshot (응답 에코용 역해석)', () 
   it('조회 실패는 null(에코 생략)', async () => {
     const { db } = fakeDb([{ data: null, error: { message: 'down' } }])
     expect(await folderPathOf(db, 'f-w')).toBeNull()
+  })
+})
+
+describe('프로젝트 스코프 경로 해석 (0076)', () => {
+  const P1 = 'aaaaaaaa-0000-0000-0000-000000000001'
+  const rows = [
+    { id: 'g-pmo', name: 'PMO', parentId: null, createdBy: null, projectId: null },
+    { id: 'p1-pmo', name: 'PMO', parentId: null, createdBy: null, projectId: P1 },
+    { id: 'p1-sub', name: '주간회의', parentId: 'p1-pmo', createdBy: 'u1', projectId: P1 },
+  ]
+
+  it('seedRoots 는 (projectId, 팀코드) 로 분리된다 — 동명 루트가 프로젝트별로 공존', () => {
+    const snap = buildFolderSnapshot(rows)
+    expect(snap.seedRoots.get(`${P1} PMO`)).toBe('p1-pmo')
+    expect(snap.seedRoots.get('- PMO')).toBe('g-pmo')
+  })
+
+  it('resolveFolderPath 는 opts.projectId 트리의 루트를 쓴다', async () => {
+    const snap = buildFolderSnapshot(rows)
+    const res = await resolveFolderPath(fakeSb(), 'PMO', ['PMO', '주간회의'], {
+      actorId: 'u1', activeTeamCodes: ['PMO'], snapshot: snap, create: false, projectId: P1,
+    })
+    expect(res.ok && res.folderId).toBe('p1-sub')
+  })
+
+  it('미지정(projectId null) 해석은 전역 루트를 쓴다 — 기존 동작 유지', async () => {
+    const snap = buildFolderSnapshot(rows)
+    const res = await resolveFolderPath(fakeSb(), 'PMO', [], {
+      actorId: 'u1', activeTeamCodes: ['PMO'], snapshot: snap, create: false, projectId: null,
+    })
+    expect(res.ok && res.folderId).toBe('g-pmo')
+  })
+
+  it('프로젝트 루트 부재 + create 시 ensureProjectTeamRoot 로 지연 생성한다', async () => {
+    const snap = buildFolderSnapshot([rows[0]])
+    const res = await resolveFolderPath(fakeSbInsertReturning('new-root'), 'PMO', ['PMO'], {
+      actorId: 'u1', activeTeamCodes: ['PMO'], snapshot: snap, projectId: P1,
+    })
+    expect(res.ok && res.folderId).toBe('new-root')
+    expect(snap.seedRoots.get(`${P1} PMO`)).toBe('new-root')  // 스냅샷에도 반영
+  })
+
+  it('프로젝트 루트 부재 + create:false 는 no_team_root — 생성하지 않는다', async () => {
+    const snap = buildFolderSnapshot([rows[0]])
+    const res = await resolveFolderPath(fakeSb(), 'PMO', ['PMO'], {
+      actorId: 'u1', activeTeamCodes: ['PMO'], snapshot: snap, create: false, projectId: P1,
+    })
+    expect(!res.ok && res.kind).toBe('no_team_root')
+  })
+
+  it('스냅샷 로드 실패는 지연 생성을 시도하지 않고 no_team_root — 쓰기 전 선행 조회 실패는 중단한다', async () => {
+    // snapshot 미지정 → resolveFolderPath 가 내부에서 loadFolderSnapshot(sb) 를 부른다.
+    // 그 조회가 실패(data:null,error)하면 snap 은 null. 두 번째 큐 응답(insert 성공)이
+    // 소비되면(=지연 생성을 시도했다는 뜻) addToFolderSnapshot(snap!, …) 이 널 역참조로
+    // 크래시한다 — 고쳐지지 않았다면 이 테스트는 assertion 이 아니라 uncaught TypeError 로 죽는다.
+    const { db, from } = fakeDb([
+      { data: null, error: { message: 'boom' } },   // 스냅샷 로드 실패
+      { data: { id: 'new-root' } },                  // (버그 상태에서만 소비되는) insert 성공
+    ])
+    const res = await resolveFolderPath(db, 'PMO', ['PMO'], {
+      actorId: 'u1', activeTeamCodes: ['PMO'], create: true, projectId: P1,
+    })
+    expect(!res.ok && res.kind).toBe('no_team_root')
+    expect(from).toHaveBeenCalledTimes(1)   // 스냅샷 조회 1회뿐 — insert 시도 없음
   })
 })

@@ -27,8 +27,9 @@ import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/share'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
-import { resolveTeamRootFolderId } from '@/lib/minutes/folders'
-import { activeTeamCodesSync, teamsSync } from '@/lib/teams/master'
+import { resolveTeamRootFolderId, refileMinuteAfterProjectChange, loadFolderSnapshot } from '@/lib/minutes/folders'
+import { getHiddenProjectIds } from '@/lib/authz/visibility'
+import { activeTeamCodesSync, activeTeamCodesForProjectSync, teamsSync } from '@/lib/teams/master'
 import { resolveMinuteProject } from '@/lib/minutes/project'
 import {
   type MinuteVersionFile,
@@ -156,13 +157,21 @@ export async function createMinute(
   if (folderId) {
     const folders = await loadFolders(sb)
     if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-    if (!folders.some(f => f.id === folderId)) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const targetFolder = folders.find(f => f.id === folderId)
+    if (!targetFolder) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    // 자식=부모 프로젝트 불변식 — moveMinuteToFolder 와 동일하게 회의록이 속할 프로젝트와
+    // 명시 지정된 폴더의 프로젝트가 다르면 거절한다(무스코프면 다른 프로젝트 폴더에 새로 꽂힌다).
+    if ((targetFolder.projectId ?? null) !== (resolvedProject.projectId ?? null)) {
+      return { ok: false, error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
+    }
     const derived = teamSubOfFolder(folders, folderId)
     if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
     effectiveTeam = derived.team
   }
-  // 폴더 미지정이면 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백
-  const effectiveFolderId = folderId ?? await resolveTeamRootFolderId(sb, effectiveTeam)
+  // 폴더 미지정이면 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백.
+  // sb 는 사용자 세션 클라이언트라(admin 아님) resolveTeamRootFolderId 는 읽기만 한다 —
+  // 프로젝트 루트가 아직 없으면(지연 생성 미적용) null → 미분류 폴백으로 등록 자체는 막지 않는다.
+  const effectiveFolderId = folderId ?? await resolveTeamRootFolderId(sb, effectiveTeam, resolvedProject.projectId)
   // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·다운스트림 전부 보정본 사용
   const fix = correctMinuteBodyTime(input.bodyMd)
   if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)
@@ -256,7 +265,13 @@ export async function updateMinuteMeta(
   if (folderId) {
     const folders = await loadFolders(sb)
     if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-    if (!folders.some(f => f.id === folderId)) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const targetFolder = folders.find(f => f.id === folderId)
+    if (!targetFolder) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    // 자식=부모 프로젝트 불변식 — moveMinuteToFolder 와 동일하게 회의록이 옮겨갈 프로젝트와
+    // 명시 지정된 폴더의 프로젝트가 다르면 거절한다.
+    if ((targetFolder.projectId ?? null) !== (resolvedProject.projectId ?? null)) {
+      return { ok: false, error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
+    }
     const derived = teamSubOfFolder(folders, folderId)
     if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
     effectiveTeam = derived.team
@@ -273,6 +288,15 @@ export async function updateMinuteMeta(
       : null,
   }
   if (folderId !== undefined) upd.folder_id = folderId
+  // 프로젝트 이동 시 자동 재편철(아래)의 old 값 — RPC 뒤에 읽으면 왕복이 하나 늘고 그 사이
+  // 다른 갱신이 끼어들 여지가 생기므로 쓰기 전에 미리 확보한다. folderId 가 명시되면(사용자가
+  // 폴더를 직접 골랐다) 그 선택이 우선이라 재편철 자체를 돌리지 않으므로 조회도 건너뛴다.
+  let curFolderId: string | null = null
+  if (folderId === undefined) {
+    const { data: cur, error: curErr } = await sb.from('minutes').select('folder_id').eq('id', id).maybeSingle()
+    if (curErr) console.error('[updateMinuteMeta] 재편철 사전 조회 실패(재편철 생략):', curErr.message)
+    else curFolderId = (cur?.folder_id as string | null) ?? null
+  }
   let admin: ReturnType<typeof createAdminClient>
   try {
     admin = createAdminClient()
@@ -297,6 +321,17 @@ export async function updateMinuteMeta(
   }
   if (updateResult.new_project_id) {
     revalidatePath(`/p/${updateResult.new_project_id}/wiki`)
+  }
+  // 프로젝트 이동 시 폴더 자동 추종 — 사용자가 폴더를 직접 고르지 않았을 때만(folderId===undefined).
+  // 위키 재적재보다 먼저·동기로 끝내 재적재가 새 folder_id 반영 이후 상태를 본다.
+  if (projectChanged && folderId === undefined) {
+    await refileMinuteAfterProjectChange(admin, {
+      minuteId: id, teamCode: effectiveTeam, oldFolderId: curFolderId,
+      newProjectId: updateResult.new_project_id, actorId: g.actor.userId,
+      activeTeamCodes: updateResult.new_project_id
+        ? activeTeamCodesForProjectSync(updateResult.new_project_id)
+        : activeTeamCodesSync(),
+    })
   }
   if (
     resolvedProject.projectId
@@ -366,7 +401,7 @@ export async function assignMinutesProject(
   }
   // 가드 선행조회 — 실패하면 소유권·보관 판정이 불가능하므로 중단(fail-closed, 건별 N회 왕복 회피)
   const { data: rows, error: rowsErr } = await sb.from('minutes')
-    .select('id, created_by, archived_at, project_id, meeting_id')
+    .select('id, created_by, archived_at, project_id, meeting_id, team_code, folder_id')
     .in('id', targets)
   if (rowsErr) {
     console.error('[assignMinutesProject] 대상 조회 실패:', rowsErr.message)
@@ -375,6 +410,7 @@ export async function assignMinutesProject(
   type MinuteRow = {
     id: string; created_by: string | null; archived_at: string | null
     project_id: string | null; meeting_id: string | null
+    team_code: TeamCode; folder_id: string | null
   }
   const byId = new Map((rows ?? []).map(r => [(r as MinuteRow).id, r as MinuteRow]))
 
@@ -398,6 +434,9 @@ export async function assignMinutesProject(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '프로젝트 지정 설정을 확인하세요.', ...empty }
   }
+  // 재편철용 폴더 스냅샷 — 건별 로드 대신 배치 전체가 1회 공유(200건 상한이라 필수는 아니지만,
+  // 하면 왕복이 크게 준다). 실패해도 재편철만 생략될 뿐 지정 자체는 계속 진행한다.
+  const folderSnapshot = (await loadFolderSnapshot(admin)) ?? undefined
 
   const skipped: { id: string; reason: string }[] = []
   const rebuildProjects = new Set<string>()
@@ -428,6 +467,16 @@ export async function assignMinutesProject(
     const res = raw as unknown as {
       old_project_id: string | null; new_project_id: string | null; wiki_rebuild_required: boolean
     }
+    // 프로젝트가 실제로 바뀐 건만 폴더도 추종시킨다(위에서 unchanged 는 이미 걸러졌지만,
+    // res.new_project_id 는 RPC 가 정한 정본이라 그 값을 기준으로 한다).
+    await refileMinuteAfterProjectChange(admin, {
+      minuteId: id, teamCode: row.team_code, oldFolderId: row.folder_id,
+      newProjectId: res.new_project_id, actorId: g.actor.userId,
+      activeTeamCodes: res.new_project_id
+        ? activeTeamCodesForProjectSync(res.new_project_id)
+        : activeTeamCodesSync(),
+      snapshot: folderSnapshot,
+    })
     if (res.old_project_id) rebuildProjects.add(res.old_project_id)
     if (res.new_project_id) rebuildProjects.add(res.new_project_id)
     updated += 1
@@ -478,7 +527,11 @@ export async function fetchMinuteFoldersLite(): Promise<MinuteFolder[] | null> {
   const user = await getSession()
   if (!user) return null
   const sb = await createServerClient()
-  return await loadFolders(sb)
+  const [folders, hidden] = await Promise.all([loadFolders(sb), getHiddenProjectIds()])
+  if (!folders) return null
+  // 숨김 프로젝트의 폴더 제거 — getMinutesExplorer 와 같은 필터(§chat 패널이 이 액션으로
+  // 폴더명을 노출하므로 비공개 프로젝트 하위 폴더명이 이름만으로도 새면 안 된다).
+  return folders.filter(f => f.projectId === null || !hidden.has(f.projectId))
 }
 
 /** 본문 교체 — 클라이언트가 새 .md 를 Storage 업로드한 뒤 호출. 기존 body 파일 0건 허용(복구 경로). */
@@ -775,12 +828,13 @@ export async function fetchMinutesExplorer(): Promise<ExplorerData | null> {
 
 /** 폴더 전량 로드(액션 내부용) — 깊이 검증에 사용. 실패 시 null. */
 async function loadFolders(sb: Awaited<ReturnType<typeof createServerClient>>): Promise<MinuteFolder[] | null> {
-  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id, sort, created_by')
+  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id, sort, created_by, project_id')
   if (error) { console.error('[loadFolders] 조회 실패:', error.message); return null }
   return (data ?? []).map((f: Record<string, unknown>) => ({
     id: f.id as string, name: f.name as string,
     parentId: (f.parent_id as string | null) ?? null,
     sort: f.sort as number, createdBy: (f.created_by as string | null) ?? null,
+    projectId: (f.project_id as string | null) ?? null,
   }))
 }
 
@@ -805,11 +859,19 @@ export async function createMinuteFolder(
   const sb = await createServerClient()
   const folders = await loadFolders(sb)
   if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-  if (parentId && !folders.some(f => f.id === parentId)) return { ok: false, error: '상위 폴더를 찾을 수 없습니다.' }
+  const parent = folders.find(f => f.id === parentId)
+  if (!parent) return { ok: false, error: '상위 폴더를 찾을 수 없습니다.' }
+  // 자식=부모 프로젝트 불변식 — 부모가 프로젝트 폴더면 그 프로젝트 멤버만 하위를 만들 수 있다.
+  if (parent.projectId && !isProjectMember(g.actor, parent.projectId)) {
+    return { ok: false, error: '권한 없음' }
+  }
   if (folderDepthOf(folders, parentId) + 1 > MINUTE_FOLDER_DEPTH_MAX)
     return { ok: false, error: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.` }
   const { error } = await sb.from('minute_folders')
-    .insert({ name: normalizeFolderName(name), parent_id: parentId, created_by: g.actor.userId })
+    .insert({
+      name: normalizeFolderName(name), parent_id: parentId, created_by: g.actor.userId,
+      project_id: parent.projectId,
+    })
   if (error) {
     if (error.code === '23505') return { ok: false, error: FOLDER_DUP_MSG }
     if (error.code === '23503') return { ok: false, error: '상위 폴더가 방금 삭제되었습니다. 새로고침 후 다시 시도하세요.' }
@@ -823,8 +885,8 @@ export async function createMinuteFolder(
 export async function renameMinuteFolder(
   id: string, name: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const user = await getSession()
-  if (!user) return { ok: false, error: '로그인 필요' }
+  const g = await requireActor()
+  if (!g.ok) return { ok: false, error: g.error }
   const nameErr = validateFolderName(name)
   if (nameErr) return { ok: false, error: nameErr }
   const sb = await createServerClient()
@@ -837,6 +899,11 @@ export async function renameMinuteFolder(
   // 하위 폴더 개명은 곧 옵션 변경으로 반영된다(허용)
   if (isTeamRootFolder(target))
     return { ok: false, error: '팀 기본 폴더는 이름을 변경할 수 없습니다.' }
+  // 자식=부모 프로젝트 불변식 — 프로젝트 폴더는 그 프로젝트 멤버만 개명할 수 있다(RLS 는 이
+  // 계열 쓰기 정책이 없으므로 여기가 유일한 방어선).
+  if (target.projectId && !isProjectMember(g.actor, target.projectId)) {
+    return { ok: false, error: '권한 없음' }
+  }
   // 루트에서 팀코드 동명으로의 개명도 차단(앵커 사칭 방지)
   const teamNames = teamsSync().map(t => t.code)
   if (target.parentId === null && isTeamRootName(name, teamNames))
@@ -875,6 +942,11 @@ export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; err
   if (!target) return { ok: false, error: '폴더가 없습니다.' }
   if (isTeamRootFolder(target))
     return { ok: false, error: '팀 기본 폴더는 삭제할 수 없습니다.' }
+  // 자식=부모 프로젝트 불변식 — 프로젝트 폴더는 그 프로젝트 멤버만 삭제할 수 있다. 승격(비우기)
+  // 전에 걸어야 남의 프로젝트 트리를 조용히 재편철하지 않는다.
+  if (target.projectId && !isProjectMember(g.actor, target.projectId)) {
+    return { ok: false, error: '권한 없음' }
+  }
   // 승격 대상 = 부모. W18 이후 루트 폴더는 생기지 않으므로 삭제 가능한 폴더엔 항상 부모가 있다.
   const parentId = target.parentId
   if (!parentId) return { ok: false, error: '최상위 폴더는 삭제할 수 없습니다.' }
@@ -944,6 +1016,7 @@ const FOLDER_MOVE_REJECT_MSG: Record<MinuteDropReject, string> = {
   cycle: '폴더를 자기 자신이나 하위 폴더로 옮길 수 없습니다.',
   depth: `폴더는 최대 ${MINUTE_FOLDER_DEPTH_MAX}단까지 만들 수 있습니다.`,
   'anchor-squat': '팀 기본 폴더명은 루트에 사용할 수 없습니다.',
+  'cross-project': '다른 프로젝트 폴더로는 이동할 수 없습니다.',
 }
 
 /** 폴더를 다른 폴더(또는 루트) 아래로 이동 — 탐색기 드래그앤드롭.
@@ -995,23 +1068,32 @@ export async function moveMinuteToFolder(
   // 폴더가 있을 때만 다시 하고, 미분류면 현재 team_code 를 그대로 둔다(추측 금지).
   const sb = await createServerClient()
   let folders: MinuteFolder[] | null = null
+  let targetFolder: MinuteFolder | undefined
   if (folderId) {
     folders = await loadFolders(sb)
     if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-    if (!folders.some(f => f.id === folderId)) return { ok: false, error: '이동할 폴더를 찾을 수 없습니다.' }
+    targetFolder = folders.find(f => f.id === folderId)
+    if (!targetFolder) return { ok: false, error: '이동할 폴더를 찾을 수 없습니다.' }
   }
   const own = await checkOwner(sb, minuteId, g.actor)
   if (own) return { ok: false, error: own }
 
-  // 현재 팀 — 쓰기 선행조회 실패는 판정 불가이므로 중단(추측 금지)
+  // 현재 팀·프로젝트 — 쓰기 선행조회 실패는 판정 불가이므로 중단(추측 금지)
   const { data: cur, error: curErr } = await sb.from('minutes')
-    .select('team_code').eq('id', minuteId).maybeSingle()
+    .select('team_code, project_id').eq('id', minuteId).maybeSingle()
   if (curErr) {
     console.error('[moveMinuteToFolder] 현재 담당 조회 실패:', curErr.message)
     return { ok: false, error: '회의록 정보를 불러오지 못했습니다.' }
   }
   if (!cur) return { ok: false, error: '회의록을 찾을 수 없습니다.' }
   const currentTeam = (cur as { team_code: string }).team_code
+  const minuteProjectId = (cur as { project_id: string | null }).project_id ?? null
+
+  // 자식=부모 프로젝트 불변식 — 대상 폴더의 프로젝트와 회의록의 프로젝트가 다르면 거부한다
+  // (미분류 폴더로의 이동은 targetFolder 가 없으므로 이 검사를 건너뛴다).
+  if (targetFolder && (targetFolder.projectId ?? null) !== minuteProjectId) {
+    return { ok: false, error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
+  }
 
   // 대상 폴더에서 팀 파생. 시드 체인 밖(§6.3 불변식 위반)이면 추측하지 않고 거절한다.
   let nextTeam = currentTeam
