@@ -60,6 +60,7 @@ const DROP_REJECT_KEY: Record<MinuteDropReject, DictKey> = {
   cycle: 'min.fold.dropCycle',
   depth: 'min.fold.dropDepth',
   'anchor-squat': 'min.fold.dropAnchor',
+  'cross-project': 'min.fold.dropCrossProject',
 }
 
 const rowCls = (active: boolean) =>

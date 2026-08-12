@@ -169,6 +169,29 @@ describe('createMinuteFolder', () => {
     const r = await createMinuteFolder('ERP', 'f1')
     expect(r.ok).toBe(true)
   })
+  it('프로젝트 폴더 하위 생성 — 비멤버는 권한 없음, DB insert 미도달', async () => {
+    const projFolders = [
+      { id: 'pf1', name: 'P1루트', parent_id: null, sort: 0, created_by: 'u9', project_id: 'p2' },
+    ]
+    const { client, calls } = fakeClient({ minute_folders: { data: projFolders, error: null } })
+    createServerClient.mockResolvedValue(client)
+    // memberActor 는 p1 멤버일 뿐 p2 멤버가 아니다
+    const r = await createMinuteFolder('하위', 'pf1')
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('권한 없음')
+    expect(calls['minute_folders']!.some(c => c.method === 'insert')).toBe(false)
+  })
+  it('프로젝트 폴더 하위 생성 — 멤버는 insert payload 에 부모의 project_id 를 상속', async () => {
+    const projFolders = [
+      { id: 'pf1', name: 'P1루트', parent_id: null, sort: 0, created_by: 'u9', project_id: 'p1' },
+    ]
+    const { client, calls } = fakeClient({ minute_folders: { data: projFolders, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await createMinuteFolder('하위', 'pf1')
+    expect(r.ok).toBe(true)
+    const ins = calls['minute_folders']!.find(c => c.method === 'insert')!
+    expect(ins.args[0]).toMatchObject({ project_id: 'p1' })
+  })
   it('상위 폴더 FK 위반(23503)은 삭제 안내 문구로 매핑', async () => {
     const { client, from } = fakeClient({ minute_folders: { data: seedFolders, error: null } })
     // 두 번째 from('minute_folders') 호출(insert)만 에러를 내도록 교체
@@ -318,6 +341,34 @@ describe('renameMinuteFolder / deleteMinuteFolder', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toContain('삭제할 수 없습니다')
     expect(calls['minute_folders']!.some(c => c.method === 'delete')).toBe(false)
+  })
+  it('rename: 대상이 프로젝트 폴더면 비멤버는 거부', async () => {
+    const { client } = fakeClient({
+      minute_folders: {
+        data: [{ id: 'pf2', name: '하위', parent_id: 'pf1', sort: 100, created_by: 'u1', project_id: 'p2' }],
+        error: null,
+      },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await renameMinuteFolder('pf2', '새이름')
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('권한 없음')
+  })
+  it('delete: 대상이 프로젝트 폴더면 비멤버는 거부 — 승격 전에 중단', async () => {
+    const { client } = fakeClient({
+      minute_folders: {
+        data: [
+          { id: 'pf1', name: 'P1루트', parent_id: null, sort: 0, created_by: null, project_id: 'p2' },
+          { id: 'pf2', name: '하위', parent_id: 'pf1', sort: 100, created_by: 'u1', project_id: 'p2' },
+        ],
+        error: null,
+      },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await deleteMinuteFolder('pf2')
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('권한 없음')
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
   })
   it('rename/delete: 가드 선행조회 실패는 중단(쓰기 선행조회 원칙)', async () => {
     const { client } = fakeClient({
@@ -535,6 +586,19 @@ describe('moveMinuteFolder (폴더 드래그앤드롭)', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toContain('이미')
   })
+  it('다른 프로젝트 폴더 하위로의 이동은 거부 — update 미도달', async () => {
+    const projTree = [
+      { id: 'p1-root', name: 'P1', parent_id: null, sort: 0, created_by: 'u1', project_id: 'p1' },
+      { id: 'p1-a', name: 'A', parent_id: 'p1-root', sort: 100, created_by: 'u1', project_id: 'p1' },
+      { id: 'p2-root', name: 'P2', parent_id: null, sort: 0, created_by: 'u1', project_id: 'p2' },
+    ]
+    const { client, calls } = fakeClient({ minute_folders: { data: projTree, error: null } })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteFolder('p1-a', 'p2-root')
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('다른 프로젝트 폴더로는 이동할 수 없습니다.')
+    expect(calls['minute_folders']!.some(c => c.method === 'update')).toBe(false)
+  })
 })
 
 describe('moveMinuteToFolder', () => {
@@ -603,6 +667,22 @@ describe('moveMinuteToFolder', () => {
     const r = await moveMinuteToFolder('m1', 'f9')
     expect(r.ok).toBe(false)
     expect(r.error).toContain('담당 팀을 판정할 수 없는')
+  })
+
+  it('회의록 project_id 와 대상 폴더 project_id 불일치는 거부 — update 미도달', async () => {
+    const folders = [
+      { id: 'pf1', name: 'P2루트', parent_id: null, sort: 0, created_by: 'u1', project_id: 'p2' },
+    ]
+    const { client, calls } = fakeClient({
+      minute_folders: { data: folders, error: null },
+      minutes: { data: { id: 'm1', created_by: 'u1', team_code: 'PMO', project_id: 'p1' }, error: null },
+    })
+    createServerClient.mockResolvedValue(client)
+    const r = await moveMinuteToFolder('m1', 'pf1')
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('다른 프로젝트 폴더로는 이동할 수 없습니다.')
+    expect(calls['minutes']!.some(c => c.method === 'update')).toBe(false)
+    expect(adminMocks.createAdminClient).not.toHaveBeenCalled()
   })
 })
 
