@@ -201,6 +201,12 @@ export const wbsKo = {
   'wbs.stageXx': '완료',
   'wbs.assigneeStageLoadFail': '현재 값을 불러오지 못했습니다. 다시 열어 주세요.',
   'wbs.assigneeStageReadOnly': '보기 전용 — 프로젝트 관리자만 변경할 수 있습니다.',
+  // 담당자 검색 콤보박스(스테이징 피드백 2026-08-11) + 하위 일괄 적용
+  'wbs.assigneeSearchPlaceholder': '이름 또는 팀으로 검색',
+  'wbs.assigneeSearchNoResults': '검색 결과 없음',
+  'wbs.assigneeCascadeLabel': '미지정 하위 항목에도 적용',
+  'wbs.assigneeCascadeResult': '{n}건에 적용되었습니다',
+  'wbs.assigneeCascadeFail': '하위 항목 적용에 실패했습니다.',
   // 명세 패널(Task 12A, 결정 B) — 스칼라 배지·참조 필드·acceptance 체크리스트·spec 마크다운
   'wbs.specPanelTitle': '명세',
   'wbs.specLoadFail': '명세를 불러오지 못했습니다. 다시 열어 주세요.',
@@ -418,6 +424,12 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.stageXx': 'Done',
   'wbs.assigneeStageLoadFail': 'Could not load current values. Please reopen.',
   'wbs.assigneeStageReadOnly': 'Read-only — only project admins can change this.',
+  // Assignee search combobox (staging feedback 2026-08-11) + cascade to sub-items
+  'wbs.assigneeSearchPlaceholder': 'Search by name or team',
+  'wbs.assigneeSearchNoResults': 'No results',
+  'wbs.assigneeCascadeLabel': 'Also apply to unassigned sub-items',
+  'wbs.assigneeCascadeResult': 'Applied to {n} item(s)',
+  'wbs.assigneeCascadeFail': 'Failed to apply to sub-items.',
   // Spec panel (Task 12A, decision B) — scalar badges, reference fields, acceptance checklist, spec markdown
   'wbs.specPanelTitle': 'Spec',
   'wbs.specLoadFail': 'Could not load spec. Please reopen.',

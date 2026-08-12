@@ -20,7 +20,7 @@ vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureOrderForAssignedLeaf: mocks.ensureOrderForAssignedLeaf }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-import { setWbsAssignee, setWbsStage, getWbsAssigneeStage } from '@/app/actions/wbsAssign'
+import { setWbsAssignee, setWbsAssigneeCascade, setWbsStage, getWbsAssigneeStage } from '@/app/actions/wbsAssign'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
 const P2 = '99999999-9999-4999-8999-999999999999'
@@ -28,6 +28,8 @@ const W1 = '33333333-3333-4333-8333-333333333333'
 const M1 = '44444444-4444-4444-8444-444444444444'
 const M2 = '55555555-5555-4555-8555-555555555555'
 const W2 = '66666666-6666-4666-8666-666666666666'
+const W5 = '77777777-7777-4777-8777-777777777770'
+const W6 = '88888888-8888-4888-8888-888888888880'
 
 type Resp = { data?: unknown; error?: { message: string } | null }
 
@@ -40,9 +42,12 @@ function admin(queues: Record<string, Resp[]>) {
       calls.push(table)
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'eq', 'in', 'order', 'limit']) b[k] = () => b
+      for (const k of ['select', 'eq', 'order', 'limit']) b[k] = () => b
       b.contains = (col: string, val: unknown) => {
         (captured[`${table}.contains`] ??= []).push([col, val]); return b
+      }
+      b.in = (col: string, val: unknown) => {
+        (captured[`${table}.in`] ??= []).push([col, val]); return b
       }
       b.update = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.insert = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
@@ -184,6 +189,139 @@ describe('setWbsAssignee', () => {
     expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledTimes(1)
     expect(errSpy).toHaveBeenCalled()
     errSpy.mockRestore()
+  })
+})
+
+describe('setWbsAssigneeCascade', () => {
+  // 트리: W1(root, 미지정) → W2(미지정) → W6(리프, 미지정) / W1 → W5(이미 M2 배정, 리프)
+  const TREE = [
+    { id: W1, parent_id: null, name: 'Root', assignee_member_id: null },
+    { id: W2, parent_id: W1, name: 'Child B', assignee_member_id: null },
+    { id: W5, parent_id: W1, name: 'Child C', assignee_member_id: M2 },
+    { id: W6, parent_id: W2, name: 'Grandchild D', assignee_member_id: null },
+  ]
+
+  it('(a) 미지정 하위만 갱신 — 이미 배정된 항목(W5)은 건너뛴다', async () => {
+    const { captured } = admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: TREE },
+        { data: [{ id: W1 }, { id: W2 }, { id: W6 }] },
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r).toEqual({ ok: true, count: 3 })
+    const [, idsArg] = captured['wbs_items.in'][0] as [string, string[]]
+    expect(new Set(idsArg)).toEqual(new Set([W1, W2, W6]))
+    expect(idsArg).not.toContain(W5)
+  })
+
+  it('(b) 요약 알림 1건만 — 항목별 스팸 없음, detail 은 "외 N건" 요약', async () => {
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: TREE },
+        { data: [{ id: W1 }, { id: W2 }, { id: W6 }] },
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r.ok).toBe(true)
+    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.assigned',
+      projectId: P1,
+      entityId: W1,
+      recipientMemberIds: [M1],
+      payload: expect.objectContaining({
+        detail: "'Root' 외 2건의 작업 담당자로 지정되었습니다",
+      }),
+    }))
+  })
+
+  it('(c) 새로 배정된 리프에만 ensureOrderForAssignedLeaf 호출 — 자식 있는 노드(W1,W2)는 제외', async () => {
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: TREE },
+        { data: [{ id: W1 }, { id: W2 }, { id: W6 }] },
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r.ok).toBe(true)
+    expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledTimes(1)
+    expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ projectId: P1, wbsItemId: W6, actorUserId: 'admin-1' }),
+    )
+  })
+
+  it('(d) 하위 트리 조회 실패 시 중단 — 갱신·알림·주문 발행 모두 없음(부분 적용 강행 금지)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { captured } = admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: null, error: { message: 'boom' } },
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r.ok).toBe(false)
+    expect(captured.wbs_items ?? []).toHaveLength(0)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+    expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it('(e) 본인이 이미 다른 담당자면 본인은 갱신하되(단건 액션과 동일) 이미 배정된 하위는 건너뛴다', async () => {
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: [
+          { id: W1, parent_id: null, name: 'Root', assignee_member_id: M2 },
+          { id: W2, parent_id: W1, name: 'Child B', assignee_member_id: M2 },
+        ] },
+        { data: [{ id: W1 }] },
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r).toEqual({ ok: true, count: 1 })
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ detail: "'Root' 작업 담당자로 지정되었습니다" }),
+    }))
+  })
+
+  it('(e2) 본인이 이미 같은 담당자이고 하위도 전부 배정 완료면 count:0, 무발행(진짜 no-op)', async () => {
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: [
+          { id: W1, parent_id: null, name: 'Root', assignee_member_id: M1 },
+          { id: W2, parent_id: W1, name: 'Child B', assignee_member_id: M2 },
+        ] },
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r).toEqual({ ok: true, count: 0 })
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+    expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
+  })
+
+  it('(f) 다른 프로젝트의 member_id → 거부, 조회 없음', async () => {
+    const { captured } = admin({
+      project_members: [{ data: { id: M1, project_id: P2 } }],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r.ok).toBe(false)
+    expect(captured.wbs_items ?? []).toHaveLength(0)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('(g) 관리자 아님 → 거부, DB 접근 없음', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    const { captured } = admin({})
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r).toEqual({ ok: false, error: '권한 없음' })
+    expect(captured.project_members ?? []).toHaveLength(0)
+    expect(captured.wbs_items ?? []).toHaveLength(0)
   })
 })
 

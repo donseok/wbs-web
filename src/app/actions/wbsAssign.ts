@@ -192,6 +192,120 @@ export async function setWbsAssignee(
   return { ok: true }
 }
 
+type TreeRow = { id: string; parent_id: string | null; name: string; assignee_member_id: string | null }
+
+/**
+ * 상위 배정 시 미지정 하위 항목에도 같은 담당자 일괄 적용 — 스테이징 실사용 피드백
+ * (2026-08-11). 담당자는 노드 속성이라 상속·롤업이 없다는 원 설계(§2.5, 파일 상단 주석)는
+ * 그대로 두고, "새로 배정"을 트리 단위로 한 번에 하는 편의 액션을 별도로 둔다 — 자동
+ * 상속이 아니라 그 순간의 명시적 일괄 쓰기다.
+ *
+ * 본인 항목은 setWbsAssignee와 동일하게 항상 반영(단건 액션의 상위집합이어야 한다 —
+ * 체크박스를 켰다고 본인 항목에 대한 배정 효과가 약해지면 안 된다). 하위 항목은
+ * assignee_member_id 가 null 인 것만 갱신 — 이미 배정된 하위 항목은 손대지 않는다
+ * (기존 배정을 조용히 덮어쓰지 않음).
+ *
+ * 하위 트리 조회는 프로젝트 전체 wbs_items 를 한 번에 읽어 메모리에서 부모→자식을
+ * 구성한다(3원칙 ② — 이 단일 조회가 실패하면 갱신 없이 중단, 부분 적용 강행 금지).
+ */
+export async function setWbsAssigneeCascade(
+  itemId: string, memberId: string,
+): Promise<{ ok: boolean; error?: string; count?: number }> {
+  const resolved = await resolveItemProjectId(itemId)
+  if (!resolved.ok) return resolved
+  const g = await requireProjectAdmin(resolved.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  if (!isUuidLike(memberId)) return { ok: false, error: '잘못된 요청입니다.' }
+
+  const admin = createAdminClient()
+  // 쓰기 선행조회 — 로스터 실재 + 프로젝트 일치(setWbsAssignee와 동일한 1차 방어선).
+  const { data: mem, error: memErr } = await admin
+    .from('project_members').select('id, project_id').eq('id', memberId).maybeSingle()
+  if (memErr) return { ok: false, error: `멤버 조회 실패: ${memErr.message}` }
+  if (!mem || (mem as { project_id: string }).project_id !== resolved.projectId) {
+    return { ok: false, error: '이 프로젝트의 로스터 멤버가 아닙니다.' }
+  }
+
+  // 하위 트리 조회 실패 시 중단(3원칙 ②) — 부분 적용 강행 금지.
+  const { data: allItems, error: treeErr } = await admin
+    .from('wbs_items')
+    .select('id, parent_id, name, assignee_member_id')
+    .eq('project_id', resolved.projectId)
+  if (treeErr) return { ok: false, error: `하위 항목 조회 실패: ${treeErr.message}` }
+  const rows = (allItems ?? []) as TreeRow[]
+  const byId = new Map(rows.map(r => [r.id, r]))
+  const root = byId.get(itemId)
+  if (!root) return { ok: false, error: '항목 없음' }
+
+  const childrenOf = new Map<string, TreeRow[]>()
+  const hasChildren = new Set<string>()
+  for (const r of rows) {
+    if (r.parent_id) {
+      hasChildren.add(r.parent_id)
+      const list = childrenOf.get(r.parent_id)
+      if (list) list.push(r); else childrenOf.set(r.parent_id, [r])
+    }
+  }
+
+  const subtree: TreeRow[] = []
+  const stack: TreeRow[] = [root]
+  while (stack.length > 0) {
+    const cur = stack.pop() as TreeRow
+    subtree.push(cur)
+    for (const c of childrenOf.get(cur.id) ?? []) stack.push(c)
+  }
+  // 본인(itemId)은 값이 다를 때만(단건 액션과 동일한 no-op 판정), 하위는 미지정만.
+  const targets = subtree.filter(r => (
+    r.id === itemId ? r.assignee_member_id !== memberId : r.assignee_member_id === null
+  ))
+  if (targets.length === 0) return { ok: true, count: 0 }
+
+  const targetIds = targets.map(r => r.id)
+  const { data: updated, error: updErr } = await admin
+    .from('wbs_items')
+    .update({ assignee_member_id: memberId, updated_at: new Date().toISOString() })
+    .in('id', targetIds)
+    .select('id')
+  if (updErr) return { ok: false, error: updErr.message }
+  const count = updated?.length ?? 0
+  if (count === 0) return { ok: true, count: 0 }
+
+  revalidatePath(`/p/${resolved.projectId}`, 'layout')
+
+  // 요약 알림 1건만 — 항목별 발행은 하위 트리가 큰 경우 스팸이 된다.
+  const extra = count - 1
+  const detail = extra > 0
+    ? `'${root.name}' 외 ${extra}건의 작업 담당자로 지정되었습니다`
+    : `'${root.name}' 작업 담당자로 지정되었습니다`
+  await emitNotification({
+    type: 'work.assigned',
+    projectId: resolved.projectId,
+    actorUserId: g.actor.userId,
+    entityType: 'wbs_item',
+    entityId: itemId,
+    payload: { title: root.name, detail, href: `/p/${resolved.projectId}/wbs` },
+    recipientMemberIds: [memberId],
+  })
+
+  // 새로 배정된 각 리프에 대해 자동 주문 발행 — 실패 격리(배정 성공은 유지, 로깅만).
+  // 리프 판정은 이번에 읽은 전체 트리 기준(부모로 등장한 적 없는 항목 = 자식 없음).
+  for (const target of targets) {
+    if (hasChildren.has(target.id)) continue
+    try {
+      const orderRes = await ensureOrderForAssignedLeaf(admin, {
+        projectId: resolved.projectId,
+        wbsItemId: target.id,
+        actorUserId: g.actor.userId,
+      })
+      if (!orderRes.ok) console.error('[wbsAssign] cascade 자동 주문 발행 실패:', orderRes.error)
+    } catch (e) {
+      console.error('[wbsAssign] cascade 자동 주문 발행 예외:', e)
+    }
+  }
+
+  return { ok: true, count }
+}
+
 export async function setWbsStage(
   itemId: string, stage: 'todo' | 'as' | 'fp' | 'ip' | 'im' | 'xx' | null,
 ): Promise<{ ok: boolean; error?: string }> {
