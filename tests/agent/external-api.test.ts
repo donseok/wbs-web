@@ -20,11 +20,12 @@ describe('agent externalApi 게이트', () => {
     const res = m.gateAgentApi(req('Bearer x'))
     expect(res?.status).toBe(404)
   })
-  it('ENABLED=true 여도 SECRET 없으면 닫힘', async () => {
+  it('ENABLED=true 면 SECRET 없어도 API 는 열림 — 레거시 분기만 닫힘(계약 v2.0)', async () => {
     process.env.AGENT_API_ENABLED = 'true'
     delete process.env.AGENT_API_SECRET
     const m = await load()
-    expect(m.agentApiEnabled()).toBe(false)
+    expect(m.agentApiEnabled()).toBe(true)
+    expect(m.gateAgentApi(req('Bearer anything'))?.status).toBe(401)
   })
   it('시크릿 불일치 401, 일치 통과(null)', async () => {
     process.env.AGENT_API_ENABLED = 'true'
