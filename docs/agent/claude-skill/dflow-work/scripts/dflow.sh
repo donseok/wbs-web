@@ -34,9 +34,9 @@ base() {
 }
 # DFLOW_PATS(쉼표 구분) 우선, 없으면 DFLOW_PAT 단일. 토큰 문자열은 변수로만 다룬다.
 tokens() {
+  [ -n "${DFLOW_PATS:-}" ] || [ -n "${DFLOW_PAT:-}" ] || die 2 "DFLOW_PATS 또는 DFLOW_PAT 미설정"
   if [ -n "${DFLOW_PATS:-}" ]; then printf '%s' "$DFLOW_PATS" | tr ',' '\n'
-  elif [ -n "${DFLOW_PAT:-}" ]; then printf '%s\n' "$DFLOW_PAT"
-  else die 2 "DFLOW_PATS 또는 DFLOW_PAT 미설정"; fi
+  else printf '%s\n' "$DFLOW_PAT"; fi
 }
 # 프로필 캐시: [{prefix, email}] — 평문 토큰은 캐시하지 않는다(재조회 키는 prefix).
 profile_email() { # $1=token → 캐시에서 email, 없으면 /me 조회 후 캐시
@@ -68,10 +68,13 @@ pick_token() { # $1=--as 값('' 허용)
 
 # ---- HTTP ----------------------------------------------------------------
 api_raw() { # $1=METHOD $2=PATH [$3=JSON body] — TOKEN env 필요. 성공 시 body 출력.
-  _code=$(curl -sS -o /tmp/dflow_body.$$ -w '%{http_code}' -X "$1" \
+  mkdir -p "$CACHE_DIR"
+  _body_tmp="$CACHE_DIR/dflow_body.$$"
+  _base=$(base) || exit $?
+  _code=$(curl -sS -o "$_body_tmp" -w '%{http_code}' -X "$1" \
     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    ${3:+--data "$3"} "$(base)$2" 2>/dev/null) || { rm -f /tmp/dflow_body.$$; die 6 "네트워크 오류"; }
-  _body=$(cat /tmp/dflow_body.$$; rm -f /tmp/dflow_body.$$)
+    ${3:+--data "$3"} "$_base$2" 2>/dev/null) || { rm -f "$_body_tmp"; die 6 "네트워크 오류"; }
+  _body=$(cat "$_body_tmp"; rm -f "$_body_tmp")
   case "$_code" in
     2??) printf '%s' "$_body"; return 0 ;;
     401) printf '%s\n' "$_body" >&2; exit 3 ;;
@@ -116,7 +119,10 @@ print_list() { # stdin = 주문 배열 JSON
 }
 
 # ---- 커맨드 ---------------------------------------------------------------
-cmd_me() { TOKEN="$TOK" api_raw GET /api/v1/agent/me | jq . ; }
+cmd_me() {
+  _body=$(TOKEN="$TOK" api_raw GET /api/v1/agent/me) || exit $?
+  printf '%s' "$_body" | jq .
+}
 
 cmd_list() {
   _scope='available'; _all=''
@@ -125,28 +131,35 @@ cmd_list() {
     --scope) _scope="$2"; shift ;;
     *) die 2 "알 수 없는 옵션: $1" ;;
   esac; shift; done
+  mkdir -p "$CACHE_DIR"
   if [ -n "$_all" ]; then
     for _t in $(tokens); do
       printf '== %s ==\n' "$(profile_email "$_t" || printf '?')"
-      TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope" \
-        | jq '[.claimed[]?, .assigned[]?, .available[]?]' | tee "$LIST_CACHE.tmp" | print_list
+      _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
+      printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | tee "$LIST_CACHE.tmp" | print_list
     done
   else
-    TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope" \
-      | jq '[.claimed[]?, .assigned[]?, .available[]?]' > "$LIST_CACHE.tmp"
+    _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
+    printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' > "$LIST_CACHE.tmp"
     print_list < "$LIST_CACHE.tmp"
   fi
-  mkdir -p "$CACHE_DIR"; mv "$LIST_CACHE.tmp" "$LIST_CACHE" 2>/dev/null || true
+  mv "$LIST_CACHE.tmp" "$LIST_CACHE" 2>/dev/null || true
 }
 
-cmd_show() { _id=$(resolve_ref "$1"); TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id" | jq . ; }
+cmd_show() {
+  _id=$(resolve_ref "$1")
+  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
+  printf '%s' "$_body" | jq .
+}
 
 # 선행 로컬 도달 검사(결정 C-②) — depends_evidence 의 head_sha 가 현재 리포에 없거나
 # HEAD 조상이 아니면 하드 차단(exit 4). 경고+확인이 아니다.
 check_depends_local() { # $1=depends_evidence JSON 배열
-  printf '%s' "$1" | jq -c '.[] | select(.head_sha != null)' | while IFS= read -r _d; do
-    _sha=$(printf '%s' "$_d" | jq -r '.head_sha')
-    _ref=$(printf '%s' "$_d" | jq -r '.external_ref')
+  _jq_out=$(printf '%s' "$1" | jq -c '.[] | select(.head_sha != null)' 2>&1) || die 4 "의존성 정보 파싱 실패"
+  [ -n "$_jq_out" ] || return 0  # 의존성 없으면 통과
+  printf '%s' "$_jq_out" | while IFS= read -r _d; do
+    _sha=$(printf '%s' "$_d" | jq -r '.head_sha' 2>/dev/null)
+    _ref=$(printf '%s' "$_d" | jq -r '.external_ref' 2>/dev/null)
     git cat-file -e "$_sha^{commit}" 2>/dev/null \
       || die 4 "선행 $_ref 의 커밋($_sha)이 로컬에 없습니다 — git fetch/pull 후 다시 시도하세요."
     git merge-base --is-ancestor "$_sha" HEAD 2>/dev/null \
@@ -156,9 +169,10 @@ check_depends_local() { # $1=depends_evidence JSON 배열
 
 # spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷.
 write_spec_cache() { # $1=claim 응답 JSON
-  _tsk=$(printf '%s' "$1" | jq -r '.item.external_ref // empty' | awk -F/ '{print $NF}')
+  _tsk=$(printf '%s' "$1" | jq -r '.item.external_ref // empty' 2>/dev/null | awk -F/ '{print $NF}')
   [ -n "$_tsk" ] || return 0
   mkdir -p "docs/tasks/$_tsk"
+  _spec_tmp="docs/tasks/$_tsk/spec.md.tmp"
   printf '%s' "$1" | jq -r '
     "# " + (.item.external_ref // "") + " " + (.item.name // "") + "\n" +
     "> stage: " + (.item.stage // "-") + " · category: " + (.item.category // "-") +
@@ -168,7 +182,8 @@ write_spec_cache() { # $1=claim 응답 JSON
     "> depends: " + ((.item.depends // []) | join(", ")) + "\n\n" +
     (.item.spec // "(명세 없음)") + "\n\n## 수용 기준\n" +
     ((.item.acceptance // []) | map("- [ ] " + .) | join("\n"))
-  ' > "docs/tasks/$_tsk/spec.md"
+  ' > "$_spec_tmp" || { rm -f "$_spec_tmp"; die 4 "spec 파일 쓰기 실패"; }
+  mv "$_spec_tmp" "docs/tasks/$_tsk/spec.md" || die 4 "spec 파일 원자 이동 실패"
   printf 'spec 캐시: docs/tasks/%s/spec.md\n' "$_tsk"
 }
 
@@ -187,9 +202,10 @@ cmd_claim() {
 cmd_progress() {
   _id=$(resolve_ref "$1"); _pct="$2"; _sum="$3"
   [ "$_pct" -ge 0 ] 2>/dev/null && [ "$_pct" -le 99 ] || die 2 "pct 는 0~99 — 완료는 done 을 쓰세요."
-  TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
     "$(jq -nc --arg a "claude-$(hostname -s)" --argjson p "$_pct" --arg s "$_sum" \
-       '{agent:$a, kind:"progress", percent:$p, summary:$s}')" | jq -r '.status'
+       '{agent:$a, kind:"progress", percent:$p, summary:$s}')") || exit $?
+  printf '%s' "$_body" | jq -r '.status'
 }
 
 cmd_done() {
@@ -209,36 +225,39 @@ cmd_done() {
     _pr=$(command -v gh >/dev/null 2>&1 && gh pr view --json url -q .url 2>/dev/null || printf '')
     _links=$(jq -nc --arg r "$_remote" --arg p "$_pr" \
       '[ (if $r|startswith("http") then {label:"repo", url:$r} else empty end),
-         (if $p != "" then {label:"pr", url:$p} else empty end) ]')
+         (if $p != "" then {label:"pr", url:$p} else empty end) ]') || die 2 "링크 JSON 생성 실패"
     _evidence=$(jq -nc --arg b "$_branch" --arg h "$_sha" --arg r "$_remote" --arg p "$_pr" \
       '{branch:$b, head_sha:$h}
        + (if $r|startswith("http") then {repo_url:$r} else {} end)
-       + (if $p != "" then {pr_url:$p} else {} end)')
+       + (if $p != "" then {pr_url:$p} else {} end)') || die 2 "증적 JSON 생성 실패"
   fi
-  TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
     "$(jq -nc --arg a "claude-$(hostname -s)" --arg s "$_sum" \
        --argjson l "$_links" --argjson e "$_evidence" \
-       '{agent:$a, kind:"completion", percent:100, summary:$s, links:$l, evidence:$e}')" \
-    | jq -r '"reported(승인 대기) — PM 승인은 웹에서"'
+       '{agent:$a, kind:"completion", percent:100, summary:$s, links:$l, evidence:$e}')") || exit $?
+  printf '%s' "$_body" | jq -r '"reported(승인 대기) — PM 승인은 웹에서"'
 }
 
 cmd_release() {
   _id=$(resolve_ref "$1")
-  TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/release" \
-    "$(jq -nc --arg a "claude-$(hostname -s)" '{agent:$a}')" | jq -r '.status'
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/release" \
+    "$(jq -nc --arg a "claude-$(hostname -s)" '{agent:$a}')") || exit $?
+  printf '%s' "$_body" | jq -r '.status'
 }
 
 cmd_doctor() {
   need curl; need jq
-  printf 'base: %s\n' "$(base)"
+  _base=$(base) || exit $?
+  printf 'base: %s\n' "$_base"
   _n=0
-  for _t in $(tokens); do
+  _toks=$(tokens) || exit $?
+  printf '%s' "$_toks" | while IFS= read -r _t; do
     _n=$((_n+1))
     _me=$(TOKEN="$_t" api_raw GET /api/v1/agent/me) || { printf '프로필 %d: 인증 실패\n' "$_n"; continue; }
-    _cv=$(printf '%s' "$_me" | jq -r '.contract_version')
+    _cv=$(printf '%s' "$_me" | jq -r '.contract_version' 2>/dev/null)
     printf '프로필 %d: %s (계약 %s, 프로젝트 %d)\n' "$_n" \
-      "$(printf '%s' "$_me" | jq -r '.user_email')" "$_cv" \
-      "$(printf '%s' "$_me" | jq -r '.projects | length')"
+      "$(printf '%s' "$_me" | jq -r '.user_email' 2>/dev/null)" "$_cv" \
+      "$(printf '%s' "$_me" | jq -r '.projects | length' 2>/dev/null)"
     [ "$_cv" = "2.0" ] || printf '  ⚠ 계약 버전 불일치 — wbs-web pull 로 스킬을 갱신하세요.\n'
   done
 }
