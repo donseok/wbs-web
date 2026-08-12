@@ -219,10 +219,16 @@ type TreeRow = { id: string; parent_id: string | null; name: string; assignee_me
  * 요약 알림은 실제로 갱신된 항목이 1건 이상일 때만 발행하고(리뷰 라운드 1 — 귀속 오류),
  * 명칭·건수도 실제 갱신 결과 기준이다(본인이 갱신되지 않았으면 실제로 갱신된 첫 항목의
  * 이름을 쓴다).
+ *
+ * 본인 UPDATE 성공 후 하위 UPDATE 가 실패하면(리뷰 라운드 2 — 부분 커밋을 전체 실패로
+ * 보고하는 회귀) 이미 DB 에 반영된 본인 쓰기를 없던 일로 위장하지 않는다(3원칙: 표시=로깅,
+ * 커밋된 쓰기는 커밋된 대로 보고한다) — 로깅만 하고 `ok:true` 로 계속 진행해 본인 반영분
+ * 기준으로 revalidate·알림·자동발행을 마치되, 응답에 `cascadeFailed:true` 를 실어 호출부가
+ * "일부만 적용됐다"는 사실을 사용자에게 보여줄 수 있게 한다.
  */
 export async function setWbsAssigneeCascade(
   itemId: string, memberId: string,
-): Promise<{ ok: boolean; error?: string; count?: number }> {
+): Promise<{ ok: boolean; error?: string; count?: number; cascadeFailed?: boolean }> {
   const resolved = await resolveItemProjectId(itemId)
   if (!resolved.ok) return resolved
   const g = await requireProjectAdmin(resolved.projectId)
@@ -297,6 +303,9 @@ export async function setWbsAssigneeCascade(
 
   // 하위 — DB 조건(.is null)으로 TOCTOU 방어. 후보였지만 그 사이 다른 관리자가 먼저
   // 배정했다면 조건에 걸려 갱신되지 않고, 갱신 건수 집계에도 잡히지 않는다.
+  // 이 UPDATE 자체가 실패해도(네트워크 등) 위에서 이미 커밋된 본인 UPDATE 를 없던 일로
+  // 만들지 않는다 — 로깅만 하고 cascadeFailed 플래그로 이어간다(리뷰 라운드 2).
+  let cascadeFailed = false
   if (descendantCandidateIds.length > 0) {
     const { data: updatedDesc, error: descErr } = await admin
       .from('wbs_items')
@@ -304,12 +313,16 @@ export async function setWbsAssigneeCascade(
       .in('id', descendantCandidateIds)
       .is('assignee_member_id', null)
       .select('id')
-    if (descErr) return { ok: false, error: descErr.message }
-    for (const r of (updatedDesc ?? []) as { id: string }[]) updatedIds.push(r.id)
+    if (descErr) {
+      console.error('[wbsAssign] cascade 하위 UPDATE 실패 — 본인 반영분만 확정:', descErr.message)
+      cascadeFailed = true
+    } else {
+      for (const r of (updatedDesc ?? []) as { id: string }[]) updatedIds.push(r.id)
+    }
   }
 
   const count = updatedIds.length
-  if (count === 0) return { ok: true, count: 0 }
+  if (count === 0) return { ok: true, count: 0, ...(cascadeFailed ? { cascadeFailed: true } : {}) }
 
   revalidatePath(`/p/${resolved.projectId}`, 'layout')
 
@@ -349,7 +362,7 @@ export async function setWbsAssigneeCascade(
     }
   }
 
-  return { ok: true, count }
+  return { ok: true, count, ...(cascadeFailed ? { cascadeFailed: true } : {}) }
 }
 
 export async function setWbsStage(

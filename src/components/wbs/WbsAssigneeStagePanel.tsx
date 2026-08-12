@@ -47,6 +47,7 @@ export function WbsAssigneeStagePanel({
   const [err, setErr] = useState<string | null>(null)
   const [cascade, setCascade] = useState(true)
   const [cascadeResult, setCascadeResult] = useState<number | null>(null)
+  const [cascadeWarn, setCascadeWarn] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -57,7 +58,7 @@ export function WbsAssigneeStagePanel({
   }, [itemId])
 
   async function onAssigneeChange(memberId: string | null) {
-    setBusy('assignee'); setErr(null); setCascadeResult(null)
+    setBusy('assignee'); setErr(null); setCascadeResult(null); setCascadeWarn(false)
     const useCascade = hasChildren && cascade && memberId !== null
     const res = useCascade
       ? await setWbsAssigneeCascade(itemId, memberId)
@@ -68,6 +69,9 @@ export function WbsAssigneeStagePanel({
     // 때) 낙관적 갱신이 그대로 맞다 — 하위 트리만 별도의 null 필터를 적용한다.
     setLoaded(prev => (prev && prev !== 'error' ? { ...prev, assigneeMemberId: memberId } : prev))
     if (useCascade && 'count' in res && typeof res.count === 'number' && res.count > 0) setCascadeResult(res.count)
+    // 하위 UPDATE 만 실패한 부분 성공(리뷰 라운드 2) — 본인 반영은 확정됐으므로 성공 취급하되
+    // "하위 일괄 적용은 실패했다"는 사실은 별도 경고로 알린다(assigneeCascadeFail 키 재사용).
+    if (useCascade && 'cascadeFailed' in res && res.cascadeFailed) setCascadeWarn(true)
     router.refresh()
   }
 
@@ -132,6 +136,11 @@ export function WbsAssigneeStagePanel({
               {cascadeResult !== null && (
                 <p className="text-xs font-medium text-brand">
                   {t('wbs.assigneeCascadeResult').replace('{n}', String(cascadeResult))}
+                </p>
+              )}
+              {cascadeWarn && (
+                <p className="text-xs font-medium text-delayed" role="alert">
+                  {t('wbs.assigneeCascadeFail')}
                 </p>
               )}
 

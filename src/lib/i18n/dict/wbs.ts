@@ -206,7 +206,7 @@ export const wbsKo = {
   'wbs.assigneeSearchNoResults': '검색 결과 없음',
   'wbs.assigneeCascadeLabel': '미지정 하위 항목에도 적용',
   'wbs.assigneeCascadeResult': '{n}건에 적용되었습니다',
-  'wbs.assigneeCascadeFail': '하위 항목 적용에 실패했습니다.',
+  'wbs.assigneeCascadeFail': '하위 일괄 적용은 실패했습니다. 다시 시도하세요.',
   // 명세 패널(Task 12A, 결정 B) — 스칼라 배지·참조 필드·acceptance 체크리스트·spec 마크다운
   'wbs.specPanelTitle': '명세',
   'wbs.specLoadFail': '명세를 불러오지 못했습니다. 다시 열어 주세요.',
@@ -429,7 +429,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.assigneeSearchNoResults': 'No results',
   'wbs.assigneeCascadeLabel': 'Also apply to unassigned sub-items',
   'wbs.assigneeCascadeResult': 'Applied to {n} item(s)',
-  'wbs.assigneeCascadeFail': 'Failed to apply to sub-items.',
+  'wbs.assigneeCascadeFail': 'Applying to sub-items failed. Please try again.',
   // Spec panel (Task 12A, decision B) — scalar badges, reference fields, acceptance checklist, spec markdown
   'wbs.specPanelTitle': 'Spec',
   'wbs.specLoadFail': 'Could not load spec. Please reopen.',

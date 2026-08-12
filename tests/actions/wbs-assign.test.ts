@@ -337,6 +337,52 @@ describe('setWbsAssigneeCascade', () => {
     )
   })
 
+  it('(i) 하위 UPDATE 자체가 실패해도 본인 반영분은 정직하게 커밋 처리 — ok:true+cascadeFailed:true(부분 커밋을 전체 실패로 위장하지 않는다, 리뷰 라운드 2)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: TREE },
+        { data: [{ id: W1 }] }, // 본인 UPDATE 성공 — 이미 DB 에 커밋됨
+        { data: null, error: { message: 'network boom' } }, // 하위 UPDATE 실패
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    // 본인 반영분(1건)은 정직하게 count 에 반영하고, 실패 사실은 cascadeFailed 로만 알린다 —
+    // 이미 커밋된 쓰기를 ok:false 로 위장하지 않는다.
+    expect(r).toEqual({ ok: true, count: 1, cascadeFailed: true })
+    expect(errSpy).toHaveBeenCalled()
+    // 본인 반영 기준으로 알림은 정상 발행(하위가 실패했으므로 "외 N건" 없이 단건 문구).
+    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: W1,
+      payload: expect.objectContaining({ detail: "'Root' 작업 담당자로 지정되었습니다" }),
+    }))
+    // W1은 자식이 있어 리프가 아니므로 자동 주문 발행 대상이 아니다(하위는 실패해 갱신되지 않았음).
+    expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it('(j) 본인 갱신 대상이 없고 하위 UPDATE 만 실패하면 count:0 + cascadeFailed:true, 무발행', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: [
+          { id: W1, parent_id: null, name: 'Root', assignee_member_id: M1 }, // 이미 같은 담당자 — 본인 UPDATE 없음
+          { id: W2, parent_id: W1, name: 'Child B', assignee_member_id: null },
+        ] },
+        { data: null, error: { message: 'network boom' } }, // 하위 UPDATE(유일한 UPDATE) 실패
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r).toEqual({ ok: true, count: 0, cascadeFailed: true })
+    expect(errSpy).toHaveBeenCalled()
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+    expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
   it('(f) 다른 프로젝트의 member_id → 거부, 조회 없음', async () => {
     const { captured } = admin({
       project_members: [{ data: { id: M1, project_id: P2 } }],
