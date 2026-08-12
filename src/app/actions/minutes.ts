@@ -775,12 +775,13 @@ export async function fetchMinutesExplorer(): Promise<ExplorerData | null> {
 
 /** 폴더 전량 로드(액션 내부용) — 깊이 검증에 사용. 실패 시 null. */
 async function loadFolders(sb: Awaited<ReturnType<typeof createServerClient>>): Promise<MinuteFolder[] | null> {
-  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id, sort, created_by')
+  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id, sort, created_by, project_id')
   if (error) { console.error('[loadFolders] 조회 실패:', error.message); return null }
   return (data ?? []).map((f: Record<string, unknown>) => ({
     id: f.id as string, name: f.name as string,
     parentId: (f.parent_id as string | null) ?? null,
     sort: f.sort as number, createdBy: (f.created_by as string | null) ?? null,
+    projectId: (f.project_id as string | null) ?? null,
   }))
 }
 

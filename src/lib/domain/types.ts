@@ -223,6 +223,7 @@ export interface MinuteFolder {
   parentId: string | null
   sort: number
   createdBy: string | null           // null = 시드 폴더(pmo_admin 만 관리)
+  projectId: string | null           // 0076 — 귀속 프로젝트. null = 미지정
 }
 
 /** 탐색기 리프 — 목록 조회 shape 에 폴더 소속 부착. */

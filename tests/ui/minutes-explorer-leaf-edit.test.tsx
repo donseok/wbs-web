@@ -39,7 +39,7 @@ vi.mock('@/components/minutes/MinuteMetaModal', () => ({
 import { MinutesExplorer } from '@/components/minutes/MinutesExplorer'
 
 const folders: MinuteFolder[] = [
-  { id: 'f-plan', name: '생산계획', parentId: null, sort: 5, createdBy: 'u1' },
+  { id: 'f-plan', name: '생산계획', parentId: null, sort: 5, createdBy: 'u1', projectId: null },
 ]
 const leaves: ExplorerLeaf[] = [
   {

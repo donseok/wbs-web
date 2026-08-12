@@ -4,7 +4,7 @@ import type { MinuteFolder } from '@/lib/domain/types'
 
 const f = (
   id: string, name: string, parentId: string | null = null, createdBy: string | null = 'u1',
-): MinuteFolder => ({ id, name, parentId, sort: 100, createdBy })
+): MinuteFolder => ({ id, name, parentId, sort: 100, createdBy, projectId: null })
 
 const TEAMS = ['PMO', 'MES', 'ERP', 'APS'] as const
 

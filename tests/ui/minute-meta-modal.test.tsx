@@ -27,7 +27,7 @@ import { MinuteMetaModal } from '@/components/minutes/MinuteMetaModal'
 const F = (
   id: string, name: string, parentId: string | null = null,
   createdBy: string | null = null, sort = 0,
-): MinuteFolder => ({ id, name, parentId, sort, createdBy })
+): MinuteFolder => ({ id, name, parentId, sort, createdBy, projectId: null })
 
 // sort 는 프로덕션 시드값(0043) — 트리 표시 순서가 이 값에서 유도되므로 순서가 계약
 const tree: MinuteFolder[] = [

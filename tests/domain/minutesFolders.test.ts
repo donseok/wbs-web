@@ -7,7 +7,7 @@ import {
 import type { ExplorerLeaf, MinuteFolder, TeamCode } from '@/lib/domain/types'
 
 const folder = (id: string, name: string, parentId: string | null = null, sort = 100): MinuteFolder =>
-  ({ id, name, parentId, sort, createdBy: null })
+  ({ id, name, parentId, sort, createdBy: null, projectId: null })
 
 const leaf = (id: string, date: string, folderId: string | null): ExplorerLeaf => ({
   id, minuteDate: date, teamCode: 'MES' as TeamCode, title: `제목${id}`,
@@ -192,9 +192,9 @@ describe('folderSubtreeIds', () => {
 
 describe('teamChildFoldersOf', () => {
   const seedRoot = (id: string, name: string, sort = 100): MinuteFolder =>
-    ({ id, name, parentId: null, sort, createdBy: null })
+    ({ id, name, parentId: null, sort, createdBy: null, projectId: null })
   const userFolder = (id: string, name: string, parentId: string | null, sort = 100): MinuteFolder =>
-    ({ id, name, parentId, sort, createdBy: 'user-1' })
+    ({ id, name, parentId, sort, createdBy: 'user-1', projectId: null })
 
   it('시드 팀 루트의 직계 하위만, 트리와 같은 정렬(sort asc → name ko asc)', () => {
     const fs = [
