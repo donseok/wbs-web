@@ -54,7 +54,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           : isAnyProjectAdmin(actor) ? '관리자'
             : hasAnyProjectRole(actor) ? '멤버' : '조회',
         teamCode: actor.teamCode,
-        canManageAccounts: isAnyProjectAdmin(actor),
         isSuperuser: actor.isSuperuser,
         showUsage: canViewUsage(actor),
       }
@@ -62,7 +61,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ? {
           roleLabel: '확인 불가',
           teamCode: null,
-          canManageAccounts: false,
           isSuperuser: false,
           showUsage: false,
         }
