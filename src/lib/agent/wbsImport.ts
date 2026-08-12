@@ -1,5 +1,5 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
-import { ensureOrderForAssignedLeaf } from '@/lib/agent/ensureOrder'
+import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { emitNotification } from '@/lib/notify/emit'
 
 /**
@@ -129,7 +129,7 @@ export async function applyAssigneesAndOrders(
     }).catch(() => {
       // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않음(emitNotification 내부에서 로깅)
     })
-    const ensured = await ensureOrderForAssignedLeaf(admin, { projectId, wbsItemId: itemId, actorUserId })
+    const ensured = await ensureOrderForWorkflowLeaf(admin, { projectId, wbsItemId: itemId, actorUserId })
     if (!ensured.ok) throw new Error(`자동 발행 실패(${ref}): ${ensured.error}`)
     if (ensured.created) ordersCreated += 1
     // unmatched_assignees 와 동일 규칙(bare id) — 클라이언트는 module 프리픽스를 모른다.

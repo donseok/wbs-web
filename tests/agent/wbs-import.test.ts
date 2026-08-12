@@ -130,8 +130,8 @@ describe('POST /wbs/import', () => {
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
         { data: null }, // assignee_member_id update
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트)
         { data: null }, // ensureOrder: 자식 없음(리프)
-        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1' } }, // ensureOrder: 항목 조회
       ],
       agent_work_orders: [
         { data: null }, // 활성 주문 없음
@@ -267,6 +267,7 @@ describe('POST /wbs/import', () => {
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
         { data: null }, // assignee_member_id update
+        { data: { dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트 통과)
         { data: { id: 'child-x' } }, // ensureOrder: 자식 있음 — 리프 아님
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/WP-01': 'id-wp' }, new_refs: ['MES/WP-01'] } }])

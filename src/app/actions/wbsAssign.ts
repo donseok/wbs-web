@@ -6,7 +6,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
-import { ensureOrderForAssignedLeaf } from '@/lib/agent/ensureOrder'
+import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { REACHED_STAGES, notifySuccessorsOnReached } from '@/lib/agent/stageTransition'
 
 /**
@@ -98,9 +98,9 @@ export async function setWbsAssignee(
       recipientMemberIds: [memberId],
     })
     // §2.8 자동 발행 — 배정 성공에 종속된 오류 격리 호출이다. 실패해도 배정 자체는 성공을
-    // 유지한다(에러는 로깅만). ensureOrderForAssignedLeaf 내부가 리프·게이트·멱등을 자체 처리한다.
+    // 유지한다(에러는 로깅만). ensureOrderForWorkflowLeaf 내부가 리프·게이트·멱등을 자체 처리한다.
     try {
-      const orderRes = await ensureOrderForAssignedLeaf(admin, {
+      const orderRes = await ensureOrderForWorkflowLeaf(admin, {
         projectId: item.project_id,
         wbsItemId: itemId,
         actorUserId: g.actor.userId,
@@ -272,7 +272,7 @@ export async function setWbsAssigneeCascade(
   for (const id of updatedIds) {
     if (hasChildren.has(id)) continue
     try {
-      const orderRes = await ensureOrderForAssignedLeaf(admin, {
+      const orderRes = await ensureOrderForWorkflowLeaf(admin, {
         projectId: resolved.projectId,
         wbsItemId: id,
         actorUserId: g.actor.userId,
