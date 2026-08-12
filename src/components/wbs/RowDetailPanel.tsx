@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
-import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, TaskDependency, TeamCode } from '@/lib/domain/types'
+import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, ProjectMember, TaskDependency, TeamCode } from '@/lib/domain/types'
 import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
 import {
   getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem,
@@ -14,9 +14,11 @@ import { listAttachments, recordAttachment, removeAttachment } from '@/app/actio
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import type { DictKey } from '@/lib/i18n/dict'
+const EMPTY_MEMBERS: ProjectMember[] = []
 
 type Tr = (k: DictKey) => string
 const ROLE_KEY: Record<string, DictKey> = { pmo_admin: 'wbs.rolePmoAdmin', team_editor: 'wbs.roleTeamEditor' }
@@ -48,6 +50,7 @@ function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
+  members = EMPTY_MEMBERS,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -63,6 +66,8 @@ export function RowDetailPanel({
   levelLabels?: string[]
   /** 프로젝트별 최대 깊이(§7.3 ProjectConfig, null=무제한) — 자식 추가 어포던스 판정(canAddChild)에 사용. */
   maxDepth?: number | null
+  /** 프로젝트 로스터 — 담당·단계 섹션(WbsAssigneeStagePanel)의 담당자 셀렉트 데이터 소스(§2.5). */
+  members?: ProjectMember[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -282,6 +287,13 @@ export function RowDetailPanel({
                 )}
               </Field>
             </>
+          )}
+
+          {/* 담당(로스터 축)·단계(§2.5) — 팀 단위 owners(위 Field)와 별개인 개인 배정.
+              별도 오버레이가 아니라 이 패널의 섹션으로 둔다(리뷰 라운드 1 — 두 번째
+              fixed dialog는 aria-modal 뒤에서 키보드·스크린리더로 도달 불가했다). */}
+          {!editing && (
+            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} />
           )}
 
           {!editing && (
