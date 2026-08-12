@@ -8,6 +8,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminCli
 import { GET as mineGET } from '@/app/api/v1/agent/work/mine/route'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
+const P2 = '22222222-2222-4222-8222-222222222222'
 type Resp = { data?: unknown; error?: { message: string } | null }
 
 const PAT = generateAgentToken()
@@ -80,5 +81,77 @@ describe('GET /agent/work/mine', () => {
     useAdmin({ agent_runners: [{ data: RUNNER }, { data: null }] })
     const res = await mineGET(get('http://l/api/v1/agent/work/mine?limit=999', PAT.token))
     expect(res.status).toBe(400)
+  })
+
+  // accessibleProjectIds 교차(intersection) 회귀 테스트
+  it('enabled 프로젝트 P1·P2, PAT 소유자 P1만 멤버 → P1 주문만, P2 배제', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      memberships: [
+        { data: { is_superuser: false } }, // P1 멤버십 체크
+        { data: { is_superuser: false } }, // P2 멤버십 체크
+      ],
+      project_roles: [
+        { data: [{ role: 'member' }] }, // P1: 멤버
+        { data: [] }, // P2: 비멤버 → accessibleProjectIds 루프에서 배제됨
+      ],
+      agent_work_orders: [{ data: [
+        { id: 'o-1', project_id: P1, status: 'ready', priority: 5, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' },
+      ] }],
+      wbs_items: [{ data: [] }],
+    })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine', PAT.token))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.available).toHaveLength(1)
+    expect(body.available[0].id).toBe('o-1')
+    expect(body.available[0].project_id).toBe(P1)
+  })
+
+  it('PAT project_id 한정 P1 → P2 멤버여도 patProjectAllowed 에서 배제', async () => {
+    const RUNNER_P1 = { ...RUNNER, project_id: P1 } // P1로만 제한됨
+    useAdmin({
+      agent_runners: [{ data: RUNNER_P1 }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      memberships: [
+        { data: { is_superuser: false } }, // P1 멤버십 체크만 필요 (P2는 patProjectAllowed 에서 배제)
+      ],
+      project_roles: [
+        { data: [{ role: 'member' }] }, // P1: 멤버
+      ],
+      agent_work_orders: [{ data: [
+        { id: 'o-1', project_id: P1, status: 'ready', priority: 5, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' },
+      ] }],
+      wbs_items: [{ data: [] }],
+    })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine', PAT.token))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.available).toHaveLength(1)
+    expect(body.available[0].id).toBe('o-1')
+  })
+
+  it('fail-closed: 멤버십 조회 실패 시 그 프로젝트 배제', async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_projects: [{ data: [{ project_id: P1 }, { project_id: P2 }] }],
+      memberships: [
+        { data: { is_superuser: false } }, // P1 멤버십 체크: 성공
+        { error: { message: 'DB error' } }, // P2 멤버십 체크: 실패 → fail-closed 로 배제
+      ],
+      project_roles: [
+        { data: [{ role: 'member' }] }, // P1: 멤버
+      ],
+      agent_work_orders: [{ data: [
+        { id: 'o-1', project_id: P1, status: 'ready', priority: 5, instructions: '', claimed_at: null, wbs_item_id: null, created_at: '2026-08-01T00:00:00Z' },
+      ] }],
+      wbs_items: [{ data: [] }],
+    })
+    const res = await mineGET(get('http://l/api/v1/agent/work/mine', PAT.token))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.available).toHaveLength(1)
+    expect(body.available[0].id).toBe('o-1')
   })
 })
