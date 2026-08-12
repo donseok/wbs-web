@@ -187,6 +187,21 @@ export const wbsKo = {
   'wbs.noAttachmentsAdd': '첨부된 파일이 없습니다. 파일을 추가하세요.',
   'wbs.noAttachments': '첨부된 파일이 없습니다.',
   'wbs.deleteAttachmentAria': '첨부 삭제',
+  // 담당자·단계 패널(§2.5) — 로스터 축 개인 담당자, Task 단계 편집
+  'wbs.assigneeStagePanelTitle': '담당·단계',
+  'wbs.assigneeLabel': '담당자',
+  'wbs.assigneeUnassignedOption': '담당자 없음',
+  'wbs.stageLabel': '단계',
+  'wbs.stageNoneOption': '미도입',
+  'wbs.stageTodo': '할 일',
+  'wbs.stageAs': '분석·설계',
+  'wbs.stageFp': '기능 구현',
+  'wbs.stageIp': '진행 중',
+  'wbs.stageIm': '검수 중',
+  'wbs.stageXx': '완료',
+  'wbs.assigneeStageLoadFail': '현재 값을 불러오지 못했습니다. 다시 열어 주세요.',
+  'wbs.assigneeStageReadOnly': '보기 전용 — 프로젝트 관리자만 변경할 수 있습니다.',
+  'wbs.assigneeStageClose': '패널 닫기',
 } as const
 
 export const wbsEn: Record<keyof typeof wbsKo, string> = {
@@ -363,4 +378,19 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.noAttachmentsAdd': 'No files attached yet. Add one.',
   'wbs.noAttachments': 'No files attached.',
   'wbs.deleteAttachmentAria': 'Delete attachment',
+  // Assignee/stage panel (§2.5) — personal roster-axis assignee, Task stage editing
+  'wbs.assigneeStagePanelTitle': 'Assignee · Stage',
+  'wbs.assigneeLabel': 'Assignee',
+  'wbs.assigneeUnassignedOption': 'No assignee',
+  'wbs.stageLabel': 'Stage',
+  'wbs.stageNoneOption': 'Not started',
+  'wbs.stageTodo': 'To do',
+  'wbs.stageAs': 'Analysis & design',
+  'wbs.stageFp': 'Feature build',
+  'wbs.stageIp': 'In progress',
+  'wbs.stageIm': 'In review',
+  'wbs.stageXx': 'Done',
+  'wbs.assigneeStageLoadFail': 'Could not load current values. Please reopen.',
+  'wbs.assigneeStageReadOnly': 'Read-only — only project admins can change this.',
+  'wbs.assigneeStageClose': 'Close panel',
 }

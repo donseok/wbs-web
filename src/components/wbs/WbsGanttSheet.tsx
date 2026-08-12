@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import type { ComputedItem, TaskDependency } from '@/lib/domain/types'
+import type { ComputedItem, ProjectMember, TaskDependency } from '@/lib/domain/types'
 import { actorFromView, isProjectAdmin, type ProjectActorView } from '@/lib/domain/authz'
 import { computeDependencySchedule, type TaskSchedule } from '@/lib/domain/dependencySchedule'
 import { centeredTimelineScrollLeft, groupGanttMilestones } from '@/lib/domain/ganttScale'
@@ -16,6 +16,7 @@ import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
+import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { WbsProgressLens } from './WbsProgressLens'
 import { WbsFontSizeControl } from './WbsFontSizeControl'
 import { useWbsFontScale } from './useWbsFontScale'
@@ -55,6 +56,7 @@ const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart',
 const ROW_H = 40
 const EMPTY_DEPENDENCIES: TaskDependency[] = []
 const EMPTY_MILESTONE_KEYWORDS: readonly string[] = []
+const EMPTY_MEMBERS: ProjectMember[] = []
 /* 마일스톤 기준선 색 — 간트는 초록·청록(brand/done)이 바·상태색으로 포화라 대시보드 배색(MS_TONE)과
    의도적으로 다르다. 예정=바이올렛(#7c3aed, 팔레트의 team-erp 계열·팀 원색처럼 양 테마 고정 hex),
    완료=phasebar 슬레이트(가라앉음·다크 자동 대응), 지연=delayed 빨강(전역 지연 경보와 일치). */
@@ -149,6 +151,7 @@ export function WbsGanttSheet({
   levelLabels = DEFAULT_LEVEL_LABELS,
   maxDepth = null,
   milestoneKeywords = EMPTY_MILESTONE_KEYWORDS,
+  members = EMPTY_MEMBERS,
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
@@ -180,6 +183,8 @@ export function WbsGanttSheet({
   maxDepth?: number | null
   /** 프로젝트별 마일스톤 키워드(§7.4 ProjectConfig) — 빈 배열이면 마커 0건이 정답(설정 부재 신호, 폴백 금지). */
   milestoneKeywords?: readonly string[]
+  /** 프로젝트 로스터 — WbsAssigneeStagePanel 의 담당자 셀렉트 데이터 소스(§2.5). */
+  members?: ProjectMember[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -1583,6 +1588,16 @@ export function WbsGanttSheet({
           projectId={projectId}
           levelLabels={levelLabels}
           maxDepth={maxDepth}
+        />
+      )}
+
+      {selectedItem && (
+        <WbsAssigneeStagePanel
+          itemId={selectedItem.id}
+          itemName={selectedItem.name}
+          members={members}
+          editable={isAdmin && !readOnly}
+          onClose={() => setSelectedId(null)}
         />
       )}
     </div>
