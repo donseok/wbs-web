@@ -161,8 +161,10 @@ export async function createMinute(
     if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
     effectiveTeam = derived.team
   }
-  // 폴더 미지정이면 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백
-  const effectiveFolderId = folderId ?? await resolveTeamRootFolderId(sb, effectiveTeam, null)   // TODO(Task 6)
+  // 폴더 미지정이면 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백.
+  // sb 는 사용자 세션 클라이언트라(admin 아님) resolveTeamRootFolderId 는 읽기만 한다 —
+  // 프로젝트 루트가 아직 없으면(지연 생성 미적용) null → 미분류 폴백으로 등록 자체는 막지 않는다.
+  const effectiveFolderId = folderId ?? await resolveTeamRootFolderId(sb, effectiveTeam, resolvedProject.projectId)
   // 녹취툴 산출물이면 시간 줄 +9h(UTC→KST) 보정 — DB·다운스트림 전부 보정본 사용
   const fix = correctMinuteBodyTime(input.bodyMd)
   if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)

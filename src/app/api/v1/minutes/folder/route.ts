@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { activeTeamCodesSync } from '@/lib/teams/master'
+import { activeTeamCodesForProjectSync, activeTeamCodesSync } from '@/lib/teams/master'
 import {
   ancestorIdsOf, folderPathOfSnapshot, loadFolderSnapshot, resolveFolderPath, type FolderSnapshot,
 } from '@/lib/minutes/folders'
@@ -128,6 +128,7 @@ interface MinuteRow {
   id: string
   external_id: string
   team_code: string
+  project_id: string | null   // 0076 — 편철 기준 트리를 이 회의록의 프로젝트로 스코프한다.
   folder_id: string | null
   archived_at: string | null
 }
@@ -150,7 +151,6 @@ async function processItem(
   snap: FolderSnapshot,
   batch: ParsedBatch,
   actorId: string,
-  activeTeamCodes: readonly string[],
 ): Promise<ItemResult> {
   const key = item.externalId
   if (!row) return { external_id: key, status: 'not_found' }
@@ -169,6 +169,11 @@ async function processItem(
   }
   const teamCode = item.team ?? row.team_code
   const from = folderPathOfSnapshot(snap, row.folder_id)
+  // 0076 — 이 회의록이 속한 프로젝트 트리에서 해석한다(전역 트리와 섞이지 않는다).
+  // 스냅샷은 배치 전체가 공유해도 안전하다 — seedRoots 키가 (프로젝트, 팀코드)라 프로젝트별
+  // 루트가 서로 다른 항목으로 공존한다.
+  const projectId = row.project_id
+  const activeTeamCodes = projectId ? activeTeamCodesForProjectSync(projectId) : activeTeamCodesSync()
 
   // ⚠️ 판정 단계에서는 **절대 폴더를 만들지 않는다**(create: false). APPLY 라고 여기서 만들면
   // 뒤이어 skipped(manual_placement) 로 건너뛸 건의 목표 트리까지 실제로 생성돼, 아무 회의록도
@@ -176,12 +181,16 @@ async function processItem(
   // 판정에는 생성이 필요 없다 — 조상 규칙은 **이미 존재하는** 조상 체인만 보면 되기 때문이다.
   const resolved = await resolveFolderPath(admin, teamCode, item.folderPath, {
     actorId, activeTeamCodes, snapshot: snap, create: false,
-    projectId: null,   // TODO(Task 6): 실제 프로젝트 스코프 전달
+    projectId,
   })
   if (!resolved.ok) {
     // no_team_root 는 moved 로 집계하면 안 된다 — 배치는 '등록'이 아니라 '이동'이라
     // folder_id 를 null 로 만드는 것은 회의록을 미분류로 빼내는 것이라 목적과 반대다.
-    // 폴백을 적용하지 않고(folder_id 무변경) 실패로 보고한다. 원인은 거의 항상 0043 미적용.
+    // 폴백을 적용하지 않고(folder_id 무변경) 실패로 보고한다.
+    // Task 6 — 회의록에 project_id 가 있다는 것은 그 프로젝트의 루트가 0076 시드 또는
+    // 등록/재편철 시점의 지연 생성으로 이미 존재했어야 함을 뜻한다. 판정(create:false)
+    // 단계에서의 루트 부재는 비활성 팀 등으로 인한 예외 상황이다 — "생성됐을 것"이라
+    // 추측해 moved 로 보고하기보다(§8.2 요건 목적과 반대) 정직하게 failed 로 막는다.
     return { external_id: key, status: 'failed', reason: resolved.reason, from }
   }
 
@@ -216,7 +225,7 @@ async function processItem(
   // 이동이 확정된 지금에서야 부족한 폴더를 만든다.
   const applied = await resolveFolderPath(admin, teamCode, item.folderPath, {
     actorId, activeTeamCodes, snapshot: snap, create: true,
-    projectId: null,   // TODO(Task 6): 실제 프로젝트 스코프 전달
+    projectId,
   })
   if (!applied.ok) return { external_id: key, status: 'failed', reason: applied.reason, from }
   // 경로를 끝까지 못 만들었다 = 생성 실패. 조상에 떨구면 리포트(to)와 실제 트리가 어긋난다.
@@ -302,7 +311,7 @@ export async function POST(req: NextRequest) {
     // 대상 회의록을 한 번에 조회 — 건별 왕복을 없앤다.
     const ids = Array.from(new Set(batch.items.map(i => i.externalId)))
     const { data: rowsRaw, error: selErr } = await admin.from('minutes')
-      .select('id, external_id, team_code, folder_id, archived_at').in('external_id', ids)
+      .select('id, external_id, team_code, project_id, folder_id, archived_at').in('external_id', ids)
     if (selErr) {
       console.error('[minutes-api] 재편철 대상 조회 실패:', selErr.message)
       return apiInternalError()
@@ -310,11 +319,10 @@ export async function POST(req: NextRequest) {
     const byExternalId = new Map<string, MinuteRow>()
     for (const r of (rowsRaw ?? []) as MinuteRow[]) byExternalId.set(r.external_id, r)
 
-    const activeTeamCodes = activeTeamCodesSync()
     const results: ItemResult[] = []
     for (const item of batch.items) {
       const res = await processItem(
-        admin, item, byExternalId.get(item.externalId), snap, batch, user.id, activeTeamCodes,
+        admin, item, byExternalId.get(item.externalId), snap, batch, user.id,
       )
       // 같은 external_id 가 한 요청에 두 번 오면 두 번째는 갱신된 위치를 봐야 한다 —
       // 안 그러면 이미 옮긴 건이 다시 moved 로 집계된다(멱등 위반).

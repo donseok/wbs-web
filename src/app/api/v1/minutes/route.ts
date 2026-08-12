@@ -1,12 +1,14 @@
 import { after, NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { folderPathOf, resolveFolderPath, resolveTeamRootFolderId } from '@/lib/minutes/folders'
+import {
+  folderPathOf, refileMinuteAfterProjectChange, resolveFolderPath, resolveTeamRootFolderId,
+} from '@/lib/minutes/folders'
 import { fnv1a64 } from '@/lib/minutes/blocks'
 import {
   enqueueMinuteWikiProcessing,
   rebuildProjectWikiFromActiveMinutes,
 } from '@/lib/ai/wiki-ingest'
-import { activeTeamCodesSync } from '@/lib/teams/master'
+import { activeTeamCodesForProjectSync, activeTeamCodesSync } from '@/lib/teams/master'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound, gateMinutesApi,
   parseMinutePayload, parseUserEmail, resolveUserByEmail, runMinutePostProcessing,
@@ -83,7 +85,7 @@ function respondMinute(req: NextRequest, status: number, args: {
  * validation 실패만 400 이고, 시드 루트 부재(no_team_root)는 **등록을 막지 않는다**(§3.2-5).
  */
 async function resolvePayloadFolder(
-  admin: AdminClient, p: ExternalMinutePayload, actorId: string,
+  admin: AdminClient, p: ExternalMinutePayload, actorId: string, projectId: string | null,
 ): Promise<
   | { ok: true; provided: false }
   | {
@@ -94,8 +96,9 @@ async function resolvePayloadFolder(
 > {
   if (!p.folderPathProvided || p.folderPath === null) return { ok: true, provided: false }
   const res = await resolveFolderPath(admin, p.teamCode, p.folderPath, {
-    actorId, activeTeamCodes: activeTeamCodesSync(),
-    projectId: null,   // TODO(Task 6): 실제 프로젝트 스코프 전달
+    actorId,
+    activeTeamCodes: projectId ? activeTeamCodesForProjectSync(projectId) : activeTeamCodesSync(),
+    projectId,   // 0076 — 회의록이 속한 프로젝트 트리에서 해석한다.
   })
   if (!res.ok) {
     if (res.kind === 'validation_failed') return { ok: false, error: res.error }
@@ -148,7 +151,7 @@ async function handleExisting(
   // folder_id 키를 **넣지 않아야** 기존 위치가 유지된다(RPC 는 키가 있으면 null 도 적용해
   // 미분류로 강등한다). 시드 루트 부재(folderId null)도 같은 이유로 키를 넣지 않는다 —
   // 되돌릴 위치가 없다고 회의록을 미분류로 빼내면 안 된다.
-  const folder = await resolvePayloadFolder(admin, p, actor.id)
+  const folder = await resolvePayloadFolder(admin, p, actor.id, targetProjectId)
   if (!folder.ok) return apiBadRequest(folder.error)
   // ⚠️ 부분 편철(중간 폴더 생성 실패)이면 폴더를 **건드리지 않는다**. 신규 등록은 원래 자리가
   // 없으니 조상에 넣는 편이 미분류보다 낫지만, replace 는 이미 자리가 있는 회의록을 목표의
@@ -164,7 +167,7 @@ async function handleExisting(
   // 에서 금지한 상태를 외부 API 가 정상 경로로 만드는 셈). 새 팀 루트로 옮긴다.
   // 400 거절은 구버전 클라이언트의 정상 조작(담당 정정)을 막으므로 채택하지 않는다.
   if (!folderUpdated && p.teamCode !== existing.team_code) {
-    teamMovedFolderId = await resolveTeamRootFolderId(admin, p.teamCode, null)   // TODO(Task 6)
+    teamMovedFolderId = await resolveTeamRootFolderId(admin, p.teamCode, targetProjectId)
     if (teamMovedFolderId) folderUpdated = true
     else console.error(`[minutes-api] 담당 변경(${existing.team_code}→${p.teamCode}) 팀 루트 부재 — 폴더 유지`)
   }
@@ -207,6 +210,19 @@ async function handleExisting(
     wiki_rebuild_required: boolean
   }
   const projectChanged = existing.project_id !== targetProjectId
+  // folder_path 키 부재 재전송으로 회의 연결이 바뀌어 프로젝트만 바뀐 경우 — RPC metadata 에는
+  // folder_id 키를 넣지 않았으므로(위 "무접촉" 규칙) 폴더는 그대로 옛 프로젝트 트리에 남아 있다.
+  // updateMinuteMeta 와 같은 패턴으로 커밋 후 동기 재편철한다. teamMovedFolderId 가 이미 폴더를
+  // 옮겼으면(팀 변경 동시 발생) 건드리지 않는다 — 그 경로는 새 위치가 이미 확정됐다.
+  if (projectChanged && !folder.provided && !folderUpdated) {
+    await refileMinuteAfterProjectChange(admin, {
+      minuteId: existing.id, teamCode: p.teamCode, oldFolderId: existing.folder_id,
+      newProjectId: targetProjectId, actorId: actor.id,
+      activeTeamCodes: targetProjectId
+        ? activeTeamCodesForProjectSync(targetProjectId)
+        : activeTeamCodesSync(),
+    })
+  }
   const wikiJobId = committed.wiki_rebuild_required || projectChanged
     ? await enqueueMinuteWikiProcessing({
         projectId: targetProjectId,
@@ -268,11 +284,11 @@ async function insertNew(
   // folder_path 를 받았으면 팀 루트 아래에 같은 폴더 트리를 만들어 편철하고(§3.2), 키가 아예
   // 없으면(구버전 또박또박) 기존대로 담당 팀 루트로 편철한다(0043). 부재·실패는 미분류(null)
   // 폴백 — 편철 실패가 등록 자체를 막으면 안 된다.
-  const folder = await resolvePayloadFolder(admin, p, user.id)
+  const folder = await resolvePayloadFolder(admin, p, user.id, meetingProjectId)
   if (!folder.ok) return apiBadRequest(folder.error)
   const folderId = folder.provided
     ? folder.folderId
-    : await resolveTeamRootFolderId(admin, p.teamCode, null)   // TODO(Task 6)
+    : await resolveTeamRootFolderId(admin, p.teamCode, meetingProjectId)
   const folderPath = folder.provided
     ? folder.folderPath
     : (folderId ? [p.teamCode] : null)

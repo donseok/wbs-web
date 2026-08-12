@@ -16,9 +16,15 @@ const mocks = vi.hoisted(() => ({
   afterCallbacks: [] as Array<() => Promise<void> | void>,
   // 팀 마스터는 런타임 캐시(TTL+DB) — 테스트는 활성 목록을 직접 갈아끼운다(W1-b 검증용).
   activeTeamCodes: ['PMO', 'ERP', 'MES', '가공', 'MDM'] as string[],
+  // Task 6 — 프로젝트 스코프 활성 팀 목록. 기본은 전역과 동일하게 두고, 스코프 차이를
+  // 검증하는 테스트만 mockImplementation 으로 갈아끼운다.
+  activeTeamCodesForProject: vi.fn((_projectId: string) => mocks.activeTeamCodes),
 }))
 
-vi.mock('@/lib/teams/master', () => ({ activeTeamCodesSync: () => mocks.activeTeamCodes }))
+vi.mock('@/lib/teams/master', () => ({
+  activeTeamCodesSync: () => mocks.activeTeamCodes,
+  activeTeamCodesForProjectSync: (projectId: string) => mocks.activeTeamCodesForProject(projectId),
+}))
 
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 // inline meeting 헬퍼(minutes/meetings.ts)가 revalidatePath 를 호출한다 — vitest(요청 스코프 밖)
@@ -205,6 +211,9 @@ beforeEach(() => {
   vi.unstubAllEnvs()
   mocks.afterCallbacks.length = 0
   mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공', 'MDM']
+  // clearAllMocks 는 mockImplementation 을 지우지 않는다 — 개별 테스트의 override 가 다음
+  // 테스트로 새지 않도록 기본 구현을 매번 다시 건다.
+  mocks.activeTeamCodesForProject.mockImplementation((_projectId: string) => mocks.activeTeamCodes)
   vi.stubEnv('MINUTES_API_ENABLED', 'true')
   vi.stubEnv('MINUTES_API_SECRET', SECRET)
   // W25 — folder_path 편철 스위치. 이 스위트는 켠 상태를 기본으로 검증하고,
@@ -873,6 +882,77 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
       await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
       expect(mocks.enqueueMinuteWikiProcessing).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('편철 기준 트리 — 회의록 프로젝트 스코프 (0076 · Task 6)', () => {
+  const created = { id: 'm-1', created_at: '2026-07-27T01:00:00+00:00', updated_at: '2026-07-27T01:00:00+00:00' }
+  // 같은 이름 'PMO' 시드 루트가 전역과 프로젝트에 각각 존재 — 스코프를 안 가리면 엉뚱한 쪽으로 편철된다.
+  const SEED_PMO_GLOBAL = { id: 'f-pmo-global', name: 'PMO', parent_id: null, created_by: null, project_id: null }
+  const SEED_PMO_PROJECT = {
+    id: 'f-pmo-project', name: 'PMO', parent_id: null, created_by: null, project_id: PROJECT_UUID,
+  }
+
+  it('케이스1: meetingId로 연결된 프로젝트가 있으면 그 프로젝트 트리의 시드 루트로 편철된다', async () => {
+    const { admin } = useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
+      minutes: [{ data: null }, { data: created }],
+      minute_folders: [{ data: [SEED_PMO_GLOBAL, SEED_PMO_PROJECT] }],
+    })
+    const res = await POST(post({ ...payload, meeting_id: MEETING_UUID, folder_path: ['PMO'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-pmo-project', folder_path: ['PMO'] })
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version', expect.objectContaining({ p_folder_id: 'f-pmo-project' }),
+    )
+  })
+
+  it('케이스2: 회의 미연결 신규 등록은 전역(미지정) 트리로 편철된다', async () => {
+    useAdmin({
+      minutes: [{ data: null }, { data: created }],
+      minute_folders: [{ data: [SEED_PMO_GLOBAL, SEED_PMO_PROJECT] }],
+    })
+    const res = await POST(post({ ...payload, folder_path: ['PMO'] }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-pmo-global', folder_path: ['PMO'] })
+  })
+
+  it('케이스3: folder_path 미전송 + 프로젝트 연결 시 프로젝트 팀 루트를 조회한다', async () => {
+    const { builders } = useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
+      minutes: [{ data: null }, { data: created }],
+      minute_folders: [{ data: { id: 'f-pmo-project' } }],
+    })
+    const res = await POST(post({ ...payload, meeting_id: MEETING_UUID }))
+    expect(res.status).toBe(201)
+    const fq = builders.minute_folders[0]
+    expect(fq.eq).toHaveBeenCalledWith('project_id', PROJECT_UUID)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-pmo-project', folder_path: ['PMO'] })
+  })
+
+  it('케이스4: 재전송으로 회의 연결이 바뀌어 프로젝트가 바뀌면(folder_path 미전송) 새 프로젝트 트리로 재편철한다', async () => {
+    const existingMoved = { ...existingRow, project_id: OLD_PROJECT_UUID, folder_id: 'f-old-root' }
+    const { builders } = useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
+      minutes: [
+        { data: existingMoved },
+        { data: { id: 'm-1', created_at: existingRow.created_at, updated_at: 't' } },
+        { data: [{ id: 'm-1' }] },   // refileMinuteAfterProjectChange 의 CAS update
+      ],
+      minute_folders: [
+        // refileMinuteAfterProjectChange 내부 loadFolderSnapshot — 신·구 프로젝트 루트가 모두 필요
+        { data: [
+          { id: 'f-old-root', name: 'PMO', parent_id: null, created_by: null, project_id: OLD_PROJECT_UUID },
+          { id: 'f-new-root', name: 'PMO', parent_id: null, created_by: null, project_id: PROJECT_UUID },
+        ] },
+        // 응답 에코(folderPathOf)용 — existing.folder_id(로컬 변수, 갱신 전 값) 역해석
+        { data: [{ id: 'f-old-root', name: 'PMO', parent_id: null, created_by: null, project_id: OLD_PROJECT_UUID }] },
+      ],
+    })
+    const res = await POST(post({ ...payload, meeting_id: MEETING_UUID }))
+    expect(res.status).toBe(200)
+    expect(builders.minutes[1].update).toHaveBeenCalledWith({ folder_id: 'f-new-root' })
+    expect(builders.minutes[1].eq).toHaveBeenCalledWith('folder_id', 'f-old-root')
   })
 })
 
