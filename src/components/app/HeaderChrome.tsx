@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
+  Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, Users, X,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { getNotifications, markAllNotificationsRead, type NotificationItem } from '@/app/actions/notifications'
@@ -30,8 +30,6 @@ const SECTION_LABEL: Record<string, string> = {
 export interface HeaderIdentity {
   roleLabel: string
   teamCode: string | null
-  /** 어느 프로젝트든 관리자 이상 — 계정 관리 링크 노출 */
-  canManageAccounts: boolean
   /** 팀 관리·LLM 설정·사용 현황 등 전역 메뉴 노출 */
   isSuperuser: boolean
   showUsage: boolean
@@ -252,11 +250,6 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
                   <Link href="/account" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                     <KeyRound className="h-4 w-4" />내 계정
                   </Link>
-                  {identity?.canManageAccounts && (
-                    <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
-                      <UserCog className="h-4 w-4" />계정 관리
-                    </Link>
-                  )}
                   {identity?.isSuperuser && (
                     <>
                       <Link href="/admin/teams" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">

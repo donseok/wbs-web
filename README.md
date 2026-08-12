@@ -84,7 +84,9 @@ DK Bot(pgvector 임베딩) 스키마는 `scripts/apply-dkbot-migration.mjs`
 ## 계정
 
 가입 UI는 없다. 관리자 화면(`/admin/accounts`)에서 PMO 관리자가 계정을
-생성·일괄생성·비밀번호 리셋할 수 있다. 다만 이 화면에 접근할 최초의
+생성·일괄생성·비밀번호 리셋할 수 있다. **이 화면으로 가는 메뉴는 없다** —
+프로필 드롭다운의 '계정 관리' 항목이 2026-08-12 사용자 요청으로 제거됐고,
+화면·권한 가드는 살아 있으므로 URL 을 직접 입력해 들어간다. 다만 이 화면에 접근할 최초의
 `pmo_admin` 1명은 Supabase 대시보드(Authentication → Users +
 `memberships` 테이블 insert)에서 수동으로 부트스트랩해야 한다.
 

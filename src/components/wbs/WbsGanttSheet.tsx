@@ -806,9 +806,10 @@ export function WbsGanttSheet({
     >
       {/* ── 툴바 ── */}
       <div className="card mb-3 grid w-full min-w-0 max-w-full shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden p-2.5 sm:flex sm:flex-wrap">
-        <div className="mr-2 flex items-center gap-2 px-1 text-sm font-semibold text-ink">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
-          <span>{t('wbs.board')}</span>
+        {/* 제목 글자는 툴바 가로폭을 아껴 두 줄 줄바꿈을 막으려고 뺐다. 아이콘만 남기고 이름은 title·sr-only 로 유지 */}
+        <div className="mr-1 flex items-center px-0.5 text-sm font-semibold text-ink">
+          <span title={t('wbs.board')} className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
+          <span className="sr-only">{t('wbs.board')}</span>
         </div>
         <div className="relative min-w-0 sm:flex-none">
           <input
