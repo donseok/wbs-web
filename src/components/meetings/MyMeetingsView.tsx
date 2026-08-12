@@ -143,11 +143,14 @@ export function MyMeetingsView({
     () => showProjectChips ? (projectId: string) => projectColorClass(allProjectIds, projectId) : undefined,
     [showProjectChips, allProjectIds],
   )
+  // 달 이동으로 선택된 프로젝트가 이번 달 목록에서 사라지면(칩 행도 함께 사라짐) 필터를 무효로 친다.
+  // "칩 행이 안 보이면 필터도 걸려 있지 않다" 불변식 — 리셋 수단 없는 빈 화면 고착을 막는다.
+  const activeProjectFilter = projectFilter !== null && allProjectIds.includes(projectFilter) ? projectFilter : null
   const filteredMeetings = useMemo(() => {
     if (isStale) return []
     const base = onlyMine ? data.meetings.filter(m => m.isMine) : data.meetings
-    return projectFilter ? base.filter(m => m.projectId === projectFilter) : base
-  }, [data.meetings, onlyMine, isStale, projectFilter])
+    return activeProjectFilter ? base.filter(m => m.projectId === activeProjectFilter) : base
+  }, [data.meetings, onlyMine, isStale, activeProjectFilter])
   const occurrences = useMemo(
     () => expandMeetings(filteredMeetings, isStale ? [] : data.exceptions, gridStart, gridEnd),
     [filteredMeetings, data.exceptions, gridStart, gridEnd, isStale],
@@ -189,8 +192,8 @@ export function MyMeetingsView({
           <div className="flex items-center gap-1.5 pb-1">
             <button
               onClick={() => setProjectFilter(null)}
-              aria-pressed={projectFilter === null}
-              className={`chip cursor-pointer whitespace-nowrap border transition ${projectFilter === null ? 'border-brand bg-brand-weak text-brand' : 'border-line bg-surface text-ink-muted hover:text-ink'}`}
+              aria-pressed={activeProjectFilter === null}
+              className={`chip cursor-pointer whitespace-nowrap border transition ${activeProjectFilter === null ? 'border-brand bg-brand-weak text-brand' : 'border-line bg-surface text-ink-muted hover:text-ink'}`}
             >
               {t('meet.allProjects')}
             </button>
@@ -198,8 +201,8 @@ export function MyMeetingsView({
               <button
                 key={p.projectId}
                 onClick={() => setProjectFilter(p.projectId)}
-                aria-pressed={projectFilter === p.projectId}
-                className={`chip cursor-pointer whitespace-nowrap border transition ${projectFilter === p.projectId ? 'border-brand bg-brand-weak text-brand' : 'border-line bg-surface text-ink-muted hover:text-ink'}`}
+                aria-pressed={activeProjectFilter === p.projectId}
+                className={`chip cursor-pointer whitespace-nowrap border transition ${activeProjectFilter === p.projectId ? 'border-brand bg-brand-weak text-brand' : 'border-line bg-surface text-ink-muted hover:text-ink'}`}
               >
                 <span className={`inline-block size-2 rounded-full ${projectColorClass(allProjectIds, p.projectId)}`} />
                 {p.projectName}
