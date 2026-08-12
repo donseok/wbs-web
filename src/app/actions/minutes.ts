@@ -28,6 +28,7 @@ import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/sha
 import { createAdminClient } from '@/lib/supabase/admin'
 import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
 import { resolveTeamRootFolderId, refileMinuteAfterProjectChange, loadFolderSnapshot } from '@/lib/minutes/folders'
+import { getHiddenProjectIds } from '@/lib/authz/visibility'
 import { activeTeamCodesSync, activeTeamCodesForProjectSync, teamsSync } from '@/lib/teams/master'
 import { resolveMinuteProject } from '@/lib/minutes/project'
 import {
@@ -156,7 +157,13 @@ export async function createMinute(
   if (folderId) {
     const folders = await loadFolders(sb)
     if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-    if (!folders.some(f => f.id === folderId)) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const targetFolder = folders.find(f => f.id === folderId)
+    if (!targetFolder) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    // 자식=부모 프로젝트 불변식 — moveMinuteToFolder 와 동일하게 회의록이 속할 프로젝트와
+    // 명시 지정된 폴더의 프로젝트가 다르면 거절한다(무스코프면 다른 프로젝트 폴더에 새로 꽂힌다).
+    if ((targetFolder.projectId ?? null) !== (resolvedProject.projectId ?? null)) {
+      return { ok: false, error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
+    }
     const derived = teamSubOfFolder(folders, folderId)
     if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
     effectiveTeam = derived.team
@@ -258,7 +265,13 @@ export async function updateMinuteMeta(
   if (folderId) {
     const folders = await loadFolders(sb)
     if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-    if (!folders.some(f => f.id === folderId)) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    const targetFolder = folders.find(f => f.id === folderId)
+    if (!targetFolder) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
+    // 자식=부모 프로젝트 불변식 — moveMinuteToFolder 와 동일하게 회의록이 옮겨갈 프로젝트와
+    // 명시 지정된 폴더의 프로젝트가 다르면 거절한다.
+    if ((targetFolder.projectId ?? null) !== (resolvedProject.projectId ?? null)) {
+      return { ok: false, error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
+    }
     const derived = teamSubOfFolder(folders, folderId)
     if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
     effectiveTeam = derived.team
@@ -514,7 +527,11 @@ export async function fetchMinuteFoldersLite(): Promise<MinuteFolder[] | null> {
   const user = await getSession()
   if (!user) return null
   const sb = await createServerClient()
-  return await loadFolders(sb)
+  const [folders, hidden] = await Promise.all([loadFolders(sb), getHiddenProjectIds()])
+  if (!folders) return null
+  // 숨김 프로젝트의 폴더 제거 — getMinutesExplorer 와 같은 필터(§chat 패널이 이 액션으로
+  // 폴더명을 노출하므로 비공개 프로젝트 하위 폴더명이 이름만으로도 새면 안 된다).
+  return folders.filter(f => f.projectId === null || !hidden.has(f.projectId))
 }
 
 /** 본문 교체 — 클라이언트가 새 .md 를 Storage 업로드한 뒤 호출. 기존 body 파일 0건 허용(복구 경로). */

@@ -118,6 +118,17 @@ describe('팀 관리 서버액션', () => {
     expect(db.inserted.minute_folders).toHaveLength(0)
   })
 
+  // 0071 이후 project_id 로도 스코프해야 한다 — 프로젝트 루트 폴더가 같은 이름을 먼저 선점해도
+  // 전역 루트 시드 dup-check 는 그 행을 무시하고 새로 만들어야 한다(post-0076 드리프트 회귀).
+  it('동명 폴더가 다른 프로젝트 소속이면 전역 루트 시드는 별도로 생성된다', async () => {
+    asSuperuser()
+    db.folders = [{ id: 'pf1', name: '신팀', parent_id: null, created_by: null, project_id: 'p1' }]
+    const r = await addTeam('신팀')
+    expect(r.ok).toBe(true)
+    expect(db.inserted.minute_folders).toHaveLength(1)
+    expect(db.inserted.minute_folders[0]).toMatchObject({ name: '신팀', parent_id: null, created_by: null, project_id: null })
+  })
+
   it('updateTeam: 빈 patch 거부, 정상 patch 는 스네이크케이스로 update', async () => {
     asSuperuser()
     db.teams = [{ id: 't1', code: 'PMO', project_id: null }]
