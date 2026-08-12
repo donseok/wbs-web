@@ -357,6 +357,18 @@ export async function refileMinuteAfterProjectChange(
   })
   const folderId = res.ok ? res.folderId : null        // no_team_root → 미분류 강등
   // updated_at 무접촉 — 편철 정리가 외부 연동 GET 에 '방금 수정됨'으로 비치면 안 된다(0043 규칙)
-  const { error } = await admin.from('minutes').update({ folder_id: folderId }).eq('id', args.minuteId)
-  if (error) console.error('[minutes] 프로젝트 이동 재편철 실패:', args.minuteId, error.message)
+  // .eq('folder_id', args.oldFolderId) 는 compare-and-set — 이 값을 읽은 뒤 다른 요청이
+  // 같은 회의록을 명시적으로 다른 폴더로 옮겼으면 0행 매치라 그 선택을 덮지 않는다.
+  // args.oldFolderId 는 이 지점에서 이미 non-null(위에서 null 은 조기 반환).
+  const { data, error } = await admin.from('minutes')
+    .update({ folder_id: folderId })
+    .eq('id', args.minuteId)
+    .eq('folder_id', args.oldFolderId)
+    .select('id')
+  if (error) {
+    console.error('[minutes] 프로젝트 이동 재편철 실패:', args.minuteId, error.message)
+  } else if (!data || data.length === 0) {
+    // no-op 은 정상 동작이다 — 동시 명시 이동이 우선이라 침묵하지 않고 정보만 남긴다.
+    console.info('[minutes] 재편철 건너뜀(동시 이동 감지):', args.minuteId)
+  }
 }

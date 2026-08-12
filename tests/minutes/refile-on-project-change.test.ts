@@ -42,8 +42,8 @@ describe('refileMinuteAfterProjectChange', () => {
       { id: 'p1-pmo', name: 'PMO', parentId: null, createdBy: null, projectId: P1 },
     ])
     const { db, builders } = fakeDb([
-      { data: { id: 'p1-weekly' } },   // insert 주간회의 under p1-pmo
-      { error: null },                 // minutes.update
+      { data: { id: 'p1-weekly' } },      // insert 주간회의 under p1-pmo
+      { data: [{ id: 'm1' }] },           // minutes.update — CAS 매치(1행)
     ])
     await refileMinuteAfterProjectChange(db, {
       minuteId: 'm1', teamCode: 'PMO', oldFolderId: 'g-weekly', newProjectId: P1,
@@ -53,6 +53,9 @@ describe('refileMinuteAfterProjectChange', () => {
       name: '주간회의', parent_id: 'p1-pmo', created_by: 'u1', project_id: P1,
     })
     expect(builders[1].update).toHaveBeenCalledWith({ folder_id: 'p1-weekly' })
+    // compare-and-set — 계산 근거였던 oldFolderId 가 그대로일 때만 쓴다
+    expect(builders[1].eq).toHaveBeenCalledWith('id', 'm1')
+    expect(builders[1].eq).toHaveBeenCalledWith('folder_id', 'g-weekly')
   })
 
   it('미분류(oldFolderId null)는 재편철하지 않는다 — 미분류 유지', async () => {
@@ -70,7 +73,7 @@ describe('refileMinuteAfterProjectChange', () => {
       { id: 'g-pmo', name: 'PMO', parentId: null, createdBy: null, projectId: null },
       { id: 'g-weekly', name: '주간회의', parentId: 'g-pmo', createdBy: 'u9', projectId: null },
     ])
-    const { db, builders } = fakeDb([{ error: null }])   // minutes.update 만
+    const { db, builders } = fakeDb([{ data: [{ id: 'm1' }] }])   // minutes.update 만, CAS 매치
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     await refileMinuteAfterProjectChange(db, {
       minuteId: 'm1', teamCode: 'PMO', oldFolderId: 'g-weekly', newProjectId: P1,
@@ -78,5 +81,28 @@ describe('refileMinuteAfterProjectChange', () => {
     })
     expect(builders[0].update).toHaveBeenCalledWith({ folder_id: null })
     spy.mockRestore()
+  })
+
+  it('동시에 다른 요청이 명시적으로 폴더를 옮겼으면(CAS 0행) 덮어쓰지 않는다', async () => {
+    // 재편철 계산의 근거였던 oldFolderId('g-weekly')가 그 사이 바뀌어 .eq('folder_id', ...) 가
+    // 0행에 매치 — DB 에러가 아니므로 이 경로가 없으면 "성공했지만 틀린" 쓰기가 조용히 일어난다.
+    const snapshot = buildFolderSnapshot([
+      { id: 'g-pmo', name: 'PMO', parentId: null, createdBy: null, projectId: null },
+      { id: 'g-weekly', name: '주간회의', parentId: 'g-pmo', createdBy: 'u9', projectId: null },
+      { id: 'p1-pmo', name: 'PMO', parentId: null, createdBy: null, projectId: P1 },
+      { id: 'p1-weekly', name: '주간회의', parentId: 'p1-pmo', createdBy: 'u1', projectId: P1 },
+    ])
+    const { db, builders } = fakeDb([{ data: [] }])   // update — CAS 불일치(0행)
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+    await expect(refileMinuteAfterProjectChange(db, {
+      minuteId: 'm1', teamCode: 'PMO', oldFolderId: 'g-weekly', newProjectId: P1,
+      actorId: 'u1', activeTeamCodes: ['PMO'], snapshot,
+    })).resolves.toBeUndefined()
+    expect(builders[0].update).toHaveBeenCalledWith({ folder_id: 'p1-weekly' })
+    expect(builders[0].eq).toHaveBeenCalledWith('folder_id', 'g-weekly')
+    expect(errSpy).not.toHaveBeenCalled()          // DB 에러가 아니다 — 정상 no-op
+    expect(infoSpy).toHaveBeenCalledWith('[minutes] 재편철 건너뜀(동시 이동 감지):', 'm1')
+    errSpy.mockRestore(); infoSpy.mockRestore()
   })
 })
