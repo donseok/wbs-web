@@ -8,6 +8,7 @@ import { MemberSelectOptions } from '@/components/members/MemberPicker'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { getWbsAssigneeStage, setWbsAssignee, setWbsStage } from '@/app/actions/wbsAssign'
+import { WbsSpecPanel } from './WbsSpecPanel'
 import type { DictKey } from '@/lib/i18n/dict'
 
 type Stage = 'todo' | 'as' | 'fp' | 'ip' | 'im' | 'xx'
@@ -71,59 +72,64 @@ export function WbsAssigneeStagePanel({
   const memberName = (id: string | null) => id ? members.find(m => m.id === id)?.name ?? id : null
 
   return (
-    <section className="rounded-xl border border-line bg-surface-2/40 p-3">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-        <User className="h-3.5 w-3.5" /> {t('wbs.assigneeStagePanelTitle')}
-      </div>
+    <div className="space-y-3">
+      <section className="rounded-xl border border-line bg-surface-2/40 p-3">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+          <User className="h-3.5 w-3.5" /> {t('wbs.assigneeStagePanelTitle')}
+        </div>
 
-      <div className="mt-2 space-y-3">
-        {loaded === null ? (
-          <p className="text-xs text-ink-subtle">{t('common.loading')}</p>
-        ) : loaded === 'error' ? (
-          <p className="text-xs font-medium text-delayed">{t('wbs.assigneeStageLoadFail')}</p>
-        ) : (
-          <>
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.assigneeLabel')}</span>
-              {editable ? (
-                <select
-                  value={loaded.assigneeMemberId ?? ''}
-                  disabled={busy === 'assignee'}
-                  onChange={e => onAssigneeChange(e.target.value || null)}
-                  className="app-input h-9 text-xs"
-                >
-                  <option value="">{t('wbs.assigneeUnassignedOption')}</option>
-                  <MemberSelectOptions members={members} view="name" categoryOrder={teamCodes} />
-                </select>
-              ) : (
-                <p className="text-sm text-ink">{memberName(loaded.assigneeMemberId) ?? t('wbs.assigneeUnassignedOption')}</p>
-              )}
-            </label>
+        <div className="mt-2 space-y-3">
+          {loaded === null ? (
+            <p className="text-xs text-ink-subtle">{t('common.loading')}</p>
+          ) : loaded === 'error' ? (
+            <p className="text-xs font-medium text-delayed">{t('wbs.assigneeStageLoadFail')}</p>
+          ) : (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.assigneeLabel')}</span>
+                {editable ? (
+                  <select
+                    value={loaded.assigneeMemberId ?? ''}
+                    disabled={busy === 'assignee'}
+                    onChange={e => onAssigneeChange(e.target.value || null)}
+                    className="app-input h-9 text-xs"
+                  >
+                    <option value="">{t('wbs.assigneeUnassignedOption')}</option>
+                    <MemberSelectOptions members={members} view="name" categoryOrder={teamCodes} />
+                  </select>
+                ) : (
+                  <p className="text-sm text-ink">{memberName(loaded.assigneeMemberId) ?? t('wbs.assigneeUnassignedOption')}</p>
+                )}
+              </label>
 
-            <label className="block">
-              <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.stageLabel')}</span>
-              {editable ? (
-                <select
-                  value={loaded.stage ?? ''}
-                  disabled={busy === 'stage'}
-                  onChange={e => onStageChange((e.target.value || null) as Stage | null)}
-                  className="app-input h-9 text-xs"
-                >
-                  <option value="">{t('wbs.stageNoneOption')}</option>
-                  {STAGES.map(s => <option key={s} value={s}>{t(STAGE_KEYS[s])}</option>)}
-                </select>
-              ) : (
-                <p className="text-sm text-ink">
-                  {loaded.stage && STAGE_KEYS[loaded.stage as Stage] ? t(STAGE_KEYS[loaded.stage as Stage]) : t('wbs.stageNoneOption')}
-                </p>
-              )}
-            </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.stageLabel')}</span>
+                {editable ? (
+                  <select
+                    value={loaded.stage ?? ''}
+                    disabled={busy === 'stage'}
+                    onChange={e => onStageChange((e.target.value || null) as Stage | null)}
+                    className="app-input h-9 text-xs"
+                  >
+                    <option value="">{t('wbs.stageNoneOption')}</option>
+                    {STAGES.map(s => <option key={s} value={s}>{t(STAGE_KEYS[s])}</option>)}
+                  </select>
+                ) : (
+                  <p className="text-sm text-ink">
+                    {loaded.stage && STAGE_KEYS[loaded.stage as Stage] ? t(STAGE_KEYS[loaded.stage as Stage]) : t('wbs.stageNoneOption')}
+                  </p>
+                )}
+              </label>
 
-            {!editable && <p className="text-[11px] text-ink-subtle">{t('wbs.assigneeStageReadOnly')}</p>}
-            {err && <p className="text-xs font-medium text-delayed" role="alert">{err}</p>}
-          </>
-        )}
-      </div>
-    </section>
+              {!editable && <p className="text-[11px] text-ink-subtle">{t('wbs.assigneeStageReadOnly')}</p>}
+              {err && <p className="text-xs font-medium text-delayed" role="alert">{err}</p>}
+            </>
+          )}
+        </div>
+      </section>
+
+      {/* 명세(Task 12A, 결정 B) — 이 패널의 섹션으로 편입, 별도 오버레이 아님(리뷰 라운드 1 관례). */}
+      <WbsSpecPanel itemId={itemId} editable={editable} />
+    </div>
   )
 }
