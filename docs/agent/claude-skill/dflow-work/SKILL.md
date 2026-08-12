@@ -36,16 +36,22 @@ dflow.sh me
 ### 목록 조회
 
 ```bash
-dflow.sh list [--scope available|claimed|assigned|all]
+dflow.sh [--as <이름|email>] list [--scope available|claimed|assigned|all] [--all]
 ```
 
 기본값: `--scope available` (새 작업).
 
-작업 목록 출력. 순번(1~N)을 사용자에게 그대로 보여준다. 여럿이면:
+작업 목록 출력. 순번(1~N)을 사용자에게 그대로 보여준다.
 
+**옵션**:
+- `--all`: 모든 프로필의 작업을 동시 조회 (다중 계정 설정 시)
+- `--scope`: available(기본), claimed, assigned, all
+
+**예시**:
 ```bash
-dflow.sh list --scope all  # 모든 상태 조회
-dflow.sh list --as bob@example.com  # 다른 계정
+dflow.sh list --scope all           # 모든 상태 조회
+dflow.sh --as bob@example.com list  # 다른 계정 (--as는 반드시 서브커맨드 앞)
+dflow.sh list --all                 # 모든 프로필 순회
 ```
 
 ### 상태 확인
@@ -103,6 +109,7 @@ claim 했던 작업을 포기. 상태 -> ready 로 돌아감.
 
 다음을 엄격히 금지한다:
 
+- **옵션은 반드시 서브커맨드 앞에** — `dflow.sh --as bob@example.com list` (O), `dflow.sh list --as bob@example.com` (X). 뒤에 붙이면 에러 없이 다른 신원으로 조용히 실행되는 오동작 발생.
 - **토큰을 echo·파일 기록·명령 문자열에 보간하지 않는다** — env 확장으로만 사용.
 - `DFLOW_API_BASE` 기본값을 지어내지 않는다 — 미설정 시 즉시 실패.
 - `--pct 100` 또는 `progress 100` 금지. approve 시도 금지(승인은 사람 몫).

@@ -186,12 +186,12 @@ git switch main && git merge ui/feature-name && git push
 ### 프로필 여럿
 
 ```bash
-# 내 모든 프로필 보기
-dflow.sh me --list
+# 모든 프로필의 작업 조회
+dflow.sh list --all
 
-# alice 계정으로 작업
-dflow.sh list --as alice@example.com
-dflow.sh claim 1 --as alice@example.com
+# alice 계정으로 작업 (--as는 반드시 서브커맨드 앞)
+dflow.sh --as alice@example.com list
+dflow.sh --as alice@example.com claim 1
 ```
 
 ### 다중 PC·세션

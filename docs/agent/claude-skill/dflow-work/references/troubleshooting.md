@@ -158,12 +158,15 @@ dflow.sh show <순번>
 여러 계정의 토큰이 설정되면:
 
 ```bash
-# 프로필 목록 확인
-dflow.sh me --list
+# 모든 프로필의 작업 조회
+dflow.sh list --all
 
-# 특정 프로필로 작업
-dflow.sh list --as alice@example.com
-dflow.sh claim <순번> --as alice@example.com
+# 또는 각 프로필별 진단
+dflow.sh doctor
+
+# 특정 프로필로 작업 (--as는 반드시 서브커맨드 앞)
+dflow.sh --as alice@example.com list
+dflow.sh --as alice@example.com claim <순번>
 ```
 
 ## 기타 확인사항
