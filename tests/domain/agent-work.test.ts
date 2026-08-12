@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_CLAIM_STALE_HOURS, AGENT_NAME_RE, canTransition, isClaimStale, validateReport, isUuidLike, orderPriorityFromLabel,
+  validateEvidence,
 } from '@/lib/domain/agentWork'
 
 describe('agentWork 상태 머신', () => {
@@ -58,5 +59,20 @@ describe('agentWork 상태 머신', () => {
     expect(orderPriorityFromLabel('low')).toBe(0)
     expect(orderPriorityFromLabel(null)).toBe(0)
     expect(orderPriorityFromLabel('urgent')).toBe(0) // 미지 라벨
+  })
+})
+
+describe('validateEvidence', () => {
+  it('정상 evidence 통과', () => {
+    const r = validateEvidence({ branch: 'agent/abc-fix', head_sha: 'a'.repeat(40), repo_url: 'https://github.com/x/y', checks: [{ name: 'ci', status: 'pass' }] })
+    expect(r.ok).toBe(true)
+  })
+  it('SHA 형식 위반·비 http URL·미지 필드 거부', () => {
+    expect(validateEvidence({ head_sha: 'zzz' }).ok).toBe(false)
+    expect(validateEvidence({ repo_url: 'ftp://x' }).ok).toBe(false)
+    expect(validateEvidence({ unknown_field: 1 }).ok).toBe(false)
+  })
+  it('undefined 는 빈 evidence 로 통과(선택 필드)', () => {
+    expect(validateEvidence(undefined)).toEqual({ ok: true, evidence: {} })
   })
 })

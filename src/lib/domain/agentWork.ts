@@ -45,6 +45,40 @@ export function isUuidLike(v: string): boolean {
   return UUID_RE.test(v)
 }
 
+const SHA_RE = /^[0-9a-f]{40}$/i
+const EVIDENCE_KEYS = new Set(['branch', 'base_sha', 'head_sha', 'repo_url', 'pr_url', 'checks'])
+
+/** evidence 는 형식 검증만 — 실재·일치는 서버가 확인하지 않는다(§6). */
+export function validateEvidence(raw: unknown):
+  { ok: true; evidence: Record<string, unknown> } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, evidence: {} }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: 'evidence는 객체여야 합니다.' }
+  const e = raw as Record<string, unknown>
+  for (const k of Object.keys(e)) {
+    if (!EVIDENCE_KEYS.has(k)) return { ok: false, error: `evidence에 알 수 없는 필드: ${k}` }
+  }
+  for (const k of ['base_sha', 'head_sha'] as const) {
+    if (e[k] !== undefined && (typeof e[k] !== 'string' || !SHA_RE.test(e[k] as string))) {
+      return { ok: false, error: `${k}는 40자 hex여야 합니다.` }
+    }
+  }
+  for (const k of ['repo_url', 'pr_url'] as const) {
+    if (e[k] !== undefined && (typeof e[k] !== 'string' || !/^https?:\/\//.test(e[k] as string))) {
+      return { ok: false, error: `${k}는 http(s) URL이어야 합니다.` }
+    }
+  }
+  if (e.branch !== undefined && typeof e.branch !== 'string') return { ok: false, error: 'branch는 문자열이어야 합니다.' }
+  if (e.checks !== undefined) {
+    if (!Array.isArray(e.checks)) return { ok: false, error: 'checks는 배열이어야 합니다.' }
+    for (const c of e.checks) {
+      if (typeof c !== 'object' || c === null) return { ok: false, error: 'checks 원소는 객체여야 합니다.' }
+      const cc = c as Record<string, unknown>
+      if (typeof cc.name !== 'string' || typeof cc.status !== 'string') return { ok: false, error: 'checks 원소는 {name,status} 문자열 필드가 필요합니다.' }
+    }
+  }
+  return { ok: true, evidence: e }
+}
+
 export const ORDER_PRIORITY_BY_LABEL = { critical: 100, high: 50, medium: 10, low: 0 } as const
 
 /**

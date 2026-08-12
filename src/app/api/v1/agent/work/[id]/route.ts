@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     const { data: order, error } = await admin
       .from('agent_work_orders')
-      .select('id, project_id, status, priority, instructions, claimed_by, claimed_at, wbs_item_id')
+      .select('id, project_id, status, priority, instructions, claimed_by, claimed_by_user_id, claimed_at, wbs_item_id')
       .eq('id', id).maybeSingle()
     if (error) {
       console.error('[agent-api] 주문 조회 실패:', error.message)
@@ -60,14 +60,31 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     }
     const full = order as {
       id: string; status: string; priority: number; instructions: string
-      claimed_by: string | null; claimed_at: string | null; wbs_item_id: string | null
+      claimed_by: string | null; claimed_by_user_id: string | null
+      claimed_at: string | null; wbs_item_id: string | null
+    }
+    let extra: Record<string, unknown> = {}
+    if (principal.kind === 'pat') {
+      // claimed_by_user_email 은 계약 원문대로 무조건 노출한다(게이팅 없음) — 0004_ops_rls.sql
+      // read_all_members(using true)로 project_members.email 이 이미 전원 조회 가능하고 claimed_by
+      // 라벨도 무조건 노출 중이라, 여기만 게이팅해도 실질 보호는 없이 동결 계약만 이탈하게 된다.
+      let claimedByUserEmail: string | null = null
+      if (full.claimed_by_user_id) {
+        const { data: ownerData, error: ownerErr } = await admin.auth.admin.getUserById(full.claimed_by_user_id)
+        if (ownerErr || !ownerData?.user?.email) {
+          console.error('[agent-api] 점유자 이메일 조회 실패:', ownerErr?.message ?? '이메일 없음')
+        } else {
+          claimedByUserEmail = ownerData.user.email
+        }
+      }
+      extra = { mine: full.claimed_by_user_id === principal.userId, claimed_by_user_email: claimedByUserEmail }
     }
     return NextResponse.json({
       ok: true,
       order: {
         id: full.id, status: full.status, priority: full.priority, instructions: full.instructions,
         claimed_by: full.claimed_by, claimed_at: full.claimed_at, wbs_item_id: full.wbs_item_id,
-        item, stale: isClaimStale(row.claimed_at),
+        item, stale: isClaimStale(row.claimed_at), ...extra,
       },
       reports: reports ?? [],
     })
