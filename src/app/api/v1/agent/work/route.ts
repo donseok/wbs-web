@@ -2,20 +2,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import {
-  apiBadRequest, apiInternalError, apiNotFound, gateAgentApi, requireAgentProject,
+  apiBadRequest, apiInternalError, apiNotFound, isAgentProjectMember, patProjectAllowed,
+  requireAgentProject, requireScope, resolveAgentPrincipal,
 } from '@/lib/agent/externalApi'
 
 /** GET /api/v1/agent/work?project_id= — ready 작업 목록 + 항목 컨텍스트. 계약: 스펙 §3.2. */
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const gate = gateAgentApi(req)
-  if (gate) return gate
   const projectId = req.nextUrl.searchParams.get('project_id') ?? ''
   if (!projectId || !isUuidLike(projectId)) return apiBadRequest('project_id가 필요합니다.')
   try {
     const admin = createAdminClient()
+    const principal = await resolveAgentPrincipal(req, admin)
+    if (principal instanceof NextResponse) return principal
+    if (principal.kind === 'pat') {
+      const scopeErr = requireScope(principal, 'work:read')
+      if (scopeErr) return scopeErr
+      if (!patProjectAllowed(principal, projectId)) return apiNotFound()
+    }
     if (!(await requireAgentProject(admin, projectId))) return apiNotFound()
+    if (principal.kind === 'pat' && !(await isAgentProjectMember(admin, principal.userId, projectId))) {
+      return apiNotFound() // 비멤버 404 — 존재 은닉 관례(§2.2)
+    }
 
     const { data: orders, error } = await admin
       .from('agent_work_orders')
