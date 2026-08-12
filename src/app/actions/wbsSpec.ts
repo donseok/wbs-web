@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
+import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 
 /**
  * WBS 명세(spec 마크다운·참조 필드) 조회·편집 — 결정 B: 실물 문서는 로컬 git, DB 에는
@@ -34,17 +35,23 @@ export interface WbsSpecDetail {
   externalRef: string | null
 }
 
+/**
+ * itemId → project_id 해석 — RLS 스코프(resolveProjectId, 호출자 세션의 일반 클라이언트)로만
+ * 조회한다. admin(service_role) 클라이언트로 먼저 존재를 확인하면 RLS 를 우회해 "존재하지만
+ * 권한 없음(admin 판정 실패)"과 "존재 자체가 없음"이 서로 다른 에러로 갈라진다 — 비멤버가 임의
+ * UUID 로 이 둘을 구분해 다른 프로젝트 항목의 존재를 추정할 수 있다(존재 오라클, 리뷰 라운드 1).
+ * resolveProjectId 는 호출자에게 보이지 않는 행을 "대상을 찾을 수 없습니다"로 동일하게 반환해
+ * 이 구분을 없앤다.
+ */
 async function loadItemProject(itemId: string): Promise<
   | { ok: true; projectId: string }
   | { ok: false; error: string }
 > {
   if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
-  const admin = createAdminClient()
-  const { data, error } = await admin
-    .from('wbs_items').select('id, project_id').eq('id', itemId).maybeSingle()
-  if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
-  if (!data) return { ok: false, error: '항목 없음' }
-  return { ok: true, projectId: (data as { project_id: string }).project_id }
+  const resolved = await resolveProjectId('wbs_items', itemId)
+  if (!resolved.ok) return { ok: false, error: resolved.error }
+  if (resolved.projectId === null) return { ok: false, error: '대상을 찾을 수 없습니다.' }
+  return { ok: true, projectId: resolved.projectId }
 }
 
 /**
@@ -106,6 +113,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
 
 export async function updateWbsSpec(itemId: string, spec: string): Promise<{ ok: boolean; error?: string }> {
   if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
+  if (typeof spec !== 'string') return { ok: false, error: '잘못된 요청입니다.' }
   if (spec.length > SPEC_MAX) return { ok: false, error: '명세가 너무 큽니다(1MB 상한).' }
   const loaded = await loadItemProject(itemId)
   if (!loaded.ok) return loaded
@@ -118,8 +126,11 @@ export async function updateWbsSpec(itemId: string, spec: string): Promise<{ ok:
   if (error) return { ok: false, error: error.message }
   if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
   const { error: logErr } = await admin.from('change_logs').insert({
+    // 본문 전문을 로그에 넣지 않는다 — 크기·노이즈. 값은 로케일 중립 토큰(SPEC_UPDATED_TOKEN) —
+    // 리터럴 한국어 문자열을 저장하면 en 사용자 이력에도 그대로 노출된다(리뷰 라운드 1).
+    // 렌더는 RowDetailPanel.fmtValue 가 사전 키로 변환한다.
     user_id: g.actor.userId, wbs_item_id: itemId, field: 'spec',
-    old_value: null, new_value: '(명세 갱신)', // 본문 전문을 로그에 넣지 않는다 — 크기·노이즈
+    old_value: null, new_value: SPEC_UPDATED_TOKEN,
   })
   if (logErr) console.error('[wbsSpec] 명세 변경 이력 기록 실패:', logErr.message)
   revalidatePath(`/p/${loaded.projectId}`, 'layout')

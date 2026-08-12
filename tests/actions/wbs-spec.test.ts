@@ -17,6 +17,7 @@ vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServer
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { getWbsSpec, updateWbsSpec, updateWbsSpecFields } from '@/app/actions/wbsSpec'
+import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
 const W1 = '33333333-3333-4333-8333-333333333333'
@@ -52,33 +53,45 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
   mocks.requireProjectMember.mockResolvedValue(ACTOR)
+  // itemId → project_id 해석은 RLS 스코프(resolveProjectId)로만 한다 — admin 클라이언트로
+  // 먼저 존재를 확인하면 비멤버가 "존재하지만 권한 없음"과 "존재 자체가 없음"을 구분할 수 있다
+  // (존재 오라클, 리뷰 라운드 1). updateWbsSpec/updateWbsSpecFields 는 admin 클라이언트를
+  // 실제 update·insert 에만 쓴다.
   mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
 })
 
 describe('updateWbsSpec', () => {
-  it('관리자 → spec 갱신 + change_logs(field: spec) 기록', async () => {
+  it('관리자 → spec 갱신 + change_logs(field: spec, 로케일 중립 토큰) 기록', async () => {
     const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1 } },
-        { data: [{ id: W1 }] },
-      ],
+      wbs_items: [{ data: [{ id: W1 }] }],
       change_logs: [{ data: [{ id: 'log1' }] }],
     })
     const r = await updateWbsSpec(W1, '# 새 명세')
     expect(r.ok).toBe(true)
+    expect(mocks.resolveProjectId).toHaveBeenCalledWith('wbs_items', W1)
+    expect(mocks.requireProjectAdmin).toHaveBeenCalledWith(P1)
     expect(captured.wbs_items[0]).toMatchObject({ spec: '# 새 명세' })
-    expect(captured.change_logs[0]).toMatchObject({ field: 'spec' })
+    // 로그값은 본문 전문도, 한국어 리터럴도 아니다 — 로케일 중립 토큰만(리뷰 라운드 1).
+    expect(captured.change_logs[0]).toMatchObject({ field: 'spec', new_value: SPEC_UPDATED_TOKEN })
+    expect(captured.change_logs[0]).not.toMatchObject({ new_value: '# 새 명세' })
   })
 
   it('관리자 아님 → 거부, DB 쓰기 큐 소비 0', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
-    const { captured } = admin({
-      wbs_items: [{ data: { id: W1, project_id: P1 } }],
-    })
+    const { captured } = admin({})
     const r = await updateWbsSpec(W1, '# 새 명세')
     expect(r).toEqual({ ok: false, error: '권한 없음' })
     expect(captured.wbs_items ?? []).toHaveLength(0)
     expect(captured.change_logs ?? []).toHaveLength(0)
+  })
+
+  it('resolveProjectId 가 대상을 찾지 못하면(비멤버에게 안 보이는 항목 포함 동일 응답) 거부 — admin 판정 전에 중단, 존재 오라클 없음', async () => {
+    mocks.resolveProjectId.mockResolvedValue({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    const { captured } = admin({})
+    const r = await updateWbsSpec(W1, '# 새 명세')
+    expect(r).toEqual({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
+    expect(captured.wbs_items ?? []).toHaveLength(0)
   })
 
   it('1MB 초과 spec 거부(상한)', async () => {
@@ -86,7 +99,16 @@ describe('updateWbsSpec', () => {
     const r = await updateWbsSpec(W1, 'a'.repeat(1_048_577))
     expect(r).toEqual({ ok: false, error: '명세가 너무 큽니다(1MB 상한).' })
     expect(calls).toHaveLength(0)
+    expect(mocks.resolveProjectId).not.toHaveBeenCalled()
     expect(captured.wbs_items ?? []).toHaveLength(0)
+  })
+
+  it('spec 이 문자열이 아니면 거부(런타임 방어)', async () => {
+    const { calls } = admin({})
+    const r = await updateWbsSpec(W1, 42 as unknown as string)
+    expect(r.ok).toBe(false)
+    expect(calls).toHaveLength(0)
+    expect(mocks.resolveProjectId).not.toHaveBeenCalled()
   })
 
   it('잘못된 itemId → 거부', async () => {
@@ -107,10 +129,7 @@ describe('updateWbsSpecFields', () => {
 
   it('prd_ref·entry_point 부분 갱신 — 전달된 키만 update payload 에 포함', async () => {
     const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1 } },
-        { data: [{ id: W1 }] },
-      ],
+      wbs_items: [{ data: [{ id: W1 }] }],
     })
     const r = await updateWbsSpecFields(W1, { prd_ref: 'docs/prd.md#3' })
     expect(r.ok).toBe(true)
@@ -128,11 +147,18 @@ describe('updateWbsSpecFields', () => {
 
   it('관리자 아님 → 거부, DB 쓰기 큐 소비 0', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
-    const { captured } = admin({
-      wbs_items: [{ data: { id: W1, project_id: P1 } }],
-    })
+    const { captured } = admin({})
     const r = await updateWbsSpecFields(W1, { priority: 'high' })
     expect(r).toEqual({ ok: false, error: '권한 없음' })
+    expect(captured.wbs_items ?? []).toHaveLength(0)
+  })
+
+  it('resolveProjectId 가 대상을 찾지 못하면 거부 — admin 판정 전에 중단, 존재 오라클 없음', async () => {
+    mocks.resolveProjectId.mockResolvedValue({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    const { captured } = admin({})
+    const r = await updateWbsSpecFields(W1, { priority: 'high' })
+    expect(r).toEqual({ ok: false, error: '대상을 찾을 수 없습니다.' })
+    expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
     expect(captured.wbs_items ?? []).toHaveLength(0)
   })
 })

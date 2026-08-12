@@ -205,10 +205,7 @@ export const wbsKo = {
   'wbs.specPanelTitle': '명세',
   'wbs.specLoadFail': '명세를 불러오지 못했습니다. 다시 열어 주세요.',
   'wbs.specNone': '명세 없음',
-  'wbs.specCategoryLabel': '분류',
-  'wbs.specDomainLabel': '도메인',
   'wbs.specPriorityLabel': '우선순위',
-  'wbs.specModelLabel': '모델',
   'wbs.specPriorityCritical': '긴급',
   'wbs.specPriorityHigh': '높음',
   'wbs.specPriorityMedium': '보통',
@@ -228,6 +225,9 @@ export const wbsKo = {
   'wbs.specBodyPlaceholder': '마크다운으로 명세를 작성하세요…',
   'wbs.specSaveFail': '명세를 저장하지 못했습니다.',
   'wbs.specRefSaveFail': '참조 필드를 저장하지 못했습니다.',
+  // 변경 이력(RowDetailPanel) 표시용 — change_logs.new_value 는 로케일 중립 토큰(spec:updated)만
+  // 저장하고 이 키로 변환해 보여준다(리뷰 라운드 1 — 리터럴 한국어 저장 금지).
+  'wbs.specUpdatedLogValue': '명세 갱신',
 } as const
 
 export const wbsEn: Record<keyof typeof wbsKo, string> = {
@@ -422,10 +422,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specPanelTitle': 'Spec',
   'wbs.specLoadFail': 'Could not load spec. Please reopen.',
   'wbs.specNone': 'No spec',
-  'wbs.specCategoryLabel': 'Category',
-  'wbs.specDomainLabel': 'Domain',
   'wbs.specPriorityLabel': 'Priority',
-  'wbs.specModelLabel': 'Model',
   'wbs.specPriorityCritical': 'Critical',
   'wbs.specPriorityHigh': 'High',
   'wbs.specPriorityMedium': 'Medium',
@@ -445,4 +442,5 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specBodyPlaceholder': 'Write the spec in markdown…',
   'wbs.specSaveFail': 'Could not save the spec.',
   'wbs.specRefSaveFail': 'Could not save the reference fields.',
+  'wbs.specUpdatedLogValue': 'Spec updated',
 }

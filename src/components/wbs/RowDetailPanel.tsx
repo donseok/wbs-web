@@ -17,6 +17,7 @@ import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamSty
 import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
+import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 import type { DictKey } from '@/lib/i18n/dict'
 const EMPTY_MEMBERS: ProjectMember[] = []
 
@@ -34,6 +35,9 @@ function fmtValue(field: string, v: string | null, t: Tr): string {
   if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
   if (field === 'dependency') return t('wbs.dependencyLink')
   if (field === 'weight' && !Number.isNaN(Number(v))) return formatWeightPct(Number(v))
+  // spec 은 본문 전문을 로그에 넣지 않고 로케일 중립 토큰만 저장한다(wbsSpecLog.ts) — 여기서
+  // 사전 키로 변환. 리터럴 한국어를 그대로 저장하면 en 사용자 이력에도 노출된다(리뷰 라운드 1).
+  if (field === 'spec' && v === SPEC_UPDATED_TOKEN) return t('wbs.specUpdatedLogValue')
   return field === 'actual_pct' ? `${v}%` : v
 }
 function fmtAt(iso: string): string {
