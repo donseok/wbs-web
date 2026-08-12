@@ -15,19 +15,68 @@ import { ensureOrderForAssignedLeaf } from '@/lib/agent/ensureOrder'
 
 const STAGES = new Set(['todo', 'as', 'fp', 'ip', 'im', 'xx'])
 
+type LoadedItem = {
+  id: string; project_id: string; parent_id: string | null; name: string
+  assignee_member_id: string | null; external_ref: string | null
+}
+
 async function loadItem(itemId: string): Promise<
-  | { ok: true; item: { id: string; project_id: string; parent_id: string | null; name: string; assignee_member_id: string | null } }
+  | { ok: true; item: LoadedItem }
   | { ok: false; error: string }
 > {
   if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
   const admin = createAdminClient()
   const { data, error } = await admin
-    .from('wbs_items').select('id, project_id, parent_id, name, assignee_member_id').eq('id', itemId).maybeSingle()
+    .from('wbs_items')
+    .select('id, project_id, parent_id, name, assignee_member_id, external_ref')
+    .eq('id', itemId).maybeSingle()
   if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
   if (!data) return { ok: false, error: '항목 없음' }
-  return {
-    ok: true,
-    item: data as { id: string; project_id: string; parent_id: string | null; name: string; assignee_member_id: string | null },
+  return { ok: true, item: data as LoadedItem }
+}
+
+const REACHED_STAGES = new Set(['im', 'xx'])
+
+/**
+ * 부록 §2.10 — "stage 가 im 이상에 도달 시" depends 역참조로 후행 리프 담당자에게
+ * work.unblocked 발행. 승인 액션이 아니라 여기(stage 를 실제로 쓰는 유일한 경로)에 배선한다.
+ * 조회·발행 실패는 로깅만 하고 삼킨다 — setWbsStage 의 반환값(ok:true)에 영향을 주지 않는다.
+ */
+async function notifySuccessorsOnReached(
+  admin: ReturnType<typeof createAdminClient>,
+  item: LoadedItem,
+  actorUserId: string,
+): Promise<void> {
+  try {
+    if (!item.external_ref) return
+    const { data: successors, error } = await admin
+      .from('wbs_items')
+      .select('id, name, assignee_member_id')
+      .eq('project_id', item.project_id)
+      .contains('depends', [item.external_ref])
+    if (error) {
+      console.error('[wbsAssign] 후행 리프 조회 실패:', error.message)
+      return
+    }
+    for (const s of (successors ?? []) as { id: string; name: string; assignee_member_id: string | null }[]) {
+      if (!s.assignee_member_id) continue
+      await emitNotification({
+        type: 'work.unblocked',
+        projectId: item.project_id,
+        actorUserId,
+        entityType: 'wbs_item',
+        entityId: s.id,
+        payload: {
+          title: s.name,
+          detail: '선행 작업이 완료되어 착수 가능합니다',
+          href: `/p/${item.project_id}/wbs`,
+        },
+        recipientMemberIds: [s.assignee_member_id],
+        dedupeKey: `unblocked:${s.id}:${item.id}`,
+      })
+    }
+  } catch (e) {
+    console.error('[wbsAssign] 후행 리프 unblocked 발행 예외:', e)
   }
 }
 
@@ -115,6 +164,11 @@ export async function setWbsStage(
   })
   if (logErr) console.error('[wbsAssign] 단계 변경 이력 기록 실패:', logErr.message)
   revalidatePath(`/p/${item.project_id}`, 'layout')
+  // §2.10 — im 이상에 "처음" 도달할 때만(역전이·재설정은 위 oldStage === stage 조기 반환과
+  // 이 조건으로 모두 제외된다). 본 로직의 반환값에는 영향을 주지 않는다.
+  if (!REACHED_STAGES.has(oldStage ?? '') && stage !== null && REACHED_STAGES.has(stage)) {
+    await notifySuccessorsOnReached(admin, item, g.actor.userId)
+  }
   return { ok: true }
 }
 
