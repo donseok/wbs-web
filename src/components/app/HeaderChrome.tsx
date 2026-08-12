@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
 } from 'lucide-react'
@@ -10,6 +10,7 @@ import { createBrowserClient } from '@/lib/supabase/client'
 import { getNotifications, markAllNotificationsRead, type NotificationItem } from '@/app/actions/notifications'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { getInboxFeed, markInboxSeen, markAllInboxRead, markInboxItemRead, type InboxItem } from '@/app/actions/inbox'
+import { useInboxRealtime } from '@/lib/hooks/useInboxRealtime'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
@@ -84,6 +85,12 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
     } else setUnreadAnn(0)
     return () => { alive = false }
   }, [pathname, routeProjectId])
+
+  // 실시간 배지 갱신 — 향상 계층(구독 실패해도 위 폴링이 대신 채운다).
+  const refreshInbox = useCallback(() => {
+    getInboxFeed().then(r => { setInbox(r.items); setInboxFailed(r.failed === true) }).catch(() => {})
+  }, [])
+  useInboxRealtime(refreshInbox)
 
   const context = useMemo(() => {
     const globalSection = pathname === '/meetings'
