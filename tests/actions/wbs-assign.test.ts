@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createServerClient: vi.fn(),
   emitNotification: vi.fn(),
   ensureOrderForWorkflowLeaf: vi.fn(),
+  transitionStage: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({
   requireProjectAdmin: mocks.requireProjectAdmin,
@@ -18,6 +19,13 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminCli
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf }))
+// transitionStage 만 목킹하고 REACHED_STAGES·notifySuccessorsOnReached 는 실제 구현을 쓴다 —
+// setWbsStage 는 이 둘을 직접 임포트해서 쓰므로(T2 소관, 여기서 재검증하지 않는다) 전체
+// 모듈 목킹을 하면 기존 setWbsStage 테스트가 깨진다.
+vi.mock('@/lib/agent/stageTransition', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agent/stageTransition')>()
+  return { ...actual, transitionStage: mocks.transitionStage }
+})
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { setWbsAssignee, setWbsAssigneeCascade, setWbsStage, getWbsAssigneeStage } from '@/app/actions/wbsAssign'
@@ -74,6 +82,7 @@ beforeEach(() => {
   mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
   mocks.emitNotification.mockResolvedValue({ ok: true, recipients: 1 })
   mocks.ensureOrderForWorkflowLeaf.mockResolvedValue({ ok: true, created: true })
+  mocks.transitionStage.mockResolvedValue({ ok: true, transitioned: true })
 })
 
 describe('setWbsAssignee', () => {
@@ -175,6 +184,55 @@ describe('setWbsAssignee', () => {
     const r2 = await setWbsAssignee(W1, M1)
     expect(r2.ok).toBe(true)
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
+  })
+
+  it('(a) 배정 성공 시 transitionStage가 {to:"as", fromIn:[null]}로 호출', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: [{ id: W1 }] },
+      ],
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+    })
+    const r = await setWbsAssignee(W1, M1)
+    expect(r.ok).toBe(true)
+    expect(mocks.transitionStage).toHaveBeenCalledTimes(1)
+    expect(mocks.transitionStage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ itemId: W1, to: 'as', fromIn: [null], actorUserId: 'admin-1' }),
+    )
+  })
+
+  it('(b) 배정 해제 시 transitionStage가 {to:null, fromIn:["as"]}로 호출', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1 } },
+        { data: [{ id: W1 }] },
+      ],
+    })
+    const r = await setWbsAssignee(W1, null)
+    expect(r.ok).toBe(true)
+    expect(mocks.transitionStage).toHaveBeenCalledTimes(1)
+    expect(mocks.transitionStage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ itemId: W1, to: null, fromIn: ['as'], actorUserId: 'admin-1' }),
+    )
+  })
+
+  it('(c) transitionStage 실패해도 setWbsAssignee 는 ok:true 유지', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.transitionStage.mockRejectedValueOnce(new Error('boom'))
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: [{ id: W1 }] },
+      ],
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+    })
+    const r = await setWbsAssignee(W1, M1)
+    expect(r.ok).toBe(true)
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 
   it('ensureOrderForWorkflowLeaf 실패해도 setWbsAssignee 는 ok:true 유지', async () => {
@@ -381,6 +439,27 @@ describe('setWbsAssigneeCascade', () => {
     expect(mocks.emitNotification).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
     errSpy.mockRestore()
+  })
+
+  it('(k) 실제 갱신된 모든 항목(리프 아닌 것 포함)에 transitionStage {to:"as", fromIn:[null]} 호출', async () => {
+    admin({
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+      wbs_items: [
+        { data: TREE },
+        { data: [{ id: W1 }] },
+        { data: [{ id: W2 }, { id: W6 }] },
+      ],
+    })
+    const r = await setWbsAssigneeCascade(W1, M1)
+    expect(r.ok).toBe(true)
+    // W1(부모, 자식 있음)·W2(부모)·W6(리프) 전부 대상 — ensureOrder 와 달리 리프 제한 없음.
+    expect(mocks.transitionStage).toHaveBeenCalledTimes(3)
+    for (const id of [W1, W2, W6]) {
+      expect(mocks.transitionStage).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ itemId: id, to: 'as', fromIn: [null], actorUserId: 'admin-1' }),
+      )
+    }
   })
 
   it('(f) 다른 프로젝트의 member_id → 거부, 조회 없음', async () => {
@@ -601,7 +680,9 @@ describe('getWbsAssigneeStage', () => {
       from: () => ({
         select: () => ({
           eq: () => ({
-            maybeSingle: async () => ({ data: { assignee_member_id: M1, stage: 'ip' }, error: null }),
+            maybeSingle: async () => ({
+              data: { assignee_member_id: M1, stage: 'ip', dev_workflow: true }, error: null,
+            }),
           }),
         }),
       }),
@@ -609,7 +690,7 @@ describe('getWbsAssigneeStage', () => {
     const r = await getWbsAssigneeStage(W1)
     expect(mocks.resolveProjectId).toHaveBeenCalledWith('wbs_items', W1)
     expect(mocks.requireProjectMember).toHaveBeenCalledWith(P1)
-    expect(r).toEqual({ assigneeMemberId: M1, stage: 'ip' })
+    expect(r).toEqual({ assigneeMemberId: M1, stage: 'ip', devWorkflow: true })
   })
 
   it('이 프로젝트 멤버가 아니면 거부 → null(조회 자체를 하지 않는다)', async () => {
