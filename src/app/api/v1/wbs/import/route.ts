@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     const out = rpcOut as { upserted: number; skipped: number; ids: Record<string, string>; new_refs: string[] }
 
     const post = await applyAssigneesAndOrders(admin, {
-      projectId, actorUserId: principal.userId,
+      projectId, actorUserId: principal.userId, module: module_,
       newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef,
     })
 

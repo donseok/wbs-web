@@ -176,7 +176,7 @@ describe('POST /wbs/import', () => {
     const res = await importPOST(post(body, token))
     expect(res.status).toBe(200)
     const json = await res.json()
-    expect(json.unmatched_assignees).toEqual([{ external_ref: 'MES/T-A', assignee: 'a@b.c' }])
+    expect(json.unmatched_assignees).toEqual([{ id: 'T-A', assignee: 'a@b.c' }])
     expect(json.orders_created).toBe(0)
     // 매칭 실패 항목엔 work.assigned 미발행
     expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))

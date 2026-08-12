@@ -82,12 +82,12 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
 /** 업로드 후처리 — 신규 리프의 assignee email 을 로스터에 매칭하고 자동 발행까지(§2.6·§2.8). */
 export async function applyAssigneesAndOrders(
   admin: AdminClient,
-  args: { projectId: string; actorUserId: string
+  args: { projectId: string; actorUserId: string; module: string
     newRefs: string[]; idsByRef: Record<string, string>
     assigneeByRef: Record<string, string | null>; titleByRef: Record<string, string> },
-): Promise<{ unmatched: Array<{ external_ref: string; assignee: string }>; ordersCreated: number; nonLeafSkipped: string[] }> {
-  const { projectId, actorUserId } = args
-  const unmatched: Array<{ external_ref: string; assignee: string }> = []
+): Promise<{ unmatched: Array<{ id: string; assignee: string }>; ordersCreated: number; nonLeafSkipped: string[] }> {
+  const { projectId, actorUserId, module } = args
+  const unmatched: Array<{ id: string; assignee: string }> = []
   const nonLeafSkipped: string[] = []
   let ordersCreated = 0
   // 로스터 email → member_id 맵 1회 로드
@@ -105,7 +105,9 @@ export async function applyAssigneesAndOrders(
     if (!itemId) continue
     const memberId = memberByEmail.get(email)
     if (!memberId) {
-      unmatched.push({ external_ref: ref, assignee: email }) // 생략하지 않고 전량 리포트
+      // 계약(api-contract.md §2.6): 클라이언트는 bare id만 안다 — external_ref 조합은 서버 책임이므로
+      // 응답도 bare id로 되돌린다(module 프리픽스 + "/" 제거).
+      unmatched.push({ id: ref.slice(module.length + 1), assignee: email }) // 생략하지 않고 전량 리포트
       continue
     }
     const { error: upErr } = await admin
