@@ -6,6 +6,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
+import { ensureOrderForAssignedLeaf } from '@/lib/agent/ensureOrder'
 
 /**
  * WBS 담당자(로스터 축)·단계(stage) 갱신 — §2.5. 배정 권한은 프로젝트 관리자.
@@ -71,8 +72,20 @@ export async function setWbsAssignee(
       payload: { title: item.name, detail: '작업 담당자로 지정되었습니다', href: `/p/${item.project_id}/wbs` },
       recipientMemberIds: [memberId],
     })
+    // §2.8 자동 발행 — 배정 성공에 종속된 오류 격리 호출이다. 실패해도 배정 자체는 성공을
+    // 유지한다(에러는 로깅만). ensureOrderForAssignedLeaf 내부가 리프·게이트·멱등을 자체 처리한다.
+    try {
+      const orderRes = await ensureOrderForAssignedLeaf(admin, {
+        projectId: item.project_id,
+        wbsItemId: itemId,
+        actorUserId: g.actor.userId,
+      })
+      if (!orderRes.ok) console.error('[wbsAssign] 자동 주문 발행 실패:', orderRes.error)
+    } catch (e) {
+      console.error('[wbsAssign] 자동 주문 발행 예외:', e)
+    }
   }
-  return { ok: true } // Task 13 에서 ensureOrderForAssignedLeaf 연결 후 orderCreated 반환
+  return { ok: true }
 }
 
 export async function setWbsStage(

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   createServerClient: vi.fn(),
   emitNotification: vi.fn(),
+  ensureOrderForAssignedLeaf: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({
   requireProjectAdmin: mocks.requireProjectAdmin,
@@ -16,6 +17,7 @@ vi.mock('@/lib/authz', () => ({
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
+vi.mock('@/lib/agent/ensureOrder', () => ({ ensureOrderForAssignedLeaf: mocks.ensureOrderForAssignedLeaf }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { setWbsAssignee, setWbsStage, getWbsAssigneeStage } from '@/app/actions/wbsAssign'
@@ -58,6 +60,7 @@ beforeEach(() => {
   mocks.requireProjectMember.mockResolvedValue(ACTOR)
   mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
   mocks.emitNotification.mockResolvedValue({ ok: true, recipients: 1 })
+  mocks.ensureOrderForAssignedLeaf.mockResolvedValue({ ok: true, created: true })
 })
 
 describe('setWbsAssignee', () => {
@@ -123,6 +126,59 @@ describe('setWbsAssignee', () => {
     expect(calls).not.toContain('agent_work_orders')
     expect(calls).not.toContain('project_members')
     expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('배정 성공 시 ensureOrderForAssignedLeaf 1회 호출', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: [{ id: W1 }] },
+      ],
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+    })
+    const r = await setWbsAssignee(W1, M1)
+    expect(r.ok).toBe(true)
+    expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledTimes(1)
+    expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ projectId: P1, wbsItemId: W1, actorUserId: 'admin-1' }),
+    )
+  })
+
+  it('해제(null)·no-op 시 ensureOrderForAssignedLeaf 미호출', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1 } },
+        { data: [{ id: W1 }] },
+      ],
+    })
+    const r1 = await setWbsAssignee(W1, null)
+    expect(r1.ok).toBe(true)
+    expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
+
+    admin({
+      wbs_items: [{ data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1 } }],
+    })
+    const r2 = await setWbsAssignee(W1, M1)
+    expect(r2.ok).toBe(true)
+    expect(mocks.ensureOrderForAssignedLeaf).not.toHaveBeenCalled()
+  })
+
+  it('ensureOrderForAssignedLeaf 실패해도 setWbsAssignee 는 ok:true 유지', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.ensureOrderForAssignedLeaf.mockRejectedValueOnce(new Error('boom'))
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: [{ id: W1 }] },
+      ],
+      project_members: [{ data: { id: M1, project_id: P1 } }],
+    })
+    const r = await setWbsAssignee(W1, M1)
+    expect(r.ok).toBe(true)
+    expect(mocks.ensureOrderForAssignedLeaf).toHaveBeenCalledTimes(1)
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 })
 
