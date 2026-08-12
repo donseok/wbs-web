@@ -3,10 +3,10 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const migrationsDir = fileURLToPath(new URL('../../supabase/migrations/', import.meta.url))
-const sql = readFileSync(`${migrationsDir}0069_agent_runners.sql`, 'utf8')
-const rollback = readFileSync(`${migrationsDir}0069_agent_runners_rollback.sql`, 'utf8')
+const sql = readFileSync(`${migrationsDir}0078_agent_runners.sql`, 'utf8')
+const rollback = readFileSync(`${migrationsDir}0078_agent_runners_rollback.sql`, 'utf8')
 
-describe('0069 agent_runners', () => {
+describe('0078 agent_runners', () => {
   it('테이블·핵심 컬럼·제약이 선언된다', () => {
     expect(sql).toContain('create table if not exists public.agent_runners')
     expect(sql).toMatch(/kind text not null default 'user_pat'\s+check \(kind in \('user_pat','runner'\)\)/)

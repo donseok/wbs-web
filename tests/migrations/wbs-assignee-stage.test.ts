@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const s = () => readFileSync('supabase/migrations/0076_wbs_assignee_stage.sql', 'utf8')
+const s = () => readFileSync('supabase/migrations/0077_wbs_assignee_stage.sql', 'utf8')
 
-describe('0076 wbs 담당자·단계·external_ref·확장 명세(결정 B)', () => {
+describe('0077 wbs 담당자·단계·external_ref·확장 명세(결정 B)', () => {
   it('컬럼 전부 nullable/additive 추가', () => {
     expect(s()).toContain('add column if not exists assignee_member_id uuid')
     expect(s()).toMatch(/add column if not exists stage text\s+check \(stage in \('todo','as','fp','ip','im','xx'\)\)/)
@@ -33,7 +33,7 @@ describe('0076 wbs 담당자·단계·external_ref·확장 명세(결정 B)', ()
     }
   })
   it('rollback 이 컬럼·인덱스·RPC 를 제거', () => {
-    const r = readFileSync('supabase/migrations/0076_wbs_assignee_stage_rollback.sql', 'utf8')
+    const r = readFileSync('supabase/migrations/0077_wbs_assignee_stage_rollback.sql', 'utf8')
     expect(r).toContain('drop function if exists public.import_wbs_upsert')
     expect(r).toContain('drop column if exists external_ref')
   })

@@ -4,7 +4,7 @@ import { emitNotification } from '@/lib/notify/emit'
 
 /**
  * 배정 기반 자동 발행 — §2.8. "담당자가 배정된 리프 Task 는 주문이 자동으로 존재한다."
- * 멱등: 활성 주문(ready/claimed/reported) 부분 유니크(0076)가 DB 보증, 여기는 선행조회 + 23505 수렴.
+ * 멱등: 활성 주문(ready/claimed/reported) 부분 유니크(0077)가 DB 보증, 여기는 선행조회 + 23505 수렴.
  * 발행 조건은 기존 가드 그대로: agent_projects.enabled · 리프 · 호출부가 관리자 권한 경로.
  */
 export async function ensureOrderForAssignedLeaf(

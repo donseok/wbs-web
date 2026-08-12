@@ -9,7 +9,7 @@ import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 
 /**
  * WBS 명세(spec 마크다운·참조 필드) 조회·편집 — 결정 B: 실물 문서는 로컬 git, DB 에는
- * 참조 문자열(prd_ref·entry_point)과 조립된 마크다운 본문(spec)만 둔다. import(0076
+ * 참조 문자열(prd_ref·entry_point)과 조립된 마크다운 본문(spec)만 둔다. import(0077
  * import_wbs_upsert)가 구조·명세 필드의 정본이고, 이 액션들은 웹에서의 보정 편집 경로다.
  * 편집 권한은 배정(§2.5)과 동일 — 프로젝트 관리자. wbsAssign.ts(Task 12)의
  * loadItem·requireProjectAdmin 패턴을 그대로 따른다(파일 스코프상 import 하지 않고 이 파일에 둔다).
@@ -29,7 +29,7 @@ export interface WbsSpecDetail {
   depends: string[]
   prdRef: string | null
   entryPoint: string | null
-  /** 정본은 import(0076) — 이 화면에서는 읽기 전용 체크리스트로만 표시. */
+  /** 정본은 import(0077) — 이 화면에서는 읽기 전용 체크리스트로만 표시. */
   acceptance: string[]
   spec: string | null
   externalRef: string | null
