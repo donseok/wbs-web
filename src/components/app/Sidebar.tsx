@@ -4,9 +4,8 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  ArrowLeft, BarChart3, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  ArrowLeft, BarChart3, BookOpenText, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
-  // BookOpenText — 숨긴 Wiki 메뉴 아이콘. 되살릴 때 이 줄과 projectMenu 의 주석을 함께 푼다.
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Tooltip } from '@/components/ui/Tooltip'
@@ -46,10 +45,7 @@ function projectMenu(base: string, showUsage: boolean): { href: string; labelKey
     { href: `${base}/meetings`, labelKey: 'nav.meetings', icon: CalendarClock, match: `${base}/meetings` },
     { href: `${base}/weekly`, labelKey: 'nav.weekly', icon: NotebookPen, match: `${base}/weekly` },
     { href: `${base}/issues`, labelKey: 'nav.issues', icon: CircleAlert, match: `${base}/issues` },
-    // 프로젝트 Wiki 는 2026-08-05 사용자 지시로 **메뉴에서 숨긴다**(자동 반영 중단과 한 쌍 —
-    // wikiServiceEnabled 참조). 라우트·페이지·i18n 은 그대로 두므로 URL 직접 접근은 살아 있다.
-    // 되살릴 때 아래 한 줄의 주석만 풀면 된다.
-    // { href: `${base}/wiki`, labelKey: 'nav.wiki', icon: BookOpenText, match: `${base}/wiki` },
+    { href: `${base}/wiki`, labelKey: 'nav.wiki', icon: BookOpenText, match: `${base}/wiki` },
     { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
