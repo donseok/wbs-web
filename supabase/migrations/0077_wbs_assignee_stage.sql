@@ -1,4 +1,4 @@
--- 0076: WBS 전 계층 담당자(로스터 축)·Task 단계(stage)·업로드 매칭 키(external_ref).
+-- 0077(구 0076): WBS 전 계층 담당자(로스터 축)·Task 단계(stage)·업로드 매칭 키(external_ref).
 -- v1 원칙("에이전트 기능은 기존 테이블 ALTER 0건")의 첫 의도적 예외 — 에이전트 전용이 아니라
 -- WBS 제품 기능이다(§2.5). 전 컬럼 nullable/additive — 기존 행·기존 프로젝트 무영향.
 -- 담당자 축은 auth 가 아니라 로스터: issue_assignees(0042) 관례의 복합 FK 로

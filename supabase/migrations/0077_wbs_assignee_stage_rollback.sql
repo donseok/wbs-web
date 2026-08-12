@@ -1,4 +1,4 @@
--- 0076 rollback: 컬럼 3개·인덱스 2개·RPC 제거. 담당자·단계·external_ref 데이터는 소멸한다.
+-- 0077(구 0076) rollback: 컬럼 13개·FK·인덱스 2개·RPC 제거. 담당자·단계·external_ref 데이터는 소멸한다.
 begin;
 drop function if exists public.import_wbs_upsert(uuid, jsonb);
 drop index if exists public.agent_work_orders_active_per_item_uidx;

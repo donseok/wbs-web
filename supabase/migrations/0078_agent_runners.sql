@@ -1,4 +1,4 @@
--- 0069: agent_runners — 사용자 PAT(user_pat)·머신 러너(runner) 겸용 자격증명 테이블.
+-- 0078(구 0069): agent_runners — 사용자 PAT(user_pat)·머신 러너(runner) 겸용 자격증명 테이블.
 -- 코퍼스 docs/design/agent-coding-platform/21-multi-client-model.md 초안에 합류하되 두 곳 수정:
 --   ① name 전역 unique → unique(owner_user_id, name): 사용자별 PAT 공존 시 이름 선점 충돌 방지.
 --   ② owner_user_id on delete cascade 유지: 소유자 소멸 = 자격증명 즉시 소멸(잔존 행 = 고아 credential).
