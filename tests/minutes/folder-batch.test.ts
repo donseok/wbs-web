@@ -4,8 +4,9 @@ import { NextRequest } from 'next/server'
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   activeTeamCodes: ['PMO', 'ERP', 'MES', '가공', 'MDM'] as string[],
-  // Task 6 — 프로젝트 스코프 활성 팀 목록. 기본은 전역과 동일, 스코프 차이 검증 테스트만 override.
-  activeTeamCodesForProject: vi.fn((_projectId: string) => mocks.activeTeamCodes),
+  // Task 6 — 프로젝트 스코프 활성 팀 목록. 기본 구현은 beforeEach 에서 건다(초기화 시점에
+  // mocks.activeTeamCodes 를 참조하면 자기 참조로 TS 순환 추론 에러가 난다).
+  activeTeamCodesForProject: vi.fn<(projectId: string) => string[]>(),
 }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/teams/master', () => ({
@@ -94,7 +95,7 @@ beforeEach(() => {
   mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공', 'MDM']
   // clearAllMocks 는 mockImplementation 을 지우지 않는다 — 개별 테스트의 override 가 다음
   // 테스트로 새지 않도록 기본 구현을 매번 다시 건다.
-  mocks.activeTeamCodesForProject.mockImplementation((_projectId: string) => mocks.activeTeamCodes)
+  mocks.activeTeamCodesForProject.mockImplementation(() => mocks.activeTeamCodes)
   vi.stubEnv('MINUTES_API_ENABLED', 'true')
   vi.stubEnv('MINUTES_API_SECRET', SECRET)
   useAdmin()

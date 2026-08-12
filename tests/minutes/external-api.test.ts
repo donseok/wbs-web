@@ -16,9 +16,9 @@ const mocks = vi.hoisted(() => ({
   afterCallbacks: [] as Array<() => Promise<void> | void>,
   // 팀 마스터는 런타임 캐시(TTL+DB) — 테스트는 활성 목록을 직접 갈아끼운다(W1-b 검증용).
   activeTeamCodes: ['PMO', 'ERP', 'MES', '가공', 'MDM'] as string[],
-  // Task 6 — 프로젝트 스코프 활성 팀 목록. 기본은 전역과 동일하게 두고, 스코프 차이를
-  // 검증하는 테스트만 mockImplementation 으로 갈아끼운다.
-  activeTeamCodesForProject: vi.fn((_projectId: string) => mocks.activeTeamCodes),
+  // Task 6 — 프로젝트 스코프 활성 팀 목록. 기본 구현은 beforeEach 에서 건다(초기화 시점에
+  // mocks.activeTeamCodes 를 참조하면 자기 참조로 TS 순환 추론 에러가 난다).
+  activeTeamCodesForProject: vi.fn<(projectId: string) => string[]>(),
 }))
 
 vi.mock('@/lib/teams/master', () => ({
@@ -213,7 +213,7 @@ beforeEach(() => {
   mocks.activeTeamCodes = ['PMO', 'ERP', 'MES', '가공', 'MDM']
   // clearAllMocks 는 mockImplementation 을 지우지 않는다 — 개별 테스트의 override 가 다음
   // 테스트로 새지 않도록 기본 구현을 매번 다시 건다.
-  mocks.activeTeamCodesForProject.mockImplementation((_projectId: string) => mocks.activeTeamCodes)
+  mocks.activeTeamCodesForProject.mockImplementation(() => mocks.activeTeamCodes)
   vi.stubEnv('MINUTES_API_ENABLED', 'true')
   vi.stubEnv('MINUTES_API_SECRET', SECRET)
   // W25 — folder_path 편철 스위치. 이 스위트는 켠 상태를 기본으로 검증하고,
@@ -372,19 +372,17 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
   })
 
   it('신규 insert는 담당 팀 루트 폴더로 자동 편철 — folder_id 세팅(0043)', async () => {
-    const { admin, builders } = useAdmin({
+    const { admin } = useAdmin({
       minutes: [
         { data: null },
         { data: { id: 'm-1', created_at: '2026-07-24T01:00:00+00:00', updated_at: '2026-07-24T01:00:00+00:00' } },
       ],
-      minute_folders: [{ data: { id: 'f-pmo' } }],
+      // Task 6 이후 폴백은 resolveFolderPath(path: []) 공유 구현을 태운다 — 순수 select 가
+      // 아니라 스냅샷 전체 로드(loadFolderSnapshot)라 응답이 배열이다.
+      minute_folders: [{ data: [{ id: 'f-pmo', name: 'PMO', parent_id: null, created_by: null }] }],
     })
     const res = await POST(post(payload))
     expect(res.status).toBe(201)
-    const fq = builders.minute_folders[0]
-    expect(fq.is).toHaveBeenCalledWith('parent_id', null)     // 루트 한정
-    expect(fq.is).toHaveBeenCalledWith('created_by', null)    // 시드 고정(스쿼팅 배제)
-    expect(fq.eq).toHaveBeenCalledWith('name', 'PMO')         // 팀코드 동명 매칭
     expect(admin.rpc).toHaveBeenCalledWith(
       'create_minute_with_version',
       expect.objectContaining({ p_folder_id: 'f-pmo' }),
@@ -415,7 +413,7 @@ describe('POST /api/v1/minutes upsert (§4, §9.6 ⑤⑥⑦⑧⑨)', () => {
         { data: null },
         { data: { id: 'm-1', created_at: '2026-07-27T01:00:00+00:00', updated_at: '2026-07-27T01:00:00+00:00' } },
       ],
-      minute_folders: [{ data: { id: 'f-new' } }],
+      minute_folders: [{ data: [{ id: 'f-new', name: '신설팀', parent_id: null, created_by: null }] }],
     })
     const res = await POST(post({ ...payload, team: '신설팀' }))
     expect(res.status).toBe(201)
@@ -732,7 +730,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
   })
 
   it('키 부재는 회귀 없음 — 기존 팀 루트 편철 + 에코 [팀코드]', async () => {
-    useInsert([{ data: { id: 'f-pmo' } }])
+    useInsert([snapshot()])
     const res = await POST(post(payload))
     expect(res.status).toBe(201)
     expect(await res.json()).toMatchObject({ folder_id: 'f-pmo', folder_path: ['PMO'] })
@@ -917,17 +915,40 @@ describe('편철 기준 트리 — 회의록 프로젝트 스코프 (0076 · Tas
     expect(await res.json()).toMatchObject({ folder_id: 'f-pmo-global', folder_path: ['PMO'] })
   })
 
-  it('케이스3: folder_path 미전송 + 프로젝트 연결 시 프로젝트 팀 루트를 조회한다', async () => {
-    const { builders } = useAdmin({
+  it('케이스3: folder_path 미전송 + 프로젝트 연결 시 프로젝트 팀 루트로 편철한다(전역 루트와 안 섞인다)', async () => {
+    // 폴백은 resolveFolderPath(path: []) 공유 구현을 태운다(Important 수정 — 지연 생성 포함) —
+    // 전역·프로젝트 스코프에 동명 'PMO' 루트가 공존해도 프로젝트 쪽만 골라야 한다.
+    useAdmin({
       meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
       minutes: [{ data: null }, { data: created }],
-      minute_folders: [{ data: { id: 'f-pmo-project' } }],
+      minute_folders: [{ data: [SEED_PMO_GLOBAL, SEED_PMO_PROJECT] }],
     })
     const res = await POST(post({ ...payload, meeting_id: MEETING_UUID }))
     expect(res.status).toBe(201)
-    const fq = builders.minute_folders[0]
-    expect(fq.eq).toHaveBeenCalledWith('project_id', PROJECT_UUID)
     expect(await res.json()).toMatchObject({ folder_id: 'f-pmo-project', folder_path: ['PMO'] })
+  })
+
+  it('케이스3-b: 프로젝트에 팀 루트가 아직 없으면 지연 생성한다(0076 시드 밖 — Important 수정)', async () => {
+    // 0076 시드는 "회의록이 이미 있던 프로젝트"만 커버한다 — 회의록 0건 프로젝트의 첫 업로드나
+    // 0076 이후 신설 팀은 시드가 없다. 순수 select 였던 예전 폴백은 이 경우 null(미분류)로
+    // 떨어뜨렸지만, resolveFolderPath(path: []) 공유 구현은 프로젝트 루트를 지연 생성한다.
+    const { admin, builders } = useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
+      minutes: [{ data: null }, { data: created }],
+      minute_folders: [
+        { data: [] },                             // 스냅샷 — 이 프로젝트엔 아직 PMO 루트가 없다
+        { data: { id: 'f-pmo-project-new' } },     // ensureProjectTeamRoot 의 insert
+      ],
+    })
+    const res = await POST(post({ ...payload, meeting_id: MEETING_UUID }))
+    expect(res.status).toBe(201)
+    expect(await res.json()).toMatchObject({ folder_id: 'f-pmo-project-new', folder_path: ['PMO'] })
+    expect(builders.minute_folders[1].insert).toHaveBeenCalledWith({
+      name: 'PMO', parent_id: null, created_by: null, project_id: PROJECT_UUID,
+    })
+    expect(admin.rpc).toHaveBeenCalledWith(
+      'create_minute_with_version', expect.objectContaining({ p_folder_id: 'f-pmo-project-new' }),
+    )
   })
 
   it('케이스4: 재전송으로 회의 연결이 바뀌어 프로젝트가 바뀌면(folder_path 미전송) 새 프로젝트 트리로 재편철한다', async () => {
@@ -953,6 +974,8 @@ describe('편철 기준 트리 — 회의록 프로젝트 스코프 (0076 · Tas
     expect(res.status).toBe(200)
     expect(builders.minutes[1].update).toHaveBeenCalledWith({ folder_id: 'f-new-root' })
     expect(builders.minutes[1].eq).toHaveBeenCalledWith('folder_id', 'f-old-root')
+    // refile 의 activeTeamCodes 는 **새** 프로젝트 스코프여야 한다(옛 프로젝트가 아니다).
+    expect(mocks.activeTeamCodesForProject).toHaveBeenCalledWith(PROJECT_UUID)
   })
 })
 
@@ -963,7 +986,8 @@ describe('W25 MINUTES_FOLDER_PATH_ENABLED = false (R1 배포 형상 · 결정 §
     vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
     const { admin } = useAdmin({
       minutes: [{ data: null }, { data: created }],
-      minute_folders: [{ data: { id: 'f-pmo' } }],       // resolveTeamRootFolderId 경로
+      // 팀 루트 폴백 경로(resolveFolderPath(path: []) 공유 구현) — 스냅샷 배열 응답.
+      minute_folders: [{ data: [{ id: 'f-pmo', name: 'PMO', parent_id: null, created_by: null }] }],
     })
     const res = await POST(post({ ...payload, folder_path: ['PMO', '품질', '주간정례'] }))
     expect(res.status).toBe(201)
@@ -979,7 +1003,7 @@ describe('W25 MINUTES_FOLDER_PATH_ENABLED = false (R1 배포 형상 · 결정 §
     // 플래그 없이 W1 만 먼저 내면 이 세 입력이 400 이 되어 오늘 정상 전송되는 회의가 실패한다.
     const queue = () => ({
       minutes: [{ data: null }, { data: created }],
-      minute_folders: [{ data: { id: 'f-pmo' } }],
+      minute_folders: [{ data: [{ id: 'f-pmo', name: 'PMO', parent_id: null, created_by: null }] }],
     })
     useAdmin(queue())
     expect((await POST(post({ ...payload, folder_path: ['PMO', '가'.repeat(61)] }))).status).toBe(201)
@@ -1081,9 +1105,9 @@ describe('구버전 replace 의 team 불일치 (결정 §6 — 플래그와 무�
     vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
     const { admin } = useAdmin({
       minutes: [{ data: { ...existingRow, folder_id: 'f-old' } }, { data: replaced }],
-      // resolveTeamRootFolderId(ERP) → f-erp, 그다음 응답은 에코 역해석용 스냅샷
+      // 팀 루트 폴백(resolveFolderPath(path: [])) 스냅샷 → f-erp, 그다음 응답은 에코 역해석용 스냅샷
       minute_folders: [
-        { data: { id: 'f-erp' } },
+        { data: [{ id: 'f-erp', name: 'ERP', parent_id: null, created_by: null }] },
         { data: [{ id: 'f-erp', name: 'ERP', parent_id: null, created_by: null }] },
       ],
     })
@@ -1117,6 +1141,31 @@ describe('구버전 replace 의 team 불일치 (결정 §6 — 플래그와 무�
     expect(res.status).toBe(200)
     expect(metadataOf(admin)).not.toHaveProperty('folder_id')
     expect(await res.json()).toMatchObject({ folder_id: 'f-old' })
+  })
+
+  it('새 팀 루트가 프로젝트에 없으면 지연 생성해서 옮긴다(Important 수정 — 0076 시드 밖)', async () => {
+    // 위 "폴더를 유지한다" 테스트는 project_id 가 없어(전역 스코프) 지연 생성 대상이 아니다.
+    // 이 테스트는 프로젝트가 있는 회의록의 팀 변경 — 0076 시드 밖(신설 프로젝트/팀)이면
+    // resolveFolderPath(path: []) 가 프로젝트 루트를 만들어서라도 옮긴다.
+    vi.stubEnv('MINUTES_FOLDER_PATH_ENABLED', 'false')
+    const { admin, builders } = useAdmin({
+      meetings: [{ data: { id: MEETING_UUID, project_id: PROJECT_UUID } }],
+      minutes: [
+        { data: { ...existingRow, project_id: PROJECT_UUID, folder_id: 'f-old' } },
+        { data: replaced },
+      ],
+      minute_folders: [
+        { data: [] },                            // 스냅샷 — 이 프로젝트엔 아직 ERP 루트가 없다
+        { data: { id: 'f-erp-project-new' } },    // ensureProjectTeamRoot 의 insert
+      ],
+    })
+    const res = await POST(post({ ...payload, team: 'ERP', meeting_id: MEETING_UUID }))
+    expect(res.status).toBe(200)
+    expect(metadataOf(admin)).toMatchObject({ folder_id: 'f-erp-project-new' })
+    expect(builders.minute_folders[1].insert).toHaveBeenCalledWith({
+      name: 'ERP', parent_id: null, created_by: null, project_id: PROJECT_UUID,
+    })
+    expect(await res.json()).toMatchObject({ folder_id: 'f-erp-project-new', folder_path: ['ERP'] })
   })
 
   it('플래그 true + folder_path 가 실려 오면 team 이동 분기를 타지 않는다 (folder_path 가 이긴다)', async () => {

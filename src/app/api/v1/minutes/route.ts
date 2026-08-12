@@ -1,8 +1,6 @@
 import { after, NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import {
-  folderPathOf, refileMinuteAfterProjectChange, resolveFolderPath, resolveTeamRootFolderId,
-} from '@/lib/minutes/folders'
+import { folderPathOf, refileMinuteAfterProjectChange, resolveFolderPath } from '@/lib/minutes/folders'
 import { fnv1a64 } from '@/lib/minutes/blocks'
 import {
   enqueueMinuteWikiProcessing,
@@ -15,6 +13,7 @@ import {
   type AdminClient, type ExternalMinutePayload, type ResolvedUser,
 } from '@/lib/minutes/externalApi'
 import { resolveOrCreateExternalMeeting } from '@/lib/minutes/meetings'
+import type { TeamCode } from '@/lib/domain/types'
 
 /**
  * POST /api/v1/minutes — 회의록 생성/갱신(upsert by external_id), GET — 목록/존재 확인.
@@ -79,6 +78,27 @@ function respondMinute(req: NextRequest, status: number, args: {
   }, { status })
 }
 
+/** 프로젝트 스코프 활성 팀 목록 — 프로젝트가 있으면 그 프로젝트의, 없으면 전역(0076). */
+function activeTeamCodesFor(projectId: string | null): TeamCode[] {
+  return projectId ? activeTeamCodesForProjectSync(projectId) : activeTeamCodesSync()
+}
+
+/**
+ * 팀 루트 폴더 id — folder_path 키 부재 폴백 전용(§3.2-5 의 등록/이동 경로).
+ * `resolveTeamRootFolderId`(순수 select)와 달리 `resolveFolderPath(path: [])`를 태워
+ * **프로젝트 루트가 없으면 지연 생성**한다(공유 `ensureProjectTeamRoot` 구현) — 0076 시드는
+ * "회의록이 이미 있던 프로젝트"만 커버해, 회의록 0건 프로젝트의 첫 업로드나 0076 이후 신설
+ * 팀에서는 시드가 없다. 여기서 생성하지 않으면 그 경로가 전부 미분류로 떨어진다.
+ */
+async function resolveTeamRootWithLazyCreate(
+  admin: AdminClient, teamCode: TeamCode, projectId: string | null, actorId: string,
+): Promise<string | null> {
+  const res = await resolveFolderPath(admin, teamCode, [], {
+    actorId, activeTeamCodes: activeTeamCodesFor(projectId), projectId,
+  })
+  return res.ok ? res.folderId : null
+}
+
 /**
  * folder_path → 편철 대상 확정 (§3.1 3값 규약 · §3.2 정규화).
  * `provided: false` = 키 부재 → 호출부가 "기존 위치 유지 / 팀 루트 폴백"을 각자 정한다.
@@ -97,7 +117,7 @@ async function resolvePayloadFolder(
   if (!p.folderPathProvided || p.folderPath === null) return { ok: true, provided: false }
   const res = await resolveFolderPath(admin, p.teamCode, p.folderPath, {
     actorId,
-    activeTeamCodes: projectId ? activeTeamCodesForProjectSync(projectId) : activeTeamCodesSync(),
+    activeTeamCodes: activeTeamCodesFor(projectId),
     projectId,   // 0076 — 회의록이 속한 프로젝트 트리에서 해석한다.
   })
   if (!res.ok) {
@@ -167,7 +187,7 @@ async function handleExisting(
   // 에서 금지한 상태를 외부 API 가 정상 경로로 만드는 셈). 새 팀 루트로 옮긴다.
   // 400 거절은 구버전 클라이언트의 정상 조작(담당 정정)을 막으므로 채택하지 않는다.
   if (!folderUpdated && p.teamCode !== existing.team_code) {
-    teamMovedFolderId = await resolveTeamRootFolderId(admin, p.teamCode, targetProjectId)
+    teamMovedFolderId = await resolveTeamRootWithLazyCreate(admin, p.teamCode, targetProjectId, actor.id)
     if (teamMovedFolderId) folderUpdated = true
     else console.error(`[minutes-api] 담당 변경(${existing.team_code}→${p.teamCode}) 팀 루트 부재 — 폴더 유지`)
   }
@@ -210,17 +230,17 @@ async function handleExisting(
     wiki_rebuild_required: boolean
   }
   const projectChanged = existing.project_id !== targetProjectId
-  // folder_path 키 부재 재전송으로 회의 연결이 바뀌어 프로젝트만 바뀐 경우 — RPC metadata 에는
-  // folder_id 키를 넣지 않았으므로(위 "무접촉" 규칙) 폴더는 그대로 옛 프로젝트 트리에 남아 있다.
-  // updateMinuteMeta 와 같은 패턴으로 커밋 후 동기 재편철한다. teamMovedFolderId 가 이미 폴더를
-  // 옮겼으면(팀 변경 동시 발생) 건드리지 않는다 — 그 경로는 새 위치가 이미 확정됐다.
-  if (projectChanged && !folder.provided && !folderUpdated) {
+  // 회의 연결이 바뀌어 프로젝트만 바뀐 경우 — RPC metadata 에는 folder_id 키를 넣지 않았으므로
+  // (위 "무접촉" 규칙) 폴더는 그대로 옛 프로젝트 트리에 남아 있다. updateMinuteMeta 와 같은
+  // 패턴으로 커밋 후 동기 재편철한다. teamMovedFolderId 가 이미 폴더를 옮겼으면(팀 변경 동시
+  // 발생) 건드리지 않는다 — 그 경로는 새 위치가 이미 확정됐다. folder_path 를 보냈어도
+  // (folder.provided) 해석이 실패해(unclassified/partial) 폴더를 못 옮겼으면 이 refile 이
+  // 정리한다 — 조건에서 !folder.provided 를 뺐다(승인된 정리).
+  if (projectChanged && !folderUpdated) {
     await refileMinuteAfterProjectChange(admin, {
       minuteId: existing.id, teamCode: p.teamCode, oldFolderId: existing.folder_id,
       newProjectId: targetProjectId, actorId: actor.id,
-      activeTeamCodes: targetProjectId
-        ? activeTeamCodesForProjectSync(targetProjectId)
-        : activeTeamCodesSync(),
+      activeTeamCodes: activeTeamCodesFor(targetProjectId),
     })
   }
   const wikiJobId = committed.wiki_rebuild_required || projectChanged
@@ -288,7 +308,7 @@ async function insertNew(
   if (!folder.ok) return apiBadRequest(folder.error)
   const folderId = folder.provided
     ? folder.folderId
-    : await resolveTeamRootFolderId(admin, p.teamCode, meetingProjectId)
+    : await resolveTeamRootWithLazyCreate(admin, p.teamCode, meetingProjectId, user.id)
   const folderPath = folder.provided
     ? folder.folderPath
     : (folderId ? [p.teamCode] : null)
