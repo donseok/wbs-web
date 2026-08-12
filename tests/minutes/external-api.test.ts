@@ -786,7 +786,7 @@ describe('folder_path 편철 (v2.3 §3.1~§3.3 — W3·W4·W5)', () => {
     const { builders } = useInsert([snapshot(), { data: { id: 'f-q' } }])
     await POST(post({ ...payload, folder_path: ['PMO', '품질'] }))
     expect(builders.minute_folders[1].insert).toHaveBeenCalledWith({
-      name: '품질', parent_id: 'f-pmo', created_by: 'u-1',
+      name: '품질', parent_id: 'f-pmo', created_by: 'u-1', project_id: null,
     })
   })
 

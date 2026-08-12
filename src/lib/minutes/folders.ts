@@ -9,12 +9,15 @@ type DbClient = Awaited<ReturnType<typeof createServerClient>> | ReturnType<type
 /** 담당 팀과 동명인 **시드** 루트 폴더 id — 신규 회의록 자동 편철용(0043 하이어라키: 루트=팀코드 5축).
  *  created_by null(시드) 고정 — 동명 사용자 폴더(스쿼팅)가 전사 편철 대상이 되면 안 됨.
  *  조회 실패·폴더 부재는 null(미분류 폴백)로 로그만 남긴다 — 편철이 등록 자체를 막으면 안 됨.
- *  folder_path 미전송(구버전 또박또박) 경로의 폴백으로 존치한다. */
+ *  folder_path 미전송(구버전 또박또박) 경로의 폴백으로 존치한다.
+ *  projectId(0076) — null 은 미지정(전역) 트리, uuid 는 그 프로젝트 전용 트리의 루트다. */
 export async function resolveTeamRootFolderId(
-  sb: DbClient, teamCode: TeamCode,
+  sb: DbClient, teamCode: TeamCode, projectId: string | null,
 ): Promise<string | null> {
-  const { data, error } = await sb.from('minute_folders')
-    .select('id').is('parent_id', null).is('created_by', null).eq('name', teamCode).maybeSingle()
+  let q = sb.from('minute_folders')
+    .select('id').is('parent_id', null).is('created_by', null).eq('name', teamCode)
+  q = projectId ? q.eq('project_id', projectId) : q.is('project_id', null)
+  const { data, error } = await q.maybeSingle()
   if (error) {
     console.error('[minutes] 팀 루트 폴더 조회 실패(미분류 폴백):', error.message)
     return null
@@ -33,17 +36,22 @@ export interface FolderRow {
   name: string
   parentId: string | null
   createdBy: string | null
+  projectId: string | null   // 0076: null = 미지정 영역
 }
 
 export interface FolderSnapshot {
   byId: Map<string, FolderRow>
   /** `${parentId} ${name}` → id. parentId 는 uuid(공백 없음)라 구분자 충돌이 없다. */
   byParentName: Map<string, string>
-  /** 시드 루트(parent_id null · created_by null) 이름 → id. 팀코드 동명이 팀 루트다. */
+  /** 시드 루트(parent_id null · created_by null) `rootKey(projectId, name)` → id.
+   *  (프로젝트, 팀코드) 로 분리돼 동명 루트가 프로젝트별로 공존한다(0076). */
   seedRoots: Map<string, string>
 }
 
 const childKey = (parentId: string, name: string) => `${parentId} ${name}`
+
+/** seedRoots 키 — projectId 는 uuid(공백 없음), 미지정은 '-'. */
+const rootKey = (projectId: string | null, name: string) => `${projectId ?? '-'} ${name}`
 
 export function buildFolderSnapshot(rows: readonly FolderRow[]): FolderSnapshot {
   const snap: FolderSnapshot = { byId: new Map(), byParentName: new Map(), seedRoots: new Map() }
@@ -54,7 +62,7 @@ export function buildFolderSnapshot(rows: readonly FolderRow[]): FolderSnapshot 
 export function addToFolderSnapshot(snap: FolderSnapshot, row: FolderRow): void {
   snap.byId.set(row.id, row)
   if (row.parentId === null) {
-    if (row.createdBy === null) snap.seedRoots.set(row.name, row.id)
+    if (row.createdBy === null) snap.seedRoots.set(rootKey(row.projectId, row.name), row.id)
   } else {
     snap.byParentName.set(childKey(row.parentId, row.name), row.id)
   }
@@ -62,7 +70,8 @@ export function addToFolderSnapshot(snap: FolderSnapshot, row: FolderRow): void 
 
 /** 전량 로드. 실패는 null(fail-loud 로그) — 호출부가 '폴더 없음'과 구분해 처리한다. */
 export async function loadFolderSnapshot(sb: DbClient): Promise<FolderSnapshot | null> {
-  const { data, error } = await sb.from('minute_folders').select('id, name, parent_id, created_by')
+  const { data, error } = await sb.from('minute_folders')
+    .select('id, name, parent_id, created_by, project_id')
   if (error) {
     console.error('[minutes] 폴더 스냅샷 로드 실패:', error.message)
     return null
@@ -72,6 +81,7 @@ export async function loadFolderSnapshot(sb: DbClient): Promise<FolderSnapshot |
     name: r.name as string,
     parentId: (r.parent_id as string | null) ?? null,
     createdBy: (r.created_by as string | null) ?? null,
+    projectId: (r.project_id as string | null) ?? null,
   }))
   return buildFolderSnapshot(rows)
 }
@@ -202,12 +212,13 @@ export type ResolveFolderPathResult =
  *  ON CONFLICT 가 conflict 대상 추론에 실패해 42P10 이 된다. 그래서 insert → 23505 면
  *  재조회로 동시 전송 경합을 흡수한다(minutes upsert 가 쓰는 것과 같은 우회).
  *  C4: created_by 는 전송 사용자 id — null 은 **시드 표식**이라 스쿼팅 방어와 0043 재실행이
- *  이 값으로 시드를 식별한다. */
+ *  이 값으로 시드를 식별한다.
+ *  projectId(0076) — 부모와 같은 프로젝트(자식 project_id = 부모 project_id 불변식). */
 async function createChildFolder(
-  sb: DbClient, parentId: string, name: string, actorId: string,
+  sb: DbClient, parentId: string, name: string, actorId: string, projectId: string | null,
 ): Promise<string | null> {
   const { data, error } = await sb.from('minute_folders')
-    .insert({ name, parent_id: parentId, created_by: actorId })
+    .insert({ name, parent_id: parentId, created_by: actorId, project_id: projectId })
     .select('id').single()
   if (!error && data) return (data as { id: string }).id
   if (error?.code === '23505') {
@@ -218,6 +229,26 @@ async function createChildFolder(
     return null
   }
   console.error(`[minutes] 폴더 생성 실패(${name}):`, error?.message ?? 'no row')
+  return null
+}
+
+/** 프로젝트 팀 루트 지연 보장 — 시드(created_by null) 삽입이라 **admin 클라이언트 필수**
+ *  (0040 RLS insert 정책은 created_by = auth.uid() 를 요구한다). 23505 는 동시 생성 경합 —
+ *  createChildFolder 와 같은 재조회 우회. 실패는 null(호출부 미분류 폴백). */
+export async function ensureProjectTeamRoot(
+  sb: DbClient, projectId: string, teamCode: TeamCode,
+): Promise<string | null> {
+  const { data, error } = await sb.from('minute_folders')
+    .insert({ name: teamCode, parent_id: null, created_by: null, project_id: projectId })
+    .select('id').single()
+  if (!error && data) return (data as { id: string }).id
+  if (error?.code === '23505') {
+    const { data: raced, error: reErr } = await sb.from('minute_folders')
+      .select('id').is('parent_id', null).is('created_by', null)
+      .eq('name', teamCode).eq('project_id', projectId).maybeSingle()
+    if (!reErr && raced) return (raced as { id: string }).id
+  }
+  console.error(`[minutes] 프로젝트 팀 루트 생성 실패(${teamCode}):`, error?.message ?? 'no row')
   return null
 }
 
@@ -242,6 +273,9 @@ export async function resolveFolderPath(
     snapshot?: FolderSnapshot
     /** false = 폴더를 만들지 않는다(dry run). 없는 경로는 complete:false·failed:false 로 보고. */
     create?: boolean
+    /** 0076 — null 은 미지정(전역) 트리, uuid 는 그 프로젝트 전용 트리. 필수라 전 호출부가
+     *  스코프를 명시하게 강제한다. */
+    projectId: string | null
   },
 ): Promise<ResolveFolderPathResult> {
   const parsed = parseFolderPathValue(path)
@@ -250,7 +284,16 @@ export async function resolveFolderPath(
   if (!norm.ok) return { ok: false, kind: 'validation_failed', error: norm.error, reason: norm.reason }
 
   const snap = opts.snapshot ?? await loadFolderSnapshot(sb)
-  const rootId = snap?.seedRoots.get(teamCode) ?? null
+  const rootId0 = snap?.seedRoots.get(rootKey(opts.projectId, teamCode)) ?? null
+  let rootId = rootId0
+  if (!rootId && opts.projectId && opts.create !== false && opts.activeTeamCodes.includes(teamCode)) {
+    rootId = await ensureProjectTeamRoot(sb, opts.projectId, teamCode)
+    if (rootId) {
+      addToFolderSnapshot(snap!, {
+        id: rootId, name: teamCode, parentId: null, createdBy: null, projectId: opts.projectId,
+      })
+    }
+  }
   if (!rootId) {
     // §3.2-5. 원인은 거의 항상 0043 미적용이다(스냅샷 로드 실패면 위에서 이미 로그가 남는다).
     return {
@@ -270,10 +313,12 @@ export async function resolveFolderPath(
     if (hit) { cur = hit; resolvedPath.push(name); continue }
     // dry run — 만들지 않고 "여기까지만 실재한다"를 보고한다(쓰기 0).
     if (!create) return { ok: true, ...base, folderId: cur, resolvedPath, complete: false, failed: false }
-    const created = await createChildFolder(sb, cur, name, opts.actorId)
+    const created = await createChildFolder(sb, cur, name, opts.actorId, opts.projectId)
     // 생성 실패는 조상까지만 편철 — 등록 자체를 막지 않는다. 배치는 이걸 failed 로 읽는다.
     if (!created) return { ok: true, ...base, folderId: cur, resolvedPath, complete: false, failed: true }
-    addToFolderSnapshot(snap!, { id: created, name, parentId: cur, createdBy: opts.actorId })
+    addToFolderSnapshot(snap!, {
+      id: created, name, parentId: cur, createdBy: opts.actorId, projectId: opts.projectId,
+    })
     cur = created
     resolvedPath.push(name)
   }

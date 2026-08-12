@@ -408,7 +408,7 @@ describe('APPLY 실행 (요건 2·3)', () => {
       status: 'moved', folder_id: 'f-new', to: ['MES', '신규'],
     })
     expect(builders.minute_folders[1].insert).toHaveBeenCalledWith({
-      name: '신규', parent_id: 'f-mes', created_by: 'u-1',
+      name: '신규', parent_id: 'f-mes', created_by: 'u-1', project_id: null,
     })
   })
 

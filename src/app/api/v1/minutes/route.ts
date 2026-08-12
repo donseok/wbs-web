@@ -95,6 +95,7 @@ async function resolvePayloadFolder(
   if (!p.folderPathProvided || p.folderPath === null) return { ok: true, provided: false }
   const res = await resolveFolderPath(admin, p.teamCode, p.folderPath, {
     actorId, activeTeamCodes: activeTeamCodesSync(),
+    projectId: null,   // TODO(Task 6): 실제 프로젝트 스코프 전달
   })
   if (!res.ok) {
     if (res.kind === 'validation_failed') return { ok: false, error: res.error }
@@ -163,7 +164,7 @@ async function handleExisting(
   // 에서 금지한 상태를 외부 API 가 정상 경로로 만드는 셈). 새 팀 루트로 옮긴다.
   // 400 거절은 구버전 클라이언트의 정상 조작(담당 정정)을 막으므로 채택하지 않는다.
   if (!folderUpdated && p.teamCode !== existing.team_code) {
-    teamMovedFolderId = await resolveTeamRootFolderId(admin, p.teamCode)
+    teamMovedFolderId = await resolveTeamRootFolderId(admin, p.teamCode, null)   // TODO(Task 6)
     if (teamMovedFolderId) folderUpdated = true
     else console.error(`[minutes-api] 담당 변경(${existing.team_code}→${p.teamCode}) 팀 루트 부재 — 폴더 유지`)
   }
@@ -271,7 +272,7 @@ async function insertNew(
   if (!folder.ok) return apiBadRequest(folder.error)
   const folderId = folder.provided
     ? folder.folderId
-    : await resolveTeamRootFolderId(admin, p.teamCode)
+    : await resolveTeamRootFolderId(admin, p.teamCode, null)   // TODO(Task 6)
   const folderPath = folder.provided
     ? folder.folderPath
     : (folderId ? [p.teamCode] : null)

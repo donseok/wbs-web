@@ -176,6 +176,7 @@ async function processItem(
   // 판정에는 생성이 필요 없다 — 조상 규칙은 **이미 존재하는** 조상 체인만 보면 되기 때문이다.
   const resolved = await resolveFolderPath(admin, teamCode, item.folderPath, {
     actorId, activeTeamCodes, snapshot: snap, create: false,
+    projectId: null,   // TODO(Task 6): 실제 프로젝트 스코프 전달
   })
   if (!resolved.ok) {
     // no_team_root 는 moved 로 집계하면 안 된다 — 배치는 '등록'이 아니라 '이동'이라
@@ -215,6 +216,7 @@ async function processItem(
   // 이동이 확정된 지금에서야 부족한 폴더를 만든다.
   const applied = await resolveFolderPath(admin, teamCode, item.folderPath, {
     actorId, activeTeamCodes, snapshot: snap, create: true,
+    projectId: null,   // TODO(Task 6): 실제 프로젝트 스코프 전달
   })
   if (!applied.ok) return { external_id: key, status: 'failed', reason: applied.reason, from }
   // 경로를 끝까지 못 만들었다 = 생성 실패. 조상에 떨구면 리포트(to)와 실제 트리가 어긋난다.
