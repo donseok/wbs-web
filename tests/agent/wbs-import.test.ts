@@ -124,8 +124,9 @@ describe('POST /wbs/import', () => {
     useAdmin({
       agent_runners: [{ data: row }, { data: null }], // 리졸버 select, last_seen_at 갱신
       agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트, ensureOrder 게이트
-      project_roles: [{ data: [{ role: 'admin' }] }],
-      memberships: [{ data: { is_superuser: false } }],
+      // memberships·project_roles 는 각 2회 조회된다: isAgentProjectMember(비멤버 404 게이트) → 관리자 판정.
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
         { data: null }, // assignee_member_id update
@@ -168,8 +169,8 @@ describe('POST /wbs/import', () => {
     useAdmin({
       agent_runners: [{ data: row }, { data: null }],
       agent_projects: [{ data: { enabled: true } }],
-      project_roles: [{ data: [{ role: 'admin' }] }],
-      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-x', email: 'other@example.com' }] }], // 다른 email 만
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
 
@@ -182,18 +183,33 @@ describe('POST /wbs/import', () => {
     expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
   })
 
-  it('비관리자 PAT → 403 forbidden_role (import = 발행 권한과 동치)', async () => {
+  it('일반 멤버(role=member) PAT → 403 forbidden_role (멤버는 맞지만 관리자가 아님)', async () => {
     const { token, row } = patRow()
     const body = { project_id: PROJECT_ID, module: 'MES', nodes: [NODE({ id: 'T-A' })] }
     useAdmin({
       agent_runners: [{ data: row }, { data: null }],
       agent_projects: [{ data: { enabled: true } }],
-      project_roles: [{ data: [{ role: 'member' }] }],
-      memberships: [{ data: { is_superuser: false } }],
+      // memberships·project_roles 2회: isAgentProjectMember(멤버 확인, role 존재→통과) → 관리자 판정(role≠admin→403).
+      project_roles: [{ data: [{ role: 'member' }] }, { data: [{ role: 'member' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
     })
     const res = await importPOST(post(body, token))
     expect(res.status).toBe(403)
     expect((await res.json()).code).toBe('forbidden_role')
+  })
+
+  it('완전 비멤버 PAT → 404 (존재 은닉 — 관리자 판정보다 먼저 걸린다)', async () => {
+    const { token, row } = patRow()
+    const body = { project_id: PROJECT_ID, module: 'MES', nodes: [NODE({ id: 'T-A' })] }
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }],
+      // isAgentProjectMember 에서만 소비 — role 행이 없으므로 여기서 404, 관리자 판정 코드까지 가지 않는다.
+      project_roles: [{ data: [] }],
+      memberships: [{ data: { is_superuser: false } }],
+    })
+    const res = await importPOST(post(body, token))
+    expect(res.status).toBe(404)
   })
 
   it('legacy 호출 → 400 identity_required', async () => {
@@ -226,8 +242,8 @@ describe('POST /wbs/import', () => {
     useAdmin({
       agent_runners: [{ data: row }, { data: null }],
       agent_projects: [{ data: { enabled: true } }],
-      project_roles: [{ data: [{ role: 'admin' }] }],
-      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }]) // 이미 존재 — 신규 없음
 
@@ -235,5 +251,28 @@ describe('POST /wbs/import', () => {
     const json = await res.json()
     expect(json).toMatchObject({ ok: true, unmatched_assignees: [], orders_created: 0 })
     expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
+  })
+
+  it('non_leaf_skipped 도 bare id — unmatched_assignees 와 동일 규칙', async () => {
+    const { token, row } = patRow()
+    const body = {
+      project_id: PROJECT_ID, module: 'MES',
+      nodes: [NODE({ id: 'WP-01', kind: 'wp', assignee: 'a@b.c' })],
+    }
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트, ensureOrder 게이트
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
+      wbs_items: [
+        { data: null }, // assignee_member_id update
+        { data: { id: 'child-x' } }, // ensureOrder: 자식 있음 — 리프 아님
+      ],
+    }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/WP-01': 'id-wp' }, new_refs: ['MES/WP-01'] } }])
+
+    const res = await importPOST(post(body, token))
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, non_leaf_skipped: ['WP-01'], orders_created: 0 })
   })
 })

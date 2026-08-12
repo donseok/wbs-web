@@ -132,7 +132,8 @@ export async function applyAssigneesAndOrders(
     const ensured = await ensureOrderForAssignedLeaf(admin, { projectId, wbsItemId: itemId, actorUserId })
     if (!ensured.ok) throw new Error(`자동 발행 실패(${ref}): ${ensured.error}`)
     if (ensured.created) ordersCreated += 1
-    if (ensured.reason === 'not_leaf') nonLeafSkipped.push(ref)
+    // unmatched_assignees 와 동일 규칙(bare id) — 클라이언트는 module 프리픽스를 모른다.
+    if (ensured.reason === 'not_leaf') nonLeafSkipped.push(ref.slice(module.length + 1))
   }
   return { unmatched, ordersCreated, nonLeafSkipped }
 }

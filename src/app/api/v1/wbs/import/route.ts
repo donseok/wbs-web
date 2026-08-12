@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound,
-  requireAgentProject, requireScope, resolveAgentPrincipal, patProjectAllowed,
+  isAgentProjectMember, requireAgentProject, requireScope, resolveAgentPrincipal, patProjectAllowed,
 } from '@/lib/agent/externalApi'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { applyAssigneesAndOrders, toRpcNode, type ImportNode } from '@/lib/agent/wbsImport'
@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
     if (scopeErr) return scopeErr
     if (!patProjectAllowed(principal, projectId)) return apiNotFound()
     if (!(await requireAgentProject(admin, projectId))) return apiNotFound()
+    // 비멤버는 404(존재 은닉, 계약 §인증 — "PAT principal 은 멤버십 없으면 404"). 관리자 판정보다 먼저 —
+    // 아니면 완전 비멤버가 관리자 판정에서 403 forbidden_role 을 받아 "프로젝트가 존재한다"가 샌다.
+    if (!(await isAgentProjectMember(admin, principal.userId, projectId))) return apiNotFound()
     // import = 구조 쓰기 + 자동 발행 트리거 — 발행과 같은 관리자 전용(§2.8). member 는 403.
     const { data: roleRow, error: roleErr } = await admin
       .from('project_roles').select('role').eq('user_id', principal.userId).eq('project_id', projectId).limit(1)
