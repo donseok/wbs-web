@@ -43,10 +43,10 @@ stage 워크플로 재설계(마이그레이션 0079)를 계약에 반영. **엔
 `GET /agent/me` 200:
 ```json
 { "ok": true, "user_email": "a@b.c", "scopes": ["work:read"], "kind": "user_pat",
-  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.0",
+  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.1",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-⚠️ **알려진 미스매치**: 응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수가 그대로 실어 보내는데, 이 상수는 v2.1 stage 워크플로 재설계 작업(0079)에서 갱신되지 않아 **런타임은 여전히 `"2.0"`을 반환한다**. 이 문서(정본)는 v2.1 의미론을 기술하지만 실제 값으로 분기하는 클라이언트가 있다면 당분간 `"2.0"`을 계속 볼 것이다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — v2.1 재설계와 함께 `"2.1"`로 갱신됐다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만(미등록은 목록에서도 은닉).
 
 `GET /agent/work/mine` 200:

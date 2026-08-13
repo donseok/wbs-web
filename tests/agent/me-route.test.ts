@@ -54,7 +54,7 @@ describe('GET /agent/me', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.user_email).toBe('dev@example.com')
-    expect(body.contract_version).toBe('2.0')
+    expect(body.contract_version).toBe('2.1')
     expect(body.projects).toHaveLength(1)
     expect(body.projects[0]).toMatchObject({ id: P1, role: 'admin' })
   })
