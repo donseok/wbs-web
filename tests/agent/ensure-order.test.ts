@@ -88,6 +88,21 @@ describe('ensureOrderForWorkflowLeaf', () => {
     expect(result).toEqual({ ok: true, created: false, reason: 'not_agent_project' })
   })
 
+  it('항목 없음(row null) → ok:false (3원칙 — "미도입"으로 위장하지 않는다, F3)', async () => {
+    // 큐: agent_projects [{ enabled: true }] → wbs_items [null]
+    ;(admin as MockAdminClient).pushResponse({ enabled: true }, null)
+    ;(admin as MockAdminClient).pushResponse(null, null)
+
+    const result = await ensureOrderForWorkflowLeaf(admin, {
+      projectId,
+      wbsItemId,
+      actorUserId,
+    })
+
+    expect(result).toEqual({ ok: false, error: '항목 없음' })
+    expect((admin as MockAdminClient).lastInsertPayload).toBeNull()
+  })
+
   it('dev_workflow=false → created:false, reason not_workflow (주문 insert 미호출)', async () => {
     // 큐: agent_projects [{ enabled: true }] → wbs_items [{ dev_workflow: false }]
     ;(admin as MockAdminClient).pushResponse({ enabled: true }, null)

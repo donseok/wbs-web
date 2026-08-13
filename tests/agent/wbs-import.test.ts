@@ -128,27 +128,38 @@ beforeEach(() => {
 })
 
 describe('POST /wbs/import', () => {
-  it('PAT + work:report + 관리자 → RPC 호출 + 신규 리프 배정 매칭 + orders_created 집계', async () => {
+  it('PAT + work:report + 관리자 → RPC 호출 + 신규 리프 배정 매칭 + orders_created 집계(신규+기존 갭 모두, F1)', async () => {
     const { token, row } = patRow()
     const body = {
       project_id: PROJECT_ID, module: 'MES',
       nodes: [NODE({ id: 'WP-01', kind: 'wp' }), NODE({ id: 'T-A', parent_id: 'WP-01', assignee: 'a@b.c' }), NODE({ id: 'T-B', parent_id: 'WP-01' })],
     }
+    // RPC 는 T-A 만 new_refs 로 보고한다(T-B 는 이미 존재하던 task 라는 픽스처) — 그런데도
+    // T-B 는 dev_workflow=true·활성 주문 없음(갭)이므로 F1 갱신 루프가 이걸 잡아 발행해야 한다.
     const admin = useAdmin({
       agent_runners: [{ data: row }, { data: null }], // 리졸버 select, last_seen_at 갱신
-      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트, ensureOrder 게이트
+      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트 + ensureOrder 게이트 x2(T-A, T-B)
       // memberships·project_roles 는 각 2회 조회된다: isAgentProjectMember(비멤버 404 게이트) → 관리자 판정.
       project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
-        { data: null }, // assignee_member_id update
-        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트) — RPC payload 의 dev_workflow:true 가 실제로 저장됐다고 가정한 값
-        { data: null }, // ensureOrder: 자식 없음(리프)
+        { data: null }, // assignee_member_id update(T-A)
+        { data: [ // 갭 후보 조회(payload 의 task ref 전체: T-A, T-B) — RPC 가 이미 dev_workflow:true 로 심었다고 가정
+          { id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true },
+          { id: 'id-b', external_ref: 'MES/T-B', dev_workflow: true },
+        ] },
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder(T-A): 항목 조회
+        { data: null }, // ensureOrder(T-A): 자식 없음(리프)
+        { data: { name: '제목 T-B', priority: 'high', external_ref: 'MES/T-B', assignee_member_id: null, dev_workflow: true } }, // ensureOrder(T-B): 항목 조회
+        { data: null }, // ensureOrder(T-B): 자식 없음(리프)
       ],
       agent_work_orders: [
-        { data: null }, // 활성 주문 없음
-        { data: { id: 'order-1' } }, // insert
+        { data: [] }, // 갭 판정 — T-A·T-B 모두 활성 주문 없음
+        { data: null }, // ensureOrder(T-A): 활성 주문 없음
+        { data: { id: 'order-1' } }, // ensureOrder(T-A): insert
+        { data: null }, // ensureOrder(T-B): 활성 주문 없음
+        { data: { id: 'order-2' } }, // ensureOrder(T-B): insert
       ],
     }, [{ data: { upserted: 3, skipped: 0, ids: { 'MES/WP-01': 'id-wp', 'MES/T-A': 'id-a', 'MES/T-B': 'id-b' }, new_refs: ['MES/T-A'] } }])
 
@@ -156,7 +167,7 @@ describe('POST /wbs/import', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json).toMatchObject({
-      ok: true, upserted: 3, skipped: 0, unmatched_assignees: [], non_leaf_skipped: [], orders_created: 1,
+      ok: true, upserted: 3, skipped: 0, unmatched_assignees: [], non_leaf_skipped: [], orders_created: 2,
     })
 
     // RPC payload — kind='task' 노드만 dev_workflow:true 로 실린다(v2.1). ensureOrder 가 참조하는
@@ -196,12 +207,14 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-x', email: 'other@example.com' }] }], // 다른 email 만 — 매칭 실패
       wbs_items: [
-        // 미매칭이므로 assignee_member_id update 는 없다 — 첫 항목이 바로 ensureOrder 의 항목 조회.
-        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } },
+        // 미매칭이므로 assignee_member_id update 는 없다 — 첫 항목이 바로 갭 후보 조회.
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } }, // ensureOrder: 항목 조회
         { data: null }, // ensureOrder: 자식 없음(리프)
       ],
       agent_work_orders: [
-        { data: null }, // 활성 주문 없음
+        { data: [] }, // 갭 판정 — 활성 주문 없음
+        { data: null }, // ensureOrder: 활성 주문 없음
         { data: { id: 'order-1' } }, // insert
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
@@ -265,7 +278,7 @@ describe('POST /wbs/import', () => {
     expect(mocks.createAdminClient).not.toHaveBeenCalled()
   })
 
-  it('재업로드 멱등 — new_refs 없으면 매칭·발행·알림 재실행 0건', async () => {
+  it('재업로드 멱등 — new_refs 없고 활성 주문도 있으면 매칭·발행·알림 재실행 0건', async () => {
     const { token, row } = patRow()
     const body = {
       project_id: PROJECT_ID, module: 'MES',
@@ -273,16 +286,51 @@ describe('POST /wbs/import', () => {
     }
     useAdmin({
       agent_runners: [{ data: row }, { data: null }],
-      agent_projects: [{ data: { enabled: true } }],
+      agent_projects: [{ data: { enabled: true } }], // 라우트 게이트만 — ensureOrder 는 활성 주문이 있어 호출되지 않는다
       project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
+      wbs_items: [{ data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }], // 갭 후보 조회
+      agent_work_orders: [{ data: [{ wbs_item_id: 'id-a' }] }], // 이미 활성 주문 존재 — 갭 아님
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }]) // 이미 존재 — 신규 없음
 
     const res = await importPOST(post(body, token))
     const json = await res.json()
     expect(json).toMatchObject({ ok: true, unmatched_assignees: [], orders_created: 0 })
     expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
+  })
+
+  it('재업로드 시 기존 task 에 활성 주문이 없으면(갭) 발행된다 — F1 핵심 회귀 케이스', async () => {
+    const { token, row } = patRow()
+    const body = {
+      project_id: PROJECT_ID, module: 'MES',
+      nodes: [NODE({ id: 'T-A', assignee: 'a@b.c' })],
+    }
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트, ensureOrder 게이트
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
+      wbs_items: [
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회
+        { data: null }, // ensureOrder: 자식 없음(리프)
+      ],
+      agent_work_orders: [
+        { data: [] }, // 갭 판정 — 활성 주문 없음(RPC 는 기존 행도 dev_workflow=true 로 갱신하는데 주문은 없던 상태)
+        { data: null }, // ensureOrder: 활성 주문 없음
+        { data: { id: 'order-new' } }, // insert
+      ],
+    }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: [] } }]) // 이미 존재 — 신규 없음
+
+    const res = await importPOST(post(body, token))
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, unmatched_assignees: [], orders_created: 1 })
+    // new_refs 가 비어 매칭 루프는 돌지 않는다 — work.assigned 는 발행되지 않는다.
+    expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
+    // 갭 발행 자체는 work.order_created 를 낸다(assignee_member_id 가 있으므로).
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({ type: 'work.order_created' }))
   })
 
   it('non_leaf_skipped 도 bare id — task 인데 자식이 있는 비정상 데이터(kind=task 는 dev_workflow:true 라 게이트 통과 후 리프 검사에서 걸린다)', async () => {
@@ -299,8 +347,12 @@ describe('POST /wbs/import', () => {
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
         { data: null }, // assignee_member_id update
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
         { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트 통과)
         { data: { id: 'child-x' } }, // ensureOrder: 자식 있음(비정상 데이터) — 리프 아님
+      ],
+      agent_work_orders: [
+        { data: [] }, // 갭 판정 — 활성 주문 없음
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
 
@@ -309,7 +361,7 @@ describe('POST /wbs/import', () => {
     expect(json).toMatchObject({ ok: true, non_leaf_skipped: ['T-A'], orders_created: 0 })
   })
 
-  it('wp 노드는 dev_workflow 대상이 아니므로 ensureOrder 자체를 호출하지 않는다(호출됐다면 아래 큐로 주문이 났을 것 — orders_created:0 이 곧 미호출의 증거)', async () => {
+  it('wp 노드는 dev_workflow 대상이 아니므로 갭 조회 자체가 스킵된다(taskRefs 가 구조적으로 빈다)', async () => {
     const { token, row } = patRow()
     const body = {
       project_id: PROJECT_ID, module: 'MES',
@@ -317,20 +369,14 @@ describe('POST /wbs/import', () => {
     }
     useAdmin({
       agent_runners: [{ data: row }, { data: null }],
-      // ensureOrder 가 호출된다면 게이트 조회가 2번째 agent_projects 큐를 소비해 enabled:true 를 받고,
-      // 아래 wbs_items·agent_work_orders 큐로 리프 판정 + 주문 insert 까지 성공해 orders_created:1 이 됐을 것이다.
-      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }],
+      // taskRefs(payload 의 kind='task' ref 집합)가 비어 ensureOrdersForPayload 가 즉시 반환한다 —
+      // wbs_items·agent_work_orders 큐가 전혀 소비되지 않으므로 agent_projects 도 라우트 게이트 1회뿐.
+      agent_projects: [{ data: { enabled: true } }],
       project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
-        { data: null }, // assignee_member_id update
-        { data: { name: '제목 WP-01', priority: 'high', external_ref: 'MES/WP-01', assignee_member_id: 'member-1', dev_workflow: true } }, // 호출됐다면 여기서 게이트 통과
-        { data: null }, // 호출됐다면 자식 없음(리프)
-      ],
-      agent_work_orders: [
-        { data: null }, // 호출됐다면 활성 주문 없음
-        { data: { id: 'order-x' } }, // 호출됐다면 insert 성공
+        { data: null }, // assignee_member_id update(WP-01, kind 무관하게 assignee 매칭은 이뤄진다)
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/WP-01': 'id-wp' }, new_refs: ['MES/WP-01'] } }])
 
@@ -352,11 +398,13 @@ describe('POST /wbs/import', () => {
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
       project_members: [{ data: [] }], // 매칭 대상 없음 — 그래도 로스터는 로드된다
       wbs_items: [
+        { data: [{ id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true }] }, // 갭 후보 조회
         { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } }, // ensureOrder: 항목 조회
         { data: null }, // ensureOrder: 자식 없음(리프)
       ],
       agent_work_orders: [
-        { data: null }, // 활성 주문 없음
+        { data: [] }, // 갭 판정 — 활성 주문 없음
+        { data: null }, // ensureOrder: 활성 주문 없음
         { data: { id: 'order-1' } }, // insert
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
@@ -366,5 +414,37 @@ describe('POST /wbs/import', () => {
     expect(json).toMatchObject({ ok: true, unmatched_assignees: [], non_leaf_skipped: [], orders_created: 1 })
     // 담당자가 없으니 work.assigned 는 여전히 발행되지 않는다
     expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
+  })
+
+  it('갭 후보 중 dev_workflow=false 인 행은 client 필터로 걸러져 ensureOrder 를 호출하지 않는다', async () => {
+    const { token, row } = patRow()
+    const body = {
+      project_id: PROJECT_ID, module: 'MES',
+      nodes: [NODE({ id: 'T-A' }), NODE({ id: 'T-B' })],
+    }
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트 + ensureOrder 게이트(T-A 만)
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [] }],
+      wbs_items: [
+        { data: [ // 갭 후보 조회 — T-B 는 dev_workflow:false(다른 트리거가 그 사이 껐다고 가정)
+          { id: 'id-a', external_ref: 'MES/T-A', dev_workflow: true },
+          { id: 'id-b', external_ref: 'MES/T-B', dev_workflow: false },
+        ] },
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } }, // ensureOrder(T-A): 항목 조회
+        { data: null }, // ensureOrder(T-A): 자식 없음(리프)
+      ],
+      agent_work_orders: [
+        { data: [] }, // 갭 판정 — T-A 만 대상(T-B 는 후보에서 이미 제외됐다)
+        { data: null }, // ensureOrder(T-A): 활성 주문 없음
+        { data: { id: 'order-1' } }, // insert
+      ],
+    }, [{ data: { upserted: 2, skipped: 0, ids: { 'MES/T-A': 'id-a', 'MES/T-B': 'id-b' }, new_refs: ['MES/T-A', 'MES/T-B'] } }])
+
+    const res = await importPOST(post(body, token))
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, orders_created: 1 })
   })
 })

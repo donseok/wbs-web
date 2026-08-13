@@ -6,7 +6,8 @@ import type { ProjectMember } from '@/lib/domain/types'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-const getWbsAssigneeStage = vi.fn(async () => ({ assigneeMemberId: null, stage: null, devWorkflow: false }))
+type ResolvedState = { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean }
+const getWbsAssigneeStage = vi.fn(async (): Promise<ResolvedState> => ({ assigneeMemberId: null, stage: null, devWorkflow: false }))
 const setWbsAssignee = vi.fn(async () => ({ ok: true }))
 const setWbsAssigneeCascade = vi.fn(async () => ({ ok: true, count: 0 }))
 const setWbsStage = vi.fn(async () => ({ ok: true }))
@@ -44,6 +45,8 @@ describe('WbsAssigneeStagePanel', () => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
+    // AssigneeComboBox 가 하이라이트 옵션을 scrollIntoView 하는데 jsdom 에 미구현이다.
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: vi.fn() })
   })
   afterEach(() => {
     act(() => root.unmount())
@@ -114,6 +117,25 @@ describe('WbsAssigneeStagePanel', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }))
     })
     expect(setWbsStage).toHaveBeenCalledWith('item-1', 'fp')
+  })
+
+  it('(f) 담당자 변경 성공 후 getWbsAssigneeStage 재조회로 loaded 전체가 교체된다(부분 낙관 갱신 아님, F2 최종 리뷰)', async () => {
+    await mount({ resolved: { assigneeMemberId: 'm-1', stage: null, devWorkflow: false } })
+    expect(getWbsAssigneeStage).toHaveBeenCalledTimes(1)
+    // 서버가 배정과 함께 stage 도 as 로 바꿨다고 가정 — 재조회가 그 결과를 실어와야 한다.
+    getWbsAssigneeStage.mockResolvedValueOnce({ assigneeMemberId: null, stage: 'as', devWorkflow: false })
+    const input = container.querySelector('input[role="combobox"]') as HTMLInputElement
+    await act(async () => { input.focus() })
+    const option = [...container.querySelectorAll('[role="option"]')]
+      .find(o => o.textContent === 'wbs.assigneeUnassignedOption') as HTMLElement
+    expect(option).toBeTruthy()
+    await act(async () => {
+      option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+    await act(async () => {}) // 액션 await + 재조회 await, 마이크로태스크 한 틱 더 플러시
+    expect(setWbsAssignee).toHaveBeenCalledWith('item-1', null)
+    expect(getWbsAssigneeStage).toHaveBeenCalledTimes(2)
+    expect(stageSelect().value).toBe('as')
   })
 
   it('editable=false 면 devWorkflow 체크박스가 렌더되되 disabled 다', async () => {

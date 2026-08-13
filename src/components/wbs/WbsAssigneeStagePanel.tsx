@@ -70,9 +70,10 @@ export function WbsAssigneeStagePanel({
       : await setWbsAssignee(itemId, memberId)
     setBusy(null)
     if (!res.ok) { setErr(res.error ?? (useCascade ? t('wbs.assigneeCascadeFail') : t('wbs.errGeneric'))); return }
-    // 본인 항목은 setWbsAssigneeCascade 도 단건 액션과 동일하게 항상 반영하므로(값이 다를
-    // 때) 낙관적 갱신이 그대로 맞다 — 하위 트리만 별도의 null 필터를 적용한다.
-    setLoaded(prev => (prev && prev !== 'error' ? { ...prev, assigneeMemberId: memberId } : prev))
+    // 배정 성공은 서버가 stage 도 함께 바꿀 수 있다(배정↔as 자동 전이) — 부분 낙관 갱신 대신
+    // 전체 재조회로 loaded 를 교체한다(F2, 최종 리뷰). 재조회 실패는 기존 로딩 관례대로 'error'.
+    const refreshed = await getWbsAssigneeStage(itemId)
+    setLoaded(refreshed ?? 'error')
     if (useCascade && 'count' in res && typeof res.count === 'number' && res.count > 0) setCascadeResult(res.count)
     // 하위 UPDATE 만 실패한 부분 성공(리뷰 라운드 2) — 본인 반영은 확정됐으므로 성공 취급하되
     // "하위 일괄 적용은 실패했다"는 사실은 별도 경고로 알린다(assigneeCascadeFail 키 재사용).
@@ -97,7 +98,9 @@ export function WbsAssigneeStagePanel({
     if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
     // OFF 는 ready 주문 취소를 동반하는 서버 동작(브리프) — 확인 모달 없이 즉시 실행하고
     // 결과 문구로만 알린다(브라우저 confirm() 은 자동화를 막아 세션 규칙상 금지).
-    setLoaded(prev => (prev && prev !== 'error' ? { ...prev, devWorkflow: enabled } : prev))
+    // ON 은 배정↔as 자동 전이·자동 발행을 동반할 수 있다 — 부분 낙관 갱신 대신 전체 재조회(F2, 최종 리뷰).
+    const refreshed = await getWbsAssigneeStage(itemId)
+    setLoaded(refreshed ?? 'error')
     if (typeof res.count === 'number' && res.count > 0) setDevWorkflowResult(res.count)
     if (res.cascadeFailed) setDevWorkflowWarn(true)
     router.refresh()

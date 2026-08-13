@@ -45,9 +45,9 @@ export async function ensureOrderForWorkflowLeaf(
         dev_workflow: boolean | null
       }
     | null
-  if (row?.dev_workflow !== true) {
-    return { ok: true, created: false, reason: 'not_workflow' }
-  }
+  // 3원칙 — 항목 없음을 "미도입"으로 위장하지 않는다(최종 리뷰 F3).
+  if (!row) return { ok: false, error: '항목 없음' }
+  if (row.dev_workflow !== true) return { ok: true, created: false, reason: 'not_workflow' }
 
   // Step 3: 리프 검증 — 자식 없어야 함
   const { data: child, error: childErr } = await admin
@@ -76,8 +76,8 @@ export async function ensureOrderForWorkflowLeaf(
     .insert({
       project_id: projectId,
       wbs_item_id: wbsItemId,
-      instructions: args.instructions?.trim() || (row ? `${row.external_ref ?? ''} ${row.name}`.trim() : ''),
-      priority: orderPriorityFromLabel(row?.priority ?? null),
+      instructions: args.instructions?.trim() || `${row.external_ref ?? ''} ${row.name}`.trim(),
+      priority: orderPriorityFromLabel(row.priority),
       created_by: actorUserId,
     })
     .select('id')
@@ -93,7 +93,7 @@ export async function ensureOrderForWorkflowLeaf(
 
   // 실제 생성 성공 — 알림 발행 (fire-and-forget, 본 로직 실패로 이어지지 않음)
   const orderId = (orderData as { id: string }).id
-  if (row?.assignee_member_id) {
+  if (row.assignee_member_id) {
     emitNotification({
       type: 'work.order_created',
       projectId,

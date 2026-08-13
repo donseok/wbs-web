@@ -1,7 +1,7 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { emitNotification } from '@/lib/notify/emit'
 
-/** WBS Task 단계(§2.5) — dev_workflow=true 항목의 자동 전이 대상. 'todo' 는 STAGE_ORDER 밖(수동 초기값). */
+/** WBS Task 단계(§2.5) — dev_workflow=true 항목의 자동 전이 대상. 미지정은 'todo' 문자열이 아니라 null(0079). */
 export type WbsStage = 'as' | 'fp' | 'ip' | 'im' | 'xx'
 
 const REACHED_STAGES_LIST = ['im', 'xx'] as const
@@ -140,18 +140,21 @@ export async function transitionStage(
   if (fromIn && !fromIn.includes(oldStage)) return { ok: true, transitioned: false }
   if (oldStage === to) return { ok: true, transitioned: false }
 
-  const { data: updated, error: updateErr } = await admin
+  // CAS — 조회 이후 다른 경로가 먼저 stage 를 바꿨으면 이 UPDATE 는 0행이어야 한다(경합에서 짐).
+  const updateQuery = admin
     .from('wbs_items')
     .update({ stage: to, updated_at: new Date().toISOString() })
     .eq('id', itemId)
-    .select('id')
+  const { data: updated, error: updateErr } = await (
+    oldStage === null ? updateQuery.is('stage', null) : updateQuery.eq('stage', oldStage)
+  ).select('id')
   if (updateErr) {
     console.error('[stageTransition] stage 갱신 실패:', updateErr.message)
     return { ok: false, transitioned: false }
   }
   if (!updated || (updated as unknown[]).length === 0) {
-    console.error('[stageTransition] stage 갱신 대상 없음:', itemId)
-    return { ok: false, transitioned: false }
+    // 경합에서 짐 — 에러가 아니다. 로그 없이 no-op(F4, 최종 리뷰).
+    return { ok: true, transitioned: false }
   }
 
   const { error: logErr } = await admin.from('change_logs').insert({

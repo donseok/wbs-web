@@ -110,6 +110,39 @@ describe('createAgentWorkOrder', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toContain('등록 조회 실패')
   })
+  it('발행 성공 시 dev_workflow=false 였던 항목을 true 로 갱신 + change_logs 기록(F5, 최종 리뷰 — "발행 = 도입 선언")', async () => {
+    const { captured } = admin({
+      agent_projects: [{ data: { project_id: P1, enabled: true } }],
+      wbs_items: [
+        { data: { id: W1, project_id: P1, dev_workflow: false } }, // 항목 조회
+        { data: null }, // 자식 없음(리프)
+        { data: null }, // dev_workflow UPDATE
+      ],
+      agent_work_orders: [{ data: [{ id: O1 }] }], // insert
+      change_logs: [{ data: { id: 'cl-1' } }],
+    })
+    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
+    expect(r.ok).toBe(true)
+    expect(r.id).toBe(O1)
+    expect(captured.wbs_items[0]).toMatchObject({ dev_workflow: true })
+    expect(captured.change_logs[0]).toMatchObject({
+      field: 'dev_workflow', old_value: 'false', new_value: 'true', wbs_item_id: W1,
+    })
+  })
+  it('발행 시 이미 dev_workflow=true 인 항목은 갱신·이력 기록을 건너뛴다', async () => {
+    const { captured } = admin({
+      agent_projects: [{ data: { project_id: P1, enabled: true } }],
+      wbs_items: [
+        { data: { id: W1, project_id: P1, dev_workflow: true } }, // 항목 조회
+        { data: null }, // 자식 없음(리프)
+      ],
+      agent_work_orders: [{ data: [{ id: O1 }] }], // insert
+    })
+    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
+    expect(r.ok).toBe(true)
+    expect(captured.wbs_items).toBeUndefined()
+    expect(captured.change_logs).toBeUndefined()
+  })
 })
 
 describe('approveAgentCompletion', () => {

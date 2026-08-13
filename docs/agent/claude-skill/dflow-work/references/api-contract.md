@@ -102,6 +102,8 @@ stage 워크플로 재설계(마이그레이션 0079)를 계약에 반영. **엔
 
 미배정 task도 이 조건만 충족하면 주문이 발행되고, `GET /agent/work/mine?scope=available`은 assignee 유무와 무관하게 `ready` 주문 전체를 노출한다.
 
+관리자 화면의 수동 발행(`createAgentWorkOrder`)도 이 불변식을 지킨다 — 발행 대상 항목의 `dev_workflow`가 꺼져 있으면 발행 성공과 함께 서버가 자동으로 켠다("발행 = 도입 선언").
+
 ## claim·show 응답 확장과 선행 게이트 (결정 A·C)
 
 - `GET /work/{id}`(PAT)와 `POST /work/{id}/claim` 200 응답의 `item`에 확장 필드를 포함한다:

@@ -18,12 +18,16 @@ type Resp = { data?: unknown; error?: { message: string } | null }
 function useAdmin(queues: Record<string, Resp[]>) {
   const insertCalls: Array<{ table: string; payload: Record<string, unknown> }> = []
   const fromCalls: string[] = []
+  const eqCalls: Array<[string, unknown]> = []
+  const isCalls: Array<[string, unknown]> = []
   const admin = {
     from: vi.fn((table: string) => {
       fromCalls.push(table)
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'eq', 'in', 'contains', 'limit', 'order']) b[k] = () => b
+      for (const k of ['select', 'update', 'in', 'contains', 'limit', 'order']) b[k] = () => b
+      b.eq = (col: string, val: unknown) => { eqCalls.push([col, val]); return b }
+      b.is = (col: string, val: unknown) => { isCalls.push([col, val]); return b }
       b.insert = (payload: Record<string, unknown>) => {
         insertCalls.push({ table, payload })
         return b
@@ -34,7 +38,7 @@ function useAdmin(queues: Record<string, Resp[]>) {
       return b
     }),
   } as unknown as AdminClient
-  return { admin, insertCalls, fromCalls }
+  return { admin, insertCalls, fromCalls, eqCalls, isCalls }
 }
 
 const ITEM_ID = '11111111-1111-4111-8111-111111111111'
@@ -126,6 +130,47 @@ describe('transitionStage', () => {
     })
     const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'as', actorUserId: ACTOR })
     expect(result).toEqual({ ok: false, transitioned: false })
+  })
+
+  it('UPDATE 에 stage CAS 술어 포함 — oldStage 있으면 eq(stage, oldStage) (F4, 최종 리뷰)', async () => {
+    const { admin, eqCalls } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: 'ip', dev_workflow: true } },
+        { data: [{ id: ITEM_ID }] }, // UPDATE 성공
+      ],
+      change_logs: [{ data: { id: 'cl-1' }, error: null }],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'im', actorUserId: ACTOR })
+    expect(result).toEqual({ ok: true, transitioned: true })
+    expect(eqCalls).toContainEqual(['stage', 'ip'])
+  })
+
+  it('UPDATE 에 stage CAS 술어 포함 — oldStage null 이면 is(stage, null) (F4, 최종 리뷰)', async () => {
+    const { admin, isCalls } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: null, dev_workflow: true } },
+        { data: [{ id: ITEM_ID }] }, // UPDATE 성공
+      ],
+      change_logs: [{ data: { id: 'cl-1' }, error: null }],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'as', actorUserId: ACTOR })
+    expect(result).toEqual({ ok: true, transitioned: true })
+    expect(isCalls).toContainEqual(['stage', null])
+  })
+
+  it('UPDATE 가 0행(경합에서 짐) → ok:true·transitioned:false, change_logs 미기록, 에러 로그 없음 (F4, 최종 리뷰)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { admin, insertCalls } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: 'ip', dev_workflow: true } },
+        { data: [] }, // UPDATE 0행 — 다른 경로가 먼저 stage 를 바꿨다
+      ],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'im', actorUserId: ACTOR })
+    expect(result).toEqual({ ok: true, transitioned: false })
+    expect(insertCalls.filter(c => c.table === 'change_logs')).toHaveLength(0)
+    expect(errSpy).not.toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 })
 
