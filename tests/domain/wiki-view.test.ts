@@ -10,7 +10,9 @@ import {
   matchesWikiTopicQuery,
   sortWikiEntries,
   wikiSearchFallbacks,
+  wikiReviewUrgency,
   wikiTopicSearchFallbacks,
+  WIKI_REVIEW_SOON_DAYS,
   type WikiExplorerEntry,
 } from '@/lib/domain/wikiView'
 
@@ -255,5 +257,26 @@ describe('wikiTopicSearchFallbacks', () => {
     expect(got.every((fallback) => fallback.count > 0)).toBe(true)
     expect(got.length).toBeLessThanOrEqual(3)
     expect(got).toEqual([...got].sort((left, right) => right.count - left.count))
+  })
+})
+
+describe('wikiReviewUrgency', () => {
+  const now = Date.parse('2026-08-14T00:00:00Z')
+  const inDays = (days: number) => new Date(now + days * 24 * 60 * 60 * 1000).toISOString()
+
+  it('기한이 지났으면 overdue', () => {
+    expect(wikiReviewUrgency(inDays(-1), now)).toBe('overdue')
+    expect(wikiReviewUrgency(inDays(0), now)).toBe('overdue')
+  })
+
+  it('14일 이내면 soon — 기한이 지난 뒤에야 알던 것이 이 단계가 생긴 이유다', () => {
+    expect(wikiReviewUrgency(inDays(1), now)).toBe('soon')
+    expect(wikiReviewUrgency(inDays(WIKI_REVIEW_SOON_DAYS), now)).toBe('soon')
+  })
+
+  it('14일을 넘거나 기한이 없으면 신호를 내지 않는다', () => {
+    expect(wikiReviewUrgency(inDays(WIKI_REVIEW_SOON_DAYS + 1), now)).toBeNull()
+    expect(wikiReviewUrgency(null, now)).toBeNull()
+    expect(wikiReviewUrgency('not-a-date', now)).toBeNull()
   })
 })

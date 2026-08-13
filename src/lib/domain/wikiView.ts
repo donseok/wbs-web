@@ -245,6 +245,27 @@ export function matchesWikiTopicQuery(
   return tokens.every((token) => text.includes(token))
 }
 
+/**
+ * 재검증 시급도. 기존 화면은 기한이 **지난 뒤에야** 신호를 줘서 담당자가 당일에야
+ * 알았다. 벤치마크의 신선도 6종 세트는 '만료 알림'을 별도 항목으로 두는데, 알림을
+ * 붙이려면 먼저 "곧 만료"라는 상태가 있어야 한다. 14일은 주간 회의 두 번이 들어가는
+ * 폭이라 담당자가 실제로 손볼 기회가 두 번 생긴다.
+ */
+export const WIKI_REVIEW_SOON_DAYS = 14
+
+export type WikiReviewUrgency = 'overdue' | 'soon' | null
+
+export function wikiReviewUrgency(
+  reviewDueAt: string | null | undefined,
+  nowMs = Date.now(),
+): WikiReviewUrgency {
+  if (!reviewDueAt) return null
+  const dueMs = Date.parse(reviewDueAt)
+  if (!Number.isFinite(dueMs)) return null
+  if (dueMs <= nowMs) return 'overdue'
+  return dueMs - nowMs <= WIKI_REVIEW_SOON_DAYS * 24 * 60 * 60 * 1000 ? 'soon' : null
+}
+
 export type WikiTopicTrustState = 'conflict' | 'review_due' | 'verified' | 'unverified'
 
 export interface WikiTopicTrustInput {

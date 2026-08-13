@@ -260,6 +260,7 @@ export function WikiOverview({
   canEditDocuments = canCurate,
   highlightQuestionId = null,
   initialQuery = '',
+  viewerId = null,
 }: {
   projectId: string
   data: WikiOverviewData
@@ -270,6 +271,7 @@ export function WikiOverview({
   canEditDocuments?: boolean
   highlightQuestionId?: string | null
   initialQuery?: string
+  viewerId?: string | null
 }) {
   const data = rawData as MemoryOverviewData
   const acceptedItems = data.items.filter(isAccepted)
@@ -401,6 +403,7 @@ export function WikiOverview({
               topics={visibleTopics}
               locale={locale}
               initialQuery={initialQuery}
+              viewerId={viewerId}
             />
           </SectionCard>
         </div>

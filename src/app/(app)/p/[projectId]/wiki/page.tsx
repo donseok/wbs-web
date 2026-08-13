@@ -63,6 +63,7 @@ export default async function ProjectWikiPage({
         canEditDocuments={isProjectMember(actor, projectId)}
         highlightQuestionId={parseQuestionId(question)}
         initialQuery={parseQuery(q)}
+        viewerId={actor?.userId ?? null}
       />
     </ProjectPageShell>
   )
