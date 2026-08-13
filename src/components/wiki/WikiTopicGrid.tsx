@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ArrowRight, BookOpenText, Search } from 'lucide-react'
 import type { Locale } from '@/lib/i18n/dict'
 import { t } from '@/lib/i18n/dict'
-import { matchesWikiTopicQuery } from '@/lib/domain/wikiView'
+import { matchesWikiTopicQuery, wikiTopicSearchFallbacks } from '@/lib/domain/wikiView'
 import type { WikiTopicSummary } from '@/lib/data/wiki'
 import { formatWikiDate } from './WikiShared'
 import { trackWikiEvent } from './wikiAnalytics'
@@ -37,6 +37,12 @@ export function WikiTopicGrid({
     else sorted.sort((a, b) => b.lastChangedAt.localeCompare(a.lastChangedAt))
     return sorted
   }, [topics, query, sort, locale])
+
+  // 0건일 때만 계산한다 — 매 입력마다 전체를 여러 번 훑는 비용을 결과가 있는 동안 치르지 않는다.
+  const fallbacks = useMemo(
+    () => (filtered.length === 0 ? wikiTopicSearchFallbacks(topics, query) : []),
+    [filtered.length, topics, query],
+  )
 
   const shown = filtered.slice(0, visible)
 
@@ -105,9 +111,35 @@ export function WikiTopicGrid({
       </p>
 
       {shown.length === 0 ? (
-        <p className="mt-3 rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-ink-muted">
-          {t(locale, 'wiki.search.noResult')}
-        </p>
+        <div className="mt-3 rounded-xl border border-dashed border-line px-4 py-10 text-center">
+          <p className="text-sm text-ink-muted">
+            {query.trim()
+              ? t(locale, 'wiki.search.noResult').replace('{query}', query.trim())
+              : t(locale, 'wiki.search.noResultPlain')}
+          </p>
+          {fallbacks.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
+                {t(locale, 'wiki.search.tryInstead')}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                {fallbacks.map((fallback) => (
+                  <button
+                    key={fallback.droppedToken}
+                    type="button"
+                    onClick={() => { setQuery(fallback.query); setVisible(PAGE_SIZE) }}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink transition hover:border-brand-ring hover:text-brand"
+                  >
+                    {t(locale, 'wiki.search.dropToken').replace('{token}', fallback.droppedToken)}
+                    <span className="tabular-nums text-ink-subtle">
+                      {t(locale, 'wiki.search.fallbackCount').replace('{n}', String(fallback.count))}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <>
           <div className="mt-3 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">

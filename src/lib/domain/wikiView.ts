@@ -337,3 +337,30 @@ export function wikiSearchFallbacks<T extends WikiExplorerEntry>(
 
   return fallbacks
 }
+
+/**
+ * 주제 지도용 회복 경로. 그리드에는 정렬만 있고 필터가 없으므로 drop-token 만 낸다.
+ * 위 wikiSearchFallbacks 와 같은 규칙(건수 동반·0건 제외·내림차순·최대 3개)을 쓴다 —
+ * 두 검색이 다르게 회복하면 사용자는 어느 쪽이 고장인지 판단할 수 없다.
+ */
+export function wikiTopicSearchFallbacks<T extends Parameters<typeof matchesWikiTopicQuery>[0]>(
+  topics: T[],
+  query: string,
+): WikiSearchFallback[] {
+  const tokens = query.trim().split(/\s+/).filter(Boolean)
+  if (tokens.length < 2) return []
+
+  return tokens
+    .map((token, index) => {
+      const next = tokens.filter((_, other) => other !== index).join(' ')
+      return {
+        kind: 'drop-token' as const,
+        query: next,
+        droppedToken: token,
+        count: topics.filter((topic) => matchesWikiTopicQuery(topic, next)).length,
+      }
+    })
+    .filter((candidate) => candidate.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, FALLBACK_LIMIT)
+}

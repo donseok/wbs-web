@@ -2,8 +2,8 @@
 
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useState, type CSSProperties } from 'react'
-import { BadgeCheck, FilePlus2, Pencil, Save, X } from 'lucide-react'
+import { useEffect, useState, type CSSProperties } from 'react'
+import { BadgeCheck, FilePlus2, Pencil, RotateCcw, Save, X } from 'lucide-react'
 import {
   createWikiDocument,
   updateWikiDocument,
@@ -14,6 +14,7 @@ import {
 import type { Locale } from '@/lib/i18n/dict'
 import { t } from '@/lib/i18n/dict'
 import { Modal } from '@/components/ui/Modal'
+import { formatWikiDate } from './WikiShared'
 import { trackWikiEvent } from './wikiAnalytics'
 
 const MarkdownView = dynamic(
@@ -76,6 +77,55 @@ function documentKind(value: string | null | undefined): WikiDocumentKind {
     : 'overview'
 }
 
+/**
+ * 작성 중 본문 보호. 새 문서는 Modal 안에서 쓰는데 Modal 은 Escape·백드롭 클릭에서
+ * 확인 없이 onClose 하고(components/ui/Modal.tsx), Modal 은 앱 전역이 쓰는 파일이라
+ * 여기 사정으로 닫기 의미를 바꿀 수 없다. 그래서 "닫기를 막는" 대신 "닫혀도 잃지 않게"
+ * 한다 — 초안을 로컬에 남겨 두고 다음에 열 때 되돌려준다. 확인 모달이 없으니 화면도
+ * 그만큼 조용하다.
+ *
+ * 로컬 저장이라 다른 PC 로는 따라가지 않는다. 서버 draft 는 별도 스펙이다.
+ */
+const DRAFT_PREFIX = 'wiki-draft'
+const DRAFT_DEBOUNCE_MS = 600
+
+interface WikiDraft {
+  title: string
+  bodyMd: string
+  kind: WikiDocumentKind
+  savedAt: string
+}
+
+function draftKey(projectId: string, topicId: string | null): string {
+  return `${DRAFT_PREFIX}:${projectId}:${topicId ?? 'new'}`
+}
+
+function readDraft(key: string): WikiDraft | null {
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<WikiDraft>
+    if (typeof parsed.bodyMd !== 'string' || typeof parsed.title !== 'string') return null
+    return {
+      title: parsed.title,
+      bodyMd: parsed.bodyMd,
+      kind: documentKind(parsed.kind),
+      savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : '',
+    }
+  } catch {
+    // 사파리 프라이빗 모드 등 localStorage 가 throw 하는 환경에서도 편집은 계속돼야 한다.
+    return null
+  }
+}
+
+function writeDraft(key: string, draft: WikiDraft): void {
+  try { window.localStorage.setItem(key, JSON.stringify(draft)) } catch { /* 저장 실패는 편집을 막지 않는다 */ }
+}
+
+function clearDraft(key: string): void {
+  try { window.localStorage.removeItem(key) } catch { /* 위와 같다 */ }
+}
+
 export function WikiDocumentEditor({
   projectId,
   locale,
@@ -98,24 +148,94 @@ export function WikiDocumentEditor({
     bodyUpdatedAt: topic?.bodyUpdatedAt ?? null,
     kind: documentKind(topic?.documentKind),
   })
+  const initialKind = documentKind(topic?.documentKind)
   const [title, setTitle] = useState(snapshot.title)
-  const [bodyMd, setBodyMd] = useState(snapshot.bodyMd)
+  // 새 문서는 기본 유형의 템플릿으로 열어 둔다. 빈 mono textarea 앞에서 무엇을 쓸지
+  // 몰라 그대로 닫는 것이 관찰된 이탈 지점이고, 유형 select 를 '바꿀' 때만 템플릿이
+  // 들어오던 기존 동작은 기본값을 그대로 쓰는 다수에게 한 번도 발동하지 않았다.
+  const [bodyMd, setBodyMd] = useState(topic ? snapshot.bodyMd : TEMPLATE[initialKind][locale])
   const [kind, setKind] = useState<WikiDocumentKind>(snapshot.kind)
   const [editing, setEditing] = useState(!topic)
   const [busy, setBusy] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  const [draft, setDraft] = useState<WikiDraft | null>(null)
 
   const path = topic
     ? `/p/${projectId}/wiki/topics/${topic.id}`
     : `/p/${projectId}/wiki`
 
+  const storageKey = draftKey(projectId, topic?.id ?? null)
+  // 손대지 않은 템플릿은 "쓴 것"이 아니다. 이걸 구분하지 않으면 새 문서를 열자마자
+  // 초안이 쌓이고, 유형을 바꿔도 템플릿이 갈리지 않는다.
+  const untouchedTemplate = !topic
+    && title.trim() === ''
+    && WIKI_DOCUMENT_KINDS.some((value) => bodyMd === TEMPLATE[value][locale])
+  const dirty = !untouchedTemplate
+    && (title.trim() !== snapshot.title.trim() || bodyMd !== snapshot.bodyMd)
+
+  // 초안 저장 — 타이핑마다 쓰지 않도록 debounce 한다.
+  useEffect(() => {
+    if (!editing) return
+    if (!dirty) { clearDraft(storageKey); return }
+    const timer = window.setTimeout(() => {
+      writeDraft(storageKey, { title, bodyMd, kind, savedAt: new Date().toISOString() })
+    }, DRAFT_DEBOUNCE_MS)
+    return () => window.clearTimeout(timer)
+  }, [editing, dirty, storageKey, title, bodyMd, kind])
+
+  // 탭을 닫거나 새로고침하는 경우엔 debounce 를 기다릴 수 없다.
+  useEffect(() => {
+    if (!editing || !dirty) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      writeDraft(storageKey, { title, bodyMd, kind, savedAt: new Date().toISOString() })
+      event.preventDefault()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [editing, dirty, storageKey, title, bodyMd, kind])
+
+  // 열 때 남아 있는 초안을 찾아 복구 배너로 제시한다. 몰래 덮어쓰지 않는 이유는
+  // 서버 본문이 그 사이 남의 편집으로 바뀌었을 수 있기 때문이다 — 선택은 사람이 한다.
+  useEffect(() => {
+    if (!editing) { setDraft(null); return }
+    const found = readDraft(storageKey)
+    setDraft(found && found.bodyMd !== snapshot.bodyMd ? found : null)
+  }, [editing, storageKey, snapshot.bodyMd])
+
   function changeKind(next: WikiDocumentKind) {
     setKind(next)
-    if (!bodyMd.trim()) setBodyMd(TEMPLATE[next][locale])
+    // 아직 손대지 않은 템플릿이거나 빈 본문이면 새 유형의 템플릿으로 갈아 끼운다.
+    if (!bodyMd.trim() || untouchedTemplate) setBodyMd(TEMPLATE[next][locale])
+  }
+
+  function applyTemplate() {
+    // 이미 쓴 내용이 있으면 덮어쓰지 않고 아래에 붙인다. 되돌리기 없는 파괴적 동작을
+    // 버튼 하나에 두지 않기 위해서다.
+    setBodyMd((current) => (
+      current.trim() && !untouchedTemplate
+        ? `${current.replace(/\s*$/, '')}\n\n${TEMPLATE[kind][locale]}`
+        : TEMPLATE[kind][locale]
+    ))
+  }
+
+  function restoreDraft() {
+    if (!draft) return
+    setTitle(draft.title)
+    setBodyMd(draft.bodyMd)
+    setKind(draft.kind)
+    setDraft(null)
+  }
+
+  function discardDraft() {
+    clearDraft(storageKey)
+    setDraft(null)
   }
 
   function cancel() {
+    // 취소는 명시적 폐기다 — 초안을 남기면 다음에 열 때 방금 버린 내용이 되살아난다.
+    clearDraft(storageKey)
+    setDraft(null)
     if (!topic) { onDone?.(); return }
     setTitle(snapshot.title)
     setBodyMd(snapshot.bodyMd)
@@ -146,10 +266,20 @@ export function WikiDocumentEditor({
     setBusy(false)
 
     if (!result.ok) {
-      setMessage({ tone: 'error', text: result.error ?? t(locale, 'wiki.document.saveFailed') })
+      // 충돌은 막다른 길이 아니어야 한다. 저장에 실패한 순간이 본문을 잃기 가장 쉬운
+      // 지점이므로, 여기서 초안을 debounce 없이 즉시 확정해 둔다.
+      if (result.conflict) writeDraft(storageKey, { title, bodyMd, kind, savedAt: new Date().toISOString() })
+      setMessage({
+        tone: 'error',
+        text: result.conflict
+          ? t(locale, 'wiki.document.conflictHint')
+          : result.error ?? t(locale, 'wiki.document.saveFailed'),
+      })
       return
     }
 
+    clearDraft(storageKey)
+    setDraft(null)
     trackWikiEvent(topic ? 'wiki_document_saved' : 'wiki_document_created', path, { document_kind: kind })
     if (!topic && result.topicId) {
       onDone?.()
@@ -192,6 +322,27 @@ export function WikiDocumentEditor({
   if (editing) {
     return (
       <div className="space-y-4">
+        {draft && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-pending/40 bg-pending-weak px-4 py-3">
+            <p className="text-xs font-medium text-ink">
+              {t(locale, 'wiki.document.draftFound')}
+              {draft.savedAt && (
+                <span className="ml-1.5 font-normal text-ink-muted">
+                  {formatWikiDate(draft.savedAt, locale)}
+                </span>
+              )}
+            </p>
+            <div className="flex shrink-0 gap-2">
+              <button type="button" onClick={restoreDraft} className="btn btn-primary h-8 px-3 text-xs">
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                {t(locale, 'wiki.document.draftRestore')}
+              </button>
+              <button type="button" onClick={discardDraft} className="btn btn-ghost h-8 px-3 text-xs">
+                {t(locale, 'wiki.document.draftDiscard')}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
           <label className="block">
             <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t(locale, 'wiki.document.titleLabel')}</span>
@@ -211,12 +362,14 @@ export function WikiDocumentEditor({
           </span>
           <textarea value={bodyMd} onChange={(event) => setBodyMd(event.target.value)} rows={18} className="app-textarea min-h-80 resize-y font-mono text-[13px] leading-6" placeholder={t(locale, 'wiki.document.bodyPlaceholder')} />
         </label>
-        {!bodyMd.trim() && (
-          <button type="button" onClick={() => setBodyMd(TEMPLATE[kind][locale])} className="btn btn-ghost h-9 px-3 text-xs">
-            <FilePlus2 className="h-3.5 w-3.5" aria-hidden />
-            {t(locale, 'wiki.document.applyTemplate')}
-          </button>
-        )}
+        {/* 항상 노출한다 — 유형을 고른 뒤 한 줄이라도 쓰면 템플릿에 닿을 길이 없어져
+            목차가 중요한 런북·결정 기록에서 구조를 손으로 다시 짜게 된다. */}
+        <button type="button" onClick={applyTemplate} className="btn btn-ghost h-9 px-3 text-xs">
+          <FilePlus2 className="h-3.5 w-3.5" aria-hidden />
+          {t(locale, bodyMd.trim() && !untouchedTemplate
+            ? 'wiki.document.appendTemplate'
+            : 'wiki.document.applyTemplate')}
+        </button>
         {message && <p role={message.tone === 'error' ? 'alert' : 'status'} className={`text-xs font-medium ${message.tone === 'error' ? 'text-delayed' : 'text-done'}`}>{message.text}</p>}
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => void save()} disabled={busy || !title.trim() || !bodyMd.trim()} className="btn btn-primary">

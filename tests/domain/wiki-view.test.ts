@@ -10,6 +10,7 @@ import {
   matchesWikiTopicQuery,
   sortWikiEntries,
   wikiSearchFallbacks,
+  wikiTopicSearchFallbacks,
   type WikiExplorerEntry,
 } from '@/lib/domain/wikiView'
 
@@ -227,5 +228,32 @@ describe('검색 0건 회복 경로', () => {
       view: 'all', kind: 'all', query: '결제 환불 카드 PG 없는말',
     })
     expect(got.length).toBeLessThanOrEqual(3)
+  })
+})
+
+describe('wikiTopicSearchFallbacks', () => {
+  const topics = [
+    { title: '결제 모듈', ownerTeam: 'PG팀', type: 'general', bodyMd: '카드 승인 절차', documentKind: 'runbook' },
+    { title: '환불 정책', ownerTeam: 'CS팀', type: 'general', bodyMd: '환불 기준을 정리한다', documentKind: 'reference' },
+  ]
+
+  it('본문(bodyMd)까지 훑어 대안 건수를 센다', () => {
+    // 주제 검색은 제목뿐 아니라 본문도 매칭한다 — 대안 건수도 같은 기준이어야
+    // 눌렀을 때 실제로 그만큼 나온다.
+    const got = wikiTopicSearchFallbacks(topics, '승인 없는말')
+    expect(got).toEqual([
+      { kind: 'drop-token', query: '승인', droppedToken: '없는말', count: 1 },
+    ])
+  })
+
+  it('토큰이 하나뿐이면 제안하지 않는다', () => {
+    expect(wikiTopicSearchFallbacks(topics, '없는말')).toEqual([])
+  })
+
+  it('0건 대안은 버리고 건수 내림차순으로 최대 3개만 준다', () => {
+    const got = wikiTopicSearchFallbacks(topics, '결제 환불 없는말1 없는말2')
+    expect(got.every((fallback) => fallback.count > 0)).toBe(true)
+    expect(got.length).toBeLessThanOrEqual(3)
+    expect(got).toEqual([...got].sort((left, right) => right.count - left.count))
   })
 })
