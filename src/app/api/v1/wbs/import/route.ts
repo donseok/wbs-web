@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
     const rpcNodes: unknown[] = []
     const assigneeByRef: Record<string, string | null> = {}
     const titleByRef: Record<string, string> = {}
+    const kindByRef: Record<string, string> = {}
     const errors: string[] = []
     for (const [i, nRaw] of (b.nodes as ImportNode[]).entries()) {
       const r = toRpcNode(module_, nRaw, i)
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
       rpcNodes.push(r)
       assigneeByRef[r.external_ref] = r.assignee
       titleByRef[r.external_ref] = r.title
+      kindByRef[r.external_ref] = nRaw.kind
     }
     if (errors.length > 0) return apiBadRequest(`노드 변환 실패 ${errors.length}건: ${errors.slice(0, 5).join(' / ')}`)
 
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
 
     const post = await applyAssigneesAndOrders(admin, {
       projectId, actorUserId: principal.userId, module: module_,
-      newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef,
+      newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef, kindByRef,
     })
 
     // 실행자에게 업로드 결과 통지 — 응답 확정 후 실행(after), 본 응답을 막지 않음.

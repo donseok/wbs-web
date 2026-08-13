@@ -21,7 +21,7 @@ export type ImportNode = {
   prd_ref: string | null; entry_point: string | null
   spec_sections: SpecSections | null
 }
-const STAGES = new Set(['todo', 'as', 'fp', 'ip', 'im', 'xx'])
+const STAGES = new Set(['as', 'fp', 'ip', 'im', 'xx'])
 const PRIORITY_LABELS = new Set(['critical', 'high', 'medium', 'low'])
 const SCHEDULE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/
 
@@ -55,10 +55,12 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
       category: string | null; domain: string | null; priority: string | null
       model: string | null; tags: string[]; depends: string[]
       prd_ref: string | null; entry_point: string | null
-      acceptance: string[]; spec: string | null }
+      acceptance: string[]; spec: string | null; dev_workflow: boolean }
   | { error: string } {
   if (!n.id || !n.title) return { error: `id·title 필수: ${JSON.stringify(n.id)}` }
-  if (n.stage !== null && n.stage !== undefined && !STAGES.has(n.stage)) return { error: `허용 밖 stage: ${n.stage} (${n.id})` }
+  // v2.1: 'todo' 는 stage 축에서 제거됐다(0079) — 검증 전에 null 로 정규화해 하위호환 수용.
+  const stage = n.stage === 'todo' ? null : n.stage
+  if (stage !== null && stage !== undefined && !STAGES.has(stage)) return { error: `허용 밖 stage: ${stage} (${n.id})` }
   if (n.priority !== null && n.priority !== undefined && !PRIORITY_LABELS.has(n.priority)) {
     return { error: `허용 밖 priority 라벨: ${n.priority} (${n.id})` }
   }
@@ -67,7 +69,7 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
   return {
     external_ref: `${module}/${n.id}`,
     parent_external_ref: n.parent_id ? `${module}/${n.parent_id}` : null,
-    title: n.title, stage: n.stage ?? null,
+    title: n.title, stage: stage ?? null,
     planned_start: sched.start, planned_end: sched.end,
     sort_order: index, // 파일 내 등장 순서가 정렬 정본 — priority 는 정렬이 아니라 라벨(결정 E)
     assignee: n.assignee ? n.assignee.trim().toLowerCase() : null,
@@ -76,15 +78,22 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
     depends: (n.depends ?? []).map(d => `${module}/${d}`), // 선행도 external_ref 로 저장(결정 C 게이트 키)
     prd_ref: n.prd_ref ?? null, entry_point: n.entry_point ?? null,
     acceptance: n.acceptance ?? [], spec: assembleSpecMarkdown(n.spec_sections),
+    dev_workflow: n.kind === 'task', // v2.1: 도입 여부는 kind 로 자동 결정 — wp/act/phase 는 항상 false
   }
 }
 
-/** 업로드 후처리 — 신규 리프의 assignee email 을 로스터에 매칭하고 자동 발행까지(§2.6·§2.8). */
+/**
+ * 업로드 후처리 — 신규 리프의 assignee email 을 로스터에 매칭하고 자동 발행까지(§2.6·§2.8).
+ * v2.1: 주문 보장은 더 이상 "assignee 있는 신규 ref"가 아니라 "kind='task' 인 모든 신규 ref" 대상이다
+ * (배정은 조건이 아니다 — dev_workflow 는 RPC 가 이미 심었고, 리프·활성주문 게이트는 ensureOrderForWorkflowLeaf 내부 판정).
+ * assignee 매칭(email→member, unmatched 리포트, work.assigned 알림)은 종전대로 assignee 있는 것만 대상.
+ */
 export async function applyAssigneesAndOrders(
   admin: AdminClient,
   args: { projectId: string; actorUserId: string; module: string
     newRefs: string[]; idsByRef: Record<string, string>
-    assigneeByRef: Record<string, string | null>; titleByRef: Record<string, string> },
+    assigneeByRef: Record<string, string | null>; titleByRef: Record<string, string>
+    kindByRef: Record<string, string> },
 ): Promise<{ unmatched: Array<{ id: string; assignee: string }>; ordersCreated: number; nonLeafSkipped: string[] }> {
   const { projectId, actorUserId, module } = args
   const unmatched: Array<{ id: string; assignee: string }> = []
@@ -99,40 +108,47 @@ export async function applyAssigneesAndOrders(
     if (m.email) memberByEmail.set(m.email.toLowerCase(), m.id)
   }
   for (const ref of args.newRefs) {
-    const email = args.assigneeByRef[ref]
-    if (!email) continue
     const itemId = args.idsByRef[ref]
     if (!itemId) continue
-    const memberId = memberByEmail.get(email)
-    if (!memberId) {
-      // 계약(api-contract.md §2.6): 클라이언트는 bare id만 안다 — external_ref 조합은 서버 책임이므로
-      // 응답도 bare id로 되돌린다(module 프리픽스 + "/" 제거).
-      unmatched.push({ id: ref.slice(module.length + 1), assignee: email }) // 생략하지 않고 전량 리포트
-      continue
+
+    const email = args.assigneeByRef[ref]
+    if (email) {
+      const memberId = memberByEmail.get(email)
+      if (!memberId) {
+        // 계약(api-contract.md §2.6): 클라이언트는 bare id만 안다 — external_ref 조합은 서버 책임이므로
+        // 응답도 bare id로 되돌린다(module 프리픽스 + "/" 제거).
+        unmatched.push({ id: ref.slice(module.length + 1), assignee: email }) // 생략하지 않고 전량 리포트
+      } else {
+        const { error: upErr } = await admin
+          .from('wbs_items').update({ assignee_member_id: memberId }).eq('id', itemId)
+        if (upErr) throw new Error(`담당자 반영 실패(${ref}): ${upErr.message}`)
+        // 담당자 매칭 알림 — fire-and-forget(본 로직 실패로 이어지지 않음). 재업로드 멱등은 dedupeKey 로 보증.
+        emitNotification({
+          type: 'work.assigned',
+          projectId,
+          entityType: 'wbs_item',
+          entityId: itemId,
+          payload: {
+            title: args.titleByRef[ref] ?? ref,
+            detail: '작업이 배정되었습니다',
+            href: `/p/${projectId}/wbs`,
+          },
+          recipientMemberIds: [memberId],
+          dedupeKey: `assigned:${ref}:${memberId}`,
+        }).catch(() => {
+          // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않음(emitNotification 내부에서 로깅)
+        })
+      }
     }
-    const { error: upErr } = await admin
-      .from('wbs_items').update({ assignee_member_id: memberId }).eq('id', itemId)
-    if (upErr) throw new Error(`담당자 반영 실패(${ref}): ${upErr.message}`)
-    // 담당자 매칭 알림 — fire-and-forget(본 로직 실패로 이어지지 않음). 재업로드 멱등은 dedupeKey 로 보증.
-    emitNotification({
-      type: 'work.assigned',
-      projectId,
-      entityType: 'wbs_item',
-      entityId: itemId,
-      payload: {
-        title: args.titleByRef[ref] ?? ref,
-        detail: '작업이 배정되었습니다',
-        href: `/p/${projectId}/wbs`,
-      },
-      recipientMemberIds: [memberId],
-      dedupeKey: `assigned:${ref}:${memberId}`,
-    }).catch(() => {
-      // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않음(emitNotification 내부에서 로깅)
-    })
+
+    // 주문 보장 — kind='task' 인 모든 신규 ref 대상(배정 여부 무관). wp/act/phase 는 애초 주문 대상이 아니므로
+    // ensureOrderForWorkflowLeaf 를 호출하지도 않는다(not_workflow 판정을 받으러 갈 필요가 없다).
+    if (args.kindByRef[ref] !== 'task') continue
     const ensured = await ensureOrderForWorkflowLeaf(admin, { projectId, wbsItemId: itemId, actorUserId })
     if (!ensured.ok) throw new Error(`자동 발행 실패(${ref}): ${ensured.error}`)
     if (ensured.created) ordersCreated += 1
     // unmatched_assignees 와 동일 규칙(bare id) — 클라이언트는 module 프리픽스를 모른다.
+    // not_workflow 는 리포트하지 않는다(정상 경로 — task 인데 dev_workflow 미도입 상태는 나올 수 없다).
     if (ensured.reason === 'not_leaf') nonLeafSkipped.push(ref.slice(module.length + 1))
   }
   return { unmatched, ordersCreated, nonLeafSkipped }

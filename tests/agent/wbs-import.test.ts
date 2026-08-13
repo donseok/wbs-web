@@ -25,6 +25,19 @@ describe('wbsImport 변환(순수부)', () => {
     expect('error' in toRpcNode('MES', { ...n, stage: 'dd' }, 0)).toBe(true)
     expect('error' in toRpcNode('MES', { ...n, priority: 'urgent' as never }, 0)).toBe(true)
   })
+  it('stage:"todo" 는 null 로 정규화(v2.1) — STAGES set 은 todo 를 더는 허용하지 않는다', () => {
+    const n = { id: 'T1', parent_id: null, kind: 'task' as const, title: 't', stage: 'todo', category: null, domain: null, assignee: null, schedule: null, depends: [], acceptance: [], priority: null, model: null, tags: [], prd_ref: null, entry_point: null, spec_sections: null }
+    const r = toRpcNode('MES', n, 0)
+    expect(r).toMatchObject({ stage: null })
+    expect('error' in r).toBe(false)
+  })
+  it('dev_workflow — kind===task 만 true, wp/act/phase 는 false(v2.1)', () => {
+    const base = { id: 'T1', parent_id: null, title: 't', stage: null, category: null, domain: null, assignee: null, schedule: null, depends: [], acceptance: [], priority: null, model: null, tags: [], prd_ref: null, entry_point: null, spec_sections: null }
+    expect(toRpcNode('MES', { ...base, kind: 'task' as const }, 0)).toMatchObject({ dev_workflow: true })
+    expect(toRpcNode('MES', { ...base, kind: 'wp' as const }, 0)).toMatchObject({ dev_workflow: false })
+    expect(toRpcNode('MES', { ...base, kind: 'act' as const }, 0)).toMatchObject({ dev_workflow: false })
+    expect(toRpcNode('MES', { ...base, kind: 'phase' as const }, 0)).toMatchObject({ dev_workflow: false })
+  })
   it('spec_sections → 고정 섹션 순서 마크다운 조립(결정 E)', () => {
     const md = assembleSpecMarkdown({
       requirements: ['R1'], test_criteria: ['T1'], constraints: ['C1'],
@@ -121,7 +134,7 @@ describe('POST /wbs/import', () => {
       project_id: PROJECT_ID, module: 'MES',
       nodes: [NODE({ id: 'WP-01', kind: 'wp' }), NODE({ id: 'T-A', parent_id: 'WP-01', assignee: 'a@b.c' }), NODE({ id: 'T-B', parent_id: 'WP-01' })],
     }
-    useAdmin({
+    const admin = useAdmin({
       agent_runners: [{ data: row }, { data: null }], // 리졸버 select, last_seen_at 갱신
       agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트, ensureOrder 게이트
       // memberships·project_roles 는 각 2회 조회된다: isAgentProjectMember(비멤버 404 게이트) → 관리자 판정.
@@ -130,7 +143,7 @@ describe('POST /wbs/import', () => {
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
         { data: null }, // assignee_member_id update
-        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트)
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트) — RPC payload 의 dev_workflow:true 가 실제로 저장됐다고 가정한 값
         { data: null }, // ensureOrder: 자식 없음(리프)
       ],
       agent_work_orders: [
@@ -146,6 +159,16 @@ describe('POST /wbs/import', () => {
       ok: true, upserted: 3, skipped: 0, unmatched_assignees: [], non_leaf_skipped: [], orders_created: 1,
     })
 
+    // RPC payload — kind='task' 노드만 dev_workflow:true 로 실린다(v2.1). ensureOrder 가 참조하는
+    // dev_workflow 게이트는 이 값이 DB 에 저장된 결과이므로, 위 wbs_items 픽스처가 실제 코드 경로로 도달함을 검증한다.
+    expect(admin.rpc).toHaveBeenCalledWith('import_wbs_upsert', expect.objectContaining({
+      p_nodes: expect.arrayContaining([
+        expect.objectContaining({ external_ref: 'MES/WP-01', dev_workflow: false }),
+        expect.objectContaining({ external_ref: 'MES/T-A', dev_workflow: true }),
+        expect.objectContaining({ external_ref: 'MES/T-B', dev_workflow: true }),
+      ]),
+    }))
+
     // work.assigned — 담당자 매칭 알림, 재업로드 멱등 dedupeKey
     expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'work.assigned',
@@ -160,7 +183,7 @@ describe('POST /wbs/import', () => {
     }))
   })
 
-  it('assignee 미매칭은 생략하지 않고 unmatched_assignees 전량 리포트(에러 3원칙)', async () => {
+  it('assignee 미매칭은 생략하지 않고 unmatched_assignees 전량 리포트 — 그래도 주문은 난다(v2.1: 배정은 주문 조건이 아니다)', async () => {
     const { token, row } = patRow()
     const body = {
       project_id: PROJECT_ID, module: 'MES',
@@ -168,18 +191,27 @@ describe('POST /wbs/import', () => {
     }
     useAdmin({
       agent_runners: [{ data: row }, { data: null }],
-      agent_projects: [{ data: { enabled: true } }],
+      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트, ensureOrder 게이트
       project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
       memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
-      project_members: [{ data: [{ id: 'member-x', email: 'other@example.com' }] }], // 다른 email 만
+      project_members: [{ data: [{ id: 'member-x', email: 'other@example.com' }] }], // 다른 email 만 — 매칭 실패
+      wbs_items: [
+        // 미매칭이므로 assignee_member_id update 는 없다 — 첫 항목이 바로 ensureOrder 의 항목 조회.
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } },
+        { data: null }, // ensureOrder: 자식 없음(리프)
+      ],
+      agent_work_orders: [
+        { data: null }, // 활성 주문 없음
+        { data: { id: 'order-1' } }, // insert
+      ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
 
     const res = await importPOST(post(body, token))
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.unmatched_assignees).toEqual([{ id: 'T-A', assignee: 'a@b.c' }])
-    expect(json.orders_created).toBe(0)
-    // 매칭 실패 항목엔 work.assigned 미발행
+    expect(json.orders_created).toBe(1)
+    // 매칭 실패 항목엔 work.assigned 미발행(담당자 알림은 매칭된 경우에만)
     expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
   })
 
@@ -253,11 +285,11 @@ describe('POST /wbs/import', () => {
     expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
   })
 
-  it('non_leaf_skipped 도 bare id — unmatched_assignees 와 동일 규칙', async () => {
+  it('non_leaf_skipped 도 bare id — task 인데 자식이 있는 비정상 데이터(kind=task 는 dev_workflow:true 라 게이트 통과 후 리프 검사에서 걸린다)', async () => {
     const { token, row } = patRow()
     const body = {
       project_id: PROJECT_ID, module: 'MES',
-      nodes: [NODE({ id: 'WP-01', kind: 'wp', assignee: 'a@b.c' })],
+      nodes: [NODE({ id: 'T-A', assignee: 'a@b.c' })], // kind 기본값 task
     }
     useAdmin({
       agent_runners: [{ data: row }, { data: null }],
@@ -267,13 +299,72 @@ describe('POST /wbs/import', () => {
       project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
       wbs_items: [
         { data: null }, // assignee_member_id update
-        { data: { dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트 통과)
-        { data: { id: 'child-x' } }, // ensureOrder: 자식 있음 — 리프 아님
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: 'member-1', dev_workflow: true } }, // ensureOrder: 항목 조회(dev_workflow 게이트 통과)
+        { data: { id: 'child-x' } }, // ensureOrder: 자식 있음(비정상 데이터) — 리프 아님
+      ],
+    }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
+
+    const res = await importPOST(post(body, token))
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, non_leaf_skipped: ['T-A'], orders_created: 0 })
+  })
+
+  it('wp 노드는 dev_workflow 대상이 아니므로 ensureOrder 자체를 호출하지 않는다(호출됐다면 아래 큐로 주문이 났을 것 — orders_created:0 이 곧 미호출의 증거)', async () => {
+    const { token, row } = patRow()
+    const body = {
+      project_id: PROJECT_ID, module: 'MES',
+      nodes: [NODE({ id: 'WP-01', kind: 'wp', assignee: 'a@b.c' })],
+    }
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      // ensureOrder 가 호출된다면 게이트 조회가 2번째 agent_projects 큐를 소비해 enabled:true 를 받고,
+      // 아래 wbs_items·agent_work_orders 큐로 리프 판정 + 주문 insert 까지 성공해 orders_created:1 이 됐을 것이다.
+      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }],
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [{ id: 'member-1', email: 'a@b.c' }] }],
+      wbs_items: [
+        { data: null }, // assignee_member_id update
+        { data: { name: '제목 WP-01', priority: 'high', external_ref: 'MES/WP-01', assignee_member_id: 'member-1', dev_workflow: true } }, // 호출됐다면 여기서 게이트 통과
+        { data: null }, // 호출됐다면 자식 없음(리프)
+      ],
+      agent_work_orders: [
+        { data: null }, // 호출됐다면 활성 주문 없음
+        { data: { id: 'order-x' } }, // 호출됐다면 insert 성공
       ],
     }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/WP-01': 'id-wp' }, new_refs: ['MES/WP-01'] } }])
 
     const res = await importPOST(post(body, token))
     const json = await res.json()
-    expect(json).toMatchObject({ ok: true, non_leaf_skipped: ['WP-01'], orders_created: 0 })
+    expect(json).toMatchObject({ ok: true, non_leaf_skipped: [], orders_created: 0 })
+  })
+
+  it('assignee 없는 신규 task 도 ensureOrderForWorkflowLeaf 를 호출해 주문을 발행한다(v2.1 — 배정은 조건이 아니다)', async () => {
+    const { token, row } = patRow()
+    const body = {
+      project_id: PROJECT_ID, module: 'MES',
+      nodes: [NODE({ id: 'T-A' })], // assignee 없음
+    }
+    useAdmin({
+      agent_runners: [{ data: row }, { data: null }],
+      agent_projects: [{ data: { enabled: true } }, { data: { enabled: true } }], // 라우트 게이트, ensureOrder 게이트
+      project_roles: [{ data: [{ role: 'admin' }] }, { data: [{ role: 'admin' }] }],
+      memberships: [{ data: { is_superuser: false } }, { data: { is_superuser: false } }],
+      project_members: [{ data: [] }], // 매칭 대상 없음 — 그래도 로스터는 로드된다
+      wbs_items: [
+        { data: { name: '제목 T-A', priority: 'high', external_ref: 'MES/T-A', assignee_member_id: null, dev_workflow: true } }, // ensureOrder: 항목 조회
+        { data: null }, // ensureOrder: 자식 없음(리프)
+      ],
+      agent_work_orders: [
+        { data: null }, // 활성 주문 없음
+        { data: { id: 'order-1' } }, // insert
+      ],
+    }, [{ data: { upserted: 1, skipped: 0, ids: { 'MES/T-A': 'id-a' }, new_refs: ['MES/T-A'] } }])
+
+    const res = await importPOST(post(body, token))
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, unmatched_assignees: [], non_leaf_skipped: [], orders_created: 1 })
+    // 담당자가 없으니 work.assigned 는 여전히 발행되지 않는다
+    expect(mocks.emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'work.assigned' }))
   })
 })
