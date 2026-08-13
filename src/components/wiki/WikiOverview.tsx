@@ -259,6 +259,7 @@ export function WikiOverview({
   canMergeTopics = false,
   canEditDocuments = canCurate,
   highlightQuestionId = null,
+  initialQuery = '',
 }: {
   projectId: string
   data: WikiOverviewData
@@ -268,6 +269,7 @@ export function WikiOverview({
   canMergeTopics?: boolean
   canEditDocuments?: boolean
   highlightQuestionId?: string | null
+  initialQuery?: string
 }) {
   const data = rawData as MemoryOverviewData
   const acceptedItems = data.items.filter(isAccepted)
@@ -300,7 +302,7 @@ export function WikiOverview({
 
   return (
     <div className="space-y-5">
-      <WikiAskPanel projectId={projectId} locale={locale} canLeaveQuestion={canWriteMemory} />
+      <WikiAskPanel projectId={projectId} locale={locale} canLeaveQuestion={canWriteMemory} searchHref={`/p/${projectId}/wiki`} />
 
       {data.automationState === 'paused' && (
         <div className="flex items-start gap-3 rounded-2xl border border-accent-warning/30 bg-accent-warning/10 px-4 py-3 text-sm" role="status">
@@ -379,13 +381,27 @@ export function WikiOverview({
             actions={canWriteMemory ? <WikiCreateDocumentButton projectId={projectId} locale={locale} /> : undefined}
           >
             <p className="-mt-2 mb-3 text-xs text-ink-muted">{t(locale, 'wiki.section.explorer.memoryDesc')}</p>
-            <WikiExplorer key={view} projectId={projectId} items={entries} locale={locale} initialView={view} canCurate={canCurateLegacy} />
+            <WikiExplorer
+              key={`${view}:${initialQuery}`}
+              projectId={projectId}
+              items={entries}
+              locale={locale}
+              initialView={view}
+              initialQuery={initialQuery}
+              canCurate={canCurateLegacy}
+            />
           </SectionCard>
 
           <SectionCard eyebrow={t(locale, 'wiki.section.topics.eyebrow')} title={t(locale, 'wiki.section.topics.memoryTitle')} icon={Tags}>
             <p className="-mt-2 mb-3 text-xs text-ink-muted">{t(locale, 'wiki.section.topics.memoryDesc')}</p>
             {canMergeTopics && <div className="mb-4"><WikiMergeTopics projectId={projectId} topics={visibleTopics.filter((topic) => topic.origin !== 'manual' && !topic.bodyMd?.trim())} locale={locale} /></div>}
-            <WikiTopicGrid projectId={projectId} topics={visibleTopics} locale={locale} />
+            <WikiTopicGrid
+              key={initialQuery}
+              projectId={projectId}
+              topics={visibleTopics}
+              locale={locale}
+              initialQuery={initialQuery}
+            />
           </SectionCard>
         </div>
       )}

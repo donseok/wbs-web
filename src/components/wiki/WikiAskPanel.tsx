@@ -62,10 +62,13 @@ export function WikiAskPanel({
   projectId,
   locale,
   canLeaveQuestion = false,
+  searchHref,
 }: {
   projectId: string
   locale: Locale
   canLeaveQuestion?: boolean
+  /** 같은 질의를 키워드 검색으로 넘길 위키 홈 경로. 없으면 다리를 놓지 않는다. */
+  searchHref?: string
 }) {
   const [input, setInput] = useState('')
   const [state, setState] = useState<AskState>({ status: 'idle' })
@@ -315,6 +318,19 @@ export function WikiAskPanel({
                 {state.status === 'success' && sources.length === 0 && (
                   <div className="mt-3 border-t border-line pt-3">
                     <p className="text-xs leading-5 text-ink-muted">{t(locale, canLeaveQuestion ? 'wiki.ask.gapDesc' : 'wiki.ask.gapDescReadOnly')}</p>
+                    {/* 근거를 못 찾았다고 끝내면 가장 크고 눈에 띄는 입력창이 막다른 길이
+                        된다. 문서가 실제로 있는데도 "위키에 없다"고 결론짓는 지점이라,
+                        같은 말로 키워드 검색에 넘겨주는 다리를 둔다. */}
+                    {searchHref && state.question.trim() && (
+                      <Link
+                        href={`${searchHref}?q=${encodeURIComponent(state.question.trim())}#wiki-explorer`}
+                        onClick={() => trackWikiEvent('wiki_search', `/p/${projectId}/wiki`, { source: 'ask_fallback', query_length: state.question.trim().length })}
+                        className="btn btn-primary mt-2 mr-2 h-9 px-3 text-xs"
+                      >
+                        <Search className="h-3.5 w-3.5" aria-hidden />
+                        {t(locale, 'wiki.ask.searchInstead')}
+                      </Link>
+                    )}
                     {canLeaveQuestion && (
                       <button
                         type="button"

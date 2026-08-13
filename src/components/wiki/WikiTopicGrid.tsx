@@ -8,6 +8,7 @@ import type { Locale } from '@/lib/i18n/dict'
 import { t } from '@/lib/i18n/dict'
 import { matchesWikiTopicQuery, wikiTopicSearchFallbacks } from '@/lib/domain/wikiView'
 import type { WikiTopicSummary } from '@/lib/data/wiki'
+import { useWikiSearchQuery } from './useWikiSearchQuery'
 import { formatWikiDate } from './WikiShared'
 import { trackWikiEvent } from './wikiAnalytics'
 
@@ -19,12 +20,16 @@ export function WikiTopicGrid({
   projectId,
   topics,
   locale,
+  initialQuery = '',
+  requestedQuery,
 }: {
   projectId: string
   topics: WikiTopicSummary[]
   locale: Locale
+  initialQuery?: string
+  requestedQuery?: { query: string; nonce: number }
 }) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useWikiSearchQuery(initialQuery, requestedQuery)
   const [sort, setSort] = useState<TopicSort>('recent')
   const [visible, setVisible] = useState(PAGE_SIZE)
   const lastTrackedQuery = useRef('')

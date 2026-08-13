@@ -18,6 +18,7 @@ import {
   type WikiView,
 } from '@/lib/domain/wikiView'
 import type { WikiItem } from '@/lib/data/wiki'
+import { useWikiSearchQuery } from './useWikiSearchQuery'
 import { WikiItemCard } from './WikiShared'
 import { trackWikiEvent } from './wikiAnalytics'
 
@@ -56,19 +57,23 @@ export function WikiExplorer({
   items,
   locale,
   initialView = 'all',
+  initialQuery = '',
+  requestedQuery,
   canCurate = false,
 }: {
   projectId: string
   items: WikiExplorerItem[]
   locale: Locale
   initialView?: WikiView
+  initialQuery?: string
+  requestedQuery?: { query: string; nonce: number }
   canCurate?: boolean
 }) {
   const [view, setView] = useState<DisplayView>(
     initialView === 'discussing' || initialView === 'conflict' ? 'attention' : initialView,
   )
   const [kind, setKind] = useState<string>('all')
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useWikiSearchQuery(initialQuery, requestedQuery)
   const [visible, setVisible] = useState(PAGE_SIZE)
   const lastTrackedQuery = useRef('')
 
@@ -214,8 +219,13 @@ export function WikiExplorer({
         )}
       </div>
 
+      {/* 종류 설명은 hover title 로 두지 않는다 — 터치에서는 열리지 않아 8종 라벨이
+          영영 설명 없이 남는다. 뷰 힌트가 이미 사는 이 줄에 얹으면 새 여백 없이
+          항상 보인다. */}
       <p className="mt-3 text-xs text-ink-muted">
         {t(locale, VIEW_HINT[view])}
+        <span className="mx-2 text-line-strong">·</span>
+        {t(locale, `wiki.kindHint.${kind}` as DictKey)}
         <span className="mx-2 text-line-strong">·</span>
         {t(locale, 'wiki.resultCount')
           .replace('{shown}', String(shown.length))
