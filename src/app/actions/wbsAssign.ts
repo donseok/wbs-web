@@ -402,10 +402,14 @@ export async function setWbsDevWorkflow(
     }
     if (updatedIds.length > 0) {
       // 리프 판정 — 단건은 자식 존재 여부만 확인(ensureOrderForWorkflowLeaf 내부 검증과 동일 질의).
+      // 조회 실패 시 리프로 간주하지 않는다(fail-open 금지, 3원칙 ② — 판정 불가면 as 전이
+      // 같은 쓰기를 강행하지 않는다) — hasChildren 에 넣어 이 항목의 ON 후처리를 건너뛴다.
       const { data: child, error: childErr } = await admin
         .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
-      if (childErr) console.error('[wbsAssign] dev_workflow 리프 판정 실패:', childErr.message)
-      else if (child) hasChildren.add(itemId)
+      if (childErr) {
+        console.error('[wbsAssign] dev_workflow 리프 판정 실패:', childErr.message)
+        hasChildren.add(itemId)
+      } else if (child) hasChildren.add(itemId)
     }
   } else {
     // 하위 트리 조회 실패 시 중단(3원칙 ②) — setWbsAssigneeCascade 와 동일한 패턴.
