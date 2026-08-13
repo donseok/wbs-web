@@ -154,6 +154,16 @@ export async function applyAssigneesAndOrders(
  * 집합을 구해 MAX_NODES(1000) 규모에서도 쿼리 수를 상수로 유지한다.
  * .in() 인자는 이번 payload 의 task ref 만이다(프로젝트 전체가 아니다 — 무한정 커지지 않는다).
  */
+/** .in() 인자 청크 크기 — supabase-js 필터는 GET 쿼리스트링으로 나가므로 MAX_NODES(1000)를
+ *  한 번에 실으면 UUID 1000개 ≈ 37KB 가 프록시 URI 상한(8~16KB)을 넘는다(재리뷰 지적). */
+const IN_CHUNK = 200
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+  return out
+}
+
 async function ensureOrdersForPayload(
   admin: AdminClient,
   args: { projectId: string; actorUserId: string; module: string; taskRefs: string[] },
@@ -163,26 +173,32 @@ async function ensureOrdersForPayload(
   let ordersCreated = 0
   if (taskRefs.length === 0) return { ordersCreated, nonLeafSkipped }
 
-  // 1쿼리 — 이번 payload 의 task ref 전체를 조회하고 dev_workflow=true 후보만 client 측에서 거른다.
-  const { data: rows, error: rowsErr } = await admin
-    .from('wbs_items')
-    .select('id, external_ref, dev_workflow')
-    .eq('project_id', projectId)
-    .in('external_ref', taskRefs)
-  if (rowsErr) throw new Error(`주문 대상 조회 실패: ${rowsErr.message}`)
-  const candidates = ((rows ?? []) as Array<{ id: string; external_ref: string | null; dev_workflow: boolean | null }>)
-    .filter(r => r.dev_workflow === true)
+  // 배치 조회(청크당 1쿼리) — 이번 payload 의 task ref 전체를 조회하고 dev_workflow=true 후보만 client 측에서 거른다.
+  const rows: Array<{ id: string; external_ref: string | null; dev_workflow: boolean | null }> = []
+  for (const refChunk of chunk(taskRefs, IN_CHUNK)) {
+    const { data, error: rowsErr } = await admin
+      .from('wbs_items')
+      .select('id, external_ref, dev_workflow')
+      .eq('project_id', projectId)
+      .in('external_ref', refChunk)
+    if (rowsErr) throw new Error(`주문 대상 조회 실패: ${rowsErr.message}`)
+    rows.push(...((data ?? []) as typeof rows))
+  }
+  const candidates = rows.filter(r => r.dev_workflow === true)
   if (candidates.length === 0) return { ordersCreated, nonLeafSkipped }
 
-  // 1쿼리 — 후보 id 들의 활성 주문(ready/claimed/reported)을 배치로 조회, 이미 있는 id 는 갭에서 제외.
+  // 배치 조회(청크당 1쿼리) — 후보 id 들의 활성 주문(ready/claimed/reported), 이미 있는 id 는 갭에서 제외.
   const candidateIds = candidates.map(c => c.id)
-  const { data: active, error: activeErr } = await admin
-    .from('agent_work_orders')
-    .select('wbs_item_id')
-    .in('wbs_item_id', candidateIds)
-    .in('status', ['ready', 'claimed', 'reported'])
-  if (activeErr) throw new Error(`활성 주문 조회 실패: ${activeErr.message}`)
-  const activeIds = new Set(((active ?? []) as Array<{ wbs_item_id: string | null }>).map(r => r.wbs_item_id))
+  const activeIds = new Set<string | null>()
+  for (const idChunk of chunk(candidateIds, IN_CHUNK)) {
+    const { data: active, error: activeErr } = await admin
+      .from('agent_work_orders')
+      .select('wbs_item_id')
+      .in('wbs_item_id', idChunk)
+      .in('status', ['ready', 'claimed', 'reported'])
+    if (activeErr) throw new Error(`활성 주문 조회 실패: ${activeErr.message}`)
+    for (const r of (active ?? []) as Array<{ wbs_item_id: string | null }>) activeIds.add(r.wbs_item_id)
+  }
 
   // 차집합(갭)에만 ensureOrderForWorkflowLeaf 호출 — 신규든 기존이든 이 루프 하나로 통일한다.
   for (const c of candidates) {
