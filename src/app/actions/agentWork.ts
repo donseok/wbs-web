@@ -8,6 +8,7 @@ import { requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { updateActual } from '@/app/actions/wbs'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
+import { transitionStage } from '@/lib/agent/stageTransition'
 
 /**
  * 에이전트 작업 루프 UI 서버 액션 — 스펙 §5.
@@ -187,6 +188,18 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
     if (revErr) console.error('[agentWork] 승인 기록 실패:', revErr.message)
   }
   await notifyReviewResult(admin, order, 'work.approved', actor.userId)
+
+  // stage 전이 — 사람 검수 통과가 곧 완료(정본: accept 는 사람만). 실패는 로깅만, 승인 결과에 영향 없음.
+  // wbs_item_id 는 위(147행)에서 이미 null 이 아님이 확인됐다.
+  try {
+    const transitioned = await transitionStage(admin, {
+      itemId: order.wbs_item_id as string, to: 'xx', fromIn: ['im', 'ip', 'as', 'fp', null], actorUserId: actor.userId,
+    })
+    if (!transitioned.ok) console.error('[agentWork] 승인 stage 전이 실패:', order.wbs_item_id)
+  } catch (e) {
+    console.error('[agentWork] 승인 stage 전이 예외:', e instanceof Error ? e.message : e)
+  }
+
   revalidatePath(AGENT_OPS_PATH)
   return { ok: true }
 }

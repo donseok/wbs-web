@@ -6,6 +6,7 @@ import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteAct
 import { myMemberIds } from '@/lib/agent/assignee'
 import { ITEM_DETAIL_COLUMNS, loadDependsInfo, type DependInfo } from '@/lib/agent/depends'
 import { emitNotification } from '@/lib/notify/emit'
+import { transitionStage } from '@/lib/agent/stageTransition'
 
 export const dynamic = 'force-dynamic'
 
@@ -106,6 +107,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }).catch(() => {
       // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.
     })
+
+    // stage 전이 — 주문 claimed 확정 후. dev_workflow 게이트·fromIn·change_logs 는 내부에서 처리.
+    // im 은 fromIn 에 넣지 않는다(반려 재작업은 im 유지, 역행 없음). 실패는 로깅만 — 응답에 영향 없음.
+    if (loaded.order.wbs_item_id) {
+      try {
+        const transitioned = await transitionStage(admin, {
+          itemId: loaded.order.wbs_item_id, to: 'ip', fromIn: ['as', 'fp', null], actorUserId: loaded.userId,
+        })
+        if (!transitioned.ok) console.error('[agent-api] claim stage 전이 실패:', loaded.order.wbs_item_id)
+      } catch (e) {
+        console.error('[agent-api] claim stage 전이 예외:', e instanceof Error ? e.message : e)
+      }
+    }
 
     return NextResponse.json({ ok: true, status: 'claimed', item, depends_evidence: dependsInfo })
   } catch (e) {
