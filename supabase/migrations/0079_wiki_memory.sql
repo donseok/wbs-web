@@ -8,10 +8,22 @@
 --      프로젝트를 다시 구한다. 부모·질문·revision 결합은 DB FK와 RPC 양쪽에서 검증한다.
 --   4) body_updated_at은 낙관적 잠금 토큰이다. 오래된 토큰으로 저장/복원할 수 없다.
 --
+-- 적용 순서: 0079 → 0080_usage_event_dimensions.sql. usage_events 의 CHECK 검증 스캔과
+-- 인덱스 생성은 0080 으로 분리했다 — 이유는 아래 §5 주석과 0080 헤더 참조.
+--
 -- 롤백: 0079_wiki_memory_rollback.sql. 사람이 쓴 본문·revision·질문·피드백이 소실되므로
 -- 롤백 파일의 데이터 소실 경고와 선행 덤프 절차를 반드시 확인한다.
 
 begin;
+
+-- 이 트랜잭션은 wiki_topics·wiki_items·usage_events 에 ACCESS EXCLUSIVE 를 잡고 commit
+-- 까지 놓지 않는다. Postgres 의 락 큐는 FIFO 라, ALTER 가 장기 리더 하나를 기다리는 동안
+-- 그 뒤에 줄 선 평범한 SELECT 까지 전부 멈춘다 — 가벼운 조회 한 건이 앱 전체 정지로
+-- 번지는 경로다. 이 프로젝트의 컴퓨트는 Micro 이고 2026-08-05 에 이미 PostgREST 풀
+-- 고갈로 장애가 났다. 락을 3초 안에 못 잡으면 전량 롤백하고 물러난다. 이 파일은
+-- (§1 백필 한 줄을 제외하면) 멱등이므로 한산한 시간에 그대로 재실행하면 된다.
+set local lock_timeout = '3s';
+set local statement_timeout = '120s';
 
 set search_path = public, extensions;
 
@@ -29,10 +41,15 @@ alter table public.wiki_topics add column if not exists verified_by uuid;
 alter table public.wiki_topics add column if not exists review_due_at timestamptz;
 
 -- 기존 주제는 AI가 만든 자산이다. glossary 타입만 문서 템플릿 의미가 명백하므로 보존한다.
+-- `body_md is null` 로 좁힌 이유(이 파일에서 유일하게 멱등하지 않은 문장이므로 중요):
+-- save_wiki_document 는 document_kind 를 'reference' 로 바꿔도 기존 type='glossary' 를
+-- 그대로 남긴다. 그 조건이 없으면 재실행 시 사람이 고쳐 놓은 분류가 오류도 로그도 없이
+-- 'glossary' 로 되돌아간다. 사람이 본문을 쓴 문서는 백필 대상에서 뺀다.
 update public.wiki_topics
 set document_kind = 'glossary'
 where type = 'glossary'
-  and document_kind = 'reference';
+  and document_kind = 'reference'
+  and body_md is null;
 
 do $$
 begin
@@ -151,7 +168,14 @@ create table if not exists public.wiki_topic_revisions (
   constraint wiki_topic_revisions_topic_project_fk
     foreign key (topic_id, project_id)
     references public.wiki_topics (id, project_id)
-    on delete restrict
+    -- restrict 가 아니라 cascade 인 이유: wiki_topics 의 상위 FK 는
+    -- `project_id references projects(id) on delete cascade`(0045)다. restrict 면
+    -- projects → wiki_topics cascade 가 여기서 막혀 **프로젝트 삭제가 통째로 실패**한다
+    -- (문서 하나에 revision 1건만 있어도). revision 은 원본 문서 없이는 의미가 없으므로
+    -- 함께 사라지는 것이 맞다. 실수 방지는 아래 불변 트리거가 맡는다 — cascade 로
+    -- 지워질 때도 트리거는 여전히 막으므로, 삭제하려면 app.wiki_purge 스위치를 명시적으로
+    -- 켜야 한다. 즉 "사고로는 못 지우고, 작정하면 지울 수 있다".
+    on delete cascade
 );
 
 create index if not exists wiki_topic_revisions_topic_created_idx
@@ -172,6 +196,17 @@ begin
      and new.edited_by is null
      and (to_jsonb(new) - 'edited_by') = (to_jsonb(old) - 'edited_by') then
     return new;
+  end if;
+  -- 명시적 파기 경로. 트리거는 RLS와 달리 소유자·service_role·postgres도 우회하지
+  -- 못하므로, 이 스위치가 없으면 파기 수단이 `ALTER TABLE ... DISABLE TRIGGER` 라는
+  -- 운영 중 DDL 뿐이다 — 사고 대응에서 가장 하고 싶지 않은 조작이다. 필요한 경우는 둘:
+  --   ① 프로젝트 삭제(projects → wiki_topics → revision cascade)
+  --   ② 본문에 자격증명·개인정보가 섞여 들어가 이력째 파기해야 할 때
+  -- 사용법(트랜잭션 안에서만 유효하고 세션에 남지 않는다):
+  --   begin; set local app.wiki_purge = 'on'; delete from public.projects where id = '...'; commit;
+  if tg_op = 'DELETE'
+     and pg_catalog.current_setting('app.wiki_purge', true) = 'on' then
+    return old;
   end if;
   raise exception 'WIKI_REVISION_IMMUTABLE' using errcode = '55000';
 end
@@ -284,31 +319,14 @@ alter table public.usage_events
 alter table public.usage_events
   add column if not exists metadata jsonb not null default '{}'::jsonb;
 
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint
-    where conrelid = 'public.usage_events'::regclass
-      and conname = 'usage_events_event_name_check'
-  ) then
-    alter table public.usage_events
-      add constraint usage_events_event_name_check
-      check (btrim(event_name) <> '' and char_length(event_name) <= 80);
-  end if;
-  if not exists (
-    select 1 from pg_constraint
-    where conrelid = 'public.usage_events'::regclass
-      and conname = 'usage_events_metadata_object_check'
-  ) then
-    alter table public.usage_events
-      add constraint usage_events_metadata_object_check
-      check (jsonb_typeof(metadata) = 'object');
-  end if;
-end
-$$;
-
-create index if not exists usage_events_event_name_idx
-  on public.usage_events (event_name, occurred_at desc);
+-- CHECK 제약 2개와 event_name 인덱스는 여기 없다 — 0080_usage_event_dimensions.sql 로
+-- 뺐다. usage_events 는 로그인 사용자의 라우트 전환 1건당 1행이 들어오는 최다 쓰기
+-- 테이블인데(src/app/api/track/route.ts), `not valid` 없는 CHECK 는 전체 힙 스캔을
+-- ACCESS EXCLUSIVE 아래에서 돌리고 non-concurrent 인덱스 빌드도 그 락을 길게 붙잡는다.
+-- 그 둘이 이 트랜잭션 안에 있으면 스캔이 끝날 때까지 /api/track insert 가 전부 대기하며
+-- PostgREST 커넥션을 점유한다. 위 컬럼 추가 둘은 상수 기본값이라 PG11+ 고속경로(테이블
+-- rewrite 없음)이고 뒤따르는 함수 재정의도 순수 카탈로그 작업이므로, 이 트랜잭션이
+-- usage_events 를 잡는 시간은 이제 밀리초 단위다.
 
 -- 0051의 기존 집계는 행 전체를 "페이지 이동"으로 가정했다. 0079부터 같은 테이블에
 -- search/answer/reuse 같은 제품 이벤트도 들어오므로, 기존 대시보드·세션의 의미를
@@ -412,6 +430,22 @@ as $$
 $$;
 
 -- ── 6) RLS와 최소 권한 ─────────────────────────────────────────────────────
+--
+-- ⚠ 읽기는 프로젝트 격리가 아니다. 아래 세 정책의 `can_read_project(project_id)` 는
+-- 0052 L58-59 에서 `select true` 로 정의된 상수 함수다(설계 결정 D6 — "조회 범위는 지금
+-- 전면 개방"). 즉 로그인한 계정이면 프로젝트 역할이 없어도 모든 프로젝트의 revision·
+-- 질문·피드백을 읽는다. 정책 텍스트가 격리처럼 보이므로 여기 명시해 둔다.
+--
+-- 이것은 0079 가 새로 뚫은 구멍이 아니라 기존 Wiki 읽기 모델 그대로다 — 0045 L1961-1963
+-- 의 `wiki_topics_read`/`wiki_items_read` 는 아예 `using (true)` 이고, 사람이 쓴 본문이
+-- 들어가는 wiki_topics.body_md 자체가 그 정책 아래에 있다. 0070 도 비공개 프로젝트를
+-- RLS 가 아니라 화면 숨김(canSeeProject)으로 처리한다고 명시했다.
+--
+-- 문서 본문·질문·피드백을 프로젝트 멤버로 좁히려면 `can_read_project` 본문 한 곳을
+-- `select public.is_project_member(pid) or public.is_superuser()` 로 바꾸고 0045 의
+-- `using (true)` 두 정책도 같이 고쳐야 한다 — 앱 전역 영향이라 별도 마이그레이션·
+-- 영향범위 조사가 필요하다. 여기서 세 정책만 좁히면 "본문은 보이는데 그 이력만 안 보이는"
+-- 어긋난 상태가 된다.
 alter table public.wiki_topic_revisions enable row level security;
 alter table public.wiki_questions enable row level security;
 alter table public.wiki_feedback enable row level security;
@@ -781,6 +815,13 @@ begin
 
   -- "오래됨" 신고는 이 검증이 대체한 유지관리 작업이다. 문서 검증과 같은 트랜잭션에서
   -- 열린 신고를 닫아 verified 배지와 피드백 큐가 서로 다른 상태가 되지 않게 한다.
+  --
+  -- 단, **남의 신고**를 닫는 것은 관리자만 할 수 있다. 검증은 멤버 권한인데(위 가드)
+  -- 남의 이의제기까지 함께 지울 수 있으면, 멤버 한 명이 ① 문서를 자기 내용으로 덮어쓰고
+  -- ② 곧바로 스스로 '검증됨' 배지와 최대 1년 유예를 찍고 ③ 다른 멤버들이 올려둔 '오래됨'
+  -- 신고를 전부 닫는 자기검증 루프가 성립한다. 관리자 큐는 resolved_at is null 만 보므로
+  -- (wiki_feedback_project_open_idx) 큐가 비어 아무도 알아채지 못한다. 본인 신고는 스스로
+  -- 철회하는 것과 같으므로 멤버도 닫을 수 있다.
   update public.wiki_feedback feedback
   set resolution = 'verified',
       resolved_by = v_actor,
@@ -789,7 +830,8 @@ begin
   where feedback.topic_id = p_topic_id
     and feedback.project_id = v_topic.project_id
     and feedback.feedback_type = 'outdated'
-    and feedback.resolved_at is null;
+    and feedback.resolved_at is null
+    and (feedback.user_id = v_actor or public.is_project_admin(v_topic.project_id));
 
   return query select p_topic_id, v_now, v_due;
 end
@@ -1142,9 +1184,15 @@ begin
     return query select p_item_id, v_item.review_state;
     return;
   end if;
+  -- accepted 에서 나가는 전이가 반드시 있어야 한다. 기존 AI 지식 1,219건이 전부
+  -- accepted 로 백필되므로(§4 review_state default), accepted 를 흡수 상태로 두면
+  -- 지금 화면에 떠 있는 지식에서 오류·기밀 누출을 발견해도 관리자가 내릴 방법이 없고
+  -- service_role 직접 UPDATE 만 남는다 — 그 경로에는 아래 wiki_change_events 감사
+  -- 기록이 남지 않는다. 즉 '검토 상태'라는 통제가 신규 항목에만 걸리게 된다.
   if not (
     (v_item.review_state = 'pending' and p_review_state in ('accepted','rejected'))
     or (v_item.review_state = 'rejected' and p_review_state = 'pending')
+    or (v_item.review_state = 'accepted' and p_review_state in ('rejected','pending'))
   ) then
     raise exception 'WIKI_REVIEW_INVALID_TRANSITION' using errcode = '22023';
   end if;
@@ -1254,6 +1302,9 @@ declare
   v_slug text;
   v_moved integer := 0;
   v_conflicted integer := 0;
+  v_moved_questions integer := 0;
+  v_moved_feedback integer := 0;
+  v_moved_children integer := 0;
 begin
   if v_actor is null then
     raise exception 'WIKI_MERGE_FORBIDDEN' using errcode = '42501';
@@ -1345,11 +1396,47 @@ begin
       updated_at = now()
   where topic.id = p_target_topic_id;
 
+  -- source 를 지우기 전에 딸린 것들을 target 으로 옮긴다. 옮기지 않으면 FK 부수효과가
+  -- 조용히 파괴한다 — 피드백은 on delete cascade 로 흔적 없이 사라지고, 질문은
+  -- topic_id = null 이 되어 어느 문서에 대한 질문이었는지 복구할 수 없으며, 하위 문서는
+  -- parent_id = null 로 루트에 튀어나와 트리가 말없이 재배치된다. 아래 change event 는
+  -- 주제 행만 남기므로 무엇이 있었는지 알 방법도 없다. 중복 AI 주제 정리라는 일상 작업
+  -- 한 번에 이 셋이 동시에 일어난다.
+  update public.wiki_questions question
+  set topic_id = p_target_topic_id, updated_at = now()
+  where question.topic_id = p_source_topic_id
+    and question.project_id = v_source.project_id;
+  get diagnostics v_moved_questions = row_count;
+
+  -- (topic_id, user_id, feedback_type) 유니크와 충돌하면 target 에 이미 같은 사람의 같은
+  -- 신호가 있다는 뜻이므로 그대로 두고 source 쪽만 사라지게 둔다.
+  update public.wiki_feedback feedback
+  set topic_id = p_target_topic_id, updated_at = now()
+  where feedback.topic_id = p_source_topic_id
+    and feedback.project_id = v_source.project_id
+    and not exists (
+      select 1 from public.wiki_feedback existing
+      where existing.topic_id = p_target_topic_id
+        and existing.user_id = feedback.user_id
+        and existing.feedback_type = feedback.feedback_type
+    );
+  get diagnostics v_moved_feedback = row_count;
+
+  update public.wiki_topics topic
+  set parent_id = p_target_topic_id, updated_at = now()
+  where topic.parent_id = p_source_topic_id
+    and topic.project_id = v_source.project_id;
+  get diagnostics v_moved_children = row_count;
+
   insert into public.wiki_change_events (
     project_id, change_type, before_snapshot, after_snapshot, reason, actor_id
   ) values (
     v_target.project_id, 'curate', to_jsonb(v_source), to_jsonb(v_target),
-    format('merge_topic: %s → %s (%s건)', v_source.title, v_target.title, v_moved),
+    format(
+      'merge_topic: %s → %s (항목 %s건, 질문 %s건, 피드백 %s건, 하위문서 %s건)',
+      v_source.title, v_target.title, v_moved,
+      v_moved_questions, v_moved_feedback, v_moved_children
+    ),
     v_actor
   );
 
@@ -1426,3 +1513,10 @@ grant execute on function public.merge_wiki_topics(uuid, uuid)
 reset search_path;
 
 commit;
+
+-- Supabase 는 DDL 이벤트 트리거로 PostgREST 스키마 캐시를 자동 리로드하지만, 앱이 캐시
+-- 미갱신(PGRST204/42703/PGRST205)을 "스키마 준비 전" 폴백 신호로 쓰기 때문에(예:
+-- src/lib/data/wiki.ts wikiDocumentsSchemaMissing) 리로드가 늦으면 DB 는 적용됐는데
+-- 화면은 조용히 구버전 모드로 도는 상태가 된다 — 실패가 아니라 '안 켜짐'으로 보여
+-- 진단이 늦는다. 비용이 없으므로 명시적으로 한 번 더 깨운다.
+notify pgrst, 'reload schema';

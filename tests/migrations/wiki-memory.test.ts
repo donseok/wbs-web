@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const migrationsDir = fileURLToPath(new URL('../../supabase/migrations/', import.meta.url))
 const sql = readFileSync(`${migrationsDir}0079_wiki_memory.sql`, 'utf8')
 const rollback = readFileSync(`${migrationsDir}0079_wiki_memory_rollback.sql`, 'utf8')
+const usageDimensions = readFileSync(`${migrationsDir}0080_usage_event_dimensions.sql`, 'utf8')
 
 function functionSql(name: string, nextMarker = '\ncreate or replace function public.') {
   const start = sql.indexOf(`create or replace function public.${name}(`)
@@ -69,10 +70,57 @@ describe('0079 Wiki Memory migration 계약', () => {
   })
 
   it('usage_events에 호환 기본값과 object metadata를 더한다', () => {
+    // 컬럼은 0079에 남는다 — 상수 기본값이라 rewrite가 없고, 0079의 usage_* 집계 함수가
+    // 본문에서 event_name을 참조하므로 같은 트랜잭션 안에서 먼저 존재해야 한다.
     expect(sql).toContain("add column if not exists event_name text not null default 'page_view'")
     expect(sql).toContain("add column if not exists metadata jsonb not null default '{}'::jsonb")
-    expect(sql).toContain("check (jsonb_typeof(metadata) = 'object')")
-    expect(sql).toContain('usage_events_event_name_idx')
+  })
+
+  it('전체 스캔이 도는 usage_events 제약·인덱스는 0080으로 분리해 락 창을 격리한다', () => {
+    // usage_events는 최다 쓰기 테이블이다. `not valid` 없는 CHECK의 힙 스캔과 인덱스
+    // 빌드가 0079의 1,400줄 트랜잭션 안에 있으면 그 ACCESS EXCLUSIVE가 commit까지
+    // 유지되어 /api/track insert가 PostgREST 풀을 점유한 채 밀린다(2026-08-05 장애 사양).
+    expect(sql).not.toContain('usage_events_event_name_check')
+    expect(sql).not.toContain('usage_events_metadata_object_check')
+    expect(sql).not.toContain('usage_events_event_name_idx')
+
+    expect(usageDimensions).toContain("check (btrim(event_name) <> '' and char_length(event_name) <= 80)")
+    expect(usageDimensions).toContain("check (jsonb_typeof(metadata) = 'object')")
+    expect(usageDimensions).toContain('usage_events_event_name_idx')
+    // 0079를 건너뛴 채 적용되면 조용히 통과하지 않고 멈춰야 한다.
+    expect(usageDimensions).toContain('0080 은 0079 적용 후에만 실행할 수 있다')
+  })
+
+  it('락 큐가 앱 전체를 세우지 않도록 두 마이그레이션 모두 lock_timeout을 건다', () => {
+    // Postgres 락 큐는 FIFO다. ALTER가 장기 리더를 기다리면 그 뒤의 평범한 SELECT까지
+    // 함께 멈춘다. 못 잡으면 전량 롤백되고, 두 파일 모두 멱등이라 재실행이 안전하다.
+    for (const [name, text] of [['0079', sql], ['0080', usageDimensions]] as const) {
+      const beginAt = text.indexOf('begin;')
+      const lockAt = text.indexOf('set local lock_timeout')
+      expect(lockAt, `${name}에 lock_timeout이 있어야 한다`).toBeGreaterThan(beginAt)
+    }
+    expect(sql).toContain('set local statement_timeout')
+  })
+
+  it('적용 후 PostgREST 스키마 캐시를 명시적으로 깨운다', () => {
+    // 앱은 PGRST204/42703/PGRST205를 "스키마 준비 전" 폴백 신호로 쓴다. 캐시가 늦게
+    // 갱신되면 DB는 적용됐는데 화면만 구버전 모드로 도는 상태가 되어 진단이 늦는다.
+    for (const text of [sql, usageDimensions]) {
+      const commitAt = text.lastIndexOf('commit;')
+      const notifyAt = text.indexOf("notify pgrst, 'reload schema'")
+      expect(notifyAt).toBeGreaterThan(commitAt)
+    }
+  })
+
+  it('document_kind 백필은 사람이 쓴 문서를 건드리지 않아 재실행이 안전하다', () => {
+    // 이 파일에서 유일하게 멱등하지 않던 문장. save_wiki_document는 document_kind를
+    // 'reference'로 바꿔도 type='glossary'를 남기므로, 조건이 없으면 재실행이 사람의
+    // 분류를 조용히 되돌린다.
+    const backfill = sql.slice(
+      sql.indexOf("set document_kind = 'glossary'"),
+      sql.indexOf("set document_kind = 'glossary'") + 200,
+    )
+    expect(backfill).toContain('body_md is null')
   })
 
   it('기존 사용량·세션 집계는 제품 이벤트를 제외하고 rollback에서 0051 의미로 복원한다', () => {
@@ -146,6 +194,10 @@ describe('0079 Wiki Memory migration 계약', () => {
     expect(verify).toContain('v_topic.body_updated_at is distinct from p_expected_updated_at')
     expect(verify).toContain("raise exception 'WIKI_DOCUMENT_EDIT_CONFLICT'")
     expect(verify).toMatch(/update public\.wiki_feedback feedback[\s\S]*resolution = 'verified'/)
+    // 검증은 멤버 권한이다. 남의 '오래됨' 신고까지 함께 닫히면 멤버 한 명이 문서를
+    // 덮어쓰고 → 스스로 검증하고 → 이의제기를 지우는 자기검증 루프가 성립한다.
+    // 본인 신고 철회는 허용하되 남의 신고를 닫는 것은 관리자만.
+    expect(verify).toContain('feedback.user_id = v_actor or public.is_project_admin(v_topic.project_id)')
 
     const answer = functionSql('answer_wiki_question')
     expect(answer).toMatch(/where question\.id = p_question_id\s+for update/)
@@ -174,6 +226,9 @@ describe('0079 Wiki Memory migration 계약', () => {
     expect(fn).toContain('public.is_project_admin(v_item.project_id)')
     expect(fn).toContain("v_item.review_state = 'pending' and p_review_state in ('accepted','rejected')")
     expect(fn).toContain("v_item.review_state = 'rejected' and p_review_state = 'pending'")
+    // accepted는 흡수 상태여선 안 된다. 기존 AI 지식 1,219건이 전부 accepted로 백필되므로,
+    // 나가는 전이가 없으면 이미 노출 중인 지식을 감사 기록과 함께 내릴 방법이 사라진다.
+    expect(fn).toContain("v_item.review_state = 'accepted' and p_review_state in ('rejected','pending')")
     expect(fn).toMatch(/insert into public\.wiki_change_events[\s\S]*'review:' \|\| p_review_state/)
   })
 
@@ -185,6 +240,40 @@ describe('0079 Wiki Memory migration 계약', () => {
     expect(fn).toContain('on conflict (topic_id, user_id, feedback_type) do update')
     expect(fn).toMatch(/resolution = null,[\s\S]*resolved_at = null/)
     expect(fn).toMatch(/p_kind = 'outdated'[\s\S]*review_due_at = least/)
+  })
+
+  it('revision은 프로젝트 삭제를 막지 않으면서도 명시적 스위치 없이는 지워지지 않는다', () => {
+    // wiki_topics의 상위 FK는 projects on delete cascade(0045)다. restrict면 문서 하나에
+    // revision 1건만 있어도 프로젝트 삭제가 통째로 실패한다. 반대로 트리거를 그냥 열면
+    // 이력이 사고로 사라진다 — cascade + 명시적 퍼지 스위치로 둘 다 만족시킨다.
+    const table = sql.slice(
+      sql.indexOf('create table if not exists public.wiki_topic_revisions'),
+      sql.indexOf('create index if not exists wiki_topic_revisions_topic_created_idx'),
+    )
+    expect(table).toContain('on delete cascade')
+    expect(table).not.toContain('on delete restrict')
+
+    const trigger = functionSql('wiki_topic_revisions_reject_mutation', '\ndrop trigger')
+    expect(trigger).toContain("pg_catalog.current_setting('app.wiki_purge', true) = 'on'")
+    expect(trigger).toMatch(/tg_op = 'DELETE'[\s\S]*return old;/)
+    expect(trigger).toContain("raise exception 'WIKI_REVISION_IMMUTABLE'")
+  })
+
+  it('주제 병합은 질문·피드백·하위문서를 target으로 옮긴 뒤 삭제하고 건수를 기록한다', () => {
+    // 옮기지 않으면 FK가 조용히 파괴한다 — 피드백은 cascade로 소멸, 질문은 topic_id=null,
+    // 하위 문서는 parent_id=null로 루트에 튀어나온다. change event에도 남지 않는다.
+    const fn = functionSql('merge_wiki_topics')
+    const moveQuestions = fn.indexOf('update public.wiki_questions question')
+    const moveFeedback = fn.indexOf('update public.wiki_feedback feedback')
+    const moveChildren = fn.indexOf('set parent_id = p_target_topic_id')
+    const deleteAt = fn.indexOf('delete from public.wiki_topics topic')
+    for (const at of [moveQuestions, moveFeedback, moveChildren]) {
+      expect(at).toBeGreaterThanOrEqual(0)
+      expect(at).toBeLessThan(deleteAt)
+    }
+    // 유니크(topic_id, user_id, feedback_type) 충돌은 흡수한다.
+    expect(fn).toContain('not exists (')
+    expect(fn).toMatch(/질문 %s건, 피드백 %s건, 하위문서 %s건/)
   })
 
   it('삭제형 주제 병합은 사람 문서나 revision이 있으면 DB에서도 거부한다', () => {

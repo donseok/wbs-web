@@ -7,6 +7,13 @@
 --                      document_kind, verified_at, verified_by, review_due_at)
 --   public.wiki_topic_revisions, public.wiki_questions, public.wiki_feedback
 -- 기존 wiki_items 문장/근거/변경 이력은 삭제하지 않는다. 0079에서 추가한 것만 되돌린다.
+--
+-- 순서: 0080_usage_event_dimensions_rollback.sql 을 **먼저** 실행한다(usage_events 의
+-- CHECK·인덱스는 0080 소관이다). 이 파일의 해당 drop 들은 if exists 라 순서를 어겨도
+-- 실패하지는 않지만, 소관을 섞지 않는 편이 추적에 낫다.
+--
+-- wiki_topic_revisions 는 불변 트리거가 DELETE 를 막지만 DROP TABLE 은 막지 않는다.
+-- 아래 절차는 트리거를 먼저 내리므로 app.wiki_purge 스위치가 필요 없다.
 
 begin;
 
