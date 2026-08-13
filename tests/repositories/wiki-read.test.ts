@@ -8,7 +8,7 @@ vi.mock('@/lib/supabase/server', () => ({
   createServerClient: mocks.createServerClient,
 }))
 
-import { getWikiOverview } from '@/lib/data/wiki'
+import { getWikiOverview, getWikiTopicDetail } from '@/lib/data/wiki'
 
 type QueryResult = {
   data: unknown
@@ -22,10 +22,52 @@ function builder(result: QueryResult) {
       reject: (reason: unknown) => unknown,
     ) => Promise<unknown>
   } = {}
-  for (const method of ['select', 'eq', 'order', 'limit', 'in']) {
+  for (const method of ['select', 'eq', 'order', 'limit', 'in', 'is', 'not', 'range']) {
     query[method] = vi.fn(() => query)
   }
   query.then = (resolve, reject) => Promise.resolve(result).then(resolve, reject)
+  return query
+}
+
+function filteringBuilder(rows: Record<string, unknown>[]) {
+  let selected = [...rows]
+  let from = 0
+  let to = Number.MAX_SAFE_INTEGER
+  const query: Record<string, ReturnType<typeof vi.fn>> & {
+    then?: (
+      resolve: (value: QueryResult) => unknown,
+      reject: (reason: unknown) => unknown,
+    ) => Promise<unknown>
+  } = {
+    select: vi.fn(() => query),
+    order: vi.fn(() => query),
+    limit: vi.fn(() => query),
+    eq: vi.fn((column: string, value: unknown) => {
+      selected = selected.filter((row) => row[column] === value)
+      return query
+    }),
+    in: vi.fn((column: string, values: unknown[]) => {
+      selected = selected.filter((row) => values.includes(row[column]))
+      return query
+    }),
+    is: vi.fn((column: string, value: unknown) => {
+      selected = selected.filter((row) => row[column] === value || (value === null && row[column] == null))
+      return query
+    }),
+    not: vi.fn((column: string, operator: string, value: unknown) => {
+      if (operator === 'is' && value === null) selected = selected.filter((row) => row[column] != null)
+      return query
+    }),
+    range: vi.fn((nextFrom: number, nextTo: number) => {
+      from = nextFrom
+      to = nextTo
+      return query
+    }),
+  }
+  query.then = (resolve, reject) => Promise.resolve({
+    data: selected.slice(from, to + 1),
+    error: null,
+  }).then(resolve, reject)
   return query
 }
 
@@ -149,5 +191,186 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       'lifecycle_state',
       ['active', 'open', 'conflicted', 'archived', 'resolved'],
     )
+    expect(queries.wiki_items[0].eq).toHaveBeenCalledWith('review_state', 'accepted')
+    expect(queries.wiki_item_sources[0].is).toHaveBeenCalledWith('retracted_at', null)
+    expect(queries.wiki_item_sources[1].not).toHaveBeenCalledWith('retracted_at', 'is', null)
+
+    const detail = await getWikiTopicDetail('project-version-test', 'topic-1')
+    expect(detail.topic?.id).toBe('topic-1')
+    expect(detail.items[0]?.id).toBe('item-1')
+    expect(queries.wiki_topics.at(-1)?.eq).toHaveBeenCalledWith('id', 'topic-1')
+  })
+
+  it('기본 Wiki 테이블이 없으면 schema_missing을 일반 오류와 구분한다', async () => {
+    mocks.createServerClient.mockResolvedValue({
+      from: vi.fn(() => builder({
+        data: null,
+        error: { code: 'PGRST205', message: "Could not find the table 'public.wiki_topics'" },
+      })),
+    })
+
+    const overview = await getWikiOverview('project-schema-missing')
+
+    expect(overview.available).toBe(false)
+    expect(overview.readState).toBe('schema_missing')
+  })
+
+  it('권한·네트워크 같은 조회 실패를 schema_missing으로 위장하지 않는다', async () => {
+    mocks.createServerClient.mockResolvedValue({
+      from: vi.fn(() => builder({
+        data: null,
+        error: { code: '42501', message: 'permission denied' },
+      })),
+    })
+
+    const overview = await getWikiOverview('project-read-error')
+
+    expect(overview.available).toBe(false)
+    expect(overview.readState).toBe('error')
+  })
+
+  it('0079 문서 컬럼이 없으면 기존 Wiki는 읽되 schema_missing을 명시한다', async () => {
+    const results: Record<string, QueryResult[]> = {
+      wiki_topics: [
+        { data: null, error: { code: 'PGRST204', message: "column 'body_md' was not found" } },
+        { data: [{
+          id: 'legacy-topic', project_id: 'project-legacy', title: '기존 주제',
+          normalized_title: '기존-주제', type: 'general', owner_team: null,
+          last_changed_at: '2026-08-13T00:00:00.000Z',
+          created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
+        }], error: null },
+      ],
+      wiki_items: [
+        { data: null, error: { code: 'PGRST204', message: "column 'review_state' was not found" } },
+        { data: [], error: null },
+      ],
+      wiki_change_events: [{ data: [], error: null }],
+    }
+    mocks.createServerClient.mockResolvedValue({
+      from: vi.fn((table: string) => builder(
+        results[table]?.shift() ?? { data: [], error: null },
+      )),
+    })
+
+    const overview = await getWikiOverview('project-legacy')
+
+    expect(overview.available).toBe(true)
+    expect(overview.readState).toBe('schema_missing')
+    expect(overview.topics[0]).toMatchObject({ id: 'legacy-topic', bodyMd: null })
+  })
+
+  it('철회 근거는 현재 항목에서 빼고 당시 변경 provenance에만 사용한다', async () => {
+    const tables: Record<string, Record<string, unknown>[]> = {
+      wiki_topics: [{
+        id: 'topic-source', project_id: 'project-source', title: '근거 정책',
+        normalized_title: '근거-정책', type: 'policy', owner_team: null,
+        body_md: null, body_updated_at: null, body_updated_by: null, parent_id: null,
+        sort: 0, pinned_order: null, origin: 'ai', document_kind: null,
+        verified_at: null, verified_by: null, review_due_at: null,
+        last_changed_at: '2026-08-13T00:00:00.000Z',
+        created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
+      }],
+      wiki_items: [{
+        id: 'item-source', project_id: 'project-source', topic_id: 'topic-source',
+        kind: 'fact', statement: '현재 정책', lifecycle_state: 'active', certainty: 'explicit',
+        decision_state: null, owner_team: null, owner_member_id: null, due_date: null,
+        observed_at: null, valid_from: null, valid_to: null, origin: 'ai',
+        auto_update_locked: false, review_state: 'accepted', structured_data: {},
+        created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
+      }],
+      wiki_item_sources: [
+        {
+          id: 'source-active', wiki_item_id: 'item-source', minute_id: 'minute-active',
+          minute_version_id: 'version-active', relation: 'supports', retracted_at: null,
+          created_at: '2026-08-13T00:00:00.000Z',
+        },
+        {
+          id: 'source-retracted', wiki_item_id: 'item-source', minute_id: 'minute-old',
+          minute_version_id: 'version-old', relation: 'contradicts',
+          retracted_at: '2026-08-13T01:00:00.000Z',
+          created_at: '2026-08-12T00:00:00.000Z',
+        },
+      ],
+      wiki_change_events: [{
+        id: 'change-old', project_id: 'project-source', wiki_item_id: 'item-source',
+        minute_id: 'minute-old', source_id: 'source-retracted', change_type: 'change',
+        before_snapshot: null, after_snapshot: null, created_at: '2026-08-12T00:05:00.000Z',
+      }],
+      minutes: [
+        { id: 'minute-active', title: '현재 회의', minute_date: '2026-08-13' },
+        { id: 'minute-old', title: '과거 회의', minute_date: '2026-08-12' },
+      ],
+      wiki_questions: [],
+      wiki_feedback: [],
+    }
+    mocks.createServerClient.mockResolvedValue({
+      from: vi.fn((table: string) => filteringBuilder(tables[table] ?? [])),
+    })
+
+    const overview = await getWikiOverview('project-source')
+
+    expect(overview.items[0].sources.map((source) => source.id)).toEqual(['source-active'])
+    expect(overview.items[0].sources[0].minuteTitle).toBe('현재 회의')
+    expect(overview.changes[0].minuteVersionId).toBe('version-old')
+    expect(overview.changes[0].minuteTitle).toBe('과거 회의')
+  })
+
+  it('500개를 넘는 항목도 range 페이지를 끝까지 읽어 집계한다', async () => {
+    const itemRows = Array.from({ length: 501 }, (_, index) => ({
+      id: `item-${index}`,
+      project_id: 'project-paged',
+      topic_id: 'topic-paged',
+      kind: 'fact',
+      statement: `지식 ${index}`,
+      lifecycle_state: 'active',
+      certainty: 'explicit',
+      decision_state: null,
+      owner_team: null,
+      owner_member_id: null,
+      due_date: null,
+      observed_at: null,
+      valid_from: null,
+      valid_to: null,
+      origin: 'ai',
+      auto_update_locked: false,
+      review_state: 'accepted',
+      structured_data: {},
+      created_at: '2026-08-13T00:00:00.000Z',
+      updated_at: '2026-08-13T00:00:00.000Z',
+    }))
+    const tables: Record<string, Record<string, unknown>[]> = {
+      wiki_topics: [{
+        id: 'topic-paged', project_id: 'project-paged', title: '전체 지식',
+        normalized_title: '전체-지식', type: 'general', owner_team: null,
+        body_md: null, body_updated_at: null, body_updated_by: null, parent_id: null,
+        sort: 0, pinned_order: null, origin: 'ai', document_kind: null,
+        verified_at: null, verified_by: null, review_due_at: null,
+        last_changed_at: '2026-08-13T00:00:00.000Z',
+        created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
+      }],
+      wiki_items: itemRows,
+      wiki_change_events: [],
+      wiki_item_sources: [],
+      wiki_questions: [],
+      wiki_feedback: [],
+      minutes: [],
+    }
+    const itemQueries: ReturnType<typeof filteringBuilder>[] = []
+    mocks.createServerClient.mockResolvedValue({
+      from: vi.fn((table: string) => {
+        const query = filteringBuilder(tables[table] ?? [])
+        if (table === 'wiki_items') itemQueries.push(query)
+        return query
+      }),
+    })
+
+    const overview = await getWikiOverview('project-paged')
+
+    expect(overview.items).toHaveLength(501)
+    expect(overview.summary.topicCount).toBe(1)
+    expect(overview.dataTruncated).toBe(false)
+    expect(itemQueries.some((query) => query.range.mock.calls.some(
+      ([from, to]) => from === 500 && to === 999,
+    ))).toBe(true)
   })
 })

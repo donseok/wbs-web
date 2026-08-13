@@ -160,6 +160,46 @@ describe('mergeWikiTopics — 프로젝트 관리자 전용', () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/p/project-1/wiki/topics/a')
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/p/project-1/wiki/topics/b')
   })
+
+  it('append-only 이력을 가진 사람이 쓴 문서는 기존 삭제형 RPC로 병합하지 않는다', async () => {
+    asAdmin()
+    mocks.from.mockImplementation(() => {
+      const b: Record<string, unknown> = {}
+      for (const m of ['select', 'eq', 'in', 'maybeSingle']) b[m] = vi.fn(() => b)
+      ;(b as { then: (r: (v: unknown) => void) => void }).then = resolve => resolve({
+        data: [{ id: 'a', body_md: '# 문서' }, { id: 'b', body_md: null }], error: null,
+      })
+      return b
+    })
+    const result = await mergeWikiTopics({
+      projectId: 'project-1', sourceTopicId: 'a', targetTopicId: 'b',
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('문서는 병합할 수 없습니다')
+    expect(mocks.rpc).not.toHaveBeenCalled()
+  })
+
+  it('본문이 비어 있어도 manual revision 이력을 가진 주제는 병합하지 않는다', async () => {
+    asAdmin()
+    mocks.from.mockImplementation(() => {
+      const b: Record<string, unknown> = {}
+      for (const m of ['select', 'eq', 'in', 'maybeSingle']) b[m] = vi.fn(() => b)
+      ;(b as { then: (r: (v: unknown) => void) => void }).then = resolve => resolve({
+        data: [
+          { id: 'a', body_md: '', origin: 'manual' },
+          { id: 'b', body_md: null, origin: 'ai' },
+        ],
+        error: null,
+      })
+      return b
+    })
+    const result = await mergeWikiTopics({
+      projectId: 'project-1', sourceTopicId: 'a', targetTopicId: 'b',
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('문서는 병합할 수 없습니다')
+    expect(mocks.rpc).not.toHaveBeenCalled()
+  })
 })
 
 describe('대상 결합 — 클라이언트가 보낸 projectId 만으로는 통과하지 못한다', () => {

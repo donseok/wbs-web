@@ -1,7 +1,7 @@
 'use client'
 // 주제 지도 — 검색 + 점진 노출. 프로젝트 주제가 150장을 넘어가도 한 화면에 전부
-// 쏟아내지 않고, 찾는 주제를 이름·담당팀·유형으로 좁힐 수 있게 한다.
-import { useMemo, useState } from 'react'
+// 쏟아내지 않고, 찾는 주제를 이름·본문·문서 유형·담당팀으로 좁힐 수 있게 한다.
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight, BookOpenText, Search } from 'lucide-react'
 import type { Locale } from '@/lib/i18n/dict'
@@ -9,6 +9,7 @@ import { t } from '@/lib/i18n/dict'
 import { matchesWikiTopicQuery } from '@/lib/domain/wikiView'
 import type { WikiTopicSummary } from '@/lib/data/wiki'
 import { formatWikiDate } from './WikiShared'
+import { trackWikiEvent } from './wikiAnalytics'
 
 const PAGE_SIZE = 12
 
@@ -26,6 +27,7 @@ export function WikiTopicGrid({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<TopicSort>('recent')
   const [visible, setVisible] = useState(PAGE_SIZE)
+  const lastTrackedQuery = useRef('')
 
   const filtered = useMemo(() => {
     const matched = topics.filter((topic) => matchesWikiTopicQuery(topic, query))
@@ -38,6 +40,25 @@ export function WikiTopicGrid({
 
   const shown = filtered.slice(0, visible)
 
+  function trackSearchIntent() {
+    const normalizedQuery = query.trim()
+    if (!normalizedQuery || normalizedQuery === lastTrackedQuery.current) return
+    lastTrackedQuery.current = normalizedQuery
+    trackWikiEvent('wiki_search', `/p/${projectId}/wiki`, {
+      source: 'topic_grid',
+      result_count: filtered.length,
+      query_length: normalizedQuery.length,
+    })
+  }
+
+  function trackTopicOpen() {
+    trackSearchIntent()
+    trackWikiEvent('wiki_topic_opened', `/p/${projectId}/wiki`, {
+      source: 'topic_grid',
+      status: query.trim() ? 'search_result' : 'browse',
+    })
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2">
@@ -46,7 +67,16 @@ export function WikiTopicGrid({
           <input
             type="search"
             value={query}
-            onChange={(event) => { setQuery(event.target.value); setVisible(PAGE_SIZE) }}
+            onChange={(event) => {
+              const nextQuery = event.target.value
+              if (!nextQuery.trim()) lastTrackedQuery.current = ''
+              setQuery(nextQuery)
+              setVisible(PAGE_SIZE)
+            }}
+            onBlur={trackSearchIntent}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) trackSearchIntent()
+            }}
             placeholder={t(locale, 'wiki.topic.searchPlaceholder')}
             aria-label={t(locale, 'wiki.topic.searchPlaceholder')}
             className="app-input pl-9"
@@ -85,6 +115,7 @@ export function WikiTopicGrid({
               <Link
                 key={topic.id}
                 href={`/p/${projectId}/wiki/topics/${topic.id}`}
+                onClick={trackTopicOpen}
                 className="group rounded-2xl border border-line bg-surface px-4 py-4 shadow-[var(--shadow-sm)] transition hover:-translate-y-0.5 hover:border-line-strong hover:bg-surface-2/45 focus-visible:-translate-y-0.5"
                 aria-label={`${topic.title} ${t(locale, 'wiki.openTopic')}`}
               >

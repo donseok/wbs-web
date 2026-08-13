@@ -178,6 +178,20 @@ describe('HeaderChrome 브레드크럼', () => {
     expect(container.querySelector('[role="dialog"][aria-label="모바일 메뉴"]')).toBeNull()
   })
 
+  it('Wiki 상세 경로에서도 프로젝트 지식 브레드크럼과 모바일 활성 링크를 유지한다', async () => {
+    const breadcrumb = await renderAt('/p/p1/wiki/topics/topic-1')
+    expect(breadcrumb?.textContent).toContain('프로젝트 지식')
+
+    const openButton = container.querySelector<HTMLButtonElement>('button[aria-label="메뉴 열기"]')
+    await act(async () => openButton?.click())
+
+    const wikiLink = container.querySelector<HTMLAnchorElement>(
+      '[role="dialog"][aria-label="모바일 메뉴"] a[href="/p/p1/wiki"]',
+    )
+    expect(wikiLink).not.toBeNull()
+    expect(wikiLink?.getAttribute('aria-current')).toBe('page')
+  })
+
   it('프로젝트가 많아도 모바일 메뉴에는 프로젝트 선택 상자 하나만 둔다', async () => {
     const manyProjects = Array.from({ length: 100 }, (_, index) => ({
       id: `p${index + 1}`,

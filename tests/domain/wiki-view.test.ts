@@ -5,6 +5,7 @@ import {
   isCurrentWikiKnowledge,
   isDiscussingWikiItem,
   isUnsettledWikiKnowledge,
+  getWikiTopicTrustState,
   matchesWikiQuery,
   matchesWikiTopicQuery,
   sortWikiEntries,
@@ -30,6 +31,23 @@ function entry(overrides: Partial<WikiExplorerEntry> = {}): WikiExplorerEntry {
 }
 
 describe('Wiki 표시 규칙', () => {
+  it('문서 신뢰 상태는 상충·오래됨·검토기한을 verifiedAt보다 우선한다', () => {
+    const now = Date.parse('2026-08-13T00:00:00.000Z')
+    const verified = {
+      verifiedAt: '2026-08-01T00:00:00.000Z',
+      reviewDueAt: '2026-09-01T00:00:00.000Z',
+      hasConflict: false,
+      hasUnresolvedOutdatedFeedback: false,
+    }
+
+    expect(getWikiTopicTrustState(verified, now)).toBe('verified')
+    expect(getWikiTopicTrustState({ ...verified, hasConflict: true }, now)).toBe('conflict')
+    expect(getWikiTopicTrustState({ ...verified, hasUnresolvedOutdatedFeedback: true }, now)).toBe('review_due')
+    expect(getWikiTopicTrustState({ ...verified, reviewDueAt: '2026-08-13T00:00:00.000Z' }, now)).toBe('review_due')
+    expect(getWikiTopicTrustState({ ...verified, reviewDueAt: null }, now)).toBe('unverified')
+    expect(getWikiTopicTrustState({ ...verified, verifiedAt: null }, now)).toBe('unverified')
+  })
+
   it('잠정이거나 닫히지 않은 지식은 현재 지식이 아니라 미확정으로 분류한다', () => {
     expect(isCurrentWikiKnowledge(entry())).toBe(true)
     expect(isCurrentWikiKnowledge(entry({ certainty: 'tentative' }))).toBe(false)
@@ -100,6 +118,19 @@ describe('Wiki 표시 규칙', () => {
     expect(matchesWikiTopicQuery(topic, '물류 시스템')).toBe(true)
     expect(matchesWikiTopicQuery(topic, 'system')).toBe(true)
     expect(matchesWikiTopicQuery(topic, '배차')).toBe(false)
+  })
+
+  it('사람이 쓴 문서 본문과 문서 유형도 주제 검색 대상으로 본다', () => {
+    const topic = {
+      title: '현장 운영',
+      ownerTeam: null,
+      type: 'general',
+      bodyMd: '장애 발생 시 우선 재처리 큐의 적체 여부를 확인한다.',
+      documentKind: 'runbook',
+    }
+    expect(matchesWikiTopicQuery(topic, '재처리 적체')).toBe(true)
+    expect(matchesWikiTopicQuery(topic, 'runbook')).toBe(true)
+    expect(matchesWikiTopicQuery(topic, 'faq')).toBe(false)
   })
 })
 

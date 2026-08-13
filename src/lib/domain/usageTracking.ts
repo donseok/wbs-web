@@ -11,3 +11,13 @@ export function trackingEnabled(env: Record<string, string | undefined>): boolea
   if (env.USAGE_TRACKING === 'on') return true
   return env.VERCEL_ENV === 'production'
 }
+
+/** 0079 배포 전 usage_events에는 제품 이벤트 차원이 없다. 다른 DB 오류와 혼동하지 않는다. */
+export function usageEventDimensionsMissing(
+  error: { code?: string; message?: string } | null | undefined,
+): boolean {
+  if (!error) return false
+  const message = error.message?.toLowerCase() ?? ''
+  return (error.code === 'PGRST204' || error.code === '42703')
+    && (message.includes('event_name') || message.includes('metadata'))
+}

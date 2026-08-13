@@ -76,7 +76,63 @@ describe('기록 내용 — 본문을 신뢰하지 않는다', () => {
       menu_key: 'wbs',
       path: '/p/:id/wbs',
       project_id: PID,
+      event_name: 'page_view',
+      metadata: {},
     })
+  })
+
+  it('Wiki 제품 이벤트만 Wiki 경로에 기록하고 질문 원문 같은 metadata는 버린다', async () => {
+    const res = await POST(req({
+      path: `/p/${PID}/wiki`,
+      eventName: 'wiki_ask_answered',
+      metadata: {
+        result_count: 3,
+        grounded: true,
+        question_short: '짧은 민감 질문도 저장 금지',
+        question: '민감한 질문 원문'.repeat(20),
+        nested: { body: '저장 금지' },
+      },
+    }))
+    expect(res.status).toBe(200)
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      event_name: 'wiki_ask_answered',
+      metadata: { result_count: 3, grounded: true },
+    }))
+  })
+
+  it('0079 전 스키마에서는 page view를 기존 행 형식으로 다시 기록한다', async () => {
+    insert
+      .mockResolvedValueOnce({ error: { code: 'PGRST204', message: "Could not find the 'event_name' column" } } as never)
+      .mockResolvedValueOnce({ error: null })
+
+    const res = await POST(req({ path: `/p/${PID}/wiki` }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, compatibility: 'legacy' })
+    expect(insert).toHaveBeenNthCalledWith(2, {
+      user_id: 'real-user',
+      menu_key: 'wiki',
+      path: '/p/:id/wiki',
+      project_id: PID,
+    })
+  })
+
+  it('0079 전 스키마에서 Wiki 제품 이벤트를 page view로 오염시키지 않고 건너뛴다', async () => {
+    insert.mockResolvedValueOnce({
+      error: { code: '42703', message: 'column metadata does not exist' },
+    } as never)
+
+    const res = await POST(req({ path: `/p/${PID}/wiki`, eventName: 'wiki_search' }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, skipped: 'schema_missing' })
+    expect(insert).toHaveBeenCalledTimes(1)
+  })
+
+  it('알 수 없는 이벤트와 Wiki 밖의 Wiki 이벤트는 거절한다', async () => {
+    const unknown = await POST(req({ path: `/p/${PID}/wiki`, eventName: 'wiki_raw_prompt' }))
+    expect(unknown.status).toBe(400)
+    const wrongPath = await POST(req({ path: `/p/${PID}/wbs`, eventName: 'wiki_search' }))
+    expect(wrongPath.status).toBe(400)
+    expect(createAdminClient).not.toHaveBeenCalled()
   })
 
   it('insert 실패는 삼키지 않고 500 으로 올린다', async () => {

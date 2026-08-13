@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getActor } from '@/lib/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
 import { displayNameFrom } from '@/lib/domain/display-name'
+import { usageEventDimensionsMissing } from '@/lib/domain/usageTracking'
 import {
   USAGE_RETAIN_DAYS, addDaysIso,
   type AccountRecord, type DailyActive, type MenuRank, type UsageSummary, type UserRollup,
@@ -87,17 +88,28 @@ export async function getRecentUsageEvents(o: {
   from: string; to: string; userId?: string; menuKey?: string; limit: number
 }): Promise<UsageEventRow[]> {
   const sb = await createServerClient()
-  let q = sb
-    .from('usage_events')
-    .select('id, user_id, menu_key, path, occurred_at')
-    .gte('occurred_at', kstStart(o.from))
-    .lt('occurred_at', kstStart(addDaysIso(o.to, 1)))
-    .order('occurred_at', { ascending: false })
-    .limit(o.limit)
-  if (o.userId) q = q.eq('user_id', o.userId)
-  if (o.menuKey) q = q.eq('menu_key', o.menuKey)
+  const read = async (withEventDimension: boolean) => {
+    let q = sb
+      .from('usage_events')
+      .select('id, user_id, menu_key, path, occurred_at')
+    // 0079의 Wiki 제품 이벤트는 참여 퍼널용이다. 기존 화면의 "접속 로그"와 섞으면
+    // 질문 한 번이 여러 페이지 방문처럼 보여 메뉴·세션 지표가 부풀려진다.
+    if (withEventDimension) q = q.eq('event_name', 'page_view')
+    q = q
+      .gte('occurred_at', kstStart(o.from))
+      .lt('occurred_at', kstStart(addDaysIso(o.to, 1)))
+      .order('occurred_at', { ascending: false })
+      .limit(o.limit)
+    if (o.userId) q = q.eq('user_id', o.userId)
+    if (o.menuKey) q = q.eq('menu_key', o.menuKey)
+    return await q
+  }
 
-  const { data, error } = await q
+  let { data, error } = await read(true)
+  if (usageEventDimensionsMissing(error)) {
+    // 0079 이전에는 모든 행이 page view였으므로 차원 필터 없이 같은 의미가 보존된다.
+    ;({ data, error } = await read(false))
+  }
   if (error) throw new Error('접속 로그를 불러오지 못했습니다: ' + error.message)
   return ((data as Record<string, unknown>[] | null) ?? []).map(r => ({
     id: Number(r.id),

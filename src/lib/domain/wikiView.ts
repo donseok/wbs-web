@@ -222,13 +222,55 @@ export function countWikiViews(entries: WikiExplorerEntry[]): Record<WikiView, n
   }
 }
 
-/** 주제 카드 검색 — 제목·담당팀·유형을 하나의 토큰 AND 검색으로 본다. */
+/** 주제 카드 검색 — 제목·문서 본문·문서 유형·담당팀·기존 유형을 토큰 AND 검색으로 본다. */
 export function matchesWikiTopicQuery(
-  topic: { title: string; ownerTeam: string | null; type: string },
+  topic: {
+    title: string
+    ownerTeam: string | null
+    type: string
+    bodyMd?: string | null
+    documentKind?: string | null
+  },
   query: string,
 ): boolean {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
   if (tokens.length === 0) return true
-  const text = [topic.title, topic.ownerTeam ?? '', topic.type].join('\n').toLowerCase()
+  const text = [
+    topic.title,
+    topic.bodyMd ?? '',
+    topic.documentKind ?? '',
+    topic.ownerTeam ?? '',
+    topic.type,
+  ].join('\n').toLowerCase()
   return tokens.every((token) => text.includes(token))
+}
+
+export type WikiTopicTrustState = 'conflict' | 'review_due' | 'verified' | 'unverified'
+
+export interface WikiTopicTrustInput {
+  verifiedAt: string | null | undefined
+  reviewDueAt: string | null | undefined
+  hasConflict: boolean
+  hasUnresolvedOutdatedFeedback: boolean
+}
+
+/**
+ * 문서 신뢰 상태의 단일 정본. `verifiedAt`만 존재한다고 검증됨으로 표시하지 않는다.
+ * 검토 기한이 미래이고 해결되지 않은 오래됨 신고·상충이 없어야만 verified다.
+ */
+export function getWikiTopicTrustState(
+  input: WikiTopicTrustInput,
+  nowMs = Date.now(),
+): WikiTopicTrustState {
+  if (input.hasConflict) return 'conflict'
+
+  const reviewDueMs = input.reviewDueAt ? Date.parse(input.reviewDueAt) : Number.NaN
+  const hasValidReviewDueAt = Number.isFinite(reviewDueMs)
+  if (
+    input.hasUnresolvedOutdatedFeedback
+    || (hasValidReviewDueAt && reviewDueMs <= nowMs)
+  ) return 'review_due'
+
+  if (input.verifiedAt && hasValidReviewDueAt && reviewDueMs > nowMs) return 'verified'
+  return 'unverified'
 }
