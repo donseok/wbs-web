@@ -243,7 +243,11 @@ export function WikiTopicDetail({
   const TrustStatusIcon = trustStatus.icon
   const extensionReady = data.readState === 'ready'
   const canWriteMemory = extensionReady && canEditDocuments
+  // 0079 신규 기능(AI 제안 검토)만 스키마 준비를 기다린다.
   const canReviewMemory = extensionReady && canCurate
+  // 항목 큐레이션(보관·해결·잠금·확정)은 0048/0053 RPC 라 이미 운영에 있다. WikiOverview
+  // 의 같은 주석 참조 — 0079 미적용 기간에 기존 기능까지 막지 않는다.
+  const canCurateLegacy = canCurate
   const canVerifyMemory = extensionReady && canVerifyDocuments
 
   return (
@@ -312,14 +316,14 @@ export function WikiTopicDetail({
             </SectionCard>
           )}
 
-          <EvidenceAccordion items={evidenceItems} locale={locale} projectId={projectId} canCurate={canReviewMemory} />
+          <EvidenceAccordion items={evidenceItems} locale={locale} projectId={projectId} canCurate={canCurateLegacy} />
         </div>
 
         <div className="space-y-5 xl:sticky xl:top-0">
           <TrustPanel projectId={projectId} topic={topic} items={items} locale={locale} canContribute={canWriteMemory} trustState={trustState} />
           <SectionCard eyebrow={t(locale, 'wiki.section.open.eyebrow')} title={t(locale, 'wiki.section.open.memoryTitle')} icon={ShieldAlert} actions={<span className="chip bg-pending-weak text-pending">{openItems.length + questions.length}</span>}>
             <p className="-mt-2 mb-3 text-xs text-ink-muted">{t(locale, 'wiki.section.open.memoryDesc')}</p>
-            <OpenLoops items={openItems} questions={questions} locale={locale} projectId={projectId} topicId={topic.id} canCurate={canReviewMemory} canAnswer={canWriteMemory} />
+            <OpenLoops items={openItems} questions={questions} locale={locale} projectId={projectId} topicId={topic.id} canCurate={canCurateLegacy} canAnswer={canWriteMemory} />
           </SectionCard>
         </div>
       </div>

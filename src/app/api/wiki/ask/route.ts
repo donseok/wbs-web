@@ -110,7 +110,10 @@ async function searchWikiDocuments(
     const schemaMissing = ['PGRST204', '42703'].includes(error.code ?? '')
       && ['body_md', 'body_updated_at', 'verified_at', 'review_due_at', 'document_kind'].some((name) => message.includes(name))
     if (!schemaMissing) console.error('[wiki-ask] 문서 검색 실패(근거 항목 검색은 계속):', error.message)
-    return { items: [], truncated: false }
+    // 스키마 미적용은 '아직 문서가 없는 환경'이라 빈 결과가 사실이다. 그러나 진짜 조회
+    // 실패까지 빈 결과로 돌려주면 "위키에 그 문서가 없다"로 읽힌다 — 에러 3원칙 ①.
+    // truncated 로 올려 답변이 불완전함을 화면까지 전파한다.
+    return { items: [], truncated: !schemaMissing }
   }
 
   const rows = (data ?? []) as Array<Record<string, unknown>>
@@ -167,7 +170,8 @@ async function searchAnsweredQuestions(
       || error.code === 'PGRST205'
       || message.includes('wiki_questions') && message.includes('does not exist')
     if (!schemaMissing) console.error('[wiki-ask] 답변 지식 검색 실패(다른 근거 검색은 계속):', error.message)
-    return { items: [], truncated: false }
+    // 위 searchWikiDocuments 와 같은 이유 — 실패를 '결과 없음'으로 위장하지 않는다.
+    return { items: [], truncated: !schemaMissing }
   }
   const rows = (data ?? []) as Array<Record<string, unknown>>
   const items = rows.slice(0, 20).flatMap((row): WikiQuestionHit[] => {

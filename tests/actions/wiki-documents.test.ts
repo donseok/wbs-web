@@ -78,14 +78,17 @@ describe('사람이 쓰는 Wiki 문서 액션', () => {
     expect(mocks.revalidatePath).toHaveBeenCalledWith('/p/project-1/wiki')
   })
 
-  it('타 프로젝트 topicId를 붙인 저장은 권한 검사와 RPC 전에 거부한다', async () => {
+  it('타 프로젝트 topicId를 붙인 저장은 RPC 전에 거부하되, 권한 가드를 먼저 통과시킨다', async () => {
+    // 순서가 계약이다. 대상 결합 조회가 권한 가드보다 앞서면, 조회 범위를 좁히는 날
+    // 비권한자에게 '권한 없음' 대신 '대상을 찾을 수 없습니다'가 나가 존재 여부가 샌다.
+    // 지금은 can_read_project()가 true라 실피해가 없지만 fail-closed 순서는 지켜 둔다.
     scopeResult(null)
     const result = await updateWikiDocument({
       projectId: 'project-1', topicId: 'other-topic', title: '문서', bodyMd: '본문',
       documentKind: 'reference', expectedUpdatedAt: null,
     })
     expect(result.ok).toBe(false)
-    expect(mocks.requireProjectMember).not.toHaveBeenCalled()
+    expect(mocks.requireProjectMember).toHaveBeenCalledWith('project-1')
     expect(mocks.rpc).not.toHaveBeenCalled()
   })
 

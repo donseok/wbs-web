@@ -291,7 +291,12 @@ export function WikiOverview({
   const readState = data.readState ?? (data.available ? 'ready' : 'schema_missing')
   const extensionReady = readState === 'ready'
   const canWriteMemory = extensionReady && canEditDocuments
+  // 0079 신규 기능(제안 검토·문서 편집·질문·피드백)만 스키마 준비를 기다린다.
   const canReviewMemory = extensionReady && canCurate
+  // 항목 큐레이션(보관·해결·잠금·확정)과 주제 병합은 0048/0053 RPC 라 이미 운영에 있다.
+  // extensionReady 로 함께 묶으면 0079 미적용 기간 내내 관리자가 기존 지식을 정리하지
+  // 못하면서 화면에는 '문서 기능 준비 중' 이라고만 떠서 원인을 오진하게 된다.
+  const canCurateLegacy = canCurate
 
   return (
     <div className="space-y-5">
@@ -374,12 +379,12 @@ export function WikiOverview({
             actions={canWriteMemory ? <WikiCreateDocumentButton projectId={projectId} locale={locale} /> : undefined}
           >
             <p className="-mt-2 mb-3 text-xs text-ink-muted">{t(locale, 'wiki.section.explorer.memoryDesc')}</p>
-            <WikiExplorer key={view} projectId={projectId} items={entries} locale={locale} initialView={view} canCurate={canReviewMemory} />
+            <WikiExplorer key={view} projectId={projectId} items={entries} locale={locale} initialView={view} canCurate={canCurateLegacy} />
           </SectionCard>
 
           <SectionCard eyebrow={t(locale, 'wiki.section.topics.eyebrow')} title={t(locale, 'wiki.section.topics.memoryTitle')} icon={Tags}>
             <p className="-mt-2 mb-3 text-xs text-ink-muted">{t(locale, 'wiki.section.topics.memoryDesc')}</p>
-            {extensionReady && canMergeTopics && <div className="mb-4"><WikiMergeTopics projectId={projectId} topics={visibleTopics.filter((topic) => topic.origin !== 'manual' && !topic.bodyMd?.trim())} locale={locale} /></div>}
+            {canMergeTopics && <div className="mb-4"><WikiMergeTopics projectId={projectId} topics={visibleTopics.filter((topic) => topic.origin !== 'manual' && !topic.bodyMd?.trim())} locale={locale} /></div>}
             <WikiTopicGrid projectId={projectId} topics={visibleTopics} locale={locale} />
           </SectionCard>
         </div>

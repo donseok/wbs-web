@@ -36,7 +36,22 @@ const WIKI_ANSWER_MAX = 20_000
 
 const REASON_MAX = 500
 
-function friendlyError(message: string | undefined): string {
+/**
+ * PostgREST 오류를 사용자 문장으로. **code 와 message 를 함께 받는다** — 함수 미존재는
+ * code 에만 담겨 오기 때문이다(실측: `{code:'PGRST202', message:'Could not find the
+ * function public.create_wiki_document(...) in the schema cache'}`). message 만 넘기던
+ * 이전 시그니처에서는 아래 PGRST202 분기가 한 번도 매치되지 않아, 마이그레이션 미적용
+ * 환경에서 원인 안내 대신 일반 실패 문구가 나갔다.
+ */
+function friendlyError(error: { code?: string; message?: string } | string | undefined): string {
+  const { code, message } = typeof error === 'string'
+    ? { code: undefined, message: error }
+    : { code: error?.code, message: error?.message }
+  // PGRST202 = RPC 스키마 캐시 미존재, 42883 = undefined_function. 마이그레이션 미적용을
+  // 원인 그대로 알린다. 다른 분기보다 먼저 본다 — 이 경우 message 는 사용자에게 의미 없다.
+  if (code === 'PGRST202' || code === '42883') {
+    return 'Wiki 정리 기능이 아직 이 환경에 배포되지 않았습니다.'
+  }
   if (!message) return 'Wiki 정리에 실패했습니다.'
   if (message.includes('WIKI_CURATE_FORBIDDEN') || message.includes('WIKI_MERGE_FORBIDDEN')) {
     return '권한이 없습니다.'
@@ -65,7 +80,7 @@ function friendlyError(message: string | undefined): string {
   if (message.includes('WIKI_DOCUMENT_INVALID') || message.includes('WIKI_QUESTION_INVALID')) {
     return '입력 내용을 확인해 주세요.'
   }
-  // PGRST202 = 함수 미존재. 마이그레이션 미적용 환경을 원인 그대로 알린다.
+  // code 가 비어 오는 경로(래핑된 예외 등)를 위한 보조 판정.
   if (message.includes('PGRST202') || message.includes('does not exist')) {
     return 'Wiki 정리 기능이 아직 이 환경에 배포되지 않았습니다.'
   }
@@ -124,7 +139,7 @@ export async function createWikiDocument(args: {
   })
   if (error) {
     console.error('[wiki] 문서 생성 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
   const topicId = typeof data === 'string'
     ? data
@@ -145,10 +160,12 @@ export async function updateWikiDocument(args: {
   documentKind: WikiDocumentKind
   expectedUpdatedAt?: string | null
 }): Promise<WikiDocumentActionResult> {
-  const target = await topicBelongsToProject(args.topicId, args.projectId)
-  if (!target.ok) return target
+  // 권한 가드가 먼저다. 대상 결합 조회를 앞에 두면, 읽기 범위를 좁히는 날 비권한자에게
+  // '권한 없음' 대신 '대상을 찾을 수 없습니다'가 나가 존재 여부가 샌다(fail-closed 역전).
   const gate = await requireProjectMember(args.projectId)
   if (!gate.ok) return { ok: false, error: gate.error }
+  const target = await topicBelongsToProject(args.topicId, args.projectId)
+  if (!target.ok) return target
   const title = args.title.trim()
   if (!textWithin(title, WIKI_TITLE_MAX) || args.bodyMd.length > WIKI_BODY_MAX) {
     return { ok: false, error: '제목과 본문 길이를 확인해 주세요.' }
@@ -168,7 +185,7 @@ export async function updateWikiDocument(args: {
   if (error) {
     console.error('[wiki] 문서 저장 실패:', error.message)
     const conflict = error.message.includes('WIKI_DOCUMENT_EDIT_CONFLICT')
-    return { ok: false, error: friendlyError(error.message), conflict }
+    return { ok: false, error: friendlyError(error), conflict }
   }
   const row = Array.isArray(data) ? data[0] : data
   const updatedAt = row && typeof row === 'object' && typeof row.body_updated_at === 'string'
@@ -189,10 +206,12 @@ export async function verifyWikiDocument(args: {
   reviewDays?: number
   expectedUpdatedAt?: string | null
 }): Promise<WikiDocumentActionResult> {
-  const target = await topicBelongsToProject(args.topicId, args.projectId)
-  if (!target.ok) return target
+  // 권한 가드가 먼저다. 대상 결합 조회를 앞에 두면, 읽기 범위를 좁히는 날 비권한자에게
+  // '권한 없음' 대신 '대상을 찾을 수 없습니다'가 나가 존재 여부가 샌다(fail-closed 역전).
   const gate = await requireProjectMember(args.projectId)
   if (!gate.ok) return { ok: false, error: gate.error }
+  const target = await topicBelongsToProject(args.topicId, args.projectId)
+  if (!target.ok) return target
   const reviewDays = args.reviewDays ?? 90
   if (!Number.isInteger(reviewDays) || reviewDays < 1 || reviewDays > 365) {
     return { ok: false, error: '검토 주기는 1~365일이어야 합니다.' }
@@ -205,7 +224,7 @@ export async function verifyWikiDocument(args: {
   })
   if (error) {
     console.error('[wiki] 문서 검증 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
   const row = Array.isArray(data) ? data[0] : data
   revalidatePath(`/p/${args.projectId}/wiki`)
@@ -225,10 +244,12 @@ export async function restoreWikiDocumentRevision(args: {
   revisionId: string
   expectedUpdatedAt?: string | null
 }): Promise<WikiDocumentActionResult> {
-  const target = await topicBelongsToProject(args.topicId, args.projectId)
-  if (!target.ok) return target
+  // 권한 가드가 먼저다. 대상 결합 조회를 앞에 두면, 읽기 범위를 좁히는 날 비권한자에게
+  // '권한 없음' 대신 '대상을 찾을 수 없습니다'가 나가 존재 여부가 샌다(fail-closed 역전).
   const gate = await requireProjectMember(args.projectId)
   if (!gate.ok) return { ok: false, error: gate.error }
+  const target = await topicBelongsToProject(args.topicId, args.projectId)
+  if (!target.ok) return target
   const sb = await createServerClient()
   const { data, error } = await sb.rpc('restore_wiki_document_revision', {
     p_topic_id: args.topicId,
@@ -238,7 +259,7 @@ export async function restoreWikiDocumentRevision(args: {
   if (error) {
     console.error('[wiki] 문서 이력 복원 실패:', error.message)
     const conflict = error.message.includes('WIKI_DOCUMENT_EDIT_CONFLICT')
-    return { ok: false, error: friendlyError(error.message), conflict }
+    return { ok: false, error: friendlyError(error), conflict }
   }
   const row = Array.isArray(data) ? data[0] : data
   revalidatePath(`/p/${args.projectId}/wiki`)
@@ -275,7 +296,7 @@ export async function createWikiQuestion(args: {
   })
   if (error) {
     console.error('[wiki] 질문 등록 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
   const questionId = typeof data === 'string' ? data : undefined
   revalidatePath(`/p/${args.projectId}/wiki`)
@@ -308,7 +329,7 @@ export async function answerWikiQuestion(args: {
   })
   if (error) {
     console.error('[wiki] 질문 답변 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
   revalidatePath(`/p/${args.projectId}/wiki`)
   return { ok: true }
@@ -335,7 +356,7 @@ export async function reviewWikiItem(args: {
   })
   if (error) {
     console.error('[wiki] 제안 검토 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
   revalidatePath(`/p/${args.projectId}/wiki`)
   revalidatePath(`/p/${args.projectId}/wiki/topics/${args.topicId}`)
@@ -349,10 +370,12 @@ export async function submitWikiFeedback(args: {
   kind: 'helpful' | 'outdated'
   comment?: string | null
 }): Promise<WikiActionResult & { feedbackId?: string }> {
-  const target = await topicBelongsToProject(args.topicId, args.projectId)
-  if (!target.ok) return target
+  // 권한 가드가 먼저다. 대상 결합 조회를 앞에 두면, 읽기 범위를 좁히는 날 비권한자에게
+  // '권한 없음' 대신 '대상을 찾을 수 없습니다'가 나가 존재 여부가 샌다(fail-closed 역전).
   const gate = await requireProjectMember(args.projectId)
   if (!gate.ok) return { ok: false, error: gate.error }
+  const target = await topicBelongsToProject(args.topicId, args.projectId)
+  if (!target.ok) return target
   if (!['helpful', 'outdated'].includes(args.kind)) {
     return { ok: false, error: '알 수 없는 피드백 유형입니다.' }
   }
@@ -368,7 +391,7 @@ export async function submitWikiFeedback(args: {
   })
   if (error) {
     console.error('[wiki] 피드백 등록 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
   const feedbackId = typeof data === 'string' ? data : undefined
   revalidatePath(`/p/${args.projectId}/wiki`)
@@ -412,7 +435,7 @@ export async function curateWikiItem(args: {
   })
   if (error) {
     console.error('[wiki] 항목 큐레이션 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
 
   revalidatePath(`/p/${args.projectId}/wiki`)
@@ -459,7 +482,7 @@ export async function mergeWikiTopics(args: {
   })
   if (error) {
     console.error('[wiki] 주제 병합 실패:', error.message)
-    return { ok: false, error: friendlyError(error.message) }
+    return { ok: false, error: friendlyError(error) }
   }
 
   revalidatePath(`/p/${args.projectId}/wiki`)
