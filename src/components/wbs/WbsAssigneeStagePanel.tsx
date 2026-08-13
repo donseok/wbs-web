@@ -6,17 +6,19 @@ import { User } from 'lucide-react'
 import type { ProjectMember } from '@/lib/domain/types'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { getWbsAssigneeStage, setWbsAssignee, setWbsAssigneeCascade, setWbsStage } from '@/app/actions/wbsAssign'
+import {
+  getWbsAssigneeStage, setWbsAssignee, setWbsAssigneeCascade, setWbsStage, setWbsDevWorkflow,
+} from '@/app/actions/wbsAssign'
 import { WbsSpecPanel } from './WbsSpecPanel'
 import { AssigneeComboBox } from './AssigneeComboBox'
 import type { DictKey } from '@/lib/i18n/dict'
 
-type Stage = 'todo' | 'as' | 'fp' | 'ip' | 'im' | 'xx'
+type Stage = 'as' | 'fp' | 'ip' | 'im' | 'xx'
 const STAGE_KEYS: Record<Stage, DictKey> = {
-  todo: 'wbs.stageTodo', as: 'wbs.stageAs', fp: 'wbs.stageFp',
+  as: 'wbs.stageAs', fp: 'wbs.stageFp',
   ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
 }
-const STAGES: Stage[] = ['todo', 'as', 'fp', 'ip', 'im', 'xx']
+const STAGES: Stage[] = ['as', 'fp', 'ip', 'im', 'xx']
 
 /**
  * 선택된 WBS 항목의 담당자(로스터 축)·단계 편집 — §2.5.
@@ -42,12 +44,15 @@ export function WbsAssigneeStagePanel({
   const { t } = useLocale()
   const teamCodes = useTeamCodes()
   const assigneeLabelId = useId()
-  const [loaded, setLoaded] = useState<{ assigneeMemberId: string | null; stage: string | null } | 'error' | null>(null)
-  const [busy, setBusy] = useState<'assignee' | 'stage' | null>(null)
+  const [loaded, setLoaded] = useState<{ assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean } | 'error' | null>(null)
+  const [busy, setBusy] = useState<'assignee' | 'stage' | 'devWorkflow' | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [cascade, setCascade] = useState(true)
   const [cascadeResult, setCascadeResult] = useState<number | null>(null)
   const [cascadeWarn, setCascadeWarn] = useState(false)
+  const [devCascade, setDevCascade] = useState(true)
+  const [devWorkflowResult, setDevWorkflowResult] = useState<number | null>(null)
+  const [devWorkflowWarn, setDevWorkflowWarn] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -81,6 +86,20 @@ export function WbsAssigneeStagePanel({
     setBusy(null)
     if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
     setLoaded(prev => (prev && prev !== 'error' ? { ...prev, stage } : prev))
+    router.refresh()
+  }
+
+  async function onDevWorkflowChange(enabled: boolean) {
+    setBusy('devWorkflow'); setErr(null); setDevWorkflowResult(null); setDevWorkflowWarn(false)
+    const useCascade = hasChildren && devCascade
+    const res = await setWbsDevWorkflow(itemId, enabled, useCascade)
+    setBusy(null)
+    if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
+    // OFF 는 ready 주문 취소를 동반하는 서버 동작(브리프) — 확인 모달 없이 즉시 실행하고
+    // 결과 문구로만 알린다(브라우저 confirm() 은 자동화를 막아 세션 규칙상 금지).
+    setLoaded(prev => (prev && prev !== 'error' ? { ...prev, devWorkflow: enabled } : prev))
+    if (typeof res.count === 'number' && res.count > 0) setDevWorkflowResult(res.count)
+    if (res.cascadeFailed) setDevWorkflowWarn(true)
     router.refresh()
   }
 
@@ -141,6 +160,40 @@ export function WbsAssigneeStagePanel({
               {cascadeWarn && (
                 <p className="text-xs font-medium text-delayed" role="alert">
                   {t('wbs.assigneeCascadeFail')}
+                </p>
+              )}
+
+              {/* dev_workflow — NULL 진입점 토글. editable=false 에서도 현재값을 disabled
+                  체크박스로 보여준다(브리프). OFF 는 ready 주문 취소를 동반하는 서버 동작이라
+                  confirm() 없이 즉시 실행하고 결과 문구로 알린다(브라우저 모달 금지). */}
+              <label className="flex items-center gap-2 text-xs text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={loaded.devWorkflow}
+                  onChange={e => onDevWorkflowChange(e.target.checked)}
+                  disabled={!editable || busy === 'devWorkflow'}
+                />
+                {t('wbs.devWorkflowLabel')}
+              </label>
+              {editable && hasChildren && (
+                <label className="flex items-center gap-2 text-xs text-ink-muted">
+                  <input
+                    type="checkbox"
+                    checked={devCascade}
+                    onChange={e => setDevCascade(e.target.checked)}
+                    disabled={busy === 'devWorkflow'}
+                  />
+                  {t('wbs.devWorkflowCascadeLabel')}
+                </label>
+              )}
+              {devWorkflowResult !== null && (
+                <p className="text-xs font-medium text-brand">
+                  {t('wbs.devWorkflowResult').replace('{n}', String(devWorkflowResult))}
+                </p>
+              )}
+              {devWorkflowWarn && (
+                <p className="text-xs font-medium text-delayed" role="alert">
+                  {t('wbs.devWorkflowFail')}
                 </p>
               )}
 
