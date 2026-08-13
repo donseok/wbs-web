@@ -56,7 +56,14 @@ export const wikiKo = {
   'wiki.read.schemaDesc': '데이터 구조가 배포되기 전입니다. 기존 회의록은 영향을 받지 않습니다.',
 
   'wiki.search.placeholder': '지식·주제·담당팀 검색',
-  'wiki.search.noResult': '조건에 맞는 항목이 없습니다. 검색어나 필터를 바꿔보세요.',
+  // "검색어를 바꿔보세요" 류의 팁은 Baymard 실측상 안티패턴이다(읽지도 적용하지도 않고
+  // 떠날 이유만 준다). 사실만 말하고, 회복은 아래 대안 버튼이 맡는다.
+  'wiki.search.noResult': '\'{query}\'와 맞는 항목이 없습니다.',
+  'wiki.search.noResultPlain': '조건에 맞는 항목이 없습니다.',
+  'wiki.search.tryInstead': '이렇게 찾아볼까요',
+  'wiki.search.dropFilters': '필터 없이 검색',
+  'wiki.search.dropToken': '\'{token}\' 빼고 검색',
+  'wiki.search.fallbackCount': '{n}건',
   'wiki.resultCount': '{shown} / {total}건 표시',
   'wiki.showMore': '{n}건 더 보기',
   'wiki.view.label': '지식 보기 전환',
@@ -342,7 +349,12 @@ export const wikiEn: Record<keyof typeof wikiKo, string> = {
   'wiki.read.schemaDesc': 'The data structure has not been deployed in this environment yet. Existing minutes are unaffected.',
 
   'wiki.search.placeholder': 'Search knowledge, topics, teams',
-  'wiki.search.noResult': 'No items match. Try a different search term or filter.',
+  'wiki.search.noResult': 'Nothing matches \'{query}\'.',
+  'wiki.search.noResultPlain': 'Nothing matches the current filters.',
+  'wiki.search.tryInstead': 'Try one of these',
+  'wiki.search.dropFilters': 'Search without filters',
+  'wiki.search.dropToken': 'Drop \'{token}\'',
+  'wiki.search.fallbackCount': '{n}',
   'wiki.resultCount': 'Showing {shown} of {total}',
   'wiki.showMore': 'Show {n} more',
   'wiki.view.label': 'Switch knowledge view',

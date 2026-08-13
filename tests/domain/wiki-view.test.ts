@@ -9,6 +9,7 @@ import {
   matchesWikiQuery,
   matchesWikiTopicQuery,
   sortWikiEntries,
+  wikiSearchFallbacks,
   type WikiExplorerEntry,
 } from '@/lib/domain/wikiView'
 
@@ -164,5 +165,67 @@ describe('사람이 닫거나 숨긴 항목 — 되돌릴 수 있어야 한다',
       entry({ id: 'c', lifecycleState: 'archived' }),
     ])
     expect(counts).toMatchObject({ all: 1, resolved: 1, archived: 1 })
+  })
+})
+
+describe('검색 0건 회복 경로', () => {
+  // Baymard: 0건 화면의 "검색 팁"은 안티패턴이고, 키워드를 하나씩 뺀 대안을 각각의
+  // 건수와 함께 제시하는 것이 권장안이다. 건수를 함께 주는 이유는 "눌렀다가 또 0건이면
+  // 어쩌지" 하는 주저를 없애기 위해서다.
+  const entry = (over: Partial<WikiExplorerEntry> & { id: string }): WikiExplorerEntry => ({
+    topicId: 't1',
+    topicTitle: '결제 모듈',
+    kind: 'decision',
+    statement: '카드 결제는 PG 사를 통해 처리한다',
+    lifecycleState: 'active',
+    certainty: 'explicit',
+    decisionState: 'accepted',
+    ownerTeam: null,
+    dueDate: null,
+    updatedAt: '2026-08-01T00:00:00Z',
+    sources: [],
+    ...over,
+  })
+
+  // 주제명을 서로 다르게 둬야 토큰별 건수가 명확해진다.
+  const entries = [
+    entry({ id: 'a' }),
+    entry({
+      id: 'b',
+      topicTitle: '환불 정책',
+      statement: '환불은 7일 이내만 가능하다',
+      kind: 'constraint',
+    }),
+  ]
+
+  it('토큰 하나를 뺀 대안을 건수와 함께 돌려준다', () => {
+    const got = wikiSearchFallbacks(entries, { view: 'all', kind: 'all', query: '결제 존재하지않는말' })
+    expect(got).toEqual([
+      { kind: 'drop-token', query: '결제', droppedToken: '존재하지않는말', count: 1 },
+    ])
+  })
+
+  it('건수가 많은 대안을 먼저 놓고 0건 대안은 버린다', () => {
+    const got = wikiSearchFallbacks(entries, { view: 'all', kind: 'all', query: '결제 환불' })
+    // '결제'만 남기면 a 1건, '환불'만 남기면 b 1건 — 둘 다 살아남는다.
+    expect(got.map((f) => f.droppedToken).sort()).toEqual(['결제', '환불'])
+    expect(got.every((f) => f.count > 0)).toBe(true)
+  })
+
+  it('필터가 걸려 있으면 검색어를 버리기 전에 필터 해제를 먼저 제안한다', () => {
+    const got = wikiSearchFallbacks(entries, { view: 'all', kind: 'action', query: '결제' })
+    expect(got[0]).toEqual({ kind: 'drop-filters', query: '결제', droppedToken: '', count: 1 })
+  })
+
+  it('토큰이 하나뿐이고 필터도 없으면 제안할 것이 없다', () => {
+    // 여기서 억지 제안을 만들면 "전체 보기"와 다를 바 없어 사용자를 속이게 된다.
+    expect(wikiSearchFallbacks(entries, { view: 'all', kind: 'all', query: '없는말' })).toEqual([])
+  })
+
+  it('대안은 최대 3개까지만 준다', () => {
+    const got = wikiSearchFallbacks(entries, {
+      view: 'all', kind: 'all', query: '결제 환불 카드 PG 없는말',
+    })
+    expect(got.length).toBeLessThanOrEqual(3)
   })
 })

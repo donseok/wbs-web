@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { BadgeCheck, FilePlus2, Pencil, Save, X } from 'lucide-react'
 import {
   createWikiDocument,
@@ -253,8 +253,19 @@ export function WikiDocumentEditor({
       </div>
       {message && <p role={message.tone === 'error' ? 'alert' : 'status'} className={`mb-3 text-xs font-medium ${message.tone === 'error' ? 'text-delayed' : 'text-done'}`}>{message.text}</p>}
       {snapshot.bodyMd.trim() ? (
-        <div className="min-h-48 rounded-2xl border border-line/70 bg-surface px-4 py-4 sm:px-6 sm:py-5">
-          <MarkdownView content={snapshot.bodyMd} />
+        // 읽기 폭과 크기를 본문용으로 따로 잡는다. .minutes-md 는 회의록(짧은 글) 기준이라
+        // 14px·폭 무제한인데, 위키 본문은 장문이라 넓은 화면에서 한 줄이 110자를 넘는다
+        // (WCAG 2.1 AAA 상한 80자, Baymard 최적 66자). max-w 는 한글이 라틴보다 글자폭이
+        // 넓은 것을 감안해 ch 대신 rem 으로 잡았다 — 46rem 이면 한글 약 45자.
+        // --minutes-fs 는 globals.css 가 인라인 주입을 전제로 만든 훅이라(MinuteViewer 와
+        // 같은 방식) UI 위험 파일을 건드리지 않고 본문만 키울 수 있다.
+        <div
+          className="min-h-48 rounded-2xl border border-line/70 bg-surface px-4 py-4 sm:px-6 sm:py-5"
+          style={{ '--minutes-fs': '15px' } as CSSProperties}
+        >
+          <div className="max-w-[46rem]">
+            <MarkdownView content={snapshot.bodyMd} />
+          </div>
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-line px-5 py-10 text-center">

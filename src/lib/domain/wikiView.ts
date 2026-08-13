@@ -274,3 +274,66 @@ export function getWikiTopicTrustState(
   if (input.verifiedAt && hasValidReviewDueAt && reviewDueMs > nowMs) return 'verified'
   return 'unverified'
 }
+
+/**
+ * 검색 결과 0건일 때 제시할 회복 경로.
+ *
+ * Baymard 실측: 이커머스 사이트 약 50%가 0건 화면에서 회복 경로를 주지 않아 이탈로
+ * 이어지고, "철자를 확인하세요 / 더 넓은 단어를 쓰세요" 류의 **검색 팁은 명시적
+ * 안티패턴**이다 — 사용자가 읽지도 적용하지도 않으며 오히려 떠날 이유를 준다. 권장은
+ * 키워드를 하나씩 뺀 대안 쿼리를 **각각의 결과 건수와 함께** 제시하는 것이다(건수를
+ * 같이 보여주는 이유: 눌렀다가 또 0건일까 봐 주저하기 때문).
+ *
+ * 검색은 공백 토큰 AND 이므로(matchesWikiQuery) 토큰을 빼는 것이 자연스러운 완화다.
+ * 결과가 0건일 때만 의미가 있으므로 호출 측에서 그때만 부른다.
+ */
+export type WikiSearchFallbackKind = 'drop-filters' | 'drop-token'
+
+export interface WikiSearchFallback {
+  kind: WikiSearchFallbackKind
+  /** 이 대안을 적용했을 때의 검색어. drop-filters 는 검색어를 그대로 둔다. */
+  query: string
+  /** drop-token 에서 빠진 토큰. drop-filters 는 빈 문자열. */
+  droppedToken: string
+  count: number
+}
+
+const FALLBACK_LIMIT = 3
+
+export function wikiSearchFallbacks<T extends WikiExplorerEntry>(
+  entries: T[],
+  filter: WikiExplorerFilter,
+): WikiSearchFallback[] {
+  const tokens = filter.query.trim().split(/\s+/).filter(Boolean)
+  const filtersActive = filter.view !== 'all' || filter.kind !== 'all'
+  const fallbacks: WikiSearchFallback[] = []
+
+  // 필터를 푸는 쪽이 검색어를 버리는 것보다 사용자 의도를 덜 훼손하므로 먼저 제안한다.
+  if (filtersActive) {
+    const count = filterWikiEntries(entries, { view: 'all', kind: 'all', query: filter.query }).length
+    if (count > 0) {
+      fallbacks.push({ kind: 'drop-filters', query: filter.query, droppedToken: '', count })
+    }
+  }
+
+  // 토큰이 하나뿐이면 빼봐야 "전체"라 대안이 아니다.
+  if (tokens.length >= 2) {
+    const dropped = tokens.map((token, index) => {
+      const query = tokens.filter((_, other) => other !== index).join(' ')
+      return {
+        kind: 'drop-token' as const,
+        query,
+        droppedToken: token,
+        count: filterWikiEntries(entries, { ...filter, query }).length,
+      }
+    })
+    fallbacks.push(
+      ...dropped
+        .filter((candidate) => candidate.count > 0)
+        .sort((left, right) => right.count - left.count)
+        .slice(0, FALLBACK_LIMIT),
+    )
+  }
+
+  return fallbacks
+}

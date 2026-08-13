@@ -14,6 +14,7 @@ import {
   filterWikiEntries,
   isConflictedWikiItem,
   isDiscussingWikiItem,
+  wikiSearchFallbacks,
   type WikiView,
 } from '@/lib/domain/wikiView'
 import type { WikiItem } from '@/lib/data/wiki'
@@ -81,6 +82,13 @@ export function WikiExplorer({
   const attentionCount = useMemo(
     () => items.filter((item) => isDiscussingWikiItem(item) || isConflictedWikiItem(item)).length,
     [items],
+  )
+  // 0건일 때만 계산한다 — 매 입력마다 전체를 여러 번 훑는 비용을 결과가 있는 동안 치르지 않는다.
+  const fallbacks = useMemo(
+    () => (filtered.length === 0
+      ? wikiSearchFallbacks(items, { view: view === 'attention' ? 'all' : view, kind, query })
+      : []),
+    [filtered.length, items, view, kind, query],
   )
   const shown = filtered.slice(0, visible)
 
@@ -245,11 +253,42 @@ export function WikiExplorer({
           )}
         </>
       ) : (
-        <p className="mt-3 rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-ink-muted">
-          {query || kind !== 'all'
-            ? t(locale, 'wiki.search.noResult')
-            : t(locale, 'wiki.noItems')}
-        </p>
+        <div className="mt-3 rounded-xl border border-dashed border-line px-4 py-10 text-center">
+          <p className="text-sm text-ink-muted">
+            {!query && kind === 'all' && view === 'all'
+              ? t(locale, 'wiki.noItems')
+              : query
+                ? t(locale, 'wiki.search.noResult').replace('{query}', query.trim())
+                : t(locale, 'wiki.search.noResultPlain')}
+          </p>
+          {fallbacks.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
+                {t(locale, 'wiki.search.tryInstead')}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                {fallbacks.map((fallback) => (
+                  <button
+                    key={`${fallback.kind}-${fallback.droppedToken}`}
+                    type="button"
+                    onClick={() => apply(() => {
+                      setQuery(fallback.query)
+                      if (fallback.kind === 'drop-filters') { setKind('all'); setView('all') }
+                    })}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink transition hover:border-brand-ring hover:text-brand"
+                  >
+                    {fallback.kind === 'drop-filters'
+                      ? t(locale, 'wiki.search.dropFilters')
+                      : t(locale, 'wiki.search.dropToken').replace('{token}', fallback.droppedToken)}
+                    <span className="tabular-nums text-ink-subtle">
+                      {t(locale, 'wiki.search.fallbackCount').replace('{n}', String(fallback.count))}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
