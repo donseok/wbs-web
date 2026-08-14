@@ -119,8 +119,15 @@ const SOURCE_TABLES: Record<IndexBackfillDomain, SourceTableSpec> = {
     columns: 'id, project_id, updated_at, created_at',
     projectColumn: 'project_id',
   },
-  // 회의록은 meetings 역참조로만 프로젝트가 정해진다(미연결이면 global=null).
-  minutes: { table: 'minutes', columns: 'id, updated_at, created_at, meetings(project_id)', projectColumn: null },
+  // 회의록은 자체 project_id(0045)가 1차 축이고, 없으면 meetings 역참조로 떨어진다.
+  // 로더(content.ts:282)가 `row.project_id ?? meetingProjectId` 를 쓰므로 열거자도
+  // 같은 규칙을 써야 한다 — 다르면 job.projectId 불일치로 전부 dead_letter 가 된다.
+  // (2026-08-14 운영 실측: 67건 중 47건이 이 skew 대상이었다.)
+  minutes: {
+    table: 'minutes',
+    columns: 'id, project_id, updated_at, created_at, meetings(project_id)',
+    projectColumn: null,
+  },
 }
 
 /**
@@ -144,9 +151,10 @@ export function createSupabaseIndexSourceLister(client: SupabaseKnowledgeClient)
         return { ok: false, errorCode: 'INDEX_BACKFILL_ROW_INVALID', retryable: false }
       }
       const row = value as Row
+      // projectColumn 이 있으면 그 컬럼, 없으면 자체 project_id → meetings 역참조 순.
       const rowProjectId = spec.projectColumn
-        ? (typeof row.project_id === 'string' ? row.project_id : null)
-        : nestedProjectId(row.meetings)
+        ? (typeof row[spec.projectColumn] === 'string' ? row[spec.projectColumn] as string : null)
+        : (typeof row.project_id === 'string' ? row.project_id : nestedProjectId(row.meetings))
       // 프로젝트 필터가 조인 경유(minutes)면 여기서 후처리로 걸러낸다.
       if (projectId && rowProjectId !== projectId) continue
       summaries.push({
