@@ -69,6 +69,29 @@ describe('snippetOf', () => {
   })
 })
 
+describe('snippetOf — query 매칭 중심', () => {
+  // 청크 앞부분만 자르면 질의어가 중간에 있을 때 무관한 도입부만 보인다(운영 체감:
+  // "답변 내용이 부족하다"). marker 는 청크 맨 앞에만 있는 고유 표식이라, 창이 중간부터
+  // 시작하면 반드시 빠진다.
+  const marker = '문서시작표시어'
+  const filler = '설명 '.repeat(40)
+  const content = `${marker}${filler}권한 신청 절차는 IT팀 승인 후 처리된다${filler}`
+
+  it('질의 토큰 주변을 창으로 잘라 보여준다 — 도입부가 아니라 관련 문장', () => {
+    const snippet = snippetOf(content, 200, '권한')
+    expect(snippet).toContain('권한 신청 절차는 IT팀 승인')
+    expect(snippet).not.toContain(marker)
+  })
+
+  it('창이 중간에서 시작하면 앞에 … 를 붙인다', () => {
+    expect(snippetOf(content, 200, '권한').startsWith('…')).toBe(true)
+  })
+
+  it('매칭이 없으면 기존처럼 앞부분을 자른다', () => {
+    expect(snippetOf(content, 200, '존재하지않는토큰')).toBe(snippetOf(content, 200))
+  })
+})
+
 describe('stripLeadingMeta', () => {
   it('헤더 뒤에 수평선만 남은 청크는 빈 문자열로 판정한다 — 폴백 없이', () => {
     // 운영 실측: chunk 1 이 "# OMS 설명 2026.08.06 09시07분\n\n---" 형태였다.

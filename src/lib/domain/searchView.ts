@@ -56,12 +56,33 @@ export function stripLeadingMeta(content: string): string {
   return lines.slice(start).join('\n').trim()
 }
 
-/** 검색 결과 스니펫 정제. */
-export function snippetOf(content: string, maxChars = 200): string {
+const MIN_QUERY_TOKEN_CHARS = 2
+
+/**
+ * 검색 결과 스니펫 정제. `query` 를 주면 매칭 토큰 주변을 중심으로 창을 잘라
+ * 관련 문장을 보여준다 — 청크 앞부분만 자르면 질의어가 청크 중간에 있을 때
+ * 질문과 무관한 도입부만 노출되는 문제가 있었다(운영 실측: "내용이 부족하다").
+ * 못 찾거나 query 가 없으면 기존처럼 앞부분을 자른다.
+ */
+export function snippetOf(content: string, maxChars = 200, query?: string): string {
   const collapse = (value: string) => value.trim().replace(/\s+/g, ' ')
   // 전부 걷어내 빈 문자열이 되면 원본을 접어 돌려준다 — 없는 것보다 헤더라도 보이는 게 낫다.
-  const snippet = collapse(stripLeadingMeta(content)) || collapse(content)
-  return snippet.length > maxChars ? snippet.slice(0, maxChars) : snippet
+  const base = collapse(stripLeadingMeta(content)) || collapse(content)
+
+  if (query) {
+    const tokens = query.split(/\s+/).filter(token => token.length >= MIN_QUERY_TOKEN_CHARS)
+    const lowerBase = base.toLowerCase()
+    for (const token of tokens) {
+      const matchIndex = lowerBase.indexOf(token.toLowerCase())
+      if (matchIndex === -1) continue
+      const half = Math.floor(maxChars / 2)
+      const start = Math.max(0, matchIndex - half)
+      const windowText = base.slice(start, start + maxChars)
+      return start > 0 ? `…${windowText}` : windowText
+    }
+  }
+
+  return base.length > maxChars ? base.slice(0, maxChars) : base
 }
 
 export function toSearchViewState(
