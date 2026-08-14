@@ -473,6 +473,27 @@ git commit --allow-empty -m "chore(db): 0082 스테이징 리허설 통과
 Staging-verified: 0082 적용·인덱스 사용 확인(Bitmap Index Scan)"
 ```
 
+- [ ] **Step 9: 운영에 적용한다** ⚠️ 사용자 확인 필요
+
+**이 스텝이 없으면 Task 8 의 검색 API 가 운영에서 전부 503 이 된다** —
+`match_ai_documents_lexical` 이 없어 42883(function does not exist)이 난다.
+
+```bash
+npm run db:apply -- supabase/migrations/0082_ai_documents_lexical.sql --target prod
+```
+
+적용 후 운영에서 검증한다:
+
+```sql
+select proname from pg_proc where proname = 'match_ai_documents_lexical';
+select indexname from pg_indexes where indexname like 'ai_documents_%_trgm_idx';
+```
+
+Expected: 함수 1건 · 인덱스 2건.
+
+이 마이그레이션은 **인덱스와 함수만 추가하고 데이터를 건드리지 않는다.** 되돌리기는
+`0082_ai_documents_lexical_rollback.sql` 하나로 끝난다.
+
 ---
 
 ## Task 4: 회의록 스코프 skew 수정
@@ -487,7 +508,7 @@ Staging-verified: 0082 적용·인덱스 사용 확인(Bitmap Index Scan)"
 - Produces: 없음 (기존 동작 수정). Task 11의 백필이 이 수정에 의존한다.
 
 **이것이 blocker인 이유** — 열거자는 `minutes.project_id`를 읽지 않고 `meetings(project_id)`만 본다.
-로더(`content.ts:282`)는 `row.project_id ?? meetingProjectId`를 쓰고 `job.projectId`와 다르면
+로더(`content.ts:284`)는 `row.project_id ?? meetingProjectId`를 쓰고 `job.projectId`와 다르면
 `scopeMismatch()` → `retryable: false` → `dead_letter`. **운영 실측 47/67건(70%)이 여기 걸린다.**
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
@@ -508,7 +529,7 @@ describe('회의록 백필 스코프 — 로더와 같은 규칙을 써야 한�
     expect(spec).not.toMatch(/columns:\s*'id, updated_at, created_at, meetings\(project_id\)'/)
   })
 
-  it('project_id 우선, 없으면 meetings 역참조로 떨어진다 — content.ts:282 와 동일', () => {
+  it('project_id 우선, 없으면 meetings 역참조로 떨어진다 — content.ts:284 와 동일', () => {
     expect(source).toMatch(/row\.project_id[\s\S]{0,80}nestedProjectId\(row\.meetings\)/)
   })
 })
@@ -517,7 +538,10 @@ describe('회의록 백필 스코프 — 로더와 같은 규칙을 써야 한�
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `npx vitest run tests/ai/index-backfill-scope.test.ts`
-Expected: FAIL — `expected '…meetings(project_id)…' to contain 'project_id'` (자체 컬럼 부재)
+Expected: FAIL — **두 번째 단언**에서 실패한다
+(`expected '…' not to match /columns:\s*'id, updated_at, created_at, meetings\(project_id\)'/`).
+첫 단언 `toContain('project_id')` 는 `meetings(project_id)` 안에 부분문자열이 이미 있어 통과한다 —
+그래서 두 단언이 함께 있어야 이 결함이 잡힌다.
 
 - [ ] **Step 3: `SOURCE_TABLES.minutes`를 고친다**
 
@@ -537,7 +561,7 @@ Expected: FAIL — `expected '…meetings(project_id)…' to contain 'project_id
 
 - [ ] **Step 4: `rowProjectId` 계산을 로더와 일치시킨다**
 
-`backfill.ts:148-149`의 `rowProjectId` 계산을 다음으로 바꾼다:
+`backfill.ts:147-149`의 `rowProjectId` 계산을 다음으로 바꾼다:
 
 ```ts
     // projectColumn 이 있으면 그 컬럼, 없으면 자체 project_id → meetings 역참조 순.
@@ -570,12 +594,19 @@ minutes.project_id 를 우선 쓰고 불일치를 재시도 불가로 끊는다.
 - Modify: `src/lib/ai/chat/protocol.ts` (`BOT_DOMAINS`, `BOT_ENTITY_TYPES`)
 - Modify: `src/lib/ai/index/content.ts` (`loadIssue` + `case 'issue'`)
 - Modify: `src/lib/ai/index/backfill.ts` (`INDEX_BACKFILL_DOMAINS`, `INDEX_BACKFILL_ENTITY_TYPE`, `SOURCE_TABLES`)
+- **Modify: `src/lib/ai/chat/verifier.ts`** (`DOMAIN_PATH`) — 아래 blocker 참조
 - Test: `tests/ai/index-issue-loader.test.ts`
 
 **Interfaces:**
 - Produces: `domain: 'issues'` · `entityType: 'issue'` 색인 행. Task 8의 검색이 출처 배지로 쓴다.
 
-**`case 'issue'`만 추가하면 한 건도 색인되지 않는다.** `pgvector.ts:175-176`이
+> ⚠️ **`BOT_DOMAINS` 에 `'issues'` 를 넣는 순간 `verifier.ts:41` 이 컴파일 에러가 된다.**
+> 그 줄은 `} satisfies Record<BotDomain, (projectId: string | null) => string[]>` 로 닫혀 있어
+> 새 도메인 키가 없으면 타입이 깨진다. **vitest 는 이걸 못 잡는다** — oxc 트랜스파일만 하고
+> 타입체크를 하지 않으며, `BOT_DOMAINS` 를 열거하는 테스트가 `tests/` 전체에 0건이다.
+> 그래서 이 태스크의 검증에는 반드시 `npx tsc --noEmit` 이 들어간다.
+
+**`case 'issue'`만 추가하면 한 건도 색인되지 않는다.** `pgvector.ts:67-68`이
 `BOT_DOMAINS`·`BOT_ENTITY_TYPES`로 Set을 만들어 검증하므로 `mapDocument`가 `null`을 반환하고
 upsert가 거부된다. DB는 무해하다 — `0031`의 `domain`·`entity_type`에 CHECK 제약이 없다.
 
@@ -623,8 +654,11 @@ describe('이슈 색인 배선', () => {
     const result = await load(job)
     expect(result.ok).toBe(true)
     if (!result.ok || !result.data) throw new Error('스냅샷이 없다')
-    expect(result.data.title).toContain('MES 권한 신청 절차')
-    expect(result.data.href).toContain(`/p/${PROJECT}/issues`)
+    // IndexContentSnapshot 은 { documents, sourceUpdatedAt } 이다(types.ts:198-201).
+    // title·href 는 스냅샷이 아니라 documents[0] 에 있다.
+    const [doc] = result.data.documents
+    expect(doc.title).toContain('MES 권한 신청 절차')
+    expect(doc.href).toContain(`/p/${PROJECT}/issues`)
   })
 
   it('다른 프로젝트의 이슈면 내용 노출 전에 끊는다', async () => {
@@ -706,11 +740,24 @@ async function loadIssue(client: SupabaseKnowledgeClient, job: ClaimedIndexJob):
   issues: { table: 'issues', columns: 'id, project_id, updated_at, created_at', projectColumn: 'project_id' },
 ```
 
-- [ ] **Step 6: 통과를 확인한다**
+- [ ] **Step 6: `verifier.ts`의 `DOMAIN_PATH`에 `issues`를 추가한다**
 
-Run: `npx vitest run tests/ai/ tests/chat/ 2>&1 | tail -20`
-Expected: PASS. **`BOT_DOMAINS`를 소비하는 `chat/router.ts`·`verifier.ts` 테스트가 깨지면
-거기서 도메인을 열거하고 있다는 뜻이니 함께 고친다.**
+`BOT_DOMAINS`가 늘어났으므로 이 줄이 없으면 `verifier.ts:41`의
+`satisfies Record<BotDomain, …>`가 깨진다. 경로 루트는 `loadIssue`의 `href`와 같아야
+`isInternalHref` 검증도 통과한다.
+
+```ts
+  issues: projectId => projectId ? [`/p/${projectId}/issues`] : [],
+```
+
+- [ ] **Step 7: 통과를 확인한다**
+
+Run: `npx vitest run tests/ai/ 2>&1 | tail -20`
+Run: `npx tsc --noEmit 2>&1 | grep -E "protocol|verifier|router|content|backfill" || echo "관련 타입 에러 0건"`
+
+Expected: vitest PASS + 위 파일들에 타입 에러 0건.
+**`tsc`를 반드시 돌려라** — vitest(oxc)는 타입체크를 하지 않고 `BOT_DOMAINS`를 열거하는
+테스트가 `tests/` 전체에 0건이라, 이 태스크가 만든 타입 깨짐은 vitest로 절대 안 잡힌다.
 
 - [ ] **Step 7: 커밋**
 
@@ -870,7 +917,7 @@ function documentKey(candidate: FusionCandidate): string {
     candidate.domain,
     candidate.entityType,
     candidate.entityId,
-  ].join('')
+  ].join('\u001f')   // 구분자 없이 이으면 서로 다른 튜플이 같은 키가 된다
 }
 
 export function fuseSearchResults(
@@ -886,7 +933,12 @@ export function fuseSearchResults(
       const key = documentKey(candidate)
       const existing = merged.get(key)
       if (!existing) {
-        merged.set(key, { ...candidate, score: contribution, matchedBy: [kind] })
+        const created: FusedDocument = { ...candidate, score: contribution, matchedBy: [kind] }
+        merged.set(key, created)
+        // 첫 삽입에서도 다리별 점수를 기록해야 한다. 안 하면 다음 청크가 legScore 0 을
+        // 읽어 `contribution > 0` 이 항상 참이 되고, 최고점 교체가 아니라 합산이 된다 —
+        // §5.4 가 금지한 길이 편향이 그대로 되살아난다.
+        setLegScore(created, kind, contribution)
         return
       }
       // 문서 점수는 최고 청크 점수다. 합산하면 청크가 많은 긴 문서가 유리해져
@@ -981,7 +1033,7 @@ git commit -m "feat(search): RRF 융합 + 청크를 문서로 접기
 ```ts
 // tests/ai/index-lexical.test.ts
 import { describe, expect, it, vi } from 'vitest'
-import { createLexicalSearch } from '@/lib/ai/index/lexical'
+import { createLexicalSearch, toFusionCandidate } from '@/lib/ai/index/lexical'
 
 const PROJECT = '11111111-1111-1111-1111-111111111111'
 
@@ -1063,7 +1115,7 @@ function str(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function toCandidate(row: Row): FusionCandidate | null {
+export function toFusionCandidate(row: Record<string, unknown>): FusionCandidate | null {
   const domain = str(row.domain)
   const entityType = str(row.entity_type)
   const entityId = str(row.entity_id)
@@ -1110,7 +1162,7 @@ export function createLexicalSearch(client: SupabaseKnowledgeClient) {
 
     const rows = Array.isArray(data) ? data as Row[] : []
     return { ok: true, candidates: rows.flatMap(row => {
-      const candidate = toCandidate(row)
+      const candidate = toFusionCandidate(row)
       return candidate ? [candidate] : []
     }) }
   }
@@ -1247,47 +1299,33 @@ Expected: FAIL — `Cannot find module '@/app/api/wiki/search/route'`
 import { NextResponse, type NextRequest } from 'next/server'
 import { embedDocuments } from '@/lib/ai/embeddings'
 import { createLexicalSearch } from '@/lib/ai/index/lexical'
-import { getActorForView } from '@/lib/authz'
+import { getActorViewState } from '@/lib/authz'
 import { createSupabaseAccessScopeResolver } from '@/lib/authz/accessScope'
 import { decideSearchAccess } from '@/lib/domain/searchAccess'
-import { fuseSearchResults, type FusionCandidate } from '@/lib/domain/searchFusion'
+import { fuseSearchResults } from '@/lib/domain/searchFusion'
+import type { SupabaseKnowledgeClient } from '@/lib/ai/index/pgvector'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const MAX_QUERY_CHARS = 200
 const CANDIDATE_LIMIT = 50
 const RESULT_LIMIT = 20
 
-type Row = Record<string, unknown>
-
-function str(value: unknown): string | null {
-  return typeof value === 'string' ? value : null
-}
-
-function toCandidate(row: Row): FusionCandidate | null {
-  const domain = str(row.domain), entityType = str(row.entity_type)
-  const entityId = str(row.entity_id), href = str(row.href)
-  if (!domain || !entityType || !entityId || !href) return null
-  return {
-    domain, entityType, entityId,
-    projectId: str(row.project_id),
-    chunkNo: typeof row.chunk_no === 'number' ? row.chunk_no : 0,
-    title: str(row.title) ?? '',
-    content: str(row.content) ?? '',
-    href,
-    occurredOn: str(row.occurred_on),
-  }
-}
+// row → FusionCandidate 매핑은 Task 7 이 export 한 것을 재사용한다. 여기 다시 쓰면
+// 같은 로직이 두 벌이 되어 필드 하나가 바뀔 때 조용히 갈라진다.
 
 export async function POST(request: NextRequest) {
-  const actor = await getActorForView()
+  // getActorForView() 는 미인증과 권한 조회 실패를 똑같이 null 로 돌려준다(authz/index.ts:90-113).
+  // 그 둘을 401 로 뭉개면 조회 실패를 인증 실패로 위장하게 된다 — 에러 처리 3원칙 위반.
+  const { actor, degraded } = await getActorViewState()
+  if (degraded) return NextResponse.json({ error: 'ACTOR_LOOKUP_FAILED' }, { status: 503 })
   if (!actor?.userId) return NextResponse.json({ error: 'UNAUTHENTICATED' }, { status: 401 })
 
   const body = await request.json().catch(() => null) as { projectId?: unknown; q?: unknown } | null
   const projectId = typeof body?.projectId === 'string' ? body.projectId : ''
   const query = (typeof body?.q === 'string' ? body.q : '').slice(0, MAX_QUERY_CHARS).trim()
 
-  const client = createAdminClient()
-  const scope = await createSupabaseAccessScopeResolver(client).resolve(actor.userId)
+  const admin = createAdminClient()
+  const scope = await createSupabaseAccessScopeResolver(admin).resolve(actor.userId)
 
   // 이 판정이 유일한 관문이다 — ai_documents 의 RLS 는 authenticated using (true) 다.
   const access = decideSearchAccess(projectId, scope)
@@ -1299,10 +1337,12 @@ export async function POST(request: NextRequest) {
   const embeddings = await embedDocuments([query], 'RETRIEVAL_QUERY').catch(() => null)
   const queryEmbedding = embeddings?.[0] ?? null
 
-  const lexicalSearch = createLexicalSearch(client)
+  // createLexicalSearch 는 구조적 인터페이스 SupabaseKnowledgeClient 를 받는다.
+  // 리포 관용구대로 이중 캐스트로 넘긴다.
+  const lexicalSearch = createLexicalSearch(admin as unknown as SupabaseKnowledgeClient)
   const [vectorRows, lexicalResult] = await Promise.all([
     queryEmbedding
-      ? client.rpc('match_ai_documents', {
+      ? admin.rpc('match_ai_documents', {
           query_embedding: queryEmbedding,
           match_count: CANDIDATE_LIMIT,
           p_project_ids: access.projectIds,
@@ -1326,8 +1366,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: lexicalResult.errorCode }, { status: 503 })
   }
 
-  const vector = (Array.isArray(vectorRows.data) ? vectorRows.data as Row[] : [])
-    .flatMap(row => { const c = toCandidate(row); return c ? [c] : [] })
+  const vector = (Array.isArray(vectorRows.data) ? vectorRows.data as Array<Record<string, unknown>> : [])
+    .flatMap(row => { const c = toFusionCandidate(row); return c ? [c] : [] })
 
   return NextResponse.json({
     results: fuseSearchResults(vector, lexicalResult.candidates, RESULT_LIMIT),
@@ -1378,7 +1418,10 @@ import { NextRequest } from 'next/server'
 
 const mocks = vi.hoisted(() => ({
   runIndexWorkerOnce: vi.fn(),
-  createAdminClient: vi.fn(() => ({})),
+  // 라우트가 admin.from('projects').select('id') 를 부르므로 빈 객체를 주면 TypeError 로 죽는다.
+  createAdminClient: vi.fn(() => ({
+    from: () => ({ select: () => ({ limit: async () => ({ data: [{ id: 'p1' }], error: null }) }) }),
+  })),
 }))
 vi.mock('@/lib/ai/index/worker', () => ({ runIndexWorkerOnce: mocks.runIndexWorkerOnce }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
@@ -1424,6 +1467,14 @@ describe('GET /api/cron/ai-index', () => {
     vi.stubEnv('CHAT_V2_INDEX_WORKER_ENABLED', 'false')
     expect((await GET(request('Bearer topsecret'))).status).toBe(404)
   })
+
+  it('프로젝트 조회가 실패하면 503 — 빈 스코프로 위장하지 않는다', async () => {
+    mocks.createAdminClient.mockReturnValue({
+      from: () => ({ select: () => ({ limit: async () => ({ data: null, error: { message: 'boom' } }) }) }),
+    })
+    expect((await GET(request('Bearer topsecret'))).status).toBe(503)
+    expect(mocks.runIndexWorkerOnce).not.toHaveBeenCalled()
+  })
 })
 ```
 
@@ -1434,7 +1485,11 @@ Expected: FAIL — `Cannot find module '@/app/api/cron/ai-index/route'`
 
 - [ ] **Step 3: 크론 어댑터를 만든다**
 
-먼저 `src/app/api/cron/inbox-retention/route.ts:14-18`을 읽어 인증 관용구를 그대로 따른다.
+먼저 `src/app/api/cron/inbox-retention/route.ts`를 읽고 **상수시간 비교 헬퍼(`secretMatches`,
+createHash + timingSafeEqual)를 그대로 가져온다.** 평문 `!==` 비교는 타이밍 정보를 흘린다.
+
+시크릿 미설정 시의 응답만 다르게 간다 — inbox-retention 은 503, 이쪽은 **404**로 존재를 숨긴다
+(기존 `/api/chat/index/worker` 의 태도를 따른다). 그 차이를 코드 주석에 근거로 남긴다.
 
 ```ts
 // src/app/api/cron/ai-index/route.ts
@@ -1460,15 +1515,22 @@ export async function GET(request: NextRequest) {
   if (process.env.CHAT_V2_INDEX_WORKER_ENABLED !== 'true') {
     return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 })
   }
-  if (request.headers.get('authorization') !== `Bearer ${secret}`) {
+  // 상수시간 비교 — inbox-retention 이 쓰는 관용구를 그대로 가져온다.
+  // (404/503 은 다르다: 이쪽은 워커 라우트의 태도를 따라 존재를 숨긴다.)
+  if (!secretMatches(request.headers.get('authorization'), secret)) {
     return NextResponse.json({ error: 'UNAUTHORIZED' }, { status: 401 })
   }
 
   // runIndexWorkerOnce 는 모든 I/O 를 주입받는 순수 오케스트레이션이다.
   // 어댑터 3종 조립은 /api/chat/index/worker/route.ts:101-107 과 동일하게 한다.
   const admin = createAdminClient()
-  const { data } = await admin.from('projects').select('id')
-  const allowedProjectIds = (data as Array<{ id?: unknown }> ?? [])
+  const projectsResult = await admin.from('projects').select('id').limit(100)
+  // 조회 실패를 빈 스코프로 위장하면 "처리할 것이 없다" 로 보이는 조용한 무동작이 된다.
+  if (projectsResult.error) {
+    console.error('[cron/ai-index] 프로젝트 조회 실패:', projectsResult.error)
+    return NextResponse.json({ error: 'PROJECTS_READ_FAILED' }, { status: 503 })
+  }
+  const allowedProjectIds = (projectsResult.data as Array<{ id?: unknown }> ?? [])
     .map(row => (typeof row.id === 'string' ? row.id : ''))
     .filter(Boolean)
   const accessScope = { allowedProjectIds, allowGlobal: true }
@@ -1519,11 +1581,17 @@ Expected: PASS (5 tests)
 
 Task 1에서 확인한 값에 따라 없는 것만 추가한다.
 
+Task 1 실측 결과(2026-08-14): `CRON_SECRET` 은 **이미 있고**(19일 전 설정) 나머지 셋은 없다.
+
 ```bash
 vercel env add CHAT_V2_INDEX_WORKER_ENABLED production   # 값: true
 vercel env add CHAT_V2_INDEX_CRON_SECRET production      # 값: 새로 생성한 난수
-# CRON_SECRET 이 없으면 함께 추가한다.
+vercel env add CHAT_V2_INDEX_ENQUEUE_ENABLED production  # 값: true  ← Task 10 이 이것 없이는 영구 no-op
 ```
+
+**스테이징(`dflow-staging`)은 별도 Vercel 프로젝트다.** Task 11 이 스테이징에 백필을 돌리므로
+그쪽에도 `CHAT_V2_INDEX_WORKER_ENABLED` · `CHAT_V2_INDEX_CRON_SECRET` 을 설정해야 한다.
+안 하면 워커 라우트가 404 를 돌려준다(`route.ts:70,73`).
 
 - [ ] **Step 7: 커밋**
 
@@ -1577,7 +1645,8 @@ git commit -m "feat(index): 색인 워커에 크론을 붙인다
 ```ts
 // tests/ai/index-enqueue-wiring.test.ts
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { enqueueIndexMutationBestEffort } from '@/lib/ai/index/enqueue'
 
 function source(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
@@ -1591,12 +1660,43 @@ describe('원천 쓰기 경로가 색인 큐에 알린다', () => {
     'src/app/actions/announcements.ts',
   ]
 
+  // 문자열 검사는 배선 누락만 잡는 얕은 그물이다. 주석에 이름을 적어도 통과하므로
+  // 이것만으로는 부족하다 — 아래 행동 테스트가 실제 계약을 검증한다.
   it.each(WIRED)('%s 가 enqueue 를 부른다', path => {
     expect(source(path)).toMatch(/enqueueIndexMutationBestEffort/)
   })
+})
 
-  it('enqueue 는 플래그가 꺼져 있으면 no-op 이다 — 배선해도 즉시 켜지지 않는다', () => {
-    expect(source('src/lib/ai/index/enqueue.ts')).toMatch(/CHAT_V2_INDEX_ENQUEUE_ENABLED/)
+describe('enqueue 계약 — 무엇을 어떤 형태로 넣는가', () => {
+  it('플래그가 켜져 있으면 mutation 을 그대로 큐에 넣는다', async () => {
+    vi.stubEnv('CHAT_V2_INDEX_ENQUEUE_ENABLED', 'true')
+    const enqueue = vi.fn(async () => ({ ok: true as const }))
+    await enqueueIndexMutationBestEffort({ enqueue }, [{
+      operation: 'upsert', domain: 'minutes', entityType: 'minute',
+      entityId: 'm1', projectId: 'p1',
+    }])
+    expect(enqueue).toHaveBeenCalledWith([expect.objectContaining({
+      operation: 'upsert', domain: 'minutes', entityType: 'minute', entityId: 'm1',
+    })])
+  })
+
+  it('플래그가 꺼져 있으면 큐를 건드리지 않는다', async () => {
+    vi.stubEnv('CHAT_V2_INDEX_ENQUEUE_ENABLED', 'false')
+    const enqueue = vi.fn()
+    await enqueueIndexMutationBestEffort({ enqueue }, [{
+      operation: 'upsert', domain: 'minutes', entityType: 'minute',
+      entityId: 'm1', projectId: 'p1',
+    }])
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('큐가 던져도 호출부로 전파하지 않는다 — 색인 실패가 업무 쓰기를 되돌리면 안 된다', async () => {
+    vi.stubEnv('CHAT_V2_INDEX_ENQUEUE_ENABLED', 'true')
+    const enqueue = vi.fn(async () => { throw new Error('boom') })
+    await expect(enqueueIndexMutationBestEffort({ enqueue }, [{
+      operation: 'upsert', domain: 'minutes', entityType: 'minute',
+      entityId: 'm1', projectId: 'p1',
+    }])).resolves.toBeUndefined()
   })
 })
 ```
@@ -1660,6 +1760,16 @@ enqueue 는 있는데 부르는 곳이 0건이라 백필 직후부터 색인이 
 - Produces: `ai_documents` 행
 
 **인가(Task 2·8)가 먼저다.** `0031:67-72`가 정한 게이트다.
+
+> ⚠️ **이 태스크는 배포된 URL 에 대고 돈다 — 로컬 커밋만으로는 성립하지 않는다.**
+> 백필이 옳게 돌려면 다음이 그 환경에 **배포돼 있어야** 한다:
+> - Task 4(회의록 스코프 skew 수정) — 없으면 회의록 47/67 이 dead_letter
+> - Task 5(이슈 로더 + `INDEX_BACKFILL_DOMAINS`) — 없으면 이슈가 한 건도 안 들어감
+> - Task 9(워커 env) — 없으면 워커 라우트가 404
+>
+> 따라서 스테이징 백필 전에 **Task 4·5·9 커밋을 `staging` 브랜치로 push** 해 배포를 받고,
+> `dflow-staging` Vercel 프로젝트에도 워커 env 2종을 설정한다.
+> 운영 백필 전에는 **main push + 운영 env 설정**이 선행돼야 한다.
 
 - [ ] **Step 1: 러너를 만든다**
 
@@ -1750,8 +1860,24 @@ from public.ai_documents group by 1,2 order by chunks desc;
 select status, count(*) from public.ai_index_jobs group by 1;
 ```
 
-**합격 기준**: `dead_letter` 0건. 회의록 문서 수가 원천 건수와 일치.
-`dead_letter`가 있으면 `last_error`를 읽고 Task 4·5로 돌아간다.
+**합격 기준** — 셋 다 참이어야 한다:
+1. `dead_letter` 0건 (있으면 `last_error` 를 읽고 Task 4·5 로 돌아간다)
+2. 회의록 문서 수가 원천 건수와 일치
+3. **`count(embedding) = count(*)`** — 임베딩이 실제로 붙었는가
+
+3번이 없으면 **거짓 통과한다.** `embedDocuments` 는 API 키가 없으면 호출조차 하지 않고
+`null` 을 돌려주므로(`provider.ts` 의 `embedConfig().apiKey` 분기), 모든 청크가
+`embedding = null` 인 채로 들어가고 1·2번은 그대로 통과한다. 그 상태에서는 의미 검색이
+전혀 동작하지 않는데 아무도 못 잡는다.
+
+```sql
+select domain, count(*) chunks, count(embedding) embedded
+from public.ai_documents group by 1 order by chunks desc;
+```
+
+`embedded` 가 `chunks` 보다 작으면 **해당 환경에 `GEMINI_API_KEY` 가 있는지 먼저 확인한다.**
+스테이징에 키가 없으면 한도 실측은 운영 소량 배치로 옮긴다
+(`--domains=announcements --batch=5` — 공지는 5건이라 안전하다).
 
 - [ ] **Step 5: 운영 백필**
 
@@ -1772,83 +1898,221 @@ content_hash 덕에 재실행이 멱등이라 중단해도 이어서 돌리면 �
 ## Task 12: 검색 화면
 
 **Files:**
-- Create: `src/components/wiki/WikiSearch.tsx`
+- Create: `src/lib/domain/searchView.ts` (순수 — 응답 → 화면 상태 매핑)
+- Create: `src/components/wiki/WikiSearchResults.tsx` (순수 표시 — 상태를 props 로 받는다)
+- Create: `src/components/wiki/WikiSearch.tsx` (클라이언트 셸 — fetch·상태 소유)
 - Modify: `src/app/(app)/p/[projectId]/wiki/page.tsx`
-- Modify: `src/lib/i18n/dict/wiki.ts` (새 키 추가)
-- Test: `tests/ui/wiki-search.test.tsx`
+- Modify: `src/lib/i18n/dict/wiki.ts` (ko/en 양쪽)
+- Test: `tests/domain/search-view.test.ts`
+- Test: `tests/ui/wiki-search-results.test.tsx`
 
 **Interfaces:**
-- Consumes: `POST /api/wiki/search`(Task 8)
-- Produces: 없음
+- Consumes: `POST /api/wiki/search`(Task 8) — 응답 `{ results: FusedDocument[]; degraded: boolean }`
+- Produces:
+  ```ts
+  // src/lib/domain/searchView.ts
+  export interface SearchHit {
+    domain: string; entityType: string; entityId: string
+    title: string; content: string; href: string
+    occurredOn: string | null; score: number; matchedBy: string[]
+  }
+  export type SearchViewState =
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'done'; hits: SearchHit[]; degraded: boolean }
+    | { kind: 'error' }
+  export function toSearchViewState(
+    response: { ok: boolean; status: number; body: unknown },
+  ): SearchViewState
+  ```
+
+> **테스트 전략 — 계획 초판에서 교체됨 (컨트롤러 ruling, 2026-08-14).**
+> 초판은 `@testing-library/react` · `@testing-library/user-event` · `toBeInTheDocument`(jest-dom)를
+> 썼는데 **이 리포에는 셋 다 설치돼 있지 않다**(devDependencies 에 `jsdom` 만 있고
+> `toBeInTheDocument` 사용은 리포 전체 0건). 의존성을 새로 들이는 대신 리포 관용구를 따른다 —
+> 파일 첫 줄 `// @vitest-environment jsdom` 도크블록 + `renderToStaticMarkup` + 문자열 단언
+> (`toContain`, 리포에서 431회 사용).
+>
+> 그래서 컴포넌트를 셋으로 나눈다: 상태 매핑 순수 함수 · 상태를 props 로 받는 표시 컴포넌트 ·
+> fetch 를 소유하는 클라이언트 셸. 로직은 앞의 둘에 있고 둘 다 테스트된다.
+> **타이핑·Enter 같은 상호작용 자체는 자동 테스트에서 빠진다** — 그 부분은 눈으로 확인한다.
 
 **옛 컴포넌트 파일은 지우지 않는다.** 화면만 교체해 두면 문제 시 `page.tsx` 한 줄로 되돌아간다.
 파일 삭제는 2단계다.
 
-- [ ] **Step 1: 실패하는 테스트를 쓴다**
+- [ ] **Step 1: 상태 매핑의 실패하는 테스트를 쓴다**
 
-```tsx
-// tests/ui/wiki-search.test.tsx
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { WikiSearch } from '@/components/wiki/WikiSearch'
+```ts
+// tests/domain/search-view.test.ts
+import { describe, expect, it } from 'vitest'
+import { toSearchViewState } from '@/lib/domain/searchView'
 
-const PROJECT = '11111111-1111-1111-1111-111111111111'
-
-function result(over: Record<string, unknown> = {}) {
-  return {
-    domain: 'minutes', entityType: 'minute', entityId: 'm1', projectId: PROJECT,
-    chunkNo: 0, title: '정례 회의', content: '계정 발급은 IT팀 경유로 한다',
-    href: '/p/x/minutes/m1', occurredOn: '2026-07-14', score: 0.9,
-    matchedBy: ['vector'], ...over,
-  }
+const hit = {
+  domain: 'minutes', entityType: 'minute', entityId: 'm1',
+  title: '정례 회의', content: '계정 발급은 IT팀 경유로 한다',
+  href: '/p/x/minutes/m1', occurredOn: '2026-07-14', score: 0.9, matchedBy: ['vector'],
 }
 
-beforeEach(() => { vi.restoreAllMocks() })
-
-describe('WikiSearch', () => {
-  it('검색하면 결과와 출처 배지를 보여준다', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ results: [result()], degraded: false }), { status: 200 })))
-    render(<WikiSearch projectId={PROJECT} locale="ko" initialQuery="" />)
-    await userEvent.type(screen.getByRole('searchbox'), '권한{Enter}')
-    await waitFor(() => expect(screen.getByText('정례 회의')).toBeInTheDocument())
-    expect(screen.getByText('회의록')).toBeInTheDocument()
+describe('toSearchViewState', () => {
+  it('200 이면 결과와 degraded 를 그대로 옮긴다', () => {
+    const state = toSearchViewState({ ok: true, status: 200, body: { results: [hit], degraded: false } })
+    expect(state).toMatchObject({ kind: 'done', degraded: false })
+    if (state.kind !== 'done') throw new Error('done 이어야 한다')
+    expect(state.hits[0].entityId).toBe('m1')
   })
 
-  it('임베딩 실패(degraded)를 조용히 넘기지 않고 알린다', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ results: [result()], degraded: true }), { status: 200 })))
-    render(<WikiSearch projectId={PROJECT} locale="ko" initialQuery="" />)
-    await userEvent.type(screen.getByRole('searchbox'), '권한{Enter}')
-    await waitFor(() => expect(screen.getByText(/어휘 검색만/)).toBeInTheDocument())
+  it('degraded 를 잃지 않는다 — 조용히 품질을 떨어뜨리면 안 된다', () => {
+    const state = toSearchViewState({ ok: true, status: 200, body: { results: [hit], degraded: true } })
+    expect(state).toMatchObject({ kind: 'done', degraded: true })
   })
 
-  it('검색 실패를 결과 없음으로 위장하지 않는다', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ error: 'VECTOR_SEARCH_FAILED' }), { status: 503 })))
-    render(<WikiSearch projectId={PROJECT} locale="ko" initialQuery="" />)
-    await userEvent.type(screen.getByRole('searchbox'), '권한{Enter}')
-    await waitFor(() => expect(screen.getByText(/불러오지 못했습니다/)).toBeInTheDocument())
-    expect(screen.queryByText(/결과가 없습니다/)).not.toBeInTheDocument()
+  it('503 은 error 다 — 결과 없음으로 위장하지 않는다', () => {
+    expect(toSearchViewState({ ok: false, status: 503, body: { error: 'VECTOR_SEARCH_FAILED' } }))
+      .toEqual({ kind: 'error' })
   })
 
-  it('결과가 0건이면 그렇게 말한다', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ results: [], degraded: false }), { status: 200 })))
-    render(<WikiSearch projectId={PROJECT} locale="ko" initialQuery="" />)
-    await userEvent.type(screen.getByRole('searchbox'), '없는말{Enter}')
-    await waitFor(() => expect(screen.getByText(/결과가 없습니다/)).toBeInTheDocument())
+  it('403 도 error 다', () => {
+    expect(toSearchViewState({ ok: false, status: 403, body: { error: 'PROJECT_FORBIDDEN' } }))
+      .toEqual({ kind: 'error' })
+  })
+
+  it('200 인데 본문 형태가 깨졌으면 error 다 — 빈 결과로 넘기지 않는다', () => {
+    expect(toSearchViewState({ ok: true, status: 200, body: null })).toEqual({ kind: 'error' })
+    expect(toSearchViewState({ ok: true, status: 200, body: { results: 'nope' } })).toEqual({ kind: 'error' })
+  })
+
+  it('결과 0건은 정상 done 이다', () => {
+    expect(toSearchViewState({ ok: true, status: 200, body: { results: [], degraded: false } }))
+      .toEqual({ kind: 'done', hits: [], degraded: false })
   })
 })
 ```
 
 - [ ] **Step 2: 실패를 확인한다**
 
-Run: `npx vitest run tests/ui/wiki-search.test.tsx`
-Expected: FAIL — `Cannot find module '@/components/wiki/WikiSearch'`
+Run: `npx vitest run tests/domain/search-view.test.ts`
+Expected: FAIL — `Cannot find module '@/lib/domain/searchView'`
 
-- [ ] **Step 3: i18n 키를 추가한다**
+- [ ] **Step 3: 상태 매핑을 구현한다**
+
+```ts
+// src/lib/domain/searchView.ts
+
+/**
+ * 검색 응답 → 화면 상태. 컴포넌트에서 떼어낸 이유는 이것이 이 화면의 유일한 분기 로직이고,
+ * 리포의 UI 테스트 관용구(renderToStaticMarkup)로는 fetch 분기를 검증할 수 없기 때문이다.
+ */
+export interface SearchHit {
+  domain: string
+  entityType: string
+  entityId: string
+  title: string
+  content: string
+  href: string
+  occurredOn: string | null
+  score: number
+  matchedBy: string[]
+}
+
+export type SearchViewState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'done'; hits: SearchHit[]; degraded: boolean }
+  | { kind: 'error' }
+
+function isHit(value: unknown): value is SearchHit {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as Record<string, unknown>
+  return typeof row.domain === 'string'
+    && typeof row.entityId === 'string'
+    && typeof row.href === 'string'
+}
+
+export function toSearchViewState(
+  response: { ok: boolean; status: number; body: unknown },
+): SearchViewState {
+  // 실패를 "결과 없음" 으로 위장하지 않는다(에러 처리 3원칙).
+  if (!response.ok) return { kind: 'error' }
+
+  const body = response.body
+  if (typeof body !== 'object' || body === null) return { kind: 'error' }
+  const results = (body as Record<string, unknown>).results
+  if (!Array.isArray(results)) return { kind: 'error' }
+
+  return {
+    kind: 'done',
+    hits: results.filter(isHit),
+    degraded: (body as Record<string, unknown>).degraded === true,
+  }
+}
+```
+
+- [ ] **Step 4: 통과를 확인한다**
+
+Run: `npx vitest run tests/domain/search-view.test.ts`
+Expected: PASS (6 tests)
+
+- [ ] **Step 5: 표시 컴포넌트의 실패하는 테스트를 쓴다**
+
+```tsx
+// @vitest-environment jsdom
+// tests/ui/wiki-search-results.test.tsx — 네 상태의 렌더 분기 검증
+import { describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { WikiSearchResults } from '@/components/wiki/WikiSearchResults'
+import type { SearchHit } from '@/lib/domain/searchView'
+
+const hit: SearchHit = {
+  domain: 'minutes', entityType: 'minute', entityId: 'm1',
+  title: '정례 회의', content: '계정 발급은 IT팀 경유로 한다',
+  href: '/p/x/minutes/m1', occurredOn: '2026-07-14', score: 0.9, matchedBy: ['vector'],
+}
+
+function html(state: Parameters<typeof WikiSearchResults>[0]['state']): string {
+  return renderToStaticMarkup(<WikiSearchResults state={state} locale="ko" />)
+}
+
+describe('WikiSearchResults', () => {
+  it('결과와 출처 배지를 보여준다', () => {
+    const out = html({ kind: 'done', hits: [hit], degraded: false })
+    expect(out).toContain('정례 회의')
+    expect(out).toContain('회의록')
+    expect(out).toContain('/p/x/minutes/m1')
+  })
+
+  it('degraded 를 조용히 넘기지 않고 알린다', () => {
+    expect(html({ kind: 'done', hits: [hit], degraded: true })).toContain('어휘 검색만')
+  })
+
+  it('검색 실패를 결과 없음으로 위장하지 않는다', () => {
+    const out = html({ kind: 'error' })
+    expect(out).toContain('불러오지 못했습니다')
+    expect(out).not.toContain('결과가 없습니다')
+  })
+
+  it('결과 0건이면 그렇게 말한다', () => {
+    expect(html({ kind: 'done', hits: [], degraded: false })).toContain('결과가 없습니다')
+  })
+
+  it('idle 에서는 아무 안내도 띄우지 않는다', () => {
+    const out = html({ kind: 'idle' })
+    expect(out).not.toContain('결과가 없습니다')
+    expect(out).not.toContain('불러오지 못했습니다')
+  })
+
+  it('이슈 출처는 이슈 배지로 나온다', () => {
+    const out = html({ kind: 'done', degraded: false, hits: [{ ...hit, domain: 'issues', entityType: 'issue' }] })
+    expect(out).toContain('이슈')
+  })
+})
+```
+
+- [ ] **Step 6: 실패를 확인한다**
+
+Run: `npx vitest run tests/ui/wiki-search-results.test.tsx`
+Expected: FAIL — `Cannot find module '@/components/wiki/WikiSearchResults'`
+
+- [ ] **Step 7: i18n 키를 추가한다**
 
 `src/lib/i18n/dict/wiki.ts`의 `wikiKo`와 `wikiEn` **양쪽에** 같은 키를 넣는다
 (`Record<keyof typeof wikiKo, string>`이 컴파일 타임에 패리티를 강제한다).
@@ -1863,52 +2127,107 @@ Expected: FAIL — `Cannot find module '@/components/wiki/WikiSearch'`
   'wiki.search2.source.issues': '이슈',
   'wiki.search2.source.wbs': 'WBS',
   'wiki.search2.source.announcements': '공지',
+  'wiki.search2.source.meetings': '회의',
+  'wiki.search2.source.weekly': '주간업무',
 ```
 
 en 값: `'What are you looking for?'` · `'{n} results'` · `'No results. Try different wording.'` ·
 `'Could not load search results. Please try again shortly.'` ·
 `'Semantic search is unavailable; these are lexical matches only.'` ·
-`'Minutes'` · `'Issues'` · `'WBS'` · `'Announcements'`
+`'Minutes'` · `'Issues'` · `'WBS'` · `'Announcements'` · `'Meetings'` · `'Weekly'`
 
-- [ ] **Step 4: 컴포넌트를 만든다**
+`meetings`·`weekly`까지 넣는 이유는, 기존 큐나 정합성 점검이 그 도메인을 색인해 두면
+폴백 라벨 때문에 회의가 회의록으로 잘못 보이기 때문이다.
 
-기존 UI 프리미티브를 재사용한다 — `EmptyState` 등은 `src/components/ui/`를 먼저 확인한다.
+- [ ] **Step 8: 표시 컴포넌트를 만든다**
+
+**클래스는 실측값이다** — 입력은 `app-input`(`globals.css:245`), 배지는 `chip`(wiki 컴포넌트에서
+35회), 흐린 글자는 `text-ink-muted`(56회). `input`·`text-muted`·`badge`·`text-danger`는 이 리포에 없다.
 **상태 변형 display 유틸(`group-hover:flex` 등)을 쓰지 않는다** — `globals.css`의 unlayered
 반응형 안전망에 져서 조용히 동작하지 않는다(CLAUDE.md).
 
 ```tsx
-'use client'
-import { useState } from 'react'
-import { t } from '@/lib/i18n/dict'
-import type { Locale } from '@/lib/i18n/types'
+import { t, type DictKey, type Locale } from '@/lib/i18n/dict'
+import type { SearchViewState } from '@/lib/domain/searchView'
 
-interface SearchHit {
-  domain: string; entityType: string; entityId: string
-  title: string; content: string; href: string
-  occurredOn: string | null; score: number
-  matchedBy: string[]
-}
-
-type State =
-  | { kind: 'idle' }
-  | { kind: 'loading' }
-  | { kind: 'done'; hits: SearchHit[]; degraded: boolean }
-  | { kind: 'error' }
-
-const SOURCE_KEYS: Record<string, string> = {
+const SOURCE_KEYS: Record<string, DictKey> = {
   minutes: 'wiki.search2.source.minutes',
   issues: 'wiki.search2.source.issues',
   wbs: 'wiki.search2.source.wbs',
   announcements: 'wiki.search2.source.announcements',
+  meetings: 'wiki.search2.source.meetings',
+  weekly: 'wiki.search2.source.weekly',
 }
 
+export function WikiSearchResults({ state, locale }: { state: SearchViewState; locale: Locale }) {
+  if (state.kind === 'idle' || state.kind === 'loading') return null
+
+  if (state.kind === 'error') {
+    return <p className="text-sm text-delayed">{t(locale, 'wiki.search2.error')}</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {state.degraded && (
+        <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.degraded')}</p>
+      )}
+
+      {state.hits.length === 0
+        ? <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.empty')}</p>
+        : (
+          <>
+            <p className="text-sm text-ink-muted">
+              {t(locale, 'wiki.search2.count').replace('{n}', String(state.hits.length))}
+            </p>
+            <ul className="flex flex-col gap-3">
+              {state.hits.map(hit => (
+                <li key={`${hit.domain}:${hit.entityId}`} className="card p-4">
+                  <a href={hit.href} className="font-medium text-brand hover:text-brand-hover">
+                    {hit.title}
+                  </a>
+                  <p className="mt-1 text-sm text-ink-muted line-clamp-2">{hit.content}</p>
+                  <div className="mt-2 flex items-center gap-2 text-xs text-ink-muted">
+                    <span className="chip bg-brand-weak text-brand">
+                      {SOURCE_KEYS[hit.domain] ? t(locale, SOURCE_KEYS[hit.domain]) : hit.domain}
+                    </span>
+                    {hit.occurredOn && <span>{hit.occurredOn}</span>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+    </div>
+  )
+}
+```
+
+`text-delayed`가 리포에 있는지 확인하고, 없으면 wiki 컴포넌트가 에러 문구에 실제로 쓰는
+클래스를 grep 해서 맞춘다.
+
+- [ ] **Step 9: 통과를 확인한다**
+
+Run: `npx vitest run tests/ui/wiki-search-results.test.tsx tests/domain/search-view.test.ts`
+Expected: PASS (6 + 6 tests)
+
+- [ ] **Step 10: 클라이언트 셸을 만든다**
+
+```tsx
+'use client'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { WikiSearchResults } from './WikiSearchResults'
+import { toSearchViewState, type SearchViewState } from '@/lib/domain/searchView'
+import { t, type Locale } from '@/lib/i18n/dict'
+
 export function WikiSearch({ projectId, locale, initialQuery }: {
-  projectId: string; locale: Locale; initialQuery: string
+  projectId: string
+  locale: Locale
+  initialQuery: string
 }) {
   const [query, setQuery] = useState(initialQuery)
-  const [state, setState] = useState<State>({ kind: 'idle' })
+  const [state, setState] = useState<SearchViewState>({ kind: 'idle' })
 
-  async function run(next: string) {
+  const run = useCallback(async (next: string) => {
     if (!next.trim()) { setState({ kind: 'idle' }); return }
     setState({ kind: 'loading' })
     try {
@@ -1917,14 +2236,20 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId, q: next }),
       })
-      // 실패를 "결과 없음" 으로 위장하지 않는다(에러 처리 3원칙).
-      if (!res.ok) { setState({ kind: 'error' }); return }
-      const body = await res.json() as { results: SearchHit[]; degraded: boolean }
-      setState({ kind: 'done', hits: body.results, degraded: body.degraded })
+      const body = await res.json().catch(() => null)
+      setState(toSearchViewState({ ok: res.ok, status: res.status, body }))
     } catch {
       setState({ kind: 'error' })
     }
-  }
+  }, [projectId])
+
+  // ?q= 딥링크로 들어오면 한 번은 실제로 검색해 준다. 안 하면 검색어만 채워지고 결과가 빈다.
+  const ranInitial = useRef(false)
+  useEffect(() => {
+    if (ranInitial.current || !initialQuery.trim()) return
+    ranInitial.current = true
+    void run(initialQuery)
+  }, [initialQuery, run])
 
   return (
     <div className="flex flex-col gap-4">
@@ -1934,96 +2259,51 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
         onChange={event => setQuery(event.target.value)}
         onKeyDown={event => { if (event.key === 'Enter') void run(query) }}
         placeholder={t(locale, 'wiki.search2.placeholder')}
-        className="input w-full"
+        className="app-input w-full"
       />
-
-      {state.kind === 'error' && (
-        <p className="text-sm text-delayed">{t(locale, 'wiki.search2.error')}</p>
-      )}
-
-      {state.kind === 'done' && state.degraded && (
-        <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.degraded')}</p>
-      )}
-
-      {state.kind === 'done' && state.hits.length === 0 && (
-        <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.empty')}</p>
-      )}
-
-      {state.kind === 'done' && state.hits.length > 0 && (
-        <>
-          <p className="text-sm text-ink-muted">
-            {t(locale, 'wiki.search2.count').replace('{n}', String(state.hits.length))}
-          </p>
-          <ul className="flex flex-col gap-3">
-            {state.hits.map(hit => (
-              <li key={`${hit.domain}:${hit.entityId}`} className="card p-4">
-                <a href={hit.href} className="font-medium text-brand hover:text-brand-hover">
-                  {hit.title}
-                </a>
-                <p className="mt-1 text-sm text-ink-muted line-clamp-2">{hit.content}</p>
-                <div className="mt-2 flex items-center gap-2 text-xs text-ink-muted">
-                  <span className="chip bg-brand-weak text-brand">
-                    {t(locale, SOURCE_KEYS[hit.domain] ?? 'wiki.search2.source.minutes')}
-                  </span>
-                  {hit.occurredOn && <span>{hit.occurredOn}</span>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+      <WikiSearchResults state={state} locale={locale} />
     </div>
   )
 }
 ```
 
-**클래스명은 실측값이다** — `src/components/wiki/*.tsx` 빈도 조사 결과 `btn`(37) · `text-brand`(26) ·
-`btn-ghost`(17) · `input`(6) · `card`(5) · `chip`(35, `badge` 8보다 우세) · `text-ink-muted`(56)를 쓴다.
-`text-muted`·`text-danger`·`badge` 는 이 리포에 없다. 빈 상태는 `@/components/ui/EmptyState`
-(`{ icon?, title, description?, action? }`)를 재사용한다.
+- [ ] **Step 11: `page.tsx`를 교체한다**
 
-- [ ] **Step 5: `page.tsx`를 교체하고 접근 검증을 넣는다**
+현행 화면은 `projectId` 접근 검증을 하지 않는다. 검색이 회의록 본문을 스니펫으로 내보내므로
+여기서 함께 막는다. **다만 조회 실패를 404로 위장하지 않는다** — `listProjects()`가 실패 시
+조용히 `[]`를 돌려주는 구조라면, 그 구분이 가능한 API를 쓰거나 서버에서 접근 범위를 직접 판정한다.
 
-```tsx
-  const { projectId } = await params
-  const { q } = await searchParams
-  const [projects, locale, actor] = await Promise.all([
-    listProjects(), getServerLocale(), getActorForView(),
-  ])
-  const project = projects.find(candidate => candidate.id === projectId)
-  // 현행 화면은 projectId 접근 검증을 하지 않았다. 검색이 회의록 본문을
-  // 스니펫으로 내보내므로 여기서 함께 막는다.
-  if (!project) notFound()
+먼저 `src/app/actions/project.ts`의 `listProjects` 가 조회 실패를 어떻게 다루는지 읽고,
+실패와 "없음"이 구분되지 않으면 `createSupabaseAccessScopeResolver`로 판정한다.
 
-  const projectName = project.name ?? t(locale, 'wiki.projectFallback')
-  return (
-    <ProjectPageShell hero={<PageHero title={`${projectName}${t(locale, 'wiki.heroTitleSuffix')}`} />}>
-      <WikiSearch projectId={projectId} locale={locale} initialQuery={parseQuery(q)} />
-    </ProjectPageShell>
-  )
-```
+교체 시 **더는 쓰지 않는 import를 전부 제거한다** — `getWikiOverview` · `WikiOverview` ·
+`WIKI_VIEWS` · `parseView` · `parseQuestionId` · `isProjectAdmin` · `isProjectMember` ·
+`getActorForView`. 남기면 `no-unused-vars`로 lint가 깨진다(Step 12가 lint 에러 0을 요구한다).
+`notFound()`를 쓴다면 `import { notFound } from 'next/navigation'`을 추가한다.
 
-`listProjects()`가 이미 접근 가능한 프로젝트만 돌려주는지 확인한다. 아니면
-`createSupabaseAccessScopeResolver`로 판정한다.
+- [ ] **Step 12: 전체 검증**
 
-- [ ] **Step 6: 통과를 확인한다**
+Run: `npx vitest run 2>&1 | tail -6`
+Run: `npm run lint 2>&1 | tail -6`
+Run: `npx tsc --noEmit 2>&1 | grep -c "error TS"`
 
-Run: `npx vitest run tests/ui/wiki-search.test.tsx && npm run lint && npx tsc --noEmit 2>&1 | grep -c "error TS"`
-Expected: 새 테스트 4건 PASS · lint 에러 0 · tsc 에러가 착수 전(20건)보다 늘지 않음
+Expected: 테스트 전량 PASS · lint 에러 0 · tsc 에러가 착수 전(20건)보다 늘지 않음
 
-- [ ] **Step 7: 브랜치로 올려 스테이징에서 눈으로 확인**
-
-`src/components/wiki/*`는 UI 위험 파일이 아니지만 화면 전체가 바뀌므로 스테이징을 거친다.
+- [ ] **Step 13: 커밋**
 
 ```bash
-git switch -c ui/wiki-search
-git add src/components/wiki/WikiSearch.tsx "src/app/(app)/p/[projectId]/wiki/page.tsx" \
-        src/lib/i18n/dict/wiki.ts tests/ui/wiki-search.test.tsx
+git add src/lib/domain/searchView.ts src/components/wiki/WikiSearchResults.tsx \
+        src/components/wiki/WikiSearch.tsx "src/app/(app)/p/[projectId]/wiki/page.tsx" \
+        src/lib/i18n/dict/wiki.ts tests/domain/search-view.test.ts \
+        tests/ui/wiki-search-results.test.tsx
 git commit -m "feat(wiki): 화면을 검색 하나로 교체
 
 옛 섹션은 화면에서 빠지되 컴포넌트 파일은 남긴다 — 문제가 생기면 page.tsx
-한 줄로 되돌아간다. 현행 화면이 하지 않던 projectId 접근 검증을 함께 넣는다."
-git push -u origin HEAD
+한 줄로 되돌아간다. 현행 화면이 하지 않던 projectId 접근 검증을 함께 넣는다.
+
+상태 매핑을 순수 함수로 떼어낸 이유는 이 리포에 testing-library 가 없어
+fetch 분기를 컴포넌트 테스트로 검증할 수 없기 때문이다. 로직은 순수 함수와
+표시 컴포넌트에 있고 둘 다 테스트된다."
 ```
 
 ---
@@ -2158,8 +2438,11 @@ git commit -m "test(search): 평가 세트와 측정 스크립트
 
 1단계가 끝났다고 말하려면 전부 참이어야 한다.
 
+- [ ] **0082가 스테이징·운영 양쪽에 적용됨** (`match_ai_documents_lexical` 존재 확인)
 - [ ] `ai_documents`에 회의록·이슈·WBS·공지 문서가 들어 있고 `ai_index_jobs`의 `dead_letter`가 0건
+- [ ] **`count(embedding) = count(*)`** — 임베딩이 실제로 붙었다(키 부재 거짓 통과 방지)
 - [ ] 회의록 문서 수 = 원천 건수 (Task 4의 skew가 실제로 해소됐다는 증거)
+- [ ] **원천을 한 건 수정하면 `ai_index_jobs`에 pending 이 생긴다** (Task 10 배선 + `ENQUEUE_ENABLED` 확인)
 - [ ] `/api/wiki/search`가 다른 프로젝트 요청에 403을 낸다 (테스트로 고정됨)
 - [ ] 검색 결과에 같은 문서가 청크로 중복되지 않는다
 - [ ] 평가 세트 측정치가 기록돼 있다 (기준선 / 새 검색 / 3자 비교)
