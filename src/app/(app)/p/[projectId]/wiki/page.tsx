@@ -1,26 +1,12 @@
-import { listProjects } from '@/app/actions/project'
-import { getActorForView } from '@/lib/authz'
-import { isProjectAdmin, isProjectMember } from '@/lib/domain/authz'
+import { notFound } from 'next/navigation'
+import { createServerClient } from '@/lib/supabase/server'
+import { getActorViewState } from '@/lib/authz'
+import { createSupabaseAccessScopeResolver } from '@/lib/authz/accessScope'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
-import { WikiOverview } from '@/components/wiki/WikiOverview'
-import { getWikiOverview } from '@/lib/data/wiki'
-import { WIKI_VIEWS, type WikiView } from '@/lib/domain/wikiView'
+import { WikiSearch } from '@/components/wiki/WikiSearch'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
-
-/** KPI 카드가 넘겨주는 ?view=. 알 수 없는 값은 조용히 전체 뷰로 되돌린다. */
-function parseView(value: string | string[] | undefined): WikiView {
-  return typeof value === 'string' && (WIKI_VIEWS as readonly string[]).includes(value)
-    ? value as WikiView
-    : 'all'
-}
-
-function parseQuestionId(value: string | string[] | undefined): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 && trimmed.length <= 128 ? trimmed : null
-}
 
 /**
  * ?q= — 검색어를 URL 에 남기는 이유는 둘이다. 문서를 열었다 뒤로 오면 검색어가
@@ -36,35 +22,41 @@ export default async function ProjectWikiPage({
   searchParams,
 }: {
   params: Promise<{ projectId: string }>
-  searchParams: Promise<{ view?: string | string[]; question?: string | string[]; q?: string | string[] }>
+  searchParams: Promise<{ q?: string | string[] }>
 }) {
   const { projectId } = await params
-  const { view, question, q } = await searchParams
-  const [data, projects, locale, actor] = await Promise.all([
-    getWikiOverview(projectId),
-    listProjects(),
+  const { q } = await searchParams
+  const [locale, { actor, degraded }] = await Promise.all([
     getServerLocale(),
-    getActorForView(),
+    getActorViewState(),
   ])
-  const project = projects.find((candidate) => candidate.id === projectId)
-  const projectName = project?.name ?? t(locale, 'wiki.projectFallback')
+
+  // 접근 제어는 검색 API가 처리하지만, 프로젝트 존재 확인은 여기서 한다.
+  // 비공개 프로젝트도 목록에 나타나지 않는다면 notFound() 하지만,
+  // 조회 자체가 실패했다면 degraded 를 보여준다.
+  if (!actor?.userId) notFound()
+
+  const client = await createServerClient()
+  const scope = await createSupabaseAccessScopeResolver(client).resolve(actor.userId)
+
+  if (!scope.ok) {
+    // 조회 실패 - 에러 페이지가 맞다
+    throw new Error(`Failed to check project access: ${scope.code}`)
+  }
+
+  // 프로젝트 목록에 없으면 접근 불가
+  if (!scope.scope.allowedProjectIds.includes(projectId)) {
+    notFound()
+  }
+
+  const projectName = projectId // 프로젝트명은 별도 fetch 대신 ID 표시
+  const initialQuery = parseQuery(q)
 
   return (
     <ProjectPageShell
       hero={<PageHero title={`${projectName}${t(locale, 'wiki.heroTitleSuffix')}`} />}
     >
-      <WikiOverview
-        projectId={projectId}
-        data={data}
-        locale={locale}
-        view={parseView(view)}
-        canCurate={isProjectAdmin(actor, projectId)}
-        canMergeTopics={isProjectAdmin(actor, projectId)}
-        canEditDocuments={isProjectMember(actor, projectId)}
-        highlightQuestionId={parseQuestionId(question)}
-        initialQuery={parseQuery(q)}
-        viewerId={actor?.userId ?? null}
-      />
+      <WikiSearch projectId={projectId} locale={locale} initialQuery={initialQuery} />
     </ProjectPageShell>
   )
 }
