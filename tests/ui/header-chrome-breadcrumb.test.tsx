@@ -178,9 +178,9 @@ describe('HeaderChrome 브레드크럼', () => {
     expect(container.querySelector('[role="dialog"][aria-label="모바일 메뉴"]')).toBeNull()
   })
 
-  it('Wiki 상세 경로에서도 프로젝트 지식 브레드크럼과 모바일 활성 링크를 유지한다', async () => {
+  it('Wiki 상세 경로에서도 프로젝트 Wiki 브레드크럼과 모바일 활성 링크를 유지한다', async () => {
     const breadcrumb = await renderAt('/p/p1/wiki/topics/topic-1')
-    expect(breadcrumb?.textContent).toContain('프로젝트 지식')
+    expect(breadcrumb?.textContent).toContain('프로젝트 Wiki')
 
     const openButton = container.querySelector<HTMLButtonElement>('button[aria-label="메뉴 열기"]')
     await act(async () => openButton?.click())

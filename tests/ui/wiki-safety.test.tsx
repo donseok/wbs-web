@@ -268,7 +268,7 @@ describe('Wiki 상태 표시 안전성', () => {
       />,
     )
 
-    expect(html).toContain('프로젝트 지식 기능을 준비하고 있습니다')
+    expect(html).toContain('프로젝트 Wiki 기능을 준비하고 있습니다')
     expect(html).not.toContain('답변하기')
     expect(html).not.toContain('이 버전 복원')
     expect(html).not.toContain('도움이 됐어요')
@@ -341,7 +341,7 @@ describe('Wiki 상태 표시 안전성', () => {
       />,
     )
 
-    expect(html).toContain('프로젝트 지식 기능을 준비하고 있습니다')
+    expect(html).toContain('프로젝트 Wiki 기능을 준비하고 있습니다')
     expect(html).not.toContain('>편집</button>')
     expect(html).not.toContain('>현재 내용 검증</button>')
     expect(html).not.toContain('>답변하기</button>')

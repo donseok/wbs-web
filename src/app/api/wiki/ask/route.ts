@@ -306,7 +306,7 @@ export async function POST(req: NextRequest) {
   ])
   const failed = results.find(result => !result.ok)
   if (failed && !failed.ok) {
-    return NextResponse.json({ error: '프로젝트 지식을 조회하지 못했습니다.' }, { status: 503 })
+    return NextResponse.json({ error: '프로젝트 Wiki를 조회하지 못했습니다.' }, { status: 503 })
   }
 
   const byId = new Map<string, WikiKnowledgeRecord>()
@@ -345,7 +345,7 @@ export async function POST(req: NextRequest) {
   const entries = candidates.slice(0, MAX_ANSWER_ENTRIES)
   const answer = entries.length > 0
     ? [
-        recent ? '최근 업데이트된 프로젝트 지식입니다.' : '프로젝트 지식에서 다음 내용을 찾았습니다.',
+        recent ? '최근 업데이트된 프로젝트 Wiki 내용입니다.' : '프로젝트 Wiki에서 다음 내용을 찾았습니다.',
         '',
         ...entries.map((entry, index) => `• [${index + 1}] ${entry.line}`),
       ].join('\n')

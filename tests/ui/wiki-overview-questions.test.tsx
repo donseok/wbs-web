@@ -106,7 +106,7 @@ describe('Wiki 답변된 질문', () => {
       />,
     )
 
-    expect(html).toContain('프로젝트 지식 기능을 준비하고 있습니다')
+    expect(html).toContain('프로젝트 Wiki 기능을 준비하고 있습니다')
     expect(html).not.toContain('>새 문서</button>')
   })
 
@@ -118,7 +118,7 @@ describe('Wiki 답변된 질문', () => {
       <WikiOverview projectId="project-1" data={data} locale="ko" canEditDocuments canCurate canMergeTopics />,
     )
 
-    expect(html).toContain('프로젝트 지식 기능을 준비하고 있습니다')
+    expect(html).toContain('프로젝트 Wiki 기능을 준비하고 있습니다')
     expect(html).not.toContain('새 문서')
     expect(html).not.toContain('질문으로 남기기')
   })

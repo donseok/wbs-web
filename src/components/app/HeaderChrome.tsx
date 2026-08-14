@@ -23,7 +23,7 @@ import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
 
 const SECTION_LABEL: Record<string, string> = {
   dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드', issues: '이슈관리',
-  members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', weekly: '주간업무', wiki: '프로젝트 지식', settings: '설정',
+  members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', weekly: '주간업무', wiki: '프로젝트 Wiki', settings: '설정',
 }
 
 /** 서버 레이아웃이 Actor 에서 평탄화해 내리는 신원 표시용 스냅샷 — Actor(Map)는 직렬화되지 않는다. */

@@ -175,7 +175,7 @@ describe('Wiki Ask 결정형 폴백', () => {
       const response = await POST(request({ projectId: 'project-1', question }))
       expect(response.status).toBe(200)
       const payload = await response.json()
-      expect(payload.answer).toContain('최근 업데이트된 프로젝트 지식')
+      expect(payload.answer).toContain('최근 업데이트된 프로젝트 Wiki')
       expect(mocks.searchWikiKnowledge).toHaveBeenCalledWith(expect.objectContaining({ query: null }))
     }
   })
