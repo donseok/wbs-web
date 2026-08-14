@@ -16,10 +16,15 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
 }) {
   const [query, setQuery] = useWikiSearchQuery(initialQuery)
   const [state, setState] = useState<SearchViewState>({ kind: 'idle' })
+  // 제출된 질의 — 입력창의 실시간 값과 분리한다. WikiSearchResults 에 그대로 내려가
+  // 매칭 중심 스니펫·요약 요청에 쓰이므로, 타이핑 중에 흔들리면 안 된다.
+  const [submittedQuery, setSubmittedQuery] = useState('')
   const seq = useRef(0)
 
   const run = useCallback(async (next: string) => {
-    if (!next.trim()) { setState({ kind: 'idle' }); return }
+    const trimmed = next.trim()
+    if (!trimmed) { setState({ kind: 'idle' }); setSubmittedQuery(''); return }
+    setSubmittedQuery(trimmed)
     const mine = ++seq.current
     setState({ kind: 'loading' })
     try {
@@ -107,7 +112,7 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
           })}
         </div>
 
-        <WikiSearchResults state={state} locale={locale} />
+        <WikiSearchResults state={state} locale={locale} query={submittedQuery} projectId={projectId} />
       </div>
     </section>
   )

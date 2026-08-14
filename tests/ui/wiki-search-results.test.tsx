@@ -10,8 +10,8 @@ const hit: SearchHit = {
   href: '/p/x/minutes/m1', occurredOn: '2026-07-14', score: 0.9, matchedBy: ['vector'],
 }
 
-function html(state: Parameters<typeof WikiSearchResults>[0]['state']): string {
-  return renderToStaticMarkup(<WikiSearchResults state={state} locale="ko" />)
+function html(state: Parameters<typeof WikiSearchResults>[0]['state'], query = ''): string {
+  return renderToStaticMarkup(<WikiSearchResults state={state} locale="ko" query={query} projectId="proj-1" />)
 }
 
 describe('WikiSearchResults', () => {
@@ -57,6 +57,18 @@ describe('WikiSearchResults', () => {
   it('이슈 출처는 이슈 배지로 나온다', () => {
     const out = html({ kind: 'done', degraded: false, hits: [{ ...hit, domain: 'issues', entityType: 'issue' }] })
     expect(out).toContain('이슈')
+  })
+
+  it('제출된 query 를 스니펫에 넘겨 매칭 주변을 보여준다', () => {
+    const marker = '문서시작표시어'
+    const filler = '설명 '.repeat(40)
+    const middleHit: SearchHit = {
+      ...hit,
+      content: `${marker}${filler}권한 신청 절차는 IT팀 승인 후 처리된다${filler}`,
+    }
+    const out = html({ kind: 'done', hits: [middleHit], degraded: false }, '권한')
+    expect(out).toContain('권한 신청 절차는 IT팀 승인')
+    expect(out).not.toContain(marker)
   })
 
   it('불릿 [n] 과 근거 버튼 [n] 이 같은 문서를 순서대로 가리킨다', () => {
