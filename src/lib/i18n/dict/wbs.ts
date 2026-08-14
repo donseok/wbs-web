@@ -192,12 +192,15 @@ export const wbsKo = {
   'wbs.assigneeLabel': '담당자',
   'wbs.assigneeUnassignedOption': '담당자 없음',
   'wbs.stageLabel': '단계',
-  'wbs.stageNoneOption': '미도입',
-  'wbs.stageTodo': '할 일',
-  'wbs.stageAs': '분석·설계',
-  'wbs.stageFp': '기능 구현',
+  // stage 라벨 정본(2026-08-13 재설계) — dev-workflow state-machine.json 기준으로 정정.
+  // 구현 때 추측으로 들어간 오역이었다: as=분석·설계(오역, 정본은 "할당됨"),
+  // fp=기능 구현(오역, 정본은 선행 미충족 강행이라 "강제 진행"), im=검수 중(오역, 정본은
+  // 구현 완료 후 검수 대기 상태). 'wbs.stageTodo' 는 todo stage 제거(0082)로 폐기.
+  'wbs.stageNoneOption': '미착수',
+  'wbs.stageAs': '할당됨',
+  'wbs.stageFp': '강제 진행',
   'wbs.stageIp': '진행 중',
-  'wbs.stageIm': '검수 중',
+  'wbs.stageIm': '구현 완료·검수 대기',
   'wbs.stageXx': '완료',
   'wbs.assigneeStageLoadFail': '현재 값을 불러오지 못했습니다. 다시 열어 주세요.',
   'wbs.assigneeStageReadOnly': '보기 전용 — 프로젝트 관리자만 변경할 수 있습니다.',
@@ -207,6 +210,11 @@ export const wbsKo = {
   'wbs.assigneeCascadeLabel': '미지정 하위 항목에도 적용',
   'wbs.assigneeCascadeResult': '{n}건에 적용되었습니다',
   'wbs.assigneeCascadeFail': '하위 일괄 적용은 실패했습니다. 다시 시도하세요.',
+  // 개발 워크플로 체크박스(2026-08-13 재설계) — dev_workflow NULL 진입점 토글
+  'wbs.devWorkflowLabel': '개발 워크플로 대상',
+  'wbs.devWorkflowCascadeLabel': '하위 항목에도 일괄 적용',
+  'wbs.devWorkflowResult': '{n}건 변경됨',
+  'wbs.devWorkflowFail': '일부 항목에 적용하지 못했습니다. 다시 시도해 주세요.',
   // 명세 패널(Task 12A, 결정 B) — 스칼라 배지·참조 필드·acceptance 체크리스트·spec 마크다운
   'wbs.specPanelTitle': '명세',
   'wbs.specLoadFail': '명세를 불러오지 못했습니다. 다시 열어 주세요.',
@@ -415,12 +423,13 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.assigneeLabel': 'Assignee',
   'wbs.assigneeUnassignedOption': 'No assignee',
   'wbs.stageLabel': 'Stage',
+  // Stage label source of truth (2026-08-13 redesign) — corrected against
+  // dev-workflow state-machine.json. 'wbs.stageTodo' dropped with the todo stage (0082).
   'wbs.stageNoneOption': 'Not started',
-  'wbs.stageTodo': 'To do',
-  'wbs.stageAs': 'Analysis & design',
-  'wbs.stageFp': 'Feature build',
+  'wbs.stageAs': 'Assigned',
+  'wbs.stageFp': 'Force proceed',
   'wbs.stageIp': 'In progress',
-  'wbs.stageIm': 'In review',
+  'wbs.stageIm': 'Built · awaiting review',
   'wbs.stageXx': 'Done',
   'wbs.assigneeStageLoadFail': 'Could not load current values. Please reopen.',
   'wbs.assigneeStageReadOnly': 'Read-only — only project admins can change this.',
@@ -430,6 +439,11 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.assigneeCascadeLabel': 'Also apply to unassigned sub-items',
   'wbs.assigneeCascadeResult': 'Applied to {n} item(s)',
   'wbs.assigneeCascadeFail': 'Applying to sub-items failed. Please try again.',
+  // Dev workflow checkbox (2026-08-13 redesign) — toggles the dev_workflow NULL entry point
+  'wbs.devWorkflowLabel': 'Dev workflow target',
+  'wbs.devWorkflowCascadeLabel': 'Apply to sub-items',
+  'wbs.devWorkflowResult': '{n} item(s) updated',
+  'wbs.devWorkflowFail': 'Some items could not be updated. Please retry.',
   // Spec panel (Task 12A, decision B) — scalar badges, reference fields, acceptance checklist, spec markdown
   'wbs.specPanelTitle': 'Spec',
   'wbs.specLoadFail': 'Could not load spec. Please reopen.',

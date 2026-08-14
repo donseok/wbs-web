@@ -9,6 +9,7 @@ import { applyAgentProgress } from '@/lib/agent/applyProgress'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
 import { emitNotification } from '@/lib/notify/emit'
+import { transitionStage } from '@/lib/agent/stageTransition'
 
 export const dynamic = 'force-dynamic'
 
@@ -151,6 +152,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       }).catch(() => {
         // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.
       })
+
+      // stage 전이 — completion 보고로 reported 전이 확정 후. im 도달이면 내부에서 unblocked 발행까지 이어진다.
+      // 실패는 로깅만 — 응답에 영향 없음. progress 보고는 이 분기에 들어오지 않으므로 무간섭.
+      if (order.wbs_item_id) {
+        try {
+          const transitioned = await transitionStage(admin, {
+            itemId: order.wbs_item_id, to: 'im', fromIn: ['ip', 'as', 'fp', null], actorUserId: loaded.userId,
+          })
+          if (!transitioned.ok) console.error('[agent-api] report stage 전이 실패:', order.wbs_item_id)
+        } catch (e) {
+          console.error('[agent-api] report stage 전이 예외:', e instanceof Error ? e.message : e)
+        }
+      }
     } else {
       // progress 는 상태 유지 — updated_at 만 갱신해 보드의 활동 시각을 살린다.
       const { error: touchErr } = await admin

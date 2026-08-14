@@ -6,7 +6,7 @@ export type AgentOrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | '
 export type AgentReportKind = 'progress' | 'completion'
 
 /** WBS Task 단계 순서(§2.5) — depends 선행 게이트(결정 C-①)의 판정 축. */
-export const STAGE_ORDER = ['todo', 'as', 'fp', 'ip', 'im', 'xx'] as const
+export const STAGE_ORDER = ['as', 'fp', 'ip', 'im', 'xx'] as const
 
 /** stage 가 min 이상인지 — null·미지 값은 false(fail-closed). 순수 함수. */
 export function stageAtLeast(stage: string | null, min: 'im'): boolean {

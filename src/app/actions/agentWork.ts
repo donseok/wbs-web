@@ -8,6 +8,7 @@ import { requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { updateActual } from '@/app/actions/wbs'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
+import { transitionStage } from '@/lib/agent/stageTransition'
 
 /**
  * 에이전트 작업 루프 UI 서버 액션 — 스펙 §5.
@@ -60,11 +61,13 @@ export async function createAgentWorkOrder(
     return { ok: false, error: '에이전트 루프가 등록되지 않은 프로젝트입니다.' }
   }
   // 쓰기 선행조회 — 항목 실재·프로젝트 일치·리프 여부. 실패는 중단(3원칙).
+  // dev_workflow 도 함께 읽는다 — 발행 성공 후 "발행 = 도입 선언"(F5, 최종 리뷰)에 쓰기 위해서다.
   const { data: item, error: itemErr } = await admin
-    .from('wbs_items').select('id, project_id').eq('id', wbsItemId).maybeSingle()
+    .from('wbs_items').select('id, project_id, dev_workflow').eq('id', wbsItemId).maybeSingle()
   if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
   if (!item) return { ok: false, error: '항목 없음' }
-  if ((item as { project_id: string }).project_id !== projectId) {
+  const itemRow = item as { project_id: string; dev_workflow: boolean | null }
+  if (itemRow.project_id !== projectId) {
     return { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
   }
   const { data: child, error: childErr } = await admin
@@ -82,6 +85,25 @@ export async function createAgentWorkOrder(
   if (error) return { ok: false, error: error.message }
   const id = (data?.[0] as { id?: string } | undefined)?.id
   if (!id) return { ok: false, error: '발행에 실패했습니다.' }
+
+  // 수동 발행 = 도입 선언(F5, 최종 리뷰) — 불변식("주문 존재 ⟺ dev_workflow ON 리프") 복원.
+  // 실패는 로깅만 — 이미 확정된 발행 결과에 영향을 주지 않는다.
+  if (itemRow.dev_workflow !== true) {
+    const { error: devErr } = await admin
+      .from('wbs_items')
+      .update({ dev_workflow: true, updated_at: new Date().toISOString() })
+      .eq('id', wbsItemId)
+    if (devErr) {
+      console.error('[agentWork] 수동 발행 후 dev_workflow 갱신 실패:', devErr.message)
+    } else {
+      const { error: logErr } = await admin.from('change_logs').insert({
+        user_id: g.actor.userId, wbs_item_id: wbsItemId, field: 'dev_workflow',
+        old_value: 'false', new_value: 'true',
+      })
+      if (logErr) console.error('[agentWork] 수동 발행 후 dev_workflow 이력 기록 실패:', logErr.message)
+    }
+  }
+
   revalidatePath(AGENT_OPS_PATH)
   return { ok: true, id }
 }
@@ -187,6 +209,18 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
     if (revErr) console.error('[agentWork] 승인 기록 실패:', revErr.message)
   }
   await notifyReviewResult(admin, order, 'work.approved', actor.userId)
+
+  // stage 전이 — 사람 검수 통과가 곧 완료(정본: accept 는 사람만). 실패는 로깅만, 승인 결과에 영향 없음.
+  // wbs_item_id 는 위(147행)에서 이미 null 이 아님이 확인됐다.
+  try {
+    const transitioned = await transitionStage(admin, {
+      itemId: order.wbs_item_id as string, to: 'xx', fromIn: ['im', 'ip', 'as', 'fp', null], actorUserId: actor.userId,
+    })
+    if (!transitioned.ok) console.error('[agentWork] 승인 stage 전이 실패:', order.wbs_item_id)
+  } catch (e) {
+    console.error('[agentWork] 승인 stage 전이 예외:', e instanceof Error ? e.message : e)
+  }
+
   revalidatePath(AGENT_OPS_PATH)
   return { ok: true }
 }

@@ -6,17 +6,19 @@ import { User } from 'lucide-react'
 import type { ProjectMember } from '@/lib/domain/types'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
-import { getWbsAssigneeStage, setWbsAssignee, setWbsAssigneeCascade, setWbsStage } from '@/app/actions/wbsAssign'
+import {
+  getWbsAssigneeStage, setWbsAssignee, setWbsAssigneeCascade, setWbsStage, setWbsDevWorkflow,
+} from '@/app/actions/wbsAssign'
 import { WbsSpecPanel } from './WbsSpecPanel'
 import { AssigneeComboBox } from './AssigneeComboBox'
 import type { DictKey } from '@/lib/i18n/dict'
 
-type Stage = 'todo' | 'as' | 'fp' | 'ip' | 'im' | 'xx'
+type Stage = 'as' | 'fp' | 'ip' | 'im' | 'xx'
 const STAGE_KEYS: Record<Stage, DictKey> = {
-  todo: 'wbs.stageTodo', as: 'wbs.stageAs', fp: 'wbs.stageFp',
+  as: 'wbs.stageAs', fp: 'wbs.stageFp',
   ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
 }
-const STAGES: Stage[] = ['todo', 'as', 'fp', 'ip', 'im', 'xx']
+const STAGES: Stage[] = ['as', 'fp', 'ip', 'im', 'xx']
 
 /**
  * 선택된 WBS 항목의 담당자(로스터 축)·단계 편집 — §2.5.
@@ -42,12 +44,15 @@ export function WbsAssigneeStagePanel({
   const { t } = useLocale()
   const teamCodes = useTeamCodes()
   const assigneeLabelId = useId()
-  const [loaded, setLoaded] = useState<{ assigneeMemberId: string | null; stage: string | null } | 'error' | null>(null)
-  const [busy, setBusy] = useState<'assignee' | 'stage' | null>(null)
+  const [loaded, setLoaded] = useState<{ assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean } | 'error' | null>(null)
+  const [busy, setBusy] = useState<'assignee' | 'stage' | 'devWorkflow' | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [cascade, setCascade] = useState(true)
   const [cascadeResult, setCascadeResult] = useState<number | null>(null)
   const [cascadeWarn, setCascadeWarn] = useState(false)
+  const [devCascade, setDevCascade] = useState(true)
+  const [devWorkflowResult, setDevWorkflowResult] = useState<number | null>(null)
+  const [devWorkflowWarn, setDevWorkflowWarn] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -65,9 +70,10 @@ export function WbsAssigneeStagePanel({
       : await setWbsAssignee(itemId, memberId)
     setBusy(null)
     if (!res.ok) { setErr(res.error ?? (useCascade ? t('wbs.assigneeCascadeFail') : t('wbs.errGeneric'))); return }
-    // 본인 항목은 setWbsAssigneeCascade 도 단건 액션과 동일하게 항상 반영하므로(값이 다를
-    // 때) 낙관적 갱신이 그대로 맞다 — 하위 트리만 별도의 null 필터를 적용한다.
-    setLoaded(prev => (prev && prev !== 'error' ? { ...prev, assigneeMemberId: memberId } : prev))
+    // 배정 성공은 서버가 stage 도 함께 바꿀 수 있다(배정↔as 자동 전이) — 부분 낙관 갱신 대신
+    // 전체 재조회로 loaded 를 교체한다(F2, 최종 리뷰). 재조회 실패는 기존 로딩 관례대로 'error'.
+    const refreshed = await getWbsAssigneeStage(itemId)
+    setLoaded(refreshed ?? 'error')
     if (useCascade && 'count' in res && typeof res.count === 'number' && res.count > 0) setCascadeResult(res.count)
     // 하위 UPDATE 만 실패한 부분 성공(리뷰 라운드 2) — 본인 반영은 확정됐으므로 성공 취급하되
     // "하위 일괄 적용은 실패했다"는 사실은 별도 경고로 알린다(assigneeCascadeFail 키 재사용).
@@ -81,6 +87,22 @@ export function WbsAssigneeStagePanel({
     setBusy(null)
     if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
     setLoaded(prev => (prev && prev !== 'error' ? { ...prev, stage } : prev))
+    router.refresh()
+  }
+
+  async function onDevWorkflowChange(enabled: boolean) {
+    setBusy('devWorkflow'); setErr(null); setDevWorkflowResult(null); setDevWorkflowWarn(false)
+    const useCascade = hasChildren && devCascade
+    const res = await setWbsDevWorkflow(itemId, enabled, useCascade)
+    setBusy(null)
+    if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
+    // OFF 는 ready 주문 취소를 동반하는 서버 동작(브리프) — 확인 모달 없이 즉시 실행하고
+    // 결과 문구로만 알린다(브라우저 confirm() 은 자동화를 막아 세션 규칙상 금지).
+    // ON 은 배정↔as 자동 전이·자동 발행을 동반할 수 있다 — 부분 낙관 갱신 대신 전체 재조회(F2, 최종 리뷰).
+    const refreshed = await getWbsAssigneeStage(itemId)
+    setLoaded(refreshed ?? 'error')
+    if (typeof res.count === 'number' && res.count > 0) setDevWorkflowResult(res.count)
+    if (res.cascadeFailed) setDevWorkflowWarn(true)
     router.refresh()
   }
 
@@ -141,6 +163,40 @@ export function WbsAssigneeStagePanel({
               {cascadeWarn && (
                 <p className="text-xs font-medium text-delayed" role="alert">
                   {t('wbs.assigneeCascadeFail')}
+                </p>
+              )}
+
+              {/* dev_workflow — NULL 진입점 토글. editable=false 에서도 현재값을 disabled
+                  체크박스로 보여준다(브리프). OFF 는 ready 주문 취소를 동반하는 서버 동작이라
+                  confirm() 없이 즉시 실행하고 결과 문구로 알린다(브라우저 모달 금지). */}
+              <label className="flex items-center gap-2 text-xs text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={loaded.devWorkflow}
+                  onChange={e => onDevWorkflowChange(e.target.checked)}
+                  disabled={!editable || busy === 'devWorkflow'}
+                />
+                {t('wbs.devWorkflowLabel')}
+              </label>
+              {editable && hasChildren && (
+                <label className="flex items-center gap-2 text-xs text-ink-muted">
+                  <input
+                    type="checkbox"
+                    checked={devCascade}
+                    onChange={e => setDevCascade(e.target.checked)}
+                    disabled={busy === 'devWorkflow'}
+                  />
+                  {t('wbs.devWorkflowCascadeLabel')}
+                </label>
+              )}
+              {devWorkflowResult !== null && (
+                <p className="text-xs font-medium text-brand">
+                  {t('wbs.devWorkflowResult').replace('{n}', String(devWorkflowResult))}
+                </p>
+              )}
+              {devWorkflowWarn && (
+                <p className="text-xs font-medium text-delayed" role="alert">
+                  {t('wbs.devWorkflowFail')}
                 </p>
               )}
 
