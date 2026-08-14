@@ -54,11 +54,41 @@ ai_index_jobs         pending 96건 (minute upsert 50 + delete 46, 전부 2026-0
 match_ai_documents    존재 (순수 벡터)
 replace_ai_document_chunks  존재
 runIndexWorkerOnce()  존재 (worker.ts:51)
-워커 호출부           없음 — 라우트·크론·스크립트 어디에도 없다
+워커 라우트           존재 (/api/chat/index/worker, worker·backfill·consistency 3모드)
+하이브리드 융합       존재 (hybrid.ts — 단 RRF 아님, 가중합)
+백필 러너             존재 (backfill.ts:45 runIndexBackfill)
+정합성 점검           존재 (consistency.ts)
+enqueue               존재하나 호출부 0건 (enqueue.ts)
 vercel.json crons     inbox-retention 하나뿐
 ```
 
-`ai_documents`가 빈 이유는 인프라 부재가 아니라 **워커를 부르는 코드가 없어서**다.
+**`ai_documents`가 빈 이유는 코드 부재가 아니라 스위치가 꺼져 있고 아무도 부르지 않아서다.**
+
+```
+CHAT_V2_INDEX_WORKER_ENABLED   !== 'true' → 라우트가 404 (route.ts:70)
+CHAT_V2_INDEX_CRON_SECRET      미설정     → 라우트가 404 (route.ts:73)
+CHAT_V2_INDEX_ENQUEUE_ENABLED  !== 'true' → enqueue 완전 no-op (enqueue.ts:14)
+vercel.json                                → 이 라우트에 크론이 안 달림
+enqueue 호출부                             → src 전체 0건
+```
+
+세 플래그의 **운영 값은 미확인이다**(Vercel env 조회 필요). 리포 문서는 "기본 OFF"로 적는다.
+
+### 2.2.1 이 설계에서 새로 만들 것은 생각보다 적다
+
+| 필요한 것 | 상태 |
+|---|---|
+| 벡터 검색 | **있음** `match_ai_documents` |
+| 하이브리드 융합 | **있음** `mergeHybridResults` — 단 RRF로 교체 필요(§5.2) |
+| 프로젝트 격리 교집합 | **있음** `normalizeSearchQuery`(hybrid.ts:103) |
+| 접근 범위 판정 | **있음** `createSupabaseAccessScopeResolver`(authz/accessScope.ts) |
+| 색인 워커·백필·정합성 | **있음** 라우트 3모드 |
+| 청커 | **있음** `md1500-v1` |
+| 어휘 다리(pg_trgm) | **없음** — 0082에서 신설 |
+| 이슈 색인 | **없음** — 4곳 배선 필요(§7 작업 5) |
+| enqueue 배선 | **없음** — 호출부 0건 |
+| 문서 접기 | **없음** — 현행 dedup 키에 `chunkNo`가 들어 있다(§5.4) |
+| 검색 화면 | **없음** |
 
 ### 2.3 전문검색 인프라는 0이다
 
@@ -139,6 +169,15 @@ RRF는 점수 대신 **순위**만 쓰므로 정규화가 필요 없고 튜닝 �
 
 `k=60`은 원논문(Cormack et al. 2009)의 기본값이며, 평가 세트로 재조정할 수 있게 상수로 둔다.
 
+**기존 융합을 교체하는 것이다 — 신설이 아니다.** `mergeHybridResults`(hybrid.ts:191)는 이미 있고
+`keyword * 0.6 + vector * 0.4 + 0.05`(양쪽 히트 보너스) 가중합을 쓴다. 이 방식은 §5.3에서 실측한
+문제를 그대로 안는다 — 두 점수의 척도가 다른데 상수 가중치로 더하므로, 한쪽 척도가 바뀌면
+가중치를 다시 튜닝해야 하고 그 근거가 없다. RRF로 바꾼다.
+
+기존 호출부(챗봇 검색)가 이 함수를 공유하므로 **교체는 챗봇 검색 결과도 바꾼다.** 평가 세트로
+회귀를 확인한 뒤 바꾸거나, 새 함수를 병행 도입하고 호출부를 단계적으로 옮긴다. 어느 쪽이든
+구현 계획에서 명시적으로 정한다.
+
 ### 5.3 어휘 다리 — 스테이징 실측 (2026-08-14)
 
 스테이징에 `pg_trgm`을 설치해 한국어 실효성을 직접 측정했다. 측정 후 확장·인덱스는 제거했다.
@@ -184,7 +223,12 @@ GIN 생성 후   Bitmap Index Scan   cost=35.40   ← ILIKE '%발주 자동화%'
 ### 5.4 청크 → 문서 접기
 
 `ai_documents`는 **청크 단위**다(`md1500-v1`, 1,500자). 접지 않으면 긴 회의록 하나가
-상위 결과를 도배한다.
+상위 결과를 도배한다. 회의록 67건이 약 1,400청크이므로 평균 20청크/건이다.
+
+**현행 코드는 접지 않는다.** `stableDocumentKey`(hybrid.ts:172-181)는
+`projectId | domain | entityType | entityId | chunkNo | indexVersion`으로 키를 만든다 —
+`chunkNo`가 들어 있어 같은 회의록의 청크 20개가 **서로 다른 20개 문서로 취급된다.**
+이 키를 그대로 두고 화면만 만들면 상위 10건이 회의록 한 건으로 채워진다.
 
 - 융합 후 `(domain, entity_type, entity_id)` 기준으로 묶는다
 - 문서 점수 = **그 문서에 속한 청크 중 최고 RRF 점수** (합산하지 않는다 — 합산하면 긴 문서가 유리해져
@@ -204,13 +248,41 @@ GIN 생성 후   Bitmap Index Scan   cost=35.40   ← ILIKE '%발주 자동화%'
 **회의록·이슈·WBS 원문을 색인하므로 검색은 새로운 정보 유출 경로가 된다.** 기존 화면 가드를
 우회하지 않도록 다음을 강제한다.
 
-- `/api/wiki/search`는 `requireProjectMember(projectId)`를 먼저 통과한다.
-  프로젝트 역할이 없으면 조회 전용이라는 기존 규칙을 그대로 따른다
-- `match_ai_documents`의 `p_project_ids`는 **서버가 URL의 projectId로 고정한다.**
-  클라이언트가 보낸 project 목록을 절대 신뢰하지 않는다
-- `p_include_global`은 `false` 고정. 전역 문서는 이 검색에 섞지 않는다
-- 색인 워커는 service_role로 돌지만, **검색 경로는 service_role로 돌더라도 프로젝트 격리를
-  코드에서 강제한다.** RLS 2차 방어선이 없는 계열(CLAUDE.md)이라 서버 가드가 유일한 관문이다
+**DB는 프로젝트를 막지 않는다.** `0031:74-79`의 정책은 다음과 같다.
+
+```sql
+create policy ai_documents_read on public.ai_documents
+  for select to authenticated using (true);
+grant select on table public.ai_documents to authenticated;
+```
+
+`match_ai_documents`도 `security invoker` + `authenticated` 실행 허용이다. 즉 **프로젝트 격리는
+전적으로 앱 코드 몫이다.**
+
+그리고 `0031:67-72`에 설계자가 명시적 게이트를 박아 뒀다. 원문 그대로:
+
+> 향후 프로젝트 ACL을 원본에 도입하면 이 정책도 원본과 반드시 함께 갱신해야 하며,
+> **백필(재색인) 전에 정책 정렬을 끝내는 것이 게이트다. 정렬 없이 백필하면 색인 사본이
+> 원본보다 넓게 노출된다.**
+
+비공개 프로젝트(0070)는 **RLS 잠금이 아니라 앱의 `canSeeProject` 판정 하나**다. 따라서
+projectId를 아는 로그인 사용자라면 누구든 비공개 프로젝트의 회의록 본문 스니펫을 받을 수 있는
+경로가 생긴다 — 검색 API가 접근 판정을 안 하면.
+
+**강제 규칙**
+
+- `/api/wiki/search`는 세션 확인 후 `createSupabaseAccessScopeResolver`(`authz/accessScope.ts`)로
+  `allowedProjectIds`를 **서버에서 확정**한다. 이 리졸버가 이미
+  `is_private × project_roles × is_superuser`를 판정한다
+- 요청 `projectId`가 그 집합에 없으면 **403**
+- `p_project_ids`는 클라이언트 값이 아니라 **서버 확정 집합과의 교집합**으로만 넘긴다.
+  `normalizeSearchQuery`(hybrid.ts:103)가 이 교집합을 이미 구현하고 있으니 재사용한다
+- `p_include_global`은 `false` 고정
+- **현행 wiki 페이지는 `projectId` 접근 검증을 하지 않는다**(`wiki/page.tsx:41-48`이 `getActorForView()`를
+  `canCurate`/`canEdit` 계산에만 쓴다). 새 화면에서는 이 구멍을 함께 막는다
+
+**백필 전 선행조건** — 위 인가가 검색 경로에 들어가기 전에는 백필을 시작하지 않는다.
+`0031:67-72`의 게이트를 그대로 따른다.
 
 **구현 시 검증할 것**: 회의록이 프로젝트 단위보다 좁은 접근 제어(폴더·팀)를 갖는지 확인한다.
 프로젝트 격리만으로 충분하지 않다면 색인 행에 그 축을 실어 필터해야 한다. 현재 미확인이다.
@@ -233,16 +305,36 @@ GIN 생성 후   Bitmap Index Scan   cost=35.40   ← ILIKE '%발주 자동화%'
 
 ### 1단계 — 검색이 실제로 되게 한다
 
-| # | 작업 |
-|---|---|
-| 1 | 밀린 큐 96건 정리 (delete 46건 폐기 후 백필이 새로 큐잉) |
-| 2 | 마이그레이션 0082 — `pg_trgm` + `ai_documents(title, content)` **`gin_trgm_ops`** GIN + `match_ai_documents_lexical`(`word_similarity` 기반, §5.3) |
-| 3 | `content.ts` switch에 `case 'issue'` 추가 |
-| 4 | `/api/cron/ai-index` + `vercel.json` 크론 |
-| 5 | 백필 스크립트 (중단·재개 가능) |
-| 6 | `/api/wiki/search` — 두 다리 + RRF |
-| 7 | 검색 화면 (§4). 옛 섹션은 화면에서 빠지되 **파일은 남긴다** |
-| 8 | 평가 세트 + 측정 스크립트 |
+| # | 작업 | 신설/수정 |
+|---|---|---|
+| 0 | **운영 env 실측** — `CHAT_V2_INDEX_WORKER_ENABLED` · `CHAT_V2_INDEX_CRON_SECRET` · `CHAT_V2_INDEX_ENQUEUE_ENABLED` 현재 값 확인 | 조사 |
+| 1 | 밀린 큐 96건 폐기 (delete 46 포함). 작업 2 이후 백필이 새로 큐잉 | 신설 |
+| 2 | **인가 먼저** — `/api/wiki/search`의 접근 판정(§5.6). `0031:67-72` 게이트라 백필보다 앞선다 | 신설 |
+| 3 | 마이그레이션 0082 — `pg_trgm` + `ai_documents(title, content)` `gin_trgm_ops` GIN + `match_ai_documents_lexical`(`word_similarity`) | 신설 |
+| 4 | **회의록 스코프 skew 수정** — `backfill.ts:123`의 `columns`에 `project_id` 추가 + `rowProjectId`를 `project_id ?? meetings.project_id`로 통일 | 수정 |
+| 5 | **이슈 색인 4곳 배선** — ① `protocol.ts` `BOT_DOMAINS`에 `issues`, `BOT_ENTITY_TYPES`에 `issue` ② `content.ts` `loadIssue` + `case` ③ `backfill.ts` `INDEX_BACKFILL_DOMAINS`·`SOURCE_TABLES` ④ `chat/router.ts`·`verifier.ts` 파급 확인 | 수정 |
+| 6 | **워커 기동** — env 3종 설정 + `vercel.json`에 크론 등록. 기존 `/api/chat/index/worker` 3모드를 그대로 쓴다 | 수정 |
+| 7 | **enqueue 배선** — 호출부 0건이라 백필 직후부터 색인이 굳는다. 원천 쓰기 경로에 연결 | 신설 |
+| 8 | 백필 실행 — 기존 `mode:'backfill'`을 호출하는 로컬 러너 | 신설(얇게) |
+| 9 | 융합을 RRF로 교체 + **문서 접기**(§5.4). `stableDocumentKey`에서 `chunkNo` 제외한 문서 키 도입 | 수정 |
+| 10 | 검색 화면 (§4). 옛 섹션은 화면에서 빠지되 **파일은 남긴다** | 신설 |
+| 11 | 평가 세트 + 측정 스크립트 | 신설 |
+
+**순서 제약** — 0 → 1 → 2 → 3 → (4·5 병렬) → 6 → 7 → 8 → 9 → 10 → 11.
+작업 2(인가)가 8(백필)보다 앞서는 것은 취향이 아니라 `0031:67-72`이 정한 게이트다.
+
+**작업 4가 blocker인 이유** — `backfill.ts:123`은 `columns: 'id, updated_at, created_at, meetings(project_id)'`로
+`minutes.project_id`를 **읽지 않는다**. 그래서 `job.projectId`가 `null`로 큐잉되는데,
+로더는 `content.ts:282`에서 `row.project_id ?? meetingProjectId`를 쓰고 `job.projectId`와
+다르면 `scopeMismatch()` → `retryable: false`(content.ts:48) → `dead_letter`로 끊는다.
+`minutes.project_id`는 0045에서 추가됐고 0076이 회의록 트리의 1차 축으로 쓴다.
+**고치지 않으면 D1의 최우선 코퍼스인 회의록이 통째로 색인되지 않을 수 있다.**
+실제 영향 건수(`project_id`만 있고 `meeting` 미연결인 회의록 수)는 미확인 — 착수 시 조회한다.
+
+**작업 5가 4곳인 이유** — `content.ts`에 `case 'issue'`만 넣으면 한 건도 색인되지 않는다.
+`pgvector.ts:175-176`이 `BOT_DOMAINS`·`BOT_ENTITY_TYPES`로 Set을 만들어 검증하므로
+`mapDocument`가 `null`을 반환하고 upsert가 거부된다. DB 쪽은 무해하다 —
+`0031`의 `domain`·`entity_type`에 CHECK 제약이 없다.
 
 **코퍼스**: 회의록 67(≈1,400 청크) + WBS 674 + 이슈 68 + 공지 5 + 살아있는 wiki 31 ≈ **2,200건**
 
@@ -297,9 +389,13 @@ GIN 생성 후   Bitmap Index Scan   cost=35.40   ← ILIKE '%발주 자동화%'
 |---|---|
 | 밀린 큐 96건의 delete 46이 실존 회의록을 겨냥 | 워커 켜기 전 큐 정리가 1번 작업 |
 | 임베딩 무료 한도 미실측 | 백필 첫 100건으로 실측 후 배치 크기 결정 |
-| **검색이 새 정보 유출 경로가 된다** | §5.6. 서버가 `p_project_ids` 고정 + `requireProjectMember` |
+| **검색이 새 정보 유출 경로가 된다** | §5.6. DB RLS가 `authenticated using (true)`라 앱이 유일한 관문. 인가가 백필보다 앞선다(`0031:67-72` 게이트) |
 | 회의록의 프로젝트 하위 접근 제어 미확인 | 구현 착수 시 확인. 있으면 색인 행에 축을 실어 필터 |
 | `word_similarity` 포화로 어휘 다리 단독 랭킹 불가 | §5.3 동점 규칙 |
+| **회의록 스코프 skew로 회의록이 통째로 dead_letter** | §7 작업 4. 최우선 코퍼스가 안 들어오는 문제라 blocker |
+| **enqueue 호출부 0건 → 백필 직후부터 색인이 굳음** | §7 작업 7 |
+| 융합 교체가 **챗봇 검색 결과도 바꾼다** | `mergeHybridResults` 공유. 평가 세트로 회귀 확인 후 교체하거나 병행 도입 |
+| 스펙 초판이 "워커 호출부 없음"으로 오진했다 | 2026-08-14 적대적 검토에서 정정(§2.2). 착수 전 §2.2.1의 '있음/없음'을 다시 실측할 것 |
 | Vercel 함수 타임아웃 | 초기 백필은 로컬, 크론은 증분만 |
 | 0079 미적용 코드가 운영에 떠 있음 | 2단계 제거로 해소. 그때까지 현상 유지 |
 | 화면과 봇이 다른 답 | 2단계 재배선까지 남는 알려진 문제 |
