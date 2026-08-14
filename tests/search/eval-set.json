@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "note": "검색 품질 평가 세트. '표현이 달라서 못 찾은' 사례를 우선 수집한다. expect 의 id 는 운영 DB 실측값이어야 한다.",
+  "_example": {
+    "q": "MES 권한은 어떻게 신청하지?",
+    "why": "검색어: '권한 신청', 본문: '계정 발급 요청' — 어휘 불일치",
+    "expect": [
+      {
+        "domain": "minutes",
+        "entityId": "PUT-REAL-ENTITY-ID-HERE"
+      }
+    ]
+  },
+  "cases": []
+}
