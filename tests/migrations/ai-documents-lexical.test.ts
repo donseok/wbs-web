@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const migration = readFileSync(
-  new URL('../../supabase/migrations/0082_ai_documents_lexical.sql', import.meta.url), 'utf8')
+  new URL('../../supabase/migrations/0083_ai_documents_lexical.sql', import.meta.url), 'utf8')
 const rollback = readFileSync(
-  new URL('../../supabase/migrations/0082_ai_documents_lexical_rollback.sql', import.meta.url), 'utf8')
+  new URL('../../supabase/migrations/0083_ai_documents_lexical_rollback.sql', import.meta.url), 'utf8')
 
-describe('0082 어휘 검색 마이그레이션 계약', () => {
+describe('0083 어휘 검색 마이그레이션 계약', () => {
   it('pg_trgm 을 설치한다', () => {
     expect(migration).toMatch(/create extension if not exists pg_trgm/i)
   })
