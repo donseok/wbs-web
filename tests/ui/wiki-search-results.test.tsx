@@ -36,10 +36,8 @@ describe('WikiSearchResults', () => {
     expect(html({ kind: 'done', hits: [], degraded: false })).toContain('결과가 없습니다')
   })
 
-  it('idle 에서는 빈 여백 대신 안내를 띄운다', () => {
-    const out = html({ kind: 'idle' })
-    expect(out).toContain('무엇이든 검색해 보세요')
-    expect(out).not.toContain('결과가 없습니다')
+  it('idle 에서는 아무것도 렌더하지 않는다 — 안내는 셸(WikiSearch)이 맡는다', () => {
+    expect(html({ kind: 'idle' })).toBe('')
   })
 
   it('loading 에서는 확인 중이라고 알린다 — 빈 화면을 고장으로 오인하지 않게', () => {
@@ -59,5 +57,16 @@ describe('WikiSearchResults', () => {
   it('이슈 출처는 이슈 배지로 나온다', () => {
     const out = html({ kind: 'done', degraded: false, hits: [{ ...hit, domain: 'issues', entityType: 'issue' }] })
     expect(out).toContain('이슈')
+  })
+
+  it('불릿 [n] 과 근거 버튼 [n] 이 같은 문서를 순서대로 가리킨다', () => {
+    const hitB: SearchHit = {
+      ...hit, entityId: 'm2', title: '두 번째 회의', href: '/p/x/minutes/m2', content: '다른 논의 내용',
+    }
+    const out = html({ kind: 'done', degraded: false, hits: [hit, hitB] })
+    // 불릿 [1] 이 [2] 보다 먼저 나오고, 그 순서가 근거 버튼의 href 순서와 같다
+    // (둘 다 같은 hits 배열·같은 index 로 렌더하므로 항상 1:1 대응한다).
+    expect(out.indexOf('[1]')).toBeLessThan(out.indexOf('[2]'))
+    expect(out.indexOf(hit.href)).toBeLessThan(out.indexOf(hitB.href))
   })
 })
