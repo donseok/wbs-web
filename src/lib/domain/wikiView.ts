@@ -222,13 +222,166 @@ export function countWikiViews(entries: WikiExplorerEntry[]): Record<WikiView, n
   }
 }
 
-/** 주제 카드 검색 — 제목·담당팀·유형을 하나의 토큰 AND 검색으로 본다. */
+/** 주제 카드 검색 — 제목·문서 본문·문서 유형·담당팀·기존 유형을 토큰 AND 검색으로 본다. */
 export function matchesWikiTopicQuery(
-  topic: { title: string; ownerTeam: string | null; type: string },
+  topic: {
+    title: string
+    ownerTeam: string | null
+    type: string
+    bodyMd?: string | null
+    documentKind?: string | null
+  },
   query: string,
 ): boolean {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
   if (tokens.length === 0) return true
-  const text = [topic.title, topic.ownerTeam ?? '', topic.type].join('\n').toLowerCase()
+  const text = [
+    topic.title,
+    topic.bodyMd ?? '',
+    topic.documentKind ?? '',
+    topic.ownerTeam ?? '',
+    topic.type,
+  ].join('\n').toLowerCase()
   return tokens.every((token) => text.includes(token))
+}
+
+/**
+ * 재검증 시급도. 기존 화면은 기한이 **지난 뒤에야** 신호를 줘서 담당자가 당일에야
+ * 알았다. 벤치마크의 신선도 6종 세트는 '만료 알림'을 별도 항목으로 두는데, 알림을
+ * 붙이려면 먼저 "곧 만료"라는 상태가 있어야 한다. 14일은 주간 회의 두 번이 들어가는
+ * 폭이라 담당자가 실제로 손볼 기회가 두 번 생긴다.
+ */
+export const WIKI_REVIEW_SOON_DAYS = 14
+
+export type WikiReviewUrgency = 'overdue' | 'soon' | null
+
+export function wikiReviewUrgency(
+  reviewDueAt: string | null | undefined,
+  nowMs = Date.now(),
+): WikiReviewUrgency {
+  if (!reviewDueAt) return null
+  const dueMs = Date.parse(reviewDueAt)
+  if (!Number.isFinite(dueMs)) return null
+  if (dueMs <= nowMs) return 'overdue'
+  return dueMs - nowMs <= WIKI_REVIEW_SOON_DAYS * 24 * 60 * 60 * 1000 ? 'soon' : null
+}
+
+export type WikiTopicTrustState = 'conflict' | 'review_due' | 'verified' | 'unverified'
+
+export interface WikiTopicTrustInput {
+  verifiedAt: string | null | undefined
+  reviewDueAt: string | null | undefined
+  hasConflict: boolean
+  hasUnresolvedOutdatedFeedback: boolean
+}
+
+/**
+ * 문서 신뢰 상태의 단일 정본. `verifiedAt`만 존재한다고 검증됨으로 표시하지 않는다.
+ * 검토 기한이 미래이고 해결되지 않은 오래됨 신고·상충이 없어야만 verified다.
+ */
+export function getWikiTopicTrustState(
+  input: WikiTopicTrustInput,
+  nowMs = Date.now(),
+): WikiTopicTrustState {
+  if (input.hasConflict) return 'conflict'
+
+  const reviewDueMs = input.reviewDueAt ? Date.parse(input.reviewDueAt) : Number.NaN
+  const hasValidReviewDueAt = Number.isFinite(reviewDueMs)
+  if (
+    input.hasUnresolvedOutdatedFeedback
+    || (hasValidReviewDueAt && reviewDueMs <= nowMs)
+  ) return 'review_due'
+
+  if (input.verifiedAt && hasValidReviewDueAt && reviewDueMs > nowMs) return 'verified'
+  return 'unverified'
+}
+
+/**
+ * 검색 결과 0건일 때 제시할 회복 경로.
+ *
+ * Baymard 실측: 이커머스 사이트 약 50%가 0건 화면에서 회복 경로를 주지 않아 이탈로
+ * 이어지고, "철자를 확인하세요 / 더 넓은 단어를 쓰세요" 류의 **검색 팁은 명시적
+ * 안티패턴**이다 — 사용자가 읽지도 적용하지도 않으며 오히려 떠날 이유를 준다. 권장은
+ * 키워드를 하나씩 뺀 대안 쿼리를 **각각의 결과 건수와 함께** 제시하는 것이다(건수를
+ * 같이 보여주는 이유: 눌렀다가 또 0건일까 봐 주저하기 때문).
+ *
+ * 검색은 공백 토큰 AND 이므로(matchesWikiQuery) 토큰을 빼는 것이 자연스러운 완화다.
+ * 결과가 0건일 때만 의미가 있으므로 호출 측에서 그때만 부른다.
+ */
+export type WikiSearchFallbackKind = 'drop-filters' | 'drop-token'
+
+export interface WikiSearchFallback {
+  kind: WikiSearchFallbackKind
+  /** 이 대안을 적용했을 때의 검색어. drop-filters 는 검색어를 그대로 둔다. */
+  query: string
+  /** drop-token 에서 빠진 토큰. drop-filters 는 빈 문자열. */
+  droppedToken: string
+  count: number
+}
+
+const FALLBACK_LIMIT = 3
+
+export function wikiSearchFallbacks<T extends WikiExplorerEntry>(
+  entries: T[],
+  filter: WikiExplorerFilter,
+): WikiSearchFallback[] {
+  const tokens = filter.query.trim().split(/\s+/).filter(Boolean)
+  const filtersActive = filter.view !== 'all' || filter.kind !== 'all'
+  const fallbacks: WikiSearchFallback[] = []
+
+  // 필터를 푸는 쪽이 검색어를 버리는 것보다 사용자 의도를 덜 훼손하므로 먼저 제안한다.
+  if (filtersActive) {
+    const count = filterWikiEntries(entries, { view: 'all', kind: 'all', query: filter.query }).length
+    if (count > 0) {
+      fallbacks.push({ kind: 'drop-filters', query: filter.query, droppedToken: '', count })
+    }
+  }
+
+  // 토큰이 하나뿐이면 빼봐야 "전체"라 대안이 아니다.
+  if (tokens.length >= 2) {
+    const dropped = tokens.map((token, index) => {
+      const query = tokens.filter((_, other) => other !== index).join(' ')
+      return {
+        kind: 'drop-token' as const,
+        query,
+        droppedToken: token,
+        count: filterWikiEntries(entries, { ...filter, query }).length,
+      }
+    })
+    fallbacks.push(
+      ...dropped
+        .filter((candidate) => candidate.count > 0)
+        .sort((left, right) => right.count - left.count)
+        .slice(0, FALLBACK_LIMIT),
+    )
+  }
+
+  return fallbacks
+}
+
+/**
+ * 주제 지도용 회복 경로. 그리드에는 정렬만 있고 필터가 없으므로 drop-token 만 낸다.
+ * 위 wikiSearchFallbacks 와 같은 규칙(건수 동반·0건 제외·내림차순·최대 3개)을 쓴다 —
+ * 두 검색이 다르게 회복하면 사용자는 어느 쪽이 고장인지 판단할 수 없다.
+ */
+export function wikiTopicSearchFallbacks<T extends Parameters<typeof matchesWikiTopicQuery>[0]>(
+  topics: T[],
+  query: string,
+): WikiSearchFallback[] {
+  const tokens = query.trim().split(/\s+/).filter(Boolean)
+  if (tokens.length < 2) return []
+
+  return tokens
+    .map((token, index) => {
+      const next = tokens.filter((_, other) => other !== index).join(' ')
+      return {
+        kind: 'drop-token' as const,
+        query: next,
+        droppedToken: token,
+        count: topics.filter((topic) => matchesWikiTopicQuery(topic, next)).length,
+      }
+    })
+    .filter((candidate) => candidate.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, FALLBACK_LIMIT)
 }

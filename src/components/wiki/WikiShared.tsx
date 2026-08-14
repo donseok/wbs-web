@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import {
   AlertTriangle,
   CalendarClock,
@@ -27,6 +26,7 @@ import type {
   WikiSource,
 } from '@/lib/data/wiki'
 import { WikiItemActions } from './WikiItemActions'
+import { WikiTrackedLink } from './WikiTrackedLink'
 
 /**
  * 회의록 원문 블록 링크. lib/minutes/source의 minuteSourceHref와 같은 형식이지만 직접 만든다.
@@ -183,10 +183,23 @@ function displayedState(item: WikiItem): string {
   return lifecycle
 }
 
-function stateLabel(locale: Locale, item: WikiItem): string {
+function originalStateLabel(locale: Locale, item: WikiItem): string {
   const state = displayedState(item)
   if (!KNOWN_STATES.has(state)) return state || t(locale, 'wiki.state.unknown')
   return t(locale, `wiki.state.${state}` as DictKey)
+}
+
+/** 화면 어휘는 다섯 상태로 접고, 원래 세부 상태는 chip title에 보존한다. */
+function stateLabel(locale: Locale, item: WikiItem): string {
+  const state = displayedState(item)
+  if (isConflictedWikiItem(item)) return t(locale, 'wiki.state.conflict')
+  if (['resolved', 'done', 'closed', 'superseded', 'withdrawn', 'reversed', 'archived'].includes(state)) {
+    return t(locale, 'wiki.state.ended')
+  }
+  if (state === 'open') return t(locale, 'wiki.state.open')
+  if (['tentative', 'proposed', 'on_hold'].includes(state)) return t(locale, 'wiki.state.discussing')
+  if (['active', 'confirmed'].includes(state)) return t(locale, 'wiki.state.active')
+  return t(locale, 'wiki.state.unknown')
 }
 
 function stateChip(item: WikiItem): string {
@@ -267,10 +280,11 @@ export function WikiSourceLinks({
     <div className="mt-3 space-y-2 border-t border-line/80 pt-3">
       {sources.slice(0, showEvidence ? 4 : 2).map((source, index) => (
         <div key={source.id || `${source.minuteId}-${source.blockIndex ?? index}`}>
-          <Link
+          <WikiTrackedLink
             href={sourceHref(source)}
+            domain="minutes"
             className="group/source inline-flex max-w-full items-center gap-1.5 text-xs font-medium text-brand hover:text-brand-hover"
-            aria-label={`${source.minuteTitle ?? t(locale, 'wiki.viewSource')} ${t(locale, 'wiki.viewSource')}`}
+            ariaLabel={`${source.minuteTitle ?? t(locale, 'wiki.viewSource')} ${t(locale, 'wiki.viewSource')}`}
           >
             <FileText className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">
@@ -278,7 +292,7 @@ export function WikiSourceLinks({
               {source.minuteTitle ?? t(locale, 'wiki.viewSource')}
             </span>
             <ExternalLink className="h-3 w-3 shrink-0 opacity-60 transition group-hover/source:opacity-100" />
-          </Link>
+          </WikiTrackedLink>
           {showEvidence && source.evidenceExcerpt && (
             <blockquote className="mt-1.5 border-l-2 border-line-strong pl-3 text-xs leading-5 text-ink-muted">
               {source.evidenceExcerpt}
@@ -324,7 +338,7 @@ export function WikiItemCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={`chip ${meta.chip}`}>{t(locale, meta.labelKey)}</span>
-            <span className={`chip ${stateChip(item)}`}>{stateLabel(locale, item)}</span>
+            <span className={`chip ${stateChip(item)}`} title={originalStateLabel(locale, item)}>{stateLabel(locale, item)}</span>
             {item.autoUpdateLocked && (
               <span className="chip bg-surface-2 text-ink-muted">
                 <LockKeyhole className="h-3 w-3" />
@@ -437,8 +451,9 @@ export function WikiChangeList({
                 {change.reason ?? t(locale, 'wiki.change.noReason')}
               </p>
               {change.minuteId && (
-                <Link
+                <WikiTrackedLink
                   href={changeSourceHref(change)}
+                  domain="minutes"
                   className="mt-2 inline-flex max-w-full items-center gap-1.5 text-[11px] font-medium text-brand hover:text-brand-hover"
                 >
                   <FileText className="h-3.5 w-3.5 shrink-0" />
@@ -447,7 +462,7 @@ export function WikiChangeList({
                     {change.minuteTitle ?? t(locale, 'wiki.viewSource')}
                   </span>
                   <ExternalLink className="h-3 w-3 shrink-0" />
-                </Link>
+                </WikiTrackedLink>
               )}
             </div>
           </li>

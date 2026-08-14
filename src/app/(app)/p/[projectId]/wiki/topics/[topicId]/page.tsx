@@ -1,6 +1,6 @@
 import { listProjects } from '@/app/actions/project'
 import { getActorForView } from '@/lib/authz'
-import { isProjectAdmin } from '@/lib/domain/authz'
+import { isProjectAdmin, isProjectMember } from '@/lib/domain/authz'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiTopicDetail } from '@/components/wiki/WikiTopicDetail'
@@ -25,6 +25,7 @@ export default async function WikiTopicPage({
   const title = data.topic
     ? `${projectName} · ${data.topic.title}`
     : `${projectName}${t(locale, 'wiki.heroTitleSuffix')}`
+  const canEditDocuments = isProjectMember(membership, projectId)
 
   return (
     <ProjectPageShell hero={<PageHero title={title} />}>
@@ -33,6 +34,8 @@ export default async function WikiTopicPage({
         data={data}
         locale={locale}
         canCurate={isProjectAdmin(membership, projectId)}
+        canEditDocuments={canEditDocuments}
+        canVerifyDocuments={canEditDocuments}
       />
     </ProjectPageShell>
   )

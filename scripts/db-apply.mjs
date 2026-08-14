@@ -32,8 +32,32 @@ if (!REFS[target]) {
 const ref = REFS[target]
 const sql = readFileSync(file, 'utf8')
 
-const raw = execFileSync('security', ['find-generic-password', '-s', 'Supabase CLI', '-a', 'supabase', '-w'], { encoding: 'utf8' }).trim()
-const token = raw.startsWith('go-keyring-base64:') ? Buffer.from(raw.slice('go-keyring-base64:'.length), 'base64').toString() : raw
+// 토큰은 두 경로 중 하나. 키체인 항목은 `supabase login` 이 만드는데, 그것 없이 PAT 만
+// 발급받은 PC 도 있어서(대시보드 웹 로그인은 키체인을 만들지 않는다) env 폴백을 둔다.
+// Supabase CLI 자신도 같은 이름의 환경변수를 인정한다.
+function accessToken() {
+  const fromEnv = process.env.SUPABASE_ACCESS_TOKEN?.trim()
+  if (fromEnv) return fromEnv
+  let raw
+  try {
+    raw = execFileSync(
+      'security',
+      ['find-generic-password', '-s', 'Supabase CLI', '-a', 'supabase', '-w'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim()
+  } catch {
+    console.error('✗ Supabase Management API 토큰을 찾지 못했습니다. 둘 중 하나로 해결하세요:')
+    console.error('   1) npx supabase login            (키체인 "Supabase CLI" 항목 생성 — 권장)')
+    console.error('   2) SUPABASE_ACCESS_TOKEN=sbp_... npm run db:apply -- <파일> --target <대상>')
+    console.error('      토큰 발급: https://supabase.com/dashboard/account/tokens')
+    console.error('   ⚠ 대시보드 웹 로그인만으로는 CLI 토큰이 생기지 않습니다.')
+    process.exit(1)
+  }
+  return raw.startsWith('go-keyring-base64:')
+    ? Buffer.from(raw.slice('go-keyring-base64:'.length), 'base64').toString()
+    : raw
+}
+const token = accessToken()
 
 const api = async (path, init) => {
   const res = await fetch(`https://api.supabase.com/v1${path}`, {

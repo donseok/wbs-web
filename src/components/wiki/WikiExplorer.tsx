@@ -3,7 +3,7 @@
 // 이전 홈은 결정 5건·열린 항목 6건만 티저로 보여주고 나머지는 154장 주제 카드를 뒤져야
 // 닿을 수 있었고, 잠정 사실·제약과 미확정 결정은 어떤 화면에도 나타나지 않았다.
 // 필터·정렬 규칙은 lib/domain/wikiView가 정본이며 여기서는 상태와 표시만 담당한다.
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight, ListFilter, Search, X } from 'lucide-react'
 import type { DictKey, Locale } from '@/lib/i18n/dict'
@@ -12,19 +12,25 @@ import { WIKI_ITEM_KINDS } from '@/lib/domain/wiki'
 import {
   countWikiViews,
   filterWikiEntries,
-  WIKI_VIEWS,
+  isConflictedWikiItem,
+  isDiscussingWikiItem,
+  wikiSearchFallbacks,
   type WikiView,
 } from '@/lib/domain/wikiView'
 import type { WikiItem } from '@/lib/data/wiki'
+import { useWikiSearchQuery } from './useWikiSearchQuery'
 import { WikiItemCard } from './WikiShared'
+import { trackWikiEvent } from './wikiAnalytics'
 
 export interface WikiExplorerItem extends WikiItem {
   topicTitle: string
 }
 
 const PAGE_SIZE = 12
+type DisplayView = WikiView | 'attention'
+const PRIMARY_VIEWS: readonly DisplayView[] = ['all', 'decision', 'open', 'attention']
 
-const VIEW_LABEL: Record<WikiView, DictKey> = {
+const VIEW_LABEL: Record<DisplayView, DictKey> = {
   all: 'wiki.view.all',
   decision: 'wiki.view.decision',
   open: 'wiki.view.open',
@@ -32,9 +38,10 @@ const VIEW_LABEL: Record<WikiView, DictKey> = {
   conflict: 'wiki.view.conflict',
   resolved: 'wiki.view.resolved',
   archived: 'wiki.view.archived',
+  attention: 'wiki.view.attention',
 }
 
-const VIEW_HINT: Record<WikiView, DictKey> = {
+const VIEW_HINT: Record<DisplayView, DictKey> = {
   all: 'wiki.view.allHint',
   decision: 'wiki.view.decisionHint',
   open: 'wiki.view.openHint',
@@ -42,6 +49,7 @@ const VIEW_HINT: Record<WikiView, DictKey> = {
   conflict: 'wiki.view.conflictHint',
   resolved: 'wiki.view.resolvedHint',
   archived: 'wiki.view.archivedHint',
+  attention: 'wiki.view.attentionHint',
 }
 
 export function WikiExplorer({
@@ -49,23 +57,43 @@ export function WikiExplorer({
   items,
   locale,
   initialView = 'all',
+  initialQuery = '',
+  requestedQuery,
   canCurate = false,
 }: {
   projectId: string
   items: WikiExplorerItem[]
   locale: Locale
   initialView?: WikiView
+  initialQuery?: string
+  requestedQuery?: { query: string; nonce: number }
   canCurate?: boolean
 }) {
-  const [view, setView] = useState<WikiView>(initialView)
+  const [view, setView] = useState<DisplayView>(
+    initialView === 'discussing' || initialView === 'conflict' ? 'attention' : initialView,
+  )
   const [kind, setKind] = useState<string>('all')
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useWikiSearchQuery(initialQuery, requestedQuery)
   const [visible, setVisible] = useState(PAGE_SIZE)
+  const lastTrackedQuery = useRef('')
 
   const counts = useMemo(() => countWikiViews(items), [items])
   const filtered = useMemo(
-    () => filterWikiEntries(items, { view, kind, query }),
+    () => view === 'attention'
+      ? filterWikiEntries(items, { view: 'all', kind, query }).filter((item) => isDiscussingWikiItem(item) || isConflictedWikiItem(item))
+      : filterWikiEntries(items, { view, kind, query }),
     [items, view, kind, query],
+  )
+  const attentionCount = useMemo(
+    () => items.filter((item) => isDiscussingWikiItem(item) || isConflictedWikiItem(item)).length,
+    [items],
+  )
+  // 0건일 때만 계산한다 — 매 입력마다 전체를 여러 번 훑는 비용을 결과가 있는 동안 치르지 않는다.
+  const fallbacks = useMemo(
+    () => (filtered.length === 0
+      ? wikiSearchFallbacks(items, { view: view === 'attention' ? 'all' : view, kind, query })
+      : []),
+    [filtered.length, items, view, kind, query],
   )
   const shown = filtered.slice(0, visible)
 
@@ -76,6 +104,25 @@ export function WikiExplorer({
     setVisible(PAGE_SIZE)
   }
 
+  function trackSearchIntent() {
+    const normalizedQuery = query.trim()
+    if (!normalizedQuery || normalizedQuery === lastTrackedQuery.current) return
+    lastTrackedQuery.current = normalizedQuery
+    trackWikiEvent('wiki_search', `/p/${projectId}/wiki`, {
+      source: 'explorer',
+      result_count: filtered.length,
+      query_length: normalizedQuery.length,
+    })
+  }
+
+  function trackTopicOpen() {
+    trackSearchIntent()
+    trackWikiEvent('wiki_topic_opened', `/p/${projectId}/wiki`, {
+      source: 'explorer',
+      status: query.trim() ? 'search_result' : 'browse',
+    })
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2">
@@ -84,14 +131,22 @@ export function WikiExplorer({
           <input
             type="search"
             value={query}
-            onChange={(event) => apply(() => setQuery(event.target.value))}
+            onChange={(event) => {
+              const nextQuery = event.target.value
+              if (!nextQuery.trim()) lastTrackedQuery.current = ''
+              apply(() => setQuery(nextQuery))
+            }}
+            onBlur={trackSearchIntent}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) trackSearchIntent()
+            }}
             placeholder={t(locale, 'wiki.search.placeholder')}
             aria-label={t(locale, 'wiki.search.placeholder')}
             className="app-input pl-9"
           />
         </div>
         <div className="seg flex-wrap" role="tablist" aria-label={t(locale, 'wiki.view.label')}>
-          {WIKI_VIEWS.map((key) => {
+          {PRIMARY_VIEWS.map((key) => {
             const active = key === view
             return (
               <button
@@ -105,12 +160,25 @@ export function WikiExplorer({
               >
                 {t(locale, VIEW_LABEL[key])}
                 <span className={`tabular-nums ${active ? 'text-white/80' : 'text-ink-subtle'}`}>
-                  {counts[key]}
+                  {key === 'attention' ? attentionCount : counts[key]}
                 </span>
               </button>
             )
           })}
         </div>
+        <select
+          value={view === 'resolved' || view === 'archived' ? view : ''}
+          onChange={(event) => {
+            const next = event.target.value
+            if (next === 'resolved' || next === 'archived') apply(() => setView(next))
+          }}
+          aria-label={t(locale, 'wiki.view.more')}
+          className="h-10 rounded-xl border border-line bg-surface px-3 text-[13px] font-medium text-ink-muted outline-none transition focus:border-brand focus:ring-2 focus:ring-brand-ring"
+        >
+          <option value="">{t(locale, 'wiki.view.more')}</option>
+          <option value="resolved">{t(locale, 'wiki.view.resolved')}</option>
+          <option value="archived">{t(locale, 'wiki.view.archived')}</option>
+        </select>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -151,8 +219,13 @@ export function WikiExplorer({
         )}
       </div>
 
+      {/* 종류 설명은 hover title 로 두지 않는다 — 터치에서는 열리지 않아 8종 라벨이
+          영영 설명 없이 남는다. 뷰 힌트가 이미 사는 이 줄에 얹으면 새 여백 없이
+          항상 보인다. */}
       <p className="mt-3 text-xs text-ink-muted">
         {t(locale, VIEW_HINT[view])}
+        <span className="mx-2 text-line-strong">·</span>
+        {t(locale, `wiki.kindHint.${kind}` as DictKey)}
         <span className="mx-2 text-line-strong">·</span>
         {t(locale, 'wiki.resultCount')
           .replace('{shown}', String(shown.length))
@@ -166,6 +239,7 @@ export function WikiExplorer({
               <div key={item.id} className="flex min-w-0 flex-col">
                 <Link
                   href={`/p/${projectId}/wiki/topics/${item.topicId}`}
+                  onClick={trackTopicOpen}
                   className="group mb-1 inline-flex max-w-full items-center gap-1 self-start text-[11px] font-medium text-ink-subtle transition hover:text-brand"
                 >
                   <span className="truncate">{item.topicTitle}</span>
@@ -189,11 +263,42 @@ export function WikiExplorer({
           )}
         </>
       ) : (
-        <p className="mt-3 rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-ink-muted">
-          {query || kind !== 'all'
-            ? t(locale, 'wiki.search.noResult')
-            : t(locale, 'wiki.noItems')}
-        </p>
+        <div className="mt-3 rounded-xl border border-dashed border-line px-4 py-10 text-center">
+          <p className="text-sm text-ink-muted">
+            {!query && kind === 'all' && view === 'all'
+              ? t(locale, 'wiki.noItems')
+              : query
+                ? t(locale, 'wiki.search.noResult').replace('{query}', query.trim())
+                : t(locale, 'wiki.search.noResultPlain')}
+          </p>
+          {fallbacks.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
+                {t(locale, 'wiki.search.tryInstead')}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                {fallbacks.map((fallback) => (
+                  <button
+                    key={`${fallback.kind}-${fallback.droppedToken}`}
+                    type="button"
+                    onClick={() => apply(() => {
+                      setQuery(fallback.query)
+                      if (fallback.kind === 'drop-filters') { setKind('all'); setView('all') }
+                    })}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink transition hover:border-brand-ring hover:text-brand"
+                  >
+                    {fallback.kind === 'drop-filters'
+                      ? t(locale, 'wiki.search.dropFilters')
+                      : t(locale, 'wiki.search.dropToken').replace('{token}', fallback.droppedToken)}
+                    <span className="tabular-nums text-ink-subtle">
+                      {t(locale, 'wiki.search.fallbackCount').replace('{n}', String(fallback.count))}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

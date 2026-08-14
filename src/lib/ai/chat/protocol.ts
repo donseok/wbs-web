@@ -38,6 +38,7 @@ export const BOT_ENTITY_TYPES = [
   'minute_block',
   'wiki_topic',
   'wiki_item',
+  'wiki_question',
   'announcement',
   'weekly_report',
   'weekly_row',

@@ -304,7 +304,7 @@ function entityDomain(type: BotEntityRef['type']): BotDomain | null {
   if (type === 'attendance_record') return 'attendance'
   if (type === 'announcement') return 'announcements'
   if (type === 'minute' || type === 'minute_block') return 'minutes'
-  if (type === 'wiki_topic' || type === 'wiki_item') return 'wiki'
+  if (type === 'wiki_topic' || type === 'wiki_item' || type === 'wiki_question') return 'wiki'
   if (type === 'member' || type === 'team') return 'members'
   return null
 }

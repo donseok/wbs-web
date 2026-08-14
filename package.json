@@ -21,6 +21,7 @@
     "staging:sync": "node scripts/staging-sync.mjs",
     "db:apply": "node scripts/db-apply.mjs",
     "backfill:0076": "vitest run --config scripts/backfill-0076.vitest.ts --reporter=verbose",
+    "split:weekly-ops": "vitest run --config scripts/split-weekly-ops.vitest.ts --reporter=verbose",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

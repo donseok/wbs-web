@@ -1,0 +1,326 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
+
+const migrationsDir = fileURLToPath(new URL('../../supabase/migrations/', import.meta.url))
+const sql = readFileSync(`${migrationsDir}0079_wiki_memory.sql`, 'utf8')
+const rollback = readFileSync(`${migrationsDir}0079_wiki_memory_rollback.sql`, 'utf8')
+const usageDimensions = readFileSync(`${migrationsDir}0080_usage_event_dimensions.sql`, 'utf8')
+
+function functionSql(name: string, nextMarker = '\ncreate or replace function public.') {
+  const start = sql.indexOf(`create or replace function public.${name}(`)
+  expect(start, `${name} 함수가 선언돼야 한다`).toBeGreaterThanOrEqual(0)
+  const next = sql.indexOf(nextMarker, start + 1)
+  return sql.slice(start, next < 0 ? undefined : next)
+}
+
+describe('0079 Wiki Memory migration 계약', () => {
+  it('wiki_topics를 문서·트리·검증 모델로 확장하고 타 프로젝트 부모를 FK로 차단한다', () => {
+    for (const column of [
+      'body_md', 'body_updated_at', 'body_updated_by', 'parent_id', 'sort',
+      'pinned_order', 'origin', 'document_kind', 'verified_at', 'verified_by', 'review_due_at',
+    ]) {
+      expect(sql).toMatch(new RegExp(`add column if not exists ${column}\\b`))
+    }
+    expect(sql).toContain(
+      "'overview','decision','how_to','runbook','faq','glossary','reference'",
+    )
+    expect(sql).toMatch(
+      /foreign key \(parent_id, project_id\)[\s\S]*references public\.wiki_topics \(id, project_id\)/,
+    )
+    expect(sql).toContain('wiki_topics_project_parent_idx')
+    expect(sql).toContain('wiki_topics_project_pinned_idx')
+    expect(sql).toContain('wiki_topics_project_review_due_idx')
+  })
+
+  it('revision은 복합 FK·순번 unique·불변 트리거를 갖는 append-only 원장이다', () => {
+    expect(sql).toContain('create table if not exists public.wiki_topic_revisions')
+    expect(sql).toContain('unique (topic_id, version_no)')
+    expect(sql).toContain('edited_by_name text')
+    expect(sql).toMatch(
+      /foreign key \(topic_id, project_id\)[\s\S]*references public\.wiki_topics \(id, project_id\)/,
+    )
+    expect(sql).toContain('wiki_topic_revisions_immutable_trg')
+    expect(sql).toContain("raise exception 'WIKI_REVISION_IMMUTABLE'")
+  })
+
+  it('기존 AI 지식을 accepted로 보존하며 자동화 플래그나 cron을 켜지 않는다', () => {
+    expect(sql).toMatch(
+      /add column if not exists review_state text not null default 'accepted'/,
+    )
+    expect(sql).toContain("check (review_state in ('pending','accepted','rejected'))")
+    expect(sql).not.toMatch(/WIKI_SERVICE_ENABLED\s*=\s*true/i)
+    expect(sql).not.toMatch(/WIKI_WORKER_ENABLED\s*=\s*true/i)
+    expect(sql).not.toMatch(/create\s+extension.*cron|cron\.schedule/i)
+  })
+
+  it('질문·피드백은 프로젝트 복합 FK와 제한된 상태/종류를 쓴다', () => {
+    expect(sql).toContain('create table if not exists public.wiki_questions')
+    expect(sql).toContain("check (status in ('open','answered','closed'))")
+    expect(sql).toMatch(/asked_by\s+uuid default auth\.uid\(\) references auth\.users\(id\) on delete set null/)
+    expect(sql).toMatch(
+      /constraint wiki_questions_topic_project_fk[\s\S]*foreign key \(topic_id, project_id\)/,
+    )
+    expect(sql).toContain('create table if not exists public.wiki_feedback')
+    expect(sql).toContain("feedback_type  text not null check (feedback_type in ('helpful','outdated'))")
+    expect(sql).toContain('unique (topic_id, user_id, feedback_type)')
+    expect(sql).toMatch(
+      /constraint wiki_feedback_topic_project_fk[\s\S]*foreign key \(topic_id, project_id\)/,
+    )
+  })
+
+  it('usage_events에 호환 기본값과 object metadata를 더한다', () => {
+    // 컬럼은 0079에 남는다 — 상수 기본값이라 rewrite가 없고, 0079의 usage_* 집계 함수가
+    // 본문에서 event_name을 참조하므로 같은 트랜잭션 안에서 먼저 존재해야 한다.
+    expect(sql).toContain("add column if not exists event_name text not null default 'page_view'")
+    expect(sql).toContain("add column if not exists metadata jsonb not null default '{}'::jsonb")
+  })
+
+  it('전체 스캔이 도는 usage_events 제약·인덱스는 0080으로 분리해 락 창을 격리한다', () => {
+    // usage_events는 최다 쓰기 테이블이다. `not valid` 없는 CHECK의 힙 스캔과 인덱스
+    // 빌드가 0079의 1,400줄 트랜잭션 안에 있으면 그 ACCESS EXCLUSIVE가 commit까지
+    // 유지되어 /api/track insert가 PostgREST 풀을 점유한 채 밀린다(2026-08-05 장애 사양).
+    expect(sql).not.toContain('usage_events_event_name_check')
+    expect(sql).not.toContain('usage_events_metadata_object_check')
+    expect(sql).not.toContain('usage_events_event_name_idx')
+
+    expect(usageDimensions).toContain("check (btrim(event_name) <> '' and char_length(event_name) <= 80)")
+    expect(usageDimensions).toContain("check (jsonb_typeof(metadata) = 'object')")
+    expect(usageDimensions).toContain('usage_events_event_name_idx')
+    // 0079를 건너뛴 채 적용되면 조용히 통과하지 않고 멈춰야 한다.
+    expect(usageDimensions).toContain('0080 은 0079 적용 후에만 실행할 수 있다')
+  })
+
+  it('락 큐가 앱 전체를 세우지 않도록 두 마이그레이션 모두 lock_timeout을 건다', () => {
+    // Postgres 락 큐는 FIFO다. ALTER가 장기 리더를 기다리면 그 뒤의 평범한 SELECT까지
+    // 함께 멈춘다. 못 잡으면 전량 롤백되고, 두 파일 모두 멱등이라 재실행이 안전하다.
+    for (const [name, text] of [['0079', sql], ['0080', usageDimensions]] as const) {
+      const beginAt = text.indexOf('begin;')
+      const lockAt = text.indexOf('set local lock_timeout')
+      expect(lockAt, `${name}에 lock_timeout이 있어야 한다`).toBeGreaterThan(beginAt)
+    }
+    expect(sql).toContain('set local statement_timeout')
+  })
+
+  it('적용 후 PostgREST 스키마 캐시를 명시적으로 깨운다', () => {
+    // 앱은 PGRST204/42703/PGRST205를 "스키마 준비 전" 폴백 신호로 쓴다. 캐시가 늦게
+    // 갱신되면 DB는 적용됐는데 화면만 구버전 모드로 도는 상태가 되어 진단이 늦는다.
+    for (const text of [sql, usageDimensions]) {
+      const commitAt = text.lastIndexOf('commit;')
+      const notifyAt = text.indexOf("notify pgrst, 'reload schema'")
+      expect(notifyAt).toBeGreaterThan(commitAt)
+    }
+  })
+
+  it('document_kind 백필은 사람이 쓴 문서를 건드리지 않아 재실행이 안전하다', () => {
+    // 이 파일에서 유일하게 멱등하지 않던 문장. save_wiki_document는 document_kind를
+    // 'reference'로 바꿔도 type='glossary'를 남기므로, 조건이 없으면 재실행이 사람의
+    // 분류를 조용히 되돌린다.
+    const backfill = sql.slice(
+      sql.indexOf("set document_kind = 'glossary'"),
+      sql.indexOf("set document_kind = 'glossary'") + 200,
+    )
+    expect(backfill).toContain('body_md is null')
+  })
+
+  it('기존 사용량·세션 집계는 제품 이벤트를 제외하고 rollback에서 0051 의미로 복원한다', () => {
+    for (const name of [
+      'usage_summary', 'usage_daily_actives', 'usage_menu_ranking',
+      'usage_user_rollup', 'usage_sessions',
+    ]) {
+      expect(sql).toContain(`create or replace function public.${name}(`)
+      expect(rollback).toContain(`create or replace function public.${name}(`)
+    }
+    expect((sql.match(/event_name = 'page_view'/g) ?? []).length).toBeGreaterThanOrEqual(8)
+    expect(rollback).not.toContain("event_name = 'page_view'")
+    const restoreAt = rollback.indexOf('create or replace function public.usage_summary')
+    const dropColumnAt = rollback.indexOf('drop column if exists event_name')
+    expect(restoreAt).toBeGreaterThanOrEqual(0)
+    expect(restoreAt).toBeLessThan(dropColumnAt)
+  })
+
+  it('새 테이블은 RLS·최소 grant를 적용하고 직접 문서 UPDATE는 열지 않는다', () => {
+    for (const table of ['wiki_topic_revisions', 'wiki_questions', 'wiki_feedback']) {
+      expect(sql).toContain(`alter table public.${table} enable row level security`)
+      expect(sql).toContain(`revoke all on table public.${table} from public, anon, authenticated`)
+      expect(sql).toContain(`grant all on table public.${table} to service_role`)
+    }
+    expect(sql).toContain('grant select on table public.wiki_topic_revisions to authenticated')
+    expect(sql).not.toMatch(/grant update[\s\S]{0,180}public\.wiki_topics to authenticated/i)
+    expect(sql).not.toMatch(/create policy[\s\S]{0,100}wiki_topics[\s\S]{0,80}for update/i)
+  })
+
+  it('문서 생성은 멤버·부모 프로젝트·입력 상한을 확인하고 첫 revision을 원자 삽입한다', () => {
+    const fn = functionSql('create_wiki_document')
+    expect(fn).toContain('public.is_project_member(p_project_id)')
+    expect(fn).toMatch(/parent\.id = v_cursor[\s\S]*parent\.project_id = p_project_id/)
+    expect(fn).toContain("raise exception 'WIKI_DOCUMENT_PARENT_INVALID'")
+    expect(fn).toContain('v_depth > 2')
+    expect(fn).toContain('pg_catalog.pg_advisory_xact_lock')
+    expect(fn).toContain('char_length(v_title) > 160')
+    expect(fn).toContain('char_length(v_body) > 100000')
+    expect(fn).toMatch(/insert into public\.wiki_topics[\s\S]*insert into public\.wiki_topic_revisions/)
+    expect(fn).toContain('public.wiki_fnv1a64(v_body)')
+    expect(fn).toContain("user_row.raw_user_meta_data ->> 'full_name'")
+  })
+
+  it('문서 저장은 잠근 대상 프로젝트로 권한을 판정하고 CAS 뒤 revision을 append한다', () => {
+    const fn = functionSql('save_wiki_document')
+    expect(fn).toMatch(/where topic\.id = p_topic_id\s+for update/)
+    expect(fn).toContain('public.is_project_member(v_topic.project_id)')
+    expect(fn).toContain('v_topic.body_updated_at is distinct from p_expected_updated_at')
+    expect(fn).toContain("raise exception 'WIKI_DOCUMENT_EDIT_CONFLICT'")
+    expect(fn).toContain("raise exception 'WIKI_DOCUMENT_DELETE_FORBIDDEN'")
+    expect(fn).toMatch(/insert into public\.wiki_topic_revisions[\s\S]*update public\.wiki_topics/)
+    expect(fn).toMatch(/verified_at = null,[\s\S]*review_due_at = null/)
+  })
+
+  it('복원은 같은 topic/project revision만 허용하고 과거 행을 수정하지 않고 새 버전을 만든다', () => {
+    const fn = functionSql('restore_wiki_document_revision')
+    expect(fn).toContain('v_topic.body_updated_at is distinct from p_expected_updated_at')
+    expect(fn).toMatch(
+      /revision\.id = p_revision_id[\s\S]*revision\.topic_id = p_topic_id[\s\S]*revision\.project_id = v_topic\.project_id/,
+    )
+    expect(fn).toMatch(/insert into public\.wiki_topic_revisions[\s\S]*update public\.wiki_topics/)
+    expect(fn).not.toMatch(/update public\.wiki_topic_revisions/)
+    expect(fn).toContain("raise exception 'WIKI_DOCUMENT_DELETE_FORBIDDEN'")
+  })
+
+  it('검증과 질문 답변은 잠근 대상 행의 프로젝트 멤버만 수행한다', () => {
+    const verify = functionSql('verify_wiki_document')
+    expect(verify).toMatch(/where topic\.id = p_topic_id\s+for update/)
+    expect(verify).toContain('public.is_project_member(v_topic.project_id)')
+    expect(verify).toContain('p_review_days < 1 or p_review_days > 365')
+    expect(verify).toContain('v_topic.body_updated_at is distinct from p_expected_updated_at')
+    expect(verify).toContain("raise exception 'WIKI_DOCUMENT_EDIT_CONFLICT'")
+    expect(verify).toMatch(/update public\.wiki_feedback feedback[\s\S]*resolution = 'verified'/)
+    // 검증은 멤버 권한이다. 남의 '오래됨' 신고까지 함께 닫히면 멤버 한 명이 문서를
+    // 덮어쓰고 → 스스로 검증하고 → 이의제기를 지우는 자기검증 루프가 성립한다.
+    // 본인 신고 철회는 허용하되 남의 신고를 닫는 것은 관리자만.
+    expect(verify).toContain('feedback.user_id = v_actor or public.is_project_admin(v_topic.project_id)')
+
+    const answer = functionSql('answer_wiki_question')
+    expect(answer).toMatch(/where question\.id = p_question_id\s+for update/)
+    expect(answer).toContain('public.is_project_member(v_question.project_id)')
+    expect(answer).toMatch(/topic\.id = v_topic_id and topic\.project_id = v_question\.project_id/)
+    expect(answer).toContain("v_question.status <> 'open'")
+    expect(answer).toContain("raise exception 'WIKI_QUESTION_NOT_OPEN'")
+  })
+
+  it('트리 이동·핀은 관리자 전용 RPC에서 타 프로젝트·순환·깊이를 검증한다', () => {
+    const fn = functionSql('move_wiki_document')
+    expect(fn).toMatch(/where topic\.id = p_topic_id\s+for update/)
+    expect(fn).toContain('public.is_project_admin(v_topic.project_id)')
+    expect(fn).toMatch(/topic\.id = v_cursor[\s\S]*topic\.project_id = v_topic\.project_id/)
+    expect(fn).toContain('v_depth > 2')
+    expect(fn).toContain('pg_catalog.pg_advisory_xact_lock')
+    expect(fn).toContain('with recursive descendants as')
+    expect(fn).toContain('v_depth + v_descendant_depth > 2')
+    expect(fn).toContain("raise exception 'WIKI_DOCUMENT_PARENT_INVALID'")
+    expect(fn).toMatch(/set parent_id = p_parent_id,[\s\S]*pinned_order = p_pinned_order/)
+  })
+
+  it('항목 리뷰는 프로젝트 관리자와 허용된 전이만 통과하고 감사 이력을 남긴다', () => {
+    const fn = functionSql('review_wiki_item')
+    expect(fn).toMatch(/where item\.id = p_item_id\s+for update/)
+    expect(fn).toContain('public.is_project_admin(v_item.project_id)')
+    expect(fn).toContain("v_item.review_state = 'pending' and p_review_state in ('accepted','rejected')")
+    expect(fn).toContain("v_item.review_state = 'rejected' and p_review_state = 'pending'")
+    // accepted는 흡수 상태여선 안 된다. 기존 AI 지식 1,219건이 전부 accepted로 백필되므로,
+    // 나가는 전이가 없으면 이미 노출 중인 지식을 감사 기록과 함께 내릴 방법이 사라진다.
+    expect(fn).toContain("v_item.review_state = 'accepted' and p_review_state in ('rejected','pending')")
+    expect(fn).toMatch(/insert into public\.wiki_change_events[\s\S]*'review:' \|\| p_review_state/)
+  })
+
+  it('피드백은 topic에서 프로젝트를 유도하고 사용자별 동일 신호를 upsert한다', () => {
+    const fn = functionSql('submit_wiki_feedback')
+    expect(fn).toMatch(/select topic\.project_id into v_project_id[\s\S]*topic\.id = p_topic_id/)
+    expect(fn).toContain('public.is_project_member(v_project_id)')
+    expect(fn).toContain("p_kind not in ('helpful','outdated')")
+    expect(fn).toContain('on conflict (topic_id, user_id, feedback_type) do update')
+    expect(fn).toMatch(/resolution = null,[\s\S]*resolved_at = null/)
+    expect(fn).toMatch(/p_kind = 'outdated'[\s\S]*review_due_at = least/)
+  })
+
+  it('revision은 프로젝트 삭제를 막지 않으면서도 명시적 스위치 없이는 지워지지 않는다', () => {
+    // wiki_topics의 상위 FK는 projects on delete cascade(0045)다. restrict면 문서 하나에
+    // revision 1건만 있어도 프로젝트 삭제가 통째로 실패한다. 반대로 트리거를 그냥 열면
+    // 이력이 사고로 사라진다 — cascade + 명시적 퍼지 스위치로 둘 다 만족시킨다.
+    const table = sql.slice(
+      sql.indexOf('create table if not exists public.wiki_topic_revisions'),
+      sql.indexOf('create index if not exists wiki_topic_revisions_topic_created_idx'),
+    )
+    expect(table).toContain('on delete cascade')
+    expect(table).not.toContain('on delete restrict')
+
+    const trigger = functionSql('wiki_topic_revisions_reject_mutation', '\ndrop trigger')
+    expect(trigger).toContain("pg_catalog.current_setting('app.wiki_purge', true) = 'on'")
+    expect(trigger).toMatch(/tg_op = 'DELETE'[\s\S]*return old;/)
+    expect(trigger).toContain("raise exception 'WIKI_REVISION_IMMUTABLE'")
+  })
+
+  it('주제 병합은 질문·피드백·하위문서를 target으로 옮긴 뒤 삭제하고 건수를 기록한다', () => {
+    // 옮기지 않으면 FK가 조용히 파괴한다 — 피드백은 cascade로 소멸, 질문은 topic_id=null,
+    // 하위 문서는 parent_id=null로 루트에 튀어나온다. change event에도 남지 않는다.
+    const fn = functionSql('merge_wiki_topics')
+    const moveQuestions = fn.indexOf('update public.wiki_questions question')
+    const moveFeedback = fn.indexOf('update public.wiki_feedback feedback')
+    const moveChildren = fn.indexOf('set parent_id = p_target_topic_id')
+    const deleteAt = fn.indexOf('delete from public.wiki_topics topic')
+    for (const at of [moveQuestions, moveFeedback, moveChildren]) {
+      expect(at).toBeGreaterThanOrEqual(0)
+      expect(at).toBeLessThan(deleteAt)
+    }
+    // 유니크(topic_id, user_id, feedback_type) 충돌은 흡수한다.
+    expect(fn).toContain('not exists (')
+    expect(fn).toMatch(/질문 %s건, 피드백 %s건, 하위문서 %s건/)
+  })
+
+  it('삭제형 주제 병합은 사람 문서나 revision이 있으면 DB에서도 거부한다', () => {
+    const fn = functionSql('merge_wiki_topics')
+    expect(fn).toContain("v_source.origin = 'manual'")
+    expect(fn).toContain("v_target.origin = 'manual'")
+    expect(fn).toMatch(/from public\.wiki_topic_revisions revision[\s\S]*p_source_topic_id, p_target_topic_id/)
+    expect(fn).toContain("raise exception 'WIKI_MERGE_DOCUMENT_FORBIDDEN'")
+  })
+
+  it('모든 definer RPC는 PUBLIC 실행권을 회수하고 authenticated에 명시적으로 연다', () => {
+    const signatures = [
+      'create_wiki_document(uuid, text, text, text, uuid)',
+      'save_wiki_document(uuid, text, text, text, timestamptz)',
+      'verify_wiki_document(uuid, integer, timestamptz)',
+      'move_wiki_document(uuid, uuid, integer, integer)',
+      'restore_wiki_document_revision(uuid, uuid, timestamptz)',
+      'create_wiki_question(uuid, uuid, text)',
+      'answer_wiki_question(uuid, text, uuid)',
+      'review_wiki_item(uuid, text)',
+      'submit_wiki_feedback(uuid, text, text)',
+    ]
+    for (const signature of signatures) {
+      expect(sql).toContain(
+        `revoke all on function public.${signature}\n  from public, anon, authenticated`,
+      )
+      expect(sql).toContain(`grant execute on function public.${signature}\n  to authenticated`)
+    }
+    for (const name of signatures.map((signature) => signature.slice(0, signature.indexOf('(')))) {
+      expect(functionSql(name)).toContain("set search_path = ''")
+    }
+  })
+
+  it('rollback은 데이터 소실을 경고하고 0079 추가물만 역순 제거한다', () => {
+    expect(rollback).toMatch(/경고\(데이터 소실\)/)
+    expect(rollback).toContain('drop table if exists public.wiki_topic_revisions')
+    expect(rollback).toContain('drop table if exists public.wiki_questions')
+    expect(rollback).toContain('drop table if exists public.wiki_feedback')
+    expect(rollback).toContain('drop column if exists review_state')
+    expect(rollback).toContain('drop column if exists event_name')
+    expect(rollback).toContain("delete from public.usage_events where event_name <> 'page_view'")
+    expect(rollback.indexOf("delete from public.usage_events where event_name <> 'page_view'"))
+      .toBeLessThan(rollback.indexOf('drop column if exists event_name'))
+    expect(rollback).toContain('drop column if exists body_md')
+    expect(rollback).not.toMatch(/drop table if exists public\.wiki_(topics|items|item_sources|change_events)/)
+    const mergeRestore = rollback.indexOf('create or replace function public.merge_wiki_topics')
+    expect(mergeRestore).toBeGreaterThan(rollback.indexOf('drop column if exists origin'))
+    expect(rollback.slice(mergeRestore)).not.toContain('wiki_topic_revisions')
+  })
+})

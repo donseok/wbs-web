@@ -23,7 +23,7 @@ import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
 
 const SECTION_LABEL: Record<string, string> = {
   dashboard: '대시보드', wbs: 'WBS · 간트', gantt: '간트 차트', kanban: '칸반 보드', issues: '이슈관리',
-  members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', weekly: '주간업무', settings: '설정',
+  members: '멤버', attendance: '근태현황', announcements: '공지사항', meetings: '회의', weekly: '주간업무', wiki: '프로젝트 Wiki', settings: '설정',
 }
 
 /** 서버 레이아웃이 Actor 에서 평탄화해 내리는 신원 표시용 스냅샷 — Actor(Map)는 직렬화되지 않는다. */
@@ -318,6 +318,7 @@ function MobileMenu({
         { href: `/p/${menuProjectId}/wbs`, label: t('nav.wbsGantt') },
         { href: `/p/${menuProjectId}/kanban`, label: t('nav.kanban') },
         { href: `/p/${menuProjectId}/issues`, label: t('nav.issues') },
+        { href: `/p/${menuProjectId}/wiki`, label: t('nav.wiki') },
         { href: `/p/${menuProjectId}/members`, label: t('nav.members') },
         { href: `/p/${menuProjectId}/attendance`, label: t('nav.attendance') },
         { href: `/p/${menuProjectId}/announcements`, label: t('nav.announcements'), badge: unreadAnn },
@@ -385,7 +386,8 @@ function MobileMenu({
                 프로젝트 메뉴{menuProject ? ` · ${menuProject.name}` : ''}
               </div>
               {links.map(l => {
-                const active = routeProjectId === menuProjectId && pathname === l.href
+                const active = routeProjectId === menuProjectId
+                  && (pathname === l.href || pathname.startsWith(`${l.href}/`))
                 return (
                   <Link key={l.label} onClick={onClose} href={l.href} aria-current={active ? 'page' : undefined} className={`side-link ${active ? 'side-link-active' : ''}`}>
                     <span className="flex-1">{l.label}</span>

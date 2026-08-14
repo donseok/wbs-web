@@ -24,6 +24,7 @@ function item(overrides: Partial<WikiItem> = {}): WikiItem {
     validTo: null,
     origin: 'ai',
     autoUpdateLocked: false,
+    reviewState: 'accepted',
     structuredData: {},
     createdAt: '2026-07-25T00:00:00.000Z',
     updatedAt: '2026-07-25T00:00:00.000Z',

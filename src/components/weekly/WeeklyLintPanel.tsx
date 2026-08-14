@@ -40,7 +40,7 @@ export function WeeklyLintPanel({ open, rows, canApply = true, onClose, onApply,
   onGoToCell: (rowId: string, cellKey: WeeklyCellKey) => void
 }) {
   // 열려 있는 동안 rows가 바뀔 때마다 재계산 — 적용 직후에도, 타인의 Realtime 수정에도 목록이 따라간다.
-  // 10행 × 4열이라 비용은 무시할 만하다. 닫혀 있으면 계산하지 않는다.
+  // 구분 수만큼의 행 × 4열이라 비용은 무시할 만하다. 닫혀 있으면 계산하지 않는다.
   const findings = useMemo(() => (open ? lintWeeklySheet(rows) : []), [open, rows])
   const groups = useMemo(() => groupBySection(findings), [findings])
 
@@ -61,7 +61,7 @@ export function WeeklyLintPanel({ open, rows, canApply = true, onClose, onApply,
               글머리 기호·번호 표기만 시트 전체 기준이라는 예외까지 같이 적는다(안 적으면 그 지적이 버그로 읽힌다).
               셀 안 [머리글] 구획도 같이 적는다 — 적지 않으면 이번엔 반대로 "왜 안 잡히지?"를 묻게 된다. */}
           <p className="pb-2 text-xs text-ink-muted">
-            점검은 구분 안에서만 합니다 — 서로 다른 구분끼리는 견주지 않습니다. 한 셀 안이라도 <code>[조업]</code> 처럼
+            점검은 구분 안에서만 합니다 — 서로 다른 구분끼리는 견주지 않습니다. 한 셀 안이라도 <code>[현장]</code> 처럼
             머리글로 갈린 구획은 서로 다른 영역으로 보아, <b>이름이 다른</b> 구획끼리는 같은 문구여도 중복으로 잡지
             않습니다. 번호도 구획마다 따로 세지만, 머리글 뒤에서 번호가 <b>1로 다시 시작할 때만</b> 새 구획으로
             봅니다 — <code>[완료]</code> 같은 표시 뒤로 번호를 이어 쓴 경우는 한 목록으로 셉니다.

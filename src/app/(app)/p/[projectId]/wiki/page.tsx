@@ -1,6 +1,6 @@
 import { listProjects } from '@/app/actions/project'
 import { getActorForView } from '@/lib/authz'
-import { isProjectAdmin } from '@/lib/domain/authz'
+import { isProjectAdmin, isProjectMember } from '@/lib/domain/authz'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiOverview } from '@/components/wiki/WikiOverview'
@@ -16,15 +16,30 @@ function parseView(value: string | string[] | undefined): WikiView {
     : 'all'
 }
 
+function parseQuestionId(value: string | string[] | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 && trimmed.length <= 128 ? trimmed : null
+}
+
+/**
+ * ?q= — 검색어를 URL 에 남기는 이유는 둘이다. 문서를 열었다 뒤로 오면 검색어가
+ * 사라져 매번 다시 치던 문제, 그리고 찾은 결과를 링크로 넘길 수 없던 문제.
+ * 200자를 넘는 값은 검색어가 아니라고 보고 버린다.
+ */
+function parseQuery(value: string | string[] | undefined): string {
+  return typeof value === 'string' && value.length <= 200 ? value : ''
+}
+
 export default async function ProjectWikiPage({
   params,
   searchParams,
 }: {
   params: Promise<{ projectId: string }>
-  searchParams: Promise<{ view?: string | string[] }>
+  searchParams: Promise<{ view?: string | string[]; question?: string | string[]; q?: string | string[] }>
 }) {
   const { projectId } = await params
-  const { view } = await searchParams
+  const { view, question, q } = await searchParams
   const [data, projects, locale, actor] = await Promise.all([
     getWikiOverview(projectId),
     listProjects(),
@@ -45,6 +60,10 @@ export default async function ProjectWikiPage({
         view={parseView(view)}
         canCurate={isProjectAdmin(actor, projectId)}
         canMergeTopics={isProjectAdmin(actor, projectId)}
+        canEditDocuments={isProjectMember(actor, projectId)}
+        highlightQuestionId={parseQuestionId(question)}
+        initialQuery={parseQuery(q)}
+        viewerId={actor?.userId ?? null}
       />
     </ProjectPageShell>
   )
