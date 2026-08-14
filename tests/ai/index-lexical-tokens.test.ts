@@ -59,6 +59,16 @@ describe('0084 마이그레이션 — 어휘 검색 토큰 배열화', () => {
     expect(forward).toContain('to authenticated, service_role')
   })
 
+  it('두 단계 정렬을 사용한다: 안쪽(distinct on 용 id 순), 바깥(관련도 순)', () => {
+    // DISTINCT ON 이 결과 순서를 강제하므로 limit 이 id 하위를 자르는 회귀 방지
+    // 안쪽 정렬: document 당 최고점 선택 (distinct on 요구사항)
+    expect(forward).toContain('order by d.id, similarity desc')
+    // 바깥 정렬: 관련도 기준 최종 순서 (서브쿼리 s 에서 시작)
+    expect(forward).toMatch(/order by s\.similarity desc[\s\S]*limit/)
+    // 결정성 유지 (0083 과 동일)
+    expect(forward).toContain('s.occurred_on desc nulls last, s.entity_id, s.chunk_no')
+  })
+
   it('롤백은 0083 의 p_query 판본을 복원한다', () => {
     expect(rollback).toContain('p_query text')
     expect(rollback).not.toContain('p_tokens text[]')

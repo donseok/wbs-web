@@ -42,31 +42,39 @@ create function public.match_ai_documents_lexical(
 language sql stable security invoker
 set search_path = public, extensions
 as $$
-  select distinct on (d.id)
-    d.id, d.project_id, d.domain, d.entity_type, d.entity_id, d.chunk_no,
-    d.index_version, d.title, d.content, d.content_hash, d.href, d.team,
-    d.occurred_on, d.source_updated_at, d.embedding_model, d.embedding_dimensions,
-    d.chunker_version, d.indexed_at,
-    max(greatest(
-      word_similarity(t, d.title),
-      word_similarity(t, d.content)
-    )) over (partition by d.id) as similarity
-  from unnest(coalesce(p_tokens[1:8], array[]::text[])) as t
-  join public.ai_documents d
-    on (
-      -- NULL/빈 스코프는 절대 "전 프로젝트" 를 뜻하지 않는다(0083 과 동일 계약).
-      (
-        (p_project_ids is not null and d.project_id = any(p_project_ids))
-        or (p_include_global and d.project_id is null)
+  select
+    s.id, s.project_id, s.domain, s.entity_type, s.entity_id, s.chunk_no,
+    s.index_version, s.title, s.content, s.content_hash, s.href, s.team,
+    s.occurred_on, s.source_updated_at, s.embedding_model, s.embedding_dimensions,
+    s.chunker_version, s.indexed_at, s.similarity
+  from (
+    select distinct on (d.id)
+      d.id, d.project_id, d.domain, d.entity_type, d.entity_id, d.chunk_no,
+      d.index_version, d.title, d.content, d.content_hash, d.href, d.team,
+      d.occurred_on, d.source_updated_at, d.embedding_model, d.embedding_dimensions,
+      d.chunker_version, d.indexed_at,
+      max(greatest(
+        word_similarity(t, d.title),
+        word_similarity(t, d.content)
+      )) over (partition by d.id) as similarity
+    from unnest(coalesce(p_tokens[1:8], array[]::text[])) as t
+    join public.ai_documents d
+      on (
+        -- NULL/빈 스코프는 절대 "전 프로젝트" 를 뜻하지 않는다(0083 과 동일 계약).
+        (
+          (p_project_ids is not null and d.project_id = any(p_project_ids))
+          or (p_include_global and d.project_id is null)
+        )
+        and d.index_version = p_index_version
+        and (p_domains is null or d.domain = any(p_domains))
+        and (p_entity_types is null or d.entity_type = any(p_entity_types))
+        -- <%  는 gin_trgm_ops 인덱스를 탄다(각 토큰이 제목 또는 본문의 단어를 포함).
+        and (t <% d.title or t <% d.content)
       )
-      and d.index_version = p_index_version
-      and (p_domains is null or d.domain = any(p_domains))
-      and (p_entity_types is null or d.entity_type = any(p_entity_types))
-      -- <%  는 gin_trgm_ops 인덱스를 탄다(각 토큰이 제목 또는 본문의 단어를 포함).
-      and (t <% d.title or t <% d.content)
-    )
-  where array_length(p_tokens, 1) > 0
-  order by d.id, similarity desc
+    where array_length(p_tokens, 1) > 0
+    order by d.id, similarity desc
+  ) s
+  order by s.similarity desc, s.occurred_on desc nulls last, s.entity_id, s.chunk_no
   limit greatest(1, least(coalesce(match_count, 20), 100));
 $$;
 
