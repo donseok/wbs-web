@@ -55,7 +55,7 @@ describe('GET /api/cron/ai-index', () => {
 
   it('프로젝트 조회가 실패하면 503 — 빈 스코프로 위장하지 않는다', async () => {
     mocks.createAdminClient.mockReturnValue({
-      from: () => ({ select: () => ({ limit: async () => ({ data: null, error: { code: 'ERR', message: 'boom' } } as any) }) }),
+      from: () => ({ select: () => ({ limit: async () => ({ data: null, error: { code: 'ERR', message: 'boom' } }) }) }),
     })
     expect((await GET(request('Bearer topsecret'))).status).toBe(503)
     expect(mocks.runIndexWorkerOnce).not.toHaveBeenCalled()
