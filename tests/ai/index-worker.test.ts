@@ -180,7 +180,7 @@ describe('runIndexWorkerOnce', () => {
     expect(summary).toEqual({ claimed: 1, upserted: 0, deleted: 0, failed: 0, requeued: 1 })
   })
 
-  it('returns a zero summary when the claim itself fails', async () => {
+  it('returns a zero summary with claimFailed when the claim itself fails', async () => {
     const queue = fakeQueue([])
     queue.claim = vi.fn(async () => ({
       ok: false as const,
@@ -188,7 +188,7 @@ describe('runIndexWorkerOnce', () => {
     }))
 
     const summary = await runIndexWorkerOnce({ queue, index: fakeIndex(), loadContent: loaderWithDocuments })
-    expect(summary).toEqual({ claimed: 0, upserted: 0, deleted: 0, failed: 0, requeued: 0 })
+    expect(summary).toEqual({ claimed: 0, upserted: 0, deleted: 0, failed: 0, requeued: 0, claimFailed: 'INDEX_JOB_CLAIM_FAILED' })
   })
 
   it('isolates one throwing job so the rest of the batch still processes', async () => {

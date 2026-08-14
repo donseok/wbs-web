@@ -78,8 +78,12 @@ async function main() {
       const summary = await call({ mode: 'worker', batchSize: BATCH })
       round += 1
       console.log(`#${round}:`, JSON.stringify(summary))
-      // 요약은 { mode, claimed, upserted, deleted, failed, requeued } 로 평탄하게 온다
-      // (route.ts:108 `{ mode: 'worker', ...summary }`). 처리할 것이 없으면 끝.
+      // 요약은 { mode, claimed, upserted, deleted, failed, requeued, claimFailed? } 로 평탄하게 온다.
+      // claimFailed 가 있으면 조회 실패 — 백필을 중단하고 에러로 보고한다(3원칙).
+      if (summary?.claimFailed) {
+        throw new Error(`claim 실패: ${summary.claimFailed}`)
+      }
+      // claimed=0 이면 처리할 것이 없다 — 끝.
       if (!summary?.claimed) {
         console.log(`✓ 라운드 ${round}에서 처리할 항목 없음 — 백필 완료`)
         break
