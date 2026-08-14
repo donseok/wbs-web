@@ -267,7 +267,7 @@ async function loadAnnouncement(client: SupabaseKnowledgeClient, job: ClaimedInd
 
 async function loadIssue(client: SupabaseKnowledgeClient, job: ClaimedIndexJob): Promise<IndexContentLoadResult> {
   const { data, error } = await client.from('issues')
-    .select('id, project_id, issue_no, title, body, status, severity, owner_department, sub_process, resolution_note, due_date, created_at, updated_at')
+    .select('id, project_id, issue_no, title, body, status, severity, owner_department, sub_process, resolution_note, due_date, related_systems, pi_issue_code, created_at, updated_at')
     .eq('id', job.entityId)
     .maybeSingle()
   if (error) return readError('ISSUES_READ_FAILED', error)
@@ -284,6 +284,8 @@ async function loadIssue(client: SupabaseKnowledgeClient, job: ClaimedIndexJob):
     str(row.owner_department) ? `담당부서: ${str(row.owner_department)}` : null,
     str(row.sub_process) ? `하위 프로세스: ${str(row.sub_process)}` : null,
     safeDate(row.due_date) ? `기한: ${safeDate(row.due_date)}` : null,
+    Array.isArray(row.related_systems) && row.related_systems.length > 0 ? `연관 시스템: ${row.related_systems.join(', ')}` : null,
+    str(row.pi_issue_code) ? `업무키: ${str(row.pi_issue_code)}` : null,
     str(row.body),
     str(row.resolution_note) ? `조치: ${str(row.resolution_note)}` : null,
   ])

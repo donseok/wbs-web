@@ -54,4 +54,36 @@ describe('이슈 색인 배선', () => {
     if (result.ok) throw new Error('통과하면 안 된다')
     expect(result.errorCode).toBe('INDEX_CONTENT_SCOPE_MISMATCH')
   })
+
+  it('연관 시스템과 업무키를 본문에 포함한다', async () => {
+    const load = createSupabaseIndexContentLoader(client({
+      id: ISSUE, project_id: PROJECT, issue_no: 42, title: 'MES 관련 이슈',
+      body: 'MES가 안 나온다', status: 'open', severity: 'high',
+      owner_department: '부산운영팀', created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-02T00:00:00Z',
+      related_systems: ['MES', 'SAP'], pi_issue_code: 'OPS-001',
+    }))
+    const result = await load(job)
+    expect(result.ok).toBe(true)
+    if (!result.ok || !result.data) throw new Error('스냅샷이 없다')
+    const [doc] = result.data.documents
+    expect(doc.content).toContain('연관 시스템: MES, SAP')
+    expect(doc.content).toContain('업무키: OPS-001')
+  })
+
+  it('빈 연관 시스템 배열이면 줄을 넣지 않는다', async () => {
+    const load = createSupabaseIndexContentLoader(client({
+      id: ISSUE, project_id: PROJECT, issue_no: 43, title: '단순 이슈',
+      body: '내용', status: 'open', severity: 'low',
+      owner_department: '운영팀', created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-02T00:00:00Z',
+      related_systems: [], pi_issue_code: 'OPS-002',
+    }))
+    const result = await load(job)
+    expect(result.ok).toBe(true)
+    if (!result.ok || !result.data) throw new Error('스냅샷이 없다')
+    const [doc] = result.data.documents
+    expect(doc.content).not.toContain('연관 시스템:')
+    expect(doc.content).toContain('업무키: OPS-002')
+  })
 })
