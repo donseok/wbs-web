@@ -3,6 +3,11 @@
 // Vercel 함수 타임아웃 안에 2,200건이 안 끝나므로 로컬에서 나눠 돈다.
 // content_hash 가 있어 재실행이 멱등이다 — 중단해도 다시 돌리면 된다.
 // 백필 후 analyze 를 통계를 갱신해야 한다 — 없으면 검색이 9배 느려진다(15ms → 232ms).
+//
+// --repair: mode:'backfill'/'worker' 대신 mode:'repair' 를 반복 호출한다. 0085 클로버
+// 방지가 재발은 막지만, 과거에 이미 null 로 덮인 임베딩(운영 실측 808→651)은 복구해야
+// 채워진다 — 그 복구 전용 경로. 임베딩 API 키가 Vercel 에만 있어 서버(route)에서 돌아야
+// 하고, 로컬에서는 이 스크립트로 반복 호출만 한다.
 
 import { setTimeout as sleep } from 'node:timers/promises'
 import { execFileSync } from 'node:child_process'
@@ -26,6 +31,7 @@ const DOMAINS = flag('domains', 'minutes,issues,wbs,announcements').split(',').f
 const BATCH = Number(flag('batch', '25'))
 const PAUSE_MS = Number(flag('pause', '3000'))
 const TARGET = flagArg('target')
+const REPAIR = args.includes('--repair')
 
 // 토큰은 두 경로 중 하나 (db-apply.mjs 와 동일)
 function accessToken() {
@@ -89,8 +95,42 @@ async function call(body) {
   return res.json()
 }
 
+async function runRepair() {
+  console.log('\n=== 복구 모드 (embedding is null 행만 재시도) ===')
+  let round = 0
+  let lastStillNull = Infinity
+  for (;;) {
+    const summary = await call({ mode: 'repair', batchSize: BATCH })
+    round += 1
+    console.log(`#${round}:`, JSON.stringify(summary))
+    // 요약은 { mode, scanned, repaired, stillNull } 로 온다.
+    if (!summary || typeof summary.stillNull !== 'number') {
+      throw new Error(`repair 응답 형태가 예상과 다릅니다: ${JSON.stringify(summary)}`)
+    }
+    if (!summary.scanned) {
+      console.log(`✓ 라운드 ${round}에서 남은 null 임베딩 없음 — 복구 완료`)
+      break
+    }
+    // stillNull 이 줄지 않으면(같은 항목이 계속 실패) 더 돌려도 소용없다 — 무한 루프 방지.
+    if (summary.stillNull >= lastStillNull) {
+      console.warn(
+        `✗ stillNull(${summary.stillNull})이 이전 라운드(${lastStillNull})보다 줄지 않았습니다 — 중단합니다.\n` +
+        '  남은 항목은 임베딩 API 가 계속 거부하는 본문(예: 여전히 너무 긴 텍스트)일 수 있습니다.',
+      )
+      break
+    }
+    lastStillNull = summary.stillNull
+    await sleep(PAUSE_MS)
+  }
+}
+
 async function main() {
   try {
+    if (REPAIR) {
+      await runRepair()
+      return
+    }
+
     // Step 1: 각 도메인을 큐에 넣는다
     console.log('\n=== 도메인 큐잉 ===')
     for (const domain of DOMAINS) {
