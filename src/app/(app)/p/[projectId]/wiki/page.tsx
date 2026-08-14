@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { listProjects } from '@/app/actions/project'
 import { createServerClient } from '@/lib/supabase/server'
 import { getActorViewState } from '@/lib/authz'
 import { createSupabaseAccessScopeResolver } from '@/lib/authz/accessScope'
@@ -31,9 +32,8 @@ export default async function ProjectWikiPage({
     getActorViewState(),
   ])
 
-  // 접근 제어는 검색 API가 처리하지만, 프로젝트 존재 확인은 여기서 한다.
-  // 비공개 프로젝트도 목록에 나타나지 않는다면 notFound() 하지만,
-  // 조회 자체가 실패했다면 degraded 를 보여준다.
+  // 권한 조회 실패를 "없는 페이지" 로 위장하지 않는다 — 장애와 접근 불가는 다르다.
+  if (degraded) throw new Error('ACTOR_LOOKUP_FAILED')
   if (!actor?.userId) notFound()
 
   const client = await createServerClient()
@@ -49,7 +49,9 @@ export default async function ProjectWikiPage({
     notFound()
   }
 
-  const projectName = projectId // 프로젝트명은 별도 fetch 대신 ID 표시
+  const projects = await listProjects()
+  const projectName = projects.find(p => p.id === projectId)?.name
+    ?? t(locale, 'wiki.projectFallback')
   const initialQuery = parseQuery(q)
 
   return (
