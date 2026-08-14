@@ -265,6 +265,42 @@ async function loadAnnouncement(client: SupabaseKnowledgeClient, job: ClaimedInd
   }
 }
 
+async function loadIssue(client: SupabaseKnowledgeClient, job: ClaimedIndexJob): Promise<IndexContentLoadResult> {
+  const { data, error } = await client.from('issues')
+    .select('id, project_id, issue_no, title, body, status, severity, owner_department, sub_process, resolution_note, due_date, created_at, updated_at')
+    .eq('id', job.entityId)
+    .maybeSingle()
+  if (error) return readError('ISSUES_READ_FAILED', error)
+  if (!data) return { ok: true, data: null }
+  const row = data as Row
+  if (row.project_id !== job.projectId) return scopeMismatch()
+
+  const issueNo = typeof row.issue_no === 'number' ? row.issue_no : null
+  const title = str(row.title) ?? '이슈'
+  const text = joinLines([
+    `# 이슈 ${issueNo != null ? `#${issueNo} ` : ''}${title}`.trim(),
+    str(row.status) ? `상태: ${str(row.status)}` : null,
+    str(row.severity) ? `심각도: ${str(row.severity)}` : null,
+    str(row.owner_department) ? `담당부서: ${str(row.owner_department)}` : null,
+    str(row.sub_process) ? `하위 프로세스: ${str(row.sub_process)}` : null,
+    safeDate(row.due_date) ? `기한: ${safeDate(row.due_date)}` : null,
+    str(row.body),
+    str(row.resolution_note) ? `조치: ${str(row.resolution_note)}` : null,
+  ])
+  return {
+    ok: true,
+    data: await toSnapshot({
+      job,
+      title: issueNo != null ? `#${issueNo} ${title}` : title,
+      text,
+      href: `/p/${encodeURIComponent(job.projectId ?? '')}/issues?focus=${encodeURIComponent(job.entityId)}`,
+      team: str(row.owner_department),
+      occurredOn: safeDate(row.created_at),
+      sourceUpdatedAt: safeTimestamp(row.updated_at) ?? safeTimestamp(row.created_at),
+    }),
+  }
+}
+
 async function loadMinute(client: SupabaseKnowledgeClient, job: ClaimedIndexJob): Promise<IndexContentLoadResult> {
   // created_by(계정)·created_by_name(실명)·file_path(Storage 경로)는 select 자체에서 제외한다.
   const { data, error } = await client.from('minutes')
@@ -315,6 +351,7 @@ export function createSupabaseIndexContentLoader(client: SupabaseKnowledgeClient
       case 'meeting': return loadMeeting(client, job)
       case 'announcement': return loadAnnouncement(client, job)
       case 'minute': return loadMinute(client, job)
+      case 'issue': return loadIssue(client, job)
       default: return { ok: false, errorCode: 'INDEX_CONTENT_UNSUPPORTED', retryable: false }
     }
   }

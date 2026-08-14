@@ -4,8 +4,8 @@ import type { IndexSourceSummary } from './consistency'
 import type { SupabaseKnowledgeClient } from './pgvector'
 import type { IndexMutation, IndexMutationSummary, KnowledgeIndexResult } from './types'
 
-/** 백필/정합성 검사가 지원하는 색인 도메인 5종 — 콘텐츠 로더(content.ts)와 1:1. */
-export const INDEX_BACKFILL_DOMAINS = ['wbs', 'weekly', 'meetings', 'announcements', 'minutes'] as const
+/** 백필/정합성 검사가 지원하는 색인 도메인 6종 — 콘텐츠 로더(content.ts)와 1:1. */
+export const INDEX_BACKFILL_DOMAINS = ['wbs', 'weekly', 'meetings', 'announcements', 'minutes', 'issues'] as const
 export type IndexBackfillDomain = (typeof INDEX_BACKFILL_DOMAINS)[number]
 
 export const INDEX_BACKFILL_ENTITY_TYPE: Record<IndexBackfillDomain, BotEntityType> = {
@@ -14,6 +14,7 @@ export const INDEX_BACKFILL_ENTITY_TYPE: Record<IndexBackfillDomain, BotEntityTy
   meetings: 'meeting',
   announcements: 'announcement',
   minutes: 'minute',
+  issues: 'issue',
 }
 
 export const INDEX_BACKFILL_BATCH = 200
@@ -128,6 +129,7 @@ const SOURCE_TABLES: Record<IndexBackfillDomain, SourceTableSpec> = {
     columns: 'id, project_id, updated_at, created_at, meetings(project_id)',
     projectColumn: null,
   },
+  issues: { table: 'issues', columns: 'id, project_id, updated_at, created_at', projectColumn: 'project_id' },
 }
 
 /**
