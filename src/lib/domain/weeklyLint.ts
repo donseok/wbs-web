@@ -5,7 +5,10 @@
  *  구분마다 담당이 다르고, 같은 문구가 두 구분에 있는 것은 보고서상 정상이기 때문이다.
  *  같은 이유로 **한 셀 안이라도 `[조업]`·`[표준화]` 같은 머리글로 갈린 구획은 서로 남남이다** —
  *  한 구분에 담당 영역 둘을 담은 셀이라 번호도 구획마다 1부터 다시 시작하고, 같은 문구가
- *  두 구획에 있어도 중복이 아니다(사용자 확인, 2026-08-06). 구획의 정체는 **머리글 이름**이라
+ *  두 구획에 있어도 중복이 아니다(사용자 확인, 2026-08-06).
+ *  (이 파일의 `[조업]`·`[표준화]` 예시는 그 관행이 실제로 있던 셀에서 왔다. 2026-08-14에 그 둘은
+ *   구분 자체로 갈렸지만 — WEEKLY_SECTIONS — 구획 머리글 기능은 구분명과 무관한 일반 장치다.
+ *   머리글 이름이 구분명과 같아야 하는 것은 아니다.) 구획의 정체는 **머리글 이름**이라
  *  떨어져 있는 같은 이름은 한 구획이고, 세 규칙이 이 묶음 키 하나를 공유한다(blockKeyOf).
  *  단 구획 분할은 **지적을 줄이는 쪽으로만** 쓴다 — 대괄호 한 줄이 늘 담당 영역 머리글이라는 보장이
  *  없으므로(`[완료]`·`[8/7]`), 체번은 (a) 머리글 뒤 번호가 1로 다시 시작할 때만 경계로 인정하고
@@ -14,7 +17,7 @@
  *  (예외: 글머리 기호·번호 표기 통일만 보고서 겉모습 문제라 시트 전체 다수결을 따른다.) ── */
 
 import {
-  CELL_FIELD, sectionKeyOf, WEEKLY_CELL_KEYS, WEEKLY_CELL_LABEL,
+  CELL_FIELD, sectionKeyOf, sortWeeklyRows, WEEKLY_CELL_KEYS, WEEKLY_CELL_LABEL,
   type WeeklyCellEdit, type WeeklyCellKey, type WeeklySheetRow,
 } from './weeklySheet'
 
@@ -82,8 +85,10 @@ export function normalizeForCompare(line: string): string {
   return s.replace(/\s+/g, ' ').trim()
 }
 
-/** 점검의 유일한 단위 — 구분별 묶음. 화면 표시 순서(sortOrder)를 그대로 물려받으므로
- *  묶음 순서 = 구분 순서, 묶음 안 행 순서 = 화면 순서(중복 규칙의 '남길 행' 기준)다.
+/** 점검의 유일한 단위 — 구분별 묶음. 화면 표시 순서(sortWeeklyRows — 구분 이름 순, 같은 구분
+ *  안에서는 sortOrder 순)를 그대로 물려받으므로 묶음 순서 = 구분 순서, 묶음 안 행 순서 =
+ *  화면 순서(중복 규칙의 '남길 행' 기준)다. 그리드와 같은 정렬을 써야 패널에서 짚은 행과
+ *  화면에서 보이는 행이 어긋나지 않는다.
  *  묶음 키는 PPT 페이지 단위와 같은 sectionKeyOf다 — 레거시 시트에서 section이 ERP 하나로
  *  뭉뚱그려진 영업·구매·관리회계를 서로 견주지 않으려면 모듈까지 봐야 하고, 반대로 PPT가 한 장에
  *  싣는 행들은 점검도 한 묶음으로 봐야 '점검 통과한 시트가 PPT에서 중복'인 상태가 생기지 않는다.
@@ -96,7 +101,7 @@ interface SectionGroup { section: string; rows: WeeklySheetRow[] }
 function bySection(rows: WeeklySheetRow[]): SectionGroup[] {
   const out: SectionGroup[] = []
   const at = new Map<string, number>()
-  for (const row of [...rows].sort((a, b) => a.sortOrder - b.sortOrder)) {
+  for (const row of sortWeeklyRows(rows)) {
     const section = sectionKeyOf(row)
     const i = at.get(section)
     if (i === undefined) { at.set(section, out.length); out.push({ section, rows: [row] }) }

@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Download, FileSpreadsheet, Sparkles } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import {
-  applyServerRow, rowSectionLabel, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX, WEEKLY_CELL_LABEL,
+  applyServerRow, rowSectionLabel, sortWeeklyRows, WEEKLY_CELL_KEYS, WEEKLY_CELL_MAX,
+  WEEKLY_CELL_LABEL, WEEKLY_SECTIONS,
   CELL_FIELD, type WeeklyCellKey, type WeeklySheetRow, type WeeklyCellEdit,
 } from '@/lib/domain/weeklySheet'
 import { type CellAddr } from '@/lib/domain/sheetSelection'
@@ -175,10 +176,10 @@ export function WeeklySheetView({
           const server = fromRecord(payload.new as Record<string, unknown>)
           setRows(rs => {
             const i = rs.findIndex(r => r.id === server.id)
-            if (i < 0) return [...rs, server].sort((a, b) => a.sortOrder - b.sortOrder)
+            if (i < 0) return sortWeeklyRows([...rs, server])
             const next = [...rs]
             next[i] = applyServerRow(rs[i], server, dirtyRef.current)
-            return next.sort((a, b) => a.sortOrder - b.sortOrder)
+            return sortWeeklyRows(next)
           })
         })
       .subscribe(st => {
@@ -599,7 +600,7 @@ export function WeeklySheetView({
           icon={FileSpreadsheet}
           title={`${weekLabel} 시트가 없습니다`}
           description={canCreateRound
-            ? '이전 주차에서 이월하거나 기본 시트(PMO·영업·품질·생산계획 등 업무영역 10개 구분)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다.'
+            ? `이전 주차에서 이월하거나 기본 시트(PMO·영업·품질·생산계획·조업·표준화 등 업무영역 ${WEEKLY_SECTIONS.length}개 구분)로 시작하세요. 이월하면 이전 주의 차주계획이 이번 주 금주실적 초안으로 들어옵니다.`
             : '아직 이 주차의 시트가 만들어지지 않았습니다. 주차 시트 생성은 프로젝트 관리자가 합니다.'}
           action={canCreateRound ? (
             <div className="flex gap-2">
@@ -660,7 +661,7 @@ export function WeeklySheetView({
               return true
             }}
           />
-          {/* 구분 1단(업무영역 10개) + 내용 4열. 모듈 열과 행 구조 편집은 없다 — 구분당 1행 고정. */}
+          {/* 구분 1단(업무영역 11개) + 내용 4열. 모듈 열과 행 구조 편집은 없다 — 구분당 1행 고정. */}
           <table className="w-full table-fixed border-collapse bg-white text-[13px] text-black">
             <colgroup>
               <col className="w-[10%]" />    {/* 구분 */}

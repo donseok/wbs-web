@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  carryOverRows, applyServerRow, defaultWeeklyRows, isWeeklyCellKey, mapLegacySection,
-  WEEKLY_CELL_MAX, WEEKLY_SECTIONS, type WeeklySheetRow,
+  carryOverRows, applyServerRow, defaultWeeklyRows, isWeeklyCellKey, LEGACY_SECTION_MAP,
+  mapLegacySection, sortWeeklyRows, WEEKLY_CELL_MAX, WEEKLY_SECTIONS, type WeeklySheetRow,
 } from '@/lib/domain/weeklySheet'
 
 const row = (over: Partial<WeeklySheetRow>): WeeklySheetRow => ({
@@ -18,13 +18,28 @@ describe('mapLegacySection', () => {
     expect(mapLegacySection('ERP', 'CO')).toBe('관리회계')
     expect(mapLegacySection('MES', '품질')).toBe('품질')
     expect(mapLegacySection('MES', 'APS')).toBe('생산계획')
-    expect(mapLegacySection('MES', '조업 및 표준화')).toBe('조업및표준화')
+    expect(mapLegacySection('MES', '조업 및 표준화')).toBe('조업')
     expect(mapLegacySection('MES', '가공')).toBe('가공')
     expect(mapLegacySection('MES', '설비 Level2')).toBe('설비및L2')
     expect(mapLegacySection('MES', '물류')).toBe('물류')
   })
+  it('폐지된 통합 구분 조업및표준화 → 조업 (구분명 키로도 흡수)', () => {
+    // 구 MES 시트는 module에 '조업 및 표준화'(공백 포함), 2026-08까지의 신규체계 시트는
+    // section에 '조업및표준화'(공백 없음)를 담는다. 표기가 둘이라 키도 둘이어야 한다 —
+    // 한쪽만 등록하면 나머지 경로가 폴백(PMO)으로 새고, 그 사고는 조용히 일어난다.
+    expect(mapLegacySection('조업및표준화', '')).toBe('조업')
+    expect(mapLegacySection('MES', '조업및표준화')).toBe('조업')
+  })
   it('이미 신규 구분이면 항등 — 신규 행은 module이 빈 문자열', () => {
     for (const s of WEEKLY_SECTIONS) expect(mapLegacySection(s, '')).toBe(s)
+  })
+  it('매핑표의 값은 전부 유효한 구분이다 — 죽은 타깃을 가리키면 그 행이 PMO로 샌다', () => {
+    // mapLegacySection은 맵에서 꺼낸 값이 실제 구분인지 검사하지 않는다. 그래서 구분 이름이
+    // 바뀔 때 맵 값을 함께 고치지 않으면, 매핑은 '성공'하는데 carryOverRows의 bySection 조회가
+    // 빗나가 폴백으로 흡수된다 — 테스트는 초록인 채로. 이 불변식이 그 유일한 안전망이다.
+    for (const [key, target] of Object.entries(LEGACY_SECTION_MAP)) {
+      expect((WEEKLY_SECTIONS as readonly string[]), `LEGACY_SECTION_MAP['${key}']`).toContain(target)
+    }
   })
   it('매핑 불가(자유 입력·모듈 없는 레거시) → 첫 구분으로 흡수(내용 유실 방지)', () => {
     const fb = WEEKLY_SECTIONS[0]
@@ -41,13 +56,13 @@ describe('mapLegacySection', () => {
 })
 
 describe('carryOverRows', () => {
-  it('신규 체계 시트 — 차주계획→금주실적 1:1 이월, next는 비움, 10행 유지', () => {
+  it('신규 체계 시트 — 차주계획→금주실적 1:1 이월, next는 비움, 11행 유지', () => {
     const prev = [
       row({ id: 'a', sortOrder: 2, section: '구매', module: '', nextContent: '계획B', nextIssue: '이슈B' }),
       row({ id: 'b', sortOrder: 1, section: '영업', module: '', thisContent: '지난실적', nextContent: '계획A' }),
     ]
     const out = carryOverRows(prev)
-    expect(out).toHaveLength(10)
+    expect(out).toHaveLength(11)
     expect(out.map(r => r.section)).toEqual([...WEEKLY_SECTIONS])
     expect(out[0]).toMatchObject({ section: 'PMO', thisContent: '', nextContent: '' }) // PMO가 맨 앞·빈 값
     expect(out.find(r => r.section === '영업')).toMatchObject({ thisContent: '계획A', thisIssue: '', nextContent: '', nextIssue: '' })
@@ -61,17 +76,30 @@ describe('carryOverRows', () => {
       row({ id: 'c', sortOrder: 3, section: 'MES', module: '가공', nextContent: 'Luxteel 라인 점검' }),
     ]
     const out = carryOverRows(prev)
-    expect(out).toHaveLength(10)
+    expect(out).toHaveLength(11)
     const by = (s: string) => out.find(r => r.section === s)!
     expect(by('관리회계').thisContent).toBe('자금 계획\n원가 계획') // sortOrder 순으로 이어붙임
     expect(by('관리회계').thisIssue).toBe('기준 미정')
     expect(by('가공').thisContent).toBe('Luxteel 라인 점검')
     expect(by('품질').thisContent).toBe('')                         // 원본에 없던 구분은 빈 행
   })
-  it('빈 입력 → 빈 표준 10행(빈 배열 아님)', () => {
+  it('빈 입력 → 빈 표준 11행(빈 배열 아님)', () => {
     const out = carryOverRows([])
-    expect(out).toHaveLength(10)
+    expect(out).toHaveLength(11)
     expect(out.every(r => r.thisContent === '' && r.nextContent === '')).toBe(true)
+  })
+  it('폐지된 조업및표준화 행은 조업으로 이월된다 — PMO·표준화로 새지 않는다', () => {
+    // 데이터 이관을 놓친 시트(또는 이관 전에 눌린 이월 버튼)에서도 내용이 엉뚱한 구분에
+    // 뭉치지 않아야 한다. 폴백 흡수는 '진짜 미지 값'만의 몫이다.
+    const prev = [
+      row({ id: 'a', sortOrder: 7, section: '조업및표준화', module: '', nextContent: '라인스피드 협의', nextIssue: '기준선 미정' }),
+    ]
+    const out = carryOverRows(prev)
+    const by = (s: string) => out.find(r => r.section === s)!
+    expect(by('조업').thisContent).toBe('라인스피드 협의')
+    expect(by('조업').thisIssue).toBe('기준선 미정')
+    expect(by('표준화').thisContent).toBe('')
+    expect(by('PMO').thisContent).toBe('')
   })
   it('병합 시 앞뒤 빈 줄을 다듬는다 — PPT에 빈 불릿이 찍히지 않게', () => {
     const prev = [
@@ -121,15 +149,42 @@ describe('applyServerRow', () => {
 
 describe('defaultWeeklyRows', () => {
   const rows = defaultWeeklyRows()
-  it('업무영역 10행 — 구분 순서 보존(PMO 선두), sortOrder 1부터 연속, module은 빈값', () => {
-    expect(rows).toHaveLength(10)
+  it('업무영역 11행 — 구분 순서 보존(PMO 선두), sortOrder 1부터 연속, module은 빈값', () => {
+    expect(rows).toHaveLength(11)
     expect(rows[0].section).toBe('PMO') // 맨 앞이 PMO
     expect(rows.map(r => r.section)).toEqual([...WEEKLY_SECTIONS])
-    expect(rows.map(r => r.sortOrder)).toEqual(Array.from({ length: 10 }, (_, i) => i + 1))
+    // 개수를 상수에서 끌어와 구분이 늘 때마다 이 단언을 손보지 않게 한다.
+    expect(rows.map(r => r.sortOrder)).toEqual(Array.from({ length: WEEKLY_SECTIONS.length }, (_, i) => i + 1))
     expect(rows.every(r => r.module === '')).toBe(true)
   })
   it('셀 4개는 모두 빈값', () => {
     for (const r of rows) expect(r.thisContent + r.thisIssue + r.nextContent + r.nextIssue).toBe('')
+  })
+})
+
+describe('sortWeeklyRows', () => {
+  it('백필된 표준 구분을 이름 순서대로 놓고 비표준 행은 뒤로 보낸다', () => {
+    // 과거 시트의 sort_order는 주차마다 다르다(PMO 백필 주차는 -10·1..9, 이후 주차는 1..10).
+    // 숫자를 신뢰하면 중간 삽입 구분이 엉뚱한 자리에 서므로, 표시 순서는 이름이 정한다.
+    const rows = [
+      row({ id: 'legacy', section: 'ERP', module: 'SD/LE', sortOrder: 0 }),
+      row({ id: 'logistics', section: '물류', module: '', sortOrder: 7 }),
+      row({ id: 'standard', section: '표준화', module: '', sortOrder: -4 }),
+      row({ id: 'ops', section: '조업', module: '', sortOrder: 6 }),
+      row({ id: 'custom', section: '기타', module: '', sortOrder: -1 }),
+    ]
+
+    expect(sortWeeklyRows(rows).map(r => r.id)).toEqual([
+      'ops', 'standard', 'logistics', 'custom', 'legacy',
+    ])
+  })
+  it('폐지된 조업및표준화 행은 표준 구분 뒤로 밀린다 — 이관 전에도 순서가 흔들리지 않게', () => {
+    const rows = [
+      row({ id: 'merged', section: '조업및표준화', module: '', sortOrder: 7 }),
+      row({ id: 'ops', section: '조업', module: '', sortOrder: 7 }),
+      row({ id: 'pmo', section: 'PMO', module: '', sortOrder: 1 }),
+    ]
+    expect(sortWeeklyRows(rows).map(r => r.id)).toEqual(['pmo', 'ops', 'merged'])
   })
 })
 

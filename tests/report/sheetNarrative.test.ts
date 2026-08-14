@@ -77,10 +77,16 @@ describe('rowLabel', () => {
 
 describe('보고 순서', () => {
   it('시트 행 순서와 PPT 보고 순서는 WEEKLY_SECTIONS 하나로 정의된다(PMO 선두)', () => {
+    // 배열 리터럴을 그대로 적는다 — 구분 순서를 감시하는 곳이 여기뿐이라, 스프레드로 바꾸면
+    // 순서가 조용히 바뀌어도 아무도 모른다.
     expect(WEEKLY_SECTIONS).toEqual([
-      'PMO', '영업', '구매', '관리회계', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공',
+      'PMO', '영업', '구매', '관리회계', '품질', '생산계획', '조업', '표준화', '물류', '설비및L2', '가공',
     ])
     expect(WEEKLY_SECTIONS.indexOf('PMO')).toBeLessThan(WEEKLY_SECTIONS.indexOf('영업')) // PMO가 영업 위
+  })
+  it('표준화는 조업 바로 뒤, 물류 앞 — 현장 구분의 보고 순서', () => {
+    expect(WEEKLY_SECTIONS.indexOf('표준화')).toBe(WEEKLY_SECTIONS.indexOf('조업') + 1)
+    expect(WEEKLY_SECTIONS.indexOf('표준화')).toBeLessThan(WEEKLY_SECTIONS.indexOf('물류'))
   })
 })
 
@@ -93,7 +99,7 @@ describe('buildSheetSections', () => {
   const secs = buildSheetSections(rows)
   const byName = (name: string) => secs.find(s => s.section === name)!
 
-  it('표준 10구분을 전부 WEEKLY_SECTIONS 순서로 포함한다(내용 없는 구분 포함, PMO 선두)', () => {
+  it('표준 11구분을 전부 WEEKLY_SECTIONS 순서로 포함한다(내용 없는 구분 포함, PMO 선두)', () => {
     expect(secs.map(s => s.section)).toEqual([...WEEKLY_SECTIONS])
     expect(secs[0].section).toBe('PMO')
   })
@@ -116,7 +122,7 @@ describe('buildSheetSections', () => {
       row({ id: `r${i}`, sortOrder: i + 1, section, thisContent: `${section} 실적` }))
     expect(buildSheetSections(shuffled).map(s => s.section)).toEqual([...WEEKLY_SECTIONS])
   })
-  it('비표준 구분(레거시·자유 입력)은 표준 10구분 뒤에, 서로는 sortOrder 순', () => {
+  it('비표준 구분(레거시·자유 입력)은 표준 11구분 뒤에, 서로는 sortOrder 순', () => {
     const built = buildSheetSections([
       row({ id: 'x', sortOrder: 1, section: 'ERP', module: 'SD/LE', thisContent: '레거시B' }),
       row({ id: 'z', sortOrder: 0, section: '기타', module: '', thisContent: '레거시A' }),
@@ -124,6 +130,16 @@ describe('buildSheetSections', () => {
     expect(built.slice(0, WEEKLY_SECTIONS.length).map(s => s.section)).toEqual([...WEEKLY_SECTIONS])
     expect(built.slice(WEEKLY_SECTIONS.length).map(s => s.section)).toEqual(['기타', 'ERP · SD/LE'])
     expect(built.find(s => s.section === 'ERP · SD/LE')!.thisContent).toEqual(['레거시B'])
+  })
+  it('이관 전 조업및표준화 행은 표준 구분 뒤에 자기 페이지로 남는다 — 조업/표준화와 섞지 않는다', () => {
+    // 데이터 이관을 놓친 주차를 내보내도 PPT가 조용히 내용을 합치거나 버리지 않아야 한다.
+    const built = buildSheetSections([
+      row({ id: 'm', sortOrder: 7, section: '조업및표준화', module: '', thisContent: '옛 통합 내용' }),
+    ])
+    expect(built.slice(0, WEEKLY_SECTIONS.length).map(s => s.section)).toEqual([...WEEKLY_SECTIONS])
+    expect(built[WEEKLY_SECTIONS.length].section).toBe('조업및표준화')
+    expect(built[WEEKLY_SECTIONS.length].thisContent).toEqual(['옛 통합 내용'])
+    expect(built.find(s => s.section === '조업')!.thisContent).toEqual([])
   })
   it('같은 구분의 여러 행은 sortOrder 순으로 이어붙이고 사이에 빈 줄 1개', () => {
     const built = buildSheetSections([

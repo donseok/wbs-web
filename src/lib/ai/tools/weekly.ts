@@ -23,10 +23,13 @@ const WEEKLY_CAPABILITY = 'weekly:read' as const
 
 const WEEKLY_TEAM_SECTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
   ERP: new Set(['ERP', '영업', '구매', '관리회계', '생산계획']),
-  MES: new Set(['MES', '품질', '생산계획', '조업및표준화', '물류', '설비및L2', '가공']),
+  // '조업및표준화' 는 2026-08-14에 조업·표준화로 갈렸지만 집합에 남긴다 — 그 이전 주차 행의
+  // section 값은 이관 뒤에도 다른 프로젝트·복원본에 남을 수 있고, 매칭은 문자열 완전일치라
+  // 빠뜨리면 과거 주차가 MES 필터에서 조용히 사라진다.
+  MES: new Set(['MES', '품질', '생산계획', '조업', '표준화', '조업및표준화', '물류', '설비및L2', '가공']),
   PMO: new Set(['PMO']),
   가공: new Set(['가공']),
-  // 주간업무 구분(업무영역 10종)에 MDM 이 아직 없다 — 빈 매핑은 '알려진 팀이지만 조회 불가'로
+  // 주간업무 구분(업무영역 11종)에 MDM 이 아직 없다 — 빈 매핑은 '알려진 팀이지만 조회 불가'로
   // 명시 거부된다(validateTeam). 구분 신설 시 여기에 채우면 자동 활성.
   MDM: new Set<string>(),
 }
