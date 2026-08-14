@@ -58,7 +58,7 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
       acceptance: string[]; spec: string | null; dev_workflow: boolean }
   | { error: string } {
   if (!n.id || !n.title) return { error: `id·title 필수: ${JSON.stringify(n.id)}` }
-  // v2.1: 'todo' 는 stage 축에서 제거됐다(0079) — 검증 전에 null 로 정규화해 하위호환 수용.
+  // v2.1: 'todo' 는 stage 축에서 제거됐다(0082) — 검증 전에 null 로 정규화해 하위호환 수용.
   const stage = n.stage === 'todo' ? null : n.stage
   if (stage !== null && stage !== undefined && !STAGES.has(stage)) return { error: `허용 밖 stage: ${stage} (${n.id})` }
   if (n.priority !== null && n.priority !== undefined && !PRIORITY_LABELS.has(n.priority)) {

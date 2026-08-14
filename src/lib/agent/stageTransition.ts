@@ -1,7 +1,7 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { emitNotification } from '@/lib/notify/emit'
 
-/** WBS Task 단계(§2.5) — dev_workflow=true 항목의 자동 전이 대상. 미지정은 'todo' 문자열이 아니라 null(0079). */
+/** WBS Task 단계(§2.5) — dev_workflow=true 항목의 자동 전이 대상. 미지정은 'todo' 문자열이 아니라 null(0082). */
 export type WbsStage = 'as' | 'fp' | 'ip' | 'im' | 'xx'
 
 const REACHED_STAGES_LIST = ['im', 'xx'] as const

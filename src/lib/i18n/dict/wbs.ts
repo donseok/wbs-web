@@ -195,7 +195,7 @@ export const wbsKo = {
   // stage 라벨 정본(2026-08-13 재설계) — dev-workflow state-machine.json 기준으로 정정.
   // 구현 때 추측으로 들어간 오역이었다: as=분석·설계(오역, 정본은 "할당됨"),
   // fp=기능 구현(오역, 정본은 선행 미충족 강행이라 "강제 진행"), im=검수 중(오역, 정본은
-  // 구현 완료 후 검수 대기 상태). 'wbs.stageTodo' 는 todo stage 제거(0079)로 폐기.
+  // 구현 완료 후 검수 대기 상태). 'wbs.stageTodo' 는 todo stage 제거(0082)로 폐기.
   'wbs.stageNoneOption': '미착수',
   'wbs.stageAs': '할당됨',
   'wbs.stageFp': '강제 진행',
@@ -424,7 +424,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.assigneeUnassignedOption': 'No assignee',
   'wbs.stageLabel': 'Stage',
   // Stage label source of truth (2026-08-13 redesign) — corrected against
-  // dev-workflow state-machine.json. 'wbs.stageTodo' dropped with the todo stage (0079).
+  // dev-workflow state-machine.json. 'wbs.stageTodo' dropped with the todo stage (0082).
   'wbs.stageNoneOption': 'Not started',
   'wbs.stageAs': 'Assigned',
   'wbs.stageFp': 'Force proceed',

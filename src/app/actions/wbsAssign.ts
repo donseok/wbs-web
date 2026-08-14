@@ -13,7 +13,7 @@ import { REACHED_STAGES, notifySuccessorsOnReached, transitionStage } from '@/li
  * WBS 담당자(로스터 축)·단계(stage) 갱신 — §2.5. 배정 권한은 프로젝트 관리자.
  * 담당자는 노드 속성 — 하위 상속·롤업 없음. 배정 해제 시 활성 주문은 자동 취소하지 않는다(§2.8).
  *
- * 2026-08-13 stage 워크플로 재설계 — 'todo'는 NULL로 통합됐다(0079). dev_workflow=true 항목은
+ * 2026-08-13 stage 워크플로 재설계 — 'todo'는 NULL로 통합됐다(0082). dev_workflow=true 항목은
  * 배정↔as 자동 전이가 걸린다(transitionStage, 아래 setWbsAssignee/Cascade/setWbsDevWorkflow).
  */
 
