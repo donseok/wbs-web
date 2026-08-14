@@ -67,62 +67,104 @@
 
 ---
 
-## Task 1: 착수 전 실측과 밀린 큐 정리
+## Task 1: 착수 전 실측 (완료 — 큐 삭제는 철회)
 
 **Files:**
-- Create: `docs/superpowers/plans/2026-08-14-wiki-search-only-probe.md` (실측 기록)
-- 코드 변경 없음
+- 코드 변경 없음. 실측 기록만.
 
 **Interfaces:**
-- Consumes: 없음
-- Produces: `CHAT_V2_INDEX_*` 3종의 운영 값. 이후 Task 9가 이 값을 근거로 설정을 바꾼다.
+- Produces: `CHAT_V2_INDEX_*` 3종의 운영 값과 큐의 실제 상태. Task 9·11 이 이 값을 근거로 움직인다.
 
-밀린 큐를 남긴 채 워커를 켜면 2026-07-27에 옛 스코프로 큐잉된 `delete` 46건이 실행된다.
-지금은 `ai_documents`가 비어 있어 무해하지만, 백필과 순서가 엉키면 방금 색인한 것을 지운다.
+### 실측 결과 (2026-08-14, 운영 `rglfgrwwwwdqejohdnty`)
 
-- [ ] **Step 1: 운영 Vercel env 3종 확인**
+**Vercel 운영 env**
+
+| 변수 | 상태 |
+|---|---|
+| `CRON_SECRET` | **있음** (19일 전 설정, `inbox-retention` 용) — Task 9 의 크론 어댑터가 재사용 |
+| `CHAT_V2_INDEX_WORKER_ENABLED` | 없음 → 워커 라우트 404 |
+| `CHAT_V2_INDEX_CRON_SECRET` | 없음 → 404 |
+| `CHAT_V2_INDEX_ENQUEUE_ENABLED` | 없음 → TS enqueue 헬퍼 no-op |
+
+**큐 상태 — 스펙·계획의 서술이 틀렸다**
+
+스펙 §2.2 와 계획 초판은 "pending 96건, 전부 2026-07-27 생성" 이라고 적었다. 실측은 다르다:
+
+```
+생성일 분포:  07-27  07-29  07-31  08-04  08-06  08-11  08-12  08-13
+              7건    53건   14건   2건    1건    10건   8건    1건
+```
+
+**큐는 2026-08-13 까지 계속 쌓이고 있다.** TS `enqueue.ts` 호출부가 0건인데도 그렇다 —
+**DB 레벨 RPC 가 큐를 채우기 때문이다.** 회의록 CRUD 전 경로가 이 함수들을 탄다:
+
+```
+queue_minute_ai_index_scope_change
+archive_minute_with_wiki_retraction
+update_minute_metadata_with_wiki_retraction
+upsert_ai_index_jobs
+```
+
+`queue_minute_ai_index_scope_change` 는 `job_key = 'v1:{project}:minutes:minute:{id}'` 로
+`on conflict (job_key) do update` 하는 **멱등 upsert** 다. `CHAT_V2_INDEX_ENQUEUE_ENABLED`
+플래그는 이 경로를 전혀 게이팅하지 않는다.
+
+**잡 96건의 정체**
+
+| 잡 | 건수 | 현재 스코프와 일치 | 원본 회의록 존재 |
+|---|---|---|---|
+| `upsert` | 50 | **50 / 50** | 50 |
+| `delete` | 46 | **0 / 46** (전부 옛 스코프) | 46 |
+
+### Ruling: 큐를 삭제하지 않는다 (계획 초판의 Step 3·4 철회)
+
+초판은 "옛 스코프로 큐잉된 것이라 폐기 후 백필이 새로 큐잉한다" 고 했다. 실측이 그 전제를 뒤집었다.
+
+- `upsert` 50건은 **옛 스코프가 아니라 전부 현재 스코프와 일치**한다. 워커를 켜면 그대로 옳게
+  색인된다. 지우면 그 정보만 잃는다.
+- `delete` 46건은 옛 스코프가 맞지만 **그래서 무해하다.** 백필은 현재 스코프로 쓰므로 `job_key`
+  가 달라 충돌하지 않고, 지울 대상인 옛 스코프 `ai_documents` 행은 애초에 존재하지 않는다
+  (`ai_documents` 는 0건이다).
+- `job_key` 멱등 upsert 라 백필이 같은 잡을 **덮어쓴다** — 중복도 순서 위험도 없다.
+- 워커의 tombstone 규약(`generation` + complete CAS)이 이중 방어로 남아 있다.
+
+따라서 **파괴적 운영 작업을 하지 않는 것이 옳다.**
+
+- [ ] **Step 1: 위 실측이 여전히 유효한지 확인한다** (착수 시점에 다시)
+
+```sql
+select operation, count(*) n,
+       count(*) filter (where j.project_id is not distinct from m.project_id) 현재스코프일치
+from public.ai_index_jobs j left join public.minutes m on m.id::text = j.entity_id
+group by 1;
+```
+
+Expected: `upsert` 의 현재스코프일치 = 전체, `delete` 의 현재스코프일치 = 0.
+**다르면 멈추고 보고한다** — 그 사이 누가 워커를 켰거나 스코프가 또 바뀐 것이다.
+
+- [ ] **Step 2: 이 실측을 스펙에 반영한다**
+
+`docs/superpowers/specs/2026-08-14-wiki-search-only-design.md` §2.2 의 다음 두 문장을 고친다:
+- "pending 96건 … 전부 2026-07-27 생성" → 실제 분포와 "DB RPC 가 계속 채운다" 로
+- "enqueue 존재하나 호출부 0건" → "TS 헬퍼는 호출부 0건이나 **DB RPC 가 회의록 경로를 이미 큐잉한다**" 로
+
+이 정정은 Task 10 의 범위도 줄인다 — 회의록은 이미 배선돼 있으므로 TS 배선이 필요한 것은
+이슈·WBS·공지 셋뿐이다.
+
+- [ ] **Step 3: 커밋**
 
 ```bash
-cd /Users/jerry/wbs-web
-vercel env ls production 2>&1 | grep -i "CHAT_V2_INDEX" || echo "3종 모두 미설정"
-```
+git add docs/superpowers/specs/2026-08-14-wiki-search-only-design.md
+git commit -m "docs: 색인 큐 실측 — DB RPC 가 이미 회의록을 큐잉하고 있었다
 
-기록할 것: `CHAT_V2_INDEX_WORKER_ENABLED` · `CHAT_V2_INDEX_CRON_SECRET` · `CHAT_V2_INDEX_ENQUEUE_ENABLED`의 존재 여부.
+스펙은 pending 96건이 전부 2026-07-27 에 멈춘 것이라고 적었으나 실제로는
+2026-08-13 까지 계속 쌓이고 있다. TS enqueue 헬퍼 호출부는 0건이 맞지만
+queue_minute_ai_index_scope_change 등 DB RPC 가 회의록 CRUD 전 경로에서
+job_key 멱등 upsert 로 큐를 채운다 — 플래그와 무관하다.
 
-- [ ] **Step 2: 큐 현황을 다시 확인**
-
-`scripts/db-apply.mjs`와 같은 인증 경로(키체인 `Supabase CLI` → Management API)로 조회한다.
-
-```sql
-select entity_type, operation, status, count(*) n, min(created_at) oldest
-from public.ai_index_jobs group by 1,2,3 order by n desc;
-```
-
-Expected: `minute/upsert/pending 50`, `minute/delete/pending 46`.
-**숫자가 다르면 멈추고 보고한다** — 그 사이 누가 워커를 켠 것이다.
-
-- [ ] **Step 3: 스테이징에서 먼저 폐기**
-
-```sql
-delete from public.ai_index_jobs where status = 'pending';
-```
-
-- [ ] **Step 4: 운영에서 폐기**
-
-같은 SQL. 실행 후 검증:
-
-```sql
-select count(*) from public.ai_index_jobs;  -- 0 이어야 한다
-```
-
-- [ ] **Step 5: 실측 기록을 문서로 남기고 커밋**
-
-```bash
-git add docs/superpowers/plans/2026-08-14-wiki-search-only-probe.md
-git commit -m "docs: 색인 착수 전 실측 — env 3종 상태와 큐 폐기 기록
-
-밀린 96건은 2026-07-27 에 옛 스코프로 큐잉된 것이라 재사용하지 않는다.
-delete 46건이 백필과 순서가 엉키면 방금 색인한 것을 지운다."
+그래서 큐를 폐기하지 않는다. upsert 50건은 전부 현재 스코프와 일치해
+워커를 켜면 그대로 옳게 색인되고, delete 46건은 옛 스코프라 지울 대상이
+없어 무해하다."
 ```
 
 ---

@@ -50,7 +50,7 @@ wiki_project_rebuild_jobs  pending 2 (2026-08-11부터 방치)
 
 ```
 ai_documents          존재 · HNSW 인덱스 존재 · 행 0건
-ai_index_jobs         pending 96건 (minute upsert 50 + delete 46, 전부 2026-07-27 생성)
+ai_index_jobs         pending 96건 (minute upsert 50 + delete 46) — 2026-08-13 까지 계속 쌓이는 중
 match_ai_documents    존재 (순수 벡터)
 replace_ai_document_chunks  존재
 runIndexWorkerOnce()  존재 (worker.ts:51)
@@ -58,7 +58,7 @@ runIndexWorkerOnce()  존재 (worker.ts:51)
 하이브리드 융합       존재 (hybrid.ts — 단 RRF 아님, 가중합)
 백필 러너             존재 (backfill.ts:45 runIndexBackfill)
 정합성 점검           존재 (consistency.ts)
-enqueue               존재하나 호출부 0건 (enqueue.ts)
+enqueue(TS)           존재하나 호출부 0건 (enqueue.ts) — 단 DB RPC 가 회의록을 이미 큐잉한다(§2.2.2)
 vercel.json crons     inbox-retention 하나뿐
 ```
 
@@ -72,7 +72,37 @@ vercel.json                                → 이 라우트에 크론이 안 �
 enqueue 호출부                             → src 전체 0건
 ```
 
-세 플래그의 **운영 값은 미확인이다**(Vercel env 조회 필요). 리포 문서는 "기본 OFF"로 적는다.
+세 플래그의 **운영 값을 2026-08-14 실측했다**: 셋 다 **미설정**이다.
+별개로 `CRON_SECRET` 은 이미 있다(19일 전 설정, `inbox-retention` 용).
+
+### 2.2.2 정정 — enqueue 는 이미 돌고 있다 (DB 레벨)
+
+초판은 "enqueue 호출부가 0건이라 색인이 굳는다"고 적었다. **TS 헬퍼에 한해서만 맞다.**
+
+큐의 생성일 분포를 보면 2026-08-13 까지 계속 쌓이고 있다:
+
+```
+07-27  07-29  07-31  08-04  08-06  08-11  08-12  08-13
+ 7건    53건   14건   2건    1건    10건   8건    1건
+```
+
+채우는 주체는 **DB 함수**다. 회의록 CRUD 전 경로가 이들을 탄다:
+
+```
+queue_minute_ai_index_scope_change      -- job_key 멱등 upsert
+archive_minute_with_wiki_retraction
+update_minute_metadata_with_wiki_retraction
+upsert_ai_index_jobs
+```
+
+`job_key = 'v1:{project}:minutes:minute:{id}'` 로 `on conflict (job_key) do update` 한다.
+**`CHAT_V2_INDEX_ENQUEUE_ENABLED` 는 이 경로를 게이팅하지 않는다.**
+
+결과적으로 **회의록은 이미 배선돼 있다.** TS 배선이 필요한 것은 이슈·WBS·공지 셋뿐이다.
+
+잡 96건의 정체도 실측했다 — `upsert` 50건은 **전부 현재 스코프와 일치**하고(워커를 켜면 그대로
+옳게 색인된다), `delete` 46건은 전부 옛 스코프라 지울 대상이 없어 무해하다. 그래서
+**큐를 폐기하지 않는다.**
 
 ### 2.2.1 이 설계에서 새로 만들 것은 생각보다 적다
 
