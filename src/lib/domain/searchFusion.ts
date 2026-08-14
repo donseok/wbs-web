@@ -97,7 +97,9 @@ export function fuseSearchResults(
   absorb(vector, 'vector')
   absorb(lexical, 'lexical')
 
-  const bounded = Math.max(1, Math.floor(limit))
+  // Math.max 는 인자에 NaN 이 있으면 NaN 을 돌려주고, slice(0, NaN) 은 빈 배열이 된다 —
+  // 잘못된 입력이 "결과 없음" 으로 위장되므로 유한수가 아니면 기본값으로 떨어진다.
+  const bounded = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : DEFAULT_LIMIT
   return [...merged.values()]
     .map(doc => ({ ...doc, matchedBy: [...doc.matchedBy].sort() }))
     .sort((a, b) =>

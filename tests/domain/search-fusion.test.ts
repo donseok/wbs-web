@@ -54,4 +54,17 @@ describe('fuseSearchResults', () => {
     const many = Array.from({ length: 30 }, (_, i) => chunk(`E${i}`, 0))
     expect(fuseSearchResults(many, [], 10)).toHaveLength(10)
   })
+
+  it('limit=NaN 이면 기본값(20)으로 떨어진다 — 잘못된 입력이 "결과 없음" 으로 위장되지 않는다', () => {
+    const many = Array.from({ length: 30 }, (_, i) => chunk(`F${i}`, 0))
+    const out = fuseSearchResults(many, [], NaN)
+    expect(out).toHaveLength(20)
+    expect(out).not.toHaveLength(0)
+  })
+
+  it('limit=Infinity 이면 기본값(20)으로 떨어진다', () => {
+    const many = Array.from({ length: 30 }, (_, i) => chunk(`G${i}`, 0))
+    const out = fuseSearchResults(many, [], Infinity)
+    expect(out).toHaveLength(20)
+  })
 })
