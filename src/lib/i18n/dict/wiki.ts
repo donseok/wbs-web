@@ -87,6 +87,16 @@ export const wikiKo = {
   'wiki.search2.source.meetings': '회의',
   'wiki.search2.source.weekly': '주간업무',
 
+  // 슈퍼유저 전용 색인 수동 갱신 스트립 — 자동 배치(크론) 제거 후 필요할 때만 누르는 버튼.
+  'wiki.reindex.button': '색인 갱신',
+  'wiki.reindex.stop': '중지',
+  'wiki.reindex.running': '색인 중… 처리 {n}건',
+  'wiki.reindex.repairing': '임베딩 채우는 중… {a}/{b}',
+  'wiki.reindex.done': '갱신 완료',
+  'wiki.reindex.quotaExhausted': '임베딩 무료 한도 소진 — {n}건 남음. 내일 다시 누르면 이어집니다.',
+  'wiki.reindex.failed': '갱신 중 오류가 발생했습니다.',
+  'wiki.reindex.status': '문서 {docs} · 대기 {pending} · 임베딩 {embedded}/{chunks}',
+
   'wiki.resultCount': '{shown} / {total}건 표시',
   'wiki.showMore': '{n}건 더 보기',
   'wiki.view.label': '지식 보기 전환',
@@ -420,6 +430,15 @@ export const wikiEn: Record<keyof typeof wikiKo, string> = {
   'wiki.search2.source.announcements': 'Announcements',
   'wiki.search2.source.meetings': 'Meetings',
   'wiki.search2.source.weekly': 'Weekly',
+
+  'wiki.reindex.button': 'Refresh index',
+  'wiki.reindex.stop': 'Stop',
+  'wiki.reindex.running': 'Indexing… {n} processed',
+  'wiki.reindex.repairing': 'Filling embeddings… {a}/{b}',
+  'wiki.reindex.done': 'Refresh complete',
+  'wiki.reindex.quotaExhausted': 'Embedding quota exhausted — {n} left. Press again tomorrow to continue.',
+  'wiki.reindex.failed': 'Refresh failed.',
+  'wiki.reindex.status': 'Docs {docs} · queued {pending} · embeddings {embedded}/{chunks}',
 
   'wiki.resultCount': 'Showing {shown} of {total}',
   'wiki.showMore': 'Show {n} more',

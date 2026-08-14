@@ -6,6 +6,7 @@ import { createSupabaseAccessScopeResolver } from '@/lib/authz/accessScope'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiSearch } from '@/components/wiki/WikiSearch'
+import { WikiReindexButton } from '@/components/wiki/WikiReindexButton'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 
@@ -53,12 +54,15 @@ export default async function ProjectWikiPage({
   const projectName = projects.find(p => p.id === projectId)?.name
     ?? t(locale, 'wiki.projectFallback')
   const initialQuery = parseQuery(q)
+  // 색인 수동 갱신은 슈퍼유저 전용 — 일반 사용자에겐 스트립 자체를 렌더하지 않는다.
+  const isSuperuser = actor.isSuperuser === true
 
   return (
     <ProjectPageShell
       hero={<PageHero title={`${projectName}${t(locale, 'wiki.heroTitleSuffix')}`} />}
     >
       <WikiSearch projectId={projectId} locale={locale} initialQuery={initialQuery} />
+      {isSuperuser && <WikiReindexButton locale={locale} />}
     </ProjectPageShell>
   )
 }
