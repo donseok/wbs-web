@@ -55,14 +55,19 @@ export default async function ProjectWikiPage({
     ?? t(locale, 'wiki.projectFallback')
   const initialQuery = parseQuery(q)
   // 색인 수동 갱신은 슈퍼유저 전용 — 일반 사용자에겐 스트립 자체를 렌더하지 않는다.
+  // 히어로 카드 우상단의 빈 다크 영역에 앉히려고 슬롯으로 내려보낸다(카드 밖 별도 줄 아님).
   const isSuperuser = actor.isSuperuser === true
 
   return (
     <ProjectPageShell
       hero={<PageHero title={`${projectName}${t(locale, 'wiki.heroTitleSuffix')}`} />}
     >
-      <WikiSearch projectId={projectId} locale={locale} initialQuery={initialQuery} />
-      {isSuperuser && <WikiReindexButton locale={locale} />}
+      <WikiSearch
+        projectId={projectId}
+        locale={locale}
+        initialQuery={initialQuery}
+        adminSlot={isSuperuser ? <WikiReindexButton locale={locale} /> : undefined}
+      />
     </ProjectPageShell>
   )
 }

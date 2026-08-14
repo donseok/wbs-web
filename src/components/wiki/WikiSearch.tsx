@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Search, Send, Sparkles } from 'lucide-react'
 import { WikiSearchResults } from './WikiSearchResults'
 import { useWikiSearchQuery } from './useWikiSearchQuery'
@@ -9,10 +9,12 @@ import { t, type DictKey, type Locale } from '@/lib/i18n/dict'
 // 사용자가 지정한 옛 WikiAskPanel 디자인의 추천 칩과 같은 자리 — 문구만 검색용으로 바꿨다.
 const CHIP_KEYS: DictKey[] = ['wiki.search2.chip1', 'wiki.search2.chip2', 'wiki.search2.chip3']
 
-export function WikiSearch({ projectId, locale, initialQuery }: {
+export function WikiSearch({ projectId, locale, initialQuery, adminSlot }: {
   projectId: string
   locale: Locale
   initialQuery: string
+  /** 히어로 카드 우상단 빈 공간에 앉힐 관리 도구(색인 갱신 스트립). 슈퍼유저에게만 내려온다. */
+  adminSlot?: ReactNode
 }) {
   const [query, setQuery] = useWikiSearchQuery(initialQuery)
   const [state, setState] = useState<SearchViewState>({ kind: 'idle' })
@@ -119,6 +121,14 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
 
         <WikiSearchResults state={state} locale={locale} query={submittedQuery} projectId={projectId} />
       </div>
+
+      {/* 색인 갱신 스트립 — 넓은 화면에선 카드 우상단의 빈 다크 영역에 절대배치,
+          그보다 좁으면 겹침을 피해 콘텐츠 아래로 내려 정적 배치한다. */}
+      {adminSlot && (
+        <div className="relative z-10 mt-5 flex justify-end xl:absolute xl:right-7 xl:top-7 xl:mt-0 xl:max-w-sm">
+          {adminSlot}
+        </div>
+      )}
     </section>
   )
 }
