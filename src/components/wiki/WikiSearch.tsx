@@ -44,11 +44,16 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
   }, [projectId])
 
   // ?q= 딥링크로 들어오면 한 번은 실제로 검색해 준다. 안 하면 검색어만 채워지고 결과가 빈다.
-  const ranInitial = useRef(false)
+  // "한 번뿐" 플래그(boolean ref)가 아니라 "마지막으로 자동 실행한 값"을 기억한다 —
+  // Next.js 라우터가 같은 페이지 인스턴스를 재사용하며 searchParams 만 바뀌는 경우
+  // (리마운트 없음) boolean 이면 최초 1회 이후의 새 ?q= 딥링크가 조용히 무시된다
+  // (운영 실측 회귀: 딥링크 진입 시 자동 검색이 안 돎).
+  const lastAutoQuery = useRef<string | null>(null)
   useEffect(() => {
-    if (ranInitial.current || !initialQuery.trim()) return
-    ranInitial.current = true
-    void run(initialQuery)
+    const trimmed = initialQuery.trim()
+    if (!trimmed || lastAutoQuery.current === trimmed) return
+    lastAutoQuery.current = trimmed
+    void run(trimmed)
   }, [initialQuery, run])
 
   function runChip(label: string) {
