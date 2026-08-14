@@ -1,7 +1,6 @@
 import { createHash, timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { embedDocuments } from '@/lib/ai/embeddings'
 import {
   INDEX_BACKFILL_DOMAINS,
   checkIndexConsistency,
@@ -12,6 +11,7 @@ import {
   listIndexedEntitySummaries,
   runIndexBackfill,
   runIndexWorkerOnce,
+  runRepairOnce,
   type IndexBackfillDomain,
   type SupabaseKnowledgeClient,
 } from '@/lib/ai/index'
@@ -67,56 +67,6 @@ function parseBody(raw: unknown): WorkerRequestBody | null {
   // consistency/backfill은 도메인이 없으면 대상 자체가 정의되지 않는다. repair는 도메인 무관(전역 스캔).
   if ((parsed.mode === 'consistency' || parsed.mode === 'backfill') && !parsed.domain) return null
   return parsed
-}
-
-interface RepairRow {
-  id: string
-  content: string
-}
-
-function isRepairRow(value: unknown): value is RepairRow {
-  return (
-    typeof value === 'object' && value !== null
-    && typeof (value as Record<string, unknown>).id === 'string'
-    && typeof (value as Record<string, unknown>).content === 'string'
-  )
-}
-
-/**
- * embedding is null 인 행만 골라 재임베딩한다(0085 클로버 방지의 짝 — 이미 null이 된 행 복구).
- * 성공한 것만 UPDATE 한다. 실패는 다음 호출을 위해 null인 채로 둔다(에러 처리 3원칙: 위장 금지).
- */
-async function runRepairOnce(
-  admin: SupabaseKnowledgeClient,
-  limit: number,
-): Promise<{ scanned: number; repaired: number; stillNull: number } | { error: string; status: number }> {
-  const { data, error } = await admin
-    .from('ai_documents')
-    .select('id, content')
-    .is('embedding', null)
-    .limit(limit)
-  if (error) return { error: 'null 임베딩 행을 조회하지 못했습니다.', status: 503 }
-  if (!Array.isArray(data)) return { error: 'null 임베딩 행을 조회하지 못했습니다.', status: 503 }
-  const rows = data.filter(isRepairRow)
-  if (rows.length === 0) return { scanned: 0, repaired: 0, stillNull: 0 }
-
-  const vectors = await embedDocuments(rows.map(row => row.content), 'RETRIEVAL_DOCUMENT')
-  if (vectors === null) {
-    // 키가 없어 호출 자체를 못 한 경우 — 전부 미복구로 정직하게 보고한다.
-    return { scanned: rows.length, repaired: 0, stillNull: rows.length }
-  }
-
-  let repaired = 0
-  for (let i = 0; i < rows.length; i++) {
-    const vector = vectors[i]
-    if (!vector) continue // 실패한 항목은 건드리지 않는다 — null 유지
-    const { error: updateError } = await admin
-      .from('ai_documents')
-      .update({ embedding: vector })
-      .eq('id', rows[i].id)
-    if (!updateError) repaired++
-  }
-  return { scanned: rows.length, repaired, stillNull: rows.length - repaired }
 }
 
 /**
