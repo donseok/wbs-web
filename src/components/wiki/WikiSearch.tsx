@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { WikiSearchResults } from './WikiSearchResults'
+import { useWikiSearchQuery } from './useWikiSearchQuery'
 import { toSearchViewState, type SearchViewState } from '@/lib/domain/searchView'
 import { t, type Locale } from '@/lib/i18n/dict'
 
@@ -9,11 +10,13 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
   locale: Locale
   initialQuery: string
 }) {
-  const [query, setQuery] = useState(initialQuery)
+  const [query, setQuery] = useWikiSearchQuery(initialQuery)
   const [state, setState] = useState<SearchViewState>({ kind: 'idle' })
+  const seq = useRef(0)
 
   const run = useCallback(async (next: string) => {
     if (!next.trim()) { setState({ kind: 'idle' }); return }
+    const mine = ++seq.current
     setState({ kind: 'loading' })
     try {
       const res = await fetch('/api/wiki/search', {
@@ -22,8 +25,11 @@ export function WikiSearch({ projectId, locale, initialQuery }: {
         body: JSON.stringify({ projectId, q: next }),
       })
       const body = await res.json().catch(() => null)
+      // 내가 보낸 요청이 더는 최신이 아니면 결과를 버린다.
+      if (mine !== seq.current) return
       setState(toSearchViewState({ ok: res.ok, status: res.status, body }))
     } catch {
+      if (mine !== seq.current) return
       setState({ kind: 'error' })
     }
   }, [projectId])
