@@ -1,4 +1,4 @@
--- 0079: stage 워크플로 재설계 — 'todo' 제거(NULL=미착수로 통합), dev_workflow 플래그 신설.
+-- 0082: stage 워크플로 재설계 — 'todo' 제거(NULL=미착수로 통합), dev_workflow 플래그 신설.
 -- 배경(2026-08-13 사용자 결정): 담당자·stage가 독립 축이라 "담당자 있는데 할 일/미도입" 같은
 -- 모순 조합이 생겼다. 도입 여부는 dev_workflow(boolean), 진행은 stage(NULL→as→…→xx),
 -- 소유는 assignee_member_id 로 축을 분리한다. stage 의미 정본은 dev-workflow state-machine.json.

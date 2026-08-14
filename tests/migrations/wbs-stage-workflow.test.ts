@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const s = () => readFileSync('supabase/migrations/0079_wbs_stage_workflow.sql', 'utf8')
-const r = () => readFileSync('supabase/migrations/0079_wbs_stage_workflow_rollback.sql', 'utf8')
+const s = () => readFileSync('supabase/migrations/0082_wbs_stage_workflow.sql', 'utf8')
+const r = () => readFileSync('supabase/migrations/0082_wbs_stage_workflow_rollback.sql', 'utf8')
 
-describe('0079 stage 워크플로 재설계 — todo 제거·dev_workflow 플래그·RPC v2.1', () => {
+describe('0082 stage 워크플로 재설계 — todo 제거·dev_workflow 플래그·RPC v2.1', () => {
   it("기존 'todo' 행 NULL 이관이 CHECK 재정의보다 먼저 나온다", () => {
     const body = s()
     const migrateIdx = body.indexOf("update public.wbs_items set stage = null where stage = 'todo'")

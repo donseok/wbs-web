@@ -35,7 +35,7 @@
 
 | 파일 | 역할 |
 |---|---|
-| `supabase/migrations/0079_wbs_stage_workflow.sql` (+`_rollback`) | todo 이관·CHECK 재정의·dev_workflow 컬럼·RPC 교체 |
+| `supabase/migrations/0082_wbs_stage_workflow.sql` (+`_rollback`) | todo 이관·CHECK 재정의·dev_workflow 컬럼·RPC 교체 |
 | `src/lib/domain/agentWork.ts` | STAGE_ORDER에서 todo 제거 |
 | `src/lib/agent/stageTransition.ts` **(신규)** | stage 자동 전이 공용부 + notifySuccessorsOnReached 이동 |
 | `src/lib/agent/ensureOrder.ts` | dev_workflow 게이트 추가, 함수명 `ensureOrderForWorkflowLeaf`로 변경 |
@@ -50,22 +50,32 @@
 
 ---
 
-### Task 1: 마이그레이션 0079 — todo 제거·dev_workflow 컬럼·RPC 교체
+### Task 1: 마이그레이션 0082 — todo 제거·dev_workflow 컬럼·RPC 교체
 
 **Files:**
-- Create: `supabase/migrations/0079_wbs_stage_workflow.sql`
-- Create: `supabase/migrations/0079_wbs_stage_workflow_rollback.sql`
+- Create: `supabase/migrations/0082_wbs_stage_workflow.sql`
+- Create: `supabase/migrations/0082_wbs_stage_workflow_rollback.sql`
 - Test: `tests/migrations/wbs-stage-workflow.test.ts`
 
 **Interfaces:**
 - Produces: `wbs_items.dev_workflow boolean not null default false`, stage CHECK `('as','fp','ip','im','xx')`, RPC `import_wbs_upsert`가 노드 필드 `dev_workflow`(boolean)·stage `'todo'` 정규화를 처리.
 
-주의: 커밋 직전 `ls supabase/migrations/ | tail`로 0079가 여전히 비어 있는지 확인(병렬 세션 번호 충돌 이력 2회). 선점됐으면 다음 번호로 파일명·본문 헤더를 함께 올린다.
+주의: 커밋 직전 `ls supabase/migrations/ | tail`로 번호가 여전히 비어 있는지 확인(병렬 세션 번호 충돌 이력 2회). 선점됐으면 다음 번호로 파일명·본문 헤더를 함께 올린다.
+
+> **2026-08-14 — 그 충돌이 실제로 났다.** 이 브랜치는 `20a94ad`에서 갈라진 뒤 main 이
+> `0079_wiki_memory` · `0080_usage_event_dimensions`를 먼저 올렸고(둘 다 스테이징 리허설 완료,
+> `2ee2868`), `0081_dcube_major_process_dedupe`는 병렬 세션이 작업 트리에 선점 중이었다.
+> 그래서 처음 0079로 쓴 이 마이그레이션을 **0082**로 올렸다 — 파일명 2개, 본문 헤더 2줄,
+> 구조 테스트의 경로·제목, 에이전트 계약 문서, 이 문서의 언급까지 함께.
+> DB 적용 자체는 번호와 무관하다(원장 테이블이 없어 번호는 파일명 관례일 뿐).
+> **스테이징에는 0079 이름으로 이미 적용됐다**(2026-08-14, `dev_workflow` 컬럼 + CHECK 재정의 +
+> RPC 교체 실측 확인, `todo` 4행 → NULL). 내용이 같으므로 재적용 불필요 —
+> 운영 적용 때만 0082 파일로 하면 된다.
 
 - [ ] **Step 1: 마이그레이션 SQL 작성**
 
 ```sql
--- 0079: stage 워크플로 재설계 — 'todo' 제거(NULL=미착수로 통합), dev_workflow 플래그 신설.
+-- 0082: stage 워크플로 재설계 — 'todo' 제거(NULL=미착수로 통합), dev_workflow 플래그 신설.
 -- 배경(2026-08-13 사용자 결정): 담당자·stage가 독립 축이라 "담당자 있는데 할 일/미도입" 같은
 -- 모순 조합이 생겼다. 도입 여부는 dev_workflow(boolean), 진행은 stage(NULL→as→…→xx),
 -- 소유는 assignee_member_id 로 축을 분리한다. stage 의미 정본은 dev-workflow state-machine.json.
@@ -97,7 +107,7 @@ create or replace function public.import_wbs_upsert(...) -- 0077 시그니처 �
 - [ ] **Step 2: rollback SQL 작성**
 
 ```sql
--- 0079 rollback: dev_workflow 제거, CHECK 를 0077 형태('todo' 포함)로 복원, RPC 를 0077 본문으로 복원.
+-- 0082 rollback: dev_workflow 제거, CHECK 를 0077 형태('todo' 포함)로 복원, RPC 를 0077 본문으로 복원.
 -- 주의: NULL→'todo' 역이관은 하지 않는다 — 어떤 NULL 이 원래 'todo' 였는지 정보가 소실됐고,
 -- 0077 CHECK 는 NULL 을 허용하므로 역이관 없이도 정합하다.
 alter table public.wbs_items drop constraint if exists wbs_items_stage_check;
@@ -107,13 +117,13 @@ alter table public.wbs_items drop column if exists dev_workflow;
 -- (이어서 0077 의 import_wbs_upsert 본문을 그대로 create or replace)
 ```
 
-- [ ] **Step 3: 마이그레이션 구조 테스트 작성·실행** — `tests/migrations/wbs-assignee-stage.test.ts`의 기존 패턴(SQL 파일을 읽어 문자열 규칙 검증)을 따라: 0079 본문에 `update public.wbs_items set stage = null where stage = 'todo'`가 CHECK 재정의보다 먼저 나오는지, CHECK에 'todo'가 없는지, rollback에 dev_workflow drop이 있는지, RPC에 `'todo'` 정규화 case 식이 있는지 검증. `npx vitest run tests/migrations/wbs-stage-workflow.test.ts` PASS 확인.
+- [ ] **Step 3: 마이그레이션 구조 테스트 작성·실행** — `tests/migrations/wbs-assignee-stage.test.ts`의 기존 패턴(SQL 파일을 읽어 문자열 규칙 검증)을 따라: 0082 본문에 `update public.wbs_items set stage = null where stage = 'todo'`가 CHECK 재정의보다 먼저 나오는지, CHECK에 'todo'가 없는지, rollback에 dev_workflow drop이 있는지, RPC에 `'todo'` 정규화 case 식이 있는지 검증. `npx vitest run tests/migrations/wbs-stage-workflow.test.ts` PASS 확인.
 
 - [ ] **Step 4: 커밋** (마이그레이션 단독 커밋 — G1)
 
 ```bash
-git add supabase/migrations/0079_wbs_stage_workflow.sql supabase/migrations/0079_wbs_stage_workflow_rollback.sql tests/migrations/wbs-stage-workflow.test.ts
-git commit -m "feat(db): 0079 — stage 'todo' 제거·dev_workflow 플래그, import RPC v2.1"
+git add supabase/migrations/0082_wbs_stage_workflow.sql supabase/migrations/0082_wbs_stage_workflow_rollback.sql tests/migrations/wbs-stage-workflow.test.ts
+git commit -m "feat(db): 0082 — stage 'todo' 제거·dev_workflow 플래그, import RPC v2.1"
 ```
 
 (테스트 파일은 코드지만 마이그레이션 검증 전용이라 관례상 G1 예외 아님 — G1이 막으면 테스트만 별도 커밋으로 분리한다.)
@@ -383,7 +393,7 @@ git commit -m "docs(agent): 계약 v2.1 — stage 워크플로 재설계 반영"
 
 1. 최종 whole-branch 리뷰(SDD 관례) → 수정 반영.
 2. `npm run lint && npm run build && npx vitest run` 전체 그린 확인.
-3. **DB 먼저**: 팀장에게 0079 스테이징 적용 명령 블록 전달 → 검증 → 빈 커밋 `--trailer "Staging-verified: ..."`(G4) → staging push → 스테이징 브라우저 확인(체크박스·라벨·배정 전이) → 팀장 운영 적용 → main 머지·push.
+3. **DB 먼저**: 팀장에게 0082 스테이징 적용 명령 블록 전달 → 검증 → 빈 커밋 `--trailer "Staging-verified: ..."`(G4) → staging push → 스테이징 브라우저 확인(체크박스·라벨·배정 전이) → 팀장 운영 적용 → main 머지·push.
    - 마이그레이션이 하위호환(컬럼 추가·CHECK 축소·데이터 이관)이라 코드보다 먼저 적용해도 v2.0 코드가 계속 동작한다('todo'를 쓰는 경로가 setWbsStage뿐인데 기존 UI에서 todo 선택 시 CHECK 위반 — **스테이징 적용~코드 배포 사이 todo 선택은 에러**. 창이 짧고 스테이징이므로 수용).
 4. `npm run smoke:prod` → 사용자 화면 확인 → `npm run mark:good`.
 

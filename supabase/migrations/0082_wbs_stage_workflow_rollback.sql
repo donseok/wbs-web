@@ -1,4 +1,4 @@
--- 0079 rollback: dev_workflow 제거, CHECK 를 0077 형태('todo' 포함)로 복원, RPC 를 0077 본문으로 복원.
+-- 0082 rollback: dev_workflow 제거, CHECK 를 0077 형태('todo' 포함)로 복원, RPC 를 0077 본문으로 복원.
 -- 주의: NULL→'todo' 역이관은 하지 않는다 — 어떤 NULL 이 원래 'todo' 였는지 정보가 소실됐고,
 -- 0077 CHECK 는 NULL 을 허용하므로 역이관 없이도 정합하다.
 
