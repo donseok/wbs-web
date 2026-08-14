@@ -4,8 +4,12 @@ import { NextRequest } from 'next/server'
 const mocks = vi.hoisted(() => ({
   runIndexWorkerOnce: vi.fn(),
   // 라우트가 admin.from('projects').select('id') 를 부르므로 빈 객체를 주면 TypeError 로 죽는다.
+  // 반환 타입을 성공/실패 유니온으로 넓혀 둔다 — 503 테스트가 error 형태를 mockReturnValue 로 넣는다.
   createAdminClient: vi.fn(() => ({
-    from: () => ({ select: () => ({ limit: async () => ({ data: [{ id: 'p1' }], error: null }) }) }),
+    from: () => ({ select: () => ({
+      limit: async (): Promise<{ data: Array<{ id: string }> | null; error: { code: string; message: string } | null }> =>
+        ({ data: [{ id: 'p1' }], error: null }),
+    }) }),
   })),
 }))
 vi.mock('@/lib/ai/index/worker', () => ({ runIndexWorkerOnce: mocks.runIndexWorkerOnce }))
