@@ -114,7 +114,7 @@ upsert_ai_index_jobs
 | 접근 범위 판정 | **있음** `createSupabaseAccessScopeResolver`(authz/accessScope.ts) |
 | 색인 워커·백필·정합성 | **있음** 라우트 3모드 |
 | 청커 | **있음** `md1500-v1` |
-| 어휘 다리(pg_trgm) | **없음** — 0082에서 신설 |
+| 어휘 다리(pg_trgm) | **없음** — 0083에서 신설 |
 | 이슈 색인 | **없음** — 4곳 배선 필요(§7 작업 5) |
 | enqueue 배선 | **없음** — 호출부 0건 |
 | 문서 접기 | **없음** — 현행 dedup 키에 `chunkNo`가 들어 있다(§5.4) |
@@ -340,7 +340,7 @@ projectId를 아는 로그인 사용자라면 누구든 비공개 프로젝트�
 | 0 | **운영 env 실측** — `CHAT_V2_INDEX_WORKER_ENABLED` · `CHAT_V2_INDEX_CRON_SECRET` · `CHAT_V2_INDEX_ENQUEUE_ENABLED` 현재 값 확인 | 조사 |
 | 1 | 밀린 큐 96건 폐기 (delete 46 포함). 작업 2 이후 백필이 새로 큐잉 | 신설 |
 | 2 | **인가 먼저** — `/api/wiki/search`의 접근 판정(§5.6). `0031:67-72` 게이트라 백필보다 앞선다 | 신설 |
-| 3 | 마이그레이션 0082 — `pg_trgm` + `ai_documents(title, content)` `gin_trgm_ops` GIN + `match_ai_documents_lexical`(`word_similarity`) | 신설 |
+| 3 | 마이그레이션 0083 — `pg_trgm` + `ai_documents(title, content)` `gin_trgm_ops` GIN + `match_ai_documents_lexical`(`word_similarity`) | 신설 |
 | 4 | **회의록 스코프 skew 수정** — `backfill.ts:123`의 `columns`에 `project_id` 추가 + `rowProjectId`를 `project_id ?? meetings.project_id`로 통일 | 수정 |
 | 5 | **이슈 색인 4곳 배선** — ① `protocol.ts` `BOT_DOMAINS`에 `issues`, `BOT_ENTITY_TYPES`에 `issue` ② `content.ts` `loadIssue` + `case` ③ `backfill.ts` `INDEX_BACKFILL_DOMAINS`·`SOURCE_TABLES` ④ `chat/router.ts`·`verifier.ts` 파급 확인 | 수정 |
 | 6 | **워커 기동** — env 3종 설정 + `vercel.json`에 크론 등록. 기존 `/api/chat/index/worker` 3모드를 그대로 쓴다 | 수정 |
@@ -429,13 +429,13 @@ projectId를 아는 로그인 사용자라면 누구든 비공개 프로젝트�
 | Vercel 함수 타임아웃 | 초기 백필은 로컬, 크론은 증분만 |
 | 0079 미적용 코드가 운영에 떠 있음 | 2단계 제거로 해소. 그때까지 현상 유지 |
 | 화면과 봇이 다른 답 | 2단계 재배선까지 남는 알려진 문제 |
-| G4 훅 | 0082는 0072+ 범위 → 스테이징 리허설 + `Staging-verified:` 트레일러 필수 |
+| G4 훅 | 0083은 0072+ 범위 → 스테이징 리허설 + `Staging-verified:` 트레일러 필수 |
 
 | 잘못되면 | 되돌리기 |
 |---|---|
 | 검색 품질 미달 | 화면 컴포넌트만 옛것으로. 데이터 무손상 |
 | 색인 오류 | `ai_documents` 비우고 백필 재실행 |
-| 0082 문제 | `0082_*_rollback.sql`로 인덱스·RPC만 제거 |
+| 0083 문제 | `0083_*_rollback.sql`로 인덱스·RPC만 제거 |
 | 임베딩 비용 폭주 | 크론 정지. 기존 색인은 계속 검색됨 |
 
 **원천 데이터(회의록·이슈·WBS·공지)는 이 작업에서 한 번도 쓰지 않는다. 전부 읽기만 한다.**

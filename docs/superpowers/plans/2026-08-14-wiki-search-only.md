@@ -15,13 +15,13 @@
 - **원천 데이터에 쓰지 않는다.** 회의록·이슈·WBS·공지는 전부 읽기 전용. 이 계획에 원천 테이블 `update`/`delete`/`insert`는 없다.
 - **`git add -A` 금지.** 항상 파일명을 명시해 stage 한다(병렬 세션·`.env` 혼입 방지).
 - **마이그레이션과 코드를 같은 커밋에 담지 않는다.** `supabase/migrations/*`는 별도 커밋. pre-push 훅 G1이 막는다.
-- **0082는 0072+ 범위라 G4가 막는다.** 스테이징 리허설 → 검증 → `Staging-verified:` 트레일러 → staging push → prod 적용 → main push.
+- **0083은 0072+ 범위라 G4가 막는다.** 스테이징 리허설 → 검증 → `Staging-verified:` 트레일러 → staging push → prod 적용 → main push.
 - **새 마이그레이션에는 `_rollback.sql`을 함께 만든다.**
 - 커밋 메시지는 한국어. "무엇"보다 "왜".
 - 임베딩 차원은 **768 고정**(`ai_documents.embedding_dimensions = 768` CHECK 제약).
 - 청커는 기존 `md1500-v1`(1,500자)을 바꾸지 않는다. 바꾸면 기존 `content_hash` 계약이 깨진다.
 - **인가가 백필보다 먼저다.** `0031:67-72`이 정한 게이트다 — "정렬 없이 백필하면 색인 사본이 원본보다 넓게 노출된다".
-- 다음 빈 마이그레이션 번호는 **0082**(0081은 `dcube_major_process_dedupe`가 점유, 미커밋).
+- 다음 빈 마이그레이션 번호는 **0083**(0081·0082는 병렬 세션이 점유 — 2026-08-14 실측).
 
 ## 착수 전 실측값 (2026-08-14 운영 DB)
 
@@ -43,8 +43,8 @@
 
 | 파일 | 책임 |
 |---|---|
-| `supabase/migrations/0082_ai_documents_lexical.sql` | `pg_trgm` 확장 · GIN 인덱스 · `match_ai_documents_lexical` RPC |
-| `supabase/migrations/0082_ai_documents_lexical_rollback.sql` | 위의 역연산 |
+| `supabase/migrations/0083_ai_documents_lexical.sql` | `pg_trgm` 확장 · GIN 인덱스 · `match_ai_documents_lexical` RPC |
+| `supabase/migrations/0083_ai_documents_lexical_rollback.sql` | 위의 역연산 |
 | `src/lib/domain/searchFusion.ts` | RRF 융합 + 청크→문서 접기. 순수 함수, DB·네트워크 무의존 |
 | `src/lib/ai/index/lexical.ts` | 어휘 다리 어댑터 — `match_ai_documents_lexical` 호출 |
 | `src/app/api/wiki/search/route.ts` | 검색 API — 인가 → 두 다리 → 융합 |
@@ -297,11 +297,11 @@ ai_documents 의 RLS 는 authenticated using (true) 라 DB 가 프로젝트를 �
 
 ---
 
-## Task 3: 마이그레이션 0082 — 어휘 다리
+## Task 3: 마이그레이션 0083 — 어휘 다리
 
 **Files:**
-- Create: `supabase/migrations/0082_ai_documents_lexical.sql`
-- Create: `supabase/migrations/0082_ai_documents_lexical_rollback.sql`
+- Create: `supabase/migrations/0083_ai_documents_lexical.sql`
+- Create: `supabase/migrations/0083_ai_documents_lexical_rollback.sql`
 - Test: `tests/migrations/ai-documents-lexical.test.ts`
 
 **Interfaces:**
@@ -318,11 +318,11 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const migration = readFileSync(
-  new URL('../../supabase/migrations/0082_ai_documents_lexical.sql', import.meta.url), 'utf8')
+  new URL('../../supabase/migrations/0083_ai_documents_lexical.sql', import.meta.url), 'utf8')
 const rollback = readFileSync(
-  new URL('../../supabase/migrations/0082_ai_documents_lexical_rollback.sql', import.meta.url), 'utf8')
+  new URL('../../supabase/migrations/0083_ai_documents_lexical_rollback.sql', import.meta.url), 'utf8')
 
-describe('0082 어휘 검색 마이그레이션 계약', () => {
+describe('0083 어휘 검색 마이그레이션 계약', () => {
   it('pg_trgm 을 설치한다', () => {
     expect(migration).toMatch(/create extension if not exists pg_trgm/i)
   })
@@ -359,12 +359,12 @@ describe('0082 어휘 검색 마이그레이션 계약', () => {
 - [ ] **Step 2: 실패를 확인한다**
 
 Run: `npx vitest run tests/migrations/ai-documents-lexical.test.ts`
-Expected: FAIL — `ENOENT: no such file or directory ... 0082_ai_documents_lexical.sql`
+Expected: FAIL — `ENOENT: no such file or directory ... 0083_ai_documents_lexical.sql`
 
 - [ ] **Step 3: 마이그레이션을 쓴다**
 
 ```sql
--- supabase/migrations/0082_ai_documents_lexical.sql
+-- supabase/migrations/0083_ai_documents_lexical.sql
 -- 어휘 검색 다리. 벡터(match_ai_documents)가 어휘 불일치를 풀고, 이쪽이
 -- 고유명사·ID·약어 같은 정확 검색을 맡는다.
 --
@@ -459,8 +459,8 @@ commit;
 - [ ] **Step 4: 롤백을 쓴다**
 
 ```sql
--- supabase/migrations/0082_ai_documents_lexical_rollback.sql
--- 0082 역연산. 색인 데이터는 건드리지 않는다 — 인덱스와 함수만 되돌린다.
+-- supabase/migrations/0083_ai_documents_lexical_rollback.sql
+-- 0083 역연산. 색인 데이터는 건드리지 않는다 — 인덱스와 함수만 되돌린다.
 -- pg_trgm 확장은 남긴다(다른 곳이 쓰기 시작했을 수 있고, 드롭은 의존 객체를 깨뜨린다).
 
 begin;
@@ -482,22 +482,22 @@ Expected: PASS (7 tests)
 - [ ] **Step 6: 마이그레이션만 따로 커밋** (G1 — 코드와 섞지 않는다)
 
 ```bash
-git add supabase/migrations/0082_ai_documents_lexical.sql \
-        supabase/migrations/0082_ai_documents_lexical_rollback.sql
-git commit -m "feat(db): 0082 어휘 검색 다리 — pg_trgm GIN + word_similarity RPC
+git add supabase/migrations/0083_ai_documents_lexical.sql \
+        supabase/migrations/0083_ai_documents_lexical_rollback.sql
+git commit -m "feat(db): 0083 어휘 검색 다리 — pg_trgm GIN + word_similarity RPC
 
 벡터가 어휘 불일치를 풀고 이쪽이 정확 검색을 맡는다. 스테이징 실측에서
 similarity() 는 길이 편향으로 순위가 뒤집혀(0.143 < 0.233) 랭킹에 못 쓴다 —
 word_similarity 로 간다."
 git add tests/migrations/ai-documents-lexical.test.ts
-git commit -m "test(db): 0082 계약 테스트 — word_similarity·스코프 격리·상한"
+git commit -m "test(db): 0083 계약 테스트 — word_similarity·스코프 격리·상한"
 ```
 
 - [ ] **Step 7: 스테이징 리허설** (G4 필수)
 
 ```bash
 npm run staging:sync
-npm run db:apply -- supabase/migrations/0082_ai_documents_lexical.sql --target staging
+npm run db:apply -- supabase/migrations/0083_ai_documents_lexical.sql --target staging
 ```
 
 검증 SQL — 인덱스가 실제로 쓰이는지:
@@ -510,9 +510,9 @@ explain select id from public.ai_documents where '테스트' <% content;
 - [ ] **Step 8: 리허설 결과를 트레일러로 남긴다**
 
 ```bash
-git commit --allow-empty -m "chore(db): 0082 스테이징 리허설 통과
+git commit --allow-empty -m "chore(db): 0083 스테이징 리허설 통과
 
-Staging-verified: 0082 적용·인덱스 사용 확인(Bitmap Index Scan)"
+Staging-verified: 0083 적용·인덱스 사용 확인(Bitmap Index Scan)"
 ```
 
 - [ ] **Step 9: 운영에 적용한다** ⚠️ 사용자 확인 필요
@@ -521,7 +521,7 @@ Staging-verified: 0082 적용·인덱스 사용 확인(Bitmap Index Scan)"
 `match_ai_documents_lexical` 이 없어 42883(function does not exist)이 난다.
 
 ```bash
-npm run db:apply -- supabase/migrations/0082_ai_documents_lexical.sql --target prod
+npm run db:apply -- supabase/migrations/0083_ai_documents_lexical.sql --target prod
 ```
 
 적용 후 운영에서 검증한다:
@@ -534,7 +534,7 @@ select indexname from pg_indexes where indexname like 'ai_documents_%_trgm_idx';
 Expected: 함수 1건 · 인덱스 2건.
 
 이 마이그레이션은 **인덱스와 함수만 추가하고 데이터를 건드리지 않는다.** 되돌리기는
-`0082_ai_documents_lexical_rollback.sql` 하나로 끝난다.
+`0083_ai_documents_lexical_rollback.sql` 하나로 끝난다.
 
 ---
 
@@ -1144,7 +1144,7 @@ import type { FusionCandidate } from '@/lib/domain/searchFusion'
 import type { SupabaseKnowledgeClient } from './pgvector'
 
 /**
- * 어휘 다리 — 0082 의 match_ai_documents_lexical 어댑터.
+ * 어휘 다리 — 0083 의 match_ai_documents_lexical 어댑터.
  * 벡터가 어휘 불일치를 풀고, 이쪽이 고유명사·ID·약어 같은 정확 검색을 맡는다.
  */
 export type LexicalSearchResult =
@@ -1220,7 +1220,7 @@ Expected: PASS (5 tests)
 
 ```bash
 git add src/lib/ai/index/lexical.ts tests/ai/index-lexical.test.ts
-git commit -m "feat(search): 0082 어휘 검색 RPC 어댑터
+git commit -m "feat(search): 0083 어휘 검색 RPC 어댑터
 
 빈 스코프와 빈 질의는 RPC 를 부르지 않는다 — 빈 목록을 전체 허용으로 읽으면
 프로젝트 격리가 무너진다. RPC 오류는 빈 결과로 위장하지 않고 그대로 올린다."
@@ -2480,7 +2480,7 @@ git commit -m "test(search): 평가 세트와 측정 스크립트
 
 1단계가 끝났다고 말하려면 전부 참이어야 한다.
 
-- [ ] **0082가 스테이징·운영 양쪽에 적용됨** (`match_ai_documents_lexical` 존재 확인)
+- [ ] **0083이 스테이징·운영 양쪽에 적용됨** (`match_ai_documents_lexical` 존재 확인)
 - [ ] `ai_documents`에 회의록·이슈·WBS·공지 문서가 들어 있고 `ai_index_jobs`의 `dead_letter`가 0건
 - [ ] **`count(embedding) = count(*)`** — 임베딩이 실제로 붙었다(키 부재 거짓 통과 방지)
 - [ ] 회의록 문서 수 = 원천 건수 (Task 4의 skew가 실제로 해소됐다는 증거)
