@@ -6,7 +6,7 @@ import { CURRENT_INDEX_VERSION } from '@/lib/ai/index/content'
 import { getActorViewState } from '@/lib/authz'
 import { createSupabaseAccessScopeResolver } from '@/lib/authz/accessScope'
 import { decideSearchAccess } from '@/lib/domain/searchAccess'
-import { fuseSearchResults } from '@/lib/domain/searchFusion'
+import { fuseSearchResults, preferBodyChunk } from '@/lib/domain/searchFusion'
 import type { SupabaseKnowledgeClient } from '@/lib/ai/index/pgvector'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -84,8 +84,11 @@ export async function POST(request: NextRequest) {
 
   const lexicalCandidates = lexicalResult.ok ? lexicalResult.candidates : []
 
+  // 융합 직후 머리말 전용 청크를 같은 문서의 본문 청크로 교체한다(청크 하나만 보고는
+  // 문서에 본문이 있는지 알 수 없어 fuseSearchResults 안에서는 판정할 수 없다).
+  const fused = fuseSearchResults(vector, lexicalCandidates, RESULT_LIMIT)
   return NextResponse.json({
-    results: fuseSearchResults(vector, lexicalCandidates, RESULT_LIMIT),
+    results: preferBodyChunk(fused, [...vector, ...lexicalCandidates]),
     degraded: embeddingFailed,
   })
 }

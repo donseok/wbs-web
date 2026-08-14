@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { snippetOf, toSearchViewState } from '@/lib/domain/searchView'
+import { snippetOf, stripLeadingMeta, toSearchViewState } from '@/lib/domain/searchView'
 
 const hit = {
   domain: 'minutes', entityType: 'minute', entityId: 'm1',
@@ -66,5 +66,16 @@ describe('snippetOf', () => {
 
   it('연속 공백·개행을 한 칸으로 접는다', () => {
     expect(snippetOf('본문   여러\n\n  공백이   섞였다')).toBe('본문 여러 공백이 섞였다')
+  })
+})
+
+describe('stripLeadingMeta', () => {
+  it('헤더 뒤에 수평선만 남은 청크는 빈 문자열로 판정한다 — 폴백 없이', () => {
+    // 운영 실측: chunk 1 이 "# OMS 설명 2026.08.06 09시07분\n\n---" 형태였다.
+    expect(stripLeadingMeta('# OMS 설명 2026.08.06 09시07분\n\n---')).toBe('')
+  })
+
+  it('본문이 있으면 걷어내고 본문을 반환한다', () => {
+    expect(stripLeadingMeta('# 회의록 OMS 설명\n일자: 2026-08-06\n실제 논의 내용')).toBe('실제 논의 내용')
   })
 })

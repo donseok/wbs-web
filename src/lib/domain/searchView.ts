@@ -31,25 +31,36 @@ function isHit(value: unknown): value is SearchHit {
 
 // 회의록 색인 본문은 `# 회의록 {제목}\n일자: …\n팀: …\n{본문}` 형태로 시작한다
 // (src/lib/ai/index/content.ts 의 loadMinute 참조). 매칭 청크가 동점이면 이 머리말 청크가
-// 이겨서 스니펫이 전부 메타데이터로 채워지는 문제가 있었다 — 선두의 헤더·메타 줄만 걷어낸다.
+// 이겨서 스니펫이 전부 메타데이터로 채워지는 문제가 있었다 — 선두의 헤더·메타·수평선 줄만 걷어낸다.
+// 운영 실측(2026-08-14): 청크가 "# 제목\n\n---" 처럼 헤더 뒤에 수평선만 남기고 끝나는
+// 경우도 있다 — 이것도 걷어내야 "전부 메타뿐" 판정이 맞게 떨어진다.
 const HEADER_LINE = /^#{1,6}(\s|$)/
 const META_LINE = /^(일자|팀|참석자|참석|장소):/
+const HR_LINE = /^(-{3,}|\*{3,})$/
 
 function isLeadingSkippable(line: string): boolean {
   const trimmed = line.trim()
   if (trimmed === '') return true
-  return HEADER_LINE.test(trimmed) || META_LINE.test(trimmed)
+  return HEADER_LINE.test(trimmed) || META_LINE.test(trimmed) || HR_LINE.test(trimmed)
 }
 
-/** 검색 결과 스니펫 정제. 본문 중간의 헤더는 건드리지 않고 선두 블록만 걷어낸다. */
-export function snippetOf(content: string, maxChars = 200): string {
+/**
+ * 선두의 헤더·메타·수평선·빈 줄을 걷어낸다. 본문 중간의 헤더는 건드리지 않고 선두
+ * 블록만 본다. 전부 걷어내지면 빈 문자열을 그대로 돌려준다(폴백 없음) — 폴백 여부는
+ * 호출자(스니펫 표시는 원본 유지, 융합의 머리말 청크 판정은 그대로 버림)의 책임이다.
+ */
+export function stripLeadingMeta(content: string): string {
   const lines = content.split(/\r?\n/)
   let start = 0
   while (start < lines.length && isLeadingSkippable(lines[start])) start++
+  return lines.slice(start).join('\n').trim()
+}
 
+/** 검색 결과 스니펫 정제. */
+export function snippetOf(content: string, maxChars = 200): string {
   const collapse = (value: string) => value.trim().replace(/\s+/g, ' ')
   // 전부 걷어내 빈 문자열이 되면 원본을 접어 돌려준다 — 없는 것보다 헤더라도 보이는 게 낫다.
-  const snippet = collapse(lines.slice(start).join('\n')) || collapse(content)
+  const snippet = collapse(stripLeadingMeta(content)) || collapse(content)
   return snippet.length > maxChars ? snippet.slice(0, maxChars) : snippet
 }
 

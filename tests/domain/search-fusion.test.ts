@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fuseSearchResults, RRF_K, type FusionCandidate } from '@/lib/domain/searchFusion'
+import { fuseSearchResults, preferBodyChunk, RRF_K, type FusionCandidate, type FusedDocument } from '@/lib/domain/searchFusion'
 
 function chunk(entityId: string, chunkNo: number, extra: Partial<FusionCandidate> = {}): FusionCandidate {
   return {
@@ -81,5 +81,47 @@ describe('fuseSearchResults', () => {
     // 구분자가 있으면 서로 다른 키가 되어 2행 반환
     // 구분자가 없으면 같은 키가 되어 1행으로 접혀 실패
     expect(out).toHaveLength(2)
+  })
+})
+
+describe('preferBodyChunk', () => {
+  // 운영 실측: chunk 0 이 "# 회의록 {제목}\n일자: …\n팀: …" 형태의 머리말뿐인데도
+  // RPC 가 chunk_no 오름차순으로 반환해 동점에서 항상 이긴다.
+  const headerOnly = '# 회의록 A\n일자: 2026-08-06\n팀: MES'
+  const bodyText = '# 회의록 A\n일자: 2026-08-06\n실제 논의 내용'
+
+  function doc(entityId: string, chunkNo: number, content: string, extra: Partial<FusedDocument> = {}): FusedDocument {
+    return { ...chunk(entityId, chunkNo, { content }), score: 0.5, matchedBy: ['vector'], ...extra }
+  }
+
+  it('머리말 전용 청크가 이긴 문서를 같은 문서의 본문 청크로 교체한다', () => {
+    const results = [doc('A', 0, headerOnly)]
+    const candidates = [chunk('A', 0, { content: headerOnly }), chunk('A', 1, { content: bodyText })]
+    const out = preferBodyChunk(results, candidates)
+    expect(out[0].content).toBe(bodyText)
+    expect(out[0].chunkNo).toBe(1)
+  })
+
+  it('본문 청크가 후보에 없으면 그대로 둔다', () => {
+    const results = [doc('A', 0, headerOnly)]
+    const candidates = [chunk('A', 0, { content: headerOnly })]
+    const out = preferBodyChunk(results, candidates)
+    expect(out[0].content).toBe(headerOnly)
+    expect(out[0].chunkNo).toBe(0)
+  })
+
+  it('다른 문서의 청크를 가져오지 않는다', () => {
+    const results = [doc('A', 0, headerOnly)]
+    const candidates = [chunk('B', 1, { content: bodyText })]
+    const out = preferBodyChunk(results, candidates)
+    expect(out[0].content).toBe(headerOnly)
+  })
+
+  it('교체해도 score·matchedBy 는 그대로다', () => {
+    const results = [doc('A', 0, headerOnly, { score: 0.777, matchedBy: ['lexical', 'vector'] })]
+    const candidates = [chunk('A', 1, { content: bodyText })]
+    const out = preferBodyChunk(results, candidates)
+    expect(out[0].score).toBe(0.777)
+    expect(out[0].matchedBy).toEqual(['lexical', 'vector'])
   })
 })

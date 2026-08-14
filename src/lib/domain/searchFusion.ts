@@ -10,6 +10,8 @@
  * 챗봇 검색 결과가 함께 바뀐다. 회귀 위험을 격리하려고 따로 만든다.
  */
 
+import { stripLeadingMeta } from './searchView'
+
 export const RRF_K = 60
 const DEFAULT_LIMIT = 20
 
@@ -107,4 +109,25 @@ export function fuseSearchResults(
       || (b.occurredOn ?? '').localeCompare(a.occurredOn ?? '')
       || a.entityId.localeCompare(b.entityId))
     .slice(0, bounded)
+}
+
+/**
+ * 융합에서 "최고 청크"로 뽑힌 청크가 머리말(제목·메타·수평선)뿐이면, 같은 문서의 후보 중
+ * 본문이 있는 첫 청크로 교체한다. RPC 가 chunk_no 오름차순으로 반환해 동점에서 chunk 0
+ * (머리말)이 항상 이기는데, 청크 하나만으로는 문서에 본문이 있는지 알 수 없어 융합 단계에서
+ * 걸러낼 수 없었다 — 그래서 후보 풀 전체를 다시 받아 여기서 교체한다.
+ * 대체 후보가 없으면 그대로 둔다(머리말이라도 보이는 게 낫다 — snippetOf 의 폴백과 동일 원칙).
+ */
+export function preferBodyChunk(
+  results: FusedDocument[],
+  candidates: readonly FusionCandidate[],
+): FusedDocument[] {
+  return results.map(doc => {
+    if (stripLeadingMeta(doc.content) !== '') return doc
+    const key = documentKey(doc)
+    const replacement = candidates.find(candidate =>
+      documentKey(candidate) === key && stripLeadingMeta(candidate.content) !== '')
+    if (!replacement) return doc
+    return { ...doc, content: replacement.content, chunkNo: replacement.chunkNo }
+  })
 }
