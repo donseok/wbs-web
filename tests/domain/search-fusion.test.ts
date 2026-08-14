@@ -67,4 +67,19 @@ describe('fuseSearchResults', () => {
     const out = fuseSearchResults(many, [], Infinity)
     expect(out).toHaveLength(20)
   })
+
+  it('documentKey 의 구분자가 필수다 — 없으면 필드 경계 충돌이 일어난다', () => {
+    // 구분자가 없으면 domain='ab' + entityType='c' 와 domain='a' + entityType='bc' 가
+    // 같은 키가 된다. 이 테스트가 실패하면 구분자가 제거되었다는 뜻이다.
+    const collision1 = chunk('d', 0, {
+      domain: 'ab', entityType: 'c', entityId: 'd', projectId: 'p',
+    })
+    const collision2 = chunk('d', 0, {
+      domain: 'a', entityType: 'bc', entityId: 'd', projectId: 'p',
+    })
+    const out = fuseSearchResults([collision1], [collision2])
+    // 구분자가 있으면 서로 다른 키가 되어 2행 반환
+    // 구분자가 없으면 같은 키가 되어 1행으로 접혀 실패
+    expect(out).toHaveLength(2)
+  })
 })

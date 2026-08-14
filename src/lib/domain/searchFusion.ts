@@ -37,7 +37,7 @@ function documentKey(candidate: FusionCandidate): string {
     candidate.domain,
     candidate.entityType,
     candidate.entityId,
-  ].join('') // 구분자 없이 이으면 서로 다른 튜플이 같은 키가 된다
+  ].join('\u001f') // 구분자 없이 이으면 서로 다른 튜플이 같은 키가 된다
 }
 
 export function fuseSearchResults(
