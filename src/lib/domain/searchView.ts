@@ -29,6 +29,30 @@ function isHit(value: unknown): value is SearchHit {
     && typeof row.href === 'string'
 }
 
+// 회의록 색인 본문은 `# 회의록 {제목}\n일자: …\n팀: …\n{본문}` 형태로 시작한다
+// (src/lib/ai/index/content.ts 의 loadMinute 참조). 매칭 청크가 동점이면 이 머리말 청크가
+// 이겨서 스니펫이 전부 메타데이터로 채워지는 문제가 있었다 — 선두의 헤더·메타 줄만 걷어낸다.
+const HEADER_LINE = /^#{1,6}(\s|$)/
+const META_LINE = /^(일자|팀|참석자|참석|장소):/
+
+function isLeadingSkippable(line: string): boolean {
+  const trimmed = line.trim()
+  if (trimmed === '') return true
+  return HEADER_LINE.test(trimmed) || META_LINE.test(trimmed)
+}
+
+/** 검색 결과 스니펫 정제. 본문 중간의 헤더는 건드리지 않고 선두 블록만 걷어낸다. */
+export function snippetOf(content: string, maxChars = 200): string {
+  const lines = content.split(/\r?\n/)
+  let start = 0
+  while (start < lines.length && isLeadingSkippable(lines[start])) start++
+
+  const collapse = (value: string) => value.trim().replace(/\s+/g, ' ')
+  // 전부 걷어내 빈 문자열이 되면 원본을 접어 돌려준다 — 없는 것보다 헤더라도 보이는 게 낫다.
+  const snippet = collapse(lines.slice(start).join('\n')) || collapse(content)
+  return snippet.length > maxChars ? snippet.slice(0, maxChars) : snippet
+}
+
 export function toSearchViewState(
   response: { ok: boolean; status: number; body: unknown },
 ): SearchViewState {

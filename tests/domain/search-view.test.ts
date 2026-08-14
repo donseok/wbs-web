@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toSearchViewState } from '@/lib/domain/searchView'
+import { snippetOf, toSearchViewState } from '@/lib/domain/searchView'
 
 const hit = {
   domain: 'minutes', entityType: 'minute', entityId: 'm1',
@@ -38,5 +38,33 @@ describe('toSearchViewState', () => {
   it('결과 0건은 정상 done 이다', () => {
     expect(toSearchViewState({ ok: true, status: 200, body: { results: [], degraded: false } }))
       .toEqual({ kind: 'done', hits: [], degraded: false })
+  })
+})
+
+describe('snippetOf', () => {
+  const withHeader = '# 회의록 OMS 설명\n일자: 2026-08-06\n팀: MES\n계정 발급은 IT팀 경유로 한다'
+
+  it('선두의 헤더·메타 줄을 걷어낸다', () => {
+    expect(snippetOf(withHeader)).toBe('계정 발급은 IT팀 경유로 한다')
+  })
+
+  it('본문 중간의 헤더는 그대로 둔다 — 선두 블록만 걷어낸다', () => {
+    const content = '# 회의록 OMS 설명\n일자: 2026-08-06\n본문 시작\n## 소제목\n이어지는 내용'
+    expect(snippetOf(content)).toBe('본문 시작 ## 소제목 이어지는 내용')
+  })
+
+  it('전부 헤더·메타 뿐이면 원본을 접어 폴백한다', () => {
+    const metaOnly = '# 회의록 OMS 설명\n일자: 2026-08-06\n팀: MES'
+    expect(snippetOf(metaOnly)).toBe('# 회의록 OMS 설명 일자: 2026-08-06 팀: MES')
+  })
+
+  it('maxChars 로 자른다', () => {
+    const long = 'a'.repeat(300)
+    const snippet = snippetOf(long, 200)
+    expect(snippet).toHaveLength(200)
+  })
+
+  it('연속 공백·개행을 한 칸으로 접는다', () => {
+    expect(snippetOf('본문   여러\n\n  공백이   섞였다')).toBe('본문 여러 공백이 섞였다')
   })
 })

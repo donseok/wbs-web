@@ -36,10 +36,24 @@ describe('WikiSearchResults', () => {
     expect(html({ kind: 'done', hits: [], degraded: false })).toContain('결과가 없습니다')
   })
 
-  it('idle 에서는 아무 안내도 띄우지 않는다', () => {
+  it('idle 에서는 빈 여백 대신 안내를 띄운다', () => {
     const out = html({ kind: 'idle' })
+    expect(out).toContain('무엇이든 검색해 보세요')
     expect(out).not.toContain('결과가 없습니다')
-    expect(out).not.toContain('불러오지 못했습니다')
+  })
+
+  it('loading 에서는 확인 중이라고 알린다 — 빈 화면을 고장으로 오인하지 않게', () => {
+    expect(html({ kind: 'loading' })).toContain('확인하는 중')
+  })
+
+  it('스니펫에서 메타데이터 헤더가 사라진다', () => {
+    const headerHit: SearchHit = {
+      ...hit,
+      content: '# 회의록 OMS 설명\n일자: 2026-08-06\n팀: MES\n실제 논의 내용이 여기 있다',
+    }
+    const out = html({ kind: 'done', hits: [headerHit], degraded: false })
+    expect(out).not.toContain('# 회의록')
+    expect(out).toContain('실제 논의 내용이 여기 있다')
   })
 
   it('이슈 출처는 이슈 배지로 나온다', () => {
