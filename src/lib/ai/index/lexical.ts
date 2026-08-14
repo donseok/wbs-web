@@ -1,3 +1,4 @@
+import { CURRENT_INDEX_VERSION } from './content'
 import type { FusionCandidate } from '@/lib/domain/searchFusion'
 import type { SupabaseKnowledgeClient } from './pgvector'
 
@@ -51,7 +52,7 @@ export function createLexicalSearch(client: SupabaseKnowledgeClient) {
       p_include_global: false,
       p_domains: null,
       p_entity_types: null,
-      p_index_version: 1,
+      p_index_version: CURRENT_INDEX_VERSION,
     })
 
     // 조회 실패를 "결과 없음" 으로 위장하지 않는다(에러 처리 3원칙).

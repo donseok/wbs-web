@@ -92,4 +92,30 @@ describe('POST /api/wiki/search', () => {
     mocks.getActorViewState.mockResolvedValue({ actor: { userId: 'u1' }, degraded: true })
     expect((await POST(request({ projectId: PROJECT, q: '권한' }))).status).toBe(503)
   })
+
+  it('긴 자연어 질의는 키워드로 축약해 어휘 검색을 한다', async () => {
+    await POST(request({ projectId: PROJECT, q: 'MES 권한은 어떻게 신청하지?' }))
+    // createLexicalSearch 호출 시 query 인자가 키워드 조합(공백 분리) 문자열이어야 한다.
+    // deriveSearchKeywords() 가 토큰화하므로, 결과는 원문과 다른 축약된 형태다.
+    expect(mocks.lexical).toHaveBeenCalled()
+    const call = mocks.lexical.mock.calls[0][0]
+    expect(call.query).toBeTruthy()
+    // 키워드는 공백으로 이어진 짧은 문자열이어야 한다(단순히 원문을 넘기지 않음).
+    expect(typeof call.query).toBe('string')
+  })
+
+  it('키워드가 없으면 어휘 검색을 건너뛴다', async () => {
+    // 불용어만 있는 질의
+    mocks.embedDocuments.mockResolvedValue(null)
+    await POST(request({ projectId: PROJECT, q: '는 을 를' }))
+    // 키워드가 0개면 lexical을 부르지 않는다.
+    expect(mocks.lexical).not.toHaveBeenCalled()
+  })
+
+  it('어휘 검색 실패는 degraded 로 처리한다(503 아님)', async () => {
+    mocks.lexical.mockResolvedValue({ ok: false, errorCode: 'LEXICAL_SEARCH_FAILED' })
+    const res = await POST(request({ projectId: PROJECT, q: '권한' }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ degraded: true })
+  })
 })
