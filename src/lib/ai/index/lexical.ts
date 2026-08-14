@@ -3,7 +3,8 @@ import type { FusionCandidate } from '@/lib/domain/searchFusion'
 import type { SupabaseKnowledgeClient } from './pgvector'
 
 /**
- * 어휘 다리 — 0083 의 match_ai_documents_lexical 어댑터.
+ * 어휘 다리 — 0084 의 match_ai_documents_lexical 어댑터.
+ * 토큰을 OR 로 매칭해 다중 키워드 질의를 지원한다.
  * 벡터가 어휘 불일치를 풀고, 이쪽이 고유명사·ID·약어 같은 정확 검색을 맡는다.
  */
 export type LexicalSearchResult =
@@ -37,16 +38,15 @@ export function toFusionCandidate(row: Record<string, unknown>): FusionCandidate
 
 export function createLexicalSearch(client: SupabaseKnowledgeClient) {
   return async (input: {
-    query: string
+    tokens: string[]
     projectIds: string[]
     limit: number
   }): Promise<LexicalSearchResult> => {
-    const query = input.query.trim()
-    // 빈 스코프는 "전 프로젝트" 가 아니라 "아무것도 없음" 이다. RPC 를 부르지 않는다.
-    if (!query || input.projectIds.length === 0) return { ok: true, candidates: [] }
+    // 빈 스코프 또는 토큰 없음 — RPC 를 부르지 않는다.
+    if (!input.tokens.length || input.projectIds.length === 0) return { ok: true, candidates: [] }
 
     const { data, error } = await client.rpc('match_ai_documents_lexical', {
-      p_query: query,
+      p_tokens: input.tokens,
       match_count: Math.max(1, Math.min(Math.floor(input.limit), 100)),
       p_project_ids: input.projectIds,
       p_include_global: false,

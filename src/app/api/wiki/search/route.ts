@@ -35,11 +35,10 @@ export async function POST(request: NextRequest) {
 
   if (!query) return NextResponse.json({ results: [], degraded: false })
 
-  // 키워드 추출: 자연어 긴 질의에서 토큰을 추출해 어휘 다리에 넘긴다.
-  // word_similarity 는 질의 길이에 따라 점수가 떨어지므로(0.294 → 0건),
-  // 짧은 키워드 조합을 넘겨 임계값(0.6) 통과율을 높인다.
+  // 키워드 추출: 자연어 다중 토큰 질의를 OR 매칭으로 풀이한다.
+  // word_similarity(다중토큰, 본문) 은 구조적으로 임계(0.6)를 못 넘는다(단일 trigram 구간만 인정).
+  // → 토큰을 배열로 넘겨 각각 OR 로 매칭한다(0084 의 unnest join 형태).
   const keywords = deriveSearchKeywords(query)
-  const keywordQuery = keywords.join(' ')
 
   // 임베딩이 실패해도 검색이 통째로 죽으면 안 된다 — 어휘 다리로 계속한다.
   const embeddings = await embedDocuments([query], 'RETRIEVAL_QUERY').catch(() => null)
@@ -65,8 +64,8 @@ export async function POST(request: NextRequest) {
         })
       : Promise.resolve({ data: [], error: null }),
     // 키워드가 없으면 어휘 검색을 건너뛴다 — 빈 결과 반환
-    keywordQuery
-      ? lexicalSearch({ query: keywordQuery, projectIds: access.projectIds, limit: CANDIDATE_LIMIT })
+    keywords.length > 0
+      ? lexicalSearch({ tokens: keywords, projectIds: access.projectIds, limit: CANDIDATE_LIMIT })
       : Promise.resolve({ ok: true, candidates: [] }),
   ])
 
