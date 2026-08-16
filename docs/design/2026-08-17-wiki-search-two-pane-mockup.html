@@ -1,0 +1,725 @@
+<title>D'Flow Wiki 검색 화면</title>
+<style>
+  :root {
+    color-scheme: light;
+
+    /* D'Flow 토큰 (src/app/globals.css 실값) */
+    --canvas: #f5efe6;
+    --surface: #fffaf4;
+    --surface-2: #f3ece1;
+    --line: #e6dccd;
+    --line-strong: #d6c9b6;
+    --ink: #17181d;
+    --ink-muted: #4a4440;
+    --ink-subtle: #7a6f68;
+
+    --brand: #0f766e;
+    --brand-hover: #155e75;
+    --brand-weak: #e3efec;
+    --brand-ring: #9fd4cd;
+
+    --accent: #cb6d37;
+    --accent-warning: #c06f24;
+    --delayed: #cb4b5f;
+
+    --sidebar: #13161c;
+    --sidebar-2: #191d25;
+    --sidebar-line: #2a2f3a;
+    --sidebar-ink: #f5efe7;
+    --sidebar-ink-subtle: #877d73;
+
+    --team-pmo: #4f46e5; --team-pmo-weak: #eceeff;
+    --team-dt: #0276a8;  --team-dt-weak: #e2f4ff;
+    --team-mes: #a65b00; --team-mes-weak: #fff2dc;
+    --team-mdm: #0f766e; --team-mdm-weak: #dcf4f1;
+
+    --gradient-primary: linear-gradient(135deg, #0f766e 0%, #155e75 48%, #173a63 100%);
+
+    --radius: 14px;
+    --shadow-sm: 0 1px 2px rgba(23,24,29,.06);
+    --shadow-md: 0 4px 14px rgba(23,24,29,.07);
+
+    --font: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo",
+            "Noto Sans KR", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 40px 24px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  /* ── 문서 머리 ─────────────────────────────────── */
+  .doc-head { display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
+  .doc-eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink-subtle);
+  }
+  .doc-head h1 {
+    margin: 0; font-size: 30px; line-height: 1.25; letter-spacing: -.02em;
+    text-wrap: balance; font-weight: 800;
+  }
+  .doc-head p { margin: 0; color: var(--ink-muted); font-size: 15px; }
+  .doc-head code {
+    font-family: var(--mono); font-size: .88em;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 1px 5px;
+  }
+
+  /* ── 목업 프레임 ───────────────────────────────── */
+  .frame {
+    border: 1px solid var(--line-strong);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--shadow-md);
+    background: var(--surface);
+  }
+
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--sidebar);
+    border-bottom: 1px solid var(--sidebar-line);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--sidebar-line); }
+  .chrome-path {
+    margin-left: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--sidebar-ink-subtle);
+  }
+
+  .app { display: flex; min-height: 620px; }
+
+  /* 사이드바 조각 — D'Flow 안이라는 신호만 */
+  .rail {
+    width: 56px; flex: 0 0 56px;
+    background: var(--sidebar-2);
+    border-right: 1px solid var(--sidebar-line);
+    display: flex; flex-direction: column; align-items: center;
+    gap: 14px; padding: 16px 0;
+  }
+  .rail i {
+    width: 22px; height: 22px; border-radius: 7px;
+    background: #262c37; display: block;
+  }
+  .rail i.on { background: var(--brand); }
+
+  .screen { flex: 1; min-width: 0; background: var(--canvas); padding: 20px; }
+
+  /* ── 상단 검색바 (전폭) ────────────────────────── */
+  .searchbar {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: var(--shadow-sm);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .search-row { display: flex; gap: 10px; }
+  .search-input {
+    flex: 1; min-width: 0;
+    height: 46px;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 0 14px 0 40px;
+    font: inherit; color: var(--ink);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' fill='none' stroke='%237a6f68' stroke-width='2' stroke-linecap='round'><circle cx='8' cy='8' r='6'/><path d='M12.5 12.5 17 17'/></svg>");
+    background-repeat: no-repeat;
+    background-position: 13px center;
+  }
+  .search-input:focus {
+    outline: none; border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-ring);
+  }
+  .btn {
+    height: 46px; padding: 0 22px; border: 0; border-radius: 12px;
+    font: inherit; font-weight: 700; cursor: pointer;
+    background: var(--gradient-primary); color: #fff;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: filter .15s;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:focus-visible { outline: 3px solid var(--brand-ring); outline-offset: 2px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip {
+    border: 1px solid var(--line-strong);
+    background: var(--surface-2);
+    color: var(--ink-muted);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12.5px; font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .chip:hover { border-color: var(--brand-ring); color: var(--brand); }
+  .chip[aria-pressed="true"] {
+    background: var(--brand); border-color: var(--brand); color: #fff;
+  }
+  .chip:focus-visible { outline: 3px solid var(--brand-ring); outline-offset: 2px; }
+  .chip .n { font-family: var(--mono); font-size: 11px; opacity: .75; margin-left: 4px; }
+
+  /* ── 본문 2분할 ────────────────────────────────── */
+  .split {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, .8fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  /* 왼쪽: 결과 목록 */
+  .col-results { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+  .results-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 0 2px;
+  }
+  .results-count { font-size: 12.5px; color: var(--ink-subtle); font-family: var(--mono); }
+  .btn-summarize {
+    height: 34px; padding: 0 14px; border-radius: 999px;
+    border: 1px solid var(--brand-ring); background: var(--brand-weak);
+    color: var(--brand); font: inherit; font-size: 13px; font-weight: 700;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-summarize:hover { background: #d7e9e5; }
+  .btn-summarize:focus-visible { outline: 3px solid var(--brand-ring); outline-offset: 2px; }
+  .btn-summarize[disabled] { opacity: .5; cursor: default; }
+
+  .result {
+    display: block; width: 100%; text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid transparent;
+    border-radius: 12px;
+    padding: 13px 15px;
+    font: inherit; color: inherit;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  .result:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
+  .result:focus-visible { outline: 3px solid var(--brand-ring); outline-offset: 2px; }
+  .result[aria-current="true"] {
+    border-left-color: var(--brand);
+    border-color: var(--brand-ring);
+    background: #fffdf9;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .result-top { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .badge {
+    font-size: 11px; font-weight: 700; letter-spacing: .02em;
+    border-radius: 6px; padding: 2px 7px; white-space: nowrap;
+  }
+  .b-min { background: var(--team-mdm-weak); color: var(--team-mdm); }
+  .b-iss { background: var(--team-mes-weak); color: var(--team-mes); }
+  .b-wbs { background: var(--team-dt-weak); color: var(--team-dt); }
+  .b-not { background: var(--team-pmo-weak); color: var(--team-pmo); }
+  .result-date { font-family: var(--mono); font-size: 11.5px; color: var(--ink-subtle); }
+  .result-score {
+    margin-left: auto; font-family: var(--mono); font-size: 11.5px;
+    color: var(--ink-subtle); font-variant-numeric: tabular-nums;
+  }
+  .result-title {
+    font-weight: 700; font-size: 14.5px; line-height: 1.45;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .result-snippet {
+    margin-top: 3px; font-size: 13px; color: var(--ink-muted);
+    line-height: 1.55;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  mark {
+    background: rgba(203, 109, 55, .18);
+    color: inherit;
+    border-radius: 3px;
+    padding: 0 2px;
+    box-shadow: inset 0 -1px 0 rgba(203, 109, 55, .5);
+  }
+
+  /* 요약 카드 — 누를 때만 생긴다 */
+  .summary-card {
+    border: 1px solid var(--brand-ring);
+    background: var(--brand-weak);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .summary-card h3 {
+    margin: 0 0 6px; font-size: 12px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--brand);
+  }
+  .summary-card p { margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--ink); }
+  .summary-src { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .src-pill {
+    font-size: 11.5px; font-weight: 600;
+    background: var(--surface); border: 1px solid var(--brand-ring);
+    color: var(--brand); border-radius: 999px; padding: 3px 9px;
+  }
+
+  /* 오른쪽: 읽기 패널 */
+  .col-preview { position: sticky; top: 20px; min-width: 0; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 18px;
+    min-height: 420px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .panel-eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-subtle);
+  }
+  .panel h2 {
+    margin: 0; font-size: 17px; line-height: 1.4; letter-spacing: -.01em;
+    text-wrap: balance;
+  }
+  .panel-meta {
+    font-size: 12px; color: var(--ink-subtle); font-family: var(--mono);
+    display: flex; flex-wrap: wrap; gap: 10px;
+  }
+  .rule { height: 1px; background: var(--line); }
+
+  .chunk { font-size: 13.5px; line-height: 1.75; color: var(--ink-muted); }
+  .chunk.focus {
+    color: var(--ink);
+    background: #fffdf7;
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 10px 12px;
+  }
+  .chunk-label {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-subtle);
+    display: block; margin-bottom: 4px;
+  }
+  .chunk table {
+    border-collapse: collapse; width: 100%; font-size: 12.5px; margin-top: 6px;
+  }
+  .chunk th, .chunk td {
+    border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top;
+  }
+  .chunk th { background: var(--surface-2); font-weight: 700; }
+  .scroll-x { overflow-x: auto; }
+
+  .panel-foot { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .link-out {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 14px; border-radius: 10px;
+    background: var(--brand); color: #fff; font-size: 13px; font-weight: 700;
+    text-decoration: none;
+  }
+  .link-out:hover { background: var(--brand-hover); }
+  .link-ghost {
+    display: inline-flex; align-items: center; height: 36px; padding: 0 12px;
+    border-radius: 10px; border: 1px solid var(--line-strong);
+    background: var(--surface); color: var(--ink-muted);
+    font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .link-ghost:hover { border-color: var(--brand-ring); color: var(--brand); }
+
+  /* 패널 빈 상태 — 무엇을 찾을 수 있는지 */
+  .corpus { display: flex; flex-direction: column; gap: 8px; }
+  .corpus-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px;
+  }
+  .corpus-row .name { color: var(--ink-muted); width: 58px; flex: 0 0 58px; }
+  .corpus-bar {
+    flex: 1; height: 7px; border-radius: 999px;
+    background: var(--surface-2); overflow: hidden;
+  }
+  .corpus-bar span { display: block; height: 100%; border-radius: 999px; background: var(--brand); }
+  .corpus-row .n {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-subtle);
+    width: 44px; text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .recent { display: flex; flex-direction: column; gap: 7px; }
+  .recent-item {
+    display: flex; gap: 8px; align-items: baseline;
+    font-size: 12.5px; color: var(--ink-muted);
+  }
+  .recent-item .when { font-family: var(--mono); font-size: 11px; color: var(--ink-subtle); }
+  .hint { font-size: 12.5px; color: var(--ink-subtle); line-height: 1.6; margin: 0; }
+
+  /* 화면 전 상태 — 결과 자리 */
+  .placeholder {
+    border: 1px dashed var(--line-strong);
+    border-radius: 12px;
+    padding: 28px 20px;
+    text-align: center;
+    color: var(--ink-subtle);
+    font-size: 13.5px;
+    background: rgba(255, 250, 244, .5);
+  }
+
+  .lexical-note {
+    display: flex; gap: 8px; align-items: flex-start;
+    border: 1px solid rgba(192, 111, 36, .35);
+    background: rgba(192, 111, 36, .08);
+    border-radius: 10px; padding: 9px 12px;
+    font-size: 12.5px; color: var(--accent-warning);
+  }
+
+  /* ── 목업 아래 주석 ────────────────────────────── */
+  .notes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+  }
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .note h3 {
+    margin: 0 0 6px; font-size: 12px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--brand);
+  }
+  .note p { margin: 0; font-size: 13.5px; line-height: 1.65; color: var(--ink-muted); }
+  .note code {
+    font-family: var(--mono); font-size: .86em;
+    background: var(--surface-2); border-radius: 5px; padding: 1px 4px;
+  }
+
+  .caption {
+    font-size: 13px; color: var(--ink-subtle);
+    display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
+  }
+  .caption b { color: var(--ink-muted); font-weight: 700; }
+
+  .footer-note {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    font-size: 13px;
+    color: var(--ink-subtle);
+    line-height: 1.7;
+  }
+
+  @media (max-width: 1080px) {
+    .split { grid-template-columns: minmax(0, 1fr); }
+    .col-preview { position: static; }
+    .rail { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="doc-head">
+    <div class="doc-eyebrow">목업 · 구현 전</div>
+    <h1>Wiki 검색 화면 — 좌우 2분할</h1>
+    <p>
+      <code>/p/[projectId]/wiki</code> 를 검색 전용으로 축소했을 때의 화면입니다.
+      오른쪽 여백을 섹션으로 채우지 않고, <b>왼쪽에서 고른 것을 읽는 자리</b>로 씁니다.
+      결과를 눌러 보시면 오른쪽이 바뀝니다.
+    </p>
+  </header>
+
+  <div class="caption">
+    <b>클릭해 보실 것</b>
+    <span>· 검색 버튼 → 결과가 나옵니다</span>
+    <span>· 결과 항목 → 오른쪽에서 읽습니다</span>
+    <span>· 결과 요약하기 → 목록 위에 답이 꽂힙니다</span>
+  </div>
+
+  <div class="frame">
+    <div class="chrome">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="chrome-path">dflow.vercel.app/p/dcube/wiki</span>
+    </div>
+
+    <div class="app">
+      <nav class="rail" aria-hidden="true">
+        <i></i><i></i><i></i><i class="on"></i><i></i><i></i>
+      </nav>
+
+      <main class="screen">
+
+        <!-- 상단 전폭 검색바 -->
+        <div class="searchbar">
+          <div class="search-row">
+            <input id="q" class="search-input" type="text"
+                   value="원자재 번호 체계 어떻게 하기로 했지"
+                   aria-label="검색어" />
+            <button class="btn" id="btn-search" type="button">검색</button>
+          </div>
+          <div class="chips" role="group" aria-label="출처 필터">
+            <button class="chip" type="button" aria-pressed="true">전체<span class="n">815</span></button>
+            <button class="chip" type="button" aria-pressed="false">회의록<span class="n">67</span></button>
+            <button class="chip" type="button" aria-pressed="false">이슈<span class="n">68</span></button>
+            <button class="chip" type="button" aria-pressed="false">WBS<span class="n">674</span></button>
+            <button class="chip" type="button" aria-pressed="false">공지<span class="n">5</span></button>
+          </div>
+        </div>
+
+        <!-- 본문 2분할 -->
+        <div class="split">
+
+          <!-- 왼쪽 -->
+          <section class="col-results" aria-label="검색 결과">
+            <div class="results-head">
+              <span class="results-count" id="count">검색어를 입력하세요</span>
+              <button class="btn-summarize" id="btn-sum" type="button" disabled>✦ 결과 요약하기</button>
+            </div>
+            <div id="summary-slot"></div>
+            <div id="list">
+              <div class="placeholder">검색하면 여기에 결과가 쌓입니다</div>
+            </div>
+          </section>
+
+          <!-- 오른쪽 -->
+          <aside class="col-preview" aria-label="원문 읽기">
+            <div class="panel" id="panel"></div>
+          </aside>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>오른쪽 패널의 세 상태</h3>
+      <p>검색 전 · 결과 선택 전 · 결과 선택 후. 셋 다 <b>같은 패널 하나</b>이고 내용만 바뀝니다. 새 섹션이 붙는 게 아닙니다.</p>
+    </div>
+    <div class="note">
+      <h3>미리보기는 청크 3개</h3>
+      <p>회의록 1건이 평균 20청크라(<code>§5.4</code>) 전문을 부르지 않습니다. 최고점 청크와 앞뒤 1개, 매칭 구간만 강조합니다.</p>
+    </div>
+    <div class="note">
+      <h3>요약은 누를 때만</h3>
+      <p>기본은 목록입니다(<code>D2</code>). 버튼을 눌러야 LLM 1회가 돌고, 답은 목록 맨 위에 출처 배지와 함께 꽂힙니다.</p>
+    </div>
+    <div class="note">
+      <h3>좁은 화면</h3>
+      <p><code>xl</code> 미만에서는 1열로 접히고 결과 클릭은 원문 이동입니다. 상태 변형 display 유틸은 쓰지 않습니다(CSS 안전망).</p>
+    </div>
+  </div>
+
+  <p class="footer-note">
+    숫자는 설계 문서의 실측 코퍼스입니다 — 회의록 67 · WBS 674 · 이슈 68 · 공지 5.
+    검색 엔진(벡터 + 어휘 RRF)과 색인 파이프라인이 먼저 서야 이 화면이 빈 껍데기가 되지 않습니다.
+  </p>
+</div>
+
+<script>
+  const RESULTS = [
+    {
+      cls: 'b-min', src: '회의록', date: '2026.07.31',
+      title: '부산운영팀 이슈 분석 회의 (이돈석 · 홍성업)',
+      score: '0.82',
+      snippet: '<mark>원자재 번호 체계</mark> — MES에서 중복 발생. 자릿수 <mark>확장 원칙 합의</mark>(세부 채번 체계는 미정)',
+      meta: ['회의록', '2026.07.31', '작성 이돈석'],
+      before: '가입고 프로세스 검토 결과, 현행 수동 처리 방식을 당분간 유지하기로 했다. ERP 인터페이스 부하 우려로 시스템 연동은 2차 과제로 미룬다.',
+      focusHtml:
+        '<span class="chunk-label">매칭 구간</span>' +
+        '<div class="scroll-x"><table>' +
+        '<tr><th>항목</th><th>내용</th><th>결론</th></tr>' +
+        '<tr><td><mark>원자재 번호 체계</mark></td><td>MES에서 중복 발생. 현행 6자릿수로는 신규 품목 수용 불가</td><td><mark>확장 원칙 합의</mark> (세부 채번 체계는 미정)</td></tr>' +
+        '<tr><td>가입고 프로세스</td><td>비정형 채널(카톡·문자) 주문을 정리하는 별도 관리 필요</td><td>현행 유지</td></tr>' +
+        '</table></div>',
+      after: '다음 회의까지 MDM 팀이 채번 규칙 초안을 준비하고, DT 팀은 MES 중복 건수를 실측해 공유하기로 했다.',
+      href: '/minutes/8f21…'
+    },
+    {
+      cls: 'b-iss', src: '이슈', date: '2026.08.04',
+      title: '원자재 채번 규칙 미확정 — MES 중복 코드 발생',
+      score: '0.74',
+      snippet: '자릿수 <mark>확장 원칙</mark>은 합의됐으나 세부 <mark>채번 체계</mark>가 정해지지 않아 신규 품목 등록이 막혀 있음',
+      meta: ['이슈 MDM-042', '지연', '담당 홍성업'],
+      before: 'MES와 ERP 양쪽에 같은 원자재가 다른 코드로 등록되는 사례가 7월에만 12건 확인됐다.',
+      focusHtml:
+        '<span class="chunk-label">매칭 구간</span>' +
+        '<p style="margin:0">자릿수 <mark>확장 원칙</mark>은 07/31 회의에서 합의됐으나, 세부 <mark>채번 체계</mark>(접두 구분 · 일련번호 자리수 · 리비전 표기)가 정해지지 않아 신규 품목 등록이 막혀 있다.</p>',
+      after: '해결 조건: 채번 규칙 문서 확정 + MES 마스터 정비 배치 1회. 목표 8월 3주.',
+      href: '/p/dcube/issues/MDM-042'
+    },
+    {
+      cls: 'b-wbs', src: 'WBS', date: '2026.08.11',
+      title: '가입고 프로세스 표준화 · 원자재 마스터 정비',
+      score: '0.61',
+      snippet: '비정형 채널 주문을 정리하기 위한 별도 관리대장 설계. <mark>번호 체계</mark> 확정 이후 착수',
+      meta: ['WBS 3.2.4', '진행중 40%', '담당 MDM'],
+      before: '상위 작업: 3.2 마스터 데이터 정비',
+      focusHtml:
+        '<span class="chunk-label">매칭 구간</span>' +
+        '<p style="margin:0">비정형 채널(카톡·문자 등)의 고객 주문을 정리하기 위해 사용하는 별도 관리대장을 설계한다. 원자재 <mark>번호 체계</mark> 확정 이후 착수한다.</p>',
+      after: '계획 08/18 ~ 09/05 · 실적 40% · 선행 작업(채번 규칙 확정) 미완으로 지연 위험.',
+      href: '/p/dcube/wbs#3.2.4'
+    },
+    {
+      cls: 'b-min', src: '회의록', date: '2026.07.24',
+      title: 'MDM 정례 — 품목 코드 자릿수 확장 논의',
+      score: '0.55',
+      snippet: '기존 6자리로는 신규 원자재를 수용하지 못한다는 문제 제기. <mark>번호 체계</mark> 재설계 필요성 공유',
+      meta: ['회의록', '2026.07.24', '작성 김선우'],
+      before: '지난 회의 후속: 마스터 정합성 점검 결과 공유.',
+      focusHtml:
+        '<span class="chunk-label">매칭 구간</span>' +
+        '<p style="margin:0">기존 6자리 코드로는 신규 원자재를 수용하지 못한다는 문제가 제기됐다. <mark>번호 체계</mark> 재설계 필요성을 공유했고, 다음 회의에서 안을 놓고 결정하기로 했다.</p>',
+      after: '실제 결정은 07/31 부산운영팀 회의에서 이뤄졌다.',
+      href: '/minutes/6c04…'
+    },
+    {
+      cls: 'b-not', src: '공지', date: '2026.08.05',
+      title: '원자재 마스터 정비 기간 안내',
+      score: '0.41',
+      snippet: '08/12 ~ 08/16 마스터 정비. 기간 중 신규 품목 등록 요청은 보류됩니다',
+      meta: ['공지', '2026.08.05', 'PMO'],
+      before: 'D-CUBE 전 구성원 대상 안내입니다.',
+      focusHtml:
+        '<span class="chunk-label">매칭 구간</span>' +
+        '<p style="margin:0">08/12 ~ 08/16 원자재 마스터를 정비합니다. 기간 중 신규 품목 등록 요청은 보류되며, 확정된 <mark>번호 체계</mark>가 적용된 뒤 일괄 반영됩니다.</p>',
+      after: '문의: PMO 이돈석',
+      href: '/p/dcube/announcements/12'
+    }
+  ]
+
+  const EMPTY_PANEL = `
+    <div class="panel-eyebrow">이 프로젝트에서 찾을 수 있는 것</div>
+    <div class="corpus">
+      <div class="corpus-row"><span class="name">WBS</span><span class="corpus-bar"><span style="width:100%"></span></span><span class="n">674</span></div>
+      <div class="corpus-row"><span class="name">이슈</span><span class="corpus-bar"><span style="width:10%"></span></span><span class="n">68</span></div>
+      <div class="corpus-row"><span class="name">회의록</span><span class="corpus-bar"><span style="width:10%"></span></span><span class="n">67</span></div>
+      <div class="corpus-row"><span class="name">공지</span><span class="corpus-bar"><span style="width:1%"></span></span><span class="n">5</span></div>
+    </div>
+    <div class="rule"></div>
+    <div class="panel-eyebrow">최근 들어온 것</div>
+    <div class="recent">
+      <div class="recent-item"><span class="when">08/14</span><span>부산운영팀 주간 점검 회의록</span></div>
+      <div class="recent-item"><span class="when">08/13</span><span>이슈 MDM-047 · 코드 매핑표 누락</span></div>
+      <div class="recent-item"><span class="when">08/12</span><span>공지 · 원자재 마스터 정비 기간 안내</span></div>
+      <div class="recent-item"><span class="when">08/11</span><span>WBS 3.2.4 가입고 프로세스 표준화</span></div>
+    </div>
+    <p class="hint">말이 달라도 찾습니다 — “채번”이라 쓰인 문서도 “번호 체계”로 검색됩니다.</p>
+  `
+
+  const IDLE_PANEL = `
+    <div class="panel-eyebrow">읽기</div>
+    <h2>결과를 고르면 여기서 읽습니다</h2>
+    <p class="hint">
+      왼쪽 목록에서 하나를 누르면 원문의 해당 대목이 이 자리에 열립니다.
+      페이지를 떠나지 않고 다음 결과로 넘어가며 “이게 내가 찾던 건가”를 이어서 판단할 수 있습니다.
+    </p>
+    <div class="rule"></div>
+    <div class="panel-eyebrow">이 프로젝트에서 찾을 수 있는 것</div>
+    <div class="corpus">
+      <div class="corpus-row"><span class="name">WBS</span><span class="corpus-bar"><span style="width:100%"></span></span><span class="n">674</span></div>
+      <div class="corpus-row"><span class="name">이슈</span><span class="corpus-bar"><span style="width:10%"></span></span><span class="n">68</span></div>
+      <div class="corpus-row"><span class="name">회의록</span><span class="corpus-bar"><span style="width:10%"></span></span><span class="n">67</span></div>
+      <div class="corpus-row"><span class="name">공지</span><span class="corpus-bar"><span style="width:1%"></span></span><span class="n">5</span></div>
+    </div>
+  `
+
+  const panel = document.getElementById('panel')
+  const list = document.getElementById('list')
+  const count = document.getElementById('count')
+  const btnSum = document.getElementById('btn-sum')
+  const slot = document.getElementById('summary-slot')
+
+  panel.innerHTML = EMPTY_PANEL
+
+  function renderPreview(i) {
+    const r = RESULTS[i]
+    panel.innerHTML = `
+      <div class="panel-eyebrow">원문 미리보기 · ${r.src}</div>
+      <h2>${r.title}</h2>
+      <div class="panel-meta">${r.meta.map(m => `<span>${m}</span>`).join('')}</div>
+      <div class="rule"></div>
+      <div class="chunk">${r.before}</div>
+      <div class="chunk focus">${r.focusHtml}</div>
+      <div class="chunk">${r.after}</div>
+      <div class="panel-foot">
+        <a class="link-out" href="#" onclick="return false">원문으로 이동 →</a>
+        <button class="link-ghost" type="button" onclick="return false">${r.href}</button>
+      </div>
+    `
+  }
+
+  function select(i) {
+    document.querySelectorAll('.result').forEach((el, idx) => {
+      el.setAttribute('aria-current', idx === i ? 'true' : 'false')
+    })
+    renderPreview(i)
+  }
+
+  function search() {
+    list.innerHTML = RESULTS.map((r, i) => `
+      <button class="result" type="button" data-i="${i}" aria-current="false">
+        <span class="result-top">
+          <span class="badge ${r.cls}">${r.src}</span>
+          <span class="result-date">${r.date}</span>
+          <span class="result-score">${r.score}</span>
+        </span>
+        <span class="result-title">${r.title}</span>
+        <span class="result-snippet">${r.snippet}</span>
+      </button>
+    `).join('')
+    list.style.display = 'flex'
+    list.style.flexDirection = 'column'
+    list.style.gap = '10px'
+    count.textContent = '5건 · 문서 단위로 접음'
+    btnSum.disabled = false
+    slot.innerHTML = ''
+    panel.innerHTML = IDLE_PANEL
+
+    list.querySelectorAll('.result').forEach(el => {
+      el.addEventListener('click', () => select(Number(el.dataset.i)))
+    })
+  }
+
+  document.getElementById('btn-search').addEventListener('click', search)
+  document.getElementById('q').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing) search()
+  })
+
+  btnSum.addEventListener('click', () => {
+    btnSum.disabled = true
+    slot.innerHTML = `
+      <div class="summary-card">
+        <h3>✦ 결과 요약</h3>
+        <p>
+          원자재 번호 체계는 <b>자릿수를 확장한다는 원칙까지만 합의</b>됐고(07/31 부산운영팀 회의),
+          접두 구분·일련번호 자리수 같은 <b>세부 채번 체계는 아직 미정</b>입니다.
+          그 때문에 신규 품목 등록이 막혀 이슈 MDM-042가 지연 상태이고,
+          이에 따르는 WBS 3.2.4(가입고 프로세스 표준화)도 착수를 못 하고 있습니다.
+          08/12~08/16 마스터 정비 기간에 확정안을 일괄 반영할 예정입니다.
+        </p>
+        <div class="summary-src">
+          <span class="src-pill">회의록 07/31</span>
+          <span class="src-pill">이슈 MDM-042</span>
+          <span class="src-pill">WBS 3.2.4</span>
+          <span class="src-pill">공지 08/05</span>
+        </div>
+      </div>
+    `
+    slot.style.marginBottom = '10px'
+  })
+</script>
