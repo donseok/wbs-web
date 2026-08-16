@@ -36,8 +36,20 @@ describe('WikiSearchResults', () => {
     expect(html({ kind: 'done', hits: [], degraded: false })).toContain('결과가 없습니다')
   })
 
-  it('idle 에서는 아무것도 렌더하지 않는다 — 안내는 셸(WikiSearch)이 맡는다', () => {
-    expect(html({ kind: 'idle' })).toBe('')
+  it('idle 에서는 안내 패널(무엇을 찾을 수 있나)과 자리 표시만 그린다', () => {
+    const out = html({ kind: 'idle' })
+    expect(out).toContain('검색하면 결과가 여기에')
+    expect(out).toContain('무엇을 찾을 수 있나요')
+  })
+
+  it('결과가 있으면 읽기 패널이 "고르면 읽습니다" 안내를 보여준다', () => {
+    expect(html({ kind: 'done', hits: [hit], degraded: false })).toContain('결과를 고르면')
+  })
+
+  it('스니펫의 질의 토큰이 mark 로 강조된다', () => {
+    const out = html({ kind: 'done', hits: [hit], degraded: false }, '발급')
+    expect(out).toContain('<mark')
+    expect(out).toMatch(/<mark[^>]*>발급<\/mark>/)
   })
 
   it('loading 에서는 확인 중이라고 알린다 — 빈 화면을 고장으로 오인하지 않게', () => {
@@ -67,7 +79,9 @@ describe('WikiSearchResults', () => {
       content: `${marker}${filler}권한 신청 절차는 IT팀 승인 후 처리된다${filler}`,
     }
     const out = html({ kind: 'done', hits: [middleHit], degraded: false }, '권한')
-    expect(out).toContain('권한 신청 절차는 IT팀 승인')
+    // '권한' 은 <mark> 로 감싸여 문자열이 갈라진다 — 매칭어와 후속 문장을 나눠 단언한다.
+    expect(out).toMatch(/<mark[^>]*>권한<\/mark>/)
+    expect(out).toContain('신청 절차는 IT팀 승인')
     expect(out).not.toContain(marker)
   })
 
@@ -80,5 +94,53 @@ describe('WikiSearchResults', () => {
     // (둘 다 같은 hits 배열·같은 index 로 렌더하므로 항상 1:1 대응한다).
     expect(out.indexOf('[1]')).toBeLessThan(out.indexOf('[2]'))
     expect(out.indexOf(hit.href)).toBeLessThan(out.indexOf(hitB.href))
+  })
+})
+
+describe('WikiSearchResults 2분할 상호작용', () => {
+  it('결과를 클릭하면 읽기 패널에 청크 전문과 원문 링크가 뜬다', async () => {
+    const { act } = await import('react')
+    const { createRoot } = await import('react-dom/client')
+    ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
+
+    const { vi } = await import('vitest')
+    // 마운트 시 코퍼스 집계 GET 이 나간다 — 성공 응답으로 고정.
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      Response.json({ domains: [{ domain: 'minutes', docs: 3 }], total: 3 })))
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    try {
+      const longHit: SearchHit = {
+        ...hit,
+        content: '계정 발급은 IT팀 경유로 한다. '.repeat(30).trim(),
+      }
+      await act(async () => {
+        root.render(
+          <WikiSearchResults
+            state={{ kind: 'done', hits: [longHit], degraded: false }}
+            locale="ko" query="발급" projectId="proj-1"
+          />)
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+
+      // 클릭 전: 읽기 패널은 안내 상태.
+      expect(container.textContent).toContain('결과를 고르면')
+
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>('ol li button')!.click()
+      })
+
+      // 클릭 후: 스니펫(200자)이 아니라 청크 전문이 패널에 있고, 원문 링크가 붙는다.
+      expect(container.textContent).toContain('원문으로 이동')
+      const panelText = container.querySelector('aside')!.textContent ?? ''
+      expect(panelText.length).toBeGreaterThan(300)
+      expect(panelText).toContain('정례 회의')
+    } finally {
+      await act(async () => root.unmount())
+      container.remove()
+      vi.unstubAllGlobals()
+    }
   })
 })

@@ -67,15 +67,19 @@ export function WikiSearch({ projectId, locale, initialQuery, adminSlot }: {
 
   return (
     <section className="hero-card hero-glow overflow-hidden px-5 py-6 sm:px-7 sm:py-7" aria-labelledby="wiki-search-title">
-      <div className="relative z-10 max-w-3xl">
-        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-hero-ink-muted">
-          <Sparkles className="h-4 w-4 text-[#3fd8c6]" aria-hidden />
-          {t(locale, 'wiki.ask.eyebrow')}
+      {/* 2분할 개편(2026-08-17): 결과 그리드가 카드 전폭을 쓰도록 max-w-3xl 을 풀었다.
+          제목·설명만 max-w-2xl 로 따로 묶는다 — 한 줄이 지나치게 길어지지 않게(C2). */}
+      <div className="relative z-10">
+        <div className="max-w-2xl">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-hero-ink-muted">
+            <Sparkles className="h-4 w-4 text-[#3fd8c6]" aria-hidden />
+            {t(locale, 'wiki.ask.eyebrow')}
+          </div>
+          <h2 id="wiki-search-title" className="mt-2 text-xl font-bold tracking-tight text-hero-ink sm:text-2xl">
+            {t(locale, 'wiki.ask.title')}
+          </h2>
+          <p className="mt-1.5 text-sm leading-6 text-hero-ink-muted">{t(locale, 'wiki.search2.idle.desc')}</p>
         </div>
-        <h2 id="wiki-search-title" className="mt-2 text-xl font-bold tracking-tight text-hero-ink sm:text-2xl">
-          {t(locale, 'wiki.ask.title')}
-        </h2>
-        <p className="mt-1.5 text-sm leading-6 text-hero-ink-muted">{t(locale, 'wiki.search2.idle.desc')}</p>
 
         <form
           className="mt-5 flex flex-col gap-2 sm:flex-row"
@@ -102,33 +106,30 @@ export function WikiSearch({ projectId, locale, initialQuery, adminSlot }: {
           </button>
         </form>
 
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {CHIP_KEYS.map(key => {
-            const label = t(locale, key)
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => runChip(label)}
-                disabled={busy}
-                className="rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs text-hero-ink-muted transition hover:bg-white/[0.11] hover:text-hero-ink disabled:opacity-50"
-              >
-                {label}
-              </button>
-            )
-          })}
+        {/* 칩(좌) + 색인 갱신 스트립(우) 한 줄 — 우상단 절대배치는 2분할 읽기 패널과
+            겹쳐서(C1) 검색바 아래 정적 배치로 회수했다. */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {CHIP_KEYS.map(key => {
+              const label = t(locale, key)
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => runChip(label)}
+                  disabled={busy}
+                  className="rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs text-hero-ink-muted transition hover:bg-white/[0.11] hover:text-hero-ink disabled:opacity-50"
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          {adminSlot && <div className="flex justify-end">{adminSlot}</div>}
         </div>
 
         <WikiSearchResults state={state} locale={locale} query={submittedQuery} projectId={projectId} />
       </div>
-
-      {/* 색인 갱신 스트립 — 넓은 화면에선 카드 우상단의 빈 다크 영역에 절대배치,
-          그보다 좁으면 겹침을 피해 콘텐츠 아래로 내려 정적 배치한다. */}
-      {adminSlot && (
-        <div className="relative z-10 mt-5 flex justify-end xl:absolute xl:right-7 xl:top-7 xl:mt-0 xl:max-w-sm">
-          {adminSlot}
-        </div>
-      )}
     </section>
   )
 }

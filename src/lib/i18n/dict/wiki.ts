@@ -87,6 +87,17 @@ export const wikiKo = {
   'wiki.search2.source.meetings': '회의',
   'wiki.search2.source.weekly': '주간업무',
 
+  // 2분할(좌 목록 / 우 읽기 패널) — 2026-08-17 개편. pane.* 는 오른쪽 패널의 세 상태 문구.
+  'wiki.pane.placeholder': '검색하면 결과가 여기에 나타납니다',
+  'wiki.pane.pick': '결과를 고르면 여기서 바로 읽을 수 있습니다.',
+  'wiki.pane.guide.eyebrow': '무엇을 찾을 수 있나요',
+  'wiki.pane.guide.desc': '회의록·이슈·WBS·공지·주간업무의 본문을 검색합니다. 표현이 달라도 의미가 비슷하면 찾아줍니다.',
+  'wiki.pane.guide.docs': '{n}건',
+  'wiki.pane.guide.statsFailed': '색인 집계를 불러오지 못했습니다.',
+  'wiki.pane.reading': '원문 읽기',
+  'wiki.pane.open': '원문으로 이동',
+  'wiki.pane.source': '원문',
+
   // 슈퍼유저 전용 색인 수동 갱신 스트립 — 자동 배치(크론) 제거 후 필요할 때만 누르는 버튼.
   'wiki.reindex.button': '색인 갱신',
   'wiki.reindex.stop': '중지',
@@ -430,6 +441,16 @@ export const wikiEn: Record<keyof typeof wikiKo, string> = {
   'wiki.search2.source.announcements': 'Announcements',
   'wiki.search2.source.meetings': 'Meetings',
   'wiki.search2.source.weekly': 'Weekly',
+
+  'wiki.pane.placeholder': 'Results will appear here after you search',
+  'wiki.pane.pick': 'Pick a result to read it right here.',
+  'wiki.pane.guide.eyebrow': 'What you can find',
+  'wiki.pane.guide.desc': 'Searches the full text of minutes, issues, WBS, announcements and weekly sheets — even when the wording differs.',
+  'wiki.pane.guide.docs': '{n} docs',
+  'wiki.pane.guide.statsFailed': 'Could not load index stats.',
+  'wiki.pane.reading': 'Reading',
+  'wiki.pane.open': 'Open source',
+  'wiki.pane.source': 'Source',
 
   'wiki.reindex.button': 'Refresh index',
   'wiki.reindex.stop': 'Stop',

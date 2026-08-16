@@ -39,22 +39,26 @@ describe('WikiSearch — ?q= 딥링크 자동 검색', () => {
     })
   }
 
+  // 마운트 시 읽기 패널의 코퍼스 집계 GET(옵션 없는 fetch)도 나간다 — 검색 POST 만 골라 센다.
+  const searchCalls = () =>
+    fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+
   it('initialQuery 가 있으면 마운트 시 검색 fetch 가 1회 호출된다', async () => {
     await render('권한')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock).toHaveBeenCalledWith('/api/wiki/search', expect.objectContaining({ method: 'POST' }))
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(searchCalls()).toHaveLength(1)
+    expect(searchCalls()[0][0]).toBe('/api/wiki/search')
+    const body = JSON.parse(searchCalls()[0][1].body)
     expect(body).toMatchObject({ projectId: 'proj-1', q: '권한' })
   })
 
   it('initialQuery 가 없으면 마운트 시 자동 검색하지 않는다', async () => {
     await render('')
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(searchCalls()).toHaveLength(0)
   })
 
   it('리마운트 없이 initialQuery 가 새 값으로 바뀌면(라우터가 인스턴스를 재사용) 다시 자동 실행된다', async () => {
     await render('첫검색')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(searchCalls()).toHaveLength(1)
     fetchMock.mockClear()
 
     // 같은 컴포넌트 트리에 다른 initialQuery 로 재렌더 — Next.js 가 searchParams 만 바뀐
@@ -63,20 +67,20 @@ describe('WikiSearch — ?q= 딥링크 자동 검색', () => {
       root.render(<WikiSearch projectId="proj-1" locale="ko" initialQuery="두번째검색" />)
       await new Promise(resolve => setTimeout(resolve, 0))
     })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(searchCalls()).toHaveLength(1)
+    const body = JSON.parse(searchCalls()[0][1].body)
     expect(body).toMatchObject({ q: '두번째검색' })
   })
 
   it('같은 initialQuery 로 재렌더돼도 중복 실행하지 않는다', async () => {
     await render('권한')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(searchCalls()).toHaveLength(1)
     fetchMock.mockClear()
 
     await act(async () => {
       root.render(<WikiSearch projectId="proj-1" locale="ko" initialQuery="권한" />)
       await new Promise(resolve => setTimeout(resolve, 0))
     })
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(searchCalls()).toHaveLength(0)
   })
 })

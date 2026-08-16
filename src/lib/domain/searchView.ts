@@ -85,6 +85,57 @@ export function snippetOf(content: string, maxChars = 200, query?: string): stri
   return base.length > maxChars ? base.slice(0, maxChars) : base
 }
 
+export interface HighlightSegment {
+  text: string
+  hit: boolean
+}
+
+/**
+ * 읽기 패널·스니펫의 질의어 강조. 마크업 생성은 컴포넌트 몫이고 여기서는 순수하게
+ * "어디가 매칭인가" 만 조각으로 나눈다 — snippetOf 와 같은 토큰 규칙(공백 분리,
+ * 2자 이상)을 쓰되, snippetOf 는 첫 매칭 하나로 창을 잡는 반면 여기는 본문 전체의
+ * 모든 매칭을 표시해야 하므로 겹치는 구간은 병합한다.
+ */
+export function highlightSegments(content: string, query?: string): HighlightSegment[] {
+  if (!content) return []
+  const tokens = (query ?? '')
+    .split(/\s+/)
+    .filter(token => token.length >= MIN_QUERY_TOKEN_CHARS)
+  if (tokens.length === 0) return [{ text: content, hit: false }]
+
+  const lower = content.toLowerCase()
+  const ranges: Array<[number, number]> = []
+  for (const token of tokens) {
+    const needle = token.toLowerCase()
+    let from = 0
+    while (from < lower.length) {
+      const at = lower.indexOf(needle, from)
+      if (at === -1) break
+      ranges.push([at, at + needle.length])
+      from = at + needle.length
+    }
+  }
+  if (ranges.length === 0) return [{ text: content, hit: false }]
+
+  ranges.sort((a, b) => a[0] - b[0])
+  const merged: Array<[number, number]> = []
+  for (const range of ranges) {
+    const last = merged[merged.length - 1]
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1])
+    else merged.push([...range] as [number, number])
+  }
+
+  const segments: HighlightSegment[] = []
+  let cursor = 0
+  for (const [start, end] of merged) {
+    if (start > cursor) segments.push({ text: content.slice(cursor, start), hit: false })
+    segments.push({ text: content.slice(start, end), hit: true })
+    cursor = end
+  }
+  if (cursor < content.length) segments.push({ text: content.slice(cursor), hit: false })
+  return segments
+}
+
 export function toSearchViewState(
   response: { ok: boolean; status: number; body: unknown },
 ): SearchViewState {

@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   embedDocuments: vi.fn(),
   lexical: vi.fn(),
   rpc: vi.fn(),
+  // GET(코퍼스 집계)용 count 체인 — from().select().eq().eq().in() 의 끝이 결과를 돌려준다.
+  countResult: { count: 3, error: null as { message: string } | null },
 }))
 
 vi.mock('@/lib/authz', () => ({ getActorViewState: mocks.getActorViewState }))
@@ -16,7 +18,16 @@ vi.mock('@/lib/authz/accessScope', () => ({
 vi.mock('@/lib/ai/embeddings', () => ({ embedDocuments: mocks.embedDocuments }))
 vi.mock('@/lib/ai/index/lexical', () => ({ createLexicalSearch: () => mocks.lexical }))
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => ({ rpc: mocks.rpc }),
+  createAdminClient: () => ({
+    rpc: mocks.rpc,
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({ in: async () => mocks.countResult }),
+        }),
+      }),
+    }),
+  }),
 }))
 // Task 7 exports toFusionCandidate
 vi.mock('@/lib/ai/index/lexical', async () => {
@@ -27,7 +38,7 @@ vi.mock('@/lib/ai/index/lexical', async () => {
   }
 })
 
-import { POST } from '@/app/api/wiki/search/route'
+import { GET, POST } from '@/app/api/wiki/search/route'
 
 const PROJECT = '11111111-1111-1111-1111-111111111111'
 const OTHER = '22222222-2222-2222-2222-222222222222'
@@ -116,5 +127,41 @@ describe('POST /api/wiki/search', () => {
     const res = await POST(request({ projectId: PROJECT, q: '권한' }))
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ degraded: true })
+  })
+})
+
+function statsRequest(projectId: string): NextRequest {
+  return new NextRequest(`http://localhost/api/wiki/search?projectId=${projectId}`)
+}
+
+describe('GET /api/wiki/search (코퍼스 집계)', () => {
+  it('도메인별 문서 수와 합계를 준다', async () => {
+    const res = await GET(statsRequest(PROJECT))
+    expect(res.status).toBe(200)
+    const body = await res.json() as { domains: Array<{ domain: string; docs: number }>; total: number }
+    // INDEX_BACKFILL_DOMAINS 6종을 그 순서대로 — 안내 패널의 표시 순서가 여기서 결정된다.
+    expect(body.domains.map(row => row.domain)).toEqual(
+      ['wbs', 'weekly', 'meetings', 'announcements', 'minutes', 'issues'])
+    expect(body.total).toBe(body.domains.reduce((sum, row) => sum + row.docs, 0))
+  })
+
+  it('허용되지 않은 프로젝트는 403', async () => {
+    expect((await GET(statsRequest(OTHER))).status).toBe(403)
+  })
+
+  it('로그인하지 않았으면 401', async () => {
+    mocks.getActorViewState.mockResolvedValue({ actor: null, degraded: false })
+    expect((await GET(statsRequest(PROJECT))).status).toBe(401)
+  })
+
+  it('actor 조회가 degraded 면 503', async () => {
+    mocks.getActorViewState.mockResolvedValue({ actor: { userId: 'u1' }, degraded: true })
+    expect((await GET(statsRequest(PROJECT))).status).toBe(503)
+  })
+
+  it('집계 실패는 0건으로 위장하지 않고 503', async () => {
+    mocks.countResult.error = { message: 'boom' }
+    expect((await GET(statsRequest(PROJECT))).status).toBe(503)
+    mocks.countResult.error = null
   })
 })

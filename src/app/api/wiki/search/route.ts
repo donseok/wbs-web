@@ -3,6 +3,7 @@ import { embedDocuments } from '@/lib/ai/embeddings'
 import { createLexicalSearch, toFusionCandidate } from '@/lib/ai/index/lexical'
 import { deriveSearchKeywords } from '@/lib/ai/index/hybrid'
 import { CURRENT_INDEX_VERSION } from '@/lib/ai/index/content'
+import { INDEX_BACKFILL_DOMAINS } from '@/lib/ai/index/backfill'
 import { getActorViewState } from '@/lib/authz'
 import { createSupabaseAccessScopeResolver } from '@/lib/authz/accessScope'
 import { decideSearchAccess } from '@/lib/domain/searchAccess'
@@ -13,6 +14,46 @@ import { createAdminClient } from '@/lib/supabase/admin'
 const MAX_QUERY_CHARS = 200
 const CANDIDATE_LIMIT = 50
 const RESULT_LIMIT = 20
+
+/**
+ * 검색 전 안내 패널용 코퍼스 집계 — "여기서 무엇을 찾을 수 있나" 를 실데이터로 보여준다.
+ * 문서 수는 chunk_no=0 행 수와 같다(모든 문서는 0번 청크를 가진다). 인가 체인은 POST 와
+ * 동일 — ai_documents 의 RLS 가 authenticated 전체 개방이라 이 판정이 유일한 관문이다.
+ */
+export async function GET(request: NextRequest) {
+  const { actor, degraded } = await getActorViewState()
+  if (degraded) return NextResponse.json({ error: 'ACTOR_LOOKUP_FAILED' }, { status: 503 })
+  if (!actor?.userId) return NextResponse.json({ error: 'UNAUTHENTICATED' }, { status: 401 })
+
+  const projectId = request.nextUrl.searchParams.get('projectId') ?? ''
+  const admin = createAdminClient()
+  const scope = await createSupabaseAccessScopeResolver(admin).resolve(actor.userId)
+  const access = decideSearchAccess(projectId, scope)
+  if (!access.ok) return NextResponse.json({ error: access.reason }, { status: access.status })
+
+  const counts = await Promise.all(INDEX_BACKFILL_DOMAINS.map(async domain => {
+    const { count, error } = await admin
+      .from('ai_documents')
+      .select('id', { count: 'exact', head: true })
+      .eq('chunk_no', 0)
+      .eq('domain', domain)
+      .in('project_id', access.projectIds)
+    return { domain, docs: count ?? 0, error }
+  }))
+
+  // 집계 실패를 0건으로 위장하지 않는다(에러 처리 3원칙) — 패널은 실패 문구를 보여준다.
+  const failed = counts.find(row => row.error)
+  if (failed) {
+    console.error('[search] 코퍼스 집계 실패:', failed.domain, failed.error)
+    return NextResponse.json({ error: 'STATS_FAILED' }, { status: 503 })
+  }
+
+  const domains = counts.map(({ domain, docs }) => ({ domain, docs }))
+  return NextResponse.json({
+    domains,
+    total: domains.reduce((sum, row) => sum + row.docs, 0),
+  })
+}
 
 export async function POST(request: NextRequest) {
   // getActorViewState() 는 { actor, degraded } 를 반환한다.

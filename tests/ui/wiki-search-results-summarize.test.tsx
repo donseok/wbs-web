@@ -55,9 +55,18 @@ describe('WikiSearchResults 요약 버튼 — POST /api/wiki/summarize', () => {
     })
   }
 
+  // 마운트 시 읽기 패널의 코퍼스 집계 GET(옵션 없는 fetch)도 나간다 — 요약 응답은
+  // POST 에만 물리고, POST 호출만 골라 단언한다.
+  function mockSummarizeWith(response: () => Promise<Response>) {
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) =>
+      init?.method === 'POST' ? response() : Promise.resolve(Response.json({ domains: [], total: 0 })))
+  }
+  const postCalls = () =>
+    fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+
   it('진행 중에는 로딩 문구를 먼저 보여준다', async () => {
     const pending = deferred<Response>()
-    fetchMock.mockReturnValueOnce(pending.promise)
+    mockSummarizeWith(() => pending.promise)
     await mount()
 
     await clickSummarize()
@@ -68,15 +77,13 @@ describe('WikiSearchResults 요약 버튼 — POST /api/wiki/summarize', () => {
   })
 
   it('성공하면 불릿 위에 답변 문단을 렌더하고, sources 페이로드를 올바르게 보낸다', async () => {
-    fetchMock.mockResolvedValueOnce(Response.json({ answer: '권한 신청은 IT팀 승인 후 처리됩니다 [1].' }))
+    mockSummarizeWith(async () => Response.json({ answer: '권한 신청은 IT팀 승인 후 처리됩니다 [1].' }))
     await mount()
     await clickSummarize()
 
     expect(container.textContent).toContain('권한 신청은 IT팀 승인 후 처리됩니다 [1].')
-    expect(fetchMock).toHaveBeenCalledWith('/api/wiki/summarize', expect.objectContaining({
-      method: 'POST',
-    }))
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(postCalls()[0][0]).toBe('/api/wiki/summarize')
+    const body = JSON.parse(postCalls()[0][1].body)
     expect(body).toMatchObject({ projectId: 'proj-1', q: '권한' })
     expect(body.sources).toEqual([
       expect.objectContaining({ n: 1, title: '정례 회의', domain: '회의록' }),
@@ -85,7 +92,7 @@ describe('WikiSearchResults 요약 버튼 — POST /api/wiki/summarize', () => {
   })
 
   it('실패(비 2xx)면 정직하게 실패 문구를 보여준다 — 빈 답으로 위장하지 않는다', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('', { status: 503 }))
+    mockSummarizeWith(async () => new Response('', { status: 503 }))
     await mount()
     await clickSummarize()
 
@@ -93,7 +100,7 @@ describe('WikiSearchResults 요약 버튼 — POST /api/wiki/summarize', () => {
   })
 
   it('새 검색(state 교체)이 오면 이전 요약을 지운다', async () => {
-    fetchMock.mockResolvedValueOnce(Response.json({ answer: '이전 요약 문단' }))
+    mockSummarizeWith(async () => Response.json({ answer: '이전 요약 문단' }))
     await mount()
     await clickSummarize()
     expect(container.textContent).toContain('이전 요약 문단')

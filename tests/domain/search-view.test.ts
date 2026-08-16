@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { snippetOf, stripLeadingMeta, toSearchViewState } from '@/lib/domain/searchView'
+import { highlightSegments, snippetOf, stripLeadingMeta, toSearchViewState } from '@/lib/domain/searchView'
 
 const hit = {
   domain: 'minutes', entityType: 'minute', entityId: 'm1',
@@ -100,5 +100,32 @@ describe('stripLeadingMeta', () => {
 
   it('본문이 있으면 걷어내고 본문을 반환한다', () => {
     expect(stripLeadingMeta('# 회의록 OMS 설명\n일자: 2026-08-06\n실제 논의 내용')).toBe('실제 논의 내용')
+  })
+})
+
+describe('highlightSegments', () => {
+  it('매칭 구간을 hit 조각으로 나눈다 — 이어 붙이면 원문 그대로다', () => {
+    const content = 'MES 권한 신청은 IT팀 승인 후 mes 계정이 발급된다'
+    const segments = highlightSegments(content, 'MES 권한')
+    expect(segments.map(s => s.text).join('')).toBe(content)
+    // 대소문자 무시 — 'MES' 와 'mes' 둘 다 매칭.
+    expect(segments.filter(s => s.hit).map(s => s.text)).toEqual(['MES', '권한', 'mes'])
+  })
+
+  it('겹치는 토큰 구간은 병합한다', () => {
+    const segments = highlightSegments('발급발급요청', '발급발 급발급')
+    expect(segments.map(s => s.text).join('')).toBe('발급발급요청')
+    // '발급발'(0-3)과 '급발급'(1-4)이 겹쳐 한 조각으로 병합된다.
+    expect(segments.filter(s => s.hit)).toHaveLength(1)
+    expect(segments.find(s => s.hit)?.text).toBe('발급발급')
+  })
+
+  it('질의가 없거나 2자 미만 토큰뿐이면 전체가 비매칭 한 조각이다', () => {
+    expect(highlightSegments('본문', undefined)).toEqual([{ text: '본문', hit: false }])
+    expect(highlightSegments('본문', '는 을')).toEqual([{ text: '본문', hit: false }])
+  })
+
+  it('매칭이 없으면 전체가 비매칭 한 조각이다', () => {
+    expect(highlightSegments('전혀 다른 내용', '권한')).toEqual([{ text: '전혀 다른 내용', hit: false }])
   })
 })
