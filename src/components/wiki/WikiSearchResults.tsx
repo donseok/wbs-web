@@ -128,25 +128,25 @@ export function WikiSearchResults({ state, locale, query, projectId }: {
       {/* ── 왼쪽: 결과 목록 ── */}
       <div className="min-w-0" aria-live="polite">
         {state.kind === 'idle' && (
-          <div className="rounded-2xl border border-dashed border-white/25 px-5 py-8 text-center text-sm text-hero-ink-muted">
+          <div className="rounded-2xl border border-dashed border-line-strong px-5 py-8 text-center text-sm text-ink-subtle">
             {t(locale, 'wiki.pane.placeholder')}
           </div>
         )}
 
         {state.kind === 'loading' && (
-          <div className="rounded-2xl border border-white/10 bg-surface p-4 shadow-[var(--shadow-md)]">
+          <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
             <p className="text-sm text-ink-muted">{t(locale, 'wiki.ask.working')}</p>
           </div>
         )}
 
         {state.kind === 'error' && (
-          <div className="rounded-2xl border border-white/10 bg-surface p-4 shadow-[var(--shadow-md)]">
+          <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
             <p className="text-sm text-delayed">{t(locale, 'wiki.search2.error')}</p>
           </div>
         )}
 
         {state.kind === 'done' && state.hits.length === 0 && (
-          <div className="rounded-2xl border border-white/10 bg-surface p-4 shadow-[var(--shadow-md)]">
+          <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
             {state.degraded && (
               <p className="mb-2 text-sm text-ink-muted">{t(locale, 'wiki.search2.degraded')}</p>
             )}
@@ -166,22 +166,22 @@ export function WikiSearchResults({ state, locale, query, projectId }: {
                 <Sparkles className="h-3.5 w-3.5" aria-hidden />
                 {t(locale, 'wiki.search2.summarize')}
               </button>
-              <span className="text-xs text-hero-ink-muted">
+              <span className="text-xs text-ink-subtle">
                 {t(locale, 'wiki.search2.count').replace('{n}', String(state.hits.length))}
               </span>
             </div>
 
             {state.degraded && (
-              <p className="px-0.5 text-xs text-hero-ink-muted">{t(locale, 'wiki.search2.degraded')}</p>
+              <p className="px-0.5 text-xs text-ink-subtle">{t(locale, 'wiki.search2.degraded')}</p>
             )}
 
             {summary.kind === 'loading' && (
-              <div className="rounded-xl border border-white/10 bg-surface p-3.5">
+              <div className="rounded-xl border border-line bg-surface p-3.5">
                 <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.summarizing')}</p>
               </div>
             )}
             {summary.kind === 'error' && (
-              <div className="rounded-xl border border-white/10 bg-surface p-3.5">
+              <div className="rounded-xl border border-line bg-surface p-3.5">
                 <p className="text-sm text-delayed">{t(locale, 'wiki.search2.summarizeFailed')}</p>
               </div>
             )}
@@ -203,7 +203,7 @@ export function WikiSearchResults({ state, locale, query, projectId }: {
                       className={`w-full rounded-xl border bg-surface px-3.5 py-3 pr-20 text-left transition ${
                         current
                           ? 'border-brand-ring border-l-[3px] border-l-brand shadow-[var(--shadow-sm)]'
-                          : 'border-white/10 hover:border-line-strong hover:shadow-[var(--shadow-sm)]'
+                          : 'border-line hover:border-line-strong hover:shadow-[var(--shadow-sm)]'
                       }`}
                     >
                       <span className="flex items-center gap-2">
@@ -236,7 +236,7 @@ export function WikiSearchResults({ state, locale, query, projectId }: {
 
       {/* ── 오른쪽: 읽기 패널 (xl 전용, sticky) ── */}
       <aside className="hidden min-w-0 self-start xl:sticky xl:top-6 xl:block">
-        <div className="flex min-h-[380px] flex-col gap-3 rounded-2xl border border-white/10 bg-surface p-5 text-ink shadow-[var(--shadow-md)]">
+        <div className="flex min-h-[380px] flex-col gap-3 rounded-2xl border border-line bg-surface p-5 text-ink shadow-[var(--shadow-md)]">
           {selectedHit
             ? (
               <>

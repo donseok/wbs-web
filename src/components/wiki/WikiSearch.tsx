@@ -66,6 +66,7 @@ export function WikiSearch({ projectId, locale, initialQuery, adminSlot }: {
   const busy = state.kind === 'loading'
 
   return (
+    <>
     <section className="hero-card hero-glow overflow-hidden px-5 py-6 sm:px-7 sm:py-7" aria-labelledby="wiki-search-title">
       {/* 2분할 개편(2026-08-17): 결과 그리드가 카드 전폭을 쓰도록 max-w-3xl 을 풀었다.
           제목·설명만 max-w-2xl 로 따로 묶는다 — 한 줄이 지나치게 길어지지 않게(C2). */}
@@ -127,9 +128,12 @@ export function WikiSearch({ projectId, locale, initialQuery, adminSlot }: {
           </div>
           {adminSlot && <div className="flex justify-end">{adminSlot}</div>}
         </div>
-
-        <WikiSearchResults state={state} locale={locale} query={submittedQuery} projectId={projectId} />
       </div>
     </section>
+
+    {/* 결과 그리드는 히어로 카드 밖(캔버스)에 둔다 — hero-card 의 overflow-hidden 이
+        조상에 있으면 읽기 패널의 position:sticky 가 뷰포트에 붙지 못한다(운영 실측). */}
+    <WikiSearchResults state={state} locale={locale} query={submittedQuery} projectId={projectId} />
+    </>
   )
 }
