@@ -20,7 +20,11 @@ export const getComputedWbs = cache(async (
     { data: dependencyRows, error: dependenciesErr },
   ] = await Promise.all([
     sb.from('wbs_items').select('*').eq('project_id', projectId),
-    sb.from('item_owners').select('wbs_item_id, kind, teams(code)'),
+    // wbs_items!inner 임베드는 프로젝트 필터를 위한 조인용 — 필터 없이는 전 프로젝트의
+    // 담당 행을 매번 전량 조회했고, max_rows 초과분이 조용히 잘려 담당 배지가 증발했다.
+    sb.from('item_owners')
+      .select('wbs_item_id, kind, teams(code), wbs_items!inner(project_id)')
+      .eq('wbs_items.project_id', projectId),
     sb.from('holidays').select('date').eq('project_id', projectId),
     sb.from('projects').select('base_date').eq('id', projectId).maybeSingle(),
     sb.from('task_dependencies')
