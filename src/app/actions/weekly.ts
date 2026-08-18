@@ -45,6 +45,7 @@ export type WeeklyRewriteResult =
 
 const CELL_MAX = WEEKLY_CELL_MAX // 셀 1개 상한(도메인 단일 출처) — 이월 병합 클램프와 동일 값
 const BATCH_MAX = 500         // 한 배치의 최대 edit 수(페이로드 크기 방어)
+const BATCH_UPDATE_CONCURRENCY = 8 // 배치 저장의 행 update 동시 실행 수 — Micro 컴퓨트 풀을 배려한 상한
 const TITLE_MAX = 200         // 시트 제목 상한
 const WEEKLY_REWRITE_COOLDOWN_MS = 3_000 // Gemini 무료 RPM 보호 — 사용자·프로젝트별 호출 하한
 const WEEKLY_REWRITE_GATE_MAX = 500
@@ -319,7 +320,12 @@ export async function saveWeeklyCell(
 /**
  * 멀티셀 배치 저장(붙여넣기/범위삭제/채우기/undo) — last-write-wins, no-revalidate.
  * 살아있는 행 저장은 성공하고 삭제된 행만 goneRowIds로 스킵한다(부분 실패 시맨틱, AC8.4).
- * 배치는 멱등(같은 배치 통째 재시도 안전) — DB 에러 시 즉시 중단하되 롤백은 하지 않는다.
+ * 배치는 멱등(같은 배치 통째 재시도 안전) — DB 에러 시 청크 경계에서 중단하되 롤백은 하지 않는다.
+ *
+ * 왕복 구조: 같은 행의 여러 셀은 patch 하나로 합쳐 행당 1 update(같은 행의 셀들은 원자 반영),
+ * 행 update 는 BATCH_UPDATE_CONCURRENCY 개씩 청크 병렬로 실행한다. dedupe 가 (행,셀)당 값을
+ * 하나로 만들고 행 update 끼리는 서로 다른 행만 만지므로 실행 순서 의존이 없다(last-write-wins).
+ * 500셀 최악 케이스가 종전 2+500 직렬 왕복 → 2+⌈행수/동시성⌉ 왕복 파도로 줄어든다.
  */
 export async function saveWeeklyCells(
   projectId: string,          // 권한 판정 기준·시그니처 대칭용(saveWeeklyCell 관례). update 쿼리에는 미사용
@@ -345,18 +351,40 @@ export async function saveWeeklyCells(
   const scope = await rowsInProject(sb, projectId, [...new Set([...deduped.values()].map(e => e.rowId))])
   if (!scope.ok) return { ok: false, error: scope.error }
   const goneRowIds: string[] = []
+  // 행 단위 그룹핑 — 같은 행의 여러 cellKey 는 patch 하나로 합쳐 행당 1 update 로 보낸다.
+  const patches = new Map<string, Record<string, string>>()
   for (const e of deduped.values()) {
     if (!scope.allowed.has(e.rowId)) {
       if (!goneRowIds.includes(e.rowId)) goneRowIds.push(e.rowId)
       continue
     }
-    const { data, error } = await sb.from('weekly_report_rows')
-      .update({ [e.cellKey]: e.content, updated_at: new Date().toISOString() }) // updated_at 수동 갱신(트리거 없음, wbs.ts 관례)
-      .eq('id', e.rowId)
-      .select('id')
-    if (error) return { ok: false, error: error.message }        // 진성 DB 에러 — 즉시 중단(비원자적, 재시도는 멱등)
-    if (!data || data.length === 0) goneRowIds.push(e.rowId)     // 0행 영향(삭제된 행) — 스킵하고 계속(전체 실패 아님)
+    const patch = patches.get(e.rowId)
+    if (patch) patch[e.cellKey] = e.content
+    else patches.set(e.rowId, { [e.cellKey]: e.content })
   }
-  // revalidate 안 함 — 각 update가 개별 Realtime 이벤트를 발생시켜 타 세션에 전파(saveWeeklyCell과 동일)
+
+  const rows = [...patches.entries()]
+  for (let i = 0; i < rows.length; i += BATCH_UPDATE_CONCURRENCY) {
+    const chunk = rows.slice(i, i + BATCH_UPDATE_CONCURRENCY)
+    // 예외도 결과값으로 흡수해 Promise.all 이 거부되지 않게 한다 — 형제 update 의
+    // unhandled rejection 없이 청크 전체가 정착한 뒤 순서대로 판정한다.
+    const results = await Promise.all(chunk.map(async ([rowId, patch]) => {
+      try {
+        const { data, error } = await sb.from('weekly_report_rows')
+          .update({ ...patch, updated_at: new Date().toISOString() }) // updated_at 수동 갱신(트리거 없음, wbs.ts 관례)
+          .eq('id', rowId)
+          .select('id')
+        return { rowId, errorMessage: error ? error.message : null, gone: !error && (!data || data.length === 0) }
+      } catch (e) {
+        return { rowId, errorMessage: errMsg(e), gone: false }
+      }
+    }))
+    for (const r of results) {
+      if (r.errorMessage) return { ok: false, error: r.errorMessage } // 진성 DB 에러 — 청크 경계에서 중단(비원자적, 재시도는 멱등)
+      if (r.gone) goneRowIds.push(r.rowId)                            // 0행 영향(삭제된 행) — 스킵하고 계속(전체 실패 아님)
+    }
+  }
+  // revalidate 안 함 — 행 update 하나가 그 행의 Realtime 이벤트 하나를 발생시켜 타 세션에 전파.
+  // 이벤트 payload 는 행 전체(payload.new)라 셀별 개별 이벤트와 전달 정보가 같다(saveWeeklyCell과 동형).
   return goneRowIds.length ? { ok: true, goneRowIds } : { ok: true }
 }
