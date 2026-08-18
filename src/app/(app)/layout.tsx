@@ -2,6 +2,7 @@ import { getDisplayName } from '@/lib/auth'
 import { getActorViewState } from '@/lib/authz'
 import { isAnyProjectAdmin, hasAnyProjectRole } from '@/lib/domain/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
+import { canViewPortfolio } from '@/lib/authz/portfolioAccess'
 import { listProjectsWithState } from '@/app/actions/project'
 import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { HeaderChrome } from '@/components/app/HeaderChrome'
@@ -59,6 +60,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         teamCode: actor.teamCode,
         isSuperuser: actor.isSuperuser,
         showUsage: canViewUsage(actor),
+        showPortfolio: canViewPortfolio(actor),
       }
     : actorState.degraded
       ? {
@@ -66,6 +68,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           teamCode: null,
           isSuperuser: false,
           showUsage: false,
+          showPortfolio: false,
         }
       : null
 
@@ -87,7 +90,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               </div>
             )}
             <a href="#main-content" className="fixed left-4 top-3 z-[200] -translate-y-20 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition focus:translate-y-0">본문 바로가기</a>
-            <Sidebar projects={projectLinks} showUsage={identity?.showUsage ?? false} />
+            <Sidebar projects={projectLinks} showUsage={identity?.showUsage ?? false} showPortfolio={identity?.showPortfolio ?? false} />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <HeaderChrome identity={identity} projects={projectLinks} userName={userName} />
               <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-3 pb-4 pt-3 sm:px-5 lg:px-7">

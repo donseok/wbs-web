@@ -11,6 +11,7 @@ import {
   listIndexedEntitySummaries,
   runIndexBackfill,
   runIndexWorkerOnce,
+  runRepairOnce,
   type IndexBackfillDomain,
   type SupabaseKnowledgeClient,
 } from '@/lib/ai/index'
@@ -18,9 +19,12 @@ import {
 export const dynamic = 'force-dynamic'
 
 const MAX_BATCH_SIZE = 200
+// repair 모드는 임베딩 API 호출 1건당 지연이 커서(withTimeout) 워커/백필보다 상한을 낮게 잡는다.
+const MAX_REPAIR_LIMIT = 100
+const DEFAULT_REPAIR_LIMIT = 20
 
 interface WorkerRequestBody {
-  mode: 'worker' | 'consistency' | 'backfill'
+  mode: 'worker' | 'consistency' | 'backfill' | 'repair'
   domain?: IndexBackfillDomain
   projectId?: string
   dryRun?: boolean
@@ -38,7 +42,10 @@ function secretMatches(provided: string | null, expected: string): boolean {
 function parseBody(raw: unknown): WorkerRequestBody | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const body = raw as Record<string, unknown>
-  if (body.mode !== 'worker' && body.mode !== 'consistency' && body.mode !== 'backfill') return null
+  if (
+    body.mode !== 'worker' && body.mode !== 'consistency'
+    && body.mode !== 'backfill' && body.mode !== 'repair'
+  ) return null
 
   const parsed: WorkerRequestBody = { mode: body.mode }
   if (body.domain !== undefined) {
@@ -57,8 +64,8 @@ function parseBody(raw: unknown): WorkerRequestBody | null {
     if (!Number.isInteger(body.batchSize) || Number(body.batchSize) < 1 || Number(body.batchSize) > MAX_BATCH_SIZE) return null
     parsed.batchSize = body.batchSize as number
   }
-  // consistency/backfill은 도메인이 없으면 대상 자체가 정의되지 않는다.
-  if (parsed.mode !== 'worker' && !parsed.domain) return null
+  // consistency/backfill은 도메인이 없으면 대상 자체가 정의되지 않는다. repair는 도메인 무관(전역 스캔).
+  if ((parsed.mode === 'consistency' || parsed.mode === 'backfill') && !parsed.domain) return null
   return parsed
 }
 
@@ -88,6 +95,14 @@ export async function POST(req: NextRequest) {
   try {
     // service-role 전용 조립. 어댑터 스코프는 실제 프로젝트 전체 + global(회의 미연결 회의록).
     const admin = createAdminClient() as unknown as SupabaseKnowledgeClient
+
+    if (body.mode === 'repair') {
+      const limit = Math.min(body.batchSize ?? DEFAULT_REPAIR_LIMIT, MAX_REPAIR_LIMIT)
+      const result = await runRepairOnce(admin, limit)
+      if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status })
+      return NextResponse.json({ mode: 'repair', ...result })
+    }
+
     const projectsResult = await admin.from('projects').select('id').limit(100)
     if (projectsResult.error || !Array.isArray(projectsResult.data)) {
       return NextResponse.json({ error: '프로젝트 범위를 확인하지 못했습니다.' }, { status: 503 })

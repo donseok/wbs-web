@@ -50,7 +50,7 @@ wiki_project_rebuild_jobs  pending 2 (2026-08-11부터 방치)
 
 ```
 ai_documents          존재 · HNSW 인덱스 존재 · 행 0건
-ai_index_jobs         pending 96건 (minute upsert 50 + delete 46, 전부 2026-07-27 생성)
+ai_index_jobs         pending 96건 (minute upsert 50 + delete 46) — 2026-08-13 까지 계속 쌓이는 중
 match_ai_documents    존재 (순수 벡터)
 replace_ai_document_chunks  존재
 runIndexWorkerOnce()  존재 (worker.ts:51)
@@ -58,7 +58,7 @@ runIndexWorkerOnce()  존재 (worker.ts:51)
 하이브리드 융합       존재 (hybrid.ts — 단 RRF 아님, 가중합)
 백필 러너             존재 (backfill.ts:45 runIndexBackfill)
 정합성 점검           존재 (consistency.ts)
-enqueue               존재하나 호출부 0건 (enqueue.ts)
+enqueue(TS)           존재하나 호출부 0건 (enqueue.ts) — 단 DB RPC 가 회의록을 이미 큐잉한다(§2.2.2)
 vercel.json crons     inbox-retention 하나뿐
 ```
 
@@ -72,7 +72,37 @@ vercel.json                                → 이 라우트에 크론이 안 �
 enqueue 호출부                             → src 전체 0건
 ```
 
-세 플래그의 **운영 값은 미확인이다**(Vercel env 조회 필요). 리포 문서는 "기본 OFF"로 적는다.
+세 플래그의 **운영 값을 2026-08-14 실측했다**: 셋 다 **미설정**이다.
+별개로 `CRON_SECRET` 은 이미 있다(19일 전 설정, `inbox-retention` 용).
+
+### 2.2.2 정정 — enqueue 는 이미 돌고 있다 (DB 레벨)
+
+초판은 "enqueue 호출부가 0건이라 색인이 굳는다"고 적었다. **TS 헬퍼에 한해서만 맞다.**
+
+큐의 생성일 분포를 보면 2026-08-13 까지 계속 쌓이고 있다:
+
+```
+07-27  07-29  07-31  08-04  08-06  08-11  08-12  08-13
+ 7건    53건   14건   2건    1건    10건   8건    1건
+```
+
+채우는 주체는 **DB 함수**다. 회의록 CRUD 전 경로가 이들을 탄다:
+
+```
+queue_minute_ai_index_scope_change      -- job_key 멱등 upsert
+archive_minute_with_wiki_retraction
+update_minute_metadata_with_wiki_retraction
+upsert_ai_index_jobs
+```
+
+`job_key = 'v1:{project}:minutes:minute:{id}'` 로 `on conflict (job_key) do update` 한다.
+**`CHAT_V2_INDEX_ENQUEUE_ENABLED` 는 이 경로를 게이팅하지 않는다.**
+
+결과적으로 **회의록은 이미 배선돼 있다.** TS 배선이 필요한 것은 이슈·WBS·공지 셋뿐이다.
+
+잡 96건의 정체도 실측했다 — `upsert` 50건은 **전부 현재 스코프와 일치**하고(워커를 켜면 그대로
+옳게 색인된다), `delete` 46건은 전부 옛 스코프라 지울 대상이 없어 무해하다. 그래서
+**큐를 폐기하지 않는다.**
 
 ### 2.2.1 이 설계에서 새로 만들 것은 생각보다 적다
 
@@ -84,7 +114,7 @@ enqueue 호출부                             → src 전체 0건
 | 접근 범위 판정 | **있음** `createSupabaseAccessScopeResolver`(authz/accessScope.ts) |
 | 색인 워커·백필·정합성 | **있음** 라우트 3모드 |
 | 청커 | **있음** `md1500-v1` |
-| 어휘 다리(pg_trgm) | **없음** — 0082에서 신설 |
+| 어휘 다리(pg_trgm) | **없음** — 0083에서 신설 |
 | 이슈 색인 | **없음** — 4곳 배선 필요(§7 작업 5) |
 | enqueue 배선 | **없음** — 호출부 0건 |
 | 문서 접기 | **없음** — 현행 dedup 키에 `chunkNo`가 들어 있다(§5.4) |
@@ -310,7 +340,7 @@ projectId를 아는 로그인 사용자라면 누구든 비공개 프로젝트�
 | 0 | **운영 env 실측** — `CHAT_V2_INDEX_WORKER_ENABLED` · `CHAT_V2_INDEX_CRON_SECRET` · `CHAT_V2_INDEX_ENQUEUE_ENABLED` 현재 값 확인 | 조사 |
 | 1 | 밀린 큐 96건 폐기 (delete 46 포함). 작업 2 이후 백필이 새로 큐잉 | 신설 |
 | 2 | **인가 먼저** — `/api/wiki/search`의 접근 판정(§5.6). `0031:67-72` 게이트라 백필보다 앞선다 | 신설 |
-| 3 | 마이그레이션 0082 — `pg_trgm` + `ai_documents(title, content)` `gin_trgm_ops` GIN + `match_ai_documents_lexical`(`word_similarity`) | 신설 |
+| 3 | 마이그레이션 0083 — `pg_trgm` + `ai_documents(title, content)` `gin_trgm_ops` GIN + `match_ai_documents_lexical`(`word_similarity`) | 신설 |
 | 4 | **회의록 스코프 skew 수정** — `backfill.ts:123`의 `columns`에 `project_id` 추가 + `rowProjectId`를 `project_id ?? meetings.project_id`로 통일 | 수정 |
 | 5 | **이슈 색인 4곳 배선** — ① `protocol.ts` `BOT_DOMAINS`에 `issues`, `BOT_ENTITY_TYPES`에 `issue` ② `content.ts` `loadIssue` + `case` ③ `backfill.ts` `INDEX_BACKFILL_DOMAINS`·`SOURCE_TABLES` ④ `chat/router.ts`·`verifier.ts` 파급 확인 | 수정 |
 | 6 | **워커 기동** — env 3종 설정 + `vercel.json`에 크론 등록. 기존 `/api/chat/index/worker` 3모드를 그대로 쓴다 | 수정 |
@@ -399,13 +429,13 @@ projectId를 아는 로그인 사용자라면 누구든 비공개 프로젝트�
 | Vercel 함수 타임아웃 | 초기 백필은 로컬, 크론은 증분만 |
 | 0079 미적용 코드가 운영에 떠 있음 | 2단계 제거로 해소. 그때까지 현상 유지 |
 | 화면과 봇이 다른 답 | 2단계 재배선까지 남는 알려진 문제 |
-| G4 훅 | 0082는 0072+ 범위 → 스테이징 리허설 + `Staging-verified:` 트레일러 필수 |
+| G4 훅 | 0083은 0072+ 범위 → 스테이징 리허설 + `Staging-verified:` 트레일러 필수 |
 
 | 잘못되면 | 되돌리기 |
 |---|---|
 | 검색 품질 미달 | 화면 컴포넌트만 옛것으로. 데이터 무손상 |
 | 색인 오류 | `ai_documents` 비우고 백필 재실행 |
-| 0082 문제 | `0082_*_rollback.sql`로 인덱스·RPC만 제거 |
+| 0083 문제 | `0083_*_rollback.sql`로 인덱스·RPC만 제거 |
 | 임베딩 비용 폭주 | 크론 정지. 기존 색인은 계속 검색됨 |
 
 **원천 데이터(회의록·이슈·WBS·공지)는 이 작업에서 한 번도 쓰지 않는다. 전부 읽기만 한다.**

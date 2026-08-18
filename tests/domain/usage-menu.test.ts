@@ -19,6 +19,7 @@ describe('resolveMenuKey — 경로를 메뉴 키로', () => {
     ['/meetings', 'my-meetings'],
     ['/projects', 'projects'],
     ['/usage', 'usage'],
+    ['/portfolio', 'portfolio'],
     ['/admin/accounts', 'admin-accounts'],
     ['/admin/teams', 'admin-teams'],
     ['/admin/llm-config', 'admin-llm'],

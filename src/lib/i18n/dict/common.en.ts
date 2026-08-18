@@ -1,5 +1,4 @@
-// common 영어 사전 — ko 파일과 물리 분리(웹팩이 En 을 클라이언트 공통 청크에 싣지 않도록).
-// 키 패리티는 import type 으로만 강제한다 — 값 import 를 넣으면 분리가 무효가 된다.
+// common 네임스페이스 — EN. 클라이언트 번들 분리를 위해 KO(common.ts)와 물리적으로 나뉜다.
 import type { commonKo } from './common'
 
 export const commonEn: Record<keyof typeof commonKo, string> = {
@@ -21,6 +20,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   'nav.myMeetings': 'My Meetings',
   'nav.settings': 'Settings',
   'nav.usage': 'Usage',
+  'nav.portfolio': 'Portfolio',
   'chrome.manual': 'Manual',
   'chrome.auto': 'Auto',
   'chrome.notifications': 'Notifications',

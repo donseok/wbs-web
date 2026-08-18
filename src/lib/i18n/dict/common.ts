@@ -19,6 +19,7 @@ export const commonKo = {
   'nav.myMeetings': '내 회의',
   'nav.settings': '설정',
   'nav.usage': '사용 현황',
+  'nav.portfolio': '포트폴리오',
   'chrome.manual': '수동',
   'chrome.auto': '자동',
   'chrome.notifications': '알림',

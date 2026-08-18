@@ -217,4 +217,5 @@ export interface IndexWorkerRunSummary {
   deleted: number
   failed: number
   requeued: number
+  claimFailed?: string
 }

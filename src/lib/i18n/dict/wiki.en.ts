@@ -1,5 +1,4 @@
-// wiki 영어 사전 — ko 파일과 물리 분리(웹팩이 En 을 클라이언트 공통 청크에 싣지 않도록).
-// 키 패리티는 import type 으로만 강제한다 — 값 import 를 넣으면 분리가 무효가 된다.
+// wiki 네임스페이스 — EN. 클라이언트 번들 분리를 위해 KO(wiki.ts)와 물리적으로 나뉜다.
 import type { wikiKo } from './wiki'
 
 export const wikiEn: Record<keyof typeof wikiKo, string> = {
@@ -65,6 +64,47 @@ export const wikiEn: Record<keyof typeof wikiKo, string> = {
   'wiki.search.dropFilters': 'Search without filters',
   'wiki.search.dropToken': 'Drop \'{token}\'',
   'wiki.search.fallbackCount': '{n}',
+
+  'wiki.search2.placeholder': 'What are you looking for? E.g., How do I request MES access?',
+  'wiki.search2.count': '{n} results',
+  'wiki.search2.empty': 'No results. Try different wording.',
+  'wiki.search2.error': 'Could not load search results. Please try again shortly.',
+  'wiki.search2.degraded': 'Semantic search is unavailable; these are lexical matches only.',
+  'wiki.search2.idle.title': 'Search anything',
+  'wiki.search2.idle.desc': 'Finds decisions and context across minutes, issues, and WBS, with links to the source.',
+  'wiki.search2.chip1': 'Key decisions',
+  'wiki.search2.chip2': 'Access requests',
+  'wiki.search2.chip3': 'Recent issues',
+  'wiki.search2.answer.intro': 'Found the following in the project Wiki.',
+  'wiki.search2.summarize': 'Summarize',
+  'wiki.search2.summarizing': 'Summarizing…',
+  'wiki.search2.summarizeFailed': 'Could not build a summary. Please try again shortly.',
+  'wiki.search2.source.minutes': 'Minutes',
+  'wiki.search2.source.issues': 'Issues',
+  'wiki.search2.source.wbs': 'WBS',
+  'wiki.search2.source.announcements': 'Announcements',
+  'wiki.search2.source.meetings': 'Meetings',
+  'wiki.search2.source.weekly': 'Weekly',
+
+  'wiki.pane.placeholder': 'Results will appear here after you search',
+  'wiki.pane.pick': 'Pick a result to read it right here.',
+  'wiki.pane.guide.eyebrow': 'What you can find',
+  'wiki.pane.guide.desc': 'Searches the full text of minutes, issues, WBS, announcements and weekly sheets — even when the wording differs.',
+  'wiki.pane.guide.docs': '{n} docs',
+  'wiki.pane.guide.statsFailed': 'Could not load index stats.',
+  'wiki.pane.reading': 'Reading',
+  'wiki.pane.open': 'Open source',
+  'wiki.pane.source': 'Source',
+
+  'wiki.reindex.button': 'Refresh index',
+  'wiki.reindex.stop': 'Stop',
+  'wiki.reindex.running': 'Indexing… {n} processed',
+  'wiki.reindex.repairing': 'Filling embeddings… {a}/{b}',
+  'wiki.reindex.done': 'Refresh complete',
+  'wiki.reindex.quotaExhausted': 'Embedding quota exhausted — {n} left. Press again tomorrow to continue.',
+  'wiki.reindex.failed': 'Refresh failed.',
+  'wiki.reindex.status': 'Docs {docs} · queued {pending} · embeddings {embedded}/{chunks}',
+
   'wiki.resultCount': 'Showing {shown} of {total}',
   'wiki.showMore': 'Show {n} more',
   'wiki.view.label': 'Switch knowledge view',

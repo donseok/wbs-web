@@ -56,8 +56,9 @@ export async function runIndexWorkerOnce(deps: IndexWorkerDeps): Promise<IndexWo
 
   const claimed = await deps.queue.claim(batchSize, leaseSeconds)
   if (!claimed.ok) {
-    // claim 실패는 처리할 작업 자체가 없다 — 0 요약을 돌려주되 실패를 삼키지 않고 로깅한다.
+    // claim 실패는 조회 불가 — "큐가 비었다"와 "조회 실패"를 구분한다(에러 처리 3원칙).
     console.error(`[dkbot] 색인 워커 claim 실패: ${claimed.error.code}`)
+    summary.claimFailed = claimed.error.code
     return summary
   }
   summary.claimed = claimed.data.length

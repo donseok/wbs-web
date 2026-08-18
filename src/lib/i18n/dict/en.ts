@@ -22,6 +22,7 @@ import { agentOpsEn } from './agentOps.en'
 import { importWizardEn } from './importWizard.en'
 import { inboxEn } from './inbox.en'
 import { accountEn } from './account.en'
+import { portfolioEn } from './portfolio.en'
 
 export const EN: Record<DictKey, string> = {
   ...commonEn,
@@ -44,4 +45,5 @@ export const EN: Record<DictKey, string> = {
   ...importWizardEn,
   ...inboxEn,
   ...accountEn,
+  ...portfolioEn,
 }

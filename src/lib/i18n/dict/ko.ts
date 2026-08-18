@@ -20,6 +20,7 @@ import { agentOpsKo } from './agentOps'
 import { importWizardKo } from './importWizard'
 import { inboxKo } from './inbox'
 import { accountKo } from './account'
+import { portfolioKo } from './portfolio'
 
 export const KO = {
   ...commonKo,
@@ -42,4 +43,5 @@ export const KO = {
   ...importWizardKo,
   ...inboxKo,
   ...accountKo,
+  ...portfolioKo,
 } as const
