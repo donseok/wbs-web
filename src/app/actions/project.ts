@@ -1,4 +1,5 @@
 'use server'
+import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getActorViewState, requireProjectAdmin, requireSuperuser } from '@/lib/authz'
@@ -41,10 +42,13 @@ export async function listProjectsWithState() {
 
 type ProjectRow = NonNullable<Awaited<ReturnType<typeof fetchProjects>>['data']>[number]
 
-async function fetchProjects() {
+// cache(): 레이아웃과 페이지(예: wiki)가 같은 요청에서 listProjectsWithState 를 각자 불러도
+// projects 조회는 1회만 나간다. 'use server' 파일의 export 는 async 함수여야 하므로
+// 모듈 내부 헬퍼에만 래핑한다.
+const fetchProjects = cache(async () => {
   const sb = await createServerClient()
   return sb.from('projects').select('*').order('created_at', { ascending: false })
-}
+})
 
 export async function createProject(
   name: string,

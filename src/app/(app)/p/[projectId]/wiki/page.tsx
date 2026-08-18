@@ -1,8 +1,6 @@
 import { notFound } from 'next/navigation'
-import { listProjects } from '@/app/actions/project'
-import { createServerClient } from '@/lib/supabase/server'
+import { listProjectsWithState } from '@/app/actions/project'
 import { getActorViewState } from '@/lib/authz'
-import { createSupabaseAccessScopeResolver } from '@/lib/authz/accessScope'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiSearch } from '@/components/wiki/WikiSearch'
@@ -28,31 +26,28 @@ export default async function ProjectWikiPage({
 }) {
   const { projectId } = await params
   const { q } = await searchParams
-  const [locale, { actor, degraded }] = await Promise.all([
+  // 독립 조회를 1단으로 묶는다(2026-08-18 성능 감사 — 직렬 3단 → 1단). 프로젝트 목록은
+  // 종전 accessScope 의 projects 재조회를 대체한다: listProjectsWithState 의 canSeeProject
+  // 필터가 비공개(0070) 판정의 정본이라 allowedProjectIds 와 같은 집합이고, 레이아웃이 같은
+  // 요청에서 이미 부른 조회를 재사용하므로 이 화면의 projects 3중 조회가 1회로 준다.
+  const [locale, { actor, degraded }, projectsState] = await Promise.all([
     getServerLocale(),
     getActorViewState(),
+    listProjectsWithState(),
   ])
 
   // 권한 조회 실패를 "없는 페이지" 로 위장하지 않는다 — 장애와 접근 불가는 다르다.
   if (degraded) throw new Error('ACTOR_LOOKUP_FAILED')
   if (!actor?.userId) notFound()
 
-  const client = await createServerClient()
-  const scope = await createSupabaseAccessScopeResolver(client).resolve(actor.userId)
+  // 목록 조회 실패도 접근 불가로 위장하지 않는다 — 종전 scope.ok 실패 → throw 계약 유지.
+  if (projectsState.degraded) throw new Error('Failed to check project access: ACCESS_SCOPE_UNAVAILABLE')
 
-  if (!scope.ok) {
-    // 조회 실패 - 에러 페이지가 맞다
-    throw new Error(`Failed to check project access: ${scope.code}`)
-  }
+  // 보이는 목록에 없으면 접근 불가 — 종전 allowedProjectIds.includes 판정과 동일 집합.
+  const project = projectsState.projects.find(p => p.id === projectId)
+  if (!project) notFound()
 
-  // 프로젝트 목록에 없으면 접근 불가
-  if (!scope.scope.allowedProjectIds.includes(projectId)) {
-    notFound()
-  }
-
-  const projects = await listProjects()
-  const projectName = projects.find(p => p.id === projectId)?.name
-    ?? t(locale, 'wiki.projectFallback')
+  const projectName = project.name ?? t(locale, 'wiki.projectFallback')
   const initialQuery = parseQuery(q)
   // 색인 수동 갱신은 슈퍼유저 전용 — 일반 사용자에겐 스트립 자체를 렌더하지 않는다.
   // 히어로 카드 우상단의 빈 다크 영역에 앉히려고 슬롯으로 내려보낸다(카드 밖 별도 줄 아님).
