@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 // tests/ui/header-chrome-inbox.test.tsx — 벨 배지 합산(개인 unseen + 파생 안읽음 + 공지 안읽음)과
 // 벨 열람 = seen 소등(항목 읽음과는 별개) 를 검증한다. 렌더 분기는 inbox-panel.test.tsx가 맡는다.
+// 데이터는 ShellStateProvider 가 /api/shell GET 1왕복으로 채운다(2026-08-18 성능 리팩터) —
+// 조회는 fetch 스텁으로, 뮤테이션(markInbox*)은 종전처럼 액션 목으로 검증한다.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -9,20 +11,10 @@ import { createRoot, type Root } from 'react-dom/client'
 
 const mocks = vi.hoisted(() => ({
   pathname: '/p/p1/dashboard',
-  getNotifications: vi.fn(async () => ({
-    items: [{ id: 'n1', type: 'delayed' as const, severity: 'danger' as const, title: '지연 항목', detail: 'd', read: false }],
-  })),
-  getUnreadAnnouncementCount: vi.fn(async () => 2),
-  getInboxFeed: vi.fn(async () => ({
-    items: [{
-      recipientId: 'r1', type: 'issue.assigned', category: 'issue', title: '이슈 A',
-      detail: null, href: '/p/p1/issues', createdAt: '2026-08-11', seen: false, read: false,
-    }],
-    unseen: 1,
-  })),
   markInboxSeen: vi.fn(async () => ({ ok: true })),
   markAllInboxRead: vi.fn(async () => ({ ok: true })),
   markInboxItemRead: vi.fn(async () => ({ ok: true })),
+  markAllNotificationsRead: vi.fn(async () => ({ ok: true })),
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
   routerRefresh: vi.fn(),
@@ -52,13 +44,9 @@ vi.mock('@/components/providers/LocaleProvider', () => ({
   }),
 }))
 vi.mock('@/app/actions/notifications', () => ({
-  getNotifications: mocks.getNotifications,
-}))
-vi.mock('@/app/actions/announcements', () => ({
-  getUnreadAnnouncementCount: mocks.getUnreadAnnouncementCount,
+  markAllNotificationsRead: mocks.markAllNotificationsRead,
 }))
 vi.mock('@/app/actions/inbox', () => ({
-  getInboxFeed: mocks.getInboxFeed,
   markInboxSeen: mocks.markInboxSeen,
   markAllInboxRead: mocks.markAllInboxRead,
   markInboxItemRead: mocks.markInboxItemRead,
@@ -66,6 +54,8 @@ vi.mock('@/app/actions/inbox', () => ({
 vi.mock('@/lib/supabase/client', () => ({
   createBrowserClient: () => ({ auth: { signOut: vi.fn() } }),
 }))
+// 실시간 구독은 향상 계층 — 테스트 대상 아님(supabase 채널 배선을 피한다).
+vi.mock('@/lib/hooks/useInboxRealtime', () => ({ useInboxRealtime: () => {} }))
 vi.mock('@/components/app/HeaderAnnouncementTicker', () => ({
   HeaderAnnouncementTicker: () => null,
 }))
@@ -78,18 +68,41 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({
 
 import { HeaderChrome } from '@/components/app/HeaderChrome'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 
 const projects = [{ id: 'p1', name: 'D-CUBE 프로젝트', status: 'active' as const }]
+
+/** 종전 액션 목과 동일한 데이터 — 개인 1건(unseen)+파생 1건(안읽음)+공지 2건. */
+function shellPayload() {
+  return {
+    inbox: {
+      items: [{
+        recipientId: 'r1', type: 'issue.assigned', category: 'issue', title: '이슈 A',
+        detail: null, href: '/p/p1/issues', createdAt: '2026-08-11', seen: false, read: false,
+      }],
+      unseen: 1,
+    },
+    notifications: {
+      items: [{ id: 'n1', type: 'delayed' as const, severity: 'danger' as const, title: '지연 항목', detail: 'd', read: false }],
+      count: 1,
+    },
+    unreadAnnouncements: 2,
+    headerAnnouncements: [],
+  }
+}
 
 describe('HeaderChrome 벨 통합', () => {
   let container: HTMLDivElement
   let root: Root
+  let fetchMock: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     mocks.pathname = '/p/p1/dashboard'
-    mocks.getNotifications.mockClear()
-    mocks.getInboxFeed.mockClear()
     mocks.markInboxSeen.mockClear()
+    mocks.markAllInboxRead.mockClear()
+    mocks.markInboxItemRead.mockClear()
+    fetchMock = vi.fn(async () => ({ ok: true, json: async () => shellPayload() }))
+    vi.stubGlobal('fetch', fetchMock)
     root = undefined as unknown as Root
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -99,19 +112,26 @@ describe('HeaderChrome 벨 통합', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.unstubAllGlobals()
   })
 
-  async function renderHeader() {
-    await act(async () => root.render(
+  function tree() {
+    return (
       <ProjectNavigationProvider
         projects={projects}
         initialLastProjectId="p1"
         initialLastProjectHref="/p/p1/dashboard"
       >
-        <HeaderChrome identity={null} projects={projects} />
-      </ProjectNavigationProvider>,
-    ))
-    // 알림 로드는 마운트 후 비동기로 진행 — flush
+        <ShellStateProvider>
+          <HeaderChrome identity={null} projects={projects} />
+        </ShellStateProvider>
+      </ProjectNavigationProvider>
+    )
+  }
+
+  async function renderHeader() {
+    await act(async () => root.render(tree()))
+    // 셸 조회는 마운트 후 비동기로 진행 — flush
     await act(async () => {})
   }
 
@@ -145,29 +165,23 @@ describe('HeaderChrome 벨 통합', () => {
     expect(bellButton.textContent).toContain('4') // 롤백 — seen 소등 취소, 배지 원복
   })
 
-  it('프로젝트를 벗어나면 notifLoading이 리셋되어 패널이 무기한 로딩에 갇히지 않는다', async () => {
-    let resolveNotifs: (v: { items: unknown[] }) => void = () => {}
-    mocks.getNotifications.mockImplementationOnce(
-      () => new Promise(resolve => { resolveNotifs = resolve }),
-    )
+  it('프로젝트를 벗어나면 로딩 게이트가 리셋되어 패널이 무기한 로딩에 갇히지 않는다', async () => {
+    // 첫 셸 조회는 응답을 붙잡아 둔다 — 프로젝트 화면의 로딩 중 상태를 만들기 위해.
+    let resolveFirst: () => void = () => {}
+    fetchMock.mockImplementationOnce(() => new Promise(resolve => {
+      resolveFirst = () => resolve({ ok: true, json: async () => shellPayload() })
+    }))
     await renderHeader() // pathname: /p/p1/dashboard (beforeEach 기본값)
 
     const bellButton = container.querySelector<HTMLButtonElement>('button[aria-label="chrome.notifications"]')!
     await act(async () => { bellButton.click() })
-    // getNotifications가 아직 응답하지 않아 notifLoading이 true — 패널은 로딩 표시
+    // 셸 응답이 아직 없어 inboxLoading·notifLoading이 true — 패널은 로딩 표시
     expect(container.textContent).toContain('…')
 
-    // 응답이 오기 전에 프로젝트 페이지를 벗어난다(routeProjectId: 'p1' → null)
+    // 응답이 오기 전에 프로젝트 페이지를 벗어난다(routeProjectId: 'p1' → null).
+    // 두 번째 셸 조회는 기본 스텁이 즉시 응답한다.
     mocks.pathname = '/projects'
-    await act(async () => root.render(
-      <ProjectNavigationProvider
-        projects={projects}
-        initialLastProjectId="p1"
-        initialLastProjectHref="/p/p1/dashboard"
-      >
-        <HeaderChrome identity={null} projects={projects} />
-      </ProjectNavigationProvider>,
-    ))
+    await act(async () => root.render(tree()))
     await act(async () => {})
 
     // pathname 변경으로 팝오버가 자동 닫힌다 — 다시 열어서 로딩 게이트 상태를 확인
@@ -175,7 +189,9 @@ describe('HeaderChrome 벨 통합', () => {
     await act(async () => { bellButton2.click() })
     expect(container.textContent).not.toContain('…')
 
-    resolveNotifs({ items: [] }) // 늦게 도착한 응답 — alive=false라 상태에 반영되지 않아야 정상
-    await act(async () => {})
+    // 늦게 도착한 첫 응답 — 시퀀스 가드에 걸려 상태에 반영되지 않아야 정상
+    await act(async () => { resolveFirst() })
+    expect(container.textContent).not.toContain('…')
+    expect(container.textContent).not.toContain('지연 항목') // 파생 알림이 전역 화면에 되살아나지 않는다
   })
 })
