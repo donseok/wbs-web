@@ -58,13 +58,22 @@ export async function generateAnswer(
  */
 const DEFAULT_GEMINI_FALLBACKS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
 
-function geminiModelChain(primary: string): string[] {
+/**
+ * 주 모델을 뺀 폴백 목록. 진단 화면이 "429 때 무엇이 대신 답하는가"를 보여줘야 해서 export 한다 —
+ * 체인 계산을 두 곳에 복제하면 화면과 실제가 갈린다.
+ * 미설정이면 코드 기본 배열, 빈 문자열이면 폴백 없음(둘은 다른 의도다).
+ */
+export function geminiFallbackModels(primary: string): string[] {
   const raw = process.env.GEMINI_FALLBACK_MODELS
   const fallbacks =
     raw === undefined
       ? DEFAULT_GEMINI_FALLBACKS
       : raw.split(',').map(s => s.trim()).filter(Boolean)
-  return [primary, ...fallbacks.filter(m => m !== primary)]
+  return fallbacks.filter(m => m !== primary)
+}
+
+function geminiModelChain(primary: string): string[] {
+  return [primary, ...geminiFallbackModels(primary)]
 }
 
 /**

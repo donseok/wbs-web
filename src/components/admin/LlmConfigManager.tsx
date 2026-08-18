@@ -16,6 +16,23 @@ export interface LlmConfigInitial {
   profiles: LlmProfileMasked[]
 }
 
+/** 서버가 방금 해석한 활성 모델(@/lib/ai/health 의 ActiveModelInfo). 키는 담기지 않는다. */
+export interface ActiveModels {
+  source: 'env' | 'profile' | 'none'
+  provider: 'gemini' | 'openai'
+  llm: string
+  llmFallbacks: string[]
+  embeddingProvider: 'gemini' | 'openai'
+  embedding: string
+  embeddingDim: number
+}
+
+const SOURCE_LABEL: Record<ActiveModels['source'], string> = {
+  env: '환경변수 기본값',
+  profile: 'DB 프로필',
+  none: '선택 안함 — 생성 차단됨',
+}
+
 const NEW_PROFILE = '__new__' // 드롭다운 마지막 항목 — 값이 아니라 "생성 폼 열기" 트리거
 
 const MODES: { value: LlmMode; label: string; desc: string }[] = [
@@ -24,7 +41,7 @@ const MODES: { value: LlmMode; label: string; desc: string }[] = [
   { value: 'none', label: '선택 안함', desc: 'LLM 기능(요약·브리프·답변 등)을 실행하지 않습니다.' },
 ]
 
-export function LlmConfigManager({ initial }: { initial: LlmConfigInitial }) {
+export function LlmConfigManager({ initial, active }: { initial: LlmConfigInitial; active: ActiveModels }) {
   const router = useRouter()
   const { toast } = useToast()
 
@@ -115,6 +132,40 @@ export function LlmConfigManager({ initial }: { initial: LlmConfigInitial }) {
           <Settings2 className="h-4 w-4" />프로필 관리
         </button>
       </div>
+
+      {/*
+        지금 서버가 실제로 쓰는 모델. 코드 기본값·env·DB 프로필 세 곳이 겹쳐 정해지는 값이라
+        화면 없이는 확인할 방법이 없었다(모델을 올린 뒤 "적용됐나?"에 답할 수단이 없음).
+        아래 라디오는 '저장하면 될 상태'이고 이 줄은 '지금 도는 상태'다 — 저장 후 router.refresh()
+        로 갱신된다. 둘을 헷갈리지 않도록 문구를 '서버 적용 중'으로 못박는다.
+      */}
+      <dl className="grid gap-x-6 gap-y-2 border-b border-line bg-surface-2 px-5 py-3.5 text-xs sm:grid-cols-2 sm:px-6">
+        <div className="min-w-0">
+          <dt className="font-semibold text-ink-muted">서버 적용 중 · 생성</dt>
+          <dd className="mt-0.5 min-w-0">
+            <span className="break-all font-mono text-ink">{active.llm}</span>
+            <span className="text-ink-subtle"> · {active.provider} · {SOURCE_LABEL[active.source]}</span>
+            <span className="mt-0.5 block text-ink-subtle">
+              폴백 {active.llmFallbacks.length > 0
+                ? <span className="break-all font-mono">{active.llmFallbacks.join(' → ')}</span>
+                : '없음'}
+            </span>
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="font-semibold text-ink-muted">서버 적용 중 · 임베딩</dt>
+          <dd className="mt-0.5 min-w-0">
+            <span className="break-all font-mono text-ink">{active.embedding}</span>
+            <span className="text-ink-subtle"> · {active.embeddingDim}차원 · {active.embeddingProvider}</span>
+            {/* 프로필은 생성만 덮는다 — 모르면 "프로필 바꿨는데 검색이 그대로"로 헤맨다. */}
+            <span className="mt-0.5 block text-ink-subtle">
+              {active.source === 'profile'
+                ? '프로필은 생성만 바꾼다 — 임베딩은 환경변수 그대로'
+                : '환경변수로만 설정한다'}
+            </span>
+          </dd>
+        </div>
+      </dl>
 
       <div className="space-y-5 p-5 sm:p-6">
         <fieldset className="space-y-2.5">
