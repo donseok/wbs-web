@@ -12,16 +12,3 @@ export const uiKo = {
   'ui.memberPicker.categoryOrder': '담당 카테고리별',
   'ui.memberPicker.unassigned': '담당 미지정',
 } as const
-
-export const uiEn: Record<keyof typeof uiKo, string> = {
-  'ui.loading': 'Loading',
-  'ui.progress': 'Progress',
-  'ui.heroExpand': 'Expand hero',
-  'ui.heroCollapse': 'Collapse hero',
-  'ui.toastRegion': 'Notifications',
-  'ui.toastDismiss': 'Dismiss notification',
-  'ui.memberPicker.viewLabel': 'View',
-  'ui.memberPicker.nameOrder': 'By name',
-  'ui.memberPicker.categoryOrder': 'By responsibility',
-  'ui.memberPicker.unassigned': 'Unassigned',
-}

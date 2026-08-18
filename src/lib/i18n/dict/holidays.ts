@@ -21,24 +21,3 @@ export const holidaysKo = {
   'hol.laborDay': '노동절',
   'hol.armedForcesDay': '국군의날',
 } as const
-
-export const holidaysEn: Record<keyof typeof holidaysKo, string> = {
-  'hol.newYear': "New Year's Day",
-  'hol.seollal': 'Seollal',
-  'hol.samiljeol': 'Independence Movement Day',
-  'hol.childrensDay': "Children's Day",
-  'hol.buddha': "Buddha's Birthday",
-  'hol.memorialDay': 'Memorial Day',
-  'hol.jeheonjeol': 'Constitution Day',
-  'hol.liberationDay': 'Liberation Day',
-  'hol.chuseok': 'Chuseok',
-  'hol.gaecheonjeol': 'National Foundation Day',
-  'hol.hangulDay': 'Hangeul Day',
-  'hol.christmas': 'Christmas Day',
-  'hol.substitute': 'Substitute holiday',
-  'hol.electionDay': 'Election Day',
-  'hol.tempHoliday': 'Temporary holiday',
-  'hol.workersDay': "Workers' Day",
-  'hol.laborDay': 'Labor Day',
-  'hol.armedForcesDay': 'Armed Forces Day',
-}

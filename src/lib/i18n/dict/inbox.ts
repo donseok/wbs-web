@@ -11,14 +11,3 @@ export const inboxKo = {
   'inbox.announceUnread': '안읽은 공지',
   'inbox.viewAnnouncements': '공지사항 보기',
 } as const
-export const inboxEn: Record<keyof typeof inboxKo, string> = {
-  'inbox.title': 'Notifications',
-  'inbox.personal': 'My notifications',
-  'inbox.announcements': 'Announcements',
-  'inbox.derived': 'Delayed · Due soon',
-  'inbox.empty': 'No new notifications. 👍',
-  'inbox.markAllRead': 'Mark all read',
-  'inbox.loadFailed': 'Failed to load notifications',
-  'inbox.announceUnread': 'unread announcements',
-  'inbox.viewAnnouncements': 'View announcements',
-}
