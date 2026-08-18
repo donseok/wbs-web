@@ -123,7 +123,9 @@ export function buildPortfolio(inputs: PortfolioProjectInput[]): PortfolioModel 
       risk.signals.some(s => s.severity === 'red') ? 'red' : risk.signals.length ? 'amber' : null
 
     // 추세 화살표 — 7일 이상 전 표본 중 최신 스냅샷의 편차와 현재 편차의 차(round1 규약).
-    const past = [...input.snapshots]
+    // base_date 고정 프로젝트는 비표기: 스냅샷 계획%는 실제 오늘 기준(recordProgressSnapshot)인데
+    // 현재 편차는 base_date 기준이라 프레임이 달라 화살표가 왜곡된다 — null 이 정직하다.
+    const past = input.baseDate != null ? undefined : [...input.snapshots]
       .filter(s => s.date <= addDaysCal(input.today, -7))
       .sort((a, b) => (a.date < b.date ? -1 : 1))
       .pop()

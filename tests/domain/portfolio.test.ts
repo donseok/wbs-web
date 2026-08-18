@@ -163,6 +163,13 @@ describe('buildPortfolio — v1.1 확장(추세·위험 신호·위생)', () => 
     const m = buildPortfolio([mkInput({ snapshots: [{ date: '2026-08-15', actual: 40, planned: 50 }] })])
     expect(m.rows[0].trendDelta).toBeNull()
   })
+  it('trendDelta — base_date 고정 프로젝트는 프레임 불일치라 null(왜곡 방지)', () => {
+    const m = buildPortfolio([mkInput({
+      baseDate: '2026-07-31',
+      snapshots: [{ date: '2026-08-01', actual: 48, planned: 50 }],
+    })])
+    expect(m.rows[0].trendDelta).toBeNull()
+  })
   it('위험 신호 — 예정일 경과 누적 발화 시 count·worst·titles 전달', () => {
     // plannedEnd 17일 경과 미완료 → overdue_accumulation(d15plus≥1 → red)
     const m = buildPortfolio([mkInput({
