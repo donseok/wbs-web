@@ -12,8 +12,9 @@ export async function withTimeout<T>(
   }
 }
 
-/** 배열을 size 단위로 분할. */
-export function chunked<T>(arr: T[], size: number): T[][] {
+/** 배열을 size 단위로 분할. 읽기 전용 배열도 받는다(호출부가 readonly 를 넘기는 곳이 있고,
+ *  slice() 는 어차피 새 T[] 를 만들므로 반환 타입은 가변으로 둔다). */
+export function chunked<T>(arr: readonly T[], size: number): T[][] {
   const out: T[][] = []
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
   return out

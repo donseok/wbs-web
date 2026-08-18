@@ -245,8 +245,8 @@ export function WikiTopicDetail({
   const canWriteMemory = extensionReady && canEditDocuments
   // 0079 신규 기능(AI 제안 검토)만 스키마 준비를 기다린다.
   const canReviewMemory = extensionReady && canCurate
-  // 항목 큐레이션(보관·해결·잠금·확정)은 0048/0053 RPC 라 이미 운영에 있다. WikiOverview
-  // 의 같은 주석 참조 — 0079 미적용 기간에 기존 기능까지 막지 않는다.
+  // 항목 큐레이션(보관·해결·잠금·확정)은 0048/0053 RPC 라 이미 운영에 있다 —
+  // 0079 미적용 기간에 기존 기능까지 막지 않는다.
   const canCurateLegacy = canCurate
   const canVerifyMemory = extensionReady && canVerifyDocuments
 

@@ -8,7 +8,7 @@ vi.mock('@/lib/supabase/server', () => ({
   createServerClient: mocks.createServerClient,
 }))
 
-import { getWikiOverview, getWikiTopicDetail } from '@/lib/data/wiki'
+import { getWikiTopicDetail } from '@/lib/data/wiki'
 
 type QueryResult = {
   data: unknown
@@ -71,7 +71,7 @@ function filteringBuilder(rows: Record<string, unknown>[]) {
   return query
 }
 
-describe('Wiki 변경 이력 원문 버전 조회', () => {
+describe('Wiki 주제 상세 조회', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
@@ -178,10 +178,13 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
     }
     mocks.createServerClient.mockResolvedValue(serverClient)
 
-    const overview = await getWikiOverview('project-version-test')
+    const detail = await getWikiTopicDetail('project-version-test', 'topic-1')
 
-    expect(overview.changes).toHaveLength(1)
-    expect(overview.changes[0].minuteVersionId).toBe('version-1')
+    expect(detail.topic?.id).toBe('topic-1')
+    expect(detail.items[0]?.id).toBe('item-1')
+    expect(detail.changes).toHaveLength(1)
+    expect(detail.changes[0].minuteVersionId).toBe('version-1')
+    expect(queries.wiki_topics[0].eq).toHaveBeenCalledWith('id', 'topic-1')
     expect(queries.wiki_item_sources[0].select).toHaveBeenCalledWith(
       expect.stringContaining('created_at'),
     )
@@ -194,11 +197,6 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
     expect(queries.wiki_items[0].eq).toHaveBeenCalledWith('review_state', 'accepted')
     expect(queries.wiki_item_sources[0].is).toHaveBeenCalledWith('retracted_at', null)
     expect(queries.wiki_item_sources[1].not).toHaveBeenCalledWith('retracted_at', 'is', null)
-
-    const detail = await getWikiTopicDetail('project-version-test', 'topic-1')
-    expect(detail.topic?.id).toBe('topic-1')
-    expect(detail.items[0]?.id).toBe('item-1')
-    expect(queries.wiki_topics.at(-1)?.eq).toHaveBeenCalledWith('id', 'topic-1')
   })
 
   it('기본 Wiki 테이블이 없으면 schema_missing을 일반 오류와 구분한다', async () => {
@@ -209,10 +207,10 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       })),
     })
 
-    const overview = await getWikiOverview('project-schema-missing')
+    const detail = await getWikiTopicDetail('project-schema-missing', 'topic-1')
 
-    expect(overview.available).toBe(false)
-    expect(overview.readState).toBe('schema_missing')
+    expect(detail.available).toBe(false)
+    expect(detail.readState).toBe('schema_missing')
   })
 
   it('권한·네트워크 같은 조회 실패를 schema_missing으로 위장하지 않는다', async () => {
@@ -223,10 +221,10 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       })),
     })
 
-    const overview = await getWikiOverview('project-read-error')
+    const detail = await getWikiTopicDetail('project-read-error', 'topic-1')
 
-    expect(overview.available).toBe(false)
-    expect(overview.readState).toBe('error')
+    expect(detail.available).toBe(false)
+    expect(detail.readState).toBe('error')
   })
 
   it('0079 문서 컬럼이 없으면 기존 Wiki는 읽되 schema_missing을 명시한다', async () => {
@@ -242,6 +240,7 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       ],
       wiki_items: [
         { data: null, error: { code: 'PGRST204', message: "column 'review_state' was not found" } },
+        { data: null, error: { code: 'PGRST204', message: "column 'review_state' was not found" } },
         { data: [], error: null },
       ],
       wiki_change_events: [{ data: [], error: null }],
@@ -252,11 +251,11 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       )),
     })
 
-    const overview = await getWikiOverview('project-legacy')
+    const detail = await getWikiTopicDetail('project-legacy', 'legacy-topic')
 
-    expect(overview.available).toBe(true)
-    expect(overview.readState).toBe('schema_missing')
-    expect(overview.topics[0]).toMatchObject({ id: 'legacy-topic', bodyMd: null })
+    expect(detail.available).toBe(true)
+    expect(detail.readState).toBe('schema_missing')
+    expect(detail.topic).toMatchObject({ id: 'legacy-topic', bodyMd: null })
   })
 
   it('철회 근거는 현재 항목에서 빼고 당시 변경 provenance에만 사용한다', async () => {
@@ -300,6 +299,7 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
         { id: 'minute-active', title: '현재 회의', minute_date: '2026-08-13' },
         { id: 'minute-old', title: '과거 회의', minute_date: '2026-08-12' },
       ],
+      wiki_topic_revisions: [],
       wiki_questions: [],
       wiki_feedback: [],
     }
@@ -307,12 +307,12 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       from: vi.fn((table: string) => filteringBuilder(tables[table] ?? [])),
     })
 
-    const overview = await getWikiOverview('project-source')
+    const detail = await getWikiTopicDetail('project-source', 'topic-source')
 
-    expect(overview.items[0].sources.map((source) => source.id)).toEqual(['source-active'])
-    expect(overview.items[0].sources[0].minuteTitle).toBe('현재 회의')
-    expect(overview.changes[0].minuteVersionId).toBe('version-old')
-    expect(overview.changes[0].minuteTitle).toBe('과거 회의')
+    expect(detail.items[0].sources.map((source) => source.id)).toEqual(['source-active'])
+    expect(detail.items[0].sources[0].minuteTitle).toBe('현재 회의')
+    expect(detail.changes[0].minuteVersionId).toBe('version-old')
+    expect(detail.changes[0].minuteTitle).toBe('과거 회의')
   })
 
   it('500개를 넘는 항목도 range 페이지를 끝까지 읽어 집계한다', async () => {
@@ -351,6 +351,7 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       wiki_items: itemRows,
       wiki_change_events: [],
       wiki_item_sources: [],
+      wiki_topic_revisions: [],
       wiki_questions: [],
       wiki_feedback: [],
       minutes: [],
@@ -364,11 +365,11 @@ describe('Wiki 변경 이력 원문 버전 조회', () => {
       }),
     })
 
-    const overview = await getWikiOverview('project-paged')
+    const detail = await getWikiTopicDetail('project-paged', 'topic-paged')
 
-    expect(overview.items).toHaveLength(501)
-    expect(overview.summary.topicCount).toBe(1)
-    expect(overview.dataTruncated).toBe(false)
+    expect(detail.items).toHaveLength(501)
+    expect(detail.topic?.itemCount).toBe(501)
+    expect(detail.dataTruncated).toBe(false)
     expect(itemQueries.some((query) => query.range.mock.calls.some(
       ([from, to]) => from === 500 && to === 999,
     ))).toBe(true)

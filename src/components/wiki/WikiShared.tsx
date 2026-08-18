@@ -31,7 +31,7 @@ import { WikiTrackedLink } from './WikiTrackedLink'
 /**
  * 회의록 원문 블록 링크. lib/minutes/source의 minuteSourceHref와 같은 형식이지만 직접 만든다.
  *
- * 이 파일은 WikiExplorer/WikiTopicGrid(둘 다 'use client')가 import하면서 클라이언트 모듈
+ * 이 파일은 'use client' 컴포넌트들이 import하면서 클라이언트 모듈
  * 그래프에 들어간다. minutes/source는 blocks.ts를 값으로 가져오고 blocks.ts는 unified·remark-parse·
  * remark-gfm을 끌어오므로, 링크 문자열 몇 줄 때문에 마크다운 파서 100KB가 Wiki 홈 번들에 실린다.
  * 형식이 갈리지 않도록 tests/ui/wiki-safety.test.tsx가 두 구현의 결과를 대조한다.

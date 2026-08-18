@@ -7,7 +7,7 @@
 //
 // 왜 JS 집계인가: PostgREST 집계 함수가 이 프로젝트에서 비활성이다
 // (select=topic_id,count() → PGRST123). supabase-js로 GROUP BY도 못 한다.
-// 행을 받아 앱에서 세는 것은 getWikiOverview(src/lib/data/wiki.ts)가 이미 쓰는 관용구다.
+// 행을 받아 앱에서 세는 것은 위키 데이터 계층(src/lib/data/wiki.ts)이 이미 쓰는 관용구다.
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   WIKI_LIVE_STATES,
