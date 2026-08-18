@@ -98,7 +98,6 @@ async function call(body) {
 async function runRepair() {
   console.log('\n=== 복구 모드 (embedding is null 행만 재시도) ===')
   let round = 0
-  let lastStillNull = Infinity
   for (;;) {
     const summary = await call({ mode: 'repair', batchSize: BATCH })
     round += 1
@@ -111,15 +110,17 @@ async function runRepair() {
       console.log(`✓ 라운드 ${round}에서 남은 null 임베딩 없음 — 복구 완료`)
       break
     }
-    // stillNull 이 줄지 않으면(같은 항목이 계속 실패) 더 돌려도 소용없다 — 무한 루프 방지.
-    if (summary.stillNull >= lastStillNull) {
+    // 한 라운드에서 **한 건도 복구하지 못했으면** 더 돌려도 소용없다 — 무한 루프 방지.
+    // (종전 조건은 `stillNull >= 직전 stillNull` 이었는데, 전건 성공이면 stillNull 이 0 이라
+    //  2라운드째에 0 >= 0 으로 걸려 50건만 처리하고 "줄지 않았다"는 틀린 경고를 내며 멈췄다.
+    //  repair 는 배치마다 새 행을 집으므로 판정 기준은 직전 라운드가 아니라 이번 라운드의 성과다.)
+    if (summary.repaired === 0) {
       console.warn(
-        `✗ stillNull(${summary.stillNull})이 이전 라운드(${lastStillNull})보다 줄지 않았습니다 — 중단합니다.\n` +
-        '  남은 항목은 임베딩 API 가 계속 거부하는 본문(예: 여전히 너무 긴 텍스트)일 수 있습니다.',
+        `✗ 라운드 ${round}에서 ${summary.scanned}건을 시도해 한 건도 복구하지 못했습니다 — 중단합니다.\n` +
+        '  일일 쿼터 소진이거나, 임베딩 API 가 계속 거부하는 본문일 수 있습니다.',
       )
       break
     }
-    lastStillNull = summary.stillNull
     await sleep(PAUSE_MS)
   }
 }
