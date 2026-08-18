@@ -108,30 +108,36 @@ describe('buildPortfolio — 행 산출', () => {
 })
 
 describe('buildPortfolio — 정렬', () => {
-  // 편차 -15 → progress red → overall red / 편차 -5 → amber / 0 → green
-  const red = mkInput({ projectId: 'r', name: 'RED', items: [leaf({ plannedPct: 65, rolledActualPct: 50 })] })
-  const amber = mkInput({ projectId: 'a', name: 'AMBER', items: [leaf({ plannedPct: 55, rolledActualPct: 50 })] })
-  const green = mkInput({ projectId: 'g', name: 'GREEN', items: [leaf({ plannedPct: 50, rolledActualPct: 50 })] })
+  // 신호 정렬 픽스처는 날짜 null → scheduleModel 이 neutral 이 되어 overall 신호를
+  // progress 신호만으로 통제한다(날짜가 있으면 장기 프로젝트에서 편차 -5도 SPI slip>14 로
+  // schedule red 가 되어 amber 픽스처가 amber 가 아니게 된다 — 프리플라이트 Ruling 1).
+  // 셋 다 lifecycle 'ready'(날짜 없음) 동일 그룹이므로 신호 순서만 검증된다.
+  const red = mkInput({ projectId: 'r', name: 'RED', startDate: null, endDate: null, items: [leaf({ plannedPct: 65, rolledActualPct: 50 })] })
+  const amber = mkInput({ projectId: 'a', name: 'AMBER', startDate: null, endDate: null, items: [leaf({ plannedPct: 55, rolledActualPct: 50 })] })
+  const green = mkInput({ projectId: 'g', name: 'GREEN', startDate: null, endDate: null, items: [leaf({ plannedPct: 50, rolledActualPct: 50 })] })
   it('신호 심각도 순: red → amber → green', () => {
     const m = buildPortfolio([green, red, amber])
     expect(m.rows.map(r => r.projectId)).toEqual(['r', 'a', 'g'])
   })
   it('degraded(확인 불가)는 실패를 묻지 않도록 최상단', () => {
+    // degraded 는 lifecycle unknown(그룹 0) + rank -1 — ready 그룹의 green 보다 앞선다
     const m = buildPortfolio([green, mkInput({ projectId: 'd', items: null })])
     expect(m.rows[0].projectId).toBe('d')
   })
-  it('생애 그룹 — ready 는 active 뒤, done 은 맨 뒤', () => {
+  it('생애 그룹 — active 가 앞, ready 는 다음, done 은 맨 뒤', () => {
+    // activeGreen: 기간 내 + 편차 0 + SPI 1(slip 0) → 전 신호 green, lifecycle active
+    const activeGreen = mkInput({ projectId: 'g', items: [leaf({ plannedPct: 50, rolledActualPct: 50 })] })
     const ready = mkInput({ projectId: 'rd', startDate: '2026-10-01', endDate: '2026-12-31', items: [leaf({})] })
     const doneP = mkInput({
       projectId: 'dn', endDate: '2026-06-30',
       items: [leaf({ status: 'done', rolledActualPct: 100, plannedPct: 100 })],
     })
-    const m = buildPortfolio([doneP, ready, green])
+    const m = buildPortfolio([doneP, ready, activeGreen])
     expect(m.rows.map(r => r.projectId)).toEqual(['g', 'rd', 'dn'])
   })
   it('동신호 동그룹은 편차 오름차순(더 나쁜 게 먼저)', () => {
-    const worse = mkInput({ projectId: 'w', items: [leaf({ plannedPct: 58, rolledActualPct: 50 })] })  // -8
-    const better = mkInput({ projectId: 'b', items: [leaf({ plannedPct: 54, rolledActualPct: 50 })] }) // -4
+    const worse = mkInput({ projectId: 'w', startDate: null, endDate: null, items: [leaf({ plannedPct: 58, rolledActualPct: 50 })] })  // -8, amber
+    const better = mkInput({ projectId: 'b', startDate: null, endDate: null, items: [leaf({ plannedPct: 54, rolledActualPct: 50 })] }) // -4, amber
     const m = buildPortfolio([better, worse])
     expect(m.rows.map(r => r.projectId)).toEqual(['w', 'b'])
   })
@@ -378,8 +384,6 @@ export const portfolioKo = {
   'pf.baseDate': '기준일',
   'pf.private': '비공개',
   'pf.leadersUnknown': '확인 불가',
-  'pf.slipDays': '지연',
-  'pf.onSchedule': '정시',
   'pf.ms.title': '마일스톤 통합 타임라인',
   'pf.ms.empty': '표시할 마일스톤이 없습니다. 키워드 미설정 프로젝트는 0건이 정상입니다 (프로젝트 설정 > 마일스톤 키워드).',
 } as const
@@ -418,8 +422,6 @@ export const portfolioEn: Record<keyof typeof portfolioKo, string> = {
   'pf.baseDate': 'As of',
   'pf.private': 'Private',
   'pf.leadersUnknown': 'Unknown',
-  'pf.slipDays': 'slip',
-  'pf.onSchedule': 'On schedule',
   'pf.ms.title': 'Milestone timeline (all projects)',
   'pf.ms.empty': 'No milestones to show. Projects without milestone keywords legitimately have none (Project Settings > Milestone keywords).',
 }
