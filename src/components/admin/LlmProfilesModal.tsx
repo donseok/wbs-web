@@ -316,7 +316,7 @@ export function LlmProfilesModal({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="모델 (필수)">
-              <input className="app-input font-mono" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gemini-2.5-flash" />
+              <input className="app-input font-mono" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gemini-3.7-flash" />
             </Field>
             <Field label="Base URL (선택)" hint="비우면 제공자 기본 엔드포인트를 사용합니다.">
               <input className="app-input font-mono" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://localhost:11434/v1" />
