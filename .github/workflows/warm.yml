@@ -1,0 +1,26 @@
+# 프로덕션 콜드 스타트 워밍 — 2026-08-18 성능 개편 후속.
+#
+# 왜: 저트래픽 앱이라 사용자가 콜드 함수를 자주 맞는다(실측 첫 TTFB 5.2s, 웜 0.16s).
+# Vercel 개인 플랜은 분 단위 cron 이 없어 GitHub Actions 스케줄로 대신한다(공개 리포 = 무료).
+# 무엇을 치나: /login 은 미들웨어를 통과해 실제 페이지(Node 메인 함수)가 렌더되는 유일한
+# 비인증 경로다(인증 페이지 URL 은 엣지 미들웨어가 307 으로 끊어 함수를 깨우지 못한다).
+# /api/shell 은 API 함수 쪽을 데운다(비로그인 = 빈 응답, 부작용 없음).
+# 시간대: KST 07:00~20:59(UTC 22~23시·0~11시) — 근무 시간대만. 스케줄 지연(수 분)은 감수.
+name: warm-production
+on:
+  schedule:
+    - cron: '*/5 22-23 * * *'
+    - cron: '*/5 0-11 * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: ping production
+        run: |
+          curl -s -o /dev/null -m 30 -w "login  %{http_code} %{time_starttransfer}s\n" https://wbs-web.vercel.app/login || true
+          curl -s -o /dev/null -m 30 -w "shell  %{http_code} %{time_starttransfer}s\n" "https://wbs-web.vercel.app/api/shell" || true
