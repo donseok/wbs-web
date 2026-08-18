@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import type { DictKey } from '@/lib/i18n/dict'
-import { DICT } from '@/lib/i18n/dict'
+import { KO } from '@/lib/i18n/dict/ko'
 import { describeNotifyResult, type MeetingNotifyResult } from '@/lib/mail/outcome'
 
 // 실제 ko 사전을 그대로 쓴다 — 키 오타가 테스트에서 잡힌다.
-const t = (k: DictKey) => (DICT.ko as Record<string, string>)[k] ?? k
+const t = (k: DictKey) => (KO as Record<string, string>)[k] ?? k
 
 function res(over: Partial<MeetingNotifyResult> = {}): MeetingNotifyResult {
   return { ok: true, sentTo: [], skipped: [], ...over }

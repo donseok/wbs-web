@@ -18,14 +18,6 @@ function mapRow(r: RowRecord): WeeklySheetRow {
 
 const ROW_COLS = 'id, report_id, section, module, sort_order, this_content, this_issue, next_content, next_issue'
 
-async function loadWeeklyRows(reportId: string): Promise<WeeklySheetRow[]> {
-  const sb = await createServerClient()
-  const { data, error } = await sb.from('weekly_report_rows').select(ROW_COLS)
-    .eq('report_id', reportId).order('sort_order')
-  if (error) throw new Error(error.message) // 조회 실패를 '행 없음'으로 위장하면 이월이 스켈레톤으로 대체돼 내용이 유실됨
-  return sortWeeklyRows(((data ?? []) as RowRecord[]).map(mapRow))
-}
-
 /** 지연 마이그레이션: WEEKLY_SECTIONS에 구분이 추가돼도(예: PMO) 과거 주차 시트에 그 구분 행이 없어
  *  그리드에서 안 보이는 문제를 막는다. 표준 구분 중 빠진 것만 **빈 행으로 추가**한다 —
  *  기존 행·내용은 절대 건드리지 않는(순수 추가) 안전한 연산. 반환 순서는 sortWeeklyRows가
@@ -64,15 +56,26 @@ export async function getWeeklySheet(
   projectId: string, weekStartIso: string,
 ): Promise<{ report: WeeklyReportDoc; rows: WeeklySheetRow[] } | null> {
   const sb = await createServerClient()
-  const { data, error } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
-    .eq('project_id', projectId).eq('week_start', weekStartIso).maybeSingle()
-  if (error) throw new Error(error.message)
-  if (!data) return null
+  // 문서 조회와 행 조회는 서로 독립이다 — weekly_reports 의 unique(project_id, week_start) 덕에
+  // 행 쪽은 report_id 대신 부모 조인 필터(!inner)로 같은 문서를 특정할 수 있다.
+  // 직렬 2단(문서 → 행)을 한 단으로 겹친다. 행 정렬·매핑·백필 시맨틱은 종전과 동일.
+  const [rep, rowsRes] = await Promise.all([
+    sb.from('weekly_reports').select('id, project_id, week_start, title')
+      .eq('project_id', projectId).eq('week_start', weekStartIso).maybeSingle(),
+    sb.from('weekly_report_rows').select(`${ROW_COLS}, weekly_reports!inner(id)`)
+      .eq('weekly_reports.project_id', projectId).eq('weekly_reports.week_start', weekStartIso)
+      .order('sort_order'),
+  ])
+  if (rep.error) throw new Error(rep.error.message)
+  if (!rep.data) return null // 문서 없음 — 종전에는 행 조회 자체가 없었으므로 행 결과(오류 포함)는 버린다
+  if (rowsRes.error) throw new Error(rowsRes.error.message) // 조회 실패를 '행 없음'으로 위장하면 이월이 스켈레톤으로 대체돼 내용이 유실됨
+  const data = rep.data
   const report = {
     id: data.id as string, projectId: data.project_id as string,
     weekStart: data.week_start as string, title: (data.title as string | null) ?? '',
   }
-  return { report, rows: await ensureStandardRows(report.id, await loadWeeklyRows(report.id)) }
+  const rows = sortWeeklyRows(((rowsRes.data ?? []) as RowRecord[]).map(mapRow))
+  return { report, rows: await ensureStandardRows(report.id, rows) }
 }
 
 /** 이월 원본: 해당 주 이전 가장 최근 week_start 문서(직전 주 한정 아님 — 연휴 건너뜀 대응, 스펙 §4). */
@@ -80,14 +83,42 @@ export async function findCarryOverSource(
   projectId: string, beforeWeekStartIso: string,
 ): Promise<{ report: WeeklyReportDoc; rows: WeeklySheetRow[] } | null> {
   const sb = await createServerClient()
-  const { data, error } = await sb.from('weekly_reports').select('id, project_id, week_start, title')
+  // '가장 최근 이전 문서'의 행은 그 문서가 정해져야 고를 수 있는 진짜 의존이라 Promise.all 로는
+  // 못 묶는다 — 대신 행을 임베드로 같은 왕복에 실어 직렬 2단(문서 → 행)을 한 단으로 줄인다.
+  // 반환 내용(전체 셀 포함)·정렬·에러 시맨틱은 종전과 동일: 이월 생성(weekly.ts)이 전체 행을 쓴다.
+  const { data, error } = await sb.from('weekly_reports')
+    .select(`id, project_id, week_start, title, weekly_report_rows(${ROW_COLS})`)
     .eq('project_id', projectId).lt('week_start', beforeWeekStartIso)
-    .order('week_start', { ascending: false }).limit(1).maybeSingle()
+    .order('week_start', { ascending: false }).limit(1)
+    .order('sort_order', { referencedTable: 'weekly_report_rows' })
+    .maybeSingle()
   if (error) throw new Error(error.message) // null(원본 없음)과 조회 실패를 구분 — 실패 시 이월 폴백 금지
   if (!data) return null
   const report = {
     id: data.id as string, projectId: data.project_id as string,
     weekStart: data.week_start as string, title: (data.title as string | null) ?? '',
   }
-  return { report, rows: await loadWeeklyRows(report.id) }
+  const rows = sortWeeklyRows((((data as { weekly_report_rows?: unknown }).weekly_report_rows ?? []) as RowRecord[]).map(mapRow))
+  return { report, rows }
+}
+
+/** 이월 '제안 노출' 판정 전용 경량 조회 — findCarryOverSource 와 같은 원본 선택 규칙
+ *  (해당 주 이전 가장 최근 week_start 문서 하나)에 행 '개수'만 임베드해 한 왕복으로 판정한다.
+ *  셀 내용(최대 44셀×20,000자)을 전혀 싣지 않는다. 판정 시맨틱은 소비처(weekly/page.tsx)의
+ *  `!!src && src.rows.length > 0` 와 동일: 이전 문서가 있고 그 문서에 행이 1개 이상일 때만 true.
+ *  (0행이어도 더 오래된 문서로 내려가지 않는다 — findCarryOverSource 와 같은 규칙.)
+ *  조회 실패는 throw — false(제안 숨김)로 위장하면 이월 제안이 조용히 사라진다. */
+export async function hasCarryOverSource(
+  projectId: string, beforeWeekStartIso: string,
+): Promise<boolean> {
+  const sb = await createServerClient()
+  const { data, error } = await sb.from('weekly_reports')
+    .select('id, weekly_report_rows(count)')
+    .eq('project_id', projectId).lt('week_start', beforeWeekStartIso)
+    .order('week_start', { ascending: false }).limit(1)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) return false
+  const counts = ((data as { weekly_report_rows?: unknown }).weekly_report_rows ?? []) as Array<{ count: number | null }>
+  return (counts[0]?.count ?? 0) > 0
 }

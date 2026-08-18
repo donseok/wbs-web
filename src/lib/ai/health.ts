@@ -4,7 +4,9 @@
 // 관리자 설정 화면/헬스 엔드포인트에서 가시화하기 위한 모듈. 서버 전용.
 // ============================================================================
 
-import { aiProvider, embedConfig, hasEmbeddings, hasLLM } from './provider'
+import { aiProvider, embedConfig, hasEmbeddings, hasLLM, llmConfig } from './provider'
+import { geminiFallbackModels } from './llm'
+import { llmOverrideSync } from './llm-override'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { errMsg } from '@/lib/domain/format'
@@ -41,6 +43,44 @@ export function isSchemaMissing(e: unknown, objects: RegExp = VECTOR_OBJECTS): b
   return false
 }
 
+/**
+ * 지금 실제로 쓰이는 모델. "무슨 모델이 도는가"는 코드 기본값 · env · DB 프로필 세 곳이 겹쳐
+ * 정해지는데 화면 어디에도 안 나와서, 모델을 올린 뒤 사람이 확인할 방법이 없었다.
+ *
+ * ⚠️ **키를 절대 싣지 않는다.** llmConfig()/embedConfig() 는 apiKey 를 품고 있으므로 필드를
+ * 골라 담는다(스프레드 금지). tests/ai/active-model-info.test.ts 가 직렬화 결과로 검사한다.
+ */
+export interface ActiveModelInfo {
+  /** 이 값이 어디서 왔나 — env 기본값 / DB 프로필 / '선택 안함'(LLM 차단) */
+  source: 'env' | 'profile' | 'none'
+  provider: 'gemini' | 'openai'
+  /** 텍스트 생성에 실제로 쓰이는 모델 ID */
+  llm: string
+  /** 주 모델이 429/5xx 일 때 순서대로 대신 답하는 모델(주 모델 제외). gemini 경로에만 있다 */
+  llmFallbacks: string[]
+  /** 임베딩은 **프로필 오버라이드를 받지 않는다** — 항상 env 경로다(provider.ts 의 의도) */
+  embeddingProvider: 'gemini' | 'openai'
+  embedding: string
+  embeddingDim: number
+}
+
+/** 생성·임베딩의 활성 모델을 키 없이 요약한다. */
+export async function activeModelInfo(): Promise<ActiveModelInfo> {
+  const llm = llmConfig()
+  const embed = embedConfig()
+  const mode = llmOverrideSync().mode
+  return {
+    source: mode,
+    provider: llm.provider,
+    llm: llm.model,
+    // OpenAI 호환 경로에는 폴백 체인이 없다(gemini 전용 로직) — 빈 배열이 정직한 답이다.
+    llmFallbacks: llm.provider === 'gemini' ? geminiFallbackModels(llm.model) : [],
+    embeddingProvider: embed.provider,
+    embedding: embed.model,
+    embeddingDim: embed.dim,
+  }
+}
+
 export type SchemaState = 'ready' | 'missing' | 'no_service_role' | 'error'
 
 export interface DkbotHealth {
@@ -50,6 +90,7 @@ export interface DkbotHealth {
   serviceRole: boolean // service_role 키 설정됨(색인 쓰기/RPC 호출 가능)
   schema: SchemaState // pgvector(0010) 스키마/RPC 적용 상태
   briefs: SchemaState // AI 브리핑 캐시(0030 project_ai_briefs) 적용 상태
+  models: ActiveModelInfo // 지금 실제로 쓰이는 생성·임베딩 모델(키는 포함하지 않음)
   detail?: string
 }
 
@@ -64,6 +105,9 @@ export async function dkbotHealth(): Promise<DkbotHealth> {
     llm: hasLLM(),
     embeddings: hasEmbeddings(),
     serviceRole: serviceRoleConfigured(),
+    // service_role 이 없어 조기 반환하는 경로에서도 모델은 알 수 있다 — 그 경우가 오히려
+    // "설정이 어떻게 돼 있나"를 확인하고 싶은 상황이라 여기서 함께 담는다.
+    models: await activeModelInfo(),
   }
   if (!base.serviceRole) return { ...base, schema: 'no_service_role', briefs: 'no_service_role' }
   try {

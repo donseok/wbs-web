@@ -9,8 +9,8 @@ import {
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
+import { useShellState } from './ShellStateProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useProjectNavigation } from './ProjectNavigationContext'
 
@@ -100,18 +100,11 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
     router.push(`/p/${encodeURIComponent(projectId)}/dashboard`)
   }
 
-  // 안읽음 공지 배지 — 헤더 벨과 같은 "네비게이션당 1회 조회" 패턴.
-  // 회의록·내 회의에서는 보존한 프로젝트 메뉴의 배지를 유지한다.
-  // pathname 키잉이라 공지 페이지를 다녀오면(워터마크 갱신 후) 재조회되어 배지가 사라진다.
-  const [unread, setUnread] = useState(0)
-  useEffect(() => {
-    if (!menuProjectId) { setUnread(0); return }
-    let alive = true
-    getUnreadAnnouncementCount(menuProjectId)
-      .then(n => { if (alive) setUnread(n) })
-      .catch(() => {})
-    return () => { alive = false }
-  }, [menuProjectId, pathname])
+  // 안읽음 공지 배지 — ShellStateProvider 가 내비게이션당 통합 1왕복으로 조회한 값을 쓴다.
+  // (종전엔 헤더와 이 컴포넌트가 같은 인자로 같은 액션을 각자 쐈다 — 2026-08-18 성능 감사.)
+  // 회의록·내 회의에서는 보존한 프로젝트 메뉴(menuProjectId)의 배지를 유지한다.
+  const { menuUnreadAnnouncements } = useShellState()
+  const unread = menuProjectId ? menuUnreadAnnouncements : 0
 
   return (
     <aside

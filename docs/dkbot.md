@@ -176,15 +176,19 @@ alter table public.attendance_records
 
 ## 모델
 
-- LLM: `gemini-3.5-flash`(기본, `GEMINI_MODEL`로 변경). 스트리밍 지원. 2.x 세대는
+- LLM: `gemini-3.7-flash`(기본, `GEMINI_MODEL`로 변경. GA 2026-08-13). 스트리밍 지원. 2.x 세대는
   `thinkingBudget:0`, 3.x 세대는 `thinkingLevel:'low'`로 thinking 을 억제한다(세대별 자동 분기).
+  ⚠ 3.x 는 `temperature`/`topP`/`topK` 를 **에러 없이 무시**한다(2026-07-21 deprecated) — 세대
+  분기가 애초에 안 보내는 것이 방어선이고 `tests/ai/llm-generation-config.test.ts` 가 지킨다.
+  3.7 은 `thinkingLevel:'minimal'` 을 400 으로 거부하므로 `'low'` 아래로 내리지 말 것.
   ⚠ `gemini-2.5-flash` 는 2026-10-16 셧다운, `gemini-2.0-flash` 는 이미 종료, Pro 계열은
-  무료 쿼터 0(429) — `GEMINI_MODEL` 오버라이드로도 지정하지 말 것.
-- **429 내성(3중 방어)**: 무료 티어 분당 한도(3.5-flash RPM 20)에 걸리면 ① 서버가 알려준
+  무료 쿼터 0(429) — `GEMINI_MODEL` 오버라이드로도 지정하지 말 것. `gemini-3.7-pro` 는 없다.
+- **429 내성(3중 방어)**: 무료 티어 분당 한도에 걸리면 ① 서버가 알려준
   지연(≤6초)만큼 기다렸다 1회 재시도 → ② 폴백 모델 체인
-  `gemini-3.1-flash-lite → gemini-3-flash-preview`(모델별 쿼터 버킷이 분리돼 있어 주 모델이
-  막혀도 통과, `GEMINI_FALLBACK_MODELS`로 변경; 종전 마지막 단 `gemini-2.5-flash-lite` 는
-  2026-10-16 셧다운으로 교체) → ③ 그래도 실패하면 결정형 답변 + 원인 안내.
+  `gemini-3.5-flash-lite → gemini-3.6-flash`(모델별 쿼터 버킷이 분리돼 있어 주 모델이
+  막혀도 통과, `GEMINI_FALLBACK_MODELS`로 변경; 종전 체인의 `gemini-3.1-flash-lite` 는
+  2027-05-07 셧다운 예정, `gemini-3-flash-preview` 는 preview 채널이라 stable 로 교체) →
+  ③ 그래도 실패하면 결정형 답변 + 원인 안내.
 - **키워드 정확 일치 검색**: "tft 단어가 들어간 항목", "'기준정보' 포함된 작업" 류 질문은
   임베딩 의미검색이 정확 문자열 일치를 보장하지 못하므로, 질문에서 키워드를 추출해
   팩트시트를 직접 필터한 `[키워드 정확 일치]` 블록을 LLM 근거로 제공한다(0건도 명시 →

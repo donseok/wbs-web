@@ -121,6 +121,14 @@ export interface WikiChangeEvent {
   minuteDate: string | null
 }
 
+export interface WikiOverviewSummary {
+  topicCount: number
+  activeDecisionCount: number
+  openItemCount: number
+  conflictCount: number
+  lastChangedAt: string | null
+}
+
 export interface WikiQuestion {
   id: string
   projectId: string
@@ -158,6 +166,24 @@ export interface WikiTopicRevision {
   createdAt: string
 }
 
+export interface WikiOverviewData {
+  available: boolean
+  readState: WikiReadState
+  automationState: WikiAutomationState
+  topics: WikiTopicSummary[]
+  items: WikiItem[]
+  /** 승인 전/거절된 AI 추출물. 일반 지식 목록과 집계에는 절대 섞지 않는다. */
+  proposals: WikiItem[]
+  changes: WikiChangeEvent[]
+  /** 최근 변경 첫 페이지 계약의 다음 행 존재 여부. */
+  changesTruncated: boolean
+  /** 방어용 최대 페이지 수에 닿았을 때만 true. 부분 결과임을 숨기지 않는다. */
+  dataTruncated: boolean
+  questions?: WikiQuestion[]
+  feedback?: WikiFeedback[]
+  summary: WikiOverviewSummary
+}
+
 export interface WikiTopicDetailData {
   available: boolean
   readState: WikiReadState
@@ -174,6 +200,31 @@ export interface WikiTopicDetailData {
   revisions?: WikiTopicRevision[]
   questions?: WikiQuestion[]
   feedback?: WikiFeedback[]
+}
+
+const EMPTY_SUMMARY: WikiOverviewSummary = {
+  topicCount: 0,
+  activeDecisionCount: 0,
+  openItemCount: 0,
+  conflictCount: 0,
+  lastChangedAt: null,
+}
+
+function emptyOverview(readState: WikiReadState): WikiOverviewData {
+  return {
+    available: false,
+    readState,
+    automationState: wikiAutomationState(),
+    topics: [],
+    items: [],
+    proposals: [],
+    changes: [],
+    changesTruncated: false,
+    dataTruncated: false,
+    questions: [],
+    feedback: [],
+    summary: EMPTY_SUMMARY,
+  }
 }
 
 // 상태 판정은 lib/domain/wikiView가 단일 정본이다. 기존 호출부 호환을 위해 재수출한다.
@@ -477,6 +528,7 @@ type PagedRows = { rows: Row[]; error: WikiReadError | null; truncated: boolean 
 const READ_BATCH_SIZE = 500
 const READ_MAX_PAGES = 200
 const SOURCE_ID_BATCH_SIZE = 100
+const OVERVIEW_CHANGE_LIMIT = 100
 const TOPIC_CHANGE_LIMIT = 300
 const TOPIC_CURATE_LIMIT = 50
 
@@ -520,10 +572,13 @@ async function fetchMinuteMeta(
 ): Promise<WikiMinuteMeta> {
   const minuteById: WikiMinuteMeta = new Map()
   if (minuteIds.length === 0) return minuteById
-  for (const ids of chunked(Array.from(new Set(minuteIds)), SOURCE_ID_BATCH_SIZE)) {
-    const minutesRes = await sb.from('minutes')
+  // 청크 병렬 조회 — 청크끼리 id 가 겹치지 않으므로 삽입 순서와 무관하게 결과가 같다.
+  const chunkResults = await Promise.all(
+    chunked(Array.from(new Set(minuteIds)), SOURCE_ID_BATCH_SIZE).map((ids) => sb.from('minutes')
       .select('id, title, minute_date')
-      .in('id', ids)
+      .in('id', ids)),
+  )
+  for (const minutesRes of chunkResults) {
     if (minutesRes.error) {
       // 제목 보강 실패는 핵심 Wiki 지식의 부재가 아니므로 원문 링크는 id만으로 유지한다.
       console.error(`[${scope}.minutes] 회의록 메타 조회 실패:`, minutesRes.error.message)
@@ -589,8 +644,8 @@ async function fetchItemRows(
       .range(from, to)
   })
 
-  // accepted/proposal은 서로 독립인 읽기라 동시에 발행한다. 폴백 판정은 종전과 동일하게
-  // 결과별로 하며, 레거시 스키마 폴백(순차 재조회)은 accepted 오류 분기 안에 그대로 둔다.
+  // 승인분/제안분은 서로 독립 쿼리라 동시에 던진다(직렬 2왕복 → 1단). 레거시 스키마에서는
+  // 둘 다 실패하지만 그 분기는 종전과 동일하게 제안분 결과를 버리고 레거시 재조회 1회만 한다.
   const [accepted, proposals] = await Promise.all([
     read(ITEM_COLUMNS, ['accepted']),
     read(ITEM_COLUMNS, ['pending', 'rejected']),
@@ -650,29 +705,34 @@ async function fetchSources(
   error: WikiReadError | null
   truncated: boolean
 }> {
+  // 청크 순차 루프였던 것을 청크 병렬로 바꾼다(100개 초과 항목에서 직렬 2N왕복 → 1단).
+  // 결과 소비는 청크 순서대로라 행 순서·에러 계약(첫 에러 반환)이 종전과 같다.
+  const chunkResults = await Promise.all(
+    chunked(Array.from(new Set(itemIds)), SOURCE_ID_BATCH_SIZE).map((ids) => Promise.all([
+      fetchPagedRows((from, to) => sb.from('wiki_item_sources')
+        .select(SOURCE_COLUMNS)
+        .in('wiki_item_id', ids)
+        .is('retracted_at', null)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to)),
+      // 철회 근거는 현재 지식 카드에는 절대 붙이지 않고 과거 change의 원문 버전 복원에만 쓴다.
+      fetchPagedRows((from, to) => sb.from('wiki_item_sources')
+        .select(SOURCE_COLUMNS)
+        .in('wiki_item_id', ids)
+        .not('retracted_at', 'is', null)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to)),
+    ])),
+  )
   const activeRows: Row[] = []
   const provenanceRows: Row[] = []
   let truncated = false
-  for (const ids of chunked(Array.from(new Set(itemIds)), SOURCE_ID_BATCH_SIZE)) {
-    const active = await fetchPagedRows((from, to) => sb.from('wiki_item_sources')
-      .select(SOURCE_COLUMNS)
-      .in('wiki_item_id', ids)
-      .is('retracted_at', null)
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: true })
-      .range(from, to))
+  for (const [active, historical] of chunkResults) {
     if (active.error) return { activeRows: [], provenanceRows: [], error: active.error, truncated: false }
     activeRows.push(...active.rows)
     truncated ||= active.truncated
-
-    // 철회 근거는 현재 지식 카드에는 절대 붙이지 않고 과거 change의 원문 버전 복원에만 쓴다.
-    const historical = await fetchPagedRows((from, to) => sb.from('wiki_item_sources')
-      .select(SOURCE_COLUMNS)
-      .in('wiki_item_id', ids)
-      .not('retracted_at', 'is', null)
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: true })
-      .range(from, to))
     if (historical.error) return { activeRows: [], provenanceRows: [], error: historical.error, truncated: false }
     provenanceRows.push(...historical.rows)
     truncated ||= historical.truncated
@@ -701,6 +761,158 @@ function sourcesByItem(sources: WikiSource[]): Map<string, WikiSource[]> {
   }
   return result
 }
+
+function summarizeOverview(
+  topics: WikiTopicSummary[],
+  items: WikiItem[],
+  changes: WikiChangeEvent[],
+): WikiOverviewSummary {
+  const live = items.filter((item) => !isClosedByPersonWikiItem(item))
+  return {
+    // 문서 본문이 있는 주제 또는 살아 있는 accepted 지식이 있는 주제만 실제 Wiki 주제로 센다.
+    topicCount: topics.filter((topic) => Boolean(topic.bodyMd?.trim()) || topic.itemCount > 0).length,
+    activeDecisionCount: live.filter(isActiveWikiDecision).length,
+    openItemCount: live.filter(isOpenWikiItem).length,
+    conflictCount: live.filter(isConflictedWikiItem).length,
+    lastChangedAt: latestIso([
+      ...topics.map((topic) => topic.lastChangedAt),
+      ...changes.map((change) => change.createdAt),
+    ]),
+  }
+}
+
+/** 홈은 topics/items를 range pagination으로 끝까지 읽고, 최근 변경만 명시적 첫 페이지로 반환한다. */
+export const getWikiOverview = cache(async (projectId: string): Promise<WikiOverviewData> => {
+  const sb = await createServerClient()
+  // 주제·항목·최근 변경은 서로 독립 조회라 1단으로 동시 실행한다(2026-08-18 성능 감사 —
+  // 직렬 8단을 3단으로). 에러 분기·로그·반환 계약은 종전 소비 순서 그대로 판정한다.
+  const [topicsResult, itemsResult, changesResult] = await Promise.all([
+    fetchTopicRows(sb, projectId),
+    fetchItemRows(sb, projectId),
+    sb.from('wiki_change_events')
+      .select(CHANGE_COLUMNS)
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(0, OVERVIEW_CHANGE_LIMIT),
+  ])
+  if (topicsResult.error) {
+    logWikiReadError('getWikiOverview.topics', topicsResult.error)
+    return emptyOverview(schemaMissing(topicsResult.error) ? 'schema_missing' : 'error')
+  }
+  if (itemsResult.error) {
+    logWikiReadError('getWikiOverview.items', itemsResult.error)
+    return emptyOverview(schemaMissing(itemsResult.error) ? 'schema_missing' : 'error')
+  }
+
+  let hadError = false
+  let hadSchemaMissing = false
+  let changeRows: Row[] = []
+  if (changesResult.error) {
+    logWikiReadError('getWikiOverview.changes', changesResult.error)
+    if (schemaMissing(changesResult.error)) hadSchemaMissing = true
+    else hadError = true
+  } else {
+    changeRows = ((changesResult.data ?? []) as Row[]).slice(0, OVERVIEW_CHANGE_LIMIT)
+  }
+  const changesTruncated = ((changesResult.data ?? []) as Row[]).length > OVERVIEW_CHANGE_LIMIT
+
+  const allItemRows = [...itemsResult.accepted, ...itemsResult.proposals]
+  const itemIds = allItemRows.map((row) => asString(row.id)).filter(Boolean)
+  const provenanceItemIds = changeRows.map((row) => asString(row.wiki_item_id)).filter(Boolean)
+  let extensionMissing = topicsResult.extensionMissing || itemsResult.extensionMissing
+  // 2단: 근거(items·changes 의존)와 질문/피드백(확장 스키마 확인에 의존)을 함께 실행한다.
+  // 확장 스키마가 없다고 판명된 경우에는 종전과 동일하게 질문/피드백 조회 자체를 생략한다.
+  const [sourceResult, optionalResults] = await Promise.all([
+    fetchSources(sb, [...itemIds, ...provenanceItemIds]),
+    extensionMissing ? null : Promise.all([
+      fetchOptionalRows((from, to) => sb.from('wiki_questions')
+        .select(QUESTION_COLUMNS)
+        .eq('project_id', projectId)
+        .order('updated_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to), 'getWikiOverview.questions'),
+      fetchOptionalRows((from, to) => sb.from('wiki_feedback')
+        .select(FEEDBACK_COLUMNS)
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to), 'getWikiOverview.feedback'),
+    ]),
+  ])
+  if (sourceResult.error) {
+    logWikiReadError('getWikiOverview.sources', sourceResult.error)
+    if (schemaMissing(sourceResult.error)) hadSchemaMissing = true
+    else hadError = true
+  }
+
+  let questionsResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
+  let feedbackResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
+  if (optionalResults) {
+    [questionsResult, feedbackResult] = optionalResults
+    extensionMissing ||= questionsResult.extensionMissing || feedbackResult.extensionMissing
+    if (questionsResult.error) {
+      logWikiReadError('getWikiOverview.questions', questionsResult.error)
+      if (schemaMissing(questionsResult.error)) hadSchemaMissing = true
+      else hadError = true
+    }
+    if (feedbackResult.error) {
+      logWikiReadError('getWikiOverview.feedback', feedbackResult.error)
+      if (schemaMissing(feedbackResult.error)) hadSchemaMissing = true
+      else hadError = true
+    }
+  }
+
+  const sourceRows = [...sourceResult.activeRows, ...sourceResult.provenanceRows]
+  const minuteIds = Array.from(new Set([
+    ...sourceRows.map((row) => asString(row.minute_id)),
+    ...changeRows.map((row) => asString(row.minute_id)),
+  ].filter(Boolean)))
+  const minuteById = await fetchMinuteMeta(sb, minuteIds, 'getWikiOverview')
+  const activeSources = sourceResult.activeRows.map((row) => mapSource(row, minuteById))
+  const provenanceSources = sourceResult.provenanceRows.map((row) => mapSource(row, minuteById))
+  const currentSourcesByItem = sourcesByItem(activeSources)
+
+  const items = itemsResult.accepted.map((row) => mapItem(row, currentSourcesByItem))
+  const proposals = itemsResult.proposals.map((row) => mapItem(row, currentSourcesByItem))
+  const itemByTopic = new Map<string, WikiItem[]>()
+  for (const item of items) {
+    const existing = itemByTopic.get(item.topicId)
+    if (existing) existing.push(item)
+    else itemByTopic.set(item.topicId, [item])
+  }
+  const topics = topicsResult.rows
+    .map(mapTopic)
+    .map((topic) => summarizeTopic(topic, itemByTopic.get(topic.id) ?? []))
+    .sort((a, b) => b.lastChangedAt.localeCompare(a.lastChangedAt))
+
+  const allSources = [...activeSources, ...provenanceSources]
+  const sourceVersions = buildChangeSourceVersionIndex(allSources)
+  const sourceVersionById = new Map(
+    allSources.map((source) => [source.id, source.minuteVersionId ?? ''] as const),
+  )
+  const changes = changeRows.map((row) => mapChange(row, minuteById, sourceVersions, sourceVersionById))
+  const dataTruncated = topicsResult.truncated
+    || itemsResult.truncated
+    || sourceResult.truncated
+    || questionsResult.truncated
+    || feedbackResult.truncated
+
+  return {
+    available: true,
+    readState: extensionMissing || hadSchemaMissing ? 'schema_missing' : hadError ? 'error' : 'ready',
+    automationState: wikiAutomationState(),
+    topics,
+    items,
+    proposals,
+    changes,
+    changesTruncated,
+    dataTruncated,
+    questions: questionsResult.rows.map(mapQuestion),
+    feedback: feedbackResult.rows.map(mapFeedback),
+    summary: summarizeOverview(topics, items, changes),
+  }
+})
 
 /**
  * 주제 병합 이벤트는 스냅샷에 wiki_topics 행을 통째로 담는다(0048 merge_wiki_topics).
@@ -735,8 +947,8 @@ export const getWikiTopicDetail = cache(async (
   topicId: string,
 ): Promise<WikiTopicDetailData> => {
   const sb = await createServerClient()
-  // 주제 행·항목·큐레이션 이벤트는 모두 projectId/topicId만으로 발행 가능한 독립 읽기라
-  // 동시에 던진다. 항목별 변경 이벤트·근거는 itemIds가 나와야 발행할 수 있어 뒤 단계다.
+  // 1단: 주제·항목·큐레이션 이벤트는 서로 독립 조회라 동시에 던진다(2026-08-18 성능 감사 —
+  // 직렬 9단+를 3단으로). 실패 분기·조기 반환은 종전 소비 순서(topic → items) 그대로다.
   const [topicResult, itemsResult, curateResult] = await Promise.all([
     fetchTopicRows(sb, projectId, topicId),
     fetchItemRows(sb, projectId, topicId),
@@ -767,67 +979,19 @@ export const getWikiTopicDetail = cache(async (
   }
   const allItemRows = [...itemsResult.accepted, ...itemsResult.proposals]
   const itemIds = allItemRows.map((row) => asString(row.id)).filter(Boolean)
-  let hadError = false
-  let hadSchemaMissing = false
-
-  // 근거와 항목별 변경 이벤트는 둘 다 itemIds에만 의존하고 서로는 독립이라 동시에 읽는다.
-  const [sourceResult, itemChanges] = await Promise.all([
-    fetchSources(sb, itemIds),
-    (async () => {
-      const rows: Row[] = []
-      let truncated = false
-      let errored = false
-      let schemaMissed = false
-      for (const ids of chunked(itemIds, SOURCE_ID_BATCH_SIZE)) {
-        const result = await sb.from('wiki_change_events')
-          .select(CHANGE_COLUMNS)
-          .eq('project_id', projectId)
-          .in('wiki_item_id', ids)
-          .order('created_at', { ascending: false })
-          .order('id', { ascending: true })
-          .range(0, TOPIC_CHANGE_LIMIT)
-        if (result.error) {
-          logWikiReadError('getWikiTopicDetail.changes', result.error)
-          if (schemaMissing(result.error)) schemaMissed = true
-          else errored = true
-          continue
-        }
-        const received = (result.data ?? []) as Row[]
-        truncated ||= received.length > TOPIC_CHANGE_LIMIT
-        rows.push(...received.slice(0, TOPIC_CHANGE_LIMIT))
-      }
-      return { rows, truncated, errored, schemaMissed }
-    })(),
-  ])
-  if (sourceResult.error) {
-    logWikiReadError('getWikiTopicDetail.sources', sourceResult.error)
-    if (schemaMissing(sourceResult.error)) hadSchemaMissing = true
-    else hadError = true
-  }
-  hadError ||= itemChanges.errored
-  hadSchemaMissing ||= itemChanges.schemaMissed
-  const changeRows: Row[] = [...itemChanges.rows]
-  let changesTruncated = itemChanges.truncated
-
-  if (curateResult.error) {
-    logWikiReadError('getWikiTopicDetail.curate', curateResult.error)
-    if (schemaMissing(curateResult.error)) hadSchemaMissing = true
-    else hadError = true
-  } else {
-    const curateRows = (curateResult.data ?? []) as Row[]
-    changesTruncated ||= curateRows.length > TOPIC_CURATE_LIMIT
-    changeRows.push(...curateRows.slice(0, TOPIC_CURATE_LIMIT).filter((row) => (
-      snapshotTopicRowId(asObject(row.before_snapshot)) === topicId
-      || snapshotTopicRowId(asObject(row.after_snapshot)) === topicId
-    )))
-  }
-
   let extensionMissing = topicResult.extensionMissing || itemsResult.extensionMissing
-  let revisionsResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
-  let questionsResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
-  let feedbackResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
-  if (!extensionMissing) {
-    [revisionsResult, questionsResult, feedbackResult] = await Promise.all([
+  // 2단: 항목 id 에 의존하는 근거·변경 이력과, 확장 스키마 확인에 의존하는 부가 테이블 셋.
+  // 변경 이력의 청크 루프도 병렬로 바꾸되 소비는 청크 순서를 지켜 행 순서를 보존한다.
+  const [sourceResult, changeChunkResults, optionalResults] = await Promise.all([
+    fetchSources(sb, itemIds),
+    Promise.all(chunked(itemIds, SOURCE_ID_BATCH_SIZE).map((ids) => sb.from('wiki_change_events')
+      .select(CHANGE_COLUMNS)
+      .eq('project_id', projectId)
+      .in('wiki_item_id', ids)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(0, TOPIC_CHANGE_LIMIT))),
+    extensionMissing ? null : Promise.all([
       fetchOptionalRows((from, to) => sb.from('wiki_topic_revisions')
         .select(REVISION_COLUMNS)
         .eq('project_id', projectId)
@@ -849,7 +1013,48 @@ export const getWikiTopicDetail = cache(async (
         .order('created_at', { ascending: false })
         .order('id', { ascending: true })
         .range(from, to), 'getWikiTopicDetail.feedback'),
-    ])
+    ]),
+  ])
+  let hadError = false
+  let hadSchemaMissing = false
+  if (sourceResult.error) {
+    logWikiReadError('getWikiTopicDetail.sources', sourceResult.error)
+    if (schemaMissing(sourceResult.error)) hadSchemaMissing = true
+    else hadError = true
+  }
+
+  const changeRows: Row[] = []
+  let changesTruncated = false
+  for (const result of changeChunkResults) {
+    if (result.error) {
+      logWikiReadError('getWikiTopicDetail.changes', result.error)
+      if (schemaMissing(result.error)) hadSchemaMissing = true
+      else hadError = true
+      continue
+    }
+    const rows = (result.data ?? []) as Row[]
+    changesTruncated ||= rows.length > TOPIC_CHANGE_LIMIT
+    changeRows.push(...rows.slice(0, TOPIC_CHANGE_LIMIT))
+  }
+
+  if (curateResult.error) {
+    logWikiReadError('getWikiTopicDetail.curate', curateResult.error)
+    if (schemaMissing(curateResult.error)) hadSchemaMissing = true
+    else hadError = true
+  } else {
+    const curateRows = (curateResult.data ?? []) as Row[]
+    changesTruncated ||= curateRows.length > TOPIC_CURATE_LIMIT
+    changeRows.push(...curateRows.slice(0, TOPIC_CURATE_LIMIT).filter((row) => (
+      snapshotTopicRowId(asObject(row.before_snapshot)) === topicId
+      || snapshotTopicRowId(asObject(row.after_snapshot)) === topicId
+    )))
+  }
+
+  let revisionsResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
+  let questionsResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
+  let feedbackResult: ExtensionRows = { rows: [], error: null, truncated: false, extensionMissing: false }
+  if (optionalResults) {
+    [revisionsResult, questionsResult, feedbackResult] = optionalResults
     extensionMissing ||= revisionsResult.extensionMissing
       || questionsResult.extensionMissing
       || feedbackResult.extensionMissing

@@ -4,6 +4,10 @@ const issueAnalysisTemplate =
   "./src/lib/report/assets/issue-analysis-template.pptx";
 
 const nextConfig: NextConfig = {
+  // 라우터 캐시(2026-08-18 성능 감사): 동적 페이지도 30초간 클라이언트 라우터 캐시를 재사용해
+  // 방금 본 화면 재방문·뒤로가기가 왕복 0회가 된다. 서버 액션의 revalidatePath / router.refresh
+  // 가 캐시를 무효화하므로 쓰기 후 신선도는 유지된다.
+  experimental: { staleTimes: { dynamic: 30 } },
   // 상위 홈 디렉터리의 lockfile을 workspace root로 오인하지 않게 서버 추적 기준을 고정한다.
   outputFileTracingRoot: process.cwd(),
   // PPTX 템플릿을 각 Node.js 다운로드 라우트 서버 번들에 포함(런타임 fs 읽기).

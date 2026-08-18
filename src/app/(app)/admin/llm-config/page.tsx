@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 import { getActorForView } from '@/lib/authz'
 import { canManageLlmConfig } from '@/lib/authz/llmConfigAccess'
 import { getLlmConfig } from '@/app/actions/llmConfig'
+import { activeModelInfo } from '@/lib/ai/health'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { LlmConfigManager } from '@/components/admin/LlmConfigManager'
 
@@ -13,7 +14,9 @@ export default async function LlmConfigAdminPage() {
   const actor = await getActorForView()
   if (!canManageLlmConfig(actor)) redirect('/projects')
 
-  const res = await getLlmConfig()
+  // 설정값(무엇을 저장했나)과 별개로 **지금 서버가 해석한 실제 모델**을 함께 읽는다.
+  // 둘이 갈리는 경우가 있다(env 오버라이드·프로필이 임베딩을 안 덮음) — 그게 관리자가 알아야 할 것이다.
+  const [res, active] = await Promise.all([getLlmConfig(), activeModelInfo()])
 
   return (
     <div className="space-y-6">
@@ -37,7 +40,7 @@ export default async function LlmConfigAdminPage() {
           </div>
         </div>
       ) : (
-        <LlmConfigManager initial={res} />
+        <LlmConfigManager initial={res} active={active} />
       )}
     </div>
   )

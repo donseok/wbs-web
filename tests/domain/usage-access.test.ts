@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { canViewUsage } from '@/lib/authz/usageAccess'
 import type { Actor } from '@/lib/domain/authz'
-import { DICT } from '@/lib/i18n/dict'
+import { KO } from '@/lib/i18n/dict/ko'
+import { EN } from '@/lib/i18n/dict/en'
 
 const actor = (over: Partial<Actor>): Actor => ({
   userId: 'u1', teamCode: 'PMO', teamId: 't1', isSuperuser: false,
@@ -23,7 +24,7 @@ describe('canViewUsage — 슈퍼유저 전용(2026-07-30 사용자 결정)', ()
 
 describe('nav.usage 사전 키', () => {
   it('ko/en 양쪽에 있다', () => {
-    expect(DICT.ko['nav.usage']).toBe('사용 현황')
-    expect(DICT.en['nav.usage']).toBe('Usage')
+    expect(KO['nav.usage']).toBe('사용 현황')
+    expect(EN['nav.usage']).toBe('Usage')
   })
 })

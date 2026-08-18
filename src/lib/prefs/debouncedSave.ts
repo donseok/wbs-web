@@ -1,6 +1,18 @@
 'use client'
-import { saveUiPrefs, saveWbsCollapse } from '@/app/actions/preferences'
 import type { UiPrefs } from '@/lib/domain/types'
+
+// 서버 액션이 아니라 /api/prefs POST 를 쓴다 — 액션은 성공할 때마다 클라이언트 라우터
+// 캐시를 통째로 비워, 내비게이션마다 도는 이 저장이 staleTimes(30s) 재방문 캐시를
+// 무효화했다(2026-08-18 실측). keepalive 라 페이지 이탈 직전 저장도 유실되지 않는다.
+// 실패는 무시(로컬 캐시가 진실) — 종전 액션 경로와 같은 계약.
+function postPrefs(body: { prefs?: Partial<UiPrefs>; wbsCollapse?: { projectId: string; ids: string[] } }): void {
+  void fetch('/api/prefs', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    keepalive: true,
+  }).catch(() => {})
+}
 
 let pendingPrefs: Partial<UiPrefs> = {}
 let prefsTimer: ReturnType<typeof setTimeout> | null = null
@@ -13,7 +25,7 @@ export function queueUiPref(patch: Partial<UiPrefs>, delay = 600): void {
     const p = pendingPrefs
     pendingPrefs = {}
     prefsTimer = null
-    void saveUiPrefs(p).catch(() => {})
+    postPrefs({ prefs: p })
   }, delay)
 }
 
@@ -29,6 +41,6 @@ export function queueWbsCollapse(projectId: string, ids: string[], delay = 600):
     const v = wbsPending.get(projectId) ?? []
     wbsPending.delete(projectId)
     wbsTimers.delete(projectId)
-    void saveWbsCollapse(projectId, v).catch(() => {})
+    postPrefs({ wbsCollapse: { projectId, ids: v } })
   }, delay))
 }

@@ -10,24 +10,45 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t: (k: string) => k }) }))
-vi.mock('@/app/actions/announcements', () => ({ getUnreadAnnouncementCount: vi.fn(async () => 0) }))
 const queueUiPref = vi.fn()
 vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: (...a: unknown[]) => queueUiPref(...(a as [])) }))
+// 실시간 구독은 향상 계층 — 테스트 대상 아님(supabase 클라이언트 생성을 피한다).
+vi.mock('@/lib/hooks/useInboxRealtime', () => ({ useInboxRealtime: () => {} }))
 
 import { Sidebar, SIDEBAR_TOGGLE_EVENT, dispatchSidebarToggle } from '@/components/app/Sidebar'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 
 describe('Sidebar 서버 동기화 배선', () => {
   let container: HTMLDivElement, root: Root
-  beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); localStorage.clear(); queueUiPref.mockClear() })
-  afterEach(() => { act(() => root.unmount()); container.remove() })
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    localStorage.clear()
+    queueUiPref.mockClear()
+    // 공지 배지 등 셸 상태는 ShellStateProvider 가 /api/shell GET 1회로 채운다 — 고정 payload 스텁.
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        inbox: { items: [], unseen: 0 },
+        notifications: { items: [], count: 0 },
+        unreadAnnouncements: 0,
+        headerAnnouncements: [],
+      }),
+    })))
+  })
+  afterEach(() => { act(() => root.unmount()); container.remove(); vi.unstubAllGlobals() })
 
   async function mount() {
     await act(async () => root.render(
       <ProjectNavigationProvider projects={[]}>
-        <Sidebar projects={[]} />
+        <ShellStateProvider>
+          <Sidebar projects={[]} />
+        </ShellStateProvider>
       </ProjectNavigationProvider>,
     ))
+    await act(async () => {}) // /api/shell 응답 flush
   }
 
   it('dispatchSidebarToggle 는 localStorage 를 갱신하고 서버 쓰기는 하지 않는다', async () => {

@@ -24,13 +24,13 @@ vi.mock('@/components/providers/LocaleProvider', () => ({
     } as Record<string, string>)[key] ?? key,
   }),
 }))
-vi.mock('@/app/actions/announcements', () => ({
-  getUnreadAnnouncementCount: vi.fn(async () => 0),
-}))
 vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref: vi.fn() }))
+// 실시간 구독은 향상 계층 — 테스트 대상 아님(supabase 클라이언트 생성을 피한다).
+vi.mock('@/lib/hooks/useInboxRealtime', () => ({ useInboxRealtime: () => {} }))
 
 import { dispatchSidebarToggle, Sidebar } from '@/components/app/Sidebar'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 
 const projects: SidebarProject[] = [
   { id: 'p1', name: 'ERP 프로젝트', status: 'active' },
@@ -45,6 +45,16 @@ describe('Sidebar 프로젝트 콤보박스', () => {
     mocks.pathname = '/projects'
     mocks.push.mockReset()
     localStorage.clear()
+    // 공지 배지 등 셸 상태는 ShellStateProvider 가 /api/shell GET 1회로 채운다 — 고정 payload 스텁.
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        inbox: { items: [], unseen: 0 },
+        notifications: { items: [], count: 0 },
+        unreadAnnouncements: 0,
+        headerAnnouncements: [],
+      }),
+    })))
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -53,6 +63,7 @@ describe('Sidebar 프로젝트 콤보박스', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.unstubAllGlobals()
   })
 
   async function render(
@@ -68,10 +79,13 @@ describe('Sidebar 프로젝트 콤보박스', () => {
           initialLastProjectId={initialLastProjectId}
           initialLastProjectHref={initialLastProjectId ? `/p/${initialLastProjectId}/wbs` : null}
         >
-          <Sidebar projects={items} />
+          <ShellStateProvider>
+            <Sidebar projects={items} />
+          </ShellStateProvider>
         </ProjectNavigationProvider>,
       )
     })
+    await act(async () => {}) // /api/shell 응답 flush
   }
 
   function selector(): HTMLSelectElement {

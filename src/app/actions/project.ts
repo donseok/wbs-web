@@ -1,8 +1,8 @@
 'use server'
+import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getSession } from '@/lib/auth'
-import { getActorForView, requireProjectAdmin, requireSuperuser } from '@/lib/authz'
+import { getActorViewState, requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { canSeeProject } from '@/lib/domain/authz'
 import { isValidDateRange } from '@/lib/domain/validate'
 import { PRESETS } from '@/lib/domain/projectPresets'
@@ -22,22 +22,14 @@ export async function listProjects() {
  * 띄웠다 — 데이터가 멀쩡한데 신규 가입자 화면처럼 보였다. 로그는 남았지만 표시가 없었다.
  */
 export async function listProjectsWithState() {
-  // 세션 확인·목록·권한 조회는 서로를 기다릴 이유가 없다 — 셋을 동시에 시작하고
-  // 판단(비로그인 조기 반환)만 세션 결과로 한다. 직렬이면 세션 왕복만큼 목록이 늦어진다.
-  const sessionPromise = getSession()
-  const projectsPromise = fetchProjects()
-  const actorPromise = getActorForView()
-  // 서버 액션 직접 호출에 대비한 인증 재확인(RLS와 이중 방어).
-  // 비로그인은 '조회 실패' 가 아니다 — degraded=false 여야 미들웨어가 /login 으로 보내는
-  // 정상 흐름에 경고 배너가 딸려붙지 않는다.
-  if (!(await sessionPromise)) {
-    // 조기 반환으로 버려지는 병행 조회가 unhandled rejection 으로 새지 않게 흡수한다
-    // (RLS 가 anon 조회를 막아도 프로세스 경고가 남으면 진짜 장애 로그를 오염시킨다).
-    projectsPromise.catch(() => {})
-    actorPromise.catch(() => {})
-    return { projects: [] as ProjectRow[], degraded: false }
-  }
-  const [{ data, error }, actor] = await Promise.all([projectsPromise, actorPromise])
+  // 인증 재확인은 getActorViewState 안의 getUser 가 겸한다 — 별도 getSession 선행 게이트를
+  // 두면 그 한 번의 왕복이 모든 호출부(레이아웃 포함)의 직렬 1단이 된다(2026-08-18 성능 감사).
+  // 비로그인: actor 가 null(degraded=false)이고 fetchProjects 는 RLS(authenticated 읽기)로
+  // 빈 배열이므로 종전의 { projects: [], degraded: false } 와 동일한 결과가 된다.
+  // (조기 반환이 Promise.all 뒤로 옮겨져 버려지는 프라미스가 없다 — unhandled rejection 흡수 불필요.)
+  const [{ data, error }, actorState] = await Promise.all([fetchProjects(), getActorViewState()])
+  const actor = actorState.actor
+  if (!actor && !actorState.degraded) return { projects: [] as ProjectRow[], degraded: false }
   // 순수 표시용 조회라 폴백([])을 유지한다 — throw 하면 (app)/layout.tsx 가 호출하므로
   // 프로젝트 목록 하나 깨진 것으로 앱 전 페이지가 에러 화면이 된다(로그인 후 아무 데도 못 감).
   // 이 목록의 '0건'을 근거로 쓰기/삭제를 판단하는 경로는 없어서(생성은 채번·중복검사에 쓰지 않음)
@@ -51,10 +43,13 @@ export async function listProjectsWithState() {
 
 type ProjectRow = NonNullable<Awaited<ReturnType<typeof fetchProjects>>['data']>[number]
 
-async function fetchProjects() {
+// cache(): 레이아웃과 페이지(예: wiki)가 같은 요청에서 listProjectsWithState 를 각자 불러도
+// projects 조회는 1회만 나간다. 'use server' 파일의 export 는 async 함수여야 하므로
+// 모듈 내부 헬퍼에만 래핑한다.
+const fetchProjects = cache(async () => {
   const sb = await createServerClient()
   return sb.from('projects').select('*').order('created_at', { ascending: false })
-}
+})
 
 export async function createProject(
   name: string,

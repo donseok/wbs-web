@@ -1,83 +1,39 @@
-// i18n 사전 진입점 — 화면별 네임스페이스 파일(dict/*.ts)을 병합한다.
-// 각 네임스페이스 파일은 해당 화면 담당만 수정한다(병렬 작업 충돌 방지).
-// 키 패리티(ko↔en)는 각 네임스페이스 파일에서 Record<keyof ko, string> 타입으로 강제된다.
-import { commonKo, commonEn } from './dict/common'
-import { settingsKo, settingsEn } from './dict/settings'
-import { dashboardKo, dashboardEn } from './dict/dashboard'
-import { membersKo, membersEn } from './dict/members'
-import { attendanceKo, attendanceEn } from './dict/attendance'
-import { announcementsKo, announcementsEn } from './dict/announcements'
-import { meetingsKo, meetingsEn } from './dict/meetings'
-import { kanbanKo, kanbanEn } from './dict/kanban'
-import { wbsKo, wbsEn } from './dict/wbs'
-import { homeKo, homeEn } from './dict/home'
-import { chatKo, chatEn } from './dict/chat'
-import { uiKo, uiEn } from './dict/ui'
-import { holidaysKo, holidaysEn } from './dict/holidays'
-import { minutesKo, minutesEn } from './dict/minutes'
-import { issuesKo, issuesEn } from './dict/issues'
-import { wikiKo, wikiEn } from './dict/wiki'
-import { agentOpsKo, agentOpsEn } from './dict/agentOps'
-import { importWizardKo, importWizardEn } from './dict/importWizard'
-import { inboxKo, inboxEn } from './dict/inbox'
-import { accountKo, accountEn } from './dict/account'
-import { portfolioKo, portfolioEn } from './dict/portfolio'
+// i18n 사전 진입점 — KO 는 정적, EN 은 지연 등록(registry).
+//
+// 왜 이렇게 갈랐나(2026-08-18 성능 감사): 종전에는 ko+en 전체 병합 DICT 를 이 모듈이
+// 정적으로 들고 있어, t 를 임포트하는 모든 클라이언트 컴포넌트를 따라 사전 전체
+// (~51KB gz)가 전 페이지 공통 청크에 실렸다. 사용자 대부분이 ko 이므로 en 절반은
+// 죽은 무게다. 지금은:
+//   - 클라이언트: KO 만 정적. en 은 LocaleProvider 가 ensureEnLoaded() 로 필요할 때만
+//     동적 import(별도 청크). 로드 전 en 조회는 ko 로 폴백된다.
+//   - 서버: server.ts 가 EN 을 정적 import 해 registerEn() 으로 등록 — 서버 렌더는
+//     항상 완전한 en 을 쓴다(서버 번들 크기는 체감 비용이 아니다).
+// 주의: 클라이언트 코드에서 './dict/en' 을 정적 import 하면 분리가 무효가 된다.
+import { KO } from './dict/ko'
 
 export type Locale = 'ko' | 'en'
+export type DictKey = keyof typeof KO
 
-export const DICT = {
-  ko: {
-    ...commonKo,
-    ...settingsKo,
-    ...dashboardKo,
-    ...membersKo,
-    ...attendanceKo,
-    ...announcementsKo,
-    ...meetingsKo,
-    ...kanbanKo,
-    ...wbsKo,
-    ...homeKo,
-    ...chatKo,
-    ...uiKo,
-    ...holidaysKo,
-    ...minutesKo,
-    ...issuesKo,
-    ...wikiKo,
-    ...agentOpsKo,
-    ...importWizardKo,
-    ...inboxKo,
-    ...accountKo,
-    ...portfolioKo,
-  },
-  en: {
-    ...commonEn,
-    ...settingsEn,
-    ...dashboardEn,
-    ...membersEn,
-    ...attendanceEn,
-    ...announcementsEn,
-    ...meetingsEn,
-    ...kanbanEn,
-    ...wbsEn,
-    ...homeEn,
-    ...chatEn,
-    ...uiEn,
-    ...holidaysEn,
-    ...minutesEn,
-    ...issuesEn,
-    ...wikiEn,
-    ...agentOpsEn,
-    ...importWizardEn,
-    ...inboxEn,
-    ...accountEn,
-    ...portfolioEn,
-  },
-} as const
+let EN: Record<string, string> | null = null
 
-export type DictKey = keyof (typeof DICT)['ko']
+/** 서버 전용(server.ts) — EN 테이블을 동기 등록한다. */
+export function registerEn(table: Record<DictKey, string>): void {
+  EN = table
+}
 
-/** 서버 컴포넌트용 번역 — locale은 getServerLocale()(src/lib/i18n/server.ts)로 얻는다. */
+/** 클라이언트 — EN 청크를 지연 로드해 등록한다. 중복 호출은 no-op. */
+export async function ensureEnLoaded(): Promise<void> {
+  if (EN) return
+  const m = await import('./dict/en')
+  EN = m.EN
+}
+
+export function isEnLoaded(): boolean {
+  return EN !== null
+}
+
+/** 번역 조회 — locale 이 en 인데 아직 미로드면 ko 로 폴백한다(로드 완료 시 재렌더로 교체). */
 export function t(locale: Locale, key: DictKey): string {
-  const table = DICT[locale] as Record<string, string>
-  return table[key] ?? (DICT.ko as Record<string, string>)[key] ?? key
+  const table = locale === 'en' ? EN : (KO as Record<string, string>)
+  return table?.[key] ?? (KO as Record<string, string>)[key] ?? key
 }

@@ -48,22 +48,32 @@ export async function generateAnswer(
 
 /**
  * 429(무료 쿼터)·5xx 로 주 모델이 답을 못 줄 때 순서대로 시도할 폴백 모델.
- * 무료 티어 쿼터는 모델별로 별도 버킷이라, 주 모델(gemini-3.5-flash, RPM 20)이 분당 한도에
- * 걸려도 아래 모델들은 여유가 있다(2026-07-02 실 키로 두 모델 모두 200 확인).
- * - gemini-3.1-flash-lite: 3.x 세대(thinkingLevel 분기)
- * - gemini-3-flash-preview: 3.x 세대. preview 라 예고 없이 회수될 수 있으나 마지막 보루라 허용
- *   (2026-07-20 실 키로 thinkingLevel 포함 200 확인; 종전 gemini-2.5-flash-lite 는 2026-10-16 셧다운으로 교체)
+ * 무료 티어 쿼터는 모델별로 별도 버킷이라, 주 모델(gemini-3.7-flash)이 분당 한도에
+ * 걸려도 아래 모델들은 여유가 있다(2026-08-18 운영 키로 두 모델 모두 thinkingLevel 포함 200 확인).
+ * - gemini-3.5-flash-lite: 3.x 세대(thinkingLevel 분기). 최저 단가·최저 지연이라 1순위 폴백.
+ * - gemini-3.6-flash: 3.x 세대. 3.7 과 동급 품질·동일 단가의 직전 안정판.
+ * 둘 다 stable 이다 — 종전 폴백이던 gemini-3.1-flash-lite 는 2027-05-07 셧다운 예정(대체가 곧
+ * 3.5-flash-lite)이고, gemini-3-flash-preview 는 preview 라 예고 없이 회수될 수 있어 교체했다.
  * GEMINI_FALLBACK_MODELS(콤마 구분)로 오버라이드, 빈 문자열이면 폴백 없음.
  */
-const DEFAULT_GEMINI_FALLBACKS = ['gemini-3.1-flash-lite', 'gemini-3-flash-preview']
+const DEFAULT_GEMINI_FALLBACKS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
 
-function geminiModelChain(primary: string): string[] {
+/**
+ * 주 모델을 뺀 폴백 목록. 진단 화면이 "429 때 무엇이 대신 답하는가"를 보여줘야 해서 export 한다 —
+ * 체인 계산을 두 곳에 복제하면 화면과 실제가 갈린다.
+ * 미설정이면 코드 기본 배열, 빈 문자열이면 폴백 없음(둘은 다른 의도다).
+ */
+export function geminiFallbackModels(primary: string): string[] {
   const raw = process.env.GEMINI_FALLBACK_MODELS
   const fallbacks =
     raw === undefined
       ? DEFAULT_GEMINI_FALLBACKS
       : raw.split(',').map(s => s.trim()).filter(Boolean)
-  return [primary, ...fallbacks.filter(m => m !== primary)]
+  return fallbacks.filter(m => m !== primary)
+}
+
+function geminiModelChain(primary: string): string[] {
+  return [primary, ...geminiFallbackModels(primary)]
 }
 
 /**

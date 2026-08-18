@@ -17,15 +17,15 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ t: (key: string) => key }),
 }))
-vi.mock('@/app/actions/announcements', () => ({
-  getUnreadAnnouncementCount: vi.fn(async () => 0),
-}))
 vi.mock('@/lib/prefs/debouncedSave', () => ({
   queueUiPref: vi.fn(),
 }))
+// 실시간 구독은 향상 계층 — 테스트 대상 아님(supabase 클라이언트 생성을 피한다).
+vi.mock('@/lib/hooks/useInboxRealtime', () => ({ useInboxRealtime: () => {} }))
 
 import { Sidebar, type SidebarProject } from '@/components/app/Sidebar'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 
 const projects: SidebarProject[] = [{
   id: 'p1',
@@ -40,6 +40,16 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
   beforeEach(() => {
     mocks.pathname = '/minutes'
     mocks.push.mockReset()
+    // 공지 배지 등 셸 상태는 ShellStateProvider 가 /api/shell GET 1회로 채운다 — 고정 payload 스텁.
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        inbox: { items: [], unseen: 0 },
+        notifications: { items: [], count: 0 },
+        unreadAnnouncements: 0,
+        headerAnnouncements: [],
+      }),
+    })))
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -48,6 +58,7 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.unstubAllGlobals()
   })
 
   async function renderAt(pathname: string) {
@@ -59,10 +70,13 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
           initialLastProjectId="p1"
           initialLastProjectHref="/p/p1/wbs"
         >
-          <Sidebar projects={projects} />
+          <ShellStateProvider>
+            <Sidebar projects={projects} />
+          </ShellStateProvider>
         </ProjectNavigationProvider>,
       )
     })
+    await act(async () => {}) // /api/shell 응답 flush
   }
 
   it('회의록에서는 전역 메뉴를 활성화하면서 최근 프로젝트 하위 메뉴와 복귀 링크를 유지한다', async () => {

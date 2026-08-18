@@ -4,7 +4,7 @@ import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin, isProjectMember } from '@/lib/domain/authz'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import { mondayIso, sheetWeekMeta } from '@/lib/report/week'
-import { getWeeklySheet, findCarryOverSource } from '@/lib/data/weeklySheet'
+import { getWeeklySheet, hasCarryOverSource } from '@/lib/data/weeklySheet'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
@@ -23,9 +23,10 @@ export default async function WeeklyPage({
   const weekStart = mondayIso(week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : seoulToday())
   const wk = sheetWeekMeta(weekStart)
 
-  const [sheet, carrySource, projects, locale, user, actor] = await Promise.all([
+  const [sheet, hasCarry, projects, locale, user, actor] = await Promise.all([
     getWeeklySheet(projectId, weekStart),
-    findCarryOverSource(projectId, weekStart),
+    // 판정 전용 경량 조회 — 셀 내용(최대 44셀×20,000자)을 실어오지 않는다(2026-08-18 성능 감사).
+    hasCarryOverSource(projectId, weekStart),
     listProjects(),
     getServerLocale(),
     getSession(),
@@ -52,7 +53,7 @@ export default async function WeeklyPage({
         projectName={projectName}
         report={sheet ? { id: sheet.report.id, title: sheet.report.title } : null}
         initialRows={sheet?.rows ?? []}
-        hasCarrySource={!!carrySource && carrySource.rows.length > 0}
+        hasCarrySource={hasCarry}
         me={me}
         canEditCells={isProjectMember(actor, projectId)}
         canCreateRound={isProjectAdmin(actor, projectId)}

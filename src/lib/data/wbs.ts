@@ -108,14 +108,19 @@ export const getComputedWbs = cache(async (
 // 사이드바용 경량 완료율 맵 — 프로젝트 전체를 1쿼리로 (트리 로드 없이)
 // 반환 null = 조회 실패. 빈 맵({})과 반드시 구분해야 한다 — 빈 맵은 'WBS가 없는 프로젝트'라는 정상 상태이고,
 // 실패를 그것과 같게 취급하면 종료일 지난 미완 프로젝트가 '완료' 배지로 둔갑한다(projectLifecycleStatus).
+//
+// 인자를 받지 않는다(2026-08-18 성능 감사): 종전에는 projectIds 를 받아 레이아웃의 프로젝트
+// 목록 조회 **뒤에** 직렬로 실행됐다. RLS 가 authenticated 전체 읽기 개방이라 id 필터는
+// 결과를 바꾸지 않으므로, 무인자로 바꿔 첫 Promise.all 에 병합한다(직렬 1단 제거).
+// 조회에 비공개 프로젝트 행이 섞여도 소비처가 가시 프로젝트 id 로만 lookup 하므로 화면 유출은 없다.
+// cache() 키도 무인자라 레이아웃·페이지가 같은 요청에서 불러도 1회만 실행된다(배열 인자는
+// 참조 동일성 키라 사실상 캐시가 안 됐다).
 export const getProjectsCompletion = cache(
-  async (projectIds: string[]): Promise<Record<string, ProjectCompletion> | null> => {
-    if (!projectIds.length) return {}
+  async (): Promise<Record<string, ProjectCompletion> | null> => {
     const sb = await createServerClient()
     const { data, error } = await sb
       .from('wbs_items')
       .select('id, parent_id, project_id, actual_pct')
-      .in('project_id', projectIds)
 
     // 표시 전용이라 throw하지 않는다 — 이 함수는 앱 루트 layout에서 호출되므로 throw하면 배지 하나 때문에
     // 모든 페이지가 에러 화면이 된다(복구 경로인 설정/임포트까지 막힌다). 대신 실패를 null로 신호한다.

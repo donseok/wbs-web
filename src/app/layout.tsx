@@ -22,6 +22,17 @@ export default async function RootLayout({
     <html lang={locale} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: noFlash }} />
+        {/* Pretendard(dynamic subset) — globals.css 의 @import 에서 옮겨왔다(2026-08-18 성능 감사).
+            @import 는 globals.css 를 받은 뒤에야 CDN CSS 를 받는 직렬 차단 체인이지만, head 의
+            link 는 HTML 파싱 즉시 globals.css 와 병렬로 내려받는다. preconnect 2건이 DNS+TLS 를
+            선워밍하고(css 는 same-origin credentials 없이, 폰트 파일은 crossorigin), 폰트 자체는
+            font-display: swap 이라 첫 페인트를 막지 않는다. */}
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+        />
       </head>
       <body className="font-sans antialiased">
         <ThemeProvider>

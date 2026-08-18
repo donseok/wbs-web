@@ -12,11 +12,13 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t: (key: string) => key }) }))
-vi.mock('@/app/actions/announcements', () => ({ getUnreadAnnouncementCount: vi.fn(async () => 0) }))
 vi.mock('@/lib/prefs/debouncedSave', () => ({ queueUiPref }))
+// 실시간 구독은 향상 계층 — 테스트 대상 아님(supabase 클라이언트 생성을 피한다).
+vi.mock('@/lib/hooks/useInboxRealtime', () => ({ useInboxRealtime: () => {} }))
 
 import { Sidebar } from '@/components/app/Sidebar'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 
 describe('Sidebar 회의록 메뉴', () => {
   let container: HTMLDivElement
@@ -25,6 +27,16 @@ describe('Sidebar 회의록 메뉴', () => {
   beforeEach(() => {
     localStorage.clear()
     queueUiPref.mockClear()
+    // 공지 배지 등 셸 상태는 ShellStateProvider 가 /api/shell GET 1회로 채운다 — 고정 payload 스텁.
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        inbox: { items: [], unseen: 0 },
+        notifications: { items: [], count: 0 },
+        unreadAnnouncements: 0,
+        headerAnnouncements: [],
+      }),
+    })))
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -33,14 +45,18 @@ describe('Sidebar 회의록 메뉴', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.unstubAllGlobals()
   })
 
   it('회의록 메뉴를 클릭하면 사이드바를 접고 설정을 저장한다', async () => {
     await act(async () => root.render(
       <ProjectNavigationProvider projects={[]}>
-        <Sidebar projects={[]} />
+        <ShellStateProvider>
+          <Sidebar projects={[]} />
+        </ShellStateProvider>
       </ProjectNavigationProvider>,
     ))
+    await act(async () => {}) // /api/shell 응답 flush
 
     const minutesLink = container.querySelector<HTMLAnchorElement>('a[href="/minutes"]')
     expect(minutesLink).not.toBeNull()

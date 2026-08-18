@@ -7,7 +7,6 @@ import { createRoot, type Root } from 'react-dom/client'
 
 const mocks = vi.hoisted(() => ({
   pathname: '/p/p1/dashboard',
-  getNotifications: vi.fn(async () => ({ items: [] })),
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
   routerRefresh: vi.fn(),
@@ -43,15 +42,20 @@ vi.mock('@/components/providers/LocaleProvider', () => ({
     } as Record<string, string>)[key] ?? key,
   }),
 }))
+// 조회는 ShellStateProvider 의 /api/shell fetch 스텁이 맡는다 — 액션 목은 뮤테이션만.
 vi.mock('@/app/actions/notifications', () => ({
-  getNotifications: mocks.getNotifications,
+  markAllNotificationsRead: vi.fn(async () => ({ ok: true })),
 }))
-vi.mock('@/app/actions/announcements', () => ({
-  getUnreadAnnouncementCount: vi.fn(async () => 0),
+vi.mock('@/app/actions/inbox', () => ({
+  markInboxSeen: vi.fn(async () => ({ ok: true })),
+  markAllInboxRead: vi.fn(async () => ({ ok: true })),
+  markInboxItemRead: vi.fn(async () => ({ ok: true })),
 }))
 vi.mock('@/lib/supabase/client', () => ({
   createBrowserClient: () => ({ auth: { signOut: vi.fn() } }),
 }))
+// 실시간 구독은 향상 계층 — 테스트 대상 아님(supabase 채널 배선을 피한다).
+vi.mock('@/lib/hooks/useInboxRealtime', () => ({ useInboxRealtime: () => {} }))
 vi.mock('@/components/app/HeaderAnnouncementTicker', () => ({
   HeaderAnnouncementTicker: () => null,
 }))
@@ -64,6 +68,7 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({
 
 import { HeaderChrome } from '@/components/app/HeaderChrome'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 
 const projects = [
   { id: 'p1', name: 'D-CUBE 프로젝트', status: 'active' as const },
@@ -76,10 +81,19 @@ describe('HeaderChrome 브레드크럼', () => {
 
   beforeEach(() => {
     mocks.pathname = '/p/p1/dashboard'
-    mocks.getNotifications.mockClear()
     mocks.routerPush.mockClear()
     mocks.routerReplace.mockClear()
     mocks.routerRefresh.mockClear()
+    // 셸 상태(알림함·파생·공지)는 /api/shell GET 1회 — 브레드크럼 테스트에는 빈 payload 로 충분.
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        inbox: { items: [], unseen: 0 },
+        notifications: { items: [], count: 0 },
+        unreadAnnouncements: 0,
+        headerAnnouncements: [],
+      }),
+    })))
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -88,6 +102,7 @@ describe('HeaderChrome 브레드크럼', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.unstubAllGlobals()
   })
 
   async function renderAt(
@@ -102,9 +117,12 @@ describe('HeaderChrome 브레드크럼', () => {
         initialLastProjectId={initialLastProjectId}
         initialLastProjectHref={initialLastProjectId ? `/p/${initialLastProjectId}/dashboard` : null}
       >
-        <HeaderChrome identity={null} projects={visibleProjects} />
+        <ShellStateProvider>
+          <HeaderChrome identity={null} projects={visibleProjects} />
+        </ShellStateProvider>
       </ProjectNavigationProvider>,
     ))
+    await act(async () => {}) // /api/shell 응답 flush
     return container.querySelector<HTMLElement>('nav[aria-label="현재 위치"]')
   }
 

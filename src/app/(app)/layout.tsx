@@ -11,6 +11,7 @@ import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationCon
 import { DkBot } from '@/components/chat/DkBot'
 import { BotPageContextProvider } from '@/components/chat/BotPageContextProvider'
 import { PrefsSync } from '@/components/app/PrefsSync'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 import { UsageTracker } from '@/components/app/UsageTracker'
 import { TeamsProvider } from '@/components/app/TeamsProvider'
 import { teamsSync } from '@/lib/teams/master'
@@ -20,15 +21,14 @@ import { getUiPrefs } from '@/app/actions/preferences'
 import { seoulToday } from '@/lib/domain/dates'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  // completion 은 프로젝트 목록에만 의존한다 — 4-way Promise.all 전체를 기다렸다가 조회하면
-  // 가장 느린 조회만큼 직렬로 늦어지므로, 목록이 풀리는 즉시 체인해 나머지 조회와 겹친다.
-  const [actorState, [projectState, completion], userName, prefs] = await Promise.all([
+  // 다섯 조회 전부 상호 독립 — 한 배치로 병렬 실행한다. getProjectsCompletion 은 무인자라
+  // 프로젝트 목록을 기다릴 필요가 없다(2026-08-18 성능 감사: 종전엔 직렬 2단째였다).
+  const [actorState, projectState, userName, prefs, completion] = await Promise.all([
     getActorViewState(),
-    listProjectsWithState().then(s =>
-      Promise.all([s, getProjectsCompletion(s.projects.map(p => p.id))] as const),
-    ),
+    listProjectsWithState(),
     getDisplayName(),
     getUiPrefs(),
+    getProjectsCompletion(),
   ])
   const actor = actorState.actor
   const projects = projectState.projects
@@ -80,8 +80,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           initialLastProjectId={prefs.lastProjectId}
           initialLastProjectHref={prefs.lastProjectHref}
         >
+          <ShellStateProvider>
           <div className="app-backdrop flex h-dvh overflow-hidden">
-            <PrefsSync />
+            <PrefsSync server={prefs} />
             <UsageTracker />
             {process.env.STAGING === "1" && (
               <div className="pointer-events-none fixed bottom-3 right-3 z-[300] rounded-md bg-amber-500/90 px-2.5 py-1 text-xs font-bold tracking-wider text-white shadow-lg">
@@ -102,6 +103,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </div>
             <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />
           </div>
+          </ShellStateProvider>
         </ProjectNavigationProvider>
       </BotPageContextProvider>
     </TeamsProvider>

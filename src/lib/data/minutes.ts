@@ -162,16 +162,20 @@ export const getMinuteDetail = cache(async (
   id: string,
 ): Promise<{ minute: Minute; files: MinuteFile[] } | null> => {
   const sb = await createServerClient()
-  const { data: r, error } = await sb.from('minutes')
-    .select('id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, external_id, created_by, created_by_name, created_at, updated_at, folder_id, meetings(project_id), projects(name)')
-    .eq('id', id).maybeSingle()
+  // 본문과 파일 목록은 상호 독립(파일 쿼리는 입력 id 만 사용) — 병렬로 내려 직렬 2단을 1단으로
+  // 줄인다. 본문이 실패·부재면 파일 결과는 버린다(기존 반환 계약 유지).
+  const [{ data: r, error }, { data: fs, error: fsErr }] = await Promise.all([
+    sb.from('minutes')
+      .select('id, minute_date, team_code, title, body_md, meeting_id, project_id, meeting_occurrence_date, archived_at, external_id, created_by, created_by_name, created_at, updated_at, folder_id, meetings(project_id), projects(name)')
+      .eq('id', id).maybeSingle(),
+    sb.from('minute_files')
+      .select('id, minute_id, role, file_name, file_path, size, mime, created_at')
+      .eq('minute_id', id).order('created_at', { ascending: true }),
+  ])
   // null 은 호출자에서 404(삭제됨)로 렌더된다 — 조회 실패를 '행 없음'으로 위장하면
   // 멀쩡히 존재하는 회의록이 삭제된 것처럼 보인다. 실패는 실패로 터뜨린다.
   if (error) throw new Error(`[getMinuteDetail] 조회 실패: ${error.message}`)
   if (!r) return null
-  const { data: fs, error: fsErr } = await sb.from('minute_files')
-    .select('id, minute_id, role, file_name, file_path, size, mime, created_at')
-    .eq('minute_id', id).order('created_at', { ascending: true })
   // 파일 목록은 부가 정보 — 본문까지 못 보게 막을 이유는 없어 로깅 후 빈 목록으로 진행.
   if (fsErr) console.error('[getMinuteDetail] 파일 목록 조회 실패:', fsErr.message)
   const files: MinuteFile[] = (fs ?? []).map((f: Row) => ({
@@ -381,13 +385,28 @@ export const getMinuteWikiImpact = cache(async (
   if (!serviceRoleConfigured()) return fallback
 
   const admin = createAdminClient()
-  const { data: job, error: jobError } = await admin.from('wiki_processing_jobs')
-    .select('status, payload, updated_at')
-    .eq('minute_id', minuteId)
-    .eq('project_id', projectId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  // 작업(job)과 변경 이력(changes) 조회는 상호 독립 — 둘 다 입력(minuteId/projectId)만 쓴다.
+  // 병렬로 내려 직렬 3단을 2단으로 줄인다(wiki_items 조회는 changes 의 itemIds 에 의존해 뒤에 남는다).
+  // 실패 분기는 종전과 동일: job 실패면 changes 결과를 버리고 fallback 을 돌려준다.
+  const [
+    { data: job, error: jobError },
+    { data: changes, error: changesError },
+  ] = await Promise.all([
+    admin.from('wiki_processing_jobs')
+      .select('status, payload, updated_at')
+      .eq('minute_id', minuteId)
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    admin.from('wiki_change_events')
+      .select('wiki_item_id, change_type, created_at')
+      .eq('minute_id', minuteId)
+      .eq('project_id', projectId)
+      .not('wiki_item_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(20),
+  ])
   if (jobError) {
     console.error('[getMinuteWikiImpact] 작업 조회 실패:', jobError.message)
     return fallback
@@ -399,13 +418,6 @@ export const getMinuteWikiImpact = cache(async (
   else if (job?.status === 'dead_letter') status = 'failed'
   else if (job?.status === 'done') status = counts.conflicted > 0 ? 'partial' : 'ready'
 
-  const { data: changes, error: changesError } = await admin.from('wiki_change_events')
-    .select('wiki_item_id, change_type, created_at')
-    .eq('minute_id', minuteId)
-    .eq('project_id', projectId)
-    .not('wiki_item_id', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(20)
   if (changesError) {
     console.error('[getMinuteWikiImpact] 변경 이력 조회 실패:', changesError.message)
     return { ...fallback, status, counts, processedAt: (job?.updated_at as string | null) ?? null }

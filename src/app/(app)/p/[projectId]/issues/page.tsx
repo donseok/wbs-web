@@ -15,18 +15,20 @@ import { seoulToday } from '@/lib/domain/dates'
 
 export default async function IssuesPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
-  // '내 담당' 필터용 멤버 ID 는 user 에만 의존한다 — 메인 로드가 다 끝나길 기다렸다가 직렬로
-  // 한 왕복을 더 도는 대신, user 프라미스에 체이닝해 같은 Promise.all 에 태운다(meetings 관례).
-  const userPromise = getSession()
-  const [issues, members, m, user, projects, locale, myMemberIds] = await Promise.all([
+  const [issues, members, m, projects, locale, { user, myMemberIds }] = await Promise.all([
     getIssues(projectId),
     getProjectMembers(projectId),
     getActorForView(),
-    userPromise,
     listProjects(),
     getServerLocale(),
-    // user_id+email 이중 매칭(meetings 관례). 비로그인은 빈 배열.
-    userPromise.then(async u => (u ? resolveMemberIds(await createServerClient(), u) : [])),
+    // '내 담당' 필터용 — user_id+email 이중 매칭(meetings 관례). 비로그인은 빈 배열.
+    // resolveMemberIds 는 getSession 의 user 인자가 필요한 진짜 의존이라 체인은 유지하되,
+    // 체인 전체를 Promise.all 의 한 항목으로 태워 다른 독립 조회와 왕복을 겹친다(직렬 2단 → 1단).
+    (async () => {
+      const user = await getSession()
+      const myMemberIds = user ? await resolveMemberIds(await createServerClient(), user) : []
+      return { user, myMemberIds }
+    })(),
   ])
 
   const project = projects.find(p => p.id === projectId)

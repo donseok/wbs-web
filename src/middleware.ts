@@ -2,14 +2,23 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
+  // { request: req } 전파가 핵심이다(2026-08-18 수정, supabase 공식 패턴): 토큰 갱신 시
+  // 갱신 쿠키를 req.cookies 에도 써서 **같은 요청의 RSC 가 새 토큰을 보게** 한다.
+  // 종전엔 res 에만 실어 브라우저는 받지만 당장의 렌더는 만료 토큰으로 조회했고,
+  // RLS(to authenticated) 미매칭이 에러가 아니라 200+빈배열로 와 조용한 빈 화면이 됐다.
+  let res = NextResponse.next({ request: req })
   const sb = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         getAll: () => req.cookies.getAll(),
-        setAll: (toSet) => toSet.forEach(({ name, value, options }) => res.cookies.set(name, value, options)),
+        setAll: (toSet) => {
+          toSet.forEach(({ name, value }) => req.cookies.set(name, value))
+          // 갱신된 req 를 다시 물려 만들어야 RSC 로 가는 요청 헤더에 새 쿠키가 실린다.
+          res = NextResponse.next({ request: req })
+          toSet.forEach(({ name, value, options }) => res.cookies.set(name, value, options))
+        },
       },
     },
   )
@@ -25,7 +34,12 @@ export async function middleware(req: NextRequest) {
   // 사용자가 조용히 로그아웃된다.
   const { data } = await sb.auth.getClaims()
   const isLogin = req.nextUrl.pathname.startsWith('/login')
-  if (!data?.claims && !isLogin) return NextResponse.redirect(new URL('/login', req.url))
+  if (!data?.claims && !isLogin) {
+    // 리다이렉트에도 갱신 쿠키를 실어 보낸다 — 안 실으면 방금 갱신된 세션이 유실된다.
+    const redirect = NextResponse.redirect(new URL('/login', req.url))
+    res.cookies.getAll().forEach(c => redirect.cookies.set(c))
+    return redirect
+  }
   return res
 }
 
