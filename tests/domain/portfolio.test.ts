@@ -59,6 +59,31 @@ describe('buildPortfolio — 행 산출', () => {
   })
 })
 
+describe('buildPortfolio — WBS 0건(noWbs)', () => {
+  it('items 빈 배열 → noWbs true·exec null, totals.neutral 에 포함되고 green 에는 안 잡힌다', () => {
+    const m = buildPortfolio([mkInput({ items: [] })])
+    expect(m.rows[0].noWbs).toBe(true)
+    expect(m.rows[0].degraded).toBe(false)
+    expect(m.rows[0].exec).toBeNull()
+    expect(m.totals.neutral).toBe(1)
+    expect(m.totals.green).toBe(0)
+  })
+  it('noWbs 행은 degraded 와 달리 최상단이 아니라 neutral 순위로 정렬된다', () => {
+    const green = mkInput({ projectId: 'g', startDate: null, endDate: null, items: [leaf({ plannedPct: 50, rolledActualPct: 50 })] })
+    const noWbs = mkInput({ projectId: 'n', startDate: null, endDate: null, items: [] })
+    const degraded = mkInput({ projectId: 'd', items: null })
+    const m = buildPortfolio([green, noWbs, degraded])
+    // degraded 는 lifecycle unknown(그룹 0)이라 항상 최상단. noWbs 는 green 과 같은 ready 그룹(날짜 없음)에서
+    // neutral 랭크(green 보다 뒤)로 정렬된다.
+    expect(m.rows.map(r => r.projectId)).toEqual(['d', 'g', 'n'])
+  })
+  it('기간 경과 + WBS 0건 → lifecycle 은 done(날짜 기준 유지, projectLifecycleStatus)', () => {
+    const m = buildPortfolio([mkInput({ endDate: '2026-06-30', items: [] })])
+    expect(m.rows[0].lifecycle).toBe('done')
+    expect(m.rows[0].noWbs).toBe(true)
+  })
+})
+
 describe('buildPortfolio — 정렬', () => {
   // 신호 정렬 픽스처는 날짜 null → scheduleModel 이 neutral 이 되어 overall 신호를
   // progress 신호만으로 통제한다(날짜가 있으면 장기 프로젝트에서 편차 -5도 SPI slip>14 로

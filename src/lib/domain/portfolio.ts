@@ -32,6 +32,8 @@ export interface PortfolioRow {
   today: string
   lifecycle: ProjectLifecycleStatus
   degraded: boolean
+  /** WBS 항목이 0건인 정상 조회 행 — degraded(조회 실패)와 구분한다. exec/spi 는 null. */
+  noWbs: boolean
   exec: ExecSummary | null
   /** SPI(actual/planned, 소수 2자리) — scheduleModel 과 동일 정의. 조기·미산정 구간은 null. */
   spi: number | null
@@ -53,9 +55,10 @@ export interface PortfolioModel {
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
-/** 신호 심각도. degraded 는 -1(최상단) — 실패를 목록 아래 묻으면 아무도 못 본다. */
+/** 신호 심각도. degraded 는 -1(최상단) — 실패를 목록 아래 묻으면 아무도 못 본다.
+ *  noWbs(WBS 0건)는 정상 조회이므로 neutral 과 동급(3) — 실패 취급하지 않는다. */
 const SIGNAL_RANK: Record<Signal, number> = { red: 0, amber: 1, green: 2, neutral: 3 }
-const rankOf = (r: PortfolioRow) => (r.degraded ? -1 : SIGNAL_RANK[r.exec!.overall.signal])
+const rankOf = (r: PortfolioRow) => (r.degraded ? -1 : r.noWbs ? SIGNAL_RANK.neutral : SIGNAL_RANK[r.exec!.overall.signal])
 
 /** 생애 그룹 — 진행 중(+지연 종료·확인 불가)이 위, 준비는 다음, 완료는 마지막. */
 const GROUP_RANK: Record<ProjectLifecycleStatus, number> = {
@@ -70,9 +73,14 @@ export function buildPortfolio(inputs: PortfolioProjectInput[]): PortfolioModel 
       baseDate: input.baseDate, today: input.today, leaders: input.leaders,
     }
     if (input.items === null) {
-      return { ...base, lifecycle: 'unknown' as const, degraded: true, exec: null, spi: null }
+      return { ...base, lifecycle: 'unknown' as const, degraded: true, noWbs: false, exec: null, spi: null }
     }
     const leaves = collectLeaves(input.items)
+    if (leaves.length === 0) {
+      // 조회는 성공했으나 WBS 가 비었다 — degraded(실패) 가 아니라 neutral '—' 로 표시한다(I-1).
+      const lifecycle = projectLifecycleStatus(input.startDate, input.endDate, input.today, { hasWbs: false, allDone: false })
+      return { ...base, lifecycle, degraded: false, noWbs: true, exec: null, spi: null }
+    }
     // done 판정은 리프 status(원시값 >=100 규약) — computeCompletionMap 과 동일 결론
     const completion = {
       hasWbs: leaves.length > 0,
@@ -85,7 +93,7 @@ export function buildPortfolio(inputs: PortfolioProjectInput[]): PortfolioModel 
       input.milestoneKeywords,
     )
     const spi = exec.schedule.label === 'onTrack' ? round2(exec.progress.actual / exec.progress.planned) : null
-    return { ...base, lifecycle, degraded: false, exec, spi }
+    return { ...base, lifecycle, degraded: false, noWbs: false, exec, spi }
   })
 
   rows.sort((a, b) =>
@@ -95,12 +103,13 @@ export function buildPortfolio(inputs: PortfolioProjectInput[]): PortfolioModel 
     || a.name.localeCompare(b.name, 'ko'),
   )
 
-  const ok = rows.filter(r => !r.degraded)
+  const ok = rows.filter(r => !r.degraded && !r.noWbs)
   const countSignal = (s: Signal) => ok.filter(r => r.exec!.overall.signal === s).length
+  const noWbsCount = rows.filter(r => r.noWbs).length
   const totals = {
     count: rows.length,
     red: countSignal('red'), amber: countSignal('amber'),
-    green: countSignal('green'), neutral: countSignal('neutral'),
+    green: countSignal('green'), neutral: countSignal('neutral') + noWbsCount,
     overdue: rows.filter(r => r.lifecycle === 'overdue').length,
     degraded: rows.filter(r => r.degraded).length,
   }

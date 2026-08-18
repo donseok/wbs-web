@@ -79,6 +79,14 @@ export function PortfolioTable({ rows, leadersDegraded, locale }: {
                   </td>
                   {row.degraded ? (
                     <td colSpan={5} className="px-2 py-2.5 text-[11px] text-delayed">{tr('pf.degradedRow')}</td>
+                  ) : !row.exec ? (
+                    <>
+                      <td className="px-2 py-2.5"><span className="text-ink-subtle">—</span></td>
+                      <td className="px-2 py-2.5 text-right"><span className="text-ink-subtle">—</span></td>
+                      <td className="px-2 py-2.5 text-right"><span className="text-ink-subtle">—</span></td>
+                      <td className="px-2 py-2.5"><span className="text-ink-subtle">—</span></td>
+                      <td className="px-2 py-2.5"><span className="text-ink-subtle">—</span></td>
+                    </>
                   ) : (
                     <>
                       <td className="whitespace-nowrap px-2 py-2.5 tabular-nums">
@@ -89,7 +97,16 @@ export function PortfolioTable({ rows, leadersDegraded, locale }: {
                         {row.exec!.progress.variance > 0 ? '+' : ''}{row.exec!.progress.variance}%p
                       </td>
                       <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-ink">
-                        {row.spi != null ? row.spi.toFixed(2) : '—'}
+                        {row.spi != null ? row.spi.toFixed(2) : (
+                          <span
+                            title={tr(
+                              row.exec!.schedule.label === 'done' ? 'pf.spi.done'
+                                : row.exec!.schedule.label === 'none' ? 'pf.spi.none'
+                                  : 'pf.spi.early',
+                            )}
+                            className="text-ink-subtle"
+                          >—</span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2.5 tabular-nums">
                         {sched?.projectedEnd ? (
@@ -103,20 +120,22 @@ export function PortfolioTable({ rows, leadersDegraded, locale }: {
                           </>
                         ) : <span className="text-ink-subtle">—</span>}
                       </td>
-                      <td className="max-w-[180px] whitespace-nowrap px-2 py-2.5">
+                      <td className="whitespace-nowrap px-2 py-2.5">
                         {ms?.name ? (
-                          <span className={ms.overdue ? 'text-delayed' : 'text-ink'}>
-                            <span className="truncate align-middle">{ms.name}</span>
-                            <span className="ml-1 text-[10px] font-semibold tabular-nums">
+                          <div className="flex max-w-[180px] items-baseline gap-1">
+                            <span className={`min-w-0 truncate ${ms.overdue ? 'text-delayed' : 'text-ink'}`}>{ms.name}</span>
+                            <span className={`shrink-0 text-[10px] font-semibold tabular-nums ${ms.overdue ? 'text-delayed' : 'text-ink'}`}>
                               {ms.dday != null && (ms.dday >= 0 ? `D-${ms.dday}` : `D+${-ms.dday}`)}
                             </span>
-                          </span>
+                          </div>
                         ) : <span className="text-ink-subtle">—</span>}
                       </td>
                     </>
                   )}
-                  <td className="max-w-[140px] truncate px-2 py-2.5 text-ink-muted">
-                    {leadersDegraded ? tr('pf.leadersUnknown') : (row.leaders.join(', ') || '—')}
+                  <td className="px-2 py-2.5 text-ink-muted">
+                    <div className="max-w-[140px] truncate">
+                      {leadersDegraded ? tr('pf.leadersUnknown') : (row.leaders.join(', ') || '—')}
+                    </div>
                   </td>
                   <td className="px-2 py-2.5">
                     <span className={`chip ${s.chip} whitespace-nowrap`}>

@@ -4,6 +4,9 @@ import { getProjectConfig } from '@/lib/data/projectConfig'
 import { listProjectsWithState } from '@/app/actions/project'
 import { seoulToday } from '@/lib/domain/dates'
 import type { PortfolioProjectInput } from '@/lib/domain/portfolio'
+import { getActor } from '@/lib/authz'
+import { canViewPortfolio } from '@/lib/authz/portfolioAccess'
+import type { ProjectMemberRole } from '@/lib/domain/types'
 
 /**
  * 포트폴리오 입력 일괄 로드 — 프로젝트 N개를 병렬로 읽는다(/projects 홈과 같은 패턴).
@@ -17,6 +20,10 @@ export async function getPortfolioInputs(): Promise<{
   leadersDegraded: boolean
   listDegraded: boolean
 }> {
+  // 페이지의 redirect 는 UX 일 뿐 — 실제 방어선은 이 재검사다(getUsageDirectory 선례).
+  if (!canViewPortfolio(await getActor())) {
+    throw new Error('portfolio: 슈퍼유저 전용 조회입니다.')
+  }
   const { projects, degraded: listDegraded } = await listProjectsWithState()
   const ids = projects.map(p => p.id)
 
@@ -29,8 +36,9 @@ export async function getPortfolioInputs(): Promise<{
     const { data, error } = await sb
       .from('project_members')
       .select('project_id, name')
-      .eq('role', 'admin')
+      .eq('role', 'admin' satisfies ProjectMemberRole)
       .in('project_id', ids)
+      .order('name')
     if (error) {
       console.error('[portfolio] 리더 조회 실패:', error.message)
       leadersDegraded = true

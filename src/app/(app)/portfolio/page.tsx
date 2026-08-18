@@ -29,7 +29,13 @@ export default async function PortfolioPage() {
   // 포트폴리오 조회를 스냅샷 기회로 — 아무도 열지 않는 프로젝트의 이력 공백을 메운다.
   // after() 안에서는 cookies() 불가라 client 를 밖에서 만들어 넘긴다(recordProgressSnapshot 관례).
   const sb = await createServerClient()
-  after(() => Promise.all(inputs.map(i => recordProgressSnapshot(i.projectId, sb))))
+  // 5개씩 순차 청크 — 전 프로젝트 동시 팬아웃은 커넥션 풀을 고갈시킬 수 있다
+  // (Micro 사양 + 2026-08-05 PostgREST 풀 고갈 이력).
+  after(async () => {
+    for (let i = 0; i < inputs.length; i += 5) {
+      await Promise.all(inputs.slice(i, i + 5).map(x => recordProgressSnapshot(x.projectId, sb)))
+    }
+  })
 
   return (
     <div className="space-y-6 pb-10">

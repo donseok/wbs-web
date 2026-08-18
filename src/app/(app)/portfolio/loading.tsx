@@ -2,7 +2,7 @@ import { Skeleton, CardSkeleton } from '@/components/ui/Skeleton'
 
 export default function Loading() {
   return (
-    <div className="space-y-6" role="status" aria-label="포트폴리오를 불러오는 중">
+    <div className="space-y-6 pb-10" role="status" aria-label="포트폴리오를 불러오는 중">
       {/* PageHero */}
       <Skeleton className="h-14 w-full rounded-2xl" />
       {/* KPI 4타일 */}
