@@ -122,185 +122,191 @@ export function WikiSearchResults({ state, locale, query, projectId }: {
   const selectedHit = selected !== null ? hits[selected] ?? null : null
 
   return (
-    // idle 일 때 xl 미만에서는 아무것도 그리지 않는다(히어로 안내가 그 역할) —
-    // xl 에서만 오른쪽 안내 패널("무엇을 찾을 수 있나")을 보여준다(U2).
-    <div className={`mt-5 items-start gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)] ${state.kind === 'idle' ? 'hidden' : 'grid'}`}>
-      {/* ── 왼쪽: 결과 목록 ── */}
-      <div className="min-w-0" aria-live="polite">
-        {state.kind === 'idle' && (
-          <div className="rounded-2xl border border-dashed border-line-strong px-5 py-8 text-center text-sm text-ink-subtle">
-            {t(locale, 'wiki.pane.placeholder')}
-          </div>
-        )}
-
-        {state.kind === 'loading' && (
-          <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
-            <p className="text-sm text-ink-muted">{t(locale, 'wiki.ask.working')}</p>
-          </div>
-        )}
-
-        {state.kind === 'error' && (
-          <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
-            <p className="text-sm text-delayed">{t(locale, 'wiki.search2.error')}</p>
-          </div>
-        )}
-
-        {state.kind === 'done' && state.hits.length === 0 && (
-          <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
-            {state.degraded && (
-              <p className="mb-2 text-sm text-ink-muted">{t(locale, 'wiki.search2.degraded')}</p>
-            )}
-            <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.empty')}</p>
-          </div>
-        )}
-
-        {state.kind === 'done' && state.hits.length > 0 && (
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-center justify-between gap-2 px-0.5">
-              <button
-                type="button"
-                onClick={() => void summarize(state.hits)}
-                disabled={summary.kind === 'loading'}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-brand-ring bg-brand-weak px-3 text-xs font-semibold text-brand transition hover:bg-brand-weak/70 disabled:opacity-50"
-              >
-                <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                {t(locale, 'wiki.search2.summarize')}
-              </button>
-              <span className="text-xs text-ink-subtle">
-                {t(locale, 'wiki.search2.count').replace('{n}', String(state.hits.length))}
-              </span>
-            </div>
-
-            {state.degraded && (
-              <p className="px-0.5 text-xs text-ink-subtle">{t(locale, 'wiki.search2.degraded')}</p>
-            )}
-
-            {summary.kind === 'loading' && (
-              <div className="rounded-xl border border-line bg-surface p-3.5">
-                <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.summarizing')}</p>
-              </div>
-            )}
-            {summary.kind === 'error' && (
-              <div className="rounded-xl border border-line bg-surface p-3.5">
-                <p className="text-sm text-delayed">{t(locale, 'wiki.search2.summarizeFailed')}</p>
-              </div>
-            )}
-            {summary.kind === 'done' && (
-              <div className="rounded-xl border border-brand-ring bg-brand-weak p-3.5">
-                <p className="whitespace-pre-wrap text-sm leading-6 text-ink">{summary.answer}</p>
-              </div>
-            )}
-
-            <ol className="flex flex-col gap-2">
-              {hits.map((hit, index) => {
-                const current = selected === index
-                return (
-                  <li key={`${hit.domain}:${hit.entityId}`} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setSelected(index)}
-                      aria-current={current}
-                      className={`w-full rounded-xl border bg-surface px-3.5 py-3 pr-20 text-left transition ${
-                        current
-                          ? 'border-brand-ring border-l-[3px] border-l-brand shadow-[var(--shadow-sm)]'
-                          : 'border-line hover:border-line-strong hover:shadow-[var(--shadow-sm)]'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="shrink-0 text-xs font-semibold text-ink-subtle">[{index + 1}]</span>
-                        <span className="chip bg-brand-weak text-brand">{sourceLabel(locale, hit.domain)}</span>
-                        {hit.occurredOn && (
-                          <span className="text-[11px] text-ink-subtle">{hit.occurredOn}</span>
-                        )}
-                      </span>
-                      <span className="mt-1 block truncate text-sm font-semibold text-ink">{hit.title}</span>
-                      <span className="mt-0.5 line-clamp-2 block text-[13px] leading-5 text-ink-muted">
-                        {marked(snippetOf(hit.content, 200, query), query)}
-                      </span>
-                    </button>
-                    {/* 버튼 안에 링크를 중첩할 수 없어 형제로 띄운다 — xl 미만에서 원문 이동의 유일한 통로(C6). */}
-                    <a
-                      href={hit.href}
-                      className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-brand transition hover:border-brand-ring"
-                    >
-                      {t(locale, 'wiki.pane.source')}
-                      <ArrowRight className="h-3 w-3" aria-hidden />
-                    </a>
-                  </li>
-                )
-              })}
-            </ol>
-          </div>
-        )}
-      </div>
-
-      {/* ── 오른쪽: 읽기 패널 (xl 전용, sticky) ── */}
-      {/* top-20 은 위에 붙는 검색 압축 바(약 80px)의 높이다 — top-6 이면 읽기 패널이
-          바 뒤로 파고들어 제목이 가린다(WikiSearch 의 sticky 바와 쌍으로 유지할 것). */}
-      <aside className="hidden min-w-0 self-start xl:sticky xl:top-20 xl:block">
-        <div className="flex min-h-[380px] flex-col gap-3 rounded-2xl border border-line bg-surface p-5 text-ink shadow-[var(--shadow-md)]">
-          {selectedHit
-            ? (
-              <>
-                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
-                  <BookOpen className="h-3.5 w-3.5" aria-hidden />
-                  {t(locale, 'wiki.pane.reading')}
-                </div>
-                <h3 className="text-base font-bold leading-6 text-ink">{selectedHit.title}</h3>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-subtle">
-                  <span>{sourceLabel(locale, selectedHit.domain)}</span>
-                  {selectedHit.occurredOn && <span>{selectedHit.occurredOn}</span>}
-                  {selectedHit.matchedBy.length > 0 && <span>{selectedHit.matchedBy.join(' · ')}</span>}
-                </div>
-                <div className="border-t border-line" />
-                <div className="max-h-[26rem] overflow-y-auto whitespace-pre-wrap text-[13.5px] leading-7 text-ink-muted">
-                  {marked(selectedHit.content, query)}
-                </div>
-                <div className="mt-auto pt-2">
-                  <a href={selectedHit.href} className="btn btn-primary h-9 px-4 text-sm">
-                    {t(locale, 'wiki.pane.open')}
-                    <ArrowRight className="h-4 w-4" aria-hidden />
-                  </a>
-                </div>
-              </>
-            )
-            : (
-              <>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
-                  {t(locale, 'wiki.pane.guide.eyebrow')}
-                </div>
-                {state.kind === 'done' && state.hits.length > 0 && (
-                  <p className="text-sm text-ink">{t(locale, 'wiki.pane.pick')}</p>
-                )}
-                <p className="text-sm leading-6 text-ink-muted">{t(locale, 'wiki.pane.guide.desc')}</p>
-                {corpus.kind === 'error' && (
-                  <p className="text-xs text-ink-subtle">{t(locale, 'wiki.pane.guide.statsFailed')}</p>
-                )}
-                {corpus.kind === 'done' && (
-                  <div className="mt-1 flex flex-col gap-2">
-                    {(() => {
-                      const max = Math.max(1, ...corpus.domains.map(row => row.docs))
-                      return corpus.domains.filter(row => row.docs > 0).map(row => (
-                        <div key={row.domain} className="flex items-center gap-2.5 text-[13px]">
-                          <span className="w-16 shrink-0 text-ink-muted">{sourceLabel(locale, row.domain)}</span>
-                          <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2">
-                            <span
-                              className="block h-full rounded-full bg-brand"
-                              style={{ width: `${Math.max(4, Math.round((row.docs / max) * 100))}%` }}
-                            />
-                          </span>
-                          <span className="w-14 shrink-0 text-right text-xs tabular-nums text-ink-subtle">
-                            {t(locale, 'wiki.pane.guide.docs').replace('{n}', String(row.docs))}
-                          </span>
-                        </div>
-                      ))
-                    })()}
-                  </div>
-                )}
-              </>
-            )}
+    <div className="mt-2 flex flex-col gap-2.5">
+      {/* ── 상단 툴바·요약 — 두 열 위에 전폭으로 둔다 ──
+          왼쪽 열 안에 있던 시절엔 이 줄(32px)만큼 결과 카드가 아래로 밀려, 같은 행에서
+          시작해야 할 오른쪽 읽기 패널과 윗변이 어긋나 화면이 흔들려 보였다(사용자 지적).
+          요약도 특정 결과가 아니라 결과 전체에 대한 것이므로 전폭이 제자리다. */}
+      {state.kind === 'done' && state.hits.length > 0 && (
+        <div className="flex items-center justify-between gap-2 px-0.5">
+          <button
+            type="button"
+            onClick={() => void summarize(state.hits)}
+            disabled={summary.kind === 'loading'}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-brand-ring bg-brand-weak px-3 text-xs font-semibold text-brand transition hover:bg-brand-weak/70 disabled:opacity-50"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            {t(locale, 'wiki.search2.summarize')}
+          </button>
+          <span className="text-xs text-ink-subtle">
+            {t(locale, 'wiki.search2.count').replace('{n}', String(state.hits.length))}
+          </span>
         </div>
-      </aside>
+      )}
+
+      {state.kind === 'done' && state.hits.length > 0 && state.degraded && (
+        <p className="px-0.5 text-xs text-ink-subtle">{t(locale, 'wiki.search2.degraded')}</p>
+      )}
+
+      {summary.kind === 'loading' && (
+        <div className="rounded-xl border border-line bg-surface p-3.5">
+          <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.summarizing')}</p>
+        </div>
+      )}
+      {summary.kind === 'error' && (
+        <div className="rounded-xl border border-line bg-surface p-3.5">
+          <p className="text-sm text-delayed">{t(locale, 'wiki.search2.summarizeFailed')}</p>
+        </div>
+      )}
+      {summary.kind === 'done' && (
+        <div className="rounded-xl border border-brand-ring bg-brand-weak p-3.5">
+          <p className="whitespace-pre-wrap text-sm leading-6 text-ink">{summary.answer}</p>
+        </div>
+      )}
+
+      {/* idle 일 때 xl 미만에서는 아무것도 그리지 않는다(히어로 안내가 그 역할) —
+          xl 에서만 오른쪽 안내 패널("무엇을 찾을 수 있나")을 보여준다(U2). */}
+      <div className={`items-start gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)] ${state.kind === 'idle' ? 'hidden' : 'grid'}`}>
+        {/* ── 왼쪽: 결과 목록 ── */}
+        <div className="min-w-0" aria-live="polite">
+          {state.kind === 'idle' && (
+            <div className="rounded-2xl border border-dashed border-line-strong px-5 py-8 text-center text-sm text-ink-subtle">
+              {t(locale, 'wiki.pane.placeholder')}
+            </div>
+          )}
+
+          {state.kind === 'loading' && (
+            <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
+              <p className="text-sm text-ink-muted">{t(locale, 'wiki.ask.working')}</p>
+            </div>
+          )}
+
+          {state.kind === 'error' && (
+            <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
+              <p className="text-sm text-delayed">{t(locale, 'wiki.search2.error')}</p>
+            </div>
+          )}
+
+          {state.kind === 'done' && state.hits.length === 0 && (
+            <div className="rounded-2xl border border-line bg-surface p-4 shadow-[var(--shadow-md)]">
+              {state.degraded && (
+                <p className="mb-2 text-sm text-ink-muted">{t(locale, 'wiki.search2.degraded')}</p>
+              )}
+              <p className="text-sm text-ink-muted">{t(locale, 'wiki.search2.empty')}</p>
+            </div>
+          )}
+
+          {state.kind === 'done' && state.hits.length > 0 && (
+            <ol className="flex flex-col gap-2">
+                {hits.map((hit, index) => {
+                  const current = selected === index
+                  return (
+                    <li key={`${hit.domain}:${hit.entityId}`} className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setSelected(index)}
+                        aria-current={current}
+                        className={`w-full rounded-xl border bg-surface px-3.5 py-3 pr-20 text-left transition ${
+                          current
+                            ? 'border-brand-ring border-l-[3px] border-l-brand shadow-[var(--shadow-sm)]'
+                            : 'border-line hover:border-line-strong hover:shadow-[var(--shadow-sm)]'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="shrink-0 text-xs font-semibold text-ink-subtle">[{index + 1}]</span>
+                          <span className="chip bg-brand-weak text-brand">{sourceLabel(locale, hit.domain)}</span>
+                          {hit.occurredOn && (
+                            <span className="text-[11px] text-ink-subtle">{hit.occurredOn}</span>
+                          )}
+                        </span>
+                        <span className="mt-1 block truncate text-sm font-semibold text-ink">{hit.title}</span>
+                        <span className="mt-0.5 line-clamp-2 block text-[13px] leading-5 text-ink-muted">
+                          {marked(snippetOf(hit.content, 200, query), query)}
+                        </span>
+                      </button>
+                      {/* 버튼 안에 링크를 중첩할 수 없어 형제로 띄운다 — xl 미만에서 원문 이동의 유일한 통로(C6). */}
+                      <a
+                        href={hit.href}
+                        className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-brand transition hover:border-brand-ring"
+                      >
+                        {t(locale, 'wiki.pane.source')}
+                        <ArrowRight className="h-3 w-3" aria-hidden />
+                      </a>
+                    </li>
+                  )
+                })}
+            </ol>
+          )}
+        </div>
+
+        {/* ── 오른쪽: 읽기 패널 (xl 전용, sticky) ── */}
+        {/* 검색 카드가 ProjectPageShell 고정 히어로로 빠져 스크롤 영역 위엔 아무것도 없다 —
+            top-0 이면 왼쪽 첫 카드와 윗변이 정확히 맞는다. */}
+        <aside className="hidden min-w-0 self-start xl:sticky xl:top-0 xl:block">
+          <div className="flex min-h-[380px] flex-col gap-3 rounded-2xl border border-line bg-surface p-5 text-ink shadow-[var(--shadow-md)]">
+            {selectedHit
+              ? (
+                <>
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
+                    <BookOpen className="h-3.5 w-3.5" aria-hidden />
+                    {t(locale, 'wiki.pane.reading')}
+                  </div>
+                  <h3 className="text-base font-bold leading-6 text-ink">{selectedHit.title}</h3>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-subtle">
+                    <span>{sourceLabel(locale, selectedHit.domain)}</span>
+                    {selectedHit.occurredOn && <span>{selectedHit.occurredOn}</span>}
+                    {selectedHit.matchedBy.length > 0 && <span>{selectedHit.matchedBy.join(' · ')}</span>}
+                  </div>
+                  <div className="border-t border-line" />
+                  <div className="max-h-[26rem] overflow-y-auto whitespace-pre-wrap text-[13.5px] leading-7 text-ink-muted">
+                    {marked(selectedHit.content, query)}
+                  </div>
+                  <div className="mt-auto pt-2">
+                    <a href={selectedHit.href} className="btn btn-primary h-9 px-4 text-sm">
+                      {t(locale, 'wiki.pane.open')}
+                      <ArrowRight className="h-4 w-4" aria-hidden />
+                    </a>
+                  </div>
+                </>
+              )
+              : (
+                <>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">
+                    {t(locale, 'wiki.pane.guide.eyebrow')}
+                  </div>
+                  {state.kind === 'done' && state.hits.length > 0 && (
+                    <p className="text-sm text-ink">{t(locale, 'wiki.pane.pick')}</p>
+                  )}
+                  <p className="text-sm leading-6 text-ink-muted">{t(locale, 'wiki.pane.guide.desc')}</p>
+                  {corpus.kind === 'error' && (
+                    <p className="text-xs text-ink-subtle">{t(locale, 'wiki.pane.guide.statsFailed')}</p>
+                  )}
+                  {corpus.kind === 'done' && (
+                    <div className="mt-1 flex flex-col gap-2">
+                      {(() => {
+                        const max = Math.max(1, ...corpus.domains.map(row => row.docs))
+                        return corpus.domains.filter(row => row.docs > 0).map(row => (
+                          <div key={row.domain} className="flex items-center gap-2.5 text-[13px]">
+                            <span className="w-16 shrink-0 text-ink-muted">{sourceLabel(locale, row.domain)}</span>
+                            <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2">
+                              <span
+                                className="block h-full rounded-full bg-brand"
+                                style={{ width: `${Math.max(4, Math.round((row.docs / max) * 100))}%` }}
+                              />
+                            </span>
+                            <span className="w-14 shrink-0 text-right text-xs tabular-nums text-ink-subtle">
+                              {t(locale, 'wiki.pane.guide.docs').replace('{n}', String(row.docs))}
+                            </span>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  )}
+                </>
+              )}
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }

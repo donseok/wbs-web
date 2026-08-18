@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import { listProjectsWithState } from '@/app/actions/project'
 import { getActorViewState } from '@/lib/authz'
-import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { PageHero } from '@/components/ui/PageHero'
 import { WikiSearch } from '@/components/wiki/WikiSearch'
 import { WikiReindexButton } from '@/components/wiki/WikiReindexButton'
@@ -53,16 +52,15 @@ export default async function ProjectWikiPage({
   // 히어로 카드 우상단의 빈 다크 영역에 앉히려고 슬롯으로 내려보낸다(카드 밖 별도 줄 아님).
   const isSuperuser = actor.isSuperuser === true
 
+  // 셸(고정 히어로 + 독립 스크롤)은 WikiSearch 가 세운다 — 검색 카드가 고정 영역에
+  // 들어가야 질문을 던진 뒤에도 남고, 그러려면 카드와 결과가 한 상태를 공유해야 한다.
   return (
-    <ProjectPageShell
-      hero={<PageHero title={`${projectName}${t(locale, 'wiki.heroTitleSuffix')}`} />}
-    >
-      <WikiSearch
-        projectId={projectId}
-        locale={locale}
-        initialQuery={initialQuery}
-        adminSlot={isSuperuser ? <WikiReindexButton locale={locale} /> : undefined}
-      />
-    </ProjectPageShell>
+    <WikiSearch
+      projectId={projectId}
+      locale={locale}
+      initialQuery={initialQuery}
+      pageHero={<PageHero title={`${projectName}${t(locale, 'wiki.heroTitleSuffix')}`} />}
+      adminSlot={isSuperuser ? <WikiReindexButton locale={locale} /> : undefined}
+    />
   )
 }
