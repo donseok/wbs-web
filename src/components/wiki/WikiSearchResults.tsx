@@ -235,7 +235,9 @@ export function WikiSearchResults({ state, locale, query, projectId }: {
       </div>
 
       {/* ── 오른쪽: 읽기 패널 (xl 전용, sticky) ── */}
-      <aside className="hidden min-w-0 self-start xl:sticky xl:top-6 xl:block">
+      {/* top-20 은 위에 붙는 검색 압축 바(약 80px)의 높이다 — top-6 이면 읽기 패널이
+          바 뒤로 파고들어 제목이 가린다(WikiSearch 의 sticky 바와 쌍으로 유지할 것). */}
+      <aside className="hidden min-w-0 self-start xl:sticky xl:top-20 xl:block">
         <div className="flex min-h-[380px] flex-col gap-3 rounded-2xl border border-line bg-surface p-5 text-ink shadow-[var(--shadow-md)]">
           {selectedHit
             ? (
