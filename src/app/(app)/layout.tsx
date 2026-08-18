@@ -10,6 +10,7 @@ import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationCon
 import { DkBot } from '@/components/chat/DkBot'
 import { BotPageContextProvider } from '@/components/chat/BotPageContextProvider'
 import { PrefsSync } from '@/components/app/PrefsSync'
+import { ShellStateProvider } from '@/components/app/ShellStateProvider'
 import { UsageTracker } from '@/components/app/UsageTracker'
 import { TeamsProvider } from '@/components/app/TeamsProvider'
 import { teamsSync } from '@/lib/teams/master'
@@ -19,11 +20,14 @@ import { getUiPrefs } from '@/app/actions/preferences'
 import { seoulToday } from '@/lib/domain/dates'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const [actorState, projectState, userName, prefs] = await Promise.all([
+  // 다섯 조회 전부 상호 독립 — 한 배치로 병렬 실행한다. getProjectsCompletion 은 무인자라
+  // 프로젝트 목록을 기다릴 필요가 없다(2026-08-18 성능 감사: 종전엔 직렬 2단째였다).
+  const [actorState, projectState, userName, prefs, completion] = await Promise.all([
     getActorViewState(),
     listProjectsWithState(),
     getDisplayName(),
     getUiPrefs(),
+    getProjectsCompletion(),
   ])
   const actor = actorState.actor
   const projects = projectState.projects
@@ -31,7 +35,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // 2026-08-05 처럼 REST 장애가 '로그인 실패'로 신고된다(에러 처리 3원칙 ① 표시 = 로깅).
   // 표시는 DegradedNotice 가 맡는다(아래 main 선두).
   const today = seoulToday()
-  const completion = await getProjectsCompletion(projects.map(p => p.id))
   const projectLinks: SidebarProject[] = projects.map(p => ({
     id: p.id,
     name: p.name,
@@ -74,8 +77,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           initialLastProjectId={prefs.lastProjectId}
           initialLastProjectHref={prefs.lastProjectHref}
         >
+          <ShellStateProvider>
           <div className="app-backdrop flex h-dvh overflow-hidden">
-            <PrefsSync />
+            <PrefsSync server={prefs} />
             <UsageTracker />
             {process.env.STAGING === "1" && (
               <div className="pointer-events-none fixed bottom-3 right-3 z-[300] rounded-md bg-amber-500/90 px-2.5 py-1 text-xs font-bold tracking-wider text-white shadow-lg">
@@ -96,6 +100,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </div>
             <DkBot projects={projectLinks.map(p => ({ id: p.id, name: p.name }))} />
           </div>
+          </ShellStateProvider>
         </ProjectNavigationProvider>
       </BotPageContextProvider>
     </TeamsProvider>

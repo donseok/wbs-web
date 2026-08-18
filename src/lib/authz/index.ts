@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createServerClient } from '../supabase/server'
 import {
   isProjectAdmin as pureIsProjectAdmin,
@@ -21,37 +22,34 @@ const ERR_MISSING = '대상을 찾을 수 없습니다.'
  * 조회 실패는 throw 한다 — '역할 없음'으로 폴백하면 그 순간 전원이 조회 전용으로
  * 보이고(운영 마비), 반대로 관대하게 폴백하면 가드가 통째로 뚫린다. 어느 쪽도 조용해서는 안 된다.
  */
-export async function getActor(): Promise<Actor | null> {
+export const getActor = cache(async (): Promise<Actor | null> => {
   const sb = await createServerClient()
   const { data: u } = await sb.auth.getUser()
   if (!u.user) return null
 
-  const { data: mem, error: memErr } = await sb
-    .from('memberships')
-    .select('is_superuser, teams(code, id)')
-    .eq('user_id', u.user.id)
-    .maybeSingle()
+  // 세 축(멤버십·프로젝트 역할·명단 팀)은 상호 독립 — 병렬로 묶는다. 순차 await 는
+  // 요청 임계경로에 왕복 2단을 공짜로 얹는다(2026-08-18 성능 감사 P0).
+  // cache() 래핑: 같은 요청 안에서 레이아웃·페이지·가드가 각자 getActor 를 불러도 1회만 완주한다.
+  const [
+    { data: mem, error: memErr },
+    { data: roles, error: rolesErr },
+    { data: rosterRows, error: rosterErr },
+  ] = await Promise.all([
+    sb.from('memberships').select('is_superuser, teams(code, id)').eq('user_id', u.user.id).maybeSingle(),
+    sb.from('project_roles').select('project_id, role').eq('user_id', u.user.id),
+    // 0071: 프로젝트 명단의 내 팀 — WBS 실적·첨부의 합집합 판정 재료. 조회 실패는 다른 축과
+    // 동일하게 throw(fail-closed) — 명단 팀만 빠진 Actor 는 '권한 없음'으로 조용히 좁아진다.
+    sb.from('project_members').select('project_id, team_id, teams(code)').eq('user_id', u.user.id).not('team_id', 'is', null),
+  ])
+
   if (memErr) {
     console.error('[getActor] 멤버십 조회 실패:', memErr.message)
     throw new Error('권한 정보를 불러오지 못했습니다: ' + memErr.message)
   }
-
-  const { data: roles, error: rolesErr } = await sb
-    .from('project_roles')
-    .select('project_id, role')
-    .eq('user_id', u.user.id)
   if (rolesErr || !roles) {
     console.error('[getActor] 프로젝트 역할 조회 실패:', rolesErr?.message)
     throw new Error('권한 정보를 불러오지 못했습니다: ' + (rolesErr?.message ?? 'unknown'))
   }
-
-  // 0071: 프로젝트 명단의 내 팀 — WBS 실적·첨부의 합집합 판정 재료. 조회 실패는 다른 축과
-  // 동일하게 throw(fail-closed) — 명단 팀만 빠진 Actor 는 '권한 없음'으로 조용히 좁아진다.
-  const { data: rosterRows, error: rosterErr } = await sb
-    .from('project_members')
-    .select('project_id, team_id, teams(code)')
-    .eq('user_id', u.user.id)
-    .not('team_id', 'is', null)
   if (rosterErr || !rosterRows) {
     console.error('[getActor] 명단 팀 조회 실패:', rosterErr?.message)
     throw new Error('권한 정보를 불러오지 못했습니다: ' + (rosterErr?.message ?? 'unknown'))
@@ -74,7 +72,7 @@ export async function getActor(): Promise<Actor | null> {
     projectRoles: map,
     rosterTeams,
   }
-}
+})
 
 /**
  * 화면 계층용 — getActor 의 throw 를 삼키고 **조회 전용(null)** 으로 열화한다.

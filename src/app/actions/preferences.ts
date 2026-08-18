@@ -1,14 +1,16 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
+import { getSession } from '@/lib/auth'
 import type { UiPrefs } from '@/lib/domain/types'
 
 /** 현재 사용자의 전역 UI 설정(없으면 빈 객체). 미로그인 시 {}. */
 export async function getUiPrefs(): Promise<UiPrefs> {
+  // getSession 은 요청 단위 cache() — 레이아웃 렌더에서 다른 조회들과 세션 확인을 공유한다.
+  const u = await getSession()
+  if (!u) return {}
   const sb = await createServerClient()
-  const { data: u } = await sb.auth.getUser()
-  if (!u.user) return {}
   const { data, error } = await sb
-    .from('user_preferences').select('prefs').eq('user_id', u.user.id).maybeSingle()
+    .from('user_preferences').select('prefs').eq('user_id', u.id).maybeSingle()
   if (error) console.error('[getUiPrefs] 조회 실패:', error.message)
   return (data?.prefs as UiPrefs) ?? {}
 }
