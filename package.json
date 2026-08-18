@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "smoke:prod": "node scripts/smoke-prod.mjs",
     "wiki:health": "node scripts/wiki-health.mjs",
+    "embed:repair": "node scripts/embed-repair.mjs",
     "wbs:merge": "node scripts/wbs/merge-groups.mjs",
     "wbs:validate": "node scripts/wbs/validate.mjs",
     "wbs:build": "node scripts/wbs/build-xlsx.mjs",
