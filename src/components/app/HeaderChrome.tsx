@@ -2,15 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, Users, X,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { getNotifications, markAllNotificationsRead, type NotificationItem } from '@/app/actions/notifications'
-import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
-import { getInboxFeed, markInboxSeen, markAllInboxRead, markInboxItemRead, type InboxItem } from '@/app/actions/inbox'
-import { useInboxRealtime } from '@/lib/hooks/useInboxRealtime'
+import { markAllNotificationsRead } from '@/app/actions/notifications'
+import { markInboxSeen, markAllInboxRead, markInboxItemRead, type InboxItem } from '@/app/actions/inbox'
+import { useShellState } from './ShellStateProvider'
 import { useTheme } from '@/components/providers/ThemeProvider'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { BrandMark } from '@/components/ui/BrandMark'
@@ -43,52 +42,19 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
   const [menuOpen, setMenuOpen] = useState(false)
   const [open, setOpen] = useState<null | 'notif' | 'profile'>(null)
   const [pwOpen, setPwOpen] = useState(false)
-  const [notifs, setNotifs] = useState<NotificationItem[]>([])
-  const [notifLoading, setNotifLoading] = useState(false)
-  const [inbox, setInbox] = useState<InboxItem[]>([])
-  const [inboxLoading, setInboxLoading] = useState(true)
-  const [inboxFailed, setInboxFailed] = useState(false)
-  const [unreadAnn, setUnreadAnn] = useState(0)
 
   const { routeProjectId } = useProjectNavigation()
+  // 알림함·파생 알림·공지 배지 조회는 ShellStateProvider 가 내비게이션당 GET 1왕복으로
+  // 합쳐 내려준다(2026-08-18 성능 감사 — 종전엔 이 컴포넌트가 서버 액션 3개를 따로 쐈다).
+  const {
+    inbox, setInbox, inboxLoading, inboxFailed,
+    notifs, setNotifs, notifLoading, menuUnreadAnnouncements,
+  } = useShellState()
+  // 헤더 배지의 공지 합산은 URL 프로젝트가 있을 때만(기존 시맨틱 — 전역 화면에서는 0).
+  // 프로젝트 화면에서는 메뉴 문맥 == URL 프로젝트라 값이 같다.
+  const unreadAnn = routeProjectId ? menuUnreadAnnouncements : 0
 
   useEffect(() => { setMenuOpen(false); setOpen(null) }, [pathname])
-  // 활성 프로젝트의 지연·마감 알림 로드
-  useEffect(() => {
-    // 프로젝트를 벗어나면 로딩 플래그도 함께 리셋 — 안 하면 true로 고정돼 공유 게이트
-    // (loading={inboxLoading || notifLoading})가 무기한 스피너에 갇힌다.
-    if (!routeProjectId) { setNotifs([]); setNotifLoading(false); return }
-    let alive = true
-    setNotifLoading(true)
-    getNotifications(routeProjectId)
-      .then(r => { if (alive) setNotifs(r.items) })
-      .catch(() => {})
-      .finally(() => { if (alive) setNotifLoading(false) })
-    return () => { alive = false }
-  }, [routeProjectId])
-
-  // 개인 알림함 로드 — 파생(프로젝트 의존)과 달리 프로젝트 무관, 경로 변경마다 재조회.
-  // 공지 안읽음 합산도 여기서 같이 갱신(routeProjectId 의존). notifLoading(파생 전용)과
-  // 별도 로딩 플래그를 둔다 — 프로젝트 미선택 시 notifLoading이 false로 고정돼 있어
-  // 이 피드에 얹으면 로딩 중에도 "새 알림 없음"으로 보이는 거짓 빈 상태가 생긴다.
-  useEffect(() => {
-    let alive = true
-    setInboxLoading(true)
-    getInboxFeed()
-      .then(r => { if (!alive) return; setInbox(r.items); setInboxFailed(r.failed === true) })
-      .catch(() => { if (alive) setInboxFailed(true) })
-      .finally(() => { if (alive) setInboxLoading(false) })
-    if (routeProjectId) {
-      getUnreadAnnouncementCount(routeProjectId).then(n => { if (alive) setUnreadAnn(n) }).catch(() => {})
-    } else setUnreadAnn(0)
-    return () => { alive = false }
-  }, [pathname, routeProjectId])
-
-  // 실시간 배지 갱신 — 향상 계층(구독 실패해도 위 폴링이 대신 채운다).
-  const refreshInbox = useCallback(() => {
-    getInboxFeed().then(r => { setInbox(r.items); setInboxFailed(r.failed === true) }).catch(() => {})
-  }, [])
-  useInboxRealtime(refreshInbox)
 
   const context = useMemo(() => {
     const globalSection = pathname === '/meetings'
@@ -298,19 +264,9 @@ function MobileMenu({
   const selectedProjectId = routeProjectId ?? ''
 
   // 안읽음 공지 배지 — 데스크탑 사이드바와 동일한 지표를 모바일 메뉴에서도 노출.
-  // 메뉴가 열릴 때(마운트)만 조회하므로 추가 비용은 열람 시 1회.
-  const [unreadAnn, setUnreadAnn] = useState(0)
-  useEffect(() => {
-    if (!menuProjectId) {
-      setUnreadAnn(0)
-      return
-    }
-    let alive = true
-    getUnreadAnnouncementCount(menuProjectId)
-      .then(n => { if (alive) setUnreadAnn(n) })
-      .catch(() => {})
-    return () => { alive = false }
-  }, [menuProjectId])
+  // 별도 조회 없이 셸 상태(메뉴 문맥 기준)를 그대로 쓴다.
+  const { menuUnreadAnnouncements } = useShellState()
+  const unreadAnn = menuProjectId ? menuUnreadAnnouncements : 0
 
   const links = menuProjectId
     ? [

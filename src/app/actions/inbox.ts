@@ -36,20 +36,21 @@ export async function getInboxFeed(limit = 30): Promise<{ items: InboxItem[]; un
   if (!user) return { items: [], unseen: 0 }
   const sb = await createServerClient()
 
-  const { data, error } = await sb
-    .from('notification_recipients')
-    .select('id, seen_at, read_at, created_at, notification_events(type, category, payload, created_at)')
-    .eq('user_id', user.id)
-    .is('archived_at', null)
-    .order('created_at', { ascending: false })
-    .limit(limit)
+  // 피드·prefs 는 상호 독립 — 병렬 1단으로(2026-08-18 성능 감사: 종전 직렬 2단).
+  const [{ data, error }, { data: prefRow, error: prefError }] = await Promise.all([
+    sb
+      .from('notification_recipients')
+      .select('id, seen_at, read_at, created_at, notification_events(type, category, payload, created_at)')
+      .eq('user_id', user.id)
+      .is('archived_at', null)
+      .order('created_at', { ascending: false })
+      .limit(limit),
+    sb.from('user_preferences').select('prefs').eq('user_id', user.id).maybeSingle(),
+  ])
   if (error) {
     console.error('[inbox] 피드 조회 실패', error.message)
     return { items: [], unseen: 0, failed: true }
   }
-
-  const { data: prefRow, error: prefError } = await sb
-    .from('user_preferences').select('prefs').eq('user_id', user.id).maybeSingle()
   // prefs 는 부차 데이터 — 조회 실패해도 피드는 죽이지 않고 카탈로그 기본값으로 열화(로깅은 남긴다).
   if (prefError) console.error('[inbox] prefs 조회 실패', prefError.message)
   const notifPrefs = ((prefRow?.prefs as UiPrefs | null)?.notif) ?? undefined

@@ -3,8 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { Megaphone, Pin } from 'lucide-react'
-import { getHeaderAnnouncements } from '@/app/actions/announcements'
-import type { AnnouncementSummary } from '@/lib/domain/types'
+import { useShellState } from './ShellStateProvider'
 import { ANNOUNCEMENT_META } from '@/lib/domain/announcements'
 import { useLocale } from '@/components/providers/LocaleProvider'
 
@@ -36,21 +35,14 @@ export function HeaderAnnouncementTicker({ projectId }: { projectId: string | nu
   const { t } = useLocale()
   const wide = useMediaQuery(MD_QUERY)
   const reduceMotion = useMediaQuery(REDUCE_QUERY)
-  const [items, setItems] = useState<AnnouncementSummary[]>([])
+  // 상위 공지는 ShellStateProvider 가 내비게이션당 통합 1왕복으로 내려준다(별도 조회 없음).
+  const { headerAnnouncements } = useShellState()
+  const items = projectId && wide ? headerAnnouncements : []
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
 
-  // 활성 프로젝트가 바뀌면 상위 공지 로드 (헤더 알림과 같은 조회 패턴)
-  useEffect(() => {
-    setItems([])
-    setIndex(0)
-    if (!projectId || !wide) return
-    let alive = true
-    getHeaderAnnouncements(projectId)
-      .then(r => { if (alive) setItems(r) })
-      .catch(() => {})
-    return () => { alive = false }
-  }, [projectId, wide])
+  // 항목 목록이 갈리면 순환 인덱스를 되감는다 — 이전 프로젝트의 인덱스가 새 목록을 넘지 않게.
+  useEffect(() => { setIndex(0) }, [projectId, items.length])
 
   useEffect(() => {
     if (items.length < 2 || paused || reduceMotion) return

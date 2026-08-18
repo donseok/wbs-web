@@ -13,11 +13,15 @@ export function useInboxRealtime(onNew: () => void) {
     // 폴링 경로(Task 6)를 막지 않는다.
     ;(async () => {
       try {
-        const { data } = await sb.auth.getUser()
-        if (!alive || !data.user) return
+        // getUser() 는 GoTrue /auth/v1/user 네트워크 왕복(실측 0.9~1.8s)이다. 여기서 필요한 건
+        // 채널명에 넣을 user id 뿐이고, private 채널 인가는 어차피 서버(setAuth 토큰)가 검증하므로
+        // 로컬 세션 읽기(getSession, 무왕복)로 충분하다(2026-08-18 성능 감사).
+        const { data } = await sb.auth.getSession()
+        const user = data.session?.user
+        if (!alive || !user) return
         sb.realtime.setAuth() // private 채널 인가 토큰 갱신
         channel = sb
-          .channel(`user-${data.user.id}-notifications`, { config: { private: true } })
+          .channel(`user-${user.id}-notifications`, { config: { private: true } })
           .on('broadcast', { event: 'new_notification' }, () => onNew())
           .subscribe()
       } catch {

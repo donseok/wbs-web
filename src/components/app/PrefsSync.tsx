@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { getUiPrefs } from '@/app/actions/preferences'
+import type { UiPrefs } from '@/lib/domain/types'
 import { computePrefsSync, type LocalPrefs } from '@/lib/prefs/sync'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
 import { useTheme } from '@/components/providers/ThemeProvider'
@@ -24,8 +24,11 @@ function readLocal(): LocalPrefs {
 /**
  * 로그인 시 서버 설정을 읽어 로컬 캐시/UI 를 reconcile 한다(로컬 우선 + 서버 동기화).
  * 서버 값이 있으면 UI에 적용, 없으면 로컬값을 서버에 백필. 렌더 출력 없음.
+ *
+ * 서버 설정은 레이아웃이 이미 서버에서 읽은 값을 prop 으로 받는다 — 종전처럼 마운트 후
+ * getUiPrefs 서버 액션을 다시 쏘면 완전 중복 왕복이다(2026-08-18 성능 감사).
  */
-export function PrefsSync() {
+export function PrefsSync({ server }: { server: UiPrefs }) {
   const { setTheme } = useTheme()
   const { setLocale } = useLocale()
   const done = useRef(false)
@@ -33,19 +36,14 @@ export function PrefsSync() {
   useEffect(() => {
     if (done.current) return
     done.current = true
-    let alive = true
-    void getUiPrefs().then(server => {
-      if (!alive) return
-      const local = readLocal()
-      const { apply, backfill } = computePrefsSync(server, local)
-      // 적용: 각 설정의 기존 변경 경로 재사용(같은 값이면 computePrefsSync 가 이미 걸러냄).
-      if (apply.theme !== undefined) setTheme(apply.theme)
-      if (apply.locale !== undefined) setLocale(apply.locale)
-      if (apply.sidebarCollapsed !== undefined) dispatchSidebarToggle(apply.sidebarCollapsed)
-      // 백필: 서버에 없던 키를 현재 로컬값으로 1회 저장(debounce 병합).
-      if (Object.keys(backfill).length) queueUiPref(backfill)
-    }).catch(() => {})
-    return () => { alive = false }
+    const local = readLocal()
+    const { apply, backfill } = computePrefsSync(server, local)
+    // 적용: 각 설정의 기존 변경 경로 재사용(같은 값이면 computePrefsSync 가 이미 걸러냄).
+    if (apply.theme !== undefined) setTheme(apply.theme)
+    if (apply.locale !== undefined) setLocale(apply.locale)
+    if (apply.sidebarCollapsed !== undefined) dispatchSidebarToggle(apply.sidebarCollapsed)
+    // 백필: 서버에 없던 키를 현재 로컬값으로 1회 저장(debounce 병합).
+    if (Object.keys(backfill).length) queueUiPref(backfill)
     // 마운트 1회만. setTheme/setLocale 은 안정적 콜백이고 로컬 상태는 readLocal 이 DOM/쿠키에서 직접 읽음.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
