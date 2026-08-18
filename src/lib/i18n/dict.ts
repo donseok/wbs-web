@@ -21,6 +21,7 @@ import { agentOpsKo, agentOpsEn } from './dict/agentOps'
 import { importWizardKo, importWizardEn } from './dict/importWizard'
 import { inboxKo, inboxEn } from './dict/inbox'
 import { accountKo, accountEn } from './dict/account'
+import { portfolioKo, portfolioEn } from './dict/portfolio'
 
 export type Locale = 'ko' | 'en'
 
@@ -46,6 +47,7 @@ export const DICT = {
     ...importWizardKo,
     ...inboxKo,
     ...accountKo,
+    ...portfolioKo,
   },
   en: {
     ...commonEn,
@@ -68,6 +70,7 @@ export const DICT = {
     ...importWizardEn,
     ...inboxEn,
     ...accountEn,
+    ...portfolioEn,
   },
 } as const
 
