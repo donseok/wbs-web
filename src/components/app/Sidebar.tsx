@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  ArrowLeft, BarChart3, BookOpenText, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  ArrowLeft, BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -37,7 +37,7 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
   unknown: { dot: 'bg-slate-400', label: '확인 불가' },
 }
 
-function projectMenu(base: string, showUsage: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
+function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
   const items: { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] = [
     { href: `${base}/dashboard`, labelKey: 'nav.dashboard', icon: LayoutDashboard, match: `${base}/dashboard` },
     { href: `${base}/wbs`, labelKey: 'nav.wbsGantt', icon: ListTree, match: `${base}/wbs` },
@@ -53,11 +53,13 @@ function projectMenu(base: string, showUsage: boolean): { href: string; labelKey
   ]
   // 사용 현황은 전사 지표(접속·메뉴 사용량)라 프로젝트 스코프가 아니다 —
   // 설정 바로 아래에 두되 링크는 전역 /usage 로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.
+  // 포트폴리오·사용 현황은 전사 지표라 프로젝트 스코프가 아니다 — 설정 아래에 두되 전역 링크. 슈퍼유저 전용.
+  if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
   if (showUsage) items.push({ href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' })
   return items
 }
 
-export function Sidebar({ projects, showUsage = false }: { projects: SidebarProject[]; showUsage?: boolean }) {
+export function Sidebar({ projects, showUsage = false, showPortfolio = false }: { projects: SidebarProject[]; showUsage?: boolean; showPortfolio?: boolean }) {
   const router = useRouter()
   const pathname = usePathname()
   const { t } = useLocale()
@@ -238,7 +240,7 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
                     </Link>
                   </Tooltip>
                 )}
-                {projectMenu(`/p/${menuProjectId}`, showUsage).map(item => {
+                {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio).map(item => {
                   const active = pathname === item.match || pathname.startsWith(item.match + '/')
                   const ItemIcon = item.icon
                   const label = t(item.labelKey)
@@ -277,6 +279,15 @@ export function Sidebar({ projects, showUsage = false }: { projects: SidebarProj
                     <FolderOpen className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.allProjects')}</span>}
                   </Link>
                 </Tooltip>
+                {/* 프로젝트를 고르지 않은 상태에서도 포트폴리오에 닿을 수 있어야 한다 — 슈퍼유저 전용 */}
+                {showPortfolio && (
+                  <Tooltip label={t('nav.portfolio')} side="right" disabled={!collapsed}>
+                    <Link href="/portfolio" aria-current={pathname === '/portfolio' ? 'page' : undefined}
+                      className={`side-link ${pathname === '/portfolio' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+                      <Briefcase className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.portfolio')}</span>}
+                    </Link>
+                  </Tooltip>
+                )}
                 {/* 프로젝트를 고르지 않은 상태에서도 사용 현황에 닿을 수 있어야 한다 — 슈퍼유저 전용 */}
                 {showUsage && (
                   <Tooltip label={t('nav.usage')} side="right" disabled={!collapsed}>
