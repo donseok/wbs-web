@@ -13,7 +13,8 @@ const leaf = (over: Partial<ComputedItem>): ComputedItem => ({
 const mkInput = (over: Partial<PortfolioProjectInput>): PortfolioProjectInput => ({
   projectId: 'p1', name: '프로젝트', isPrivate: false,
   startDate: '2026-01-01', endDate: '2026-12-31', baseDate: null, today: '2026-08-18',
-  items: [leaf({ plannedPct: 50, rolledActualPct: 50 })], milestoneKeywords: ['보고회'], leaders: [], ...over,
+  items: [leaf({ plannedPct: 50, rolledActualPct: 50 })], milestoneKeywords: ['보고회'], leaders: [],
+  snapshots: [], teams: [], realToday: '2026-08-18', ...over,
 })
 
 describe('canViewPortfolio', () => {
@@ -142,5 +143,47 @@ describe('buildPortfolio — totals·milestones', () => {
   it('키워드 빈 배열 + 일반 리프 → 마일스톤 0건이 정답', () => {
     const m = buildPortfolio([mkInput({ milestoneKeywords: [], items: [leaf({ name: '일반작업', plannedEnd: '2026-09-01' })] })])
     expect(m.milestones).toHaveLength(0)
+  })
+})
+
+describe('buildPortfolio — v1.1 확장(추세·위험 신호·위생)', () => {
+  it('trendDelta — 7일 이상 전 최신 스냅샷 대비 편차 변화(round1)', () => {
+    // 현재 편차 -5 (45/50) · 7일 전(08-11) 스냅샷 편차 -2 (48/50) → delta -3 (악화)
+    const m = buildPortfolio([mkInput({
+      items: [leaf({ plannedPct: 50, rolledActualPct: 45 })],
+      snapshots: [
+        { date: '2026-08-01', actual: 47, planned: 48 },
+        { date: '2026-08-11', actual: 48, planned: 50 },
+        { date: '2026-08-15', actual: 44, planned: 49 }, // 7일 미만 — 비교 표본에서 제외
+      ],
+    })])
+    expect(m.rows[0].trendDelta).toBe(-3)
+  })
+  it('trendDelta — 7일 이상 전 표본이 없으면 null(합성 금지)', () => {
+    const m = buildPortfolio([mkInput({ snapshots: [{ date: '2026-08-15', actual: 40, planned: 50 }] })])
+    expect(m.rows[0].trendDelta).toBeNull()
+  })
+  it('위험 신호 — 예정일 경과 누적 발화 시 count·worst·titles 전달', () => {
+    // plannedEnd 17일 경과 미완료 → overdue_accumulation(d15plus≥1 → red)
+    const m = buildPortfolio([mkInput({
+      items: [leaf({ status: 'delayed', plannedEnd: '2026-08-01', plannedPct: 60, rolledActualPct: 10 })],
+    })])
+    expect(m.rows[0].riskCount).toBeGreaterThanOrEqual(1)
+    expect(m.rows[0].riskWorst).toBe('red')
+    expect(m.rows[0].riskTitles.length).toBe(m.rows[0].riskCount)
+  })
+  it('위생 — 날짜 없는 리프가 있으면 hygiene.clean false·noDates 카운트', () => {
+    const m = buildPortfolio([mkInput({ items: [leaf({ plannedStart: null, plannedEnd: null })] })])
+    expect(m.rows[0].hygiene!.clean).toBe(false)
+    expect(m.rows[0].hygiene!.noDates).toBe(1)
+  })
+  it('degraded·noWbs 행 — 확장 필드는 null/0 (지표 위장 금지)', () => {
+    const m = buildPortfolio([mkInput({ items: null }), mkInput({ projectId: 'p2', items: [] })])
+    for (const r of m.rows) {
+      expect(r.trendDelta).toBeNull()
+      expect(r.riskCount).toBe(0)
+      expect(r.riskWorst).toBeNull()
+      expect(r.hygiene).toBeNull()
+    }
   })
 })
