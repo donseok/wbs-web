@@ -6,6 +6,8 @@
 
 import { aiProvider, embedConfig, hasEmbeddings, hasLLM } from './provider'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
+import { errMsg } from '@/lib/domain/format'
 
 /** PostgREST 에러(또는 pg 에러)에서 Postgres SQLSTATE 코드를 추출. */
 export function pgErrorCode(e: unknown): string | undefined {
@@ -37,10 +39,6 @@ export function isSchemaMissing(e: unknown, objects: RegExp = VECTOR_OBJECTS): b
     return hitsObject && hitsMissing
   }
   return false
-}
-
-function serviceRoleConfigured(): boolean {
-  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
 }
 
 export type SchemaState = 'ready' | 'missing' | 'no_service_role' | 'error'
@@ -90,7 +88,7 @@ export async function dkbotHealth(): Promise<DkbotHealth> {
     const detail = rpc.error?.message ?? briefsProbe.error?.message
     return detail !== undefined ? { ...base, schema, briefs, detail } : { ...base, schema, briefs }
   } catch (e) {
-    return { ...base, schema: 'error', briefs: 'error', detail: e instanceof Error ? e.message : String(e) }
+    return { ...base, schema: 'error', briefs: 'error', detail: errMsg(e) }
   }
 }
 

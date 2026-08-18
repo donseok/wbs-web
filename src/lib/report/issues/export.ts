@@ -1,4 +1,5 @@
 import type { IssueAnalysisDeckPlan } from './deckPlan'
+import { seoulYmd } from '@/lib/domain/dates'
 import { renderIssueAnalysisPptWithJsZip } from './jszipRenderer'
 
 export const ISSUE_ANALYSIS_PPTX_MIME =
@@ -33,16 +34,9 @@ export async function renderIssueAnalysisPpt(
 
 function seoulDate(value: string): string {
   const date = new Date(value)
+  // 파일명에 'Invalid Date'가 박히면 안 되므로 유효성 가드는 유지 — 포맷만 정본(seoulYmd)에 위임.
   if (Number.isNaN(date.getTime())) throw new Error('이슈 분석서 생성일시가 올바르지 않습니다.')
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date)
-  const get = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find(part => part.type === type)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')}`
+  return seoulYmd(date)
 }
 
 export function buildIssueAnalysisFilename(

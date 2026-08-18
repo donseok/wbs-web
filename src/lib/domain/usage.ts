@@ -1,4 +1,7 @@
 import { round1 } from './format'
+// 사본 정리 — addDaysIso 정본은 dates.ts. 기존 import 경로가 살아 있도록 re-export 유지(내부 사용도 이 바인딩).
+import { addDaysIso } from './dates'
+export { addDaysIso }
 
 /** 원시 이벤트 보존 기간(일). 이 값을 넘긴 행은 /usage 조회 시 정리된다. */
 export const USAGE_RETAIN_DAYS = 90
@@ -40,14 +43,6 @@ export interface UsageUserRow extends AccountRecord {
   events: number
   activeDays: number
   lastActivityAt: string | null
-}
-
-/** 'YYYY-MM-DD' + n일. Date.UTC 가 월/연 경계를 자동 처리. */
-export function addDaysIso(dateIso: string, days: number): string {
-  const [y, m, d] = dateIso.split('-').map(Number)
-  const t = new Date(Date.UTC(y, m - 1, d + days))
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`
 }
 
 /** 쿼리스트링은 신뢰할 수 없다 — 허용 목록에 없으면 기본 30일. */

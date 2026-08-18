@@ -6,6 +6,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getSession } from '@/lib/auth'
 import { getActor, requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
+import { ERR_LOOKUP } from '@/lib/authz/errors'
 import { emitNotification } from '@/lib/notify/emit'
 import { revalidatePath } from 'next/cache'
 import { displayNameFrom } from '@/lib/domain/display-name'
@@ -35,8 +36,8 @@ import {
   MINUTE_SELECTION_MAX_BLOCK_SPAN, MINUTE_SELECTION_MAX_CHARS,
   matchMinuteSelection, minuteSelectionKeyHash,
 } from '@/lib/minutes/selection'
-import { sortByKoreanName } from '@/lib/domain/nameSort'
-import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
+import { PROJECT_MEMBER_SELECT, mapProjectMemberRows } from '@/lib/data/members'
+import type { ProjectMember } from '@/lib/domain/types'
 import { generateAnswer } from '@/lib/ai/llm'
 import { hasLLM } from '@/lib/ai/provider'
 import {
@@ -144,33 +145,16 @@ export async function fetchIssueProjectMembers(projectId: string): Promise<Issue
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('project_members')
-    .select('id, project_id, name, email, role, title, role_label, user_id, created_at, teams(code)')
+    .select(PROJECT_MEMBER_SELECT)
     .eq('project_id', projectId)
     .order('created_at', { ascending: true })
+  // 에러 계약은 데이터 헬퍼(getProjectMembers)와 다르다 — 액션은 폼에 실패를 보여야 하므로
+  // 빈 배열로 위장하지 않고 { ok: false } 를 돌려준다. 행 매핑만 공유한다.
   if (error) {
     console.error('[fetchIssueProjectMembers] 조회 실패:', error.message)
     return { ok: false, error: '담당자 목록을 불러오지 못했습니다. 다시 시도하세요.' }
   }
-  const rows = sortByKoreanName(data ?? [], row => (row as Record<string, unknown>).name as string)
-  return {
-    ok: true,
-    members: rows.map((row: Record<string, unknown>) => {
-      const team = row.teams as { code: TeamCode } | { code: TeamCode }[] | null
-      const teamCode = (Array.isArray(team) ? team[0]?.code : team?.code) ?? null
-      return {
-        id: row.id as string,
-        projectId: row.project_id as string,
-        name: row.name as string,
-        email: (row.email as string) ?? null,
-        teamCode: teamCode as TeamCode | null,
-        role: (row.role as ProjectMemberRole) ?? 'contributor',
-        title: (row.title as string) ?? null,
-        roleLabel: (row.role_label as string) ?? null,
-        hasAccount: row.user_id != null,
-        createdAt: row.created_at as string,
-      }
-    }),
-  }
+  return { ok: true, members: mapProjectMemberRows(data) }
 }
 
 const TITLE_MAX = 200
@@ -573,8 +557,6 @@ async function resolveIssueMajorId(
   console.error('[resolveIssueMajorId] 등록 실패:', insErr?.message ?? 'empty result')
   return { ok: false, error: 'Major Process 등록에 실패했습니다. 다시 시도하세요.' }
 }
-
-const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
 
 /**
  * 전체 편집·삭제의 공통 게이트 — 대상 이슈의 프로젝트를 먼저 확정한 뒤 그 프로젝트의

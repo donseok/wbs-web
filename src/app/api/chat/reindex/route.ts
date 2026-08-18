@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSuperuser } from '@/lib/authz'
+import { denyStatus } from '@/lib/authz/errors'
 import { ingestProject } from '@/lib/ai/ingest'
 
 export const dynamic = 'force-dynamic'
-
-/** 가드 실패 → HTTP status. 비로그인 401 · 권한 없음 403 · 권한 조회 실패는 서버 문제라 500(라우트 관례). */
-function denyStatus(error: string): number {
-  if (error === '로그인 필요') return 401
-  return error === '권한 없음' ? 403 : 500
-}
 
 export async function POST(req: NextRequest) {
   const g = await requireSuperuser()

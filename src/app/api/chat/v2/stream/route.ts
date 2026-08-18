@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
+import { jsonError } from '@/lib/api/http'
 import { getSession } from '@/lib/auth'
 import { getActorForView } from '@/lib/authz'
 import { effectiveLegacyRole } from '@/lib/domain/authz'
@@ -24,36 +25,32 @@ function requestId(): string {
   return `req_${crypto.randomUUID().replace(/-/g, '')}`
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ error: message, code }, { status })
-}
-
 /** Read-only NDJSON endpoint. Existing /api/chat and /api/chat/stream remain untouched. */
 export async function POST(req: NextRequest) {
   // Explicit kill switch used by the client to fall back to the legacy text stream.
   if (process.env.CHAT_V2_ENABLED !== 'true') {
-    return jsonError('CHAT_V2_DISABLED', '새 챗봇 스트림이 비활성화되어 있습니다.', 501)
+    return jsonError('새 챗봇 스트림이 비활성화되어 있습니다.', 501, 'CHAT_V2_DISABLED')
   }
 
   const user = await getSession()
-  if (!user) return jsonError('UNAUTHENTICATED', '인증이 필요합니다.', 401)
+  if (!user) return jsonError('인증이 필요합니다.', 401, 'UNAUTHENTICATED')
 
   // sanitize는 파싱 이후에야 상한을 적용하므로, 파싱 전 선언 크기로 리소스 소모형
   // 요청을 차단한다(리뷰 M-5). 256KB는 정상 상한(메시지 2k + 히스토리 12×4k자 한글
   // UTF-8 ≈ 150KB)에 여유를 둔 값이다.
   const contentLength = Number(req.headers.get('content-length') ?? 0)
   if (contentLength > MAX_REQUEST_BYTES) {
-    return jsonError('PAYLOAD_TOO_LARGE', '요청 본문이 너무 큽니다.', 413)
+    return jsonError('요청 본문이 너무 큽니다.', 413, 'PAYLOAD_TOO_LARGE')
   }
 
   let raw: unknown
   try {
     raw = await req.json()
   } catch {
-    return jsonError('INVALID_JSON', '잘못된 JSON 요청입니다.', 400)
+    return jsonError('잘못된 JSON 요청입니다.', 400, 'INVALID_JSON')
   }
   const parsed = sanitizeChatRequestV2(raw)
-  if (!parsed.ok) return jsonError(parsed.error.code, parsed.error.message, parsed.error.status)
+  if (!parsed.ok) return jsonError(parsed.error.message, parsed.error.status, parsed.error.code)
   const request = parsed.value
   const now = new Date()
   const plannedRoute = routeChatRequest(request, now)
@@ -64,7 +61,7 @@ export async function POST(req: NextRequest) {
     && process.env.CHAT_V2_PLANNER_ENABLED === 'true'
     && shouldAttemptPlan(planningSignals(request))
   if (plannedRoute.kind === 'legacy' && !plannerEligible) {
-    return jsonError('CHAT_V2_UNSUPPORTED', '기존 DK Bot으로 전환합니다.', 501)
+    return jsonError('기존 DK Bot으로 전환합니다.', 501, 'CHAT_V2_UNSUPPORTED')
   }
 
   // 챗 컨텍스트의 신원 — 판정이 아니라 표시·필터용이다(실제 권한은 아래 capabilities +
@@ -78,11 +75,11 @@ export async function POST(req: NextRequest) {
   const scopeResolution = await createSupabaseAccessScopeResolver(sb).resolve(user.id)
   if (!scopeResolution.ok) {
     console.error('[chat-v2] 프로젝트 접근 범위 조회 실패:', scopeResolution.detail ?? scopeResolution.code)
-    return jsonError('ACCESS_SCOPE_UNAVAILABLE', '프로젝트 접근 범위를 확인하지 못했습니다.', 503)
+    return jsonError('프로젝트 접근 범위를 확인하지 못했습니다.', 503, 'ACCESS_SCOPE_UNAVAILABLE')
   }
   const { allowedProjectIds, capabilities } = scopeResolution.scope
   const scope = validateChatProjectScope(request, allowedProjectIds)
-  if (!scope.ok) return jsonError(scope.code, scope.message, scope.status)
+  if (!scope.ok) return jsonError(scope.message, scope.status, scope.code)
 
   const id = requestId()
   const registry = createDefaultChatToolRegistry(sb)
@@ -95,7 +92,7 @@ export async function POST(req: NextRequest) {
     const validated = validateToolPlan(rawPlan, { allowedTools, allowedProjectIds })
     if (!validated.ok) {
       console.warn('[chat-v2] 플래너 계획 기각 → 레거시 폴백:', validated.code)
-      return jsonError('CHAT_V2_UNSUPPORTED', '기존 DK Bot으로 전환합니다.', 501)
+      return jsonError('기존 DK Bot으로 전환합니다.', 501, 'CHAT_V2_UNSUPPORTED')
     }
     plan = validated.plan
   }

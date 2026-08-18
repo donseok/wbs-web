@@ -12,6 +12,7 @@ import type {
   MinuteWikiImpactCardProps, MinuteWikiImpactCounts, MinuteWikiImpactItem, MinuteWikiSyncStatus,
 } from '@/components/minutes/MinuteWikiImpactCard'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { getHiddenProjectIds } from '@/lib/authz/visibility'
 
 type Row = Record<string, unknown>
@@ -377,7 +378,7 @@ export const getMinuteWikiImpact = cache(async (
     projectName,
     processedAt: null,
   }
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return fallback
+  if (!serviceRoleConfigured()) return fallback
 
   const admin = createAdminClient()
   const { data: job, error: jobError } = await admin.from('wiki_processing_jobs')

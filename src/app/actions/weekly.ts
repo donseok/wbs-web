@@ -10,6 +10,7 @@ import {
 import { findCarryOverSource, getWeeklySheet } from '@/lib/data/weeklySheet'
 import { generateAnswer } from '@/lib/ai/llm'
 import { hasLLM } from '@/lib/ai/provider'
+import { errMsg } from '@/lib/domain/format'
 import {
   buildWeeklyRewritePrompt, parseWeeklyRewriteResponse, WEEKLY_REWRITE_MAX_CELLS,
   WEEKLY_REWRITE_MAX_TOTAL_CHARS, WEEKLY_REWRITE_SYSTEM_PROMPT,
@@ -64,8 +65,6 @@ function rememberWeeklyRewriteAttempt(key: string, now: number) {
 function revalidateWeekly(projectId: string) {
   revalidatePath(`/p/${projectId}/weekly`)
 }
-
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** 보상 삭제 — 행이 하나도 없을 때만. 그 사이 다른 사용자가 넣은 행을 cascade로 지우지 않게. */
 async function deleteReportIfEmpty(

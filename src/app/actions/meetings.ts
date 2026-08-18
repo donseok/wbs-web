@@ -2,6 +2,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { getSession } from '@/lib/auth'
 import { getActor, requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
+import { ERR_LOOKUP } from '@/lib/authz/errors'
 import { revalidatePath } from 'next/cache'
 import { getMyMeetings, getMeetingDetail } from '@/lib/data/meetings'
 import { expandMeetings, MEETING_CATEGORIES, RECURRENCE_ORDER } from '@/lib/domain/meetings'
@@ -72,8 +73,6 @@ function revalidateMeetings(projectId: string) {
   revalidatePath(`/p/${projectId}/meetings`)
   revalidatePath('/meetings')
 }
-
-const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
 
 /**
  * 수정·삭제 계열의 공통 게이트 — 대상 회의의 프로젝트를 먼저 확정한 뒤 그 프로젝트의

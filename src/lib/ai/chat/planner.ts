@@ -1,4 +1,5 @@
 import { generateAnswer, type ChatMessage } from '@/lib/ai/llm'
+import { addDaysIso, seoulYmd } from '@/lib/domain/dates'
 import type { CoreBotToolName } from '@/lib/ai/tools/types'
 import type { SuccessfulToolEvidence } from './evidence'
 import type { BotDomain, ChatRequestV2 } from './protocol'
@@ -481,20 +482,15 @@ export function plannerDateAnchors(now: string): {
 } {
   const parsed = new Date(now)
   const safe = Number.isNaN(parsed.getTime()) ? new Date() : parsed
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(safe)
+  const today = seoulYmd(safe)
   const [y, m, d] = today.split('-').map(Number)
-  const addDays = (base: string, amount: number): string => {
-    const [by, bm, bd] = base.split('-').map(Number)
-    const date = new Date(Date.UTC(by, bm - 1, bd + amount))
-    return date.toISOString().slice(0, 10)
-  }
   const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
-  const monday = addDays(today, -(day === 0 ? 6 : day - 1))
+  const monday = addDaysIso(today, -(day === 0 ? 6 : day - 1))
   return {
     today,
-    thisWeek: { from: monday, to: addDays(monday, 6) },
-    nextWeek: { from: addDays(monday, 7), to: addDays(monday, 13) },
-    lastWeek: { from: addDays(monday, -7), to: addDays(monday, -1) },
+    thisWeek: { from: monday, to: addDaysIso(monday, 6) },
+    nextWeek: { from: addDaysIso(monday, 7), to: addDaysIso(monday, 13) },
+    lastWeek: { from: addDaysIso(monday, -7), to: addDaysIso(monday, -1) },
   }
 }
 

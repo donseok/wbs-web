@@ -4,6 +4,7 @@ import { requireSuperuser } from '@/lib/authz'
 import { createServerClient } from '@/lib/supabase/server'
 import { refreshLlmOverride } from '@/lib/ai/llm-override'
 import { normalizeBaseUrl } from '@/lib/ai/endpoints'
+import { errMsg } from '@/lib/domain/format'
 
 export type LlmMode = 'env' | 'profile' | 'none'
 
@@ -371,7 +372,7 @@ export async function testLlmConnection(
     if (e instanceof Error && e.name === 'AbortError') {
       return { success: false, error: '연결 시간이 초과되었습니다(10초)' }
     }
-    return { success: false, error: redact(e instanceof Error ? e.message : String(e), token) }
+    return { success: false, error: redact(errMsg(e), token) }
   } finally {
     clearTimeout(timer)
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSuperuser } from '@/lib/authz'
+import { denyStatus } from '@/lib/authz/errors'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   INDEX_BACKFILL_DOMAINS,
@@ -24,13 +25,6 @@ const REPAIR_LIMIT = 20
 
 type ReindexAction = 'status' | 'enqueue' | 'step' | 'repair'
 
-/** requireSuperuser() 의 세 에러 문자열만 안다 — 그 외(알 수 없는 실패)는 판정 불가로 503. */
-function denyStatus(error: string): 401 | 403 | 503 {
-  if (error === '로그인 필요') return 401
-  if (error === '권한 없음') return 403
-  return 503
-}
-
 function parseAction(raw: unknown): ReindexAction | null {
   if (!raw || typeof raw !== 'object') return null
   const action = (raw as Record<string, unknown>).action
@@ -52,7 +46,7 @@ async function loadAccessScope(
 export async function POST(req: NextRequest) {
   // 크론 시크릿이 아니라 세션 인가다 — 브라우저에서 부르는 버튼이라서다.
   const guard = await requireSuperuser()
-  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: denyStatus(guard.error) })
+  if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: denyStatus(guard.error, 503) })
 
   const raw = await req.json().catch(() => null)
   const action = parseAction(raw)

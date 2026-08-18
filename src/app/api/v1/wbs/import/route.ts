@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   apiBadRequest, apiFail, apiInternalError, apiNotFound,
-  isAgentProjectMember, requireAgentProject, requireScope, resolveAgentPrincipal, patProjectAllowed,
+  isAgentProjectAdmin, isAgentProjectMember, requireAgentProject, requireScope, resolveAgentPrincipal, patProjectAllowed,
 } from '@/lib/agent/externalApi'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { applyAssigneesAndOrders, toRpcNode, type ImportNode } from '@/lib/agent/wbsImport'
@@ -37,14 +37,10 @@ export async function POST(req: NextRequest) {
     // 아니면 완전 비멤버가 관리자 판정에서 403 forbidden_role 을 받아 "프로젝트가 존재한다"가 샌다.
     if (!(await isAgentProjectMember(admin, principal.userId, projectId))) return apiNotFound()
     // import = 구조 쓰기 + 자동 발행 트리거 — 발행과 같은 관리자 전용(§2.8). member 는 403.
-    const { data: roleRow, error: roleErr } = await admin
-      .from('project_roles').select('role').eq('user_id', principal.userId).eq('project_id', projectId).limit(1)
-    const { data: mem, error: memErr } = await admin
-      .from('memberships').select('is_superuser').eq('user_id', principal.userId).maybeSingle()
-    if (roleErr || memErr) return apiInternalError()
-    const isSuper = !!(mem as { is_superuser?: boolean } | null)?.is_superuser
-    const isAdmin = ((roleRow ?? []) as Array<{ role: string }>).some(r => r.role === 'admin')
-    if (!isSuper && !isAdmin) return apiFail(403, 'forbidden_role', '프로젝트 관리자만 업로드할 수 있습니다.')
+    // 판정은 isAgentProjectAdmin 한 곳 — 조회 실패는 헬퍼가 throw 해 아래 catch 가 500 으로 답한다.
+    if (!(await isAgentProjectAdmin(admin, principal.userId, projectId))) {
+      return apiFail(403, 'forbidden_role', '프로젝트 관리자만 업로드할 수 있습니다.')
+    }
 
     // 변환 — 실패 노드는 생략하지 않고 400 으로 전량 보고(에러 3원칙).
     const rpcNodes: unknown[] = []

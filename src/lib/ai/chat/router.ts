@@ -1,4 +1,5 @@
 import { isCommandUtterance } from '@/lib/ai/commands/cue'
+import { addDaysIso, seoulYmd } from '@/lib/domain/dates'
 import { classifyIntent } from '@/lib/ai/intent'
 import type { CoreBotToolName } from '@/lib/ai/tools/types'
 import type {
@@ -101,20 +102,10 @@ function uniq<T>(values: T[]): T[] {
   return [...new Set(values)]
 }
 
-function kstToday(now: Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(now)
-}
-
-function addDays(iso: string, amount: number): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  const date = new Date(Date.UTC(y, m - 1, d + amount))
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
-}
-
 function mondayOf(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
-  return addDays(iso, -(day === 0 ? 6 : day - 1))
+  return addDaysIso(iso, -(day === 0 ? 6 : day - 1))
 }
 
 function validIsoDate(year: number, month: number, day: number): string | null {
@@ -242,7 +233,7 @@ function explicitSearchQuery(input: ChatRequestV2): string | undefined {
 }
 
 function requestedRange(message: string, context: PageContextV1 | undefined, now: Date): { from: string; to: string } {
-  const today = kstToday(now)
+  const today = seoulYmd(now)
   const dates = explicitDates(message, today)
   if (dates.length >= 2) {
     const [left, right] = dates
@@ -252,25 +243,25 @@ function requestedRange(message: string, context: PageContextV1 | undefined, now
   const explicitMonth = explicitMonthRange(message, today)
   if (explicitMonth) return explicitMonth
   if (/내일/.test(message)) {
-    const tomorrow = addDays(today, 1)
+    const tomorrow = addDaysIso(today, 1)
     return { from: tomorrow, to: tomorrow }
   }
   if (/어제/.test(message)) {
-    const yesterday = addDays(today, -1)
+    const yesterday = addDaysIso(today, -1)
     return { from: yesterday, to: yesterday }
   }
   if (/오늘/.test(message)) return { from: today, to: today }
   if (/지난\s*주|전주/.test(message)) {
-    const monday = addDays(mondayOf(today), -7)
-    return { from: monday, to: addDays(monday, 6) }
+    const monday = addDaysIso(mondayOf(today), -7)
+    return { from: monday, to: addDaysIso(monday, 6) }
   }
   if (/다음\s*주|차주/.test(message)) {
-    const monday = addDays(mondayOf(today), 7)
-    return { from: monday, to: addDays(monday, 6) }
+    const monday = addDaysIso(mondayOf(today), 7)
+    return { from: monday, to: addDaysIso(monday, 6) }
   }
   if (/이번\s*주|금주|주간/.test(message)) {
     const monday = mondayOf(today)
-    return { from: monday, to: addDays(monday, 6) }
+    return { from: monday, to: addDaysIso(monday, 6) }
   }
   if (/지난\s*달|전월/.test(message)) return shiftedMonthRange(today, -1)
   if (/다음\s*달|익월/.test(message)) return shiftedMonthRange(today, 1)
@@ -285,7 +276,7 @@ function requestedRange(message: string, context: PageContextV1 | undefined, now
 }
 
 function hasRequestedRangeCue(message: string, now: Date): boolean {
-  const today = kstToday(now)
+  const today = seoulYmd(now)
   return explicitDates(message, today).length > 0
     || explicitMonthRange(message, today) !== null
     || /오늘|내일|어제|지난\s*주|전주|다음\s*주|차주|이번\s*주|금주|지난\s*달|전월|다음\s*달|익월|이번\s*달|금월/.test(message)
@@ -372,7 +363,7 @@ function wbsCall(input: ChatRequestV2, now: Date): RoutedToolCall {
 }
 
 function weeklyCall(input: ChatRequestV2, now: Date): RoutedToolCall {
-  const today = kstToday(now)
+  const today = seoulYmd(now)
   const currentWeekStart = mondayOf(today)
   const explicitWeekStarts = explicitDates(input.message, today).map(mondayOf)
   const contextualWeekStart = input.pageContext?.weekStart ?? currentWeekStart
@@ -380,7 +371,7 @@ function weeklyCall(input: ChatRequestV2, now: Date): RoutedToolCall {
   const mentionsPriorWeek = /지난\s*주|전주/.test(input.message)
   const comparison = /비교|차이|달라|변화/.test(input.message)
   const weekStart = explicitWeekStarts[0] ?? (mentionsPriorWeek
-    ? addDays(currentWeekStart, -7)
+    ? addDaysIso(currentWeekStart, -7)
     : mentionsCurrentWeek ? currentWeekStart : contextualWeekStart)
   const filters = {
     ...(teamFrom(input.message, input.pageContext) ? { team: teamFrom(input.message, input.pageContext) } : {}),
@@ -396,7 +387,7 @@ function weeklyCall(input: ChatRequestV2, now: Date): RoutedToolCall {
         ?? (mentionsCurrentWeek || mentionsPriorWeek ? currentWeekStart : contextualWeekStart)
     const fromWeekStart = explicitComparisonWeeks.length >= 2
       ? explicitComparisonWeeks[0]
-      : addDays(toWeekStart, -7)
+      : addDaysIso(toWeekStart, -7)
     return {
       id: 'call_weekly_compare',
       tool: 'compare_weekly_sheets',
@@ -503,7 +494,7 @@ function announcementsCall(input: ChatRequestV2, now: Date): RoutedToolCall {
     }
   }
   const pinnedOnly = /고정|필독/.test(input.message)
-  const activeOn = /게시\s*중|현재|오늘/.test(input.message) ? kstToday(now) : undefined
+  const activeOn = /게시\s*중|현재|오늘/.test(input.message) ? seoulYmd(now) : undefined
   return {
     id: 'call_announcements', tool: 'list_announcements', domain: 'announcements',
     args: {

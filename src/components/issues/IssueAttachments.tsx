@@ -23,15 +23,9 @@ import {
   type IssueAttachment,
 } from '@/lib/domain/issueAttachments'
 import { uploadIssueAttachments } from '@/lib/issues/uploadIssueAttachments'
+import { fmtSize } from '@/lib/domain/format'
 
 const MAX_MB = Math.round(ISSUE_ATTACHMENT_MAX_BYTES / 1024 / 1024)
-
-function fmtSize(n: number | null): string {
-  if (n == null) return ''
-  if (n < 1024) return `${n}B`
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)}KB`
-  return `${(n / 1024 / 1024).toFixed(1)}MB`
-}
 
 export interface IssueAttachmentsProps {
   /** null 이면 아직 저장되지 않은 이슈 — 고른 파일을 부모에게 넘기기만 한다. */

@@ -2,12 +2,13 @@ import { chunkMarkdown } from './chunk'
 import { embedDocuments } from './embeddings'
 import { hasEmbeddings } from './provider'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 
 /** 회의록 1건 인제스트 — delete-and-reinsert. 실패는 로그만(업로드 성공에 영향 없음, self-heal 이 회수). */
 export async function ingestMinute(minuteId: string, bodyMd: string): Promise<void> {
   try {
     if (!hasEmbeddings()) return
-    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
+    if (!serviceRoleConfigured()) return
     const chunks = chunkMarkdown(bodyMd)
     const admin = createAdminClient()
     // 본문이 비어도 기존 임베딩은 지운다(교체로 비워진 경우 스테일 방지).
@@ -35,7 +36,7 @@ const HEAL_COOLDOWN_MS = 60_000
 
 export async function healMissingMinuteEmbeddings(limit = 3): Promise<void> {
   if (!hasEmbeddings()) return
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
+  if (!serviceRoleConfigured()) return
   if (healInFlight) return healInFlight
   if (Date.now() - healLastAttempt < HEAL_COOLDOWN_MS) return
 

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { isShareToken } from '@/lib/minutes/share'
 import { ShareViewer } from '@/components/minutes/ShareViewer'
 import type { TeamCode } from '@/lib/domain/types'
@@ -12,7 +13,7 @@ export default async function SharedMinutePage({ params }: { params: Promise<{ t
   const { token } = await params
   if (!isShareToken(token)) notFound()
   // env 가드 — 미설정 배포에서 500 대신 404 (rematchMinuteHighlights 와 동일 패턴)
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+  if (!serviceRoleConfigured()) {
     console.error('[share] service_role 환경변수 미설정 — 공유 페이지 비활성')
     notFound()
   }

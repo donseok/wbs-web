@@ -1,3 +1,4 @@
+import { chunked } from '@/lib/ai/util'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { emitNotification } from '@/lib/notify/emit'
@@ -158,12 +159,6 @@ export async function applyAssigneesAndOrders(
  *  한 번에 실으면 UUID 1000개 ≈ 37KB 가 프록시 URI 상한(8~16KB)을 넘는다(재리뷰 지적). */
 const IN_CHUNK = 200
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
-  return out
-}
-
 async function ensureOrdersForPayload(
   admin: AdminClient,
   args: { projectId: string; actorUserId: string; module: string; taskRefs: string[] },
@@ -175,7 +170,7 @@ async function ensureOrdersForPayload(
 
   // 배치 조회(청크당 1쿼리) — 이번 payload 의 task ref 전체를 조회하고 dev_workflow=true 후보만 client 측에서 거른다.
   const rows: Array<{ id: string; external_ref: string | null; dev_workflow: boolean | null }> = []
-  for (const refChunk of chunk(taskRefs, IN_CHUNK)) {
+  for (const refChunk of chunked(taskRefs, IN_CHUNK)) {
     const { data, error: rowsErr } = await admin
       .from('wbs_items')
       .select('id, external_ref, dev_workflow')
@@ -190,7 +185,7 @@ async function ensureOrdersForPayload(
   // 배치 조회(청크당 1쿼리) — 후보 id 들의 활성 주문(ready/claimed/reported), 이미 있는 id 는 갭에서 제외.
   const candidateIds = candidates.map(c => c.id)
   const activeIds = new Set<string | null>()
-  for (const idChunk of chunk(candidateIds, IN_CHUNK)) {
+  for (const idChunk of chunked(candidateIds, IN_CHUNK)) {
     const { data: active, error: activeErr } = await admin
       .from('agent_work_orders')
       .select('wbs_item_id')

@@ -1,6 +1,9 @@
 // 메일 본문은 한국어 고정 — 수신자의 언어를 알 수 없고 발신자 로케일을 쓰는 것은 틀린 답이다.
 // (src/lib/mail/meetingInvite.ts 와 같은 이유·같은 구성: 순수 렌더 함수, 발송은 호출자가 한다.)
 
+import { seoulStamp as seoulStampCore } from '@/lib/domain/dates'
+import { esc } from './esc'
+
 /**
  * 만료 일시는 Asia/Seoul 고정 표기다. Date 를 로컬 게터로 읽으면 Vercel(UTC)과 개발 PC 가
  * 서로 다른 시각을 찍는다 — 수신자가 보는 시각은 서버 타임존과 무관해야 한다.
@@ -8,13 +11,9 @@
  */
 function seoulStamp(iso: string): string | null {
   const at = new Date(iso)
+  // 정본(dates.seoulStamp)은 유효한 입력을 전제한다 — invalid → null 계약은 이 래퍼가 지킨다.
   if (Number.isNaN(at.getTime())) return null
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(at)
-  const get = (t: string) => parts.find(p => p.type === t)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')} (한국 시간)`
+  return `${seoulStampCore(at)} (한국 시간)`
 }
 
 /**
@@ -24,12 +23,6 @@ function seoulStamp(iso: string): string | null {
  */
 function expiresLabel(iso: string): string {
   return seoulStamp(iso) ?? '확인할 수 없음'
-}
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 /** 메일 헤더는 한 줄이다 — 제목의 CR/LF 는 헤더 주입 표면이므로 여기서 잘라낸다. */

@@ -1,6 +1,6 @@
 import { Gauge } from 'lucide-react'
 import type { TrendModel } from '@/lib/domain/trend'
-import { progressSignal, type Signal } from '@/lib/domain/dashboard'
+import { progressSignal, SPI_DONE_FLOOR, SPI_WARN_FLOOR, type Signal } from '@/lib/domain/dashboard'
 import { formatPp1 } from '@/lib/domain/format'
 import { SectionCard } from '@/components/ui/SectionCard'
 import { t, type DictKey } from '@/lib/i18n/dict'
@@ -30,7 +30,8 @@ export async function SpiPanel({ model, variance }: { model: TrendModel; varianc
   const fmtPp = (n: number) => `${formatPp1(n)}%p`
 
   const spi = model.currentSpi
-  const spiKey = spi == null ? null : spi >= 0.98 ? 'done' : spi >= 0.9 ? 'warn' : 'delayed'
+  // 경계는 dashboard 단일 출처 — riskSignals(delay_trend)와 같은 값을 봐야 색과 신호가 안 갈린다.
+  const spiKey = spi == null ? null : spi >= SPI_DONE_FLOOR ? 'done' : spi >= SPI_WARN_FLOOR ? 'warn' : 'delayed'
   const spiTone = spiKey == null ? 'text-ink' : SPI_TEXT[spiKey]
 
   // 반원 게이지 — 상태색 호 + 바늘 + 중앙 큰 숫자. 바늘이 숫자를 지나도 읽히게 표면색 할로를 두른다.

@@ -1,6 +1,9 @@
 import 'server-only'
 
 import type { IssueAnalysisDeckBodyParagraph } from './deckPlan'
+// 사본 정리 — 정본은 ../xml(제어문자 제거 포함 동일 구현). 기존 importer 경로 유지를 위해 re-export.
+import { escapeXml } from '../xml'
+export { escapeXml }
 
 export const SHAPE_RE = /<p:sp\b[^>]*>[\s\S]*?<\/p:sp>/g
 export const GROUP_SHAPE_RE = /<p:grpSp\b[^>]*>[\s\S]*?<\/p:grpSp>/g
@@ -13,15 +16,6 @@ export const PPR_RE = /<a:pPr\b[^>]*\/>|<a:pPr\b[\s\S]*?<\/a:pPr>/
 export const RPR_RE = /<a:rPr\b[^>]*\/>|<a:rPr\b[\s\S]*?<\/a:rPr>/
 export const END_RPR_RE =
   /<a:endParaRPr\b[^>]*\/>|<a:endParaRPr\b[\s\S]*?<\/a:endParaRPr>/
-
-export function escapeXml(value: string): string {
-  return value
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 
 export function textNode(value: string): string {
   const space = /^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''

@@ -12,7 +12,7 @@ import { availableSubActTeams, willDiscardActual } from '@/lib/domain/subact'
 import { canAddChild, canSplit } from '@/lib/domain/wbsAffordance'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
-import { formatWeightPct, formatPct1 } from '@/lib/domain/format'
+import { formatWeightPct, formatPct1, fmtSize } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -560,13 +560,6 @@ function Stat({ label, value }: { label: string; value: string }) {
       <div className="mt-0.5 text-[15px] font-bold tabular-nums text-ink">{value}</div>
     </div>
   )
-}
-
-function fmtSize(n: number | null): string {
-  if (n == null) return ''
-  if (n < 1024) return `${n}B`
-  if (n < 1024 * 1024) return `${Math.round(n / 1024)}KB`
-  return `${(n / 1024 / 1024).toFixed(1)}MB`
 }
 
 /** 산출물 파일 첨부 — 목록/다운로드(모두) + 업로드/삭제(담당팀·PMO). */

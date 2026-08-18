@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { getInvitePreview } from '@/app/actions/inviteRedeem'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { BrandGlyph } from '@/components/ui/BrandMark'
 import { InviteRedeemCard } from '@/components/invite/InviteRedeemCard'
 
@@ -10,7 +11,7 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
   // env 가드 — 미설정 배포에서 500 대신 404 (share 페이지 선례)
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+  if (!serviceRoleConfigured()) {
     console.error('[invite] service_role 환경변수 미설정 — 초대 페이지 비활성')
     notFound()
   }

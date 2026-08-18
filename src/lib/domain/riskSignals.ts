@@ -17,6 +17,7 @@
 import type { ComputedItem, InsightKind, TeamCode } from './types'
 import type { HygieneModel, Signal } from './dashboard'
 import {
+  DELAYED_RED_COUNT, SPI_WARN_FLOOR,
   dataHygiene, delayAging, diffDaysCal, dueSoonLeaves, overallSignal, progressSignal,
 } from './dashboard'
 import { round1 } from './format'
@@ -94,16 +95,15 @@ export interface RiskSignalReport {
 }
 
 /* ── 이 모듈이 소유하는 유일한 신규 임계값(테스트로 고정) ──
- * 나머지 경계(진척 -2/-10, 에이징 15일·4건, SPI 0.9, planned≥5)는 전부 기존 소유자 미러다. */
+ * SPI 0.9·지연 red 4건은 dashboard 단일 출처(SPI_WARN_FLOOR·DELAYED_RED_COUNT)를 임포트하고,
+ * 나머지 경계(진척 -2/-10, 에이징 15일, planned≥5)는 기존 소유자 미러다. */
 export const OVERLOAD_DELAYED_FIRE = 3   // 한 팀에 지연 리프 3건 집중 → 발화
 export const OVERLOAD_ACTIVE_RATIO = 2   // 활성 리프가 배정 팀 평균의 2배 → 발화
 export const OVERLOAD_ACTIVE_MIN = 4     // 표본 극소(활성 3건 이하) 팀의 비율 오탐 바닥
 export const STALE_ACTION_DAYS = 7       // 회의 액션·기한 항목 경과 기준일
 
 export const SPI_TAIL = 3          // 연속 하락 판정 표본 수 — RiskSignalCard 캐비앗 문구 보간에 공유
-const SPI_DELAYED_FLOOR = 0.9      // SpiPanel 'delayed' 경계 미러(재정의 아님)
 const SPI_PLANNED_GUARD = 5        // trend.ts spiSeries 조기 불안정 가드 미러
-const OVERLOAD_DELAYED_RED = 4     // riskModel red 경계(지연 4+) 미러
 const EVIDENCE_LIMIT = 8           // delayAging list limit 관례 미러
 
 const wbsRef = (l: ComputedItem): EvidenceRef => ({ type: 'wbs_item', itemId: l.id, label: l.name })
@@ -125,12 +125,12 @@ function detectDelayTrend(spiSeries: number[]): RiskSignal | null {
   const tail = spiSeries.slice(-SPI_TAIL)
   const strictlyFalling = tail.every((v, i) => i === 0 || v < tail[i - 1])
   const current = tail[tail.length - 1]
-  if (!strictlyFalling || current >= SPI_DELAYED_FLOOR) return null
+  if (!strictlyFalling || current >= SPI_WARN_FLOOR) return null
   return {
     id: 'delay_trend', kind: 'delay_trend',
     severity: 'red',   // 발화 조건 자체가 SpiPanel red 구간(SPI<0.9) — 항상 red
     title: '지연 추세 지속',
-    detail: `SPI가 최근 ${SPI_TAIL}회 연속 하락해 ${current.toFixed(2)}까지 내려왔습니다(기준 0.90 미만).`,
+    detail: `SPI가 최근 ${SPI_TAIL}회 연속 하락해 ${current.toFixed(2)}까지 내려왔습니다(기준 ${SPI_WARN_FLOOR.toFixed(2)} 미만).`,
     metrics: { spiPct: Math.round(current * 100), spiTail: tail.map(v => v.toFixed(2)).join(' → ') },
     evidence: [],      // 프로젝트 수준 지표 — 항목 단위 근거 없음(원문은 트렌드 패널의 스냅샷 시계열)
   }
@@ -158,7 +158,7 @@ function detectDeadlineStall(leaves: ComputedItem[], today: string): RiskSignal 
 
 /* ── ③ 담당 팀 과부하 — teamProgress와 동일한 소유 판정(primary·support 모두)으로 팀별 집계 ──
  * 발화: 지연 리프 ≥3 집중 또는 활성(미완료) 리프가 배정 팀 평균의 2배(표본 바닥 4건).
- * 심각도: 팀 내 지연 ≥4면 red(riskModel red 경계 미러), 그 외 amber. */
+ * 심각도: 팀 내 지연 ≥4면 red(riskModel red 경계 DELAYED_RED_COUNT 공유), 그 외 amber. */
 function detectOwnerOverload(leaves: ComputedItem[], teams: readonly TeamCode[]): RiskSignal[] {
   const perTeam = teams.map(team => {
     const assigned = leaves.filter(l => l.owners.some(o => o.team === team))
@@ -184,7 +184,7 @@ function detectOwnerOverload(leaves: ComputedItem[], teams: readonly TeamCode[])
     const nonDelayedActive = t.active.filter(l => l.status !== 'delayed')
     signals.push({
       id: `owner_overload:${t.team}`, kind: 'owner_overload',
-      severity: t.delayed.length >= OVERLOAD_DELAYED_RED ? 'red' : 'amber',
+      severity: t.delayed.length >= DELAYED_RED_COUNT ? 'red' : 'amber',
       title: `담당 팀 과부하 — ${t.team}`,
       detail: `${t.team} 팀에 지연 ${t.delayed.length}건·활성 ${t.active.length}건이 집중돼 있습니다(배정 팀 평균 활성 ${round1(avgActive)}건).`,
       metrics: {
@@ -201,11 +201,11 @@ function detectOwnerOverload(leaves: ComputedItem[], teams: readonly TeamCode[])
 }
 
 /* ── ④ 예정일 경과 누적 — delayAging 결과를 그대로 판정(경계 재정의 금지) ──
- * d15plus ≥1 → red, total ≥4 → red(riskModel 경계 미러), 그 외 total ≥1 → amber. */
+ * d15plus ≥1 → red, total ≥4 → red(riskModel 경계 DELAYED_RED_COUNT 공유), 그 외 total ≥1 → amber. */
 function detectOverdueAccumulation(leaves: ComputedItem[], today: string): RiskSignal | null {
   const aging = delayAging(leaves, today)
   if (aging.total === 0) return null
-  const severity: RiskSeverity = aging.d15plus >= 1 || aging.total >= 4 ? 'red' : 'amber'
+  const severity: RiskSeverity = aging.d15plus >= 1 || aging.total >= DELAYED_RED_COUNT ? 'red' : 'amber'
   return {
     id: 'overdue_accumulation', kind: 'overdue_accumulation', severity,
     title: '예정일 경과 작업 누적',

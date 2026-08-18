@@ -17,3 +17,10 @@ export function isValidDateRange(start: string | null, end: string | null): bool
   if (!re.test(start) || !re.test(end)) return false
   return start <= end
 }
+
+/** UUID 형태 검증의 단일 출처(사본 5벌 정리). 버전 니블까지 좁힌 변형이 필요하면 호출부에 사유를 남길 것. */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export function isUuidLike(v: string): boolean {
+  return UUID_RE.test(v)
+}

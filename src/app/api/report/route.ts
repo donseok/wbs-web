@@ -19,21 +19,12 @@ import { briefFactsHash, buildBriefFacts } from '@/lib/ai/brief'
 import { getAiBrief } from '@/lib/data/aiBriefs'
 import { activeTeamCodesForProjectSync } from '@/lib/teams/master'
 import { getProjectConfig } from '@/lib/data/projectConfig'
+import { seoulStamp } from '@/lib/domain/dates'
 
 // exceljs·템플릿 zip 읽기(fs)는 Node 전용 → Edge 런타임 금지.
 export const runtime = 'nodejs'
 
-/** 시각을 Asia/Seoul 'YYYY-MM-DD HH:mm' 으로. */
-function seoulStamp(at: Date | string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(typeof at === 'string' ? new Date(at) : at)
-  const get = (t: string) => parts.find(p => p.type === t)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`
-}
-
-/** 현재 시각(Asia/Seoul). */
+/** 현재 시각(Asia/Seoul). 포맷 정본은 domain/dates.seoulStamp. */
 const seoulNow = (): string => seoulStamp(new Date())
 
 const FORMATS = {

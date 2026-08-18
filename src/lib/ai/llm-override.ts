@@ -13,6 +13,7 @@ import 'server-only'
 // ============================================================================
 
 import { createAdminClient } from '@/lib/supabase/admin'
+import { errMsg } from '@/lib/domain/format'
 import { normalizeBaseUrl } from './endpoints'
 
 export interface LlmOverride {
@@ -120,7 +121,7 @@ async function load(): Promise<boolean> {
     return true
   } catch (err) {
     // 토큰이 섞일 여지가 없도록 메시지만 남긴다(auth_token 절대 로그 금지).
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errMsg(err)
     // **직전 유효 설정을 버리지 않는다.** 이미 mode='none'/'profile' 을 알고 있는 인스턴스가
     // DB 순단 한 번으로 env 로 되돌아가면, 관리자가 건 LLM 차단이 스스로 풀리고(env 키로 외부
     // 호출 재개) 화면·응답 어디에도 신호가 없다. 스펙 §5 가 승인한 env 폴백은 콜드스타트뿐이고,

@@ -10,6 +10,7 @@ import {
   isIssueAttachmentSizeAllowed,
   makeIssueAttachmentPath,
 } from '@/lib/domain/issueAttachments'
+import { errMsg } from '@/lib/domain/format'
 import { createBrowserClient } from '@/lib/supabase/client'
 
 const BUCKET = 'issue-attachments'
@@ -66,7 +67,7 @@ export async function uploadIssueAttachments(
       const up = await sb.storage.from(BUCKET).upload(path, f, { upsert: false })
       uploadErr = up.error ? up.error.message : null
     } catch (cause) {
-      uploadErr = cause instanceof Error ? cause.message : String(cause)
+      uploadErr = errMsg(cause)
     }
     if (uploadErr !== null) {
       // 올라간 것이 없으므로 지울 것도 없다.
@@ -83,7 +84,7 @@ export async function uploadIssueAttachments(
       })
       recordErr = rec.ok ? null : (rec.error ?? '')
     } catch (cause) {
-      recordErr = cause instanceof Error ? cause.message : String(cause)
+      recordErr = errMsg(cause)
     }
     if (recordErr !== null) {
       // 메타 없는 객체를 남기지 않는다(보상). remove 는 멱등이라 재실행이 안전하고,

@@ -7,13 +7,8 @@ export function weekdayKey(dateIso: string): `att.weekday.${(typeof WEEKDAYS)[nu
   return `att.weekday.${WEEKDAYS[new Date(`${dateIso}T00:00:00Z`).getUTCDay()]}`
 }
 
-/** 'YYYY-MM-DD' + n일. Date.UTC 가 월/연 경계를 자동 처리. */
-export function addDaysIso(dateIso: string, days: number): string {
-  const [y, m, d] = dateIso.split('-').map(Number)
-  const t = new Date(Date.UTC(y, m - 1, d + days))
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}-${pad2(t.getUTCDate())}`
-}
+// 사본 정리 — 정본은 domain/dates. 대시보드 카드들이 이 경로로 이미 import 하므로 re-export 유지.
+export { addDaysIso } from '@/lib/domain/dates'
 
 /** 회의/근태 리스트 공용 날짜 셀 — 오늘이면 브랜드 배지로 강조. */
 export function DateCell({ date, isToday, todayLabel, weekday }: {

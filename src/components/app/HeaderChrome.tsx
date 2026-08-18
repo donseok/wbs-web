@@ -7,6 +7,8 @@ import {
   Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, Users, X,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
+import { canManageTeams } from '@/lib/authz/teamsAccess'
+import { canManageLlmConfig } from '@/lib/authz/llmConfigAccess'
 import { getNotifications, markAllNotificationsRead, type NotificationItem } from '@/app/actions/notifications'
 import { getUnreadAnnouncementCount } from '@/app/actions/announcements'
 import { getInboxFeed, markInboxSeen, markAllInboxRead, markInboxItemRead, type InboxItem } from '@/app/actions/inbox'
@@ -251,16 +253,23 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
                   <Link href="/account" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                     <KeyRound className="h-4 w-4" />내 계정
                   </Link>
-                  {identity?.isSuperuser && (
+                  {/* 어포던스 판정은 각 화면 게이트와 같은 predicate — 링크만 보이고 페이지는 거부되는 드리프트 방지 */}
+                  {(canManageTeams(identity) || canManageLlmConfig(identity)) && (
                     <>
-                      <Link href="/admin/teams" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
-                        <Users className="h-4 w-4" />팀 관리
-                      </Link>
+                      {/* 링크별로 각자의 판정을 건다 — 지금은 둘 다 슈퍼유저라 결과가 같지만,
+                          한쪽 권한이 넓어지는 날 OR 게이트는 다른 링크까지 같이 열어버린다. */}
+                      {canManageTeams(identity) && (
+                        <Link href="/admin/teams" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                          <Users className="h-4 w-4" />팀 관리
+                        </Link>
+                      )}
                       {/* 서버 전역 LLM 설정 — 프로젝트 설정 페이지에도 진입 카드가 있지만,
                           프로젝트가 하나도 없는 슈퍼유저는 그 경로로 도달할 수 없어 여기에도 둔다. */}
-                      <Link href="/admin/llm-config" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
-                        <Cpu className="h-4 w-4" />LLM 설정
-                      </Link>
+                      {canManageLlmConfig(identity) && (
+                        <Link href="/admin/llm-config" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                          <Cpu className="h-4 w-4" />LLM 설정
+                        </Link>
+                      )}
                     </>
                   )}
                   <button onClick={signOut} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-delayed">

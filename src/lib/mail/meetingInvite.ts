@@ -1,5 +1,6 @@
 import { t } from '@/lib/i18n/dict'
 import type { Meeting } from '@/lib/domain/types'
+import { esc } from './esc'
 
 // 메일 본문은 한국어 고정 — 수신자의 언어를 알 수 없고 발신자 로케일을 쓰는 것은 틀린 답이다.
 const LOCALE = 'ko' as const
@@ -92,12 +93,6 @@ function whenLabel(meeting: Meeting): string {
     ? ` (${fmtRange(meeting.meetingDate, meeting.recurrenceUntil)})`
     : ''
   return `${fmtRecurrence(meeting)} ${time}${until}`
-}
-
-function esc(s: string): string {
-  return s
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 /**

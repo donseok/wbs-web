@@ -556,19 +556,9 @@ export function WbsGanttSheet({
     })
   }
 
-  // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시.
-  const selectedItem = useMemo<ComputedItem | null>(() => {
-    if (!selectedId) return null
-    const find = (ns: ComputedItem[]): ComputedItem | null => {
-      for (const n of ns) {
-        if (n.id === selectedId) return n
-        const c = find(n.children)
-        if (c) return c
-      }
-      return null
-    }
-    return find(items)
-  }, [selectedId, items])
+  // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시 —
+  // itemById(전체 펼침 flatten 색인)가 모든 노드를 담고 있어 트리 재귀 탐색이 불필요하다.
+  const selectedItem = selectedId ? itemById.get(selectedId) ?? null : null
 
   /* ── 날짜 스케일 ── */
   const allDates = items.flatMap(function dates(n): string[] {
@@ -612,14 +602,16 @@ export function WbsGanttSheet({
       width: w * dayPx,
     })
   }
-  const todayX = days.length && today >= rangeStart && today <= rangeEnd ? xOf(today) + dayPx / 2 : null
+  // axisDates 가 today 를 항상 포함하므로 rangeStart ≤ today ≤ rangeEnd 가 구조적으로 보장된다
+  // — 범위 밖 분기(null)는 성립할 수 없어 두지 않는다.
+  const todayX = xOf(today) + dayPx / 2
   const rowsH = flatRows.length * ROW_H
 
   // 첫 페인트 전에 기준일을 sticky 열 오른쪽의 실제 가시 영역 중앙에 배치한다.
   // 직접 scrollLeft를 지정해 사용자가 보는 애니메이션이나 뒤늦은 가로 이동을 만들지 않는다.
   useLayoutEffect(() => {
     const viewKey = `${projectId}:${timelineFocus ? 'timeline' : planningColsHidden ? 'sheet-hidden' : 'sheet-expanded'}`
-    if (centeredViewRef.current === viewKey || todayX == null) return
+    if (centeredViewRef.current === viewKey) return
     const el = timelineScrollRef.current
     if (!el || el.clientWidth <= 0) return
     el.scrollLeft = centeredTimelineScrollLeft({
@@ -1473,26 +1465,24 @@ export function WbsGanttSheet({
             </div>
           )}
 
-          {/* 오늘 세로선 (행 위) */}
-          {todayX != null && (
-            <div
-              data-wbs-today-overlay
-              className="pointer-events-none absolute z-30"
-              style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH, clipPath: frozenClipPath }}
-            >
-              <div className="absolute top-0 w-0.5 -translate-x-1/2 bg-today" style={{ left: todayX, height: rowsH }} />
-              {/* '오늘' 칩도 이정표 칩과 같이 sticky — 세로 스크롤을 따라온다 */}
-              <div className="absolute top-0 h-full w-0" style={{ left: todayX }}>
-                <div
-                  data-wbs-today-chip
-                  className="sticky rounded-sm bg-today px-1 py-0.5 font-bold leading-none text-white"
-                  style={{ top: 'var(--wbs-head-h)', width: 'max-content', transform: 'translateX(-50%)', fontSize: 'var(--wbs-day-font, 9px)' }}
-                >
-                  {t('wbs.today')}
-                </div>
+          {/* 오늘 세로선 (행 위) — todayX 는 항상 유효(축이 today 를 포함)하므로 무조건 그린다 */}
+          <div
+            data-wbs-today-overlay
+            className="pointer-events-none absolute z-30"
+            style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH, clipPath: frozenClipPath }}
+          >
+            <div className="absolute top-0 w-0.5 -translate-x-1/2 bg-today" style={{ left: todayX, height: rowsH }} />
+            {/* '오늘' 칩도 이정표 칩과 같이 sticky — 세로 스크롤을 따라온다 */}
+            <div className="absolute top-0 h-full w-0" style={{ left: todayX }}>
+              <div
+                data-wbs-today-chip
+                className="sticky rounded-sm bg-today px-1 py-0.5 font-bold leading-none text-white"
+                style={{ top: 'var(--wbs-head-h)', width: 'max-content', transform: 'translateX(-50%)', fontSize: 'var(--wbs-day-font, 9px)' }}
+              >
+                {t('wbs.today')}
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 

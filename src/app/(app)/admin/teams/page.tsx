@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { Landmark, ListChecks, Users } from 'lucide-react'
 import { getActorForView } from '@/lib/authz'
+import { canManageTeams } from '@/lib/authz/teamsAccess'
 import { listTeamsAdmin } from '@/app/actions/teams'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -9,9 +10,9 @@ import { TeamsManager } from '@/components/admin/TeamsManager'
 export const dynamic = 'force-dynamic' // 기준정보는 항상 최신 조회(관리 직후 반영)
 
 export default async function TeamsAdminPage() {
-  // 팀 기준정보는 서버 전역 — 슈퍼유저 전용(스펙 §5)
+  // 슈퍼유저 전용 — 판정은 canManageTeams 한 곳에서. 어포던스(헤더 메뉴)도 같은 판정을 쓴다.
   const actor = await getActorForView()
-  if (!actor?.isSuperuser) redirect('/projects')
+  if (!canManageTeams(actor)) redirect('/projects')
 
   const teams = await listTeamsAdmin()
   const active = teams.filter(t => t.active).length

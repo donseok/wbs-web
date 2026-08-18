@@ -16,13 +16,13 @@ import {
 } from '@/app/actions/announcements'
 import type { Announcement, AnnouncementCategory } from '@/lib/domain/types'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
-import { seoulToday } from '@/lib/domain/dates'
+import { seoulToday, seoulYmd } from '@/lib/domain/dates'
 
 type CategoryFilter = 'all' | AnnouncementCategory
 
-/** 'YYYY-MM-DD' (Asia/Seoul) — 앱 날짜 표기 관례 */
+/** 'YYYY-MM-DD' (Asia/Seoul) — 앱 날짜 표기 관례. 포맷은 정본(seoulYmd)에 위임. */
 function fmtDate(iso: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date(iso))
+  return seoulYmd(new Date(iso))
 }
 
 export function AnnouncementsView({

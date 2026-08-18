@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDisplayName } from '@/lib/auth'
 import { requireProjectMember } from '@/lib/authz'
+import { denyStatus } from '@/lib/authz/errors'
+import { jsonError } from '@/lib/api/http'
 import { loadSavedIssueAnalysisRun } from '@/lib/data/issueAnalysis'
 import { buildIssueAnalysisDeckPlan } from '@/lib/report/issues/deckPlan'
 import {
@@ -13,17 +15,6 @@ import {
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-function denyStatus(error: string): number {
-  if (error === '로그인 필요') return 401
-  return error === '권한 없음' ? 403 : 500
-}
-function jsonError(error: string, status: number, code?: string): NextResponse {
-  return NextResponse.json(
-    { error, ...(code ? { code } : {}) },
-    { status, headers: { 'Cache-Control': 'no-store' } },
-  )
-}
 
 /**
  * 저장된 AI 실행을 표준 PPT로 내보내는 읽기 전용 경계.

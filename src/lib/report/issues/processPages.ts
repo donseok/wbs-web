@@ -1,3 +1,4 @@
+import { chunked } from '@/lib/ai/util'
 import type { IssueAnalysisReportArea } from './model'
 
 export const ISSUE_ANALYSIS_TREE_COLUMN_CAPACITY = 8
@@ -51,14 +52,6 @@ function compactText(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
 }
 
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const pages: T[][] = []
-  for (let start = 0; start < items.length; start += size) {
-    pages.push(items.slice(start, start + size))
-  }
-  return pages
-}
-
 /**
  * Major(seq순)별 이슈 구분 고유값을 열로 편성한다. 전량 유지 원칙:
  * 열당 6칸을 넘으면 "이름(계속)" 연속 열, Sub 0개 Major도 빈 열을 차지하고,
@@ -90,7 +83,7 @@ function treeColumns(area: IssueAnalysisReportArea): IssueAnalysisDeckTreeColumn
       columns.push({ label, continuation: false, subs: [] })
       return
     }
-    chunk(subs, ISSUE_ANALYSIS_TREE_SUB_CAPACITY).forEach((page, index) => {
+    chunked(subs, ISSUE_ANALYSIS_TREE_SUB_CAPACITY).forEach((page, index) => {
       columns.push({
         label: index === 0 ? label : `${label}(계속)`,
         continuation: index > 0,
@@ -136,7 +129,7 @@ export function buildIssueAnalysisProcessSlides(
 
   const columns = treeColumns(area)
   const headline = treeHeadline(area, columns)
-  const treePages = chunk(columns, ISSUE_ANALYSIS_TREE_COLUMN_CAPACITY)
+  const treePages = chunked(columns, ISSUE_ANALYSIS_TREE_COLUMN_CAPACITY)
   const slides: IssueAnalysisDeckProcessSlide[] = treePages.map((pageColumns, index) => ({
     kind: 'process-tree',
     sourceSlide: 5,
@@ -165,7 +158,7 @@ export function buildIssueAnalysisProcessSlides(
       definition,
     }
   })
-  const definitionPages = chunk(rows, ISSUE_ANALYSIS_DEFINITION_ROW_CAPACITY)
+  const definitionPages = chunked(rows, ISSUE_ANALYSIS_DEFINITION_ROW_CAPACITY)
   definitionPages.forEach((pageRows, index) => {
     slides.push({
       kind: 'process-definition',

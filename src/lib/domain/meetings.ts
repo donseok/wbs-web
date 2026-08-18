@@ -1,4 +1,5 @@
 import type { Meeting, MeetingCategory, MeetingException, MeetingOccurrence, MeetingRecurrence } from '@/lib/domain/types'
+import { addDaysIso } from './dates'
 
 /**
  * 카테고리 메타 — 라벨은 dict 키(표시 지점에서 t()로 해석), 색상은 상태/팀 팔레트
@@ -31,11 +32,6 @@ function iso(y: number, m0: number, d: number): string { return `${y}-${pad2(m0 
 function epochDay(dateIso: string): number {
   const [y, m, d] = dateIso.split('-').map(Number)
   return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000)
-}
-function addDaysIso(dateIso: string, days: number): string {
-  const [y, m, d] = dateIso.split('-').map(Number)
-  const t = new Date(Date.UTC(y, m - 1, d + days))
-  return iso(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())
 }
 
 /**

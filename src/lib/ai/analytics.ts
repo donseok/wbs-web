@@ -5,6 +5,7 @@
 // ============================================================================
 
 import { buildWeeklyReportModel, type WeeklyReportModel } from '@/lib/report/weekly'
+import { addDaysIso } from '@/lib/domain/dates'
 import { overallProgress } from '@/lib/domain/rollup'
 import type { ComputedItem, ProjectMember, Status, TeamCode } from '@/lib/domain/types'
 import { DEFAULT_TEAM_CODES } from '@/lib/domain/teams'
@@ -49,10 +50,6 @@ export interface ProjectAnalysis extends ProjectSummary {
 function parseUTC(d: string): number {
   const [y, m, day] = d.split('-').map(Number)
   return Date.UTC(y, m - 1, day)
-}
-function addDaysIso(iso: string, n: number): string {
-  const dt = new Date(parseUTC(iso) + n * 86_400_000)
-  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
 }
 function diffDays(fromIso: string, toIso: string): number {
   return Math.round((parseUTC(toIso) - parseUTC(fromIso)) / 86_400_000)

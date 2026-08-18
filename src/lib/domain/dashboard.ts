@@ -104,6 +104,13 @@ export function dueSoonLeaves(leaves: ComputedItem[], today: string): ComputedIt
     .sort((a, b) => (a.plannedEnd! < b.plannedEnd! ? -1 : a.plannedEnd! > b.plannedEnd! ? 1 : 0))
 }
 
+/* ── 신호 경계 단일 출처 — SpiPanel(게이지 색)·riskSignals(위험 신호 엔진)가 이 값을 임포트한다.
+ * 이전엔 각자 리터럴/미러 상수로 들고 있어, 경계를 조정하면 화면 색과 위험 신호가 서로 다른
+ * 기준으로 갈라질 수 있었다. 값 변경은 여기 한 곳에서만 한다(값 자체는 종전과 동일). */
+export const SPI_DONE_FLOOR = 0.98   // SPI ≥ 0.98 → 정상(done 색)
+export const SPI_WARN_FLOOR = 0.9    // 0.9 ≤ SPI < 0.98 → 주의(warn), 미만은 지연(delayed)
+export const DELAYED_RED_COUNT = 4   // 지연 리프 4건 이상 → red (riskModel·위험 신호 공유)
+
 export interface RiskModel { delayed: number; dueSoon: number; topWeightDelayed: boolean; signal: Signal }
 
 const escalate = (s: Signal): Signal => (s === 'green' ? 'amber' : s === 'amber' ? 'red' : s)
@@ -121,7 +128,7 @@ export function riskModel(roots: ComputedItem[], today: string): RiskModel {
   const delayed = delayedLeaves(leaves).length
   const dueSoon = dueSoonLeaves(leaves, today).length
   const topWeightDelayed = topWeightPhaseDelayed(roots)
-  let signal: Signal = delayed >= 4 ? 'red' : delayed >= 1 ? 'amber' : 'green'
+  let signal: Signal = delayed >= DELAYED_RED_COUNT ? 'red' : delayed >= 1 ? 'amber' : 'green'
   if (topWeightDelayed) signal = escalate(signal)
   return { delayed, dueSoon, topWeightDelayed, signal }
 }

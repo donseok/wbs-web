@@ -7,6 +7,7 @@
 
 import { hasEmbeddings } from './provider'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { ingestProject } from './ingest'
 
 // 워밍된 인스턴스 내 동시 요청 dedupe + 실패 시 재시도 폭주 방지용 쿨다운.
@@ -20,7 +21,7 @@ const COOLDOWN_MS = 60_000
  */
 export async function ensureProjectIndexed(projectId: string | null): Promise<void> {
   if (!projectId || !hasEmbeddings()) return
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
+  if (!serviceRoleConfigured()) return
 
   const running = inFlight.get(projectId)
   if (running) return running

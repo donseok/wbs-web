@@ -75,6 +75,26 @@ export async function isAgentProjectMember(
 }
 
 /**
+ * user_email 계정이 해당 프로젝트 관리자 이상(슈퍼유저 포함)인지 — import·발행 같은
+ * 구조 쓰기 엔드포인트의 관문(계약 §2.8). memberships.role 은 deprecated(0054) — 읽지 않는다.
+ * 조회 실패는 throw — 호출 라우트의 try/catch 가 500 으로 답한다. false 로 위장하면
+ * 조회 장애가 forbidden_role(403)로 둔갑해 "권한이 없다"는 거짓 진단을 남기기 때문이다.
+ * 어느 경로로도 통과로 새지 않으므로 fail-closed 는 유지된다.
+ */
+export async function isAgentProjectAdmin(
+  admin: AdminClient, userId: string, projectId: string,
+): Promise<boolean> {
+  const { data: roleRow, error: roleErr } = await admin
+    .from('project_roles').select('role').eq('user_id', userId).eq('project_id', projectId).limit(1)
+  const { data: mem, error: memErr } = await admin
+    .from('memberships').select('is_superuser').eq('user_id', userId).maybeSingle()
+  if (roleErr || memErr) throw new Error(`관리자 판정 조회 실패: ${(roleErr ?? memErr)!.message}`)
+  const isSuper = !!(mem as { is_superuser?: boolean } | null)?.is_superuser
+  const isAdmin = ((roleRow ?? []) as Array<{ role: string }>).some(r => r.role === 'admin')
+  return isSuper || isAdmin
+}
+
+/**
  * 프로젝트별 사용자 역할 조회 — 'superuser'|'admin'|'member'|null.
  * 보안 가드이므로 조회 실패는 null(fail-closed). 위장하지 않고 로깅한다.
  */

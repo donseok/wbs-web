@@ -1,9 +1,9 @@
 /** 외부 링크 공유 상태 전이 — 서버 액션(setMinuteShare)과 공개 라우트가 공유하는 순수 로직. */
 
+import { UUID_RE } from '@/lib/domain/validate'
+
 export interface ShareState { token: string | null; enabled: boolean }
 export type ShareOp = 'enable' | 'disable' | 'regenerate'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** 공개 라우트 토큰 형식 검증 — DB 조회 전 비정상 입력 차단. */
 export function isShareToken(s: string): boolean {

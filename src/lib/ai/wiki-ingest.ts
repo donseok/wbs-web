@@ -5,6 +5,7 @@ import { hasLLM } from '@/lib/ai/provider'
 import { buildWikiCatalogText } from '@/lib/ai/wiki-catalog'
 import { loadWikiSaturation, type WikiSaturationSnapshot } from '@/lib/ai/wiki-saturation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 import {
   fnv1a64, isMarkableBlock, splitMinuteBlocks, type MinuteBlock,
@@ -787,7 +788,7 @@ export async function enqueueMinuteWikiProcessing(args: {
 }): Promise<number | null> {
   if (!wikiServiceEnabled()) { logWikiSuspended('enqueueMinuteWikiProcessing'); return null }
   if (!args.projectId) return null
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return null
+  if (!serviceRoleConfigured()) return null
   const admin = createAdminClient()
   const { data: minute, error: minuteError } = await admin.from('minutes')
     .select('id, title, minute_date, meeting_occurrence_date, project_id, archived_at, created_at')
@@ -943,7 +944,7 @@ async function completeJob(
 
 export async function processMinuteWikiJob(jobId: number): Promise<WikiProcessSummary | null> {
   if (!wikiServiceEnabled()) { logWikiSuspended('processMinuteWikiJob'); return null }
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return null
+  if (!serviceRoleConfigured()) return null
   const admin = createAdminClient()
   const workerId = `inline-${process.pid}-${crypto.randomUUID()}`
   // project rebuild가 job을 DB 시각으로 즉시 예약하므로 due 판정도 DB 시각으로 해야 한다.
@@ -1138,7 +1139,7 @@ export async function processWikiProjectRebuildStep(
     logWikiSuspended('processWikiProjectRebuildStep')
     return { attempted: false, completed: false, finished: false }
   }
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+  if (!serviceRoleConfigured()) {
     return { attempted: false, completed: false, finished: false }
   }
   const admin = createAdminClient()
@@ -1208,7 +1209,7 @@ export async function runWikiWorkerOnce(limit = 5): Promise<{
   completed: number
 }> {
   if (!wikiServiceEnabled()) { logWikiSuspended('runWikiWorkerOnce'); return { attempted: 0, completed: 0 } }
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) {
+  if (!serviceRoleConfigured()) {
     return { attempted: 0, completed: 0 }
   }
   const admin = createAdminClient()

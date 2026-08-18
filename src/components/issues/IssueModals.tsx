@@ -457,6 +457,12 @@ export function IssueDetailModal({
   )
 }
 
+/** 'AI 추천 일치' 안내 문구 — 세 분류 필드(mega/major/sub)가 같은 마크업을 공유한다. */
+function AiRecommendedHint({ show, text }: { show: boolean; text: string }) {
+  if (!show) return null
+  return <p className="mt-1 text-[11px] leading-4 text-brand">{text}</p>
+}
+
 export function IssueFormModal({
   open, onClose, projectId, initial, members, draft, sourcePreview, onCreate, onCreated,
 }: {
@@ -505,6 +511,17 @@ export function IssueFormModal({
   const minuteSourceLocked = (!isEdit && sourcePreview !== undefined)
     || (isEdit && (initial?.sourceType === 'minutes' || Boolean(initial?.minuteSources.length)))
   const megaLocked = isEdit && Boolean(initial?.piIssueCode)
+  // 'AI 추천 일치' 판정 — 세 분류 필드가 공통 전제(신규 등록 + 추천 플래그 + Mega 일치)를
+  // 각자 복제하다 한 곳만 고쳐져 조건이 어긋나는 것을 막기 위해 한 함수에 모은다.
+  // Mega 자체는 '필드값 = megaCode' 인 경우로 같은 판정을 지난다(코드에 공백이 없어 trim 은 무해).
+  const matchesAiDraft = (draftValue: string | null | undefined, current: string): boolean => Boolean(
+    !isEdit
+    && sourcePreview?.classificationRecommended
+    && draft?.megaCode
+    && megaCode === draft.megaCode
+    && draftValue?.trim()
+    && current.trim() === draftValue.trim(),
+  )
   const sourceOptions = ISSUE_SOURCE_TYPES.filter(type =>
     type !== 'minutes' || minuteSourceLocked || initial?.sourceType === 'minutes')
   // 호출부가 draft 객체/배열을 인라인으로 만들어도 매 렌더 입력을 덮어쓰지 않고,
@@ -797,15 +814,10 @@ export function IssueFormModal({
                   {t('issue.analysis.megaLocked').replace('{id}', initial?.piIssueCode ?? '')}
                 </p>
               )}
-              {!isEdit
-                && sourcePreview?.classificationRecommended
-                && draft?.megaCode
-                && megaCode === draft.megaCode
-                && (
-                <p className="mt-1 text-[11px] leading-4 text-brand">
-                  {t('issue.analysis.megaRecommended').replace('{code}', draft.megaCode)}
-                </p>
-              )}
+              <AiRecommendedHint
+                show={matchesAiDraft(draft?.megaCode, megaCode)}
+                text={t('issue.analysis.megaRecommended').replace('{code}', draft?.megaCode ?? '')}
+              />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.majorProcess')}</span>
@@ -833,17 +845,10 @@ export function IssueFormModal({
               <span className="mt-1 block text-[11px] leading-4 text-ink-subtle">
                 {t('issue.analysis.majorProcessHint')}
               </span>
-              {!isEdit
-                && sourcePreview?.classificationRecommended
-                && draft?.majorName?.trim()
-                && draft.megaCode
-                && megaCode === draft.megaCode
-                && majorName.trim() === draft.majorName.trim()
-                && (
-                <p className="mt-1 text-[11px] leading-4 text-brand">
-                  {t('issue.analysis.majorProcessRecommended')}
-                </p>
-              )}
+              <AiRecommendedHint
+                show={matchesAiDraft(draft?.majorName, majorName)}
+                text={t('issue.analysis.majorProcessRecommended')}
+              />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.subProcess')}</span>
@@ -855,17 +860,10 @@ export function IssueFormModal({
                 onChange={e => setSubProcess(e.target.value)}
                 placeholder={t('issue.analysis.subProcessPh')}
               />
-              {!isEdit
-                && sourcePreview?.classificationRecommended
-                && draft?.subProcess?.trim()
-                && draft.megaCode
-                && megaCode === draft.megaCode
-                && subProcess.trim() === draft.subProcess.trim()
-                && (
-                <p className="mt-1 text-[11px] leading-4 text-brand">
-                  {t('issue.analysis.subProcessRecommended')}
-                </p>
-              )}
+              <AiRecommendedHint
+                show={matchesAiDraft(draft?.subProcess, subProcess)}
+                text={t('issue.analysis.subProcessRecommended')}
+              />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.analysis.ownerDepartment')}</span>

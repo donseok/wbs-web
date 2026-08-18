@@ -1,8 +1,7 @@
 // 프로젝트 초대 순수 함수 — 서버 액션(projectInvites·inviteRedeem)과 초대 화면이 공유한다.
 // 부수효과·now() 참조 없음: 시각은 전부 인자로 주입받는다.
 import { isValidPassword } from '@/lib/domain/accounts'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+import { UUID_RE } from '@/lib/domain/validate'
 
 /** 공개 라우트 토큰 형식 검증 — DB 조회 전 비정상 입력 차단. 선례: src/lib/minutes/share.ts isShareToken */
 export function isInviteToken(s: string): boolean {

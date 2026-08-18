@@ -15,6 +15,7 @@ import { generateAnswer } from './llm'
 import { hasLLM, llmConfig } from './provider'
 import { createEnsureGate, type EnsureState } from './ensure'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 
 const ITEM_TEXT_CAP = 200
 const HEADLINE_CAP = 120
@@ -147,7 +148,7 @@ export async function ensureRiskBrief(projectId: string, report: RiskSignalRepor
   // 신호 0건 행 기록은 LLM 불필요 — hasLLM 게이트보다 먼저 판정하지 않는다:
   // 키 없는 환경에서도 'none' 마커는 유효하지만, 일관성을 위해 키 없으면 정직하게 강등.
   if (!hasLLM()) return 'unavailable'
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return 'unavailable'
+  if (!serviceRoleConfigured()) return 'unavailable'
   return ensureRiskGate(`risk:${projectId}`, {
     fresh: async () => {
       const row = await readRiskRow(projectId)

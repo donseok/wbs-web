@@ -1,4 +1,5 @@
 import type { RepositoryResult } from '@/lib/repositories/types'
+import { seoulYmd } from '@/lib/domain/dates'
 import type {
   BotReadCapability,
   ToolExecutionContext,
@@ -51,8 +52,9 @@ export function validDateRange(from: string, to: string, maxDays = 366): boolean
 
 export function todayInSeoul(now: string): string {
   const parsed = new Date(now)
+  // 잘못된 now 문자열이면 서버 현재 시각으로 폴백 — 이 가드는 호출부 계약이라 유지하고 포맷만 정본에 위임.
   const safe = Number.isNaN(parsed.getTime()) ? new Date() : parsed
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(safe)
+  return seoulYmd(safe)
 }
 
 export function internalProjectHref(projectId: string, suffix: string): string {

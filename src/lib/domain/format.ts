@@ -33,3 +33,19 @@ export function formatPp1(n: number): string {
   const v = round1(n) + 0
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}`
 }
+
+/**
+ * unknown 에러 → 사람이 읽을 메시지. 신규 코드는 이걸 쓰고, 같은 식을 인라인으로 쓴 기존 파일
+ * (아직 50여 곳)은 그 파일을 손대는 김에 옮긴다 — 일괄 치환은 하지 않았다.
+ */
+export function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+/** 파일 크기 표시(B/KB/MB) — 첨부 UI 공용. null 은 미상(빈 문자열). */
+export function fmtSize(n: number | null): string {
+  if (n == null) return ''
+  if (n < 1024) return `${n}B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)}KB`
+  return `${(n / 1024 / 1024).toFixed(1)}MB`
+}

@@ -573,6 +573,23 @@ export function MinutesExplorer({
   // 폴더 카드 그리드는 전면 제거(사용자 결정 2026-07-24) — 전체 스코프 루트 카드에 이어
   // 폴더 스코프의 하위 폴더 카드도 삭제. 폴더 탐색은 왼쪽 레일 트리로 일원화. 재도입 금지.
 
+  // 카드(grid)·행(list) 공통 props 조립 — 같은 15개를 두 분기에 두 번 나열하면 한쪽만 고치는
+  // 사고가 난다. 계약은 LeafItemProps, 값은 여기 한 곳.
+  const leafItemProps = (l: ExplorerLeaf): LeafItemProps => ({
+    l, t, folderName: folderNameOf(l, folderById, showFolderChip),
+    fav: favorites?.has(l.id) ?? false, favDisabled: favorites === null,
+    canMove: canMoveLeaf(l), onMove: () => { setLeafMenuFor(null); setMovingId(l.id) },
+    menuOpen: leafMenuFor === l.id, menuBusy: editLoadingId === l.id,
+    onMenuToggle: () => setLeafMenuFor(cur => (cur === l.id ? null : l.id)),
+    onEdit: () => void openEdit(l.id),
+    dragProps: canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined,
+    dragging: drag?.kind === 'leaf' && drag.id === l.id,
+    onToggle: onToggleFavorite,
+    canSelect, onSelect: () => startSelect(l.id),
+    selecting: selecting && canMoveLeaf(l), selected: selected.has(l.id),
+    onSelectToggle: () => toggleSelect(l.id),
+  })
+
   return (
     <div
       data-minutes-explorer
@@ -638,38 +655,12 @@ export function MinutesExplorer({
                   : <EmptyState title={t('min.empty.title')} description={t('min.empty.desc')} />
               ) : layout === 'grid' ? (
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {shown.map(l => (
-                    <MinuteCard key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
-                      fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
-                      canMove={canMoveLeaf(l)} onMove={() => { setLeafMenuFor(null); setMovingId(l.id) }}
-                      menuOpen={leafMenuFor === l.id} menuBusy={editLoadingId === l.id}
-                      onMenuToggle={() => setLeafMenuFor(cur => (cur === l.id ? null : l.id))}
-                      onEdit={() => void openEdit(l.id)}
-                      dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
-                      dragging={drag?.kind === 'leaf' && drag.id === l.id}
-                      onToggle={onToggleFavorite}
-                      canSelect={canSelect} onSelect={() => startSelect(l.id)}
-                      selecting={selecting && canMoveLeaf(l)} selected={selected.has(l.id)}
-                      onSelectToggle={() => toggleSelect(l.id)} />
-                  ))}
+                  {shown.map(l => <MinuteCard key={l.id} {...leafItemProps(l)} />)}
                 </div>
               ) : (
                 <div className="card p-2">
                   <ul className="divide-y divide-line/70">
-                    {shown.map(l => (
-                      <MinuteRow key={l.id} l={l} t={t} folderName={folderNameOf(l, folderById, showFolderChip)}
-                        fav={favorites?.has(l.id) ?? false} favDisabled={favorites === null}
-                        canMove={canMoveLeaf(l)} onMove={() => { setLeafMenuFor(null); setMovingId(l.id) }}
-                        menuOpen={leafMenuFor === l.id} menuBusy={editLoadingId === l.id}
-                        onMenuToggle={() => setLeafMenuFor(cur => (cur === l.id ? null : l.id))}
-                        onEdit={() => void openEdit(l.id)}
-                        dragProps={canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined}
-                        dragging={drag?.kind === 'leaf' && drag.id === l.id}
-                        onToggle={onToggleFavorite}
-                        canSelect={canSelect} onSelect={() => startSelect(l.id)}
-                        selecting={selecting && canMoveLeaf(l)} selected={selected.has(l.id)}
-                        onSelectToggle={() => toggleSelect(l.id)} />
-                    ))}
+                    {shown.map(l => <MinuteRow key={l.id} {...leafItemProps(l)} />)}
                   </ul>
                 </div>
               )}
@@ -751,10 +742,6 @@ function StarButton({ id, fav, disabled, onToggle, t }: {
   )
 }
 
-/** 카드·행의 '...' 메뉴 — 상세 페이지로 들어가지 않고 목록에서 바로 수정·이동한다.
- *  카드 전면을 덮는 링크 오버레이(absolute inset-0) 위로 올라와야 하므로 z 를 준다.
- *  display 를 상태로 토글하는 변형 유틸은 쓰지 않는다(CLAUDE.md 반응형 안전망 제약) — 항상
- *  렌더하고 opacity 만 바꾼다(폴더 메뉴와 같은 방식). */
 /** 선택분에 지정할 프로젝트를 고르는 모달. '연결 없음'은 해제 — 위키에서 회수된다. */
 function ProjectAssignModal({ open, projects, count, busy, onClose, onPick, t }: {
   open: boolean
@@ -804,6 +791,10 @@ function SelectBox({ checked, onToggle, t }: { checked: boolean; onToggle: () =>
   )
 }
 
+/** 카드·행의 '...' 메뉴 — 상세 페이지로 들어가지 않고 목록에서 바로 수정·이동한다.
+ *  카드 전면을 덮는 링크 오버레이(absolute inset-0) 위로 올라와야 하므로 z 를 준다.
+ *  display 를 상태로 토글하는 변형 유틸은 쓰지 않는다(CLAUDE.md 반응형 안전망 제약) — 항상
+ *  렌더하고 opacity 만 바꾼다(폴더 메뉴와 같은 방식). */
 function LeafMenu({ open, busy, onToggle, onEdit, onMove, canSelect, onSelect, t }: {
   open: boolean; busy: boolean
   onToggle: () => void; onEdit: () => void; onMove: () => void
@@ -871,11 +862,9 @@ function meetingLinkOf(l: ExplorerLeaf): string | null {
   return l.meetingId && l.meetingProjectId ? l.meetingProjectId : null
 }
 
-function MinuteCard({
-  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
-  onToggle, folderName, t, dragProps, dragging, canSelect, onSelect,
-  selecting = false, selected = false, onSelectToggle,
-}: {
+/** 카드(grid)·행(list) 공통 props — 두 렌더러는 배치만 다르고 데이터·핸들러 계약은 동일하다.
+ *  값 조립도 부모의 leafItemProps 한 곳에서만 한다(분기별 중복 나열 금지). */
+interface LeafItemProps {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
@@ -885,7 +874,13 @@ function MinuteCard({
   canSelect?: boolean; onSelect?: () => void
   /** 선택 모드 — 켜지면 카드 전체가 '열기'가 아니라 '고르기'가 된다(링크 오버레이 미렌더) */
   selecting?: boolean; selected?: boolean; onSelectToggle?: () => void
-}) {
+}
+
+function MinuteCard({
+  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
+  onToggle, folderName, t, dragProps, dragging, canSelect, onSelect,
+  selecting = false, selected = false, onSelectToggle,
+}: LeafItemProps) {
   const meetingProjectId = meetingLinkOf(l)
   return (
     <article {...dragProps}
@@ -945,17 +940,7 @@ function MinuteRow({
   l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
   onToggle, folderName, t, dragProps, dragging, canSelect, onSelect,
   selecting = false, selected = false, onSelectToggle,
-}: {
-  l: ExplorerLeaf; fav: boolean; favDisabled: boolean
-  canMove: boolean; onMove: () => void
-  menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
-  onToggle: (id: string) => void; folderName: string | null; t: T
-  dragProps?: DragSourceProps; dragging?: boolean
-  /** 다중 선택 진입 — '...' 메뉴 안에만 있다 */
-  canSelect?: boolean; onSelect?: () => void
-  /** 선택 모드 — 켜지면 카드 전체가 '열기'가 아니라 '고르기'가 된다(링크 오버레이 미렌더) */
-  selecting?: boolean; selected?: boolean; onSelectToggle?: () => void
-}) {
+}: LeafItemProps) {
   const meetingProjectId = meetingLinkOf(l)
   return (
     <li {...dragProps} className={`relative ${dragging ? 'opacity-40' : ''}`}>

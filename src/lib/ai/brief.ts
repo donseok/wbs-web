@@ -29,6 +29,7 @@ import { generateAnswer } from './llm'
 import { hasLLM, llmConfig } from './provider'
 import { createEnsureGate, type EnsureState } from './ensure'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { teamOrderMap } from '@/lib/domain/teams'
 import { activeTeamCodesSync } from '@/lib/teams/master'
 
@@ -304,7 +305,7 @@ export async function ensureWeeklyBrief(
   projectId: string, facts: BriefFacts, opts?: { force?: boolean },
 ): Promise<EnsureState> {
   if (!hasLLM()) return 'unavailable'
-  if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return 'unavailable'
+  if (!serviceRoleConfigured()) return 'unavailable'
   const hash = briefFactsHash(facts)
   let forceSpent = !opts?.force
   return ensureBriefGate(`weekly:${projectId}`, {

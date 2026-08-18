@@ -29,6 +29,7 @@ import {
   type ToolPlanCall,
 } from './planner'
 import { verifyBotSources, verifySynthesizedAnswer } from './verifier'
+import { seoulStamp } from '@/lib/domain/dates'
 
 export interface ChatSynthesisInput {
   request: ChatRequestV2
@@ -179,14 +180,15 @@ function displayNumber(value: number, key?: string): string {
   return formatted
 }
 
-/** 원시 ISO 타임스탬프(마이크로초·오프셋 포함)를 KST 'YYYY-MM-DD HH:MM'으로 줄인다. */
+/**
+ * 원시 ISO 타임스탬프(마이크로초·오프셋 포함)를 KST 'YYYY-MM-DD HH:MM'으로 줄인다.
+ * 여기 입력은 DB·도구 결과에서 온 문자열이라 깨진 값이 섞일 수 있다 — 정본 seoulStamp 는
+ * 유효 시각을 전제하므로 NaN 가드를 먼저 두고 원문을 그대로 흘린다(표시가 'Invalid Date' 가 되지 않게).
+ */
 function displayTimestamp(value: string): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit',
-  }).format(parsed)
+  return seoulStamp(parsed)
 }
 
 /** 제목 성격의 필드는 라벨 없이 문두에 그대로 노출한다 — "작업명: X" 반복을 없앤다. */

@@ -2,6 +2,7 @@ import { generateAnswer } from './llm'
 import { hasLLM } from './provider'
 import { createEnsureGate } from './ensure'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { splitMinuteBlocks, isMarkableBlock, fnv1a64, type MinuteBlock } from '@/lib/minutes/blocks'
 import type { InsightKind } from '@/lib/domain/types'
 
@@ -57,7 +58,7 @@ export function parseInsightItems(
 export async function generateMinuteInsights(minuteId: string, bodyMd: string): Promise<void> {
   try {
     if (!hasLLM()) return
-    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
+    if (!serviceRoleConfigured()) return
     if (!bodyMd.trim()) return
     const blocks = splitMinuteBlocks(bodyMd)
     const markable = blocks.filter(isMarkableBlock)
@@ -103,7 +104,7 @@ export async function ensureMinuteInsights(
 ): Promise<'ready' | 'generated' | 'unavailable'> {
   try {
     if (!hasLLM()) return 'unavailable'
-    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return 'unavailable'
+    if (!serviceRoleConfigured()) return 'unavailable'
     if (!bodyMd.trim()) return 'ready'
 
     const admin = createAdminClient()

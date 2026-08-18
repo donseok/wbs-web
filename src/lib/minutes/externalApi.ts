@@ -1,6 +1,8 @@
 import { createHash, timingSafeEqual } from 'crypto'
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
+import { UUID_RE } from '@/lib/domain/validate'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import { MEETING_CATEGORIES } from '@/lib/domain/meetings'
 import { MINUTE_FOLDER_NAME_MAX, normalizeFolderName, validateMinuteInput } from '@/lib/domain/minutes'
@@ -27,7 +29,6 @@ export const MINUTES_API_MAX_REQUEST_BYTES = 4_194_304
 
 /** D'Flow 자신의 uuid PK 참조(meeting_id·minute_id·project_id) 형식 검증 — 비형식은 DB에서
  *  22P02(500)가 되므로 계약 §6 '형식 오류=400'에 맞게 사전 거절한다. external_id는 불투명(§4.6) — 적용 금지. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export function isUuid(value: string): boolean {
   return UUID_RE.test(value)
 }
@@ -352,8 +353,10 @@ export function parseMinutePayload(raw: unknown): { payload: ExternalMinutePaylo
  * 공개 Server Action 엔드포인트(service_role 로 minute_highlights delete/insert)가 된다.
  */
 async function rematchExternalMinuteHighlights(minuteId: string, newBodyMd: string): Promise<void> {
+  // env 판정은 try 밖에서 한다 — 아래 catch 가 모든 예외를 삼키므로 안에 두면
+  // 판정 함수 자체의 부재·예외(모킹 문맥 등)가 '미설정'으로 위장돼 조용히 건너뛴다.
+  if (!serviceRoleConfigured()) return
   try {
-    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
     const admin = createAdminClient()
     const { data: rows, error: rowsErr } = await admin.from('minute_highlights')
       .select('id, created_by, created_by_name, block_index, block_hash, created_at')

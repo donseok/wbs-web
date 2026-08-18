@@ -2,9 +2,11 @@ import type { NarrativeGroup } from './narrative'
 
 /* ── slide2 표 XML 조작(순수). 제너릭 XML 파서 없이 OOXML 네임스페이스/순서 보존. ── */
 
-/** OOXML 텍스트 노드용 이스케이프. &는 반드시 먼저. */
+/** OOXML 텍스트 노드용 이스케이프. &는 반드시 먼저.
+ *  XML 1.0 비허용 제어문자는 엔티티로도 못 실으므로 선제 제거 — 남기면 PPT 파일 자체가 손상 판정된다. */
 export function escapeXml(s: string): string {
   return s
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

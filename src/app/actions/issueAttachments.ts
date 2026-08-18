@@ -2,6 +2,7 @@
 import { revalidatePath } from 'next/cache'
 import { getSession } from '@/lib/auth'
 import { getActor, requireProjectAdmin, resolveProjectId } from '@/lib/authz'
+import { ERR_LOOKUP } from '@/lib/authz/errors'
 import {
   ISSUE_ATTACHMENT_MAX_COUNT,
   isIssueAttachmentPathValid,
@@ -12,7 +13,6 @@ import {
 import { createServerClient } from '@/lib/supabase/server'
 
 const BUCKET = 'issue-attachments'
-const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
 
 export type IssueAttachmentList =
   | { ok: true; items: IssueAttachment[] }

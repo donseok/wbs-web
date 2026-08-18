@@ -26,6 +26,7 @@ import { ensureMinuteInsights, generateMinuteInsights } from '@/lib/ai/minutes-i
 import { rematchHighlights, type HighlightRow } from '@/lib/minutes/rematch'
 import { nextShareState, type ShareOp, type ShareState } from '@/lib/minutes/share'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { serviceRoleConfigured } from '@/lib/supabase/env'
 import { correctMinuteBodyTime } from '@/lib/minutes/timeFix'
 import { resolveTeamRootFolderId, refileMinuteAfterProjectChange, loadFolderSnapshot } from '@/lib/minutes/folders'
 import { getHiddenProjectIds } from '@/lib/authz/visibility'
@@ -57,6 +58,10 @@ export interface MinuteCreateSource {
   file: MinuteVersionFile
 }
 
+/** 정본(@/lib/domain/validate 의 UUID_RE)을 버전·변형 니블까지 좁힌 지역 사본 — 정본으로 교체 금지.
+ *  여기 통과하는 id 는 클라이언트가 crypto.randomUUID() 로 선발급해 그대로 Storage 경로 접두사이자
+ *  minutes PK(create_minute_with_version 의 p_minute_id)가 되는 값이라, 손으로 지어낸 16진 문자열은
+ *  느슨한 정본을 통과해도 여기서 걸러야 한다. DB 기본값도 gen_random_uuid()(=v4)라 기존 행은 전부 통과. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 /**
@@ -99,7 +104,7 @@ async function checkOwner(sb: Sb, minuteId: string, actor: Actor): Promise<strin
 /** 본문 교체 후 하이라이트 재배정 — 실패는 로그만(표시 규칙이 오표시를 차단). service_role. */
 async function rematchMinuteHighlights(minuteId: string, newBodyMd: string): Promise<void> {
   try {
-    if (!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)) return
+    if (!serviceRoleConfigured()) return
     const admin = createAdminClient()
     const { data: rows, error: rowsErr } = await admin.from('minute_highlights')
       .select('id, created_by, created_by_name, block_index, block_hash, created_at')
@@ -122,6 +127,36 @@ async function rematchMinuteHighlights(minuteId: string, newBodyMd: string): Pro
   } catch (e) {
     console.error('[minutes] 재매칭 실패(무시):', e instanceof Error ? e.message : e)
   }
+}
+
+/** service_role 클라이언트 확보 — 생성 실패(env 미설정 등)는 각 액션 문맥의 안내 문구로 돌려준다.
+ *  Error 가 아니어서 원인 문구를 얻지 못할 때만 fallback 을 쓴다(기존 9곳 동일 try/catch 추출). */
+function adminOr(fallback: string): { admin: ReturnType<typeof createAdminClient> } | { error: string } {
+  try {
+    return { admin: createAdminClient() }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : fallback }
+  }
+}
+
+/** §6.3 — 폴더가 주어지면 team 은 **폴더에서 파생**한다(클라이언트 teamCode 불신 — 그대로 믿으면
+ *  "폴더는 MES 인데 team_code 는 ERP" 인 데이터를 서버가 직접 만든다). 자식=부모 프로젝트 불변식도
+ *  여기서 함께 검사한다 — moveMinuteToFolder 와 동일하게 회의록이 속할 프로젝트와 명시 지정된
+ *  폴더의 프로젝트가 다르면 거절(무스코프면 다른 프로젝트 폴더에 새로 꽂힌다). 파생 불가 폴더
+ *  (시드 체인 밖)는 추측하지 않고 거절한다. createMinute·updateMinuteMeta 공용. */
+async function deriveTeamFromFolder(
+  sb: Sb, folderId: string, projectId: string | null,
+): Promise<{ team: TeamCode } | { error: string }> {
+  const folders = await loadFolders(sb)
+  if (!folders) return { error: '폴더 목록을 불러오지 못했습니다.' }
+  const targetFolder = folders.find(f => f.id === folderId)
+  if (!targetFolder) return { error: '폴더를 찾을 수 없습니다.' }
+  if ((targetFolder.projectId ?? null) !== projectId) {
+    return { error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
+  }
+  const derived = teamSubOfFolder(folders, folderId)
+  if (!derived) return { error: '담당 팀을 판정할 수 없는 폴더입니다.' }
+  return { team: derived.team }
 }
 
 export async function createMinute(
@@ -152,20 +187,11 @@ export async function createMinute(
   if (resolvedProject.projectId
     ? !isProjectMember(g.actor, resolvedProject.projectId)
     : !hasAnyProjectRole(g.actor)) return { ok: false, error: '권한 없음' }
-  // §6.3 — 폴더가 주어지면 team 은 폴더에서 파생한다(클라이언트 teamCode 불신).
+  // §6.3 — 폴더가 주어지면 team 은 폴더에서 파생한다(파생·불변식 검사는 deriveTeamFromFolder).
   let effectiveTeam = input.teamCode
   if (folderId) {
-    const folders = await loadFolders(sb)
-    if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-    const targetFolder = folders.find(f => f.id === folderId)
-    if (!targetFolder) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
-    // 자식=부모 프로젝트 불변식 — moveMinuteToFolder 와 동일하게 회의록이 속할 프로젝트와
-    // 명시 지정된 폴더의 프로젝트가 다르면 거절한다(무스코프면 다른 프로젝트 폴더에 새로 꽂힌다).
-    if ((targetFolder.projectId ?? null) !== (resolvedProject.projectId ?? null)) {
-      return { ok: false, error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
-    }
-    const derived = teamSubOfFolder(folders, folderId)
-    if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
+    const derived = await deriveTeamFromFolder(sb, folderId, resolvedProject.projectId ?? null)
+    if ('error' in derived) return { ok: false, error: derived.error }
     effectiveTeam = derived.team
   }
   // 폴더 미지정이면 담당 팀 루트 폴더로 자동 편철(0043) — 부재·실패는 미분류(null) 폴백.
@@ -177,12 +203,9 @@ export async function createMinute(
   if (fix.corrected) console.info(`[minutes] 시간 보정 적용: ${fix.from} → ${fix.to} (${input.title.trim()})`)
   const bodyMd = fix.body
   const createdByName = displayNameFrom(user.user_metadata, user.email)
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '버전 저장 설정을 확인하세요.' }
-  }
+  const adm = adminOr('버전 저장 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
   // minutes + v1 + 현재 body 파일 포인터를 한 트랜잭션으로 만든다. 일반 인증
   // 사용자의 minutes 직접 쓰기는 0045에서 닫혀 있어 모든 생성 경로가 이 불변식을 거친다.
   const { data: createdRaw, error: createError } = await admin.rpc('create_minute_with_version', {
@@ -258,22 +281,11 @@ export async function updateMinuteMeta(
   if (resolvedProject.projectId && !isProjectMember(g.actor, resolvedProject.projectId)) {
     return { ok: false, error: '그 프로젝트에 회의록을 넣을 권한이 없습니다.' }
   }
-  // §6.3 — 폴더가 주어지면 team 은 **폴더에서 파생**한다. 클라이언트가 보낸 teamCode 를 그대로
-  // 믿으면 "폴더는 MES 인데 team_code 는 ERP" 인 데이터를 서버가 직접 만든다(파생은 UI 에만
-  // 있었다). 파생 불가 폴더(시드 체인 밖)는 추측하지 않고 거절한다.
+  // §6.3 — 폴더가 주어지면 team 은 폴더에서 파생한다(파생·불변식 검사는 deriveTeamFromFolder).
   let effectiveTeam = patch.teamCode
   if (folderId) {
-    const folders = await loadFolders(sb)
-    if (!folders) return { ok: false, error: '폴더 목록을 불러오지 못했습니다.' }
-    const targetFolder = folders.find(f => f.id === folderId)
-    if (!targetFolder) return { ok: false, error: '폴더를 찾을 수 없습니다.' }
-    // 자식=부모 프로젝트 불변식 — moveMinuteToFolder 와 동일하게 회의록이 옮겨갈 프로젝트와
-    // 명시 지정된 폴더의 프로젝트가 다르면 거절한다.
-    if ((targetFolder.projectId ?? null) !== (resolvedProject.projectId ?? null)) {
-      return { ok: false, error: '다른 프로젝트 폴더로는 이동할 수 없습니다.' }
-    }
-    const derived = teamSubOfFolder(folders, folderId)
-    if (!derived) return { ok: false, error: '담당 팀을 판정할 수 없는 폴더입니다.' }
+    const derived = await deriveTeamFromFolder(sb, folderId, resolvedProject.projectId ?? null)
+    if ('error' in derived) return { ok: false, error: derived.error }
     effectiveTeam = derived.team
   }
   // folderId 미전달(undefined) = 폴더 무접촉(수동 편철 존중). null = 미분류로 이동.
@@ -297,12 +309,9 @@ export async function updateMinuteMeta(
     if (curErr) console.error('[updateMinuteMeta] 재편철 사전 조회 실패(재편철 생략):', curErr.message)
     else curFolderId = (cur?.folder_id as string | null) ?? null
   }
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '회의록 수정 설정을 확인하세요.' }
-  }
+  const adm = adminOr('회의록 수정 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
   const { data: updateRaw, error } = await admin.rpc('update_minute_metadata_with_wiki_retraction', {
     p_minute_id: id,
     p_metadata: upd,
@@ -503,12 +512,9 @@ export async function resetMinuteExternalId(id: string): Promise<{ ok: boolean; 
   const sb = await createServerClient()
   const own = await checkOwner(sb, id, g.actor)
   if (own) return { ok: false, error: own }
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '연결 초기화 설정을 확인하세요.' }
-  }
+  const adm = adminOr('연결 초기화 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
   const { data, error } = await admin.from('minutes')
     .update({ external_id: null, updated_at: new Date().toISOString() })
     .eq('id', id).select('id')
@@ -519,7 +525,6 @@ export async function resetMinuteExternalId(id: string): Promise<{ ok: boolean; 
   return { ok: true }
 }
 
-/** 폴더 전량(라이트) — 수정 모달의 하위 구분 초기화·편철용. 실패는 빈 배열(하위 구분 숨김). */
 /** 폴더 전량(라이트). **실패는 null** — 폴더 선택이 필수가 된 §6 이후로는 빈 배열이 곧
  *  "고를 것이 없는 막다른 모달"이라 조회 실패와 구분되지 않으면 원인 표시가 불가능하다
  *  (fetchMinutesExplorer 와 같은 관례). */
@@ -559,12 +564,9 @@ export async function replaceMinuteBody(
     .single()
   if (minuteErr || !minute) return { ok: false, error: minuteErr?.message ?? '회의록을 찾을 수 없습니다.' }
 
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '버전 저장 설정을 확인하세요.' }
-  }
+  const adm = adminOr('버전 저장 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
   // 버전 append + 현재 파일 포인터 + current body를 DB 함수 한 트랜잭션으로 커밋한다.
   // 어느 단계에서든 실패하면 전부 롤백되며, 이전 Storage 객체는 함수가 삭제하지 않는다.
   const { data: committedRaw, error: commitError } = await admin.rpc('commit_minute_body_version', {
@@ -633,12 +635,9 @@ export async function recordMinuteFile(
     if (minuteError || !minute) {
       return { ok: false, error: minuteError?.message ?? '회의록을 찾을 수 없습니다.' }
     }
-    let admin: ReturnType<typeof createAdminClient>
-    try {
-      admin = createAdminClient()
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : '버전 저장 설정을 확인하세요.' }
-    }
+    const adm = adminOr('버전 저장 설정을 확인하세요.')
+    if ('error' in adm) return { ok: false, error: adm.error }
+    const { admin } = adm
     // 파일 없는 기존 본문에 원본을 연결하는 경우에도 과거 버전을 수정하지 않고,
     // 같은 본문+새 파일의 새 버전을 원자적으로 append한다.
     const bodyMd = minute.body_md as string
@@ -721,12 +720,9 @@ export async function deleteMinute(id: string): Promise<MinuteActionResult> {
   if (scopeError || !minuteScope) {
     return { ok: false, error: scopeError?.message ?? '회의록을 찾을 수 없습니다.' }
   }
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '보관 설정을 확인하세요.' }
-  }
+  const adm = adminOr('보관 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
   // 사용자에게는 목록에서 사라지지만 원본·모든 버전·Storage 객체·Wiki 감사 근거는
   // 삭제하지 않는다. Wiki 출처 철회와 보관 시각 기록도 DB 한 트랜잭션에서 수행한다.
   const { error } = await admin.rpc('archive_minute_with_wiki_retraction', {
@@ -957,12 +953,9 @@ export async function deleteMinuteFolder(id: string): Promise<{ ok: boolean; err
     return { ok: false, error: '권한이 없거나 폴더가 없습니다.' }
   }
 
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '폴더 삭제 설정을 확인하세요.' }
-  }
+  const adm = adminOr('폴더 삭제 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
   // ① 자식 폴더 승격 — 같은 부모에 동명이 생기면 부분 유니크 인덱스가 23505 로 막는다.
   //    그 경우 사용자가 이름을 바꾸도록 안내한다(조용히 cascade 로 지우지 않는다).
   const children = folders.filter(f => f.parentId === id)
@@ -1103,12 +1096,9 @@ export async function moveMinuteToFolder(
     nextTeam = derived.team
   }
 
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '폴더 이동 설정을 확인하세요.' }
-  }
+  const adm = adminOr('폴더 이동 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
 
   if (nextTeam !== currentTeam) {
     // 팀이 바뀌면 team_code 는 v_index_content_changed 대상이라 검색 인덱스 재적재가 따라야
@@ -1284,12 +1274,9 @@ export async function setMinuteShare(id: string, op: ShareOp): Promise<MinuteSha
   const row = await readShareRow(sb, id, g.actor)
   if ('error' in row) return { ok: false, error: row.error }
   const next = nextShareState(row.state, op, crypto.randomUUID())
-  let admin: ReturnType<typeof createAdminClient>
-  try {
-    admin = createAdminClient()
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : '공유 설정을 확인하세요.' }
-  }
+  const adm = adminOr('공유 설정을 확인하세요.')
+  if ('error' in adm) return { ok: false, error: adm.error }
+  const { admin } = adm
   const { error } = await admin.from('minutes')
     .update({ share_token: next.token, share_enabled: next.enabled }).eq('id', id)
   if (error) return { ok: false, error: error.message }

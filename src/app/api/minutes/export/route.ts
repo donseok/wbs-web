@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream'
-import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
+import { jsonError } from '@/lib/api/http'
+import { seoulYmd } from '@/lib/domain/dates'
 import { createServerClient } from '@/lib/supabase/server'
 import {
   createMinutesExportArchive,
@@ -20,12 +21,6 @@ const SELECT_COLUMNS = [
 
 type DbRow = Record<string, unknown>
 
-function jsonError(error: string, status: number): NextResponse {
-  return NextResponse.json({ error }, {
-    status,
-    headers: { 'Cache-Control': 'no-store' },
-  })
-}
 
 function requiredString(row: DbRow, key: string): string {
   const value = row[key]
@@ -98,11 +93,6 @@ async function loadAllMinutes(cutoffIso: string): Promise<MinuteExportRow[]> {
   return rows
 }
 
-function seoulDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(date)
-}
 
 /** 로그인 사용자가 현재 열람 가능한 전역 회의록 본문을 분석용 ZIP으로 받는다. */
 export async function GET() {
@@ -123,7 +113,7 @@ export async function GET() {
       platform: 'UNIX',
     })
     const stream = Readable.toWeb(nodeStream as unknown as Readable) as ReadableStream<Uint8Array>
-    const date = seoulDate(exportedAt)
+    const date = seoulYmd(exportedAt)
     const utf8Name = `DFlow_회의록_전체_${date}.zip`
     const fallbackName = `DFlow_minutes_all_${date}.zip`
 
