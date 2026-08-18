@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createServerClient } from '../supabase/server'
 import {
   isProjectAdmin as pureIsProjectAdmin,
@@ -5,41 +6,53 @@ import {
   type Actor, type ProjectRole,
 } from '../domain/authz'
 import type { TeamCode } from '../domain/types'
+// 사유 문자열과 HTTP 매핑(denyStatus)은 순수 모듈 ./errors 가 정본이다 —
+// 이 모듈은 테스트에서 통째로 모킹되므로 라우트가 여기서 가져가면 모킹 문맥에서 터진다.
+import { ERR_LOOKUP, ERR_DENIED, ERR_ANON, ERR_MISSING } from './errors'
 
 export type { Actor, ProjectRole }
 
 export type GuardResult = { ok: true; actor: Actor } | { ok: false; error: string }
-
-const ERR_LOOKUP = '권한을 확인할 수 없어 중단했습니다.'
-const ERR_DENIED = '권한 없음'
-const ERR_ANON = '로그인 필요'
-const ERR_MISSING = '대상을 찾을 수 없습니다.'
 
 /**
  * 로그인 사용자의 권한 스냅샷을 조립한다. 비로그인은 null.
  *
  * 조회 실패는 throw 한다 — '역할 없음'으로 폴백하면 그 순간 전원이 조회 전용으로
  * 보이고(운영 마비), 반대로 관대하게 폴백하면 가드가 통째로 뚫린다. 어느 쪽도 조용해서는 안 된다.
+ *
+ * React cache() 로 감싼다 — 같은 요청 안에서 레이아웃과 페이지 가드가 부르는 조회를 1회로
+ * 공유한다(인자 없는 함수라 인자 동일성 함정도 없다).
  */
-export async function getActor(): Promise<Actor | null> {
+export const getActor = cache(async (): Promise<Actor | null> => {
   const sb = await createServerClient()
   const { data: u } = await sb.auth.getUser()
   if (!u.user) return null
 
-  const { data: mem, error: memErr } = await sb
-    .from('memberships')
-    .select('is_superuser, teams(code, id)')
-    .eq('user_id', u.user.id)
-    .maybeSingle()
+  // 세 조회 모두 u.user.id 만이 키라 서로 독립 — 직렬 3왕복을 병렬 1왕복으로 줄인다.
+  // 에러 판정·메시지는 종전과 동일(fail-closed 계약 불변).
+  const [
+    { data: mem, error: memErr },
+    { data: roles, error: rolesErr },
+    { data: rosterRows, error: rosterErr },
+  ] = await Promise.all([
+    sb.from('memberships')
+      .select('is_superuser, teams(code, id)')
+      .eq('user_id', u.user.id)
+      .maybeSingle(),
+    sb.from('project_roles')
+      .select('project_id, role')
+      .eq('user_id', u.user.id),
+    sb.from('project_members')
+      .select('project_id, team_id, teams(code)')
+      .eq('user_id', u.user.id)
+      .not('team_id', 'is', null),
+  ])
+
   if (memErr) {
     console.error('[getActor] 멤버십 조회 실패:', memErr.message)
     throw new Error('권한 정보를 불러오지 못했습니다: ' + memErr.message)
   }
 
-  const { data: roles, error: rolesErr } = await sb
-    .from('project_roles')
-    .select('project_id, role')
-    .eq('user_id', u.user.id)
   if (rolesErr || !roles) {
     console.error('[getActor] 프로젝트 역할 조회 실패:', rolesErr?.message)
     throw new Error('권한 정보를 불러오지 못했습니다: ' + (rolesErr?.message ?? 'unknown'))
@@ -47,11 +60,6 @@ export async function getActor(): Promise<Actor | null> {
 
   // 0071: 프로젝트 명단의 내 팀 — WBS 실적·첨부의 합집합 판정 재료. 조회 실패는 다른 축과
   // 동일하게 throw(fail-closed) — 명단 팀만 빠진 Actor 는 '권한 없음'으로 조용히 좁아진다.
-  const { data: rosterRows, error: rosterErr } = await sb
-    .from('project_members')
-    .select('project_id, team_id, teams(code)')
-    .eq('user_id', u.user.id)
-    .not('team_id', 'is', null)
   if (rosterErr || !rosterRows) {
     console.error('[getActor] 명단 팀 조회 실패:', rosterErr?.message)
     throw new Error('권한 정보를 불러오지 못했습니다: ' + (rosterErr?.message ?? 'unknown'))
@@ -74,7 +82,7 @@ export async function getActor(): Promise<Actor | null> {
     projectRoles: map,
     rosterTeams,
   }
-}
+})
 
 /**
  * 화면 계층용 — getActor 의 throw 를 삼키고 **조회 전용(null)** 으로 열화한다.

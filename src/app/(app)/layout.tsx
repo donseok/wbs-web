@@ -20,9 +20,13 @@ import { getUiPrefs } from '@/app/actions/preferences'
 import { seoulToday } from '@/lib/domain/dates'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const [actorState, projectState, userName, prefs] = await Promise.all([
+  // completion 은 프로젝트 목록에만 의존한다 — 4-way Promise.all 전체를 기다렸다가 조회하면
+  // 가장 느린 조회만큼 직렬로 늦어지므로, 목록이 풀리는 즉시 체인해 나머지 조회와 겹친다.
+  const [actorState, [projectState, completion], userName, prefs] = await Promise.all([
     getActorViewState(),
-    listProjectsWithState(),
+    listProjectsWithState().then(s =>
+      Promise.all([s, getProjectsCompletion(s.projects.map(p => p.id))] as const),
+    ),
     getDisplayName(),
     getUiPrefs(),
   ])
@@ -32,7 +36,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // 2026-08-05 처럼 REST 장애가 '로그인 실패'로 신고된다(에러 처리 3원칙 ① 표시 = 로깅).
   // 표시는 DegradedNotice 가 맡는다(아래 main 선두).
   const today = seoulToday()
-  const completion = await getProjectsCompletion(projects.map(p => p.id))
   const projectLinks: SidebarProject[] = projects.map(p => ({
     id: p.id,
     name: p.name,

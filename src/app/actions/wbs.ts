@@ -567,18 +567,21 @@ export async function updateDeliverable(
 
 /** 항목 삭제(하위·담당·이력 cascade). */
 export async function deleteWbsItem(itemId: string): Promise<{ ok: boolean; error?: string }> {
+  // resolveProjectId 가 존재 확인(없으면 ok:false)과 project_id 조회를 이미 끝냈다 —
+  // 같은 행을 다시 읽을 이유가 없어 재조회 없이 그 값을 쓴다.
   const found = await resolveProjectId('wbs_items', itemId)
   if (!found.ok) return { ok: false, error: found.error }
-  const g = await requireProjectAdmin(found.projectId)
+  const projectId = found.projectId
+  // wbs_items.project_id 는 NOT NULL 이지만 resolveProjectId 타입이 nullable(minutes 공용)이라
+  // 여기서 좁힌다 — 모르면 중단(fail-closed).
+  if (!projectId) return { ok: false, error: '프로젝트 확인 실패' }
+  const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
-  const { data: item, error: itemErr } = await sb.from('wbs_items').select('project_id').eq('id', itemId).single()
-  if (itemErr && itemErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${itemErr.message}` } // 삭제 전 조회 실패 = 중단
-  if (!item) return { ok: false, error: '항목 없음' }
   const { error } = await sb.from('wbs_items').delete().eq('id', itemId)
   if (error) return { ok: false, error: error.message }
-  revalidatePath(`/p/${item.project_id as string}`, 'layout')
-  after(() => recordProgressSnapshot(item.project_id as string))
+  revalidatePath(`/p/${projectId}`, 'layout')
+  after(() => recordProgressSnapshot(projectId))
   return { ok: true }
 }
 
