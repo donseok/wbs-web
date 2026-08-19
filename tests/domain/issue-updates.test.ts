@@ -86,4 +86,22 @@ describe('parseMentions — 썼다 지운 멘션은 알림을 보내지 않는�
     const p = [{ id: 'm1', name: '김준기' }, { id: 'm1', name: '김준기' }]
     expect(parseMentions('@김준기 @김준기', p)).toEqual(['m1'])
   })
+
+  it('조사·호칭이 이름에 붙어도 잡는다 — 한국어에서 가장 흔한 표기다', () => {
+    expect(parseMentions('@김준기님 확인 부탁드려요', picked)).toEqual(['m1'])
+    expect(parseMentions('@김준기가 확인했습니다', picked)).toEqual(['m1'])
+    expect(parseMentions('@남순혁께 전달했습니다', picked)).toEqual(['m2'])
+  })
+
+  it('접두사 충돌은 긴 이름이 먼저 자리를 잡아 해결한다 — 등록 순서와 무관하다', () => {
+    const short = [{ id: 'm1', name: '김준' }, { id: 'm2', name: '김준기' }]
+    const long = [{ id: 'm2', name: '김준기' }, { id: 'm1', name: '김준' }]
+    expect(parseMentions('@김준기님', short)).toEqual(['m2'])
+    expect(parseMentions('@김준기님', long)).toEqual(['m2'])
+  })
+
+  it('짧은 이름과 긴 이름이 본문에 다 있으면 둘 다 잡는다', () => {
+    const p = [{ id: 'm1', name: '김준' }, { id: 'm2', name: '김준기' }]
+    expect(parseMentions('@김준 과 @김준기 확인', p)).toEqual(['m1', 'm2'])
+  })
 })
