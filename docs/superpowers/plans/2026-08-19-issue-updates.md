@@ -26,6 +26,14 @@
 - **`Issue` 도메인 타입에 새 필드를 추가할 때는 반드시 optional.** 필수로 넣으면 픽스처 12개 테스트 파일이 동시에 깨진다.
 - 액션에 `role === '...'` 을 직접 적지 않는다. 가드는 `requireSuperuser`/`requireProjectAdmin`/`requireProjectMember` 셋뿐이다.
 - 본문 상한은 **한 건당 4000자**(`ISSUE_UPDATE_BODY_MAX`).
+- **트레일러 블록의 형태는 두 겹의 규칙이다** — 어느 한쪽만 지키면 파싱되지 않는다.
+  (a) 블록 **앞에는 빈 줄**이 있어야 한다(본문과 분리된 마지막 문단이어야 한다).
+  (b) 블록 **안에는 빈 줄이 없어야 한다** — `Staging-verified:`·`Preview-checked:` 와
+  `Co-Authored-By:` 는 붙여 쓴다.
+  git 은 메시지 끝의 **연속된** `Key: value` 문단만 트레일러로 인식한다. 어긋나면 G4·G2 훅이 쓰는
+  `git log --no-walk --format='%(trailers:key=<키>,valueonly)'` 가 빈 문자열을 돌려주고 push 가
+  막힌다. 올바른 선례는 `1633bec6`(0086). **커밋 직후 그 명령으로 값이 나오는지 확인할 것** —
+  이 실수는 push 직전까지 드러나지 않는다.
 - 카테고리 값은 **`action` · `discuss` · `followup` · `etc` · `null`** 다섯 가지뿐.
 - kind 값은 **`note` · `status`** 둘뿐.
 
@@ -269,7 +277,6 @@ archived_by 를 짝 CHECK 에서 뺀 것은 on delete set null 이 참조 행 UP
 CHECK 를 그대로 평가하기 때문이다 — 묶으면 계정 삭제가 통째로 실패한다.
 
 Staging-verified: 0087 스테이징 적용 + 컬럼 grant/정책/제약 실측, 재적용 멱등 확인
-
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
@@ -2789,7 +2796,6 @@ feat(issues): 기존 조치메모를 첫 이력으로 이관한다
 밝히게 한다.
 
 Staging-verified: 0088 스테이징 2회 적용(멱등 확인) + 이관 누락 0건 실측 + 실화면 7항목 확인
-
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
 )"
