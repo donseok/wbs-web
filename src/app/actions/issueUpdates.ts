@@ -11,6 +11,7 @@ import { getSession } from '@/lib/auth'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { ERR_LOOKUP } from '@/lib/authz/errors'
 import { displayNameFrom } from '@/lib/domain/display-name'
+import { emitNotification } from '@/lib/notify/emit'
 import {
   canArchiveUpdate,
   canPurgeUpdate,
@@ -219,12 +220,50 @@ export async function addIssueUpdate(
     console.error('[addIssueUpdate] 이력 INSERT 가 0행입니다:', issueId)
     return { ok: false, error: '이력 저장에 실패했습니다.' }
   }
+  const updateId = inserted.id as string
+
+  // 알림 — 담당자에게. member 축 그대로 넘긴다: 클라이언트에도 이 액션에도 다른 사람의
+  // auth uuid 가 없고(domain/types.ts:69), emit.ts:28-36 이 project_members 조인으로
+  // user_id 를 풀고 작성자 본인 제외까지 처리한다.
+  let notifyErr: string | null = null
+  const { data: issueRow, error: issueErr } = await sb
+    .from('issues').select('title').eq('id', issueId).maybeSingle()
+  if (issueErr) {
+    console.error('[addIssueUpdate] 알림용 이슈 제목 조회 실패:', issueErr.message)
+    notifyErr = '알림 발송에 실패했습니다.'
+  }
+  const { data: assignees, error: asgErr } = await sb
+    .from('issue_assignees').select('member_id').eq('issue_id', issueId)
+  if (asgErr) {
+    console.error('[addIssueUpdate] 알림용 담당자 조회 실패:', asgErr.message)
+    notifyErr = '알림 발송에 실패했습니다.'
+  }
+  const recipients = (assignees ?? []).map((a: { member_id: string }) => a.member_id)
+  if (notifyErr === null && recipients.length > 0) {
+    const emitted = await emitNotification({
+      type: 'issue.update',
+      projectId: g.projectId,
+      actorUserId: g.userId,
+      entityType: 'issue',
+      entityId: issueId,
+      payload: {
+        title: (issueRow?.title as string | undefined) ?? '이슈',
+        detail: '조치 경과가 등록되었습니다',
+        href: `/p/${g.projectId}/issues?focus=${issueId}`,
+      },
+      recipientMemberIds: recipients,
+      dedupeKey: `issue.update:${issueId}:${updateId}`,
+    })
+    if (!emitted.ok) notifyErr = '알림 발송에 실패했습니다.'
+  }
 
   const mirrorErr = await syncResolutionNoteMirror(sb, issueId)
   revalidatePath(`/p/${g.projectId}/issues`)
-  if (mirrorErr) {
-    return { ok: true, partial: `이력은 저장됐지만 요약 반영에 실패했습니다(${mirrorErr}).` }
-  }
+  const partial = [
+    mirrorErr ? `요약 반영에 실패했습니다(${mirrorErr})` : null,
+    notifyErr,
+  ].filter(Boolean).join(' ')
+  if (partial) return { ok: true, partial: `이력은 저장됐습니다. ${partial}` }
   return { ok: true }
 }
 

@@ -11,10 +11,12 @@ const { createServerClient } = vi.hoisted(() => ({
 const { requireProjectMember, requireProjectAdmin, resolveProjectId } = vi.hoisted(() => ({
   requireProjectMember: vi.fn(), requireProjectAdmin: vi.fn(), resolveProjectId: vi.fn(),
 }))
+const { emitNotification } = vi.hoisted(() => ({ emitNotification: vi.fn(async () => ({ ok: true })) }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ getSession: vi.fn() }))
 vi.mock('@/lib/authz', () => ({ requireProjectMember, requireProjectAdmin, resolveProjectId }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
+vi.mock('@/lib/notify/emit', () => ({ emitNotification }))
 
 import { getSession } from '@/lib/auth'
 import { addIssueUpdate, archiveIssueUpdate, listIssueUpdates, purgeIssueUpdate, unarchiveIssueUpdate } from '@/app/actions/issueUpdates'
@@ -52,6 +54,7 @@ function stubClient(over: {
   mirrorUpdateRows?: unknown[]
   listRows?: unknown[]
   listError?: boolean
+  assigneeIds?: string[]
 } = {}) {
   const calls = {
     inserted: null as Record<string, unknown> | null,
@@ -102,8 +105,12 @@ function stubClient(over: {
           }),
         }
       }
+      if (table === 'issue_assignees') {
+        return { select: () => ({ eq: async () => ({ data: (over.assigneeIds ?? []).map(id => ({ member_id: id })), error: null }) }) }
+      }
       if (table === 'issues') {
         return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { title: '이슈 제목' }, error: null }) }) }),
           update(payload: Record<string, unknown>) {
             calls.issuePayload = payload
             return { eq: () => ({ select: async () => ({ data: over.mirrorUpdateRows ?? [{ id: 'i1' }], error: null }) }) }
@@ -228,6 +235,39 @@ describe('addIssueUpdate — 주석으로만 지켜지던 불변식', () => {
     expect((await addIssueUpdate('i1', { body: 'x', category: null, mentionedMemberIds: 'm1' as never })).ok).toBe(false)
     expect((await addIssueUpdate('i1', { body: 'x', category: null, mentionedMemberIds: [BAD] })).ok).toBe(false)
     expect((await addIssueUpdate('i1', { body: 'x', category: null, mentionedMemberIds: Array(21).fill(M1) })).ok).toBe(false)
+  })
+})
+
+describe('addIssueUpdate 알림', () => {
+  it('담당자에게 issue.update 를 member 축으로 보낸다', async () => {
+    asMember()
+    state.client = stubClient({ latestNote: '내용', assigneeIds: ['m1', 'm2'] }).client
+    await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'issue.update',
+      projectId: 'p1',
+      actorUserId: 'me',
+      recipientMemberIds: ['m1', 'm2'],
+      dedupeKey: 'issue.update:i1:u1',
+    }))
+    // auth uuid 축으로 보내면 안 된다 — 클라이언트에도 서버 액션에도 그 값이 없다.
+    expect(emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ recipientUserIds: expect.anything() }))
+  })
+
+  it('담당자가 없으면 알림을 보내지 않는다', async () => {
+    asMember()
+    state.client = stubClient({ latestNote: '내용', assigneeIds: [] }).client
+    await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
+    expect(emitNotification).not.toHaveBeenCalled()
+  })
+
+  it('알림 실패가 이력 저장을 실패로 만들지는 않는다 — 부분 실패로 고지한다', async () => {
+    asMember()
+    emitNotification.mockResolvedValueOnce({ ok: false })
+    state.client = stubClient({ latestNote: '내용', assigneeIds: ['m1'] }).client
+    const res = await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
+    expect(res.ok).toBe(true)
+    expect(res.ok && res.partial).toBeTruthy()
   })
 })
 
