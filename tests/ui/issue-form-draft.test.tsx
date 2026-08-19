@@ -20,6 +20,15 @@ vi.mock('@/app/actions/issues', () => ({
   deleteIssue: vi.fn(async () => ({ ok: true })),
   fetchIssueMajorProcesses,
 }))
+// 상세 모달이 조치 경과 이력을 조회한다(0087). 서버 액션이라 여기서 막지 않으면
+// 아래 IssueDetailModal 렌더 테스트가 멈춘다 — deep-link-params 와 같은 이유다.
+vi.mock('@/app/actions/issueUpdates', () => ({
+  listIssueUpdates:     vi.fn(async () => ({ ok: true, items: [] })),
+  addIssueUpdate:       vi.fn(async () => ({ ok: true })),
+  archiveIssueUpdate:   vi.fn(async () => ({ ok: true })),
+  unarchiveIssueUpdate: vi.fn(async () => ({ ok: true })),
+  purgeIssueUpdate:     vi.fn(async () => ({ ok: true })),
+}))
 
 import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from '@/components/issues/IssueModals'
 import type { Issue } from '@/lib/domain/issues'
