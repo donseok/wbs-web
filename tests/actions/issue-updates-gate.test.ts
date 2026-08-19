@@ -291,9 +291,20 @@ function stubRowClient(
             // 대상 행 조회 경로 — 어떤 필터로 좁혔는지 기록한다.
             Object.assign(q, {
               eq: (c: string, v: unknown) => { calls.readChain.push(['eq', c, v]); return q },
-              maybeSingle: async () => opts.rowError
-                ? { data: null, error: { message: 'permission denied for relation issue_updates (key=secret)' } }
-                : { data: row, error: null },
+              maybeSingle: async () => {
+                if (opts.rowError) {
+                  return { data: null, error: { message: 'permission denied for relation issue_updates (key=secret)' } }
+                }
+                if (row === null) return { data: null, error: null }
+                // 실제 PostgREST 는 select 에 적은 컬럼만 돌려준다. 스텁이 행을 통째로 주면
+                // select 목록에서 컬럼을 빠뜨려도 테스트는 초록이고 운영에서만 undefined 가 된다
+                // — 스텁이 코드와 같은 방향으로 틀리는 경우다.
+                const picked: Record<string, unknown> = {}
+                for (const c of cols.split(',').map(s => s.trim())) {
+                  if (c in row) picked[c] = (row as unknown as Record<string, unknown>)[c]
+                }
+                return { data: picked, error: null }
+              },
             })
             return q
           },
@@ -411,6 +422,8 @@ describe('purgeIssueUpdate — 완전 삭제는 관리자만', () => {
     const res = await purgeIssueUpdate('i1', 'u1')
     expect(res.ok).toBe(true)
     expect(calls.deleted).toBe(true)
+    // DELETE 는 PK 한 행만. issue_id 로 걸면 그 이슈의 이력이 통째로 사라진다.
+    expect(calls.deleteChain).toContainEqual(['eq', 'id', 'u1'])
   })
 
   it('DELETE 0행은 실패다', async () => {
@@ -418,6 +431,12 @@ describe('purgeIssueUpdate — 완전 삭제는 관리자만', () => {
     requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
     state.client = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: null }, { deletedRows: [] }).client
     expect((await purgeIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+
+  it('관리자는 상태 기록도 완전 삭제할 수 있다 — 취소선만 막았지 삭제를 막은 게 아니다', async () => {
+    asMember(); requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    state.client = stubRowClient({ author_user_id: 'me', kind: 'status', archived_at: null }).client
+    expect((await purgeIssueUpdate('i1', 'u1')).ok).toBe(true)
   })
 })
 
