@@ -397,4 +397,42 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
     )
     expect(dialog()).toBeNull()
   })
+
+  // 이 테스트는 "재오픈 가드가 있다"만 검증하지 않는다 — focus 소비 이펙트의 deps 가
+  // [focusParam](추출한 원시값)인지 [searchParams](매 렌더 새 인스턴스)인지를 핀으로 고정한다.
+  // 실제 Next.js 의 useSearchParams() 는 재렌더마다 새 ReadonlyURLSearchParams 를 주므로,
+  // deps 를 [searchParams] 로 바꾸면 이 이펙트가 부모 재렌더마다(이슈 저장 후 router.refresh()
+  // 포함) 다시 돌고, 그 순간부터 재오픈 가드가 닫힌 모달을 닫힌 채로 두는 유일한 방어선이
+  // 된다. deps 가 옳으면(추출한 원시값) 가드가 있든 없든 이 이펙트 자체가 재실행되지 않아
+  // 통과하고, deps 를 [searchParams] 로 바꾸고 가드까지 지우면 실패한다 — 단 deps 를
+  // [searchParams] 로 바꾸고 가드를 남겨두면 그래도 통과한다(가드가 막아주므로). 즉 이
+  // 테스트는 "deps 가 원시값" 과 "가드 존재" 를 각각 따로 죽이지 못하고 그 조합을 지킨다 —
+  // 정직하게 그 사실을 밝혀 둔다.
+  it('IssuesView: 닫힌 뒤 같은 focus 파라미터로 반복 재렌더해도 다시 열리지 않는다(deps 핀)', async () => {
+    currentSearch = 'focus=iss-2'
+    const issues = [issueFx(), issueFx({ id: 'iss-2', title: '인터페이스 오류' })]
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={issues} />,
+    )
+    expect(dialog()).not.toBeNull()
+
+    const closeButtons = [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="common.close"]')]
+    await act(async () => { closeButtons[closeButtons.length - 1].click() })
+    expect(dialog()).toBeNull()
+
+    // routerReplace 는 spy 라 currentSearch 를 바꾸지 않는다 — 컴포넌트 입장에서는 focus
+    // 파라미터가 여전히 존재하는 상태. 같은 값으로 두 번 더 재렌더해도(추가 소프트 내비게이션
+    // 흉내) 닫힌 채로 남아야 한다.
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={issues} />,
+    )
+    expect(dialog()).toBeNull()
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={issues} />,
+    )
+    expect(dialog()).toBeNull()
+  })
 })

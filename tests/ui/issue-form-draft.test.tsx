@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 const router = { refresh: vi.fn() }
-vi.mock('next/navigation', () => ({ useRouter: () => router }))
+vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/p/p1/issues' }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
 }))

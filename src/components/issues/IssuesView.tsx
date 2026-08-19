@@ -65,6 +65,11 @@ export function IssuesView({
   // 마지막으로 소비한 focus 값. 없으면 모달을 닫아도 같은 파라미터를 보고 곧바로 다시 열려
   // 무한 재오픈이 된다.
   const consumedFocus = useRef<string | null>(focusParam)
+  // 반드시 추출한 원시값(focusParam)을 deps 에 둔다 — searchParams 자체를 넣지 않는다.
+  // 실제 Next.js 의 useSearchParams() 는 재렌더마다 새 ReadonlyURLSearchParams 인스턴스를
+  // 준다. 객체를 deps 에 두면 이 이펙트가 부모 재렌더마다(이슈 저장 후의 router.refresh()
+  // 포함) 다시 돌게 되고, 그 순간부터 위 재오픈 가드가 닫힌 모달을 닫힌 채로 두는 유일한
+  // 장치가 된다. 이 줄을 바꾸려면 그 결과를 먼저 이해할 것.
   useEffect(() => {
     if (focusParam === null) { consumedFocus.current = null; return }
     if (consumedFocus.current === focusParam) return
