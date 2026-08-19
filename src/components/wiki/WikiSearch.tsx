@@ -86,24 +86,27 @@ export function WikiSearch({ projectId, locale, initialQuery, pageHero, adminSlo
   const head = (
     <div className="flex flex-col gap-3">
       {pageHero}
-      <section className="hero-card hero-glow overflow-hidden px-5 py-6 sm:px-7 sm:py-7" aria-labelledby="wiki-search-title">
+      <section className="hero-card hero-glow overflow-hidden px-5 py-4 sm:px-7 sm:py-5" aria-labelledby="wiki-search-title">
         {/* 2분할 개편(2026-08-17): 결과 그리드가 카드 전폭을 쓰도록 max-w-3xl 을 풀었다.
-            제목·설명만 max-w-2xl 로 따로 묶는다 — 한 줄이 지나치게 길어지지 않게(C2). */}
+            높이 압축(2026-08-19): 이 카드는 c635f14 이후 고정 히어로라 화면에서 차지한
+            높이만큼 결과·읽기 패널이 영구히 줄어든다. 아이브로우·제목·설명 3단 세로
+            스택을 한 줄 baseline 정렬로 눕혀 카드를 약 1/3 낮췄다. 좁은 폭에서는
+            flex-wrap 으로 종전처럼 접히므로 모바일 가독성은 그대로다. */}
         <div className="relative z-10">
-          <div className="max-w-2xl">
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-hero-ink-muted">
-              <Sparkles className="h-4 w-4 text-[#3fd8c6]" aria-hidden />
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="inline-flex shrink-0 translate-y-px items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-hero-ink-muted">
+              <Sparkles className="h-3.5 w-3.5 text-[#3fd8c6]" aria-hidden />
               {t(locale, 'wiki.ask.eyebrow')}
-            </div>
-            <h2 id="wiki-search-title" className="mt-2 text-xl font-bold tracking-tight text-hero-ink sm:text-2xl">
+            </span>
+            <h2 id="wiki-search-title" className="text-lg font-bold tracking-tight text-hero-ink sm:text-xl">
               {t(locale, 'wiki.ask.title')}
             </h2>
-            <p className="mt-1.5 text-sm leading-6 text-hero-ink-muted">{t(locale, 'wiki.search2.idle.desc')}</p>
+            <p className="min-w-0 text-[13px] leading-5 text-hero-ink-muted">{t(locale, 'wiki.search2.idle.desc')}</p>
           </div>
 
           <form
             role="search"
-            className="mt-5 flex flex-col gap-2 sm:flex-row"
+            className="mt-3 flex flex-col gap-2 sm:flex-row"
             onSubmit={event => { event.preventDefault(); void run(query) }}
           >
             <div className="relative min-w-0 flex-1">
@@ -118,10 +121,10 @@ export function WikiSearch({ projectId, locale, initialQuery, pageHero, adminSlo
                 placeholder={t(locale, 'wiki.search2.placeholder')}
                 aria-label={t(locale, 'wiki.search2.placeholder')}
                 disabled={busy}
-                className="h-12 w-full rounded-2xl border border-white/15 bg-surface pl-11 pr-4 text-sm text-ink shadow-[var(--shadow-sm)] outline-none transition placeholder:text-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand-ring disabled:opacity-70"
+                className="h-11 w-full rounded-2xl border border-white/15 bg-surface pl-11 pr-4 text-sm text-ink shadow-[var(--shadow-sm)] outline-none transition placeholder:text-ink-subtle focus:border-brand focus:ring-2 focus:ring-brand-ring disabled:opacity-70"
               />
             </div>
-            <button type="submit" disabled={busy || !query.trim()} className="btn btn-primary h-12 rounded-2xl px-5">
+            <button type="submit" disabled={busy || !query.trim()} className="btn btn-primary h-11 rounded-2xl px-5">
               {busy ? t(locale, 'wiki.ask.working') : t(locale, 'wiki.ask.submit')}
               <Send className="h-4 w-4" aria-hidden />
             </button>
@@ -129,7 +132,7 @@ export function WikiSearch({ projectId, locale, initialQuery, pageHero, adminSlo
 
           {/* 칩(좌) + 색인 갱신 스트립(우) 한 줄 — 우상단 절대배치는 2분할 읽기 패널과
               겹쳐서(C1) 검색바 아래 정적 배치로 회수했다. */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <div className="flex flex-wrap gap-1.5">
               {CHIP_KEYS.map(key => {
                 const label = t(locale, key)
@@ -139,7 +142,7 @@ export function WikiSearch({ projectId, locale, initialQuery, pageHero, adminSlo
                     type="button"
                     onClick={() => runChip(label)}
                     disabled={busy}
-                    className="rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-xs text-hero-ink-muted transition hover:bg-white/[0.11] hover:text-hero-ink disabled:opacity-50"
+                    className="rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-xs text-hero-ink-muted transition hover:bg-white/[0.11] hover:text-hero-ink disabled:opacity-50"
                   >
                     {label}
                   </button>
