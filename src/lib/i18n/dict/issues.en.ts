@@ -113,6 +113,7 @@ export const issuesEn: Record<keyof typeof issuesKo, string> = {
   'issue.update.section': 'Progress log',
   'issue.update.empty': 'No progress recorded yet.',
   'issue.update.add': 'Add entry',
+  'issue.update.mentionHint': 'Type @ to mention a teammate',
   'issue.update.placeholder': 'Record actions taken and current progress',
   'issue.update.category': 'Category',
   'issue.update.categoryNone': 'General',

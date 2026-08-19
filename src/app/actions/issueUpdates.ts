@@ -239,7 +239,10 @@ export async function addIssueUpdate(
     notifyErr = '알림 발송에 실패했습니다.'
   }
   const recipients = (assignees ?? []).map((a: { member_id: string }) => a.member_id)
-  if (notifyErr === null && recipients.length > 0) {
+  // 멘션이 담당자보다 우선한다 — 두 알림을 다 받으면 중복이다.
+  const mentionSet = new Set(mentioned)
+  const assigneeOnly = recipients.filter(id => !mentionSet.has(id))
+  if (notifyErr === null && assigneeOnly.length > 0) {
     const emitted = await emitNotification({
       type: 'issue.update',
       projectId: g.projectId,
@@ -251,8 +254,25 @@ export async function addIssueUpdate(
         detail: '조치 경과가 등록되었습니다',
         href: `/p/${g.projectId}/issues?focus=${issueId}`,
       },
-      recipientMemberIds: recipients,
+      recipientMemberIds: assigneeOnly,
       dedupeKey: `issue.update:${issueId}:${updateId}`,
+    })
+    if (!emitted.ok) notifyErr = '알림 발송에 실패했습니다.'
+  }
+  if (notifyErr === null && mentioned.length > 0) {
+    const emitted = await emitNotification({
+      type: 'issue.mention',
+      projectId: g.projectId,
+      actorUserId: g.userId,
+      entityType: 'issue',
+      entityId: issueId,
+      payload: {
+        title: (issueRow?.title as string | undefined) ?? '이슈',
+        detail: '조치 경과에서 회원님을 언급했습니다',
+        href: `/p/${g.projectId}/issues?focus=${issueId}`,
+      },
+      recipientMemberIds: mentioned,
+      dedupeKey: `issue.mention:${issueId}:${updateId}`,
     })
     if (!emitted.ok) notifyErr = '알림 발송에 실패했습니다.'
   }

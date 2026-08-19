@@ -21,6 +21,7 @@ vi.mock('@/components/providers/LocaleProvider', () => ({
 
 import { IssueUpdates } from '@/components/issues/IssueUpdates'
 import { MIGRATED_AUTHOR_NAME, type IssueUpdate } from '@/lib/domain/issueUpdates'
+import type { ProjectMember } from '@/lib/domain/types'
 
 function entry(over: Partial<IssueUpdate> = {}): IssueUpdate {
   return {
@@ -31,7 +32,7 @@ function entry(over: Partial<IssueUpdate> = {}): IssueUpdate {
   }
 }
 
-const BASE = { issueId: 'i1', canWrite: true, currentUserId: 'me', isProjectAdmin: false }
+const BASE = { issueId: 'i1', canWrite: true, currentUserId: 'me', isProjectAdmin: false, members: [] as ProjectMember[] }
 
 async function flush() {
   await act(async () => { await Promise.resolve() })
@@ -227,6 +228,54 @@ describe('IssueUpdates', () => {
       click(buttonBy(container, 'issue.update.add')!)
       await flush()
       expect(textNode(container, 'issue.err.updateSaveFailed')).not.toBeNull()
+    })
+  })
+
+  describe('멘션 입력', () => {
+    const MEMBERS = [
+      { id: 'm1', name: '김준기', hasAccount: true },
+      { id: 'm2', name: '남순혁', hasAccount: true },
+      { id: 'm3', name: '계정없음', hasAccount: false },
+    ] as never[]
+
+    it('@ 를 치면 계정이 연결된 멤버만 후보로 뜬다', async () => {
+      act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+      await flush()
+      typeInto(container.querySelector('textarea')!, '@')
+      expect(buttonBy(container, '김준기')).not.toBeNull()
+      // 계정이 없으면 알림이 갈 수 없다 — 후보에서 뺀다.
+      expect(buttonBy(container, '계정없음')).toBeNull()
+    })
+
+    it('후보를 고르면 본문에 이름이 들어가고 등록 시 member id 로 전송된다', async () => {
+      addIssueUpdate.mockResolvedValue({ ok: true })
+      act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+      await flush()
+      const box = container.querySelector('textarea')!
+      typeInto(box, '@김준')
+      click(buttonBy(container, '김준기')!)
+      expect(box.value).toBe('@김준기 ')
+      typeInto(box, '@김준기 확인 부탁드립니다')
+      click(buttonBy(container, 'issue.update.add')!)
+      await flush()
+      expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
+        body: '@김준기 확인 부탁드립니다', category: null, mentionedMemberIds: ['m1'],
+      })
+    })
+
+    it('골랐다가 본문에서 지운 멘션은 전송되지 않는다', async () => {
+      addIssueUpdate.mockResolvedValue({ ok: true })
+      act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+      await flush()
+      const box = container.querySelector('textarea')!
+      typeInto(box, '@김준')
+      click(buttonBy(container, '김준기')!)
+      typeInto(box, '그냥 메모')
+      click(buttonBy(container, 'issue.update.add')!)
+      await flush()
+      expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
+        body: '그냥 메모', category: null, mentionedMemberIds: [],
+      })
     })
   })
 })

@@ -437,6 +437,7 @@ export function IssueDetailModal({
             canWrite={canWrite}
             currentUserId={currentUserId}
             isProjectAdmin={isProjectAdmin}
+            members={members}
           />
 
           <div className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">

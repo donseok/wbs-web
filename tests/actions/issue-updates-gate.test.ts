@@ -621,3 +621,28 @@ describe('Task 4 불변식 — 주석과 제목으로만 지켜지던 것들', (
     expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(false)
   })
 })
+
+describe('멘션 알림', () => {
+  it('멘션된 담당자에게는 mention 만 가고 update 는 가지 않는다 — dedupeKey 도 서로 다르다', async () => {
+    asMember()
+    state.client = stubClient({ latestNote: '내용', assigneeIds: [M1, M2], memberIds: [M1] }).client
+    await addIssueUpdate('i1', { body: '@김 확인', category: null, mentionedMemberIds: [M1] })
+    const calls = emitNotification.mock.calls.map(c => c[0] as {
+      type: string; recipientMemberIds: string[]; dedupeKey: string
+    })
+    const mention = calls.find(c => c.type === 'issue.mention')
+    const update = calls.find(c => c.type === 'issue.update')
+    expect(mention?.recipientMemberIds).toEqual([M1])
+    expect(update?.recipientMemberIds).toEqual([M2])
+    // 같은 dedupeKey 를 쓰면 emit.ts 의 유니크 제약이 둘 중 하나를 조용히 삼킨다.
+    expect(mention?.dedupeKey).toBe('issue.mention:i1:u1')
+    expect(update?.dedupeKey).toBe('issue.update:i1:u1')
+  })
+
+  it('멘션 대상이 없으면 issue.mention 을 보내지 않는다', async () => {
+    asMember()
+    state.client = stubClient({ latestNote: '내용', assigneeIds: [M1] }).client
+    await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
+    expect(emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'issue.mention' }))
+  })
+})

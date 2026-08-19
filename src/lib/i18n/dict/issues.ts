@@ -112,6 +112,7 @@ export const issuesKo = {
   'issue.update.section': '조치/해결 경과',
   'issue.update.empty': '아직 기록된 경과가 없습니다.',
   'issue.update.add': '경과 등록',
+  'issue.update.mentionHint': '@를 입력하면 팀원을 부를 수 있습니다',
   'issue.update.placeholder': '조치 내용과 경과를 기록하세요',
   'issue.update.category': '분류',
   'issue.update.categoryNone': '일반',

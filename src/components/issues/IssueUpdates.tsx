@@ -20,11 +20,13 @@ import {
   MIGRATED_AUTHOR_NAME,
   canArchiveUpdate,
   canPurgeUpdate,
+  parseMentions,
   parseStatusChange,
   type IssueUpdate,
   type IssueUpdateCategory,
 } from '@/lib/domain/issueUpdates'
 import { ISSUE_STATUS_META } from '@/lib/domain/issues'
+import type { ProjectMember } from '@/lib/domain/types'
 
 /** 기본으로 펴는 건수 — 모달 본문이 max-h-[70vh] 스크롤 박스라 전량을 펴면 푸터가 밀린다. */
 const VISIBLE_DEFAULT = 5
@@ -35,6 +37,8 @@ export interface IssueUpdatesProps {
   canWrite: boolean
   currentUserId: string | null
   isProjectAdmin: boolean
+  /** @멘션 후보. 계정이 없으면 알림이 갈 수 없으므로 hasAccount 로 여기서 걸러 쓴다. */
+  members: ProjectMember[]
 }
 
 function fmtAt(iso: string, locale: string): string {
@@ -44,7 +48,7 @@ function fmtAt(iso: string, locale: string): string {
   })
 }
 
-export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin }: IssueUpdatesProps) {
+export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin, members }: IssueUpdatesProps) {
   const { t, locale } = useLocale()
   const [list, setList] = useState<IssueUpdate[] | null>(null)
   // 실패 '여부'만 담는다 — 번역문을 state 에 넣으면 load 가 t 에 의존해 무한 루프가 된다.
@@ -56,6 +60,21 @@ export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin 
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  // 자동완성에서 실제로 고른 사람들. 문자열이 아니라 이 목록을 기준으로 대조한다 —
+  // 손으로 타이핑한 @아무개 는 대상이 아니고(id 를 모른다), 동명이인은 이름으로 못 가른다.
+  const [picked, setPicked] = useState<{ id: string; name: string }[]>([])
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+
+  // 계정이 연결되지 않은 멤버는 후보에서 뺀다 — 알림이 갈 수 없다.
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return []
+    const q = mentionQuery.trim()
+    return members
+      .filter(m => m.hasAccount)
+      .filter(m => q === '' || m.name.includes(q))
+      .slice(0, 8)
+  }, [members, mentionQuery])
 
   const load = useCallback(() => {
     listIssueUpdates(issueId)
@@ -95,16 +114,33 @@ export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin 
     } finally { setBusy(false) }
   }
 
+  function onBodyChange(next: string) {
+    setBody(next)
+    // 마지막 '@' 이후에 공백·줄바꿈이 없으면 그 토막을 검색어로 본다.
+    const at = next.lastIndexOf('@')
+    if (at === -1) { setMentionQuery(null); return }
+    const tail = next.slice(at + 1)
+    setMentionQuery(/[\s\n]/.test(tail) ? null : tail)
+  }
+
+  function pick(m: { id: string; name: string }) {
+    const at = body.lastIndexOf('@')
+    if (at === -1) return
+    setBody(`${body.slice(0, at)}@${m.name} `)
+    setPicked(prev => (prev.some(p => p.id === m.id) ? prev : [...prev, m]))
+    setMentionQuery(null)
+  }
+
   async function submit() {
     const text = body.trim()
     if (text.length === 0) return
     const ok = await run(() => addIssueUpdate(issueId, {
       body: text,
       category: category === '' ? null : category,
-      mentionedMemberIds: [],
+      mentionedMemberIds: parseMentions(text, picked),
     }))
     // 성공했을 때만 비운다 — 실패했는데 지우면 사용자가 쓴 글이 사라진다.
-    if (ok) { setBody(''); setCategory('') }
+    if (ok) { setBody(''); setCategory(''); setPicked([]); setMentionQuery(null) }
   }
 
   return (
@@ -237,9 +273,32 @@ export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin 
             className="app-textarea min-h-[72px] resize-y"
             value={body}
             maxLength={ISSUE_UPDATE_BODY_MAX}
-            onChange={e => setBody(e.target.value)}
+            onChange={e => onBodyChange(e.target.value)}
             placeholder={t('issue.update.placeholder')}
           />
+          {/* 절대배치 드롭다운을 쓰지 않는 이유 둘.
+              (1) Modal 패널이 overflow-hidden, 본문이 max-h-[70vh] overflow-y-auto 라
+                  abspos 목록이 스크롤 박스에 잘린다(Modal.tsx:88,96).
+              (2) Modal 은 document 리스너로 Escape 를 무조건 닫기에 쓴다(Modal.tsx:59,72).
+                  React 합성 stopPropagation 으로는 그 리스너를 막지 못하고, 닫히면
+                  작성 중 본문이 사라진다(IssuesView.tsx:365 에 dirty 가드가 없다).
+              인라인 목록이면 Escape 를 가로챌 필요가 없다. */}
+          {mentionCandidates.length > 0 && (
+            <ul className="flex flex-wrap gap-1 rounded-lg border border-line bg-surface-1 p-1.5">
+              {mentionCandidates.map(m => (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    onClick={() => pick(m)}
+                    className="rounded px-2 py-1 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
+                  >
+                    {m.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-[11px] text-ink-subtle">{t('issue.update.mentionHint')}</p>
           <div className="flex items-center gap-2">
             <label className="sr-only" htmlFor="issue-update-category">{t('issue.update.category')}</label>
             <select
