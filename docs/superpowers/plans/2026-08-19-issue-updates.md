@@ -6,7 +6,7 @@
 
 **Architecture:** 새 자식 테이블 `issue_updates`(0068 `issue_attachments` 패턴 복제)에 이력을 쌓고, 기존 `issues.resolution_note` 컬럼은 "최신 살아있는 note" 를 담는 읽기 전용 파생 미러로 강등해 AI RAG·분석서 소비처를 무수정으로 유지한다. 서버 액션은 기존 `issues.ts` 를 오염시키지 않도록 새 파일 `issueUpdates.ts` 로 분리하고, 순수 판정은 `src/lib/domain/issueUpdates.ts` 에 둔다. UI 는 `IssueAttachments.tsx` 의 지연 로드 구조를 복제한 `IssueUpdates.tsx` 한 컴포넌트다.
 
-**Tech Stack:** Next.js 15 App Router (서버 액션) · Supabase Postgres + RLS · TypeScript · Tailwind v4 · vitest + @testing-library/react
+**Tech Stack:** Next.js 15 App Router (서버 액션) · Supabase Postgres + RLS · TypeScript · Tailwind v4 · vitest (UI 는 raw `react-dom/client` + `act()` — 이 리포에 @testing-library 는 없다)
 
 **Spec:** `docs/superpowers/specs/2026-08-19-issue-updates-design.md`
 
@@ -34,6 +34,14 @@
   `git log --no-walk --format='%(trailers:key=<키>,valueonly)'` 가 빈 문자열을 돌려주고 push 가
   막힌다. 올바른 선례는 `1633bec6`(0086). **커밋 직후 그 명령으로 값이 나오는지 확인할 것** —
   이 실수는 push 직전까지 드러나지 않는다.
+- **UI 테스트는 `@testing-library` 를 쓰지 않는다.** 이 리포에 설치돼 있지 않고 기존 UI 테스트는
+  전부 raw `react-dom/client` + `act()` 다(`tests/ui/issue-form-draft.test.tsx:1-40` 이 정본 골격 —
+  `// @vitest-environment jsdom` 프래그마, `IS_REACT_ACT_ENVIRONMENT`, container/root 수명주기).
+  의존성을 새로 넣지 않는다 — `package.json`·`package-lock.json` 은 병렬 세션이 충돌하는 공유
+  파일이고 락파일 변경은 모든 PC 에 전파된다.
+- **상세 모달을 렌더하는 테스트 파일은 둘이다** — `tests/ui/deep-link-params.test.tsx` 와
+  `tests/ui/issue-form-draft.test.tsx:426`. 새 자식 컴포넌트가 서버 액션을 부르면 **양쪽 다**
+  모킹해야 `npm run test` 가 멈추지 않는다.
 - 카테고리 값은 **`action` · `discuss` · `followup` · `etc` · `null`** 다섯 가지뿐.
 - kind 값은 **`note` · `status`** 둘뿐.
 
