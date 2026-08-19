@@ -30,6 +30,12 @@ export type IssueUpdateResult =
 
 const NAME_FALLBACK = '(이름 없음)'
 
+/** 멘션 대상 상한. issues.ts 의 ASSIGNEES_MAX 와 같은 값 — 한 코멘트가 부를 수 있는 사람 수다. */
+const MENTIONS_MAX = 20
+// uuid 모양을 미리 거른다. 그냥 넘기면 Postgres 가 22P02 를 던지고, 그 실패가
+// '권한을 확인할 수 없어 중단했습니다' 로 둔갑해 원인을 못 찾는다.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * 이력 쓰기 게이트 — 그 이슈가 속한 프로젝트의 멤버. '진행 저장'과 같은 등급이다.
  * isAdmin 을 함께 돌려주는 이유: 취소선·완전삭제 판정이 같은 왕복 안에서 끝나야
@@ -86,7 +92,7 @@ async function syncResolutionNoteMirror(
     .limit(1)
   if (error) {
     console.error('[issueUpdates] 미러 재계산용 조회 실패:', error.message)
-    return error.message
+    return ERR_LOOKUP
   }
   const latest = (data?.[0]?.body as string | undefined) ?? ''
 
@@ -162,6 +168,13 @@ export async function addIssueUpdate(
   }
   if (input.category !== null && !isIssueUpdateCategory(input.category)) {
     return { ok: false, error: '알 수 없는 분류입니다.' }
+  }
+  if (!Array.isArray(input.mentionedMemberIds)
+      || input.mentionedMemberIds.some(id => typeof id !== 'string' || !UUID_RE.test(id))) {
+    return { ok: false, error: '멘션 대상이 올바르지 않습니다.' }
+  }
+  if (input.mentionedMemberIds.length > MENTIONS_MAX) {
+    return { ok: false, error: `멘션은 한 번에 ${MENTIONS_MAX}명까지입니다.` }
   }
 
   const user = await getSession()
