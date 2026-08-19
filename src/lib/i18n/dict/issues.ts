@@ -132,8 +132,6 @@ export const issuesKo = {
   'issue.update.migrated': '이관됨 · 작성 시각 추정',
   'issue.err.updateLoadFailed': '경과를 불러오지 못했습니다. 새로고침 후 다시 시도하세요.',
   'issue.err.updateSaveFailed': '경과 저장에 실패했습니다.',
-  'issue.detail.note': '조치/해결 경과',
-  'issue.detail.notePh': '지금까지의 조치 내용과 경과를 기록하세요',
   'issue.detail.saveProgress': '진행 저장',
   'issue.detail.reporter': '작성자',
   'issue.detail.createdAt': '등록일',

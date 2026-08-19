@@ -133,8 +133,6 @@ export const issuesEn: Record<keyof typeof issuesKo, string> = {
   'issue.update.migrated': 'Migrated · time approximate',
   'issue.err.updateLoadFailed': 'Could not load the progress log. Refresh and try again.',
   'issue.err.updateSaveFailed': 'Could not save the entry.',
-  'issue.detail.note': 'Resolution notes',
-  'issue.detail.notePh': 'Record actions taken and current progress',
   'issue.detail.saveProgress': 'Save progress',
   'issue.detail.reporter': 'Reporter',
   'issue.detail.createdAt': 'Created',

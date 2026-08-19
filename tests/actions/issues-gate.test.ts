@@ -356,6 +356,46 @@ describe('updateIssueProgress — 전환 검증 + CAS', () => {
     const res = await updateIssueProgress('i1', { status: 'in_progress', expectedStatus: 'open' })
     expect(res).toMatchObject({ ok: false, conflict: true })
   })
+  it('resolutionNote 만 실어 보내면(타입 밖 호출) 무변경으로 거부 — 구 textarea 쓰기 경로 부활 방지 (DB 미도달)', async () => {
+    // resolutionNote 는 0087 이후 IssueProgressPatch 에서 빠졌다. 타입은 컴파일 시점에 막지만
+    // 서버 액션은 HTTP 엔드포인트라 손으로 짠 호출은 여전히 도달할 수 있다 — 무변경 판정이
+    // status/assigneeMemberIds 두 축만 보고 resolutionNote 를 유효 변경으로 착각하지 않아야 한다.
+    asMember()
+    const res = await updateIssueProgress('i1', { resolutionNote: '몰래 쓰기 시도' } as never)
+    expect(res).toMatchObject({ ok: false, error: '변경할 내용이 없습니다.' })
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+  it('status 변경에 resolutionNote 를 얹어 보내도(타입 밖 호출) issues.update payload 에 resolution_note 가 들어가지 않는다', async () => {
+    // 무변경 판정을 우회할 수 있는 유효 축(status)과 함께 resolutionNote 를 밀반입해도, 실제
+    // update payload 는 status/assignee 파생 필드만 담아야 한다 — resolution_note 는 이제
+    // issueUpdates.ts 의 이력 미러 재계산만이 쓴다(단일 쓰기 주체 불변식).
+    asMember()
+    const update = vi.fn<(payload: Record<string, unknown>) => unknown>(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn(() => ({ select: vi.fn(async () => ({ data: [{ id: 'i1' }], error: null })) })),
+      })),
+    }))
+    state.client = {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: vi.fn(async () => ({ data: { project_id: 'p1', created_by: 'other', status: 'open', resolved_at: null, title: 't' } })) })) })),
+        update,
+      })),
+    }
+    const insert = vi.fn(async () => ({ error: null }))
+    createAdminClient.mockReturnValue({
+      from: vi.fn((table: string) => {
+        if (table === 'issue_updates') return { insert }
+        throw new Error(`unexpected admin table: ${table}`)
+      }),
+    })
+
+    const res = await updateIssueProgress('i1', { status: 'resolved', expectedStatus: 'open', resolutionNote: '몰래 쓰기 시도' } as never)
+
+    expect(res.ok).toBe(true)
+    expect(update).toHaveBeenCalledOnce()
+    const payload = update.mock.calls[0][0] as Record<string, unknown>
+    expect(payload).not.toHaveProperty('resolution_note')
+  })
 })
 
 describe('입력 검증 — createIssue', () => {

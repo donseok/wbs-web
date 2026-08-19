@@ -199,7 +199,6 @@ export function IssueDetailModal({
   const [pending, startTransition] = useTransition()
   const [status, setStatus] = useState<IssueStatus>('open')
   const [assignees, setAssignees] = useState<string[]>([])
-  const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   // 이슈 데이터가 갱신될 때마다 진행 편집 폼을 현재값으로 재베이스라인.
@@ -210,7 +209,6 @@ export function IssueDetailModal({
     if (!issue) return
     setStatus(issue.status)
     setAssignees(issue.assigneeMemberIds)
-    setNote(issue.resolutionNote)
   }, [issue])
   const issueId = issue?.id
   useEffect(() => { setError(null) }, [issueId])
@@ -226,8 +224,7 @@ export function IssueDetailModal({
     : ''
   const statusOptions: IssueStatus[] = issue ? [issue.status, ...STATUS_TRANSITIONS[issue.status]] : []
   const assigneesDirty = issue !== null && !sameIds(assignees, issue.assigneeMemberIds)
-  const dirty = issue !== null
-    && (status !== issue.status || assigneesDirty || note !== issue.resolutionNote)
+  const dirty = issue !== null && (status !== issue.status || assigneesDirty)
   const analysisMegaLabel = issue?.megaCode ? megaAreaName(issue.megaCode, locale) : '—'
   const analysisMajorLabel = issue?.majorName
     ? issue.megaCode && issue.majorSeq
@@ -255,7 +252,6 @@ export function IssueDetailModal({
     const patch = {
       ...(status !== issue.status ? { status, expectedStatus: issue.status } : {}),
       ...(assigneesDirty ? { assigneeMemberIds: assignees } : {}),
-      ...(note !== issue.resolutionNote ? { resolutionNote: note } : {}),
     }
     startTransition(async () => {
       const res = await updateIssueProgress(issue.id, patch)
@@ -457,15 +453,6 @@ export function IssueDetailModal({
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.assignee')}</span>
               <IssueAssigneePicker members={members} selected={assignees} onChange={setAssignees} />
             </div>
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.detail.note')}</span>
-              <textarea
-                className="app-textarea min-h-[96px] resize-y"
-                value={note}
-                onChange={e => setNote(e.target.value)}
-                placeholder={t('issue.detail.notePh')}
-              />
-            </label>
             {error && <ErrorBox message={error} />}
           </div>
         </div>
