@@ -14,6 +14,7 @@ import {
   ISSUE_SEVERITIES, canTransition, nextResolvedAt,
   type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
+import { encodeStatusChange } from '@/lib/domain/issueUpdates'
 import { computeAddedAssignees } from '@/lib/domain/inbox'
 import {
   isIssueMegaCode,
@@ -1058,6 +1059,25 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
       .select('id')
     if (error) return { ok: false, error: error.message }
     if (!updated?.length) return { ok: false, error: '이슈가 삭제되어 저장할 수 없습니다.' }
+  }
+
+  // 상태 변경 자동 기록 — 지금 이 흔적은 어디에도 남지 않는다.
+  // service_role 로 쓰는 이유: 위 sb 는 사용자 JWT 라 kind 컬럼 grant 밖이고, RLS insert
+  // 정책도 kind='note' 만 허용한다. 이 자리는 requireProjectMember 를 이미 통과했으므로
+  // "service_role 쓰기는 서버 액션 가드가 유일한 관문"이라는 계약을 지킨다.
+  if (patch.status !== undefined && patch.expectedStatus !== patch.status) {
+    const user = await getSession()
+    const admin = createAdminClient()
+    const { error: logErr } = await admin.from('issue_updates').insert({
+      issue_id: issueId,
+      project_id: cur.project_id as string,
+      kind: 'status',
+      body: encodeStatusChange(patch.expectedStatus as IssueStatus, patch.status),
+      author_user_id: g.actor.userId,
+      author_name: user ? (displayNameFrom(user.user_metadata, user.email) ?? '(이름 없음)') : '(이름 없음)',
+    })
+    // 기록 실패가 상태 변경을 되돌리지는 않는다 — 이미 커밋됐다. 로그만 남긴다.
+    if (logErr) console.error('[updateIssueProgress] 상태 변경 이력 기록 실패:', logErr.message)
   }
 
   // 담당자 교체는 상태 CAS 가 통과한 뒤에만 — 충돌 감지 시 담당자까지 절반만 저장되는 일이 없게 한다.

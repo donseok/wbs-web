@@ -28,10 +28,15 @@ const { requireProjectMember, requireProjectAdmin, resolveProjectId, getActor } 
   requireProjectMember: vi.fn(), requireProjectAdmin: vi.fn(), resolveProjectId: vi.fn(), getActor: vi.fn(),
 }))
 const { emitNotification } = vi.hoisted(() => ({ emitNotification: vi.fn(async () => ({ ok: true })) }))
+// updateIssueProgress 의 상태 변경 자동 기록이 service_role(createAdminClient) 로 issue_updates 에
+// 쓴다 — 이 파일이 지금 status 전환 케이스를 커버하진 않지만, 다른 mock 과 마찬가지로 실제
+// supabase-js 생성을 막아둔다(shared helper mock trap 재발 방지).
+const { createAdminClient } = vi.hoisted(() => ({ createAdminClient: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ getSession: vi.fn() }))
 vi.mock('@/lib/authz', () => ({ requireProjectMember, requireProjectAdmin, resolveProjectId, getActor }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification }))
 
 import { getSession } from '@/lib/auth'
@@ -59,6 +64,7 @@ const INPUT = {
 beforeEach(() => {
   state.client = undefined
   createServerClient.mockClear()
+  createAdminClient.mockReset()
   requireProjectMember.mockReset()
   requireProjectAdmin.mockReset()
   resolveProjectId.mockReset()
