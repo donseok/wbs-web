@@ -398,6 +398,21 @@ describe('parseMentions — 썼다 지운 멘션은 알림을 보내지 않는�
     const p = [{ id: 'm1', name: '김준기' }, { id: 'm1', name: '김준기' }]
     expect(parseMentions('@김준기 @김준기', p)).toEqual(['m1'])
   })
+  it('조사·호칭이 이름에 붙어도 잡는다 — 한국어에서 가장 흔한 표기다', () => {
+    expect(parseMentions('@김준기님 확인 부탁드려요', picked)).toEqual(['m1'])
+    expect(parseMentions('@김준기가 확인했습니다', picked)).toEqual(['m1'])
+    expect(parseMentions('@남순혁께 전달했습니다', picked)).toEqual(['m2'])
+  })
+  it('접두사 충돌은 긴 이름이 먼저 자리를 잡아 해결한다 — 등록 순서와 무관하다', () => {
+    const short = [{ id: 'm1', name: '김준' }, { id: 'm2', name: '김준기' }]
+    const long = [{ id: 'm2', name: '김준기' }, { id: 'm1', name: '김준' }]
+    expect(parseMentions('@김준기님', short)).toEqual(['m2'])
+    expect(parseMentions('@김준기님', long)).toEqual(['m2'])
+  })
+  it('짧은 이름과 긴 이름이 본문에 다 있으면 둘 다 잡는다', () => {
+    const p = [{ id: 'm1', name: '김준' }, { id: 'm2', name: '김준기' }]
+    expect(parseMentions('@김준 과 @김준기 확인', p)).toEqual(['m1', 'm2'])
+  })
 })
 ```
 
@@ -491,10 +506,12 @@ export function parseStatusChange(body: string): { from: IssueStatus; to: IssueS
   return { from, to }
 }
 
-// 멘션 토큰의 경계 — 이 문자가 뒤에 붙으면 다른 이름의 접두사를 잘못 집은 것이다.
-const MENTION_TAIL = /[0-9A-Za-z가-힣_]/
-
-function countMentions(body: string, name: string): number {
+/**
+ * 한 이름이 본문에서 차지할 수 있는 자리를 세고, 그 구간을 taken 에 등록한다.
+ * 겹치는 구간은 세지 않는다 — 긴 이름이 먼저 자리를 잡으므로 짧은 이름이 그 안에
+ * 파고들지 못한다(@김준기 를 @김준 으로 잘못 집는 것을 이 방식으로 막는다).
+ */
+function claimMentionSpans(body: string, name: string, taken: Array<[number, number]>): number {
   if (name.length === 0) return 0
   const token = `@${name}`
   let n = 0
@@ -502,9 +519,12 @@ function countMentions(body: string, name: string): number {
   for (;;) {
     const at = body.indexOf(token, i)
     if (at === -1) return n
-    const next = body[at + token.length]
-    if (next === undefined || !MENTION_TAIL.test(next)) n++
-    i = at + token.length
+    const end = at + token.length
+    if (!taken.some(([s, e]) => at < e && s < end)) {
+      taken.push([at, end])
+      n++
+    }
+    i = end
   }
 }
 
@@ -515,19 +535,27 @@ function countMentions(body: string, name: string): number {
  * 문자열이 아니라 picked 기준으로 판정하는 이유는 두 가지다.
  *   (1) 손으로 타이핑한 `@아무개` 는 대상이 아니다(고른 적이 없으므로 id 를 모른다).
  *   (2) 동명이인이 있으면 이름만으로는 누구인지 정할 수 없다 — 등장 횟수만큼만 배정한다.
+ *
+ * 뒤 글자로 경계를 판정하지 않는다. 한국어는 조사·호칭이 이름에 붙어 나오므로
+ * (@김준기님, @김준기가, @남순혁께) 뒤가 한글이라는 이유로 거르면 가장 자연스러운
+ * 표기에서 알림이 조용히 사라진다. 대신 **긴 이름부터** 자리를 잡고 그 구간을 소비해
+ * 접두사 충돌을 막는다. 반환 순서는 본문 등장순이 아니라 picked 순이다.
  */
 export function parseMentions(
   body: string,
   picked: readonly { id: string; name: string }[],
 ): string[] {
-  const total = new Map<string, number>()
+  const names = [...new Set(picked.map(p => p.name))].sort((a, b) => b.length - a.length)
+  const taken: Array<[number, number]> = []
+  const slots = new Map<string, number>()
+  for (const name of names) slots.set(name, claimMentionSpans(body, name, taken))
+
   const used = new Map<string, number>()
   const out: string[] = []
   for (const p of picked) {
     if (out.includes(p.id)) continue
-    if (!total.has(p.name)) total.set(p.name, countMentions(body, p.name))
     const seen = used.get(p.name) ?? 0
-    if (seen >= (total.get(p.name) ?? 0)) continue
+    if (seen >= (slots.get(p.name) ?? 0)) continue
     used.set(p.name, seen + 1)
     out.push(p.id)
   }
