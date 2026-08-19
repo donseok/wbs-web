@@ -20,7 +20,7 @@ vi.mock('@/components/providers/LocaleProvider', () => ({
 }))
 
 import { IssueUpdates } from '@/components/issues/IssueUpdates'
-import type { IssueUpdate } from '@/lib/domain/issueUpdates'
+import { MIGRATED_AUTHOR_NAME, type IssueUpdate } from '@/lib/domain/issueUpdates'
 
 function entry(over: Partial<IssueUpdate> = {}): IssueUpdate {
   return {
@@ -127,6 +127,22 @@ describe('IssueUpdates', () => {
       expect(textNode(container, 'issue.update.statusChange')).not.toBeNull()
       expect(textNode(container, 'open>resolved')).toBeNull()
     })
+
+    it('이관된 행은 추정 안내를 보여준다', async () => {
+      listIssueUpdates.mockResolvedValue({
+        ok: true, items: [entry({ authorName: MIGRATED_AUTHOR_NAME })],
+      })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(textNode(container, 'issue.update.migrated')).not.toBeNull()
+    })
+
+    it('일반 행은 이관 안내를 보여주지 않는다', async () => {
+      listIssueUpdates.mockResolvedValue({ ok: true, items: [entry()] })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(textNode(container, 'issue.update.migrated')).toBeNull()
+    })
   })
 
   describe('권한 어포던스', () => {
@@ -200,6 +216,17 @@ describe('IssueUpdates', () => {
       act(() => root.render(<IssueUpdates {...BASE} />))
       await flush()
       expect(buttonBy(container, 'issue.update.add')!.disabled).toBe(true)
+    })
+
+    it('액션 호출이 거부되면 아무 일도 없었던 것처럼 삼키지 않는다', async () => {
+      addIssueUpdate.mockRejectedValue(new Error('boom'))
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      const box = container.querySelector('textarea')!
+      typeInto(box, '새 조치')
+      click(buttonBy(container, 'issue.update.add')!)
+      await flush()
+      expect(textNode(container, 'issue.err.updateSaveFailed')).not.toBeNull()
     })
   })
 })

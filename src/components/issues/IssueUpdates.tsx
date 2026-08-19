@@ -17,6 +17,7 @@ import {
   ISSUE_UPDATE_BODY_MAX,
   ISSUE_UPDATE_CATEGORIES,
   ISSUE_UPDATE_CATEGORY_META,
+  MIGRATED_AUTHOR_NAME,
   canArchiveUpdate,
   canPurgeUpdate,
   parseStatusChange,
@@ -85,6 +86,12 @@ export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin 
       if (res.partial) setNotice(res.partial)
       load()
       return true
+    } catch (cause) {
+      // 액션 호출 자체가 거부된 경우. finally 가 busy 는 풀어주지만 아무 메시지도 없으면
+      // 사용자에겐 '아무 일도 안 일어남' 으로 보인다 — load() 가 같은 이유로 이미 catch 를 둔다.
+      console.error('[IssueUpdates] 이력 액션 호출 실패:', cause)
+      setErr(t('issue.err.updateSaveFailed'))
+      return false
     } finally { setBusy(false) }
   }
 
@@ -154,6 +161,9 @@ export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin 
                     <span className="font-medium text-ink-muted">{u.authorName}</span>
                     <span aria-hidden>·</span>
                     <time dateTime={u.createdAt}>{fmtAt(u.createdAt, locale)}</time>
+                    {u.authorName === MIGRATED_AUTHOR_NAME && (
+                      <span className="text-[11px] text-ink-subtle">{t('issue.update.migrated')}</span>
+                    )}
                     {u.category && (
                       <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-muted">
                         {t(ISSUE_UPDATE_CATEGORY_META[u.category].labelKey)}
@@ -183,7 +193,9 @@ export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin 
                       {mayPurge && (
                         <button
                           type="button" disabled={busy}
-                          onClick={() => { if (confirmPurge()) void run(() => purgeIssueUpdate(issueId, u.id)) }}
+                          onClick={() => {
+                            if (confirmPurge(t('issue.update.purgeConfirm'))) void run(() => purgeIssueUpdate(issueId, u.id))
+                          }}
                           aria-label={t('issue.update.purge')} title={t('issue.update.purge')}
                           className="rounded p-0.5 text-ink-subtle hover:text-delayed"
                         >
@@ -260,8 +272,11 @@ export function IssueUpdates({ issueId, canWrite, currentUserId, isProjectAdmin 
  * 완전 삭제 확인. window.confirm 은 Modal 의 Escape·포커스 트랩과 싸우지 않는 유일하게
  * 값싼 수단이고, 이 앱의 다른 파괴적 동작은 전용 모달을 쓰지만 그건 이슈 단위다.
  * 이력 한 건에 모달을 하나 더 띄우면 모달 안의 모달이 된다.
+ *
+ * 문구는 호출부가 t('issue.update.purgeConfirm') 로 번역해 넘긴다 — 여기서 하드코딩하면
+ * EN 로케일 사용자가 되돌릴 수 없는 동작 앞에서 한국어 대화상자를 보게 된다.
  */
-function confirmPurge(): boolean {
+function confirmPurge(message: string): boolean {
   if (typeof window === 'undefined') return false
-  return window.confirm('이 경과를 완전히 삭제합니다. 되돌릴 수 없습니다.')
+  return window.confirm(message)
 }

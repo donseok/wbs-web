@@ -15,6 +15,12 @@ export type IssueUpdateKind = 'note' | 'status'
 /** 한 건당 본문 상한. 0087 의 CHECK 제약과 같은 값이어야 한다. */
 export const ISSUE_UPDATE_BODY_MAX = 4000
 
+/**
+ * 0088 백필이 넣는 이관 행의 작성자 표시명. 그 행은 작성자와 작성 시각이 추정값이라
+ * (원본에 그 정보가 없었다) 화면이 이 값을 보고 '추정' 안내를 붙인다.
+ */
+export const MIGRATED_AUTHOR_NAME = '(이관)'
+
 export const ISSUE_UPDATE_CATEGORY_META: Record<
   IssueUpdateCategory,
   { labelKey: `issue.update.cat.${IssueUpdateCategory}` }
