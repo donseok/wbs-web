@@ -277,5 +277,33 @@ describe('IssueUpdates', () => {
         body: '그냥 메모', category: null, mentionedMemberIds: [],
       })
     })
+
+    it('후보는 입력한 검색어로 걸러진다', async () => {
+      act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+      await flush()
+      typeInto(container.querySelector('textarea')!, '@남')
+      expect(buttonBy(container, '남순혁')).not.toBeNull()
+      expect(buttonBy(container, '김준기')).toBeNull()
+    })
+
+    it('등록에 성공하면 고른 멘션도 비워진다 — 다음 글에 손으로 같은 이름을 써도 전송되지 않는다', async () => {
+      addIssueUpdate.mockResolvedValue({ ok: true })
+      act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+      await flush()
+      const box = container.querySelector('textarea')!
+      typeInto(box, '@김준')
+      click(buttonBy(container, '김준기')!)
+      typeInto(box, '@김준기 첫 글')
+      click(buttonBy(container, 'issue.update.add')!)
+      await flush()
+      // 후보에서 다시 고르지 않고 손으로 같은 이름을 쓴다 — picked 가 안 비워졌다면
+      // parseMentions 가 본문의 '@김준기' 를 이전에 고른 id 와 다시 짝지어 버린다.
+      typeInto(box, '@김준기 두 번째 글')
+      click(buttonBy(container, 'issue.update.add')!)
+      await flush()
+      expect(addIssueUpdate).toHaveBeenLastCalledWith('i1', {
+        body: '@김준기 두 번째 글', category: null, mentionedMemberIds: [],
+      })
+    })
   })
 })

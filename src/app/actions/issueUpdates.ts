@@ -242,39 +242,47 @@ export async function addIssueUpdate(
   // 멘션이 담당자보다 우선한다 — 두 알림을 다 받으면 중복이다.
   const mentionSet = new Set(mentioned)
   const assigneeOnly = recipients.filter(id => !mentionSet.has(id))
-  if (notifyErr === null && assigneeOnly.length > 0) {
-    const emitted = await emitNotification({
-      type: 'issue.update',
-      projectId: g.projectId,
-      actorUserId: g.userId,
-      entityType: 'issue',
-      entityId: issueId,
-      payload: {
-        title: (issueRow?.title as string | undefined) ?? '이슈',
-        detail: '조치 경과가 등록되었습니다',
-        href: `/p/${g.projectId}/issues?focus=${issueId}`,
-      },
-      recipientMemberIds: assigneeOnly,
-      dedupeKey: `issue.update:${issueId}:${updateId}`,
-    })
-    if (!emitted.ok) notifyErr = '알림 발송에 실패했습니다.'
-  }
-  if (notifyErr === null && mentioned.length > 0) {
-    const emitted = await emitNotification({
-      type: 'issue.mention',
-      projectId: g.projectId,
-      actorUserId: g.userId,
-      entityType: 'issue',
-      entityId: issueId,
-      payload: {
-        title: (issueRow?.title as string | undefined) ?? '이슈',
-        detail: '조치 경과에서 회원님을 언급했습니다',
-        href: `/p/${g.projectId}/issues?focus=${issueId}`,
-      },
-      recipientMemberIds: mentioned,
-      dedupeKey: `issue.mention:${issueId}:${updateId}`,
-    })
-    if (!emitted.ok) notifyErr = '알림 발송에 실패했습니다.'
+
+  // 제목·담당자 조회 실패는 둘 다 막는다 — 그걸 모르면 어느 알림도 제대로 만들 수 없다.
+  // 반면 발행 실패는 서로를 막지 않는다. 두 알림은 수신자 집합이 겹치지 않는 독립 사건이라,
+  // 담당자 알림의 일시적 실패가 멘션 알림까지 삼키면 안 된다.
+  const failed: string[] = []
+  if (notifyErr === null) {
+    if (assigneeOnly.length > 0) {
+      const emitted = await emitNotification({
+        type: 'issue.update',
+        projectId: g.projectId,
+        actorUserId: g.userId,
+        entityType: 'issue',
+        entityId: issueId,
+        payload: {
+          title: (issueRow?.title as string | undefined) ?? '이슈',
+          detail: '조치 경과가 등록되었습니다',
+          href: `/p/${g.projectId}/issues?focus=${issueId}`,
+        },
+        recipientMemberIds: assigneeOnly,
+        dedupeKey: `issue.update:${issueId}:${updateId}`,
+      })
+      if (!emitted.ok) failed.push('담당자')
+    }
+    if (mentioned.length > 0) {
+      const emitted = await emitNotification({
+        type: 'issue.mention',
+        projectId: g.projectId,
+        actorUserId: g.userId,
+        entityType: 'issue',
+        entityId: issueId,
+        payload: {
+          title: (issueRow?.title as string | undefined) ?? '이슈',
+          detail: '조치 경과에서 회원님을 언급했습니다',
+          href: `/p/${g.projectId}/issues?focus=${issueId}`,
+        },
+        recipientMemberIds: mentioned,
+        dedupeKey: `issue.mention:${issueId}:${updateId}`,
+      })
+      if (!emitted.ok) failed.push('멘션')
+    }
+    if (failed.length > 0) notifyErr = `${failed.join('·')} 알림 발송에 실패했습니다.`
   }
 
   const mirrorErr = await syncResolutionNoteMirror(sb, issueId)

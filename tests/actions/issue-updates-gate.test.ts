@@ -180,6 +180,12 @@ describe('addIssueUpdate — 등록은 프로젝트 멤버', () => {
     state.client = client
     await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [M1, M2] })
     expect(calls.inserted?.mentioned_member_ids).toEqual([M1])
+    // 알림 수신자도 검증을 통과한 집합이어야 한다 — 원본 입력(M2 포함)이 그대로
+    // 새면 남의 프로젝트 멤버에게 알림이 간다.
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'issue.mention',
+      recipientMemberIds: [M1],
+    }))
   })
 
   it('부모 issues UPDATE 는 허용 키 두 개만 싣는다 — 0062 트리거가 막아주지 않는다', async () => {
@@ -644,5 +650,19 @@ describe('멘션 알림', () => {
     state.client = stubClient({ latestNote: '내용', assigneeIds: [M1] }).client
     await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
     expect(emitNotification).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'issue.mention' }))
+  })
+
+  it('담당자 알림 발행이 실패해도 멘션 알림은 별도로 시도된다 — 두 알림은 독립 사건이다', async () => {
+    asMember()
+    emitNotification.mockResolvedValueOnce({ ok: false })
+    state.client = stubClient({ latestNote: '내용', assigneeIds: [M2], memberIds: [M1] }).client
+    const res = await addIssueUpdate('i1', { body: '@김 확인', category: null, mentionedMemberIds: [M1] })
+    // 첫 호출(issue.update)이 실패해도 두 번째 호출(issue.mention)은 시도돼야 한다 —
+    // 공유 게이트로 되돌아가면 여기서 1회로 멈춘다.
+    expect(emitNotification).toHaveBeenCalledTimes(2)
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'issue.mention', recipientMemberIds: [M1],
+    }))
+    expect(res.ok && res.partial).toBeTruthy()
   })
 })
