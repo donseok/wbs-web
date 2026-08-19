@@ -39,6 +39,7 @@ import { minuteSourceHref } from '@/lib/minutes/source'
 import { uploadIssueAttachments } from '@/lib/issues/uploadIssueAttachments'
 import { IssueAssigneePicker } from './IssueAssigneePicker'
 import { IssueAttachments } from './IssueAttachments'
+import { IssueUpdates } from './IssueUpdates'
 import type { ProjectMember } from '@/lib/domain/types'
 
 function ErrorBox({ message }: { message: string }) {
@@ -176,12 +177,18 @@ function megaAreaName(code: IssueMegaCode, locale: 'ko' | 'en' | undefined): str
 }
 
 export function IssueDetailModal({
-  issue, members, memberName, canEdit, today, onClose, onEdit, onDelete,
+  issue, members, memberName, canEdit, canWrite, currentUserId, isProjectAdmin, today, onClose, onEdit, onDelete,
 }: {
   issue: Issue | null
   members: ProjectMember[]
   memberName: (id: string | null) => string | null
+  /** 이슈 전체 편집·삭제 게이트(작성자 또는 pmo_admin). 이력 등록 권한과는 다른 축이다. */
   canEdit: boolean
+  /** 프로젝트 멤버 이상 — 이력 등록 어포던스 기준. canEdit 을 재사용하면 남이 만든 이슈에
+   *  일반 멤버가 경과를 못 쓴다(컴파일 에러가 없어 리뷰 전까지 드러나지 않는다). */
+  canWrite: boolean
+  currentUserId: string | null
+  isProjectAdmin: boolean
   today: string
   onClose: () => void
   onEdit: () => void
@@ -422,6 +429,15 @@ export function IssueDetailModal({
           {/* 첨부는 읽기 전용이다 — 다운로드는 로그인 사용자 전체에 열려 있고, 추가·삭제는 수정 폼에서 한다.
               진행 편집 블록 안이 아니라 그 앞에 둔다(푸터 '진행 저장' 버튼의 대상이 흐려지지 않게). */}
           <IssueAttachments issueId={issue.id} />
+
+          {/* 이력은 진행 편집 블록 앞에 둔다 — 첨부와 같은 이유로 푸터 '진행 저장'의
+              대상이 흐려지지 않게 한다. */}
+          <IssueUpdates
+            issueId={issue.id}
+            canWrite={canWrite}
+            currentUserId={currentUserId}
+            isProjectAdmin={isProjectAdmin}
+          />
 
           <div className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.detail.progress')}</div>

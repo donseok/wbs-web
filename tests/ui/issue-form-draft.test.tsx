@@ -428,6 +428,9 @@ describe('IssueFormModal 회의록 초안', () => {
           members={[]}
           memberName={() => null}
           canEdit={false}
+          canWrite={false}
+          currentUserId={null}
+          isProjectAdmin={false}
           today="2026-07-31"
           onClose={() => undefined}
           onEdit={() => undefined}

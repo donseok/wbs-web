@@ -15,7 +15,10 @@ export type IssueUpdateKind = 'note' | 'status'
 /** 한 건당 본문 상한. 0087 의 CHECK 제약과 같은 값이어야 한다. */
 export const ISSUE_UPDATE_BODY_MAX = 4000
 
-export const ISSUE_UPDATE_CATEGORY_META: Record<IssueUpdateCategory, { labelKey: string }> = {
+export const ISSUE_UPDATE_CATEGORY_META: Record<
+  IssueUpdateCategory,
+  { labelKey: `issue.update.cat.${IssueUpdateCategory}` }
+> = {
   action:   { labelKey: 'issue.update.cat.action' },
   discuss:  { labelKey: 'issue.update.cat.discuss' },
   followup: { labelKey: 'issue.update.cat.followup' },

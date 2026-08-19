@@ -66,6 +66,15 @@ vi.mock('@/app/actions/issueAttachments', () => ({
   recordIssueAttachment: vi.fn(async () => ({ ok: true })),
   removeIssueAttachment: vi.fn(async () => ({ ok: true })),
 }))
+// 상세 모달이 조치 경과 이력을 조회한다(0087). 서버 액션이라 여기서 막지 않으면
+// 딥링크 테스트가 멈춘다 — 위 issueAttachments 와 같은 이유다.
+vi.mock('@/app/actions/issueUpdates', () => ({
+  listIssueUpdates:     vi.fn(async () => ({ ok: true, items: [] })),
+  addIssueUpdate:       vi.fn(async () => ({ ok: true })),
+  archiveIssueUpdate:   vi.fn(async () => ({ ok: true })),
+  unarchiveIssueUpdate: vi.fn(async () => ({ ok: true })),
+  purgeIssueUpdate:     vi.fn(async () => ({ ok: true })),
+}))
 
 import { MeetingsView } from '@/components/meetings/MeetingsView'
 import { MyMeetingsView } from '@/components/meetings/MyMeetingsView'
@@ -314,7 +323,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
   it('IssuesView: ?focus= 로 해당 이슈 상세를 연다', async () => {
     currentSearch = 'focus=iss-2'
     await mount(
-      <IssuesView projectId="p1" currentUserId={null} role={null} myMemberIds={[]} today="2026-07-23"
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
         members={[]} issues={[issueFx(), issueFx({ id: 'iss-2', title: '인터페이스 오류' })]} />,
     )
     expect(dialog()).not.toBeNull()
@@ -324,7 +333,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
   it('IssuesView: 무효 focus id 는 조용히 무시한다', async () => {
     currentSearch = 'focus=iss-없음'
     await mount(
-      <IssuesView projectId="p1" currentUserId={null} role={null} myMemberIds={[]} today="2026-07-23"
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
         members={[]} issues={[issueFx()]} />,
     )
     expect(dialog()).toBeNull()

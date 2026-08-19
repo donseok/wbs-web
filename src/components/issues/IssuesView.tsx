@@ -28,13 +28,15 @@ type PageSize = (typeof PAGE_SIZES)[number]
 const DEFAULT_PAGE_SIZE: PageSize = 20
 
 export function IssuesView({
-  issues, members, projectId, currentUserId, role, myMemberIds, today,
+  issues, members, projectId, currentUserId, role, isProjectAdmin, myMemberIds, today,
 }: {
   issues: Issue[]
   members: ProjectMember[]
   projectId: string
   currentUserId: string | null
   role: string | null
+  /** 프로젝트 관리자 이상인가. role 은 legacy shim 이라 관리자 판정에 쓰지 않는다. */
+  isProjectAdmin: boolean
   myMemberIds: string[]
   today: string
 }) {
@@ -361,6 +363,9 @@ export function IssuesView({
         members={members}
         memberName={memberName}
         canEdit={viewing ? canEditIssue(viewing, currentUserId, role) : false}
+        canWrite={canWrite}
+        currentUserId={currentUserId}
+        isProjectAdmin={isProjectAdmin}
         today={today}
         onClose={() => setViewingId(null)}
         onEdit={() => viewing && openEdit(viewing)}
