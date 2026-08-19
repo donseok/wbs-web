@@ -12,6 +12,8 @@ import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/l
 import { ERR_LOOKUP } from '@/lib/authz/errors'
 import { displayNameFrom } from '@/lib/domain/display-name'
 import {
+  canArchiveUpdate,
+  canPurgeUpdate,
   ISSUE_UPDATE_BODY_MAX,
   isIssueUpdateCategory,
   type IssueUpdate,
@@ -222,5 +224,132 @@ export async function addIssueUpdate(
   if (mirrorErr) {
     return { ok: true, partial: `이력은 저장됐지만 요약 반영에 실패했습니다(${mirrorErr}).` }
   }
+  return { ok: true }
+}
+
+/** 취소선·삭제 대상 행을 읽어 권한을 판정한다. 조회 실패를 '없음'으로 위장하지 않는다. */
+async function loadTargetRow(
+  sb: Awaited<ReturnType<typeof createServerClient>>,
+  issueId: string,
+  updateId: string,
+): Promise<{ ok: true; authorUserId: string | null; archivedAt: string | null } | { ok: false; error: string }> {
+  // issue_id 를 함께 조건에 넣는 이유: 호출자가 남의 이슈의 이력 id 를 보내도
+  // 이 이슈의 권한으로 처리되지 않게 한다(게이트는 issueId 기준으로 통과했다).
+  const { data, error } = await sb
+    .from('issue_updates')
+    .select('id, author_user_id, archived_at')
+    .eq('id', updateId)
+    .eq('issue_id', issueId)
+    .maybeSingle()
+  if (error) {
+    console.error('[issueUpdates] 대상 이력 조회 실패:', error.message)
+    return { ok: false, error: ERR_LOOKUP }
+  }
+  if (!data) return { ok: false, error: '이력을 찾을 수 없습니다.' }
+  return {
+    ok: true,
+    authorUserId: (data.author_user_id as string | null) ?? null,
+    archivedAt: (data.archived_at as string | null) ?? null,
+  }
+}
+
+/** 취소선 처리 — 내용은 남기고 지웠다는 사실만 표시한다. */
+export async function archiveIssueUpdate(issueId: string, updateId: string): Promise<IssueUpdateResult> {
+  const g = await requireIssueMember(issueId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const user = await getSession()
+  if (!user) return { ok: false, error: '로그인 필요' }
+
+  const sb = await createServerClient()
+  const row = await loadTargetRow(sb, issueId, updateId)
+  if (!row.ok) return { ok: false, error: row.error }
+  if (!canArchiveUpdate({ authorUserId: row.authorUserId }, g.userId, g.isAdmin)) {
+    return { ok: false, error: '권한 없음' }
+  }
+  if (row.archivedAt !== null) return { ok: false, error: '이미 취소선 처리된 이력입니다.' }
+
+  // CAS + .select() — RLS 거부·경합으로 0행이어도 supabase-js 는 error 를 주지 않는다.
+  const { data: updated, error } = await sb
+    .from('issue_updates')
+    .update({
+      archived_at: new Date().toISOString(),
+      archived_by: g.userId,
+      archived_by_name: displayNameFrom(user.user_metadata, user.email) ?? NAME_FALLBACK,
+    })
+    .eq('id', updateId)
+    .is('archived_at', null)
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!updated?.length) {
+    console.error('[archiveIssueUpdate] 취소선 UPDATE 가 0행입니다:', updateId)
+    return { ok: false, error: '다른 사용자가 먼저 처리했습니다. 새로고침 후 다시 시도하세요.' }
+  }
+
+  const mirrorErr = await syncResolutionNoteMirror(sb, issueId)
+  revalidatePath(`/p/${g.projectId}/issues`)
+  if (mirrorErr) return { ok: true, partial: `취소선은 처리됐지만 요약 반영에 실패했습니다(${mirrorErr}).` }
+  return { ok: true }
+}
+
+/**
+ * 취소선 되돌리기. 이 경로가 없으면 클릭 한 번이 사실상 영구 삭제가 된다
+ * (WikiItemActions.tsx:33-36 의 규칙).
+ */
+export async function unarchiveIssueUpdate(issueId: string, updateId: string): Promise<IssueUpdateResult> {
+  const g = await requireIssueMember(issueId)
+  if (!g.ok) return { ok: false, error: g.error }
+
+  const sb = await createServerClient()
+  const row = await loadTargetRow(sb, issueId, updateId)
+  if (!row.ok) return { ok: false, error: row.error }
+  if (!canArchiveUpdate({ authorUserId: row.authorUserId }, g.userId, g.isAdmin)) {
+    return { ok: false, error: '권한 없음' }
+  }
+  if (row.archivedAt === null) return { ok: false, error: '취소선이 그어진 이력이 아닙니다.' }
+
+  // 셋을 한꺼번에 NULL 로 — 0087 의 with check 가 "전부 NULL 이거나, 본인이 그은 것"만 통과시킨다.
+  const { data: updated, error } = await sb
+    .from('issue_updates')
+    .update({ archived_at: null, archived_by: null, archived_by_name: null })
+    .eq('id', updateId)
+    .not('archived_at', 'is', null)
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!updated?.length) {
+    console.error('[unarchiveIssueUpdate] 되돌리기 UPDATE 가 0행입니다:', updateId)
+    return { ok: false, error: '다른 사용자가 먼저 처리했습니다. 새로고침 후 다시 시도하세요.' }
+  }
+
+  const mirrorErr = await syncResolutionNoteMirror(sb, issueId)
+  revalidatePath(`/p/${g.projectId}/issues`)
+  if (mirrorErr) return { ok: true, partial: `되돌렸지만 요약 반영에 실패했습니다(${mirrorErr}).` }
+  return { ok: true }
+}
+
+/** 완전 삭제 — 프로젝트 관리자만. 되돌릴 수 없다. */
+export async function purgeIssueUpdate(issueId: string, updateId: string): Promise<IssueUpdateResult> {
+  const g = await requireIssueMember(issueId)
+  if (!g.ok) return { ok: false, error: g.error }
+  if (!canPurgeUpdate(g.isAdmin)) return { ok: false, error: '권한 없음' }
+
+  const sb = await createServerClient()
+  const row = await loadTargetRow(sb, issueId, updateId)
+  if (!row.ok) return { ok: false, error: row.error }
+
+  const { data: gone, error } = await sb
+    .from('issue_updates')
+    .delete()
+    .eq('id', updateId)
+    .eq('issue_id', issueId)
+    .select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!gone?.length) {
+    console.error('[purgeIssueUpdate] DELETE 가 0행입니다:', updateId)
+    return { ok: false, error: '삭제에 실패했습니다.' }
+  }
+
+  const mirrorErr = await syncResolutionNoteMirror(sb, issueId)
+  revalidatePath(`/p/${g.projectId}/issues`)
+  if (mirrorErr) return { ok: true, partial: `삭제했지만 요약 반영에 실패했습니다(${mirrorErr}).` }
   return { ok: true }
 }

@@ -17,7 +17,7 @@ vi.mock('@/lib/authz', () => ({ requireProjectMember, requireProjectAdmin, resol
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
 
 import { getSession } from '@/lib/auth'
-import { addIssueUpdate, listIssueUpdates } from '@/app/actions/issueUpdates'
+import { addIssueUpdate, archiveIssueUpdate, listIssueUpdates, purgeIssueUpdate, unarchiveIssueUpdate } from '@/app/actions/issueUpdates'
 
 const ACTOR = { userId: 'me', teamCode: 'PMO', teamId: 't1', isSuperuser: false, projectRoles: new Map([['p1', 'member']]) }
 const USER = { id: 'me', email: 'me@x.com', user_metadata: { full_name: '나' } }
@@ -201,6 +201,7 @@ describe('addIssueUpdate — 주석으로만 지켜지던 불변식', () => {
     expect(calls.mirrorChain).toContainEqual(['eq', 'kind', 'note'])
     expect(calls.mirrorChain).toContainEqual(['is', 'archived_at', null])
     expect(calls.mirrorChain).toContainEqual(['order', 'created_at', false])
+    expect(calls.mirrorChain).toContainEqual(['order', 'id', false])
   })
 
   it('미러 UPDATE 가 0행이면 부분 실패로 고지한다 — 성공으로 뭉개지 않는다', async () => {
@@ -257,5 +258,139 @@ describe('listIssueUpdates — 조회 실패를 빈 목록으로 위장하지 �
       id: 'u1', kind: 'note', category: 'action', body: '첫 조치',
       mentionedMemberIds: [], authorName: '나', archivedAt: null,
     })
+  })
+})
+
+/** 취소선·삭제용 스텁 — 대상 행 조회 + UPDATE/DELETE 를 받는다. */
+function stubRowClient(row: { author_user_id: string | null; archived_at: string | null } | null, opts: { updatedRows?: unknown[]; deletedRows?: unknown[] } = {}) {
+  const calls = { updatePayload: null as Record<string, unknown> | null, deleted: false }
+  const client = {
+    from(table: string) {
+      if (table === 'issue_updates') {
+        return {
+          select() {
+            const q: Record<string, unknown> = {}
+            Object.assign(q, {
+              eq: () => q,
+              is: () => q,
+              order: () => q,
+              limit: async () => ({ data: [], error: null }),
+              maybeSingle: async () => ({ data: row, error: null }),
+            })
+            return q
+          },
+          update(payload: Record<string, unknown>) {
+            calls.updatePayload = payload
+            const q: Record<string, unknown> = {}
+            Object.assign(q, {
+              eq: () => q,
+              is: () => q,
+              not: () => q,
+              select: async () => ({ data: opts.updatedRows ?? [{ id: 'u1' }], error: null }),
+            })
+            return q
+          },
+          delete() {
+            calls.deleted = true
+            const q: Record<string, unknown> = {}
+            Object.assign(q, { eq: () => q, select: async () => ({ data: opts.deletedRows ?? [{ id: 'u1' }], error: null }) })
+            return q
+          },
+        }
+      }
+      if (table === 'issues') {
+        return { update: () => ({ eq: () => ({ select: async () => ({ data: [{ id: 'i1' }], error: null }) }) }) }
+      }
+      throw new Error(`예상치 못한 테이블 접근: ${table}`)
+    },
+  }
+  return { client, calls }
+}
+
+describe('archiveIssueUpdate — 취소선은 작성자 또는 관리자', () => {
+  it('남의 이력은 멤버가 못 긋는다', async () => {
+    asMember()
+    state.client = stubRowClient({ author_user_id: 'other', archived_at: null }).client
+    const res = await archiveIssueUpdate('i1', 'u1')
+    expect(res.ok).toBe(false)
+  })
+
+  it('작성자 본인은 그을 수 있고 취소 주체가 본인으로 기록된다', async () => {
+    asMember()
+    const { client, calls } = stubRowClient({ author_user_id: 'me', archived_at: null })
+    state.client = client
+    const res = await archiveIssueUpdate('i1', 'u1')
+    expect(res.ok).toBe(true)
+    expect(calls.updatePayload).toMatchObject({ archived_by: 'me', archived_by_name: '나' })
+    expect(calls.updatePayload?.archived_at).toEqual(expect.any(String))
+  })
+
+  it('관리자는 남의 이력도 긋는다', async () => {
+    asMember()
+    requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    const { client } = stubRowClient({ author_user_id: 'other', archived_at: null })
+    state.client = client
+    expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(true)
+  })
+
+  it('이미 그어진 이력은 거부한다', async () => {
+    asMember()
+    state.client = stubRowClient({ author_user_id: 'me', archived_at: '2026-08-19T00:00:00Z' }).client
+    expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+
+  it('CAS 0행은 실패다 — 경합을 성공으로 뭉개지 않는다', async () => {
+    asMember()
+    state.client = stubRowClient({ author_user_id: 'me', archived_at: null }, { updatedRows: [] }).client
+    expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+
+  it('없는 이력은 실패다', async () => {
+    asMember()
+    state.client = stubRowClient(null).client
+    expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+})
+
+describe('unarchiveIssueUpdate — 되돌리기 경로는 반드시 있어야 한다', () => {
+  it('작성자가 되돌리면 archived_* 가 전부 NULL 이 된다', async () => {
+    asMember()
+    const { client, calls } = stubRowClient({ author_user_id: 'me', archived_at: '2026-08-19T00:00:00Z' })
+    state.client = client
+    const res = await unarchiveIssueUpdate('i1', 'u1')
+    expect(res.ok).toBe(true)
+    expect(calls.updatePayload).toEqual({ archived_at: null, archived_by: null, archived_by_name: null })
+  })
+
+  it('그어지지 않은 이력은 되돌릴 것이 없다', async () => {
+    asMember()
+    state.client = stubRowClient({ author_user_id: 'me', archived_at: null }).client
+    expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+})
+
+describe('purgeIssueUpdate — 완전 삭제는 관리자만', () => {
+  it('멤버는 자기 이력도 완전삭제할 수 없다', async () => {
+    asMember()
+    state.client = stubRowClient({ author_user_id: 'me', archived_at: null }).client
+    const res = await purgeIssueUpdate('i1', 'u1')
+    expect(res.ok).toBe(false)
+  })
+
+  it('관리자는 삭제하고 미러가 재계산된다', async () => {
+    asMember()
+    requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    const { client, calls } = stubRowClient({ author_user_id: 'other', archived_at: null })
+    state.client = client
+    const res = await purgeIssueUpdate('i1', 'u1')
+    expect(res.ok).toBe(true)
+    expect(calls.deleted).toBe(true)
+  })
+
+  it('DELETE 0행은 실패다', async () => {
+    asMember()
+    requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    state.client = stubRowClient({ author_user_id: 'other', archived_at: null }, { deletedRows: [] }).client
+    expect((await purgeIssueUpdate('i1', 'u1')).ok).toBe(false)
   })
 })
