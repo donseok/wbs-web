@@ -14,8 +14,11 @@ import type {
 
 // 각 시나리오가 마운트 전에 currentSearch 만 바꿔 딥링크 쿼리를 주입한다.
 let currentSearch = ''
+// router.replace 는 호출 인자를 검증해야 하는 테스트(Task 10)가 있어 vi.hoisted 로 안정적인
+// 참조를 잡아둔다 — 팩토리 안에서 매번 새 vi.fn() 을 만들면 테스트 쪽에서 잡을 수가 없다.
+const { routerReplace } = vi.hoisted(() => ({ routerReplace: vi.fn() }))
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: routerReplace }),
   usePathname: () => '/p/p1/menu',
   useSearchParams: () => new URLSearchParams(currentSearch),
 }))
@@ -147,6 +150,7 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
 
   beforeEach(() => {
     currentSearch = ''
+    routerReplace.mockClear()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -335,6 +339,61 @@ describe('메뉴별 딥링크 query parameter 소비', () => {
     await mount(
       <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
         members={[]} issues={[issueFx()]} />,
+    )
+    expect(dialog()).toBeNull()
+  })
+
+  it('IssuesView: 마운트 이후 focus 가 바뀌면(소프트 내비게이션) 해당 이슈 상세가 열린다', async () => {
+    // 알림 클릭은 전체 새로고침이 아니라 같은 라우트 소프트 내비게이션이다
+    // (HeaderChrome.tsx router.push). 이슈 화면에 머무는 사용자가 이 알림의 주 수신자인데,
+    // useState 초기화 함수만으로는 그 사람에게 모달이 열리지 않는다 — 같은 root 에 두 번째
+    // render 를 걸어 그 상황을 재현한다. unmount 후 재마운트하면 초기화 함수가 다시 돌아
+    // 이 결함을 재현하지 못한다.
+    const issues = [issueFx(), issueFx({ id: 'iss-2', title: '인터페이스 오류' })]
+    currentSearch = ''
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={issues} />,
+    )
+    expect(dialog()).toBeNull()
+
+    currentSearch = 'focus=iss-2'
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={issues} />,
+    )
+    expect(dialog()).not.toBeNull()
+    expect(dialog()!.textContent).toContain('인터페이스 오류')
+  })
+
+  it('IssuesView: 상세를 닫으면 focus 파라미터만 지우고(다른 파라미터는 보존) 같은 알림이 다시 열리지 않는다', async () => {
+    currentSearch = 'focus=iss-2&tab=board'
+    const issues = [issueFx(), issueFx({ id: 'iss-2', title: '인터페이스 오류' })]
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={issues} />,
+    )
+    expect(dialog()).not.toBeNull()
+
+    // Modal 은 document.body 로 portal 되므로 container 가 아니라 document 에서 찾는다.
+    // 배경 버튼과 X 버튼 둘 다 aria-label 이 같아(common.close, LocaleProvider mock 은 항등
+    // 번역) 뒤엣것(X 버튼)을 집는다 — 어느 쪽이든 onClose 는 같다.
+    const closeButtons = [...document.querySelectorAll<HTMLButtonElement>('button[aria-label="common.close"]')]
+    expect(closeButtons.length).toBeGreaterThan(0)
+    await act(async () => { closeButtons[closeButtons.length - 1].click() })
+
+    expect(dialog()).toBeNull()
+    expect(routerReplace).toHaveBeenCalledTimes(1)
+    const [nextUrl] = routerReplace.mock.calls[0]
+    expect(nextUrl).not.toContain('focus=')
+    expect(nextUrl).toContain('tab=board')
+
+    // router.replace 는 mock 이라 실제 currentSearch 는 여전히 focus=iss-2 를 들고 있다.
+    // 같은 root 에 다시 render(= 다음 소프트 내비게이션)해도 재오픈 가드가 없으면 여기서
+    // 다시 열린다 — 그게 무한 재오픈 버그다.
+    await mount(
+      <IssuesView projectId="p1" currentUserId={null} role={null} isProjectAdmin={false} myMemberIds={[]} today="2026-07-23"
+        members={[]} issues={issues} />,
     )
     expect(dialog()).toBeNull()
   })

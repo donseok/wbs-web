@@ -1,8 +1,8 @@
 'use client'
 // 이슈 목록 — 필터(상태·심각도·내담당) + 테이블 + ?focus= 딥링크. (KPI 3장은 사용자 요청으로 제거)
 // 테이블 골격은 MeetingsView(가로 스크롤 + 행 키보드 패턴), 모달·focus 소비는 AnnouncementsView 복제.
-import { useMemo, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, ChevronRight, CircleAlert, Paperclip, Plus, Presentation } from 'lucide-react'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -43,6 +43,8 @@ export function IssuesView({
   const { locale, t } = useLocale()
   const { toast } = useToast()
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
 
   const [statusFilter, setStatusFilter] = useState<IssueStatusFilter>('all')
   const [severityFilter, setSeverityFilter] = useState<IssueSeverityFilter>('all')
@@ -56,6 +58,19 @@ export function IssuesView({
   // viewing 은 id 만 상태로 갖고 issues 에서 파생한다 — conflict 후 router.refresh() 로 issues 가 새
   // 참조로 갱신되면 모달도 자동으로 최신값을 반영한다(객체 state 로 들고 있으면 refresh 가 못 미친다).
   const [viewingId, setViewingId] = useState<string | null>(() => searchParams.get('focus'))
+  // 알림 클릭은 같은 라우트 소프트 내비게이션이라(HeaderChrome.tsx router.push) 위 useState
+  // 초기화 함수가 다시 돌지 않는다 — 하필 이슈 화면에 머무는 사람이 조치 경과 알림의 주
+  // 수신자라 마운트 이후 focus 변화도 여기서 잡아 모달을 연다.
+  const focusParam = searchParams.get('focus')
+  // 마지막으로 소비한 focus 값. 없으면 모달을 닫아도 같은 파라미터를 보고 곧바로 다시 열려
+  // 무한 재오픈이 된다.
+  const consumedFocus = useRef<string | null>(focusParam)
+  useEffect(() => {
+    if (focusParam === null) { consumedFocus.current = null; return }
+    if (consumedFocus.current === focusParam) return
+    consumedFocus.current = focusParam
+    setViewingId(focusParam)
+  }, [focusParam])
   const viewing = useMemo(
     () => (viewingId ? issues.find(i => i.id === viewingId) ?? null : null),
     [issues, viewingId],
@@ -367,7 +382,16 @@ export function IssuesView({
         currentUserId={currentUserId}
         isProjectAdmin={isProjectAdmin}
         today={today}
-        onClose={() => setViewingId(null)}
+        onClose={() => {
+          setViewingId(null)
+          // 파라미터가 남아 있으면 다음 소프트 내비게이션에서 같은 이슈가 다시 열린다.
+          if (focusParam !== null) {
+            const next = new URLSearchParams(searchParams.toString())
+            next.delete('focus')
+            const qs = next.toString()
+            router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+          }
+        }}
         onEdit={() => viewing && openEdit(viewing)}
         onDelete={() => {
           if (!viewing) return

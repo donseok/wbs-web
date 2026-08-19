@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({ toast: vi.fn() }))
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => '/p/p1/issues',
 }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
