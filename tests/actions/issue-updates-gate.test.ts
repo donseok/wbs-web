@@ -261,21 +261,39 @@ describe('listIssueUpdates — 조회 실패를 빈 목록으로 위장하지 �
   })
 })
 
-/** 취소선·삭제용 스텁 — 대상 행 조회 + UPDATE/DELETE 를 받는다. */
-function stubRowClient(row: { author_user_id: string | null; archived_at: string | null } | null, opts: { updatedRows?: unknown[]; deletedRows?: unknown[] } = {}) {
-  const calls = { updatePayload: null as Record<string, unknown> | null, deleted: false }
+/** 취소선·삭제용 스텁. 필터 체인과 미러 호출 여부를 기록한다 — 기록하지 않으면 테스트가 그것을 볼 수 없다. */
+function stubRowClient(
+  row: { author_user_id: string | null; kind: string; archived_at: string | null } | null,
+  opts: { updatedRows?: unknown[]; deletedRows?: unknown[]; rowError?: boolean } = {},
+) {
+  const calls = {
+    readChain: [] as unknown[][],
+    writeChain: [] as unknown[][],
+    deleteChain: [] as unknown[][],
+    updatePayload: null as Record<string, unknown> | null,
+    deleted: false,
+    mirrorRan: false,
+  }
   const client = {
     from(table: string) {
       if (table === 'issue_updates') {
         return {
-          select() {
+          select(cols: string) {
             const q: Record<string, unknown> = {}
+            if (cols === 'body') {
+              // 미러 재계산 경로 — 살아있는 note 가 없다고 답한다.
+              Object.assign(q, {
+                eq: () => q, is: () => q, order: () => q,
+                limit: async () => ({ data: [], error: null }),
+              })
+              return q
+            }
+            // 대상 행 조회 경로 — 어떤 필터로 좁혔는지 기록한다.
             Object.assign(q, {
-              eq: () => q,
-              is: () => q,
-              order: () => q,
-              limit: async () => ({ data: [], error: null }),
-              maybeSingle: async () => ({ data: row, error: null }),
+              eq: (c: string, v: unknown) => { calls.readChain.push(['eq', c, v]); return q },
+              maybeSingle: async () => opts.rowError
+                ? { data: null, error: { message: 'permission denied for relation issue_updates (key=secret)' } }
+                : { data: row, error: null },
             })
             return q
           },
@@ -283,9 +301,9 @@ function stubRowClient(row: { author_user_id: string | null; archived_at: string
             calls.updatePayload = payload
             const q: Record<string, unknown> = {}
             Object.assign(q, {
-              eq: () => q,
-              is: () => q,
-              not: () => q,
+              eq: (c: string, v: unknown) => { calls.writeChain.push(['eq', c, v]); return q },
+              is: (c: string, v: unknown) => { calls.writeChain.push(['is', c, v]); return q },
+              not: (c: string, o: string, v: unknown) => { calls.writeChain.push(['not', c, o, v]); return q },
               select: async () => ({ data: opts.updatedRows ?? [{ id: 'u1' }], error: null }),
             })
             return q
@@ -293,13 +311,21 @@ function stubRowClient(row: { author_user_id: string | null; archived_at: string
           delete() {
             calls.deleted = true
             const q: Record<string, unknown> = {}
-            Object.assign(q, { eq: () => q, select: async () => ({ data: opts.deletedRows ?? [{ id: 'u1' }], error: null }) })
+            Object.assign(q, {
+              eq: (c: string, v: unknown) => { calls.deleteChain.push(['eq', c, v]); return q },
+              select: async () => ({ data: opts.deletedRows ?? [{ id: 'u1' }], error: null }),
+            })
             return q
           },
         }
       }
       if (table === 'issues') {
-        return { update: () => ({ eq: () => ({ select: async () => ({ data: [{ id: 'i1' }], error: null }) }) }) }
+        return {
+          update: () => {
+            calls.mirrorRan = true
+            return { eq: () => ({ select: async () => ({ data: [{ id: 'i1' }], error: null }) }) }
+          },
+        }
       }
       throw new Error(`예상치 못한 테이블 접근: ${table}`)
     },
@@ -310,14 +336,14 @@ function stubRowClient(row: { author_user_id: string | null; archived_at: string
 describe('archiveIssueUpdate — 취소선은 작성자 또는 관리자', () => {
   it('남의 이력은 멤버가 못 긋는다', async () => {
     asMember()
-    state.client = stubRowClient({ author_user_id: 'other', archived_at: null }).client
+    state.client = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: null }).client
     const res = await archiveIssueUpdate('i1', 'u1')
     expect(res.ok).toBe(false)
   })
 
   it('작성자 본인은 그을 수 있고 취소 주체가 본인으로 기록된다', async () => {
     asMember()
-    const { client, calls } = stubRowClient({ author_user_id: 'me', archived_at: null })
+    const { client, calls } = stubRowClient({ author_user_id: 'me', kind: 'note', archived_at: null })
     state.client = client
     const res = await archiveIssueUpdate('i1', 'u1')
     expect(res.ok).toBe(true)
@@ -328,20 +354,20 @@ describe('archiveIssueUpdate — 취소선은 작성자 또는 관리자', () =>
   it('관리자는 남의 이력도 긋는다', async () => {
     asMember()
     requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
-    const { client } = stubRowClient({ author_user_id: 'other', archived_at: null })
+    const { client } = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: null })
     state.client = client
     expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(true)
   })
 
   it('이미 그어진 이력은 거부한다', async () => {
     asMember()
-    state.client = stubRowClient({ author_user_id: 'me', archived_at: '2026-08-19T00:00:00Z' }).client
+    state.client = stubRowClient({ author_user_id: 'me', kind: 'note', archived_at: '2026-08-19T00:00:00Z' }).client
     expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
   })
 
   it('CAS 0행은 실패다 — 경합을 성공으로 뭉개지 않는다', async () => {
     asMember()
-    state.client = stubRowClient({ author_user_id: 'me', archived_at: null }, { updatedRows: [] }).client
+    state.client = stubRowClient({ author_user_id: 'me', kind: 'note', archived_at: null }, { updatedRows: [] }).client
     expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
   })
 
@@ -355,7 +381,7 @@ describe('archiveIssueUpdate — 취소선은 작성자 또는 관리자', () =>
 describe('unarchiveIssueUpdate — 되돌리기 경로는 반드시 있어야 한다', () => {
   it('작성자가 되돌리면 archived_* 가 전부 NULL 이 된다', async () => {
     asMember()
-    const { client, calls } = stubRowClient({ author_user_id: 'me', archived_at: '2026-08-19T00:00:00Z' })
+    const { client, calls } = stubRowClient({ author_user_id: 'me', kind: 'note', archived_at: '2026-08-19T00:00:00Z' })
     state.client = client
     const res = await unarchiveIssueUpdate('i1', 'u1')
     expect(res.ok).toBe(true)
@@ -364,7 +390,7 @@ describe('unarchiveIssueUpdate — 되돌리기 경로는 반드시 있어야 �
 
   it('그어지지 않은 이력은 되돌릴 것이 없다', async () => {
     asMember()
-    state.client = stubRowClient({ author_user_id: 'me', archived_at: null }).client
+    state.client = stubRowClient({ author_user_id: 'me', kind: 'note', archived_at: null }).client
     expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(false)
   })
 })
@@ -372,7 +398,7 @@ describe('unarchiveIssueUpdate — 되돌리기 경로는 반드시 있어야 �
 describe('purgeIssueUpdate — 완전 삭제는 관리자만', () => {
   it('멤버는 자기 이력도 완전삭제할 수 없다', async () => {
     asMember()
-    state.client = stubRowClient({ author_user_id: 'me', archived_at: null }).client
+    state.client = stubRowClient({ author_user_id: 'me', kind: 'note', archived_at: null }).client
     const res = await purgeIssueUpdate('i1', 'u1')
     expect(res.ok).toBe(false)
   })
@@ -380,7 +406,7 @@ describe('purgeIssueUpdate — 완전 삭제는 관리자만', () => {
   it('관리자는 삭제하고 미러가 재계산된다', async () => {
     asMember()
     requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
-    const { client, calls } = stubRowClient({ author_user_id: 'other', archived_at: null })
+    const { client, calls } = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: null })
     state.client = client
     const res = await purgeIssueUpdate('i1', 'u1')
     expect(res.ok).toBe(true)
@@ -390,7 +416,108 @@ describe('purgeIssueUpdate — 완전 삭제는 관리자만', () => {
   it('DELETE 0행은 실패다', async () => {
     asMember()
     requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
-    state.client = stubRowClient({ author_user_id: 'other', archived_at: null }, { deletedRows: [] }).client
+    state.client = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: null }, { deletedRows: [] }).client
     expect((await purgeIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+})
+
+describe('Task 4 불변식 — 주석과 제목으로만 지켜지던 것들', () => {
+  const LIVE = { author_user_id: 'me', kind: 'note', archived_at: null }
+  const ARCHIVED = { author_user_id: 'me', kind: 'note', archived_at: '2026-08-19T00:00:00.000Z' }
+
+  it('남의 이력은 멤버가 되돌릴 수 없고, 관리자는 되돌린다', async () => {
+    asMember()
+    state.client = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: '2026-08-19T00:00:00.000Z' }).client
+    expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+
+    asMember(); requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    state.client = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: '2026-08-19T00:00:00.000Z' }).client
+    expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(true)
+  })
+
+  it('대상 행을 issue_id 로도 좁힌다 — 권한 있는 이슈 id 에 남의 이력 id 를 붙여 보내는 경로를 막는다', async () => {
+    asMember()
+    const { client, calls } = stubRowClient(LIVE)
+    state.client = client
+    await archiveIssueUpdate('i1', 'u1')
+    expect(calls.readChain).toContainEqual(['eq', 'id', 'u1'])
+    expect(calls.readChain).toContainEqual(['eq', 'issue_id', 'i1'])
+    // UPDATE 는 PK 한 행만 — issue_id 로 걸면 그 이슈의 살아있는 이력이 전부 그어진다.
+    expect(calls.writeChain).toContainEqual(['eq', 'id', 'u1'])
+  })
+
+  it('취소선·되돌리기·완전삭제 뒤 미러를 재계산한다 — 안 하면 지운 글이 챗봇 지식에 남는다', async () => {
+    asMember(); requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    const a = stubRowClient(LIVE); state.client = a.client
+    await archiveIssueUpdate('i1', 'u1'); expect(a.calls.mirrorRan).toBe(true)
+    const b = stubRowClient(ARCHIVED); state.client = b.client
+    await unarchiveIssueUpdate('i1', 'u1'); expect(b.calls.mirrorRan).toBe(true)
+    const c = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: null }); state.client = c.client
+    await purgeIssueUpdate('i1', 'u1'); expect(c.calls.mirrorRan).toBe(true)
+  })
+
+  it('관리자가 남의 이력을 그어도 취소 주체는 관리자 본인이다', async () => {
+    asMember(); requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    const { client, calls } = stubRowClient({ author_user_id: 'other', kind: 'note', archived_at: null })
+    state.client = client
+    await archiveIssueUpdate('i1', 'u1')
+    // 0087 의 with check 가 archived_by = auth.uid() 를 요구한다. 행 작성자를 넣으면 42501.
+    expect(calls.updatePayload?.archived_by).toBe('me')
+  })
+
+  it('CAS 가드가 양쪽에 걸려 있다', async () => {
+    asMember()
+    const a = stubRowClient(LIVE); state.client = a.client
+    await archiveIssueUpdate('i1', 'u1')
+    expect(a.calls.writeChain).toContainEqual(['is', 'archived_at', null])
+    const b = stubRowClient(ARCHIVED); state.client = b.client
+    await unarchiveIssueUpdate('i1', 'u1')
+    expect(b.calls.writeChain).toContainEqual(['not', 'archived_at', 'is', null])
+  })
+
+  it('되돌리기 CAS 가 0행이면 실패다', async () => {
+    asMember()
+    state.client = stubRowClient(ARCHIVED, { updatedRows: [] }).client
+    expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+
+  it('대상 행 조회 실패는 진행이 아니라 중단이고, DB 원문을 화면에 흘리지 않는다', async () => {
+    asMember(); requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    state.client = stubRowClient(null, { rowError: true }).client
+    const res = await archiveIssueUpdate('i1', 'u1')
+    expect(res.ok).toBe(false)
+    expect(res.ok === false && res.error).not.toContain('permission denied')
+    expect(res.ok === false && res.error).not.toContain('secret')
+  })
+
+  it('조회 전용 사용자는 셋 다 거부되고 DB 에 닿지 않는다', async () => {
+    asViewer()
+    expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+    expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+    expect((await purgeIssueUpdate('i1', 'u1')).ok).toBe(false)
+    expect(createServerClient).not.toHaveBeenCalled()
+  })
+
+  it('표시 이름이 없어도 archived_by_name 을 비우지 않는다 — 짝 제약 23514 위반이 된다', async () => {
+    asMember()
+    vi.mocked(getSession).mockResolvedValue({ id: 'me', email: null, user_metadata: {} } as never)
+    const { client, calls } = stubRowClient(LIVE)
+    state.client = client
+    await archiveIssueUpdate('i1', 'u1')
+    expect(calls.updatePayload?.archived_by_name).toBeTruthy()
+  })
+
+  it('작성자 계정이 삭제된 이력은 멤버가 못 긋는다 — null 끼리 같다고 통과시키면 안 된다', async () => {
+    asMember()
+    state.client = stubRowClient({ author_user_id: null, kind: 'note', archived_at: null }).client
+    expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+  })
+
+  it('상태 자동 기록은 취소선 대상이 아니다 — 감사 흔적이다', async () => {
+    asMember(); requireProjectAdmin.mockResolvedValue({ ok: true, actor: ACTOR })
+    state.client = stubRowClient({ author_user_id: 'me', kind: 'status', archived_at: null }).client
+    expect((await archiveIssueUpdate('i1', 'u1')).ok).toBe(false)
+    state.client = stubRowClient({ author_user_id: 'me', kind: 'status', archived_at: '2026-08-19T00:00:00.000Z' }).client
+    expect((await unarchiveIssueUpdate('i1', 'u1')).ok).toBe(false)
   })
 })

@@ -18,6 +18,7 @@ import {
   isIssueUpdateCategory,
   type IssueUpdate,
   type IssueUpdateCategory,
+  type IssueUpdateKind,
 } from '@/lib/domain/issueUpdates'
 import { createServerClient } from '@/lib/supabase/server'
 
@@ -232,12 +233,15 @@ async function loadTargetRow(
   sb: Awaited<ReturnType<typeof createServerClient>>,
   issueId: string,
   updateId: string,
-): Promise<{ ok: true; authorUserId: string | null; archivedAt: string | null } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; kind: IssueUpdateKind; authorUserId: string | null; archivedAt: string | null }
+  | { ok: false; error: string }
+> {
   // issue_id 를 함께 조건에 넣는 이유: 호출자가 남의 이슈의 이력 id 를 보내도
   // 이 이슈의 권한으로 처리되지 않게 한다(게이트는 issueId 기준으로 통과했다).
   const { data, error } = await sb
     .from('issue_updates')
-    .select('id, author_user_id, archived_at')
+    .select('id, kind, author_user_id, archived_at')
     .eq('id', updateId)
     .eq('issue_id', issueId)
     .maybeSingle()
@@ -248,6 +252,7 @@ async function loadTargetRow(
   if (!data) return { ok: false, error: '이력을 찾을 수 없습니다.' }
   return {
     ok: true,
+    kind: data.kind as IssueUpdateKind,
     authorUserId: (data.author_user_id as string | null) ?? null,
     archivedAt: (data.archived_at as string | null) ?? null,
   }
@@ -263,6 +268,9 @@ export async function archiveIssueUpdate(issueId: string, updateId: string): Pro
   const sb = await createServerClient()
   const row = await loadTargetRow(sb, issueId, updateId)
   if (!row.ok) return { ok: false, error: row.error }
+  // 상태 자동 기록은 사람이 쓴 글이 아니라 감사 흔적이다. 상태를 바꾼 본인이 그 기록을
+  // 스스로 지울 수 있으면 남길 값어치가 없다. UI 는 버튼을 숨기지만 관문은 여기다.
+  if (row.kind !== 'note') return { ok: false, error: '상태 변경 기록은 취소선 대상이 아닙니다.' }
   if (!canArchiveUpdate({ authorUserId: row.authorUserId }, g.userId, g.isAdmin)) {
     return { ok: false, error: '권한 없음' }
   }
@@ -302,6 +310,9 @@ export async function unarchiveIssueUpdate(issueId: string, updateId: string): P
   const sb = await createServerClient()
   const row = await loadTargetRow(sb, issueId, updateId)
   if (!row.ok) return { ok: false, error: row.error }
+  // 상태 자동 기록은 사람이 쓴 글이 아니라 감사 흔적이다. 상태를 바꾼 본인이 그 기록을
+  // 스스로 지울 수 있으면 남길 값어치가 없다. UI 는 버튼을 숨기지만 관문은 여기다.
+  if (row.kind !== 'note') return { ok: false, error: '상태 변경 기록은 취소선 대상이 아닙니다.' }
   if (!canArchiveUpdate({ authorUserId: row.authorUserId }, g.userId, g.isAdmin)) {
     return { ok: false, error: '권한 없음' }
   }
