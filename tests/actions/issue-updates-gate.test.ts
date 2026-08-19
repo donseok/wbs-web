@@ -11,7 +11,9 @@ const { createServerClient } = vi.hoisted(() => ({
 const { requireProjectMember, requireProjectAdmin, resolveProjectId } = vi.hoisted(() => ({
   requireProjectMember: vi.fn(), requireProjectAdmin: vi.fn(), resolveProjectId: vi.fn(),
 }))
-const { emitNotification } = vi.hoisted(() => ({ emitNotification: vi.fn(async () => ({ ok: true })) }))
+const { emitNotification } = vi.hoisted(() => ({
+  emitNotification: vi.fn<(input: unknown) => Promise<{ ok: boolean }>>(async () => ({ ok: true })),
+}))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ getSession: vi.fn() }))
 vi.mock('@/lib/authz', () => ({ requireProjectMember, requireProjectAdmin, resolveProjectId }))
@@ -55,11 +57,13 @@ function stubClient(over: {
   listRows?: unknown[]
   listError?: boolean
   assigneeIds?: string[]
+  issueTitle?: string
 } = {}) {
   const calls = {
     inserted: null as Record<string, unknown> | null,
     issuePayload: null as Record<string, unknown> | null,
     mirrorChain: [] as unknown[][],
+    assigneeChain: [] as unknown[][],
   }
   const client = {
     from(table: string) {
@@ -106,11 +110,18 @@ function stubClient(over: {
         }
       }
       if (table === 'issue_assignees') {
-        return { select: () => ({ eq: async () => ({ data: (over.assigneeIds ?? []).map(id => ({ member_id: id })), error: null }) }) }
+        return {
+          select: () => ({
+            eq: async (c: string, v: unknown) => {
+              calls.assigneeChain.push(['eq', c, v])
+              return { data: (over.assigneeIds ?? []).map(id => ({ member_id: id })), error: null }
+            },
+          }),
+        }
       }
       if (table === 'issues') {
         return {
-          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { title: '이슈 제목' }, error: null }) }) }),
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { title: over.issueTitle ?? '이슈 제목' }, error: null }) }) }),
           update(payload: Record<string, unknown>) {
             calls.issuePayload = payload
             return { eq: () => ({ select: async () => ({ data: over.mirrorUpdateRows ?? [{ id: 'i1' }], error: null }) }) }
@@ -268,6 +279,36 @@ describe('addIssueUpdate 알림', () => {
     const res = await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
     expect(res.ok).toBe(true)
     expect(res.ok && res.partial).toBeTruthy()
+  })
+
+  it('담당자 조회를 이 이슈로 좁힌다 — 잘못 좁히면 남의 이슈 담당자에게 알림이 간다', async () => {
+    asMember()
+    const { client, calls } = stubClient({ latestNote: '내용', assigneeIds: ['m1'] })
+    state.client = client
+    await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
+    expect(calls.assigneeChain).toContainEqual(['eq', 'issue_id', 'i1'])
+  })
+
+  it('알림 payload 와 entityId 를 고정한다 — 틀리면 알림이 엉뚱한 곳을 연다', async () => {
+    asMember()
+    state.client = stubClient({ latestNote: '내용', assigneeIds: ['m1'], issueTitle: '제목 실측' }).client
+    await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      entityType: 'issue',
+      entityId: 'i1',
+      payload: expect.objectContaining({
+        title: '제목 실측',
+        href: '/p/p1/issues?focus=i1',
+      }),
+    }))
+  })
+
+  it('제목 조회가 성공하면 폴백 문구를 쓰지 않는다', async () => {
+    asMember()
+    state.client = stubClient({ latestNote: '내용', assigneeIds: ['m1'], issueTitle: '제목 실측' }).client
+    await addIssueUpdate('i1', { body: '내용', category: null, mentionedMemberIds: [] })
+    const arg = emitNotification.mock.calls[0]![0] as { payload: { title: string } }
+    expect(arg.payload.title).toBe('제목 실측')
   })
 })
 
