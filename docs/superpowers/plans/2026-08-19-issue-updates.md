@@ -1424,9 +1424,15 @@ EOF
 `tests/ui/issue-updates.test.tsx`:
 
 ```tsx
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+// @vitest-environment jsdom
+// RTL 은 이 리포에 없다(설치돼 있지 않고, 다른 UI 테스트도 전부 이 패턴이다) — house 패턴으로 쓴다.
+// 골격은 tests/ui/issue-form-draft.test.tsx:1-40 복제(jsdom pragma·IS_REACT_ACT_ENVIRONMENT·
+// container+root 라이프사이클·LocaleProvider mock).
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 const { listIssueUpdates, addIssueUpdate, archiveIssueUpdate, unarchiveIssueUpdate, purgeIssueUpdate } = vi.hoisted(() => ({
   listIssueUpdates: vi.fn(), addIssueUpdate: vi.fn(), archiveIssueUpdate: vi.fn(),
@@ -1451,119 +1457,176 @@ function entry(over: Partial<IssueUpdate> = {}): IssueUpdate {
   }
 }
 
-const BASE = { issueId: 'i1', members: [], canWrite: true, currentUserId: 'me', isProjectAdmin: false }
+const BASE = { issueId: 'i1', canWrite: true, currentUserId: 'me', isProjectAdmin: false }
 
-beforeEach(() => {
-  vi.clearAllMocks()
-  listIssueUpdates.mockResolvedValue({ ok: true, items: [] })
-})
+async function flush() {
+  await act(async () => { await Promise.resolve() })
+}
 
-describe('IssueUpdates 목록', () => {
-  it('비어 있으면 안내 문구를 보여준다', async () => {
-    render(<IssueUpdates {...BASE} />)
-    expect(await screen.findByText('issue.update.empty')).toBeInTheDocument()
+function textNode(c: HTMLElement, text: string): HTMLElement | null {
+  // 가장 안쪽 요소를 집는다 — 조상까지 textContent 가 일치하기 때문이다.
+  return [...c.querySelectorAll<HTMLElement>('*')].reverse()
+    .find(el => el.textContent?.trim() === text) ?? null
+}
+
+function buttonBy(c: HTMLElement, label: string): HTMLButtonElement | null {
+  return [...c.querySelectorAll('button')]
+    .find(b => b.getAttribute('aria-label') === label || b.textContent?.trim() === label) ?? null
+}
+
+function click(el: Element) {
+  act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+}
+
+// 제어 컴포넌트라 value 를 그냥 대입하면 React 가 못 본다 — 네이티브 setter 를 거쳐야 한다.
+function typeInto(el: HTMLTextAreaElement | HTMLInputElement, value: string) {
+  const proto = el instanceof HTMLTextAreaElement
+    ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+  Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value)
+  act(() => { el.dispatchEvent(new Event('input', { bubbles: true })) })
+}
+
+describe('IssueUpdates', () => {
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    listIssueUpdates.mockResolvedValue({ ok: true, items: [] })
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
   })
 
-  it('조회 실패를 빈 목록으로 위장하지 않는다', async () => {
-    listIssueUpdates.mockResolvedValue({ ok: false, error: 'boom' })
-    render(<IssueUpdates {...BASE} />)
-    expect(await screen.findByText('issue.err.updateLoadFailed')).toBeInTheDocument()
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
   })
 
-  it('취소선 항목은 line-through 로 남고 내용이 지워지지 않는다', async () => {
-    listIssueUpdates.mockResolvedValue({
-      ok: true,
-      items: [entry({ body: '철회된 조치', archivedAt: '2026-08-19T02:00:00.000Z', archivedByName: '나' })],
+  describe('목록', () => {
+    it('비어 있으면 안내 문구를 보여준다', async () => {
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(textNode(container, 'issue.update.empty')).not.toBeNull()
     })
-    render(<IssueUpdates {...BASE} />)
-    const body = await screen.findByText('철회된 조치')
-    expect(body.className).toContain('line-through')
-  })
 
-  it('6건이 넘으면 최신 5건만 펴고 더보기를 준다', async () => {
-    listIssueUpdates.mockResolvedValue({
-      ok: true,
-      items: Array.from({ length: 7 }, (_, i) => entry({ id: `u${i}`, body: `내용${i}` })),
+    it('조회 실패를 빈 목록으로 위장하지 않는다', async () => {
+      listIssueUpdates.mockResolvedValue({ ok: false, error: 'boom' })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(textNode(container, 'issue.err.updateLoadFailed')).not.toBeNull()
     })
-    render(<IssueUpdates {...BASE} />)
-    expect(await screen.findByText('내용6')).toBeInTheDocument()
-    expect(screen.queryByText('내용0')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /issue\.update\.more/ }))
-    expect(screen.getByText('내용0')).toBeInTheDocument()
-  })
 
-  it('상태 자동 기록은 본문 대신 상태 라벨로 렌더한다', async () => {
-    listIssueUpdates.mockResolvedValue({
-      ok: true, items: [entry({ kind: 'status', category: null, body: 'open>resolved' })],
+    it('취소선 항목은 line-through 로 남고 내용이 지워지지 않는다', async () => {
+      listIssueUpdates.mockResolvedValue({
+        ok: true,
+        items: [entry({ body: '철회된 조치', archivedAt: '2026-08-19T02:00:00.000Z', archivedByName: '나' })],
+      })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      const body = textNode(container, '철회된 조치')
+      expect(body).not.toBeNull()
+      expect(body!.className).toContain('line-through')
     })
-    render(<IssueUpdates {...BASE} />)
-    // 원문 'open>resolved' 가 그대로 노출되면 안 된다.
-    expect(await screen.findByText(/issue\.update\.statusChange/)).toBeInTheDocument()
-    expect(screen.queryByText('open>resolved')).not.toBeInTheDocument()
-  })
-})
 
-describe('IssueUpdates 권한 어포던스', () => {
-  it('조회 전용에게는 입력창이 없다', async () => {
-    render(<IssueUpdates {...BASE} canWrite={false} />)
-    await screen.findByText('issue.update.empty')
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-  })
+    it('6건이 넘으면 최신 5건만 펴고 더보기를 준다', async () => {
+      listIssueUpdates.mockResolvedValue({
+        ok: true,
+        items: Array.from({ length: 7 }, (_, i) => entry({ id: `u${i}`, body: `내용${i}` })),
+      })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(textNode(container, '내용6')).not.toBeNull()
+      expect(textNode(container, '내용0')).toBeNull()
+      click(buttonBy(container, 'issue.update.more')!)
+      await flush()
+      expect(textNode(container, '내용0')).not.toBeNull()
+    })
 
-  it('멤버에게는 입력창이 있다', async () => {
-    render(<IssueUpdates {...BASE} />)
-    expect(await screen.findByRole('textbox')).toBeInTheDocument()
-  })
-
-  it('남의 이력에는 취소선 버튼이 없다', async () => {
-    listIssueUpdates.mockResolvedValue({ ok: true, items: [entry({ authorUserId: 'other' })] })
-    render(<IssueUpdates {...BASE} />)
-    await screen.findByText('첫 조치')
-    expect(screen.queryByRole('button', { name: 'issue.update.archive' })).not.toBeInTheDocument()
-  })
-
-  it('관리자에게는 남의 이력에도 취소선·완전삭제가 보인다', async () => {
-    listIssueUpdates.mockResolvedValue({ ok: true, items: [entry({ authorUserId: 'other' })] })
-    render(<IssueUpdates {...BASE} isProjectAdmin />)
-    await screen.findByText('첫 조치')
-    expect(screen.getByRole('button', { name: 'issue.update.archive' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'issue.update.purge' })).toBeInTheDocument()
+    it('상태 자동 기록은 본문 대신 상태 라벨로 렌더한다', async () => {
+      listIssueUpdates.mockResolvedValue({
+        ok: true, items: [entry({ kind: 'status', category: null, body: 'open>resolved' })],
+      })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      // 원문 'open>resolved' 가 그대로 노출되면 안 된다.
+      expect(textNode(container, 'issue.update.statusChange')).not.toBeNull()
+      expect(textNode(container, 'open>resolved')).toBeNull()
+    })
   })
 
-  it('멤버에게는 자기 이력에도 완전삭제가 없다', async () => {
-    listIssueUpdates.mockResolvedValue({ ok: true, items: [entry()] })
-    render(<IssueUpdates {...BASE} />)
-    await screen.findByText('첫 조치')
-    expect(screen.queryByRole('button', { name: 'issue.update.purge' })).not.toBeInTheDocument()
-  })
-})
+  describe('권한 어포던스', () => {
+    it('조회 전용에게는 입력창이 없다', async () => {
+      act(() => root.render(<IssueUpdates {...BASE} canWrite={false} />))
+      await flush()
+      expect(textNode(container, 'issue.update.empty')).not.toBeNull()
+      expect(container.querySelector('textarea')).toBeNull()
+    })
 
-describe('IssueUpdates 등록', () => {
-  it('등록 성공 후 입력창을 비우고 목록을 다시 읽는다', async () => {
-    addIssueUpdate.mockResolvedValue({ ok: true })
-    render(<IssueUpdates {...BASE} />)
-    const box = await screen.findByRole('textbox')
-    await userEvent.type(box, '새 조치')
-    await userEvent.click(screen.getByRole('button', { name: 'issue.update.add' }))
-    await waitFor(() => expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
-      body: '새 조치', category: null, mentionedMemberIds: [],
-    }))
-    await waitFor(() => expect(box).toHaveValue(''))
-    expect(listIssueUpdates).toHaveBeenCalledTimes(2)
+    it('멤버에게는 입력창이 있다', async () => {
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(container.querySelector('textarea')).not.toBeNull()
+    })
+
+    it('남의 이력에는 취소선 버튼이 없다', async () => {
+      listIssueUpdates.mockResolvedValue({ ok: true, items: [entry({ authorUserId: 'other' })] })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(textNode(container, '첫 조치')).not.toBeNull()
+      expect(buttonBy(container, 'issue.update.archive')).toBeNull()
+    })
+
+    it('관리자에게는 남의 이력에도 취소선·완전삭제가 보인다', async () => {
+      listIssueUpdates.mockResolvedValue({ ok: true, items: [entry({ authorUserId: 'other' })] })
+      act(() => root.render(<IssueUpdates {...BASE} isProjectAdmin />))
+      await flush()
+      expect(textNode(container, '첫 조치')).not.toBeNull()
+      expect(buttonBy(container, 'issue.update.archive')).not.toBeNull()
+      expect(buttonBy(container, 'issue.update.purge')).not.toBeNull()
+    })
+
+    it('멤버에게는 자기 이력에도 완전삭제가 없다', async () => {
+      listIssueUpdates.mockResolvedValue({ ok: true, items: [entry()] })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(textNode(container, '첫 조치')).not.toBeNull()
+      expect(buttonBy(container, 'issue.update.purge')).toBeNull()
+    })
   })
 
-  it('부분 실패를 성공으로 뭉개지 않는다', async () => {
-    addIssueUpdate.mockResolvedValue({ ok: true, partial: '요약 반영 실패' })
-    render(<IssueUpdates {...BASE} />)
-    await userEvent.type(await screen.findByRole('textbox'), 'x')
-    await userEvent.click(screen.getByRole('button', { name: 'issue.update.add' }))
-    expect(await screen.findByText('요약 반영 실패')).toBeInTheDocument()
-  })
+  describe('등록', () => {
+    it('등록 성공 후 입력창을 비우고 목록을 다시 읽는다', async () => {
+      addIssueUpdate.mockResolvedValue({ ok: true })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      const box = container.querySelector('textarea')!
+      typeInto(box, '새 조치')
+      click(buttonBy(container, 'issue.update.add')!)
+      await flush()
+      expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
+        body: '새 조치', category: null, mentionedMemberIds: [],
+      })
+      expect(box.value).toBe('')
+      expect(listIssueUpdates).toHaveBeenCalledTimes(2)
+    })
 
-  it('빈 본문으로는 등록 버튼이 눌리지 않는다', async () => {
-    render(<IssueUpdates {...BASE} />)
-    await screen.findByRole('textbox')
-    expect(screen.getByRole('button', { name: 'issue.update.add' })).toBeDisabled()
+    it('부분 실패를 성공으로 뭉개지 않는다', async () => {
+      addIssueUpdate.mockResolvedValue({ ok: true, partial: '요약 반영 실패' })
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      const box = container.querySelector('textarea')!
+      typeInto(box, 'x')
+      click(buttonBy(container, 'issue.update.add')!)
+      await flush()
+      expect(textNode(container, '요약 반영 실패')).not.toBeNull()
+    })
+
+    it('빈 본문으로는 등록 버튼이 눌리지 않는다', async () => {
+      act(() => root.render(<IssueUpdates {...BASE} />))
+      await flush()
+      expect(buttonBy(container, 'issue.update.add')!.disabled).toBe(true)
+    })
   })
 })
 ```
@@ -2192,41 +2255,47 @@ const MEMBERS = [
   { id: 'm3', name: '계정없음', hasAccount: false },
 ] as never[]
 
+// Task 5 가 세운 house 패턴 헬퍼(flush/textNode/buttonBy/click/typeInto)를 그대로 쓴다.
+// @testing-library 는 이 리포에 없다.
 describe('멘션 입력', () => {
   it('@ 를 치면 계정이 연결된 멤버만 후보로 뜬다', async () => {
-    render(<IssueUpdates {...BASE} members={MEMBERS} />)
-    await userEvent.type(await screen.findByRole('textbox'), '@')
-    expect(screen.getByRole('button', { name: '김준기' })).toBeInTheDocument()
+    act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+    await flush()
+    typeInto(container.querySelector('textarea')!, '@')
+    expect(buttonBy(container, '김준기')).not.toBeNull()
     // 계정이 없으면 알림이 갈 수 없다 — 후보에서 뺀다.
-    expect(screen.queryByRole('button', { name: '계정없음' })).not.toBeInTheDocument()
+    expect(buttonBy(container, '계정없음')).toBeNull()
   })
 
   it('후보를 고르면 본문에 이름이 들어가고 등록 시 member id 로 전송된다', async () => {
     addIssueUpdate.mockResolvedValue({ ok: true })
-    render(<IssueUpdates {...BASE} members={MEMBERS} />)
-    const box = await screen.findByRole('textbox')
-    await userEvent.type(box, '@김준')
-    await userEvent.click(screen.getByRole('button', { name: '김준기' }))
-    expect(box).toHaveValue('@김준기 ')
-    await userEvent.type(box, '확인 부탁드립니다')
-    await userEvent.click(screen.getByRole('button', { name: 'issue.update.add' }))
-    await waitFor(() => expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
+    act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+    await flush()
+    const box = container.querySelector('textarea')!
+    typeInto(box, '@김준')
+    click(buttonBy(container, '김준기')!)
+    expect(box.value).toBe('@김준기 ')
+    typeInto(box, '@김준기 확인 부탁드립니다')
+    click(buttonBy(container, 'issue.update.add')!)
+    await flush()
+    expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
       body: '@김준기 확인 부탁드립니다', category: null, mentionedMemberIds: ['m1'],
-    }))
+    })
   })
 
   it('골랐다가 본문에서 지운 멘션은 전송되지 않는다', async () => {
     addIssueUpdate.mockResolvedValue({ ok: true })
-    render(<IssueUpdates {...BASE} members={MEMBERS} />)
-    const box = await screen.findByRole('textbox')
-    await userEvent.type(box, '@김준')
-    await userEvent.click(screen.getByRole('button', { name: '김준기' }))
-    await userEvent.clear(box)
-    await userEvent.type(box, '그냥 메모')
-    await userEvent.click(screen.getByRole('button', { name: 'issue.update.add' }))
-    await waitFor(() => expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
+    act(() => root.render(<IssueUpdates {...BASE} members={MEMBERS} />))
+    await flush()
+    const box = container.querySelector('textarea')!
+    typeInto(box, '@김준')
+    click(buttonBy(container, '김준기')!)
+    typeInto(box, '그냥 메모')
+    click(buttonBy(container, 'issue.update.add')!)
+    await flush()
+    expect(addIssueUpdate).toHaveBeenCalledWith('i1', {
       body: '그냥 메모', category: null, mentionedMemberIds: [],
-    }))
+    })
   })
 })
 ```
@@ -2623,22 +2692,35 @@ it('마운트 이후 focus 가 바뀌면 해당 이슈 상세가 열린다', asy
   // 알림 클릭은 전체 새로고침이 아니라 같은 라우트 소프트 내비게이션이다
   // (HeaderChrome.tsx:126 router.push). 이슈 화면에 머무는 사용자가 이 알림의 주
   // 수신자인데, useState 초기화 함수만으로는 그 사람에게 모달이 열리지 않는다.
-  const { rerender } = renderWithParams('')            // focus 없음
-  expect(screen.queryByText('첫 번째 이슈')).not.toBeInTheDocument()
-  rerender(withParams('focus=issue-1'))                // 알림 클릭으로 쿼리만 바뀜
-  expect(await screen.findByText('첫 번째 이슈')).toBeInTheDocument()
+  setParams('')                                        // focus 없음
+  act(() => root.render(<IssuesView {...VIEW_PROPS} />))
+  await flush()
+  expect(textNode(container, '첫 번째 이슈')).toBeNull()
+
+  setParams('focus=issue-1')                           // 알림 클릭으로 쿼리만 바뀜
+  act(() => root.render(<IssuesView {...VIEW_PROPS} />))   // 같은 root 재렌더 = 소프트 내비게이션
+  await flush()
+  expect(textNode(container, '첫 번째 이슈')).not.toBeNull()
 })
 
 it('모달을 닫으면 focus 파라미터가 정리돼 같은 알림이 다시 열리지 않는다', async () => {
-  const { replace } = renderWithParams('focus=issue-1')
-  await screen.findByText('첫 번째 이슈')
-  await userEvent.click(screen.getByRole('button', { name: /닫기|close/i }))
-  expect(replace).toHaveBeenCalledWith(expect.not.stringContaining('focus='), expect.anything())
+  setParams('focus=issue-1')
+  act(() => root.render(<IssuesView {...VIEW_PROPS} />))
+  await flush()
+  click(buttonBy(container, '닫기') ?? container.querySelector('[aria-label="닫기"]')!)
+  await flush()
+  expect(router.replace).toHaveBeenCalledWith(
+    expect.not.stringContaining('focus='), expect.anything(),
+  )
 })
 ```
 
-> `renderWithParams`/`withParams`/`replace` 는 그 파일의 기존 헬퍼 이름에 맞춰 조정한다.
-> 없으면 기존 focus 테스트가 쓰는 방식을 그대로 복제해 만든다.
+> **@testing-library 를 쓰지 않는다** — 이 리포에 없다. 위는 Task 5 가 세운 house 패턴
+> 헬퍼(`flush`/`textNode`/`buttonBy`/`click`)를 쓴 형태이고, `setParams`/`VIEW_PROPS`/`router` 는
+> `tests/ui/deep-link-params.test.tsx` 가 이미 쓰는 `useSearchParams`·`useRouter` mock 과 렌더
+> 헬퍼의 이름에 맞춰 조정한다. 이름이 다르면 그 파일 것을 따르고, 새로 만들지 않는다.
+> 핵심은 **같은 root 에 두 번째 render 를 걸어 소프트 내비게이션을 흉내내는 것**이다 —
+> unmount 후 재마운트하면 useState 초기화 함수가 다시 돌아 이 결함을 재현하지 못한다.
 
 - [ ] **Step 2: 테스트 실행해 실패 확인**
 
