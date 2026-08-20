@@ -72,6 +72,9 @@ python3 .claude/skills/wbs-wsf/scripts/wbs-validate.py validate --wbs {DOCS_DIR}
 > **4단계(ACT) 를 생성했으면** `wbs-validate.py` 결과를 구조 검증으로 쓰지 않는다. 대신
 > `wbs-parse.py --tasks-all` 로 Task 건수·필드를 직접 확인하고(파서는 `#{3,4}` 를 읽는다),
 > **생성 리포트에 "4단계 — wbs-validate·merge-wbs-status 무력화(DEV-03 대기)" 를 한 줄 출력한다.**
+> 단, **DEV-02·DEV-03 해소판 스크립트는 `/dflow-export` 스킬에 동봉돼 있다**
+> (`.claude/skills/dflow-export/scripts/` — `wbs-validate.py` 4단계 지원, `wbs-parse.py --export`).
+> 위 제약 표는 이 스킬의 동봉 스냅샷(`wbs-wsf/scripts/`) 기준으로 여전히 유효하다.
 > 이 경고는 생성 리포트에만 남기고 wbs.md 본문에는 넣지 않는다 — wbs.md 는 작업 정본이지 툴 상태 기록부가 아니다.
 
 issue 발견 시 해당 Task 만 재작성 → 재검증 1회 → `decisions.md` 에 `phase=wbs-resolve` 적재.
@@ -147,7 +150,7 @@ Phase → WP → [ACT(4단계만)] → Task → [Sub Task 수동]
 | 항목 | 계층 | 문법 | 규칙 |
 |---|---|---|---|
 | 담당자 | Task | `- assignee: {email}` | 입력 값이 `@` 를 포함하면 그대로 시드. 아니면 `- assignee: -` 로 두고 **"담당 미매칭" 표에 원문과 함께 전량 나열**한다(생략 금지). 빈 값(미기재)은 미매칭이 아니다 — 표에 넣지 않는다. |
-| 모듈 담당자 | WP / ACT | `- assignee: {email}` | 입력에 모듈 담당 컬럼이 있을 때만. ⚠️ DEV-02(`wbs-parse.py --export`) 전까지 **어떤 스크립트도 WP/ACT 필드를 읽지 않는다** — 기록만 되고 업로드되지 않는다. |
+| 모듈 담당자 | WP / ACT | `- assignee: {email}` | 입력에 모듈 담당 컬럼이 있을 때만. ⚠️ DEV-02(`--export`)가 구현된 지금도 **export 는 WP/ACT 의 assignee 를 싣지 않는다**(task kind 전용 필드) — 기록만 되고 업로드되지 않는다. |
 | 프로그램 추적 키 | Task | `- prd-ref: program:{프로그램ID}` | 프로그램 리스트 모드에서 필수. 재생성 시 이 값으로 기존 Task 를 찾는다. |
 
 ⚠️ **`assignee` 시드는 하류에서 자동 발행을 켠다.** 업로드 시 담당자 매칭에 성공한 **리프 Task 는 D'Flow 작업 주문이 자동 생성**되고(부록 §2.8), 그 주문은 **그 사람만 claim** 할 수 있다(불일치 시 403 `not_assignee`). 담당 컬럼을 채우는 것은 단순 표기가 아니라 배정 행위다 — 확정된 담당만 적는다.
@@ -421,7 +424,7 @@ Task 필드 생성값:
    - 3단계: `TSK-02-03` → `WP-02` (ACT 행 없음)
    - 유도한 부모 ID 가 3단계에서 읽은 헤딩 목록에 없으면 **그 Task 를 버리지 않고** 부모 없이 쓰고 리포트에 나열한다.
 
-⚠️ `status` 는 어떤 경우에도 wbs.md 텍스트에서 읽지 않는다 — 1·2단계의 파서 출력만 쓴다. DEV-02(`--export`)가 나오면 1~4단계가 한 번의 호출로 대체된다.
+⚠️ `status` 는 어떤 경우에도 wbs.md 텍스트에서 읽지 않는다 — 1·2단계의 파서 출력만 쓴다. DEV-02(`--export`)는 `/dflow-export` 스킬에 구현돼 있으나(`.claude/skills/dflow-export/scripts/wbs-parse.py`), **이 스킬의 동봉 스냅샷(`wbs-wsf/scripts/`)은 구판이라 위 N회 호출 절차를 유지한다** — 스냅샷을 신판으로 교체할 때 이 절차를 한 번의 `--export` 호출로 대체한다.
 
 ### 컬럼
 
@@ -561,6 +564,8 @@ depends 기반 시작/종료일 산출. 산출 후 FS+겹침 검증식 통과 �
 13. **`.env` 바인딩 확인** — `## D'Flow 연동 표기` 의 프로젝트 바인딩 절 그대로. 키 유무만 보고
     (값 출력 금지), 해석 결과(업로드 가능 / `업로드 불가 — .env 에 DFLOW_PROJECT_ID 또는
     DFLOW_PROJECT_MAP 필요`)를 생성 리포트에 남긴다. 없어도 생성은 정상 완료다(fail-closed 는 업로드에만).
+    **실제 업로드는 이 스킬이 하지 않는다 — `/dflow-export` 스킬이 담당한다**
+    (검증 게이트 → `--export` → 봉투 조립 → dry-run/`--push`). 리포트에 다음 단계로 안내한다.
 14. (`--export-xlsx` 있을 때) **엑셀 보고본 생성** — `## 엑셀 export` 절 그대로. 실패해도 wbs.md 생성 결과를 되돌리지 않고, 실패 사유를 리포트에 남긴다.
 
 **생성 리포트** — 실행 종료 시 사용자에게 출력하는 요약이다(별도 파일이 아니다 — 파일 산출물은

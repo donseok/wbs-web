@@ -1,0 +1,79 @@
+{
+  "_comment": "WBS/Feature Task 상태 머신 정의. wbs-transition.py와 wbs-parse.py가 이 파일을 참조한다. 상태는 docs/tasks/{TSK-ID}/state.json(또는 feat의 docs/features/{name}/state.json)에 저장되며, wbs.md의 '- status: [xxx]' 줄은 state.json에서 파생 동기화된다.",
+  "_design": {
+    "principle": "상태는 '어디까지 성공적으로 완료됐는가'만 기록한다. 실패는 상태를 전진시키지 않고 phase_history에만 기록한다. '빌드 성공 vs 테스트 실패'처럼 같은 상태에서 마지막 시도가 무엇이었는지는 state.json의 'last' 필드로 구분한다.",
+    "dimensions": {
+      "status": "진행 위치 (성공 전이만 반영). 오직 *.ok 이벤트가 다음 상태로 전진시킨다.",
+      "last": "마지막 시도 결과 (성공/실패 무관). 모든 이벤트가 덮어쓰기.",
+      "phase_history": "전체 이벤트 로그 (append-only)."
+    }
+  },
+  "states": {
+    "[ ]": {
+      "label": "미착수",
+      "phase_start": "design",
+      "description": "아직 어떤 Phase도 성공적으로 완료되지 않은 상태. 재실행 시 Design부터 시작."
+    },
+    "[dd]": {
+      "label": "설계 완료",
+      "phase_start": "build",
+      "description": "Design Phase 완료, design.md 생성됨. 재실행 시 Build부터 시작."
+    },
+    "[im]": {
+      "label": "구현 완료",
+      "phase_start": "test",
+      "description": "Build Phase 완료, 테스트 대기 또는 재시도 중. 재실행 시 Test부터 시작. 마지막 시도가 test.fail인지 build.ok인지는 'last' 필드로 구분."
+    },
+    "[ts]": {
+      "label": "테스트 통과",
+      "phase_start": "refactor",
+      "description": "Test Phase 통과, Refactor 대기 중. 재실행 시 Refactor부터 시작."
+    },
+    "[xx]": {
+      "label": "완료",
+      "phase_start": "done",
+      "description": "전체 사이클 완료. 최종 상태."
+    }
+  },
+  "transitions": {
+    "[ ]":  { "design.ok":   "[dd]" },
+    "[dd]": { "build.ok":    "[im]" },
+    "[im]": { "test.ok":     "[ts]" },
+    "[ts]": { "refactor.ok": "[xx]" },
+    "[xx]": { "_comment": "최종 상태. 어떤 이벤트도 전이시키지 않음." }
+  },
+  "events": {
+    "design.ok":   "Design Phase 성공 — [ ] → [dd]",
+    "build.ok":    "Build Phase (TDD 구현) 성공 — [dd] → [im]",
+    "build.fail":  "Build Phase 실패 — 상태 no-op, phase_history 기록",
+    "test.ok":     "Test Phase (테스트 실행) 통과 — [im] → [ts]",
+    "test.fail":   "Test Phase 실패 — 상태 no-op, phase_history 기록",
+    "refactor.ok": "Refactor Phase 성공 — [ts] → [xx]",
+    "refactor.fail": "Refactor Phase 실패 — 상태 no-op, phase_history 기록 (테스트 regression 발생)"
+  },
+  "_removed_events": {
+    "design.fail": "제거됨. Design 실패는 DFA 도메인 이벤트가 아닌 인프라 예외(서브에이전트 크래시/사용자 중단/I-O 에러)로 취급한다. 재실행 시 [ ] 상태 그대로 design부터 재시도."
+  },
+  "_failure_semantics": {
+    "rule": "undefined transition은 no-op으로 처리한다. 상태는 그대로 유지하되 phase_history에는 반드시 기록한다.",
+    "rationale": "실패 이벤트를 DFA 전이로 두면 [dd!]/[im!] 같은 '실패 shadow 상태'가 생겨 상태 수와 전이 수가 배가됨. 성공만 상태 전진시키고 실패는 로그에만 기록하는 편이 단순."
+  },
+  "_bypass_semantics": {
+    "description": "에스컬레이션 재시도(Sonnet→Opus) 후에도 실패가 확정된 task를 임시 완료 처리하여 의존 task의 진행을 허용하는 메커니즘.",
+    "event": "bypass — wbs-transition.py가 처리하는 특수 이벤트. DFA 전이가 아니며 status를 변경하지 않는다.",
+    "state_json_fields": {
+      "bypassed": "true일 때 dep-analysis가 이 task를 의존성 충족(완료)으로 판정한다. 실제 status는 실패 시점 그대로 유지.",
+      "bypassed_reason": "bypass 사유. 예: 'test.fail after 3 retries (escalated to opus)'. systematic-debugging이 활성화된 환경에서는 debug-evidence.py bypass-reason 출력을 사용한다."
+    },
+    "dependency_resolution": "dep-analysis.py는 bypassed: true인 task를 [xx]와 동일하게 completed로 분류한다.",
+    "signal": ".bypassed — signal-helper.py가 생성. wait 명령이 .done/.failed와 함께 감지한다.",
+    "future_extension": "[im] 상태 자체를 의존성 충족으로 인정하는 속도 우선 모드로 확장 가능 (dep-analysis 판정 조건만 변경)."
+  },
+  "_debug_required_before_escalation": {
+    "enabled": true,
+    "description": "dev-test 실패 시 escalation(Sonnet→Opus) 또는 bypass 진입 직전, scripts/debug-evidence.py로 4단계 evidence(에러/재현/최근변경/컴포넌트)를 수집해 phase_history 항목의 debug_evidence 필드에 합성해야 한다. 'should fix this'·'just retry harder' 같은 근거 없는 escalation을 차단하기 위함.",
+    "phases": "build|test|refactor",
+    "footer_field": "debug_evidence — phase_history entry에 verification 필드와 동일 위계로 적재",
+    "bypass_contract": "bypass 시 bypassed_reason은 debug-evidence.py bypass-reason 출력으로 채운다. 'tests still failing' 같은 빈 사유 금지."
+  }
+}
