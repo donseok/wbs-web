@@ -39,6 +39,7 @@ import { minuteSourceHref } from '@/lib/minutes/source'
 import { uploadIssueAttachments } from '@/lib/issues/uploadIssueAttachments'
 import { IssueAssigneePicker } from './IssueAssigneePicker'
 import { IssueAttachments } from './IssueAttachments'
+import { IssueUpdates } from './IssueUpdates'
 import type { ProjectMember } from '@/lib/domain/types'
 
 function ErrorBox({ message }: { message: string }) {
@@ -176,12 +177,18 @@ function megaAreaName(code: IssueMegaCode, locale: 'ko' | 'en' | undefined): str
 }
 
 export function IssueDetailModal({
-  issue, members, memberName, canEdit, today, onClose, onEdit, onDelete,
+  issue, members, memberName, canEdit, canWrite, currentUserId, isProjectAdmin, today, onClose, onEdit, onDelete,
 }: {
   issue: Issue | null
   members: ProjectMember[]
   memberName: (id: string | null) => string | null
+  /** 이슈 전체 편집·삭제 게이트(작성자 또는 pmo_admin). 이력 등록 권한과는 다른 축이다. */
   canEdit: boolean
+  /** 프로젝트 멤버 이상 — 이력 등록 어포던스 기준. canEdit 을 재사용하면 남이 만든 이슈에
+   *  일반 멤버가 경과를 못 쓴다(컴파일 에러가 없어 리뷰 전까지 드러나지 않는다). */
+  canWrite: boolean
+  currentUserId: string | null
+  isProjectAdmin: boolean
   today: string
   onClose: () => void
   onEdit: () => void
@@ -192,7 +199,6 @@ export function IssueDetailModal({
   const [pending, startTransition] = useTransition()
   const [status, setStatus] = useState<IssueStatus>('open')
   const [assignees, setAssignees] = useState<string[]>([])
-  const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   // 이슈 데이터가 갱신될 때마다 진행 편집 폼을 현재값으로 재베이스라인.
@@ -203,7 +209,6 @@ export function IssueDetailModal({
     if (!issue) return
     setStatus(issue.status)
     setAssignees(issue.assigneeMemberIds)
-    setNote(issue.resolutionNote)
   }, [issue])
   const issueId = issue?.id
   useEffect(() => { setError(null) }, [issueId])
@@ -219,8 +224,7 @@ export function IssueDetailModal({
     : ''
   const statusOptions: IssueStatus[] = issue ? [issue.status, ...STATUS_TRANSITIONS[issue.status]] : []
   const assigneesDirty = issue !== null && !sameIds(assignees, issue.assigneeMemberIds)
-  const dirty = issue !== null
-    && (status !== issue.status || assigneesDirty || note !== issue.resolutionNote)
+  const dirty = issue !== null && (status !== issue.status || assigneesDirty)
   const analysisMegaLabel = issue?.megaCode ? megaAreaName(issue.megaCode, locale) : '—'
   const analysisMajorLabel = issue?.majorName
     ? issue.megaCode && issue.majorSeq
@@ -248,7 +252,6 @@ export function IssueDetailModal({
     const patch = {
       ...(status !== issue.status ? { status, expectedStatus: issue.status } : {}),
       ...(assigneesDirty ? { assigneeMemberIds: assignees } : {}),
-      ...(note !== issue.resolutionNote ? { resolutionNote: note } : {}),
     }
     startTransition(async () => {
       const res = await updateIssueProgress(issue.id, patch)
@@ -423,6 +426,16 @@ export function IssueDetailModal({
               진행 편집 블록 안이 아니라 그 앞에 둔다(푸터 '진행 저장' 버튼의 대상이 흐려지지 않게). */}
           <IssueAttachments issueId={issue.id} />
 
+          {/* 이력은 진행 편집 블록 앞에 둔다 — 첨부와 같은 이유로 푸터 '진행 저장'의
+              대상이 흐려지지 않게 한다. */}
+          <IssueUpdates
+            issueId={issue.id}
+            canWrite={canWrite}
+            currentUserId={currentUserId}
+            isProjectAdmin={isProjectAdmin}
+            members={members}
+          />
+
           <div className="space-y-3 rounded-2xl border border-line bg-surface-2 p-4">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-subtle">{t('issue.detail.progress')}</div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -440,15 +453,6 @@ export function IssueDetailModal({
               <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.form.assignee')}</span>
               <IssueAssigneePicker members={members} selected={assignees} onChange={setAssignees} />
             </div>
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('issue.detail.note')}</span>
-              <textarea
-                className="app-textarea min-h-[96px] resize-y"
-                value={note}
-                onChange={e => setNote(e.target.value)}
-                placeholder={t('issue.detail.notePh')}
-              />
-            </label>
             {error && <ErrorBox message={error} />}
           </div>
         </div>

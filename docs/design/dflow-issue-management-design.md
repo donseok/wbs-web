@@ -481,6 +481,10 @@ projects
 
 ### 9.3 `issue_updates`
 
+> ⚠️ 이 절은 대체되었다 — 정본은 `docs/superpowers/specs/2026-08-19-issue-updates-design.md`.
+> kind 4종(comment/progress/resolution/rejection)은 kind 2종(note/status) + category 축으로
+> 재정의됐고, edited_at 은 폐기, deleted_at 은 archived_at 으로 바뀌었다.
+
 | 컬럼 | 설명 |
 |---|---|
 | `id`, `issue_id` | 업데이트 식별자와 부모 |

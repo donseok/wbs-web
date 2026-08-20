@@ -3,7 +3,7 @@ import { getProjectMembers } from '@/lib/data/members'
 import { resolveMemberIds } from '@/lib/data/meetings'
 import { getSession } from '@/lib/auth'
 import { getActorForView } from '@/lib/authz'
-import { effectiveLegacyRole } from '@/lib/domain/authz'
+import { effectiveLegacyRole, isProjectAdmin } from '@/lib/domain/authz'
 import { listProjects } from '@/app/actions/project'
 import { createServerClient } from '@/lib/supabase/server'
 import { t } from '@/lib/i18n/dict'
@@ -51,6 +51,7 @@ export default async function IssuesPage({ params }: { params: Promise<{ project
         projectId={projectId}
         currentUserId={user?.id ?? null}
         role={effectiveLegacyRole(m, projectId)}
+        isProjectAdmin={isProjectAdmin(m, projectId)}
         myMemberIds={myMemberIds}
         today={seoulToday()}
       />

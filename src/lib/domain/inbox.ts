@@ -20,6 +20,12 @@ export const NOTIFICATION_CATALOG = {
   // B. 협업 — issue.assigned 가 v1 첫 발행 지점(Task 5)
   'issue.assigned':      { category: 'issue',  defaultOn: true,  required: false },
   'issue.status':        { category: 'issue',  defaultOn: true,  required: false },
+  // 조치 경과 이력(0087). defaultOn 을 true 로 둔 이유: prefs.notif 를 쓰는 코드가
+  // 아직 없어(읽기는 actions/inbox.ts:56 한 곳, 쓰기 0건) false 로 두면 영구히 발행되지
+  // 않는 죽은 타입이 된다. 소음은 설계로 억제한다 — 이력 1건당 이벤트 1건(dedupeKey),
+  // kind='status' 자동 기록은 발행하지 않음, 담당자 팬아웃 이슈당 평균 2.74명(실측).
+  'issue.update':        { category: 'issue',  defaultOn: true,  required: false },
+  'issue.mention':       { category: 'issue',  defaultOn: true,  required: false },
   'member.invited':      { category: 'system', defaultOn: true,  required: false },
   // C. 시스템
   'system.pat_expiring': { category: 'system', defaultOn: true,  required: false },

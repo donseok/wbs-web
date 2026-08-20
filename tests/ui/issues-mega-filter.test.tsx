@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({ toast: vi.fn() }))
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
+  usePathname: () => '/p/p1/issues',
 }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
@@ -83,6 +85,7 @@ describe('IssuesView Mega 필터', () => {
           projectId="project-1"
           currentUserId="user-1"
           role="team_editor"
+          isProjectAdmin={false}
           myMemberIds={[]}
           today="2026-07-31"
           members={[]}
@@ -109,6 +112,7 @@ describe('IssuesView Mega 필터', () => {
           projectId="project-1"
           currentUserId="user-1"
           role="team_editor"
+          isProjectAdmin={false}
           myMemberIds={[]}
           today="2026-07-31"
           members={[]}

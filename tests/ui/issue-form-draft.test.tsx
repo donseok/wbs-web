@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 const router = { refresh: vi.fn() }
-vi.mock('next/navigation', () => ({ useRouter: () => router }))
+vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/p/p1/issues' }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (key: string) => key }),
 }))
@@ -19,6 +19,15 @@ vi.mock('@/app/actions/issues', () => ({
   updateIssueProgress: vi.fn(async () => ({ ok: true })),
   deleteIssue: vi.fn(async () => ({ ok: true })),
   fetchIssueMajorProcesses,
+}))
+// 상세 모달이 조치 경과 이력을 조회한다(0087). 서버 액션이라 여기서 막지 않으면
+// 아래 IssueDetailModal 렌더 테스트가 멈춘다 — deep-link-params 와 같은 이유다.
+vi.mock('@/app/actions/issueUpdates', () => ({
+  listIssueUpdates:     vi.fn(async () => ({ ok: true, items: [] })),
+  addIssueUpdate:       vi.fn(async () => ({ ok: true })),
+  archiveIssueUpdate:   vi.fn(async () => ({ ok: true })),
+  unarchiveIssueUpdate: vi.fn(async () => ({ ok: true })),
+  purgeIssueUpdate:     vi.fn(async () => ({ ok: true })),
 }))
 
 import { DeleteIssueModal, IssueDetailModal, IssueFormModal } from '@/components/issues/IssueModals'
@@ -428,6 +437,9 @@ describe('IssueFormModal 회의록 초안', () => {
           members={[]}
           memberName={() => null}
           canEdit={false}
+          canWrite={false}
+          currentUserId={null}
+          isProjectAdmin={false}
           today="2026-07-31"
           onClose={() => undefined}
           onEdit={() => undefined}

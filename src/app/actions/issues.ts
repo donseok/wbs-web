@@ -14,6 +14,7 @@ import {
   ISSUE_SEVERITIES, canTransition, nextResolvedAt,
   type IssueSeverity, type IssueStatus,
 } from '@/lib/domain/issues'
+import { encodeStatusChange } from '@/lib/domain/issueUpdates'
 import { computeAddedAssignees } from '@/lib/domain/inbox'
 import {
   isIssueMegaCode,
@@ -74,7 +75,9 @@ export interface IssueProgressPatch {
   /** status 를 보낼 때 필수 — 클라이언트가 화면에 보이는 상태(CAS 비교 기준). 서버가 방금 읽은 상태가 아니다. */
   expectedStatus?: IssueStatus
   assigneeMemberIds?: string[]
-  resolutionNote?: string
+  // resolutionNote 는 0087 이후 이 경로로 쓰지 않는다. 이력(issue_updates)이 유일 관문이고
+  // issues.resolution_note 는 그 파생 미러다 — 두 주체가 쓰면 서로를 덮고, 이력에 없는
+  // 문장이 미러를 타고 AI RAG(ai/index/content.ts:290)로 샌다.
 }
 
 export interface MinuteIssueSourceInput {
@@ -995,21 +998,18 @@ export async function updateIssue(issueId: string, input: IssueInput): Promise<I
   }
 }
 
-/** 진행 업데이트(상태·담당자·조치메모) — 멤버 전체. 상태 변경은 전환 맵 검증 + CAS. */
+/** 진행 업데이트(상태·담당자) — 멤버 전체. 상태 변경은 전환 맵 검증 + CAS + 이력 자동 기록. */
 export async function updateIssueProgress(issueId: string, patch: IssueProgressPatch): Promise<IssueActionResult> {
   // 진행 업데이트는 그 이슈가 속한 프로젝트의 멤버면 누구나 — 대상 프로젝트를 먼저 확정한다.
   const found = await resolveProjectId('issues', issueId)
   if (!found.ok) return { ok: false, error: found.error }
   const g = await requireProjectMember(found.projectId)
   if (!g.ok) return { ok: false, error: g.error }
-  if (patch.status === undefined && patch.assigneeMemberIds === undefined && patch.resolutionNote === undefined) {
+  if (patch.status === undefined && patch.assigneeMemberIds === undefined) {
     return { ok: false, error: '변경할 내용이 없습니다.' }
   }
   if (patch.status !== undefined && patch.expectedStatus === undefined) {
     return { ok: false, error: '상태 기준값이 없습니다. 새로고침 후 다시 시도하세요.' }
-  }
-  if (patch.resolutionNote !== undefined && patch.resolutionNote.length > TEXT_MAX) {
-    return { ok: false, error: `조치 메모는 ${TEXT_MAX}자 이하여야 합니다.` }
   }
   if (patch.assigneeMemberIds !== undefined) {
     const assigneeErr = validateAssignees(patch.assigneeMemberIds)
@@ -1023,7 +1023,6 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
 
   // 담당자만 바꿔도 issues.updated_at 은 반드시 오른다 — AI 인덱스 신선도 가드의 입력(0041 헤더).
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (patch.resolutionNote !== undefined) payload.resolution_note = patch.resolutionNote
   if (patch.status !== undefined) {
     // CAS 비교 기준은 서버가 방금 읽은 curStatus 가 아니라 클라이언트가 화면에서 관측한 expectedStatus.
     // 그래야 read→write 사이가 아니라 "클라이언트가 화면을 마지막으로 갱신한 시점 이후" 변경까지 잡아낸다.
@@ -1058,6 +1057,25 @@ export async function updateIssueProgress(issueId: string, patch: IssueProgressP
       .select('id')
     if (error) return { ok: false, error: error.message }
     if (!updated?.length) return { ok: false, error: '이슈가 삭제되어 저장할 수 없습니다.' }
+  }
+
+  // 상태 변경 자동 기록 — 지금 이 흔적은 어디에도 남지 않는다.
+  // service_role 로 쓰는 이유: 위 sb 는 사용자 JWT 라 kind 컬럼 grant 밖이고, RLS insert
+  // 정책도 kind='note' 만 허용한다. 이 자리는 requireProjectMember 를 이미 통과했으므로
+  // "service_role 쓰기는 서버 액션 가드가 유일한 관문"이라는 계약을 지킨다.
+  if (patch.status !== undefined && patch.expectedStatus !== patch.status) {
+    const user = await getSession()
+    const admin = createAdminClient()
+    const { error: logErr } = await admin.from('issue_updates').insert({
+      issue_id: issueId,
+      project_id: cur.project_id as string,
+      kind: 'status',
+      body: encodeStatusChange(patch.expectedStatus as IssueStatus, patch.status),
+      author_user_id: g.actor.userId,
+      author_name: user ? (displayNameFrom(user.user_metadata, user.email) ?? '(이름 없음)') : '(이름 없음)',
+    })
+    // 기록 실패가 상태 변경을 되돌리지는 않는다 — 이미 커밋됐다. 로그만 남긴다.
+    if (logErr) console.error('[updateIssueProgress] 상태 변경 이력 기록 실패:', logErr.message)
   }
 
   // 담당자 교체는 상태 CAS 가 통과한 뒤에만 — 충돌 감지 시 담당자까지 절반만 저장되는 일이 없게 한다.

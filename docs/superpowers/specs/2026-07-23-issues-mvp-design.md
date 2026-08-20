@@ -143,7 +143,7 @@ DK Bot v2(도메인 union + 도구 레지스트리 + 딥링크 정본)와 AI 인
 참조 설계 [dflow-issue-management-design.md](../../design/dflow-issue-management-design.md)를 다음 항목의 설계 원천으로 유지한다(검증 결과 반영 개정본):
 
 - `issue_links` (WBS·회의록 원문 앵커·`source_key` 중복 방지 — 위험 신호 키는 `risk-signal:{projectId}:{signal.id}`로 확정, 근거 목록 기반 키는 불안정하여 폐기)
-- `issue_updates`(댓글형 조치 이력), `transitionIssue` RPC형 감사 이벤트(트리거 방식보다 actor 식별 우월)
+- `issue_updates`(댓글형 조치 이력) → 구현됨(2026-08-19). 정본은 `docs/superpowers/specs/2026-08-19-issue-updates-design.md`, `transitionIssue` RPC형 감사 이벤트(트리거 방식보다 actor 식별 우월)
 - 영속 알림 테이블, 첨부파일 + Storage RLS, 보드 뷰, 유형 3종, `resolution_requested` 상태
 - **주간시트 이슈 셀 → 이슈 등록 원클릭 승격** (회의→공지 승격 패턴 복제 — 이중 기입 문제의 해법, Phase 2 최우선 후보)
 - 주간보고 삽입은 **시트 셀 텍스트로 저장** — 주간 PPT 파이프라인은 시트 셀만 읽으므로 PPT 개조 0 (이슈 테이블을 PPT가 직접 읽는 개조로 흐르지 않도록 명시)
