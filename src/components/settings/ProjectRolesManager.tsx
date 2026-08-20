@@ -1,12 +1,140 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, ChevronUp, ShieldCheck, UserPlus } from 'lucide-react'
+import { ChevronDown, ChevronUp, Search, ShieldCheck, UserPlus } from 'lucide-react'
 import { setProjectRole, type ProjectRoleRow } from '@/app/actions/projectRoles'
 import type { AccountRole } from '@/lib/domain/accounts'
 
 const ROLE_LABEL: Record<AccountRole, string> = { admin: '관리자', member: '멤버', viewer: '조회' }
+
+/**
+ * 계정 검색 콤보박스 — 계정 수십 명을 네이티브 select 로는 찾을 수 없다는 피드백
+ * (2026-08-20, AssigneeComboBox 가 만들어진 2026-08-11 피드백과 동일한 이유).
+ * AssigneeComboBox 는 ProjectMember 타입·buildMemberPickerSections 에 묶여 있어
+ * 재사용하지 않고, 같은 WAI-ARIA combobox 패턴으로 경량 구현한다.
+ * 이름·이메일·팀 코드 어느 것으로든 타이핑 필터, 화살표+Enter 선택, 외부 클릭 닫힘.
+ */
+function AccountComboBox({ candidates, value, onChange }: {
+  candidates: ProjectRoleRow[]
+  value: string
+  onChange: (userId: string) => void
+}) {
+  const listboxId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [activeIndex, setActiveIndex] = useState(0)
+
+  const selected = value ? candidates.find(c => c.userId === value) ?? null : null
+  const selectedLabel = selected ? `${selected.name ?? selected.email} (${selected.email})` : ''
+
+  const options = useMemo(() => {
+    const q = query.trim().toLocaleLowerCase('ko-KR')
+    const all = candidates.map(c => ({
+      id: c.userId,
+      label: `${c.name ?? c.email} (${c.email})${c.teamCode ? ` · ${c.teamCode}` : ''}`,
+      haystack: `${c.name ?? ''} ${c.email} ${c.teamCode ?? ''}`.toLocaleLowerCase('ko-KR'),
+    }))
+    return q ? all.filter(o => o.haystack.includes(q)) : all
+  }, [candidates, query])
+
+  useEffect(() => { setActiveIndex(0) }, [query, open])
+
+  useEffect(() => {
+    if (!open) return
+    const opt = options[activeIndex]
+    if (opt) document.getElementById(`${listboxId}-opt-${opt.id}`)?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex, open, options, listboxId])
+
+  useEffect(() => {
+    if (!open) return
+    function onClickOutside(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [open])
+
+  function commit(id: string) {
+    onChange(id)
+    setOpen(false)
+    setQuery('')
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') { e.preventDefault(); setOpen(true) }
+      return
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex(i => Math.min(i + 1, options.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex(i => Math.max(i - 1, 0)) }
+    else if (e.key === 'Enter') {
+      e.preventDefault()
+      const opt = options[activeIndex]
+      if (opt) commit(opt.id)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setOpen(false)
+      setQuery('')
+    }
+  }
+
+  return (
+    <div ref={rootRef} className="relative min-w-[220px] flex-1">
+      <div className="relative">
+        <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
+        <input
+          role="combobox"
+          aria-label="권한을 줄 계정"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={open && options[activeIndex] ? `${listboxId}-opt-${options[activeIndex].id}` : undefined}
+          className="app-input h-8 pl-8 pr-8 text-xs"
+          value={open ? query : selectedLabel}
+          placeholder="이름·이메일·팀으로 검색…"
+          onFocus={() => { setOpen(true); setQuery('') }}
+          onChange={e => { setQuery(e.target.value); setOpen(true) }}
+          onKeyDown={onKeyDown}
+          onBlur={e => {
+            // 목록 옵션 클릭 시에도 blur 가 먼저 온다 — 포커스가 root 내부에 남으면 닫지 않는다.
+            if (rootRef.current && e.relatedTarget && rootRef.current.contains(e.relatedTarget as Node)) return
+            setOpen(false)
+            setQuery('')
+          }}
+        />
+        <ChevronDown aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
+      </div>
+      {open && (
+        <ul
+          id={listboxId}
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-lg"
+        >
+          {options.length === 0 ? (
+            <li className="px-2 py-1.5 text-xs text-ink-subtle">검색 결과가 없습니다.</li>
+          ) : options.map((opt, i) => (
+            <li
+              key={opt.id}
+              id={`${listboxId}-opt-${opt.id}`}
+              role="option"
+              aria-selected={opt.id === value}
+              onMouseDown={e => { e.preventDefault(); commit(opt.id) }}
+              onMouseEnter={() => setActiveIndex(i)}
+              className={`cursor-pointer rounded-md px-2 py-1.5 text-xs ${i === activeIndex ? 'bg-brand-weak text-brand' : 'text-ink'}`}
+            >
+              {opt.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 /**
  * 프로젝트 권한 표 — 역할을 받은 계정과 슈퍼유저만 나열한다. 전 계정을 '조회'로
@@ -160,19 +288,11 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
           <div className="rounded-xl border border-line bg-surface-2/40 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <UserPlus className="h-4 w-4 shrink-0 text-ink-subtle" aria-hidden />
-              <select
-                className="app-input h-8 min-w-[220px] flex-1 text-xs"
+              <AccountComboBox
+                candidates={candidates}
                 value={addUserId}
-                aria-label="권한을 줄 계정"
-                onChange={(e) => { setAddUserId(e.target.value); setAddError('') }}
-              >
-                <option value="">권한을 줄 계정 선택…</option>
-                {candidates.map(c => (
-                  <option key={c.userId} value={c.userId}>
-                    {c.name ?? c.email} ({c.email})
-                  </option>
-                ))}
-              </select>
+                onChange={(userId) => { setAddUserId(userId); setAddError('') }}
+              />
               <select
                 className="app-input h-8 w-auto text-xs"
                 value={addRole}

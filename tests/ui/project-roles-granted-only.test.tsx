@@ -32,6 +32,10 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
 
   beforeEach(() => {
     setProjectRole.mockClear()
+    // jsdom 에는 scrollIntoView 가 없다 — 콤보 하이라이트 스크롤 이펙트가 죽지 않게 스텁.
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true, writable: true, value: vi.fn(),
+    })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -69,22 +73,53 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
     expect(table.textContent).toContain('전권 (슈퍼유저)')
   })
 
-  it('역할 없는 계정은 추가 콤보에만 나타나고, 추가하면 setProjectRole 이 호출된다', async () => {
+  it('역할 없는 계정은 검색 콤보에만 나타나고, 선택 후 추가하면 setProjectRole 이 호출된다', async () => {
     await renderExpanded()
 
-    const picker = container.querySelector<HTMLSelectElement>('select[aria-label="권한을 줄 계정"]')!
-    const options = [...picker.options].map(o => o.textContent ?? '')
-    expect(options.some(t => t.includes('조회최'))).toBe(true)
-    expect(options.some(t => t.includes('관리자김'))).toBe(false)
-    expect(options.some(t => t.includes('슈퍼박'))).toBe(false)
-
+    const picker = container.querySelector<HTMLInputElement>('input[aria-label="권한을 줄 계정"]')!
     await act(async () => {
-      picker.value = 'viewer1'
-      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      picker.focus()
+      picker.dispatchEvent(new Event('focus', { bubbles: true }))
+    })
+    const listbox = container.querySelector('[role="listbox"]')!
+    const labels = [...listbox.querySelectorAll('[role="option"]')].map(o => o.textContent ?? '')
+    expect(labels.some(t => t.includes('조회최'))).toBe(true)
+    expect(labels.some(t => t.includes('관리자김'))).toBe(false)
+    expect(labels.some(t => t.includes('슈퍼박'))).toBe(false)
+
+    const target = [...listbox.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find(o => (o.textContent ?? '').includes('조회최'))!
+    await act(async () => {
+      target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
     })
     const addBtn = [...container.querySelectorAll('button')].find(b => b.textContent === '추가')!
     expect(addBtn.disabled).toBe(false)
     await act(async () => addBtn.click())
     expect(setProjectRole).toHaveBeenCalledWith('p1', 'viewer1', 'member')
+  })
+
+  it('검색어는 이름·이메일·팀 어느 것으로든 옵션을 거른다', async () => {
+    await renderExpanded()
+
+    const picker = container.querySelector<HTMLInputElement>('input[aria-label="권한을 줄 계정"]')!
+    await act(async () => {
+      picker.focus()
+      picker.dispatchEvent(new Event('focus', { bubbles: true }))
+    })
+    // React 의 onChange 는 input 이벤트에 매핑된다 — native setter 로 값을 넣고 input 을 쏜다.
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      setValue.call(picker, '없는사람')
+      picker.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(container.querySelector('[role="listbox"]')!.textContent).toContain('검색 결과가 없습니다')
+
+    await act(async () => {
+      setValue.call(picker, 'viewer@')
+      picker.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const labels = [...container.querySelectorAll('[role="option"]')].map(o => o.textContent ?? '')
+    expect(labels).toHaveLength(1)
+    expect(labels[0]).toContain('조회최')
   })
 })
