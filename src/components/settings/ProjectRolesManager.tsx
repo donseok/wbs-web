@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronDown, ChevronUp, Pencil, Search, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
-import { setProjectRole, type ProjectRoleRow } from '@/app/actions/projectRoles'
+import { ensureRosterRow, setProjectRole, type ProjectRoleRow } from '@/app/actions/projectRoles'
 import { updateMember, removeMember } from '@/app/actions/members'
 import type { AccountRole } from '@/lib/domain/accounts'
 import type { ProjectMemberRole, TeamCode } from '@/lib/domain/types'
@@ -271,7 +271,8 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   }
 
   function editButton(row: ProjectRoleRow) {
-    if (!row.memberId) return null
+    // 명단 행이 없어도 계정이 있으면 편집 가능 — 저장 시 행을 만들어 채운다(동기화 이전 부여분).
+    if (!row.memberId && !row.userId) return null
     return (
       <button
         type="button"
@@ -463,6 +464,7 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
             관리자 지정·해제는 슈퍼유저만 할 수 있습니다.
           </p>
           <RosterEditModal
+            projectId={projectId}
             row={editing}
             onClose={() => setEditing(null)}
             onSaved={() => { setEditing(null); router.refresh() }}
@@ -478,7 +480,8 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
  * 이 표가 유일한 편집 입구다(2026-08-20). 이름·이메일은 계정·이메일 정본(0070)에
  * 묶여 있어 여기서 바꾸지 않는다. 삭제는 두 번 클릭(오클릭 방지, 모달 중첩 회피).
  */
-function RosterEditModal({ row, onClose, onSaved }: {
+function RosterEditModal({ projectId, row, onClose, onSaved }: {
+  projectId: string
   row: ProjectRoleRow | null
   onClose: () => void
   onSaved: () => void
@@ -502,12 +505,19 @@ function RosterEditModal({ row, onClose, onSaved }: {
     setConfirmDelete(false)
   }, [row])
 
-  if (!row?.memberId) return null
-  const memberId = row.memberId
+  if (!row || (!row.memberId && !row.userId)) return null
+  const existingMemberId = row.memberId
 
   function save() {
     setError('')
     startTransition(async () => {
+      // 명단 행이 없는 계정(자동 동기화 이전 부여분)은 먼저 행을 만든다.
+      let memberId = existingMemberId
+      if (!memberId) {
+        const ensured = await ensureRosterRow(projectId, row!.userId as string)
+        if (!ensured.ok) { setError(ensured.error); return }
+        memberId = ensured.memberId
+      }
       const res = await updateMember(memberId, {
         name: row?.name ?? '',
         email: row?.email ?? null,
@@ -522,10 +532,11 @@ function RosterEditModal({ row, onClose, onSaved }: {
   }
 
   function del() {
+    if (!existingMemberId) return
     if (!confirmDelete) { setConfirmDelete(true); return }
     setError('')
     startTransition(async () => {
-      const res = await removeMember(memberId)
+      const res = await removeMember(existingMemberId)
       if (res.ok) onSaved()
       else setError(res.error ?? '삭제에 실패했습니다.')
     })
@@ -539,16 +550,18 @@ function RosterEditModal({ row, onClose, onSaved }: {
       title={`${row.name ?? row.email ?? '참여자'} — 명단 정보`}
       footer={
         <>
-          <button
-            type="button"
-            onClick={del}
-            disabled={pending}
-            className={`btn btn-ghost mr-auto ${confirmDelete ? 'text-delayed' : ''}`}
-            title="명단에서 제거합니다. 근태·회의 참석 기록도 함께 삭제됩니다."
-          >
-            <Trash2 className="h-4 w-4" />
-            {confirmDelete ? '정말 삭제 (한 번 더)' : '명단에서 삭제'}
-          </button>
+          {existingMemberId && (
+            <button
+              type="button"
+              onClick={del}
+              disabled={pending}
+              className={`btn btn-ghost mr-auto ${confirmDelete ? 'text-delayed' : ''}`}
+              title="명단에서 제거합니다. 근태·회의 참석 기록도 함께 삭제됩니다."
+            >
+              <Trash2 className="h-4 w-4" />
+              {confirmDelete ? '정말 삭제 (한 번 더)' : '명단에서 삭제'}
+            </button>
+          )}
           <button type="button" onClick={onClose} className="btn btn-ghost" disabled={pending}>취소</button>
           <button type="button" onClick={save} className="btn btn-primary" disabled={pending}>
             {pending ? '저장 중…' : '변경 저장'}
