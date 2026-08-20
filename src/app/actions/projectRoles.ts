@@ -145,9 +145,10 @@ export async function setProjectRole(
   revalidatePath(`/p/${projectId}/settings`)
   revalidatePath('/admin/accounts')
 
-  // 명단 추가는 권한 부여 뒤의 부가 작업 — 실패해도 권한 결과는 이미 확정이므로
-  // ok 는 유지하되 rosterError 로 드러낸다(조용한 실패 금지).
-  if (role !== 'viewer' && opts?.addToRoster) {
+  // 권한을 받은 사람은 팀 구성에도 항상 보인다(기본 동기화, 2026-08-20) —
+  // opts.addToRoster === false 로만 끌 수 있다. 명단 추가는 권한 부여 뒤의
+  // 부가 작업이라 실패해도 권한 결과는 유지하고 rosterError 로 드러낸다(조용한 실패 금지).
+  if (role !== 'viewer' && opts?.addToRoster !== false) {
     const roster = await addAccountToRoster(admin, projectId, userId)
     if (!roster.ok) return { ok: true, rosterError: roster.error }
   }
