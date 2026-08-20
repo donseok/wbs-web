@@ -155,7 +155,6 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   const [expanded, setExpanded] = useState(false)
   const [addUserId, setAddUserId] = useState('')
   const [addRole, setAddRole] = useState<AccountRole>('member')
-  const [addToRoster, setAddToRoster] = useState(true)
   const [addError, setAddError] = useState('')
   const [rosterWarning, setRosterWarning] = useState('')
   const [, startTransition] = useTransition()
@@ -173,6 +172,10 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
           // 조용한 실패 금지 — 실패 사유를 그 행 아래 표시한다.
           setErrors(prev => ({ ...prev, [row.userId]: res.error ?? '변경 실패' }))
         } else {
+          // 역할 변경도 명단 동기화를 수반한다 — 동기화만 실패하면 그 행에 드러낸다.
+          if (res.rosterError) {
+            setErrors(prev => ({ ...prev, [row.userId]: '권한은 변경됐지만 명단 동기화는 실패했습니다: ' + res.rosterError }))
+          }
           router.refresh()
         }
       } catch {
@@ -190,7 +193,7 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
     setSavingId(addUserId)
     startTransition(async () => {
       try {
-        const res = await setProjectRole(projectId, addUserId, addRole, { addToRoster })
+        const res = await setProjectRole(projectId, addUserId, addRole)
         if (!res.ok) {
           setAddError(res.error ?? '추가 실패')
         } else {
@@ -318,15 +321,9 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
                 추가
               </button>
             </div>
-            <label className="mt-2 flex w-fit cursor-pointer items-center gap-1.5 text-xs text-ink-muted">
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 accent-brand"
-                checked={addToRoster}
-                onChange={(e) => setAddToRoster(e.target.checked)}
-              />
-              팀 구성 명단(project members)에도 추가
-            </label>
+            <p className="mt-2 text-xs text-ink-subtle">
+              권한을 받은 계정은 팀 구성 명단에도 자동으로 추가됩니다.
+            </p>
             {addError ? (
               <p role="alert" className="mt-2 text-xs font-medium text-delayed">{addError}</p>
             ) : null}

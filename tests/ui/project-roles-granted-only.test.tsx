@@ -94,30 +94,9 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
     })
     const addBtn = [...container.querySelectorAll('button')].find(b => b.textContent === '추가')!
     expect(addBtn.disabled).toBe(false)
-    // 기본값: 팀 구성 명단에도 추가(체크 켬) — 권한/명단 이원화 혼란(2026-08-20) 대응.
+    // 명단 동기화는 서버 기본 동작(항상) — 클라이언트는 opts 를 넘기지 않는다.
     await act(async () => addBtn.click())
-    expect(setProjectRole).toHaveBeenCalledWith('p1', 'viewer1', 'member', { addToRoster: true })
-  })
-
-  it('명단 추가 체크를 끄면 addToRoster:false 로 호출된다', async () => {
-    await renderExpanded()
-
-    const picker = container.querySelector<HTMLInputElement>('input[aria-label="권한을 줄 계정"]')!
-    await act(async () => {
-      picker.focus()
-      picker.dispatchEvent(new Event('focus', { bubbles: true }))
-    })
-    const target = [...container.querySelectorAll<HTMLElement>('[role="option"]')]
-      .find(o => (o.textContent ?? '').includes('조회최'))!
-    await act(async () => {
-      target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    })
-    const checkbox = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!
-    expect(checkbox.checked).toBe(true)
-    await act(async () => checkbox.click())
-    const addBtn = [...container.querySelectorAll('button')].find(b => b.textContent === '추가')!
-    await act(async () => addBtn.click())
-    expect(setProjectRole).toHaveBeenCalledWith('p1', 'viewer1', 'member', { addToRoster: false })
+    expect(setProjectRole).toHaveBeenCalledWith('p1', 'viewer1', 'member')
   })
 
   it('검색어는 이름·이메일·팀 어느 것으로든 옵션을 거른다', async () => {
