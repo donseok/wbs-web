@@ -50,6 +50,7 @@ export const membersKo = {
   'members.acManualSwitch': '직접 입력으로 전환',
   'members.acSearchError': '후보 검색에 실패했습니다.',
   'members.errNameRequired': '이름을 입력하세요.',
+  'members.errEmailRequired': '이메일을 입력하세요. 모든 참여자는 D\'Flow 계정과 연결되어야 합니다.',
   'members.errEmailInvalid': '올바른 이메일 형식이 아닙니다. (예: name@company.com)',
   'members.errSaveFailed': '저장에 실패했습니다.',
   // 삭제 확인 모달
