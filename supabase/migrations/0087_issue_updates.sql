@@ -109,9 +109,16 @@ create policy insert_issue_updates on public.issue_updates
 --   can_edit_issue() 를 쓰면 안 된다 — 그건 '이슈' 작성자 기준이라 남의 코멘트를 긋게 된다.
 --   with check 에 using 과 같은 술어를 그대로 쓰면 항상 참이라 archived_by 를 남의 uuid 로
 --   위조할 수 있다(그 컬럼이 grant 안에 있으므로).
+--   using 에 kind = 'note' 를 반드시 넣는다 — status 감사 행은 취소선을 못 긋는다는 규칙이
+--   서버 액션(issueUpdates.ts)에만 있고 여기 없으면 뚫린다. 이 파일 머리(브라우저가 anon
+--   key + 세션 쿠키로 PostgREST 를 직접 때리는 경로가 실사용 중)가 말하는 위협이 INSERT·
+--   컬럼 grant 뿐 아니라 이 UPDATE 정책에도 그대로 적용된다: status 행은 author_user_id 가
+--   상태를 바꾼 그 사용자라 using 의 첫 항을 그대로 만족하므로, kind 를 안 걸면 자기 감사
+--   기록을 앱을 거치지 않고 지울 수 있다.
 create policy update_issue_updates on public.issue_updates
   for update to authenticated
-  using (author_user_id = auth.uid() or public.is_project_admin(project_id))
+  using ((author_user_id = auth.uid() or public.is_project_admin(project_id))
+         and kind = 'note')
   with check (
     num_nonnulls(archived_at, archived_by, archived_by_name) = 0
     or (archived_at is not null and archived_by = auth.uid())
