@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { UserPlus, Pencil, Trash2, Mail, UserCog, UserRound, AlertTriangle, Users, Unlink, Info, ArrowUpRight } from 'lucide-react'
@@ -10,6 +10,7 @@ import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { teamStyle } from '@/components/wbs/shared'
 import { addMember, updateMember, removeMember } from '@/app/actions/members'
+import { searchMemberCandidates, type MemberCandidate } from '@/app/actions/memberSearch'
 import { isValidEmail } from '@/lib/domain/validate'
 import type { ProjectMember, ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
@@ -302,6 +303,20 @@ function MemberFormModal({
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
+  // ── 이름 자동완성(추가 모드 전용) ──────────────────────────────
+  // 이메일이 사람의 전역 키라서 기존 인물은 기존 이름 그대로 입력해야만 저장된다.
+  // 타이핑한 이름으로 로스터 후보를 찾아 선택하면 폼을 채우고 이름·이메일을 잠가
+  // "같은 사람, 다른 표기"로 서버에 거부당하는 함정을 없앤다. 수정 모드는 기존 동작
+  // 유지(이름 변경엔 슈퍼유저 제약이 따로 있다).
+  const [locked, setLocked] = useState(false)
+  const [candidates, setCandidates] = useState<MemberCandidate[]>([])
+  const [acOpen, setAcOpen] = useState(false)
+  // 문구는 렌더 시 t()로 뽑는다 — t 를 effect 의존성에 넣지 않기 위한 boolean.
+  const [acError, setAcError] = useState(false)
+  const [activeIdx, setActiveIdx] = useState(-1)
+  // 응답 역전 방지 — 마지막 요청만 반영한다.
+  const acSeq = useRef(0)
+
   useEffect(() => {
     if (!open) return
     setName(initial?.name ?? '')
@@ -311,7 +326,98 @@ function MemberFormModal({
     setTitle(initial?.title ?? '')
     setRoleLabel(initial?.roleLabel ?? '')
     setError(null)
+    setLocked(false)
+    setCandidates((prev) => (prev.length ? [] : prev))
+    setAcOpen(false)
+    setAcError(false)
+    setActiveIdx(-1)
+    acSeq.current++
   }, [open, initial])
+
+  useEffect(() => {
+    if (isEdit || !open || locked) return
+    const q = name.trim()
+    if (q.length < 2) {
+      acSeq.current++
+      // 동일 참조 유지 — 빈 배열을 매번 새로 만들면 렌더 루프가 된다.
+      setCandidates((prev) => (prev.length ? [] : prev))
+      setAcOpen(false)
+      setAcError(false)
+      setActiveIdx(-1)
+      return
+    }
+    const timer = setTimeout(() => {
+      const seq = ++acSeq.current
+      const fail = (cause: unknown) => {
+        if (seq !== acSeq.current) return
+        // 조회 실패를 "후보 없음"으로 위장하지 않는다 — 표시 = 로깅.
+        console.error('[members] 이름 후보 검색 실패:', cause)
+        setAcError(true)
+        setCandidates((prev) => (prev.length ? [] : prev))
+        setAcOpen(false)
+        setActiveIdx(-1)
+      }
+      searchMemberCandidates(projectId, q)
+        .then((res) => {
+          if (seq !== acSeq.current) return
+          if (!res.ok) {
+            fail(res.error)
+            return
+          }
+          const list = res.candidates ?? []
+          setAcError(false)
+          setCandidates(list)
+          setAcOpen(list.length > 0)
+          setActiveIdx(-1)
+        })
+        .catch(fail)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [name, isEdit, open, locked, projectId])
+
+  function selectCandidate(c: MemberCandidate) {
+    acSeq.current++ // 진행 중인 응답 무효화
+    setName(c.name)
+    setEmail(c.email ?? '')
+    setTeamCode(c.teamCode ?? '')
+    setTitle(c.title ?? '')
+    setRoleLabel(c.roleLabel ?? '')
+    setLocked(true)
+    setCandidates((prev) => (prev.length ? [] : prev))
+    setAcOpen(false)
+    setAcError(false)
+    setActiveIdx(-1)
+  }
+
+  function unlockManual() {
+    setLocked(false)
+    setName('')
+    setEmail('')
+  }
+
+  function onNameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (isEdit || locked) return
+    if (e.key === 'Escape') {
+      // 드롭다운이 열려 있으면 모달(document keydown)까지 닫히지 않게 여기서 흡수한다.
+      if (acOpen) {
+        e.stopPropagation()
+        setAcOpen(false)
+        setActiveIdx(-1)
+      }
+      return
+    }
+    if (!acOpen || candidates.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIdx((i) => (i + 1) % candidates.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIdx((i) => (i <= 0 ? candidates.length - 1 : i - 1))
+    } else if (e.key === 'Enter' && activeIdx >= 0) {
+      e.preventDefault()
+      selectCandidate(candidates[activeIdx])
+    }
+  }
 
   function submit() {
     if (!name.trim()) {
@@ -361,30 +467,89 @@ function MemberFormModal({
       }
     >
       <div className="space-y-4">
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldName')}</span>
-          <input
-            className="app-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t('members.phName')}
-            autoFocus
-          />
-        </label>
+        <div className="relative">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldName')}</span>
+            <input
+              className="app-input read-only:bg-surface-2 read-only:text-ink-muted"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={onNameKeyDown}
+              onBlur={() => { setAcOpen(false); setActiveIdx(-1) }}
+              placeholder={t('members.phName')}
+              autoFocus
+              readOnly={locked}
+              {...(!isEdit
+                ? {
+                    role: 'combobox' as const,
+                    'aria-expanded': acOpen,
+                    'aria-controls': 'member-ac-listbox',
+                    'aria-autocomplete': 'list' as const,
+                    'aria-activedescendant': activeIdx >= 0 ? `member-ac-option-${activeIdx}` : undefined,
+                  }
+                : {})}
+            />
+          </label>
+          {/* 상태 변형 display 유틸 금지(unlayered 안전망) — 표시/숨김은 조건부 렌더링으로. */}
+          {!isEdit && acOpen && candidates.length > 0 && (
+            <ul
+              id="member-ac-listbox"
+              role="listbox"
+              aria-label={t('members.acListboxLabel')}
+              className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-xl border border-line bg-surface py-1 shadow-[var(--shadow-md)]"
+              onMouseDown={(e) => e.preventDefault()} // blur 로 닫히기 전에 클릭이 씹히지 않게
+            >
+              {candidates.map((c, i) => (
+                <li
+                  key={`${c.name}|${c.email ?? ''}`}
+                  id={`member-ac-option-${i}`}
+                  role="option"
+                  aria-selected={i === activeIdx}
+                  className={`flex cursor-pointer flex-col gap-0.5 px-3 py-2 ${i === activeIdx ? 'bg-brand-weak' : 'hover:bg-surface-2'}`}
+                  onMouseEnter={() => setActiveIdx(i)}
+                  onClick={() => selectCandidate(c)}
+                >
+                  <span className="flex items-baseline gap-1.5 text-sm">
+                    <span className="font-semibold text-ink">{c.name}</span>
+                    {c.title && <span className="truncate text-xs text-ink-muted">{c.title}</span>}
+                  </span>
+                  <span className="text-xs text-ink-subtle">{c.email ?? t('members.noEmail')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!isEdit && acError && (
+            <p className="mt-1.5 text-[11px] leading-4 text-delayed">{t('members.acSearchError')}</p>
+          )}
+        </div>
 
         <label className="block">
           <span className="mb-1.5 block text-xs font-semibold text-ink-muted">{t('members.fieldEmail')}</span>
           <input
-            className="app-input"
+            className="app-input read-only:bg-surface-2 read-only:text-ink-muted"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder={t('members.phEmail')}
+            readOnly={locked}
           />
           <span className="mt-1.5 block text-[11px] leading-4 text-ink-subtle">
             {t('members.identityHint')}
           </span>
         </label>
+
+        {locked && (
+          <div className="flex items-start justify-between gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+            <span className="text-[11px] leading-4 text-ink-muted">{t('members.acLockedNotice')}</span>
+            <button
+              type="button"
+              onClick={unlockManual}
+              className="shrink-0 text-[11px] font-semibold text-brand hover:underline"
+            >
+              {t('members.acManualSwitch')}
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
