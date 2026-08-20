@@ -296,7 +296,10 @@ function MobileMenu({
         { href: `/p/${menuProjectId}/announcements`, label: t('nav.announcements'), badge: unreadAnn },
         { href: `/p/${menuProjectId}/meetings`, label: t('nav.meetings') },
         { href: `/p/${menuProjectId}/weekly`, label: t('nav.weekly') },
-        { href: `/p/${menuProjectId}/settings`, label: t('nav.settings') },
+        // 설정은 프로젝트 관리자 전용(2026-08-20) — 데스크톱 사이드바와 같은 판정
+        ...(projects.find(p => p.id === menuProjectId)?.isAdmin
+          ? [{ href: `/p/${menuProjectId}/settings`, label: t('nav.settings') }]
+          : []),
       ]
     : []
   return (

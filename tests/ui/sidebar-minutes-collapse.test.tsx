@@ -25,7 +25,6 @@ describe('Sidebar 회의록 메뉴', () => {
   let root: Root
 
   beforeEach(() => {
-    localStorage.clear()
     queueUiPref.mockClear()
     // 공지 배지 등 셸 상태는 ShellStateProvider 가 /api/shell GET 1회로 채운다 — 고정 payload 스텁.
     vi.stubGlobal('fetch', vi.fn(async () => ({
@@ -48,7 +47,9 @@ describe('Sidebar 회의록 메뉴', () => {
     vi.unstubAllGlobals()
   })
 
-  it('회의록 메뉴를 클릭하면 사이드바를 접고 설정을 저장한다', async () => {
+  // 종전에는 회의록 진입이 사이드바를 강제로 접고 서버 설정까지 저장했다(f7960cc 에서 제거).
+  // 사용자 의도 없는 상태 변경 금지 — 이 테스트는 그 회귀를 막는다.
+  it('회의록 메뉴를 클릭해도 사이드바를 접거나 설정을 저장하지 않는다', async () => {
     await act(async () => root.render(
       <ProjectNavigationProvider projects={[]}>
         <ShellStateProvider>
@@ -63,8 +64,7 @@ describe('Sidebar 회의록 메뉴', () => {
 
     act(() => minutesLink!.click())
 
-    expect(localStorage.getItem('dflow-sidebar')).toBe('1')
-    expect(queueUiPref).toHaveBeenCalledWith({ sidebarCollapsed: true })
-    expect(container.querySelector('aside')?.className ?? '').toContain('w-[78px]')
+    expect(queueUiPref).not.toHaveBeenCalled()
+    expect(container.querySelector('aside')?.className ?? '').toContain('w-[248px]')
   })
 })
