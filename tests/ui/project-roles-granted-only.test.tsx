@@ -138,8 +138,21 @@ describe('ProjectRolesManager 참여자·권한 통합 표', () => {
     expect(labels[0]).toContain('조회최')
   })
 
-  it('명단 행이 있는 참여자는 연필 버튼으로 명단 편집 모달을 연다', async () => {
+  it('리스트 뷰는 셀 인라인 편집 — 연필 없음, 팀·구분 셀렉트와 직함·역할 입력이 있다', async () => {
     await render()
+
+    expect(container.querySelector('button[aria-label="관리자김 명단 정보 수정"]')).toBeNull()
+    expect(container.querySelector('select[aria-label="관리자김 프로젝트 팀"]')).not.toBeNull()
+    expect(container.querySelector('select[aria-label="관리자김 명단 구분"]')).not.toBeNull()
+    expect(container.querySelector('input[aria-label="관리자김 직함"]')).not.toBeNull()
+    expect(container.querySelector('input[aria-label="관리자김 역할"]')).not.toBeNull()
+  })
+
+  it('카드 뷰에서는 연필 버튼으로 명단 편집 모달을 연다', async () => {
+    await render()
+
+    const cardToggle = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === '카드')!
+    await act(async () => cardToggle.click())
 
     const editBtn = container.querySelector<HTMLButtonElement>('button[aria-label="관리자김 명단 정보 수정"]')!
     await act(async () => editBtn.click())

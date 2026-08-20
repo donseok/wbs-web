@@ -165,6 +165,7 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   const [rosterWarning, setRosterWarning] = useState('')
   const [editing, setEditing] = useState<ProjectRoleRow | null>(null)
   const [view, setView] = useState<'list' | 'card'>('list')
+  const teamCodes = useTeamCodes()
   const [, startTransition] = useTransition()
 
   // 표시 대상: 역할 보유자 + 슈퍼유저 + 명단 등재자(계정 없는 legacy 포함 — 여기가 유일한 노출처).
@@ -224,6 +225,45 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
         }
       } catch {
         setAddError('요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.')
+      } finally {
+        setSavingId(null)
+      }
+    })
+  }
+
+  // 리스트 뷰 셀 인라인 저장 — 연필 모달을 거치지 않는다(2026-08-20 피드백).
+  // 명단 행이 없는 계정은 먼저 행을 만든 뒤 나머지 필드를 현재 행 값으로 보존하며 patch 만 반영한다.
+  function saveRosterPatch(
+    row: ProjectRoleRow,
+    patch: Partial<{ teamCode: TeamCode | null; rosterRole: ProjectMemberRole; title: string | null; roleLabel: string | null }>,
+  ) {
+    const rowKey = row.userId ?? row.memberId ?? row.email ?? ''
+    setErrors(prev => ({ ...prev, [rowKey]: '' }))
+    setSavingId(rowKey)
+    startTransition(async () => {
+      try {
+        let memberId = row.memberId
+        if (!memberId) {
+          if (!row.userId) return
+          const ensured = await ensureRosterRow(projectId, row.userId)
+          if (!ensured.ok) {
+            setErrors(prev => ({ ...prev, [rowKey]: ensured.error }))
+            return
+          }
+          memberId = ensured.memberId
+        }
+        const res = await updateMember(memberId, {
+          name: row.name ?? '',
+          email: row.email ?? null,
+          teamCode: patch.teamCode !== undefined ? patch.teamCode : ((row.teamCode as TeamCode | null) ?? null),
+          role: patch.rosterRole ?? row.rosterRole ?? 'contributor',
+          title: patch.title !== undefined ? patch.title : row.title,
+          roleLabel: patch.roleLabel !== undefined ? patch.roleLabel : row.roleLabel,
+        })
+        if (!res.ok) setErrors(prev => ({ ...prev, [rowKey]: res.error ?? '저장 실패' }))
+        else router.refresh()
+      } catch {
+        setErrors(prev => ({ ...prev, [rowKey]: '요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하세요.' }))
       } finally {
         setSavingId(null)
       }
@@ -317,16 +357,16 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
           </div>
           {view === 'list' && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-xs font-semibold uppercase tracking-wide text-ink-subtle">
                   <th className="py-2 pr-3">이름</th>
                   <th className="py-2 pr-3">이메일</th>
                   <th className="py-2 pr-3">프로젝트 팀</th>
                   <th className="py-2 pr-3">명단 구분</th>
-                  <th className="py-2 pr-3">직함 / 역할</th>
+                  <th className="py-2 pr-3">직함</th>
+                  <th className="py-2 pr-3">역할</th>
                   <th className="py-2 pr-3">권한</th>
-                  <th className="py-2 pr-1" aria-label="편집" />
                 </tr>
               </thead>
               <tbody>
@@ -339,6 +379,8 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
                 )}
                 {granted.map(row => {
                   const rowKey = row.userId ?? row.memberId ?? row.email ?? ''
+                  const editable = row.memberId != null || row.userId != null
+                  const busy = savingId === rowKey
                   return (
                     <tr key={rowKey} className="border-b border-line/60 align-top">
                       <td className="py-2.5 pr-3 font-medium text-ink">
@@ -353,20 +395,69 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
                       </td>
                       <td className="py-2.5 pr-3 text-ink-muted">{row.email ?? '—'}</td>
                       <td className="py-2.5 pr-3">
-                        {row.teamCode
-                          ? <span className="chip bg-surface-2 text-ink-muted">{row.teamCode}</span>
-                          : row.orgTeamCode
-                            ? <span className="text-xs text-ink-subtle" title="프로젝트 팀 미지정 — 실제 소속팀 표시">({row.orgTeamCode})</span>
-                            : <span className="text-ink-subtle">—</span>}
+                        {editable ? (
+                          <select
+                            className="app-input h-8 w-auto text-xs"
+                            aria-label={`${row.name ?? row.email ?? '참여자'} 프로젝트 팀`}
+                            value={(row.teamCode as string | null) ?? ''}
+                            disabled={busy}
+                            title={!row.teamCode && row.orgTeamCode ? `프로젝트 팀 미지정 — 실제 소속팀 ${row.orgTeamCode}` : undefined}
+                            onChange={e => saveRosterPatch(row, { teamCode: (e.target.value || null) as TeamCode | null })}
+                          >
+                            <option value="">{row.orgTeamCode ? `소속 없음 (${row.orgTeamCode})` : '소속 없음'}</option>
+                            {teamCodes.map(code => <option key={code} value={code}>{code}</option>)}
+                          </select>
+                        ) : <span className="text-ink-subtle">—</span>}
                       </td>
-                      <td className="py-2.5 pr-3 text-xs text-ink-muted">
-                        {row.memberId ? (row.rosterRole === 'admin' ? '리더' : '실무') : '—'}
+                      <td className="py-2.5 pr-3">
+                        {editable ? (
+                          <select
+                            className="app-input h-8 w-auto text-xs"
+                            aria-label={`${row.name ?? row.email ?? '참여자'} 명단 구분`}
+                            value={row.rosterRole ?? 'contributor'}
+                            disabled={busy}
+                            onChange={e => saveRosterPatch(row, { rosterRole: e.target.value as ProjectMemberRole })}
+                          >
+                            <option value="admin">리더</option>
+                            <option value="contributor">실무</option>
+                          </select>
+                        ) : <span className="text-ink-subtle">—</span>}
                       </td>
-                      <td className="py-2.5 pr-3 text-xs text-ink-muted">
-                        {row.title ?? '—'}{row.roleLabel ? ` · ${row.roleLabel}` : ''}
+                      <td className="py-2.5 pr-3">
+                        {editable ? (
+                          <input
+                            key={`${rowKey}-title-${row.title ?? ''}`}
+                            className="app-input h-8 w-28 text-xs"
+                            aria-label={`${row.name ?? row.email ?? '참여자'} 직함`}
+                            defaultValue={row.title ?? ''}
+                            placeholder="직함"
+                            disabled={busy}
+                            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                            onBlur={e => {
+                              const v = e.target.value.trim() || null
+                              if (v !== (row.title ?? null)) saveRosterPatch(row, { title: v })
+                            }}
+                          />
+                        ) : <span className="text-ink-subtle">—</span>}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {editable ? (
+                          <input
+                            key={`${rowKey}-rolelabel-${row.roleLabel ?? ''}`}
+                            className="app-input h-8 w-28 text-xs"
+                            aria-label={`${row.name ?? row.email ?? '참여자'} 역할`}
+                            defaultValue={row.roleLabel ?? ''}
+                            placeholder="역할"
+                            disabled={busy}
+                            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                            onBlur={e => {
+                              const v = e.target.value.trim() || null
+                              if (v !== (row.roleLabel ?? null)) saveRosterPatch(row, { roleLabel: v })
+                            }}
+                          />
+                        ) : <span className="text-ink-subtle">—</span>}
                       </td>
                       <td className="py-2.5 pr-3">{roleControl(row, rowKey)}</td>
-                      <td className="py-2.5 pr-1 text-right">{editButton(row)}</td>
                     </tr>
                   )
                 })}
@@ -460,8 +551,8 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
           </div>
           <p className="text-xs leading-5 text-ink-subtle">
             역할 보유자·명단 등재자·슈퍼유저가 표시됩니다. 그 외 계정은 조회 전용이며 위 콤보로 권한을 부여할 수 있습니다.
-            권한을 조회(해제)로 바꾸면 권한이 삭제되고, 명단 정보(프로젝트 팀·구분·직함)는 연필 버튼으로 수정합니다.
-            관리자 지정·해제는 슈퍼유저만 할 수 있습니다.
+            권한을 조회(해제)로 바꾸면 권한이 삭제됩니다. 명단 정보(프로젝트 팀·구분·직함·역할)는 리스트에서 셀을 직접
+            수정하고, 카드에서는 연필 버튼을 씁니다. 명단 삭제는 카드의 연필 모달에 있습니다. 관리자 지정·해제는 슈퍼유저만 할 수 있습니다.
           </p>
           <RosterEditModal
             projectId={projectId}
