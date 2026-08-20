@@ -137,7 +137,7 @@ export function MembersBoard({
         <p className="text-xs leading-5 text-ink-muted">{t('members.rosterNotice')}</p>
         {canEdit && (
           <Link
-            href={`/p/${projectId}/settings`}
+            href="#project-roles-section"
             className="inline-flex items-center gap-0.5 text-xs font-semibold text-brand hover:underline"
           >
             {t('members.rosterNoticeLink')}

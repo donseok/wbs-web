@@ -13,8 +13,8 @@ export const membersKo = {
   'members.boardTitle': '팀 보드',
   'members.unitPeople': '명',
   // 명단/권한 구분 안내 — 이 화면의 '리더'는 직책이지 권한이 아니다(설정 › 권한이 권한 창구).
-  'members.rosterNotice': '여기는 참여 인력 명단입니다 (근태·회의 참석자 기준). 로그인 권한은 설정 › 권한에서 관리합니다.',
-  'members.rosterNoticeLink': '설정 › 권한 열기',
+  'members.rosterNotice': '여기는 참여 인력 명단입니다 (근태·회의 참석자 기준). 로그인 권한은 이 페이지 아래 권한 섹션에서 관리합니다.',
+  'members.rosterNoticeLink': '권한 섹션으로 이동',
   'members.addMember': '멤버 추가',
   'members.emptyTitle': '아직 등록된 멤버가 없습니다',
   'members.emptyDesc': '멤버를 추가해 역할과 소속이 명확한 팀 보드를 구성하세요.',
