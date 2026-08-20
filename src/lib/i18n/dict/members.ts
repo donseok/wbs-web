@@ -43,6 +43,12 @@ export const membersKo = {
   'members.noTeamOption': '소속 없음',
   'members.saving': '저장 중…',
   'members.saveChanges': '변경 저장',
+  // 이름 자동완성(추가 모드 전용) — 이메일이 전역 키라 기존 인물은 기존 이름 그대로여야 저장된다.
+  // 후보 선택 시 이름·이메일을 잠가 "같은 사람, 다른 표기" 서버 거부 함정을 없앤다.
+  'members.acListboxLabel': '기존 인물 후보',
+  'members.acLockedNotice': '기존 인물 정보로 채웠습니다. 이름·이메일은 잠겨 있습니다.',
+  'members.acManualSwitch': '직접 입력으로 전환',
+  'members.acSearchError': '후보 검색에 실패했습니다.',
   'members.errNameRequired': '이름을 입력하세요.',
   'members.errEmailInvalid': '올바른 이메일 형식이 아닙니다. (예: name@company.com)',
   'members.errSaveFailed': '저장에 실패했습니다.',
