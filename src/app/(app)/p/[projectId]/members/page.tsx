@@ -10,7 +10,6 @@ import { listProjectInvites } from '@/app/actions/projectInvites'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
-import { MembersBoard } from '@/components/members/MembersBoard'
 import { ProjectRolesManager } from '@/components/settings/ProjectRolesManager'
 import { ProjectInviteManager } from '@/components/settings/ProjectInviteManager'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
@@ -58,18 +57,18 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
       />}
     >
       <div className="space-y-4">
-        <MembersBoard members={members} canEdit={canEdit} projectId={projectId} />
+        {/* 카드 보드는 2026-08-20 통합에서 은퇴 — 명단 정보(팀·구분·직함)까지 아래 표에서 직접 편집한다. */}
         {canEdit && (
           <div id="project-roles-section">
           <SectionCard
-            eyebrow="AUTHORIZATION"
-            title={locale === 'ko' ? '권한' : 'Roles'}
+            eyebrow="TEAM & AUTHORIZATION"
+            title={locale === 'ko' ? '참여자 · 권한' : 'Participants & Roles'}
             icon={Shield}
           >
             <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
               {locale === 'ko'
-                ? '로그인 계정의 이 프로젝트 권한입니다. 권한을 주면 위 명단에도 자동으로 추가되고, 역할을 조회(해제)로 바꾸면 권한이 삭제됩니다.'
-                : 'Project permissions for login accounts. Granting a role also adds the person to the roster above; setting the role to Viewer removes the permission.'}
+                ? '이 프로젝트의 참여자 명단과 로그인 권한을 한 곳에서 관리합니다. 권한을 주면 명단에 자동 등록되고, 프로젝트 팀·명단 구분·직함은 각 행의 연필 버튼으로 수정합니다.'
+                : 'Manage the participant roster and login permissions in one place. Granting a role also registers the person on the roster; edit project team, roster type, and title via the pencil button on each row.'}
             </p>
             {roles && (roles.ok ? (
               <ProjectRolesManager
@@ -89,6 +88,49 @@ export default async function MembersPage({ params }: { params: Promise<{ projec
             </div>
           </SectionCard>
           </div>
+        )}
+        {/* 비관리자 — 권한 조회는 관리자 전용이라 읽기 전용 명단만 보여준다(조회 실패 위장 아님, 권한 게이트). */}
+        {!canEdit && (
+          <SectionCard
+            eyebrow="TEAM"
+            title={locale === 'ko' ? '참여자 명단' : 'Participants'}
+            icon={Users}
+          >
+            {members.length === 0 ? (
+              <p className="text-sm text-ink-subtle">{t(locale, 'members.emptyTitle')}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead>
+                    <tr className="border-b border-line text-left text-xs font-semibold uppercase tracking-wide text-ink-subtle">
+                      <th className="py-2 pr-3">{locale === 'ko' ? '이름' : 'Name'}</th>
+                      <th className="py-2 pr-3">{locale === 'ko' ? '이메일' : 'Email'}</th>
+                      <th className="py-2 pr-3">{locale === 'ko' ? '프로젝트 팀' : 'Project team'}</th>
+                      <th className="py-2 pr-3">{locale === 'ko' ? '명단 구분' : 'Type'}</th>
+                      <th className="py-2 pr-3">{locale === 'ko' ? '직함 / 역할' : 'Title / Role'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {members.map(mem => (
+                      <tr key={mem.id} className="border-b border-line/60">
+                        <td className="py-2.5 pr-3 font-medium text-ink">{mem.name}</td>
+                        <td className="py-2.5 pr-3 text-ink-muted">{mem.email ?? '—'}</td>
+                        <td className="py-2.5 pr-3">
+                          {mem.teamCode ? <span className="chip bg-surface-2 text-ink-muted">{mem.teamCode}</span> : <span className="text-ink-subtle">—</span>}
+                        </td>
+                        <td className="py-2.5 pr-3 text-xs text-ink-muted">
+                          {mem.role === 'admin' ? (locale === 'ko' ? '리더' : 'Lead') : (locale === 'ko' ? '실무' : 'Contributor')}
+                        </td>
+                        <td className="py-2.5 pr-3 text-xs text-ink-muted">
+                          {mem.title ?? '—'}{mem.roleLabel ? ` · ${mem.roleLabel}` : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
         )}
       </div>
     </ProjectPageShell>

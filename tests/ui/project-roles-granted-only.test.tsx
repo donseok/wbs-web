@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-// 권한 표는 역할 보유자·슈퍼유저만 나열한다 — 전 계정을 '조회'로 깔면
-// "모두가 프로젝트에 들어와 있다"로 읽힌다(2026-08-20 오독 사례).
+// 권한 표는 역할 보유자·명단 등재자·슈퍼유저를 나열한다 — 전 계정을 '조회'로 깔면
+// "모두가 프로젝트에 들어와 있다"로 읽힌다(2026-08-20 오독 사례). 카드 보드 은퇴 후
+// 계정 없는 legacy 명단 행도 이 표가 유일한 노출처다.
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,17 +17,26 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/app/actions/projectRoles', () => ({
   setProjectRole: (...args: unknown[]) => setProjectRole(...args as []),
 }))
+vi.mock('@/app/actions/members', () => ({
+  updateMember: vi.fn(async () => ({ ok: true })),
+  removeMember: vi.fn(async () => ({ ok: true })),
+}))
+vi.mock('@/components/app/TeamsProvider', () => ({
+  useTeamCodes: () => ['PMO', 'MES'],
+}))
 
 import { ProjectRolesManager } from '@/components/settings/ProjectRolesManager'
 
+const base = { orgTeamCode: null, memberId: null, rosterRole: null, title: null, roleLabel: null }
 const ROWS: ProjectRoleRow[] = [
-  { userId: 'admin1', email: 'admin@example.com', name: '관리자김', teamCode: 'PMO', role: 'admin', isSuperuser: false },
-  { userId: 'member1', email: 'member@example.com', name: '멤버이', teamCode: 'MES', role: 'member', isSuperuser: false },
-  { userId: 'su1', email: 'su@example.com', name: '슈퍼박', teamCode: 'PMO', role: 'viewer', isSuperuser: true },
-  { userId: 'viewer1', email: 'viewer@example.com', name: '조회최', teamCode: 'ERP', role: 'viewer', isSuperuser: false },
+  { ...base, userId: 'admin1', email: 'admin@example.com', name: '관리자김', teamCode: 'PMO', role: 'admin', isSuperuser: false, memberId: 'pm-1', rosterRole: 'admin', title: 'PM' },
+  { ...base, userId: 'member1', email: 'member@example.com', name: '멤버이', teamCode: 'MES', role: 'member', isSuperuser: false, memberId: 'pm-2', rosterRole: 'contributor' },
+  { ...base, userId: 'su1', email: 'su@example.com', name: '슈퍼박', teamCode: 'PMO', role: 'viewer', isSuperuser: true },
+  { ...base, userId: 'viewer1', email: 'viewer@example.com', name: '조회최', teamCode: 'ERP', role: 'viewer', isSuperuser: false },
+  { ...base, userId: null, email: null, name: '외부홍', teamCode: 'MES', role: 'viewer', isSuperuser: false, memberId: 'pm-9', rosterRole: 'contributor', title: '협력사' },
 ]
 
-describe('ProjectRolesManager 역할 보유자만 표시', () => {
+describe('ProjectRolesManager 참여자·권한 통합 표', () => {
   let container: HTMLDivElement
   let root: Root
 
@@ -46,35 +56,39 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
     container.remove()
   })
 
-  async function renderExpanded() {
+  async function render() {
     await act(async () => root.render(
       <ProjectRolesManager projectId="p1" rows={ROWS} canManageAdmins />,
     ))
-    const toggle = container.querySelector<HTMLButtonElement>('button[aria-controls="project-roles-table"]')!
-    await act(async () => toggle.click())
-    return toggle
   }
 
-  it('역할 없는 계정은 표에서 빠지고, 슈퍼유저는 역할 없이도 항상 노출된다', async () => {
-    const toggle = await renderExpanded()
+  it('기본 펼침 — 역할 보유자·명단 등재자·슈퍼유저가 보이고 무관 계정은 빠진다', async () => {
+    await render()
 
-    // 접힘 버튼에 보유자 수(관리자1·멤버1·슈퍼유저1 = 3명)가 보인다.
-    await act(async () => toggle.click())
-    expect(toggle.textContent).toContain('(3명)')
-    await act(async () => toggle.click())
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-controls="project-roles-table"]')!
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
 
     const table = container.querySelector('#project-roles-table table')!
     expect(table.textContent).toContain('관리자김')
     expect(table.textContent).toContain('멤버이')
     expect(table.textContent).toContain('슈퍼박')
-    expect(table.textContent).not.toContain('조회최')
+    expect(table.textContent).toContain('외부홍')       // 계정 없는 legacy 명단 행
+    expect(table.textContent).not.toContain('조회최')   // 역할·명단 둘 다 없음 → 콤보 후보로만
 
-    // 역할 행 없는 슈퍼유저는 셀렉트 대신 전권 표시 — '조회' 셀렉트는 오독을 되살린다.
+    // 역할 행 없는 슈퍼유저는 셀렉트 대신 전권 표시, 계정 없는 행은 '계정 없음'.
     expect(table.textContent).toContain('전권 (슈퍼유저)')
+    expect(table.textContent).toContain('계정 없음')
+    // 명단 필드가 표에 노출된다.
+    expect(table.textContent).toContain('리더')
+    expect(table.textContent).toContain('PM')
+
+    // 접으면 보유자 수가 라벨에 보인다(관리자1·멤버1·슈퍼1·legacy1 = 4명).
+    await act(async () => toggle.click())
+    expect(toggle.textContent).toContain('(4명)')
   })
 
-  it('역할 없는 계정은 검색 콤보에만 나타나고, 선택 후 추가하면 setProjectRole 이 호출된다', async () => {
-    await renderExpanded()
+  it('역할·명단 없는 계정만 검색 콤보 후보이고, 선택 후 추가하면 setProjectRole 이 호출된다', async () => {
+    await render()
 
     const picker = container.querySelector<HTMLInputElement>('input[aria-label="권한을 줄 계정"]')!
     await act(async () => {
@@ -85,7 +99,7 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
     const labels = [...listbox.querySelectorAll('[role="option"]')].map(o => o.textContent ?? '')
     expect(labels.some(t => t.includes('조회최'))).toBe(true)
     expect(labels.some(t => t.includes('관리자김'))).toBe(false)
-    expect(labels.some(t => t.includes('슈퍼박'))).toBe(false)
+    expect(labels.some(t => t.includes('외부홍'))).toBe(false)
 
     const target = [...listbox.querySelectorAll<HTMLElement>('[role="option"]')]
       .find(o => (o.textContent ?? '').includes('조회최'))!
@@ -94,13 +108,12 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
     })
     const addBtn = [...container.querySelectorAll('button')].find(b => b.textContent === '추가')!
     expect(addBtn.disabled).toBe(false)
-    // 명단 동기화는 서버 기본 동작(항상) — 클라이언트는 opts 를 넘기지 않는다.
     await act(async () => addBtn.click())
     expect(setProjectRole).toHaveBeenCalledWith('p1', 'viewer1', 'member')
   })
 
   it('검색어는 이름·이메일·팀 어느 것으로든 옵션을 거른다', async () => {
-    await renderExpanded()
+    await render()
 
     const picker = container.querySelector<HTMLInputElement>('input[aria-label="권한을 줄 계정"]')!
     await act(async () => {
@@ -122,5 +135,15 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
     const labels = [...container.querySelectorAll('[role="option"]')].map(o => o.textContent ?? '')
     expect(labels).toHaveLength(1)
     expect(labels[0]).toContain('조회최')
+  })
+
+  it('명단 행이 있는 참여자는 연필 버튼으로 명단 편집 모달을 연다', async () => {
+    await render()
+
+    const editBtn = container.querySelector<HTMLButtonElement>('button[aria-label="관리자김 명단 정보 수정"]')!
+    await act(async () => editBtn.click())
+    expect(document.body.textContent).toContain('관리자김 — 명단 정보')
+    expect(document.body.textContent).toContain('프로젝트 팀')
+    expect(document.body.textContent).toContain('명단 구분')
   })
 })
