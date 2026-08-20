@@ -57,10 +57,66 @@ export async function listProjectRoles(
   return { ok: true, rows }
 }
 
+type AdminClient = ReturnType<typeof createAdminClient>
+
+/**
+ * 권한을 받은 계정을 팀 구성 명단(project_members)에도 올린다 — 권한과 명단이
+ * 별개 테이블이라 "권한 줬는데 팀 구성에 안 보인다"는 혼란이 반복됐다(2026-08-20).
+ * 이미 명단에 있으면 조용히 성공(멱등). 이름은 0070 정본(identities)을 계정
+ * 표시명보다 우선해 이메일 정합 충돌을 피한다. user_id 연결은 0019 트리거도
+ * 보강하지만 여기서 직접 넣어 의존을 줄인다.
+ */
+async function addAccountToRoster(
+  admin: AdminClient, projectId: string, userId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data: existing, error: exErr } = await admin
+    .from('project_members').select('id')
+    .eq('project_id', projectId).eq('user_id', userId).maybeSingle()
+  if (exErr) return { ok: false, error: '명단 조회에 실패해 추가를 중단했습니다: ' + exErr.message }
+  if (existing) return { ok: true }
+
+  const { data: got, error: userErr } = await admin.auth.admin.getUserById(userId)
+  if (userErr || !got?.user?.email) {
+    return { ok: false, error: '계정 정보를 확인할 수 없어 명단 추가를 중단했습니다.' }
+  }
+  const email = got.user.email.trim().toLowerCase()
+  const fullName = (got.user.user_metadata?.full_name as string | undefined)?.trim() || null
+
+  // 0070: 같은 이메일은 전 프로젝트에서 같은 이름이어야 한다 — 정본이 있으면 그 이름을 쓴다.
+  const { data: identity, error: idErr } = await admin
+    .from('project_member_identities').select('name').eq('email', email).maybeSingle()
+  if (idErr) return { ok: false, error: '멤버 기준정보를 확인할 수 없어 명단 추가를 중단했습니다.' }
+  const name = identity?.name ?? fullName ?? email
+
+  // 소속 팀: 전역 memberships 의 팀 코드를 프로젝트 스코프 팀으로 재해석(0071 규칙과 동일).
+  let teamId: string | null = null
+  const { data: mem } = await admin
+    .from('memberships').select('teams(code)').eq('user_id', userId).maybeSingle()
+  const teamCode = (mem?.teams as unknown as { code: string } | null)?.code ?? null
+  if (teamCode) {
+    const { data: teams } = await admin.from('teams')
+      .select('id, project_id').eq('code', teamCode)
+      .or(`project_id.eq.${projectId},project_id.is.null`)
+    const rows = (teams ?? []) as Array<{ id: string; project_id: string | null }>
+    teamId = (rows.find(r => r.project_id !== null) ?? rows[0])?.id ?? null
+  }
+
+  const { error: insErr } = await admin.from('project_members').insert({
+    project_id: projectId, name, email, team_id: teamId, role: 'contributor', user_id: userId,
+  })
+  if (insErr) {
+    if (insErr.code === '23505') return { ok: true } // 동시 쓰기로 이미 등록됨 — 멱등 성공
+    return { ok: false, error: '명단 추가에 실패했습니다: ' + insErr.message }
+  }
+  revalidatePath(`/p/${projectId}/members`)
+  return { ok: true }
+}
+
 /** 관리자 슬롯은 슈퍼유저만 조작한다 — 관리자가 관리자를 늘리면 지금의 28명 상황이 재현된다. */
 export async function setProjectRole(
   projectId: string, userId: string, role: AccountRole,
-): Promise<{ ok: boolean; error?: string }> {
+  opts?: { addToRoster?: boolean },
+): Promise<{ ok: boolean; error?: string; rosterError?: string }> {
   const g = role === 'admin' ? await requireSuperuser() : await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
 
@@ -88,6 +144,13 @@ export async function setProjectRole(
   }
   revalidatePath(`/p/${projectId}/settings`)
   revalidatePath('/admin/accounts')
+
+  // 명단 추가는 권한 부여 뒤의 부가 작업 — 실패해도 권한 결과는 이미 확정이므로
+  // ok 는 유지하되 rosterError 로 드러낸다(조용한 실패 금지).
+  if (role !== 'viewer' && opts?.addToRoster) {
+    const roster = await addAccountToRoster(admin, projectId, userId)
+    if (!roster.ok) return { ok: true, rosterError: roster.error }
+  }
   return { ok: true }
 }
 

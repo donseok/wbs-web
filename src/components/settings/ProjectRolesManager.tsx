@@ -155,7 +155,9 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   const [expanded, setExpanded] = useState(false)
   const [addUserId, setAddUserId] = useState('')
   const [addRole, setAddRole] = useState<AccountRole>('member')
+  const [addToRoster, setAddToRoster] = useState(true)
   const [addError, setAddError] = useState('')
+  const [rosterWarning, setRosterWarning] = useState('')
   const [, startTransition] = useTransition()
 
   const granted = rows.filter(r => r.isSuperuser || r.role !== 'viewer')
@@ -184,13 +186,16 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   function add() {
     if (!addUserId) return
     setAddError('')
+    setRosterWarning('')
     setSavingId(addUserId)
     startTransition(async () => {
       try {
-        const res = await setProjectRole(projectId, addUserId, addRole)
+        const res = await setProjectRole(projectId, addUserId, addRole, { addToRoster })
         if (!res.ok) {
           setAddError(res.error ?? '추가 실패')
         } else {
+          // 권한은 부여됐지만 명단 추가만 실패한 경우 — 조용히 넘기지 않는다.
+          if (res.rosterError) setRosterWarning(res.rosterError)
           setAddUserId('')
           setAddRole('member')
           router.refresh()
@@ -313,8 +318,22 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
                 추가
               </button>
             </div>
+            <label className="mt-2 flex w-fit cursor-pointer items-center gap-1.5 text-xs text-ink-muted">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-brand"
+                checked={addToRoster}
+                onChange={(e) => setAddToRoster(e.target.checked)}
+              />
+              팀 구성 명단(project members)에도 추가
+            </label>
             {addError ? (
               <p role="alert" className="mt-2 text-xs font-medium text-delayed">{addError}</p>
+            ) : null}
+            {rosterWarning ? (
+              <p role="alert" className="mt-2 text-xs font-medium text-delayed">
+                권한은 부여됐지만 명단 추가는 실패했습니다: {rosterWarning}
+              </p>
             ) : null}
           </div>
           <p className="text-xs leading-5 text-ink-subtle">
