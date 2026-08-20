@@ -148,6 +148,7 @@ export const wbsKo = {
   'wbs.legendHintOwner': '담당 작업의 실적% 셀 클릭해 편집',
   // 행 상세 패널
   'wbs.detailSuffix': '상세',
+  'wbs.detailResize': '패널 폭 조절 — 드래그로 조정, 더블클릭으로 초기화',
   'wbs.rolePmoAdmin': 'PMO 관리자',
   'wbs.roleTeamEditor': '팀 편집자',
   'wbs.unknownActor': '알 수 없음',

@@ -138,6 +138,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.legendHintPmo': 'Click a weight or actual % cell to edit',
   'wbs.legendHintOwner': 'Click actual % on your tasks to edit',
   'wbs.detailSuffix': 'details',
+  'wbs.detailResize': 'Resize panel — drag to adjust, double-click to reset',
   'wbs.rolePmoAdmin': 'PMO admin',
   'wbs.roleTeamEditor': 'Team editor',
   'wbs.unknownActor': 'Unknown',
