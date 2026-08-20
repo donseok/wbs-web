@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { ShieldCheck, Users, UserCog, Eye } from 'lucide-react'
 import { getActorForView } from '@/lib/authz'
-import { isAnyProjectAdmin, isProjectAdmin } from '@/lib/domain/authz'
+import { isProjectAdmin } from '@/lib/domain/authz'
 import { listAccounts } from '@/app/actions/accounts'
 import { listProjects } from '@/app/actions/project'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
@@ -15,12 +15,12 @@ export default async function AccountsAdminPage({
 }: {
   searchParams: Promise<{ project?: string }>
 }) {
-  // 관리자도 계정을 만들 수 있다(설계 D7) — 슈퍼유저 전용이 아니다.
+  // 계정 관리는 슈퍼유저 전용(2026-08-20 결정 — 종전 설계 D7 '관리자 이상'을 대체).
   // getActorForView 는 권한 조회 실패를 null 로 열화한다 — 비로그인과 구분되지 않으므로
   // /projects 로 보낸다(그 화면은 권한 없이도 뜬다). /login 으로 보내면 로그인된 사용자가 튕겨 돈다.
   const actor = await getActorForView()
   if (!actor) redirect('/projects')
-  if (!isAnyProjectAdmin(actor)) redirect('/projects')
+  if (!actor.isSuperuser) redirect('/projects')
 
   const [{ project }, projects] = await Promise.all([searchParams, listProjects()])
   const projectRows = projects as { id: string; name: string }[]

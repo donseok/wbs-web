@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, Users, X,
+  Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { canManageTeams } from '@/lib/authz/teamsAccess'
@@ -220,10 +220,16 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
                     <KeyRound className="h-4 w-4" />내 계정
                   </Link>
                   {/* 어포던스 판정은 각 화면 게이트와 같은 predicate — 링크만 보이고 페이지는 거부되는 드리프트 방지 */}
-                  {(canManageTeams(identity) || canManageLlmConfig(identity)) && (
+                  {(canManageTeams(identity) || canManageLlmConfig(identity) || identity?.isSuperuser) && (
                     <>
-                      {/* 링크별로 각자의 판정을 건다 — 지금은 둘 다 슈퍼유저라 결과가 같지만,
+                      {/* 링크별로 각자의 판정을 건다 — 지금은 전부 슈퍼유저라 결과가 같지만,
                           한쪽 권한이 넓어지는 날 OR 게이트는 다른 링크까지 같이 열어버린다. */}
+                      {/* 계정 관리는 슈퍼유저 전용(2026-08-20) — 종전에는 진입 링크가 아예 없던 화면 */}
+                      {identity?.isSuperuser && (
+                        <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                          <UserCog className="h-4 w-4" />계정 관리
+                        </Link>
+                      )}
                       {canManageTeams(identity) && (
                         <Link href="/admin/teams" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                           <Users className="h-4 w-4" />팀 관리
