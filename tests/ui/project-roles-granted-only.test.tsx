@@ -16,6 +16,7 @@ vi.mock('next/navigation', () => ({
 }))
 vi.mock('@/app/actions/projectRoles', () => ({
   setProjectRole: (...args: unknown[]) => setProjectRole(...args as []),
+  ensureRosterRow: vi.fn(async () => ({ ok: true, memberId: 'pm-new' })),
 }))
 vi.mock('@/app/actions/members', () => ({
   updateMember: vi.fn(async () => ({ ok: true })),
