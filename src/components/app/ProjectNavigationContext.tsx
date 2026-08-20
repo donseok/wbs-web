@@ -37,11 +37,19 @@ type ProjectNavigationValue = {
 
 const ProjectNavigationContext = createContext<ProjectNavigationValue | null>(null)
 
-/** 프로젝트 문맥을 유지해도 되는 전역 작업 화면만 명시적으로 허용한다. */
+/**
+ * 프로젝트 문맥을 유지해도 되는 전역 화면만 명시적으로 허용한다.
+ * /projects 는 제외 — 프로젝트를 "떠나서 고르는" 홈이므로 문맥을 접는 게 의도다.
+ */
 export function isGlobalProjectBridge(pathname: string): boolean {
   return pathname === '/meetings'
     || pathname === '/minutes'
     || pathname.startsWith('/minutes/')
+    || pathname === '/account'
+    || pathname === '/usage'
+    || pathname === '/portfolio'
+    || pathname === '/admin'
+    || pathname.startsWith('/admin/')
 }
 
 function safeProjectHref(projectId: string, href: string | null | undefined): string {

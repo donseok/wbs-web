@@ -105,6 +105,11 @@ describe('ProjectNavigationContext', () => {
     '/minutes',
     '/minutes/11111111-2222-4333-8444-555555555555',
     '/meetings',
+    '/account',
+    '/usage',
+    '/portfolio',
+    '/admin/teams',
+    '/admin/llm-config',
   ])('%s에서는 마지막 프로젝트 메뉴와 복귀 경로를 유지한다', async pathname => {
     const snapshot = await renderAt(pathname)
 
