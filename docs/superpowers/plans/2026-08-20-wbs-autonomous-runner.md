@@ -12,8 +12,42 @@
 
 **스코프 밖(이 계획에서 하지 않음):** 서버 v2.3(claim 상한 RPC·release reason·work.stalled — 스펙 §6, **파일럿 실측 후 별도 계획**) · launchd 상시 기동(L1 — v2.3 이후) · C0/L0 파일럿의 실제 실행(사람 동반 운영 — Task 15가 절차서만 만든다) · MES 실 부트스트랩(스펙 §4-3 — 운영 절차) · 알림함 Realtime(0075) 구독형 즉시 트리거(상주 리스너 필요 — v2 백로그, v1은 60초 폴링으로 충분).
 
+## 전체 순서도
+
+```mermaid
+flowchart TD
+    T0["Task 0 · 구현 격리\n브랜치 feat/agent-runner-v22 + 워크트리\n(main 직행 금지)"]
+    T1["Task 1 · 계약 v2.2 동결\napi-contract.md"]
+    A["구간 A · 서버 계약 v2.2 (Task 2~10)\ndflow.sh 수선 → PAT 발급·UI → wbs:import 분리\n→ evidence 확장 → allowlist → RPC 마이그레이션(스테이징 리허설)\n→ 라우트 원자화 → 계약 2.2 승격"]
+    B["구간 B · 러너 (Task 11~14)\nconfig·락·저널 → API·proc·coder 어댑터\n→ merged-only·실패 분류·민감 경로 → 사이클+drain 조립"]
+    P["Task 15 · 파일럿 절차서·README"]
+    G{{"Task 16 · 머지 게이트"}}
+    S1["① 전체 회귀 + 스테이징 검증\n(/account·me 2.2·import 403·D-CUBE 무변화)"]
+    S2["② 운영 DB에 RPC 적용\n(DB → 코드 순서 고정)"]
+    S3["③ main 머지 → smoke:prod → mark:good"]
+    C0["C0 calibration\n일회용 프로젝트+fork · 러너 없이 수동 실측\n(한도 신호 1회 의도 재현)"]
+    L0["L0 acceptance\n--supervised · 크래시 주입 5지점 · drain 연쇄 확인"]
+    AP{{"별도 사용자 승인"}}
+    MES["실 MES 부트스트랩\n등록 → /dflow-export → import → 배정 → 기준선 실측"]
+    L1["L1 무인\nlaunchd 60초 + caffeinate (선행: 서버 v2.3 — 별도 계획)"]
+    L2["L2 (Phase 3)\n머지 감지 자동 승인 · 다개발자 · 다CLI — 별도 승인"]
+
+    T0 --> T1
+    T1 --> A
+    T1 --> B
+    A --> P
+    B --> P
+    P --> G
+    G --> S1 --> S2 --> S3
+    S3 --> C0 --> L0 --> AP --> MES --> L1 --> L2
+```
+
+구간 A(서버)와 구간 B(러너)는 Task 1의 계약 동결 이후 **병렬 진행 가능**하다 — 러너 테스트는 전부 fake 기반이라 서버 배포에 의존하지 않고, 실서버가 필요한 시점은 L0 부터다.
+
 ## Global Constraints
 
+- **전 구현은 전용 브랜치 + 격리 워크트리에서**(Task 0) — `feat/agent-runner-v22`. **main 직행 금지**, main 반영은 Task 16(스테이징 검증 통과 후)의 머지 1회뿐. 병렬 세션의 dirty 파일·PC 전역 env 전환과 격리하고, 사고 시 롤백을 "머지 커밋 revert 1개"로 만든다.
+- **prod 반영 순서 고정(DB→코드)**: 00NN RPC 운영 적용(Task 16 Step 3) → main 머지·Vercel 배포. 코드가 RPC 를 호출하므로 역순이면 completion 보고가 500 이다(0082 배포 때 확립된 교훈).
 - **마이그레이션과 코드는 별도 커밋**(pre-push G1). `git add -A` 금지 — 모든 커밋은 파일명 명시. (러너가 MES 전용 워크트리 안에서 쓰는 `git add -A`는 이 규칙과 무관 — wbs-web 리포 커밋 규칙이다.)
 - 마이그레이션 번호 **`00NN` = 착수 시점 `ls supabase/migrations | sort | tail -4`로 실측한 다음 빈 번호**(2026-08-20 기준 0089). 문서·테스트는 번호를 하드코딩하지 않고 glob 로 찾는다. `_rollback.sql` 동반, 적용은 `docs/runbook-staging.md` 절차(staging 리허설 → `Staging-verified` 트레일러 → prod). `supabase db push` 금지.
 - **기존 테스트 초록 유지.** 단 두 곳은 계약 v2.2에 따른 **의도된 개정**: `tests/agent/depends-gate.test.ts`(approved 전용 단언 → reported|approved), `tests/agent/me-route.test.ts`(contract_version '2.1'→'2.2'). legacy v1 응답 계약은 불변.
@@ -23,6 +57,47 @@
 - 모든 spawn 은 `shell:false` + 고정 argv, 프롬프트는 stdin, coder·게이트 env 는 secret-free(스펙 §10).
 - 테스트: `npx vitest run <파일>`(단건) / 커밋 전 해당 태스크 테스트 + `npm run lint`.
 - 커밋 메시지는 한국어, "무엇"보다 "왜".
+
+## D-CUBE 무영향 근거 (구현 전 확정 — Task 16 이 최종 재확인)
+
+| 축 | 근거 |
+|---|---|
+| 데이터 | D-CUBE 는 `agent_projects` **미등록** — 에이전트 전 라우트(claim·report·mine·import)가 `requireAgentProject` 404 로 차단됨을 코드 실측으로 확인. 등록 금지는 스펙 §1 불변식 |
+| stage·실적 | 전이는 `transitionStage`·신규 RPC 모두 **dev_workflow=true 에서만** 동작 — D-CUBE 항목은 전부 false(0082 default). 실적(actual_pct)은 이 계획에서 쓰기 경로 자체가 없음(승인 경로 불변) |
+| 스키마 | 이 계획의 마이그레이션은 **신규 함수 1개(additive)** — 기존 테이블·행·정책 무변경, rollback 동반 |
+| 러너 | wbs-web 프로덕션 번들 무접촉(`docs/` 경로), 실행 무대는 **MES 리포의 전용 워크트리뿐** — wbs-web·D-CUBE 리포/데이터에 물리적 접근 없음 |
+| 잔여 표면 | `/account` UI·i18n(전 사용자 화면)과 서버 배포 자체가 남는 유일한 공유 표면 → **Task 0 브랜치 격리 + Task 16 스테이징 눈확인(D-CUBE 화면 무변화 포함)·smoke:prod·mark:good** 로 헤징 |
+
+---
+
+### Task 0: 구현 격리 — 브랜치·워크트리 (리스크 헤징)
+
+**Files:** 없음(리포 상태만 변경)
+
+**Interfaces:**
+- Consumes: 없음(첫 태스크)
+- Produces: 이후 전 태스크(1~15)가 커밋할 브랜치 `feat/agent-runner-v22` 와 격리 워크트리 `../wbs-web-runner`. 사고 시 main 은 단 한 번도 오염되지 않는다.
+
+- [ ] **Step 1: 최신 main 기준 격리 워크트리 생성**
+
+```bash
+git -C /Users/jerry/wbs-web fetch origin
+git -C /Users/jerry/wbs-web worktree add ../wbs-web-runner -b feat/agent-runner-v22 origin/main
+cd /Users/jerry/wbs-web-runner && npm install   # core.hooksPath 자동 설치 — pre-push G1~G4 가 브랜치에서도 동작
+```
+
+- [ ] **Step 2: 원격 백업 브랜치 개설**
+
+```bash
+git push -u origin feat/agent-runner-v22
+```
+
+- [ ] **Step 3: 격리 확인**
+
+Run: `git worktree list && git -C /Users/jerry/wbs-web-runner branch --show-current`
+Expected: 새 워크트리가 목록에 있고 브랜치가 `feat/agent-runner-v22`. **이후 Task 1~15의 모든 편집·테스트·커밋은 이 워크트리 안에서 실행한다** — main 워크트리(병렬 세션)와 파일이 섞이지 않는다.
+
+주의: `npm run env:staging`/`env:prod` 는 파일 교체라 **PC 전역(모든 워크트리)에 영향**을 준다. 이 계획의 태스크는 로컬 DB 접속이 필요 없고, 마이그레이션 적용은 runbook 절차(Task 8 스테이징 / Task 16 prod)로만 한다.
 
 ---
 
@@ -871,7 +946,7 @@ commit;
 
 - [ ] **Step 5: 스테이징 리허설**
 
-`docs/runbook-staging.md` 절차대로: `npm run staging:sync` → pending 확인 → `npm run db:apply -- supabase/migrations/00NN_agent_report_completion.sql --target staging` → 스테이징에서 `select proname from pg_proc where proname='agent_report_completion';` 1행 확인.
+`docs/runbook-staging.md` 절차대로: `npm run staging:sync` → pending 확인 → `npm run db:apply -- supabase/migrations/00NN_agent_report_completion.sql --target staging` → 스테이징에서 `select proname from pg_proc where proname='agent_report_completion';` 1행 확인. **운영 적용은 여기서 하지 않는다 — Task 16 Step 3(머지 게이트)에서.**
 
 - [ ] **Step 6: 마이그레이션 단독 커밋(G1 — 테스트 파일은 Task 9 커밋에)**
 
@@ -2334,8 +2409,57 @@ git commit -m "docs(runner): C0/L0 파일럿 절차서(PAT 체계 개정·크래
 
 ---
 
+### Task 16: 통합 검증 → 스테이징 경유 머지 → 운영 배포 (리스크 헤징 게이트)
+
+**Files:** 없음(검증·머지·배포 절차)
+
+**Interfaces:**
+- Consumes: Task 0~15 전부(`feat/agent-runner-v22` 완성 상태)
+- Produces: main 반영·운영 배포·`mark:good`. **D-CUBE 무영향의 최종 재확인 지점이며, main 이 이 계획을 만나는 유일한 순간.**
+
+- [ ] **Step 1: 브랜치 전체 회귀**
+
+Run: `npm run test && npm run lint`
+Expected: 전체 초록(기존 4,700+ 포함). D-CUBE 보호 불변식 재확인:
+`npx vitest run tests/agent/ensure-order.test.ts tests/migrations/wbs-stage-workflow.test.ts` — dev_workflow=false 무간섭·agent_projects 게이트.
+
+- [ ] **Step 2: origin/main back-merge → 스테이징 검증**
+
+```bash
+git fetch origin && git merge origin/main      # 병렬 세션 커밋 흡수(충돌은 여기서 해소)
+git push origin feat/agent-runner-v22
+git switch staging && git pull && git merge feat/agent-runner-v22 && git push origin staging
+```
+
+dflow-staging.vercel.app 눈확인 4건: ① `/account` PAT 발급 UI(쓰기 스코프는 관리자에게만·프로젝트 필수·30일 상한) ② `GET /api/v1/agent/me` 의 contract_version 2.2 ③ work:report 토큰으로 import 호출 시 403 insufficient_scope ④ **D-CUBE 항목 화면 무변화**(WBS·간트·대시보드 훑기 — 스테이징 DB 기준).
+
+- [ ] **Step 3: 운영 DB 에 00NN RPC 적용 (코드 배포보다 먼저 — Global Constraints 순서 고정)**
+
+runbook-staging.md 의 prod 단계: `npm run db:apply -- supabase/migrations/00NN_agent_report_completion.sql --target prod`
+검증: `select proname from pg_proc where proname='agent_report_completion';` 1행. (스테이징 리허설·`Staging-verified` 트레일러는 Task 8 완료분)
+
+- [ ] **Step 4: main 머지·배포·스모크**
+
+```bash
+git switch main && git pull && git merge feat/agent-runner-v22 && git push origin main
+npm run smoke:prod
+```
+
+운영 확인 3건: `/account` 발급 화면 · 기존 v1 agent API 응답(레거시 계약 불변) · **D-CUBE 화면 정상**.
+
+- [ ] **Step 5: known-good 태그 + 워크트리 정리**
+
+```bash
+npm run mark:good
+git worktree remove /Users/jerry/wbs-web-runner && git branch -d feat/agent-runner-v22
+```
+
+**롤백 좌표(사고 시 — 순서 엄수)**: ① **코드 먼저** — main 의 머지 커밋 revert 1개(브랜치 단일 머지라 한 방에 전체 회수) ② 그 다음 필요 시 `00NN_agent_report_completion_rollback.sql`(코드 revert 전에 RPC 를 drop 하면 라우트가 500 — rollback 파일 머리 주석과 동일 규칙) ③ 복귀 좌표는 직전 `good-*` 태그.
+
+---
+
 ## Self-Review 기록
 
-1. **스펙 커버리지**: §4-1(Task 3·4·5) · §4-2(Task 1·2·6·13) · §4-3(Task 15 절차 — 실행은 스코프 밖) · §4-4(Task 2·10·14 preflight) · §5(Task 6·7·8·9·10) · §3·§7(Task 11~14) · §8(Task 14 notifyLocal·--report) · §9(Task 15) · §10(Task 12·13·14) · §11(각 태스크 테스트 + Task 14 통합). §6(v2.3)·launchd(L1)·실 부트스트랩은 계획 서두에 스코프 밖으로 명시 — 파일럿 실측 후 별도 계획.
+1. **스펙 커버리지**: §4-1(Task 3·4·5) · §4-2(Task 1·2·6·13) · §4-3(Task 15 절차 — 실행은 스코프 밖) · §4-4(Task 2·10·14 preflight) · §5(Task 6·7·8·9·10) · §3·§7(Task 11~14) · §8(Task 14 notifyLocal·--report) · §9(Task 15) · §10(Task 12·13·14) · §11(각 태스크 테스트 + Task 14 통합 + Task 16 회귀·롤백 좌표). §6(v2.3)·launchd(L1)·실 부트스트랩은 계획 서두에 스코프 밖으로 명시 — 파일럿 실측 후 별도 계획. **리스크 헤징**(2026-08-20 사용자 요청): Task 0(브랜치·워크트리 격리)과 Task 16(스테이징 경유 머지 게이트) + D-CUBE 무영향 근거표.
 2. **플레이스홀더**: `00NN`은 Global Constraints 에 정의된 실측 파라미터(스펙이 번호 하드코딩을 금지). Task 5 Step 1 의 케이스 골격과 Task 15 문서 목차는 "전문 작성" 지시+구성 요소 열거로 실행 가능 수준. 그 외 TBD 없음.
 3. **타입 일관성**: `DependInfo`(Task 6) ↔ `evaluateDepends` 입력(Task 13) ↔ dflow.sh jq 필드(Task 2) = `head_sha·pr_url·external_ref·stage` 일치. RPC 반환 키(Task 8) ↔ 라우트 소비(Task 9) 일치. `runCoder` 시그니처(Task 12) ↔ cycle 호출(Task 14) 일치. `runDrain`(Task 14 정의) ↔ 엔트리 소비 일치 — 기본 drain·`--once` 제한. exit code 의미는 dflow.sh(0/2/3/4/5/6/7)와 러너(0/1/2/4/6)가 다름 — 러너 README(Task 15)에 별도 표로 명시. 운영 시나리오 6단계(스펙 §3) ↔ 계획 매핑: ①②=기존 웹 발행 축(서버 무변경) · ③=폴링 60초(Task 15 지침) · ④⑤=Task 14 사이클 · ⑥=runDrain.
