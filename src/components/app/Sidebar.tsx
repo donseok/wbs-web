@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  ArrowLeft, BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -67,7 +67,6 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
     menuProjectId,
     menuProject,
     isGlobalBridge,
-    returnHref,
   } = useProjectNavigation()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -187,12 +186,7 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
 
       {/* 전역: 회의록 */}
       <Tooltip label={t('nav.minutes')} side="right" disabled={!collapsed}>
-        <Link href="/minutes" onClick={() => {
-          // 회의록은 본문 작업 영역을 넓게 쓰는 화면이므로 진입과 동시에 사이드바를 접는다.
-          // 사용자 선택으로 발생한 변경이므로 다음 세션에도 유지되도록 서버 설정도 갱신한다.
-          dispatchSidebarToggle(true)
-          queueUiPref({ sidebarCollapsed: true })
-        }} aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
+        <Link href="/minutes" aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
           className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
           <NotebookText className="h-[18px] w-[18px] shrink-0" />
           {!collapsed && <span className="flex-1">{t('nav.minutes')}</span>}
@@ -217,21 +211,6 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
           <div className="space-y-1">
             {menuProjectId ? (
               <>
-                {isGlobalBridge && menuProject && returnHref && (
-                  <Tooltip label={`${menuProject.name}로 돌아가기`} side="right" disabled={!collapsed}>
-                    <Link
-                      href={returnHref}
-                      className={`side-link mb-2 border border-sidebar-line bg-sidebar-2/70 ${collapsed ? 'justify-center px-0' : ''}`}
-                    >
-                      <ArrowLeft className="h-[18px] w-[18px] shrink-0" />
-                      {!collapsed && (
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[12px] font-semibold">{menuProject.name}로 돌아가기</span>
-                        </span>
-                      )}
-                    </Link>
-                  </Tooltip>
-                )}
                 {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio).map(item => {
                   const active = pathname === item.match || pathname.startsWith(item.match + '/')
                   const ItemIcon = item.icon

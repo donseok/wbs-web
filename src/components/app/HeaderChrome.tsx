@@ -268,8 +268,8 @@ function MobileMenu({
 }: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; identity: HeaderIdentity | null; displayName: string | null }) {
   const router = useRouter()
   const { t } = useLocale()
-  const { routeProjectId, menuProjectId, menuProject, isGlobalBridge, returnHref } = useProjectNavigation()
-  // 최근 메뉴 문맥은 아래 복귀 링크/하위 메뉴로 유지하되, 콤보는 실제 URL 프로젝트만
+  const { routeProjectId, menuProjectId, menuProject } = useProjectNavigation()
+  // 최근 메뉴 문맥은 아래 하위 메뉴로 유지하되, 콤보는 실제 URL 프로젝트만
   // 선택한다. 그래야 전역 화면에서 최근 프로젝트 자체를 골라도 change가 발생한다.
   const selectedProjectId = routeProjectId ?? ''
 
@@ -312,19 +312,6 @@ function MobileMenu({
           {/* 사이드바는 hidden lg:flex 라 lg 미만에서는 여기가 /usage 의 유일한 진입점이다 — 슈퍼유저 전용 */}
           {identity?.showUsage && (
             <Link href="/usage" onClick={onClose} aria-current={pathname === '/usage' ? 'page' : undefined} className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''}`}>{t('nav.usage')}</Link>
-          )}
-          {isGlobalBridge && menuProject && returnHref && (
-            <Link
-              href={returnHref}
-              onClick={onClose}
-              className="mx-1 mt-3 flex items-center gap-2 rounded-xl border border-sidebar-line bg-sidebar-2 px-3 py-2.5 text-sidebar-ink transition hover:border-sidebar-ink-subtle"
-            >
-              <ChevronRight className="h-4 w-4 shrink-0 rotate-180 text-sidebar-ink-muted" />
-              <span className="min-w-0">
-                <span className="block text-[10px] font-medium text-sidebar-ink-muted">프로젝트로 돌아가기</span>
-                <span className="block truncate text-[13px] font-semibold">{menuProject.name}</span>
-              </span>
-            </Link>
           )}
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>
           <div className="mx-1">

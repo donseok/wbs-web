@@ -115,7 +115,6 @@ describe('HeaderChrome 브레드크럼', () => {
       <ProjectNavigationProvider
         projects={visibleProjects}
         initialLastProjectId={initialLastProjectId}
-        initialLastProjectHref={initialLastProjectId ? `/p/${initialLastProjectId}/dashboard` : null}
       >
         <ShellStateProvider>
           <HeaderChrome identity={null} projects={visibleProjects} />
@@ -144,7 +143,7 @@ describe('HeaderChrome 브레드크럼', () => {
     expect(globalBreadcrumb!.textContent).toContain(label)
   })
 
-  it('모바일 회의록 메뉴에서도 최근 프로젝트 하위 메뉴와 복귀 링크를 유지한다', async () => {
+  it('모바일 회의록 메뉴에서도 최근 프로젝트 하위 메뉴를 유지한다', async () => {
     await renderAt('/minutes')
 
     const openButton = container.querySelector<HTMLButtonElement>('button[aria-label="메뉴 열기"]')
@@ -154,7 +153,8 @@ describe('HeaderChrome 브레드크럼', () => {
     const menu = container.querySelector<HTMLElement>('[role="dialog"][aria-label="모바일 메뉴"]')
     expect(menu).not.toBeNull()
     expect(menu!.textContent).toContain('D-CUBE 프로젝트')
-    expect(menu!.textContent).toContain('프로젝트로 돌아가기')
+    // 돌아가기 링크는 제거됐다(2026-08-20) — 하위 메뉴가 복귀 수단이다.
+    expect(menu!.textContent).not.toContain('프로젝트로 돌아가기')
 
     const projectSelect = menu!.querySelector<HTMLSelectElement>('select[aria-label="프로젝트 선택"]')
     expect(projectSelect?.value).toBe('')

@@ -120,7 +120,6 @@ describe('HeaderChrome 벨 통합', () => {
       <ProjectNavigationProvider
         projects={projects}
         initialLastProjectId="p1"
-        initialLastProjectHref="/p/p1/dashboard"
       >
         <ShellStateProvider>
           <HeaderChrome identity={null} projects={projects} />

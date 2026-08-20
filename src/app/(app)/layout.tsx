@@ -78,7 +78,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <ProjectNavigationProvider
           projects={projectLinks}
           initialLastProjectId={prefs.lastProjectId}
-          initialLastProjectHref={prefs.lastProjectHref}
         >
           <ShellStateProvider>
           <div className="app-backdrop flex h-dvh overflow-hidden">
