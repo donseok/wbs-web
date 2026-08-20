@@ -4,13 +4,13 @@
 
 **Goal:** D'Flow WBS 물량을 로컬 PC 러너가 수령→워크트리 개발→PR→완료 보고→다음 물량으로 계속 처리하는 자율 루프의 v1(서버 계약 v2.2 + 단발 실행형 러너 + C0/L0 파일럿 준비)을 구현한다.
 
-**Architecture:** 서버(wbs-web)는 계약 v2.2 세트(PAT 발급 확장·wbs:import 스코프 분리·depends_evidence reported|approved·completion 원자화 RPC·URL host allowlist)만 최소 변경하고, 러너는 `docs/agent/claude-skill/dflow-work/scripts/runner/`의 순수 ESM 모듈(전부 의존성 주입, fake로 회귀 가능)로 만든 **단발 실행형**(1회 기동 = 최대 1건)이다. 선행 정책은 **merged-only**(open PR 스태킹 없음), 실패 시 **release+에스컬레이션**이 사이클의 필수 종단이다.
+**Architecture:** 서버(wbs-web)는 계약 v2.2 세트(PAT 발급 확장·wbs:import 스코프 분리·depends_evidence reported|approved·completion 원자화 RPC·URL host allowlist)만 최소 변경하고, 러너는 `docs/agent/claude-skill/dflow-work/scripts/runner/`의 순수 ESM 모듈(전부 의존성 주입, fake로 회귀 가능)로 만든 **단발 실행형**(run-to-completion — 기동당 처리 가능 물량이 빌 때까지 건 단위 사이클을 연쇄(drain)하고 종료, `--once`로 1건 제한)이다. 트리거는 폴링(launchd StartInterval 60초 권고 — Vercel 서버리스는 로컬 push 불가, 웹 "작업 시작"(배정·발행) 후 체감 ≤1분 착수)이다. 선행 정책은 **merged-only**(open PR 스태킹 없음), 실패 시 **release+에스컬레이션**이 사이클의 필수 종단이다.
 
 **Tech Stack:** Next.js 15 route handlers + Supabase(Postgres RPC) · vitest · Node 순수 ESM(.mjs, 외부 npm 의존성 0) · claude CLI · gh CLI · POSIX sh(dflow.sh)
 
 **Spec:** `docs/superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md` (개정 1 — 이 계획의 §참조는 전부 이 스펙)
 
-**스코프 밖(이 계획에서 하지 않음):** 서버 v2.3(claim 상한 RPC·release reason·work.stalled — 스펙 §6, **파일럿 실측 후 별도 계획**) · launchd 상시 기동(L1 — v2.3 이후) · C0/L0 파일럿의 실제 실행(사람 동반 운영 — Task 15가 절차서만 만든다) · MES 실 부트스트랩(스펙 §4-3 — 운영 절차).
+**스코프 밖(이 계획에서 하지 않음):** 서버 v2.3(claim 상한 RPC·release reason·work.stalled — 스펙 §6, **파일럿 실측 후 별도 계획**) · launchd 상시 기동(L1 — v2.3 이후) · C0/L0 파일럿의 실제 실행(사람 동반 운영 — Task 15가 절차서만 만든다) · MES 실 부트스트랩(스펙 §4-3 — 운영 절차) · 알림함 Realtime(0075) 구독형 즉시 트리거(상주 리스너 필요 — v2 백로그, v1은 60초 폴링으로 충분).
 
 ## Global Constraints
 
@@ -1758,8 +1758,9 @@ git commit -m "feat(runner): 판정 계층 — merged-only 선행 표·실패 3�
 - Consumes: Task 11~13 전 모듈 · 서버 v2.2(Task 1~10)
 - Produces:
   - `reconcileStartup({api, journal, gitops, config}) → { resumed: boolean, escalations: string[] }` — 시작 시 **내 claimed 복구 → reported 대사 → (호출부가) ready 신규 선택** 순서(스펙 §3-3)
-  - `runCycle(deps) → { outcome: 'done'|'no_work'|'wait'|'env_backoff'|'escalated'|'failed', detail: string }` — 1회 = 최대 1건
-  - CLI: `node dflow-runner.mjs --config <path> [--supervised] [--report]` — exit 0(done/no_work) · 2(config) · 3(인증) · 4(대기) · 6(환경)
+  - `runCycle(deps) → { outcome: 'done'|'no_work'|'wait'|'env_backoff'|'escalated'|'failed', detail: string }` — 1건 처리
+  - `runDrain(deps, { once? }) → { outcomes: string[], last }` — **기본 실행**: done 이 이어지는 동안 runCycle 을 연쇄, done 아닌 순간 종료(운영 시나리오 ⑥ "자동으로 다음 할 일" — 스펙 §3 운영 시나리오)
+  - CLI: `node dflow-runner.mjs --config <path> [--once] [--supervised] [--report]` — exit 0(done/no_work) · 2(config) · 3(인증) · 4(대기) · 6(환경)
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -1938,6 +1939,27 @@ describe('runCycle — 정상 경로와 종단', () => {
     const r = await runCycle(deps)
     expect(r.outcome).toBe('wait')
     expect(deps.api.claim).not.toHaveBeenCalled()
+  })
+})
+
+describe('runDrain — 운영 시나리오 ⑥ 자동 연쇄', () => {
+  it('done 이 이어지는 동안 같은 기동에서 연속 처리하고 no_work 에서 멈춘다', async () => {
+    const { deps } = makeDeps()
+    let assignedCall = 0
+    const queues = [[ORDER], [{ ...ORDER, id: 'o2' }], []]
+    deps.api.mine = vi.fn(async (scope) => scope === 'claimed'
+      ? { status: 200, body: { claimed: [] } }
+      : { status: 200, body: { assigned: queues[Math.min(assignedCall++, 2)] } })
+    const { runDrain } = await import('../../docs/agent/claude-skill/dflow-work/scripts/runner/cycle.mjs')
+    const r = await runDrain(deps)
+    expect(r.outcomes).toEqual(['done', 'done', 'no_work'])
+    expect(deps.api.claim).toHaveBeenCalledTimes(2)
+  })
+  it('--once 는 1건 후 멈춘다', async () => {
+    const { deps } = makeDeps()
+    const { runDrain } = await import('../../docs/agent/claude-skill/dflow-work/scripts/runner/cycle.mjs')
+    const r = await runDrain(deps, { once: true })
+    expect(r.outcomes).toEqual(['done'])
   })
 })
 ```
@@ -2169,6 +2191,18 @@ export async function runCycle(deps) {
   // 재시도 소진 — 최종 실패는 반드시 release(§3-8: stuck-claimed 방지).
   return releaseAndExit('failed', `게이트 ${config.limits.maxAttempts}회 실패 — release·에스컬레이션`)
 }
+
+// 운영 시나리오 ⑥(스펙 §3) — 기동당 큐 소진까지 연쇄. run-to-completion 성질 유지:
+// done 이 아닌 순간(no_work·wait·env_backoff·escalated·failed) 즉시 종료하고 다음 기동에 맡긴다.
+export async function runDrain(deps, { once = false } = {}) {
+  const outcomes = []
+  let last
+  do {
+    last = await runCycle(deps)
+    outcomes.push(last.outcome)
+  } while (!once && last.outcome === 'done')
+  return { outcomes, last }
+}
 ```
 
 `runner/dflow-runner.mjs` (엔트리 — 얇게):
@@ -2185,14 +2219,14 @@ import { makeGitOps, sensitiveChanges as _s } from './gitops.mjs'
 import { makeGhOps } from './ghops.mjs'
 import { makeClaudeCoder } from './coder.mjs'
 import { runCmd, sanitizeEnv } from './proc.mjs'
-import { runCycle } from './cycle.mjs'
+import { runDrain } from './cycle.mjs'
 
 const args = process.argv.slice(2)
 const getFlag = (name) => args.includes(name)
 const getOpt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined }
 
 const configPath = getOpt('--config')
-if (!configPath) { console.error('사용법: dflow-runner.mjs --config <runner.config.json> [--supervised] [--report]'); process.exit(2) }
+if (!configPath) { console.error('사용법: dflow-runner.mjs --config <runner.config.json> [--once] [--supervised] [--report]'); process.exit(2) }
 
 let config
 try { config = loadConfig(configPath) } catch (e) { console.error(String(e.message ?? e)); process.exit(2) }
@@ -2240,11 +2274,12 @@ const deps = {
 }
 
 try {
-  const r = await runCycle(deps)
-  journal.event('cycle.end', { outcome: r.outcome, detail: r.detail })
-  console.log(`[dflow-runner] ${r.outcome}: ${r.detail}`)
+  // 기본은 drain(시나리오 ⑥ — 큐 소진까지 연쇄), --once 는 1건 제한(파일럿 L0 용).
+  const { outcomes, last } = await runDrain(deps, { once: getFlag('--once') })
+  journal.event('run.end', { outcomes, detail: last.detail })
+  console.log(`[dflow-runner] ${outcomes.join(' → ')}: ${last.detail}`)
   const codeByOutcome = { done: 0, no_work: 0, wait: 4, env_backoff: 6, escalated: 0, failed: 1 }
-  process.exit(codeByOutcome[r.outcome] ?? 1)
+  process.exit(codeByOutcome[last.outcome] ?? 1)
 } finally {
   rl?.close()
   releaseLock(config.lockPath)
@@ -2257,7 +2292,7 @@ try {
 
 ```bash
 git add docs/agent/claude-skill/dflow-work/scripts/runner/reconcile.mjs docs/agent/claude-skill/dflow-work/scripts/runner/cycle.mjs docs/agent/claude-skill/dflow-work/scripts/runner/dflow-runner.mjs tests/agent-runner/reconcile.test.mjs tests/agent-runner/cycle.test.mjs
-git commit -m "feat(runner): 사이클 조립 — 시작 reconciliation·merged-only 선택·재시도 루프·최종실패 release·409 수렴·supervised 게이트 (전 구간 fake 통합 테스트)"
+git commit -m "feat(runner): 사이클 조립 — reconciliation·merged-only 선택·재시도 루프·최종실패 release·409 수렴·drain 연쇄(시나리오 ⑥)·supervised 게이트 (전 구간 fake 통합 테스트)"
 ```
 
 ---
@@ -2275,15 +2310,18 @@ git commit -m "feat(runner): 사이클 조립 — 시작 reconciliation·merged-
 - [ ] **Step 1: runner/README.md 작성** — 다음 내용 포함(전문 작성):
 
   - 설치: 요구 도구(node 20+·git·gh 로그인·claude 로그인), `runner.config.json` 전체 필드 예시(apiBase·repoDir·worktreeRoot·gates·journalDir·lockPath·agentLabel·patKeychain·limits·allowedTools), PAT 를 키체인에 넣는 명령(`security add-generic-password -s "DFlow Runner PAT" -a mes -w '<발급받은 PAT>'`).
-  - 실행: `node dflow-runner.mjs --config runner.config.json --supervised`(C0/L0), `--report`(아침 리포트). exit code 표(0/1/2/4/6).
-  - 안전 규칙 요약: merged-only·민감 경로 거부·secret-free env·러너 가동 창에 같은 사용자의 수동 dflow.sh 병행 금지(스펙 §7).
-  - 상한이 전부 완충값이며 파일럿 후 갱신된다는 명시.
+  - 실행: `node dflow-runner.mjs --config runner.config.json --supervised`(C0/L0 — `--once` 병용), `--report`(아침 리포트). exit code 표(0/1/2/4/6). 기본 실행은 **drain**(큐 소진까지 연쇄 — 시나리오 ⑥).
+  - **운영 시나리오 여정**(스펙 §3 운영 시나리오 그대로): 웹 WBS에서 "작업 시작"(배정+dev_workflow 또는 수동 발행) → 러너 폴링 수령(체감 ≤1분) → 로컬 개발·PR → done 보고(stage im 즉시 반영) → drain 연쇄 → 실적 100%는 웹 승인 시.
+  - **러너 PC(제2 PC) 준비물 체크리스트**: node 20+ · git · MES 리포 clone · `gh auth login`(개인계정) · `claude` 로그인(동일인 Max 구독 — ToS 충족) · runtime PAT 키체인 등록 · launchd 는 L1에서(파일럿은 수동 기동).
+  - launchd 지침(L1 예고): StartInterval **60초 권고** — 폴링은 LLM 토큰 0·HTTP 2회라 저비용, Vercel 서버리스는 로컬 push 불가하므로 폴링이 유일 트리거 채널.
+  - 안전 규칙 요약: merged-only·민감 경로 거부·secret-free env·러너 가동 창에 같은 사용자의 수동 dflow.sh 병행 금지(스펙 §7 — **웹 UI 조작은 예외**: 배정·승인·반려는 러너 가동 중에도 정상).
+  - 상한이 전부 완충값이며 파일럿 후 갱신된다는 명시. **Max 20배 구독이어도 일일 호출 상한 유지**(폭주·오염 차단).
 
 - [ ] **Step 2: references/runner-pilot.md 작성** — 다음 구조로(전문 작성, 12-pilot-protocol 을 PAT·러너 체계로 개정):
 
   1. **환경**: 일회용 D'Flow 프로젝트 생성 → `agent_projects` **기간 한정 등록**(종료 시 해제 — 스펙 §1) → MES fork(secret/deploy 연동 없는) → `/dflow-export`로 시험 WBS 임포트(wbs:import PAT → 즉시 폐기) → runtime PAT 발급(work:read+claim+report, 프로젝트 고정, 30일).
   2. **C0 calibration**(러너 없이): 절차서 원본의 난이도 A/B 과제·수동 실행으로 Q1~Q5 실측. **한도 소진 1회 의도 재현** → 시그니처를 `classify.mjs` ENV_PATTERNS 에 추가.
-  3. **L0 acceptance**: `--supervised --config …`로 실과제 3~5건. **크래시 주입 5지점** — ① claim 직후(프로세스 kill → 재기동 시 release 확인) ② coder 실행 중(kill → release) ③ push 후(kill → 재기동 시 보고 재개 확인) ④ PR 생성 후(동일) ⑤ report 응답 유실(방화벽/프록시로 응답 차단 → 409 수렴 확인). 각 지점에서 저널·원장 정합 기록.
+  3. **L0 acceptance**: `--supervised --config …`로 실과제 3~5건. **크래시 주입 5지점** — ① claim 직후(프로세스 kill → 재기동 시 release 확인) ② coder 실행 중(kill → release) ③ push 후(kill → 재기동 시 보고 재개 확인) ④ PR 생성 후(동일) ⑤ report 응답 유실(방화벽/프록시로 응답 차단 → 409 수렴 확인). 각 지점에서 저널·원장 정합 기록. **+ drain 연쇄 확인**: 배정 2건을 준비하고 1회 기동으로 2건이 연속 처리(done → done → no_work)되는지, 웹에서 발행한 뒤 폴링 수령까지의 실측 지연을 기록.
   4. **측정 규칙**: 실패 게이트 0건이면 재시도 회수율 N/A · 표본 3회에는 p95 대신 max×안전계수 · GO/NO-GO 기준은 절차서 원본 값 승계(A 3/3·B 2/3·회수율 50%·중앙값 60분·음성 4종).
   5. **종료**: 실측값으로 `runner.config.json` limits 갱신 → 일회용 프로젝트 agent_projects 해제 → 실 MES origin 전환은 **별도 사용자 승인**(스펙 §9).
 
@@ -2300,4 +2338,4 @@ git commit -m "docs(runner): C0/L0 파일럿 절차서(PAT 체계 개정·크래
 
 1. **스펙 커버리지**: §4-1(Task 3·4·5) · §4-2(Task 1·2·6·13) · §4-3(Task 15 절차 — 실행은 스코프 밖) · §4-4(Task 2·10·14 preflight) · §5(Task 6·7·8·9·10) · §3·§7(Task 11~14) · §8(Task 14 notifyLocal·--report) · §9(Task 15) · §10(Task 12·13·14) · §11(각 태스크 테스트 + Task 14 통합). §6(v2.3)·launchd(L1)·실 부트스트랩은 계획 서두에 스코프 밖으로 명시 — 파일럿 실측 후 별도 계획.
 2. **플레이스홀더**: `00NN`은 Global Constraints 에 정의된 실측 파라미터(스펙이 번호 하드코딩을 금지). Task 5 Step 1 의 케이스 골격과 Task 15 문서 목차는 "전문 작성" 지시+구성 요소 열거로 실행 가능 수준. 그 외 TBD 없음.
-3. **타입 일관성**: `DependInfo`(Task 6) ↔ `evaluateDepends` 입력(Task 13) ↔ dflow.sh jq 필드(Task 2) = `head_sha·pr_url·external_ref·stage` 일치. RPC 반환 키(Task 8) ↔ 라우트 소비(Task 9) 일치. `runCoder` 시그니처(Task 12) ↔ cycle 호출(Task 14) 일치. exit code 의미는 dflow.sh(0/2/3/4/5/6/7)와 러너(0/1/2/4/6)가 다름 — 러너 README(Task 15)에 별도 표로 명시.
+3. **타입 일관성**: `DependInfo`(Task 6) ↔ `evaluateDepends` 입력(Task 13) ↔ dflow.sh jq 필드(Task 2) = `head_sha·pr_url·external_ref·stage` 일치. RPC 반환 키(Task 8) ↔ 라우트 소비(Task 9) 일치. `runCoder` 시그니처(Task 12) ↔ cycle 호출(Task 14) 일치. `runDrain`(Task 14 정의) ↔ 엔트리 소비 일치 — 기본 drain·`--once` 제한. exit code 의미는 dflow.sh(0/2/3/4/5/6/7)와 러너(0/1/2/4/6)가 다름 — 러너 README(Task 15)에 별도 표로 명시. 운영 시나리오 6단계(스펙 §3) ↔ 계획 매핑: ①②=기존 웹 발행 축(서버 무변경) · ③=폴링 60초(Task 15 지침) · ④⑤=Task 14 사이클 · ⑥=runDrain.

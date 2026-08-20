@@ -1,6 +1,6 @@
 # WBS 자율 개발 러너 — 설계 (하이브리드)
 
-작성 2026-08-20 · **개정 1**(2026-08-20 — 외부 리뷰 2건 반영) · 상태 **설계 승인(사용자)** · 구현 미착수
+작성 2026-08-20 · **개정 2**(2026-08-20 — 운영 시나리오·개인계정 인프라 반영 / 개정 1: 외부 리뷰 2건) · 상태 **설계 승인(사용자)** · 구현 미착수
 
 MES 공통개발 프로젝트를 첫 대상으로, D'Flow WBS의 물량을 로컬 PC의 개발 에이전트가
 **수령 → 워크트리 개발 → PR → 완료 보고 → 다음 물량** 루틴으로 계속 처리하는 자율 루프를 만든다.
@@ -14,6 +14,9 @@ MES 공통개발 프로젝트를 첫 대상으로, D'Flow WBS의 물량을 로�
 fail-open → fail-closed) ④ "단발형이라 저널 불필요" 단정 철회 — 제어 저널 + 시작 시
 reconciliation 필수 ⑤ completion 원자화(v2.2) ⑥ PAT 스코프 분리(wbs:import) ⑦ 보안 경계
 강화(리포 settings는 주 방어선 아님) ⑧ 파일럿 3단 분리 ⑨ 중복 기동 락 · 최종 실패 시 release 명시.
+
+**개정 2 요지** — 사용자 운영 시나리오(웹 '작업' 트리거 → 로컬 자동 연쇄, 2026-08-20)를 정본으로 반영:
+① "1회 기동 = 최대 1건" → **drain**(기동당 처리 가능 물량이 빌 때까지 건 단위 사이클 연쇄, `--once`로 제한 가능 — run-to-completion 성질은 유지) ② 트리거 = 폴링(Vercel 서버리스는 로컬 push 불가 — launchd StartInterval **60초 권고**, 폴링은 LLM 토큰 0·HTTP 2회라 저비용, 버튼→착수 체감 ≤1분; 알림함 Realtime(0075) 구독형 즉시 트리거는 상주 리스너가 필요해 v2 백로그) ③ 웹 UI 조작은 PAT 병행 금지의 예외임을 명시 ④ 인프라 정본 명시(아래).
 
 **관계 문서**
 - API 계약 정본: `docs/agent/claude-skill/dflow-work/references/api-contract.md` (v2.1 — 이 설계가 **v2.2 개정 세트**를 추가한다, §5)
@@ -38,6 +41,11 @@ reconciliation 필수 ⑤ completion 원자화(v2.2) ⑥ PAT 스코프 분리(wb
 러너는 각 사람의 로컬 PC에서 본인 구독으로만 돈다. 유료 LLM API 전제 금지.
 운영 D-CUBE 무접촉 — `agent_projects` 미등록 404가 최강 안전망이다. 등록은 **MES와 파일럿용 일회용
 프로젝트(파일럿 기간 한정, 종료 시 등록 해제)로 한정**하며 운영 D-CUBE는 절대 등록하지 않는다.
+
+**인프라 정본(2026-08-20 사용자)**: 소스 GitHub · web/WAS Vercel · DB/스토리지 Supabase Pro ·
+LLM Claude Code **Max 20배** — 전부 개인계정. 러너 PC는 **동일인의 제2 PC**로 본인 구독·본인 계정을
+쓰므로 ToS 제약(구독 프록시 금지)을 충족한다. Max 20배여도 일일 호출 상한은 유지한다
+(§7 — 상한의 목적은 한도 보호만이 아니라 폭주·오염 차단이다).
 
 ## 2. 검토 방법론과 기각 사유 (재제안 방지)
 
@@ -68,7 +76,7 @@ reconciliation 필수 ⑤ completion 원자화(v2.2) ⑥ PAT 스코프 분리(wb
 | 구성 요소 | 상태 | 역할 |
 |---|---|---|
 | D'Flow 서버 | 기존 | 주문·claim/report·stage 전이·선행 게이트·승인 UI·알림함. 변경은 §5(v2.2 — L0 전)와 §6(v2.3 — L1 전) |
-| 러너 `dflow-runner.mjs` | **신규** | 단발 실행형(run-to-completion): 1회 기동 = 최대 1건 처리 후 종료. launchd 주기 기동 + caffeinate |
+| 러너 `dflow-runner.mjs` | **신규** | 단발 실행형(run-to-completion): 1회 기동 = **처리 가능 물량이 빌 때까지 건 단위 사이클 연쇄(drain)** 후 종료(`--once`로 1건 제한). launchd 주기 기동(60초 권고) + caffeinate |
 | 워커 | 기존 CLI | `claude -p` 헤드리스 — **편집만 한다.** commit·push·PR·보고는 전부 러너 몫(§10). `runCoder(spec, worktree, limits) → {exit, log, callCount}` 어댑터 뒤에 격리 |
 | 에스컬레이션 | 기존 | 알림함(+로컬 보조 채널 §8) — 정상 경로 토큰 0, 예외만 사람 호출 |
 | MES 리포 | 기존 | 워크트리·브랜치·PR의 무대. wbs-web·D-CUBE는 런타임 무접촉 |
@@ -85,7 +93,16 @@ reconciliation 필수 ⑤ completion 원자화(v2.2) ⑥ PAT 스코프 분리(wb
 6. **안전 diff 검사**(§10 — 민감 경로 변경 거부) → 게이트(빌드·테스트·린트·diff 상한) → 실패 시 게이트 출력 피드백 재시도 ≤N.
 7. **러너가 commit** → push 확인 → PR ensure(멱등 — 기존 PR 있으면 재사용) → `done`(evidence: repo_url·base_sha·head_sha·branch·PR URL).
 8. **최종 실패 시 `release` 후 에스컬레이션** — 이 단계 없이는 주문이 claimed로 영구 잔류한다(양 리뷰가 놓쳤고 초판 스펙에도 누락됐던 단계 — 명문화). reason의 서버 전달은 v2.3(§6)에서 열린다 — **그 전에는 reason이 로컬 저널·로컬 알림(§8)에만 남는다.**
-9. 워크트리 정리 → 저널 확정 → 락 해제 → 종료.
+9. 워크트리 정리 → 저널 확정 → **다음 건으로 연쇄(drain — done 이 아닌 순간 종료)** → 락 해제 → 종료.
+
+**운영 시나리오(2026-08-20 사용자 정본)** — 위 사이클이 구현해야 하는 사용자 여정:
+① 개발자가 wbs-web 접속 → WBS 페이지에서 내 작업 확인 ② **"작업 시작" = 담당자 배정 + dev_workflow ON
+(리프는 임포트 시 자동) 또는 수동 발행** — 이 행위가 주문을 ready 로 만든다(신규 버튼 불필요 — 기존 발행
+축이 곧 트리거) ③ 러너 PC(동일인의 제2 PC)가 폴링으로 수령 — Vercel 서버리스는 로컬로 push 할 수
+없으므로 폴링이 유일 채널이고, StartInterval 60초 권고로 버튼→착수 체감 지연 ≤1분(폴링 비용: LLM 토큰
+0·HTTP 2회) ④ claim 응답의 spec 으로 로컬 개발·PR ⑤ done 보고 → stage `im` 자동 전이(WBS 화면 즉시
+반영; **실적 100% 확정은 웹 승인 시** — 비동기 감사, progress 자기보고 %는 쓰지 않는다) ⑥ **drain 이
+다음 배정 물량을 같은 기동에서 연속 처리** — "자동으로 다음 할 일 진행"의 구현.
 
 **제어 저널(필수 필드)**: run_id · order_id · 현재 phase · not_before(백오프) · coder attempt 수 ·
 일일 호출 원장 · base_sha와 선행 sha 스냅샷 · branch · worktree 경로 · Claude PGID · remote sha · PR URL.
@@ -165,7 +182,7 @@ v1의 실질 직렬화 장치는 러너의 merged-only 검증이다(§4-2). 독�
 - **실패 3분류**: ⑴ 작업 실패(게이트 — attempt 카운트) ⑵ **환경 실패**(구독 한도·네트워크·인증 — 카운터 미증가 + `not_before` 저널로 durable backoff) ⑶ 불명(즉시 에스컬레이션). 한도 신호는 **파일럿 전 1회 의도 재현**으로 실측해 매처에 등록.
 - **타임아웃**: detached 프로세스 그룹(SIGTERM→유예→SIGKILL), PGID 저널 기록, 재시도 전 워크트리 신규 생성.
 - **`done` 409 = show 재조회로 멱등 수렴**(reported/approved면 성공 확정, reported에 release 시도 금지). completion `idempotency_key`는 **보류** — 현 409 경로가 재시도 보고 행을 cleanup하고 원본 evidence를 보존함을 코드로 확인했고, 1러너에서는 reconciliation이 잔여 케이스를 덮는다. 다러너 시 재평가(Phase 3).
-- **PAT 병행 사용 금지(v1 운영 규칙)**: 점유 소유 판정이 사용자 ID 기준이라 같은 사용자의 수동 dflow.sh·제2 PAT가 러너의 주문을 release/report할 수 있다 — 러너 가동 창에는 동일 사용자의 수동 개입 금지. 서버측 `claimed_by_runner_id` 검증은 Phase 3.
+- **PAT 병행 사용 금지(v1 운영 규칙)**: 점유 소유 판정이 사용자 ID 기준이라 같은 사용자의 수동 dflow.sh·제2 PAT가 러너의 주문을 release/report할 수 있다 — 러너 가동 창에는 동일 사용자의 수동 개입 금지. 서버측 `claimed_by_runner_id` 검증은 Phase 3. **웹 UI 조작(배정·승인·반려·발행)은 세션 인증이라 이 금지와 무관** — 금지 대상은 동일 사용자의 수동 dflow.sh·제2 PAT 쓰기뿐이다(운영 시나리오 ①~②의 웹 조작은 러너 가동 중에도 정상).
 - **상한 수치는 전부 파일럿 실측 전 완충값**(절차서 가정치 기반)이다 — 재시도 N, claim 상한, 타임아웃, 일일 호출 상한에 지금 특정 숫자를 계약으로 박지 않는다. 파일럿이 그 숫자를 검증하는 게 아니라 그 숫자에 오염되는 것을 막는다(절차서 "가정치→실측" 원칙).
 - 테스트: **fake Claude/git/gh 이중화**로 러너 상태기계를 단위 검증(크래시 체크포인트 주입 포함) — 실 구독·실 리포 없이 회귀 가능해야 한다.
 
