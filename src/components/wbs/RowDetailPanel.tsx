@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
 import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, ProjectMember, TaskDependency, TeamCode } from '@/lib/domain/types'
@@ -220,10 +220,67 @@ export function RowDetailPanel({
     router.refresh()
   }
 
+  // ── 패널 폭 드래그 조절 — 명세·의존 목록이 길어 고정 448px(max-w-md)로는 좁다(2026-08-20). ──
+  // 초기 렌더는 SSR 과 동일한 기본값으로 그리고, 저장값은 마운트 후 적용(하이드레이션 파리티).
+  const DEFAULT_PANEL_WIDTH = 448
+  const MIN_PANEL_WIDTH = 360
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
+  const panelWidthRef = useRef(DEFAULT_PANEL_WIDTH)
+  useEffect(() => {
+    // localStorage 는 프라이빗 모드·일부 테스트 환경에서 없거나 던진다 — 실패는 기본 폭 유지.
+    let saved = NaN
+    try { saved = Number(window.localStorage?.getItem('wbs.detailPanelWidth')) } catch { /* 기본 폭 */ }
+    if (Number.isFinite(saved) && saved >= MIN_PANEL_WIDTH) {
+      const w = Math.min(saved, 1400)
+      panelWidthRef.current = w
+      setPanelWidth(w)
+    }
+  }, [])
+  function startResize(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const handle = e.currentTarget
+    handle.setPointerCapture(e.pointerId)
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none' // 드래그 중 본문 텍스트 선택 방지
+    const maxW = Math.min(window.innerWidth - 64, 1400)
+    const onMove = (ev: PointerEvent) => {
+      const w = Math.round(Math.min(Math.max(window.innerWidth - ev.clientX, MIN_PANEL_WIDTH), maxW))
+      panelWidthRef.current = w
+      setPanelWidth(w)
+    }
+    const onUp = () => {
+      document.body.style.userSelect = prevUserSelect
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+      try { window.localStorage?.setItem('wbs.detailPanelWidth', String(panelWidthRef.current)) } catch { /* 저장 실패는 무시 */ }
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  }
+  function resetWidth() {
+    panelWidthRef.current = DEFAULT_PANEL_WIDTH
+    setPanelWidth(DEFAULT_PANEL_WIDTH)
+    try { window.localStorage?.removeItem('wbs.detailPanelWidth') } catch { /* 무시 */ }
+  }
+
   return (
     <div className="fixed inset-0 z-[110]" role="dialog" aria-modal="true" aria-label={`${item.name} ${t('wbs.detailSuffix')}`}>
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} aria-hidden />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-surface shadow-[var(--shadow-xl)] animate-[slidein_.18s_ease-out]">
+      <aside
+        style={{ width: `min(${panelWidth}px, 100vw)` }}
+        className="absolute right-0 top-0 flex h-full flex-col bg-surface shadow-[var(--shadow-xl)] animate-[slidein_.18s_ease-out]"
+      >
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('wbs.detailResize')}
+          title={t('wbs.detailResize')}
+          onPointerDown={startResize}
+          onDoubleClick={resetWidth}
+          className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent transition-colors hover:bg-brand/40 active:bg-brand/60"
+        />
         <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
