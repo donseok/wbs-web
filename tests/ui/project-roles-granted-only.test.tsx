@@ -94,6 +94,7 @@ describe('ProjectRolesManager 역할 보유자만 표시', () => {
     })
     const addBtn = [...container.querySelectorAll('button')].find(b => b.textContent === '추가')!
     expect(addBtn.disabled).toBe(false)
+    // 명단 동기화는 서버 기본 동작(항상) — 클라이언트는 opts 를 넘기지 않는다.
     await act(async () => addBtn.click())
     expect(setProjectRole).toHaveBeenCalledWith('p1', 'viewer1', 'member')
   })

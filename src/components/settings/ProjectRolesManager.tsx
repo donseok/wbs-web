@@ -156,6 +156,7 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   const [addUserId, setAddUserId] = useState('')
   const [addRole, setAddRole] = useState<AccountRole>('member')
   const [addError, setAddError] = useState('')
+  const [rosterWarning, setRosterWarning] = useState('')
   const [, startTransition] = useTransition()
 
   const granted = rows.filter(r => r.isSuperuser || r.role !== 'viewer')
@@ -171,6 +172,10 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
           // 조용한 실패 금지 — 실패 사유를 그 행 아래 표시한다.
           setErrors(prev => ({ ...prev, [row.userId]: res.error ?? '변경 실패' }))
         } else {
+          // 역할 변경도 명단 동기화를 수반한다 — 동기화만 실패하면 그 행에 드러낸다.
+          if (res.rosterError) {
+            setErrors(prev => ({ ...prev, [row.userId]: '권한은 변경됐지만 명단 동기화는 실패했습니다: ' + res.rosterError }))
+          }
           router.refresh()
         }
       } catch {
@@ -184,6 +189,7 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
   function add() {
     if (!addUserId) return
     setAddError('')
+    setRosterWarning('')
     setSavingId(addUserId)
     startTransition(async () => {
       try {
@@ -191,6 +197,8 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
         if (!res.ok) {
           setAddError(res.error ?? '추가 실패')
         } else {
+          // 권한은 부여됐지만 명단 추가만 실패한 경우 — 조용히 넘기지 않는다.
+          if (res.rosterError) setRosterWarning(res.rosterError)
           setAddUserId('')
           setAddRole('member')
           router.refresh()
@@ -313,8 +321,16 @@ export function ProjectRolesManager({ projectId, rows, canManageAdmins }: {
                 추가
               </button>
             </div>
+            <p className="mt-2 text-xs text-ink-subtle">
+              권한을 받은 계정은 팀 구성 명단에도 자동으로 추가됩니다.
+            </p>
             {addError ? (
               <p role="alert" className="mt-2 text-xs font-medium text-delayed">{addError}</p>
+            ) : null}
+            {rosterWarning ? (
+              <p role="alert" className="mt-2 text-xs font-medium text-delayed">
+                권한은 부여됐지만 명단 추가는 실패했습니다: {rosterWarning}
+              </p>
             ) : null}
           </div>
           <p className="text-xs leading-5 text-ink-subtle">

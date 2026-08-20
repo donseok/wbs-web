@@ -39,6 +39,7 @@ export const membersEn: Record<keyof typeof membersKo, string> = {
   'members.saving': 'Saving…',
   'members.saveChanges': 'Save changes',
   'members.errNameRequired': 'Enter a name.',
+  'members.errEmailRequired': 'Enter an email. Every participant must be linked to a D\'Flow account.',
   'members.errEmailInvalid': 'Invalid email format. (e.g. name@company.com)',
   'members.errSaveFailed': 'Failed to save.',
   'members.deleteMember': 'Remove member',
