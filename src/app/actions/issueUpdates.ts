@@ -69,7 +69,10 @@ async function requireIssueMember(issueId: string): Promise<
  * "방금 쓴 body 복사"가 아니라 재계산인 이유는 셋이다.
  *   (1) 취소선·완전삭제 뒤에도 미러가 맞아야 한다. 안 그러면 화면에서 지운 문장을
  *       AI RAG(ai/index/content.ts:290)가 계속 인용한다.
- *   (2) 동시 등록 경합을 흡수한다.
+ *   (2) 재계산은 미러를 자기 교정 가능하게 만든다 — read-committed 하에서 동시 등록은
+ *       여전히 경합할 수 있다(A 의 SELECT 가 B 의 행을 놓치고 A 의 UPDATE 가 B 보다
+ *       늦게 적용되면 오래된 본문이 남는다). 그 경우도 다음 성공적인 쓰기가 다시
+ *       재계산하면서 수렴한다 — race-free 가 아니라 self-healing 이다.
  *   (3) 이력이 0건이면 빈 문자열이어야 한다 — NULL 은 0041:38 NOT NULL 위반(23502)이다.
  *
  * updated_at 을 함께 미는 것은 필수다. issues 엔 updated_at 트리거가 없고(0041:14-15),
@@ -304,6 +307,9 @@ async function loadTargetRow(
   { ok: true; kind: IssueUpdateKind; authorUserId: string | null; archivedAt: string | null }
   | { ok: false; error: string }
 > {
+  // uuid 모양을 미리 거른다 — 안 그러면 addIssueUpdate 의 멘션 id 와 같은 이유로
+  // Postgres 가 22P02 를 던지고 '권한을 확인할 수 없어 중단했습니다' 로 둔갑한다.
+  if (!UUID_RE.test(updateId)) return { ok: false, error: '이력을 찾을 수 없습니다.' }
   // issue_id 를 함께 조건에 넣는 이유: 호출자가 남의 이슈의 이력 id 를 보내도
   // 이 이슈의 권한으로 처리되지 않게 한다(게이트는 issueId 기준으로 통과했다).
   const { data, error } = await sb
@@ -344,6 +350,10 @@ export async function archiveIssueUpdate(issueId: string, updateId: string): Pro
   if (row.archivedAt !== null) return { ok: false, error: '이미 취소선 처리된 이력입니다.' }
 
   // CAS + .select() — RLS 거부·경합으로 0행이어도 supabase-js 는 error 를 주지 않는다.
+  // issue_id 도 조건에 넣는다 — purgeIssueUpdate 와 같은 이중 방어. 오늘은 issue_id 가
+  // 컬럼 grant 밖이라 이 창에서 행을 다른 이슈로 옮길 수 없지만, grant 목록이 넓어지면
+  // loadTargetRow 가 확인한 소속과 실제 UPDATE 대상이 갈릴 수 있다 — 주 방어선은
+  // loadTargetRow, 이건 심층 방어다.
   const { data: updated, error } = await sb
     .from('issue_updates')
     .update({
@@ -352,6 +362,7 @@ export async function archiveIssueUpdate(issueId: string, updateId: string): Pro
       archived_by_name: displayNameFrom(user.user_metadata, user.email) ?? NAME_FALLBACK,
     })
     .eq('id', updateId)
+    .eq('issue_id', issueId)
     .is('archived_at', null)
     .select('id')
   if (error) return { ok: false, error: error.message }
@@ -386,10 +397,12 @@ export async function unarchiveIssueUpdate(issueId: string, updateId: string): P
   if (row.archivedAt === null) return { ok: false, error: '취소선이 그어진 이력이 아닙니다.' }
 
   // 셋을 한꺼번에 NULL 로 — 0087 의 with check 가 "전부 NULL 이거나, 본인이 그은 것"만 통과시킨다.
+  // issue_id 도 조건에 넣는다 — archiveIssueUpdate 와 같은 이중 방어(purgeIssueUpdate 참조).
   const { data: updated, error } = await sb
     .from('issue_updates')
     .update({ archived_at: null, archived_by: null, archived_by_name: null })
     .eq('id', updateId)
+    .eq('issue_id', issueId)
     .not('archived_at', 'is', null)
     .select('id')
   if (error) return { ok: false, error: error.message }

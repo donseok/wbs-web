@@ -186,6 +186,47 @@ describe('IssueUpdates', () => {
     })
   })
 
+  describe('완전 삭제', () => {
+    // window.confirm 은 jsdom 에 구현돼 있지 않아 항상 falsy 를 반환한다(clickPurge 를
+    // 스파이 없이 클릭하면 핸들러가 절대 purgeIssueUpdate 를 부르지 않는다) — 그래서
+    // 이 클릭 경로는 스파이 없이는 통과하는 테스트가 있어도 실제로는 아무것도 검증하지
+    // 못한다.
+    it('확인을 수락하면 해당 이력 id 로 완전삭제를 호출한다', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      purgeIssueUpdate.mockResolvedValue({ ok: true })
+      listIssueUpdates.mockResolvedValue({ ok: true, items: [entry({ id: 'u9' })] })
+      act(() => root.render(<IssueUpdates {...BASE} isProjectAdmin />))
+      await flush()
+      click(buttonBy(container, 'issue.update.purge')!)
+      await flush()
+      expect(purgeIssueUpdate).toHaveBeenCalledWith('i1', 'u9')
+      confirmSpy.mockRestore()
+    })
+
+    it('확인을 거부하면 완전삭제를 호출하지 않는다', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      listIssueUpdates.mockResolvedValue({ ok: true, items: [entry({ id: 'u9' })] })
+      act(() => root.render(<IssueUpdates {...BASE} isProjectAdmin />))
+      await flush()
+      click(buttonBy(container, 'issue.update.purge')!)
+      await flush()
+      expect(purgeIssueUpdate).not.toHaveBeenCalled()
+      confirmSpy.mockRestore()
+    })
+
+    it('confirm 에 넘기는 문구는 번역 키다 — 한국어 리터럴을 하드코딩하지 않는다', async () => {
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      listIssueUpdates.mockResolvedValue({ ok: true, items: [entry({ id: 'u9' })] })
+      act(() => root.render(<IssueUpdates {...BASE} isProjectAdmin />))
+      await flush()
+      click(buttonBy(container, 'issue.update.purge')!)
+      // 이 화면의 useLocale mock 은 t(k) => k 다 — 번역기를 거쳤다면 키 문자열 그대로
+      // 넘어온다. 한국어 문장을 하드코딩했다면 이 값이 아니라 그 문장이 찍힌다.
+      expect(confirmSpy).toHaveBeenCalledWith('issue.update.purgeConfirm')
+      confirmSpy.mockRestore()
+    })
+  })
+
   describe('등록', () => {
     it('등록 성공 후 입력창을 비우고 목록을 다시 읽는다', async () => {
       addIssueUpdate.mockResolvedValue({ ok: true })
