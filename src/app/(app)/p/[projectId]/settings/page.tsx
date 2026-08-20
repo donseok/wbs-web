@@ -6,11 +6,7 @@ import { listProjects } from '@/app/actions/project'
 import { getLlmConfig } from '@/app/actions/llmConfig'
 import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
-import { listProjectRoles } from '@/app/actions/projectRoles'
-import { listProjectInvites } from '@/app/actions/projectInvites'
 import { projectTeamRowsSync } from '@/lib/teams/master'
-import { ProjectRolesManager } from '@/components/settings/ProjectRolesManager'
-import { ProjectInviteManager } from '@/components/settings/ProjectInviteManager'
 import { ProjectTeamsManager } from '@/components/settings/ProjectTeamsManager'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -109,18 +105,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   const isSuperuser = actor?.isSuperuser === true
   const canMutate = isAdmin
   const taskCount = wbs ? collectLeaves(wbs.items).length : '—'
-  // 위 Promise.all 에 합류시키지 않는다 — 관리자·슈퍼유저에게만 필요한 부가 정보이고,
-  // 이 조회의 실패가 페이지 본체(임포트·일정 등)를 막으면 안 된다(각자 배지 degrade·에러 객체로 흡수).
-  // 셋은 서로 독립(읽기 전용·상호 무의존)이라 직렬 3단 대신 한 단으로 병렬 실행한다.
-  const [llm, invites, roles] = await Promise.all([
-    // LLM 설정은 서버 전역이라 슈퍼유저 전용(스펙 §5)
-    isSuperuser ? llmBadge(locale) : null,
-    // 초대 목록도 관리자에게만 필요하다. 실패는 아래에서 안내로 드러낸다 —
-    // 빈 목록으로 위장하면 관리자가 같은 주소로 다시 발급하다 중복 제약에 막힌다.
-    isAdmin ? listProjectInvites(projectId) : null,
-    // 권한 목록도 관리자에게만 필요하다. 실패는 {ok:false} 로 돌아와 섹션 안에서 에러 문구로 표시된다.
-    isAdmin ? listProjectRoles(projectId) : null,
-  ])
+  // 위 Promise.all 에 합류시키지 않는다 — 슈퍼유저에게만 필요한 부가 정보이고,
+  // 이 조회의 실패가 페이지 본체(임포트·일정 등)를 막으면 안 된다(배지 degrade 로 흡수).
+  // 권한·초대 관리는 팀 구성 페이지로 이동했다(2026-08-20 화면 통합).
+  const llm = isSuperuser ? await llmBadge(locale) : null
   const projectTeamRows = projectTeamRowsSync(projectId)
 
   const scheduleLabel =
@@ -302,40 +290,23 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
           </SectionCard>
         )}
 
-      {/* ── 권한 (관리자 이상) — 관리자 슬롯은 보이되 슈퍼유저만 만질 수 있다 ── */}
+      {/* ── 권한·초대는 팀 구성 페이지로 이동(2026-08-20 화면 통합) — 길 잃지 않게 이정표만 남긴다 ── */}
         {isAdmin && (
           <SectionCard
             eyebrow="AUTHORIZATION"
             title={locale === 'ko' ? '권한' : 'Roles'}
             icon={Shield}
           >
-            {/* 명단(팀 구성)과 혼동되지 않게 한 줄로 못박는다 — 이 섹션은 로그인 계정의 권한이다. */}
-            <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
+            <p className="-mt-2 text-xs leading-5 text-ink-muted">
               {locale === 'ko'
-                ? '로그인 계정의 이 프로젝트 권한입니다. 참여 인력 명단은 팀 구성에 있습니다.'
-                : 'Project permissions for login accounts. The participant roster lives under Members.'}
+                ? '권한과 초대는 참여 인력 명단과 함께 팀 구성에서 관리합니다.'
+                : 'Roles and invites are managed under Members, together with the roster.'}
               {' '}
               <Link href={`/p/${projectId}/members`} className="font-semibold text-brand hover:underline">
                 {locale === 'ko' ? '팀 구성 열기' : 'Open Members'}
                 <ArrowUpRight className="ml-0.5 inline h-3.5 w-3.5" aria-hidden />
               </Link>
             </p>
-            {roles && (roles.ok ? (
-              <ProjectRolesManager
-                projectId={projectId}
-                rows={roles.rows}
-                canManageAdmins={isSuperuser}
-              />
-            ) : (
-              <p className="text-sm text-delayed">{roles.error}</p>
-            ))}
-            <div className="mt-6 border-t border-line pt-5">
-              <ProjectInviteManager
-                projectId={projectId}
-                rows={invites?.ok ? invites.rows : []}
-                loadError={invites && !invites.ok ? invites.error : null}
-              />
-            </div>
           </SectionCard>
         )}
 
