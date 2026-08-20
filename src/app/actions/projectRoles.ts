@@ -164,6 +164,39 @@ async function addAccountToRoster(
   return { ok: true }
 }
 
+/**
+ * 계정 보유자의 명단 행을 보장하고 id 를 돌려준다 — 자동 동기화(2026-08-20) 이전에
+ * 권한을 받은 계정은 명단 행이 없어 명단 필드를 편집할 수 없었다. 편집 진입 시
+ * 여기로 행을 만들고 updateMember 로 이어간다.
+ */
+export async function ensureRosterRow(
+  projectId: string, userId: string,
+): Promise<{ ok: true; memberId: string } | { ok: false; error: string }> {
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const admin = createAdminClient()
+
+  const ensured = await addAccountToRoster(admin, projectId, userId)
+  if (!ensured.ok) return { ok: false, error: ensured.error ?? '명단 행을 만들지 못했습니다.' }
+
+  const { data: byUser, error: findErr } = await admin
+    .from('project_members').select('id')
+    .eq('project_id', projectId).eq('user_id', userId).maybeSingle()
+  if (findErr) return { ok: false, error: '명단 행 조회에 실패했습니다: ' + findErr.message }
+  if (byUser) return { ok: true, memberId: byUser.id as string }
+
+  // 이메일로만 걸린 미연결 행(0019 이전 데이터) — user_id 대신 이메일로 찾는다.
+  const { data: got } = await admin.auth.admin.getUserById(userId)
+  const email = got?.user?.email?.trim().toLowerCase()
+  if (email) {
+    const { data: byEmail } = await admin
+      .from('project_members').select('id')
+      .eq('project_id', projectId).eq('email', email).maybeSingle()
+    if (byEmail) return { ok: true, memberId: byEmail.id as string }
+  }
+  return { ok: false, error: '명단 행을 찾지 못했습니다. 새로고침 후 다시 시도하세요.' }
+}
+
 /** 관리자 슬롯은 슈퍼유저만 조작한다 — 관리자가 관리자를 늘리면 지금의 28명 상황이 재현된다. */
 export async function setProjectRole(
   projectId: string, userId: string, role: AccountRole,
