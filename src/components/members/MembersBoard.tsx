@@ -319,7 +319,12 @@ function MemberFormModal({
       return
     }
     const trimmedEmail = email.trim()
-    // 이메일은 선택 필드 — 입력이 있을 때만 형식 검증(서버에서도 재검증하므로 이건 UX용).
+    // 신규 등록은 이메일 필수 — 명단은 D'Flow 계정 보유자만 받는다(2026-08-20 방침,
+    // 서버가 계정 존재까지 재검증). 기존 미연결 행의 수정은 막지 않는다.
+    if (!isEdit && !trimmedEmail) {
+      setError(t('members.errEmailRequired'))
+      return
+    }
     if (trimmedEmail && !isValidEmail(trimmedEmail)) {
       setError(t('members.errEmailInvalid'))
       return

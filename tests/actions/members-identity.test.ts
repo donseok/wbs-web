@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { createServerClient, requireProjectAdmin, resolveProjectId, revalidatePath } = vi.hoisted(() => ({
+const { createServerClient, createAdminClient, listAllAuthUsers, requireProjectAdmin, resolveProjectId, revalidatePath } = vi.hoisted(() => ({
   createServerClient: vi.fn(),
+  createAdminClient: vi.fn(),
+  listAllAuthUsers: vi.fn(),
   requireProjectAdmin: vi.fn(),
   resolveProjectId: vi.fn(),
   revalidatePath: vi.fn(),
@@ -10,6 +12,8 @@ const { createServerClient, requireProjectAdmin, resolveProjectId, revalidatePat
 vi.mock('next/cache', () => ({ revalidatePath }))
 vi.mock('@/lib/authz', () => ({ requireProjectAdmin, resolveProjectId }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient }))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient }))
+vi.mock('@/lib/data/accounts', () => ({ listAllAuthUsers }))
 
 import { addMember, updateMember, type MemberInput } from '@/app/actions/members'
 
@@ -68,6 +72,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   requireProjectAdmin.mockResolvedValue({ ok: true, actor: { userId: 'admin-1' } })
   resolveProjectId.mockResolvedValue({ ok: true, projectId: PROJECT_ID })
+  // 신규 명단 등록은 계정 보유자만(2026-08-20 방침) — 기본은 계정이 있는 상태.
+  listAllAuthUsers.mockResolvedValue([{ id: 'user-hong', email: 'hong@company.com', fullName: '홍길동' }])
 })
 
 describe('멤버 이메일 전역 이름 정합성', () => {
@@ -99,13 +105,40 @@ describe('멤버 이메일 전역 이름 정합성', () => {
     }))
   })
 
-  it('이메일 없는 외부 인력은 전역 정본 조회 없이 등록한다', async () => {
+  it('이메일 없는 등록은 거부한다 — 모든 참여자는 계정 연결(2026-08-20 방침)', async () => {
     const db = makeClient()
 
-    expect(await addMember(PROJECT_ID, { ...INPUT, email: null })).toEqual({ ok: true })
+    const res = await addMember(PROJECT_ID, { ...INPUT, email: null })
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('이메일을 입력하세요')
+    expect(db.insert).not.toHaveBeenCalled()
+  })
 
-    expect(db.identitySelect).not.toHaveBeenCalled()
-    expect(db.insert).toHaveBeenCalledWith(expect.objectContaining({ email: null }))
+  it('계정 없는 이메일의 등록은 계정 생성 안내와 함께 거부한다', async () => {
+    const db = makeClient()
+    listAllAuthUsers.mockResolvedValue([])
+
+    const res = await addMember(PROJECT_ID, INPUT)
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('계정이 없습니다')
+    expect(db.insert).not.toHaveBeenCalled()
+  })
+
+  it('계정 목록 조회 실패는 등록 허용으로 폴백하지 않는다(fail-closed)', async () => {
+    const db = makeClient()
+    listAllAuthUsers.mockRejectedValue(new Error('auth api down'))
+
+    const res = await addMember(PROJECT_ID, INPUT)
+    expect(res.ok).toBe(false)
+    expect(res.error).toContain('확인할 수 없어 중단')
+    expect(db.insert).not.toHaveBeenCalled()
+  })
+
+  it('등록 성공 시 계정 user_id 를 명단 행에 명시적으로 연결한다', async () => {
+    const db = makeClient()
+
+    expect(await addMember(PROJECT_ID, INPUT)).toEqual({ ok: true })
+    expect(db.insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'user-hong' }))
   })
 
   it('여러 프로젝트가 공유하는 이름 변경은 일반 관리자에게 친화 문구로 거부한다', async () => {

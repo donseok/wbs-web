@@ -1,8 +1,10 @@
 'use server'
 import { createServerClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { requireProjectAdmin, resolveProjectId } from '@/lib/authz'
 import { revalidatePath } from 'next/cache'
 import { isValidEmail } from '@/lib/domain/validate'
+import { listAllAuthUsers } from '@/lib/data/accounts'
 import type { ProjectMemberRole, TeamCode } from '@/lib/domain/types'
 
 export interface MemberInput {
@@ -27,6 +29,11 @@ const MEMBER_IDENTITY_LOOKUP_FAILED = '멤버 기준정보를 확인할 수 없�
 const MEMBER_IDENTITY_RENAME_FORBIDDEN =
   '여러 프로젝트에서 사용하는 이름은 슈퍼유저만 변경할 수 있습니다.'
 const MEMBER_UPDATE_RETRY = '다른 요청이 멤버 정보를 변경했습니다. 다시 시도해 주세요.'
+const MEMBER_EMAIL_REQUIRED =
+  '이메일을 입력하세요. 모든 참여자는 D\'Flow 계정과 연결되어야 합니다(2026-08-20 방침).'
+const MEMBER_ACCOUNT_REQUIRED =
+  '이 이메일의 D\'Flow 계정이 없습니다. 관리자 › 계정에서 먼저 계정을 만들거나, 설정 › 권한에서 계정을 추가하세요.'
+const MEMBER_ACCOUNT_LOOKUP_FAILED = '계정 존재 여부를 확인할 수 없어 중단했습니다. 잠시 후 다시 시도하세요.'
 
 /** 팀 코드 → teams.id — 프로젝트 행 우선, 전역 폴백(0071 스코프. import RPC 와 같은 규칙). */
 async function resolveTeamId(sb: ServerClient, teamCode: TeamCode | null, projectId: string): Promise<string | null> {
@@ -103,6 +110,22 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
   if (!name) return { ok: false, error: '이름을 입력하세요.' }
   if (input.email && !isValidEmail(input.email)) return { ok: false, error: '올바른 이메일 형식이 아닙니다.' }
   const email = input.email?.trim().toLowerCase() || null // 0019 trigger·0070 정본 키와 같은 정규화
+
+  // 신규 명단 등록은 D'Flow 계정 보유자만 — 외부 인력도 계정을 만든다(2026-08-20 방침).
+  // 계정 없는 명단 행은 PAT·권한·내 회의가 전부 막혀 "계정 미연결" 유령이 된다.
+  // 기존 미연결 행의 수정(updateMember)은 막지 않는다 — 이관은 점진적으로.
+  if (!email) return { ok: false, error: MEMBER_EMAIL_REQUIRED }
+  let account: { id: string } | undefined
+  try {
+    const users = await listAllAuthUsers(createAdminClient())
+    account = users.find(u => u.email.trim().toLowerCase() === email)
+  } catch (e) {
+    // fail-closed: 계정 확인 불가를 '계정 있음'으로 취급하면 방침이 조용히 뚫린다.
+    console.error('[addMember] 계정 목록 조회 실패:', e instanceof Error ? e.message : e)
+    return { ok: false, error: MEMBER_ACCOUNT_LOOKUP_FAILED }
+  }
+  if (!account) return { ok: false, error: MEMBER_ACCOUNT_REQUIRED }
+
   const sb = await createServerClient()
   const identity = await validateMemberIdentity(sb, email, name)
   if (!identity.ok) return identity
@@ -115,6 +138,7 @@ export async function addMember(projectId: string, input: MemberInput): Promise<
     role: input.role,
     title: input.title,
     role_label: input.roleLabel?.trim() || null,
+    user_id: account.id, // 0019 트리거도 연결하지만 명시해 의존을 줄인다
   })
   if (error) return { ok: false, error: memberWriteError(error) }
   revalidatePath('/p/' + projectId + '/members')
