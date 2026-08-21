@@ -1276,12 +1276,14 @@ export function WbsGanttSheet({
                 }}
               >
                 {/* phase 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트).
-                    색·두께는 사용자 피드백으로 진하고 두껍게(4px·ink-subtle) — task 1px 선과 위계. */}
+                    "~까지" 개념이라 끝나는 phase(윗쪽)의 스트립 색을 그대로 쓰고,
+                    두께도 세로 스트립과 동일한 6px — ㄴ자로 이어져 한 구획으로 읽힌다. */}
                 {isPhaseEnd && (
                   <span
                     aria-hidden
                     data-phase-end
-                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-1 bg-ink-subtle"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-1.5"
+                    style={{ backgroundColor: PHASE_BAND[(rootBandIndex.get(n.id) ?? 0) % PHASE_BAND.length] }}
                   />
                 )}
                 {/* task(2단) 가로 구분선 — 두께는 격자선 그대로(1px), 색만 진하게 */}
