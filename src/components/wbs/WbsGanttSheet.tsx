@@ -582,10 +582,31 @@ export function WbsGanttSheet({
     setProgressLensPreviewId(null)
     setProgressLensPinnedId(null)
   }
+  // 돋보기 창 드래그 이동(2026-08-21 피드백) — 기본은 하단 중앙 고정이지만 그립을 잡아
+  // 옮길 수 있다. 위치는 세션 한정이며 돋보기를 끄면 기본 위치로 돌아온다.
+  const [lensOffset, setLensOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const lensDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+  const lensDragHandleProps = {
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      e.preventDefault()
+      if (e.pointerId != null) e.currentTarget.setPointerCapture?.(e.pointerId)
+      lensDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: lensOffset.x, baseY: lensOffset.y }
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      const d = lensDragRef.current
+      if (!d) return
+      setLensOffset({ x: d.baseX + e.clientX - d.startX, y: d.baseY + e.clientY - d.startY })
+    },
+    onPointerUp: () => {
+      lensDragRef.current = null
+    },
+  }
   const toggleProgressLens = () => {
     if (progressLensEnabled) {
       clearProgressLensSelection()
       setProgressLensEnabled(false)
+      setLensOffset({ x: 0, y: 0 })
+      lensDragRef.current = null
       return
     }
     setProgressLensEnabled(true)
@@ -1728,13 +1749,18 @@ export function WbsGanttSheet({
       </div>
 
       {progressLensEnabled && (
-        <div className="pointer-events-none fixed inset-x-3 bottom-4 z-[45] flex justify-center sm:inset-x-6">
+        <div
+          data-wbs-progress-lens-wrap
+          className="pointer-events-none fixed inset-x-3 bottom-4 z-[45] flex justify-center sm:inset-x-6"
+          style={{ transform: `translate(${lensOffset.x}px, ${lensOffset.y}px)` }}
+        >
           <WbsProgressLens
             item={progressLensItem}
             parentPath={progressLensActiveId ? progressLensPathById.get(progressLensActiveId) ?? [] : []}
             pinned={!!progressLensPinnedId}
             onTogglePin={toggleProgressLensPin}
             levelLabels={levelLabels}
+            dragHandleProps={lensDragHandleProps}
           />
         </div>
       )}
