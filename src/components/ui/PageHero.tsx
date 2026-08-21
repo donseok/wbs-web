@@ -17,7 +17,8 @@ export function PageHero({
   heroKpis?: ReactNode
 }) {
   return (
-    <section className="grid gap-4">
+    // 모바일에선 숨김 — 헤더(햄버거 옆)가 프로젝트명을 대신 보여줘 세로 공간을 아낀다(2026-08-21)
+    <section className="hidden gap-4 md:grid">
       <div className="hero-glow hero-card flex flex-col px-6 py-3 sm:px-8">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">

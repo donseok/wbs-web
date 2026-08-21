@@ -931,13 +931,14 @@ export function WbsGanttSheet({
       }
     >
       {/* ── 툴바 ── */}
-      <div className="card mb-3 grid w-full min-w-0 max-w-full shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden p-2.5 sm:flex sm:flex-wrap">
+      {/* 모바일도 flex-wrap — 아이콘 버튼이 한 줄에 여럿 들어가 세로 공간을 아낀다(종전 2열 그리드는 버튼당 한 칸씩 차지) */}
+      <div data-wbs-toolbar className="card mb-3 flex w-full min-w-0 max-w-full shrink-0 flex-wrap items-center gap-2 overflow-hidden p-2.5">
         {/* 제목 글자는 툴바 가로폭을 아껴 두 줄 줄바꿈을 막으려고 뺐다. 아이콘만 남기고 이름은 title·sr-only 로 유지 */}
         <div className="mr-1 flex items-center px-0.5 text-sm font-semibold text-ink">
           <span title={t('wbs.board')} className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
           <span className="sr-only">{t('wbs.board')}</span>
         </div>
-        <div className="relative min-w-0 sm:flex-none">
+        <div className="relative min-w-0 flex-1 sm:flex-none">
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
@@ -1013,7 +1014,7 @@ export function WbsGanttSheet({
             }`}
           >
             <Icon name={planningColsHidden ? 'eye' : 'eyeOff'} className="h-3.5 w-3.5" />
-            {t(planningColsHidden ? 'wbs.showPlanningColumnsShort' : 'wbs.hidePlanningColumnsShort')}
+            <span data-btn-label className="hidden sm:inline">{t(planningColsHidden ? 'wbs.showPlanningColumnsShort' : 'wbs.hidePlanningColumnsShort')}</span>
           </button>
         )}
         <button
@@ -1027,7 +1028,7 @@ export function WbsGanttSheet({
           }`}
         >
           <Icon name="search" className="h-3.5 w-3.5" />
-          {t('wbs.progressLensShort')}
+          <span data-btn-label className="hidden sm:inline">{t('wbs.progressLensShort')}</span>
         </button>
         <button
           type="button"
@@ -1038,7 +1039,7 @@ export function WbsGanttSheet({
           className={`btn h-9 px-3 text-xs ${hideDone ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
         >
           <ListChecks className="h-3.5 w-3.5" />
-          {t('wbs.hideDone')}
+          <span data-btn-label className="hidden sm:inline">{t('wbs.hideDone')}</span>
           {/* N = 접힘 무관 '감춘 작업 수'. 검색 중엔 숨김이 일시 미적용이라 거짓 신호 방지 위해 생략 */}
           {hideDone && !q && <span className="tabular-nums">· {hideDoneResult.hiddenCount}</span>}
         </button>
@@ -1050,8 +1051,8 @@ export function WbsGanttSheet({
           canDecrease={fontScale.canDecrease}
           canIncrease={fontScale.canIncrease}
         />
-        <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}
+        <button data-wbs-fullscreen-toggle onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
+          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} <span data-btn-label className="hidden sm:inline">{fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}</span>
         </button>
         {dependencies.length > 0 && (
           <button
@@ -1062,7 +1063,7 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showDependencyLinks ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <GitBranch className="h-3.5 w-3.5" />
-            {t('wbs.dependencies')} {dependencies.length}
+            <span data-btn-label className="hidden sm:inline">{t('wbs.dependencies')}</span> {dependencies.length}
             {dependencySchedule.criticalTaskIds.size > 0 && (
               <span className="rounded-full bg-critical px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
                 {t('wbs.criticalShort')} {dependencySchedule.criticalTaskIds.size}
@@ -1085,16 +1086,16 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showMilestones ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <Flag className="h-3.5 w-3.5" />
-            {t('wbs.milestones')} {milestoneCount}
+            <span data-btn-label className="hidden sm:inline">{t('wbs.milestones')}</span> {milestoneCount}
           </button>
         )}
         {isAdmin && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} title={t('wbs.addPhase')} className="btn btn-ghost h-9 px-3 text-xs">
-            <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhaseShort')}
+            <Icon name="plus" className="h-3.5 w-3.5" /> <span data-btn-label className="hidden sm:inline">{t('wbs.addPhaseShort')}</span>
           </button>
         )}
-        <button onClick={() => setReportOpen(true)} title={t('wbs.weeklyReportTitle')} className="btn btn-ghost h-9 px-3 text-xs">
-          <FileText className="h-3.5 w-3.5" /> {t('wbs.weeklyReport')}
+        <button data-wbs-weekly-report onClick={() => setReportOpen(true)} title={t('wbs.weeklyReportTitle')} className="btn btn-ghost h-9 px-3 text-xs">
+          <FileText className="h-3.5 w-3.5" /> <span data-btn-label className="hidden sm:inline">{t('wbs.weeklyReport')}</span>
         </button>
         {/* 접속자 아바타 — 지금 이 WBS 메뉴를 보고 있는 사용자(본인 포함) */}
         <div className="ml-auto hidden sm:block">
