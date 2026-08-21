@@ -11,10 +11,10 @@ import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable 
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks } from 'lucide-react'
+import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, fmtDate, levelBadgeText, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { WbsProgressLens } from './WbsProgressLens'
 import { WbsFontSizeControl } from './WbsFontSizeControl'
@@ -28,12 +28,12 @@ import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { wbsFontScaleVariables } from '@/lib/wbsFontScale'
 
-/* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ── */
+/* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ──
+   구분(LevelBadge) 열은 삭제됐다(2026-08-21 개편) — 계층은 들여쓰기·타이포·phase 스트립이
+   전달하고, 반납한 60px 는 작업명 열이 흡수했다(300→360). 개요 번호(outline) 열은 토글
+   옵션이라 동결 오프셋(sk)이 가변 — buildCols 가 켜짐 여부에 따라 재계산한다. */
 type Col = { key: string; w: number; frozen?: boolean; sk?: number }
-const COLS: Col[] = [
-  { key: 'no', w: 44, frozen: true, sk: 0 },
-  { key: 'level', w: 60, frozen: true, sk: 44 },
-  { key: 'name', w: 300, frozen: true, sk: 104 },
+const PLAN_COLS: Col[] = [
   { key: 'owners', w: 128 },
   { key: 'status', w: 76 },
   { key: 'deliverable', w: 150 },
@@ -44,9 +44,24 @@ const COLS: Col[] = [
   { key: 'pactual', w: 72 },
   { key: 'achieve', w: 76 },
 ]
-const W = (k: string) => COLS.find(c => c.key === k)!.w
+function buildCols(outline: boolean): Col[] {
+  const frozenCols: Col[] = [
+    { key: 'no', w: 44, frozen: true },
+    ...(outline ? [{ key: 'outline', w: 96, frozen: true }] : []),
+    { key: 'name', w: 360, frozen: true },
+  ]
+  let acc = 0
+  for (const c of frozenCols) {
+    c.sk = acc
+    acc += c.w
+  }
+  return [...frozenCols, ...PLAN_COLS]
+}
 /* 타임라인 집중 모드에서 보이는 컬럼(나머지 수치/상세 열은 숨겨 간트 폭을 확보) */
-const TIMELINE_COLS = new Set(['no', 'level', 'name', 'owners', 'status'])
+const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status'])
+/* phase 색 스트립 팔레트 — 루트 phase 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
+   채도 있는 색이 소음이 되지 않고, 팀 원색(MS_LINE)처럼 양 테마 고정 hex 를 쓴다. */
+const PHASE_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
 const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
@@ -146,6 +161,7 @@ export function WbsGanttSheet({
   defaultView = 'sheet',
   initialCollapsed,
   initialHideDone = false,
+  initialOutline = false,
   focusId = null,
   levelLabels = DEFAULT_LEVEL_LABELS,
   maxDepth = null,
@@ -174,6 +190,8 @@ export function WbsGanttSheet({
   initialCollapsed?: string[]
   /** 계정에 저장된 완료 숨김 토글(UiPrefs.wbsHideDone) — 전 프로젝트 공통. */
   initialHideDone?: boolean
+  /** 계정에 저장된 개요 번호 열 토글(UiPrefs.wbsOutline) — 전 프로젝트 공통. */
+  initialOutline?: boolean
   /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
   focusId?: string | null
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
@@ -235,6 +253,13 @@ export function WbsGanttSheet({
     setHideDone(next)
     queueUiPref({ wbsHideDone: next })
   }
+  // 개요 번호 열 — 계정 전역 저장(UiPrefs.wbsOutline). hideDone 과 같은 저장 계열.
+  const [outlineVisible, setOutlineVisible] = useState(initialOutline)
+  const toggleOutline = () => {
+    const next = !outlineVisible
+    setOutlineVisible(next)
+    queueUiPref({ wbsOutline: next })
+  }
   // 숨김 판정 — 아래쪽 focus 효과의 의존성 배열이 참조하므로 그보다 먼저 선언해야 한다(TDZ).
   const hideDoneResult = useMemo(() => computeHideDone(items), [items])
   const fontScale = useWbsFontScale()
@@ -263,12 +288,16 @@ export function WbsGanttSheet({
     const others = presencePeers.filter(o => o.userId !== me?.id)
     return me ? [{ userId: me.id, name: me.name }, ...others] : others
   }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
+  // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
+  const cols = useMemo(() => buildCols(outlineVisible), [outlineVisible])
+  const colOf = (key: string) => cols.find(c => c.key === key)!
+  const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {
-    const viewCols = timelineFocus ? COLS.filter(col => TIMELINE_COLS.has(col.key)) : COLS
+    const viewCols = timelineFocus ? cols.filter(col => TIMELINE_COLS.has(col.key)) : cols
     return !timelineFocus && planningColsHidden
       ? viewCols.filter(col => !HIDEABLE_PLAN_COLS.has(col.key))
       : viewCols
-  }, [planningColsHidden, timelineFocus])
+  }, [cols, planningColsHidden, timelineFocus])
   const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
   const FROZEN_W = visibleCols.filter(col => col.frozen).reduce((sum, col) => sum + col.w, 0)
@@ -418,8 +447,46 @@ export function WbsGanttSheet({
     return m
   }, [items])
 
-  // 접기/펼치기는 sub-act 를 가진 act 에만 허용 — phase/task 는 항상 펼친 채 고정
-  const collapsibleIds = useMemo(() => splitParentIds(items), [items])
+  // 접기/펼치기는 자식이 있는 모든 노드에 허용 — 보통의 PM 도구(MS Project·ag-grid) 동작.
+  // 기본 접힘 초기값(splitParentIds)은 그대로다: 첫 화면 행 구성은 종전과 동일하다.
+  // 접힌 행 배지용 자손 수(자식만이 아니라 자손 전체 — 숨는 행 수와 일치해야 한다).
+  const descendantCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    const walk = (n: ComputedItem): number => {
+      const c = n.children.reduce((sum, ch) => sum + 1 + walk(ch), 0)
+      m.set(n.id, c)
+      return c
+    }
+    items.forEach(walk)
+    return m
+  }, [items])
+
+  // 개요 번호(1.2.1) — 저장 code 가 아니라 렌더 시점 트리 위치 파생(N단 세션 합의).
+  // code 는 재임포트 추적 키(external_ref 성격)라 웹에서 행 이동·추가 시 정렬과 어긋날 수 있다.
+  const outlineNumbers = useMemo(() => {
+    const m = new Map<string, string>()
+    const walk = (ns: ComputedItem[], prefix: string) =>
+      ns.forEach((n, i) => {
+        const num = prefix ? `${prefix}.${i + 1}` : String(i + 1)
+        m.set(n.id, num)
+        walk(n.children, num)
+      })
+    walk(items, '')
+    return m
+  }, [items])
+  // phase 스트립 — 노드 id → 루트 phase 순번. 색은 PHASE_BAND[순번 % 팔레트 길이] 순환.
+  const rootBandIndex = useMemo(() => {
+    const m = new Map<string, number>()
+    items.forEach((root, i) => {
+      const idx = i % PHASE_BAND.length
+      const walk = (n: ComputedItem) => {
+        m.set(n.id, idx)
+        n.children.forEach(walk)
+      }
+      walk(root)
+    })
+    return m
+  }, [items])
 
   // 표시용 접힘 = 저장된 접힘 − focus 임시 펼침
   const effCollapsed = useMemo(() => {
@@ -539,18 +606,26 @@ export function WbsGanttSheet({
     selectedId,
   ])
 
-  // 전체 접기/펼치기는 개별 act 토글과 의미가 다르다.
-  // 접기: 루트 phase만 남기고 하위 전체를 숨긴다. 펼치기: 저장된 접힘 상태와 무관하게
-  // phase → task → act → sub-act 전부 보이게 한다.
-  const phaseIds = useMemo(() => items.map(item => item.id), [items])
-  const allCollapsed = phaseIds.length > 0 && phaseIds.every(id => effCollapsed.has(id))
-  const toggleAll = () => {
-    setForcedOpen(s => (s.size ? new Set() : s)) // 전체 토글은 임시 펼침도 함께 정리
-    setHideExempt(s => (s.size ? new Set() : s)) // 전체 토글은 숨김 임시 노출도 함께 정리
+  // 레벨 N 펼치기(MS Project 개요 수준) — 종전 전체 접기/펼치기의 일반화.
+  // 레벨 1 = 루트만(종전 전체 접기), 최대 레벨 = 전부 펼침(종전 전체 펼치기).
+  // "레벨 N까지 표시" = depth ≥ N-1 인 부모를 전부 접는다. 화면 밖(이미 숨은) 깊은 부모도
+  // 접어 두므로 이후 개별 펼침 때 깊은 층이 한꺼번에 쏟아지지 않는다.
+  const deepestLevel = useMemo(
+    () => allFlatItems.reduce((max, n) => Math.max(max, (depthMap.get(n.id) ?? 0) + 1), 1),
+    [allFlatItems, depthMap],
+  )
+  const expandToLevel = (lvl: number) => {
+    setForcedOpen(s => (s.size ? new Set() : s)) // 레벨 조작은 임시 펼침도 함께 정리
+    setHideExempt(s => (s.size ? new Set() : s)) // 레벨 조작은 숨김 임시 노출도 함께 정리
     // focus 임시 펼침만 걷어내는 경우 목표 집합이 저장 상태와 같을 수 있다 — 그때는 참조를
     // 유지해 내용이 같은 값의 불필요한 계정 저장을 막는다(저장 가드는 참조 비교).
     setCollapsed(s => {
-      const target = allCollapsed ? new Set<string>() : new Set(phaseIds)
+      const target = new Set<string>()
+      if (lvl < deepestLevel) {
+        allFlatItems.forEach(n => {
+          if (n.children.length > 0 && (depthMap.get(n.id) ?? 0) >= lvl - 1) target.add(n.id)
+        })
+      }
       if (target.size === s.size && [...target].every(id => s.has(id))) return s
       return target
     })
@@ -610,7 +685,7 @@ export function WbsGanttSheet({
   // 첫 페인트 전에 기준일을 sticky 열 오른쪽의 실제 가시 영역 중앙에 배치한다.
   // 직접 scrollLeft를 지정해 사용자가 보는 애니메이션이나 뒤늦은 가로 이동을 만들지 않는다.
   useLayoutEffect(() => {
-    const viewKey = `${projectId}:${timelineFocus ? 'timeline' : planningColsHidden ? 'sheet-hidden' : 'sheet-expanded'}`
+    const viewKey = `${projectId}:${timelineFocus ? 'timeline' : planningColsHidden ? 'sheet-hidden' : 'sheet-expanded'}:${outlineVisible ? 'outline' : 'no-outline'}`
     if (centeredViewRef.current === viewKey) return
     const el = timelineScrollRef.current
     if (!el || el.clientWidth <= 0) return
@@ -625,7 +700,7 @@ export function WbsGanttSheet({
     // 남지 않게 변수를 즉시 동기화한다.
     el.style.setProperty('--wbs-scroll-x', `${el.scrollLeft}px`)
     centeredViewRef.current = viewKey
-  }, [FROZEN_W, LEFT_W, planningColsHidden, projectId, timelineFocus, todayX])
+  }, [FROZEN_W, LEFT_W, outlineVisible, planningColsHidden, projectId, timelineFocus, todayX])
 
   /* ── 마일스톤 기준선 — 판정·정렬은 대시보드와 단일 출처(milestoneTimeline) ── */
   const milestoneMarkers = useMemo(
@@ -813,8 +888,43 @@ export function WbsGanttSheet({
           />
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
-        <button onClick={toggleAll} className="btn btn-ghost h-9 px-3 text-xs">
-          {allCollapsed ? t('wbs.expandAll') : t('wbs.collapseAll')}
+        {deepestLevel >= 2 && (
+          <div
+            role="group"
+            aria-label={t('wbs.expandToLevelGroup')}
+            className="flex h-9 items-center gap-0.5 rounded-xl border border-line px-1"
+          >
+            <span className="px-1 text-[10px] text-ink-subtle">{t('wbs.levelGroupLabel')}</span>
+            {Array.from({ length: Math.min(deepestLevel, 8) }, (_, i) => i + 1).map(lvl => (
+              <button
+                key={lvl}
+                data-level-btn={lvl}
+                onClick={() => expandToLevel(lvl)}
+                className="btn btn-ghost h-7 w-7 px-0 text-xs tabular-nums"
+                title={
+                  lvl === 1
+                    ? t('wbs.collapseAll')
+                    : lvl === deepestLevel
+                      ? t('wbs.expandAll')
+                      : `${t('wbs.expandToLevel')} ${lvl}`
+                }
+              >
+                {lvl}
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          data-outline-toggle
+          onClick={toggleOutline}
+          aria-pressed={outlineVisible}
+          title={t('wbs.outlineToggleTitle')}
+          className={`btn h-9 px-3 text-xs ${
+            outlineVisible ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'
+          }`}
+        >
+          <Hash className="h-3.5 w-3.5" />
         </button>
         {!timelineFocus && (
           <button
@@ -996,16 +1106,16 @@ export function WbsGanttSheet({
 
           {/* 헤더 행 (sticky top) */}
           <div className="sticky top-0 z-40 flex w-max">
-            {headCell(COLS[0], '#', 'justify-center')}
-            {headCell(COLS[1], t('wbs.colLevel'), 'justify-center')}
-            {headCell(COLS[2], t('wbs.colName'), 'justify-start')}
-            {showCol('owners') && headCell(COLS[3], t('wbs.colOwners'), 'justify-start')}
-            {showCol('status') && headCell(COLS[4], t('wbs.colStatus'), 'justify-center')}
-            {showCol('deliverable') && headCell(COLS[5], t('wbs.colDeliverable'), 'justify-start')}
-            {showCol('pstart') && headCell(COLS[6], t('wbs.colPlannedStart'), 'justify-center')}
-            {showCol('pend') && headCell(COLS[7], t('wbs.colPlannedEnd'), 'justify-center')}
+            {headCell(colOf('no'), '#', 'justify-center')}
+            {showCol('outline') && headCell(colOf('outline'), t('wbs.colOutline'), 'justify-start')}
+            {headCell(colOf('name'), t('wbs.colName'), 'justify-start')}
+            {showCol('owners') && headCell(colOf('owners'), t('wbs.colOwners'), 'justify-start')}
+            {showCol('status') && headCell(colOf('status'), t('wbs.colStatus'), 'justify-center')}
+            {showCol('deliverable') && headCell(colOf('deliverable'), t('wbs.colDeliverable'), 'justify-start')}
+            {showCol('pstart') && headCell(colOf('pstart'), t('wbs.colPlannedStart'), 'justify-center')}
+            {showCol('pend') && headCell(colOf('pend'), t('wbs.colPlannedEnd'), 'justify-center')}
             {showCol('weight') && headCell(
-              COLS[8],
+              colOf('weight'),
               t('wbs.colWeight'),
               'justify-end',
               '',
@@ -1017,9 +1127,9 @@ export function WbsGanttSheet({
                     warn: Math.abs(rootWeightTotalPct - 100) > 0.01,
                   },
             )}
-            {showCol('pplan') && headCell(COLS[9], t('wbs.colPlannedPct'), 'justify-end')}
-            {showCol('pactual') && headCell(COLS[10], t('wbs.colActualPct'), 'justify-end')}
-            {showCol('achieve') && headCell(COLS[11], t('wbs.colAchievement'), 'justify-center')}
+            {showCol('pplan') && headCell(colOf('pplan'), t('wbs.colPlannedPct'), 'justify-end')}
+            {showCol('pactual') && headCell(colOf('pactual'), t('wbs.colActualPct'), 'justify-end')}
+            {showCol('achieve') && headCell(colOf('achieve'), t('wbs.colAchievement'), 'justify-center')}
             {/* 간트 헤더 (월/주/일 3단) */}
             <div
               className="relative box-border h-[var(--wbs-head-h)] shrink-0 border-b-2 border-grid-strong bg-sheet-head"
@@ -1080,21 +1190,17 @@ export function WbsGanttSheet({
           {flatRows.map((n, idx) => {
             const depth = depthMap.get(n.id) ?? 0
             const hasChildren = n.children.length > 0
-            const canToggle = collapsibleIds.has(n.id)
+            const canToggle = hasChildren
             const isCollapsed = effCollapsed.has(n.id)
             const isFlash = flashId === n.id
             const schedule = dependencySchedule.byId.get(n.id)
             const isCritical = schedule?.critical ?? false
             const isDim = hideDone && hideDoneResult.dimIds.has(n.id)
             const rowNo = idx + 1
-            const rowBg =
-              depth === 0
-                ? 'bg-[#f1f4f9]'
-                : depth === 1
-                  ? 'bg-[#f8faff]'
-                  : rowNo % 2 === 0
-                    ? 'bg-zebra'
-                    : 'bg-surface'
+            // 부모 행 음영은 depth 무관 중립 한 단계(bg-surface-2) — 7~8단에서도 성립하고,
+            // 종전 라이트 전용 하드코딩 hex(#f1f4f9 등)와 달리 테마 토큰이라 다크에서도 맞는다.
+            // 루트 위계는 타이포(semibold)와 phase 스트립이 전달한다.
+            const rowBg = hasChildren ? 'bg-surface-2' : rowNo % 2 === 0 ? 'bg-zebra' : 'bg-surface'
             // focus 플래시는 hover 와 같은 틴트(bg-brand-weak) + 좌측 브랜드 악센트 바로 강조 —
             // 악센트가 있어야 커서가 우연히 올라간 행(hover)과 도착 행이 구분된다.
             const progressLensActive = progressLensActiveId === n.id
@@ -1102,14 +1208,14 @@ export function WbsGanttSheet({
               isFlash || progressLensActive ? 'bg-brand-weak' : rowBg
             } group-hover:bg-brand-weak`
             const subLabel = subActLabels.get(n.id)
-            const nameWeight =
-              depth === 0
+            // 루트만 semibold, 그 외 부모는 medium — N단에서 전 부모 semibold 는 과중하다.
+            const nameWeight = hasChildren
+              ? depth === 0
                 ? 'font-semibold text-ink'
-                : depth === 1
-                  ? 'font-medium text-ink'
-                  : subLabel != null
-                    ? 'text-ink-muted'
-                    : 'text-ink'
+                : 'font-medium text-ink'
+              : subLabel != null
+                ? 'text-ink-muted'
+                : 'text-ink'
 
             const editingWeight = edit?.id === n.id && edit.field === 'weight'
             const editingActual = edit?.id === n.id && edit.field === 'actual'
@@ -1118,7 +1224,7 @@ export function WbsGanttSheet({
             const weightLabel = n.weight == null ? t('wbs.weightEqual') : formatWeightPct(n.weight)
 
             const frozen = (key: string, z = 20): React.CSSProperties => {
-              const c = COLS.find(x => x.key === key)!
+              const c = colOf(key)
               return { width: c.w, position: 'sticky', left: c.sk, zIndex: z }
             }
 
@@ -1147,33 +1253,56 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid-strong justify-center tabular-nums text-ink-subtle ${cellBg}`}
                   style={{ ...frozen('no'), fontSize: 'var(--wbs-index-font, 11px)' }}
                 >
+                  {/* phase 스트립 — 루트 phase 소속을 3px 색 띠로. 동결(#) 셀 좌단이라 항상 보인다 */}
+                  <span
+                    aria-hidden
+                    data-phase-band={rootBandIndex.get(n.id) ?? 0}
+                    className="pointer-events-none absolute inset-y-0 left-0 w-[3px]"
+                    style={{ backgroundColor: PHASE_BAND[rootBandIndex.get(n.id) ?? 0] }}
+                  />
                   {/* focus 도착 마커 — 동결(#) 셀 안에 두어 가로 스크롤에도 항상 보인다 */}
-                  {isFlash && <span aria-hidden data-flash-accent className="absolute inset-y-0 left-0 w-1 bg-brand" />}
+                  {isFlash && <span aria-hidden data-flash-accent className="absolute inset-y-0 left-0 z-10 w-1 bg-brand" />}
                   {rowNo}
                 </div>
-                {/* 구분 */}
-                <div
-                  data-wbs-col="level"
-                  className={`${cellBase} overflow-hidden border-r border-grid-strong justify-center ${cellBg}`}
-                  style={{ ...frozen('level'), paddingInline: 4 }}
-                >
-                  <LevelBadge depth={n.depth} isOwnerSplit={n.isOwnerSplit} levelLabels={levelLabels} compact />
-                </div>
+                {/* 개요 번호(토글) — 저장 code 아님, 트리 위치 파생 */}
+                {showCol('outline') && (
+                  <div
+                    data-wbs-col="outline"
+                    className={`${cellBase} overflow-hidden border-r border-grid-strong tabular-nums text-ink-subtle ${cellBg}`}
+                    style={{ ...frozen('outline'), fontSize: 'var(--wbs-index-font, 11px)' }}
+                  >
+                    <span className="truncate">{outlineNumbers.get(n.id)}</span>
+                  </div>
+                )}
                 {/* 작업명 */}
-                <div data-wbs-col="name" className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
+                <div data-wbs-col="name" className={`${cellBase} freeze-edge relative ${cellBg}`} style={frozen('name')}>
+                  {/* 들여쓰기 가이드 — 조상 깊이마다 세로선. 행마다 같은 x에 그려져 열처럼 이어진다.
+                      left = 셀 패딩(px-2=8) + 조상 들여쓰기(i*14) + 토글 아이콘 중심(12). */}
+                  {Array.from({ length: depth }, (_, i) => (
+                    <span
+                      key={i}
+                      aria-hidden
+                      data-indent-guide
+                      className="pointer-events-none absolute inset-y-0 w-px bg-grid"
+                      style={{ left: 8 + i * 14 + 12 }}
+                    />
+                  ))}
                   <div className="flex min-w-0 items-center" style={{ paddingLeft: depth * 14 }}>
                     {canToggle ? (
                       <button
                         onClick={() => toggle(n.id)}
                         className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-line hover:text-ink"
-                        style={{ fontSize: 'var(--wbs-badge-font, 10px)' }}
                         aria-label={isCollapsed ? t('wbs.expand') : t('wbs.collapse')}
                         aria-expanded={!isCollapsed}
                       >
-                        {isCollapsed ? '▸' : '▾'}
+                        <ChevronRight
+                          size={14}
+                          strokeWidth={2}
+                          className={`transition-transform duration-150 ${isCollapsed ? '' : 'rotate-90'}`}
+                        />
                       </button>
                     ) : (
-                      <span className="mr-1 w-4 shrink-0" />
+                      <span aria-hidden data-toggle-spacer className="mr-1 w-6 shrink-0" />
                     )}
                     <button
                       type="button"
@@ -1182,7 +1311,10 @@ export function WbsGanttSheet({
                         setSelectedId(n.id)
                       }}
                       className={`truncate text-left ${nameWeight} ${isCritical ? 'font-semibold text-critical' : ''} hover:text-brand hover:underline`}
-                      title={`${n.name} · ${t('wbs.rowDetailTitle')}${isCritical ? ` · ${t('wbs.criticalPath')}` : ''}`}
+                      title={`${n.name} · ${
+                        // 툴팁은 지면 제약이 없어 축약(PHASE)이 아닌 원 라벨(Phase) — 라벨 밖 깊이·sub-act 만 배지 규칙 재사용
+                        n.isOwnerSplit ? levelBadgeText(n.depth, true, levelLabels) : levelLabels[n.depth] ?? levelBadgeText(n.depth, false, levelLabels)
+                      } · ${t('wbs.rowDetailTitle')}${isCritical ? ` · ${t('wbs.criticalPath')}` : ''}`}
                     >
                       {subLabel != null ? (
                         <>
@@ -1194,6 +1326,16 @@ export function WbsGanttSheet({
                       )}
                     </button>
                     {isCritical && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-critical" aria-label={t('wbs.criticalPath')} />}
+                    {isCollapsed && (
+                      <span
+                        data-collapsed-count
+                        className="ml-1.5 shrink-0 rounded-full bg-line px-1.5 py-px tabular-nums text-ink-subtle"
+                        style={{ fontSize: 'var(--wbs-badge-font, 10px)' }}
+                        title={t('wbs.hiddenDescendants')}
+                      >
+                        {descendantCounts.get(n.id) ?? 0}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {/* 담당 */}

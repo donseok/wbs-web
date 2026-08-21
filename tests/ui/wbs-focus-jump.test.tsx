@@ -78,7 +78,8 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
     await act(async () => root.render(
       <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
-    const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="wbs.collapse"]')
+    // 접기 전면 허용 후 phase/task 에도 토글이 생겼다 — focus 로 펼쳐진 부모(a1)의 버튼을 정확히 집는다.
+    const toggle = container.querySelector<HTMLButtonElement>('[data-row-id="a1"] button[aria-label="wbs.collapse"]')
     expect(toggle).not.toBeNull()
     await act(async () => toggle!.click())
     expect(rowCount(container)).toBe(3)
@@ -112,32 +113,33 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
     expect(document.activeElement).toBe(row)
   })
 
-  it('focus 중 전체 접기는 phase만 남기고 저장한다', async () => {
+  // 전체 접기/펼치기는 레벨 버튼으로 일반화됐다(2026-08-21 구분 열 개편) — 레벨 1 = 종전
+  // 전체 접기, 최대 레벨 = 종전 전체 펼치기. 접기 저장은 이제 루트만이 아니라 대상 레벨
+  // 이상의 모든 부모를 담는다(깊은 층이 개별 펼침 때 한꺼번에 쏟아지지 않게).
+  it('focus 중 레벨 1 접기는 phase만 남기고 저장한다', async () => {
     await act(async () => root.render(
       <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
-    const btn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'wbs.collapseAll')
-    expect(btn).not.toBeUndefined()
+    const btn = container.querySelector<HTMLButtonElement>('button[data-level-btn="1"]')
+    expect(btn).not.toBeNull()
     await act(async () => btn!.click())
     expect(rowCount(container)).toBe(1)
-    expect(queueWbsCollapse).toHaveBeenCalledWith('p1', ['p1'])
+    expect(queueWbsCollapse).toHaveBeenCalledWith('p1', expect.arrayContaining(['p1']))
   })
 
-  it('전체 접기/펼치기는 phase만 남기거나 sub-act까지 모두 표시한다', async () => {
+  it('레벨 1 은 phase만 남기고, 최대 레벨은 sub-act까지 모두 표시한다', async () => {
     await act(async () => root.render(
       <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly />,
     ))
-    const collapse = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'wbs.collapseAll')
-    expect(collapse).not.toBeUndefined()
+    const levelBtns = [...container.querySelectorAll<HTMLButtonElement>('button[data-level-btn]')]
+    expect(levelBtns.length).toBeGreaterThanOrEqual(2)
 
-    await act(async () => collapse!.click())
+    await act(async () => levelBtns[0].click())
     expect(rowCount(container)).toBe(1)
     expect(container.querySelector('[data-row-id="p1"]')).not.toBeNull()
     expect(container.querySelector('[data-row-id="t1"]')).toBeNull()
 
-    const expand = [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'wbs.expandAll')
-    expect(expand).not.toBeUndefined()
-    await act(async () => expand!.click())
+    await act(async () => levelBtns[levelBtns.length - 1].click())
     expect(rowCount(container)).toBe(5)
     expect(container.querySelector('[data-row-id="s1"]')).not.toBeNull()
     expect(container.querySelector('[data-row-id="s2"]')).not.toBeNull()
