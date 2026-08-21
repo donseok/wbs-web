@@ -1,0 +1,39 @@
+# 조업 프로그램 리스트 — PL 모드 입력 정본 (예시: 현 wbs.md 와 동치)
+# subsystem 약어 고정: 조업이벤트=EV, 입측=IN, 출측=OUT, 순환품=RC, L2IF, ERPIF
+# id 는 prd-ref(program:{id}) 로 보존 — 재생성 시 Task 매칭 키. 바꾸지 말 것.
+programs:
+  - { id: OP-EV-001, subsystem: 조업이벤트, type: 프로세스, name: 조업이벤트 수집·배포 프로세스, difficulty: 상 }
+  - { id: OP-EV-101, subsystem: 조업이벤트, type: 화면, name: 조업이벤트 모니터링 화면, difficulty: 중 }
+
+  - { id: OP-IN-001, subsystem: 입측, type: 프로세스, name: 입측 실적 수집 프로세스, difficulty: 상, depends: OP-L2-021 }
+  - { id: OP-IN-002, subsystem: 입측, type: 프로세스, name: 입측 판정 프로세스, difficulty: 상, depends: OP-IN-001 }
+  - { id: OP-IN-101, subsystem: 입측, type: 화면, name: 입측 작업 현황 화면, difficulty: 중, route: /op/entry/status, depends: OP-IN-001 }
+  - { id: OP-IN-102, subsystem: 입측, type: 화면, name: 입측 실적 조회 화면, difficulty: 하, route: /op/entry/results, depends: OP-IN-001 }
+
+  - { id: OP-OUT-001, subsystem: 출측, type: 프로세스, name: 출측 실적 수집 프로세스, difficulty: 상 }
+  - { id: OP-OUT-101, subsystem: 출측, type: 화면, name: 출측 작업 현황 화면, difficulty: 중 }
+
+  - { id: OP-RC-001, subsystem: 순환품, type: 프로세스, name: 순환품 처리 프로세스, difficulty: 상 }
+  - { id: OP-RC-101, subsystem: 순환품, type: 화면, name: 순환품 관리 화면, difficulty: 중 }
+
+  - { id: OP-L2-001, subsystem: L2IF, type: 인터페이스, target: PLTCM, name: 실적 수신 I/F, difficulty: 상 }
+  - { id: OP-L2-002, subsystem: L2IF, type: 인터페이스, target: PLTCM, name: 작업지시 송신 I/F, difficulty: 중 }
+  - { id: OP-L2-011, subsystem: L2IF, type: 인터페이스, target: TM, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-021, subsystem: L2IF, type: 인터페이스, target: 2CGL, name: 트래킹 수신 I/F, difficulty: 상 }
+  - { id: OP-L2-022, subsystem: L2IF, type: 인터페이스, target: 2CGL, name: 코일 정보 송신 I/F, difficulty: 중 }
+  - { id: OP-L2-031, subsystem: L2IF, type: 인터페이스, target: 3CGL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-041, subsystem: L2IF, type: 인터페이스, target: 4CGL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-051, subsystem: L2IF, type: 인터페이스, target: 5CGL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-061, subsystem: L2IF, type: 인터페이스, target: 2CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-071, subsystem: L2IF, type: 인터페이스, target: 3CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-081, subsystem: L2IF, type: 인터페이스, target: 4CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-091, subsystem: L2IF, type: 인터페이스, target: 5CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-101, subsystem: L2IF, type: 인터페이스, target: 6CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-111, subsystem: L2IF, type: 인터페이스, target: 7CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-121, subsystem: L2IF, type: 인터페이스, target: 8CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-131, subsystem: L2IF, type: 인터페이스, target: 9CCL, name: 실적 수신 I/F, difficulty: 중 }
+  - { id: OP-L2-141, subsystem: L2IF, type: 인터페이스, target: ACCL, name: 실적 수신 I/F, difficulty: 중 }
+
+  - { id: OP-ER-001, subsystem: ERPIF, type: 인터페이스, target: ERP, group: 생산실적, name: 조업 실적 ERP 송신 I/F, difficulty: 상, if-id: IF-0031 }
+  - { id: OP-ER-002, subsystem: ERPIF, type: 인터페이스, target: ERP, group: 생산실적, name: 실적 정정 송신 I/F, difficulty: 하, if-id: IF-0033 }
+  - { id: OP-ER-011, subsystem: ERPIF, type: 인터페이스, target: ERP, group: 작업지시, name: 생산오더 수신 I/F, difficulty: 중, if-id: IF-0032 }
