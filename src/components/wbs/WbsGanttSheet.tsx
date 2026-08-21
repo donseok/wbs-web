@@ -11,7 +11,7 @@ import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable 
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash } from 'lucide-react'
+import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash, ZoomIn, ZoomOut } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, fmtDate, levelBadgeText, teamStyle } from './shared'
@@ -62,6 +62,10 @@ const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status'])
 /* 1단계(루트) 색 스트립 팔레트 — 루트 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
    채도 있는 색이 소음이 되지 않고, 팀 원색(MS_LINE)처럼 양 테마 고정 hex 를 쓴다. */
 const L1_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
+/* 간트 배율 슬라이더 범위 — 일 폭(px). 저장값도 이 범위로 clamp 한다. */
+const GANTT_DAY_MIN = 12
+const GANTT_DAY_MAX = 48
+const GANTT_DAY_DEFAULT = 24
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
 const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
@@ -162,6 +166,7 @@ export function WbsGanttSheet({
   initialCollapsed,
   initialHideDone = false,
   initialOutline = false,
+  initialGanttScale,
   focusId = null,
   levelLabels = DEFAULT_LEVEL_LABELS,
   maxDepth = null,
@@ -192,6 +197,8 @@ export function WbsGanttSheet({
   initialHideDone?: boolean
   /** 계정에 저장된 개요 번호 열 토글(UiPrefs.wbsOutline) — 전 프로젝트 공통. */
   initialOutline?: boolean
+  /** 계정에 저장된 간트 배율(UiPrefs.wbsGanttScale, 일 폭 px) — 프리셋 밖 값은 기본 24 로 복구. */
+  initialGanttScale?: number
   /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
   focusId?: string | null
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
@@ -230,7 +237,17 @@ export function WbsGanttSheet({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
   const [addBusy, setAddBusy] = useState(false)
-  const dayPx = 24 // 간트 배율 — '기본' 고정 (축소 옵션 제거)
+  // 간트 배율 — 일 폭(px), 슬라이더 연속 조절. 계정 전역 저장(UiPrefs.wbsGanttScale).
+  // 저장값이 범위 밖이거나 숫자가 아니면(옛 버전 잔재 등) clamp/기본값으로 복구한다.
+  const [dayPx, setDayPx] = useState(() =>
+    typeof initialGanttScale === 'number' && Number.isFinite(initialGanttScale)
+      ? Math.min(GANTT_DAY_MAX, Math.max(GANTT_DAY_MIN, Math.round(initialGanttScale)))
+      : GANTT_DAY_DEFAULT,
+  )
+  const setGanttScale = (next: number) => {
+    setDayPx(next)
+    queueUiPref({ wbsGanttScale: next }) // debounce 저장이라 드래그 중 연타도 마지막 값만 나간다
+  }
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
   // 이정표 기준선 — 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 켜짐이며 계정에 저장하지 않는다.
@@ -660,12 +677,10 @@ export function WbsGanttSheet({
   const axisDates = [...allDates, today]
   const rangeStart = axisDates.reduce((a, b) => (a < b ? a : b))
   const rangeEnd = axisDates.reduce((a, b) => (a > b ? a : b))
-  // 축 여백 — 계획 최솟값~최댓값에서 축이 뚝 끊기면 마지막 주의 마일스톤 라벨이 잘리고
-  // "끊긴 느낌"이 든다(2026-08-21 피드백). 달력 주(월~일) 기준으로 이전 주 월요일부터
-  // 다음 주 일요일까지 보여준다. 부수효과로 축 시작이 항상 월요일이라 주 묶음(W01…)이
-  // 달력 주와 일치한다. 바·오늘선 좌표(xOf)는 start 기준 상대 계산이라 함께 밀려 어긋나지 않는다.
+  // 축 여백 — 계획 최댓값에서 축이 뚝 끊기면 마지막 주의 마일스톤 라벨이 잘리고 "끊긴
+  // 느낌"이 든다(2026-08-21 피드백). 끝은 다음 달력 주 일요일까지 덧대되, 시작주는
+  // 시작날짜 그대로 시작한다(같은 날 후속 피드백 — 앞쪽 여백은 두지 않는다).
   const start = new Date(rangeStart + 'T00:00:00Z')
-  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7) - 7) // 이전 주 월요일
   const end = new Date(rangeEnd + 'T00:00:00Z')
   end.setUTCDate(end.getUTCDate() + (6 - ((end.getUTCDay() + 6) % 7)) + 7) // 다음 주 일요일
   const days: string[] = []
@@ -946,6 +961,22 @@ export function WbsGanttSheet({
         >
           <Hash className="h-3.5 w-3.5" />
         </button>
+        {/* 간트 배율 — 일 폭 슬라이더(12~48px) */}
+        <div className="flex h-9 items-center gap-1.5 rounded-xl border border-line px-2" title={t('wbs.ganttZoomGroup')}>
+          <ZoomOut aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+          <input
+            type="range"
+            data-gantt-zoom
+            min={GANTT_DAY_MIN}
+            max={GANTT_DAY_MAX}
+            step={2}
+            value={dayPx}
+            onChange={e => setGanttScale(Number(e.target.value))}
+            aria-label={t('wbs.ganttZoomGroup')}
+            className="w-20 accent-[var(--color-brand)]"
+          />
+          <ZoomIn aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+        </div>
         {!timelineFocus && (
           <button
             type="button"

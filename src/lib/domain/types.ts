@@ -188,6 +188,7 @@ export interface UiPrefs {
   lastProjectId?: string    // 전역 브리지 화면(내 계정·회의록 등)에서 유지할 최근 프로젝트 탐색 문맥
   wbsHideDone?: boolean     // WBS 완료 숨김 토글 — 전 프로젝트 공통(스펙 2026-08-10-wbs-hide-completed)
   wbsOutline?: boolean      // WBS 개요 번호 열 표시 토글 — 전 프로젝트 공통(2026-08-21 구분 열 개편)
+  wbsGanttScale?: number    // WBS 간트 일 폭(px, 프리셋 12/24/48) — 전 프로젝트 공통
   notif?: Record<string, boolean> // 알림 타입 → on/off (조회 시점 필터, REQUIRED 는 무시)
 }
 

@@ -18,6 +18,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.expandToLevel': 'Expand to level',
   'wbs.colOutline': 'No.',
   'wbs.outlineToggleTitle': 'Show/hide outline numbers',
+  'wbs.ganttZoomGroup': 'Gantt zoom',
   'wbs.sheetEdit': 'Edit sheet',
   'wbs.timelineFocus': 'Timeline focus',
   'wbs.enterFullscreenTitle': 'View full screen',
