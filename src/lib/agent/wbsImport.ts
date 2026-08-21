@@ -21,6 +21,67 @@ export type ImportNode = {
   model: string | null; tags: string[]
   prd_ref: string | null; entry_point: string | null
   spec_sections: SpecSections | null
+  // v2.2(nlevel) — levels 있는 payload 에서만 의미(스펙 §import 계약 v2.2)
+  level?: number | null      // levels 배열 인덱스 → wbs_items.level_idx
+  weight?: number | null     // 롤업 가중(양수). 생략 = null(형제 균등)
+  milestone?: boolean        // [M] — progress none, 발행 제외
+  credit?: string | null     // 크레딧 표 키 → credit_key
+  if_id?: string | null      // PMO I/F 대장 참조
+}
+
+/** v2.2 — frontmatter levels 선언(층별). 서버는 구조 검증 + 발행 판정에만 쓴다. */
+export type LevelDecl = {
+  name: string; prefix: string
+  progress: 'input' | 'rollup' | 'checklist' | 'none'
+  optional?: boolean; upload?: boolean | 'fold'; report?: string; owner?: string
+}
+const PROGRESS_ROLES = new Set(['input', 'rollup', 'checklist', 'none'])
+const LEVELS_MAX = 10 // domain/levelSettings LEVEL_LABELS_MAX 와 동일 상한(계약 공유)
+
+/**
+ * levels 선언 구조 검증(순수) — 스펙 §import 계약 v2.2.
+ * name·prefix 유일, progress 4종, input 층 upload:true 강제, upload 는 아래에서 위로만,
+ * input 층 최소 1개(발행 대상 없는 선언은 진도 입력 자체가 불가).
+ */
+export function validateLevels(raw: unknown): { levels: LevelDecl[] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) return { error: 'levels 는 비어 있지 않은 배열이어야 합니다.' }
+  if (raw.length > LEVELS_MAX) return { error: `levels 는 최대 ${LEVELS_MAX}층까지입니다.` }
+  const levels: LevelDecl[] = []
+  const names = new Set<string>(); const prefixes = new Set<string>()
+  let uploadCut = false // 한 층이 false/fold 면 그보다 깊은 층 전부 동일해야 한다
+  let hasInput = false
+  for (const [i, l] of (raw as Array<Record<string, unknown>>).entries()) {
+    const name = typeof l?.name === 'string' ? l.name.trim() : ''
+    const prefix = typeof l?.prefix === 'string' ? l.prefix.trim() : ''
+    if (!name || !prefix) return { error: `levels[${i}]: name·prefix 필수` }
+    if (names.has(name)) return { error: `levels name 중복: ${name}` }
+    if (prefixes.has(prefix)) return { error: `levels prefix 중복: ${prefix}` }
+    names.add(name); prefixes.add(prefix)
+    const progress = l.progress
+    if (typeof progress !== 'string' || !PROGRESS_ROLES.has(progress)) {
+      return { error: `levels[${i}] progress 허용 밖: ${String(progress)}` }
+    }
+    const upload = l.upload === undefined ? true : l.upload
+    if (upload !== true && upload !== false && upload !== 'fold') {
+      return { error: `levels[${i}] upload 허용 밖: ${String(l.upload)}` }
+    }
+    if (progress === 'input' && upload !== true) {
+      return { error: `levels[${i}] (${name}): input 층은 upload:true 강제 — 발행 대상이 안 올라가면 모순` }
+    }
+    if (uploadCut && upload === true) {
+      return { error: `levels[${i}] (${name}): upload 는 아래에서 위로만 끌 수 있다 — 위층이 false/fold 인데 아래층이 true` }
+    }
+    if (upload !== true) uploadCut = true
+    if (progress === 'input') hasInput = true
+    levels.push({
+      name, prefix, progress: progress as LevelDecl['progress'],
+      optional: l.optional === true, upload: upload as LevelDecl['upload'],
+      report: typeof l.report === 'string' ? l.report : undefined,
+      owner: typeof l.owner === 'string' ? l.owner : undefined,
+    })
+  }
+  if (!hasInput) return { error: 'levels 에 progress:input 층이 최소 1개 필요합니다.' }
+  return { levels }
 }
 const STAGES = new Set(['as', 'fp', 'ip', 'im', 'xx'])
 const PRIORITY_LABELS = new Set(['critical', 'high', 'medium', 'low'])
@@ -49,14 +110,16 @@ export function assembleSpecMarkdown(s: SpecSections | null): string | null {
   return parts.length > 0 ? parts.join('\n\n') : null
 }
 
-export function toRpcNode(module: string, n: ImportNode, index: number):
+export function toRpcNode(module: string, n: ImportNode, index: number, levels?: LevelDecl[] | null):
   | { external_ref: string; parent_external_ref: string | null; title: string
       stage: string | null; planned_start: string | null; planned_end: string | null
       sort_order: number; assignee: string | null
       category: string | null; domain: string | null; priority: string | null
       model: string | null; tags: string[]; depends: string[]
       prd_ref: string | null; entry_point: string | null
-      acceptance: string[]; spec: string | null; dev_workflow: boolean }
+      acceptance: string[]; spec: string | null; dev_workflow: boolean
+      level_idx: number | null; weight: number | null; milestone: boolean
+      credit_key: string | null; if_id: string | null }
   | { error: string } {
   if (!n.id || !n.title) return { error: `id·title 필수: ${JSON.stringify(n.id)}` }
   // v2.1: 'todo' 는 stage 축에서 제거됐다(0082) — 검증 전에 null 로 정규화해 하위호환 수용.
@@ -67,6 +130,23 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
   }
   const sched = parseSchedule(n.schedule)
   if ('error' in sched) return { error: `${sched.error} (${n.id})` }
+  // v2.2 — levels 문맥: level 인덱스 필수·범위 검증, 발행 판정은 progress:input(마일스톤 제외).
+  const milestone = n.milestone === true
+  let levelIdx: number | null = null
+  if (levels && levels.length > 0) {
+    if (typeof n.level !== 'number' || !Number.isInteger(n.level) || n.level < 0 || n.level >= levels.length) {
+      return { error: `level 인덱스 누락/범위 밖: ${String(n.level)} (${n.id})` }
+    }
+    levelIdx = n.level
+  }
+  if (n.weight !== undefined && n.weight !== null) {
+    if (typeof n.weight !== 'number' || !Number.isFinite(n.weight) || n.weight <= 0) {
+      return { error: `weight 는 양수만: ${String(n.weight)} (${n.id})` }
+    }
+  }
+  const devWorkflow = levels && levelIdx !== null
+    ? levels[levelIdx].progress === 'input' && !milestone
+    : n.kind === 'task' // v2.1 레거시 규칙 유지(levels 없는 payload)
   return {
     external_ref: `${module}/${n.id}`,
     parent_external_ref: n.parent_id ? `${module}/${n.parent_id}` : null,
@@ -79,7 +159,9 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
     depends: (n.depends ?? []).map(d => `${module}/${d}`), // 선행도 external_ref 로 저장(결정 C 게이트 키)
     prd_ref: n.prd_ref ?? null, entry_point: n.entry_point ?? null,
     acceptance: n.acceptance ?? [], spec: assembleSpecMarkdown(n.spec_sections),
-    dev_workflow: n.kind === 'task', // v2.1: 도입 여부는 kind 로 자동 결정 — wp/act/phase 는 항상 false
+    dev_workflow: devWorkflow, // v2.2: levels 있으면 progress:input 층(마일스톤 제외), 없으면 kind==='task'(v2.1)
+    level_idx: levelIdx, weight: n.weight ?? null, milestone,
+    credit_key: n.credit ?? null, if_id: n.if_id ?? null,
   }
 }
 
