@@ -1276,13 +1276,13 @@ export function WbsGanttSheet({
                 }}
               >
                 {/* 1단계 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트).
-                    "~까지" 개념이라 끝나는 1단계 그룹(윗쪽)의 스트립 색을 그대로 쓰고,
-                    두께도 세로 스트립과 동일한 6px — ㄴ자로 이어져 한 구획으로 읽힌다. */}
+                    "~까지" 개념이라 끝나는 1단계 그룹(윗쪽)의 스트립 색을 그대로 쓴다.
+                    두께는 스트립(6px)의 절반인 3px — 6px 는 간트 진도율 바와 헷갈린다(피드백). */}
                 {isL1End && (
                   <span
                     aria-hidden
                     data-l1-end
-                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-1.5"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-[3px]"
                     style={{ backgroundColor: L1_BAND[(l1Index.get(n.id) ?? 0) % L1_BAND.length] }}
                   />
                 )}
@@ -1300,12 +1300,12 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid-strong justify-center tabular-nums text-ink-subtle ${cellBg}`}
                   style={{ ...frozen('no'), fontSize: 'var(--wbs-index-font, 11px)' }}
                 >
-                  {/* 1단계 스트립 — 루트(1단계) 소속을 6px 색 띠로(3px 는 흐려서 안 보인다는
-                      사용자 피드백으로 두텁게). 동결(#) 셀 좌단이라 항상 보인다 */}
+                  {/* 1단계 스트립 — 루트(1단계) 소속을 10px 색 띠로(구분은 가로선보다 세로
+                      스트립이 주도, 훨씬 두껍게 — 피드백). 동결(#) 셀 좌단이라 항상 보인다 */}
                   <span
                     aria-hidden
                     data-l1-band={(l1Index.get(n.id) ?? 0) % L1_BAND.length}
-                    className="pointer-events-none absolute inset-y-0 left-0 w-1.5"
+                    className="pointer-events-none absolute inset-y-0 left-0 w-2.5"
                     style={{ backgroundColor: L1_BAND[(l1Index.get(n.id) ?? 0) % L1_BAND.length] }}
                   />
                   {/* focus 도착 마커 — 동결(#) 셀 안에 두어 가로 스크롤에도 항상 보인다 */}
