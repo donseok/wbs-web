@@ -187,6 +187,7 @@ export interface UiPrefs {
   notifRead?: Record<string, string[]> // 프로젝트 id → 읽음 처리한 알림 id('모두 읽음' 시점 피드)
   lastProjectId?: string    // 전역 브리지 화면(내 계정·회의록 등)에서 유지할 최근 프로젝트 탐색 문맥
   wbsHideDone?: boolean     // WBS 완료 숨김 토글 — 전 프로젝트 공통(스펙 2026-08-10-wbs-hide-completed)
+  wbsOutline?: boolean      // WBS 개요 번호 열 표시 토글 — 전 프로젝트 공통(2026-08-21 구분 열 개편)
   notif?: Record<string, boolean> // 알림 타입 → on/off (조회 시점 필터, REQUIRED 는 무시)
 }
 
