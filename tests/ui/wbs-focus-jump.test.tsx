@@ -78,7 +78,8 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
     await act(async () => root.render(
       <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
     ))
-    const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="wbs.collapse"]')
+    // 접기 전면 허용 후 phase/task 에도 토글이 생겼다 — focus 로 펼쳐진 부모(a1)의 버튼을 정확히 집는다.
+    const toggle = container.querySelector<HTMLButtonElement>('[data-row-id="a1"] button[aria-label="wbs.collapse"]')
     expect(toggle).not.toBeNull()
     await act(async () => toggle!.click())
     expect(rowCount(container)).toBe(3)
