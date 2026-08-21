@@ -273,8 +273,6 @@ export function WbsGanttSheet({
     setHideDone(next)
     queueUiPref({ wbsHideDone: next })
   }
-  // 간트 바 hover 툴팁 — Bar 가 위치를 알려 주면 시트가 fixed(z-60) 로 하나만 그린다.
-  const [barTip, setBarTip] = useState<{ title: string; x: number; y: number } | null>(null)
   // 개요 번호 열 — 계정 전역 저장(UiPrefs.wbsOutline). hideDone 과 같은 저장 계열.
   const [outlineVisible, setOutlineVisible] = useState(initialOutline)
   const toggleOutline = () => {
@@ -1616,22 +1614,7 @@ export function WbsGanttSheet({
                   className={`relative box-border h-full shrink-0 border-b border-grid ${isFlash || progressLensActive ? 'bg-brand-weak/60' : ''} group-hover:bg-brand-weak`}
                   style={{ width: ganttW }}
                 >
-                  {n.plannedStart && n.plannedEnd && (
-                    <Bar
-                      n={n}
-                      schedule={schedule}
-                      xOf={xOf}
-                      dayPx={dayPx}
-                      // 바 hover 툴팁 — 날짜가 핵심 정보라 첫 줄. 작업명은 행에 이미 보여 제외(피드백).
-                      title={[
-                        `${fmtDate(n.plannedStart)} ~ ${fmtDate(n.plannedEnd)}`,
-                        t(`status.${n.status}` as DictKey),
-                        `${t('wbs.colPlannedPct')} ${formatPct1(n.plannedPct)}%`,
-                        `${t('wbs.colActualPct')} ${formatPct1(n.rolledActualPct)}%`,
-                      ].join('\n')}
-                      onHover={setBarTip}
-                    />
-                  )}
+                  {n.plannedStart && n.plannedEnd && <Bar n={n} schedule={schedule} xOf={xOf} dayPx={dayPx} />}
                 </div>
               </div>
             )
@@ -1753,17 +1736,6 @@ export function WbsGanttSheet({
             onTogglePin={toggleProgressLensPin}
             levelLabels={levelLabels}
           />
-        </div>
-      )}
-
-      {/* 간트 바 hover 툴팁 — fixed 라 sticky 헤더·오버레이 스태킹과 무관하게 항상 위(z-60) */}
-      {barTip && (
-        <div
-          data-gantt-tooltip
-          className="pointer-events-none fixed z-[60] -translate-x-1/2 -translate-y-full whitespace-pre rounded-lg bg-ink px-2 py-1 leading-snug text-surface shadow-lg"
-          style={{ left: barTip.x, top: barTip.y - 6, fontSize: 10 }}
-        >
-          {barTip.title}
         </div>
       )}
 
@@ -1958,17 +1930,11 @@ function Bar({
   schedule,
   xOf,
   dayPx,
-  title,
-  onHover,
 }: {
   n: ComputedItem
   schedule?: TaskSchedule
   xOf: (d: string) => number
   dayPx: number
-  /** hover 툴팁 — i18n 이 필요한 조립은 호출부(t 보유) 책임. */
-  title?: string
-  /** hover 통지 — 시트가 fixed 툴팁을 스태킹 밖에 그린다. null = 벗어남. */
-  onHover?: (tip: { title: string; x: number; y: number } | null) => void
 }) {
   const left = xOf(n.plannedStart!)
   const width = Math.max(dayPx * 0.5, xOf(n.plannedEnd!) + dayPx - left)
@@ -1991,25 +1957,11 @@ function Bar({
       title={`${schedule!.forecastStart} ~ ${schedule!.forecastEnd}`}
     />
   ) : null
-  // hover 툴팁 — 행 내부에 그리면 sticky 헤더·마일스톤 오버레이와 z 경쟁이 생긴다
-  // (행을 올리면 오버레이가 가려지는 부작용, 2026-08-21 실측). 바는 hover 사실만
-  // 시트에 알리고, 시트가 fixed 툴팁 하나를 스태킹 밖(z-60)에 그린다.
-  const hoverProps = title
-    ? {
-        onMouseEnter: (e: React.MouseEvent<HTMLDivElement>) => {
-          const r = e.currentTarget.getBoundingClientRect()
-          onHover?.({ title, x: e.clientX, y: r.top })
-        },
-        onMouseLeave: () => onHover?.(null),
-      }
-    : {}
 
   if (n.depth === 0) {
     return (
       <>
         <div
-          data-gantt-bar
-          {...hoverProps}
           className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
           style={{ left, width }}
         >
@@ -2034,8 +1986,6 @@ function Bar({
   return (
     <>
       <div
-        data-gantt-bar
-        {...hoverProps}
         className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
         style={{ left, width }}
       >
