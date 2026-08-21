@@ -125,6 +125,19 @@ describe('HeaderChrome 브레드크럼', () => {
     return container.querySelector<HTMLElement>('nav[aria-label="현재 위치"]')
   }
 
+  it('모바일에선 햄버거 옆에 프로젝트명이 뜬다(md 미만 전용) — 히어로 숨김의 대체 표기', async () => {
+    await renderAt('/p/p1/wbs')
+    const label = container.querySelector<HTMLElement>('[data-mobile-project]')
+    expect(label).not.toBeNull()
+    expect(label!.textContent).toBe('D-CUBE 프로젝트')
+    expect(label!.className).toContain('md:hidden')
+  })
+
+  it('프로젝트 문맥이 없으면 모바일 프로젝트명 표기가 없다', async () => {
+    await renderAt('/projects', projects, null)
+    expect(container.querySelector('[data-mobile-project]')).toBeNull()
+  })
+
   it.each([
     ['/minutes', '회의록'],
     ['/minutes/11111111-2222-4333-8444-555555555555', '회의록'],
