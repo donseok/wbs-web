@@ -1260,11 +1260,12 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid-strong justify-center tabular-nums text-ink-subtle ${cellBg}`}
                   style={{ ...frozen('no'), fontSize: 'var(--wbs-index-font, 11px)' }}
                 >
-                  {/* phase 스트립 — 루트 phase 소속을 3px 색 띠로. 동결(#) 셀 좌단이라 항상 보인다 */}
+                  {/* phase 스트립 — 루트 phase 소속을 6px 색 띠로(3px 는 흐려서 안 보인다는
+                      사용자 피드백으로 두텁게). 동결(#) 셀 좌단이라 항상 보인다 */}
                   <span
                     aria-hidden
                     data-phase-band={rootBandIndex.get(n.id) ?? 0}
-                    className="pointer-events-none absolute inset-y-0 left-0 w-[3px]"
+                    className="pointer-events-none absolute inset-y-0 left-0 w-1.5"
                     style={{ backgroundColor: PHASE_BAND[rootBandIndex.get(n.id) ?? 0] }}
                   />
                   {/* focus 도착 마커 — 동결(#) 셀 안에 두어 가로 스크롤에도 항상 보인다 */}
