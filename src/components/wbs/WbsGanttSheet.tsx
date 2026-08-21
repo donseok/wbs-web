@@ -1614,7 +1614,21 @@ export function WbsGanttSheet({
                   className={`relative box-border h-full shrink-0 border-b border-grid ${isFlash || progressLensActive ? 'bg-brand-weak/60' : ''} group-hover:bg-brand-weak`}
                   style={{ width: ganttW }}
                 >
-                  {n.plannedStart && n.plannedEnd && <Bar n={n} schedule={schedule} xOf={xOf} dayPx={dayPx} />}
+                  {n.plannedStart && n.plannedEnd && (
+                    <Bar
+                      n={n}
+                      schedule={schedule}
+                      xOf={xOf}
+                      dayPx={dayPx}
+                      // 바 hover 툴팁 — 날짜가 핵심 정보라 첫 줄. 작업명은 행에 이미 보여 제외(피드백).
+                      title={[
+                        `${fmtDate(n.plannedStart)} ~ ${fmtDate(n.plannedEnd)}`,
+                        t(`status.${n.status}` as DictKey),
+                        `${t('wbs.colPlannedPct')} ${formatPct1(n.plannedPct)}%`,
+                        `${t('wbs.colActualPct')} ${formatPct1(n.rolledActualPct)}%`,
+                      ].join('\n')}
+                    />
+                  )}
                 </div>
               </div>
             )
@@ -1930,11 +1944,14 @@ function Bar({
   schedule,
   xOf,
   dayPx,
+  title,
 }: {
   n: ComputedItem
   schedule?: TaskSchedule
   xOf: (d: string) => number
   dayPx: number
+  /** hover 툴팁 — i18n 이 필요한 조립은 호출부(t 보유) 책임. */
+  title?: string
 }) {
   const left = xOf(n.plannedStart!)
   const width = Math.max(dayPx * 0.5, xOf(n.plannedEnd!) + dayPx - left)
@@ -1962,6 +1979,8 @@ function Bar({
     return (
       <>
         <div
+          data-gantt-bar
+          title={title}
           className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
           style={{ left, width }}
         >
@@ -1986,6 +2005,8 @@ function Bar({
   return (
     <>
       <div
+        data-gantt-bar
+        title={title}
         className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
         style={{ left, width }}
       >
