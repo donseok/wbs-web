@@ -11,7 +11,7 @@ import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable 
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks } from 'lucide-react'
+import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
@@ -418,8 +418,19 @@ export function WbsGanttSheet({
     return m
   }, [items])
 
-  // 접기/펼치기는 sub-act 를 가진 act 에만 허용 — phase/task 는 항상 펼친 채 고정
-  const collapsibleIds = useMemo(() => splitParentIds(items), [items])
+  // 접기/펼치기는 자식이 있는 모든 노드에 허용 — 보통의 PM 도구(MS Project·ag-grid) 동작.
+  // 기본 접힘 초기값(splitParentIds)은 그대로다: 첫 화면 행 구성은 종전과 동일하다.
+  // 접힌 행 배지용 자손 수(자식만이 아니라 자손 전체 — 숨는 행 수와 일치해야 한다).
+  const descendantCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    const walk = (n: ComputedItem): number => {
+      const c = n.children.reduce((sum, ch) => sum + 1 + walk(ch), 0)
+      m.set(n.id, c)
+      return c
+    }
+    items.forEach(walk)
+    return m
+  }, [items])
 
   // 표시용 접힘 = 저장된 접힘 − focus 임시 펼침
   const effCollapsed = useMemo(() => {
@@ -1080,7 +1091,7 @@ export function WbsGanttSheet({
           {flatRows.map((n, idx) => {
             const depth = depthMap.get(n.id) ?? 0
             const hasChildren = n.children.length > 0
-            const canToggle = collapsibleIds.has(n.id)
+            const canToggle = hasChildren
             const isCollapsed = effCollapsed.has(n.id)
             const isFlash = flashId === n.id
             const schedule = dependencySchedule.byId.get(n.id)
@@ -1160,20 +1171,34 @@ export function WbsGanttSheet({
                   <LevelBadge depth={n.depth} isOwnerSplit={n.isOwnerSplit} levelLabels={levelLabels} compact />
                 </div>
                 {/* 작업명 */}
-                <div data-wbs-col="name" className={`${cellBase} freeze-edge ${cellBg}`} style={frozen('name')}>
+                <div data-wbs-col="name" className={`${cellBase} freeze-edge relative ${cellBg}`} style={frozen('name')}>
+                  {/* 들여쓰기 가이드 — 조상 깊이마다 세로선. 행마다 같은 x에 그려져 열처럼 이어진다.
+                      left = 셀 패딩(px-2=8) + 조상 들여쓰기(i*14) + 토글 아이콘 중심(12). */}
+                  {Array.from({ length: depth }, (_, i) => (
+                    <span
+                      key={i}
+                      aria-hidden
+                      data-indent-guide
+                      className="pointer-events-none absolute inset-y-0 w-px bg-grid"
+                      style={{ left: 8 + i * 14 + 12 }}
+                    />
+                  ))}
                   <div className="flex min-w-0 items-center" style={{ paddingLeft: depth * 14 }}>
                     {canToggle ? (
                       <button
                         onClick={() => toggle(n.id)}
                         className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-line hover:text-ink"
-                        style={{ fontSize: 'var(--wbs-badge-font, 10px)' }}
                         aria-label={isCollapsed ? t('wbs.expand') : t('wbs.collapse')}
                         aria-expanded={!isCollapsed}
                       >
-                        {isCollapsed ? '▸' : '▾'}
+                        <ChevronRight
+                          size={14}
+                          strokeWidth={2}
+                          className={`transition-transform duration-150 ${isCollapsed ? '' : 'rotate-90'}`}
+                        />
                       </button>
                     ) : (
-                      <span className="mr-1 w-4 shrink-0" />
+                      <span aria-hidden data-toggle-spacer className="mr-1 w-6 shrink-0" />
                     )}
                     <button
                       type="button"
@@ -1194,6 +1219,16 @@ export function WbsGanttSheet({
                       )}
                     </button>
                     {isCritical && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-critical" aria-label={t('wbs.criticalPath')} />}
+                    {isCollapsed && (
+                      <span
+                        data-collapsed-count
+                        className="ml-1.5 shrink-0 rounded-full bg-line px-1.5 py-px tabular-nums text-ink-subtle"
+                        style={{ fontSize: 'var(--wbs-badge-font, 10px)' }}
+                        title={t('wbs.hiddenDescendants')}
+                      >
+                        {descendantCounts.get(n.id) ?? 0}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {/* 담당 */}

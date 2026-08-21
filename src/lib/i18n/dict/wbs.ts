@@ -13,6 +13,7 @@ export const wbsKo = {
   // 툴바 라벨은 한 줄 유지를 위해 최소 글자 — 상세 설명은 각 버튼 title로 제공한다
   'wbs.expandAll': '펼치기',
   'wbs.collapseAll': '접기',
+  'wbs.hiddenDescendants': '접힌 하위 작업 수',
   'wbs.sheetEdit': '시트 편집',
   'wbs.timelineFocus': '타임라인 집중',
   'wbs.enterFullscreenTitle': '전체화면으로 크게 보기',

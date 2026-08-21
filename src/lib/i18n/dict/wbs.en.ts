@@ -12,6 +12,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.searchAria': 'Search tasks',
   'wbs.expandAll': 'Expand',
   'wbs.collapseAll': 'Collapse',
+  'wbs.hiddenDescendants': 'Hidden sub-items',
   'wbs.sheetEdit': 'Edit sheet',
   'wbs.timelineFocus': 'Timeline focus',
   'wbs.enterFullscreenTitle': 'View full screen',
