@@ -107,13 +107,14 @@ describe('WBS 구분 열 개편', () => {
     expect(idx('r1')).not.toBe(idx('r0'))
   })
 
-  it('부모 행은 depth 와 무관하게 중립 음영, leaf 는 음영 없음', async () => {
+  it('레벨별 배경 틴트는 종전 그대로 — depth 0/1 틴트, depth 2+ 는 zebra 계열', async () => {
     await render(fixture())
     const nameCell = (id: string) =>
       container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-wbs-col="name"]`)!.className
-    expect(nameCell('p1')).toContain('bg-surface-2')
-    expect(nameCell('t1')).toContain('bg-surface-2') // depth 1 부모도 동일 음영
-    expect(nameCell('a1')).not.toContain('bg-surface-2')
+    expect(nameCell('p1')).toContain('bg-[#f1f4f9]')
+    expect(nameCell('t1')).toContain('bg-[#f8faff]')
+    expect(nameCell('a1')).not.toContain('bg-[#f1f4f9]')
+    expect(nameCell('a1')).not.toContain('bg-[#f8faff]')
   })
 
   it('레벨 명칭은 열 대신 작업명 툴팁으로 남는다', async () => {

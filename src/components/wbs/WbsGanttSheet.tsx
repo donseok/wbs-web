@@ -1197,10 +1197,16 @@ export function WbsGanttSheet({
             const isCritical = schedule?.critical ?? false
             const isDim = hideDone && hideDoneResult.dimIds.has(n.id)
             const rowNo = idx + 1
-            // 부모 행 음영은 depth 무관 중립 한 단계(bg-surface-2) — 7~8단에서도 성립하고,
-            // 종전 라이트 전용 하드코딩 hex(#f1f4f9 등)와 달리 테마 토큰이라 다크에서도 맞는다.
-            // 루트 위계는 타이포(semibold)와 phase 스트립이 전달한다.
-            const rowBg = hasChildren ? 'bg-surface-2' : rowNo % 2 === 0 ? 'bg-zebra' : 'bg-surface'
+            // 레벨별 배경은 종전 그대로 유지(사용자 결정 2026-08-21) — 구분 열이 사라져도
+            // depth 0/1 틴트가 레벨 식별을 계속 담당한다. depth 2+ 는 zebra.
+            const rowBg =
+              depth === 0
+                ? 'bg-[#f1f4f9]'
+                : depth === 1
+                  ? 'bg-[#f8faff]'
+                  : rowNo % 2 === 0
+                    ? 'bg-zebra'
+                    : 'bg-surface'
             // focus 플래시는 hover 와 같은 틴트(bg-brand-weak) + 좌측 브랜드 악센트 바로 강조 —
             // 악센트가 있어야 커서가 우연히 올라간 행(hover)과 도착 행이 구분된다.
             const progressLensActive = progressLensActiveId === n.id
@@ -1208,14 +1214,15 @@ export function WbsGanttSheet({
               isFlash || progressLensActive ? 'bg-brand-weak' : rowBg
             } group-hover:bg-brand-weak`
             const subLabel = subActLabels.get(n.id)
-            // 루트만 semibold, 그 외 부모는 medium — N단에서 전 부모 semibold 는 과중하다.
-            const nameWeight = hasChildren
-              ? depth === 0
+            // 레벨별 타이포도 종전 그대로(depth 기준) — 배경 틴트와 한 몸으로 레벨을 식별한다.
+            const nameWeight =
+              depth === 0
                 ? 'font-semibold text-ink'
-                : 'font-medium text-ink'
-              : subLabel != null
-                ? 'text-ink-muted'
-                : 'text-ink'
+                : depth === 1
+                  ? 'font-medium text-ink'
+                  : subLabel != null
+                    ? 'text-ink-muted'
+                    : 'text-ink'
 
             const editingWeight = edit?.id === n.id && edit.field === 'weight'
             const editingActual = edit?.id === n.id && edit.field === 'actual'
