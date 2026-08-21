@@ -1974,16 +1974,27 @@ function Bar({
       title={`${schedule!.forecastStart} ~ ${schedule!.forecastEnd}`}
     />
   ) : null
+  // hover 툴팁 — 네이티브 title 은 지연이 길고 합성 이벤트·리렌더에 취약해 커스텀으로 그린다.
+  // display 변형 유틸은 안전망(unlayered)에 지므로 opacity 전환만 쓴다(CLAUDE.md CSS 규칙).
+  const tip = title ? (
+    <span
+      data-gantt-tooltip
+      className="pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 whitespace-pre rounded-lg bg-ink px-2 py-1 leading-snug text-surface opacity-0 shadow-lg transition-opacity duration-100 group-hover/bar:opacity-100"
+      style={{ fontSize: 10 }}
+    >
+      {title}
+    </span>
+  ) : null
 
   if (n.depth === 0) {
     return (
       <>
         <div
           data-gantt-bar
-          title={title}
-          className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
+          className={`group/bar absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
           style={{ left, width }}
         >
+          {tip}
           <div
             className="h-full rounded-[3px] bg-phasebar-fill opacity-60"
             style={{ width: `${pct}%` }}
@@ -2006,10 +2017,10 @@ function Bar({
     <>
       <div
         data-gantt-bar
-        title={title}
-        className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
+        className="group/bar absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
         style={{ left, width }}
       >
+        {tip}
         <div className={`h-full overflow-hidden rounded-full bg-plan-track ring-1 ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : 'ring-grid'}`}>
           <div
             className={`h-full rounded-full ${STATUS[n.status].bar}`}

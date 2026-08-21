@@ -31,14 +31,17 @@ describe('간트 진행 바 툴팁', () => {
     await act(async () => root.render(
       <WbsGanttSheet items={[item({ id: 'p1', name: '준비 공정', depth: 0, children: [leaf] })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
     ))
-    const barOf = (id: string) =>
-      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-gantt-bar]`)!
-    const phaseTitle = barOf('p1').title
-    expect(phaseTitle).toContain('26.07.01 ~ 26.07.10') // 날짜가 첫 줄 핵심 정보
-    expect(phaseTitle).toContain('status.in_progress')
-    expect(phaseTitle).toContain('wbs.colPlannedPct 50.0%')
-    expect(phaseTitle).toContain('wbs.colActualPct 37.5%')
-    expect(phaseTitle).not.toContain('준비 공정') // 작업명은 행에 이미 보인다 — 제외
-    expect(barOf('a1').title).toContain('26.07.01 ~ 26.07.10')
+    const tipOf = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-gantt-bar] [data-gantt-tooltip]`)!
+    const phaseTip = tipOf('p1')
+    expect(phaseTip.textContent).toContain('26.07.01 ~ 26.07.10') // 날짜가 첫 줄 핵심 정보
+    expect(phaseTip.textContent).toContain('status.in_progress')
+    expect(phaseTip.textContent).toContain('wbs.colPlannedPct 50.0%')
+    expect(phaseTip.textContent).toContain('wbs.colActualPct 37.5%')
+    expect(phaseTip.textContent).not.toContain('준비 공정') // 작업명은 행에 이미 보인다 — 제외
+    // 커스텀 툴팁 — 평소 투명, 바 hover 시 opacity 로 나타난다(display 변형은 안전망 금지).
+    expect(phaseTip.className).toContain('opacity-0')
+    expect(phaseTip.className).toContain('group-hover/bar:opacity-100')
+    expect(tipOf('a1').textContent).toContain('26.07.01 ~ 26.07.10')
   })
 })
