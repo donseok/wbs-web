@@ -25,15 +25,23 @@ function item(over: Partial<ComputedItem>): ComputedItem {
     owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], depth: 0, ...over }
 }
 
-/** matchMedia 스텁 — 쿼리별 판정. phone=둘 다, tablet=크롬 압축만(폭 1023 쿼리), desktop=없음. */
-function stubMqTier(tier: 'phone' | 'tablet' | 'desktop') {
+/** matchMedia 스텁 — 실제 뷰포트 크기로 (max-width|max-height) OR 조합 쿼리를 평가한다. */
+function stubViewport(width: number, height: number) {
   vi.stubGlobal('matchMedia', vi.fn((q: string) => ({
-    matches: tier === 'phone' ? true : tier === 'tablet' ? q.includes('1023') : false,
+    matches: q.split(',').some(part => {
+      const mw = part.match(/max-width:\s*(\d+)px/)
+      const mh = part.match(/max-height:\s*(\d+)px/)
+      if (mw) return width <= Number(mw[1])
+      if (mh) return height <= Number(mh[1])
+      return false
+    }),
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   })))
 }
-const stubMq = (matches: boolean) => stubMqTier(matches ? 'phone' : 'desktop')
+const stubMq = (compact: boolean) => (compact ? stubViewport(375, 667) : stubViewport(1920, 1080))
+const stubMqTier = (tier: 'phone' | 'tablet' | 'desktop') =>
+  tier === 'phone' ? stubViewport(375, 667) : tier === 'tablet' ? stubViewport(768, 1024) : stubViewport(1920, 1080)
 
 describe('WBS 컴팩트 압축', () => {
   let container: HTMLDivElement, root: Root
@@ -138,6 +146,28 @@ describe('WBS 컴팩트 압축', () => {
     expect(container.querySelector('[data-wbs-col="deliverable"][data-wbs-col-kind="header"]')).not.toBeNull()
   })
 
+  it('랩탑(1024×768): 높이가 낮아 컴팩트 — 툴바가 걷힌다', async () => {
+    stubViewport(1024, 768)
+    await render()
+    expect(container.querySelector('[data-wbs-toolbar]')).toBeNull()
+    expect(container.querySelector('[data-wbs-toolbar-toggle]')).not.toBeNull()
+    expect(container.querySelector('[data-wbs-legend]')).toBeNull()
+  })
+
+  it('중간 데스크톱(1300×900): 툴바는 펼쳐지되 글자 라벨은 숨겨 한 줄을 지킨다', async () => {
+    stubViewport(1300, 900)
+    await render()
+    expect(container.querySelector('[data-wbs-toolbar]')).not.toBeNull()
+    expect(container.querySelector('[data-wbs-toolbar-toggle]')).toBeNull()
+    expect(container.querySelectorAll('[data-btn-label]')).toHaveLength(0)
+  })
+
+  it('넓은 데스크톱(1920×1080): 글자 라벨까지 전부 보인다', async () => {
+    stubViewport(1920, 1080)
+    await render()
+    expect(container.querySelectorAll('[data-btn-label]').length).toBeGreaterThanOrEqual(4)
+  })
+
   // matchMedia 는 mount effect 에서 1회만 읽으므로 스텁별로 테스트를 분리한다(재렌더로는 안 바뀜)
   it('컴팩트: 범례를 렌더하지 않는다', async () => {
     stubMq(true)
@@ -157,13 +187,14 @@ describe('히어로 컴팩트 숨김', () => {
   beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
   afterEach(() => { act(() => root.unmount()); container.remove(); vi.unstubAllGlobals() })
 
-  it('PageHero 는 CSS 기준선으로 lg(1024) 미만에서 숨는다 — 크롬 압축 기준과 일치(SSR 플래시 방지)', async () => {
+  it('PageHero CSS 기준선 = 크롬 압축과 동일(폭≥1024 그리고 높이≥800에서만 표시) — SSR 플래시 방지', async () => {
     await act(async () => root.render(<PageHero title="D-CUBE 프로젝트 WBS · 간트" />))
     const section = container.querySelector('section')
     expect(section).not.toBeNull()
     expect(section!.className).toContain('hidden')
-    expect(section!.className).toContain('lg:grid')
-    expect(section!.className).not.toContain('md:grid') // md(768)면 태블릿 세로에서 새 나온다
+    // 폭 전용 유틸(lg:grid)이면 1024×768 랩탑에서 새 나온다 — 높이 조건 포함 미디어 변형이어야 한다
+    expect(section!.className).toContain('[@media(min-width:1024px)_and_(min-height:800px)]:grid')
+    expect(section!.className).not.toMatch(/\b(md|lg):grid\b/)
   })
 
   it('ProjectPageShell 은 컴팩트에서 히어로 래퍼 자체를 렌더하지 않는다(가로 폰 포함)', async () => {
