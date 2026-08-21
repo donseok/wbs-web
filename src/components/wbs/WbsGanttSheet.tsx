@@ -11,6 +11,7 @@ import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable 
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
+import { matchesCompactViewport, useCompactViewport } from '@/lib/hooks/useCompactViewport'
 import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
@@ -77,26 +78,6 @@ const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart',
    과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
 const ROW_H = 40
-/* 모바일 판정 기준 — Tailwind sm(40rem=640px) 미만. SSR 은 데스크톱으로 그리고 마운트 후 보정. */
-const NARROW_MQ = '(max-width: 639px)'
-function useIsNarrowViewport() {
-  const [narrow, setNarrow] = useState(false)
-  useEffect(() => {
-    const mq = window.matchMedia?.(NARROW_MQ)
-    if (!mq) return
-    const sync = () => setNarrow(mq.matches)
-    sync()
-    // 구형 Safari·테스트 스텁은 addListener 만 제공한다 — 없으면 초기값만 쓰고 리스너는 생략.
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', sync)
-      return () => mq.removeEventListener('change', sync)
-    }
-    const legacy = mq as unknown as { addListener?: (fn: () => void) => void; removeListener?: (fn: () => void) => void }
-    legacy.addListener?.(sync)
-    return () => legacy.removeListener?.(sync)
-  }, [])
-  return narrow
-}
 const EMPTY_DEPENDENCIES: TaskDependency[] = []
 const EMPTY_MILESTONE_KEYWORDS: readonly string[] = []
 const EMPTY_MEMBERS: ProjectMember[] = []
@@ -275,10 +256,10 @@ export function WbsGanttSheet({
   }
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
-  const isNarrow = useIsNarrowViewport()
-  // 모바일 최초 진입은 계획 열 숨김으로 시작 — 캘린더가 작업명 바로 옆에 온다. 이후 토글은 사용자 뜻대로.
+  const compact = useCompactViewport()
+  // 컴팩트 최초 진입은 계획 열 숨김으로 시작 — 캘린더가 작업명 바로 옆에 온다. 이후 토글은 사용자 뜻대로.
   useEffect(() => {
-    if (window.matchMedia?.(NARROW_MQ)?.matches) setPlanningColsHidden(true)
+    if (matchesCompactViewport()) setPlanningColsHidden(true)
   }, [])
   // 이정표 기준선 — 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 켜짐이며 계정에 저장하지 않는다.
   const [showMilestones, setShowMilestones] = useState(true)
@@ -339,7 +320,7 @@ export function WbsGanttSheet({
     return me ? [{ userId: me.id, name: me.name }, ...others] : others
   }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
   // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
-  const cols = useMemo(() => buildCols(outlineVisible, isNarrow), [outlineVisible, isNarrow])
+  const cols = useMemo(() => buildCols(outlineVisible, compact), [outlineVisible, compact])
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {
@@ -964,10 +945,12 @@ export function WbsGanttSheet({
       {/* 모바일도 flex-wrap — 아이콘 버튼이 한 줄에 여럿 들어가 세로 공간을 아낀다(종전 2열 그리드는 버튼당 한 칸씩 차지) */}
       <div data-wbs-toolbar className="card mb-1.5 flex w-full min-w-0 max-w-full shrink-0 flex-wrap items-center gap-1.5 overflow-hidden p-1.5 sm:mb-3 sm:gap-2 sm:p-2.5">
         {/* 제목 글자는 툴바 가로폭을 아껴 두 줄 줄바꿈을 막으려고 뺐다. 아이콘만 남기고 이름은 title·sr-only 로 유지 */}
-        <div className="mr-1 hidden items-center px-0.5 text-sm font-semibold text-ink sm:flex">
-          <span title={t('wbs.board')} className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
-          <span className="sr-only">{t('wbs.board')}</span>
-        </div>
+        {!compact && (
+          <div className="mr-1 flex items-center px-0.5 text-sm font-semibold text-ink">
+            <span title={t('wbs.board')} className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
+            <span className="sr-only">{t('wbs.board')}</span>
+          </div>
+        )}
         <div className="relative min-w-0 flex-1 sm:flex-none">
           <input
             value={query}
@@ -978,20 +961,27 @@ export function WbsGanttSheet({
           />
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
-        {/* 모바일 전용 툴바 토글 — 컨트롤 묶음(아래 rest)이 기본 접혀 표가 먼저 보이게 한다 */}
-        <button
-          type="button"
-          data-wbs-toolbar-toggle
-          onClick={() => setToolbarOpen(v => !v)}
-          aria-expanded={toolbarOpen}
-          title={t('wbs.toolbarToggleTitle')}
-          className={`btn h-9 px-3 text-xs sm:hidden ${toolbarOpen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
-        >
-          <SlidersHorizontal className="h-3.5 w-3.5" />
-        </button>
+        {/* 컴팩트 전용 툴바 토글 — 컨트롤 묶음(아래 rest)이 기본 접혀 표가 먼저 보이게 한다.
+            분기는 JS(compact)로만 — sm: display 유틸을 쓰면 가로 폰(폭 640+)이 빠져나간다 */}
+        {compact && (
+          <button
+            type="button"
+            data-wbs-toolbar-toggle
+            onClick={() => setToolbarOpen(v => !v)}
+            aria-expanded={toolbarOpen}
+            title={t('wbs.toolbarToggleTitle')}
+            className={`btn h-9 px-3 text-xs ${toolbarOpen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+          </button>
+        )}
         <div
           data-wbs-toolbar-rest
-          className={`${toolbarOpen ? 'flex' : 'hidden'} w-full flex-wrap items-center gap-1.5 sm:flex sm:w-auto sm:min-w-0 sm:flex-1 sm:gap-2`}
+          className={
+            compact
+              ? `${toolbarOpen ? 'flex' : 'hidden'} w-full flex-wrap items-center gap-1.5`
+              : 'flex min-w-0 flex-1 flex-wrap items-center gap-2'
+          }
         >
         {deepestLevel >= 2 && (
           <div
@@ -1059,7 +1049,7 @@ export function WbsGanttSheet({
             }`}
           >
             <Icon name={planningColsHidden ? 'eye' : 'eyeOff'} className="h-3.5 w-3.5" />
-            <span data-btn-label className="hidden sm:inline">{t(planningColsHidden ? 'wbs.showPlanningColumnsShort' : 'wbs.hidePlanningColumnsShort')}</span>
+            {!compact && <span data-btn-label>{t(planningColsHidden ? 'wbs.showPlanningColumnsShort' : 'wbs.hidePlanningColumnsShort')}</span>}
           </button>
         )}
         <button
@@ -1073,7 +1063,7 @@ export function WbsGanttSheet({
           }`}
         >
           <Icon name="search" className="h-3.5 w-3.5" />
-          <span data-btn-label className="hidden sm:inline">{t('wbs.progressLensShort')}</span>
+          {!compact && <span data-btn-label>{t('wbs.progressLensShort')}</span>}
         </button>
         <button
           type="button"
@@ -1084,7 +1074,7 @@ export function WbsGanttSheet({
           className={`btn h-9 px-3 text-xs ${hideDone ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
         >
           <ListChecks className="h-3.5 w-3.5" />
-          <span data-btn-label className="hidden sm:inline">{t('wbs.hideDone')}</span>
+          {!compact && <span data-btn-label>{t('wbs.hideDone')}</span>}
           {/* N = 접힘 무관 '감춘 작업 수'. 검색 중엔 숨김이 일시 미적용이라 거짓 신호 방지 위해 생략 */}
           {hideDone && !q && <span className="tabular-nums">· {hideDoneResult.hiddenCount}</span>}
         </button>
@@ -1097,7 +1087,7 @@ export function WbsGanttSheet({
           canIncrease={fontScale.canIncrease}
         />
         <button data-wbs-fullscreen-toggle onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} <span data-btn-label className="hidden sm:inline">{fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}</span>
+          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {!compact && <span data-btn-label>{fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}</span>}
         </button>
         {dependencies.length > 0 && (
           <button
@@ -1108,7 +1098,7 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showDependencyLinks ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <GitBranch className="h-3.5 w-3.5" />
-            <span data-btn-label className="hidden sm:inline">{t('wbs.dependencies')}</span> {dependencies.length}
+            {!compact && <span data-btn-label>{t('wbs.dependencies')}</span>} {dependencies.length}
             {dependencySchedule.criticalTaskIds.size > 0 && (
               <span className="rounded-full bg-critical px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
                 {t('wbs.criticalShort')} {dependencySchedule.criticalTaskIds.size}
@@ -1131,16 +1121,16 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showMilestones ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <Flag className="h-3.5 w-3.5" />
-            <span data-btn-label className="hidden sm:inline">{t('wbs.milestones')}</span> {milestoneCount}
+            {!compact && <span data-btn-label>{t('wbs.milestones')}</span>} {milestoneCount}
           </button>
         )}
         {isAdmin && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} title={t('wbs.addPhase')} className="btn btn-ghost h-9 px-3 text-xs">
-            <Icon name="plus" className="h-3.5 w-3.5" /> <span data-btn-label className="hidden sm:inline">{t('wbs.addPhaseShort')}</span>
+            <Icon name="plus" className="h-3.5 w-3.5" /> {!compact && <span data-btn-label>{t('wbs.addPhaseShort')}</span>}
           </button>
         )}
         <button data-wbs-weekly-report onClick={() => setReportOpen(true)} title={t('wbs.weeklyReportTitle')} className="btn btn-ghost h-9 px-3 text-xs">
-          <FileText className="h-3.5 w-3.5" /> <span data-btn-label className="hidden sm:inline">{t('wbs.weeklyReport')}</span>
+          <FileText className="h-3.5 w-3.5" /> {!compact && <span data-btn-label>{t('wbs.weeklyReport')}</span>}
         </button>
         {/* 접속자 아바타 — 지금 이 WBS 메뉴를 보고 있는 사용자(본인 포함) */}
         <div className="ml-auto hidden sm:block">
@@ -1812,8 +1802,9 @@ export function WbsGanttSheet({
         </div>
       )}
 
-      {/* ── 범례 — 모바일은 표 공간 확보 위해 숨김(sm 이상 전용) ── */}
-      <div data-wbs-legend className="mt-2 hidden shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle sm:flex">
+      {/* ── 범례 — 컴팩트(세로 폰·가로 폰)에선 표 공간 확보 위해 렌더하지 않음 ── */}
+      {!compact && (
+      <div data-wbs-legend className="mt-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
         <span className="inline-flex items-center gap-2">
           {(['done', 'in_progress', 'delayed', 'not_started'] as const).map(s => (
             <span key={s} className="inline-flex items-center gap-1">
@@ -1867,6 +1858,7 @@ export function WbsGanttSheet({
               : t('wbs.legendHintOwner')}
         </span>
       </div>
+      )}
 
       {toast && (
         <div
