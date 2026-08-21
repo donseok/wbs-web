@@ -21,26 +21,19 @@ credits:
 
 # WBS — MES 생산계획 (담당 PL: 미정)
 
-<!-- 작성 규칙 (자세한 계약: .claude/skills/dflow-wbs-nlevel/SKILL.md)
-  - 이 파일의 최상위는 SUB- 부터. PH-·SYS- 를 본문에 쓰면 검증 에러.
-  - 구성 관례: 모듈 Water 꼬리(기본설계 WP, credit:doc) → 업무 Subsystem(프로세스/화면 WP)
-               → L2 I/F(공정 축) / ERP I/F(업무 축) → 모듈 통합 시나리오 WP.
+<!-- 작성 규칙 (계약: .claude/skills/dflow-wbs-nlevel/SKILL.md)
+  - 최상위는 SUB- 부터. PH-·SYS- 를 본문에 쓰면 검증 에러.
+  - 요건정의·상세설계는 골격(PH-01·02) 소속 — 이 파일은 구축 구현만 담는다.
   - Task 표기: - [ ] TSK-XX-000: 이름 @담당 w:공수 ~종료일 credit:표키 [if-id:IF-0000]
-  - SubTask(STK)는 Task 밑 들여쓴 체크박스 — 집계 불개입, 부모 acceptance 로 접혀 올라감(fold).
-  - 상태는 항상 [ ]. 실적 % 를 쓰지 않는다. ID 재번호매김 금지.
+  - 상태는 항상 [ ]. 실적 % 금지. ID 재번호매김 금지.
   - ⚠️ 업로드 게이트: import v2.2 전까지 작성·검수 전용. -->
 
-## SUB-00: 생산계획 공통
-
-### WP-00-DS: 생산계획 기본설계
-- [ ] TSK-00-001: 생산계획 요건정의서   w:5  ~2026-09-26  credit:doc
-- [ ] TSK-00-002: 생산계획 DB(ERD)·모듈 공유 계약 설계   w:5  ~2026-10-24  credit:doc
-
-<!-- 이하 업무 Subsystem 을 추가하세요. 예:
+<!-- 업무 Subsystem 을 추가하세요 — 조업 파일(docs/mes/조업/wbs.md)이 풀 전개 예시입니다.
 ## SUB-XX: (업무 영역)
 ### WP-XX-PR: 프로세스
-#### ACT-XX-PR-1: (그룹 — 선택)
 - [ ] TSK-XX-001: ...
 ### WP-XX-UI: 화면
 - [ ] TSK-XX-101: ...
+## SUB-L2IF: L2 I/F        ← 공정 축 (해당 시스템만)
+## SUB-ERPIF: ERP I/F      ← 업무 축 (if-id 로 대장 연결)
 -->
