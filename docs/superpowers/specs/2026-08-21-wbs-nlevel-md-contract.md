@@ -36,6 +36,37 @@ wbs.md 한 파일로 표현하기 위한 계약 초안. 코드 구현 전 설계
 - Task 완료 전이 시 미체크 checklist 경고/차단 게이트로 활용 가능.
 - 발행·배정 대상 = `input` 층 (현행 "task kind 만 발행" 의 일반화).
 
+### 업로드 범위 — 층별 `upload` (2026-08-21 추가)
+
+파일엔 세밀하게 쪼개되 D'Flow 엔 관리 단위까지만 올리는 경우를 위해 층별 `upload` 를 선언한다.
+
+| 값 | 의미 |
+|---|---|
+| `true` (기본) | wbs_items 노드로 업로드 |
+| `false` | 업로드 제외 — 파일 전용 메모 |
+| `fold` | 노드로는 안 올리되 부모 노드의 필드로 접어 올림 — checklist 층이면 부모 Task 의 `acceptance` 배열로 (import 계약에 acceptance jsonb 이미 존재, 0082 RPC) |
+
+- **아래에서 위로만 끌 수 있다**: 한 층이 `false`/`fold` 면 그보다 깊은 층 전부 동일 — 중간층만 빼면 자식의 parent_external_ref 가 끊긴다. 검증기가 막는다.
+- `progress: input` 층은 `upload: true` 강제 — 발행·배정 대상이 안 올라가면 모순.
+- checklist 층 기본 권장 = `fold`: STK 를 아예 안 올리면 "Task 완료 전이 시 미체크 경고" 게이트가 은퇴하는 wbs.md 에만 남는다. fold 면 게이트가 서버에서 작동하고 트리는 안 지저분해진다. `false` 는 정말 사적인 메모 전용.
+- 부수 이득: import 1회 1,000노드 상한 절약.
+
+### 분리 업로드 — PMO 골격 + PL 모듈 파일 (2026-08-21 추가)
+
+- PMO 골격 파일(Phase·System, `owner: pmo`)이 먼저, PL 파일 5개(공통/품질/생산계획/조업/물류)가 각자 `module` 다르게 같은 프로젝트로 업로드.
+- PL 파일 frontmatter: `attach: PH-03/SYS-OP` — 업로드 부착점. 서버에 그 노드 없으면 fail-closed 거부(골격 선행이 기계 검증됨). attach 는 모듈 경계를 넘는 참조(`mes-skel/SYS-OP`)라 import v2.2 에 크로스 모듈 해석 규칙 필요.
+- PL 파일의 levels 는 프로젝트 정본(PMO 골격이 시드한 level_labels)과 일치해야 통과 — PL 임의 층 추가 차단.
+- 골격 층은 PL 파일에서 `owner: pmo, upload: false` 로 선언만(접두어 해석용) — 본문에 쓰면 검증 에러.
+- 파일 배치 권장: 디렉토리 분리 `docs/mes/조업/wbs.md` (module = 디렉토리 세그먼트 파생, 현행 dflow-export 관례 그대로). 파일명 분리(wbs_조업.md)도 계약상 유효하나 module 매핑 표가 하나 더 필요.
+- module = 파일 1:1 강제. external_ref 가 `{module}/{ID}` 네임스페이스라 PL 간 ID 채번 조율 불필요, 타 모듈 데이터 침범 구조적 불가.
+
+업로드 경로 2개, 정본 1개 (2026-08-21 추가):
+
+- **웹 경로(사람/PL) — 자동 부착 + 확인**: 파일 업로드 → 파싱해 attach 키로 부착점 자동 판정 → 미리보기 카드(부착점·모듈·신규/갱신/서버에만 있음·담당 미매칭·levels 정합·owner 위반·fold 건수) → [적용/취소]. 사람은 노드를 고르지 않고 **확인만** 한다 — 잘못된 파일이면 부착점 표시에서 드러난다. attach 키 없는 파일만 노드 선택 화면으로 폴백.
+- **API 경로(자동화)**: frontmatter `attach` 필수, 확인 없이 적용(현행 import 동작).
+- 웹 경로에서 확인 없는 완전 자동은 두지 않는다 — 그건 API 경로의 중복이고, 웹 경로의 존재 이유가 "적용 전에 사람이 본다"이다.
+- **권한 결정 지점**: 현행 import 는 프로젝트 관리자 전용이고 노드 단위 소유 개념 없음. 1차 = PL 전원 관리자 + attach 검증(실수 방어, 악의 방어 없음 — 사내 소수 PL 수용). 2차 = System 노드 owner(또는 0071 project_teams 연결) 기반 "자기 서브트리만 import" — 노드 소유가 다른 기능(보고·결재)에 필요해질 때 함께.
+
 ### 진도율 원칙
 
 - 입력은 leaf 한 곳(stage 전이 기반 크레딧), 나머지 전부 자동 롤업. % 수기 입력은 예외.
@@ -59,7 +90,8 @@ levels:
   - { name: WP,        prefix: WP,  progress: rollup, report: weekly }
   - { name: Activity,  prefix: ACT, progress: rollup, optional: true }
   - { name: Task,      prefix: TSK, progress: input }
-  - { name: SubTask,   prefix: STK, progress: checklist, optional: true }
+  - { name: SubTask,   prefix: STK, progress: checklist, optional: true,
+      upload: fold }   # 노드로 안 올리고 부모 Task 의 acceptance 로 접어 올림
 
 # input 층의 stage → 진도 크레딧 (category 별)
 credits:

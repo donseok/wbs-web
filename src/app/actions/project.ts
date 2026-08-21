@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getActorViewState, requireProjectAdmin, requireSuperuser } from '@/lib/authz'
 import { canSeeProject } from '@/lib/domain/authz'
 import { isValidDateRange } from '@/lib/domain/validate'
+import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import { PRESETS } from '@/lib/domain/projectPresets'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
@@ -116,6 +117,37 @@ export async function updateProject(
   const { error } = await sb.from('projects').update(patch).eq('id', projectId)
   if (error) return { ok: false, error: error.message }
   revalidatePath('/projects')
+  revalidatePath(`/p/${projectId}`, 'layout')
+  return { ok: true }
+}
+
+/**
+ * WBS 단계(레벨) 설정 변경 — 라벨 배열이 곧 깊이(labels.length = max_depth).
+ * 기존 트리보다 얕게 줄이는 변경은 거부한다(깊은 노드가 라벨 범위 밖으로 유령이 된다).
+ * project_settings 는 쓰기 정책이 없어(0058 — service_role 전용 관문) admin 클라이언트로 쓴다.
+ */
+export async function updateLevelSettings(projectId: string, labels: string[]): Promise<{ ok: boolean; error?: string }> {
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+
+  // 축소 검증용 선행 조회 — 실패하면 중단한다(검증 불가를 통과로 위장하지 않는다).
+  const sb = await createServerClient()
+  const { data: rows, error: rowsErr } = await sb.from('wbs_items').select('id,parent_id').eq('project_id', projectId)
+  if (rowsErr || !rows) return { ok: false, error: rowsErr?.message || 'WBS 조회에 실패했습니다.' }
+
+  const v = validateLevelSettings({ labels, currentTreeMaxDepth: treeMaxDepth(rows) })
+  if (!v.ok) return { ok: false, error: v.error }
+
+  // 행 없음 = 기본값 계약(0058)이라 기존 행이 없을 수 있다 — upsert.
+  const admin = createAdminClient()
+  const { error } = await admin.from('project_settings').upsert({
+    project_id: projectId,
+    level_labels: v.labels,
+    max_depth: v.maxDepth,
+    updated_at: new Date().toISOString(),
+    updated_by: g.actor.userId,
+  })
+  if (error) return { ok: false, error: error.message }
   revalidatePath(`/p/${projectId}`, 'layout')
   return { ok: true }
 }
