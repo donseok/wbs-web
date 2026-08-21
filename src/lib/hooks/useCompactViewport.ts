@@ -53,10 +53,10 @@ export function useNarrowViewport(): boolean {
   return useMq(NARROW_MQ)
 }
 
-/* 툴바 글자 라벨 기준 — 데스크톱이어도 이 폭 미만이면 라벨 탓에 툴바가 2줄로 감긴다(실측 ~1300px 감김). */
-export const ROOMY_MIN_MQ = '(max-width: 1439px)'
+/* 툴바 글자 라벨 기준 — 데스크톱이어도 이 폭 미만이면 라벨 탓에 툴바가 2줄로 감긴다(1500px 에서도 감김 실측). */
+export const ROOMY_MIN_MQ = '(max-width: 1599px)'
 
-/** 여유 폭 — 툴바 버튼에 글자 라벨을 붙여도 한 줄에 들어가는 화면(폭 1440px 이상) */
+/** 여유 폭 — 툴바 버튼에 글자 라벨을 붙여도 한 줄에 들어가는 화면(폭 1600px 이상) */
 export function useRoomyViewport(): boolean {
   return !useMq(ROOMY_MIN_MQ)
 }
