@@ -7,7 +7,8 @@ import type { ReactNode } from 'react'
 export function ProjectPageShell({ hero, children }: { hero: ReactNode; children: ReactNode }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="shrink-0">{hero}</div>
+      {/* 히어로(PageHero)가 md 미만에서 숨으므로 래퍼도 같이 숨겨 빈 flex 아이템의 gap 낭비를 막는다 */}
+      <div className="hidden shrink-0 md:block">{hero}</div>
       <div
         className="-mr-1 min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-6 pr-1"
         data-project-scroll-region

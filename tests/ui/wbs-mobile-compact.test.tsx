@@ -64,6 +64,33 @@ describe('WBS 모바일 압축', () => {
     }
   })
 
+  it('툴바 컨트롤 묶음은 모바일 기본 접힘(hidden sm:flex), 토글 버튼으로 펼친다', async () => {
+    await render()
+    const rest = container.querySelector<HTMLElement>('[data-wbs-toolbar-rest]')
+    expect(rest).not.toBeNull()
+    expect(rest!.className).toContain('hidden')
+    expect(rest!.className).toContain('sm:flex')
+
+    const toggle = container.querySelector<HTMLButtonElement>('[data-wbs-toolbar-toggle]')
+    expect(toggle).not.toBeNull()
+    expect(toggle!.className).toContain('sm:hidden') // 데스크톱엔 토글 없음
+    expect(toggle!.getAttribute('aria-expanded')).toBe('false')
+
+    await act(async () => toggle!.click())
+    expect(toggle!.getAttribute('aria-expanded')).toBe('true')
+    const opened = container.querySelector<HTMLElement>('[data-wbs-toolbar-rest]')!
+    expect(opened.className).not.toContain('hidden')
+    expect(opened.className).toContain('flex')
+  })
+
+  it('범례는 모바일에서 숨긴다(hidden sm:flex)', async () => {
+    await render()
+    const legend = container.querySelector<HTMLElement>('[data-wbs-legend]')
+    expect(legend).not.toBeNull()
+    expect(legend!.className).toContain('hidden')
+    expect(legend!.className).toContain('sm:flex')
+  })
+
   it('아이콘만 남아도 접근성 이름은 유지된다 — 라벨 스팬을 품은 버튼은 title 보유', async () => {
     await render()
     const labels = container.querySelectorAll<HTMLElement>('[data-wbs-toolbar] [data-btn-label]')

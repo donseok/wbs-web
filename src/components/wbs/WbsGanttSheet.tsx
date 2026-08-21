@@ -11,7 +11,7 @@ import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable 
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash, ZoomIn, ZoomOut } from 'lucide-react'
+import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, fmtDate, levelBadgeText, teamStyle } from './shared'
@@ -262,6 +262,9 @@ export function WbsGanttSheet({
   const [progressLensPinnedId, setProgressLensPinnedId] = useState<string | null>(null)
   // 완료 숨김 — 계정 전역 저장(UiPrefs.wbsHideDone). 접힘(user_wbs_state)과 달리 프로젝트 무관.
   const [hideDone, setHideDone] = useState(initialHideDone)
+  // 모바일 툴바 접힘 — 좁은 화면에서 컨트롤이 3줄을 차지해 표를 가리므로 기본 접힘.
+  // sm 이상에서는 CSS(sm:flex)가 항상 펼치므로 이 상태는 모바일에서만 의미 있다.
+  const [toolbarOpen, setToolbarOpen] = useState(false)
   // focus 딥링크가 숨겨진 구간을 가리킬 때의 임시 노출 — forcedOpen 과 같은 계열(계정 저장 무접촉)
   const [hideExempt, setHideExempt] = useState<Set<string>>(() => new Set())
   const toggleHideDone = () => {
@@ -932,9 +935,9 @@ export function WbsGanttSheet({
     >
       {/* ── 툴바 ── */}
       {/* 모바일도 flex-wrap — 아이콘 버튼이 한 줄에 여럿 들어가 세로 공간을 아낀다(종전 2열 그리드는 버튼당 한 칸씩 차지) */}
-      <div data-wbs-toolbar className="card mb-3 flex w-full min-w-0 max-w-full shrink-0 flex-wrap items-center gap-2 overflow-hidden p-2.5">
+      <div data-wbs-toolbar className="card mb-1.5 flex w-full min-w-0 max-w-full shrink-0 flex-wrap items-center gap-1.5 overflow-hidden p-1.5 sm:mb-3 sm:gap-2 sm:p-2.5">
         {/* 제목 글자는 툴바 가로폭을 아껴 두 줄 줄바꿈을 막으려고 뺐다. 아이콘만 남기고 이름은 title·sr-only 로 유지 */}
-        <div className="mr-1 flex items-center px-0.5 text-sm font-semibold text-ink">
+        <div className="mr-1 hidden items-center px-0.5 text-sm font-semibold text-ink sm:flex">
           <span title={t('wbs.board')} className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
           <span className="sr-only">{t('wbs.board')}</span>
         </div>
@@ -948,6 +951,21 @@ export function WbsGanttSheet({
           />
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
+        {/* 모바일 전용 툴바 토글 — 컨트롤 묶음(아래 rest)이 기본 접혀 표가 먼저 보이게 한다 */}
+        <button
+          type="button"
+          data-wbs-toolbar-toggle
+          onClick={() => setToolbarOpen(v => !v)}
+          aria-expanded={toolbarOpen}
+          title={t('wbs.toolbarToggleTitle')}
+          className={`btn h-9 px-3 text-xs sm:hidden ${toolbarOpen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
+        <div
+          data-wbs-toolbar-rest
+          className={`${toolbarOpen ? 'flex' : 'hidden'} w-full flex-wrap items-center gap-1.5 sm:flex sm:w-auto sm:min-w-0 sm:flex-1 sm:gap-2`}
+        >
         {deepestLevel >= 2 && (
           <div
             role="group"
@@ -1100,6 +1118,7 @@ export function WbsGanttSheet({
         {/* 접속자 아바타 — 지금 이 WBS 메뉴를 보고 있는 사용자(본인 포함) */}
         <div className="ml-auto hidden sm:block">
           <PresenceStrip online={online} meId={me?.id} />
+        </div>
         </div>
       </div>
 
@@ -1766,8 +1785,8 @@ export function WbsGanttSheet({
         </div>
       )}
 
-      {/* ── 범례 ── */}
-      <div className="mt-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
+      {/* ── 범례 — 모바일은 표 공간 확보 위해 숨김(sm 이상 전용) ── */}
+      <div data-wbs-legend className="mt-2 hidden shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle sm:flex">
         <span className="inline-flex items-center gap-2">
           {(['done', 'in_progress', 'delayed', 'not_started'] as const).map(s => (
             <span key={s} className="inline-flex items-center gap-1">
