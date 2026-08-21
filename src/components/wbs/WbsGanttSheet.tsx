@@ -1276,13 +1276,13 @@ export function WbsGanttSheet({
                 }}
               >
                 {/* 1단계 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트).
-                    "~까지" 개념이라 끝나는 1단계 그룹(윗쪽)의 스트립 색을 그대로 쓰고,
-                    두께도 세로 스트립과 동일한 6px — ㄴ자로 이어져 한 구획으로 읽힌다. */}
+                    "~까지" 개념이라 끝나는 1단계 그룹(윗쪽)의 스트립 색을 그대로 쓴다.
+                    두께는 스트립(6px)의 절반인 3px — 6px 는 간트 진도율 바와 헷갈린다(피드백). */}
                 {isL1End && (
                   <span
                     aria-hidden
                     data-l1-end
-                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-1.5"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-[3px]"
                     style={{ backgroundColor: L1_BAND[(l1Index.get(n.id) ?? 0) % L1_BAND.length] }}
                   />
                 )}
