@@ -943,7 +943,22 @@ export function WbsGanttSheet({
       }
     >
       {/* ── 툴바 ── */}
-      {/* 모바일도 flex-wrap — 아이콘 버튼이 한 줄에 여럿 들어가 세로 공간을 아낀다(종전 2열 그리드는 버튼당 한 칸씩 차지) */}
+      {/* 컴팩트: 툴바를 통째로 걷고 플로팅 버튼으로 연다 — 접힌 한 줄(검색+토글)조차 표 공간을
+          먹는다는 피드백(2026-08-21). 분기는 JS(compact)로만 — CSS 반응형 display 유틸은
+          unlayered 안전망에 져서 못 쓴다. */}
+      {compact && !toolbarOpen && (
+        <button
+          type="button"
+          data-wbs-toolbar-toggle
+          onClick={() => setToolbarOpen(true)}
+          aria-expanded={false}
+          title={t('wbs.toolbarToggleTitle')}
+          className="btn absolute right-1 top-1 z-[60] h-8 border border-line bg-surface/95 px-2.5 text-xs shadow-[var(--shadow-sm)] backdrop-blur-sm"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {(!compact || toolbarOpen) && (
       <div data-wbs-toolbar className="card mb-1.5 flex w-full min-w-0 max-w-full shrink-0 flex-wrap items-center gap-1.5 overflow-hidden p-1.5 sm:mb-3 sm:gap-2 sm:p-2.5">
         {/* 제목 글자는 툴바 가로폭을 아껴 두 줄 줄바꿈을 막으려고 뺐다. 아이콘만 남기고 이름은 title·sr-only 로 유지 */}
         {!compact && (
@@ -962,16 +977,15 @@ export function WbsGanttSheet({
           />
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
-        {/* 컴팩트 전용 툴바 토글 — 컨트롤 묶음(아래 rest)이 기본 접혀 표가 먼저 보이게 한다.
-            분기는 JS(compact)로만 — sm: display 유틸을 쓰면 가로 폰(폭 640+)이 빠져나간다 */}
+        {/* 컴팩트에서 열린 툴바의 닫기 버튼 — 플로팅 버튼과 같은 토글 시맨틱 */}
         {compact && (
           <button
             type="button"
             data-wbs-toolbar-toggle
-            onClick={() => setToolbarOpen(v => !v)}
-            aria-expanded={toolbarOpen}
+            onClick={() => setToolbarOpen(false)}
+            aria-expanded
             title={t('wbs.toolbarToggleTitle')}
-            className={`btn h-9 px-3 text-xs ${toolbarOpen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
+            className="btn h-9 border border-brand-ring bg-brand-weak px-3 text-xs text-brand"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
           </button>
@@ -980,7 +994,7 @@ export function WbsGanttSheet({
           data-wbs-toolbar-rest
           className={
             compact
-              ? `${toolbarOpen ? 'flex' : 'hidden'} w-full flex-wrap items-center gap-1.5`
+              ? 'flex w-full flex-wrap items-center gap-1.5'
               : 'flex min-w-0 flex-1 flex-wrap items-center gap-2'
           }
         >
@@ -1139,6 +1153,7 @@ export function WbsGanttSheet({
         </div>
         </div>
       </div>
+      )}
 
       {/* 새 Phase 입력 (PMO) */}
       {addPhase != null && (

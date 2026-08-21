@@ -57,6 +57,7 @@ describe('WBS 컴팩트 압축', () => {
   it('컴팩트: 버튼 글자 라벨이 사라지고 아이콘만 남되 title 은 유지된다', async () => {
     stubMq(true)
     await render()
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-wbs-toolbar-toggle]')!.click()) // 툴바 열기
     expect(container.querySelectorAll('[data-wbs-toolbar] [data-btn-label]')).toHaveLength(0)
     for (const sel of ['[data-wbs-progress-lens-toggle]', '[data-wbs-hide-done-toggle]', '[data-wbs-fullscreen-toggle]', '[data-wbs-weekly-report]']) {
       const btn = container.querySelector<HTMLElement>(sel)
@@ -75,27 +76,32 @@ describe('WBS 컴팩트 압축', () => {
     }
   })
 
-  it('컴팩트: 툴바 컨트롤 묶음은 기본 접힘, 토글 버튼으로 펼친다', async () => {
+  it('컴팩트: 툴바가 통째로 사라지고 플로팅 토글로 열고 닫는다', async () => {
     stubMq(true)
     await render()
-    const rest = container.querySelector<HTMLElement>('[data-wbs-toolbar-rest]')
-    expect(rest).not.toBeNull()
-    expect(rest!.className).toContain('hidden')
+    // 기본: 툴바 없음, 플로팅 토글만
+    expect(container.querySelector('[data-wbs-toolbar]')).toBeNull()
+    const open = container.querySelector<HTMLButtonElement>('[data-wbs-toolbar-toggle]')
+    expect(open).not.toBeNull()
+    expect(open!.getAttribute('aria-expanded')).toBe('false')
 
-    const toggle = container.querySelector<HTMLButtonElement>('[data-wbs-toolbar-toggle]')
-    expect(toggle).not.toBeNull()
-    expect(toggle!.getAttribute('aria-expanded')).toBe('false')
+    // 열면: 툴바 + 전체 컨트롤 등장
+    await act(async () => open!.click())
+    expect(container.querySelector('[data-wbs-toolbar]')).not.toBeNull()
+    expect(container.querySelector('[data-wbs-toolbar-rest]')).not.toBeNull()
+    expect(container.querySelector('[data-wbs-progress-lens-toggle]')).not.toBeNull()
+    const close = container.querySelector<HTMLButtonElement>('[data-wbs-toolbar-toggle]')!
+    expect(close.getAttribute('aria-expanded')).toBe('true')
 
-    await act(async () => toggle!.click())
-    expect(toggle!.getAttribute('aria-expanded')).toBe('true')
-    const opened = container.querySelector<HTMLElement>('[data-wbs-toolbar-rest]')!
-    expect(opened.className).not.toContain('hidden')
-    expect(opened.className).toContain('flex')
+    // 닫으면 원상복구
+    await act(async () => close.click())
+    expect(container.querySelector('[data-wbs-toolbar]')).toBeNull()
   })
 
-  it('일반: 툴바는 항상 펼침이고 토글 버튼이 없다', async () => {
+  it('일반: 툴바는 항상 보이고 토글 버튼이 없다', async () => {
     stubMq(false)
     await render()
+    expect(container.querySelector('[data-wbs-toolbar]')).not.toBeNull()
     const rest = container.querySelector<HTMLElement>('[data-wbs-toolbar-rest]')!
     expect(rest.className).toContain('flex')
     expect(rest.className).not.toContain('hidden')
@@ -119,12 +125,12 @@ describe('WBS 컴팩트 압축', () => {
     expect(container.querySelector('[data-wbs-col="deliverable"][data-wbs-col-kind="header"]')).not.toBeNull()
   })
 
-  it('태블릿(폭 640~1023): 툴바는 접히되 열 폭·계획 열은 데스크톱 그대로', async () => {
+  it('태블릿(폭 640~1023): 툴바는 걷히되 열 폭·계획 열은 데스크톱 그대로', async () => {
     stubMqTier('tablet')
     await render()
-    // 크롬 압축은 걸린다 — 토글 존재 + rest 접힘 + 범례 없음
+    // 크롬 압축은 걸린다 — 툴바 없음 + 플로팅 토글 + 범례 없음
+    expect(container.querySelector('[data-wbs-toolbar]')).toBeNull()
     expect(container.querySelector('[data-wbs-toolbar-toggle]')).not.toBeNull()
-    expect(container.querySelector<HTMLElement>('[data-wbs-toolbar-rest]')!.className).toContain('hidden')
     expect(container.querySelector('[data-wbs-legend]')).toBeNull()
     // 열 축소는 안 걸린다 — 작업명 360px + 계획 열 표시
     const nameHead = container.querySelector<HTMLElement>('[data-wbs-col="name"][data-wbs-col-kind="header"]')
@@ -151,12 +157,13 @@ describe('히어로 컴팩트 숨김', () => {
   beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
   afterEach(() => { act(() => root.unmount()); container.remove(); vi.unstubAllGlobals() })
 
-  it('PageHero 는 CSS 기준선으로 md 미만에서 숨는다(SSR 플래시 방지)', async () => {
+  it('PageHero 는 CSS 기준선으로 lg(1024) 미만에서 숨는다 — 크롬 압축 기준과 일치(SSR 플래시 방지)', async () => {
     await act(async () => root.render(<PageHero title="D-CUBE 프로젝트 WBS · 간트" />))
     const section = container.querySelector('section')
     expect(section).not.toBeNull()
     expect(section!.className).toContain('hidden')
-    expect(section!.className).toContain('md:grid')
+    expect(section!.className).toContain('lg:grid')
+    expect(section!.className).not.toContain('md:grid') // md(768)면 태블릿 세로에서 새 나온다
   })
 
   it('ProjectPageShell 은 컴팩트에서 히어로 래퍼 자체를 렌더하지 않는다(가로 폰 포함)', async () => {
