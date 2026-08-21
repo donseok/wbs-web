@@ -31,21 +31,32 @@ describe('간트 진행 바 툴팁', () => {
     await act(async () => root.render(
       <WbsGanttSheet items={[item({ id: 'p1', name: '준비 공정', depth: 0, children: [leaf] })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
     ))
-    const tipOf = (id: string) =>
-      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-gantt-bar] [data-gantt-tooltip]`)!
-    const phaseTip = tipOf('p1')
+    // 툴팁은 행 내부가 아니라 시트가 그리는 fixed 단일 요소다 — 행/헤더/오버레이 z 경쟁 회피
+    // (행을 올리는 방식은 마일스톤 오버레이를 가리는 부작용이 있었다, 2026-08-21 실측 회귀).
+    const barOf = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-gantt-bar]`)!
+    const hover = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    const unhover = (el: HTMLElement) => el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
+    const tip = () => container.querySelector<HTMLElement>('[data-gantt-tooltip]')
+
+    expect(tip()).toBeNull() // 평소엔 없음
+
+    await act(async () => hover(barOf('p1')))
+    const phaseTip = tip()!
+    expect(phaseTip).not.toBeNull()
+    expect(phaseTip.className).toContain('fixed')
     expect(phaseTip.textContent).toContain('26.07.01 ~ 26.07.10') // 날짜가 첫 줄 핵심 정보
     expect(phaseTip.textContent).toContain('status.in_progress')
     expect(phaseTip.textContent).toContain('wbs.colPlannedPct 50.0%')
     expect(phaseTip.textContent).toContain('wbs.colActualPct 37.5%')
     expect(phaseTip.textContent).not.toContain('준비 공정') // 작업명은 행에 이미 보인다 — 제외
-    // 커스텀 툴팁 — 평소 투명, 바 hover 시 opacity 로 나타난다(display 변형은 안전망 금지).
-    expect(phaseTip.className).toContain('opacity-0')
-    expect(phaseTip.className).toContain('group-hover/bar:opacity-100')
-    expect(tipOf('a1').textContent).toContain('26.07.01 ~ 26.07.10')
-    // 툴팁은 위로 펼쳐져 sticky 헤더(z-40)와 겹칠 수 있다 — hover 된 행을 헤더 위(z-45)로
-    // 올려야 화면 상단 행에서도 보인다(스테이징 실측 회귀).
-    const row = container.querySelector<HTMLElement>('[data-row-id="p1"]')!
-    expect(row.className).toContain('hover:z-[45]')
+
+    await act(async () => unhover(barOf('p1')))
+    expect(tip()).toBeNull()
+
+    await act(async () => hover(barOf('a1')))
+    expect(tip()!.textContent).toContain('26.07.01 ~ 26.07.10')
+    // 행 z 올리기 방식의 회귀 방지 — 오버레이를 가리는 원인이었다.
+    expect(container.querySelector('[data-row-id="p1"]')!.className).not.toContain('hover:z-')
   })
 })
