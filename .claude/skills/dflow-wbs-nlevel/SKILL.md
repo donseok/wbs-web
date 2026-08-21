@@ -95,12 +95,32 @@ credits:
   PL 파일 본문에 쓰면 에러.
 - module 1개 = 파일 1개. ID 는 모듈 안에서만 유일하면 된다.
 
+## 골격 정의 파일 (`skeleton.yaml`) — 골격 모드의 입력 정본
+
+```yaml
+project: MES
+start_date: 2026-09-01
+phases:                     # 생략 시 WSF 기본 5단계 (분석/설계/구축/통합테스트/적용)
+  - { key: PH-03, name: 구축, build: true }   # build: true = 시스템 트리가 붙는 Phase
+levels: default             # 'default' = 스펙 정본 7층. 커스텀이면 배열
+systems:
+  - { key: SYS-OP, name: 조업, module: mes-op, pl: 박PL }
+```
+
+- **파일이 있으면 무질문 생성.** 파일이 없으면 대화로 수집한다 — 질문은 셋뿐:
+  ① 프로젝트명 ② 단계(WSF 기본 5단계를 제시하고 수정 여부) ③ 시스템 목록(이름을 받아 키·module 을
+  제안 → 사용자 확정). 답으로 **skeleton.yaml 을 생성하고 멈춘다** — "파일 검토 후 재실행" 안내.
+  즉석 골격 생성 금지: 시스템 키는 external_ref 라 불변이며, 리뷰 없이 확정하지 않는다.
+- 시스템 목록을 스킬이 지어내지 않는다 — 입력(파일 또는 답변)에 없는 시스템은 만들지 않는다.
+- 필수 누락(project 없음, systems 0개)은 중단. 선택 누락(pl 미정)은 기본값 + 리포트.
+
 ## 실행 플로우
 
 1. 스펙 문서 Read (계약 로드).
 2. 모드 판정 (`--skeleton` 유무).
-3. **골격 모드**: 시스템 목록 확정(키·이름) → PH-01~05 + System 노드 생성 → levels·credits 정본 작성 →
-   PL 템플릿(모듈별, attach·levels 채움) 생성 → 키 목록 표 출력.
+3. **골격 모드**: skeleton.yaml 로드(없으면 위 대화 수집 → 파일 생성 후 종료) → PH + System 노드 생성 →
+   levels·credits 정본 작성 → PL 템플릿(모듈별, attach·levels 채움) 생성 → 키 목록 표 출력 +
+   "키는 이후 불변" 경고.
 4. **PL 모드**: 골격 파일 탐색·Read (없으면 중단) → levels·키 복사 → 입력(PRD/프로그램 리스트) 분석은
    dflow-wbs 의 어댑터 규칙 준용 → 모듈 Water 꼬리 + 프로그램 Task + 모듈 Fall 생성 → attach 기입.
 5. 자체 검증 (파서 스크립트 나오기 전까지 수동 체크리스트):
