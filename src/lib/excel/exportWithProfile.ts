@@ -17,10 +17,13 @@ function isoToDate(iso: string | null): Date | '' {
 
 const LEGACY_LEVEL_LABELS = ['Phase', 'Task', 'Activity'] as const
 
-/** 계층 열 라벨 — 3열(columns) 프로파일은 레거시 이름을 쓰고, 그 외(N열/outline)는 일반 라벨.
- *  resolveLegacyLevelLabels 와 동일한 판정을 재사용(§ 라운드트립 규약의 단일 출처). */
-function hierarchyLabel(profile: ExcelProfile, depth: number): string {
-  if (resolveLegacyLevelLabels(profile)) return LEGACY_LEVEL_LABELS[depth] ?? 'Activity'
+/** 계층 열 라벨 — 우선순위: 주입된 프로젝트 라벨(levelLabels) → 레거시 3열 이름 → Level{N}.
+ *  주입 라벨이 계층 열보다 짧으면 남는 열만 Level{N} 폴백(주입이 부분 적용되는 게 아니라 열 단위 폴백).
+ *  미주입 시 종전 동작과 바이트 동일 — resolveLegacyLevelLabels 판정 재사용(§ 라운드트립 규약의 단일 출처). */
+function hierarchyLabel(profile: ExcelProfile, depth: number, levelLabels?: readonly string[]): string {
+  const injected = levelLabels?.[depth]
+  if (injected) return injected
+  if (levelLabels == null && resolveLegacyLevelLabels(profile)) return LEGACY_LEVEL_LABELS[depth] ?? 'Activity'
   return `Level${depth + 1}`
 }
 
@@ -93,10 +96,10 @@ function collectTeams(items: ComputedItem[]): string[] {
 export function buildAoaWithProfile(
   items: ComputedItem[],
   profile: ExcelProfile,
-  opts: { expandSubActs: boolean },
+  opts: { expandSubActs: boolean; levelLabels?: readonly string[] },
   projectName = 'WBS',
 ): { ok: true; aoa: unknown[][] } | { ok: false; error: string } {
-  const { expandSubActs } = opts
+  const { expandSubActs, levelLabels } = opts
 
   if (profile.hierarchy.kind === 'outline' && expandSubActs) {
     return { ok: false, error: '아웃라인 양식의 펼침 익스포트는 아직 지원되지 않습니다' }
@@ -158,7 +161,7 @@ export function buildAoaWithProfile(
     -1,
   )
   const header2 = new Array(header2Bound + 1).fill('')
-  if (hierColsOut) hierColsOut.forEach((c, i) => { header2[c] = hierarchyLabel(profile, i) })
+  if (hierColsOut) hierColsOut.forEach((c, i) => { header2[c] = hierarchyLabel(profile, i, levelLabels) })
   if (teamCols.length > 0) header2[teamCols[0][0]] = '담당'
   if (deliverableCol != null) header2[deliverableCol] = '산출물'
   if (startCol != null) header2[startCol] = '계획'
@@ -171,7 +174,7 @@ export function buildAoaWithProfile(
   // buildWbsAoa 의 결함을 그대로 재현한다(무접촉 원칙 + 바이트 불변 회귀 기준 때문에 여기서 고치지
   // 않는다 — 계약 (a) 참조).
   const header3 = new Array(maxCol + 4).fill('')
-  if (hierColsOut) hierColsOut.forEach((c, i) => { header3[c] = hierarchyLabel(profile, i) })
+  if (hierColsOut) hierColsOut.forEach((c, i) => { header3[c] = hierarchyLabel(profile, i, levelLabels) })
   else if (outlineColOut != null) header3[outlineColOut] = '코드'
   if (extraAxisCol != null) header3[extraAxisCol] = 'Biz'
   if (codeCol != null) header3[codeCol] = '코드'
@@ -255,7 +258,7 @@ export function buildWorkbookWithProfile(
   items: ComputedItem[],
   profile: ExcelProfile,
   holidays: { date: string; name: string }[],
-  opts: { expandSubActs: boolean },
+  opts: { expandSubActs: boolean; levelLabels?: readonly string[] },
   projectName = 'WBS',
 ): { ok: true; buffer: ArrayBuffer } | { ok: false; error: string } {
   const built = buildAoaWithProfile(items, profile, opts, projectName)
