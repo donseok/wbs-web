@@ -9,6 +9,8 @@ import { getActorForView } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { projectTeamRowsSync } from '@/lib/teams/master'
 import { ProjectTeamsManager } from '@/components/settings/ProjectTeamsManager'
+import { LevelSettingsManager } from '@/components/settings/LevelSettingsManager'
+import { getProjectConfig } from '@/lib/data/projectConfig'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { SectionCard } from '@/components/ui/SectionCard'
@@ -114,6 +116,11 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   // 권한·초대 관리는 팀 구성 페이지로 이동했다(2026-08-20 화면 통합).
   const llm = isSuperuser ? await llmBadge(locale) : null
   const projectTeamRows = projectTeamRowsSync(projectId)
+  // WBS 단계 편집 초기값 — 조회 실패 시 편집기를 그리지 않는다(잘못된 초기값으로 저장하면 설정을 덮는다).
+  const levelConfig = await getProjectConfig(projectId).catch((e: unknown) => {
+    console.error('[settings] 프로젝트 설정 조회 실패 — 단계 편집기만 degrade:', e)
+    return null
+  })
 
   const scheduleLabel =
     project?.start_date || project?.end_date
@@ -325,6 +332,22 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
               teams={projectTeamRows.map(t => ({ id: t.id, code: t.code, sortOrder: t.sortOrder, active: t.active, progressVisible: t.progressVisible }))}
               inherited={projectTeamRows.length === 0}
             />
+          </SectionCard>
+        )}
+
+      {/* ── WBS 단계 (관리자) — 라벨 배열이 곧 깊이. 축소 검증은 서버 액션이 한다. ── */}
+        {isAdmin && levelConfig && (
+          <SectionCard
+            eyebrow="WBS"
+            title={locale === 'ko' ? 'WBS 단계' : 'WBS Levels'}
+            icon={ListTree}
+          >
+            <p className="-mt-2 mb-4 text-xs leading-5 text-ink-muted">
+              {locale === 'ko'
+                ? '트리 깊이별 단계 이름입니다. 단계 수가 곧 최대 깊이이며, 기존 WBS 보다 얕게 줄일 수 없습니다. 화면 배지·보고서·엑셀 헤더가 이 이름을 씁니다.'
+                : 'Level names per tree depth. The number of levels is the max depth; you cannot shrink below the existing tree. Badges, reports and Excel headers use these names.'}
+            </p>
+            <LevelSettingsManager projectId={projectId} levelLabels={levelConfig.levelLabels} />
           </SectionCard>
         )}
 
