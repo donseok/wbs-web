@@ -20,6 +20,8 @@ export const wbsKo = {
   'wbs.colOutline': '번호',
   'wbs.outlineToggleTitle': '개요 번호 열 표시/숨김',
   'wbs.toolbarToggleTitle': '도구 모음 펼치기/접기',
+  'wbs.ganttZoomOut': '간트 축소',
+  'wbs.ganttZoomIn': '간트 확대',
   'wbs.ganttZoomGroup': '간트 배율',
   'wbs.sheetEdit': '시트 편집',
   'wbs.timelineFocus': '타임라인 집중',

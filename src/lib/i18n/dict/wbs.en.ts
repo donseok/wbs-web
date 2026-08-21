@@ -19,6 +19,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.colOutline': 'No.',
   'wbs.outlineToggleTitle': 'Show/hide outline numbers',
   'wbs.toolbarToggleTitle': 'Expand/collapse toolbar',
+  'wbs.ganttZoomOut': 'Zoom out Gantt',
+  'wbs.ganttZoomIn': 'Zoom in Gantt',
   'wbs.ganttZoomGroup': 'Gantt zoom',
   'wbs.sheetEdit': 'Edit sheet',
   'wbs.timelineFocus': 'Timeline focus',

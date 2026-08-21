@@ -66,6 +66,28 @@ describe('간트 날짜 축 여백', () => {
     expect(region.style.getPropertyValue('--gantt-day')).toBe('4px')
   })
 
+  it('슬라이더 양끝 −/+ 버튼으로 한 단계씩 조절하고 경계에서 clamp·저장한다', async () => {
+    const { queueUiPref } = await import('@/lib/prefs/debouncedSave')
+    await act(async () => root.render(
+      <WbsGanttSheet items={[item({ id: 'p1', depth: 0 })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} initialGanttScale={6} />,
+    ))
+    const region = container.firstElementChild as HTMLElement
+    const out = container.querySelector<HTMLButtonElement>('button[data-gantt-zoom-out]')!
+    const zin = container.querySelector<HTMLButtonElement>('button[data-gantt-zoom-in]')!
+    expect(out).not.toBeNull()
+    expect(zin).not.toBeNull()
+
+    await act(async () => out.click()) // 6 → 4
+    expect(region.style.getPropertyValue('--gantt-day')).toBe('4px')
+    expect(vi.mocked(queueUiPref)).toHaveBeenCalledWith({ wbsGanttScale: 4 })
+
+    await act(async () => out.click()) // 최소에서 더 안 내려간다
+    expect(region.style.getPropertyValue('--gantt-day')).toBe('4px')
+
+    await act(async () => zin.click()) // 4 → 6
+    expect(region.style.getPropertyValue('--gantt-day')).toBe('6px')
+  })
+
   it('저장된 initialGanttScale 로 시작하고 범위 밖 저장값은 clamp 된다', async () => {
     await act(async () => root.render(
       <WbsGanttSheet items={[item({ id: 'p1', depth: 0 })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} initialGanttScale={32} />,
