@@ -71,8 +71,15 @@ dflow.sh claim <순번>
 선행 조건이 미충족이면 **exit 4 로 차단**된다. 이 경우 fetch/merge 후 재시도한다. 우회 금지.
 
 성공 시:
-- 브랜치 `agent/<주문id 8자>-<slug>` 자동 생성
 - `docs/tasks/<TSK>/spec.md` 캐시 생성 — **구현 전 반드시 읽는다** (명세 정본은 D'Flow DB, 이 파일은 claim 시점 스냅샷)
+
+⚠️ **브랜치는 만들어지지 않는다** — dflow.sh 는 git 브랜치를 생성하지 않는다(스크립트에 해당 코드 없음).
+`agent/<주문id 8자>-<slug>` 브랜치는 **호출자가 claim 직후 직접 만든다**:
+```bash
+git fetch origin && git switch -c agent/<주문id8>-<slug> origin/<기본브랜치>
+```
+main·staging 위에서 구현을 진행하지 말 것 — done 의 push 검증은 현재 브랜치를 그대로 쓰므로
+브랜치를 안 만들면 main push 사고로 이어진다.
 
 ### 진행 보고
 
