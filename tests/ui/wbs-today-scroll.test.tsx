@@ -92,11 +92,9 @@ describe('WBS 기준일 초기 스크롤', () => {
     delete (HTMLElement.prototype as unknown as Record<string, unknown>).scrollLeft
   })
 
-  // 축 여백 도입(이전 주 월요일~다음 주 일요일)으로 축 시작이 06-01(월)→05-25 로 7일
-  // 당겨져 기준일 x 가 7일×24px=168px 커졌다.
   it.each([
-    ['sheet' as const, 1632],
-    ['timeline' as const, 1042],
+    ['sheet' as const, 1464],
+    ['timeline' as const, 874],
   ])('%s 모드 진입 즉시 기준일을 sticky 열 오른쪽 중앙에 배치한다', async (defaultView, expected) => {
     await act(async () => {
       root.render(
@@ -130,7 +128,6 @@ describe('WBS 기준일 초기 스크롤', () => {
     })
 
     expect(container.textContent).toContain('wbs.today')
-    // 축 시작 = min(계획, 기준일 07-24(금))의 이전 주 월요일 07-13 — 11일×24px=264px 증가.
-    expect(assignedScrollLeft).toEqual([672])
+    expect(assignedScrollLeft).toEqual([408])
   })
 })
