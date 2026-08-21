@@ -86,12 +86,15 @@ export function validateLevels(raw: unknown): { levels: LevelDecl[] } | { error:
 const STAGES = new Set(['as', 'fp', 'ip', 'im', 'xx'])
 const PRIORITY_LABELS = new Set(['critical', 'high', 'medium', 'low'])
 const SCHEDULE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/
+const SCHEDULE_END_ONLY_RE = /^~\s*(\d{4}-\d{2}-\d{2})$/ // v2.2: nlevel wbs.md 의 ~종료일 토큰(시작일 없음)
 
 export function parseSchedule(s: string | null): { start: string | null; end: string | null } | { error: string } {
   if (!s) return { start: null, end: null }
   const m = SCHEDULE_RE.exec(s.trim())
-  if (!m) return { error: `schedule 형식 오류: ${s}` }
-  return { start: m[1], end: m[2] }
+  if (m) return { start: m[1], end: m[2] }
+  const e = SCHEDULE_END_ONLY_RE.exec(s.trim())
+  if (e) return { start: null, end: e[1] }
+  return { error: `schedule 형식 오류: ${s}` }
 }
 
 /** spec_sections → 마크다운 조립 — 섹션 순서는 계약 고정(결정 E): 머리말 → 요구사항 → 제약 → 테스트 기준 → API 스펙 → 데이터 모델. 빈 섹션 생략. */

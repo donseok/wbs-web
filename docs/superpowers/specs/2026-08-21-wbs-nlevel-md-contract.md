@@ -259,7 +259,7 @@ credits:
 | 헤딩 깊이 / 리스트 들여쓰기 | 부모 판정 (구조) |
 | `PH- SYS- SUB- WP- ACT- TSK- STK-` 접두 | **단계 판정 (정본)** — 자식 순번 > 부모 순번 검증 |
 | `- [ ]` / `- [x]` | input 층: 초기 stage / checklist 층: 완료 체크 |
-| `- [M]` | 마일스톤 — `progress: none`, 일정만 |
+| `- [M] {ID}: 제목` | 마일스톤 — `progress: none`, 일정만. **ID 필수**(external_ref — 파서가 강제, 2026-08-22). 접두어는 소속 층 아무거나(관례: 소속 WP 꼬리 + 90번대, 예 `TSK-AN-IF-90`) |
 | `@이름` | 담당 (import 시 멤버 매칭) |
 | `w:N` | weight (MD) — 롤업 가중치. 생략 시 1 |
 | `~날짜` | 계획 종료일 |
@@ -273,9 +273,12 @@ credits:
 2. ✅ **Excel export 동적 계층 열** — 19f2c82. buildWbsAoa 계층 열 = levelLabels.length(3라벨 바이트 불변),
    buildAoaWithProfile levelLabels 주입, export 라우트 연결. **import 는 변경 불요** — 위저드
    (detect·parseWithProfile·linkByDepth)가 이미 N단 범용임을 실사로 확인. 3열 고정 parse.ts 는 레거시 전용 존치.
-3. ⏸ **import 계약 v2.2** (노드별 level·progress 역할·attach 크로스 모듈·upload/fold) — wbs_items 컬럼
-   추가 마이그레이션 동반, 스테이징 리허설 경로. wbs.md 파서(스킬 측) 개정과 계약을 맞춰야 하므로 별도 착수.
-4. ⏸ **stage→크레딧·weight 롤업** — 3 과 함께.
+3. ✅ **import 계약 v2.2** (2026-08-22 랜딩) — 서버: 0089 마이그레이션(level_idx·milestone·credit_key·
+   if_id + RPC p_attach_id, 스테이징 리허설 완료) + import 라우트(levels 시드/일치 검증·attach 해석·
+   input 층 발행 일반화·종료일 단독 schedule) + `GET /api/v1/wbs/structure`(PL 서버 직조회).
+   스킬: `wbs-nlevel-parse.py`(validate/export — fold 접기·마일스톤·토큰 파싱, pytest 18건) +
+   SKILL.md 조회 사슬·업로드 절차. **운영 DB 적용은 main 머지 시점**(그 전까지 업로드는 스테이징만).
+4. ⏸ **stage→크레딧·weight 롤업** — 데이터(weight·credit_key·level_idx)는 3에서 랜딩됨. 계산·표시만 남음.
 
 의도적 보류 (실사 결과):
 

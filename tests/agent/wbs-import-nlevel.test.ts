@@ -60,6 +60,17 @@ describe('validateLevels — levels 선언 구조 검증(순수부)', () => {
   })
 })
 
+describe('parseSchedule v2.2 — 종료일 단독 표기', () => {
+  it('"~ 2026-11-14" → start:null, end 만 (nlevel wbs.md 의 ~날짜 토큰)', async () => {
+    const { parseSchedule } = await import('@/lib/agent/wbsImport')
+    expect(parseSchedule('~ 2026-11-14')).toEqual({ start: null, end: '2026-11-14' })
+    expect(parseSchedule('~2026-11-14')).toEqual({ start: null, end: '2026-11-14' })
+    // v2.0 양단 표기·오류 케이스는 종전 그대로
+    expect(parseSchedule('2026-08-11 ~ 2026-08-14')).toEqual({ start: '2026-08-11', end: '2026-08-14' })
+    expect('error' in parseSchedule('~11/14')).toBe(true)
+  })
+})
+
 describe('toRpcNode v2.2 — levels 문맥의 노드 변환(순수부)', () => {
   it('level 인덱스 저장 + input 층 → dev_workflow:true, rollup 층 → false', () => {
     expect(toRpcNode('mes-op', { ...BASE, level: 5 }, 0, LEVELS))
