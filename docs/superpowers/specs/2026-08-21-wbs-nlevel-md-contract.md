@@ -60,10 +60,11 @@ wbs.md 한 파일로 표현하기 위한 계약 초안. 코드 구현 전 설계
 - 파일 배치 권장: 디렉토리 분리 `docs/mes/조업/wbs.md` (module = 디렉토리 세그먼트 파생, 현행 dflow-export 관례 그대로). 파일명 분리(wbs_조업.md)도 계약상 유효하나 module 매핑 표가 하나 더 필요.
 - module = 파일 1:1 강제. external_ref 가 `{module}/{ID}` 네임스페이스라 PL 간 ID 채번 조율 불필요, 타 모듈 데이터 침범 구조적 불가.
 
-**미결(v2.2 설계 시 해소)** — attach 단일 노드의 한계: PL 파일의 모듈 Water 꼬리(분석·설계 산출물)와
-모듈 Fall(통합 시나리오)은 정론상 PH-01·02·04 소속인데 attach 가 하나라 PH-03 에만 붙는다.
-선택지 — (a) attach 를 섹션별 복수 허용(`attach: { default: PH-03/SYS-OP, itest: PH-04/SYS-OP }`),
-(b) 모듈 파일은 전부 PH-03 아래로 정론화하고 PH-01·02·04 는 PMO 골격 전유. 스킬 GREEN 테스트(2026-08-21)에서 실측된 갭.
+**확정(2026-08-22 사용자 결정) — attach 는 단일 노드 유지(b안)**: 모듈 파일은 전부 PH-03/SYS-* 아래로
+정론화한다 — 모듈 통테 준비·시나리오도 "모듈 검증까지가 구축"으로 보고 구축 소속. PH-01·02·04·05 는
+PMO 골격 전유(전사 시나리오·L2 실통신·ERP 연동은 골격 Task 로 이미 존재). a안(attach 복수)은
+파일 구조·검증·서버 로직 복잡도 대비 이득(통테 공수의 PH-04 진도 반영)이 작아 기각.
+스킬 GREEN 테스트(2026-08-21)에서 실측된 갭의 해소.
 
 업로드 경로 2개, 정본 1개 (2026-08-21 추가):
 
@@ -71,6 +72,46 @@ wbs.md 한 파일로 표현하기 위한 계약 초안. 코드 구현 전 설계
 - **API 경로(자동화)**: frontmatter `attach` 필수, 확인 없이 적용(현행 import 동작).
 - 웹 경로에서 확인 없는 완전 자동은 두지 않는다 — 그건 API 경로의 중복이고, 웹 경로의 존재 이유가 "적용 전에 사람이 본다"이다.
 - **권한 결정 지점**: 현행 import 는 프로젝트 관리자 전용이고 노드 단위 소유 개념 없음. 1차 = PL 전원 관리자 + attach 검증(실수 방어, 악의 방어 없음 — 사내 소수 PL 수용). 2차 = System 노드 owner(또는 0071 project_teams 연결) 기반 "자기 서브트리만 import" — 노드 소유가 다른 기능(보고·결재)에 필요해질 때 함께.
+
+### import 계약 v2.2 — 서버 수용 (2026-08-22 확정)
+
+payload 확장 — `POST /api/v1/wbs/import` (PAT·관리자, 기존 필드는 v2.0 그대로):
+
+```jsonc
+{
+  "project_id": "…", "module": "mes-op",
+  "levels": [ { "name": "Phase", "prefix": "PH", "progress": "rollup" }, … ],  // frontmatter 그대로
+  "attach_ref": "mes-skel/SYS-OP",   // PL 업로드 표식 — 골격 노드의 full external_ref
+  "nodes": [ { …v2.0 필드…, "level": 5, "weight": 5, "milestone": false,
+               "credit": "if", "if_id": "IF-0031" } ]
+}
+```
+
+- **attach_ref 해석(크로스 모듈)**: frontmatter `attach: PH-03/SYS-OP` 는 경로 표기 — 업로더가
+  골격 module 을 붙여 full external_ref(`mes-skel/SYS-OP`, 마지막 세그먼트만)로 변환해 보낸다.
+  서버는 프로젝트 안에서 그 external_ref 를 찾아, **parent 없는 노드들의 부모로 연결**한다.
+  없으면 400 `attach_not_found` — fail-closed(골격 선행의 기계 검증).
+- **levels 처리 2경로**: ① attach_ref 없음 = 골격 업로드 → level_labels 를 project_settings 에
+  시드(validateLevelSettings 통과 필수 — 트리 축소 fail-closed 동일 적용). ② attach_ref 있음 = PL
+  업로드 → levels 의 name 배열이 서버 정본(level_labels)과 완전 일치해야 통과, 불일치 400
+  `levels_mismatch`. levels 없는 payload 는 v2.0 레거시 경로(변경 없음).
+- **노드 v2.2 필드**: `level`(levels 배열 인덱스 — wbs_items.level_idx 저장), `weight`(롤업 가중,
+  0001 의 기존 컬럼 재사용, 양수만), `milestone`(`[M]` — progress none, 발행 제외),
+  `credit`(크레딧 표 키 — credit_key 저장), `if_id`(PMO I/F 대장 참조).
+- **발행 판정 일반화**: levels 있는 payload 는 `progress: input` 층이면서 milestone 아님 →
+  dev_workflow=true (v2.1 의 `kind==='task'` 규칙의 일반화). levels 없으면 종전 kind 규칙.
+- **fold / upload:false 는 업로더 몫**: 파서가 STK 를 부모 acceptance 로 접거나 제외한 뒤 보낸다 —
+  서버는 그 노드를 아예 받지 않는다(acceptance jsonb 는 0077부터 수용). 서버 변경 없음.
+- **rollup-leaf 는 서버 비차단**: 분리 업로드 특성상 골격 단독 시점의 SYS leaf 는 정상 과도기.
+  차단하면 골격 선행이 불가능해진다. 합본 기준 검증은 스킬 검증기 몫.
+- **마이그레이션 0089**: wbs_items 에 `level_idx smallint`·`milestone boolean`·`credit_key text`·
+  `if_id text` 추가. RPC `import_wbs_upsert` 에 `p_attach_id uuid default null` 파라미터 추가
+  (구 2인자 시그니처는 drop — PostgREST 오버로드 모호성 방지).
+- **PAT 읽기 엔드포인트** `GET /api/v1/wbs/structure`: PL 스킬의 서버 직조회 원천 —
+  levels(level_labels)+얕은 노드(기본 max_depth=1(0-base) = Phase·System 두 층,
+  external_ref·name·parent_external_ref·depth·level_idx)를 반환.
+  스코프 work:read, 멤버면 조회 가능(비멤버 404 존재 은닉). PL 조회 우선순위 사슬:
+  ① 서버(structure) → ② 골격 파일 폴백 → ③ 에러(골격 선행).
 
 ### Water-Scrum-Fall 매핑 (2026-08-21 추가)
 
