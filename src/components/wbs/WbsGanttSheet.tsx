@@ -660,8 +660,14 @@ export function WbsGanttSheet({
   const axisDates = [...allDates, today]
   const rangeStart = axisDates.reduce((a, b) => (a < b ? a : b))
   const rangeEnd = axisDates.reduce((a, b) => (a > b ? a : b))
+  // 축 여백 — 계획 최솟값~최댓값에서 축이 뚝 끊기면 마지막 주의 마일스톤 라벨이 잘리고
+  // "끊긴 느낌"이 든다(2026-08-21 피드백). 달력 주(월~일) 기준으로 이전 주 월요일부터
+  // 다음 주 일요일까지 보여준다. 부수효과로 축 시작이 항상 월요일이라 주 묶음(W01…)이
+  // 달력 주와 일치한다. 바·오늘선 좌표(xOf)는 start 기준 상대 계산이라 함께 밀려 어긋나지 않는다.
   const start = new Date(rangeStart + 'T00:00:00Z')
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7) - 7) // 이전 주 월요일
   const end = new Date(rangeEnd + 'T00:00:00Z')
+  end.setUTCDate(end.getUTCDate() + (6 - ((end.getUTCDay() + 6) % 7)) + 7) // 다음 주 일요일
   const days: string[] = []
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) days.push(iso(d))
   const holSet = new Set(holidays)
