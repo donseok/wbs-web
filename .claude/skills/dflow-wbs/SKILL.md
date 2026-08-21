@@ -1,11 +1,11 @@
 ---
-name: wbs-wsf
-description: PRD/TRD 또는 프로그램 리스트(json/yaml/csv/md/xlsx)로 WBS 를 Water-Scrum-Fall 샌드위치 구조로 생성한다. 선행 공정(초기화·기본설계) → 애자일 기능 Task → 후행 통합테스트. 프로그램 1개 = fullstack Task 1개(수직 슬라이스). category 7종(dev/defect/infra/feat/design/research/itest). 생성 상태는 항상 [ ] — 상태 전이는 D'Flow(stage)가 정본이며 wbs.md 는 /wbs/import 부트스트랩용이다. 사용법 /wbs-wsf [SUBPROJECT | /absolute/path/to/wbs.md] [--programs 경로] [--scale large|medium] [--start-date YYYY-MM-DD] [--estimate-only] [--export-xlsx [경로]]
+name: dflow-wbs
+description: PRD/TRD 또는 프로그램 리스트(json/yaml/csv/md/xlsx)로 WBS 를 Water-Scrum-Fall 샌드위치 구조로 생성한다. 선행 공정(초기화·기본설계) → 애자일 기능 Task → 후행 통합테스트. 프로그램 1개 = fullstack Task 1개(수직 슬라이스). category 7종(dev/defect/infra/feat/design/research/itest). 생성 상태는 항상 [ ] — 상태 전이는 D'Flow(stage)가 정본이며 wbs.md 는 /wbs/import 부트스트랩용이다. 사용법 /dflow-wbs [SUBPROJECT | /absolute/path/to/wbs.md] [--programs 경로] [--scale large|medium] [--start-date YYYY-MM-DD] [--estimate-only] [--export-xlsx [경로]]
 ---
 
-# /wbs-wsf - PRD/TRD·프로그램 리스트 기반 WBS 생성 (Water-Scrum-Fall)
+# /dflow-wbs - PRD/TRD·프로그램 리스트 기반 WBS 생성 (Water-Scrum-Fall)
 
-> **독립 실행 패키지다** — 정본 위치는 wbs-web 리포의 `.claude/skills/wbs-wsf/` 이며(git 추적,
+> **독립 실행 패키지다** — 정본 위치는 wbs-web 리포의 `.claude/skills/dflow-wbs/` 이며(git 추적,
 > 프로젝트 스코프 스킬), 실행에 필요한 스크립트(`scripts/` — dev 플러그인 1.7.1 스냅샷 5종)와
 > 템플릿·출력 형식 정본(`references/`)을 전부 동봉한다. dev 플러그인이 없는 PC 에서도 리포
 > 클론만으로 동작한다. 아래 상대 경로들은 리포 루트가 cwd 라는 전제다.
@@ -44,8 +44,8 @@ description: PRD/TRD 또는 프로그램 리스트(json/yaml/csv/md/xlsx)로 WBS
 PRD/TRD 가 있을 때만 실행한다 — 프로그램 리스트 모드에서 둘 다 없으면 건너뛴다.
 
 ```bash
-python3 .claude/skills/wbs-wsf/scripts/prd-validate.py validate --target {DOCS_DIR}/PRD.md
-python3 .claude/skills/wbs-wsf/scripts/prd-validate.py validate --target {DOCS_DIR}/TRD.md
+python3 .claude/skills/dflow-wbs/scripts/prd-validate.py validate --target {DOCS_DIR}/PRD.md
+python3 .claude/skills/dflow-wbs/scripts/prd-validate.py validate --target {DOCS_DIR}/TRD.md
 ```
 
 `issues` 있으면: 합리적 가정으로 보강 → `## Assumptions (auto-resolved YYYY-MM-DD)` append → `decisions.md` 에 `phase=prd-resolve` 적재 (`decision-log.py append`) → 재검증 1회. 그래도 남으면 한 줄 알림 후 진행 (흐름 차단 없음).
@@ -53,8 +53,8 @@ python3 .claude/skills/wbs-wsf/scripts/prd-validate.py validate --target {DOCS_D
 ### 출력 검증 (wbs.md 생성 직후)
 
 ```bash
-python3 .claude/skills/wbs-wsf/scripts/wbs-parse.py {DOCS_DIR}/wbs.md - --dev-config > /tmp/dev-config.json
-python3 .claude/skills/wbs-wsf/scripts/wbs-validate.py validate --wbs {DOCS_DIR}/wbs.md --dev-config-json "$(cat /tmp/dev-config.json)"
+python3 .claude/skills/dflow-wbs/scripts/wbs-parse.py {DOCS_DIR}/wbs.md - --dev-config > /tmp/dev-config.json
+python3 .claude/skills/dflow-wbs/scripts/wbs-validate.py validate --wbs {DOCS_DIR}/wbs.md --dev-config-json "$(cat /tmp/dev-config.json)"
 ```
 
 > ⚠️ **툴체인 제약 — 실측 기준. 검증 결과를 곧이곧대로 믿지 말 것.**
@@ -74,7 +74,7 @@ python3 .claude/skills/wbs-wsf/scripts/wbs-validate.py validate --wbs {DOCS_DIR}
 > **생성 리포트에 "4단계 — wbs-validate·merge-wbs-status 무력화(DEV-03 대기)" 를 한 줄 출력한다.**
 > 단, **DEV-02·DEV-03 해소판 스크립트는 `/dflow-export` 스킬에 동봉돼 있다**
 > (`.claude/skills/dflow-export/scripts/` — `wbs-validate.py` 4단계 지원, `wbs-parse.py --export`).
-> 위 제약 표는 이 스킬의 동봉 스냅샷(`wbs-wsf/scripts/`) 기준으로 여전히 유효하다.
+> 위 제약 표는 이 스킬의 동봉 스냅샷(`dflow-wbs/scripts/`) 기준으로 여전히 유효하다.
 > 이 경고는 생성 리포트에만 남기고 wbs.md 본문에는 넣지 않는다 — wbs.md 는 작업 정본이지 툴 상태 기록부가 아니다.
 
 issue 발견 시 해당 Task 만 재작성 → 재검증 1회 → `decisions.md` 에 `phase=wbs-resolve` 적재.
@@ -185,7 +185,7 @@ Phase → WP → [ACT(4단계만)] → Task → [Sub Task 수동]
   - **단일 PC(워크트리 병렬)** — `docs/tasks/<ID>/state.json`(실행 정본, 워크트리마다 값이 달라도 정상, 머지 대상 아님). **DEV-01 의 몫.**
   - **분산 다인** — **서버**(D'Flow). 남의 PC 파일은 볼 수 없으므로 state.json 도 답이 아니다.
 
-  어느 쪽이든 **이 스킬의 범위가 아니다.** 분산 추적에 대한 `/wbs-wsf` 의 기여는 다른 둘이다 — **안정적 ID**(서버 추적이 한 항목에 누적되려면 `external_ref` 가 안 바뀌어야 한다)와 **`assignee` 시드**(자동 발행 → 주문 → claim → 서버 추적의 진입점).
+  어느 쪽이든 **이 스킬의 범위가 아니다.** 분산 추적에 대한 `/dflow-wbs` 의 기여는 다른 둘이다 — **안정적 ID**(서버 추적이 한 항목에 누적되려면 `external_ref` 가 안 바뀌어야 한다)와 **`assignee` 시드**(자동 발행 → 주문 → claim → 서버 추적의 진입점).
 
 ### D'Flow 프로젝트 바인딩 — wbs.md 가 아니라 작업 리포의 `.env`
 
@@ -424,7 +424,7 @@ Task 필드 생성값:
    - 3단계: `TSK-02-03` → `WP-02` (ACT 행 없음)
    - 유도한 부모 ID 가 3단계에서 읽은 헤딩 목록에 없으면 **그 Task 를 버리지 않고** 부모 없이 쓰고 리포트에 나열한다.
 
-⚠️ `status` 는 어떤 경우에도 wbs.md 텍스트에서 읽지 않는다 — 1·2단계의 파서 출력만 쓴다. DEV-02(`--export`)는 `/dflow-export` 스킬에 구현돼 있으나(`.claude/skills/dflow-export/scripts/wbs-parse.py`), **이 스킬의 동봉 스냅샷(`wbs-wsf/scripts/`)은 구판이라 위 N회 호출 절차를 유지한다** — 스냅샷을 신판으로 교체할 때 이 절차를 한 번의 `--export` 호출로 대체한다.
+⚠️ `status` 는 어떤 경우에도 wbs.md 텍스트에서 읽지 않는다 — 1·2단계의 파서 출력만 쓴다. DEV-02(`--export`)는 `/dflow-export` 스킬에 구현돼 있으나(`.claude/skills/dflow-export/scripts/wbs-parse.py`), **이 스킬의 동봉 스냅샷(`dflow-wbs/scripts/`)은 구판이라 위 N회 호출 절차를 유지한다** — 스냅샷을 신판으로 교체할 때 이 절차를 한 번의 `--export` 호출로 대체한다.
 
 ### 컬럼
 
@@ -524,7 +524,7 @@ depends 기반 시작/종료일 산출. 산출 후 FS+겹침 검증식 통과 �
 ## Dev Config
 
 `# WBS` 메타 블록 아래 `---` 직후, 첫 `## WP-` 앞에 정확히 한 번.
-골격은 플러그인 템플릿 참조: `.claude/skills/wbs-wsf/references/dev-config-template.md` 를 Read 후 채운다. (경로 실재 확인됨)
+골격은 플러그인 템플릿 참조: `.claude/skills/dflow-wbs/references/dev-config-template.md` 를 Read 후 채운다. (경로 실재 확인됨)
 
 - **PRD 모드**: TRD 로 채운다.
 - **프로그램 리스트 모드**: TRD 가 없어도 **템플릿 골격을 반드시 생성한다** — 이 블록이 없으면 `wbs-parse.py --dev-config` 와 `wbs-validate.py` 가 돌지 않는다.
@@ -549,8 +549,8 @@ depends 기반 시작/종료일 산출. 산출 후 FS+겹침 검증식 통과 �
 9. `{DOCS_DIR}/wbs.md` 생성.
 10. 의존 그래프 검증:
     ```bash
-    python3 .claude/skills/wbs-wsf/scripts/wbs-parse.py {DOCS_DIR}/wbs.md --tasks-all > {scratchpad}/tasks.json
-    python3 .claude/skills/wbs-wsf/scripts/dep-analysis.py {scratchpad}/tasks.json --graph-stats
+    python3 .claude/skills/dflow-wbs/scripts/wbs-parse.py {DOCS_DIR}/wbs.md --tasks-all > {scratchpad}/tasks.json
+    python3 .claude/skills/dflow-wbs/scripts/dep-analysis.py {scratchpad}/tasks.json --graph-stats
     ```
     `max_chain_depth > 3`(기능 구간 내부 기준, 공정 양끝 +2 는 구조 비용 허용) 또는 `fan_in ≥ 3` → 계약 추출 재검토. 결과를 `## 의존 그래프` 챕터에 기록 (후보 없어도 "후보 없음" 명시).
 11. (프로그램 리스트 모드) **`## 입력 매핑 리포트` 챕터 작성** — `## 의존 그래프` 챕터 **앞**에 배치.
@@ -575,7 +575,7 @@ wbs.md 와 xlsx 뿐). 반드시 담는 것: 규모 판정(3/4단계)과 근거 �
 
 ## 출력 형식 (요약)
 
-> 상세 정본은 동봉 발췌본 `.claude/skills/wbs-wsf/references/output-format.md` 다 —
+> 상세 정본은 동봉 발췌본 `.claude/skills/dflow-wbs/references/output-format.md` 다 —
 > Task 속성 목록·리스트 필드 파싱 규칙, `#### PRD 요구사항`/`#### 기술 스펙 (TRD)` 블록 형식,
 > 통합테스트 Task 형식, `## 의존 그래프` 챕터 형식(Mermaid·통계표·리뷰 후보)이 들어 있다.
 > **출력 형식을 쓰기 전에 그 파일을 Read 한다.** 플러그인 원본(dev:wbs-wsf)은 더 이상 참조하지

@@ -17,7 +17,7 @@ description: 로컬 wbs.md 를 검증하고 D'Flow /wbs/import 계약 v2.1 JSON 
 
 ## D'Flow 프로젝트 바인딩
 
-`wbs-wsf` 스킬(`.claude/skills/wbs-wsf/SKILL.md` §"D'Flow 프로젝트 바인딩")과 동일 규칙을 쓴다 — wbs.md 자체에는 프로젝트 결합을 넣지 않는다(파일은 git 으로 복제·브랜치되므로, 안에 박으면 엉뚱한 프로젝트로 업로드될 위험).
+`dflow-wbs` 스킬(`.claude/skills/dflow-wbs/SKILL.md` §"D'Flow 프로젝트 바인딩")과 동일 규칙을 쓴다 — wbs.md 자체에는 프로젝트 결합을 넣지 않는다(파일은 git 으로 복제·브랜치되므로, 안에 박으면 엉뚱한 프로젝트로 업로드될 위험).
 
 해석 순서(먼저 맞는 것이 이긴다):
 

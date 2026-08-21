@@ -66,6 +66,7 @@ export default async function WbsPage({
         maxDepth={projectConfig.maxDepth}
         milestoneKeywords={projectConfig.milestoneKeywords}
         initialHideDone={uiPrefs.wbsHideDone ?? false}
+        initialOutline={uiPrefs.wbsOutline ?? false}
         members={members}
       />
     </ProjectPageShell>
