@@ -1314,7 +1314,7 @@ export function WbsGanttSheet({
                 data-flash={isFlash ? 'true' : undefined}
                 data-lens-active={progressLensActive ? 'true' : undefined}
                 tabIndex={isFlash ? -1 : undefined}
-                className={`group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none ${isDim ? 'opacity-50' : ''}`}
+                className={`group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none hover:z-[45] ${isDim ? 'opacity-50' : ''}`}
                 style={{ fontSize: 'var(--wbs-cell-font, 12px)' }}
                 onMouseEnter={() => previewProgressLens(n.id)}
                 onFocusCapture={() => previewProgressLens(n.id)}

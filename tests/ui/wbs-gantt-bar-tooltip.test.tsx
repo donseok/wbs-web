@@ -43,5 +43,9 @@ describe('간트 진행 바 툴팁', () => {
     expect(phaseTip.className).toContain('opacity-0')
     expect(phaseTip.className).toContain('group-hover/bar:opacity-100')
     expect(tipOf('a1').textContent).toContain('26.07.01 ~ 26.07.10')
+    // 툴팁은 위로 펼쳐져 sticky 헤더(z-40)와 겹칠 수 있다 — hover 된 행을 헤더 위(z-45)로
+    // 올려야 화면 상단 행에서도 보인다(스테이징 실측 회귀).
+    const row = container.querySelector<HTMLElement>('[data-row-id="p1"]')!
+    expect(row.className).toContain('hover:z-[45]')
   })
 })
