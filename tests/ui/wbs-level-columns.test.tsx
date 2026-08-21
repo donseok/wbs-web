@@ -117,6 +117,25 @@ describe('WBS 구분 열 개편', () => {
     expect(nameCell('a1')).not.toContain('bg-[#f8faff]')
   })
 
+  it('phase 경계(서브트리 마지막 표시 행)에만 가로 구분선이 그어진다', async () => {
+    await render(fixture())
+    const end = (id: string) =>
+      container.querySelector(`[data-row-id="${id}"] [data-phase-end]`)
+    // 전개 상태: p1,t1,a1,a2,p2 — p1 서브트리의 끝은 a2, 마지막 phase p2 도 경계.
+    expect(end('a2')).not.toBeNull()
+    expect(end('p2')).not.toBeNull()
+    expect(end('p1')).toBeNull()
+    expect(end('t1')).toBeNull()
+    expect(end('a1')).toBeNull()
+  })
+
+  it('phase 를 접으면 접힌 루트 행 자체가 경계가 된다', async () => {
+    await render(fixture())
+    const toggle = container.querySelector<HTMLButtonElement>('[data-row-id="p1"] button[aria-expanded]')
+    await act(async () => toggle!.click())
+    expect(container.querySelector('[data-row-id="p1"] [data-phase-end]')).not.toBeNull()
+  })
+
   it('레벨 명칭은 열 대신 작업명 툴팁으로 남는다', async () => {
     await render(fixture())
     const nameBtn = container.querySelector<HTMLButtonElement>('[data-row-id="p1"] [data-wbs-col="name"] button[title]')
