@@ -1038,8 +1038,17 @@ export function WbsGanttSheet({
           <Hash className="h-3.5 w-3.5" />
         </button>
         {/* 간트 배율 — 일 폭 슬라이더(12~48px) */}
-        <div className="flex h-9 items-center gap-1.5 rounded-xl border border-line px-2" title={t('wbs.ganttZoomGroup')}>
-          <ZoomOut aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+        <div className="flex h-9 items-center gap-1 rounded-xl border border-line px-1.5" title={t('wbs.ganttZoomGroup')}>
+          <button
+            type="button"
+            data-gantt-zoom-out
+            onClick={() => setGanttScale(Math.max(GANTT_DAY_MIN, dayPx - 2))}
+            title={t('wbs.ganttZoomOut')}
+            aria-label={t('wbs.ganttZoomOut')}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-line hover:text-ink"
+          >
+            <ZoomOut aria-hidden className="h-3.5 w-3.5" />
+          </button>
           <input
             type="range"
             data-gantt-zoom
@@ -1051,7 +1060,16 @@ export function WbsGanttSheet({
             aria-label={t('wbs.ganttZoomGroup')}
             className="w-20 accent-[var(--color-brand)]"
           />
-          <ZoomIn aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
+          <button
+            type="button"
+            data-gantt-zoom-in
+            onClick={() => setGanttScale(Math.min(GANTT_DAY_MAX, dayPx + 2))}
+            title={t('wbs.ganttZoomIn')}
+            aria-label={t('wbs.ganttZoomIn')}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-line hover:text-ink"
+          >
+            <ZoomIn aria-hidden className="h-3.5 w-3.5" />
+          </button>
         </div>
         {!timelineFocus && (
           <button
