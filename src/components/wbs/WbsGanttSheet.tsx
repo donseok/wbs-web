@@ -1275,12 +1275,13 @@ export function WbsGanttSheet({
                   setProgressLensPinnedId(current => (current === n.id ? null : n.id))
                 }}
               >
-                {/* phase 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트) */}
+                {/* phase 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트).
+                    색·두께는 사용자 피드백으로 진하고 두껍게(4px·ink-subtle) — task 1px 선과 위계. */}
                 {isPhaseEnd && (
                   <span
                     aria-hidden
                     data-phase-end
-                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-[3px] bg-grid-strong"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-1 bg-ink-subtle"
                   />
                 )}
                 {/* task(2단) 가로 구분선 — 두께는 격자선 그대로(1px), 색만 진하게 */}
