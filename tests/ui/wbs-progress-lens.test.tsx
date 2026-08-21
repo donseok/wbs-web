@@ -130,6 +130,39 @@ describe('WbsGanttSheet — 진척 돋보기', () => {
     })
   }
 
+  it('돋보기 카드는 그립 핸들 드래그로 위치를 옮길 수 있고 놓아도 위치가 유지된다', async () => {
+    await enable()
+    hoverRow()
+    const handle = container.querySelector<HTMLElement>('[data-wbs-progress-lens-drag]')
+    expect(handle).not.toBeNull()
+    const wrap = container.querySelector<HTMLElement>('[data-wbs-progress-lens-wrap]')!
+    const ev = (type: string, x: number, y: number) =>
+      new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })
+    act(() => { handle!.dispatchEvent(ev('pointerdown', 100, 200)) })
+    act(() => { handle!.dispatchEvent(ev('pointermove', 140, 150)) })
+    act(() => { handle!.dispatchEvent(ev('pointerup', 140, 150)) })
+    expect(wrap.style.transform).toBe('translate(40px, -50px)')
+    // 드래그가 끝난 뒤의 이동은 반영되지 않는다
+    act(() => { handle!.dispatchEvent(ev('pointermove', 300, 300)) })
+    expect(wrap.style.transform).toBe('translate(40px, -50px)')
+  })
+
+  it('돋보기를 껐다 켜면 창 위치가 기본(중앙 하단)으로 돌아온다', async () => {
+    await enable()
+    hoverRow()
+    const handle = container.querySelector<HTMLElement>('[data-wbs-progress-lens-drag]')!
+    const ev = (type: string, x: number, y: number) =>
+      new MouseEvent(type, { bubbles: true, clientX: x, clientY: y })
+    act(() => { handle.dispatchEvent(ev('pointerdown', 0, 0)) })
+    act(() => { handle.dispatchEvent(ev('pointermove', 30, 30)) })
+    act(() => { handle.dispatchEvent(ev('pointerup', 30, 30)) })
+    await act(async () => toggle().click()) // off
+    await act(async () => toggle().click()) // on
+    hoverRow()
+    const wrap = container.querySelector<HTMLElement>('[data-wbs-progress-lens-wrap]')!
+    expect(wrap.style.transform).toBe('translate(0px, 0px)')
+  })
+
   it('기본값은 OFF이며 안내와 확대 카드를 렌더하지 않는다', () => {
     expect(toggle()).not.toBeNull()
     expect(toggle().getAttribute('aria-pressed')).toBe('false')
@@ -238,6 +271,9 @@ describe('WbsGanttSheet — 진척 돋보기', () => {
     expect(field('owners').textContent).toContain('PMO')
     expect(field('status').textContent).toContain('status.in_progress')
     expect(field('schedule').textContent).toContain('26.07.01 ~ 26.07.10')
+    // 날짜는 돋보기 핵심 정보 — 본문보다 큰 강조 크기(text-xs 로 회귀 금지, 2026-08-21 피드백)
+    expect(field('schedule').className).toContain('text-base')
+    expect(field('schedule').className).toContain('font-semibold')
     expect(field('deliverable').textContent).toContain('업무분장표')
     expect(field('planned').textContent).toContain('65.0%')
     expect(field('actual').textContent).toContain('48.0%')

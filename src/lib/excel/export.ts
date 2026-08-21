@@ -60,22 +60,26 @@ export function buildWbsAoa(
   levelLabels: readonly string[] = ['Phase', 'Task', 'Activity'],
 ): unknown[][] {
   const teams = resolveTeamColumns(items, teamCodes)
-  const base = 6 + teams.length // 팀 열 다음 첫 열(산출물) — 5팀이면 11(L), 기존 양식과 동일
-  const teamCol = new Map(teams.map((c, i) => [c, 6 + i]))
+  // 계층 열 수 = levelLabels.length(N단 프로젝트 대응). 3라벨이면 종전 레이아웃과 바이트 동일 —
+  // D-CUBE 회귀 기준(api/export/route.ts)이 이 불변에 걸려 있다.
+  const L = levelLabels.length
+  const teamsStart = 1 + L + 2 // Biz + 계층 L열 + 스페이서 2
+  const base = teamsStart + teams.length // 팀 열 다음 첫 열(산출물) — 3라벨·5팀이면 11(L), 기존 양식과 동일
+  const teamCol = new Map(teams.map((c, i) => [c, teamsStart + i]))
 
   const header1 = [projectName]
-  const header2 = ['', levelLabels[0], levelLabels[1], levelLabels[2], '', '', '담당',
+  const header2 = ['', ...levelLabels, '', '', '담당',
     ...Array<string>(Math.max(0, teams.length - 1)).fill(''), '산출물', '계획', '']
-  const header3 = ['Biz', levelLabels[0], levelLabels[1], levelLabels[2], '', '', ...teams,
+  const header3 = ['Biz', ...levelLabels, '', '', ...teams,
     '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
 
   const rows: unknown[][] = [header1, header2, header3]
   for (const it of flatten(items)) {
     const row: unknown[] = new Array(base + 9).fill('')
     row[0] = it.biz ?? ''
-    // 3열 고정 레거시 양식(parse.ts가 col 1/2/3만 읽음) — depth 2 이상은 전부 col3(Activity)로
-    // 접는다(Global Constraint: N단 열 확장 금지, 기존 손실 계약 유지).
-    row[1 + Math.min(it.depth, 2)] = it.name
+    // 이름은 자기 depth 의 계층 열에 — 라벨 수를 넘는 깊이는 마지막 계층 열로 접는다
+    // (종전 3열 고정 시절의 접기 규칙을 L 열로 일반화. 3라벨이면 동작 동일 — parse.ts 호환 유지).
+    row[1 + Math.min(it.depth, L - 1)] = it.name
     for (const o of it.owners) row[teamCol.get(o.team)!] = o.kind === 'primary' ? '●' : '△'
     row[base] = it.deliverable ?? ''
     row[base + 1] = isoToDate(it.plannedStart)

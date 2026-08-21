@@ -1,0 +1,22 @@
+# MES 골격 정의 (dflow-wbs-nlevel --skeleton 입력 정본)
+# ⚠️ 키(phases.key, systems.key, module)는 발행 후 external_ref 로 불변 — 이 파일 검토 단계가 마지막 수정 기회.
+project: MES
+start_date: 2026-09-01        # 미지정 — 논의 기준일(2026-09-01)로 시드. 검토 시 수정.
+methodology: wsf              # wsf | waterfall | scrum — 아래 phases 는 wsf 프리셋
+
+phases:
+  - { key: PH-01, name: 분석 }
+  - { key: PH-02, name: 설계 }
+  - { key: PH-03, name: 구축, build: true }   # 시스템 트리가 붙는 Phase
+  - { key: PH-04, name: 통합테스트 }
+  - { key: PH-05, name: 적용 }
+
+levels: default               # 스펙 정본 7층 (Phase/System/Subsystem/WP/Activity/Task/SubTask)
+
+systems:
+  - { key: SYS-CM, name: 공통,     module: mes-cm }
+  - { key: SYS-QA, name: 품질,     module: mes-qa }
+  - { key: SYS-PP, name: 생산계획, module: mes-pp }
+  - { key: SYS-OP, name: 조업,     module: mes-op }
+  - { key: SYS-LG, name: 물류,     module: mes-lg }
+  # pl: 담당 PL 미정 — 확정되면 각 행에 `pl: 이름` 추가 (PL 템플릿 헤더에 반영됨)

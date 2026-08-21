@@ -1,6 +1,6 @@
 'use client'
 
-import { CalendarRange, FileText, Pin, PinOff, Search } from 'lucide-react'
+import { CalendarRange, FileText, GripVertical, Pin, PinOff, Search } from 'lucide-react'
 import type { ComputedItem } from '@/lib/domain/types'
 import { formatPct1, formatPp1 } from '@/lib/domain/format'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -14,6 +14,7 @@ export function WbsProgressLens({
   pinned,
   onTogglePin,
   levelLabels = DEFAULT_LEVEL_LABELS,
+  dragHandleProps,
 }: {
   item: ComputedItem | null
   parentPath: string[]
@@ -21,6 +22,8 @@ export function WbsProgressLens({
   onTogglePin: () => void
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 상위(WbsGanttSheet)가 서버 페이지에서 받아 전파. */
   levelLabels?: string[]
+  /** 창 이동 그립에 얹을 포인터 핸들러 — 위치 상태는 상위(WbsGanttSheet)가 소유한다. */
+  dragHandleProps?: React.HTMLAttributes<HTMLElement>
 }) {
   const { t } = useLocale()
 
@@ -64,6 +67,16 @@ export function WbsProgressLens({
                 {item.name}
               </h3>
             </div>
+            {dragHandleProps && (
+              <span
+                data-wbs-progress-lens-drag
+                {...dragHandleProps}
+                aria-hidden
+                className="flex h-8 shrink-0 cursor-grab touch-none items-center rounded-lg px-1 text-ink-subtle hover:bg-line hover:text-ink active:cursor-grabbing"
+              >
+                <GripVertical className="h-4 w-4" />
+              </span>
+            )}
             <button
               type="button"
               data-wbs-progress-lens-pin
@@ -91,8 +104,9 @@ export function WbsProgressLens({
                 ? <OwnerBadges owners={item.owners} />
                 : <span className="text-xs text-ink-subtle">{t('wbs.unassigned')}</span>}
             </div>
-            <span data-lens-field="schedule" className="inline-flex items-center gap-1 text-xs tabular-nums text-ink-muted">
-              <CalendarRange aria-hidden className="h-3.5 w-3.5 text-ink-subtle" />
+            {/* 날짜는 돋보기의 핵심 정보 — text-xs 는 작아서 안 보인다는 피드백(2026-08-21)으로 키움 */}
+            <span data-lens-field="schedule" className="inline-flex items-center gap-1.5 text-base font-semibold tabular-nums text-ink">
+              <CalendarRange aria-hidden className="h-4 w-4 text-ink-subtle" />
               {fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}
             </span>
           </div>

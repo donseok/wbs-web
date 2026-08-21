@@ -36,6 +36,79 @@ wbs.md 한 파일로 표현하기 위한 계약 초안. 코드 구현 전 설계
 - Task 완료 전이 시 미체크 checklist 경고/차단 게이트로 활용 가능.
 - 발행·배정 대상 = `input` 층 (현행 "task kind 만 발행" 의 일반화).
 
+### 업로드 범위 — 층별 `upload` (2026-08-21 추가)
+
+파일엔 세밀하게 쪼개되 D'Flow 엔 관리 단위까지만 올리는 경우를 위해 층별 `upload` 를 선언한다.
+
+| 값 | 의미 |
+|---|---|
+| `true` (기본) | wbs_items 노드로 업로드 |
+| `false` | 업로드 제외 — 파일 전용 메모 |
+| `fold` | 노드로는 안 올리되 부모 노드의 필드로 접어 올림 — checklist 층이면 부모 Task 의 `acceptance` 배열로 (import 계약에 acceptance jsonb 이미 존재, 0082 RPC) |
+
+- **아래에서 위로만 끌 수 있다**: 한 층이 `false`/`fold` 면 그보다 깊은 층 전부 동일 — 중간층만 빼면 자식의 parent_external_ref 가 끊긴다. 검증기가 막는다.
+- `progress: input` 층은 `upload: true` 강제 — 발행·배정 대상이 안 올라가면 모순.
+- checklist 층 기본 권장 = `fold`: STK 를 아예 안 올리면 "Task 완료 전이 시 미체크 경고" 게이트가 은퇴하는 wbs.md 에만 남는다. fold 면 게이트가 서버에서 작동하고 트리는 안 지저분해진다. `false` 는 정말 사적인 메모 전용.
+- 부수 이득: import 1회 1,000노드 상한 절약.
+
+### 분리 업로드 — PMO 골격 + PL 모듈 파일 (2026-08-21 추가)
+
+- PMO 골격 파일(Phase·System, `owner: pmo`)이 먼저, PL 파일 5개(공통/품질/생산계획/조업/물류)가 각자 `module` 다르게 같은 프로젝트로 업로드.
+- PL 파일 frontmatter: `attach: PH-03/SYS-OP` — 업로드 부착점. 서버에 그 노드 없으면 fail-closed 거부(골격 선행이 기계 검증됨). attach 는 모듈 경계를 넘는 참조(`mes-skel/SYS-OP`)라 import v2.2 에 크로스 모듈 해석 규칙 필요.
+- PL 파일의 levels 는 프로젝트 정본(PMO 골격이 시드한 level_labels)과 일치해야 통과 — PL 임의 층 추가 차단.
+- 골격 층은 PL 파일에서 `owner: pmo, upload: false` 로 선언만(접두어 해석용) — 본문에 쓰면 검증 에러.
+- 파일 배치 권장: 디렉토리 분리 `docs/mes/조업/wbs.md` (module = 디렉토리 세그먼트 파생, 현행 dflow-export 관례 그대로). 파일명 분리(wbs_조업.md)도 계약상 유효하나 module 매핑 표가 하나 더 필요.
+- module = 파일 1:1 강제. external_ref 가 `{module}/{ID}` 네임스페이스라 PL 간 ID 채번 조율 불필요, 타 모듈 데이터 침범 구조적 불가.
+
+**미결(v2.2 설계 시 해소)** — attach 단일 노드의 한계: PL 파일의 모듈 Water 꼬리(분석·설계 산출물)와
+모듈 Fall(통합 시나리오)은 정론상 PH-01·02·04 소속인데 attach 가 하나라 PH-03 에만 붙는다.
+선택지 — (a) attach 를 섹션별 복수 허용(`attach: { default: PH-03/SYS-OP, itest: PH-04/SYS-OP }`),
+(b) 모듈 파일은 전부 PH-03 아래로 정론화하고 PH-01·02·04 는 PMO 골격 전유. 스킬 GREEN 테스트(2026-08-21)에서 실측된 갭.
+
+업로드 경로 2개, 정본 1개 (2026-08-21 추가):
+
+- **웹 경로(사람/PL) — 자동 부착 + 확인**: 파일 업로드 → 파싱해 attach 키로 부착점 자동 판정 → 미리보기 카드(부착점·모듈·신규/갱신/서버에만 있음·담당 미매칭·levels 정합·owner 위반·fold 건수) → [적용/취소]. 사람은 노드를 고르지 않고 **확인만** 한다 — 잘못된 파일이면 부착점 표시에서 드러난다. attach 키 없는 파일만 노드 선택 화면으로 폴백.
+- **API 경로(자동화)**: frontmatter `attach` 필수, 확인 없이 적용(현행 import 동작).
+- 웹 경로에서 확인 없는 완전 자동은 두지 않는다 — 그건 API 경로의 중복이고, 웹 경로의 존재 이유가 "적용 전에 사람이 본다"이다.
+- **권한 결정 지점**: 현행 import 는 프로젝트 관리자 전용이고 노드 단위 소유 개념 없음. 1차 = PL 전원 관리자 + attach 검증(실수 방어, 악의 방어 없음 — 사내 소수 PL 수용). 2차 = System 노드 owner(또는 0071 project_teams 연결) 기반 "자기 서브트리만 import" — 노드 소유가 다른 기능(보고·결재)에 필요해질 때 함께.
+
+### Water-Scrum-Fall 매핑 (2026-08-21 추가)
+
+WSF 는 두 층위에서 반복된다. 기존 dflow-wbs 의 WP 번호 샌드위치(WP-00/01 선행 → 기능 WP → 통합 WP)는
+N단에서 **Phase 층으로 승격**된다.
+
+- **층위 1 — 프로젝트**: Phase 축 = WSF 그 자체. Water=PH-01 분석·PH-02 설계 / Scrum=PH-03 구축 /
+  Fall=PH-04 통합테스트·PH-05 적용.
+- **층위 2 — 모듈(재귀)**: PL 서브트리 안에서 dflow-wbs 고정 골격 사슬 그대로 —
+  모듈 DB(ERD) 설계 → 모듈 공유 계약(계약 전용) → 프로그램 Task → 모듈 통합 시나리오.
+
+소유권 × WSF × 스킬 모드:
+
+| WSF 구간 | 트리 위치 | 소유 | 스킬 모드 |
+|---|---|---|---|
+| Water(전사): 분석·설계 골격, 전사 아키텍처·공통 계약 | PH-01·02 | PMO | `--skeleton` |
+| Water(모듈): 모듈 요건분석·상세설계·DB·계약 Task | PH-01·02 하위 + PH-03 선두 | PL | PL 모드 |
+| Scrum: 프로그램 Task(수직 슬라이스) | PH-03 | PL | PL 모드 |
+| Fall(모듈): 모듈 내 통합 시나리오 | PH-04 하위 | PL | PL 모드 |
+| Fall(전사): 시스템 관통·ERP 연동, 컷오버 | PH-04·05 골격 | PMO | `--skeleton` |
+
+`--skeleton` = 샌드위치의 빵(Water·Fall 골격), PL 모드 = 속(모듈 Water 꼬리 + Scrum + 모듈 Fall).
+경계 규칙 승계: 선행 분리는 "2+ 모듈 공유 or 마이그레이션 필요"만, 통테 결함은 해당 모듈에
+`category: defect` Task 신설(되돌림), depends 사슬(스캐폴드→전사설계→전사계약→기능→itest)은 전사
+계약 Task 의 소속만 PMO 골격으로 옮기고 형태 유지.
+
+### 스킬 전략 (2026-08-21 사용자 결정 — 신규 스킬)
+
+- **기존 `dflow-wbs` 는 동결** — 운영 중인 3~4단 흐름(mes-base 등)을 건드리지 않는다.
+- **신규 스킬 `dflow-wbs-nlevel`** 이 이 계약(N단·levels frontmatter·progress·upload)을 구현한다.
+  역할 분리는 스킬 분리가 아니라 **모드**: `--skeleton`(PMO 골격 + PL 배포 킷) / PL 모드(기본 —
+  골격 파일에서 levels·키를 읽어 정합 강제, attach 자동 기입). 권한 강제는 스킬이 아니라
+  서버(import owner 검증)의 몫.
+- WSF 는 두 모드에 나뉘어 들어간다: `--skeleton` = Water·Fall 골격(빵), PL 모드 = 모듈 Water 꼬리 +
+  Scrum + 모듈 Fall(속) — 위 매핑 표 참조.
+- **업로드 게이트**: v2.2(E) 구현 전까지 이 스킬의 산출물은 작성·검수 전용 — levels·attach·fold 를
+  서버가 아직 받지 않으므로 업로드는 dflow-export 정합 이후. 스킬 본문에 이 게이트를 명시한다.
+
 ### 진도율 원칙
 
 - 입력은 leaf 한 곳(stage 전이 기반 크레딧), 나머지 전부 자동 롤업. % 수기 입력은 예외.
@@ -59,7 +132,8 @@ levels:
   - { name: WP,        prefix: WP,  progress: rollup, report: weekly }
   - { name: Activity,  prefix: ACT, progress: rollup, optional: true }
   - { name: Task,      prefix: TSK, progress: input }
-  - { name: SubTask,   prefix: STK, progress: checklist, optional: true }
+  - { name: SubTask,   prefix: STK, progress: checklist, optional: true,
+      upload: fold }   # 노드로 안 올리고 부모 Task 의 acceptance 로 접어 올림
 
 # input 층의 stage → 진도 크레딧 (category 별)
 credits:
@@ -151,9 +225,21 @@ credits:
 | `credit:키` | stage 크레딧 표 선택. 생략 시 default |
 | `if-id:` | PMO I/F 대장 참조 (쌍 연결) |
 
-## 구현 착수 시 범위 (미착수 — 설계만 확정)
+## 구현 범위와 진행 상태 (2026-08-21 착수)
 
-1. 프로젝트 설정에 level_labels·max_depth 편집 (관리자 전용 서버 액션 + UI, 축소 시 기존 트리 depth 검증 fail-closed)
-2. Excel export/import 동적 단계 열 (A안: 단계별 열, 헤더 = level_labels, 레거시 3열 하드코딩 제거)
-3. import 계약 v2.2: 노드별 `level` 필드 + progress 역할, wbs_items 저장
-4. stage→크레딧 환산 + weight 필드 + 롤업 쿼리 (checklist 제외)
+1. ✅ **프로젝트 설정 level_labels·max_depth 편집** — 8d6bd92. domain/levelSettings(검증·treeMaxDepth) +
+   updateLevelSettings 액션 + LevelSettingsManager + 설정 페이지 섹션. 축소 fail-closed.
+2. ✅ **Excel export 동적 계층 열** — 19f2c82. buildWbsAoa 계층 열 = levelLabels.length(3라벨 바이트 불변),
+   buildAoaWithProfile levelLabels 주입, export 라우트 연결. **import 는 변경 불요** — 위저드
+   (detect·parseWithProfile·linkByDepth)가 이미 N단 범용임을 실사로 확인. 3열 고정 parse.ts 는 레거시 전용 존치.
+3. ⏸ **import 계약 v2.2** (노드별 level·progress 역할·attach 크로스 모듈·upload/fold) — wbs_items 컬럼
+   추가 마이그레이션 동반, 스테이징 리허설 경로. wbs.md 파서(스킬 측) 개정과 계약을 맞춰야 하므로 별도 착수.
+4. ⏸ **stage→크레딧·weight 롤업** — 3 과 함께.
+
+의도적 보류 (실사 결과):
+
+- `ai/tools/wbs.ts` level enum 3종 clamp — AI 도구 계약 + 임베딩 바이트 불변에 묶여 있어 바꾸면 전 프로젝트
+  재임베딩 필요. v2.2(3번)와 함께 계획적으로.
+- weekly report·AI ingest 는 이미 getProjectConfig 주입식(Plan D 완료분) — 추가 변경 불요 확인.
+- `RESERVED_TEAM_NAMES` 의 Phase/Task/Activity 고정 — 커스텀 라벨과 팀명 충돌 검증이 정적 목록이라
+  안 잡힘(저위험). 라벨 저장·팀 추가 양쪽에서 상호 대조하는 후속 과제.

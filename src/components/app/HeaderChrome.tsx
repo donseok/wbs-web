@@ -142,10 +142,16 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
 
   return (
     <>
-      <header className="sticky top-0 z-[70] px-3 pt-2 sm:px-5 lg:px-7">
+      <header className="sticky top-0 z-[70] px-1.5 pt-1.5 sm:px-5 sm:pt-2 lg:px-7">
         <div className="flex h-12 items-center gap-3 rounded-2xl border border-line bg-surface/85 px-3 shadow-[var(--shadow-sm)] backdrop-blur-xl sm:px-4">
           {/* 로고 */}
           <button onClick={() => setMenuOpen(true)} className="chrome-icon lg:hidden" aria-label="메뉴 열기"><Menu className="h-4 w-4" /></button>
+          {/* 모바일 현재 위치 — 히어로가 md 미만에서 숨으므로 프로젝트명은 여기서 보여준다 */}
+          {context.rootLabel && (
+            <span data-mobile-project className="min-w-0 truncate text-[13px] font-semibold text-ink md:hidden">
+              {context.rootLabel}
+            </span>
+          )}
           <Link href="/projects" className="hidden items-center sm:flex" aria-label="D'Flow 홈">
             <BrandMark withWordmark tagline />
           </Link>

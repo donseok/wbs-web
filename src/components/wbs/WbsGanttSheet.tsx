@@ -11,7 +11,8 @@ import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable 
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
-import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash } from 'lucide-react'
+import { matchesNarrowViewport, useCompactViewport, useNarrowViewport, useRoomyViewport } from '@/lib/hooks/useCompactViewport'
+import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, fmtDate, levelBadgeText, teamStyle } from './shared'
@@ -44,11 +45,13 @@ const PLAN_COLS: Col[] = [
   { key: 'pactual', w: 72 },
   { key: 'achieve', w: 76 },
 ]
-function buildCols(outline: boolean): Col[] {
+/* narrow(모바일)에선 작업명 열을 줄인다 — 동결 열(44+360=404px)이 모바일 뷰포트(≈375px)를
+   넘어 캘린더가 아예 화면에 못 들어오던 문제. 44+176=220px 이면 캘린더가 150px 이상 보인다. */
+function buildCols(outline: boolean, narrow: boolean): Col[] {
   const frozenCols: Col[] = [
     { key: 'no', w: 44, frozen: true },
     ...(outline ? [{ key: 'outline', w: 96, frozen: true }] : []),
-    { key: 'name', w: 360, frozen: true },
+    { key: 'name', w: narrow ? 176 : 360, frozen: true },
   ]
   let acc = 0
   for (const c of frozenCols) {
@@ -62,6 +65,13 @@ const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status'])
 /* 1단계(루트) 색 스트립 팔레트 — 루트 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
    채도 있는 색이 소음이 되지 않고, 팀 원색(MS_LINE)처럼 양 테마 고정 hex 를 쓴다. */
 const L1_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
+/* 간트 배율 슬라이더 범위 — 일 폭(px). 저장값도 이 범위로 clamp 한다.
+   축소 쪽(4px, 반년이 화면 하나)을 확대 쪽(36px)보다 넓게 잡는다 — 실사용은 개관이 잦다(피드백). */
+const GANTT_DAY_MIN = 4
+const GANTT_DAY_MAX = 36
+const GANTT_DAY_DEFAULT = 24
+/* 이 폭 미만이면 일 단위 정보(일 격자)를 접고 주 단위로만 그린다 — 4~10px 일 격자는 줄무늬 소음. */
+const GANTT_WEEK_VIEW_PX = 12
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
 const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
@@ -162,6 +172,7 @@ export function WbsGanttSheet({
   initialCollapsed,
   initialHideDone = false,
   initialOutline = false,
+  initialGanttScale,
   focusId = null,
   levelLabels = DEFAULT_LEVEL_LABELS,
   maxDepth = null,
@@ -192,6 +203,8 @@ export function WbsGanttSheet({
   initialHideDone?: boolean
   /** 계정에 저장된 개요 번호 열 토글(UiPrefs.wbsOutline) — 전 프로젝트 공통. */
   initialOutline?: boolean
+  /** 계정에 저장된 간트 배율(UiPrefs.wbsGanttScale, 일 폭 px) — 프리셋 밖 값은 기본 24 로 복구. */
+  initialGanttScale?: number
   /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
   focusId?: string | null
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
@@ -230,9 +243,26 @@ export function WbsGanttSheet({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addPhase, setAddPhase] = useState<string | null>(null) // null=닫힘
   const [addBusy, setAddBusy] = useState(false)
-  const dayPx = 24 // 간트 배율 — '기본' 고정 (축소 옵션 제거)
+  // 간트 배율 — 일 폭(px), 슬라이더 연속 조절. 계정 전역 저장(UiPrefs.wbsGanttScale).
+  // 저장값이 범위 밖이거나 숫자가 아니면(옛 버전 잔재 등) clamp/기본값으로 복구한다.
+  const [dayPx, setDayPx] = useState(() =>
+    typeof initialGanttScale === 'number' && Number.isFinite(initialGanttScale)
+      ? Math.min(GANTT_DAY_MAX, Math.max(GANTT_DAY_MIN, Math.round(initialGanttScale)))
+      : GANTT_DAY_DEFAULT,
+  )
+  const setGanttScale = (next: number) => {
+    setDayPx(next)
+    queueUiPref({ wbsGanttScale: next }) // debounce 저장이라 드래그 중 연타도 마지막 값만 나간다
+  }
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
+  const compact = useCompactViewport() // 크롬 압축(툴바 걷기·범례 숨김) — 폭<1280 또는 높이<800
+  const narrow = useNarrowViewport() // 열 축소(작업명 176px·계획 열 숨김) — 폭<640 또는 높이<520
+  const showLabels = useRoomyViewport() // 툴바 글자 라벨 — 폭 1600px 이상에서만(미만이면 2줄로 감김)
+  // 좁은 화면 최초 진입은 계획 열 숨김으로 시작 — 캘린더가 작업명 바로 옆에 온다. 이후 토글은 사용자 뜻대로.
+  useEffect(() => {
+    if (matchesNarrowViewport()) setPlanningColsHidden(true)
+  }, [])
   // 이정표 기준선 — 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 켜짐이며 계정에 저장하지 않는다.
   const [showMilestones, setShowMilestones] = useState(true)
   // 진척 돋보기는 사용자가 켰을 때만 행 hover/focus를 따라간다. 객체 대신 id만 저장해
@@ -242,6 +272,9 @@ export function WbsGanttSheet({
   const [progressLensPinnedId, setProgressLensPinnedId] = useState<string | null>(null)
   // 완료 숨김 — 계정 전역 저장(UiPrefs.wbsHideDone). 접힘(user_wbs_state)과 달리 프로젝트 무관.
   const [hideDone, setHideDone] = useState(initialHideDone)
+  // 모바일 툴바 접힘 — 좁은 화면에서 컨트롤이 3줄을 차지해 표를 가리므로 기본 접힘.
+  // sm 이상에서는 CSS(sm:flex)가 항상 펼치므로 이 상태는 모바일에서만 의미 있다.
+  const [toolbarOpen, setToolbarOpen] = useState(false)
   // focus 딥링크가 숨겨진 구간을 가리킬 때의 임시 노출 — forcedOpen 과 같은 계열(계정 저장 무접촉)
   const [hideExempt, setHideExempt] = useState<Set<string>>(() => new Set())
   const toggleHideDone = () => {
@@ -289,7 +322,7 @@ export function WbsGanttSheet({
     return me ? [{ userId: me.id, name: me.name }, ...others] : others
   }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
   // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
-  const cols = useMemo(() => buildCols(outlineVisible), [outlineVisible])
+  const cols = useMemo(() => buildCols(outlineVisible, narrow), [outlineVisible, narrow])
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {
@@ -562,10 +595,31 @@ export function WbsGanttSheet({
     setProgressLensPreviewId(null)
     setProgressLensPinnedId(null)
   }
+  // 돋보기 창 드래그 이동(2026-08-21 피드백) — 기본은 하단 중앙 고정이지만 그립을 잡아
+  // 옮길 수 있다. 위치는 세션 한정이며 돋보기를 끄면 기본 위치로 돌아온다.
+  const [lensOffset, setLensOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const lensDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+  const lensDragHandleProps = {
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      e.preventDefault()
+      if (e.pointerId != null) e.currentTarget.setPointerCapture?.(e.pointerId)
+      lensDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: lensOffset.x, baseY: lensOffset.y }
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      const d = lensDragRef.current
+      if (!d) return
+      setLensOffset({ x: d.baseX + e.clientX - d.startX, y: d.baseY + e.clientY - d.startY })
+    },
+    onPointerUp: () => {
+      lensDragRef.current = null
+    },
+  }
   const toggleProgressLens = () => {
     if (progressLensEnabled) {
       clearProgressLensSelection()
       setProgressLensEnabled(false)
+      setLensOffset({ x: 0, y: 0 })
+      lensDragRef.current = null
       return
     }
     setProgressLensEnabled(true)
@@ -660,8 +714,12 @@ export function WbsGanttSheet({
   const axisDates = [...allDates, today]
   const rangeStart = axisDates.reduce((a, b) => (a < b ? a : b))
   const rangeEnd = axisDates.reduce((a, b) => (a > b ? a : b))
+  // 축 여백 — 계획 최댓값에서 축이 뚝 끊기면 마지막 주의 마일스톤 라벨이 잘리고 "끊긴
+  // 느낌"이 든다(2026-08-21 피드백). 끝은 다음 달력 주 일요일까지 덧대되, 시작주는
+  // 시작날짜 그대로 시작한다(같은 날 후속 피드백 — 앞쪽 여백은 두지 않는다).
   const start = new Date(rangeStart + 'T00:00:00Z')
   const end = new Date(rangeEnd + 'T00:00:00Z')
+  end.setUTCDate(end.getUTCDate() + (6 - ((end.getUTCDay() + 6) % 7)) + 7) // 다음 주 일요일
   const days: string[] = []
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) days.push(iso(d))
   const holSet = new Set(holidays)
@@ -886,13 +944,31 @@ export function WbsGanttSheet({
       }
     >
       {/* ── 툴바 ── */}
-      <div className="card mb-3 grid w-full min-w-0 max-w-full shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden p-2.5 sm:flex sm:flex-wrap">
+      {/* 컴팩트: 툴바를 통째로 걷고 플로팅 버튼으로 연다 — 접힌 한 줄(검색+토글)조차 표 공간을
+          먹는다는 피드백(2026-08-21). 분기는 JS(compact)로만 — CSS 반응형 display 유틸은
+          unlayered 안전망에 져서 못 쓴다. */}
+      {compact && !toolbarOpen && (
+        <button
+          type="button"
+          data-wbs-toolbar-toggle
+          onClick={() => setToolbarOpen(true)}
+          aria-expanded={false}
+          title={t('wbs.toolbarToggleTitle')}
+          className="btn absolute right-1 top-1 z-[60] h-8 border border-line bg-surface/95 px-2.5 text-xs shadow-[var(--shadow-sm)] backdrop-blur-sm"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {(!compact || toolbarOpen) && (
+      <div data-wbs-toolbar className="card mb-1.5 flex w-full min-w-0 max-w-full shrink-0 flex-wrap items-center gap-1.5 overflow-hidden p-1.5 sm:mb-3 sm:gap-2 sm:p-2.5">
         {/* 제목 글자는 툴바 가로폭을 아껴 두 줄 줄바꿈을 막으려고 뺐다. 아이콘만 남기고 이름은 title·sr-only 로 유지 */}
-        <div className="mr-1 flex items-center px-0.5 text-sm font-semibold text-ink">
-          <span title={t('wbs.board')} className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
-          <span className="sr-only">{t('wbs.board')}</span>
-        </div>
-        <div className="relative min-w-0 sm:flex-none">
+        {!compact && (
+          <div className="mr-1 flex items-center px-0.5 text-sm font-semibold text-ink">
+            <span title={t('wbs.board')} className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-weak text-brand"><Icon name="grid" className="h-4 w-4" /></span>
+            <span className="sr-only">{t('wbs.board')}</span>
+          </div>
+        )}
+        <div className="relative min-w-0 flex-1 sm:flex-none">
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
@@ -902,6 +978,27 @@ export function WbsGanttSheet({
           />
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
         </div>
+        {/* 컴팩트에서 열린 툴바의 닫기 버튼 — 플로팅 버튼과 같은 토글 시맨틱 */}
+        {compact && (
+          <button
+            type="button"
+            data-wbs-toolbar-toggle
+            onClick={() => setToolbarOpen(false)}
+            aria-expanded
+            title={t('wbs.toolbarToggleTitle')}
+            className="btn h-9 border border-brand-ring bg-brand-weak px-3 text-xs text-brand"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <div
+          data-wbs-toolbar-rest
+          className={
+            compact
+              ? 'flex w-full flex-wrap items-center gap-1.5'
+              : 'flex min-w-0 flex-1 flex-wrap items-center gap-2'
+          }
+        >
         {deepestLevel >= 2 && (
           <div
             role="group"
@@ -940,6 +1037,40 @@ export function WbsGanttSheet({
         >
           <Hash className="h-3.5 w-3.5" />
         </button>
+        {/* 간트 배율 — 일 폭 슬라이더(12~48px) */}
+        <div className="flex h-9 items-center gap-1 rounded-xl border border-line px-1.5" title={t('wbs.ganttZoomGroup')}>
+          <button
+            type="button"
+            data-gantt-zoom-out
+            onClick={() => setGanttScale(Math.max(GANTT_DAY_MIN, dayPx - 2))}
+            title={t('wbs.ganttZoomOut')}
+            aria-label={t('wbs.ganttZoomOut')}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-line hover:text-ink"
+          >
+            <ZoomOut aria-hidden className="h-3.5 w-3.5" />
+          </button>
+          <input
+            type="range"
+            data-gantt-zoom
+            min={GANTT_DAY_MIN}
+            max={GANTT_DAY_MAX}
+            step={2}
+            value={dayPx}
+            onChange={e => setGanttScale(Number(e.target.value))}
+            aria-label={t('wbs.ganttZoomGroup')}
+            className="w-20 accent-[var(--color-brand)]"
+          />
+          <button
+            type="button"
+            data-gantt-zoom-in
+            onClick={() => setGanttScale(Math.min(GANTT_DAY_MAX, dayPx + 2))}
+            title={t('wbs.ganttZoomIn')}
+            aria-label={t('wbs.ganttZoomIn')}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-subtle hover:bg-line hover:text-ink"
+          >
+            <ZoomIn aria-hidden className="h-3.5 w-3.5" />
+          </button>
+        </div>
         {!timelineFocus && (
           <button
             type="button"
@@ -952,7 +1083,7 @@ export function WbsGanttSheet({
             }`}
           >
             <Icon name={planningColsHidden ? 'eye' : 'eyeOff'} className="h-3.5 w-3.5" />
-            {t(planningColsHidden ? 'wbs.showPlanningColumnsShort' : 'wbs.hidePlanningColumnsShort')}
+            {showLabels && <span data-btn-label>{t(planningColsHidden ? 'wbs.showPlanningColumnsShort' : 'wbs.hidePlanningColumnsShort')}</span>}
           </button>
         )}
         <button
@@ -966,7 +1097,7 @@ export function WbsGanttSheet({
           }`}
         >
           <Icon name="search" className="h-3.5 w-3.5" />
-          {t('wbs.progressLensShort')}
+          {showLabels && <span data-btn-label>{t('wbs.progressLensShort')}</span>}
         </button>
         <button
           type="button"
@@ -977,7 +1108,7 @@ export function WbsGanttSheet({
           className={`btn h-9 px-3 text-xs ${hideDone ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
         >
           <ListChecks className="h-3.5 w-3.5" />
-          {t('wbs.hideDone')}
+          {showLabels && <span data-btn-label>{t('wbs.hideDone')}</span>}
           {/* N = 접힘 무관 '감춘 작업 수'. 검색 중엔 숨김이 일시 미적용이라 거짓 신호 방지 위해 생략 */}
           {hideDone && !q && <span className="tabular-nums">· {hideDoneResult.hiddenCount}</span>}
         </button>
@@ -989,8 +1120,8 @@ export function WbsGanttSheet({
           canDecrease={fontScale.canDecrease}
           canIncrease={fontScale.canIncrease}
         />
-        <button onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
-          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}
+        <button data-wbs-fullscreen-toggle onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
+          {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {showLabels && <span data-btn-label>{fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}</span>}
         </button>
         {dependencies.length > 0 && (
           <button
@@ -1001,7 +1132,7 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showDependencyLinks ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <GitBranch className="h-3.5 w-3.5" />
-            {t('wbs.dependencies')} {dependencies.length}
+            {showLabels && <span data-btn-label>{t('wbs.dependencies')}</span>} {dependencies.length}
             {dependencySchedule.criticalTaskIds.size > 0 && (
               <span className="rounded-full bg-critical px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
                 {t('wbs.criticalShort')} {dependencySchedule.criticalTaskIds.size}
@@ -1024,22 +1155,24 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showMilestones ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <Flag className="h-3.5 w-3.5" />
-            {t('wbs.milestones')} {milestoneCount}
+            {showLabels && <span data-btn-label>{t('wbs.milestones')}</span>} {milestoneCount}
           </button>
         )}
         {isAdmin && !readOnly && (
           <button onClick={() => setAddPhase(p => (p == null ? '' : null))} title={t('wbs.addPhase')} className="btn btn-ghost h-9 px-3 text-xs">
-            <Icon name="plus" className="h-3.5 w-3.5" /> {t('wbs.addPhaseShort')}
+            <Icon name="plus" className="h-3.5 w-3.5" /> {showLabels && <span data-btn-label>{t('wbs.addPhaseShort')}</span>}
           </button>
         )}
-        <button onClick={() => setReportOpen(true)} title={t('wbs.weeklyReportTitle')} className="btn btn-ghost h-9 px-3 text-xs">
-          <FileText className="h-3.5 w-3.5" /> {t('wbs.weeklyReport')}
+        <button data-wbs-weekly-report onClick={() => setReportOpen(true)} title={t('wbs.weeklyReportTitle')} className="btn btn-ghost h-9 px-3 text-xs">
+          <FileText className="h-3.5 w-3.5" /> {showLabels && <span data-btn-label>{t('wbs.weeklyReport')}</span>}
         </button>
         {/* 접속자 아바타 — 지금 이 WBS 메뉴를 보고 있는 사용자(본인 포함) */}
         <div className="ml-auto hidden sm:block">
           <PresenceStrip online={online} meId={me?.id} />
         </div>
+        </div>
       </div>
+      )}
 
       {/* 새 Phase 입력 (PMO) */}
       {addPhase != null && (
@@ -1096,26 +1229,37 @@ export function WbsGanttSheet({
             className="pointer-events-none absolute z-0"
             style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH }}
           >
-            {days.map((d, i) => {
-              const hol = holSet.has(d)
-              const off = hol || isWeekend(d)
-              return (
-                <div
-                  key={d}
-                  className="absolute top-0 box-border border-r border-grid"
-                  style={{
-                    left: i * dayPx,
-                    width: dayPx,
-                    height: rowsH,
-                    background: hol
-                      ? 'var(--color-holiday-band)'
-                      : off
-                        ? 'var(--color-weekend)'
-                        : undefined,
-                  }}
-                />
-              )
-            })}
+            {dayPx >= GANTT_WEEK_VIEW_PX
+              ? days.map((d, i) => {
+                  const hol = holSet.has(d)
+                  const off = hol || isWeekend(d)
+                  return (
+                    <div
+                      key={d}
+                      data-gantt-grid="day"
+                      className="absolute top-0 box-border border-r border-grid"
+                      style={{
+                        left: i * dayPx,
+                        width: dayPx,
+                        height: rowsH,
+                        background: hol
+                          ? 'var(--color-holiday-band)'
+                          : off
+                            ? 'var(--color-weekend)'
+                            : undefined,
+                      }}
+                    />
+                  )
+                })
+              : // 주 단위 보기 — 일 격자·주말 밴드를 접고 주 경계선만 남긴다
+                weeks.map(w => (
+                  <div
+                    key={w.left}
+                    data-gantt-grid="week"
+                    className="absolute top-0 box-border border-r border-grid"
+                    style={{ left: w.left, width: w.width, height: rowsH }}
+                  />
+                ))}
           </div>
 
           {/* 헤더 행 (sticky top) */}
@@ -1677,19 +1821,25 @@ export function WbsGanttSheet({
       </div>
 
       {progressLensEnabled && (
-        <div className="pointer-events-none fixed inset-x-3 bottom-4 z-[45] flex justify-center sm:inset-x-6">
+        <div
+          data-wbs-progress-lens-wrap
+          className="pointer-events-none fixed inset-x-3 bottom-4 z-[45] flex justify-center sm:inset-x-6"
+          style={{ transform: `translate(${lensOffset.x}px, ${lensOffset.y}px)` }}
+        >
           <WbsProgressLens
             item={progressLensItem}
             parentPath={progressLensActiveId ? progressLensPathById.get(progressLensActiveId) ?? [] : []}
             pinned={!!progressLensPinnedId}
             onTogglePin={toggleProgressLensPin}
             levelLabels={levelLabels}
+            dragHandleProps={lensDragHandleProps}
           />
         </div>
       )}
 
-      {/* ── 범례 ── */}
-      <div className="mt-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
+      {/* ── 범례 — 컴팩트(세로 폰·가로 폰)에선 표 공간 확보 위해 렌더하지 않음 ── */}
+      {!compact && (
+      <div data-wbs-legend className="mt-2 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-line/70 bg-surface/70 px-3 py-2 text-[11px] text-ink-subtle">
         <span className="inline-flex items-center gap-2">
           {(['done', 'in_progress', 'delayed', 'not_started'] as const).map(s => (
             <span key={s} className="inline-flex items-center gap-1">
@@ -1743,6 +1893,7 @@ export function WbsGanttSheet({
               : t('wbs.legendHintOwner')}
         </span>
       </div>
+      )}
 
       {toast && (
         <div

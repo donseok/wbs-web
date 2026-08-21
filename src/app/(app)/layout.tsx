@@ -95,7 +95,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Sidebar projects={projectLinks} showUsage={identity?.showUsage ?? false} showPortfolio={identity?.showPortfolio ?? false} />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <HeaderChrome identity={identity} projects={projectLinks} userName={userName} />
-              <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-3 pb-4 pt-3 sm:px-5 lg:px-7">
+              {/* 모바일 여백 축소(2026-08-21) — 좁은 화면에서 표 영역을 한 뼘이라도 넓힌다 */}
+              <main id="main-content" className="min-h-0 w-full flex-1 overflow-y-auto px-1.5 pb-2 pt-2 sm:px-5 sm:pb-4 sm:pt-3 lg:px-7">
                 <DegradedNotice
                   actorFailed={actorState.degraded}
                   projectsFailed={projectState.degraded}

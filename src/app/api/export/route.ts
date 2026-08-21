@@ -46,7 +46,9 @@ export async function GET(req: NextRequest) {
       else console.error('[export] 저장된 프로파일이 손상됨 — LEGACY_DCUBE_PROFILE 로 폴백:', validated.error)
     }
     const built = buildWorkbookWithProfile(
-      items, profile, holidays.map(d => ({ date: d, name: '' })), { expandSubActs: true }, name,
+      items, profile, holidays.map(d => ({ date: d, name: '' })),
+      // 계층 열 헤더에 프로젝트 단계 이름 주입 — D-CUBE(legacy 3라벨)는 값이 같아 출력 불변.
+      { expandSubActs: true, levelLabels: config.levelLabels }, name,
     )
     // outline+펼침처럼 명시적으로 미지원인 조합 — 무증상 오파싱 대신 400 으로 정직하게 알린다.
     if (!built.ok) return NextResponse.json({ error: built.error }, { status: 400 })
