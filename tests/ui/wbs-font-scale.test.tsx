@@ -188,7 +188,6 @@ describe('WbsGanttSheet — 표 글자 크기 3단계', () => {
   function layoutSnapshot() {
     const headerWidths = [
       'no',
-      'level',
       'name',
       'owners',
       'status',
@@ -336,10 +335,10 @@ describe('WbsGanttSheet — 표 글자 크기 3단계', () => {
 
     const baseline = layoutSnapshot()
     expect(baseline.leftWidth).toBe('1198px')
+    // 구분 열 삭제(2026-08-21) — 반납한 60px 는 작업명 열이 흡수(300→360)해 총폭은 동일하다.
     expect(baseline.headerWidths).toEqual([
       '44px',
-      '60px',
-      '300px',
+      '360px',
       '128px',
       '76px',
       '150px',
@@ -362,23 +361,15 @@ describe('WbsGanttSheet — 표 글자 크기 3단계', () => {
     expect(layoutSnapshot()).toEqual(baseline)
   })
 
-  it('130%에서도 고정 폭 구분·상태 셀이 라벨을 보존하도록 내부 여백과 상한을 적용한다', async () => {
+  // 구분(LevelBadge) 열은 2026-08-21 개편으로 삭제 — 고정 폭 라벨 보존 검사는 상태 셀만 남는다.
+  it('130%에서도 고정 폭 상태 셀이 라벨을 보존하도록 내부 여백과 상한을 적용한다', async () => {
     await mount()
     await act(async () => increase().click())
     await act(async () => increase().click())
 
     const row = container.querySelector<HTMLElement>('[data-row-id="A"]')!
-    const levelCell = row.querySelector<HTMLElement>('[data-wbs-col="level"]')!
-    const levelBadge = levelCell.querySelector<HTMLElement>('.lvl-badge')!
     const statusCell = row.querySelector<HTMLElement>('[data-wbs-col="status"]')!
     const statusChip = statusCell.querySelector<HTMLElement>('.chip')!
-
-    expect(scrollRegion().style.getPropertyValue('--wbs-badge-font')).toBe('10.5px')
-    expect(levelCell.classList.contains('overflow-hidden')).toBe(true)
-    expect(levelCell.style.paddingInline).toBe('4px')
-    expect(levelBadge.style.maxWidth).toBe('100%')
-    expect(levelBadge.style.paddingInline).toBe('3px')
-    expect(levelBadge.style.letterSpacing).toBe('0px')
 
     expect(scrollRegion().style.getPropertyValue('--wbs-chip-font')).toBe('13px')
     expect(statusCell.style.paddingInline).toBe('4px')
