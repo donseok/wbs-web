@@ -273,6 +273,8 @@ export function WbsGanttSheet({
     setHideDone(next)
     queueUiPref({ wbsHideDone: next })
   }
+  // 간트 바 hover 툴팁 — Bar 가 위치를 알려 주면 시트가 fixed(z-60) 로 하나만 그린다.
+  const [barTip, setBarTip] = useState<{ title: string; x: number; y: number } | null>(null)
   // 개요 번호 열 — 계정 전역 저장(UiPrefs.wbsOutline). hideDone 과 같은 저장 계열.
   const [outlineVisible, setOutlineVisible] = useState(initialOutline)
   const toggleOutline = () => {
@@ -1314,7 +1316,7 @@ export function WbsGanttSheet({
                 data-flash={isFlash ? 'true' : undefined}
                 data-lens-active={progressLensActive ? 'true' : undefined}
                 tabIndex={isFlash ? -1 : undefined}
-                className={`group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none hover:z-[45] ${isDim ? 'opacity-50' : ''}`}
+                className={`group relative z-10 box-border flex h-[var(--wbs-row-h)] w-max outline-none ${isDim ? 'opacity-50' : ''}`}
                 style={{ fontSize: 'var(--wbs-cell-font, 12px)' }}
                 onMouseEnter={() => previewProgressLens(n.id)}
                 onFocusCapture={() => previewProgressLens(n.id)}
@@ -1627,6 +1629,7 @@ export function WbsGanttSheet({
                         `${t('wbs.colPlannedPct')} ${formatPct1(n.plannedPct)}%`,
                         `${t('wbs.colActualPct')} ${formatPct1(n.rolledActualPct)}%`,
                       ].join('\n')}
+                      onHover={setBarTip}
                     />
                   )}
                 </div>
@@ -1750,6 +1753,17 @@ export function WbsGanttSheet({
             onTogglePin={toggleProgressLensPin}
             levelLabels={levelLabels}
           />
+        </div>
+      )}
+
+      {/* 간트 바 hover 툴팁 — fixed 라 sticky 헤더·오버레이 스태킹과 무관하게 항상 위(z-60) */}
+      {barTip && (
+        <div
+          data-gantt-tooltip
+          className="pointer-events-none fixed z-[60] -translate-x-1/2 -translate-y-full whitespace-pre rounded-lg bg-ink px-2 py-1 leading-snug text-surface shadow-lg"
+          style={{ left: barTip.x, top: barTip.y - 6, fontSize: 10 }}
+        >
+          {barTip.title}
         </div>
       )}
 
@@ -1945,6 +1959,7 @@ function Bar({
   xOf,
   dayPx,
   title,
+  onHover,
 }: {
   n: ComputedItem
   schedule?: TaskSchedule
@@ -1952,6 +1967,8 @@ function Bar({
   dayPx: number
   /** hover 툴팁 — i18n 이 필요한 조립은 호출부(t 보유) 책임. */
   title?: string
+  /** hover 통지 — 시트가 fixed 툴팁을 스태킹 밖에 그린다. null = 벗어남. */
+  onHover?: (tip: { title: string; x: number; y: number } | null) => void
 }) {
   const left = xOf(n.plannedStart!)
   const width = Math.max(dayPx * 0.5, xOf(n.plannedEnd!) + dayPx - left)
@@ -1974,27 +1991,28 @@ function Bar({
       title={`${schedule!.forecastStart} ~ ${schedule!.forecastEnd}`}
     />
   ) : null
-  // hover 툴팁 — 네이티브 title 은 지연이 길고 합성 이벤트·리렌더에 취약해 커스텀으로 그린다.
-  // display 변형 유틸은 안전망(unlayered)에 지므로 opacity 전환만 쓴다(CLAUDE.md CSS 규칙).
-  const tip = title ? (
-    <span
-      data-gantt-tooltip
-      className="pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 whitespace-pre rounded-lg bg-ink px-2 py-1 leading-snug text-surface opacity-0 shadow-lg transition-opacity duration-100 group-hover/bar:opacity-100"
-      style={{ fontSize: 10 }}
-    >
-      {title}
-    </span>
-  ) : null
+  // hover 툴팁 — 행 내부에 그리면 sticky 헤더·마일스톤 오버레이와 z 경쟁이 생긴다
+  // (행을 올리면 오버레이가 가려지는 부작용, 2026-08-21 실측). 바는 hover 사실만
+  // 시트에 알리고, 시트가 fixed 툴팁 하나를 스태킹 밖(z-60)에 그린다.
+  const hoverProps = title
+    ? {
+        onMouseEnter: (e: React.MouseEvent<HTMLDivElement>) => {
+          const r = e.currentTarget.getBoundingClientRect()
+          onHover?.({ title, x: e.clientX, y: r.top })
+        },
+        onMouseLeave: () => onHover?.(null),
+      }
+    : {}
 
   if (n.depth === 0) {
     return (
       <>
         <div
           data-gantt-bar
-          className={`group/bar absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
+          {...hoverProps}
+          className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
           style={{ left, width }}
         >
-          {tip}
           <div
             className="h-full rounded-[3px] bg-phasebar-fill opacity-60"
             style={{ width: `${pct}%` }}
@@ -2017,10 +2035,10 @@ function Bar({
     <>
       <div
         data-gantt-bar
-        className="group/bar absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
+        {...hoverProps}
+        className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
         style={{ left, width }}
       >
-        {tip}
         <div className={`h-full overflow-hidden rounded-full bg-plan-track ring-1 ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : 'ring-grid'}`}>
           <div
             className={`h-full rounded-full ${STATUS[n.status].bar}`}
