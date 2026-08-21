@@ -41,7 +41,8 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
     root = createRoot(container)
     queueWbsCollapse.mockClear()
     scrollIntoView.mockClear()
-    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    // reduced-motion 만 참으로 — 전부 true 로 두면 컴팩트 뷰포트 판정까지 걸려 툴바가 걷힌다
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('prefers-reduced-motion') }))
     Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: scrollIntoView })
   })
   afterEach(() => {

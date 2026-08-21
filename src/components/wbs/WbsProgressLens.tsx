@@ -104,8 +104,9 @@ export function WbsProgressLens({
                 ? <OwnerBadges owners={item.owners} />
                 : <span className="text-xs text-ink-subtle">{t('wbs.unassigned')}</span>}
             </div>
-            <span data-lens-field="schedule" className="inline-flex items-center gap-1 text-xs tabular-nums text-ink-muted">
-              <CalendarRange aria-hidden className="h-3.5 w-3.5 text-ink-subtle" />
+            {/* 날짜는 돋보기의 핵심 정보 — text-xs 는 작아서 안 보인다는 피드백(2026-08-21)으로 키움 */}
+            <span data-lens-field="schedule" className="inline-flex items-center gap-1.5 text-base font-semibold tabular-nums text-ink">
+              <CalendarRange aria-hidden className="h-4 w-4 text-ink-subtle" />
               {fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}
             </span>
           </div>

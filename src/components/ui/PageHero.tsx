@@ -17,8 +17,10 @@ export function PageHero({
   heroKpis?: ReactNode
 }) {
   return (
-    // 모바일에선 숨김 — 헤더(햄버거 옆)가 프로젝트명을 대신 보여줘 세로 공간을 아낀다(2026-08-21)
-    <section className="hidden gap-4 md:grid">
+    // 컴팩트 화면에선 숨김 — 헤더가 현재 위치를 보여줘 세로 공간을 아낀다(2026-08-21).
+    // 기준은 크롬 압축(useCompactViewport COMPACT_MQ)과 동일: 폭≥1280 그리고 높이≥800 일 때만 표시.
+    // lg: 같은 폭 전용 유틸을 쓰면 낮은 랩탑 화면에서 새 나온다(높이 조건이 없어서).
+    <section className="hidden gap-4 [@media(min-width:1280px)_and_(min-height:800px)]:grid">
       <div className="hero-glow hero-card flex flex-col px-6 py-3 sm:px-8">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
