@@ -11,7 +11,7 @@ import { canEditActual, canEditWeight, canEditDeliverable, canAttachDeliverable 
 import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
-import { matchesCompactViewport, useCompactViewport } from '@/lib/hooks/useCompactViewport'
+import { matchesNarrowViewport, useCompactViewport, useNarrowViewport } from '@/lib/hooks/useCompactViewport'
 import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
@@ -256,10 +256,11 @@ export function WbsGanttSheet({
   }
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
-  const compact = useCompactViewport()
-  // 컴팩트 최초 진입은 계획 열 숨김으로 시작 — 캘린더가 작업명 바로 옆에 온다. 이후 토글은 사용자 뜻대로.
+  const compact = useCompactViewport() // 크롬 압축(툴바 접힘·범례 숨김) — 폭<1024 또는 높이<520
+  const narrow = useNarrowViewport() // 열 축소(작업명 176px·계획 열 숨김) — 폭<640 또는 높이<520
+  // 좁은 화면 최초 진입은 계획 열 숨김으로 시작 — 캘린더가 작업명 바로 옆에 온다. 이후 토글은 사용자 뜻대로.
   useEffect(() => {
-    if (matchesCompactViewport()) setPlanningColsHidden(true)
+    if (matchesNarrowViewport()) setPlanningColsHidden(true)
   }, [])
   // 이정표 기준선 — 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 켜짐이며 계정에 저장하지 않는다.
   const [showMilestones, setShowMilestones] = useState(true)
@@ -320,7 +321,7 @@ export function WbsGanttSheet({
     return me ? [{ userId: me.id, name: me.name }, ...others] : others
   }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
   // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
-  const cols = useMemo(() => buildCols(outlineVisible, compact), [outlineVisible, compact])
+  const cols = useMemo(() => buildCols(outlineVisible, narrow), [outlineVisible, narrow])
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {

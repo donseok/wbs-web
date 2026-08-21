@@ -25,14 +25,15 @@ function item(over: Partial<ComputedItem>): ComputedItem {
     owners: [], isOwnerSplit: false, plannedPct: 0, rolledActualPct: 0, achievement: null, status: 'not_started', children: [], depth: 0, ...over }
 }
 
-/** matchMedia 스텁 — matches 고정값. 가로 폰(폭 800·높이 400)도 COMPACT_MQ OR 조건으로 걸린다. */
-function stubMq(matches: boolean) {
-  vi.stubGlobal('matchMedia', vi.fn(() => ({
-    matches,
+/** matchMedia 스텁 — 쿼리별 판정. phone=둘 다, tablet=크롬 압축만(폭 1023 쿼리), desktop=없음. */
+function stubMqTier(tier: 'phone' | 'tablet' | 'desktop') {
+  vi.stubGlobal('matchMedia', vi.fn((q: string) => ({
+    matches: tier === 'phone' ? true : tier === 'tablet' ? q.includes('1023') : false,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   })))
 }
+const stubMq = (matches: boolean) => stubMqTier(matches ? 'phone' : 'desktop')
 
 describe('WBS 컴팩트 압축', () => {
   let container: HTMLDivElement, root: Root
@@ -113,6 +114,19 @@ describe('WBS 컴팩트 압축', () => {
   it('일반: 종전 360px 그대로, 계획 열도 보인다', async () => {
     stubMq(false)
     await render()
+    const nameHead = container.querySelector<HTMLElement>('[data-wbs-col="name"][data-wbs-col-kind="header"]')
+    expect(nameHead!.style.width).toBe('360px')
+    expect(container.querySelector('[data-wbs-col="deliverable"][data-wbs-col-kind="header"]')).not.toBeNull()
+  })
+
+  it('태블릿(폭 640~1023): 툴바는 접히되 열 폭·계획 열은 데스크톱 그대로', async () => {
+    stubMqTier('tablet')
+    await render()
+    // 크롬 압축은 걸린다 — 토글 존재 + rest 접힘 + 범례 없음
+    expect(container.querySelector('[data-wbs-toolbar-toggle]')).not.toBeNull()
+    expect(container.querySelector<HTMLElement>('[data-wbs-toolbar-rest]')!.className).toContain('hidden')
+    expect(container.querySelector('[data-wbs-legend]')).toBeNull()
+    // 열 축소는 안 걸린다 — 작업명 360px + 계획 열 표시
     const nameHead = container.querySelector<HTMLElement>('[data-wbs-col="name"][data-wbs-col-kind="header"]')
     expect(nameHead!.style.width).toBe('360px')
     expect(container.querySelector('[data-wbs-col="deliverable"][data-wbs-col-kind="header"]')).not.toBeNull()
