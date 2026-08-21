@@ -91,7 +91,7 @@ describe('WBS 구분 열 개편', () => {
   it('phase 스트립: 같은 루트 서브트리는 같은 색, 다른 루트는 다른 팔레트 색', async () => {
     await render(fixture())
     const band = (id: string) =>
-      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-phase-band]`)
+      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-l1-band]`)
     expect(band('p1')).not.toBeNull()
     const color = (id: string) => band(id)!.style.backgroundColor
     expect(color('t1')).toBe(color('p1'))
@@ -102,7 +102,7 @@ describe('WBS 구분 열 개편', () => {
   it('phase 스트립 팔레트는 순환한다 — 팔레트 크기를 넘는 루트는 앞 색을 재사용', async () => {
     await render(manyRoots(9))
     const idx = (id: string) =>
-      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-phase-band]`)!.dataset.phaseBand
+      container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-l1-band]`)!.dataset.l1Band
     expect(idx('r8')).toBe(idx('r0')) // 8색 팔레트 가정: 9번째 루트 = 1번째 색
     expect(idx('r1')).not.toBe(idx('r0'))
   })
@@ -120,7 +120,7 @@ describe('WBS 구분 열 개편', () => {
   it('phase 경계(서브트리 마지막 표시 행)에만 가로 구분선이 그어진다', async () => {
     await render(fixture())
     const end = (id: string) =>
-      container.querySelector(`[data-row-id="${id}"] [data-phase-end]`)
+      container.querySelector(`[data-row-id="${id}"] [data-l1-end]`)
     // 전개 상태: p1,t1,a1,a2,p2 — p1 서브트리의 끝은 a2, 마지막 phase p2 도 경계.
     expect(end('a2')).not.toBeNull()
     expect(end('p2')).not.toBeNull()
@@ -133,7 +133,7 @@ describe('WBS 구분 열 개편', () => {
     await render(fixture())
     const toggle = container.querySelector<HTMLButtonElement>('[data-row-id="p1"] button[aria-expanded]')
     await act(async () => toggle!.click())
-    expect(container.querySelector('[data-row-id="p1"] [data-phase-end]')).not.toBeNull()
+    expect(container.querySelector('[data-row-id="p1"] [data-l1-end]')).not.toBeNull()
   })
 
   it('task(2단) 경계에도 얇은 구분선이 그어진다 — phase 경계와 겹치면 phase 선만', async () => {
@@ -146,8 +146,8 @@ describe('WBS 구분 열 개편', () => {
       item({ id: 'p1', name: '준비', depth: 0, children: [t1, t2] }),
       item({ id: 'p2', name: '마감', depth: 0 }),
     ])
-    const taskEnd = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-task-end]`)
-    const phaseEnd = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-phase-end]`)
+    const taskEnd = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-l2-end]`)
+    const phaseEnd = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-l1-end]`)
     expect(taskEnd('a1')).not.toBeNull()
     expect(phaseEnd('a1')).toBeNull()
     expect(phaseEnd('a2')).not.toBeNull()

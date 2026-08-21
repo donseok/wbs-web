@@ -29,7 +29,7 @@ import type { DictKey } from '@/lib/i18n/dict'
 import { wbsFontScaleVariables } from '@/lib/wbsFontScale'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ──
-   구분(LevelBadge) 열은 삭제됐다(2026-08-21 개편) — 계층은 들여쓰기·타이포·phase 스트립이
+   구분(LevelBadge) 열은 삭제됐다(2026-08-21 개편) — 계층은 들여쓰기·타이포·1단계 스트립이
    전달하고, 반납한 60px 는 작업명 열이 흡수했다(300→360). 개요 번호(outline) 열은 토글
    옵션이라 동결 오프셋(sk)이 가변 — buildCols 가 켜짐 여부에 따라 재계산한다. */
 type Col = { key: string; w: number; frozen?: boolean; sk?: number }
@@ -59,9 +59,9 @@ function buildCols(outline: boolean): Col[] {
 }
 /* 타임라인 집중 모드에서 보이는 컬럼(나머지 수치/상세 열은 숨겨 간트 폭을 확보) */
 const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status'])
-/* phase 색 스트립 팔레트 — 루트 phase 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
+/* 1단계(루트) 색 스트립 팔레트 — 루트 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
    채도 있는 색이 소음이 되지 않고, 팀 원색(MS_LINE)처럼 양 테마 고정 hex 를 쓴다. */
-const PHASE_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
+const L1_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
 const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
@@ -474,10 +474,10 @@ export function WbsGanttSheet({
     walk(items, '')
     return m
   }, [items])
-  // phase 스트립·경계선 — 노드 id → 루트 phase 순번(비순환). 스트립 색은 사용처에서
-  // % PHASE_BAND.length 로 순환시키고, phase 경계 판정은 비순환 순번으로 해야
-  // 팔레트를 한 바퀴 돈 인접 phase(0번째와 8번째)가 같은 phase 로 오인되지 않는다.
-  const rootBandIndex = useMemo(() => {
+  // 1단계 스트립·경계선 — 노드 id → 루트(1단계) 순번(비순환). 스트립 색은 사용처에서
+  // % L1_BAND.length 로 순환시키고, 1단계 경계 판정은 비순환 순번으로 해야
+  // 팔레트를 한 바퀴 돈 인접 1단계 루트(0번째와 8번째)가 같은 그룹으로 오인되지 않는다.
+  const l1Index = useMemo(() => {
     const m = new Map<string, number>()
     items.forEach((root, i) => {
       const walk = (n: ComputedItem) => {
@@ -490,7 +490,7 @@ export function WbsGanttSheet({
   }, [items])
 
   // task(2단) 경계선 — 노드 id → depth 1 조상 id(자신이 depth 1 이면 자신, depth 0 은 null).
-  const taskGroupId = useMemo(() => {
+  const l2GroupId = useMemo(() => {
     const m = new Map<string, string | null>()
     const walk = (ns: ComputedItem[], anc: string | null, depth: number) =>
       ns.forEach(n => {
@@ -1211,13 +1211,13 @@ export function WbsGanttSheet({
             const isCritical = schedule?.critical ?? false
             const isDim = hideDone && hideDoneResult.dimIds.has(n.id)
             const rowNo = idx + 1
-            // phase 경계("~까지") — 이 행이 소속 루트 phase 서브트리의 마지막 표시 행이면
+            // 1단계 경계("~까지") — 이 행이 소속 루트(1단계) 서브트리의 마지막 표시 행이면
             // 아래에 가로 구분선을 긋는다. 접힌 루트는 자신이 곧 마지막 행이라 자연히 경계가 된다.
             const nextRow = flatRows[idx + 1]
-            const isPhaseEnd = !nextRow || rootBandIndex.get(nextRow.id) !== rootBandIndex.get(n.id)
-            // task(2단) 경계 — 같은 phase 안에서 depth 1 그룹이 바뀌는 지점. phase 경계가 우선.
-            const isTaskEnd =
-              !isPhaseEnd && taskGroupId.get(n.id) != null && taskGroupId.get(nextRow.id) !== taskGroupId.get(n.id)
+            const isL1End = !nextRow || l1Index.get(nextRow.id) !== l1Index.get(n.id)
+            // 2단계 경계 — 같은 1단계 그룹 안에서 depth 1 그룹이 바뀌는 지점. 1단계 경계가 우선.
+            const isL2End =
+              !isL1End && l2GroupId.get(n.id) != null && l2GroupId.get(nextRow.id) !== l2GroupId.get(n.id)
             // 레벨별 배경은 종전 그대로 유지(사용자 결정 2026-08-21) — 구분 열이 사라져도
             // depth 0/1 틴트가 레벨 식별을 계속 담당한다. depth 2+ 는 zebra.
             const rowBg =
@@ -1275,22 +1275,22 @@ export function WbsGanttSheet({
                   setProgressLensPinnedId(current => (current === n.id ? null : n.id))
                 }}
               >
-                {/* phase 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트).
-                    "~까지" 개념이라 끝나는 phase(윗쪽)의 스트립 색을 그대로 쓰고,
+                {/* 1단계 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트).
+                    "~까지" 개념이라 끝나는 1단계 그룹(윗쪽)의 스트립 색을 그대로 쓰고,
                     두께도 세로 스트립과 동일한 6px — ㄴ자로 이어져 한 구획으로 읽힌다. */}
-                {isPhaseEnd && (
+                {isL1End && (
                   <span
                     aria-hidden
-                    data-phase-end
+                    data-l1-end
                     className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-1.5"
-                    style={{ backgroundColor: PHASE_BAND[(rootBandIndex.get(n.id) ?? 0) % PHASE_BAND.length] }}
+                    style={{ backgroundColor: L1_BAND[(l1Index.get(n.id) ?? 0) % L1_BAND.length] }}
                   />
                 )}
-                {/* task(2단) 가로 구분선 — 두께는 격자선 그대로(1px), 색만 진하게 */}
-                {isTaskEnd && (
+                {/* 2단계 가로 구분선 — 두께는 격자선 그대로(1px), 색만 진하게 */}
+                {isL2End && (
                   <span
                     aria-hidden
-                    data-task-end
+                    data-l2-end
                     className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-px bg-ink-subtle"
                   />
                 )}
@@ -1300,13 +1300,13 @@ export function WbsGanttSheet({
                   className={`${cellBase} border-r border-grid-strong justify-center tabular-nums text-ink-subtle ${cellBg}`}
                   style={{ ...frozen('no'), fontSize: 'var(--wbs-index-font, 11px)' }}
                 >
-                  {/* phase 스트립 — 루트 phase 소속을 6px 색 띠로(3px 는 흐려서 안 보인다는
+                  {/* 1단계 스트립 — 루트(1단계) 소속을 6px 색 띠로(3px 는 흐려서 안 보인다는
                       사용자 피드백으로 두텁게). 동결(#) 셀 좌단이라 항상 보인다 */}
                   <span
                     aria-hidden
-                    data-phase-band={(rootBandIndex.get(n.id) ?? 0) % PHASE_BAND.length}
+                    data-l1-band={(l1Index.get(n.id) ?? 0) % L1_BAND.length}
                     className="pointer-events-none absolute inset-y-0 left-0 w-1.5"
-                    style={{ backgroundColor: PHASE_BAND[(rootBandIndex.get(n.id) ?? 0) % PHASE_BAND.length] }}
+                    style={{ backgroundColor: L1_BAND[(l1Index.get(n.id) ?? 0) % L1_BAND.length] }}
                   />
                   {/* focus 도착 마커 — 동결(#) 셀 안에 두어 가로 스크롤에도 항상 보인다 */}
                   {isFlash && <span aria-hidden data-flash-accent className="absolute inset-y-0 left-0 z-10 w-1 bg-brand" />}
