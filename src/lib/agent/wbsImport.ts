@@ -68,10 +68,14 @@ export function validateLevels(raw: unknown): { levels: LevelDecl[] } | { error:
     if (progress === 'input' && upload !== true) {
       return { error: `levels[${i}] (${name}): input 층은 upload:true 강제 — 발행 대상이 안 올라가면 모순` }
     }
+    // "아래에서 위로만" 규칙의 예외: 선두 연속 upload:false 는 PL 파일의 골격층 선언(본문 금지,
+    // 접두어 해석용 — attach 가 부모를 잇는다)이라 그 아래 true 가 정상이다(E2E 2026-08-22 실측).
+    // fold 는 선두여도 접힐 부모가 없으므로 예외 없음.
+    const leadingSkeleton = upload === false && !uploadCut && levels.every(l => l.upload === false)
     if (uploadCut && upload === true) {
       return { error: `levels[${i}] (${name}): upload 는 아래에서 위로만 끌 수 있다 — 위층이 false/fold 인데 아래층이 true` }
     }
-    if (upload !== true) uploadCut = true
+    if (upload !== true && !leadingSkeleton) uploadCut = true
     if (progress === 'input') hasInput = true
     levels.push({
       name, prefix, progress: progress as LevelDecl['progress'],

@@ -51,7 +51,23 @@ describe('validateLevels — levels 선언 구조 검증(순수부)', () => {
   })
   it('upload 는 아래에서 위로만 — 위층 false 아래층 true 거부', () => {
     expect('error' in validateLevels([
+      { name: 'Phase', prefix: 'PH', progress: 'rollup' },
       { name: 'WP', prefix: 'WP', progress: 'rollup', upload: false },
+      { name: 'Task', prefix: 'TSK', progress: 'input' },
+    ])).toBe(true)
+  })
+  it('선두 연속 upload:false 는 골격층 선언 — 그 아래 true 허용 (PL 파일 정본 형태, E2E 2026-08-22 실측)', () => {
+    const r = validateLevels([
+      { name: 'Phase', prefix: 'PH', progress: 'rollup', owner: 'pmo', upload: false },
+      { name: 'System', prefix: 'SYS', progress: 'rollup', owner: 'pmo', upload: false },
+      { name: 'Subsystem', prefix: 'SUB', progress: 'rollup' },
+      { name: 'Task', prefix: 'TSK', progress: 'input' },
+    ])
+    expect('error' in r).toBe(false)
+  })
+  it('선두 fold 는 여전히 거부 — 접힐 부모가 없다', () => {
+    expect('error' in validateLevels([
+      { name: 'Phase', prefix: 'PH', progress: 'rollup', upload: 'fold' },
       { name: 'Task', prefix: 'TSK', progress: 'input' },
     ])).toBe(true)
   })
