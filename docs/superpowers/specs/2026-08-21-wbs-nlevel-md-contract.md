@@ -92,13 +92,17 @@ N단에서 **Phase 층으로 승격**된다.
 `category: defect` Task 신설(되돌림), depends 사슬(스캐폴드→전사설계→전사계약→기능→itest)은 전사
 계약 Task 의 소속만 PMO 골격으로 옮기고 형태 유지.
 
-### 스킬 개정 (v2.2 이후 착수 — 순서 고정)
+### 스킬 전략 (2026-08-21 사용자 결정 — 신규 스킬)
 
-dflow-wbs 는 분리하지 않고 **모드 추가**: `--skeleton`(PMO 골격 + PL 배포 킷 생성) / PL 모드(기본,
-골격 파일에서 levels·키를 읽어 정합 강제, attach 자동 기입). 근거 — 계약의 90%가 공용이라 스킬 분리는
-정본 이중화, 권한 강제는 스킬이 아니라 서버(import owner 검증)의 몫.
-순서: E(v2.2 계약·import 구현) → dflow-wbs 개정 → dflow-export 정합. 서버가 안 받는 frontmatter 를
-먼저 만들지 않는다.
+- **기존 `dflow-wbs` 는 동결** — 운영 중인 3~4단 흐름(mes-base 등)을 건드리지 않는다.
+- **신규 스킬 `dflow-wbs-nlevel`** 이 이 계약(N단·levels frontmatter·progress·upload)을 구현한다.
+  역할 분리는 스킬 분리가 아니라 **모드**: `--skeleton`(PMO 골격 + PL 배포 킷) / PL 모드(기본 —
+  골격 파일에서 levels·키를 읽어 정합 강제, attach 자동 기입). 권한 강제는 스킬이 아니라
+  서버(import owner 검증)의 몫.
+- WSF 는 두 모드에 나뉘어 들어간다: `--skeleton` = Water·Fall 골격(빵), PL 모드 = 모듈 Water 꼬리 +
+  Scrum + 모듈 Fall(속) — 위 매핑 표 참조.
+- **업로드 게이트**: v2.2(E) 구현 전까지 이 스킬의 산출물은 작성·검수 전용 — levels·attach·fold 를
+  서버가 아직 받지 않으므로 업로드는 dflow-export 정합 이후. 스킬 본문에 이 게이트를 명시한다.
 
 ### 진도율 원칙
 
