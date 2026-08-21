@@ -51,6 +51,15 @@ wbs.md 한 파일로 표현하기 위한 계약 초안. 코드 구현 전 설계
 - checklist 층 기본 권장 = `fold`: STK 를 아예 안 올리면 "Task 완료 전이 시 미체크 경고" 게이트가 은퇴하는 wbs.md 에만 남는다. fold 면 게이트가 서버에서 작동하고 트리는 안 지저분해진다. `false` 는 정말 사적인 메모 전용.
 - 부수 이득: import 1회 1,000노드 상한 절약.
 
+### 분리 업로드 — PMO 골격 + PL 모듈 파일 (2026-08-21 추가)
+
+- PMO 골격 파일(Phase·System, `owner: pmo`)이 먼저, PL 파일 5개(공통/품질/생산계획/조업/물류)가 각자 `module` 다르게 같은 프로젝트로 업로드.
+- PL 파일 frontmatter: `attach: PH-03/SYS-OP` — 업로드 부착점. 서버에 그 노드 없으면 fail-closed 거부(골격 선행이 기계 검증됨). attach 는 모듈 경계를 넘는 참조(`mes-skel/SYS-OP`)라 import v2.2 에 크로스 모듈 해석 규칙 필요.
+- PL 파일의 levels 는 프로젝트 정본(PMO 골격이 시드한 level_labels)과 일치해야 통과 — PL 임의 층 추가 차단.
+- 골격 층은 PL 파일에서 `owner: pmo, upload: false` 로 선언만(접두어 해석용) — 본문에 쓰면 검증 에러.
+- 파일 배치 권장: 디렉토리 분리 `docs/mes/조업/wbs.md` (module = 디렉토리 세그먼트 파생, 현행 dflow-export 관례 그대로). 파일명 분리(wbs_조업.md)도 계약상 유효하나 module 매핑 표가 하나 더 필요.
+- module = 파일 1:1 강제. external_ref 가 `{module}/{ID}` 네임스페이스라 PL 간 ID 채번 조율 불필요, 타 모듈 데이터 침범 구조적 불가.
+
 ### 진도율 원칙
 
 - 입력은 leaf 한 곳(stage 전이 기반 크레딧), 나머지 전부 자동 롤업. % 수기 입력은 예외.
