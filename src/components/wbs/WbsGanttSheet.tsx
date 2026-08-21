@@ -62,10 +62,13 @@ const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status'])
 /* 1단계(루트) 색 스트립 팔레트 — 루트 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
    채도 있는 색이 소음이 되지 않고, 팀 원색(MS_LINE)처럼 양 테마 고정 hex 를 쓴다. */
 const L1_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
-/* 간트 배율 슬라이더 범위 — 일 폭(px). 저장값도 이 범위로 clamp 한다. */
-const GANTT_DAY_MIN = 12
-const GANTT_DAY_MAX = 48
+/* 간트 배율 슬라이더 범위 — 일 폭(px). 저장값도 이 범위로 clamp 한다.
+   축소 쪽(4px, 반년이 화면 하나)을 확대 쪽(36px)보다 넓게 잡는다 — 실사용은 개관이 잦다(피드백). */
+const GANTT_DAY_MIN = 4
+const GANTT_DAY_MAX = 36
 const GANTT_DAY_DEFAULT = 24
+/* 이 폭 미만이면 일 단위 정보(일 격자)를 접고 주 단위로만 그린다 — 4~10px 일 격자는 줄무늬 소음. */
+const GANTT_WEEK_VIEW_PX = 12
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
 const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
@@ -1133,26 +1136,37 @@ export function WbsGanttSheet({
             className="pointer-events-none absolute z-0"
             style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH }}
           >
-            {days.map((d, i) => {
-              const hol = holSet.has(d)
-              const off = hol || isWeekend(d)
-              return (
-                <div
-                  key={d}
-                  className="absolute top-0 box-border border-r border-grid"
-                  style={{
-                    left: i * dayPx,
-                    width: dayPx,
-                    height: rowsH,
-                    background: hol
-                      ? 'var(--color-holiday-band)'
-                      : off
-                        ? 'var(--color-weekend)'
-                        : undefined,
-                  }}
-                />
-              )
-            })}
+            {dayPx >= GANTT_WEEK_VIEW_PX
+              ? days.map((d, i) => {
+                  const hol = holSet.has(d)
+                  const off = hol || isWeekend(d)
+                  return (
+                    <div
+                      key={d}
+                      data-gantt-grid="day"
+                      className="absolute top-0 box-border border-r border-grid"
+                      style={{
+                        left: i * dayPx,
+                        width: dayPx,
+                        height: rowsH,
+                        background: hol
+                          ? 'var(--color-holiday-band)'
+                          : off
+                            ? 'var(--color-weekend)'
+                            : undefined,
+                      }}
+                    />
+                  )
+                })
+              : // 주 단위 보기 — 일 격자·주말 밴드를 접고 주 경계선만 남긴다
+                weeks.map(w => (
+                  <div
+                    key={w.left}
+                    data-gantt-grid="week"
+                    className="absolute top-0 box-border border-r border-grid"
+                    style={{ left: w.left, width: w.width, height: rowsH }}
+                  />
+                ))}
           </div>
 
           {/* 헤더 행 (sticky top) */}
