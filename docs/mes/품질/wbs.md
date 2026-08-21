@@ -24,16 +24,16 @@ credits:
 <!-- 작성 규칙 (계약: .claude/skills/dflow-wbs-nlevel/SKILL.md)
   - 최상위는 SUB- 부터. PH-·SYS- 를 본문에 쓰면 검증 에러.
   - 요건정의·상세설계는 골격(PH-01·02) 소속 — 이 파일은 구축 구현만 담는다.
-  - Task 표기: - [ ] TSK-XX-000: 이름 @담당 w:공수 ~종료일 credit:표키 [if-id:IF-0000]
+  - ID 채번: {접두}-{SYS}-{경로꼬리}-{순번} — 예: TSK-QA-XX-PR-01
   - 상태는 항상 [ ]. 실적 % 금지. ID 재번호매김 금지.
   - ⚠️ 업로드 게이트: import v2.2 전까지 작성·검수 전용. -->
 
 <!-- 업무 Subsystem 을 추가하세요 — 조업 파일(docs/mes/조업/wbs.md)이 풀 전개 예시입니다.
-## SUB-XX: (업무 영역)
-### WP-XX-PR: 프로세스
-- [ ] TSK-XX-001: ...
-### WP-XX-UI: 화면
-- [ ] TSK-XX-101: ...
-## SUB-L2IF: L2 I/F        ← 공정 축 (해당 시스템만)
-## SUB-ERPIF: ERP I/F      ← 업무 축 (if-id 로 대장 연결)
+## SUB-QA-XX: (업무 영역)
+### WP-QA-XX-PR: 프로세스
+- [ ] TSK-QA-XX-PR-01: ...
+### WP-QA-XX-UI: 화면
+- [ ] TSK-QA-XX-UI-01: ...
+## SUB-QA-L2IF: L2 I/F        ← 공정 축 (해당 시스템만)
+## SUB-QA-ERPIF: ERP I/F      ← 업무 축 (if-id 로 대장 연결)
 -->
