@@ -172,8 +172,26 @@ systems:
 3. **골격 모드**: skeleton.yaml 로드(없으면 위 대화 수집 → 파일 생성 후 종료) → PH + System 노드 생성 →
    levels·credits 정본 작성 → PL 템플릿(모듈별, attach·levels 채움) 생성 → 키 목록 표 출력 +
    "키는 이후 불변" 경고.
-4. **PL 모드**: 골격 파일 탐색·Read (없으면 중단) → levels·키 복사 → 입력(PRD/프로그램 리스트) 분석은
-   dflow-wbs 의 어댑터 규칙 준용 → 모듈 Water 꼬리 + 프로그램 Task + 모듈 Fall 생성 → attach 기입.
+4. **PL 모드**: 골격 파일 탐색·Read (없으면 중단) → levels·키 복사 → **프로그램 리스트 로드**
+   (`{모듈 디렉토리}/programs.{yaml|csv|xlsx|md|json}` — 없으면 빈 템플릿 programs.yaml 생성 후
+   정지, "채워서 재실행" 안내. skeleton.yaml 과 동일 패턴) → 프로그램 Task + 모듈 Fall 생성 →
+   attach 기입. PRD/TRD 는 선택 — 있으면 requirements·acceptance 인용 보강, 없으면 한 줄 Task 로
+   두고 리포트에 "명세 미충전" 표기(지어내지 않는다).
+
+### PL 입력 파일 (`programs.*`) — dflow-wbs 어댑터 준용 + N단 확장
+
+공통 스키마·한글 헤더 별칭·포맷별 읽기는 dflow-wbs SKILL.md §프로그램 리스트 입력 어댑터를
+준용하고, N단 배치를 위해 두 키를 추가한다:
+
+| 키 | 필수 | 역할 |
+|---|---|---|
+| `subsystem` | ✅ | SUB 배치 — `입측` → `SUB-{SYS}-IN`. 없으면 에러(N단 필수) |
+| `target` | I/F 만 | 인터페이스 축 판정 — 공정명(`2CGL`)→L2IF 공정 WP, `ERP`→ERPIF(`group` 이 WP) |
+
+- `type` → WP 판정: 프로세스/배치→`-PR`, 화면/리포트→`-UI`, 인터페이스→`target` 축.
+- `id` 는 Task 의 `prd-ref: program:{id}` 로 보존 — 재생성 시 기존 Task ID 복원 키.
+- difficulty→`w:` 환산(하 2 / 중 3 / 상 5), 인터페이스 Task 는 `credit:if` 자동.
+- subsystem 값→SUB 약어 매핑은 최초 등장 시 제안·programs 파일 머리에 주석으로 고정(재실행 안정).
 5. 자체 검증 (파서 스크립트 나오기 전까지 수동 체크리스트):
    - [ ] 단계 선언이 frontmatter levels 에만 있는가
    - [ ] 모든 노드 접두어가 levels 의 prefix 와 일치하는가
