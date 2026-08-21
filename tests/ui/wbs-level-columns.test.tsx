@@ -136,6 +136,26 @@ describe('WBS 구분 열 개편', () => {
     expect(container.querySelector('[data-row-id="p1"] [data-phase-end]')).not.toBeNull()
   })
 
+  it('task(2단) 경계에도 얇은 구분선이 그어진다 — phase 경계와 겹치면 phase 선만', async () => {
+    // p1 > (t1 > a1, t2 > a2), p2 — a1 은 t1 서브트리 끝(task 경계), a2 는 p1 끝(phase 경계)
+    const a1 = item({ id: 'a1', name: '설계', depth: 2 })
+    const a2 = item({ id: 'a2', name: '구현', depth: 2 })
+    const t1 = item({ id: 't1', name: '작업1', depth: 1, children: [a1] })
+    const t2 = item({ id: 't2', name: '작업2', depth: 1, children: [a2] })
+    await render([
+      item({ id: 'p1', name: '준비', depth: 0, children: [t1, t2] }),
+      item({ id: 'p2', name: '마감', depth: 0 }),
+    ])
+    const taskEnd = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-task-end]`)
+    const phaseEnd = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-phase-end]`)
+    expect(taskEnd('a1')).not.toBeNull()
+    expect(phaseEnd('a1')).toBeNull()
+    expect(phaseEnd('a2')).not.toBeNull()
+    expect(taskEnd('a2')).toBeNull() // phase 경계가 우선
+    expect(taskEnd('t1')).toBeNull()
+    expect(taskEnd('p1')).toBeNull() // phase 헤더 행 밑에는 task 선 없음
+  })
+
   it('레벨 명칭은 열 대신 작업명 툴팁으로 남는다', async () => {
     await render(fixture())
     const nameBtn = container.querySelector<HTMLButtonElement>('[data-row-id="p1"] [data-wbs-col="name"] button[title]')
