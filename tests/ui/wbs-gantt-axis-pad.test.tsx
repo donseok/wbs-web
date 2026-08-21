@@ -27,15 +27,55 @@ describe('간트 날짜 축 여백', () => {
   beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container) })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
-  it('계획 구간(수 07-01 ~ 금 07-10) 앞뒤로 이전 주 월요일(06-22)~다음 주 일요일(07-19)까지 4주가 나온다', async () => {
+  it('축은 시작날짜(07-01)에서 시작하고 끝은 다음 주 일요일(07-19)까지 이어진다', async () => {
     // 완료 항목으로 고정 — 진행 0% 항목은 forecast(지연 전망)가 축 끝을 더 늘려 주 수가 달라진다.
     await act(async () => root.render(
       <WbsGanttSheet items={[item({ id: 'p1', depth: 0, actualPct: 100, rolledActualPct: 100, status: 'done' })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
     ))
-    // 여백 없으면 10일 = W01·W02 뿐. 06-22(월)~07-19(일) = 28일 = 정확히 W01~W04.
-    expect(container.textContent).toContain('W04')
-    expect(container.textContent).not.toContain('W05')
-    // 축 시작이 월요일로 스냅됐다는 표식 — 첫 주 묶음의 부제가 6/22.
-    expect(container.textContent).toContain('6/22')
+    // 시작주는 시작날짜로 시작(피드백) — 앞쪽 패딩 없음: W01 부제 = 7/1, 6월 주 없음.
+    expect(container.textContent).toContain('W017/1W')
+    expect(container.textContent).not.toContain('6/2')
+    // 끝 여백: 07-01~07-19 = 19일 = W03 까지, W04 없음.
+    expect(container.textContent).toContain('W03')
+    expect(container.textContent).not.toContain('W04')
+  })
+
+  function setSlider(input: HTMLInputElement, value: number) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setter.call(input, String(value))
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('간트 배율 슬라이더로 일 폭(12~48px)을 조정하고 계정에 저장한다', async () => {
+    const { queueUiPref } = await import('@/lib/prefs/debouncedSave')
+    await act(async () => root.render(
+      <WbsGanttSheet items={[item({ id: 'p1', depth: 0 })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} />,
+    ))
+    const region = container.firstElementChild as HTMLElement
+    expect(region.style.getPropertyValue('--gantt-day')).toBe('24px')
+    const slider = container.querySelector<HTMLInputElement>('input[data-gantt-zoom]')!
+    expect(slider).not.toBeNull()
+    expect(slider.min).toBe('12')
+    expect(slider.max).toBe('48')
+
+    await act(async () => setSlider(slider, 48))
+    expect(region.style.getPropertyValue('--gantt-day')).toBe('48px')
+    expect(vi.mocked(queueUiPref)).toHaveBeenCalledWith({ wbsGanttScale: 48 })
+
+    await act(async () => setSlider(slider, 12))
+    expect(region.style.getPropertyValue('--gantt-day')).toBe('12px')
+  })
+
+  it('저장된 initialGanttScale 로 시작하고 범위 밖 저장값은 clamp 된다', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={[item({ id: 'p1', depth: 0 })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} initialGanttScale={40} />,
+    ))
+    expect((container.firstElementChild as HTMLElement).style.getPropertyValue('--gantt-day')).toBe('40px')
+    act(() => root.unmount())
+    root = createRoot(container)
+    await act(async () => root.render(
+      <WbsGanttSheet items={[item({ id: 'p1', depth: 0 })]} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly initialCollapsed={[]} initialGanttScale={999} />,
+    ))
+    expect((container.firstElementChild as HTMLElement).style.getPropertyValue('--gantt-day')).toBe('48px')
   })
 })
