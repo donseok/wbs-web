@@ -31,47 +31,47 @@ credits:
 ## PH-01: 분석
 
 ### WP-AN-AS: 현행(AS-IS) 분석
-- [ ] TSK-AN-001: 전사 현행 업무·시스템 분석서   w:10  ~2026-09-12  credit:doc
+- [ ] TSK-AN-AS-01: 전사 현행 업무·시스템 분석서   w:10  ~2026-09-12  credit:doc
 
 ### WP-AN-RQ: 요건 정의
-- [ ] TSK-AN-011: 공통 요건정의서       w:3  ~2026-09-26  credit:doc
-- [ ] TSK-AN-012: 품질 요건정의서       w:5  ~2026-09-26  credit:doc
-- [ ] TSK-AN-013: 생산계획 요건정의서   w:5  ~2026-09-26  credit:doc
-- [ ] TSK-AN-014: 조업 요건정의서       w:5  ~2026-09-26  credit:doc
-- [ ] TSK-AN-015: 물류 요건정의서       w:5  ~2026-09-26  credit:doc
+- [ ] TSK-AN-RQ-01: 공통 요건정의서       w:3  ~2026-09-26  credit:doc
+- [ ] TSK-AN-RQ-02: 품질 요건정의서       w:5  ~2026-09-26  credit:doc
+- [ ] TSK-AN-RQ-03: 생산계획 요건정의서   w:5  ~2026-09-26  credit:doc
+- [ ] TSK-AN-RQ-04: 조업 요건정의서       w:5  ~2026-09-26  credit:doc
+- [ ] TSK-AN-RQ-05: 물류 요건정의서       w:5  ~2026-09-26  credit:doc
 
 ### WP-AN-IF: I/F 요건 정의
-- [ ] TSK-AN-021: 대외 I/F 요건 목록 (ERP·L2·계측)   w:5  ~2026-09-26  credit:doc
+- [ ] TSK-AN-IF-01: 대외 I/F 요건 목록 (ERP·L2·계측)   w:5  ~2026-09-26  credit:doc
 - [M] 분석 완료 보고회   ~2026-09-30
 
 ## PH-02: 설계
 
 ### WP-DS-AR: 아키텍처 설계
-- [ ] TSK-DS-001: 공통 프레임워크·기술 표준 설계   w:10  ~2026-10-17  credit:doc
+- [ ] TSK-DS-AR-01: 공통 프레임워크·기술 표준 설계   w:10  ~2026-10-17  credit:doc
 
 ### WP-DS-DA: 데이터 설계
-- [ ] TSK-DS-011: 전사 ERD·마스터·코드 체계 설계   w:10  ~2026-10-24  credit:doc
+- [ ] TSK-DS-DA-01: 전사 ERD·마스터·코드 체계 설계   w:10  ~2026-10-24  credit:doc
 
 ### WP-DS-DD: 시스템별 상세설계
 
 #### ACT-DD-CM: 공통
-- [ ] TSK-DS-021: 공통 상세설계서   w:5  ~2026-10-31  credit:doc
+- [ ] TSK-DD-CM-01: 공통 상세설계서   w:5  ~2026-10-31  credit:doc
 #### ACT-DD-QA: 품질
-- [ ] TSK-DS-022: 품질 상세설계서   w:8  ~2026-10-31  credit:doc
+- [ ] TSK-DD-QA-01: 품질 상세설계서   w:8  ~2026-10-31  credit:doc
 #### ACT-DD-PP: 생산계획
-- [ ] TSK-DS-023: 생산계획 상세설계서   w:8  ~2026-10-31  credit:doc
+- [ ] TSK-DD-PP-01: 생산계획 상세설계서   w:8  ~2026-10-31  credit:doc
 #### ACT-DD-OP: 조업
-- [ ] TSK-DS-024: 조업이벤트 상세설계서   w:3  ~2026-10-31  credit:doc
-- [ ] TSK-DS-025: 입측 상세설계서         w:3  ~2026-10-31  credit:doc
-- [ ] TSK-DS-026: 출측 상세설계서         w:3  ~2026-10-31  credit:doc
-- [ ] TSK-DS-027: 순환품 상세설계서       w:3  ~2026-10-31  credit:doc
-- [ ] TSK-DS-028: L2 I/F 상세설계서       w:5  ~2026-10-31  credit:doc
-- [ ] TSK-DS-029: ERP I/F 상세설계서      w:3  ~2026-10-31  credit:doc
+- [ ] TSK-DD-OP-01: 조업이벤트 상세설계서   w:3  ~2026-10-31  credit:doc
+- [ ] TSK-DD-OP-02: 입측 상세설계서         w:3  ~2026-10-31  credit:doc
+- [ ] TSK-DD-OP-03: 출측 상세설계서         w:3  ~2026-10-31  credit:doc
+- [ ] TSK-DD-OP-04: 순환품 상세설계서       w:3  ~2026-10-31  credit:doc
+- [ ] TSK-DD-OP-05: L2 I/F 상세설계서       w:5  ~2026-10-31  credit:doc
+- [ ] TSK-DD-OP-06: ERP I/F 상세설계서      w:3  ~2026-10-31  credit:doc
 #### ACT-DD-LG: 물류
-- [ ] TSK-DS-030: 물류 상세설계서   w:8  ~2026-10-31  credit:doc
+- [ ] TSK-DD-LG-01: 물류 상세설계서   w:8  ~2026-10-31  credit:doc
 
 ### WP-DS-IF: I/F 상세설계
-- [ ] TSK-DS-041: 전문 정의서·매핑 (I/F 대장 확정판)   w:8  ~2026-10-31  credit:doc
+- [ ] TSK-DS-IF-01: 전문 정의서·매핑 (I/F 대장 확정판)   w:8  ~2026-10-31  credit:doc
 - [M] 설계 완료 보고회   ~2026-10-31
 
 ## PH-03: 구축
@@ -94,32 +94,32 @@ credits:
 ## PH-04: 통합테스트
 
 ### WP-IT-PL: 테스트 계획·환경·데이터
-- [ ] TSK-IT-001: 통테 계획·환경 구성·데이터 준비   w:8  ~2027-02-06  credit:doc
+- [ ] TSK-IT-PL-01: 통테 계획·환경 구성·데이터 준비   w:8  ~2027-02-06  credit:doc
 
 ### WP-IT-IN: 시스템 내 통합
-- [ ] TSK-IT-011: 품질↔조업↔물류 통합 시나리오 수행   w:8  ~2027-02-13
+- [ ] TSK-IT-IN-01: 품질↔조업↔물류 통합 시나리오 수행   w:8  ~2027-02-13
 
 ### WP-IT-L2: L2 연동 테스트
-- [ ] TSK-IT-021: 공정별 실통신 검증 (L2 전 공정)   w:10  ~2027-02-20  credit:if
+- [ ] TSK-IT-L2-01: 공정별 실통신 검증 (L2 전 공정)   w:10  ~2027-02-20  credit:if
 
 ### WP-IT-ERP: ERP 연동 테스트
-- [ ] TSK-IT-031: ERP 연동 시나리오 — 전사 통테는 PMO 소유, MES 측 참여·결함조치   w:8  ~2027-02-20  credit:if
+- [ ] TSK-IT-ERP-01: ERP 연동 시나리오 — 전사 통테는 PMO 소유, MES 측 참여·결함조치   w:8  ~2027-02-20  credit:if
 
 ### WP-IT-RG: 결함 관리·회귀
-- [ ] TSK-IT-041: 결함 관리·회귀 테스트 운영   w:5  ~2027-02-27
+- [ ] TSK-IT-RG-01: 결함 관리·회귀 테스트 운영   w:5  ~2027-02-27
 - [M] 전사 통합테스트 완료   ~2027-02-28
 
 ## PH-05: 적용
 
 ### WP-GO-MG: 데이터 이행
-- [ ] TSK-GO-001: 초기 마스터·기초재고 이행   w:8  ~2027-03-07
+- [ ] TSK-GO-MG-01: 초기 마스터·기초재고 이행   w:8  ~2027-03-07
 
 ### WP-GO-ED: 사용자 교육·매뉴얼
-- [ ] TSK-GO-011: 사용자 교육·매뉴얼 작성   w:5  ~2027-03-07  credit:doc
+- [ ] TSK-GO-ED-01: 사용자 교육·매뉴얼 작성   w:5  ~2027-03-07  credit:doc
 
 ### WP-GO-CO: 컷오버·오픈
-- [ ] TSK-GO-021: 컷오버 리허설·오픈   w:5  ~2027-03-14
+- [ ] TSK-GO-CO-01: 컷오버 리허설·오픈   w:5  ~2027-03-14
 - [M] 가동 개시   ~2027-03-16
 
 ### WP-GO-ST: 안정화
-- [ ] TSK-GO-031: 하이퍼케어 운영   w:10  ~2027-03-31
+- [ ] TSK-GO-ST-01: 하이퍼케어 운영   w:10  ~2027-03-31
