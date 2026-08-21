@@ -474,13 +474,14 @@ export function WbsGanttSheet({
     walk(items, '')
     return m
   }, [items])
-  // phase 스트립 — 노드 id → 루트 phase 순번. 색은 PHASE_BAND[순번 % 팔레트 길이] 순환.
+  // phase 스트립·경계선 — 노드 id → 루트 phase 순번(비순환). 스트립 색은 사용처에서
+  // % PHASE_BAND.length 로 순환시키고, phase 경계 판정은 비순환 순번으로 해야
+  // 팔레트를 한 바퀴 돈 인접 phase(0번째와 8번째)가 같은 phase 로 오인되지 않는다.
   const rootBandIndex = useMemo(() => {
     const m = new Map<string, number>()
     items.forEach((root, i) => {
-      const idx = i % PHASE_BAND.length
       const walk = (n: ComputedItem) => {
-        m.set(n.id, idx)
+        m.set(n.id, i)
         n.children.forEach(walk)
       }
       walk(root)
@@ -1197,6 +1198,10 @@ export function WbsGanttSheet({
             const isCritical = schedule?.critical ?? false
             const isDim = hideDone && hideDoneResult.dimIds.has(n.id)
             const rowNo = idx + 1
+            // phase 경계("~까지") — 이 행이 소속 루트 phase 서브트리의 마지막 표시 행이면
+            // 아래에 가로 구분선을 긋는다. 접힌 루트는 자신이 곧 마지막 행이라 자연히 경계가 된다.
+            const nextRow = flatRows[idx + 1]
+            const isPhaseEnd = !nextRow || rootBandIndex.get(nextRow.id) !== rootBandIndex.get(n.id)
             // 레벨별 배경은 종전 그대로 유지(사용자 결정 2026-08-21) — 구분 열이 사라져도
             // depth 0/1 틴트가 레벨 식별을 계속 담당한다. depth 2+ 는 zebra.
             const rowBg =
@@ -1254,6 +1259,14 @@ export function WbsGanttSheet({
                   setProgressLensPinnedId(current => (current === n.id ? null : n.id))
                 }}
               >
+                {/* phase 가로 구분선 — 동결 열(z 20~)까지 덮도록 z-30, 행 전폭(시트+간트) */}
+                {isPhaseEnd && (
+                  <span
+                    aria-hidden
+                    data-phase-end
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-[3px] bg-grid-strong"
+                  />
+                )}
                 {/* # */}
                 <div
                   data-wbs-col="no"
@@ -1264,9 +1277,9 @@ export function WbsGanttSheet({
                       사용자 피드백으로 두텁게). 동결(#) 셀 좌단이라 항상 보인다 */}
                   <span
                     aria-hidden
-                    data-phase-band={rootBandIndex.get(n.id) ?? 0}
+                    data-phase-band={(rootBandIndex.get(n.id) ?? 0) % PHASE_BAND.length}
                     className="pointer-events-none absolute inset-y-0 left-0 w-1.5"
-                    style={{ backgroundColor: PHASE_BAND[rootBandIndex.get(n.id) ?? 0] }}
+                    style={{ backgroundColor: PHASE_BAND[(rootBandIndex.get(n.id) ?? 0) % PHASE_BAND.length] }}
                   />
                   {/* focus 도착 마커 — 동결(#) 셀 안에 두어 가로 스크롤에도 항상 보인다 */}
                   {isFlash && <span aria-hidden data-flash-accent className="absolute inset-y-0 left-0 z-10 w-1 bg-brand" />}
