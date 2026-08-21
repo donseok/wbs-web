@@ -44,11 +44,13 @@ const PLAN_COLS: Col[] = [
   { key: 'pactual', w: 72 },
   { key: 'achieve', w: 76 },
 ]
-function buildCols(outline: boolean): Col[] {
+/* narrow(모바일)에선 작업명 열을 줄인다 — 동결 열(44+360=404px)이 모바일 뷰포트(≈375px)를
+   넘어 캘린더가 아예 화면에 못 들어오던 문제. 44+176=220px 이면 캘린더가 150px 이상 보인다. */
+function buildCols(outline: boolean, narrow: boolean): Col[] {
   const frozenCols: Col[] = [
     { key: 'no', w: 44, frozen: true },
     ...(outline ? [{ key: 'outline', w: 96, frozen: true }] : []),
-    { key: 'name', w: 360, frozen: true },
+    { key: 'name', w: narrow ? 176 : 360, frozen: true },
   ]
   let acc = 0
   for (const c of frozenCols) {
@@ -75,6 +77,26 @@ const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart',
    과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
 const ROW_H = 40
+/* 모바일 판정 기준 — Tailwind sm(40rem=640px) 미만. SSR 은 데스크톱으로 그리고 마운트 후 보정. */
+const NARROW_MQ = '(max-width: 639px)'
+function useIsNarrowViewport() {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia?.(NARROW_MQ)
+    if (!mq) return
+    const sync = () => setNarrow(mq.matches)
+    sync()
+    // 구형 Safari·테스트 스텁은 addListener 만 제공한다 — 없으면 초기값만 쓰고 리스너는 생략.
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', sync)
+      return () => mq.removeEventListener('change', sync)
+    }
+    const legacy = mq as unknown as { addListener?: (fn: () => void) => void; removeListener?: (fn: () => void) => void }
+    legacy.addListener?.(sync)
+    return () => legacy.removeListener?.(sync)
+  }, [])
+  return narrow
+}
 const EMPTY_DEPENDENCIES: TaskDependency[] = []
 const EMPTY_MILESTONE_KEYWORDS: readonly string[] = []
 const EMPTY_MEMBERS: ProjectMember[] = []
@@ -253,6 +275,11 @@ export function WbsGanttSheet({
   }
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
+  const isNarrow = useIsNarrowViewport()
+  // 모바일 최초 진입은 계획 열 숨김으로 시작 — 캘린더가 작업명 바로 옆에 온다. 이후 토글은 사용자 뜻대로.
+  useEffect(() => {
+    if (window.matchMedia?.(NARROW_MQ)?.matches) setPlanningColsHidden(true)
+  }, [])
   // 이정표 기준선 — 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 켜짐이며 계정에 저장하지 않는다.
   const [showMilestones, setShowMilestones] = useState(true)
   // 진척 돋보기는 사용자가 켰을 때만 행 hover/focus를 따라간다. 객체 대신 id만 저장해
@@ -312,7 +339,7 @@ export function WbsGanttSheet({
     return me ? [{ userId: me.id, name: me.name }, ...others] : others
   }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
   // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
-  const cols = useMemo(() => buildCols(outlineVisible), [outlineVisible])
+  const cols = useMemo(() => buildCols(outlineVisible, isNarrow), [outlineVisible, isNarrow])
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {

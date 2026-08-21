@@ -83,6 +83,40 @@ describe('WBS 모바일 압축', () => {
     expect(opened.className).toContain('flex')
   })
 
+  it('좁은 뷰포트에선 작업명 열을 줄이고 계획 열을 기본 숨겨 캘린더가 화면에 들어온다', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((q: string) => ({
+      matches: q.includes('639'),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
+    try {
+      await render()
+      const nameHead = container.querySelector<HTMLElement>('[data-wbs-col="name"][data-wbs-col-kind="header"]')
+      expect(nameHead).not.toBeNull()
+      expect(nameHead!.style.width).toBe('176px') // 데스크톱 360px → 모바일 176px
+      // 계획 열(담당/산출물 등)은 기본 숨김 — 캘린더가 작업명 바로 옆에 온다
+      expect(container.querySelector('[data-wbs-col="deliverable"][data-wbs-col-kind="header"]')).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('넓은 뷰포트(matchMedia 미일치)에선 종전 360px 그대로', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
+    try {
+      await render()
+      const nameHead = container.querySelector<HTMLElement>('[data-wbs-col="name"][data-wbs-col-kind="header"]')
+      expect(nameHead!.style.width).toBe('360px')
+      expect(container.querySelector('[data-wbs-col="deliverable"][data-wbs-col-kind="header"]')).not.toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('범례는 모바일에서 숨긴다(hidden sm:flex)', async () => {
     await render()
     const legend = container.querySelector<HTMLElement>('[data-wbs-legend]')
