@@ -62,10 +62,13 @@ const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status'])
 /* 1단계(루트) 색 스트립 팔레트 — 루트 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
    채도 있는 색이 소음이 되지 않고, 팀 원색(MS_LINE)처럼 양 테마 고정 hex 를 쓴다. */
 const L1_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
-/* 간트 배율 슬라이더 범위 — 일 폭(px). 저장값도 이 범위로 clamp 한다. */
-const GANTT_DAY_MIN = 12
-const GANTT_DAY_MAX = 48
+/* 간트 배율 슬라이더 범위 — 일 폭(px). 저장값도 이 범위로 clamp 한다.
+   축소 쪽(4px, 반년이 화면 하나)을 확대 쪽(36px)보다 넓게 잡는다 — 실사용은 개관이 잦다(피드백). */
+const GANTT_DAY_MIN = 4
+const GANTT_DAY_MAX = 36
 const GANTT_DAY_DEFAULT = 24
+/* 이 폭 미만이면 일 단위 정보(일 격자)를 접고 주 단위로만 그린다 — 4~10px 일 격자는 줄무늬 소음. */
+const GANTT_WEEK_VIEW_PX = 12
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
 const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
@@ -579,10 +582,31 @@ export function WbsGanttSheet({
     setProgressLensPreviewId(null)
     setProgressLensPinnedId(null)
   }
+  // 돋보기 창 드래그 이동(2026-08-21 피드백) — 기본은 하단 중앙 고정이지만 그립을 잡아
+  // 옮길 수 있다. 위치는 세션 한정이며 돋보기를 끄면 기본 위치로 돌아온다.
+  const [lensOffset, setLensOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const lensDragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
+  const lensDragHandleProps = {
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      e.preventDefault()
+      if (e.pointerId != null) e.currentTarget.setPointerCapture?.(e.pointerId)
+      lensDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: lensOffset.x, baseY: lensOffset.y }
+    },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => {
+      const d = lensDragRef.current
+      if (!d) return
+      setLensOffset({ x: d.baseX + e.clientX - d.startX, y: d.baseY + e.clientY - d.startY })
+    },
+    onPointerUp: () => {
+      lensDragRef.current = null
+    },
+  }
   const toggleProgressLens = () => {
     if (progressLensEnabled) {
       clearProgressLensSelection()
       setProgressLensEnabled(false)
+      setLensOffset({ x: 0, y: 0 })
+      lensDragRef.current = null
       return
     }
     setProgressLensEnabled(true)
@@ -1133,26 +1157,37 @@ export function WbsGanttSheet({
             className="pointer-events-none absolute z-0"
             style={{ left: LEFT_W, top: 'var(--wbs-head-h)', width: ganttW, height: rowsH }}
           >
-            {days.map((d, i) => {
-              const hol = holSet.has(d)
-              const off = hol || isWeekend(d)
-              return (
-                <div
-                  key={d}
-                  className="absolute top-0 box-border border-r border-grid"
-                  style={{
-                    left: i * dayPx,
-                    width: dayPx,
-                    height: rowsH,
-                    background: hol
-                      ? 'var(--color-holiday-band)'
-                      : off
-                        ? 'var(--color-weekend)'
-                        : undefined,
-                  }}
-                />
-              )
-            })}
+            {dayPx >= GANTT_WEEK_VIEW_PX
+              ? days.map((d, i) => {
+                  const hol = holSet.has(d)
+                  const off = hol || isWeekend(d)
+                  return (
+                    <div
+                      key={d}
+                      data-gantt-grid="day"
+                      className="absolute top-0 box-border border-r border-grid"
+                      style={{
+                        left: i * dayPx,
+                        width: dayPx,
+                        height: rowsH,
+                        background: hol
+                          ? 'var(--color-holiday-band)'
+                          : off
+                            ? 'var(--color-weekend)'
+                            : undefined,
+                      }}
+                    />
+                  )
+                })
+              : // 주 단위 보기 — 일 격자·주말 밴드를 접고 주 경계선만 남긴다
+                weeks.map(w => (
+                  <div
+                    key={w.left}
+                    data-gantt-grid="week"
+                    className="absolute top-0 box-border border-r border-grid"
+                    style={{ left: w.left, width: w.width, height: rowsH }}
+                  />
+                ))}
           </div>
 
           {/* 헤더 행 (sticky top) */}
@@ -1714,13 +1749,18 @@ export function WbsGanttSheet({
       </div>
 
       {progressLensEnabled && (
-        <div className="pointer-events-none fixed inset-x-3 bottom-4 z-[45] flex justify-center sm:inset-x-6">
+        <div
+          data-wbs-progress-lens-wrap
+          className="pointer-events-none fixed inset-x-3 bottom-4 z-[45] flex justify-center sm:inset-x-6"
+          style={{ transform: `translate(${lensOffset.x}px, ${lensOffset.y}px)` }}
+        >
           <WbsProgressLens
             item={progressLensItem}
             parentPath={progressLensActiveId ? progressLensPathById.get(progressLensActiveId) ?? [] : []}
             pinned={!!progressLensPinnedId}
             onTogglePin={toggleProgressLensPin}
             levelLabels={levelLabels}
+            dragHandleProps={lensDragHandleProps}
           />
         </div>
       )}
