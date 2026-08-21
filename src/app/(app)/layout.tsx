@@ -1,6 +1,6 @@
 import { getDisplayName } from '@/lib/auth'
 import { getActorViewState } from '@/lib/authz'
-import { isAnyProjectAdmin, hasAnyProjectRole } from '@/lib/domain/authz'
+import { isAnyProjectAdmin, isProjectAdmin, hasAnyProjectRole } from '@/lib/domain/authz'
 import { canViewUsage } from '@/lib/authz/usageAccess'
 import { canViewPortfolio } from '@/lib/authz/portfolioAccess'
 import { listProjectsWithState } from '@/app/actions/project'
@@ -39,6 +39,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const projectLinks: SidebarProject[] = projects.map(p => ({
     id: p.id,
     name: p.name,
+    // 설정 메뉴 노출 판정 — 페이지 게이트(settings/page.tsx)와 같은 predicate.
+    // actor null(degraded 포함)은 false — 어포던스도 fail-closed.
+    isAdmin: actor ? isProjectAdmin(actor, p.id) : false,
     status: projectLifecycleStatus(
       p.start_date, p.end_date, today,
       // completion === null 은 조회 실패(상태 모름) — 'WBS 없음'으로 뭉개면 '완료'로 오표시된다
@@ -78,7 +81,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <ProjectNavigationProvider
           projects={projectLinks}
           initialLastProjectId={prefs.lastProjectId}
-          initialLastProjectHref={prefs.lastProjectHref}
         >
           <ShellStateProvider>
           <div className="app-backdrop flex h-dvh overflow-hidden">

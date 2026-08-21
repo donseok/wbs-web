@@ -77,7 +77,6 @@ describe('Sidebar 프로젝트 콤보박스', () => {
         <ProjectNavigationProvider
           projects={items}
           initialLastProjectId={initialLastProjectId}
-          initialLastProjectHref={initialLastProjectId ? `/p/${initialLastProjectId}/wbs` : null}
         >
           <ShellStateProvider>
             <Sidebar projects={items} />

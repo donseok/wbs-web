@@ -1,7 +1,6 @@
 'use server'
 import { revalidatePath } from 'next/cache'
-import { requireProjectAdmin, requireSuperuser, getActor } from '@/lib/authz'
-import { isAnyProjectAdmin } from '@/lib/domain/authz'
+import { requireSuperuser } from '@/lib/authz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { listAllAuthUsers } from '@/lib/data/accounts'
 import { activeTeamCodesSync } from '@/lib/teams/master'
@@ -45,21 +44,6 @@ export interface BulkResultRow {
   email: string
   ok: boolean
   error?: string
-}
-
-/** 계정 생성·조회는 '어느 프로젝트 관리자 이상'(설계 D7 — 관리자도 계정을 만들 수 있다). */
-async function requireAnyAdmin(): Promise<
-  { ok: true; userId: string; isSuperuser: boolean } | { ok: false; error: string }
-> {
-  let actor
-  try {
-    actor = await getActor()
-  } catch {
-    return { ok: false, error: '권한을 확인할 수 없어 중단했습니다.' }
-  }
-  if (!actor) return { ok: false, error: '로그인 필요' }
-  if (!isAnyProjectAdmin(actor)) return { ok: false, error: '권한 없음' }
-  return { ok: true, userId: actor.userId, isSuperuser: actor.isSuperuser }
 }
 
 /** 계정은 전역 축(스펙 §5) — 프로젝트 팀은 절대 잡지 않는다. */
@@ -134,11 +118,8 @@ async function createOne(admin: AdminClient, input: AccountInput, grantedBy: str
 }
 
 export async function createAccount(input: AccountInput): Promise<AccountActionResult> {
-  // 역할 부여 대상 프로젝트의 관리자 이상. 단 관리자 슬롯은 슈퍼유저만 —
-  // 계정 생성 경로로 setProjectRole 의 규칙을 우회하면 관리자가 관리자를 늘릴 수 있게 된다.
-  const g = input.role === 'admin'
-    ? await requireSuperuser()
-    : await requireProjectAdmin(input.projectId)
+  // 계정 관리는 슈퍼유저 전용(2026-08-20 결정 — 종전 설계 D7 '관리자도 생성 가능'을 대체).
+  const g = await requireSuperuser()
   if (!g.ok) return { ok: false, error: g.error }
   const admin = createAdminClient()
   const res = await createOne(admin, input, g.actor.userId)
@@ -149,7 +130,8 @@ export async function createAccount(input: AccountInput): Promise<AccountActionR
 export async function bulkCreateAccounts(
   text: string, projectId: string,
 ): Promise<{ ok: boolean; error?: string; results: BulkResultRow[] }> {
-  const g = await requireProjectAdmin(projectId)
+  // 계정 관리는 슈퍼유저 전용(2026-08-20) — 종전 행 단위 관리자 슬롯 검사는 게이트로 흡수됐다.
+  const g = await requireSuperuser()
   if (!g.ok) return { ok: false, error: g.error, results: [] }
   const admin = createAdminClient()
   const lines = parseBulkAccounts(text, activeTeamCodesSync())
@@ -159,11 +141,6 @@ export async function bulkCreateAccounts(
   for (const line of lines) {
     if (!line.ok) {
       results.push({ lineNo: line.lineNo, email: line.email ?? line.raw, ok: false, error: line.error })
-      continue
-    }
-    // 관리자 슬롯은 슈퍼유저만 — 일괄 등록이 setProjectRole 의 규칙을 우회하지 않게 행 단위로 거른다.
-    if (line.role === 'admin' && !g.actor.isSuperuser) {
-      results.push({ lineNo: line.lineNo, email: line.email!, ok: false, error: '관리자 권한 부여는 슈퍼유저만 할 수 있습니다.' })
       continue
     }
     const res = await createOne(admin, {
@@ -216,12 +193,12 @@ async function assertCanTouchAccount(
 
 /** 팀 변경 — 팀은 프로젝트 역할과 별개의 전역 속성(WBS 담당 판정용). role 컬럼은 건드리지 않는다. */
 export async function updateAccountTeam(userId: string, teamCode: string): Promise<AccountActionResult> {
-  const g = await requireAnyAdmin()
+  const g = await requireSuperuser()
   if (!g.ok) return { ok: false, error: g.error }
   if (!isTeamCode(teamCode, activeTeamCodesSync())) return { ok: false, error: '알 수 없는 팀 코드' }
   const admin = createAdminClient()
-  // 팀은 WBS 담당 판정의 근거다 — 슈퍼유저의 팀을 바꿔 실적 입력 범위를 흔들 수 없게 막는다.
-  const allowed = await assertCanTouchAccount(admin, userId, g.isSuperuser)
+  // 게이트가 슈퍼유저 전용이 된 뒤에도 등급 경계 검사는 남긴다 — 정책이 다시 느슨해져도 안전하게.
+  const allowed = await assertCanTouchAccount(admin, userId, g.actor.isSuperuser)
   if (!allowed.ok) return allowed
   const teamId = await resolveTeamId(admin, teamCode)
   if (!teamId) return { ok: false, error: '팀을 찾을 수 없습니다.' }
@@ -239,13 +216,13 @@ export async function updateAccountTeam(userId: string, teamCode: string): Promi
 }
 
 export async function resetPassword(userId: string, password: string): Promise<AccountActionResult> {
-  const g = await requireAnyAdmin()
+  const g = await requireSuperuser()
   if (!g.ok) return { ok: false, error: g.error }
   if (!isValidPassword(password)) return { ok: false, error: '비밀번호는 8자 이상이어야 합니다.' }
   const admin = createAdminClient()
   // 비밀번호 초기화는 그 계정으로 로그인할 수 있게 만드는 조작이다 —
-  // 등급 경계를 지키지 않으면 관리자가 슈퍼유저 계정을 탈취하는 경로가 된다.
-  const allowed = await assertCanTouchAccount(admin, userId, g.isSuperuser)
+  // 게이트가 슈퍼유저 전용이 된 뒤에도 등급 경계 검사는 남긴다.
+  const allowed = await assertCanTouchAccount(admin, userId, g.actor.isSuperuser)
   if (!allowed.ok) return allowed
   const { error } = await admin.auth.admin.updateUserById(userId, { password })
   if (error) return { ok: false, error: error.message }
@@ -260,7 +237,7 @@ export async function resetPassword(userId: string, password: string): Promise<A
 export async function listAccounts(
   projectId: string,
 ): Promise<{ ok: true; rows: AccountRow[] } | { ok: false; error: string }> {
-  const g = await requireProjectAdmin(projectId)
+  const g = await requireSuperuser()
   if (!g.ok) {
     console.error('[listAccounts] 게이트 거부:', g.error, 'projectId=', projectId)
     return { ok: false, error: g.error }

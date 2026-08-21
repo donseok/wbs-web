@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles, Cpu, ArrowUpRight, Users } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
@@ -102,6 +103,9 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   ])
   const project = (projects as ProjectRow[]).find(p => p.id === projectId)
   const isAdmin = isProjectAdmin(actor, projectId)
+  // 설정은 프로젝트 관리자 전용(2026-08-20 결정) — 사이드바 숨김과 같은 판정(isProjectAdmin).
+  // actor null(권한 조회 실패 포함)도 거부다 — fail-closed.
+  if (!isAdmin) redirect(`/p/${projectId}/dashboard`)
   const isSuperuser = actor?.isSuperuser === true
   const canMutate = isAdmin
   const taskCount = wbs ? collectLeaves(wbs.items).length : '—'
@@ -177,12 +181,6 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <span className="tabular-nums">{project?.end_date ? fmtDate(project.end_date) : t(locale, 'settings.tbd')}</span>
           </InfoRow>
         </dl>
-        {!isAdmin && (
-          <p className="mt-4 flex items-center gap-1.5 text-xs leading-5 text-ink-subtle">
-            <Lock className="h-3.5 w-3.5" />
-            {t(locale, 'settings.pmoOnlyNotice')}
-          </p>
-        )}
         </SectionCard>
 
       {/* ── WBS 데이터 가져오기 / 내보내기 ── */}

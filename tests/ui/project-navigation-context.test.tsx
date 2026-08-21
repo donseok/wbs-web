@@ -33,7 +33,6 @@ type NavigationSnapshot = {
   menuProjectId: string | null
   menuProjectName: string | null
   isGlobalBridge: boolean
-  returnHref: string | null
 }
 
 function Probe() {
@@ -44,7 +43,6 @@ function Probe() {
     menuProjectId: navigation.menuProjectId,
     menuProjectName: navigation.menuProject?.name ?? null,
     isGlobalBridge: navigation.isGlobalBridge,
-    returnHref: navigation.returnHref,
   }
   return <output data-navigation>{JSON.stringify(snapshot)}</output>
 }
@@ -69,7 +67,6 @@ describe('ProjectNavigationContext', () => {
   async function renderAt(
     pathname: string,
     initialLastProjectId: string | null = 'p1',
-    initialLastProjectHref: string | null = '/p/p1/wbs',
   ): Promise<NavigationSnapshot> {
     mocks.pathname = pathname
     await act(async () => {
@@ -77,7 +74,6 @@ describe('ProjectNavigationContext', () => {
         <ProjectNavigationProvider
           projects={projects}
           initialLastProjectId={initialLastProjectId}
-          initialLastProjectHref={initialLastProjectHref}
         >
           <Probe />
         </ProjectNavigationProvider>,
@@ -88,7 +84,7 @@ describe('ProjectNavigationContext', () => {
     return JSON.parse(output!.textContent ?? '') as NavigationSnapshot
   }
 
-  it('프로젝트 경로에서는 URL의 프로젝트를 메뉴 문맥과 복귀 경로로 사용한다', async () => {
+  it('프로젝트 경로에서는 URL의 프로젝트를 메뉴 문맥으로 사용한다', async () => {
     const snapshot = await renderAt('/p/p2/weekly')
 
     expect(snapshot).toEqual({
@@ -97,7 +93,6 @@ describe('ProjectNavigationContext', () => {
       menuProjectId: 'p2',
       menuProjectName: '두 번째 프로젝트',
       isGlobalBridge: false,
-      returnHref: '/p/p2/weekly',
     })
   })
 
@@ -105,7 +100,12 @@ describe('ProjectNavigationContext', () => {
     '/minutes',
     '/minutes/11111111-2222-4333-8444-555555555555',
     '/meetings',
-  ])('%s에서는 마지막 프로젝트 메뉴와 복귀 경로를 유지한다', async pathname => {
+    '/account',
+    '/usage',
+    '/portfolio',
+    '/admin/teams',
+    '/admin/llm-config',
+  ])('%s에서는 마지막 프로젝트 메뉴를 유지한다', async pathname => {
     const snapshot = await renderAt(pathname)
 
     expect(snapshot).toEqual({
@@ -114,7 +114,6 @@ describe('ProjectNavigationContext', () => {
       menuProjectId: 'p1',
       menuProjectName: '첫 프로젝트',
       isGlobalBridge: true,
-      returnHref: '/p/p1/wbs',
     })
   })
 
@@ -127,35 +126,20 @@ describe('ProjectNavigationContext', () => {
       menuProjectId: null,
       menuProjectName: null,
       isGlobalBridge: false,
-      returnHref: null,
     })
   })
 
   it('저장된 프로젝트 ID가 현재 목록에 없으면 문맥을 폐기한다', async () => {
-    const snapshot = await renderAt('/minutes', 'removed-project', '/p/removed-project/wbs')
+    const snapshot = await renderAt('/minutes', 'removed-project')
 
     expect(snapshot.menuProjectId).toBeNull()
     expect(snapshot.menuProjectName).toBeNull()
-    expect(snapshot.returnHref).toBeNull()
     expect(snapshot.isGlobalBridge).toBe(true)
   })
 
-  it.each([
-    '/p/p2/kanban',
-    '/projects',
-  ])('저장 경로 %s가 유효하지 않으면 저장된 프로젝트 대시보드로 보정한다', async initialHref => {
-    const snapshot = await renderAt('/minutes', 'p1', initialHref)
+  it('새 프로젝트 경로를 방문하면 ID를 저장한다', async () => {
+    await renderAt('/p/p2/issues', 'p1')
 
-    expect(snapshot.menuProjectId).toBe('p1')
-    expect(snapshot.returnHref).toBe('/p/p1/dashboard')
-  })
-
-  it('새 프로젝트 경로를 방문하면 ID와 현재 경로를 함께 저장한다', async () => {
-    await renderAt('/p/p2/issues', 'p1', '/p/p1/wbs')
-
-    expect(mocks.queueUiPref).toHaveBeenCalledWith({
-      lastProjectId: 'p2',
-      lastProjectHref: '/p/p2/issues',
-    })
+    expect(mocks.queueUiPref).toHaveBeenCalledWith({ lastProjectId: 'p2' })
   })
 })

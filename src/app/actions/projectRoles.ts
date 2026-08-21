@@ -6,12 +6,21 @@ import { listAllAuthUsers } from '@/lib/data/accounts'
 import type { AccountRole } from '@/lib/domain/accounts'
 
 export interface ProjectRoleRow {
-  userId: string
-  email: string
+  /** 계정 없는 명단 전용(legacy) 행은 null — 권한 셀렉트 대신 '계정 없음'을 보여준다. */
+  userId: string | null
+  email: string | null
   name: string | null
+  /** 프로젝트 팀 — 명단(project_members)의 팀. 프로젝트를 위해 구성하는 팀이다. */
   teamCode: string | null
+  /** 실제 소속팀 — 전역 memberships 팀. 프로젝트 팀 미지정일 때 참고 표시용. */
+  orgTeamCode: string | null
   role: AccountRole
   isSuperuser: boolean
+  /** 명단 행 id — 명단 필드(팀·구분·직함) 편집과 삭제에 쓴다. 명단 미등록이면 null. */
+  memberId: string | null
+  rosterRole: 'admin' | 'contributor' | null
+  title: string | null
+  roleLabel: string | null
 }
 
 export async function listProjectRoles(
@@ -31,6 +40,14 @@ export async function listProjectRoles(
     .from('project_roles').select('user_id, role').eq('project_id', projectId)
   if (roleErr || !roles) return { ok: false, error: '프로젝트 역할을 불러오지 못했습니다: ' + (roleErr?.message ?? 'unknown') }
 
+  // 명단 정보를 같은 행에 싣는다(2026-08-20 화면 통합 2단계) — 팀·구분·직함을
+  // 권한 표에서 직접 편집하고, 계정 없는 legacy 명단 행도 이 목록이 유일한 노출처다.
+  const { data: roster, error: rosterErr } = await admin
+    .from('project_members')
+    .select('id, user_id, email, name, role, title, role_label, teams(code)')
+    .eq('project_id', projectId)
+  if (rosterErr || !roster) return { ok: false, error: '명단을 불러오지 못했습니다: ' + (rosterErr?.message ?? 'unknown') }
+
   let users
   try {
     users = await listAllAuthUsers(admin)
@@ -39,19 +56,54 @@ export async function listProjectRoles(
   }
   const userBy = new Map(users.map(u => [u.id, u]))
 
+  type RosterRow = {
+    id: string; user_id: string | null; email: string | null; name: string
+    role: 'admin' | 'contributor'; title: string | null; role_label: string | null
+    teams: { code: string } | null
+  }
+  const rosterRows = roster as unknown as RosterRow[]
+  const rosterByUser = new Map(rosterRows.filter(r => r.user_id).map(r => [r.user_id as string, r]))
+  const rosterByEmail = new Map(rosterRows.filter(r => r.email).map(r => [r.email as string, r]))
+
   const roleBy = new Map(roles.map(r => [r.user_id as string, r.role as 'admin' | 'member']))
   const rows: ProjectRoleRow[] = []
+  const seenMemberIds = new Set<string>()
   for (const m of mems) {
     const u = userBy.get(m.user_id as string)
     if (!u) continue // auth 계정이 지워진 잔존 멤버십 — 화면 대상 아님
     const team = m.teams as unknown as { code: string } | null
+    const pm = rosterByUser.get(m.user_id as string)
+      ?? (u.email ? rosterByEmail.get(u.email.trim().toLowerCase()) : undefined)
+    if (pm) seenMemberIds.add(pm.id)
     rows.push({
       userId: m.user_id as string,
       email: u.email,
-      name: u.fullName,
-      teamCode: team?.code ?? null,
+      name: pm?.name ?? u.fullName,
+      teamCode: pm?.teams?.code ?? null,
+      orgTeamCode: team?.code ?? null,
       role: roleBy.get(m.user_id as string) ?? 'viewer',
       isSuperuser: Boolean(m.is_superuser),
+      memberId: pm?.id ?? null,
+      rosterRole: pm?.role ?? null,
+      title: pm?.title ?? null,
+      roleLabel: pm?.role_label ?? null,
+    })
+  }
+  // 계정과 이어지지 않은 명단 행(legacy 외부 인력) — 숨기면 이 사람들이 화면에서 사라진다.
+  for (const pm of rosterRows) {
+    if (seenMemberIds.has(pm.id)) continue
+    rows.push({
+      userId: null,
+      email: pm.email,
+      name: pm.name,
+      teamCode: pm.teams?.code ?? null,
+      orgTeamCode: null,
+      role: 'viewer',
+      isSuperuser: false,
+      memberId: pm.id,
+      rosterRole: pm.role,
+      title: pm.title,
+      roleLabel: pm.role_label,
     })
   }
   return { ok: true, rows }
@@ -110,6 +162,39 @@ async function addAccountToRoster(
   }
   revalidatePath(`/p/${projectId}/members`)
   return { ok: true }
+}
+
+/**
+ * 계정 보유자의 명단 행을 보장하고 id 를 돌려준다 — 자동 동기화(2026-08-20) 이전에
+ * 권한을 받은 계정은 명단 행이 없어 명단 필드를 편집할 수 없었다. 편집 진입 시
+ * 여기로 행을 만들고 updateMember 로 이어간다.
+ */
+export async function ensureRosterRow(
+  projectId: string, userId: string,
+): Promise<{ ok: true; memberId: string } | { ok: false; error: string }> {
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const admin = createAdminClient()
+
+  const ensured = await addAccountToRoster(admin, projectId, userId)
+  if (!ensured.ok) return { ok: false, error: ensured.error ?? '명단 행을 만들지 못했습니다.' }
+
+  const { data: byUser, error: findErr } = await admin
+    .from('project_members').select('id')
+    .eq('project_id', projectId).eq('user_id', userId).maybeSingle()
+  if (findErr) return { ok: false, error: '명단 행 조회에 실패했습니다: ' + findErr.message }
+  if (byUser) return { ok: true, memberId: byUser.id as string }
+
+  // 이메일로만 걸린 미연결 행(0019 이전 데이터) — user_id 대신 이메일로 찾는다.
+  const { data: got } = await admin.auth.admin.getUserById(userId)
+  const email = got?.user?.email?.trim().toLowerCase()
+  if (email) {
+    const { data: byEmail } = await admin
+      .from('project_members').select('id')
+      .eq('project_id', projectId).eq('email', email).maybeSingle()
+    if (byEmail) return { ok: true, memberId: byEmail.id as string }
+  }
+  return { ok: false, error: '명단 행을 찾지 못했습니다. 새로고침 후 다시 시도하세요.' }
 }
 
 /** 관리자 슬롯은 슈퍼유저만 조작한다 — 관리자가 관리자를 늘리면 지금의 28명 상황이 재현된다. */

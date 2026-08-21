@@ -68,7 +68,6 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
         <ProjectNavigationProvider
           projects={projects}
           initialLastProjectId="p1"
-          initialLastProjectHref="/p/p1/wbs"
         >
           <ShellStateProvider>
             <Sidebar projects={projects} />
@@ -79,18 +78,20 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
     await act(async () => {}) // /api/shell 응답 flush
   }
 
-  it('회의록에서는 전역 메뉴를 활성화하면서 최근 프로젝트 하위 메뉴와 복귀 링크를 유지한다', async () => {
+  it('회의록에서는 전역 메뉴를 활성화하면서 최근 프로젝트 하위 메뉴를 유지한다', async () => {
     await renderAt('/minutes')
 
     const minutesLink = container.querySelector<HTMLAnchorElement>('a[href="/minutes"]')
     expect(minutesLink?.className).toContain('side-link-active')
     expect(minutesLink?.getAttribute('aria-current')).toBe('page')
 
+    // 돌아가기 링크는 제거됐다(2026-08-20) — 하위 메뉴 링크 하나만 남는다.
     const wbsLinks = container.querySelectorAll<HTMLAnchorElement>('a[href="/p/p1/wbs"]')
-    expect(wbsLinks).toHaveLength(2)
-    expect([...wbsLinks].some(link => link.textContent?.includes('돌아가기'))).toBe(true)
+    expect(wbsLinks).toHaveLength(1)
+    expect(container.textContent).not.toContain('돌아가기')
 
-    const wbsMenuLink = [...wbsLinks].find(link => link.textContent?.includes('nav.wbsGantt'))
+    const wbsMenuLink = wbsLinks[0]
+    expect(wbsMenuLink?.textContent).toContain('nav.wbsGantt')
     expect(wbsMenuLink?.className).not.toContain('side-link-active')
     expect(wbsMenuLink?.getAttribute('aria-current')).toBeNull()
     expect(container.textContent).toContain('ERP 프로젝트 메뉴')

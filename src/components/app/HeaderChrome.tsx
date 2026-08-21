@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, Users, X,
+  Bell, ChevronRight, Cpu, Globe, KeyRound, LogOut, Menu, Moon, Sun, User, UserCog, Users, X,
 } from 'lucide-react'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { canManageTeams } from '@/lib/authz/teamsAccess'
@@ -220,10 +220,16 @@ export function HeaderChrome({ identity, projects, userName }: { identity: Heade
                     <KeyRound className="h-4 w-4" />내 계정
                   </Link>
                   {/* 어포던스 판정은 각 화면 게이트와 같은 predicate — 링크만 보이고 페이지는 거부되는 드리프트 방지 */}
-                  {(canManageTeams(identity) || canManageLlmConfig(identity)) && (
+                  {(canManageTeams(identity) || canManageLlmConfig(identity) || identity?.isSuperuser) && (
                     <>
-                      {/* 링크별로 각자의 판정을 건다 — 지금은 둘 다 슈퍼유저라 결과가 같지만,
+                      {/* 링크별로 각자의 판정을 건다 — 지금은 전부 슈퍼유저라 결과가 같지만,
                           한쪽 권한이 넓어지는 날 OR 게이트는 다른 링크까지 같이 열어버린다. */}
+                      {/* 계정 관리는 슈퍼유저 전용(2026-08-20) — 종전에는 진입 링크가 아예 없던 화면 */}
+                      {identity?.isSuperuser && (
+                        <Link href="/admin/accounts" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
+                          <UserCog className="h-4 w-4" />계정 관리
+                        </Link>
+                      )}
                       {canManageTeams(identity) && (
                         <Link href="/admin/teams" onClick={() => setOpen(null)} className="flex w-full items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-ink-muted transition hover:bg-surface-2 hover:text-ink">
                           <Users className="h-4 w-4" />팀 관리
@@ -268,8 +274,8 @@ function MobileMenu({
 }: { projects: SidebarProject[]; pathname: string; onClose: () => void; roleLabel: string; identity: HeaderIdentity | null; displayName: string | null }) {
   const router = useRouter()
   const { t } = useLocale()
-  const { routeProjectId, menuProjectId, menuProject, isGlobalBridge, returnHref } = useProjectNavigation()
-  // 최근 메뉴 문맥은 아래 복귀 링크/하위 메뉴로 유지하되, 콤보는 실제 URL 프로젝트만
+  const { routeProjectId, menuProjectId, menuProject } = useProjectNavigation()
+  // 최근 메뉴 문맥은 아래 하위 메뉴로 유지하되, 콤보는 실제 URL 프로젝트만
   // 선택한다. 그래야 전역 화면에서 최근 프로젝트 자체를 골라도 change가 발생한다.
   const selectedProjectId = routeProjectId ?? ''
 
@@ -290,7 +296,10 @@ function MobileMenu({
         { href: `/p/${menuProjectId}/announcements`, label: t('nav.announcements'), badge: unreadAnn },
         { href: `/p/${menuProjectId}/meetings`, label: t('nav.meetings') },
         { href: `/p/${menuProjectId}/weekly`, label: t('nav.weekly') },
-        { href: `/p/${menuProjectId}/settings`, label: t('nav.settings') },
+        // 설정은 프로젝트 관리자 전용(2026-08-20) — 데스크톱 사이드바와 같은 판정
+        ...(projects.find(p => p.id === menuProjectId)?.isAdmin
+          ? [{ href: `/p/${menuProjectId}/settings`, label: t('nav.settings') }]
+          : []),
       ]
     : []
   return (
@@ -312,19 +321,6 @@ function MobileMenu({
           {/* 사이드바는 hidden lg:flex 라 lg 미만에서는 여기가 /usage 의 유일한 진입점이다 — 슈퍼유저 전용 */}
           {identity?.showUsage && (
             <Link href="/usage" onClick={onClose} aria-current={pathname === '/usage' ? 'page' : undefined} className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''}`}>{t('nav.usage')}</Link>
-          )}
-          {isGlobalBridge && menuProject && returnHref && (
-            <Link
-              href={returnHref}
-              onClick={onClose}
-              className="mx-1 mt-3 flex items-center gap-2 rounded-xl border border-sidebar-line bg-sidebar-2 px-3 py-2.5 text-sidebar-ink transition hover:border-sidebar-ink-subtle"
-            >
-              <ChevronRight className="h-4 w-4 shrink-0 rotate-180 text-sidebar-ink-muted" />
-              <span className="min-w-0">
-                <span className="block text-[10px] font-medium text-sidebar-ink-muted">프로젝트로 돌아가기</span>
-                <span className="block truncate text-[13px] font-semibold">{menuProject.name}</span>
-              </span>
-            </Link>
           )}
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>
           <div className="mx-1">

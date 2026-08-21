@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  ArrowLeft, BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -14,7 +14,14 @@ import { useShellState } from './ShellStateProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { useProjectNavigation } from './ProjectNavigationContext'
 
-export type SidebarProject = { id: string; name: string; status: 'ready' | 'active' | 'overdue' | 'done' | 'unknown'; baseDate?: string | null }
+export type SidebarProject = {
+  id: string
+  name: string
+  status: 'ready' | 'active' | 'overdue' | 'done' | 'unknown'
+  baseDate?: string | null
+  /** 이 프로젝트의 관리자 여부 — 설정 메뉴 노출 판정(페이지 게이트와 동일 predicate, 미지정 = false) */
+  isAdmin?: boolean
+}
 
 export const SIDEBAR_STORAGE_KEY = 'dflow-sidebar'
 
@@ -37,7 +44,7 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
   unknown: { dot: 'bg-slate-400', label: '확인 불가' },
 }
 
-function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
+function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, isAdmin: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
   const items: { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] = [
     { href: `${base}/dashboard`, labelKey: 'nav.dashboard', icon: LayoutDashboard, match: `${base}/dashboard` },
     { href: `${base}/wbs`, labelKey: 'nav.wbsGantt', icon: ListTree, match: `${base}/wbs` },
@@ -49,8 +56,9 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean): 
     { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
-    { href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` },
   ]
+  // 설정은 프로젝트 관리자 전용(2026-08-20) — 링크만 숨기는 게 아니라 페이지 게이트도 함께 건다.
+  if (isAdmin) items.push({ href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` })
   // 포트폴리오·사용 현황은 전사 지표라 프로젝트 스코프가 아니다 —
   // 설정 바로 아래에 두되 링크는 전역 경로로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.
   if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
@@ -67,7 +75,6 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
     menuProjectId,
     menuProject,
     isGlobalBridge,
-    returnHref,
   } = useProjectNavigation()
   const [collapsed, setCollapsed] = useState(false)
 
@@ -187,12 +194,7 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
 
       {/* 전역: 회의록 */}
       <Tooltip label={t('nav.minutes')} side="right" disabled={!collapsed}>
-        <Link href="/minutes" onClick={() => {
-          // 회의록은 본문 작업 영역을 넓게 쓰는 화면이므로 진입과 동시에 사이드바를 접는다.
-          // 사용자 선택으로 발생한 변경이므로 다음 세션에도 유지되도록 서버 설정도 갱신한다.
-          dispatchSidebarToggle(true)
-          queueUiPref({ sidebarCollapsed: true })
-        }} aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
+        <Link href="/minutes" aria-current={pathname.startsWith('/minutes') ? 'page' : undefined}
           className={`side-link ${pathname.startsWith('/minutes') ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
           <NotebookText className="h-[18px] w-[18px] shrink-0" />
           {!collapsed && <span className="flex-1">{t('nav.minutes')}</span>}
@@ -217,22 +219,7 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
           <div className="space-y-1">
             {menuProjectId ? (
               <>
-                {isGlobalBridge && menuProject && returnHref && (
-                  <Tooltip label={`${menuProject.name}로 돌아가기`} side="right" disabled={!collapsed}>
-                    <Link
-                      href={returnHref}
-                      className={`side-link mb-2 border border-sidebar-line bg-sidebar-2/70 ${collapsed ? 'justify-center px-0' : ''}`}
-                    >
-                      <ArrowLeft className="h-[18px] w-[18px] shrink-0" />
-                      {!collapsed && (
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[12px] font-semibold">{menuProject.name}로 돌아가기</span>
-                        </span>
-                      )}
-                    </Link>
-                  </Tooltip>
-                )}
-                {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio).map(item => {
+                {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio, projects.find(p => p.id === menuProjectId)?.isAdmin ?? false).map(item => {
                   const active = pathname === item.match || pathname.startsWith(item.match + '/')
                   const ItemIcon = item.icon
                   const label = t(item.labelKey)
