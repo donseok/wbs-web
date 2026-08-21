@@ -489,6 +489,19 @@ export function WbsGanttSheet({
     return m
   }, [items])
 
+  // task(2단) 경계선 — 노드 id → depth 1 조상 id(자신이 depth 1 이면 자신, depth 0 은 null).
+  const taskGroupId = useMemo(() => {
+    const m = new Map<string, string | null>()
+    const walk = (ns: ComputedItem[], anc: string | null, depth: number) =>
+      ns.forEach(n => {
+        const g = depth === 0 ? null : depth === 1 ? n.id : anc
+        m.set(n.id, g)
+        walk(n.children, g, depth + 1)
+      })
+    walk(items, null, 0)
+    return m
+  }, [items])
+
   // 표시용 접힘 = 저장된 접힘 − focus 임시 펼침
   const effCollapsed = useMemo(() => {
     if (forcedOpen.size === 0) return collapsed
@@ -1202,6 +1215,9 @@ export function WbsGanttSheet({
             // 아래에 가로 구분선을 긋는다. 접힌 루트는 자신이 곧 마지막 행이라 자연히 경계가 된다.
             const nextRow = flatRows[idx + 1]
             const isPhaseEnd = !nextRow || rootBandIndex.get(nextRow.id) !== rootBandIndex.get(n.id)
+            // task(2단) 경계 — 같은 phase 안에서 depth 1 그룹이 바뀌는 지점. phase 경계가 우선.
+            const isTaskEnd =
+              !isPhaseEnd && taskGroupId.get(n.id) != null && taskGroupId.get(nextRow.id) !== taskGroupId.get(n.id)
             // 레벨별 배경은 종전 그대로 유지(사용자 결정 2026-08-21) — 구분 열이 사라져도
             // depth 0/1 틴트가 레벨 식별을 계속 담당한다. depth 2+ 는 zebra.
             const rowBg =
@@ -1265,6 +1281,14 @@ export function WbsGanttSheet({
                     aria-hidden
                     data-phase-end
                     className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-[3px] bg-grid-strong"
+                  />
+                )}
+                {/* task(2단) 가로 구분선 — 두께는 격자선 그대로(1px), 색만 진하게 */}
+                {isTaskEnd && (
+                  <span
+                    aria-hidden
+                    data-task-end
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-px bg-ink-subtle"
                   />
                 )}
                 {/* # */}
