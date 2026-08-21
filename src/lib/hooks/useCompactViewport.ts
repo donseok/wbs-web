@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
  * 뷰포트 압축 판정 2단 (2026-08-21 피드백).
  *
  * - 컴팩트(크롬 압축): 히어로·툴바·범례 같은 부가 UI 를 걷는 기준.
- *   폭 1024px 미만(태블릿 세로 768px·좁은 패널) 또는 높이 800px 미만
+ *   폭 1280px 미만(태블릿·아이콘 툴바도 감기는 좁은 창) 또는 높이 800px 미만
  *   (1024×768·1366×768 랩탑, 가로 폰). 이 화면들에선 부가 UI 가 표를 가린다.
  *   1440×900 이상 데스크톱은 걸리지 않는다.
  * - 좁음(열 축소): WBS 작업명 열 축소·계획 열 기본 숨김 기준.
@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react'
  * 안전망이 layered 변형을 이겨 폭 기준이 되살아난다. 압축 분기는 이 훅의 JS
  * 조건부 렌더로만 처리한다. SSR 은 데스크톱(false)으로 그리고 마운트 후 보정.
  */
-export const COMPACT_MQ = '(max-width: 1023px), (max-height: 799px)'
+export const COMPACT_MQ = '(max-width: 1279px), (max-height: 799px)'
 export const NARROW_MQ = '(max-width: 639px), (max-height: 519px)'
 
 export function matchesNarrowViewport(): boolean {

@@ -256,7 +256,7 @@ export function WbsGanttSheet({
   }
   // 엑셀 열 숨김과 같은 일시적 화면 상태. 매 진입 기본값은 펼침(false)이며 계정에 저장하지 않는다.
   const [planningColsHidden, setPlanningColsHidden] = useState(false)
-  const compact = useCompactViewport() // 크롬 압축(툴바 걷기·범례 숨김) — 폭<1024 또는 높이<800
+  const compact = useCompactViewport() // 크롬 압축(툴바 걷기·범례 숨김) — 폭<1280 또는 높이<800
   const narrow = useNarrowViewport() // 열 축소(작업명 176px·계획 열 숨김) — 폭<640 또는 높이<520
   const showLabels = useRoomyViewport() // 툴바 글자 라벨 — 폭 1440px 이상에서만(미만이면 2줄로 감김)
   // 좁은 화면 최초 진입은 계획 열 숨김으로 시작 — 캘린더가 작업명 바로 옆에 온다. 이후 토글은 사용자 뜻대로.

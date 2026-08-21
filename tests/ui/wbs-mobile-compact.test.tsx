@@ -193,8 +193,8 @@ describe('히어로 컴팩트 숨김', () => {
     expect(section).not.toBeNull()
     expect(section!.className).toContain('hidden')
     // 폭 전용 유틸(lg:grid)이면 1024×768 랩탑에서 새 나온다 — 높이 조건 포함 미디어 변형이어야 한다
-    expect(section!.className).toContain('[@media(min-width:1024px)_and_(min-height:800px)]:grid')
-    expect(section!.className).not.toMatch(/\b(md|lg):grid\b/)
+    expect(section!.className).toContain('[@media(min-width:1280px)_and_(min-height:800px)]:grid')
+    expect(section!.className).not.toMatch(/\b(md|lg|xl):grid\b/)
   })
 
   it('ProjectPageShell 은 컴팩트에서 히어로 래퍼 자체를 렌더하지 않는다(가로 폰 포함)', async () => {
