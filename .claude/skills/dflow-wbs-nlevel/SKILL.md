@@ -100,16 +100,26 @@ credits:
 ```yaml
 project: MES
 start_date: 2026-09-01
-phases:                     # 생략 시 WSF 기본 5단계 (분석/설계/구축/통합테스트/적용)
+methodology: wsf            # wsf(기본) | waterfall | scrum — 단계 프리셋과 PL 생성 규칙을 결정
+phases:                     # 생략 시 methodology 프리셋. 명시하면 그것이 이김
   - { key: PH-03, name: 구축, build: true }   # build: true = 시스템 트리가 붙는 Phase
-levels: default             # 'default' = 스펙 정본 7층. 커스텀이면 배열
+levels: default             # 'default' = 스펙 정본 7층. 커스텀이면 배열. scrum 은 Phase 층 제거판
 systems:
   - { key: SYS-OP, name: 조업, module: mes-op, pl: 박PL }
 ```
 
-- **파일이 있으면 무질문 생성.** 파일이 없으면 대화로 수집한다 — 질문은 셋뿐:
-  ① 프로젝트명 ② 단계(WSF 기본 5단계를 제시하고 수정 여부) ③ 시스템 목록(이름을 받아 키·module 을
-  제안 → 사용자 확정). 답으로 **skeleton.yaml 을 생성하고 멈춘다** — "파일 검토 후 재실행" 안내.
+### methodology 3종 — 단계 프리셋 + 생성 규칙
+
+| 값 | phases 프리셋 | levels | PL 모드 규칙 |
+|---|---|---|---|
+| `wsf` (기본) | 분석·설계·구축(build)·통합테스트·적용 | 정본 7층 | 모듈 Water 꼬리 + Scrum + 모듈 Fall (현행) |
+| `waterfall` | 분석·설계·개발(build)·단위테스트·통합테스트·이행 | 정본 7층 | 애자일 반복 없음 — 프로그램 Task 일렬, 계약 Task 는 설계 단계 소속, `credit:doc` 게이트 중심 |
+| `scrum` | **없음** — Phase 층 자체를 levels 에서 제거, System 이 최상위 | Phase 제거 6층 | 선행·후행 공정 없음 — 백로그형. 통테는 횡단 시스템으로 두거나 생략 |
+
+- **파일이 있으면 무질문 생성.** 파일이 없으면 대화로 수집한다 — 질문은 넷뿐:
+  ① 프로젝트명 ② **방법론(wsf/waterfall/scrum — 기본 wsf)** ③ 단계(방법론 프리셋을 제시하고 수정 여부;
+  scrum 이면 생략) ④ 시스템 목록(이름을 받아 키·module 을 제안 → 사용자 확정).
+  답으로 **skeleton.yaml 을 생성하고 멈춘다** — "파일 검토 후 재실행" 안내.
   즉석 골격 생성 금지: 시스템 키는 external_ref 라 불변이며, 리뷰 없이 확정하지 않는다.
 - 시스템 목록을 스킬이 지어내지 않는다 — 입력(파일 또는 답변)에 없는 시스템은 만들지 않는다.
 - 필수 누락(project 없음, systems 0개)은 중단. 선택 누락(pl 미정)은 기본값 + 리포트.
