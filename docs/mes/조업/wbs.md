@@ -39,10 +39,51 @@ credits:
 
 ### WP-IN-PR: 프로세스
 - [ ] TSK-IN-001: 입측 실적 수집 프로세스   w:5  ~2026-11-14
+  - category: dev
+  - domain: backend
+  - model: opus
+  - priority: critical
+  - tags: op, entry, process
+  - depends: TSK-L2-221
+  - prd-ref: OP-PRD §4.2 입측 조업
+  - requirements: L2 인입 통보(트래킹 수신) 시 입고 실적을 생성하고 입측 재고에 반영한다. 소재-주문 매핑 불일치는 예외 큐로 보낸다.
+  - acceptance: 수신→실적→재고 반영 단일 트랜잭션 / 동일 전문 중복 수신 멱등(실적 중복 0건) / 예외 큐 적재·재처리 경로 동작
+  - [ ] STK-IN-001-1: 크레인 계량 연계 확인
+  - [ ] STK-IN-001-2: 중복 수신 방어 로직
+  - [ ] STK-IN-001-3: 실적 테이블 설계 리뷰
 - [ ] TSK-IN-002: 입측 판정 프로세스       w:5  ~2026-11-21
+  - category: dev
+  - domain: backend
+  - model: sonnet
+  - priority: high
+  - tags: op, entry, process
+  - depends: TSK-IN-001
+  - prd-ref: OP-PRD §4.3 입측 판정
+  - requirements: 입고 코일의 조업 가능 판정(치수·중량·표면 등급)을 수행하고 판정 예외를 처리한다.
+  - acceptance: 판정 룰 테이블 기반 자동 판정 / 예외 건 수동 판정 경로 제공 / 판정 이력 전건 조회
 ### WP-IN-UI: 화면
 - [ ] TSK-IN-101: 입측 작업 현황 화면   w:3  ~2026-11-21
+  - category: dev
+  - domain: fullstack
+  - model: sonnet
+  - priority: high
+  - tags: op, entry, ui
+  - depends: TSK-IN-001
+  - prd-ref: OP-PRD §4.2.3
+  - entry-point: /op/entry/status (메뉴: 조업 > 입측 > 작업 현황)
+  - requirements: 입측 야드~페이오프릴 구간 코일 위치·상태 실시간 조회, 입고 실적·예외 큐 건수 표시.
+  - acceptance: 트래킹 이벤트 후 5초 이내 화면 반영 / 조회 전용(정정은 별도 화면)
 - [ ] TSK-IN-102: 입측 실적 조회 화면   w:2  ~2026-11-28
+  - category: dev
+  - domain: fullstack
+  - model: sonnet
+  - priority: medium
+  - tags: op, entry, ui
+  - depends: TSK-IN-001
+  - prd-ref: OP-PRD §4.2.4
+  - entry-point: /op/entry/results (메뉴: 조업 > 입측 > 실적 조회)
+  - requirements: 기간·공정·코일번호 조건의 입고 실적 조회와 엑셀 다운로드.
+  - acceptance: 10만 건 기준 3초 이내 페이징 조회 / 다운로드 컬럼 = 화면 컬럼
 
 ## SUB-OUT: 출측
 

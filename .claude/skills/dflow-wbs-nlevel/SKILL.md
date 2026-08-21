@@ -79,6 +79,24 @@ credits:
 `@담당` `w:가중치(MD, 생략=1)` `~종료일` `credit:크레딧표키` `if-id:I/F대장ID`.
 상태는 항상 `[ ]` — 전이 정본은 D'Flow(dflow-wbs 와 동일). 실적 % 를 파일에 쓰지 않는다.
 
+**Task 상세 블록** — 한 줄 밑에 들여쓴 `- key: value` 필드(체크박스 없는 리스트 = 필드,
+`- [ ]` = SubTask — 둘은 공존한다). import 필드(category·domain·model·priority·tags·depends·
+prd-ref·entry-point·requirements·acceptance·spec·note)를 여기에 싣는다:
+
+```markdown
+- [ ] TSK-IN-001: 입측 실적 수집 프로세스 @홍길동 w:5 ~2026-11-14
+  - category: dev
+  - domain: backend
+  - depends: TSK-L2-221
+  - requirements: L2 인입 통보 수신 시 입고 실적 생성·재고 반영, 불일치는 예외 큐
+  - acceptance: 수신→실적→재고 단일 트랜잭션 / 중복 전문 멱등 처리
+  - [ ] STK-IN-001-1: 중복 수신 방어 로직
+```
+
+상세 블록은 **선택**이다 — 골격·초안 단계는 한 줄로 두되, **개발 착수 전 input 층 Task 는
+requirements·acceptance 필수**(검증기 경고 대상). 명세의 재료는 PRD/프로그램 리스트 입력에서
+가져온다 — 입력 없이 명세를 지어내지 않는다(초안은 한 줄로 남기고 리포트에 "명세 미충전" 표기).
+
 ### 4. WSF 배치 — 모드가 샌드위치를 나눠 갖는다
 
 - `--skeleton` = **빵**: Water(PH-01 분석·PH-02 설계 골격 + 전사 아키텍처·공통 계약 Task) +
