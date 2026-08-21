@@ -183,9 +183,21 @@ credits:
 | `credit:키` | stage 크레딧 표 선택. 생략 시 default |
 | `if-id:` | PMO I/F 대장 참조 (쌍 연결) |
 
-## 구현 착수 시 범위 (미착수 — 설계만 확정)
+## 구현 범위와 진행 상태 (2026-08-21 착수)
 
-1. 프로젝트 설정에 level_labels·max_depth 편집 (관리자 전용 서버 액션 + UI, 축소 시 기존 트리 depth 검증 fail-closed)
-2. Excel export/import 동적 단계 열 (A안: 단계별 열, 헤더 = level_labels, 레거시 3열 하드코딩 제거)
-3. import 계약 v2.2: 노드별 `level` 필드 + progress 역할, wbs_items 저장
-4. stage→크레딧 환산 + weight 필드 + 롤업 쿼리 (checklist 제외)
+1. ✅ **프로젝트 설정 level_labels·max_depth 편집** — 8d6bd92. domain/levelSettings(검증·treeMaxDepth) +
+   updateLevelSettings 액션 + LevelSettingsManager + 설정 페이지 섹션. 축소 fail-closed.
+2. ✅ **Excel export 동적 계층 열** — 19f2c82. buildWbsAoa 계층 열 = levelLabels.length(3라벨 바이트 불변),
+   buildAoaWithProfile levelLabels 주입, export 라우트 연결. **import 는 변경 불요** — 위저드
+   (detect·parseWithProfile·linkByDepth)가 이미 N단 범용임을 실사로 확인. 3열 고정 parse.ts 는 레거시 전용 존치.
+3. ⏸ **import 계약 v2.2** (노드별 level·progress 역할·attach 크로스 모듈·upload/fold) — wbs_items 컬럼
+   추가 마이그레이션 동반, 스테이징 리허설 경로. wbs.md 파서(스킬 측) 개정과 계약을 맞춰야 하므로 별도 착수.
+4. ⏸ **stage→크레딧·weight 롤업** — 3 과 함께.
+
+의도적 보류 (실사 결과):
+
+- `ai/tools/wbs.ts` level enum 3종 clamp — AI 도구 계약 + 임베딩 바이트 불변에 묶여 있어 바꾸면 전 프로젝트
+  재임베딩 필요. v2.2(3번)와 함께 계획적으로.
+- weekly report·AI ingest 는 이미 getProjectConfig 주입식(Plan D 완료분) — 추가 변경 불요 확인.
+- `RESERVED_TEAM_NAMES` 의 Phase/Task/Activity 고정 — 커스텀 라벨과 팀명 충돌 검증이 정적 목록이라
+  안 잡힘(저위험). 라벨 저장·팀 추가 양쪽에서 상호 대조하는 후속 과제.
