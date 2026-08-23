@@ -1,4 +1,5 @@
 import { chunked } from '@/lib/ai/util'
+import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { emitNotification } from '@/lib/notify/emit'
@@ -170,6 +171,99 @@ export function toRpcNode(module: string, n: ImportNode, index: number, levels?:
     level_idx: levelIdx, weight: n.weight ?? null, milestone,
     credit_key: n.credit ?? null, if_id: n.if_id ?? null,
   }
+}
+
+/**
+ * import 실행 코어(v2.2) — 인증 이후의 전 과정: levels 시드/정합·attach 해석·노드 변환·
+ * RPC upsert·배정·자동 발행. API 라우트(PAT)와 웹 업로드 액션(세션)이 공유한다 —
+ * 두 경로의 검증·순서가 갈라지면 안 되므로 여기 밖에서 이 시퀀스를 재구현하지 않는다.
+ */
+export type RunWbsImportResult =
+  | { ok: true; upserted: number; skipped: number
+      unmatched: Array<{ id: string; assignee: string }>; nonLeafSkipped: string[]; ordersCreated: number }
+  | { ok: false; code: 'validation_failed' | 'levels_mismatch' | 'attach_not_found' | 'apply_failed'; message: string }
+
+export async function runWbsImport(
+  admin: AdminClient,
+  args: { projectId: string; module: string; actorUserId: string
+    levels: LevelDecl[] | null; attachRef: string | null; nodes: ImportNode[] },
+): Promise<RunWbsImportResult> {
+  const { projectId, module: module_, actorUserId, levels, attachRef, nodes } = args
+
+  // levels·attach 의 DB 대조 (스펙 §import 계약 v2.2)
+  let attachId: string | null = null
+  if (levels && attachRef) {
+    // PL 업로드: levels 는 서버 정본(level_labels)과 완전 일치해야 통과(불일치 = 파일이 낡음).
+    const { data: ps, error: psErr } = await admin
+      .from('project_settings').select('level_labels').eq('project_id', projectId).maybeSingle()
+    if (psErr) throw new Error(`프로젝트 설정 조회 실패: ${psErr.message}`)
+    const serverLabels = (ps as { level_labels: string[] } | null)?.level_labels ?? null
+    const payloadLabels = levels.map(l => l.name)
+    if (!serverLabels || JSON.stringify(serverLabels) !== JSON.stringify(payloadLabels)) {
+      return { ok: false, code: 'levels_mismatch',
+        message: `levels 가 프로젝트 정본과 다릅니다. 골격의 levels 를 다시 복사하세요. (정본: ${serverLabels?.join('>') ?? '없음'})` }
+    }
+    // attach 노드 해석(크로스 모듈 external_ref) — 없으면 fail-closed(골격 선행의 기계 검증).
+    const { data: attachRow, error: attachErr } = await admin
+      .from('wbs_items').select('id').eq('project_id', projectId).eq('external_ref', attachRef).maybeSingle()
+    if (attachErr) throw new Error(`attach 노드 조회 실패: ${attachErr.message}`)
+    if (!attachRow) return { ok: false, code: 'attach_not_found',
+      message: `attach 노드가 없습니다: ${attachRef} — 골격을 먼저 업로드하세요.` }
+    attachId = (attachRow as { id: string }).id
+  } else if (levels) {
+    // 골격 업로드: level_labels 시드 — 설정 편집과 동일한 검증(축소 fail-closed 포함).
+    const { data: rows, error: rowsErr } = await admin
+      .from('wbs_items').select('id, parent_id').eq('project_id', projectId)
+    if (rowsErr) throw new Error(`WBS 조회 실패: ${rowsErr.message}`)
+    const v = validateLevelSettings({
+      labels: levels.map(l => l.name),
+      currentTreeMaxDepth: treeMaxDepth((rows ?? []) as Array<{ id: string; parent_id: string | null }>),
+    })
+    if (!v.ok) return { ok: false, code: 'validation_failed', message: `levels 시드 실패: ${v.error}` }
+    const { error: seedErr } = await admin.from('project_settings').upsert({
+      project_id: projectId, level_labels: v.labels, max_depth: v.maxDepth,
+      updated_at: new Date().toISOString(), updated_by: actorUserId,
+    })
+    if (seedErr) throw new Error(`levels 시드 실패: ${seedErr.message}`)
+  }
+
+  // 변환 — 실패 노드는 생략하지 않고 전량 보고(에러 3원칙).
+  const rpcNodes: unknown[] = []
+  const assigneeByRef: Record<string, string | null> = {}
+  const titleByRef: Record<string, string> = {}
+  const kindByRef: Record<string, string> = {}
+  const errors: string[] = []
+  for (const [i, nRaw] of nodes.entries()) {
+    const r = toRpcNode(module_, nRaw, i, levels)
+    if ('error' in r) { errors.push(r.error); continue }
+    rpcNodes.push(r)
+    assigneeByRef[r.external_ref] = r.assignee
+    titleByRef[r.external_ref] = r.title
+    // 주문 보장 대상 판정 — v2.2: dev_workflow 가 정본(levels 있으면 input 층, 없으면 kind==='task' 와 동치).
+    kindByRef[r.external_ref] = r.dev_workflow ? 'task' : nRaw.kind ?? 'other'
+  }
+  if (errors.length > 0) {
+    return { ok: false, code: 'validation_failed',
+      message: `노드 변환 실패 ${errors.length}건: ${errors.slice(0, 5).join(' / ')}` }
+  }
+
+  // p_attach_id 는 attach 경로에서만 싣는다 — 레거시 payload 는 구 2인자 시그니처와도 호환(배포 순서 안전).
+  const { data: rpcOut, error: rpcErr } = await admin
+    .rpc('import_wbs_upsert', attachId
+      ? { p_project_id: projectId, p_nodes: rpcNodes, p_attach_id: attachId }
+      : { p_project_id: projectId, p_nodes: rpcNodes })
+  if (rpcErr) {
+    console.error('[wbs-import] upsert 실패:', rpcErr.message)
+    return { ok: false, code: 'apply_failed', message: `업로드 실패: ${rpcErr.message}` }
+  }
+  const out = rpcOut as { upserted: number; skipped: number; ids: Record<string, string>; new_refs: string[] }
+
+  const post = await applyAssigneesAndOrders(admin, {
+    projectId, actorUserId, module: module_,
+    newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef, kindByRef,
+  })
+  return { ok: true, upserted: out.upserted, skipped: out.skipped,
+    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated }
 }
 
 /**

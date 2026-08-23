@@ -6,7 +6,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { ImportWizard } from '@/components/import/ImportWizard'
+import { ImportModes } from '@/components/import/ImportModes'
 import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 
@@ -51,7 +51,7 @@ export default async function ImportWizardPage({ params }: { params: Promise<{ p
       }
     >
       {isAdmin ? (
-        <ImportWizard projectId={projectId} isSuperuser={isSuperuser} currentItemCount={currentItemCount} />
+        <ImportModes projectId={projectId} isSuperuser={isSuperuser} currentItemCount={currentItemCount} />
       ) : (
         <EmptyState
           icon={Shield}
