@@ -40,6 +40,7 @@ export default async function WbsPage({
   const me = user ? { id: user.id, name: displayNameFrom(user.user_metadata, user.email) ?? '사용자' } : null
   return (
     <ProjectPageShell
+      flush
       hero={<PageHero
         eyebrow="WBS · GANTT"
         title={`${project?.name ?? t(locale, 'wbs.projectFallback')} ${t(locale, 'wbs.heroTitleSuffix')}`}
