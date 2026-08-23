@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { FileText, Pencil } from 'lucide-react'
-import { getWbsSpec, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
+import { getWbsSpec, setAgentDelegation, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -88,6 +88,17 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     router.refresh()
   }
 
+  async function commitAgentDelegate(delegated: boolean) {
+    setRefBusy(true); setRefErr(null)
+    const res = await setAgentDelegation(itemId, delegated)
+    setRefBusy(false)
+    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
+    setLoaded(prev => (prev && prev !== 'error'
+      ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
+      : prev))
+    router.refresh()
+  }
+
   function openSpecEdit() {
     if (loaded && loaded !== 'error') setSpecDraft(loaded.spec ?? '')
     setSpecErr(null)
@@ -161,6 +172,20 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
               </p>
             )}
           </label>
+
+          {editable && (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={loaded.tags.includes('agent')}
+                disabled={refBusy}
+                onChange={e => commitAgentDelegate(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-line"
+              />
+              <span className="text-xs font-semibold text-ink">{t('wbs.specAgentDelegateLabel')}</span>
+              <span className="text-[10px] text-ink-subtle">{t('wbs.specAgentDelegateHint')}</span>
+            </label>
+          )}
           {refErr && <p className="text-xs font-medium text-delayed" role="alert">{refErr}</p>}
 
           <div>

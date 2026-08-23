@@ -162,3 +162,37 @@ export async function updateWbsSpecFields(
   revalidatePath(`/p/${loaded.projectId}`, 'layout')
   return { ok: true }
 }
+
+/** 에이전트 위임 태그 — dflow-poll 의 자동 착수 대상 판별 계약(값을 바꾸면 폴링과 어긋난다). */
+const AGENT_TAG = 'agent'
+
+/**
+ * 에이전트 위임 토글 — tags 의 'agent' 만 넣고 뺀다(다른 태그 불변). 이 태그가 붙은 ready
+ * 작업만 dflow-poll 이 자동 착수하고, 수동 /dflow-dev 지시는 태그와 무관하다.
+ * 권한은 다른 명세 편집과 동일 — 프로젝트 관리자.
+ */
+export async function setAgentDelegation(
+  itemId: string,
+  delegated: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
+  const loaded = await loadItemProject(itemId)
+  if (!loaded.ok) return loaded
+  const g = await requireProjectAdmin(loaded.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const admin = createAdminClient()
+  const { data: row, error: readErr } = await admin
+    .from('wbs_items').select('tags').eq('id', itemId).single()
+  if (readErr) return { ok: false, error: readErr.message }
+  const tags: string[] = row?.tags ?? []
+  if (tags.includes(AGENT_TAG) === delegated) return { ok: true } // 멱등 — 쓰기 스킵
+  const next = delegated ? [...tags, AGENT_TAG] : tags.filter(tg => tg !== AGENT_TAG)
+  const { data: updated, error } = await admin
+    .from('wbs_items')
+    .update({ tags: next, updated_at: new Date().toISOString() })
+    .eq('id', itemId).select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
+  revalidatePath(`/p/${loaded.projectId}`, 'layout')
+  return { ok: true }
+}
