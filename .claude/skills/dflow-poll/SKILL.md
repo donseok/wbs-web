@@ -1,11 +1,26 @@
 ---
 name: dflow-poll
-description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트가 ready 작업을 감시하고 발견 시 /dflow-dev 로 자동 착수, 사이클 종료 후 재감시. 낮 시간 반자동 전용(무인 야간 금지). 트리거 - "/dflow-poll", "폴링 시작", "작업 감시하다가 착수". 사용법 - /dflow-poll [--interval 300] [--until HH:MM]
+description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트가 에이전트 위임 태그(agent)가 붙은 ready 작업만 감시하고 발견 시 /dflow-dev 로 자동 착수, 사이클 종료 후 재감시. 태그 없는 작업은 수동(/dflow-dev 직접 지시) 몫. 낮 시간 반자동 전용(무인 야간 금지). 트리거 - "/dflow-poll", "폴링 시작", "작업 감시하다가 착수". 사용법 - /dflow-poll [--interval 300] [--until HH:MM] [--all]
 ---
 
 # /dflow-poll — 할당 작업 폴링 루프 (반자동)
 
-인자: `$ARGUMENTS` (`--interval <초>` 기본 300, `--until <HH:MM>` 기본 18:00)
+인자: `$ARGUMENTS` (`--interval <초>` 기본 300, `--until <HH:MM>` 기본 18:00,
+`--all` = 위임 태그 필터 해제)
+
+## 에이전트 위임 플래그
+
+**자동 착수 대상은 WBS item 의 tags 에 `agent` 가 붙은 작업뿐이다.** 사람이 WBS 에서
+위임할 작업을 골라 태그를 달고, 폴링은 그것만 집어간다 — 태그 없는 작업은 목록에 떠도
+자동 착수하지 않는다(수동으로 `/dflow-dev <ref>` 직접 지시는 언제나 가능, 태그 무관).
+전량 자동의 위험(spec 없는 작업·판단이 필요한 작업까지 집어가는 것)을 구조에서 막는 장치다.
+
+- 표준 기동은 `--require-tag agent` 고정. 사용자가 명시적으로 `--all` 이라고 하면
+  필터 없이 기동한다(예전 동작) — 이때는 착수 전 판정이 유일한 방어선임을 통지한다.
+- 태그는 D'Flow 웹(WBS 편집)이나 wbs.md import 의 tags 필드로 단다.
+- list 응답에는 tags 가 없어 poll.sh 가 후보별 show 로 조회한다(주기당 후보 수만큼
+  API 호출 — 후보가 수십 건대면 interval 을 늘릴 것). 서버 list 응답에 tags 를 포함시키는
+  개선은 러너 설계 개정 묶음의 후보다.
 
 > **위치 선언**: 이 스킬은 "깨어 있는 세션이 주기적으로 서버를 확인"하는 구조 — 자율 러너
 > 설계(docs/superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md)가 **무인용으로는
@@ -19,8 +34,9 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
 
 1. **기동**: 대상 저장소(cwd)에서 poll.sh 를 **백그라운드로 실행**한다:
    ```bash
-   <wbs-web>/.claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00
+   <wbs-web>/.claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00 --require-tag agent
    ```
+   (`--require-tag agent` 는 표준 — 사용자가 `--all` 을 명시한 경우에만 뺀다.)
    **반드시 Bash 의 `run_in_background` 로** — 셸 `&` 백그라운드 금지. `&` 로 띄우면 종료
    알림이 세션에 오지 않아 루프가 소리 없이 끊긴다(2026-08-22 실증). 첫 조회는 즉시 —
    ready 가 이미 있으면 곧바로 종료 알림이 온다.
@@ -48,6 +64,8 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
 - **한 번에 1건.** /dflow-dev 사이클이 도는 동안 poll.sh 를 띄우지 않는다(중복 claim 방지).
 - 착수는 자동이되 **완료는 종전대로 승인 대기까지만** — done 후 approve 시도 금지(dflow-work 상속).
 - 매 착수·매 사이클 종료를 사용자에게 한 줄씩 통지한다 — 반자동의 "반"은 이 가시성이다.
+- **기동·재기동 시 위임 태그 없는 ready 가 있으면 "수동 대기 N건(목록)"을 한 줄 통지**한다 —
+  필터가 조용히 삼키면 사용자는 그 작업들이 있는 줄도 모른다. 통지만 하고 착수는 안 한다.
 - poll.sh 출력 파일을 tail 로 상시 관찰하지 않는다 — 종료 알림만 기다린다.
 - **exclude 사유 2종을 구분해 관리한다** (세션 로컬 목록에 사유를 함께 적는다):
   - **영구성**(사용자 결정 대기·선행의 구조적 부재·다른 프로젝트) — 사용자가 해소를 알리기
