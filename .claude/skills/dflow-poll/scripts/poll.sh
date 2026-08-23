@@ -9,15 +9,18 @@ set -u
 INTERVAL=300
 UNTIL=1800        # HHMM. --until HH:MM 로 변경. 자정 넘김(예: 02:00) 미지원 — 야간 사용 금지.
 EXCLUDE=""        # 쉼표 구분 id8 목록 — claim 이 선행 미충족(exit 4)으로 막힌 작업 제외용
+REQUIRE_TAG=""    # 지정 시 item.tags 에 이 태그가 있는 작업만 감지(에이전트 위임 플래그).
+                  # list 응답에는 tags 가 없어 후보별 show 1회씩 조회한다.
 NET_FAIL_MAX=3
 
-usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM] [--exclude id8,id8]" >&2; exit 2; }
+usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM] [--exclude id8,id8] [--require-tag 태그]" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --interval) INTERVAL="${2:-}"; shift 2 || usage ;;
-    --until)    UNTIL=$(printf '%s' "${2:-}" | tr -d ':'); shift 2 || usage ;;
-    --exclude)  EXCLUDE="${2:-}"; shift 2 || usage ;;
+    --interval)    INTERVAL="${2:-}"; shift 2 || usage ;;
+    --until)       UNTIL=$(printf '%s' "${2:-}" | tr -d ':'); shift 2 || usage ;;
+    --exclude)     EXCLUDE="${2:-}"; shift 2 || usage ;;
+    --require-tag) REQUIRE_TAG="${2:-}"; shift 2 || usage ;;
     *) usage ;;
   esac
 done
@@ -42,6 +45,23 @@ while :; do
       net_fail=0
       ready=$(printf '%s\n' "$out" | awk -F'\t' -v ex=",$EXCLUDE," \
         '$2=="RD" && index(ex, ","$4",")==0 {print $1"\t"$4"\t"$5}')
+      # 위임 플래그 필터: --require-tag 지정 시 태그가 있는 작업만 남긴다.
+      # 태그 없는 ready 는 수동 몫이므로 감지 대상이 아니다(통지는 세션이 한다).
+      if [ -n "$ready" ] && [ -n "$REQUIRE_TAG" ]; then
+        _kept=''
+        while IFS= read -r _line; do
+          [ -n "$_line" ] || continue
+          _id=$(printf '%s' "$_line" | cut -f2)
+          _tags=$("$DFLOW" show "$_id" 2>/dev/null | jq -r '.order.item.tags // [] | join(",")') || _tags=''
+          case ",$_tags," in
+            *",$REQUIRE_TAG,"*) _kept="${_kept}${_line}
+" ;;
+          esac
+        done <<POLL_EOF
+$ready
+POLL_EOF
+        ready=$(printf '%s' "$_kept")
+      fi
       [ -n "$ready" ] && { printf '%s\n' "$ready"; exit 0; }
       ;;
     3|5|7) printf '%s\n' "$out" >&2; exit "$rc" ;;
