@@ -16,7 +16,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminCli
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
-import { getWbsSpec, updateWbsSpec, updateWbsSpecFields } from '@/app/actions/wbsSpec'
+import { getWbsSpec, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields } from '@/app/actions/wbsSpec'
 import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
@@ -163,6 +163,46 @@ describe('updateWbsSpecFields', () => {
   })
 })
 
+describe('updateAgentPrompt', () => {
+  it('관리자 → agent_prompt 갱신(trim), 이력은 남기지 않는다(본문성 필드 — spec 과 달리 토큰 로그도 없음)', async () => {
+    const { captured } = admin({ wbs_items: [{ data: [{ id: W1 }] }] })
+    const r = await updateAgentPrompt(W1, '  기존 API 계약을 깨지 말 것  ')
+    expect(r.ok).toBe(true)
+    expect(mocks.requireProjectAdmin).toHaveBeenCalledWith(P1)
+    expect(captured.wbs_items[0]).toMatchObject({ agent_prompt: '기존 API 계약을 깨지 말 것' })
+  })
+
+  it('빈 문자열(공백만)은 null 로 저장 — 지운다', async () => {
+    const { captured } = admin({ wbs_items: [{ data: [{ id: W1 }] }] })
+    const r = await updateAgentPrompt(W1, '   ')
+    expect(r.ok).toBe(true)
+    expect(captured.wbs_items[0]).toMatchObject({ agent_prompt: null })
+  })
+
+  it('관리자 아님 → 거부, 쓰기 0', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    const { captured } = admin({})
+    const r = await updateAgentPrompt(W1, '프롬프트')
+    expect(r).toEqual({ ok: false, error: '권한 없음' })
+    expect(captured.wbs_items ?? []).toHaveLength(0)
+  })
+
+  it('16KB 초과 거부 — 프롬프트는 지시문이지 문서 저장소가 아니다', async () => {
+    const { calls } = admin({})
+    const r = await updateAgentPrompt(W1, 'a'.repeat(16_385))
+    expect(r.ok).toBe(false)
+    expect(calls).toHaveLength(0)
+    expect(mocks.resolveProjectId).not.toHaveBeenCalled()
+  })
+
+  it('문자열 아님·잘못된 itemId → 거부', async () => {
+    const { calls } = admin({})
+    expect((await updateAgentPrompt(W1, 42 as unknown as string)).ok).toBe(false)
+    expect((await updateAgentPrompt('nope', '프롬프트')).ok).toBe(false)
+    expect(calls).toHaveLength(0)
+  })
+})
+
 describe('getWbsSpec', () => {
   it('같은 프로젝트 멤버 + 조회 성공 → 현재 값 반환', async () => {
     mocks.createServerClient.mockResolvedValue({
@@ -174,7 +214,7 @@ describe('getWbsSpec', () => {
                 category: 'dev', domain: 'fullstack', priority: 'high', model: 'opus',
                 tags: ['contract'], depends: ['TSK-01-00'], prd_ref: 'docs/prd.md#3',
                 entry_point: 'src/x.tsx', acceptance: ['목록이 뜬다'], spec: '# 명세',
-                external_ref: 'mod/TSK-01-01',
+                external_ref: 'mod/TSK-01-01', agent_prompt: '레거시 호환 유지할 것',
               },
               error: null,
             }),
@@ -189,7 +229,7 @@ describe('getWbsSpec', () => {
       category: 'dev', domain: 'fullstack', priority: 'high', model: 'opus',
       tags: ['contract'], depends: ['TSK-01-00'], prdRef: 'docs/prd.md#3',
       entryPoint: 'src/x.tsx', acceptance: ['목록이 뜬다'], spec: '# 명세',
-      externalRef: 'mod/TSK-01-01',
+      externalRef: 'mod/TSK-01-01', agentPrompt: '레거시 호환 유지할 것',
     })
   })
 

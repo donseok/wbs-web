@@ -8,7 +8,7 @@ export type DependInfo = { external_ref: string; stage: string | null; branch: s
  */
 export const ITEM_DETAIL_COLUMNS =
   'id, code, name, external_ref, stage, category, domain, priority, model, tags, depends, ' +
-  'prd_ref, entry_point, acceptance, spec, assignee_member_id, planned_start, planned_end'
+  'prd_ref, entry_point, acceptance, spec, agent_prompt, assignee_member_id, planned_start, planned_end'
 
 /**
  * 선행 정보 — stage 는 게이트 재료(결정 C-①), evidence 는 클라이언트 로컬 도달 검사 재료(C-②).

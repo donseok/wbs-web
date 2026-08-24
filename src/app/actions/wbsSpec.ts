@@ -33,6 +33,8 @@ export interface WbsSpecDetail {
   acceptance: string[]
   spec: string | null
   externalRef: string | null
+  /** 에이전트 위임 시 사용자 지시문(0090) — 웹 전용 필드. import 가 덮지 않아 재업로드에도 보존. */
+  agentPrompt: string | null
 }
 
 /**
@@ -76,7 +78,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('wbs_items')
-    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref')
+    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref, agent_prompt')
     .eq('id', itemId).maybeSingle()
   if (error) {
     console.error('[getWbsSpec] 조회 실패:', error.message)
@@ -95,6 +97,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     acceptance: unknown
     spec: string | null
     external_ref: string | null
+    agent_prompt: string | null
   }
   return {
     category: row.category ?? null,
@@ -108,6 +111,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     acceptance: Array.isArray(row.acceptance) ? row.acceptance.filter((v): v is string => typeof v === 'string') : [],
     spec: row.spec ?? null,
     externalRef: row.external_ref ?? null,
+    agentPrompt: row.agent_prompt ?? null,
   }
 }
 
@@ -165,6 +169,36 @@ export async function updateWbsSpecFields(
 
 /** 에이전트 위임 태그 — dflow-poll 의 자동 착수 대상 판별 계약(값을 바꾸면 폴링과 어긋난다). */
 const AGENT_TAG = 'agent'
+
+const AGENT_PROMPT_MAX = 16_384 // 16KB — 프롬프트는 지시문이지 문서 저장소가 아니다(문서는 spec·prd_ref)
+
+/**
+ * 에이전트 프롬프트 저장(0090) — 위임 체크에 덧붙이는 사용자 지시문. trim 후 빈 값은 null(삭제).
+ * change_logs 를 남기지 않는다 — spec 과 같은 본문성 필드이고 spec 도 토큰 로그만 남기지만,
+ * 프롬프트는 수시로 다듬는 작업 메모 성격이라 이력 노이즈가 더 크다. 권한은 다른 명세 편집과
+ * 동일 — 프로젝트 관리자.
+ */
+export async function updateAgentPrompt(
+  itemId: string,
+  raw: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (typeof raw !== 'string') return { ok: false, error: '잘못된 요청입니다.' }
+  if (raw.length > AGENT_PROMPT_MAX) return { ok: false, error: '프롬프트가 너무 큽니다(16KB 상한).' }
+  if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
+  const loaded = await loadItemProject(itemId)
+  if (!loaded.ok) return loaded
+  const g = await requireProjectAdmin(loaded.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const admin = createAdminClient()
+  const { data: updated, error } = await admin
+    .from('wbs_items')
+    .update({ agent_prompt: raw.trim() || null, updated_at: new Date().toISOString() })
+    .eq('id', itemId).select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
+  revalidatePath(`/p/${loaded.projectId}`, 'layout')
+  return { ok: true }
+}
 
 /**
  * 에이전트 위임 토글 — tags 의 'agent' 만 넣고 뺀다(다른 태그 불변). 이 태그가 붙은 ready

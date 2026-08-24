@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { FileText, Pencil } from 'lucide-react'
-import { getWbsSpec, setAgentDelegation, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
+import { getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -46,6 +46,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
   const [loaded, setLoaded] = useState<WbsSpecDetail | 'error' | null>(null)
   const [prdRefDraft, setPrdRefDraft] = useState('')
   const [entryPointDraft, setEntryPointDraft] = useState('')
+  const [promptDraft, setPromptDraft] = useState('')
   const [refBusy, setRefBusy] = useState(false)
   const [refErr, setRefErr] = useState<string | null>(null)
   const [specEditing, setSpecEditing] = useState(false)
@@ -60,7 +61,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     getWbsSpec(itemId).then(r => {
       if (!alive) return
       setLoaded(r ?? 'error')
-      if (r) { setPrdRefDraft(r.prdRef ?? ''); setEntryPointDraft(r.entryPoint ?? '') }
+      if (r) { setPrdRefDraft(r.prdRef ?? ''); setEntryPointDraft(r.entryPoint ?? ''); setPromptDraft(r.agentPrompt ?? '') }
     })
     return () => { alive = false }
   }, [itemId])
@@ -96,6 +97,18 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     setLoaded(prev => (prev && prev !== 'error'
       ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
       : prev))
+    router.refresh()
+  }
+
+  async function commitAgentPrompt() {
+    if (!loaded || loaded === 'error') return
+    const value = promptDraft.trim() || null
+    if (value === loaded.agentPrompt) return // 변경 없음 — 쓰기 스킵(멱등 관례)
+    setRefBusy(true); setRefErr(null)
+    const res = await updateAgentPrompt(itemId, promptDraft)
+    setRefBusy(false)
+    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
+    setLoaded(prev => (prev && prev !== 'error' ? { ...prev, agentPrompt: value } : prev))
     router.refresh()
   }
 
@@ -186,6 +199,26 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
               <span className="text-[10px] text-ink-subtle">{t('wbs.specAgentDelegateHint')}</span>
             </label>
           )}
+          {/* 에이전트 프롬프트(0090) — 위임 신호에 덧붙이는 사용자 지시문. 비관리자에게는 값이 있을 때만 표시. */}
+          {editable ? (
+            <label className="block">
+              <span className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
+                <span>{t('wbs.specAgentPromptLabel')}</span>
+                <span className="font-normal text-[10px] text-ink-subtle">{t('wbs.specAgentPromptHint')}</span>
+              </span>
+              <textarea
+                data-agent-prompt value={promptDraft} disabled={refBusy} rows={3}
+                onChange={e => setPromptDraft(e.target.value)}
+                onBlur={commitAgentPrompt}
+                className="app-textarea text-xs" placeholder={t('wbs.specAgentPromptPlaceholder')}
+              />
+            </label>
+          ) : loaded.agentPrompt ? (
+            <div>
+              <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.specAgentPromptLabel')}</div>
+              <p className="whitespace-pre-wrap text-xs text-ink">{loaded.agentPrompt}</p>
+            </div>
+          ) : null}
           {refErr && <p className="text-xs font-medium text-delayed" role="alert">{refErr}</p>}
 
           <div>
