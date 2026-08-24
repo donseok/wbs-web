@@ -328,6 +328,22 @@ export async function setWbsStage(
   if (curErr) return { ok: false, error: `단계 조회 실패: ${curErr.message}` }
   const oldStage = (cur as { stage: string | null } | null)?.stage ?? null
   if (oldStage === stage) return { ok: true }
+  // 완료(xx) 직행 차단 — 이 드롭다운은 dev_workflow·agent_work_orders 를 전혀 안 보는 경로라,
+  // claimed/reported 인 활성 에이전트 주문이 있는 상태에서 xx 를 고르면 겉보기엔 승인된 것처럼
+  // 보이는데 주문은 그대로 남아 후속 작업 선행 게이트가 안 풀린다(2026-08-25 mes-runlog 리허설
+  // 실측 — 승인 버튼을 안 거치고 이 드롭다운으로 "완료"를 골라 발생). 완료는 승인 버튼으로만.
+  if (stage === 'xx') {
+    const { data: activeOrder, error: orderErr } = await admin
+      .from('agent_work_orders').select('id').eq('wbs_item_id', itemId)
+      .in('status', ['claimed', 'reported']).limit(1).maybeSingle()
+    if (orderErr) return { ok: false, error: `에이전트 주문 확인 실패: ${orderErr.message}` }
+    if (activeOrder) {
+      return {
+        ok: false,
+        error: '이 항목에 진행 중인 에이전트 주문이 있습니다 — 완료 처리는 "진행 상황"의 승인 버튼으로 하세요.',
+      }
+    }
+  }
   const { data: updated, error } = await admin
     .from('wbs_items')
     .update({ stage, updated_at: new Date().toISOString() })

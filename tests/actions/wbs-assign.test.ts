@@ -504,6 +504,47 @@ describe('setWbsStage', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('완료(xx) 직행 차단 — claimed 인 에이전트 주문이 있으면 거부(2026-08-25 mes-runlog 실측)', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: { stage: 'im' } },
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'xx')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/승인 버튼/)
+    expect(captured['agent_work_orders.in']).toEqual([['status', ['claimed', 'reported']]])
+    expect(captured.wbs_items).toBeUndefined() // update 까지 안 감
+  })
+
+  it('완료(xx) 직행 차단 — reported 인 에이전트 주문이 있어도 거부', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: { stage: 'im' } },
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'xx')
+    expect(r.ok).toBe(false)
+    expect(captured.change_logs).toBeUndefined()
+  })
+
+  it('완료(xx) 전 에이전트 주문 조회 실패 — 실패를 "주문 없음"으로 위장하지 않는다', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: { stage: 'im' } },
+      ],
+      agent_work_orders: [{ error: { message: 'boom' } }],
+    })
+    const r = await setWbsStage(W1, 'xx')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('boom')
+  })
+
   it('(a) fp→im 전이 시 depends 로 이 항목을 참조하는 후행 리프 담당자에게 work.unblocked 발행(미배정 후행은 건너뜀)', async () => {
     const W3 = '77777777-7777-4777-8777-777777777777'
     const { captured } = admin({
