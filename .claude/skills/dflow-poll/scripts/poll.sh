@@ -27,8 +27,10 @@ done
 case "$INTERVAL" in ''|*[!0-9]*) usage ;; esac
 case "$UNTIL"    in ''|*[!0-9]*) usage ;; esac
 
-ENV_FILE="${DFLOW_ENV_FILE:-$HOME/project/wbs-web/.env}"
-DFLOW="${DFLOW_SH:-$HOME/project/wbs-web/.claude/skills/dflow-work/scripts/dflow.sh}"
+# 기본 좌표는 자기 위치 기준 — 이 스킬 묶음(.claude/skills/)을 어느 리포에 심어도 닫힌다.
+SKILLS_DIR=$(cd "$(dirname "$0")/../.." && pwd)
+ENV_FILE="${DFLOW_ENV_FILE:-$PWD/.env}"
+DFLOW="${DFLOW_SH:-$SKILLS_DIR/dflow-work/scripts/dflow.sh}"
 [ -f "$ENV_FILE" ] || { echo "env 파일 없음: $ENV_FILE" >&2; exit 2; }
 [ -x "$DFLOW" ]   || { echo "dflow.sh 없음: $DFLOW" >&2; exit 2; }
 set -a; . "$ENV_FILE"; set +a

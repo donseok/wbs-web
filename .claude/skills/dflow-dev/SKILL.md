@@ -1,20 +1,20 @@
 ---
 name: dflow-dev
-description: D'Flow 작업 1건의 전체 개발 사이클 실행 (claim→설계→TDD구현→검증→완료보고). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 docs/agent/claude-skill/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--only design|build|verify|refactor] [--model opus|sonnet]
+description: D'Flow 작업 1건의 전체 개발 사이클 실행 (claim→설계→TDD구현→검증→완료보고). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 이 스킬의 references/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--only design|build|verify|refactor] [--model opus|sonnet]
 ---
 
 # /dflow-dev — D'Flow 작업 개발 사이클 (supervised)
 
 인자: `$ARGUMENTS` (`<순번|TSK-ID>` + 옵션)
 
-> **위치 선언**: 이 스킬은 자율 러너 설계(docs/superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md)의
+> **위치 선언**: 이 스킬은 자율 러너 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)의
 > **L0(supervised)** 대화형 경로다. 무인 루프는 러너의 영역이며 이 스킬은 사람이 기동·관찰하는
 > 세션에서만 쓴다. 구현 과정 규율(Phase 정의·TDD·게이트 기준선·모델 배정·공통 금지)의 정본은
-> **docs/agent/claude-skill/dev-discipline.md** — 먼저 읽고 그대로 따른다. 이 파일은 규율을
+> **`.claude/skills/dflow-dev/references/dev-discipline.md`** — 먼저 읽고 그대로 따른다. 이 파일은 규율을
 > 중복 서술하지 않고 오케스트레이션(순서·게이트 집행·상태·서버 보고)만 정의한다.
 >
 > 서버 통신은 전부 dflow.sh 로 하고 산문 파싱 금지 — exit code 로 분기한다. dflow-work 의
-> 금지사항 전부 상속. **dflow.sh 경로**: wbs-web 클론의 `.claude/skills/dflow-work/scripts/dflow.sh`
+> 금지사항 전부 상속. **dflow.sh 경로**: 대상 리포(cwd)의 `.claude/skills/dflow-work/scripts/dflow.sh`
 > (환경변수 `DFLOW_SH` 가 있으면 그것을 쓴다. `~/.claude/skills/...` 경로는 존재하지 않는다 — 추측 금지).
 
 ## 게이트 집행 원칙 (이 스킬의 존재 이유)

@@ -5,7 +5,7 @@ description: N단(5~8단) 대형 프로젝트의 wbs.md 를 levels 계약(frontm
 
 # /dflow-wbs-nlevel — N단 WBS 생성 (levels 계약)
 
-> **계약 정본은 `docs/superpowers/specs/2026-08-21-wbs-nlevel-md-contract.md` 다.**
+> **계약 정본은 `.claude/skills/dflow-wbs-nlevel/references/wbs-nlevel-md-contract.md` 다** (wbs-web docs/superpowers/specs 의 사본 — 갱신 시 둘 다).
 > 생성 전에 반드시 Read 하고, 이 파일과 다르면 그 문서가 이긴다.
 > 기존 `dflow-wbs`(3~4단 WSF)는 **동결** — 이 스킬과 규약이 다르며 서로 섞지 않는다.
 >
@@ -158,7 +158,7 @@ systems:
 - 시스템 목록을 스킬이 지어내지 않는다 — 입력(파일 또는 답변)에 없는 시스템은 만들지 않는다.
 - 필수 누락(project 없음, systems 0개)은 중단. 선택 누락(pl 미정)은 기본값 + 리포트.
 
-### wsf 골격 표준 구성 (2026-08-21 확정 — 실물 예시: `docs/mes/skel/wbs.md`)
+### wsf 골격 표준 구성 (2026-08-21 확정 — 실물 예시: `.claude/skills/dflow-wbs-nlevel/references/skeleton-sample.md`)
 
 구축(build Phase)은 System 자리만 두고, 나머지 4 Phase 는 아래 WP 구성을 템플릿으로 생성한다
 (시스템 횡단이라 System·Subsystem 층 건너뜀 — 얕은 비대칭 트리):
@@ -217,7 +217,7 @@ systems:
 ```bash
 # 1) export — 검증 게이트 내장(에러 시 payload 안 나옴). attach_ref 는 골격 module 로 자동 조립.
 python3 .claude/skills/dflow-wbs-nlevel/scripts/wbs-nlevel-parse.py export \
-  --wbs docs/mes/조업/wbs.md --skeleton docs/mes/skel/wbs.md > "$SCRATCHPAD/nlevel-op.json"
+  --wbs docs/mes/조업/wbs.md --skeleton docs/mes/skel/wbs.md > "$SCRATCHPAD/nlevel-op.json"   # 골격 경로는 프로젝트마다 다름
 
 # 2) 봉투 완성(project_id) 후 전송 — PAT 규칙·바인딩은 dflow-export SKILL.md 준용(값 비출력)
 python3 - <<EOF

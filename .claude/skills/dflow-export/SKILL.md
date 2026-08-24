@@ -7,7 +7,7 @@ description: 로컬 wbs.md 를 검증하고 D'Flow /wbs/import 계약 v2.1 JSON 
 
 로컬 `wbs.md` → D'Flow `POST /api/v1/wbs/import` 요청 본문 생성 (+선택 전송).
 **스크립트 정본**: 이 스킬 폴더 `.claude/skills/dflow-export/scripts/` (다른 리포의 사본과 무관 — 고치려면 여기를 고친다).
-**계약 정본**: `docs/agent/claude-skill/dflow-work/references/api-contract.md` §"POST /wbs/import" — **v2.1**. 이 스킬과 계약 문서가 다르면 계약이 이긴다.
+**계약 정본**: `.claude/skills/dflow-work/references/api-contract.md` §"POST /wbs/import" — **v2.1**. 이 스킬과 계약 문서가 다르면 계약이 이긴다.
 
 ## 인자
 

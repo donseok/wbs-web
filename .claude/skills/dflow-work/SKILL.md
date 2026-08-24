@@ -5,7 +5,7 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
 
 # D'Flow 작업 처리
 
-모든 호출은 `~/.claude/skills/dflow-work/scripts/dflow.sh` 로 한다. 산문 파싱 금지 —
+모든 호출은 대상 리포의 `.claude/skills/dflow-work/scripts/dflow.sh` 로 한다(리포 루트가 cwd. `DFLOW_SH` env 가 있으면 그것). 산문 파싱 금지 —
 **exit code 로 분기한다**: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증 실패 / 4 상태 충돌·선행 미반영 / 5 권한 부족 / 6 네트워크·서버 오류 / 7 기능 꺼짐.
 
 ## 시작 절차 (매 세션 1회)
@@ -19,7 +19,7 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    base: https://d-flow.example.com
    프로필 1: alice@example.com (계약 2.0, 프로젝트 3)
    ```
-   계약 버전이 2.0이 아니면 wbs-web 클론을 pull 하라고 사용자에게 안내.
+   계약 버전이 2.0이 아니면 dflow-kit(스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내.
 
 2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) 사용자가 지목한 사람으로 `--as <이름|email>` 옵션을 사용한다.
 
@@ -71,7 +71,7 @@ dflow.sh claim <순번>
 선행 조건이 미충족이면 **exit 4 로 차단**된다. 이 경우 fetch/merge 후 재시도한다. 우회 금지.
 
 성공 시:
-- `docs/tasks/<TSK>/spec.md` 캐시 생성 — **구현 전 반드시 읽는다** (명세 정본은 D'Flow DB, 이 파일은 claim 시점 스냅샷)
+- 아무 파일도 만들지 않는다. 명세는 `dflow.sh show <ref>` 의 `order.item.spec` 으로 읽는다 — **구현 전 반드시 읽는다** (정본은 D'Flow DB).
 
 ⚠️ **브랜치는 만들어지지 않는다** — dflow.sh 는 git 브랜치를 생성하지 않는다(스크립트에 해당 코드 없음).
 `agent/<주문id 8자>-<slug>` 브랜치는 **호출자가 claim 직후 직접 만든다**:

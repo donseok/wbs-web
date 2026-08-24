@@ -23,7 +23,7 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
   개선은 러너 설계 개정 묶음의 후보다.
 
 > **위치 선언**: 이 스킬은 "깨어 있는 세션이 주기적으로 서버를 확인"하는 구조 — 자율 러너
-> 설계(docs/superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md)가 **무인용으로는
+> 설계(wbs-web 리포 docs/superpowers/specs, 킷에는 미동봉)가 **무인용으로는
 > 기각한 B안 구조임을 알고 쓴다.** 사람이 근처에 있는 낮 시간 반자동 전용이며, `--until` 상한
 > 없이 방치하는 사용을 금지한다. 무인 야간 실행은 러너(launchd)의 영역이다.
 >
@@ -34,13 +34,13 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
 
 1. **기동**: 대상 저장소(cwd)에서 poll.sh 를 **백그라운드로 실행**한다:
    ```bash
-   <wbs-web>/.claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00 --require-tag agent
+   .claude/skills/dflow-poll/scripts/poll.sh --interval 300 --until 18:00 --require-tag agent
    ```
    (`--require-tag agent` 는 표준 — 사용자가 `--all` 을 명시한 경우에만 뺀다.)
    **반드시 Bash 의 `run_in_background` 로** — 셸 `&` 백그라운드 금지. `&` 로 띄우면 종료
    알림이 세션에 오지 않아 루프가 소리 없이 끊긴다(2026-08-22 실증). 첫 조회는 즉시 —
    ready 가 이미 있으면 곧바로 종료 알림이 온다.
-   `DFLOW_ENV_FILE`·`DFLOW_SH` env 로 wbs-web 클론 좌표를 오버라이드할 수 있다.
+   기본값: `.env` 는 cwd 의 것, dflow.sh 는 poll.sh 와 같은 스킬 묶음의 것(자기 위치 기준). `DFLOW_ENV_FILE`·`DFLOW_SH` env 로 오버라이드.
 2. **종료 알림 분기** (exit code — 산문 파싱 금지):
    - **0 = ready 발견**: stdout 각 줄이 `순번<TAB>id8<TAB>이름`. **착수 전에 dflow-dev
      Phase 0 의 착수 가능 판정(spec 실재·선행 검사)을 먼저 통과시킨다** — 불가 판정이면
