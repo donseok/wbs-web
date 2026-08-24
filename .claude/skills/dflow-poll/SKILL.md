@@ -78,7 +78,10 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
   - **일시성**(spec 부재·선행 산출물 대기) — 사용자가 "채워졌다/승인됐다"고 알리면, 또는
     긴 대기 후 재기동할 때 `dflow.sh show` 로 한 번 재검사해 해소됐으면 exclude 에서 뺀다.
     exclude 는 id 기준이라 서버에서 spec 이 채워져도 자동으론 모른다 — 재검사가 유일한 길이다.
-- 선행 작업 approve 통지를 받으면: 먼저 /dflow-merge 로 main 반영 → 관련 exclude 해제 → 재기동.
+- 선행 작업 approve 통지를 받으면: 관련 exclude 해제 → 재기동. main 반영은 이제 /dflow-dev 시작
+  시 자체 스윕(Phase 0-가, 2026-08-24)이 하므로 여기서 /dflow-merge 를 별도로 부를 필요는 없다 —
+  poll 사이클 사이 시간이 커서 지금 당장 반영해야 하면(다른 세션·다른 PC 가 그 선행을 기다림)
+  /dflow-merge 를 직접 써도 된다.
 
 ## 종료 조건 요약
 

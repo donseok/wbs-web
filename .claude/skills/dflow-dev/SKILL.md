@@ -1,6 +1,6 @@
 ---
 name: dflow-dev
-description: D'Flow 작업 1건의 전체 개발 사이클 실행 (claim→설계→TDD구현→검증→완료보고). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 이 스킬의 references/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--only design|build|verify|refactor] [--model opus|sonnet]
+description: D'Flow 작업 1건의 전체 개발 사이클 실행 (승인 스윕→claim→설계→TDD구현→검증→완료보고). 시작 시 승인된(approved) 로컬 작업을 먼저 main 에 머지한다(/dflow-merge 흡수, 2026-08-24). 대화형 supervised 전용 — 무인 실행은 자율 러너 설계(2026-08-20)의 영역이다. 구현 규율 정본은 이 스킬의 references/dev-discipline.md. 트리거 - "/dflow-dev", "작업 구현해", "D'Flow 작업 개발". 사용법 - /dflow-dev <순번|TSK-ID> [--only design|build|verify|refactor] [--model opus|sonnet]
 ---
 
 # /dflow-dev — D'Flow 작업 개발 사이클 (supervised)
@@ -44,11 +44,38 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 - **재claim 시 이전 시도의 잔재 격리**: claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면
   `docs/tasks/<TSK>.prev-<날짜>/` 로 옮긴 뒤 시작한다(stale state 로 Phase 건너뜀 방지).
 
+## Phase 0-가 — 승인 스윕(머지, 오케스트레이터 본인)
+
+**claim 보다 먼저** 실행한다. `/dflow-merge` 의 절차를 그대로 흡수한 것 — 사람이 D'Flow 웹에서
+승인해 놓고 아무도 main 에 반영을 안 시키는 게 병목이었다(2026-08-24). 대상 작업의 claim 여부와
+무관하게 매 호출마다 돈다.
+
+1. **후보 식별**: 대상 저장소의 `docs/tasks/*/state.json` 중 `phase=reported` 전부.
+2. **판정 — approved 만**: 각각 `dflow.sh show <ref>` 로 서버 상태 확인. `status=approved` 아니면
+   건너뛰고 "승인 대기"로 집계만(로그를 위해 사유 남김). **approved 확인 전 머지 절대 금지** —
+   로컬 state 나 기억이 아니라 이 show 응답이 판정이다.
+3. **순서 — 스택은 조상 먼저**: 후보가 여럿이면 `git merge-base --is-ancestor A B` 로 조상 관계를
+   판정해 조상부터. 조상이 approved 가 아니면 그 후손도 이번엔 건너뛴다(미승인 커밋이 main 에
+   섞이지 않게).
+4. **머지**:
+   ```bash
+   git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>
+   git merge --no-ff agent/<id8>-<slug> -m "merge: <TSK> <제목> (approved)"
+   git push origin <기본브랜치>
+   ```
+   `--no-ff` 고정. push 가 훅에 거부되면 우회 금지, 중단·보고(이 작업만 건너뛰고 나머지 스윕은 계속).
+5. **뒷정리**: state.json `phase=merged` 갱신(기본브랜치에 커밋, 파일명 명시). 머지된 `agent/`
+   브랜치 삭제(로컬+원격). 미승인 후손 스택 브랜치는 그대로 둔다(제 차례에 깨끗이 머지됨).
+6. **집계 보고**: 머지됨 / 승인 대기 / 건너뜀(사유) 을 한 줄씩 — 원래 요청받은 작업으로 넘어가기 전.
+
+머지 대상이 wbs-web 자신이면 G1~G4 훅 제약이 여기도 적용된다.
+
 ## Phase 0 — Claim·브랜치·기준선 (오케스트레이터 본인)
 
 1. `dflow.sh doctor` (세션 첫 호출 시). `dflow.sh show <ref>` 로 상태 확인:
    ready → 착수 가능 판정(2번) 후 claim / claimed → 재개 판정(위 상태 모델) /
-   reported → 종료 / approved → 종료(main 반영은 /dflow-merge 의 몫).
+   reported → 종료 / approved → 위 Phase 0-가 스윕이 이미 처리했어야 함(로컬 state.json 이 없는
+   작업이라 스윕이 못 봤을 수 있다 — 그 경우 지금 즉시 같은 머지 절차를 이 ref 하나로 실행 후 종료).
 2. **착수 가능 판정 — 서버는 이걸 안 해준다(2026-08-22 실증: 선행 미승인·spec 부재 작업의
    claim 이 전부 조용히 통과했다).** claim 전에 오케스트레이터가 직접:
    - **spec 검사**: show 의 `item.spec` 이 비어 있으면 착수 불가 — 제목만으로 요구사항을
@@ -56,7 +83,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
    - **선행 검사** (depends 각각에 대해):
      - evidence 에 head_sha 가 있으면(선행 approved):
        `git fetch origin && git merge-base --is-ancestor <head_sha> origin/<기본브랜치>` —
-       거짓이면 선행이 main 미반영 상태. /dflow-merge 를 먼저 실행한다.
+       거짓이면 선행이 main 미반영 상태. **Phase 0-가 4번과 같은 절차로 지금 직접 머지한다**
+       (브랜치명을 모르면 `<head_sha>` 를 그대로 머지 대상으로 써도 된다 — fetch 로 이미 origin 에
+       있다). 머지 후 이어서 진행.
      - evidence 가 null 이면(선행 미승인): 선행 산출물이 로컬 `agent/` 브랜치에 실재하는지
        확인한다. **실재하면** 미승인 위에 쌓는 리스크를 보고하고 스택 브랜치(3번)로 진행,
        **부재하면 착수 불가** — 스킵하고 사유 보고(입력 없는 산출은 날조다).
@@ -98,7 +127,9 @@ Refactor 는 supervised 에서 기본 실행, 실패 시 Refactor 커밋만 되�
 3. `dflow.sh show <ref>` 로 spec 개정 여부 최종 확인(낡은 명세로 done 방지) →
    `dflow.sh done <ref> "<요약>" --auto-links`.
 4. state.json `phase=reported`. 사용자에게 **"승인 대기로 보고했습니다"** 로 전달(완료 아님).
-   **승인 뒤 agent 브랜치의 main 반영은 이 스킬의 범위 밖** — /dflow-merge 가 담당한다.
+   **승인은 사람이 D'Flow 웹에서 하는 비동기 이벤트라 이 세션 안에서 못 기다린다** — main 반영은
+   다음 `/dflow-dev` 호출의 Phase 0-가 스윕이 자동으로 처리한다(수동으로 지금 당장 머지만 하고
+   싶으면 `/dflow-merge` 를 여전히 따로 쓸 수 있다).
 
 ## --only 옵션
 
