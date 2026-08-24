@@ -93,6 +93,9 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     const res = await setAgentDelegation(itemId, delegated)
     setRefBusy(false)
     if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
+    // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않은 경우.
+    // 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
+    if (res.warning) setRefErr(res.warning)
     setLoaded(prev => (prev && prev !== 'error'
       ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
       : prev))

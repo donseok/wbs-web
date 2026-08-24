@@ -6,7 +6,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
-import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
+import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { REACHED_STAGES, notifySuccessorsOnReached, transitionStage } from '@/lib/agent/stageTransition'
 
 /**
@@ -474,6 +474,18 @@ export async function setWbsDevWorkflow(
   let cascadeFailed = false
 
   if (enabled) {
+    // 프로젝트 자동 활성(2026-08-24) — dev_workflow ON 도 "에이전트에게 일을 시키는 행위"다. 처음 활성이면
+    // 백필이 이 프로젝트의 dev_workflow 리프 전부(방금 켠 것 포함)에 주문을 보장한다. 실패는 로깅만.
+    try {
+      const proj = await ensureAgentProject(admin, { projectId: resolved.projectId, actorUserId: g.actor.userId })
+      if (!proj.ok) console.error('[wbsAssign] dev_workflow ON 프로젝트 활성 실패:', proj.error)
+      else if (proj.activated) {
+        const bf = await backfillProjectOrders(admin, { projectId: resolved.projectId, actorUserId: g.actor.userId })
+        if (!bf.ok) console.error('[wbsAssign] 백필 실패:', bf.error)
+      }
+    } catch (e) {
+      console.error('[wbsAssign] dev_workflow ON 프로젝트 활성 예외:', e)
+    }
     // ON — 리프에만 초기 as 전이 + 자동 주문 발행. 실패는 로깅만(본 토글 결과는 유지).
     for (const id of updatedIds) {
       if (hasChildren.has(id)) continue

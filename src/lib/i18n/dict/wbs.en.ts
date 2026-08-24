@@ -224,7 +224,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specPriorityLow': 'Low',
   'wbs.specPriorityNoneOption': 'No priority',
   'wbs.specAgentDelegateLabel': 'Agent delegation',
-  'wbs.specAgentDelegateHint': 'Auto-picked by the polling loop when checked (tags: agent)',
+  'wbs.specAgentDelegateHint': 'Tick = issue. An order is created and a polling agent picks it up. Untick = cancel the waiting order',
   'wbs.specPrdRefLabel': 'PRD ref',
   'wbs.specEntryPointLabel': 'Entry point',
   'wbs.specRefPlaceholder': 'Not set',

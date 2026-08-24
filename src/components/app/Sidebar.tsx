@@ -5,8 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
   BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
-  ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
-} from 'lucide-react'
+  ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon, Bot } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
@@ -58,6 +57,9 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, i
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
   ]
   // 설정은 프로젝트 관리자 전용(2026-08-20) — 링크만 숨기는 게 아니라 페이지 게이트도 함께 건다.
+  // 승인 대기함(2026-08-24) — 에이전트 보고의 승인·반려는 관리자 몫. 페이지는 전역(/agent-ops)이라 프로젝트를
+  // 쿼리로 넘긴다. 종전엔 진입 경로가 없어 URL 을 직접 쳐야 했다(리허설 실측).
+  if (isAdmin) items.push({ href: `/agent-ops?project=${encodeURIComponent(base.replace('/p/', ''))}`, labelKey: 'nav.agentOps', icon: Bot, match: '/agent-ops' })
   if (isAdmin) items.push({ href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` })
   // 포트폴리오·사용 현황은 전사 지표라 프로젝트 스코프가 아니다 —
   // 설정 바로 아래에 두되 링크는 전역 경로로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.

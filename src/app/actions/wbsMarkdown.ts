@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { requireProjectAdmin } from '@/lib/authz'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runWbsImport, validateLevels } from '@/lib/agent/wbsImport'
+import { ensureAgentProject } from '@/lib/agent/ensureOrder'
 import { parseWbsMarkdown, toImportNodes, validateWbsDoc, type WbsDoc } from '@/lib/wbsmd/parse'
 import { chunked } from '@/lib/ai/util'
 
@@ -140,6 +141,10 @@ export async function applyWbsUpload(projectId: string, md: string): Promise<{
   ok: boolean; error?: string
   upserted?: number; ordersCreated?: number
   unmatched?: Array<{ id: string; assignee: string }>
+  /** payload 의 task(input 층) 노드 수 — ordersCreated 와 대조해 "침묵 0건"을 화면이 잡는다. */
+  taskCount?: number
+  /** 프로젝트가 "에이전트 중지" 상태라 주문이 안 나간 경우 — 사람이 설정에서 켜야 한다. */
+  agentStopped?: boolean
 }> {
   const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
@@ -163,14 +168,28 @@ export async function applyWbsUpload(projectId: string, md: string): Promise<{
       attachRef = r.ref
     }
 
+    const nodes = toImportNodes(doc)
+    const taskCount = nodes.filter(n => n.kind === 'task').length
+    // 프로젝트 자동 활성(2026-08-24) — task 가 있는 업로드는 dev_workflow 를 심으므로 "에이전트에게 일을 시키는
+    // 행위"다. 업로드 전에 활성해야 runWbsImport 안의 주문 보장이 첫 업로드부터 발행한다(종전엔 /agent-ops
+    // "루프 등록"이 먼저여야 했고, 순서가 바뀌면 주문 0건인 채 침묵했다). 중지(enabled=false)면 되살리지 않는다.
+    let agentStopped = false
+    if (taskCount > 0) {
+      const proj = await ensureAgentProject(admin, { projectId, actorUserId: g.actor.userId })
+      if (!proj.ok) return { ok: false, error: proj.error }
+      agentStopped = proj.stopped
+    }
     const result = await runWbsImport(admin, {
       projectId, module: module_, actorUserId: g.actor.userId,
-      levels: doc.levels, attachRef, nodes: toImportNodes(doc),
+      levels: doc.levels, attachRef, nodes,
     })
     if (!result.ok) return { ok: false, error: result.message }
 
     revalidatePath(`/p/${projectId}/wbs`)
-    return { ok: true, upserted: result.upserted, ordersCreated: result.ordersCreated, unmatched: result.unmatched }
+    return {
+      ok: true, upserted: result.upserted, ordersCreated: result.ordersCreated, unmatched: result.unmatched,
+      taskCount, ...(agentStopped ? { agentStopped: true } : {}),
+    }
   } catch (e) {
     console.error('[wbs-md] 적용 실패:', e instanceof Error ? e.message : e)
     return { ok: false, error: e instanceof Error ? e.message : '업로드에 실패했습니다.' }

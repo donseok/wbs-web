@@ -16,10 +16,11 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminCli
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: vi.fn().mockResolvedValue(undefined) }))
+const backfill = vi.hoisted(() => ({ backfillProjectOrders: vi.fn() }))
+vi.mock('@/lib/agent/ensureOrder', () => ({ backfillProjectOrders: backfill.backfillProjectOrders }))
 
 import {
-  approveAgentCompletion, createAgentWorkOrder, rejectAgentCompletion,
-  registerAgentProject, unregisterAgentProject, reclaimAgentOrder, cancelAgentOrder, fetchAgentOps,
+  approveAgentCompletion, rejectAgentCompletion, reclaimAgentOrder, fetchAgentOps, setAgentProjectEnabled,
 } from '@/app/actions/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 
@@ -55,94 +56,6 @@ beforeEach(() => {
   mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
   mocks.requireSuperuser.mockResolvedValue(ACTOR)
   mocks.updateActual.mockResolvedValue({ ok: true })
-})
-
-describe('createAgentWorkOrder', () => {
-  it('projectId 형식 검증 — 비형식 거부', async () => {
-    const r = await createAgentWorkOrder('invalid-id', W1, '지시', 0)
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('잘못된 요청입니다.')
-  })
-  it('wbsItemId 형식 검증 — 비형식 거부', async () => {
-    const r = await createAgentWorkOrder(P1, 'invalid-id', '지시', 0)
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('잘못된 요청입니다.')
-  })
-  it('리프가 아닌 항목은 발행 거부', async () => {
-    admin({
-      agent_projects: [{ data: { project_id: P1, enabled: true } }],
-      wbs_items: [
-        { data: { id: W1, project_id: P1 } }, // 항목
-        { data: { id: 'child' } },                // 자식 있음
-      ],
-    })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r.ok).toBe(false)
-  })
-  it('타 프로젝트 항목은 발행 거부', async () => {
-    admin({
-      agent_projects: [{ data: { project_id: P1, enabled: true } }],
-      wbs_items: [{ data: { id: W1, project_id: 'OTHER' } }],
-    })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r.ok).toBe(false)
-  })
-  it('권한 없으면 거부', async () => {
-    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r).toEqual({ ok: false, error: '권한 없음' })
-  })
-  it('에이전트 루프 미등록 프로젝트는 발행 거부', async () => {
-    admin({ agent_projects: [{ data: null }] })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('에이전트 루프가 등록되지 않은 프로젝트입니다.')
-  })
-  it('등록됐지만 비활성(enabled:false) 이면 발행 거부', async () => {
-    admin({ agent_projects: [{ data: { project_id: P1, enabled: false } }] })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('에이전트 루프가 등록되지 않은 프로젝트입니다.')
-  })
-  it('등록 조회 실패 시 중단(3원칙 — 실패를 미등록으로 위장하지 않는다)', async () => {
-    admin({ agent_projects: [{ data: null, error: { message: 'permission denied' } }] })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('등록 조회 실패')
-  })
-  it('발행 성공 시 dev_workflow=false 였던 항목을 true 로 갱신 + change_logs 기록(F5, 최종 리뷰 — "발행 = 도입 선언")', async () => {
-    const { captured } = admin({
-      agent_projects: [{ data: { project_id: P1, enabled: true } }],
-      wbs_items: [
-        { data: { id: W1, project_id: P1, dev_workflow: false } }, // 항목 조회
-        { data: null }, // 자식 없음(리프)
-        { data: null }, // dev_workflow UPDATE
-      ],
-      agent_work_orders: [{ data: [{ id: O1 }] }], // insert
-      change_logs: [{ data: { id: 'cl-1' } }],
-    })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r.ok).toBe(true)
-    expect(r.id).toBe(O1)
-    expect(captured.wbs_items[0]).toMatchObject({ dev_workflow: true })
-    expect(captured.change_logs[0]).toMatchObject({
-      field: 'dev_workflow', old_value: 'false', new_value: 'true', wbs_item_id: W1,
-    })
-  })
-  it('발행 시 이미 dev_workflow=true 인 항목은 갱신·이력 기록을 건너뛴다', async () => {
-    const { captured } = admin({
-      agent_projects: [{ data: { project_id: P1, enabled: true } }],
-      wbs_items: [
-        { data: { id: W1, project_id: P1, dev_workflow: true } }, // 항목 조회
-        { data: null }, // 자식 없음(리프)
-      ],
-      agent_work_orders: [{ data: [{ id: O1 }] }], // insert
-    })
-    const r = await createAgentWorkOrder(P1, W1, '지시', 0)
-    expect(r.ok).toBe(true)
-    expect(captured.wbs_items).toBeUndefined()
-    expect(captured.change_logs).toBeUndefined()
-  })
 })
 
 describe('approveAgentCompletion', () => {
@@ -260,39 +173,49 @@ describe('rejectAgentCompletion', () => {
   })
 })
 
-describe('registerAgentProject', () => {
+describe('setAgentProjectEnabled — 킬스위치(2026-08-24, 등록 화면 대체)', () => {
+  beforeEach(() => { backfill.backfillProjectOrders.mockResolvedValue({ ok: true, created: 2, failed: [] }) })
   it('비형식 projectId 거부', async () => {
-    const r = await registerAgentProject('invalid-id', '메모')
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('잘못된 요청입니다.')
+    const r = await setAgentProjectEnabled('invalid-id', true)
+    expect(r).toEqual({ ok: false, error: '잘못된 요청입니다.' })
   })
-  it('슈퍼유저 아니면 거부', async () => {
-    mocks.requireSuperuser.mockResolvedValue({ ok: false, error: '슈퍼 필요' })
-    const r = await registerAgentProject(P1, '메모')
-    expect(r).toEqual({ ok: false, error: '슈퍼 필요' })
+  it('프로젝트 관리자 아니면 거부(슈퍼유저 전용이 아니다)', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 필요' })
+    const r = await setAgentProjectEnabled(P1, true)
+    expect(r).toEqual({ ok: false, error: '관리자 필요' })
   })
-  it('성공 시 insert+revalidate', async () => {
-    admin({ agent_projects: [{ data: [{ project_id: P1 }] }] })
-    const r = await registerAgentProject(P1, '메모')
+  it('활성된 적 없는 프로젝트를 중지 → no-op(insert 없음)', async () => {
+    const { captured } = admin({ agent_projects: [{ data: null }] })
+    const r = await setAgentProjectEnabled(P1, false)
     expect(r.ok).toBe(true)
+    expect(captured.agent_projects).toBeUndefined()
+    expect(backfill.backfillProjectOrders).not.toHaveBeenCalled()
   })
-})
-
-describe('unregisterAgentProject', () => {
-  it('비형식 projectId 거부', async () => {
-    const r = await unregisterAgentProject('invalid-id')
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('잘못된 요청입니다.')
+  it('처음 켜기 → insert + 백필', async () => {
+    const { captured } = admin({ agent_projects: [{ data: null }, { data: null }] })
+    const r = await setAgentProjectEnabled(P1, true)
+    expect(r).toEqual({ ok: true, backfilled: 2 })
+    expect(captured.agent_projects[0]).toMatchObject({ project_id: P1, created_by: 'admin-1' })
+    expect(backfill.backfillProjectOrders).toHaveBeenCalledWith(expect.anything(), { projectId: P1, actorUserId: 'admin-1' })
   })
-  it('슈퍼유저 아니면 거부', async () => {
-    mocks.requireSuperuser.mockResolvedValue({ ok: false, error: '권한 없음' })
-    const r = await unregisterAgentProject(P1)
-    expect(r).toEqual({ ok: false, error: '권한 없음' })
-  })
-  it('성공 시 delete', async () => {
-    admin({ agent_projects: [{ data: null }] })
-    const r = await unregisterAgentProject(P1)
+  it('중지 → enabled:false 로 update, 백필 없음', async () => {
+    const { captured } = admin({ agent_projects: [{ data: { enabled: true } }, { data: null }] })
+    const r = await setAgentProjectEnabled(P1, false)
     expect(r.ok).toBe(true)
+    expect(captured.agent_projects[0]).toEqual({ enabled: false })
+    expect(backfill.backfillProjectOrders).not.toHaveBeenCalled()
+  })
+  it('재개 → enabled:true 로 update + 백필', async () => {
+    const { captured } = admin({ agent_projects: [{ data: { enabled: false } }, { data: null }] })
+    const r = await setAgentProjectEnabled(P1, true)
+    expect(r).toEqual({ ok: true, backfilled: 2 })
+    expect(captured.agent_projects[0]).toEqual({ enabled: true })
+  })
+  it('등록 조회 실패는 중단(위장 금지)', async () => {
+    admin({ agent_projects: [{ data: null, error: { message: 'boom' } }] })
+    const r = await setAgentProjectEnabled(P1, true)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('등록 조회 실패')
   })
 })
 
@@ -321,24 +244,6 @@ describe('reclaimAgentOrder', () => {
     expect(captured.agent_work_orders[0]).toMatchObject({
       status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
     })
-  })
-})
-
-describe('cancelAgentOrder', () => {
-  it('orderId 형식 검증 — 비형식 거부', async () => {
-    const r = await cancelAgentOrder('invalid-id')
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('잘못된 요청입니다.')
-  })
-  it('approved 상태면 거부', async () => {
-    admin({ agent_work_orders: [{ data: { id: O1, project_id: P1, status: 'approved', wbs_item_id: W1 } }] })
-    const r = await cancelAgentOrder(O1)
-    expect(r.ok).toBe(false)
-  })
-  it('ready→cancelled 성공', async () => {
-    admin({ agent_work_orders: [{ data: { id: O1, project_id: P1, status: 'ready', wbs_item_id: W1 } }, { data: [{ id: O1 }] }] })
-    const r = await cancelAgentOrder(O1)
-    expect(r.ok).toBe(true)
   })
 })
 
