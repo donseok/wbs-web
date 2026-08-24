@@ -65,6 +65,25 @@ function downloadBackup(projectId: string, backup: { rows: unknown[]; generatedA
  *  재사용한다 — export.ts 를 건드리지 않고 이미 있는 라우트를 그대로 소비만 한다.
  *  outline+펼침처럼 라우트가 400 으로 거부하는 조합은 그 에러 메시지를 그대로 토스트로 보여준다
  *  (무증상 실패 금지 — 3원칙). */
+/** wbs.xlsx 양식 — 프로젝트 무관 정적 파일(/api/import/template). 빈손인 사용자가 마법사가 100% 잡는 형식으로 시작하게. */
+async function downloadTemplate(toast: ReturnType<typeof useToast>['toast'], failedTitle: string) {
+  const res = await fetch('/api/import/template')
+  if (!res.ok) {
+    const err = (await res.json().catch(() => null)) as { error?: string } | null
+    toast({ title: failedTitle, description: err?.error, variant: 'error' })
+    return
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'wbs-양식.xlsx'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 async function downloadProfileExport(
   projectId: string,
   toast: ReturnType<typeof useToast>['toast'],
@@ -263,6 +282,13 @@ export function ImportWizard({
 
       {state.step === 'select' && (
         <div className="card space-y-4 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-ink-muted">{t('importWizard.templateDesc')}</p>
+            <button type="button" className="btn btn-ghost shrink-0" disabled={state.busy}
+              onClick={() => void downloadTemplate(toast, t('importWizard.templateFailed'))}>
+              <Download className="h-4 w-4" />{t('importWizard.templateButton')}
+            </button>
+          </div>
           <label className="group flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-line-strong bg-surface-2 px-6 text-center transition hover:border-brand hover:bg-brand-weak/40">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-line bg-surface text-brand shadow-sm transition group-hover:border-brand-ring">
               <Upload className="h-5 w-5" />
