@@ -4,8 +4,9 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
-  ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon, Bot } from 'lucide-react'
+  BarChart3, BookOpenText, Bot, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
+} from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { queueUiPref } from '@/lib/prefs/debouncedSave'
@@ -43,7 +44,7 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
   unknown: { dot: 'bg-slate-400', label: '확인 불가' },
 }
 
-function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, isAdmin: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
+function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, isAdmin: boolean, showAgentOps = false): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
   const items: { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] = [
     { href: `${base}/dashboard`, labelKey: 'nav.dashboard', icon: LayoutDashboard, match: `${base}/dashboard` },
     { href: `${base}/wbs`, labelKey: 'nav.wbsGantt', icon: ListTree, match: `${base}/wbs` },
@@ -57,18 +58,17 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, i
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
   ]
   // 설정은 프로젝트 관리자 전용(2026-08-20) — 링크만 숨기는 게 아니라 페이지 게이트도 함께 건다.
-  // 승인 대기함(2026-08-24) — 에이전트 보고의 승인·반려는 관리자 몫. 페이지는 전역(/agent-ops)이라 프로젝트를
-  // 쿼리로 넘긴다. 종전엔 진입 경로가 없어 URL 을 직접 쳐야 했다(리허설 실측).
-  if (isAdmin) items.push({ href: `/agent-ops?project=${encodeURIComponent(base.replace('/p/', ''))}`, labelKey: 'nav.agentOps', icon: Bot, match: '/agent-ops' })
   if (isAdmin) items.push({ href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` })
   // 포트폴리오·사용 현황은 전사 지표라 프로젝트 스코프가 아니다 —
   // 설정 바로 아래에 두되 링크는 전역 경로로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.
   if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
   if (showUsage) items.push({ href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' })
+  // 에이전트 관제도 전역 화면(프로젝트는 화면 안에서 고른다) — 슈퍼유저 전용. 종전엔 진입 링크가 없어 URL 직접 접근뿐이었다.
+  if (showAgentOps) items.push({ href: '/agent-ops', labelKey: 'nav.agentOps', icon: Bot, match: '/agent-ops' })
   return items
 }
 
-export function Sidebar({ projects, showUsage = false, showPortfolio = false }: { projects: SidebarProject[]; showUsage?: boolean; showPortfolio?: boolean }) {
+export function Sidebar({ projects, showUsage = false, showPortfolio = false, showAgentOps = false }: { projects: SidebarProject[]; showUsage?: boolean; showPortfolio?: boolean; showAgentOps?: boolean }) {
   const router = useRouter()
   const pathname = usePathname()
   const { t } = useLocale()
@@ -221,7 +221,7 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
           <div className="space-y-1">
             {menuProjectId ? (
               <>
-                {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio, projects.find(p => p.id === menuProjectId)?.isAdmin ?? false).map(item => {
+                {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio, projects.find(p => p.id === menuProjectId)?.isAdmin ?? false, showAgentOps).map(item => {
                   const active = pathname === item.match || pathname.startsWith(item.match + '/')
                   const ItemIcon = item.icon
                   const label = t(item.labelKey)
@@ -275,6 +275,15 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
                     <Link href="/usage" aria-current={pathname === '/usage' ? 'page' : undefined}
                       className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
                       <BarChart3 className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.usage')}</span>}
+                    </Link>
+                  </Tooltip>
+                )}
+                {/* 프로젝트를 고르지 않은 상태에서도 에이전트 관제에 닿을 수 있어야 한다 — 슈퍼유저 전용 */}
+                {showAgentOps && (
+                  <Tooltip label={t('nav.agentOps')} side="right" disabled={!collapsed}>
+                    <Link href="/agent-ops" aria-current={pathname === '/agent-ops' ? 'page' : undefined}
+                      className={`side-link ${pathname === '/agent-ops' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+                      <Bot className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.agentOps')}</span>}
                     </Link>
                   </Tooltip>
                 )}
