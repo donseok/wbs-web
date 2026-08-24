@@ -47,16 +47,32 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 ## Phase 0 — Claim·브랜치·기준선 (오케스트레이터 본인)
 
 1. `dflow.sh doctor` (세션 첫 호출 시). `dflow.sh show <ref>` 로 상태 확인:
-   ready → claim (exit 4 면 fetch/merge 후 1회 재시도, 그래도 4 면 중단·보고. 우회 금지) /
-   claimed → 재개 판정(위 상태 모델) / reported·approved → 종료.
-2. **브랜치를 오케스트레이터가 직접 만든다** — dflow.sh 는 브랜치를 만들지 않는다(스크립트 실측):
+   ready → 착수 가능 판정(2번) 후 claim / claimed → 재개 판정(위 상태 모델) /
+   reported → 종료 / approved → 종료(main 반영은 /dflow-merge 의 몫).
+2. **착수 가능 판정 — 서버는 이걸 안 해준다(2026-08-22 실증: 선행 미승인·spec 부재 작업의
+   claim 이 전부 조용히 통과했다).** claim 전에 오케스트레이터가 직접:
+   - **spec 검사**: show 의 `item.spec` 이 비어 있으면 착수 불가 — 제목만으로 요구사항을
+     지어내지 않는다. 스킵하고 사유 보고.
+   - **선행 검사** (depends 각각에 대해):
+     - evidence 에 head_sha 가 있으면(선행 approved):
+       `git fetch origin && git merge-base --is-ancestor <head_sha> origin/<기본브랜치>` —
+       거짓이면 선행이 main 미반영 상태. /dflow-merge 를 먼저 실행한다.
+     - evidence 가 null 이면(선행 미승인): 선행 산출물이 로컬 `agent/` 브랜치에 실재하는지
+       확인한다. **실재하면** 미승인 위에 쌓는 리스크를 보고하고 스택 브랜치(3번)로 진행,
+       **부재하면 착수 불가** — 스킵하고 사유 보고(입력 없는 산출은 날조다).
+   판정 통과 후 claim (exit 4 면 fetch/merge 후 1회 재시도, 그래도 4 면 중단·보고. 우회 금지).
+3. **브랜치를 오케스트레이터가 직접 만든다** — dflow.sh 는 브랜치를 만들지 않는다(스크립트 실측).
+   기점 규칙:
+   - 기본: `origin/<기본브랜치>`
+   - 선행이 approved 인데 main 미반영이거나 미승인(스택)이면: **선행 산출물이 있는 agent/
+     브랜치 위**에 만들고, state.json 에 `branch_base` 와 `risk`(선행 반려 시 재작업)를 기록한다.
    ```bash
-   git fetch origin && git switch -c agent/<주문id8>-<slug> origin/<기본브랜치>
+   git fetch origin && git switch -c agent/<주문id8>-<slug> <기점>
    ```
    이미 해당 브랜치면 재개. **main·staging 위에서 사이클 진행 금지** — Phase 진입 전
    `git branch --show-current` 가 `agent/` 로 시작하는지 확인하고, 아니면 중단한다.
-3. **게이트 기준선 기록**: dev-discipline 의 기준선 절차 실행, state.json 에 저장.
-4. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
+4. **게이트 기준선 기록**: dev-discipline 의 기준선 절차 실행, state.json 에 저장.
+5. spec.md 읽기(필수) + 복잡도 판정(dev-discipline 의 점수표) → 설계 모델 결정, 한 줄 출력.
 
 ## Phase 1~4 — Design → Build → Verify → Refactor
 
@@ -82,6 +98,7 @@ Refactor 는 supervised 에서 기본 실행, 실패 시 Refactor 커밋만 되�
 3. `dflow.sh show <ref>` 로 spec 개정 여부 최종 확인(낡은 명세로 done 방지) →
    `dflow.sh done <ref> "<요약>" --auto-links`.
 4. state.json `phase=reported`. 사용자에게 **"승인 대기로 보고했습니다"** 로 전달(완료 아님).
+   **승인 뒤 agent 브랜치의 main 반영은 이 스킬의 범위 밖** — /dflow-merge 가 담당한다.
 
 ## --only 옵션
 
