@@ -328,6 +328,10 @@ function MobileMenu({
           {identity?.showUsage && (
             <Link href="/usage" onClick={onClose} aria-current={pathname === '/usage' ? 'page' : undefined} className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''}`}>{t('nav.usage')}</Link>
           )}
+          {/* 사이드바는 hidden lg:flex 라 lg 미만에서는 여기가 /agent-ops 의 유일한 진입점이다 — 슈퍼유저 전용(페이지 게이트와 같은 판정) */}
+          {identity?.isSuperuser && (
+            <Link href="/agent-ops" onClick={onClose} aria-current={pathname === '/agent-ops' ? 'page' : undefined} className={`side-link ${pathname === '/agent-ops' ? 'side-link-active' : ''}`}>{t('nav.agentOps')}</Link>
+          )}
           <div className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-ink-subtle">프로젝트</div>
           <div className="mx-1">
             <select
