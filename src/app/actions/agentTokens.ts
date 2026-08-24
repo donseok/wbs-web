@@ -9,11 +9,13 @@ import { isUuidLike } from '@/lib/domain/agentWork'
 
 /**
  * PAT 발급·관리 — 계약 v2.0. 발급도 킬스위치(AGENT_API_ENABLED) 뒤(§2.1).
- * 자율 발급은 읽기·claim 스코프 한정 — work:report 는 관리자 발급 경로(미결 ①) 도입 전까지 거부.
+ * work:report 는 더는 별도 게이트가 아니다 — claim 할 수 있으면 그 결과도 적을 수 있어야
+ * 사이클이 완주된다(2026-08-24, 미결 ① 해소). report 라우트가 이미 claimed_by_user_id 로
+ * "본인 claim 건만" 강제하므로(§2.3) 발급 단계 제한은 실질 방어선이 아니었다.
  * agent_runners 는 RLS 정책 0 — 이 액션이 유일한 관문이다(fail-closed).
  */
 
-const SELF_ISSUE_SCOPES = new Set(['work:read', 'work:claim'])
+const SELF_ISSUE_SCOPES = new Set(['work:read', 'work:claim', 'work:report'])
 const MAX_EXPIRES_DAYS = 180
 const NAME_RE = /^[A-Za-z0-9가-힣][A-Za-z0-9가-힣 ._-]{0,63}$/
 
@@ -35,9 +37,7 @@ export async function createAgentToken(input: {
   if (input.projectId !== null && !isUuidLike(input.projectId)) return { ok: false, error: '잘못된 프로젝트입니다.' }
   if (input.scopes.length === 0) return { ok: false, error: '스코프를 1개 이상 선택하세요.' }
   for (const s of input.scopes) {
-    if (!SELF_ISSUE_SCOPES.has(s)) {
-      return { ok: false, error: `${s} 스코프는 자율 발급할 수 없습니다(관리자 발급 대상 — 미결 ①).` }
-    }
+    if (!SELF_ISSUE_SCOPES.has(s)) return { ok: false, error: `${s}는 알 수 없는 스코프입니다.` }
   }
   const days = Math.trunc(input.expiresDays)
   if (!Number.isInteger(days) || days < 1 || days > MAX_EXPIRES_DAYS) {

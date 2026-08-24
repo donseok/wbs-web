@@ -18,17 +18,16 @@ type TokenRow = {
 
 // 스코프 설명(스테이징 실사용 피드백 2026-08-11) — 52명+ 로스터에서 claim 스코프가 조회를
 // 포함한다는 사실이 체크박스 라벨만으론 드러나지 않아 오발급 문의가 있었다.
+// work:report 는 체크박스를 따로 두지 않는다 — claim 할 수 있으면 그 결과도 적을 수 있어야
+// 사이클이 완주된다(2026-08-24). submitIssue 가 work:claim 선택 시 자동으로 얹는다.
 const SCOPE_OPTIONS: readonly { value: string; label: string; descKey: DictKey }[] = [
   { value: 'work:read', label: '조회 (work:read)', descKey: 'account.scope.workRead.desc' },
-  { value: 'work:claim', label: 'claim/release (work:claim)', descKey: 'account.scope.workClaim.desc' },
+  { value: 'work:claim', label: 'claim/release/완료보고 (work:claim)', descKey: 'account.scope.workClaim.desc' },
 ] as const
 
 const EXPIRES_OPTIONS = [30, 90, 180] as const
 
-/**
- * PAT 발급·목록·폐기(결정 D). 자율 발급은 읽기·claim 스코프 한정 — work:report 는 UI에
- * 노출하지 않는다(관리자 발급 경로 도입 전까지, 미결 ①). 평문은 발급 직후 1회만 표시.
- */
+/** PAT 발급·목록·폐기(결정 D). 평문은 발급 직후 1회만 표시. */
 export function MyTokensSection({ projects }: { projects: { id: string; name: string }[] }) {
   const { toast } = useToast()
   const { t } = useLocale()
@@ -69,8 +68,12 @@ export function MyTokensSection({ projects }: { projects: { id: string; name: st
     if (scopes.length === 0) { setIssueError('스코프를 1개 이상 선택하세요.'); return }
     setIssuing(true)
     try {
+      // claim 을 골랐으면 report 도 같이 발급 — 별도 체크박스 없음(2026-08-24).
+      const effectiveScopes = scopes.includes('work:claim')
+        ? Array.from(new Set([...scopes, 'work:report']))
+        : scopes
       const r = await createAgentToken({
-        name: trimmed, projectId: projectId || null, scopes, expiresDays,
+        name: trimmed, projectId: projectId || null, scopes: effectiveScopes, expiresDays,
       })
       if (!r.ok) { setIssueError(r.error); return }
       setIssued({ token: r.token, prefix: r.prefix })
@@ -208,7 +211,6 @@ export function MyTokensSection({ projects }: { projects: { id: string; name: st
             <button onClick={submitIssue} className="btn btn-primary w-full" disabled={issuing}>
               {issuing ? '발급 중…' : '토큰 발급'}
             </button>
-            <p className="text-[11px] text-ink-subtle">{t('account.scope.reportAdminOnly')}</p>
           </div>
 
           {issued && (
