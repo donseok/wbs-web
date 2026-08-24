@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWbsMarkdown, validateWbsDoc, toImportNodes } from '@/lib/wbsmd/parse'
+import { parseWbsMarkdown, validateWbsDoc, toImportNodes, nextBusinessDay } from '@/lib/wbsmd/parse'
 
 /** N단 wbs.md TS 파서 — 스킬 파서(wbs-nlevel-parse.py)와 동일 계약(스펙 §import 계약 v2.2).
  *  웹 업로드 경로(미리보기+적용)가 이 파서를 쓴다. 케이스는 python 테스트에서 포팅. */
@@ -125,7 +125,7 @@ describe('toImportNodes — v2.2 payload 노드', () => {
   it('필드 매핑 — level·weight·schedule·milestone·credit·if_id·spec_sections', () => {
     const t = byId.get('TSK-QA-JD-PR-01')!
     expect(t).toMatchObject({
-      level: 5, weight: 5, schedule: '~ 2026-12-19', kind: 'task',
+      level: 5, weight: 5, schedule: '2026-12-19 ~ 2026-12-19', kind: 'task', // 선행(PR-02) 종료가 더 늦어 시작=종료로 고정
       assignee: '홍길동', depends: ['TSK-QA-JD-PR-02'], tags: ['qa', 'judge'],
       prd_ref: 'program:QA-JD-001', milestone: false,
     })
@@ -133,6 +133,42 @@ describe('toImportNodes — v2.2 payload 노드', () => {
     expect(byId.get('TSK-QA-JD-PR-02')).toMatchObject({ credit: 'if', if_id: 'IF-0041' })
     expect(byId.get('TSK-QA-JD-PR-90')).toMatchObject({ milestone: true, schedule: '~ 2027-01-09' })
   })
+  it('schedule — 시작~종료 범위 토큰은 그대로, 종료만이면 선행 종료 다음 영업일로 시작 파생', () => {
+    const md = `---
+module: m
+start_date: 2026-08-31
+levels:
+  - { name: WP,   prefix: WP,  progress: rollup }
+  - { name: Task, prefix: TSK, progress: input }
+---
+## WP-01: 묶음
+- [ ] TSK-01: 명시 2026-09-01~2026-09-03
+- [ ] TSK-02: 선행 없음 ~2026-09-05
+- [ ] TSK-03: 금요일 종료 선행 ~2026-09-10
+  - depends: TSK-01
+- [ ] TSK-04: 선행 종료가 더 늦음 ~2026-09-02
+  - depends: TSK-03
+- [ ] TSK-05: 선행에 종료 없음 ~2026-09-12
+  - depends: TSK-06
+- [ ] TSK-06: 날짜 없음
+- [M] TSK-07: 마일스톤 ~2026-09-30
+`
+    const byId = Object.fromEntries(toImportNodes(parseWbsMarkdown(md)).map(n => [n.id, n.schedule]))
+    expect(byId['TSK-01']).toBe('2026-09-01 ~ 2026-09-03')     // 범위 토큰 그대로
+    expect(byId['TSK-02']).toBe('2026-08-31 ~ 2026-09-05')     // 선행 없음 → start_date
+    expect(byId['TSK-03']).toBe('2026-09-04 ~ 2026-09-10')     // 선행 종료 09-03(목) → 09-04(금)
+    expect(byId['TSK-04']).toBe('2026-09-02 ~ 2026-09-02')     // 파생 시작(09-11) > 종료 → 종료로 고정
+    expect(byId['TSK-05']).toBe('2026-08-31 ~ 2026-09-12')     // 선행에 종료 없음 → start_date
+    expect(byId['TSK-06']).toBeNull()
+    expect(byId['TSK-07']).toBe('~ 2026-09-30')                // 마일스톤은 파생 안 함
+  })
+
+  it('nextBusinessDay — 금요일 다음은 월요일', () => {
+    expect(nextBusinessDay('2026-09-04')).toBe('2026-09-07')
+    expect(nextBusinessDay('2026-09-05')).toBe('2026-09-07')
+    expect(nextBusinessDay('2026-09-07')).toBe('2026-09-08')
+  })
+
   it('결정적 — 재파싱 = 동일 출력', () => {
     expect(toImportNodes(parseWbsMarkdown(PL_MD))).toEqual(nodes)
   })

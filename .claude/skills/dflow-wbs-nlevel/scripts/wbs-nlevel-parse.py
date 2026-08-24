@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import datetime
 import re
 import sys
 
@@ -87,8 +88,25 @@ _TOKEN_RES = {
 }
 
 
+# `시작~종료` 범위 토큰 — 종료 단독(`~종료`)보다 먼저 떼어낸다(2026-08-24: 시작일 없는 WBS 는 간트가 비어 있었다)
+_RANGE_RE = re.compile(r"\s+(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})")
+
+
+def next_business_day(ymd: str) -> str:
+    """다음 영업일(토·일 건너뜀). 공휴일은 모른다."""
+    d = datetime.date.fromisoformat(ymd)
+    while True:
+        d += datetime.timedelta(days=1)
+        if d.weekday() < 5:
+            return d.isoformat()
+
+
 def _extract_tokens(text: str) -> tuple[str, dict]:
     tokens: dict = {}
+    rm = _RANGE_RE.search(text)
+    if rm:
+        tokens["start"], tokens["end"] = rm.group(1), rm.group(2)
+        text = _RANGE_RE.sub("", text, count=1)
     for name, rx in _TOKEN_RES.items():
         mm = rx.search(text)
         if mm:
@@ -310,8 +328,31 @@ def export_payload(doc: dict, attach_ref: str | None = None) -> dict:
             continue
         nodes_out.append(n)
 
+    # 시작일 파생 — 종료만 적힌 노드(마일스톤 제외)는 선행(depends) 종료 다음 영업일,
+    # 선행이 없거나 선행에 종료가 없으면 frontmatter start_date. 둘 다 없으면 None.
+    end_of = {n["id"]: n["tokens"].get("end") for n in doc["nodes"]}
+    start_date = doc["front"].get("start_date") or doc["front"].get("start-date")
+
+    def _derived_start(n: dict) -> str | None:
+        t = n["tokens"]
+        if t.get("start"):
+            return t["start"]
+        if not t.get("end") or n["milestone"]:
+            return None
+        deps = [d.strip() for d in n["fields"].get("depends", "").split(",") if d.strip()]
+        ends = [end_of.get(d) for d in deps]
+        start = None
+        if deps and all(ends):
+            start = next_business_day(max(ends))  # type: ignore[type-var]
+        elif start_date:
+            start = str(start_date)
+        if start and start > t["end"]:
+            start = t["end"]  # 선행이 더 늦게 끝나는 계획 오류 — 막대는 그리되 0일로
+        return start
+
     def _node_json(n: dict) -> dict:
         f, t = n["fields"], n["tokens"]
+        start = _derived_start(n)
         acceptance = [s.strip() for s in f.get("acceptance", "").split(" / ") if s.strip()]
         acceptance += [("[x] " if s["checked"] else "[ ] ") + s["title"] for s in n["stks"]]
         req = f.get("requirements", "").strip()
@@ -335,7 +376,7 @@ def export_payload(doc: dict, attach_ref: str | None = None) -> dict:
             "milestone": n["milestone"],
             "credit": t.get("credit"), "if_id": t.get("if_id"),
             "assignee": t.get("assignee"),
-            "schedule": f"~ {t['end']}" if t.get("end") else None,
+            "schedule": (f"{start} ~ {t['end']}" if start else f"~ {t['end']}") if t.get("end") else None,
             "depends": [d.strip() for d in f.get("depends", "").split(",") if d.strip()],
             "acceptance": acceptance,
             "tags": [s.strip() for s in f.get("tags", "").split(",") if s.strip()],
