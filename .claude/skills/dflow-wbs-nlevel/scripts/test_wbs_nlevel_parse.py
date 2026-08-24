@@ -147,7 +147,7 @@ class Export(unittest.TestCase):
         self.assertEqual(t["parent_id"], "WP-OP-IN-PR")
         self.assertEqual(t["weight"], 5)
         self.assertEqual(t["assignee"], "홍길동")
-        self.assertEqual(t["schedule"], "~ 2026-11-14")
+        self.assertEqual(t["schedule"], "2026-11-14 ~ 2026-11-14")  # 선행(PR-02) 종료가 더 늦어 시작=종료로 고정
         self.assertEqual(t["depends"], ["TSK-OP-IN-PR-02"])
         self.assertEqual(t["category"], "dev")
         self.assertEqual(t["priority"], "critical")
@@ -171,6 +171,33 @@ class Export(unittest.TestCase):
         ms = self.nodes["TSK-OP-IN-PR-90"]
         self.assertTrue(ms["milestone"])
         self.assertEqual(ms["schedule"], "~ 2026-11-30")
+
+    def test_schedule_range_and_derived_start(self):
+        md = """---
+module: m
+start_date: 2026-08-31
+levels:
+  - { name: WP,   prefix: WP,  progress: rollup }
+  - { name: Task, prefix: TSK, progress: input }
+---
+## WP-01: 묶음
+- [ ] TSK-01: 명시 2026-09-01~2026-09-03
+- [ ] TSK-02: 선행 없음 ~2026-09-05
+- [ ] TSK-03: 선행 있음 ~2026-09-10
+  - depends: TSK-01
+- [ ] TSK-04: 선행이 더 늦음 ~2026-09-02
+  - depends: TSK-03
+- [ ] TSK-06: 날짜 없음
+- [M] TSK-07: 마일스톤 ~2026-09-30
+"""
+        sched = {n["id"]: n["schedule"] for n in m.export_payload(m.parse_wbs(md))["nodes"]}
+        self.assertEqual(sched["TSK-01"], "2026-09-01 ~ 2026-09-03")
+        self.assertEqual(sched["TSK-02"], "2026-08-31 ~ 2026-09-05")
+        self.assertEqual(sched["TSK-03"], "2026-09-04 ~ 2026-09-10")
+        self.assertEqual(sched["TSK-04"], "2026-09-02 ~ 2026-09-02")
+        self.assertIsNone(sched["TSK-06"])
+        self.assertEqual(sched["TSK-07"], "~ 2026-09-30")
+        self.assertEqual(m.next_business_day("2026-09-04"), "2026-09-07")
 
     def test_deterministic(self):
         again = m.export_payload(_parse(PL_MD), attach_ref="mes-skel/SYS-OP")

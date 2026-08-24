@@ -22,6 +22,7 @@
 @source not "../../docs";
 @source not "../../tests";
 @source not "../../scripts";
+@source not "../../kit";
 @source not "../../supabase";
 @source not "../../.githooks";
 @source not "../../.github";

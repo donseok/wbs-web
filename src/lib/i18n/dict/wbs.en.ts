@@ -223,6 +223,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specPriorityMedium': 'Medium',
   'wbs.specPriorityLow': 'Low',
   'wbs.specPriorityNoneOption': 'No priority',
+  'wbs.specAgentDelegateLabel': 'Agent delegation',
+  'wbs.specAgentDelegateHint': 'Auto-picked by the polling loop when checked (tags: agent)',
   'wbs.specPrdRefLabel': 'PRD ref',
   'wbs.specEntryPointLabel': 'Entry point',
   'wbs.specRefPlaceholder': 'Not set',

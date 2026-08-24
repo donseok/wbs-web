@@ -11,13 +11,13 @@ import type { ImportNode, LevelDecl } from '@/lib/agent/wbsImport'
 export type RawNode = {
   id: string; title: string; level: number; parent: string | null
   checked: boolean | null; milestone: boolean
-  tokens: { assignee?: string; weight?: string; end?: string; credit?: string; if_id?: string }
+  tokens: { assignee?: string; weight?: string; start?: string; end?: string; credit?: string; if_id?: string }
   fields: Record<string, string>
   stks: Array<{ checked: boolean; title: string }>
 }
 
 export type WbsDoc = {
-  front: { project?: string; module?: string; attach?: string; credits: Record<string, Record<string, number>> }
+  front: { project?: string; module?: string; attach?: string; start_date?: string; credits: Record<string, Record<string, number>> }
   levels: LevelDecl[]
   nodes: RawNode[]
   problems: string[]
@@ -64,6 +64,7 @@ function parseFrontmatter(lines: string[]): WbsDoc['front'] & { levels: LevelDec
       } else {
         section = null
         if (key === 'project' || key === 'module' || key === 'attach') front[key] = val
+        else if (key === 'start_date' || key === 'start-date') front.start_date = val
       }
     }
   }
@@ -79,8 +80,16 @@ const TOKEN_RES: Array<[keyof RawNode['tokens'], RegExp]> = [
   ['if_id', /\s+if-id:(\S+)/],
 ]
 
+/** `시작~종료` 범위 토큰 — 종료 단독(`~종료`)보다 먼저 떼어낸다(2026-08-24: 시작일 없는 WBS 는 간트가 비어 있었다). */
+const RANGE_RE = /\s+(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})/
+
 function extractTokens(text: string): { title: string; tokens: RawNode['tokens'] } {
   const tokens: RawNode['tokens'] = {}
+  const range = RANGE_RE.exec(text)
+  if (range) {
+    tokens.start = range[1]; tokens.end = range[2]
+    text = text.replace(RANGE_RE, '')
+  }
   for (const [name, re] of TOKEN_RES) {
     const m = re.exec(text)
     if (m) {
@@ -274,6 +283,13 @@ export function validateWbsDoc(doc: WbsDoc, role: 'pl' | 'skeleton'): WbsValidat
 
 // ── import 노드 변환 (v2.2) ──────────────────────────────────────────────
 
+/** 다음 영업일(토·일 건너뜀) — 공휴일은 모른다. UTC 기준 날짜 산술이라 타임존 영향 없음. */
+export function nextBusinessDay(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  do { d.setUTCDate(d.getUTCDate() + 1) } while (d.getUTCDay() === 0 || d.getUTCDay() === 6)
+  return d.toISOString().slice(0, 10)
+}
+
 export function toImportNodes(doc: WbsDoc): ImportNode[] {
   const { levels } = doc
   const byId = new Map(doc.nodes.map(n => [n.id, n] as const))
@@ -288,9 +304,24 @@ export function toImportNodes(doc: WbsDoc): ImportNode[] {
     }
     out.push(n)
   }
+  // 시작일 파생 — 종료만 적힌 노드(마일스톤 제외)는 선행(depends) 종료 다음 영업일, 선행이 없거나
+  // 선행에 종료가 없으면 frontmatter start_date. 둘 다 없으면 null(간트 막대 없음 — 사람이 채운다).
+  const endOf = new Map(doc.nodes.map(n => [n.id, n.tokens.end] as const))
+  const derivedStart = (n: RawNode): string | null => {
+    if (n.tokens.start) return n.tokens.start
+    if (!n.tokens.end || n.milestone) return null
+    const deps = (n.fields.depends ?? '').split(',').map(s => s.trim()).filter(Boolean)
+    const ends = deps.map(d => endOf.get(d)).filter((v): v is string => !!v)
+    let start: string | null = null
+    if (deps.length > 0 && ends.length === deps.length) start = nextBusinessDay(ends.reduce((a, b) => (a > b ? a : b)))
+    else if (doc.front.start_date) start = doc.front.start_date
+    if (start && start > n.tokens.end) start = n.tokens.end // 선행이 더 늦게 끝나는 계획 오류 — 막대는 그리되 0일로
+    return start
+  }
   return out.map(n => {
     const f = n.fields
     const t = n.tokens
+    const start = derivedStart(n)
     const acceptance = (f.acceptance ?? '').split(' / ').map(s => s.trim()).filter(Boolean)
     acceptance.push(...n.stks.map(s => `${s.checked ? '[x]' : '[ ]'} ${s.title}`))
     const req = (f.requirements ?? '').trim()
@@ -305,7 +336,7 @@ export function toImportNodes(doc: WbsDoc): ImportNode[] {
       category: f.category ?? null,
       domain: f.domain ?? null,
       assignee: t.assignee ?? null,
-      schedule: t.end ? `~ ${t.end}` : null,
+      schedule: t.end ? (start ? `${start} ~ ${t.end}` : `~ ${t.end}`) : null,
       depends: (f.depends ?? '').split(',').map(s => s.trim()).filter(Boolean),
       acceptance,
       priority: f.priority ?? null,

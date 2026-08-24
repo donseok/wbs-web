@@ -236,6 +236,8 @@ export const wbsKo = {
   'wbs.specPriorityMedium': '보통',
   'wbs.specPriorityLow': '낮음',
   'wbs.specPriorityNoneOption': '우선순위 없음',
+  'wbs.specAgentDelegateLabel': '에이전트 위임',
+  'wbs.specAgentDelegateHint': '체크하면 폴링 루프가 자동 착수한다 (tags: agent)',
   'wbs.specPrdRefLabel': 'PRD 참조',
   'wbs.specEntryPointLabel': '진입점',
   'wbs.specRefPlaceholder': '미지정',
