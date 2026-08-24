@@ -18,7 +18,6 @@ export const commonKo = {
   'nav.weekly': '주간업무',
   'nav.myMeetings': '내 회의',
   'nav.settings': '설정',
-  'nav.agentOps': '승인 대기함',
   'nav.usage': '사용 현황',
   'nav.portfolio': '포트폴리오',
   'chrome.manual': '수동',

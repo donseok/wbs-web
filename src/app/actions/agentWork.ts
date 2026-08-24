@@ -5,19 +5,21 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 import { backfillProjectOrders } from '@/lib/agent/ensureOrder'
 import type { AdminClient } from '@/lib/minutes/externalApi'
-import { requireProjectAdmin, requireSuperuser } from '@/lib/authz'
+import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
 import { updateActual } from '@/app/actions/wbs'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 import { transitionStage } from '@/lib/agent/stageTransition'
 
 /**
- * 에이전트 작업 루프 UI 서버 액션 — 스펙 §5.
+ * 에이전트 작업 루프 UI 서버 액션 — 스펙 §5. 2026-08-24: 전용 관제 화면(/agent-ops)을 없애고
+ * WBS 명세 패널(WbsSpecPanel)의 "진행 상황" 섹션에 흡수했다 — 위임(발행)·회수(취소)는 이미 그 패널의
+ * "에이전트 위임" 체크 하나로 되므로 별도 화면이 필요 없었다(사용자 결정). 승인·반려는 여전히 사람만
+ * 할 수 있는 행위라 여기 남는다. 알림 href·revalidatePath 는 그 항목이 속한 프로젝트의 WBS 화면을 가리킨다.
+ *
  * 쓰기는 admin(service_role) 경유(신규 테이블은 쓰기 RLS 가 없다 — 서버 가드가 유일한 관문).
- * 조회(fetchAgentOps)만 세션 클라이언트로 해 RLS 조회 정책을 2차 방어선으로 쓴다.
+ * 조회(getAgentOrderForItem)만 세션 클라이언트로 해 RLS 조회 정책을 2차 방어선으로 쓴다.
  */
-
-const AGENT_OPS_PATH = '/agent-ops'
 
 type ActionResult = { ok: boolean; error?: string }
 
@@ -53,7 +55,6 @@ export async function setAgentProjectEnabled(projectId: string, enabled: boolean
     backfilled = bf.created
   }
   revalidatePath(`/p/${projectId}`, 'layout')
-  revalidatePath(AGENT_OPS_PATH)
   return backfilled === undefined ? { ok: true } : { ok: true, backfilled }
 }
 
@@ -111,7 +112,7 @@ async function notifyReviewResult(
     payload: {
       title: item.name,
       detail: type === 'work.approved' ? '완료가 승인되었습니다' : '완료가 반려되었습니다',
-      href: AGENT_OPS_PATH,
+      href: `/p/${order.project_id}/wbs`,
     },
     recipientMemberIds: [item.assignee_member_id],
   }).catch(() => {
@@ -180,7 +181,7 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
     console.error('[agentWork] 승인 stage 전이 예외:', e instanceof Error ? e.message : e)
   }
 
-  revalidatePath(AGENT_OPS_PATH)
+  revalidatePath(`/p/${order.project_id}/wbs`)
   return { ok: true }
 }
 
@@ -214,94 +215,53 @@ export async function rejectAgentCompletion(orderId: string, note: string): Prom
     if (revErr) console.error('[agentWork] 반려 기록 실패:', revErr.message)
   }
   await notifyReviewResult(admin, order, 'work.rejected', actor.userId)
-  revalidatePath(AGENT_OPS_PATH)
+  revalidatePath(`/p/${order.project_id}/wbs`)
   return { ok: true }
 }
 
-export async function reclaimAgentOrder(orderId: string): Promise<ActionResult> {
-  const loaded = await loadOrderForAdmin(orderId)
-  if (!loaded.ok) return loaded
-  if (loaded.order.status !== 'claimed') return { ok: false, error: '점유 상태가 아닙니다.' }
-  const admin = createAdminClient()
-  const { data: updated, error } = await admin
-    .from('agent_work_orders')
-    .update({
-      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', orderId).eq('status', 'claimed')
-    .select('id')
-  if (error) return { ok: false, error: error.message }
-  if (!updated || updated.length === 0) return { ok: false, error: '상태가 바뀌어 회수하지 못했습니다.' }
-  revalidatePath(AGENT_OPS_PATH)
-  return { ok: true }
-}
-
-export type AgentOpsReport = {
+/**
+ * 이 WBS 항목의 최신 에이전트 주문 — 명세 패널 "진행 상황" 섹션이 읽는다(2026-08-24, agent-ops 대체).
+ * 위임한 적 없으면 order:null. 조회 실패는 null 로 위장하지 않고 error 를 그대로 올린다(3원칙).
+ * 프로젝트 멤버면 누구나 읽을 수 있다(스펙 읽기와 같은 등급) — 승인·반려 버튼 노출 여부는 호출부가
+ * editable(관리자)로 가리고, 액션 자체도 requireProjectAdmin 으로 재검증한다.
+ */
+export type AgentOrderReport = {
   id: string; kind: 'progress' | 'completion'; percent: number; summary: string
   links: { label?: string; url: string }[]; agent: string
   review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string
 }
-export type AgentOpsOrder = {
-  id: string; status: string; priority: number; instructions: string
+export type AgentOrderStatus = {
+  id: string; status: string
   claimed_by: string | null; claimed_at: string | null; updated_at: string
-  wbs_item_id: string | null; item_name: string | null; item_code: string | null
-  reports: AgentOpsReport[]
+  reports: AgentOrderReport[]
 }
-
-/** 관제 보드 데이터 — 세션 클라이언트(RLS 조회 정책이 2차 방어선). 조회 실패는 위장하지 않는다. */
-export async function fetchAgentOps(projectId: string): Promise<
-  | { ok: true; registered: boolean; enabled: boolean; orders: AgentOpsOrder[] }
+export async function getAgentOrderForItem(itemId: string): Promise<
+  | { ok: true; order: AgentOrderStatus | null }
   | { ok: false; error: string }
 > {
-  if (!isUuidLike(projectId)) return { ok: false, error: '잘못된 요청입니다.' }
+  if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
   const sb = await createServerClient()
-  const { data: reg, error: regErr } = await sb
-    .from('agent_projects').select('project_id, enabled').eq('project_id', projectId).maybeSingle()
-  if (regErr) return { ok: false, error: `등록 조회 실패: ${regErr.message}` }
-  if (!reg) return { ok: true, registered: false, enabled: false, orders: [] }
-  const enabled = (reg as { enabled: boolean }).enabled === true
+  const { data: item, error: itemErr } = await sb.from('wbs_items').select('project_id').eq('id', itemId).maybeSingle()
+  if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
+  if (!item) return { ok: false, error: '대상을 찾을 수 없습니다.' }
+  const g = await requireProjectMember((item as { project_id: string }).project_id)
+  if (!g.ok) return { ok: false, error: g.error }
 
-  const { data: orders, error: ordErr } = await sb
+  const { data: order, error: ordErr } = await sb
     .from('agent_work_orders')
-    .select('id, status, priority, instructions, claimed_by, claimed_at, updated_at, wbs_item_id')
-    .eq('project_id', projectId)
+    .select('id, status, claimed_by, claimed_at, updated_at')
+    .eq('wbs_item_id', itemId)
     .order('updated_at', { ascending: false })
+    .limit(1).maybeSingle()
   if (ordErr) return { ok: false, error: `주문 조회 실패: ${ordErr.message}` }
-  const rows = (orders ?? []) as Array<Omit<AgentOpsOrder, 'reports' | 'item_name' | 'item_code'>>
+  if (!order) return { ok: true, order: null }
+  const row = order as { id: string; status: string; claimed_by: string | null; claimed_at: string | null; updated_at: string }
 
-  const itemIds = [...new Set(rows.map(o => o.wbs_item_id).filter((v): v is string => !!v))]
-  const itemById = new Map<string, { name: string; code: string }>()
-  if (itemIds.length > 0) {
-    const { data: items, error: itemErr } = await sb
-      .from('wbs_items').select('id, name, code').in('id', itemIds)
-    if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
-    for (const it of (items ?? []) as Array<{ id: string; name: string; code: string }>) {
-      itemById.set(it.id, { name: it.name, code: it.code })
-    }
-  }
-  const orderIds = rows.map(o => o.id)
-  const reportsByOrder = new Map<string, AgentOpsReport[]>()
-  if (orderIds.length > 0) {
-    const { data: reports, error: repErr } = await sb
-      .from('agent_work_reports')
-      .select('id, work_order_id, kind, percent, summary, links, agent, review_action, review_note, created_at')
-      .in('work_order_id', orderIds)
-      .order('created_at', { ascending: true })
-    if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }
-    for (const r of (reports ?? []) as Array<AgentOpsReport & { work_order_id: string }>) {
-      const list = reportsByOrder.get(r.work_order_id) ?? []
-      list.push(r)
-      reportsByOrder.set(r.work_order_id, list)
-    }
-  }
-  return {
-    ok: true, registered: true, enabled,
-    orders: rows.map(o => ({
-      ...o,
-      item_name: o.wbs_item_id ? itemById.get(o.wbs_item_id)?.name ?? null : null,
-      item_code: o.wbs_item_id ? itemById.get(o.wbs_item_id)?.code ?? null : null,
-      reports: reportsByOrder.get(o.id) ?? [],
-    })),
-  }
+  const { data: reports, error: repErr } = await sb
+    .from('agent_work_reports')
+    .select('id, kind, percent, summary, links, agent, review_action, review_note, created_at')
+    .eq('work_order_id', row.id)
+    .order('created_at', { ascending: true })
+  if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }
+  return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[] } }
 }

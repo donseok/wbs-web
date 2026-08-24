@@ -233,23 +233,24 @@ export async function setAgentDelegation(
       if (!ord.created && ord.reason === 'not_leaf') warnings.push('리프(하위 없음) 항목만 에이전트가 집어갑니다 — 이 항목은 하위가 있어 주문이 없습니다.')
     }
   } else {
-    // ready 만 취소. claimed/reported 는 사람이 승인·반려로 정리한다.
+    // ready·claimed 는 체크 해제만으로 취소한다(2026-08-24 — "회수" 버튼을 따로 안 둔다: 위임을
+    // 끄면 그 항목엔 에이전트를 더 안 쓰겠다는 뜻이니 대기 중이든 작업 중이든 그대로 끝낸다).
+    // reported 는 이미 결과물이 올라온 상태라 취소로 지우지 않는다 — 명세 패널에서 승인·반려로만 정리한다.
     const { data: active, error: actErr } = await admin
       .from('agent_work_orders').select('id, status').eq('wbs_item_id', itemId)
       .in('status', ['ready', 'claimed', 'reported'])
     if (actErr) return { ok: false, error: `주문 조회 실패: ${actErr.message}` }
     const rows = (active ?? []) as Array<{ id: string; status: string }>
-    const readyIds = rows.filter(o => o.status === 'ready').map(o => o.id)
-    if (readyIds.length > 0) {
+    const cancelIds = rows.filter(o => o.status === 'ready' || o.status === 'claimed').map(o => o.id)
+    if (cancelIds.length > 0) {
       const { error: cancelErr } = await admin
         .from('agent_work_orders')
-        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-        .in('id', readyIds).eq('status', 'ready')
+        .update({ status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null, updated_at: new Date().toISOString() })
+        .in('id', cancelIds).in('status', ['ready', 'claimed'])
       if (cancelErr) return { ok: false, error: `주문 취소 실패: ${cancelErr.message}` }
     }
-    const inFlight = rows.filter(o => o.status !== 'ready')
-    if (inFlight.length > 0) {
-      warnings.push(`진행 중 주문 ${inFlight.length}건(${inFlight.map(o => o.status).join(', ')})은 회수하지 않았습니다 — 승인 대기함에서 승인·반려로 정리하세요.`)
+    if (rows.some(o => o.status === 'reported')) {
+      warnings.push('완료 보고가 이미 올라온 주문은 취소되지 않았습니다 — 아래 진행 상황에서 승인·반려로 정리하세요.')
     }
   }
   revalidatePath(`/p/${loaded.projectId}`, 'layout')

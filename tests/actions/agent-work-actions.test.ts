@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   requireProjectAdmin: vi.fn(),
-  requireSuperuser: vi.fn(),
+  requireProjectMember: vi.fn(),
   updateActual: vi.fn(),
   createAdminClient: vi.fn(),
   createServerClient: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({
   requireProjectAdmin: mocks.requireProjectAdmin,
-  requireSuperuser: mocks.requireSuperuser,
+  requireProjectMember: mocks.requireProjectMember,
 }))
 vi.mock('@/app/actions/wbs', () => ({ updateActual: mocks.updateActual }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
@@ -20,7 +20,7 @@ const backfill = vi.hoisted(() => ({ backfillProjectOrders: vi.fn() }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ backfillProjectOrders: backfill.backfillProjectOrders }))
 
 import {
-  approveAgentCompletion, rejectAgentCompletion, reclaimAgentOrder, fetchAgentOps, setAgentProjectEnabled,
+  approveAgentCompletion, rejectAgentCompletion, setAgentProjectEnabled, getAgentOrderForItem,
 } from '@/app/actions/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 
@@ -54,7 +54,7 @@ const ACTOR = { ok: true, actor: { userId: 'admin-1' } }
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
-  mocks.requireSuperuser.mockResolvedValue(ACTOR)
+  mocks.requireProjectMember.mockResolvedValue(ACTOR)
   mocks.updateActual.mockResolvedValue({ ok: true })
 })
 
@@ -219,140 +219,69 @@ describe('setAgentProjectEnabled — 킬스위치(2026-08-24, 등록 화면 대�
   })
 })
 
-describe('reclaimAgentOrder', () => {
-  const ORDER = { id: O1, project_id: P1, status: 'claimed', wbs_item_id: W1 }
-  it('orderId 형식 검증 — 비형식 거부', async () => {
-    const r = await reclaimAgentOrder('invalid-id')
-    expect(r.ok).toBe(false)
-    expect(r.error).toBe('잘못된 요청입니다.')
+describe('getAgentOrderForItem — 명세 패널 진행 상황(2026-08-24, agent-ops 대체)', () => {
+  it('비형식 itemId 거부', async () => {
+    const r = await getAgentOrderForItem('invalid-id')
+    expect(r).toEqual({ ok: false, error: '잘못된 요청입니다.' })
   })
-  it('claimed 아니면 거부', async () => {
-    admin({ agent_work_orders: [{ data: { ...ORDER, status: 'ready' } }] })
-    const r = await reclaimAgentOrder(O1)
-    expect(r.ok).toBe(false)
-  })
-  it('CAS 0행 → 실패 메시지', async () => {
-    admin({ agent_work_orders: [{ data: ORDER }, { data: [] }] })
-    const r = await reclaimAgentOrder(O1)
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('바뀌어')
-  })
-  it('회수 성공 시 claimed_by_user_id 도 null 로 정리한다(release/route.ts 와 동일, I1)', async () => {
-    const { captured } = admin({ agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }] })
-    const r = await reclaimAgentOrder(O1)
-    expect(r.ok).toBe(true)
-    expect(captured.agent_work_orders[0]).toMatchObject({
-      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
-    })
-  })
-})
-
-describe('fetchAgentOps', () => {
-  it('projectId 형식 검증 — 비형식 거부', async () => {
-    const r = await fetchAgentOps('invalid-id')
-    expect(r.ok).toBe(false)
-  })
-  it('미등록 프로젝트 → registered:false', async () => {
-    const sb = {
-      from: vi.fn(() => {
-        const b: Record<string, unknown> = {}
-        for (const k of ['select', 'eq', 'in', 'order']) b[k] = () => b
-        b.maybeSingle = async () => ({ data: null, error: null })
-        return b
-      }),
-    }
+  it('항목 없음 → 대상을 찾을 수 없습니다', async () => {
+    const sb = { from: vi.fn(() => { const b: Record<string, unknown> = {}
+      for (const k of ['select', 'eq', 'order', 'limit']) b[k] = () => b
+      b.maybeSingle = async () => ({ data: null, error: null }); return b }) }
     mocks.createServerClient.mockResolvedValue(sb)
-    const r = await fetchAgentOps(P1)
-    expect(r.ok).toBe(true)
-    expect((r as unknown as { registered: boolean }).registered).toBe(false)
+    const r = await getAgentOrderForItem(W1)
+    expect(r).toEqual({ ok: false, error: '대상을 찾을 수 없습니다.' })
   })
-  it('agent_projects 조회 실패 → ok:false (빈 목록 위장 금지)', async () => {
-    const sb = {
-      from: vi.fn((table: string) => {
-        const b: Record<string, unknown> = {}
-        for (const k of ['select', 'eq', 'in', 'order']) b[k] = () => b
-        if (table === 'agent_projects') {
-          b.maybeSingle = async () => ({ data: null, error: { message: 'permission denied' } })
-        }
-        return b
-      }),
-    }
+  it('프로젝트 멤버 아니면 거부', async () => {
+    mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '멤버 아님' })
+    const sb = { from: vi.fn(() => { const b: Record<string, unknown> = {}
+      for (const k of ['select', 'eq', 'order', 'limit']) b[k] = () => b
+      b.maybeSingle = async () => ({ data: { project_id: P1 }, error: null }); return b }) }
     mocks.createServerClient.mockResolvedValue(sb)
-    const r = await fetchAgentOps(P1)
-    expect(r.ok).toBe(false)
-    expect((r as unknown as { error: string }).error).toContain('등록 조회 실패')
+    const r = await getAgentOrderForItem(W1)
+    expect(r).toEqual({ ok: false, error: '멤버 아님' })
   })
-  it('agent_work_orders 조회 실패 → ok:false', async () => {
-    const sb = {
-      from: vi.fn((table: string) => {
-        const b: Record<string, unknown> = {}
-        for (const k of ['select', 'eq', 'in', 'order']) b[k] = () => b
-        if (table === 'agent_projects') {
-          b.maybeSingle = async () => ({ data: { project_id: P1, enabled: true }, error: null })
-        } else if (table === 'agent_work_orders') {
-          b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: null, error: { message: 'query failed' } }).then(r)
-        }
-        return b
-      }),
-    }
+  it('위임한 적 없음(주문 0건) → order:null', async () => {
+    mocks.requireProjectMember.mockResolvedValue(ACTOR)
+    let call = 0
+    const sb = { from: vi.fn((table: string) => { const b: Record<string, unknown> = {}
+      for (const k of ['select', 'eq', 'order', 'limit']) b[k] = () => b
+      b.maybeSingle = async () => {
+        call += 1
+        if (table === 'wbs_items') return { data: { project_id: P1 }, error: null }
+        return { data: null, error: null } // agent_work_orders — 없음
+      }
+      return b }) }
     mocks.createServerClient.mockResolvedValue(sb)
-    const r = await fetchAgentOps(P1)
-    expect(r.ok).toBe(false)
-    expect((r as unknown as { error: string }).error).toContain('주문 조회')
+    const r = await getAgentOrderForItem(W1)
+    expect(r).toEqual({ ok: true, order: null })
+    expect(call).toBeGreaterThan(0)
   })
-  it('정상 조립 — item 매핑 + reports 그룹핑', async () => {
-    const O2 = '55555555-5555-4555-8555-555555555555'
-    const R1 = '66666666-6666-4666-8666-666666666666'
-    const R2 = '77777777-7777-4777-8777-777777777777'
-    const sb = {
-      from: vi.fn((table: string) => {
-        const responses: Record<string, unknown> = {
-          agent_projects: { data: { project_id: P1, enabled: true }, error: null },
-          agent_work_orders: {
-            data: [
-              { id: O1, project_id: P1, status: 'ready', wbs_item_id: W1, priority: 1, instructions: 'task1', claimed_by: null, claimed_at: null, updated_at: '2026-07-31T10:00:00Z' },
-              { id: O2, project_id: P1, status: 'claimed', wbs_item_id: null, priority: 0, instructions: 'task2', claimed_by: null, claimed_at: null, updated_at: '2026-07-31T11:00:00Z' },
-            ],
-            error: null,
-          },
-          wbs_items: {
-            data: [{ id: W1, name: '로그인', code: '1.1' }],
-            error: null,
-          },
-          agent_work_reports: {
-            data: [
-              { id: R1, work_order_id: O1, kind: 'progress', percent: 50, summary: '진행중', links: [], agent: 'bot', review_action: null, review_note: null, created_at: '2026-07-31T10:30:00Z' },
-              { id: R2, work_order_id: O1, kind: 'completion', percent: 100, summary: '완료', links: [], agent: 'bot', review_action: null, review_note: null, created_at: '2026-07-31T10:45:00Z' },
-            ],
-            error: null,
-          },
-        }
-        const resp = (responses as unknown as Record<string, unknown>)[table]
-        const b: Record<string, unknown> = {}
-        for (const k of ['select', 'eq', 'in', 'order']) b[k] = () => b
-        b.maybeSingle = async () => resp
-        b.then = (r: (v: unknown) => unknown) => Promise.resolve(resp).then(r)
-        return b
-      }),
-    }
+  it('주문 있음 → 최신 주문 + 보고 이력', async () => {
+    mocks.requireProjectMember.mockResolvedValue(ACTOR)
+    const sb = { from: vi.fn((table: string) => { const b: Record<string, unknown> = {}
+      for (const k of ['select', 'eq', 'order', 'limit', 'in']) b[k] = () => b
+      if (table === 'wbs_items') b.maybeSingle = async () => ({ data: { project_id: P1 }, error: null })
+      else if (table === 'agent_work_orders') {
+        b.maybeSingle = async () => ({
+          data: { id: O1, status: 'reported', claimed_by: 'agent-x', claimed_at: '2026-08-24T00:00:00Z', updated_at: '2026-08-24T01:00:00Z' },
+          error: null,
+        })
+      } else if (table === 'agent_work_reports') {
+        b.then = (r: (v: unknown) => unknown) => Promise.resolve({
+          data: [{ id: 'r1', kind: 'completion', percent: 100, summary: '완료', links: [], agent: 'agent-x',
+            review_action: null, review_note: null, created_at: '2026-08-24T01:00:00Z' }],
+          error: null,
+        }).then(r)
+      }
+      return b }) }
     mocks.createServerClient.mockResolvedValue(sb)
-    const r = await fetchAgentOps(P1)
+    const r = await getAgentOrderForItem(W1)
     expect(r.ok).toBe(true)
     if (r.ok) {
-      expect(r.registered).toBe(true)
-      expect(r.orders).toHaveLength(2)
-      // O1: has wbs_item_id W1, 2 reports in order
-      expect(r.orders[0].id).toBe(O1)
-      expect(r.orders[0].item_name).toBe('로그인')
-      expect(r.orders[0].item_code).toBe('1.1')
-      expect(r.orders[0].reports).toHaveLength(2)
-      expect(r.orders[0].reports[0].kind).toBe('progress')
-      expect(r.orders[0].reports[1].kind).toBe('completion')
-      // O2: null wbs_item_id, no reports
-      expect(r.orders[1].id).toBe(O2)
-      expect(r.orders[1].item_name).toBeNull()
-      expect(r.orders[1].item_code).toBeNull()
-      expect(r.orders[1].reports).toHaveLength(0)
+      expect(r.order?.id).toBe(O1)
+      expect(r.order?.status).toBe('reported')
+      expect(r.order?.reports).toHaveLength(1)
     }
   })
 })

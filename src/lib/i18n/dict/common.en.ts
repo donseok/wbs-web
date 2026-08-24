@@ -19,7 +19,6 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   'nav.weekly': 'Weekly Report',
   'nav.myMeetings': 'My Meetings',
   'nav.settings': 'Settings',
-  'nav.agentOps': 'Approval Inbox',
   'nav.usage': 'Usage',
   'nav.portfolio': 'Portfolio',
   'chrome.manual': 'Manual',

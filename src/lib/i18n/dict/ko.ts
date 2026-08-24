@@ -16,7 +16,6 @@ import { holidaysKo } from './holidays'
 import { minutesKo } from './minutes'
 import { issuesKo } from './issues'
 import { wikiKo } from './wiki'
-import { agentOpsKo } from './agentOps'
 import { importWizardKo } from './importWizard'
 import { inboxKo } from './inbox'
 import { accountKo } from './account'
@@ -39,7 +38,6 @@ export const KO = {
   ...minutesKo,
   ...issuesKo,
   ...wikiKo,
-  ...agentOpsKo,
   ...importWizardKo,
   ...inboxKo,
   ...accountKo,

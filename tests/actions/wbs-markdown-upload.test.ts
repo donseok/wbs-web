@@ -23,6 +23,9 @@ vi.mock('@/lib/supabase/admin', () => ({
       const resp = (db.queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
       for (const k of ['select', 'eq', 'in', 'like', 'limit']) b[k] = () => b
+      // ensureAgentProject(applyWbsUpload 의 자동 활성 경로, 2026-08-24)의 insert — 결과를 안 쓰는
+      // fire-and-forget 형 호출이라 성공만 흉내낸다. 활성 여부는 agent_projects 큐로 제어한다.
+      b.insert = () => Promise.resolve({ data: null, error: null })
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -149,6 +152,7 @@ describe('applyWbsUpload', () => {
     db.queues = {
       wbs_items: [{ data: [{ external_ref: 'mes-skel/SYS-QA' }] }],
       project_settings: [{ data: { level_labels: SERVER_LABELS } }],
+      agent_projects: [{ data: { enabled: true } }], // 이미 활성 — ensureAgentProject no-op
     }
     runWbsImport.mockResolvedValue({ ok: true, upserted: 3, skipped: 0, unmatched: [], nonLeafSkipped: [], ordersCreated: 2 })
     const r = await applyWbsUpload(PID, PL_MD)
@@ -170,6 +174,7 @@ describe('applyWbsUpload', () => {
     db.queues = {
       wbs_items: [{ data: [{ external_ref: 'mes-skel/SYS-QA' }] }],
       project_settings: [{ data: { level_labels: SERVER_LABELS } }],
+      agent_projects: [{ data: { enabled: true } }],
     }
     runWbsImport.mockResolvedValue({ ok: false, code: 'attach_not_found', message: 'attach 노드가 없습니다' })
     const r = await applyWbsUpload(PID, PL_MD)
