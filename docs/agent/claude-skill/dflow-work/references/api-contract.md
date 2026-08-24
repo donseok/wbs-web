@@ -47,7 +47,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
 응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — v2.1 재설계와 함께 `"2.1"`로 갱신됐다.
-`projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만(미등록은 목록에서도 은닉).
+`projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
 ```json
@@ -95,14 +95,14 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 **"dev_workflow ON인 리프에는 주문이 존재한다"** — 배정 여부는 조건이 아니다(v2.0의 "배정된 리프"에서 변경). import·배정·dev_workflow 토글 등 모든 발행 경로가 공용 함수 `ensureOrderForWorkflowLeaf`를 거치며, 게이트는 다음 순서로 고정이다:
 
-1. `agent_projects.enabled = true`(꺼진 프로젝트는 발행하지 않음)
+1. `agent_projects.enabled = true` — 자동 활성(위임 체크·dev_workflow ON·task 업로드가 처음이면 insert + **백필**: 그 프로젝트의 dev_workflow 리프 전부에 주문 보장). 설정에서 "전체 중지"한 프로젝트만 false 이며 되살리지 않는다
 2. `dev_workflow = true`(항목 게이트)
 3. 리프(자식 없음) — 아니면 발행하지 않음
 4. 활성 주문(ready·claimed·reported) 존재 여부로 멱등 판정 — 이미 있으면 재발행하지 않음(DB 부분 유니크 인덱스가 2차 방어, 23505 경합은 no-op으로 수렴)
 
 미배정 task도 이 조건만 충족하면 주문이 발행되고, `GET /agent/work/mine?scope=available`은 assignee 유무와 무관하게 `ready` 주문 전체를 노출한다.
 
-관리자 화면의 수동 발행(`createAgentWorkOrder`)도 이 불변식을 지킨다 — 발행 대상 항목의 `dev_workflow`가 꺼져 있으면 발행 성공과 함께 서버가 자동으로 켠다("발행 = 도입 선언").
+수동 발행 화면은 없다(2026-08-24 제거). **발행 = WBS 명세 패널의 "에이전트 위임"(tags: agent) 체크** — 체크하면 서버가 프로젝트 활성 → dev_workflow ON → 주문 보장을 한 번에 한다. 체크 해제 = 그 항목의 ready 주문 취소(claimed/reported 는 사람이 승인·반려로 정리). 승인·반려·회수는 "승인 대기함"(/agent-ops).
 
 ## claim·show 응답 확장과 선행 게이트 (결정 A·C)
 

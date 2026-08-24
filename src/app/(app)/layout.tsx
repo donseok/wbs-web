@@ -92,7 +92,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               </div>
             )}
             <a href="#main-content" className="fixed left-4 top-3 z-[200] -translate-y-20 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition focus:translate-y-0">본문 바로가기</a>
-            <Sidebar projects={projectLinks} showUsage={identity?.showUsage ?? false} showPortfolio={identity?.showPortfolio ?? false} showAgentOps={identity?.isSuperuser ?? false} />
+            <Sidebar projects={projectLinks} showUsage={identity?.showUsage ?? false} showPortfolio={identity?.showPortfolio ?? false} />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <HeaderChrome identity={identity} projects={projectLinks} userName={userName} />
               {/* 모바일 여백 축소(2026-08-21) — 좁은 화면에서 표 영역을 한 뼘이라도 넓힌다 */}

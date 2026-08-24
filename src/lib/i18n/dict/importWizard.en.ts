@@ -15,6 +15,9 @@ export const importWizardEn: Record<keyof typeof importWizardKo, string> = {
 
   'importWizard.chooseExcel': 'Choose an Excel file',
   'importWizard.xlsxOnly': 'Only .xlsx files are supported',
+  'importWizard.templateButton': 'Download template (.xlsx)',
+  'importWizard.templateDesc': 'New here? Fill in the template — keep the sheet and header names and it is detected automatically.',
+  'importWizard.templateFailed': 'Could not download the template',
   'importWizard.selectFileFirst': 'Choose a file first',
   'importWizard.analyze': 'Analyze layout',
   'importWizard.inspecting': 'Analyzing…',

@@ -16,7 +16,7 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
   const [fileName, setFileName] = useState<string | null>(null)
   const [text, setText] = useState<string | null>(null)
   const [preview, setPreview] = useState<WbsUploadPreview | null>(null)
-  const [result, setResult] = useState<{ upserted?: number; ordersCreated?: number; unmatched?: Array<{ id: string; assignee: string }> } | null>(null)
+  const [result, setResult] = useState<{ upserted?: number; ordersCreated?: number; unmatched?: Array<{ id: string; assignee: string }>; taskCount?: number; agentStopped?: boolean } | null>(null)
   const [pending, startTransition] = useTransition()
 
   function reset() {
@@ -118,11 +118,26 @@ export function WbsMarkdownImport({ projectId }: { projectId: string }) {
           )}
 
           {result ? (
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-success">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              적용 완료 — {result.upserted}건 반영, 주문 {result.ordersCreated ?? 0}건 발행
-              {(result.unmatched?.length ?? 0) > 0 && ` · 담당자 미매칭 ${result.unmatched!.length}건: ${result.unmatched!.map(u => u.assignee).join(', ')}`}
-            </p>
+            <div className="space-y-2">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-success">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                적용 완료 — {result.upserted}건 반영, 주문 {result.ordersCreated ?? 0}건 발행
+                {result.taskCount !== undefined && ` (task ${result.taskCount}건)`}
+                {(result.unmatched?.length ?? 0) > 0 && ` · 담당자 미매칭 ${result.unmatched!.length}건: ${result.unmatched!.map(u => u.assignee).join(', ')}`}
+              </p>
+              {/* 침묵 실패 방지(2026-08-24 리허설 실측) — task 가 있는데 주문 0 이면 원인을 바로 말한다. */}
+              {(result.taskCount ?? 0) > 0 && (result.ordersCreated ?? 0) === 0 && (
+                <p role="alert" className="flex items-start gap-1.5 rounded-lg border border-pending/30 bg-pending-weak/30 p-3 text-xs text-pending">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    task {result.taskCount}건이 있는데 주문이 0건입니다.{' '}
+                    {result.agentStopped
+                      ? '프로젝트가 "에이전트 중지" 상태입니다 — 설정 › 에이전트에서 재개하면 백필로 주문이 발행됩니다.'
+                      : '이미 활성 주문이 있는 항목(재업로드)이거나 task 가 리프가 아닙니다. WBS 화면에서 확인하세요.'}
+                  </span>
+                </p>
+              )}
+            </div>
           ) : (
             <div className="flex items-center gap-2">
               <button data-md-apply className="btn btn-primary" onClick={apply} disabled={pending || !preview.canApply}>

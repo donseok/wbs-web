@@ -147,7 +147,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       emitNotification({
         type: 'work.reported', projectId: order.project_id, actorUserId: loaded.userId ?? null,
         entityType: 'agent_order', entityId: id,
-        payload: { title: itemName, detail: '완료 보고 — 승인 대기', href: '/agent-ops' },
+        payload: { title: itemName, detail: '완료 보고 — 승인 대기', href: `/p/${order.project_id}/wbs` },
         recipientUserIds: ((admins ?? []) as Array<{ user_id: string }>).map(a => a.user_id),
       }).catch(() => {
         // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.

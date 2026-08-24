@@ -102,7 +102,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       type: 'work.claimed', projectId: loaded.order.project_id,
       actorUserId: loaded.userId,
       entityType: 'agent_order', entityId: id,
-      payload: { title: item?.name ?? '작업', detail: '작업이 시작되었습니다', href: '/agent-ops' },
+      payload: { title: item?.name ?? '작업', detail: '작업이 시작되었습니다', href: `/p/${loaded.order.project_id}/wbs` },
       recipientMemberIds: item?.assignee_member_id ? [item.assignee_member_id] : [],
     }).catch(() => {
       // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.

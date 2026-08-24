@@ -10,7 +10,7 @@ D'Flow 작업을 Claude Code 에서 직접 조회, 착수, 진행 보고, 완료
 ### 1단계: API 토큰 발급
 
 1. wbs-web 웹 인터페이스에 로그인
-2. `/account` 또는 `/agent-ops` 접속
+2. `/account` 접속
 3. **"내 API 토큰"** 또는 **"API 토큰 발급"** 클릭
 4. 다음 스코프 선택:
    - `work:read` (작업 조회)

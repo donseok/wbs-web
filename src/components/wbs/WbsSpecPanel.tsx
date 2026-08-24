@@ -1,10 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { FileText, Pencil } from 'lucide-react'
 import { getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
+import {
+  approveAgentCompletion, getAgentOrderForItem, rejectAgentCompletion,
+  type AgentOrderStatus,
+} from '@/app/actions/agentWork'
+import { isClaimStale } from '@/lib/domain/agentWork'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -53,6 +58,8 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
   const [specDraft, setSpecDraft] = useState('')
   const [specBusy, setSpecBusy] = useState(false)
   const [specErr, setSpecErr] = useState<string | null>(null)
+  // 위임 체크가 주문을 발행·취소하므로, 체크가 바뀔 때마다 아래 진행 상황 섹션도 다시 읽는다.
+  const [orderRefreshKey, setOrderRefreshKey] = useState(0)
 
   useEffect(() => {
     let alive = true
@@ -94,9 +101,13 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     const res = await setAgentDelegation(itemId, delegated)
     setRefBusy(false)
     if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
+    // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않은 경우.
+    // 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
+    if (res.warning) setRefErr(res.warning)
     setLoaded(prev => (prev && prev !== 'error'
       ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
       : prev))
+    setOrderRefreshKey(k => k + 1)
     router.refresh()
   }
 
@@ -221,6 +232,8 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           ) : null}
           {refErr && <p className="text-xs font-medium text-delayed" role="alert">{refErr}</p>}
 
+          <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} />
+
           <div>
             <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.specDependsLabel')}</div>
             {loaded.depends.length === 0 ? (
@@ -291,6 +304,102 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
         </div>
       )}
     </section>
+  )
+}
+
+const ORDER_STATUS_LABEL: Record<string, DictKey> = {
+  ready: 'wbs.agentOrderReady', reported: 'wbs.agentOrderReported',
+  approved: 'wbs.agentOrderApproved', rejected: 'wbs.agentOrderRejected', cancelled: 'wbs.agentOrderCancelled',
+}
+
+/**
+ * "진행 상황" — 이 항목의 최신 에이전트 주문(2026-08-24, agent-ops 화면 대체). 승인·반려는 여전히
+ * 사람만 하는 행위라 여기 남는다 — 발행·취소는 위임 체크 하나로 되므로 이 섹션에 버튼을 두지 않는다.
+ * 위임한 적 없거나(order:null) 조회 실패면 아무것도 렌더하지 않는다(빈 패널에 소음을 더하지 않는다) —
+ * 실패는 refErr 처럼 별도 alert 를 세우지 않고 조용히 숨긴다. 실패가 잦으면 getAgentOrderForItem 의
+ * console.error 로그가 남는다.
+ */
+function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string; editable: boolean; refreshKey: number }) {
+  const { t } = useLocale()
+  const [order, setOrder] = useState<AgentOrderStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [rejectNote, setRejectNote] = useState('')
+  const [rejecting, setRejecting] = useState(false)
+
+  const reload = useCallback(() => {
+    getAgentOrderForItem(itemId).then(r => {
+      setOrder(r.ok ? r.order : null)
+      if (!r.ok) console.error('[WbsAgentOrderStatus] 조회 실패:', r.error)
+    })
+  }, [itemId])
+  useEffect(() => { setOrder(null); setErr(null); setRejecting(false); reload() }, [reload, refreshKey])
+
+  if (!order || order.status === 'cancelled') return null
+
+  const lastReport = order.reports.at(-1)
+
+  async function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+    setBusy(true); setErr(null)
+    try {
+      const r = await action()
+      if (!r.ok) { setErr(r.error ?? t('wbs.agentOrderActionFailed')); return }
+      setRejecting(false); setRejectNote('')
+      reload()
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-surface p-2.5">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold text-ink-muted">{t('wbs.agentOrderTitle')}</span>
+        <span className={`chip ${order.status === 'reported' ? 'bg-brand-weak text-brand' : 'bg-surface-2 text-ink-muted'}`}>
+          {order.status === 'claimed' ? t('wbs.agentOrderClaimed') : t(ORDER_STATUS_LABEL[order.status] ?? 'wbs.agentOrderReady')}
+        </span>
+      </div>
+      {order.status === 'claimed' && (
+        <p className="text-xs text-ink-subtle">
+          {order.claimed_by ?? '—'}
+          {isClaimStale(order.claimed_at) && <span className="ml-1 text-delayed">{t('wbs.agentOrderStale')}</span>}
+          {lastReport && ` · ${lastReport.percent}%`}
+        </p>
+      )}
+      {order.reports.length > 0 && (
+        <ul className="mt-1.5 space-y-1.5">
+          {order.reports.map(r => (
+            <li key={r.id} className="rounded-md border border-line/60 p-1.5 text-xs">
+              <div className="text-[10px] text-ink-subtle">{r.created_at} · {r.agent} · {r.kind} · {r.percent}%</div>
+              <p className="whitespace-pre-wrap text-ink">{r.summary}</p>
+              {r.links.length > 0 && (
+                <div className="mt-0.5 text-[10px]">
+                  {t('wbs.agentOrderLinks')}: {r.links.map((l, i) => (
+                    <a key={i} className="mr-1.5 underline" href={l.url} target="_blank" rel="noreferrer">{l.label ?? l.url}</a>
+                  ))}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {editable && order.status === 'reported' && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <button type="button" className="btn btn-primary h-7 px-2.5 text-xs" disabled={busy}
+            onClick={() => void run(() => approveAgentCompletion(order.id))}>{t('wbs.agentOrderApprove')}</button>
+          {rejecting ? (
+            <>
+              <input className="app-input h-7 w-40 text-xs" aria-label={t('wbs.agentOrderRejectNote')}
+                placeholder={t('wbs.agentOrderRejectNote')} value={rejectNote} onChange={e => setRejectNote(e.target.value)} />
+              <button type="button" className="btn h-7 px-2.5 text-xs" disabled={busy || !rejectNote.trim()}
+                onClick={() => void run(() => rejectAgentCompletion(order.id, rejectNote))}>{t('wbs.agentOrderReject')}</button>
+            </>
+          ) : (
+            <button type="button" className="btn btn-ghost h-7 px-2.5 text-xs" disabled={busy}
+              onClick={() => setRejecting(true)}>{t('wbs.agentOrderReject')}</button>
+          )}
+        </div>
+      )}
+      {err && <p className="mt-1.5 text-xs font-medium text-delayed" role="alert">{err}</p>}
+    </div>
   )
 }
 

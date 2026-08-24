@@ -20,7 +20,6 @@ export const commonKo = {
   'nav.settings': '설정',
   'nav.usage': '사용 현황',
   'nav.portfolio': '포트폴리오',
-  'nav.agentOps': '에이전트 관제',
   'chrome.manual': '수동',
   'chrome.auto': '자동',
   'chrome.notifications': '알림',

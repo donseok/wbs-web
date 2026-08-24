@@ -29,7 +29,7 @@ async function emitReleaseNotification(
   emitNotification({
     type: 'work.released', projectId: order.project_id, actorUserId,
     entityType: 'agent_order', entityId: order.id,
-    payload: { title: itemName, detail: '작업이 반납되었습니다', href: '/agent-ops' },
+    payload: { title: itemName, detail: '작업이 반납되었습니다', href: `/p/${order.project_id}/wbs` },
     recipientMemberIds: assigneeMemberId ? [assigneeMemberId] : [],
   }).catch(() => {
     // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.

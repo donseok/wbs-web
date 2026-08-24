@@ -21,7 +21,6 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   'nav.settings': 'Settings',
   'nav.usage': 'Usage',
   'nav.portfolio': 'Portfolio',
-  'nav.agentOps': 'Agent Ops',
   'chrome.manual': 'Manual',
   'chrome.auto': 'Auto',
   'chrome.notifications': 'Notifications',

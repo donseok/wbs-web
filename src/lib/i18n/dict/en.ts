@@ -18,7 +18,6 @@ import { holidaysEn } from './holidays.en'
 import { minutesEn } from './minutes.en'
 import { issuesEn } from './issues.en'
 import { wikiEn } from './wiki.en'
-import { agentOpsEn } from './agentOps.en'
 import { importWizardEn } from './importWizard.en'
 import { inboxEn } from './inbox.en'
 import { accountEn } from './account.en'
@@ -41,7 +40,6 @@ export const EN: Record<DictKey, string> = {
   ...minutesEn,
   ...issuesEn,
   ...wikiEn,
-  ...agentOpsEn,
   ...importWizardEn,
   ...inboxEn,
   ...accountEn,
