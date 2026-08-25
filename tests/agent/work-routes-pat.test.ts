@@ -210,7 +210,7 @@ describe('GET /agent/work/[id] — PAT 멤버십 게이트', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.order.item).toEqual(ITEM) // ITEM_DETAIL_COLUMNS 전 필드 — v1(id,code,name,biz,deliverable,planned_*)보다 확장됨
-    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null }])
+    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
   })
 
   it('레거시 시크릿 + wbs_item_id 있음 → item 은 v1 컬럼 그대로, depends_evidence 없음(회귀 기준선)', async () => {

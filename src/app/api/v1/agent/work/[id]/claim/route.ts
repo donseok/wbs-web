@@ -59,10 +59,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       const depends = item?.depends ?? []
       if (depends.length > 0) {
         dependsInfo = await loadDependsInfo(admin, { projectId: loaded.order.project_id, depends })
-        const unmet = dependsInfo.filter((d) => !stageAtLeast(d.stage, 'im'))
+        // 충족 축은 둘이다: stage ≥ im, **또는** 선행에 approved 주문이 있음(2026-08-25).
+        // 후자를 인정하지 않으면 승인이 반쪽으로 끝난 선행(approved 인데 stage 미전이)이 후속을
+        // 영구히 막는다 — 사람이 화면에서 단계를 손으로 올려주기 전까지 루프가 스스로 못 푸는
+        // 교착이었다. 승인 자체가 "끝났다"는 사람의 판정이므로 그것을 도달로 받아들인다.
+        const unmet = dependsInfo.filter((d) => !stageAtLeast(d.stage, 'im') && !d.order_approved)
         if (unmet.length > 0) {
           return NextResponse.json({
-            error: '선행 작업이 완료(im 이상)되지 않았습니다.', code: 'dependency_not_met',
+            error: '선행 작업이 완료(im 이상)되지 않았고 승인된 주문도 없습니다.', code: 'dependency_not_met',
             unmet: unmet.map((d) => ({ external_ref: d.external_ref, stage: d.stage })),
           }, { status: 403 })
         }

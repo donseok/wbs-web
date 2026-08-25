@@ -58,8 +58,22 @@ describe('transitionStage', () => {
       }],
     })
     const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'fp', actorUserId: ACTOR })
-    expect(result).toEqual({ ok: true, transitioned: false })
+    expect(result).toEqual({ ok: true, transitioned: false, skipped: 'dev_workflow' })
     expect(fromCalls).toEqual(['wbs_items']) // UPDATE 호출 없음(조회 1회뿐)
+  })
+
+  // 승인은 사람의 명시 결정이라 항목 플래그가 무를 수 없다 — 이 게이트가 조용히 막아
+  // "승인됐는데 stage 는 그대로"인 반쪽 상태가 세 번 재발했다(2026-08-25).
+  it('dev_workflow=false + force → 게이트를 넘어 실제 전이', async () => {
+    const { admin, fromCalls } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: 'fp', dev_workflow: false } },
+        { data: [{ id: ITEM_ID }] },
+      ],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'xx', actorUserId: ACTOR, force: true })
+    expect(result.transitioned).toBe(true)
+    expect(fromCalls.length).toBeGreaterThan(1) // UPDATE 까지 갔다
   })
 
   it("fromIn=['as','fp',null] 인데 현재 'ip' → no-op", async () => {
@@ -71,7 +85,7 @@ describe('transitionStage', () => {
     const result = await transitionStage(admin, {
       itemId: ITEM_ID, to: 'im', fromIn: ['as', 'fp', null], actorUserId: ACTOR,
     })
-    expect(result).toEqual({ ok: true, transitioned: false })
+    expect(result).toEqual({ ok: true, transitioned: false, skipped: 'stage' })
     expect(fromCalls).toEqual(['wbs_items'])
   })
 

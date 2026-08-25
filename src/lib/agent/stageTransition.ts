@@ -112,9 +112,15 @@ export async function transitionStage(
     to: WbsStage | null
     fromIn?: ReadonlyArray<WbsStage | null>
     actorUserId: string
+    /**
+     * dev_workflow 게이트를 넘는다 — 승인 전용(2026-08-25). 승인은 사람이 화면에서 내리는
+     * 명시 결정이라 항목 플래그가 그걸 무를 이유가 없다. 이 게이트가 조용히 막아 승인이
+     * "성공"으로 끝나고 stage 만 뒤처지는 반쪽 상태가 세 번 재발했다(mes-runlog 리허설).
+     */
+    force?: boolean
   },
-): Promise<{ ok: boolean; transitioned: boolean }> {
-  const { itemId, to, fromIn, actorUserId } = args
+): Promise<{ ok: boolean; transitioned: boolean; skipped?: 'dev_workflow' | 'stage' }> {
+  const { itemId, to, fromIn, actorUserId, force } = args
 
   const { data, error } = await admin
     .from('wbs_items')
@@ -134,10 +140,10 @@ export async function transitionStage(
     stage: string | null; dev_workflow: boolean | null
   }
 
-  if (item.dev_workflow !== true) return { ok: true, transitioned: false }
+  if (item.dev_workflow !== true && !force) return { ok: true, transitioned: false, skipped: 'dev_workflow' }
 
   const oldStage = item.stage as WbsStage | null
-  if (fromIn && !fromIn.includes(oldStage)) return { ok: true, transitioned: false }
+  if (fromIn && !fromIn.includes(oldStage)) return { ok: true, transitioned: false, skipped: 'stage' }
   if (oldStage === to) return { ok: true, transitioned: false }
 
   // CAS — 조회 이후 다른 경로가 먼저 stage 를 바꿨으면 이 UPDATE 는 0행이어야 한다(경합에서 짐).

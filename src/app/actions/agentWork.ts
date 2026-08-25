@@ -21,7 +21,7 @@ import { transitionStage } from '@/lib/agent/stageTransition'
  * 조회(getAgentOrderForItem)만 세션 클라이언트로 해 RLS 조회 정책을 2차 방어선으로 쓴다.
  */
 
-type ActionResult = { ok: boolean; error?: string }
+type ActionResult = { ok: boolean; error?: string; warning?: string }
 
 /**
  * 에이전트 중지/재개(2026-08-24 — 킬스위치). "루프 등록"은 사라졌다: 위임 체크·dev_workflow ON·
@@ -170,19 +170,32 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
   }
   await notifyReviewResult(admin, order, 'work.approved', actor.userId)
 
-  // stage 전이 — 사람 검수 통과가 곧 완료(정본: accept 는 사람만). 실패는 로깅만, 승인 결과에 영향 없음.
-  // wbs_item_id 는 위(147행)에서 이미 null 이 아님이 확인됐다.
+  // stage 전이 — 사람 검수 통과가 곧 완료(정본: accept 는 사람만).
+  // force: dev_workflow 가 꺼져 있어도 넘어간다. 이 게이트가 ok:true 로 조용히 빠져나가는 바람에
+  // 승인은 성공인데 stage 만 뒤처진 반쪽 상태가 세 번 재발했고(2026-08-25 mes-runlog 리허설),
+  // 그 상태는 승인 버튼으로 자가 복구가 안 된다(:127 에서 status!=='reported' 로 막힌다).
+  // wbs_item_id 는 위에서 이미 null 이 아님이 확인됐다.
+  let stageWarn: string | null = null
   try {
     const transitioned = await transitionStage(admin, {
-      itemId: order.wbs_item_id as string, to: 'xx', fromIn: ['im', 'ip', 'as', 'fp', null], actorUserId: actor.userId,
+      itemId: order.wbs_item_id as string, to: 'xx', fromIn: ['im', 'ip', 'as', 'fp', null],
+      actorUserId: actor.userId, force: true,
     })
-    if (!transitioned.ok) console.error('[agentWork] 승인 stage 전이 실패:', order.wbs_item_id)
+    if (!transitioned.ok) {
+      console.error('[agentWork] 승인 stage 전이 실패:', order.wbs_item_id)
+      stageWarn = '승인은 처리됐지만 WBS 단계를 완료로 바꾸지 못했습니다 — 단계를 직접 확인하세요.'
+    } else if (transitioned.skipped === 'stage') {
+      // 사람이 손으로 옮겨 둔 단계라 자동 전이가 비켜간 것 — 침묵하면 후속 claim 이 막힌 이유를 아무도 못 찾는다.
+      console.error('[agentWork] 승인 stage 전이 비적용(현재 단계가 전이 대상 밖):', order.wbs_item_id)
+      stageWarn = '승인은 처리됐지만 현재 WBS 단계가 자동 전이 대상이 아니라 그대로 두었습니다 — 단계를 확인하세요.'
+    }
   } catch (e) {
     console.error('[agentWork] 승인 stage 전이 예외:', e instanceof Error ? e.message : e)
+    stageWarn = '승인은 처리됐지만 WBS 단계 전이 중 오류가 났습니다 — 단계를 직접 확인하세요.'
   }
 
   revalidatePath(`/p/${order.project_id}/wbs`)
-  return { ok: true }
+  return stageWarn ? { ok: true, warning: stageWarn } : { ok: true }
 }
 
 export async function rejectAgentCompletion(orderId: string, note: string): Promise<ActionResult> {
