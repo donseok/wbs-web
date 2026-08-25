@@ -18,8 +18,9 @@ type TokenRow = {
 
 // 스코프 설명(스테이징 실사용 피드백 2026-08-11) — 52명+ 로스터에서 claim 스코프가 조회를
 // 포함한다는 사실이 체크박스 라벨만으론 드러나지 않아 오발급 문의가 있었다.
-// work:report 는 체크박스를 따로 두지 않는다 — claim 할 수 있으면 그 결과도 적을 수 있어야
-// 사이클이 완주된다(2026-08-24). submitIssue 가 work:claim 선택 시 자동으로 얹는다.
+// work:report 는 **폐지됐다**(2026-08-25) — claim 할 수 있으면 그 결과도 적을 수 있어야 하고,
+// claim 이 무제한인 이상 보고만 따로 막는 건 실질 방어선이 아니었다. 신규 발급에는 붙이지 않는다
+// (옛 토큰에 남은 work:report 는 서버가 work:claim 과 동등하게 받아준다 — externalApi 참조).
 const SCOPE_OPTIONS: readonly { value: string; label: string; descKey: DictKey }[] = [
   { value: 'work:read', label: '조회 (work:read)', descKey: 'account.scope.workRead.desc' },
   { value: 'work:claim', label: 'claim/release/완료보고 (work:claim)', descKey: 'account.scope.workClaim.desc' },
@@ -68,12 +69,8 @@ export function MyTokensSection({ projects }: { projects: { id: string; name: st
     if (scopes.length === 0) { setIssueError('스코프를 1개 이상 선택하세요.'); return }
     setIssuing(true)
     try {
-      // claim 을 골랐으면 report 도 같이 발급 — 별도 체크박스 없음(2026-08-24).
-      const effectiveScopes = scopes.includes('work:claim')
-        ? Array.from(new Set([...scopes, 'work:report']))
-        : scopes
       const r = await createAgentToken({
-        name: trimmed, projectId: projectId || null, scopes: effectiveScopes, expiresDays,
+        name: trimmed, projectId: projectId || null, scopes, expiresDays,
       })
       if (!r.ok) { setIssueError(r.error); return }
       setIssued({ token: r.token, prefix: r.prefix })

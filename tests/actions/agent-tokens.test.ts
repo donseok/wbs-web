@@ -49,16 +49,25 @@ describe('createAgentToken', () => {
     const r = await createAgentToken({ name: 'x', projectId: null, scopes: ['work:read'], expiresDays: 90 })
     expect(r.ok).toBe(false)
   })
-  it('work:report 자율 발급 허용(2026-08-24 — claim 할 수 있으면 결과도 적을 수 있어야 함)', async () => {
+  it('work:claim 발급 — 신규 토큰에 work:report 를 얹지 않는다(2026-08-25 스코프 폐지)', async () => {
     useSession({ id: 'u-1' })
     const inserted = useAdmin({ data: [{ id: 'r-1' }] })
     const { createAgentToken } = await import('@/app/actions/agentTokens')
     const r = await createAgentToken({
-      name: 'x', projectId: null, scopes: ['work:read', 'work:claim', 'work:report'], expiresDays: 90,
+      name: 'x', projectId: null, scopes: ['work:read', 'work:claim'], expiresDays: 90,
     })
     expect(r.ok).toBe(true)
     const row = inserted[0] as Record<string, unknown>
-    expect(row.scopes).toEqual(['work:read', 'work:claim', 'work:report'])
+    expect(row.scopes).toEqual(['work:read', 'work:claim'])
+  })
+  it('폐지된 work:report 는 발급 거부 — 완료 보고 권한은 work:claim 에 흡수됐다', async () => {
+    useSession({ id: 'u-1' })
+    useAdmin({})
+    const { createAgentToken } = await import('@/app/actions/agentTokens')
+    const r = await createAgentToken({
+      name: 'x', projectId: null, scopes: ['work:read', 'work:claim', 'work:report'], expiresDays: 90,
+    })
+    expect(r.ok).toBe(false)
   })
   it('알 수 없는 스코프는 거부', async () => {
     useSession({ id: 'u-1' })

@@ -22,7 +22,8 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 - 킬스위치: `AGENT_API_ENABLED !== 'true'` → 전 라우트 404. 시크릿 미설정 → legacy 분기만 닫힘.
 - PAT 검사 순서: enabled → revoked_at → expires_at → hash(상수시간).
 - PAT 요청 body의 `user_email`: 없으면 무시, 있는데 소유자와 다르면 400 `identity_mismatch`.
-- 스코프: `work:read`(조회) · `work:claim`(claim/release) · `work:report`(report). 부족 시 403 `insufficient_scope`. legacy는 스코프 개념 없음(v1 동작).
+- 스코프: `work:read`(조회) · `work:claim`(claim/release/report/import). 부족 시 403 `insufficient_scope`. legacy는 스코프 개념 없음(v1 동작).
+  `work:report` 는 폐지됐다(2026-08-25) — claim 할 수 있으면 그 결과도 적을 수 있어야 하고, claim 이 무제한이라 보고만 막는 건 방어선이 아니었다(본인 claim 건만 쓸 수 있다는 강제는 report 라우트가 한다). 신규 발급에는 없고, **옛 토큰의 `work:report` 는 `work:claim` 과 동등하게 수용**한다.
 - PAT는 `project_id` 지정 시 그 프로젝트만. 멤버십: PAT principal은 모든 조회·쓰기에서 `is_superuser` 또는 `project_roles` 보유 필요, 아니면 404.
 
 ## 엔드포인트 (v1 5개 불변 + 신규 3개)
@@ -36,7 +37,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 | POST `/api/v1/agent/work/{id}/report` | legacy·pat | 위와 같음 + PAT는 `evidence` 객체 허용 |
 | GET `/api/v1/agent/me` | **pat 전용** | legacy 호출 400 `identity_required` |
 | GET `/api/v1/agent/work/mine?scope=&limit=` | **pat 전용** | scope: `available`(기본)·`claimed`·`all`·`assigned` |
-| POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:report` 필요 |
+| POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:claim` 필요 |
 
 ## 응답 셰이프 (신규분)
 

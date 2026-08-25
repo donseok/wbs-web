@@ -84,7 +84,7 @@ curl -sS -X POST "$DFLOW_API_BASE/api/v1/wbs/import" \
   -H "Authorization: Bearer $PAT" -H "Content-Type: application/json" \
   -d @"$SCRATCHPAD/wbs-import-{MOD}.json"
 ```
-- PAT 스코프 `work:report` 필요, **프로젝트 관리자(admin) 또는 슈퍼유저 전용** — 그 외 역할은 403 `forbidden_role`.
+- PAT 스코프 `work:claim` 필요(옛 `work:report` 토큰도 수용 — 스코프 폐지 2026-08-25), **프로젝트 관리자(admin) 또는 슈퍼유저 전용** — 그 외 역할은 403 `forbidden_role`.
 - `nodes` 는 최대 `MAX_NODES = 1000` 건 — 초과 시 400.
 - 404 = 킬스위치(`AGENT_API_ENABLED`) 꺼짐 / 프로젝트 미등록 / PAT principal 이 해당 프로젝트 비멤버 — **의도적으로 구분하지 않는다.**
 - 응답 확인: `upserted`/`skipped`/`unmatched_assignees`/`non_leaf_skipped`/`orders_created`.

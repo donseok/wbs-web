@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   try {
     const admin = createAdminClient()
-    const actor = await resolveWriteActor(req, admin, raw, 'work:report')
+    const actor = await resolveWriteActor(req, admin, raw, 'work:claim')
     if (!actor.ok) return actor.res
 
     const loaded = actor.principal.kind === 'pat'

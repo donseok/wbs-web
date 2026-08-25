@@ -4,5 +4,5 @@ import type { accountKo } from './account'
 
 export const accountEn: Record<keyof typeof accountKo, string> = {
   'account.scope.workRead.desc': 'View work list and detail only',
-  'account.scope.workClaim.desc': 'Can claim/release work and report completion — includes read access',
+  'account.scope.workClaim.desc': 'Can claim/release work, report completion, and import WBS — includes read access',
 }

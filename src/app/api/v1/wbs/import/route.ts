@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     const principal = await resolveAgentPrincipal(req, admin)
     if (principal instanceof NextResponse) return principal
     if (principal.kind === 'legacy') return apiFail(400, 'identity_required', '이 엔드포인트는 PAT 전용입니다.')
-    const scopeErr = requireScope(principal, 'work:report')
+    const scopeErr = requireScope(principal, 'work:claim')
     if (scopeErr) return scopeErr
     if (!patProjectAllowed(principal, projectId)) return apiNotFound()
     if (!(await requireAgentProject(admin, projectId))) return apiNotFound()

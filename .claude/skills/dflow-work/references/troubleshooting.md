@@ -77,7 +77,7 @@
 
 | 상황 | 해결 |
 |---|---|
-| `insufficient_scope` | 토큰 스코프 부족. `/account` 에서 `work:read`, `work:claim`, `work:report` 재발급 |
+| `insufficient_scope` | 토큰 스코프 부족. `/account` 에서 `work:read`, `work:claim` 재발급(완료 보고·import 는 `work:claim` 에 포함) |
 | `not_claim_owner` | 다른 사람이 claim 한 작업을 당신이 release/report 시도. 소유자에게 요청 |
 | `not_assignee` | 배정된 담당자만 claim 가능한 작업. 담당자 변경은 웹 UI에서 |
 | `forbidden_role` | 프로젝트 멤버 아님. 프로젝트 관리자에게 멤버십 요청 |
@@ -90,7 +90,7 @@ dflow.sh me
 출력 예:
 ```
 user_email: a@b.c
-scopes: work:read, work:claim, work:report
+scopes: work:read, work:claim
 projects: Project A (admin), Project B (member)
 ```
 

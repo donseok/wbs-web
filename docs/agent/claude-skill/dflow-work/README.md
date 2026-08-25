@@ -15,7 +15,7 @@ D'Flow 작업을 Claude Code 에서 직접 조회, 착수, 진행 보고, 완료
 4. 다음 스코프 선택:
    - `work:read` (작업 조회)
    - `work:claim` (작업 착수)
-   - (선택) `work:report` (완료 보고)
+   - 완료 보고(report)·WBS import 는 `work:claim` 에 포함된다 — 별도 스코프 없음(2026-08-25 폐지)
 
 5. 토큰 생성 후 **평문 1회만 표시** — 반드시 복사해 저장
 
