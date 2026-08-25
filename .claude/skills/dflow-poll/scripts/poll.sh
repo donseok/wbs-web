@@ -2,7 +2,9 @@
 # poll.sh — D'Flow ready 작업 감시 루프 (dflow-poll 스킬 전용).
 # ready 발견 시 stdout 에 "순번<TAB>id8<TAB>이름" 을 줄 단위로 내고 종료한다.
 # 승인 감지 시 stdout 에 "TSK<TAB>order-id" 를 줄 단위로 내고 exit 9 — 세션이 머지 스윕을 돌린다.
+# 반려 감지 시 stdout 에 "TSK<TAB>order-id<TAB>review_note" 를 내고 exit 10 — 세션이 재작업에 들어간다.
 # exit: 0 ready 발견 / 2 사용법·설정 / 3 인증 / 5 권한 / 7 기능꺼짐 (dflow.sh 코드 전파)
+#       8 종료시각 / 9 승인 감지 / 10 반려 감지
 #       / 6 네트워크·일시 오류 연속 한도 초과 / 8 종료 시각 도달 / 9 승인 감지(머지 대상)
 # 토큰은 env 확장으로만 다룬다 — echo·파일 기록·명령 문자열 보간 금지.
 set -u
@@ -62,6 +64,7 @@ while :; do
   # 로컬 state.json 이 phase=reported 인 주문의 서버 status 가 approved 로 바뀌었으면
   # 그게 트리거다: 사람이 웹에서 승인해도 착수할 ready 가 없으면 아무도 못 보던 구멍(2026-08-25).
   merge_hits=''
+  reject_hits=''
   if [ -d "$STATE_GLOB" ]; then
     for _sf in "$STATE_GLOB"/*/state.json; do
       [ -f "$_sf" ] || continue
@@ -70,9 +73,19 @@ while :; do
       _ord=$(jq -r '.order // empty' "$_sf" 2>/dev/null)
       [ -n "$_ord" ] || continue
       _tsk=$(jq -r '.tsk // empty' "$_sf" 2>/dev/null)
-      _st=$("$DFLOW" show "$_ord" 2>/dev/null | jq -r '.order.status // empty') || _st=''
+      # show 를 한 번만 부르고 status 와 마지막 완료리포트를 같은 응답에서 뽑는다(추가 호출 0회).
+      _json=$("$DFLOW" show "$_ord" 2>/dev/null) || _json=''
+      _st=$(printf '%s' "$_json" | jq -r '.order.status // empty' 2>/dev/null) || _st=''
+      # 반려 신호는 order 에 없다 — status 는 claimed 로 롤백될 뿐이라 일반 claimed 와 구분 불가.
+      # 최상위 .reports 의 마지막 completion 리포트 review_action 이 유일한 판정 근거(2026-08-25 실측).
+      _rv=$(printf '%s' "$_json" | jq -r '[.reports[]? | select(.kind == "completion")] | last | .review_action // empty' 2>/dev/null) || _rv=''
       if [ "$_st" = "approved" ]; then
         merge_hits="${merge_hits}${_tsk}	${_ord}
+"
+      elif [ "$_rv" = "reject" ]; then
+        # 사유는 한 줄로 눌러 담는다 — 출력 계약이 TAB 구분 한 줄이라 개행·탭이 섞이면 깨진다.
+        _note=$(printf '%s' "$_json" | jq -r '[.reports[]? | select(.kind == "completion")] | last | .review_note // ""' 2>/dev/null | tr '\n\t' '  ' | sed 's/ *$//')
+        reject_hits="${reject_hits}${_tsk}	${_ord}	${_note}
 "
       elif [ -z "$_st" ]; then
         # 조용히 묻으면 "감지가 도는데 안 잡힌다"와 "조회가 깨졌다"를 구분 못 한다(2026-08-25).
@@ -82,6 +95,8 @@ while :; do
     done
   fi
   [ -n "$merge_hits" ] && { printf '%s' "$merge_hits"; exit 9; }
+  # 반려는 승인 다음 — 머지가 후속을 해금하는 게 먼저고, 반려는 재작업이라 급하지 않다.
+  [ -n "$reject_hits" ] && { printf '%s' "$reject_hits"; exit 10; }
 
   out=$("$DFLOW" list --scope assigned 2>&1); rc=$?
   case "$rc" in
