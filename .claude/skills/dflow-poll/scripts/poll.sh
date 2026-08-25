@@ -69,11 +69,15 @@ while :; do
       [ "$_phase" = "reported" ] || continue
       _ord=$(jq -r '.order // empty' "$_sf" 2>/dev/null)
       [ -n "$_ord" ] || continue
+      _tsk=$(jq -r '.tsk // empty' "$_sf" 2>/dev/null)
       _st=$("$DFLOW" show "$_ord" 2>/dev/null | jq -r '.order.status // empty') || _st=''
       if [ "$_st" = "approved" ]; then
-        _tsk=$(jq -r '.tsk // empty' "$_sf" 2>/dev/null)
         merge_hits="${merge_hits}${_tsk}	${_ord}
 "
+      elif [ -z "$_st" ]; then
+        # 조용히 묻으면 "감지가 도는데 안 잡힌다"와 "조회가 깨졌다"를 구분 못 한다(2026-08-25).
+        # state.json 의 order 는 전체 UUID 가 계약 — id8 이면 dflow.sh idmap 폴백에 걸리길 빌 뿐이다.
+        echo "승인 조회 실패: ${_tsk} (order=${_ord}) — show 해석 불가(전체 UUID 로 기록됐는지 확인)" >&2
       fi
     done
   fi

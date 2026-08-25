@@ -7,6 +7,10 @@ set -u
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
 PROFILE_CACHE="$CACHE_DIR/profiles.json"
+# id8 → 전체 UUID 영속 맵. 목록 캐시는 매 list 로 덮여서 approved 처럼 목록에서 빠진 주문의
+# 접두 해석이 죽는다(2026-08-25 실증 — 감지하려는 바로 그 상태에서 show 실패). 한 번이라도
+# 목록에 떴던 id 를 여기 누적해 접두 해석의 폴백으로 쓴다. UUID 목록뿐이라 비밀 아님.
+IDMAP_CACHE="$CACHE_DIR/known-ids.txt"
 
 usage() {
   cat >&2 <<'EOF'
@@ -99,9 +103,12 @@ resolve_ref() {
       printf '%s' "$_id" ;;
     ????????-*) printf '%s' "$1" ;;
     ????????)
-      [ -f "$LIST_CACHE" ] || die 2 "UUID 접두 해석에는 목록 캐시가 필요합니다 — list 먼저."
-      _id=$(jq -r --arg p "$1" '.[] | select(.id | startswith($p)) | .id' "$LIST_CACHE" | head -1)
-      [ -n "$_id" ] || die 2 "접두 $1 로 시작하는 주문이 목록에 없습니다."
+      # 현재 목록 캐시 → 영속 idmap 순 폴백. approved 등 목록에서 빠진 주문도
+      # 과거에 한 번이라도 목록에 떴으면 idmap 으로 해석된다.
+      _id=''
+      [ -f "$LIST_CACHE" ] && _id=$(jq -r --arg p "$1" '.[] | select(.id | startswith($p)) | .id' "$LIST_CACHE" | head -1)
+      [ -z "$_id" ] && [ -f "$IDMAP_CACHE" ] && _id=$(grep "^$1" "$IDMAP_CACHE" | head -1)
+      [ -n "$_id" ] || die 2 "접두 $1 해석 실패 — 목록·과거 이력(idmap)에 없습니다. 전체 UUID 로 다시 부르거나 list 를 먼저 실행하세요."
       printf '%s' "$_id" ;;
     *) die 2 "ref 형식: 순번 | UUID 8자 | 전체 UUID" ;;
   esac
@@ -116,6 +123,13 @@ print_list() { # stdin = 주문 배열 JSON
     (.value.id[0:8]),
     ((.value.item.name // .value.instructions // "-") | .[0:40])
   ] | @tsv'
+}
+
+# idmap 누적 — $1 = 주문 배열 JSON 파일. 실패해도 본 기능엔 영향 없음(폴백 캐시일 뿐).
+remember_ids() {
+  [ -f "$1" ] || return 0
+  { jq -r '.[].id // empty' "$1" 2>/dev/null; cat "$IDMAP_CACHE" 2>/dev/null; } \
+    | sort -u > "$IDMAP_CACHE.tmp" 2>/dev/null && mv "$IDMAP_CACHE.tmp" "$IDMAP_CACHE" || rm -f "$IDMAP_CACHE.tmp"
 }
 
 # ---- 커맨드 ---------------------------------------------------------------
@@ -137,6 +151,7 @@ cmd_list() {
       printf '== %s ==\n' "$(profile_email "$_t" || printf '?')"
       _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
       printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | tee "$LIST_CACHE.tmp" | print_list
+      remember_ids "$LIST_CACHE.tmp"
     done
   else
     _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
@@ -144,6 +159,7 @@ cmd_list() {
     print_list < "$LIST_CACHE.tmp"
   fi
   mv "$LIST_CACHE.tmp" "$LIST_CACHE" 2>/dev/null || true
+  remember_ids "$LIST_CACHE"
 }
 
 cmd_show() {

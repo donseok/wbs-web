@@ -34,6 +34,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 
 - 로컬 `docs/tasks/<TSK>/state.json`:
   `{ "tsk", "order", "phase", "baseline": {"failures": N, "tests": M}, "last": {"phase","event"} }`
+  **`order` 는 전체 UUID(하이픈 포함 36자)로 기록한다 — id8 금지.** 주문이 approved 가 되면
+  목록에서 빠져 id8 접두 해석이 죽고, poll 의 승인 감지(exit 9)와 머지 판정이 그 주문을
+  영영 못 본다(2026-08-25 실증). 기존 파일이 id8 이면 발견 즉시 전체 UUID 로 고쳐 커밋한다.
   기록 순서 고정: **산출물 커밋 → state.json 갱신 → progress 보고.** progress 보고가 실패(exit≠0)해도
   state 는 유지하고 그 사실만 보고한다(성공 Phase 를 되돌리지 않는다).
 - 실패 시 `phase` 는 되돌리지 않고 `last.event=*.fail` 만 기록 — 재실행 시 같은 Phase 재개.
