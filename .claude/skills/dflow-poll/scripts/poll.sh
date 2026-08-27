@@ -69,7 +69,10 @@ while :; do
     for _sf in "$STATE_GLOB"/*/state.json; do
       [ -f "$_sf" ] || continue
       _phase=$(jq -r '.phase // empty' "$_sf" 2>/dev/null) || continue
-      [ "$_phase" = "reported" ] || continue
+      # merged 도 훑는다(2026-08-27) — 사람이 승인을 무르고 재작업을 요청하면 서버는
+      # approved→claimed 로 롤백하는데, 그 시점 로컬은 이미 merged 다. reported 만 보면
+      # 그 재작업은 영영 안 잡힌다(ready 도 아니라서 아래 ready 스캔에도 안 걸린다).
+      case "$_phase" in reported|merged) ;; *) continue ;; esac
       _ord=$(jq -r '.order // empty' "$_sf" 2>/dev/null)
       [ -n "$_ord" ] || continue
       _tsk=$(jq -r '.tsk // empty' "$_sf" 2>/dev/null)
@@ -79,7 +82,8 @@ while :; do
       # 반려 신호는 order 에 없다 — status 는 claimed 로 롤백될 뿐이라 일반 claimed 와 구분 불가.
       # 최상위 .reports 의 마지막 completion 리포트 review_action 이 유일한 판정 근거(2026-08-25 실측).
       _rv=$(printf '%s' "$_json" | jq -r '[.reports[]? | select(.kind == "completion")] | last | .review_action // empty' 2>/dev/null) || _rv=''
-      if [ "$_st" = "approved" ]; then
+      # merged + approved 는 이미 처리를 마친 주문이다 — 여기서 다시 잡으면 머지가 무한 재발한다.
+      if [ "$_st" = "approved" ] && [ "$_phase" = "reported" ]; then
         merge_hits="${merge_hits}${_tsk}	${_ord}
 "
       elif [ "$_rv" = "reject" ]; then

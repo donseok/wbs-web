@@ -53,7 +53,9 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
      Phase 0-가 승인 스윕(머지·뒷정리)을 실행한 뒤 poll.sh 를 재기동한다. 승인 → 머지 →
      후속 해금 연쇄가 사람 개입 없이 이어지게 하는 트리거다(2026-08-25 리허설 결함 ①).
    - **10 = 반려 감지(재작업 대상)**: stdout 각 줄이 `TSK<TAB>order-id<TAB>review_note` —
-     로컬 state.json 이 reported 인데 서버 마지막 완료리포트가 `review_action=reject` 인 주문이다.
+     로컬 state.json 이 **reported 또는 merged** 인데 서버 마지막 완료리포트가 `review_action=reject`
+     인 주문이다. merged 까지 훑는 이유: 사람이 웹에서 승인을 무르고 재작업을 요청하면
+     (approved→claimed, 2026-08-27) 그 시점 로컬은 이미 merged 라 reported 만 보면 영영 못 본다.
      **반려는 order.status 를 rejected 로 만들지 않는다 — claimed 로 롤백될 뿐이라 일반 claimed 와
      구분되지 않는다**(2026-08-25 실측). 그래서 판정 근거는 show 응답 최상위 `.reports` 의 마지막
      completion 리포트뿐이다. **사람에게 묻지 않고** review_note 를 요구사항 입력으로 삼아
@@ -93,8 +95,10 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
     뒤 스스로 해제해 재발견을 유도한다(위 3번) — 사람이 알려주는 것을 전제하지 않는다.
     사용자가 먼저 "채워졌다"고 알리면 즉시 해제·재기동해도 된다.
 - 승인은 poll.sh 가 감지한다(exit 9 — 위 2번): 로컬 reported ↔ 서버 approved 대조.
-- 반려도 poll.sh 가 감지한다(exit 10): 로컬 reported ↔ 서버 마지막 completion 리포트의
+- 반려도 poll.sh 가 감지한다(exit 10): 로컬 reported·merged ↔ 서버 마지막 completion 리포트의
   review_action=reject 대조. **order.status 만 보면 영영 못 본다**(claimed 로 롤백된다).
+  승인 뒤 재작업 요청도 같은 신호로 잡힌다 — 로컬이 merged 인 주문도 훑기 때문이다.
+  (승인 취소는 리뷰 기록을 지우므로 이 감지에 걸리지 않는다 — 사람이 다시 검토하겠다는 뜻이다.)
   통지를 기다릴 필요 없이 머지 스윕 → 재기동이 자동으로 이어진다. 다른 세션·다른 PC 가
   그 선행을 지금 당장 기다리면 /dflow-merge 를 직접 써도 된다.
 
