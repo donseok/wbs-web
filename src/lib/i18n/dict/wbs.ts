@@ -187,6 +187,8 @@ export const wbsKo = {
   'wbs.deleteConfirm': '하위 항목·이력까지 삭제됩니다. 계속할까요?',
   'wbs.changeHistory': '변경 이력',
   'wbs.noHistory': '아직 변경 기록이 없습니다.',
+  'wbs.historyExpand': '{n}건 더 보기',
+  'wbs.historyCollapse': '접기',
   // 산출물 첨부
   'wbs.attachments': '산출물 첨부',
   'wbs.processing': '처리 중…',

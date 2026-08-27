@@ -177,6 +177,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.deleteConfirm': 'Children and history will be deleted too. Continue?',
   'wbs.changeHistory': 'Change history',
   'wbs.noHistory': 'No changes recorded yet.',
+  'wbs.historyExpand': 'Show {n} more',
+  'wbs.historyCollapse': 'Collapse',
   'wbs.attachments': 'Deliverable files',
   'wbs.processing': 'Working…',
   'wbs.addFile': 'Add file',

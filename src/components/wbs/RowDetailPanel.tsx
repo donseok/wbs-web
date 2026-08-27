@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
+import { X, FileText, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
 import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, ProjectMember, TaskDependency, TeamCode } from '@/lib/domain/types'
 import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
 import {
@@ -15,42 +15,11 @@ import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1, fmtSize } from '@/lib/domain/format'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
 import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
+import { ChangeHistoryList } from './ChangeHistoryList'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
-import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 import type { DictKey } from '@/lib/i18n/dict'
 const EMPTY_MEMBERS: ProjectMember[] = []
-
-type Tr = (k: DictKey) => string
-const ROLE_KEY: Record<string, DictKey> = { pmo_admin: 'wbs.rolePmoAdmin', team_editor: 'wbs.roleTeamEditor' }
-const FIELD_KEY: Record<string, DictKey> = {
-  actual_pct: 'wbs.colActualPct', weight: 'wbs.colWeight', name: 'wbs.fieldName', planned_start: 'wbs.colPlannedStart',
-  planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
-  dependency: 'wbs.dependencies',
-  // Task 12(stage)·Task 12A(spec) 가 change_logs 에 기록하는 필드명 — 매핑이 없으면 이 화면의
-  // 변경 이력 라벨이 원문 그대로("stage"/"spec") 노출된다(fmtValue 는 값만 다루고 라벨은 이 맵이 정본).
-  stage: 'wbs.stageLabel', spec: 'wbs.specPanelTitle',
-}
-function fmtValue(field: string, v: string | null, t: Tr): string {
-  if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
-  if (field === 'dependency') return t('wbs.dependencyLink')
-  if (field === 'weight' && !Number.isNaN(Number(v))) return formatWeightPct(Number(v))
-  // spec 은 본문 전문을 로그에 넣지 않고 로케일 중립 토큰만 저장한다(wbsSpecLog.ts) — 여기서
-  // 사전 키로 변환. 리터럴 한국어를 그대로 저장하면 en 사용자 이력에도 노출된다(리뷰 라운드 1).
-  if (field === 'spec' && v === SPEC_UPDATED_TOKEN) return t('wbs.specUpdatedLogValue')
-  return field === 'actual_pct' ? `${v}%` : v
-}
-function fmtAt(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
-  const r = role ? (ROLE_KEY[role] ? t(ROLE_KEY[role]) : role) : null
-  if (team && r) return `${team} · ${r}`
-  return r ?? team ?? t('wbs.unknownActor')
-}
 
 /** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
@@ -323,33 +292,46 @@ export function RowDetailPanel({
                 <Stat label={t('wbs.colActualPct')} value={`${formatPct1(item.rolledActualPct)}%`} />
                 <Stat label={t('wbs.colAchievement')} value={item.achievement == null ? '—' : `${item.achievement}%`} />
               </section>
-              <div className="flex items-center gap-2"><span className="text-xs text-ink-subtle">{t('wbs.colStatus')}</span><span className={`chip ${STATUS[item.status].chip}`}><span className={`h-1.5 w-1.5 rounded-full ${STATUS[item.status].dot}`} />{t(`status.${item.status}` as DictKey)}</span></div>
-              <Field icon={User} label={t('wbs.colOwners')}>
-                {item.owners.length ? <OwnerBadges owners={item.owners} /> : <span className="text-ink-subtle">{t('wbs.unassigned')}</span>}
-              </Field>
-              <Field icon={CalendarRange} label={t('wbs.plannedSchedule')}><span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span></Field>
-              <Field icon={Scale} label={t('wbs.colWeight')}><span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : formatWeightPct(item.weight)}</span></Field>
-              <Field icon={FileText} label={t('wbs.colDeliverable')}>
-                {delivEditing ? (
-                  <div className="space-y-2">
-                    <input autoFocus value={delivDraft} onChange={e => setDelivDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') saveDeliv(); if (e.key === 'Escape') { setDelivEditing(false); setDelivErr(null) } }}
-                      className="app-input" placeholder={t('wbs.deliverablePlaceholder')} />
-                    {delivErr && <p className="text-xs font-medium text-delayed">{delivErr}</p>}
-                    <div className="flex gap-2">
-                      <button onClick={saveDeliv} disabled={delivBusy} className="btn btn-primary h-8 px-3 text-xs">{delivBusy ? t('wbs.saving') : t('common.save')}</button>
-                      <button onClick={() => { setDelivEditing(false); setDelivErr(null) }} className="btn btn-ghost h-8 px-3 text-xs">{t('common.cancel')}</button>
+              {/* 개요 표(2026-08-28) — 아이콘 카드 4행이 세로로 44px 씩 먹던 것을 라벨·값 2열로.
+                  상태도 같은 표에 넣는다: 라벨·값 쌍이라 성격이 같고, 떠 있던 한 줄이 사라진다. */}
+              <dl className="border-y border-line/50">
+                <DlRow label={t('wbs.colStatus')}>
+                  <span className={`chip ${STATUS[item.status].chip}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${STATUS[item.status].dot}`} />
+                    {t(`status.${item.status}` as DictKey)}
+                  </span>
+                </DlRow>
+                <DlRow label={t('wbs.colOwners')}>
+                  {item.owners.length ? <OwnerBadges owners={item.owners} /> : <span className="text-ink-subtle">{t('wbs.unassigned')}</span>}
+                </DlRow>
+                <DlRow label={t('wbs.plannedSchedule')}>
+                  <span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span>
+                </DlRow>
+                <DlRow label={t('wbs.colWeight')}>
+                  <span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : formatWeightPct(item.weight)}</span>
+                </DlRow>
+                <DlRow label={t('wbs.colDeliverable')}>
+                  {delivEditing ? (
+                    <div className="space-y-2 py-0.5">
+                      <input autoFocus value={delivDraft} onChange={e => setDelivDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveDeliv(); if (e.key === 'Escape') { setDelivEditing(false); setDelivErr(null) } }}
+                        className="app-input" placeholder={t('wbs.deliverablePlaceholder')} />
+                      {delivErr && <p className="text-xs font-medium text-delayed">{delivErr}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={saveDeliv} disabled={delivBusy} className="btn btn-primary h-8 px-3 text-xs">{delivBusy ? t('wbs.saving') : t('common.save')}</button>
+                        <button onClick={() => { setDelivEditing(false); setDelivErr(null) }} className="btn btn-ghost h-8 px-3 text-xs">{t('common.cancel')}</button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex items-start justify-between gap-2">
-                    {item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}
-                    {canEditDeliverable && (
-                      <button onClick={openDeliv} aria-label={t('common.edit')} className="shrink-0 text-ink-subtle transition hover:text-ink"><Pencil className="h-3.5 w-3.5" /></button>
-                    )}
-                  </div>
-                )}
-              </Field>
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      {item.deliverable ? <span className="min-w-0 break-words">{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}
+                      {canEditDeliverable && (
+                        <button onClick={openDeliv} aria-label={t('common.edit')} className="shrink-0 text-ink-subtle transition hover:text-ink"><Pencil className="h-3.5 w-3.5" /></button>
+                      )}
+                    </div>
+                  )}
+                </DlRow>
+              </dl>
             </>
           )}
 
@@ -579,31 +561,7 @@ export function RowDetailPanel({
           <AttachmentSection itemId={item.id} canAttach={canAttach} />
 
           {/* 변경 이력 */}
-          <section>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle"><History className="h-3.5 w-3.5" /> {t('wbs.changeHistory')}</div>
-            {logs == null ? (
-              <p className="text-sm text-ink-subtle">{t('common.loading')}</p>
-            ) : logs.length === 0 ? (
-              <p className="text-sm text-ink-subtle">{t('wbs.noHistory')}</p>
-            ) : (
-              <ol className="space-y-2.5">
-                {logs.map(log => (
-                  <li key={log.id} className="rounded-xl border border-line bg-surface-2/60 p-3">
-                    <div className="flex items-center justify-between gap-2 text-[12px]">
-                      <span className="font-semibold text-ink">{FIELD_KEY[log.field] ? t(FIELD_KEY[log.field]) : log.field}</span>
-                      <span className="inline-flex items-center gap-1 tabular-nums text-ink-subtle"><Clock className="h-3 w-3" />{fmtAt(log.at)}</span>
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-2 text-[13px] tabular-nums">
-                      <span className="text-ink-muted line-through decoration-ink-subtle/50">{fmtValue(log.field, log.oldValue, t)}</span>
-                      <span className="text-ink-subtle">→</span>
-                      <span className="font-semibold text-ink">{fmtValue(log.field, log.newValue, t)}</span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-ink-subtle">{actorLabel(log.actorTeam, log.actorRole, t)}</div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+          <ChangeHistoryList logs={logs} />
         </div>
       </aside>
     </div>
@@ -696,14 +654,12 @@ function AttachmentSection({ itemId, canAttach }: { itemId: string; canAttach: b
   )
 }
 
-function Field({ icon: Icon, label, children }: { icon: typeof Clock; label: string; children: React.ReactNode }) {
+/** 개요 정의표의 한 행 — dt/dd 를 감싸는 div 는 dl 안에서 유효하다(HTML5). */
+function DlRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-ink-muted"><Icon className="h-3.5 w-3.5" /></span>
-      <div className="min-w-0 flex-1">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{label}</div>
-        <div className="mt-0.5 text-sm text-ink">{children}</div>
-      </div>
+    <div className="grid grid-cols-[5.5rem_1fr] items-baseline gap-x-3 border-b border-line/40 py-1.5 last:border-0">
+      <dt className="text-[11px] font-semibold text-ink-muted">{label}</dt>
+      <dd className="min-w-0 text-[13px] text-ink">{children}</dd>
     </div>
   )
 }
