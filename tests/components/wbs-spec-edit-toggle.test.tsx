@@ -116,6 +116,18 @@ describe('WbsSpecPanel 편집 토글', () => {
     expect(updateAgentPrompt).not.toHaveBeenCalled()
   })
 
+  it('저장이 실패하면 토글을 닫지 않는다 — 입력을 날리지 않는다', async () => {
+    updateAgentPrompt.mockResolvedValue({ ok: false, error: '권한이 없습니다' })
+    await render()
+    await act(async () => { toggle()!.click() })
+    await type(q('[data-agent-prompt]')!, '이 계약을 지켜라')
+    await act(async () => { toggle()!.click() })
+    const ta = q('[data-agent-prompt]') as HTMLTextAreaElement | null
+    expect(ta).not.toBeNull()
+    expect(ta!.value).toBe('이 계약을 지켜라')
+    expect(container.textContent).toContain('권한이 없습니다')
+  })
+
   it('멤버(editable=false)에게는 토글이 없다', async () => {
     await render(false)
     expect(toggle()).toBeNull()

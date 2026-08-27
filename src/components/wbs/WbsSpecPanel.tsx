@@ -77,18 +77,20 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     return () => { alive = false }
   }, [itemId])
 
-  async function commitRefField(field: 'prdRef' | 'entryPoint', raw: string) {
-    if (!loaded || loaded === 'error') return
+  /** 반환값은 "저장이 끝났는가" — 편집 토글을 닫아도 되는지 판단하는 데 쓴다(실패면 열어 둔다). */
+  async function commitRefField(field: 'prdRef' | 'entryPoint', raw: string): Promise<boolean> {
+    if (!loaded || loaded === 'error') return true
     const value = raw.trim() || null
     const current = field === 'prdRef' ? loaded.prdRef : loaded.entryPoint
-    if (value === current) return // 변경 없음 — 쓰기 스킵(wbsAssign.ts 의 상태 비교 멱등 관례)
+    if (value === current) return true // 변경 없음 — 쓰기 스킵(wbsAssign.ts 의 상태 비교 멱등 관례)
     setRefBusy(true); setRefErr(null)
     const apiField = field === 'prdRef' ? 'prd_ref' : 'entry_point'
     const res = await updateWbsSpecFields(itemId, { [apiField]: value })
     setRefBusy(false)
-    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
+    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return false }
     setLoaded(prev => (prev && prev !== 'error' ? { ...prev, [field]: value } : prev))
     router.refresh()
+    return true
   }
 
   async function commitPriority(priority: WbsPriority | null) {
@@ -115,16 +117,17 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     router.refresh()
   }
 
-  async function commitAgentPrompt() {
-    if (!loaded || loaded === 'error') return
+  async function commitAgentPrompt(): Promise<boolean> {
+    if (!loaded || loaded === 'error') return true
     const value = promptDraft.trim() || null
-    if (value === loaded.agentPrompt) return // 변경 없음 — 쓰기 스킵(멱등 관례)
+    if (value === loaded.agentPrompt) return true // 변경 없음 — 쓰기 스킵(멱등 관례)
     setRefBusy(true); setRefErr(null)
     const res = await updateAgentPrompt(itemId, promptDraft)
     setRefBusy(false)
-    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
+    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return false }
     setLoaded(prev => (prev && prev !== 'error' ? { ...prev, agentPrompt: value } : prev))
     router.refresh()
+    return true
   }
 
   /**
@@ -132,10 +135,14 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
    * 닫기 전에 직접 커밋한다. 세 커밋 모두 값이 그대로면 쓰지 않는 멱등 함수다.
    */
   async function closeFieldsEditing() {
-    await commitRefField('prdRef', prdRefDraft)
-    await commitRefField('entryPoint', entryPointDraft)
-    await commitAgentPrompt()
-    setFieldsEditing(false)
+    // 하나라도 실패하면 열어 둔다 — 닫아 버리면 입력 중이던 값이 사라지고 재시도할 방법이 없다.
+    // 단축 평가를 쓰지 않는다: 앞이 실패해도 뒤의 저장은 시도해야 한다.
+    const saved = [
+      await commitRefField('prdRef', prdRefDraft),
+      await commitRefField('entryPoint', entryPointDraft),
+      await commitAgentPrompt(),
+    ]
+    if (saved.every(Boolean)) setFieldsEditing(false)
   }
 
   function openSpecEdit() {
