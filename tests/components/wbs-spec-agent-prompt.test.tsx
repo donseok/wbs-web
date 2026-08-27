@@ -52,9 +52,14 @@ describe('WbsSpecPanel 에이전트 프롬프트', () => {
     await act(async () => { root.render(<WbsSpecPanel itemId="item-1" editable={editable} />) })
     await act(async () => {})
   }
+  /** 프롬프트 textarea 는 편집 토글 뒤에 있다(2026-08-28) — 관리자도 켜야 보인다. */
+  async function openEditor() {
+    await act(async () => { container.querySelector<HTMLElement>('[data-spec-edit-toggle]')!.click() })
+  }
 
-  it('관리자 — 프롬프트 textarea 가 현재 값으로 렌더된다', async () => {
+  it('관리자 — 편집을 켜면 프롬프트 textarea 가 현재 값으로 렌더된다', async () => {
     await render(true)
+    await openEditor()
     const ta = container.querySelector<HTMLTextAreaElement>('textarea[data-agent-prompt]')
     expect(ta).not.toBeNull()
     expect(ta!.value).toBe('기존 계약 유지')
@@ -63,6 +68,7 @@ describe('WbsSpecPanel 에이전트 프롬프트', () => {
   it('blur 시 변경분만 updateAgentPrompt 로 저장한다', async () => {
     updateAgentPrompt.mockResolvedValue({ ok: true })
     await render(true)
+    await openEditor()
     const ta = container.querySelector<HTMLTextAreaElement>('textarea[data-agent-prompt]')!
     await act(async () => {
       // React 제어 입력 — native setter 로 값 주입 후 이벤트
@@ -78,6 +84,7 @@ describe('WbsSpecPanel 에이전트 프롬프트', () => {
 
   it('값이 그대로면 blur 에도 쓰지 않는다(멱등)', async () => {
     await render(true)
+    await openEditor()
     const ta = container.querySelector<HTMLTextAreaElement>('textarea[data-agent-prompt]')!
     await act(async () => {
       ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))

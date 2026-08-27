@@ -44,6 +44,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   'common.delete': 'Delete',
   'common.search': 'Search',
   'common.close': 'Close',
+  'common.done': 'Done',
   'common.confirm': 'Confirm',
   'common.loading': 'Loading…',
   'common.none': 'None',

@@ -57,6 +57,9 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
   const [refErr, setRefErr] = useState<string | null>(null)
   const [specEditing, setSpecEditing] = useState(false)
   const [specDraft, setSpecDraft] = useState('')
+  // 명세 편집 위젯(참조·우선순위·위임·프롬프트)의 노출 토글(2026-08-28). 읽기 상태에서 늘
+  // 펼쳐져 있던 입력들이 패널 높이의 대부분을 먹었다.
+  const [fieldsEditing, setFieldsEditing] = useState(false)
   const [specBusy, setSpecBusy] = useState(false)
   const [specErr, setSpecErr] = useState<string | null>(null)
   // 위임 체크가 주문을 발행·취소하므로, 체크가 바뀔 때마다 아래 진행 상황 섹션도 다시 읽는다.
@@ -65,7 +68,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
   useEffect(() => {
     let alive = true
     setLoaded(null)
-    setSpecEditing(false); setSpecErr(null); setRefErr(null)
+    setSpecEditing(false); setFieldsEditing(false); setSpecErr(null); setRefErr(null)
     getWbsSpec(itemId).then(r => {
       if (!alive) return
       setLoaded(r ?? 'error')
@@ -124,6 +127,17 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     router.refresh()
   }
 
+  /**
+   * 편집 토글 닫기 — 참조·프롬프트는 blur 커밋이라 위젯을 언마운트하면 입력이 조용히 사라진다.
+   * 닫기 전에 직접 커밋한다. 세 커밋 모두 값이 그대로면 쓰지 않는 멱등 함수다.
+   */
+  async function closeFieldsEditing() {
+    await commitRefField('prdRef', prdRefDraft)
+    await commitRefField('entryPoint', entryPointDraft)
+    await commitAgentPrompt()
+    setFieldsEditing(false)
+  }
+
   function openSpecEdit() {
     if (loaded && loaded !== 'error') setSpecDraft(loaded.spec ?? '')
     setSpecErr(null)
@@ -145,8 +159,20 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
 
   return (
     <section className="rounded-xl border border-line bg-surface-2/40 p-3">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-        <FileText className="h-3.5 w-3.5" /> {t('wbs.specPanelTitle')}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+          <FileText className="h-3.5 w-3.5" /> {t('wbs.specPanelTitle')}
+        </div>
+        {editable && loaded && loaded !== 'error' && (
+          <button
+            type="button" data-spec-edit-toggle aria-pressed={fieldsEditing} disabled={refBusy}
+            onClick={() => { if (fieldsEditing) void closeFieldsEditing(); else setFieldsEditing(true) }}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-subtle transition hover:bg-surface-2 hover:text-ink"
+          >
+            <Pencil className="h-3 w-3" />
+            {fieldsEditing ? t('common.done') : t('common.edit')}
+          </button>
+        )}
       </div>
 
       {loaded === null ? (
@@ -158,7 +184,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           <div className="flex flex-wrap items-center gap-1.5">
             {loaded.category && <span className="chip bg-surface-2 text-ink-muted">{loaded.category}</span>}
             {loaded.domain && <span className="chip bg-surface-2 text-ink-muted">{loaded.domain}</span>}
-            {loaded.priority && <span className="chip bg-brand-weak text-brand">{t(PRIORITY_KEYS[loaded.priority])}</span>}
+            {loaded.priority && !fieldsEditing && <span className="chip bg-brand-weak text-brand">{t(PRIORITY_KEYS[loaded.priority])}</span>}
             {loaded.model && <span className="chip bg-surface-2 text-ink-muted">{loaded.model}</span>}
             {loaded.tags.map(tag => (
               <span key={tag} className="chip border border-line text-ink-subtle">{tag}</span>
@@ -169,21 +195,21 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <RefField
               label={t('wbs.specPrdRefLabel')} value={prdRefDraft} display={loaded.prdRef}
-              editable={editable} busy={refBusy} onChange={setPrdRefDraft}
+              editable={fieldsEditing} busy={refBusy} onChange={setPrdRefDraft} dataAttr="data-spec-prd-ref"
               onCommit={() => commitRefField('prdRef', prdRefDraft)}
             />
             <RefField
               label={t('wbs.specEntryPointLabel')} value={entryPointDraft} display={loaded.entryPoint}
-              editable={editable} busy={refBusy} onChange={setEntryPointDraft}
+              editable={fieldsEditing} busy={refBusy} onChange={setEntryPointDraft} dataAttr="data-spec-entry-point"
               onCommit={() => commitRefField('entryPoint', entryPointDraft)}
             />
           </div>
 
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.specPriorityLabel')}</span>
-            {editable ? (
+          {fieldsEditing && (
+            <label className="block">
+              <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.specPriorityLabel')}</span>
               <select
-                value={loaded.priority ?? ''}
+                data-spec-priority value={loaded.priority ?? ''}
                 disabled={refBusy}
                 onChange={e => commitPriority((e.target.value || null) as WbsPriority | null)}
                 className="app-input h-9 text-xs"
@@ -191,17 +217,13 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
                 <option value="">{t('wbs.specPriorityNoneOption')}</option>
                 {PRIORITIES.map(p => <option key={p} value={p}>{t(PRIORITY_KEYS[p])}</option>)}
               </select>
-            ) : (
-              <p className="text-sm text-ink">
-                {loaded.priority ? t(PRIORITY_KEYS[loaded.priority]) : t('wbs.specPriorityNoneOption')}
-              </p>
-            )}
-          </label>
+            </label>
+          )}
 
-          {editable && (
+          {fieldsEditing && (
             <label className="flex items-center gap-2">
               <input
-                type="checkbox"
+                type="checkbox" data-spec-delegate
                 checked={loaded.tags.includes('agent')}
                 disabled={refBusy}
                 onChange={e => commitAgentDelegate(e.target.checked)}
@@ -212,7 +234,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
             </label>
           )}
           {/* 에이전트 프롬프트(0090) — 위임 신호에 덧붙이는 사용자 지시문. 비관리자에게는 값이 있을 때만 표시. */}
-          {editable ? (
+          {fieldsEditing ? (
             <label className="block">
               <span className="mb-1 flex items-center justify-between text-[11px] font-semibold text-ink-muted">
                 <span>{t('wbs.specAgentPromptLabel')}</span>
@@ -432,7 +454,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
 }
 
 function RefField({
-  label, value, display, editable, busy, onChange, onCommit,
+  label, value, display, editable, busy, onChange, onCommit, dataAttr,
 }: {
   label: string
   value: string
@@ -441,6 +463,8 @@ function RefField({
   busy: boolean
   onChange: (v: string) => void
   onCommit: () => void
+  /** 테스트·자동화가 이 입력을 집는 표식 — 값 없이 속성만 붙인다. */
+  dataAttr?: string
 }) {
   const { t } = useLocale()
   return (
@@ -448,6 +472,7 @@ function RefField({
       <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{label}</span>
       {editable ? (
         <input
+          {...(dataAttr ? { [dataAttr]: '' } : {})}
           value={value} disabled={busy} onChange={e => onChange(e.target.value)}
           onBlur={onCommit}
           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
