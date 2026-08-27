@@ -27,7 +27,9 @@ const TRANSITIONS: Record<AgentOrderStatus, readonly AgentOrderStatus[]> = {
   ready: ['claimed', 'cancelled'],
   claimed: ['ready', 'reported', 'cancelled'],
   reported: ['claimed', 'approved', 'cancelled'],
-  approved: [],
+  // 승인은 종단이 아니다(2026-08-27) — 사람이 무를 수 있다: 검토 대기열 복귀(reported) 또는
+  // 에이전트 재작업(claimed). ready 로는 못 간다 — 점유 이력을 지우고 아무나 다시 집게 만들 이유가 없다.
+  approved: ['reported', 'claimed'],
   cancelled: [],
 }
 

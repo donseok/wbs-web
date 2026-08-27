@@ -21,6 +21,7 @@ vi.mock('@/lib/agent/ensureOrder', () => ({ backfillProjectOrders: backfill.back
 
 import {
   approveAgentCompletion, rejectAgentCompletion, setAgentProjectEnabled, getAgentOrderForItem,
+  unapproveAgentCompletion, requestAgentRework,
 } from '@/app/actions/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 
@@ -36,7 +37,7 @@ function admin(queues: Record<string, Resp[]>) {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'delete', 'eq', 'in', 'order', 'limit', 'contains']) b[k] = () => b
+      for (const k of ['select', 'delete', 'eq', 'gte', 'in', 'order', 'limit', 'contains']) b[k] = () => b
       b.update = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.insert = (payload: unknown) => { (captured[table] ??= []).push(payload); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
@@ -283,5 +284,128 @@ describe('getAgentOrderForItem — 명세 패널 진행 상황(2026-08-24, agent
       expect(r.order?.status).toBe('reported')
       expect(r.order?.reports).toHaveLength(1)
     }
+  })
+})
+
+/**
+ * 승인을 무르는 두 경로(2026-08-27). 승인이 남긴 부수효과 셋(주문 상태·실적 100%·stage xx)을
+ * 되감는다. stage 는 im 까지만 내린다 — 그 아래로 내리면 order_approved 가 false 로 뒤집힌
+ * 상태와 겹쳐 후속 작업의 claim 게이트가 전부 다시 막힌다.
+ */
+const APPROVED = { id: O1, project_id: P1, status: 'approved', wbs_item_id: W1 }
+const ITEM_NOTIFY = { name: '로그인', assignee_member_id: 'm-1' }
+const ITEM_STAGE = { id: W1, project_id: P1, name: '로그인', external_ref: null, stage: 'xx', dev_workflow: true }
+/** 승인 기록이 남은 완료 보고 — reviewed_at 이 실적 이력 조회의 하한이 된다 */
+const REVIEWED_REPORT = { id: 'r9', reviewed_at: '2026-08-26T01:00:00Z' }
+/** 승인이 실적을 40 → 100 으로 올린 흔적 */
+const ACTUAL_LOG = { old_value: '40', new_value: '100' }
+
+function approvedQueues(over: Record<string, unknown[]> = {}) {
+  return {
+    agent_work_orders: [{ data: APPROVED }, { data: [{ id: O1 }] }],
+    agent_work_reports: [{ data: REVIEWED_REPORT }, { data: [{ id: 'r9' }] }],
+    wbs_items: [{ data: ITEM_NOTIFY }, { data: ITEM_STAGE }, { data: [{ id: W1 }] }],
+    change_logs: [{ data: ACTUAL_LOG }, { data: null }],
+    ...over,
+  } as Record<string, { data?: unknown; error?: { message: string } | null }[]>
+}
+
+describe('unapproveAgentCompletion — 승인 취소(approved→reported)', () => {
+  it('orderId 형식 검증 — 비형식 거부', async () => {
+    const r = await unapproveAgentCompletion('invalid-id')
+    expect(r).toEqual({ ok: false, error: '잘못된 요청입니다.' })
+  })
+  it('approved 아닌 주문은 거부', async () => {
+    admin({ agent_work_orders: [{ data: { ...APPROVED, status: 'reported' } }] })
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('reported')
+    expect(mocks.updateActual).not.toHaveBeenCalled()
+  })
+  it('성공 — 주문 reported 복귀 + 리뷰 필드 전부 해제 + 실적 복원 + stage xx→im', async () => {
+    const { captured } = admin(approvedQueues())
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(captured.agent_work_orders[0]).toMatchObject({ status: 'reported' })
+    expect(captured.agent_work_reports[0]).toMatchObject({
+      review_action: null, reviewed_by: null, reviewed_at: null, review_note: null,
+    })
+    expect(mocks.updateActual).toHaveBeenCalledWith(W1, 40)
+    expect(captured.wbs_items[0]).toMatchObject({ stage: 'im' })
+  })
+  it('CAS 0행(경합) — 실적을 건드리지 않는다', async () => {
+    admin({ agent_work_orders: [{ data: APPROVED }, { data: [] }] })
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(false)
+    expect(mocks.updateActual).not.toHaveBeenCalled()
+  })
+  it('최신 실적 이력이 승인의 100 이 아니면(사람이 뒤에 손댐) 복원하지 않고 warning', async () => {
+    admin(approvedQueues({ change_logs: [{ data: { old_value: '100', new_value: '70' } }, { data: null }] }))
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(mocks.updateActual).not.toHaveBeenCalled()
+    expect(r.warning).toContain('실적')
+  })
+  it('승인 이후 구간에 실적 이력이 없으면 되돌리지 않고 warning', async () => {
+    admin(approvedQueues({ change_logs: [{ data: null }, { data: null }] }))
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(mocks.updateActual).not.toHaveBeenCalled()
+    expect(r.warning).toContain('실적')
+  })
+  it('승인 기록(reviewed_at)을 못 찾으면 실적을 건드리지 않는다', async () => {
+    admin(approvedQueues({ agent_work_reports: [{ data: { id: 'r9', reviewed_at: null } }, { data: [{ id: 'r9' }] }] }))
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(mocks.updateActual).not.toHaveBeenCalled()
+    expect(r.warning).toContain('승인 기록')
+  })
+  it('배정자에게 work.rejected 발행 — detail 은 반려가 아니라 승인 취소', async () => {
+    admin(approvedQueues())
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.rejected', projectId: P1, actorUserId: 'admin-1',
+      entityType: 'agent_order', entityId: O1, recipientMemberIds: ['m-1'],
+      payload: expect.objectContaining({ detail: '완료 승인이 취소되었습니다' }),
+    }))
+  })
+})
+
+describe('requestAgentRework — 재작업 요청(approved→claimed)', () => {
+  it('orderId 형식 검증 — 비형식 거부', async () => {
+    const r = await requestAgentRework('invalid-id', '사유')
+    expect(r).toEqual({ ok: false, error: '잘못된 요청입니다.' })
+  })
+  it('사유 없으면 거부 — 주문을 읽기도 전에 막는다', async () => {
+    const r = await requestAgentRework(O1, '   ')
+    expect(r.ok).toBe(false)
+    expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
+  })
+  it('approved 아닌 주문은 거부', async () => {
+    admin({ agent_work_orders: [{ data: { ...APPROVED, status: 'claimed' } }] })
+    const r = await requestAgentRework(O1, '테스트가 빠졌습니다')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('claimed')
+  })
+  it('성공 — 주문 claimed + 반려로 기록(사유 보존) + 실적 복원 + stage xx→im', async () => {
+    const { captured } = admin(approvedQueues())
+    const r = await requestAgentRework(O1, '테스트가 빠졌습니다')
+    expect(r.ok).toBe(true)
+    expect(captured.agent_work_orders[0]).toMatchObject({ status: 'claimed' })
+    expect(captured.agent_work_reports[0]).toMatchObject({
+      review_action: 'reject', reviewed_by: 'admin-1', review_note: '테스트가 빠졌습니다',
+    })
+    expect(mocks.updateActual).toHaveBeenCalledWith(W1, 40)
+    expect(captured.wbs_items[0]).toMatchObject({ stage: 'im' })
+  })
+  it('배정자에게 work.rejected 발행 — detail 은 재작업 요청', async () => {
+    admin(approvedQueues())
+    const r = await requestAgentRework(O1, '테스트가 빠졌습니다')
+    expect(r.ok).toBe(true)
+    expect(emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.rejected', entityId: O1, recipientMemberIds: ['m-1'],
+      payload: expect.objectContaining({ detail: '재작업이 요청되었습니다' }),
+    }))
   })
 })

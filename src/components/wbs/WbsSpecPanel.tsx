@@ -7,6 +7,7 @@ import { FileText, Pencil } from 'lucide-react'
 import { getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
 import {
   approveAgentCompletion, getAgentOrderForItem, rejectAgentCompletion,
+  requestAgentRework, unapproveAgentCompletion,
   type AgentOrderStatus,
 } from '@/app/actions/agentWork'
 import { isClaimStale } from '@/lib/domain/agentWork'
@@ -324,8 +325,11 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
   const [order, setOrder] = useState<AgentOrderStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [warn, setWarn] = useState<string | null>(null)
   const [rejectNote, setRejectNote] = useState('')
   const [rejecting, setRejecting] = useState(false)
+  const [reworkNote, setReworkNote] = useState('')
+  const [reworking, setReworking] = useState(false)
 
   const reload = useCallback(() => {
     getAgentOrderForItem(itemId).then(r => {
@@ -333,18 +337,24 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
       if (!r.ok) console.error('[WbsAgentOrderStatus] 조회 실패:', r.error)
     })
   }, [itemId])
-  useEffect(() => { setOrder(null); setErr(null); setRejecting(false); reload() }, [reload, refreshKey])
+  useEffect(() => {
+    setOrder(null); setErr(null); setWarn(null); setRejecting(false); setReworking(false); reload()
+  }, [reload, refreshKey])
 
   if (!order || order.status === 'cancelled') return null
 
   const lastReport = order.reports.at(-1)
 
-  async function run(action: () => Promise<{ ok: boolean; error?: string }>) {
-    setBusy(true); setErr(null)
+  // warning: 본 동작은 성공했지만 실적·단계 같은 후속이 남았다는 신호. 조용히 삼키면 사람이
+  // 반쪽 상태를 못 보고, 에러 자리에 넣으면 성공한 동작이 실패로 읽힌다 — 자리를 나눈다.
+  async function run(action: () => Promise<{ ok: boolean; error?: string; warning?: string }>) {
+    setBusy(true); setErr(null); setWarn(null)
     try {
       const r = await action()
       if (!r.ok) { setErr(r.error ?? t('wbs.agentOrderActionFailed')); return }
+      setWarn(r.warning ?? null)
       setRejecting(false); setRejectNote('')
+      setReworking(false); setReworkNote('')
       reload()
     } finally { setBusy(false) }
   }
@@ -398,7 +408,25 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
           )}
         </div>
       )}
+      {editable && order.status === 'approved' && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <button type="button" data-agent-unapprove className="btn btn-ghost h-7 px-2.5 text-xs" disabled={busy}
+            onClick={() => void run(() => unapproveAgentCompletion(order.id))}>{t('wbs.agentOrderUnapprove')}</button>
+          {reworking ? (
+            <>
+              <input className="app-input h-7 w-40 text-xs" data-agent-rework-note aria-label={t('wbs.agentOrderReworkNote')}
+                placeholder={t('wbs.agentOrderReworkNote')} value={reworkNote} onChange={e => setReworkNote(e.target.value)} />
+              <button type="button" data-agent-rework-confirm className="btn h-7 px-2.5 text-xs" disabled={busy || !reworkNote.trim()}
+                onClick={() => void run(() => requestAgentRework(order.id, reworkNote))}>{t('wbs.agentOrderRework')}</button>
+            </>
+          ) : (
+            <button type="button" data-agent-rework className="btn btn-ghost h-7 px-2.5 text-xs" disabled={busy}
+              onClick={() => setReworking(true)}>{t('wbs.agentOrderRework')}</button>
+          )}
+        </div>
+      )}
       {err && <p className="mt-1.5 text-xs font-medium text-delayed" role="alert">{err}</p>}
+      {warn && <p className="mt-1.5 text-xs text-ink-muted" data-agent-warning role="status">{warn}</p>}
     </div>
   )
 }

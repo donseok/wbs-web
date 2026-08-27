@@ -94,6 +94,7 @@ async function notifyReviewResult(
   order: { id: string; project_id: string; wbs_item_id: string | null },
   type: 'work.approved' | 'work.rejected',
   actorUserId: string,
+  detail?: string,
 ) {
   if (!order.wbs_item_id) return
   const { data: itemRow, error } = await admin
@@ -111,7 +112,7 @@ async function notifyReviewResult(
     entityType: 'agent_order', entityId: order.id,
     payload: {
       title: item.name,
-      detail: type === 'work.approved' ? '완료가 승인되었습니다' : '완료가 반려되었습니다',
+      detail: detail ?? (type === 'work.approved' ? '완료가 승인되었습니다' : '완료가 반려되었습니다'),
       href: `/p/${order.project_id}/wbs`,
     },
     recipientMemberIds: [item.assignee_member_id],
@@ -230,6 +231,128 @@ export async function rejectAgentCompletion(orderId: string, note: string): Prom
   await notifyReviewResult(admin, order, 'work.rejected', actor.userId)
   revalidatePath(`/p/${order.project_id}/wbs`)
   return { ok: true }
+}
+
+/**
+ * 승인 되감기 공통부(2026-08-27) — 승인이 남긴 부수효과 셋을 되돌린다: 주문 상태, 실적 100%,
+ * stage 'xx'. 두 버튼(승인 취소 / 재작업 요청)이 착지 상태와 리뷰 기록만 다르고 나머지가 같아
+ * 한곳에 둔다.
+ *
+ * 순서는 승인의 반대다 — 상태 CAS 가 먼저. 승인은 실적을 먼저 쓰고 CAS 에서 밀리면 "실적만 100"
+ * 인 반쪽 상태가 남는 알려진 함정이 있는데(:150 주석), 되감기에서 같은 실수를 반복하면 승인이
+ * 살아 있는데 실적·단계만 내려간 더 나쁜 상태가 된다.
+ *
+ * stage 는 im 까지만 내린다. 승인이 풀리면 depends 게이트의 order_approved 축이 이미 false 로
+ * 뒤집히므로(lib/agent/depends.ts) stage 마저 im 아래로 내리면 이 항목에 의존하는 후속 작업의
+ * claim 이 전부 다시 막힌다 — 게다가 "선행 완료, 착수 가능" 알림은 이미 나갔고 회수할 수 없다.
+ */
+async function unapproveOrder(
+  orderId: string,
+  opts: { to: 'reported' | 'claimed'; note: string | null; detail: string },
+): Promise<ActionResult> {
+  const loaded = await loadOrderForAdmin(orderId)
+  if (!loaded.ok) return loaded
+  const { order, actor } = loaded
+  if (order.status !== 'approved') return { ok: false, error: `승인을 무를 수 있는 상태가 아닙니다(${order.status}).` }
+  if (!order.wbs_item_id) return { ok: false, error: 'WBS 항목이 삭제된 주문입니다. 취소로 정리하세요.' }
+  const itemId = order.wbs_item_id
+
+  const admin = createAdminClient()
+  const now = new Date().toISOString()
+  const { data: updated, error: casErr } = await admin
+    .from('agent_work_orders')
+    .update({ status: opts.to, updated_at: now })
+    .eq('id', orderId).eq('status', 'approved')
+    .select('id')
+  if (casErr) return { ok: false, error: casErr.message }
+  if (!updated || updated.length === 0) return { ok: false, error: '상태가 바뀌어 처리하지 못했습니다. 다시 시도하세요.' }
+
+  // 재작업은 반려로 남긴다(사유 보존) — review_action 은 CHECK 로 approve|reject 뿐이고,
+  // 에이전트 쪽 반려 감지가 이 값을 본다. 승인 취소는 "아직 검토 안 함"으로 되돌린다.
+  const reviewPatch = opts.note === null
+    ? { review_action: null, reviewed_by: null, reviewed_at: null, review_note: null }
+    : { review_action: 'reject', reviewed_by: actor.userId, reviewed_at: now, review_note: opts.note }
+  const { data: latestRow, error: latestErr } = await admin
+    .from('agent_work_reports').select('id, reviewed_at').eq('work_order_id', orderId).eq('kind', 'completion')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  const latest = latestRow as { id: string; reviewed_at: string | null } | null
+  if (latestErr || !latest) {
+    console.error('[agentWork] 되감기 대상 보고 조회 실패:', latestErr?.message ?? '0행')
+  } else {
+    const { error: revErr } = await admin.from('agent_work_reports')
+      .update(reviewPatch).eq('id', latest.id).select('id')
+    if (revErr) console.error('[agentWork] 되감기 리뷰 기록 실패:', revErr.message)
+  }
+
+  await notifyReviewResult(admin, order, 'work.rejected', actor.userId, opts.detail)
+
+  // 이후 단계는 실패해도 본 전이를 되돌리지 않는다 — 사람에게 warning 으로 알리고 직접 정정하게 한다.
+  const warnings: string[] = []
+
+  // 실적 복원 — 승인이 남긴 change_logs 항목(actual_pct → 100)의 old_value 로 되돌린다.
+  // 조회를 승인 시각 이후로 좁히는 게 핵심이다: updateActual 은 값이 그대로면 이력을 남기지
+  // 않으므로(이미 100%인 항목을 승인한 경우), 범위를 안 좁히면 무관한 옛 100 기록의 old_value 를
+  // 승인 전 값으로 착각해 엉뚱한 진척률을 박는다. 범위 안에 이력이 없으면 되돌리지 않고 알린다.
+  const reviewedAt = latest?.reviewed_at ?? null
+  const { data: logRow, error: logErr } = reviewedAt === null
+    ? { data: null, error: null }
+    : await admin
+      .from('change_logs').select('old_value, new_value')
+      .eq('wbs_item_id', itemId).eq('field', 'actual_pct')
+      .gte('created_at', reviewedAt)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  const log = logRow as { old_value: string | null; new_value: string | null } | null
+  if (logErr) {
+    console.error('[agentWork] 실적 이력 조회 실패:', logErr.message)
+    warnings.push('실적을 되돌리지 못했습니다(이력 조회 실패) — 진척률을 직접 확인하세요.')
+  } else if (reviewedAt === null) {
+    warnings.push('실적을 되돌리지 않았습니다 — 승인 기록을 찾지 못했습니다. 진척률을 직접 확인하세요.')
+  } else if (!log || log.new_value !== '100') {
+    warnings.push('실적을 되돌리지 않았습니다 — 승인 이후 진척률이 바뀐 흔적이 있습니다. 직접 확인하세요.')
+  } else {
+    const prev = Number(log.old_value ?? 0)
+    if (!Number.isFinite(prev)) {
+      warnings.push('실적을 되돌리지 못했습니다(이력 값을 읽을 수 없음) — 진척률을 직접 확인하세요.')
+    } else {
+      const reverted = await updateActual(itemId, prev)
+      if (!reverted.ok) {
+        console.error('[agentWork] 실적 복원 실패:', reverted.error)
+        warnings.push(`실적을 되돌리지 못했습니다(${reverted.error ?? '알 수 없음'}) — 진척률을 직접 확인하세요.`)
+      }
+    }
+  }
+
+  // stage xx → im. force: 승인이 dev_workflow 게이트를 넘어 전이시켰으므로 되감기도 같아야 한다.
+  try {
+    const transitioned = await transitionStage(admin, {
+      itemId, to: 'im', fromIn: ['xx'], actorUserId: actor.userId, force: true,
+    })
+    if (!transitioned.ok) {
+      console.error('[agentWork] 되감기 stage 전이 실패:', itemId)
+      warnings.push('WBS 단계를 되돌리지 못했습니다 — 단계를 직접 확인하세요.')
+    } else if (transitioned.skipped === 'stage') {
+      console.error('[agentWork] 되감기 stage 전이 비적용(현재 단계가 xx 가 아님):', itemId)
+      warnings.push('현재 WBS 단계가 완료(xx)가 아니라 단계는 그대로 두었습니다 — 확인하세요.')
+    }
+  } catch (e) {
+    console.error('[agentWork] 되감기 stage 전이 예외:', e instanceof Error ? e.message : e)
+    warnings.push('WBS 단계를 되돌리는 중 오류가 났습니다 — 단계를 직접 확인하세요.')
+  }
+
+  revalidatePath(`/p/${order.project_id}/wbs`)
+  return warnings.length > 0 ? { ok: true, warning: warnings.join(' ') } : { ok: true }
+}
+
+/** 승인 취소 — 검토 대기열(reported)로 되돌린다. 아무도 작업하지 않는 상태이며 다시 승인/반려할 수 있다. */
+export async function unapproveAgentCompletion(orderId: string): Promise<ActionResult> {
+  return unapproveOrder(orderId, { to: 'reported', note: null, detail: '완료 승인이 취소되었습니다' })
+}
+
+/** 재작업 요청 — 에이전트에게 되돌린다(claimed). 반려와 같은 착지점이라 에이전트 쪽 감지가 그대로 동작한다. */
+export async function requestAgentRework(orderId: string, note: string): Promise<ActionResult> {
+  const trimmed = note.trim()
+  if (!trimmed) return { ok: false, error: '재작업 사유가 필요합니다.' }
+  return unapproveOrder(orderId, { to: 'claimed', note: trimmed, detail: '재작업이 요청되었습니다' })
 }
 
 /**
