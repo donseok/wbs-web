@@ -10,6 +10,8 @@ import { MiniEmpty } from './bits'
 const W = 640, H = 220, PL = 30, PR = 80, PT = 14, PB = 26
 /** 끝점 라벨 두 개의 최소 세로 간격(px, viewBox 단위). 등록==해결(백로그 0)이면 같은 좌표라 벌려 그린다. */
 const MIN_LABEL_GAP = 12
+/** 차트 아래 주간 표의 행 수 — 차트(누적)가 못 보여주는 주간 증감을 나르고, 옆의 이슈 현황 카드와 높이를 맞춘다. */
+const TREND_TABLE_WEEKS = 6
 
 /** y축 눈금 간격 — 1·2·5×10ⁿ 중 눈금이 5개 안팎이 되는 값(최소 1, 정수). 건수가 커져도 눈금 수가 늘지 않는다. */
 function tickStep(max: number): number {
@@ -96,6 +98,30 @@ export function IssueTrendCard({ issues, today, locale }: {
             </text>
           ))}
         </svg>
+        {/* 주간 표 — 차트의 표 쌍(값은 툴팁 없이도 읽힌다). 등록·해결은 그 주의 증감, 미해결은 주말 기준 잔량. */}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[11px] tabular-nums">
+            <caption className="mb-1.5 text-left text-[11px] text-ink-subtle">{tr('dash.issues.trendRecentWeeks')}</caption>
+            <thead>
+              <tr className="text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
+                <th scope="col" className="py-1 pr-2 text-left font-semibold">{tr('dash.issues.trendTableWeek')}</th>
+                <th scope="col" className="py-1 pl-2 text-right font-semibold">{tr('dash.issues.trendCreatedShort')}</th>
+                <th scope="col" className="py-1 pl-2 text-right font-semibold">{tr('dash.issues.trendResolvedShort')}</th>
+                <th scope="col" className="py-1 pl-2 text-right font-semibold">{tr('dash.issues.trendBacklog')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pts.slice(-TREND_TABLE_WEEKS).map(p => (
+                <tr key={p.weekStart} className="border-t border-line/70 text-ink-muted">
+                  <td className="py-1 pr-2 text-left">{fmtDate(p.weekStart)}</td>
+                  <td className="py-1 pl-2 text-right">{p.createdNew}</td>
+                  <td className="py-1 pl-2 text-right">{p.resolvedNew}</td>
+                  <td className="py-1 pl-2 text-right font-semibold text-ink">{p.backlog}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div className="text-[11px] leading-4 text-ink-subtle">{tr('dash.issues.trendCaption')}</div>
       </div>
     </SectionCard>

@@ -101,6 +101,8 @@ export const dashboardKo = {
   'dash.issues.trendBacklog': '미해결',
   'dash.issues.trendCreatedShort': '등록',
   'dash.issues.trendResolvedShort': '해결',
+  'dash.issues.trendRecentWeeks': '최근 6주',
+  'dash.issues.trendTableWeek': '주',
   'dash.issues.trendCaption': '최근 12주 · 주 단위(월요일 시작) · 해결 누적은 현재 해결 상태의 해결일 기준이라 재오픈된 이슈는 빠집니다.',
   'dash.issues.queueTitle': '지연·임박 이슈',
   'dash.issues.queueEmpty': '기한이 지났거나 7일 내 마감인 미해결 이슈가 없습니다.',

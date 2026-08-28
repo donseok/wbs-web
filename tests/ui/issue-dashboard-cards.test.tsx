@@ -116,6 +116,15 @@ describe('IssueTrendCard', () => {
     expect(ticks).toBeGreaterThanOrEqual(3)
   })
 
+  it('차트 아래에 최근 6주 주간 표(등록·해결·미해결)를 붙인다 — 차트의 표 쌍', () => {
+    const html = renderToStaticMarkup(<IssueTrendCard issues={ISSUES} today={TODAY} locale="ko" />)
+    expect(html).toContain('<table')
+    expect((html.match(/<tr/g) ?? []).length).toBe(7) // 헤더 1 + 6주
+    expect(html).toContain('최근 6주')
+    // 마지막 주(8.24~8.30): 등록 0 · 해결 1(26일) · 미해결 5
+    expect(textOf(html)).toMatch(/26\.08\.24[^<]*?\b0\b[^<]*?\b1\b[^<]*?\b5\b/)
+  })
+
   it('이슈 0건이면 차트 대신 빈 상태', () => {
     const html = renderToStaticMarkup(<IssueTrendCard issues={[]} today={TODAY} locale="ko" />)
     expect(html).not.toContain('viewBox="0 0 640')  // 헤더 아이콘도 svg 라 차트 svg 만 본다

@@ -122,6 +122,21 @@ describe('issueTrend', () => {
     expect(t.max).toBe(4)
   })
 
+  it('주별 증감(createdNew·resolvedNew)은 그 주 안에 등록·해결된 건수 — 누적 차와 일치', () => {
+    const t = issueTrend([
+      issue({ createdAt: '2026-08-10T00:00:00+00:00', status: 'resolved', resolvedAt: '2026-08-20T00:00:00+00:00' }),
+      issue({ createdAt: '2026-08-12T00:00:00+00:00' }),
+      issue({ createdAt: '2026-08-26T00:00:00+00:00' }),
+    ], TODAY)
+    const at = (weekStart: string) => t.points.find(p => p.weekStart === weekStart)!
+    expect(at('2026-08-10')).toMatchObject({ createdNew: 2, resolvedNew: 0 })
+    expect(at('2026-08-17')).toMatchObject({ createdNew: 0, resolvedNew: 1 })
+    expect(at('2026-08-24')).toMatchObject({ createdNew: 1, resolvedNew: 0 })
+    // 창 이전 등록분은 첫 주 증감에 섞이지 않는다(누적에만 포함)
+    const t2 = issueTrend([issue({ createdAt: '2026-01-05T00:00:00+00:00' })], TODAY)
+    expect(t2.points[0]).toMatchObject({ created: 1, createdNew: 0 })
+  })
+
   it('타임스탬프는 서울 날짜로 버킷팅한다 — UTC 일요일 15:30 은 KST 월요일', () => {
     const t = issueTrend([issue({ createdAt: '2026-08-23T15:30:00Z' })], TODAY)
     const at = (weekStart: string) => t.points.find(p => p.weekStart === weekStart)!

@@ -95,6 +95,10 @@ export interface IssueTrendPoint {
   /** 주말까지 해결 누적(현재 해결 상태의 해결일 기준) */
   resolved: number
   backlog: number
+  /** 그 주(월~일) 안에 등록된 건수 — 창 이전 등록분은 첫 주에 섞이지 않는다 */
+  createdNew: number
+  /** 그 주 안에 해결된 건수 */
+  resolvedNew: number
 }
 
 export interface IssueTrendModel {
@@ -116,7 +120,11 @@ export function issueTrend(issues: DashboardIssue[], today: string, weeks = TREN
     const weekEnd = addDaysIso(weekStart, 6)
     const c = created.filter(d => d <= weekEnd).length
     const r = resolved.filter(d => d <= weekEnd).length
-    points.push({ weekStart, weekEnd, created: c, resolved: r, backlog: c - r })
+    const inWeek = (d: string) => d >= weekStart && d <= weekEnd
+    points.push({
+      weekStart, weekEnd, created: c, resolved: r, backlog: c - r,
+      createdNew: created.filter(inWeek).length, resolvedNew: resolved.filter(inWeek).length,
+    })
   }
   return { points, max: points.reduce((m, p) => Math.max(m, p.created), 0), empty: issues.length === 0 }
 }
