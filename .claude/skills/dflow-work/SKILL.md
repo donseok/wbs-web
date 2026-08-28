@@ -19,9 +19,9 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    성공(exit 0) 출력:
    ```
    base: https://d-flow.example.com
-   프로필 1: alice@example.com (계약 2.0, 프로젝트 3)
+   프로필 1: alice@example.com (계약 2.1, 프로젝트 3)
    ```
-   계약 버전이 2.0이 아니면 dflow-kit(스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내.
+   계약 버전이 지원 목록(현재 2.1)에 없으면 dflow-kit(스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내.
 
 2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) 사용자가 지목한 사람으로 `--as <이름|email>` 옵션을 사용한다.
 
