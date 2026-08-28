@@ -2025,11 +2025,19 @@ function DependencyOverlay({
         const targetX = clampX(xOf(successorStart) + 3)
         const sourceY = (predecessorRow + 0.5) * ROW_H
         const targetY = (successorRow + 0.5) * ROW_H
+        // 선행이 끝나자마자 후속이 시작하면 두 x 가 6px 밖에 안 벌어진다. 종전에는 엘보를 목표보다
+        // 더 오른쪽으로 빼서 마지막 구간이 오른쪽→왼쪽이 됐고, 화살표가 뒤집혀 ']' 로 보였다.
+        // 중점 엘보로 바꿔도 마지막 가로가 3px 라 7px 짜리 화살촉이 모서리에서 뭉개졌다.
+        // 그래서 이 구간만 세로로 내려오며 끝낸다 — 화살표가 아래를 향하고 행 높이만큼 여유가 생긴다.
+        const forward = targetX >= sourceX
         const enoughRoom = Math.abs(targetX - sourceX) >= 18
-        const outsideElbow = targetX >= sourceX
-          ? Math.min(width - 4, Math.max(sourceX, targetX) + 10)
+        // 막대는 h-3.5(14px)를 행 중심에 걸쳐 그린다 — 윗변이 중심에서 7px 위다. 세로선을 중심까지
+        // 끌고 오면 화살촉이 막대 위에 겹쳐 그려지므로 윗변에서 멈춘다.
+        const dropIn = forward && !enoughRoom
+        const dropEndY = targetY - 7
+        const elbowX = enoughRoom
+          ? (sourceX + targetX) / 2
           : Math.max(4, Math.min(sourceX, targetX) - 10)
-        const elbowX = enoughRoom ? (sourceX + targetX) / 2 : outsideElbow
         const critical = criticalDependencyIds.has(dep.id)
         const cycle = cycleTaskIds.has(dep.predecessorId) || cycleTaskIds.has(dep.successorId)
         const color = cycle ? 'var(--color-delayed)' : critical ? 'var(--color-critical)' : 'var(--color-ink-subtle)'
@@ -2037,7 +2045,9 @@ function DependencyOverlay({
         return (
           <path
             key={dep.id}
-            d={`M ${sourceX} ${sourceY} H ${elbowX} V ${targetY} H ${targetX}`}
+            d={dropIn
+              ? `M ${sourceX} ${sourceY} H ${targetX} V ${dropEndY}`
+              : `M ${sourceX} ${sourceY} H ${elbowX} V ${targetY} H ${targetX}`}
             fill="none"
             stroke={color}
             strokeWidth={critical || cycle ? 2.25 : 1.25}
