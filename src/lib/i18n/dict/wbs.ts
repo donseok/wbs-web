@@ -275,6 +275,8 @@ export const wbsKo = {
   'wbs.specRefPlaceholder': '미지정',
   'wbs.specDependsLabel': '선행 항목',
   'wbs.specDependsNone': '선행 항목 없음',
+  'wbs.specSuccessorsLabel': '후행 항목',
+  'wbs.specSuccessorsNone': '후행 항목 없음',
   'wbs.specAcceptanceLabel': '수용 기준',
   'wbs.specAcceptanceNone': '수용 기준 없음',
   'wbs.specAcceptanceHint': '정본은 파일 import — 여기서는 읽기 전용입니다.',

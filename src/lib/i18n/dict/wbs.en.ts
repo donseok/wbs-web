@@ -262,6 +262,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specRefPlaceholder': 'Not set',
   'wbs.specDependsLabel': 'Depends on',
   'wbs.specDependsNone': 'No dependencies',
+  'wbs.specSuccessorsLabel': 'Successor items',
+  'wbs.specSuccessorsNone': 'No successor items',
   'wbs.specAcceptanceLabel': 'Acceptance criteria',
   'wbs.specAcceptanceNone': 'No acceptance criteria',
   'wbs.specAcceptanceHint': 'Source of truth is file import — read-only here.',

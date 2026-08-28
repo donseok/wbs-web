@@ -32,13 +32,15 @@ const STAGES: Stage[] = ['as', 'fp', 'ip', 'im', 'xx']
  * 클라이언트에서 별도 로드한다. 편집은 프로젝트 관리자만(editable=false 면 읽기 전용).
  */
 export function WbsAssigneeStagePanel({
-  itemId, members, editable, hasChildren = false,
+  itemId, members, editable, hasChildren = false, onSelectItem,
 }: {
   itemId: string
   members: ProjectMember[]
   editable: boolean
   /** 하위 항목이 있으면 "미지정 하위 항목에도 적용" 체크박스를 노출한다(스테이징 피드백). */
   hasChildren?: boolean
+  /** 명세 선행·후행 항목 클릭 시 그 작업으로 상세를 갈아끼운다(WbsSpecPanel 로 전달). */
+  onSelectItem?: (id: string) => void
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -234,7 +236,7 @@ export function WbsAssigneeStagePanel({
       </section>
 
       {/* 명세(Task 12A, 결정 B) — 이 패널의 섹션으로 편입, 별도 오버레이 아님(리뷰 라운드 1 관례). */}
-      <WbsSpecPanel itemId={itemId} editable={editable} />
+      <WbsSpecPanel itemId={itemId} editable={editable} onSelectItem={onSelectItem} />
     </div>
   )
 }
