@@ -236,3 +236,27 @@ describe('depends_evidence', () => {
     expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
   })
 })
+
+// 조회 실패를 "데이터 없음"으로 위장하지 않는다(에러 처리 3원칙 ①). 같은 함수의 items 조회는
+// 이미 던지는데 주문·보고 조회만 error 를 버려서, 조회가 깨진 것과 선행이 미승인인 것이
+// 똑같이 order_approved:false·head_sha:null 로 나왔다 — 2026-08-27 mes-runlog 추적이 여기서 헤맸다.
+describe('loadDependsInfo — 조회 실패 위장 금지', () => {
+  it('선행 주문 조회가 실패하면 던진다', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
+      agent_work_orders: [{ data: null, error: { message: 'order boom' } }],
+    })
+    await expect(loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] }))
+      .rejects.toThrow('order boom')
+  })
+
+  it('선행 완료 보고 조회가 실패하면 던진다', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
+      agent_work_orders: [{ data: { id: 'ao-1' } }],
+      agent_work_reports: [{ data: null, error: { message: 'report boom' } }],
+    })
+    await expect(loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] }))
+      .rejects.toThrow('report boom')
+  })
+})

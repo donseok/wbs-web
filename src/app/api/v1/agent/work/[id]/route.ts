@@ -41,9 +41,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       return apiNotFound() // 비멤버 404 — 존재 은닉 관례(§2.2)
     }
 
+    // evidence 는 PAT 응답만 — depends_evidence 와 같은 규칙이다(레거시는 v1 회귀 기준선).
+    // 이게 빠져 있어서 완료 보고가 증적을 실었는지를 DB 직접 조회 없이는 못 봤다(2026-08-27).
+    const reportColumns = 'id, kind, percent, summary, links, agent, review_action, review_note, created_at'
+      + (principal.kind === 'pat' ? ', evidence' : '')
     const { data: reports, error: repErr } = await admin
       .from('agent_work_reports')
-      .select('id, kind, percent, summary, links, agent, review_action, review_note, created_at')
+      .select(reportColumns)
       .eq('work_order_id', id).order('created_at', { ascending: true })
     if (repErr) {
       console.error('[agent-api] 보고 이력 조회 실패:', repErr.message)
