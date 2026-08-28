@@ -148,18 +148,35 @@ export interface SpecDependSource {
   depends: string[] | null
 }
 
+export interface MergedDependencies {
+  dependencies: TaskDependency[]
+  /**
+   * 프로젝트 안에서 해석되지 않은 선행 ref — 후행 항목 id → ref 목록.
+   * **버리면 안 된다.** claim 게이트는 이 상태를 미충족으로 보고 409 를 낸다:
+   *   loadDependsInfo 가 없는 ref 를 { stage: null, order_approved: false } 로 돌려주고
+   *   (`src/lib/agent/depends.ts:47`), claim/route.ts:66 이 그것을 unmet 으로 센다.
+   * 화면에서 지우면 "선행 없음 → 시작 가능"이 되어, 실제로는 막힌 작업을 안 막힌 것처럼
+   * 위장한다(에러 처리 3원칙 위반).
+   */
+  unresolvedBySuccessorId: Map<string, string[]>
+}
+
 /**
  * depends(external_ref) 를 uuid 쌍의 FS 의존성으로 합성해 실제 행과 합친다.
  *
- * - 해석 못 한 ref 는 버린다(대상이 프로젝트에 없다). 화면 배지는 별도 경로가 이미 보여준다.
+ * - 해석 못 한 ref 는 unresolvedBySuccessorId 로 넘긴다 — 버리지 않는다.
  * - 같은 (predecessor, successor) 가 양쪽에 있으면 **실제 행이 이긴다** — 연결선 중복 방지.
  * - 자기참조는 버린다. 순환은 버리지 않는다(computeDependencySchedule 이 cycleTaskIds 로 처리).
+ * - 합성 행의 projectId 는 후행 항목의 projectId 를 그대로 쓴다(3-2 의 스코프 검사 대상).
  */
 export function mergeSpecDepends(
   rows: TaskDependency[],
   items: SpecDependSource[],
-): TaskDependency[]
+): MergedDependencies
 ```
+
+읽기 경로 둘은 `unresolvedBySuccessorId` 를 반환값에 실어 화면까지 내려보낸다
+(`getComputedWbs` 의 반환 타입 확장 → WBS 페이지 → `RowDetailPanel` prop).
 
 합성 id 규칙: `` `spec:${predecessorId}>${successorId}` ``
 
@@ -174,6 +191,10 @@ export function mergeSpecDepends(
 - `WbsSpecLinksPanel.tsx` (2026-08-28 신설) **제거.** 별도 서버 액션 `getWbsSpecLinks` 도
   같이 제거한다 — 병합 뒤에는 `dependencies` prop 이 이미 그 정보를 담는다.
   왕복 하나가 줄어드는 부수 이득이 있다.
+  **단, 그 패널이 지금 보여주는 "확인 불가" 행을 잃어서는 안 된다** — 아래 `unresolved` 행이 그 자리를 잇는다.
+- 해석 못 한 ref 는 선행 목록에 **`확인 불가` 행**으로 남긴다. 이름 자리에는 ref 의 마지막 마디를
+  그대로 찍고, 이동 버튼도 remove 버튼도 없다(가리킬 대상이 없다).
+  시작 가능 배너는 이 행을 **미충족으로 센다** — claim 게이트와 같은 판정이다.
 - `RowDetailPanel` 의 `DependencyRow`:
   - `origin === 'spec'` → **remove 버튼 감춤.** 합성 id 로 `removeTaskDependency` 를 부르면
     없는 행을 지우려다 실패한다. 게다가 정본이 wbs.md 라 지워도 다음 import 에 되살아난다.
@@ -211,12 +232,27 @@ claim 은 통과시키지만 **화면은 계속 "대기"로 보여준다.** 지�
 
 | # | 내용 | 파일 |
 |---|---|---|
-| 1 | `TaskDependency.origin` 추가, 기존 매핑에 `'manual'` 명시 | `domain/types.ts`, `data/wbs.ts`, `repositories/supabase/wbs.ts` |
+| 1 | `TaskDependency.origin` 추가, 기존 매핑에 `'manual'` 명시, **기존 테스트 픽스처 전수 보정** | `domain/types.ts`, `data/wbs.ts`, `repositories/supabase/wbs.ts` + 픽스처들 |
 | 2 | `mergeSpecDepends` 신설 + 단위 테스트 | `domain/mergeDependencies.ts` |
-| 3 | 읽기 경로 둘에 병합 적용 (`depends, external_ref` 를 select 에 추가) | `data/wbs.ts`, `repositories/supabase/wbs.ts` |
-| 4 | 충족 판정에 `origin` 분기, `specLinkState` 흡수 | `domain/dependencyReadiness.ts` |
-| 5 | `DependencyRow` 에 `가져옴` 배지 + remove 감춤 | `RowDetailPanel.tsx` |
+| 3 | 읽기 경로 둘에 병합 적용 (`depends, external_ref` 를 select 에 추가), `unresolvedBySuccessorId` 를 반환에 실어 화면까지 전달 | `data/wbs.ts`, `repositories/supabase/wbs.ts`, `p/[projectId]/wbs/page.tsx` |
+| 4 | 충족 판정에 `origin` 분기 + `unresolved` 를 미충족으로, `specLinkState` 흡수 | `domain/dependencyReadiness.ts` |
+| 5 | `DependencyRow` 에 `가져옴` 배지 + remove 감춤, `확인 불가` 행 | `RowDetailPanel.tsx` |
 | 6 | `WbsSpecLinksPanel`·`getWbsSpecLinks`·`specDependency.ts` 제거, 해당 테스트 정리 | 5파일 |
+
+**`origin` 은 필수 필드로 둔다** — 선택 필드면 합성 행에 remove 버튼이 붙는 사고를 타입이 못 잡는다.
+대신 `TaskDependency` 를 리터럴로 만드는 테스트 픽스처가 타입 오류로 터진다.
+실측(2026-08-28, `rg -c "predecessorId:" tests/`): **7파일 9곳**.
+
+```
+tests/ai/tools-core.test.ts:2          tests/ui/wbs-dependencies.test.tsx:1
+tests/ai/golden/fixtures.ts:2          tests/domain/dependencySchedule.test.ts:1
+tests/ui/wbs-font-scale.test.tsx:1     tests/domain/dependency-readiness.test.ts:1
+tests/components/wbs-dependency-readiness-panel.test.tsx:1
+```
+
+대부분 팩토리 헬퍼라 파일당 한 곳이다. 감당할 만한 크기지만 "타입 한 줄"은 아니다.
+`tests/ui/wbs-font-scale.test.tsx` 는 지금 다른 이유(jsdom `localStorage` 미적용)로
+이미 빨간 상태이므로 이 작업의 성패 판정에 쓰지 말 것.
 
 커밋 분할: (1–2) 도메인 · (3) 읽기 경로 · (4–5) 화면 · (6) 정리.
 마이그레이션이 없으므로 G1·G4 무관. `src/components/app/*` 미접촉이라 G2 무관.
@@ -240,6 +276,8 @@ Stage 1 로 화면에서 두 축이 한 줄에 서면, Stage 2 가 무엇을 막
 | 대상 | 검사 |
 |---|---|
 | `mergeSpecDepends` | ref 해석 성공/실패, 실제 행 우선 중복 제거, 자기참조 제거, 순환 보존, 빈 `depends` |
+| 미해석 ref | **해석 못 한 ref 가 `unresolvedBySuccessorId` 로 살아 나오고, 화면에 `확인 불가` 로 뜨고, 시작 가능 배너가 그것을 미충족으로 세는지.** 셋 중 하나라도 빠지면 claim 이 409 를 내는 작업을 "시작 가능"으로 위장한다 |
+| AI 봇 스코프 | 합성 의존성의 `projectId` 가 후행 항목 것과 같은지. 어긋나면 `ai/tools/wbs.ts:104` 의 `every(d => d.projectId === projectId)` 가 실패해 `repositoryScopeViolation()` — **성능 저하가 아니라 봇 응답 전체가 죽는다** |
 | 읽기 경로 | 병합 결과가 `origin` 을 정확히 달고 나오는지 (액션 테스트, mutation 검증) |
 | 충족 판정 | `spec` 행은 stage 로, `manual` 행은 실적으로 판정되는지 |
 | 간트 | 합성 의존성이 연결선·크리티컬 패스에 반영되는지 (`DependencyOverlay`, `WbsGanttSheet.tsx:1941`) |
