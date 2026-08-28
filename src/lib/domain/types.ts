@@ -28,6 +28,12 @@ export interface WbsRow {
   owners: { team: TeamCode; kind: OwnerKind }[]
   /** 담당별 자동 분리(sub-act) 항목 여부. 레벨·이름이 아니라 이 플래그가 판별 근거(스펙 §5.2). */
   isOwnerSplit: boolean
+  /**
+   * WBS Task 단계('as'|'fp'|'ip'|'im'|'xx', 0082). 에이전트 워크플로 필드라 롤업 계약의 일부가 아니다.
+   * 선택 필드인 이유: 필수로 올리면 WbsRow 리터럴을 만드는 테스트 51파일이 한꺼번에 깨진다.
+   * 빠뜨렸을 때의 방향은 fail-closed 다 — spec 선행이 '대기'로 보일 뿐 '시작 가능'으로 뒤집히지 않는다.
+   */
+  stage?: string | null
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */

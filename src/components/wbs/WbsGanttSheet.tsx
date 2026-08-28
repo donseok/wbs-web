@@ -79,6 +79,9 @@ const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart',
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
 const ROW_H = 40
 const EMPTY_DEPENDENCIES: TaskDependency[] = []
+// 매 렌더 새 리터럴을 만들면 하위 memo 가 매번 깨진다 — 모듈 상수로 고정.
+const EMPTY_UNRESOLVED: Record<string, string[]> = {}
+const EMPTY_REFS: string[] = []
 const EMPTY_MILESTONE_KEYWORDS: readonly string[] = []
 const EMPTY_MEMBERS: ProjectMember[] = []
 /* 마일스톤 기준선 색 — 간트는 초록·청록(brand/done)이 바·상태색으로 포화라 대시보드 배색(MS_TONE)과
@@ -158,6 +161,7 @@ function buildMatch(items: ComputedItem[], q: string): Set<string> {
 export function WbsGanttSheet({
   items,
   dependencies = EMPTY_DEPENDENCIES,
+  unresolvedDepends = EMPTY_UNRESOLVED,
   holidays,
   today,
   actorView,
@@ -181,6 +185,11 @@ export function WbsGanttSheet({
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
+  /**
+   * 해석 못 한 선행 ref — 후행 항목 id → ref 목록.
+   * 빈 값으로 두면 claim 이 409 를 내는 작업이 '선행 없음 → 시작 가능'으로 보인다.
+   */
+  unresolvedDepends?: Record<string, string[]>
   holidays: string[]
   today: string
   /** 이 프로젝트 스코프의 직렬화 가능한 권한 스냅샷 — Actor(Map)는 RSC 경계를 못 넘는다. */
@@ -1932,6 +1941,7 @@ export function WbsGanttSheet({
           maxDepth={maxDepth}
           members={members}
           onSelectItem={selectLinkedItem}
+          unresolvedRefs={unresolvedDepends[selectedItem.id] ?? EMPTY_REFS}
         />
       )}
     </div>
