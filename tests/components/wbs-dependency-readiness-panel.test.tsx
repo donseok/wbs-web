@@ -87,10 +87,21 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
     await act(async () => {}) // getChangeLogs/listAttachments 비동기 이펙트 플러시
   }
 
+  /**
+   * 기본 보기가 그래프라, 행(li)·삭제 버튼·"후속 없음" 문구처럼 목록에만 있는 것을 보려면
+   * 먼저 목록으로 돌린다. 그래프 노드는 li 가 아니고 이동도 더블클릭이라 대체되지 않는다.
+   */
+  async function toList() {
+    const btn = [...container.querySelectorAll('button')].find(b => b.textContent === '목록')
+    expect(btn).toBeTruthy()
+    await act(async () => { btn!.click() })
+  }
+
   it('선행 FS 가 미완료면 "선행 1건 대기 중" 배너와 그 선행 행에 "대기" 배지가 뜬다', async () => {
     const predecessor = computedItem('pred-1', { name: '선행 작업 A', rolledActualPct: 40 })
     const item = computedItem('item-1', { name: '대상 작업' })
     await render({ item, allItems: [predecessor, item], dependencies: [dep()] })
+    await toList()
 
     expect(container.textContent).toContain('선행 1건 대기 중')
     // 대기 배지는 선행 행에 붙는다 — 선행 이름 근처에서 '대기' 텍스트를 찾는다.
@@ -112,6 +123,7 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
     const item = computedItem('item-1', { name: '대상 작업' })
     const onSelectItem = vi.fn()
     await render({ item, allItems: [predecessor, item], dependencies: [dep()], onSelectItem })
+    await toList()
 
     const nameButton = [...container.querySelectorAll('button')].find(b => b.textContent?.includes('선행 작업 A'))
     expect(nameButton).toBeTruthy()
@@ -122,6 +134,7 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
   it('후속 의존성이 없으면 "등록된 후속 작업이 없습니다." 가 보인다', async () => {
     const item = computedItem('item-1', { name: '대상 작업' })
     await render({ item, allItems: [item], dependencies: [] })
+    await toList()
 
     expect(container.textContent).toContain('등록된 후속 작업이 없습니다.')
   })
@@ -135,6 +148,7 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
       const predecessor = computedItem('pred-1', { name: '선행 작업 A' })
       const item = computedItem('item-1', { name: '대상 작업' })
       await render({ item, allItems: [predecessor, item], dependencies: [dep()], editable: true })
+      await toList()
       const predRow = [...container.querySelectorAll('li')].find(li => li.textContent?.includes('선행 작업 A'))
       expect(predRow!.querySelector('button[aria-label="의존성 삭제"]')).not.toBeNull()
     })
@@ -143,6 +157,7 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
       const predecessor = computedItem('pred-1', { name: '선행 작업 A', stage: 'im' })
       const item = computedItem('item-1', { name: '대상 작업' })
       await render({ item, allItems: [predecessor, item], dependencies: [spec()], editable: true })
+      await toList()
 
       const predRow = [...container.querySelectorAll('li')].find(li => li.textContent?.includes('선행 작업 A'))
       expect(predRow!.textContent).toContain('가져옴')
@@ -234,11 +249,24 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
       await act(async () => { btn!.click() })
     }
 
+    it('열면 그래프가 먼저다 — 의존성은 방향과 갈래가 본체라 목록이 그걸 못 보여준다', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [dep()] })
+
+      expect(container.querySelectorAll('li').length).toBe(0)
+      expect(container.querySelector('svg')).not.toBeNull()
+      expect(container.textContent).toContain('선행 작업 A')
+      const graphBtn = [...container.querySelectorAll('button')].find(b => b.textContent === '그래프')
+      expect(graphBtn!.getAttribute('aria-pressed')).toBe('true')
+    })
+
     it('토글로 목록과 그래프를 오간다', async () => {
       const predecessor = computedItem('pred-1', { name: '선행 작업 A' })
       const item = computedItem('item-1', { name: '대상 작업' })
       await render({ item, allItems: [predecessor, item], dependencies: [dep()] })
 
+      await toList()
       expect(container.querySelectorAll('li').length).toBeGreaterThan(0)
       await toGraph()
       expect(container.querySelectorAll('li').length).toBe(0)

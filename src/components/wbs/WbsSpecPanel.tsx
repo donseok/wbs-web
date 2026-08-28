@@ -11,6 +11,7 @@ import {
 import {
   approveAgentCompletion, getAgentOrderForItem, rejectAgentCompletion,
   requestAgentRework, unapproveAgentCompletion,
+  type AgentOrderBrief,
   type AgentOrderStatus,
 } from '@/app/actions/agentWork'
 import { isClaimStale } from '@/lib/domain/agentWork'
@@ -350,6 +351,9 @@ const ORDER_STATUS_LABEL: Record<string, DictKey> = {
 function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string; editable: boolean; refreshKey: number }) {
   const { t } = useLocale()
   const [order, setOrder] = useState<AgentOrderStatus | null>(null)
+  // 최신 주문 앞에 있던 주문들. 승인된 주문은 항목을 비워주므로 재발행이 새 주문을 만들고,
+  // 최신 하나만 보면 승인 이력이 통째로 사라진다 — 있었다는 사실만이라도 남긴다.
+  const [priorOrders, setPriorOrders] = useState<AgentOrderBrief[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
@@ -364,6 +368,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
   const reload = useCallback(() => {
     getAgentOrderForItem(itemId).then(r => {
       setOrder(r.ok ? r.order : null)
+      setPriorOrders(r.ok ? r.priorOrders : [])
       // 승인 대기는 사람이 해야 할 일이 남았다는 뜻이라 접어두지 않는다. 펼치기만 하고
       // 접지는 않는다 — 승인 후 reload 가 사용자가 편 섹션을 도로 닫으면 안 된다.
       if (r.ok && r.order?.status === 'reported') setOpen(true)
@@ -371,12 +376,14 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
     })
   }, [itemId])
   useEffect(() => {
-    setOrder(null); setErr(null); setWarn(null); setRejecting(false); setReworking(false)
+    setOrder(null); setPriorOrders([]); setErr(null); setWarn(null); setRejecting(false); setReworking(false)
     setOpen(false) // 항목이 바뀌면 접힌 상태로 돌아간다
     reload()
   }, [reload, refreshKey])
 
-  if (!order || order.status === 'cancelled') return null
+  // 취소된 주문 하나뿐이면 종전대로 숨긴다(빈 패널에 소음을 더하지 않는다). 다만 그 앞에
+  // 주문이 있었다면 숨기는 순간 이력 전체가 사라지므로 그때는 남긴다.
+  if (!order || (order.status === 'cancelled' && priorOrders.length === 0)) return null
 
   const lastReport = order.reports.at(-1)
 
@@ -431,6 +438,16 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
                   ))}
                 </div>
               )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {priorOrders.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 border-t border-line/60 pt-1.5 text-[10px] text-ink-subtle">
+          <li className="font-semibold">{t('wbs.agentOrderPrior')} ({priorOrders.length})</li>
+          {priorOrders.map(o => (
+            <li key={o.id} className="tabular-nums">
+              {o.updated_at} · {t(ORDER_STATUS_LABEL[o.status] ?? 'wbs.agentOrderReady')} · {o.id}
             </li>
           ))}
         </ul>

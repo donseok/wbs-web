@@ -43,13 +43,17 @@ export async function loadDependsInfo(
     // 최근 approved 주문 → 최신 completion 보고의 evidence
     let branch: string | null = null
     let headSha: string | null = null
-    const { data: order } = await admin
+    const { data: order, error: orderErr } = await admin
       .from('agent_work_orders').select('id').eq('wbs_item_id', item.id).eq('status', 'approved')
       .order('updated_at', { ascending: false }).limit(1).maybeSingle()
+    // 게이트 재료 — 위장 금지(호출부 500). 조회가 깨진 것과 선행이 미승인인 것이 똑같이
+    // order_approved:false 로 나오면 둘을 구별할 방법이 없다(2026-08-27 추적이 여기서 헤맸다).
+    if (orderErr) throw new Error(`선행 주문 조회 실패: ${orderErr.message}`)
     if (order) {
-      const { data: rep } = await admin
+      const { data: rep, error: repErr } = await admin
         .from('agent_work_reports').select('evidence').eq('work_order_id', (order as { id: string }).id)
         .eq('kind', 'completion').order('created_at', { ascending: false }).limit(1).maybeSingle()
+      if (repErr) throw new Error(`선행 완료 보고 조회 실패: ${repErr.message}`)
       const ev = (rep as { evidence?: Record<string, unknown> } | null)?.evidence ?? {}
       branch = typeof ev.branch === 'string' ? ev.branch : null
       headSha = typeof ev.head_sha === 'string' ? ev.head_sha : null

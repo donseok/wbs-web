@@ -254,6 +254,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.agentOrderApproved': 'Approved',
   'wbs.agentOrderRejected': 'Rejected — reworking',
   'wbs.agentOrderCancelled': 'Cancelled',
+  'wbs.agentOrderPrior': 'Earlier orders',
   'wbs.agentOrderReports': 'Reports',
   'wbs.agentOrderLinks': 'Evidence links',
   'wbs.agentOrderApprove': 'Approve',

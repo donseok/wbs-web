@@ -122,6 +122,16 @@ async function notifyReviewResult(
 }
 
 /** 승인 — WBS 100% 반영이 먼저다. 반영 실패면 주문은 reported 로 남아 재시도 가능해야 한다. */
+/**
+ * transitionStage 가 전이를 건너뛴 사유별 사람 문구. 사유마다 사람이 할 일이 다르다 —
+ * 'stage' 는 단계를 되돌릴지 판단, 'parent' 는 애초에 상위 항목에 주문이 나간 것 자체가 문제다.
+ */
+const STAGE_SKIP_WARN: Record<string, string> = {
+  stage: '승인은 처리됐지만 현재 WBS 단계가 자동 전이 대상이 아니라 그대로 두었습니다 — 단계를 확인하세요.',
+  parent: '승인은 처리됐지만 이 항목에 하위 항목이 있어 단계를 바꾸지 않았습니다 — 개발 워크플로 단계는 최종단계의 것입니다. 주문이 상위 항목에 나간 경위를 확인하세요.',
+  dev_workflow: '승인은 처리됐지만 WBS 단계를 바꾸지 않았습니다(개발 워크플로 꺼짐) — 단계를 확인하세요.',
+}
+
 export async function approveAgentCompletion(orderId: string): Promise<ActionResult> {
   const loaded = await loadOrderForAdmin(orderId)
   if (!loaded.ok) return loaded
@@ -185,10 +195,13 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
     if (!transitioned.ok) {
       console.error('[agentWork] 승인 stage 전이 실패:', order.wbs_item_id)
       stageWarn = '승인은 처리됐지만 WBS 단계를 완료로 바꾸지 못했습니다 — 단계를 직접 확인하세요.'
-    } else if (transitioned.skipped === 'stage') {
-      // 사람이 손으로 옮겨 둔 단계라 자동 전이가 비켜간 것 — 침묵하면 후속 claim 이 막힌 이유를 아무도 못 찾는다.
-      console.error('[agentWork] 승인 stage 전이 비적용(현재 단계가 전이 대상 밖):', order.wbs_item_id)
-      stageWarn = '승인은 처리됐지만 현재 WBS 단계가 자동 전이 대상이 아니라 그대로 두었습니다 — 단계를 확인하세요.'
+    } else if (transitioned.skipped) {
+      // 건너뛴 사유가 무엇이든 알린다. 종전에는 'stage' 만 짚고 'parent' 를 빠뜨려, 하위 항목이
+      // 달린 항목의 주문을 승인하면 승인은 성공인데 단계만 뒤처진 반쪽 상태가 무음으로 끝났다.
+      // 사유별 분기가 아니라 "skipped 면 무조건"인 이유: 새 사유가 생겨도 여기서 걸리게.
+      console.error(`[agentWork] 승인 stage 전이 비적용(${transitioned.skipped}):`, order.wbs_item_id)
+      stageWarn = STAGE_SKIP_WARN[transitioned.skipped]
+        ?? `승인은 처리됐지만 WBS 단계를 바꾸지 않았습니다(${transitioned.skipped}) — 단계를 확인하세요.`
     }
   } catch (e) {
     console.error('[agentWork] 승인 stage 전이 예외:', e instanceof Error ? e.message : e)
@@ -356,7 +369,8 @@ export async function requestAgentRework(orderId: string, note: string): Promise
 }
 
 /**
- * 이 WBS 항목의 최신 에이전트 주문 — 명세 패널 "진행 상황" 섹션이 읽는다(2026-08-24, agent-ops 대체).
+ * 이 WBS 항목의 최신 에이전트 주문 + 그 앞에 있던 주문들 — 명세 패널 "진행 상황" 섹션이 읽는다
+ * (2026-08-24, agent-ops 대체).
  * 위임한 적 없으면 order:null. 조회 실패는 null 로 위장하지 않고 error 를 그대로 올린다(3원칙).
  * 프로젝트 멤버면 누구나 읽을 수 있다(스펙 읽기와 같은 등급) — 승인·반려 버튼 노출 여부는 호출부가
  * editable(관리자)로 가리고, 액션 자체도 requireProjectAdmin 으로 재검증한다.
@@ -371,8 +385,11 @@ export type AgentOrderStatus = {
   claimed_by: string | null; claimed_at: string | null; updated_at: string
   reports: AgentOrderReport[]
 }
+/** 이전 주문 한 줄 — 본문 없이 "있었다"는 사실만. 상세는 주문 id 로 단건 조회한다. */
+export type AgentOrderBrief = { id: string; status: string; updated_at: string }
+
 export async function getAgentOrderForItem(itemId: string): Promise<
-  | { ok: true; order: AgentOrderStatus | null }
+  | { ok: true; order: AgentOrderStatus | null; priorOrders: AgentOrderBrief[] }
   | { ok: false; error: string }
 > {
   if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
@@ -383,15 +400,22 @@ export async function getAgentOrderForItem(itemId: string): Promise<
   const g = await requireProjectMember((item as { project_id: string }).project_id)
   if (!g.ok) return { ok: false, error: g.error }
 
-  const { data: order, error: ordErr } = await sb
+  // limit(1) 을 쓰지 않는다 — 한 항목에 주문이 여러 개 쌓인다. approved 는 "활성 주문" 검사
+  // 어디에도 안 들어가므로(ensureOrder Step4·wbsImport:361·unique index) 승인된 주문은 항목을
+  // 비워주고, 재발행이 새 주문을 만든다. 최신 하나만 읽으면 그 앞의 승인 이력이 통째로 사라진다.
+  const { data: orders, error: ordErr } = await sb
     .from('agent_work_orders')
     .select('id, status, claimed_by, claimed_at, updated_at')
     .eq('wbs_item_id', itemId)
     .order('updated_at', { ascending: false })
-    .limit(1).maybeSingle()
   if (ordErr) return { ok: false, error: `주문 조회 실패: ${ordErr.message}` }
-  if (!order) return { ok: true, order: null }
-  const row = order as { id: string; status: string; claimed_by: string | null; claimed_at: string | null; updated_at: string }
+  const rows = (orders ?? []) as Array<{
+    id: string; status: string; claimed_by: string | null; claimed_at: string | null; updated_at: string
+  }>
+  if (rows.length === 0) return { ok: true, order: null, priorOrders: [] }
+  const row = rows[0]
+  const priorOrders: AgentOrderBrief[] = rows.slice(1)
+    .map(o => ({ id: o.id, status: o.status, updated_at: o.updated_at }))
 
   const { data: reports, error: repErr } = await sb
     .from('agent_work_reports')
@@ -399,5 +423,5 @@ export async function getAgentOrderForItem(itemId: string): Promise<
     .eq('work_order_id', row.id)
     .order('created_at', { ascending: true })
   if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }
-  return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[] } }
+  return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[] }, priorOrders }
 }

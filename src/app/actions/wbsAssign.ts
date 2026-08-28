@@ -336,11 +336,15 @@ export async function setWbsStage(
   if (curErr) return { ok: false, error: `단계 조회 실패: ${curErr.message}` }
   const oldStage = (cur as { stage: string | null } | null)?.stage ?? null
   if (oldStage === stage) return { ok: true }
-  // 완료(xx) 직행 차단 — 이 드롭다운은 dev_workflow·agent_work_orders 를 전혀 안 보는 경로라,
-  // claimed/reported 인 활성 에이전트 주문이 있는 상태에서 xx 를 고르면 겉보기엔 승인된 것처럼
-  // 보이는데 주문은 그대로 남아 후속 작업 선행 게이트가 안 풀린다(2026-08-25 mes-runlog 리허설
-  // 실측 — 승인 버튼을 안 거치고 이 드롭다운으로 "완료"를 골라 발생). 완료는 승인 버튼으로만.
-  if (stage === 'xx') {
+  // 도달 단계(im·xx) 직행 차단 — 이 드롭다운은 dev_workflow·agent_work_orders 를 전혀 안 보는
+  // 경로라, claimed/reported 인 활성 에이전트 주문이 있는 상태에서 여기로 단계를 올리면 겉보기엔
+  // 승인된 것처럼 보이는데 주문은 그대로 남는다(2026-08-25 mes-runlog 리허설 실측 — 승인 버튼을
+  // 안 거치고 이 드롭다운으로 "완료"를 골라 발생). 완료·검수는 승인 버튼으로만.
+  //
+  // 판정 축을 REACHED_STAGES 로 잡는다 — 종전에는 'xx' 만 막았는데 claim 게이트는 stageAtLeast(im)
+  // 로 보므로 'im' 을 고르면 같은 우회가 그대로 성립했다. 막는 집합과 게이트가 보는 집합이
+  // 갈라지면 그 틈이 곧 구멍이다.
+  if (stage !== null && REACHED_STAGES.has(stage)) {
     const { data: activeOrder, error: orderErr } = await admin
       .from('agent_work_orders').select('id').eq('wbs_item_id', itemId)
       .in('status', ['claimed', 'reported']).limit(1).maybeSingle()
@@ -348,7 +352,7 @@ export async function setWbsStage(
     if (activeOrder) {
       return {
         ok: false,
-        error: '이 항목에 진행 중인 에이전트 주문이 있습니다 — 완료 처리는 "진행 상황"의 승인 버튼으로 하세요.',
+        error: '이 항목에 진행 중인 에이전트 주문이 있습니다 — 단계 변경은 "진행 상황"의 승인 버튼으로 하세요.',
       }
     }
   }

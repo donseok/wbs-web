@@ -38,6 +38,7 @@ function order(status: string) {
         agent: 'agent-x', review_action: null, review_note: null, created_at: '2026-08-26T01:00:00Z',
       }],
     },
+    priorOrders: [],
   }
 }
 

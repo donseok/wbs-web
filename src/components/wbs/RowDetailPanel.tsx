@@ -73,8 +73,9 @@ export function RowDetailPanel({
   const [delivBusy, setDelivBusy] = useState(false)
   const [delivErr, setDelivErr] = useState<string | null>(null)
   const [dependencyOpen, setDependencyOpen] = useState(false)
-  // 기본은 목록 — 그래프는 전체를 한눈에 보고 싶을 때 켠다. 세션 상태로만 둔다(저장 안 함).
-  const [depView, setDepView] = useState<'list' | 'graph'>('list')
+  // 기본은 그래프 — 의존성은 선행·후행의 방향과 갈래가 본체라 목록으로는 그걸 못 보여준다.
+  // 목록은 삭제 버튼이 붙는 편집용으로 남긴다. 세션 상태로만 둔다(저장 안 함).
+  const [depView, setDepView] = useState<'list' | 'graph'>('graph')
   // 명세 챕터와 같은 접기. 기본은 펼침 — 접힘이 기본이면 시작 가능 배너까지 한 번 더 눌러야 보인다.
   const [depBodyOpen, setDepBodyOpen] = useState(true)
   const [predecessorId, setPredecessorId] = useState('')

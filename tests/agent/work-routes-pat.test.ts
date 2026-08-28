@@ -20,12 +20,18 @@ const RUNNER = {
   revoked_at: null, expires_at: '2099-01-01T00:00:00Z',
 }
 
-function useAdmin(queues: Record<string, Resp[]>) {
+function useAdmin(queues: Record<string, Resp[]>, selects?: Record<string, string[]>) {
   const admin = {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'eq', 'in', 'limit', 'order']) b[k] = () => b
+      // select 인자를 기록한다 — 응답 셰이프가 아니라 "어떤 컬럼을 요구했는가"를 단언하기 위해서다.
+      // 목은 큐에 넣은 data 를 그대로 돌려주므로, 응답만 보면 select 누락을 잡을 수 없다.
+      b.select = (cols?: unknown) => {
+        if (selects && typeof cols === 'string') (selects[table] ??= []).push(cols)
+        return b
+      }
+      for (const k of ['update', 'eq', 'in', 'limit', 'order']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -232,5 +238,45 @@ describe('GET /agent/work/[id] — PAT 멤버십 게이트', () => {
     const body = await res.json()
     expect(body.order.item).toEqual(LEGACY_ITEM)
     expect(body.depends_evidence).toBeUndefined()
+  })
+})
+
+// 저장된 evidence 를 클라이언트가 확인할 길이 없어서, 완료 보고가 증적을 실었는지조차
+// DB 직접 조회 없이는 못 봤다(2026-08-27 mes-runlog 추적이 여기서 막혔다).
+// depends_evidence 와 같은 방식으로 PAT 응답에만 얹는다 — 레거시 응답은 v1 회귀 기준선.
+describe('GET /agent/work/[id] — reports[].evidence', () => {
+  const ORDER_ROW = {
+    data: {
+      id: O1, project_id: P1, status: 'reported', priority: 0, instructions: '',
+      claimed_by: null, claimed_at: null, wbs_item_id: null,
+    },
+  }
+  const memberQueues = () => ({
+    agent_runners: [{ data: RUNNER }, { data: null }],
+    agent_work_orders: [ORDER_ROW],
+    agent_projects: [{ data: { enabled: true } }],
+    memberships: [{ data: { is_superuser: false } }],
+    project_roles: [{ data: [{ role: 'member' }] }],
+    agent_work_reports: [{ data: [] }],
+  })
+
+  it('PAT 응답은 evidence 컬럼을 요구한다', async () => {
+    const selects: Record<string, string[]> = {}
+    useAdmin(memberQueues(), selects)
+    const res = await detail(PAT.token)
+    expect(res.status).toBe(200)
+    expect(selects.agent_work_reports?.[0]).toContain('evidence')
+  })
+
+  it('레거시 시크릿 응답은 evidence 를 요구하지 않는다(v1 회귀 기준선)', async () => {
+    const selects: Record<string, string[]> = {}
+    useAdmin({
+      agent_work_orders: [ORDER_ROW],
+      agent_projects: [{ data: { enabled: true } }],
+      agent_work_reports: [{ data: [] }],
+    }, selects)
+    const res = await detail('legacy-secret')
+    expect(res.status).toBe(200)
+    expect(selects.agent_work_reports?.[0]).not.toContain('evidence')
   })
 })
