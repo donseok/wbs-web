@@ -4,49 +4,21 @@ import { getSession } from '@/lib/auth'
 import { requireProjectAdmin, resolveProjectId } from '@/lib/authz'
 import { revalidatePath } from 'next/cache'
 import { getTopAnnouncements } from '@/lib/data/announcements'
-import type { AnnouncementCategory, AnnouncementSummary } from '@/lib/domain/types'
+import type { AnnouncementSummary } from '@/lib/domain/types'
 import { expandMeetings } from '@/lib/domain/meetings'
-import { composeAnnouncementFromMeeting } from '@/lib/domain/announcements'
+import { composeAnnouncementFromMeeting, validateAnnouncementInput, type AnnouncementInput } from '@/lib/domain/announcements'
 import type { MeetingCategory, MeetingRecurrence } from '@/lib/domain/types'
 import { seoulToday } from '@/lib/domain/dates'
 
-export interface AnnouncementInput {
-  title: string
-  body: string
-  category: AnnouncementCategory
-  isPinned: boolean
-  publishFrom: string // 'YYYY-MM-DD' (KST) 게시 시작일 · 필수
-  publishTo: string   // 'YYYY-MM-DD' (KST) 게시 종료일(포함) · 필수
-}
+// 입력 타입·검증은 도메인(순수)이 정본 — 폼과 액션이 같은 규칙을 쓴다(0091 마일스톤 일자 포함).
+export type { AnnouncementInput }
 
 export interface AnnouncementActionResult {
   ok: boolean
   error?: string
 }
 
-const CATEGORIES: AnnouncementCategory[] = ['general', 'important', 'event']
-const TITLE_MAX = 200
-const BODY_MAX = 20000
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-/** 'YYYY-MM-DD' 형식 + 실재하는 날짜인지 (2026-02-30 등 반려) */
-function isValidDate(s: string): boolean {
-  if (!DATE_RE.test(s)) return false
-  const d = new Date(`${s}T00:00:00Z`)
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
-}
-
-function validateInput(input: AnnouncementInput): string | null {
-  const title = input.title.trim()
-  if (!title) return '제목을 입력하세요.'
-  if (title.length > TITLE_MAX) return `제목은 ${TITLE_MAX}자 이하여야 합니다.`
-  if (input.body.length > BODY_MAX) return `본문은 ${BODY_MAX}자 이하여야 합니다.`
-  if (!CATEGORIES.includes(input.category)) return '잘못된 카테고리입니다.'
-  if (!input.publishFrom || !input.publishTo) return '게시 시작일과 종료일을 모두 지정하세요.'
-  if (!isValidDate(input.publishFrom) || !isValidDate(input.publishTo)) return '게시 기간 날짜 형식이 올바르지 않습니다.'
-  if (input.publishFrom > input.publishTo) return '게시 종료일은 시작일보다 빠를 수 없습니다.'
-  return null
-}
 
 /** 공지 목록·대시보드 카드 동시 갱신 */
 function revalidateAnnouncements(projectId: string) {
@@ -60,7 +32,7 @@ export async function createAnnouncement(
 ): Promise<AnnouncementActionResult> {
   const g = await requireProjectAdmin(projectId)
   if (!g.ok) return { ok: false, error: g.error }
-  const err = validateInput(input)
+  const err = validateAnnouncementInput(input)
   if (err) return { ok: false, error: err }
 
   const sb = await createServerClient()
@@ -74,6 +46,7 @@ export async function createAnnouncement(
       is_pinned: input.isPinned,
       publish_from: input.publishFrom,
       publish_to: input.publishTo,
+      milestone_date: input.milestoneDate,
       created_by: g.actor.userId,
     })
     .select('created_at')
@@ -96,7 +69,7 @@ export async function updateAnnouncement(
   if (!found.ok) return { ok: false, error: found.error }
   const g = await requireProjectAdmin(found.projectId)
   if (!g.ok) return { ok: false, error: g.error }
-  const err = validateInput(input)
+  const err = validateAnnouncementInput(input)
   if (err) return { ok: false, error: err }
 
   const sb = await createServerClient()
@@ -109,6 +82,7 @@ export async function updateAnnouncement(
       is_pinned: input.isPinned,
       publish_from: input.publishFrom,
       publish_to: input.publishTo,
+      milestone_date: input.milestoneDate,
       updated_at: new Date().toISOString(), // updated_at 트리거 없음 — 수동 갱신(wbs.ts 관례)
     })
     .eq('id', id)

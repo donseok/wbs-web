@@ -51,6 +51,7 @@ export const dashboardKo = {
   'dash.ms.title': '마일스톤 타임라인',
   'dash.ms.empty': '감지된 마일스톤이 없습니다. 이름에 보고회·승인 등 키워드가 있거나 단일일+산출물 항목이 자동 감지됩니다.',
   'dash.ms.overdueBadge': '경과',
+  'dash.ms.announcement': '공지',
   'dash.ms.today': '오늘',
   'dash.aging.title': '기한 경과 에이징',
   'dash.aging.empty': '기한을 넘긴 미완료 작업이 없습니다.',

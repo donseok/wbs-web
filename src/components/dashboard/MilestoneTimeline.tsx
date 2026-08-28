@@ -8,6 +8,8 @@ import { getServerLocale } from '@/lib/i18n/server'
 import { CountBadge, MiniEmpty } from './bits'
 
 const MS_TONE: Record<MilestoneStatus, string> = { done: 'fill-done', overdue: 'fill-delayed', upcoming: 'fill-brand' }
+// 공지 점(0091)은 같은 톤의 테두리만 — WBS 점(채움)과 한눈에 갈린다.
+const MS_RING: Record<MilestoneStatus, string> = { done: 'stroke-done', overdue: 'stroke-delayed', upcoming: 'stroke-brand' }
 const W = 960, PL = 24, PR = 24
 const FS_NAME = 10, FS_SUB = 9, LH = 12
 const MAX_LINE_W = 150, MAX_LINES = 3
@@ -111,9 +113,15 @@ export async function MilestoneTimeline({ points, startDate, endDate, today }: {
           const dateY = above ? BASE - 14 : BASE + 24 + LH * (lines.length - 1) + 13
           return (
             <g key={p.id}>
-              <circle cx={x(p.date)} cy={BASE} r={5} className={MS_TONE[p.status]}>
-                <title>{`${p.name} · ${fmtDate(p.date)}`}</title>
-              </circle>
+              {p.kind === 'announcement' ? (
+                <circle cx={x(p.date)} cy={BASE} r={4.5} strokeWidth={2} className={`fill-surface ${MS_RING[p.status]}`}>
+                  <title>{`${p.name} · ${fmtDate(p.date)} · ${tr('dash.ms.announcement')}`}</title>
+                </circle>
+              ) : (
+                <circle cx={x(p.date)} cy={BASE} r={5} className={MS_TONE[p.status]}>
+                  <title>{`${p.name} · ${fmtDate(p.date)}`}</title>
+                </circle>
+              )}
               {lines.map((line, j) => (
                 <text key={j} x={lx} y={nameY(j)} textAnchor="middle" fontSize={FS_NAME} className="fill-ink font-medium">{line}</text>
               ))}

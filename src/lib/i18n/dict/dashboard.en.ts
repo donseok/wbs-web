@@ -45,6 +45,7 @@ export const dashboardEn: Record<keyof typeof dashboardKo, string> = {
   'dash.ms.title': 'Milestone timeline',
   'dash.ms.empty': 'No milestones detected. Items with report/approval keywords or single-day items with deliverables are detected automatically.',
   'dash.ms.overdueBadge': 'overdue',
+  'dash.ms.announcement': 'Notice',
   'dash.ms.today': 'Today',
   'dash.aging.title': 'Overdue aging',
   'dash.aging.empty': 'No unfinished tasks past their due date.',

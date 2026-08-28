@@ -1,4 +1,5 @@
 import type { Announcement, AnnouncementCategory } from '@/lib/domain/types'
+import { diffDaysCal, type MilestonePoint } from './dashboard'
 
 /**
  * 카테고리 메타 — 라벨은 dict 키(표시 지점에서 t()로 해석), 색상은 상태 팔레트
@@ -117,4 +118,66 @@ export function composeAnnouncementFromMeeting(
     // 'YYYY-MM-DD'는 사전식 비교가 시간순과 일치 — 더 늦은 날짜가 max
     publishTo: src.occurrenceDate > todayIso ? src.occurrenceDate : todayIso,
   }
+}
+
+/* ── 공지 입력 검증(서버 액션·폼 공용, 순수) ── */
+export interface AnnouncementInput {
+  title: string
+  body: string
+  category: AnnouncementCategory
+  isPinned: boolean
+  publishFrom: string // 'YYYY-MM-DD' (KST) 게시 시작일 · 필수
+  publishTo: string   // 'YYYY-MM-DD' (KST) 게시 종료일(포함) · 필수
+  /** 마일스톤 타임라인 날짜 — null = 표시 안 함. '' 은 "체크했는데 날짜 없음"이라 거부한다. */
+  milestoneDate: string | null
+}
+
+export const ANNOUNCEMENT_TITLE_MAX = 200
+export const ANNOUNCEMENT_BODY_MAX = 20000
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** 'YYYY-MM-DD' 형식 + 실재하는 날짜인지 (2026-02-30 등 반려) */
+export function isValidYmd(s: string): boolean {
+  if (!DATE_RE.test(s)) return false
+  const d = new Date(`${s}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
+/** 저장 전 입력 검증 — 통과면 null, 아니면 사용자에게 보일 사유(한국어, 액션 관례). */
+export function validateAnnouncementInput(input: AnnouncementInput): string | null {
+  const title = input.title.trim()
+  if (!title) return '제목을 입력하세요.'
+  if (title.length > ANNOUNCEMENT_TITLE_MAX) return `제목은 ${ANNOUNCEMENT_TITLE_MAX}자 이하여야 합니다.`
+  if (input.body.length > ANNOUNCEMENT_BODY_MAX) return `본문은 ${ANNOUNCEMENT_BODY_MAX}자 이하여야 합니다.`
+  if (!ANNOUNCEMENT_CATEGORIES.includes(input.category)) return '잘못된 카테고리입니다.'
+  if (!input.publishFrom || !input.publishTo) return '게시 시작일과 종료일을 모두 지정하세요.'
+  if (!isValidYmd(input.publishFrom) || !isValidYmd(input.publishTo)) return '게시 기간 날짜 형식이 올바르지 않습니다.'
+  if (input.publishFrom > input.publishTo) return '게시 종료일은 시작일보다 빠를 수 없습니다.'
+  if (input.milestoneDate !== null) {
+    if (!input.milestoneDate) return '마일스톤 일자를 지정하세요.'
+    if (!isValidYmd(input.milestoneDate)) return '마일스톤 일자 형식이 올바르지 않습니다.'
+  }
+  return null
+}
+
+/* ── 마일스톤 타임라인 점(0091) ── */
+
+/**
+ * milestoneDate 가 있는 공지 → 타임라인 점. 지난 행사는 'done'(치러진 것 — WBS 의 '경과'와 다르다),
+ * 오늘 이후는 'upcoming' + D-N. today 는 호출부가 타임라인의 시계(WBS 와 같은 today)를 넘긴다 —
+ * 한 카드 안에서 오늘 선·D-day 가 한 시계를 쓰게.
+ */
+export function announcementMilestones(items: Announcement[], today: string): MilestonePoint[] {
+  return items
+    .filter((a): a is Announcement & { milestoneDate: string } => !!a.milestoneDate)
+    .map(a => ({
+      id: a.id, name: a.title, date: a.milestoneDate, kind: 'announcement' as const,
+      status: a.milestoneDate < today ? 'done' as const : 'upcoming' as const,
+      dday: diffDaysCal(today, a.milestoneDate),
+    }))
+}
+
+/** WBS 점 + 공지 점을 날짜순으로 — 같은 날짜면 입력 순서(WBS 먼저) 유지(안정 정렬). */
+export function mergeMilestonePoints(wbs: MilestonePoint[], announcements: MilestonePoint[]): MilestonePoint[] {
+  return [...wbs, ...announcements].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 }

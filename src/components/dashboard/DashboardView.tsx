@@ -6,6 +6,7 @@ import { milestoneTimeline } from '@/lib/domain/dashboard'
 import { round1 } from '@/lib/domain/format'
 import { overallProgress } from '@/lib/domain/rollup'
 import type { DashboardIssue } from '@/lib/domain/issueDashboard'
+import { announcementMilestones, mergeMilestonePoints } from '@/lib/domain/announcements'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { t, type DictKey } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -81,7 +82,12 @@ export async function DashboardView({
     items, snapshots, holidays: new Set(holidays), startDate, endDate, today,
     opts: { subActTeamOrder },
   })
-  const milestones = milestoneTimeline(items, today, milestoneKeywords)
+  // 마일스톤 = WBS 리프 + 마일스톤 일자를 체크한 공지(0091). 공지도 타임라인의 시계(today = base_date 우선)를
+  // 쓴다 — 한 카드에서 오늘 선과 D-day 가 두 시계로 갈리지 않게. 경영진 요약의 '다음 마일스톤' 타일은 WBS 만(현행 유지).
+  const milestones = mergeMilestonePoints(
+    milestoneTimeline(items, today, milestoneKeywords),
+    announcementMilestones(announcements, today),
+  )
   // 이중 시계 — WBS 진척은 today(base_date 우선), 회의·이슈는 실제 오늘(섹션 D~F 주석).
   const realToday = seoulToday()
 

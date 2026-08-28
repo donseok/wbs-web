@@ -107,6 +107,12 @@ export interface Announcement {
   isPinned: boolean
   publishFrom: string | null // 'YYYY-MM-DD' (KST) 게시 시작일 · null = 무기한
   publishTo: string | null   // 'YYYY-MM-DD' (KST) 게시 종료일(포함) · null = 무기한
+  /**
+   * 대시보드 마일스톤 타임라인에 찍을 날짜(0091). null = 표시 안 함(폼 체크 해제).
+   * optional 인 이유: 이 타입으로 객체를 만드는 테스트 픽스처 8곳과의 호환(생략 = 미표시).
+   * 데이터 계층(getAnnouncements)은 항상 채워 반환한다.
+   */
+  milestoneDate?: string | null
   createdAt: string          // ISO timestamptz
   updatedAt: string
 }
