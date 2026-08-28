@@ -102,7 +102,7 @@ export const OVERLOAD_ACTIVE_RATIO = 2   // 활성 리프가 배정 팀 평균�
 export const OVERLOAD_ACTIVE_MIN = 4     // 표본 극소(활성 3건 이하) 팀의 비율 오탐 바닥
 export const STALE_ACTION_DAYS = 7       // 회의 액션·기한 항목 경과 기준일
 
-export const SPI_TAIL = 3          // 연속 하락 판정 표본 수 — RiskSignalCard 캐비앗 문구 보간에 공유
+export const SPI_TAIL = 3          // 연속 하락 판정 표본 수 — delay_trend 판정과 trendSparse 캐비앗이 같은 표본을 쓴다
 const SPI_PLANNED_GUARD = 5        // trend.ts spiSeries 조기 불안정 가드 미러
 const EVIDENCE_LIMIT = 8           // delayAging list limit 관례 미러
 

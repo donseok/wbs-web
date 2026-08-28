@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
     const fresh = !!row && !!facts && row.status === 'ready' && row.inputHash === briefFactsHash(facts)
     if (!fresh || !row) {
       return NextResponse.json(
-        { error: 'AI 브리핑이 없거나 최신이 아닙니다. 대시보드에서 AI 브리핑을 먼저 생성하세요.' },
+        { error: 'AI 브리핑이 없거나 최신이 아닙니다. 리포트 화면의 AI 브리핑 생성 버튼으로 먼저 생성하세요.' },
         { status: 409 },
       )
     }

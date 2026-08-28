@@ -3,8 +3,9 @@
 //
 // 순수 계층(buildBriefFacts~verifyBriefNumbers): 대시보드 도메인 함수의 반환값을
 // 재계산 없이 그대로 담아 "컴팩트 팩트 컨텍스트"를 만든다. 리스크 팩트는 자체 조립이
-// 아니라 detectRiskSignals 의 RiskSignalReport 를 소비한다(C3) — 신호 카드와 브리핑이
+// 아니라 detectRiskSignals 의 RiskSignalReport 를 소비한다(C3) — 대시보드 지표와 브리핑이
 // 같은 근거를 말하므로 화면 간 수치 모순이 구조적으로 불가능하다.
+// (대시보드의 위험 신호 카드는 2026-08-28 이슈 현황 카드로 교체돼 제거됐다 — 소비처는 PPT 리포트 ai=1 뿐.)
 //
 // IO 계층(ensureWeeklyBrief): 캐시(project_ai_briefs kind='weekly', cache_key=base_date,
 // input_hash=팩트 해시) → createEnsureGate(쿨다운 60s + in-flight dedupe + never-throw)
@@ -43,7 +44,7 @@ export interface BriefFacts {
   projectName: string
   todayWbs: string     // 진척·리스크 기준일(base_date 우선) — cache_key 의 날짜 축
   todayReal: string    // 회의·회의록 기준일(실제 오늘) — 이중 시계 명시 라벨링
-  kpiLine: string      // 결정형 조립 — LLM 산출이 아니라 카드가 그대로 병기하는 단일 출처
+  kpiLine: string      // 결정형 조립 — LLM 산출이 아니라 PPT 코멘트 슬라이드가 그대로 병기하는 단일 출처
   exec: ExecSummary
   trend: { currentSpi: number | null; velocityWeek: number | null; hasHistory: boolean }
   riskReport: RiskSignalReport
@@ -284,7 +285,7 @@ async function generateWeeklyBrief(projectId: string, facts: BriefFacts, hash: s
       kind: 'weekly',
       cache_key: facts.todayWbs,
       input_hash: hash,
-      headline: headlineCheck.text, // 헤드라인이 검증에서 제거되면 '' — 카드는 결정형 kpiLine 으로 폴백
+      headline: headlineCheck.text, // 헤드라인이 검증에서 제거되면 '' — 소비처(PPT 슬라이드)는 결정형 kpiLine 을 병기
       body_md: bodyCheck.text,
       items: [],
       status: 'ready',

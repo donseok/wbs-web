@@ -205,25 +205,27 @@ alter table public.attendance_records
 엔드포인트(Groq·OpenRouter·사내 LLM)로 전환. 임베딩 차원을 바꾸면 마이그레이션의
 `vector(768)` 차원도 함께 맞춰야 합니다.
 
-## AI PM Assistant — 주간 브리핑 · 위험 신호 AI 해설 (Phase 2)
+## AI PM Assistant — 주간 브리핑 (Phase 2)
 
-대시보드 "AI 브리핑 & 위험 신호" 통합 카드와 주간보고 PPT의 AI 코멘트 슬라이드.
+주간보고 PPT의 AI 코멘트 슬라이드와 리포트 모달의 'AI 브리핑 생성' 버튼.
 LLM 호출은 전부 `generateAnswer`(llm.ts) 단일 진입점 경유 — 429 삼중 방어를 상속한다.
+
+> 2026-08-28: 대시보드의 "AI 브리핑 & 위험 신호" 통합 카드(주간 브리핑·규칙 신호 목록·신호별 AI 해설)는
+> 이슈 현황 카드 3종으로 교체되며 **제거**됐다. `risk-brief.ts`·`actions/risk.ts`·`RiskSignalCard` 계열은
+> 삭제됐고, `project_ai_briefs` 의 kind=`risk` 행은 읽는 곳 없이 DB 에만 남아 있다(마이그레이션 없음).
 
 | 표면 | 트리거 | LLM 콜 | 캐시 키 |
 |---|---|---|---|
-| 주간 브리핑(카드 상단) | **버튼 온디맨드 전용** — 열람 자동 생성 절대 금지(쿼터 보호 핵심) | 캐시 미스 시 1 | `project_ai_briefs` kind=`weekly`, cache_key=base_date, input_hash=팩트 해시 |
-| 위험 신호 목록(카드 중단) | 항상(결정형) | **0** | — (라이브 계산, riskSignals.ts) |
-| 신호별 AI 해설(카드 하단) | 열람 시 **지문 stale일 때만** self-heal(D2) | 지문 변경당 1 | kind=`risk`, cache_key=`''`, input_hash=신호 지문(정수 화이트리스트) |
+| 주간 브리핑(리포트 모달 버튼) | **버튼 온디맨드 전용** — 열람 자동 생성 절대 금지(쿼터 보호 핵심) | 캐시 미스 시 1 | `project_ai_briefs` kind=`weekly`, cache_key=base_date, input_hash=팩트 해시 |
 | PPT `ai=1` / 모달 신선도 조회 | 다운로드/모달 열림 | **0** (캐시 읽기, 미스·stale=409) | weekly 행 재사용 |
 
-- 파이프라인: `projectFacts.ts`(공용 로더) → `brief.ts`(팩트 조립·프롬프트·파싱·**수치 검증기**) /
-  `risk-brief.ts`(signalId 검증 파싱) → `ensure.ts` 게이트(쿨다운 60s + in-flight dedupe + never-throw)
+- 파이프라인: `projectFacts.ts`(공용 로더) → `brief.ts`(팩트 조립·프롬프트·파싱·**수치 검증기**)
+  → `ensure.ts` 게이트(쿨다운 60s + in-flight dedupe + never-throw)
   → service_role upsert(`onConflict project_id,kind,cache_key`).
+  리스크 팩트는 `riskSignals.ts`(결정형 탐지)의 RiskSignalReport 를 그대로 소비한다.
 - 수치 검증기(verifyBriefNumbers): 산출 텍스트의 %/%p/건 토큰을 팩트 화이트리스트와 대조해
   불일치 줄 제거+로깅. 제거 로그(`[brief] 수치 검증 제거`)가 잦으면 프롬프트 보강 검토.
-- 신선도 판정: weekly=팩트 해시(같은 날 WBS 편집 시 stale), risk=신호 지문(fingerprint —
-  정수화 지표만이라 단순 날짜 경과로는 불변). 'none' 행 = 분석됨·서술 없음(행 없음=미생성/실패).
+- 신선도 판정: weekly=팩트 해시(같은 날 WBS 편집 시 stale). 'none' 행 = 분석됨·서술 없음(행 없음=미생성/실패).
 - PPT: `/api/report?format=pptx&ai=1` — 신선한 weekly 캐시 필수, 아니면 **409**(조용한 구식
   코멘트 금지). 렌더는 `aiComment.ts`(briefToExtraSlide) → `templateFill` `opts.extra`
   (미지정 시 기존 출력 바이트 불변).
