@@ -71,7 +71,7 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
    - **2 (설정)**: stderr 를 그대로 보고.
 3. **사이클 종료 후 재기동**: /dflow-dev 가 reported 로 끝나든 중단으로 끝나든, 그 결과를
    사용자에게 보고한 뒤 poll.sh 를 다시 백그라운드로 올린다(1번). 종료 시각이 지났으면 올리지 않는다.
-   - claim 이 **exit 4(선행 미충족)** 로 막힌 작업은 fetch/merge 후 1회 재시도(dflow-dev 규칙),
+   - claim 이 **exit 4(선행·상태로 인한 진행 불가)** 로 막힌 작업은 fetch/merge 후 1회 재시도(dflow-dev 규칙),
      그래도 4 면 사유를 갈라 재기동 시 전달한다(제외 없이 재기동하면 즉시 재발견해 공회전):
      **영구성**(사용자 결정 대기 등)은 `--exclude id8,id8`, **일시성**(spec 부재·선행 산출물
      대기)은 `--exclude-temp id8,id8` — 일시성은 스크립트가 `--recheck-cycles`(기본 6주기) 뒤

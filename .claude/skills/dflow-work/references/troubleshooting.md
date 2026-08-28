@@ -47,13 +47,18 @@
 
 토큰 스코프도 확인: `work:read` + `work:claim` 최소 필요.
 
-### exit 4 — 상태 충돌 또는 선행 미반영
+### exit 4 — 선행·상태로 인한 진행 불가(로컬 차단 포함)
 
-**HTTP 409 / 선행 의존성 미충족**
+**HTTP 409 / 403 `code=dependency_not_met` / 로컬 선행 차단** — 선행 계열 두 갈래
+(서버 거부·로컬 차단)는 같은 처방(fetch/merge 후 재시도)이고, 409 는 상태 충돌이라
+조율이 처방이다. 셋 다 "진행 불가이나 재시도 가능"이라 한 코드로 묶여 있다.
 
 **409 conflict 원인들**:
 - 다른 사람이 같은 작업을 동시에 claim/release
 - 작업 상태가 예기치 않게 변경됨
+
+**서버 선행 거부** (403 바디 `code=dependency_not_met`, `unmet[]` 동반):
+- 선행 항목의 stage 미달·미승인 — stderr 로 흘러나온 바디의 `unmet[]` 로 어느 선행인지 확인
 
 **선행 미반영 원인** (로컬 게이트):
 - claim 또는 show 호출 시 선행 작업이 로컬에 merge 되지 않음
@@ -65,7 +70,7 @@
    dflow.sh show <순번>
    ```
 2. 409 conflict 이면 작업 선택을 바꾸거나 다른 사람과 조율
-3. 선행 미반영 이면 (exit 4):
+3. 선행 미반영·선행 거부면 (exit 4):
    ```bash
    git fetch origin
    git merge origin/main  # 또는 해당 브랜치
@@ -83,7 +88,7 @@
 | `not_claim_owner` | 다른 사람이 claim 한 작업을 당신이 release/report 시도. 소유자에게 요청 |
 | `not_assignee` | 배정된 담당자만 claim 가능한 작업. 담당자 변경은 웹 UI에서 |
 | `forbidden_role` | 프로젝트 멤버 아님. 프로젝트 관리자에게 멤버십 요청 |
-| `dependency_not_met` | 선행 작업이 완료되지 않음 |
+| `dependency_not_met` | **exit 5 가 아니라 exit 4 로 재매핑된다** — 위 exit 4 절 참조 |
 
 **기본 확인**:
 ```bash
@@ -100,9 +105,11 @@ projects: Project A (admin), Project B (member)
 - 프로젝트 멤버십이 있는지 확인
 - 필요하면 웹 `/account` → 토큰 재발급 또는 멤버십 요청
 
-### exit 6 — 네트워크 또는 서버 오류
+### exit 6 — 네트워크·서버·로컬 환경 실패
 
-**HTTP 5xx / 네트워크 불가**
+**HTTP 5xx / 네트워크 불가 / 로컬 환경 실패** — 서버 응답 파싱 실패, spec 캐시 파일
+쓰기·이동 실패도 여기다(선행 문제가 아니므로 exit 4 로 내지 않는다 — "선행 기다렸다
+재시도" 오분기 방지).
 
 **해결**:
 1. 네트워크 연결 확인:
