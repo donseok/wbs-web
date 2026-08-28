@@ -162,6 +162,9 @@ UI 라벨 정본(참고 표기용, `dev-workflow state-machine.json` 기준): `a
 ## 로컬 클라이언트 계약
 
 - env: `DFLOW_API_BASE`(기본값 없음 — 미설정 시 즉시 실패) · `DFLOW_PATS`(쉼표 구분 1~N개) · `DFLOW_PAT`(단일, PATS 미설정 시 폴백).
-- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단 / 5 권한(403) / 6 네트워크·서버(5xx) / 7 기능 꺼짐(404).
+- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단·선행 미충족(403 `code=dependency_not_met`) / 5 권한(403, 그 외) / 6 네트워크·서버(5xx)·로컬 환경 실패(파싱·파일 쓰기) / 7 기능 꺼짐(404).
+  - 403 을 body 의 `code` 로 갈라 읽는다: 선행 미충족은 권한 문제가 아니라 상태 문제라
+    호출부가 할 일이 "권한을 얻어라"가 아니라 "선행을 끝내고 다시 와라"이다.
+  - 로컬 파싱·파일 쓰기 실패를 4 로 내지 않는다 — 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.
 - 신원 해석: 토큰별 `GET /agent/me` 1회 → `~/.cache/dflow/profiles.json` 캐시. `--as <이름|email>` 프로필 선택.
 - evidence 자동 조립: `git rev-parse HEAD`·`git remote get-url origin`·`git branch --show-current`·(`gh` 있으면) PR URL.
