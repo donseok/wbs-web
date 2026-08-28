@@ -10,6 +10,8 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
 
 ## 시작 절차 (매 세션 1회)
 
+0. `.env` 소싱 — `dflow.sh` 는 `.env` 를 자동 소싱하지 않는다. 수동 실행 시 매번 앞에 붙인다:
+   `set -a; . ./.env; set +a` (`poll.sh` 는 자체 소싱하므로 불필요).
 1. `dflow.sh doctor` 실행 — 모든 프로필 확인, 계약 버전 검증.
    ```bash
    dflow.sh doctor
@@ -17,9 +19,14 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    성공(exit 0) 출력:
    ```
    base: https://d-flow.example.com
-   프로필 1: alice@example.com (계약 2.0, 프로젝트 3)
+   프로필 1: alice@example.com (계약 2.1, 프로젝트 3)
    ```
-   계약 버전이 2.0이 아니면 dflow-kit(스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내.
+   계약 버전은 **major 가 다를 때만** 문제다 — "계약 major 불일치" 경고가 뜨면 dflow-kit
+   (스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내한다. minor 차이(서버의 additive 확장)는
+   정상이라 경고가 안 뜨고, 경고가 뜰 때만 그 메시지에 서버·스킬 양쪽 값이 함께 찍힌다
+   (정상 출력에는 서버 값만 나온다). **"계약 버전 확인 불가" 경고는 처방이 다르다** —
+   서버 응답에 contract_version 이 없는 것이므로 킷을 갱신해도 안 고쳐진다. 서버 배포·응답을
+   확인해야 한다.
 
 2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) 사용자가 지목한 사람으로 `--as <이름|email>` 옵션을 사용한다.
 
@@ -71,7 +78,8 @@ dflow.sh claim <순번>
 선행 조건이 미충족이면 **exit 4 로 차단**된다. 이 경우 fetch/merge 후 재시도한다. 우회 금지.
 
 성공 시:
-- 아무 파일도 만들지 않는다. 명세는 `dflow.sh show <ref>` 의 `order.item.spec` 으로 읽는다 — **구현 전 반드시 읽는다** (정본은 D'Flow DB).
+- `docs/tasks/<TSK>/spec.md` 캐시가 생성된다 — **구현 전 반드시 읽는다**
+  (명세 정본은 D'Flow DB, 이 파일은 claim 시점 스냅샷. 스크립트가 끝에 `spec 캐시: <경로>` 를 출력한다).
 
 ⚠️ **브랜치는 만들어지지 않는다** — dflow.sh 는 git 브랜치를 생성하지 않는다(스크립트에 해당 코드 없음).
 `agent/<주문id 8자>-<slug>` 브랜치는 **호출자가 claim 직후 직접 만든다**:

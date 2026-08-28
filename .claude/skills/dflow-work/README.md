@@ -40,34 +40,40 @@ export DFLOW_PATS="dflow_pat_alice_...,dflow_pat_bob_..."
 chmod 600 .env  # 파일 권한 제한
 ```
 
-### 3단계: 심볼릭 링크 설정
+### 3단계: 스킬 설치
 
-wbs-web 클론의 경로를 **절대 경로**로 확인하고:
+스킬은 `~/.claude/skills/` 가 아니라 **대상 리포 안의 `.claude/skills/`** 에 설치한다
+(dflow-dev 등이 리포 루트 기준 경로로 동작한다). 경로 둘 중 하나:
 
-```bash
-ln -s /Users/yourname/project/wbs-web/docs/agent/claude-skill/dflow-work ~/.claude/skills/dflow-work
-```
-
-또는 상대 경로 사용:
+**A. 배포 킷 dflow-kit — 표준.** wbs-web 클론이 없는 PC 는 이 방법으로 설치한다:
 
 ```bash
-ln -s ../../../path/to/wbs-web/docs/agent/claude-skill/dflow-work ~/.claude/skills/dflow-work
+git clone https://github.com/jongik-sv/dflow-kit.git
+cd dflow-kit && ./install.sh <대상 리포 경로>
 ```
+
+`install.sh` 가 `.claude/skills/dflow-*` 6종을 대상 리포에 복사하고, `.env` 초안 생성과
+`.gitignore` 보강까지 한다. 갱신도 같은 명령이다(스킬 폴더 단위로 통째 덮는다).
+
+**B. wbs-web 클론이 있는 PC.** 정본 `.claude/skills/` 를 심볼릭 링크한다:
+
+```bash
+ln -s /path/to/wbs-web/.claude/skills/dflow-work <대상리포>/.claude/skills/dflow-work
+```
+
+⚠️ 정본은 `wbs-web/.claude/skills/` 뿐이다. `docs/agent/claude-skill/` 아래 사본은
+낡은 잔재이므로 링크 대상으로 쓰지 않는다.
 
 ### 4단계: 설치 확인
 
+대상 리포 루트에서:
+
 ```bash
-~/.claude/skills/dflow-work/scripts/dflow.sh doctor
+set -a; . ./.env; set +a
+.claude/skills/dflow-work/scripts/dflow.sh doctor
 ```
 
-성공 출력 (exit 0):
-```
-✓ doctor check passed
-✓ API reachable: https://d-flow.your-org.com
-✓ Authentication: <user_email>
-✓ Contract version: 2.0
-```
-
+exit 0 이면 base URL 과 프로필별 계약 버전이 출력된다.
 오류가 나면 `references/troubleshooting.md` 의 해당 exit code 절차를 따릅니다.
 
 ## 사용법 (예시)
@@ -92,9 +98,14 @@ dflow.sh claim 1
 ```
 
 성공 시:
-- 브랜치 자동 생성: `agent/12345678-task-slug`
 - 명세 스냅샷 생성: `docs/tasks/TSK-01-01/spec.md`
 - **반드시 spec.md 읽고 구현 시작**
+
+⚠️ 브랜치는 만들어지지 않는다 — claim 직후 직접 만든다(SKILL.md 착수 절 참조):
+
+```bash
+git fetch origin && git switch -c agent/12345678-task-slug origin/<기본브랜치>
+```
 
 ### 진행 보고
 
@@ -120,7 +131,7 @@ dflow.sh done 1 "완료·테스트 통과·PR 병합됨" --auto-links
    ↓
 2. dflow.sh claim <순번>
    ├─ exit 4 → git fetch/merge 후 재시도
-   └─ exit 0 → branch 생성, spec.md 읽기
+   └─ exit 0 → spec.md 읽기, agent/ 브랜치 직접 생성
    ↓
 3. 구현 & 커밋
    ↓
@@ -130,9 +141,12 @@ dflow.sh done 1 "완료·테스트 통과·PR 병합됨" --auto-links
    ├─ exit 2 if push 미완료 → git push 후 재시도
    └─ exit 0 if push 완료
    ↓
-6. dflow.sh done <순번> "<요약>"
+6. dflow.sh done <순번> "<요약>" --auto-links
    └─ 상태 → reported (승인 대기)
 ```
+
+`--auto-links` 를 빼먹으면 `evidence` 가 `{}` 로 영구 고정된다 — 후속 작업의 선행 도달
+검사가 그 값을 쓴다.
 
 ## wbs-web 자체 작업 시 유의
 
@@ -206,9 +220,9 @@ dflow.sh show <순번>
 
 ## 문제 해결
 
-**설치 후 스킬이 트리거되지 않으면**:
-1. 경로 재확인: `ls -la ~/.claude/skills/dflow-work/scripts/dflow.sh`
-2. 파일 권한: `chmod 755 ~/.claude/skills/dflow-work/scripts/dflow.sh`
+**설치 후 스킬이 트리거되지 않으면** (대상 리포 루트에서):
+1. 경로 재확인: `ls -la .claude/skills/dflow-work/scripts/dflow.sh`
+2. 파일 권한: `chmod 755 .claude/skills/dflow-work/scripts/dflow.sh`
 3. Claude Code 재시작
 
 **명령 실패 시**:
@@ -219,7 +233,7 @@ dflow.sh show <순번>
 ## 스킬 파일 구조
 
 ```
-~/.claude/skills/dflow-work/
+<대상 리포>/.claude/skills/dflow-work/
 ├── SKILL.md                      ← 워크플로우·금지사항
 ├── README.md                      ← 이 파일
 ├── scripts/
@@ -239,5 +253,5 @@ dflow.sh show <순번>
 
 ---
 
-**마지막 업데이트**: 2026-08-12
-**API 계약 버전**: 2.0
+**마지막 업데이트**: 2026-08-28
+**API 계약 버전**: 2.1

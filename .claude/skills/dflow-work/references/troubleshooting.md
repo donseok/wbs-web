@@ -25,8 +25,10 @@
 4. `done` 전에 반드시 push 완료:
    ```bash
    git push origin agent/<주문id>-<slug>
-   dflow.sh done <순번> "<요약>"
+   dflow.sh done <순번> "<요약>" --auto-links
    ```
+   `--auto-links` 를 빼먹으면 `evidence` 가 `{}` 로 영구 고정된다 — 후속 작업의
+   선행 도달 검사가 그 값을 쓰므로 무해하지 않다.
 
 ### exit 3 — 인증 실패
 
