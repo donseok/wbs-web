@@ -226,5 +226,143 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
       expect(options.some(o => o.includes('선행 작업 A'))).toBe(false)
     })
   })
+
+  describe('그래프 뷰', () => {
+    async function toGraph() {
+      const btn = [...container.querySelectorAll('button')].find(b => b.textContent === '그래프')
+      expect(btn).toBeTruthy()
+      await act(async () => { btn!.click() })
+    }
+
+    it('토글로 목록과 그래프를 오간다', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [dep()] })
+
+      expect(container.querySelectorAll('li').length).toBeGreaterThan(0)
+      await toGraph()
+      expect(container.querySelectorAll('li').length).toBe(0)
+      expect(container.textContent).toContain('선행 작업 A')
+    })
+
+    it('선행은 왼쪽, 후행은 오른쪽, 가운데는 선택된 작업이다', async () => {
+      const pred = computedItem('pred-1', { name: '선행 작업 A' })
+      const succ = computedItem('succ-1', { name: '후행 작업 B' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({
+        item,
+        allItems: [pred, succ, item],
+        dependencies: [
+          dep({ id: 'd-in', predecessorId: 'pred-1', successorId: 'item-1' }),
+          dep({ id: 'd-out', predecessorId: 'item-1', successorId: 'succ-1' }),
+        ],
+      })
+      await toGraph()
+
+      const center = container.querySelector('[aria-current="true"]')
+      expect(center?.textContent).toContain('대상 작업')
+
+      const cols = [...container.querySelectorAll('[data-slots]')]
+      expect(cols).toHaveLength(2)
+      expect(cols[0].textContent).toContain('선행 작업 A')
+      expect(cols[1].textContent).toContain('후행 작업 B')
+    })
+
+    it('더블클릭하면 그 작업으로 이동한다 — 한 번 클릭으로는 안 움직인다', async () => {
+      const pred = computedItem('pred-1', { name: '선행 작업 A' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      const onSelectItem = vi.fn()
+      await render({ item, allItems: [pred, item], dependencies: [dep()], onSelectItem })
+      await toGraph()
+
+      const node = [...container.querySelectorAll('[role="button"]')]
+        .find(n => n.textContent?.includes('선행 작업 A')) as HTMLElement
+      expect(node).toBeTruthy()
+
+      await act(async () => { node.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+      expect(onSelectItem).not.toHaveBeenCalled()
+
+      await act(async () => { node.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })) })
+      expect(onSelectItem).toHaveBeenCalledWith('pred-1')
+    })
+
+    it('해석 못 한 선행도 그래프에 노드로 남는다 — 목록에서만 고친 것이 아니다', async () => {
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [item], dependencies: [], unresolvedRefs: ['mes/TSK-99'] })
+      await toGraph()
+
+      const cols = [...container.querySelectorAll('[data-slots]')]
+      expect(cols[0].textContent).toContain('TSK-99')
+      expect(cols[0].textContent).toContain('확인 불가')
+      // 가리킬 작업이 없으므로 이동 대상이 아니다.
+      expect(cols[0].querySelector('[role="button"]')).toBeNull()
+    })
+
+    it("합성 선행은 그래프에서도 '가져옴' 을 단다", async () => {
+      const pred = computedItem('pred-1', { name: '선행 작업 A', stage: 'im' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({
+        item, allItems: [pred, item],
+        dependencies: [dep({ id: 'spec:pred-1>item-1', origin: 'spec' })],
+      })
+      await toGraph()
+
+      const cols = [...container.querySelectorAll('[data-slots]')]
+      expect(cols[0].textContent).toContain('가져옴')
+      expect(cols[0].textContent).toContain('충족')
+    })
+
+    it('연결선은 선행·후행 개수만큼 그린다', async () => {
+      const pred = computedItem('pred-1', { name: '선행 A' })
+      const pred2 = computedItem('pred-2', { name: '선행 B' })
+      const succ = computedItem('succ-1', { name: '후행 C' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({
+        item,
+        allItems: [pred, pred2, succ, item],
+        dependencies: [
+          dep({ id: 'd1', predecessorId: 'pred-1', successorId: 'item-1' }),
+          dep({ id: 'd2', predecessorId: 'pred-2', successorId: 'item-1' }),
+          dep({ id: 'd3', predecessorId: 'item-1', successorId: 'succ-1' }),
+        ],
+      })
+      await toGraph()
+
+      expect(container.querySelectorAll('svg path[marker-end]').length).toBe(3)
+    })
+  })
+
+  describe('챕터 접기', () => {
+    function header() {
+      return [...container.querySelectorAll('button[aria-expanded]')]
+        .find(b => b.textContent?.includes('작업 의존성')) as HTMLElement
+    }
+
+    it('기본은 펼침 — 접으면 본문이 사라지고 다시 누르면 돌아온다', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [dep()] })
+
+      expect(container.textContent).toContain('선행 작업 A')
+
+      await act(async () => { header().click() })
+      expect(header().getAttribute('aria-expanded')).toBe('false')
+      expect(container.textContent).not.toContain('선행 작업 A')
+      // 제목은 남는다 — 챕터가 사라지는 게 아니라 접히는 것이다.
+      expect(container.textContent).toContain('작업 의존성')
+
+      await act(async () => { header().click() })
+      expect(container.textContent).toContain('선행 작업 A')
+    })
+
+    it('접으면 목록/그래프 토글도 같이 감춘다', async () => {
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [item], dependencies: [] })
+
+      expect([...container.querySelectorAll('button')].some(b => b.textContent === '그래프')).toBe(true)
+      await act(async () => { header().click() })
+      expect([...container.querySelectorAll('button')].some(b => b.textContent === '그래프')).toBe(false)
+    })
+  })
 })
 
