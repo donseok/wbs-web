@@ -108,7 +108,6 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.msOverdue': 'Overdue',
   'wbs.dependencies': 'Task dependencies',
   'wbs.dependencyLink': 'Dependency link',
-  'wbs.toggleDependenciesTitle': 'Show or hide dependency links',
   'wbs.criticalPath': 'Critical path',
   'wbs.criticalShort': 'CP',
   'wbs.forecast': 'Forecast',

@@ -115,7 +115,6 @@ export const wbsKo = {
   // 작업 의존성 · 예상 일정
   'wbs.dependencies': '작업 의존성',
   'wbs.dependencyLink': '의존성 연결',
-  'wbs.toggleDependenciesTitle': '의존성 연결선 표시/숨기기',
   'wbs.criticalPath': '크리티컬 패스',
   'wbs.criticalShort': 'CP',
   'wbs.forecast': '예상 일정',
