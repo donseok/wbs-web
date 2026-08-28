@@ -1,6 +1,13 @@
 # 의존성 두 축 병합 설계 — `task_dependencies` × `wbs_items.depends`
 
-작성 2026-08-28. 상태: **설계안(미착수)**. 구현은 별도 승인 후.
+작성 2026-08-28. 상태: **Stage 1 구현 완료**(브랜치 `feat/dependency-axes-merge`). Stage 2 는 미착수.
+
+구현하며 설계에서 달라진 것:
+- `WbsRow.stage` 를 **선택 필드**로 추가했다. spec 선행 판정에 필요한데, 필수로 올리면
+  WbsRow 리터럴을 만드는 테스트 51파일이 한꺼번에 깨진다. 빠뜨렸을 때 방향이
+  fail-closed 라 감수하고, 읽기 경로 테스트(`tests/data/computed-wbs-merge.test.ts`)로 고정했다.
+- `unresolvedDepends` 는 `Map` 이 아니라 평범한 객체로 내려보낸다 — 이 값은 RSC 경계를 넘는다.
+- `WbsAssigneeStagePanel` 의 `onSelectItem` prop 은 쓰임이 사라져 제거했다.
 
 ---
 

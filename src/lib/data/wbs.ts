@@ -5,12 +5,23 @@ import { computeCompletionMap, type ProjectCompletion } from '@/lib/domain/proje
 import { teamOrderMap } from '@/lib/domain/teams'
 import { teamsForProjectSync } from '@/lib/teams/master'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind, TaskDependency } from '@/lib/domain/types'
+import { mergeSpecDepends } from '@/lib/domain/mergeDependencies'
 import { seoulToday } from '@/lib/domain/dates'
 
 // 같은 요청 내 layout+page 중복 호출을 1회로 dedupe(React cache).
 export const getComputedWbs = cache(async (
   projectId: string,
-): Promise<{ items: ComputedItem[]; dependencies: TaskDependency[]; holidays: string[]; today: string }> => {
+): Promise<{
+  items: ComputedItem[]
+  dependencies: TaskDependency[]
+  /**
+   * 해석 못 한 선행 ref — 후행 항목 id → ref 목록. @see mergeSpecDepends
+   * Map 이 아니라 평범한 객체다 — 이 값은 RSC 경계를 넘어 클라이언트 컴포넌트로 간다.
+   */
+  unresolvedDepends: Record<string, string[]>
+  holidays: string[]
+  today: string
+}> => {
   const sb = await createServerClient()
   const [
     { data: items, error: itemsErr },
@@ -80,22 +91,40 @@ export const getComputedWbs = cache(async (
     actualPct: (r.actual_pct as number) ?? null,
     owners: ownerMap.get(r.id as string) ?? [],
     isOwnerSplit: r.is_owner_split === true,
+    stage: (r.stage as string | null) ?? null, // spec 선행 충족 판정 재료 — claim 게이트와 같은 식을 쓴다
   }))
 
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
-  const dependencies: TaskDependency[] = (dependencyRows ?? []).map((r: Record<string, unknown>) => ({
+  const manualDependencies: TaskDependency[] = (dependencyRows ?? []).map((r: Record<string, unknown>) => ({
     id: r.id as string,
     projectId: r.project_id as string,
     predecessorId: r.predecessor_id as string,
     successorId: r.successor_id as string,
     type: r.dependency_type as TaskDependency['type'],
     lagDays: Number(r.lag_days) || 0,
+    origin: 'manual', // task_dependencies 실제 행 — depends 합성 행은 mergeSpecDepends 가 붙인다
   }))
+  // wbs.md import 로 들어온 선행(wbs_items.depends)을 같은 배열로 끌어올린다.
+  // 두 축은 뜻이 같은데 소비처가 task_dependencies 만 봐서, 정작 에이전트를 막는 관계가
+  // 간트·크리티컬 패스·지연 전파 어디에도 안 나타났다.
+  const { dependencies, unresolvedDepends } = (() => {
+    const merged = mergeSpecDepends(
+      manualDependencies,
+      (items ?? []).map((r: Record<string, unknown>) => ({
+        id: r.id as string,
+        projectId: r.project_id as string,
+        externalRef: (r.external_ref as string | null) ?? null,
+        depends: (r.depends as string[] | null) ?? null,
+      })),
+    )
+    return { dependencies: merged.dependencies, unresolvedDepends: Object.fromEntries(merged.unresolvedBySuccessorId) }
+  })()
   // base_date(공정율 기준일)가 설정돼 있으면 그 날짜로, 없으면 오늘(자동)로 산정
   const today = (proj as { base_date: string | null } | null)?.base_date ?? seoulToday()
   return {
     items: computeTree(rows, today, holidays, { subActTeamOrder: teamOrder }),
     dependencies,
+    unresolvedDepends,
     holidays: [...holidays],
     today,
   }

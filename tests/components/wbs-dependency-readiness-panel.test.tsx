@@ -45,7 +45,7 @@ function computedItem(id: string, over: Partial<ComputedItem> = {}): ComputedIte
 }
 
 function dep(over: Partial<TaskDependency> = {}): TaskDependency {
-  return { id: 'dep-1', projectId: 'p1', predecessorId: 'pred-1', successorId: 'item-1', type: 'FS', lagDays: 0, ...over }
+  return { id: 'dep-1', projectId: 'p1', predecessorId: 'pred-1', successorId: 'item-1', type: 'FS', lagDays: 0, origin: 'manual', ...over }
 }
 
 describe('RowDetailPanel — 선행/후속 섹션', () => {
@@ -67,6 +67,8 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
     allItems: ComputedItem[]
     dependencies: TaskDependency[]
     onSelectItem?: (id: string) => void
+    unresolvedRefs?: string[]
+    editable?: boolean
   }) {
     await act(async () =>
       root.render(
@@ -77,6 +79,8 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
           projectId="p1"
           onClose={() => {}}
           onSelectItem={opts.onSelectItem}
+          unresolvedRefs={opts.unresolvedRefs}
+          editable={opts.editable ?? false}
         />,
       ),
     )
@@ -120,5 +124,68 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
     await render({ item, allItems: [item], dependencies: [] })
 
     expect(container.textContent).toContain('등록된 후속 작업이 없습니다.')
+  })
+
+  describe('wbs.md 에서 합성된 선행(origin=spec)', () => {
+    const spec = (over: Partial<TaskDependency> = {}) =>
+      dep({ id: 'spec:pred-1>item-1', origin: 'spec', ...over })
+
+    // 대조군 — editable 이 켜져야 삭제 버튼 부재 검사가 공허하지 않다.
+    it('편집 권한이 있으면 manual 행에는 삭제 버튼이 붙는다', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [dep()], editable: true })
+      const predRow = [...container.querySelectorAll('li')].find(li => li.textContent?.includes('선행 작업 A'))
+      expect(predRow!.querySelector('button[aria-label="의존성 삭제"]')).not.toBeNull()
+    })
+
+    it("'가져옴' 배지를 달고 삭제 버튼을 주지 않는다 — 정본이 wbs.md 라 지워도 되살아난다", async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A', stage: 'im' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [spec()], editable: true })
+
+      const predRow = [...container.querySelectorAll('li')].find(li => li.textContent?.includes('선행 작업 A'))
+      expect(predRow!.textContent).toContain('가져옴')
+      expect(predRow!.querySelector('button[aria-label="의존성 삭제"]')).toBeNull()
+    })
+
+    it('실적이 아니라 stage 로 판정한다 — 실적 100% 여도 stage 가 ip 면 대기', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A', rolledActualPct: 100, stage: 'ip' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [spec()] })
+
+      expect(container.textContent).toContain('선행 1건 대기 중')
+    })
+
+    it('stage 가 im 이면 실적 0 이어도 시작 가능', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A', rolledActualPct: 0, stage: 'im' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [spec()] })
+
+      expect(container.textContent).toContain('선행 충족 — 시작 가능')
+    })
+  })
+
+  describe('해석 못 한 선행 ref', () => {
+    // claim 게이트가 409 를 내는 상태다. 목록에서 빼면 '선행 없음 → 시작 가능'으로 위장한다.
+    it('선행 목록에 ref 마지막 마디로 한 줄 남기고 시작을 막는다', async () => {
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [item], dependencies: [], unresolvedRefs: ['mes/TSK-99'] })
+
+      expect(container.textContent).toContain('TSK-99')
+      expect(container.textContent).toContain('선행 1건을 확인할 수 없음')
+      expect(container.textContent).not.toContain('등록된 선행 작업이 없습니다.')
+    })
+
+    it('충족된 선행이 따로 있어도 시작 가능으로 넘어가지 않는다', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A', rolledActualPct: 100 })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({
+        item, allItems: [predecessor, item], dependencies: [dep()], unresolvedRefs: ['mes/TSK-99'],
+      })
+
+      expect(container.textContent).toContain('선행 1건을 확인할 수 없음')
+      expect(container.textContent).not.toContain('선행 충족 — 시작 가능')
+    })
   })
 })

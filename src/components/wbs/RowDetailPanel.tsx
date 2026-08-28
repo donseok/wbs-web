@@ -21,13 +21,15 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 const EMPTY_MEMBERS: ProjectMember[] = []
+// 매 렌더 새 리터럴이면 readiness useMemo 가 매번 다시 돈다 — 모듈 상수로 고정.
+const EMPTY_REFS: string[] = []
 
 /** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
-  members = EMPTY_MEMBERS, onSelectItem,
+  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -47,6 +49,11 @@ export function RowDetailPanel({
   members?: ProjectMember[]
   /** 선행·후속 항목 클릭 시 그 작업으로 상세를 갈아끼운다. 미제공이면 항목은 클릭 불가 텍스트로 남는다. */
   onSelectItem?: (id: string) => void
+  /**
+   * 이 작업의 depends 중 프로젝트에서 해석되지 않은 external_ref.
+   * claim 게이트는 이것을 미충족으로 보고 409 를 내므로 목록에서 빼면 화면이 위장한다.
+   */
+  unresolvedRefs?: string[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -109,8 +116,13 @@ export function RowDetailPanel({
   )
   // 선행 충족 판정 — 이 작업을 지금 시작할 수 있는지와, 선행 각 건의 충족 여부.
   const readiness = useMemo(
-    () => evaluateStartReadiness({ id: item.id, rolledActualPct: item.rolledActualPct }, incomingDependencies, itemById),
-    [item.id, item.rolledActualPct, incomingDependencies, itemById],
+    () => evaluateStartReadiness(
+      { id: item.id, rolledActualPct: item.rolledActualPct, stage: item.stage ?? null },
+      incomingDependencies,
+      itemById,
+      unresolvedRefs,
+    ),
+    [item.id, item.rolledActualPct, item.stage, incomingDependencies, itemById, unresolvedRefs],
   )
   const predecessorCandidates = useMemo(() => {
     const existing = new Set(incomingDependencies.map(dep => dep.predecessorId))
@@ -347,7 +359,7 @@ export function RowDetailPanel({
               별도 오버레이가 아니라 이 패널의 섹션으로 둔다(리뷰 라운드 1 — 두 번째
               fixed dialog는 aria-modal 뒤에서 키보드·스크린리더로 도달 불가했다). */}
           {!editing && (
-            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} hasChildren={item.children.length > 0} onSelectItem={onSelectItem} />
+            <WbsAssigneeStagePanel itemId={item.id} members={members} editable={editable} hasChildren={item.children.length > 0} />
           )}
 
           {!editing && (
@@ -389,7 +401,7 @@ export function RowDetailPanel({
               )}
 
               {/* 시작 가능 여부 — 선행 FS/SS 충족 판정. unknown(선행 행 소실)은 접어 감추지 않고 그대로 드러낸다. */}
-              {incomingDependencies.length > 0 && (
+              {(incomingDependencies.length > 0 || unresolvedRefs.length > 0) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {readiness.started && (
                   <span className="rounded-full border border-progress/35 bg-progress-weak px-2 py-0.5 text-[10px] font-bold text-progress">
@@ -415,7 +427,7 @@ export function RowDetailPanel({
               <div className="mt-2 space-y-2">
                 <div>
                   <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.predecessors')}</div>
-                  {incomingDependencies.length === 0 ? (
+                  {incomingDependencies.length === 0 && unresolvedRefs.length === 0 ? (
                     <p className="text-xs text-ink-subtle">{t('wbs.noPredecessors')}</p>
                   ) : (
                     <ul className="space-y-1.5">
@@ -426,8 +438,26 @@ export function RowDetailPanel({
                           badge={`${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`}
                           badgeTitle={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}
                           state={readiness.byDependencyId.get(dep.id) ?? 'unknown'}
+                          imported={dep.origin === 'spec'}
                           onOpen={onSelectItem}
-                          onRemove={editable ? () => removeDependency(dep.id) : null}
+                          onRemove={editable && dep.origin === 'manual' ? () => removeDependency(dep.id) : null}
+                          removeDisabled={dependencyBusy}
+                          t={t}
+                        />
+                      ))}
+                      {/* 해석 못 한 depends — 가리킬 작업이 없어 이동도 삭제도 없다.
+                          claim 이 409 를 내는 상태라 목록에서 빼면 '선행 없음 → 시작 가능'으로 위장한다. */}
+                      {unresolvedRefs.map(ref => (
+                        <DependencyRow
+                          key={`unresolved:${ref}`}
+                          linked={null}
+                          missingLabel={lastRefSegment(ref)}
+                          badge="FS"
+                          badgeTitle={t('wbs.fsLong')}
+                          state="unknown"
+                          imported
+                          onOpen={undefined}
+                          onRemove={null}
                           removeDisabled={dependencyBusy}
                           t={t}
                         />
@@ -449,8 +479,9 @@ export function RowDetailPanel({
                           badge={`${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`}
                           badgeTitle={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}
                           state={null}
+                          imported={dep.origin === 'spec'}
                           onOpen={onSelectItem}
-                          onRemove={editable ? () => removeDependency(dep.id) : null}
+                          onRemove={editable && dep.origin === 'manual' ? () => removeDependency(dep.id) : null}
                           removeDisabled={dependencyBusy}
                           t={t}
                         />
@@ -686,16 +717,26 @@ function DlRow({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+/** external_ref('<module>/<id>')의 마지막 마디 — 목록에 모듈 접두어까지 늘어놓지 않는다. */
+function lastRefSegment(ref: string): string {
+  const i = ref.lastIndexOf('/')
+  return i >= 0 ? ref.slice(i + 1) : ref
+}
+
 /** 선행·후속 한 줄 — 이름(클릭 시 그 작업으로 상세 이동) · 진행 상태 · 관계 배지 · 삭제.
  *  이름만 버튼으로 두는 이유: 행 전체를 버튼으로 감싸면 삭제 버튼이 버튼 안에 중첩된다. */
 function DependencyRow({
-  linked, badge, badgeTitle, state, onOpen, onRemove, removeDisabled, t,
+  linked, missingLabel, badge, badgeTitle, state, imported = false, onOpen, onRemove, removeDisabled, t,
 }: {
   linked: ComputedItem | null
+  /** linked 가 없을 때 이름 자리에 쓸 문자열. 없으면 '알 수 없는 작업'. */
+  missingLabel?: string
   badge: string
   badgeTitle: string
   /** 선행일 때만 충족 판정을 붙인다. 후속 행은 null. */
   state: PredecessorState | null
+  /** wbs.md depends 에서 합성한 행인가. 정본이 파일이라 화면에서 지워도 다음 import 에 되살아난다. */
+  imported?: boolean
   onOpen?: (id: string) => void
   onRemove: (() => void) | null
   removeDisabled: boolean
@@ -706,7 +747,7 @@ function DependencyRow({
     waiting: { label: 'wbs.depWaiting', cls: 'border-pending/35 bg-pending-weak text-pending' },
     unknown: { label: 'wbs.depUnknown', cls: 'border-delayed/35 bg-delayed-weak text-delayed' },
   }
-  const name = linked?.name ?? t('wbs.missingTask')
+  const name = linked?.name ?? missingLabel ?? t('wbs.missingTask')
   const label = (
     <>
       {linked?.code && <span className="mr-1 text-ink-subtle">{linked.code}</span>}
@@ -729,6 +770,11 @@ function DependencyRow({
           <span className="min-w-0 flex-1 truncate text-ink" title={name}>{label}</span>
         )}
         <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted" title={badgeTitle}>{badge}</span>
+        {imported && (
+          <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-bold text-ink-subtle" title={t('wbs.depImportedHint')}>
+            {t('wbs.depImported')}
+          </span>
+        )}
         {onRemove && (
           <button type="button" onClick={onRemove} disabled={removeDisabled}
             aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">

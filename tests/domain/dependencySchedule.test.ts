@@ -15,7 +15,7 @@ const dep = (
   successorId: string,
   type: DependencyType = 'FS',
   lagDays = 0,
-): TaskDependency => ({ id, projectId: 'p1', predecessorId, successorId, type, lagDays })
+): TaskDependency => ({ id, projectId: 'p1', predecessorId, successorId, type, lagDays, origin: 'manual' })
 
 describe('shiftBusinessDays', () => {
   it('주말·공휴일을 건너 양방향으로 이동한다', () => {

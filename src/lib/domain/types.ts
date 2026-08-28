@@ -28,6 +28,12 @@ export interface WbsRow {
   owners: { team: TeamCode; kind: OwnerKind }[]
   /** 담당별 자동 분리(sub-act) 항목 여부. 레벨·이름이 아니라 이 플래그가 판별 근거(스펙 §5.2). */
   isOwnerSplit: boolean
+  /**
+   * WBS Task 단계('as'|'fp'|'ip'|'im'|'xx', 0082). 에이전트 워크플로 필드라 롤업 계약의 일부가 아니다.
+   * 선택 필드인 이유: 필수로 올리면 WbsRow 리터럴을 만드는 테스트 51파일이 한꺼번에 깨진다.
+   * 빠뜨렸을 때의 방향은 fail-closed 다 — spec 선행이 '대기'로 보일 뿐 '시작 가능'으로 뒤집히지 않는다.
+   */
+  stage?: string | null
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */
@@ -38,7 +44,18 @@ export interface TaskDependency {
   successorId: string
   type: DependencyType
   lagDays: number
+  /**
+   * 이 관계가 어디서 왔는가.
+   * 'manual' — task_dependencies 의 실제 행. 화면에서 지울 수 있다.
+   * 'spec'   — wbs_items.depends 에서 읽기 시점에 합성. DB 행이 없다(id 가 `spec:` 으로 시작).
+   *
+   * 선택 필드로 두지 않는다 — 합성 행에 삭제 버튼이 붙는 사고를 타입이 잡아야 한다.
+   */
+  origin: DependencyOrigin
 }
+
+/** @see TaskDependency.origin */
+export type DependencyOrigin = 'manual' | 'spec'
 
 export interface ComputedItem extends WbsRow {
   plannedPct: number    // 계산값 0~100

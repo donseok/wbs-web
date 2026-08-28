@@ -145,6 +145,8 @@ export const wbsKo = {
   'wbs.depSatisfied': '충족',
   'wbs.depWaiting': '대기',
   'wbs.depUnknown': '확인 불가',
+  'wbs.depImported': '가져옴',
+  'wbs.depImportedHint': 'wbs.md 로 들어온 선행 — 정본이 파일이라 화면에서 지울 수 없다',
   'wbs.noSuccessors': '등록된 후속 작업이 없습니다.',
   'wbs.openTaskDetail': '이 작업의 상세 보기',
   // 빈 상태

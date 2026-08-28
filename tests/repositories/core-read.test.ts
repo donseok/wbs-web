@@ -79,6 +79,57 @@ describe('strict Supabase repositories', () => {
     })
   })
 
+  it('WBS: wbs_items.depends 를 의존성으로 합성해 실제 행과 함께 돌려준다', async () => {
+    // 두 축이 갈려 있어 import 로 들어온 선행이 봇에게 보이지 않던 것을 고친 자리(2026-08-28).
+    const responses: Record<string, QueryResponse> = {
+      projects: { data: { id: 'p1', base_date: '2026-08-28' }, error: null },
+      wbs_items: {
+        data: [
+          { id: 'i1', project_id: 'p1', code: 'A', name: '선행', external_ref: 'mes/T1', depends: null },
+          { id: 'i2', project_id: 'p1', code: 'B', name: '후행', external_ref: 'mes/T2', depends: ['mes/T1', 'mes/GONE'] },
+        ],
+        error: null,
+      },
+      holidays: { data: [], error: null },
+      task_dependencies: { data: [], error: null },
+    }
+    const repository = createSupabaseWbsRepository({
+      from: vi.fn((table: string) => queryBuilder(responses[table])),
+    } as never)
+
+    const result = await repository.getProjectSnapshot('p1')
+    expect(result.ok).toBe(true)
+    const dependencies = (result as { data: { dependencies: unknown[] } }).data.dependencies
+    expect(dependencies).toEqual([
+      { id: 'spec:i1>i2', projectId: 'p1', predecessorId: 'i1', successorId: 'i2', type: 'FS', lagDays: 0, origin: 'spec' },
+    ])
+  })
+
+  it('WBS: 합성 의존성의 projectId 가 어긋나면 봇 응답이 통째로 죽는다 — 스코프를 지킨다', () => {
+    // ai/tools/wbs.ts 의 every(d => d.projectId === projectId) 는 어긋나면
+    // repositoryScopeViolation() 을 내 답변 전체를 버린다. 성능 저하가 아니라 기능 정지다.
+    const responses: Record<string, QueryResponse> = {
+      projects: { data: { id: 'p1', base_date: null }, error: null },
+      wbs_items: {
+        data: [
+          { id: 'i1', project_id: 'p1', code: 'A', name: '선행', external_ref: 'mes/T1', depends: null },
+          { id: 'i2', project_id: 'p1', code: 'B', name: '후행', external_ref: 'mes/T2', depends: ['mes/T1'] },
+        ],
+        error: null,
+      },
+      holidays: { data: [], error: null },
+      task_dependencies: { data: [], error: null },
+    }
+    const repository = createSupabaseWbsRepository({
+      from: vi.fn((table: string) => queryBuilder(responses[table])),
+    } as never)
+
+    return repository.getProjectSnapshot('p1').then(result => {
+      const dependencies = (result as { data: { dependencies: { projectId: string }[] } }).data.dependencies
+      expect(dependencies.every(d => d.projectId === 'p1')).toBe(true)
+    })
+  })
+
   it('meetings: exception read failure does not revive cancelled occurrences as valid data', async () => {
     const meeting = {
       id: 'm1', project_id: 'p1', title: '주간회의', meeting_date: '2026-07-20',

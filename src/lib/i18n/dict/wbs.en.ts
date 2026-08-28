@@ -138,6 +138,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.depSatisfied': 'Met',
   'wbs.depWaiting': 'Waiting',
   'wbs.depUnknown': 'Unresolved',
+  'wbs.depImported': 'Imported',
+  'wbs.depImportedHint': 'Predecessor from wbs.md — the file is canonical, so it cannot be removed here',
   'wbs.noSuccessors': 'No successors linked.',
   'wbs.openTaskDetail': 'Open this task',
   'wbs.emptyNoItems': 'No work items',

@@ -70,6 +70,7 @@ const dependencies: TaskDependency[] = [{
   successorId: 'B',
   type: 'FS',
   lagDays: 0,
+  origin: 'manual',
 }]
 
 const EXPECTED_FONT_VARS = {
