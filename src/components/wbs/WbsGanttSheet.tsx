@@ -15,7 +15,7 @@ import { matchesNarrowViewport, useCompactViewport, useNarrowViewport, useRoomyV
 import { Maximize2, Minimize2, FileText, Flag, ListChecks, ChevronRight, Hash, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, fmtDate, levelBadgeText, teamStyle } from './shared'
+import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, StageChip, fmtDate, levelBadgeText, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { WbsProgressLens } from './WbsProgressLens'
 import { WbsFontSizeControl } from './WbsFontSizeControl'
@@ -1541,6 +1541,12 @@ export function WbsGanttSheet({
                       </span>
                     )}
                   </div>
+                  {/* 단계 칩 — 작업명 칸 우단. ml-auto 로 밀고 shrink-0 으로 지킨다(긴 이름이 truncate 된다). */}
+                  {n.stage && (
+                    <span className="ml-auto shrink-0 pl-1.5">
+                      <StageChip stage={n.stage} t={t} />
+                    </span>
+                  )}
                 </div>
                 {/* 담당 */}
                 {showCol('owners') && (
