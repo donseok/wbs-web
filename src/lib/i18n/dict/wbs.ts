@@ -230,6 +230,7 @@ export const wbsKo = {
   'wbs.stageIp': '진행 중',
   'wbs.stageIm': '구현 완료·검수 대기',
   'wbs.stageXx': '완료',
+  'wbs.stageLeafOnlyHint': '개발 워크플로 단계는 최종단계(하위 항목이 없는 작업)에만 지정합니다.',
   'wbs.assigneeStageLoadFail': '현재 값을 불러오지 못했습니다. 다시 열어 주세요.',
   'wbs.assigneeStageReadOnly': '보기 전용 — 프로젝트 관리자만 변경할 수 있습니다.',
   // 담당자 검색 콤보박스(스테이징 피드백 2026-08-11) + 하위 일괄 적용

@@ -145,4 +145,20 @@ describe('WbsAssigneeStagePanel', () => {
     expect(cb.checked).toBe(true)
     expect(cb.disabled).toBe(true)
   })
+
+  // 개발 워크플로 단계는 최종단계(자식 없는 항목)의 것이다 — 상위 항목에서 고를 수 있으면
+  // 서버가 거절하는 값을 화면이 권하는 꼴이 된다.
+  it('자식이 있으면 단계 선택지는 "미착수" 하나뿐이다 — 잘못 찍힌 값을 지울 길은 남긴다', async () => {
+    await mount({ hasChildren: true })
+    const select = [...container.querySelectorAll('select')].at(-1)!
+    expect([...select.options].map(o => o.value)).toEqual([''])
+    expect(container.textContent).toContain('wbs.stageLeafOnlyHint')
+  })
+
+  it('자식이 없으면 다섯 단계를 모두 고를 수 있다', async () => {
+    await mount({ hasChildren: false })
+    const select = [...container.querySelectorAll('select')].at(-1)!
+    expect([...select.options].map(o => o.value)).toEqual(['', 'as', 'fp', 'ip', 'im', 'xx'])
+    expect(container.textContent).not.toContain('wbs.stageLeafOnlyHint')
+  })
 })

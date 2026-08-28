@@ -217,6 +217,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.stageIp': 'In progress',
   'wbs.stageIm': 'Built · awaiting review',
   'wbs.stageXx': 'Done',
+  'wbs.stageLeafOnlyHint': 'Workflow stages apply only to leaf tasks (items with no children).',
   'wbs.assigneeStageLoadFail': 'Could not load current values. Please reopen.',
   'wbs.assigneeStageReadOnly': 'Read-only — only project admins can change this.',
   // Assignee search combobox (staging feedback 2026-08-11) + cascade to sub-items

@@ -170,12 +170,18 @@ export function WbsAssigneeStagePanel({
                       className="app-input h-9 text-xs"
                     >
                       <option value="">{t('wbs.stageNoneOption')}</option>
-                      {STAGES.map(s => <option key={s} value={s}>{t(STAGE_KEYS[s])}</option>)}
+                      {/* 개발 워크플로 단계는 최종단계의 것이다 — 상위 항목에서는 서버(setWbsStage)가
+                          거절하므로 고를 수 있게 두면 화면이 거절당할 값을 권하는 꼴이 된다.
+                          '미착수'는 남긴다: 이미 잘못 찍힌 값을 지울 길이 여기뿐이다. */}
+                      {!hasChildren && STAGES.map(s => <option key={s} value={s}>{t(STAGE_KEYS[s])}</option>)}
                     </select>
                   ) : (
                     <p className="text-[13px] text-ink">
                       {loaded.stage && STAGE_KEYS[loaded.stage as Stage] ? t(STAGE_KEYS[loaded.stage as Stage]) : t('wbs.stageNoneOption')}
                     </p>
+                  )}
+                  {editable && hasChildren && (
+                    <p className="mt-1 text-[11px] text-ink-subtle">{t('wbs.stageLeafOnlyHint')}</p>
                   )}
                 </label>
               </div>

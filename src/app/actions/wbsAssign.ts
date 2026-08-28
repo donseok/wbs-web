@@ -323,6 +323,14 @@ export async function setWbsStage(
   if (!loaded.ok) return loaded
   const { item } = loaded
   const admin = createAdminClient()
+  // 리프 게이트 — 개발 워크플로 단계는 최종단계(자식 없는 항목)의 것이다. 해제(null)는 막지 않는다:
+  // 이미 잘못 찍힌 상위 항목의 값을 지울 길이 이 드롭다운뿐이다.
+  if (stage !== null) {
+    const { data: child, error: childErr } = await admin
+      .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
+    if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
+    if (child) return { ok: false, error: '하위 항목이 있습니다 — 개발 워크플로 단계는 최종단계에만 지정합니다.' }
+  }
   const { data: cur, error: curErr } = await admin
     .from('wbs_items').select('stage').eq('id', itemId).maybeSingle()
   if (curErr) return { ok: false, error: `단계 조회 실패: ${curErr.message}` }

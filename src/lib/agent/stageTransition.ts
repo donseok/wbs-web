@@ -119,7 +119,7 @@ export async function transitionStage(
      */
     force?: boolean
   },
-): Promise<{ ok: boolean; transitioned: boolean; skipped?: 'dev_workflow' | 'stage' }> {
+): Promise<{ ok: boolean; transitioned: boolean; skipped?: 'dev_workflow' | 'stage' | 'parent' }> {
   const { itemId, to, fromIn, actorUserId, force } = args
 
   const { data, error } = await admin
@@ -145,6 +145,20 @@ export async function transitionStage(
   const oldStage = item.stage as WbsStage | null
   if (fromIn && !fromIn.includes(oldStage)) return { ok: true, transitioned: false, skipped: 'stage' }
   if (oldStage === to) return { ok: true, transitioned: false }
+
+  // 리프 게이트 — 개발 워크플로 단계는 최종단계(자식 없는 항목)의 것이다. 상위 항목의 stage 는
+  // 자식에서 굴려 올린 값이 아니라 그냥 잘못 찍힌 값이고, 그리드 단계 칩에 그대로 드러난다.
+  // 실제 누수는 배정 자동 전이였다(setWbsAssignee·setWbsAssigneeCascade 가 상위에도 as 를 찍었다).
+  // force 는 넘기지 않는다 — 넘기면 승인이 상위 항목에 xx 를 찍는다. 주문은 어차피
+  // ensureOrderForWorkflowLeaf 가 리프에만 내주므로(reason:'not_leaf') 정상 승인은 여기 걸리지 않는다.
+  const { data: child, error: childErr } = await admin
+    .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
+  if (childErr) {
+    // 쓰기 전 선행 조회 실패 — 중단한다(3원칙). 모르는 채로 UPDATE 하면 상위에 단계가 박힌다.
+    console.error('[stageTransition] 하위 항목 확인 실패:', childErr.message)
+    return { ok: false, transitioned: false }
+  }
+  if (child) return { ok: true, transitioned: false, skipped: 'parent' }
 
   // CAS — 조회 이후 다른 경로가 먼저 stage 를 바꿨으면 이 UPDATE 는 0행이어야 한다(경합에서 짐).
   const updateQuery = admin

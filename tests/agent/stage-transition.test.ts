@@ -68,6 +68,7 @@ describe('transitionStage', () => {
     const { admin, fromCalls } = useAdmin({
       wbs_items: [
         { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: 'fp', dev_workflow: false } },
+        { data: null }, // 자식 없음(리프)
         { data: [{ id: ITEM_ID }] },
       ],
     })
@@ -93,6 +94,7 @@ describe('transitionStage', () => {
     const { admin, insertCalls } = useAdmin({
       wbs_items: [
         { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: null, dev_workflow: true } },
+        { data: null }, // 자식 없음(리프)
         { data: [{ id: ITEM_ID }] }, // UPDATE 성공
       ],
       change_logs: [{ data: { id: 'cl-1' }, error: null }],
@@ -109,6 +111,7 @@ describe('transitionStage', () => {
     const { admin, fromCalls } = useAdmin({
       wbs_items: [
         { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: REF, stage: 'ip', dev_workflow: true } },
+        { data: null }, // 자식 없음(리프)
         { data: [{ id: ITEM_ID }] }, // UPDATE 성공
         { data: [{ id: 'succ-1', name: '후행', assignee_member_id: 'm-1', depends: [REF] }] }, // 후행 조회(contains)
         { data: [{ external_ref: REF, stage: 'im' }] }, // allPredecessorsReached 조회
@@ -117,8 +120,8 @@ describe('transitionStage', () => {
     })
     const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'im', actorUserId: ACTOR })
     expect(result).toEqual({ ok: true, transitioned: true })
-    // 조회(1) + UPDATE(2) + 후행 조회(3) + 선행 확인(4) — notifySuccessorsOnReached 경로가 실제로 탔다.
-    expect(fromCalls).toEqual(['wbs_items', 'wbs_items', 'change_logs', 'wbs_items', 'wbs_items'])
+    // 조회(1) + 리프 확인(2) + UPDATE(3) + 후행 조회(4) + 선행 확인(5)
+    expect(fromCalls).toEqual(['wbs_items', 'wbs_items', 'wbs_items', 'change_logs', 'wbs_items', 'wbs_items'])
     expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'work.unblocked',
       entityId: 'succ-1',
@@ -129,6 +132,7 @@ describe('transitionStage', () => {
     const { admin } = useAdmin({
       wbs_items: [
         { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: 'REF-1', stage: 'im', dev_workflow: true } },
+        { data: null }, // 자식 없음(리프)
         { data: [{ id: ITEM_ID }] }, // UPDATE 성공
       ],
       change_logs: [{ data: { id: 'cl-1' }, error: null }],
@@ -150,6 +154,7 @@ describe('transitionStage', () => {
     const { admin, eqCalls } = useAdmin({
       wbs_items: [
         { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: 'ip', dev_workflow: true } },
+        { data: null }, // 자식 없음(리프)
         { data: [{ id: ITEM_ID }] }, // UPDATE 성공
       ],
       change_logs: [{ data: { id: 'cl-1' }, error: null }],
@@ -163,6 +168,7 @@ describe('transitionStage', () => {
     const { admin, isCalls } = useAdmin({
       wbs_items: [
         { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: null, dev_workflow: true } },
+        { data: null }, // 자식 없음(리프)
         { data: [{ id: ITEM_ID }] }, // UPDATE 성공
       ],
       change_logs: [{ data: { id: 'cl-1' }, error: null }],
@@ -177,6 +183,7 @@ describe('transitionStage', () => {
     const { admin, insertCalls } = useAdmin({
       wbs_items: [
         { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: 'ip', dev_workflow: true } },
+        { data: null }, // 자식 없음(리프)
         { data: [] }, // UPDATE 0행 — 다른 경로가 먼저 stage 를 바꿨다
       ],
     })
@@ -185,6 +192,59 @@ describe('transitionStage', () => {
     expect(insertCalls.filter(c => c.table === 'change_logs')).toHaveLength(0)
     expect(errSpy).not.toHaveBeenCalled()
     errSpy.mockRestore()
+  })
+
+  // 개발 워크플로 단계는 최종단계(자식 없는 리프)의 것이다 — 상위 항목의 stage 는
+  // 굴려 올린 값이 아니라 그냥 잘못 찍힌 값이다. 배정 자동 전이(as)가 상위에도 걸려
+  // 상위 행에 단계 칩이 붙었다.
+  it('자식이 있으면 전이하지 않는다 — UPDATE 까지 가지 않는다', async () => {
+    const { admin, fromCalls } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '상위', external_ref: null, stage: null, dev_workflow: true } },
+        { data: { id: 'child-1' } }, // 자식 조회 — 있다
+      ],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'as', fromIn: [null], actorUserId: ACTOR })
+    expect(result).toEqual({ ok: true, transitioned: false, skipped: 'parent' })
+    expect(fromCalls).toEqual(['wbs_items', 'wbs_items']) // 조회 2회뿐, UPDATE 없음
+  })
+
+  // force 는 dev_workflow 플래그만 넘는다. 리프 판정까지 넘기면 승인이 상위 항목에 xx 를 찍는다.
+  it('force 여도 자식이 있으면 전이하지 않는다', async () => {
+    const { admin } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '상위', external_ref: null, stage: 'im', dev_workflow: false } },
+        { data: { id: 'child-1' } },
+      ],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'xx', actorUserId: ACTOR, force: true })
+    expect(result).toEqual({ ok: true, transitioned: false, skipped: 'parent' })
+  })
+
+  it('자식 조회가 실패하면 전이를 강행하지 않는다 — 쓰기 전 선행 조회 실패는 중단', async () => {
+    const { admin, fromCalls } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: null, stage: null, dev_workflow: true } },
+        { error: { message: 'boom' } },
+      ],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'as', fromIn: [null], actorUserId: ACTOR })
+    expect(result).toEqual({ ok: false, transitioned: false })
+    expect(fromCalls).toEqual(['wbs_items', 'wbs_items'])
+  })
+
+  it('자식이 없으면 종전대로 전이한다', async () => {
+    const { admin, insertCalls } = useAdmin({
+      wbs_items: [
+        { data: { id: ITEM_ID, project_id: PROJECT_ID, name: '리프', external_ref: null, stage: null, dev_workflow: true } },
+        { data: null }, // 자식 없음
+        { data: [{ id: ITEM_ID }] }, // UPDATE
+      ],
+      change_logs: [{ data: null }],
+    })
+    const result = await transitionStage(admin, { itemId: ITEM_ID, to: 'as', fromIn: [null], actorUserId: ACTOR })
+    expect(result).toEqual({ ok: true, transitioned: true })
+    expect(insertCalls.map(c => c.table)).toContain('change_logs')
   })
 })
 
