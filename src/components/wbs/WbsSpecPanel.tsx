@@ -64,7 +64,8 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
   // 명세 접기 — 본문(요구사항 마크다운·수용 기준·진행 이력)이 패널 높이의 대부분을 먹는다.
   // 기본은 펼침이다: 접힘을 기본으로 두면 에이전트 진행 상황과 승인·재작업 버튼까지 한 번 더
   // 눌러야 보여 회귀가 된다. 항목을 옮겨도 접힘 상태는 유지한다.
-  const [bodyOpen, setBodyOpen] = useState(true)
+  // 기본 접힘 — 명세는 길고, 상세 패널을 열 때마다 화면 대부분을 먹었다.
+  const [bodyOpen, setBodyOpen] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -170,7 +171,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     <section className="rounded-xl border border-line bg-surface-2/40 p-3">
       <div className="flex items-center justify-between gap-2">
         <button
-          type="button"
+          type="button" data-spec-body-toggle
           onClick={() => setBodyOpen(open => !open)}
           aria-expanded={bodyOpen}
           className="flex min-w-0 items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle transition hover:text-ink"
@@ -270,8 +271,6 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           ) : null}
           {refErr && <p className="text-xs font-medium text-delayed" role="alert">{refErr}</p>}
 
-          <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} />
-
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
               <span className="text-[11px] font-semibold text-ink-muted">{t('wbs.specAcceptanceLabel')}</span>
@@ -328,6 +327,10 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           </div>
         </div>
       )}
+
+      {/* 진행 상황은 명세 본문 밖이다 — 승인·반려는 사람만 할 수 있고 이 화면이 유일한 자리라,
+          명세 접힘 안쪽에 두면 승인 대기 주문이 두 겹 접힘 뒤로 사라진다. */}
+      <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} />
     </section>
   )
 }
@@ -354,15 +357,23 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
   const [rejecting, setRejecting] = useState(false)
   const [reworkNote, setReworkNote] = useState('')
   const [reworking, setReworking] = useState(false)
+  // 기본 접힘 — 보고가 쌓이면 이 한 섹션이 명세보다 길어진다. 상태 칩은 접힌 머리에 남겨
+  // '승인 대기'를 펼치지 않고도 볼 수 있게 한다. 단 승인 대기(reported)면 스스로 펼친다(reload).
+  const [open, setOpen] = useState(false)
 
   const reload = useCallback(() => {
     getAgentOrderForItem(itemId).then(r => {
       setOrder(r.ok ? r.order : null)
+      // 승인 대기는 사람이 해야 할 일이 남았다는 뜻이라 접어두지 않는다. 펼치기만 하고
+      // 접지는 않는다 — 승인 후 reload 가 사용자가 편 섹션을 도로 닫으면 안 된다.
+      if (r.ok && r.order?.status === 'reported') setOpen(true)
       if (!r.ok) console.error('[WbsAgentOrderStatus] 조회 실패:', r.error)
     })
   }, [itemId])
   useEffect(() => {
-    setOrder(null); setErr(null); setWarn(null); setRejecting(false); setReworking(false); reload()
+    setOrder(null); setErr(null); setWarn(null); setRejecting(false); setReworking(false)
+    setOpen(false) // 항목이 바뀌면 접힌 상태로 돌아간다
+    reload()
   }, [reload, refreshKey])
 
   if (!order || order.status === 'cancelled') return null
@@ -384,13 +395,22 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
   }
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-2.5">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold text-ink-muted">{t('wbs.agentOrderTitle')}</span>
+    <div className="mt-2 rounded-lg border border-line bg-surface p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button" data-agent-order-toggle
+          onClick={() => setOpen(v => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-ink-muted transition hover:text-ink"
+        >
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {t('wbs.agentOrderTitle')}
+        </button>
         <span className={`chip ${order.status === 'reported' ? 'bg-brand-weak text-brand' : 'bg-surface-2 text-ink-muted'}`}>
           {order.status === 'claimed' ? t('wbs.agentOrderClaimed') : t(ORDER_STATUS_LABEL[order.status] ?? 'wbs.agentOrderReady')}
         </span>
       </div>
+      {!open ? null : <>
       {order.status === 'claimed' && (
         <p className="text-xs text-ink-subtle">
           {order.claimed_by ?? '—'}
@@ -451,6 +471,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
       )}
       {err && <p className="mt-1.5 text-xs font-medium text-delayed" role="alert">{err}</p>}
       {warn && <p className="mt-1.5 text-xs text-ink-muted" data-agent-warning role="status">{warn}</p>}
+      </>}
     </div>
   )
 }

@@ -304,7 +304,8 @@ function approvedQueues(over: Record<string, unknown[]> = {}) {
   return {
     agent_work_orders: [{ data: APPROVED }, { data: [{ id: O1 }] }],
     agent_work_reports: [{ data: REVIEWED_REPORT }, { data: [{ id: 'r9' }] }],
-    wbs_items: [{ data: ITEM_NOTIFY }, { data: ITEM_STAGE }, { data: [{ id: W1 }] }],
+    // ITEM_NOTIFY(알림용 조회) → ITEM_STAGE(transitionStage 자체 조회) → 리프 확인 → UPDATE
+    wbs_items: [{ data: ITEM_NOTIFY }, { data: ITEM_STAGE }, { data: null }, { data: [{ id: W1 }] }],
     change_logs: [{ data: ACTUAL_LOG }, { data: null }],
     ...over,
   } as Record<string, { data?: unknown; error?: { message: string } | null }[]>

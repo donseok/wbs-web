@@ -75,6 +75,10 @@ describe('WbsSpecPanel 진행 상황 — 승인 되감기 버튼', () => {
   async function render(editable: boolean) {
     await act(async () => { root.render(<WbsSpecPanel itemId="item-1" editable={editable} />) })
     await act(async () => {})
+    // 명세 본문은 기본 접힘(2026-08-28) — 이 파일의 관심사는 본문 안쪽이라 먼저 펼친다.
+    await act(async () => { container.querySelector<HTMLElement>('[data-spec-body-toggle]')!.click() })
+    // 진행 상황도 기본 접힘 — 승인 되감기 버튼은 그 안에 있다.
+    await act(async () => { container.querySelector<HTMLElement>('[data-agent-order-toggle]')?.click() })
   }
   const q = (sel: string) => container.querySelector<HTMLElement>(sel)
 

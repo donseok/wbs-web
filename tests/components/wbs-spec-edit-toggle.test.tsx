@@ -62,6 +62,8 @@ describe('WbsSpecPanel 편집 토글', () => {
   async function render(editable = true) {
     await act(async () => { root.render(<WbsSpecPanel itemId="item-1" editable={editable} />) })
     await act(async () => {})
+    // 명세 본문은 기본 접힘(2026-08-28) — 이 파일의 관심사는 본문 안쪽이라 먼저 펼친다.
+    await act(async () => { container.querySelector<HTMLElement>('[data-spec-body-toggle]')!.click() })
   }
   const q = (sel: string) => container.querySelector<HTMLElement>(sel)
   const toggle = () => q('[data-spec-edit-toggle]')
