@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ISSUE_STATUSES, ISSUE_SEVERITIES, STATUS_TRANSITIONS,
   canTransition, isOverdue, nextResolvedAt, sortIssues, filterIssues, canEditIssue,
+  dueDaysLeft, isDueUrgent, DUE_URGENT_DAYS,
   type Issue,
 } from '@/lib/domain/issues'
 
@@ -142,5 +143,28 @@ describe('canEditIssue — 전체 편집/삭제 게이트(UI 노출용)', () => 
 describe('심각도 상수', () => {
   it('ISSUE_SEVERITIES 는 high/medium/low', () => {
     expect([...ISSUE_SEVERITIES]).toEqual(['high', 'medium', 'low'])
+  })
+})
+
+describe('dueDaysLeft — 오늘 기준 목표일까지 남은 달력일', () => {
+  it('미래는 양수, 오늘은 0, 경과는 음수', () => {
+    expect(dueDaysLeft(issue('a', { dueDate: '2026-07-28' }), TODAY)).toBe(5)
+    expect(dueDaysLeft(issue('b', { dueDate: '2026-07-23' }), TODAY)).toBe(0)
+    expect(dueDaysLeft(issue('c', { dueDate: '2026-07-20' }), TODAY)).toBe(-3)
+  })
+  it('목표일 없음·해결됨은 null — 카운트다운 대상이 아니다', () => {
+    expect(dueDaysLeft(issue('d', { dueDate: null }), TODAY)).toBeNull()
+    expect(dueDaysLeft(issue('e', { dueDate: '2026-07-28', status: 'resolved' }), TODAY)).toBeNull()
+  })
+})
+
+describe('isDueUrgent — 7일 이내(경과 포함)면 강조', () => {
+  it('경계: 7 은 강조, 8 은 아님, 경과(음수)는 강조, null 은 아님', () => {
+    expect(DUE_URGENT_DAYS).toBe(7)
+    expect(isDueUrgent(7)).toBe(true)
+    expect(isDueUrgent(8)).toBe(false)
+    expect(isDueUrgent(0)).toBe(true)
+    expect(isDueUrgent(-3)).toBe(true)
+    expect(isDueUrgent(null)).toBe(false)
   })
 })

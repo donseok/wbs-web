@@ -140,12 +140,12 @@ describe('IssuesView Mega 필터', () => {
     expect(titleCell?.className).toContain('break-words')
     expect(titleCell?.className).not.toContain('whitespace-nowrap')
     expect(container.querySelector('table')?.className).toContain('table-fixed')
-    expect(container.querySelectorAll('colgroup col')).toHaveLength(8)
+    expect(container.querySelectorAll('colgroup col')).toHaveLength(10)
     expect(container.querySelector('table')?.className).not.toContain('min-w-[')
     expect(container.querySelector('table')?.parentElement?.className).not.toContain('overflow-x-auto')
     expect(container.textContent).toContain('issue.col.endDate')
     expect(container.textContent).toContain('2026-08-31')
-    expect(container.textContent).not.toContain('2026-07-01')
+    expect(container.textContent).toContain('2026-07-01') // 시작일자 열 — 2026-08-28 사용자 요청으로 표시
     expect(container.textContent).not.toContain('2026-07-31')
     expect(container.textContent).toContain('테스터')
     const reporterCell = [...container.querySelectorAll('td')]

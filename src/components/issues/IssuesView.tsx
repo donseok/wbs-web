@@ -17,7 +17,7 @@ import {
 } from '@/lib/domain/issueAnalysis'
 import {
   ISSUE_SEVERITIES, ISSUE_SEVERITY_META, ISSUE_STATUSES, ISSUE_STATUS_META,
-  canEditIssue, filterIssues, isOverdue, sortIssues,
+  canEditIssue, dueDaysLeft, filterIssues, isDueUrgent, isOverdue, sortIssues,
   type Issue, type IssueSeverityFilter, type IssueStatusFilter,
 } from '@/lib/domain/issues'
 import type { ProjectMember } from '@/lib/domain/types'
@@ -208,15 +208,18 @@ export function IssuesView({
         <div className="card overflow-hidden p-0">
           <div>
             <table className="w-full table-fixed border-collapse text-[13px]">
+              {/* 10열 폭 합 100 — 열을 더하거나 뺄 때 합이 어긋나면 table-fixed 가 조용히 뭉갠다. */}
               <colgroup>
-                <col style={{ width: '12%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '28%' }} />
-                <col style={{ width: '7%' }} />
-                <col style={{ width: '7%' }} />
-                <col style={{ width: '17%' }} />
-                <col style={{ width: '10%' }} />
+                <col style={{ width: '11%' }} />
                 <col style={{ width: '9%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '9%' }} />
+                <col style={{ width: '7%' }} />
+                <col style={{ width: '7%' }} />
               </colgroup>
               <thead>
                 <tr className="whitespace-nowrap border-b border-line bg-surface-2 text-left text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-subtle">
@@ -226,7 +229,9 @@ export function IssuesView({
                   <th className="px-2.5 py-2.5">{t('issue.col.status')}</th>
                   <th className="px-2.5 py-2.5">{t('issue.col.severity')}</th>
                   <th className="px-2.5 py-2.5">{t('issue.col.assignee')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.startDate')}</th>
                   <th className="px-2.5 py-2.5">{t('issue.col.endDate')}</th>
+                  <th className="px-2.5 py-2.5">{t('issue.col.daysLeft')}</th>
                   <th className="px-2.5 py-2.5">{t('issue.col.created')}</th>
                 </tr>
               </thead>
@@ -234,6 +239,11 @@ export function IssuesView({
                 {paged.map(issue => {
                   const sMeta = ISSUE_STATUS_META[issue.status]
                   const overdue = isOverdue(issue, today)
+                  // 남은일수(2026-08-28) — 오늘→종료일자 달력일. 7일 이내·경과는 빨강, 해결·기한 없음은 —.
+                  const daysLeft = dueDaysLeft(issue, today)
+                  const ddayText = daysLeft === null ? '—'
+                    : daysLeft >= 0 ? t('issue.dday.left').replace('{n}', String(daysLeft))
+                    : t('issue.dday.over').replace('{n}', String(-daysLeft))
                   const megaArea = ISSUE_MEGA_AREAS.find(area => area.code === issue.megaCode)
                   const assignees = assigneeLabel(issue) ?? t('issue.unassigned')
                   return (
@@ -269,8 +279,8 @@ export function IssuesView({
                       </td>
                       <td className="whitespace-normal break-words px-2.5 py-2.5 font-medium leading-5 text-ink" title={issue.title}>
                         {issue.title}
-                        {/* 새 열을 만들지 않는다 — colgroup 8열 폭(합 100)을 재배분해야 하고 어긋나면
-                            table-fixed 가 조용히 뭉갠다. 셀에 이미 title 이 걸려 있어 배지에 자체 title 을 준다.
+                        {/* 첨부 배지는 제목 셀 안에 둔다(열 추가는 colgroup 폭 재배분이 따른다 — 위 주석).
+                            셀에 이미 title 이 걸려 있어 배지에 자체 title 을 준다.
                             표시 토글은 JSX 조건부 렌더로 한다. 상태 변형 display 유틸은 globals.css 끝의
                             unlayered 안전망에 져서 조용히 동작하지 않는다(breakpoint-safety-net 테스트가 검사). */}
                         {(issue.attachmentCount ?? 0) > 0 && (
@@ -296,8 +306,14 @@ export function IssuesView({
                       <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5 text-ink-muted" title={assignees}>
                         <span className="block truncate">{assignees}</span>
                       </td>
+                      <td className="overflow-hidden whitespace-nowrap px-2.5 py-2.5 tabular-nums text-ink-muted">
+                        {issue.startDate ?? '—'}
+                      </td>
                       <td className={`overflow-hidden whitespace-nowrap px-2.5 py-2.5 tabular-nums ${overdue ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
                         {issue.dueDate ?? '—'}
+                      </td>
+                      <td className={`overflow-hidden whitespace-nowrap px-2.5 py-2.5 tabular-nums ${isDueUrgent(daysLeft) ? 'font-semibold text-delayed' : 'text-ink-muted'}`}>
+                        {ddayText}
                       </td>
                       <td className="whitespace-normal break-words px-2.5 py-2.5 text-ink-muted">
                         {issue.createdByName ?? '—'}
