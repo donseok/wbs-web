@@ -22,7 +22,7 @@ function item(id: string, start: string, end: string): ComputedItem {
 }
 
 const dependencies: TaskDependency[] = [{
-  id: 'd1', projectId: 'p1', predecessorId: 'A', successorId: 'B', type: 'FS', lagDays: 0,
+  id: 'd1', projectId: 'p1', predecessorId: 'A', successorId: 'B', type: 'FS', lagDays: 0, origin: 'manual',
 }]
 
 describe('WBS 간트 작업 의존성', () => {

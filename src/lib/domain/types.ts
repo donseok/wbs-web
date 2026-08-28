@@ -38,7 +38,18 @@ export interface TaskDependency {
   successorId: string
   type: DependencyType
   lagDays: number
+  /**
+   * 이 관계가 어디서 왔는가.
+   * 'manual' — task_dependencies 의 실제 행. 화면에서 지울 수 있다.
+   * 'spec'   — wbs_items.depends 에서 읽기 시점에 합성. DB 행이 없다(id 가 `spec:` 으로 시작).
+   *
+   * 선택 필드로 두지 않는다 — 합성 행에 삭제 버튼이 붙는 사고를 타입이 잡아야 한다.
+   */
+  origin: DependencyOrigin
 }
+
+/** @see TaskDependency.origin */
+export type DependencyOrigin = 'manual' | 'spec'
 
 export interface ComputedItem extends WbsRow {
   plannedPct: number    // 계산값 0~100

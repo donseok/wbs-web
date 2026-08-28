@@ -108,8 +108,8 @@ export const WBS_SNAPSHOTS: Record<string, WbsProjectSnapshot> = {
     holidays: ['2026-08-17', '2026-09-24'],
     items: ALPHA_WBS_ITEMS,
     dependencies: [
-      { id: 'a-dep-1', projectId: PROJECT_ALPHA, predecessorId: 'a-s111', successorId: 'a-s112', type: 'FS', lagDays: 0 },
-      { id: 'a-dep-2', projectId: PROJECT_ALPHA, predecessorId: 'a-s211', successorId: 'a-s212', type: 'FS', lagDays: 2 },
+      { id: 'a-dep-1', projectId: PROJECT_ALPHA, predecessorId: 'a-s111', successorId: 'a-s112', type: 'FS', lagDays: 0, origin: 'manual' },
+      { id: 'a-dep-2', projectId: PROJECT_ALPHA, predecessorId: 'a-s211', successorId: 'a-s212', type: 'FS', lagDays: 2, origin: 'manual' },
     ],
   },
   [PROJECT_BETA]: {

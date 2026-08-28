@@ -45,7 +45,7 @@ function computedItem(id: string, over: Partial<ComputedItem> = {}): ComputedIte
 }
 
 function dep(over: Partial<TaskDependency> = {}): TaskDependency {
-  return { id: 'dep-1', projectId: 'p1', predecessorId: 'pred-1', successorId: 'item-1', type: 'FS', lagDays: 0, ...over }
+  return { id: 'dep-1', projectId: 'p1', predecessorId: 'pred-1', successorId: 'item-1', type: 'FS', lagDays: 0, origin: 'manual', ...over }
 }
 
 describe('RowDetailPanel — 선행/후속 섹션', () => {

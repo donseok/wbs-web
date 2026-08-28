@@ -90,6 +90,7 @@ export const getComputedWbs = cache(async (
     successorId: r.successor_id as string,
     type: r.dependency_type as TaskDependency['type'],
     lagDays: Number(r.lag_days) || 0,
+    origin: 'manual', // task_dependencies 실제 행 — depends 합성 행은 mergeSpecDepends 가 붙인다
   }))
   // base_date(공정율 기준일)가 설정돼 있으면 그 날짜로, 없으면 오늘(자동)로 산정
   const today = (proj as { base_date: string | null } | null)?.base_date ?? seoulToday()

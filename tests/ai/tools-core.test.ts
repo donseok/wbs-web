@@ -55,7 +55,7 @@ const wbsSnapshot: WbsProjectSnapshot = {
     },
   ],
   dependencies: [{
-    id: 'dep-1', projectId: 'p1', predecessorId: 'task-1', successorId: 'task-2', type: 'FS', lagDays: 0,
+    id: 'dep-1', projectId: 'p1', predecessorId: 'task-1', successorId: 'task-2', type: 'FS', lagDays: 0, origin: 'manual',
   }],
 }
 

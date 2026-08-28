@@ -139,6 +139,7 @@ function mapDependency(row: Row): TaskDependency {
     successorId: row.successor_id as string,
     type: row.dependency_type as TaskDependency['type'],
     lagDays: Number(row.lag_days) || 0,
+    origin: 'manual', // task_dependencies 실제 행 — depends 합성 행은 mergeSpecDepends 가 붙인다
   }
 }
 
