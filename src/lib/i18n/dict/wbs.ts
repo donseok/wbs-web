@@ -267,6 +267,7 @@ export const wbsKo = {
   'wbs.agentOrderApproved': '승인됨',
   'wbs.agentOrderRejected': '반려됨 — 재작업 중',
   'wbs.agentOrderCancelled': '취소됨',
+  'wbs.agentOrderPrior': '이전 주문',
   'wbs.agentOrderReports': '보고 이력',
   'wbs.agentOrderLinks': '증적 링크',
   'wbs.agentOrderApprove': '승인',

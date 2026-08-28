@@ -124,6 +124,37 @@ describe('approveAgentCompletion', () => {
     expect(r.ok).toBe(true)
     expect(emitNotification).not.toHaveBeenCalled()
   })
+  // 종전에는 skipped 중 'stage' 만 문구를 달고 'parent' 는 무음이었다 — 상위 항목에 나간 주문을
+  // 승인하면 승인은 성공인데 단계만 뒤처진 반쪽 상태가 화면에 아무 흔적도 남기지 않았다.
+  it("하위 항목이 있어 stage 를 건너뛰면 warning 으로 알린다 — skipped:'parent' 무음 금지", async () => {
+    admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+      // 알림용 조회 → transitionStage 항목 조회 → 리프 확인(자식 있음 → skipped:'parent')
+      wbs_items: [
+        { data: { name: '상위 항목', assignee_member_id: null } },
+        { data: { id: W1, project_id: P1, name: '상위 항목', external_ref: null, stage: 'ip', dev_workflow: true } },
+        { data: { id: 'child-1' } },
+      ],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(r.warning).toContain('하위 항목')
+  })
+  it('건너뛴 사유를 모르는 값이어도 무음으로 끝내지 않는다 — 사유별 분기가 아니라 skipped 자체가 조건', async () => {
+    admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+      // stage 가 fromIn 밖(xx) → skipped:'stage'
+      wbs_items: [
+        { data: { name: '로그인', assignee_member_id: null } },
+        { data: { id: W1, project_id: P1, name: '로그인', external_ref: null, stage: 'xx', dev_workflow: true } },
+      ],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(r.warning).toBeTruthy()
+  })
   it('승인해도 work.unblocked 는 발행하지 않는다 — 정본은 setWbsStage(I2, 최종 리뷰)', async () => {
     admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
@@ -245,17 +276,18 @@ describe('getAgentOrderForItem — 명세 패널 진행 상황(2026-08-24, agent
   it('위임한 적 없음(주문 0건) → order:null', async () => {
     mocks.requireProjectMember.mockResolvedValue(ACTOR)
     let call = 0
-    const sb = { from: vi.fn((table: string) => { const b: Record<string, unknown> = {}
+    const sb = { from: vi.fn(() => { const b: Record<string, unknown> = {}
       for (const k of ['select', 'eq', 'order', 'limit']) b[k] = () => b
       b.maybeSingle = async () => {
         call += 1
-        if (table === 'wbs_items') return { data: { project_id: P1 }, error: null }
-        return { data: null, error: null } // agent_work_orders — 없음
+        return { data: { project_id: P1 }, error: null } // wbs_items
       }
+      // 주문 조회는 limit(1)+maybeSingle 이 아니라 목록이다 — 빌더를 그대로 await 한다.
+      b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(r)
       return b }) }
     mocks.createServerClient.mockResolvedValue(sb)
     const r = await getAgentOrderForItem(W1)
-    expect(r).toEqual({ ok: true, order: null })
+    expect(r).toEqual({ ok: true, order: null, priorOrders: [] })
     expect(call).toBeGreaterThan(0)
   })
   it('주문 있음 → 최신 주문 + 보고 이력', async () => {
@@ -264,10 +296,10 @@ describe('getAgentOrderForItem — 명세 패널 진행 상황(2026-08-24, agent
       for (const k of ['select', 'eq', 'order', 'limit', 'in']) b[k] = () => b
       if (table === 'wbs_items') b.maybeSingle = async () => ({ data: { project_id: P1 }, error: null })
       else if (table === 'agent_work_orders') {
-        b.maybeSingle = async () => ({
-          data: { id: O1, status: 'reported', claimed_by: 'agent-x', claimed_at: '2026-08-24T00:00:00Z', updated_at: '2026-08-24T01:00:00Z' },
+        b.then = (r: (v: unknown) => unknown) => Promise.resolve({
+          data: [{ id: O1, status: 'reported', claimed_by: 'agent-x', claimed_at: '2026-08-24T00:00:00Z', updated_at: '2026-08-24T01:00:00Z' }],
           error: null,
-        })
+        }).then(r)
       } else if (table === 'agent_work_reports') {
         b.then = (r: (v: unknown) => unknown) => Promise.resolve({
           data: [{ id: 'r1', kind: 'completion', percent: 100, summary: '완료', links: [], agent: 'agent-x',
@@ -283,6 +315,36 @@ describe('getAgentOrderForItem — 명세 패널 진행 상황(2026-08-24, agent
       expect(r.order?.id).toBe(O1)
       expect(r.order?.status).toBe('reported')
       expect(r.order?.reports).toHaveLength(1)
+      expect(r.priorOrders).toEqual([])
+    }
+  })
+  // 재발행 — approved 는 "활성 주문" 검사 어디에도 안 들어가므로 항목에 주문이 쌓인다.
+  // 최신 하나만 읽던 종전 구현은 그 앞의 승인 이력을 통째로 감췄다(2026-08-27 감사).
+  it('주문이 여러 개면 최신 하나를 order 로, 나머지를 priorOrders 로 준다', async () => {
+    mocks.requireProjectMember.mockResolvedValue(ACTOR)
+    const sb = { from: vi.fn((table: string) => { const b: Record<string, unknown> = {}
+      for (const k of ['select', 'eq', 'order', 'limit', 'in']) b[k] = () => b
+      if (table === 'wbs_items') b.maybeSingle = async () => ({ data: { project_id: P1 }, error: null })
+      else if (table === 'agent_work_orders') {
+        b.then = (r: (v: unknown) => unknown) => Promise.resolve({
+          data: [
+            { id: O1, status: 'ready', claimed_by: null, claimed_at: null, updated_at: '2026-08-27T02:00:00Z' },
+            { id: 'o-old', status: 'approved', claimed_by: 'agent-x', claimed_at: null, updated_at: '2026-08-26T02:00:00Z' },
+          ],
+          error: null,
+        }).then(r)
+      } else if (table === 'agent_work_reports') {
+        b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(r)
+      }
+      return b }) }
+    mocks.createServerClient.mockResolvedValue(sb)
+    const r = await getAgentOrderForItem(W1)
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.order?.id).toBe(O1)
+      expect(r.priorOrders).toEqual([
+        { id: 'o-old', status: 'approved', updated_at: '2026-08-26T02:00:00Z' },
+      ])
     }
   })
 })

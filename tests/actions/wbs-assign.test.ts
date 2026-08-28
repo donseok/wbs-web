@@ -561,6 +561,38 @@ describe('setWbsStage', () => {
     expect(captured.wbs_items).toBeUndefined() // update 까지 안 감
   })
 
+  // 종전 가드는 'xx' 만 막았다. claim 게이트는 stageAtLeast(im) 로 보므로 'im' 을 고르면
+  // 같은 우회가 그대로 성립했다 — 후속 작업의 선행 게이트가 승인 없이 풀린다.
+  it('im 직행도 차단 — 도달 단계(REACHED_STAGES)면 xx 와 같은 취급', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
+        { data: { stage: 'ip' } },
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/승인 버튼/)
+    expect(captured.wbs_items).toBeUndefined() // update 까지 안 감
+  })
+
+  it('도달 단계가 아닌 ip 는 활성 주문이 있어도 통과 — 막는 것은 게이트가 보는 집합뿐이다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
+        { data: { stage: 'as' } },
+        { data: [{ id: W1 }] }, // UPDATE
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'ip')
+    expect(r.ok).toBe(true)
+    expect(captured.wbs_items).toEqual([{ stage: 'ip', updated_at: expect.any(String) }])
+  })
+
   it('완료(xx) 직행 차단 — reported 인 에이전트 주문이 있어도 거부', async () => {
     const { captured } = admin({
       wbs_items: [
