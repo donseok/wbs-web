@@ -127,13 +127,12 @@ describe('IssueTrendCard', () => {
     expect(html).toMatch(/<path[^>]*class="stroke-ink-muted"[^>]*stroke-dasharray="3 3"/)
   })
 
-  it('이번 주 등록·해결·미해결 잔량 타일을 붙인다', () => {
+  it('차트만 남긴다 — 이번 주 타일·주간 표는 없다(2026-08-28 사용자 요청: 깔끔하게)', () => {
     const html = renderToStaticMarkup(<IssueTrendCard issues={ISSUES} today={TODAY} locale="ko" />)
-    const text = textOf(html)
-    // 표본: 이번 주(8.24~) 등록 0 · 해결 1(26일) · 잔량 5
-    expect(text).toMatch(/이번 주 등록 0 건/)
-    expect(text).toMatch(/이번 주 해결 1 건/)
-    expect(text).toMatch(/미해결 잔량 5 건/)
+    expect(html).not.toContain('<table')
+    expect(textOf(html)).not.toMatch(/이번 주 등록|최근 6주/)
+    // 값은 svg 라벨·범례·aria 가 나른다
+    expect(html).toMatch(/<text[^>]*>미해결 5<\/text>/)
   })
 
   it('x축에 첫 주와 마지막 주 시작일을 표기한다(12주)', () => {
@@ -157,16 +156,6 @@ describe('IssueTrendCard', () => {
     expect(ticks).toBeGreaterThanOrEqual(3)
   })
 
-  it('차트 아래에 최근 6주 주간 표(등록·해결·미해결)를 붙인다 — 차트의 표 쌍', () => {
-    const html = renderToStaticMarkup(<IssueTrendCard issues={ISSUES} today={TODAY} locale="ko" />)
-    expect(html).toContain('<table')
-    expect((html.match(/<tr/g) ?? []).length).toBe(7) // 헤더 1 + 6주
-    expect(html).toContain('최근 6주')
-    // 마지막 주(8.24~8.30) 행: 등록 0 · 해결 1(26일) · 미해결 5 — 표 본문만 본다(축 라벨·타일 구간 제외)
-    const table = html.slice(html.indexOf('<table'), html.indexOf('</table>'))
-    const lastRow = textOf(table.slice(table.lastIndexOf('<tr')))
-    expect(lastRow).toMatch(/^ ?26\.08\.24 0 1 5 ?$/)
-  })
 
   it('이슈 0건이면 차트 대신 빈 상태', () => {
     const html = renderToStaticMarkup(<IssueTrendCard issues={[]} today={TODAY} locale="ko" />)

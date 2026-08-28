@@ -7,8 +7,6 @@ import { MiniEmpty } from './bits'
 
 // S-Curve 와 같은 자체 SVG(의존성 0). 우측 여백(PR)은 끝점 라벨('미해결 999' · 영문 'Backlog 999') 자리.
 const W = 640, H = 200, PL = 30, PR = 76, PT = 14, PB = 26
-/** 차트 아래 주간 표의 행 수 — 차트(누적)가 못 보여주는 주간 증감을 나르고, 옆의 이슈 현황 카드와 높이를 맞춘다. */
-const TREND_TABLE_WEEKS = 6
 const WASH_ID = 'issue-backlog-wash'
 
 /** y축 눈금 간격 — 1·2·5×10ⁿ 중 눈금이 5개 안팎이 되는 값(최소 1, 정수). 건수가 커져도 눈금 수가 늘지 않는다. */
@@ -31,8 +29,8 @@ function smoothPath(pts: IssueTrendPoint[], key: 'created' | 'resolved' | 'backl
 
 /**
  * 미해결 추이(A안 · 2026-08-28) — 최근 12주 미해결 잔량을 면(area)으로 앞세우고, 등록 누적(점선)·해결 누적(실선)은
- * 맥락으로 얇게. 아래 이번 주 등록/해결/잔량 타일 + 최근 6주 주간 표(차트의 표 쌍).
- * 해결 누적은 현재 해결 상태의 해결일 기준(재오픈은 빠짐) — 캡션이 이를 명시한다.
+ * 맥락으로 얇게. 차트 + 범례 + 캡션뿐 — 이번 주 타일·주간 표는 사용자 요청으로 뺐다(같은 날, "최대한 깔끔하게").
+ * 값은 끝점 라벨·y축 눈금·aria-label 이 나른다. 해결 누적은 현재 해결 상태의 해결일 기준(재오픈은 빠짐) — 캡션이 명시.
  */
 export function IssueTrendCard({ issues, today, locale }: {
   issues: DashboardIssue[]
@@ -72,11 +70,6 @@ export function IssueTrendCard({ issues, today, locale }: {
   const xLabels = [0, Math.floor((pts.length - 1) / 3), Math.floor(((pts.length - 1) * 2) / 3), pts.length - 1]
   const backlogPath = smoothPath(pts, 'backlog', x, y)
   const aria = `${tr('dash.issues.trendTitle')} — ${tr('dash.issues.trendCreated')} ${last.created}, ${tr('dash.issues.trendResolved')} ${last.resolved}, ${tr('dash.issues.trendBacklog')} ${last.backlog}`
-  const stats: { label: string; value: number; tone?: string }[] = [
-    { label: tr('dash.issues.weekCreated'), value: last.createdNew },
-    { label: tr('dash.issues.weekResolved'), value: last.resolvedNew, tone: 'text-done' },
-    { label: tr('dash.issues.backlogNow'), value: last.backlog },
-  ]
 
   return (
     <SectionCard eyebrow="BACKLOG" title={tr('dash.issues.trendTitle')} icon={TrendingUp}>
@@ -113,42 +106,6 @@ export function IssueTrendCard({ issues, today, locale }: {
         </svg>
         {legend}
 
-        {/* 이번 주 — 차트가 누적이라 '이번 주에 얼마나 움직였나'는 타일이 나른다 */}
-        <div className="grid grid-cols-3 gap-2">
-          {stats.map(s => (
-            <div key={s.label} className="rounded-xl border border-line bg-surface-2/50 px-3 py-2.5">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-subtle">{s.label}</div>
-              <div className={`mt-1.5 text-xl font-bold leading-none ${s.tone ?? 'text-ink'}`}>
-                {s.value}<small className="ml-1 text-[11px] font-semibold text-ink-subtle">{tr('dash.unitCount')}</small>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* 주간 표 — 차트의 표 쌍(값은 툴팁 없이도 읽힌다). 등록·해결은 그 주의 증감, 미해결은 주말 기준 잔량. */}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-[11px] tabular-nums">
-            <caption className="mb-1.5 text-left text-[11px] text-ink-subtle">{tr('dash.issues.trendRecentWeeks')}</caption>
-            <thead>
-              <tr className="text-[10px] uppercase tracking-[0.06em] text-ink-subtle">
-                <th scope="col" className="py-1 pr-2 text-left font-semibold">{tr('dash.issues.trendTableWeek')}</th>
-                <th scope="col" className="py-1 pl-2 text-right font-semibold">{tr('dash.issues.trendCreatedShort')}</th>
-                <th scope="col" className="py-1 pl-2 text-right font-semibold">{tr('dash.issues.trendResolvedShort')}</th>
-                <th scope="col" className="py-1 pl-2 text-right font-semibold">{tr('dash.issues.trendBacklog')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pts.slice(-TREND_TABLE_WEEKS).map(p => (
-                <tr key={p.weekStart} className="border-t border-line/70 text-ink-muted">
-                  <td className="py-1 pr-2 text-left">{fmtDate(p.weekStart)}</td>
-                  <td className="py-1 pl-2 text-right">{p.createdNew}</td>
-                  <td className="py-1 pl-2 text-right">{p.resolvedNew}</td>
-                  <td className="py-1 pl-2 text-right font-semibold text-ink">{p.backlog}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
         <div className="text-[11px] leading-4 text-ink-subtle">{tr('dash.issues.trendCaption')}</div>
       </div>
     </SectionCard>
