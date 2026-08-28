@@ -188,4 +188,43 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
       expect(container.textContent).not.toContain('선행 충족 — 시작 가능')
     })
   })
+
+  describe('선행 추가 후보', () => {
+    // 병합으로 합성 선행이 incomingDependencies 에 들어오면서 후보 목록이 조용히 좁아졌던 자리.
+    // 합성 선행에는 FS/SS·lag 가 없으므로, 실제 행으로 얹을 길을 막으면 안 된다.
+    it('wbs.md 로 이미 이어진 선행도 후보에 남는다', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A', stage: 'im' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({
+        item,
+        allItems: [predecessor, item],
+        dependencies: [dep({ id: 'spec:pred-1>item-1', origin: 'spec' })],
+        editable: true,
+      })
+
+      const addToggle = [...container.querySelectorAll('button')]
+        .find(b => b.textContent?.includes('선행 추가'))
+      expect(addToggle).toBeTruthy()
+      await act(async () => { addToggle!.click() })
+
+      const options = [...container.querySelectorAll('option')].map(o => o.textContent ?? '')
+      expect(options.some(o => o.includes('선행 작업 A'))).toBe(true)
+    })
+
+    it('실제 행으로 이미 이어진 선행은 후보에서 빠진다', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({
+        item, allItems: [predecessor, item], dependencies: [dep()], editable: true,
+      })
+
+      const addToggle = [...container.querySelectorAll('button')]
+        .find(b => b.textContent?.includes('선행 추가'))
+      await act(async () => { addToggle!.click() })
+
+      const options = [...container.querySelectorAll('option')].map(o => o.textContent ?? '')
+      expect(options.some(o => o.includes('선행 작업 A'))).toBe(false)
+    })
+  })
 })
+

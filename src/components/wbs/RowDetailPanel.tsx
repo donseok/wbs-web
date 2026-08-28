@@ -125,7 +125,12 @@ export function RowDetailPanel({
     [item.id, item.rolledActualPct, item.stage, incomingDependencies, itemById, unresolvedRefs],
   )
   const predecessorCandidates = useMemo(() => {
-    const existing = new Set(incomingDependencies.map(dep => dep.predecessorId))
+    // 이미 연결된 선행은 후보에서 뺀다 — 단 **실제 행(manual)만** 센다.
+    // wbs.md 에서 합성된 선행까지 빼면 그 쌍에 FS/SS·lag 를 얹을 길이 사라진다(병합 전에는 되던 일).
+    // 실제 행을 얹으면 병합 규칙상 그쪽이 이기므로 합성 행과 겹쳐 그려지지도 않는다.
+    const existing = new Set(
+      incomingDependencies.filter(dep => dep.origin === 'manual').map(dep => dep.predecessorId),
+    )
     const nextById = new Map<string, string[]>()
     dependencies.forEach(dep => nextById.set(dep.predecessorId, [...(nextById.get(dep.predecessorId) ?? []), dep.successorId]))
     const wouldCycle = (candidateId: string) => {
