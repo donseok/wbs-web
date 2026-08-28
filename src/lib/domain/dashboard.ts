@@ -226,7 +226,11 @@ export function varianceRanking(leaves: ComputedItem[], today: string, limit = 8
 
 /* ── 마일스톤 타임라인 — 완료 포함 전체 여정(detectMilestones는 '다음 1개' 전용으로 유지) ── */
 export type MilestoneStatus = 'done' | 'overdue' | 'upcoming'
-export interface MilestonePoint { id: string; name: string; date: string; status: MilestoneStatus; dday: number }
+export interface MilestonePoint {
+  id: string; name: string; date: string; status: MilestoneStatus; dday: number
+  /** 출처 — 생략/'wbs' = WBS 리프, 'announcement' = 공지(milestone_date). 타임라인이 마커 모양을 가른다. */
+  kind?: 'wbs' | 'announcement'
+}
 
 export function milestoneTimeline(items: ComputedItem[], today: string, keywords: readonly string[]): MilestonePoint[] {
   return collectLeaves(items)

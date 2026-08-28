@@ -8,7 +8,7 @@ export const getAnnouncements = cache(async (projectId: string): Promise<Announc
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('announcements')
-    .select('id, project_id, title, body, category, is_pinned, publish_from, publish_to, created_at, updated_at')
+    .select('id, project_id, title, body, category, is_pinned, publish_from, publish_to, milestone_date, created_at, updated_at')
     .eq('project_id', projectId)
     .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
@@ -24,6 +24,7 @@ export const getAnnouncements = cache(async (projectId: string): Promise<Announc
     isPinned: (r.is_pinned as boolean) ?? false,
     publishFrom: (r.publish_from as string | null) ?? null,
     publishTo: (r.publish_to as string | null) ?? null,
+    milestoneDate: (r.milestone_date as string | null) ?? null,
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
   }))

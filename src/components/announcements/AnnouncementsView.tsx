@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { AlertTriangle, CalendarRange, Megaphone, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CalendarRange, Flag, Megaphone, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
@@ -336,7 +336,7 @@ function ReadModal({
   )
 }
 
-function AnnouncementFormModal({
+export function AnnouncementFormModal({
   open,
   onClose,
   projectId,
@@ -356,6 +356,9 @@ function AnnouncementFormModal({
   const [isPinned, setIsPinned] = useState(false)
   const [publishFrom, setPublishFrom] = useState('')
   const [publishTo, setPublishTo] = useState('')
+  // 마일스톤 표시(0091) — 체크가 켜져 있을 때만 milestoneDate 를 실어 보낸다(꺼지면 null 로 저장 → 타임라인에서 사라짐).
+  const [showMilestone, setShowMilestone] = useState(false)
+  const [milestoneDate, setMilestoneDate] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -368,6 +371,8 @@ function AnnouncementFormModal({
     // 신규·legacy(기간 없음) 공지는 시작일을 오늘로 기본, 종료일은 직접 지정하도록 비운다.
     setPublishFrom(initial?.publishFrom ?? seoulToday())
     setPublishTo(initial?.publishTo ?? '')
+    setShowMilestone(!!initial?.milestoneDate)
+    setMilestoneDate(initial?.milestoneDate ?? '')
     setError(null)
   }, [open, initial])
 
@@ -384,7 +389,14 @@ function AnnouncementFormModal({
       setError(t('ann.err.periodOrder'))
       return
     }
-    const input = { title: title.trim(), body, category, isPinned, publishFrom, publishTo }
+    if (showMilestone && !milestoneDate) {
+      setError(t('ann.err.milestoneDate'))
+      return
+    }
+    const input = {
+      title: title.trim(), body, category, isPinned, publishFrom, publishTo,
+      milestoneDate: showMilestone ? milestoneDate : null,
+    }
     startTransition(async () => {
       const res = isEdit
         ? await updateAnnouncement(initial!.id, input)
@@ -487,6 +499,39 @@ function AnnouncementFormModal({
             </label>
           </div>
           <p className="mt-1.5 text-[11px] leading-4 text-ink-subtle">{t('ann.form.periodHint')}</p>
+        </div>
+
+        {/* 마일스톤 표시 — 체크 시 날짜 입력이 열린다(기본값 = 게시 종료일: 행사 공지는 대개 행사일까지 게시한다).
+            표시 토글은 JSX 조건부 렌더 — 상태 변형 display 유틸은 안전망에 진다. */}
+        <div>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showMilestone}
+              onChange={(e) => {
+                const on = e.target.checked
+                setShowMilestone(on)
+                if (on && !milestoneDate) setMilestoneDate(publishTo || publishFrom || seoulToday())
+              }}
+              className="h-4 w-4 accent-brand"
+            />
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-ink">
+              <Flag className="h-3.5 w-3.5 text-ink-subtle" />
+              {t('ann.form.milestone')}
+            </span>
+          </label>
+          {showMilestone && (
+            <label className="mt-2 block">
+              <span className="mb-1 block text-[11px] font-medium text-ink-subtle">{t('ann.form.milestoneDate')}</span>
+              <input
+                type="date"
+                className="app-input"
+                value={milestoneDate}
+                onChange={(e) => setMilestoneDate(e.target.value)}
+              />
+            </label>
+          )}
+          <p className="mt-1.5 text-[11px] leading-4 text-ink-subtle">{t('ann.form.milestoneHint')}</p>
         </div>
 
         <label className="block">
