@@ -130,7 +130,7 @@ dflow.sh done 1 "완료·테스트 통과·PR 병합됨" --auto-links
 1. dflow.sh list
    ↓
 2. dflow.sh claim <순번>
-   ├─ exit 4 → git fetch/merge 후 재시도
+   ├─ exit 4(선행·상태 진행 불가) → git fetch/merge 후 재시도
    └─ exit 0 → spec.md 읽기, agent/ 브랜치 직접 생성
    ↓
 3. 구현 & 커밋
