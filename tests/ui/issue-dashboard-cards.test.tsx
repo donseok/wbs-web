@@ -151,7 +151,7 @@ describe('IssueTrendCard', () => {
   it('건수가 커도 y축 눈금은 8개를 넘지 않는다(눈금 겹침 방지)', () => {
     const many = Array.from({ length: 1000 }, () => issue())
     const html = renderToStaticMarkup(<IssueTrendCard issues={many} today={TODAY} locale="ko" />)
-    const ticks = (html.match(/text-anchor="end" font-size="9"/g) ?? []).length
+    const ticks = (html.match(/text-anchor="end" font-size="10"/g) ?? []).length // y축 눈금 = 오른쪽 정렬 10px
     expect(ticks).toBeLessThanOrEqual(8)
     expect(ticks).toBeGreaterThanOrEqual(3)
   })
