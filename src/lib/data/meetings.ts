@@ -240,3 +240,30 @@ export const getMyMeetings = cache(async (
     : await fetchExceptionsByIds(sb, meetings.map(m => m.id), 'getMyMeetings')
   return { meetings, exceptions }
 })
+
+/**
+ * 대시보드 회의 행에 얹는 body(메모)·참석자 이름 — **표시되는 행의 시리즈만** 대상으로 왕복 2회(병렬).
+ * getProjectMeetingData 에 body 를 싣지 않는 이유: 그 결과는 달력·회의록 드롭다운이 공유하는데
+ * 회의록 본문이 긴 시리즈가 많아 프로젝트 전체를 실으면 payload 가 불필요하게 커진다.
+ * 실패는 로깅하고 빈 맵 — 참석자·메모 칸만 비어 보이고 일정 자체는 살아남는다(표시=로깅).
+ */
+export async function getMeetingRowExtras(
+  seriesIds: string[],
+  memberIds: string[],
+): Promise<{ bodies: Record<string, string>; memberNames: Record<string, string> }> {
+  if (!seriesIds.length && !memberIds.length) return { bodies: {}, memberNames: {} }
+  const sb = await createServerClient()
+  const none = (): RowsResult => ({ data: [], error: null })
+  const [b, m] = await Promise.all([
+    seriesIds.length ? sb.from('meetings').select('id, body').in('id', seriesIds) as PromiseLike<RowsResult> : none(),
+    memberIds.length ? sb.from('project_members').select('id, name').in('id', memberIds) as PromiseLike<RowsResult> : none(),
+  ])
+  if (b.error) console.error('[getMeetingRowExtras] 메모 조회 실패(대시보드 회의 행 메모가 비어 보임):', b.error.message)
+  if (m.error) console.error('[getMeetingRowExtras] 참석자 조회 실패(대시보드 회의 행 참석자가 비어 보임):', m.error.message)
+
+  const bodies: Record<string, string> = {}
+  for (const r of b.data ?? []) bodies[r.id as string] = (r.body as string | null) ?? ''
+  const memberNames: Record<string, string> = {}
+  for (const r of m.data ?? []) memberNames[r.id as string] = r.name as string
+  return { bodies, memberNames }
+}
