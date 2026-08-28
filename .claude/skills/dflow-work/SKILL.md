@@ -21,7 +21,9 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    base: https://d-flow.example.com
    프로필 1: alice@example.com (계약 2.1, 프로젝트 3)
    ```
-   계약 버전이 지원 목록(현재 2.1)에 없으면 dflow-kit(스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내.
+   계약 버전은 **major 가 다를 때만** 문제다 — doctor 가 경고를 내면 dflow-kit(스킬 배포 킷)을
+   최신으로 갱신하라고 사용자에게 안내한다. minor 차이(서버의 additive 확장)는 정상이라 경고가
+   안 뜬다. doctor 출력에 서버·스킬 양쪽 값이 찍히므로 필요하면 직접 대조할 수 있다.
 
 2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) 사용자가 지목한 사람으로 `--as <이름|email>` 옵션을 사용한다.
 
