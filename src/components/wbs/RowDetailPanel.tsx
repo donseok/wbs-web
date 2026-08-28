@@ -350,7 +350,7 @@ export function RowDetailPanel({
               </section>
               {/* 개요 표(2026-08-28) — 아이콘 카드 4행이 세로로 44px 씩 먹던 것을 라벨·값 2열로.
                   상태도 같은 표에 넣는다: 라벨·값 쌍이라 성격이 같고, 떠 있던 한 줄이 사라진다. */}
-              <dl className="border-y border-line/50">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 border-y border-line/50 py-2.5">
                 <DlRow label={t('wbs.colStatus')}>
                   <span className={`chip ${STATUS[item.status].chip}`}>
                     <span className={`h-1.5 w-1.5 rounded-full ${STATUS[item.status].dot}`} />
@@ -366,7 +366,7 @@ export function RowDetailPanel({
                 <DlRow label={t('wbs.colWeight')}>
                   <span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : formatWeightPct(item.weight)}</span>
                 </DlRow>
-                <DlRow label={t('wbs.colDeliverable')}>
+                <DlRow label={t('wbs.colDeliverable')} span>
                   {delivEditing ? (
                     <div className="space-y-2 py-0.5">
                       <input autoFocus value={delivDraft} onChange={e => setDelivDraft(e.target.value)}
@@ -787,11 +787,20 @@ function AttachmentSection({ itemId, canAttach }: { itemId: string; canAttach: b
 }
 
 /** 개요 정의표의 한 행 — dt/dd 를 감싸는 div 는 dl 안에서 유효하다(HTML5). */
-function DlRow({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * 개요 한 칸 — 라벨 위, 값 아래.
+ *
+ * 종전에는 라벨·값을 한 줄에 좌우로 놓고 항목마다 한 행을 썼는데, 다섯 항목이 세로로
+ * 쌓여 패널 위쪽을 크게 잡아먹었다. 라벨을 값 위로 올리면 한 칸의 폭이 절반 이하로 줄어
+ * 두 칸씩 나란히 놓을 수 있다(다섯 행 → 세 행).
+ *
+ * `span`=true 는 두 칸을 다 쓴다 — 산출물처럼 길고 편집 입력이 열리는 항목용.
+ */
+function DlRow({ label, children, span = false }: { label: string; children: React.ReactNode; span?: boolean }) {
   return (
-    <div className="grid grid-cols-[5.5rem_1fr] items-baseline gap-x-3 border-b border-line/40 py-1.5 last:border-0">
+    <div className={`min-w-0 ${span ? 'col-span-2' : ''}`}>
       <dt className="text-[11px] font-semibold text-ink-muted">{label}</dt>
-      <dd className="min-w-0 text-[13px] text-ink">{children}</dd>
+      <dd className="mt-0.5 min-w-0 text-[13px] text-ink">{children}</dd>
     </div>
   )
 }
