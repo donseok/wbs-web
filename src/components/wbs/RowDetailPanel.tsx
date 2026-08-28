@@ -109,8 +109,8 @@ export function RowDetailPanel({
   )
   // 선행 충족 판정 — 이 작업을 지금 시작할 수 있는지와, 선행 각 건의 충족 여부.
   const readiness = useMemo(
-    () => evaluateStartReadiness(item, incomingDependencies, itemById),
-    [item, incomingDependencies, itemById],
+    () => evaluateStartReadiness({ id: item.id, rolledActualPct: item.rolledActualPct }, incomingDependencies, itemById),
+    [item.id, item.rolledActualPct, incomingDependencies, itemById],
   )
   const predecessorCandidates = useMemo(() => {
     const existing = new Set(incomingDependencies.map(dep => dep.predecessorId))
@@ -389,6 +389,7 @@ export function RowDetailPanel({
               )}
 
               {/* 시작 가능 여부 — 선행 FS/SS 충족 판정. unknown(선행 행 소실)은 접어 감추지 않고 그대로 드러낸다. */}
+              {incomingDependencies.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {readiness.started && (
                   <span className="rounded-full border border-progress/35 bg-progress-weak px-2 py-0.5 text-[10px] font-bold text-progress">
@@ -409,6 +410,7 @@ export function RowDetailPanel({
                   </span>
                 )}
               </div>
+              )}
 
               <div className="mt-2 space-y-2">
                 <div>
