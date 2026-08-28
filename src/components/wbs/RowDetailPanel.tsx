@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { X, FileText, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
 import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, ProjectMember, TaskDependency, TeamCode } from '@/lib/domain/types'
 import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
+import { evaluateStartReadiness, type PredecessorState } from '@/lib/domain/dependencyReadiness'
 import {
   getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem,
   addTaskDependency, removeTaskDependency, type ChangeLogEntry,
@@ -13,7 +14,7 @@ import { canAddChild, canSplit } from '@/lib/domain/wbsAffordance'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1, fmtSize } from '@/lib/domain/format'
-import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, StatusChip, fmtDate, teamStyle } from './shared'
 import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { ChangeHistoryList } from './ChangeHistoryList'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -26,7 +27,7 @@ const EMPTY_MEMBERS: ProjectMember[] = []
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
-  members = EMPTY_MEMBERS,
+  members = EMPTY_MEMBERS, onSelectItem,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -44,6 +45,8 @@ export function RowDetailPanel({
   maxDepth?: number | null
   /** 프로젝트 로스터 — 담당·단계 섹션(WbsAssigneeStagePanel)의 담당자 셀렉트 데이터 소스(§2.5). */
   members?: ProjectMember[]
+  /** 선행·후속 항목 클릭 시 그 작업으로 상세를 갈아끼운다. 미제공이면 항목은 클릭 불가 텍스트로 남는다. */
+  onSelectItem?: (id: string) => void
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -103,6 +106,11 @@ export function RowDetailPanel({
   const outgoingDependencies = useMemo(
     () => dependencies.filter(dep => dep.predecessorId === item.id),
     [dependencies, item.id],
+  )
+  // 선행 충족 판정 — 이 작업을 지금 시작할 수 있는지와, 선행 각 건의 충족 여부.
+  const readiness = useMemo(
+    () => evaluateStartReadiness(item, incomingDependencies, itemById),
+    [item, incomingDependencies, itemById],
   )
   const predecessorCandidates = useMemo(() => {
     const existing = new Set(incomingDependencies.map(dep => dep.predecessorId))
@@ -380,6 +388,28 @@ export function RowDetailPanel({
                 </div>
               )}
 
+              {/* 시작 가능 여부 — 선행 FS/SS 충족 판정. unknown(선행 행 소실)은 접어 감추지 않고 그대로 드러낸다. */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {readiness.started && (
+                  <span className="rounded-full border border-progress/35 bg-progress-weak px-2 py-0.5 text-[10px] font-bold text-progress">
+                    {t('wbs.alreadyStarted')}
+                  </span>
+                )}
+                {readiness.unknownCount > 0 ? (
+                  <span className="rounded-full border border-delayed/35 bg-delayed-weak px-2 py-0.5 text-[10px] font-bold text-delayed" role="status">
+                    {t('wbs.startUnknown').replace('{n}', String(readiness.unknownCount))}
+                  </span>
+                ) : readiness.waitingCount > 0 ? (
+                  <span className="rounded-full border border-pending/35 bg-pending-weak px-2 py-0.5 text-[10px] font-bold text-pending" role="status">
+                    {t('wbs.startBlocked').replace('{n}', String(readiness.waitingCount))}
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-done/35 bg-done-weak px-2 py-0.5 text-[10px] font-bold text-done" role="status">
+                    {t('wbs.startReady')}
+                  </span>
+                )}
+              </div>
+
               <div className="mt-2 space-y-2">
                 <div>
                   <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.predecessors')}</div>
@@ -387,55 +417,45 @@ export function RowDetailPanel({
                     <p className="text-xs text-ink-subtle">{t('wbs.noPredecessors')}</p>
                   ) : (
                     <ul className="space-y-1.5">
-                      {incomingDependencies.map(dep => {
-                        const predecessor = itemById.get(dep.predecessorId)
-                        return (
-                          <li key={dep.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
-                            <span className="min-w-0 flex-1 truncate text-ink" title={predecessor?.name}>
-                              {predecessor?.code && <span className="mr-1 text-ink-subtle">{predecessor.code}</span>}
-                              {predecessor?.name ?? t('wbs.missingTask')}
-                            </span>
-                            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted" title={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}>
-                              {dep.type}{dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}
-                            </span>
-                            {editable && (
-                              <button type="button" onClick={() => removeDependency(dep.id)} disabled={dependencyBusy}
-                                aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </li>
-                        )
-                      })}
+                      {incomingDependencies.map(dep => (
+                        <DependencyRow
+                          key={dep.id}
+                          linked={itemById.get(dep.predecessorId) ?? null}
+                          badge={`${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`}
+                          badgeTitle={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}
+                          state={readiness.byDependencyId.get(dep.id) ?? 'unknown'}
+                          onOpen={onSelectItem}
+                          onRemove={editable ? () => removeDependency(dep.id) : null}
+                          removeDisabled={dependencyBusy}
+                          t={t}
+                        />
+                      ))}
                     </ul>
                   )}
                 </div>
 
-                {outgoingDependencies.length > 0 && (
-                  <div>
-                    <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.successors')}</div>
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.successors')}</div>
+                  {outgoingDependencies.length === 0 ? (
+                    <p className="text-xs text-ink-subtle">{t('wbs.noSuccessors')}</p>
+                  ) : (
                     <ul className="space-y-1.5">
-                      {outgoingDependencies.map(dep => {
-                        const successor = itemById.get(dep.successorId)
-                        return (
-                          <li key={dep.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
-                            <span className="min-w-0 flex-1 truncate text-ink" title={successor?.name}>
-                              {successor?.code && <span className="mr-1 text-ink-subtle">{successor.code}</span>}
-                              {successor?.name ?? t('wbs.missingTask')}
-                            </span>
-                            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted">{dep.type}</span>
-                            {editable && (
-                              <button type="button" onClick={() => removeDependency(dep.id)} disabled={dependencyBusy}
-                                aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </li>
-                        )
-                      })}
+                      {outgoingDependencies.map(dep => (
+                        <DependencyRow
+                          key={dep.id}
+                          linked={itemById.get(dep.successorId) ?? null}
+                          badge={`${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`}
+                          badgeTitle={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}
+                          state={null}
+                          onOpen={onSelectItem}
+                          onRemove={editable ? () => removeDependency(dep.id) : null}
+                          removeDisabled={dependencyBusy}
+                          t={t}
+                        />
+                      ))}
                     </ul>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               {editable && dependencyOpen && (
@@ -661,5 +681,74 @@ function DlRow({ label, children }: { label: string; children: React.ReactNode }
       <dt className="text-[11px] font-semibold text-ink-muted">{label}</dt>
       <dd className="min-w-0 text-[13px] text-ink">{children}</dd>
     </div>
+  )
+}
+
+/** 선행·후속 한 줄 — 이름(클릭 시 그 작업으로 상세 이동) · 진행 상태 · 관계 배지 · 삭제.
+ *  이름만 버튼으로 두는 이유: 행 전체를 버튼으로 감싸면 삭제 버튼이 버튼 안에 중첩된다. */
+function DependencyRow({
+  linked, badge, badgeTitle, state, onOpen, onRemove, removeDisabled, t,
+}: {
+  linked: ComputedItem | null
+  badge: string
+  badgeTitle: string
+  /** 선행일 때만 충족 판정을 붙인다. 후속 행은 null. */
+  state: PredecessorState | null
+  onOpen?: (id: string) => void
+  onRemove: (() => void) | null
+  removeDisabled: boolean
+  t: (k: DictKey) => string
+}) {
+  const stateStyle: Record<PredecessorState, { label: DictKey; cls: string }> = {
+    satisfied: { label: 'wbs.depSatisfied', cls: 'border-done/35 bg-done-weak text-done' },
+    waiting: { label: 'wbs.depWaiting', cls: 'border-pending/35 bg-pending-weak text-pending' },
+    unknown: { label: 'wbs.depUnknown', cls: 'border-delayed/35 bg-delayed-weak text-delayed' },
+  }
+  const name = linked?.name ?? t('wbs.missingTask')
+  const label = (
+    <>
+      {linked?.code && <span className="mr-1 text-ink-subtle">{linked.code}</span>}
+      {name}
+    </>
+  )
+  return (
+    <li className="rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
+      <div className="flex items-center gap-2">
+        {linked && onOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen(linked.id)}
+            className="min-w-0 flex-1 truncate text-left text-ink underline-offset-2 transition hover:text-brand hover:underline"
+            title={`${name} — ${t('wbs.openTaskDetail')}`}
+          >
+            {label}
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-ink" title={name}>{label}</span>
+        )}
+        <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted" title={badgeTitle}>{badge}</span>
+        {onRemove && (
+          <button type="button" onClick={onRemove} disabled={removeDisabled}
+            aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="mt-1 flex items-center gap-1.5">
+        {linked ? (
+          <>
+            <StatusChip status={linked.status} />
+            <span className="tabular-nums text-[11px] text-ink-muted">{formatPct1(linked.rolledActualPct)}%</span>
+          </>
+        ) : (
+          <span className="text-[11px] text-delayed">{t('wbs.depUnknown')}</span>
+        )}
+        {state && (
+          <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${stateStyle[state].cls}`}>
+            {t(stateStyle[state].label)}
+          </span>
+        )}
+      </div>
+    </li>
   )
 }
