@@ -6,7 +6,8 @@ import { t, type DictKey, type Locale } from '@/lib/i18n/dict'
 import { MiniEmpty } from './bits'
 
 // S-Curve 와 같은 자체 SVG(의존성 0). 우측 여백(PR)은 끝점 라벨('미해결 999' · 영문 'Backlog 999') 자리.
-const W = 640, H = 200, PL = 30, PR = 76, PT = 14, PB = 26
+// H 는 옆 이슈 현황 카드 높이에 맞춰 키운 값(2026-08-28 '차트를 키워 채운다') — 타일·표 대신 차트가 카드를 채운다.
+const W = 640, H = 300, PL = 32, PR = 80, PT = 16, PB = 28
 const WASH_ID = 'issue-backlog-wash'
 
 /** y축 눈금 간격 — 1·2·5×10ⁿ 중 눈금이 5개 안팎이 되는 값(최소 1, 정수). 건수가 커져도 눈금 수가 늘지 않는다. */
@@ -72,8 +73,12 @@ export function IssueTrendCard({ issues, today, locale }: {
   const aria = `${tr('dash.issues.trendTitle')} — ${tr('dash.issues.trendCreated')} ${last.created}, ${tr('dash.issues.trendResolved')} ${last.resolved}, ${tr('dash.issues.trendBacklog')} ${last.backlog}`
 
   return (
-    <SectionCard eyebrow="BACKLOG" title={tr('dash.issues.trendTitle')} icon={TrendingUp}>
-      <div className="space-y-3">
+    // 카드가 그리드에서 좌측 카드 높이로 늘어나면 차트를 세로 가운데에, 캡션은 바닥에 — 빈 공간이 한쪽에 몰리지 않게.
+    // SectionCard 의 children 래퍼(mt-5 div)를 flex-1 로 만드는 arbitrary variant — 래퍼 구조가 바뀌면 같이 손볼 것.
+    <SectionCard eyebrow="BACKLOG" title={tr('dash.issues.trendTitle')} icon={TrendingUp}
+      className="flex flex-col [&>div:last-child]:flex-1">
+      <div className="flex h-full flex-col gap-3">
+        <div className="my-auto">
         <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={aria}>
           <defs>
             {/* 그라데이션 stop 색은 CSS 속성으로 줘야 토큰(var)이 풀린다 — 속성값의 var() 는 브라우저마다 다르다 */}
@@ -85,7 +90,7 @@ export function IssueTrendCard({ issues, today, locale }: {
           {ticks.map(v => (
             <g key={v}>
               <line x1={PL} x2={W - PR} y1={y(v)} y2={y(v)} className="stroke-line" strokeWidth={1} />
-              <text x={PL - 6} y={y(v) + 3} textAnchor="end" fontSize={9} className="fill-ink-subtle">{v}</text>
+              <text x={PL - 6} y={y(v) + 3.5} textAnchor="end" fontSize={10} className="fill-ink-subtle">{v}</text>
             </g>
           ))}
           <path d={`${backlogPath} L${lastX.toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`} fill={`url(#${WASH_ID})`} />
@@ -94,19 +99,19 @@ export function IssueTrendCard({ issues, today, locale }: {
           <path d={backlogPath} fill="none" className="stroke-delayed" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
           {/* 끝점 — 표면색 2px 링으로 선 위에서도 읽힌다. 라벨은 미해결 하나뿐이라 충돌이 없다. */}
           <circle cx={lastX} cy={y(last.backlog)} r={4.5} className="fill-delayed stroke-surface" strokeWidth={2} />
-          <text x={lastX + 9} y={y(last.backlog) + 3.5} fontSize={10} fontWeight={600} className="fill-ink-muted">
+          <text x={lastX + 9} y={y(last.backlog) + 4} fontSize={11} fontWeight={600} className="fill-ink-muted">
             {tr('dash.issues.trendBacklog')} {last.backlog}
           </text>
           {xLabels.map((i, k) => (
-            <text key={i} x={x(i)} y={H - 8} fontSize={9} className="fill-ink-subtle"
+            <text key={i} x={x(i)} y={H - 9} fontSize={10} className="fill-ink-subtle"
               textAnchor={k === 0 ? 'start' : k === xLabels.length - 1 ? 'end' : 'middle'}>
               {fmtDate(pts[i].weekStart)}
             </text>
           ))}
         </svg>
+        </div>
         {legend}
-
-        <div className="text-[11px] leading-4 text-ink-subtle">{tr('dash.issues.trendCaption')}</div>
+        <div className="mt-auto text-[11px] leading-4 text-ink-subtle">{tr('dash.issues.trendCaption')}</div>
       </div>
     </SectionCard>
   )
