@@ -10,6 +10,7 @@ import {
   getWbsAssigneeStage, setWbsAssignee, setWbsAssigneeCascade, setWbsStage, setWbsDevWorkflow,
 } from '@/app/actions/wbsAssign'
 import { WbsSpecPanel } from './WbsSpecPanel'
+import { WbsSpecLinksPanel } from './WbsSpecLinksPanel'
 import { AssigneeComboBox } from './AssigneeComboBox'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -39,7 +40,7 @@ export function WbsAssigneeStagePanel({
   editable: boolean
   /** 하위 항목이 있으면 "미지정 하위 항목에도 적용" 체크박스를 노출한다(스테이징 피드백). */
   hasChildren?: boolean
-  /** 명세 선행·후행 항목 클릭 시 그 작업으로 상세를 갈아끼운다(WbsSpecPanel 로 전달). */
+  /** 선행·후행 항목 클릭 시 그 작업으로 상세를 갈아끼운다(WbsSpecLinksPanel 로 전달). */
   onSelectItem?: (id: string) => void
 }) {
   const router = useRouter()
@@ -236,7 +237,10 @@ export function WbsAssigneeStagePanel({
       </section>
 
       {/* 명세(Task 12A, 결정 B) — 이 패널의 섹션으로 편입, 별도 오버레이 아님(리뷰 라운드 1 관례). */}
-      <WbsSpecPanel itemId={itemId} editable={editable} onSelectItem={onSelectItem} />
+      {/* 선행·후행 항목 — 명세에서 분리한 독립 섹션(실행 순서 축). */}
+      <WbsSpecLinksPanel itemId={itemId} onSelectItem={onSelectItem} />
+
+      <WbsSpecPanel itemId={itemId} editable={editable} />
     </div>
   )
 }

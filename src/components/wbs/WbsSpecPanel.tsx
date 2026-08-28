@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { FileText, Pencil } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Pencil } from 'lucide-react'
 import {
-  getWbsSpec, getWbsSpecLinks, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
-  type SpecLinkItem, type WbsPriority, type WbsSpecDetail, type WbsSpecLinks,
+  getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
+  type WbsPriority, type WbsSpecDetail,
 } from '@/app/actions/wbsSpec'
 import {
   approveAgentCompletion, getAgentOrderForItem, rejectAgentCompletion,
@@ -14,7 +14,6 @@ import {
   type AgentOrderStatus,
 } from '@/app/actions/agentWork'
 import { isClaimStale } from '@/lib/domain/agentWork'
-import { specLinkState, specStartReadiness } from '@/lib/domain/specDependency'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 
@@ -27,26 +26,16 @@ const MarkdownView = dynamic(
   { ssr: false },
 )
 
-const SPEC_STAGE_KEYS: Record<string, DictKey> = {
-  as: 'wbs.stageAs', fp: 'wbs.stageFp', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
-}
-
 const PRIORITIES: WbsPriority[] = ['critical', 'high', 'medium', 'low']
 const PRIORITY_KEYS: Record<WbsPriority, DictKey> = {
   critical: 'wbs.specPriorityCritical', high: 'wbs.specPriorityHigh',
   medium: 'wbs.specPriorityMedium', low: 'wbs.specPriorityLow',
 }
 
-/** depends 항목은 external_ref 형식(<module>/<id>) — 마지막 세그먼트만 표시, 전체는 title 로. */
-function lastSegment(ref: string): string {
-  const idx = ref.lastIndexOf('/')
-  return idx === -1 ? ref : ref.slice(idx + 1)
-}
-
 /**
  * WBS 명세 패널(Task 12A, 결정 B) — 스칼라 배지(category·domain·priority·model·tags),
- * 참조 필드 인라인 편집(prd_ref·entry_point·priority), depends 목록(external_ref 마지막
- * 세그먼트 표시), acceptance 체크리스트(읽기 전용 — 정본은 import), spec 마크다운
+ * 참조 필드 인라인 편집(prd_ref·entry_point·priority), acceptance 체크리스트(읽기 전용 —
+ * 정본은 import), spec 마크다운
  * (보기 모드 = MarkdownView 렌더 / 편집 모드 = textarea + 저장).
  *
  * WbsAssigneeStagePanel 의 섹션으로 편입된다 — 별도 오버레이 금지(리뷰 라운드 1 결함 재발 방지:
@@ -54,12 +43,7 @@ function lastSegment(ref: string): string {
  * 하나의 항목에 dialog 하나만 뜨도록 RowDetailPanel 이 유일한 배치 주체다).
  * 편집 권한은 배정(§2.5)과 동일 — 프로젝트 관리자. editable=false 면 전 필드 읽기 전용.
  */
-export function WbsSpecPanel({ itemId, editable, onSelectItem }: {
-  itemId: string
-  editable: boolean
-  /** 선행·후행 항목 클릭 시 그 작업으로 상세를 갈아끼운다. 없으면 항목은 클릭 불가 텍스트로 남는다. */
-  onSelectItem?: (id: string) => void
-}) {
+export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: boolean }) {
   const router = useRouter()
   const { t } = useLocale()
   const [loaded, setLoaded] = useState<WbsSpecDetail | 'error' | null>(null)
@@ -77,9 +61,10 @@ export function WbsSpecPanel({ itemId, editable, onSelectItem }: {
   const [specErr, setSpecErr] = useState<string | null>(null)
   // 위임 체크가 주문을 발행·취소하므로, 체크가 바뀔 때마다 아래 진행 상황 섹션도 다시 읽는다.
   const [orderRefreshKey, setOrderRefreshKey] = useState(0)
-  // 선행(depends)·후행(역참조) 항목 — 명세와 별도 조회다(external_ref → 항목 해석이 필요하다).
-  // 실패는 'error' 로 남겨 "항목 없음"으로 위장하지 않는다.
-  const [links, setLinks] = useState<WbsSpecLinks | 'error' | null>(null)
+  // 명세 접기 — 본문(요구사항 마크다운·수용 기준·진행 이력)이 패널 높이의 대부분을 먹는다.
+  // 기본은 펼침이다: 접힘을 기본으로 두면 에이전트 진행 상황과 승인·재작업 버튼까지 한 번 더
+  // 눌러야 보여 회귀가 된다. 항목을 옮겨도 접힘 상태는 유지한다.
+  const [bodyOpen, setBodyOpen] = useState(true)
 
   useEffect(() => {
     let alive = true
@@ -93,12 +78,6 @@ export function WbsSpecPanel({ itemId, editable, onSelectItem }: {
     return () => { alive = false }
   }, [itemId])
 
-  useEffect(() => {
-    let alive = true
-    setLinks(null)
-    getWbsSpecLinks(itemId).then(r => { if (alive) setLinks(r ?? 'error') }).catch(() => { if (alive) setLinks('error') })
-    return () => { alive = false }
-  }, [itemId])
 
   /** 반환값은 "저장이 끝났는가" — 편집 토글을 닫아도 되는지 판단하는 데 쓴다(실패면 열어 둔다). */
   async function commitRefField(field: 'prdRef' | 'entryPoint', raw: string): Promise<boolean> {
@@ -190,10 +169,16 @@ export function WbsSpecPanel({ itemId, editable, onSelectItem }: {
   return (
     <section className="rounded-xl border border-line bg-surface-2/40 p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+        <button
+          type="button"
+          onClick={() => setBodyOpen(open => !open)}
+          aria-expanded={bodyOpen}
+          className="flex min-w-0 items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle transition hover:text-ink"
+        >
+          {bodyOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           <FileText className="h-3.5 w-3.5" /> {t('wbs.specPanelTitle')}
-        </div>
-        {editable && loaded && loaded !== 'error' && (
+        </button>
+        {bodyOpen && editable && loaded && loaded !== 'error' && (
           <button
             type="button" data-spec-edit-toggle aria-pressed={fieldsEditing} disabled={refBusy}
             onClick={() => { if (fieldsEditing) void closeFieldsEditing(); else setFieldsEditing(true) }}
@@ -205,7 +190,7 @@ export function WbsSpecPanel({ itemId, editable, onSelectItem }: {
         )}
       </div>
 
-      {loaded === null ? (
+      {!bodyOpen ? null : loaded === null ? (
         <p className="mt-2 text-xs text-ink-subtle">{t('common.loading')}</p>
       ) : loaded === 'error' ? (
         <p className="mt-2 text-xs font-medium text-delayed">{t('wbs.specLoadFail')}</p>
@@ -286,26 +271,6 @@ export function WbsSpecPanel({ itemId, editable, onSelectItem }: {
           {refErr && <p className="text-xs font-medium text-delayed" role="alert">{refErr}</p>}
 
           <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} />
-
-          <SpecLinkSection
-            label={t('wbs.specDependsLabel')}
-            emptyText={t('wbs.specDependsNone')}
-            links={links === 'error' ? 'error' : links?.predecessors ?? null}
-            refs={loaded.depends}
-            showReadiness
-            onSelectItem={onSelectItem}
-            t={t}
-          />
-
-          <SpecLinkSection
-            label={t('wbs.specSuccessorsLabel')}
-            emptyText={t('wbs.specSuccessorsNone')}
-            links={links === 'error' ? 'error' : links?.successors ?? null}
-            refs={null}
-            showReadiness={false}
-            onSelectItem={onSelectItem}
-            t={t}
-          />
 
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
@@ -522,124 +487,3 @@ function RefField({
   )
 }
 
-/** 명세 선행·후행 목록 한 섹션 — 항목별 단계 배지와(선행이면) 충족 배지, 클릭 시 그 작업으로 이동.
- *  로딩 중에는 depends 원문(refs)을 그대로 보여 화면이 비지 않게 하고, 조회 실패는 그대로 드러낸다. */
-function SpecLinkSection({
-  label, emptyText, links, refs, showReadiness, onSelectItem, t,
-}: {
-  label: string
-  emptyText: string
-  /** null=로딩 중, 'error'=조회 실패, 배열=해석 결과. */
-  links: SpecLinkItem[] | 'error' | null
-  /** 로딩 중 자리표시로 쓸 external_ref 원문(선행만). */
-  refs: string[] | null
-  showReadiness: boolean
-  onSelectItem?: (id: string) => void
-  t: (k: DictKey) => string
-}) {
-  if (links === 'error') {
-    return (
-      <div>
-        <div className="mb-1 text-[11px] font-semibold text-ink-muted">{label}</div>
-        <p className="text-xs font-medium text-delayed" role="alert">{t('wbs.specLoadFail')}</p>
-      </div>
-    )
-  }
-  if (links === null) {
-    return (
-      <div>
-        <div className="mb-1 text-[11px] font-semibold text-ink-muted">{label}</div>
-        {refs && refs.length > 0 ? (
-          <ul className="flex flex-wrap gap-1.5">
-            {refs.map(ref => (
-              <li key={ref} title={ref} className="chip border border-line text-ink-subtle">{lastSegment(ref)}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-ink-subtle">…</p>
-        )}
-      </div>
-    )
-  }
-
-  const readiness = showReadiness ? specStartReadiness(links) : null
-
-  return (
-    <div>
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-1.5">
-        <span className="text-[11px] font-semibold text-ink-muted">{label}</span>
-        {readiness && links.length > 0 && (
-          readiness.unknownCount > 0 ? (
-            <span className="rounded-full border border-delayed/35 bg-delayed-weak px-2 py-0.5 text-[10px] font-bold text-delayed" role="status">
-              {t('wbs.startUnknown').replace('{n}', String(readiness.unknownCount))}
-            </span>
-          ) : readiness.waitingCount > 0 ? (
-            <span className="rounded-full border border-pending/35 bg-pending-weak px-2 py-0.5 text-[10px] font-bold text-pending" role="status">
-              {t('wbs.startBlocked').replace('{n}', String(readiness.waitingCount))}
-            </span>
-          ) : (
-            <span className="rounded-full border border-done/35 bg-done-weak px-2 py-0.5 text-[10px] font-bold text-done" role="status">
-              {t('wbs.startReady')}
-            </span>
-          )
-        )}
-      </div>
-      {links.length === 0 ? (
-        <p className="text-xs text-ink-subtle">{emptyText}</p>
-      ) : (
-        <ul className="space-y-1">
-          {links.map(link => <SpecLinkRow key={link.ref} link={link} showState={showReadiness} onSelectItem={onSelectItem} t={t} />)}
-        </ul>
-      )}
-    </div>
-  )
-}
-
-const SPEC_STATE_STYLE = {
-  satisfied: { label: 'wbs.depSatisfied' as DictKey, cls: 'border-done/35 bg-done-weak text-done' },
-  waiting: { label: 'wbs.depWaiting' as DictKey, cls: 'border-pending/35 bg-pending-weak text-pending' },
-  unknown: { label: 'wbs.depUnknown' as DictKey, cls: 'border-delayed/35 bg-delayed-weak text-delayed' },
-}
-
-function SpecLinkRow({
-  link, showState, onSelectItem, t,
-}: {
-  link: SpecLinkItem
-  showState: boolean
-  onSelectItem?: (id: string) => void
-  t: (k: DictKey) => string
-}) {
-  const state = specLinkState(link)
-  const stageLabel = link.stage && SPEC_STAGE_KEYS[link.stage]
-    ? t(SPEC_STAGE_KEYS[link.stage])
-    : link.itemId ? t('wbs.stageNoneOption') : null
-  const caption = link.name ?? lastSegment(link.ref)
-  const label = (
-    <>
-      <span className="mr-1 text-ink-subtle">{link.code ?? lastSegment(link.ref)}</span>
-      {link.name}
-    </>
-  )
-  return (
-    <li className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2 py-1.5 text-xs">
-      {link.itemId && onSelectItem ? (
-        <button
-          type="button"
-          onClick={() => onSelectItem(link.itemId!)}
-          className="min-w-0 flex-1 truncate text-left text-ink underline-offset-2 transition hover:text-brand hover:underline"
-          title={`${caption} — ${t('wbs.openTaskDetail')}`}
-        >
-          {label}
-        </button>
-      ) : (
-        <span className="min-w-0 flex-1 truncate text-ink-subtle" title={link.ref}>{lastSegment(link.ref)}</span>
-      )}
-      {stageLabel && <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted">{stageLabel}</span>}
-      {showState && (
-        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${SPEC_STATE_STYLE[state].cls}`}>
-          {t(SPEC_STATE_STYLE[state].label)}
-        </span>
-      )}
-    </li>
-  )
-}

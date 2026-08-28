@@ -264,6 +264,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specDependsNone': 'No dependencies',
   'wbs.specSuccessorsLabel': 'Successor items',
   'wbs.specSuccessorsNone': 'No successor items',
+  'wbs.specLinksTitle': 'Predecessors & successors',
+  'wbs.specLinksLoadFail': 'Could not load linked items. Reopen the panel.',
   'wbs.specAcceptanceLabel': 'Acceptance criteria',
   'wbs.specAcceptanceNone': 'No acceptance criteria',
   'wbs.specAcceptanceHint': 'Source of truth is file import — read-only here.',
