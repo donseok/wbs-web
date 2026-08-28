@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, ProjectMember, TaskDependency } from '@/lib/domain/types'
 import { actorFromView, isProjectAdmin, type ProjectActorView } from '@/lib/domain/authz'
@@ -702,6 +702,17 @@ export function WbsGanttSheet({
   // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시 —
   // itemById(전체 펼침 flatten 색인)가 모든 노드를 담고 있어 트리 재귀 탐색이 불필요하다.
   const selectedItem = selectedId ? itemById.get(selectedId) ?? null : null
+
+  // 상세 패널의 선행·후속 항목 클릭 — 대상이 접힌 구간이나 완료 숨김 뒤에 있어도
+  // 조상 경로를 임시로 펼쳐 표에서 같이 보이게 한 뒤 선택을 옮긴다(focus 딥링크와 같은 계열).
+  const selectLinkedItem = useCallback((id: string) => {
+    const path = ancestorPath(items, id)
+    if (path?.length) setForcedOpen(prev => new Set([...prev, ...path]))
+    if (path && hideDone && (hideDoneResult.hiddenIds.has(id) || path.some(p => hideDoneResult.hiddenIds.has(p)))) {
+      setHideExempt(prev => new Set([...prev, ...path, id]))
+    }
+    setSelectedId(id)
+  }, [hideDone, hideDoneResult, items])
 
   /* ── 날짜 스케일 ── */
   const allDates = items.flatMap(function dates(n): string[] {
@@ -1920,6 +1931,7 @@ export function WbsGanttSheet({
           levelLabels={levelLabels}
           maxDepth={maxDepth}
           members={members}
+          onSelectItem={selectLinkedItem}
         />
       )}
     </div>

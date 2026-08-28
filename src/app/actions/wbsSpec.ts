@@ -117,6 +117,107 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
   }
 }
 
+export interface SpecLinkItem {
+  /** external_ref 원문(<module>/<id>). 해석 실패해도 이 값은 남는다. */
+  ref: string
+  /** wbs_items.id(uuid). 화면 이동 콜백이 쓰는 키. 해석 실패 시 null. */
+  itemId: string | null
+  code: string | null
+  name: string | null
+  stage: string | null
+  actualPct: number | null
+}
+
+export interface WbsSpecLinks {
+  /** depends 를 해석한 선행 항목. depends 배열 순서를 유지하고, 못 찾은 ref 도 자리를 남긴다. */
+  predecessors: SpecLinkItem[]
+  /** 이 항목의 external_ref 를 depends 에 담은 작업들(code 오름차순). */
+  successors: SpecLinkItem[]
+}
+
+type LinkRow = {
+  id: string
+  code: string | null
+  name: string | null
+  stage: string | null
+  actual_pct: number | null
+  external_ref: string | null
+}
+
+function toLinkItem(ref: string, row: LinkRow | undefined): SpecLinkItem {
+  if (!row) return { ref, itemId: null, code: null, name: null, stage: null, actualPct: null }
+  return {
+    ref,
+    itemId: row.id,
+    code: row.code ?? null,
+    name: row.name ?? null,
+    stage: row.stage ?? null,
+    actualPct: row.actual_pct === null || row.actual_pct === undefined ? null : Number(row.actual_pct),
+  }
+}
+
+const LINK_COLUMNS = 'id, code, name, stage, actual_pct, external_ref'
+
+/**
+ * 명세 선행(depends)·후행(역참조) 항목 조회 — 명세 본문과 별도 조회다.
+ * depends 는 external_ref 문자열이라 화면이 클릭 이동(= wbs_items.id)에 쓰려면 해석이 필요하다.
+ *
+ * 실패는 null — getWbsSpec 과 같은 3원칙 ①. "조회 실패"를 빈 배열로 돌려주면
+ * 화면이 "선행 없음 → 지금 시작해도 됨"으로 조용히 뒤집힌다. 정상 0건만 빈 배열이다.
+ */
+export async function getWbsSpecLinks(itemId: string): Promise<WbsSpecLinks | null> {
+  if (!isUuidLike(itemId)) return null
+  const resolved = await resolveProjectId('wbs_items', itemId)
+  if (!resolved.ok) {
+    console.error('[getWbsSpecLinks] 프로젝트 조회 실패:', resolved.error)
+    return null
+  }
+  const g = await requireProjectMember(resolved.projectId)
+  if (!g.ok) {
+    console.error('[getWbsSpecLinks] 권한 없음:', g.error)
+    return null
+  }
+  const sb = await createServerClient()
+  const { data: selfRow, error: selfErr } = await sb
+    .from('wbs_items').select('depends, external_ref').eq('id', itemId).maybeSingle()
+  if (selfErr) {
+    console.error('[getWbsSpecLinks] 항목 조회 실패:', selfErr.message)
+    return null
+  }
+  if (!selfRow) return null
+  const self = selfRow as { depends: string[] | null; external_ref: string | null }
+  const depends = self.depends ?? []
+  const externalRef = self.external_ref
+
+  const [predecessorResult, successorResult] = await Promise.all([
+    depends.length
+      ? sb.from('wbs_items').select(LINK_COLUMNS).eq('project_id', resolved.projectId).in('external_ref', depends)
+      : Promise.resolve({ data: [] as LinkRow[], error: null }),
+    externalRef
+      ? sb.from('wbs_items').select(LINK_COLUMNS).eq('project_id', resolved.projectId).contains('depends', [externalRef])
+      : Promise.resolve({ data: [] as LinkRow[], error: null }),
+  ])
+  if (predecessorResult.error) {
+    console.error('[getWbsSpecLinks] 선행 조회 실패:', predecessorResult.error.message)
+    return null
+  }
+  if (successorResult.error) {
+    console.error('[getWbsSpecLinks] 후행 조회 실패:', successorResult.error.message)
+    return null
+  }
+
+  const byRef = new Map<string, LinkRow>()
+  ;((predecessorResult.data ?? []) as LinkRow[]).forEach(row => {
+    if (row.external_ref) byRef.set(row.external_ref, row)
+  })
+  const predecessors = depends.map(ref => toLinkItem(ref, byRef.get(ref)))
+  const successors = ((successorResult.data ?? []) as LinkRow[])
+    .map(row => toLinkItem(row.external_ref ?? row.id, row))
+    .sort((a, b) => (a.code ?? '').localeCompare(b.code ?? ''))
+
+  return { predecessors, successors }
+}
+
 export async function updateWbsSpec(itemId: string, spec: string): Promise<{ ok: boolean; error?: string }> {
   if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
   if (typeof spec !== 'string') return { ok: false, error: '잘못된 요청입니다.' }

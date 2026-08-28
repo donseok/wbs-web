@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { FileText, Pencil } from 'lucide-react'
-import { getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields, type WbsPriority, type WbsSpecDetail } from '@/app/actions/wbsSpec'
+import { ChevronDown, ChevronRight, FileText, Pencil } from 'lucide-react'
+import {
+  getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
+  type WbsPriority, type WbsSpecDetail,
+} from '@/app/actions/wbsSpec'
 import {
   approveAgentCompletion, getAgentOrderForItem, rejectAgentCompletion,
   requestAgentRework, unapproveAgentCompletion,
@@ -29,16 +32,10 @@ const PRIORITY_KEYS: Record<WbsPriority, DictKey> = {
   medium: 'wbs.specPriorityMedium', low: 'wbs.specPriorityLow',
 }
 
-/** depends 항목은 external_ref 형식(<module>/<id>) — 마지막 세그먼트만 표시, 전체는 title 로. */
-function lastSegment(ref: string): string {
-  const idx = ref.lastIndexOf('/')
-  return idx === -1 ? ref : ref.slice(idx + 1)
-}
-
 /**
  * WBS 명세 패널(Task 12A, 결정 B) — 스칼라 배지(category·domain·priority·model·tags),
- * 참조 필드 인라인 편집(prd_ref·entry_point·priority), depends 목록(external_ref 마지막
- * 세그먼트 표시), acceptance 체크리스트(읽기 전용 — 정본은 import), spec 마크다운
+ * 참조 필드 인라인 편집(prd_ref·entry_point·priority), acceptance 체크리스트(읽기 전용 —
+ * 정본은 import), spec 마크다운
  * (보기 모드 = MarkdownView 렌더 / 편집 모드 = textarea + 저장).
  *
  * WbsAssigneeStagePanel 의 섹션으로 편입된다 — 별도 오버레이 금지(리뷰 라운드 1 결함 재발 방지:
@@ -64,6 +61,10 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
   const [specErr, setSpecErr] = useState<string | null>(null)
   // 위임 체크가 주문을 발행·취소하므로, 체크가 바뀔 때마다 아래 진행 상황 섹션도 다시 읽는다.
   const [orderRefreshKey, setOrderRefreshKey] = useState(0)
+  // 명세 접기 — 본문(요구사항 마크다운·수용 기준·진행 이력)이 패널 높이의 대부분을 먹는다.
+  // 기본은 펼침이다: 접힘을 기본으로 두면 에이전트 진행 상황과 승인·재작업 버튼까지 한 번 더
+  // 눌러야 보여 회귀가 된다. 항목을 옮겨도 접힘 상태는 유지한다.
+  const [bodyOpen, setBodyOpen] = useState(true)
 
   useEffect(() => {
     let alive = true
@@ -76,6 +77,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     })
     return () => { alive = false }
   }, [itemId])
+
 
   /** 반환값은 "저장이 끝났는가" — 편집 토글을 닫아도 되는지 판단하는 데 쓴다(실패면 열어 둔다). */
   async function commitRefField(field: 'prdRef' | 'entryPoint', raw: string): Promise<boolean> {
@@ -167,10 +169,16 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
   return (
     <section className="rounded-xl border border-line bg-surface-2/40 p-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+        <button
+          type="button"
+          onClick={() => setBodyOpen(open => !open)}
+          aria-expanded={bodyOpen}
+          className="flex min-w-0 items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle transition hover:text-ink"
+        >
+          {bodyOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           <FileText className="h-3.5 w-3.5" /> {t('wbs.specPanelTitle')}
-        </div>
-        {editable && loaded && loaded !== 'error' && (
+        </button>
+        {bodyOpen && editable && loaded && loaded !== 'error' && (
           <button
             type="button" data-spec-edit-toggle aria-pressed={fieldsEditing} disabled={refBusy}
             onClick={() => { if (fieldsEditing) void closeFieldsEditing(); else setFieldsEditing(true) }}
@@ -182,7 +190,7 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
         )}
       </div>
 
-      {loaded === null ? (
+      {!bodyOpen ? null : loaded === null ? (
         <p className="mt-2 text-xs text-ink-subtle">{t('common.loading')}</p>
       ) : loaded === 'error' ? (
         <p className="mt-2 text-xs font-medium text-delayed">{t('wbs.specLoadFail')}</p>
@@ -263,19 +271,6 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           {refErr && <p className="text-xs font-medium text-delayed" role="alert">{refErr}</p>}
 
           <WbsAgentOrderStatus itemId={itemId} editable={editable} refreshKey={orderRefreshKey} />
-
-          <div>
-            <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.specDependsLabel')}</div>
-            {loaded.depends.length === 0 ? (
-              <p className="text-xs text-ink-subtle">{t('wbs.specDependsNone')}</p>
-            ) : (
-              <ul className="flex flex-wrap gap-1.5">
-                {loaded.depends.map(dep => (
-                  <li key={dep} title={dep} className="chip border border-line text-ink-subtle">{lastSegment(dep)}</li>
-                ))}
-              </ul>
-            )}
-          </div>
 
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
@@ -491,3 +486,4 @@ function RefField({
     </label>
   )
 }
+
