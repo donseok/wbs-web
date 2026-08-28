@@ -118,7 +118,7 @@ export async function agentMemberRole(
   return (roles[0] as { role: string }).role as 'admin' | 'member'
 }
 
-export const AGENT_CONTRACT_VERSION = '2.1'
+export const AGENT_CONTRACT_VERSION = '2.2'
 
 export type AgentPrincipal =
   | { kind: 'legacy' }

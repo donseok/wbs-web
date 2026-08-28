@@ -8,7 +8,7 @@ set -u
 
 # 이 스킬이 기대하는 계약 버전. doctor 는 major 만 본다 — 서버가 minor 를 올리는 것은
 # additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
-CONTRACT_VERSION=2.1
+CONTRACT_VERSION=2.2
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"

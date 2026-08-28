@@ -1,6 +1,23 @@
-# D'Flow Agent API 계약 v2.1
+# D'Flow Agent API 계약 v2.2
 
-`contract_version: "2.1"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영.
+`contract_version: "2.2"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영.
+
+## v2.2 변경점 (2026-08-28)
+
+전부 **additive** 다 — 기존 요청은 응답이 그대로이고 클라이언트를 고칠 필요가 없다.
+세 가지 모두 v2.1 시기에 서버에 들어갔는데 버전을 안 올려 계약이 코드보다 뒤처져 있었다
+(2026-08-27 감사에서 드러남). 이번에 버전을 올리며 문서에 반영한다.
+
+| # | 변경 | v2.1 | v2.2 |
+|---|---|---|---|
+| 1 | 목록 status 필터 | `ready` 고정 | `?status=` 로 지정(쉼표로 여럿). 미지정은 종전대로 `ready`. 허용값은 `ready\|claimed\|reported\|approved\|cancelled`, 그 밖은 400 — 조용히 버리면 오타가 "그 상태의 주문이 없다"로 위장한다. **`approved`·`cancelled` 를 돌려주는 첫 목록 경로다**: 종전에는 주문 id 를 이미 알아야만 그 주문을 볼 수 있었다 |
+| 2 | 상세의 보고 evidence | 미노출 | `GET /work/{id}` 의 `reports[]` 에 `evidence` 포함 — **PAT 호출만**(`depends_evidence` 와 같은 규칙). 완료 보고가 증적을 실었는지를 DB 직접 조회 없이 볼 수 있다 |
+| 3 | depends 도달 축 | `stage` 만 | `depends_evidence[]` 에 `order_approved:boolean` 추가. claim 게이트가 `stage ≥ im` **또는** `order_approved` 로 판정한다 — 재발행을 겪은 선행은 현재 주문이 `ready` 여도 과거 승인이 있으면 `true` 다 |
+
+⚠️ **`order_approved` 는 여전히 키 존재 여부로 지원을 가른다**(`'order_approved' in d`).
+2.1 서버가 현장에 남아 있고, 그 중에는 이 키를 이미 내려주는 것도 안 내려주는 것도 있다 —
+버전만 보고 단정하면 틀린다. 키가 없으면 `false` 로 단정하지 말고 "판정 불가"로 갈라
+stage 축만으로 판정하고 그 사실을 한 줄 남긴다.
 
 ## v2.1 변경점 (2026-08-13)
 
@@ -30,7 +47,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 | 메서드·경로 | 신원 | 요지 |
 |---|---|---|
-| GET `/api/v1/agent/work?project_id=` | legacy·pat | v1 계약 그대로. PAT는 멤버십·스코프 강제 |
+| GET `/api/v1/agent/work?project_id=[&status=]` | legacy·pat | v1 계약 + `status` 필터(v2.2). PAT는 멤버십·스코프 강제 |
 | GET `/api/v1/agent/work/{id}` | legacy·pat | v1 + PAT 호출 시 `mine:boolean`·`claimed_by_user_email` 추가 |
 | POST `/api/v1/agent/work/{id}/claim` | legacy·pat | PAT: `claimed_by_user_id` 서버 유도 기록. 배정 항목은 담당자만(403 `not_assignee`) |
 | POST `/api/v1/agent/work/{id}/release` | legacy·pat | 소유 판정: PAT=claimed_by_user_id, legacy=claimed_by 라벨. 교차 403 `not_claim_owner` |
@@ -47,7 +64,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.1",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — v2.1 재설계와 함께 `"2.1"`로 갱신됐다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.2"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
@@ -112,8 +129,10 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 - `GET /work/{id}`(PAT)와 `POST /work/{id}/claim` 200 응답의 `item`에 확장 필드를 포함한다:
   `external_ref·category·domain·priority·model·tags·depends·prd_ref·entry_point·acceptance·spec·stage`.
   클라이언트는 claim 성공 시 이걸로 `docs/tasks/<TSK-ID>/spec.md` 로컬 캐시를 만든다(TSK-ID = external_ref의 `/` 뒤).
-- 두 응답 모두 `depends_evidence: [{ external_ref, stage, branch|null, head_sha|null }]` 포함 —
-  각 선행 항목의 **최근 approved 주문의 completion 보고 evidence**에서 추출(없으면 null).
+- 두 응답 모두 `depends_evidence: [{ external_ref, stage, branch|null, head_sha|null, order_approved }]`
+  포함 — 각 선행 항목의 **approved 주문의 completion 보고 evidence**에서 추출(없으면 null).
+  `order_approved`(v2.2)는 그 선행에 `status='approved'` 주문이 하나라도 있는지다. 최신 주문이
+  아니라 "아무 approved 주문" 이라 재발행을 겪은 선행에서도 승인 사실이 살아남는다.
 - **서버 선행 게이트**: claim 시 depends의 선행 항목 중 `stage`가 `im` 이상(`im`·`xx`)이 아닌 것이 하나라도 있으면
   403 `dependency_not_met` + `unmet: [{external_ref, stage}]`. 선행 external_ref가 프로젝트에 없거나 stage가 null이면 미충족(fail-closed).
   dflow.sh 는 이 403 을 바디 `code` 로 판독해 **exit 4**(선행·상태로 인한 진행 불가)로 낸다 — 권한 403(exit 5)과 처방이 다르기 때문이다(구조 필드 판독이므로 "산문 파싱 금지" 위반이 아니다).

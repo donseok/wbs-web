@@ -61,8 +61,9 @@ cd dflow-kit && ./install.sh <대상 리포 경로>
 ln -s /path/to/wbs-web/.claude/skills/dflow-work <대상리포>/.claude/skills/dflow-work
 ```
 
-⚠️ 정본은 `wbs-web/.claude/skills/` 뿐이다. `docs/agent/claude-skill/` 아래 사본은
-낡은 잔재이므로 링크 대상으로 쓰지 않는다.
+⚠️ 정본은 `wbs-web/.claude/skills/` 뿐이다. `docs/agent/claude-skill/dflow-work/` 아래에
+사본이 있었으나 정본과 갈라진 채 낡아 2026-08-28 에 지웠다(포인터 README 만 남겼다).
+옛 안내를 보고 그 경로를 링크 대상으로 쓰지 않는다.
 
 ### 4단계: 설치 확인
 
@@ -254,4 +255,4 @@ dflow.sh show <순번>
 ---
 
 **마지막 업데이트**: 2026-08-28
-**API 계약 버전**: 2.1
+**API 계약 버전**: 2.2

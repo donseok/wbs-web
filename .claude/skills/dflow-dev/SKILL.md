@@ -111,8 +111,9 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      막는다"가 된다. 재발행을 겪은 선행은 현재 주문이 ready 여도 과거 승인이 있으면
      `order_approved` 가 true 다 — 현재 주문 status 로 판정하면 그 승인을 영영 못 본다.
      - `order_approved` 는 **키 존재 여부로 지원을 가른다**(`'order_approved' in d`).
-       `contract_version` 으로는 못 가른다 — 서버가 스키마를 넓히며 버전을 안 올려 양쪽 다
-       2.1 이다. **키가 아예 없으면 옛 서버다: `false` 로 단정하지 말고 "판정 불가"로 갈라
+       `contract_version` 으로는 못 가른다 — 이 필드가 들어간 뒤로도 한동안 버전을 안 올려
+       2.1 서버 중에 키를 주는 것과 안 주는 것이 섞여 있다(2.2 부터 계약에 명시됐다).
+       **키가 아예 없으면 옛 서버다: `false` 로 단정하지 말고 "판정 불가"로 갈라
        stage 축만으로 판정하고 그 사실을 한 줄 남긴다.**
      - 선행 완료 + `head_sha` 있음:
        `git fetch origin && git merge-base --is-ancestor <head_sha> origin/<기본브랜치>` —

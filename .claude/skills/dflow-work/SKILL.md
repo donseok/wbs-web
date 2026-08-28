@@ -21,7 +21,7 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    성공(exit 0) 출력:
    ```
    base: https://d-flow.example.com
-   프로필 1: alice@example.com (계약 2.1, 프로젝트 3)
+   프로필 1: alice@example.com (계약 2.2, 프로젝트 3)
    ```
    계약 버전은 **major 가 다를 때만** 문제다 — "계약 major 불일치" 경고가 뜨면 dflow-kit
    (스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내한다. minor 차이(서버의 additive 확장)는
