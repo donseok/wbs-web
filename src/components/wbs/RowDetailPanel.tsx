@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, FileText, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
+import { X, FileText, Pencil, Plus, ChevronUp, ChevronDown, ChevronRight, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
 import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, ProjectMember, TaskDependency, TeamCode } from '@/lib/domain/types'
 import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
 import { evaluateStartReadiness, type PredecessorState } from '@/lib/domain/dependencyReadiness'
@@ -14,6 +14,7 @@ import { canAddChild, canSplit } from '@/lib/domain/wbsAffordance'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1, fmtSize } from '@/lib/domain/format'
+import { DependencyEgoGraph, type EgoNode } from './DependencyEgoGraph'
 import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, StatusChip, fmtDate, teamStyle } from './shared'
 import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
 import { ChangeHistoryList } from './ChangeHistoryList'
@@ -72,6 +73,10 @@ export function RowDetailPanel({
   const [delivBusy, setDelivBusy] = useState(false)
   const [delivErr, setDelivErr] = useState<string | null>(null)
   const [dependencyOpen, setDependencyOpen] = useState(false)
+  // 기본은 목록 — 그래프는 전체를 한눈에 보고 싶을 때 켠다. 세션 상태로만 둔다(저장 안 함).
+  const [depView, setDepView] = useState<'list' | 'graph'>('list')
+  // 명세 챕터와 같은 접기. 기본은 펼침 — 접힘이 기본이면 시작 가능 배너까지 한 번 더 눌러야 보인다.
+  const [depBodyOpen, setDepBodyOpen] = useState(true)
   const [predecessorId, setPredecessorId] = useState('')
   const [dependencyType, setDependencyType] = useState<DependencyType>('FS')
   const [lagDays, setLagDays] = useState('0')
@@ -124,6 +129,32 @@ export function RowDetailPanel({
     ),
     [item.id, item.rolledActualPct, item.stage, incomingDependencies, itemById, unresolvedRefs],
   )
+  const relationBadge = (dep: TaskDependency) => `${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`
+  const egoPredecessors = useMemo<EgoNode[]>(() => [
+    ...incomingDependencies.map(dep => ({
+      key: dep.id,
+      item: itemById.get(dep.predecessorId) ?? null,
+      state: readiness.byDependencyId.get(dep.id) ?? 'unknown',
+      imported: dep.origin === 'spec',
+      badge: relationBadge(dep),
+    })),
+    // 목록 뷰와 같은 재료를 쓴다 — 그래프에서 빠지면 그 뷰에서만 위장이 되살아난다.
+    ...unresolvedRefs.map(ref => ({
+      key: `unresolved:${ref}`,
+      item: null,
+      fallbackLabel: lastRefSegment(ref),
+      state: 'unknown' as const,
+      imported: true,
+      badge: 'FS',
+    })),
+  ], [incomingDependencies, itemById, readiness, unresolvedRefs])
+  const egoSuccessors = useMemo<EgoNode[]>(() => outgoingDependencies.map(dep => ({
+    key: dep.id,
+    item: itemById.get(dep.successorId) ?? null,
+    state: null,
+    imported: dep.origin === 'spec',
+    badge: relationBadge(dep),
+  })), [outgoingDependencies, itemById])
   const predecessorCandidates = useMemo(() => {
     // 이미 연결된 선행은 후보에서 뺀다 — 단 **실제 행(manual)만** 센다.
     // wbs.md 에서 합성된 선행까지 빼면 그 쌍에 FS/SS·lag 를 얹을 길이 사라진다(병합 전에는 되던 일).
@@ -370,15 +401,37 @@ export function RowDetailPanel({
           {!editing && (
             <section className="rounded-xl border border-line bg-surface-2/40 p-3" aria-label={t('wbs.dependencies')}>
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                <button
+                  type="button"
+                  onClick={() => setDepBodyOpen(open => !open)}
+                  aria-expanded={depBodyOpen}
+                  className="flex min-w-0 items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle transition hover:text-ink"
+                >
+                  {depBodyOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   <GitBranch className="h-3.5 w-3.5" /> {t('wbs.dependencies')}
-                </div>
+                </button>
+                {depBodyOpen && (
                 <div className="flex items-center gap-1.5">
                   {schedule?.critical && (
                     <span className="rounded-full border border-delayed/35 bg-delayed-weak px-2 py-0.5 text-[10px] font-bold text-delayed">
                       {t('wbs.criticalPath')}
                     </span>
                   )}
+                  <div className="flex overflow-hidden rounded-md border border-line" role="group" aria-label={t('wbs.dependencies')}>
+                    {(['list', 'graph'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setDepView(mode)}
+                        aria-pressed={depView === mode}
+                        className={`h-7 px-2 text-[11px] transition ${
+                          depView === mode ? 'bg-brand-weak font-semibold text-brand' : 'text-ink-muted hover:text-ink'
+                        }`}
+                      >
+                        {t(mode === 'list' ? 'wbs.depViewList' : 'wbs.depViewGraph')}
+                      </button>
+                    ))}
+                  </div>
                   {editable && (
                     <button
                       type="button"
@@ -390,8 +443,11 @@ export function RowDetailPanel({
                     </button>
                   )}
                 </div>
+                )}
               </div>
 
+              {depBodyOpen && (
+              <>
               {schedule && (schedule.forecastStart !== schedule.plannedStart || schedule.forecastEnd !== schedule.plannedEnd) && (
                 <div className="mt-2 rounded-lg border border-pending/25 bg-pending-weak px-2.5 py-2 text-[11px] text-pending" role="status">
                   <div className="flex items-center justify-between gap-2 font-semibold">
@@ -429,6 +485,21 @@ export function RowDetailPanel({
               </div>
               )}
 
+              {depView === 'graph' ? (
+                <div className="mt-2">
+                  <DependencyEgoGraph
+                    item={item}
+                    predecessors={egoPredecessors}
+                    successors={egoSuccessors}
+                    onOpen={onSelectItem}
+                    critical={schedule?.critical ?? false}
+                    t={t}
+                  />
+                  {egoPredecessors.length === 0 && egoSuccessors.length === 0 && (
+                    <p className="mt-2 text-xs text-ink-subtle">{t('wbs.noPredecessors')}</p>
+                  )}
+                </div>
+              ) : (
               <div className="mt-2 space-y-2">
                 <div>
                   <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.predecessors')}</div>
@@ -495,6 +566,7 @@ export function RowDetailPanel({
                   )}
                 </div>
               </div>
+              )}
 
               {editable && dependencyOpen && (
                 <div className="mt-2 space-y-2 rounded-lg border border-line bg-surface p-2.5">
@@ -532,6 +604,8 @@ export function RowDetailPanel({
                 </div>
               )}
               {dependencyErr && <p className="mt-2 text-xs font-medium text-delayed" role="alert">{dependencyErr}</p>}
+              </>
+              )}
             </section>
           )}
 

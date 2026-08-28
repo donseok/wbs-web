@@ -146,6 +146,11 @@ export const wbsKo = {
   'wbs.depUnknown': '확인 불가',
   'wbs.depImported': '가져옴',
   'wbs.depImportedHint': 'wbs.md 로 들어온 선행 — 정본이 파일이라 화면에서 지울 수 없다',
+  'wbs.depViewList': '목록',
+  'wbs.depViewGraph': '그래프',
+  'wbs.depGraphOpenHint': '더블클릭하면 이 작업으로 이동',
+  'wbs.depGraphMore': '+{n}개 더',
+  'wbs.depGraphCollapse': '접기',
   'wbs.noSuccessors': '등록된 후속 작업이 없습니다.',
   'wbs.openTaskDetail': '이 작업의 상세 보기',
   // 빈 상태
