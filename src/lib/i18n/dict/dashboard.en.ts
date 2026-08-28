@@ -96,7 +96,7 @@ export const dashboardEn: Record<keyof typeof dashboardKo, string> = {
   'dash.issues.trendRecentWeeks': 'Last 6 weeks',
   'dash.issues.trendTableWeek': 'Week',
   'dash.issues.trendCaption': 'Last 12 weeks · weekly (Mon start) · resolved counts use the resolved date of currently resolved issues, so reopened issues drop out.',
-  'dash.issues.queueTitle': 'Overdue & due soon',
+  'dash.issues.queueTitle': 'Overdue & due soon (Issues)',
   'dash.issues.queueEmpty': 'No unresolved issues past due or due within 7 days.',
   'dash.issues.dueToday': 'Due today',
   'dash.issues.ddaySuffix': ' due',
