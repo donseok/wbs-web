@@ -10,6 +10,8 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
 
 ## 시작 절차 (매 세션 1회)
 
+0. `.env` 소싱 — `dflow.sh` 는 `.env` 를 자동 소싱하지 않는다. 수동 실행 시 매번 앞에 붙인다:
+   `set -a; . ./.env; set +a` (`poll.sh` 는 자체 소싱하므로 불필요).
 1. `dflow.sh doctor` 실행 — 모든 프로필 확인, 계약 버전 검증.
    ```bash
    dflow.sh doctor
@@ -71,7 +73,8 @@ dflow.sh claim <순번>
 선행 조건이 미충족이면 **exit 4 로 차단**된다. 이 경우 fetch/merge 후 재시도한다. 우회 금지.
 
 성공 시:
-- 아무 파일도 만들지 않는다. 명세는 `dflow.sh show <ref>` 의 `order.item.spec` 으로 읽는다 — **구현 전 반드시 읽는다** (정본은 D'Flow DB).
+- `docs/tasks/<TSK>/spec.md` 캐시가 생성된다 — **구현 전 반드시 읽는다**
+  (명세 정본은 D'Flow DB, 이 파일은 claim 시점 스냅샷. 스크립트가 끝에 `spec 캐시: <경로>` 를 출력한다).
 
 ⚠️ **브랜치는 만들어지지 않는다** — dflow.sh 는 git 브랜치를 생성하지 않는다(스크립트에 해당 코드 없음).
 `agent/<주문id 8자>-<slug>` 브랜치는 **호출자가 claim 직후 직접 만든다**:
