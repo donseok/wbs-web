@@ -23,7 +23,8 @@ import { IssueTrendCard } from './IssueTrendCard'
 import { IssueQueueCard } from './IssueQueueCard'
 import { seoulToday } from '@/lib/domain/dates'
 
-/** 경영진/PMO 대시보드 — ExecSummary 아래를 타임라인·트렌드·회의·이슈로 구성.
+/** 경영진/PMO 대시보드 — 읽기 순서(2026-08-28 재배치): 어디까지 왔나(요약·마일스톤·S-Curve·팀별)
+ *  → 지금 뭘 챙기나(WBS 큐·이슈 큐) → 이슈가 어떤 상태인가(현황·추이) → 앞으로 뭐가 있나(회의).
  *  모든 집계는 도메인 함수가 담당하고 여기서는 조립만 한다. */
 export async function DashboardView({
   items,
@@ -81,7 +82,7 @@ export async function DashboardView({
     opts: { subActTeamOrder },
   })
   const milestones = milestoneTimeline(items, today, milestoneKeywords)
-  // 이중 시계 — WBS 진척은 today(base_date 우선), 회의·회의록·이슈는 실제 오늘(섹션 D·E 주석).
+  // 이중 시계 — WBS 진척은 today(base_date 우선), 회의·이슈는 실제 오늘(섹션 D·E 주석).
   const realToday = seoulToday()
 
   return (
@@ -107,29 +108,26 @@ export async function DashboardView({
       {/* 팀별 진척 — 실행 큐로 내려가기 전에 팀 단위 진행 현황을 한눈에 */}
       <TeamProgress items={items} teams={teamsForProjectSync(projectId)} />
 
-      {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
-      <RiskWorklist items={items} projectId={projectId} today={today} />
+      {/* D. 조치 — '지금 챙길 것'을 한 줄에: 좌 WBS 실행 큐(지연·임박·뒤처짐), 우 지연·임박 이슈.
+          두 카드는 같은 문법(틴트 행 + 딥링크)이라 나란히 두면 한 번의 시선으로 스캔된다.
+          시계가 다르다 — WBS 는 today(base_date 우선, 진척 산정과 동일), 이슈는 실제 오늘(달력 기한). */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <RiskWorklist items={items} projectId={projectId} today={today} />
+        <IssueQueueCard issues={issues} projectId={projectId} today={realToday} locale={locale} />
+      </div>
 
-      {/* D. 회의 일정 — '주요 이슈·의사결정'(회의록 인사이트) 카드는 2026-08-28 사용자 요청으로 제거.
-          today 프롭은 base_date(공정율 기준일)로 고정될 수 있으므로(getComputedWbs) 쓰지 않는다 —
-          회의는 진척 산정이 아니라 실제 달력이므로 항상 실제 오늘 기준. */}
-      <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={realToday}
-        currentUserId={currentUserId} role={role} />
-
-      {/* E. 이슈 현황(2026-08-28, AI 브리핑 & 위험 신호 카드 자리) — 좌: 현황(KPI·분포·Mega별),
-          우: 등록·해결 추이 위에 지연·임박 조치 대기. 이슈 기한은 실제 달력이라 realToday.
-          이슈 0건이면 현황 카드 하나만 빈 상태로 — 빈 카드 셋을 나란히 두지 않는다. */}
-      {issues.length === 0 ? (
+      {/* E. 분석 + 일정 — 좌: 이슈 현황(KPI·상태 분포·Mega별, 세로로 길다), 우: 등록·해결 추이 위에 회의 일정.
+          우측을 두 카드로 쌓아 좌측 높이와 균형을 맞춘다(추이 카드 혼자 두면 아래가 빈다 — 목업에서 확인).
+          이슈 0건이면 추이(빈 상태)를 건너뛰고 회의 일정만 — 빈 카드를 나란히 두지 않는다.
+          회의 일정은 진척 산정이 아니라 실제 달력이므로 항상 실제 오늘 기준(base_date 금지). */}
+      <div className="grid gap-5 lg:grid-cols-2">
         <IssueStatusCard issues={issues} projectId={projectId} today={realToday} locale={locale} />
-      ) : (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <IssueStatusCard issues={issues} projectId={projectId} today={realToday} locale={locale} />
-          <div className="grid gap-5 content-start">
-            <IssueTrendCard issues={issues} today={realToday} locale={locale} />
-            <IssueQueueCard issues={issues} projectId={projectId} today={realToday} locale={locale} />
-          </div>
+        <div className="grid content-start gap-5">
+          {issues.length > 0 && <IssueTrendCard issues={issues} today={realToday} locale={locale} />}
+          <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={realToday}
+            currentUserId={currentUserId} role={role} />
         </div>
-      )}
+      </div>
     </div>
   )
 }
