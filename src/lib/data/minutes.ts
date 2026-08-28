@@ -2,11 +2,10 @@ import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type {
   ExplorerData, ExplorerLeaf, InsightKind, MeetingCategory, Minute, MinuteFile, MinuteFolder, MinuteHighlight,
-  MinuteInsight, TeamCode,
+  MinuteInsight, MinuteSignal, TeamCode,
 } from '@/lib/domain/types'
 import { ilikeOrPattern, MINUTES_TREE_LIMIT } from '@/lib/domain/minutes'
 import { folderPathOf } from '@/lib/minutes/folders'
-import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 import type { MinuteVersionListItem } from '@/components/minutes/MinuteVersionPanel'
 import type {
   MinuteWikiImpactCardProps, MinuteWikiImpactCounts, MinuteWikiImpactItem, MinuteWikiSyncStatus,

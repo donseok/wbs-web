@@ -3,7 +3,6 @@ import { getComputedWbs } from '@/lib/data/wbs'
 import { getSnapshots, recordProgressSnapshot } from '@/lib/data/snapshots'
 import { getAnnouncements } from '@/lib/data/announcements'
 import { getProjectMeetingData } from '@/lib/data/meetings'
-import { getProjectMinuteSignals } from '@/lib/data/minutes'
 import { getIssuesForDashboard } from '@/lib/data/issues'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { listProjects } from '@/app/actions/project'
@@ -20,14 +19,12 @@ import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
   const locale = await getServerLocale()
-  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, minuteSignals, issues, sb, user, membership, config] = await Promise.all([
+  const [{ items, holidays, today }, projects, announcements, snapshots, meetingData, issues, sb, user, membership, config] = await Promise.all([
     getComputedWbs(projectId),
     listProjects(),
     getAnnouncements(projectId),
     getSnapshots(projectId),
     getProjectMeetingData(projectId),
-    // 협업 카드 '최근 8건'(기본값). 위험 신호 탐지용으로 30건까지 넓혔던 창은 카드 제거(2026-08-28)와 함께 원복.
-    getProjectMinuteSignals(projectId),
     // 이슈 현황 카드 — issues 단일 쿼리 슬라이스. 같은 배치에 얹어 직렬 왕복을 늘리지 않는다.
     getIssuesForDashboard(projectId),
     createServerClient(),
@@ -61,7 +58,6 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         announcements={announcements}
         meetings={meetingData.meetings}
         meetingExceptions={meetingData.exceptions}
-        minuteSignals={minuteSignals}
         issues={issues}
         currentUserId={user?.id ?? null}
         role={effectiveLegacyRole(membership, projectId)}

@@ -18,7 +18,6 @@ import { MilestoneTimeline } from './MilestoneTimeline'
 import { MeetingSchedule } from './MeetingSchedule'
 import { RiskWorklist } from './RiskWorklist'
 import { TeamProgress } from './TeamProgress'
-import { MinuteSignals, type MinuteSignal } from './MinuteSignals'
 import { IssueStatusCard } from './IssueStatusCard'
 import { IssueTrendCard } from './IssueTrendCard'
 import { IssueQueueCard } from './IssueQueueCard'
@@ -39,7 +38,6 @@ export async function DashboardView({
   announcements = [],
   meetings = [],
   meetingExceptions = [],
-  minuteSignals = [],
   issues = [],
   currentUserId = null,
   role = null,
@@ -58,7 +56,6 @@ export async function DashboardView({
   announcements?: Announcement[]
   meetings?: Meeting[]
   meetingExceptions?: MeetingException[]
-  minuteSignals?: MinuteSignal[]
   /** 이슈 현황 카드용 슬라이스(page.tsx 의 getIssuesForDashboard). 실패 시 [] — 카드는 빈 상태를 정직하게 그린다. */
   issues?: DashboardIssue[]
   /** 회의 카드에서 작성자 본인/pmo_admin 에게 수정·삭제를 열기 위한 식별자. */
@@ -113,14 +110,11 @@ export async function DashboardView({
       {/* 실행 큐 — 진척 트렌드 아래에서 숫자형 리스크를 담당자가 바로 열어볼 수 있는 WBS 작업으로 연결 */}
       <RiskWorklist items={items} projectId={projectId} today={today} />
 
-      {/* D. 협업 현황 — 회의 일정 + 회의록 인사이트(좌우 균형).
+      {/* D. 회의 일정 — '주요 이슈·의사결정'(회의록 인사이트) 카드는 2026-08-28 사용자 요청으로 제거.
           today 프롭은 base_date(공정율 기준일)로 고정될 수 있으므로(getComputedWbs) 쓰지 않는다 —
-          회의·근태는 진척 산정이 아니라 실제 달력이므로 항상 실제 오늘 기준. */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={realToday}
-          currentUserId={currentUserId} role={role} />
-        <MinuteSignals projectId={projectId} signals={minuteSignals} />
-      </div>
+          회의는 진척 산정이 아니라 실제 달력이므로 항상 실제 오늘 기준. */}
+      <MeetingSchedule projectId={projectId} meetings={meetings} exceptions={meetingExceptions} today={realToday}
+        currentUserId={currentUserId} role={role} />
 
       {/* E. 이슈 현황(2026-08-28, AI 브리핑 & 위험 신호 카드 자리) — 좌: 현황(KPI·분포·Mega별),
           우: 등록·해결 추이 위에 지연·임박 조치 대기. 이슈 기한은 실제 달력이라 realToday.

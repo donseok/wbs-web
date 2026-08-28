@@ -55,8 +55,8 @@ export interface RiskSignal {
 }
 
 /**
- * 회의록 인사이트 신호 입력 — components/dashboard/MinuteSignals의 MinuteSignal과 구조 동일.
- * 도메인 계층이 컴포넌트 파일을 임포트하지 않도록 여기 로컬로 재선언한다(구조적 타이핑으로 호환).
+ * 회의록 인사이트 신호 입력 — domain/types 의 MinuteSignal 과 구조 동일(구조적 타이핑으로 호환).
+ * 탐지기 입력 계약을 데이터 행 타입과 분리해 두려고 로컬로 재선언한다.
  */
 export interface MinuteActionSignal {
   id: string

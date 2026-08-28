@@ -296,3 +296,10 @@ export interface MinuteInsight {
   blockIndex: number
   blockHash: string
 }
+
+/** 회의 제목·일자를 붙인 인사이트 — getProjectMinuteSignals 의 행. PPT 브리핑 팩트(ai/projectFacts)가 소비한다.
+ *  (대시보드 '주요 이슈·의사결정' 카드는 2026-08-28 제거 — 타입은 데이터 계층 계약이라 도메인에 남긴다.) */
+export interface MinuteSignal extends MinuteInsight {
+  minuteTitle: string
+  minuteDate: string
+}
