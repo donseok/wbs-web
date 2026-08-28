@@ -51,6 +51,8 @@ describe('WbsSpecPanel 에이전트 프롬프트', () => {
     getWbsSpec.mockResolvedValue(detail)
     await act(async () => { root.render(<WbsSpecPanel itemId="item-1" editable={editable} />) })
     await act(async () => {})
+    // 명세 본문은 기본 접힘(2026-08-28) — 이 파일의 관심사는 본문 안쪽이라 먼저 펼친다.
+    await act(async () => { container.querySelector<HTMLElement>('[data-spec-body-toggle]')!.click() })
   }
   /** 프롬프트 textarea 는 편집 토글 뒤에 있다(2026-08-28) — 관리자도 켜야 보인다. */
   async function openEditor() {
