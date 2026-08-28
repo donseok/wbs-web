@@ -55,8 +55,8 @@ export interface RiskSignal {
 }
 
 /**
- * 회의록 인사이트 신호 입력 — components/dashboard/MinuteSignals의 MinuteSignal과 구조 동일.
- * 도메인 계층이 컴포넌트 파일을 임포트하지 않도록 여기 로컬로 재선언한다(구조적 타이핑으로 호환).
+ * 회의록 인사이트 신호 입력 — domain/types 의 MinuteSignal 과 구조 동일(구조적 타이핑으로 호환).
+ * 탐지기 입력 계약을 데이터 행 타입과 분리해 두려고 로컬로 재선언한다.
  */
 export interface MinuteActionSignal {
   id: string
@@ -102,7 +102,7 @@ export const OVERLOAD_ACTIVE_RATIO = 2   // 활성 리프가 배정 팀 평균�
 export const OVERLOAD_ACTIVE_MIN = 4     // 표본 극소(활성 3건 이하) 팀의 비율 오탐 바닥
 export const STALE_ACTION_DAYS = 7       // 회의 액션·기한 항목 경과 기준일
 
-export const SPI_TAIL = 3          // 연속 하락 판정 표본 수 — RiskSignalCard 캐비앗 문구 보간에 공유
+export const SPI_TAIL = 3          // 연속 하락 판정 표본 수 — delay_trend 판정과 trendSparse 캐비앗이 같은 표본을 쓴다
 const SPI_PLANNED_GUARD = 5        // trend.ts spiSeries 조기 불안정 가드 미러
 const EVIDENCE_LIMIT = 8           // delayAging list limit 관례 미러
 

@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { createServerClient } from '@/lib/supabase/server'
 import type { Issue, IssueSeverity, IssueStatus } from '@/lib/domain/issues'
+import type { DashboardIssue } from '@/lib/domain/issueDashboard'
 import type { IssueMegaCode, IssueSourceType } from '@/lib/domain/issueAnalysis'
 import type {
   IssueMinuteSource,
@@ -129,6 +130,36 @@ export const getIssues = cache(async (projectId: string): Promise<Issue[]> => {
     updatedAt: r.updated_at as string,
     }
   })
+})
+
+/**
+ * 대시보드 이슈 카드용 슬라이스 — issues 단일 쿼리(담당자·회의록 출처·Major·첨부 조인 없음).
+ * getIssues 는 5쿼리 병렬이라 대시보드의 Promise.all 한 자리에 얹기엔 무겁고, 카드는 상태·심각도·
+ * 기한·해결일·Mega 코드만 쓴다. 실패는 로그 + [] (읽기 계층 관례 — silent-empty 금지, 로그 필수).
+ * 정렬은 도메인(issueQueue 등)이 하므로 DB 정렬은 안정성용 등록순만 건다.
+ */
+export const getIssuesForDashboard = cache(async (projectId: string): Promise<DashboardIssue[]> => {
+  const sb = await createServerClient()
+  const { data, error } = await sb.from('issues')
+    .select('id, issue_no, pi_issue_code, mega_code, title, status, severity, due_date, resolved_at, created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+  if (error) {
+    console.error('[getIssuesForDashboard] 조회 실패:', error.message)
+    return []
+  }
+  return (data ?? []).map((r: Record<string, unknown>) => ({
+    id: r.id as string,
+    issueNo: Number(r.issue_no),
+    piIssueCode: (r.pi_issue_code as string | null) ?? null,
+    megaCode: (r.mega_code as IssueMegaCode | null) ?? null,
+    title: r.title as string,
+    status: r.status as IssueStatus,
+    severity: r.severity as IssueSeverity,
+    dueDate: (r.due_date as string | null) ?? null,
+    resolvedAt: (r.resolved_at as string | null) ?? null,
+    createdAt: r.created_at as string,
+  }))
 })
 
 // 폼 자동완성용 Major 목록은 fetchIssueMajorProcesses 서버 액션이 단일 경로다 —

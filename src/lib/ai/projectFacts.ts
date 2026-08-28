@@ -11,12 +11,11 @@ import { getProjectMeetingData } from '@/lib/data/meetings'
 import { getProjectMinuteSignals } from '@/lib/data/minutes'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { createServerClient } from '@/lib/supabase/server'
-import type { ComputedItem, Meeting, MeetingException } from '@/lib/domain/types'
+import type { ComputedItem, Meeting, MeetingException, MinuteSignal } from '@/lib/domain/types'
 import type { SnapshotPoint } from '@/lib/domain/trend'
-import type { MinuteSignal } from '@/components/dashboard/MinuteSignals'
 import { seoulToday } from '@/lib/domain/dates'
 
-/** 위험 신호 탐지(회의 액션 경과)가 최근 8건보다 넓은 창을 본다 — dashboard/page.tsx 와 동일 값. */
+/** 위험 신호 탐지(회의 액션 경과)용 회의록 인사이트 창 — PPT 브리핑 팩트 전용 값(대시보드는 2026-08-28 이후 인사이트를 읽지 않는다). */
 export const MINUTE_SIGNAL_FETCH = 30
 
 export interface ProjectFactsSource {

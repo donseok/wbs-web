@@ -3,6 +3,7 @@
 // 이 맵만 참조한다. 5번째 상태를 추가할 때 이 파일 + 0041 check 제약만 바꾸면 되게 유지할 것.
 import type { IssueMinuteSource } from './issueMinuteSource'
 import type { IssueMegaCode, IssueMegaFilter, IssueSourceType } from './issueAnalysis'
+import { diffDaysCal } from './dashboard'
 
 export const ISSUE_STATUSES = ['open', 'in_progress', 'resolved', 'on_hold'] as const
 export type IssueStatus = (typeof ISSUE_STATUSES)[number]
@@ -101,6 +102,23 @@ export const ISSUE_SEVERITY_META: Record<
 export function isOverdue(issue: Pick<Issue, 'dueDate' | 'status'>, today: string): boolean {
   if (!issue.dueDate || issue.status === 'resolved') return false
   return issue.dueDate < today
+}
+
+/** 목록의 '남은일수' 강조 경계 — 오늘 포함 7일 이내(D-0~D-7)와 경과분을 빨강으로. */
+export const DUE_URGENT_DAYS = 7
+
+/**
+ * 오늘 기준 목표일까지 남은 달력일. 미래 양수 · 오늘 0 · 경과 음수(D+N).
+ * 목표일 없음·해결됨은 null — 카운트다운 대상이 아니다(isOverdue 와 같은 제외 규칙).
+ */
+export function dueDaysLeft(issue: Pick<Issue, 'dueDate' | 'status'>, today: string): number | null {
+  if (!issue.dueDate || issue.status === 'resolved') return null
+  return diffDaysCal(today, issue.dueDate)
+}
+
+/** 남은일수 강조 여부 — DUE_URGENT_DAYS 이내(경과 포함). null 은 표시 대상이 아니므로 false. */
+export function isDueUrgent(daysLeft: number | null): boolean {
+  return daysLeft !== null && daysLeft <= DUE_URGENT_DAYS
 }
 
 const SEVERITY_ORDER: Record<IssueSeverity, number> = { high: 0, medium: 1, low: 2 }

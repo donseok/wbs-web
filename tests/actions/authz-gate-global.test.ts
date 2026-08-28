@@ -25,7 +25,6 @@ vi.mock('@/lib/ai/projectFacts', () => ({ loadProjectFacts: vi.fn(async () => nu
 vi.mock('@/lib/ai/brief', () => ({
   briefFactsHash: vi.fn(() => 'h'), buildBriefFacts: vi.fn(() => ({})), ensureWeeklyBrief: vi.fn(async () => 'ready'),
 }))
-vi.mock('@/lib/ai/risk-brief', () => ({ ensureRiskBrief: vi.fn(async () => 'ready'), sanitizeRiskItems: vi.fn(() => []) }))
 vi.mock('@/lib/data/aiBriefs', () => ({ getAiBrief: vi.fn(async () => null) }))
 
 import type { Actor } from '@/lib/domain/authz'
@@ -37,7 +36,6 @@ import { addTeam, updateTeam, listTeamsAdmin } from '@/app/actions/teams'
 import { reindexProjectAction } from '@/app/actions/chat'
 import { curateWikiItem, mergeWikiTopics } from '@/app/actions/wiki'
 import { ensureProjectBriefAction } from '@/app/actions/brief'
-import { ensureRiskBriefAction } from '@/app/actions/risk'
 import {
   listLlmProfiles, createLlmProfile, updateLlmProfile, deleteLlmProfile,
   getLlmConfig, saveLlmConfig, testLlmConnection, type LlmProfileInput,
@@ -164,12 +162,11 @@ describe('프로젝트 쓰기는 관리자 전용 — 멤버·조회 전용은 �
     expect(createServerClient).not.toHaveBeenCalled()
   })
 
-  it('멤버는 AI 브리핑·위험 해설을 생성할 수 없다(무료 쿼터 보호, 사유는 로그)', async () => {
+  it('멤버는 AI 브리핑을 생성할 수 없다(무료 쿼터 보호, 사유는 로그)', async () => {
     signedInAs(MEMBER)
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(await ensureProjectBriefAction(PID)).toEqual({ state: 'unavailable' })
-    expect(await ensureRiskBriefAction(PID)).toEqual({ status: 'unavailable' })
-    expect(spy).toHaveBeenCalledTimes(2)
+    expect(spy).toHaveBeenCalledTimes(1)
     spy.mockRestore()
   })
 })
