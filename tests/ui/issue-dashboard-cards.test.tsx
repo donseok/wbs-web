@@ -6,7 +6,12 @@ vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a>,
 }))
 
+import { registerEn } from '@/lib/i18n/dict'
+import { EN } from '@/lib/i18n/dict/en'
 import { IssueStatusCard } from '@/components/dashboard/IssueStatusCard'
+
+// 영문 단언이 한국어 폴백으로 통과하지 않게 — 서버(i18n/server)가 하는 EN 등록을 테스트에서도 한다.
+registerEn(EN)
 import { IssueTrendCard } from '@/components/dashboard/IssueTrendCard'
 import { IssueQueueCard } from '@/components/dashboard/IssueQueueCard'
 
@@ -39,6 +44,8 @@ describe('IssueStatusCard', () => {
     expect(html).toContain('이슈 현황')
     const text = textOf(html)
     expect(text).toContain('전체 6건')
+    // 히어로 링 = 해결률 1/6 → 17%
+    expect(text).toMatch(/17% 해결률/)
     // 미해결 5 · 지연 2(ov14, ov3) · 심각 미해결 2 · 최근 7일 해결 1
     expect(text).toMatch(/미해결 5 /)
     expect(text).toMatch(/지연 2 /)
@@ -49,16 +56,27 @@ describe('IssueStatusCard', () => {
     expect(text).toMatch(/보류 1 /)
   })
 
-  it('Mega 8영역을 코드순으로 전부 그리고, 이슈 없는 영역은 –, 미분류 행은 마지막', () => {
+  it('Mega 8영역을 코드순으로 전부 미니 링 타일로 그리고, 이슈 없는 영역은 –·이슈 없음, 미분류 타일은 마지막', () => {
     const html = renderToStaticMarkup(<IssueStatusCard issues={ISSUES} projectId="p1" today={TODAY} locale="ko" />)
     const order = ['기준관리', '손익관리', '영업', '품질·설계', '생산계획', '조업', '출하', '원가', '미분류']
     const idx = order.map(n => html.indexOf(n))
     expect(idx.every(i => i >= 0)).toBe(true)
     expect([...idx].sort((a, b) => a - b)).toEqual(idx)
-    // 해결률 — 품질·설계 1/2 50%, 손익관리는 이슈 없음
-    expect(html).toContain('1/2')
-    expect(html).toContain('50%')
-    expect(textOf(html)).toMatch(/손익관리 – /)
+    const text = textOf(html)
+    // 품질·설계: 2건 중 해결 1 → 링 50%
+    expect(text).toMatch(/품질·설계 2건 · 해결 1/)
+    expect(text).toMatch(/50% 03 품질·설계/)
+    // 손익관리: 이슈 없음 → 링 자리 – + '이슈 없음'
+    expect(text).toMatch(/– 01 손익관리 이슈 없음/)
+    // 상태 점 — 열림 3건이면 열림 색 점 3개(타일 합계)
+    expect((html.match(/data-dot="open"/g) ?? []).length).toBe(3)
+  })
+
+  it('타일의 상태 점은 14개까지만 찍고 나머지는 +N 으로 알린다', () => {
+    const many = Array.from({ length: 20 }, () => issue({ megaCode: '05' }))
+    const html = renderToStaticMarkup(<IssueStatusCard issues={many} projectId="p1" today={TODAY} locale="ko" />)
+    expect((html.match(/data-dot="open"/g) ?? []).length).toBe(14)
+    expect(textOf(html)).toContain('+6')
   })
 
   it('카드 제목 액션이 이슈관리 페이지로 링크된다', () => {
@@ -78,20 +96,44 @@ describe('IssueStatusCard', () => {
     expect(html).not.toContain('최근 7일 해결')
   })
 
-  it('영문 로케일에서는 Mega 영문명을 쓴다', () => {
+  it('영문 로케일에서는 Mega 영문명과 영문 사전을 쓴다(한국어 폴백 없음)', () => {
     const html = renderToStaticMarkup(<IssueStatusCard issues={ISSUES} projectId="p1" today={TODAY} locale="en" />)
     expect(html).toContain('Master Data')
-    expect(html).not.toContain('기준관리')
+    expect(html).toContain('Total 6 items')
+    expect(textOf(html)).not.toMatch(/[가-힣]/)
+  })
+
+  it('타일 상태 점은 ISSUE_STATUSES 순(열림→진행중→해결→보류)이고 title·sr-only 가 건수를 글로 나른다', () => {
+    const html = renderToStaticMarkup(<IssueStatusCard issues={ISSUES} projectId="p1" today={TODAY} locale="ko" />)
+    // 00 기준관리 타일 = 진행중 1(ov3) + 보류 1(hold)
+    const tile = html.slice(html.indexOf('title="기준관리:'), html.indexOf('title="손익관리:'))
+    expect([...tile.matchAll(/data-dot="([a-z_]+)"/g)].map(m => m[1])).toEqual(['in_progress', 'on_hold'])
+    expect(tile).toContain('title="기준관리: 진행중 1 · 보류 1"')
+    expect(tile).toContain('<span class="sr-only">진행중 1 · 보류 1</span>')
+    // 전체 점 = 이슈 6건(미분류 포함)
+    expect((html.match(/data-dot="/g) ?? []).length).toBe(6)
   })
 })
 
 describe('IssueTrendCard', () => {
-  it('SVG 접근성 라벨에 등록·해결 누적 끝값을 담고 끝점 라벨을 그린다', () => {
+  it('SVG 접근성 라벨에 등록·해결·미해결 끝값을 담고, 끝점 라벨은 미해결 잔량 하나', () => {
     const html = renderToStaticMarkup(<IssueTrendCard issues={ISSUES} today={TODAY} locale="ko" />)
     expect(html).toContain('<svg')
-    expect(html).toMatch(/aria-label="[^"]*등록 누적 6[^"]*해결 누적 1/)
-    expect(html).toContain('등록 6')
-    expect(html).toContain('해결 1')
+    expect(html).toMatch(/aria-label="[^"]*등록 누적 6[^"]*해결 누적 1[^"]*미해결 5/)
+    // 끝점 라벨은 svg text 로(aria 가 아니라) 그려진다
+    expect(html).toMatch(/<text[^>]*>미해결 5<\/text>/)
+    // 면(area) = 미해결 잔량 — 그라데이션 채움을 참조하는 닫힌 path, 등록 누적은 점선
+    expect(html).toMatch(/<path d="M[^"]+ Z" fill="url\(#issue-backlog-wash\)"/)
+    expect(html).toMatch(/<path[^>]*class="stroke-ink-muted"[^>]*stroke-dasharray="3 3"/)
+  })
+
+  it('이번 주 등록·해결·미해결 잔량 타일을 붙인다', () => {
+    const html = renderToStaticMarkup(<IssueTrendCard issues={ISSUES} today={TODAY} locale="ko" />)
+    const text = textOf(html)
+    // 표본: 이번 주(8.24~) 등록 0 · 해결 1(26일) · 잔량 5
+    expect(text).toMatch(/이번 주 등록 0 건/)
+    expect(text).toMatch(/이번 주 해결 1 건/)
+    expect(text).toMatch(/미해결 잔량 5 건/)
   })
 
   it('x축에 첫 주와 마지막 주 시작일을 표기한다(12주)', () => {
@@ -100,12 +142,11 @@ describe('IssueTrendCard', () => {
     expect(html).toContain('26.08.24')
   })
 
-  it('등록 == 해결(백로그 0)이면 끝점 라벨 둘을 세로로 떼어 겹치지 않게 그린다', () => {
+  it('전량 해결(백로그 0)이어도 미해결 라벨은 축 위에 남고 면은 그려지지 않는다', () => {
     const allResolved = Array.from({ length: 10 }, () => issue({ status: 'resolved', resolvedAt: '2026-08-20T00:00:00+00:00' }))
     const html = renderToStaticMarkup(<IssueTrendCard issues={allResolved} today={TODAY} locale="ko" />)
-    const ys = [...html.matchAll(/<text x="[^"]+" y="([^"]+)" font-size="10"/g)].map(m => Number(m[1]))
-    expect(ys).toHaveLength(2)
-    expect(Math.abs(ys[0] - ys[1])).toBeGreaterThanOrEqual(11)
+    expect(html).toContain('미해결 0')
+    expect(html).toContain('<linearGradient')
   })
 
   it('건수가 커도 y축 눈금은 8개를 넘지 않는다(눈금 겹침 방지)', () => {
@@ -121,8 +162,10 @@ describe('IssueTrendCard', () => {
     expect(html).toContain('<table')
     expect((html.match(/<tr/g) ?? []).length).toBe(7) // 헤더 1 + 6주
     expect(html).toContain('최근 6주')
-    // 마지막 주(8.24~8.30): 등록 0 · 해결 1(26일) · 미해결 5
-    expect(textOf(html)).toMatch(/26\.08\.24[^<]*?\b0\b[^<]*?\b1\b[^<]*?\b5\b/)
+    // 마지막 주(8.24~8.30) 행: 등록 0 · 해결 1(26일) · 미해결 5 — 표 본문만 본다(축 라벨·타일 구간 제외)
+    const table = html.slice(html.indexOf('<table'), html.indexOf('</table>'))
+    const lastRow = textOf(table.slice(table.lastIndexOf('<tr')))
+    expect(lastRow).toMatch(/^ ?26\.08\.24 0 1 5 ?$/)
   })
 
   it('이슈 0건이면 차트 대신 빈 상태', () => {
