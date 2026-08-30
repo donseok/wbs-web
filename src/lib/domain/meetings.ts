@@ -1,5 +1,6 @@
 import type { Meeting, MeetingCategory, MeetingException, MeetingOccurrence, MeetingRecurrence } from '@/lib/domain/types'
 import { addDaysIso } from './dates'
+import { compareKoreanName } from './nameSort'
 
 /**
  * 카테고리 메타 — 라벨은 dict 키(표시 지점에서 t()로 해석), 색상은 상태/팀 팔레트
@@ -170,4 +171,43 @@ export function summarizeMeetings(occ: MeetingOccurrence[], todayIso: string): {
     if (d >= t0 && d < t0 + 7 * DAY) upcoming7d++
   }
   return { today, upcoming7d, total: occ.length }
+}
+
+/** 대시보드 회의 행용 메모 1줄 요약 — 첫 비어있지 않은 줄에서 마크다운 접두(#·-·*·>·"1.")를 벗기고
+ *  공백을 접은 뒤 max 자에서 말줄임. body 는 자유 서식이라 원문을 그대로 한 줄에 흘리면
+ *  '## 안건' 같은 제목 기호가 그대로 보인다. */
+export function memoPreview(body: string | null | undefined, max = 60): string {
+  if (!body) return ''
+  const line = body.split(/\r?\n/)
+    .map(l => l.replace(/^\s*(?:[#>*-]+|\d+[.)])\s*/, '').trim())
+    .find(l => l.length > 0)
+  if (!line) return ''
+  const s = line.replace(/\s+/g, ' ')
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s
+}
+
+/** 대시보드 회의 행에 얹는 부가 정보 — 참석자 이름(가나다순)과 메모 요약. */
+export interface MeetingRowExtra {
+  attendees: string[]
+  memo: string
+}
+
+/** 표시 행의 시리즈별 참석자 이름·메모를 조합한다. 이름을 못 찾은 참석자 id(퇴장 멤버 등)는
+ *  제외하고, 시리즈 목록에 없는 id 도 빈 값으로 채워 화면이 undefined 를 만나지 않게 한다. */
+export function buildMeetingRowExtras(
+  seriesIds: string[],
+  meetings: Pick<Meeting, 'id' | 'attendeeIds'>[],
+  bodies: Record<string, string>,
+  memberNames: Record<string, string>,
+): Record<string, MeetingRowExtra> {
+  const byId = new Map(meetings.map(m => [m.id, m]))
+  const out: Record<string, MeetingRowExtra> = {}
+  for (const id of seriesIds) {
+    const attendees = (byId.get(id)?.attendeeIds ?? [])
+      .map(mid => memberNames[mid])
+      .filter((n): n is string => typeof n === 'string' && n.length > 0)
+      .sort(compareKoreanName)
+    out[id] = { attendees, memo: memoPreview(bodies[id]) }
+  }
+  return out
 }

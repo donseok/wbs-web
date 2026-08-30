@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   expandMeetings, occurrencesByDate, sortOccurrences, canEditMeeting, summarizeMeetings,
-  meetingEditHref, MEETING_CATEGORIES,
+  meetingEditHref, MEETING_CATEGORIES, memoPreview, buildMeetingRowExtras,
 } from '@/lib/domain/meetings'
 import type { Meeting, MeetingException } from '@/lib/domain/types'
 
@@ -144,5 +144,44 @@ describe('meetingEditHref', () => {
   it('회차 날짜가 없으면 date 를 생략한다(회의 페이지가 시리즈 기준일로 폴백)', () => {
     expect(meetingEditHref('p1', 'm1')).toBe('/p/p1/meetings?focus=m1&edit=1')
     expect(meetingEditHref('p1', 'm1', null)).toBe('/p/p1/meetings?focus=m1&edit=1')
+  })
+})
+
+describe('memoPreview — 대시보드 행용 메모 1줄 요약', () => {
+  it('첫 비어있지 않은 줄을 쓰고 마크다운 접두를 벗긴다', () => {
+    expect(memoPreview('\n\n## 안건\n- 일정 확정')).toBe('안건')
+    expect(memoPreview('- 일정 확정\n다음')).toBe('일정 확정')
+    expect(memoPreview('1. 첫째')).toBe('첫째')
+  })
+  it('빈 값·공백만이면 빈 문자열', () => {
+    expect(memoPreview('')).toBe('')
+    expect(memoPreview(null)).toBe('')
+    expect(memoPreview('  \n\t\n')).toBe('')
+  })
+  it('연속 공백을 접고 상한을 넘으면 말줄임', () => {
+    expect(memoPreview('가   나\t다')).toBe('가 나 다')
+    const s = memoPreview('가'.repeat(80), 20)
+    expect(s.length).toBe(20)
+    expect(s.endsWith('…')).toBe(true)
+  })
+})
+
+describe('buildMeetingRowExtras — 표시 행의 참석자 이름·메모 조합', () => {
+  const meetings = [
+    mtg('m1', '2026-08-28', { attendeeIds: ['b', 'a', 'x'] }),
+    mtg('m2', '2026-08-29', { attendeeIds: [] }),
+  ]
+  it('참석자 이름은 가나다순, 이름을 못 찾은 id 는 제외, 메모는 1줄 요약', () => {
+    const out = buildMeetingRowExtras(
+      ['m1', 'm2'], meetings,
+      { m1: '## 안건\n예산', m2: '' },
+      { a: '홍길동', b: '김철수' },
+    )
+    expect(out.m1).toEqual({ attendees: ['김철수', '홍길동'], memo: '안건' })
+    expect(out.m2).toEqual({ attendees: [], memo: '' })
+  })
+  it('시리즈 목록에 없는 id 는 빈 값으로 채운다 — 화면이 undefined 로 터지지 않게', () => {
+    const out = buildMeetingRowExtras(['ghost'], meetings, {}, {})
+    expect(out.ghost).toEqual({ attendees: [], memo: '' })
   })
 })
