@@ -27,7 +27,9 @@ git log --oneline origin/main..origin/staging | wc -l   # 기대: 102 (staging �
 # main 에만 있는 커밋 — 이 계획서 관련 docs 커밋뿐이어야 한다.
 # 코드·마이그레이션 커밋이 섞여 있으면 그 사이 누군가 main 에 직접 올린 것이므로 §2·§4 를 다시 판정할 것.
 git log --oneline origin/staging..origin/main
-git diff --name-only origin/staging origin/main         # 기대: 이 계획서 파일뿐
+git diff --name-only $(git merge-base origin/main origin/staging) origin/main
+#   기대: docs/superpowers/plans/2026-09-04-staging-to-main-merge.md 한 줄뿐
+#   (`git diff origin/staging origin/main` 은 양방향 차이라 144 파일이 나온다 — 쓰지 말 것)
 
 git merge-tree --write-tree origin/main origin/staging >/dev/null && echo "충돌 없음"
 git status -sb | head -3                                 # 로컬 dirty 파일이 머지 대상과 겹치는지
