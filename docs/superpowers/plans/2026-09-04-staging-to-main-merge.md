@@ -17,13 +17,23 @@
 ```bash
 cd /Users/jerry/wbs-web
 git fetch origin --prune --tags
-git rev-parse --short origin/main origin/staging
-#   기대: c036d0e / 7fa4364  ← 다르면 그 사이 누군가 push 했다. §2 의 커밋 목록·충돌 판정을 다시 볼 것
-git merge-base --is-ancestor origin/main origin/staging && echo "main 은 staging 의 조상 — 충돌 없음"
-git log --oneline origin/main..origin/staging | wc -l     # 기대: 102
-git log --oneline origin/staging..origin/main | wc -l     # 기대: 0  ← 0 이 아니면 양방향 분기다
-git status -sb | head -3                                   # 로컬 dirty 파일이 머지 대상과 겹치는지
+for r in origin/main origin/staging HEAD; do printf '%-16s %s\n' "$r" "$(git rev-parse --short $r)"; done
+#   origin/staging 기대: 7fa4364  ← 다르면 staging 에 새 작업이 올라온 것. §2 를 다시 볼 것
+#   origin/main 은 SHA 를 고정하지 않는다(이 계획서 자체가 main 에 커밋되며 바뀐다). 아래로 검사한다.
+#   (주의: `git rev-parse --short a b` 는 이 git 에서 "Needed a single revision" 으로 죽는다. 위 루프를 쓸 것)
+
+git log --oneline origin/main..origin/staging | wc -l   # 기대: 102 (staging 에만 있는 것)
+
+# main 에만 있는 커밋 — 이 계획서 관련 docs 커밋뿐이어야 한다.
+# 코드·마이그레이션 커밋이 섞여 있으면 그 사이 누군가 main 에 직접 올린 것이므로 §2·§4 를 다시 판정할 것.
+git log --oneline origin/staging..origin/main
+git diff --name-only origin/staging origin/main         # 기대: 이 계획서 파일뿐
+
+git merge-tree --write-tree origin/main origin/staging >/dev/null && echo "충돌 없음"
+git status -sb | head -3                                 # 로컬 dirty 파일이 머지 대상과 겹치는지
 ```
+
+`c036d0e`(태그 `good-20260903-1353`)가 감사 시점의 main 앵커다. `git merge-base origin/main origin/staging` 이 여전히 `c036d0e` 를 가리키면 이 문서의 판정은 전부 유효하다.
 
 DB 상태 재확인은 §4 의 검증 스크립트를 `--dry` 감각으로 그대로 쓰면 된다(읽기 전용).
 `wbs_items` 에 `agent_prompt` 가 **이미 있으면** 0090 은 누군가 적용한 것이므로 §3 의 해당 단계를 건너뛴다.
@@ -36,12 +46,16 @@ DB 상태 재확인은 §4 의 검증 스크립트를 `--dry` 감각으로 그�
 
 | 항목 | 값 |
 |---|---|
-| `origin/main` | `c036d0e` (2026-09-03, `fix(db): wiki_fnv1a64 를 O(n) 으로`) = 태그 `good-20260903-1353` |
+| `origin/main` | `c036d0e`(태그 `good-20260903-1353`) + **이 계획서 docs 커밋**. SHA 는 문서 수정마다 바뀌므로 고정하지 않는다 |
+| 머지 베이스 | `c036d0e` — `git merge-base origin/main origin/staging` 가 이걸 가리키면 이 문서의 판정은 유효하다 |
 | `origin/staging` | `7fa4364` (2026-09-03 13:50:12, `Merge branch 'fix/wiki-fnv1a64-linear' into staging`) |
-| 로컬 `main` | `ba3165d` — origin/main 보다 **1 뒤** |
-| 로컬 `staging` | `29a7089` — origin/staging 보다 **442 뒤**, 그리고 `origin/main` 의 조상 |
-| 범위 | main→staging 102 커밋 / 144 파일 / +10,745 −2,405 · 반대 방향 0 커밋 |
-| 충돌 | **없음** — main 이 staging 의 조상이라 fast-forward 가능 |
+| 로컬 `main` | origin/main 과 동일하게 맞춰둠(2026-09-04 정리 완료) |
+| 로컬 `staging` | `29a7089` — origin/staging 보다 **442 뒤**, 그리고 `c036d0e` 의 조상 |
+| 범위 | main→staging **102 커밋** / 144 파일 / +10,745 −2,405 |
+| 반대 방향 | main 에만 있는 커밋 **1건**(이 계획서, docs 전용) |
+| 충돌 | **없음** — `git merge-tree` 로 확인. staging 은 이 문서 파일을 건드리지 않는다 |
+
+> 감사 당시(`c036d0e`)에는 main 이 staging 의 조상이라 순수 fast-forward 였다. 이 계획서를 main 에 커밋하면서 반대 방향 1건이 생겨 **진짜 머지**가 됐지만, docs 전용 파일이라 충돌은 없고 `--no-ff` 권고(§3 A3)는 어차피 그대로다.
 
 **함정:** 로컬 `staging` 이 442 뒤처져 있어 runbook §2 를 문자 그대로(`git switch main && git merge staging`) 따르면 main 이 1커밋 ff 되는 데 그치고 **102 커밋이 하나도 들어가지 않는다.** 반드시 `origin/staging` 을 직접 머지한다.
 
@@ -78,13 +92,19 @@ DB 상태 재확인은 §4 의 검증 스크립트를 `--dry` 감각으로 그�
 ### Phase A — 로컬 머지 (push 없음, 되돌리기 쉬움)
 
 - [ ] A1. `cd /Users/jerry/wbs-web && git fetch origin --prune --tags`
-- [ ] A2. `git switch main && git merge --ff-only origin/main` (로컬 1커밋 따라잡기)
+- [ ] A2. `git switch main && git merge --ff-only origin/main` (2026-09-04 시점엔 이미 같아서 "Already up to date" 가 정상)
 - [ ] A3. 머지 — **`origin/staging` 을 직접**, `--no-ff` 로:
   ```bash
   git merge --no-ff origin/staging \
     -m "merge: staging → main — N단 임포트 v2.2·에이전트 프롬프트·의존성 그래프·리프 단계 정리 (0089·0090·0092)"
   ```
-- [ ] A4. 검산: `git diff --quiet origin/staging HEAD && echo "트리 동일"` · `git log --oneline --first-parent -2`
+- [ ] A4. 검산 — 머지 후 트리가 `origin/staging` 과 **이 계획서 파일 하나만** 달라야 한다:
+  ```bash
+  git diff --name-only origin/staging HEAD
+  #   기대 출력: docs/superpowers/plans/2026-09-04-staging-to-main-merge.md  (이 한 줄뿐)
+  #   다른 파일이 나오면 머지가 무언가를 빠뜨렸거나 덧붙인 것 — 멈추고 원인을 볼 것
+  git log --oneline --first-parent -2
+  ```
 
 **`--no-ff` 를 쓰는 이유:** 과거 staging→main 은 전부 ff 였지만 이번은 102 커밋에 머지 커밋만 28개다. ff 로 올리면 되돌릴 단위가 없어 `runbook-rollback` §3(b) 트리 복원(그 사이 병렬 세션 커밋까지 날린다)뿐이지만, `--no-ff` 면 `git revert -m 1 <머지sha>` 한 번으로 이 범위만 정확히 되돌린다. 훅은 양쪽 다 통과한다(G1·G2 는 `--no-merges` 로 머지 커밋을 제외하고 evil merge 만 보는데 충돌 없는 머지는 `diff-tree --cc` 가 빈다).
 
