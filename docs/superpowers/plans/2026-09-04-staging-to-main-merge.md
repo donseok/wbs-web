@@ -4,14 +4,12 @@
 
 **Goal:** `origin/staging`(7fa4364)에 쌓인 102 커밋을 `main` 으로 올려 운영 배포하되, **DB(0089·0090·0092)를 코드보다 먼저 적용**해 운영 화면·에이전트 API 가 깨지지 않게 한다.
 
-**상태 (2026-09-04 11:30 KST):** 배포 완료 — E3 눈확인·E4 mark:good 만 남음(사용자).
-- 머지 커밋 `a15d3dc`(부모 `4e107c3`·`7fa4364`) + 리허설 기록 `4d93838` → `origin/main` push, Vercel 운영 Ready(11:09:46 KST, 빌드 2분)
+**상태: 완결 (2026-09-04 12:26 KST, `good-20260904-1226` → `421c8a5`).**
+- 머지 커밋 `a15d3dc`(부모 `4e107c3`·`7fa4364`) + 리허설 기록 `4d93838` → push → Vercel 운영 Ready(11:09 KST)
 - DB: 0092 스테이징 적용(대상 3→0, change_logs 3) · 운영 0089→0090→0092 적용 — 컬럼 5·RPC 3인자·PostgREST 캐시 REST 200
-- 운영 실측: `npm run smoke:prod` 통과 · `GET /api/v1/wbs/structure?project_id=<MES>` 가 **200 + level_idx 포함**(새 코드+새 컬럼+캐시 end-to-end) · `/api/import/template` 401(새 라우트 존재)
-- 롤백 재료: `outputs/0092-staging-before.json`, `outputs/0089-prod-before.json`
-- staging 은 `push main:staging` 으로 main 과 동일하게 맞춤(E5)
-- §5 눈확인(E3) 은 2026-09-04 에이전트가 macOS Chrome(로그인 세션)으로 수행 — 비컴팩트·모바일 폭만 미확인
-- **남은 것:** `npm run mark:good`(E4, 사용자 승인) · §7 사용자 결정 2건 · §6 버그 후속 커밋
+- 운영 실측: `smoke:prod` 통과 · `GET /api/v1/wbs/structure` 200 + level_idx · 브라우저 §5 확인(명세 패널·MES 간트 hover 의존선·위키 카드 컴팩트·사이드바)
+- §7 결정: 사용자가 마무리를 택해 **권한 하향·import 스코프 통합은 현 상태 유지** — 되돌리기·스코프 분리는 §8 백로그
+- 롤백 재료: `outputs/0092-staging-before.json`, `outputs/0089-prod-before.json` · staging = main
 
 **근거:** 2026-09-04 6관점 병렬 감사(에이전트 93개 · 발견 43건 · 반박 검증에서 뒤집힌 것 0건) + Supabase Management API 읽기 전용 실측. 핵심 결론만 이 문서에 옮겼고 원본 워크플로 출력은 세션 스크래치에 있어 휘발된다.
 
@@ -192,7 +190,7 @@ curl -s -o /dev/null -w '컬럼 REST: %{http_code}\n' -H "apikey: $ANON" \
 - [x] E1. `git push origin main` (Vercel 자동 배포. `vercel --prod` 는 쓰지 않는다)
 - [x] E2. `npm run smoke:prod`
 - [x] E3. 눈확인 — §5 목록
-- [ ] E4. `npm run mark:good`
+- [x] E4. `npm run mark:good`
 - [x] E5. staging back-merge: `git switch staging && git merge --ff-only origin/staging && git merge --ff-only origin/main && git push origin staging`
       (`--no-ff` 머지 커밋의 부모가 7fa4364 라 ff 된다)
 
@@ -242,15 +240,20 @@ curl -s -o /dev/null -w '컬럼 REST: %{http_code}\n' -H "apikey: $ANON" \
 
 ---
 
-## 7. 사용자 결정이 필요한 항목
+## 7. 사용자 결정 (2026-09-04 기록)
 
-- [ ] **권한 하향이 의도인가.** 에이전트 루프 등록이 `requireSuperuser()` → `requireProjectAdmin()` 로 내려왔고(`src/app/actions/agentWork.ts:30-35` 에 "같은 단계로 내렸다"고 명시), `/api/v1/wbs/import` 스코프가 `work:report`(자율 발급 불가라 사실상 아무도 못 쓰던 것) → `work:claim`(누구나 자율 발급) 으로 바뀌었다. 운영에 살아있는 PAT 1개가 `work:claim` 을 갖고 있어(MES 프로젝트, 2027-02-10 만료) **머지 시점부터 그 토큰으로 운영 WBS 를 upsert 할 수 있게 된다.** `agent_projects` 는 쓰기 RLS 가 없어 이 서버 가드가 유일한 관문이다.
+- [x] **권한 하향 — 현 상태 유지(2026-09-04 사용자 '마무리' 결정).** 근거 숫자: 운영 관리자 역할 52건(D-CUBE 47)·슈퍼유저 3·에이전트 태그 작업 0건. 슈퍼유저 전용 복원은 §8 백로그. 에이전트 루프 등록이 `requireSuperuser()` → `requireProjectAdmin()` 로 내려왔고(`src/app/actions/agentWork.ts:30-35` 에 "같은 단계로 내렸다"고 명시), `/api/v1/wbs/import` 스코프가 `work:report`(자율 발급 불가라 사실상 아무도 못 쓰던 것) → `work:claim`(누구나 자율 발급) 으로 바뀌었다. 운영에 살아있는 PAT 1개가 `work:claim` 을 갖고 있어(MES 프로젝트, 2027-02-10 만료) **머지 시점부터 그 토큰으로 운영 WBS 를 upsert 할 수 있게 된다.** `agent_projects` 는 쓰기 RLS 가 없어 이 서버 가드가 유일한 관문이다.
   또한 자율 러너 설계 메모(`wbs-autonomous-runner.md`)는 "wbs:import 스코프 분리"를 L0 필수로 적었는데 구현은 `work:claim` 에 합쳐졌다 — 설계 드리프트로 볼지 판단 필요.
-- [ ] **`/agent-ops` 삭제에 리다이렉트를 둘 것인가.** 화면이 사라지는데 리다이렉트가 없어 이미 발송된 알림의 링크가 404 로 간다.
+- [x] **`/agent-ops` 리다이렉트 — 불필요.** 운영 notification_events 에 그 링크 0건 실측. 화면이 사라지는데 리다이렉트가 없어 이미 발송된 알림의 링크가 404 로 간다.
 
 ---
 
 ## 8. 후속 백로그 (이번 머지 범위 밖)
+
+- **§6 승인 되감기 실적 복원 버그** — 운영 agent_work_orders 28건이 전부 `ready`(승인 전)라 현재 발동 대상 0. 누군가 승인 취소·재작업 요청을 쓰기 전에 고칠 것(수정 방향은 §6).
+- **에이전트 루프 등록 권한** — 필요 시 `setAgentProjectEnabled` 를 `requireSuperuser()` 로 복원. D-CUBE 관리자 47명이 체크 한 번으로 루프 등록 가능한 상태.
+- **wbs:import 스코프 분리** — 설계 메모(wbs-autonomous-runner) L0 요건. 현재는 `work:claim` 에 통합.
+- **미커밋 0081**(`supabase/migrations/0081_dcube_major_process_dedupe*.sql`, 2026-08-14) — 운영·스테이징에 **이미 적용됨**(D-CUBE 00 영역 5행 실측). 기록용 커밋(G4 트레일러 필요) 또는 삭제.
 
 - `scripts/kit-build.sh:22` 가 gitignore 된 `kit/.env.example` 을 요구한다(`.gitignore:34` 의 `.env*`). 작성자 PC 의 untracked 파일에 의존해 **다른 PC·새 클론에서는 킷 빌드가 실패**한다. `.gitignore` 에 `!kit/.env.example` 예외를 두거나 `install.sh` 가 `.env` 초안을 자체 생성하도록.
 - 다른 PC 의 구 dflow 킷은 승인 되감기·재작업 요청을 감지하지 못한다 — 머지 후 킷 재빌드·재설치 필요(위 항목이 선행).
