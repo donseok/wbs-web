@@ -107,6 +107,8 @@ export const minutesEn: Record<keyof typeof minutesKo, string> = {
   'min.detail.replaceBody': 'Upload new version',
   'min.detail.delete': 'Archive',
   'min.detail.deleteConfirm': 'Hide this from lists while preserving the original, every version, and Wiki evidence?',
+  'min.detail.deleteDone': 'Minute archived.',
+  'min.detail.deleteFailed': 'Failed to archive the minute.',
   'min.archive.banner': 'This minute is archived and shown read-only so its source evidence remains auditable.',
   'min.detail.back': 'Back',
   'min.detail.pathAria': 'Folder path',

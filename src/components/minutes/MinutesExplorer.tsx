@@ -18,7 +18,7 @@ import {
 import { sortMyProjectsFirst } from '@/lib/domain/projectPick'
 import { MEETING_META } from '@/lib/domain/meetings'
 import {
-  assignMinutesProject, fetchMinuteDetail, moveMinuteFolder, moveMinuteToFolder,
+  assignMinutesProject, deleteMinute, fetchMinuteDetail, moveMinuteFolder, moveMinuteToFolder,
 } from '@/app/actions/minutes'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import type { DictKey } from '@/lib/i18n/dict'
@@ -138,6 +138,11 @@ export function MinutesExplorer({
   // meetingId·externalId 등이 없다 — 열 때 상세를 한 번 받아온다.
   const [editMinute, setEditMinute] = useState<Minute | null>(null)
   const [editLoadingId, setEditLoadingId] = useState<string | null>(null)
+  // 상세 뷰어와 같은 soft-delete(보관) 확인 창. 리프 메뉴에서 즉시 실행하지 않아
+  // 잘못 누른 한 번의 클릭으로 목록에서 사라지는 일을 막는다.
+  const [archiveTarget, setArchiveTarget] = useState<ExplorerLeaf | null>(null)
+  const [archiveBusy, setArchiveBusy] = useState(false)
+  const [archiveError, setArchiveError] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragItem | null>(null)
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const resultsScrollRef = useRef<HTMLElement>(null)
@@ -239,6 +244,33 @@ export function MinutesExplorer({
       toast({ title: t('min.exp.editLoadFailed'), variant: 'error' })
     } finally {
       setEditLoadingId(null)
+    }
+  }
+
+  function openArchive(minute: ExplorerLeaf) {
+    setLeafMenuFor(null)
+    setArchiveError(null)
+    setArchiveTarget(minute)
+  }
+
+  async function archiveMinute() {
+    if (!archiveTarget || archiveBusy) return
+    setArchiveBusy(true)
+    setArchiveError(null)
+    try {
+      const res = await deleteMinute(archiveTarget.id)
+      if (!res.ok) {
+        setArchiveError(res.error ?? t('min.detail.deleteFailed'))
+        return
+      }
+      setArchiveTarget(null)
+      onChanged()
+      toast({ title: t('min.detail.deleteDone') })
+    } catch (e) {
+      console.error('[MinutesExplorer] 회의록 보관 실패:', e)
+      setArchiveError(t('min.detail.deleteFailed'))
+    } finally {
+      setArchiveBusy(false)
     }
   }
 
@@ -582,6 +614,7 @@ export function MinutesExplorer({
     menuOpen: leafMenuFor === l.id, menuBusy: editLoadingId === l.id,
     onMenuToggle: () => setLeafMenuFor(cur => (cur === l.id ? null : l.id)),
     onEdit: () => void openEdit(l.id),
+    onArchive: () => openArchive(l),
     dragProps: canMoveLeaf(l) ? dragSource({ kind: 'leaf', id: l.id }) : undefined,
     dragging: drag?.kind === 'leaf' && drag.id === l.id,
     onToggle: onToggleFavorite,
@@ -697,6 +730,32 @@ export function MinutesExplorer({
           onClose={() => setEditMinute(null)}
           onSaved={() => { setEditMinute(null); onChanged() }} />
       )}
+      <Modal open={archiveTarget !== null}
+        onClose={() => {
+          if (archiveBusy) return
+          setArchiveTarget(null)
+          setArchiveError(null)
+        }}
+        title={t('min.detail.delete')} size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setArchiveTarget(null); setArchiveError(null) }}
+              disabled={archiveBusy} className="btn">
+              {t('common.cancel')}
+            </button>
+            <button onClick={() => void archiveMinute()} disabled={archiveBusy}
+              aria-busy={archiveBusy}
+              className="btn bg-delayed text-white hover:bg-delayed disabled:cursor-not-allowed disabled:opacity-50">
+              {t('min.detail.delete')}
+            </button>
+          </div>
+        }>
+        <div className="space-y-2 text-sm text-ink">
+          {archiveTarget && <p className="font-semibold">{archiveTarget.title}</p>}
+          <p>{t('min.detail.deleteConfirm')}</p>
+          {archiveError && <p role="alert" className="text-delayed">{archiveError}</p>}
+        </div>
+      </Modal>
 
       <DragGhost kind="leaf" innerRef={leafGhostRef} />
       <DragGhost kind="folder" innerRef={folderGhostRef} />
@@ -791,13 +850,13 @@ function SelectBox({ checked, onToggle, t }: { checked: boolean; onToggle: () =>
   )
 }
 
-/** 카드·행의 '...' 메뉴 — 상세 페이지로 들어가지 않고 목록에서 바로 수정·이동한다.
+/** 카드·행의 '...' 메뉴 — 상세 페이지로 들어가지 않고 목록에서 바로 수정·이동·보관한다.
  *  카드 전면을 덮는 링크 오버레이(absolute inset-0) 위로 올라와야 하므로 z 를 준다.
  *  display 를 상태로 토글하는 변형 유틸은 쓰지 않는다(CLAUDE.md 반응형 안전망 제약) — 항상
  *  렌더하고 opacity 만 바꾼다(폴더 메뉴와 같은 방식). */
-function LeafMenu({ open, busy, onToggle, onEdit, onMove, canSelect, onSelect, t }: {
+function LeafMenu({ open, busy, onToggle, onEdit, onMove, onArchive, canSelect, onSelect, t }: {
   open: boolean; busy: boolean
-  onToggle: () => void; onEdit: () => void; onMove: () => void
+  onToggle: () => void; onEdit: () => void; onMove: () => void; onArchive: () => void
   /** 다중 선택 진입 — 이 메뉴가 유일한 진입 경로다(상시 버튼 없음) */
   canSelect?: boolean; onSelect?: () => void
   t: T
@@ -832,6 +891,10 @@ function LeafMenu({ open, busy, onToggle, onEdit, onMove, canSelect, onSelect, t
                 {t('min.exp.selectMulti')}
               </button>
             )}
+            <button role="menuitem" onClick={onArchive}
+              className="block w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-delayed hover:bg-surface-2">
+              {t('min.detail.delete')}
+            </button>
           </div>
         </>
       )}
@@ -868,6 +931,7 @@ interface LeafItemProps {
   l: ExplorerLeaf; fav: boolean; favDisabled: boolean
   canMove: boolean; onMove: () => void
   menuOpen: boolean; menuBusy: boolean; onMenuToggle: () => void; onEdit: () => void
+  onArchive: () => void
   onToggle: (id: string) => void; folderName: string | null; t: T
   dragProps?: DragSourceProps; dragging?: boolean
   /** 다중 선택 진입 — '...' 메뉴 안에만 있다 */
@@ -877,7 +941,7 @@ interface LeafItemProps {
 }
 
 function MinuteCard({
-  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
+  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit, onArchive,
   onToggle, folderName, t, dragProps, dragging, canSelect, onSelect,
   selecting = false, selected = false, onSelectToggle,
 }: LeafItemProps) {
@@ -901,7 +965,8 @@ function MinuteCard({
           : <StarButton id={l.id} fav={fav} disabled={favDisabled} onToggle={onToggle} t={t} />}
         <h4 className="min-w-0 flex-1 truncate pt-0.5 text-sm font-semibold text-ink">{l.title}</h4>
         {canMove && <LeafMenu open={menuOpen} busy={menuBusy} onToggle={onMenuToggle}
-          onEdit={onEdit} onMove={onMove} canSelect={canSelect} onSelect={onSelect} t={t} />}
+          onEdit={onEdit} onMove={onMove} onArchive={onArchive}
+          canSelect={canSelect} onSelect={onSelect} t={t} />}
         <span className={`inline-flex shrink-0 justify-center rounded-md px-1.5 py-0.5 text-[11px] font-bold text-white ${teamStyle(l.teamCode).bar}`}>
           {l.teamCode}
         </span>
@@ -937,7 +1002,7 @@ function MinuteCard({
 }
 
 function MinuteRow({
-  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit,
+  l, fav, favDisabled, canMove, onMove, menuOpen, menuBusy, onMenuToggle, onEdit, onArchive,
   onToggle, folderName, t, dragProps, dragging, canSelect, onSelect,
   selecting = false, selected = false, onSelectToggle,
 }: LeafItemProps) {
@@ -983,7 +1048,8 @@ function MinuteRow({
           </span>
         )}
         {canMove && <LeafMenu open={menuOpen} busy={menuBusy} onToggle={onMenuToggle}
-          onEdit={onEdit} onMove={onMove} canSelect={canSelect} onSelect={onSelect} t={t} />}
+          onEdit={onEdit} onMove={onMove} onArchive={onArchive}
+          canSelect={canSelect} onSelect={onSelect} t={t} />}
         <span className="w-20 shrink-0 text-right text-xs tabular-nums text-ink-subtle">{l.minuteDate}</span>
       </div>
     </li>

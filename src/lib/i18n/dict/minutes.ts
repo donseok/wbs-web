@@ -107,6 +107,8 @@ export const minutesKo = {
   'min.detail.replaceBody': '새 버전 업로드',
   'min.detail.delete': '보관',
   'min.detail.deleteConfirm': '목록에서는 숨기되 원본·모든 버전·Wiki 근거는 그대로 보존합니다. 보관할까요?',
+  'min.detail.deleteDone': '회의록을 보관했습니다.',
+  'min.detail.deleteFailed': '회의록을 보관하지 못했습니다.',
   'min.archive.banner': '보관된 회의록입니다. 원본 근거 확인을 위해 읽기 전용으로 표시합니다.',
   'min.detail.back': '목록',
   'min.detail.pathAria': '편철 경로',

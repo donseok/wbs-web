@@ -17,10 +17,12 @@ const toast = vi.fn()
 vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast }) }))
 
 const fetchMinuteDetail = vi.fn<(id: string) => Promise<{ minute: Minute; files: [] } | null>>()
+const deleteMinute = vi.fn<(id: string) => Promise<{ ok: boolean; error?: string }>>()
 vi.mock('@/app/actions/minutes', () => ({
   createMinuteFolder: vi.fn(async () => ({ ok: true })),
   renameMinuteFolder: vi.fn(async () => ({ ok: true })),
   deleteMinuteFolder: vi.fn(async () => ({ ok: true })),
+  deleteMinute: (id: string) => deleteMinute(id),
   moveMinuteToFolder: vi.fn(async () => ({ ok: true })),
   moveMinuteFolder: vi.fn(async () => ({ ok: true })),
   fetchMinuteDetail: (id: string) => fetchMinuteDetail(id),
@@ -58,7 +60,7 @@ const detail = (over: Partial<Minute> = {}): { minute: Minute; files: [] } => ({
   files: [],
 })
 
-describe('MinutesExplorer — 카드에서 바로 수정', () => {
+describe('MinutesExplorer — 회의록 카드 메뉴', () => {
   let container: HTMLDivElement, root: Root
   const onChanged = vi.fn()
 
@@ -67,6 +69,7 @@ describe('MinutesExplorer — 카드에서 바로 수정', () => {
     root = createRoot(container)
     onChanged.mockClear(); toast.mockClear()
     fetchMinuteDetail.mockReset(); fetchMinuteDetail.mockResolvedValue(detail())
+    deleteMinute.mockReset(); deleteMinute.mockResolvedValue({ ok: true })
   })
   afterEach(() => { act(() => root.unmount()); container.remove() })
 
@@ -84,6 +87,7 @@ describe('MinutesExplorer — 카드에서 바로 수정', () => {
     [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
       .find(b => b.textContent?.includes(text))
   const modal = () => document.querySelector('[data-testid="meta-modal"]')
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]')
 
   it("'...' → [수정] 이 상세 페이지 이동 없이 메타 모달을 연다", async () => {
     await mount()
@@ -136,5 +140,48 @@ describe('MinutesExplorer — 카드에서 바로 수정', () => {
   it('리스트 레이아웃에서도 같은 메뉴가 있다', async () => {
     await mount({ layout: 'list' })
     expect(menuButton()).not.toBeNull()
+  })
+
+  it("'...' → [보관] 확인 후 회의록을 보관하고 탐색기를 갱신한다", async () => {
+    await mount()
+    await act(async () => menuButton()!.click())
+    await act(async () => menuItem('min.detail.delete')!.click())
+
+    expect(dialog()?.textContent).toContain('생산계획-기획팀')
+    expect(dialog()?.textContent).toContain('min.detail.deleteConfirm')
+
+    const confirm = [...dialog()!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent === 'min.detail.delete')!
+    await act(async () => confirm.click())
+
+    expect(deleteMinute).toHaveBeenCalledWith('m1')
+    expect(onChanged).toHaveBeenCalledTimes(1)
+    expect(dialog()).toBeNull()
+    expect(toast).toHaveBeenCalledWith({ title: 'min.detail.deleteDone' })
+  })
+
+  it('보관 확인 창에서 취소하면 서버 액션을 호출하지 않는다', async () => {
+    await mount()
+    await act(async () => menuButton()!.click())
+    await act(async () => menuItem('min.detail.delete')!.click())
+    const cancel = [...dialog()!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent === 'common.cancel')!
+    await act(async () => cancel.click())
+
+    expect(deleteMinute).not.toHaveBeenCalled()
+    expect(dialog()).toBeNull()
+  })
+
+  it('보관이 거부되면 확인 창을 유지하고 원인을 표시한다', async () => {
+    deleteMinute.mockResolvedValue({ ok: false, error: '권한 없음' })
+    await mount()
+    await act(async () => menuButton()!.click())
+    await act(async () => menuItem('min.detail.delete')!.click())
+    const confirm = [...dialog()!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent === 'min.detail.delete')!
+    await act(async () => confirm.click())
+
+    expect(dialog()?.querySelector('[role="alert"]')?.textContent).toBe('권한 없음')
+    expect(onChanged).not.toHaveBeenCalled()
   })
 })
