@@ -10,7 +10,8 @@
 - 운영 실측: `npm run smoke:prod` 통과 · `GET /api/v1/wbs/structure?project_id=<MES>` 가 **200 + level_idx 포함**(새 코드+새 컬럼+캐시 end-to-end) · `/api/import/template` 401(새 라우트 존재)
 - 롤백 재료: `outputs/0092-staging-before.json`, `outputs/0089-prod-before.json`
 - staging 은 `push main:staging` 으로 main 과 동일하게 맞춤(E5)
-- **남은 것:** §5 눈확인(E3) → `npm run mark:good`(E4) · §7 사용자 결정 2건 · §6 버그 후속 커밋
+- §5 눈확인(E3) 은 2026-09-04 에이전트가 macOS Chrome(로그인 세션)으로 수행 — 비컴팩트·모바일 폭만 미확인
+- **남은 것:** `npm run mark:good`(E4, 사용자 승인) · §7 사용자 결정 2건 · §6 버그 후속 커밋
 
 **근거:** 2026-09-04 6관점 병렬 감사(에이전트 93개 · 발견 43건 · 반박 검증에서 뒤집힌 것 0건) + Supabase Management API 읽기 전용 실측. 핵심 결론만 이 문서에 옮겼고 원본 워크플로 출력은 세션 스크래치에 있어 휘발된다.
 
@@ -190,7 +191,7 @@ curl -s -o /dev/null -w '컬럼 REST: %{http_code}\n' -H "apikey: $ANON" \
 
 - [x] E1. `git push origin main` (Vercel 자동 배포. `vercel --prod` 는 쓰지 않는다)
 - [x] E2. `npm run smoke:prod`
-- [ ] E3. 눈확인 — §5 목록
+- [x] E3. 눈확인 — §5 목록
 - [ ] E4. `npm run mark:good`
 - [x] E5. staging back-merge: `git switch staging && git merge --ff-only origin/staging && git merge --ff-only origin/main && git push origin staging`
       (`--no-ff` 머지 커밋의 부모가 7fa4364 라 ff 된다)
@@ -220,12 +221,12 @@ curl -s -o /dev/null -w '컬럼 REST: %{http_code}\n' -H "apikey: $ANON" \
 
 `npm run smoke:prod` 는 `/login` 과 CSS 전달 무결성만 본다. 이번 변경의 급소는 전부 로그인 뒤에 있다.
 
-- [ ] WBS 그리드 → 행 클릭 → 상세 패널 **명세** 펼침 (0090 확인의 실화면)
-- [ ] **`MES 공통 개발` 프로젝트 간트** — `depends` 27행이 이제 의존성으로 합성되어 연결선·크리티컬 패스·지연 표시가 달라진다. D-CUBE 는 `depends` 가 없어 무관
-- [ ] WBS 간트 하단 여백 (`flush` prop + `(app)/layout.tsx` 패딩 축소) — 랩탑·모바일 폭 둘 다
-- [ ] 위키 검색 카드가 컴팩트 뷰포트에서 살아 있는지 (`pinned` 슬롯이 머지에서 보존됐음을 확인했지만 실화면 재확인)
-- [ ] 사이드바·헤더 (UI 위험 파일 4개 변경 — 빌드·테스트로 안 잡히는 종류)
-- [ ] 간트 의존선이 **hover 전용**으로 바뀌고 툴바의 '작업 의존성 N'·크리티컬·지연 요약 칩이 사라진 것 (의도된 변경)
+- [x] WBS 그리드 → 행 클릭 → 상세 패널 **명세** 펼침 (0090 확인의 실화면) — 2026-09-04 브라우저 확인: '명세 없음·PRD 참조 미지정·수용 기준 없음' + 편집 버튼 정상(실패 문구 아님)
+- [x] **`MES 공통 개발` 프로젝트 간트** — 확인: 의존선은 hover 시에만 주황 화살표로 표시(3→4→6→9, 9→13→15 연결 실측), 평소엔 숨김 — — `depends` 27행이 이제 의존성으로 합성되어 연결선·크리티컬 패스·지연 표시가 달라진다. D-CUBE 는 `depends` 가 없어 무관
+- [x] WBS 간트 하단 여백(컴팩트 1568×639 만 확인 — 마지막 행이 스크롤바에 바로 붙음, 죽은 공간 없음; **비컴팩트·모바일 폭은 이 기기 화면 한계로 미확인**) (`flush` prop + `(app)/layout.tsx` 패딩 축소) — 랩탑·모바일 폭 둘 다
+- [x] 위키 검색 카드가 컴팩트 뷰포트에서 살아 있는지 — 확인: 검색창·칩·질문하기 전부 표시 (`pinned` 슬롯이 머지에서 보존됐음을 확인했지만 실화면 재확인)
+- [x] 사이드바·헤더 — 대시보드·WBS·위키 3화면에서 정상 (UI 위험 파일 4개 변경 — 빌드·테스트로 안 잡히는 종류)
+- [x] 간트 의존선이 **hover 전용**으로 바뀌고 툴바의 '작업 의존성 N'·크리티컬·지연 요약 칩이 사라진 것 (의도된 변경)
 
 ---
 
