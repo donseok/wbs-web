@@ -4,7 +4,13 @@
 
 **Goal:** `origin/staging`(7fa4364)에 쌓인 102 커밋을 `main` 으로 올려 운영 배포하되, **DB(0089·0090·0092)를 코드보다 먼저 적용**해 운영 화면·에이전트 API 가 깨지지 않게 한다.
 
-**상태:** 미착수 — Phase A 로컬 머지부터 시작하면 된다. 지금까지 main 에 올라간 것은 **이 계획서 문서뿐**이고 앱 코드·DB 는 전혀 손대지 않았다.
+**상태 (2026-09-04 11:30 KST):** 배포 완료 — E3 눈확인·E4 mark:good 만 남음(사용자).
+- 머지 커밋 `a15d3dc`(부모 `4e107c3`·`7fa4364`) + 리허설 기록 `4d93838` → `origin/main` push, Vercel 운영 Ready(11:09:46 KST, 빌드 2분)
+- DB: 0092 스테이징 적용(대상 3→0, change_logs 3) · 운영 0089→0090→0092 적용 — 컬럼 5·RPC 3인자·PostgREST 캐시 REST 200
+- 운영 실측: `npm run smoke:prod` 통과 · `GET /api/v1/wbs/structure?project_id=<MES>` 가 **200 + level_idx 포함**(새 코드+새 컬럼+캐시 end-to-end) · `/api/import/template` 401(새 라우트 존재)
+- 롤백 재료: `outputs/0092-staging-before.json`, `outputs/0089-prod-before.json`
+- staging 은 `push main:staging` 으로 main 과 동일하게 맞춤(E5)
+- **남은 것:** §5 눈확인(E3) → `npm run mark:good`(E4) · §7 사용자 결정 2건 · §6 버그 후속 커밋
 
 **근거:** 2026-09-04 6관점 병렬 감사(에이전트 93개 · 발견 43건 · 반박 검증에서 뒤집힌 것 0건) + Supabase Management API 읽기 전용 실측. 핵심 결론만 이 문서에 옮겼고 원본 워크플로 출력은 세션 스크래치에 있어 휘발된다.
 
@@ -93,14 +99,14 @@ DB 상태 재확인은 §4 의 검증 스크립트를 `--dry` 감각으로 그�
 
 ### Phase A — 로컬 머지 (push 없음, 되돌리기 쉬움)
 
-- [ ] A1. `cd /Users/jerry/wbs-web && git fetch origin --prune --tags`
-- [ ] A2. `git switch main && git merge --ff-only origin/main` (2026-09-04 시점엔 이미 같아서 "Already up to date" 가 정상)
-- [ ] A3. 머지 — **`origin/staging` 을 직접**, `--no-ff` 로:
+- [x] A1. `cd /Users/jerry/wbs-web && git fetch origin --prune --tags`
+- [x] A2. `git switch main && git merge --ff-only origin/main` (2026-09-04 시점엔 이미 같아서 "Already up to date" 가 정상)
+- [x] A3. 머지 — **`origin/staging` 을 직접**, `--no-ff` 로:
   ```bash
   git merge --no-ff origin/staging \
     -m "merge: staging → main — N단 임포트 v2.2·에이전트 프롬프트·의존성 그래프·리프 단계 정리 (0089·0090·0092)"
   ```
-- [ ] A4. 검산 — 머지 후 트리가 `origin/staging` 과 **이 계획서 파일 하나만** 달라야 한다:
+- [x] A4. 검산 — 머지 후 트리가 `origin/staging` 과 **이 계획서 파일 하나만** 달라야 한다:
   ```bash
   git diff --name-only origin/staging HEAD
   #   기대 출력: docs/superpowers/plans/2026-09-04-staging-to-main-merge.md  (이 한 줄뿐)
@@ -118,12 +124,12 @@ DB 상태 재확인은 §4 의 검증 스크립트를 `--dry` 감각으로 그�
 
 0092 는 리허설 기록이 없는데 **G4 훅이 잡지 못한다** — push 범위에 0089(`5d9b564`)·0090(`fe47c6d`) 트레일러가 이미 있어 범위 단위 검사를 통과해버린다. 사람이 챙겨야 한다.
 
-- [ ] B1. **`staging:sync` 를 돌리지 않는다.** `scripts/staging-sync.mjs:99` 가 `drop schema public cascade` 후 운영 덤프를 복원하므로, 지금 sync 하면 스테이징의 0089·0090 컬럼이 사라져 스테이징 앱이 깨진다. 현재 스테이징에 대상 3행이 이미 있어 리허설 재료로 충분하다.
-- [ ] B2. `npm run db:apply -- supabase/migrations/0092_clear_nonleaf_stage.sql --target staging`
-- [ ] B3. 검증 — 대상 0건이 되고 `change_logs` 에 복원용 기록 3건이 생겼는지:
+- [x] B1. **`staging:sync` 를 돌리지 않는다.** `scripts/staging-sync.mjs:99` 가 `drop schema public cascade` 후 운영 덤프를 복원하므로, 지금 sync 하면 스테이징의 0089·0090 컬럼이 사라져 스테이징 앱이 깨진다. 현재 스테이징에 대상 3행이 이미 있어 리허설 재료로 충분하다.
+- [x] B2. `npm run db:apply -- supabase/migrations/0092_clear_nonleaf_stage.sql --target staging`
+- [x] B3. 검증 — 대상 0건이 되고 `change_logs` 에 복원용 기록 3건이 생겼는지:
       `select count(*) from wbs_items w where w.stage is not null and exists (select 1 from wbs_items c where c.parent_id = w.id);` → 0
       `select count(*) from change_logs where field='stage' and user_id is null and new_value is null;` → 3
-- [ ] B4. 트레일러 커밋:
+- [x] B4. 트레일러 커밋:
   ```bash
   git commit --allow-empty -m "chore(db): 0092 스테이징 리허설 완료 기록" \
     --trailer "Staging-verified: $(date +%F) db 리허설 통과"
@@ -133,9 +139,9 @@ DB 상태 재확인은 §4 의 검증 스크립트를 `--dry` 감각으로 그�
 
 `db:apply --target prod` 는 확인 프롬프트에 운영 ref `rglfgrwwwwdqejohdnty` 를 손으로 입력해야 진행된다(`--yes` 무시). 에이전트가 대신할 수 없다.
 
-- [ ] C1. `npm run db:apply -- supabase/migrations/0089_wbs_nlevel_import.sql --target prod`
-- [ ] C2. `npm run db:apply -- supabase/migrations/0090_wbs_agent_prompt.sql --target prod`
-- [ ] C3. `npm run db:apply -- supabase/migrations/0092_clear_nonleaf_stage.sql --target prod` (운영 대상 0건 — 원장 정합용)
+- [x] C1. `npm run db:apply -- supabase/migrations/0089_wbs_nlevel_import.sql --target prod`
+- [x] C2. `npm run db:apply -- supabase/migrations/0090_wbs_agent_prompt.sql --target prod`
+- [x] C3. `npm run db:apply -- supabase/migrations/0092_clear_nonleaf_stage.sql --target prod` (운영 대상 0건 — 원장 정합용)
 
 **0089 는 `drop function if exists public.import_wbs_upsert(uuid, jsonb)` 후 3인자로 재생성한다.** 세 번째 인자에 `default null` 이 있어 현재 운영 코드의 2인자 호출이 그대로 해석되므로, DB 를 먼저 적용해도 **현재 배포된 코드는 깨지지 않는다.**
 
@@ -143,7 +149,7 @@ DB 상태 재확인은 §4 의 검증 스크립트를 `--dry` 감각으로 그�
 
 ### Phase D — 검증 (push 직전)
 
-- [ ] D1. 스키마 실측 — 아래 스크립트를 스크래치에 쓰고 실행(읽기 전용):
+- [x] D1. 스키마 실측 — 아래 스크립트를 스크래치에 쓰고 실행(읽기 전용):
 
 ```javascript
 // scratch/verify-prod.mjs — 읽기 전용
@@ -167,7 +173,7 @@ console.log('0092 잔여(기대 0):', await q(`select count(*)::int as n from wb
   where w.stage is not null and exists (select 1 from wbs_items c where c.parent_id=w.id)`))
 ```
 
-- [ ] D2. **PostgREST 스키마 캐시 확인** — `information_schema` 통과만으로는 부족하다. 이 프로젝트는 DDL 이 DB 에 들어간 뒤에도 캐시가 낡아 앱이 죽은 전례가 둘 있다(0038 `llm_config`, 0021 minutes). 캐시가 낡으면 **증상이 미적용과 똑같다.** REST 층을 직접 두드린다:
+- [x] D2. **PostgREST 스키마 캐시 확인** — `information_schema` 통과만으로는 부족하다. 이 프로젝트는 DDL 이 DB 에 들어간 뒤에도 캐시가 낡아 앱이 죽은 전례가 둘 있다(0038 `llm_config`, 0021 minutes). 캐시가 낡으면 **증상이 미적용과 똑같다.** REST 층을 직접 두드린다:
 
 ```bash
 ANON=$(grep -m1 NEXT_PUBLIC_SUPABASE_ANON_KEY /Users/jerry/wbs-web/.env.local | cut -d= -f2-)
@@ -178,15 +184,15 @@ curl -s -o /dev/null -w '컬럼 REST: %{http_code}\n' -H "apikey: $ANON" \
 
 낡았으면 Management API 로 `notify pgrst, 'reload schema';` 를 한 번 쏘고 재확인한다.
 
-- [ ] D3. 위 셋이 전부 통과한 **뒤에만** push.
+- [x] D3. 위 셋이 전부 통과한 **뒤에만** push.
 
 ### Phase E — 배포
 
-- [ ] E1. `git push origin main` (Vercel 자동 배포. `vercel --prod` 는 쓰지 않는다)
-- [ ] E2. `npm run smoke:prod`
+- [x] E1. `git push origin main` (Vercel 자동 배포. `vercel --prod` 는 쓰지 않는다)
+- [x] E2. `npm run smoke:prod`
 - [ ] E3. 눈확인 — §5 목록
 - [ ] E4. `npm run mark:good`
-- [ ] E5. staging back-merge: `git switch staging && git merge --ff-only origin/staging && git merge --ff-only origin/main && git push origin staging`
+- [x] E5. staging back-merge: `git switch staging && git merge --ff-only origin/staging && git merge --ff-only origin/main && git push origin staging`
       (`--no-ff` 머지 커밋의 부모가 7fa4364 라 ff 된다)
 
 ---
