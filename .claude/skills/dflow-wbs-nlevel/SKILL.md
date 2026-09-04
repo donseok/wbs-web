@@ -5,13 +5,13 @@ description: N단(5~8단) 대형 프로젝트의 wbs.md 를 levels 계약(frontm
 
 # /dflow-wbs-nlevel — N단 WBS 생성 (levels 계약)
 
-> **계약 정본은 `docs/superpowers/specs/2026-08-21-wbs-nlevel-md-contract.md` 다.**
+> **계약 정본은 `.claude/skills/dflow-wbs-nlevel/references/wbs-nlevel-md-contract.md` 다** (wbs-web docs/superpowers/specs 의 사본 — 갱신 시 둘 다).
 > 생성 전에 반드시 Read 하고, 이 파일과 다르면 그 문서가 이긴다.
 > 기존 `dflow-wbs`(3~4단 WSF)는 **동결** — 이 스킬과 규약이 다르며 서로 섞지 않는다.
 >
-> ⚠️ **업로드 게이트**: import 계약 v2.2(levels·attach·fold 서버 수용) 구현 전까지
-> 이 스킬의 산출물은 **작성·검수 전용**이다. `POST /api/v1/wbs/import` 로 올리지 않는다.
-> v2.2 랜딩 후 dflow-export 정합을 거쳐 게이트가 풀린다.
+> **업로드 게이트 (2026-08-22 갱신)**: import v2.2(levels·attach·fold)는 **서버 랜딩 완료** —
+> 스테이징(dflow-staging)은 코드·DB(0089) 모두 적용돼 업로드 가능. **운영은 0089 운영 적용 +
+> main 머지 전까지 금지.** 업로드 전 반드시 `wbs-nlevel-parse.py validate` 통과(§검증·업로드).
 
 ## 모드 — 인자로 판정
 
@@ -20,8 +20,17 @@ description: N단(5~8단) 대형 프로젝트의 wbs.md 를 levels 계약(frontm
 | **골격** | `--skeleton {시스템목록}` | Phase·System 골격 wbs.md + 시스템 키 목록 + levels 정본 + PL 파일 템플릿(배포 킷) | PMO/PM |
 | **PL** (기본) | `{모듈 디렉토리}` (예: `docs/mes/조업`) `[--programs 경로]` | 그 모듈의 wbs.md (Subsystem 이하) | 담당 PL |
 
-PL 모드는 **골격 파일을 입력으로 요구한다** — 같은 프로젝트 루트의 골격 wbs.md 에서 levels·시스템 키를
-읽어 복사하고, 없으면 에러 후 중단(골격 선행 원칙). levels 를 임의로 새로 쓰지 않는다.
+PL 모드의 **levels·시스템 키 조회 사슬** (2026-08-22 확정 — 위가 이김):
+
+1. **서버 직조회**: `GET /api/v1/wbs/structure?project_id=...` (PAT `work:read`, 멤버) —
+   levels 정본 + Phase·System 노드(external_ref·name). 골격이 이미 업로드된 프로젝트의 정본.
+2. **골격 파일 폴백**: 같은 프로젝트 루트의 골격 wbs.md 에서 levels·시스템 키를 복사.
+3. 둘 다 없으면 **에러 후 중단**(골격 선행 원칙). levels 를 임의로 새로 쓰지 않는다.
+
+**코드는 이름으로 고른다** — PL 에게 시스템 코드를 묻지 않는다: 조회 결과의 시스템 목록을
+이름으로 제시(①공통 ②품질 …)하고, 선택하면 attach·module 을 정본에서 자동 기입한다.
+골격에 없는 업무를 답하면 코드를 만들어주지 않고 "PMO 에 skeleton.yaml 추가 요청"으로 중단
+(fail-closed — 시스템 신설은 조직 결정). SUB 이하 약어만 스킬이 제안한다(§programs.*).
 예외 — 사용자가 골격 부재를 알고도 초안을 명시 요구하면: 스펙 정본 샘플의 levels 를 "임시 사본"으로
 복사하고, 파일 머리와 리포트에 **골격 발행 후 대조 필수(불일치 시 골격이 이김)·대조 전 업로드 금지**를
 명시한다. 임시 사본 없이 levels 를 창작하는 것은 여전히 금지.
@@ -80,10 +89,12 @@ credits:
 ###### ACT-IN-PR-1: 실적 관리
 - [ ] TSK-IN-001: 입측 실적 수집 @홍길동 w:5 ~2026-10-17 credit:default
   - [ ] STK-IN-001-1: 중복 수신 방어   ← checklist (fold)
-- [M] 분석 완료 보고회 ~2026-09-30     ← 마일스톤 (progress:none)
+- [M] TSK-AN-IF-90: 분석 완료 보고회 ~2026-09-30   ← 마일스톤 — ID 필수(external_ref)
 ```
 
-`@담당` `w:가중치(MD, 생략=1)` `~종료일` `credit:크레딧표키` `if-id:I/F대장ID`.
+`@담당` `w:가중치(MD, 생략=1)` `~종료일` 또는 `시작~종료일` `credit:크레딧표키` `if-id:I/F대장ID`.
+생성기는 **`시작~종료일` 로 쓴다** — 종료만 쓰면 import 가 시작을 파생(선행 종료 다음 영업일 → `start_date`)하지만,
+선행이 더 늦게 끝나는 계획은 시작=종료로 접혀 0일 막대가 된다. 일정을 산정했으면 둘 다 적는 게 정확하다.
 상태는 항상 `[ ]` — 전이 정본은 D'Flow(dflow-wbs 와 동일). 실적 % 를 파일에 쓰지 않는다.
 
 **Task 상세 블록** — 한 줄 밑에 들여쓴 `- key: value` 필드(체크박스 없는 리스트 = 필드,
@@ -149,7 +160,7 @@ systems:
 - 시스템 목록을 스킬이 지어내지 않는다 — 입력(파일 또는 답변)에 없는 시스템은 만들지 않는다.
 - 필수 누락(project 없음, systems 0개)은 중단. 선택 누락(pl 미정)은 기본값 + 리포트.
 
-### wsf 골격 표준 구성 (2026-08-21 확정 — 실물 예시: `docs/mes/skel/wbs.md`)
+### wsf 골격 표준 구성 (2026-08-21 확정 — 실물 예시: `.claude/skills/dflow-wbs-nlevel/references/skeleton-sample.md`)
 
 구축(build Phase)은 System 자리만 두고, 나머지 4 Phase 는 아래 WP 구성을 템플릿으로 생성한다
 (시스템 횡단이라 System·Subsystem 층 건너뜀 — 얕은 비대칭 트리):
@@ -162,8 +173,9 @@ systems:
 | 적용 | 데이터 이행 · 사용자 교육·매뉴얼 · 컷오버·오픈 + 가동 [M] · 안정화 |
 
 - 산출물 Task 는 `credit:doc`, 연동 Task 는 `credit:if`. 시스템별 항목은 skeleton.yaml 의 systems 로 전개.
-- 시스템별 요건정의·상세설계 Task 는 골격(PMO 파일) 소속이다 — attach 가 단일(build Phase)이라 PL 파일이
-  선행 Phase 에 붙을 수 없는 현 계약의 결과(v2.2 미결). 담당 PL 확정 시 @담당으로 배정해 소유를 넘긴다.
+- 시스템별 요건정의·상세설계 Task 는 골격(PMO 파일) 소속이다 — **attach 는 단일 노드로 확정**(b안,
+  2026-08-22): 모듈 통테 준비·시나리오도 "모듈 검증까지가 구축"으로 build Phase 소속이며, 선행·후행
+  Phase 는 PMO 골격 전유. 담당 PL 확정 시 @담당으로 배정해 소유를 넘긴다.
 
 ## 실행 플로우
 
@@ -172,16 +184,60 @@ systems:
 3. **골격 모드**: skeleton.yaml 로드(없으면 위 대화 수집 → 파일 생성 후 종료) → PH + System 노드 생성 →
    levels·credits 정본 작성 → PL 템플릿(모듈별, attach·levels 채움) 생성 → 키 목록 표 출력 +
    "키는 이후 불변" 경고.
-4. **PL 모드**: 골격 파일 탐색·Read (없으면 중단) → levels·키 복사 → 입력(PRD/프로그램 리스트) 분석은
-   dflow-wbs 의 어댑터 규칙 준용 → 모듈 Water 꼬리 + 프로그램 Task + 모듈 Fall 생성 → attach 기입.
-5. 자체 검증 (파서 스크립트 나오기 전까지 수동 체크리스트):
-   - [ ] 단계 선언이 frontmatter levels 에만 있는가
-   - [ ] 모든 노드 접두어가 levels 의 prefix 와 일치하는가
-   - [ ] 자식 순번 > 부모 순번인가 (역행·동급 없음)
-   - [ ] rollup 층 leaf 없음 / checklist 는 leaf 뿐인가
-   - [ ] PL 파일에 골격 층 본문 없음, attach·module 있음
-   - [ ] 상태 전부 `[ ]`, 실적 % 없음
-6. 생성 리포트에 **업로드 게이트(v2.2 대기)** 를 반드시 한 줄 남긴다.
+4. **PL 모드**: levels·시스템 키 조회(§조회 사슬 — 서버 structure → 골격 파일 → 에러) →
+   시스템을 **이름으로 선택**받아 attach·module 자동 기입 → **프로그램 리스트 로드**
+   (`{모듈 디렉토리}/programs.{yaml|csv|xlsx|md|json}` — 없으면 빈 템플릿 programs.yaml 생성 후
+   정지, "채워서 재실행" 안내. skeleton.yaml 과 동일 패턴) → 프로그램 Task + 모듈 Fall 생성 →
+   attach 기입. PRD/TRD 는 선택 — 있으면 requirements·acceptance 인용 보강, 없으면 한 줄 Task 로
+   두고 리포트에 "명세 미충전" 표기(지어내지 않는다).
+
+### PL 입력 파일 (`programs.*`) — dflow-wbs 어댑터 준용 + N단 확장
+
+공통 스키마·한글 헤더 별칭·포맷별 읽기는 dflow-wbs SKILL.md §프로그램 리스트 입력 어댑터를
+준용하고, N단 배치를 위해 두 키를 추가한다:
+
+| 키 | 필수 | 역할 |
+|---|---|---|
+| `subsystem` | ✅ | SUB 배치 — `입측` → `SUB-{SYS}-IN`. 없으면 에러(N단 필수) |
+| `target` | I/F 만 | 인터페이스 축 판정 — 공정명(`2CGL`)→L2IF 공정 WP, `ERP`→ERPIF(`group` 이 WP) |
+
+- `type` → WP 판정: 프로세스/배치→`-PR`, 화면/리포트→`-UI`, 인터페이스→`target` 축.
+- `id` 는 Task 의 `prd-ref: program:{id}` 로 보존 — 재생성 시 기존 Task ID 복원 키.
+- difficulty→`w:` 환산(하 2 / 중 3 / 상 5), 인터페이스 Task 는 `credit:if` 자동.
+- subsystem 값→SUB 약어 매핑은 최초 등장 시 제안·programs 파일 머리에 주석으로 고정(재실행 안정).
+5. **검증 게이트** — 파서 스크립트가 정본(수동 체크리스트 대체, 2026-08-22):
+   ```bash
+   python3 .claude/skills/dflow-wbs-nlevel/scripts/wbs-nlevel-parse.py validate \
+     --wbs docs/mes/조업/wbs.md --role pl        # 골격은 --role skeleton
+   ```
+   errors 0 이어야 통과. warnings 는 리포트에 전량 나열(생략 금지) — 얕은 비대칭 골격의
+   "필수층 건너뜀"과 분리 업로드 과도기의 "rollup leaf" 는 정상 경고다.
+6. 생성 리포트에 업로드 게이트 상태(스테이징 가능 / 운영 대기)를 한 줄 남긴다.
+
+## 업로드 — export → import v2.2 (2026-08-22 게이트 부분 해제)
+
+```bash
+# 1) export — 검증 게이트 내장(에러 시 payload 안 나옴). attach_ref 는 골격 module 로 자동 조립.
+python3 .claude/skills/dflow-wbs-nlevel/scripts/wbs-nlevel-parse.py export \
+  --wbs docs/mes/조업/wbs.md --skeleton docs/mes/skel/wbs.md > "$SCRATCHPAD/nlevel-op.json"   # 골격 경로는 프로젝트마다 다름
+
+# 2) 봉투 완성(project_id) 후 전송 — PAT 규칙·바인딩은 dflow-export SKILL.md 준용(값 비출력)
+python3 - <<EOF
+import json; d = json.load(open("$SCRATCHPAD/nlevel-op.json"))
+d["project_id"] = "<UUID>"
+json.dump(d, open("$SCRATCHPAD/nlevel-op-import.json", "w"), ensure_ascii=False)
+EOF
+PAT="$(echo "${DFLOW_PATS:-$DFLOW_PAT}" | cut -d',' -f1)"
+curl -sS -X POST "$DFLOW_API_BASE/api/v1/wbs/import" \
+  -H "Authorization: Bearer $PAT" -H "Content-Type: application/json" \
+  -d @"$SCRATCHPAD/nlevel-op-import.json"
+```
+
+- **골격 먼저**: 골격 파일은 attach 없이 export(levels 가 project_settings 시드), PL 파일은
+  attach_ref 필수 — 골격 미업로드면 서버가 400 `attach_not_found` 로 거부(fail-closed).
+- PL 파일 levels 가 서버 정본과 다르면 400 `levels_mismatch` — 골격의 levels 를 다시 복사.
+- fold(STK)·마일스톤·w:·credit:·if-id: 는 export 가 자동 변환 — payload 수동 조작 금지.
+- 대상 서버: **스테이징만**(운영은 0089 운영 적용 + main 머지 후 — 게이트 상단 참조).
 
 ## 자주 틀리는 것 (베이스라인 실측 2026-08-21)
 

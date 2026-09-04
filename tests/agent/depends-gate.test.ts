@@ -97,7 +97,7 @@ describe('claim 선행 게이트', () => {
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null }])
+    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
   })
 
   it('선행 stage=ip → 403 dependency_not_met + unmet 배열', async () => {
@@ -192,6 +192,31 @@ describe('claim 선행 게이트', () => {
   })
 })
 
+// 승인이 반쪽으로 끝난 선행(approved 인데 stage 미전이)이 후속을 영구히 막던 교착 —
+// 자동 루프가 스스로 못 푸는 조건이었다(2026-08-25 mes-runlog 리허설 3회 재발).
+describe('선행 게이트 — approved 주문을 도달로 인정', () => {
+  it("선행 stage='fp' 인데 approved 주문 있음 → claim 통과", async () => {
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [
+        { data: ORDER },                    // 대상 주문
+        { data: { id: 'ao-approved' } },    // loadDependsInfo 의 선행 approved 주문 조회
+        { data: [{ id: O1 }] },             // claim CAS
+      ],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      wbs_items: [
+        { data: TARGET_ITEM },
+        { data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'fp' }] },
+      ],
+      agent_work_reports: [{ data: { evidence: {} } }],
+    })
+    const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
+    expect(res.status).not.toBe(403)
+  })
+})
+
 describe('depends_evidence', () => {
   it('선행의 최근 approved 주문 completion evidence 에서 branch·head_sha 추출, 없으면 null', async () => {
     const HEAD_SHA = 'a'.repeat(40)
@@ -201,13 +226,37 @@ describe('depends_evidence', () => {
       agent_work_reports: [{ data: { evidence: { branch: 'main', head_sha: HEAD_SHA } } }],
     })
     const result1 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA }])
+    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA, order_approved: true }])
 
     useAdmin({
       wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
       agent_work_orders: [{ data: null }], // approved 주문 없음
     })
     const result2 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null }])
+    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
+  })
+})
+
+// 조회 실패를 "데이터 없음"으로 위장하지 않는다(에러 처리 3원칙 ①). 같은 함수의 items 조회는
+// 이미 던지는데 주문·보고 조회만 error 를 버려서, 조회가 깨진 것과 선행이 미승인인 것이
+// 똑같이 order_approved:false·head_sha:null 로 나왔다 — 2026-08-27 mes-runlog 추적이 여기서 헤맸다.
+describe('loadDependsInfo — 조회 실패 위장 금지', () => {
+  it('선행 주문 조회가 실패하면 던진다', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
+      agent_work_orders: [{ data: null, error: { message: 'order boom' } }],
+    })
+    await expect(loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] }))
+      .rejects.toThrow('order boom')
+  })
+
+  it('선행 완료 보고 조회가 실패하면 던진다', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
+      agent_work_orders: [{ data: { id: 'ao-1' } }],
+      agent_work_reports: [{ data: null, error: { message: 'report boom' } }],
+    })
+    await expect(loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] }))
+      .rejects.toThrow('report boom')
   })
 })

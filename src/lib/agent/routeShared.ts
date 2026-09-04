@@ -91,7 +91,7 @@ export async function loadGatedOrderForUser(
  */
 export async function resolveWriteActor(
   req: Request, admin: AdminClient, raw: unknown,
-  scope: 'work:claim' | 'work:report',
+  scope: 'work:claim',
 ): Promise<
   | { ok: true; principal: AgentPrincipal; userId: string | null; agentLabel: string }
   | { ok: false; res: NextResponse }

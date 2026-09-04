@@ -13,6 +13,9 @@ export const importWizardKo = {
 
   'importWizard.chooseExcel': '엑셀 파일 선택',
   'importWizard.xlsxOnly': '.xlsx 파일만 지원합니다',
+  'importWizard.templateButton': '양식 다운로드 (.xlsx)',
+  'importWizard.templateDesc': '처음이면 양식을 받아 채우세요 — 시트·헤더를 그대로 두면 자동 인식됩니다.',
+  'importWizard.templateFailed': '양식을 내려받지 못했습니다',
   'importWizard.selectFileFirst': '먼저 파일을 선택하세요',
   'importWizard.analyze': '양식 분석하기',
   'importWizard.inspecting': '분석 중…',

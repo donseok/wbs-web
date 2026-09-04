@@ -1,0 +1,32 @@
+# 품질 프로그램 리스트 — PL 모드 입력 정본 (⚠️ 샘플: 2026-08-22 스킬 생성 — PL 확정 전 검수 필수)
+# subsystem 약어 고정: 품질설계=QD, 시험검사=TS, 판정=JD, 부적합=NC, 성적서=CR, LABIF, ERPIF
+# id 는 prd-ref(program:{id}) 로 보존 — 재생성 시 Task 매칭 키. 바꾸지 말 것.
+programs:
+  - { id: QA-QD-001, subsystem: 품질설계, type: 프로세스, name: 품질설계 전개 프로세스(주문→공정별 기준), difficulty: 상 }
+  - { id: QA-QD-002, subsystem: 품질설계, type: 프로세스, name: 규격·기준 마스터 관리 프로세스, difficulty: 중 }
+  - { id: QA-QD-101, subsystem: 품질설계, type: 화면, name: 품질 기준 관리 화면, difficulty: 중, depends: QA-QD-002 }
+  - { id: QA-QD-102, subsystem: 품질설계, type: 화면, name: 주문 품질 요구 조회 화면, difficulty: 하, depends: QA-QD-001 }
+
+  - { id: QA-TS-001, subsystem: 시험검사, type: 프로세스, name: 시험 의뢰 생성 프로세스(샘플링 룰), difficulty: 상, depends: QA-QD-001 }
+  - { id: QA-TS-002, subsystem: 시험검사, type: 프로세스, name: 시험 실적 수집 프로세스, difficulty: 상, depends: QA-TS-001 }
+  - { id: QA-TS-101, subsystem: 시험검사, type: 화면, name: 시험 의뢰 현황 화면, difficulty: 중, depends: QA-TS-001 }
+  - { id: QA-TS-102, subsystem: 시험검사, type: 화면, name: 시험 실적 입력·조회 화면, difficulty: 중, depends: QA-TS-002 }
+
+  - { id: QA-JD-001, subsystem: 판정, type: 프로세스, name: 품질 자동판정 프로세스(룰 엔진), difficulty: 상, depends: QA-TS-002 }
+  - { id: QA-JD-002, subsystem: 판정, type: 프로세스, name: 재판정·용도변경 처리 프로세스, difficulty: 중, depends: QA-JD-001 }
+  - { id: QA-JD-101, subsystem: 판정, type: 화면, name: 판정 현황 화면, difficulty: 중, depends: QA-JD-001 }
+  - { id: QA-JD-102, subsystem: 판정, type: 화면, name: 재판정 처리 화면, difficulty: 중, depends: QA-JD-002 }
+
+  - { id: QA-NC-001, subsystem: 부적합, type: 프로세스, name: 부적합 등록·처리 프로세스, difficulty: 중, depends: QA-JD-001 }
+  - { id: QA-NC-101, subsystem: 부적합, type: 화면, name: 부적합 관리 화면, difficulty: 중, depends: QA-NC-001 }
+  - { id: QA-NC-102, subsystem: 부적합, type: 화면, name: 클레임 접수·처리 화면, difficulty: 중, depends: QA-NC-001 }
+
+  - { id: QA-CR-001, subsystem: 성적서, type: 프로세스, name: 성적서(Mill Sheet) 생성 프로세스, difficulty: 상, depends: QA-JD-001 }
+  - { id: QA-CR-101, subsystem: 성적서, type: 화면, name: 성적서 발행·이력 화면, difficulty: 중, depends: QA-CR-001 }
+
+  - { id: QA-LB-001, subsystem: LABIF, type: 인터페이스, target: 인장시험기, name: 시험 결과 수신 I/F, difficulty: 상 }
+  - { id: QA-LB-011, subsystem: LABIF, type: 인터페이스, target: 경도계, name: 시험 결과 수신 I/F, difficulty: 중 }
+  - { id: QA-LB-021, subsystem: LABIF, type: 인터페이스, target: SDD, name: 표면결함 판정 수신 I/F, difficulty: 상 }
+
+  - { id: QA-ER-001, subsystem: ERPIF, type: 인터페이스, target: ERP, group: 품질성적, name: 품질 성적 송신 I/F, difficulty: 상, if-id: IF-0041 }
+  - { id: QA-ER-011, subsystem: ERPIF, type: 인터페이스, target: ERP, group: 클레임, name: 클레임 정보 수신 I/F, difficulty: 중, if-id: IF-0042 }

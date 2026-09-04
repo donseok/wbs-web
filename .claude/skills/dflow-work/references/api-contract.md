@@ -1,6 +1,23 @@
-# D'Flow Agent API 계약 v2.1
+# D'Flow Agent API 계약 v2.2
 
-`contract_version: "2.1"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영.
+`contract_version: "2.2"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영.
+
+## v2.2 변경점 (2026-08-28)
+
+전부 **additive** 다 — 기존 요청은 응답이 그대로이고 클라이언트를 고칠 필요가 없다.
+세 가지 모두 v2.1 시기에 서버에 들어갔는데 버전을 안 올려 계약이 코드보다 뒤처져 있었다
+(2026-08-27 감사에서 드러남). 이번에 버전을 올리며 문서에 반영한다.
+
+| # | 변경 | v2.1 | v2.2 |
+|---|---|---|---|
+| 1 | 목록 status 필터 | `ready` 고정 | `?status=` 로 지정(쉼표로 여럿). 미지정은 종전대로 `ready`. 허용값은 `ready\|claimed\|reported\|approved\|cancelled`, 그 밖은 400 — 조용히 버리면 오타가 "그 상태의 주문이 없다"로 위장한다. **`approved`·`cancelled` 를 돌려주는 첫 목록 경로다**: 종전에는 주문 id 를 이미 알아야만 그 주문을 볼 수 있었다 |
+| 2 | 상세의 보고 evidence | 미노출 | `GET /work/{id}` 의 `reports[]` 에 `evidence` 포함 — **PAT 호출만**(`depends_evidence` 와 같은 규칙). 완료 보고가 증적을 실었는지를 DB 직접 조회 없이 볼 수 있다 |
+| 3 | depends 도달 축 | `stage` 만 | `depends_evidence[]` 에 `order_approved:boolean` 추가. claim 게이트가 `stage ≥ im` **또는** `order_approved` 로 판정한다 — 재발행을 겪은 선행은 현재 주문이 `ready` 여도 과거 승인이 있으면 `true` 다 |
+
+⚠️ **`order_approved` 는 여전히 키 존재 여부로 지원을 가른다**(`'order_approved' in d`).
+2.1 서버가 현장에 남아 있고, 그 중에는 이 키를 이미 내려주는 것도 안 내려주는 것도 있다 —
+버전만 보고 단정하면 틀린다. 키가 없으면 `false` 로 단정하지 말고 "판정 불가"로 갈라
+stage 축만으로 판정하고 그 사실을 한 줄 남긴다.
 
 ## v2.1 변경점 (2026-08-13)
 
@@ -22,21 +39,22 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 - 킬스위치: `AGENT_API_ENABLED !== 'true'` → 전 라우트 404. 시크릿 미설정 → legacy 분기만 닫힘.
 - PAT 검사 순서: enabled → revoked_at → expires_at → hash(상수시간).
 - PAT 요청 body의 `user_email`: 없으면 무시, 있는데 소유자와 다르면 400 `identity_mismatch`.
-- 스코프: `work:read`(조회) · `work:claim`(claim/release) · `work:report`(report). 부족 시 403 `insufficient_scope`. legacy는 스코프 개념 없음(v1 동작).
+- 스코프: `work:read`(조회) · `work:claim`(claim/release/report/import). 부족 시 403 `insufficient_scope`. legacy는 스코프 개념 없음(v1 동작).
+  `work:report` 는 폐지됐다(2026-08-25) — claim 할 수 있으면 그 결과도 적을 수 있어야 하고, claim 이 무제한이라 보고만 막는 건 방어선이 아니었다(본인 claim 건만 쓸 수 있다는 강제는 report 라우트가 한다). 신규 발급에는 없고, **옛 토큰의 `work:report` 는 `work:claim` 과 동등하게 수용**한다.
 - PAT는 `project_id` 지정 시 그 프로젝트만. 멤버십: PAT principal은 모든 조회·쓰기에서 `is_superuser` 또는 `project_roles` 보유 필요, 아니면 404.
 
 ## 엔드포인트 (v1 5개 불변 + 신규 3개)
 
 | 메서드·경로 | 신원 | 요지 |
 |---|---|---|
-| GET `/api/v1/agent/work?project_id=` | legacy·pat | v1 계약 그대로. PAT는 멤버십·스코프 강제 |
+| GET `/api/v1/agent/work?project_id=[&status=]` | legacy·pat | v1 계약 + `status` 필터(v2.2). PAT는 멤버십·스코프 강제 |
 | GET `/api/v1/agent/work/{id}` | legacy·pat | v1 + PAT 호출 시 `mine:boolean`·`claimed_by_user_email` 추가 |
 | POST `/api/v1/agent/work/{id}/claim` | legacy·pat | PAT: `claimed_by_user_id` 서버 유도 기록. 배정 항목은 담당자만(403 `not_assignee`) |
 | POST `/api/v1/agent/work/{id}/release` | legacy·pat | 소유 판정: PAT=claimed_by_user_id, legacy=claimed_by 라벨. 교차 403 `not_claim_owner` |
 | POST `/api/v1/agent/work/{id}/report` | legacy·pat | 위와 같음 + PAT는 `evidence` 객체 허용 |
 | GET `/api/v1/agent/me` | **pat 전용** | legacy 호출 400 `identity_required` |
 | GET `/api/v1/agent/work/mine?scope=&limit=` | **pat 전용** | scope: `available`(기본)·`claimed`·`all`·`assigned` |
-| POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:report` 필요 |
+| POST `/api/v1/wbs/import` | **pat 전용** | export JSON upsert. 스코프 `work:claim` 필요 |
 
 ## 응답 셰이프 (신규분)
 
@@ -46,8 +64,8 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.1",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — v2.1 재설계와 함께 `"2.1"`로 갱신됐다.
-`projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만(미등록은 목록에서도 은닉).
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.2"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+`projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
 ```json
@@ -95,24 +113,29 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 **"dev_workflow ON인 리프에는 주문이 존재한다"** — 배정 여부는 조건이 아니다(v2.0의 "배정된 리프"에서 변경). import·배정·dev_workflow 토글 등 모든 발행 경로가 공용 함수 `ensureOrderForWorkflowLeaf`를 거치며, 게이트는 다음 순서로 고정이다:
 
-1. `agent_projects.enabled = true`(꺼진 프로젝트는 발행하지 않음)
+1. `agent_projects.enabled = true` — 자동 활성(위임 체크·dev_workflow ON·task 업로드가 처음이면 insert + **백필**: 그 프로젝트의 dev_workflow 리프 전부에 주문 보장). 설정에서 "전체 중지"한 프로젝트만 false 이며 되살리지 않는다
 2. `dev_workflow = true`(항목 게이트)
 3. 리프(자식 없음) — 아니면 발행하지 않음
 4. 활성 주문(ready·claimed·reported) 존재 여부로 멱등 판정 — 이미 있으면 재발행하지 않음(DB 부분 유니크 인덱스가 2차 방어, 23505 경합은 no-op으로 수렴)
 
 미배정 task도 이 조건만 충족하면 주문이 발행되고, `GET /agent/work/mine?scope=available`은 assignee 유무와 무관하게 `ready` 주문 전체를 노출한다.
 
-관리자 화면의 수동 발행(`createAgentWorkOrder`)도 이 불변식을 지킨다 — 발행 대상 항목의 `dev_workflow`가 꺼져 있으면 발행 성공과 함께 서버가 자동으로 켠다("발행 = 도입 선언").
+수동 발행 화면은 없다(2026-08-24 제거). **발행 = WBS 명세 패널의 "에이전트 위임"(tags: agent) 체크** — 체크하면 서버가 프로젝트 활성 → dev_workflow ON → 주문 보장을 한 번에 한다. 체크 해제 = 그 항목의 ready 주문 취소(claimed/reported 는 사람이 승인·반려로 정리).
+
+승인·반려도 전용 화면(`/agent-ops`)이 없다(2026-08-24 제거) — WBS 화면(`/p/<id>/wbs`) 항목 클릭 → 상세 패널의 "담당·단계" 섹션 → "진행 상황"에서 한다. `status=reported` 인 주문에만 승인/반려 버튼이 뜨고, 관리자(project admin·슈퍼유저)만 보인다(`editable={isAdmin}`). 별도 "회수" 액션은 없다 — 반려가 곧 회수다(`reported`→`claimed`로 되돌리고 stage 는 그대로 `im` 유지, 담당 에이전트가 같은 주문으로 재작업·재보고).
 
 ## claim·show 응답 확장과 선행 게이트 (결정 A·C)
 
 - `GET /work/{id}`(PAT)와 `POST /work/{id}/claim` 200 응답의 `item`에 확장 필드를 포함한다:
   `external_ref·category·domain·priority·model·tags·depends·prd_ref·entry_point·acceptance·spec·stage`.
   클라이언트는 claim 성공 시 이걸로 `docs/tasks/<TSK-ID>/spec.md` 로컬 캐시를 만든다(TSK-ID = external_ref의 `/` 뒤).
-- 두 응답 모두 `depends_evidence: [{ external_ref, stage, branch|null, head_sha|null }]` 포함 —
-  각 선행 항목의 **최근 approved 주문의 completion 보고 evidence**에서 추출(없으면 null).
+- 두 응답 모두 `depends_evidence: [{ external_ref, stage, branch|null, head_sha|null, order_approved }]`
+  포함 — 각 선행 항목의 **approved 주문의 completion 보고 evidence**에서 추출(없으면 null).
+  `order_approved`(v2.2)는 그 선행에 `status='approved'` 주문이 하나라도 있는지다. 최신 주문이
+  아니라 "아무 approved 주문" 이라 재발행을 겪은 선행에서도 승인 사실이 살아남는다.
 - **서버 선행 게이트**: claim 시 depends의 선행 항목 중 `stage`가 `im` 이상(`im`·`xx`)이 아닌 것이 하나라도 있으면
   403 `dependency_not_met` + `unmet: [{external_ref, stage}]`. 선행 external_ref가 프로젝트에 없거나 stage가 null이면 미충족(fail-closed).
+  dflow.sh 는 이 403 을 바디 `code` 로 판독해 **exit 4**(선행·상태로 인한 진행 불가)로 낸다 — 권한 403(exit 5)과 처방이 다르기 때문이다(구조 필드 판독이므로 "산문 파싱 금지" 위반이 아니다).
 - **클라이언트 하드 차단**: ① claim 전 `show`의 depends_evidence로 `git cat-file -e <sha>` + `git merge-base --is-ancestor <sha> HEAD` 검사 — 미도달이면 메시지 출력 후 **실행 거부(exit 4)**. ② `done`은 `git ls-remote`로 현재 브랜치 tip이 원격에 도달했는지 확인 — 미도달이면 **보고 거부(exit 2)**. "완료 = push 완료"가 클라이언트 계약이다.
 
 ## 상태 어휘 매핑 (§7.2-2, v2.1)
@@ -159,6 +182,9 @@ UI 라벨 정본(참고 표기용, `dev-workflow state-machine.json` 기준): `a
 ## 로컬 클라이언트 계약
 
 - env: `DFLOW_API_BASE`(기본값 없음 — 미설정 시 즉시 실패) · `DFLOW_PATS`(쉼표 구분 1~N개) · `DFLOW_PAT`(단일, PATS 미설정 시 폴백).
-- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단 / 5 권한(403) / 6 네트워크·서버(5xx) / 7 기능 꺼짐(404).
+- `dflow.sh` exit code: 0 성공 / 2 사용법·설정·push 미완료 / 3 인증(401) / 4 상태 충돌(409)·선행 미반영 로컬 차단·선행 미충족(403 `code=dependency_not_met`) / 5 권한(403, 그 외) / 6 네트워크·서버(5xx)·로컬 환경 실패(파싱·파일 쓰기) / 7 기능 꺼짐(404).
+  - 403 을 body 의 `code` 로 갈라 읽는다: 선행 미충족은 권한 문제가 아니라 상태 문제라
+    호출부가 할 일이 "권한을 얻어라"가 아니라 "선행을 끝내고 다시 와라"이다.
+  - 로컬 파싱·파일 쓰기 실패를 4 로 내지 않는다 — 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.
 - 신원 해석: 토큰별 `GET /agent/me` 1회 → `~/.cache/dflow/profiles.json` 캐시. `--as <이름|email>` 프로필 선택.
 - evidence 자동 조립: `git rev-parse HEAD`·`git remote get-url origin`·`git branch --show-current`·(`gh` 있으면) PR URL.

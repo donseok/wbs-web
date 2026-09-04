@@ -103,6 +103,7 @@ describe('claim → stage ip 전이', () => {
       wbs_items: [
         { data: ITEM_ROW() },                 // 배정·선행 게이트용 항목 상세
         { data: STAGE_ROW({ stage: 'as' }) },  // transitionStage 자체 조회
+        { data: null }, // 리프 확인 — 자식 없음
         { data: [{ id: W1 }] },                // transitionStage UPDATE.select('id')
       ],
     })
@@ -157,6 +158,7 @@ describe('claim → stage ip 전이', () => {
       wbs_items: [
         { data: ITEM_ROW() },
         { data: STAGE_ROW({ stage: 'as' }) },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: null, error: { message: 'db down' } }, // transitionStage UPDATE 실패
       ],
     })
@@ -186,6 +188,7 @@ describe('completion 보고 → stage im 전이', () => {
       wbs_items: [
         { data: { name: '항목1' } },                                  // 알림용 이름 조회
         { data: STAGE_ROW({ stage: 'ip' }) },                          // transitionStage 자체 조회
+        { data: null }, // 리프 확인 — 자식 없음
         { data: [{ id: W1 }] },                                        // transitionStage UPDATE
       ],
     })
@@ -226,6 +229,7 @@ describe('승인/반려 → stage xx 전이', () => {
       wbs_items: [
         { data: { name: '항목1', assignee_member_id: null, stage: 'im', external_ref: null } }, // 알림용 조회(배정자 없음)
         { data: STAGE_ROW({ stage: 'im' }) },                                                    // transitionStage 자체 조회
+        { data: null }, // 리프 확인 — 자식 없음
         { data: [{ id: W1 }] },                                                                  // transitionStage UPDATE
       ],
     })

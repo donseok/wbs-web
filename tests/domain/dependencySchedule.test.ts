@@ -15,7 +15,7 @@ const dep = (
   successorId: string,
   type: DependencyType = 'FS',
   lagDays = 0,
-): TaskDependency => ({ id, projectId: 'p1', predecessorId, successorId, type, lagDays })
+): TaskDependency => ({ id, projectId: 'p1', predecessorId, successorId, type, lagDays, origin: 'manual' })
 
 describe('shiftBusinessDays', () => {
   it('주말·공휴일을 건너 양방향으로 이동한다', () => {
@@ -127,3 +127,41 @@ describe('computeDependencySchedule', () => {
     expect(result.criticalTaskIds.size).toBe(0)
   })
 })
+
+describe('합성 의존성(origin=spec)과 날짜 없는 선행', () => {
+  // wbs.md 의 schedule 은 선택 항목이라 "날짜 없는 선행 → 날짜 있는 후행"이 흔하다.
+  // 병합 전에는 그 쌍에 엣지가 아예 없었다. 엣지가 생기면서 후행이 그래프에서
+  // 탈락하면 예상 일정 바·지연 배지·크리티컬 패스가 통째로 사라진다 — 눈에 띄는 퇴행이다.
+  it('날짜 없는 선행이 붙어도 후행은 제 일정을 유지한다', () => {
+    const P: ScheduleTask = { id: 'P', plannedStart: null, plannedEnd: null, actualPct: 0 }
+    const S: ScheduleTask = { id: 'S', plannedStart: '2026-08-03', plannedEnd: '2026-08-07', actualPct: 0 }
+    const link: TaskDependency = {
+      id: 'spec:P>S', projectId: 'p1', predecessorId: 'P', successorId: 'S',
+      type: 'FS', lagDays: 0, origin: 'spec',
+    }
+
+    const r = computeDependencySchedule([P, S], [link], '2026-08-03')
+
+    expect(r.byId.has('S')).toBe(true)
+    expect(r.byId.get('S')?.plannedStart).toBe('2026-08-03')
+    expect(r.unscheduledTaskIds.has('P')).toBe(true)
+    expect(r.invalidDependencyIds.has('spec:P>S')).toBe(true) // 엣지는 무효로 분류되고 후행은 살아남는다
+    expect(r.blockedTaskIds.has('S')).toBe(false)
+  })
+
+  it('양쪽 다 날짜가 있으면 합성 의존성도 실제 행과 똑같이 일정을 민다', () => {
+    const P: ScheduleTask = { id: 'P', plannedStart: '2026-08-03', plannedEnd: '2026-08-14', actualPct: 0 }
+    const S: ScheduleTask = { id: 'S', plannedStart: '2026-08-03', plannedEnd: '2026-08-07', actualPct: 0 }
+    const link: TaskDependency = {
+      id: 'spec:P>S', projectId: 'p1', predecessorId: 'P', successorId: 'S',
+      type: 'FS', lagDays: 0, origin: 'spec',
+    }
+
+    const r = computeDependencySchedule([P, S], [link], '2026-08-03')
+
+    // 선행이 8/14 에 끝나므로 후행 최이른 시작이 계획(8/3)보다 뒤로 밀린다.
+    expect(r.byId.get('S')!.earliestStart > '2026-08-14').toBe(true)
+    expect(r.invalidDependencyIds.has('spec:P>S')).toBe(false)
+  })
+})
+

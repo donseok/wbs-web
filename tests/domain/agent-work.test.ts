@@ -14,6 +14,9 @@ describe('agentWork 상태 머신', () => {
     expect(canTransition('reported', 'claimed')).toBe(true)   // 반려 복귀
     expect(canTransition('reported', 'approved')).toBe(true)
     expect(canTransition('reported', 'cancelled')).toBe(true)
+    // 사람이 승인을 무르는 두 경로(2026-08-27) — 검토 대기열 복귀 / 에이전트 재작업
+    expect(canTransition('approved', 'reported')).toBe(true)
+    expect(canTransition('approved', 'claimed')).toBe(true)
   })
   it('금지 전이 — 종료 상태에서 못 나오고, 건너뛰기 불가', () => {
     expect(canTransition('approved', 'ready')).toBe(false)

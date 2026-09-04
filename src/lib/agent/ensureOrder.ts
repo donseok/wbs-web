@@ -113,3 +113,63 @@ export async function ensureOrderForWorkflowLeaf(
 
   return { ok: true, created: true }
 }
+
+/**
+ * 프로젝트 자동 활성(2026-08-24 — "위임 체크 = 발행"). 사람이 /agent-ops 에서 "루프 등록"을 따로 하던
+ * 단계를 없앤다: 위임 체크·dev_workflow ON·agent 태그 업로드 같은 "에이전트에게 일을 시키는 첫 행위"가
+ * 곧 프로젝트 활성이다.
+ *
+ * - 행 없음 → insert(enabled=true), `activated:true`. 호출부는 이때 백필을 돈다.
+ * - 행 있음·enabled=true → no-op.
+ * - 행 있음·enabled=false → **되살리지 않는다**(`stopped:true`). 설정 페이지의 "에이전트 중지"는
+ *   사람이 명시적으로 내린 킬스위치라 위임 체크가 조용히 무력화하면 안 된다. 호출부는 경고로 노출한다.
+ */
+export async function ensureAgentProject(
+  admin: AdminClient,
+  args: { projectId: string; actorUserId: string },
+): Promise<{ ok: true; enabled: boolean; activated: boolean; stopped: boolean } | { ok: false; error: string }> {
+  const { data: reg, error: regErr } = await admin
+    .from('agent_projects').select('enabled').eq('project_id', args.projectId).maybeSingle()
+  if (regErr) return { ok: false, error: `등록 조회 실패: ${regErr.message}` }
+  if (reg) {
+    const enabled = (reg as { enabled: boolean }).enabled === true
+    return { ok: true, enabled, activated: false, stopped: !enabled }
+  }
+  const { error: insErr } = await admin
+    .from('agent_projects')
+    .insert({ project_id: args.projectId, created_by: args.actorUserId, note: '자동 활성(위임 체크)' })
+  if (insErr) {
+    // 동시 활성 경합 — 다른 요청이 먼저 넣었다. 활성 여부를 다시 읽어 그대로 보고한다.
+    if ((insErr as { code?: string }).code === '23505') {
+      const again = await admin.from('agent_projects').select('enabled').eq('project_id', args.projectId).maybeSingle()
+      if (again.error) return { ok: false, error: `등록 재조회 실패: ${again.error.message}` }
+      const enabled = (again.data as { enabled: boolean } | null)?.enabled === true
+      return { ok: true, enabled, activated: false, stopped: !enabled }
+    }
+    return { ok: false, error: `프로젝트 활성 실패: ${insErr.message}` }
+  }
+  return { ok: true, enabled: true, activated: true, stopped: false }
+}
+
+/**
+ * 소급 발행(백필) — 프로젝트가 활성되는 시점에 dev_workflow=true 항목 전부에 주문 보장을 1회 돈다.
+ * 업로드가 활성보다 먼저였어도(리허설 실측 2026-08-24: orders_created 0 인 채 침묵) 주문이 존재하게.
+ * 리프·활성 주문 판정은 ensureOrderForWorkflowLeaf 안에 있으므로 여기는 후보 나열만 한다.
+ * 개별 실패는 모아서 돌려주고 멈추지 않는다 — 한 항목 때문에 나머지 백필이 사라지면 안 된다.
+ */
+export async function backfillProjectOrders(
+  admin: AdminClient,
+  args: { projectId: string; actorUserId: string },
+): Promise<{ ok: true; created: number; failed: string[] } | { ok: false; error: string }> {
+  const { data: items, error } = await admin
+    .from('wbs_items').select('id').eq('project_id', args.projectId).eq('dev_workflow', true)
+  if (error) return { ok: false, error: `백필 대상 조회 실패: ${error.message}` }
+  let created = 0
+  const failed: string[] = []
+  for (const it of (items ?? []) as Array<{ id: string }>) {
+    const r = await ensureOrderForWorkflowLeaf(admin, { projectId: args.projectId, wbsItemId: it.id, actorUserId: args.actorUserId })
+    if (!r.ok) { failed.push(it.id); console.error('[backfill] 주문 보장 실패:', it.id, r.error); continue }
+    if (r.created) created += 1
+  }
+  return { ok: true, created, failed }
+}

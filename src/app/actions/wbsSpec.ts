@@ -6,6 +6,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
+import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
+import { setWbsDevWorkflow } from '@/app/actions/wbsAssign'
 
 /**
  * WBS 명세(spec 마크다운·참조 필드) 조회·편집 — 결정 B: 실물 문서는 로컬 git, DB 에는
@@ -33,6 +35,8 @@ export interface WbsSpecDetail {
   acceptance: string[]
   spec: string | null
   externalRef: string | null
+  /** 에이전트 위임 시 사용자 지시문(0090) — 웹 전용 필드. import 가 덮지 않아 재업로드에도 보존. */
+  agentPrompt: string | null
 }
 
 /**
@@ -76,7 +80,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
   const sb = await createServerClient()
   const { data, error } = await sb
     .from('wbs_items')
-    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref')
+    .select('category, domain, priority, model, tags, depends, prd_ref, entry_point, acceptance, spec, external_ref, agent_prompt')
     .eq('id', itemId).maybeSingle()
   if (error) {
     console.error('[getWbsSpec] 조회 실패:', error.message)
@@ -95,6 +99,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     acceptance: unknown
     spec: string | null
     external_ref: string | null
+    agent_prompt: string | null
   }
   return {
     category: row.category ?? null,
@@ -108,6 +113,7 @@ export async function getWbsSpec(itemId: string): Promise<WbsSpecDetail | null> 
     acceptance: Array.isArray(row.acceptance) ? row.acceptance.filter((v): v is string => typeof v === 'string') : [],
     spec: row.spec ?? null,
     externalRef: row.external_ref ?? null,
+    agentPrompt: row.agent_prompt ?? null,
   }
 }
 
@@ -161,4 +167,126 @@ export async function updateWbsSpecFields(
   if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
   revalidatePath(`/p/${loaded.projectId}`, 'layout')
   return { ok: true }
+}
+
+/** 에이전트 위임 태그 — dflow-poll 의 자동 착수 대상 판별 계약(값을 바꾸면 폴링과 어긋난다). */
+const AGENT_TAG = 'agent'
+
+const AGENT_PROMPT_MAX = 16_384 // 16KB — 프롬프트는 지시문이지 문서 저장소가 아니다(문서는 spec·prd_ref)
+
+/**
+ * 에이전트 프롬프트 저장(0090) — 위임 체크에 덧붙이는 사용자 지시문. trim 후 빈 값은 null(삭제).
+ * change_logs 를 남기지 않는다 — spec 과 같은 본문성 필드이고 spec 도 토큰 로그만 남기지만,
+ * 프롬프트는 수시로 다듬는 작업 메모 성격이라 이력 노이즈가 더 크다. 권한은 다른 명세 편집과
+ * 동일 — 프로젝트 관리자.
+ */
+export async function updateAgentPrompt(
+  itemId: string,
+  raw: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (typeof raw !== 'string') return { ok: false, error: '잘못된 요청입니다.' }
+  if (raw.length > AGENT_PROMPT_MAX) return { ok: false, error: '프롬프트가 너무 큽니다(16KB 상한).' }
+  if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
+  const loaded = await loadItemProject(itemId)
+  if (!loaded.ok) return loaded
+  const g = await requireProjectAdmin(loaded.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const admin = createAdminClient()
+  const { data: updated, error } = await admin
+    .from('wbs_items')
+    .update({ agent_prompt: raw.trim() || null, updated_at: new Date().toISOString() })
+    .eq('id', itemId).select('id')
+  if (error) return { ok: false, error: error.message }
+  if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
+  revalidatePath(`/p/${loaded.projectId}`, 'layout')
+  return { ok: true }
+}
+
+export type AgentDelegationResult = {
+  ok: boolean; error?: string
+  /** 사람이 알아야 할 부수 상황 — 프로젝트가 중지 상태라 주문이 안 나갔다, 진행 중 주문은 회수하지 않았다 등. */
+  warning?: string
+}
+
+/**
+ * 에이전트 위임 토글(2026-08-24 재정의 — "위임 체크 = 발행"). 사람이 하는 결정은 이것 하나다:
+ *
+ * ON : tags 에 agent 추가 → 프로젝트 자동 활성(처음이면 백필) → dev_workflow ON(아니었으면) → 이 항목 주문 보장.
+ *      프로젝트가 "에이전트 중지"(enabled=false) 상태면 태그는 붙이되 주문은 안 나간다 — warning 으로 알린다.
+ * OFF: tags 에서 agent 제거 → 이 항목의 ready 주문 취소. claimed/reported 는 진행 중이라 건드리지 않고 warning.
+ *
+ * dev_workflow 는 여기서 켜기만 하고 끄지 않는다(위임 해제 ≠ 워크플로 이탈 — 사람이 직접 할 수도 있다).
+ * 권한은 다른 명세 편집과 동일 — 프로젝트 관리자.
+ */
+export async function setAgentDelegation(
+  itemId: string,
+  delegated: boolean,
+): Promise<AgentDelegationResult> {
+  if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
+  const loaded = await loadItemProject(itemId)
+  if (!loaded.ok) return loaded
+  const g = await requireProjectAdmin(loaded.projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const admin = createAdminClient()
+  const { data: row, error: readErr } = await admin
+    .from('wbs_items').select('tags, dev_workflow').eq('id', itemId).single()
+  if (readErr) return { ok: false, error: readErr.message }
+  const tags: string[] = row?.tags ?? []
+  const alreadyDelegated = tags.includes(AGENT_TAG)
+  if (alreadyDelegated !== delegated) {
+    const next = delegated ? [...tags, AGENT_TAG] : tags.filter(tg => tg !== AGENT_TAG)
+    const { data: updated, error } = await admin
+      .from('wbs_items')
+      .update({ tags: next, updated_at: new Date().toISOString() })
+      .eq('id', itemId).select('id')
+    if (error) return { ok: false, error: error.message }
+    if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
+  }
+
+  const warnings: string[] = []
+  if (delegated) {
+    // 1) 프로젝트 활성 — 처음이면 백필(활성 전에 업로드된 task 들의 주문을 여기서 채운다)
+    const proj = await ensureAgentProject(admin, { projectId: loaded.projectId, actorUserId: g.actor.userId })
+    if (!proj.ok) return { ok: false, error: proj.error }
+    if (proj.activated) {
+      const bf = await backfillProjectOrders(admin, { projectId: loaded.projectId, actorUserId: g.actor.userId })
+      if (!bf.ok) warnings.push(bf.error)
+      else if (bf.failed.length > 0) warnings.push(`백필 중 ${bf.failed.length}건 주문 보장 실패(서버 로그 확인)`)
+    }
+    // 2) dev_workflow ON — 위임은 워크플로 도입을 함의한다(체크 이중화 해소). 이미 ON 이면 no-op.
+    if (row?.dev_workflow !== true) {
+      const dw = await setWbsDevWorkflow(itemId, true, false)
+      if (!dw.ok) return { ok: false, error: dw.error ?? 'dev_workflow 갱신 실패' }
+    }
+    // 3) 이 항목 주문 보장 — setWbsDevWorkflow 가 방금 발행했어도 멱등(활성 주문 있으면 skip)
+    if (proj.stopped) {
+      warnings.push('프로젝트가 "에이전트 중지" 상태라 주문을 발행하지 않았습니다. 설정에서 에이전트를 켜면 발행됩니다.')
+    } else {
+      const ord = await ensureOrderForWorkflowLeaf(admin, { projectId: loaded.projectId, wbsItemId: itemId, actorUserId: g.actor.userId })
+      if (!ord.ok) return { ok: false, error: ord.error }
+      if (!ord.created && ord.reason === 'not_leaf') warnings.push('리프(하위 없음) 항목만 에이전트가 집어갑니다 — 이 항목은 하위가 있어 주문이 없습니다.')
+    }
+  } else {
+    // ready·claimed 는 체크 해제만으로 취소한다(2026-08-24 — "회수" 버튼을 따로 안 둔다: 위임을
+    // 끄면 그 항목엔 에이전트를 더 안 쓰겠다는 뜻이니 대기 중이든 작업 중이든 그대로 끝낸다).
+    // reported 는 이미 결과물이 올라온 상태라 취소로 지우지 않는다 — 명세 패널에서 승인·반려로만 정리한다.
+    const { data: active, error: actErr } = await admin
+      .from('agent_work_orders').select('id, status').eq('wbs_item_id', itemId)
+      .in('status', ['ready', 'claimed', 'reported'])
+    if (actErr) return { ok: false, error: `주문 조회 실패: ${actErr.message}` }
+    const rows = (active ?? []) as Array<{ id: string; status: string }>
+    const cancelIds = rows.filter(o => o.status === 'ready' || o.status === 'claimed').map(o => o.id)
+    if (cancelIds.length > 0) {
+      const { error: cancelErr } = await admin
+        .from('agent_work_orders')
+        .update({ status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null, updated_at: new Date().toISOString() })
+        .in('id', cancelIds).in('status', ['ready', 'claimed'])
+      if (cancelErr) return { ok: false, error: `주문 취소 실패: ${cancelErr.message}` }
+    }
+    if (rows.some(o => o.status === 'reported')) {
+      warnings.push('완료 보고가 이미 올라온 주문은 취소되지 않았습니다 — 아래 진행 상황에서 승인·반려로 정리하세요.')
+    }
+  }
+  revalidatePath(`/p/${loaded.projectId}`, 'layout')
+  return warnings.length > 0 ? { ok: true, warning: warnings.join(' ') } : { ok: true }
 }

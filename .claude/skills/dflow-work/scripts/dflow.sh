@@ -1,12 +1,22 @@
 #!/bin/sh
-# dflow.sh — D'Flow Agent API 얇은 curl 래퍼. 계약 v2.0 (references/api-contract.md).
-# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버 / 7 기능꺼짐
+# dflow.sh — D'Flow Agent API 얇은 curl 래퍼. 계약 v2.x (references/api-contract.md).
+# 정확한 기대 버전은 아래 CONTRACT_VERSION 하나뿐이다 — 주석과 비교문에 숫자를 따로 두면
+# 둘이 따로 낡는다(2026-08-27 감사: 서버가 2.1 인데 비교문만 2.0 으로 남아 있었다).
+# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐
 # 토큰은 env 확장으로만 전달한다 — echo·파일 기록·명령 문자열 보간 금지.
 set -u
+
+# 이 스킬이 기대하는 계약 버전. doctor 는 major 만 본다 — 서버가 minor 를 올리는 것은
+# additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+CONTRACT_VERSION=2.2
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
 PROFILE_CACHE="$CACHE_DIR/profiles.json"
+# id8 → 전체 UUID 영속 맵. 목록 캐시는 매 list 로 덮여서 approved 처럼 목록에서 빠진 주문의
+# 접두 해석이 죽는다(2026-08-25 실증 — 감지하려는 바로 그 상태에서 show 실패). 한 번이라도
+# 목록에 떴던 id 를 여기 누적해 접두 해석의 폴백으로 쓴다. UUID 목록뿐이라 비밀 아님.
+IDMAP_CACHE="$CACHE_DIR/known-ids.txt"
 
 usage() {
   cat >&2 <<'EOF'
@@ -78,7 +88,14 @@ api_raw() { # $1=METHOD $2=PATH [$3=JSON body] — TOKEN env 필요. 성공 시 
   case "$_code" in
     2??) printf '%s' "$_body"; return 0 ;;
     401) printf '%s\n' "$_body" >&2; exit 3 ;;
-    403) printf '%s\n' "$_body" >&2; exit 5 ;;
+    403)
+      printf '%s\n' "$_body" >&2
+      # 선행 미충족은 권한 문제가 아니라 상태 문제다 — 서버가 403 으로 내려보내지만
+      # 호출부가 할 일은 "권한을 얻어라"가 아니라 "선행을 끝내고 다시 와라"이다.
+      if [ "$(printf '%s' "$_body" | jq -r '.code // empty' 2>/dev/null)" = "dependency_not_met" ]; then
+        exit 4
+      fi
+      exit 5 ;;
     404) printf '%s\n' "$_body" >&2; exit 7 ;;
     409) printf '%s\n' "$_body" >&2; exit 4 ;;
     4??) printf '%s\n' "$_body" >&2; exit 2 ;;
@@ -99,9 +116,12 @@ resolve_ref() {
       printf '%s' "$_id" ;;
     ????????-*) printf '%s' "$1" ;;
     ????????)
-      [ -f "$LIST_CACHE" ] || die 2 "UUID 접두 해석에는 목록 캐시가 필요합니다 — list 먼저."
-      _id=$(jq -r --arg p "$1" '.[] | select(.id | startswith($p)) | .id' "$LIST_CACHE" | head -1)
-      [ -n "$_id" ] || die 2 "접두 $1 로 시작하는 주문이 목록에 없습니다."
+      # 현재 목록 캐시 → 영속 idmap 순 폴백. approved 등 목록에서 빠진 주문도
+      # 과거에 한 번이라도 목록에 떴으면 idmap 으로 해석된다.
+      _id=''
+      [ -f "$LIST_CACHE" ] && _id=$(jq -r --arg p "$1" '.[] | select(.id | startswith($p)) | .id' "$LIST_CACHE" | head -1)
+      [ -z "$_id" ] && [ -f "$IDMAP_CACHE" ] && _id=$(grep "^$1" "$IDMAP_CACHE" | head -1)
+      [ -n "$_id" ] || die 2 "접두 $1 해석 실패 — 목록·과거 이력(idmap)에 없습니다. 전체 UUID 로 다시 부르거나 list 를 먼저 실행하세요."
       printf '%s' "$_id" ;;
     *) die 2 "ref 형식: 순번 | UUID 8자 | 전체 UUID" ;;
   esac
@@ -116,6 +136,13 @@ print_list() { # stdin = 주문 배열 JSON
     (.value.id[0:8]),
     ((.value.item.name // .value.instructions // "-") | .[0:40])
   ] | @tsv'
+}
+
+# idmap 누적 — $1 = 주문 배열 JSON 파일. 실패해도 본 기능엔 영향 없음(폴백 캐시일 뿐).
+remember_ids() {
+  [ -f "$1" ] || return 0
+  { jq -r '.[].id // empty' "$1" 2>/dev/null; cat "$IDMAP_CACHE" 2>/dev/null; } \
+    | sort -u > "$IDMAP_CACHE.tmp" 2>/dev/null && mv "$IDMAP_CACHE.tmp" "$IDMAP_CACHE" || rm -f "$IDMAP_CACHE.tmp"
 }
 
 # ---- 커맨드 ---------------------------------------------------------------
@@ -137,6 +164,7 @@ cmd_list() {
       printf '== %s ==\n' "$(profile_email "$_t" || printf '?')"
       _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
       printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | tee "$LIST_CACHE.tmp" | print_list
+      remember_ids "$LIST_CACHE.tmp"
     done
   else
     _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
@@ -144,6 +172,7 @@ cmd_list() {
     print_list < "$LIST_CACHE.tmp"
   fi
   mv "$LIST_CACHE.tmp" "$LIST_CACHE" 2>/dev/null || true
+  remember_ids "$LIST_CACHE"
 }
 
 cmd_show() {
@@ -155,7 +184,9 @@ cmd_show() {
 # 선행 로컬 도달 검사(결정 C-②) — depends_evidence 의 head_sha 가 현재 리포에 없거나
 # HEAD 조상이 아니면 하드 차단(exit 4). 경고+확인이 아니다.
 check_depends_local() { # $1=depends_evidence JSON 배열
-  _jq_out=$(printf '%s' "$1" | jq -c '.[] | select(.head_sha != null)' 2>&1) || die 4 "의존성 정보 파싱 실패"
+  # 파싱 실패는 이쪽 환경·응답이 깨진 것이지 선행이 안 끝난 게 아니다 — 상태충돌(4)로 내면
+  # 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.
+  _jq_out=$(printf '%s' "$1" | jq -c '.[] | select(.head_sha != null)' 2>&1) || die 6 "의존성 정보 파싱 실패"
   [ -n "$_jq_out" ] || return 0  # 의존성 없으면 통과
   printf '%s' "$_jq_out" | while IFS= read -r _d; do
     _sha=$(printf '%s' "$_d" | jq -r '.head_sha' 2>/dev/null)
@@ -164,7 +195,7 @@ check_depends_local() { # $1=depends_evidence JSON 배열
       || die 4 "선행 $_ref 의 커밋($_sha)이 로컬에 없습니다 — git fetch/pull 후 다시 시도하세요."
     git merge-base --is-ancestor "$_sha" HEAD 2>/dev/null \
       || die 4 "선행 $_ref 의 커밋($_sha)이 현재 브랜치에 반영되지 않았습니다 — merge/rebase 후 다시 시도하세요."
-  done || exit 4   # while 는 서브셸 — die 의 exit 를 부모로 전파
+  done || exit $?   # while 는 서브셸 — die 의 exit 코드를 그대로 부모로 전파(4 로 뭉개지 않는다)
 }
 
 # spec.md 로컬 캐시(결정 A) — DB 정본의 명세를 claim 시점에 스냅샷.
@@ -182,8 +213,9 @@ write_spec_cache() { # $1=claim 응답 JSON
     "> depends: " + ((.item.depends // []) | join(", ")) + "\n\n" +
     (.item.spec // "(명세 없음)") + "\n\n## 수용 기준\n" +
     ((.item.acceptance // []) | map("- [ ] " + .) | join("\n"))
-  ' > "$_spec_tmp" || { rm -f "$_spec_tmp"; die 4 "spec 파일 쓰기 실패"; }
-  mv "$_spec_tmp" "docs/tasks/$_tsk/spec.md" || die 4 "spec 파일 원자 이동 실패"
+  ' > "$_spec_tmp" || { rm -f "$_spec_tmp"; die 6 "spec 파일 쓰기 실패"; }
+  # 디스크·권한 문제다. 상태충돌(4)이 아니다 — 주문 상태는 멀쩡하고 고칠 곳이 로컬이다.
+  mv "$_spec_tmp" "docs/tasks/$_tsk/spec.md" || die 6 "spec 파일 원자 이동 실패"
   printf 'spec 캐시: docs/tasks/%s/spec.md\n' "$_tsk"
 }
 
@@ -251,14 +283,24 @@ cmd_doctor() {
   printf 'base: %s\n' "$_base"
   _n=0
   _toks=$(tokens) || exit $?
-  printf '%s' "$_toks" | while IFS= read -r _t; do
+  # printf '%s' 는 개행을 안 붙인다 — POSIX read 는 구분자 없이 끝난 마지막 줄에서 0 이 아닌
+  # 값을 돌려주므로 루프 본문이 그 줄에 대해 아예 실행되지 않는다. 토큰이 하나뿐이면
+  # 반복이 0 회가 되고 rc 는 0 이라, doctor 가 아무것도 안 찍고 성공으로 끝났다(2026-08-27 감사).
+  printf '%s\n' "$_toks" | while IFS= read -r _t; do
+    [ -n "$_t" ] || continue
     _n=$((_n+1))
     _me=$(TOKEN="$_t" api_raw GET /api/v1/agent/me) || { printf '프로필 %d: 인증 실패\n' "$_n"; continue; }
     _cv=$(printf '%s' "$_me" | jq -r '.contract_version' 2>/dev/null)
     printf '프로필 %d: %s (계약 %s, 프로젝트 %d)\n' "$_n" \
       "$(printf '%s' "$_me" | jq -r '.user_email' 2>/dev/null)" "$_cv" \
       "$(printf '%s' "$_me" | jq -r '.projects | length' 2>/dev/null)"
-    [ "$_cv" = "2.0" ] || printf '  ⚠ 계약 버전 불일치 — wbs-web pull 로 스킬을 갱신하세요.\n'
+    # 값이 없는 것과 major 가 다른 것은 처방이 다르다 — 전자는 킷을 갱신해도 안 고쳐진다.
+    if [ -z "$_cv" ] || [ "$_cv" = "null" ]; then
+      printf '  ⚠ 계약 버전 확인 불가 — /me 응답에 contract_version 이 없습니다(서버 배포·응답을 확인하세요).\n'
+    elif [ "${_cv%%.*}" != "${CONTRACT_VERSION%%.*}" ]; then
+      printf '  ⚠ 계약 major 불일치(서버 %s / 스킬 %s) — install.sh 재실행으로 킷을 갱신하세요.\n' \
+        "$_cv" "$CONTRACT_VERSION"
+    fi
   done
 }
 

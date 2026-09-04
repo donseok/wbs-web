@@ -17,14 +17,24 @@ import { useCompactViewport } from '@/lib/hooks/useCompactViewport'
  * 화면이 통째로 못 쓰게 된다(2026-08-28 운영 실측 — 08-21 컴팩트 기준 확대 뒤 랩탑에서
  * 검색창이 사라짐). 그런 것은 `hero` 가 아니라 `pinned` 에 얹는다.
  */
-export function ProjectPageShell({ hero, pinned, children }: { hero: ReactNode; pinned?: ReactNode; children: ReactNode }) {
+export function ProjectPageShell({ hero, pinned, children, flush = false }: {
+  hero: ReactNode
+  pinned?: ReactNode
+  children: ReactNode
+  /**
+   * 콘텐츠가 h-full 로 영역을 꽉 채워 스크롤이 일어나지 않는 화면(WBS 간트)용.
+   * 기본 pb-6 은 스크롤 페이지의 마지막 카드가 바닥에 붙지 않게 하는 여백인데,
+   * 꽉 찬 화면에선 죽은 공간이 되어 표 높이만 깎는다.
+   */
+  flush?: boolean
+}) {
   const compact = useCompactViewport()
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       {!compact && <div className="shrink-0">{hero}</div>}
       {pinned && <div className="shrink-0">{pinned}</div>}
       <div
-        className="-mr-1 min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-6 pr-1"
+        className={`-mr-1 min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1 ${flush ? 'pb-0' : 'pb-6'}`}
         data-project-scroll-region
       >
         {children}

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
+import { useCallback, useState, useEffect, useId, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ComputedItem, ProjectMember, TaskDependency } from '@/lib/domain/types'
 import { actorFromView, isProjectAdmin, type ProjectActorView } from '@/lib/domain/authz'
@@ -12,10 +12,10 @@ import { computeHideDone } from '@/lib/domain/hideDone'
 import { updateActual, updateWeight, addWbsItem } from '@/app/actions/wbs'
 import { queueWbsCollapse, queueUiPref } from '@/lib/prefs/debouncedSave'
 import { matchesNarrowViewport, useCompactViewport, useNarrowViewport, useRoomyViewport } from '@/lib/hooks/useCompactViewport'
-import { Maximize2, Minimize2, FileText, GitBranch, Flag, ListChecks, ChevronRight, Hash, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
+import { Maximize2, Minimize2, FileText, Flag, ListChecks, ChevronRight, Hash, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { Icon } from '@/components/ui/Icon'
 import { weightToPct, formatWeightPct, formatPct1 } from '@/lib/domain/format'
-import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, fmtDate, levelBadgeText, teamStyle } from './shared'
+import { DEFAULT_LEVEL_LABELS, OwnerBadges, STATUS, StageChip, fmtDate, levelBadgeText, teamStyle } from './shared'
 import { RowDetailPanel } from './RowDetailPanel'
 import { WbsProgressLens } from './WbsProgressLens'
 import { WbsFontSizeControl } from './WbsFontSizeControl'
@@ -79,6 +79,9 @@ const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart',
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
 const ROW_H = 40
 const EMPTY_DEPENDENCIES: TaskDependency[] = []
+// 매 렌더 새 리터럴을 만들면 하위 memo 가 매번 깨진다 — 모듈 상수로 고정.
+const EMPTY_UNRESOLVED: Record<string, string[]> = {}
+const EMPTY_REFS: string[] = []
 const EMPTY_MILESTONE_KEYWORDS: readonly string[] = []
 const EMPTY_MEMBERS: ProjectMember[] = []
 /* 마일스톤 기준선 색 — 간트는 초록·청록(brand/done)이 바·상태색으로 포화라 대시보드 배색(MS_TONE)과
@@ -158,6 +161,7 @@ function buildMatch(items: ComputedItem[], q: string): Set<string> {
 export function WbsGanttSheet({
   items,
   dependencies = EMPTY_DEPENDENCIES,
+  unresolvedDepends = EMPTY_UNRESOLVED,
   holidays,
   today,
   actorView,
@@ -181,6 +185,11 @@ export function WbsGanttSheet({
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
+  /**
+   * 해석 못 한 선행 ref — 후행 항목 id → ref 목록.
+   * 빈 값으로 두면 claim 이 409 를 내는 작업이 '선행 없음 → 시작 가능'으로 보인다.
+   */
+  unresolvedDepends?: Record<string, string[]>
   holidays: string[]
   today: string
   /** 이 프로젝트 스코프의 직렬화 가능한 권한 스냅샷 — Actor(Map)는 RSC 경계를 못 넘는다. */
@@ -301,7 +310,9 @@ export function WbsGanttSheet({
   const timelineFocus = defaultView === 'timeline'
   const [fullscreen, setFullscreen] = useState(false) // 팝업(전체화면 모달)로 크게 보기
   const [reportOpen, setReportOpen] = useState(false) // 주간 보고서 모달
-  const [showDependencyLinks, setShowDependencyLinks] = useState(true)
+  // 의존성 연결선은 상시 표시하지 않는다 — 두 축을 합치면서 선이 너무 많아졌다(2026-08-28).
+  // 간트 바에 마우스를 올린 동안 그 작업에 걸린 선만 그린다. 툴바 토글은 제거했다.
+  const [hoveredDepItemId, setHoveredDepItemId] = useState<string | null>(null)
   const [edit, setEdit] = useState<{ id: string; field: 'weight' | 'actual' } | null>(null)
   const [draft, setDraft] = useState('')
   const [editOriginal, setEditOriginal] = useState('') // 편집 시작 시 값(낙관적 잠금용)
@@ -575,6 +586,15 @@ export function WbsGanttSheet({
     ),
     [allFlatItems, dependencies, holidays, today],
   )
+  // hover 중인 작업에 걸린 선만 그린다. 선행·후행 양쪽을 다 잡아야 그 작업의 문맥이 보인다.
+  const hoveredDependencies = useMemo(
+    () => hoveredDepItemId === null
+      ? EMPTY_DEPENDENCIES
+      : dependencies.filter(
+          dep => dep.predecessorId === hoveredDepItemId || dep.successorId === hoveredDepItemId,
+        ),
+    [dependencies, hoveredDepItemId],
+  )
   const itemById = useMemo(() => new Map(allFlatItems.map(item => [item.id, item])), [allFlatItems])
   const progressLensPathById = useMemo(() => {
     const paths = new Map<string, string[]>()
@@ -702,6 +722,17 @@ export function WbsGanttSheet({
   // 선택된 행(상세 패널). items가 갱신돼도 id로 다시 찾아 최신값 표시 —
   // itemById(전체 펼침 flatten 색인)가 모든 노드를 담고 있어 트리 재귀 탐색이 불필요하다.
   const selectedItem = selectedId ? itemById.get(selectedId) ?? null : null
+
+  // 상세 패널의 선행·후속 항목 클릭 — 대상이 접힌 구간이나 완료 숨김 뒤에 있어도
+  // 조상 경로를 임시로 펼쳐 표에서 같이 보이게 한 뒤 선택을 옮긴다(focus 딥링크와 같은 계열).
+  const selectLinkedItem = useCallback((id: string) => {
+    const path = ancestorPath(items, id)
+    if (path?.length) setForcedOpen(prev => new Set([...prev, ...path]))
+    if (path && hideDone && (hideDoneResult.hiddenIds.has(id) || path.some(p => hideDoneResult.hiddenIds.has(p)))) {
+      setHideExempt(prev => new Set([...prev, ...path, id]))
+    }
+    setSelectedId(id)
+  }, [hideDone, hideDoneResult, items])
 
   /* ── 날짜 스케일 ── */
   const allDates = items.flatMap(function dates(n): string[] {
@@ -1123,28 +1154,9 @@ export function WbsGanttSheet({
         <button data-wbs-fullscreen-toggle onClick={() => setFullscreen(v => !v)} aria-pressed={fullscreen} title={fullscreen ? t('wbs.exitFullscreenTitle') : t('wbs.enterFullscreenTitle')} className={`btn h-9 px-3 text-xs ${fullscreen ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}>
           {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {showLabels && <span data-btn-label>{fullscreen ? t('wbs.viewSmaller') : t('wbs.viewLarger')}</span>}
         </button>
-        {dependencies.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowDependencyLinks(value => !value)}
-            aria-pressed={showDependencyLinks}
-            title={t('wbs.toggleDependenciesTitle')}
-            className={`btn h-9 px-3 text-xs ${showDependencyLinks ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            {showLabels && <span data-btn-label>{t('wbs.dependencies')}</span>} {dependencies.length}
-            {dependencySchedule.criticalTaskIds.size > 0 && (
-              <span className="rounded-full bg-critical px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
-                {t('wbs.criticalShort')} {dependencySchedule.criticalTaskIds.size}
-              </span>
-            )}
-            {dependencySchedule.projectDelayBusinessDays > 0 && (
-              <span className="rounded-full bg-pending-weak px-1.5 py-0.5 text-[9px] font-bold leading-none text-pending">
-                +{dependencySchedule.projectDelayBusinessDays}{t('wbs.businessDaysUnit')}
-              </span>
-            )}
-          </button>
-        )}
+        {/* 종전 '작업 의존성' 토글 버튼과 그 안의 크리티컬·지연 요약 칩이 있던 자리.
+            선이 상시로 그려져 난잡하다는 판단으로 둘 다 제거했다(2026-08-28) —
+            연결선은 간트 바에 마우스를 올린 동안만 그린다. 크리티컬 여부는 행의 붉은 점으로 남는다. */}
         {milestoneMarkers.length > 0 && (
           <button
             type="button"
@@ -1529,6 +1541,12 @@ export function WbsGanttSheet({
                       </span>
                     )}
                   </div>
+                  {/* 단계 칩 — 작업명 칸 우단. ml-auto 로 밀고 shrink-0 으로 지킨다(긴 이름이 truncate 된다). */}
+                  {n.stage && (
+                    <span className="ml-auto shrink-0 pl-1.5">
+                      <StageChip stage={n.stage} t={t} />
+                    </span>
+                  )}
                 </div>
                 {/* 담당 */}
                 {showCol('owners') && (
@@ -1707,15 +1725,23 @@ export function WbsGanttSheet({
                   className={`relative box-border h-full shrink-0 border-b border-grid ${isFlash || progressLensActive ? 'bg-brand-weak/60' : ''} group-hover:bg-brand-weak`}
                   style={{ width: ganttW }}
                 >
-                  {n.plannedStart && n.plannedEnd && <Bar n={n} schedule={schedule} xOf={xOf} dayPx={dayPx} />}
+                  {n.plannedStart && n.plannedEnd && (
+                    <Bar
+                      n={n} schedule={schedule} xOf={xOf} dayPx={dayPx}
+                      onHover={hovering => setHoveredDepItemId(
+                        // 떠날 때 무조건 null 로 두면, 옆 바로 옮겨간 뒤 도착한 leave 가 새 hover 를 지운다.
+                        prev => (hovering ? n.id : prev === n.id ? null : prev),
+                      )}
+                    />
+                  )}
                 </div>
               </div>
             )
           })}
 
-          {showDependencyLinks && dependencies.length > 0 && rowsH > 0 && (
+          {hoveredDependencies.length > 0 && rowsH > 0 && (
             <DependencyOverlay
-              dependencies={dependencies}
+              dependencies={hoveredDependencies}
               itemById={itemById}
               scheduleById={dependencySchedule.byId}
               criticalDependencyIds={dependencySchedule.criticalDependencyIds}
@@ -1920,6 +1946,8 @@ export function WbsGanttSheet({
           levelLabels={levelLabels}
           maxDepth={maxDepth}
           members={members}
+          onSelectItem={selectLinkedItem}
+          unresolvedRefs={unresolvedDepends[selectedItem.id] ?? EMPTY_REFS}
         />
       )}
     </div>
@@ -1997,11 +2025,19 @@ function DependencyOverlay({
         const targetX = clampX(xOf(successorStart) + 3)
         const sourceY = (predecessorRow + 0.5) * ROW_H
         const targetY = (successorRow + 0.5) * ROW_H
+        // 선행이 끝나자마자 후속이 시작하면 두 x 가 6px 밖에 안 벌어진다. 종전에는 엘보를 목표보다
+        // 더 오른쪽으로 빼서 마지막 구간이 오른쪽→왼쪽이 됐고, 화살표가 뒤집혀 ']' 로 보였다.
+        // 중점 엘보로 바꿔도 마지막 가로가 3px 라 7px 짜리 화살촉이 모서리에서 뭉개졌다.
+        // 그래서 이 구간만 세로로 내려오며 끝낸다 — 화살표가 아래를 향하고 행 높이만큼 여유가 생긴다.
+        const forward = targetX >= sourceX
         const enoughRoom = Math.abs(targetX - sourceX) >= 18
-        const outsideElbow = targetX >= sourceX
-          ? Math.min(width - 4, Math.max(sourceX, targetX) + 10)
+        // 막대는 h-3.5(14px)를 행 중심에 걸쳐 그린다 — 윗변이 중심에서 7px 위다. 세로선을 중심까지
+        // 끌고 오면 화살촉이 막대 위에 겹쳐 그려지므로 윗변에서 멈춘다.
+        const dropIn = forward && !enoughRoom
+        const dropEndY = targetY - 7
+        const elbowX = enoughRoom
+          ? (sourceX + targetX) / 2
           : Math.max(4, Math.min(sourceX, targetX) - 10)
-        const elbowX = enoughRoom ? (sourceX + targetX) / 2 : outsideElbow
         const critical = criticalDependencyIds.has(dep.id)
         const cycle = cycleTaskIds.has(dep.predecessorId) || cycleTaskIds.has(dep.successorId)
         const color = cycle ? 'var(--color-delayed)' : critical ? 'var(--color-critical)' : 'var(--color-ink-subtle)'
@@ -2009,7 +2045,9 @@ function DependencyOverlay({
         return (
           <path
             key={dep.id}
-            d={`M ${sourceX} ${sourceY} H ${elbowX} V ${targetY} H ${targetX}`}
+            d={dropIn
+              ? `M ${sourceX} ${sourceY} H ${targetX} V ${dropEndY}`
+              : `M ${sourceX} ${sourceY} H ${elbowX} V ${targetY} H ${targetX}`}
             fill="none"
             stroke={color}
             strokeWidth={critical || cycle ? 2.25 : 1.25}
@@ -2030,11 +2068,14 @@ function Bar({
   schedule,
   xOf,
   dayPx,
+  onHover,
 }: {
   n: ComputedItem
   schedule?: TaskSchedule
   xOf: (d: string) => number
   dayPx: number
+  /** 바 위에 마우스가 올라오고 내려갈 때 — 의존성 연결선 표시의 방아쇠. */
+  onHover?: (hovering: boolean) => void
 }) {
   const left = xOf(n.plannedStart!)
   const width = Math.max(dayPx * 0.5, xOf(n.plannedEnd!) + dayPx - left)
@@ -2064,6 +2105,8 @@ function Bar({
         <div
           className={`absolute top-1/2 h-2.5 -translate-y-1/2 rounded-[3px] bg-phasebar ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : ''}`}
           style={{ left, width }}
+          onMouseEnter={onHover ? () => onHover(true) : undefined}
+          onMouseLeave={onHover ? () => onHover(false) : undefined}
         >
           <div
             className="h-full rounded-[3px] bg-phasebar-fill opacity-60"
@@ -2088,6 +2131,8 @@ function Bar({
       <div
         className="absolute top-1/2 h-3.5 -translate-y-1/2 overflow-visible rounded-full"
         style={{ left, width }}
+        onMouseEnter={onHover ? () => onHover(true) : undefined}
+        onMouseLeave={onHover ? () => onHover(false) : undefined}
       >
         <div className={`h-full overflow-hidden rounded-full bg-plan-track ring-1 ${critical ? 'ring-2 ring-critical ring-offset-1 ring-offset-surface' : 'ring-grid'}`}>
           <div

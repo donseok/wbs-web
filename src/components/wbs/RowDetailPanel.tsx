@@ -1,9 +1,10 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, Clock, FileText, CalendarRange, Scale, History, User, Pencil, Plus, ChevronUp, ChevronDown, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
+import { X, FileText, Pencil, Plus, ChevronUp, ChevronDown, ChevronRight, Trash2, Paperclip, Upload, GitBranchPlus, GitBranch } from 'lucide-react'
 import type { ComputedItem, DeliverableAttachment, DependencyType, OwnerKind, ProjectMember, TaskDependency, TeamCode } from '@/lib/domain/types'
 import type { TaskSchedule } from '@/lib/domain/dependencySchedule'
+import { evaluateStartReadiness, type PredecessorState } from '@/lib/domain/dependencyReadiness'
 import {
   getChangeLogs, updateWbsFields, updateDeliverable, addWbsItem, addSubAct, deleteWbsItem, moveWbsItem,
   addTaskDependency, removeTaskDependency, type ChangeLogEntry,
@@ -13,51 +14,23 @@ import { canAddChild, canSplit } from '@/lib/domain/wbsAffordance'
 import { listAttachments, recordAttachment, removeAttachment } from '@/app/actions/attachments'
 import { createBrowserClient } from '@/lib/supabase/client'
 import { formatWeightPct, formatPct1, fmtSize } from '@/lib/domain/format'
-import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, fmtDate, teamStyle } from './shared'
+import { DependencyEgoGraph, type EgoNode } from './DependencyEgoGraph'
+import { DEFAULT_LEVEL_LABELS, LevelBadge, OwnerBadges, STATUS, StatusChip, fmtDate, teamStyle } from './shared'
 import { WbsAssigneeStagePanel } from './WbsAssigneeStagePanel'
+import { ChangeHistoryList } from './ChangeHistoryList'
 import { useLocale } from '@/components/providers/LocaleProvider'
 import { useTeamCodes } from '@/components/app/TeamsProvider'
-import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 import type { DictKey } from '@/lib/i18n/dict'
 const EMPTY_MEMBERS: ProjectMember[] = []
-
-type Tr = (k: DictKey) => string
-const ROLE_KEY: Record<string, DictKey> = { pmo_admin: 'wbs.rolePmoAdmin', team_editor: 'wbs.roleTeamEditor' }
-const FIELD_KEY: Record<string, DictKey> = {
-  actual_pct: 'wbs.colActualPct', weight: 'wbs.colWeight', name: 'wbs.fieldName', planned_start: 'wbs.colPlannedStart',
-  planned_end: 'wbs.colPlannedEnd', deliverable: 'wbs.colDeliverable', biz: 'wbs.fieldBiz', created: 'wbs.fieldCreated',
-  dependency: 'wbs.dependencies',
-  // Task 12(stage)·Task 12A(spec) 가 change_logs 에 기록하는 필드명 — 매핑이 없으면 이 화면의
-  // 변경 이력 라벨이 원문 그대로("stage"/"spec") 노출된다(fmtValue 는 값만 다루고 라벨은 이 맵이 정본).
-  stage: 'wbs.stageLabel', spec: 'wbs.specPanelTitle',
-}
-function fmtValue(field: string, v: string | null, t: Tr): string {
-  if (v == null || v === '') return field === 'weight' ? t('wbs.weightEqual') : '—'
-  if (field === 'dependency') return t('wbs.dependencyLink')
-  if (field === 'weight' && !Number.isNaN(Number(v))) return formatWeightPct(Number(v))
-  // spec 은 본문 전문을 로그에 넣지 않고 로케일 중립 토큰만 저장한다(wbsSpecLog.ts) — 여기서
-  // 사전 키로 변환. 리터럴 한국어를 그대로 저장하면 en 사용자 이력에도 노출된다(리뷰 라운드 1).
-  if (field === 'spec' && v === SPEC_UPDATED_TOKEN) return t('wbs.specUpdatedLogValue')
-  return field === 'actual_pct' ? `${v}%` : v
-}
-function fmtAt(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-function actorLabel(team: TeamCode | null, role: string | null, t: Tr): string {
-  const r = role ? (ROLE_KEY[role] ? t(ROLE_KEY[role]) : role) : null
-  if (team && r) return `${team} · ${r}`
-  return r ?? team ?? t('wbs.unknownActor')
-}
+// 매 렌더 새 리터럴이면 readiness useMemo 가 매번 다시 돈다 — 모듈 상수로 고정.
+const EMPTY_REFS: string[] = []
 
 /** WBS 행 상세 패널 — 읽기(개요/담당/일정/진척/산출물 + 변경 이력)
  *  + PMO 편집(이름·일정·산출물 수정, 하위 추가, 순서 이동, 삭제). */
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
-  members = EMPTY_MEMBERS,
+  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -75,6 +48,13 @@ export function RowDetailPanel({
   maxDepth?: number | null
   /** 프로젝트 로스터 — 담당·단계 섹션(WbsAssigneeStagePanel)의 담당자 셀렉트 데이터 소스(§2.5). */
   members?: ProjectMember[]
+  /** 선행·후속 항목 클릭 시 그 작업으로 상세를 갈아끼운다. 미제공이면 항목은 클릭 불가 텍스트로 남는다. */
+  onSelectItem?: (id: string) => void
+  /**
+   * 이 작업의 depends 중 프로젝트에서 해석되지 않은 external_ref.
+   * claim 게이트는 이것을 미충족으로 보고 409 를 내므로 목록에서 빼면 화면이 위장한다.
+   */
+  unresolvedRefs?: string[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -93,6 +73,11 @@ export function RowDetailPanel({
   const [delivBusy, setDelivBusy] = useState(false)
   const [delivErr, setDelivErr] = useState<string | null>(null)
   const [dependencyOpen, setDependencyOpen] = useState(false)
+  // 기본은 그래프 — 의존성은 선행·후행의 방향과 갈래가 본체라 목록으로는 그걸 못 보여준다.
+  // 목록은 삭제 버튼이 붙는 편집용으로 남긴다. 세션 상태로만 둔다(저장 안 함).
+  const [depView, setDepView] = useState<'list' | 'graph'>('graph')
+  // 명세 챕터와 같은 접기. 기본은 펼침 — 접힘이 기본이면 시작 가능 배너까지 한 번 더 눌러야 보인다.
+  const [depBodyOpen, setDepBodyOpen] = useState(true)
   const [predecessorId, setPredecessorId] = useState('')
   const [dependencyType, setDependencyType] = useState<DependencyType>('FS')
   const [lagDays, setLagDays] = useState('0')
@@ -135,8 +120,49 @@ export function RowDetailPanel({
     () => dependencies.filter(dep => dep.predecessorId === item.id),
     [dependencies, item.id],
   )
+  // 선행 충족 판정 — 이 작업을 지금 시작할 수 있는지와, 선행 각 건의 충족 여부.
+  const readiness = useMemo(
+    () => evaluateStartReadiness(
+      { id: item.id, rolledActualPct: item.rolledActualPct, stage: item.stage ?? null },
+      incomingDependencies,
+      itemById,
+      unresolvedRefs,
+    ),
+    [item.id, item.rolledActualPct, item.stage, incomingDependencies, itemById, unresolvedRefs],
+  )
+  const relationBadge = (dep: TaskDependency) => `${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`
+  const egoPredecessors = useMemo<EgoNode[]>(() => [
+    ...incomingDependencies.map(dep => ({
+      key: dep.id,
+      item: itemById.get(dep.predecessorId) ?? null,
+      state: readiness.byDependencyId.get(dep.id) ?? 'unknown',
+      imported: dep.origin === 'spec',
+      badge: relationBadge(dep),
+    })),
+    // 목록 뷰와 같은 재료를 쓴다 — 그래프에서 빠지면 그 뷰에서만 위장이 되살아난다.
+    ...unresolvedRefs.map(ref => ({
+      key: `unresolved:${ref}`,
+      item: null,
+      fallbackLabel: lastRefSegment(ref),
+      state: 'unknown' as const,
+      imported: true,
+      badge: 'FS',
+    })),
+  ], [incomingDependencies, itemById, readiness, unresolvedRefs])
+  const egoSuccessors = useMemo<EgoNode[]>(() => outgoingDependencies.map(dep => ({
+    key: dep.id,
+    item: itemById.get(dep.successorId) ?? null,
+    state: null,
+    imported: dep.origin === 'spec',
+    badge: relationBadge(dep),
+  })), [outgoingDependencies, itemById])
   const predecessorCandidates = useMemo(() => {
-    const existing = new Set(incomingDependencies.map(dep => dep.predecessorId))
+    // 이미 연결된 선행은 후보에서 뺀다 — 단 **실제 행(manual)만** 센다.
+    // wbs.md 에서 합성된 선행까지 빼면 그 쌍에 FS/SS·lag 를 얹을 길이 사라진다(병합 전에는 되던 일).
+    // 실제 행을 얹으면 병합 규칙상 그쪽이 이기므로 합성 행과 겹쳐 그려지지도 않는다.
+    const existing = new Set(
+      incomingDependencies.filter(dep => dep.origin === 'manual').map(dep => dep.predecessorId),
+    )
     const nextById = new Map<string, string[]>()
     dependencies.forEach(dep => nextById.set(dep.predecessorId, [...(nextById.get(dep.predecessorId) ?? []), dep.successorId]))
     const wouldCycle = (candidateId: string) => {
@@ -323,33 +349,46 @@ export function RowDetailPanel({
                 <Stat label={t('wbs.colActualPct')} value={`${formatPct1(item.rolledActualPct)}%`} />
                 <Stat label={t('wbs.colAchievement')} value={item.achievement == null ? '—' : `${item.achievement}%`} />
               </section>
-              <div className="flex items-center gap-2"><span className="text-xs text-ink-subtle">{t('wbs.colStatus')}</span><span className={`chip ${STATUS[item.status].chip}`}><span className={`h-1.5 w-1.5 rounded-full ${STATUS[item.status].dot}`} />{t(`status.${item.status}` as DictKey)}</span></div>
-              <Field icon={User} label={t('wbs.colOwners')}>
-                {item.owners.length ? <OwnerBadges owners={item.owners} /> : <span className="text-ink-subtle">{t('wbs.unassigned')}</span>}
-              </Field>
-              <Field icon={CalendarRange} label={t('wbs.plannedSchedule')}><span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span></Field>
-              <Field icon={Scale} label={t('wbs.colWeight')}><span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : formatWeightPct(item.weight)}</span></Field>
-              <Field icon={FileText} label={t('wbs.colDeliverable')}>
-                {delivEditing ? (
-                  <div className="space-y-2">
-                    <input autoFocus value={delivDraft} onChange={e => setDelivDraft(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') saveDeliv(); if (e.key === 'Escape') { setDelivEditing(false); setDelivErr(null) } }}
-                      className="app-input" placeholder={t('wbs.deliverablePlaceholder')} />
-                    {delivErr && <p className="text-xs font-medium text-delayed">{delivErr}</p>}
-                    <div className="flex gap-2">
-                      <button onClick={saveDeliv} disabled={delivBusy} className="btn btn-primary h-8 px-3 text-xs">{delivBusy ? t('wbs.saving') : t('common.save')}</button>
-                      <button onClick={() => { setDelivEditing(false); setDelivErr(null) }} className="btn btn-ghost h-8 px-3 text-xs">{t('common.cancel')}</button>
+              {/* 개요 표(2026-08-28) — 아이콘 카드 4행이 세로로 44px 씩 먹던 것을 라벨·값 2열로.
+                  상태도 같은 표에 넣는다: 라벨·값 쌍이라 성격이 같고, 떠 있던 한 줄이 사라진다. */}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 border-y border-line/50 py-2.5">
+                <DlRow label={t('wbs.colStatus')}>
+                  <span className={`chip ${STATUS[item.status].chip}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${STATUS[item.status].dot}`} />
+                    {t(`status.${item.status}` as DictKey)}
+                  </span>
+                </DlRow>
+                <DlRow label={t('wbs.colOwners')}>
+                  {item.owners.length ? <OwnerBadges owners={item.owners} /> : <span className="text-ink-subtle">{t('wbs.unassigned')}</span>}
+                </DlRow>
+                <DlRow label={t('wbs.plannedSchedule')}>
+                  <span className="tabular-nums">{fmtDate(item.plannedStart)} ~ {fmtDate(item.plannedEnd)}</span>
+                </DlRow>
+                <DlRow label={t('wbs.colWeight')}>
+                  <span className="tabular-nums">{item.weight == null ? t('wbs.weightEqualSiblings') : formatWeightPct(item.weight)}</span>
+                </DlRow>
+                <DlRow label={t('wbs.colDeliverable')} span>
+                  {delivEditing ? (
+                    <div className="space-y-2 py-0.5">
+                      <input autoFocus value={delivDraft} onChange={e => setDelivDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') saveDeliv(); if (e.key === 'Escape') { setDelivEditing(false); setDelivErr(null) } }}
+                        className="app-input" placeholder={t('wbs.deliverablePlaceholder')} />
+                      {delivErr && <p className="text-xs font-medium text-delayed">{delivErr}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={saveDeliv} disabled={delivBusy} className="btn btn-primary h-8 px-3 text-xs">{delivBusy ? t('wbs.saving') : t('common.save')}</button>
+                        <button onClick={() => { setDelivEditing(false); setDelivErr(null) }} className="btn btn-ghost h-8 px-3 text-xs">{t('common.cancel')}</button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex items-start justify-between gap-2">
-                    {item.deliverable ? <span>{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}
-                    {canEditDeliverable && (
-                      <button onClick={openDeliv} aria-label={t('common.edit')} className="shrink-0 text-ink-subtle transition hover:text-ink"><Pencil className="h-3.5 w-3.5" /></button>
-                    )}
-                  </div>
-                )}
-              </Field>
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      {item.deliverable ? <span className="min-w-0 break-words">{item.deliverable}</span> : <span className="text-ink-subtle">{t('common.none')}</span>}
+                      {canEditDeliverable && (
+                        <button onClick={openDeliv} aria-label={t('common.edit')} className="shrink-0 text-ink-subtle transition hover:text-ink"><Pencil className="h-3.5 w-3.5" /></button>
+                      )}
+                    </div>
+                  )}
+                </DlRow>
+              </dl>
             </>
           )}
 
@@ -363,15 +402,37 @@ export function RowDetailPanel({
           {!editing && (
             <section className="rounded-xl border border-line bg-surface-2/40 p-3" aria-label={t('wbs.dependencies')}>
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+                <button
+                  type="button"
+                  onClick={() => setDepBodyOpen(open => !open)}
+                  aria-expanded={depBodyOpen}
+                  className="flex min-w-0 items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle transition hover:text-ink"
+                >
+                  {depBodyOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   <GitBranch className="h-3.5 w-3.5" /> {t('wbs.dependencies')}
-                </div>
+                </button>
+                {depBodyOpen && (
                 <div className="flex items-center gap-1.5">
                   {schedule?.critical && (
                     <span className="rounded-full border border-delayed/35 bg-delayed-weak px-2 py-0.5 text-[10px] font-bold text-delayed">
                       {t('wbs.criticalPath')}
                     </span>
                   )}
+                  <div className="flex overflow-hidden rounded-md border border-line" role="group" aria-label={t('wbs.dependencies')}>
+                    {(['list', 'graph'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setDepView(mode)}
+                        aria-pressed={depView === mode}
+                        className={`h-7 px-2 text-[11px] transition ${
+                          depView === mode ? 'bg-brand-weak font-semibold text-brand' : 'text-ink-muted hover:text-ink'
+                        }`}
+                      >
+                        {t(mode === 'list' ? 'wbs.depViewList' : 'wbs.depViewGraph')}
+                      </button>
+                    ))}
+                  </div>
                   {editable && (
                     <button
                       type="button"
@@ -383,8 +444,11 @@ export function RowDetailPanel({
                     </button>
                   )}
                 </div>
+                )}
               </div>
 
+              {depBodyOpen && (
+              <>
               {schedule && (schedule.forecastStart !== schedule.plannedStart || schedule.forecastEnd !== schedule.plannedEnd) && (
                 <div className="mt-2 rounded-lg border border-pending/25 bg-pending-weak px-2.5 py-2 text-[11px] text-pending" role="status">
                   <div className="flex items-center justify-between gap-2 font-semibold">
@@ -398,63 +462,112 @@ export function RowDetailPanel({
                 </div>
               )}
 
+              {/* 시작 가능 여부 — 선행 FS/SS 충족 판정. unknown(선행 행 소실)은 접어 감추지 않고 그대로 드러낸다. */}
+              {(incomingDependencies.length > 0 || unresolvedRefs.length > 0) && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {readiness.started && (
+                  <span className="rounded-full border border-progress/35 bg-progress-weak px-2 py-0.5 text-[10px] font-bold text-progress">
+                    {t('wbs.alreadyStarted')}
+                  </span>
+                )}
+                {readiness.unknownCount > 0 ? (
+                  <span className="rounded-full border border-delayed/35 bg-delayed-weak px-2 py-0.5 text-[10px] font-bold text-delayed" role="status">
+                    {t('wbs.startUnknown').replace('{n}', String(readiness.unknownCount))}
+                  </span>
+                ) : readiness.waitingCount > 0 ? (
+                  <span className="rounded-full border border-pending/35 bg-pending-weak px-2 py-0.5 text-[10px] font-bold text-pending" role="status">
+                    {t('wbs.startBlocked').replace('{n}', String(readiness.waitingCount))}
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-done/35 bg-done-weak px-2 py-0.5 text-[10px] font-bold text-done" role="status">
+                    {t('wbs.startReady')}
+                  </span>
+                )}
+              </div>
+              )}
+
+              {depView === 'graph' ? (
+                <div className="mt-2">
+                  <DependencyEgoGraph
+                    item={item}
+                    predecessors={egoPredecessors}
+                    successors={egoSuccessors}
+                    onOpen={onSelectItem}
+                    critical={schedule?.critical ?? false}
+                    t={t}
+                  />
+                  {egoPredecessors.length === 0 && egoSuccessors.length === 0 && (
+                    <p className="mt-2 text-xs text-ink-subtle">{t('wbs.noPredecessors')}</p>
+                  )}
+                </div>
+              ) : (
               <div className="mt-2 space-y-2">
                 <div>
                   <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.predecessors')}</div>
-                  {incomingDependencies.length === 0 ? (
+                  {incomingDependencies.length === 0 && unresolvedRefs.length === 0 ? (
                     <p className="text-xs text-ink-subtle">{t('wbs.noPredecessors')}</p>
                   ) : (
                     <ul className="space-y-1.5">
-                      {incomingDependencies.map(dep => {
-                        const predecessor = itemById.get(dep.predecessorId)
-                        return (
-                          <li key={dep.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
-                            <span className="min-w-0 flex-1 truncate text-ink" title={predecessor?.name}>
-                              {predecessor?.code && <span className="mr-1 text-ink-subtle">{predecessor.code}</span>}
-                              {predecessor?.name ?? t('wbs.missingTask')}
-                            </span>
-                            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted" title={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}>
-                              {dep.type}{dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}
-                            </span>
-                            {editable && (
-                              <button type="button" onClick={() => removeDependency(dep.id)} disabled={dependencyBusy}
-                                aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </li>
-                        )
-                      })}
+                      {incomingDependencies.map(dep => (
+                        <DependencyRow
+                          key={dep.id}
+                          linked={itemById.get(dep.predecessorId) ?? null}
+                          badge={`${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`}
+                          badgeTitle={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}
+                          state={readiness.byDependencyId.get(dep.id) ?? 'unknown'}
+                          imported={dep.origin === 'spec'}
+                          onOpen={onSelectItem}
+                          onRemove={editable && dep.origin === 'manual' ? () => removeDependency(dep.id) : null}
+                          removeDisabled={dependencyBusy}
+                          t={t}
+                        />
+                      ))}
+                      {/* 해석 못 한 depends — 가리킬 작업이 없어 이동도 삭제도 없다.
+                          claim 이 409 를 내는 상태라 목록에서 빼면 '선행 없음 → 시작 가능'으로 위장한다. */}
+                      {unresolvedRefs.map(ref => (
+                        <DependencyRow
+                          key={`unresolved:${ref}`}
+                          linked={null}
+                          missingLabel={lastRefSegment(ref)}
+                          badge="FS"
+                          badgeTitle={t('wbs.fsLong')}
+                          state="unknown"
+                          imported
+                          onOpen={undefined}
+                          onRemove={null}
+                          removeDisabled={dependencyBusy}
+                          t={t}
+                        />
+                      ))}
                     </ul>
                   )}
                 </div>
 
-                {outgoingDependencies.length > 0 && (
-                  <div>
-                    <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.successors')}</div>
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold text-ink-muted">{t('wbs.successors')}</div>
+                  {outgoingDependencies.length === 0 ? (
+                    <p className="text-xs text-ink-subtle">{t('wbs.noSuccessors')}</p>
+                  ) : (
                     <ul className="space-y-1.5">
-                      {outgoingDependencies.map(dep => {
-                        const successor = itemById.get(dep.successorId)
-                        return (
-                          <li key={dep.id} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
-                            <span className="min-w-0 flex-1 truncate text-ink" title={successor?.name}>
-                              {successor?.code && <span className="mr-1 text-ink-subtle">{successor.code}</span>}
-                              {successor?.name ?? t('wbs.missingTask')}
-                            </span>
-                            <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted">{dep.type}</span>
-                            {editable && (
-                              <button type="button" onClick={() => removeDependency(dep.id)} disabled={dependencyBusy}
-                                aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </li>
-                        )
-                      })}
+                      {outgoingDependencies.map(dep => (
+                        <DependencyRow
+                          key={dep.id}
+                          linked={itemById.get(dep.successorId) ?? null}
+                          badge={`${dep.type}${dep.lagDays > 0 ? ` +${dep.lagDays}` : ''}`}
+                          badgeTitle={dep.type === 'FS' ? t('wbs.fsLong') : t('wbs.ssLong')}
+                          state={null}
+                          imported={dep.origin === 'spec'}
+                          onOpen={onSelectItem}
+                          onRemove={editable && dep.origin === 'manual' ? () => removeDependency(dep.id) : null}
+                          removeDisabled={dependencyBusy}
+                          t={t}
+                        />
+                      ))}
                     </ul>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
+              )}
 
               {editable && dependencyOpen && (
                 <div className="mt-2 space-y-2 rounded-lg border border-line bg-surface p-2.5">
@@ -492,6 +605,8 @@ export function RowDetailPanel({
                 </div>
               )}
               {dependencyErr && <p className="mt-2 text-xs font-medium text-delayed" role="alert">{dependencyErr}</p>}
+              </>
+              )}
             </section>
           )}
 
@@ -579,31 +694,7 @@ export function RowDetailPanel({
           <AttachmentSection itemId={item.id} canAttach={canAttach} />
 
           {/* 변경 이력 */}
-          <section>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle"><History className="h-3.5 w-3.5" /> {t('wbs.changeHistory')}</div>
-            {logs == null ? (
-              <p className="text-sm text-ink-subtle">{t('common.loading')}</p>
-            ) : logs.length === 0 ? (
-              <p className="text-sm text-ink-subtle">{t('wbs.noHistory')}</p>
-            ) : (
-              <ol className="space-y-2.5">
-                {logs.map(log => (
-                  <li key={log.id} className="rounded-xl border border-line bg-surface-2/60 p-3">
-                    <div className="flex items-center justify-between gap-2 text-[12px]">
-                      <span className="font-semibold text-ink">{FIELD_KEY[log.field] ? t(FIELD_KEY[log.field]) : log.field}</span>
-                      <span className="inline-flex items-center gap-1 tabular-nums text-ink-subtle"><Clock className="h-3 w-3" />{fmtAt(log.at)}</span>
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-2 text-[13px] tabular-nums">
-                      <span className="text-ink-muted line-through decoration-ink-subtle/50">{fmtValue(log.field, log.oldValue, t)}</span>
-                      <span className="text-ink-subtle">→</span>
-                      <span className="font-semibold text-ink">{fmtValue(log.field, log.newValue, t)}</span>
-                    </div>
-                    <div className="mt-1 text-[11px] text-ink-subtle">{actorLabel(log.actorTeam, log.actorRole, t)}</div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+          <ChangeHistoryList logs={logs} />
         </div>
       </aside>
     </div>
@@ -696,14 +787,105 @@ function AttachmentSection({ itemId, canAttach }: { itemId: string; canAttach: b
   )
 }
 
-function Field({ icon: Icon, label, children }: { icon: typeof Clock; label: string; children: React.ReactNode }) {
+/** 개요 정의표의 한 행 — dt/dd 를 감싸는 div 는 dl 안에서 유효하다(HTML5). */
+/**
+ * 개요 한 칸 — 라벨 위, 값 아래.
+ *
+ * 종전에는 라벨·값을 한 줄에 좌우로 놓고 항목마다 한 행을 썼는데, 다섯 항목이 세로로
+ * 쌓여 패널 위쪽을 크게 잡아먹었다. 라벨을 값 위로 올리면 한 칸의 폭이 절반 이하로 줄어
+ * 두 칸씩 나란히 놓을 수 있다(다섯 행 → 세 행).
+ *
+ * `span`=true 는 두 칸을 다 쓴다 — 산출물처럼 길고 편집 입력이 열리는 항목용.
+ */
+function DlRow({ label, children, span = false }: { label: string; children: React.ReactNode; span?: boolean }) {
   return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-2 text-ink-muted"><Icon className="h-3.5 w-3.5" /></span>
-      <div className="min-w-0 flex-1">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-subtle">{label}</div>
-        <div className="mt-0.5 text-sm text-ink">{children}</div>
-      </div>
+    <div className={`min-w-0 ${span ? 'col-span-2' : ''}`}>
+      <dt className="text-[11px] font-semibold text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 min-w-0 text-[13px] text-ink">{children}</dd>
     </div>
+  )
+}
+
+/** external_ref('<module>/<id>')의 마지막 마디 — 목록에 모듈 접두어까지 늘어놓지 않는다. */
+function lastRefSegment(ref: string): string {
+  const i = ref.lastIndexOf('/')
+  return i >= 0 ? ref.slice(i + 1) : ref
+}
+
+/** 선행·후속 한 줄 — 이름(클릭 시 그 작업으로 상세 이동) · 진행 상태 · 관계 배지 · 삭제.
+ *  이름만 버튼으로 두는 이유: 행 전체를 버튼으로 감싸면 삭제 버튼이 버튼 안에 중첩된다. */
+function DependencyRow({
+  linked, missingLabel, badge, badgeTitle, state, imported = false, onOpen, onRemove, removeDisabled, t,
+}: {
+  linked: ComputedItem | null
+  /** linked 가 없을 때 이름 자리에 쓸 문자열. 없으면 '알 수 없는 작업'. */
+  missingLabel?: string
+  badge: string
+  badgeTitle: string
+  /** 선행일 때만 충족 판정을 붙인다. 후속 행은 null. */
+  state: PredecessorState | null
+  /** wbs.md depends 에서 합성한 행인가. 정본이 파일이라 화면에서 지워도 다음 import 에 되살아난다. */
+  imported?: boolean
+  onOpen?: (id: string) => void
+  onRemove: (() => void) | null
+  removeDisabled: boolean
+  t: (k: DictKey) => string
+}) {
+  const stateStyle: Record<PredecessorState, { label: DictKey; cls: string }> = {
+    satisfied: { label: 'wbs.depSatisfied', cls: 'border-done/35 bg-done-weak text-done' },
+    waiting: { label: 'wbs.depWaiting', cls: 'border-pending/35 bg-pending-weak text-pending' },
+    unknown: { label: 'wbs.depUnknown', cls: 'border-delayed/35 bg-delayed-weak text-delayed' },
+  }
+  const name = linked?.name ?? missingLabel ?? t('wbs.missingTask')
+  const label = (
+    <>
+      {linked?.code && <span className="mr-1 text-ink-subtle">{linked.code}</span>}
+      {name}
+    </>
+  )
+  return (
+    <li className="rounded-lg border border-line bg-surface px-2.5 py-2 text-xs">
+      <div className="flex items-center gap-2">
+        {linked && onOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen(linked.id)}
+            className="min-w-0 flex-1 truncate text-left text-ink underline-offset-2 transition hover:text-brand hover:underline"
+            title={`${name} — ${t('wbs.openTaskDetail')}`}
+          >
+            {label}
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-ink" title={name}>{label}</span>
+        )}
+        <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-bold text-ink-muted" title={badgeTitle}>{badge}</span>
+        {imported && (
+          <span className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-bold text-ink-subtle" title={t('wbs.depImportedHint')}>
+            {t('wbs.depImported')}
+          </span>
+        )}
+        {onRemove && (
+          <button type="button" onClick={onRemove} disabled={removeDisabled}
+            aria-label={t('wbs.removeDependency')} className="shrink-0 text-ink-subtle transition hover:text-delayed">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="mt-1 flex items-center gap-1.5">
+        {linked ? (
+          <>
+            <StatusChip status={linked.status} />
+            <span className="tabular-nums text-[11px] text-ink-muted">{formatPct1(linked.rolledActualPct)}%</span>
+          </>
+        ) : (
+          <span className="text-[11px] text-delayed">{t('wbs.depUnknown')}</span>
+        )}
+        {state && (
+          <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-bold ${stateStyle[state].cls}`}>
+            {t(stateStyle[state].label)}
+          </span>
+        )}
+      </div>
+    </li>
   )
 }

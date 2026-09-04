@@ -70,6 +70,7 @@ const dependencies: TaskDependency[] = [{
   successorId: 'B',
   type: 'FS',
   lagDays: 0,
+  origin: 'manual',
 }]
 
 const EXPECTED_FONT_VARS = {
@@ -182,6 +183,20 @@ describe('WbsGanttSheet — 표 글자 크기 3단계', () => {
     expect(reset().textContent).toContain(`${scale}%`)
     Object.entries(EXPECTED_FONT_VARS[scale]).forEach(([name, value]) => {
       expect(scrollRegion().style.getPropertyValue(name)).toBe(value)
+    })
+  }
+
+  /**
+   * 의존선 오버레이는 간트 바 hover 중에만 그려진다(28b2e38). 좌표를 스냅샷에 담으려면
+   * 먼저 hover 를 켜야 한다 — 한 번 켜면 다른 바로 옮기기 전까지 유지되므로 한 번이면 된다.
+   * React 는 mouseover/mouseout 위임으로 onMouseEnter 를 합성하므로 mouseover 를 쏜다.
+   */
+  async function hoverGanttBar() {
+    const bar = container
+      .querySelector<HTMLElement>('[data-row-id="A"] [data-wbs-col="gantt"]')!
+      .firstElementChild as HTMLElement
+    await act(async () => {
+      bar.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     })
   }
 
@@ -332,6 +347,7 @@ describe('WbsGanttSheet — 표 글자 크기 3단계', () => {
 
   it('글자만 확대하며 열 폭·간트 바·의존선의 좌표와 폭은 바꾸지 않는다', async () => {
     await mount()
+    await hoverGanttBar()
 
     const baseline = layoutSnapshot()
     expect(baseline.leftWidth).toBe('1198px')

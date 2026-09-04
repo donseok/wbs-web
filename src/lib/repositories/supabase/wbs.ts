@@ -11,6 +11,7 @@ import {
   type WbsRepositoryItem,
 } from '@/lib/repositories/types'
 import { isRetryableReadError, nestedOne, type SupabaseServerClient } from './common'
+import { mergeSpecDepends } from '@/lib/domain/mergeDependencies'
 import { teamOrderMap } from '@/lib/domain/teams'
 import { teamsForProjectSync } from '@/lib/teams/master'
 
@@ -19,6 +20,7 @@ type Row = Record<string, unknown>
 const WBS_COLUMNS = [
   'id', 'project_id', 'parent_id', 'code', 'sort_order', 'name', 'biz', 'deliverable',
   'planned_start', 'planned_end', 'weight', 'actual_pct', 'updated_at', 'is_owner_split',
+  'external_ref', 'depends', // wbs.md 선행을 의존성으로 합성하는 재료 — mergeSpecDepends
   'item_owners(kind, teams(code))',
 ].join(', ')
 
@@ -139,6 +141,7 @@ function mapDependency(row: Row): TaskDependency {
     successorId: row.successor_id as string,
     type: row.dependency_type as TaskDependency['type'],
     lagDays: Number(row.lag_days) || 0,
+    origin: 'manual', // task_dependencies 실제 행 — depends 합성 행은 mergeSpecDepends 가 붙인다
   }
 }
 
@@ -170,12 +173,24 @@ export function createSupabaseWbsRepository(client: SupabaseServerClient): WbsBo
       if (!projectResult.data) return repositoryOk(null)
 
       const project = projectResult.data as Row
+      const itemRows = (itemsResult.data ?? []) as unknown as Row[]
       const snapshot: WbsProjectSnapshot = {
         projectId,
         baseDate: (project.base_date as string | null) ?? null,
-        items: ((itemsResult.data ?? []) as unknown as Row[]).map(row => mapItem(row, projectId)),
+        items: itemRows.map(row => mapItem(row, projectId)),
         holidays: ((holidaysResult.data ?? []) as Row[]).map(row => row.date as string),
-        dependencies: ((dependenciesResult.data ?? []) as Row[]).map(mapDependency),
+        // wbs_items.depends(import 선행)를 같은 배열로 합쳐 봇이 두 축을 한 번에 본다.
+        // 해석 못 한 ref 는 여기서 빠진다 — 봇은 시작 게이트가 아니라 조회 도구이고,
+        // 그 상태를 사용자에게 보이는 책임은 화면(RowDetailPanel)이 진다.
+        dependencies: mergeSpecDepends(
+          ((dependenciesResult.data ?? []) as Row[]).map(mapDependency),
+          itemRows.map(row => ({
+            id: row.id as string,
+            projectId: row.project_id as string,
+            externalRef: (row.external_ref as string | null) ?? null,
+            depends: (row.depends as string[] | null) ?? null,
+          })),
+        ).dependencies,
       }
       return repositoryOk(snapshot)
     },

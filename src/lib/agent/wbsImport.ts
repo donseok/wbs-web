@@ -1,4 +1,5 @@
 import { chunked } from '@/lib/ai/util'
+import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { emitNotification } from '@/lib/notify/emit'
@@ -21,16 +22,84 @@ export type ImportNode = {
   model: string | null; tags: string[]
   prd_ref: string | null; entry_point: string | null
   spec_sections: SpecSections | null
+  // v2.2(nlevel) — levels 있는 payload 에서만 의미(스펙 §import 계약 v2.2)
+  level?: number | null      // levels 배열 인덱스 → wbs_items.level_idx
+  weight?: number | null     // 롤업 가중(양수). 생략 = null(형제 균등)
+  milestone?: boolean        // [M] — progress none, 발행 제외
+  credit?: string | null     // 크레딧 표 키 → credit_key
+  if_id?: string | null      // PMO I/F 대장 참조
+}
+
+/** v2.2 — frontmatter levels 선언(층별). 서버는 구조 검증 + 발행 판정에만 쓴다. */
+export type LevelDecl = {
+  name: string; prefix: string
+  progress: 'input' | 'rollup' | 'checklist' | 'none'
+  optional?: boolean; upload?: boolean | 'fold'; report?: string; owner?: string
+}
+const PROGRESS_ROLES = new Set(['input', 'rollup', 'checklist', 'none'])
+const LEVELS_MAX = 10 // domain/levelSettings LEVEL_LABELS_MAX 와 동일 상한(계약 공유)
+
+/**
+ * levels 선언 구조 검증(순수) — 스펙 §import 계약 v2.2.
+ * name·prefix 유일, progress 4종, input 층 upload:true 강제, upload 는 아래에서 위로만,
+ * input 층 최소 1개(발행 대상 없는 선언은 진도 입력 자체가 불가).
+ */
+export function validateLevels(raw: unknown): { levels: LevelDecl[] } | { error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) return { error: 'levels 는 비어 있지 않은 배열이어야 합니다.' }
+  if (raw.length > LEVELS_MAX) return { error: `levels 는 최대 ${LEVELS_MAX}층까지입니다.` }
+  const levels: LevelDecl[] = []
+  const names = new Set<string>(); const prefixes = new Set<string>()
+  let uploadCut = false // 한 층이 false/fold 면 그보다 깊은 층 전부 동일해야 한다
+  let hasInput = false
+  for (const [i, l] of (raw as Array<Record<string, unknown>>).entries()) {
+    const name = typeof l?.name === 'string' ? l.name.trim() : ''
+    const prefix = typeof l?.prefix === 'string' ? l.prefix.trim() : ''
+    if (!name || !prefix) return { error: `levels[${i}]: name·prefix 필수` }
+    if (names.has(name)) return { error: `levels name 중복: ${name}` }
+    if (prefixes.has(prefix)) return { error: `levels prefix 중복: ${prefix}` }
+    names.add(name); prefixes.add(prefix)
+    const progress = l.progress
+    if (typeof progress !== 'string' || !PROGRESS_ROLES.has(progress)) {
+      return { error: `levels[${i}] progress 허용 밖: ${String(progress)}` }
+    }
+    const upload = l.upload === undefined ? true : l.upload
+    if (upload !== true && upload !== false && upload !== 'fold') {
+      return { error: `levels[${i}] upload 허용 밖: ${String(l.upload)}` }
+    }
+    if (progress === 'input' && upload !== true) {
+      return { error: `levels[${i}] (${name}): input 층은 upload:true 강제 — 발행 대상이 안 올라가면 모순` }
+    }
+    // "아래에서 위로만" 규칙의 예외: 선두 연속 upload:false 는 PL 파일의 골격층 선언(본문 금지,
+    // 접두어 해석용 — attach 가 부모를 잇는다)이라 그 아래 true 가 정상이다(E2E 2026-08-22 실측).
+    // fold 는 선두여도 접힐 부모가 없으므로 예외 없음.
+    const leadingSkeleton = upload === false && !uploadCut && levels.every(l => l.upload === false)
+    if (uploadCut && upload === true) {
+      return { error: `levels[${i}] (${name}): upload 는 아래에서 위로만 끌 수 있다 — 위층이 false/fold 인데 아래층이 true` }
+    }
+    if (upload !== true && !leadingSkeleton) uploadCut = true
+    if (progress === 'input') hasInput = true
+    levels.push({
+      name, prefix, progress: progress as LevelDecl['progress'],
+      optional: l.optional === true, upload: upload as LevelDecl['upload'],
+      report: typeof l.report === 'string' ? l.report : undefined,
+      owner: typeof l.owner === 'string' ? l.owner : undefined,
+    })
+  }
+  if (!hasInput) return { error: 'levels 에 progress:input 층이 최소 1개 필요합니다.' }
+  return { levels }
 }
 const STAGES = new Set(['as', 'fp', 'ip', 'im', 'xx'])
 const PRIORITY_LABELS = new Set(['critical', 'high', 'medium', 'low'])
 const SCHEDULE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/
+const SCHEDULE_END_ONLY_RE = /^~\s*(\d{4}-\d{2}-\d{2})$/ // v2.2: nlevel wbs.md 의 ~종료일 토큰(시작일 없음)
 
 export function parseSchedule(s: string | null): { start: string | null; end: string | null } | { error: string } {
   if (!s) return { start: null, end: null }
   const m = SCHEDULE_RE.exec(s.trim())
-  if (!m) return { error: `schedule 형식 오류: ${s}` }
-  return { start: m[1], end: m[2] }
+  if (m) return { start: m[1], end: m[2] }
+  const e = SCHEDULE_END_ONLY_RE.exec(s.trim())
+  if (e) return { start: null, end: e[1] }
+  return { error: `schedule 형식 오류: ${s}` }
 }
 
 /** spec_sections → 마크다운 조립 — 섹션 순서는 계약 고정(결정 E): 머리말 → 요구사항 → 제약 → 테스트 기준 → API 스펙 → 데이터 모델. 빈 섹션 생략. */
@@ -49,14 +118,16 @@ export function assembleSpecMarkdown(s: SpecSections | null): string | null {
   return parts.length > 0 ? parts.join('\n\n') : null
 }
 
-export function toRpcNode(module: string, n: ImportNode, index: number):
+export function toRpcNode(module: string, n: ImportNode, index: number, levels?: LevelDecl[] | null):
   | { external_ref: string; parent_external_ref: string | null; title: string
       stage: string | null; planned_start: string | null; planned_end: string | null
       sort_order: number; assignee: string | null
       category: string | null; domain: string | null; priority: string | null
       model: string | null; tags: string[]; depends: string[]
       prd_ref: string | null; entry_point: string | null
-      acceptance: string[]; spec: string | null; dev_workflow: boolean }
+      acceptance: string[]; spec: string | null; dev_workflow: boolean
+      level_idx: number | null; weight: number | null; milestone: boolean
+      credit_key: string | null; if_id: string | null }
   | { error: string } {
   if (!n.id || !n.title) return { error: `id·title 필수: ${JSON.stringify(n.id)}` }
   // v2.1: 'todo' 는 stage 축에서 제거됐다(0082) — 검증 전에 null 로 정규화해 하위호환 수용.
@@ -67,6 +138,23 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
   }
   const sched = parseSchedule(n.schedule)
   if ('error' in sched) return { error: `${sched.error} (${n.id})` }
+  // v2.2 — levels 문맥: level 인덱스 필수·범위 검증, 발행 판정은 progress:input(마일스톤 제외).
+  const milestone = n.milestone === true
+  let levelIdx: number | null = null
+  if (levels && levels.length > 0) {
+    if (typeof n.level !== 'number' || !Number.isInteger(n.level) || n.level < 0 || n.level >= levels.length) {
+      return { error: `level 인덱스 누락/범위 밖: ${String(n.level)} (${n.id})` }
+    }
+    levelIdx = n.level
+  }
+  if (n.weight !== undefined && n.weight !== null) {
+    if (typeof n.weight !== 'number' || !Number.isFinite(n.weight) || n.weight <= 0) {
+      return { error: `weight 는 양수만: ${String(n.weight)} (${n.id})` }
+    }
+  }
+  const devWorkflow = levels && levelIdx !== null
+    ? levels[levelIdx].progress === 'input' && !milestone
+    : n.kind === 'task' // v2.1 레거시 규칙 유지(levels 없는 payload)
   return {
     external_ref: `${module}/${n.id}`,
     parent_external_ref: n.parent_id ? `${module}/${n.parent_id}` : null,
@@ -79,8 +167,103 @@ export function toRpcNode(module: string, n: ImportNode, index: number):
     depends: (n.depends ?? []).map(d => `${module}/${d}`), // 선행도 external_ref 로 저장(결정 C 게이트 키)
     prd_ref: n.prd_ref ?? null, entry_point: n.entry_point ?? null,
     acceptance: n.acceptance ?? [], spec: assembleSpecMarkdown(n.spec_sections),
-    dev_workflow: n.kind === 'task', // v2.1: 도입 여부는 kind 로 자동 결정 — wp/act/phase 는 항상 false
+    dev_workflow: devWorkflow, // v2.2: levels 있으면 progress:input 층(마일스톤 제외), 없으면 kind==='task'(v2.1)
+    level_idx: levelIdx, weight: n.weight ?? null, milestone,
+    credit_key: n.credit ?? null, if_id: n.if_id ?? null,
   }
+}
+
+/**
+ * import 실행 코어(v2.2) — 인증 이후의 전 과정: levels 시드/정합·attach 해석·노드 변환·
+ * RPC upsert·배정·자동 발행. API 라우트(PAT)와 웹 업로드 액션(세션)이 공유한다 —
+ * 두 경로의 검증·순서가 갈라지면 안 되므로 여기 밖에서 이 시퀀스를 재구현하지 않는다.
+ */
+export type RunWbsImportResult =
+  | { ok: true; upserted: number; skipped: number
+      unmatched: Array<{ id: string; assignee: string }>; nonLeafSkipped: string[]; ordersCreated: number }
+  | { ok: false; code: 'validation_failed' | 'levels_mismatch' | 'attach_not_found' | 'apply_failed'; message: string }
+
+export async function runWbsImport(
+  admin: AdminClient,
+  args: { projectId: string; module: string; actorUserId: string
+    levels: LevelDecl[] | null; attachRef: string | null; nodes: ImportNode[] },
+): Promise<RunWbsImportResult> {
+  const { projectId, module: module_, actorUserId, levels, attachRef, nodes } = args
+
+  // levels·attach 의 DB 대조 (스펙 §import 계약 v2.2)
+  let attachId: string | null = null
+  if (levels && attachRef) {
+    // PL 업로드: levels 는 서버 정본(level_labels)과 완전 일치해야 통과(불일치 = 파일이 낡음).
+    const { data: ps, error: psErr } = await admin
+      .from('project_settings').select('level_labels').eq('project_id', projectId).maybeSingle()
+    if (psErr) throw new Error(`프로젝트 설정 조회 실패: ${psErr.message}`)
+    const serverLabels = (ps as { level_labels: string[] } | null)?.level_labels ?? null
+    const payloadLabels = levels.map(l => l.name)
+    if (!serverLabels || JSON.stringify(serverLabels) !== JSON.stringify(payloadLabels)) {
+      return { ok: false, code: 'levels_mismatch',
+        message: `levels 가 프로젝트 정본과 다릅니다. 골격의 levels 를 다시 복사하세요. (정본: ${serverLabels?.join('>') ?? '없음'})` }
+    }
+    // attach 노드 해석(크로스 모듈 external_ref) — 없으면 fail-closed(골격 선행의 기계 검증).
+    const { data: attachRow, error: attachErr } = await admin
+      .from('wbs_items').select('id').eq('project_id', projectId).eq('external_ref', attachRef).maybeSingle()
+    if (attachErr) throw new Error(`attach 노드 조회 실패: ${attachErr.message}`)
+    if (!attachRow) return { ok: false, code: 'attach_not_found',
+      message: `attach 노드가 없습니다: ${attachRef} — 골격을 먼저 업로드하세요.` }
+    attachId = (attachRow as { id: string }).id
+  } else if (levels) {
+    // 골격 업로드: level_labels 시드 — 설정 편집과 동일한 검증(축소 fail-closed 포함).
+    const { data: rows, error: rowsErr } = await admin
+      .from('wbs_items').select('id, parent_id').eq('project_id', projectId)
+    if (rowsErr) throw new Error(`WBS 조회 실패: ${rowsErr.message}`)
+    const v = validateLevelSettings({
+      labels: levels.map(l => l.name),
+      currentTreeMaxDepth: treeMaxDepth((rows ?? []) as Array<{ id: string; parent_id: string | null }>),
+    })
+    if (!v.ok) return { ok: false, code: 'validation_failed', message: `levels 시드 실패: ${v.error}` }
+    const { error: seedErr } = await admin.from('project_settings').upsert({
+      project_id: projectId, level_labels: v.labels, max_depth: v.maxDepth,
+      updated_at: new Date().toISOString(), updated_by: actorUserId,
+    })
+    if (seedErr) throw new Error(`levels 시드 실패: ${seedErr.message}`)
+  }
+
+  // 변환 — 실패 노드는 생략하지 않고 전량 보고(에러 3원칙).
+  const rpcNodes: unknown[] = []
+  const assigneeByRef: Record<string, string | null> = {}
+  const titleByRef: Record<string, string> = {}
+  const kindByRef: Record<string, string> = {}
+  const errors: string[] = []
+  for (const [i, nRaw] of nodes.entries()) {
+    const r = toRpcNode(module_, nRaw, i, levels)
+    if ('error' in r) { errors.push(r.error); continue }
+    rpcNodes.push(r)
+    assigneeByRef[r.external_ref] = r.assignee
+    titleByRef[r.external_ref] = r.title
+    // 주문 보장 대상 판정 — v2.2: dev_workflow 가 정본(levels 있으면 input 층, 없으면 kind==='task' 와 동치).
+    kindByRef[r.external_ref] = r.dev_workflow ? 'task' : nRaw.kind ?? 'other'
+  }
+  if (errors.length > 0) {
+    return { ok: false, code: 'validation_failed',
+      message: `노드 변환 실패 ${errors.length}건: ${errors.slice(0, 5).join(' / ')}` }
+  }
+
+  // p_attach_id 는 attach 경로에서만 싣는다 — 레거시 payload 는 구 2인자 시그니처와도 호환(배포 순서 안전).
+  const { data: rpcOut, error: rpcErr } = await admin
+    .rpc('import_wbs_upsert', attachId
+      ? { p_project_id: projectId, p_nodes: rpcNodes, p_attach_id: attachId }
+      : { p_project_id: projectId, p_nodes: rpcNodes })
+  if (rpcErr) {
+    console.error('[wbs-import] upsert 실패:', rpcErr.message)
+    return { ok: false, code: 'apply_failed', message: `업로드 실패: ${rpcErr.message}` }
+  }
+  const out = rpcOut as { upserted: number; skipped: number; ids: Record<string, string>; new_refs: string[] }
+
+  const post = await applyAssigneesAndOrders(admin, {
+    projectId, actorUserId, module: module_,
+    newRefs: out.new_refs, idsByRef: out.ids, assigneeByRef, titleByRef, kindByRef,
+  })
+  return { ok: true, upserted: out.upserted, skipped: out.skipped,
+    unmatched: post.unmatched, nonLeafSkipped: post.nonLeafSkipped, ordersCreated: post.ordersCreated }
 }
 
 /**

@@ -118,7 +118,7 @@ export async function agentMemberRole(
   return (roles[0] as { role: string }).role as 'admin' | 'member'
 }
 
-export const AGENT_CONTRACT_VERSION = '2.1'
+export const AGENT_CONTRACT_VERSION = '2.2'
 
 export type AgentPrincipal =
   | { kind: 'legacy' }
@@ -182,12 +182,23 @@ export async function resolveAgentPrincipal(
   }
 }
 
-/** 스코프 강제 — legacy 는 스코프 개념이 없다(v1 동작). 부족 시 403 insufficient_scope. */
+/**
+ * 스코프 강제 — legacy 는 스코프 개념이 없다(v1 동작). 부족 시 403 insufficient_scope.
+ *
+ * `work:report` 는 **폐지된 스코프**다(2026-08-25). claim 할 수 있으면 그 결과도 적을 수 있어야
+ * 사이클이 완주되는데, claim 은 원래 무제한이라 보고만 따로 막는 건 실질 방어선이 아니었다
+ * (본인 claim 건만 쓸 수 있다는 강제는 report 라우트의 claimed_by_user_id 판정이 이미 한다).
+ * 신규 발급 토큰에는 붙지 않지만 **이미 발급된 토큰에는 남아 있으므로** work:claim 요구를
+ * work:report 로도 충족시킨다 — 이 수용이 없으면 옛 토큰이 그날로 끊긴다.
+ */
+const LEGACY_EQUIVALENT: Record<string, readonly string[]> = { 'work:claim': ['work:report'] }
+
 export function requireScope(
-  p: AgentPrincipal, scope: 'work:read' | 'work:claim' | 'work:report',
+  p: AgentPrincipal, scope: 'work:read' | 'work:claim',
 ): NextResponse | null {
   if (p.kind === 'legacy') return null
   if (p.scopes.includes(scope)) return null
+  if ((LEGACY_EQUIVALENT[scope] ?? []).some((alt) => p.scopes.includes(alt))) return null
   return apiFail(403, 'insufficient_scope', `이 작업에는 ${scope} 스코프가 필요합니다.`)
 }
 

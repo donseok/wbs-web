@@ -487,6 +487,7 @@ describe('setWbsStage', () => {
     const { captured } = admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: null } },
         { data: [{ id: W1 }] },
       ],
@@ -497,6 +498,46 @@ describe('setWbsStage', () => {
     expect(captured.change_logs[0]).toMatchObject({ field: 'stage', old_value: null, new_value: 'ip' })
   })
 
+  // 개발 워크플로 단계는 최종단계(자식 없는 리프)의 것이다.
+  it('자식이 있는 항목에는 단계를 찍지 않는다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: '상위' } },
+        { data: { id: 'child-1' } }, // 자식 있음
+      ],
+    })
+    const r = await setWbsStage(W1, 'ip')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/최종단계/)
+    expect(captured.wbs_items).toBeUndefined() // UPDATE 까지 안 감
+  })
+
+  it('자식이 있어도 단계 해제(null)는 허용한다 — 잘못 찍힌 값을 지울 길은 남긴다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: '상위' } },
+        { data: { stage: 'as' } },
+        { data: [{ id: W1 }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    const r = await setWbsStage(W1, null)
+    expect(r.ok).toBe(true)
+    expect(captured.change_logs[0]).toMatchObject({ field: 'stage', old_value: 'as', new_value: null })
+  })
+
+  it('자식 조회가 실패하면 단계를 찍지 않는다 — 쓰기 전 선행 조회 실패는 중단', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { error: { message: 'boom' } },
+      ],
+    })
+    const r = await setWbsStage(W1, 'ip')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('boom')
+  })
+
   it('허용 밖 문자열 거부', async () => {
     const { calls } = admin({})
     const r = await setWbsStage(W1, 'dd' as never)
@@ -504,11 +545,88 @@ describe('setWbsStage', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('완료(xx) 직행 차단 — claimed 인 에이전트 주문이 있으면 거부(2026-08-25 mes-runlog 실측)', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
+        { data: { stage: 'im' } },
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'xx')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/승인 버튼/)
+    expect(captured['agent_work_orders.in']).toEqual([['status', ['claimed', 'reported']]])
+    expect(captured.wbs_items).toBeUndefined() // update 까지 안 감
+  })
+
+  // 종전 가드는 'xx' 만 막았다. claim 게이트는 stageAtLeast(im) 로 보므로 'im' 을 고르면
+  // 같은 우회가 그대로 성립했다 — 후속 작업의 선행 게이트가 승인 없이 풀린다.
+  it('im 직행도 차단 — 도달 단계(REACHED_STAGES)면 xx 와 같은 취급', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
+        { data: { stage: 'ip' } },
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'im')
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/승인 버튼/)
+    expect(captured.wbs_items).toBeUndefined() // update 까지 안 감
+  })
+
+  it('도달 단계가 아닌 ip 는 활성 주문이 있어도 통과 — 막는 것은 게이트가 보는 집합뿐이다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
+        { data: { stage: 'as' } },
+        { data: [{ id: W1 }] }, // UPDATE
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'ip')
+    expect(r.ok).toBe(true)
+    expect(captured.wbs_items).toEqual([{ stage: 'ip', updated_at: expect.any(String) }])
+  })
+
+  it('완료(xx) 직행 차단 — reported 인 에이전트 주문이 있어도 거부', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
+        { data: { stage: 'im' } },
+      ],
+      agent_work_orders: [{ data: { id: 'order-1' } }],
+    })
+    const r = await setWbsStage(W1, 'xx')
+    expect(r.ok).toBe(false)
+    expect(captured.change_logs).toBeUndefined()
+  })
+
+  it('완료(xx) 전 에이전트 주문 조회 실패 — 실패를 "주문 없음"으로 위장하지 않는다', async () => {
+    admin({
+      wbs_items: [
+        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+        { data: null }, // 리프 확인 — 자식 없음
+        { data: { stage: 'im' } },
+      ],
+      agent_work_orders: [{ error: { message: 'boom' } }],
+    })
+    const r = await setWbsStage(W1, 'xx')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('boom')
+  })
+
   it('(a) fp→im 전이 시 depends 로 이 항목을 참조하는 후행 리프 담당자에게 work.unblocked 발행(미배정 후행은 건너뜀)', async () => {
     const W3 = '77777777-7777-4777-8777-777777777777'
     const { captured } = admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         { data: [
@@ -538,6 +656,7 @@ describe('setWbsStage', () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
@@ -555,6 +674,7 @@ describe('setWbsStage', () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
@@ -577,6 +697,7 @@ describe('setWbsStage', () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/1'] } ] },
@@ -600,6 +721,7 @@ describe('setWbsStage', () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         // 후행 조회가 자기 자신을 포함해 반환(자기 참조 depends) — 선행 확인 쿼리 없이 즉시 skip.
@@ -616,6 +738,7 @@ describe('setWbsStage', () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'im' } },
         { data: [{ id: W1 }] },
       ],
@@ -630,6 +753,7 @@ describe('setWbsStage', () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         { data: [] },
@@ -645,6 +769,7 @@ describe('setWbsStage', () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
         { data: null, error: { message: 'boom' } },
@@ -660,6 +785,7 @@ describe('setWbsStage', () => {
     const { calls } = admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: null } },
+        { data: null }, // 리프 확인 — 자식 없음
         { data: { stage: 'fp' } },
         { data: [{ id: W1 }] },
       ],
@@ -668,7 +794,8 @@ describe('setWbsStage', () => {
     const r = await setWbsStage(W1, 'im')
     expect(r.ok).toBe(true)
     expect(mocks.emitNotification).not.toHaveBeenCalled()
-    expect(calls.filter(t => t === 'wbs_items')).toHaveLength(3)
+    // 항목 조회 + 리프 확인 + 현재 stage 조회 + UPDATE. 후행 조회는 없다.
+    expect(calls.filter(t => t === 'wbs_items')).toHaveLength(4)
   })
 })
 

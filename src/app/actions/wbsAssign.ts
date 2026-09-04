@@ -6,7 +6,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
-import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
+import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { REACHED_STAGES, notifySuccessorsOnReached, transitionStage } from '@/lib/agent/stageTransition'
 
 /**
@@ -323,11 +323,39 @@ export async function setWbsStage(
   if (!loaded.ok) return loaded
   const { item } = loaded
   const admin = createAdminClient()
+  // 리프 게이트 — 개발 워크플로 단계는 최종단계(자식 없는 항목)의 것이다. 해제(null)는 막지 않는다:
+  // 이미 잘못 찍힌 상위 항목의 값을 지울 길이 이 드롭다운뿐이다.
+  if (stage !== null) {
+    const { data: child, error: childErr } = await admin
+      .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
+    if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
+    if (child) return { ok: false, error: '하위 항목이 있습니다 — 개발 워크플로 단계는 최종단계에만 지정합니다.' }
+  }
   const { data: cur, error: curErr } = await admin
     .from('wbs_items').select('stage').eq('id', itemId).maybeSingle()
   if (curErr) return { ok: false, error: `단계 조회 실패: ${curErr.message}` }
   const oldStage = (cur as { stage: string | null } | null)?.stage ?? null
   if (oldStage === stage) return { ok: true }
+  // 도달 단계(im·xx) 직행 차단 — 이 드롭다운은 dev_workflow·agent_work_orders 를 전혀 안 보는
+  // 경로라, claimed/reported 인 활성 에이전트 주문이 있는 상태에서 여기로 단계를 올리면 겉보기엔
+  // 승인된 것처럼 보이는데 주문은 그대로 남는다(2026-08-25 mes-runlog 리허설 실측 — 승인 버튼을
+  // 안 거치고 이 드롭다운으로 "완료"를 골라 발생). 완료·검수는 승인 버튼으로만.
+  //
+  // 판정 축을 REACHED_STAGES 로 잡는다 — 종전에는 'xx' 만 막았는데 claim 게이트는 stageAtLeast(im)
+  // 로 보므로 'im' 을 고르면 같은 우회가 그대로 성립했다. 막는 집합과 게이트가 보는 집합이
+  // 갈라지면 그 틈이 곧 구멍이다.
+  if (stage !== null && REACHED_STAGES.has(stage)) {
+    const { data: activeOrder, error: orderErr } = await admin
+      .from('agent_work_orders').select('id').eq('wbs_item_id', itemId)
+      .in('status', ['claimed', 'reported']).limit(1).maybeSingle()
+    if (orderErr) return { ok: false, error: `에이전트 주문 확인 실패: ${orderErr.message}` }
+    if (activeOrder) {
+      return {
+        ok: false,
+        error: '이 항목에 진행 중인 에이전트 주문이 있습니다 — 단계 변경은 "진행 상황"의 승인 버튼으로 하세요.',
+      }
+    }
+  }
   const { data: updated, error } = await admin
     .from('wbs_items')
     .update({ stage, updated_at: new Date().toISOString() })
@@ -474,6 +502,18 @@ export async function setWbsDevWorkflow(
   let cascadeFailed = false
 
   if (enabled) {
+    // 프로젝트 자동 활성(2026-08-24) — dev_workflow ON 도 "에이전트에게 일을 시키는 행위"다. 처음 활성이면
+    // 백필이 이 프로젝트의 dev_workflow 리프 전부(방금 켠 것 포함)에 주문을 보장한다. 실패는 로깅만.
+    try {
+      const proj = await ensureAgentProject(admin, { projectId: resolved.projectId, actorUserId: g.actor.userId })
+      if (!proj.ok) console.error('[wbsAssign] dev_workflow ON 프로젝트 활성 실패:', proj.error)
+      else if (proj.activated) {
+        const bf = await backfillProjectOrders(admin, { projectId: resolved.projectId, actorUserId: g.actor.userId })
+        if (!bf.ok) console.error('[wbsAssign] 백필 실패:', bf.error)
+      }
+    } catch (e) {
+      console.error('[wbsAssign] dev_workflow ON 프로젝트 활성 예외:', e)
+    }
     // ON — 리프에만 초기 as 전이 + 자동 주문 발행. 실패는 로깅만(본 토글 결과는 유지).
     for (const id of updatedIds) {
       if (hasChildren.has(id)) continue

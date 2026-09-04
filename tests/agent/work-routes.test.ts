@@ -86,6 +86,68 @@ describe('GET /api/v1/agent/work', () => {
   })
 })
 
+/**
+ * status 필터(2026-08-28). 종전에는 어떤 목록 엔드포인트도 approved·cancelled 를 돌려주지
+ * 않아, 그 주문을 보려면 id 를 이미 알고 있어야 했다 — 알아야 볼 수 있고 보려면 알아야 하는
+ * 구조라 승인 뒤 이력을 추적할 방법이 없었다.
+ */
+describe('GET /api/v1/agent/work — status 필터', () => {
+  /** .in() 인자를 잡는 admin 목 — 필터가 실제로 걸렸는지 봐야 한다. */
+  function capturingAdmin(orders: unknown[] = []) {
+    const captured: { statuses?: unknown } = {}
+    const admin = {
+      from: vi.fn((table: string) => {
+        const b: Record<string, unknown> = {}
+        for (const k of ['select', 'eq', 'order', 'limit']) b[k] = () => b
+        b.in = (col: string, vals: unknown) => { if (col === 'status') captured.statuses = vals; return b }
+        b.maybeSingle = async () => ({
+          data: table === 'agent_projects' ? { project_id: P1, enabled: true } : null, error: null,
+        })
+        b.single = b.maybeSingle
+        b.then = (r: (v: unknown) => unknown) =>
+          Promise.resolve({ data: table === 'agent_work_orders' ? orders : [], error: null }).then(r)
+        return b
+      }),
+    }
+    mocks.createAdminClient.mockReturnValue(admin)
+    return captured
+  }
+
+  it('미지정이면 종전대로 ready 만 — 기존 클라이언트의 응답이 바뀌지 않는다', async () => {
+    const captured = capturingAdmin()
+    const res = await listGET(get(`http://l/api/v1/agent/work?project_id=${P1}`))
+    expect(res.status).toBe(200)
+    expect(captured.statuses).toEqual(['ready'])
+  })
+
+  it('쉼표로 여럿 — 터미널 상태도 목록으로 볼 수 있다', async () => {
+    const captured = capturingAdmin()
+    const res = await listGET(get(`http://l/api/v1/agent/work?project_id=${P1}&status=approved,cancelled`))
+    expect(res.status).toBe(200)
+    expect(captured.statuses).toEqual(['approved', 'cancelled'])
+  })
+
+  it('공백을 다듬는다', async () => {
+    const captured = capturingAdmin()
+    const res = await listGET(get(`http://l/api/v1/agent/work?project_id=${P1}&status=ready,%20claimed`))
+    expect(res.status).toBe(200)
+    expect(captured.statuses).toEqual(['ready', 'claimed'])
+  })
+
+  // 조용히 버리면 오타가 "그 상태의 주문이 없다"로 위장한다 — 표시 = 로깅(에러 처리 3원칙).
+  it('모르는 status 는 400 — 빈 목록으로 위장하지 않는다', async () => {
+    capturingAdmin()
+    const res = await listGET(get(`http://l/api/v1/agent/work?project_id=${P1}&status=done`))
+    expect(res.status).toBe(400)
+  })
+
+  it('빈 status 는 400', async () => {
+    capturingAdmin()
+    const res = await listGET(get(`http://l/api/v1/agent/work?project_id=${P1}&status=`))
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('GET /api/v1/agent/work/[id]', () => {
   it('주문 + 보고 이력 반환', async () => {
     useAdmin({

@@ -115,109 +115,122 @@ export function WbsAssigneeStagePanel({
           <User className="h-3.5 w-3.5" /> {t('wbs.assigneeStagePanelTitle')}
         </div>
 
-        <div className="mt-2 space-y-3">
+        <div className="mt-2 space-y-2">
           {loaded === null ? (
             <p className="text-xs text-ink-subtle">{t('common.loading')}</p>
           ) : loaded === 'error' ? (
             <p className="text-xs font-medium text-delayed">{t('wbs.assigneeStageLoadFail')}</p>
           ) : (
             <>
-              <div>
-                {/* <label> 아님 — 안의 콤보박스가 role=listbox/option 을 갖는 상호작용 콘텐츠라
-                    <label> 로 감싸면 옵션 클릭이 label 활성화(입력 재포커스)와 충돌한다.
-                    aria-labelledby 로만 라벨을 연결한다. */}
-                <span id={assigneeLabelId} className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.assigneeLabel')}</span>
-                {editable ? (
-                  <AssigneeComboBox
-                    members={members}
-                    value={loaded.assigneeMemberId}
-                    disabled={busy === 'assignee'}
-                    onChange={onAssigneeChange}
-                    categoryOrder={teamCodes}
-                    unassignedLabel={t('wbs.assigneeUnassignedOption')}
-                    placeholder={t('wbs.assigneeSearchPlaceholder')}
-                    noResultsLabel={t('wbs.assigneeSearchNoResults')}
-                    ariaLabelledBy={assigneeLabelId}
-                  />
-                ) : (
-                  <p className="text-sm text-ink">{memberName(loaded.assigneeMemberId) ?? t('wbs.assigneeUnassignedOption')}</p>
-                )}
-              </div>
+              {/* 담당·단계를 2열 한 행으로(2026-08-28). 종전엔 라벨+컨트롤이 세로로 6줄 쌓여
+                  이 섹션만으로 패널 한 화면을 먹었다. 전파 체크는 각자 소속 컨트롤 바로 아래 둔다 —
+                  한 줄로 몰면 무엇에 걸리는 전파인지 화면에서 사라진다. */}
+              <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
+                <div>
+                  {/* <label> 아님 — 안의 콤보박스가 role=listbox/option 을 갖는 상호작용 콘텐츠라
+                      <label> 로 감싸면 옵션 클릭이 label 활성화(입력 재포커스)와 충돌한다.
+                      aria-labelledby 로만 라벨을 연결한다. */}
+                  <span id={assigneeLabelId} className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.assigneeLabel')}</span>
+                  {editable ? (
+                    <AssigneeComboBox
+                      members={members}
+                      value={loaded.assigneeMemberId}
+                      disabled={busy === 'assignee'}
+                      onChange={onAssigneeChange}
+                      categoryOrder={teamCodes}
+                      unassignedLabel={t('wbs.assigneeUnassignedOption')}
+                      placeholder={t('wbs.assigneeSearchPlaceholder')}
+                      noResultsLabel={t('wbs.assigneeSearchNoResults')}
+                      ariaLabelledBy={assigneeLabelId}
+                    />
+                  ) : (
+                    <p className="text-[13px] text-ink">{memberName(loaded.assigneeMemberId) ?? t('wbs.assigneeUnassignedOption')}</p>
+                  )}
+                  {editable && hasChildren && (
+                    <label className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-muted">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-line"
+                        checked={cascade}
+                        onChange={e => setCascade(e.target.checked)}
+                        disabled={busy === 'assignee'}
+                      />
+                      {t('wbs.assigneeCascadeLabel')}
+                    </label>
+                  )}
+                </div>
 
-              {editable && hasChildren && (
-                <label className="flex items-center gap-2 text-xs text-ink-muted">
-                  <input
-                    type="checkbox"
-                    checked={cascade}
-                    onChange={e => setCascade(e.target.checked)}
-                    disabled={busy === 'assignee'}
-                  />
-                  {t('wbs.assigneeCascadeLabel')}
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.stageLabel')}</span>
+                  {editable ? (
+                    <select
+                      value={loaded.stage ?? ''}
+                      disabled={busy === 'stage'}
+                      onChange={e => onStageChange((e.target.value || null) as Stage | null)}
+                      className="app-input h-9 text-xs"
+                    >
+                      <option value="">{t('wbs.stageNoneOption')}</option>
+                      {/* 개발 워크플로 단계는 최종단계의 것이다 — 상위 항목에서는 서버(setWbsStage)가
+                          거절하므로 고를 수 있게 두면 화면이 거절당할 값을 권하는 꼴이 된다.
+                          '미착수'는 남긴다: 이미 잘못 찍힌 값을 지울 길이 여기뿐이다. */}
+                      {!hasChildren && STAGES.map(s => <option key={s} value={s}>{t(STAGE_KEYS[s])}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-[13px] text-ink">
+                      {loaded.stage && STAGE_KEYS[loaded.stage as Stage] ? t(STAGE_KEYS[loaded.stage as Stage]) : t('wbs.stageNoneOption')}
+                    </p>
+                  )}
+                  {editable && hasChildren && (
+                    <p className="mt-1 text-[11px] text-ink-subtle">{t('wbs.stageLeafOnlyHint')}</p>
+                  )}
                 </label>
-              )}
-              {cascadeResult !== null && (
-                <p className="text-xs font-medium text-brand">
-                  {t('wbs.assigneeCascadeResult').replace('{n}', String(cascadeResult))}
-                </p>
-              )}
-              {cascadeWarn && (
-                <p className="text-xs font-medium text-delayed" role="alert">
-                  {t('wbs.assigneeCascadeFail')}
-                </p>
-              )}
+              </div>
 
               {/* dev_workflow — NULL 진입점 토글. editable=false 에서도 현재값을 disabled
                   체크박스로 보여준다(브리프). OFF 는 ready 주문 취소를 동반하는 서버 동작이라
                   confirm() 없이 즉시 실행하고 결과 문구로 알린다(브라우저 모달 금지). */}
-              <label className="flex items-center gap-2 text-xs text-ink-muted">
-                <input
-                  type="checkbox"
-                  checked={loaded.devWorkflow}
-                  onChange={e => onDevWorkflowChange(e.target.checked)}
-                  disabled={!editable || busy === 'devWorkflow'}
-                />
-                {t('wbs.devWorkflowLabel')}
-              </label>
-              {editable && hasChildren && (
-                <label className="flex items-center gap-2 text-xs text-ink-muted">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <label className="flex items-center gap-1.5 text-[11px] text-ink-muted">
                   <input
                     type="checkbox"
-                    checked={devCascade}
-                    onChange={e => setDevCascade(e.target.checked)}
-                    disabled={busy === 'devWorkflow'}
+                    className="h-3.5 w-3.5 rounded border-line"
+                    checked={loaded.devWorkflow}
+                    onChange={e => onDevWorkflowChange(e.target.checked)}
+                    disabled={!editable || busy === 'devWorkflow'}
                   />
-                  {t('wbs.devWorkflowCascadeLabel')}
+                  {t('wbs.devWorkflowLabel')}
                 </label>
+                {editable && hasChildren && (
+                  <label className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded border-line"
+                      checked={devCascade}
+                      onChange={e => setDevCascade(e.target.checked)}
+                      disabled={busy === 'devWorkflow'}
+                    />
+                    {t('wbs.devWorkflowCascadeLabel')}
+                  </label>
+                )}
+              </div>
+
+              {/* 결과·경고는 있을 때만 자리를 차지한다 */}
+              {cascadeResult !== null && (
+                <p className="text-[11px] font-medium text-brand">
+                  {t('wbs.assigneeCascadeResult').replace('{n}', String(cascadeResult))}
+                </p>
+              )}
+              {cascadeWarn && (
+                <p className="text-[11px] font-medium text-delayed" role="alert">{t('wbs.assigneeCascadeFail')}</p>
               )}
               {devWorkflowResult !== null && (
-                <p className="text-xs font-medium text-brand">
+                <p className="text-[11px] font-medium text-brand">
                   {t('wbs.devWorkflowResult').replace('{n}', String(devWorkflowResult))}
                 </p>
               )}
               {devWorkflowWarn && (
-                <p className="text-xs font-medium text-delayed" role="alert">
-                  {t('wbs.devWorkflowFail')}
-                </p>
+                <p className="text-[11px] font-medium text-delayed" role="alert">{t('wbs.devWorkflowFail')}</p>
               )}
-
-              <label className="block">
-                <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.stageLabel')}</span>
-                {editable ? (
-                  <select
-                    value={loaded.stage ?? ''}
-                    disabled={busy === 'stage'}
-                    onChange={e => onStageChange((e.target.value || null) as Stage | null)}
-                    className="app-input h-9 text-xs"
-                  >
-                    <option value="">{t('wbs.stageNoneOption')}</option>
-                    {STAGES.map(s => <option key={s} value={s}>{t(STAGE_KEYS[s])}</option>)}
-                  </select>
-                ) : (
-                  <p className="text-sm text-ink">
-                    {loaded.stage && STAGE_KEYS[loaded.stage as Stage] ? t(STAGE_KEYS[loaded.stage as Stage]) : t('wbs.stageNoneOption')}
-                  </p>
-                )}
-              </label>
 
               {!editable && <p className="text-[11px] text-ink-subtle">{t('wbs.assigneeStageReadOnly')}</p>}
               {err && <p className="text-xs font-medium text-delayed" role="alert">{err}</p>}
@@ -227,6 +240,8 @@ export function WbsAssigneeStagePanel({
       </section>
 
       {/* 명세(Task 12A, 결정 B) — 이 패널의 섹션으로 편입, 별도 오버레이 아님(리뷰 라운드 1 관례). */}
+      {/* 선행·후행 항목 — 명세에서 분리한 독립 섹션(실행 순서 축). */}
+
       <WbsSpecPanel itemId={itemId} editable={editable} />
     </div>
   )

@@ -25,7 +25,7 @@ export default async function WbsPage({
   const { projectId } = await params
   const { view, focus } = await searchParams
   const locale = await getServerLocale()
-  const [{ items, dependencies, holidays, today }, actor, projects, initialCollapsed, user, projectConfig, uiPrefs, members] = await Promise.all([
+  const [{ items, dependencies, unresolvedDepends, holidays, today }, actor, projects, initialCollapsed, user, projectConfig, uiPrefs, members] = await Promise.all([
     getComputedWbs(projectId),
     getActorForView(),
     listProjects(),
@@ -40,6 +40,7 @@ export default async function WbsPage({
   const me = user ? { id: user.id, name: displayNameFrom(user.user_metadata, user.email) ?? '사용자' } : null
   return (
     <ProjectPageShell
+      flush
       hero={<PageHero
         eyebrow="WBS · GANTT"
         title={`${project?.name ?? t(locale, 'wbs.projectFallback')} ${t(locale, 'wbs.heroTitleSuffix')}`}
@@ -50,6 +51,7 @@ export default async function WbsPage({
         key={projectId}
         items={items}
         dependencies={dependencies}
+        unresolvedDepends={unresolvedDepends}
         holidays={holidays}
         today={today}
         actorView={toProjectActorView(actor, projectId)}

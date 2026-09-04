@@ -118,6 +118,20 @@ describe('PAT 쓰기 루프', () => {
     expect((await res.json()).code).toBe('insufficient_scope')
   })
 
+  // work:report 폐지(2026-08-25) 이전에 발급된 토큰은 claim 없이 report 만 들고 있을 수 있다.
+  // 판정부가 이를 work:claim 과 동등하게 받아주지 않으면 그 토큰이 그날로 끊긴다.
+  it('옛 토큰(work:report 만) → work:claim 요구를 충족한다', async () => {
+    useAdmin({
+      agent_runners: [{ data: { ...RUNNER, scopes: ['work:read', 'work:report'] } }, { data: null }],
+      agent_work_orders: [{ data: { ...ORDER, status: 'ready' } }],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+    })
+    const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
+    expect(res.status).not.toBe(403)
+  })
+
   it('레거시가 PAT 점유 주문 report → 403 not_claim_owner', async () => {
     useAdmin({
       agent_work_orders: [{ data: { ...ORDER, status: 'claimed', claimed_by: 'x', claimed_by_user_id: 'u-1' } }],

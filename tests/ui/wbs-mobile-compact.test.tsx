@@ -206,6 +206,20 @@ describe('히어로 컴팩트 숨김', () => {
     expect(container.textContent).toContain('본문')
   })
 
+  it('ProjectPageShell flush 는 스크롤 영역 하단 여백을 없앤다 — WBS 처럼 h-full 로 꽉 찬 화면용', async () => {
+    stubMq(false)
+    const region = () => container.querySelector('[data-project-scroll-region]') as HTMLElement
+    await act(async () => root.render(
+      <ProjectPageShell hero={<PageHero title="타이틀" />}><div>본문</div></ProjectPageShell>,
+    ))
+    expect(region().className).toContain('pb-6')
+    await act(async () => root.render(
+      <ProjectPageShell flush hero={<PageHero title="타이틀" />}><div>본문</div></ProjectPageShell>,
+    ))
+    expect(region().className).toContain('pb-0')
+    expect(region().className).not.toContain('pb-6')
+  })
+
   it('ProjectPageShell 은 일반 뷰포트에서 히어로를 렌더한다', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     await act(async () => root.render(

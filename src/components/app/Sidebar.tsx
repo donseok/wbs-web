@@ -63,6 +63,7 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, i
   // 설정 바로 아래에 두되 링크는 전역 경로로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.
   if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
   if (showUsage) items.push({ href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' })
+  // 에이전트 관제도 전역 화면(프로젝트는 화면 안에서 고른다) — 슈퍼유저 전용. 종전엔 진입 링크가 없어 URL 직접 접근뿐이었다.
   return items
 }
 

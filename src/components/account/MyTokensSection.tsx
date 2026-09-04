@@ -18,17 +18,17 @@ type TokenRow = {
 
 // 스코프 설명(스테이징 실사용 피드백 2026-08-11) — 52명+ 로스터에서 claim 스코프가 조회를
 // 포함한다는 사실이 체크박스 라벨만으론 드러나지 않아 오발급 문의가 있었다.
+// work:report 는 **폐지됐다**(2026-08-25) — claim 할 수 있으면 그 결과도 적을 수 있어야 하고,
+// claim 이 무제한인 이상 보고만 따로 막는 건 실질 방어선이 아니었다. 신규 발급에는 붙이지 않는다
+// (옛 토큰에 남은 work:report 는 서버가 work:claim 과 동등하게 받아준다 — externalApi 참조).
 const SCOPE_OPTIONS: readonly { value: string; label: string; descKey: DictKey }[] = [
   { value: 'work:read', label: '조회 (work:read)', descKey: 'account.scope.workRead.desc' },
-  { value: 'work:claim', label: 'claim/release (work:claim)', descKey: 'account.scope.workClaim.desc' },
+  { value: 'work:claim', label: 'claim/release/완료보고 (work:claim)', descKey: 'account.scope.workClaim.desc' },
 ] as const
 
 const EXPIRES_OPTIONS = [30, 90, 180] as const
 
-/**
- * PAT 발급·목록·폐기(결정 D). 자율 발급은 읽기·claim 스코프 한정 — work:report 는 UI에
- * 노출하지 않는다(관리자 발급 경로 도입 전까지, 미결 ①). 평문은 발급 직후 1회만 표시.
- */
+/** PAT 발급·목록·폐기(결정 D). 평문은 발급 직후 1회만 표시. */
 export function MyTokensSection({ projects }: { projects: { id: string; name: string }[] }) {
   const { toast } = useToast()
   const { t } = useLocale()
@@ -208,7 +208,6 @@ export function MyTokensSection({ projects }: { projects: { id: string; name: st
             <button onClick={submitIssue} className="btn btn-primary w-full" disabled={issuing}>
               {issuing ? '발급 중…' : '토큰 발급'}
             </button>
-            <p className="text-[11px] text-ink-subtle">{t('account.scope.reportAdminOnly')}</p>
           </div>
 
           {issued && (

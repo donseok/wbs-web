@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles, Cpu, ArrowUpRight, Users } from 'lucide-react'
+import { Upload, Download, CalendarDays, Settings, Shield, ListTree, CalendarRange, Info, RefreshCw, Lock, Sparkles, Cpu, ArrowUpRight, Users, Bot } from 'lucide-react'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { listProjects } from '@/app/actions/project'
 import { getLlmConfig } from '@/app/actions/llmConfig'
@@ -19,6 +19,8 @@ import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButt
 import { ProjectPrivacyToggle } from '@/components/settings/ProjectPrivacyToggle'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
 import { ReindexButton } from '@/components/settings/ReindexButton'
+import { AgentProjectToggle } from '@/components/settings/AgentProjectToggle'
+import { getAgentProjectState } from '@/app/actions/agentWork'
 import { dkbotIndexStatus, type IndexStatus } from '@/lib/ai/health'
 import { t, type Locale } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -116,6 +118,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   // 권한·초대 관리는 팀 구성 페이지로 이동했다(2026-08-20 화면 통합).
   const llm = isSuperuser ? await llmBadge(locale) : null
   const projectTeamRows = projectTeamRowsSync(projectId)
+  // 에이전트 활성 상태 — 조회 실패(null)면 토글을 그리지 않는다(모르는 상태로 킬스위치를 누르게 하지 않는다).
+  const agentState = await getAgentProjectState(projectId)
   // WBS 단계 편집 초기값 — 조회 실패 시 편집기를 그리지 않는다(잘못된 초기값으로 저장하면 설정을 덮는다).
   const levelConfig = await getProjectConfig(projectId).catch((e: unknown) => {
     console.error('[settings] 프로젝트 설정 조회 실패 — 단계 편집기만 degrade:', e)
@@ -228,6 +232,22 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
             <Download className="h-4 w-4" /> {t(locale, 'settings.exportExcel')}
           </a>
         </div>
+        </SectionCard>
+
+      {/* ── 에이전트 (킬스위치) ── */}
+        <SectionCard
+        eyebrow="AGENT"
+        title={t(locale, 'settings.agentTitle')}
+        icon={Bot}
+        actions={agentState ? (
+          <AgentProjectToggle projectId={projectId} registered={agentState.registered} enabled={agentState.enabled} />
+        ) : (
+          <span className="badge bg-pending-weak px-2 py-1 text-pending">{t(locale, 'settings.tbd')}</span>
+        )}
+      >
+        <p className="-mt-2 text-xs leading-5 text-ink-muted">
+          {t(locale, 'settings.agentDesc1')}<span className="font-medium text-pending">{t(locale, 'settings.agentDescBadge')}</span>{t(locale, 'settings.agentDesc2')}
+        </p>
         </SectionCard>
 
       {/* ── DK Bot 의미검색 색인 ── */}

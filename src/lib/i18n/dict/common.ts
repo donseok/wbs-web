@@ -43,6 +43,7 @@ export const commonKo = {
   'common.delete': '삭제',
   'common.search': '검색',
   'common.close': '닫기',
+  'common.done': '완료',
   'common.confirm': '확인',
   'common.loading': '불러오는 중…',
   'common.none': '없음',
