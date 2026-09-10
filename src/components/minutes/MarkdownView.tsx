@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { PluggableList } from 'unified'
 import { remarkAnnotateBlocks, type BlockMarks } from '@/lib/minutes/blocks'
+import { useTheme } from '@/components/providers/ThemeProvider'
 
 // mdast code 노드의 hProperties 는 <pre> 가 아니라 자식 <code> 에 떨어진다(remark-rehype 매핑 특성).
 // pre 오버라이드가 이 키들을 pre/MermaidBlock 으로 "호이스팅"할 때 원본 <code> 에도 남아있으면
@@ -55,6 +56,9 @@ function stripAnchorProps(child: ReactElement<CodeChildProps>): ReactElement<Cod
 
 function MermaidBlock({ source, anchorProps }: { source: string; anchorProps: Record<string, unknown> }) {
   const [state, setState] = useState<MermaidState>({ status: 'loading' })
+  // 또박또박(원본 앱)과 같은 내장 테마로 그린다 — 라이트 default, 다크 dark.
+  // themeVariables 로 앱 팔레트를 덮으면 mindmap 섹션 색이 거기서 파생돼 원본과 달라진다.
+  const mermaidTheme = useTheme().theme === 'dark' ? 'dark' : 'default'
 
   useEffect(() => {
     let cancelled = false
@@ -62,21 +66,14 @@ function MermaidBlock({ source, anchorProps }: { source: string; anchorProps: Re
       setState({ status: 'loading' })
       try {
         const mermaid = (await import('mermaid')).default
+        // htmlLabels 는 기본값(HTML 라벨)을 쓴다. false(SVG 텍스트)면 mindmap 라벨이 노드 중심에서
+        // 시작해 오른쪽으로 밀린다(mermaid 11 이 가로 이동 없이 text-anchor 에 기대는데 mindmap 엔 안 붙음).
+        // HTML 라벨의 스크립트·on* 속성은 strict 에서 mermaid 가 DOMPurify 로 걷어낸다.
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: 'strict',
-          htmlLabels: false,
           suppressErrorRendering: true,
-          theme: 'base',
-          themeVariables: {
-            fontFamily: 'Pretendard Variable, Pretendard, system-ui, sans-serif',
-            primaryColor: '#e3efec',
-            primaryBorderColor: '#0f766e',
-            primaryTextColor: '#17181d',
-            lineColor: '#7a6f68',
-            secondaryColor: '#fffaf4',
-            tertiaryColor: '#f3ece1',
-          },
+          theme: mermaidTheme,
         })
         const { svg } = await mermaid.render(`minute-mermaid-${++mermaidSeq}`, source)
         if (!cancelled) setState({ status: 'rendered', svg })
@@ -86,7 +83,7 @@ function MermaidBlock({ source, anchorProps }: { source: string; anchorProps: Re
     }
     void renderDiagram()
     return () => { cancelled = true }
-  }, [source])
+  }, [source, mermaidTheme])
 
   // 앵커 속성은 세 렌더 경로 모두에 포워딩 — SSR(loading)·성공·실패 어디서든 앵커 유지(스펙 §2.3)
   if (state.status === 'rendered') {
