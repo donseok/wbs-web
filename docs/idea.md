@@ -20,4 +20,5 @@
 - WP에 대한 관리자 기능
 - 에이전트 작업중일때 취소를 할 수 있는 기능
 - 이미지를 참고하여 개발하기
+- 가상오피스 구현 — [정리본](superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md) · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13)
 
