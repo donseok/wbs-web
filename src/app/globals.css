@@ -327,6 +327,10 @@ textarea {
   }
   .minutes-md [data-issue-count][data-hl-count]::before { right: 3rem; }
 
+  /* 목록 특례 — 마킹은 루트 블록 단위라 <ul>/<ol> 전체에 붙는다. 위 padding-left(0.6em)가
+     목록 들여쓰기(1.45em)를 덮으면 바깥쪽 글머리 기호가 좌측 선 위에 얹히므로, 둘을 더해 민다. */
+  .minutes-md :is(ul, ol):is([data-ins], [data-issue-count]) { padding-left: calc(1.45em + 0.6em); }
+
   /* 현재 사용자가 지정 중인 하이라이트/이슈 영역 — 저장된 마킹과 구분되는 임시 표시.
      블록 전체에 적용해 표·목록·제목도 같은 영역으로 인식되게 한다. */
   .minutes-md [data-active-selection='true'] {
