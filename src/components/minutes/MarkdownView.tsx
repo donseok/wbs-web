@@ -1,5 +1,5 @@
 'use client'
-import { Children, cloneElement, isValidElement, memo, useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react'
+import { Children, cloneElement, isValidElement, memo, useEffect, useMemo, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { PluggableList } from 'unified'
@@ -115,6 +115,15 @@ const components: Components = {
     ) : (
       <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>{children}</a>
     )
+  },
+  ol: ({ node, children, style, ...rest }) => {
+    void node
+    // 번호 폭은 자릿수마다 늘어난다 — 마지막 번호의 자릿수를 넘겨 globals.css 가 그만큼 들여쓴다
+    // (두 자리 번호가 hover 테두리·마킹 선 밖으로 튀어나오지 않게).
+    const count = Children.toArray(children).filter(isValidElement).length
+    const last = (rest.start ?? 1) + Math.max(count, 1) - 1
+    const digits = String(Math.abs(last)).length
+    return <ol {...rest} style={{ ...style, '--ol-digits': digits } as CSSProperties}>{children}</ol>
   },
   pre: ({ node, children, ...rest }) => {
     void node

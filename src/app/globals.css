@@ -268,8 +268,11 @@ textarea {
   .minutes-md h3 { @apply font-semibold text-ink; font-size: 1.15em; margin: 1.15em 0 0.6em; }
   .minutes-md h4, .minutes-md h5, .minutes-md h6 { @apply font-semibold text-ink; font-size: 1em; margin: 0.85em 0 0.45em; }
   .minutes-md p { margin: 0.6em 0; }
-  .minutes-md ul { @apply list-disc; margin: 0.6em 0; padding-left: 1.45em; }
-  .minutes-md ol { @apply list-decimal; margin: 0.6em 0; padding-left: 1.45em; }
+  .minutes-md ul { @apply list-disc; margin: 0.6em 0; --list-indent: 1.45em; padding-left: var(--list-indent); }
+  /* 번호 폭은 자릿수마다 약 0.6em 늘어난다(Pretendard 실측 "9. " 1.09em · "35. " 1.69em).
+     한 자리 기준 들여쓰기에 자릿수만큼 더해 번호가 목록 상자(hover 테두리·마킹 선) 밖으로 나가지 않게 한다.
+     --ol-digits 는 MarkdownView 의 ol 오버라이드가 마지막 번호의 자릿수로 넣는다. */
+  .minutes-md ol { @apply list-decimal; margin: 0.6em 0; --list-indent: calc(1.45em + (var(--ol-digits, 1) - 1) * 0.6em); padding-left: var(--list-indent); }
   .minutes-md li { margin: 0.15em 0; }
   .minutes-md blockquote { @apply border-l-4 border-line text-ink-muted; margin: 0.85em 0; padding-left: 0.85em; }
   .minutes-md code { @apply rounded bg-surface-2; font-size: 0.93em; padding: 0.1em 0.3em; }
@@ -328,8 +331,8 @@ textarea {
   .minutes-md [data-issue-count][data-hl-count]::before { right: 3rem; }
 
   /* 목록 특례 — 마킹은 루트 블록 단위라 <ul>/<ol> 전체에 붙는다. 위 padding-left(0.6em)가
-     목록 들여쓰기(1.45em)를 덮으면 바깥쪽 글머리 기호가 좌측 선 위에 얹히므로, 둘을 더해 민다. */
-  .minutes-md :is(ul, ol):is([data-ins], [data-issue-count]) { padding-left: calc(1.45em + 0.6em); }
+     목록 들여쓰기(--list-indent)를 덮으면 바깥쪽 글머리 기호가 좌측 선 위에 얹히므로, 둘을 더해 민다. */
+  .minutes-md :is(ul, ol):is([data-ins], [data-issue-count]) { padding-left: calc(var(--list-indent) + 0.6em); }
 
   /* 현재 사용자가 지정 중인 하이라이트/이슈 영역 — 저장된 마킹과 구분되는 임시 표시.
      블록 전체에 적용해 표·목록·제목도 같은 영역으로 인식되게 한다. */
