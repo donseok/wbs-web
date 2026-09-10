@@ -162,9 +162,15 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
    - 백엔드별: Orca 면 `orca worktree create --help` 가 `--agent`·`--prompt` 를 지원한다. tmux 면
      `/team-mode` 가 로드돼 있다.
 2. **승인 스윕 1회** — §6. 결과(머지됨/대기/반려/건너뜀)를 한 줄씩 보고한다.
-3. **감시 시작** — `poll.sh --require-tag agent --until <HH:MM> --interval <SEC> --exclude <제외목록>` 을
-   Bash `run_in_background` 로 띄운다. 팀장은 절대 포그라운드로 기다리지 않는다. 시작 이벤트를
-   events.jsonl 에 남긴다(§9-3).
+3. **감시 시작** — 팀장을 깨우는 신호는 **둘**이며 둘 다 띄운다. 팀장은 절대 포그라운드로 기다리지 않는다.
+   - **poll.sh**(새 작업 감지): `poll.sh --require-tag agent --until <HH:MM> --interval <SEC>
+     --exclude <제외목록>` 을 Bash `run_in_background` 로 띄운다.
+   - **`.result` 감시**(팀원 완료 감지): 진행 중 슬롯이 하나라도 있으면 `Monitor` 를 until-loop 로
+     걸어 그 슬롯들의 워크트리 경로에서 `docs/tasks/<TSK>/.result` 파일이 생기는지 감시한다. 팀원은
+     별도 프로세스라 완료를 자동으로 알려 오지 않으므로(개정 2판의 서브에이전트 완료 알림이 없다),
+     이 감시가 없으면 poll.sh 가 몇 시간 안 끝나는 사이 완료된 슬롯이 보충되지 않는다. 슬롯이 새로
+     생기거나 회수될 때마다 감시 대상 경로를 갱신한다.
+   - 시작 이벤트를 events.jsonl 에 남긴다(§9-3).
 
 ### 4-2. 이벤트 루프
 
@@ -182,24 +188,32 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 | 팀원 `.result` 도착(§5-보고) | 슬롯 표·집계 갱신, 슬롯 해제. `blocked` 면 §7. 대기 큐가 비어 있지 않으면 즉시 그 슬롯에 spawn. 비어 있으면 poll 이 다음 것을 잡는다 |
 | 팀원 무응답 | §7 |
 
-**`.result` 폴링**: 팀장은 이벤트 루프를 도는 사이 진행 중 슬롯의 워크트리 경로에서
-`docs/tasks/<TSK>/.result` 존재를 확인한다. 파일이 생기면 그 한 줄을 파싱한다. 보조로 30분 이상 진행
-슬롯의 신호가 없으면 `dflow.sh list --scope claimed` 로 서버 상태를 슬롯 표에 갱신한다(팀원은 `list`
-를 안 부르므로 캐시 경쟁은 팀장 자신뿐). Orca 에서는 `orca terminal read --screen --terminal <handle>`
-로 팀원 화면을 직접 볼 수도 있으나, 슬롯 회수 판정은 `.result` 파일을 정본으로 한다.
+**`.result` 기상·폴링**: 팀원 완료는 `.result` 감시 Monitor(§4-1 3번)가 팀장을 깨워 알린다. 깨어나면
+그 슬롯의 `docs/tasks/<TSK>/.result` 한 줄을 파싱한다(위 표의 "`.result` 도착" 행). 보조로 30분 이상
+진행 슬롯의 신호가 없으면 `dflow.sh list --scope claimed` 로 서버 상태를 슬롯 표에 갱신한다(팀원은
+`list` 를 안 부르므로 캐시 경쟁은 팀장 자신뿐). Orca 에서는 `orca terminal read --screen --terminal
+<handle>` 로 팀원 화면을 직접 볼 수도 있으나, 슬롯 회수 판정은 `.result` 파일을 정본으로 한다.
 
 ### 4-3. 팀원 spawn (백엔드별)
 
-공통: 슬롯 번호를 정하고 `AGENT_ID = <신원>/w<slot>`(§9-1)을 만든다. 워커 프롬프트는
-`references/worker-prompt.md` 를 치환한 것(§5)이며 `{MAIN_CHECKOUT}` 은 팀장의 상주 체크아웃 절대경로다.
+공통: 슬롯 번호를 정하고 `AGENT_ID = <신원>/w<slot>`(§9-1)을 만든다. `{MAIN_CHECKOUT}` 은 팀장의
+상주 체크아웃 절대경로다. **`--prompt` 에는 전체 워커 프롬프트를 넣지 않는다** — 백틱·따옴표·여러 줄이
+섞여 쉘 인자에서 깨진다(실측한 자동 제출은 한 줄짜리였다). 대신 짧은 포인터만 넣고, 워커가
+`references/worker-prompt.md`(§5) 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다:
+```
+.claude/skills/dflow-team/references/worker-prompt.md 의 규칙대로 실행하라.
+TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL_FLAG=<--model ...|공백>
+```
 
 - **Orca**:
   ```
   orca worktree create --name dflow-<id8> --agent claude --no-parent \
-    --prompt "<치환된 worker-prompt>" --json
+    --base-branch <기점> --prompt "<위 포인터 한 문단>" --json
   ```
-  결과 JSON 의 `result.worktree.path`(팀원 cwd)와 `result.agentTerminalHandle` 을 슬롯 표에 저장한다.
-  프롬프트가 자동 제출되어 팀원이 즉시 착수한다(§3-5 실측).
+  `<기점>` 은 agent 브랜치가 결국 머지될 곳인 `origin/main` 으로 명시한다(생략하면 리포 기본 base 로
+  가지만, 팀장의 현재 브랜치가 staging 등일 때 의도와 어긋나므로 명시한다). 결과 JSON 의
+  `result.worktree.path`(팀원 cwd)와 `result.agentTerminalHandle` 을 슬롯 표에 저장한다. 포인터가
+  자동 제출되어 팀원이 즉시 착수한다(§3-5 실측).
 - **tmux**: `/team-mode` 의 메커니즘으로 새 pane/window + 워크트리를 만들고 그 pane 에서 claude 에
   워커 프롬프트를 제출한다. 워크트리 경로를 슬롯 표에 저장한다. (구체 명령은 team-mode 로드 후
   그 인터페이스에 맞춰 SKILL.md 에 확정한다 — dev-plugin 수정이 선행.)
@@ -215,9 +229,11 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 
 ## 5. 팀원 계약 (`references/worker-prompt.md`)
 
-팀원은 진짜 메인 에이전트다. 프롬프트는 백엔드가 첫 입력으로 자동 제출한다.
+팀원은 진짜 메인 에이전트다. 백엔드가 첫 입력으로 자동 제출하는 것은 이 파일 전체가 아니라 짧은
+포인터 한 문단(§4-3)이다 — 팀원은 그 문단의 `KEY=VALUE` 로 아래 변수를 받고, 이 파일을 읽어 규칙대로
+실행한다. 이렇게 나눈 이유는 쉘 인자 인용 문제를 피하기 위해서다(§4-3).
 
-치환 변수: `{TSK}`, `{ID8}`, `{AGENT_ID}`, `{MAIN_CHECKOUT}`, `{MODEL_FLAG}`.
+변수: `{TSK}`, `{ID8}`, `{AGENT_ID}`, `{MAIN_CHECKOUT}`, `{MODEL_FLAG}`(포인터 문단으로 전달).
 
 **격리 확인 (첫 행동)**
 ```bash
@@ -310,19 +326,18 @@ dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(en
 |---|---|---|
 | claim exit 4(선점·선행 미충족) | `.result` 에 `skipped`, 종료 | 집계, 제외 목록 추가 |
 | spec 부재 | exit 0 처리에서 걸러짐. 새어 오면 `skipped` | 집계, 제외 목록 추가 |
-| `blocked`(담당자 결정 필요) | 커밋·push, 질문을 화면에 출력, `.result` 에 `blocked` 쓰고 그 세션에서 멈춤(탭 유지) | AskUserQuestion 을 쓰지 않는다(자동 루프). "결정 필요: <질문> — 그 팀원 탭에서 답하거나 수동 `/dflow-dev <id8>` 로 이어받으라" 고 알린다. 그 id8 을 제외 목록에 넣어 슬롯을 다른 작업에 준다. 사람이 그 탭에서 답을 주면 팀원이 같은 워크트리·브랜치에서 이어 간다(재spawn·재claim 없음) |
+| `blocked`(담당자 결정 필요) | 커밋·push, 질문을 화면에 출력, `.result` 에 `blocked` 쓰고 그 세션에서 멈춤(탭 유지) | AskUserQuestion 을 쓰지 않는다(자동 루프). "결정 필요: <질문> — 그 팀원 탭에서 답하라" 고 알린다. **그 슬롯은 blocked 팀원이 계속 잡는다 — 다른 작업에 재배정하지 않는다.** 재배정하면 살아 있는 프로세스 둘이 같은 `AGENT_ID`(§9-1, 슬롯에 붙음)로 heartbeat 를 보내 좌석표가 한 인물을 두 책상에 그리고 손 든 상태가 새 active 에 덮인다. 사람이 그 탭에서 답을 주면 팀원이 같은 워크트리·브랜치에서 이어 간다(재spawn·재claim 없음). 그동안 가용 슬롯은 하나 줄어든다 |
 | `needs-merge` | `.result` 쓰고 종료 | 승인 스윕(§6) 즉시 실행 |
 | `failed`(push 훅 거부·게이트 실패 등) | dflow-dev 규칙대로 중단, `.result` 에 `failed` | 집계, 제외 목록 추가, 사유 보고. 자동 재시도 없음 |
 | 팀원 무응답(2시간 이상 신호 없음) | — | `show <id8>`: claimed 면 워크트리를 정리(Orca `worktree rm`)하고 "재개 필요" 로 보고. 다음 수동 `/dflow-dev <id8>` 이 브랜치 재개 규칙으로 이어받음 |
 | 팀장 세션 소실 | 각 팀원은 자기 탭에서 계속 돌 수 있다(별도 프로세스) | 재기동 시 `dflow.sh list --scope claimed` 와 `git branch -r --list 'origin/agent/*'`, 살아 있는 팀원 탭(Orca `worktree list`)을 대조한다. claimed 인데 팀원 탭도 없는 id8 은 "재개 필요" 로 보고하고 제외 목록에 넣는다(자동 재착수 없음). 그 뒤 §4-1 로 정상 시작 |
 
-> **개정 3판의 blocked 모델(스펙 리뷰에서 확정)** — 사용자 지시("자동은 질문 안 함, 수동은 질문")를
-> 가장 곧게 따르는 방식으로, blocked 를 만나면 팀원은 그 세션을 멈추고 **사람이 그 탭에서 답하거나
-> 수동 `/dflow-dev` 로 이어받는다.** 개정 2판의 "팀장이 AskUserQuestion → 답을 담아 재spawn" 은
-> 팀장이 in-process 리더라 가능했던 것이고, 이제 팀원이 별도 대화형 세션이라 그 자리에서 사람이
-> 답하는 편이 재claim·브랜치 재개보다 단순하다. **대안**은 "팀원이 blocked 로 완전히 종료하고, 사람이
-> 나중에 수동 `/dflow-dev` 로 처음부터 이어받기" 이며, 슬롯을 즉시 비우지만 세션 상태를 잃는다.
-> 좌석표의 "책상에 손 든 채 남아 있음"(§9-4) 표현에는 멈춰 대기하는 쪽이 맞아 그것을 기본으로 둔다.
+> **개정 3판의 blocked 모델(확정)** — blocked 팀원은 세션을 멈추고 **그 슬롯을 계속 잡은 채** 사람이
+> 그 탭에서 답할 때까지 기다린다. 답을 주면 같은 워크트리·브랜치에서 이어 간다(재spawn·재claim 없음).
+> 이는 취향이 아니라 정합성 문제다 — 슬롯을 재배정하면 살아 있는 프로세스 둘이 같은 `AGENT_ID` 로
+> heartbeat 를 보내 좌석표가 깨진다(위 표 참고). 좌석표의 "책상에 손 든 채 남아 있음"(§9-4)과 §1 의
+> "판단이 필요한 작업만 멈추고 나머지는 계속 간다"(멈추는 것은 그 슬롯 하나뿐)가 모두 이쪽을 가리킨다.
+> 비용은 blocked 동안 실효 병렬도가 그만큼 준다는 것이다(§1·§12).
 
 동시에 도는 작업은 poll.sh 가 ready 로 걸러 준 독립 작업이라 서로 스택하지 않는다. 미승인 선행 위
 스택은 `/dflow-dev` 기존 규칙(선행 산출물 실재 확인 후 스택 + risk 기록)대로 각 팀원이 한다.
@@ -423,7 +438,9 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
   4. 서버에 `done` 이 각자 id8 로 기록됐고(`show`) 다른 주문은 건드리지 않았다.
   5. 결정 분기 작업이 `blocked` 로 그 팀원 탭에서 멈추고, 그 탭에서 사람이 답을 주면 같은 워크트리·
      브랜치에서 이어 가 `done` 했다.
-  6. 마감 뒤 팀원 워크트리는 `orca worktree rm` 으로 정리됐고 agent 브랜치 3개는 남아 있다.
+  6. 마감 뒤 팀원 워크트리는 `orca worktree rm` 으로 정리됐고 agent 브랜치 3개는 남아 있다. 특히
+     워크트리가 `agent/<id8>-<slug>` 로 switch 된 상태에서 `orca worktree rm` 이 깨끗이 도는지
+     확인한다(§3-5 프로브는 브랜치를 바꾸지 않았으므로 이 조합은 리허설에서 처음 검증된다).
   7. 이어서 `/dflow-team` 을 다시 돌리면 승인 스윕이 원격 브랜치 3개를 후보로 잡는다(승인 전이면 "대기").
   8. `~/.dflow/events.jsonl` 에 `team.start` → `team.spawn`×2 → `team.result` → `team.spawn`(3번째)
      → `team.blocked` → … → `team.stop` 순서가 남고, 각 워크트리의 `docs/tasks/<TSK>/.agent` 가
@@ -458,5 +475,7 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
   보인다.
 - **토큰 비용**: 슬롯 N개 × 각자 독립 메인 에이전트 + 그 내부의 Phase 서브에이전트. 별도 프로세스라
   개정 2판(서브에이전트 팀원)보다 무겁다. `--team-size` 기본 3 을 넘길 때는 사용자가 명시한다.
-- **blocked 모델 미확정**: §7 주석의 두 안(멈춰 대기 / 완전 종료 후 수동 재개) 중 스펙 리뷰에서
-  하나로 확정한다. 기본은 "멈춰 대기".
+- **blocked 가 슬롯을 잡는 비용**: blocked 팀원은 답을 받을 때까지 슬롯을 점유하므로 그만큼 실효
+  병렬도가 준다(팀원 3에 blocked 2면 실효 1). AGENT_ID 정합성(§9-1)을 지키기 위한 불가피한 대가이며,
+  담당자가 자리를 비운 시간대에는 blocked 가 쌓여 루프가 사실상 멈출 수 있다 — 그때는 사람이 돌아와
+  탭들을 처리해야 한다.
