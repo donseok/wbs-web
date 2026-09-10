@@ -20,7 +20,15 @@
 - WP에 대한 관리자 기능
 - 에이전트 작업중일때 취소를 할 수 있는 기능
 - 이미지를 참고하여 개발하기
-- 팀장 스킬 /dflow-team 구현 — 내 배정 작업을 상시 폴링해 슬롯 N개 팀원(내장 에이전트 팀·워크트리 격리)에게 자동 분배, 완료 시 다음 작업 보충, 담당자 PC 마다 실행. 기존 dflow-* 스킬 무수정. 스펙·계획은 워크트리 브랜치 `worktree-dflow-team`(`.claude/worktrees/dflow-team`)에 커밋 — [스펙](superpowers/specs/2026-09-10-dflow-team-design.md) · [계획](superpowers/plans/2026-09-10-dflow-team.md). 계획 검토 후 착수(2026-09-10)
-  - 좌석표 설계 연동 반영 요청 — `docs/tasks/<TSK>/.agent` 사이드카를 heartbeat_agent 로, `blocked`(담당자 결정 대기·손 든 사람) 상태 추가, 팀장 STANDBY 알림 계약 (스펙 §9)
-  - dev 플러그인(`~/project/dev-plugin`, `dev@dev-tools`) 로드 실패 수정 — hooks.json 의 PreToolUse/PostToolUse 를 `"hooks": {}` 안으로 감싸고 버전 올려 `/plugin update`. /dev-team·/team-mode 가 지금 안 뜨는 원인
+- 팀장 스킬 /dflow-team 구현 — D'Flow 배정 작업을 상시 폴링해 슬롯 N개 팀원에게 자동 분배, 완료 시 다음 작업 보충, 신원별로 각자 실행. **환경 적응형**(Orca=`orca worktree create --agent claude`, 진짜 tmux=dev-plugin `/team-mode`, 일반 터미널=`/dflow-poll` 안내 후 종료). 팀원은 **별도 프로세스의 진짜 메인 에이전트**(서브에이전트 아님), 각자 임시 워크트리에서 `/dflow-dev --worker`. 기존 dflow-* 는 **순수 가산** 수정. 스펙·계획은 워크트리 브랜치 `worktree-dflow-team`(`.claude/worktrees/dflow-team`) — [스펙](superpowers/specs/2026-09-10-dflow-team-design.md) · [계획](superpowers/plans/2026-09-10-dflow-team.md). 개정 3판(2026-09-10), 착수는 명시 지시 대기.
+  - [ ] `/dflow-dev --worker` 가산 수정 — 승인 스윕 건너뜀, Phase 0-2 직접머지→스택+risk, approved→`.result` needs-merge, AskUserQuestion 억제(자동 모드). 플래그 없는 기본 동작 불변. 계약 테스트가 가산성 단언 (스펙 §5-A)
+  - [ ] `/dflow-merge` 원격 후보 식별 가산 — `origin/agent/*` tip 의 state.json 도 후보로, 판정·순서·머지 로직 불변 (스펙 §6-A)
+  - [ ] `references/worker-prompt.md` — 격리 확인·`.env` 심링크·`.agent` 기록·`/dflow-dev --worker`·`.result` 파일 계약 (스펙 §5)
+  - [ ] `references/backends.md` — Orca(`orca worktree create/rm`, JSON 핸들)·tmux(`/team-mode`) spawn·정리 명령 (스펙 §3-5, §4-3)
+  - [ ] `SKILL.md` — 환경 감지(§4-0)·전제 검사·이벤트 루프·`.result` 폴링·마감 (스펙 §4)
+  - [ ] `references/events.md` + `kit-build.sh` 대상에 dflow-team 추가 (스펙 §9-3, §10)
+  - [ ] 리허설 — mes-base 스테이징, Orca 백엔드, `--team-size 2`, 합격 기준 9항 (스펙 §11)
+  - [ ] 좌석표 설계 연동 반영 요청 — `docs/tasks/<TSK>/.agent` 사이드카를 heartbeat_agent 로, `blocked`(담당자 결정 대기·손 든 사람) 상태 추가, 팀장 STANDBY 알림 계약 (스펙 §9)
+  - [ ] dev 플러그인(`~/project/dev-plugin`, `dev@dev-tools`) 로드 실패 수정 — hooks.json 의 PreToolUse/PostToolUse 를 `"hooks": {}` 안으로 감싸고 버전 올려 `/plugin update`. tmux 백엔드·`/team-mode` 선행 조건
+  - [ ] 스펙 리뷰 미결 — blocked 모델 확정(멈춰 대기 vs 완전 종료 후 수동 재개, 기본=멈춰 대기, 스펙 §7)
 
