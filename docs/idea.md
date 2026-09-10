@@ -20,4 +20,7 @@
 - WP에 대한 관리자 기능
 - 에이전트 작업중일때 취소를 할 수 있는 기능
 - 이미지를 참고하여 개발하기
+- 팀장 스킬 /dflow-team 구현 — 내 배정 작업을 상시 폴링해 슬롯 N개 팀원(내장 에이전트 팀·워크트리 격리)에게 자동 분배, 완료 시 다음 작업 보충, 담당자 PC 마다 실행. 기존 dflow-* 스킬 무수정. 스펙·계획은 워크트리 브랜치 `worktree-dflow-team`(`.claude/worktrees/dflow-team`)에 커밋 — [스펙](superpowers/specs/2026-09-10-dflow-team-design.md) · [계획](superpowers/plans/2026-09-10-dflow-team.md). 계획 검토 후 착수(2026-09-10)
+  - 좌석표 설계 연동 반영 요청 — `docs/tasks/<TSK>/.agent` 사이드카를 heartbeat_agent 로, `blocked`(담당자 결정 대기·손 든 사람) 상태 추가, 팀장 STANDBY 알림 계약 (스펙 §9)
+  - dev 플러그인(`~/project/dev-plugin`, `dev@dev-tools`) 로드 실패 수정 — hooks.json 의 PreToolUse/PostToolUse 를 `"hooks": {}` 안으로 감싸고 버전 올려 `/plugin update`. /dev-team·/team-mode 가 지금 안 뜨는 원인
 
