@@ -2884,19 +2884,19 @@ suspect 방어와 TaskStop 회수가 실제로 필요한지, 에이전트 팀 �
 - Consumes: Task 7 의 리허설 리포·bare·코드 재료, Task 1~6 의 스킬.
 - Produces: 스펙 §11-4 합격 기준 12항 판정.
 
-- [ ] **Step 1: 작업 준비**: 스테이징 D'Flow 의 리허설 프로젝트에 `agent` 태그가 붙고 나에게 배정된 독립 ready 작업 3건을 만든다. 1건의 spec 에는 담당자 결정이 필요한 분기를 일부러 남긴다(예: "권한 없는 사용자에게 버튼을 숨길지 비활성화할지는 정하지 않았다"). 1건은 코드 작업이다(예: "`rehearsal-code/sum.js` 에 `mul(a, b)` 를 추가하고 테스트를 단다"). 나머지 1건은 문서 작업이다. 3건과 별도로, 그 문서 작업을 선행으로 둔 작업 1건을 더 만든다(`agent` 태그·나에게 배정). 리허설 작업은 승인하지 않으므로 이 작업은 매번 `skipped` 로 끝나 일시 제외되고 30분 뒤 다시 뜬다. 같은 id8 을 다시 띄우는 경로와 생성 브랜치 정리를 보기 위해서다(스펙 §11-2).
+- [ ] **Step 1: 작업 준비**: 스테이징 D'Flow 의 리허설 프로젝트에 `agent` 태그가 붙고 나에게 배정된 독립 ready 작업 3건을 만든다. 1건은 테스트가 있는 코드 작업이고(예: "`rehearsal-code/sum.js` 에 `mul(a, b)` 를 추가하고 테스트를 단다"), 그 spec 에 담당자 결정이 필요한 분기를 함께 남긴다(예: "권한 없는 사용자에게 버튼을 숨길지 비활성화할지는 정하지 않았다"). 1건은 문서 작업이고, 나머지 1건은 그 밖의 일반 작업이다. 3건과 별도로, 그 문서 작업을 선행으로 둔 작업 1건을 더 만든다(`agent` 태그·나에게 배정). 리허설 작업은 승인하지 않으므로 이 작업은 매번 `skipped` 로 끝나 일시 제외되고 30분 뒤 다시 뜬다. 같은 id8 을 다시 띄우는 경로와 생성 브랜치 정리를 보기 위해서다(스펙 §11-2).
 
-- [ ] **Step 2: 실행**: Orca 에서 리허설 리포를 열고 그 터미널의 Claude 세션에서 `/dflow-team 2명 <지금부터 2시간 뒤 HH:MM>`. 시작 보고의 백엔드가 "pane(Orca)" 이고 권한 안내가 "팀원은 권한 확인 생략 모드로 뜬다" 인지 본다.
+- [ ] **Step 2: 실행**: Orca 에서 리허설 리포를 열고 그 터미널의 Claude 세션에서 인원을 생략해 기본값 3으로 `/dflow-team <지금부터 2시간 뒤 HH:MM>`. 시작 보고의 백엔드가 "pane(Orca)" 이고 권한 안내가 "팀원은 권한 확인 생략 모드로 뜬다" 인지 본다.
 
 - [ ] **Step 3: 합격 기준 12항 판정** (스펙 §11-4). 각 항목을 실제 명령으로 확인한다.
-  1. 첫 poll 에서 2건이 각자 `orca worktree create --agent claude` 로 spawn 되고, 3번째는 대기 큐에 들어갔다가 먼저 빈 슬롯에 자동 배정된다(팀장 보고와 `~/.dflow/events.jsonl`).
+  1. 첫 poll 이 ready 네 건(독립 세 건과 그 중 문서 작업을 선행으로 둔 한 건)을 돌려준다. 인원이 기본값 3 이므로 그 중 세 건이 각자 `orca worktree create --agent claude` 로 spawn 되고, 남은 한 건은 대기 큐에 들어갔다가 먼저 빈 슬롯에 자동 배정된다(팀장 보고와 `~/.dflow/events.jsonl`).
   2. 각 팀원이 자기 워크트리에서 `agent/<id8>-<slug>` 브랜치를 만들고 push 했으며, 원격 tip 의 state.json 이 `reported` 다(`git -C ~/project/mes-base-rehearsal fetch origin && git -C ~/project/mes-base-rehearsal show origin/agent/<id8>-<slug>:docs/tasks/<TSK>/state.json | jq -r '.phase, .api_base'`, `api_base` 는 스테이징 주소).
   3. 팀장의 상주 체크아웃의 현재 브랜치와 작업트리가 실행 전후로 같다(`git -C ~/project/mes-base-rehearsal branch --show-current` 와 `git status --porcelain`).
   4. 서버에 각자 id8 로 `done` 이 기록됐고(`dflow.sh show <id8>` 가 reported), 다른 주문은 건드리지 않았다.
   5. 결정 분기 작업이 `blocked` 로 그 팀원 탭에서 멈추고, 사람이 그 탭에서 답을 주면 같은 워크트리·브랜치에서 이어 가 `done` 한다. 그동안 그 슬롯은 재배정되지 않는다.
   6. done 처리 때 팀원 워크트리가 그 자리에서 `orca worktree rm --worktree path:<경로>` 로 정리되고, agent 브랜치 3개는 원격(bare)에 남는다. 특히 워크트리가 `agent/<id8>-<slug>` 로 switch 된 상태에서 `orca worktree rm` 이 깨끗이 돌고, 머지되지 않은 로컬 agent 브랜치를 보존하는지 확인한다(`git -C ~/project/mes-base-rehearsal branch --list 'agent/*'`). 첫 spawn 직후 `git -C ~/project/mes-base-rehearsal branch --list` 로 워크트리를 만들 때 생긴 브랜치의 실제 이름을 적고, 정리 뒤 그 브랜치가 남지 않는지 본다(backends.md 「고아 정리 규칙」 5번). 선행이 있는 작업(Step 1)이 `skipped` 로 끝난 뒤 일시 제외가 풀려 다시 뜰 때 `orca worktree create --name dflow-<id8>` 가 이름·브랜치 충돌 없이 뜨는지도 본다(그 시간 안에 다시 뜨지 않았으면 "미관찰" 로 적는다).
   7. `/dflow-team` 을 다시 돌리면 승인 스윕이 리허설 원격 브랜치 3개를 후보로 잡는다(승인 전이므로 "대기"). bare 에 원래 있던 agent 브랜치는 "건너뜀(다른 D'Flow)" 로 보고된다.
-  8. `~/.dflow/events.jsonl` 에 `team.start` → `team.spawn`×2 → `team.result` → `team.spawn`(3번째) → `team.blocked` → … → `team.stop` 순서가 남고, `team.spawn` 에 `id8`·`worktree`·`handle` 이, `team.result`·`team.blocked` 에 `hash`·`reason` 이 있다. 각 워크트리 루트의 `.dflow-agent` 가 슬롯 식별자(`<신원>/<host>/w1`, `<신원>/<host>/w2`)이고, 3번째 작업의 `.dflow-agent` 는 먼저 빈 슬롯의 값과 같다.
+  8. `~/.dflow/events.jsonl` 에 `team.start` → `team.spawn`×3 → `team.result` → `team.spawn`(4번째) → `team.blocked` → … → `team.stop` 순서가 남고, `team.spawn` 에 `id8`·`worktree`·`handle` 이, `team.result`·`team.blocked` 에 `hash`·`reason` 이 있다. 각 워크트리 루트의 `.dflow-agent` 가 슬롯 식별자(`<신원>/<host>/w1`, `<신원>/<host>/w2`, `<신원>/<host>/w3`)이고, 4번째 작업의 `.dflow-agent` 는 먼저 빈 슬롯의 값과 같다.
   9. 각 팀원 워크트리의 `docs/tasks/<TSK>/.result` 한 줄의 status 가 서버·브랜치 상태와 맞는다.
   10. 확인 항목: `orca worktree create --json` 결과에 `result.agentTerminalHandle` 이 있는지(없으면 화면 읽기 없이 도는지), 워커가 `/dflow-dev` 를 Skill 도구로 불렀는지 SKILL.md 직접 읽기 폴백을 탔는지, 팀장의 poll 이 빈 디렉터리(`$(git rev-parse --git-path dflow-team-poll)`)에서 떠 exit 9·10 을 한 번도 내지 않았는지.
   11. 팀장 세션에서 컨텍스트 압축(`/compact`)을 한 번 일으킨 뒤에도 다음 기상에서 슬롯 표가 재구성되고(팀장 보고의 슬롯 목록), 결과가 한 번만 처리된다(`team.result` 가 같은 `hash` 로 두 번 남지 않는다).
@@ -2929,7 +2929,7 @@ git commit -m "docs(dflow-team): Orca 리허설 판정: 합격 기준 12항"
 
 - [ ] **Step 1: 작업 준비**: 스테이징 리허설 프로젝트에 `agent` 태그·나에게 배정된 독립 ready 작업 3건을 **새로** 만든다(1건은 담당자 결정 분기, 1건은 코드 작업 예 "`rehearsal-code/sum.js` 에 `sub(a, b)` 를 추가하고 테스트를 단다"). 담당자 결정 분기는 코드 작업에 둔다. 답 뒤 재spawn 워크트리의 의존성 설치(기준 4)를 보기 위해서다. Task 8 Step 1 과 같이 선행이 있는 작업 1건을 더 만든다. Task 8 의 작업은 재사용하지 않는다.
 
-- [ ] **Step 2: auto 모드로 먼저 실행** (스펙 §8 권한 준비 1번): Orca 가 아닌 일반 터미널에서 리허설 리포 루트에 `claude` 를 사용자 기본 권한 모드(auto)로 띄우고 `/dflow-team 2명 <지금부터 2시간 뒤 HH:MM>`. 시작 보고의 백엔드가 "에이전트 팀" 이고 권한 안내가 "팀원은 이 세션의 권한 모드를 물려받으며, 권한 확인이 뜨면 알림 없이 멈춘다" 인지 본다. 도는 동안 거부되거나 권한 확인이 뜬 명령을 전부 적는다(명령 문자열 그대로).
+- [ ] **Step 2: auto 모드로 먼저 실행** (스펙 §8 권한 준비 1번): Orca 가 아닌 일반 터미널에서 리허설 리포 루트에 `claude` 를 사용자 기본 권한 모드(auto)로 띄우고 인원을 생략해 기본값 3으로 `/dflow-team <지금부터 2시간 뒤 HH:MM>`. 시작 보고의 백엔드가 "에이전트 팀" 이고 권한 안내가 "팀원은 이 세션의 권한 모드를 물려받으며, 권한 확인이 뜨면 알림 없이 멈춘다" 인지 본다. 도는 동안 거부되거나 권한 확인이 뜬 명령을 전부 적는다(명령 문자열 그대로).
 
 - [ ] **Step 3: allow 목록으로 다시 실행** (스펙 §8 권한 준비 2번): Step 2 에서 막힌 명령이 있으면 리허설 리포의 `.claude/settings.local.json` 에 그 명령마다 허용 규칙을 넣는다. git 은 절대경로 형태로 적는다(예 `Bash(/usr/bin/git *)`, 경로는 `command -v git` 값). 워커가 git 을 절대경로로 부르기 때문이다. 이 파일은 미추적이라 팀장 전제 검사의 깨끗함 검사를 깨므로 로컬 exclude 에 넣는다.
   ```bash
@@ -2942,7 +2942,7 @@ git commit -m "docs(dflow-team): Orca 리허설 판정: 합격 기준 12항"
 - [ ] **Step 4: 그래도 멈추면 권한 확인 생략 모드** (스펙 §8 권한 준비 3번): `claude --dangerously-skip-permissions` 로 팀장을 띄워 나머지 기준을 판정한다. 팀원·Phase 서브에이전트까지 모든 명령을 확인 없이 실행한다는 보안 결정이므로, 이 단계로 갔다는 사실과 이유를 판정 파일에 적는다.
 
 - [ ] **Step 5: 합격 기준 판정**: 스펙 §11-4 의 1~12항(6번은 "done 처리 때 에이전트 팀 워크트리가 그 자리에서 `git worktree remove --force` 로 정리된다" 로 읽고, 10번은 Skill 도구·폴백과 poll exit 9·10 부재만 본다)과 스펙 §11-5 추가 항목:
-  1. 팀원 둘이 서로 다른 링크드 워크트리(`.claude/worktrees/agent-*`)를 받았고 팀장 체크아웃의 브랜치·워킹트리가 불변이다.
+  1. 팀원 셋이 서로 다른 링크드 워크트리(`.claude/worktrees/agent-*`)를 받았고 팀장 체크아웃의 브랜치·워킹트리가 불변이다.
   2. 워커와 Phase 서브에이전트가 `command -v git` 절대경로로 `/dflow-dev` 를 완주한다. rtk 차단 메시지 "a worktree-isolated agent's git operations must target its own worktree" 가 한 번이라도 나오면 그 지점을 적고 Step 6 으로 간다.
   3. `blocked` 작업에서 팀원이 끝나고, `TaskStop` 으로 회수되고, 그 워크트리가 곧바로 정리되거나 `.dflow-agent` 가 `<신원>/<host>/parked` 로 바뀌고, 슬롯이 해제돼 다음 작업이 들어간다.
   4. `<id8> <답>` 으로 답한 뒤 재spawn 된 워커가 `ANSWER` 를 design.md 에 남기고 같은 agent 브랜치 위에서 이어 간다. 빈 슬롯이 없을 때 답하면 그 작업이 대기 큐 맨 앞에서 다음 빈 슬롯을 받는다(`team.answer` 뒤 `team.spawn`). 재spawn 워크트리에 `node_modules` 가 생기고(`/dflow-dev` 「--worker」 H 의 재개 경로) 게이트가 127 로 끝나지 않는지 본다.
