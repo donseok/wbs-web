@@ -1677,6 +1677,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
 
   it('전제 검사: 실패하면 종료하는 블록, mkdir 원자 잠금과 beat 70분, 기본 브랜치 폴백, 신원·host 슬러그, ~/.dflow', () => {
     expect(s()).toContain('[ "$fail" = 0 ] || exit 1')
+    expect(s()).toContain("case \"$MAIN\" in *' '*) bad SPACE_IN_PATH ;; esac")
     expect(s()).toContain('LOCK=$(git rev-parse --git-path dflow-team.lock)')
     expect(s()).toContain('mkdir "$LOCK" 2>/dev/null')
     expect(s()).toContain('-lt 4200')
@@ -2025,6 +2026,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    ```bash
    fail=0; bad() { echo "FAIL $*"; fail=1; }
    MAIN=$(git rev-parse --show-toplevel); [ "$MAIN" = "$(pwd -P)" ] || bad NOT_REPO_ROOT
+   case "$MAIN" in *' '*) bad SPACE_IN_PATH ;; esac
    base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); base=${base#origin/}
    [ -n "$base" ] || base=$(git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p')
    [ -n "$base" ] || bad NO_DEFAULT_BRANCH
@@ -2092,6 +2094,8 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      파일·승인 스윕을 서로 덮어쓴다. 프로세스 PID 대신 `beat` 를 쓰는 이유는 셸 블록이 팀장 세션 프로세스의
      PID 를 믿을 만하게 얻을 수단이 없어서다. 살아 있는 팀장은 늦어도 `TICK`(30분)마다 깨어 `beat` 를 갱신하므로,
      70분이면 두 `TICK` 을 연속으로 놓친 것이다.
+   - `SPACE_IN_PATH`: 메인 체크아웃 절대경로에 공백이 있으면 시작을 거부한다. 이유: 포인터 한 줄 형식과
+     워커 부트스트랩의 `ln -s` 링크가 공백을 다루지 않는다.
    - `NO_DEFAULT_BRANCH`·`NOT_DEFAULT_BRANCH`: 기본 브랜치는 `origin/HEAD` 에서 구하고, 그 ref 가 없으면
      `git ls-remote --symref origin HEAD` 에서 구한다(`origin/HEAD` 는 clone 할 때만 생긴다). 팀장 체크아웃의
      현재 브랜치가 그 기본 브랜치여야 한다. 이유: 승인 스윕이 기본 브랜치로 switch 하므로, 다른 브랜치에서
