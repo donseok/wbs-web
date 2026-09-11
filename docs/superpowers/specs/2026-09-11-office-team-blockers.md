@@ -154,3 +154,38 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 2. **heartbeat 스코프** — `work:claim` 재사용 vs 전용 스코프. PAT 조달·소유자 판정은 `dflow.sh heartbeat`
    서브커맨드 신설로 이미 해소되어 있다.
 3. **가상오피스 Micro 부하 실측** — S2 착수 전 선행한다.
+
+---
+
+## 팀장 스킬: 최종 교차 검토에서 나온 미반영 수정 (착수 전 반영 필수)
+
+스펙(c3fa782)·계획서(87b180c)를 Codex·agy 로 최종 검토한 결과다. 원문 보고는
+`docs/superpowers/specs/reviews/2026-09-11-dflow-team-final-{codex,agy}.md` 에 있다. agy 보고는 실제 파일과 다른
+인용(존재하지 않는 `dflow.sh commit`, 44줄 파일의 96행 등)이 섞여 있어 개념만 채택했다. Claude 최종 검토는
+사용량 한도로 중단되어 결과가 없다. 아래를 스펙·계획서에 반영한 뒤 이 절을 지운다.
+
+1. [치명] `api_base` 필터를 로컬 후보에도 적용해야 한다. 스테이징 DB 가 운영을 복제하므로 레거시 로컬 후보도
+   잘못 머지될 수 있다. 결정: 팀장 전제 검사가 `api_base` 없는 `phase=reported` 로컬 state.json 이 있으면 시작을
+   거부하고 "수동 `/dflow-merge` 로 먼저 정리" 를 안내한다. `/dflow-merge`·Phase 0-가 는 `api_base` 불일치 후보를
+   건너뛴다.
+2. [치명] 팀장 전제 검사가 `echo` 만 하고 중단하지 않으며 잠금이 원자적이지 않다. 결정: 검사를 실패 시 종료하는
+   스크립트로 쓰고, 잠금은 `mkdir` 로 원자 획득한다. 잠금 디렉터리에 소유자 정보와 매 기상 갱신하는 `beat` 를 두고,
+   `beat` 가 70분보다 오래되면 죽은 것으로 보고 가져온다(`$PPID` 가정 대신).
+3. [높음] `/dflow-dev` 106행의 `item.spec` 을 `.order.item.spec` 으로 고친다(수정 목록·보존 테스트 CHANGED 에 추가).
+4. [높음] `/dflow-dev` Phase 0-가 는 후보 식별뿐 아니라 머지·뒷정리 전체를 `/dflow-merge` 절차(충돌 abort,
+   merged 선커밋 뒤 push, push 실패 `reset --keep`, not found·checked out 건너뛰기, 원격 전용 반려는 state.json
+   미수정)로 따르게 한다. 중복 서술 대신 "`/dflow-merge` SKILL.md 2~5번을 따른다" 로 단일화한다.
+5. [높음] A0 (d) `dflow.sh done` 이 에이전트 팀 워커에서 실패하면, 수정 대상에 `dflow-work/scripts/dflow.sh` 를
+   넣는다(git 실행 경로를 `DFLOW_GIT` 로 주입). A0 (d) 는 통과 전에 Task 8·9 로 가지 않는 하드 게이트로 명시한다.
+6. [높음] 스택 워커의 의존성 설치 시점: 부트스트랩이 아니라 `--worker` 행으로 Phase 0-3 브랜치 생성 뒤,
+   기준선(0-4) 전에 설치한다(선행 작업이 lockfile 을 바꿨을 수 있다).
+7. [중간] 워커는 doctor 종료 코드를 믿지 않는다(인증 실패도 0 으로 끝난다). `dflow.sh me` 성공으로 인증을 판정하고,
+   실패하면 `failed auth`.
+8. [중간] detach 가 실패하면 claim 하지 않고 중단·보고한다(수동 dirty 작업트리 충돌 대비).
+9. [중간] §4-6 skipped 사유에 `선행 미승인` 추가. §5 부트스트랩에 doctor 실패와 `.claude/skills` 폴더는 있으나
+   `dflow-dev` 가 없는 경우 처리 추가.
+10. [중간] 기본 브랜치 판정: `refs/remotes/origin/HEAD` 가 없으면 `git ls-remote --symref origin HEAD` 로 구한다.
+11. [낮음] §11-2 bare 클론 뒤 `git -C <bare> symbolic-ref HEAD refs/heads/<기본브랜치>` 를 스펙에도 적는다.
+    §6-1 수정 목록 1번의 `api_base` 기록 위치를 §6-2 와 맞춘다(0-3·0-4 첫 기록, 반려 재작업 소급).
+- 확인됨: `orca worktree rm --force` 는 지원된다("Force worktree removal when supported; does not force branch
+  deletion").
