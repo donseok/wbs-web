@@ -1427,7 +1427,7 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     // 생성 브랜치 정리: agent/ 가 아니고 origin/<기본브랜치> 의 조상인 생성 브랜치만 지운다
     expect(b()).toContain('**생성 브랜치 정리**')
     expect(b()).toContain("'worktree-<워크트리 디렉터리 이름>' '*dflow-<id8>*'")
-    expect(b()).toContain("git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-*'") // 이름을 모를 때, Orca 접두 대비
+    expect(b()).toContain("git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-[0-9a-f]*'") // 이름을 모를 때, Orca 접두 대비
     expect(b()).toContain('case "$br" in agent/*) continue ;; esac')
     expect(b()).toContain('git merge-base --is-ancestor "$br" origin/<기본브랜치> && git branch -D "$br"')
   })
@@ -1608,8 +1608,9 @@ git worktree remove --force <워크트리 경로>
    고유 커밋을 잃지 않기 위해서다. Orca 가 만드는 실제 이름은 리허설이 확인한다.
    워크트리 디렉터리 이름을 모르면(에이전트 팀 워크트리가 이미 자동 정리됐고 `team.spawn` 의 `worktree` 가 `-`
    이거나 컨텍스트 압축으로 이름을 잃은 경우) 위 루프의 첫 줄만
-   `git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-*'` 로 바꿔 돌린다. `dflow-*` 가
-   아니라 `*dflow-*` 인 이유는 Orca 가 이름 앞에 다른 접두를 붙일 수 있어서다.
+   `git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-[0-9a-f]*'` 로 바꿔 돌린다. 앞의 `*` 는
+   Orca 가 이름 앞에 다른 접두를 붙일 수 있어서이고, `dflow-` 뒤를 16진수로 한정하는 이유는 `worktree-dflow-team`
+   같은 개발 브랜치를 후보에서 빼기 위해서다.
    세 안전 조건(`agent/` 아님, 체크아웃 안 됨, `origin/<기본브랜치>` 의 조상)은 루프가 그대로 지킨다. 이유:
    이름을 채우지 못해 정리를 건너뛰면 생성 브랜치가 쌓이고, 세 조건이 이름만 맞는 남의 브랜치를 보호한다.
 ````

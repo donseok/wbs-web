@@ -299,7 +299,7 @@ id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 
   않고, 같은 id8 을 다시 띄우면(§4-8) 이름이 부딪치며 작업마다 쌓인다. 조상 조건은 이름만 맞는 브랜치의
   고유 커밋을 지우지 않게 한다. Orca 가 만드는 실제 이름은 리허설에서 확인한다(§11-4 6번).
   워크트리 이름을 모르면(에이전트 팀 워크트리가 이미 자동 정리됐고 컨텍스트 압축으로 디렉터리 이름을 잃은
-  경우 등) `git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-*'` 로 찾고, 위 세 조건을
+  경우 등) `git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-[0-9a-f]*'` 로 찾고, 위 세 조건을
   통과한 것만 지운다. 이유: 이름을 채우지 못해 정리를 건너뛰면 생성 브랜치가 쌓이고, 세 조건이 이름만 맞는
   남의 브랜치를 보호한다.
 - state.json 미러 같은 새 저장소는 만들지 않는다. 정본(서버·원격 agent 브랜치·워크트리)과 따로 도는
