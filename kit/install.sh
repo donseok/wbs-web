@@ -40,12 +40,23 @@ fi
 touch "$TARGET/.gitignore"
 grep -qx '\.env' "$TARGET/.gitignore" || printf '\n# dflow-kit — 토큰 파일\n.env\n' >> "$TARGET/.gitignore"
 
+# 3-2) 에이전트 팀 권한 준비: dflow-team 의 에이전트 팀 팀원은 팀장 세션의 권한 모드를 물려받아,
+#      권한 확인에 걸리면 알림 없이 멈춘다. 워커는 git 을 절대경로로 부르므로 허용 규칙도 절대경로
+#      형태로 넣는다. 이미 있는 항목과 settings.json 의 다른 키는 보존한다.
+GIT_ABS=$(command -v git)
+SETTINGS="$TARGET/.claude/settings.json"
+[ -f "$SETTINGS" ] || printf '{}\n' > "$SETTINGS"
+jq --arg git "Bash($GIT_ABS *)" --slurpfile add "$KIT_DIR/agent-team-allow.json" \
+  '.permissions.allow = (((.permissions.allow // []) + [$git] + $add[0].allow) | unique)' \
+  "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+echo "권한 준비: $SETTINGS 의 permissions.allow 에 에이전트 팀 허용 목록을 합쳤다"
+
 # 4) 버전 표식
 cp "$KIT_DIR/VERSION" "$TARGET/.claude/skills/DFLOW_KIT_VERSION" 2>/dev/null || true
 
 cat <<EOF
 
-설치 완료: $TARGET/.claude/skills/ (dflow-work · dflow-dev · dflow-poll · dflow-merge · dflow-export · dflow-wbs-nlevel)
+설치 완료: $TARGET/.claude/skills/ (dflow-work · dflow-dev · dflow-poll · dflow-merge · dflow-team · dflow-export · dflow-wbs-nlevel)
 
 다음 단계
   1. D'Flow 웹 → 우상단 계정 → /account "내 토큰" 에서 PAT 발급

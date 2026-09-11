@@ -9,7 +9,7 @@ OUT="${1:-}"
 [ -n "$OUT" ] || { echo "사용법: kit-build.sh <출력 폴더>" >&2; exit 2; }
 mkdir -p "$OUT/skills"
 
-SKILLS="dflow-work dflow-dev dflow-poll dflow-merge dflow-export dflow-wbs-nlevel"
+SKILLS="dflow-work dflow-dev dflow-poll dflow-merge dflow-team dflow-export dflow-wbs-nlevel"
 for s in $SKILLS; do
   [ -d "$ROOT/.claude/skills/$s" ] || { echo "정본 스킬 없음: $s" >&2; exit 2; }
   rm -rf "$OUT/skills/$s"
@@ -20,6 +20,7 @@ done
 
 cp "$ROOT/kit/install.sh" "$OUT/install.sh"; chmod +x "$OUT/install.sh"
 cp "$ROOT/kit/.env.example" "$OUT/.env.example"
+cp "$ROOT/kit/agent-team-allow.json" "$OUT/agent-team-allow.json"
 cp "$ROOT/kit/README.md" "$OUT/README.md"
 printf 'source: wbs-web %s\nbuilt: %s\nskills: %s\n' \
   "$(git -C "$ROOT" rev-parse --short HEAD)" "$(date +%Y-%m-%d)" "$SKILLS" > "$OUT/VERSION"
