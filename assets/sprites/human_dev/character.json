@@ -1,0 +1,32 @@
+{
+  "base": "base.png",
+  "cell": [96, 96],
+  "parts": {
+    "head":   { "rect": [27, 4, 72, 53], "fill": "row" },
+    "hand_l": { "rect": [24, 70, 35, 79], "fill": ["shift", 16] },
+    "hand_r": { "rect": [51, 72, 66, 81], "fill": ["shift", -15] },
+    "eye_l":  { "rect": [36, 35, 46, 41] },
+    "eye_r":  { "rect": [51, 35, 61, 41] }
+  },
+  "anchors": {
+    "shoulder_l": [31, 60],
+    "shoulder_r": [69, 60],
+    "face":  [48, 47],
+    "cup":   [78, 66],
+    "board": [74, 14],
+    "zzz":   [72, 0],
+    "sweat": [72, 32],
+    "check": [78, 54],
+    "chest": [42, 56],
+    "up_l":  [6, 28],
+    "up_r":  [80, 26]
+  },
+  "colors": {
+    "eye": ["#B1C4D0", "#01051D", "#757F8A", "#1A1E31", "#232A3B"],
+    "eye_bg": "#DAC1AC",
+    "lid": "#01051D",
+    "sleeve": "#404E5D",
+    "sleeve_shade": "#2D3544",
+    "outline": "#01051D"
+  }
+}
