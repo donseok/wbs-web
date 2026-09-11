@@ -33,7 +33,9 @@
 - events.jsonl: `~/.dflow/events.jsonl`, 스키마 `{ts, host, repo, tsk, order, phase, event, agent}` + 이벤트별 추가 필드(스펙 §9-3).
 - 참조는 id8 만. 순번 금지. 팀원은 `dflow.sh list` 를 부르지 않는다(스펙 §3-10).
 - 팀장·팀원 모두 AskUserQuestion 을 쓰지 않는다(자동 루프). `blocked` 는 PushNotification 이 있으면 한 번 알린다(스펙 §2).
-- 커밋 메시지는 한국어, "무엇"보다 "왜". `git add -A` 금지, 파일명 명시(프로젝트 CLAUDE.md).
+- 커밋 메시지는 한국어, "무엇"보다 "왜". `git add -A` 금지, 파일명 명시(프로젝트 CLAUDE.md). 각 Task 의 커밋 명령은 제목·본문만 적었다 — 실행하는 세션은 메시지 끝에 **그 세션의** attribution 트레일러(`Co-Authored-By:`·`Claude-Session:` 등, 하네스가 알려 주는 것)를 붙인다.
+- dflow.sh `show` 응답은 `{ok, order: {id, status, item, …}, reports, depends_evidence}` 모양이다. 항목 필드는 `.order.item.*`(예: `.order.item.spec`·`.order.item.external_ref`), 주문 id 는 `.order.id` 다(`src/app/api/v1/agent/work/[id]/route.ts`, poll.sh 118행).
+- 테스트는 `process.cwd()` 를 리포 루트로 쓴다(기존 `tests/` 관례). `__dirname` 을 쓰지 않는다.
 
 ## 실행 준비 (Task 1 전에 한 번)
 
@@ -121,9 +123,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { firstMissingLine } from './_additive';
 
-const ROOT = join(__dirname, '..', '..');
+const ROOT = process.cwd(); // vitest 는 리포 루트에서 돈다(기존 테스트 관례 — __dirname 은 ESM 에서 없을 수 있다)
 const skill = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8');
-const before = readFileSync(join(__dirname, 'fixtures/dflow-dev.SKILL.before-worker.md'), 'utf8');
+const before = readFileSync(join(ROOT, 'tests/skills/fixtures/dflow-dev.SKILL.before-worker.md'), 'utf8');
 const workerSection = () => skill.split('## --worker — 팀원 모드')[1]?.split('\n## ')[0] ?? '';
 
 describe('/dflow-dev --worker 는 순수 가산이다', () => {
@@ -267,9 +269,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { firstMissingLine } from './_additive';
 
-const ROOT = join(__dirname, '..', '..');
+const ROOT = process.cwd(); // vitest 는 리포 루트에서 돈다(기존 테스트 관례 — __dirname 은 ESM 에서 없을 수 있다)
 const skill = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'utf8');
-const before = readFileSync(join(__dirname, 'fixtures/dflow-merge.SKILL.before-remote.md'), 'utf8');
+const before = readFileSync(join(ROOT, 'tests/skills/fixtures/dflow-merge.SKILL.before-remote.md'), 'utf8');
 
 describe('/dflow-merge 원격 후보·반려 갈래는 순수 가산이다', () => {
   // dflow-merge 를 의도적으로 고칠 때는 이 fixture 도 같은 커밋에서 갱신한다.
@@ -365,7 +367,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOT = join(__dirname, '..', '..');
+const ROOT = process.cwd(); // vitest 는 리포 루트에서 돈다(기존 테스트 관례 — __dirname 은 ESM 에서 없을 수 있다)
 const SKILL_DIR = join(ROOT, '.claude', 'skills', 'dflow-team');
 const read = (rel: string) => readFileSync(join(SKILL_DIR, rel), 'utf8');
 
@@ -720,7 +722,7 @@ mkdir -p ~/.dflow && jq -nc \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + $extra' \
   >> ~/.dflow/events.jsonl || true
 ```
-`<주문 id>` 는 `show <id8>` 응답의 주문 id(전체 UUID). 없으면 id8.
+`<주문 id>` 는 `dflow.sh show <id8> | jq -r .order.id`(전체 UUID). 없으면 id8.
 
 ## 이벤트
 
@@ -806,6 +808,12 @@ describe('dflow-team SKILL.md 계약', () => {
     expect(s()).toContain('run_in_background');
   });
 
+  it('show 응답의 항목 필드는 .order.item 경로로 읽는다', () => {
+    expect(s()).toContain('.order.item.external_ref');
+    expect(s()).toContain('.order.item.spec');
+    expect(s()).not.toMatch(/`\.item\.(spec|external_ref)`/);
+  });
+
   it('포인터는 절대경로 한 줄이고 MODEL= 을 쓴다', () => {
     expect(s()).toContain(
       '<MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<MAIN_CHECKOUT> BACKEND=<pane|agent-team> MODEL=<opus|sonnet|default>',
@@ -835,7 +843,7 @@ describe('dflow-team SKILL.md 계약', () => {
 - [ ] **Step 2: 실패 확인**
 
 Run: `npx vitest run tests/skills/dflow-team.test.ts`
-Expected: 새 describe 9건 FAIL(`ENOENT`), 기존 14건 PASS.
+Expected: 새 describe 10건 FAIL(`ENOENT`), 기존 14건 PASS.
 
 - [ ] **Step 3: `SKILL.md` 작성**
 
@@ -963,7 +971,7 @@ exit 9·10 이 오지 않기 때문이다. 스윕 뒤 아래 표대로 처리한
 
 | 신호 | 처리 |
 |---|---|
-| poll exit 0 | stdout 각 줄 `순번<TAB>id8<TAB>이름` 에서 id8 만 쓴다(순번 금지). 진행 중·대기·제외에 없는 id8 마다 `dflow.sh show <id8>`: `.item.spec` 이 비면 "spec 부재" 로, `.item.external_ref` 가 비면 "TSK 없음" 으로 제외하고 보고한다. 남은 것은 대기 큐 끝에 넣는다. 빈 슬롯만큼 큐 앞에서 spawn(§5). poll 재시작 |
+| poll exit 0 | stdout 각 줄 `순번<TAB>id8<TAB>이름` 에서 id8 만 쓴다(순번 금지). 진행 중·대기·제외에 없는 id8 마다 `dflow.sh show <id8>`: `.order.item.spec` 이 비면 "spec 부재" 로, `.order.item.external_ref` 가 비면 "TSK 없음" 으로 제외하고 보고한다. 남은 것은 대기 큐 끝에 넣는다. 빈 슬롯만큼 큐 앞에서 spawn(§5). poll 재시작 |
 | poll exit 9 | 스윕은 이미 했다. poll 재시작 |
 | poll exit 10 | stdout `TSK<TAB>order-id<TAB>review_note` 마다 "반려 — 수동 `/dflow-dev <id8>` 대상: <review_note>" 로 보고하고 제외에 넣는다. poll 재시작 |
 | poll exit 8 | 시한. 새 배정을 멈추고 대기 큐는 보고만 하고 비운다. running 슬롯의 결과를 모두 받은 뒤 마감(§7). pane 의 blocked 슬롯은 기다리지 않는다 |
@@ -997,7 +1005,7 @@ state.json 도 후보로 보고, approved 만 조상 먼저 `--no-ff` 로 머지
 ## 5. 팀원 spawn
 
 1. 빈 슬롯 번호(1..N 중 가장 작은 것)를 고르고 `AGENT_ID=<신원>/w<slot>` 을 만든다.
-2. `dflow.sh show <id8>` 의 `.item.external_ref` 에서 마지막 `/` 뒤를 TSK 로 쓴다.
+2. `dflow.sh show <id8> | jq -r '.order.item.external_ref // empty'` 의 마지막 `/` 뒤를 TSK 로 쓴다(show 응답은 `{ok, order: {id, status, item, …}, reports, depends_evidence}` 모양이다 — poll.sh 도 `.order.item.tags` 를 쓴다).
 3. 포인터 **한 줄**:
    ```
    <MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<MAIN_CHECKOUT> BACKEND=<pane|agent-team> MODEL=<opus|sonnet|default>
@@ -1052,7 +1060,7 @@ AGENT_ID 로 다른 작업을 띄우면 좌석표가 한 인물을 두 책상에
 - [ ] **Step 4: 통과 확인**
 
 Run: `npx vitest run tests/skills`
-Expected: PASS 31건(Task 1 5 + Task 2 3 + dflow-team 23).
+Expected: PASS 32건(Task 1 5 + Task 2 3 + dflow-team 24).
 
 - [ ] **Step 5: 커밋**
 
@@ -1143,7 +1151,7 @@ Claude: 결정 필요: 5a4b3c2d "권한 없는 사용자에게 버튼을 숨길�
 - [ ] **Step 4: 통과 확인 + 킷 빌드 검증**
 
 Run: `npx vitest run tests/skills && sh scripts/kit-build.sh "$(mktemp -d)"`
-Expected: vitest PASS 33건. kit-build 는 `빌드 완료:` 와 `skills: ... dflow-team ...` 를 출력한다("킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다).
+Expected: vitest PASS 34건. kit-build 는 `빌드 완료:` 와 `skills: ... dflow-team ...` 를 출력한다("킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다).
 
 - [ ] **Step 5: 커밋**
 
