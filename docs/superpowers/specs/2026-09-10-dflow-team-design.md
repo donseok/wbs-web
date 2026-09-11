@@ -41,6 +41,9 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 > 5. **에이전트 팀의 기점·재개 규칙을 바로잡았다.** 워커가 먼저 `origin/main` 위에 브랜치를 만들면
 >    `/dflow-dev` 의 스택 기점이 틀어지므로 뺐고(§4-3), `blocked` 재개는 기존 워크트리를 지정할 수
 >    없으므로 새 격리 워크트리 + 기존 브랜치 switch + 사람 답 `ANSWER` 전달로 고쳤다(§7).
+> 6. **좌석 식별 파일을 `docs/tasks/<TSK>/.agent` 에서 워크트리 루트 `.dflow-agent` 로 옮겼다.** claim
+>    전에 `docs/tasks/<TSK>/` 를 만들면 `/dflow-dev` 의 잔재 격리 규칙이 그 디렉터리를 `.prev-<날짜>` 로
+>    옮긴다(§5, §9-1). 격리 실패(`not-isolated`) 때는 팀장 체크아웃을 더럽히지 않도록 파일을 쓰지 않는다.
 
 ---
 
@@ -344,7 +347,7 @@ TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃
   - `name` — 슬롯 식별자를 그대로 준다(`w<slot>`). 진행 중 팀원을 이름으로 조회·중단할 수 있다.
   - `model` — `--model` 값을 전달한다.
   - 반환된 에이전트 식별자와 워크트리 경로를 슬롯 표에 저장한다. 워크트리는 팀원이 변경 없이
-    끝나면 자동 정리되지만, 커밋·미추적 파일(`.result`·`.agent`·`.env` 링크)이 남으면 보존될 수
+    끝나면 자동 정리되지만, 커밋·미추적 파일(`.result`·`.dflow-agent`·`.env` 링크)이 남으면 보존될 수
     있다. 보존 여부는 리허설에서 관찰하고, 보존된 것은 §4-4 에서 정리한다.
   - 기점 브랜치: Agent 도구는 `--base-branch` 에 해당하는 인자가 없어 격리 워크트리는 팀장의 현재
     HEAD(staging 등)에서 시작한다. **그래도 워커가 기점을 따로 맞추지 않는다.** `/dflow-dev` Phase 0-3
@@ -362,7 +365,7 @@ TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃
 (§4-2 승인 스윕 주기). 팀원 워크트리를 백엔드별로 정리한다 — Orca 는 `orca worktree rm --worktree "<id>"`,
 tmux 는 team-mode 정리 + `git worktree remove`, 에이전트 팀은 슬롯 표에 남은 워크트리 경로가 아직
 존재할 때만 `git worktree remove --force <path>`. 에이전트 팀의 `--force` 는 미추적 파일(`.result`·
-`.agent`·`.env` 링크) 때문에 필요하며, **그 워크트리의 HEAD 가 `origin/<agent 브랜치>` 와 같을 때만**
+`.dflow-agent`·`.env` 링크) 때문에 필요하며, **그 워크트리의 HEAD 가 `origin/<agent 브랜치>` 와 같을 때만**
 실행한다(push 안 된 커밋이 있으면 정리하지 않고 경로를 보고한다).
 **agent 브랜치는 남긴다.** 승인은 사람이 D'Flow 웹에서 하고, 승인 뒤 머지는 다음 `/dflow-team` 의
 스윕 또는 `/dflow-merge` 가 한다. 종료 이벤트를 events.jsonl 에 남긴다.
@@ -391,8 +394,11 @@ case "$(git rev-parse --show-toplevel)" in
   *) : ;;   # 자기 워크트리여야 한다
 esac
 ```
-자기 cwd 가 팀장의 상주 체크아웃과 같으면(격리 실패) 아무것도 하지 않고 `.result` 에
-`{TSK} {ID8} - - - failed not-isolated` 를 쓰고 끝낸다.
+자기 cwd 가 팀장의 상주 체크아웃과 같으면(격리 실패) **아무 파일도 쓰지 않고** 마지막 응답으로
+`{TSK} {ID8} - - - failed not-isolated` 한 줄만 출력하고 끝낸다. `.result` 를 쓰면 그 파일이 팀장
+체크아웃을 더럽혀 다음 시작의 전제 검사(`git status --porcelain`)가 깨지기 때문이다. 팀장은 완료
+알림(에이전트 팀) 또는 무응답 규칙(pane, §7)으로 이를 알게 된다. 격리 실패는 백엔드 결함이므로
+팀장은 새 spawn 을 멈추고 마감(§4-4)으로 간다.
 
 **워크트리 부트스트랩** — `.env` 는 gitignore 라 새 워크트리에 없다. 메인 체크아웃에서 심링크한다.
 `.claude/skills` 는 커밋된 리포(wbs-web·킷 설치 리포)면 이미 있지만, gitignore 된 심링크로 배포한
@@ -405,8 +411,12 @@ set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor
 dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(env 는 Bash 호출 사이에 남지 않는다).
 심링크한 `.claude/skills` 는 커밋하지 않는다(`/dflow-dev` 는 파일명을 명시해 stage 하므로 섞이지 않는다).
 
-**좌석 식별 (부트스트랩 직후, claim 전)**: `docs/tasks/{TSK}/.agent` 에 `{AGENT_ID}` 한 줄을 쓴다(§9-1).
-이 파일은 커밋하지 않는다.
+**좌석 식별 (부트스트랩 직후, claim 전)**: **워크트리 루트의 `.dflow-agent`** 에 `{AGENT_ID}` 한 줄을
+쓴다(§9-1). 이 파일은 커밋하지 않는다. `docs/tasks/{TSK}/` 안에 두지 않는 이유: `/dflow-dev` 는 claim
+하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면 이전 시도의 잔재로 보고 `.prev-<날짜>` 로 옮긴다
+(dflow-dev 상태 모델 "재claim 시 이전 시도의 잔재 격리"). claim 전에 그 디렉터리를 만들면 이 규칙에
+걸린다(2026-09-11 발견, 개정 4판까지는 `docs/tasks/{TSK}/.agent` 였다). 워크트리 하나가 작업 하나라
+루트 파일로도 모호하지 않다.
 
 **실행**: Skill 도구로 `/dflow-dev {ID8} --worker {MODEL_FLAG}` 를 실행한다. 참조는 id8 만 쓴다. 순번 금지.
 Skill 도구가 `dflow-dev` 를 모르면(세션이 스킬 없는 워크트리에서 시작돼 등록되지 않은 경우, §3-15)
@@ -555,11 +565,12 @@ Skill 도구가 `dflow-dev` 를 모르면(세션이 스킬 없는 워크트리�
   식별자로 다음 책상에 앉는다. 좌석표는 이 문자열의 해시로 캐릭터(머리·셔츠)를 정하므로 슬롯마다
   일관된 인물이 된다. 신원이 PC 당 하나가 아니므로 hostname 이 아니라 신원을 앞에 둔다(§3-4).
 - 팀장 자신은 `<신원>/lead`.
-- 전달 경로: 팀원이 `docs/tasks/<TSK>/.agent` 에 한 줄로 쓴다(§5). 좌석표 S1 의 PostToolUse 훅은
-  현재 브랜치 → state.json → order id 를 읽을 때 같은 디렉터리의 `.agent` 가 있으면 그 값을
+- 전달 경로: 팀원이 **워크트리 루트의 `.dflow-agent`** 에 한 줄로 쓴다(§5 — `docs/tasks/<TSK>/` 안에
+  두면 dflow-dev 의 잔재 격리 규칙에 걸린다). 좌석표 S1 의 PostToolUse 훅은 현재 브랜치 → state.json →
+  order id 를 읽을 때 `git rev-parse --show-toplevel` 의 `.dflow-agent` 가 있으면 그 값을
   `heartbeat_agent` 로, 없으면 종전대로 Phase 서브에이전트 이름을 보낸다. **이 파일 규칙은 좌석표 S1
   구현에 반영해 달라는 요청 사항이다.**
-- `.agent` 는 워크트리 안에 있고 커밋하지 않는다. 훅은 팀원 프로세스의 cwd(워크트리)에서 실행되므로
+- `.dflow-agent` 는 워크트리 안에 있고 커밋하지 않는다. 훅은 팀원 프로세스의 cwd(워크트리)에서 실행되므로
   `.env` 심링크(§5)만 있으면 서버 heartbeat 경로가 그대로 동작한다.
 
 ### 9-2. 팀원이 남기는 신호
@@ -631,8 +642,8 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
      확인한다(§3-5 프로브는 브랜치를 바꾸지 않았으므로 이 조합은 리허설에서 처음 검증된다).
   7. 이어서 `/dflow-team` 을 다시 돌리면 승인 스윕이 원격 브랜치 3개를 후보로 잡는다(승인 전이면 "대기").
   8. `~/.dflow/events.jsonl` 에 `team.start` → `team.spawn`×2 → `team.result` → `team.spawn`(3번째)
-     → `team.blocked` → … → `team.stop` 순서가 남고, 각 워크트리의 `docs/tasks/<TSK>/.agent` 가
-     슬롯 식별자(`<신원>/w1`, `<신원>/w2`)였다. 3번째 작업의 `.agent` 는 먼저 빈 슬롯의 값과 같다.
+     → `team.blocked` → … → `team.stop` 순서가 남고, 각 워크트리 루트의 `.dflow-agent` 가
+     슬롯 식별자(`<신원>/w1`, `<신원>/w2`)였다. 3번째 작업의 `.dflow-agent` 는 먼저 빈 슬롯의 값과 같다.
   9. 각 팀원 워크트리에 `docs/tasks/<TSK>/.result` 한 줄이 남고 status 가 서버·브랜치 상태와 맞는다.
 - 좌석표 화면 확인(S1·S2 이후): 슬롯 캐릭터가 책상을 옮겨 가는 것, `blocked` 가 손 든 상태로 보이는 것.
 - 다중 신원은 같은 PC 에서 세션 두 개를 같은 PAT 로 띄워 exit 4 분기만 확인한다(2차 리허설에서 실제
@@ -692,7 +703,7 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
 - **Orca 워크트리 누수**: 팀원이 커밋 전에 죽으면 변경 있는 워크트리가 남는다. 마감·재기동 때
   `orca worktree list` 로 확인하고 `orca worktree rm` 한다(미커밋분은 잃는다 — 커밋 후 `blocked`
   규칙이 이를 최소화한다).
-- **좌석표 의존**: `.agent` 규칙과 `blocked` 상태는 좌석표 S1·S2 가 받아 줘야 화면에 나온다. 받기
+- **좌석표 의존**: `.dflow-agent` 규칙과 `blocked` 상태는 좌석표 S1·S2 가 받아 줘야 화면에 나온다. 받기
   전까지 팀 스킬은 events.jsonl·`.result` 로만 검증되며, 화면에는 팀원이 Phase 서브에이전트 이름으로
   보인다.
 - **토큰 비용**: 슬롯 N개 × 각자 독립 메인 에이전트 + 그 내부의 Phase 서브에이전트. 별도 프로세스라
