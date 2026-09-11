@@ -115,7 +115,7 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 
 - **위치**: 스펙 §3-8·§4-6·§11-3
 - **확인**: 리허설 첫 항목 A0(단독 선행, 스펙 §11-3)에서 실측한다. (a) 손자 실행 중 팀장에게 알림이 오는가, (b) blocked 로 끝난 팀원이 idle 로 남는가, (c) idle 팀원에게 SendMessage 로 답을 주면 같은 워크트리·컨텍스트에서 이어 가는가, (d) 에이전트 팀 팀원 안에서 `dflow.sh done --auto-links` 가 성공하는가(스크립트 내부 bare `git` 은 rtk 훅을 거치지 않는다고 판단하나 확인한다), (e) 팀원 `TaskStop` 이 손자 서브에이전트까지 거두는가, (f) 사용량 한도에 걸린 팀원이 무엇을 남기는가.
-- **결과에 따라**: 결과 줄 없는 완료 알림은 `failed` 가 아니라 `suspect` 로 두고 슬롯을 유지하며, 두 TICK 연속 생존 증거(브랜치 tip 커밋 시각·서버 최신 progress·워크트리 변경 목록)가 변하지 않을 때만 `failed no-result` 로 판정한다. 완료·blocked 처리 직후 `TaskStop(w<slot>-<id8>)` 로 idle 팀원을 회수한다. (c) 가 되면 blocked 재개의 워크트리 정리·`ANSWER=` 재spawn 을 단순화할 수 있다. (d) 가 실패하면 `done` 이 막히므로 워커의 마감 경로를 고친다. (e) 에서 손자가 남으면 회수가 손자를 따로 멈춰야 한다. (f) 는 `failed rate-limit` 을 팀원이 쓸 수 있는지, 팀장이 알림으로 판정해야 하는지를 정한다.
+- **결과에 따라**: 결과 줄 없는 완료 알림은 `failed` 가 아니라 `suspect` 로 두고 슬롯을 유지하며, 두 TICK 연속 생존 증거(브랜치 tip 커밋 시각·서버 최신 progress·워크트리 변경 목록)가 변하지 않을 때만 `failed no-result` 로 판정한다. 완료·blocked 처리 직후 `TaskStop(w<slot>-<id8>)` 로 idle 팀원을 회수한다. (c) 가 되면 blocked 재개의 워크트리 정리·`ANSWER=` 재spawn 을 단순화할 수 있다. (d) 는 하드 게이트다. 실패하면 `done` 이 막히므로 `dflow.sh` 에 git 실행 경로 주입(`DFLOW_GIT`)을 더하고 재실측이 통과한 뒤에 나머지 리허설로 간다. (e) 에서 손자가 남으면 회수가 손자를 따로 멈춰야 한다. (f) 는 `failed rate-limit` 을 팀원이 쓸 수 있는지, 팀장이 알림으로 판정해야 하는지를 정한다.
 
 ### [높음·실측] auto 권한 모드에서 막히는 명령 목록
 
@@ -143,6 +143,8 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 - `src/lib/authz/agentsAccess.ts` 신설 계획은 `canViewUsage` 관례를 그대로 재사용하는 설계라 authz 3단 가드(`requireSuperuser`·`requireProjectAdmin`·`requireProjectMember`) 우회가 아니다.
 - heartbeat 마이그레이션이 G4(0072+ 스테이징 리허설 필수) 대상임을 가상오피스 스펙이 정확히 인지하고 있다(§9-3).
 - `middleware.ts` 가 이미 png 를 인증 리다이렉트에서 제외해 스프라이트 서빙 자체는 문제없다.
+- `orca worktree rm --force` 는 지원된다("Force worktree removal when supported; does not force branch
+  deletion"). 팀장 스킬의 마감·고아 정리가 기대는 동작이다.
 
 ---
 
@@ -154,38 +156,3 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 2. **heartbeat 스코프** — `work:claim` 재사용 vs 전용 스코프. PAT 조달·소유자 판정은 `dflow.sh heartbeat`
    서브커맨드 신설로 이미 해소되어 있다.
 3. **가상오피스 Micro 부하 실측** — S2 착수 전 선행한다.
-
----
-
-## 팀장 스킬: 최종 교차 검토에서 나온 미반영 수정 (착수 전 반영 필수)
-
-스펙(c3fa782)·계획서(87b180c)를 Codex·agy 로 최종 검토한 결과다. 원문 보고는
-`docs/superpowers/specs/reviews/2026-09-11-dflow-team-final-{codex,agy}.md` 에 있다. agy 보고는 실제 파일과 다른
-인용(존재하지 않는 `dflow.sh commit`, 44줄 파일의 96행 등)이 섞여 있어 개념만 채택했다. Claude 최종 검토는
-사용량 한도로 중단되어 결과가 없다. 아래를 스펙·계획서에 반영한 뒤 이 절을 지운다.
-
-1. [치명] `api_base` 필터를 로컬 후보에도 적용해야 한다. 스테이징 DB 가 운영을 복제하므로 레거시 로컬 후보도
-   잘못 머지될 수 있다. 결정: 팀장 전제 검사가 `api_base` 없는 `phase=reported` 로컬 state.json 이 있으면 시작을
-   거부하고 "수동 `/dflow-merge` 로 먼저 정리" 를 안내한다. `/dflow-merge`·Phase 0-가 는 `api_base` 불일치 후보를
-   건너뛴다.
-2. [치명] 팀장 전제 검사가 `echo` 만 하고 중단하지 않으며 잠금이 원자적이지 않다. 결정: 검사를 실패 시 종료하는
-   스크립트로 쓰고, 잠금은 `mkdir` 로 원자 획득한다. 잠금 디렉터리에 소유자 정보와 매 기상 갱신하는 `beat` 를 두고,
-   `beat` 가 70분보다 오래되면 죽은 것으로 보고 가져온다(`$PPID` 가정 대신).
-3. [높음] `/dflow-dev` 106행의 `item.spec` 을 `.order.item.spec` 으로 고친다(수정 목록·보존 테스트 CHANGED 에 추가).
-4. [높음] `/dflow-dev` Phase 0-가 는 후보 식별뿐 아니라 머지·뒷정리 전체를 `/dflow-merge` 절차(충돌 abort,
-   merged 선커밋 뒤 push, push 실패 `reset --keep`, not found·checked out 건너뛰기, 원격 전용 반려는 state.json
-   미수정)로 따르게 한다. 중복 서술 대신 "`/dflow-merge` SKILL.md 2~5번을 따른다" 로 단일화한다.
-5. [높음] A0 (d) `dflow.sh done` 이 에이전트 팀 워커에서 실패하면, 수정 대상에 `dflow-work/scripts/dflow.sh` 를
-   넣는다(git 실행 경로를 `DFLOW_GIT` 로 주입). A0 (d) 는 통과 전에 Task 8·9 로 가지 않는 하드 게이트로 명시한다.
-6. [높음] 스택 워커의 의존성 설치 시점: 부트스트랩이 아니라 `--worker` 행으로 Phase 0-3 브랜치 생성 뒤,
-   기준선(0-4) 전에 설치한다(선행 작업이 lockfile 을 바꿨을 수 있다).
-7. [중간] 워커는 doctor 종료 코드를 믿지 않는다(인증 실패도 0 으로 끝난다). `dflow.sh me` 성공으로 인증을 판정하고,
-   실패하면 `failed auth`.
-8. [중간] detach 가 실패하면 claim 하지 않고 중단·보고한다(수동 dirty 작업트리 충돌 대비).
-9. [중간] §4-6 skipped 사유에 `선행 미승인` 추가. §5 부트스트랩에 doctor 실패와 `.claude/skills` 폴더는 있으나
-   `dflow-dev` 가 없는 경우 처리 추가.
-10. [중간] 기본 브랜치 판정: `refs/remotes/origin/HEAD` 가 없으면 `git ls-remote --symref origin HEAD` 로 구한다.
-11. [낮음] §11-2 bare 클론 뒤 `git -C <bare> symbolic-ref HEAD refs/heads/<기본브랜치>` 를 스펙에도 적는다.
-    §6-1 수정 목록 1번의 `api_base` 기록 위치를 §6-2 와 맞춘다(0-3·0-4 첫 기록, 반려 재작업 소급).
-- 확인됨: `orca worktree rm --force` 는 지원된다("Force worktree removal when supported; does not force branch
-  deletion").
