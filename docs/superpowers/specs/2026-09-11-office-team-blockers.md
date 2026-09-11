@@ -3,94 +3,53 @@
 - **작성일**: 2026-09-11
 - **대상 설계 정본 두 건**:
   - 가상오피스(에이전트 좌석표·모니터링): `docs/superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md`
-  - 팀장 스킬 `/dflow-team`(개정 4판 + 2026-09-11 보완): `docs/superpowers/specs/2026-09-10-dflow-team-design.md`
-  - 팀장 스킬 구현계획(2026-09-11 전면 재작성): `docs/superpowers/plans/2026-09-10-dflow-team.md`
-- **목적**: 두 기능의 실제 구현에 들어가기 전에 반드시 해소해야 하는 문제·리스크·미결 사항을 한곳에 모아, 착수 순서와 사용자 결정 항목을 명확히 한다. 코드는 아직 작성하지 않는다.
+  - 팀장 스킬 `/dflow-team`: `docs/superpowers/specs/2026-09-10-dflow-team-design.md`
+  - 팀장 스킬 구현계획: `docs/superpowers/plans/2026-09-10-dflow-team.md`
+- **목적**: 착수 전에 남은 확인·결정 사항을 정리한다. 코드는 아직 작성하지 않는다.
 - **근거**: 각 스펙과 관련 코드(`dflow.sh`·`dflow-dev`·`dflow-merge`·`dflow-poll` 스킬, `dev-plugin`, `src/lib/agent/*`, `src/lib/authz/*`)를 실측 대조한 결과다.
 
 ---
 
 ## 요약
 
-> **2026-09-11 오후 갱신** — 결정 1(plan.md)은 **해소**됐다. 계획서를 개정 4판 기준으로 전면 재작성했고,
-> 그 과정에서 스펙의 공백 네 건을 새로 찾아 스펙 보완으로 막았다(아래 "팀장 스킬 세부" 의 [신규] 항목).
-> 결정 6·7 과 blocked 능동 통지는 기본값을 정해 스펙 §2 에 기록했다(사용자 이의 시 변경). 남은 사용자
-> 결정은 2·3·5 셋이고, 모두 가상오피스 쪽이다 — 팀장 스킬은 착수 지시만 있으면 계획서 Task 1 부터 들어갈 수
-> 있다.
->
-> **2026-09-11 저녁 2차 검토 — 위 마지막 문장은 더 이상 성립하지 않는다.** 재작성한 계획서를 읽기 전용
-> 검토 셋으로 다시 봐서 팀장 스킬 신규 걸림돌 19건(T1~T19: 높음 9·중간 6·낮음 4)을 찾았다. 치명은 없다.
-> T1·T2·T3·T5 는 Task 1·2·5 본문을 바꾸므로 **착수 전에 스펙·계획서를 고쳐야 한다**. T6 은 리허설 전에
-> 단독 실측이 필요하다. 이 검토로 사용자 결정 8~11(권한 모드·적용 좌표·리허설 리포·옵션 단순화)이 새로
-> 생겼고, 같은 날 사용자가 넷 모두 권장안으로 확정했다. 그래서 남은 사용자 결정은 여전히 2·3·5(가상오피스)
-> 뿐이다. **팀장 스킬에 남은 일은 T1~T19 와 결정 8~11 을 스펙·계획서에 반영하는 것**이며, 그 뒤에 착수
-> 지시를 받는다. 상세는 "팀장 스킬 세부" 끝의 2차 검토 절.
+남은 치명은 하나다: 가상오피스 좌석표가 Micro 컴퓨트 위에서 실시간 갱신 부하를 견디는지 검증되지 않았다.
+공통 항목으로 `blocked` 상태 모델 불일치[높음]가 남아 있다. 착수 전 사용자 결정이 필요한 항목은 셋이고,
+모두 가상오피스 쪽이다. 팀장 스킬은 설계가 스펙(`docs/superpowers/specs/2026-09-10-dflow-team-design.md`)에
+확정되어 있고, 남은 것은 리허설로만 확인할 수 있는 실측 항목뿐이다.
 
-가장 시급한 것은 두 기능에 공통으로 걸리는 두 가지다.
-
-1. **팀장 스킬 구현계획서(plan.md)가 사용자가 폐기 지시한 옛 아키텍처를 그대로 담고 있다.** 이 문서를 정리하지 않으면 이후 모든 작업 배분이 잘못된 토대 위에서 진행된다.
-2. **두 스펙의 상태 모델이 어긋난다(`blocked` 상태 누락).** 착수 순서와 상태 스키마를 미리 합쳐 정하지 않으면 마이그레이션 재작업이 발생한다.
-
-한편, 처음에 치명으로 분류했던 **heartbeat PAT 조달 문제는 기존 스킬(`dflow.sh`)로 대부분 해소된다**(아래 별도 절 참조).
-
-심각도 집계 — **남은(미해소) 항목만 센다**, 2026-09-11 저녁 기준.
+심각도 집계 — 남은(미해소) 항목만 센다.
 
 | 구분 | 치명 | 높음 | 중간 | 낮음 |
 |---|---|---|---|---|
 | 공통·연동 | 0 | 1 (상태 모델) | 0 | 0 |
-| 가상오피스 | 1 (Micro 부하) | 1 (STANDBY 신호) | 3 | 1 |
-| 팀장 스킬 | 0 | 9 (T1~T9) | 8 (기존 2 + T10~T15) | 5 (기존 1 + T16~T19) |
-
-> heartbeat PAT 인증 경로는 당초 [치명]이었으나 기존 스킬로 해소되어 위 집계에서 제외했다. 남은 잔여(스코프 리터럴)는 아래에 [낮음]으로 기록한다.
->
-> **해소된 것(집계 제외)**: 공통 [치명] plan.md(계획서 재작성). 팀장 스킬 [높음] tmux 선행 조건·Monitor
-> 재무장(개정 4판), [중간] blocked 능동 통지(PushNotification 기본값), 그리고 계획서 재작성 중 찾은
-> 신규 네 건(스킬 부재·poll exit 9·10 미발화·`.agent` 잔재 격리 충돌·`.claude/worktrees` status 오염 —
-> 스펙 보완으로 해소).
->
-> **팀장 스킬에 남은 셋은 리허설로만 확인할 수 있다** — [중간] Orca 워크트리 정리(switch 된 상태),
-> [중간] 다중 신원 캐시 경합, [낮음] AGENT_ID 다중 PC 유니크성. 착수를 막지 않는다.
+| 가상오피스 | 1 (Micro 부하) | 1 (STANDBY 신호) | 4 | 2 |
+| 팀장 스킬 | 0 | 2 (리허설 실측) | 2 | 2 |
 
 ---
 
-## PAT 문제 — 기존 스킬로 해소된다
+## heartbeat 인증(PAT) 경로
 
-당초 가상오피스 스펙 §5-1 의 heartbeat 훅 인증 경로가 전면 미정이라 [치명]으로 분류했으나, `dflow-work` 스킬의 `dflow.sh`(`.claude/skills/dflow-work/scripts/dflow.sh`)가 PAT 조달의 정본 통로임을 확인했다. 다음이 이미 구현되어 있다.
+heartbeat 훅 인증은 `dflow-work` 스킬의 `dflow.sh`(`.claude/skills/dflow-work/scripts/dflow.sh`)에
+`heartbeat` 서브커맨드를 신설해 기존 PAT 경로를 그대로 쓴다. `dflow.sh heartbeat <ref>` 는 기존
+`progress`/`report` 와 같은 방식으로 `TOKEN="$TOK" api_raw POST /api/v1/agent/work/$_id/heartbeat` 한 줄로
+처리하고, 훅은 `DFLOW_SH`·`DFLOW_ENV_FILE` 로 스크립트 위치와 `.env` 위치를 주입해 실행한다(PostToolUse 훅이
+임의 cwd 에서 실행되는 문제도 이 env 주입으로 해결된다). 근거 함수: `tokens()`(`.env` 의
+`DFLOW_PATS`/`DFLOW_PAT` 읽기), `profile_email()`/`pick_token()`(프로필 선택), `api_raw()`(`Authorization:
+Bearer` 부착). 소유자 위장 방지는 서버의 `claimed_by` 판정(`not_claim_owner` 403)을 그대로 물려받아, 자기가
+claim 한 작업에만 heartbeat 를 보낼 수 있다.
 
-- `tokens()` — `.env` 의 `DFLOW_PATS`(쉼표 구분) 또는 `DFLOW_PAT` 단일을 읽는다. 토큰 문자열은 변수로만 다룬다.
-- `profile_email()` / `pick_token()` — `--as <이름|email>` 로 여러 프로필 중 하나를 고르고, `/api/v1/agent/me` 응답을 캐시한다.
-- `api_raw()` — 모든 요청에 `Authorization: Bearer $TOKEN` 을 붙인다. `claim`·`report`·`release` 가 전부 이 경로를 통한다.
-- `poll.sh` — `DFLOW_SH`·`DFLOW_ENV_FILE` env 로 스크립트 위치와 `.env` 위치를 주입해, 세션 cwd 와 무관하게 동작하는 패턴을 이미 보여준다(`set -a; . "$ENV_FILE"; set +a`).
-
-이로써 §5-1 의 세 소문제 중 두 개가 해소된다.
-
-1. **PAT 조달 경로**: heartbeat 훅이 자체적으로 `.env` 를 파싱하거나 curl 을 직접 만들 필요가 없다. `dflow.sh heartbeat <ref>` 서브커맨드를 신설하고(기존 `progress`/`report` 와 동일하게 한 줄: `TOKEN="$TOK" api_raw POST /api/v1/agent/work/$_id/heartbeat`), 훅은 `DFLOW_SH`·`DFLOW_ENV_FILE` 를 지정해 이 서브커맨드를 호출하면 된다. PostToolUse 훅이 임의 cwd 에서 실행되는 문제도 이 env 주입으로 해결된다.
-2. **소유자 위장 방지**: 에이전트는 자기가 claim 할 때 쓴 자신의 PAT 로 heartbeat 를 보낸다. 서버의 `claimed_by` 소유자 판정(`not_claim_owner` 403)이 그대로 적용되므로, 자기가 claim 하지 않은 주문에는 heartbeat 를 보낼 수 없다. claim/report 가 이미 가진 방어선을 그대로 물려받으며 새 위장 표면이 생기지 않는다.
-
-**남은 잔여(아래 [낮음]으로 기록)**: `resolveWriteActor`(`src/lib/agent/routeShared.ts:96`)가 `scope: 'work:claim'` 리터럴로 하드코딩되어 있다. heartbeat 라우트가 이 스코프를 재사용할지 전용 스코프를 신설할지는 서버 라우트 결정 사항이다. 다만 heartbeat 는 claim 소유자 활동의 부분집합이므로 `work:claim` 재사용이 자연스러운 기본값이고, 이는 구현을 막는 blocker 가 아니라 작은 결정에 해당한다.
+남은 잔여는 아래 가상오피스 세부의 [낮음] heartbeat 스코프 리터럴 항목을 참조한다.
 
 ---
 
 ## 공통·연동 문제
 
-### [치명→해소(2026-09-11)] 팀장 스킬 구현계획서가 폐기된 개정 2판 아키텍처를 담고 있다
-
-> **해소** — writing-plans 로 개정 4판 보완 기준 전면 재작성(Task 1~8). 옛 초안은 git 이력(f5597ea)에만
-> 남는다. 재작성 계획서는 머리말에 "팀원은 단순 서브에이전트가 아니다" 는 제1 제약과 그 근거를 적고
-> 시작한다.
-
-- **위치**: `docs/superpowers/plans/2026-09-10-dflow-team.md`(커밋 f5597ea)
-- **문제**: Architecture 절과 Task 4 의 spawn 절차가 "팀원 = Agent 도구 `isolation: worktree` 로 작업 1건당 1회 spawn 되는 서브에이전트, blocked→RESULT 중계·재spawn" 으로 적혀 있다. 이것은 스펙 개정 3판 서두가 "개정 2판을 뒤집은 이유"에서 명시적으로 폐기한 바로 그 구조다. 스펙 §2 사용자 결정 기록은 "팀원 = 별도 프로세스로 뜨는 진짜 메인 에이전트, 팀장이 서브에이전트로 팀원을 부르지 않는다" 를 못박고 있다.
-- **실측**: git log 상 plan 작성 커밋(f5597ea)이 개정 3판 확정 커밋(e9d022d)보다 뒤다. 즉 개정 3판 확정 이후에도 계획 문서가 갱신되지 않은 채 방치되어 있다. `.agent` 사이드카·이벤트 이름·RESULT 문자열 같은 표면 용어만 개정 3판에서 가져왔고 핵심 실행 모델만 구식이라, "일부만 갱신되고 아키텍처는 안 바뀐" 신호다.
-- **터지는 지점**: 이 상태로 아무 언급 없이 착수하면 누군가 plan.md 를 그대로 따라, 사용자가 명시적으로 금지한 서브에이전트 방식을 구현한다.
-- **해소**: plan.md 를 개정 3판 기준(§4-0 환경 감지, §3-5 백엔드별 spawn, §5 `.result` 파일 계약, §7 blocked=슬롯 점유)으로 writing-plans 스킬을 써서 전면 재작성한다. 최소한 착수 전에 "이 계획은 폐기, 스펙만 정본" 임을 문서 첫머리에 명시한다.
-
-### [높음] 두 스펙의 상태 모델이 어긋난다 — `blocked` 누락
+### [높음] 두 스펙의 상태 모델이 어긋난다: `blocked` 누락
 
 - **위치**: 가상오피스 스펙 §3 상태표 vs 팀장 스펙 §7
-- **문제**: 가상오피스 상태표는 8종(ACTIVE/STALE/OFFLINE/IDLE/REJECTED/READY/DONE/STANDBY)뿐이고 `blocked` 가 없다. 그런데 팀장 스킬은 `blocked`(담당자 결정 대기·슬롯 점유)를 핵심 상태로 쓴다.
+- **문제**: 가상오피스 상태표는 8종(ACTIVE/STALE/OFFLINE/IDLE/REJECTED/READY/DONE/STANDBY)뿐이고 `blocked` 가 없다. 팀장 스킬은 `blocked`(담당자 결정 대기·슬롯 점유)를 핵심 상태로 쓴다. 좌석 식별 파일은 워크트리 루트 `.dflow-agent` 다.
 - **터지는 지점**: 가상오피스가 먼저 구현되면 heartbeat 상태 열(마이그레이션 신규 번호)에 `blocked` 를 나중에 끼워 넣는 재작업이 발생한다.
-- **해소**: 두 스펙의 착수 순서를 정하고, 상태값 스키마를 지금 합쳐 확정한다. 가상오피스 스펙 §7 의 미결 항목 "러너 개정과 묶어서 갈지" 가 사실상 이 문제다.
+- **해소**: 두 스펙의 착수 순서를 정하고, 상태값 스키마를 지금 합쳐 확정한다.
 
 ---
 
@@ -113,7 +72,7 @@
 ### [중간] 스프라이트 조립 파이프라인이 문서와 실제 산출물이 어긋난다
 
 - **위치**: 스펙 §4-2·§4-4, `scripts/sprites/`
-- **문제**: §4-2 는 조립 스크립트를 `scripts/sprites/build.mjs`(JS)로 명시하지만, 실제 디렉터리에는 `build.mjs` 가 없고 Python 스크립트 9개만 있다(`clean.py`·`animate.py`·`props.py`·`fix_all_alignments.py`·`perfect_alignment_all.py`·`process_all_characters.py`·`generate_animations.py`·`make_static_bg_animations.py`·`review.py`). `fix_all_alignments`·`perfect_alignment_all` 이라는 이름 자체가 시행착오로 여러 벌 쌓인 정황이다. §4-4 "확장(09-10)" 절이 부분적으로 반영했으나 §4-2 규격 표는 갱신되지 않아 정본 문서 내부 모순이다.
+- **문제**: §4-2 는 조립 스크립트를 `scripts/sprites/build.mjs`(JS)로 명시하지만, 실제 디렉터리에는 `build.mjs` 가 없고 Python 스크립트 9개만 있다(`clean.py`·`animate.py`·`props.py`·`fix_all_alignments.py`·`perfect_alignment_all.py`·`process_all_characters.py`·`generate_animations.py`·`make_static_bg_animations.py`·`review.py`). §4-4 "확장(09-10)" 절이 부분적으로 반영했으나 §4-2 규격 표는 갱신되지 않아 정본 문서 내부 모순이다.
 - **해소**: 최종 파이프라인 스크립트를 하나로 정리·확정하고 §4-2 를 갱신한다.
 
 ### [중간] 스프라이트 셀 규격이 자기모순이다
@@ -139,248 +98,55 @@
 - **위치**: 스펙 §3·§7 (스펙이 스스로 미결로 인지)
 - **문제**: 5분/30분/60초는 초안이며 운영하며 조정한다고 명시되어 문제는 아니나, S1 리허설 때 실측 기준을 남겨야 한다.
 
-### [낮음] heartbeat 스코프 리터럴 결정 (PAT 절의 잔여)
+### [낮음] heartbeat 스코프 리터럴 결정
 
 - **위치**: `src/lib/agent/routeShared.ts:96`
-- **문제**: heartbeat 라우트가 `work:claim` 스코프를 재사용할지 전용 스코프를 신설할지 결정하지 않았다. `work:claim` 재사용이 자연스러운 기본값이라 blocker 는 아니다.
+- **문제**: `resolveWriteActor` 가 `scope: 'work:claim'` 리터럴로 하드코딩되어 있어, heartbeat 라우트가 이 스코프를 재사용할지 전용 스코프를 신설할지 결정하지 않았다. heartbeat 는 claim 소유자 활동의 부분집합이므로 `work:claim` 재사용이 자연스러운 기본값이고, 구현을 막는 blocker 는 아니다.
 
 ---
 
 ## 팀장 스킬(`/dflow-team`) 세부
 
-> **2026-09-11 갱신 — 아래 [높음] 두 건은 스펙 개정 4판에서 해소되었다.** 실측으로 에이전트 팀
-> 팀원(`isolation: "worktree"`)이 자기 워크트리·자기 브랜치·손자 서브에이전트를 모두 갖는다는 것이
-> 확인되어, 일반 터미널도 병렬이 된다. 그 결과 (1) tmux 는 더 이상 착수 선행 조건이 아니고
-> (에이전트 팀으로 내려간다), (2) Monitor 재무장은 pane 백엔드에만 남는다. 대신 **새 위험 세 건**이
-> 생겼다 — rtk 의 git 차단, 팀원이 팀장과 함께 죽는 문제, 워크트리 자동 정리. 상세는 스펙 §3-1·
-> §3-5-A·§12.
+설계 결정 자체(백엔드 자동 감지, blocked 처리, 권한 모드 대응 순서, 상태 재구성 방식 등)는
+`docs/superpowers/specs/2026-09-10-dflow-team-design.md` 가 정본이다. 아래는 리허설로만 확인할 수 있는 항목이다.
 
-### [높음→해소] tmux 백엔드 선행조건(dev-plugin)이 여전히 미수정임을 실측 확인
+### [높음·실측] 팀원의 턴 종료 알림과 완료가 같은지 확인되지 않았다
 
-- **위치**: `~/project/dev-plugin/hooks/hooks.json`, 스펙 §12
-- **문제**: 파일을 직접 읽은 결과 `PreToolUse`/`PostToolUse` 가 최상위 키로 있고 `{"hooks": {...}}` 로 감싸지지 않았다. 스펙 §12 가 지목한 로드 실패 원인 그대로, 아직 안 고쳐졌다. 이 리포는 wbs-web 과 별개(`dev@dev-tools` 플러그인, 별도 배포·`/plugin update`)다.
-- **터지는 지점**: idea.md 체크리스트에서 이 수정이 9개 항목 중 마지막이고 리허설(§11)은 "1차는 Orca 백엔드로" 만 명시한다. 따라서 이번 착수로는 tmux 경로가 실질적으로 미검증으로 남는다. 스펙 §1 목표("Orca·진짜 tmux·일반 터미널 어디서 띄워도 동작")는 이번 착수로 tmux 부분이 충족되지 않는다.
-- **해소**: tmux 경로를 이번 스코프에 포함할지 결정하고, 제외한다면 "Orca·일반 터미널만" 으로 목표를 축소해 명확히 공지한다.
+- **위치**: 스펙 §3-1
+- **확인**: 리허설 Task 8 의 A0(단독 선행)에서 (a) 손자 실행 중 팀장에게 알림이 오는가, (b) blocked 로 끝난 팀원이 idle 로 남는가, (c) idle 팀원에게 SendMessage 로 답을 주면 같은 워크트리·컨텍스트에서 이어 가는가를 실측한다.
+- **결과에 따라**: 결과 줄 없는 완료 알림은 `failed` 가 아니라 `suspect` 로 두고 슬롯을 유지하며, 두 TICK 연속 생존 증거(브랜치 tip 커밋 시각·서버 최신 progress)가 없을 때만 `failed no-result` 로 판정한다. 완료·blocked 처리 직후 `TaskStop(w<slot>-<id8>)` 로 idle 팀원을 회수한다. (c) 가 되면 blocked 재개의 워크트리 정리·`ANSWER=` 재spawn 을 단순화할 수 있다.
 
-### [높음→축소] `.result` 파일 폴링(Monitor)의 재무장(rearm) 절차가 없다
+### [높음·실측] auto 권한 모드에서 막히는 명령 목록
 
-> 개정 4판에서 **pane 백엔드에만 해당**하는 문제로 축소됐고, 재무장 절차(기동 즉시 전체 슬롯 경로
-> 1회 전수 검사)가 스펙 §4-1 에 명문화됐다. 에이전트 팀 백엔드는 완료 알림이 오므로 Monitor 자체가
-> 필요 없다.
-
-
-- **위치**: 스펙 §4-1
-- **문제**: 스펙은 "슬롯이 새로 생기거나 회수될 때마다 감시 대상 경로를 갱신한다" 고만 하고, 구체 절차가 없다. Monitor 도구는 시작 시점에 고정된 셸 커맨드로 이벤트 스트림을 여는 구조라, 감시 대상 경로 집합이 바뀔 때마다 기존 Monitor 를 종료하고 새 경로 목록으로 재시작해야 한다.
-- **터지는 지점**: 구 Monitor 종료 시점과 신규 Monitor 최초 패스 사이에 도착한 `.result` 가 유실될 수 있다. 팀 크기 기본 3, 완료·재배정마다 재무장이 발생하므로 빈도가 낮지 않다.
-- **해소**: SKILL.md 에 "Monitor 재무장" 을 구체 절차로 명문화한다. 재무장 스크립트가 매번 기동 즉시 전체 슬롯 경로를 1회 전수 검사하도록 설계한다.
+- **위치**: 계획 Task 8
+- **확인**: 사용자 기본 권한 모드(`defaultMode: "auto"`)로 리허설을 먼저 돌려, 거부·프롬프트가 난 명령을 기록한다.
+- **결과에 따라**: 대상 리포 `.claude/settings.json` 에 정확한 allow 목록을 넣는 방식(git 은 절대경로 형태, 예 `Bash(/usr/bin/git *)`)을 먼저 시도하고, 그래도 막히면 팀장을 권한 확인 생략 모드로 띄운다.
 
 ### [중간] Orca 워크트리 정리 경로가 "브랜치 switch 된 상태" 에서 미실측이다
 
 - **위치**: 스펙 §11 (합격 기준 6번이 스스로 인정)
-- **문제**: spawn(자동 제출·cwd 격리)은 실측됐으나, 워크트리가 `agent/<id8>-<slug>` 로 switch 된 상태에서 `orca worktree rm` 이 깨끗이 도는 조합은 리허설에서 처음 검증된다.
-- **터지는 지점**: 이 조합이 통과하기 전까지 §4-4 마감 절차 전체가 가정 위에 있다.
-- **해소**: 착수 순서상 최우선 검증 항목으로 못박는다.
+- **확인**: 워크트리가 `agent/<id8>-<slug>` 로 switch 된 상태에서 `orca worktree rm` 이 깨끗이 도는 조합을 리허설에서 검증한다.
+- **결과에 따라**: 이 조합이 통과하기 전까지 §4-4 마감 절차 전체가 가정 위에 있으므로, 착수 순서상 최우선 검증 항목으로 둔다.
 
 ### [중간] 다중 신원·공용 PC 전제와 로컬 캐시 공유가 상충한다
 
 - **위치**: 스펙 §3-10·§12
-- **문제**: `~/.cache/dflow/last-list.json` 을 같은 머신의 모든 프로세스가 공유한다. 한 PC 에서 신원 A 의 팀장과 신원 B 의 팀장이 동시에 뜨면(§1·§8 이 명시적으로 지원하는 시나리오) 같은 캐시 파일을 놓고 경쟁한다. 완화책은 §12 의 "접두 해석 실패 시 팀원은 failed 로 끝나고 사람이 재개" 뿐이라, 다중 신원 동시 운용이라는 명시 목표치고는 얕다. 근본 해결(poll.sh 출력에 전체 UUID 추가)은 스펙이 "이번엔 보류" 로 미뤘다.
-- **해소**: 이 리스크가 "다중 신원 동시 실행" 목표 문구와 함께 사용자에게 재확인되어야 한다.
+- **문제**: `~/.cache/dflow/last-list.json` 을 같은 머신의 모든 프로세스가 공유한다. 한 PC 에서 신원 A 의 팀장과 신원 B 의 팀장이 동시에 뜨면(스펙이 명시적으로 지원하는 시나리오) 같은 캐시 파일을 놓고 경쟁한다. 완화책은 "접두 해석 실패 시 팀원은 failed 로 끝나고 사람이 재개" 뿐이다.
+- **확인**: 리허설에서 경합 재현 여부를 확인하고, 재현되면 완화책이 충분한지 판단한다.
 
-### [신규·높음→스펙 보완으로 해소] 새 워크트리에 스킬이 없을 수 있다
-
-- **위치**: 스펙 §3-15, §4-3, §5
-- **문제**: mes-runlog 는 `.claude/skills/dflow-*` 가 wbs-web 정본을 가리키는 심링크이고 `.gitignore` 가
-  `.claude/skills/` 를 무시한다(2026-09-11 실측). `git worktree add` 는 무시된 파일을 가져오지 않으므로
-  Orca·에이전트 팀 어느 쪽 워크트리에도 스킬이 없다. mes-base(리허설 대상)는 `.claude/` 자체가 없다.
-- **터지는 지점**: 포인터가 상대경로 `.claude/skills/dflow-team/references/worker-prompt.md` 를 가리키면
-  팀원이 첫 행동부터 파일을 못 찾고, `/dflow-dev` 도 Skill 도구에 등록되지 않는다.
-- **해소**: 포인터를 `{MAIN_CHECKOUT}` 기준 절대경로로, 워커 부트스트랩에서 `.claude/skills` 를 메인
-  체크아웃으로 심링크, Skill 도구가 `dflow-dev` 를 모르면 SKILL.md 를 직접 읽어 따른다(hot-reload 에
-  기대지 않음). 리허설은 mes-base 에 심링크 배포로 설치해 이 경로를 실제로 밟는다(계획 Task 7).
-
-### [신규·높음→스펙 보완으로 해소] 팀장 체크아웃에서는 poll exit 9·10 이 팀원 작업에 대해 울리지 않는다
-
-- **위치**: `poll.sh` 43행 `STATE_GLOB="$PWD/docs/tasks"`, 스펙 §3-16, §4-2, §6
-- **문제**: poll.sh 는 승인·반려 감지 재료로 cwd 의 `docs/tasks/*/state.json` 을 본다. 팀원이 만든
-  state.json 은 agent 브랜치와 팀원 워크트리에만 있으므로, 팀원 작업이 승인·반려돼도 팀장의 poll 은
-  exit 9·10 으로 끝나지 않는다. 게다가 현행 `/dflow-merge` 는 approved 가 아니면 전부 "승인 대기" 로
-  보고해 **반려 갈래가 없다**(반려 갈래는 dflow-dev Phase 0-가 에만 있다).
-- **터지는 지점**: 승인된 작업이 main 에 반영되지 않고, 반려된 작업이 "대기" 로 묻힌다.
-- **해소**: 팀장이 깨어날 때마다 승인 스윕을 돌고(후보는 원격 `origin/agent/*` tip 이라 state.json 위치와
-  무관), 감시 루프가 30분 TICK 으로 한가한 구간에도 팀장을 깨운다(승인 반영 지연 최대 30분).
-  `/dflow-merge` 가산 수정에 반려 갈래 보고를 넣었다. state.json 미러로 exit 9 를 살리는 방법은 두 번째
-  상태 저장소가 생겨 v1 에서 기각했다(스펙 §4-2).
-
-### [신규·중간→스펙 보완으로 해소] 좌석 식별 파일 `.agent` 가 dflow-dev 의 잔재 격리 규칙에 걸린다
-
-- **위치**: `dflow-dev/SKILL.md` 상태 모델 "재claim 시 이전 시도의 잔재 격리", 스펙 §5·§9-1
-- **문제**: 워커가 claim 전에 `docs/tasks/<TSK>/.agent` 를 쓰면 그 디렉터리가 생기고, `/dflow-dev` 가
-  claim 직전에 그것을 이전 시도의 잔재로 보고 `.prev-<날짜>` 로 옮긴다.
-- **해소**: 워크트리 루트 `.dflow-agent` 로 옮겼다(워크트리 하나 = 작업 하나). **좌석표 S1 훅에 요청할
-  경로도 이것으로 바뀌었다** — 가상오피스 쪽이 `.agent` 규칙을 받을 때 이 경로로 받아야 한다.
-
-### [신규·중간→스펙 보완으로 해소] 에이전트 팀 워크트리가 팀장 체크아웃의 `git status` 를 더럽힌다
-
-- **위치**: 스펙 §4-1 전제 검사
-- **문제**: 에이전트 팀 격리 워크트리는 대상 리포 안 `.claude/worktrees/` 에 생긴다. wbs-web 은
-  `.git/info/exclude` 에 `**/.claude/worktrees/` 가 있지만 mes-runlog 에는 없다(2026-09-11 확인). 보존된
-  팀원 워크트리가 있으면 다음 시작의 `git status --porcelain` 검사가 깨진다.
-- **해소**: 팀장이 시작할 때 그 줄을 로컬 exclude 에 넣는다(커밋하지 않는 로컬 설정).
-
-### [중간→해소(기본값)] blocked 슬롯 점유 시 담당자 부재를 능동적으로 알릴 수단이 없다
-
-> **해소(2026-09-11 기본값)** — 팀장이 `blocked` 를 받을 때마다 PushNotification 도구가 있으면 한 번
-> 알린다(스펙 §2). "N분간 진척 없음" 통지는 v1 에 넣지 않았다.
-
-- **위치**: 스펙 §7·§12
-- **문제**: 스펙은 "그 팀원 탭에서 사람이 답한다" 만 정의한다. 담당자가 자리를 비운 사이 슬롯 N개가 전부 blocked 로 쌓이면(§12 가 "루프가 사실상 멈출 수 있다" 고 인정) 이를 담당자에게 적극적으로 알릴 경로가 없다. 이벤트는 `events.jsonl` 로컬 기록·화면 통지뿐이라, 터미널을 안 보고 있으면 팀 전체가 조용히 멈춘 채 방치된다.
-- **해소**: 이 하네스에는 PushNotification 도구가 있다. "모든 슬롯이 blocked" 상태를 PushNotification 등으로 능동 통지하는 지점을 SKILL.md 에 넣을지 결정한다.
-
-### [낮음] AGENT_ID 유니크성 — 같은 신원을 여러 PC 에서 동시에 띄우는 경우가 미정의
+### [낮음] AGENT_ID 유니크성: 같은 신원을 여러 PC 에서 동시에 띄우는 경우가 미정의
 
 - **위치**: 스펙 §9-1
-- **문제**: `AGENT_ID = <신원>/w<slot>` 은 "한 PC 에 여러 신원" 케이스만 다룬다. 같은 신원이 노트북·데스크탑에서 동시에 팀장을 띄우면 두 팀장 모두 `w1`/`w2`/`w3` 를 독립 배정하므로, 같은 AGENT_ID 문자열이 서로 다른 실제 작업에 붙어 heartbeat 충돌이 난다. 흔한 패턴은 아니나 스펙이 전혀 언급하지 않은 빈틈이다.
+- **문제**: `AGENT_ID = <신원>/w<slot>` 은 "한 PC 에 여러 신원" 케이스만 다룬다. 같은 신원이 노트북·데스크탑에서 동시에 팀장을 띄우면 두 팀장 모두 `w1`/`w2`/`w3` 를 독립 배정하므로, 같은 AGENT_ID 문자열이 서로 다른 실제 작업에 붙어 heartbeat 충돌이 난다.
 
-### 2차 검토(2026-09-11 저녁)에서 찾은 신규 걸림돌 — T1~T19, 미해소
+### [낮음] `orca worktree create --json` 의 워크트리 id JSON 경로
 
-> 계획서 재작성 뒤 읽기 전용 검토 셋(계획서·스펙 정합성과 앵커 / 외부 명령·API 표면 / 팀원 생명주기
-> 적대적 검토)을 돌려 찾았다. 핵심 근거(`dflow-dev/SKILL.md:180-188`, `dflow.sh:190-226`, 계획서
-> 980·1036행, mes-base 현재 브랜치)는 메인 세션이 다시 확인했다. **스펙·계획서에는 아직 반영하지 않았다.**
-> 해소안은 방향이며, T1·T2·T3·T5 는 Task 1·2·5 본문을 바꾸므로 **착수 전에 계획서를 고쳐야 한다.**
->
-> **연쇄 실패 경로(T1+T2+T10)**: 작업 A→B 연쇄에서 A 가 승인돼도 원격 tip 에 `reported` 가 없어 스윕
-> 후보에 오르지 않는다(T1). main 에 A 가 없는 채 B 가 spawn 되고, claim 직전 도달 검사가 워커 시작 HEAD 에서
-> A 를 못 찾아 exit 4 → `skipped`(T2). 팀장은 B 를 영구 제외한다(T10). 화면엔 "skipped" 한 줄뿐이고 연쇄는
-> 마감까지 멈춘다.
-
-**[높음] — 착수 전 계획서 수정 필요 (T1~T6), Task 6·7 전 결정 필요 (T7~T9)**
-
-- **T1. 팀원 작업의 `phase=reported` 가 원격 tip 에 있다는 보장이 없다.** `dflow-dev/SKILL.md:183-187` 은
-  push(2) → done 보고(3) → state.json `reported` 갱신(4) 순서이고, 갱신 뒤 커밋·push 는 계약에 없다.
-  mes-base 실측: 원격 agent 브랜치 네 개 tip 이 전부 `verify`, `reported` 는 작업트리에 미커밋. 팀 경로에서는
-  워커 워크트리가 정리되며 확정적으로 버려진다. 계획서 Task 2 는 "`phase` 가 `reported` 인 것만 후보" 라
-  승인된 팀 작업이 main 에 영영 반영되지 않는다(위 [신규·높음→해소] poll exit 9·10 항목의 해소 전제를
-  무너뜨린다). **해소(권장)**: Task 2 조건을 "`phase` 가 `merged` 가 아니면 전부 후보, 판정은 show" 로
-  바꾼다(스펙 §6 이 이미 "tip 의 phase 는 신뢰하지 않는다"). 대안은 `--worker` 행 F(4번 뒤 state.json
-  커밋·push)이나 다섯 분기가 여섯이 되어 파급이 크다. 곁가지: 수동 `/dflow-dev` 가 남긴 미커밋 state.json
-  이 팀장 전제 검사(`git status --porcelain`)를 막으므로 실패 안내에 "파일명 명시로 먼저 커밋" 을 넣는다.
-- **T2. claim 직전 로컬 도달 검사가 워커의 시작 HEAD 를 본다.** `dflow.sh:222-226` `cmd_claim` 이
-  `check_depends_local` 을 부르고, 선행 head_sha 가 HEAD 의 조상이 아니면 exit 4(`:196-197`). claim 은
-  브랜치 생성(Phase 0-3)보다 먼저다. 그래서 행 B "머지하지 않고 head_sha 기점 스택" 은 claim 단계에서
-  막히고, 스펙 §4-3·backends 차이표의 "에이전트 팀 기점은 Phase 0-3 이 다시 명시하므로 무관" 도 틀렸다
-  (팀장 로컬이 origin 보다 뒤처지면 다른 PC 가 머지한 선행에도 skipped). **해소**: 행 B 에 "claim 전
-  `git switch --detach <head_sha>`" 를 넣고(공통 조상이 없으면 사유 명시 skipped), worker-prompt 부트스트랩
-  끝에 `fetch origin && switch --detach origin/<기본브랜치>` 를 둔다. "무관" 문장 삭제.
-- **T3. 팀장 슬롯 상태가 세션 메모리에만 있어 컨텍스트 압축 뒤 소실된다.** 스펙 §4 "모두 세션 메모리이며
-  파일로 쓰지 않는다", 계획서 Task 5 §상태. 재기동 대조는 시작 단계에만 있고 압축은 세션 사망이 아니라
-  불리지 않는다. 몇 시간 폴링하면 압축은 사실상 확정이다(T11 의 show 출력량). 슬롯이 요약에서 빠지면
-  `.result` 가 와도 처리되지 않고, 감시 루프 태스크 id 를 잃으면 루프가 겹쳐 결과를 두 번 처리한다.
-  **해소**: "메모리는 캐시, 매 기상 재구성" 으로 바꾼다. 정본은 `git worktree list --porcelain` + 루트
-  `.dflow-agent`(`<신원>/w` 접두) + 그 안 `.result`, 보조는 `events.jsonl`(마지막 `team.start` 이후, agent·repo
-  필터). `team.spawn` 에 `id8`·`worktree`·`handle` 을 더한다. 감시 루프 교체는 TaskStop 대신 세대 파일
-  (`$(git rev-parse --git-path dflow-team.gen)`)을 루프가 보고 스스로 끝내게 한다. 스펙 §4-2 가 기각한
-  state.json 미러와는 다르다(새 저장소 없음).
-- **T4. 재기동이 살아 있는 Orca 팀원을 슬롯 표에 넣지 않아 같은 AGENT_ID 를 다시 발급한다.** 계획서 §1-4 는
-  "claimed 인데 살아 있는 팀원이 없는 id8" 만 다루고, 슬롯 번호는 "1..N 중 가장 작은 빈 번호" 라 w1 부터
-  다시 준다. 스펙 §7 불변식("살아 있는 둘이 같은 AGENT_ID 로 heartbeat 금지")을 문서 스스로 깬다. **해소**:
-  T3 재구성으로 살아 있는 `dflow-<id8>` 워크트리를 그 `.dflow-agent` 슬롯 번호로 흡수하고, `.result` 가
-  있으면 즉시 처리한다. 빈 번호 계산에서 스캔 결과를 뺀다.
-- **T5. 에이전트 팀 완료 알림을 슬롯 번호로 매칭한다.** 계획서 980행 "그 슬롯의 `.result` 를 읽는다 … 둘 다
-  없으면 `failed no-result`". 이미 판정된 옛 팀원의 늦은 알림이 같은 슬롯의 새 작업을 failed 로 오판 →
-  제외 → 또 spawn 으로 연쇄하고, 같은 `<신원>/w1` 이 둘이 된다. **해소**: 알림 이름 `w<slot>-<id8>` 의 id8
-  으로 슬롯 표를 찾고, 표에 없는 id8 알림은 집계만 갱신한다(한 줄 수정).
-- **T6. [실측 필요] 에이전트 팀 팀원의 "턴 종료" 와 "완료" 가 같은지 확인된 적이 없다.** 팀원은
-  `/dflow-dev` Phase 를 이름 붙은 `Agent` 로 띄우고, 이 하네스는 서브에이전트를 백그라운드로 돌린 뒤 완료
-  알림으로 깨운다. 팀원이 손자를 기다리며 턴을 끝내면 팀장에게 결과 줄 없는 "완료" 알림이 갈 수 있고, 그러면
-  모든 작업이 첫 Phase 에서 `failed no-result` 가 된다. 스펙 §3-1 실측 표에는 이 항목이 없다. 또
-  `dflow-dev/SKILL.md:165-176`(08-25 실측)대로 이름 붙은 에이전트는 끝나도 idle 로 남아 TaskStop 이
-  필요한데, 계획서는 "팀원은 이미 종료했다" 고 가정하고 같은 이름으로 재spawn 한다. **해소**: Task 8 에 A7 을
-  넣어 **리허설 전에 단독으로 먼저** 실측한다 — (a) 손자 실행 중 팀장에게 알림이 오는가, (b) blocked 로 끝난
-  팀원이 idle 로 남는가, (c) idle 팀원에게 SendMessage 로 답을 주면 같은 워크트리·컨텍스트에서 이어 가는가.
-  (c) 가 되면 blocked 재개의 워크트리 정리·`ANSWER=` 재spawn 이 통째로 필요 없어진다. 방어책: 결과 줄 없는
-  알림은 `suspect` 로 두고 슬롯 유지, 완료·blocked 처리 직후 `TaskStop(w<slot>-<id8>)` 명시.
-- **T7. [결정 8 — 권장안 채택] 에이전트 팀 팀원의 권한 모드가 정의되지 않았다.** 두 문서의 권한 언급은 Orca 팀원
-  `--dangerously-skip-permissions` 하나뿐이다. in-process 팀원은 팀장 모드를 물려받는다(Agent 도구의
-  `mode` 는 무시됨). 이 PC 설정은 `defaultMode: "auto"` 이고 allow 목록에 git·npm·dflow.sh·jq·orca 가 없다.
-  앞에 사람이 없는 팀원이 권한 대기에 걸리면 완료 알림도 오지 않아 2시간 무응답 규칙(T12)까지 조용하다.
-  팀장 자신의 `git push`·`worktree remove --force` 도 같다. 결정 6(git 절대경로) 때문에 나중에
-  `Bash(git *)` allow 를 넣어도 `/usr/bin/git …` 에 걸리지 않는다. 선택지는 아래 결정 8.
-- **T8. [결정 9 — 권장안 채택] 적용 좌표가 "wbs-web 메인 체크아웃의 현재 브랜치" 라는 가변 상태다.** mes-runlog 의
-  `.claude/skills/dflow-*` 는 `/Users/jji/project/wbs-web/.claude/skills/*` 심링크이고, 메인 체크아웃은 지금
-  `staging` 이다. 계획서 Task 6 은 머지 대상 브랜치를 적지 않았고 Task 7 은 "머지 뒤 메인 체크아웃 기준" 이다.
-  main 에만 머지하면 Task 7 심링크가 dangling 이고 이후 무관한 back-merge 때 예고 없이 전 리포 적용,
-  staging 에 머지하면 리허설 전에 mes-runlog 에 적용된다. 실행 중 다른 세션이 메인 체크아웃을 switch 하면
-  포인터의 절대경로 `worker-prompt.md` 가 사라진다. 선택지는 결정 9.
-- **T9. [결정 10 — 권장안 채택] 리허설 대상 mes-base 가 사용 중이다.** 현재 브랜치 `agent/a0d9af7c-quality-gates`,
-  `docs/tasks/*/state.json` 4개 미커밋, 원격에 승인 대기 체인 브랜치 4개, WBS 는 운영 D'Flow 에 import 됨.
-  계획서 Task 7 Step 1 을 그대로 따르면 심사 중인 브랜치에 `.gitignore` 커밋이 얹히고, 전제 검사는 dirty 로
-  중단되며, 스윕이 기존 체인을 후보로 섞어 합격 기준 3·7번을 판정할 수 없다. 선택지는 결정 10.
-
-**[중간]**
-
-- **T10. `skipped`·spec 부재·claim exit 4 를 영구 제외한다.** 계획서 Task 5 §3. `dflow-poll` 은 같은 사유를
-  `--exclude-temp` 에 넣고 6주기 뒤 재검사한다(`poll.sh:15-17`). **해소**: 선행·spec 사유는 일시 제외로
-  분리해 poll 에 `--exclude-temp` 로 넘기고, 영구 제외는 failed·반려·진행 중만 둔다.
-- **T11. 동시 실행 상한과 사용량 한도 동작이 없다.** 기본 3·"넘길 때는 사람이 명시" 뿐이고 하드 상한·
-  rate/usage limit 서술이 0건이다. 한도에 걸린 팀원은 결과 줄 없이 끝나 failed·제외되고 빈 슬롯에 다음 작업이
-  spawn 되어 대기 큐 전체가 소진된다(추정). 팀장은 poll 후보·spawn·스윕 후보마다 `dflow.sh show` 로 spec 본문
-  전체 JSON 을 받아 컨텍스트가 빠르게 는다(T3 의 전제). **해소**: 하드 상한(예: 4)과 인자 검증, 차단기
-  (failed/no-result 2건 연속이면 spawn 중지·보고, 다음 TICK 에 1건만 시험), `.result` 에 `failed rate-limit`
-  (재시도 가능, 제외 안 함), 스윕용 show 는 jq 로 status·마지막 review_action 만 뽑는다.
-- **T12. 2시간 무응답 규칙이 살아 있는 느린 팀원을 죽인다.** 계획서 1036행 판정 조건 "여전히 claimed" 는
-  살아 있는 모든 팀원에게 참이고, `orca terminal read` 는 보고용일 뿐이다. mes-runlog 머지 브랜치 8건의 첫~마지막
-  커밋 간격이 11~81분(설계 구간 제외, 단일·순차 조건)이라 2시간은 여유가 작다. Orca `worktree rm` 이면 미커밋분
-  손실. **해소**: 보고만 하고 슬롯 유지(pane blocked 와 같은 모델). 자동 정리는 두 TICK 연속으로 생존 증거
-  (브랜치 tip 시각·서버 progress·화면 차이)가 없을 때만.
-- **T13. 워크트리 정리 시점이 브랜치 잠금과 부딪친다.** git 은 다른 워크트리가 체크아웃한 브랜치의 삭제·switch 를
-  거부한다. (a) done/needs-merge 뒤 워크트리를 마감까지 보존하므로, 같은 세션에서 승인되면 스윕의 "로컬 agent
-  브랜치 삭제" 가 실패한다. (b) 팀장이 죽은 뒤 고아 워크트리를 찾는 단계가 없고(로컬 exclude 로 status 에도
-  안 보임), 안내된 수동 재개 `/dflow-dev <id8>` 의 switch 가 거부된다. (c) 부트스트랩 실패(`.result` branch=`-`)는
-  agent 브랜치가 없어 에이전트 팀 정리 조건(HEAD 대 origin tip)을 적용할 수 없다. **해소**: done/needs-merge 에서
-  HEAD = origin tip 이면 즉시 정리, 재기동에 고아 스캔(깨끗하고 push 된 것만 정리, 나머지는 경로·미커밋 목록을
-  보고, 자동 삭제 금지), branch `-` 는 비교 없이 `--force` 정리, dflow-merge 가산에 "로컬 삭제가 checked-out
-  오류면 건너뛰고 보고".
-- **T14. 워커 워크트리 부산물이 무시되지 않는다.** 스크래치 실측: `.gitignore` 의 `.claude/skills/`(슬래시)는
-  디렉터리에만 매칭되어 `.claude/skills` 심링크는 `??` 로 남는다. `.dflow-agent`·`.result` 도 어디서도
-  무시되지 않는다. Phase 5 "미커밋 잔여물 커밋" 에 섞이면 병렬 브랜치마다 다른 `.dflow-agent` 가 스윕 머지를
-  충돌시키고, 절대경로 심링크가 main 에 들어간다. **해소**: 팀장 전제 검사에서 공유 `info/exclude` 에
-  `/.dflow-agent`, `/.claude/skills`(슬래시 없이), `docs/tasks/*/.result` 를 넣는다(링크드 워크트리 공유).
-  스펙 §3-15 의 "무시한다" 를 "디렉터리일 때만" 으로 정정한다.
-- **T15. 가산성 fixture 의 기준이 분기점이다.** fixture 는 실행 시점 `cp` 라 원본 변경 뒤 무의미하게 초록인
-  문제는 없다. 다만 기점이 `origin/main` 이라, 머지 충돌을 "우리 쪽" 으로 풀어 다른 세션의 수정을 잃어도
-  초록이다. 반대로 나중에 누가 원문을 정당하게 고치면 `npm run test` 가 빨개지고 갱신 절차가 없다. **해소**:
-  Task 6 머지 직전 대상 브랜치에서 fixture 를 다시 뜨고 재실행한다. 삽입 블록을 표지 주석으로 감싸고 "현재
-  파일에서 표지 블록을 뺀 것" 을 갱신 규칙으로 테스트 주석에 적는다.
-
-**[낮음]**
-
-- **T16.** pane 감시 루프가 `.result` 의 status 만 비교해, 답을 받은 워커가 다시 blocked 가 되면 깨어나지
-  않는다 → 줄 전체나 mtime 비교.
-- **T17.** 팀장 전제 검사가 `/dflow-merge` 가산 여부를 보지 않는다 → `grep -q "origin/agent/\*"
-  .claude/skills/dflow-merge/SKILL.md` 추가.
-- **T18.** `/dflow-merge` 가산이 인자 없는 기본 후보를 넓힌다. Global Constraints "기본 동작 불변" 과
-  모순이고, dflow-dev Phase 0-가·poll exit 9 스윕과 후보 집합이 달라진다 → 제약 문구를 "원문 줄 불변, 인자
-  없는 후보 확대" 로 고치고 적용 시점(T8)에 공지.
-- **T19. 문서 정합.** Task 1 Step 4 기대치 FAIL 4건 → 3건(5번째는 구현 전에도 통과). 스펙 §9-2 의 팀원 이벤트
-  (claim·blocked·result 로컬 기록)가 계획서에 없다 → "좌석표 S1 이후" 로 미루거나 worker-prompt 에 기록.
-  backends.md·테스트의 `--base-branch origin/main` 리터럴 → `origin/<기본브랜치>`. `orca worktree create
-  --json` 의 워크트리 id JSON 경로는 리허설로 확정. dflow-dev "89행" 인용이 지금 90행(문구 앵커라 무해). `kit-build.sh` 의 킷 밖 참조 검사는
-  `--include=SKILL.md --include='*.sh'` 라 `references/*.md` 를 보지 않는다 — backends.md 의 `~/project/dev-plugin`
-  이 검사 없이 킷에 실린다(검사 범위를 넓히거나 허용 문구로 명시).
-
-**사용자 요청 개선(걸림돌 아님, 집계 제외)** — 옵션 단순화. `/dflow-team` 의 옵션 다섯(`--team-size`
-`--until` `--interval` `--model` `--exclude`)을 자연어 `/dflow-team [인원] <종료시각> [모델]` 로 줄인다
-(예: `/dflow-team 18:00`, `/dflow-team 4명 18시까지 opus`). `--interval` 은 300초 고정, `--exclude` 는
-D'Flow 에서 agent 태그를 끄는 것으로 대신한다. `/dflow-dev --worker` 는 플래그를 유지하되 사람용 사용법
-줄에서 뺀다(`.dflow-agent` 자동 감지는 남은 워크트리에서 사람의 질문을 조용히 끄는 사고 위험이 있어 기각).
-**승인(2026-09-11, 결정 11).**
+- **확인**: 리허설에서 실제 JSON 응답을 보고 id 경로를 확정한다.
 
 ---
 
 ## 문제없음으로 확인된 사항 (참고)
 
-- `/dflow-dev --worker` 가산 4분기(Phase 0-가·0-2 직접머지·재개 approved·AskUserQuestion 지점)는 실제 `dflow-dev/SKILL.md` 라인과 일치해 순수 가산 설계 자체는 타당하다. Phase 1~4 서브에이전트 프롬프트(`dev-discipline.md`)에는 AskUserQuestion 사용이 애초에 없어 "판단 지점은 오케스트레이터뿐" 이라는 주장과 부합한다. 단, 위 [치명](plan.md) 때문에 이 부분이 어느 실행 모델 위에서 쓰이는지가 흔들리는 것이 핵심 리스크다.
 - `/api/v1/agent/work/[id]/{claim,report}` 의 RLS·서버 가드 구조(0057 마이그레이션: 쓰기는 RLS 정책 없이 service_role 전용, 서버 가드가 유일 관문)를 가상오피스 스펙이 정확히 파악하고 있고, heartbeat 도 같은 패턴을 따르면 된다.
 - `src/lib/authz/agentsAccess.ts` 신설 계획은 `canViewUsage` 관례를 그대로 재사용하는 설계라 authz 3단 가드(`requireSuperuser`·`requireProjectAdmin`·`requireProjectMember`) 우회가 아니다.
 - heartbeat 마이그레이션이 G4(0072+ 스테이징 리허설 필수) 대상임을 가상오피스 스펙이 정확히 인지하고 있다(§9-3).
@@ -390,38 +156,9 @@ D'Flow 에서 agent 태그를 끄는 것으로 대신한다. `/dflow-dev --worke
 
 ## 착수 전 사용자 결정이 필요한 항목
 
-시급한 순서다.
-
-1. ~~**plan.md 처리**~~ — **해소(2026-09-11).** 사용자 결정 "지금 전면 재작성" 에 따라 개정 4판 보완
-   기준으로 재작성했다(`docs/superpowers/plans/2026-09-10-dflow-team.md`, Task 1~8).
-2. **두 스펙 착수 순서 + `blocked` 상태 스키마 합의** — 재작업 방지. 팀장 스킬 쪽은 좌석표 없이도
+1. **두 스펙 착수 순서 + `blocked` 상태 스키마 합의** — 재작업 방지. 팀장 스킬 쪽은 좌석표 없이도
    events.jsonl·`.result` 로 동작하므로 이 결정을 기다리지 않고 착수할 수 있다. 좌석표에 요청할 좌석 식별
-   경로는 `.dflow-agent`(워크트리 루트)로 바뀌었다.
-3. **heartbeat 스코프** — `work:claim` 재사용 vs 전용 스코프. (PAT 조달·소유자 판정은 `dflow.sh heartbeat` 서브커맨드 신설로 이미 해소)
-4. ~~**tmux 경로를 이번 스코프에 포함할지**~~ — **해소(2026-09-11).** 스펙 개정 4판에서 tmux 로드
-   실패 시 에이전트 팀 백엔드로 내려가므로 목표 축소가 필요 없다. dev-plugin 수정은 pane 의 이점을
-   얻기 위한 개선 항목으로 남는다.
-5. **가상오피스 Micro 부하 실측** — S2 착수 전 선행.
-6. ~~**rtk 의 git 차단 대응**~~ — **기본값 채택(2026-09-11, 이의 시 변경).** rtk 훅은 고치지 않는다.
-   워커와 Phase 서브에이전트가 `command -v git` 절대경로로 git 을 부르고(`/dflow-dev --worker` 행 E 가
-   손자까지 전파), 리허설에서 절대경로도 막히면 리터럴 `/usr/bin/git` 으로 바꾼다(스펙 §2·§3-5-A,
-   계획 Task 8 Step 3).
-7. ~~**기본 백엔드 선호 정책**~~ — **기본값 채택(2026-09-11, 이의 시 변경).** 자동 감지만 쓰고
-   `--backend` 플래그는 두지 않는다. Orca 면 pane, 그 밖은 에이전트 팀이며 v1 에서는 tmux 도 에이전트
-   팀으로 내려간다(스펙 §2·§4-0).
-8. **에이전트 팀 권한 모드**(T7) — **권장안 채택(2026-09-11 사용자).** 리허설 auto 실측 → (b) 허용 목록 → 안 되면 (a). 검토한 선택지는 셋이다.
-   (a) 팀장을 권한 확인 생략 모드로 띄운다. 가장 단순하지만 팀원·Phase 서브에이전트까지 모든 명령을 무확인
-   실행하는 보안 결정이다(Orca pane 팀원은 이미 이 조건으로 뜬다).
-   (b) 킷 설치 때 대상 리포 `.claude/settings.json` 에 정확한 allow 목록을 넣는다(`Bash(/usr/bin/git *)`
-   처럼 절대경로 형태로). 유지 부담이 있고 auto 분류기가 무엇을 막는지는 모른다.
-   (c) v1 에서 에이전트 팀 백엔드를 빼고 Orca 전용으로 한다.
-   **권장**: Task 8 에 "사용자 기본 모드(auto)로 한 번 돌려 거부·프롬프트가 난 명령을 기록" 을 넣고, 그 결과로
-   (b) 를 시도하고 안 되면 (a).
-9. **스킬 적용 좌표**(T8) — **권장안 채택(2026-09-11 사용자):** Task 7·8 리허설을 머지 **전에** 한다(mes-base 등의 심링크를
-   `feat/dflow-team` 워크트리로). Task 6 머지는 main·staging 둘 다 하고, 메인 체크아웃 작업트리에서
-   `grep -- --worker` 로 반영을 확인한다. 후속으로 심링크 좌표를 `origin/main` 을 추적하는 전용 고정
-   워크트리로 옮기는 방안을 검토한다.
-10. **리허설 리포**(T9) — **권장안 채택(2026-09-11 사용자):** 사용 중인 mes-base 대신 리허설 전용 리포(mes-base 새 클론 또는
-    스크래치 리포)와 스테이징 D'Flow 프로젝트를 쓴다. mes-base 를 그대로 쓰려면 기존 체인을 먼저 정리하고
-    기본 브랜치·clean 상태를 전제 조건으로 둔다.
-11. **옵션 단순화** — **승인(2026-09-11 사용자).** 2차 검토 절 끝의 "사용자 요청 개선" 안대로 한다.
+   경로는 `.dflow-agent`(워크트리 루트)다.
+2. **heartbeat 스코프** — `work:claim` 재사용 vs 전용 스코프. PAT 조달·소유자 판정은 `dflow.sh heartbeat`
+   서브커맨드 신설로 이미 해소되어 있다.
+3. **가상오피스 Micro 부하 실측** — S2 착수 전 선행한다.
