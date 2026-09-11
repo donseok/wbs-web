@@ -925,8 +925,8 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
 ```markdown
    git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>
    git rev-parse HEAD                      # 머지 직전 HEAD. 값을 기록해 둔다
-   git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
-   git diff --name-only <증적 head_sha>..<머지 대상>   # 실패하면 머지하지 않는다. 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
+   git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 증적에 head_sha 가 있을 때만. 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
+   git diff --name-only <증적 head_sha>..<머지 대상>   # 증적에 head_sha 가 있을 때만. 실패하면 머지하지 않고, 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
    git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>
    git add docs/tasks/<TSK>/state.json && git commit -m "chore(<TSK>): phase=merged"   # state.json 을 phase=merged 로 고친 뒤, push 전에
    git push origin <기본브랜치>
@@ -2214,7 +2214,10 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      `hostname -s` 로 `<host>` 슬러그를 만든다. 팀원은 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead` 다.
    - `LEGACY_REPORTED`: `api_base` 가 없는 `phase=reported` 로컬 state.json 이 있으면 시작을 거부하고
      "수동 `/dflow-merge` 로 먼저 정리하라" 고 안내한다. 이유: 스테이징 D'Flow DB 는 운영을 복제하므로 출처를 모르는
-     로컬 후보를 자동 스윕이 머지할 수 있고, `api_base` 가 없으면 `/dflow-merge` 가 그 출처를 가려내지 못한다.
+     로컬 후보를 자동 스윕이 머지할 수 있다. 같은 작업의 원격 사본에 값이 있으면 `/dflow-merge` 가 출처를
+     가려내지만(1번 로컬·원격 중복), 사본이 없거나 사본에도 값이 없으면 그 후보를 수동 규칙대로 판정하므로, 사람이
+     보지 않는 루프에 그 판정을 맡기지 않는다. 이 검사는 로컬 파일만 보므로 원격 사본에 값이 있는 경우도
+     거부하며, 이는 안전한 쪽으로 기운 것이다.
    - `mkdir -p ~/.dflow`: 이벤트 기록이 디렉터리 부재로 조용히 실패하지 않게 한다.
    - 공유 `info/exclude` 에 워커 부산물 패턴을 없을 때만 넣는다. 커밋하지 않는 로컬 설정이며 링크드
      워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 에이전트 팀 격리 워크트리, `/.dflow-agent`·
