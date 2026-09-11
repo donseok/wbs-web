@@ -14,9 +14,10 @@
 
 남은 치명은 하나다: 가상오피스 좌석표가 Micro 컴퓨트 위에서 실시간 갱신 부하를 견디는지 검증되지 않았다.
 공통 항목으로 `blocked` 상태 모델 불일치[높음]가 남아 있다. 착수 전 사용자 결정이 필요한 항목은 셋이고,
-모두 가상오피스 쪽이다. 팀장 스킬은 설계가 스펙(`docs/superpowers/specs/2026-09-10-dflow-team-design.md`)에
-확정되어 있고, 남은 것은 리허설로만 확인할 수 있는 실측 항목뿐이다(A0 의 완료 알림·회수·`done`·한도
-동작, auto 권한 모드의 차단 명령, Orca 정리 경로와 생성 브랜치 이름, 캐시 경합).
+모두 가상오피스 쪽이다. 팀장 스킬은 설계가 스펙(`docs/superpowers/specs/2026-09-10-dflow-team-design.md`)과
+구현계획에 확정되어 있고(잠금 소유 판정, push 훅 거부 갈래, 킷 복사형 push 검사, 로컬·원격 중복 후보 규칙
+포함), 남은 것은 리허설로만 확인할 수 있는 실측 항목뿐이다(A0 의 완료 알림·회수·`done`·한도 동작, auto 권한
+모드의 차단 명령, Orca 정리 경로와 생성 브랜치 이름, 캐시 경합).
 
 심각도 집계는 남은(미해소) 항목만 센다.
 
@@ -144,8 +145,10 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 - heartbeat 마이그레이션이 G4(0072+ 스테이징 리허설 필수) 대상임을 가상오피스 스펙이 정확히 인지하고 있다(§9-3).
 - `middleware.ts` 가 이미 png 를 인증 리다이렉트에서 제외해 스프라이트 서빙 자체는 문제없다.
 - `orca worktree rm --force` 는 지원된다("Force worktree removal when supported; does not force branch
-  deletion"). 지원 확인됨(현재 쓰지 않음): 팀장 스킬의 마감·고아 정리는 깨끗하고 push 된 워크트리만
-  `orca worktree rm --worktree path:<경로>` 로 지우며 `--force` 를 붙이지 않는다.
+  deletion"). 팀장 스킬은 부트스트랩 실패 정리(브랜치를 만들기 전에 끝나 알려진 부산물만 남은 워크트리)에만
+  `--force` 를 붙인다. 부산물 중 `spec.md` 캐시 등은 `info/exclude` 가 가리지 않아 `--force` 없이는 거부될 수
+  있기 때문이다. 마감·고아 정리는 깨끗하고 push 된 워크트리만 `orca worktree rm --worktree path:<경로>` 로
+  지우며 `--force` 를 붙이지 않는다.
 
 ---
 
