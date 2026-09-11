@@ -2119,7 +2119,7 @@ date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"
 | 에이전트 팀 완료 알림 | 「3. 결과 처리」 |
 | 사람의 답 | 「6. blocked」 의 답 매칭 |
 | `TICK` | 다음 TICK 예정 시각을 지금+1800초로 새로 정한다. suspect 슬롯과 무응답 슬롯의 생존 증거를 잰다(「3. 결과 처리」). 차단기가 걸려 있으면 시험 spawn 1건을 허용한다 |
-| `STALE` | 무시한다 |
+| `STALE` | 잠금 `beat` 만 갱신하고 나머지는 넘긴다 |
 
 poll exit 0 의 show 필터:
 ```bash
@@ -2552,6 +2552,7 @@ cd ~/project/mes-base-rehearsal
 git remote get-url origin                               # ~/project/mes-base-rehearsal.git 이어야 한다
 git symbolic-ref --short refs/remotes/origin/HEAD        # 기본 브랜치 확인(예: origin/main)
 git branch --show-current && git status --porcelain      # 기본 브랜치이고 출력이 비어 있어야 한다
+for f in docs/tasks/*/state.json; do [ -f "$f" ] && jq -e '.phase == "reported" and ((.api_base // "") == "")' "$f" >/dev/null && echo "$f"; done   # 출력이 없어야 한다. 있으면 팀장 전제 검사가 LEGACY_REPORTED 로 멈추므로 여기서 정리한다
 mkdir -p .claude/skills
 for s in dflow-work dflow-dev dflow-poll dflow-merge dflow-team; do ln -s "<FEAT_WT>/.claude/skills/$s" ".claude/skills/$s"; done
 cp "<FEAT_WT>/kit/.env.example" .env
@@ -2838,7 +2839,7 @@ cd /Users/jji/project/wbs-web-merge-main
 ln -s /Users/jji/project/wbs-web/node_modules node_modules    # /node_modules 는 gitignore 대상이라 추적되지 않는다
 git merge --no-ff feat/dflow-team -m "merge: feat/dflow-team → main: /dflow-team 팀장 스킬
 
-리허설(Orca·에이전트 팀)을 통과한 뒤 반영한다. /dflow-dev 의 api_base·원격 후보·claim 전 기점
+리허설(Orca·에이전트 팀)을 통과한 뒤 반영한다. /dflow-dev 의 api_base·원격 후보·머지 절차 위임·claim 전 기점
 이동·reported 커밋과 /dflow-merge 의 원격 후보·되돌림은 수동 경로에도 적용되는 수정이다."
 ```
 충돌이 나면 양쪽 수정을 모두 살려 푼다(한쪽을 버리지 않는다).
@@ -2862,7 +2863,7 @@ done
   ```
   두 줄 묶음 중 바뀐 파일의 것만 실행한다.
 - 그 뒤 `npx vitest run tests/skills` 를 돌린다. 보존 테스트가 실패하면 메시지의 원문 줄을 머지 결과에 되살린다.
-  "CHANGED 줄은 fixture 에 정확히 한 번씩" 이 실패하면 다른 세션이 의도 수정 대상 줄을 고친 것이다. 멈추고
+  "CHANGED 줄(과 범위 경계 줄)은 fixture 에 정확히 한 번씩" 이 실패하면 다른 세션이 의도 수정 대상 줄을 고친 것이다. 멈추고
   사람에게 보고한다.
 - fixture 를 다시 떴으면 머지 커밋에 담는다.
   ```bash
