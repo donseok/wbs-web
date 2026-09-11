@@ -28,7 +28,7 @@
 - 에이전트 팀 `name` = `w<slot>-<id8>`, `subagent_type` = `general-purpose`, `isolation: "worktree"` 필수(스펙 §4-8).
 - **git 호출 규칙(두 백엔드 공통)**: 워커와 Phase 서브에이전트는 `command -v git` 이 돌려주는 절대경로로 git 을 부른다(bare `git` 금지). 리허설에서 절대경로도 rtk 에 막히면 리터럴 `/usr/bin/git` 으로 바꾼다(스펙 §3-6, §11-5).
 - 백엔드는 자동 감지만 한다(`--backend` 없음). tmux 는 v1 에서 에이전트 팀으로 돈다(스펙 §4-3).
-- **팀장 상태는 캐시다.** 매 기상마다 `git worktree list --porcelain` + `.dflow-agent` + `.result`(정본)와 `~/.dflow/events.jsonl`(보조)에서 재구성한다. 결과 줄은 cksum 해시로 중복 처리를 막고, 감시 루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 한 체크아웃에 팀장은 하나이며 잠금은 디렉터리 `$(git rev-parse --git-path dflow-team.lock)` 을 `mkdir` 로 원자 획득한 것이다. 안에 `owner`(`<신원>/<host>/lead` 와 시작 epoch 초)와 매 기상 갱신하는 `beat` 를 두고, `beat` 가 70분보다 오래되면 죽은 것으로 보고 `mv` 로 옮겨 다시 확인한 뒤 가져온다. 마감의 소유 확인은 숫자 비교다(스펙 §4-2, §4-4, §4-5, §4-9).
+- **팀장 상태는 캐시다.** 매 기상마다 `git worktree list --porcelain` + `.dflow-agent` + `.result`(정본)와 `~/.dflow/events.jsonl`(보조)에서 재구성한다. 결과 줄은 cksum 해시로 중복 처리를 막고, 감시 루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 한 체크아웃에 팀장은 하나이며 잠금은 디렉터리 `$(git rev-parse --git-path dflow-team.lock)` 을 `mkdir` 로 원자 획득한 것이다. 안에 `owner`(`<신원>/<host>/lead <epoch> <PID>`, PID 는 Bash 도구 셸의 `$PPID`)와 `beat` 를 두고, `beat` 가 70분보다 오래되면 죽은 것으로 보고 `mv` 로 옮겨 다시 확인한 뒤 가져온다. 소유 판정은 "신원이 같고 PID 가 현재 `$PPID` 와 같다" 이며, 매 기상 이 판정을 통과해야 `beat` 를 쓰고(아니면 잠금 상실 마감), 마감도 이 판정을 통과할 때만 잠금을 지운다(스펙 §3-22, §4-2, §4-4, §4-5, §4-9).
 - **팀장의 poll.sh 는 `docs/tasks/` 가 없는 빈 디렉터리를 cwd 로 두고 `DFLOW_ENV_FILE` 로 `.env` 를 지정해 띄운다.** 그래서 팀장에게 poll exit 9·10 은 오지 않고, 승인 반영과 반려 발견은 승인 스윕이 맡는다(스펙 §3-14, §4-5).
 - events.jsonl: `~/.dflow/events.jsonl`, 스키마 `{ts, host, repo, tsk, order, phase, event, agent}` + 이벤트별 추가 필드(스펙 §9-3). 기록은 `jq -nc` 로 만든 한 줄을 붙인다.
 - 참조는 id8 만 쓴다. 순번 금지. 팀원은 `dflow.sh list` 를 부르지 않는다(스펙 §3-4, §5).
@@ -302,6 +302,7 @@ describe('/dflow-dev 원문 수정(스펙 §6-2, 수동·워커 공통)', () => 
     expect(sweep).toContain('`origin/agent/*`')
     expect(sweep).toContain('"건너뜀(다른 D\'Flow)"')
     expect(sweep).toContain('로컬이든 원격이든')
+    expect(sweep).toContain('같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합친다')
     expect(sweep).toContain('`origin/agent/<id8>-<slug>`')
     expect(sweep).toContain('`/dflow-merge` SKILL.md(`.claude/skills/dflow-merge/SKILL.md`) 2~5번을 그대로 따른다')
     expect(sweep).not.toContain('git merge --no-ff') // 머지 절차를 두 곳에 적지 않는다
@@ -431,9 +432,10 @@ Expected: 13건 중 FAIL 10, PASS 3. PASS 는 "CHANGED·범위 밖 원문 보존
 1. **후보 식별**: `/dflow-merge` 1번(`.claude/skills/dflow-merge/SKILL.md`)과 같게 로컬 + 원격으로 본다.
    대상 저장소의 `docs/tasks/*/state.json` 중 `phase=reported` 전부(로컬 후보)에 더해, 원격 `origin/agent/*`
    브랜치 tip 의 state.json 중 브랜치 이름의 id8 과 `order` 가 일치하고 `phase` 가 `merged` 가 아닌 것(원격
-   후보)을 본다. `api_base` 가 현재 `DFLOW_API_BASE`(끝 `/` 제거)와 다르면 로컬이든 원격이든
-   "건너뜀(다른 D'Flow)" 로 집계하고, 원격 후보는 값이 없어도 건너뛴다. 명령은 `/dflow-merge` 1번의 것을
-   그대로 쓴다. 원격에만 있는 후보의 머지 대상은 `origin/agent/<id8>-<slug>` 이다. 이유: Phase 5 가
+   후보)을 본다. 같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합친다. 그 다음 `api_base` 가 현재
+   `DFLOW_API_BASE`(끝 `/` 제거)와 다르면 로컬이든 원격이든 "건너뜀(다른 D'Flow)" 로 집계하고, 원격에만 있는
+   후보는 값이 없어도 건너뛴다. 명령과 합치는 규칙은 `/dflow-merge` 1번의 것을 그대로 쓴다. 원격에만 있는
+   후보의 머지 대상은 `origin/agent/<id8>-<slug>` 이다. 이유: Phase 5 가
    `reported` 를 커밋하므로 다른 브랜치로 옮긴 뒤에는 작업트리에서 그 state.json 이 빠져, 로컬만 보면
    승인분을 놓친다. 스테이징 D'Flow DB 는 운영을 복제하므로 다른 인스턴스의 후보도 approved 로 보인다.
 2~5. **판정·순서·머지·뒷정리**: `/dflow-merge` SKILL.md(`.claude/skills/dflow-merge/SKILL.md`) 2~5번을 그대로 따른다.
@@ -672,11 +674,11 @@ Phase 0-가 의 머지는 충돌·push 실패를 되돌리지 않아 /dflow-merg
 **Files:**
 - Create: `tests/skills/fixtures/dflow-merge.SKILL.orig.md`
 - Create: `tests/skills/dflow-merge-remote.test.ts`
-- Modify: `.claude/skills/dflow-merge/SKILL.md` (8·18·19·21·28·34·35·37행 교체·삭제, 20·24·27·28·30행 뒤 삽입)
+- Modify: `.claude/skills/dflow-merge/SKILL.md` (8·18·19·21·28·32·34·35·37행 교체·삭제, 20·24·27·28·30행 뒤 삽입)
 
 **Interfaces:**
 - Consumes: `parseFixture`·`firstLostLine` (Task 1, `tests/skills/_preserve.ts`), state.json 의 `api_base`(Task 1).
-- Produces: 인자 없는 `/dflow-merge` 가 로컬 `phase=reported` 와 원격 `origin/agent/*` tip 에서 `phase` 가 `merged` 가 아닌 작업을 후보로 보고(`api_base` 가 다르면 로컬이든 원격이든 건너뛰고, 원격은 값이 없어도 건너뛴다), 보고에 반려: 재작업 필요·머지 실패(충돌)·push 실패(되돌림)·건너뜀(서버 <status>·조회 실패·다른 D'Flow·기점 미반영·승인 뒤 변경)을 가른다. 스택 순서는 state.json `branch_base`(Task 1 이 커밋 sha 로 기록)로 판정하고, 머지 전에 완료 증적 head_sha 이후 변경이 그 작업의 state.json 뿐인지 본다. 충돌은 `git merge --abort`, push 실패는 `git reset --keep <기록한 HEAD>` 로 체크아웃을 깨끗하게 남긴다. Task 1 의 Phase 0-가 가 이 1번 명령과 2~5번 절차를 그대로 쓰고, Task 5 팀장 「4. 승인 스윕」 이 보고를 읽으며, 전제 검사가 `grep -q 'origin/agent/\*'` 로 지원 여부를 본다.
+- Produces: 인자 없는 `/dflow-merge` 가 로컬 `phase=reported` 와 원격 `origin/agent/*` tip 에서 `phase` 가 `merged` 가 아닌 작업을 후보로 보고(같은 order 의 로컬·원격 사본은 로컬 후보 하나로 합친 뒤, `api_base` 가 다르면 로컬이든 원격이든 건너뛰고, 원격에만 있는 후보는 값이 없어도 건너뛴다), 보고에 반려: 재작업 필요·머지 실패(충돌)·push 실패(경합)·push 실패(훅)·건너뜀(서버 <status>·조회 실패·다른 D'Flow·기점 미반영·승인 뒤 변경·승인 뒤 변경 확인 불가)을 가른다. 스택 순서는 state.json `branch_base`(Task 1 이 커밋 sha 로 기록)와 머지 대상 차분의 다른 state.json 으로 판정하고, 머지 전에 완료 증적 head_sha 가 머지 대상의 조상이며 그 뒤 변경이 그 작업의 state.json 뿐인지 본다(확인할 수 없으면 건너뛴다). 충돌은 `git merge --abort`, push 실패는 `git reset --keep <기록한 HEAD>` 로 체크아웃을 깨끗하게 남기고, 경합이면 스윕을 멈추고 훅 거부면 그 작업과 후손만 뺀다. Task 1 의 Phase 0-가 가 이 1번 명령과 2~5번 절차를 그대로 쓰고, Task 5 팀장 「4. 승인 스윕」 이 보고를 읽으며, 전제 검사가 `grep -q 'origin/agent/\*'` 로 지원 여부를 본다.
 
 - [ ] **Step 1: 수정 전 원문 fixture 를 떠서 따로 커밋한다 (SKILL.md 를 고치기 전에)**
 
@@ -729,6 +731,8 @@ const CHANGED = [
   // 4. 머지(4번): 머지 대상, 충돌 되돌림, merged 커밋을 push 전에(5번에서 옮겨 온다), push 실패 되돌림
   '   git merge --no-ff agent/<id8>-<slug> -m "merge: <TSK> <제목> (approved)"',
   '   - state.json `phase=merged` 갱신 → 기본브랜치에 커밋(파일명 명시).',
+  // 4. 머지(4번): 훅 거부는 스윕 전체가 아니라 그 작업(과 후손)만 멈춘다
+  '   우회 금지, 중단·보고.',
   // 5. 뒷정리(5번): 로컬 브랜치 삭제의 not found·checked out 건너뛰기
   '   - 머지된 `agent/` 브랜치 삭제(로컬 + 원격). 아직 미승인 후손 스택 브랜치는 **삭제·rebase',
   // 3. 판정 보고(6번): 갈래별 목록
@@ -761,7 +765,12 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('`origin/agent/<id8>-<slug>`')
   })
 
-  it('api_base 가 다르면 로컬이든 원격이든 건너뛰고, 원격은 값이 없어도 건너뛰며, 값 없는 로컬만 지금처럼 판정한다', () => {
+  it('같은 order 는 로컬 후보로 합친 뒤 api_base 가 다르면 로컬이든 원격이든 건너뛰고, 원격은 값이 없어도 건너뛰며, 값 없는 로컬만 지금처럼 판정한다', () => {
+    expect(skill).toContain('같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합쳐 로컬 규칙으로')
+    expect(skill).toContain('`api_base` 는 값이 있는 쪽을 쓰고')
+    expect(skill).toContain('증적 head_sha 를 포함하는 쪽')
+    expect(skill).toContain('순서는 중복 제거 → `api_base` 필터다')
+    expect(skill).toContain('[$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none"') // 원격 스캔도 값 없음을 가른다
     expect(skill).toContain('`api_base` 가 현재 `DFLOW_API_BASE`(끝 `/` 제거)와 다르면')
     expect(skill).toContain('로컬이든 원격이든 "건너뜀(다른 D\'Flow)" 로 보고한다')
     expect(skill).toContain('원격 후보는 값이 없어도 건너뛴다')
@@ -786,16 +795,25 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('"건너뜀(조회 실패)"')
   })
 
-  it('순서는 branch_base 로, 승인 뒤 변경은 건너뛰고, 충돌은 merge --abort, merged 커밋은 push 전에, push 실패는 reset --keep', () => {
+  it('순서는 branch_base 와 차분 백스톱으로, 승인 뒤 변경과 확인 불가는 건너뛰고, 충돌은 merge --abort, merged 커밋은 push 전에, push 실패는 reset --keep 뒤 경합·훅으로 가른다', () => {
     expect(skill).toContain('후보 state.json 의 `branch_base` 로 조상')
     expect(skill).toContain('`git merge-base --is-ancestor <branch_base> <그 후보의 머지 대상>`')
     expect(skill).toContain('"건너뜀(기점 미반영)"')
+    expect(skill).toContain("`git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> -- 'docs/tasks/*/state.json'`")
+    expect(skill).toContain('그 작업 외의 state.json 이 있으면')
     expect(skill).toContain('git diff --name-only <증적 head_sha>..<머지 대상>')
+    expect(skill).toContain('git merge-base --is-ancestor <증적 head_sha> <머지 대상>')
     expect(skill).toContain('"건너뜀(승인 뒤 변경)"')
+    expect(skill).toContain('"건너뜀(승인 뒤 변경 확인 불가)"')
     expect(skill).toContain('`git merge --abort`')
     expect(skill).toContain('"머지 실패(충돌)"')
     expect(skill).toContain('이 커밋을 **push 전에**')
     expect(skill).toContain('`git reset --keep <기록한 HEAD>`')
+    expect(skill).toContain('`non-fast-forward` 나 `fetch first`')
+    expect(skill).toContain('"push 실패(경합)"')
+    expect(skill).toContain('"push 실패(훅)"')
+    expect(skill).toContain('그 작업과 그 후손')
+    expect(skill).not.toContain('훅에 거부되든 경합으로 거부되든')
     expect(skill).toContain('`origin` 으로 리셋하지 않는다')
     expect(skill).toMatch(/git merge --no-ff <머지 대상>[\s\S]*git add docs\/tasks\/<TSK>\/state\.json[\s\S]*\n {3}git push origin <기본브랜치>\n/)
   })
@@ -813,7 +831,7 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
 Run: `npx vitest run tests/skills/dflow-merge-remote.test.ts`
 Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 fixture 에 한 번씩" 이다(수정 전이라 fixture 원문과 같다). FAIL 은 "CHANGED 줄이 현재 파일에 없다" 와 §6-4 여섯 건이다.
 
-- [ ] **Step 4: SKILL.md 를 고친다 (교체 여섯 곳, 삭제 한 곳, 삽입 다섯 곳)**
+- [ ] **Step 4: SKILL.md 를 고친다 (교체 일곱 곳, 삭제 한 곳, 삽입 다섯 곳)**
 
 (1) 8행
 ```markdown
@@ -838,7 +856,7 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
        git diff --name-only "origin/<기본브랜치>...$ref" -- 'docs/tasks/*/state.json' | while IFS= read -r p; do
          git show "$ref:$p" | jq -r --arg ref "$ref" --arg id8 "$id8" --arg api "$api" \
            'select((.order // "") | startswith($id8)) | select(.phase != "merged")
-            | [$ref, .tsk, .order, .phase, (if (.api_base // "") == $api then "same" else "other" end)] | @tsv'
+            | [$ref, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end)] | @tsv'
        done
      done
      ```
@@ -846,10 +864,21 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
      전부 후보**로 본다. 이유: tip 의 phase 는 `reported` 커밋이 실패하면 `verify` 에 머물 수 있으므로
      기대지 않는다. 판정은 서버 `show` 로만 하므로 넓게 잡아도 안전하다. 일치하는 state.json 이 없는
      브랜치는 후보가 아니다(아직 state.json 을 커밋하기 전이다).
-   - **`api_base` 필터**: 후보 state.json 의 `api_base` 가 현재 `DFLOW_API_BASE`(끝 `/` 제거)와 다르면
-     로컬이든 원격이든 "건너뜀(다른 D'Flow)" 로 보고한다. 원격 후보는 값이 없어도 건너뛴다(위 출력 마지막
-     칸 `other`). 값이 없는 로컬 후보(이 수정 전에 만든 state.json)는 지금처럼 판정한다. `/dflow-team`
-     팀장은 그런 후보가 있으면 시작하지 않는다. 로컬 후보의 값은 아래로 본다.
+   - **로컬·원격 중복**: 같은 order 가 로컬과 원격에 모두 있으면 로컬 후보 하나로 합쳐 로컬 규칙으로
+     판정한다. 합친 후보의 `api_base` 는 값이 있는 쪽을 쓰고(원격·로컬 스캔 출력 마지막 칸이 `none` 이 아닌 쪽), 둘 다
+     값이 있는데 서로 다르면 "건너뜀(다른 D'Flow)" 로 보고한다. 머지 대상은 증적 head_sha 를 포함하는 쪽
+     (`git merge-base --is-ancestor <증적 head_sha> <그 브랜치>` 가 참)이고, 그 밖에는(둘 다 포함하거나 증적에
+     head_sha 가 없으면) 원문처럼 로컬 브랜치 `agent/<id8>-<slug>`, 로컬 브랜치가 없으면 원격 브랜치다.
+     순서는 중복 제거 → `api_base` 필터다. 이유: 필터를 먼저 걸면 같은 작업이 "건너뜀(다른 D'Flow)" 와
+     "머지됨" 으로 두 번 보고되고, 원격 사본 쪽을 남기면 `api_base` 가 없는 옛 로컬 후보가 원격 규칙에 걸려
+     건너뛰어져 수동 경로가 머지하던 작업을 놓친다. head_sha 를 포함하는 쪽을 고르는 이유: 사람이 승인한
+     코드는 그 커밋까지이며, 그 커밋이 없는 쪽은 4번의 승인 뒤 변경 확인을 통과할 수 없다.
+   - **`api_base` 필터**(중복 제거 뒤): 후보 state.json 의
+     `api_base` 가 현재 `DFLOW_API_BASE`(끝 `/` 제거)와 다르면
+     로컬이든 원격이든 "건너뜀(다른 D'Flow)" 로 보고한다. 중복 제거 뒤 남은
+     원격 후보는 값이 없어도 건너뛴다(위 출력 마지막 칸 `none`·`other`). 값이 없는 로컬 후보(이 수정 전에
+     만든 state.json)는 지금처럼 판정한다. `/dflow-team` 팀장은 그런 후보가 있으면 시작하지 않는다. 로컬
+     후보의 값은 아래로 본다.
      ```bash
      find docs/tasks -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null | while IFS= read -r f; do
        jq -r --arg f "$f" --arg api "$api" 'select(.phase == "reported")
@@ -861,8 +890,8 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
      이유: 스테이징 D'Flow DB 는 운영을 복제하므로, 스테이징 `.env` 로 실제 리포에서 스윕하면 운영에서
      승인된 작업을 로컬 후보든 원격 후보든 머지할 수 있다. 값이 없는 옛 로컬 후보는 출처를 가릴 수 없으므로
      사람이 보는 수동 경로에만 남긴다.
-   - 서버 조회는 state.json 의 전체 UUID 로 한다. 로컬과 원격에 같은 작업이 있으면 order UUID 로 중복을
-     없앤다. 원격에만 있는 후보의 머지 대상은 `origin/agent/<id8>-<slug>` 다.
+   - 서버 조회는 state.json 의 전체 UUID 로 한다. 원격에만 있는 후보의 머지 대상은
+     `origin/agent/<id8>-<slug>` 다.
    - show 출력은 jq 로 `.order.status` 와 마지막 `kind=completion` 리포트의 `review_action`·`review_note`·완료
      증적의 `head_sha` 만 뽑는다. 스윕마다 spec 본문을 컨텍스트에 싣지 않기 위해서다. `head_sha` 는 4번의 승인 뒤
      변경 확인에 쓴다.
@@ -892,11 +921,12 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
    - show 가 404(dflow.sh exit 7)이거나 그 밖의 이유로 실패: "건너뜀(조회 실패)".
 ```
 
-(4) 4번 머지의 코드 블록. 27행 `   git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>` 바로 뒤에 두 줄을 넣고, 28행을 두 줄로 바꾼다(29행 `   git push origin <기본브랜치>` 는 그대로 남는다). 결과는 아래와 같다.
+(4) 4번 머지의 코드 블록. 27행 `   git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>` 바로 뒤에 세 줄을 넣고, 28행을 두 줄로 바꾼다(29행 `   git push origin <기본브랜치>` 는 그대로 남는다). 결과는 아래와 같다.
 ```markdown
    git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>
    git rev-parse HEAD                      # 머지 직전 HEAD. 값을 기록해 둔다
-   git diff --name-only <증적 head_sha>..<머지 대상>   # 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
+   git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
+   git diff --name-only <증적 head_sha>..<머지 대상>   # 실패하면 머지하지 않는다. 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
    git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>
    git add docs/tasks/<TSK>/state.json && git commit -m "chore(<TSK>): phase=merged"   # state.json 을 phase=merged 로 고친 뒤, push 전에
    git push origin <기본브랜치>
@@ -911,25 +941,39 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
    후보마다 다음 순서로 한다.
    1. `git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>` 뒤 머지 직전
       HEAD 를 기록한다.
-   2. **승인 뒤 변경 확인**: `git diff --name-only <증적 head_sha>..<머지 대상>` 이 그 작업의
-      `docs/tasks/<TSK>/state.json` 뿐이거나 비어 있으면 머지하고, 다른 파일이 있으면 "건너뜀(승인 뒤 변경)" 으로
-      보고한 뒤 다음 후보로 간다. `<증적 head_sha>` 는 1번 show 출력의 `head_sha` 다. 이유: 원격 후보를 받으므로
-      승인 뒤 같은 agent 브랜치에 올라온 커밋까지 머지 대상이 되는데, 사람이 승인한 것은 증적의 head_sha
-      까지다. tip 이 head_sha 와 같은지만 보면 `/dflow-dev` Phase 5 의 `reported` 커밋 때문에 늘 다르다. 증적에
-      `head_sha` 가 없는 옛 완료 보고는 이 확인을 건너뛰고 지금처럼 머지하되 보고에 "승인 뒤 변경 확인 불가" 를
-      붙인다. 수동 경로가 머지하던 후보를 거부하면 퇴행이기 때문이다.
+   2. **승인 뒤 변경 확인**: 증적 head_sha 가 로컬에 있고 머지 대상의 조상이며
+      (`git merge-base --is-ancestor <증적 head_sha> <머지 대상>` 이 참), `git diff --name-only <증적 head_sha>..<머지 대상>`
+      이 성공해 그 작업의 `docs/tasks/<TSK>/state.json` 뿐이거나 비어 있으면 머지한다. 다른 파일이 있으면
+      "건너뜀(승인 뒤 변경)", head_sha 가 로컬에 없거나 머지 대상의 조상이 아니거나 `git diff` 가 실패하면
+      "건너뜀(승인 뒤 변경 확인 불가)" 로 보고한 뒤 다음 후보로 간다. `<증적 head_sha>` 는 1번 show 출력의
+      `head_sha` 다. 이유: 원격 후보를 받으므로 승인 뒤 같은 agent 브랜치에 올라온 커밋까지 머지 대상이 되는데,
+      사람이 승인한 것은 증적의 head_sha 까지다. tip 이 head_sha 와 같은지만 보면 `/dflow-dev` Phase 5 의
+      `reported` 커밋 때문에 늘 다르다. 확인하지 못한 경우를 건너뛰는 이유: `git diff` 가 오류로 끝나면 출력이
+      비어 "비어 있으면 머지" 로 읽히기 때문이다. 증적에 `head_sha` 자체가 없는 옛 완료 보고는 이 확인을
+      건너뛰고 지금처럼 머지하되 보고에 "승인 뒤 변경 확인 불가" 를 붙인다. 수동 경로가 머지하던 후보를
+      거부하면 퇴행이기 때문이다.
    3. `git merge --no-ff <머지 대상>`. 충돌하면 `git merge --abort` 로 되돌리고 "머지 실패(충돌)" 로
       보고한 뒤 다음 후보로 간다. 이유: 충돌 상태로 남으면 체크아웃이 더러워져, 팀장이면 이후 모든
       기상이 전제 검사에서 멈추고 수동이면 사람이 그 상태를 치워야 한다.
    4. state.json 을 `phase=merged` 로 갱신해 기본 브랜치에 커밋한다(파일명 명시). 이 커밋을 **push 전에**
       만든다.
-   5. `git push origin <기본브랜치>` 로 머지와 `merged` 커밋을 한 번에 올린다. 훅에 거부되든 경합으로
-      거부되든 push 가 실패하면 `git reset --keep <기록한 HEAD>` 로 되돌리고 보고한 뒤 스윕을 멈춘다.
-      다음 실행은 fetch 부터 다시 한다. `origin` 으로 리셋하지 않는다. 이유: 수동 사용자의 기본 브랜치에
-      있던 미push 커밋을 보호한다. 훅 거부를 우회하지 않는 것은 그대로다.
+   5. `git push origin <기본브랜치>` 로 머지와 `merged` 커밋을 한 번에 올린다. push 가 실패하면 먼저
+      `git reset --keep <기록한 HEAD>` 로 되돌리고, 거부 모양으로 가른다.
+      - 출력에 `non-fast-forward` 나 `fetch first` 가 있으면 경합이다. "push 실패(경합)" 로 보고하고 스윕을
+        멈춘다. 다음 실행은 fetch 부터 다시 한다. 이유: 다른 스윕이 먼저 머지한 것이라 fetch 부터 다시 해야
+        후보가 맞다.
+      - 그런 문구 없이 1 로 끝나면 훅 거부다(로컬 pre-push 훅은 고정 문구 없이 훅 출력과
+        `failed to push some refs` 만 남긴다). "push 실패(훅)" 로 보고하고 그 작업과 그 후손(3번의 스택 관계)만
+        빼고 다음 후보로 간다. 이유: 훅이 막은 작업은 사람이 풀 때까지 매번 막히므로 그 한 건이 뒤의
+        승인분까지 막으면 안 되며, `/dflow-dev` Phase 0-가 의 원문도 이 작업만 건너뛰고 스윕을 계속했다.
+      - 그 밖의 실패(128 등 연결·권한 오류)는 "push 실패" 로 보고하고 스윕을 멈춘다. 원인을 모르는
+        실패에서 머지를 계속 시도하지 않는 것이 지금 동작이기 때문이다.
+
+      `origin` 으로 리셋하지 않는다. 이유: 수동 사용자의 기본 브랜치에 있던 미push 커밋을 보호한다. 훅 거부를
+      우회하지 않는 것은 그대로다.
 ```
 
-(6) 5번 뒷정리 34행 `   - state.json \`phase=merged\` 갱신 → 기본브랜치에 커밋(파일명 명시).` 를 지운다(4번 3단계로 옮겼다).
+(6) 5번 뒷정리 34행 `   - state.json \`phase=merged\` 갱신 → 기본브랜치에 커밋(파일명 명시).` 를 지운다(4번 4단계로 옮겼다).
 
 (7) 35행
 ```markdown
@@ -949,10 +993,10 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
 ```
 을 아래로 바꾼다.
 ```markdown
-6. **보고**: 머지됨 / 승인 대기 / 반려: 재작업 필요 (<review_note>) / 머지 실패(충돌) / push 실패(되돌림) /
-   건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·로컬 브랜치 삭제 건너뜀)을
-   표로. 반려와 머지 실패(충돌)는 id8 과 함께 따로 적는다. 호출자(`/dflow-team` 팀장 등)가 이 목록으로 후속
-   처리를 한다.
+6. **보고**: 머지됨 / 승인 대기 / 반려: 재작업 필요 (<review_note>) / 머지 실패(충돌) / push 실패(경합) /
+   push 실패(훅) / push 실패 / 건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·
+   승인 뒤 변경 확인 불가·로컬 브랜치 삭제 건너뜀)을 표로. 반려·머지 실패(충돌)·push 실패(훅)는 id8 과 함께 따로
+   적는다. 호출자(`/dflow-team` 팀장 등)가 이 목록으로 후속 처리를 한다.
 ```
 
 (9) 3번 순서의 21행
@@ -973,9 +1017,25 @@ Expected: 9건 중 FAIL 7, PASS 2. PASS 는 보존 테스트와 "CHANGED 줄이 
    - `branch_base` 가 커밋으로 풀리지 않으면(이 수정 전의 state.json 은 브랜치 이름을 적었을 수 있다) 그
      후보만 지금처럼 브랜치 tip 끼리 `git merge-base --is-ancestor A B` 로 판정한다. 수동 경로가 판정하던 옛
      후보를 거부하면 퇴행이기 때문이다.
+   - **차분 백스톱**: `branch_base` 판정과 별도로,
+     `git diff --name-only origin/<기본브랜치>...<그 후보의 머지 대상> -- 'docs/tasks/*/state.json'` 에 그 작업 외의 state.json 이 있으면
+     그 파일(`git show <그 후보의 머지 대상>:<경로>`)의 `order` 가 가리키는 작업들도 선행으로 보고 위 순서와
+     승인 판정에 넣는다. 그 선행이 이번에 머지되지 않았으면 후손을 건너뛰고, 후보에 없으면
+     "건너뜀(기점 미반영)" 으로 보고한다. 이유: `branch_base` 는 오케스트레이터가 적는 값이라 빠질 수 있고,
+     빠지면 스택이 비스택으로 판정돼 승인되지 않은 선행의 커밋이 main 에 들어간다. 차분에 다른 작업의
+     state.json 이 보이는 것은 그 작업의 커밋이 기본 브랜치에 없다는 구조적 증거다.
    - 이유: `/dflow-dev` Phase 5 가 done 뒤 `reported` 를 커밋하므로 선행 tip 은 후속이 기점으로 삼은 커밋보다
      앞서 있어 후속의 조상이 아니다. tip 으로 판정하면 스택을 알아보지 못해, 승인이 철회된 선행 위에 쌓인
      후속만 승인됐을 때 선행의 코드가 main 에 들어간다.
+```
+
+(10) 32행
+```markdown
+   우회 금지, 중단·보고.
+```
+을 아래 한 줄로 바꾼다(31행 `` `--no-ff` 고정 … push 가 훅에 거부되면`` 에 이어진다). 원문대로 두면 "중단" 이 스윕 전체를 멈추는 뜻으로 읽혀 위 5단계의 훅 거부 갈래와 어긋난다.
+```markdown
+   우회 금지. 되돌리고 보고한 뒤 그 작업과 후손만 빼는 절차는 위 5단계다.
 ```
 
 - [ ] **Step 5: 통과 확인**
@@ -993,8 +1053,10 @@ git commit -m "feat(dflow-merge): 원격 agent 브랜치 후보·api_base 필터
 안 잡힌다. 원격 tip 을 후보로 넓히되 tip 의 phase 는 reported 커밋이 빠지면 verify 에 머물 수
 있어 merged 만 빼고, 스테이징 DB 가 운영을 복제하므로 로컬·원격 모두 api_base 가 다른 인스턴스는 건너뛴다. 반려·
 조회 실패가 승인 대기에 묻히지 않게 가르고, 충돌 상태나 push 안 된 merged 커밋이 체크아웃에
-남아 이후 스윕을 막지 않게 되돌린다. reported 커밋 뒤에는 tip 이 증적 head_sha 가 아니라서 스택은
-branch_base 로 판정하고, 승인 뒤 브랜치에 올라온 커밋은 머지하지 않는다."
+남아 이후 스윕을 막지 않게 되돌린다. 훅이 막은 한 건은 그 작업과 후손만 빼고 경합일 때만 멈춘다.
+같은 order 의 로컬·원격 사본은 로컬 후보로 합쳐 옛 후보를 놓치지 않는다. reported 커밋 뒤에는 tip 이
+증적 head_sha 가 아니라서 스택은 branch_base 와 차분의 state.json 으로 판정하고, 승인 뒤 브랜치에
+올라온 커밋이나 그 확인을 할 수 없는 후보는 머지하지 않는다."
 ```
 
 ---
@@ -1347,6 +1409,7 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
 
   it('Orca 정리는 path 선택자를 쓰고 브랜치 보존 규칙을 적으며, 화면은 생존 증거가 아니다', () => {
     expect(b()).toContain('orca worktree rm --worktree path:<경로>')
+    expect(b()).toContain('`orca worktree rm --worktree path:<경로> --force`') // 부트스트랩 실패 정리만
     expect(b()).toContain('체크아웃된 로컬 브랜치만 삭제를 시도한다')
     expect(b()).toContain('**화면은 생존 증거로 쓰지 않는다.**')
   })
@@ -1363,6 +1426,7 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     // 생성 브랜치 정리: agent/ 가 아니고 origin/<기본브랜치> 의 조상인 생성 브랜치만 지운다
     expect(b()).toContain('**생성 브랜치 정리**')
     expect(b()).toContain("'worktree-<워크트리 디렉터리 이름>' '*dflow-<id8>*'")
+    expect(b()).toContain("git branch --format='%(refname:short)' --list 'worktree-agent-*' 'dflow-*'") // 이름을 모를 때
     expect(b()).toContain('case "$br" in agent/*) continue ;; esac')
     expect(b()).toContain('git merge-base --is-ancestor "$br" origin/<기본브랜치> && git branch -D "$br"')
   })
@@ -1463,7 +1527,8 @@ orca worktree rm --worktree path:<경로>
 orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같은 명령으로 지운다
 ```
 워크트리와 디렉터리를 지우고, 체크아웃된 로컬 브랜치만 삭제를 시도한다. 머지됐음을 입증하지 못하는 브랜치와
-워크트리보다 먼저 있던 브랜치는 보존한다. 미커밋분을 잃으므로 먼저 「고아 정리 규칙」 을 따른다.
+워크트리보다 먼저 있던 브랜치는 보존한다. 미커밋분을 잃으므로 먼저 「고아 정리 규칙」 을 따른다. `--force` 는
+「고아 정리 규칙」 1번(부트스트랩 실패)에서만 붙인다. 워크트리 강제 제거만 하고 브랜치 삭제는 강제하지 않는다.
 
 ## 에이전트 팀
 
@@ -1507,7 +1572,9 @@ git worktree remove --force <워크트리 경로>
 1. **부트스트랩 실패**(`.result` 의 branch 칸이 `-`, 브랜치를 만들기 전에 끝남): 미커밋 목록이 알려진
    부산물(`.dflow-agent`, `.result`, `docs/tasks/<TSK>/spec.md` 캐시, `.env` 링크, 스킬 링크(`.claude/skills` 또는
    그 안의 `dflow-dev`·`dflow-work`))뿐일 때만 정리한다(에이전트 팀은 `git worktree remove --force`, Orca 는
-   `orca worktree rm --worktree path:<경로>`).
+   `orca worktree rm --worktree path:<경로> --force`). 두 백엔드 모두 `--force` 를 쓰는 이유: 알려진 부산물 중
+   `spec.md` 캐시와 스킬 폴더 안의 개별 링크는 공유 `info/exclude` 가 가리지 않는 미추적 파일이라 `--force`
+   없이는 제거가 거부될 수 있다. Orca 의 `--force` 는 워크트리 강제 제거만 하고 브랜치 삭제는 강제하지 않는다.
    ```bash
    git -C <워크트리> status --porcelain --untracked-files=all \
      | grep -v -E '^\?\? (\.dflow-agent|\.env|\.claude/skills(/dflow-(dev|work))?|docs/tasks/<TSK>/(spec\.md|\.result))$'
@@ -1538,6 +1605,11 @@ git worktree remove --force <워크트리 경로>
    detach 하므로 생성 브랜치는 체크아웃되지 않은 채 남아 Orca 정리도 지우지 않고, 같은 id8 을 다시 띄우면
    이름이 부딪치며 작업마다 쌓인다. `origin/<기본브랜치>` 의 조상인 것만 지우는 이유는 이름만 맞는 브랜치의
    고유 커밋을 잃지 않기 위해서다. Orca 가 만드는 실제 이름은 리허설이 확인한다.
+   워크트리 디렉터리 이름을 모르면(에이전트 팀 워크트리가 이미 자동 정리됐고 `team.spawn` 의 `worktree` 가 `-`
+   이거나 컨텍스트 압축으로 이름을 잃은 경우) 위 루프의 첫 줄만
+   `git branch --format='%(refname:short)' --list 'worktree-agent-*' 'dflow-*'` 로 바꿔 돌린다.
+   세 안전 조건(`agent/` 아님, 체크아웃 안 됨, `origin/<기본브랜치>` 의 조상)은 루프가 그대로 지킨다. 이유:
+   이름을 채우지 못해 정리를 건너뛰면 생성 브랜치가 쌓이고, 세 조건이 이름만 맞는 남의 브랜치를 보호한다.
 ````
 
 - [ ] **Step 4: `references/events.md` 작성**
@@ -1675,19 +1747,19 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('어느 갈래에서도 병렬 불가로 종료하지 않는다')
   })
 
-  it('전제 검사: 실패하면 종료하는 블록, mkdir 원자 잠금과 beat 70분, 기본 브랜치 폴백, 신원·host 슬러그, ~/.dflow', () => {
+  it('전제 검사: 실패하면 종료하는 블록, mkdir 원자 잠금과 beat 70분, owner 의 세션 PID, 기본 브랜치 폴백, 신원·host 슬러그, ~/.dflow', () => {
     expect(s()).toContain('[ "$fail" = 0 ] || exit 1')
     expect(s()).toContain("case \"$MAIN\" in *' '*) bad SPACE_IN_PATH ;; esac")
     expect(s()).toContain('LOCK=$(git rev-parse --git-path dflow-team.lock)')
     expect(s()).toContain('mkdir "$LOCK" 2>/dev/null')
     expect(s()).toContain('-lt 4200')
-    expect(s()).toContain(`printf '%s %s\\n' "$who/$host/lead" "$(date +%s)" > "$LOCK/owner"`)
+    expect(s()).toContain(`printf '%s %s %s\\n' "$who/$host/lead" "$(date +%s)" "$PPID" > "$LOCK/owner"`) // 소유는 신원 + 팀장 세션 PID
+    expect(s()).toContain('|| { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }') // owner·beat 쓰기 실패는 방금 만든 잠금을 지우고 실패
     expect(s()).toContain('"$LOCK/beat"')
     expect(s()).toContain('b=$(cat "$LOCK/beat" 2>/dev/null || date +%s)') // beat 없는 잠금은 막 생긴 것이다
     expect(s()).toContain('mv "$LOCK" "$T" 2>/dev/null') // 탈취는 옮긴 뒤 다시 확인한다
     expect(s()).toContain('b=$(cat "$T/beat" 2>/dev/null || date +%s)')
-    expect(s()).not.toContain('kill -0')
-    expect(s()).not.toContain('$PPID')
+    expect(s()).not.toContain('kill -0') // 생존은 PID 가 아니라 beat 로 본다
     expect(s()).toContain('NOT_DEFAULT_BRANCH')
     expect(s()).toContain('git ls-remote --symref origin HEAD')
     expect(s()).toContain("hostname -s | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
@@ -1707,12 +1779,20 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('파일명을 명시해 먼저 커밋하라')
     expect(s()).toContain("grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md")
     expect(s()).toContain("grep -q 'origin/agent/\\*' .claude/skills/dflow-merge/SKILL.md")
+    // 킷 복사형은 팀원이 쓰는 origin/<기본브랜치> 의 스킬도 본다
+    expect(s()).toContain('git show "origin/$base:.claude/skills/dflow-dev/SKILL.md" 2>/dev/null | grep -q -- \'--worker\'')
+    expect(s()).toContain('git show "origin/$base:.claude/skills/dflow-merge/SKILL.md" 2>/dev/null | grep -q \'origin/agent/\\*\'')
+    expect(s()).toContain('KIT_NOT_PUSHED')
   })
 
   it('매 기상 재구성: 정본은 <신원>/<host>/ 워크트리·.result, 보조는 마지막 team.start 이후 lead 이벤트', () => {
     expect(s()).toContain('git worktree list --porcelain')
     expect(s()).toContain('**깨어날 때마다**')
-    expect(s()).toContain('date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"')
+    // 매 기상: 소유(신원 + 세션 PID)를 확인한 뒤에만 beat 를 쓰고, 아니면 잠금 상실
+    expect(s()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
+    expect(s()).toContain('if [ "$o_who" = \'<신원>/<host>/lead\' ] && [ "$o_pid" = "$PPID" ]; then\n  date +%s > "$LOCK/beat"')
+    expect(s()).toContain('LOCK_LOST')
+    expect(s()).not.toContain('date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"')
     expect(s()).toContain('case "$a" in "<신원>/<host>/"*) ;; *) continue ;; esac')
     expect(s()).toContain('`<신원>/<host>/parked`')
     expect(s()).toContain('마지막 `team.start` 이후')
@@ -1838,11 +1918,13 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('"사람 확인 필요"')
   })
 
-  it('승인 스윕: 인자 없는 /dflow-merge, 반려는 수동 대상, 충돌·경합은 되돌림 뒤 보고', () => {
+  it('승인 스윕: 인자 없는 /dflow-merge, 반려는 수동 대상, 충돌·경합·훅 거부는 되돌림 뒤 보고', () => {
     expect(s()).toContain('`/dflow-merge` 를 **인자 없이** 실행한다')
     expect(s()).toContain('`api_base` 가 없는 로컬 후보는 전제 검사가 시작 전에 막는다')
     expect(s()).toContain('수동 `/dflow-dev <id8>` 대상')
     expect(s()).toContain('`git reset --keep`')
+    expect(s()).toContain('"push 실패(경합)"')
+    expect(s()).toContain('"push 실패(훅)"')
     expect(s()).toContain('"머지 실패(충돌)"')
     expect(s()).toContain('"사람이 머지해야 함"')
   })
@@ -1858,15 +1940,16 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('`--worktree path:<result.worktree.path>`')
   })
 
-  it('마감: 대기 상한 TICK 두 번, 마지막 스윕, 살아 있는 팀원 워크트리 보존, agent 브랜치 남김, team.stop, 숫자 비교로 잠금 해제', () => {
+  it('마감: 대기 상한 TICK 두 번, 마지막 스윕, 살아 있는 팀원 워크트리 보존, agent 브랜치 남김, team.stop, 소유 판정으로 잠금 해제, 잠금 상실 마감', () => {
     expect(s()).toContain('`TICK` 두 번까지만')
     expect(s()).toContain('마지막 승인 스윕')
     expect(s()).toContain('**살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.**')
     expect(s()).toContain('**agent 브랜치는 남긴다.**')
     expect(s()).toContain('`team.stop`')
-    expect(s()).toContain('[ "${o_ts:-x}" -le "$start" ] 2>/dev/null && rm -rf "$LOCK"')
-    expect(s()).toContain('fromdateiso8601')
+    expect(s()).toContain('[ "$o_pid" = "$PPID" ]; then rm -rf "$LOCK"')
+    expect(s()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
     expect(s()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
+    expect(s()).toContain('**잠금 상실 마감**')
   })
 })
 ```
@@ -1990,7 +2073,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - 대기 큐는 재구성하지 않는다. 비어 있어도 다음 poll 이 같은 ready 를 다시 찾는다. 예외는 답을 받은
   `blocked` 작업이다. 이 작업은 진행 중으로 영구 제외돼 poll 이 다시 찾지 않으므로 `team.answer` 에서 복원해 대기 큐 맨 앞에 둔다.
 - **결과 중복 방지**: 결과 줄은 그 줄의 해시로 식별한다. `.result` 경로마다 events.jsonl 의 `team.result`·
-  `team.blocked` 에서 마지막으로 처리한 해시(경로별 마지막 처리 해시)를 유도하고, 현재 줄의 해시가 그와
+  `team.blocked` 에서 마지막으로 처리한 해시(경로별 마지막 처리 해시)를 유도하고, 현재 줄의 해시와 비교해
   해시가 다를 때만 처리한다. 이유: 보존된 `blocked` 워크트리의 같은 질문이 재구성마다 다시 통지되거나 같은
   결과가 두 번 처리되지 않게 하고, 답을 받은 pane 팀원이 새 질문으로 다시 `blocked` 가 되면 그것은 놓치지
   않게 한다. 집계는 order 로 중복을 없앤다. 줄과 해시는 한 번의 Bash 호출로 함께 읽는다.
@@ -2050,7 +2133,16 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    for p in '**/.claude/worktrees/' '/.dflow-agent' 'docs/tasks/*/.result'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
-   [ -n "$(git ls-files .claude/skills | head -n 1)" ] || { grep -qxF '/.claude/skills' "$ex" || printf '%s\n' '/.claude/skills' >> "$ex"; }
+   tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
+   [ -n "$tracked" ] || { grep -qxF '/.claude/skills' "$ex" || printf '%s\n' '/.claude/skills' >> "$ex"; }
+   if [ -n "$tracked" ] && [ -n "$base" ]; then
+     if git fetch -q origin; then
+       git show "origin/$base:.claude/skills/dflow-dev/SKILL.md" 2>/dev/null | grep -q -- '--worker' || bad "KIT_NOT_PUSHED dflow-dev"
+       git show "origin/$base:.claude/skills/dflow-merge/SKILL.md" 2>/dev/null | grep -q 'origin/agent/\*' || bad "KIT_NOT_PUSHED dflow-merge"
+     else
+       bad "KIT_NOT_PUSHED fetch 실패"
+     fi
+   fi
    [ -z "$(git status --porcelain)" ] || bad DIRTY
    [ "$(date +%H%M)" -lt <HHMM> ] || bad "UNTIL_PAST 종료 시각은 당일 시각만(자정 넘김 불가)"
    if [ "${TERM_PROGRAM-}" = Orca ] || [ -n "${ORCA_WORKTREE_ID-}" ]; then
@@ -2074,14 +2166,21 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      mkdir "$LOCK" 2>/dev/null || { echo "LOCKED $LOCK"; exit 1; }
      echo "STALE_LOCK_TAKEN"
    fi
-   printf '%s %s\n' "$who/$host/lead" "$(date +%s)" > "$LOCK/owner"
-   date +%s > "$LOCK/beat"
-   echo PRECHECK_OK
+   # owner = <신원>/<host>/lead <시작 epoch> <팀장 세션 PID>. 방금 만든 잠금이라 쓰기에 실패하면 지우고 끝낸다
+   { printf '%s %s %s\n' "$who/$host/lead" "$(date +%s)" "$PPID" > "$LOCK/owner" && date +%s > "$LOCK/beat"; } \
+     || { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }
+   echo "PRECHECK_OK lead_pid=$PPID"
    ```
    - **팀장 잠금**: 잠금은 디렉터리이며 `mkdir` 로 얻는다. `mkdir` 는 원자적이라 동시에 시작한 팀장 둘 중 하나만
-     성공한다. 실패한 검사가 잠금을 남기지 않도록 블록의 마지막에 둔다. 안에 `owner`(`<신원>/<host>/lead` 와
-     시작 epoch 초)와 `beat`(epoch 초)를 쓰고, 팀장은 매 기상 `beat` 를 갱신한다(「2-3」). 시작 시각을 epoch 초로
-     두는 이유는 「7. 마감」 의 소유 확인을 숫자로 비교하기 위해서다. 기존 잠금의 `beat` 가 70분(4200초)보다
+     성공한다. 실패한 검사가 잠금을 남기지 않도록 블록의 마지막에 둔다. 안에 `owner` 한 줄
+     `<신원>/<host>/lead <시작 epoch 초> <PID>` 와 `beat`(epoch 초)를 쓴다. PID 는 Bash 도구 셸의 `$PPID`, 곧 팀장
+     세션 프로세스이며 Bash 호출마다, 컨텍스트 압축 뒤에도 같다. **소유 판정**은 "`owner` 의 신원이 자기
+     `<신원>/<host>/lead` 이고 PID 가 현재 `$PPID` 와 같다" 이다. 이유: 잠금은 체크아웃마다 하나라서 잠금을 가져간
+     다른 팀장도 신원·host·리포가 같고, 신원만으로는 누구의 잠금인지 가려내지 못한다. 시작 시각은 `LOCKED` 안내에서
+     사람이 그 팀장을 알아보게 하려고 둔다. 팀장은 매 기상 소유를 확인한 뒤에만 `beat` 를 갱신한다(「2-3」).
+     `owner`·`beat` 쓰기가 실패하면 방금 만든 잠금 디렉터리를 지우고 `FAIL LOCK_WRITE` 로 끝낸다. 이유: `beat`
+     가 없는 잠금은 막 생긴 것으로 보여 이후의 모든 시작을 막고, 방금 `mkdir` 로 만든 잠금은 다른 팀장이
+     건드리지 않으므로 지워도 남의 잠금이 아니다. 기존 잠금의 `beat` 가 70분(4200초)보다
      새로우면 거부한다. `beat` 가 없으면 방금 만들어진 잠금(`mkdir` 와 `beat` 쓰기 사이)으로 보고 새로운 것으로
      친다. 더 오래됐으면 잠금 디렉터리를 `mv` 로 이 팀장만 아는 이름 `$LOCK.stale.$$` 로 옮기고, 옮긴 디렉터리의
      `beat` 를 다시 읽어 여전히 오래됐을 때만 지운 뒤 `mkdir` 로 다시 얻는다. 옮긴 잠금이 새로우면 그사이 다른
@@ -2091,9 +2190,16 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      없다. `LOCKED` 로 거부할 때는 잠금 경로·
      `owner`·`beat` 시각과 함께 "그 팀장이 끝난 것이 확실하면 잠금 디렉터리를 지우고 다시 시작하라" 를 안내한다.
      세션이 죽은 직후 재기동하면 `beat` 가 아직 새롭기 때문이다. 이유: 한 체크아웃의 팀장 둘은 슬롯 번호·세대
-     파일·승인 스윕을 서로 덮어쓴다. 프로세스 PID 대신 `beat` 를 쓰는 이유는 셸 블록이 팀장 세션 프로세스의
-     PID 를 믿을 만하게 얻을 수단이 없어서다. 살아 있는 팀장은 늦어도 `TICK`(30분)마다 깨어 `beat` 를 갱신하므로,
-     70분이면 두 `TICK` 을 연속으로 놓친 것이다.
+     파일·승인 스윕을 서로 덮어쓴다. 생존(가져와도 되는지)은 PID 가 아니라 `beat` 로 본다. 이유: 세션 프로세스가
+     살아 있어도 권한 확인 등에 멈춘 팀장은 기상하지 않아 제 몫을 못 하는데, `beat` 는 그 멈춤까지 드러낸다.
+     살아 있는 팀장은 늦어도 `TICK`(30분)마다 깨어 `beat` 를 갱신하므로, 70분이면 두 `TICK` 을 연속으로 놓친 것이다.
+   - `KIT_NOT_PUSHED`: `.claude/skills` 가 git 추적되는 킷 복사형 리포면 `git fetch origin` 뒤
+     `origin/<기본브랜치>` 의 `dflow-dev` SKILL.md 에 `--worker` 가, `dflow-merge` SKILL.md 에 원격 후보 지원
+     (`origin/agent/*`)이 있어야 한다. fetch 가 실패하면 검사할 수 없으므로 실패로 친다. 이유: 팀원 워크트리는
+     `origin/<기본브랜치>` 에서 만들어지거나 그리로 detach 해서 그 커밋의 스킬을 쓴다. 킷을 설치·커밋만 하고
+     push 하지 않으면 작업트리 검사(`OLD_DFLOW_DEV`)는 통과하고 팀원은 전원 `failed no-worker-flag` 로 끝난다.
+     안내에 "킷 커밋을 기본 브랜치에 push 한 뒤 다시 시작하라" 를 넣는다. 심링크 배포 리포는 워커가 메인
+     체크아웃의 스킬을 링크하므로 이 검사를 하지 않는다.
    - `SPACE_IN_PATH`: 메인 체크아웃 절대경로에 공백이 있으면 시작을 거부한다. 이유: 포인터 한 줄 형식과
      워커 부트스트랩의 `ln -s` 링크가 공백을 다루지 않는다.
    - `NO_DEFAULT_BRANCH`·`NOT_DEFAULT_BRANCH`: 기본 브랜치는 `origin/HEAD` 에서 구하고, 그 ref 가 없으면
@@ -2241,12 +2347,24 @@ done
 
 ### 2-3. 기상마다 하는 일
 
-모든 기상은 먼저 잠금 `beat` 를 갱신한다. `STALE` 은 그것만 하고 넘긴다. 이유: 살아 있는 팀장의 잠금이 70분 뒤
-죽은 것으로 보이지 않게 한다(「1. 시작」 팀장 잠금).
+모든 기상은 먼저 잠금 소유를 확인하고, 소유가 맞을 때만 `beat` 를 갱신한다. `STALE` 은 그것만 하고 넘긴다.
+이유: 살아 있는 팀장의 잠금이 70분 뒤 죽은 것으로 보이지 않게 하되, 잠금을 잃은 팀장이 새 팀장의 잠금을 계속
+살아 있게 만들지 않는다(「1. 시작」 팀장 잠금).
 ```bash
-date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"
+LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
+{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
+if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then
+  date +%s > "$LOCK/beat" && echo LOCK_OK || echo "LOCK_LOST beat 쓰기 실패"
+else
+  echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$PPID"
+fi
 ```
-`STALE` 을 뺀 모든 기상에서는 이어서 이 순서로 한다.
+`LOCK_LOST` 면 **잠금 상실**이다. "잠금 상실" 로 보고하고 새 spawn 을 멈추며, 잠금을 지우지 않은 채 「7. 마감」 의
+잠금 상실 마감으로 간다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓친 사이 다른 팀장이 잠금을 가져갔다면 두 팀장이
+같은 체크아웃에서 스윕·spawn 을 하고 같은 슬롯 번호를 낸다. `beat` 를 쓰지 못한 경우도 곧 다른 팀장이 가져갈 수
+있어 소유를 장담할 수 없다.
+
+`STALE` 을 뺀 모든 기상에서는 `LOCK_OK` 뒤에 이어서 이 순서로 한다.
 1. 재구성(「팀장 상태」).
 2. 아래 표의 처리.
 3. 승인 스윕(「4. 승인 스윕」). 스윕을 도는 기상은 시작, 결과 도착(`.result` 또는 완료 알림), `TICK`, poll
@@ -2268,7 +2386,7 @@ date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"
 | 에이전트 팀 완료 알림 | 「3. 결과 처리」 |
 | 사람의 답 | 「6. blocked」 의 답 매칭 |
 | `TICK` | 다음 TICK 예정 시각을 지금+1800초로 새로 정한다. suspect 슬롯과 무응답 슬롯의 생존 증거를 잰다(「3. 결과 처리」). 차단기가 걸려 있으면 시험 spawn 1건을 허용한다 |
-| `STALE` | 잠금 `beat` 만 갱신하고 나머지는 넘긴다 |
+| `STALE` | 잠금 소유 확인과 `beat` 갱신만 하고 나머지는 넘긴다 |
 
 poll exit 0 의 show 필터:
 ```bash
@@ -2350,14 +2468,18 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 후보가 원
 - **반려**: 반려로 보고된 id8 은 "반려: 수동 `/dflow-dev <id8>` 대상 (<review_note>)" 로 보고하고 영구 제외에
   넣는다. 재작업은 기존 agent 브랜치 위에서 해야 하므로 자동 배정하지 않는다.
 - **다중 경합**: 두 팀장의 스윕이 같은 브랜치를 머지하려 하면 나중 쪽 `git push` 가 non-fast-forward 로
-  거부된다. 그러면 `/dflow-merge` 가 머지 직전 HEAD 로 `git reset --keep` 해 되돌리고 보고한 뒤 스윕을 멈춘다.
-  다음 기상의 스윕이 fetch 부터 다시 하며, 그 사이에 머지된 것은 후보에서 빠진다.
+  거부된다. 그러면 `/dflow-merge` 가 머지 직전 HEAD 로 `git reset --keep` 해 되돌리고 "push 실패(경합)" 로 보고한
+  뒤 스윕을 멈춘다. 다음 기상의 스윕이 fetch 부터 다시 하며, 그 사이에 머지된 것은 후보에서 빠진다.
+- **push 훅 거부**: `/dflow-merge` 가 `git reset --keep` 으로 되돌리고 "push 실패(훅)" 로 보고한 뒤, 그 작업과 그
+  후손만 빼고 다음 후보로 간다. 팀장은 그 id8 을 "사람이 머지해야 함" 으로 보고한다. 이유: 훅이 막는 작업(예:
+  스테이징 리허설 트레일러가 없는 마이그레이션) 한 건이 후보 앞쪽에 있어도 뒤의 승인분은 계속 반영돼야 하며,
+  스윕을 멈추면 사람이 그 한 건을 풀 때까지 매 기상이 같은 자리에서 멈춘다.
 - **머지 충돌**: `/dflow-merge` 가 `git merge --abort` 로 되돌리고 "머지 실패(충돌)" 로 보고한 뒤 다음 후보로
   간다. 팀장은 그 id8 을 "사람이 머지해야 함" 으로 보고한다. 팀장 체크아웃은 깨끗하게 남아 다음 기상의 전제가
   깨지지 않는다.
 - 로컬 agent 브랜치 삭제가 브랜치 없음이나 "checked out" 오류로 실패하면 `/dflow-merge` 가 건너뛰고 보고한다.
   그 워크트리는 결과 처리나 고아 스캔이 정리한다.
-- 승인 대기·건너뜀(서버 <status>·조회 실패·다른 D'Flow)은 보고만 한다.
+- 승인 대기·건너뜀(서버 <status>·조회 실패·다른 D'Flow·승인 뒤 변경·승인 뒤 변경 확인 불가)은 보고만 한다.
 - `team.sweep`(merged, waiting, rejected 개수)을 기록한다.
 - 스윕은 팀장 체크아웃에서 기본 브랜치로 switch 한다. 팀장 체크아웃은 전제 검사로 이미 기본 브랜치에 있고,
   팀원은 각자 워크트리의 agent 브랜치나 detached HEAD 에 있으므로 충돌하지 않는다.
@@ -2438,7 +2560,8 @@ origin tip 과 같으면 즉시 정리하고, 아니면 `.dflow-agent` 값을 `<
 
 ## 7. 마감
 
-poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종료 시각 경과로 온다.
+poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종료 시각 경과로 온다. 잠금 상실은 1~6 을 타지
+않고 아래 「잠금 상실 마감」 으로 간다.
 1. 새 spawn 을 멈춘다. 대기 큐는 보고만 하고 비운다.
 2. **기다림의 상한**: `blocked` 슬롯과 무응답 슬롯은 기다리지 않는다. 진행 중 슬롯은 마감에 들어선 뒤
    `TICK` 두 번까지만 결과를 기다린다. 이 동안 poll 은 재기동하지 않고 감시 루프만 재기동해 결과와 `TICK` 을
@@ -2458,18 +2581,24 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
 5. **agent 브랜치는 남긴다.** 승인은 사람이 D'Flow 웹에서 하고, 승인 뒤 머지는 다음 `/dflow-team` 의 스윕이나
    `/dflow-merge` 가 한다.
 6. poll 이 떠 있으면 TaskStop 으로 멈추고(태스크 id 를 모르면 종료 시각에 스스로 끝난다), 세대 파일의 세대를
-   올려 감시 루프를 끝낸다. `team.stop` 을 기록하고 팀장 잠금 디렉터리를 지운다. 지우기 전에 `owner` 가 자기
-   `<신원>/<host>/lead` 이고 그 시작 epoch 초가 이 팀장의 마지막 `team.start` 시각(epoch 초로 바꾼 값) 이하인지
-   숫자로 비교한다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓쳐 다른 팀장이 잠금을 가져갔다면, 그 잠금의 시작
-   시각은 이 팀장의 `team.start` 보다 늦으며 지우면 안 된다. 시각 문자열의 대소 비교는 zsh 에서
-   `condition expected` 로 실패해 정상 마감 뒤에도 잠금이 남는다. 소유가 확인되지 않으면(값이 없거나 숫자가
-   아니면) 지우지 않는다.
+   올려 감시 루프를 끝낸다. `team.stop` 을 기록하고 팀장 잠금 디렉터리를 지운다. 지우기 전에 「1. 시작」 의 소유
+   판정(`owner` 의 신원이 자기 `<신원>/<host>/lead` 이고 PID 가 현재 `$PPID` 와 같다)을 한 번 더 하고, 참일 때만
+   지운다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓쳐 다른 팀장이 잠금을 가져갔다면 그 잠금은 신원·host·리포가
+   같아도 PID 가 다르며, 지우면 안 된다. events.jsonl 의 `team.start` 시각과 비교하지 않는 이유: 두 팀장의
+   이벤트가 같은 `agent`·`repo` 로 섞여, 마지막 `team.start` 가 새 팀장의 것일 수 있다. `owner` 를 읽는 `read`
+   는 `|| true` 로 감싼다. 이유: 파일이 없으면 `read` 가 0 이 아닌 값으로 끝나, 실패에 멈추는 셸 설정에서는
+   마감의 나머지가 통째로 건너뛰어진다.
    ```bash
-   LOCK=$(git rev-parse --git-path dflow-team.lock)
-   start=$(jq -r --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .repo == $r and .event == "team.start") | .ts | fromdateiso8601' ~/.dflow/events.jsonl 2>/dev/null | tail -n 1)
-   { read -r o_who o_ts < "$LOCK/owner"; } 2>/dev/null
-   [ "${o_who-}" = '<신원>/<host>/lead' ] && [ -n "$start" ] && [ "${o_ts:-x}" -le "$start" ] 2>/dev/null && rm -rf "$LOCK"
+   LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
+   { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
+   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then rm -rf "$LOCK" && echo LOCK_RELEASED; else echo "LOCK_KEPT owner=$o_who $o_ts $o_pid"; fi
    ```
+
+**잠금 상실 마감**(「2-3」 의 `LOCK_LOST`): 위 1~6 중 기다림·마지막 승인 스윕·워크트리 정리·`team.*` 기록·세대
+파일 변경·잠금 삭제를 하지 않는다. 떠 있는 poll 이 있으면 TaskStop 으로 멈추고, 집계와 남은 슬롯(TSK·id8·워크트리
+경로)을 "잠금 상실: 이 체크아웃은 다른 팀장이 맡았다" 와 함께 보고한 뒤 끝낸다. 이유: 체크아웃과 이 신원의
+워크트리·세대 파일은 이제 새 팀장 것이고, 새 팀장의 재구성은 같은 `agent`·`repo` 의 마지막 `team.start` 이후
+이벤트를 읽으므로 이 팀장이 남기는 기록이 새 팀장의 슬롯 표와 제외 목록에 섞인다.
 
 ## 좌석표 연동
 
@@ -2507,7 +2636,9 @@ git commit -m "feat(dflow-team): 팀장 절차: 잠금·매 기상 재구성·�
 몇 시간 도는 팀장은 컨텍스트 압축으로 슬롯 표를 잃으므로 메모리를 캐시로 보고 매 기상마다
 워크트리·.result·events.jsonl 에서 다시 만들고, 결과 줄 해시로 같은 결과를 두 번 처리하지 않는다.
 poll 은 빈 디렉터리에서 띄워 exit 9·10 공회전을 없애고 승인 반영은 기상마다의 스윕이 맡는다.
-한 체크아웃에 팀장은 하나만 뜨게 잠그고, 에이전트 팀 blocked 답은 id8 으로 매칭해 대기 큐 맨
+한 체크아웃에 팀장은 하나만 뜨게 잠그고, 잠금을 가져간 팀장도 신원이 같으므로 소유는 세션 PID 로
+판정해 잠금을 잃은 팀장이 새 팀장의 잠금을 지우거나 살려 두지 않게 한다. 킷 복사형 리포는 팀원이
+origin 의 스킬을 쓰므로 push 여부를 본다. 에이전트 팀 blocked 답은 id8 으로 매칭해 대기 큐 맨
 앞에서 재spawn 한다. 결과 줄 없는 완료 알림은 suspect 로 두고 연속 실패는 차단기로 막는다."
 ```
 
@@ -2519,7 +2650,7 @@ poll 은 빈 디렉터리에서 띄워 exit 9·10 공회전을 없애고 승인 
 - Modify: `scripts/kit-build.sh` (12행 교체, 22행 뒤 삽입)
 - Modify: `kit/install.sh` (41행 뒤 삽입, 48행 교체)
 - Create: `kit/agent-team-allow.json`
-- Modify: `kit/README.md` (4행, 16~17행, 스킬 표)
+- Modify: `kit/README.md` (4행, 16~17행, 26행, 스킬 표)
 - Modify: `docs/agent/claude-skill/dflow-skills-guide.md` (3행, 한눈에 보기 표, dflow-poll·dflow-merge 「알아둘 것」, `## 자주 겪는 상황` 앞)
 - Modify: `tests/skills/dflow-team.test.ts`
 
@@ -2611,6 +2742,7 @@ echo "권한 준비: $SETTINGS 의 permissions.allow 에 에이전트 팀 허용
 (4) `kit/README.md`
 - 4행의 스킬 나열 `` `/dflow-dev`, `/dflow-poll`, `/dflow-merge`, `` 뒤에 `` `/dflow-team`, `` 을 넣는다.
 - 16~17행의 install.sh 설명 끝 `→ 다음 단계 안내.` 앞에 `` `.claude/settings.json` 에 에이전트 팀 허용 목록 병합(git 은 이 PC 의 절대경로) → `` 를 넣는다.
+- 26행 첫 문장 `` `.claude/skills/` 는 리포에 커밋한다. `` 를 `` `.claude/skills/` 는 리포에 커밋하고 기본 브랜치에 push 한다(`/dflow-team` 팀원 워크트리는 `origin` 의 스킬을 쓴다). `` 로 바꾼다. 이유: 커밋만 하고 push 하지 않으면 팀장 전제 검사가 `KIT_NOT_PUSHED` 로 멈춘다(스펙 §4-4·§8).
 - 스킬 표의 `| dflow-merge |` 행 뒤에 한 행을 넣는다.
 ```markdown
 | dflow-team | 팀장. 에이전트 위임 작업을 슬롯 N개 팀원(Orca pane 또는 에이전트 팀)에게 나눠 동시에 개발시킨다. 낮 시간 supervised |
@@ -2656,6 +2788,7 @@ echo "권한 준비: $SETTINGS 의 permissions.allow 에 에이전트 팀 허용
   모인다. "5a4b3c2d 숨김으로" 처럼 id8 을 앞에 붙여 답한다(기다리는 질문이 하나면 id8 없이도 된다).
 - 팀장 세션을 닫으면 에이전트 팀 팀원도 함께 멈춘다(push 한 곳까지는 남는다). 오래 돌릴 때는 Orca 가 안전하다.
 - 한 체크아웃에는 팀장 하나만 뜬다. 기본 브랜치에 있고 작업트리가 깨끗해야 시작한다.
+- 킷을 복사해 커밋하는 리포는 그 커밋을 기본 브랜치에 push 해야 시작한다. 팀원은 `origin` 의 스킬을 쓴다.
 - 특정 작업을 빼려면 D'Flow 에서 그 작업의 `agent` 태그를 끈다.
 - 승인은 여전히 D'Flow 웹에서 사람이 한다. 팀장은 깨어날 때마다(최대 30분 간격) 승인된 작업을 main 에 반영한다.
 
@@ -3106,16 +3239,16 @@ git worktree remove /Users/jji/project/wbs-web-merge-staging
 | 머리말 제1 제약 | Global Constraints, Task 4 backends.md, Task 5 SKILL.md 위치 선언·금지 |
 | §1 목표·비목표 | Global Constraints(poll 무수정, `--backend` 없음, tmux v1 미지원, PAT 분리 없음, supervised), 후속 |
 | §2 결정 요약 | 각 Task 의 규칙과 이유 한 줄. 신원·잠금·poll 기동 위치는 Task 5, 기존 스킬 수정은 Task 1·2 |
-| §3 전제 사실 | 근거·제약으로 반영. §3-5 Orca 핸들·`path:` 선택자는 Task 4, §3-9~§3-12 는 Task 1·2 수정, §3-13·§3-14 는 Task 5 「2-1」, §3-19 는 Task 1 행 G, §3-20 은 Task 1·2 `api_base`, §3-21(zsh)은 Global Constraints·Task 2 로컬 후보 루프·Task 5 전제 검사와 마감 잠금·Task 7 Step 1 과 Task 5 의 금지 단언. §3-8 은 Task 7, §3-6·§3-7 은 Task 9 가 확인한 뒤 스펙에 사실로 적는다 |
+| §3 전제 사실 | 근거·제약으로 반영. §3-5 Orca 핸들·`path:` 선택자는 Task 4, §3-9~§3-12 는 Task 1·2 수정, §3-13·§3-14 는 Task 5 「2-1」, §3-19 는 Task 1 행 G, §3-20 은 Task 1·2 `api_base`, §3-21(zsh)은 Global Constraints·Task 2 로컬 후보 루프·Task 5 전제 검사와 마감 잠금·Task 7 Step 1 과 Task 5 의 금지 단언, §3-22(`$PPID`)는 Task 5 잠금 소유 판정(전제 검사·「2-3」·「7. 마감」), §3-23(push 실패 모양)은 Task 2 4번 5단계. §3-8 은 Task 7, §3-6·§3-7 은 Task 9 가 확인한 뒤 스펙에 사실로 적는다 |
 | §4-1 명령과 인자 | Task 5 「인자」 |
 | §4-2 팀장 상태·재구성·결과 중복 방지·고아 스캔·부트스트랩 실패 정리 | Task 5 「팀장 상태」, Task 4 「고아 정리 규칙」·events.md 필드 |
 | §4-3 환경 감지 | Task 5 「0. 환경 감지」 |
 | §4-4 시작(잠금·기본 브랜치·신원·host·`~/.dflow`·exclude·재구성·재기록·권한 안내·감시) | Task 5 「1. 시작」 |
-| §4-5 기상과 감시(빈 디렉터리 poll·재기동 조건·감시 루프·세대 파일·TICK·처리 표) | Task 5 「2. 기상과 감시」 |
+| §4-5 기상과 감시(잠금 소유 확인·잠금 상실, 빈 디렉터리 poll·재기동 조건·감시 루프·세대 파일·TICK·처리 표) | Task 5 「2. 기상과 감시」 |
 | §4-6 결과 처리(매칭·suspect·생존 증거·status 표·parked·회수·차단기·무응답) | Task 5 「3. 결과 처리」, Task 4 backends.md |
 | §4-7 승인 스윕 | Task 5 「4. 승인 스윕」, Task 2 |
 | §4-8 팀원 spawn | Task 5 「5. 팀원 spawn」, Task 4 backends.md |
-| §4-9 마감(기다림의 상한·잠금 해제) | Task 5 「7. 마감」, Task 4 「고아 정리 규칙」 |
+| §4-9 마감(기다림의 상한·소유 판정 뒤 잠금 해제·잠금 상실 마감) | Task 5 「7. 마감」, Task 4 「고아 정리 규칙」 |
 | §5 팀원 계약 | Task 3 worker-prompt.md |
 | §6-1 원칙·수정 목록·보존 테스트·표지 | Global Constraints, Task 1·2 Step 1(fixture 커밋)·보존 테스트, Task 10 Step 3·5(fixture 재생성) |
 | §6-2 `/dflow-dev` 원문 수정(`api_base`·Phase 0-가 1~5번·106행 spec 경로·기점 이동과 detach 실패·exit 4·Phase 5) | Task 1 Step 5 |
@@ -3150,4 +3283,4 @@ Task 7·9 는 새 테스트를 더하지 않는다(Task 7 의 A0 (d) 조건부 �
 
 **3. 자리표시자 점검**: 파일 내용·테스트 코드·명령은 전부 본문에 있다. `<id8>`·`<TSK>`·`<FEAT_WT>`·`<MAIN>`·`<신원>`·`<host>`·`<워크트리1>` 같은 꺾쇠는 실행 때 값으로 채우는 절차상의 변수다. Task 7~9 의 판정표 칸, Task 9 의 `agent-team-allow.json` 항목과 settings.local.json 의 기록 명령은 리허설이 만들어 내는 데이터이며 미리 정할 수 없다.
 
-**4. 이름 일관성**: 포인터 키 `TSK ID8 AGENT_ID MAIN_CHECKOUT BACKEND MODEL ANSWER`, 변수 `{MODEL_FLAG}`, 식별자 `<신원>/<host>/w<slot>`·`<신원>/<host>/lead`·`<신원>/<host>/parked`, 좌석 파일 `.dflow-agent`, 감시 출력 `RESULT_READY`·`TICK`·`STALE`, git 경로 파일 `dflow-team.gen`·`dflow-team.lock`(디렉터리, 안에 `owner`·`beat`)·`dflow-team-poll`, 에이전트 이름 `w<slot>-<id8>`, 이벤트 일곱, 결과 줄 해시 `cksum | cut -d' ' -f1`, backends.md 절 「pane(Orca)」「에이전트 팀」「고아 정리 규칙」(5번 생성 브랜치 정리), 잠금 탈취 임시 이름 `$LOCK.stale.$$`, `/dflow-merge` 건너뜀 사유 `기점 미반영`·`승인 뒤 변경`, SKILL.md 절 「1. 시작」~「7. 마감」과 「2-1」~「2-3」, fixture 이름 `dflow-dev.SKILL.orig.md`·`dflow-merge.SKILL.orig.md` 와 머리 주석 형식(파일 구조 표·Task 1·2 Step 1·`parseFixture`·Task 10 Step 3), `failed` 구분 사유 넷(`rate-limit`·`not-isolated`·`no-worker-flag`·`deps`)이 모든 Task 와 테스트에서 같은 철자다. `/dflow-dev` 표지 태그 「--worker」 A·B·C·E·G·H 와 절 제목 `## --worker 팀원 모드 (팀장 전용)` 은 Task 1 테스트와 Task 9 예비책이 같은 문자열을 쓴다. 팀장 전제 검사가 grep 하는 바이트열(`--worker`, `origin/agent/*`)은 Task 1·2 테스트가 그대로 단언한다.
+**4. 이름 일관성**: 포인터 키 `TSK ID8 AGENT_ID MAIN_CHECKOUT BACKEND MODEL ANSWER`, 변수 `{MODEL_FLAG}`, 식별자 `<신원>/<host>/w<slot>`·`<신원>/<host>/lead`·`<신원>/<host>/parked`, 좌석 파일 `.dflow-agent`, 감시 출력 `RESULT_READY`·`TICK`·`STALE`, git 경로 파일 `dflow-team.gen`·`dflow-team.lock`(디렉터리, 안에 `owner`(`<신원>/<host>/lead <epoch> <PID>`)·`beat`)·`dflow-team-poll`, 잠금 출력 `LOCK_OK`·`LOCK_LOST`·`FAIL LOCK_WRITE`, 전제 검사 코드 `KIT_NOT_PUSHED`, 에이전트 이름 `w<slot>-<id8>`, 이벤트 일곱, 결과 줄 해시 `cksum | cut -d' ' -f1`, backends.md 절 「pane(Orca)」「에이전트 팀」「고아 정리 규칙」(5번 생성 브랜치 정리), 잠금 탈취 임시 이름 `$LOCK.stale.$$`, `/dflow-merge` 건너뜀 사유 `기점 미반영`·`승인 뒤 변경`·`승인 뒤 변경 확인 불가` 와 push 실패 보고 `push 실패(경합)`·`push 실패(훅)`, SKILL.md 절 「1. 시작」~「7. 마감」과 「2-1」~「2-3」, fixture 이름 `dflow-dev.SKILL.orig.md`·`dflow-merge.SKILL.orig.md` 와 머리 주석 형식(파일 구조 표·Task 1·2 Step 1·`parseFixture`·Task 10 Step 3), `failed` 구분 사유 넷(`rate-limit`·`not-isolated`·`no-worker-flag`·`deps`)이 모든 Task 와 테스트에서 같은 철자다. `/dflow-dev` 표지 태그 「--worker」 A·B·C·E·G·H 와 절 제목 `## --worker 팀원 모드 (팀장 전용)` 은 Task 1 테스트와 Task 9 예비책이 같은 문자열을 쓴다. 팀장 전제 검사가 grep 하는 바이트열(`--worker`, `origin/agent/*`)은 Task 1·2 테스트가 그대로 단언한다.
