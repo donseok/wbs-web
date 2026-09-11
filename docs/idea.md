@@ -20,16 +20,16 @@
 - WP에 대한 관리자 기능
 - 에이전트 작업중일때 취소를 할 수 있는 기능
 - 이미지를 참고하여 개발하기
-- 가상오피스 구현 — [정리본](superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md) · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md) 필독
-- 팀장 스킬 /dflow-team 구현 — D'Flow 배정 작업을 상시 폴링해 슬롯 N개 팀원에게 자동 분배, 완료 시 다음 작업 보충, 신원별로 각자 실행. **환경 적응형**(Orca·진짜 tmux=pane 백엔드 선호, 일반 터미널=**에이전트 팀 백엔드**). 세 환경 모두 병렬 가능. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**(단순 서브에이전트 아님 — `/dflow-dev` 가 Phase 1~4 를 서브에이전트로 쪼개기 때문), 각자 워크트리에서 `/dflow-dev --worker`. 기존 dflow-* 는 **순수 가산** 수정. 스펙·계획은 워크트리 브랜치 `worktree-dflow-team`(`.claude/worktrees/dflow-team`) — [스펙](superpowers/specs/2026-09-10-dflow-team-design.md) · [계획](superpowers/plans/2026-09-10-dflow-team.md). 개정 4판(2026-09-11), 착수는 명시 지시 대기. ⚠️ 착수 전 [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md) 필독 — 특히 **계획서(plan.md)가 폐기된 개정 2판 아키텍처를 담고 있어 재작성 선행 필수**, PAT 는 `dflow.sh heartbeat` 서브커맨드 신설로 해소. 개정 4판 실측으로 tmux 선행조건·Monitor 재무장은 해소/축소됐고, rtk git 차단·팀원 동반 종료가 새 위험으로 추가됨.
-  - [ ] `/dflow-dev --worker` 가산 수정 — 승인 스윕 건너뜀, Phase 0-2 직접머지→스택+risk, approved→`.result` needs-merge, AskUserQuestion 억제(자동 모드). 플래그 없는 기본 동작 불변. 계약 테스트가 가산성 단언 (스펙 §5-A)
-  - [ ] `/dflow-merge` 원격 후보 식별 가산 — `origin/agent/*` tip 의 state.json 도 후보로, 판정·순서·머지 로직 불변 (스펙 §6-A)
-  - [ ] `references/worker-prompt.md` — 격리 확인·`.env` 심링크·`.agent` 기록·`/dflow-dev --worker`·`.result` 파일 계약 (스펙 §5)
-  - [ ] `references/backends.md` — Orca(`orca worktree create/rm`, JSON 핸들)·tmux(`/team-mode`) spawn·정리 명령 (스펙 §3-5, §4-3)
-  - [ ] `SKILL.md` — 환경 감지(§4-0)·전제 검사·이벤트 루프·`.result` 폴링·마감 (스펙 §4)
-  - [ ] `references/events.md` + `kit-build.sh` 대상에 dflow-team 추가 (스펙 §9-3, §10)
-  - [ ] 리허설 — mes-base 스테이징, Orca 백엔드, `--team-size 2`, 합격 기준 9항 (스펙 §11)
-  - [ ] 좌석표 설계 연동 반영 요청 — `docs/tasks/<TSK>/.agent` 사이드카를 heartbeat_agent 로, `blocked`(담당자 결정 대기·손 든 사람) 상태 추가, 팀장 STANDBY 알림 계약 (스펙 §9)
-  - [ ] dev 플러그인(`~/project/dev-plugin`, `dev@dev-tools`) 로드 실패 수정 — hooks.json 의 PreToolUse/PostToolUse 를 `"hooks": {}` 안으로 감싸고 버전 올려 `/plugin update`. tmux 백엔드·`/team-mode` 선행 조건
-  - [ ] 스펙 사용자 리뷰 — blocked=슬롯 점유·기점 origin/main 확정 여부 확인 (스펙 §7·§4-3)
+- 가상오피스 구현 — [정리본](superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md) · [스프라이트 참조 이미지](superpowers/specs/2026-09-10-agent-seatmap-sprite-reference.png) · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md) 필독 · 배경: [자율 러너 설계](superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md). ⚠️ 정리본·스프라이트 이미지는 **아직 커밋되지 않았다**(다른 세션 작업 — 다른 PC·계정에서는 링크가 깨진다). 남은 결정: 착수 순서·`blocked` 상태 스키마, heartbeat 스코프, Micro 부하 실측(걸림돌 결정 2·3·5). 좌석 식별 파일은 팀장 스킬 쪽에서 워크트리 루트 `.dflow-agent` 로 정해졌다.
+- 팀장 스킬 /dflow-team 구현 — D'Flow 배정 작업을 상시 폴링해 슬롯 N개 팀원에게 자동 분배, 완료 시 다음 작업 보충, 신원별로 각자 실행. **환경 적응형**(Orca=pane 백엔드, 일반 터미널·v1 의 tmux=**에이전트 팀 백엔드** `isolation: worktree`). 어느 환경이든 병렬 가능. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**(단순 서브에이전트 아님 — `/dflow-dev` 가 Phase 1~4 를 서브에이전트로 쪼개기 때문), 각자 워크트리에서 `/dflow-dev --worker`. 기존 dflow-* 는 **순수 가산** 수정. 문서는 모두 staging 에 있다 — [스펙](superpowers/specs/2026-09-10-dflow-team-design.md)(개정 4판 + 2026-09-11 보완) · [계획](superpowers/plans/2026-09-10-dflow-team.md)(2026-09-11 전면 재작성, Task 1~8) · [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md). 착수는 명시 지시 대기 — 지시가 나오면 계획서 "실행 준비"(새 브랜치 `feat/dflow-team` 워크트리)부터. 걸림돌 결정 1(plan.md)은 해소, 6(rtk)·7(백엔드 정책)은 기본값 채택(이의 시 변경).
+  - [ ] Task 1 `/dflow-dev --worker` 가산 — 분기 A~E(스윕 건너뜀·스택·needs-merge·질문 억제·git 절대경로), 원문 사본 가산성 테스트
+  - [ ] Task 2 `/dflow-merge` 가산 — 원격 `origin/agent/*` 후보·반려 갈래 보고
+  - [ ] Task 3 `references/worker-prompt.md` — 격리 확인·스킬/`.env` 부트스트랩·`.dflow-agent`·`.result` 계약
+  - [ ] Task 4 `references/backends.md`·`events.md` — Orca·에이전트 팀 spawn·정리, 차이표
+  - [ ] Task 5 `SKILL.md` — 환경 감지·기상마다 승인 스윕·30분 TICK·blocked 백엔드별 처리
+  - [ ] Task 6 킷 배포 목록·가이드 → 머지(심링크로 모든 리포에 즉시 적용되므로 사람 확인 후)
+  - [ ] Task 7 Orca 리허설 — mes-base 에 스킬 심링크 설치 후 합격 기준 9항
+  - [ ] Task 8 에이전트 팀 리허설 — 추가 6항(rtk·동반 종료·워크트리 보존·ANSWER 재개), 막히면 `/usr/bin/git` 예비책
+  - [ ] (후속) dev 플러그인(`~/project/dev-plugin`) hooks.json 로드 실패 수정 → tmux pane 백엔드 가산
+  - [ ] (후속) 좌석표 S1 에 `.dflow-agent`→heartbeat_agent, `blocked` 상태, 팀장 STANDBY 신호 반영 요청 (스펙 §9)
 
