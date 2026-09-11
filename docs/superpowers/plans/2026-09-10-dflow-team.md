@@ -28,7 +28,8 @@
 - 에이전트 팀 `name` = `w<slot>-<id8>`, `subagent_type` = `general-purpose`, `isolation: "worktree"` 필수(스펙 §4-8).
 - **git 호출 규칙(두 백엔드 공통)**: 워커와 Phase 서브에이전트는 `command -v git` 이 돌려주는 절대경로로 git 을 부른다(bare `git` 금지). 리허설에서 절대경로도 rtk 에 막히면 리터럴 `/usr/bin/git` 으로 바꾼다(스펙 §3-6, §11-5).
 - 백엔드는 자동 감지만 한다(`--backend` 없음). tmux 는 v1 에서 에이전트 팀으로 돈다(스펙 §4-3).
-- **팀장 상태는 캐시다.** 매 기상마다 `git worktree list --porcelain` + `.dflow-agent` + `.result`(정본)와 `~/.dflow/events.jsonl`(보조)에서 재구성한다. 결과 줄은 cksum 해시로 중복 처리를 막고, 감시 루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 한 체크아웃에 팀장은 하나이며 잠금은 디렉터리 `$(git rev-parse --git-path dflow-team.lock)` 을 `mkdir` 로 원자 획득한 것이다. 안에 `owner`(`<신원>/<host>/lead <epoch> <PID>`, PID 는 Bash 도구 셸의 `$PPID`)와 `beat` 를 두고, `beat` 가 70분보다 오래되면 죽은 것으로 보고 `mv` 로 옮겨 다시 확인한 뒤 가져온다. 소유 판정은 "신원이 같고 PID 가 현재 `$PPID` 와 같다" 이며, 매 기상 이 판정을 통과해야 `beat` 를 쓰고(아니면 잠금 상실 마감), 마감도 이 판정을 통과할 때만 잠금을 지운다(스펙 §3-22, §4-2, §4-4, §4-5, §4-9).
+- **팀장 상태는 캐시다.** 매 기상마다 `git worktree list --porcelain` + `.dflow-agent` + `.result`(정본)와 `~/.dflow/events.jsonl`(보조)에서 재구성한다. 결과 줄은 cksum 해시로 중복 처리를 막고, 감시 루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 한 체크아웃에 팀장은 하나이며 잠금은 디렉터리 `$(git rev-parse --git-path dflow-team.lock)` 을 `mkdir` 로 원자 획득한 것이다. 안에 `owner`(`<신원>/<host>/lead <epoch> <PID>`, PID 는 Bash 도구 셸의 `$PPID`)와 `beat` 를 두고, `beat` 가 70분보다 오래됐거나(`beat` 없으면 잠금 디렉터리 수정 시각이 10분보다 오래됐거나)
+하면 죽은 것으로 보고 `mv` 로 옮겨 다시 확인한 뒤 가져온다. 소유 판정은 "신원이 같고 PID 가 현재 `$PPID` 와 같다" 이며, 매 기상 이 판정을 통과해야 `beat` 를 쓰고(아니면 잠금 상실 마감), 마감도 이 판정을 통과할 때만 잠금을 지운다(스펙 §3-22, §4-2, §4-4, §4-5, §4-9).
 - **팀장의 poll.sh 는 `docs/tasks/` 가 없는 빈 디렉터리를 cwd 로 두고 `DFLOW_ENV_FILE` 로 `.env` 를 지정해 띄운다.** 그래서 팀장에게 poll exit 9·10 은 오지 않고, 승인 반영과 반려 발견은 승인 스윕이 맡는다(스펙 §3-14, §4-5).
 - events.jsonl: `~/.dflow/events.jsonl`, 스키마 `{ts, host, repo, tsk, order, phase, event, agent}` + 이벤트별 추가 필드(스펙 §9-3). 기록은 `jq -nc` 로 만든 한 줄을 붙인다.
 - 참조는 id8 만 쓴다. 순번 금지. 팀원은 `dflow.sh list` 를 부르지 않는다(스펙 §3-4, §5).
@@ -1426,7 +1427,7 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     // 생성 브랜치 정리: agent/ 가 아니고 origin/<기본브랜치> 의 조상인 생성 브랜치만 지운다
     expect(b()).toContain('**생성 브랜치 정리**')
     expect(b()).toContain("'worktree-<워크트리 디렉터리 이름>' '*dflow-<id8>*'")
-    expect(b()).toContain("git branch --format='%(refname:short)' --list 'worktree-agent-*' 'dflow-*'") // 이름을 모를 때
+    expect(b()).toContain("git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-*'") // 이름을 모를 때, Orca 접두 대비
     expect(b()).toContain('case "$br" in agent/*) continue ;; esac')
     expect(b()).toContain('git merge-base --is-ancestor "$br" origin/<기본브랜치> && git branch -D "$br"')
   })
@@ -1607,7 +1608,8 @@ git worktree remove --force <워크트리 경로>
    고유 커밋을 잃지 않기 위해서다. Orca 가 만드는 실제 이름은 리허설이 확인한다.
    워크트리 디렉터리 이름을 모르면(에이전트 팀 워크트리가 이미 자동 정리됐고 `team.spawn` 의 `worktree` 가 `-`
    이거나 컨텍스트 압축으로 이름을 잃은 경우) 위 루프의 첫 줄만
-   `git branch --format='%(refname:short)' --list 'worktree-agent-*' 'dflow-*'` 로 바꿔 돌린다.
+   `git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-*'` 로 바꿔 돌린다. `dflow-*` 가
+   아니라 `*dflow-*` 인 이유는 Orca 가 이름 앞에 다른 접두를 붙일 수 있어서다.
    세 안전 조건(`agent/` 아님, 체크아웃 안 됨, `origin/<기본브랜치>` 의 조상)은 루프가 그대로 지킨다. 이유:
    이름을 채우지 못해 정리를 건너뛰면 생성 브랜치가 쌓이고, 세 조건이 이름만 맞는 남의 브랜치를 보호한다.
 ````
@@ -1747,19 +1749,22 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('어느 갈래에서도 병렬 불가로 종료하지 않는다')
   })
 
-  it('전제 검사: 실패하면 종료하는 블록, mkdir 원자 잠금과 beat 70분, owner 의 세션 PID, 기본 브랜치 폴백, 신원·host 슬러그, ~/.dflow', () => {
+  it('전제 검사: 실패하면 종료하는 블록, mkdir 원자 잠금과 beat 70분(beat 없으면 잠금 디렉터리 수정 시각 10분), owner 의 세션 PID, 기본 브랜치 폴백, 신원·host 슬러그, ~/.dflow', () => {
     expect(s()).toContain('[ "$fail" = 0 ] || exit 1')
     expect(s()).toContain("case \"$MAIN\" in *' '*) bad SPACE_IN_PATH ;; esac")
     expect(s()).toContain('LOCK=$(git rev-parse --git-path dflow-team.lock)')
     expect(s()).toContain('mkdir "$LOCK" 2>/dev/null')
-    expect(s()).toContain('-lt 4200')
+    expect(s()).toContain('stale() {') // beat 있으면 70분, 없으면 잠금 디렉터리 수정 시각 10분으로 죽음을 본다
+    expect(s()).toContain('b=$(cat "$1/beat" 2>/dev/null || true)')
+    expect(s()).toContain('-ge 4200')
+    expect(s()).toContain('find "$1" -maxdepth 0 -mmin +10') // beat 없으면 잠금 디렉터리 수정 시각을 본다(macOS·Linux 공통)
     expect(s()).toContain(`printf '%s %s %s\\n' "$who/$host/lead" "$(date +%s)" "$PPID" > "$LOCK/owner"`) // 소유는 신원 + 팀장 세션 PID
     expect(s()).toContain('|| { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }') // owner·beat 쓰기 실패는 방금 만든 잠금을 지우고 실패
     expect(s()).toContain('"$LOCK/beat"')
-    expect(s()).toContain('b=$(cat "$LOCK/beat" 2>/dev/null || date +%s)') // beat 없는 잠금은 막 생긴 것이다
-    expect(s()).toContain('mv "$LOCK" "$T" 2>/dev/null') // 탈취는 옮긴 뒤 다시 확인한다
-    expect(s()).toContain('b=$(cat "$T/beat" 2>/dev/null || date +%s)')
-    expect(s()).not.toContain('kill -0') // 생존은 PID 가 아니라 beat 로 본다
+    expect(s()).toContain('stale "$LOCK" ||') // beat 없는 잠금은 10분 안에는 막 생긴 것으로 본다
+    expect(s()).toContain('mv "$LOCK" "$T" 2>/dev/null') // 탈취는 옮긴 뒤 같은 기준으로 다시 확인한다
+    expect(s()).toContain('stale "$T" ||')
+    expect(s()).not.toContain('kill -0') // 생존은 PID 가 아니라 beat(없으면 잠금 디렉터리 수정 시각)로 본다
     expect(s()).toContain('NOT_DEFAULT_BRANCH')
     expect(s()).toContain('git ls-remote --symref origin HEAD')
     expect(s()).toContain("hostname -s | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
@@ -2151,17 +2156,16 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    [ "$fail" = 0 ] || exit 1
    # 팀장 잠금: 나머지 검사가 모두 통과한 뒤 마지막에 원자 획득한다
    LOCK=$(git rev-parse --git-path dflow-team.lock)
+   stale() {   # $1: 잠금 디렉터리. beat 있으면 70분, 없으면 디렉터리 수정 시각 10분으로 죽음을 본다
+     b=$(cat "$1/beat" 2>/dev/null || true)
+     if [ -n "$b" ]; then [ $(( $(date +%s) - b )) -ge 4200 ]
+     else [ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null)" ]; fi
+   }
    if ! mkdir "$LOCK" 2>/dev/null; then
-     b=$(cat "$LOCK/beat" 2>/dev/null || date +%s)
-     if [ $(( $(date +%s) - b )) -lt 4200 ]; then
-       echo "LOCKED $LOCK owner=$(cat "$LOCK/owner" 2>/dev/null) beat=$b"; exit 1
-     fi
+     stale "$LOCK" || { echo "LOCKED $LOCK owner=$(cat "$LOCK/owner" 2>/dev/null) beat=$(cat "$LOCK/beat" 2>/dev/null || echo 없음)"; exit 1; }
      T="$LOCK.stale.$$"
      mv "$LOCK" "$T" 2>/dev/null || { echo "LOCKED $LOCK"; exit 1; }
-     b=$(cat "$T/beat" 2>/dev/null || date +%s)
-     if [ $(( $(date +%s) - b )) -lt 4200 ]; then
-       echo "LOCKED $LOCK 옮긴 잠금이 새롭다. 다른 팀장이 방금 가져간 것이므로 $T 를 $LOCK 로 되돌려라"; exit 1
-     fi
+     stale "$T" || { echo "LOCKED $LOCK 옮긴 잠금이 새롭다. 다른 팀장이 방금 가져간 것이므로 $T 를 $LOCK 로 되돌려라"; exit 1; }
      rm -rf "$T"
      mkdir "$LOCK" 2>/dev/null || { echo "LOCKED $LOCK"; exit 1; }
      echo "STALE_LOCK_TAKEN"
@@ -2179,18 +2183,24 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      다른 팀장도 신원·host·리포가 같고, 신원만으로는 누구의 잠금인지 가려내지 못한다. 시작 시각은 `LOCKED` 안내에서
      사람이 그 팀장을 알아보게 하려고 둔다. 팀장은 매 기상 소유를 확인한 뒤에만 `beat` 를 갱신한다(「2-3」).
      `owner`·`beat` 쓰기가 실패하면 방금 만든 잠금 디렉터리를 지우고 `FAIL LOCK_WRITE` 로 끝낸다. 이유: `beat`
-     가 없는 잠금은 막 생긴 것으로 보여 이후의 모든 시작을 막고, 방금 `mkdir` 로 만든 잠금은 다른 팀장이
-     건드리지 않으므로 지워도 남의 잠금이 아니다. 기존 잠금의 `beat` 가 70분(4200초)보다
-     새로우면 거부한다. `beat` 가 없으면 방금 만들어진 잠금(`mkdir` 와 `beat` 쓰기 사이)으로 보고 새로운 것으로
-     친다. 더 오래됐으면 잠금 디렉터리를 `mv` 로 이 팀장만 아는 이름 `$LOCK.stale.$$` 로 옮기고, 옮긴 디렉터리의
-     `beat` 를 다시 읽어 여전히 오래됐을 때만 지운 뒤 `mkdir` 로 다시 얻는다. 옮긴 잠금이 새로우면 그사이 다른
+     없는 잠금은 만들어진 지 10분 안에는 다른 팀장의 시작을 막는데(아래), 그대로 두면 그 10분 동안 아무도
+     시작하지 못한다. 방금 `mkdir` 로 만든 잠금은 다른 팀장이 건드리지 않으므로 지워도 남의 잠금이 아니다.
+     기존 잠금의 `beat` 가 있고 70분(4200초)보다 새로우면 거부한다. `beat` 가 없으면 잠금 디렉터리 자체의
+     수정 시각을 본다(`find "$LOCK" -maxdepth 0 -mmin +10` 가 경로를 출력하면 10분보다 오래된 것이다;
+     macOS·Linux 모두에서 도는 방법이다). 10분 이내면 `mkdir` 와 `owner`·`beat` 쓰기 사이의 그 짧은 틈에 있는,
+     방금 만들어지는 중인 잠금으로 보고 지금처럼 거부한다. `beat` 가 있고 70분보다 오래됐거나, `beat` 가
+     없고 잠금 디렉터리가 10분보다 오래됐으면 죽은 것으로 보고 가져온다. 가져올 때는 잠금 디렉터리를 `mv`
+     로 이 팀장만 아는 이름 `$LOCK.stale.$$` 로 옮기고, 옮긴 디렉터리를 같은 기준(옮기기 전 본 것이 `beat`
+     였으면 `beat` 를, 잠금 디렉터리 수정 시각이었으면 옮긴 디렉터리의 수정 시각을)으로 다시 재어 여전히
+     오래됐을 때만 지운 뒤 `mkdir` 로 다시 얻는다. 옮긴 잠금이 새로우면 그사이 다른
      팀장이 가져간 것이므로 옮긴 경로를 알리며 거부하고 사람이 되돌리게 한다. `mv` 나 다시 하는 `mkdir` 가
-     실패해도 다른 팀장이 먼저 가져간 것이므로 거부한다. 이유: `beat` 를 다시 읽은 뒤 지우기 전에 다른 팀장이
-     먼저 가져가면 그 잠금까지 지우게 되는데, 옮긴 디렉터리는 이 팀장만 보므로 확인과 삭제 사이에 끼어들 틈이
-     없다. `LOCKED` 로 거부할 때는 잠금 경로·
+     실패해도 다른 팀장이 먼저 가져간 것이므로 거부한다. 이유: 다시 잰 시각이 여전히 오래됐음을 확인한 뒤
+     지우기 전에 다른 팀장이 먼저 가져가면 그 잠금까지 지우게 되는데, 옮긴 디렉터리는 이 팀장만 보므로 확인과
+     삭제 사이에 끼어들 틈이 없다. `LOCKED` 로 거부할 때는 잠금 경로·
      `owner`·`beat` 시각과 함께 "그 팀장이 끝난 것이 확실하면 잠금 디렉터리를 지우고 다시 시작하라" 를 안내한다.
      세션이 죽은 직후 재기동하면 `beat` 가 아직 새롭기 때문이다. 이유: 한 체크아웃의 팀장 둘은 슬롯 번호·세대
-     파일·승인 스윕을 서로 덮어쓴다. 생존(가져와도 되는지)은 PID 가 아니라 `beat` 로 본다. 이유: 세션 프로세스가
+     파일·승인 스윕을 서로 덮어쓴다. 생존(가져와도 되는지)은 PID 가 아니라 `beat`(없으면 잠금 디렉터리 수정
+     시각)로 본다. 이유: 세션 프로세스가
      살아 있어도 권한 확인 등에 멈춘 팀장은 기상하지 않아 제 몫을 못 하는데, `beat` 는 그 멈춤까지 드러낸다.
      살아 있는 팀장은 늦어도 `TICK`(30분)마다 깨어 `beat` 를 갱신하므로, 70분이면 두 `TICK` 을 연속으로 놓친 것이다.
    - `KIT_NOT_PUSHED`: `.claude/skills` 가 git 추적되는 킷 복사형 리포면 `git fetch origin` 뒤
