@@ -8,7 +8,8 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 자기 PC 에서 띄우면 각자 배정분이 병렬로 진행된다. 진행 중인 팀원과 작업은 D'Flow 에이전트
 좌석표(가상 오피스)에 그대로 나타나야 한다.
 
-상태: 설계 승인 대기(2026-09-11 개정 4판). 구현 착수는 별도 지시를 기다린다.
+상태: 설계 승인 대기(2026-09-11 개정 4판, 같은 날 보완). 구현 착수는 별도 지시를 기다린다.
+구현계획: `docs/superpowers/plans/2026-09-10-dflow-team.md`(개정 4판 기준으로 2026-09-11 전면 재작성).
 
 > **팀원을 서브에이전트로 부르면 안 되는 진짜 이유(개정 4판에서 명문화)** — 팀원은 `/dflow-dev` 를
 > 실행해야 하고, `/dflow-dev` 는 Phase 1~4(설계·구현·검증·리팩터)를 **서브에이전트로 쪼갠다**
@@ -24,6 +25,22 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 > `git switch -c` 에 성공했으며, 격리 상태에서 손자 서브에이전트까지 띄웠다. 팀장 체크아웃은 전혀
 > 흔들리지 않았다. 그래서 **일반 터미널도 병렬이 된다**(§3-5, §4-0). pane 은 여전히 선호 경로지만
 > 이제 유일한 경로가 아니다.
+>
+> **개정 4판 보완(2026-09-11, 계획서 재작성 중 발견)** — 네 가지를 고쳤다.
+> 1. **새 워크트리에 스킬이 없을 수 있다**(§3-15). 대상 리포가 `.claude/skills/` 를 gitignore 된
+>    심링크로 두면(mes-runlog 실측) `git worktree add` 가 그것을 가져오지 않는다. 포인터를 절대경로로
+>    바꾸고 워커 부트스트랩에 스킬 링크와 폴백을 넣었다(§4-3, §5).
+> 2. **팀장 체크아웃에서는 poll exit 9·10 이 울리지 않는다**(§3-16). poll.sh 는 승인·반려 감지에
+>    `$PWD/docs/tasks/*/state.json` 을 쓰는데, 팀원이 만든 state.json 은 agent 브랜치에만 있다.
+>    승인 스윕을 기상 시점마다 돌리는 것으로 대체했고(§4-2), 반려는 `/dflow-merge` 보고에 반려
+>    갈래를 더해 잡는다(§6). 현행 `/dflow-merge` 에는 반려 갈래가 없다는 것도 이때 확인했다.
+> 3. **결정 6·7 과 능동 통지를 기본값으로 정했다**(§2). git 은 `command -v git` 절대경로, 백엔드는
+>    자동 감지만, `blocked` 는 PushNotification 으로 알린다.
+> 4. **개정 3판 잔재를 지웠다** — §1 비목표의 "일반 터미널 병렬 제외", §4-1 의 tmux 전제, §8 준비물,
+>    §12 의 "기존 스킬 무수정" 문구.
+> 5. **에이전트 팀의 기점·재개 규칙을 바로잡았다.** 워커가 먼저 `origin/main` 위에 브랜치를 만들면
+>    `/dflow-dev` 의 스택 기점이 틀어지므로 뺐고(§4-3), `blocked` 재개는 기존 워크트리를 지정할 수
+>    없으므로 새 격리 워크트리 + 기존 브랜치 switch + 사람 답 `ANSWER` 전달로 고쳤다(§7).
 
 ---
 
@@ -48,9 +65,10 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 - **`/dflow-poll` 수정.** 4사이클 실적이 있는 검증된 경로다. 팀 스킬은 poll.sh 를 그대로 재사용만
   하고 dflow-poll SKILL.md 는 손대지 않는다 — 상시 보충은 팀장 이벤트 루프가 하지 dflow-poll 을
   고쳐서 하지 않는다.
-- **일반 터미널에서의 병렬 실행.** 일반 터미널은 독립된 대화형 메인 에이전트를 여러 개 띄울 수단이
-  없다(§3-5). 이 환경에서 `/dflow-team` 은 병렬을 흉내 내는 두 번째 구현을 만들지 않고, `/dflow-poll`
-  을 쓰라고 안내하고 종료한다. 직렬 1건 처리는 이미 `/dflow-poll` 이 하는 일이다.
+- **백엔드별로 다른 워커 경로.** 일반 터미널은 에이전트 팀 백엔드로 병렬을 하되(§3-5) 워커
+  프롬프트·`.result` 계약·`/dflow-dev --worker` 는 pane 과 같은 것을 쓴다. 백엔드가 가르는 것은
+  spawn·기상 신호·`blocked` 이후 동작·정리뿐이다(`references/backends.md` 의 차이표).
+- **`--backend` 수동 선택 플래그.** 백엔드는 §4-0 자동 감지로만 정한다(결정 7, §2).
 - `poll.sh` 출력에 전체 UUID 추가. 팀원이 `list` 를 안 부르고 `known-ids.txt` 폴백이 있어 잔여
   위험이 얇다(§12). 지금 손대면 계약 표면만 넓어진다.
 - 팀원별 PAT 분리. 한 신원(PAT)이 자기 배정분을 슬롯 N개로 처리한다. 서버 claim 이 잠금이다(§8).
@@ -73,6 +91,9 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 | 정본 위치 | `wbs-web/.claude/skills/dflow-team/` — 다른 dflow-* 와 같이 dflow-kit 으로 배포 |
 | 운영 형태 | 상시 폴링·자동 분배·완료 시 보충, 신원별로 각자 실행 |
 | 관제 | 작업 중인 팀원·작업이 좌석표(가상 오피스)에 표현돼야 한다 |
+| git 호출(걸림돌 결정 6, 2026-09-11 기본값) | 워커와 그 Phase 서브에이전트는 **두 백엔드 모두** git 을 `command -v git` 이 돌려주는 절대경로로 부른다(bare `git` 금지). rtk 훅은 고치지 않는다. pane 에서는 불필요하지만 무해하고, 백엔드별 분기를 없앤다. 리허설에서 절대경로도 차단되면 리터럴 `/usr/bin/git` 으로 바꾼다(§3-5-A) |
+| 백엔드 선택(걸림돌 결정 7, 2026-09-11 기본값) | §4-0 자동 감지만 쓴다. `--backend` 플래그는 두지 않는다. 필요해지면 순수 가산으로 추가한다 |
+| `blocked` 능동 통지(2026-09-11 기본값) | 팀장이 `blocked` 를 받으면 PushNotification 도구가 있을 때 한 번 알린다(§7). 도구가 없으면 화면 통지만 한다 |
 
 ## 3. 전제와 제약 (조사·실측 결과)
 
@@ -141,8 +162,13 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
    - **범위**: 이 문제는 **에이전트 팀 백엔드에만** 해당한다. 워크트리 격리 가드가 격리 에이전트에만
      걸리기 때문이며, pane 백엔드(별도 프로세스)는 해당 없다. 또한 rtk 가 설치되지 않은 PC 에서는
      발생하지 않는다(이 사용자 환경 특유의 조건이다).
-   - **미결**: 워커 프롬프트에서 `/usr/bin/git` 을 강제할지, rtk 훅 쪽을 고칠지는 착수 시 결정한다
-     (§12).
+   - **결정(2026-09-11 기본값, §2)**: rtk 훅은 고치지 않는다. 워커는 부트스트랩에서
+     `command -v git` 으로 git 절대경로를 확인해 이후 모든 git 호출에 그 경로를 쓰고,
+     `/dflow-dev --worker` 가 같은 규칙을 Phase 1~4 공통 프롬프트에 붙여 손자 서브에이전트까지
+     전파한다(§5-A 행 E). 두 백엔드에 똑같이 적용한다. `/usr/bin/git` 을 상수로 박지 않는 이유는
+     킷이 다른 PC 로 배포되고 macOS 가 아닌 곳에서는 그 경로가 보장되지 않기 때문이다.
+   - **예비책**: 에이전트 팀 리허설(§11)에서 절대경로 호출마저 rtk 에 재작성되면 워커 프롬프트와
+     행 E 의 경로를 리터럴 `/usr/bin/git` 으로 바꾼다.
 6. **팀원의 판단·질문은 자동/수동으로 갈린다.** 팀장이 붙이는 `--worker` 가 곧 "자동" 신호다.
    자동이면 팀원은 AskUserQuestion 을 쓰지 않고 명백한 기본값으로 진행하며(결정을 커밋·design.md 에
    한 줄 남긴다), 기본값이 없어 사람 결정이 꼭 필요할 때만 `blocked` 로 멈춘다(§5, §7). 사람이 직접
@@ -173,6 +199,24 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
     `.claude/skills/*` 는 wbs-web 정본을 가리키는 심링크다(2026-09-10 실측). 그래서 `--worker` 는
     **순수 가산**이어야 한다 — 플래그가 없으면 인자 파싱·Phase 0-가·Phase 0-2·Phase 5·AskUserQuestion
     사용이 지금 문구 그대로 돈다. 플래그가 있을 때만 동작이 갈린다(§5-A). 계약 테스트가 지킨다(계획 Task 1).
+15. **새 워크트리에 스킬이 없을 수 있다**(2026-09-11 실측). 스킬 배포 방식이 리포마다 다르다.
+    - wbs-web 과 킷 설치 리포(`kit/install.sh` 가 복사 후 커밋을 권한다)는 `.claude/skills/` 가 커밋돼
+      있어 새 워크트리에도 따라온다.
+    - mes-runlog 는 `.claude/skills/dflow-*` 가 wbs-web 정본을 가리키는 **심링크이고 `.gitignore`
+      39행이 `.claude/skills/` 를 무시한다.** `git worktree add`(Orca 와 `isolation: worktree` 모두)는
+      무시된 파일을 가져오지 않으므로 새 워크트리에는 스킬이 없다.
+    - mes-base(리허설 대상)는 현재 `.claude/` 자체가 없다. 리허설 준비에서 설치한다(§11).
+
+    그래서 두 가지를 고정한다. 첫째, 팀장이 넘기는 포인터는 워커 프롬프트를 **`{MAIN_CHECKOUT}` 기준
+    절대경로**로 가리킨다(§4-3). 둘째, 워커 부트스트랩이 워크트리에 스킬이 없으면
+    `{MAIN_CHECKOUT}/.claude/skills` 로 심링크하고, Skill 도구가 `/dflow-dev` 를 모르면 그 SKILL.md 를
+    직접 읽어 절차대로 실행한다(§5). 스킬 hot-reload 에 기대지 않는다.
+16. **팀장 체크아웃에서는 poll exit 9·10 이 팀원 작업에 대해 울리지 않는다**(2026-09-11 실측).
+    `poll.sh` 43행이 승인·반려 감지 재료를 `STATE_GLOB="$PWD/docs/tasks"` 로 고정한다. 팀원이 만든
+    `state.json`(phase=reported)은 각자의 agent 브랜치와 워크트리에만 있고 팀장 체크아웃에는 없다.
+    그래서 팀원이 보고한 작업이 승인돼도 poll 은 exit 9 로 종료하지 않는다. 팀장의 승인 스윕은 후보를
+    원격 `origin/agent/*` tip 에서 찾으므로(§6-A) 스윕 자체는 문제없고, **스윕을 부르는 계기**만
+    없어진다. 대응은 §4-2 의 "승인 스윕 주기" 다.
 
 ## 4. 팀장 절차
 
@@ -200,7 +244,7 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`) 된 ready �
 어느 갈래에서도 "병렬 불가" 로 종료하지 않는다. 백엔드가 정해지면 그 이름을 시작 보고와
 events.jsonl `team.start` 에 남긴다.
 
-### 4-1. 시작 (Orca·tmux 공통)
+### 4-1. 시작 (모든 백엔드 공통)
 
 1. **전제 검사** — 하나라도 실패하면 아무것도 띄우지 않고 중단한다.
    - `.env` 존재, `set -a; . ./.env; set +a` 후 `dflow.sh doctor` exit 0. `DFLOW_PATS` 첫 토큰이
@@ -208,8 +252,12 @@ events.jsonl `team.start` 에 남긴다.
    - `git status --porcelain` 이 비어 있다(팀장 체크아웃이 더러우면 승인 스윕이 위험하다).
    - `.claude/skills/dflow-dev`·`dflow-work`·`dflow-poll` 이 cwd 에서 해석된다(심링크 포함).
    - `--until` 이 있고 미래 시각이다.
+   - `.claude/skills/dflow-team/references/worker-prompt.md` 가 cwd 에서 해석되고, `/dflow-dev`
+     SKILL.md 에 `--worker` 가 있다(`grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md`).
+     옛 버전을 만나면 팀원이 기본 브랜치 switch 에서 죽으므로 여기서 막는다(§12).
    - 백엔드별: Orca 면 `orca worktree create --help` 가 `--agent`·`--prompt` 를 지원한다. tmux 면
-     `/team-mode` 가 로드돼 있다.
+     `/team-mode` 로드 여부는 **확인만** 한다 — 로드 실패는 중단 사유가 아니라 §4-0 2번대로 에이전트
+     팀으로 내려가는 사유다. 에이전트 팀은 추가 전제가 없다.
 2. **승인 스윕 1회** — §6. 결과(머지됨/대기/반려/건너뜀)를 한 줄씩 보고한다.
 3. **감시 시작** — 팀장을 깨우는 신호는 **둘**이며 둘 다 띄운다. 팀장은 절대 포그라운드로 기다리지 않는다.
    - **poll.sh**(새 작업 감지): `poll.sh --require-tag agent --until <HH:MM> --interval <SEC>
@@ -237,15 +285,31 @@ events.jsonl `team.start` 에 남긴다.
 | 이벤트 | 처리 |
 |---|---|
 | poll exit 0 (ready N줄) | 순번은 버리고 id8 만 쓴다. 후보별 `dflow.sh show <id8>` 로 `item.spec` 이 비면 제외 목록에 넣는다(사유 보고). 남은 것을 빈 슬롯 수만큼 spawn(§4-3), 나머지는 대기 큐. poll 재시작 |
-| poll exit 9 (승인 감지) | 승인 스윕(§6). poll 재시작 |
-| poll exit 10 (반려 감지) | 재작업은 기존 agent 브랜치 위에서 이뤄져야 하므로 자동 배정하지 않는다. "수동 `/dflow-dev <id8>` 대상" 으로 보고하고 제외 목록에 넣는다. poll 재시작 |
+| poll exit 9 (승인 감지) | 승인 스윕(§6). poll 재시작. **팀원이 만든 작업에 대해서는 이 exit 가 오지 않는다**(§3-16) — 팀장 체크아웃에 state.json 이 있는 작업(사람이 수동 `/dflow-dev` 로 마감한 것 등)에만 온다 |
+| poll exit 10 (반려 감지) | 재작업은 기존 agent 브랜치 위에서 이뤄져야 하므로 자동 배정하지 않는다. "수동 `/dflow-dev <id8>` 대상" 으로 보고하고 제외 목록에 넣는다. poll 재시작. exit 9 와 같은 이유로 팀원 작업에 대해서는 오지 않는다 — 그 반려는 승인 스윕의 반려 갈래(§6)가 잡아 이 행과 똑같이 처리한다 |
 | poll exit 8 (시한) | 새 배정 중단. 대기 큐를 비우고(보고만) 진행 중 팀원의 `.result` 를 모두 받은 뒤 §4-4 |
 | poll exit 2·3·5·6·7 | 중단 사유를 보고하고 진행 중 팀원의 `.result` 만 받은 뒤 §4-4 |
 | 팀원 `.result` 도착(§5-보고) | 슬롯 표·집계 갱신, 슬롯 해제. `blocked` 면 §7. 대기 큐가 비어 있지 않으면 즉시 그 슬롯에 spawn. 비어 있으면 poll 이 다음 것을 잡는다 |
 | 팀원 무응답 | §7 |
 
-**`.result` 기상·폴링**: 팀원 완료는 `.result` 감시 Monitor(§4-1 3번)가 팀장을 깨워 알린다. 깨어나면
-그 슬롯의 `docs/tasks/<TSK>/.result` 한 줄을 파싱한다(위 표의 "`.result` 도착" 행). 보조로 30분 이상
+**승인 스윕 주기(§3-16 대응)**: poll exit 9 에 기대지 않고, 팀장은 **깨어날 때마다** 승인 스윕(§6)을
+한 번 돈다 — 시작(§4-1 2번), 팀원 `.result` 도착, poll 재시작 직전, 마감(§4-4). 스윕 후보는 원격
+`origin/agent/*` tip 에서 오므로 팀장 체크아웃의 state.json 유무와 무관하다. 대가는 승인 반영 지연이다:
+사람이 승인한 뒤 다음 기상까지 main 반영이 늦는다. 진행 중 팀원이 있으면 곧 `.result` 가 오므로
+지연이 짧고, 전 슬롯이 비고 ready 도 없는 한가한 구간에서만 poll 한 주기 이상 늦어진다. 이 구간에도
+후속 작업의 착수는 막히지 않는다 — 서버 claim 게이트는 선행의 승인(`order_approved`)·stage 로
+판정하고 main 반영 여부는 보지 않으며, main 미반영 선행은 워커가 스택 브랜치로 받는다(§5-A 행 B).
+
+> **기각한 대안(v1)**: 팀원 작업의 state.json 을 `~/.dflow/` 아래 미러 디렉터리에 모아 두고 poll.sh 를
+> 그 디렉터리를 cwd 로 띄우는 방법. poll.sh 를 고치지 않고 exit 9 를 살릴 수 있지만, 정본(서버·원격
+> agent 브랜치)과 별개인 두 번째 상태 저장소가 생기고 머지 뒤 재시드 규칙을 계속 맞춰야 한다.
+> **"한가한 구간의 승인 반영 지연이 실제로 문제가 된다" 는 운영 근거가 생기면 되살린다.**
+
+**`.result` 기상·폴링**: 팀원 완료는 백엔드별 기상 신호(§4-1 3번 — pane 은 `.result` 감시 Monitor,
+에이전트 팀은 완료 알림)가 팀장을 깨워 알린다. 깨어나면 그 슬롯의 `docs/tasks/<TSK>/.result` 한 줄을
+파싱한다(위 표의 "`.result` 도착" 행). 에이전트 팀에서 워크트리가 이미 정리돼 파일이 없으면 완료
+알림에 담긴 팀원의 마지막 응답에서 같은 형식의 줄을 찾는다(§5 — 팀원은 마지막 응답에도 그 줄을
+출력한다). 둘 다 없으면 `failed no-result` 로 집계하고 `show <id8>` 로 서버 상태를 붙여 보고한다. 보조로 30분 이상
 진행 슬롯의 신호가 없으면 `dflow.sh list --scope claimed` 로 서버 상태를 슬롯 표에 갱신한다(팀원은
 `list` 를 안 부르므로 캐시 경쟁은 팀장 자신뿐). Orca 에서는 `orca terminal read --screen --terminal
 <handle>` 로 팀원 화면을 직접 볼 수도 있으나, 슬롯 회수 판정은 `.result` 파일을 정본으로 한다.
@@ -257,9 +321,10 @@ events.jsonl `team.start` 에 남긴다.
 섞여 쉘 인자에서 깨진다(실측한 자동 제출은 한 줄짜리였다). 대신 짧은 포인터만 넣고, 워커가
 `references/worker-prompt.md`(§5) 를 읽어 그 규칙대로 실행한다. 포인터는 치환 변수만 전달한다:
 ```
-.claude/skills/dflow-team/references/worker-prompt.md 의 규칙대로 실행하라.
-TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> MODEL_FLAG=<--model ...|공백>
+<팀장 체크아웃 절대경로>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라.
+TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=<pane|agent-team> MODEL_FLAG=<--model ...|공백>
 ```
+워커 프롬프트 경로를 **절대경로**로 주는 이유는 새 워크트리에 스킬이 없을 수 있기 때문이다(§3-15).
 
 - **Orca**:
   ```
@@ -278,18 +343,27 @@ TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃
   - `isolation: "worktree"` — **필수**(§3-5). 빠뜨리면 팀원이 팀장 cwd 를 상속해 서로를 덮어쓴다.
   - `name` — 슬롯 식별자를 그대로 준다(`w<slot>`). 진행 중 팀원을 이름으로 조회·중단할 수 있다.
   - `model` — `--model` 값을 전달한다.
-  - 반환된 에이전트 식별자와 워크트리 경로를 슬롯 표에 저장한다. 워크트리는 팀원 종료 시 자동
-    정리되므로 §4-4 의 명시적 정리 대상이 아니다(변경이 남아 있으면 남는다 — §12).
-  - 기점 브랜치: Agent 도구는 `--base-branch` 에 해당하는 인자가 없다. 워커가 첫 행동으로
-    `/usr/bin/git switch -c agent/<id8>-<slug> origin/main` 을 직접 쳐서 기점을 `origin/main` 으로
-    맞춘다(§5). pane 백엔드가 `--base-branch` 로 하던 일을 워커가 스스로 한다.
+  - 반환된 에이전트 식별자와 워크트리 경로를 슬롯 표에 저장한다. 워크트리는 팀원이 변경 없이
+    끝나면 자동 정리되지만, 커밋·미추적 파일(`.result`·`.agent`·`.env` 링크)이 남으면 보존될 수
+    있다. 보존 여부는 리허설에서 관찰하고, 보존된 것은 §4-4 에서 정리한다.
+  - 기점 브랜치: Agent 도구는 `--base-branch` 에 해당하는 인자가 없어 격리 워크트리는 팀장의 현재
+    HEAD(staging 등)에서 시작한다. **그래도 워커가 기점을 따로 맞추지 않는다.** `/dflow-dev` Phase 0-3
+    이 `git switch -c agent/<id8>-<slug> <기점>` 으로 기점을 항상 명시하기 때문이다(기본
+    `origin/<기본브랜치>`, 선행이 main 미반영이면 그 선행 위 — §5-A 행 B). 워커가 먼저 `origin/main`
+    위에 브랜치를 만들어 버리면 Phase 0-3 이 "이미 해당 브랜치면 재개" 로 빠져 스택 기점이 틀어진다.
+    (개정 4판 초안의 "워커가 첫 행동으로 `switch -c … origin/main`" 은 이 이유로 뺐다.)
 
-같은 작업을 다시 띄우는 일은 없다(수동 재개는 사람 몫, §7). 슬롯 표에 기록한다.
+같은 작업을 다시 띄우는 일은 없다. 예외는 에이전트 팀의 `blocked` 재개(§7) 하나이며, 그 밖의 재개는
+사람 몫이다. 슬롯 표에 기록한다.
 
 ### 4-4. 마감
 
-집계 표(TSK, id8, 브랜치, head, done exit, status, 사유)를 보고한다. 팀원 워크트리를 백엔드별로
-정리한다 — Orca 는 `orca worktree rm --worktree "<id>"`, tmux 는 team-mode 정리 + `git worktree remove`.
+집계 표(TSK, id8, 브랜치, head, done exit, status, 사유)를 보고한다. 마지막 승인 스윕을 한 번 돈다
+(§4-2 승인 스윕 주기). 팀원 워크트리를 백엔드별로 정리한다 — Orca 는 `orca worktree rm --worktree "<id>"`,
+tmux 는 team-mode 정리 + `git worktree remove`, 에이전트 팀은 슬롯 표에 남은 워크트리 경로가 아직
+존재할 때만 `git worktree remove --force <path>`. 에이전트 팀의 `--force` 는 미추적 파일(`.result`·
+`.agent`·`.env` 링크) 때문에 필요하며, **그 워크트리의 HEAD 가 `origin/<agent 브랜치>` 와 같을 때만**
+실행한다(push 안 된 커밋이 있으면 정리하지 않고 경로를 보고한다).
 **agent 브랜치는 남긴다.** 승인은 사람이 D'Flow 웹에서 하고, 승인 뒤 머지는 다음 `/dflow-team` 의
 스윕 또는 `/dflow-merge` 가 한다. 종료 이벤트를 events.jsonl 에 남긴다.
 
@@ -300,12 +374,15 @@ TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃
 실행한다. 이렇게 나눈 이유는 쉘 인자 인용 문제를 피하기 위해서다(§4-3).
 
 변수: `{TSK}`, `{ID8}`, `{AGENT_ID}`, `{MAIN_CHECKOUT}`, `{MODEL_FLAG}`, `{BACKEND}`(포인터 문단으로
-전달). `{BACKEND}` 는 `pane` 또는 `agent-team` 이며 `blocked` 이후 동작(위 판단 규칙 표)과 git 호출
-방식(아래 rtk 주의)을 가른다.
+전달). `{BACKEND}` 는 `pane` 또는 `agent-team` 이며 `blocked` 이후 동작(아래 판단 규칙 표)을 가른다.
+선택 변수 `{ANSWER}` 는 에이전트 팀에서 `blocked` 뒤 재spawn 할 때만 붙는다(§7). 있으면 워커는 그것을
+직전 질문에 대한 담당자 결정으로 보고 design.md 에 한 줄 남긴 뒤 이어 간다.
 
-**git 호출 주의(`BACKEND=agent-team` 일 때)**: 워크트리 격리 가드가 rtk 로 재작성되는 git 서브커맨드
-(`status`·`branch` 등)를 거부한다(§3-5-A). 이 백엔드에서는 **모든 git 호출을 절대경로 `/usr/bin/git`
-으로** 한다. `BACKEND=pane` 이면 해당 없다.
+**git 호출 규칙(두 백엔드 공통, §2 결정 6)**: 에이전트 팀에서는 워크트리 격리 가드가 rtk 로 재작성되는
+git 서브커맨드(`status`·`branch` 등)를 거부한다(§3-5-A). 그래서 워커는 부트스트랩에서
+`command -v git` 으로 git 절대경로를 확인하고, **이후 모든 git 호출에 그 절대경로를 쓴다**(bare `git`
+금지). pane 에서는 필요 없지만 무해하며, 백엔드별 분기를 두지 않으려고 공통으로 적용한다. 아래 예시의
+`git` 도 그 절대경로로 읽는다.
 
 **격리 확인 (첫 행동)**
 ```bash
@@ -318,17 +395,23 @@ esac
 `{TSK} {ID8} - - - failed not-isolated` 를 쓰고 끝낸다.
 
 **워크트리 부트스트랩** — `.env` 는 gitignore 라 새 워크트리에 없다. 메인 체크아웃에서 심링크한다.
-`.claude/skills` 는 커밋된 리포(wbs-web)면 이미 있고, 대상 리포가 심링크 배포면 그대로 따라온다.
+`.claude/skills` 는 커밋된 리포(wbs-web·킷 설치 리포)면 이미 있지만, gitignore 된 심링크로 배포한
+리포(mes-runlog)면 **없다**(§3-15). 없으면 메인 체크아웃의 것을 심링크한다.
 ```bash
 [ -e .env ] || ln -s {MAIN_CHECKOUT}/.env .env
+[ -e .claude/skills/dflow-dev/SKILL.md ] || { mkdir -p .claude && ln -s {MAIN_CHECKOUT}/.claude/skills .claude/skills; }
 set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor
 ```
 dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(env 는 Bash 호출 사이에 남지 않는다).
+심링크한 `.claude/skills` 는 커밋하지 않는다(`/dflow-dev` 는 파일명을 명시해 stage 하므로 섞이지 않는다).
 
 **좌석 식별 (부트스트랩 직후, claim 전)**: `docs/tasks/{TSK}/.agent` 에 `{AGENT_ID}` 한 줄을 쓴다(§9-1).
 이 파일은 커밋하지 않는다.
 
 **실행**: Skill 도구로 `/dflow-dev {ID8} --worker {MODEL_FLAG}` 를 실행한다. 참조는 id8 만 쓴다. 순번 금지.
+Skill 도구가 `dflow-dev` 를 모르면(세션이 스킬 없는 워크트리에서 시작돼 등록되지 않은 경우, §3-15)
+`.claude/skills/dflow-dev/SKILL.md` 를 Read 해서 `$ARGUMENTS` 를 `{ID8} --worker {MODEL_FLAG}` 로
+놓고 그 절차를 그대로 따른다. 스킬 hot-reload 를 기다리지 않는다.
 
 **서버 쓰기 범위**: `{ID8}` 외의 어떤 주문에도 claim·progress·release·done 을 하지 않는다.
 `list` 는 호출하지 않는다. 필요한 조회는 `show {ID8}` 뿐이다.
@@ -370,13 +453,14 @@ dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(en
 | B | Phase 0-2 선행이 approved 인데 main 미반영 → "지금 직접 머지"(119~121) | 직접 머지 | **머지하지 않는다.** 기점을 그 `head_sha` 로 잡아 스택 브랜치를 만들고 state.json 에 `branch_base` 와 `risk: "선행 main 미반영(팀장 머지 대기)"` 기록 후 진행 |
 | C | Phase 0 재개 판정 approved 갈래(88) | 지금 즉시 머지 후 종료 | **머지하지 않고** `.result` 를 `{TSK} {ID8} <branch> <head_sha> - needs-merge approved` 로 쓰고 종료 |
 | D | 사람 판단이 필요한 분기(AskUserQuestion·`--only` 확인) | AskUserQuestion 등 그대로 사용 | **AskUserQuestion 을 쓰지 않는다.** 기본값이 있으면 택해 한 줄 남기고 진행, 없으면 `blocked`(§5 판단 규칙). `--only` 확인은 팀장이 `--only` 를 넘기지 않으므로 워커 경로에 없다 |
+| E | Phase 1~4 공통 프롬프트(SKILL.md 156~159) | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로로 호출한다(bare `git` 금지)" 한 줄을 **덧붙인다.** 오케스트레이터 자신도 같은 규칙을 따른다. 에이전트 팀 백엔드의 rtk 격리 가드 차단(§3-5-A)을 손자 서브에이전트까지 막기 위해서다 |
 
-- 이 넷 말고 **기본 브랜치를 switch/pull/merge/push 하는 지점은 없다.** agent 브랜치를 만들고
+- 이 다섯 말고 **기본 브랜치를 switch/pull/merge/push 하는 지점은 없다.** agent 브랜치를 만들고
   (`git switch -c agent/...`) 그 위에 push 하는 Phase 5 는 워커에서도 그대로 필요하므로 유지한다.
 - **새로 만드는 "사람에게 묻기" 지점은 없다.** dflow-dev 의 판단 실패는 이미 전부 "중단·보고"
   (push 훅 거부, Verify 재시도 소진, 빨간 기준선)라 워커에선 `.result` 의 `failed <사유>` 로 떨어진다.
   설계 재량 분기만 판단 규칙(`blocked`)이 받는다.
-- **인자 파싱과 위 네 분기만 손댄다.** 게이트·Phase 정의·커밋 규칙·모델 배정(dev-discipline.md)은
+- **인자 파싱과 위 다섯 분기만 손댄다.** 게이트·Phase 정의·커밋 규칙·모델 배정(dev-discipline.md)은
   건드리지 않는다.
 - 계약 테스트(계획 Task 1)가 "`--worker` 문자열이 SKILL.md 에 있다" 와 "플래그 없는 Phase 0-가·
   AskUserQuestion 서술이 그대로다" 를 함께 단언해 가산성을 지킨다.
@@ -391,8 +475,14 @@ dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(en
   을 후보로 본다. 팀원 워크트리에서 마감한 작업은 `reported` 갱신이 팀장 체크아웃에 없을 수 있고,
   다른 PC·다른 신원의 브랜치도 이 팀장이 머지할 수 있어야 하기 때문이다. 브랜치 tip 의 phase 는
   신뢰하지 않고 판정은 서버 `show` 로만 한다.
-- **판정·순서·머지·뒷정리(불변)**: `status=approved` 만, 반려는 대기와 갈라 집계, 조상 먼저,
-  `--no-ff`, 훅 거부 시 우회 금지, `phase=merged` 커밋, 머지된 agent 브랜치 삭제.
+- **판정·순서·머지·뒷정리(불변)**: `status=approved` 만, 조상 먼저, `--no-ff`, 훅 거부 시 우회 금지,
+  `phase=merged` 커밋, 머지된 agent 브랜치 삭제.
+- **반려 갈래 보고(넓힘)**: approved 가 아닌 후보 중 `show` 응답 `.reports` 의 마지막
+  `kind=completion` 리포트가 `review_action=reject` 인 것은 "승인 대기" 가 아니라 "반려 — 재작업
+  필요: <review_note>" 로 갈라 보고한다(dflow-dev Phase 0-가 2번과 같은 판정). 원격 후보는 state.json 이
+  agent 브랜치에만 있으므로 `phase=rejected` 기록은 하지 않고 보고만 한다. 팀장은 이 id8 을 poll exit 10
+  행과 똑같이 처리한다(수동 `/dflow-dev <id8>` 대상으로 보고, 제외 목록 추가). 팀장 체크아웃에서 poll
+  exit 10 이 울리지 않는 공백(§3-16)을 이 갈래가 메운다.
 - **다중 경합**: 두 팀장의 스윕이 같은 브랜치를 머지하려 하면 나중 쪽 `git push` 가
   non-fast-forward 로 거부된다 — `git pull --ff-only` 후 후보를 다시 식별한다(이미 머지된 것은 빠진다).
 
@@ -401,8 +491,9 @@ dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(en
 - **인자 없는 기존 동작 불변**: 로컬 `phase=reported` 후보 식별은 그대로 둔다.
 - **원격 후보를 더한다**: 위 원격 브랜치 스캔을 후보 집합에 합집합으로 추가. 중복(로컬·원격이 같은
   TSK)은 order UUID 로 dedup 한다.
-- 판정·순서·머지·뒷정리 로직은 한 줄도 바꾸지 않는다. 계약 테스트가 "원격 스캔 문구가 있다" 와
-  "approved 만 머지·조상 먼저 서술이 그대로다" 를 함께 단언한다.
+- **반려 갈래를 보고에 더한다**: 위 "반려 갈래 보고". 머지 대상 선정에는 영향이 없다(approved 만).
+- 판정·순서·머지·뒷정리 로직은 한 줄도 바꾸지 않는다. 계약 테스트가 "원격 스캔·반려 갈래 문구가
+  있다" 와 "approved 만 머지·조상 먼저 서술이 그대로다" 를 함께 단언한다.
 
 ## 7. 실패·질문·재기동
 
@@ -410,8 +501,8 @@ dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(en
 |---|---|---|
 | claim exit 4(선점·선행 미충족) | `.result` 에 `skipped`, 종료 | 집계, 제외 목록 추가 |
 | spec 부재 | exit 0 처리에서 걸러짐. 새어 오면 `skipped` | 집계, 제외 목록 추가 |
-| `blocked`(담당자 결정 필요) — **pane** | 커밋·push, 질문을 화면에 출력, `.result` 에 `blocked` 쓰고 그 세션에서 멈춤(탭 유지) | AskUserQuestion 을 쓰지 않는다(자동 루프). "결정 필요: <질문> — 그 팀원 탭에서 답하라" 고 알린다. **그 슬롯은 blocked 팀원이 계속 잡는다 — 다른 작업에 재배정하지 않는다.** 재배정하면 살아 있는 프로세스 둘이 같은 `AGENT_ID`(§9-1, 슬롯에 붙음)로 heartbeat 를 보내 좌석표가 한 인물을 두 책상에 그리고 손 든 상태가 새 active 에 덮인다. 사람이 그 탭에서 답을 주면 팀원이 같은 워크트리·브랜치에서 이어 간다(재spawn·재claim 없음). 그동안 가용 슬롯은 하나 줄어든다 |
-| `blocked` — **에이전트 팀** | 커밋·push, `.result` 에 `blocked`(질문·선택지 포함) 쓰고 **세션 종료**(탭이 없어 멈춰 있어도 아무도 못 본다) | 알림으로 받아 질문을 사람에게 전달한다. **팀원이 이미 죽었으므로 `AGENT_ID` 중복 위험이 없고, 슬롯은 회수해 다음 작업에 쓴다.** 답이 오면 같은 워크트리 경로·브랜치를 지정해 워커를 다시 띄운다(재claim 없음 — 이미 claimed 다). 워크트리가 자동 정리돼 사라졌으면 브랜치에서 새 워크트리로 재개한다 |
+| `blocked`(담당자 결정 필요) — **pane** | 커밋·push, 질문을 화면에 출력, `.result` 에 `blocked` 쓰고 그 세션에서 멈춤(탭 유지) | AskUserQuestion 을 쓰지 않는다(자동 루프). "결정 필요: <질문> — 그 팀원 탭에서 답하라" 고 알린다(PushNotification 이 있으면 한 번, §2). **그 슬롯은 blocked 팀원이 계속 잡는다 — 다른 작업에 재배정하지 않는다.** 재배정하면 살아 있는 프로세스 둘이 같은 `AGENT_ID`(§9-1, 슬롯에 붙음)로 heartbeat 를 보내 좌석표가 한 인물을 두 책상에 그리고 손 든 상태가 새 active 에 덮인다. 사람이 그 탭에서 답을 주면 팀원이 같은 워크트리·브랜치에서 이어 간다(재spawn·재claim 없음). 그동안 가용 슬롯은 하나 줄어든다 |
+| `blocked` — **에이전트 팀** | 커밋·push, `.result` 에 `blocked`(질문·선택지 포함) 쓰고 **세션 종료**(탭이 없어 멈춰 있어도 아무도 못 본다) | 알림으로 받아 질문을 사람에게 전달한다(PushNotification 이 있으면 한 번, §2). **팀원이 이미 죽었으므로 `AGENT_ID` 중복 위험이 없고, 슬롯은 회수해 다음 작업에 쓴다.** 답이 오면 워커를 새 격리 워크트리로 다시 띄워 기존 agent 브랜치로 switch 하게 한다(재claim 없음 — 이미 claimed 다. Agent 도구는 기존 워크트리를 지정할 수 없다). 옛 워크트리가 보존돼 그 브랜치를 잡고 있으면 `already checked out` 이 나므로, 팀장이 재spawn 전에 §4-4 규칙(HEAD = origin tip 확인 후 `git worktree remove --force`)으로 먼저 정리한다. 사람의 답은 포인터에 `ANSWER=<한 줄>` 로 붙여 넘기고, 워커는 그것을 설계 결정으로 design.md 에 한 줄 남긴다 |
 | `needs-merge` | `.result` 쓰고 종료 | 승인 스윕(§6) 즉시 실행 |
 | `failed`(push 훅 거부·게이트 실패 등) | dflow-dev 규칙대로 중단, `.result` 에 `failed` | 집계, 제외 목록 추가, 사유 보고. 자동 재시도 없음 |
 | 팀원 무응답(2시간 이상 신호 없음) | — | `show <id8>`: claimed 면 워크트리를 정리(Orca `worktree rm`)하고 "재개 필요" 로 보고. 다음 수동 `/dflow-dev <id8>` 이 브랜치 재개 규칙으로 이어받음 |
@@ -446,8 +537,10 @@ dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다(en
   팀원 워크트리는 로컬이다. 공유되는 것은 서버 상태와 원격 `agent/*` 브랜치뿐이며, 승인 스윕이 원격
   기준으로 후보를 보는 이유가 이것이다(§6).
 - **준비물**: 대상 리포 클론, `.env`(해당 담당자 PAT·`DFLOW_API_BASE`·`DFLOW_PROJECT_MAP`),
-  `.claude/skills/dflow-*` 설치(dflow-kit), 대화형 세션, 백엔드(Orca 또는 진짜 tmux+수정된 dev-plugin).
-  이 목록은 SKILL.md 의 전제 검사와 일치해야 한다.
+  `.claude/skills/dflow-*` 설치(dflow-kit 복사·커밋 또는 wbs-web 정본 심링크 — 후자는 새 워크트리에
+  따라오지 않지만 워커 부트스트랩이 메워 준다, §3-15), 대화형 세션. 백엔드는 따로 준비할 필요가 없다 —
+  Orca·진짜 tmux(수정된 dev-plugin 이 있으면 pane, 없으면 에이전트 팀)·일반 터미널(에이전트 팀) 어디서나
+  뜬다. 이 목록은 SKILL.md 의 전제 검사와 일치해야 한다.
 
 ## 9. 가상 오피스(좌석표) 연동 계약
 
@@ -521,7 +614,9 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
 백엔드(자동 제출·워크트리 격리가 실측된 경로)로 한다.
 
 - 준비: mes-base 에 `agent` 태그가 붙은 독립 ready 작업 3건(그중 1건은 spec 에 담당자 결정이 필요한
-  분기를 일부러 남긴다), `.env` 는 스테이징.
+  분기를 일부러 남긴다), `.env` 는 스테이징. mes-base 에는 현재 `.claude/` 가 없으므로(§3-15) wbs-web
+  정본을 심링크로 설치하고 `.gitignore` 에 `.claude/skills/` 를 더한다 — mes-runlog 와 같은 배포 형태라
+  "새 워크트리에 스킬이 없다" 경로를 리허설이 그대로 밟는다.
 - 실행(Orca): `/dflow-team --team-size 2 --until <2시간 뒤>`.
 - 합격 기준:
   1. 첫 poll 에서 2건이 각자 `orca worktree create --agent claude` 로 spawn 되고 3번째는 대기 큐에
@@ -543,11 +638,16 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
 - 다중 신원은 같은 PC 에서 세션 두 개를 같은 PAT 로 띄워 exit 4 분기만 확인한다(2차 리허설에서 실제
   두 신원·두 PC). tmux 백엔드는 dev-plugin 수정 후 별도 리허설로 확인한다.
 - **에이전트 팀 백엔드 리허설(별도, Orca 리허설과 같은 합격 기준)** — 일반 터미널에서 같은 3건으로
-  돌린다. 추가로 확인할 것 넷:
+  돌린다. 추가로 확인할 것 여섯:
   1. 팀원 둘이 **서로 다른** 링크드 워크트리를 받았고 팀장 체크아웃의 브랜치·워킹트리가 불변이다
      (§3-1 실측을 실제 워커 부하로 재확인).
-  2. 워커가 `/usr/bin/git` 경로로 `/dflow-dev` 를 완주한다 — rtk 차단(§3-5-A)이 Phase 진행 중에
-     터지지 않는지가 핵심이다. 한 번이라도 차단되면 그 지점을 기록한다.
+  2. 워커와 Phase 서브에이전트가 `command -v git` 절대경로로 `/dflow-dev` 를 완주한다 — rtk 차단
+     (§3-5-A)이 Phase 진행 중에 터지지 않는지가 핵심이다. 한 번이라도 차단되면 그 지점을 기록하고
+     §3-5-A 예비책(리터럴 `/usr/bin/git`)으로 바꿔 다시 돌린다.
+  5. 팀원이 끝난 뒤 워크트리가 자동 정리됐는지 보존됐는지 기록하고, `.result` 가 파일과 마지막 응답
+     중 어디서 읽혔는지 확인한다(§4-2). 보존됐다면 §4-4 정리가 깨끗이 도는지 본다.
+  6. `blocked` 에 답한 뒤 재spawn 된 워커가 `ANSWER` 를 design.md 에 남기고 같은 agent 브랜치 위에서
+     이어 간다(§7).
   3. `blocked` 작업에서 팀원이 **종료**하고 슬롯이 회수돼 다음 작업이 들어간다(pane 과 반대 거동).
   4. 팀장 세션을 의도적으로 종료했을 때 팀원이 함께 죽고, 재기동 시 claimed 가 "재개 필요" 로
      보고된다(§7).
@@ -559,7 +659,7 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
 - **캐시 공유**: 팀원의 `show` 가 id8 을 접두 해석하는 순간 팀장의 `list` 가 `last-list.json` 을 덮을
   수 있다. `known-ids.txt` 누적 맵이 폴백이고 팀원은 `list` 를 부르지 않으며 팀장도 보조 신호에서만
   부른다. 접두 해석이 실패하면 팀원은 `failed` 로 끝나고 사람이 재개한다. poll.sh 출력에 전체 UUID 를
-  추가하면 근본 해결이지만 기존 스킬 무수정 원칙에 따라 이번엔 보류한다.
+  추가하면 근본 해결이지만 `/dflow-poll`(poll.sh 포함) 무수정 원칙(§1 비목표)에 따라 이번엔 보류한다.
 - **`/dflow-dev` 수정이 심링크로 모든 리포에 즉시 적용된다**(§3-14). 방어선은 **순수 가산성** 하나뿐
   이다 — 플래그 없는 경로가 한 줄도 안 바뀌어야 하고, 계약 테스트(Task 1)가 지킨다. 워커가 옛
   버전(플래그 미인식)을 만나면 스윕이 기본 브랜치 `git switch` 로 죽지 않도록, 팀원 프롬프트가
@@ -570,10 +670,19 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
   감싸고 버전 올려 `/plugin update` 해야 `/team-mode` 가 뜬다. **개정 4판부터는 그때까지 tmux 에서도
   중단하지 않고 에이전트 팀 백엔드로 내려간다**(§4-0). 즉 dev-plugin 수정은 "pane 의 이점을 tmux 에서
   누리기 위한" 개선이지 착수 선행 조건이 아니다.
-- **에이전트 팀 백엔드에서 rtk 가 일부 git 을 막는다**(§3-5-A). `/usr/bin/git` 강제로 우회하지만,
-  `/dflow-dev` 본문에 박힌 bare `git` 호출까지 전부 우회시키려면 워커 프롬프트의 지시만으로 충분한지
-  리허설에서 확인해야 한다(§11 에이전트 팀 리허설 2번). 부족하면 rtk 훅 쪽을 고치는 것이 근본
-  해결이다. rtk 미설치 PC 에서는 발생하지 않는다.
+- **에이전트 팀 백엔드에서 rtk 가 일부 git 을 막는다**(§3-5-A). git 절대경로 규칙(§2 결정 6)과
+  `--worker` 행 E 로 워커와 Phase 서브에이전트까지 우회시키지만, `/dflow-dev` 본문에 박힌 bare `git`
+  예시를 LLM 이 매번 절대경로로 바꿔 부르는지는 리허설에서 확인해야 한다(§11 에이전트 팀 리허설
+  2번). 부족하면 rtk 훅 쪽을 고치는 것이 근본 해결이다. rtk 미설치 PC 에서는 발생하지 않는다.
+- **팀장 체크아웃에서 poll exit 9·10 이 팀원 작업에 대해 울리지 않는다**(§3-16). 기상 때마다 도는
+  승인 스윕으로 대체했으므로 한가한 구간에서는 승인 반영이 poll 한 주기 이상 늦을 수 있다. 같은
+  이유로 **팀원 작업의 반려(exit 10)도 팀장이 poll 로는 못 본다.** 현행 `/dflow-merge` 는 approved 가
+  아니면 전부 "승인 대기" 로 보고하므로(반려 갈래가 없다 — 2026-09-11 확인, 반려 갈래는 dflow-dev
+  Phase 0-가 에만 있다) 그대로 두면 반려가 대기로 묻힌다. 그래서 §6-A 가산 수정에 반려 갈래 보고를
+  넣었다.
+- **새 워크트리의 스킬 부재**(§3-15). 부트스트랩의 심링크와 SKILL.md 직접 읽기 폴백으로 메우지만,
+  폴백 경로에서는 `/dflow-dev` 가 Skill 도구 없이 실행되므로 스킬 로딩에 딸린 부가 동작(있다면)은
+  빠진다. 리허설(mes-base 심링크 설치)에서 폴백 경로를 실제로 한 번 밟는다.
 - **에이전트 팀 팀원은 팀장과 운명을 같이한다.** 팀장 세션이 죽으면 팀원도 죽어 미커밋분을 잃는다
   (pane 은 살아남는다, §7). `/dflow-dev` 의 빈번한 커밋과 `blocked` 전 커밋 규칙이 손실을 줄이지만
   없애지는 못한다. 장시간 무인 운전에는 pane 백엔드가 더 안전하다.
@@ -593,7 +702,7 @@ dflow-kit 의 기존 `kit-build.sh` 대상 목록에 `dflow-team` 을 추가한�
   지키기 위한 대가이며, 담당자가 자리를 비운 시간대에는 blocked 가 쌓여 루프가 사실상 멈출 수 있다.
   에이전트 팀 백엔드는 blocked 팀원이 종료하므로 이 비용이 없다(§7) — 대신 질문이 팀장에게 쌓이고,
   사람이 돌아올 때까지 그 작업만 진척되지 않는다.
-- **blocked 누적을 사람에게 알릴 능동 경로가 없다.** 두 백엔드 모두 이벤트는 `events.jsonl` 로컬
-  기록과 화면 통지뿐이라, 터미널을 보고 있지 않으면 팀 전체가 조용히 멈춘 것을 모른다. 이 하네스에는
-  PushNotification 도구가 있으므로 "모든 슬롯이 blocked" 또는 "N분간 진척 없음" 을 능동 통지하는
-  지점을 SKILL.md 에 넣을지 착수 시 결정한다.
+- **blocked 누적을 사람에게 알리는 경로는 PushNotification 하나다**(§2, 2026-09-11 기본값). 팀장이
+  `blocked` 를 받을 때마다 한 번 알린다. 이 도구가 없는 하네스에서는 `events.jsonl` 과 화면 통지뿐이라,
+  터미널을 보고 있지 않으면 팀 전체가 조용히 멈춘 것을 모른다. "N분간 진척 없음" 통지는 v1 에 넣지
+  않는다.
