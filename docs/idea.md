@@ -8,7 +8,7 @@
 - 완전자동/개발자동/수동 필요
   - 완전자동 : 설계-완료
   - 개발자동 : 설계는 수동(설계문서가 있어야한다.), 개발만 자동
-  - 수동 : 모두 사람이 명령  / 직접 코딩으로 개발
+  - 수동 : 모두 사람이 명령  / 직접 코딩/LLM  실행 으로 개발
 - 오른쪽 태스크 정보 사이드바에서 선행항목에서 진행 상태를 알려줘. 현재 태스크의 시작여부를 알수 있도록하고 선행항목을 클릭하면 해당 항목의 태스크 정보가 조회 되도록 해줘. 추가로 후행항목 표시도 하자. (완)
 - 태스크 정보 뷰에 대해 너무 복잡하다. (완)
   - 변경이력은 자리 너무 많이 차지 한다. 각 항목별로 한줄로 ... 
@@ -20,8 +20,9 @@
 - WP에 대한 관리자 기능
 - 에이전트 작업중일때 취소를 할 수 있는 기능
 - 이미지를 참고하여 개발하기
-- 가상오피스 구현 — [정리본](superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md) · [스프라이트 참조 이미지](superpowers/specs/2026-09-10-agent-seatmap-sprite-reference.png) · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md) 필독 · 배경: [자율 러너 설계](superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md). ⚠️ 정리본·스프라이트 이미지는 **아직 커밋되지 않았다**(다른 세션 작업 — 다른 PC·계정에서는 링크가 깨진다). 남은 결정: 착수 순서·`blocked` 상태 스키마, heartbeat 스코프, Micro 부하 실측(걸림돌 결정 2·3·5). 좌석 식별 파일은 팀장 스킬 쪽에서 워크트리 루트 `.dflow-agent` 로 정해졌다.
-- 팀장 스킬 /dflow-team 구현 — D'Flow 배정 작업을 상시 폴링해 슬롯 N개 팀원에게 자동 분배, 완료 시 다음 작업 보충, 신원별로 각자 실행. **환경 적응형**(Orca=pane 백엔드, 일반 터미널·v1 의 tmux=**에이전트 팀 백엔드** `isolation: worktree`). 어느 환경이든 병렬 가능. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**(단순 서브에이전트 아님 — `/dflow-dev` 가 Phase 1~4 를 서브에이전트로 쪼개기 때문), 각자 워크트리에서 `/dflow-dev --worker`. 기존 dflow-* 는 **순수 가산** 수정. 문서는 모두 staging 에 있다 — [스펙](superpowers/specs/2026-09-10-dflow-team-design.md)(개정 4판 + 2026-09-11 보완) · [계획](superpowers/plans/2026-09-10-dflow-team.md)(2026-09-11 전면 재작성, Task 1~8) · [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md). 착수는 명시 지시 대기 — 지시가 나오면 계획서 "실행 준비"(새 브랜치 `feat/dflow-team` 워크트리)부터, 실행은 subagent-driven. 걸림돌 결정 1(plan.md)은 해소, 6(rtk)·7(백엔드 정책)은 기본값 채택(이의 시 변경). ⚠️ 2차 검토(09-11 저녁)에서 신규 걸림돌 19건(T1~T19, 치명 0·높음 9) — **스펙·계획서 수정과 결정 8~11(권한 모드·적용 좌표·리허설 리포·옵션 단순화)이 착수보다 먼저**, T6(팀원 완료 알림 의미)은 리허설 전 단독 실측.
+- 가상오피스 구현 — [정리본](superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md) · [스프라이트 참조 이미지](superpowers/specs/2026-09-10-agent-seatmap-sprite-reference.png) · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md) 필독 · 배경: [자율 러너 설계](superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md). 정리본·스프라이트 이미지·스프라이트 자산(`assets/sprites`·`public/sprites`·`scripts/sprites`)은 2026-09-11 커밋됨. 남은 결정: 착수 순서·`blocked` 상태 스키마, heartbeat 스코프, Micro 부하 실측(걸림돌 결정 2·3·5). 좌석 식별 파일은 팀장 스킬 쪽에서 워크트리 루트 `.dflow-agent` 로 정해졌다.
+- 팀장 스킬 /dflow-team 구현 — D'Flow 배정 작업을 상시 폴링해 슬롯 N개 팀원에게 자동 분배, 완료 시 다음 작업 보충, 신원별로 각자 실행. **환경 적응형**(Orca=pane 백엔드, 일반 터미널·v1 의 tmux=**에이전트 팀 백엔드** `isolation: worktree`). 어느 환경이든 병렬 가능. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**(단순 서브에이전트 아님 — `/dflow-dev` 가 Phase 1~4 를 서브에이전트로 쪼개기 때문), 각자 워크트리에서 `/dflow-dev --worker`. 기존 dflow-* 는 **순수 가산** 수정. 문서는 모두 staging 에 있다 — [스펙](superpowers/specs/2026-09-10-dflow-team-design.md)(개정 4판 + 2026-09-11 보완) · [계획](superpowers/plans/2026-09-10-dflow-team.md)(2026-09-11 전면 재작성, Task 1~8) · [걸림돌 정리](superpowers/specs/2026-09-11-office-team-blockers.md). 착수는 명시 지시 대기 — 지시가 나오면 계획서 "실행 준비"(새 브랜치 `feat/dflow-team` 워크트리)부터, 실행은 subagent-driven. 걸림돌 결정 1(plan.md)은 해소, 6(rtk)·7(백엔드 정책)은 기본값 채택(이의 시 변경). ⚠️ 2차 검토(09-11 저녁)에서 신규 걸림돌 19건(T1~T19, 치명 0·높음 9) — 결정 8~11(권한 모드·적용 좌표·리허설 리포·옵션 단순화)은 **권장안으로 확정**, **T1~T19·결정 8~11 을 스펙·계획서에 반영하는 것이 착수보다 먼저**, T6(팀원 완료 알림 의미)은 리허설 전 단독 실측.
+  - [ ] (선행) 걸림돌 T1~T19·결정 8~11 을 스펙·계획서에 반영 (계획서 머리의 "실행 금지" 경고 해제 조건)
   - [ ] Task 1 `/dflow-dev --worker` 가산 — 분기 A~E(스윕 건너뜀·스택·needs-merge·질문 억제·git 절대경로), 원문 사본 가산성 테스트
   - [ ] Task 2 `/dflow-merge` 가산 — 원격 `origin/agent/*` 후보·반려 갈래 보고
   - [ ] Task 3 `references/worker-prompt.md` — 격리 확인·스킬/`.env` 부트스트랩·`.dflow-agent`·`.result` 계약
