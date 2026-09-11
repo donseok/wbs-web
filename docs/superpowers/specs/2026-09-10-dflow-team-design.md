@@ -255,7 +255,11 @@ events.jsonl `team.start` 에 남긴다.
 1. **전제 검사** — 하나라도 실패하면 아무것도 띄우지 않고 중단한다.
    - `.env` 존재, `set -a; . ./.env; set +a` 후 `dflow.sh doctor` exit 0. `DFLOW_PATS` 첫 토큰이
      **이 신원의** PAT 여야 한다(`dflow.sh me` 로 이름을 출력해 확인).
-   - `git status --porcelain` 이 비어 있다(팀장 체크아웃이 더러우면 승인 스윕이 위험하다).
+   - `git status --porcelain` 이 비어 있다(팀장 체크아웃이 더러우면 승인 스윕이 위험하다). 검사 전에
+     `**/.claude/worktrees/` 를 로컬 exclude(`git rev-parse --git-path info/exclude`)에 넣는다 — 에이전트 팀
+     격리 워크트리는 대상 리포 안 `.claude/worktrees/` 에 생기는데, wbs-web 은 이 줄이 이미 있지만
+     mes-runlog 에는 없어(2026-09-11 확인) 보존된 팀원 워크트리가 이 검사를 깨뜨린다. 커밋하지 않는
+     로컬 설정이다.
    - `.claude/skills/dflow-dev`·`dflow-work`·`dflow-poll` 이 cwd 에서 해석된다(심링크 포함).
    - `--until` 이 있고 미래 시각이다.
    - `.claude/skills/dflow-team/references/worker-prompt.md` 가 cwd 에서 해석되고, `/dflow-dev`
