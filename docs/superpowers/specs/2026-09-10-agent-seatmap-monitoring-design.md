@@ -1,7 +1,7 @@
 # 에이전트 좌석표 모니터링 설계 정리 (2026-09-10)
 
 대상: `/dflow-dev` · `/dflow-poll` 로 도는 에이전트 작업의 진행 상황을 세션 밖에서 보는 화면과 그 데이터 경로.
-상태: **설계 정리본(미착수)**. 착수는 사용자 지시 후. 러너 설계 개정(`2026-08-20-wbs-autonomous-runner-design.md`,
+상태: **설계 정리본**. 2026-09-14 부터 v1 구현 착수 — 구현 스펙은 `2026-09-14-agent-office-v1-design.md`(정정 목록 §9 포함, 어긋나면 그쪽이 정본). 러너 설계 개정(`2026-08-20-wbs-autonomous-runner-design.md`,
 `2026-08-21-runner-design-review.md`)과 좌표가 겹치므로 착수 시 같이 다룰지 먼저 정한다.
 목업: https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13 (v2, 2026-09-10)
 
@@ -37,6 +37,7 @@
 | 끊김 OFFLINE | claimed · heartbeat > 30분 | 회색 · 붉은 테두리 · `끊김` | 빈 의자(점선) | 의자 빔, 모니터 꺼짐 |
 | 승인 대기 IDLE | reported | 주황 | 손을 무릎에 | **커피 마시기, 기지개, 의자 돌리기** (쉬는 동작) |
 | 반려 REJECTED | 마지막 완료 리포트 `review_action=reject` (status 는 claimed 로 돌아감) | 붉은 스트라이프 | 손을 책상에 | 서류 다시 들추기, 땀방울 |
+| 결정 대기 BLOCKED | claimed · `heartbeat_phase=blocked` (시간 판정보다 우선, 2026-09-14 추가 — v1 스펙 §2) | 파랑 · `?` | 손 든 자세(v1 은 idle_look 정지 프레임) | 손 들기 + 말풍선(질문) |
 | 빈자리 READY | ready (주문만 존재) | 점선 테두리 | 빈 의자 | 빈 의자 |
 | 머지 완료 DONE | approved + 로컬 merged | 회색 | 빈 의자 | 퇴근(캐릭터 없음). 층에서 접기 옵션 |
 | 감시 STANDBY (층 단위) | poll.sh 실행 중 | 층 헤더 초록 배지 | — | 당직 캐릭터가 통로를 순찰 |
@@ -56,8 +57,8 @@
 | 항목 | 값 |
 |---|---|
 | 시점 | 정면(참고 이미지). v2 의 위에서 본 시점은 폐기. 책상이 캐릭터 앞(아래)에 놓이므로 앉은 자세에서는 다리가 가려진다 |
-| 셀 | 64×64 px 원본(1x). 캐릭터 높이 약 48 px, 소품(커피·zzz·땀)이 들어갈 여백 포함. 앵커는 좌석 기준 (32, 60) |
-| 표시 | CSS 64 px + `image-rendering: pixelated`. 레티나에서는 브라우저가 정수 2배로 올린다. 좌석표 의자 칸은 56→64 px |
+| 셀 | **96×96 px**(2026-09-10 시연으로 64 에서 개정 — 손·키보드가 살아남는 최소 크기). 소품(커피·zzz·땀) 여백 포함. 앵커는 좌석 기준 (48, 90) |
+| 표시 | CSS 96 px + `image-rendering: pixelated`. 레티나에서는 브라우저가 정수 2배로 올린다. 좌석표 의자 칸은 96 px |
 | 팔레트 | 외곽선 1 + 피부 3톤 + 머리카락 3톤 + 상의 3톤 + 바지 2톤 + 소품 고정색. 피부·머리카락·상의·바지는 **키 색**(정본 값 고정)이고 런타임에 에이전트별로 치환한다 |
 | 정체성 | 에이전트 이름 해시 → 머리 모양 6 × 머리색 6 × 상의색 6 × 피부 3. 같은 에이전트는 늘 같은 사람 |
 
@@ -77,8 +78,8 @@
 
 프레임 = `{파츠 id, 오프셋(dx, dy)}` 목록. 픽셀 아트는 회전·확대를 쓰지 않고 **위치 이동과 파츠 교체**만으로 움직인다.
 
-- 정의: `assets/sprites/anim.json`. 파츠 원본 PNG 도 같은 폴더.
-- 빌드: 스크립트가 (상태 × 머리 모양) 스트립을 합성해 `public/sprites/agents.png` + `agents.json` 아틀라스 하나로 굽는다.
+- 정의: 공용 `assets/sprites/animations.json` + 캐릭터별 `assets/sprites/<char>/character.json`(§4-4 확장 절).
+- 빌드: Python 스크립트(`scripts/sprites/*.py`)가 캐릭터별 동작 스트립 `public/sprites/<char>/<동작>.png` + `manifest.json` 을 굽는다. (초안의 `build.mjs`·아틀라스 1장 방식은 쓰지 않았다 — 2026-09-14 정정)
 - 런타임: 아틀라스를 에이전트 팔레트로 한 번 재색칠(canvas, 정체성별 캐시, blob URL)한 뒤 CSS `steps(n)` 으로
   `background-position` 을 옮긴다. JS 타이머 없이 GPU 합성이라 책상 60개 이상에서도 가볍다.
   `prefers-reduced-motion` 이면 정지 프레임.

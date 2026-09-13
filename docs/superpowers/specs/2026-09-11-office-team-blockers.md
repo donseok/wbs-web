@@ -154,6 +154,8 @@ claim 한 작업에만 heartbeat 를 보낼 수 있다.
 
 ## 착수 전 사용자 결정이 필요한 항목
 
+> **2026-09-14 확정**: 1 = 지금 착수·`blocked` 는 `heartbeat_phase` 파생, 2 = `work:claim` 재사용, 3 = 스테이징 배포 뒤 실측(main 머지 전). STANDBY 는 v1 포함(TTL 70분), staging:sync 는 생략. 상세는 `2026-09-14-agent-office-v1-design.md`.
+
 1. **두 스펙 착수 순서 + `blocked` 상태 스키마 합의** — 재작업 방지. 팀장 스킬 쪽은 좌석표 없이도
    events.jsonl·`.result` 로 동작하므로 이 결정을 기다리지 않고 착수할 수 있다. 좌석표에 요청할 좌석 식별
    경로는 `.dflow-agent`(워크트리 루트)다.
