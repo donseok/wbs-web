@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Supabase 서버 클라이언트를 모킹해 가드 로직만 검증한다.
 // vi.mock 팩토리는 최상단으로 호이스팅되므로 스파이는 vi.hoisted 로 먼저 만든다.
-const { mockClient } = vi.hoisted(() => ({ mockClient: { auth: { getUser: vi.fn() }, from: vi.fn() } }))
+const { mockClient } = vi.hoisted(() => ({ mockClient: { auth: { getClaims: vi.fn() }, from: vi.fn() } }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: vi.fn(async () => mockClient) }))
 
 import { getActor, requireSuperuser, requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
@@ -18,7 +18,7 @@ function stubDb(opts: {
   rosterRows?: { project_id: string; team_id: string; teams: { code: string } | null }[] | null
   rosterError?: { message: string } | null
 }) {
-  mockClient.auth.getUser.mockResolvedValue({ data: { user: USER } })
+  mockClient.auth.getClaims.mockResolvedValue({ data: { claims: { sub: USER.id, email: USER.email } } })
   mockClient.from.mockImplementation((table: string) => {
     if (table === 'memberships') {
       return { select: () => ({ eq: () => ({ maybeSingle: async () => ({
@@ -36,11 +36,11 @@ function stubDb(opts: {
   })
 }
 
-beforeEach(() => { mockClient.from.mockReset(); mockClient.auth.getUser.mockReset() })
+beforeEach(() => { mockClient.from.mockReset(); mockClient.auth.getClaims.mockReset() })
 
 describe('getActor', () => {
   it('비로그인은 null', async () => {
-    mockClient.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockClient.auth.getClaims.mockResolvedValue({ data: null })
     expect(await getActor()).toBe(null)
   })
 
@@ -106,7 +106,7 @@ describe('requireSuperuser', () => {
     expect(await requireSuperuser()).toEqual({ ok: false, error: '권한 없음' })
   })
   it('비로그인은 로그인 필요', async () => {
-    mockClient.auth.getUser.mockResolvedValue({ data: { user: null } })
+    mockClient.auth.getClaims.mockResolvedValue({ data: null })
     expect(await requireSuperuser()).toEqual({ ok: false, error: '로그인 필요' })
   })
 })
@@ -203,7 +203,7 @@ describe('getActorForView — 화면 계층 열화', () => {
     ['NEXT_REDIRECT', { digest: 'NEXT_REDIRECT;replace;/login;307;' }],
     ['NEXT_NOT_FOUND', { digest: 'NEXT_NOT_FOUND' }],
   ])('%s 신호는 그대로 다시 던진다', async (_n, thrown) => {
-    mockClient.auth.getUser.mockImplementation(() => { throw thrown })
+    mockClient.auth.getClaims.mockImplementation(() => { throw thrown })
     const { getActorForView } = await import('@/lib/authz')
     await expect(getActorForView()).rejects.toBe(thrown)
   })

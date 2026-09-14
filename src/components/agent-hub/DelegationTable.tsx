@@ -1,12 +1,16 @@
 'use client'
 // 위임 표 — WBS 트리 순서로 항목을 나열하고 리프마다 위임 체크·주문 상태·에이전트·마지막 신호·프롬프트.
-// 부모 행 체크 = 하위 리프 일괄(관리자). 변경은 액션 1회 + onChanged(허브 재조회) 1회. 페이지 전체 refresh 금지(스펙 §7).
+// 부모 행 체크 = 하위 리프 일괄(관리자). 체크는 즉시 표시되고 잠기지 않는다. 1.5초 모아 applyHubDelegations 1건으로
+// 보내고 응답의 허브로 표를 갱신한다(2026-09-14 체크 지연 개선 — 종전 체크 1개 = 액션 2건 직렬 + 0.8~1.0초 잠김).
+// 페이지 전체 refresh 금지(스펙 §7).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Pencil } from 'lucide-react'
-import type { HubRow } from '@/lib/domain/agentHub'
+import type { AgentHub, HubRow } from '@/lib/domain/agentHub'
 import { ageLabel } from '@/lib/domain/seatmap'
-import { setAgentDelegation, updateAgentPrompt } from '@/app/actions/wbsSpec'
-import { setAgentDelegationBulk } from '@/app/actions/agentHub'
+import { updateAgentPrompt } from '@/app/actions/wbsSpec'
+import { applyHubDelegations, type HubDelegationsResult } from '@/app/actions/agentHub'
+import { PendingSaveChip } from '@/components/wbs/PendingSaveChip'
+import { usePendingDelegations } from './usePendingDelegations'
 import { NEEDS_DELEGATION, NO_ORDER, STATE_LABEL, TOGGLE_DENIED_TITLE } from './labels'
 
 export type HubFilter = 'mine' | 'all'
@@ -18,6 +22,9 @@ type Props = {
   filter: HubFilter
   onFilter: (f: HubFilter) => void
   nowMs: number
+  /** 묶음 저장 응답에 실린 허브로 화면을 교체한다 — 재조회 요청 없음. */
+  onHub: (hub: AgentHub) => void
+  /** 재조회가 필요한 변경(프롬프트 저장, 저장 뒤 재조회 실패) — refreshAgentHub 1회. */
   onChanged: () => Promise<void> | void
 }
 
@@ -33,19 +40,19 @@ function leafDescendants(rows: HubRow[]): Map<string, string[]> {
   return out
 }
 
-function ParentCheckbox({ state, disabled, onClick }: { state: 'all' | 'some' | 'none'; disabled: boolean; onClick: () => void }) {
+function ParentCheckbox({ state, onClick }: { state: 'all' | 'some' | 'none'; onClick: () => void }) {
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => { if (ref.current) ref.current.indeterminate = state === 'some' }, [state])
   return (
-    <input ref={ref} type="checkbox" data-hub-parent-toggle checked={state === 'all'} disabled={disabled}
+    <input ref={ref} type="checkbox" data-hub-parent-toggle checked={state === 'all'}
       aria-label="하위 리프 전체 위임" title="하위 리프 전체 위임/해제" onChange={onClick} className="h-3.5 w-3.5 rounded border-line" />
   )
 }
 
-export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, nowMs, onChanged }: Props) {
+export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, nowMs, onHub, onChanged }: Props) {
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  // 프롬프트 저장 중인 행 — 체크는 잠그지 않으므로 여기에 들어가지 않는다.
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set())
-  const [optimistic, setOptimistic] = useState<ReadonlyMap<string, boolean>>(() => new Map())
   const [rowErr, setRowErr] = useState<ReadonlyMap<string, string>>(() => new Map())
   const [rowWarn, setRowWarn] = useState<ReadonlyMap<string, string>>(() => new Map())
   const [notice, setNotice] = useState<string | null>(null)
@@ -54,6 +61,27 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
 
   const byId = useMemo(() => new Map(rows.map(r => [r.itemId, r])), [rows])
   const leaves = useMemo(() => leafDescendants(rows), [rows])
+  const serverValues = useMemo(() => new Map(rows.filter(r => r.isLeaf).map(r => [r.itemId, r.delegated] as const)), [rows])
+
+  const pend = usePendingDelegations<HubDelegationsResult>({
+    serverValues,
+    commit: changes => applyHubDelegations(projectId, changes),
+    onResult: (res, sent) => {
+      if (!res.ok) {
+        // 묶음 전체 거부(가드·입력·타 프로젝트) — 보낸 행마다 같은 문구. 대기는 훅이 비워 서버값으로 돌아가 있다.
+        setRowErr(m => { const n = new Map(m); for (const c of sent) n.set(c.itemId, res.error); return n })
+        return
+      }
+      setRowErr(m => { const n = new Map(m); for (const c of sent) n.delete(c.itemId); for (const f of res.failed) n.set(f.itemId, f.error); return n })
+      setRowWarn(m => { const n = new Map(m); for (const c of sent) n.delete(c.itemId); for (const w of res.warnings) n.set(w.itemId, w.warning); return n })
+      setNotice(res.failed.length > 1
+        ? `${res.failed.length}건 실패: ${res.failed.map(f => byId.get(f.itemId)?.code ?? f.itemId).join(', ')}`
+        : res.hubError ?? null)
+      if (res.hub) onHub(res.hub)
+      else void onChanged() // 저장은 됐고 재조회만 실패 — 한 번 더 시도한다.
+    },
+    onError: (message, sent) => setRowErr(m => { const n = new Map(m); for (const c of sent) n.set(c.itemId, message); return n }),
+  })
 
   // 표시 행: mine 이면 내 담당 리프와 그 조상만. 접힌 부모의 자손은 숨긴다.
   const visible = useMemo(() => {
@@ -81,38 +109,17 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
   const mapWith = <V,>(m: ReadonlyMap<string, V>, k: string, v: V | null) => { const n = new Map(m); if (v === null) n.delete(k); else n.set(k, v); return n }
   const setWith = (s: ReadonlySet<string>, k: string, on: boolean) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n }
 
-  const toggleLeaf = async (r: HubRow) => {
-    const next = !(optimistic.get(r.itemId) ?? r.delegated)
-    setOptimistic(m => mapWith(m, r.itemId, next))
-    setBusy(s => setWith(s, r.itemId, true))
+  const toggleLeaf = (r: HubRow) => {
     setRowErr(m => mapWith(m, r.itemId, null)); setRowWarn(m => mapWith(m, r.itemId, null))
-    try {
-      const res = await setAgentDelegation(r.itemId, next)
-      if (!res.ok) { setOptimistic(m => mapWith(m, r.itemId, null)); setRowErr(m => mapWith(m, r.itemId, res.error ?? '실패')); return }
-      if (res.warning) setRowWarn(m => mapWith(m, r.itemId, res.warning ?? null))
-      await onChanged()
-    } catch (e) {
-      setOptimistic(m => mapWith(m, r.itemId, null)); setRowErr(m => mapWith(m, r.itemId, e instanceof Error ? e.message : String(e)))
-    } finally {
-      setBusy(s => setWith(s, r.itemId, false))
-      setOptimistic(m => mapWith(m, r.itemId, null))
-    }
+    pend.set(r.itemId, !pend.value(r.itemId))
   }
 
-  const toggleParent = async (r: HubRow) => {
+  const toggleParent = (r: HubRow) => {
     const ids = leaves.get(r.itemId) ?? []
     if (ids.length === 0) return
-    const allOn = ids.every(id => optimistic.get(id) ?? byId.get(id)?.delegated)
-    setBusy(s => setWith(s, r.itemId, true)); setNotice(null)
-    try {
-      const res = await setAgentDelegationBulk(projectId, ids, !allOn)
-      if (!res.ok) { setNotice(res.error); return }
-      if (res.failed.length > 0) setNotice(`${res.failed.length}건 실패: ${res.failed.map(f => byId.get(f.itemId)?.code ?? f.itemId).join(', ')}`)
-      else if (res.warning) setNotice(res.warning)
-      await onChanged()
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : String(e))
-    } finally { setBusy(s => setWith(s, r.itemId, false)) }
+    const allOn = ids.every(id => pend.value(id))
+    setNotice(null)
+    pend.setMany(ids.map(id => [id, !allOn] as const))
   }
 
   const savePrompt = async (r: HubRow) => {
@@ -129,7 +136,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
 
   const parentState = (r: HubRow): 'all' | 'some' | 'none' => {
     const ids = leaves.get(r.itemId) ?? []
-    const on = ids.filter(id => optimistic.get(id) ?? byId.get(id)?.delegated).length
+    const on = ids.filter(id => pend.value(id)).length
     return on === 0 ? 'none' : on === ids.length ? 'all' : 'some'
   }
 
@@ -141,7 +148,15 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
   return (
     <section aria-label="위임 표" className="rounded-xl border border-line bg-surface p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1" role="group" aria-label="표시 범위">{seg('mine', '내 담당')}{seg('all', '전체')}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1" role="group" aria-label="표시 범위">{seg('mine', '내 담당')}{seg('all', '전체')}</div>
+          {(pend.isPending || pend.saving) && (
+            <span data-hub-pending className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
+              <span data-hub-pending-count>{pend.count}건</span>
+              <PendingSaveChip isPending={pend.isPending} saving={pend.saving} remainingMs={pend.remainingMs} onSaveNow={() => { void pend.flush() }} />
+            </span>
+          )}
+        </div>
         <span className="text-[11px] text-ink-subtle">리프 항목의 체크가 위임(발행)입니다. 부모 체크는 하위 전체(관리자).</span>
       </div>
       {notice && <p data-hub-notice role="status" className="mb-2 rounded-md bg-pending-weak px-2 py-1 text-xs text-pending">{notice}</p>}
@@ -155,7 +170,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
           </thead>
           <tbody>
             {visible.map(r => {
-              const checked = optimistic.get(r.itemId) ?? r.delegated
+              const checked = pend.value(r.itemId)
               const isBusy = busy.has(r.itemId)
               const err = rowErr.get(r.itemId), warn = rowWarn.get(r.itemId)
               const canEditPrompt = r.canToggle
@@ -164,11 +179,11 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                 <tr key={r.itemId} data-hub-row={r.itemId} className="border-t border-line align-middle">
                   <td className="py-1">
                     {r.isLeaf
-                      ? <input type="checkbox" data-hub-toggle checked={checked} disabled={!r.canToggle || isBusy}
+                      ? <input type="checkbox" data-hub-toggle checked={checked} disabled={!r.canToggle}
                           title={r.canToggle ? undefined : TOGGLE_DENIED_TITLE} aria-label={`${r.code} 위임`}
-                          onChange={() => { void toggleLeaf(r) }} className="h-3.5 w-3.5 rounded border-line" />
+                          onChange={() => toggleLeaf(r)} className="h-3.5 w-3.5 rounded border-line" />
                       : (isAdmin && (leaves.get(r.itemId)?.length ?? 0) > 0)
-                        ? <ParentCheckbox state={parentState(r)} disabled={isBusy} onClick={() => { void toggleParent(r) }} />
+                        ? <ParentCheckbox state={parentState(r)} onClick={() => toggleParent(r)} />
                         : null}
                   </td>
                   <td className="py-1 font-mono text-[11px] text-ink-muted">{r.code}</td>

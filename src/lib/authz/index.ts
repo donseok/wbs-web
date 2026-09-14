@@ -22,8 +22,14 @@ export type GuardResult = { ok: true; actor: Actor } | { ok: false; error: strin
  */
 export const getActor = cache(async (): Promise<Actor | null> => {
   const sb = await createServerClient()
-  const { data: u } = await sb.auth.getUser()
-  if (!u.user) return null
+  // getUser() 가 아니라 getClaims() — 미들웨어(src/middleware.ts)와 같은 근거. 이 프로젝트의 JWT 는 비대칭 서명(ES256)이라
+  // getClaims() 는 JWKS(auth-js 전역 캐시)로 로컬 서명·만료 검증만 하고 끝난다. getUser() 는 가드마다 GoTrue /auth/v1/user
+  // 왕복(0.1초 안팎)을 강제했고, 서버 액션은 요청 하나가 곧 가드 하나라 그 비용이 클릭마다 그대로 붙었다
+  // (2026-09-14 허브 체크 지연 개선). 세션이 없거나 토큰이 무효·만료(갱신 실패)면 claims 가 없다 → 비로그인(null).
+  // 권한 축(멤버십·역할·명단)은 캐시하지 않고 아래서 매번 새로 읽는다 — 멤버에서 빠진 사람이 TTL 동안 남는 일이 없게.
+  const { data } = await sb.auth.getClaims()
+  const userId = data?.claims?.sub
+  if (!userId) return null
 
   // 세 축(멤버십·프로젝트 역할·명단 팀)은 상호 독립 — 병렬로 묶는다. 순차 await 는
   // 요청 임계경로에 왕복 2단을 공짜로 얹는다(2026-08-18 성능 감사 P0).
@@ -33,11 +39,11 @@ export const getActor = cache(async (): Promise<Actor | null> => {
     { data: roles, error: rolesErr },
     { data: rosterRows, error: rosterErr },
   ] = await Promise.all([
-    sb.from('memberships').select('is_superuser, teams(code, id)').eq('user_id', u.user.id).maybeSingle(),
-    sb.from('project_roles').select('project_id, role').eq('user_id', u.user.id),
+    sb.from('memberships').select('is_superuser, teams(code, id)').eq('user_id', userId).maybeSingle(),
+    sb.from('project_roles').select('project_id, role').eq('user_id', userId),
     // 0071: 프로젝트 명단의 내 팀 — WBS 실적·첨부의 합집합 판정 재료. 조회 실패는 다른 축과
     // 동일하게 throw(fail-closed) — 명단 팀만 빠진 Actor 는 '권한 없음'으로 조용히 좁아진다.
-    sb.from('project_members').select('project_id, team_id, teams(code)').eq('user_id', u.user.id).not('team_id', 'is', null),
+    sb.from('project_members').select('project_id, team_id, teams(code)').eq('user_id', userId).not('team_id', 'is', null),
   ])
 
   if (memErr) {
@@ -63,7 +69,7 @@ export const getActor = cache(async (): Promise<Actor | null> => {
   for (const r of roles) map.set(r.project_id as string, r.role as ProjectRole)
 
   return {
-    userId: u.user.id,
+    userId,
     teamCode: team?.code ?? null,
     teamId: team?.id ?? null,
     isSuperuser: Boolean(mem?.is_superuser),
