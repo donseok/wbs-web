@@ -9,7 +9,7 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
   it('kit-build.sh 배포 목록에 dflow-team 이 있고 권한 목록 파일을 킷에 싣는다', () => {
     const kit = readFileSync(join(ROOT, 'scripts/kit-build.sh'), 'utf8')
     expect(kit).toMatch(/^SKILLS=".*\bdflow-team\b.*"$/m)
-    expect(kit).toContain('cp "$ROOT/kit/agent-team-allow.json" "$OUT/agent-team-allow.json"')
+    expect(kit).toContain('cp "$ROOT/kit/worker-allow.json" "$OUT/worker-allow.json"')
   })
 
   it('install.sh 안내와 킷 README 표에 dflow-team 이 있다', () => {
@@ -17,8 +17,8 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     expect(readFileSync(join(ROOT, 'kit/README.md'), 'utf8')).toMatch(/^\| dflow-team \|/m)
   })
 
-  it('agent-team-allow.json 은 권한 규칙 문자열 배열이고 git 규칙은 넣지 않는다', () => {
-    const j = JSON.parse(readFileSync(join(ROOT, 'kit/agent-team-allow.json'), 'utf8'))
+  it('worker-allow.json 은 권한 규칙 문자열 배열이고 git 규칙은 넣지 않는다', () => {
+    const j = JSON.parse(readFileSync(join(ROOT, 'kit/worker-allow.json'), 'utf8'))
     expect(Array.isArray(j.allow)).toBe(true)
     for (const r of j.allow) {
       expect(r).toMatch(/^[A-Za-z]+\(.+\)$/)
@@ -29,7 +29,8 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
   it('install.sh 가 git 절대경로 규칙과 목록을 settings.json permissions.allow 에 합친다', () => {
     const sh = readFileSync(join(ROOT, 'kit/install.sh'), 'utf8')
     expect(sh).toContain('GIT_ABS=$(command -v git)')
-    expect(sh).toContain('--slurpfile add "$KIT_DIR/agent-team-allow.json"')
+    expect(sh).toContain('--slurpfile add "$KIT_DIR/worker-allow.json"')
+    expect(sh).not.toContain('agent-team')
     expect(sh).toContain('.permissions.allow = (((.permissions.allow // []) + [$git] + $add[0].allow) | unique)')
   })
 

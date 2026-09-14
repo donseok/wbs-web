@@ -20,7 +20,7 @@ done
 
 cp "$ROOT/kit/install.sh" "$OUT/install.sh"; chmod +x "$OUT/install.sh"
 cp "$ROOT/kit/.env.example" "$OUT/.env.example"
-cp "$ROOT/kit/agent-team-allow.json" "$OUT/agent-team-allow.json"
+cp "$ROOT/kit/worker-allow.json" "$OUT/worker-allow.json"
 cp "$ROOT/kit/README.md" "$OUT/README.md"
 printf 'source: wbs-web %s\nbuilt: %s\nskills: %s\n' \
   "$(git -C "$ROOT" rev-parse --short HEAD)" "$(date +%Y-%m-%d)" "$SKILLS" > "$OUT/VERSION"

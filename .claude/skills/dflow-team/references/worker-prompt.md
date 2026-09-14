@@ -13,9 +13,9 @@
 | `{ID8}` | `ID8` | 주문 id8. 모든 참조는 이것으로만 한다(순번 금지) |
 | `{AGENT_ID}` | `AGENT_ID` | 좌석표 식별자 `<신원>/<host>/w<slot>` |
 | `{MAIN_CHECKOUT}` | `MAIN_CHECKOUT` | 팀장의 상주 체크아웃 절대경로 |
-| `{BACKEND}` | `BACKEND` | `pane` 또는 `agent-team`. `blocked` 이후 동작을 가른다 |
+| `{BACKEND}` | `BACKEND` | `pane` 또는 `process`. `blocked` 이후 동작을 가른다 |
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
-| `{ANSWER}` | `ANSWER` | 선택. 에이전트 팀에서 `blocked` 뒤 재spawn 할 때만 포인터 둘째 줄로 온다. 있으면 직전 질문에 대한 담당자 결정으로 보고 design.md 에 한 줄 남긴 뒤 이어 간다 |
+| `{ANSWER}` | `ANSWER` | 선택. 프로세스 백엔드에서 `blocked` 뒤 재spawn 할 때만 포인터 둘째 줄로 온다. 있으면 직전 질문에 대한 담당자 결정으로 보고 design.md 에 한 줄 남긴 뒤 이어 간다 |
 
 `<기본브랜치>` 는 `git symbolic-ref --short refs/remotes/origin/HEAD` 가 돌려주는 값에서 `origin/` 을 뗀
 이름이다. 이 ref 가 없으면 `git ls-remote --symref origin HEAD` 의 `ref: refs/heads/<이름>` 줄에서 구한다.
@@ -44,7 +44,8 @@ git rev-parse --git-dir --git-common-dir
 
 격리에 실패하면(주 워크트리이면) **아무 파일도 쓰지 않고** 마지막 응답으로
 `{TSK} {ID8} - - - failed not-isolated` 한 줄만 출력하고 끝낸다. `.result` 를 쓰면 그 파일이 팀장 체크아웃을
-더럽혀 전제 검사가 깨지기 때문이다. 팀장은 완료 알림(에이전트 팀)이나 무응답 규칙(pane)으로 이를 안다.
+더럽혀 전제 검사가 깨지기 때문이다. 팀장은 프로세스 종료와 로그의 마지막 응답(프로세스)이나 무응답 규칙(pane)으로
+이를 안다.
 
 ## 2. 좌석 식별 (격리 확인 직후, 부트스트랩 전)
 
@@ -59,7 +60,8 @@ claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면 이전 시도
 ## 3. 워크트리 부트스트랩
 
 `.env` 는 gitignore 대상이라 새 워크트리에 없으므로 메인 체크아웃에서 심링크한다. `.claude/skills` 는 커밋된
-리포면 이미 있고, gitignore 된 심링크로 배포한 리포면 없으므로 없을 때 메인 체크아웃의 것을 심링크한다. 그
+리포면 이미 있고, gitignore 된 심링크로 배포한 리포면 없으므로 없을 때 메인 체크아웃의 것을 심링크한다.
+프로세스 백엔드에서는 팀장이 spawn 전에 같은 링크를 만들어 두므로 아래 두 줄은 건너뛰어진다. 그
 다음 인증을 확인하고 기점을 `origin/<기본브랜치>` 로 맞춘다. 줄마다 결과를 보며 실행한다.
 ```bash
 [ -e .env ] || ln -s {MAIN_CHECKOUT}/.env .env
@@ -110,7 +112,8 @@ git fetch origin && git switch --detach origin/<기본브랜치>
 - dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면 현재 디렉터리의
   `.env`(부트스트랩에서 만든 심링크)를 스스로 읽는다. 격리 가드가 `.` 소싱 접두를 거부하기 때문이다.
 - 심링크와 `.dflow-agent`·`.result` 는 커밋하지 않는다. 팀장이 공유 `info/exclude` 에 넣어 두고,
-  `/dflow-dev` 는 파일명을 명시해 stage 한다.
+  `/dflow-dev` 는 파일명을 명시해 stage 한다. 워크트리 루트의 `.dflow-pid`·`.dflow-prompt`·`.dflow-worker.log`
+  는 팀장이 쓰는 파일이다. 읽지도 고치지도 않는다.
 
 ## 4. 실행
 
@@ -140,15 +143,21 @@ Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세�
 | `{BACKEND}` | `blocked` 이후 |
 |---|---|
 | `pane` | 질문을 화면에 출력한 채 세션을 멈춘다. 탭이 열려 있으므로 사람이 그 탭에서 답하거나 수동 `/dflow-dev {ID8}` 로 이어받는다. 답을 받아 이어 가면 끝날 때 `.result` 를 새 결과로 덮어쓴다. 슬롯은 계속 점유한다 |
-| `agent-team` | 탭이 없어 멈춰 있어도 아무도 못 보므로, 질문을 `.result` 에 남기고 같은 줄을 마지막 응답으로 출력한 뒤 **세션을 끝낸다.** 팀장이 받아 사람에게 전달하고, 답이 오면 팀장이 기존 브랜치로 워커를 다시 띄운다 |
+| `process` | 탭이 없어 멈춰 있어도 아무도 못 보므로, 질문을 `.result` 에 남기고 같은 줄을 마지막 응답으로 출력한 뒤 **세션을 끝낸다**(프로세스가 종료된다). 팀장이 받아 사람에게 전달하고, 답이 오면 팀장이 기존 브랜치로 워커를 다시 띄운다 |
 
-에이전트 팀 팀원도 AskUserQuestion 도구를 갖고 있지만 쓰지 않는다. 슬롯 N개가 각자 질문을 띄우면 사람이
-어느 팀원의 질문인지 모른 채 창 N개를 받으므로 질문을 팀장 한 곳으로 모은다.
+pane 팀원도 AskUserQuestion 도구를 갖고 있지만 쓰지 않는다. 슬롯 N개가 각자 질문을 띄우면 사람이
+어느 팀원의 질문인지 모른 채 창 N개를 받으므로 질문을 팀장 한 곳으로 모은다. 프로세스 팀원은 비대화형이라
+AskUserQuestion 이 답을 받지 못한다.
+
+**권한 거부(프로세스)**: 프로세스 팀원은 비대화형이라 권한 확인이 필요한 도구 호출이 거부된다. 거부를 만나면
+다른 방법으로 우회하지 않는다. 현재 산출물을 커밋·push 한 뒤 `.result` 에 `{TSK} {ID8} <branch> <head_sha> - failed permission <거부된 명령의 첫 낱말들>`
+을 쓰고 끝낸다. 이유: 거부된 명령 목록이 킷 허용 목록의 재료이며, 우회한 호출은 다음 실행에서 다시 막힌다.
+같은 사유는 Phase 서브에이전트에서 나도 워커가 받아 같은 형식으로 보고한다.
 
 ## 7. 보고: `.result` 파일 계약
 
 작업을 끝내거나 멈출 때 `docs/tasks/{TSK}/.result` 에 한 줄을 쓰고(디렉터리가 없으면 만든다), **같은 줄을
-마지막 응답으로도 출력한다.** 에이전트 팀에서 워크트리가 이미 정리됐을 때의 폴백이자 Orca `terminal read`
+마지막 응답으로도 출력한다.** 프로세스 백엔드의 로그 파일(`.dflow-worker.log`) 폴백이자 Orca `terminal read`
 용이다. 팀장은 이 줄만 파싱한다. 커밋하지 않고, 사유에 줄바꿈을 넣지 않는다.
 
 ```
@@ -161,7 +170,7 @@ Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세�
 | `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나 |
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙 | 질문과 선택지 |
-| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Verify 재시도 소진, 부트스트랩 실패) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패) |
+| `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들) |
 
 - `<branch>` 는 agent 브랜치 이름이고, 브랜치를 만들기 전에 끝났으면 `-` 다.
 - `<head_sha>` 는 push 한 agent 브랜치 tip 의 짧은 sha(`git rev-parse --short HEAD`), `<done_exit>` 는

@@ -40,16 +40,16 @@ fi
 touch "$TARGET/.gitignore"
 grep -qx '\.env' "$TARGET/.gitignore" || printf '\n# dflow-kit — 토큰 파일\n.env\n' >> "$TARGET/.gitignore"
 
-# 3-2) 에이전트 팀 권한 준비: dflow-team 의 에이전트 팀 팀원은 팀장 세션의 권한 모드를 물려받아,
-#      권한 확인에 걸리면 알림 없이 멈춘다. 워커는 git 을 절대경로로 부르므로 허용 규칙도 절대경로
-#      형태로 넣는다. 이미 있는 항목과 settings.json 의 다른 키는 보존한다.
+# 3-2) 워커 권한 준비: dflow-team 의 프로세스 백엔드 팀원(claude -p)은 비대화형이라 권한 확인이
+#      필요한 명령이 거부되면 failed permission 으로 끝난다. 워커는 git 을 절대경로로 부르므로 허용
+#      규칙도 절대경로 형태로 넣는다. 이미 있는 항목과 settings.json 의 다른 키는 보존한다.
 GIT_ABS=$(command -v git)
 SETTINGS="$TARGET/.claude/settings.json"
 [ -f "$SETTINGS" ] || printf '{}\n' > "$SETTINGS"
-jq --arg git "Bash($GIT_ABS *)" --slurpfile add "$KIT_DIR/agent-team-allow.json" \
+jq --arg git "Bash($GIT_ABS *)" --slurpfile add "$KIT_DIR/worker-allow.json" \
   '.permissions.allow = (((.permissions.allow // []) + [$git] + $add[0].allow) | unique)' \
   "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-echo "권한 준비: $SETTINGS 의 permissions.allow 에 에이전트 팀 허용 목록을 합쳤다"
+echo "권한 준비: $SETTINGS 의 permissions.allow 에 워커 허용 목록을 합쳤다"
 
 # 4) 버전 표식
 cp "$KIT_DIR/VERSION" "$TARGET/.claude/skills/DFLOW_KIT_VERSION" 2>/dev/null || true

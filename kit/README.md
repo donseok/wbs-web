@@ -14,7 +14,7 @@ git clone git@github.com:jongik-sv/dflow-kit.git ~/dflow-kit
 ```
 
 install.sh 가 하는 일: 의존 명령 점검(git curl jq python3 gh) → `<리포>/.claude/skills/dflow-*` 복사 →
-`.env` 초안 + `.gitignore` 보강 → `.claude/settings.json` 에 에이전트 팀 허용 목록 병합(git 은 이 PC 의 절대경로) → 다음 단계 안내.
+`.env` 초안 + `.gitignore` 보강 → `.claude/settings.json` 에 워커 허용 목록 병합(git 은 이 PC 의 절대경로) → 다음 단계 안내.
 
 그 다음 사람이 할 일:
 
@@ -33,7 +33,7 @@ install.sh 가 하는 일: 의존 명령 점검(git curl jq python3 gh) → `<�
 | dflow-dev | 작업 1건 개발 사이클(착수 판정→설계→TDD→검증→보고). 규율 정본 `references/dev-discipline.md` 동봉 |
 | dflow-poll | `poll.sh` — 에이전트 위임(tags: agent) 작업 감시 → 자동 착수. 낮 시간 반자동 |
 | dflow-merge | 승인된 작업 브랜치를 main 에 반영(조상 순서, --no-ff) |
-| dflow-team | 팀장. 에이전트 위임 작업을 슬롯 N개 팀원(Orca pane 또는 에이전트 팀)에게 나눠 동시에 개발시킨다. 낮 시간 supervised |
+| dflow-team | 팀장. 에이전트 위임 작업을 슬롯 N개 팀원(Orca pane 또는 별도 claude -p 프로세스)에게 나눠 동시에 개발시킨다. 낮 시간 supervised |
 | dflow-wbs-nlevel | levels 계약 wbs.md 생성·검증. 계약 문서·골격 샘플 동봉 |
 | dflow-export | wbs.md → import payload(v2.1). 기본 dry-run |
 

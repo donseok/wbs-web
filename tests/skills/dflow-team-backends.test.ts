@@ -11,11 +11,20 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
   const b = () => read('references/backends.md')
   const e = () => read('references/events.md')
 
-  it('에이전트 팀 spawn 은 isolation worktree 가 필수이고 이름은 w<slot>-<id8>, 회수는 TaskStop 이다', () => {
-    expect(b()).toContain('| `isolation` | `"worktree"`. **필수.**')
-    expect(b()).toContain('| `name` | `w<slot>-<id8>` |')
-    expect(b()).toContain('`general-purpose`')
-    expect(b()).toContain('TaskStop(w<slot>-<id8>)')
+  it('프로세스 spawn 은 git worktree add --detach 뒤 nohup claude -p 이고, PID·시작 시각으로 생존을 보며, 회수는 kill 이다', () => {
+    expect(b()).toContain('## 프로세스')
+    expect(b()).toContain('git fetch -q origin && git worktree prune && git worktree add --detach "$WT" origin/<기본브랜치> || echo SPAWN_FAILED_WORKTREE')
+    expect(b()).toContain('nohup claude -p "$(cat .dflow-prompt)" <모델 플래그> <권한 플래그> > .dflow-worker.log 2>&1 < /dev/null &')
+    expect(b()).toContain('echo $! > .dflow-pid && ps -o lstart= -p "$(cat .dflow-pid)" >> .dflow-pid')
+    expect(b()).toContain('kill -0 "$pid" 2>/dev/null && [ "$(ps -o lstart= -p "$pid")" = "$st" ] && echo ALIVE || echo DEAD')
+    expect(b()).toContain('`--dangerously-skip-permissions`')
+    expect(b()).toContain('LEAD_SKIP_PERMISSIONS=1')
+    expect(b()).toContain('`kill "$pid"` 로 멈춘다')
+    expect(b()).toContain("grep -E '^<TSK> <id8> ' \"$WT/.dflow-worker.log\" | tail -n 1")
+    expect(b()).toContain('`handle` 은 `pid:<PID>` 다') // team.spawn 의 handle
+    expect(b()).not.toContain('isolation')
+    expect(b()).not.toContain('TaskStop')
+    expect(b()).not.toContain('에이전트 팀')
   })
 
   it('Orca spawn 은 origin/<기본브랜치> 기점이고 터미널 핸들이 없으면 화면 없이 git·서버 증거만 쓴다', () => {
@@ -46,20 +55,22 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     expect(b()).toContain('살아 있는 팀원(SKILL.md 「팀장 상태」 정의)의 워크트리는 조건과 무관하게 지우지 않는다')
     // 생성 브랜치 정리: agent/ 가 아니고 origin/<기본브랜치> 의 조상인 생성 브랜치만 지운다
     expect(b()).toContain('**생성 브랜치 정리**')
-    expect(b()).toContain("'worktree-<워크트리 디렉터리 이름>' '*dflow-<id8>*'")
-    expect(b()).toContain("git branch --format='%(refname:short)' --list 'worktree-agent-*' '*dflow-[0-9a-f]*'") // 이름을 모를 때, Orca 접두 대비
+    expect(b()).toContain("git branch --format='%(refname:short)' --list '*dflow-<id8>*'")
+    expect(b()).toContain("git branch --format='%(refname:short)' --list '*dflow-[0-9a-f]*'") // id8 을 모를 때, Orca 접두 대비
+    expect(b()).toContain('프로세스 워크트리는 `--detach` 로 만들어 생성 브랜치가 없다')
     expect(b()).toContain('case "$br" in agent/*) continue ;; esac')
     expect(b()).toContain('git merge-base --is-ancestor "$br" origin/<기본브랜치> && git branch -D "$br"')
   })
 
   it('차이표가 기상·blocked·슬롯·회수·정리·git 호출을 백엔드별로 가른다', () => {
-    for (const row of ['| 기상 신호 |', '| `blocked` 이후 |', '| 슬롯 점유 |', '| 회수 |', '| 정리 |', '| git 호출 |']) {
+    for (const row of ['| 기상 신호 |', '| `blocked` 이후 |', '| 슬롯 점유 |', '| 회수 |', '| 팀장 세션이 죽으면 |', '| 정리 |', '| 팀원 화면 |', '| git 호출 |']) {
       expect(b(), row).toContain(row)
     }
+    expect(b()).toContain('| 항목 | pane(Orca) | 프로세스 |')
   })
 
-  it('tmux 는 v1 미지원 한 줄만 두고 킷 밖 경로를 적지 않는다', () => {
-    expect(b()).toContain('tmux pane 백엔드는 v1 미지원이다')
+  it('tmux 는 미지원 한 줄만 두고 킷 밖 경로를 적지 않는다', () => {
+    expect(b()).toContain('tmux pane 백엔드는 지원하지 않는다')
     expect(b()).not.toContain('~/project/')
     expect(b()).not.toContain('dev-plugin')
   })
@@ -85,5 +96,9 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     expect(e()).toContain("cksum | cut -d' ' -f1")
     expect(e()).toContain('--arg reason "$reason"')
     expect(e()).toContain('`failed rate-limit`')
+    expect(e()).toContain('`failed permission`')
+    expect(e()).toContain('`backend` 는 `pane` 또는 `process`')
+    expect(e()).toContain('`pid:<PID>`')
+    expect(e()).not.toContain('agent-team')
   })
 })

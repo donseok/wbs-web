@@ -113,7 +113,14 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('AskUserQuestion 을 쓰지 않는다')
     expect(p()).toContain('현재 산출물을 커밋·push 한 뒤')
     expect(p()).toMatch(/^\| `pane` \|/m)
-    expect(p()).toMatch(/^\| `agent-team` \|/m)
+    expect(p()).toMatch(/^\| `process` \|/m)
+    expect(p()).not.toContain('agent-team')
+  })
+
+  it('프로세스 팀원은 권한 거부를 우회하지 않고 failed permission 으로 보고한다', () => {
+    expect(p()).toContain('**권한 거부(프로세스)**')
+    expect(p()).toContain('failed permission <거부된 명령의 첫 낱말들>')
+    expect(p()).toContain('`permission`(권한 거부')
   })
 
   it('기본 브랜치로 switch 하지 않는다(detach 만 한다)', () => {
@@ -163,10 +170,12 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('`agent` 태그를 끈다')
   })
 
-  it('환경 감지는 Orca 면 pane, 그 밖은 에이전트 팀이며 병렬 포기 분기가 없다', () => {
+  it('환경 감지는 Orca 면 pane, 그 밖은 프로세스 백엔드이며 병렬 포기 분기가 없다', () => {
     expect(s()).toContain('ORCA_WORKTREE_ID')
-    expect(s()).toContain('v1 은 tmux pane 을 지원하지 않아 에이전트 팀으로 돈다')
+    expect(s()).toContain('tmux pane 은 지원하지 않아 프로세스 백엔드로 돈다')
+    expect(s()).toContain('**프로세스 백엔드** 다')
     expect(s()).toContain('어느 갈래에서도 병렬 불가로 종료하지 않는다')
+    expect(s()).not.toContain('에이전트 팀')
   })
 
   it('전제 검사: 실패하면 종료하는 블록, mkdir 원자 잠금과 beat 70분(beat 없으면 잠금 디렉터리 수정 시각 10분), owner 의 세션 PID, 기본 브랜치 폴백, 신원·host 슬러그, ~/.dflow', () => {
@@ -184,7 +193,12 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('stale "$LOCK" ||') // beat 없는 잠금은 10분 안에는 막 생긴 것으로 본다
     expect(s()).toContain('mv "$LOCK" "$T" 2>/dev/null') // 탈취는 옮긴 뒤 같은 기준으로 다시 확인한다
     expect(s()).toContain('stale "$T" ||')
-    expect(s()).not.toContain('kill -0') // 생존은 PID 가 아니라 beat(없으면 잠금 디렉터리 수정 시각)로 본다
+    // 팀장 잠금의 생존은 PID 가 아니라 beat(없으면 잠금 디렉터리 수정 시각)로 본다. kill -0 는 팀원 프로세스 생존에만 쓴다
+    const lockBlock = s().slice(s().indexOf('stale() {'), s().indexOf('PRECHECK_OK'))
+    expect(lockBlock).not.toContain('kill -0')
+    expect(s()).toContain('bad NO_CLAUDE_CLI') // 프로세스 백엔드는 claude CLI 로 팀원을 띄운다
+    expect(s()).toContain(`ps -o command= -p "$PPID" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1`)
+    expect(s()).toContain('echo "PRECHECK_OK lead_pid=$PPID LEAD_SKIP_PERMISSIONS=$skip"')
     expect(s()).toContain('NOT_DEFAULT_BRANCH')
     expect(s()).toContain('git ls-remote --symref origin HEAD')
     expect(s()).toContain("hostname -s | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
@@ -196,7 +210,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('종료 코드로 판정하지 않는다')
     expect(s()).toContain('LEGACY_REPORTED')
     expect(s()).toContain('수동 `/dflow-merge` 로 먼저 정리하라')
-    for (const p of ["'**/.claude/worktrees/'", "'/.dflow-agent'", "'docs/tasks/*/.result'", "'/.claude/skills'"]) {
+    for (const p of ["'**/.claude/worktrees/'", "'/.dflow-agent'", "'/.dflow-pid'", "'/.dflow-prompt'", "'/.dflow-worker.log'", "'docs/tasks/*/.result'", "'/.claude/skills'"]) {
       expect(s(), p).toContain(p)
     }
     expect(s()).toContain('git rev-parse --git-path info/exclude')
@@ -224,10 +238,13 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain("--arg a '<신원>/<host>/lead'")
   })
 
-  it('재구성 규칙: 슬롯 번호 발급, 살아 있는 팀원 정의, 답을 받은 blocked 는 대기 큐 맨 앞, 고아 스캔', () => {
+  it('재구성 규칙: 슬롯 번호 발급, 살아 있는 팀원 정의(프로세스는 .dflow-pid 생존), 답을 받은 blocked 는 대기 큐 맨 앞, 고아 스캔', () => {
     expect(s()).toContain('흡수한 번호를 뺀 1..N 중 가장 작은 것')
     expect(s()).toContain('"살아 있는 팀원" 은 spawn 했고 아직 최종 판정')
     expect(s()).toContain('터미널이 떠 있는지로 판단하지 않는다')
+    expect(s()).toContain('p=$(head -n 1 "$w/.dflow-pid" 2>/dev/null); st=$(sed -n \'2p\' "$w/.dflow-pid" 2>/dev/null); alive=-')
+    expect(s()).toContain('if kill -0 "$p" 2>/dev/null && [ "$(ps -o lstart= -p "$p")" = "$st" ]; then alive=alive; else alive=dead; fi')
+    expect(s()).toContain('팀장 세션이 새로 떠도 살아 있는 프로세스 팀원은 원래 슬롯 번호로 흡수한다')
     expect(s()).toContain('`team.answer` 에서 복원해 대기 큐 맨 앞에 둔다')
     expect(s()).toContain('**고아 스캔**')
   })
@@ -241,13 +258,15 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   it('재기동 때 이어받은 것(답 대기 blocked 포함)을 team.start 바로 뒤에 다시 기록하고 그 id8 은 재개 필요로 보지 않는다', () => {
     expect(s()).toContain('`team.start` 바로 뒤에')
     expect(s()).toContain('이어받은 팀원이 살아 있지 않은 것으로 보이고 같은 결과가 다시 처리된다')
-    expect(s()).toContain('답을 기다리는 에이전트 팀 `blocked` 마다 `team.blocked`')
+    expect(s()).toContain('답을 기다리는 `blocked` 마다 `team.blocked`')
     expect(s()).toContain('답을 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8')
   })
 
-  it('권한 모드 안내 한 줄을 백엔드별로 출력한다', () => {
-    expect(s()).toContain('팀원은 이 세션의 권한 모드를 물려받으며, 권한 확인이 뜨면 알림 없이 멈춘다')
+  it('권한 모드 안내 한 줄을 백엔드별·LEAD_SKIP_PERMISSIONS 별로 출력한다', () => {
+    expect(s()).toContain('팀원은 별도 claude 프로세스로 뜨며 이 세션처럼 권한 확인 생략 모드로 돈다')
+    expect(s()).toContain('팀원은 별도 claude 프로세스로 뜨며 이 세션과 같은 권한 규칙을 쓴다')
     expect(s()).toContain('팀원은 권한 확인 생략 모드로 뜬다')
+    expect(s()).not.toContain('권한 확인이 뜨면 알림 없이 멈춘다')
   })
 
   it('감시 루프: 세대 파일로 교체하고 줄 전체(해시)를 비교하며 TICK 은 예정 시각으로 낸다', () => {
@@ -259,6 +278,10 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain("sum=$(printf '%s\\n' \"$cur\" | cksum | cut -d' ' -f1)")
     expect(s()).toContain('**줄 전체를 비교한다.**')
     expect(s()).toContain('run_in_background')
+    // 프로세스 팀원은 PID 로 죽음을 감지한다. 결과 줄이 새로 있으면 RESULT_READY 가 먼저다
+    expect(s()).toContain('[ "$pid" = - ] || kill -0 "$pid" 2>/dev/null || dead="$dead $f"')
+    expect(s()).toContain('[ -n "$hit" ] && { echo "RESULT_READY$hit"; exit 0; }\n  [ -n "$dead" ] && { echo "PROC_DEAD$dead"; exit 0; }')
+    expect(s()).toContain("set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<PID1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'")
   })
 
   it('poll 은 docs/tasks 가 없는 빈 디렉터리를 cwd 로, DFLOW_ENV_FILE 로 .env 를 지정해 띄운다(스펙 §4-5 명령)', () => {
@@ -303,16 +326,20 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).not.toMatch(/`\.item\.(spec|external_ref)`/)
   })
 
-  it('결과 처리: id8 매칭, suspect 와 두 TICK, TaskStop 회수, 차단기, rate-limit·deps, 즉시 정리', () => {
-    expect(s()).toContain('**id8 로** 슬롯 표를 찾는다')
-    expect(s()).toContain('**`suspect`**')
-    expect(s()).toContain('**두 TICK 연속으로 변하지 않을 때만** `failed no-result`')
-    expect(s()).toContain('판정할 때는 먼저 `TaskStop(w<slot>-<id8>)` 으로 팀원을 멈춘 뒤 슬롯을 해제한다')
+  it('결과 처리: 경로 매칭, PROC_DEAD 는 .result → 로그 폴백 → 즉시 failed no-result, kill 회수, 차단기, rate-limit·deps·permission, 즉시 정리', () => {
+    expect(s()).toContain('슬롯은 경로(그 슬롯의\n  워크트리)로 찾는다')
+    expect(s()).toContain('`PROC_DEAD <경로>`(프로세스)')
+    expect(s()).toContain('`<워크트리>/.dflow-worker.log` 에서 `<TSK> <id8> ` 로 시작하는')
+    expect(s()).toContain('**곧바로** `failed no-result` 로 판정한다')
+    expect(s()).not.toContain('suspect')
+    expect(s()).not.toContain('TaskStop(w<slot>-<id8>)')
+    expect(s()).toContain('`kill <PID>` 로 멈춘다(backends.md 「회수」)')
     expect(s()).toContain('그 id8 을 먼저 진행 중 영구 제외에서 빼고')
-    expect(s()).toContain('TaskStop(w<slot>-<id8>)')
     expect(s()).toContain('연속 2건')
     expect(s()).toContain('| `failed rate-limit` |')
     expect(s()).toContain('| `failed deps` |')
+    expect(s()).toContain('| `failed permission <명령>` |')
+    expect(s()).toContain('| `failed no-result`(프로세스가 죽었는데 결과 줄 없음) |')
     expect(s()).toContain('그 자리에서 정리한다')
   })
 
@@ -328,7 +355,8 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('orca worktree rm --worktree path:<경로>')
   })
 
-  it('blocked: pane 은 슬롯 유지, 에이전트 팀은 회수 뒤 정리 또는 parked, 알림은 한 번', () => {
+  it('blocked: pane 은 슬롯 유지, 프로세스는 회수 뒤 정리 또는 parked, 알림은 한 번, 재spawn 도 team.spawn 을 남긴다', () => {
+    expect(s()).toContain('「5. 팀원 spawn」 6번대로 `team.spawn` 을 남긴다')
     expect(s()).toContain('**그 슬롯은 blocked 팀원이 계속 잡으며 다른 작업에 재배정하지 않는다.**')
     expect(s()).toContain('`.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꿔')
     expect(s()).toContain('ANSWER=<담당자 답 한 줄>')
@@ -354,13 +382,16 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('"사람이 머지해야 함"')
   })
 
-  it('spawn: 포인터 한 줄, 중복 확인, isolation 필수, team.spawn 필드, 기점 명시, path 선택자', () => {
+  it('spawn: 포인터 한 줄, 중복 확인, 프로세스는 git worktree add + nohup claude -p, team.spawn 필드(pid 핸들), 기점 명시, path 선택자', () => {
     expect(s()).toContain(
-      '<MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=<pane|agent-team> MODEL=<opus|sonnet|default>',
+      '<MAIN_CHECKOUT>/.claude/skills/dflow-team/references/worker-prompt.md 를 읽고 그 규칙대로 실행하라. TSK=<TSK> ID8=<id8> AGENT_ID=<신원>/<host>/w<slot> MAIN_CHECKOUT=<팀장 체크아웃 절대경로> BACKEND=<pane|process> MODEL=<opus|sonnet|default>',
     )
     expect(s()).toContain('그 id8 이 재구성한 슬롯 표에 있으면 띄우지 않는다')
-    expect(s()).toContain('`isolation: "worktree"` 는 **필수**')
+    expect(s()).toContain('`git worktree add --detach <MAIN>/.claude/worktrees/dflow-<id8> origin/<기본브랜치>`')
+    expect(s()).toContain('`nohup claude -p "$(cat .dflow-prompt)" <모델 플래그> <권한 플래그> > .dflow-worker.log 2>&1 < /dev/null &`')
+    expect(s()).not.toContain('isolation: "worktree"` 는 **필수**')
     expect(s()).toContain('`team.spawn` 에 `slot`·`tsk`·`order`·`id8`·`worktree`·`handle`')
+    expect(s()).toContain('`pid:<PID>`')
     expect(s()).toContain('--base-branch origin/<기본브랜치> --prompt "<포인터 한 줄>" --json')
     expect(s()).toContain('`--worktree path:<result.worktree.path>`')
   })
@@ -377,12 +408,18 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**잠금 상실 마감**')
   })
 
-  it('TaskStop 오류 문구는 이미 회수된 것으로 보고, 마감에서 ListAgents 로 남은 이름 붙은 에이전트를 정리한다', () => {
-    expect(s()).toContain('is not running (status: completed)')
-    expect(s()).toContain('No task found with ID:')
-    expect(s()).toContain('이미 회수된 것이므로 정상으로 보고 슬롯 해제를 계속한다')
+  it('마감의 남은 에이전트 확인: 팀원·손자는 별도 프로세스라 세션 목록에 없고, 잠금 상실 마감은 팀원 프로세스를 건드리지 않는다', () => {
+    expect(s()).toContain('**남은 에이전트 확인**')
     expect(s()).toContain('ListAgents 를 다시 불러')
-    expect(s()).toContain('**손자 정리**')
+    expect(s()).toContain('팀원 프로세스는 건드리지 않는다')
+    expect(s()).not.toContain('**손자 정리**')
+    expect(s()).not.toContain('is not running (status: completed)')
+  })
+
+  it('금지: 팀원을 Agent 도구 서브에이전트로 띄우지 않고, 셸 & 는 팀원 프로세스 spawn 에만 쓴다', () => {
+    expect(s()).toContain('- 팀원을 Agent 도구 서브에이전트로 띄우는 것')
+    expect(s()).toContain('팀원 프로세스만 `nohup … &`')
+    expect(s()).toContain('**제1 제약: 팀원을 서브에이전트로 띄우지 않는다.**')
   })
 
   it('좌석표 v1 계약: 팀장은 watch 를 시작·매 기상·마감에서 보내고 poll 은 DFLOW_WATCH=0 으로 watch 를 끈다', () => {
