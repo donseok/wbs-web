@@ -91,6 +91,14 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
     expect(container.querySelector('a[href="/agents"]')).toBeNull()
   })
 
+  it('가상 오피스(/p/p1/agents/office)에서도 사이드바 활성 항목은 에이전트 하나다', async () => {
+    await renderAt('/p/p1/agents/office')
+    const link = container.querySelector<HTMLAnchorElement>('a[href="/p/p1/agents"]')
+    expect(link?.className).toContain('side-link-active')
+    expect(link?.getAttribute('aria-current')).toBe('page')
+    expect(container.querySelector('a[href="/agents"]')).toBeNull()
+  })
+
   it('회의록에서는 전역 메뉴를 활성화하면서 최근 프로젝트 하위 메뉴를 유지한다', async () => {
     await renderAt('/minutes')
 

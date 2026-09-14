@@ -23,6 +23,9 @@ describe('resolveMenuKey — 경로를 메뉴 키로', () => {
     ['/admin/accounts', 'admin-accounts'],
     ['/admin/teams', 'admin-teams'],
     ['/admin/llm-config', 'admin-llm'],
+    [`/p/${PID}/agents`, 'agents'],
+    [`/p/${PID}/agents/office`, 'agents'],
+    ['/agents', 'seatmap'],
   ])('%s → %s', (path, key) => {
     expect(resolveMenuKey(path)).toBe(key)
   })

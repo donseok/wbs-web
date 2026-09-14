@@ -20,7 +20,7 @@ export const commonEn: Record<keyof typeof commonKo, string> = {
   'nav.myMeetings': 'My Meetings',
   'nav.settings': 'Settings',
   'nav.usage': 'Usage',
-  'nav.agents': 'All seatmaps',
+  'nav.agents': 'All offices',
   'nav.projectAgents': 'Agents',
   'nav.portfolio': 'Portfolio',
   'chrome.manual': 'Manual',

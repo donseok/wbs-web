@@ -33,7 +33,7 @@ export const USAGE_MENUS: readonly UsageMenu[] = [
   { key: 'projects', labelKey: 'nav.home', fallback: '홈' },
   { key: 'usage', labelKey: 'nav.usage', fallback: '사용 현황' },
   { key: 'portfolio', labelKey: 'nav.portfolio', fallback: '포트폴리오' },
-  { key: 'seatmap', labelKey: 'nav.agents', fallback: '전체 좌석표' },
+  { key: 'seatmap', labelKey: 'nav.agents', fallback: '전체 오피스' },
   { key: 'admin-accounts', labelKey: null, fallback: '계정 관리' },
   { key: 'admin-teams', labelKey: null, fallback: '팀 관리' },
   { key: 'admin-llm', labelKey: null, fallback: 'LLM 설정' },

@@ -182,6 +182,8 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 
 ### 6-5. 좌석 층
 
+> 2026-09-14 대체: 좌석 층은 허브에서 빠지고 `/p/[projectId]/agents/office` 가 그린다 — `2026-09-14-agent-office-split-design.md`.
+
 - `hub.floor` 가 null 이면 "위임된 주문이 아직 없습니다" 한 줄.
 - 있으면 좌석표 CSS 변수를 받기 위해 `<div className={seatmapCss.root}>` 로 감싸고 `FloorCard` + `DetailPanel`(선택 좌석). `nowMs` 는 1초 틱.
 
