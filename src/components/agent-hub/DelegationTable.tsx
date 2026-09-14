@@ -14,7 +14,7 @@ import { applyHubDelegations, runHubProcessOp, type HubDelegationsResult, type H
 import { PendingSaveChip } from '@/components/wbs/PendingSaveChip'
 import { usePendingDelegations } from './usePendingDelegations'
 import {
-  NEEDS_DELEGATION, NO_ORDER, NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE, STAGE_CODES, STAGE_NONE_LABEL, STATE_LABEL, TOGGLE_DENIED_TITLE,
+  CANCEL_LABEL, CANCEL_TITLE, NEEDS_DELEGATION, NO_ORDER, NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE, STAGE_CODES, STAGE_NONE_LABEL, STATE_LABEL, TOGGLE_DENIED_TITLE,
 } from './labels'
 
 export type HubFilter = 'mine' | 'all'
@@ -229,6 +229,8 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const ops = canReviewRow && r.order
                 ? (OPS_BY_STATUS[r.order.status] ?? []).filter(b => b.who === 'admin' ? isAdmin : (isAdmin || r.assigneeMine))
                 : []
+              // READY(아직 착수 전) 위임 항목은 조정 열에 「취소」 — 위임 체크를 끄는 것과 같은 길(§11-2).
+              const canCancel = r.canToggle && checked && (r.order === null || r.order.status === 'ready')
               const noteOpen = noteOp?.itemId === r.itemId ? noteOp : null
               return [
                 <tr key={r.itemId} data-hub-row={r.itemId} className="border-t border-line align-middle">
@@ -293,6 +295,10 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                             className={`btn h-7 px-2 text-[11px] ${b.kind === 'approve' ? 'btn-primary' : 'btn-ghost'}`}>{OP_LABEL[b.kind]}</button>
                         ))}
                       </span>
+                    )}
+                    {canCancel && (
+                      <button type="button" data-hub-cancel title={CANCEL_TITLE} onClick={() => toggleLeaf(r)}
+                        className="btn btn-ghost h-7 px-2 text-[11px]">{CANCEL_LABEL}</button>
                     )}
                   </td>
                   <td className="py-1">

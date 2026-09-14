@@ -38,3 +38,7 @@ export const OP_TITLE = {
   release: '점유를 풀어 대기(미착수)로 되돌립니다 — 러너는 다음 신호에서 409 를 받고 멈춥니다',
 } as const
 export const NOTE_PLACEHOLDER = { reject: '반려 사유 (필수)', rework: '재작업 사유 (필수)' } as const
+
+/** READY 주문 취소 버튼(§11-2). 위임 해제(applyDelegation(false))와 같은 동작이라 별도 서버 op 가 아니다. */
+export const CANCEL_LABEL = '취소'
+export const CANCEL_TITLE = '위임을 해제해 이 대기 주문을 취소합니다 — 위임 체크를 끄는 것과 같습니다.'
