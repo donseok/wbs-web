@@ -17,7 +17,9 @@ export function zoneKind(z: Zone): ZoneKind {
 }
 
 export function FloorCard({ floor, selectedId, nowMs, onSelect }: {
-  floor: Floor; selectedId: string | null; nowMs: number; onSelect: (orderId: string) => void
+  floor: Floor; selectedId: string | null; nowMs: number
+  /** null = 선택 해제. 구역을 접으면 그 안의 선택을 푼다 — 선택이 남아 있으면 구역이 다시 펼쳐져 접히지 않던 버그(2026-09-14). */
+  onSelect: (orderId: string | null) => void
 }) {
   // 빈 구역은 기본 접힘(opened 에 든 것만 펼침), 나머지는 기본 펼침(folded 에 든 것만 접힘).
   // 선택된 좌석이 든 구역은 어느 쪽이든 펼친다.
@@ -34,12 +36,25 @@ export function FloorCard({ floor, selectedId, nowMs, onSelect }: {
     else shown.push(z)
   }
   const without = (set: ReadonlySet<string>, key: string) => { const next = new Set(set); next.delete(key); return next }
+  const holds = (z: Zone) => selectedId != null && z.seats.some(s => s.orderId === selectedId)
   const expand = (z: Zone) => (isEmptyZone(z) ? setOpened(prev => new Set(prev).add(z.key)) : setFolded(prev => without(prev, z.key)))
-  const fold = (z: Zone) => (isEmptyZone(z) ? setOpened(prev => without(prev, z.key)) : setFolded(prev => new Set(prev).add(z.key)))
+  const fold = (z: Zone) => {
+    if (holds(z)) onSelect(null)
+    if (isEmptyZone(z)) setOpened(prev => without(prev, z.key)); else setFolded(prev => new Set(prev).add(z.key))
+  }
+  const expandAll = () => { setFolded(new Set()); setOpened(new Set(floor.zones.filter(isEmptyZone).map(z => z.key))) }
+  const foldAll = () => {
+    if (floor.zones.some(holds)) onSelect(null)
+    setOpened(new Set()); setFolded(new Set(floor.zones.filter(z => !isEmptyZone(z)).map(z => z.key)))
+  }
   return (
     <section className={css.floor} aria-label={floor.name}>
       <header className={css.floorHead}>
         <h2>{floor.name}<small>{floor.zones.length}구역 · {floor.seatCount}석</small></h2>
+        <div className={css.floorTools} role="group" aria-label="구역 접기">
+          <button type="button" className={css.zoneFold} data-floor-expand-all onClick={expandAll}>모두 펼치기</button>
+          <button type="button" className={css.zoneFold} data-floor-fold-all onClick={foldAll}>모두 접기</button>
+        </div>
         <span className={`${css.watch} ${w.length ? css.watchOn : ''}`} title={watchLabel}>{w.length ? `감시 중 · ${watchLabel}` : '감시 없음'}</span>
       </header>
       <div className={css.zones}>

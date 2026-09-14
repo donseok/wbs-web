@@ -1,6 +1,6 @@
 // tests/components/agents-seat.test.tsx
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { Sprite } from '@/components/agents/Sprite'
@@ -151,5 +151,39 @@ describe('FloorCard — 완전히 빈 구역은 아이콘으로 접는다', () =
     expect(host.querySelector('button[aria-label^="TSK-04-02"]')).toBeNull()
     act(() => byCode('WP-04').click())
     expect(host.querySelector('button[aria-label^="TSK-04-02"]')).not.toBeNull()
+  })
+})
+
+describe('FloorCard — 접기는 선택을 풀고, 층 단위 모두 펼치기/접기', () => {
+  const busy = zone({ key: 'a', code: 'WP-04', name: '주문 관리', seats: [seat({ state: 'WAIT', phase: 'reported', anim: 'idle_coffee' })], summary: { work: 0, wait: 1, ready: 0 } })
+  const empty = zone({ key: 'b', code: 'WP-05', name: '재고 관리', seats: [emptySeat(1), emptySeat(2)], summary: { work: 0, wait: 0, ready: 2 } })
+  const foldOf = (code: string) => [...host.querySelectorAll('button[aria-label="구역 접기"]')].find(b => b.parentElement?.textContent?.includes(code)) as HTMLButtonElement
+  it('선택된 좌석이 든 구역을 접으면 onSelect(null) 이 불리고, 선택이 풀리면 아이콘으로 접힌다', () => {
+    const onSelect = vi.fn()
+    act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId="e2" nowMs={NOW} onSelect={onSelect} />))
+    act(() => foldOf('WP-05').click())
+    expect(onSelect).toHaveBeenCalledWith(null)
+    act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId={null} nowMs={NOW} onSelect={onSelect} />))
+    expect(host.querySelector('button[aria-label^="TSK-05-02"]')).toBeNull()
+    expect(host.querySelector('button[aria-expanded="false"]')).not.toBeNull()
+  })
+  it('선택이 없는 구역을 접을 때는 onSelect 를 부르지 않는다', () => {
+    const onSelect = vi.fn()
+    act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId={null} nowMs={NOW} onSelect={onSelect} />))
+    act(() => foldOf('WP-04').click())
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+  it('모두 접기 → 전 구역 아이콘(선택도 해제), 모두 펼치기 → 전 구역 책상', () => {
+    const onSelect = vi.fn()
+    act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId="e2" nowMs={NOW} onSelect={onSelect} />))
+    act(() => (host.querySelector('button[data-floor-fold-all]') as HTMLButtonElement).click())
+    expect(onSelect).toHaveBeenCalledWith(null)
+    act(() => root.render(<FloorCard floor={floor([busy, empty])} selectedId={null} nowMs={NOW} onSelect={onSelect} />))
+    expect(host.querySelectorAll('button[aria-expanded="false"]')).toHaveLength(2)
+    expect(host.querySelectorAll('button[aria-label="구역 접기"]')).toHaveLength(0)
+    act(() => (host.querySelector('button[data-floor-expand-all]') as HTMLButtonElement).click())
+    expect(host.querySelectorAll('button[aria-expanded="false"]')).toHaveLength(0)
+    expect(host.querySelectorAll('button[aria-label="구역 접기"]')).toHaveLength(2)
+    expect(host.querySelector('button[aria-label^="TSK-05-01"]')).not.toBeNull()
   })
 })
