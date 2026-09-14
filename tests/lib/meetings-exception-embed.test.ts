@@ -31,7 +31,11 @@ function makeSb(opts: {
     return o
   }
   const sb = {
-    auth: { getUser: async () => ({ data: { user: opts.user ?? null } }) },
+    auth: {
+      getUser: async () => ({ data: { user: opts.user ?? null } }),
+      // getActor 는 getClaims 로 세션을 본다(2026-09-14) — getUser 는 getSession 경로용으로 남긴다.
+      getClaims: async () => ({ data: opts.user ? { claims: { sub: opts.user.id, email: opts.user.email } } : null }),
+    },
     from: (table: string) => {
       tables.push(table)
       return {

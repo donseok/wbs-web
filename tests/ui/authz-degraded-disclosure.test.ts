@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  */
 
 const mocks = vi.hoisted(() => ({
-  getUser: vi.fn(),
+  getClaims: vi.fn(),
   memberships: vi.fn(),
   projectRoles: vi.fn(),
   projectMembers: vi.fn(),
@@ -33,7 +33,7 @@ function table(name: string) {
 
 vi.mock('@/lib/supabase/server', () => ({
   createServerClient: async () => ({
-    auth: { getUser: mocks.getUser },
+    auth: { getClaims: mocks.getClaims },
     from: (n: string) => table(n),
   }),
 }))
@@ -45,7 +45,7 @@ const USER = { id: 'u1' }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.getUser.mockResolvedValue({ data: { user: USER } })
+  mocks.getClaims.mockResolvedValue({ data: { claims: { sub: USER.id } } })
   mocks.session.mockResolvedValue(USER)
   // 0071 명단 팀 조회 — 이 스위트는 memberships/project_roles 축을 다루므로 기본값은 정상 빈 결과.
   mocks.projectMembers.mockReturnValue({ data: [], error: null })
@@ -78,7 +78,7 @@ describe('getActorViewState — 조회 실패를 권한 없음으로 위장하�
   })
 
   it('비로그인은 degraded 가 아니다 — 정상 흐름에 경고를 붙이면 안 된다', async () => {
-    mocks.getUser.mockResolvedValue({ data: { user: null } })
+    mocks.getClaims.mockResolvedValue({ data: null })
     const s = await getActorViewState()
     expect(s.actor).toBeNull()
     expect(s.degraded).toBe(false)
