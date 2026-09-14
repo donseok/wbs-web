@@ -21,6 +21,7 @@ done
 cp "$ROOT/kit/install.sh" "$OUT/install.sh"; chmod +x "$OUT/install.sh"
 cp "$ROOT/kit/.env.example" "$OUT/.env.example"
 cp "$ROOT/kit/README.md" "$OUT/README.md"
+mkdir -p "$OUT/hooks" && cp "$ROOT/kit/hooks/heartbeat.sh" "$OUT/hooks/heartbeat.sh" && chmod +x "$OUT/hooks/heartbeat.sh"
 printf 'source: wbs-web %s\nbuilt: %s\nskills: %s\n' \
   "$(git -C "$ROOT" rev-parse --short HEAD)" "$(date +%Y-%m-%d)" "$SKILLS" > "$OUT/VERSION"
 

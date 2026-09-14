@@ -49,3 +49,19 @@ cd ~/dflow-kit && git pull && ./install.sh ~/project/<내 리포>
 ## 의존
 
 git · curl · jq · python3 · gh(GitHub CLI, `done --auto-links` 와 리포 생성용). macOS: `brew install jq gh`.
+
+## 좌석표 heartbeat 훅
+
+D'Flow 좌석표(`/agents`)가 "진행 중/무응답/끊김"을 구분하려면 에이전트가 도구를 쓸 때마다 60초에 1회 신호가 서버에 닿아야 한다.
+훅은 진행 중 작업(`docs/tasks/*/state.json` 의 phase 가 design/build/verify/refactor/rejected)이 있는 워크트리에서만 보내고,
+`.dflow-agent` 가 없으면 `agent/` 브랜치에서만 보낸다. 기본 브랜치의 팀장 세션에서는 아무것도 보내지 않는다.
+
+1. `./install.sh <리포> --hooks` → `~/.dflow/hooks/heartbeat.sh`
+2. `~/.claude/settings.json` 의 `hooks.PostToolUse` 배열에 아래 원소를 추가한다(기존 원소는 그대로 둔다):
+   ```json
+   { "matcher": "*", "hooks": [ { "type": "command", "timeout": 5,
+     "command": "if [ -x \"${HOME-}/.dflow/hooks/heartbeat.sh\" ]; then /bin/sh \"${HOME-}/.dflow/hooks/heartbeat.sh\"; else cat >/dev/null 2>&1 || :; fi" } ] }
+   ```
+3. 확인: 작업 리포에서 `/dflow-dev` 를 한 사이클 돌리며 D'Flow `/agents` 의 그 책상이 1~2분 간격으로 갱신되는지 본다.
+
+끄기: settings.json 에서 위 원소를 지운다. 훅은 `.env` 의 첫 PAT 를 쓰고 토큰을 출력하거나 기록하지 않는다.
