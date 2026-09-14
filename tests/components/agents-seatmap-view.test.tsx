@@ -118,9 +118,16 @@ describe('SeatmapView — 프로젝트 오피스(projectId)', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(refresh).toHaveBeenCalledWith('mine')
   })
-  it('층이 비면 범위와 무관하게 프로젝트 문구 하나', () => {
+  it('층이 비고 범위가 전체면 프로젝트에 위임이 없다는 문구', () => {
     act(() => root.render(<SeatmapView initial={map({ floors: [], attention: [], counters: { active: 0, standby: 0, idle: 0, offline: 0 }, scope: 'all' })} projectId="p1" />))
     expect(host.textContent).toContain('이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다.')
     expect(host.textContent).not.toContain('표시할 주문이 없습니다')
+    expect(host.textContent).not.toContain('내게 배정된')
+  })
+  it('층이 비고 범위가 내 작업이면 전체로 바꿔 보라는 안내', () => {
+    act(() => root.render(<SeatmapView initial={map({ floors: [], attention: [], counters: { active: 0, standby: 0, idle: 0, offline: 0 }, scope: 'mine' })} projectId="p1" />))
+    expect(host.textContent).toContain('이 프로젝트에서 내게 배정된 에이전트 작업이 없습니다. 다른 사람 것까지 보려면 ‘전체’를 누르세요.')
+    expect(host.textContent).not.toContain('위임·승인 탭에서')
+    expect(host.textContent).not.toContain('배정된 에이전트 작업이 없습니다. 담당자가')
   })
 })

@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import { getActorForView } from '@/lib/authz'
 import { isProjectMember } from '@/lib/domain/authz'
 import { getProjectOffice } from '@/lib/data/agentSeatmap'
+import { UUID_RE } from '@/lib/domain/validate'
 import { PageHero } from '@/components/ui/PageHero'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { AgentTabs } from '@/components/agent-hub/AgentTabs'
@@ -17,6 +18,8 @@ export default async function ProjectOfficePage({ params }: { params: Promise<{ 
   const { projectId } = await params
   const actor = await getActorForView()
   if (!actor || !isProjectMember(actor, projectId)) redirect(`/p/${projectId}/dashboard`)
+  // 형식이 아닌 값은 DB 까지 가면 uuid 비교에서 throw 해 500 이 된다 — 슈퍼유저는 멤버 판정을 통과하므로 여기서 404 로 끊는다.
+  if (!UUID_RE.test(projectId)) notFound()
   // 조회 실패는 throw → Next 의 error 경계가 받는다. 빈 오피스로 위장하지 않는다.
   const office = await getProjectOffice(actor, projectId)
   if (office.projectName === null) notFound()

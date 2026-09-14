@@ -31,7 +31,7 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('AgentHubView', () => {
-  it('상태 줄·표·큐·층 자리가 그려지고 멤버 기본 필터는 mine, 관리자는 all', () => {
+  it('상태 줄·표·큐가 그려지고 멤버 기본 필터는 mine, 관리자는 all', () => {
     act(() => root.render(<AgentHubView initial={hub()} />))
     expect(host.querySelector('[data-hub-counter="working"]')?.textContent).toBe('1')
     expect(host.querySelector('[data-hub-row="a1"]')).not.toBeNull()

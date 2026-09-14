@@ -80,7 +80,9 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
       <main className={css.grid}>
         <section className={css.floors} aria-label="프로젝트별 좌석">
           {map.floors.length === 0 && (projectId !== undefined
-            ? <p className={css.doneNote}>이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다.</p>
+            ? (map.scope === 'mine'
+              ? <p className={css.doneNote}>이 프로젝트에서 내게 배정된 에이전트 작업이 없습니다. 다른 사람 것까지 보려면 ‘전체’를 누르세요.</p>
+              : <p className={css.doneNote}>이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다.</p>)
             : map.scope === 'mine'
               ? <p className={css.doneNote}>배정된 에이전트 작업이 없습니다. 담당자가 나이거나 내 에이전트가 잡은 주문만 보입니다 — 다른 사람 것까지 보려면 ‘전체’를 누르세요.</p>
               : <p className={css.doneNote}>표시할 주문이 없습니다. 에이전트 위임(agent 태그) 항목의 주문만 보이며, 내가 속한 프로젝트에 그런 주문이 생기면 여기 층이 생깁니다.</p>)}

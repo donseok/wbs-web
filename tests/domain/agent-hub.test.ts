@@ -104,7 +104,7 @@ describe('assembleAgentHub — 주문 상태', () => {
   })
 })
 
-describe('assembleAgentHub — 카운터·큐·층·상태', () => {
+describe('assembleAgentHub — 카운터·큐·상태', () => {
   it('counters: delegated(agent 태그 리프)·ready·working·waiting', () => {
     const hub = assembleAgentHub(rows({ orders: [
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1' }),

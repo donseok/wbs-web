@@ -41,7 +41,7 @@
 
 | 대상 | 판정 | 위치 |
 |---|---|---|
-| `/p/[id]/agents/office` 열람 | 프로젝트 멤버 이상(`isProjectMember`) — 허브와 같다 | 페이지 `getActorForView` 후 아니면 `redirect(/p/<id>/dashboard)` |
+| `/p/[id]/agents/office` 열람 | 프로젝트 멤버 이상(`isProjectMember`) — 허브와 같다 | 페이지 `getActorForView` 후 아니면 `redirect(/p/<id>/dashboard)` / `projectId` 가 UUID 형식이 아니면 로더 전에 404(슈퍼유저는 멤버 판정을 통과해 DB 에서 500 이 나던 것을 막는다) |
 | `refreshSeatmap(scope, projectId)` | `canViewAgents(actor)` 그리고 `projectId` 가 있으면 `isProjectMember(actor, projectId)` | 액션. 둘 중 하나라도 아니면 `{ ok:false, error:'권한이 없습니다.' }` |
 | 로더 `getSeatmap(..., { projectId })` | 층 목록 = `seatmapProjectIds(actor)` 와 교집합. 슈퍼유저(null)는 `[projectId]`, 역할 목록에 없으면 `[]`(빈 좌석표) | `src/lib/data/agentSeatmap.ts` — 게이트를 통과했어도 로더가 다시 좁힌다(fail-closed) |
 
@@ -115,7 +115,7 @@ export default async function ProjectOfficePage({ params }: { params: Promise<{ 
 
 - prop `projectId?: string`. `refresh` 는 `refreshSeatmap(scopeRef.current, projectId)`.
 - 헤더 오른쪽(`css.topRight`)에 `projectId` 가 있을 때만 `<Link href="/agents" data-office-all-link>전체 오피스</Link>`.
-- 빈 상태 문구(`map.floors.length === 0`)는 `projectId` 가 있으면 범위와 무관하게 한 문장: "이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다." 없으면 기존 두 문구.
+- 빈 상태 문구(`map.floors.length === 0`)는 `projectId` 가 있으면 범위별 두 문장 — `mine`: "이 프로젝트에서 내게 배정된 에이전트 작업이 없습니다. 다른 사람 것까지 보려면 ‘전체’를 누르세요." / `all`: "이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다." 없으면 기존 두 문구. (최종 리뷰 반영: 내 작업 범위에서 남의 주문이 있는데 "없다"고 말하면 좁은 조회를 "없음"으로 위장하는 셈이다.)
 - 범위 버튼(내 작업/전체)·범례·폴링은 그대로.
 
 ### 6-5. 전역 페이지 `src/app/(app)/agents/page.tsx`

@@ -5,8 +5,7 @@ import { canViewAgents } from '@/lib/authz/agentsAccess'
 import { isProjectMember } from '@/lib/domain/authz'
 import { getSeatmap, type SeatmapOptions } from '@/lib/data/agentSeatmap'
 import { SEATMAP_SCOPES, type Seatmap, type SeatmapScope } from '@/lib/domain/seatmap'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+import { UUID_RE } from '@/lib/domain/validate'
 
 /**
  * 좌석표 재조회(30초 폴링). 페이지와 같은 게이트를 다시 검사한다 — 액션은 URL 로도 불릴 수 있다.
