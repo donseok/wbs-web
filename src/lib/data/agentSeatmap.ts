@@ -78,11 +78,39 @@ export async function viewerEmail(admin: AdminClient, userId: string): Promise<s
   return data.user?.email ?? null
 }
 
-export async function getSeatmap(actor: Actor, nowMs = Date.now(), scope: SeatmapScope = 'mine'): Promise<Seatmap> {
+export interface SeatmapOptions { projectId?: string }
+
+/**
+ * 층 목록 — projectId 가 있으면 접근 가능 범위와 교집합(슈퍼유저는 그대로 [projectId]).
+ * 범위 밖이면 [] 라 조회가 일어나지 않는다. 페이지 게이트를 통과했어도 여기서 다시 좁힌다(fail-closed).
+ */
+export function seatmapFloorIds(actor: Actor, projectId?: string): string[] | null {
+  const ids = seatmapProjectIds(actor)
+  if (projectId === undefined) return ids
+  if (ids === null) return [projectId]
+  return ids.includes(projectId) ? [projectId] : []
+}
+
+export async function getSeatmap(actor: Actor, nowMs = Date.now(), scope: SeatmapScope = 'mine', opts: SeatmapOptions = {}): Promise<Seatmap> {
   const admin = createAdminClient()
-  const projectIds = seatmapProjectIds(actor)
+  const projectIds = seatmapFloorIds(actor, opts.projectId)
   const rows = await fetchSeatmapRows(admin, projectIds, nowMs)
   if (scope === 'all') return assembleSeatmap(rows, nowMs)
   const memberIds = await fetchMyMemberIds(admin, { userId: actor.userId, userEmail: await viewerEmail(admin, actor.userId) }, projectIds)
   return assembleSeatmap(rows, nowMs, { mine: { userId: actor.userId, memberIds: new Set(memberIds) } })
+}
+
+export interface ProjectOffice { projectName: string | null; seatmap: Seatmap }
+
+/** 프로젝트 가상 오피스 — 이름 + 이 프로젝트 층 하나. 프로젝트가 없으면 projectName null(페이지가 notFound 로 보낸다). */
+export async function getProjectOffice(actor: Actor, projectId: string, nowMs = Date.now(), scope: SeatmapScope = 'mine'): Promise<ProjectOffice> {
+  const admin = createAdminClient()
+  const [project, seatmap] = await Promise.all([
+    admin.from('projects').select('id, name').eq('id', projectId).maybeSingle().then(r => {
+      if (r.error) throw new Error(`[seatmap] 프로젝트 조회 실패: ${r.error.message}`)
+      return r.data as { id: string; name: string } | null
+    }),
+    getSeatmap(actor, nowMs, scope, { projectId }),
+  ])
+  return { projectName: project?.name ?? null, seatmap }
 }
