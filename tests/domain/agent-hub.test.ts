@@ -8,7 +8,7 @@ const NOW = Date.parse('2026-09-14T09:00:00Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
 const P1 = 'p1'
 const item = (over: Partial<HubItemRow>): HubItemRow => ({
-  id: 'i1', project_id: P1, parent_id: null, code: 'WP-01', name: '루트', sort_order: 0, level: 'task', milestone: false,
+  id: 'i1', project_id: P1, parent_id: null, code: 'WP-01', name: '루트', sort_order: 0, milestone: false,
   dev_workflow: false, tags: null, assignee_member_id: null, agent_prompt: null, actual_pct: null, stage: null, ...over,
 })
 const order = (over: Partial<OrderRow>): OrderRow => ({

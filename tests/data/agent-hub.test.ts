@@ -35,7 +35,7 @@ beforeEach(() => vi.clearAllMocks())
 describe('fetchAgentHubRows', () => {
   it('1차 6건(항목·등록·주문·감시자·로스터·프로젝트) 병렬 + 2차 보고 1건, 컬럼·필터가 계약대로', async () => {
     const { client, calls } = admin({
-      wbs_items: [{ data: [{ id: 'i1', project_id: P1, parent_id: null, code: 'T', name: 'n', sort_order: 0, level: 'task', milestone: false, dev_workflow: true, tags: ['agent'], assignee_member_id: null, agent_prompt: null, actual_pct: 0, stage: null }] }],
+      wbs_items: [{ data: [{ id: 'i1', project_id: P1, parent_id: null, code: 'T', name: 'n', sort_order: 0, milestone: false, dev_workflow: true, tags: ['agent'], assignee_member_id: null, agent_prompt: null, actual_pct: 0, stage: null }] }],
       agent_projects: [{ data: [{ enabled: true }] }],
       agent_work_orders: [{ data: [{ id: 'o1', project_id: P1, wbs_item_id: 'i1', status: 'reported', claimed_by: 'a', claimed_by_user_id: null, claimed_at: null, created_at: 'x', updated_at: 'x', last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, heartbeat_note: null }] }],
       agent_work_reports: [{ data: [{ work_order_id: 'o1', percent: 100, summary: 's', links: [], agent: 'a', review_action: null, review_note: null, created_at: 'x' }] }],
@@ -48,7 +48,7 @@ describe('fetchAgentHubRows', () => {
     expect(rows.agentProject).toEqual({ enabled: true })
     expect(rows.reports).toHaveLength(1)
     const c = (t: string) => calls.find(x => x.table === t)!
-    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, level, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage')
+    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage')
     expect(c('agent_work_orders').select).toContain('last_heartbeat_at')
     expect(c('agent_work_orders').filters.find(f => f[0] === 'or')?.[1][0]).toContain('status.in.(ready,claimed,reported)')
     expect(c('agent_work_reports').filters).toEqual(expect.arrayContaining([['in', ['work_order_id', ['o1']]], ['eq', ['kind', 'completion']]]))
@@ -75,7 +75,7 @@ describe('fetchAgentHubRows', () => {
 describe('getAgentHub', () => {
   it('뷰어 이메일을 auth 로 읽어 본인 판정에 쓴다(로스터 email 매칭)', async () => {
     const { client } = admin({
-      wbs_items: [{ data: [{ id: 'i1', project_id: P1, parent_id: null, code: 'T', name: 'n', sort_order: 0, level: 'task', milestone: false, dev_workflow: true, tags: [], assignee_member_id: 'm1', agent_prompt: null, actual_pct: 0, stage: null }] }],
+      wbs_items: [{ data: [{ id: 'i1', project_id: P1, parent_id: null, code: 'T', name: 'n', sort_order: 0, milestone: false, dev_workflow: true, tags: [], assignee_member_id: 'm1', agent_prompt: null, actual_pct: 0, stage: null }] }],
       project_members: [{ data: [{ id: 'm1', name: '장', email: 'YOO@example.com', user_id: null }] }],
       projects: [{ data: [{ id: P1, name: 'x' }] }],
     })

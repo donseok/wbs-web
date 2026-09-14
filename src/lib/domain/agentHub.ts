@@ -7,7 +7,7 @@ import {
 
 export interface HubItemRow {
   id: string; project_id: string; parent_id: string | null; code: string; name: string; sort_order: number
-  level: string; milestone: boolean; dev_workflow: boolean; tags: string[] | null
+  milestone: boolean; dev_workflow: boolean; tags: string[] | null
   assignee_member_id: string | null; agent_prompt: string | null; actual_pct: number | null; stage: string | null
 }
 export interface HubMemberRow { id: string; name: string; email: string | null; user_id: string | null }

@@ -61,7 +61,7 @@
 
 1차 `Promise.all` 6건 + 2차(살아 있는 주문의 완료 보고) 1건. 어느 하나라도 실패하면 throw(데이터 없음으로 위장하지 않는다):
 
-1. `wbs_items` — `id, parent_id, code, name, sort_order, level, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage` (`project_id` 필터)
+1. `wbs_items` — `id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage` (`project_id` 필터)
 2. `agent_projects` — `enabled` (`maybeSingle`; 없으면 registered=false)
 3. `agent_work_orders` — 좌석표와 같은 컬럼(`ORDER_COLS`), `status in ready,claimed,reported` 전부 + `approved` 는 7일 이내. `created_at desc`, limit 2000
 4. `agent_work_reports` — (2차) 3의 살아 있는 주문(ready/claimed/reported) 전부의 `kind='completion'` 보고(`work_order_id, percent, summary, links, agent, review_action, review_note, created_at`). 승인 큐의 본문과 claimed 의 반려 판정(REJECTED)에 함께 쓴다. 살아 있는 주문이 없으면 생략
@@ -76,7 +76,7 @@
 ### 4-2. 조립 `src/lib/domain/agentHub.ts` (순수)
 
 ```ts
-export interface HubItemRow { id: string; parent_id: string | null; code: string; name: string; sort_order: number; level: string; milestone: boolean; dev_workflow: boolean; tags: string[] | null; assignee_member_id: string | null; agent_prompt: string | null; actual_pct: number | null; stage: string | null }
+export interface HubItemRow { id: string; parent_id: string | null; code: string; name: string; sort_order: number; milestone: boolean; dev_workflow: boolean; tags: string[] | null; assignee_member_id: string | null; agent_prompt: string | null; actual_pct: number | null; stage: string | null }
 export interface HubMemberRow { id: string; name: string; email: string | null; user_id: string | null }
 export interface HubReportRow { work_order_id: string; percent: number; summary: string; links: { label?: string; url: string }[]; agent: string; created_at: string }
 export interface AgentHubRows { project: { id: string; name: string } | null; agentProject: { enabled: boolean } | null; items: HubItemRow[]; orders: OrderRow[]; reports: HubReportRow[]; watchers: WatcherRow[]; members: HubMemberRow[] }
