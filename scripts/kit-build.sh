@@ -9,7 +9,7 @@ OUT="${1:-}"
 [ -n "$OUT" ] || { echo "사용법: kit-build.sh <출력 폴더>" >&2; exit 2; }
 mkdir -p "$OUT/skills"
 
-SKILLS="dflow-work dflow-dev dflow-poll dflow-merge dflow-export dflow-wbs-nlevel"
+SKILLS="dflow-work dflow-dev dflow-poll dflow-merge dflow-team dflow-export dflow-wbs-nlevel"
 for s in $SKILLS; do
   [ -d "$ROOT/.claude/skills/$s" ] || { echo "정본 스킬 없음: $s" >&2; exit 2; }
   rm -rf "$OUT/skills/$s"
@@ -20,14 +20,15 @@ done
 
 cp "$ROOT/kit/install.sh" "$OUT/install.sh"; chmod +x "$OUT/install.sh"
 cp "$ROOT/kit/.env.example" "$OUT/.env.example"
+cp "$ROOT/kit/worker-allow.json" "$OUT/worker-allow.json"
 cp "$ROOT/kit/README.md" "$OUT/README.md"
 mkdir -p "$OUT/hooks" && cp "$ROOT/kit/hooks/heartbeat.sh" "$OUT/hooks/heartbeat.sh" && chmod +x "$OUT/hooks/heartbeat.sh"
 printf 'source: wbs-web %s\nbuilt: %s\nskills: %s\n' \
   "$(git -C "$ROOT" rev-parse --short HEAD)" "$(date +%Y-%m-%d)" "$SKILLS" > "$OUT/VERSION"
 
 # 킷 밖을 가리키는 경로가 남아 있으면 빌드 실패 — 다른 PC 에서 깨진다.
-if grep -rn 'docs/superpowers\|docs/agent/claude-skill\|~/project/wbs-web' "$OUT/skills" "$OUT/hooks" --include=SKILL.md --include='*.sh' \
-   | grep -v '킷에는 미동봉\|wbs-web 리포 docs/superpowers\|wbs-web docs/superpowers' ; then
+if grep -rn 'docs/superpowers\|docs/agent/claude-skill\|~/project/wbs-web' "$OUT/skills" "$OUT/hooks" --include='*.md' --include='*.sh' \
+   | grep -v '킷에는 미동봉\|wbs-web 리포 docs/superpowers\|wbs-web docs/superpowers\|정본은 `wbs-web/.claude/skills/` 뿐이다' ; then
   echo "위: 킷 밖 참조가 남아 있다 — SKILL.md 를 고치고 다시 빌드" >&2; exit 1
 fi
 

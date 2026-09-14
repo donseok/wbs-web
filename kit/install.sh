@@ -12,12 +12,15 @@ TARGET="${1:-}"
 TARGET=$(cd "$TARGET" && pwd)
 [ -d "$TARGET/.git" ] || echo "경고: $TARGET 은 git 리포가 아니다 — dflow-dev 는 git 리포 루트에서만 동작한다." >&2
 
-# 1) 의존 점검 — dflow.sh(curl·jq), poll.sh(jq), nlevel/export 스크립트(python3), done --auto-links(gh)
+# 1) 의존 점검 — dflow.sh(curl·jq), poll.sh(jq), nlevel/export 스크립트(python3 또는 python), done --auto-links(gh)
+#    Windows 는 Git Bash(Git for Windows) 에서 실행한다. dflow-team 은 powershell.exe 도 쓴다(프로세스 시작 시각).
 missing=""
-for c in git curl jq python3 gh; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
+for c in git curl jq gh; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
+command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || missing="$missing python3"
 if [ -n "$missing" ]; then
   echo "필요한 명령이 없다:$missing" >&2
   echo "  macOS: brew install${missing}" >&2
+  echo "  Windows(Git Bash): winget 또는 scoop 으로 설치${missing} (python3 은 python 으로 대신할 수 있다)" >&2
   exit 2
 fi
 
@@ -47,12 +50,23 @@ if [ "${2:-}" = "--hooks" ]; then
   echo "훅 복사: $HOME/.dflow/hooks/heartbeat.sh — ~/.claude/settings.json 등록은 README 「좌석표 heartbeat 훅」 참조"
 fi
 
+# 3-2) 워커 권한 준비: dflow-team 의 프로세스 백엔드 팀원(claude -p)은 비대화형이라 권한 확인이
+#      필요한 명령이 거부되면 failed permission 으로 끝난다. 워커는 git 을 절대경로로 부르므로 허용
+#      규칙도 절대경로 형태로 넣는다. 이미 있는 항목과 settings.json 의 다른 키는 보존한다.
+GIT_ABS=$(command -v git)
+SETTINGS="$TARGET/.claude/settings.json"
+[ -f "$SETTINGS" ] || printf '{}\n' > "$SETTINGS"
+jq --arg git "Bash($GIT_ABS *)" --slurpfile add "$KIT_DIR/worker-allow.json" \
+  '.permissions.allow = (((.permissions.allow // []) + [$git] + $add[0].allow) | unique)' \
+  "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+echo "권한 준비: $SETTINGS 의 permissions.allow 에 워커 허용 목록을 합쳤다 (Bash($GIT_ABS *) 는 이 PC 의 git 경로다. 다른 PC 에서 설치하면 그 경로의 규칙이 하나 더 붙는다)"
+
 # 4) 버전 표식
 cp "$KIT_DIR/VERSION" "$TARGET/.claude/skills/DFLOW_KIT_VERSION" 2>/dev/null || true
 
 cat <<EOF
 
-설치 완료: $TARGET/.claude/skills/ (dflow-work · dflow-dev · dflow-poll · dflow-merge · dflow-export · dflow-wbs-nlevel)
+설치 완료: $TARGET/.claude/skills/ (dflow-work · dflow-dev · dflow-poll · dflow-merge · dflow-team · dflow-export · dflow-wbs-nlevel)
 
 다음 단계
   1. D'Flow 웹 → 우상단 계정 → /account "내 토큰" 에서 PAT 발급
