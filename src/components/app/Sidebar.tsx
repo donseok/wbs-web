@@ -63,7 +63,7 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, s
   // 설정 바로 아래에 두되 링크는 전역 경로로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.
   if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
   if (showUsage) items.push({ href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' })
-  // 에이전트 좌석표 — 슈퍼유저 또는 관리자 프로젝트 1개 이상(canViewAgents). 층=프로젝트라 전역 경로.
+  // 에이전트 좌석표 — 슈퍼유저 또는 역할이 있는 프로젝트 1개 이상(canViewAgents). 층=프로젝트라 전역 경로.
   if (showAgents) items.push({ href: '/agents', labelKey: 'nav.agents', icon: Armchair, match: '/agents' })
   return items
 }
