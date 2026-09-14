@@ -76,10 +76,15 @@ if [ ! -e "$WT/.claude/skills/dflow-dev/SKILL.md" ]; then
   fi
 fi
 printf '%s\n' '<포인터 한 줄>' > "$WT/.dflow-prompt"            # 재spawn: printf '%s\n%s\n' '<포인터 한 줄>' 'ANSWER=<답 한 줄>'
+pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n '2p' | cut -c25-32 | tr -d ' '); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
 ( cd "$WT" && nohup claude -p "$(cat .dflow-prompt)" <모델 플래그> <권한 플래그> > .dflow-worker.log 2>&1 < /dev/null &
-  echo $! > .dflow-pid && ps -o lstart= -p "$(cat .dflow-pid)" >> .dflow-pid )
+  echo $! > .dflow-pid && pstart "$(cat .dflow-pid)" >> .dflow-pid )
 cat "$WT/.dflow-pid"
 ```
+- Windows(Git Bash) 에서는 `ln -s` 가 링크 대신 복사본을 만든다. 복사본으로도 동작한다: `.env` 는 정적이고
+  스킬은 읽기 전용이며, 두 경로 모두 `info/exclude`·`.gitignore` 로 가려진다. 대가로 팀장이 스킬을 고쳐도 이미
+  뜬 팀원의 복사본에는 반영되지 않고, 워크트리마다 `.env` 사본이 생기므로 정리 규칙이 워크트리를 지울 때 함께
+  지워진다.
 - `<모델 플래그>` 는 `MODEL` 이 `opus`·`sonnet` 이면 `--model opus`·`--model sonnet`, `default` 면 빈 값이다.
 - `<권한 플래그>` 는 팀장 세션이 권한 확인 생략 모드로 떠 있으면(전제 검사의 `LEAD_SKIP_PERMISSIONS=1`)
   `--dangerously-skip-permissions`, 아니면 빈 값이다. 빈 값이면 팀원은 팀장과 같은 설정 파일의 권한 규칙
@@ -95,12 +100,16 @@ cat "$WT/.dflow-pid"
 - `nohup … &` 로 띄우는 이유: Bash 호출이 끝나도 프로세스가 살아남아야 하고(실측: 호출이 끝난 뒤에도 계속 돈다),
   팀장 세션이 죽어도 팀원이 이어 가야 한다. `run_in_background` 로 띄우면 팀장 세션과 함께 죽는다. 팀원 spawn 은
   SKILL.md 「금지」 의 "셸 `&`" 규칙의 유일한 예외다.
-- `.dflow-pid` 는 두 줄이다: PID 와 `ps -o lstart=` 가 돌려준 시작 시각 문자열. 생존 확인은 둘을 함께 본다.
+- `.dflow-pid` 는 두 줄이다: PID 와 `pstart` 가 돌려준 시작 시각 문자열. 생존 확인은 둘을 함께 본다.
   ```bash
+  pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n '2p' | cut -c25-32 | tr -d ' '); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
   pid=$(head -n 1 "$WT/.dflow-pid"); st=$(sed -n '2p' "$WT/.dflow-pid")
-  kill -0 "$pid" 2>/dev/null && [ "$(ps -o lstart= -p "$pid")" = "$st" ] && echo ALIVE || echo DEAD
+  kill -0 "$pid" 2>/dev/null && [ "$(pstart "$pid")" = "$st" ] && echo ALIVE || echo DEAD
   ```
-  시작 시각까지 비교하는 이유: 죽은 팀원의 PID 를 다른 프로세스가 다시 받을 수 있다.
+  시작 시각까지 비교하는 이유: 죽은 팀원의 PID 를 다른 프로세스가 다시 받을 수 있다. `pstart` 는 macOS·Linux 에서
+  `ps -o lstart=`, Windows(Git Bash) 에서는 MSYS `ps -p` 의 WINPID 열(고정 폭 25~32번째 글자)로 Windows PID 를
+  얻은 뒤 PowerShell `Get-Process` 의 `StartTime` 을 쓴다. MSYS `ps` 에는 `-o` 가 없고, `$!` 는 Cygwin PID 라
+  Windows PID 와 다를 수 있기 때문이다.
 - `.dflow-pid`·`.dflow-prompt`·`.dflow-worker.log` 는 팀장이 쓰는 미추적 파일이며 전제 검사가 공유 `info/exclude`
   에 넣는다. 워커는 손대지 않는다.
 - `team.spawn` 의 `worktree` 는 `$WT`, `handle` 은 `pid:<PID>` 다.
@@ -119,13 +128,8 @@ grep -E '^<TSK> <id8> ' "$WT/.dflow-worker.log" | tail -n 1
 `kill` 로 멈춘 뒤 워크트리를 「고아 정리 규칙」 대로 다룬다.
 
 **`blocked` 워크트리**: 팀원이 커밋·push 하고 끝나므로, 결과 처리 직후 「고아 정리 규칙」 2번을 맞추면(HEAD 가
-`origin/<agent 브랜치>` 와 같으면) 그 자리에서 정리한다. 정리할 수 없으면 `.dflow-agent` 값을 `parked` 로 바꿔
-정규 슬롯 스캔에서 빼고, 고아 규칙으로 보고한다.
-```bash
-printf '%s\n' '<신원>/<host>/parked' > <워크트리>/.dflow-agent
-```
-이유: 보존된 워크트리의 `.dflow-agent` 가 `w<slot>` 값을 그대로 가지면, 그 슬롯에 새로 뜬 팀원과 같은 슬롯
-표시를 가져 재구성이 충돌한다.
+`origin/<agent 브랜치>` 와 같으면) 그 자리에서 정리한다. 정리할 수 없으면 3번대로 `.dflow-agent` 값을 `parked`
+로 바꿔 정규 슬롯 스캔에서 빼고 보고한다.
 
 **정리**: 워크트리가 아직 있을 때만 팀장 체크아웃에서 한다.
 ```bash
@@ -148,7 +152,7 @@ git worktree remove --force "$WT"
    하고 브랜치 삭제는 강제하지 않는다.
    ```bash
    git -C <워크트리> status --porcelain --untracked-files=all \
-     | grep -v -E '^\?\? (\.dflow-(agent|pid|prompt|worker\.log)|\.env|\.claude/skills(/dflow-(dev|work))?|docs/tasks/<TSK>/(spec\.md|\.result))$'
+     | grep -v -E '^\?\? (\.dflow-(agent|pid|prompt|worker\.log)|\.env|\.claude/skills(/dflow-(dev|work)(/.*)?)?|docs/tasks/<TSK>/(spec\.md|\.result))$'
    ```
    출력이 비어 있어야 한다. 그 밖의 변경이 있으면 보존하고 경로와 목록을 보고한다. 이유: 브랜치가 없어도
    워커가 무언가를 고쳤다면 그것은 사람이 판단할 산출물이다.
@@ -159,7 +163,13 @@ git worktree remove --force "$WT"
    test "$(git -C <워크트리> rev-parse HEAD)" = "$(git -C <워크트리> rev-parse origin/<agent 브랜치>)"
    ```
 3. 하나라도 거짓이면 지우지 않고, 경로와 미커밋 목록(`git -C <워크트리> status --porcelain` 출력)을
-   "재개 필요" 보고에 붙인다. 이유: 느린 팀원이나 커밋 전에 멈춘 팀원의 산출물을 잃지 않는다.
+   "재개 필요" 보고에 붙이며, 살아 있는 팀원의 워크트리(4번)가 아니면 `.dflow-agent` 값을 `parked` 로 바꿔
+   정규 슬롯 스캔에서 뺀다. 이유: 느린 팀원이나 커밋 전에 멈춘 팀원의 산출물을 잃지 않는다. 보존된 워크트리의
+   `.dflow-agent` 가 `w<slot>` 값을 그대로 가지면, 그 슬롯에 새로 뜬 팀원과 같은 슬롯 표시를 가져 재구성이
+   충돌한다.
+   ```bash
+   printf '%s\n' '<신원>/<host>/parked' > <워크트리>/.dflow-agent
+   ```
 4. 살아 있는 팀원(SKILL.md 「팀장 상태」 정의)의 워크트리는 조건과 무관하게 지우지 않는다. pane 의 `blocked`
    워크트리도 여기에 든다(팀원이 탭에서 답을 기다린다). 예외는 무응답 자동 정리(SKILL.md 「3. 결과 처리」) 하나다.
 5. **생성 브랜치 정리**: 워크트리를 지웠으면 그 워크트리를 만들 때 생긴 브랜치를 지운다. Orca 는 이름에
@@ -182,3 +192,23 @@ git worktree remove --force "$WT"
    후보에서 빼기 위해서다. 세 안전 조건(`agent/` 아님, 체크아웃 안 됨, `origin/<기본브랜치>` 의 조상)은 루프가
    그대로 지킨다. 이유: 이름을 채우지 못해 정리를 건너뛰면 생성 브랜치가 쌓이고, 세 조건이 이름만 맞는 남의
    브랜치를 보호한다.
+
+## 플랫폼 차이
+
+두 백엔드의 셸 블록은 macOS·Linux 와 Windows(Git Bash, MSYS) 에서 같은 절차로 돌며, 아래 항목만 블록 안에서
+`uname -s` 로 가른다(`MINGW*|MSYS*|CYGWIN*`). WSL 은 Linux 다. 경로는 항상 git 출력(`rev-parse`·`worktree list`)에서
+얻고 `pwd` 와 문자열로 비교하지 않는다. Windows 에서 git 은 `C:/…` 형으로 돌려주고 bash 는 `/c/…` 형으로 보여
+같은 위치가 다른 문자열이 되기 때문이다.
+
+| 항목 | macOS·Linux | Windows(Git Bash) |
+|---|---|---|
+| 호스트 이름 | `hostname` 의 첫 점 앞부분(`hostname \| cut -d. -f1`) | 같다. Windows 의 hostname.exe 에는 `-s` 가 없다 |
+| 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) | `CLAUDE_PID`. `$PPID` 는 부모가 Cygwin 프로세스가 아니라 1 이다 |
+| 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 의 WINPID 열(25~32번째 글자)로 Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
+| 권한 확인 생략 감지 | `ps -o command=` | PowerShell `Get-CimInstance Win32_Process` 의 `CommandLine` |
+| `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다(「프로세스」 spawn) |
+| 필요한 명령 | bash·coreutils·ps·git·jq·curl | Git for Windows 의 bash·coreutils·ps 와 git·jq·curl·powershell.exe |
+
+프로세스 생존 확인(`kill -0`)과 회수(`kill`)는 두 플랫폼에서 같은 명령이다. Windows 에서 `$!` 는 팀원을 띄운
+Cygwin 프로세스이며, Cygwin 이 그 프로세스에 보낸 신호를 네이티브 자식(claude)에 전달한다. Windows 의 실제
+동작은 Windows 리허설이 확인한다.

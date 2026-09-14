@@ -49,17 +49,21 @@ reason=$(printf '%s\n' "$l" | cut -d' ' -f7-)
 위 표의 필드로 바꾼다.
 ```bash
 mkdir -p ~/.dflow && jq -nc \
-  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg host "$(hostname -s)" --arg repo '<MAIN_CHECKOUT>' \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg host "$(hostname | cut -d. -f1)" --arg repo '<MAIN_CHECKOUT>' \
   --arg tsk '<TSK 또는 ->' --arg order '<주문 전체 UUID 또는 ->' --arg event 'team.result' --arg agent '<신원>/<host>/lead' \
   --arg slot '<slot 또는 ->' --arg id8 '<id8>' --arg status '<status>' --arg worktree '<워크트리 또는 ->' --arg hash "$hash" --arg reason "$reason" \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}' \
-  | jq -c 'if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) then . else error("EVENT_ARGS_MISSING") end' \
+  | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until"],"team.spawn":["slot","id8","worktree","handle"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected"],"team.stop":[]} as $req
+      | if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) and .phase == "team" and .host == $h and $req[.event] != null
+           and ([$req[.event][] as $k | has($k) and .[$k] != null] | all) then . else error("EVENT_ARGS_MISSING") end' \
   >> ~/.dflow/events.jsonl || echo EVENT_ARGS_MISSING
 ```
-- 마지막 `jq` 는 가드다. 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비면 줄을 붙이지 않고
-  `EVENT_ARGS_MISSING` 을 낸다. 이유: 압축 뒤 기억으로 재구성한 명령은 인자가 비어 null 필드를 남기고, 그 줄은
-  재구성이 걸러 내지 못한다. 이 출력이 보이면 이 문서의 명령 블록을 다시 읽어 그대로 다시 실행한다. 기록 실패는
-  팀장 절차를 멈추지 않는다.
+- 마지막 `jq` 는 가드다. 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비거나, `phase` 가
+  `team` 이 아니거나, `host` 가 이 PC 의 호스트 이름(`hostname` 의 첫 점 앞부분) 과 다르거나, 위 표의 이벤트별 추가 필드 가운데 하나라도
+  없으면 줄을 붙이지 않고 `EVENT_ARGS_MISSING` 을 낸다. 이유: 압축 뒤 기억으로 재구성한 명령은 인자가 비거나
+  추가 필드를 빠뜨리고 `host` 를 슬러그로 쓰며, 그런 줄로는 재구성이 슬롯·해시·제외 목록을 복원하지 못한다. 이
+  출력이 보이면 이 문서의 명령 블록을 다시 띄워(SKILL.md 「2-3」 의 두 번째 명령) 그대로 다시 실행한다. 기록
+  실패는 팀장 절차를 멈추지 않는다.
 - `repo` 는 팀장 체크아웃의 절대경로다. 재구성이 이 값으로 이 리포의 줄만 거른다. 이름만 쓰면 같은 이름의
   클론 둘이 섞인다.
 - `<주문 전체 UUID>` 는 show 응답의 `.order.id` 다. 모르면 `-`.

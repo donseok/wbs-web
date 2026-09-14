@@ -58,11 +58,18 @@ PID, 시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없
 세션 메모리의 이 값들은 캐시일 뿐이며, 팀장은 **깨어날 때마다** 아래 정본에서 다시 만든다. 이유: 몇 시간 도는 세션은 컨텍스트 압축을 겪고, 요약에서
 슬롯이 빠지면 `.result` 가 와도 처리되지 않는다.
 
+**압축 뒤 첫 기상**: 요약은 절차의 정본도 아니다. 컨텍스트 압축 뒤 첫 기상에서는 행동하기 전에 이 파일의
+「2. 기상과 감시」「3. 결과 처리」「6. blocked」「7. 마감」 과 `references/events.md`, `references/backends.md` 의
+「고아 정리 규칙」 을 Read 로 다시 읽고, `<host>` 도 기억이 아니라 「1. 시작」 의 명령으로 다시 구한다. 이유:
+요약에서 빠진 규칙(이벤트의 추가 필드, `parked` 표시, host 슬러그와 `host` 필드의 차이)은 기억으로 메워지지
+않으며, 그렇게 기록한 줄은 다음 재구성이 읽지 못한다.
+
 이 절의 접두는 모두 `<신원>/<host>/` 로 시작한다. 이유: 같은 신원이 다른 PC 에서 띄운 팀장의 워크트리를 이
 팀장이 자기 것으로 읽지 않게 한다.
 
-**정본**: 이 신원·이 PC 의 팀원 워크트리와 그 결과.
+**정본**: 이 신원·이 PC 의 팀원 워크트리와 그 결과. `pstart` 는 backends.md 「프로세스」 의 시작 시각 함수와 같다.
 ```bash
+pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n '2p' | cut -c25-32 | tr -d ' '); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
 git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w; do
   [ -f "$w/.dflow-agent" ] || continue
   a=$(head -n 1 "$w/.dflow-agent")
@@ -72,7 +79,7 @@ git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w;
   b=$(git -C "$w" branch --show-current)
   p=$(head -n 1 "$w/.dflow-pid" 2>/dev/null); st=$(sed -n '2p' "$w/.dflow-pid" 2>/dev/null); alive=-
   if [ -n "$p" ]; then
-    if kill -0 "$p" 2>/dev/null && [ "$(ps -o lstart= -p "$p")" = "$st" ]; then alive=alive; else alive=dead; fi
+    if kill -0 "$p" 2>/dev/null && [ "$(pstart "$p")" = "$st" ]; then alive=alive; else alive=dead; fi
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$w" "${b:--}" "${r:--}" "${p:--}" "$alive"
 done
@@ -129,7 +136,9 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
   ```
 - **고아 스캔**: 값이 `<신원>/<host>/` 로 시작하는 `.dflow-agent` 워크트리(`parked` 포함) 중 살아 있는 팀원이
   없는 것은 backends.md 「고아 정리 규칙」 대로 깨끗하고(미커밋 변경 없음) HEAD 가 `origin/<그 브랜치>` 와 같은
-  것만 정리한다. 나머지는 경로와 미커밋 목록을 "재개 필요" 보고에 붙이고 자동으로 지우지 않는다.
+  것만 정리한다. 나머지는 경로와 미커밋 목록을 "재개 필요" 보고에 붙이고 자동으로 지우지 않으며, `.dflow-agent`
+  값을 `<신원>/<host>/parked` 로 바꾼다(그 규칙 3번). 이유: 남긴 워크트리가 `w<slot>` 값을 그대로 가지면 그
+  슬롯에 새로 뜬 팀원과 같은 슬롯 표시를 가져 재구성이 충돌한다.
 - **부트스트랩 실패 정리**: `.result` 의 branch 가 `-`(브랜치를 만들기 전에 끝남)이면 backends.md
   「고아 정리 규칙」 1번대로, 알려진 부산물만 있을 때만 `--force` 로 정리하고 그 밖의 변경이 있으면 보존하고
   보고한다. 이유: 브랜치가 없어도 워커가 무언가를 고쳤다면 그것은 사람이 판단할 산출물이다.
@@ -149,6 +158,10 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
 
 어느 갈래에서도 병렬 불가로 종료하지 않는다. 백엔드 이름은 시작 보고와 `team.start` 에 남긴다.
 
+**플랫폼**: 이 문서의 셸 블록은 macOS·Linux 와 Windows(Git Bash) 에서 같은 절차로 돈다. Windows 에서만 다른
+것(호스트 이름·프로세스 시작 시각·팀장 세션 PID·심링크)은 블록 안에서 `uname -s` 로 가르며
+(`MINGW*|MSYS*|CYGWIN*`), 그 차이의 목록은 backends.md 「플랫폼 차이」 다. WSL 은 Linux 다.
+
 ## 1. 시작
 
 1. **전제 검사**: 아래 블록 하나를 한 번의 Bash 호출로 돌린다. 블록은 실패한 항목을 모두 `FAIL …` 로 출력한 뒤
@@ -156,7 +169,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    검사는 읽고 넘어가면 그대로 진행된다. `<HHMM>` 은 종료 시각을 네 자리로 쓴 값이다.
    ```bash
    fail=0; bad() { echo "FAIL $*"; fail=1; }
-   MAIN=$(git rev-parse --show-toplevel); [ "$MAIN" = "$(pwd -P)" ] || bad NOT_REPO_ROOT
+   MAIN=$(git rev-parse --show-toplevel); [ -z "$(git rev-parse --show-prefix)" ] || bad NOT_REPO_ROOT
    case "$MAIN" in *' '*) bad SPACE_IN_PATH ;; esac
    base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); base=${base#origin/}
    [ -n "$base" ] || base=$(git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p')
@@ -170,7 +183,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    email=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh me | jq -r '.user_email // empty')
    [ -n "$email" ] || bad AUTH
    who=$(printf '%s' "$email" | cut -d@ -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
-   host=$(hostname -s | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
+   host=$(hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
    echo "user_email=$email lead=$who/$host/lead"
    legacy=$(find docs/tasks -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null | while IFS= read -r f; do
      jq -e '.phase == "reported" and ((.api_base // "") == "")' "$f" >/dev/null 2>&1 && printf '%s ' "$f"
@@ -198,7 +211,12 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    else
      command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
    fi
-   skip=0; ps -o command= -p "$PPID" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1
+   LEAD_PID=${CLAUDE_PID:-$PPID}   # 팀장 세션 프로세스. Bash 도구가 내보내는 CLAUDE_PID, 없으면 $PPID
+   skip=0
+   case "$(uname -s)" in
+     MINGW*|MSYS*|CYGWIN*) powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=$LEAD_PID').CommandLine" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1 ;;
+     *) ps -o command= -p "$LEAD_PID" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1 ;;
+   esac
    [ "$fail" = 0 ] || exit 1
    # 팀장 잠금: 나머지 검사가 모두 통과한 뒤 마지막에 원자 획득한다
    LOCK=$(git rev-parse --git-path dflow-team.lock)
@@ -217,15 +235,17 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      echo "STALE_LOCK_TAKEN"
    fi
    # owner = <신원>/<host>/lead <시작 epoch> <팀장 세션 PID>. 방금 만든 잠금이라 쓰기에 실패하면 지우고 끝낸다
-   { printf '%s %s %s\n' "$who/$host/lead" "$(date +%s)" "$PPID" > "$LOCK/owner" && date +%s > "$LOCK/beat"; } \
+   { printf '%s %s %s\n' "$who/$host/lead" "$(date +%s)" "$LEAD_PID" > "$LOCK/owner" && date +%s > "$LOCK/beat"; } \
      || { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }
-   echo "PRECHECK_OK lead_pid=$PPID LEAD_SKIP_PERMISSIONS=$skip"
+   echo "PRECHECK_OK lead_pid=$LEAD_PID LEAD_SKIP_PERMISSIONS=$skip"
    ```
    - **팀장 잠금**: 잠금은 디렉터리이며 `mkdir` 로 얻는다. `mkdir` 는 원자적이라 동시에 시작한 팀장 둘 중 하나만
      성공한다. 실패한 검사가 잠금을 남기지 않도록 블록의 마지막에 둔다. 안에 `owner` 한 줄
-     `<신원>/<host>/lead <시작 epoch 초> <PID>` 와 `beat`(epoch 초)를 쓴다. PID 는 Bash 도구 셸의 `$PPID`, 곧 팀장
-     세션 프로세스이며 Bash 호출마다, 컨텍스트 압축 뒤에도 같다. **소유 판정**은 "`owner` 의 신원이 자기
-     `<신원>/<host>/lead` 이고 PID 가 현재 `$PPID` 와 같다" 이다. 이유: 잠금은 체크아웃마다 하나라서 잠금을 가져간
+     `<신원>/<host>/lead <시작 epoch 초> <PID>` 와 `beat`(epoch 초)를 쓴다. PID 는 팀장 세션 프로세스의 PID 로,
+     Bash 도구가 환경 변수 `CLAUDE_PID` 로 내보내는 값(없으면 `$PPID`)이며 Bash 호출마다, 컨텍스트 압축 뒤에도
+     같다. `$PPID` 만 쓰지 않는 이유: Windows 의 Git Bash 는 부모가 Cygwin 프로세스가 아니면 `$PPID` 를 1 로
+     보고해 모든 팀장이 같은 PID 를 갖는다. **소유 판정**은 "`owner` 의 신원이 자기
+     `<신원>/<host>/lead` 이고 PID 가 현재 `$LEAD_PID` 와 같다" 이다. 이유: 잠금은 체크아웃마다 하나라서 잠금을 가져간
      다른 팀장도 신원·host·리포가 같고, 신원만으로는 누구의 잠금인지 가려내지 못한다. 시작 시각은 `LOCKED` 안내에서
      사람이 그 팀장을 알아보게 하려고 둔다. 팀장은 매 기상 소유를 확인한 뒤에만 `beat` 를 갱신한다(「2-3」).
      `owner`·`beat` 쓰기가 실패하면 방금 만든 잠금 디렉터리를 지우고 `FAIL LOCK_WRITE` 로 끝낸다. 이유: `beat`
@@ -267,7 +287,8 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    - `AUTH`: 인증은 `dflow.sh me` 의 성공(`user_email` 이 나옴)으로 판정한다. doctor 는 진단 출력용이며 종료
      코드로 판정하지 않는다. 이유: doctor 는 토큰 인증이 실패해도 그 줄만 출력하고 0 으로 끝난다. 출력한
      `user_email` 로 `DFLOW_PATS` 첫 토큰이 이 신원의 PAT 인지 보여 주고, 그 값으로 `<신원>` 슬러그를,
-     `hostname -s` 로 `<host>` 슬러그를 만든다. 팀원은 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead` 다.
+     `hostname` 의 첫 점 앞부분으로 `<host>` 슬러그를 만든다(`hostname -s` 는 Windows 의 hostname.exe 에 없다).
+     팀원은 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead` 다.
    - `LEGACY_REPORTED`: `api_base` 가 없는 `phase=reported` 로컬 state.json 이 있으면 시작을 거부하고
      "수동 `/dflow-merge` 로 먼저 정리하라" 고 안내한다. 이유: 스테이징 D'Flow DB 는 운영을 복제하므로 출처를 모르는
      로컬 후보를 자동 스윕이 머지할 수 있다. 같은 작업의 원격 사본에 값이 있으면 `/dflow-merge` 가 출처를
@@ -434,20 +455,23 @@ done
 모든 기상은 먼저 잠금 소유를 확인하고, 소유가 맞을 때만 `beat` 를 갱신하고 좌석표에도 같은 신호를 보낸다.
 `STALE` 은 그것만 하고 넘긴다. 이유: 살아 있는 팀장의 잠금이 70분 뒤 죽은 것으로 보이지 않게 하되, 잠금을 잃은
 팀장이 새 팀장의 잠금을 계속 살아 있게 만들지 않는다(「1. 시작」 팀장 잠금).
-기상에서 이벤트를 기록할 때는 `references/events.md` 의 명령 블록을 그 자리에서 다시 읽어 그대로 쓴다. 이유:
-컨텍스트 압축 뒤 기억으로 재구성한 명령은 인자가 비어 null 필드를 남긴다. events.md 의 가드가 그런 줄을
-`EVENT_ARGS_MISSING` 으로 거부하므로, 그 출력이 보이면 명령 블록을 다시 읽어 다시 기록한다.
+기상에서 이벤트를 기록할 때는 아래 블록의 마지막 명령이 띄운 `references/events.md` 의 명령 블록을 그대로 쓴다.
+기억으로 재구성한 명령은 쓰지 않는다. 이유: 컨텍스트 압축 뒤 기억으로 재구성한 명령은 인자가 비거나 추가
+필드를 빠뜨려 null 필드를 남긴다. events.md 의 가드가 그런 줄을 `EVENT_ARGS_MISSING` 으로 거부하므로, 그 출력이
+보이면 명령 블록을 다시 띄워 다시 기록한다.
 ```bash
+LEAD_PID=${CLAUDE_PID:-$PPID}
 LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
-if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then
+if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
     set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
       --slots <N> --busy <M> --until <HH:MM> ${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"} || :
   } || echo "LOCK_LOST beat 쓰기 실패"
 else
-  echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$PPID"
+  echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$LEAD_PID"
 fi
+sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md   # 이벤트 기록 명령의 정본. 이 출력의 블록으로만 기록한다
 ```
 `LOCK_LOST` 면 **잠금 상실**이다. "잠금 상실" 로 보고하고 새 spawn 을 멈추며, 잠금을 지우지 않은 채 「7. 마감」 의
 잠금 상실 마감으로 간다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓친 사이 다른 팀장이 잠금을 가져갔다면 두 팀장이
@@ -455,7 +479,8 @@ fi
 있어 소유를 장담할 수 없다.
 
 `STALE` 을 뺀 모든 기상에서는 `LOCK_OK` 뒤에 이어서 이 순서로 한다.
-1. 재구성(「팀장 상태」).
+1. 재구성(「팀장 상태」). 컨텍스트 압축 뒤 첫 기상이면 그 전에 「팀장 상태」 의 압축 규칙대로 절차 정본을 다시
+   읽는다.
 2. 아래 표의 처리.
 3. 승인 스윕(「4. 승인 스윕」). 스윕을 도는 기상은 시작, 결과 도착(`.result` 또는 완료 알림), `TICK`, poll
    재기동 직전, 마감이다. 이유: 팀장의 poll 에는 exit 9·10 이 오지 않는다. 대가로 승인 반영은 사람이 승인한 뒤
@@ -681,20 +706,21 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    `/dflow-merge` 가 한다.
 6. poll 이 떠 있으면 TaskStop 으로 멈추고(태스크 id 를 모르면 종료 시각에 스스로 끝난다), 세대 파일의 세대를
    올려 감시 루프를 끝낸다. `team.stop` 을 기록하고, 좌석표에 감시 종료를 알린 뒤 팀장 잠금 디렉터리를 지운다.
-   지우기 전에 「1. 시작」 의 소유 판정(`owner` 의 신원이 자기 `<신원>/<host>/lead` 이고 PID 가 현재 `$PPID` 와
-   같다)을 한 번 더 하고, 참일 때만 지운다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓쳐 다른 팀장이 잠금을 가져갔다면
+   지우기 전에 「1. 시작」 의 소유 판정(`owner` 의 신원이 자기 `<신원>/<host>/lead` 이고 PID 가 현재
+   `$LEAD_PID` 와 같다)을 한 번 더 하고, 참일 때만 지운다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓쳐 다른 팀장이 잠금을 가져갔다면
    그 잠금은 신원·host·리포가 같아도 PID 가 다르며, 지우면 안 된다. events.jsonl 의 `team.start` 시각과 비교하지
    않는 이유: 두 팀장의 이벤트가 같은 `agent`·`repo` 로 섞여, 마지막 `team.start` 가 새 팀장의 것일 수 있다.
    `owner` 를 읽는 `read` 는 `|| true` 로 감싼다. 이유: 파일이 없으면 `read` 가 0 이 아닌 값으로 끝나, 실패에
    멈추는 셸 설정에서는 마감의 나머지가 통째로 건너뛰어진다. 좌석표 종료 신호는 같은 소유 판정이 참일 때만,
    잠금을 지우기 전에 보낸다. 신원을 잠금 `owner` 에서 읽으므로 지운 뒤에는 보낼 수 없기 때문이다.
    ```bash
+   LEAD_PID=${CLAUDE_PID:-$PPID}
    LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
    { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
-   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then
+   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
      set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" --stop || :
    fi
-   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then rm -rf "$LOCK" && echo LOCK_RELEASED; else echo "LOCK_KEPT owner=$o_who $o_ts $o_pid"; fi
+   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then rm -rf "$LOCK" && echo LOCK_RELEASED; else echo "LOCK_KEPT owner=$o_who $o_ts $o_pid"; fi
    ```
 7. **남은 에이전트 확인**: ListAgents 를 다시 불러 이 세션에 `running` 인 이름 붙은 에이전트가 남아 있으면
    그 이름으로 TaskStop 하고 보고한다. 정상이면 하나도 없다. 팀원과 그 Phase 손자는 별도 프로세스라 이 세션의

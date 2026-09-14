@@ -187,7 +187,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('b=$(cat "$1/beat" 2>/dev/null || true)')
     expect(s()).toContain('-ge 4200')
     expect(s()).toContain('find "$1" -maxdepth 0 -mmin +10') // beat 없으면 잠금 디렉터리 수정 시각을 본다(macOS·Linux 공통)
-    expect(s()).toContain(`printf '%s %s %s\\n' "$who/$host/lead" "$(date +%s)" "$PPID" > "$LOCK/owner"`) // 소유는 신원 + 팀장 세션 PID
+    expect(s()).toContain(`printf '%s %s %s\\n' "$who/$host/lead" "$(date +%s)" "$LEAD_PID" > "$LOCK/owner"`) // 소유는 신원 + 팀장 세션 PID(CLAUDE_PID, 없으면 $PPID)
     expect(s()).toContain('|| { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }') // owner·beat 쓰기 실패는 방금 만든 잠금을 지우고 실패
     expect(s()).toContain('"$LOCK/beat"')
     expect(s()).toContain('stale "$LOCK" ||') // beat 없는 잠금은 10분 안에는 막 생긴 것으로 본다
@@ -197,11 +197,11 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     const lockBlock = s().slice(s().indexOf('stale() {'), s().indexOf('PRECHECK_OK'))
     expect(lockBlock).not.toContain('kill -0')
     expect(s()).toContain('bad NO_CLAUDE_CLI') // 프로세스 백엔드는 claude CLI 로 팀원을 띄운다
-    expect(s()).toContain(`ps -o command= -p "$PPID" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1`)
-    expect(s()).toContain('echo "PRECHECK_OK lead_pid=$PPID LEAD_SKIP_PERMISSIONS=$skip"')
+    expect(s()).toContain(`*) ps -o command= -p "$LEAD_PID" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1 ;;`)
+    expect(s()).toContain('echo "PRECHECK_OK lead_pid=$LEAD_PID LEAD_SKIP_PERMISSIONS=$skip"')
     expect(s()).toContain('NOT_DEFAULT_BRANCH')
     expect(s()).toContain('git ls-remote --symref origin HEAD')
-    expect(s()).toContain("hostname -s | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
+    expect(s()).toContain("hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
     expect(s()).toContain('mkdir -p ~/.dflow')
   })
 
@@ -229,7 +229,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**깨어날 때마다**')
     // 매 기상: 소유(신원 + 세션 PID)를 확인한 뒤에만 beat 를 쓰고, 아니면 잠금 상실
     expect(s()).toContain('{ read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true')
-    expect(s()).toContain('if [ "$o_who" = \'<신원>/<host>/lead\' ] && [ "$o_pid" = "$PPID" ]; then\n  date +%s > "$LOCK/beat"')
+    expect(s()).toContain('if [ "$o_who" = \'<신원>/<host>/lead\' ] && [ "$o_pid" = "$LEAD_PID" ]; then\n  date +%s > "$LOCK/beat"')
     expect(s()).toContain('LOCK_LOST')
     expect(s()).not.toContain('date +%s > "$(git rev-parse --git-path dflow-team.lock)/beat"')
     expect(s()).toContain('case "$a" in "<신원>/<host>/"*) ;; *) continue ;; esac')
@@ -243,7 +243,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('"살아 있는 팀원" 은 spawn 했고 아직 최종 판정')
     expect(s()).toContain('터미널이 떠 있는지로 판단하지 않는다')
     expect(s()).toContain('p=$(head -n 1 "$w/.dflow-pid" 2>/dev/null); st=$(sed -n \'2p\' "$w/.dflow-pid" 2>/dev/null); alive=-')
-    expect(s()).toContain('if kill -0 "$p" 2>/dev/null && [ "$(ps -o lstart= -p "$p")" = "$st" ]; then alive=alive; else alive=dead; fi')
+    expect(s()).toContain('if kill -0 "$p" 2>/dev/null && [ "$(pstart "$p")" = "$st" ]; then alive=alive; else alive=dead; fi')
     expect(s()).toContain('팀장 세션이 새로 떠도 살아 있는 프로세스 팀원은 원래 슬롯 번호로 흡수한다')
     expect(s()).toContain('`team.answer` 에서 복원해 대기 큐 맨 앞에 둔다')
     expect(s()).toContain('**고아 스캔**')
@@ -402,7 +402,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.**')
     expect(s()).toContain('**agent 브랜치는 남긴다.**')
     expect(s()).toContain('`team.stop`')
-    expect(s()).toContain('[ "$o_pid" = "$PPID" ]; then rm -rf "$LOCK"')
+    expect(s()).toContain('[ "$o_pid" = "$LEAD_PID" ]; then rm -rf "$LOCK"')
     expect(s()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
     expect(s()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
     expect(s()).toContain('**잠금 상실 마감**')
@@ -450,7 +450,38 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).not.toContain(`awk -F'\\t' 'NF>=4 {print $4}'`)
     const start = s().indexOf('### 2-3. 기상마다 하는 일')
     expect(start).toBeGreaterThan(-1)
-    expect(s().slice(start, start + 1500)).toContain('`references/events.md` 의 명령 블록을 그 자리에서 다시 읽어')
+    expect(s().slice(start, start + 1500)).toContain('기억으로 재구성한 명령은 쓰지 않는다')
     expect(s().slice(start, start + 1500)).toContain('EVENT_ARGS_MISSING')
+    // 기상 블록의 마지막 명령이 events.md 의 기록 명령을 화면에 띄운다(압축 뒤 기억으로 쓰지 않게)
+    expect(s().slice(start, start + 2500)).toContain("sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md")
+  })
+
+  it('프로세스 리허설 반영: 압축 뒤 첫 기상은 절차 정본을 다시 읽고, 고아 스캔이 남긴 워크트리는 parked 로 표시한다', () => {
+    expect(s()).toContain('**압축 뒤 첫 기상**')
+    expect(s()).toContain('「2. 기상과 감시」「3. 결과 처리」「6. blocked」「7. 마감」 과 `references/events.md`')
+    const i = s().indexOf('- **고아 스캔**')
+    expect(i).toBeGreaterThan(-1)
+    expect(s().slice(i, i + 700)).toContain('`<신원>/<host>/parked` 로 바꾼다(그 규칙 3번)')
+  })
+
+  it('Windows(Git Bash) 이식성: hostname -s·ps -o 직접 호출·pwd -P 비교·$PPID 단독 소유 판정이 없고, uname 분기와 CLAUDE_PID 를 쓴다', () => {
+    const sk = s()
+    expect(sk).toContain('LEAD_PID=${CLAUDE_PID:-$PPID}')
+    expect(sk).not.toContain('"$o_pid" = "$PPID"')
+    expect(sk).not.toContain('$(pwd -P)')
+    expect(sk).toContain('[ -z "$(git rev-parse --show-prefix)" ] || bad NOT_REPO_ROOT')
+    expect(sk).toContain("host=$(hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')")
+    expect(sk).not.toContain('$(hostname -s')
+    expect(sk).not.toContain('"$(ps -o lstart= -p')
+    expect(sk).not.toContain('ps -o command= -p "$PPID"')
+    expect(sk).toContain('case "$(uname -s)" in')
+    expect(sk).toContain("MINGW*|MSYS*|CYGWIN*) powershell.exe -NoProfile -Command \"(Get-CimInstance Win32_Process -Filter 'ProcessId=$LEAD_PID').CommandLine\"")
+    expect(sk).toContain('**플랫폼**')
+    // 정본 표의 pstart 는 backends.md 의 것과 글자 그대로 같다
+    const fn = 'pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n \'2p\' | cut -c25-32 | tr -d \' \'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString(\'o\')" 2>/dev/null | tr -d \'\\r\' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }'
+    expect(sk).toContain(fn)
+    expect(read('references/backends.md')).toContain(fn)
+    expect(read('references/events.md')).not.toContain('$(hostname -s)')
+    expect(read('references/events.md')).toContain('--arg host "$(hostname | cut -d. -f1)"')
   })
 })
