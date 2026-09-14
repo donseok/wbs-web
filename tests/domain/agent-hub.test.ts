@@ -184,3 +184,16 @@ describe('assembleAgentHub — 선행 미완료(unmetDepends)', () => {
     expect(rowOf(off, 'TSK-A-01').unmetDepends).toBeNull()
   })
 })
+
+describe('assembleAgentHub — 단계(§11)', () => {
+  it('행에 wbs_items.stage 가 그대로 실린다(미지정은 null)', () => {
+    const hub = assembleAgentHub(rows({ items: [
+      item({ id: 'a', code: 'SYS-A', name: '부모', sort_order: 0 }),
+      item({ id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프', sort_order: 0, stage: 'fp' }),
+      item({ id: 'a2', parent_id: 'a', code: 'TSK-A-02', name: '리프2', sort_order: 1 }),
+    ] }), NOW, VIEWER)
+    expect(hub.rows.find(r => r.code === 'TSK-A-01')?.stage).toBe('fp')
+    expect(hub.rows.find(r => r.code === 'TSK-A-02')?.stage).toBeNull()
+    expect(hub.rows.find(r => r.code === 'SYS-A')?.stage).toBeNull()
+  })
+})

@@ -10,7 +10,7 @@ import type { AgentHub } from '@/lib/domain/agentHub'
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 const refresh = vi.fn(), apply = vi.fn()
-vi.mock('@/app/actions/agentHub', () => ({ refreshAgentHub: (...a: unknown[]) => refresh(...(a as [])), applyHubDelegations: (...a: unknown[]) => apply(...(a as [])) }))
+vi.mock('@/app/actions/agentHub', () => ({ refreshAgentHub: (...a: unknown[]) => refresh(...(a as [])), applyHubDelegations: (...a: unknown[]) => apply(...(a as [])), runHubProcessOp: vi.fn() }))
 vi.mock('@/app/actions/wbsSpec', () => ({ setAgentDelegation: vi.fn(), updateAgentPrompt: vi.fn() }))
 vi.mock('@/app/actions/agentWork', () => ({ approveAgentCompletion: vi.fn(), rejectAgentCompletion: vi.fn(), setAgentProjectEnabled: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
@@ -22,7 +22,7 @@ const NOW = Date.parse('2026-09-14T09:00:00Z')
 const hub = (over: Partial<AgentHub> = {}): AgentHub => ({
   projectId: 'p1', projectName: 'mes-base', registered: true, enabled: true,
   counters: { delegated: 1, ready: 0, working: 1, waiting: 0 }, watchers: [],
-  rows: [{ itemId: 'a1', code: 'TSK-A-01', name: '리프1', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: '장', assigneeMine: true, delegated: true, devWorkflow: true, order: { id: 'o1', status: 'claimed', state: 'ACTIVE', agent: 'hong', lastSignalAt: new Date(NOW - 1000).toISOString() }, prompt: null, canToggle: true, unmetDepends: null }],
+  rows: [{ itemId: 'a1', code: 'TSK-A-01', name: '리프1', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: '장', assigneeMine: true, delegated: true, devWorkflow: true, stage: 'im', order: { id: 'o1', status: 'claimed', state: 'ACTIVE', agent: 'hong', lastSignalAt: new Date(NOW - 1000).toISOString() }, prompt: null, canToggle: true, unmetDepends: null }],
   queue: [], fetchedAt: new Date(NOW).toISOString(), viewer: { isAdmin: false, memberIds: ['m1'] }, ...over,
 })
 

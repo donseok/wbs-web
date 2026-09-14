@@ -173,7 +173,7 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 ### 6-3. `DelegationTable`
 
 - 세그먼트 "내 담당 | 전체"(`aria-pressed`). `mine` 은 `assigneeMine` 리프와 그 조상만 남긴다.
-- 표 열: 위임 체크 · 코드 · 이름(깊이만큼 들여쓰기, 부모는 접기 토글) · 담당자 · 상태 · 에이전트 · 마지막 신호 · 프롬프트.
+- 표 열: 위임 체크 · 코드 · 이름(깊이만큼 들여쓰기, 부모는 접기 토글) · 담당자 · **단계** · 상태 · 에이전트 · 마지막 신호 · **조정** · 프롬프트(단계·조정은 §11, 2026-09-14).
 - 리프 행 체크박스: `canToggle` 아니면 `disabled` + `title="담당자 본인 또는 관리자만"`. 클릭 → 표시만 즉시 바꾸고 **잠그지 않는다**. 변경은 `usePendingDelegations` 훅이 모았다가(서버값으로 되돌린 체크는 대기에서 뺀다) 마지막 체크 뒤 1.5초에 `applyHubDelegations(projectId, changes)` 1건으로 보낸다. 표 머리에 "N건 · n초 뒤 저장 · 지금 저장" 칩(`PendingSaveChip` 재사용), 저장 중엔 "저장 중…". 응답의 `failed` 는 그 행만 서버값으로 되돌리고 행에 오류 문구, `warnings` 는 행 아래 문구, `hub` 는 `onHub` 로 화면 교체. `ok:false`(묶음 전체 거부)·throw 는 보낸 행마다 그 문구.
 - 부모 행 체크박스: 관리자만 렌더. 상태 = 하위 리프(마일스톤 제외)가 전부 위임이면 checked, 일부면 `indeterminate`. 클릭 → 확인 없이 하위 리프 전부를 같은 대기 맵에 넣는다(이미 같은 값인 리프는 보내지 않는다). 실패가 2건 이상이면 표 위 알림 줄에 "n건 실패: 코드…".
 - 상태 열 라벨: READY '대기(미착수)', ACTIVE '작업 중', STALE '무응답', OFFLINE '끊김', BLOCKED '결정 대기', WAIT '승인 대기', REJECTED '반려·재작업', DONE '승인됨', 주문 없음 '—'. `dev_workflow` 만 켜지고 위임이 없으면 상태 옆에 작은 힌트 "위임 필요".
@@ -183,7 +183,7 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 ### 6-4. `ApprovalQueue`
 
 - `queue` 가 비면 "승인 대기 없음" 한 줄.
-- 카드: 코드·이름·에이전트·보고 시각·percent·summary·증적 링크. 버튼(관리자만): 승인 → `approveAgentCompletion`, 반려 → 사유 textarea 필수(비면 버튼 비활성) → `rejectAgentCompletion`. 끝나면 `refresh()`.
+- 카드: 코드·이름·에이전트·보고 시각·percent·summary·증적 링크. 버튼(관리자만): 승인 → `runHubProcessOp(projectId, {kind:'approve'})`, 반려 → 사유 textarea 필수(비면 버튼 비활성) → `{kind:'reject', note}`. 응답의 허브로 교체(`onHub`), 재조회 요청 없음(§11). `warning` 은 카드 안 경고 문구.
 - 멤버에게는 버튼 대신 "승인은 관리자가 합니다".
 
 ### 6-5. 좌석 층
@@ -215,7 +215,9 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 - `tests/actions/wbs-spec*.test.ts`(기존): 그대로 통과.
 - `tests/components/agent-hub-table.test.tsx`: 체크 → 즉시 표시·잠기지 않음·대기 칩·1.5초 뒤 묶음 1건·`onHub`, 켰다 끄면 저장 없음, 지금 저장, 항목 실패 되돌림·경고, 묶음 거부·throw, hub:null → 알림+재조회, 부모 체크 indeterminate·같은 값 제외 묶음, 2건 이상 실패 알림 줄, 연속 체크 한 묶음, 멤버는 부모 체크 없음·비담당 행 disabled, 필터 mine.
 - `tests/components/use-pending-delegations.test.tsx`: 대기·묶음·flush·저장 중 되돌림 보존·서버값 동기화로 대기 제거·throw 시 복귀·언마운트 분리 저장.
-- `tests/components/agent-hub-queue.test.tsx`: 반려 사유 비면 버튼 비활성, 승인 호출, 멤버는 버튼 없음.
+- `tests/components/agent-hub-queue.test.tsx`: 반려 사유 비면 버튼 비활성, 승인·반려 → `runHubProcessOp` + `onHub`, 실패·warning 문구, hub:null → onChanged, 멤버는 버튼 없음.
+- `tests/actions/agent-hub-actions.test.ts`(§11): `runHubProcessOp` — approve/reject/unapprove/rework 는 각 액션으로, stage 는 setWbsStage, release 는 CAS·흔적 제거·알림, claimed 아님/CAS 0행 거부, 타 프로젝트 거부, 내부 실패·warning 전달, 재조회 실패 hub:null, 관리자 아님·입력 검증.
+- `tests/components/agent-hub-table.test.tsx`(§11): 멤버는 단계 글자·버튼 없음, 관리자 상태별 버튼 집합, 승인/회수/승인 취소 → op, 반려·재작업 사유 줄, 실패·warning·hub:null, 단계 select 현재값·전송·실패 복귀·미지정.
 - `tests/components/agent-hub-view.test.tsx`: refresh 실패 시 데이터 유지 + 문구, `router.refresh` 미사용(소스 문자열 검사).
 - `tests/ui/sidebar-project-context.test.tsx`: `/p/p1/agents` 링크 존재, 라벨 키, 전역 `/agents` 링크 부재.
 - `tests/components/agent-hub-queue.test.tsx`(HubStatusBar): `data-hub-seatmap-link` → `/agents`.
@@ -262,3 +264,28 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 
 **같은 낭비가 남은 곳(범위 밖).** WBS 상세 패널의 위임 체크(`WbsSpecPanel`)는 flush 뒤 액션의 `revalidatePath` 재렌더와 `router.refresh()` 가 WBS 페이지를 두 번 그린다.
 `getSession`(`src/lib/auth.ts`)은 아직 `getUser()` 다(레이아웃·페이지 경로).
+
+## 11. 개발 프로세스 조정 (2026-09-14, 사용자 요구 "승인, 승인취소, 완료취소 등 개발 프로세스를 허브에서 조정")
+
+**결정.** 완료 취소 = **재작업 요청**(승인된 xx 작업을 에이전트에게 되돌린다, 사유 필수). 단계 직접 조정도 허브에 둔다.
+
+**표 행의 조정 열(관리자, 리프, 마일스톤 제외).** 주문 상태별 버튼. 문구는 WBS 상세 패널과 같다(같은 행위에 다른 이름을 주지 않는다).
+
+| 주문 상태 | 버튼 | 액션 | 결과 |
+|---|---|---|---|
+| 승인 대기(reported) | 승인 | `approveAgentCompletion` | approved, 실적 100, 단계 xx |
+| | 반려(사유) | `rejectAgentCompletion` | claimed 복귀, 보고에 reject 기록 — 에이전트가 사유를 읽고 재작업 |
+| 승인됨(approved) | 승인 취소 | `unapproveAgentCompletion` | reported 복귀, 실적·단계(xx→im) 되감기 |
+| | 재작업 요청(사유) = 완료 취소 | `requestAgentRework` | claimed 복귀 + reject 기록, 실적·단계 되감기 |
+| 작업 중·무응답·끊김·결정 대기(claimed) | 회수 | 새 `releaseOrderByAdmin` | ready 복귀(CAS), 점유·heartbeat 흔적 제거, `work.released` 알림. 러너는 다음 heartbeat·report 에서 409 |
+| 대기(ready)·없음 | (없음) | 위임 체크가 발행·취소 | |
+
+**단계 열.** 관리자·리프에는 select(미지정/분석/기능 계획/구현 계획/구현/완료), 그 밖에는 글자. 고르면 즉시 `{kind:'stage'}` 1건.
+규칙은 `setWbsStage` 그대로: 하위가 있으면 거부, **진행 중 주문(claimed/reported)이 있으면 구현(im)·완료(xx) 직행 거부**("승인 버튼으로") —
+완료·검수는 승인으로만 간다는 2026-08-25 결정을 허브에서도 유지한다. 실패하면 select 는 서버값으로 돌아가고 행 아래에 문구.
+
+**액션 `runHubProcessOp(projectId, op)`.** 관리자 가드 1회 → 대상(주문·항목)이 이 프로젝트 것인지(fail-closed) → 기존 액션 →
+`getAgentHub` 를 한 응답에. `revalidatePath` 없음(§10 원칙). 재조회만 실패하면 `hub:null + hubError`(처리는 됐다). 내부 액션의
+`warning` 은 그대로 올려 행·카드에 보인다. 승인 큐 카드도 같은 액션을 쓴다.
+
+**범위 밖.** 자동 회수(24h 무응답)는 여전히 없다 — 사람이 회수한다(작업 루프 스펙 §운영). 취소된 주문의 재발행은 위임 체크로.

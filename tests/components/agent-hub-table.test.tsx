@@ -7,9 +7,12 @@ import type { AgentHub, HubRow } from '@/lib/domain/agentHub'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-const updateAgentPrompt = vi.fn(), applyHubDelegations = vi.fn()
+const updateAgentPrompt = vi.fn(), applyHubDelegations = vi.fn(), runHubProcessOp = vi.fn()
 vi.mock('@/app/actions/wbsSpec', () => ({ updateAgentPrompt: (...a: unknown[]) => updateAgentPrompt(...(a as [])) }))
-vi.mock('@/app/actions/agentHub', () => ({ applyHubDelegations: (...a: unknown[]) => applyHubDelegations(...(a as [])) }))
+vi.mock('@/app/actions/agentHub', () => ({
+  applyHubDelegations: (...a: unknown[]) => applyHubDelegations(...(a as [])),
+  runHubProcessOp: (...a: unknown[]) => runHubProcessOp(...(a as [])),
+}))
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t: (k: string) => k }) }))
 import { DelegationTable } from '@/components/agent-hub/DelegationTable'
 import { HUB_SAVE_DEBOUNCE_MS } from '@/components/agent-hub/usePendingDelegations'
@@ -17,7 +20,7 @@ import { HUB_SAVE_DEBOUNCE_MS } from '@/components/agent-hub/usePendingDelegatio
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const row = (over: Partial<HubRow>): HubRow => ({
   itemId: 'x', code: 'X', name: 'x', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: null, assigneeMine: false,
-  delegated: false, devWorkflow: false, order: null, prompt: null, canToggle: false, unmetDepends: null, ...over,
+  delegated: false, devWorkflow: false, stage: null, order: null, prompt: null, canToggle: false, unmetDepends: null, ...over,
 })
 const ROWS: HubRow[] = [
   row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
@@ -31,7 +34,7 @@ const OK = (over: Record<string, unknown> = {}) => ({ ok: true, hub: HUB, failed
 let host: HTMLDivElement, root: Root
 beforeEach(() => {
   vi.useFakeTimers()
-  updateAgentPrompt.mockReset(); applyHubDelegations.mockReset()
+  updateAgentPrompt.mockReset(); applyHubDelegations.mockReset(); runHubProcessOp.mockReset()
   applyHubDelegations.mockResolvedValue(OK())
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host)
 })
@@ -209,5 +212,102 @@ describe('DelegationTable — 선행 미완료', () => {
   it('unmetDepends 가 null 이면 그리지 않는다', () => {
     render()
     expect(host.querySelector('[data-hub-depends]')).toBeNull()
+  })
+})
+
+describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(§11): 관리자만, runHubProcessOp 1건, 응답의 허브로 교체', () => {
+  const NOTE_ROWS: HubRow[] = [
+    row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
+    row({ itemId: 'w', code: 'TSK-W', name: '승인 대기', depth: 1, parentId: 'root', canToggle: true, delegated: true, stage: 'im', order: { id: 'ow', status: 'reported', state: 'WAIT', agent: 'a', lastSignalAt: null } }),
+    row({ itemId: 'd', code: 'TSK-D', name: '승인됨', depth: 1, parentId: 'root', canToggle: true, delegated: true, stage: 'xx', order: { id: 'od', status: 'approved', state: 'DONE', agent: 'a', lastSignalAt: null } }),
+    row({ itemId: 'c', code: 'TSK-C', name: '작업 중', depth: 1, parentId: 'root', canToggle: true, delegated: true, stage: 'im', order: { id: 'oc', status: 'claimed', state: 'STALE', agent: 'a', lastSignalAt: null } }),
+    row({ itemId: 'r', code: 'TSK-R', name: '대기', depth: 1, parentId: 'root', canToggle: true, delegated: true, stage: 'as', order: { id: 'or', status: 'ready', state: 'READY', agent: null, lastSignalAt: null } }),
+    row({ itemId: 'n', code: 'TSK-N', name: '주문 없음', depth: 1, parentId: 'root', canToggle: true }),
+    row({ itemId: 'ms', code: 'MS-1', name: '마일스톤', depth: 1, parentId: 'root', milestone: true, stage: 'xx' }),
+  ]
+  const ops = (id: string) => [...host.querySelectorAll(`[data-hub-row="${id}"] [data-hub-op]`)].map(b => b.getAttribute('data-hub-op'))
+  const op = (id: string, kind: string) => host.querySelector(`[data-hub-row="${id}"] [data-hub-op="${kind}"]`) as HTMLButtonElement
+  const stageSel = (id: string) => host.querySelector(`[data-hub-row="${id}"] select[data-hub-stage]`) as HTMLSelectElement | null
+  const pick = (sel: HTMLSelectElement, v: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, v); sel.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  const typeNote = (v: string) => act(async () => {
+    const ta = host.querySelector('[data-hub-note] textarea') as HTMLTextAreaElement
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(ta, v); ta.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+
+  it('멤버: 단계는 글자로, 조정 버튼 없음', () => {
+    render({ rows: NOTE_ROWS, isAdmin: false })
+    expect(stageSel('w')).toBeNull()
+    expect(text('[data-hub-row="w"] [data-hub-stage-text]')).toBe('구현')
+    expect(text('[data-hub-row="n"] [data-hub-stage-text]')).toBe('미지정')
+    expect(host.querySelector('[data-hub-op]')).toBeNull()
+  })
+  it('관리자: 주문 상태별 버튼 — 승인 대기(승인·반려), 승인됨(승인 취소·재작업 요청), 작업 중(회수), 대기·없음·마일스톤(없음)', () => {
+    render({ rows: NOTE_ROWS, isAdmin: true })
+    expect(ops('w')).toEqual(['approve', 'reject'])
+    expect(ops('d')).toEqual(['unapprove', 'rework'])
+    expect(ops('c')).toEqual(['release'])
+    expect(ops('r')).toEqual([]); expect(ops('n')).toEqual([]); expect(ops('ms')).toEqual([])
+    expect(op('w', 'approve').textContent).toBe('승인'); expect(op('d', 'rework').textContent).toBe('재작업 요청'); expect(op('c', 'release').textContent).toBe('회수')
+    expect(op('d', 'rework').title).toContain('완료(xx)를 취소')
+    expect(stageSel('ms')).toBeNull() // 마일스톤은 단계 없음
+  })
+  it('승인 → runHubProcessOp(p1, {approve, orderId}) → onHub(hub); 회수·승인 취소도 같은 길', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    const { onHub, onChanged } = render({ rows: NOTE_ROWS, isAdmin: true })
+    await click(op('w', 'approve'))
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'approve', orderId: 'ow' })
+    expect(onHub).toHaveBeenCalledWith(HUB); expect(onChanged).not.toHaveBeenCalled()
+    await click(op('c', 'release'))
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'release', orderId: 'oc' })
+    await click(op('d', 'unapprove'))
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'unapprove', orderId: 'od' })
+  })
+  it('반려·재작업 요청은 사유 줄을 열고, 비면 확정 비활성, 채우면 note 와 함께 보낸다', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    render({ rows: NOTE_ROWS, isAdmin: true })
+    await click(op('d', 'rework'))
+    expect(host.querySelector('[data-hub-row-extra="d"] [data-hub-note="rework"]')).not.toBeNull()
+    const confirm = host.querySelector('[data-hub-note-confirm]') as HTMLButtonElement
+    expect(confirm.disabled).toBe(true); expect(confirm.textContent).toBe('재작업 요청 확정')
+    await typeNote('테스트가 빠졌음')
+    expect(confirm.disabled).toBe(false)
+    await click(confirm)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'rework', orderId: 'od', note: '테스트가 빠졌음' })
+    expect(host.querySelector('[data-hub-note]')).toBeNull() // 성공하면 닫힌다
+    await click(op('w', 'reject'))
+    expect(host.querySelector('[data-hub-row-extra="w"] [data-hub-note="reject"]')).not.toBeNull()
+  })
+  it('실패는 그 행 아래 오류, warning 은 경고 문구, hub:null 은 알림 줄 + onChanged', async () => {
+    runHubProcessOp.mockResolvedValueOnce({ ok: false, error: '승인 가능한 상태가 아닙니다(claimed).' })
+    const { onHub, onChanged } = render({ rows: NOTE_ROWS, isAdmin: true })
+    await click(op('w', 'approve'))
+    expect(text('[data-hub-row-extra="w"] [data-hub-error]')).toContain('승인 가능한 상태가 아닙니다')
+    expect(onHub).not.toHaveBeenCalled()
+    runHubProcessOp.mockResolvedValueOnce({ ok: true, hub: HUB, warning: '실적을 되돌리지 않았습니다' })
+    await click(op('d', 'unapprove'))
+    expect(text('[data-hub-row-extra="d"] [data-hub-warning]')).toContain('실적을 되돌리지')
+    runHubProcessOp.mockResolvedValueOnce({ ok: true, hub: null, hubError: '처리는 됐지만 현황 재조회에 실패했습니다. 새로고침을 누르세요.' })
+    await click(op('c', 'release'))
+    expect(text('[data-hub-notice]')).toContain('재조회에 실패')
+    expect(onChanged).toHaveBeenCalledTimes(1)
+  })
+  it('단계 select: 현재값 표시, 고르면 {stage, itemId, stage} 즉시 전송, 성공 → onHub; 실패 → 오류 + 서버값으로 복귀', async () => {
+    runHubProcessOp.mockResolvedValueOnce({ ok: true, hub: HUB })
+    const { onHub } = render({ rows: NOTE_ROWS, isAdmin: true })
+    expect(stageSel('w')!.value).toBe('im'); expect(stageSel('n')!.value).toBe('')
+    expect([...stageSel('n')!.options].map(o => o.textContent)).toEqual(['미지정', '분석', '기능 계획', '구현 계획', '구현', '완료'])
+    await pick(stageSel('n')!, 'fp')
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'stage', itemId: 'n', stage: 'fp' })
+    expect(onHub).toHaveBeenCalledWith(HUB)
+    runHubProcessOp.mockResolvedValueOnce({ ok: false, error: '이 항목에 진행 중인 에이전트 주문이 있습니다 — 단계 변경은 "진행 상황"의 승인 버튼으로 하세요.' })
+    await pick(stageSel('c')!, 'xx')
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'stage', itemId: 'c', stage: 'xx' })
+    expect(text('[data-hub-row-extra="c"] [data-hub-error]')).toContain('진행 중인 에이전트 주문')
+    expect(stageSel('c')!.value).toBe('im')
+    runHubProcessOp.mockResolvedValueOnce({ ok: true, hub: HUB })
+    await pick(stageSel('w')!, '')
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'stage', itemId: 'w', stage: null })
   })
 })

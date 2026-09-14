@@ -52,7 +52,7 @@ export function AgentHubView({ initial }: { initial: AgentHub }) {
         watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
       <DelegationTable rows={hub.rows} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} filter={filter} onFilter={setFilter}
         nowMs={nowMs} onHub={applyHub} onChanged={refresh} />
-      <ApprovalQueue queue={hub.queue} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
+      <ApprovalQueue queue={hub.queue} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} onHub={applyHub} onChanged={refresh} />
     </div>
   )
 }

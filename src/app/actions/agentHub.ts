@@ -1,14 +1,18 @@
 'use server'
 // 에이전트 허브 액션 — 재조회와 위임 묶음 저장. 판정은 authz 가드로만, 본체는 src/lib/agent/delegation.ts.
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §5
-import { requireProjectMember } from '@/lib/authz'
+import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
+import type { AdminClient } from '@/lib/minutes/externalApi'
 import { getAgentHub } from '@/lib/data/agentHub'
 import { viewerEmail } from '@/lib/data/agentSeatmap'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
+import { emitNotification } from '@/lib/notify/emit'
+import { approveAgentCompletion, rejectAgentCompletion, requestAgentRework, unapproveAgentCompletion } from '@/app/actions/agentWork'
+import { setWbsStage } from '@/app/actions/wbsAssign'
 import type { AgentHub } from '@/lib/domain/agentHub'
 
 const ERR_BAD = '잘못된 요청입니다.'
@@ -100,5 +104,128 @@ export async function applyHubDelegations(projectId: string, changes: HubDelegat
     // 저장은 끝났다. 재조회만 실패했음을 분명히 알려 클라이언트가 대기분을 되돌리지 않게 한다(표시 = 로깅).
     console.error('[agentHub] 저장 뒤 재조회 실패:', e instanceof Error ? e.message : e)
     return { ok: true, hub: null, hubError: '변경은 저장됐지만 현황 재조회에 실패했습니다. 새로고침을 누르세요.', failed, warnings }
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 개발 프로세스 조정(2026-09-14 허브 스펙 §11) — 승인·반려·승인 취소·재작업 요청(=완료 취소)·회수·단계 직접 조정.
+// 판정은 기존 액션(agentWork·wbsAssign)이 각자 한다. 여기서는 (1) 관리자 가드 1회, (2) 대상이 이 프로젝트 것인지,
+// (3) 실행 뒤 허브 재조회를 한 응답에 싣는 것만 맡는다 — 화면은 요청 1건으로 끝난다(§10 과 같은 원칙).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type WbsStageCode = 'as' | 'fp' | 'ip' | 'im' | 'xx'
+const STAGE_CODES: ReadonlySet<string> = new Set(['as', 'fp', 'ip', 'im', 'xx'])
+
+export type HubProcessOp =
+  | { kind: 'approve'; orderId: string }
+  | { kind: 'reject'; orderId: string; note: string }
+  | { kind: 'unapprove'; orderId: string }
+  /** 완료 취소 — 승인된(xx) 작업을 에이전트에게 되돌린다. 사용자 결정(2026-09-14): "완료취소 = 재작업 요청". */
+  | { kind: 'rework'; orderId: string; note: string }
+  /** 사람 회수 — 점유(claimed)를 풀어 대기(ready)로. 작업 루프 스펙의 "응답 없음 카드 사람 회수". */
+  | { kind: 'release'; orderId: string }
+  | { kind: 'stage'; itemId: string; stage: WbsStageCode | null }
+
+export type HubProcessResult =
+  | { ok: true; hub: AgentHub | null; hubError?: string; warning?: string }
+  | { ok: false; error: string }
+
+function isProcessOp(op: unknown): op is HubProcessOp {
+  if (op === null || typeof op !== 'object') return false
+  const o = op as Record<string, unknown>
+  const uuid = (v: unknown) => typeof v === 'string' && isUuidLike(v)
+  switch (o.kind) {
+    case 'approve': case 'unapprove': case 'release':
+      return uuid(o.orderId)
+    case 'reject': case 'rework':
+      return uuid(o.orderId) && typeof o.note === 'string'
+    case 'stage':
+      return uuid(o.itemId) && (o.stage === null || (typeof o.stage === 'string' && STAGE_CODES.has(o.stage)))
+    default:
+      return false
+  }
+}
+
+/**
+ * 관리자 회수 — claimed → ready(CAS). 점유·heartbeat 흔적을 지워 표에 옛 에이전트 이름이 남지 않게 한다.
+ * 러너는 다음 heartbeat·report 에서 409 를 받고 멈춘다(보고 라우트가 status=claimed 만 받는다).
+ * 알림은 러너 반납(release 라우트)과 같은 work.released 를 배정자에게 — fire-and-forget.
+ */
+async function releaseOrderByAdmin(
+  admin: AdminClient, orderId: string, actorUserId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data, error } = await admin
+    .from('agent_work_orders').select('id, project_id, wbs_item_id, status').eq('id', orderId).maybeSingle()
+  if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
+  const order = data as { id: string; project_id: string; wbs_item_id: string | null; status: string } | null
+  if (!order) return { ok: false, error: '주문 없음' }
+  if (order.status !== 'claimed') return { ok: false, error: `회수할 수 있는 상태가 아닙니다(${order.status}).` }
+  const { data: updated, error: upErr } = await admin
+    .from('agent_work_orders')
+    .update({
+      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
+      last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, heartbeat_note: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orderId).eq('status', 'claimed').select('id')
+  if (upErr) return { ok: false, error: upErr.message }
+  if (!updated || updated.length === 0) return { ok: false, error: '상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요.' }
+
+  let itemName = '작업'
+  let assigneeMemberId: string | null = null
+  if (order.wbs_item_id) {
+    const { data: itemRow, error: itemErr } = await admin
+      .from('wbs_items').select('name, assignee_member_id').eq('id', order.wbs_item_id).maybeSingle()
+    if (itemErr) console.error('[agentHub] 회수 알림용 항목 조회 실패(알림 계속):', itemErr.message)
+    else if (itemRow) {
+      const row = itemRow as { name: string; assignee_member_id: string | null }
+      itemName = row.name
+      assigneeMemberId = row.assignee_member_id ?? null
+    }
+  }
+  emitNotification({
+    type: 'work.released', projectId: order.project_id, actorUserId,
+    entityType: 'agent_order', entityId: order.id,
+    payload: { title: itemName, detail: '관리자가 작업을 회수했습니다', href: `/p/${order.project_id}/agents` },
+    recipientMemberIds: assigneeMemberId ? [assigneeMemberId] : [],
+  }).catch(() => {})
+  return { ok: true }
+}
+
+export async function runHubProcessOp(projectId: string, op: HubProcessOp): Promise<HubProcessResult> {
+  if (!isUuidLike(projectId) || !isProcessOp(op)) return { ok: false, error: ERR_BAD }
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const admin = createAdminClient()
+
+  // 대상이 이 프로젝트 것인지 화면 단위로 한 번 더 본다 — 내부 액션도 각자 가드하지만, 남의 프로젝트 주문 id 를
+  // 이 화면에 끼워 넣는 길은 여기서 닫는다(fail-closed).
+  if (op.kind === 'stage') {
+    const { data, error } = await admin.from('wbs_items').select('project_id').eq('id', op.itemId).maybeSingle()
+    if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
+    if (!data || (data as { project_id: string }).project_id !== projectId) return { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
+  } else {
+    const { data, error } = await admin.from('agent_work_orders').select('project_id').eq('id', op.orderId).maybeSingle()
+    if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
+    if (!data || (data as { project_id: string }).project_id !== projectId) return { ok: false, error: '이 프로젝트의 주문이 아닙니다.' }
+  }
+
+  let r: { ok: boolean; error?: string; warning?: string }
+  switch (op.kind) {
+    case 'approve': r = await approveAgentCompletion(op.orderId); break
+    case 'reject': r = await rejectAgentCompletion(op.orderId, op.note); break
+    case 'unapprove': r = await unapproveAgentCompletion(op.orderId); break
+    case 'rework': r = await requestAgentRework(op.orderId, op.note); break
+    case 'release': r = await releaseOrderByAdmin(admin, op.orderId, g.actor.userId); break
+    case 'stage': r = await setWbsStage(op.itemId, op.stage); break
+  }
+  if (!r.ok) return { ok: false, error: r.error ?? '처리에 실패했습니다.' }
+  const warning = r.warning ? { warning: r.warning } : {}
+  try {
+    const hub = await getAgentHub(projectId, { userId: g.actor.userId, isAdmin: true })
+    return { ok: true, hub, ...warning }
+  } catch (e) {
+    console.error('[agentHub] 조정 뒤 재조회 실패:', e instanceof Error ? e.message : e)
+    return { ok: true, hub: null, hubError: '처리는 됐지만 현황 재조회에 실패했습니다. 새로고침을 누르세요.', ...warning }
   }
 }

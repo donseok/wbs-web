@@ -1,17 +1,21 @@
 'use client'
-// 위임 표 — WBS 트리 순서로 항목을 나열하고 리프마다 위임 체크·주문 상태·에이전트·마지막 신호·프롬프트.
+// 위임 표 — WBS 트리 순서로 항목을 나열하고 리프마다 위임 체크·단계·주문 상태·에이전트·마지막 신호·조정·프롬프트.
 // 부모 행 체크 = 하위 리프 일괄(관리자). 체크는 즉시 표시되고 잠기지 않는다. 1.5초 모아 applyHubDelegations 1건으로
 // 보내고 응답의 허브로 표를 갱신한다(2026-09-14 체크 지연 개선 — 종전 체크 1개 = 액션 2건 직렬 + 0.8~1.0초 잠김).
-// 페이지 전체 refresh 금지(스펙 §7).
+// 조정(승인·반려·승인 취소·재작업 요청·회수)과 단계 직접 조정은 관리자만, runHubProcessOp 1건으로 끝나고 응답의 허브로
+// 교체한다(스펙 §11). 페이지 전체 refresh 금지(스펙 §7).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Pencil } from 'lucide-react'
 import type { AgentHub, HubRow } from '@/lib/domain/agentHub'
 import { ageLabel } from '@/lib/domain/seatmap'
+import { STAGE_LABEL } from '@/lib/domain/waitReason'
 import { updateAgentPrompt } from '@/app/actions/wbsSpec'
-import { applyHubDelegations, type HubDelegationsResult } from '@/app/actions/agentHub'
+import { applyHubDelegations, runHubProcessOp, type HubDelegationsResult, type HubProcessOp, type WbsStageCode } from '@/app/actions/agentHub'
 import { PendingSaveChip } from '@/components/wbs/PendingSaveChip'
 import { usePendingDelegations } from './usePendingDelegations'
-import { NEEDS_DELEGATION, NO_ORDER, STATE_LABEL, TOGGLE_DENIED_TITLE } from './labels'
+import {
+  NEEDS_DELEGATION, NO_ORDER, NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE, STAGE_CODES, STAGE_NONE_LABEL, STATE_LABEL, TOGGLE_DENIED_TITLE,
+} from './labels'
 
 export type HubFilter = 'mine' | 'all'
 
@@ -22,10 +26,19 @@ type Props = {
   filter: HubFilter
   onFilter: (f: HubFilter) => void
   nowMs: number
-  /** 묶음 저장 응답에 실린 허브로 화면을 교체한다 — 재조회 요청 없음. */
+  /** 묶음 저장·조정 응답에 실린 허브로 화면을 교체한다 — 재조회 요청 없음. */
   onHub: (hub: AgentHub) => void
   /** 재조회가 필요한 변경(프롬프트 저장, 저장 뒤 재조회 실패) — refreshAgentHub 1회. */
   onChanged: () => Promise<void> | void
+}
+
+type NoteKind = 'reject' | 'rework'
+/** 주문 상태별 조정 버튼(§11). note 가 있는 것은 사유 입력 줄을 먼저 연다. */
+type OpButton = { kind: keyof typeof OP_LABEL; note?: NoteKind }
+const OPS_BY_STATUS: Readonly<Record<string, readonly OpButton[]>> = {
+  reported: [{ kind: 'approve' }, { kind: 'reject', note: 'reject' }],
+  approved: [{ kind: 'unapprove' }, { kind: 'rework', note: 'rework' }],
+  claimed: [{ kind: 'release' }],
 }
 
 /** 부모 → 자손 리프(마일스톤 제외) id. 표 행이 전위 순서라 stack 없이 한 번에 만든다. */
@@ -51,13 +64,18 @@ function ParentCheckbox({ state, onClick }: { state: 'all' | 'some' | 'none'; on
 
 export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, nowMs, onHub, onChanged }: Props) {
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
-  // 프롬프트 저장 중인 행 — 체크는 잠그지 않으므로 여기에 들어가지 않는다.
+  // 프롬프트 저장·조정 처리 중인 행 — 체크는 잠그지 않으므로 여기에 들어가지 않는다.
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set())
   const [rowErr, setRowErr] = useState<ReadonlyMap<string, string>>(() => new Map())
   const [rowWarn, setRowWarn] = useState<ReadonlyMap<string, string>>(() => new Map())
   const [notice, setNotice] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  // 사유가 필요한 조정(반려·재작업)의 입력 줄. 한 번에 하나만 연다.
+  const [noteOp, setNoteOp] = useState<{ itemId: string; orderId: string; kind: NoteKind } | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  // 단계 select 의 낙관 표시 — 응답(성공·실패)이 오면 지운다. 실패면 서버값으로 돌아간다.
+  const [stageOpt, setStageOpt] = useState<ReadonlyMap<string, string | null>>(() => new Map())
 
   const byId = useMemo(() => new Map(rows.map(r => [r.itemId, r])), [rows])
   const leaves = useMemo(() => leafDescendants(rows), [rows])
@@ -134,6 +152,30 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
     } finally { setBusy(s => setWith(s, r.itemId, false)) }
   }
 
+  /** 조정 1건 — 요청 1건, 응답의 허브로 교체. 실패·경고는 그 행 아래에. */
+  const runOp = async (r: HubRow, op: HubProcessOp) => {
+    setBusy(s => setWith(s, r.itemId, true)); setRowErr(m => mapWith(m, r.itemId, null)); setRowWarn(m => mapWith(m, r.itemId, null))
+    try {
+      const res = await runHubProcessOp(projectId, op)
+      if (!res.ok) { setRowErr(m => mapWith(m, r.itemId, res.error)); return }
+      if (res.warning) setRowWarn(m => mapWith(m, r.itemId, res.warning ?? null))
+      if (noteOp?.itemId === r.itemId) { setNoteOp(null); setNoteDraft('') }
+      if (res.hub) onHub(res.hub)
+      else { setNotice(res.hubError ?? null); await onChanged() }
+    } catch (e) {
+      setRowErr(m => mapWith(m, r.itemId, e instanceof Error ? e.message : String(e)))
+    } finally {
+      setBusy(s => setWith(s, r.itemId, false))
+      setStageOpt(m => mapWith(m, r.itemId, null))
+    }
+  }
+
+  const changeStage = (r: HubRow, raw: string) => {
+    const stage = (raw || null) as WbsStageCode | null
+    setStageOpt(m => { const n = new Map(m); n.set(r.itemId, stage); return n })
+    void runOp(r, { kind: 'stage', itemId: r.itemId, stage })
+  }
+
   const parentState = (r: HubRow): 'all' | 'some' | 'none' => {
     const ids = leaves.get(r.itemId) ?? []
     const on = ids.filter(id => pend.value(id)).length
@@ -161,11 +203,12 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
       </div>
       {notice && <p data-hub-notice role="status" className="mb-2 rounded-md bg-pending-weak px-2 py-1 text-xs text-pending">{notice}</p>}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] text-xs">
+        <table className="w-full min-w-[960px] text-xs">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-[0.06em] text-ink-subtle">
-              <th className="w-8 py-1">위임</th><th className="w-40 py-1">코드</th><th className="py-1">이름</th><th className="w-28 py-1">담당자</th>
-              <th className="w-28 py-1">상태</th><th className="w-32 py-1">에이전트</th><th className="w-24 py-1">마지막 신호</th><th className="w-48 py-1">프롬프트</th>
+              <th className="w-8 py-1">위임</th><th className="w-40 py-1">코드</th><th className="py-1">이름</th><th className="w-24 py-1">담당자</th>
+              <th className="w-24 py-1">단계</th><th className="w-28 py-1">상태</th><th className="w-32 py-1">에이전트</th><th className="w-20 py-1">마지막 신호</th>
+              <th className="w-40 py-1">조정</th><th className="w-44 py-1">프롬프트</th>
             </tr>
           </thead>
           <tbody>
@@ -175,6 +218,10 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const err = rowErr.get(r.itemId), warn = rowWarn.get(r.itemId)
               const canEditPrompt = r.canToggle
               const sig = r.order?.lastSignalAt ? ageLabel(r.order.lastSignalAt, nowMs) : ''
+              const stageShown = stageOpt.has(r.itemId) ? stageOpt.get(r.itemId) ?? null : r.stage
+              const canAdjust = isAdmin && r.isLeaf && !r.milestone
+              const ops = canAdjust && r.order ? OPS_BY_STATUS[r.order.status] ?? [] : []
+              const noteOpen = noteOp?.itemId === r.itemId ? noteOp : null
               return [
                 <tr key={r.itemId} data-hub-row={r.itemId} className="border-t border-line align-middle">
                   <td className="py-1">
@@ -200,6 +247,18 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   </td>
                   <td className="py-1 text-ink-muted">{r.assigneeName ?? ''}</td>
                   <td className="py-1">
+                    {canAdjust
+                      ? <select data-hub-stage value={stageShown ?? ''} disabled={isBusy} aria-label={`${r.code} 단계`}
+                          title="단계 직접 조정 — 진행 중 주문이 있으면 구현(im)·완료(xx)는 승인으로만 갑니다"
+                          onChange={e => changeStage(r, e.target.value)} className="app-input h-7 py-0 text-[11px]">
+                          <option value="">{STAGE_NONE_LABEL}</option>
+                          {STAGE_CODES.map(c => <option key={c} value={c}>{STAGE_LABEL[c]}</option>)}
+                        </select>
+                      : r.isLeaf && !r.milestone
+                        ? <span data-hub-stage-text className="text-ink-muted">{r.stage ? STAGE_LABEL[r.stage] ?? r.stage : STAGE_NONE_LABEL}</span>
+                        : null}
+                  </td>
+                  <td className="py-1">
                     {r.order ? <span className="chip bg-surface-2 text-ink">{STATE_LABEL[r.order.state]}</span> : <span className="text-ink-subtle">{NO_ORDER}</span>}
                     {r.isLeaf && r.devWorkflow && !r.delegated && <small className="ml-1 text-[10px] text-accent-warning">{NEEDS_DELEGATION}</small>}
                     {r.unmetDepends && (
@@ -212,6 +271,23 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   <td className="py-1 text-ink-muted">{r.order?.agent ?? ''}</td>
                   <td className="py-1 text-ink-subtle">{sig}</td>
                   <td className="py-1">
+                    {ops.length > 0 && (
+                      <span className="inline-flex flex-wrap gap-1">
+                        {ops.map(b => (
+                          <button key={b.kind} type="button" data-hub-op={b.kind} disabled={isBusy} title={OP_TITLE[b.kind]}
+                            aria-expanded={b.note ? noteOpen?.kind === b.note : undefined}
+                            onClick={() => {
+                              const orderId = r.order?.id
+                              if (!orderId) return
+                              if (b.note) { setNoteOp(noteOpen?.kind === b.note ? null : { itemId: r.itemId, orderId, kind: b.note }); setNoteDraft(''); return }
+                              void runOp(r, { kind: b.kind, orderId } as HubProcessOp)
+                            }}
+                            className={`btn h-7 px-2 text-[11px] ${b.kind === 'approve' ? 'btn-primary' : 'btn-ghost'}`}>{OP_LABEL[b.kind]}</button>
+                        ))}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1">
                     <span className="inline-flex items-center gap-1">
                       <span className="truncate text-ink-muted" title={r.prompt ?? undefined}>{r.prompt ? r.prompt.slice(0, 40) : ''}</span>
                       {canEditPrompt && (
@@ -223,15 +299,26 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                     </span>
                   </td>
                 </tr>,
-                (editing === r.itemId || err || warn) ? (
+                (editing === r.itemId || noteOpen || err || warn) ? (
                   <tr key={`${r.itemId}-x`} data-hub-row-extra={r.itemId}>
-                    <td colSpan={8} className="pb-2 pl-8">
+                    <td colSpan={10} className="pb-2 pl-8">
                       {editing === r.itemId && (
                         <div className="flex flex-col gap-1">
                           <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={3} className="app-input w-full text-xs" placeholder="에이전트에게 덧붙일 지시문" />
                           <div className="flex gap-2">
                             <button type="button" data-hub-prompt-save disabled={isBusy} onClick={() => { void savePrompt(r) }} className="btn btn-primary h-7 px-2 text-xs">저장</button>
                             <button type="button" onClick={() => setEditing(null)} className="btn btn-ghost h-7 px-2 text-xs">취소</button>
+                          </div>
+                        </div>
+                      )}
+                      {noteOpen && (
+                        <div data-hub-note={noteOpen.kind} className="flex flex-col gap-1">
+                          <textarea value={noteDraft} onChange={e => setNoteDraft(e.target.value)} rows={2} className="app-input w-full text-xs" placeholder={NOTE_PLACEHOLDER[noteOpen.kind]} />
+                          <div className="flex gap-2">
+                            <button type="button" data-hub-note-confirm disabled={isBusy || noteDraft.trim() === ''}
+                              onClick={() => { void runOp(r, { kind: noteOpen.kind, orderId: noteOpen.orderId, note: noteDraft.trim() }) }}
+                              className="btn btn-primary h-7 px-2 text-xs">{OP_LABEL[noteOpen.kind]} 확정</button>
+                            <button type="button" onClick={() => { setNoteOp(null); setNoteDraft('') }} className="btn btn-ghost h-7 px-2 text-xs">취소</button>
                           </div>
                         </div>
                       )}
