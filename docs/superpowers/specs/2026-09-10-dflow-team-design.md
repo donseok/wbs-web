@@ -120,21 +120,25 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
      쳐서 서로를 덮어쓰며, 이 실패는 조용하다. 워크트리는 팀원이 변경 없이 끝나면 자동 정리되고,
      변경이나 미추적 파일이 남으면 보존될 수 있다. `--base-branch` 에 해당하는 인자가 없어서 워크트리는
      팀장의 현재 HEAD 에서 시작한다. 팀장 세션이 죽으면 팀원도 함께 죽는다.
-6. **에이전트 팀 백엔드에서는 rtk 훅이 일부 git 명령을 막는다.** 워크트리 격리 에이전트 안에서
-   `git status`·`git branch` 처럼 rtk 가 재작성하는 서브커맨드는 "a worktree-isolated agent's git
-   operations must target its own worktree" 로 거부되고, `git switch`·`git rev-parse` 처럼 재작성하지
-   않는 서브커맨드는 통과한다. 절대경로(`/usr/bin/git`)로 부르면 rtk 를 거치지 않아 통과한다. pane
-   백엔드와 rtk 가 없는 PC 에는 해당하지 않는다. `/usr/bin/git` 을 상수로 박지 않고 `command -v git` 을
-   쓰는 이유는 킷이 macOS 가 아닌 PC 로도 배포되기 때문이다.
+6. **에이전트 팀 백엔드에서는 격리 가드가 명령 문자열을 정적으로 검사한다.** bare `git` 은 rtk 훅이
+   `rtk git` 으로 재작성하므로 전부 거부되고, 절대경로를 글자 그대로 적은 git 호출은 통과한다. 그
+   경로를 `$(command -v git)`·`"$GIT"` 처럼 치환이나 변수로 넣거나, git 을 감싼 명령 치환
+   (`x=$(… git …)`)으로 쓰거나, `-C` 로 워크트리 밖을 가리키면 거부된다. git 출력이 필요하면 그 명령을
+   단독으로 실행해 출력을 읽는다. `. ./.env` 소싱과 `while read … export`·`env $(…)` 도 같은 이유로
+   거부되므로, dflow.sh 가 `.env` 를 스스로 읽는다(§6-1). 첫 호출에서 `command -v git` 을 단독 실행해
+   경로를 알아낸 뒤 글자 그대로 적는다. pane 백엔드와 rtk 가 없는 PC 에는 해당하지 않는다.
 7. **에이전트 팀 팀원은 팀장 세션의 권한 모드를 물려받는다.** Agent 도구의 `mode` 인자는 무시된다.
    팀원이 권한 확인에서 멈추면 완료 알림도 오지 않는다. 또한 git 을 절대경로로 부르므로
    `Bash(git *)` 같은 허용 규칙은 `/usr/bin/git …` 호출에 걸리지 않는다. Orca pane 팀원은 권한 확인
    생략 모드로 뜨므로 해당하지 않는다.
 8. **이름 붙은 에이전트는 일을 마쳐도 idle 로 남는다.** `/dflow-dev` 가 Phase 에이전트를 `TaskStop` 으로
-   회수하는 이유가 이것이다(`dflow-dev/SKILL.md` 165~173행). 에이전트 팀 팀원의 "턴 종료" 가
-   "작업 완료" 와 같은지는 실측하지 않았다. 팀원이 손자 서브에이전트를 기다리며 턴을 끝내면 팀장에게
-   결과 줄 없는 완료 알림이 갈 수 있다. 그래서 설계는 이를 방어적으로 다루고(§4-6), 리허설 첫 항목
-   A0 에서 실측한다(§11-3).
+   회수하는 이유가 이것이다(`dflow-dev/SKILL.md` 165~173행). 끝난 에이전트는 `completed` 로 남고, 그
+   이름으로 `TaskStop` 하면 `is not running (status: completed)` 또는 `No task found with ID:` 오류가
+   나며 둘 다 이미 회수된 것이다. 팀원이 손자 서브에이전트를 기다리며 턴을 끝내면 팀장에게 결과 줄
+   없는 완료 알림이 온다. Agent 도구는 백그라운드 전용이라 팀원이 손자를 동기로 기다릴 수 없기
+   때문이다. 손자는 팀원과 독립으로 살아남아 팀장의 목록에 자기 이름으로 `running` 상태로 나타나고,
+   팀장이 그 이름으로 `TaskStop` 해야 멈춘다. 격리 워크트리는 팀원이 턴을 끝낼 때 작업트리가 깨끗하면
+   하네스가 지우며, `docs/tasks/<TSK>/state.json` 이 워크트리를 살려 두는 근거다.
 9. **claim 의 선행 도달 검사는 현재 HEAD 를 본다.** `dflow.sh` 의 `cmd_claim` 은 claim 요청 전에
    `check_depends_local` 을 불러, 선행의 `head_sha` 가 로컬에 없거나 HEAD 의 조상이 아니면 exit 4 로
    막는다(`dflow.sh` 186~199행, 222~226행). `/dflow-dev` 원문은 claim(Phase 0-2)을 브랜치 생성
@@ -557,7 +561,9 @@ Orca 화면(`orca terminal read`)은 증거로 쓰지 않고 보고용으로만 
   같은 슬롯 표시를 가져 재구성이 충돌한다. `parked` 로 바꾸면 슬롯 스캔에서 빠진다.
 - **회수**: 에이전트 팀에서는 결과 줄을 처리한 직후(status 와 무관하며 `blocked` 도 포함한다)
   `TaskStop(w<slot>-<id8>)` 으로 idle 팀원을 회수한다(§3-8). pane 팀원은 별도 프로세스라서 TaskStop
-  대상이 아니다.
+  대상이 아니다. `TaskStop` 이 `is not running (status: completed)` 또는 `No task found with ID:` 로
+  실패하면 이미 회수된 것이므로 슬롯 해제를 계속한다. 팀원을 멈춰도 그 팀원이 띄운 서브에이전트는
+  멈추지 않으므로 마감(§4-9)에서 `ListAgents` 를 다시 보고 남은 `running` 에이전트를 이름으로 멈춘다.
 - **차단기**: 결과가 도착한 순서로 `failed`(`no-result`·`rate-limit` 포함)가 연속 2건이면 새 spawn 을
   멈추고 보고한다. `failed` 가 아닌 결과가 오면 연속 수를 0 으로 되돌린다. 걸린 동안에는 다음 `TICK`
   마다 1건만 시험 spawn 하고(대기 큐 맨 앞에서, 큐가 비었으면 poll 을 한 번 띄워 얻는다, §4-5), 그
@@ -665,9 +671,13 @@ Orca 화면(`orca terminal read`)은 증거로 쓰지 않고 보고용으로만 
 것일 수 있다. `owner` 를 읽는 `read` 는 `|| true` 로 감싼다. 이유: 파일이 없으면 `read` 가 0 이 아닌 값으로 끝나,
 실패에 멈추는 셸 설정에서는 마감의 나머지가 통째로 건너뛰어진다.
 
+**손자 정리**: `ListAgents` 를 다시 불러 `running` 인 이름 붙은 에이전트가 남아 있으면 그 이름으로
+`TaskStop` 한다. poll 태스크와 감시 루프는 Bash 태스크라 이 목록에 없다.
+
 **잠금 상실 마감**(§4-5): 기다림·마지막 승인 스윕·워크트리 정리·`team.*` 기록·세대 파일 변경을 하지 않는다.
-떠 있는 poll 을 멈추고, 집계와 남은 슬롯(TSK·id8·워크트리 경로)을 보고한 뒤 잠금을 지우지 않고 끝낸다. 이유:
-체크아웃과 이 신원의 워크트리·세대 파일은 이제 새 팀장 것이고, 새 팀장의 재구성은 같은 `agent`·`repo` 의 마지막 `team.start` 이후
+떠 있는 poll 과 팀원을 `TaskStop` 으로 멈추고 손자 정리를 그대로 수행한 뒤, 집계와 남은 슬롯(TSK·id8·워크트리
+경로)을 보고한 뒤 잠금을 지우지 않고 끝낸다. 이유: 체크아웃과 이 신원의 워크트리·세대 파일은 이제 새 팀장
+것이고, 새 팀장의 재구성은 같은 `agent`·`repo` 의 마지막 `team.start` 이후
 이벤트를 읽으므로(§4-2) 이 팀장이 남기는 기록이 새 팀장의 슬롯 표와 제외 목록에 섞인다.
 
 ## 5. 팀원 계약 (`references/worker-prompt.md`)
@@ -680,21 +690,23 @@ Orca 화면(`orca terminal read`)은 증거로 쓰지 않고 보고용으로만 
 `blocked` 뒤 재spawn 할 때만 붙는다(§7). 있으면 워커는 그것을 직전 질문에 대한 담당자 결정으로 보고
 design.md 에 한 줄 남긴 뒤 이어 간다.
 
-**git 호출 규칙(두 백엔드 공통)**: 워커는 부트스트랩에서 `command -v git` 으로 git 절대경로를 확인하고,
-이후 모든 git 호출에 그 절대경로를 쓴다(bare `git` 금지). 에이전트 팀에서 rtk 가 재작성한 git 이 격리
-가드에 막히기 때문이다(§3-6). pane 에서는 필요 없지만 무해하며, 백엔드별 분기를 두지 않으려고
-공통으로 적용한다. 아래 예시의 `git` 도 그 절대경로로 읽는다.
+**git 호출 규칙(두 백엔드 공통)**: 워커는 첫 Bash 호출에서 `command -v git` 을 단독 실행해 절대경로를
+알아내고, 이후 모든 git 호출에 그 경로를 글자 그대로 적는다. 금지 네 가지: bare `git`(rtk 훅이 `rtk git`
+으로 바꿔 격리 가드가 거부한다), `$(command -v git)`·`"$GIT"` 처럼 경로를 치환이나 변수로 넣는 형태, git
+을 감싼 명령 치환(`x=$(… git …)`), `-C` 로 워크트리 밖을 가리키는 호출이다(§3-6). git 출력이 필요하면 그
+명령을 단독으로 실행해 출력을 읽고 셸 변수에 담지 않는다. pane 에서는 필요 없지만 무해하며, 백엔드별
+분기를 두지 않으려고 공통으로 적용한다. 아래 예시의 `git` 도 그 절대경로로 읽는다.
 
 **격리 확인 (첫 행동)**
 ```bash
-_gd=$(cd "$(git rev-parse --git-dir)" && pwd -P)
-_cd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
-[ "$_gd" != "$_cd" ] || { echo "NOT_ISOLATED"; exit 1; }
+git rev-parse --git-dir --git-common-dir
 ```
-링크드 워크트리인지를 git 에 직접 묻는다(`git-dir` ≠ `git-common-dir`). 경로 문자열을 `{MAIN_CHECKOUT}`
-와 비교하지 않는 이유는 심링크·표기 차이로 같은 체크아웃이 다른 문자열이 될 수 있고, 격리의 정의가
-"링크드 워크트리" 이기 때문이다. 두 값을 `cd … && pwd -P` 로 물리 경로로 바꿔 비교하는 이유는 git 이
-상대경로를 돌려줄 수 있고, `--path-format` 옵션이 없는 옛 git 에서도 같은 검사가 돌아야 하기 때문이다.
+링크드 워크트리인지를 git 에 직접 묻는다. 판정 규칙: 출력 두 줄이 **같으면** 주 워크트리(`NOT_ISOLATED`),
+다르면 링크드 워크트리다(주 워크트리에서는 둘 다 `.git`, 링크드 워크트리에서는 `.../.git/worktrees/<이름>`
+과 `.../.git`). 같은 cwd 에서 같은 git 이 돌려준 두 값이므로 문자열 비교로 충분하다. `cd ... && pwd -P` 로
+물리 경로로 정규화하지 않는 이유는 git 을 감싼 명령 치환이라 격리 가드가 거부하기 때문이다. 경로 문자열을
+`{MAIN_CHECKOUT}` 와 비교하지 않는 이유는 심링크·표기 차이로 같은 체크아웃이 다른 문자열이 될 수 있고,
+격리의 정의가 "링크드 워크트리" 이기 때문이다.
 격리에 실패하면(주 워크트리이면) **아무 파일도 쓰지 않고** 마지막 응답으로
 `{TSK} {ID8} - - - failed not-isolated` 한 줄만 출력하고 끝낸다. `.result` 를 쓰면 그 파일이 팀장
 체크아웃을 더럽혀 전제 검사가 깨지기 때문이다. 팀장은 완료 알림(에이전트 팀)이나 무응답 규칙(pane)으로
@@ -722,8 +734,8 @@ if [ ! -e .claude/skills/dflow-dev/SKILL.md ]; then
     mkdir -p .claude && ln -s {MAIN_CHECKOUT}/.claude/skills .claude/skills
   fi
 fi
-set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"
-set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh me >/dev/null || echo AUTH_FAILED
+.claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"
+.claude/skills/dflow-work/scripts/dflow.sh me >/dev/null || echo AUTH_FAILED
 git fetch origin && git switch --detach origin/<기본브랜치>
 ```
 - 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면(스킬 일부만 커밋한 리포) 폴더째 링크하지 않고
@@ -746,8 +758,8 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   수 있고, 설치할 lockfile 은 그 기점의 것이어야 한다.
 - 부트스트랩에서 끝난 실패(`no-skill`·`doctor-<exit>`·`auth`·`detach`)는 브랜치를 만들기 전이므로
   `.result` 의 branch 칸이 `-` 이고, 팀장은 부트스트랩 실패 정리 규칙(§4-2)으로 치운다.
-- dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다. env 는 Bash 호출 사이에 남지 않는다.
-  리허설 A0 (d) 로 dflow.sh 가 `DFLOW_GIT` 를 받게 됐으면(§11-3) `DFLOW_GIT=<git 절대경로>` 도 붙인다.
+- dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면 현재 디렉터리의
+  `.env`(부트스트랩 심링크)를 스스로 읽는다. 격리 가드가 `.` 소싱을 거부하기 때문이다.
 - 심링크와 `.dflow-agent`·`.result` 는 커밋하지 않는다. 팀장이 공유 `info/exclude` 에 넣어 두고
   (§4-4), `/dflow-dev` 는 파일명을 명시해 stage 한다.
 - `/dflow-dev` SKILL.md 에 `--worker` 가 없으면(옛 버전) 실행하지 않고 `.result` 에
@@ -845,8 +857,9 @@ git fetch origin && git switch --detach origin/<기본브랜치>
     6. 순서(3번): 스택 판정을 브랜치 tip 의 조상 관계가 아니라 state.json `branch_base` 로 하고, 머지 대상의
        차분에 다른 작업의 state.json 이 있으면 그 작업도 선행으로 본다. 수동: `reported` 커밋 뒤에도
        스택을 알아봐, 승인되지 않은 선행 위의 후손만 머지하지 않는다.
-  - `dflow-work/scripts/dflow.sh`: 리허설 A0 (d)(§11-3)가 실패할 때만 고친다. 스크립트 안의 git 호출을
-    `${DFLOW_GIT:-git}` 로 바꿔 git 실행 경로를 주입할 수 있게 한다. 수동: 변수가 없으면 지금과 같다.
+  - `dflow-work/scripts/dflow.sh`: 환경에 `DFLOW_PATS`·`DFLOW_PAT` 가 모두 없고 `${DFLOW_ENV_FILE:-./.env}`
+    파일이 있으면 그것을 소싱해 `.env` 를 스스로 읽는다. 이미 export 된 값은 건드리지 않으므로 수동
+    동작은 그대로다. `poll.sh` 는 자체 소싱 뒤 dflow.sh 를 부르므로 이 자동 로드가 건너뛰어진다.
   - `/dflow-poll`·`poll.sh`: 고치지 않는다.
 - **보존 테스트**: "의도한 수정 목록에 없는 원문 줄은 보존된다" 를 단언한다. fixture 에서 의도적으로
   바꾸거나 지우는 줄을 테스트 파일에 명시 목록으로 두고, 나머지 줄은 같은 순서로 남아 있어야 한다.
@@ -955,7 +968,7 @@ git fetch origin && git switch --detach origin/<기본브랜치>
 | B | Phase 0-2 선행이 approved 인데 main 미반영이면 직접 머지(118~122) | 직접 머지한다 | **머지하지 않는다.** 기점을 그 `head_sha` 로 잡고, §6-2 공통 규칙대로 claim 전에 그 기점으로 detach 한 뒤 claim 하고 스택 브랜치를 만든다. state.json 에 `branch_base` 와 `risk: "선행 main 미반영(팀장 머지 대기)"` 를 기록한다 |
 | C | Phase 0 재개 판정의 approved 갈래(88~89) | 즉시 머지하고 종료한다 | **머지하지 않고** `.result` 를 `{TSK} {ID8} <branch> <head_sha> - needs-merge approved` 로 쓰고 종료한다 |
 | D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인 194~196) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 기본값이 있으면 택해 한 줄 남기고 진행하고, 없으면 `blocked`(§5 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
-| E | Phase 1~4 공통 프롬프트(156~159) | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로로 호출한다(bare `git` 금지)" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단(§3-6)을 피하게 하기 위해서다 |
+| E | Phase 1~4 공통 프롬프트(156~159) | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단(§3-6)을 피하게 하기 위해서다 |
 | F | Phase 0-2 claim exit 4 재시도(133~134) | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(§6-2 원문 수정, merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
 | G | Phase 0-2 `head_sha` 없는 선행의 갈래 1·2(123~130) | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1 은 `skipped 선행 미승인`, 갈래 2 는 `skipped 선행 승인 대기` 로 끝낸다. 팀장은 일시 제외한다. 이유: 워커는 선행의 브랜치를 찾을 수단이 없어(`head_sha` 가 없다, §3-19) 선행 코드 없이 개발하게 된다. 승인되면 스윕이 머지하고 재검사에서 `origin/<기본브랜치>` 기점으로 풀린다. 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다 |
 | H | 생성 또는 재개로 agent 브랜치에 들어온 직후, 기준선과 Phase 1~4 게이트 전(생성 경로는 144~145) | 설치하지 않는다. 사람의 체크아웃에는 의존성이 이미 있다 | `blocked` 답을 받아 재spawn 된 워커처럼 재개 판정으로 기존 agent 브랜치에 들어온 경우도 같다. `package.json` 이 있고 `node_modules` 가 없으면 lockfile 로 고른 관리자로 설치한다(`package-lock.json` 은 `npm ci`, `pnpm-lock.yaml` 은 `pnpm install --frozen-lockfile`, `yarn.lock` 은 `yarn install --frozen-lockfile`). lockfile 이 없으면 설치하지 않는다. 설치가 실패하면 `.result` 에 `failed deps` 를 쓰고 끝낸다. 이유: 새 워크트리에는 `node_modules` 가 없어 기준선 명령이 127 로 끝나고, 스택이면 선행 작업이 lockfile 을 바꿨을 수 있어 브랜치 기점의 lockfile 로 설치해야 한다. 고정되지 않은 설치는 기준선을 재현하지 못하고 새 lockfile 을 산출물에 섞는다. 재개 경로를 넣는 이유: 재spawn 워커의 새 격리 워크트리에도 `node_modules` 가 없는데, 재개는 브랜치를 새로 만들지 않아 생성 경로의 설치 지점을 지나지 않는다 |
@@ -1311,13 +1324,12 @@ D'Flow 를 향한 리허설로 검증한다.
 - (a) 팀원이 손자 서브에이전트를 실행하는 동안 팀장에게 완료 알림이 오는가. 오면 결과 줄 없는 알림이
   실제로 생기는 것이므로 `suspect` 방어(§4-6)가 필수임을 기록한다.
 - (b) `blocked` 로 끝난 팀원이 idle 로 남는가. 남으면 `TaskStop` 회수(§4-6)가 필요함을 확인한다.
-- (c) idle 팀원에게 SendMessage 로 답을 주면 같은 워크트리에서 이어 가는가. 되면 "blocked 재개를
-  SendMessage 로 단순화" 를 후속 후보로 기록한다. v1 은 `ANSWER=` 재spawn 을 유지한다.
+- (c) idle 팀원에게 SendMessage 로 답을 주면 같은 워크트리에서 이어 가는가. v1 은 `ANSWER=` 재spawn 을
+  유지한다.
 - (d) 에이전트 팀 팀원 안에서 `dflow.sh done --auto-links` 가 성공하는가. 스크립트 내부의 bare `git`
   호출은 Bash 도구의 명령 문자열이 아니라서 rtk 훅을 거치지 않는다고 판단하지만, 실패하면 `done` 이
-  막히므로 실측한다. 실패하면 `dflow-work/scripts/dflow.sh` 의 git 호출을 `${DFLOW_GIT:-git}` 로 바꿔 git
-  실행 경로를 주입할 수 있게 하고(§6-1), 워커는 dflow.sh 를 부를 때 `DFLOW_GIT=<git 절대경로>` 를 붙인다
-  (§5). **(d) 는 하드 게이트다.** 통과하거나 이 수정 뒤 재실측이 통과하기 전에는 Orca 리허설(§11-4)과
+  막히므로 실측한다. `.env` 소싱 접두는 격리 가드가 거부하므로 dflow.sh 가 `.env` 를 스스로 읽는다
+  (§6-1). **(d) 는 하드 게이트다.** 통과하거나 이 수정 뒤 재실측이 통과하기 전에는 Orca 리허설(§11-4)과
   에이전트 팀 리허설(§11-5)로 가지 않는다. 이유: `done` 이 막히면 모든 작업이 claimed 에 머물러 두
   리허설의 합격 기준을 판정할 수 없다.
 - (e) 팀원을 `TaskStop` 으로 멈추면 그 팀원이 띄운 손자 서브에이전트까지 거둬지는가. 남으면 회수
@@ -1443,5 +1455,5 @@ D'Flow 를 향한 리허설로 검증한다.
 - **blocked 를 사람에게 알리는 경로는 PushNotification 하나다.** 이 도구가 없는 하네스에서는
   events.jsonl 과 화면 통지뿐이라, 터미널을 보고 있지 않으면 팀 전체가 조용히 멈춘 것을 모른다.
   "N분간 진척 없음" 통지는 v1 에 넣지 않는다.
-- **후속**: tmux pane 백엔드(dev-plugin 로드 실패 수정 뒤), 심링크 고정 워크트리(위), SendMessage 기반
-  blocked 재개(A0 (c) 결과에 따라), 실제 두 신원·두 PC 리허설.
+- **후속**: tmux pane 백엔드(dev-plugin 로드 실패 수정 뒤), 심링크 고정 워크트리(위), 실제 두 신원·두 PC
+  리허설.
