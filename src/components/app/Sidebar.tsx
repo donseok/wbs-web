@@ -66,7 +66,7 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, i
   if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
   if (showUsage) items.push({ href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' })
   // 전역 좌석표(/agents)는 메뉴에 두지 않는다(2026-09-14) — 프로젝트 메뉴 옆에 놓이면 '에이전트'와 같은 종류로 읽힌다.
-  // 진입은 에이전트 허브 상태 줄의 "전체 좌석표" 링크 한 곳.
+  // 진입은 프로젝트 가상 오피스 탭(/p/<id>/agents/office)의 "전체 오피스" 링크 한 곳.
   return items
 }
 
