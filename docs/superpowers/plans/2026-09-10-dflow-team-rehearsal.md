@@ -1,0 +1,16 @@
+# /dflow-team 리허설 판정
+
+스펙 §11 합격 기준의 판정표다. 확인된 사실은 스펙 §3·§8·§12 에 사실로 옮기고, 이 파일에는 판정과 관찰만 둔다.
+리허설 리포: `~/project/mes-base-rehearsal`(mes-base 새 클론), 원격: `~/project/mes-base-rehearsal.git`(버리는 bare),
+D'Flow: 스테이징 리허설 프로젝트(전용 PAT), 스킬: `feat/dflow-team` 워크트리 심링크.
+
+## A0: 에이전트 팀 실측 (스펙 §11-3)
+
+| 항목 | 판정 | 관찰 |
+|---|---|---|
+| (a) 손자 실행 중 팀장에게 완료 알림이 오는가 | | |
+| (b) blocked 로 끝난 팀원이 idle 로 남는가 | | |
+| (c) idle 팀원에게 SendMessage 로 답하면 같은 워크트리에서 이어 가는가 | | |
+| (d) 팀원 안에서 `dflow.sh done --auto-links` 가 성공하는가 | | |
+| (e) 팀원을 TaskStop 하면 손자 서브에이전트까지 거둬지는가 | | |
+| (f) 사용량 한도에 걸린 팀원이 무엇을 남기는가 | | |
