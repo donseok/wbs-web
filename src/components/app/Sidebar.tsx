@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  Armchair, BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  Armchair, BarChart3, BookOpenText, Bot, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -56,6 +56,8 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, s
     { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
+    // 프로젝트 에이전트 허브(2026-09-14) — 위임·승인·좌석을 한곳에. 멤버 전원(프로젝트 목록 자체가 멤버 기준).
+    { href: `${base}/agents`, labelKey: 'nav.projectAgents', icon: Bot, match: `${base}/agents` },
   ]
   // 설정은 프로젝트 관리자 전용(2026-08-20) — 링크만 숨기는 게 아니라 페이지 게이트도 함께 건다.
   if (isAdmin) items.push({ href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` })
@@ -63,7 +65,7 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, s
   // 설정 바로 아래에 두되 링크는 전역 경로로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.
   if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
   if (showUsage) items.push({ href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' })
-  // 에이전트 좌석표 — 슈퍼유저 또는 역할이 있는 프로젝트 1개 이상(canViewAgents). 층=프로젝트라 전역 경로.
+  // 전역 좌석표(전 프로젝트 감시) — 슈퍼유저 또는 역할이 있는 프로젝트 1개 이상(canViewAgents). 층=프로젝트라 전역 경로.
   if (showAgents) items.push({ href: '/agents', labelKey: 'nav.agents', icon: Armchair, match: '/agents' })
   return items
 }

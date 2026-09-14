@@ -78,6 +78,14 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
     await act(async () => {}) // /api/shell 응답 flush
   }
 
+  it('프로젝트 메뉴에 에이전트 페이지 링크가 있다 — 근태 다음, 설정 앞', async () => {
+    await renderAt('/p/p1/wbs')
+    const hrefs = [...container.querySelectorAll<HTMLAnchorElement>('a[href^="/p/p1/"]')].map(a => a.getAttribute('href'))
+    expect(hrefs).toContain('/p/p1/agents')
+    expect(hrefs.indexOf('/p/p1/agents')).toBe(hrefs.indexOf('/p/p1/attendance') + 1)
+    expect(container.querySelector('a[href="/p/p1/agents"]')?.textContent).toContain('nav.projectAgents')
+  })
+
   it('회의록에서는 전역 메뉴를 활성화하면서 최근 프로젝트 하위 메뉴를 유지한다', async () => {
     await renderAt('/minutes')
 

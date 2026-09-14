@@ -19,8 +19,6 @@ import { ProjectInfoEditButton } from '@/components/settings/ProjectInfoEditButt
 import { ProjectPrivacyToggle } from '@/components/settings/ProjectPrivacyToggle'
 import { ScheduleManager } from '@/components/settings/ScheduleManager'
 import { ReindexButton } from '@/components/settings/ReindexButton'
-import { AgentProjectToggle } from '@/components/settings/AgentProjectToggle'
-import { getAgentProjectState } from '@/app/actions/agentWork'
 import { dkbotIndexStatus, type IndexStatus } from '@/lib/ai/health'
 import { t, type Locale } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
@@ -119,7 +117,6 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
   const llm = isSuperuser ? await llmBadge(locale) : null
   const projectTeamRows = projectTeamRowsSync(projectId)
   // 에이전트 활성 상태 — 조회 실패(null)면 토글을 그리지 않는다(모르는 상태로 킬스위치를 누르게 하지 않는다).
-  const agentState = await getAgentProjectState(projectId)
   // WBS 단계 편집 초기값 — 조회 실패 시 편집기를 그리지 않는다(잘못된 초기값으로 저장하면 설정을 덮는다).
   const levelConfig = await getProjectConfig(projectId).catch((e: unknown) => {
     console.error('[settings] 프로젝트 설정 조회 실패 — 단계 편집기만 degrade:', e)
@@ -239,11 +236,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         eyebrow="AGENT"
         title={t(locale, 'settings.agentTitle')}
         icon={Bot}
-        actions={agentState ? (
-          <AgentProjectToggle projectId={projectId} registered={agentState.registered} enabled={agentState.enabled} />
-        ) : (
-          <span className="badge bg-pending-weak px-2 py-1 text-pending">{t(locale, 'settings.tbd')}</span>
-        )}
+        actions={
+          // 켜기/중지·위임·승인은 에이전트 허브로 이동(2026-09-14) — 여기는 입구만 남긴다.
+          <Link href={`/p/${projectId}/agents`} className="btn btn-ghost h-9 px-3 text-[13px]">{t(locale, 'settings.agentHubLink')}</Link>
+        }
       >
         <p className="-mt-2 text-xs leading-5 text-ink-muted">
           {t(locale, 'settings.agentDesc1')}<span className="font-medium text-pending">{t(locale, 'settings.agentDescBadge')}</span>{t(locale, 'settings.agentDesc2')}

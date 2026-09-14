@@ -148,6 +148,7 @@ export const settingsEn: Record<keyof typeof settingsKo, string> = {
   'settings.privacyToPublic': 'Make public',
   'settings.privacyApplied': 'Visibility updated.',
   'settings.agentTitle': 'Agents',
+  'settings.agentHubLink': 'Manage on the Agents page',
   'settings.agentDesc1': 'Ticking "Agent delegation" on a WBS item activates this project and issues an order automatically. This switch is only for ',
   'settings.agentDescBadge': 'stopping all agents',
   'settings.agentDesc2': ' — no new orders go out and the project disappears from agent listings. In-flight work is not force-stopped.',
