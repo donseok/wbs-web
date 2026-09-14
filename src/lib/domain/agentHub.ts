@@ -42,6 +42,8 @@ export interface HubRow {
 export interface HubQueueEntry {
   orderId: string; itemId: string | null; code: string; name: string; agent: string; percent: number; summary: string
   links: { label?: string; url: string }[]; reportedAt: string
+  /** 이 보고 항목의 담당자가 보는 사람 자신인가 — 카드의 반려 버튼 노출 판정(승인은 관리자만, 반려는 담당자도, §11). */
+  assigneeMine: boolean
 }
 export interface AgentHub {
   projectId: string; projectName: string
@@ -177,6 +179,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         orderId: o.id, itemId: o.wbs_item_id, code: it?.code ?? '', name: it?.name ?? '',
         agent: rep?.agent ?? o.heartbeat_agent ?? o.claimed_by ?? '', percent: rep?.percent ?? 0, summary: rep?.summary ?? '',
         links: rep?.links ?? [], reportedAt: rep?.created_at ?? o.updated_at,
+        assigneeMine: it?.assignee_member_id != null && mine.has(it.assignee_member_id),
       }
     })
     .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))

@@ -54,14 +54,18 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
           {q.links.map((l, i) => <li key={i}><a href={l.url} target="_blank" rel="noreferrer" className="text-brand underline-offset-2 hover:underline">{l.label ?? l.url}</a></li>)}
         </ul>
       )}
-      {isAdmin ? (
+      {(isAdmin || q.assigneeMine) ? (
+        // 승인은 관리자만, 반려는 담당자 본인도(2026-09-14 §11). 담당자는 자기 완료 보고를 스스로 물릴 수 있다.
         <div className="mt-2 flex flex-col gap-2">
           <div className="flex gap-2">
-            <button type="button" data-queue-approve disabled={busy} title={OP_TITLE.approve}
-              onClick={() => { void run({ kind: 'approve', orderId: q.orderId }) }} className="btn btn-primary h-8 px-3 text-xs">{OP_LABEL.approve}</button>
+            {isAdmin && (
+              <button type="button" data-queue-approve disabled={busy} title={OP_TITLE.approve}
+                onClick={() => { void run({ kind: 'approve', orderId: q.orderId }) }} className="btn btn-primary h-8 px-3 text-xs">{OP_LABEL.approve}</button>
+            )}
             <button type="button" data-queue-reject-open disabled={busy} aria-expanded={rejecting} title={OP_TITLE.reject}
               onClick={() => setRejecting(v => !v)} className="btn btn-ghost h-8 px-3 text-xs">{OP_LABEL.reject}</button>
           </div>
+          {!isAdmin && <p className="text-[10px] text-ink-subtle">승인은 관리자가 합니다. 담당자는 반려로 자기 보고를 물릴 수 있습니다.</p>}
           {rejecting && (
             <div className="flex flex-col gap-1">
               <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={NOTE_PLACEHOLDER.reject} className="app-input w-full text-xs" />

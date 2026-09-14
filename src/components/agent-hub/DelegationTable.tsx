@@ -33,12 +33,16 @@ type Props = {
 }
 
 type NoteKind = 'reject' | 'rework'
-/** 주문 상태별 조정 버튼(§11). note 가 있는 것은 사유 입력 줄을 먼저 연다. */
-type OpButton = { kind: keyof typeof OP_LABEL; note?: NoteKind }
+/**
+ * 주문 상태별 조정 버튼(§11). note 가 있는 것은 사유 입력 줄을 먼저 연다.
+ * who='admin' 은 관리자만(승인·회수), 'review' 는 관리자 또는 담당자 본인(반려·승인 취소·재작업 요청,
+ * 2026-09-14 사용자 결정 "담당자 본인도 허용"). 서버 자격(loadOrderForReview·runHubProcessOp)과 같은 경계다.
+ */
+type OpButton = { kind: keyof typeof OP_LABEL; who: 'admin' | 'review'; note?: NoteKind }
 const OPS_BY_STATUS: Readonly<Record<string, readonly OpButton[]>> = {
-  reported: [{ kind: 'approve' }, { kind: 'reject', note: 'reject' }],
-  approved: [{ kind: 'unapprove' }, { kind: 'rework', note: 'rework' }],
-  claimed: [{ kind: 'release' }],
+  reported: [{ kind: 'approve', who: 'admin' }, { kind: 'reject', who: 'review', note: 'reject' }],
+  approved: [{ kind: 'unapprove', who: 'review' }, { kind: 'rework', who: 'review', note: 'rework' }],
+  claimed: [{ kind: 'release', who: 'admin' }],
 }
 
 /** 부모 → 자손 리프(마일스톤 제외) id. 표 행이 전위 순서라 stack 없이 한 번에 만든다. */
@@ -219,8 +223,12 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const canEditPrompt = r.canToggle
               const sig = r.order?.lastSignalAt ? ageLabel(r.order.lastSignalAt, nowMs) : ''
               const stageShown = stageOpt.has(r.itemId) ? stageOpt.get(r.itemId) ?? null : r.stage
-              const canAdjust = isAdmin && r.isLeaf && !r.milestone
-              const ops = canAdjust && r.order ? OPS_BY_STATUS[r.order.status] ?? [] : []
+              // 단계 select 는 관리자만. 조정 버튼은 관리자 + 담당자 본인이 볼 수 있고, 버튼별 who 로 다시 거른다.
+              const canStage = isAdmin && r.isLeaf && !r.milestone
+              const canReviewRow = (isAdmin || r.assigneeMine) && r.isLeaf && !r.milestone
+              const ops = canReviewRow && r.order
+                ? (OPS_BY_STATUS[r.order.status] ?? []).filter(b => b.who === 'admin' ? isAdmin : (isAdmin || r.assigneeMine))
+                : []
               const noteOpen = noteOp?.itemId === r.itemId ? noteOp : null
               return [
                 <tr key={r.itemId} data-hub-row={r.itemId} className="border-t border-line align-middle">
@@ -247,7 +255,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   </td>
                   <td className="py-1 text-ink-muted">{r.assigneeName ?? ''}</td>
                   <td className="py-1">
-                    {canAdjust
+                    {canStage
                       ? <select data-hub-stage value={stageShown ?? ''} disabled={isBusy} aria-label={`${r.code} 단계`}
                           title="단계 직접 조정 — 진행 중 주문이 있으면 구현(im)·완료(xx)는 승인으로만 갑니다"
                           onChange={e => changeStage(r, e.target.value)} className="app-input h-7 py-0 text-[11px]">

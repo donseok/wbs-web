@@ -10,6 +10,7 @@ import { updateActual } from '@/app/actions/wbs'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 import { transitionStage } from '@/lib/agent/stageTransition'
+import { requireDelegationRight } from '@/lib/agent/delegation'
 
 /**
  * 에이전트 작업 루프 UI 서버 액션 — 스펙 §5. 2026-08-24: 전용 관제 화면(/agent-ops)을 없애고
@@ -82,6 +83,34 @@ async function loadOrderForAdmin(orderId: string): Promise<
   const g = await requireProjectAdmin(row.project_id)
   if (!g.ok) return { ok: false, error: g.error }
   return { ok: true, order: row, actor: g.actor }
+}
+
+/**
+ * 검토 계열(반려·승인 취소·재작업 요청)의 자격 로더(2026-09-14, 사용자 결정 "담당자 본인도 허용").
+ * 승인(approve)은 여전히 관리자만(loadOrderForAdmin) — 완료를 확정하는 결정이라 그대로 둔다. 이쪽은
+ * "되돌리는" 결정이라 그 항목의 담당자 본인도 할 수 있게 넓힌다. 자격 판정은 위임 토글과 같은 축
+ * (requireDelegationRight: 관리자 또는 담당자 본인)을 그 주문의 wbs_item 으로 물어 재사용한다.
+ * WBS 항목이 삭제된 주문(wbs_item_id 없음)은 담당자를 특정할 수 없어 관리자만.
+ */
+async function loadOrderForReview(orderId: string): Promise<
+  | { ok: true; order: { id: string; project_id: string; status: string; wbs_item_id: string | null }; actor: { userId: string } }
+  | { ok: false; error: string }
+> {
+  if (!isUuidLike(orderId)) return { ok: false, error: '잘못된 요청입니다.' }
+  const admin = createAdminClient()
+  const { data: order, error } = await admin
+    .from('agent_work_orders').select('id, project_id, status, wbs_item_id').eq('id', orderId).maybeSingle()
+  if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
+  if (!order) return { ok: false, error: '주문 없음' }
+  const row = order as { id: string; project_id: string; status: string; wbs_item_id: string | null }
+  if (row.wbs_item_id === null) {
+    const g = await requireProjectAdmin(row.project_id)
+    if (!g.ok) return { ok: false, error: g.error }
+    return { ok: true, order: row, actor: { userId: g.actor.userId } }
+  }
+  const right = await requireDelegationRight(row.wbs_item_id)
+  if (!right.ok) return { ok: false, error: right.error }
+  return { ok: true, order: row, actor: { userId: right.actor.userId } }
 }
 
 /**
@@ -215,7 +244,7 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
 export async function rejectAgentCompletion(orderId: string, note: string): Promise<ActionResult> {
   const trimmed = note.trim()
   if (!trimmed) return { ok: false, error: '반려 사유가 필요합니다.' }
-  const loaded = await loadOrderForAdmin(orderId)
+  const loaded = await loadOrderForReview(orderId)
   if (!loaded.ok) return loaded
   const { order, actor } = loaded
   if (order.status !== 'reported') {
@@ -263,7 +292,7 @@ async function unapproveOrder(
   orderId: string,
   opts: { to: 'reported' | 'claimed'; note: string | null; detail: string },
 ): Promise<ActionResult> {
-  const loaded = await loadOrderForAdmin(orderId)
+  const loaded = await loadOrderForReview(orderId)
   if (!loaded.ok) return loaded
   const { order, actor } = loaded
   if (order.status !== 'approved') return { ok: false, error: `승인을 무를 수 있는 상태가 아닙니다(${order.status}).` }

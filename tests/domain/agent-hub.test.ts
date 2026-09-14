@@ -124,6 +124,9 @@ describe('assembleAgentHub — 카운터·큐·상태', () => {
     expect(hub.queue.map(q => q.orderId)).toEqual([o2, o1])
     expect(hub.queue[1]).toMatchObject({ code: 'TSK-A-01', summary: '최신', percent: 100, agent: 'x', reportedAt: ago(2000) })
     expect(hub.queue[0]).toMatchObject({ code: 'TSK-A-02', summary: '', percent: 0 })
+    // assigneeMine — a1 담당(m1)이 뷰어(이메일 일치)라 true, a2 담당(m9)은 남이라 false. 카드의 반려 버튼 노출 축(§11).
+    expect(hub.queue[1].assigneeMine).toBe(true)
+    expect(hub.queue[0].assigneeMine).toBe(false)
   })
   it('registered·enabled·projectName·fetchedAt', () => {
     const on = assembleAgentHub(rows(), NOW, VIEWER)
