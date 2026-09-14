@@ -25,7 +25,7 @@ describe('fetchSeatmapRows', () => {
     const calls: Record<string, unknown[][]> = {}
     const a = admin({
       agent_work_orders: [{ data: [O] }],
-      wbs_items: [{ data: [{ id: 'i1', project_id: 'p1', code: 'T', name: 'n', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1' }] }, { data: [{ id: 'z1', project_id: 'p1', code: 'Z', name: 'zone', parent_id: null, actual_pct: null, assignee_member_id: null }] }],
+      wbs_items: [{ data: [{ id: 'i1', project_id: 'p1', code: 'T', name: 'n', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1', tags: ['agent'] }] }, { data: [{ id: 'z1', project_id: 'p1', code: 'Z', name: 'zone', parent_id: null, actual_pct: null, assignee_member_id: null, tags: null }] }],
       agent_work_reports: [{ data: [] }],
       agent_watchers: [{ data: [] }],
       projects: [{ data: [{ id: 'p1', name: 'P' }] }],
@@ -36,6 +36,7 @@ describe('fetchSeatmapRows', () => {
     expect(rows.projects[0].name).toBe('P')
     // 담당자 판정에 쓰는 열을 항목 조회에 포함한다
     expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('assignee_member_id')
+    expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('tags')
     // 프로젝트 필터가 걸렸다
     expect(calls['agent_work_orders.in']?.[0]).toEqual(['project_id', ['p1']])
     // DONE 은 7일 창 — approved 는 updated_at >= now-7d 만

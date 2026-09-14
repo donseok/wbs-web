@@ -10,7 +10,9 @@ export interface OrderRow {
   created_at: string; updated_at: string
   last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent: string | null; heartbeat_note: string | null
 }
-export interface ItemRow { id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null }
+export interface ItemRow { id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null }
+/** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
+export const AGENT_TAG = 'agent'
 export interface ReviewRow { work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string }
 export interface WatcherRow {
   id: string; user_id: string; project_id: string | null; agent: string; host: string | null
@@ -101,10 +103,16 @@ function attentionWhy(s: Seat, nowMs: number): string {
 export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?: MineFilter } = {}): Seatmap {
   const mine = opts.mine
   const itemById0 = new Map(rows.items.map(i => [i.id, i]))
-  // 내 작업: 항목 담당자가 내 로스터 행이거나, 내 계정이 잡은 주문. 조립 앞에서 걸러 층·카운터·확인 필요가 모두 같은 범위를 본다.
+  // 대상은 에이전트 위임(agent 태그) 항목의 주문뿐 — dev_workflow 리프마다 주문이 생기므로 사람이 하는 작업의 주문도 테이블엔 있다.
+  // 항목이 지워진 주문은 태그를 알 수 없어 제외한다. 조립 앞에서 걸러 층·카운터·확인 필요가 모두 같은 범위를 본다.
+  const agentOrders = rows.orders.filter(o => {
+    const it = o.wbs_item_id != null ? itemById0.get(o.wbs_item_id) : undefined
+    return !!it && (it.tags ?? []).includes(AGENT_TAG)
+  })
+  // 내 작업: 항목 담당자가 내 로스터 행이거나, 내 계정이 잡은 주문.
   const orders = mine
-    ? rows.orders.filter(o => o.claimed_by_user_id === mine.userId || (o.wbs_item_id != null && mine.memberIds.has(itemById0.get(o.wbs_item_id)?.assignee_member_id ?? '')))
-    : rows.orders
+    ? agentOrders.filter(o => o.claimed_by_user_id === mine.userId || mine.memberIds.has(itemById0.get(o.wbs_item_id!)?.assignee_member_id ?? ''))
+    : agentOrders
   rows = { ...rows, orders }
   const itemById = new Map(rows.items.map(i => [i.id, i]))
   const parentById = new Map(rows.parents.map(p => [p.id, p]))
@@ -121,8 +129,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     const zones = floorMap.get(o.project_id) ?? new Map<string, Zone>()
     floorMap.set(o.project_id, zones)
     let key: string, code: string, name: string
-    if (!item) { key = '__no_item'; code = '—'; name = '항목 없음' }
-    else if (item.parent_id && parentById.get(item.parent_id)) {
+    if (!item) continue // 위 필터로 도달 불가 — 방어
+    if (item.parent_id && parentById.get(item.parent_id)) {
       const p = parentById.get(item.parent_id)!; key = p.id; code = p.code; name = p.name
     } else { key = '__no_parent'; code = '—'; name = '구역 없음' }
     const zone = zones.get(key) ?? { key, code, name, seats: [], summary: { work: 0, wait: 0, ready: 0 } }

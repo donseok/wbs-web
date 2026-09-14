@@ -13,8 +13,8 @@ const order = (over: Partial<OrderRow>): OrderRow => ({
 })
 const rows = (over: Partial<SeatmapRows> = {}): SeatmapRows => ({
   orders: [order({})],
-  items: [{ id: 'i1', project_id: P1, code: 'TSK-04-02', name: '주문 상세', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1' }],
-  parents: [{ id: 'z1', project_id: P1, code: 'WP-04', name: '주문 관리', parent_id: null, actual_pct: null, assignee_member_id: null }],
+  items: [{ id: 'i1', project_id: P1, code: 'TSK-04-02', name: '주문 상세', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1', tags: ['agent'] }],
+  parents: [{ id: 'z1', project_id: P1, code: 'WP-04', name: '주문 관리', parent_id: null, actual_pct: null, assignee_member_id: null, tags: ['agent'] }],
   reviews: [], watchers: [], projects: [{ id: P1, name: 'mes-base' }, { id: P2, name: 'mes-runlog' }],
   ...over,
 })
@@ -32,22 +32,32 @@ describe('assembleSeatmap — 층·구역·책상', () => {
     expect(s.agent).toBe('hong/mbp/w1')
     expect(['monitor_bot', 'cat_dev', 'human_dev', 'dome_bot']).toContain(s.character)
   })
-  it('부모가 없는 항목은 "구역 없음", 항목이 지워진 주문(wbs_item_id null)은 "항목 없음" 구역에 놓인다', () => {
+  it('부모가 없는 항목은 "구역 없음"에 놓이고, 항목이 지워진 주문(wbs_item_id null)과 agent 태그가 없는 항목의 주문은 보이지 않는다', () => {
     const m = assembleSeatmap(rows({
-      orders: [order({ id: 'a'.repeat(8) + '-1', wbs_item_id: 'i2' }), order({ id: 'b'.repeat(8) + '-2', wbs_item_id: null })],
-      items: [{ id: 'i2', project_id: P1, code: 'TSK-99', name: '고아', parent_id: null, actual_pct: 0, assignee_member_id: null }],
+      orders: [
+        order({ id: 'a'.repeat(8) + '-1', wbs_item_id: 'i2' }),
+        order({ id: 'b'.repeat(8) + '-2', wbs_item_id: null }),
+        order({ id: 'c'.repeat(8) + '-3', wbs_item_id: 'i3' }),
+        order({ id: 'd'.repeat(8) + '-4', wbs_item_id: 'i4' }),
+      ],
+      items: [
+        { id: 'i2', project_id: P1, code: 'TSK-99', name: '고아', parent_id: null, actual_pct: 0, assignee_member_id: null, tags: ['agent'] },
+        { id: 'i3', project_id: P1, code: 'TSK-98', name: '사람이 하는 작업', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: [] },
+        { id: 'i4', project_id: P1, code: 'TSK-97', name: '태그 없음(null)', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: null },
+      ],
       parents: [],
     }), NOW)
-    const keys = m.floors[0].zones.map(z => z.name)
-    expect(keys).toContain('구역 없음')
-    expect(keys).toContain('항목 없음')
+    const names = m.floors[0].zones.map(z => z.name)
+    expect(names).toEqual(['구역 없음'])
+    expect(m.floors[0].seatCount).toBe(1)
+    expect(m.counters.active + m.counters.idle + m.counters.offline).toBe(1)
   })
   it('책상은 구역 안에서 code 순', () => {
     const m = assembleSeatmap(rows({
       orders: [order({ id: 'c'.repeat(8) + '-3', wbs_item_id: 'i3' }), order({})],
       items: [
-        { id: 'i3', project_id: P1, code: 'TSK-04-01', name: '먼저', parent_id: 'z1', actual_pct: 0, assignee_member_id: null },
-        { id: 'i1', project_id: P1, code: 'TSK-04-02', name: '나중', parent_id: 'z1', actual_pct: 25, assignee_member_id: null },
+        { id: 'i3', project_id: P1, code: 'TSK-04-01', name: '먼저', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'] },
+        { id: 'i1', project_id: P1, code: 'TSK-04-02', name: '나중', parent_id: 'z1', actual_pct: 25, assignee_member_id: null, tags: ['agent'] },
       ],
     }), NOW)
     expect(m.floors[0].zones[0].seats.map(s => s.code)).toEqual(['TSK-04-01', 'TSK-04-02'])
@@ -104,7 +114,11 @@ describe('assembleSeatmap — 카운터·확인 필요·watcher', () => {
   })
   it('watcher: 70분 안이면 살아 있고, project_id null 은 모든 층에, 지정이면 그 층에만', () => {
     const m = assembleSeatmap(rows({
-      orders: [order({}), order({ id: '9'.repeat(8) + '-z', project_id: P2, wbs_item_id: null })],
+      orders: [order({}), order({ id: '9'.repeat(8) + '-z', project_id: P2, wbs_item_id: 'i9' })],
+      items: [
+        { id: 'i1', project_id: P1, code: 'TSK-04-02', name: '주문 상세', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1', tags: ['agent'] },
+        { id: 'i9', project_id: P2, code: 'TSK-01', name: '런로그 항목', parent_id: null, actual_pct: 0, assignee_member_id: null, tags: ['agent'] },
+      ],
       watchers: [
         { id: 'w1', user_id: 'u1', project_id: null, agent: 'hong/mbp/lead', host: 'mbp', slots: 3, busy: 1, until_label: '18:00', last_seen_at: ago(60_000) },
         { id: 'w2', user_id: 'u1', project_id: P2, agent: 'hong/mbp/poll', host: 'mbp', slots: null, busy: null, until_label: null, last_seen_at: ago(60_000) },
@@ -141,10 +155,10 @@ describe('ageLabel', () => {
 
 describe('assembleSeatmap — 내 작업(scope=mine)', () => {
   const items = [
-    { id: 'i1', project_id: P1, code: 'TSK-04-01', name: '내 담당', parent_id: 'z1', actual_pct: 0, assignee_member_id: 'm1' },
-    { id: 'i2', project_id: P1, code: 'TSK-04-02', name: '남 담당·내 에이전트', parent_id: 'z1', actual_pct: 10, assignee_member_id: 'm2' },
-    { id: 'i3', project_id: P1, code: 'TSK-04-03', name: '남 담당·남 에이전트', parent_id: 'z1', actual_pct: 10, assignee_member_id: 'm2' },
-    { id: 'i4', project_id: P1, code: 'TSK-04-04', name: '남 담당 완료', parent_id: 'z1', actual_pct: 100, assignee_member_id: 'm2' },
+    { id: 'i1', project_id: P1, code: 'TSK-04-01', name: '내 담당', parent_id: 'z1', actual_pct: 0, assignee_member_id: 'm1', tags: ['agent'] },
+    { id: 'i2', project_id: P1, code: 'TSK-04-02', name: '남 담당·내 에이전트', parent_id: 'z1', actual_pct: 10, assignee_member_id: 'm2', tags: ['agent'] },
+    { id: 'i3', project_id: P1, code: 'TSK-04-03', name: '남 담당·남 에이전트', parent_id: 'z1', actual_pct: 10, assignee_member_id: 'm2', tags: ['agent'] },
+    { id: 'i4', project_id: P1, code: 'TSK-04-04', name: '남 담당 완료', parent_id: 'z1', actual_pct: 100, assignee_member_id: 'm2', tags: ['agent'] },
   ]
   const orders = [
     order({ id: 'o1', wbs_item_id: 'i1', status: 'ready', claimed_by: null, claimed_by_user_id: null }),
