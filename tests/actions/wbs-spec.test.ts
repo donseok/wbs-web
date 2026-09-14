@@ -183,7 +183,8 @@ describe('updateAgentPrompt', () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
     const { captured } = admin({})
     const r = await updateAgentPrompt(W1, '프롬프트')
-    expect(r).toEqual({ ok: false, error: '권한 없음' })
+    // 관리자 가드가 막히면 담당자 본인 판정으로 내려간다(허브 스펙 §3) — 담당자 조회 큐가 비어 있으니 본인 아님으로 거부.
+    expect(r).toEqual({ ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' })
     expect(captured.wbs_items ?? []).toHaveLength(0)
   })
 

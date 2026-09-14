@@ -72,7 +72,7 @@ export async function fetchMyMemberIds(
 }
 
 /** 뷰어의 이메일 — 로스터 이메일 매칭용. 실패는 throw(내 작업이 조용히 빠지면 안 된다). */
-async function viewerEmail(admin: AdminClient, userId: string): Promise<string | null> {
+export async function viewerEmail(admin: AdminClient, userId: string): Promise<string | null> {
   const { data, error } = await admin.auth.admin.getUserById(userId)
   if (error) throw new Error(`[seatmap] 뷰어 조회 실패: ${error.message}`)
   return data.user?.email ?? null

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { ChevronDown, ChevronRight, FileText, Pencil } from 'lucide-react'
 import {
@@ -383,6 +384,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
   // 최신 주문 앞에 있던 주문들. 승인된 주문은 항목을 비워주므로 재발행이 새 주문을 만들고,
   // 최신 하나만 보면 승인 이력이 통째로 사라진다 — 있었다는 사실만이라도 남긴다.
   const [priorOrders, setPriorOrders] = useState<AgentOrderBrief[]>([])
+  const [projectId, setProjectId] = useState<string | null>(null) // 허브 링크용 — 응답에서 받는다
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [warn, setWarn] = useState<string | null>(null)
@@ -398,6 +400,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
     getAgentOrderForItem(itemId).then(r => {
       setOrder(r.ok ? r.order : null)
       setPriorOrders(r.ok ? r.priorOrders : [])
+      setProjectId(r.ok ? r.projectId : null)
       // 승인 대기는 사람이 해야 할 일이 남았다는 뜻이라 접어두지 않는다. 펼치기만 하고
       // 접지는 않는다 — 승인 후 reload 가 사용자가 편 섹션을 도로 닫으면 안 된다.
       if (r.ok && r.order?.status === 'reported') setOpen(true)
@@ -442,8 +445,13 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey }: { itemId: string;
           {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           {t('wbs.agentOrderTitle')}
         </button>
-        <span className={`chip ${order.status === 'reported' ? 'bg-brand-weak text-brand' : 'bg-surface-2 text-ink-muted'}`}>
-          {order.status === 'claimed' ? t('wbs.agentOrderClaimed') : t(ORDER_STATUS_LABEL[order.status] ?? 'wbs.agentOrderReady')}
+        <span className="flex items-center gap-2">
+          {projectId && (
+            <Link href={`/p/${projectId}/agents`} data-agent-hub-link className="text-[11px] text-brand underline-offset-2 hover:underline">에이전트 페이지</Link>
+          )}
+          <span className={`chip ${order.status === 'reported' ? 'bg-brand-weak text-brand' : 'bg-surface-2 text-ink-muted'}`}>
+            {order.status === 'claimed' ? t('wbs.agentOrderClaimed') : t(ORDER_STATUS_LABEL[order.status] ?? 'wbs.agentOrderReady')}
+          </span>
         </span>
       </div>
       {!open ? null : <>

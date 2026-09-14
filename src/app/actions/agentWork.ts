@@ -389,7 +389,7 @@ export type AgentOrderStatus = {
 export type AgentOrderBrief = { id: string; status: string; updated_at: string }
 
 export async function getAgentOrderForItem(itemId: string): Promise<
-  | { ok: true; order: AgentOrderStatus | null; priorOrders: AgentOrderBrief[] }
+  | { ok: true; order: AgentOrderStatus | null; priorOrders: AgentOrderBrief[]; projectId: string }
   | { ok: false; error: string }
 > {
   if (!isUuidLike(itemId)) return { ok: false, error: '잘못된 요청입니다.' }
@@ -412,7 +412,8 @@ export async function getAgentOrderForItem(itemId: string): Promise<
   const rows = (orders ?? []) as Array<{
     id: string; status: string; claimed_by: string | null; claimed_at: string | null; updated_at: string
   }>
-  if (rows.length === 0) return { ok: true, order: null, priorOrders: [] }
+  const projectId = (item as { project_id: string }).project_id
+  if (rows.length === 0) return { ok: true, order: null, priorOrders: [], projectId }
   const row = rows[0]
   const priorOrders: AgentOrderBrief[] = rows.slice(1)
     .map(o => ({ id: o.id, status: o.status, updated_at: o.updated_at }))
@@ -423,5 +424,5 @@ export async function getAgentOrderForItem(itemId: string): Promise<
     .eq('work_order_id', row.id)
     .order('created_at', { ascending: true })
   if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }
-  return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[] }, priorOrders }
+  return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[] }, priorOrders, projectId }
 }

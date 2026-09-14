@@ -1,0 +1,229 @@
+'use client'
+// 위임 표 — WBS 트리 순서로 항목을 나열하고 리프마다 위임 체크·주문 상태·에이전트·마지막 신호·프롬프트.
+// 부모 행 체크 = 하위 리프 일괄(관리자). 변경은 액션 1회 + onChanged(허브 재조회) 1회. 페이지 전체 refresh 금지(스펙 §7).
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronRight, Pencil } from 'lucide-react'
+import type { HubRow } from '@/lib/domain/agentHub'
+import { ageLabel } from '@/lib/domain/seatmap'
+import { setAgentDelegation, updateAgentPrompt } from '@/app/actions/wbsSpec'
+import { setAgentDelegationBulk } from '@/app/actions/agentHub'
+import { NEEDS_DELEGATION, NO_ORDER, STATE_LABEL, TOGGLE_DENIED_TITLE } from './labels'
+
+export type HubFilter = 'mine' | 'all'
+
+type Props = {
+  rows: HubRow[]
+  projectId: string
+  isAdmin: boolean
+  filter: HubFilter
+  onFilter: (f: HubFilter) => void
+  nowMs: number
+  onChanged: () => Promise<void> | void
+}
+
+/** 부모 → 자손 리프(마일스톤 제외) id. 표 행이 전위 순서라 stack 없이 한 번에 만든다. */
+function leafDescendants(rows: HubRow[]): Map<string, string[]> {
+  const parentOf = new Map(rows.map(r => [r.itemId, r.parentId]))
+  const out = new Map<string, string[]>()
+  for (const r of rows) {
+    if (!r.isLeaf || r.milestone) continue
+    let p = r.parentId
+    while (p) { const l = out.get(p); if (l) l.push(r.itemId); else out.set(p, [r.itemId]); p = parentOf.get(p) ?? null }
+  }
+  return out
+}
+
+function ParentCheckbox({ state, disabled, onClick }: { state: 'all' | 'some' | 'none'; disabled: boolean; onClick: () => void }) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (ref.current) ref.current.indeterminate = state === 'some' }, [state])
+  return (
+    <input ref={ref} type="checkbox" data-hub-parent-toggle checked={state === 'all'} disabled={disabled}
+      aria-label="하위 리프 전체 위임" title="하위 리프 전체 위임/해제" onChange={onClick} className="h-3.5 w-3.5 rounded border-line" />
+  )
+}
+
+export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, nowMs, onChanged }: Props) {
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set())
+  const [optimistic, setOptimistic] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+  const [rowErr, setRowErr] = useState<ReadonlyMap<string, string>>(() => new Map())
+  const [rowWarn, setRowWarn] = useState<ReadonlyMap<string, string>>(() => new Map())
+  const [notice, setNotice] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+
+  const byId = useMemo(() => new Map(rows.map(r => [r.itemId, r])), [rows])
+  const leaves = useMemo(() => leafDescendants(rows), [rows])
+
+  // 표시 행: mine 이면 내 담당 리프와 그 조상만. 접힌 부모의 자손은 숨긴다.
+  const visible = useMemo(() => {
+    let keep: Set<string> | null = null
+    if (filter === 'mine') {
+      keep = new Set()
+      for (const r of rows) {
+        if (!(r.isLeaf && r.assigneeMine)) continue
+        keep.add(r.itemId)
+        let p = r.parentId
+        while (p) { keep.add(p); p = byId.get(p)?.parentId ?? null }
+      }
+    }
+    const out: HubRow[] = []
+    for (const r of rows) {
+      if (keep && !keep.has(r.itemId)) continue
+      let hidden = false
+      let p = r.parentId
+      while (p) { if (folded.has(p)) { hidden = true; break } p = byId.get(p)?.parentId ?? null }
+      if (!hidden) out.push(r)
+    }
+    return out
+  }, [rows, filter, folded, byId])
+
+  const mapWith = <V,>(m: ReadonlyMap<string, V>, k: string, v: V | null) => { const n = new Map(m); if (v === null) n.delete(k); else n.set(k, v); return n }
+  const setWith = (s: ReadonlySet<string>, k: string, on: boolean) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n }
+
+  const toggleLeaf = async (r: HubRow) => {
+    const next = !(optimistic.get(r.itemId) ?? r.delegated)
+    setOptimistic(m => mapWith(m, r.itemId, next))
+    setBusy(s => setWith(s, r.itemId, true))
+    setRowErr(m => mapWith(m, r.itemId, null)); setRowWarn(m => mapWith(m, r.itemId, null))
+    try {
+      const res = await setAgentDelegation(r.itemId, next)
+      if (!res.ok) { setOptimistic(m => mapWith(m, r.itemId, null)); setRowErr(m => mapWith(m, r.itemId, res.error ?? '실패')); return }
+      if (res.warning) setRowWarn(m => mapWith(m, r.itemId, res.warning ?? null))
+      await onChanged()
+    } catch (e) {
+      setOptimistic(m => mapWith(m, r.itemId, null)); setRowErr(m => mapWith(m, r.itemId, e instanceof Error ? e.message : String(e)))
+    } finally {
+      setBusy(s => setWith(s, r.itemId, false))
+      setOptimistic(m => mapWith(m, r.itemId, null))
+    }
+  }
+
+  const toggleParent = async (r: HubRow) => {
+    const ids = leaves.get(r.itemId) ?? []
+    if (ids.length === 0) return
+    const allOn = ids.every(id => optimistic.get(id) ?? byId.get(id)?.delegated)
+    setBusy(s => setWith(s, r.itemId, true)); setNotice(null)
+    try {
+      const res = await setAgentDelegationBulk(projectId, ids, !allOn)
+      if (!res.ok) { setNotice(res.error); return }
+      if (res.failed.length > 0) setNotice(`${res.failed.length}건 실패: ${res.failed.map(f => byId.get(f.itemId)?.code ?? f.itemId).join(', ')}`)
+      else if (res.warning) setNotice(res.warning)
+      await onChanged()
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : String(e))
+    } finally { setBusy(s => setWith(s, r.itemId, false)) }
+  }
+
+  const savePrompt = async (r: HubRow) => {
+    setBusy(s => setWith(s, r.itemId, true)); setRowErr(m => mapWith(m, r.itemId, null))
+    try {
+      const res = await updateAgentPrompt(r.itemId, draft)
+      if (!res.ok) { setRowErr(m => mapWith(m, r.itemId, res.error ?? '실패')); return }
+      setEditing(null)
+      await onChanged()
+    } catch (e) {
+      setRowErr(m => mapWith(m, r.itemId, e instanceof Error ? e.message : String(e)))
+    } finally { setBusy(s => setWith(s, r.itemId, false)) }
+  }
+
+  const parentState = (r: HubRow): 'all' | 'some' | 'none' => {
+    const ids = leaves.get(r.itemId) ?? []
+    const on = ids.filter(id => optimistic.get(id) ?? byId.get(id)?.delegated).length
+    return on === 0 ? 'none' : on === ids.length ? 'all' : 'some'
+  }
+
+  const seg = (f: HubFilter, label: string) => (
+    <button type="button" data-hub-filter={f} aria-pressed={filter === f} onClick={() => onFilter(f)}
+      className={`rounded-md px-2 py-1 text-xs ${filter === f ? 'bg-brand-weak text-brand' : 'text-ink-muted hover:bg-surface-2'}`}>{label}</button>
+  )
+
+  return (
+    <section aria-label="위임 표" className="rounded-xl border border-line bg-surface p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1" role="group" aria-label="표시 범위">{seg('mine', '내 담당')}{seg('all', '전체')}</div>
+        <span className="text-[11px] text-ink-subtle">리프 항목의 체크가 위임(발행)입니다. 부모 체크는 하위 전체(관리자).</span>
+      </div>
+      {notice && <p data-hub-notice role="status" className="mb-2 rounded-md bg-pending-weak px-2 py-1 text-xs text-pending">{notice}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-xs">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-[0.06em] text-ink-subtle">
+              <th className="w-8 py-1">위임</th><th className="w-40 py-1">코드</th><th className="py-1">이름</th><th className="w-28 py-1">담당자</th>
+              <th className="w-28 py-1">상태</th><th className="w-32 py-1">에이전트</th><th className="w-24 py-1">마지막 신호</th><th className="w-48 py-1">프롬프트</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map(r => {
+              const checked = optimistic.get(r.itemId) ?? r.delegated
+              const isBusy = busy.has(r.itemId)
+              const err = rowErr.get(r.itemId), warn = rowWarn.get(r.itemId)
+              const canEditPrompt = r.canToggle
+              const sig = r.order?.lastSignalAt ? ageLabel(r.order.lastSignalAt, nowMs) : ''
+              return [
+                <tr key={r.itemId} data-hub-row={r.itemId} className="border-t border-line align-middle">
+                  <td className="py-1">
+                    {r.isLeaf
+                      ? <input type="checkbox" data-hub-toggle checked={checked} disabled={!r.canToggle || isBusy}
+                          title={r.canToggle ? undefined : TOGGLE_DENIED_TITLE} aria-label={`${r.code} 위임`}
+                          onChange={() => { void toggleLeaf(r) }} className="h-3.5 w-3.5 rounded border-line" />
+                      : (isAdmin && (leaves.get(r.itemId)?.length ?? 0) > 0)
+                        ? <ParentCheckbox state={parentState(r)} disabled={isBusy} onClick={() => { void toggleParent(r) }} />
+                        : null}
+                  </td>
+                  <td className="py-1 font-mono text-[11px] text-ink-muted">{r.code}</td>
+                  <td className="py-1">
+                    <span data-hub-name style={{ paddingLeft: `${r.depth * 16}px` }} className="inline-flex items-center gap-1">
+                      {!r.isLeaf && (
+                        <button type="button" data-hub-fold aria-expanded={!folded.has(r.itemId)} aria-label={`${r.code} 접기/펼치기`}
+                          onClick={() => setFolded(s => setWith(s, r.itemId, !s.has(r.itemId)))} className="text-ink-subtle hover:text-ink">
+                          {folded.has(r.itemId) ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
+                      <span className={r.isLeaf ? 'text-ink' : 'font-semibold text-ink'}>{r.name}</span>
+                    </span>
+                  </td>
+                  <td className="py-1 text-ink-muted">{r.assigneeName ?? ''}</td>
+                  <td className="py-1">
+                    {r.order ? <span className="chip bg-surface-2 text-ink">{STATE_LABEL[r.order.state]}</span> : <span className="text-ink-subtle">{NO_ORDER}</span>}
+                    {r.isLeaf && r.devWorkflow && !r.delegated && <small className="ml-1 text-[10px] text-accent-warning">{NEEDS_DELEGATION}</small>}
+                  </td>
+                  <td className="py-1 text-ink-muted">{r.order?.agent ?? ''}</td>
+                  <td className="py-1 text-ink-subtle">{sig}</td>
+                  <td className="py-1">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="truncate text-ink-muted" title={r.prompt ?? undefined}>{r.prompt ? r.prompt.slice(0, 40) : ''}</span>
+                      {canEditPrompt && (
+                        <button type="button" data-hub-prompt-edit aria-label={`${r.code} 프롬프트 편집`} disabled={isBusy}
+                          onClick={() => { setEditing(r.itemId); setDraft(r.prompt ?? '') }} className="text-ink-subtle hover:text-ink">
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                </tr>,
+                (editing === r.itemId || err || warn) ? (
+                  <tr key={`${r.itemId}-x`} data-hub-row-extra={r.itemId}>
+                    <td colSpan={8} className="pb-2 pl-8">
+                      {editing === r.itemId && (
+                        <div className="flex flex-col gap-1">
+                          <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={3} className="app-input w-full text-xs" placeholder="에이전트에게 덧붙일 지시문" />
+                          <div className="flex gap-2">
+                            <button type="button" data-hub-prompt-save disabled={isBusy} onClick={() => { void savePrompt(r) }} className="btn btn-primary h-7 px-2 text-xs">저장</button>
+                            <button type="button" onClick={() => setEditing(null)} className="btn btn-ghost h-7 px-2 text-xs">취소</button>
+                          </div>
+                        </div>
+                      )}
+                      {err && <span data-hub-error className="block text-[11px] text-accent-warning">{err}</span>}
+                      {warn && <span data-hub-warning className="block text-[11px] text-pending">{warn}</span>}
+                    </td>
+                  </tr>
+                ) : null,
+              ]
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}

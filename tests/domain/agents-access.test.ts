@@ -30,9 +30,9 @@ describe('seatmapProjectIds — 층 목록', () => {
   })
 })
 
-describe('nav.agents 사전 키', () => {
-  it('ko/en 양쪽에 있다', () => {
-    expect(KO['nav.agents']).toBe('에이전트')
-    expect(EN['nav.agents']).toBe('Agents')
+describe('nav 사전 키', () => {
+  it('전역 좌석표와 프로젝트 에이전트 라벨이 ko/en 양쪽에 있다', () => {
+    expect(KO['nav.agents']).toBe('전체 좌석표'); expect(EN['nav.agents']).toBe('All seatmaps')
+    expect(KO['nav.projectAgents']).toBe('에이전트'); expect(EN['nav.projectAgents']).toBe('Agents')
   })
 })

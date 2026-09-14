@@ -11,8 +11,10 @@ import { useLocale } from '@/components/providers/LocaleProvider'
  * 에이전트 킬스위치(2026-08-24). 활성은 위임 체크가 자동으로 하므로 여기서 사람이 하는 건 "중지"와
  * "재개"뿐. 재개하면 백필로 dev_workflow 리프 전부에 주문이 보장된다.
  */
-export function AgentProjectToggle({ projectId, registered, enabled }: {
+export function AgentProjectToggle({ projectId, registered, enabled, onChanged }: {
   projectId: string; registered: boolean; enabled: boolean
+  /** 있으면 성공 뒤 router.refresh() 대신 호출한다 — 허브처럼 자기 데이터를 스스로 다시 받는 화면용. */
+  onChanged?: () => void
 }) {
   const router = useRouter()
   const { toast } = useToast()
@@ -23,7 +25,7 @@ export function AgentProjectToggle({ projectId, registered, enabled }: {
     try {
       const res = await setAgentProjectEnabled(projectId, !enabled)
       if (!res.ok) { toast({ title: res.error ?? t('settings.actionFailed'), variant: 'error' }); return }
-      router.refresh()
+      if (onChanged) onChanged(); else router.refresh()
       toast({
         title: enabled ? t('settings.agentStopped') : t('settings.agentResumed'),
         description: !enabled && res.backfilled ? `${t('settings.agentBackfilled')} ${res.backfilled}` : undefined,

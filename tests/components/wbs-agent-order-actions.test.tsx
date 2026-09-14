@@ -48,6 +48,7 @@ function approvedOrder() {
       }],
     },
     priorOrders: [],
+    projectId: 'p1',
   }
 }
 
@@ -87,6 +88,8 @@ describe('WbsSpecPanel 진행 상황 — 승인 되감기 버튼', () => {
     await render(true)
     expect(q('[data-agent-unapprove]')).not.toBeNull()
     expect(q('[data-agent-rework]')).not.toBeNull()
+    // 허브 링크(2026-09-14) — 응답의 projectId 로 프로젝트 에이전트 페이지를 가리킨다.
+    expect(q('[data-agent-hub-link]')?.getAttribute('href')).toBe('/p/p1/agents')
   })
 
   it('멤버 — 버튼이 나오지 않는다', async () => {
