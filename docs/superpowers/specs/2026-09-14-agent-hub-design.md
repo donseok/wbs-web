@@ -250,5 +250,15 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 **구현.** `applyHubDelegations`(§5) + `usePendingDelegations`(§6-3, 1.5초) + `getActor` getClaims(`src/lib/authz/index.ts`).
 체크 10개를 해도 요청은 1건이고, 체감 대기는 0초, 서버 확정은 마지막 체크 뒤 약 2초 안이다.
 
+**반영 후 실측(스테이징 7e46a71c, 같은 항목).**
+
+| 동작 | 체크 직후 | 요청 | 서버 확정까지 |
+|---|---|---|---|
+| 체크 켜기 | 즉시 반영·잠김 없음·칩 "1건 · 2초 뒤 저장" | 1건(1.5초 뒤 시작, 1.16초, 13KB) | 2.7초 |
+| 체크 끄기 | 같음 | 1건(0.53~0.95초) | 2.0~2.5초 |
+| 켰다 끄기(1.5초 안) | 칩 사라짐 | 0건 | 해당 없음 |
+
+남은 비용은 요청 1건의 서버 처리(applyDelegation 의 순차 DB 왕복 + 허브 재조회)다. 더 줄이려면 applyDelegation 을 Postgres 함수 1회로 묶는 길이 있다(마이그레이션 필요, 미착수).
+
 **같은 낭비가 남은 곳(범위 밖).** WBS 상세 패널의 위임 체크(`WbsSpecPanel`)는 flush 뒤 액션의 `revalidatePath` 재렌더와 `router.refresh()` 가 WBS 페이지를 두 번 그린다.
 `getSession`(`src/lib/auth.ts`)은 아직 `getUser()` 다(레이아웃·페이지 경로).
