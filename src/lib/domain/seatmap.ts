@@ -1,6 +1,6 @@
 // 좌석표 조립 — IO 없음. 층=프로젝트, 구역=주문 항목의 부모 항목, 책상=주문(스펙 §5-1).
 import {
-  animFor, deriveSeatState, inferPhase, isRejected, isWatcherAlive, lastSignalMs, pickCharacter,
+  animFor, deriveSeatState, fnv1a32, inferPhase, isRejected, isWatcherAlive, lastSignalMs, pickCharacter,
   type AnimName, type CharacterName, type OrderStatus, type Phase, type SeatState,
 } from './seatState'
 
@@ -28,7 +28,7 @@ export interface Seat {
   lastSignalAt: string | null; heartbeatAt: string | null; heartbeatPhase: string | null
   note: string | null; rejected: boolean; reviewNote: string | null
 }
-export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; done: number; ready: number } }
+export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number } }
 export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
 export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[] }
 export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
@@ -74,7 +74,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
   return {
     orderId: o.id, id8: o.id.slice(0, 8), projectId: o.project_id, itemId: o.wbs_item_id,
     code: item?.code ?? o.id.slice(0, 8), name: item?.name ?? '(항목 삭제됨)',
-    state, phase, anim: animFor(state, phase, idleSlot), character: pickCharacter(agent ?? o.id),
+    state, phase, anim: animFor(state, phase, idleSlot + fnv1a32(o.id) % 3), character: pickCharacter(agent ?? o.id),
     agent, progress: Math.max(0, Math.min(100, Math.round(item?.actual_pct ?? 0))),
     lastSignalAt: o.status === 'claimed' ? signal : null,
     heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
@@ -110,7 +110,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number): Seatmap {
     else if (item.parent_id && parentById.get(item.parent_id)) {
       const p = parentById.get(item.parent_id)!; key = p.id; code = p.code; name = p.name
     } else { key = '__no_parent'; code = '—'; name = '구역 없음' }
-    const zone = zones.get(key) ?? { key, code, name, seats: [], summary: { work: 0, wait: 0, done: 0, ready: 0 } }
+    const zone = zones.get(key) ?? { key, code, name, seats: [], summary: { work: 0, wait: 0, ready: 0 } }
     zones.set(key, zone)
     zone.seats.push(seat)
     if (WORK_STATES.includes(seat.state)) zone.summary.work++

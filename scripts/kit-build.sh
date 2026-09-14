@@ -26,7 +26,7 @@ printf 'source: wbs-web %s\nbuilt: %s\nskills: %s\n' \
   "$(git -C "$ROOT" rev-parse --short HEAD)" "$(date +%Y-%m-%d)" "$SKILLS" > "$OUT/VERSION"
 
 # 킷 밖을 가리키는 경로가 남아 있으면 빌드 실패 — 다른 PC 에서 깨진다.
-if grep -rn 'docs/superpowers\|docs/agent/claude-skill\|~/project/wbs-web' "$OUT/skills" --include=SKILL.md --include='*.sh' \
+if grep -rn 'docs/superpowers\|docs/agent/claude-skill\|~/project/wbs-web' "$OUT/skills" "$OUT/hooks" --include=SKILL.md --include='*.sh' \
    | grep -v '킷에는 미동봉\|wbs-web 리포 docs/superpowers\|wbs-web docs/superpowers' ; then
   echo "위: 킷 밖 참조가 남아 있다 — SKILL.md 를 고치고 다시 빌드" >&2; exit 1
 fi

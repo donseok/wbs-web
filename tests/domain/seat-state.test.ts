@@ -44,6 +44,11 @@ describe('deriveSeatState — 스펙 §2 우선순위', () => {
   it('cancelled 는 DONE 도 READY 도 아니다 — 화면에서 빼기 위해 DONE 으로 접지 않는다', () => {
     expect(deriveSeatState(base({ status: 'cancelled' }), NOW)).toBe('DONE')
   })
+  it('lastHeartbeatAt·updatedAt 둘 다 파싱 실패면 신호를 모르는 것 — fail-closed 로 OFFLINE', () => {
+    const i = base({ lastHeartbeatAt: 'garbage', updatedAt: 'garbage' })
+    expect(lastSignalMs(i)).toBe(0)
+    expect(deriveSeatState(i, NOW)).toBe('OFFLINE')
+  })
 })
 
 describe('inferPhase — heartbeat_phase 우선, 없으면 actual_pct', () => {

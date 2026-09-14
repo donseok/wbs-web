@@ -31,6 +31,13 @@ describe('dflow.sh heartbeat · watch 계약(좌석표 v1 스펙 §4-1)', () => 
     expect(fn).not.toMatch(/(^|[^_A-Z}])git /m)
     expect(fn).toContain('${DFLOW_GIT:-git}')
   })
+  it('watch 의 신원 조회 실패는 부모 셸을 종료시킨다(서브셸 die 만으로 끝나지 않는다)', () => {
+    expect(src).toMatch(/_agent=\$\(watcher_id_default\) \|\| exit \$\?/)
+  })
+  it('agent_id_default 는 .dflow-agent 첫 줄의 CRLF 를 제거한다(kit/hooks/heartbeat.sh 와 같은 관례)', () => {
+    const fn = src.slice(src.indexOf('agent_id_default()'), src.indexOf('watcher_id_default()'))
+    expect(fn).toContain("tr -d '\\r'")
+  })
   it('SKILL.md 가 두 서브커맨드를 설명한다', () => {
     const skill = readFileSync(join(root, '.claude/skills/dflow-work/SKILL.md'), 'utf8')
     expect(skill).toContain('### heartbeat')

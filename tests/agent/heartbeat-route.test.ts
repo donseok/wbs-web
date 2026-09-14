@@ -82,6 +82,15 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     const upd = calls2.agent_work_orders[0] as Record<string, unknown>
     expect(upd.heartbeat_phase).toBeNull(); expect(upd.heartbeat_note).toBeNull()
   })
+  it('blocked + 공백뿐인 note 는 heartbeat_note 를 null 로 둔다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'blocked', note: '   ' })
+    expect(res.status).toBe(200)
+    const upd = calls.agent_work_orders[0] as Record<string, unknown>
+    expect(upd.heartbeat_phase).toBe('blocked')
+    expect(upd.heartbeat_note).toBeNull()
+  })
   it('400 — agent 없음 / 모르는 phase / note 500자 초과', async () => {
     useAdmin(okQueues()); expect((await post({ phase: 'build' })).status).toBe(400)
     useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'lunch' })).status).toBe(400)

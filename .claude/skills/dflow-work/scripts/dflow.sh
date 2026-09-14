@@ -250,7 +250,7 @@ slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g';
 # 기본 AGENT_ID: 워크트리 루트 .dflow-agent 첫 줄 → 없으면 claude-<host>
 agent_id_default() {
   _top=$(${DFLOW_GIT:-git} rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")
-  if [ -f "$_top/.dflow-agent" ]; then head -n 1 "$_top/.dflow-agent"; else printf 'claude-%s' "$(slug "$(hostname -s)")"; fi
+  if [ -f "$_top/.dflow-agent" ]; then head -n 1 "$_top/.dflow-agent" | tr -d '\r'; else printf 'claude-%s' "$(slug "$(hostname -s)")"; fi
 }
 # 기본 watcher id: <신원>/<host>/poll — 신원은 /me 의 user_email 로컬 파트
 watcher_id_default() {
@@ -290,7 +290,8 @@ cmd_watch() {
       *) usage ;;
     esac
   done
-  [ -n "$_agent" ] || _agent=$(watcher_id_default)
+  if [ -z "$_agent" ]; then _agent=$(watcher_id_default) || exit $?; fi
+  [ -n "$_agent" ] || die 3 "watcher 신원을 정하지 못했다(--agent 를 주거나 /me 확인)"
   _host=$(slug "$(hostname -s)")
   if [ -n "$_stop" ]; then
     _json=$(jq -nc --arg a "$_agent" '{agent:$a, stop:true}')

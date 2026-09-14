@@ -12,6 +12,7 @@ function ladderPhase(seat: Seat): string {
   if (seat.state === 'WAIT') return 'reported'
   if (seat.state === 'DONE') return 'merged'
   if (seat.phase === 'blocked' || seat.phase === 'rejected') return seat.progress < 25 ? 'design' : seat.progress < 60 ? 'build' : 'verify'
+  if (seat.phase === 'refactor') return 'verify' // 사다리는 다섯 칸(스펙 §5); refactor 는 verify 칸에 놓는다
   return seat.phase
 }
 

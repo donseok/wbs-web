@@ -23,7 +23,7 @@ function loadEnv() {
 
 const env = loadEnv()
 const URL = env.NEXT_PUBLIC_SUPABASE_URL, KEY = env.SUPABASE_SERVICE_ROLE_KEY
-if (!URL || !KEY) { console.error('.env 에 NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 가 없다'); process.exit(2) }
+if (!URL || !KEY) { console.error('.env.local 또는 .env 에 NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 가 없다'); process.exit(2) }
 if (URL.includes('rglfgrwwwwdqejohdnty')) { console.error('운영 프로젝트를 가리키고 있다 — 스테이징에서만 돌린다(npm run env:staging)'); process.exit(2) }
 
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}` }

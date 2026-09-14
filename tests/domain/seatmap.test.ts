@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
+import { animFor, OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
 import { ageLabel, assembleSeatmap, type OrderRow, type SeatmapRows } from '@/lib/domain/seatmap'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
@@ -66,6 +66,23 @@ describe('assembleSeatmap — 층·구역·책상', () => {
     const m = assembleSeatmap(rows({ orders: [order({ status: 'approved' })] }), NOW)
     expect(m.floors[0].doneCount).toBe(1)
     expect(m.counters).toEqual({ active: 0, standby: 0, idle: 0, offline: 0 })
+  })
+  it('WAIT 좌석의 idle 애니메이션은 좌석 id 로 오프셋을 받아 서로 다르다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [
+        order({ id: 'o-1', status: 'reported' }),
+        order({ id: 'o-3', status: 'reported' }),
+        order({ id: 'o-5', status: 'reported' }),
+      ],
+    }), NOW)
+    const seats = m.floors[0].zones[0].seats
+    const byId = (id: string) => seats.find(s => s.orderId === id)!
+    const anims = ['o-1', 'o-3', 'o-5'].map(id => byId(id).anim)
+    expect(new Set(anims).size).toBe(3)
+    const idleSlot = Math.floor(NOW / 10_000)
+    expect(byId('o-1').anim).toBe(animFor('WAIT', byId('o-1').phase, idleSlot + 1))
+    expect(byId('o-3').anim).toBe(animFor('WAIT', byId('o-3').phase, idleSlot + 2))
+    expect(byId('o-5').anim).toBe(animFor('WAIT', byId('o-5').phase, idleSlot + 0))
   })
 })
 

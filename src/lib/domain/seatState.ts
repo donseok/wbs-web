@@ -32,6 +32,7 @@ const ms = (iso: string | null): number => (iso ? Date.parse(iso) : Number.NaN)
 /** 마지막 신호 = max(last_heartbeat_at, updated_at). heartbeat 가 없던 옛 주문은 progress 가 touch 한 updated_at 으로 판정된다. */
 export function lastSignalMs(i: SeatInput): number {
   const hb = ms(i.lastHeartbeatAt), up = ms(i.updatedAt)
+  if (Number.isNaN(hb) && Number.isNaN(up)) return 0 // 신호를 모르면 죽은 것으로 본다(fail-closed)
   if (Number.isNaN(hb)) return up
   if (Number.isNaN(up)) return hb
   return Math.max(hb, up)
