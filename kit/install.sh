@@ -1,13 +1,13 @@
 #!/bin/sh
 # install.sh — dflow-kit 을 대상 리포에 심는다.
-# 사용법: ./install.sh <대상 리포 경로>
+# 사용법: ./install.sh <대상 리포 경로> [--hooks]
 # 하는 일: 의존 명령 점검 → .claude/skills/dflow-* 복사(갱신) → .env 초안·.gitignore 보강 → 다음 단계 안내
 # 하지 않는 일: 토큰 발급·.env 값 기입(사람 몫), git commit.
 set -eu
 
 KIT_DIR=$(cd "$(dirname "$0")" && pwd)
 TARGET="${1:-}"
-[ -n "$TARGET" ] || { echo "사용법: install.sh <대상 리포 경로>" >&2; exit 2; }
+[ -n "$TARGET" ] || { echo "사용법: install.sh <대상 리포 경로> [--hooks]" >&2; exit 2; }
 [ -d "$TARGET" ] || { echo "대상 폴더 없음: $TARGET" >&2; exit 2; }
 TARGET=$(cd "$TARGET" && pwd)
 [ -d "$TARGET/.git" ] || echo "경고: $TARGET 은 git 리포가 아니다 — dflow-dev 는 git 리포 루트에서만 동작한다." >&2
@@ -40,6 +40,13 @@ fi
 touch "$TARGET/.gitignore"
 grep -qx '\.env' "$TARGET/.gitignore" || printf '\n# dflow-kit — 토큰 파일\n.env\n' >> "$TARGET/.gitignore"
 
+# 3-b) 좌석표 heartbeat 훅 — --hooks 를 붙였을 때만 ~/.dflow/hooks 에 복사한다. settings.json 은 건드리지 않는다(안내만).
+if [ "${2:-}" = "--hooks" ]; then
+  mkdir -p "$HOME/.dflow/hooks"
+  cp "$KIT_DIR/hooks/heartbeat.sh" "$HOME/.dflow/hooks/heartbeat.sh" && chmod +x "$HOME/.dflow/hooks/heartbeat.sh"
+  echo "훅 복사: $HOME/.dflow/hooks/heartbeat.sh — ~/.claude/settings.json 등록은 README 「좌석표 heartbeat 훅」 참조"
+fi
+
 # 4) 버전 표식
 cp "$KIT_DIR/VERSION" "$TARGET/.claude/skills/DFLOW_KIT_VERSION" 2>/dev/null || true
 
@@ -52,4 +59,5 @@ cat <<EOF
   2. $TARGET/.env 에 DFLOW_API_BASE · DFLOW_PATS · DFLOW_PROJECT_ID 기입 (값은 어디에도 붙여넣지 말 것)
   3. cd $TARGET && (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor)
   4. Claude Code 를 $TARGET 에서 열고 "/dflow-dev" 등 스킬 사용. 스킬 킷은 리포에 커밋해 팀과 공유한다.
+  5. 좌석표 heartbeat 훅: ./install.sh <리포> --hooks 뒤 README 「좌석표 heartbeat 훅」 대로 settings.json 등록
 EOF

@@ -7,10 +7,12 @@
 #       8 종료시각 / 9 승인 감지 / 10 반려 감지
 #       / 6 네트워크·일시 오류 연속 한도 초과 / 8 종료 시각 도달 / 9 승인 감지(머지 대상)
 # 토큰은 env 확장으로만 다룬다 — echo·파일 기록·명령 문자열 보간 금지.
+# DFLOW_WATCH=0 이면 좌석표 watch 신호를 보내지 않는다(팀장 /dflow-team 아래 실행용).
 set -u
 
 INTERVAL=300
 UNTIL=1800        # HHMM. --until HH:MM 로 변경. 자정 넘김(예: 02:00) 미지원 — 야간 사용 금지.
+UNTIL_LABEL="18:00"   # watch 신호에 실을 종료시각 표시 문자열(--until 원문)
 EXCLUDE=""        # 쉼표 구분 id8 — 영구성 제외(사용자 결정 대기 등). 사람이 풀기 전까지 유지.
 EXCLUDE_TEMP=""   # 쉼표 구분 id8 — 일시성 제외(spec 부재·선행 대기). RECHECK_CYCLES 뒤 자동 해제
                   # → 재발견(exit 0)으로 세션이 착수 판정을 다시 하게 만든다(자율 재검사).
@@ -24,7 +26,7 @@ usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM] [--exclude i
 while [ $# -gt 0 ]; do
   case "$1" in
     --interval)       INTERVAL="${2:-}"; shift 2 || usage ;;
-    --until)          UNTIL=$(printf '%s' "${2:-}" | tr -d ':'); shift 2 || usage ;;
+    --until)          UNTIL_LABEL="${2:-}"; UNTIL=$(printf '%s' "${2:-}" | tr -d ':'); shift 2 || usage ;;
     --exclude)        EXCLUDE="${2:-}"; shift 2 || usage ;;
     --exclude-temp)   EXCLUDE_TEMP="${2:-}"; shift 2 || usage ;;
     --recheck-cycles) RECHECK_CYCLES="${2:-}"; shift 2 || usage ;;
@@ -50,7 +52,12 @@ cycle=0
 while :; do
   # date +%H%M 는 선행 0 을 포함하지만 test(1) 는 십진수로 비교한다
   now=$(date +%H%M)
-  [ "$now" -ge "$UNTIL" ] && { echo "종료 시각 도달(--until $UNTIL)" >&2; exit 8; }
+  [ "$now" -ge "$UNTIL" ] && {
+    [ "${DFLOW_WATCH:-1}" = "0" ] || "$DFLOW" watch --stop >/dev/null 2>&1 || :
+    echo "종료 시각 도달(--until $UNTIL)" >&2; exit 8
+  }
+  # 좌석표 STANDBY 신호 — 매 주기 1회. 팀장 아래에서는 팀장이 lead 로 보내므로 DFLOW_WATCH=0 으로 끈다.
+  [ "${DFLOW_WATCH:-1}" = "0" ] || "$DFLOW" watch --until "$UNTIL_LABEL" >/dev/null 2>&1 || :
 
   cycle=$((cycle+1))
   # 일시성 제외는 스스로 풀린다 — RECHECK_CYCLES 지나면 해제해 재발견을 유도하고,

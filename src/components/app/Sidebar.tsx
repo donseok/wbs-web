@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
+  Armchair, BarChart3, BookOpenText, Briefcase, CalendarCheck, CalendarClock, CalendarRange, CircleAlert, Columns3, FolderOpen, LayoutDashboard, LayoutGrid,
   ListTree, Megaphone, NotebookPen, NotebookText, PanelLeft, Plus, Settings, Users, type LucideIcon,
 } from 'lucide-react'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -44,7 +44,7 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
   unknown: { dot: 'bg-slate-400', label: '확인 불가' },
 }
 
-function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, isAdmin: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
+function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, showAgents: boolean, isAdmin: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
   const items: { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] = [
     { href: `${base}/dashboard`, labelKey: 'nav.dashboard', icon: LayoutDashboard, match: `${base}/dashboard` },
     { href: `${base}/wbs`, labelKey: 'nav.wbsGantt', icon: ListTree, match: `${base}/wbs` },
@@ -63,11 +63,12 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, i
   // 설정 바로 아래에 두되 링크는 전역 경로로 보낸다. 슈퍼유저 전용이라 그 외에는 항목 자체를 숨긴다.
   if (showPortfolio) items.push({ href: '/portfolio', labelKey: 'nav.portfolio', icon: Briefcase, match: '/portfolio' })
   if (showUsage) items.push({ href: '/usage', labelKey: 'nav.usage', icon: BarChart3, match: '/usage' })
-  // 에이전트 관제도 전역 화면(프로젝트는 화면 안에서 고른다) — 슈퍼유저 전용. 종전엔 진입 링크가 없어 URL 직접 접근뿐이었다.
+  // 에이전트 좌석표 — 슈퍼유저 또는 관리자 프로젝트 1개 이상(canViewAgents). 층=프로젝트라 전역 경로.
+  if (showAgents) items.push({ href: '/agents', labelKey: 'nav.agents', icon: Armchair, match: '/agents' })
   return items
 }
 
-export function Sidebar({ projects, showUsage = false, showPortfolio = false }: { projects: SidebarProject[]; showUsage?: boolean; showPortfolio?: boolean }) {
+export function Sidebar({ projects, showUsage = false, showPortfolio = false, showAgents = false }: { projects: SidebarProject[]; showUsage?: boolean; showPortfolio?: boolean; showAgents?: boolean }) {
   const router = useRouter()
   const pathname = usePathname()
   const { t } = useLocale()
@@ -220,7 +221,7 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
           <div className="space-y-1">
             {menuProjectId ? (
               <>
-                {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio, projects.find(p => p.id === menuProjectId)?.isAdmin ?? false).map(item => {
+                {projectMenu(`/p/${menuProjectId}`, showUsage, showPortfolio, showAgents, projects.find(p => p.id === menuProjectId)?.isAdmin ?? false).map(item => {
                   const active = pathname === item.match || pathname.startsWith(item.match + '/')
                   const ItemIcon = item.icon
                   const label = t(item.labelKey)
@@ -274,6 +275,14 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
                     <Link href="/usage" aria-current={pathname === '/usage' ? 'page' : undefined}
                       className={`side-link ${pathname === '/usage' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
                       <BarChart3 className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.usage')}</span>}
+                    </Link>
+                  </Tooltip>
+                )}
+                {showAgents && (
+                  <Tooltip label={t('nav.agents')} side="right" disabled={!collapsed}>
+                    <Link href="/agents" aria-current={pathname === '/agents' ? 'page' : undefined}
+                      className={`side-link ${pathname === '/agents' ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
+                      <Armchair className="h-[18px] w-[18px] shrink-0" />{!collapsed && <span className="flex-1">{t('nav.agents')}</span>}
                     </Link>
                   </Tooltip>
                 )}
