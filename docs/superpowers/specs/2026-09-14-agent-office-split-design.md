@@ -45,7 +45,7 @@
 | `refreshSeatmap(scope, projectId)` | `canViewAgents(actor)` 그리고 `projectId` 가 있으면 `isProjectMember(actor, projectId)` | 액션. 둘 중 하나라도 아니면 `{ ok:false, error:'권한이 없습니다.' }` |
 | 로더 `getSeatmap(..., { projectId })` | 층 목록 = `seatmapProjectIds(actor)` 와 교집합. 슈퍼유저(null)는 `[projectId]`, 역할 목록에 없으면 `[]`(빈 좌석표) | `src/lib/data/agentSeatmap.ts` — 게이트를 통과했어도 로더가 다시 좁힌다(fail-closed) |
 
-`projectId` 액션 인자는 클라이언트 입력이다. UUID 형식(`/^[0-9a-f-]{36}$/i`)이 아니면 `{ ok:false, error:'프로젝트 값이 잘못됐습니다.' }`.
+`projectId` 액션 인자는 클라이언트 입력이다. UUID 형식(8-4-4-4-12 hex)이 아니면 `{ ok:false, error:'프로젝트 값이 잘못됐습니다.' }`.
 
 ## 4. 데이터
 
