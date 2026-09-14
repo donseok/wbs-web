@@ -1,7 +1,7 @@
 'use client'
 // 에이전트 허브 클라이언트 루트 — 상태 줄 → 위임 표 → 승인 큐. 폴링 없음(조작 화면).
-// 좌석 층은 /agents/office 가 그린다(2026-09-14 오피스 분리). 변경 뒤 refreshAgentHub 1회, 탭이 다시 보이면 1회.
-// 실패는 마지막 데이터 유지 + 상단 표시. 페이지 전체 refresh 금지(허브 스펙 §7).
+// 좌석 층은 /agents/office 가 그린다(2026-09-14 오피스 분리). 위임 체크는 묶음 저장 응답에 실린 허브로 교체하고(재조회 없음),
+// 그 밖의 변경 뒤 refreshAgentHub 1회, 탭이 다시 보이면 1회. 실패는 마지막 데이터 유지 + 상단 표시. 페이지 전체 refresh 금지(허브 스펙 §7).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentHub } from '@/lib/domain/agentHub'
 import { refreshAgentHub } from '@/app/actions/agentHub'
@@ -19,17 +19,18 @@ export function AgentHubView({ initial }: { initial: AgentHub }) {
   const [nowMs, setNowMs] = useState(() => Date.parse(initial.fetchedAt))
   const inflight = useRef(false)
 
+  const applyHub = useCallback((h: AgentHub) => { setHub(h); setNowMs(Date.parse(h.fetchedAt)); setError(null) }, [])
   const refresh = useCallback(async () => {
     if (inflight.current) return
     inflight.current = true
     try {
       const r = await refreshAgentHub(hub.projectId)
-      if (r.ok) { setHub(r.hub); setNowMs(Date.parse(r.hub.fetchedAt)); setError(null) }
+      if (r.ok) applyHub(r.hub)
       else setError({ at: new Date().toISOString(), message: r.error })
     } catch (e) {
       setError({ at: new Date().toISOString(), message: e instanceof Error ? e.message : String(e) })
     } finally { inflight.current = false }
-  }, [hub.projectId])
+  }, [hub.projectId, applyHub])
 
   useEffect(() => {
     const onVis = () => { if (document.visibilityState === 'visible') void refresh() }
@@ -50,7 +51,7 @@ export function AgentHubView({ initial }: { initial: AgentHub }) {
       <HubStatusBar projectId={hub.projectId} registered={hub.registered} enabled={hub.enabled} counters={hub.counters}
         watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
       <DelegationTable rows={hub.rows} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} filter={filter} onFilter={setFilter}
-        nowMs={nowMs} onChanged={refresh} />
+        nowMs={nowMs} onHub={applyHub} onChanged={refresh} />
       <ApprovalQueue queue={hub.queue} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
     </div>
   )

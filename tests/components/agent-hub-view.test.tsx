@@ -9,8 +9,8 @@ import type { AgentHub } from '@/lib/domain/agentHub'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-const refresh = vi.fn()
-vi.mock('@/app/actions/agentHub', () => ({ refreshAgentHub: (...a: unknown[]) => refresh(...(a as [])), setAgentDelegationBulk: vi.fn() }))
+const refresh = vi.fn(), apply = vi.fn()
+vi.mock('@/app/actions/agentHub', () => ({ refreshAgentHub: (...a: unknown[]) => refresh(...(a as [])), applyHubDelegations: (...a: unknown[]) => apply(...(a as [])) }))
 vi.mock('@/app/actions/wbsSpec', () => ({ setAgentDelegation: vi.fn(), updateAgentPrompt: vi.fn() }))
 vi.mock('@/app/actions/agentWork', () => ({ approveAgentCompletion: vi.fn(), rejectAgentCompletion: vi.fn(), setAgentProjectEnabled: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
@@ -27,7 +27,7 @@ const hub = (over: Partial<AgentHub> = {}): AgentHub => ({
 })
 
 let host: HTMLDivElement, root: Root
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); apply.mockReset(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('AgentHubView', () => {
@@ -49,6 +49,19 @@ describe('AgentHubView', () => {
     expect(host.querySelector('[data-hub-row="a1"]')).not.toBeNull()
     expect((host.querySelector('[data-hub-stamp]') as HTMLElement).textContent).toContain('갱신 실패')
     expect((host.querySelector('[data-hub-stamp]') as HTMLElement).textContent).toContain('재조회에 실패')
+  })
+  it('위임 체크 → 묶음 저장 응답의 허브로 교체하고 refreshAgentHub 는 부르지 않는다(2026-09-14 체크 지연 개선)', async () => {
+    apply.mockResolvedValueOnce({ ok: true, hub: hub({ rows: [], counters: { delegated: 0, ready: 0, working: 0, waiting: 0 } }), failed: [], warnings: [] })
+    act(() => root.render(<AgentHubView initial={hub()} />))
+    const box = host.querySelector('[data-hub-row="a1"] input[data-hub-toggle]') as HTMLInputElement
+    await act(async () => { box.click() })
+    expect(box.checked).toBe(false); expect(box.disabled).toBe(false)
+    expect(apply).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
+    expect(apply).toHaveBeenCalledWith('p1', [{ itemId: 'a1', delegated: false }])
+    expect(host.querySelector('[data-hub-row="a1"]')).toBeNull()
+    expect(host.querySelector('[data-hub-counter="working"]')?.textContent).toBe('0')
+    expect(refresh).not.toHaveBeenCalled()
   })
   it('갱신 성공은 새 데이터로 교체', async () => {
     refresh.mockResolvedValueOnce({ ok: true, hub: hub({ rows: [], counters: { delegated: 0, ready: 0, working: 0, waiting: 0 } }) })
