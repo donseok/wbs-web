@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { animFor, OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
-import { ageLabel, assembleSeatmap, type OrderRow, type SeatmapRows } from '@/lib/domain/seatmap'
+import { ageLabel, assembleSeatmap, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
@@ -16,6 +16,7 @@ const rows = (over: Partial<SeatmapRows> = {}): SeatmapRows => ({
   items: [{ id: 'i1', project_id: P1, code: 'TSK-04-02', name: '주문 상세', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1', tags: ['agent'] }],
   parents: [{ id: 'z1', project_id: P1, code: 'WP-04', name: '주문 관리', parent_id: null, actual_pct: null, assignee_member_id: null, tags: ['agent'] }],
   reviews: [], watchers: [], projects: [{ id: P1, name: 'mes-base' }, { id: P2, name: 'mes-runlog' }],
+  members: [], predecessors: [],
   ...over,
 })
 
@@ -183,5 +184,42 @@ describe('assembleSeatmap — 내 작업(scope=mine)', () => {
   it('내 것이 하나도 없으면 층이 없다', () => {
     const m = assembleSeatmap(rows({ items, orders }), NOW, { mine: { userId: 'nobody', memberIds: new Set() } })
     expect(m.floors).toEqual([])
+  })
+})
+
+describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
+  const ready = () => order({ status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null })
+  const w = (over: Partial<WatcherRow> = {}): WatcherRow => ({ id: 'w1', user_id: 'u1', project_id: null, agent: 'hong/mbp', host: null, slots: 2, busy: 0, until_label: null, last_seen_at: ago(60_000), ...over })
+  const seatOf = (m: ReturnType<typeof assembleSeatmap>) => m.floors[0].zones[0].seats[0]
+  it('READY 가 아니면 null', () => {
+    expect(seatOf(assembleSeatmap(rows(), NOW)).waitReason).toBeNull()
+  })
+  it('READY + 이 층을 보는 살아 있는 감시자 없음 → agent_off. TTL 지난 감시자와 다른 층만 보는 감시자는 세지 않는다', () => {
+    const m = assembleSeatmap(rows({ orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'] }],
+      watchers: [w({ last_seen_at: ago(71 * 60_000) }), w({ id: 'w2', project_id: P2 })] }), NOW)
+    expect(seatOf(m).waitReason?.kind).toBe('agent_off')
+  })
+  it('READY + 감시자(project_id null) 있음 → pickup', () => {
+    const m = assembleSeatmap(rows({ orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'] }], watchers: [w()] }), NOW)
+    expect(seatOf(m).waitReason?.kind).toBe('pickup')
+  })
+  it('선행은 같은 프로젝트의 external_ref 로만 맞춘다 — 다른 프로젝트의 같은 ref 는 무시(미충족 = dependency)', () => {
+    const base = { orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
+    const other = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P2, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'xx', order_approved: true }] }), NOW)
+    expect(seatOf(other).waitReason?.kind).toBe('dependency')
+    expect(seatOf(other).waitReason?.text).toContain('M/T1(프로젝트에 없는 항목)')
+    const same = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'xx', order_approved: false }] }), NOW)
+    expect(seatOf(same).waitReason?.kind).toBe('pickup')
+  })
+  it('담당자 항목은 담당자 로스터 행의 user_id 감시자만 자격 — 없으면 agent_off 에 담당자 이름, 로스터 행이 없으면 계정 미연결 취급', () => {
+    const items = [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: 'm1', tags: ['agent'] }]
+    const off = assembleSeatmap(rows({ orders: [ready()], items, members: [{ id: 'm1', project_id: P1, user_id: 'u7', name: '홍길동' }], watchers: [w()] }), NOW)
+    expect(off.floors[0].zones[0].seats[0].waitReason).toMatchObject({ kind: 'agent_off' })
+    expect(seatOf(off).waitReason?.text).toContain('담당자 홍길동')
+    const on = assembleSeatmap(rows({ orders: [ready()], items, members: [{ id: 'm1', project_id: P1, user_id: 'u1', name: '홍길동' }], watchers: [w()] }), NOW)
+    expect(seatOf(on).waitReason?.kind).toBe('pickup')
+    const missing = assembleSeatmap(rows({ orders: [ready()], items, members: [], watchers: [w()] }), NOW)
+    expect(seatOf(missing).waitReason?.text).toContain('(로스터에 없음)')
+    expect(seatOf(missing).waitReason?.text).toContain('계정이 로스터에 연결돼 있지 않아')
   })
 })

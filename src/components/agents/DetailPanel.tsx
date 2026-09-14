@@ -28,6 +28,9 @@ export function DetailPanel({ seat, floorName, zoneLabel, nowMs }: { seat: Seat 
       <h3>{seat.code}</h3>
       <p className={css.task}>{seat.name}</p>
       <span className={css.pill} data-state={seat.state}>{STATE_LABEL[seat.state]}</span>
+      {seat.state === 'READY' && seat.waitReason && (
+        <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}</p>
+      )}
       <ul className={css.ladder} aria-label="Phase">
         {LADDER.map((l, i) => (
           <li key={l.phase}

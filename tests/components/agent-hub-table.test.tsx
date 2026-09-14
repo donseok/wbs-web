@@ -15,7 +15,7 @@ import { DelegationTable } from '@/components/agent-hub/DelegationTable'
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const row = (over: Partial<HubRow>): HubRow => ({
   itemId: 'x', code: 'X', name: 'x', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: null, assigneeMine: false,
-  delegated: false, devWorkflow: false, order: null, prompt: null, canToggle: false, ...over,
+  delegated: false, devWorkflow: false, order: null, prompt: null, canToggle: false, unmetDepends: null, ...over,
 })
 const ROWS: HubRow[] = [
   row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
@@ -110,5 +110,20 @@ describe('DelegationTable', () => {
     await act(async () => { (host.querySelector('[data-hub-row-extra="a1"] [data-hub-prompt-save]') as HTMLButtonElement).click() })
     expect(updateAgentPrompt).toHaveBeenCalledWith('a1', '지시문')
     expect(onChanged).toHaveBeenCalled()
+  })
+})
+
+describe('DelegationTable — 선행 미완료', () => {
+  it('unmetDepends 가 있으면 상태 칸에 "선행 미완료: 목록" 을 그리고 title 에 전문을 둔다', () => {
+    const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true, unmetDepends: 'TSK-D-00 선행(현재 fp(기능 계획))' })]
+    render({ rows })
+    const el = host.querySelector('[data-hub-row="d1"] [data-hub-depends]') as HTMLElement
+    expect(el).not.toBeNull()
+    expect(el.textContent).toBe('선행 미완료: TSK-D-00 선행(현재 fp(기능 계획))')
+    expect(el.title).toContain('선행이 im(구현) 단계 이상이 되거나 그 주문이 승인돼야')
+  })
+  it('unmetDepends 가 null 이면 그리지 않는다', () => {
+    render()
+    expect(host.querySelector('[data-hub-depends]')).toBeNull()
   })
 })

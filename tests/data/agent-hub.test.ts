@@ -48,7 +48,8 @@ describe('fetchAgentHubRows', () => {
     expect(rows.agentProject).toEqual({ enabled: true })
     expect(rows.reports).toHaveLength(1)
     const c = (t: string) => calls.find(x => x.table === t)!
-    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage')
+    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends')
+    expect(rows.approvedItemIds).toEqual([]) // depends 가 없으면 선행 승인 조회도 없다
     expect(c('agent_work_orders').select).toContain('last_heartbeat_at')
     expect(c('agent_work_orders').filters.find(f => f[0] === 'or')?.[1][0]).toContain('status.in.(ready,claimed,reported)')
     expect(c('agent_work_reports').filters).toEqual(expect.arrayContaining([['in', ['work_order_id', ['o1']]], ['eq', ['kind', 'completion']]]))
@@ -88,5 +89,27 @@ describe('getAgentHub', () => {
     const { client } = admin({ projects: [{ data: [{ id: P1, name: 'x' }] }] })
     client.auth.admin.getUserById.mockResolvedValueOnce({ data: { user: null }, error: { message: 'nope' } } as never)
     await expect(getAgentHub(P1, { userId: 'u1', isAdmin: false }, NOW)).rejects.toThrow(/뷰어 조회 실패/)
+  })
+})
+
+describe('fetchAgentHubRows — 선행 승인 주문(approvedItemIds)', () => {
+  const base = { id: 'i1', project_id: P1, parent_id: null, code: 'T', name: 'n', sort_order: 0, milestone: false, dev_workflow: true, tags: ['agent'], assignee_member_id: null, agent_prompt: null, actual_pct: 0, stage: null, external_ref: null, depends: null }
+  it('위임 항목의 depends 가 가리키는 항목 id 로 approved 주문을 1회 더 조회한다', async () => {
+    const { client, calls } = admin({
+      wbs_items: [{ data: [{ ...base, depends: ['M/T0'] }, { ...base, id: 'i0', code: 'T0', tags: [], external_ref: 'M/T0', stage: 'fp' }] }],
+      agent_work_orders: [{ data: [] }, { data: [{ wbs_item_id: 'i0' }] }],
+    })
+    const rows = await fetchAgentHubRows(client as never, P1, NOW)
+    const orderCalls = calls.filter(x => x.table === 'agent_work_orders')
+    expect(orderCalls).toHaveLength(2)
+    expect(orderCalls[1].select).toBe('wbs_item_id')
+    expect(orderCalls[1].filters).toEqual([['in', ['wbs_item_id', ['i0']]], ['eq', ['status', 'approved']]])
+    expect(rows.approvedItemIds).toEqual(['i0'])
+  })
+  it('depends 가 가리키는 external_ref 가 프로젝트에 없으면 조회하지 않는다', async () => {
+    const { client, calls } = admin({ wbs_items: [{ data: [{ ...base, depends: ['M/T9'] }] }], agent_work_orders: [{ data: [] }] })
+    const rows = await fetchAgentHubRows(client as never, P1, NOW)
+    expect(calls.filter(x => x.table === 'agent_work_orders')).toHaveLength(1)
+    expect(rows.approvedItemIds).toEqual([])
   })
 })
