@@ -1,18 +1,27 @@
 // scripts/seatmap-load.mjs — 좌석표 폴링 부하 재현(스테이징 전용). 스펙 §6.
 // 사용법: node scripts/seatmap-load.mjs --viewers 20 --minutes 3 --interval 30
 // 열람자 1명 = interval 초마다 좌석표 조회 6개(주문·항목·부모·보고·watcher·프로젝트)를 주문·항목 조회 뒤 나머지 넷은 동시에 보낸다.
+// 키는 .env.local(Supabase) 과 .env(D'Flow) 에서 읽는다.
 import { readFileSync } from 'node:fs'
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? Number(process.argv[i + 1]) : d }
 const VIEWERS = arg('viewers', 20), MINUTES = arg('minutes', 3), INTERVAL = arg('interval', 30)
 const REQUEST_TIMEOUT_MS = 10_000
 
-let env
-try {
-  env = Object.fromEntries(readFileSync('.env', 'utf8').split('\n').filter(l => l.includes('=') && !l.startsWith('#')).map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()] }))
-} catch {
-  console.error('.env 가 없다 — 워크트리 루트에서 실행하세요'); process.exit(2)
+function loadEnv() {
+  const parseFile = (path) => {
+    try {
+      return Object.fromEntries(readFileSync(path, 'utf8').split('\n').filter(l => l.includes('=') && !l.startsWith('#')).map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()] }))
+    } catch {
+      return {}
+    }
+  }
+  const env = { ...parseFile('.env'), ...parseFile('.env.local') }
+  if (Object.keys(env).length === 0) { console.error('.env.local 또는 .env 가 없다 — 워크트리 루트에서 실행하세요'); process.exit(2) }
+  return env
 }
+
+const env = loadEnv()
 const URL = env.NEXT_PUBLIC_SUPABASE_URL, KEY = env.SUPABASE_SERVICE_ROLE_KEY
 if (!URL || !KEY) { console.error('.env 에 NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 가 없다'); process.exit(2) }
 if (URL.includes('rglfgrwwwwdqejohdnty')) { console.error('운영 프로젝트를 가리키고 있다 — 스테이징에서만 돌린다(npm run env:staging)'); process.exit(2) }
