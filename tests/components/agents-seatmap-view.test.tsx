@@ -102,3 +102,25 @@ describe('SeatmapView — 내 작업 / 전체 전환', () => {
     expect(host.textContent).toContain('배정된 에이전트 작업이 없습니다')
   })
 })
+
+describe('SeatmapView — 프로젝트 오피스(projectId)', () => {
+  it('재조회에 projectId 를 넘기고 전체 오피스 링크가 보인다', async () => {
+    refresh.mockResolvedValue({ ok: true, seatmap: map() })
+    act(() => root.render(<SeatmapView initial={map()} pollMs={1000} projectId="p1" />))
+    expect((host.querySelector('[data-office-all-link]') as HTMLAnchorElement).getAttribute('href')).toBe('/agents')
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(refresh).toHaveBeenCalledWith('mine', 'p1')
+  })
+  it('projectId 없으면 링크가 없고 재조회는 범위만 넘긴다', async () => {
+    refresh.mockResolvedValue({ ok: true, seatmap: map() })
+    act(() => root.render(<SeatmapView initial={map()} pollMs={1000} />))
+    expect(host.querySelector('[data-office-all-link]')).toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(refresh).toHaveBeenCalledWith('mine')
+  })
+  it('층이 비면 범위와 무관하게 프로젝트 문구 하나', () => {
+    act(() => root.render(<SeatmapView initial={map({ floors: [], attention: [], counters: { active: 0, standby: 0, idle: 0, offline: 0 }, scope: 'all' })} projectId="p1" />))
+    expect(host.textContent).toContain('이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다.')
+    expect(host.textContent).not.toContain('표시할 주문이 없습니다')
+  })
+})

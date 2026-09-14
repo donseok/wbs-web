@@ -28,6 +28,8 @@
 .counter span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--sm-dot, #B7BFBA); }
 .counter em { grid-column: 2; font-style: normal; font-size: 12px; }
 .topRight { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+.allLink { font-size: 12px; color: var(--sm-band-ink); text-decoration: underline; text-underline-offset: 2px; }
+.allLink:hover { opacity: .85; }
 /* 표시 범위 전환(내 작업 | 전체) — 띠 위의 세그먼트 버튼 */
 .scope { display: inline-flex; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; overflow: hidden; }
 .scope button { font: inherit; font-size: 12px; line-height: 1; padding: 6px 12px; background: transparent; color: var(--sm-band-muted); border: 0; cursor: pointer; }
