@@ -9,6 +9,13 @@ const read = (rel: string) => readFileSync(join(SKILL_DIR, rel), 'utf8')
 
 const PLACEHOLDERS = ['{TSK}', '{ID8}', '{AGENT_ID}', '{MAIN_CHECKOUT}', '{BACKEND}', '{MODEL_FLAG}', '{ANSWER}']
 
+describe('dflow-work dflow.sh .env 자동 로드', () => {
+  it('환경에 PAT 가 없으면 DFLOW_ENV_FILE(기본 ./.env) 를 스스로 읽는다', () => {
+    const sh = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
+    expect(sh).toContain('DFLOW_ENV_FILE:-./.env')
+  })
+})
+
 describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
   const p = () => read('references/worker-prompt.md')
 

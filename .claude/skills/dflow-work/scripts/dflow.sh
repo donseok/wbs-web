@@ -42,6 +42,11 @@ base() {
   [ -n "${DFLOW_API_BASE:-}" ] || die 2 "DFLOW_API_BASE 미설정 — .env 를 확인하세요."
   printf '%s' "${DFLOW_API_BASE%/}"
 }
+# .env 자동 로드: 환경에 PAT 가 없을 때만, 파일이 있을 때만. 이미 export 된 값은 건드리지 않는다.
+if [ -z "${DFLOW_PATS:-}${DFLOW_PAT:-}" ]; then
+  _envf="${DFLOW_ENV_FILE:-./.env}"
+  if [ -f "$_envf" ]; then set -a; . "$_envf"; set +a; fi
+fi
 # DFLOW_PATS(쉼표 구분) 우선, 없으면 DFLOW_PAT 단일. 토큰 문자열은 변수로만 다룬다.
 tokens() {
   [ -n "${DFLOW_PATS:-}" ] || [ -n "${DFLOW_PAT:-}" ] || die 2 "DFLOW_PATS 또는 DFLOW_PAT 미설정"
