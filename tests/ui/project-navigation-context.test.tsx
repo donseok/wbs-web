@@ -103,6 +103,7 @@ describe('ProjectNavigationContext', () => {
     '/account',
     '/usage',
     '/portfolio',
+    '/agents',
     '/admin/teams',
     '/admin/llm-config',
   ])('%s에서는 마지막 프로젝트 메뉴를 유지한다', async pathname => {
