@@ -13,8 +13,8 @@ const order = (over: Partial<OrderRow>): OrderRow => ({
 })
 const rows = (over: Partial<SeatmapRows> = {}): SeatmapRows => ({
   orders: [order({})],
-  items: [{ id: 'i1', project_id: P1, code: 'TSK-04-02', name: '주문 상세', parent_id: 'z1', actual_pct: 25 }],
-  parents: [{ id: 'z1', project_id: P1, code: 'WP-04', name: '주문 관리', parent_id: null, actual_pct: null }],
+  items: [{ id: 'i1', project_id: P1, code: 'TSK-04-02', name: '주문 상세', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1' }],
+  parents: [{ id: 'z1', project_id: P1, code: 'WP-04', name: '주문 관리', parent_id: null, actual_pct: null, assignee_member_id: null }],
   reviews: [], watchers: [], projects: [{ id: P1, name: 'mes-base' }, { id: P2, name: 'mes-runlog' }],
   ...over,
 })
@@ -35,7 +35,7 @@ describe('assembleSeatmap — 층·구역·책상', () => {
   it('부모가 없는 항목은 "구역 없음", 항목이 지워진 주문(wbs_item_id null)은 "항목 없음" 구역에 놓인다', () => {
     const m = assembleSeatmap(rows({
       orders: [order({ id: 'a'.repeat(8) + '-1', wbs_item_id: 'i2' }), order({ id: 'b'.repeat(8) + '-2', wbs_item_id: null })],
-      items: [{ id: 'i2', project_id: P1, code: 'TSK-99', name: '고아', parent_id: null, actual_pct: 0 }],
+      items: [{ id: 'i2', project_id: P1, code: 'TSK-99', name: '고아', parent_id: null, actual_pct: 0, assignee_member_id: null }],
       parents: [],
     }), NOW)
     const keys = m.floors[0].zones.map(z => z.name)
@@ -46,8 +46,8 @@ describe('assembleSeatmap — 층·구역·책상', () => {
     const m = assembleSeatmap(rows({
       orders: [order({ id: 'c'.repeat(8) + '-3', wbs_item_id: 'i3' }), order({})],
       items: [
-        { id: 'i3', project_id: P1, code: 'TSK-04-01', name: '먼저', parent_id: 'z1', actual_pct: 0 },
-        { id: 'i1', project_id: P1, code: 'TSK-04-02', name: '나중', parent_id: 'z1', actual_pct: 25 },
+        { id: 'i3', project_id: P1, code: 'TSK-04-01', name: '먼저', parent_id: 'z1', actual_pct: 0, assignee_member_id: null },
+        { id: 'i1', project_id: P1, code: 'TSK-04-02', name: '나중', parent_id: 'z1', actual_pct: 25, assignee_member_id: null },
       ],
     }), NOW)
     expect(m.floors[0].zones[0].seats.map(s => s.code)).toEqual(['TSK-04-01', 'TSK-04-02'])
@@ -136,5 +136,38 @@ describe('ageLabel', () => {
     expect(ageLabel(ago(5 * 60_000), NOW)).toBe('5분 전')
     expect(ageLabel(ago(2 * 3600_000 + 3 * 60_000), NOW)).toBe('2시간 3분 전')
     expect(ageLabel(null, NOW)).toBe('—')
+  })
+})
+
+describe('assembleSeatmap — 내 작업(scope=mine)', () => {
+  const items = [
+    { id: 'i1', project_id: P1, code: 'TSK-04-01', name: '내 담당', parent_id: 'z1', actual_pct: 0, assignee_member_id: 'm1' },
+    { id: 'i2', project_id: P1, code: 'TSK-04-02', name: '남 담당·내 에이전트', parent_id: 'z1', actual_pct: 10, assignee_member_id: 'm2' },
+    { id: 'i3', project_id: P1, code: 'TSK-04-03', name: '남 담당·남 에이전트', parent_id: 'z1', actual_pct: 10, assignee_member_id: 'm2' },
+    { id: 'i4', project_id: P1, code: 'TSK-04-04', name: '남 담당 완료', parent_id: 'z1', actual_pct: 100, assignee_member_id: 'm2' },
+  ]
+  const orders = [
+    order({ id: 'o1', wbs_item_id: 'i1', status: 'ready', claimed_by: null, claimed_by_user_id: null }),
+    order({ id: 'o2', wbs_item_id: 'i2', claimed_by_user_id: 'u1' }),
+    order({ id: 'o3', wbs_item_id: 'i3', claimed_by_user_id: 'u9' }),
+    order({ id: 'o4', wbs_item_id: 'i4', status: 'approved', claimed_by_user_id: 'u9' }),
+  ]
+  it('담당자가 내 로스터 행이거나 내 계정이 잡은 주문만 남기고, 완료 수도 그 기준으로 센다', () => {
+    const m = assembleSeatmap(rows({ items, orders }), NOW, { mine: { userId: 'u1', memberIds: new Set(['m1']) } })
+    expect(m.scope).toBe('mine')
+    const codes = m.floors.flatMap(f => f.zones.flatMap(z => z.seats.map(s => s.code)))
+    expect(codes).toEqual(['TSK-04-01', 'TSK-04-02'])
+    expect(m.floors[0].doneCount).toBe(0)
+    expect(m.counters.offline + m.counters.active + m.counters.idle).toBe(2)
+  })
+  it('옵션이 없으면 전체(scope=all)', () => {
+    const m = assembleSeatmap(rows({ items, orders }), NOW)
+    expect(m.scope).toBe('all')
+    expect(m.floors[0].seatCount).toBe(3)
+    expect(m.floors[0].doneCount).toBe(1)
+  })
+  it('내 것이 하나도 없으면 층이 없다', () => {
+    const m = assembleSeatmap(rows({ items, orders }), NOW, { mine: { userId: 'nobody', memberIds: new Set() } })
+    expect(m.floors).toEqual([])
   })
 })

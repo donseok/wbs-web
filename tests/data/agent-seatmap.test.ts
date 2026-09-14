@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DONE_WINDOW_MS, fetchSeatmapRows } from '@/lib/data/agentSeatmap'
+import { DONE_WINDOW_MS, fetchMyMemberIds, fetchSeatmapRows } from '@/lib/data/agentSeatmap'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 type Resp = { data?: unknown; error?: { message: string } | null }
@@ -25,7 +25,7 @@ describe('fetchSeatmapRows', () => {
     const calls: Record<string, unknown[][]> = {}
     const a = admin({
       agent_work_orders: [{ data: [O] }],
-      wbs_items: [{ data: [{ id: 'i1', project_id: 'p1', code: 'T', name: 'n', parent_id: 'z1', actual_pct: 25 }] }, { data: [{ id: 'z1', project_id: 'p1', code: 'Z', name: 'zone', parent_id: null, actual_pct: null }] }],
+      wbs_items: [{ data: [{ id: 'i1', project_id: 'p1', code: 'T', name: 'n', parent_id: 'z1', actual_pct: 25, assignee_member_id: 'm1' }] }, { data: [{ id: 'z1', project_id: 'p1', code: 'Z', name: 'zone', parent_id: null, actual_pct: null, assignee_member_id: null }] }],
       agent_work_reports: [{ data: [] }],
       agent_watchers: [{ data: [] }],
       projects: [{ data: [{ id: 'p1', name: 'P' }] }],
@@ -34,6 +34,8 @@ describe('fetchSeatmapRows', () => {
     expect(rows.orders).toHaveLength(1)
     expect(rows.items[0].id).toBe('i1'); expect(rows.parents[0].id).toBe('z1')
     expect(rows.projects[0].name).toBe('P')
+    // 담당자 판정에 쓰는 열을 항목 조회에 포함한다
+    expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('assignee_member_id')
     // 프로젝트 필터가 걸렸다
     expect(calls['agent_work_orders.in']?.[0]).toEqual(['project_id', ['p1']])
     // DONE 은 7일 창 — approved 는 updated_at >= now-7d 만
@@ -56,5 +58,24 @@ describe('fetchSeatmapRows', () => {
   it('어느 조회든 error 면 throw — 데이터 없음으로 위장하지 않는다', async () => {
     await expect(fetchSeatmapRows(admin({ agent_work_orders: [{ data: null, error: { message: 'boom' } }] }), ['p1'], NOW))
       .rejects.toThrow(/boom/)
+  })
+})
+
+describe('fetchMyMemberIds', () => {
+  it('내 user_id 또는 이메일(대소문자 무시)과 맞는 로스터 행 id 를 프로젝트 범위 안에서 모은다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const a = admin({ project_members: [{ data: [{ id: 'm1', user_id: 'u1', email: 'A@x.com' }, { id: 'm2', user_id: null, email: 'a@X.com' }, { id: 'm3', user_id: 'u2', email: 'b@x.com' }] }] }, calls)
+    const ids = await fetchMyMemberIds(a, { userId: 'u1', userEmail: 'a@x.com' }, ['p1'])
+    expect(ids).toEqual(['m1', 'm2'])
+    expect(calls['project_members.in']?.[0]).toEqual(['project_id', ['p1']])
+  })
+  it('projectIds null(슈퍼유저)이면 프로젝트 필터 없이, 이메일이 없으면 user_id 만으로 맞춘다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const a = admin({ project_members: [{ data: [{ id: 'm1', user_id: 'u1', email: 'a@x.com' }, { id: 'm2', user_id: null, email: 'a@x.com' }] }] }, calls)
+    expect(await fetchMyMemberIds(a, { userId: 'u1', userEmail: null }, null)).toEqual(['m1'])
+    expect(calls['project_members.in']).toBeUndefined()
+  })
+  it('조회 실패는 throw', async () => {
+    await expect(fetchMyMemberIds(admin({ project_members: [{ data: null, error: { message: 'roster boom' } }] }), { userId: 'u1', userEmail: null }, ['p1'])).rejects.toThrow(/roster boom/)
   })
 })

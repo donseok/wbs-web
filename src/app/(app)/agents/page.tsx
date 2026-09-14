@@ -12,7 +12,7 @@ export default async function AgentsPage() {
   const actor = await getActorForView()
   if (!actor || !canViewAgents(actor)) redirect('/projects')
   // 조회 실패는 throw → Next 의 error 경계가 받는다. 빈 좌석표로 위장하지 않는다.
-  const seatmap = await getSeatmap(actor)
+  const seatmap = await getSeatmap(actor) // 기본은 내 작업(scope=mine); 화면에서 전체로 바꿀 수 있다
   return (
     <div className="space-y-4">
       <PageHero eyebrow="OPERATIONS" title="에이전트 좌석표" />

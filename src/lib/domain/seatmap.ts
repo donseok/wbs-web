@@ -10,7 +10,7 @@ export interface OrderRow {
   created_at: string; updated_at: string
   last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent: string | null; heartbeat_note: string | null
 }
-export interface ItemRow { id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null }
+export interface ItemRow { id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null }
 export interface ReviewRow { work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string }
 export interface WatcherRow {
   id: string; user_id: string; project_id: string | null; agent: string; host: string | null
@@ -37,7 +37,14 @@ export interface Seatmap {
   counters: { active: number; standby: number; idle: number; offline: number }
   attention: Attention[]
   fetchedAt: string
+  /** mine = 담당자가 나이거나 내 계정의 에이전트가 잡은 주문만. all = 권한 범위 전체. */
+  scope: SeatmapScope
 }
+
+export type SeatmapScope = 'mine' | 'all'
+export const SEATMAP_SCOPES: readonly SeatmapScope[] = ['mine', 'all']
+/** 내 작업 판정 재료 — memberIds 는 접근 가능 프로젝트 로스터에서 나(user_id 링크 또는 이메일)와 맞는 행. */
+export interface MineFilter { userId: string; memberIds: ReadonlySet<string> }
 
 const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
 const ATTENTION_ORDER: readonly SeatState[] = ['BLOCKED', 'STALE', 'OFFLINE', 'REJECTED']
@@ -91,7 +98,14 @@ function attentionWhy(s: Seat, nowMs: number): string {
   return s.reviewNote ? `반려 · ${s.reviewNote}` : '반려 · 재작업'
 }
 
-export function assembleSeatmap(rows: SeatmapRows, nowMs: number): Seatmap {
+export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?: MineFilter } = {}): Seatmap {
+  const mine = opts.mine
+  const itemById0 = new Map(rows.items.map(i => [i.id, i]))
+  // 내 작업: 항목 담당자가 내 로스터 행이거나, 내 계정이 잡은 주문. 조립 앞에서 걸러 층·카운터·확인 필요가 모두 같은 범위를 본다.
+  const orders = mine
+    ? rows.orders.filter(o => o.claimed_by_user_id === mine.userId || (o.wbs_item_id != null && mine.memberIds.has(itemById0.get(o.wbs_item_id)?.assignee_member_id ?? '')))
+    : rows.orders
+  rows = { ...rows, orders }
   const itemById = new Map(rows.items.map(i => [i.id, i]))
   const parentById = new Map(rows.parents.map(p => [p.id, p]))
   const reviewByOrder = latestReviewByOrder(rows.reviews)
@@ -149,5 +163,5 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number): Seatmap {
   }
   attention.sort((a, b) => ATTENTION_ORDER.indexOf(a.state) - ATTENTION_ORDER.indexOf(b.state))
 
-  return { floors, counters, attention, fetchedAt: new Date(nowMs).toISOString() }
+  return { floors, counters, attention, fetchedAt: new Date(nowMs).toISOString(), scope: mine ? 'mine' : 'all' }
 }
