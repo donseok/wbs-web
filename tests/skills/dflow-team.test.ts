@@ -102,6 +102,15 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
   it('기본 브랜치로 switch 하지 않는다(detach 만 한다)', () => {
     expect(p()).not.toMatch(/switch (main|<기본브랜치>|origin\/main)(\s|$)/m)
   })
+
+  it('blocked 직전에 좌석표 heartbeat 를 1회 보내고 실패를 무시한다(가상오피스 v1 계약)', () => {
+    const line = p()
+      .split('\n')
+      .find((l) => l.includes('dflow.sh heartbeat {ID8} --phase blocked --note'))
+    expect(line, 'heartbeat 줄이 있어야 한다').toBeTruthy()
+    expect(line!.trimEnd().endsWith('|| :')).toBe(true)
+    expect(p()).toContain('`.result` 를 쓰기\n전에 좌석표에 손 든 상태를 알린다')
+  })
 })
 
 describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
@@ -238,7 +247,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   it('poll 은 docs/tasks 가 없는 빈 디렉터리를 cwd 로, DFLOW_ENV_FILE 로 .env 를 지정해 띄운다(스펙 §4-5 명령)', () => {
     expect(s()).toContain('mkdir -p "$(git rev-parse --git-path dflow-team-poll)"')
     expect(s()).toContain('POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)')
-    expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" \\')
+    expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" DFLOW_WATCH=0 \\')
     expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until <HH:MM> --interval 300 \\')
     expect(s()).toContain('[--exclude <id8,id8>] [--exclude-temp <id8,id8>] )')
   })
@@ -349,5 +358,28 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
     expect(s()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
     expect(s()).toContain('**잠금 상실 마감**')
+  })
+
+  it('좌석표 v1 계약: 팀장은 watch 를 시작·매 기상·마감에서 보내고 poll 은 DFLOW_WATCH=0 으로 watch 를 끈다', () => {
+    const t = s()
+    const watchCalls = t.match(/dflow\.sh watch --agent/g) ?? []
+    expect(watchCalls.length).toBeGreaterThanOrEqual(3)
+    const stopCalls = [...t.matchAll(/dflow\.sh watch --agent[\s\S]{0,200}?--stop\b/g)]
+    expect(stopCalls.length).toBeGreaterThanOrEqual(1)
+    const slotsCalls = [...t.matchAll(/dflow\.sh watch --agent[\s\S]{0,200}?--slots\b/g)]
+    expect(slotsCalls.length).toBeGreaterThanOrEqual(2)
+    // DFLOW_ENV_FILE 과 같은 줄에 DFLOW_WATCH=0 이 있다
+    expect(t).toMatch(/DFLOW_ENV_FILE="<MAIN>\/\.env" DFLOW_WATCH=0 \\/)
+  })
+
+  it('「좌석표 연동」 절은 70분 STANDBY 계약을 확정하고 team.start 로 대신한다는 옛 문장이 없다', () => {
+    const t = s()
+    const start = t.indexOf('## 좌석표 연동')
+    const end = t.indexOf('## 금지')
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const section = t.slice(start, end)
+    expect(section).toContain('70분')
+    expect(section).not.toContain('그 전에는 `team.start`')
   })
 })
