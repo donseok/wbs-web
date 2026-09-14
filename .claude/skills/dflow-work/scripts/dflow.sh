@@ -233,7 +233,7 @@ cmd_claim() {
   # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
   _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
   check_depends_local "$(printf '%s' "$_detail" | jq -c '.depends_evidence // []')"
-  _label="claude-$(hostname -s)"  # 라벨 결정론(§3) — 무작위·타임스탬프 금지
+  _label="claude-$(host_short)"  # 라벨 결정론(§3) — 무작위·타임스탬프 금지
   _resp=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/claim" \
     "$(jq -nc --arg a "$_label" '{agent:$a}')") || exit $?
   write_spec_cache "$_resp"
@@ -244,7 +244,7 @@ cmd_progress() {
   _id=$(resolve_ref "$1"); _pct="$2"; _sum="$3"
   [ "$_pct" -ge 0 ] 2>/dev/null && [ "$_pct" -le 99 ] || die 2 "pct 는 0~99 — 완료는 done 을 쓰세요."
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
-    "$(jq -nc --arg a "claude-$(hostname -s)" --argjson p "$_pct" --arg s "$_sum" \
+    "$(jq -nc --arg a "claude-$(host_short)" --argjson p "$_pct" --arg s "$_sum" \
        '{agent:$a, kind:"progress", percent:$p, summary:$s}')") || exit $?
   printf '%s' "$_body" | jq -r '.status'
 }
@@ -252,15 +252,16 @@ cmd_progress() {
 # ---- 좌석표 신호(v1 스펙 §4-1) --------------------------------------------
 # 슬러그: 소문자, [a-z0-9-] 밖은 '-' (팀장 스펙 §9-1 과 같은 규칙)
 slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g'; }
+host_short() { hostname 2>/dev/null | cut -d. -f1; }   # hostname -s 는 Windows(Git Bash)의 hostname.exe 에 없다
 # 기본 AGENT_ID: 워크트리 루트 .dflow-agent 첫 줄 → 없으면 claude-<host>
 agent_id_default() {
   _top=$(${DFLOW_GIT:-git} rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")
-  if [ -f "$_top/.dflow-agent" ]; then head -n 1 "$_top/.dflow-agent" | tr -d '\r'; else printf 'claude-%s' "$(slug "$(hostname -s)")"; fi
+  if [ -f "$_top/.dflow-agent" ]; then head -n 1 "$_top/.dflow-agent" | tr -d '\r'; else printf 'claude-%s' "$(slug "$(host_short)")"; fi
 }
 # 기본 watcher id: <신원>/<host>/poll — 신원은 /me 의 user_email 로컬 파트
 watcher_id_default() {
   _email=$(profile_email "$TOK") || die 3 "신원 확인 실패(/me)"
-  printf '%s/%s/poll' "$(slug "${_email%%@*}")" "$(slug "$(hostname -s)")"
+  printf '%s/%s/poll' "$(slug "${_email%%@*}")" "$(slug "$(host_short)")"
 }
 
 cmd_heartbeat() {
@@ -297,7 +298,7 @@ cmd_watch() {
   done
   if [ -z "$_agent" ]; then _agent=$(watcher_id_default) || exit $?; fi
   [ -n "$_agent" ] || die 3 "watcher 신원을 정하지 못했다(--agent 를 주거나 /me 확인)"
-  _host=$(slug "$(hostname -s)")
+  _host=$(slug "$(host_short)")
   if [ -n "$_stop" ]; then
     _json=$(jq -nc --arg a "$_agent" '{agent:$a, stop:true}')
   else
@@ -336,7 +337,7 @@ cmd_done() {
        + (if $p != "" then {pr_url:$p} else {} end)') || die 2 "증적 JSON 생성 실패"
   fi
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/report" \
-    "$(jq -nc --arg a "claude-$(hostname -s)" --arg s "$_sum" \
+    "$(jq -nc --arg a "claude-$(host_short)" --arg s "$_sum" \
        --argjson l "$_links" --argjson e "$_evidence" \
        '{agent:$a, kind:"completion", percent:100, summary:$s, links:$l, evidence:$e}')") || exit $?
   printf '%s' "$_body" | jq -r '"reported(승인 대기) — PM 승인은 웹에서"'
@@ -345,7 +346,7 @@ cmd_done() {
 cmd_release() {
   _id=$(resolve_ref "$1")
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/release" \
-    "$(jq -nc --arg a "claude-$(hostname -s)" '{agent:$a}')") || exit $?
+    "$(jq -nc --arg a "claude-$(host_short)" '{agent:$a}')") || exit $?
   printf '%s' "$_body" | jq -r '.status'
 }
 
