@@ -281,7 +281,8 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 | 승인됨(approved) | 승인 취소(담당자도) | `unapproveAgentCompletion` | reported 복귀, 실적·단계(xx→im) 되감기 |
 | | 재작업 요청(사유, 담당자도) = 완료 취소 | `requestAgentRework` | claimed 복귀 + reject 기록, 실적·단계 되감기 |
 | 작업 중·무응답·끊김·결정 대기(claimed) | 회수(관리자) | 새 `releaseOrderByAdmin` | ready 복귀(CAS), 점유·heartbeat 흔적 제거, `work.released` 알림. 러너는 다음 heartbeat·report 에서 409 |
-| 대기(ready)·없음 | (없음) | 위임 체크가 발행·취소 | |
+| 대기(ready) | 취소(담당자도) | 위임 해제 `applyDelegation(false)` | 태그 제거 + ready·claimed 주문 취소(§11-2). 위임 체크를 끄는 것과 같다 |
+| 없음 | (없음) | 위임 체크가 발행 | |
 
 **단계 열.** 관리자·리프에는 select(미지정/분석/기능 계획/구현 계획/구현/완료), 그 밖에는 글자. 고르면 즉시 `{kind:'stage'}` 1건.
 규칙은 `setWbsStage` 그대로: 하위가 있으면 거부, **진행 중 주문(claimed/reported)이 있으면 구현(im)·완료(xx) 직행 거부**("승인 버튼으로") —
@@ -300,3 +301,19 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 - 서버: `loadOrderForReview(orderId)`(신설, `agentWork.ts`) — 그 주문의 `wbs_item` 으로 `requireDelegationRight`(관리자 또는 담당자 본인)를 물어 재사용한다. 승인은 종전대로 `loadOrderForAdmin`. WBS 항목이 삭제된 주문은 담당자를 특정할 수 없어 관리자만. `runHubProcessOp` 은 바깥 가드를 `requireProjectMember` 로 낮추고 회수만 `isAdmin` 으로 다시 막는다.
 - 화면: 조정 버튼에 `who`('admin' | 'review'). 표는 담당자 본인 행에 반려·승인 취소·재작업만, 승인 큐 카드는 담당자에게 반려만(승인 버튼 숨김). 단계 select 는 관리자만. `HubQueueEntry.assigneeMine` 추가.
 - 테스트: `tests/actions/agent-work-actions.test.ts`(반려·승인 취소·재작업은 requireDelegationRight, 삭제 주문은 관리자, 승인은 관리자만), `tests/actions/agent-hub-actions.test.ts`(멤버 회수 차단·멤버 반려 통과·isAdmin 전달), `tests/components/agent-hub-table.test.tsx`·`agent-hub-queue.test.tsx`(담당자 노출), `tests/domain/agent-hub.test.ts`(queue assigneeMine).
+
+### 11-2. READY 취소 버튼 (2026-09-15, 사용자 지적 "취소가 어디 있는지 안 보인다")
+
+위임 표에서 취소는 위임 체크를 끄는 것뿐이라 담당자가 찾지 못했다(같은 지적이 되풀이됐다). 아직 착수 전(READY) 위임 항목의 **조정 열에 「취소」 버튼**을 두어 발견 가능하게 한다. 동작은 위임 해제와 정확히 같은 길이다 — `applyDelegation(false)`(agent 태그 제거 + ready·claimed 주문 취소, reported 는 보존+경고). 새 서버 op 가 아니라 위임 토글 경로·권한(`canToggle`=관리자 또는 담당자 본인)·debounce·낙관을 그대로 재사용한다.
+
+- 화면(`DelegationTable`): 조건 `canToggle && checked && (주문 없음 또는 주문 status==='ready')`. `data-hub-op` 이 아닌 별도 `data-hub-cancel`(runHubProcessOp op 가 아니므로). reported·approved 는 리뷰 버튼, claimed 는 회수(관리자) 그대로 — 취소는 READY 에만.
+- 테스트: `tests/components/agent-hub-table.test.tsx` — 담당자 본인 READY 에만 노출(작업 중·승인 대기·미위임·남의 담당 제외), 관리자도, 클릭 → 낙관 즉시 반영 + 지연 뒤 `applyHubDelegations(delegated:false)` 1회.
+
+### 11-3. 이름 클릭 → WBS 상세 패널 (2026-09-15, 사용자 요구 "이름 클릭하면 WBS 오른쪽 프로퍼티 창을, WBS 페이지 이동 없이")
+
+위임 표의 **이름을 누르면** WBS 페이지로 이동하지 않고 허브 화면 위에 `RowDetailPanel`(WBS 상세 패널)을 그대로 띄운다. 패널은 자립형 고정 드로어라 감싸는 컨테이너가 필요 없다.
+
+- 데이터: 패널이 요구하는 계산된 WBS(`ComputedItem`·의존·일정)를 서버 페이지(`agents/page.tsx`)가 허브와 **병렬 로드**(`getComputedWbs`·`getProjectConfig`·`getProjectMembers`)해 `AgentHubView` 로 넘긴다. `AgentHubView` 가 `selectedId` 상태를 들고 `computeDependencySchedule` 로 일정을 만든다. WBS 페이지(`WbsGanttSheet`)와 같은 계산·같은 순수 함수 재사용, 새 도메인 로직 없음.
+- 권한: `editable = isAdmin`, `canAttach`·`canEditDeliverable` 는 WBS 와 같은 순수 함수로 미러링 — 멤버는 읽기 중심, 관리자는 전체 편집. UI 노출과 authz 가 같은 경계.
+- 갱신: 패널 편집은 그 자신의 `router.refresh`(WBS 컴포넌트, §7 "범위 밖" 계열)로 패널 데이터를 새로 받고, 닫을 때 `AgentHubView` 가 허브만 1회 재조회해 표의 낡은 행을 맞춘다. 허브 자체 흐름은 여전히 `router.refresh` 0회(§7 가드는 agent-hub 소유 컴포넌트만 훑는다).
+- 테스트: `tests/components/agent-hub-table.test.tsx`(이름 클릭 → onSelect(itemId), onSelect 없으면 텍스트), `tests/components/agent-hub-view.test.tsx`(이름 클릭 → 패널 열림, 닫기 → 닫힘 + 허브 재조회 1회).
