@@ -177,6 +177,7 @@ dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id
 - 페이지 `src/app/(app)/agents/page.tsx`, `dynamic = 'force-dynamic'`. 게이트는 `src/lib/authz/agentsAccess.ts` 의 `canViewAgents(actor)` = 슈퍼유저 또는 `isAnyProjectAdmin`. 아니면 `redirect('/projects')`(usage 와 같은 방식). 층 목록은 `seatmapProjectIds(actor)`: 슈퍼유저는 전체, 관리자는 `adminProjectIds(actor)`.
 - 조회 `src/lib/data/agentSeatmap.ts`(서버 전용, `createAdminClient`). 프로젝트 필터는 항상 위 목록으로 건다. 요청 6개를 `Promise.all` 로: ① 주문(`status in ready,claimed,reported` 전부 + `approved` 는 최근 7일) ② 주문 항목(`wbs_items` id, code, name, parent_id, actual_pct) ③ 부모 항목(구역) ④ claimed 주문의 마지막 completion 보고(`agent_work_reports` kind=completion, `review_action`, `created_at`) ⑤ `agent_watchers` 70분 이내. 프로젝트 이름은 ⑥ `projects`. 어느 하나라도 실패하면 throw 한다(데이터 없음으로 위장하지 않는다).
 - 조립은 순수 함수 `src/lib/domain/seatmap.ts` 의 `assembleSeatmap(rows, now)` 가 한다: 층(프로젝트) → 구역(주문 항목의 **부모 항목**, 없으면 "구역 없음") → 책상(주문, 항목 code 순). 구역 라벨은 부모의 `code · name`. "WP" depth 개념은 리포에 없으므로 쓰지 않는다.
+- (2026-09-14 사용자 결정) 대상은 **에이전트 위임 태그(`wbs_items.tags` ∋ `agent`, `wbsSpec.ts` `AGENT_TAG`)가 붙은 항목의 주문뿐**이다. `dev_workflow` 리프마다 주문이 생기므로 사람이 하는 작업의 주문도 테이블에 있지만 좌석표엔 올리지 않는다. 항목이 지워진 주문은 태그를 알 수 없어 제외한다("항목 없음" 구역은 없앰). 기본 범위는 `scope=mine`(담당자가 나 또는 내 계정이 잡은 주문), 헤더에서 `all` 로 전환.
 - 갱신: 클라이언트가 30초마다 서버 액션 `refreshSeatmap()`(`src/app/actions/agentSeatmap.ts`, 같은 게이트 재검사)을 부른다. `document.hidden` 이면 멈추고, 다시 보이면 즉시 1회. 실패하면 마지막 성공 데이터를 유지하고 상단에 "갱신 실패 HH:MM:SS" 를 표시한다.
 
 ### 5-2. 구성
