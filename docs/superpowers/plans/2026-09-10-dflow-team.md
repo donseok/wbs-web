@@ -24,7 +24,7 @@
 - 워커 프롬프트 치환 변수: `{TSK}` `{ID8}` `{AGENT_ID}` `{MAIN_CHECKOUT}` `{BACKEND}` `{MODEL_FLAG}`, 선택 `{ANSWER}`(스펙 §5).
 - `.result` 한 줄: `{TSK} {ID8} <branch|-> <head_sha|-> <done_exit|-> <status> <한 줄 사유 또는 질문>`. status ∈ `done` `skipped` `needs-merge` `blocked` `failed`. `failed` 에서 팀장이 구분하는 사유는 `rate-limit`·`not-isolated`·`no-worker-flag`·`deps` 넷이다(부트스트랩의 `no-skill`·`doctor-<exit>`·`auth`·`detach` 는 일반 `failed`). 경로는 워커 워크트리의 `docs/tasks/{TSK}/.result`, 커밋하지 않고, 같은 줄을 마지막 응답으로도 출력한다(스펙 §5).
 - 좌석 식별 파일은 워크트리 루트 `.dflow-agent`(내용 `{AGENT_ID}` 한 줄)이며 격리 확인 직후, 부트스트랩 전에 쓴다. `docs/tasks/<TSK>/` 안에 두지 않는다. 이유: 부트스트랩이 실패해도 팀장 재구성에 보여야 하고, claim 전에 그 디렉터리가 있으면 `/dflow-dev` 잔재 격리 규칙이 `.prev-<날짜>` 로 옮긴다(스펙 §5, §9-1).
-- `AGENT_ID` 는 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead`, 정리하지 못한 프로세스 `blocked` 워크트리 표시는 `<신원>/<host>/parked` 다. `<신원>` 은 `dflow.sh me` 의 `user_email` 에서 `@` 앞부분을 소문자로 바꾸고 `[a-z0-9-]` 밖 문자를 `-` 로 바꾼 슬러그, `<host>` 는 `hostname -s` 를 같은 규칙으로 바꾼 슬러그다(스펙 §9-1). 이유: 같은 신원을 여러 PC 에서 띄워도 식별자가 겹치지 않는다.
+- `AGENT_ID` 는 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead`, 정리하지 못한 프로세스 `blocked` 워크트리 표시는 `<신원>/<host>/parked` 다. `<신원>` 은 `dflow.sh me` 의 `user_email` 에서 `@` 앞부분을 소문자로 바꾸고 `[a-z0-9-]` 밖 문자를 `-` 로 바꾼 슬러그, `<host>` 는 `hostname` 의 첫 점 앞부분을 같은 규칙으로 바꾼 슬러그다(스펙 §9-1, §13). 이유: 같은 신원을 여러 PC 에서 띄워도 식별자가 겹치지 않는다.
 - 프로세스 spawn 은 `git worktree add --detach` 로 워크트리를 만들고 포인터를 `.dflow-prompt` 에 쓴 뒤 `nohup claude -p` 로 띄운다. PID 와 시작 시각을 `.dflow-pid` 에 두 줄로 적어 생존을 확인하고, `team.spawn` 의 `handle` 은 `pid:<PID>` 다(스펙 §4-8).
 - **git 호출 규칙(두 백엔드 공통)**: 워커와 Phase 서브에이전트는 첫 호출에서 `command -v git` 을 단독 실행해 절대경로를 알아내고, 이후 모든 호출에 그 경로를 글자 그대로 적는다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다(스펙 §3-6).
 - 백엔드는 자동 감지만 한다(`--backend` 없음). tmux 는 프로세스 백엔드로 돈다(스펙 §4-3).
@@ -1433,7 +1433,7 @@ git commit -m "feat(dflow-team): 팀원 프롬프트 정본: 격리 확인·좌�
 
 **Interfaces:**
 - Consumes: 포인터 형식·`.result` 경로·branch `-` 규칙·`.dflow-agent`·알려진 부산물(Task 3).
-- Produces: backends.md 의 절 이름 「pane(Orca)」「프로세스」「고아 정리 규칙」, 워크트리 선택자 `--worktree path:<경로>`, `parked` 표시 명령. events.md 의 이벤트 `team.start` `team.spawn` `team.result` `team.blocked` `team.answer` `team.sweep` `team.stop`, 필드, `jq -nc` 기록 명령, 결과 줄 해시·사유 추출 명령. Task 5 SKILL.md 가 이 이름으로 참조하고, 재구성이 `team.spawn`·`team.result`·`team.blocked`·`team.answer` 필드를 읽는다.
+- Produces: backends.md 의 절 이름 「pane(Orca)」「프로세스」「고아 정리 규칙」「플랫폼 차이」, 워크트리 선택자 `--worktree path:<경로>`, `parked` 표시 명령. events.md 의 이벤트 `team.start` `team.spawn` `team.result` `team.blocked` `team.answer` `team.sweep` `team.stop`, 필드, `jq -nc` 기록 명령(공통 다섯 필드 외에 `phase`·`host`·이벤트별 추가 필드까지 검사해 `EVENT_ARGS_MISSING` 으로 거부하는 가드 포함), 결과 줄 해시·사유 추출 명령. Task 5 SKILL.md 가 이 이름으로 참조하고, 재구성이 `team.spawn`·`team.result`·`team.blocked`·`team.answer` 필드를 읽는다.
 
 - [ ] **Step 1: 테스트 추가** (새 파일 `tests/skills/dflow-team-backends.test.ts`)
 
@@ -1792,7 +1792,7 @@ reason=$(printf '%s\n' "$l" | cut -d' ' -f7-)
 위 표의 필드로 바꾼다.
 ```bash
 mkdir -p ~/.dflow && jq -nc \
-  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg host "$(hostname -s)" --arg repo '<MAIN_CHECKOUT>' \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg host "$(hostname | cut -d. -f1)" --arg repo '<MAIN_CHECKOUT>' \
   --arg tsk '<TSK 또는 ->' --arg order '<주문 전체 UUID 또는 ->' --arg event 'team.result' --arg agent '<신원>/<host>/lead' \
   --arg slot '<slot 또는 ->' --arg id8 '<id8>' --arg status '<status>' --arg worktree '<워크트리 또는 ->' --arg hash "$hash" --arg reason "$reason" \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}' \
@@ -1836,7 +1836,7 @@ Orca pane 과 프로세스는 기상 신호·blocked 이후·슬롯 점유·회�
 
 **Interfaces:**
 - Consumes: 포인터·`.result`·`ANSWER`·사유 값(Task 3), backends.md 절 이름·`--worktree path:` 선택자·`parked` 명령·고아 정리 규칙과 events.md 이벤트·필드·기록 명령(Task 4), `/dflow-merge` 의 보고 분기·충돌 되돌림·push 실패 되돌림(Task 2), `/dflow-dev` 의 `--worker`(Task 1), `poll.sh` exit code(머리말 3~8행: 0 2 3 5 6 7 8 9 10)와 인자 `--require-tag`·`--until`·`--interval`·`--exclude`·`--exclude-temp`, `DFLOW_ENV_FILE`(poll.sh 41행).
-- Produces: 사용자가 부르는 `/dflow-team [인원] <종료시각> [모델]`. Task 6 배포 목록과 Task 7~9 리허설이 쓴다.
+- Produces: 사용자가 부르는 `/dflow-team [인원] <종료시각> [모델]`. SKILL.md 의 셸 블록은 `uname -s` 분기와 `CLAUDE_PID` 로 macOS·Linux·Windows(Git Bash) 에서 같은 절차로 돈다(차이 목록은 backends.md 「플랫폼 차이」, 스펙 §13). Task 6 배포 목록과 Task 7~9 리허설이 쓴다.
 
 - [ ] **Step 1: 테스트 추가** (`tests/skills/dflow-team.test.ts` 끝에)
 
@@ -1905,7 +1905,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('echo "PRECHECK_OK lead_pid=$PPID LEAD_SKIP_PERMISSIONS=$skip"')
     expect(s()).toContain('NOT_DEFAULT_BRANCH')
     expect(s()).toContain('git ls-remote --symref origin HEAD')
-    expect(s()).toContain("hostname -s | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
+    expect(s()).toContain("hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'")
     expect(s()).toContain('mkdir -p ~/.dflow')
   })
 
@@ -2340,7 +2340,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    email=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh me | jq -r '.user_email // empty')
    [ -n "$email" ] || bad AUTH
    who=$(printf '%s' "$email" | cut -d@ -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
-   host=$(hostname -s | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
+   host=$(hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g')
    echo "user_email=$email lead=$who/$host/lead"
    legacy=$(find docs/tasks -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null | while IFS= read -r f; do
      jq -e '.phase == "reported" and ((.api_base // "") == "")' "$f" >/dev/null 2>&1 && printf '%s ' "$f"
@@ -2437,7 +2437,8 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    - `AUTH`: 인증은 `dflow.sh me` 의 성공(`user_email` 이 나옴)으로 판정한다. doctor 는 진단 출력용이며 종료
      코드로 판정하지 않는다. 이유: doctor 는 토큰 인증이 실패해도 그 줄만 출력하고 0 으로 끝난다. 출력한
      `user_email` 로 `DFLOW_PATS` 첫 토큰이 이 신원의 PAT 인지 보여 주고, 그 값으로 `<신원>` 슬러그를,
-     `hostname -s` 로 `<host>` 슬러그를 만든다. 팀원은 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead` 다.
+     `hostname` 의 첫 점 앞부분으로 `<host>` 슬러그를 만든다(`hostname -s` 는 Windows 의 hostname.exe 에 없다,
+     §13). 팀원은 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead` 다.
    - `LEGACY_REPORTED`: `api_base` 가 없는 `phase=reported` 로컬 state.json 이 있으면 시작을 거부하고
      "수동 `/dflow-merge` 로 먼저 정리하라" 고 안내한다. 이유: 스테이징 D'Flow DB 는 운영을 복제하므로 출처를 모르는
      로컬 후보를 자동 스윕이 머지할 수 있다. 같은 작업의 원격 사본에 값이 있으면 `/dflow-merge` 가 출처를
@@ -2942,7 +2943,7 @@ origin 의 스킬을 쓰므로 push 여부를 본다. 프로세스 blocked 답�
 
 **Interfaces:**
 - Consumes: 완성된 `.claude/skills/dflow-team/`(Task 3~5), `/dflow-merge` 후보 확대(Task 2), Phase 5 `reported` 커밋(Task 1).
-- Produces: dflow-kit 빌드에 dflow-team 과 `worker-allow.json` 포함, install.sh 의 `permissions.allow` 병합(스펙 §8 권한 준비 2번, §10), 가이드의 사용 안내와 공지 두 줄(인자 없는 `/dflow-merge` 후보 확대, 수동 `/dflow-poll` exit 9 의 한계. 스펙 §11-1). `kit/worker-allow.json` 은 빈 목록으로 시작하고 Task 9 가 리허설 기록으로 채운다. 이 Task 는 머지하지 않는다. 머지는 리허설 뒤 Task 10 이다. kit-build 의 킷 밖 참조 검사는 넓히지 않는다(dflow-team 파일이 킷 밖 경로를 쓰지 않는 것으로 충분하다, 스펙 §10).
+- Produces: dflow-kit 빌드에 dflow-team 과 `worker-allow.json` 포함, install.sh 의 `permissions.allow` 병합(스펙 §8 권한 준비 2번, §10)과 의존 점검(`python3` 이 없으면 `python` 을 받고 Windows 설치 안내를 낸다, 스펙 §13), 가이드의 사용 안내와 공지 두 줄(인자 없는 `/dflow-merge` 후보 확대, 수동 `/dflow-poll` exit 9 의 한계. 스펙 §11-1). `kit/worker-allow.json` 은 빈 목록으로 시작하고 Task 9 가 리허설 기록으로 채운다. 이 Task 는 머지하지 않는다. 머지는 리허설 뒤 Task 10 이다. kit-build 의 킷 밖 참조 검사는 넓히지 않는다(dflow-team 파일이 킷 밖 경로를 쓰지 않는 것으로 충분하다, 스펙 §10).
 
 - [ ] **Step 1: 테스트 추가** (새 파일 `tests/skills/dflow-team-kit.test.ts`)
 
@@ -3100,7 +3101,7 @@ npx vitest run tests/skills
 out=$(mktemp -d); t=$(mktemp -d); git -C "$t" init -q
 sh scripts/kit-build.sh "$out" && sh "$out/install.sh" "$t" && jq '.permissions.allow' "$t/.claude/settings.json"
 ```
-Expected: vitest PASS 80건. kit-build 는 `빌드 완료:` 와 `skills: … dflow-team …` 를 출력한다. "킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다. 마지막 출력은 `["Bash(<이 PC 의 git 절대경로> *)"]` 한 항목이다.
+Expected: vitest PASS 101건. kit-build 는 `빌드 완료:` 와 `skills: … dflow-team …` 를 출력한다. "킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다. 마지막 출력은 `["Bash(<이 PC 의 git 절대경로> *)"]` 한 항목이다.
 
 - [ ] **Step 5: 커밋**
 
@@ -3128,7 +3129,7 @@ git commit -m "chore(kit): dflow-team 배포·워커 권한 allow 병합·가이
 
 **Interfaces:**
 - Consumes: `<FEAT_WT>` 의 `.claude/skills/dflow-*`(Task 1~6, 머지 전).
-- Produces: 리허설 리포와 bare 원격, 코드 작업용 `package.json`·lockfile·vitest 테스트(Task 8·9 가 쓴다), A0 (a)~(f) 판정. (a) 에서 결과 줄 없는 알림이 실제로 생기면 `suspect` 방어가 필수임이 확정되고, (c) 가 되면 후속 "SendMessage 기반 blocked 재개" 의 근거가 된다. (d)(e)(f) 는 에이전트 팀 워커의 `done` 가능 여부, 회수 범위, `failed rate-limit` 판정 주체를 정한다. **(d) 는 하드 게이트다.** 통과하기 전(실패했으면 dflow.sh 수정 뒤 재실측이 통과하기 전)에는 Task 8·9 로 가지 않는다.
+- Produces: 리허설 리포와 bare 원격, 코드 작업용 `package.json`·lockfile·vitest 테스트(Task 8·9 가 쓴다), A0 (a)~(f) 판정. (a) 에서 결과 줄 없는 알림이 실제로 확인되면 팀원을 서브에이전트가 아닌 별도 프로세스로 띄우는 설계 결정(스펙 §3-1)의 근거가 되고, (c) 가 되면 후속 "SendMessage 기반 blocked 재개" 의 근거가 된다. (d)(e)(f) 는 에이전트 팀 워커의 `done` 가능 여부, 회수 범위, `failed rate-limit` 판정 주체를 정한다. **(d) 는 하드 게이트다.** 통과하기 전(실패했으면 dflow.sh 수정 뒤 재실측이 통과하기 전)에는 Task 8·9 로 가지 않는다.
 
 - [ ] **Step 1: 버리는 bare 원격과 리허설 클론을 만든다** (스펙 §11-2). 사용 중인 mes-base 대신 새 클론과 스테이징 D'Flow 를 쓴다. 이유: 사용 중인 체크아웃에는 심사 중인 브랜치와 미커밋 state.json 이 있어 전제 검사와 합격 판정이 섞인다. 원격은 로컬 bare 다. 이유: 원격 후보를 넓게 보는 스윕과 팀원의 push 가 실제 mes-base 원격에 절대 닿지 않게 한다.
 
@@ -3269,7 +3270,7 @@ dflow.sh claim <A0 probe id8> → 브랜치 agent/<id8>-a0-probe 생성 → 빈 
      expect(sh).toContain('${DFLOW_GIT:-git}')
      ```
   3. A0-2 를 새 주문으로, 팀원 프롬프트의 dflow.sh 호출에 `DFLOW_GIT=<git 절대경로>` 를 붙여 다시 돌린다. 통과하면
-     `npx vitest run tests/skills` PASS 80건을 보고 커밋한다. 그래도 실패하면 사람에게 보고하고 멈춘다.
+     `npx vitest run tests/skills` PASS 101건을 보고 커밋한다. 그래도 실패하면 사람에게 보고하고 멈춘다.
      ```bash
      git add .claude/skills/dflow-work/scripts/dflow.sh .claude/skills/dflow-team/references/worker-prompt.md tests/skills/dflow-team.test.ts
      git commit -m "fix(dflow-work): dflow.sh 의 git 실행 경로를 DFLOW_GIT 로 주입받는다
@@ -3299,8 +3300,8 @@ cd /Users/jji/project/wbs-web
 git add docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md docs/superpowers/specs/2026-09-10-dflow-team-design.md
 git commit -m "docs(dflow-team): A0 실측: 완료 알림·idle·SendMessage·done·TaskStop 범위 판정
 
-suspect 방어와 TaskStop 회수가 실제로 필요한지, 에이전트 팀 워커가 done 을 할 수 있는지를 팀장
-루프 전에 단독으로 확인했다."
+결과 줄 없는 완료 알림의 처리 방식과 TaskStop 회수가 실제로 필요한지, 에이전트 팀 워커가 done 을 할 수
+있는지를 팀장 루프 전에 단독으로 확인했다."
 ```
 `NOT_STAGING` 이면 커밋하지 않고 멈춰 사람에게 알린다. push 는 하지 않는다(Task 10 이 staging 반영과 함께 올린다).
 
@@ -3401,7 +3402,7 @@ git commit -m "feat(kit): 프로세스 백엔드 리허설에서 막힌 명령�
 프로세스 팀원은 비대화형이라 권한 확인이 필요한 명령이 거부되면 failed permission 으로 끝난다.
 auto 모드 리허설에서 거부된 명령을 install.sh 가 병합할 목록으로 둔다."
 ```
-Expected: vitest PASS 80건(Task 6 의 "권한 규칙 문자열 배열" 테스트가 새 항목의 형식을 검사한다). 마지막 출력에 `Bash(<이 PC 의 git 절대경로> *)` 와 `kit/worker-allow.json` 의 항목이 모두 있다.
+Expected: vitest PASS 101건(Task 6 의 "권한 규칙 문자열 배열" 테스트가 새 항목의 형식을 검사한다). 마지막 출력에 `Bash(<이 PC 의 git 절대경로> *)` 와 `kit/worker-allow.json` 의 항목이 모두 있다.
 
 - [ ] **Step 8: 기록과 커밋**: 판정 파일에 `## 프로세스 (스펙 §11-4·§11-5)` 표를 더한다. 스펙 §3-7 과 §8 권한 준비에 "auto 모드에서 막힌 명령" 과 최종 필요 단계를 사실로 적고, Step 6 을 탔으면 §3-6 에 "`command -v git` 절대경로도 막혀 리터럴 `/usr/bin/git` 을 쓴다" 를 사실로 적는다. 두 번째 클론을 지운다.
 
@@ -3427,9 +3428,13 @@ git commit -m "docs(dflow-team): 프로세스 백엔드 리허설 판정: 격리
   머지)의 리허설 문서 커밋(Task 7~9).
 - Produces: `origin/main`·`origin/staging` 에 반영된 스킬. 메인 체크아웃 작업트리의 `/dflow-dev` 에 `--worker` 가 있어 모든 대상 리포의 심링크가 수정본을 가리킨다.
 
-- [ ] **Step 1: 최종 확인과 머지 지시**: `<FEAT_WT>` 에서 `npx vitest run tests/skills` 가 PASS 80건인지 본다. 메인 체크아웃에서 `git fetch origin && git log --oneline origin/staging..staging` 으로 staging 반영 때 함께 올라갈 로컬 staging 커밋 목록을 뽑는다. 사람에게 "feat/dflow-team 을 머지하면 `/dflow-dev`·`/dflow-merge` 변경이 심링크로 모든 리포에 즉시 적용된다. 리허설 판정은 `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`. staging 반영 때 위 로컬 커밋이 함께 push 된다" 를 알린 뒤 명시 지시를 받는다. 변경 파일은 UI 위험 파일(`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx`·`src/components/app/*`)이 아니므로 pre-push G2 가 해당하지 않는다. `SKIP_GUARD` 는 쓰지 않는다.
+- [ ] **Step 1: 최종 확인과 머지 지시**: `<FEAT_WT>` 에서 `npx vitest run tests/skills` 가 PASS 101건인지 본다. 메인 체크아웃에서 `git fetch origin && git log --oneline origin/staging..staging` 으로 staging 반영 때 함께 올라갈 로컬 staging 커밋 목록을 뽑는다. 사람에게 "feat/dflow-team 을 머지하면 `/dflow-dev`·`/dflow-merge` 변경이 심링크로 모든 리포에 즉시 적용된다. 리허설 판정은 `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`. staging 반영 때 위 로컬 커밋이 함께 push 된다" 를 알린 뒤 명시 지시를 받는다. 변경 파일은 UI 위험 파일(`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx`·`src/components/app/*`)이 아니므로 pre-push G2 가 해당하지 않는다. `SKIP_GUARD` 는 쓰지 않는다.
 
 - [ ] **Step 2: main 머지 (임시 워크트리에서)**: 메인 체크아웃은 여러 세션이 쓰므로 switch 하지 않는다.
+`feat/dflow-team` 은 이미 `origin/main`(좌석표 기능이 올라간 상태)을 머지해 두었다(`kit/install.sh` 의
+3-b 훅 복사 블록과 3-2 워커 권한 병합 블록을 둘 다 유지, 머지 커밋 `406e5a59`). 그래서 아래 머지는 충돌
+없이 `--no-ff` 로 끝난다. 그 뒤 다른 세션이 `origin/main` 에 새 커밋을 올렸다면 그 부분만 새로 충돌할 수
+있다.
 
 ```bash
 cd /Users/jji/project/wbs-web
@@ -3518,6 +3523,60 @@ git worktree remove /Users/jji/project/wbs-web-merge-staging
 
 ---
 
+### Task 11: Windows(Git Bash) 리허설 — 사용자 PC (사람이 대화형 세션에서 수행)
+
+**Files:**
+- Modify (docs 브랜치): `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`(「Windows 리허설」 절)
+- 조건부 Modify (main 또는 그 후속 작업 브랜치): 실패 원인이 스킬 문서에 있을 때 해당 파일(스펙 §13 플랫폼
+  차이 항목)과 대응 테스트
+
+**Interfaces:**
+- Consumes: 스펙 §13 의 플랫폼 차이 표(설계 전제), Task 9 프로세스 백엔드 1단계의 절차와 씨앗 작업 구성.
+- Produces: 스펙 §3-24·§13 의 "설계 전제(실측 전)" 표시를 사실로 바꿀 실측값, 판정 기록 문서의
+  「Windows 리허설」 절 판정표.
+
+**전제**: Windows PC, Git for Windows(Git Bash·MSYS 의 bash·coreutils·ps 포함), jq, curl,
+PowerShell(`powershell.exe`), Node.js, `claude` CLI(npm 심 또는 네이티브 `claude.exe`), 스테이징 D'Flow
+접근(`.env`).
+
+- [ ] **Step 1: 준비**: Windows PC 에 mes-base 리허설용 클론을 새로 만든다(Task 7·9 와 같은 요령: 버리는
+  bare 원격, 전용 PAT). `.claude/skills/<s>` 를 머지된 스킬 체크아웃으로 링크한다(`ln -s` 가 복사본을
+  만들면 복사본으로 둔다). 스테이징 D'Flow 에 `agent` 태그 ready 작업 4건(Task 9 1단계와 같은 구성: 코드
+  1·문서 1·일반 1·문서를 선행으로 둔 1)을 만든다.
+
+- [ ] **Step 2: 실측**: 판정 기록 문서의 「Windows 리허설(미실시)」 점검표 14항목을 순서대로 확인한다.
+  `uname -s`·`hostname`·`echo $CLAUDE_PID $PPID` 는 `claude` 세션 안 Bash 도구로, `nohup`·`ps -p`·
+  PowerShell `Get-Process`·`kill` 은 팀원 spawn 전후로, `ln -s` 결과는 부트스트랩 직후 워크트리에서
+  확인한다.
+
+- [ ] **Step 3: 팀장 루프 실행**: `/dflow-team <2시간 뒤>`(인원 생략, 기본 3)를 돌려 Task 9 프로세스
+  백엔드 1단계와 같은 절차(씨앗 4건·`/compact` 한 번·마감)를 반복한다. 시작 보고의 백엔드가 "프로세스"
+  인지 본다.
+
+- [ ] **Step 4: 판정**: 스펙 §11-5 의 합격 기준(§11-4 와 같되 6번은 `git worktree remove --force`)과 추가
+  1~7항을 Windows 환경에서 다시 확인한다. 특히 `.dflow-pid` 의 생존 확인(`pstart`)과 잠금 소유
+  판정(`LEAD_PID`)이 설계대로 동작하는지, 권한 확인 생략 감지(PowerShell `Get-CimInstance`)가 맞는 값을
+  내는지 본다.
+
+- [ ] **Step 5: 실패 시**: 원인이 스킬 문서(SKILL.md·backends.md·events.md·dflow.sh·heartbeat.sh·
+  install.sh)에 있으면 그 파일을 고치고 대응 테스트에 단언을 더한 뒤 `npx vitest run tests/skills` 가
+  초록인지 보고 커밋한다(파일명 명시). 원인이 Windows 고유 환경 문제(실행 정책·경로 인코딩 등)면 스펙
+  §13 에 해결 방법이나 제약으로 기록한다.
+
+- [ ] **Step 6: 기록과 커밋**: 판정 기록 문서의 「Windows 리허설(미실시)」 절 제목을 「Windows 리허설」 로
+  바꾸고 점검표를 판정표(항목·판정·관찰)로 채운다. 스펙 §3-24·§13 의 "설계 전제(실측 전)" 표시를 실측
+  사실로 바꾼다.
+
+```bash
+cd /Users/jji/project/wbs-web
+[ "$(git branch --show-current)" = staging ] || echo NOT_STAGING
+git add docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md docs/superpowers/specs/2026-09-10-dflow-team-design.md
+git commit -m "docs(dflow-team): Windows(Git Bash) 리허설 판정과 스펙 §13 실측 반영"
+```
+`NOT_STAGING` 이면 커밋하지 않고 멈춘다. push 는 하지 않는다.
+
+---
+
 ## 후속 (스펙 §12)
 
 - tmux pane 백엔드: dev-plugin 의 `hooks/hooks.json` 로드 실패를 고친 뒤 검토한다. 그 전까지 tmux 는 프로세스 백엔드로 돈다.
@@ -3561,6 +3620,7 @@ git worktree remove /Users/jji/project/wbs-web-merge-staging
 | §11-4 Orca 합격 기준 1~12 | Task 8 Step 3 |
 | §11-5 프로세스 추가 기준·다중 신원·잠금 | Task 9 Step 5·6 |
 | §12 잔여 위험과 후속 | 후속 절, Task 7 Step 6(미관찰 항목), Task 8·9 확인 항목 |
+| §13 플랫폼 | Task 4 backends.md 「플랫폼 차이」·events.md 가드, Task 5 SKILL.md 플랫폼 분기, Task 6 install.sh 의존 점검, Task 11 Windows 리허설 |
 
 **2. 테스트 수**
 
@@ -3569,9 +3629,12 @@ git worktree remove /Users/jji/project/wbs-web-merge-staging
 | `dflow-dev-worker.test.ts` | 1 | 13 | 13 |
 | `dflow-merge-remote.test.ts` | 2 | 9 | 22 |
 | `dflow-team.test.ts` worker-prompt·`.env` 자동 로드 | 3 | 15 | 37 |
-| `dflow-team.test.ts` backends·events | 4 | 8 | 45 |
-| `dflow-team.test.ts` SKILL.md | 5 | 30 | 75 |
-| `dflow-team.test.ts` 배포·권한 준비·가이드 | 6 | 5 | 80 |
+| `dflow-team-backends.test.ts` | 4 | 9 | 46 |
+| `dflow-team.test.ts` SKILL.md | 5 | 32 | 78 |
+| `dflow-team-kit.test.ts` | 6 | 5 | 83 |
+
+`npx vitest run tests/skills` 전체는 **101건**이다: 이 다섯 파일 83건에, 이 계획이 만들지 않은
+`origin/main` 유래 `shell-syntax.test.ts` 9건·`heartbeat-hook.test.ts` 9건이 Task 10 의 머지로 합류한다.
 
 Task 7·9 는 새 테스트를 더하지 않는다(Task 7 의 A0 (d) 조건부 수정과 Task 9 Step 6 은 기존 테스트에 단언만 더하거나 바꾸고, Task 9 Step 7 은 Task 6 의 형식 테스트가 검사한다). 실패 확인 단계의 기대치: Task 1 FAIL 10·PASS 3(보존 계열 3건은 수정 전 fixture 원문과 현재 파일이 같아 통과한다), Task 2 FAIL 7·PASS 2(같은 이유), Task 3 FAIL 14·PASS 1(`.env` 자동 로드는 dflow.sh 에 이미 있는 동작이라 통과한다), Task 4 새 8건 FAIL, Task 5 새 30건 FAIL, Task 6 새 5건 FAIL.
 
