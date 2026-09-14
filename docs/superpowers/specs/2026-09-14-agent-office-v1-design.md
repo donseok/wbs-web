@@ -213,7 +213,7 @@ dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id
 
 | 측정일 | 열람자 | 요청 수 | p50 | p95 | 오류 | 연결 증가 | 판정 |
 |---|---|---|---|---|---|---|---|
-| (미측정) | | | | | | | |
+| 2026-09-14 (스테이징, scripts/seatmap-load.mjs) | 20 | 720 (30초 × 3분) | 37 ms | 101 ms (max 501) | 0 | +2 (client backend 9→11, authenticator 6→5) | 합격 |
 
 ## 7. 검증
 
@@ -228,6 +228,11 @@ dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id
 | 셸 | `tests/skills/shell-syntax.test.ts`: `sh -n` 으로 `dflow.sh`·`poll.sh`·`kit/hooks/heartbeat.sh` 문법 검사, `dflow.sh` usage 에 `heartbeat`·`watch` 문자열 존재 |
 | 화면 | 스테이징 URL 에서 눈으로: 4상태 이상이 보이는 프로젝트, 다크, 400px 폭, 탭 숨김 시 폴링 중단(네트워크 탭) |
 | 훅 | 리허설 리포(`~/project/mes-base-rehearsal`, 스테이징 PAT)에서 `/dflow-dev` 1건을 돌리며 `last_heartbeat_at` 이 60~120초 간격으로 갱신되는지, 기본 브랜치 세션에서는 요청이 없는지 |
+
+2026-09-14 스테이징 검증 결과(staging b06187ce, dflow-staging.vercel.app, ego-browser):
+- 화면: `/agents` 렌더(층 2·구역 77·책상 110), 카운터, 책상 클릭 → 상세 패널(사다리·에이전트·신호 없음 문구), 스프라이트 96px·`steps(n)` 애니메이션·WAIT 좌석별 idle 오프셋, 다크 모드, 400px 폭(가로 오버플로 없음), 갱신 스탬프 KST — 통과.
+- 신호: `dflow.sh watch --slots 2 --busy 1 --until 18:00` → STANDBY 1·해당 층 헤더 배지(프로젝트 한정 PAT 라 그 층만), `--stop` → 0·배지 제거 — 통과. `heartbeat` 는 WAIT(reported) 주문에 409 `conflict`, 잘못된 phase 에 400 `validation_failed` — 통과.
+- 미실시: claim → `--phase blocked` → 손 든 표식 → `--phase build` 해제 경로와 `/dflow-dev` 사이클의 훅 갱신 간격. 리허설 PAT 범위에 착수 가능한 주문이 없어 스테이징에서 재현하지 못했고 단위 테스트(`heartbeat-route`·`heartbeat-hook`)로만 검증됨. 팀장 스킬 A0/A1 리허설에서 실사용으로 확인한다.
 | 부하 | §6 |
 
 ## 8. 브랜치와 순서
