@@ -103,6 +103,25 @@ dflow.sh progress <순번> <0-99> "<요약>"
 
 출력: 현재 상태 (e.g. `claimed`).
 
+### heartbeat
+
+`dflow.sh heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id]` — 진행 중 신호. 보고 행을 만들지 않고
+주문의 `last_heartbeat_at`·`heartbeat_phase`·`heartbeat_agent`·`heartbeat_note` 만 갱신한다. 평소에는 PostToolUse 훅
+(`~/.dflow/hooks/heartbeat.sh`)이 60초에 1회 자동으로 보내므로 직접 부를 일은 두 가지뿐이다.
+- 담당자 결정 대기 직전: `dflow.sh heartbeat <id8> --phase blocked --note "<질문>"`. 좌석표에 손 든 사람과 질문이 뜬다.
+  답을 받은 뒤의 첫 heartbeat(훅이든 명시든, `--phase` 가 blocked 가 아닌 것)가 이 상태를 푼다.
+- Phase 경계를 명시하고 싶을 때: `--phase design|build|verify|refactor|rejected|reported`.
+`--agent` 기본값은 워크트리 루트 `.dflow-agent` 첫 줄, 없으면 `claude-<host>`. 값이 `*/parked` 면 보내지 않는다.
+claimed 가 아니면 exit 4, 소유자가 아니면 exit 5.
+
+### watch
+
+`dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--stop]` — 감시자 존재 신호.
+좌석표 층 헤더의 STANDBY 배지가 이 신호로 켜지고, 마지막 신호 70분 뒤 꺼진다. `--stop` 은 즉시 끈다.
+- `poll.sh` 가 매 주기 자동으로 보내고 `--until` 도달 시 `--stop` 을 보낸다. 팀장(`/dflow-team`) 아래에서 poll.sh 를 띄울 때는
+  `DFLOW_WATCH=0` 을 붙여 끈다 — 팀장이 `<신원>/<host>/lead` 로 직접 보내기 때문이다.
+- 기본 agent 는 `<신원>/<host>/poll`, `--project` 기본값은 `.env` 의 `DFLOW_PROJECT_ID`(없으면 전 프로젝트 = 모든 층에 표시).
+
 ### 완료 보고
 
 **push 완료가 선행 필수** — push 없이 done 을 호출하면 exit 2 로 거부된다.

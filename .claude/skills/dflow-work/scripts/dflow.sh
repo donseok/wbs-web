@@ -26,6 +26,10 @@ usage() {
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
   claim <ref>
   progress <ref> <pct 0-99> <요약>
+  heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id]
+                         진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
+  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--stop]
+                         감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
   done <ref> <요약> [--auto-links]
   release <ref>
   doctor                 설정·의존성·계약 버전 점검
@@ -245,6 +249,69 @@ cmd_progress() {
   printf '%s' "$_body" | jq -r '.status'
 }
 
+# ---- 좌석표 신호(v1 스펙 §4-1) --------------------------------------------
+# 슬러그: 소문자, [a-z0-9-] 밖은 '-' (팀장 스펙 §9-1 과 같은 규칙)
+slug() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g'; }
+# 기본 AGENT_ID: 워크트리 루트 .dflow-agent 첫 줄 → 없으면 claude-<host>
+agent_id_default() {
+  _top=$(${DFLOW_GIT:-git} rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")
+  if [ -f "$_top/.dflow-agent" ]; then head -n 1 "$_top/.dflow-agent" | tr -d '\r'; else printf 'claude-%s' "$(slug "$(hostname -s)")"; fi
+}
+# 기본 watcher id: <신원>/<host>/poll — 신원은 /me 의 user_email 로컬 파트
+watcher_id_default() {
+  _email=$(profile_email "$TOK") || die 3 "신원 확인 실패(/me)"
+  printf '%s/%s/poll' "$(slug "${_email%%@*}")" "$(slug "$(hostname -s)")"
+}
+
+cmd_heartbeat() {
+  _id=$(resolve_ref "$1"); shift
+  _phase=''; _note=''; _agent=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --phase) _phase="${2:-}"; shift 2 || usage ;;
+      --note)  _note="${2:-}";  shift 2 || usage ;;
+      --agent) _agent="${2:-}"; shift 2 || usage ;;
+      *) usage ;;
+    esac
+  done
+  [ -n "$_agent" ] || _agent=$(agent_id_default)
+  case "$_agent" in */parked) die 2 "parked 워크트리는 heartbeat 를 보내지 않습니다." ;; esac
+  _json=$(jq -nc --arg a "$_agent" --arg p "$_phase" --arg n "$_note" \
+    '{agent:$a} + (if $p != "" then {phase:$p} else {} end) + (if $n != "" then {note:$n} else {} end)')
+  _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/heartbeat" "$_json") || exit $?
+  printf '%s' "$_body" | jq -r '.last_heartbeat_at'
+}
+
+cmd_watch() {
+  _agent=''; _slots=''; _busy=''; _until=''; _project="${DFLOW_PROJECT_ID:-}"; _stop=''
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --agent)   _agent="${2:-}";   shift 2 || usage ;;
+      --slots)   _slots="${2:-}";   shift 2 || usage ;;
+      --busy)    _busy="${2:-}";    shift 2 || usage ;;
+      --until)   _until="${2:-}";   shift 2 || usage ;;
+      --project) _project="${2:-}"; shift 2 || usage ;;
+      --stop)    _stop=1; shift ;;
+      *) usage ;;
+    esac
+  done
+  if [ -z "$_agent" ]; then _agent=$(watcher_id_default) || exit $?; fi
+  [ -n "$_agent" ] || die 3 "watcher 신원을 정하지 못했다(--agent 를 주거나 /me 확인)"
+  _host=$(slug "$(hostname -s)")
+  if [ -n "$_stop" ]; then
+    _json=$(jq -nc --arg a "$_agent" '{agent:$a, stop:true}')
+  else
+    _json=$(jq -nc --arg a "$_agent" --arg h "$_host" --arg s "$_slots" --arg b "$_busy" --arg u "$_until" --arg p "$_project" \
+      '{agent:$a, host:$h}
+       + (if $s != "" then {slots:($s|tonumber)} else {} end)
+       + (if $b != "" then {busy:($b|tonumber)} else {} end)
+       + (if $u != "" then {until:$u} else {} end)
+       + (if $p != "" then {project_id:$p} else {} end)')
+  fi
+  _body=$(TOKEN="$TOK" api_raw POST /api/v1/agent/watch "$_json") || exit $?
+  if [ -n "$_stop" ]; then printf 'stopped\n'; else printf '%s' "$_body" | jq -r '.expires_at'; fi
+}
+
 cmd_done() {
   _id=$(resolve_ref "$1"); _sum="$2"; _auto="${3:-}"
   # 완료 = push 완료(결정 C-③) — 현재 브랜치 tip 이 원격에 도달했는지 확인, 미도달이면 보고 거부.
@@ -324,6 +391,8 @@ case "$CMD" in
        show) [ $# -ge 1 ] || usage; cmd_show "$@" ;;
        claim) [ $# -ge 1 ] || usage; cmd_claim "$@" ;;
        progress) [ $# -ge 3 ] || usage; cmd_progress "$@" ;;
+       heartbeat) [ $# -ge 1 ] || usage; cmd_heartbeat "$@" ;;
+       watch) cmd_watch "$@" ;;
        done) [ $# -ge 2 ] || usage; cmd_done "$@" ;;
        release) [ $# -ge 1 ] || usage; cmd_release "$@" ;;
        *) usage ;;

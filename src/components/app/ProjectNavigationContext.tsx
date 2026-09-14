@@ -41,6 +41,7 @@ export function isGlobalProjectBridge(pathname: string): boolean {
     || pathname === '/account'
     || pathname === '/usage'
     || pathname === '/portfolio'
+    || pathname === '/agents'
     || pathname === '/admin'
     || pathname.startsWith('/admin/')
 }
