@@ -28,7 +28,7 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('`<신원>/<host>/w<slot>`')
   })
 
-  it('git 은 절대경로로 부르고, 격리는 git-dir 과 git-common-dir 의 물리 경로로 확인한다', () => {
+  it('git 은 절대경로로 부르고, 격리 확인은 git-dir 와 git-common-dir 두 줄 비교 한 호출로 한다', () => {
     expect(p()).toContain('command -v git')
     expect(p()).toContain('bare `git` 금지')
     expect(p()).toContain('git rev-parse --git-dir --git-common-dir')
