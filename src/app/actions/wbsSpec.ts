@@ -7,6 +7,8 @@ import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/l
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { SPEC_UPDATED_TOKEN } from '@/lib/domain/wbsSpecLog'
 import { applyDelegation, requireDelegationRight, type AgentDelegationResult } from '@/lib/agent/delegation'
+// 결과 타입은 명세 패널 등 화면이 이 모듈에서 import 한다 — 본체를 옮겨도 계약 위치는 유지(타입 재export 는 런타임에 없다).
+export type { AgentDelegationResult } from '@/lib/agent/delegation'
 
 /**
  * WBS 명세(spec 마크다운·참조 필드) 조회·편집 — 결정 B: 실물 문서는 로컬 git, DB 에는
