@@ -204,7 +204,10 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
 21. **이 PC 의 Bash 도구는 zsh 로 명령을 돈다.** 매치가 없는 glob(`for f in docs/tasks/*/state.json`)은
     `no matches found` 로 명령 전체를 죽이고, `[ a \> b ]` 문자열 대소 비교는 `condition expected` 로
     실패한다(실측). 그래서 스킬 문서의 셸 블록은 bash 와 zsh 모두에서 돌아야 한다. 매치가 없을 수 있는
-    glob 대신 `find … | while IFS= read -r f` 를 쓰고, 대소 비교는 숫자(`-le`·`-lt`)로 한다.
+    glob 대신 `find … | while IFS= read -r f` 를 쓰고, 대소 비교는 숫자(`-le`·`-lt`)로 한다. 같은 이유로
+    `${V:+--project "$V"}` 같은 조건부 인자 확장도 zsh 에서는 따옴표 안의 `--project "$V"` 전체가 한
+    단어로 넘어가 호출이 usage 오류로 끝난다(실측). 그래서 선택 인자는 조건부로 만들지 않고, 없으면
+    통째로 생략하거나 호출받는 쪽의 기본값에 맡긴다(예: 좌석표 `watch` 호출의 `--project`, §9-3).
 22. **Bash 도구가 내보내는 `CLAUDE_PID` 가 팀장 세션 프로세스의 PID 다.** macOS 의 대화형·헤드리스 세션
     모두에서 Bash 도구가 이 값을 내보내며 `$PPID` 와 같다(실측). Bash 호출마다 새 셸이 뜨지만 이 값은 같은
     세션 프로세스를 가리키고, 컨텍스트 압축 뒤에도 바뀌지 않는다. 그래서 `LEAD_PID=${CLAUDE_PID:-$PPID}` 로
@@ -219,8 +222,9 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
 24. **Windows(Git Bash)의 전제는 설계 전제이며 실측 전이다.** Windows PC 실측(계획서 Task 11, 판정 기록
     문서의 「Windows 리허설(미실시)」)으로 검증해야 한다. hostname.exe 에는 `-s` 옵션이 없어 호스트 이름은
     `hostname` 의 첫 점 앞부분으로 통일한다(macOS·Linux 의 `hostname -s` 와 같은 값). MSYS `ps` 에는 `-o`
-    가 없어 `ps -o lstart=`·`ps -o command=` 같은 호출을 쓸 수 없고, 대신 `ps -p` 의 고정폭 출력에서
-    WINPID 열(25~32번째 글자)을 잘라 PowerShell 로 넘긴다. 부모가 Cygwin 프로세스가 아니면 `$PPID` 가
+    가 없어 `ps -o lstart=`·`ps -o command=` 같은 호출을 쓸 수 없고, 대신 `ps -p` 출력의 머리글 줄에서
+    `WINPID` 열의 위치를 찾아(고정 폭을 가정하지 않는다. 상태 글자가 첫 칸에 붙으면 한 칸 밀린다) 그
+    열을 PowerShell 로 넘긴다. 부모가 Cygwin 프로세스가 아니면 `$PPID` 가
     1 이다(§3-22). `ln -s` 는 심링크 대신 복사본을 만들지만 `.env`·스킬 참조는 정적 파일이라 복사본으로도
     동작한다. 자세한 항목은 §13.
 
@@ -261,7 +265,8 @@ PID, 시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없
 
 **압축 뒤 첫 기상**: 요약은 절차의 정본이 아니다. 컨텍스트 압축 뒤 첫 기상에서는 행동하기 전에 §4-5(기상과
 감시)·§4-6(결과 처리)·§7(blocked·답 매칭)·§4-9(마감)와 `references/events.md`, `references/backends.md`
-의 「고아 정리 규칙」 을 Read 로 다시 읽고, `<host>` 도 기억이 아니라 §4-4 의 명령으로 다시 구한다. 이유:
+의 「고아 정리 규칙」 을 Bash `cat` 으로 다시 읽고(심링크로 배포된 리포에서는 Read 도구가 실제 경로를 작업
+디렉터리 밖으로 보아 확인 대화상자를 부른다), `<host>` 도 기억이 아니라 §4-4 의 명령으로 다시 구한다. 이유:
 요약에서 빠진 규칙(이벤트의 추가 필드, `parked` 표시, host 슬러그와 `host` 필드의 차이)은 기억으로
 메워지지 않으며, 그렇게 기록한 줄은 다음 재구성이 읽지 못한다.
 
@@ -372,8 +377,10 @@ id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 
      팀장은 매 기상 소유를 확인한 뒤 `beat` 를 현재 시각으로 갱신한다(§4-5). `mkdir` 가 실패하면 기존
      잠금의 `beat` 를 본다. `beat` 가 있고 70분보다 새로우면 살아 있는
      팀장이 있으므로 시작을 거부하고, 잠금 경로·`owner`·`beat` 시각과 함께 "그 팀장이 끝난 것이 확실하면
-     잠금 디렉터리를 지우고 다시 시작하라" 를 안내한다(세션이 죽은 직후 재기동하면 `beat` 가 아직
-     새롭기 때문이다). `beat` 가 없으면 잠금 디렉터리 자체의 수정 시각을 본다(`find "$LOCK" -maxdepth 0
+     잠금 디렉터리를 지우고 다시 시작하라" 를 안내한다. 질문하지 않고 중단한다(AskUserQuestion 을 쓰지
+     않는다). 이유: 다른 팀장이 정말 끝났는지는 팀장 자신이 판단할 일이 아니며, 사람이 안내를 보고 잠금
+     디렉터리를 직접 지우는 행동으로 답한다(세션이 죽은 직후 재기동하면 `beat` 가 아직 새롭기 때문이다).
+     `beat` 가 없으면 잠금 디렉터리 자체의 수정 시각을 본다(`find "$LOCK" -maxdepth 0
      -mmin +10` 가 경로를 출력하면 10분보다 오래된 것이다; macOS·Linux 모두에서 도는 방법이다). 10분
      이내면 `mkdir` 와 `owner`·`beat` 쓰기 사이의 그 짧은 틈에 있는, 방금 만들어지는 중인 잠금으로 보고
      지금처럼 시작을 거부한다. 이유: 그 틈에 팀장이 죽으면 `beat` 없는 잠금이 남는데, 곧바로 죽은 것으로
@@ -594,10 +601,10 @@ Orca 화면(`orca terminal read`)은 증거로 쓰지 않고 보고용으로만 
 
 | status | 슬롯 | 제외 | 워크트리 | 그 밖 |
 |---|---|---|---|---|
-| `done` | 해제 | 없음 | HEAD 가 `origin/<agent 브랜치>` 와 같으면 그 자리에서 정리한다. 다르면 경로를 보고하고 남긴다 | 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(§4-5)을 따른다 |
+| `done` | 해제 | 없음 | `references/backends.md` 「고아 정리 규칙」 2번(미커밋 변경 없음, HEAD 가 `origin/<agent 브랜치>` 와 같음)을 맞추면 그 자리에서 정리한다. 아니면 3번대로 경로와 미커밋 목록을 보고하고 남기며 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(§4-5)을 따른다 |
 | `needs-merge` | 해제 | 없음 | done 과 같다 | 승인 스윕을 곧바로 한다 |
 | `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙(§4-2), 아니면 done 과 같다 | 사유 보고 |
-| `blocked` | pane 은 유지, 프로세스는 해제 | 진행 중으로 영구 제외에 남긴다 | pane 은 그대로 둔다. 프로세스는 HEAD 가 `origin/<agent 브랜치>` 와 같으면 그 자리에서 정리하고, 정리할 수 없으면 `references/backends.md` 「고아 정리 규칙」 3번대로 `.dflow-agent` 값을 `parked` 로 바꿔 슬롯 스캔에서 빼고 보고한다 | 통지(§7) |
+| `blocked` | pane 은 유지, 프로세스는 해제 | 진행 중으로 영구 제외에 남긴다 | pane 은 그대로 둔다. 프로세스는 `references/backends.md` 「고아 정리 규칙」 2번을 맞추면 그 자리에서 정리하고, 아니면 3번대로 `.dflow-agent` 값을 `parked` 로 바꿔 슬롯 스캔에서 빼고 보고한다 | 통지(§7) |
 | `failed <사유>` | 해제 | 영구 제외 | 고아 정리 규칙(§4-2)을 따른다 | 사유 보고, 차단기 계산 |
 | `failed permission <명령>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 거부된 명령을 "권한 목록 재료" 로 보고한다(킷 허용 목록에 넣을 값). 서버에 claimed 로 남으므로 "재개 필요" 로 보고한다. 차단기 계산 |
 | `failed rate-limit` | 해제 | 제외하지 않는다 | 고아 정리 규칙을 따른다 | 재시도할 수 있다. 아직 ready 면 poll 이 다시 찾고, 이미 claimed 면 "재개 필요" 로 보고한다. 차단기 계산에 넣는다 |
@@ -1158,7 +1165,7 @@ AskUserQuestion 이 답을 받지 못한다. 억제 계약은 두 백엔드에�
 | 의존성 설치 실패(claim·브랜치 생성 뒤) | `.result` 에 `failed deps`, 종료 | 집계, 영구 제외, 고아 정리 규칙(§4-2). 서버에 claimed 로 남으므로 "재개 필요" 로 보고 |
 | spec 부재 | poll exit 0 처리에서 걸러진다. 새어 오면 `skipped` | 집계, 일시 제외 |
 | `blocked`, pane | 커밋·push, 질문을 화면에 출력, `.result` 에 `blocked` 를 쓰고 그 세션에서 멈춘다(탭 유지) | 사람에게 묻지 않는다(자동 루프). "결정 필요: <질문>, 그 팀원 탭에서 답하라" 고 알린다(PushNotification 이 있으면 한 번). **그 슬롯은 blocked 팀원이 계속 잡으며 다른 작업에 재배정하지 않는다.** 사람이 탭에서 답하면 팀원이 같은 워크트리·브랜치에서 이어 간다(재spawn·재claim 없음) |
-| `blocked`, 프로세스 | 커밋·push, `.result` 에 `blocked`(질문·선택지 포함)를 쓰고 같은 줄을 마지막 응답으로 출력한 뒤 세션을 끝낸다(프로세스가 종료된다) | 결과 처리 직후 프로세스가 아직 살아 있으면 `kill <PID>` 로 멈춘다. 워크트리는 HEAD 가 origin tip 과 같으면 즉시 정리하고, 아니면 `parked` 로 바꾼다(§4-6). 질문을 id8 과 함께 사람에게 전달한다(PushNotification 이 있으면 한 번). 답이 오면 아래 "답 매칭" 대로 받아 새 워크트리로 워커를 다시 띄우고 기존 agent 브랜치로 switch 하게 한다. 재claim 은 없다(이미 claimed 다). 사람의 답은 포인터 둘째 줄 `ANSWER=<한 줄>` 로 넘기고, 워커는 그것을 design.md 에 한 줄 남긴다 |
+| `blocked`, 프로세스 | 커밋·push, `.result` 에 `blocked`(질문·선택지 포함)를 쓰고 같은 줄을 마지막 응답으로 출력한 뒤 세션을 끝낸다(프로세스가 종료된다) | 결과 처리 직후 프로세스가 아직 살아 있으면 `kill <PID>` 로 멈춘다. 워크트리는 `references/backends.md` 「고아 정리 규칙」 2번을 맞추면 즉시 정리하고, 아니면 3번대로 `parked` 로 바꾼다(§4-6). 질문을 id8 과 함께 사람에게 전달한다(PushNotification 이 있으면 한 번). 답이 오면 아래 "답 매칭" 대로 받아 새 워크트리로 워커를 다시 띄우고 기존 agent 브랜치로 switch 하게 한다. 재claim 은 없다(이미 claimed 다). 사람의 답은 포인터 둘째 줄 `ANSWER=<한 줄>` 로 넘기고, 워커는 그것을 design.md 에 한 줄 남긴다 |
 | `needs-merge` | `.result` 를 쓰고 종료 | 승인 스윕을 곧바로 한다 |
 | `failed`(push 훅 거부·게이트 실패 등) | dflow-dev 규칙대로 중단, `.result` 에 `failed` | 집계, 영구 제외, 사유 보고, 차단기 계산. 자동 재시도는 없다 |
 | `failed permission`(권한 거부) | 현재 산출물을 커밋·push 한 뒤 `.result` 에 `failed permission <명령>` | 집계, 영구 제외, 거부된 명령을 권한 목록 재료로 보고, "재개 필요" 로 보고(서버에 claimed 로 남음), 차단기 계산(§4-6) |
@@ -1288,15 +1295,18 @@ AskUserQuestion 이 답을 받지 못한다. 억제 계약은 두 백엔드에�
 
   `hash` 는 결과 줄의 cksum 이고 `reason` 은 결과 줄의 사유 또는 질문이다. `worktree` 와 기본 스키마의
   `tsk` 로 `.result` 경로가 정해지므로, 재구성이 경로별 마지막 처리 해시를 유도할 수 있다(§4-2).
-  기록은 `jq -nc` 로 만든 한 줄을 `>> ~/.dflow/events.jsonl` 로 붙이며, 실패해도 진행을 막지 않는다.
-  사유·답에 따옴표가 들어가도 JSON 이 깨지지 않게 jq 로 만든다. 마지막 `jq` 는 가드다: 공통 다섯 필드
-  (`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비거나, `phase` 가 `"team"` 이 아니거나, `host` 가
-  이 PC 의 호스트 이름(§13)과 다르거나, 위 표의 이벤트별 추가 필드(`team.stop` 은 없음) 가운데 하나라도
-  없으면 줄을 붙이지 않고 `EVENT_ARGS_MISSING` 을 낸다. 이유: 압축 뒤 기억으로 재구성한 명령은 인자가
-  비거나 추가 필드를 빠뜨리고 `host` 를 슬러그가 아닌 원문으로 쓰며, 그런 줄로는 재구성이 슬롯·해시·제외
-  목록을 복원하지 못한다. 이 출력이 보이면 명령 블록을 다시 띄워(§4-5 「이벤트 기록 명령의 재읽기」) 그대로
-  다시 실행한다. 재구성(§4-2)이 `team.spawn`·`team.result`·`team.blocked`·`team.answer` 를 보조 정본으로
-  읽는다.
+  기록은 `jq -nc` 로 줄을 만든 뒤 `&&` 로 이어 가드 `jq` 를 통과해야 `>> ~/.dflow/events.jsonl` 로 붙는다.
+  실패해도 진행을 막지 않는다. 사유·답에 따옴표가 들어가도 JSON 이 깨지지 않게 jq 로 만들고, 모르는 값은
+  빈 문자열이 아니라 `-` 로 채운다. 둘을 파이프가 아니라 `&&` 로 잇는 이유: 파이프면 첫 `jq` 가 인자
+  하나를 빠뜨리는 컴파일 오류로 죽어도 가드가 빈 입력을 받아 0 으로 끝나 `EVENT_ARGS_MISSING` 이 나오지
+  않는다. 가드는 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비거나, `phase` 가
+  `"team"` 이 아니거나, `host` 가 이 PC 의 호스트 이름(§13)과 다르거나, 위 표의 이벤트별 추가 필드
+  (`team.stop` 은 없음) 가운데 하나라도 없거나 빈 문자열이면(`reason` 은 예외다. `done` 결과 줄에는 사유가
+  없을 수 있다) 줄을 붙이지 않고 `EVENT_ARGS_MISSING` 을 낸다. 이유: 압축 뒤 기억으로 재구성한 명령은
+  인자가 비거나 추가 필드를 빠뜨리고 `host` 를 슬러그가 아닌 원문으로 쓰며, 그런 줄로는 재구성이
+  슬롯·해시·제외 목록을 복원하지 못한다. 이 출력이 보이면 명령 블록을 다시 띄워(§4-5 「이벤트 기록 명령의
+  재읽기」) 그대로 다시 실행한다. 재구성(§4-2)이 `team.spawn`·`team.result`·`team.blocked`·`team.answer`
+  를 보조 정본으로 읽는다.
 - 좌석표의 STANDBY(감시 중) 표시는 poll.sh 존재를 서버에 알리는 계약이 아직 없다(좌석표 설계 §7 미결).
   그 계약이 생기면 팀장이 시작·poll 재기동·마감 시점에 `{host, agent: lead, slots, busy, until}` 을
   보내는 자리를 SKILL.md 에 표시해 둔다. 계약 전에는 `team.start`/`team.stop` 이 대체 근거다.
@@ -1322,8 +1332,8 @@ AskUserQuestion 이 답을 받지 못한다. 억제 계약은 두 백엔드에�
 ```
 스크립트 파일은 새로 두지 않는다. `poll.sh`·`dflow.sh`·`orca` CLI 를 재사용하고, 감시 루프는 SKILL.md
 에 적힌 셸 루프다. 킷 밖 경로(다른 리포·개인 디렉터리)는 references 에도 적지 않는다.
-`kit-build.sh` 의 킷 밖 참조 검사는 SKILL.md 와 `*.sh` 만 보지만 references 로 넓히지 않는다. dflow-team
-파일이 킷 밖 경로를 쓰지 않는 것으로 충분하기 때문이다.
+`kit-build.sh` 의 킷 밖 참조 검사는 `*.md`(SKILL.md 와 references 모두)와 `*.sh` 를 본다. references 도
+SKILL.md 와 같은 심링크 배포 경로로 대상 리포에 나가므로 킷 밖 참조가 있으면 다른 PC 에서 깨진다.
 
 킷 쪽 변경(별도 커밋):
 - `scripts/kit-build.sh`: 대상 목록(`SKILLS`)에 `dflow-team` 을 추가한다.
@@ -1534,7 +1544,7 @@ bash 는 `/c/…` 형으로 보여 같은 위치가 다른 문자열이 되기 �
 |---|---|---|
 | 호스트 이름 | `hostname` 의 첫 점 앞부분(`hostname \| cut -d. -f1`) | 같다. Windows 의 hostname.exe 에는 `-s` 가 없다 |
 | 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`, §3-22) | `CLAUDE_PID`. `$PPID` 는 부모가 Cygwin 프로세스가 아니면 1 이다 |
-| 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 의 WINPID 열(25~32번째 글자)로 Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
+| 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 출력의 머리글에서 `WINPID` 열 위치를 찾아(고정 폭 아님) Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
 | 권한 확인 생략 감지 | `ps -o command=` | PowerShell `Get-CimInstance Win32_Process` 의 `CommandLine` |
 | `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다: `.env` 는 정적이고 스킬은 읽기 전용이며, 고아 정리 규칙 1번의 알려진 부산물 정규식이 `.claude/skills/dflow-(dev\|work)/…` 하위 파일까지 허용한다. 대가로 팀장이 스킬을 고쳐도 이미 뜬 팀원의 복사본에는 반영되지 않는다 |
 | 필요한 명령 | bash·coreutils·ps·git·jq·curl | Git for Windows 의 bash·coreutils·ps 와 git·jq·curl·powershell.exe |

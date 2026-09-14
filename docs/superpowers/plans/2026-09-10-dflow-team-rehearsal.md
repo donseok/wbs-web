@@ -194,6 +194,15 @@
   워크트리를 가리켜 실제 경로가 작업 디렉터리 밖이라 뜬 대화상자이며, 킷 설치본(리포 안 실파일)에는
   해당하지 않으므로 `kit/worker-allow.json` 에 반영하지 않는다.
 
+## 최종 검토에서 발견한 결함 (`30e9af0b`)
+
+리허설 실행이 아니라 브랜치 최종 검토에서 발견해 조치했다.
+
+- **좌석표 신호 실패**: 최종 검토에서 발견, `30e9af0b` 로 조치. `${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"}` 가 zsh 에서 따옴표 안까지 한 단어로 넘어가 `dflow.sh watch` 호출이 usage 오류로 끝나 좌석표 신호가 나가지 않았다. `--project` 를 넘기지 않고 `dflow.sh watch` 가 `.env` 의 `DFLOW_PROJECT_ID` 를 기본값으로 쓰도록 바꿨다.
+- **이벤트 가드 무동작 경로**: 최종 검토에서 발견, `30e9af0b` 로 조치. 줄을 만드는 첫 `jq` 와 가드 `jq` 를 파이프로 이으면 첫 `jq` 의 컴파일 오류(인자 하나 누락)가 가드에 빈 입력을 주어 가드가 0 으로 끝나고 `EVENT_ARGS_MISSING` 이 나오지 않았다. 둘을 `&&` 로 잇고, 가드가 추가 필드의 빈 문자열도 거부하도록(`reason` 은 예외) 넓혔다.
+- **`done` 행의 parked 표시 누락**: 최종 검토에서 발견, `30e9af0b` 로 조치. 결과 처리 표의 `done`(과 이를 상속하는 `needs-merge`·`skipped`) 행이 정리 실패 시 `parked` 표시 없이 "경로를 보고하고 남긴다" 로만 적혀 있어 결함 G 의 재발 소지가 있었다. `blocked` 행과 같은 「고아 정리 규칙」 2·3번 패턴으로 통일했다.
+- **셸 블록 문법 가드 부재**: 최종 검토에서 발견, `30e9af0b` 로 조치. 스킬 문서의 bash 블록에 자동 문법 검사가 없어 zsh 에서만 갈라지는 확장 꼴이 리뷰를 통과할 수 있었다. `tests/skills/dflow-team-shell-blocks.test.ts` 를 새로 두어 SKILL.md·backends.md·events.md·worker-prompt.md·dflow.sh·heartbeat.sh 여섯 문서의 블록을 `sh`·`bash`·`zsh -n` 으로 파싱하고, `${V:+a "$V"}` 꼴과 `hostname -s` 부재를 검사한다.
+
 ## Windows 리허설 (미실시)
 
 스펙 §13 의 플랫폼 차이는 설계 전제이며 아직 Windows PC 에서 실측하지 않았다. 절차는 Task 9 프로세스

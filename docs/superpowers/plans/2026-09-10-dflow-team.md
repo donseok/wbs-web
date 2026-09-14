@@ -3101,7 +3101,7 @@ npx vitest run tests/skills
 out=$(mktemp -d); t=$(mktemp -d); git -C "$t" init -q
 sh scripts/kit-build.sh "$out" && sh "$out/install.sh" "$t" && jq '.permissions.allow' "$t/.claude/settings.json"
 ```
-Expected: vitest PASS 101건. kit-build 는 `빌드 완료:` 와 `skills: … dflow-team …` 를 출력한다. "킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다. 마지막 출력은 `["Bash(<이 PC 의 git 절대경로> *)"]` 한 항목이다.
+Expected: vitest PASS 107건. kit-build 는 `빌드 완료:` 와 `skills: … dflow-team …` 를 출력한다. "킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다. 마지막 출력은 `["Bash(<이 PC 의 git 절대경로> *)"]` 한 항목이다.
 
 - [ ] **Step 5: 커밋**
 
@@ -3270,7 +3270,7 @@ dflow.sh claim <A0 probe id8> → 브랜치 agent/<id8>-a0-probe 생성 → 빈 
      expect(sh).toContain('${DFLOW_GIT:-git}')
      ```
   3. A0-2 를 새 주문으로, 팀원 프롬프트의 dflow.sh 호출에 `DFLOW_GIT=<git 절대경로>` 를 붙여 다시 돌린다. 통과하면
-     `npx vitest run tests/skills` PASS 101건을 보고 커밋한다. 그래도 실패하면 사람에게 보고하고 멈춘다.
+     `npx vitest run tests/skills` PASS 107건을 보고 커밋한다. 그래도 실패하면 사람에게 보고하고 멈춘다.
      ```bash
      git add .claude/skills/dflow-work/scripts/dflow.sh .claude/skills/dflow-team/references/worker-prompt.md tests/skills/dflow-team.test.ts
      git commit -m "fix(dflow-work): dflow.sh 의 git 실행 경로를 DFLOW_GIT 로 주입받는다
@@ -3402,7 +3402,7 @@ git commit -m "feat(kit): 프로세스 백엔드 리허설에서 막힌 명령�
 프로세스 팀원은 비대화형이라 권한 확인이 필요한 명령이 거부되면 failed permission 으로 끝난다.
 auto 모드 리허설에서 거부된 명령을 install.sh 가 병합할 목록으로 둔다."
 ```
-Expected: vitest PASS 101건(Task 6 의 "권한 규칙 문자열 배열" 테스트가 새 항목의 형식을 검사한다). 마지막 출력에 `Bash(<이 PC 의 git 절대경로> *)` 와 `kit/worker-allow.json` 의 항목이 모두 있다.
+Expected: vitest PASS 107건(Task 6 의 "권한 규칙 문자열 배열" 테스트가 새 항목의 형식을 검사한다). 마지막 출력에 `Bash(<이 PC 의 git 절대경로> *)` 와 `kit/worker-allow.json` 의 항목이 모두 있다.
 
 - [ ] **Step 8: 기록과 커밋**: 판정 파일에 `## 프로세스 (스펙 §11-4·§11-5)` 표를 더한다. 스펙 §3-7 과 §8 권한 준비에 "auto 모드에서 막힌 명령" 과 최종 필요 단계를 사실로 적고, Step 6 을 탔으면 §3-6 에 "`command -v git` 절대경로도 막혀 리터럴 `/usr/bin/git` 을 쓴다" 를 사실로 적는다. 두 번째 클론을 지운다.
 
@@ -3428,7 +3428,7 @@ git commit -m "docs(dflow-team): 프로세스 백엔드 리허설 판정: 격리
   머지)의 리허설 문서 커밋(Task 7~9).
 - Produces: `origin/main`·`origin/staging` 에 반영된 스킬. 메인 체크아웃 작업트리의 `/dflow-dev` 에 `--worker` 가 있어 모든 대상 리포의 심링크가 수정본을 가리킨다.
 
-- [ ] **Step 1: 최종 확인과 머지 지시**: `<FEAT_WT>` 에서 `npx vitest run tests/skills` 가 PASS 101건인지 본다. 메인 체크아웃에서 `git fetch origin && git log --oneline origin/staging..staging` 으로 staging 반영 때 함께 올라갈 로컬 staging 커밋 목록을 뽑는다. 사람에게 "feat/dflow-team 을 머지하면 `/dflow-dev`·`/dflow-merge` 변경이 심링크로 모든 리포에 즉시 적용된다. 리허설 판정은 `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`. staging 반영 때 위 로컬 커밋이 함께 push 된다" 를 알린 뒤 명시 지시를 받는다. 변경 파일은 UI 위험 파일(`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx`·`src/components/app/*`)이 아니므로 pre-push G2 가 해당하지 않는다. `SKIP_GUARD` 는 쓰지 않는다.
+- [ ] **Step 1: 최종 확인과 머지 지시**: `<FEAT_WT>` 에서 `npx vitest run tests/skills` 가 PASS 107건인지 본다. 메인 체크아웃에서 `git fetch origin && git log --oneline origin/staging..staging` 으로 staging 반영 때 함께 올라갈 로컬 staging 커밋 목록을 뽑는다. 사람에게 "feat/dflow-team 을 머지하면 `/dflow-dev`·`/dflow-merge` 변경이 심링크로 모든 리포에 즉시 적용된다. 리허설 판정은 `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`. staging 반영 때 위 로컬 커밋이 함께 push 된다" 를 알린 뒤 명시 지시를 받는다. 변경 파일은 UI 위험 파일(`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx`·`src/components/app/*`)이 아니므로 pre-push G2 가 해당하지 않는다. `SKIP_GUARD` 는 쓰지 않는다.
 
 - [ ] **Step 2: main 머지 (임시 워크트리에서)**: 메인 체크아웃은 여러 세션이 쓰므로 switch 하지 않는다.
 `feat/dflow-team` 은 이미 `origin/main`(좌석표 기능이 올라간 상태)을 머지해 두었다(`kit/install.sh` 의
@@ -3632,9 +3632,13 @@ git commit -m "docs(dflow-team): Windows(Git Bash) 리허설 판정과 스펙 §
 | `dflow-team-backends.test.ts` | 4 | 9 | 46 |
 | `dflow-team.test.ts` SKILL.md | 5 | 32 | 78 |
 | `dflow-team-kit.test.ts` | 6 | 5 | 83 |
+| `dflow-team-shell-blocks.test.ts` | 검토 반영(`30e9af0b`) | 6 | 89 |
 
-`npx vitest run tests/skills` 전체는 **101건**이다: 이 다섯 파일 83건에, 이 계획이 만들지 않은
+`npx vitest run tests/skills` 전체는 **107건**이다: 이 여섯 파일 89건에, 이 계획이 만들지 않은
 `origin/main` 유래 `shell-syntax.test.ts` 9건·`heartbeat-hook.test.ts` 9건이 Task 10 의 머지로 합류한다.
+`dflow-team-shell-blocks.test.ts` 는 SKILL.md·backends.md·events.md·worker-prompt.md·dflow.sh·
+heartbeat.sh 여섯 문서의 bash 블록을 `sh`·`bash`·`zsh -n` 으로 파싱하고, zsh 에서 갈라지는
+`${V:+a "$V"}` 꼴 확장과 `hostname -s` 부재를 검사한다(스펙 §3-21).
 
 Task 7·9 는 새 테스트를 더하지 않는다(Task 7 의 A0 (d) 조건부 수정과 Task 9 Step 6 은 기존 테스트에 단언만 더하거나 바꾸고, Task 9 Step 7 은 Task 6 의 형식 테스트가 검사한다). 실패 확인 단계의 기대치: Task 1 FAIL 10·PASS 3(보존 계열 3건은 수정 전 fixture 원문과 현재 파일이 같아 통과한다), Task 2 FAIL 7·PASS 2(같은 이유), Task 3 FAIL 14·PASS 1(`.env` 자동 로드는 dflow.sh 에 이미 있는 동작이라 통과한다), Task 4 새 8건 FAIL, Task 5 새 30건 FAIL, Task 6 새 5건 FAIL.
 
