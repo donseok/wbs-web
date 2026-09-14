@@ -287,7 +287,7 @@ describe('getAgentOrderForItem — 명세 패널 진행 상황(2026-08-24, agent
       return b }) }
     mocks.createServerClient.mockResolvedValue(sb)
     const r = await getAgentOrderForItem(W1)
-    expect(r).toEqual({ ok: true, order: null, priorOrders: [] })
+    expect(r).toEqual({ ok: true, order: null, priorOrders: [], projectId: P1 })
     expect(call).toBeGreaterThan(0)
   })
   it('주문 있음 → 최신 주문 + 보고 이력', async () => {
