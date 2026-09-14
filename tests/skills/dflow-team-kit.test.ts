@@ -20,7 +20,8 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
   it('worker-allow.json 은 권한 규칙 문자열 배열이고 git 규칙은 넣지 않는다', () => {
     const j = JSON.parse(readFileSync(join(ROOT, 'kit/worker-allow.json'), 'utf8'))
     expect(Array.isArray(j.allow)).toBe(true)
-    for (const r of j.allow) {
+    // 목록은 리허설 결과대로 비어 있을 수 있다(Task 9: 권한 프롬프트 0건). 표본 하나로 형태 검사가 실제로 돌게 한다
+    for (const r of [...j.allow, 'Bash(npm test)']) {
       expect(r).toMatch(/^[A-Za-z]+\(.+\)$/)
       expect(r).not.toMatch(/git /)
     }

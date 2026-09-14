@@ -478,7 +478,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(sk).toContain("MINGW*|MSYS*|CYGWIN*) powershell.exe -NoProfile -Command \"(Get-CimInstance Win32_Process -Filter 'ProcessId=$LEAD_PID').CommandLine\"")
     expect(sk).toContain('**플랫폼**')
     // 정본 표의 pstart 는 backends.md 의 것과 글자 그대로 같다
-    const fn = 'pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n \'2p\' | cut -c25-32 | tr -d \' \'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString(\'o\')" 2>/dev/null | tr -d \'\\r\' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }'
+    const fn = String.raw`pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="WINPID") c=i} NR==2{if($1 ~ /^[A-Z]$/) c++; print $c}'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }`
     expect(sk).toContain(fn)
     expect(read('references/backends.md')).toContain(fn)
     expect(read('references/events.md')).not.toContain('$(hostname -s)')

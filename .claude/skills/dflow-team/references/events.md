@@ -45,25 +45,29 @@ hash=$(printf '%s\n' "$l" | cksum | cut -d' ' -f1)
 reason=$(printf '%s\n' "$l" | cut -d' ' -f7-)
 ```
 한 줄을 jq 로 만들어 붙인다. 사유·답에 따옴표가 들어가도 JSON 이 깨지지 않게, 문자열은 모두 `--arg` 로 넘기고
-숫자만 `--argjson` 으로 넘긴다. 아래는 `team.result` 예이며, 다른 이벤트는 마지막 두 줄의 인자와 추가 객체만
-위 표의 필드로 바꾼다.
+숫자만 `--argjson` 으로 넘긴다. 아래는 `team.result` 예이며, 다른 이벤트는 첫 `jq` 의 마지막 두 줄(인자와 추가
+객체)만 위 표의 필드로 바꾼다.
 ```bash
-mkdir -p ~/.dflow && jq -nc \
+mkdir -p ~/.dflow && line=$(jq -nc \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg host "$(hostname | cut -d. -f1)" --arg repo '<MAIN_CHECKOUT>' \
   --arg tsk '<TSK 또는 ->' --arg order '<주문 전체 UUID 또는 ->' --arg event 'team.result' --arg agent '<신원>/<host>/lead' \
   --arg slot '<slot 또는 ->' --arg id8 '<id8>' --arg status '<status>' --arg worktree '<워크트리 또는 ->' --arg hash "$hash" --arg reason "$reason" \
-  '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}' \
-  | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until"],"team.spawn":["slot","id8","worktree","handle"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected"],"team.stop":[]} as $req
+  '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}') \
+  && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until"],"team.spawn":["slot","id8","worktree","handle"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected"],"team.stop":[]} as $req
       | if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) and .phase == "team" and .host == $h and $req[.event] != null
-           and ([$req[.event][] as $k | has($k) and .[$k] != null] | all) then . else error("EVENT_ARGS_MISSING") end' \
+           and ([$req[.event][] as $k | has($k) and .[$k] != null and ($k == "reason" or .[$k] != "")] | all) then . else error("EVENT_ARGS_MISSING") end' \
   >> ~/.dflow/events.jsonl || echo EVENT_ARGS_MISSING
 ```
-- 마지막 `jq` 는 가드다. 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비거나, `phase` 가
-  `team` 이 아니거나, `host` 가 이 PC 의 호스트 이름(`hostname` 의 첫 점 앞부분) 과 다르거나, 위 표의 이벤트별 추가 필드 가운데 하나라도
-  없으면 줄을 붙이지 않고 `EVENT_ARGS_MISSING` 을 낸다. 이유: 압축 뒤 기억으로 재구성한 명령은 인자가 비거나
-  추가 필드를 빠뜨리고 `host` 를 슬러그로 쓰며, 그런 줄로는 재구성이 슬롯·해시·제외 목록을 복원하지 못한다. 이
-  출력이 보이면 이 문서의 명령 블록을 다시 띄워(SKILL.md 「2-3」 의 두 번째 명령) 그대로 다시 실행한다. 기록
-  실패는 팀장 절차를 멈추지 않는다.
+- 첫 `jq` 는 줄을 만들고 둘째 `jq` 는 가드다. 둘은 `&&` 로 잇는다. 이유: 파이프로 이으면 첫 `jq` 가 컴파일
+  오류(`--arg` 하나를 빠뜨리고 필터에 `$slot` 이 남은 경우)로 죽어도 가드가 빈 입력을 받아 0 으로 끝나
+  `EVENT_ARGS_MISSING` 이 나오지 않는다. `&&` 이면 첫 `jq` 의 실패가 곧바로 `|| echo` 로 간다.
+- 가드는 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비거나, `phase` 가 `team` 이
+  아니거나, `host` 가 이 PC 의 호스트 이름(`hostname` 의 첫 점 앞부분) 과 다르거나, 위 표의 이벤트별 추가 필드
+  가운데 하나라도 없거나 비면(`reason` 은 비어도 된다. `done` 결과 줄에는 사유가 없을 수 있다) 줄을 붙이지
+  않고 `EVENT_ARGS_MISSING` 을 낸다. 모르는 값은 `""` 가 아니라 `-` 로 쓴다. 이유: 압축 뒤 기억으로 재구성한
+  명령은 인자가 비거나 추가 필드를 빠뜨리고 `host` 를 슬러그로 쓰며, 그런 줄로는 재구성이 슬롯·해시·제외
+  목록을 복원하지 못한다. 이 출력이 보이면 이 문서의 명령 블록을 다시 띄워(SKILL.md 「2-3」 의 마지막 명령)
+  그대로 다시 실행한다. 기록 실패는 팀장 절차를 멈추지 않는다.
 - `repo` 는 팀장 체크아웃의 절대경로다. 재구성이 이 값으로 이 리포의 줄만 거른다. 이름만 쓰면 같은 이름의
   클론 둘이 섞인다.
 - `<주문 전체 UUID>` 는 show 응답의 `.order.id` 다. 모르면 `-`.

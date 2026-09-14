@@ -60,7 +60,8 @@ PID, 시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없
 
 **압축 뒤 첫 기상**: 요약은 절차의 정본도 아니다. 컨텍스트 압축 뒤 첫 기상에서는 행동하기 전에 이 파일의
 「2. 기상과 감시」「3. 결과 처리」「6. blocked」「7. 마감」 과 `references/events.md`, `references/backends.md` 의
-「고아 정리 규칙」 을 Read 로 다시 읽고, `<host>` 도 기억이 아니라 「1. 시작」 의 명령으로 다시 구한다. 이유:
+「고아 정리 규칙」 을 Bash `cat` 으로 다시 읽고(심링크 배포 리포에서 Read 는 작업 디렉터리 밖 읽기 확인을
+부른다), `<host>` 도 기억이 아니라 「1. 시작」 의 명령으로 다시 구한다. 이유:
 요약에서 빠진 규칙(이벤트의 추가 필드, `parked` 표시, host 슬러그와 `host` 필드의 차이)은 기억으로 메워지지
 않으며, 그렇게 기록한 줄은 다음 재구성이 읽지 못한다.
 
@@ -69,7 +70,7 @@ PID, 시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없
 
 **정본**: 이 신원·이 PC 의 팀원 워크트리와 그 결과. `pstart` 는 backends.md 「프로세스」 의 시작 시각 함수와 같다.
 ```bash
-pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n '2p' | cut -c25-32 | tr -d ' '); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
+pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="WINPID") c=i} NR==2{if($1 ~ /^[A-Z]$/) c++; print $c}'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
 git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w; do
   [ -f "$w/.dflow-agent" ] || continue
   a=$(head -n 1 "$w/.dflow-agent")
@@ -264,6 +265,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      지우기 전에 다른 팀장이 먼저 가져가면 그 잠금까지 지우게 되는데, 옮긴 디렉터리는 이 팀장만 보므로 확인과
      삭제 사이에 끼어들 틈이 없다. `LOCKED` 로 거부할 때는 잠금 경로·
      `owner`·`beat` 시각과 함께 "그 팀장이 끝난 것이 확실하면 잠금 디렉터리를 지우고 다시 시작하라" 를 안내한다.
+     질문하지 않고 중단한다(AskUserQuestion 을 쓰지 않는다).
      세션이 죽은 직후 재기동하면 `beat` 가 아직 새롭기 때문이다. 이유: 한 체크아웃의 팀장 둘은 슬롯 번호·세대
      파일·승인 스윕을 서로 덮어쓴다. 생존(가져와도 되는지)은 PID 가 아니라 `beat`(없으면 잠금 디렉터리 수정
      시각)로 본다. 이유: 세션 프로세스가
@@ -346,9 +348,11 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    ```bash
    LOCK=$(git rev-parse --git-path dflow-team.lock); lead=$(cut -d' ' -f1 "$LOCK/owner")
    set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$lead" \
-     --slots <N> --busy <M> --until <HH:MM> ${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"} || :
+     --slots <N> --busy <M> --until <HH:MM> || :
    ```
    `<N>` 은 「인자」 에서 정한 인원, `<M>` 은 지금 슬롯 표에서 찬 슬롯 수, `<HH:MM>` 은 「인자」 의 종료 시각이다.
+   `--project` 는 넘기지 않는다. `dflow.sh watch` 는 `.env` 에서 export 된 `DFLOW_PROJECT_ID` 를 기본값으로 쓰고,
+   `${V:+--project "$V"}` 꼴은 zsh 에서 한 단어로 넘어가 호출이 usage 로 끝나기 때문이다.
    신원은 `$who`·`$host` 를 다시 쓰지 않고 방금 쓴 잠금 `owner` 에서 읽는다. 이 5번이 1번과 다른 Bash 호출이라
    env 가 남아 있지 않기 때문이다.
 
@@ -466,7 +470,7 @@ LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
     set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
-      --slots <N> --busy <M> --until <HH:MM> ${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"} || :
+      --slots <N> --busy <M> --until <HH:MM> || :
   } || echo "LOCK_LOST beat 쓰기 실패"
 else
   echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$LEAD_PID"
@@ -547,10 +551,10 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 
 | status | 슬롯 | 제외 | 워크트리 | 그 밖 |
 |---|---|---|---|---|
-| `done` | 해제 | 없음 | HEAD 가 `origin/<agent 브랜치>` 와 같으면 그 자리에서 정리한다. 다르면 경로를 보고하고 남긴다 | 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(「2-1」)을 따른다 |
+| `done` | 해제 | 없음 | 「고아 정리 규칙」 2번(미커밋 변경 없음, HEAD 가 `origin/<agent 브랜치>` 와 같음)을 맞추면 그 자리에서 정리한다. 아니면 3번대로 경로와 미커밋 목록을 보고하고 남기며 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 대기 큐가 있으면 그 슬롯에 spawn 한다. 비어 있으면 poll 재기동 조건(「2-1」)을 따른다 |
 | `needs-merge` | 해제 | 없음 | `done` 과 같다 | 승인 스윕을 곧바로 한다 |
 | `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고 |
-| `blocked` | pane 은 유지, 프로세스는 해제 | 진행 중으로 영구 제외에 남긴다 | pane 은 그대로 둔다. 프로세스는 HEAD 가 `origin/<agent 브랜치>` 와 같으면 그 자리에서 정리하고, 정리할 수 없으면 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꿔 슬롯 스캔에서 빼고 고아 규칙으로 보고한다 | 통지(「6. blocked」) |
+| `blocked` | pane 은 유지, 프로세스는 해제 | 진행 중으로 영구 제외에 남긴다 | pane 은 그대로 둔다. 프로세스는 「고아 정리 규칙」 2번을 맞추면 그 자리에서 정리하고, 정리할 수 없으면 3번대로 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꿔 슬롯 스캔에서 빼고 보고한다 | 통지(「6. blocked」) |
 | `failed <사유>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산 |
 | `failed permission <명령>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 거부된 명령을 "권한 목록 재료" 로 보고한다(킷 허용 목록에 넣을 값). 서버에 claimed 로 남으므로 "재개 필요" 로 보고한다. 차단기 계산 |
 | `failed rate-limit` | 해제 | 제외하지 않는다 | 고아 정리 규칙을 따른다 | 재시도할 수 있다. 아직 ready 면 poll 이 다시 찾고, 이미 claimed 면 "재개 필요" 로 보고한다. 차단기 계산에 넣는다 |
@@ -660,7 +664,7 @@ PushNotification 도구가 있으면(지연 로드면 ToolSearch 로 불러) 질
 새 줄로 바뀌면 감시 루프가 알린다.
 
 **프로세스**: 결과 처리 직후 팀원 프로세스가 아직 살아 있으면 `kill <PID>` 로 회수하고 슬롯을 해제한다.
-워크트리는 HEAD 가 origin tip 과 같으면 즉시 정리하고, 아니면 `.dflow-agent` 값을 `<신원>/<host>/parked` 로
+워크트리는 「고아 정리 규칙」 2번을 맞추면 즉시 정리하고, 아니면 3번대로 `.dflow-agent` 값을 `<신원>/<host>/parked` 로
 바꿔 둔다(「3. 결과 처리」). "결정 필요 <id8>: <질문>. 이 세션에 `<id8> <답>` 으로 답하라" 고 알린다. 팀원이
 이미 끝났으므로 슬롯을 비워도 `AGENT_ID` 가 겹치지 않는다.
 

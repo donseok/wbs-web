@@ -107,6 +107,11 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
     expect(e()).toContain('"team.result":["slot","id8","status","worktree","hash","reason"]')
     expect(e()).toContain('"team.stop":[]')
     expect(e()).toContain('.phase == "team" and .host == $h')
+    // 첫 jq(줄 생성)와 둘째 jq(가드)는 파이프가 아니라 && 로 잇는다: 첫 jq 의 컴파일 오류도 EVENT_ARGS_MISSING 으로 모인다
+    expect(e()).toContain('line=$(jq -nc')
+    expect(e()).toContain(`&& printf '%s\\n' "$line" | jq -c --arg h`)
+    expect(e()).not.toMatch(/agent\}' \\\n\s*\| jq -c/)
+    expect(e()).toContain('($k == "reason" or .[$k] != "")') // 추가 필드의 빈 문자열 거부, reason 만 예외
     expect(e()).toContain('--arg h "$(hostname | cut -d. -f1)"')
     expect(e()).toContain('phase:"team"')
     expect(e()).toContain("--arg agent '<신원>/<host>/lead'")

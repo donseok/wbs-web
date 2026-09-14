@@ -76,7 +76,7 @@ if [ ! -e "$WT/.claude/skills/dflow-dev/SKILL.md" ]; then
   fi
 fi
 printf '%s\n' '<포인터 한 줄>' > "$WT/.dflow-prompt"            # 재spawn: printf '%s\n%s\n' '<포인터 한 줄>' 'ANSWER=<답 한 줄>'
-pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n '2p' | cut -c25-32 | tr -d ' '); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
+pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="WINPID") c=i} NR==2{if($1 ~ /^[A-Z]$/) c++; print $c}'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
 ( cd "$WT" && nohup claude -p "$(cat .dflow-prompt)" <모델 플래그> <권한 플래그> > .dflow-worker.log 2>&1 < /dev/null &
   echo $! > .dflow-pid && pstart "$(cat .dflow-pid)" >> .dflow-pid )
 cat "$WT/.dflow-pid"
@@ -102,13 +102,13 @@ cat "$WT/.dflow-pid"
   SKILL.md 「금지」 의 "셸 `&`" 규칙의 유일한 예외다.
 - `.dflow-pid` 는 두 줄이다: PID 와 `pstart` 가 돌려준 시작 시각 문자열. 생존 확인은 둘을 함께 본다.
   ```bash
-  pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | sed -n '2p' | cut -c25-32 | tr -d ' '); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
+  pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="WINPID") c=i} NR==2{if($1 ~ /^[A-Z]$/) c++; print $c}'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
   pid=$(head -n 1 "$WT/.dflow-pid"); st=$(sed -n '2p' "$WT/.dflow-pid")
   kill -0 "$pid" 2>/dev/null && [ "$(pstart "$pid")" = "$st" ] && echo ALIVE || echo DEAD
   ```
   시작 시각까지 비교하는 이유: 죽은 팀원의 PID 를 다른 프로세스가 다시 받을 수 있다. `pstart` 는 macOS·Linux 에서
-  `ps -o lstart=`, Windows(Git Bash) 에서는 MSYS `ps -p` 의 WINPID 열(고정 폭 25~32번째 글자)로 Windows PID 를
-  얻은 뒤 PowerShell `Get-Process` 의 `StartTime` 을 쓴다. MSYS `ps` 에는 `-o` 가 없고, `$!` 는 Cygwin PID 라
+  `ps -o lstart=`, Windows(Git Bash) 에서는 MSYS `ps -p` 출력의 WINPID 열(머리글에서 열 위치를 찾고, 첫 칸의 상태
+  글자만큼 밀린다)로 Windows PID 를 얻은 뒤 PowerShell `Get-Process` 의 `StartTime` 을 쓴다. MSYS `ps` 에는 `-o` 가 없고, `$!` 는 Cygwin PID 라
   Windows PID 와 다를 수 있기 때문이다.
 - `.dflow-pid`·`.dflow-prompt`·`.dflow-worker.log` 는 팀장이 쓰는 미추적 파일이며 전제 검사가 공유 `info/exclude`
   에 넣는다. 워커는 손대지 않는다.
@@ -127,8 +127,8 @@ grep -E '^<TSK> <id8> ' "$WT/.dflow-worker.log" | tail -n 1
 `.result` 를 쓴 뒤 곧 끝나므로 보통은 이미 죽어 있다. 무응답 자동 정리(두 TICK 연속 생존 증거 없음)도 같은
 `kill` 로 멈춘 뒤 워크트리를 「고아 정리 규칙」 대로 다룬다.
 
-**`blocked` 워크트리**: 팀원이 커밋·push 하고 끝나므로, 결과 처리 직후 「고아 정리 규칙」 2번을 맞추면(HEAD 가
-`origin/<agent 브랜치>` 와 같으면) 그 자리에서 정리한다. 정리할 수 없으면 3번대로 `.dflow-agent` 값을 `parked`
+**`blocked` 워크트리**: 팀원이 커밋·push 하고 끝나므로, 결과 처리 직후 「고아 정리 규칙」 2번(미커밋 변경 없음,
+HEAD 가 `origin/<agent 브랜치>` 와 같음)을 맞추면 그 자리에서 정리한다. 정리할 수 없으면 3번대로 `.dflow-agent` 값을 `parked`
 로 바꿔 정규 슬롯 스캔에서 빼고 보고한다.
 
 **정리**: 워크트리가 아직 있을 때만 팀장 체크아웃에서 한다.
@@ -204,7 +204,7 @@ git worktree remove --force "$WT"
 |---|---|---|
 | 호스트 이름 | `hostname` 의 첫 점 앞부분(`hostname \| cut -d. -f1`) | 같다. Windows 의 hostname.exe 에는 `-s` 가 없다 |
 | 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) | `CLAUDE_PID`. `$PPID` 는 부모가 Cygwin 프로세스가 아니라 1 이다 |
-| 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 의 WINPID 열(25~32번째 글자)로 Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
+| 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 의 WINPID 열(머리글로 위치를 찾는다)로 Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
 | 권한 확인 생략 감지 | `ps -o command=` | PowerShell `Get-CimInstance Win32_Process` 의 `CommandLine` |
 | `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다(「프로세스」 spawn) |
 | 필요한 명령 | bash·coreutils·ps·git·jq·curl | Git for Windows 의 bash·coreutils·ps 와 git·jq·curl·powershell.exe |

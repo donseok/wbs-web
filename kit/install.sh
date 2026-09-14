@@ -59,7 +59,7 @@ SETTINGS="$TARGET/.claude/settings.json"
 jq --arg git "Bash($GIT_ABS *)" --slurpfile add "$KIT_DIR/worker-allow.json" \
   '.permissions.allow = (((.permissions.allow // []) + [$git] + $add[0].allow) | unique)' \
   "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-echo "권한 준비: $SETTINGS 의 permissions.allow 에 워커 허용 목록을 합쳤다"
+echo "권한 준비: $SETTINGS 의 permissions.allow 에 워커 허용 목록을 합쳤다 (Bash($GIT_ABS *) 는 이 PC 의 git 경로다. 다른 PC 에서 설치하면 그 경로의 규칙이 하나 더 붙는다)"
 
 # 4) 버전 표식
 cp "$KIT_DIR/VERSION" "$TARGET/.claude/skills/DFLOW_KIT_VERSION" 2>/dev/null || true
