@@ -1,26 +1,39 @@
 'use client'
-// 승인 대기 큐 — 완료 보고(reported)가 올라온 주문을 카드로. 승인·반려는 관리자만(기존 agentWork 액션 재사용).
+// 승인 대기 큐 — 완료 보고(reported)가 올라온 주문을 카드로. 승인·반려는 관리자만.
+// 처리는 runHubProcessOp 1건으로 끝나고 응답의 허브로 화면을 바꾼다(§10·§11) — 재조회 요청 없음.
 import { useState } from 'react'
-import type { HubQueueEntry } from '@/lib/domain/agentHub'
-import { approveAgentCompletion, rejectAgentCompletion } from '@/app/actions/agentWork'
+import type { AgentHub, HubQueueEntry } from '@/lib/domain/agentHub'
+import { runHubProcessOp, type HubProcessOp } from '@/app/actions/agentHub'
+import { NOTE_PLACEHOLDER, OP_LABEL, OP_TITLE } from './labels'
 
-type Props = { queue: HubQueueEntry[]; isAdmin: boolean; onChanged: () => Promise<void> | void }
+type Props = {
+  queue: HubQueueEntry[]
+  projectId: string
+  isAdmin: boolean
+  /** 처리 응답의 허브로 화면 교체. */
+  onHub: (hub: AgentHub) => void
+  /** 처리는 됐는데 재조회만 실패했을 때의 재시도(refreshAgentHub 1회). */
+  onChanged: () => Promise<void> | void
+}
 
 const when = (iso: string) => new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false })
 
-function QueueCard({ q, isAdmin, onChanged }: { q: HubQueueEntry; isAdmin: boolean; onChanged: Props['onChanged'] }) {
+function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEntry } & Omit<Props, 'queue'>) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [warn, setWarn] = useState<string | null>(null)
   const [rejecting, setRejecting] = useState(false)
   const [note, setNote] = useState('')
 
-  const run = async (action: () => Promise<{ ok: boolean; error?: string }>) => {
-    setBusy(true); setErr(null)
+  const run = async (op: HubProcessOp) => {
+    setBusy(true); setErr(null); setWarn(null)
     try {
-      const r = await action()
-      if (!r.ok) { setErr(r.error ?? '처리에 실패했습니다.'); return }
+      const r = await runHubProcessOp(projectId, op)
+      if (!r.ok) { setErr(r.error); return }
+      if (r.warning) setWarn(r.warning)
       setRejecting(false); setNote('')
-      await onChanged()
+      if (r.hub) onHub(r.hub)
+      else { setErr(r.hubError ?? '현황 재조회에 실패했습니다.'); await onChanged() }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
@@ -44,31 +57,35 @@ function QueueCard({ q, isAdmin, onChanged }: { q: HubQueueEntry; isAdmin: boole
       {isAdmin ? (
         <div className="mt-2 flex flex-col gap-2">
           <div className="flex gap-2">
-            <button type="button" data-queue-approve disabled={busy} onClick={() => { void run(() => approveAgentCompletion(q.orderId)) }} className="btn btn-primary h-8 px-3 text-xs">승인</button>
-            <button type="button" data-queue-reject-open disabled={busy} aria-expanded={rejecting} onClick={() => setRejecting(v => !v)} className="btn btn-ghost h-8 px-3 text-xs">반려</button>
+            <button type="button" data-queue-approve disabled={busy} title={OP_TITLE.approve}
+              onClick={() => { void run({ kind: 'approve', orderId: q.orderId }) }} className="btn btn-primary h-8 px-3 text-xs">{OP_LABEL.approve}</button>
+            <button type="button" data-queue-reject-open disabled={busy} aria-expanded={rejecting} title={OP_TITLE.reject}
+              onClick={() => setRejecting(v => !v)} className="btn btn-ghost h-8 px-3 text-xs">{OP_LABEL.reject}</button>
           </div>
           {rejecting && (
             <div className="flex flex-col gap-1">
-              <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="반려 사유 (필수)" className="app-input w-full text-xs" />
+              <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={NOTE_PLACEHOLDER.reject} className="app-input w-full text-xs" />
               <div>
-                <button type="button" data-queue-reject disabled={busy || note.trim() === ''} onClick={() => { void run(() => rejectAgentCompletion(q.orderId, note.trim())) }} className="btn btn-ghost h-8 px-3 text-xs">반려 확정</button>
+                <button type="button" data-queue-reject disabled={busy || note.trim() === ''}
+                  onClick={() => { void run({ kind: 'reject', orderId: q.orderId, note: note.trim() }) }} className="btn btn-ghost h-8 px-3 text-xs">반려 확정</button>
               </div>
             </div>
           )}
         </div>
       ) : <p className="mt-2 text-[11px] text-ink-subtle">승인은 관리자가 합니다.</p>}
       {err && <p data-queue-error className="mt-1 text-[11px] text-accent-warning">{err}</p>}
+      {warn && <p data-queue-warning className="mt-1 text-[11px] text-pending">{warn}</p>}
     </li>
   )
 }
 
-export function ApprovalQueue({ queue, isAdmin, onChanged }: Props) {
+export function ApprovalQueue({ queue, ...rest }: Props) {
   return (
     <section aria-label="승인 대기" className="rounded-xl border border-line bg-surface p-3">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">승인 대기 {queue.length > 0 && <span className="ml-1 tabular-nums text-ink">{queue.length}</span>}</h2>
       {queue.length === 0
         ? <p className="text-xs text-ink-muted">승인 대기 없음</p>
-        : <ul className="space-y-2">{queue.map(q => <QueueCard key={q.orderId} q={q} isAdmin={isAdmin} onChanged={onChanged} />)}</ul>}
+        : <ul className="space-y-2">{queue.map(q => <QueueCard key={q.orderId} q={q} {...rest} />)}</ul>}
     </section>
   )
 }

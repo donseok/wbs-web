@@ -30,6 +30,8 @@ export interface HubRow {
   isLeaf: boolean; milestone: boolean
   assigneeName: string | null; assigneeMine: boolean
   delegated: boolean; devWorkflow: boolean
+  /** WBS 단계(as/fp/ip/im/xx, 미지정 null). 허브의 단계 직접 조정(§11)이 보이는 값이자 select 의 현재값. */
+  stage: string | null
   order: { id: string; status: OrderStatus; state: HubOrderState; agent: string | null; lastSignalAt: string | null } | null
   prompt: string | null
   /** 리프 && 마일스톤 아님 && (관리자 || 담당자 본인) — 화면의 체크 활성 판정. 서버 가드(requireDelegationRight)와 같은 규칙. */
@@ -159,7 +161,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,
       assigneeName: item.assignee_member_id ? (memberName.get(item.assignee_member_id) ?? null) : null, assigneeMine,
-      delegated, devWorkflow: item.dev_workflow, order, prompt: item.agent_prompt,
+      delegated, devWorkflow: item.dev_workflow, stage: item.stage, order, prompt: item.agent_prompt,
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
       unmetDepends: unmet.length ? unmetDependsList(unmet) : null,
     })

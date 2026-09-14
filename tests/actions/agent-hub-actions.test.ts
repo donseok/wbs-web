@@ -4,10 +4,11 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const mocks = vi.hoisted(() => ({
-  requireProjectMember: vi.fn(), createAdminClient: vi.fn(),
+  requireProjectMember: vi.fn(), requireProjectAdmin: vi.fn(), createAdminClient: vi.fn(),
   getAgentHub: vi.fn(), applyDelegation: vi.fn(), viewerEmail: vi.fn(), myMemberIds: vi.fn(),
+  approve: vi.fn(), reject: vi.fn(), unapprove: vi.fn(), rework: vi.fn(), setWbsStage: vi.fn(), emitNotification: vi.fn(),
 }))
-vi.mock('@/lib/authz', () => ({ requireProjectMember: mocks.requireProjectMember }))
+vi.mock('@/lib/authz', () => ({ requireProjectMember: mocks.requireProjectMember, requireProjectAdmin: mocks.requireProjectAdmin }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/data/agentHub', () => ({ getAgentHub: mocks.getAgentHub }))
 vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail }))
@@ -15,10 +16,18 @@ vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds }))
 vi.mock('@/lib/agent/delegation', () => ({
   applyDelegation: mocks.applyDelegation, ERR_NOT_ASSIGNEE: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.',
 }))
-import { refreshAgentHub, applyHubDelegations } from '@/app/actions/agentHub'
+vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
+vi.mock('@/app/actions/agentWork', () => ({
+  approveAgentCompletion: mocks.approve, rejectAgentCompletion: mocks.reject,
+  unapproveAgentCompletion: mocks.unapprove, requestAgentRework: mocks.rework,
+}))
+vi.mock('@/app/actions/wbsAssign', () => ({ setWbsStage: mocks.setWbsStage }))
+import { refreshAgentHub, applyHubDelegations, runHubProcessOp } from '@/app/actions/agentHub'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
+const P2 = '22222222-2222-4222-8222-222222222222'
 const I = (n: number) => `33333333-3333-4333-8333-33333333333${n}`
+const O = (n: number) => `44444444-4444-4444-8444-44444444444${n}`
 const ADMIN = { ok: true, actor: { userId: 'admin-1', isSuperuser: false, projectRoles: new Map([[P1, 'admin']]), rosterTeams: new Map(), teamCode: null, teamId: null } }
 const MEMBER = { ok: true, actor: { ...ADMIN.actor, userId: 'member-1', projectRoles: new Map([[P1, 'member']]) } }
 const DENIED = { ok: false, error: '권한이 없습니다.' }
@@ -37,11 +46,46 @@ function adminClient(items: { id: string; assignee_member_id?: string | null }[]
   return client
 }
 
+/**
+ * 조정용 관리자 클라이언트 흉내 — 테이블별 단건(maybeSingle)과 update 를 기록한다.
+ * `.eq('id', v)` 로 잡힌 id 의 행을 돌려준다. update 뒤 `.select()` thenable 은 updateRows 개 행.
+ */
+function fakeAdmin(cfg: {
+  orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null }>
+  items?: Record<string, { project_id: string; name?: string; assignee_member_id?: string | null }>
+  updateRows?: number
+}) {
+  const updates: { table: string; payload: Record<string, unknown> }[] = []
+  const client = { from: vi.fn((table: string) => {
+    const b: Record<string, unknown> = {}
+    let id: string | null = null
+    let payload: Record<string, unknown> | null = null
+    for (const k of ['select', 'in', 'order', 'limit']) b[k] = () => b
+    b.eq = (col: string, v: string) => { if (col === 'id') id = v; return b }
+    b.update = (p: Record<string, unknown>) => { payload = p; return b }
+    b.maybeSingle = async () => {
+      const src = table === 'agent_work_orders' ? cfg.orders : table === 'wbs_items' ? cfg.items : undefined
+      const row = id && src ? src[id] ?? null : null
+      return { data: row ? { id, ...row } : null, error: null }
+    }
+    b.then = (res: (v: unknown) => unknown) => {
+      if (payload !== null) { updates.push({ table, payload }); return Promise.resolve({ data: Array.from({ length: cfg.updateRows ?? 1 }, () => ({ id })), error: null }).then(res) }
+      return Promise.resolve({ data: [], error: null }).then(res)
+    }
+    return b
+  }) }
+  mocks.createAdminClient.mockReturnValue(client)
+  return { client, updates }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireProjectMember.mockResolvedValue(MEMBER)
+  mocks.requireProjectAdmin.mockResolvedValue(ADMIN)
   mocks.getAgentHub.mockResolvedValue(HUB)
   mocks.applyDelegation.mockResolvedValue({ ok: true })
+  for (const m of [mocks.approve, mocks.reject, mocks.unapprove, mocks.rework, mocks.setWbsStage]) m.mockResolvedValue({ ok: true })
+  mocks.emitNotification.mockResolvedValue({ ok: true })
 })
 
 describe('refreshAgentHub', () => {
@@ -155,5 +199,87 @@ describe('applyHubDelegations — 묶음 1건: 가드 1회 → 항목별 applyDe
   it('허브 액션은 revalidatePath 를 부르지 않는다 — 응답의 hub 로 갱신하며 페이지 재렌더를 싣지 않는다(소스 문자열 검사)', () => {
     const src = readFileSync(join(process.cwd(), 'src/app/actions/agentHub.ts'), 'utf8')
     expect(src).not.toMatch(/revalidatePath\(/)
+  })
+})
+
+describe('runHubProcessOp — 관리자 가드 1회 → 이 프로젝트 것인지 → 기존 액션 → 허브 재조회를 한 응답에(§11)', () => {
+  const ORDERS = { [O(1)]: { project_id: P1, status: 'reported', wbs_item_id: I(1) }, [O(2)]: { project_id: P2, status: 'reported', wbs_item_id: null } }
+  const ITEMS = { [I(1)]: { project_id: P1, name: '입측 화면', assignee_member_id: 'm1' }, [I(2)]: { project_id: P2 } }
+
+  it('approve → approveAgentCompletion(orderId) → hub(isAdmin=true); reject·unapprove·rework 도 각 액션으로', async () => {
+    fakeAdmin({ orders: ORDERS })
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.approve).toHaveBeenCalledWith(O(1))
+    expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'admin-1', isAdmin: true })
+    await runHubProcessOp(P1, { kind: 'reject', orderId: O(1), note: '다시' })
+    expect(mocks.reject).toHaveBeenCalledWith(O(1), '다시')
+    await runHubProcessOp(P1, { kind: 'unapprove', orderId: O(1) })
+    expect(mocks.unapprove).toHaveBeenCalledWith(O(1))
+    await runHubProcessOp(P1, { kind: 'rework', orderId: O(1), note: '테스트 빠짐' })
+    expect(mocks.rework).toHaveBeenCalledWith(O(1), '테스트 빠짐')
+  })
+  it('stage → 항목이 이 프로젝트 것인지 본 뒤 setWbsStage(itemId, stage); null(미지정)도 통과', async () => {
+    fakeAdmin({ items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'fp' })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), 'fp')
+    await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: null })
+    expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), null)
+  })
+  it('release → claimed 만, CAS 로 ready + 점유·heartbeat 흔적 제거, work.released 알림을 배정자에게', async () => {
+    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].table).toBe('agent_work_orders')
+    expect(updates[0].payload).toMatchObject({
+      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
+      last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, heartbeat_note: null,
+    })
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'work.released', projectId: P1, actorUserId: 'admin-1', entityType: 'agent_order', entityId: O(1),
+      payload: expect.objectContaining({ title: '입측 화면', detail: '관리자가 작업을 회수했습니다' }),
+      recipientMemberIds: ['m1'],
+    }))
+  })
+  it('release — claimed 가 아니면 거부, CAS 0행이면 재시도 문구', async () => {
+    fakeAdmin({ orders: ORDERS })
+    expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '회수할 수 있는 상태가 아닙니다(reported).' })
+    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, updateRows: 0 })
+    expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요.' })
+    expect(updates).toHaveLength(1)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
+  })
+  it('타 프로젝트 주문·항목 → 거부, 내부 액션 미호출', async () => {
+    fakeAdmin({ orders: ORDERS, items: ITEMS })
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(2) })).toEqual({ ok: false, error: '이 프로젝트의 주문이 아닙니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(3) })).toEqual({ ok: false, error: '이 프로젝트의 주문이 아닙니다.' })
+    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(2), stage: 'as' })).toEqual({ ok: false, error: '이 프로젝트의 항목이 아닙니다.' })
+    expect(mocks.approve).not.toHaveBeenCalled(); expect(mocks.setWbsStage).not.toHaveBeenCalled()
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+  })
+  it('내부 액션 실패 → 오류 그대로, 재조회 없음; warning 은 응답에 싣는다', async () => {
+    fakeAdmin({ orders: ORDERS })
+    mocks.approve.mockResolvedValueOnce({ ok: false, error: '승인 가능한 상태가 아닙니다(claimed).' })
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(1) })).toEqual({ ok: false, error: '승인 가능한 상태가 아닙니다(claimed).' })
+    expect(mocks.getAgentHub).not.toHaveBeenCalled()
+    mocks.unapprove.mockResolvedValueOnce({ ok: true, warning: '실적을 되돌리지 않았습니다' })
+    expect(await runHubProcessOp(P1, { kind: 'unapprove', orderId: O(1) })).toEqual({ ok: true, hub: HUB, warning: '실적을 되돌리지 않았습니다' })
+  })
+  it('재조회만 실패 → ok:true + hub:null + hubError', async () => {
+    fakeAdmin({ orders: ORDERS })
+    mocks.getAgentHub.mockRejectedValueOnce(new Error('db'))
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(1) }))
+      .toEqual({ ok: true, hub: null, hubError: '처리는 됐지만 현황 재조회에 실패했습니다. 새로고침을 누르세요.' })
+  })
+  it('관리자 아님 → 거부; 입력 검증(kind·uuid·note·stage 코드)', async () => {
+    mocks.requireProjectAdmin.mockResolvedValueOnce(DENIED)
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(1) })).toEqual(DENIED)
+    const BAD = { ok: false, error: '잘못된 요청입니다.' }
+    expect(await runHubProcessOp('nope', { kind: 'approve', orderId: O(1) })).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'approve', orderId: 'x' })).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'reject', orderId: O(1) } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'zz' } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, { kind: 'nuke', orderId: O(1) } as never)).toEqual(BAD)
+    expect(await runHubProcessOp(P1, null as never)).toEqual(BAD)
+    expect(mocks.requireProjectAdmin).toHaveBeenCalledTimes(1)
   })
 })
