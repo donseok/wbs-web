@@ -3,11 +3,14 @@
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
+import { unmetDepends, unmetDependsList } from './waitReason'
 
 export interface HubItemRow {
   id: string; project_id: string; parent_id: string | null; code: string; name: string; sort_order: number
   milestone: boolean; dev_workflow: boolean; tags: string[] | null
   assignee_member_id: string | null; agent_prompt: string | null; actual_pct: number | null; stage: string | null
+  /** 선행 매칭 키(0077) — 프로젝트 안 external_ref. depends 는 선행 external_ref 배열. */
+  external_ref: string | null; depends: string[] | null
 }
 export interface HubMemberRow { id: string; name: string; email: string | null; user_id: string | null }
 export interface HubReportRow {
@@ -18,6 +21,8 @@ export interface AgentHubRows {
   project: { id: string; name: string } | null
   agentProject: { enabled: boolean } | null
   items: HubItemRow[]; orders: OrderRow[]; reports: HubReportRow[]; watchers: WatcherRow[]; members: HubMemberRow[]
+  /** 선행 항목 중 approved 주문이 있는 항목 id — orders 는 7일 창이라 오래전 승인을 따로 본다(착수 대기 사유 스펙 §3). */
+  approvedItemIds: string[]
 }
 export type HubOrderState = SeatState
 export interface HubRow {
@@ -29,6 +34,8 @@ export interface HubRow {
   prompt: string | null
   /** 리프 && 마일스톤 아님 && (관리자 || 담당자 본인) — 화면의 체크 활성 판정. 서버 가드(requireDelegationRight)와 같은 규칙. */
   canToggle: boolean
+  /** 리프·위임·(주문 없음 또는 READY) 이고 선행이 미충족이면 그 목록 문구(waitReason.unmetDependsList), 아니면 null. 클레임 API dependency_not_met 와 같은 축. */
+  unmetDepends: string | null
 }
 export interface HubQueueEntry {
   orderId: string; itemId: string | null; code: string; name: string; agent: string; percent: number; summary: string
@@ -116,6 +123,9 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   }
 
   const hasChildren = new Set(rows.items.map(i => i.parent_id).filter((x): x is string => x !== null))
+  // 선행은 같은 프로젝트 항목의 external_ref 로 맞춘다 — 허브는 프로젝트 전체 항목을 이미 들고 있다.
+  const byRef = new Map(rows.items.filter(i => i.external_ref !== null).map(i => [i.external_ref as string, i]))
+  const approved = new Set(rows.approvedItemIds)
   const hubRows: HubRow[] = []
   const counters = { delegated: 0, ready: 0, working: 0, waiting: 0 }
   for (const { item, depth } of flatten(rows.items)) {
@@ -141,12 +151,17 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
       else if (WORKING.includes(state)) counters.working++
     }
     if (isLeaf && delegated) counters.delegated++
+    const waitingStart = order === null || order.state === 'READY'
+    const unmet = isLeaf && delegated && waitingStart
+      ? unmetDepends(item.depends, ref => { const p = byRef.get(ref); return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id) } : undefined })
+      : []
     hubRows.push({
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,
       assigneeName: item.assignee_member_id ? (memberName.get(item.assignee_member_id) ?? null) : null, assigneeMine,
       delegated, devWorkflow: item.dev_workflow, order, prompt: item.agent_prompt,
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
+      unmetDepends: unmet.length ? unmetDependsList(unmet) : null,
     })
   }
 

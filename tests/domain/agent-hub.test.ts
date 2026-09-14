@@ -9,7 +9,7 @@ const ago = (ms: number) => new Date(NOW - ms).toISOString()
 const P1 = 'p1'
 const item = (over: Partial<HubItemRow>): HubItemRow => ({
   id: 'i1', project_id: P1, parent_id: null, code: 'WP-01', name: '루트', sort_order: 0, milestone: false,
-  dev_workflow: false, tags: null, assignee_member_id: null, agent_prompt: null, actual_pct: null, stage: null, ...over,
+  dev_workflow: false, tags: null, assignee_member_id: null, agent_prompt: null, actual_pct: null, stage: null, external_ref: null, depends: null, ...over,
 })
 const order = (over: Partial<OrderRow>): OrderRow => ({
   id: '11111111-aaaa-4aaa-8aaa-000000000001', project_id: P1, wbs_item_id: 'i1', status: 'claimed',
@@ -30,7 +30,7 @@ const rows = (over: Partial<AgentHubRows> = {}): AgentHubRows => ({
     item({ id: 'orphan', parent_id: 'ghost', code: 'TSK-X', name: '고아', sort_order: 0 }),
   ],
   orders: [order({ wbs_item_id: 'a1' })],
-  reports: [], watchers: [],
+  reports: [], watchers: [], approvedItemIds: [],
   members: [
     { id: 'm1', name: '장종익1', email: 'yoo@example.com', user_id: null },
     { id: 'm9', name: '남', email: 'other@example.com', user_id: 'u9' },
@@ -149,5 +149,38 @@ describe('assembleAgentHub — 감시자', () => {
       { ...w, id: 'w4', agent: 'global', project_id: null },
     ] }), NOW, VIEWER)
     expect(hub.watchers.map(x => x.agent)).toEqual(['global'])
+  })
+})
+
+describe('assembleAgentHub — 선행 미완료(unmetDepends)', () => {
+  const ready = () => order({ wbs_item_id: 'a1', status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null })
+  const withDep = (over: Partial<AgentHubRows> = {}) => rows({
+    items: [
+      item({ id: 'a', code: 'SUB-A', name: '첫째', sort_order: 1 }),
+      item({ id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프1', sort_order: 1, dev_workflow: true, tags: ['agent'], depends: ['M/T0', 'M/T9'] }),
+      item({ id: 'a0', parent_id: 'a', code: 'TSK-A-00', name: '선행', sort_order: 0, dev_workflow: true, external_ref: 'M/T0', stage: 'fp' }),
+    ],
+    orders: [ready()], ...over,
+  })
+  const rowOf = (hub: ReturnType<typeof assembleAgentHub>, code: string) => hub.rows.find(r => r.code === code)!
+  it('위임된 리프의 주문이 READY 이고 선행이 im 미만·미승인이면 목록 문구. 프로젝트에 없는 ref 도 미충족', () => {
+    const hub = assembleAgentHub(withDep(), NOW, VIEWER)
+    expect(rowOf(hub, 'TSK-A-01').unmetDepends).toBe('TSK-A-00 선행(현재 fp(기능 계획)), M/T9(프로젝트에 없는 항목)')
+    expect(rowOf(hub, 'TSK-A-00').unmetDepends).toBeNull()
+    expect(rowOf(hub, 'SUB-A').unmetDepends).toBeNull()
+  })
+  it('선행이 im 이상이거나 승인 주문(approvedItemIds)이 있으면 충족', () => {
+    const im = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: ['agent'], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'im' })] }), NOW, VIEWER)
+    expect(rowOf(im, 'TSK-A-01').unmetDepends).toBeNull()
+    const ok = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: ['agent'], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'as' })], approvedItemIds: ['a0'] }), NOW, VIEWER)
+    expect(rowOf(ok, 'TSK-A-01').unmetDepends).toBeNull()
+  })
+  it('주문이 없어도(위임만 켬) 표시하고, 이미 claimed 면 null, 위임이 꺼져 있으면 null', () => {
+    const noOrder = assembleAgentHub(withDep({ orders: [] }), NOW, VIEWER)
+    expect(rowOf(noOrder, 'TSK-A-01').unmetDepends).not.toBeNull()
+    const claimed = assembleAgentHub(withDep({ orders: [order({ wbs_item_id: 'a1' })] }), NOW, VIEWER)
+    expect(rowOf(claimed, 'TSK-A-01').unmetDepends).toBeNull()
+    const off = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: [], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'fp' })] }), NOW, VIEWER)
+    expect(rowOf(off, 'TSK-A-01').unmetDepends).toBeNull()
   })
 })

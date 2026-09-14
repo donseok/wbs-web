@@ -10,7 +10,7 @@ import {
   assembleAgentHub, type AgentHub, type AgentHubRows, type HubItemRow, type HubMemberRow, type HubReportRow,
 } from '@/lib/domain/agentHub'
 
-export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage'
+export const HUB_ITEM_COLS = 'id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends'
 const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note'
 const REPORT_COLS = 'work_order_id, percent, summary, links, agent, review_action, review_note, created_at'
 const WATCHER_COLS = 'id, user_id, project_id, agent, host, slots, busy, until_label, last_seen_at'
@@ -41,7 +41,13 @@ export async function fetchAgentHubRows(admin: AdminClient, projectId: string, n
   const reports = liveIds.length
     ? must<HubReportRow[]>('완료 보고', await admin.from('agent_work_reports').select(REPORT_COLS).in('work_order_id', liveIds).eq('kind', 'completion'))
     : []
-  return { project: projects[0] ?? null, agentProject, items, orders, reports, watchers, members }
+  // 선행 승인 여부 — 위임 항목의 depends 가 가리키는 항목 id 로 approved 주문을 1회(주문 조회는 7일 창이라 오래전 승인이 빠진다). 선행이 없으면 생략.
+  const refs = new Set(items.filter(i => (i.tags ?? []).includes('agent')).flatMap(i => i.depends ?? []))
+  const predIds = items.filter(i => i.external_ref !== null && refs.has(i.external_ref)).map(i => i.id)
+  const approvedItemIds = predIds.length
+    ? must<Array<{ wbs_item_id: string }>>('선행 승인 주문', await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', predIds).eq('status', 'approved')).map(r => r.wbs_item_id)
+    : []
+  return { project: projects[0] ?? null, agentProject, items, orders, reports, watchers, members, approvedItemIds }
 }
 
 export async function getAgentHub(projectId: string, viewer: { userId: string; isAdmin: boolean }, nowMs = Date.now()): Promise<AgentHub> {
