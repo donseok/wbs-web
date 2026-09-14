@@ -1378,15 +1378,24 @@ git commit -m "feat(dflow-team): 팀원 프롬프트 정본: 격리 확인·좌�
 **Files:**
 - Create: `.claude/skills/dflow-team/references/backends.md`
 - Create: `.claude/skills/dflow-team/references/events.md`
-- Modify: `tests/skills/dflow-team.test.ts` (describe 블록 추가)
+- Create: `tests/skills/dflow-team-backends.test.ts`
 
 **Interfaces:**
 - Consumes: 포인터 형식·`.result` 경로·branch `-` 규칙·`.dflow-agent`·알려진 부산물(Task 3).
 - Produces: backends.md 의 절 이름 「pane(Orca)」「에이전트 팀」「고아 정리 규칙」, 워크트리 선택자 `--worktree path:<경로>`, `parked` 표시 명령. events.md 의 이벤트 `team.start` `team.spawn` `team.result` `team.blocked` `team.answer` `team.sweep` `team.stop`, 필드, `jq -nc` 기록 명령, 결과 줄 해시·사유 추출 명령. Task 5 SKILL.md 가 이 이름으로 참조하고, 재구성이 `team.spawn`·`team.result`·`team.blocked`·`team.answer` 필드를 읽는다.
 
-- [ ] **Step 1: 테스트 추가** (`tests/skills/dflow-team.test.ts` 끝에)
+- [ ] **Step 1: 테스트 추가** (새 파일 `tests/skills/dflow-team-backends.test.ts`)
 
 ```ts
+// tests/skills/dflow-team-backends.test.ts
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
+const SKILL_DIR = join(ROOT, '.claude', 'skills', 'dflow-team')
+const read = (rel: string) => readFileSync(join(SKILL_DIR, rel), 'utf8')
+
 describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·§4-8·§4-9·§9-3·§10)', () => {
   const b = () => read('references/backends.md')
   const e = () => read('references/events.md')
@@ -1470,8 +1479,8 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `npx vitest run tests/skills/dflow-team.test.ts`
-Expected: 새 describe 8건 FAIL(`ENOENT`), 기존 11건 PASS.
+Run: `npx vitest run tests/skills/dflow-team-backends.test.ts`
+Expected: 새 describe 8건 FAIL(`ENOENT`).
 
 - [ ] **Step 3: `references/backends.md` 작성**
 
@@ -1687,7 +1696,7 @@ Expected: PASS 41건(Task 1 13 + Task 2 9 + dflow-team 19).
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add .claude/skills/dflow-team/references/backends.md .claude/skills/dflow-team/references/events.md tests/skills/dflow-team.test.ts
+git add .claude/skills/dflow-team/references/backends.md .claude/skills/dflow-team/references/events.md tests/skills/dflow-team-backends.test.ts
 git commit -m "feat(dflow-team): 백엔드별 spawn·정리 정본, 고아 정리 규칙, 이벤트 표
 
 Orca pane 과 에이전트 팀은 기상 신호·blocked 이후·슬롯 점유·회수·정리만 다르다. 차이를 한 표에
@@ -2666,15 +2675,22 @@ origin 의 스킬을 쓰므로 push 여부를 본다. 에이전트 팀 blocked �
 - Create: `kit/agent-team-allow.json`
 - Modify: `kit/README.md` (4행, 16~17행, 26행, 스킬 표)
 - Modify: `docs/agent/claude-skill/dflow-skills-guide.md` (3행, 한눈에 보기 표, dflow-poll·dflow-merge 「알아둘 것」, `## 자주 겪는 상황` 앞)
-- Modify: `tests/skills/dflow-team.test.ts`
+- Create: `tests/skills/dflow-team-kit.test.ts`
 
 **Interfaces:**
 - Consumes: 완성된 `.claude/skills/dflow-team/`(Task 3~5), `/dflow-merge` 후보 확대(Task 2), Phase 5 `reported` 커밋(Task 1).
 - Produces: dflow-kit 빌드에 dflow-team 과 `agent-team-allow.json` 포함, install.sh 의 `permissions.allow` 병합(스펙 §8 권한 준비 2번, §10), 가이드의 사용 안내와 공지 두 줄(인자 없는 `/dflow-merge` 후보 확대, 수동 `/dflow-poll` exit 9 의 한계. 스펙 §11-1). `kit/agent-team-allow.json` 은 빈 목록으로 시작하고 Task 9 가 리허설 기록으로 채운다. 이 Task 는 머지하지 않는다. 머지는 리허설 뒤 Task 10 이다. kit-build 의 킷 밖 참조 검사는 넓히지 않는다(dflow-team 파일이 킷 밖 경로를 쓰지 않는 것으로 충분하다, 스펙 §10).
 
-- [ ] **Step 1: 테스트 추가** (`tests/skills/dflow-team.test.ts` 끝에)
+- [ ] **Step 1: 테스트 추가** (새 파일 `tests/skills/dflow-team-kit.test.ts`)
 
 ```ts
+// tests/skills/dflow-team-kit.test.ts
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
+
 describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙 §11-1)', () => {
   it('kit-build.sh 배포 목록에 dflow-team 이 있고 권한 목록 파일을 킷에 싣는다', () => {
     const kit = readFileSync(join(ROOT, 'scripts/kit-build.sh'), 'utf8')
@@ -2715,8 +2731,8 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
 
 - [ ] **Step 2: 실패 확인**
 
-Run: `npx vitest run tests/skills/dflow-team.test.ts`
-Expected: 새 describe 5건 FAIL, 기존 44건 PASS.
+Run: `npx vitest run tests/skills/dflow-team-kit.test.ts`
+Expected: 새 describe 5건 FAIL.
 
 - [ ] **Step 3: 파일 수정**
 
@@ -2822,7 +2838,7 @@ Expected: vitest PASS 71건. kit-build 는 `빌드 완료:` 와 `skills: … dfl
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add scripts/kit-build.sh kit/install.sh kit/agent-team-allow.json kit/README.md docs/agent/claude-skill/dflow-skills-guide.md tests/skills/dflow-team.test.ts
+git add scripts/kit-build.sh kit/install.sh kit/agent-team-allow.json kit/README.md docs/agent/claude-skill/dflow-skills-guide.md tests/skills/dflow-team-kit.test.ts
 git commit -m "chore(kit): dflow-team 배포·에이전트 팀 권한 allow 병합·가이드 공지
 
 다른 dflow-* 와 같이 dflow-kit 으로 배포한다. 에이전트 팀 팀원은 팀장 세션의 권한 모드를 물려받아
@@ -2850,7 +2866,8 @@ git commit -m "chore(kit): dflow-team 배포·에이전트 팀 권한 allow 병�
 
 ```bash
 git clone --bare ~/project/mes-base ~/project/mes-base-rehearsal.git
-git -C ~/project/mes-base-rehearsal.git config --get remote.origin.url || echo NO_UPSTREAM   # bare 는 실제 원격을 모른다
+git -C ~/project/mes-base-rehearsal.git remote remove origin   # bare 는 원본의 origin 설정을 복사한다. 지워야 push 가 어디로도 가지 않는다
+git -C ~/project/mes-base-rehearsal.git config --get remote.origin.url || echo NO_UPSTREAM   # 지운 뒤 확인. NO_UPSTREAM 이어야 한다
 d=$(git -C ~/project/mes-base symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); d=${d#origin/}
 [ -n "$d" ] || d=$(git -C ~/project/mes-base ls-remote --symref origin HEAD | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p')
 echo "기본 브랜치=$d"                                     # 비어 있으면 멈춘다
@@ -2867,8 +2884,8 @@ for s in dflow-work dflow-dev dflow-poll dflow-merge dflow-team; do ln -s "<FEAT
 cp "<FEAT_WT>/kit/.env.example" .env
 git check-ignore -q .env || printf '/.env\n' >> "$(git rev-parse --git-path info/exclude)"
 ```
-- `NO_UPSTREAM` 이 나와야 한다. `git clone --bare` 는 원격 설정을 만들지 않으므로 bare 로 들어온 push 는 어디로도
-  전달되지 않는다.
+- `NO_UPSTREAM` 이 나와야 한다. `git clone --bare` 는 원본의 origin 설정을 복사하므로 지운다. origin 이 없는 bare 로
+  들어온 push 는 어디로도 전달되지 않는다.
 - bare 는 mes-base 의 로컬 브랜치와 HEAD 를 그대로 가져온다. mes-base 체크아웃이 agent 브랜치에 있거나 로컬
   기본 브랜치가 뒤처져 있을 수 있으므로, bare 의 기본 브랜치를 mes-base 가 아는 원격 최신으로 맞추고 HEAD 를
   기본 브랜치로 둔다. 이유: 리허설 클론의 `origin/HEAD` 가 기본 브랜치를 가리켜야 워커 부트스트랩과 스윕의
