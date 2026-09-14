@@ -119,7 +119,9 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: { us
 
 ### 4-3. 갱신
 
-- 클라이언트는 폴링하지 않는다(허브는 조작 화면). 변경 뒤 `refreshAgentHub(projectId)` 1회. 좌석 층의 경과 시간 표시만 1초 틱.
+- 클라이언트는 폴링하지 않는다(허브는 조작 화면). 좌석 층의 경과 시간 표시만 1초 틱.
+- 위임 체크는 재조회하지 않는다 — 1.5초 모아 `applyHubDelegations` 1건으로 보내고 **응답에 실린 허브로 교체**한다(§10, 2026-09-14 체크 지연 개선).
+- 그 밖의 변경(프롬프트 저장·승인/반려·켜기/중지) 뒤 `refreshAgentHub(projectId)` 1회.
 - 문서 탭이 다시 보이면(`visibilitychange`) 1회 재조회.
 
 ## 5. 서버 액션 `src/app/actions/agentHub.ts` + `wbsSpec.ts` 변경
@@ -128,10 +130,14 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: { us
 // agentHub.ts
 export async function refreshAgentHub(projectId: string): Promise<{ ok: true; hub: AgentHub } | { ok: false; error: string }>
 //   requireProjectMember(projectId) → getAgentHub. 실패는 고정 문구 '에이전트 현황 재조회에 실패했습니다.' + console.error 상세.
-export async function setAgentDelegationBulk(projectId: string, itemIds: string[], delegated: boolean): Promise<
-  { ok: true; applied: number; failed: { itemId: string; error: string }[]; warning?: string } | { ok: false; error: string }>
-//   requireProjectAdmin(projectId). itemIds 는 1~200개, 전부 이 프로젝트 소속인지 한 번에 검증(아니면 ok:false).
-//   항목마다 applyDelegation(아래) 를 순차 호출, 개별 실패는 failed 에 모으고 계속. 마지막에 revalidatePath(`/p/${projectId}`, 'layout') 1회.
+export async function applyHubDelegations(projectId: string, changes: { itemId: string; delegated: boolean }[]): Promise<
+  { ok: true; hub: AgentHub | null; hubError?: string; failed: { itemId: string; error: string }[]; warnings: { itemId: string; warning: string }[] }
+  | { ok: false; error: string }>
+//   (2026-09-14 §10) requireProjectMember(projectId) 1회 → isAdmin 판정. changes 는 1~200개, 같은 항목은 마지막 값만.
+//   전부 이 프로젝트 소속인지 한 번에 검증(아니면 ok:false). 멤버(비관리자)는 로스터 판정(myMemberIds)을 묶음당 1회 하고
+//   담당자 본인이 아닌 항목은 그 항목만 failed(ERR_NOT_ASSIGNEE). 항목마다 applyDelegation(아래) 순차 호출, 개별 실패·경고는 항목별로 모은다.
+//   끝에 getAgentHub 를 한 번 더 읽어 응답에 싣는다 — 재조회만 실패하면 hub:null + hubError(변경은 저장됐다는 사실을 숨기지 않는다).
+//   revalidatePath 를 부르지 않는다(테스트로 고정: 소스에 `revalidatePath(` 가 없어야 한다). 종전 setAgentDelegationBulk 는 이 액션으로 대체됐다.
 ```
 
 `wbsSpec.ts`:
@@ -168,8 +174,8 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 
 - 세그먼트 "내 담당 | 전체"(`aria-pressed`). `mine` 은 `assigneeMine` 리프와 그 조상만 남긴다.
 - 표 열: 위임 체크 · 코드 · 이름(깊이만큼 들여쓰기, 부모는 접기 토글) · 담당자 · 상태 · 에이전트 · 마지막 신호 · 프롬프트.
-- 리프 행 체크박스: `canToggle` 아니면 `disabled` + `title="담당자 본인 또는 관리자만"`. 클릭 → 낙관적으로 체크 상태 바꾸고 `setAgentDelegation(itemId, next)` → 결과가 `ok:false` 면 되돌리고 행에 오류 문구, `warning` 이면 행 아래 문구. 끝나면 `refresh()`.
-- 부모 행 체크박스: 관리자만 렌더. 상태 = 하위 리프(마일스톤 제외)가 전부 위임이면 checked, 일부면 `indeterminate`. 클릭 → 확인 없이 `setAgentDelegationBulk(projectId, leafIds, next)`. 실패 목록은 표 위 알림 줄에 "n건 실패: 코드…".
+- 리프 행 체크박스: `canToggle` 아니면 `disabled` + `title="담당자 본인 또는 관리자만"`. 클릭 → 표시만 즉시 바꾸고 **잠그지 않는다**. 변경은 `usePendingDelegations` 훅이 모았다가(서버값으로 되돌린 체크는 대기에서 뺀다) 마지막 체크 뒤 1.5초에 `applyHubDelegations(projectId, changes)` 1건으로 보낸다. 표 머리에 "N건 · n초 뒤 저장 · 지금 저장" 칩(`PendingSaveChip` 재사용), 저장 중엔 "저장 중…". 응답의 `failed` 는 그 행만 서버값으로 되돌리고 행에 오류 문구, `warnings` 는 행 아래 문구, `hub` 는 `onHub` 로 화면 교체. `ok:false`(묶음 전체 거부)·throw 는 보낸 행마다 그 문구.
+- 부모 행 체크박스: 관리자만 렌더. 상태 = 하위 리프(마일스톤 제외)가 전부 위임이면 checked, 일부면 `indeterminate`. 클릭 → 확인 없이 하위 리프 전부를 같은 대기 맵에 넣는다(이미 같은 값인 리프는 보내지 않는다). 실패가 2건 이상이면 표 위 알림 줄에 "n건 실패: 코드…".
 - 상태 열 라벨: READY '대기(미착수)', ACTIVE '작업 중', STALE '무응답', OFFLINE '끊김', BLOCKED '결정 대기', WAIT '승인 대기', REJECTED '반려·재작업', DONE '승인됨', 주문 없음 '—'. `dev_workflow` 만 켜지고 위임이 없으면 상태 옆에 작은 힌트 "위임 필요".
 - 프롬프트 열: 값이 있으면 앞 40자, 연필 버튼(`canToggle` 과 같은 자격) → 행 아래 textarea + 저장/취소 → `updateAgentPrompt`.
 - 접기: 부모 행 왼쪽 chevron. 기본 펼침. 접힘 상태는 클라이언트 state 만(저장 안 함).
@@ -199,15 +205,16 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 ## 7. 성능 예산
 
 - 페이지 첫 렌더: Vercel 왕복 1 + Supabase 병렬 7. 220항목 기준 서버 처리 p95 800ms 이하(스테이징 실측으로 §9 에 기록).
-- 토글 1회: 액션 1 + `refresh` 1. `router.refresh()` 호출 0회(테스트로 고정: `agent-hub` 컴포넌트 소스에 `router.refresh` 문자열이 없어야 한다).
+- 체크 N개(1.5초 창 안): 액션 1(응답에 허브 포함) + 재조회 0 + 잠금 0. `router.refresh()` 호출 0회(테스트로 고정: `agent-hub` 컴포넌트 소스에 `router.refresh` 문자열이 없어야 한다), `revalidatePath` 0회(§5).
 
 ## 8. 테스트
 
 - `tests/domain/agent-hub.test.ts`: 트리 순서(sort_order·code), 리프/마일스톤 `canToggle`, `assigneeMine`(user_id·email 대소문자), 상태 매핑(ready/claimed 신호 5분·30분/reported/approved 7일), counters, queue(보고 없음 포함), floor 가 agent 태그 주문만 담는지.
 - `tests/data/agent-hub.test.ts`: 7건 `Promise.all` 컬럼·필터 단정, 실패 throw, 추가 왕복 없음(`from` 호출 수 7).
-- `tests/actions/agent-hub-actions.test.ts`: `requireDelegationRight` — 관리자 통과, 담당자 멤버 통과, 비담당 멤버 거부, 담당자 멤버 + 프로젝트 미등록 → 지정 문구, `setAgentDelegationBulk` 비관리자 거부·타 프로젝트 항목 거부·부분 실패 집계.
+- `tests/actions/agent-hub-actions.test.ts`: `applyHubDelegations` — 관리자 순서대로 적용·실패/경고 항목별 집계·허브 반환, 멤버 로스터 판정 1회·남의 항목만 failed, 판정 실패 fail-closed, 타 프로젝트 항목 거부, 같은 항목 중복은 마지막 값, 재조회 실패 → hub:null+hubError, 입력 검증, 소스에 `revalidatePath(` 없음. (`requireDelegationRight` 는 `tests/actions/wbs-spec-delegation-right.test.ts`.)
 - `tests/actions/wbs-spec*.test.ts`(기존): 그대로 통과.
-- `tests/components/agent-hub-table.test.tsx`: 체크 클릭 → 액션 호출·낙관적 갱신·실패 되돌림, 부모 체크 indeterminate·일괄 호출 id 목록, 멤버는 부모 체크 없음·비담당 행 disabled, 필터 mine.
+- `tests/components/agent-hub-table.test.tsx`: 체크 → 즉시 표시·잠기지 않음·대기 칩·1.5초 뒤 묶음 1건·`onHub`, 켰다 끄면 저장 없음, 지금 저장, 항목 실패 되돌림·경고, 묶음 거부·throw, hub:null → 알림+재조회, 부모 체크 indeterminate·같은 값 제외 묶음, 2건 이상 실패 알림 줄, 연속 체크 한 묶음, 멤버는 부모 체크 없음·비담당 행 disabled, 필터 mine.
+- `tests/components/use-pending-delegations.test.tsx`: 대기·묶음·flush·저장 중 되돌림 보존·서버값 동기화로 대기 제거·throw 시 복귀·언마운트 분리 저장.
 - `tests/components/agent-hub-queue.test.tsx`: 반려 사유 비면 버튼 비활성, 승인 호출, 멤버는 버튼 없음.
 - `tests/components/agent-hub-view.test.tsx`: refresh 실패 시 데이터 유지 + 문구, `router.refresh` 미사용(소스 문자열 검사).
 - `tests/ui/sidebar-project-context.test.tsx`: `/p/p1/agents` 링크 존재, 라벨 키, 전역 `/agents` 링크 부재.
@@ -219,3 +226,29 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 브랜치 `feat/agent-hub`(origin/staging 0813b3a5 기반). UI 위험 파일(`src/components/app/Sidebar.tsx`) 포함이라 브랜치 push → staging 머지 → dflow-staging.vercel.app 에서 멤버(yoo7032)·슈퍼유저 양쪽 확인 → main. 마이그레이션 없음.
 
 확인 항목: 멤버 계정에서 메뉴 표시·자기 담당 리프 토글 가능·남의 리프 disabled·부모 체크 없음; 슈퍼유저에서 부모 체크 일괄 20건; 승인 큐 반려 사유 필수; 층 좌석 표시; 설정 페이지 링크; 사이드바에 '에이전트' 하나만 보이고 전체 좌석표는 허브 상태 줄 링크로 열림.
+
+## 10. 체크 지연 개선 (2026-09-14, 사용자 결정 "debounce + 낙관 캐시")
+
+**증상.** 위임 체크 하나에 체크박스가 0.8~1.0초 잠겼다(스테이징 실측, `MES 공통 개발`).
+
+| 동작 | 요청 | 걸린 시간 |
+|---|---|---|
+| 체크 켜기 | 2건 직렬: 쓰기 0.86초(18KB) → 재조회 0.37초 | 1.04초 잠김 |
+| 체크 끄기 | 2건 직렬: 쓰기 0.63초 → 재조회 0.28초 | 0.79초 잠김 |
+| 새로고침 버튼 | 1건 | 0.92초 |
+
+**원인.** (1) 체크 = `setAgentDelegation` + `refreshAgentHub` 직렬(Next 앱 라우터 액션 큐). (2) 쓰기 액션의 `revalidatePath(..., 'layout')` 이
+허브 페이지 재렌더(18KB·서버 0.5초)를 응답에 실었는데 `AgentHubView` 는 `useState(initial)` 이라 쓰지 않았다. (3) 액션마다 가드가 반복됐고
+가드의 `getUser()` 가 GoTrue 왕복(0.1초 안팎)을 강제했다. (4) 저장 중 행을 `disabled` 로 잠갔다.
+
+**결정.** debounce 는 쓰고, 캐시는 셋으로 나눠 판단했다.
+
+- 클라이언트 낙관 상태(사실상 캐시): **쓴다.** 체크 즉시 표시, 잠금 없음, 응답의 허브로 확정.
+- 서버 데이터 캐시(허브 조회 결과를 요청 사이에 보관): **쓰지 않는다.** 러너의 claim·보고·heartbeat 로 늘 바뀌어 무효화 비용이 이득을 넘고 "화면이 안 바뀐다"는 새 불만이 생긴다.
+- 권한 캐시(가드 결과 보관): **쓰지 않는다.** 멤버에서 빠진 사람이 TTL 동안 남는다(fail-closed 위반). 대신 `getActor` 의 세션 확인을 `getUser()` → `getClaims()` 로 바꿔 왕복만 없앤다(미들웨어와 같은 근거, 비대칭 JWT + auth-js 전역 JWKS 캐시).
+
+**구현.** `applyHubDelegations`(§5) + `usePendingDelegations`(§6-3, 1.5초) + `getActor` getClaims(`src/lib/authz/index.ts`).
+체크 10개를 해도 요청은 1건이고, 체감 대기는 0초, 서버 확정은 마지막 체크 뒤 약 2초 안이다.
+
+**같은 낭비가 남은 곳(범위 밖).** WBS 상세 패널의 위임 체크(`WbsSpecPanel`)는 flush 뒤 액션의 `revalidatePath` 재렌더와 `router.refresh()` 가 WBS 페이지를 두 번 그린다.
+`getSession`(`src/lib/auth.ts`)은 아직 `getUser()` 다(레이아웃·페이지 경로).
