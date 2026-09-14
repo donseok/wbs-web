@@ -27,6 +27,7 @@
 @source not "../../.githooks";
 @source not "../../.github";
 @source not "../../.claude";
+@source not "../../assets";
 @source not "../../CLAUDE.md";
 @source not "../../README.md";
 
