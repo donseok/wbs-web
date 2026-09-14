@@ -377,6 +377,14 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**잠금 상실 마감**')
   })
 
+  it('TaskStop 오류 문구는 이미 회수된 것으로 보고, 마감에서 ListAgents 로 남은 이름 붙은 에이전트를 정리한다', () => {
+    expect(s()).toContain('is not running (status: completed)')
+    expect(s()).toContain('No task found with ID:')
+    expect(s()).toContain('이미 회수된 것이므로 정상으로 보고 슬롯 해제를 계속한다')
+    expect(s()).toContain('ListAgents 를 다시 불러')
+    expect(s()).toContain('**손자 정리**')
+  })
+
   it('좌석표 v1 계약: 팀장은 watch 를 시작·매 기상·마감에서 보내고 poll 은 DFLOW_WATCH=0 으로 watch 를 끈다', () => {
     const t = s()
     const watchCalls = t.match(/dflow\.sh watch --agent/g) ?? []

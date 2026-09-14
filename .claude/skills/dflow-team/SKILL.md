@@ -410,9 +410,10 @@ done
 LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then
-  date +%s > "$LOCK/beat" && echo LOCK_OK || echo "LOCK_LOST beat 쓰기 실패"
-  set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
-    --slots <N> --busy <M> --until <HH:MM> ${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"} || :
+  date +%s > "$LOCK/beat" && { echo LOCK_OK
+    set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
+      --slots <N> --busy <M> --until <HH:MM> ${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"} || :
+  } || echo "LOCK_LOST beat 쓰기 실패"
 else
   echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$PPID"
 fi
@@ -509,7 +510,8 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   표시를 가져 재구성이 충돌한다. `parked` 로 바꾸면 슬롯 스캔에서 빠진다.
 - **회수**: 에이전트 팀에서는 결과 줄을 처리한 직후(status 와 무관하며 `blocked` 도 포함한다)
   `TaskStop(w<slot>-<id8>)` 으로 idle 팀원을 회수한다. 이름 붙은 에이전트는 일을 마쳐도 idle 로 남기 때문이다.
-  pane 팀원은 별도 프로세스라서 TaskStop 대상이 아니다.
+  pane 팀원은 별도 프로세스라서 TaskStop 대상이 아니다. `TaskStop` 이 `is not running (status: completed)`
+  또는 `No task found with ID:` 로 실패하면 이미 회수된 것이므로 정상으로 보고 슬롯 해제를 계속한다.
 - **차단기**: 결과가 도착한 순서로 `failed`(`no-result`·`rate-limit` 포함)가 연속 2건이면 새 spawn 을 멈추고
   보고한다. `failed` 가 아닌 결과가 오면 연속 수를 0 으로 되돌린다. 걸린 동안에는 다음 `TICK` 마다 1건만 시험
   spawn 하고(대기 큐 맨 앞에서, 큐가 비었으면 poll 을 한 번 띄워 얻는다), 그 결과가 `failed` 가 아니면 차단기를
@@ -661,8 +663,11 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    fi
    if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then rm -rf "$LOCK" && echo LOCK_RELEASED; else echo "LOCK_KEPT owner=$o_who $o_ts $o_pid"; fi
    ```
+7. **손자 정리**: ListAgents 를 다시 불러 `running` 인 이름 붙은 에이전트가 남아 있으면 그 이름으로 TaskStop
+   한다. 이유: 팀원이 띄운 서브에이전트는 팀원이 끝나도 살아남아 팀장 목록에 자기 이름으로 나타나며, 팀원을
+   멈춰도 같이 멈추지 않는다. poll 태스크와 감시 루프는 Bash 태스크라 이 목록에 없다.
 
-**잠금 상실 마감**(「2-3」 의 `LOCK_LOST`): 위 1~6 중 기다림·마지막 승인 스윕·워크트리 정리·`team.*` 기록·세대
+**잠금 상실 마감**(「2-3」 의 `LOCK_LOST`): 위 1~7 중 기다림·마지막 승인 스윕·워크트리 정리·`team.*` 기록·세대
 파일 변경·잠금 삭제를 하지 않는다. 떠 있는 poll 이 있으면 TaskStop 으로 멈추고, 집계와 남은 슬롯(TSK·id8·워크트리
 경로)을 "잠금 상실: 이 체크아웃은 다른 팀장이 맡았다" 와 함께 보고한 뒤 끝낸다. 이유: 체크아웃과 이 신원의
 워크트리·세대 파일은 이제 새 팀장 것이고, 새 팀장의 재구성은 같은 `agent`·`repo` 의 마지막 `team.start` 이후
