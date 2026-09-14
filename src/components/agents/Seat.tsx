@@ -19,7 +19,7 @@ export function seatMetaLine(seat: Seat, nowMs: number): string {
     case 'OFFLINE': return `${seat.phase} 에서 끊김 · ${ageLabel(seat.lastSignalAt, nowMs)}`
     case 'BLOCKED': return `${who} · 결정 대기`
     case 'WAIT': return '승인 대기'
-    case 'READY': return '미착수'
+    case 'READY': return seat.waitReason?.label ?? '미착수' // 짧은 라벨만 — 전문은 상세 패널(착수 대기 사유 스펙 §4)
     default: return '머지 완료'
   }
 }

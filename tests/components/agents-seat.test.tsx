@@ -74,6 +74,7 @@ describe('seatMetaLine · STATE_LABEL', () => {
     expect(seatMetaLine(seat({ state: 'OFFLINE', phase: 'build' }), NOW)).toBe('build 에서 끊김 · 42초 전')
     expect(seatMetaLine(seat({ state: 'WAIT' }), NOW)).toBe('승인 대기')
     expect(seatMetaLine(seat({ state: 'READY', agent: null }), NOW)).toBe('미착수')
+    expect(seatMetaLine(seat({ state: 'READY', agent: null, waitReason: { kind: 'agent_off', label: '에이전트 꺼짐', text: '…' } }), NOW)).toBe('에이전트 꺼짐')
     expect(seatMetaLine(seat({ state: 'BLOCKED' }), NOW)).toBe('hong/mbp/w1 · 결정 대기')
     expect(STATE_LABEL.REJECTED).toBe('반려 · 재작업')
   })
