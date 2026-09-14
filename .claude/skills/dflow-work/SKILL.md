@@ -12,8 +12,9 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
 
 ## 시작 절차 (매 세션 1회)
 
-0. `.env` 소싱 — `dflow.sh` 는 `.env` 를 자동 소싱하지 않는다. 수동 실행 시 매번 앞에 붙인다:
-   `set -a; . ./.env; set +a` (`poll.sh` 는 자체 소싱하므로 불필요).
+0. `.env` 소싱 — dflow.sh 는 환경에 `DFLOW_PATS`·`DFLOW_PAT` 가 모두 없을 때만 현재 디렉터리의
+   `.env`(`DFLOW_ENV_FILE` 로 바꿀 수 있다)를 스스로 읽는다. 이미 export 된 값이 있으면 건드리지 않는다.
+   수동 실행의 접두 `set -a; . ./.env; set +a` 는 선택이다(`poll.sh` 는 자체 소싱하므로 불필요).
 1. `dflow.sh doctor` 실행 — 모든 프로필 확인, 계약 버전 검증.
    ```bash
    dflow.sh doctor

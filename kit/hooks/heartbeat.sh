@@ -22,7 +22,7 @@ if [ -f "$_top/.dflow-agent" ]; then
 else
   _branch=$("$GIT" -C "$_top" rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
   case "$_branch" in agent/*) ;; *) exit 0 ;; esac
-  _agent="claude-$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"
+  _agent="claude-$(hostname 2>/dev/null | cut -d. -f1 | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')"   # hostname -s 는 Windows 에 없다
 fi
 
 # 3) 대상 작업: 진행 중 phase 의 state.json 중 최신. 브랜치 이름에서 TSK 를 뽑지 않는다.
