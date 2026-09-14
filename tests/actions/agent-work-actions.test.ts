@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   requireProjectAdmin: vi.fn(),
   requireProjectMember: vi.fn(),
+  requireDelegationRight: vi.fn(),
   updateActual: vi.fn(),
   createAdminClient: vi.fn(),
   createServerClient: vi.fn(),
@@ -11,6 +12,8 @@ vi.mock('@/lib/authz', () => ({
   requireProjectAdmin: mocks.requireProjectAdmin,
   requireProjectMember: mocks.requireProjectMember,
 }))
+// 반려·승인 취소·재작업 요청은 loadOrderForReview → requireDelegationRight(관리자 또는 담당자 본인)로 판정한다(2026-09-14).
+vi.mock('@/lib/agent/delegation', () => ({ requireDelegationRight: mocks.requireDelegationRight }))
 vi.mock('@/app/actions/wbs', () => ({ updateActual: mocks.updateActual }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
@@ -56,6 +59,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
   mocks.requireProjectMember.mockResolvedValue(ACTOR)
+  // 기본은 관리자 통과 — 개별 테스트가 담당자 본인·거부로 바꾼다.
+  mocks.requireDelegationRight.mockResolvedValue({ ok: true, actor: { userId: 'admin-1' }, projectId: P1, isAdmin: true })
   mocks.updateActual.mockResolvedValue({ ok: true })
 })
 
@@ -470,5 +475,61 @@ describe('requestAgentRework — 재작업 요청(approved→claimed)', () => {
       type: 'work.rejected', entityId: O1, recipientMemberIds: ['m-1'],
       payload: expect.objectContaining({ detail: '재작업이 요청되었습니다' }),
     }))
+  })
+})
+
+describe('검토 계열 자격(2026-09-14 "담당자 본인도 허용") — 반려·승인 취소·재작업은 requireDelegationRight, 승인은 관리자만', () => {
+  const REPORTED = { id: O1, project_id: P1, status: 'reported', wbs_item_id: W1 }
+  const APPROVED = { id: O1, project_id: P1, status: 'approved', wbs_item_id: W1 }
+  const asMember = () => mocks.requireDelegationRight.mockResolvedValue({ ok: true, actor: { userId: 'member-1' }, projectId: P1, isAdmin: false })
+  const DENY = { ok: false, error: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.' }
+
+  it('반려: 담당자 본인(member) 도 가능 — requireDelegationRight(wbs_item_id)로 판정, 관리자 가드는 부르지 않는다', async () => {
+    asMember()
+    admin({
+      agent_work_orders: [{ data: REPORTED }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+      wbs_items: [{ data: { name: '로그인', assignee_member_id: 'm-1', stage: null, external_ref: null } }],
+    })
+    const r = await rejectAgentCompletion(O1, '내가 다시 볼게요')
+    expect(r.ok).toBe(true)
+    expect(mocks.requireDelegationRight).toHaveBeenCalledWith(W1)
+    expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
+  })
+  it('반려: requireDelegationRight 가 거부하면 그 오류 그대로, 상태 변경 없음', async () => {
+    mocks.requireDelegationRight.mockResolvedValue(DENY)
+    const { captured } = admin({ agent_work_orders: [{ data: REPORTED }] })
+    expect(await rejectAgentCompletion(O1, '사유')).toEqual(DENY)
+    expect(captured.agent_work_orders).toBeUndefined()
+  })
+  it('승인 취소: 담당자 본인도 가능(requireDelegationRight), 관리자 가드 미사용', async () => {
+    asMember()
+    admin({
+      agent_work_orders: [{ data: APPROVED }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9', reviewed_at: null } }, { data: [{ id: 'r9' }] }],
+      wbs_items: [{ data: { name: '로그인', assignee_member_id: 'm-1', stage: 'xx', external_ref: null, dev_workflow: true } }],
+    })
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(mocks.requireDelegationRight).toHaveBeenCalledWith(W1)
+    expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
+  })
+  it('재작업 요청: requireDelegationRight 가 거부하면 거부', async () => {
+    mocks.requireDelegationRight.mockResolvedValue(DENY)
+    admin({ agent_work_orders: [{ data: APPROVED }] })
+    expect(await requestAgentRework(O1, '테스트 빠짐')).toEqual(DENY)
+  })
+  it('WBS 항목이 삭제된 주문(wbs_item_id 없음)은 담당자를 특정 못 해 관리자만 — requireDelegationRight 대신 requireProjectAdmin', async () => {
+    admin({ agent_work_orders: [{ data: { ...REPORTED, wbs_item_id: null } }, { data: [{ id: O1 }] }], agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }] })
+    const r = await rejectAgentCompletion(O1, '사유')
+    expect(mocks.requireProjectAdmin).toHaveBeenCalledWith(P1)
+    expect(mocks.requireDelegationRight).not.toHaveBeenCalled()
+    expect(r.ok).toBe(true)
+  })
+  it('승인은 담당자여도 관리자만 — requireProjectAdmin 이 거부하면 거부, review 경로 미사용', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 필요' })
+    admin({ agent_work_orders: [{ data: REPORTED }] })
+    expect(await approveAgentCompletion(O1)).toEqual({ ok: false, error: '관리자 필요' })
+    expect(mocks.requireDelegationRight).not.toHaveBeenCalled()
   })
 })

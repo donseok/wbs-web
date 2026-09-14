@@ -311,3 +311,47 @@ describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(�
     expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'stage', itemId: 'w', stage: null })
   })
 })
+
+describe('DelegationTable — 담당자 본인도 반려·승인 취소·재작업(승인·회수·단계는 관리자만, 2026-09-14 §11)', () => {
+  const MINE: HubRow[] = [
+    row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
+    row({ itemId: 'w', code: 'TSK-W', name: '승인 대기', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, stage: 'im', order: { id: 'ow', status: 'reported', state: 'WAIT', agent: 'a', lastSignalAt: null } }),
+    row({ itemId: 'd', code: 'TSK-D', name: '승인됨', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, stage: 'xx', order: { id: 'od', status: 'approved', state: 'DONE', agent: 'a', lastSignalAt: null } }),
+    row({ itemId: 'c', code: 'TSK-C', name: '작업 중', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, stage: 'im', order: { id: 'oc', status: 'claimed', state: 'STALE', agent: 'a', lastSignalAt: null } }),
+    row({ itemId: 'o', code: 'TSK-O', name: '남의 승인 대기', depth: 1, parentId: 'root', assigneeMine: false, delegated: true, stage: 'im', order: { id: 'oo', status: 'reported', state: 'WAIT', agent: 'a', lastSignalAt: null } }),
+  ]
+  const ops = (id: string) => [...host.querySelectorAll(`[data-hub-row="${id}"] [data-hub-op]`)].map(b => b.getAttribute('data-hub-op'))
+  const op = (id: string, kind: string) => host.querySelector(`[data-hub-row="${id}"] [data-hub-op="${kind}"]`) as HTMLButtonElement
+
+  it('멤버(isAdmin=false): 내 담당 승인 대기 → 반려만(승인 없음), 승인됨 → 승인 취소·재작업, 작업 중 → 없음(회수는 관리자만)', () => {
+    render({ rows: MINE, isAdmin: false })
+    expect(ops('w')).toEqual(['reject'])
+    expect(ops('d')).toEqual(['unapprove', 'rework'])
+    expect(ops('c')).toEqual([]) // 회수(release)는 관리자만
+    expect(host.querySelector('[data-hub-row="w"] select[data-hub-stage]')).toBeNull() // 단계 조정은 관리자만
+    expect(host.querySelector('[data-hub-row="w"] [data-hub-stage-text]')?.textContent).toBe('구현')
+  })
+  it('멤버는 남의 담당 항목에는 조정 버튼이 없다', () => {
+    render({ rows: MINE, isAdmin: false })
+    expect(ops('o')).toEqual([])
+  })
+  it('멤버의 반려·재작업도 runHubProcessOp 로 나간다', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    render({ rows: MINE, isAdmin: false })
+    await click(op('w', 'reject'))
+    // 사유 줄이 열리고 확정 시 note 와 함께
+    const ta = host.querySelector('[data-hub-row-extra="w"] [data-hub-note="reject"] textarea') as HTMLTextAreaElement
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(ta, '내가 다시'); ta.dispatchEvent(new Event('input', { bubbles: true })) })
+    await click(host.querySelector('[data-hub-row-extra="w"] [data-hub-note-confirm]') as HTMLButtonElement)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'reject', orderId: 'ow', note: '내가 다시' })
+    await click(op('d', 'unapprove'))
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'unapprove', orderId: 'od' })
+  })
+  it('관리자는 회수·단계까지 모두 보인다(대조군)', () => {
+    render({ rows: MINE, isAdmin: true })
+    expect(ops('w')).toEqual(['approve', 'reject'])
+    expect(ops('c')).toEqual(['release'])
+    expect(host.querySelector('[data-hub-row="w"] select[data-hub-stage]')).not.toBeNull()
+    expect(ops('o')).toEqual(['approve', 'reject']) // 관리자는 남의 담당도
+  })
+})

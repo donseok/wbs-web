@@ -1,7 +1,7 @@
 'use server'
 // 에이전트 허브 액션 — 재조회와 위임 묶음 저장. 판정은 authz 가드로만, 본체는 src/lib/agent/delegation.ts.
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §5
-import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
+import { requireProjectMember } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -194,8 +194,13 @@ async function releaseOrderByAdmin(
 
 export async function runHubProcessOp(projectId: string, op: HubProcessOp): Promise<HubProcessResult> {
   if (!isUuidLike(projectId) || !isProcessOp(op)) return { ok: false, error: ERR_BAD }
-  const g = await requireProjectAdmin(projectId)
+  // 멤버 이상이면 문을 연다 — 승인·회수·단계는 아래에서 관리자만으로 다시 좁히고, 반려·승인 취소·재작업 요청은
+  // 내부 액션(loadOrderForReview)이 "관리자 또는 담당자 본인"으로 판정한다(2026-09-14, 사용자 결정 "담당자 본인도 허용").
+  const g = await requireProjectMember(projectId)
   if (!g.ok) return { ok: false, error: g.error }
+  const isAdmin = isProjectAdmin(g.actor, projectId)
+  // 회수는 담당자에게 넓힌 집합에 없다 — 러너의 점유를 강제로 푸는 관리 행위라 관리자만.
+  if (op.kind === 'release' && !isAdmin) return { ok: false, error: '회수는 관리자만 할 수 있습니다.' }
   const admin = createAdminClient()
 
   // 대상이 이 프로젝트 것인지 화면 단위로 한 번 더 본다 — 내부 액션도 각자 가드하지만, 남의 프로젝트 주문 id 를
@@ -222,7 +227,7 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
   if (!r.ok) return { ok: false, error: r.error ?? '처리에 실패했습니다.' }
   const warning = r.warning ? { warning: r.warning } : {}
   try {
-    const hub = await getAgentHub(projectId, { userId: g.actor.userId, isAdmin: true })
+    const hub = await getAgentHub(projectId, { userId: g.actor.userId, isAdmin })
     return { ok: true, hub, ...warning }
   } catch (e) {
     console.error('[agentHub] 조정 뒤 재조회 실패:', e instanceof Error ? e.message : e)

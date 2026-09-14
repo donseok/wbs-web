@@ -16,7 +16,8 @@ vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t:
 import { ApprovalQueue } from '@/components/agent-hub/ApprovalQueue'
 import { HubStatusBar } from '@/components/agent-hub/HubStatusBar'
 
-const Q: HubQueueEntry[] = [{ orderId: 'o1', itemId: 'i1', code: 'TSK-1', name: '화면', agent: 'hong/mbp', percent: 100, summary: '끝', links: [{ url: 'https://x/pr/1', label: 'PR' }], reportedAt: '2026-09-14T08:00:00Z' }]
+const Q: HubQueueEntry[] = [{ orderId: 'o1', itemId: 'i1', code: 'TSK-1', name: '화면', agent: 'hong/mbp', percent: 100, summary: '끝', links: [{ url: 'https://x/pr/1', label: 'PR' }], reportedAt: '2026-09-14T08:00:00Z', assigneeMine: false }]
+const QMINE: HubQueueEntry[] = [{ ...Q[0], assigneeMine: true }]
 const HUB = { projectId: 'p1', queue: [] } as unknown as AgentHub
 
 let host: HTMLDivElement, root: Root
@@ -75,10 +76,22 @@ describe('ApprovalQueue — 처리는 runHubProcessOp 1건, 응답의 허브로 
     expect((host.querySelector('[data-queue-error]') as HTMLElement).textContent).toContain('재조회에 실패')
     expect(onHub).not.toHaveBeenCalled(); expect(onChanged).toHaveBeenCalledTimes(1)
   })
-  it('멤버에게는 버튼 대신 안내', () => {
+  it('내 담당 아닌 멤버에게는 버튼 대신 안내', () => {
     render({ isAdmin: false })
     expect(host.querySelector('[data-queue-approve]')).toBeNull()
+    expect(host.querySelector('[data-queue-reject-open]')).toBeNull()
     expect(host.textContent).toContain('승인은 관리자가 합니다')
+  })
+  it('담당자 본인(assigneeMine) 멤버는 승인은 못 하고 반려만 — 자기 보고를 물릴 수 있다(2026-09-14 §11)', async () => {
+    runOp.mockResolvedValueOnce({ ok: true, hub: HUB })
+    render({ isAdmin: false, queue: QMINE })
+    expect(host.querySelector('[data-queue-approve]')).toBeNull()
+    expect(host.querySelector('[data-queue-reject-open]')).not.toBeNull()
+    expect(host.textContent).toContain('담당자는 반려로')
+    await act(async () => { (host.querySelector('[data-queue-reject-open]') as HTMLButtonElement).click() })
+    await act(async () => { setValue(host.querySelector('textarea') as HTMLTextAreaElement, '내가 다시 볼게요') })
+    await act(async () => { (host.querySelector('[data-queue-reject]') as HTMLButtonElement).click() })
+    expect(runOp).toHaveBeenCalledWith('p1', { kind: 'reject', orderId: 'o1', note: '내가 다시 볼게요' })
   })
 })
 

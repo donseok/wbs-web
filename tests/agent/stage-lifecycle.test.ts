@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
 vi.mock('@/lib/authz', () => ({ requireProjectAdmin: mocks.requireProjectAdmin }))
+// 반려는 loadOrderForReview → requireDelegationRight(관리자 또는 담당자 본인)로 판정한다(2026-09-14). 여기선 관리자 통과로 고정.
+vi.mock('@/lib/agent/delegation', () => ({
+  requireDelegationRight: vi.fn(async () => ({ ok: true, actor: { userId: 'admin-1' }, projectId: '11111111-1111-4111-8111-111111111111', isAdmin: true })),
+}))
 vi.mock('@/app/actions/wbs', () => ({ updateActual: mocks.updateActual }))
 vi.mock('@/lib/agent/applyProgress', () => ({ applyAgentProgress: mocks.applyAgentProgress }))
 vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))

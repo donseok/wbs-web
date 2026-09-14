@@ -202,9 +202,11 @@ describe('applyHubDelegations — 묶음 1건: 가드 1회 → 항목별 applyDe
   })
 })
 
-describe('runHubProcessOp — 관리자 가드 1회 → 이 프로젝트 것인지 → 기존 액션 → 허브 재조회를 한 응답에(§11)', () => {
+describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인지 → 기존 액션 → 허브 재조회를 한 응답에(§11)', () => {
   const ORDERS = { [O(1)]: { project_id: P1, status: 'reported', wbs_item_id: I(1) }, [O(2)]: { project_id: P2, status: 'reported', wbs_item_id: null } }
   const ITEMS = { [I(1)]: { project_id: P1, name: '입측 화면', assignee_member_id: 'm1' }, [I(2)]: { project_id: P2 } }
+  // 이 블록의 기본 화자는 관리자 — 승인·회수·단계·재조회 isAdmin 을 확인한다. 멤버 경로는 아래 별도 블록.
+  beforeEach(() => { mocks.requireProjectMember.mockResolvedValue(ADMIN) })
 
   it('approve → approveAgentCompletion(orderId) → hub(isAdmin=true); reject·unapprove·rework 도 각 액션으로', async () => {
     fakeAdmin({ orders: ORDERS })
@@ -270,8 +272,8 @@ describe('runHubProcessOp — 관리자 가드 1회 → 이 프로젝트 것인�
     expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(1) }))
       .toEqual({ ok: true, hub: null, hubError: '처리는 됐지만 현황 재조회에 실패했습니다. 새로고침을 누르세요.' })
   })
-  it('관리자 아님 → 거부; 입력 검증(kind·uuid·note·stage 코드)', async () => {
-    mocks.requireProjectAdmin.mockResolvedValueOnce(DENIED)
+  it('멤버도 아님(조회 전용) → 거부; 입력 검증(kind·uuid·note·stage 코드)', async () => {
+    mocks.requireProjectMember.mockResolvedValueOnce(DENIED)
     expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(1) })).toEqual(DENIED)
     const BAD = { ok: false, error: '잘못된 요청입니다.' }
     expect(await runHubProcessOp('nope', { kind: 'approve', orderId: O(1) })).toEqual(BAD)
@@ -280,6 +282,29 @@ describe('runHubProcessOp — 관리자 가드 1회 → 이 프로젝트 것인�
     expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'zz' } as never)).toEqual(BAD)
     expect(await runHubProcessOp(P1, { kind: 'nuke', orderId: O(1) } as never)).toEqual(BAD)
     expect(await runHubProcessOp(P1, null as never)).toEqual(BAD)
-    expect(mocks.requireProjectAdmin).toHaveBeenCalledTimes(1)
+    expect(mocks.requireProjectMember).toHaveBeenCalledTimes(1)
+  })
+
+  describe('멤버(비관리자) — 반려·승인 취소·재작업은 내부 액션(자격은 그쪽)으로, 회수·승인·단계는 여기서 관리자로 좁힌다', () => {
+    beforeEach(() => { mocks.requireProjectMember.mockResolvedValue(MEMBER) })
+    it('멤버의 반려는 통과 → rejectAgentCompletion 호출, 허브는 isAdmin=false 로 재조회', async () => {
+      fakeAdmin({ orders: ORDERS })
+      expect(await runHubProcessOp(P1, { kind: 'reject', orderId: O(1), note: '다시' })).toEqual({ ok: true, hub: HUB })
+      expect(mocks.reject).toHaveBeenCalledWith(O(1), '다시')
+      expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'member-1', isAdmin: false })
+    })
+    it('멤버의 회수는 여기서 막는다 — 내부 액션·재조회 없음', async () => {
+      fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } } })
+      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '회수는 관리자만 할 수 있습니다.' })
+      expect(mocks.emitNotification).not.toHaveBeenCalled()
+      expect(mocks.getAgentHub).not.toHaveBeenCalled()
+    })
+    it('멤버의 승인 취소·재작업도 내부 액션으로 넘어간다(자격 판정은 loadOrderForReview)', async () => {
+      fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'approved', wbs_item_id: I(1) } } })
+      await runHubProcessOp(P1, { kind: 'unapprove', orderId: O(1) })
+      expect(mocks.unapprove).toHaveBeenCalledWith(O(1))
+      await runHubProcessOp(P1, { kind: 'rework', orderId: O(1), note: '테스트 빠짐' })
+      expect(mocks.rework).toHaveBeenCalledWith(O(1), '테스트 빠짐')
+    })
   })
 })

@@ -45,7 +45,9 @@
 | 단건 위임 토글·프롬프트 편집 | 관리자 **또는** 그 항목의 담당자 본인(멤버) | 서버 액션 `requireDelegationRight(itemId)` (신설, `src/app/actions/wbsSpec.ts`) |
 | 일괄 위임/해제 | 관리자 | `requireProjectAdmin` |
 | 프로젝트 켜기/중지 | 관리자 | 기존 `setAgentProjectEnabled` |
-| 승인·반려·재작업·승인 취소 | 관리자 | 기존 `agentWork.ts` 액션 |
+| 승인 | 관리자 | `approveAgentCompletion`(`loadOrderForAdmin`) |
+| 반려·승인 취소·재작업 요청 | 관리자 **또는** 그 항목의 담당자 본인 | `loadOrderForReview` → `requireDelegationRight`(2026-09-14, 사용자 결정 "담당자 본인도 허용") |
+| 회수(claimed→ready) | 관리자 | `runHubProcessOp` 에서 `isProjectAdmin` 로 좁힘 |
 
 **담당자 본인 판정**: `src/lib/agent/assignee.ts` 의 `myMemberIds(admin, { userId, userEmail, projectId })` 결과에 항목의 `assignee_member_id` 가 들어 있으면 본인이다(`user_id` 링크 또는 이메일 소문자 일치 — claim 제한과 같은 재료). `userEmail` 은 `admin.auth.admin.getUserById` 로 읽고, 실패는 throw(fail-closed).
 
@@ -269,23 +271,32 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 
 **결정.** 완료 취소 = **재작업 요청**(승인된 xx 작업을 에이전트에게 되돌린다, 사유 필수). 단계 직접 조정도 허브에 둔다.
 
-**표 행의 조정 열(관리자, 리프, 마일스톤 제외).** 주문 상태별 버튼. 문구는 WBS 상세 패널과 같다(같은 행위에 다른 이름을 주지 않는다).
+**표 행의 조정 열(리프, 마일스톤 제외).** 주문 상태별 버튼. 문구는 WBS 상세 패널과 같다(같은 행위에 다른 이름을 주지 않는다).
+**누가 보나(§3)**: 관리자는 전부. 담당자 본인(assigneeMine)은 **반려·승인 취소·재작업 요청**만 보고, 승인·회수·단계 조정은 못 본다(버튼 `who`: 'admin' 은 관리자만, 'review' 는 관리자+담당자). 서버 자격과 UI 노출이 같은 경계다.
 
 | 주문 상태 | 버튼 | 액션 | 결과 |
 |---|---|---|---|
-| 승인 대기(reported) | 승인 | `approveAgentCompletion` | approved, 실적 100, 단계 xx |
-| | 반려(사유) | `rejectAgentCompletion` | claimed 복귀, 보고에 reject 기록 — 에이전트가 사유를 읽고 재작업 |
-| 승인됨(approved) | 승인 취소 | `unapproveAgentCompletion` | reported 복귀, 실적·단계(xx→im) 되감기 |
-| | 재작업 요청(사유) = 완료 취소 | `requestAgentRework` | claimed 복귀 + reject 기록, 실적·단계 되감기 |
-| 작업 중·무응답·끊김·결정 대기(claimed) | 회수 | 새 `releaseOrderByAdmin` | ready 복귀(CAS), 점유·heartbeat 흔적 제거, `work.released` 알림. 러너는 다음 heartbeat·report 에서 409 |
+| 승인 대기(reported) | 승인(관리자) | `approveAgentCompletion` | approved, 실적 100, 단계 xx |
+| | 반려(사유, 담당자도) | `rejectAgentCompletion` | claimed 복귀, 보고에 reject 기록 — 에이전트가 사유를 읽고 재작업 |
+| 승인됨(approved) | 승인 취소(담당자도) | `unapproveAgentCompletion` | reported 복귀, 실적·단계(xx→im) 되감기 |
+| | 재작업 요청(사유, 담당자도) = 완료 취소 | `requestAgentRework` | claimed 복귀 + reject 기록, 실적·단계 되감기 |
+| 작업 중·무응답·끊김·결정 대기(claimed) | 회수(관리자) | 새 `releaseOrderByAdmin` | ready 복귀(CAS), 점유·heartbeat 흔적 제거, `work.released` 알림. 러너는 다음 heartbeat·report 에서 409 |
 | 대기(ready)·없음 | (없음) | 위임 체크가 발행·취소 | |
 
 **단계 열.** 관리자·리프에는 select(미지정/분석/기능 계획/구현 계획/구현/완료), 그 밖에는 글자. 고르면 즉시 `{kind:'stage'}` 1건.
 규칙은 `setWbsStage` 그대로: 하위가 있으면 거부, **진행 중 주문(claimed/reported)이 있으면 구현(im)·완료(xx) 직행 거부**("승인 버튼으로") —
 완료·검수는 승인으로만 간다는 2026-08-25 결정을 허브에서도 유지한다. 실패하면 select 는 서버값으로 돌아가고 행 아래에 문구.
 
-**액션 `runHubProcessOp(projectId, op)`.** 관리자 가드 1회 → 대상(주문·항목)이 이 프로젝트 것인지(fail-closed) → 기존 액션 →
+**액션 `runHubProcessOp(projectId, op)`.** 멤버 가드 1회 → `isProjectAdmin` 판정 → 회수는 관리자만으로 좁히고(그 밖은 내부 액션이 각자 판정: 승인=관리자, 반려·승인 취소·재작업=관리자 또는 담당자, 단계=관리자) → 대상(주문·항목)이 이 프로젝트 것인지(fail-closed) → 기존 액션 →
 `getAgentHub` 를 한 응답에. `revalidatePath` 없음(§10 원칙). 재조회만 실패하면 `hub:null + hubError`(처리는 됐다). 내부 액션의
 `warning` 은 그대로 올려 행·카드에 보인다. 승인 큐 카드도 같은 액션을 쓴다.
 
 **범위 밖.** 자동 회수(24h 무응답)는 여전히 없다 — 사람이 회수한다(작업 루프 스펙 §운영). 취소된 주문의 재발행은 위임 체크로.
+
+### 11-1. 검토 자격 확대 (2026-09-14, 사용자 결정 "담당자 본인도 허용")
+
+승인 큐가 관리자 전용이라, 담당자가 자기 완료 보고를 물리거나(반려) 이미 승인된 자기 작업을 다시 손보려면(재작업·승인 취소) 관리자를 거쳐야 했다. 사용자 결정으로 **되돌리는 계열(반려·승인 취소·재작업 요청)은 담당자 본인도** 하게 넓혔다. **완료를 확정하는 승인**과 **러너 점유를 강제로 푸는 회수**, **단계 직접 조정**은 관리자로 남겼다.
+
+- 서버: `loadOrderForReview(orderId)`(신설, `agentWork.ts`) — 그 주문의 `wbs_item` 으로 `requireDelegationRight`(관리자 또는 담당자 본인)를 물어 재사용한다. 승인은 종전대로 `loadOrderForAdmin`. WBS 항목이 삭제된 주문은 담당자를 특정할 수 없어 관리자만. `runHubProcessOp` 은 바깥 가드를 `requireProjectMember` 로 낮추고 회수만 `isAdmin` 으로 다시 막는다.
+- 화면: 조정 버튼에 `who`('admin' | 'review'). 표는 담당자 본인 행에 반려·승인 취소·재작업만, 승인 큐 카드는 담당자에게 반려만(승인 버튼 숨김). 단계 select 는 관리자만. `HubQueueEntry.assigneeMine` 추가.
+- 테스트: `tests/actions/agent-work-actions.test.ts`(반려·승인 취소·재작업은 requireDelegationRight, 삭제 주문은 관리자, 승인은 관리자만), `tests/actions/agent-hub-actions.test.ts`(멤버 회수 차단·멤버 반려 통과·isAdmin 전달), `tests/components/agent-hub-table.test.tsx`·`agent-hub-queue.test.tsx`(담당자 노출), `tests/domain/agent-hub.test.ts`(queue assigneeMine).
