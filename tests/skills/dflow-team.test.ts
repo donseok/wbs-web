@@ -31,12 +31,21 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
   it('git 은 절대경로로 부르고, 격리는 git-dir 과 git-common-dir 의 물리 경로로 확인한다', () => {
     expect(p()).toContain('command -v git')
     expect(p()).toContain('bare `git` 금지')
-    expect(p()).toContain('_gd=$(cd "$(git rev-parse --git-dir)" && pwd -P)')
-    expect(p()).toContain('_cd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)')
-    expect(p()).toContain('[ "$_gd" != "$_cd" ] || { echo "NOT_ISOLATED"; exit 1; }')
+    expect(p()).toContain('git rev-parse --git-dir --git-common-dir')
+    expect(p()).toContain('출력 두 줄이 **같으면** 주 워크트리')
     expect(p()).toContain('{TSK} {ID8} - - - failed not-isolated')
     expect(p()).toContain('**아무 파일도 쓰지 않고**')
     expect(p()).not.toContain('show-toplevel')
+  })
+
+  it('셸 블록(펜스 안)에 git 을 감싸는 명령 치환이 없다', () => {
+    const blocks = [...p().matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+    expect(blocks.length).toBeGreaterThan(0)
+    for (const block of blocks) {
+      for (const line of block.split('\n')) {
+        expect(line.includes('$(') && line.includes('git'), line).toBe(false)
+      }
+    }
   })
 
   it('.dflow-agent 는 격리 확인 직후, 부트스트랩 전에 워크트리 루트에 쓴다', () => {
@@ -55,7 +64,8 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('if [ -d .claude/skills ] && [ ! -L .claude/skills ]; then')
     expect(p()).toContain('[ -e ".claude/skills/$s" ] || ln -s "{MAIN_CHECKOUT}/.claude/skills/$s" ".claude/skills/$s"')
     expect(p()).toContain('mkdir -p .claude && ln -s {MAIN_CHECKOUT}/.claude/skills .claude/skills')
-    expect(p()).toContain('set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"')
+    expect(p()).toContain('.claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"')
+    expect(p()).not.toContain('. ./.env')
     expect(p()).toContain('git fetch origin && git switch --detach origin/<기본브랜치>')
     expect(p()).toContain('symbolic-ref --short refs/remotes/origin/HEAD')
     expect(p()).toContain('git ls-remote --symref origin HEAD')

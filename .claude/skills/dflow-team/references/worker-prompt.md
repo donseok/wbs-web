@@ -23,22 +23,24 @@
 
 ## 0. git 호출 규칙 (두 백엔드 공통, 모든 단계)
 
-첫 Bash 호출에서 `command -v git` 을 실행해 나온 절대경로(예 `/usr/bin/git`)를 이 세션의 git 으로 기억한다.
-이후 모든 git 호출은 그 절대경로로 한다(bare `git` 금지). 이 문서와 `/dflow-dev` 본문의 `git …` 예시도 그
-절대경로로 읽어 실행한다. 이유: 에이전트 팀 백엔드에서는 rtk 가 재작성한 git 을 워크트리 격리 가드가
-거부한다. pane 에서는 필요 없지만 무해하고, 백엔드별 분기를 두지 않으려고 공통으로 적용한다.
+첫 Bash 호출에서 `command -v git` 을 단독 실행해 절대경로(예 `/usr/bin/git`)를 알아낸다. 이후 모든 git 호출은
+그 경로를 **글자 그대로** 적는다. 금지 네 가지: bare `git` 금지(rtk 훅이 `rtk git` 으로 바꿔 격리 가드가
+거부한다), `$(command -v git)`·`"$GIT"` 처럼 경로를 치환이나 변수로 넣는 형태, git 을 감싼 명령 치환
+(`x=$(... git ...)`), `-C` 로 워크트리 밖을 가리키는 호출이다. git 출력이 필요하면 그 명령을 단독으로
+실행해 출력을 읽고, 셸 변수에 담지 않는다. 이 문서와 `/dflow-dev` 본문의 `git …` 예시는 그 절대경로로 바꿔
+읽는다. pane 백엔드에서는 필요 없지만 무해하고, 백엔드별 분기를 두지 않으려고 공통으로 적용한다.
 
 ## 1. 격리 확인 (첫 행동)
 
 ```bash
-_gd=$(cd "$(git rev-parse --git-dir)" && pwd -P)
-_cd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
-[ "$_gd" != "$_cd" ] || { echo "NOT_ISOLATED"; exit 1; }
+git rev-parse --git-dir --git-common-dir
 ```
-링크드 워크트리인지를 git 에 직접 묻는다(`git-dir` ≠ `git-common-dir`). 경로 문자열을 `{MAIN_CHECKOUT}` 와
-비교하지 않는 이유는 심링크·표기 차이로 같은 체크아웃이 다른 문자열이 될 수 있고, 격리의 정의가 "링크드
-워크트리" 이기 때문이다. 두 값을 `cd … && pwd -P` 로 물리 경로로 바꿔 비교하는 이유는 git 이 상대경로를
-돌려줄 수 있고, `--path-format` 옵션이 없는 옛 git 에서도 같은 검사가 돌아야 하기 때문이다.
+링크드 워크트리인지를 git 에 직접 묻는다. 판정 규칙: 출력 두 줄이 **같으면** 주 워크트리(`NOT_ISOLATED`),
+다르면 링크드 워크트리다(주 워크트리에서는 둘 다 `.git`, 링크드 워크트리에서는 `.../.git/worktrees/<이름>` 과
+`.../.git`). 같은 cwd 에서 같은 git 이 돌려준 두 값이므로 문자열 비교로 충분하다. `cd ... && pwd -P` 로
+물리 경로로 정규화하지 않는 이유는 git 을 감싼 명령 치환이라 격리 가드가 거부하기 때문이다. 경로 문자열을
+`{MAIN_CHECKOUT}` 와 비교하지 않는 이유는 심링크·표기 차이로 같은 체크아웃이 다른 문자열이 될 수 있고, 격리의
+정의가 "링크드 워크트리" 이기 때문이다.
 
 격리에 실패하면(주 워크트리이면) **아무 파일도 쓰지 않고** 마지막 응답으로
 `{TSK} {ID8} - - - failed not-isolated` 한 줄만 출력하고 끝낸다. `.result` 를 쓰면 그 파일이 팀장 체크아웃을
@@ -71,8 +73,8 @@ if [ ! -e .claude/skills/dflow-dev/SKILL.md ]; then
   fi
 fi
 test -e .claude/skills/dflow-dev/SKILL.md || echo NO_SKILL
-set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"
-set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh me >/dev/null || echo AUTH_FAILED
+.claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"
+.claude/skills/dflow-work/scripts/dflow.sh me >/dev/null || echo AUTH_FAILED
 git fetch origin && git switch --detach origin/<기본브랜치>
 ```
 - 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면(스킬 일부만 커밋한 리포) 폴더째 링크하지 않고 워커가
@@ -105,8 +107,8 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   ```bash
   grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG
   ```
-- dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다. env 는 Bash 호출 사이에 남지 않는다.
-  리허설 A0 (d) 로 dflow.sh 가 `DFLOW_GIT` 를 받게 됐으면 `DFLOW_GIT=<0번의 git 절대경로>` 도 붙인다.
+- dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면 현재 디렉터리의
+  `.env`(부트스트랩에서 만든 심링크)를 스스로 읽는다. 격리 가드가 `.` 소싱 접두를 거부하기 때문이다.
 - 심링크와 `.dflow-agent`·`.result` 는 커밋하지 않는다. 팀장이 공유 `info/exclude` 에 넣어 두고,
   `/dflow-dev` 는 파일명을 명시해 stage 한다.
 
@@ -129,7 +131,7 @@ Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세�
 나 커밋 메시지에 한 줄 남긴 뒤 진행한다. 기본값이 없어 담당자 결정이 꼭 필요할 때만 멈춘다. `.result` 를 쓰기
 전에 좌석표에 손 든 상태를 알린다. 실패해도 진행을 막지 않는다.
 ```bash
-set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh heartbeat {ID8} --phase blocked --note "<질문 한 줄>" || :
+.claude/skills/dflow-work/scripts/dflow.sh heartbeat {ID8} --phase blocked --note "<질문 한 줄>" || :
 ```
 `<질문 한 줄>` 은 `.result` 의 사유 자리에 쓰는 한 줄과 같은 문자열이다. 그럴 때는
 **현재 산출물을 커밋·push 한 뒤** `.result` 에 `blocked`(질문과 선택지를 사유 자리에 한 줄로, 예
