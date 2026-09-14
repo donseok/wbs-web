@@ -78,7 +78,8 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
 
   it('기록은 jq -nc 한 줄 append 이고 실패해도 막지 않으며 해시·사유를 jq 인자로 넘긴다', () => {
     expect(e()).toContain('jq -nc')
-    expect(e()).toContain('>> ~/.dflow/events.jsonl || true')
+    expect(e()).toContain('>> ~/.dflow/events.jsonl || echo EVENT_ARGS_MISSING')
+    expect(e()).toContain('error("EVENT_ARGS_MISSING")') // 공통 다섯 필드가 비면 줄을 붙이지 않는다
     expect(e()).toContain('phase:"team"')
     expect(e()).toContain("--arg agent '<신원>/<host>/lead'")
     expect(e()).toContain("cksum | cut -d' ' -f1")

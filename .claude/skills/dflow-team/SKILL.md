@@ -284,8 +284,10 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    작업일 수도 있다). 답을 기다리거나 답을 받은 에이전트 팀 `blocked` 를 빼는 이유: 그 작업은 슬롯을 해제해
    흡수되지 않지만 claimed 로 남아 있고, 4번이 이어받아 답 매칭과 재spawn 을 계속한다.
    ```bash
-   (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh list --scope claimed) | awk -F'\t' 'NF>=4 {print $4}'
+   (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh list --scope claimed) | awk -F'\t' 'NF>=4 && $2=="CL" {print $4}'
    ```
+   상태 열이 `CL` 인 행만 센다. 이유: `--scope claimed` 는 보고까지 끝난 `RP`(reported) 행도 돌려주는데, 그 작업은
+   승인 대기이지 재개 대상이 아니다.
 3. **권한 모드 안내 한 줄**: 에이전트 팀이면
    "팀원은 이 세션의 권한 모드를 물려받으며, 권한 확인이 뜨면 알림 없이 멈춘다" 를,
    pane 이면 "팀원은 권한 확인 생략 모드로 뜬다" 를 출력한다.
@@ -406,6 +408,9 @@ done
 모든 기상은 먼저 잠금 소유를 확인하고, 소유가 맞을 때만 `beat` 를 갱신하고 좌석표에도 같은 신호를 보낸다.
 `STALE` 은 그것만 하고 넘긴다. 이유: 살아 있는 팀장의 잠금이 70분 뒤 죽은 것으로 보이지 않게 하되, 잠금을 잃은
 팀장이 새 팀장의 잠금을 계속 살아 있게 만들지 않는다(「1. 시작」 팀장 잠금).
+기상에서 이벤트를 기록할 때는 `references/events.md` 의 명령 블록을 그 자리에서 다시 읽어 그대로 쓴다. 이유:
+컨텍스트 압축 뒤 기억으로 재구성한 명령은 인자가 비어 null 필드를 남긴다. events.md 의 가드가 그런 줄을
+`EVENT_ARGS_MISSING` 으로 거부하므로, 그 출력이 보이면 명령 블록을 다시 읽어 다시 기록한다.
 ```bash
 LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true

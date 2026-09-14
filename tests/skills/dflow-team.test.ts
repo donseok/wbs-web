@@ -407,4 +407,13 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(section).toContain('70분')
     expect(section).not.toContain('그 전에는 `team.start`')
   })
+
+  it('Orca 리허설 반영: 재개 필요 목록은 CL 행만 세고, 기상은 events.md 의 기록 명령을 다시 읽는다', () => {
+    expect(s()).toContain(`awk -F'\\t' 'NF>=4 && $2=="CL" {print $4}'`)
+    expect(s()).not.toContain(`awk -F'\\t' 'NF>=4 {print $4}'`)
+    const start = s().indexOf('### 2-3. 기상마다 하는 일')
+    expect(start).toBeGreaterThan(-1)
+    expect(s().slice(start, start + 1500)).toContain('`references/events.md` 의 명령 블록을 그 자리에서 다시 읽어')
+    expect(s().slice(start, start + 1500)).toContain('EVENT_ARGS_MISSING')
+  })
 })
