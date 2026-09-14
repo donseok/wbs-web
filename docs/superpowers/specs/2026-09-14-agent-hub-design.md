@@ -4,7 +4,7 @@
 
 ## 0. 결정 요약 (사용자 결정 2026-09-14)
 
-- 흩어진 에이전트 UI 를 **프로젝트 메뉴 "에이전트" 페이지 `/p/[projectId]/agents`** 하나로 모은다. 전역 `/agents` 좌석표는 전 프로젝트 감시용으로 남긴다.
+- 흩어진 에이전트 UI 를 **프로젝트 메뉴 "에이전트" 페이지 `/p/[projectId]/agents`** 하나로 모은다. 전역 `/agents` 좌석표는 전 프로젝트 감시용으로 남기되 **사이드바 항목은 없애고** 허브 상태 줄의 "전체 좌석표" 링크로만 들어간다(사용자 결정 2026-09-14 — 프로젝트 메뉴 옆에 두면 같은 종류로 읽힌다).
 - 위임(agent 태그) 토글은 **담당자 본인 또는 프로젝트 관리자**가 할 수 있다. 일괄 위임·프로젝트 켜기/중지·승인/반려는 관리자.
 - 페이지는 **조회 한 번**으로 조립하고, 변경 뒤에는 **행 단위 재조회**만 한다. `router.refresh()` 를 쓰지 않는다.
 
@@ -189,6 +189,7 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 
 - `Sidebar.projectMenu`: 근태 아래, 설정 위에 `{ href: `${base}/agents`, labelKey: 'nav.projectAgents', icon: Bot, match: `${base}/agents` }` — 조건 없음(프로젝트 목록에 있으면 멤버).
 - 전역 항목 라벨 구분: `nav.agents` 를 ko '전체 좌석표' / en 'All seatmaps' 로 바꾼다. 새 키 `nav.projectAgents` ko '에이전트' / en 'Agents' (`common.ts` / `common.en.ts`).
+- 전역 좌석표 항목은 사이드바에서 뺀다(`Sidebar` 의 `showAgents` prop·`/agents` 항목 삭제, `layout.tsx` 도 같이). 입구는 `HubStatusBar` 의 `<Link href="/agents" data-hub-seatmap-link>전체 좌석표</Link>` 한 곳. `nav.agents` 라벨은 사용 현황 메뉴 키(`seatmap`)가 계속 쓴다.
 - `ProjectNavigationContext.isGlobalProjectBridge` 는 손대지 않는다(`/p/…` 경로라 해당 없음).
 - 설정 페이지: `AgentProjectToggle` 자리에 링크 카드 "에이전트 켜기/중지·위임·승인은 에이전트 페이지에서" → `/p/<id>/agents`. `AgentProjectToggle` 컴포넌트는 허브 상태 줄이 재사용한다(파일 이동 없음).
 - `WbsAgentOrderStatus`(명세 패널): 제목 줄 오른쪽에 `<Link href={`/p/${projectId}/agents`}>에이전트 페이지</Link>` — `projectId` 는 `getAgentOrderForItem` 응답에 `projectId` 를 추가해 받는다.
@@ -207,11 +208,12 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 - `tests/components/agent-hub-table.test.tsx`: 체크 클릭 → 액션 호출·낙관적 갱신·실패 되돌림, 부모 체크 indeterminate·일괄 호출 id 목록, 멤버는 부모 체크 없음·비담당 행 disabled, 필터 mine.
 - `tests/components/agent-hub-queue.test.tsx`: 반려 사유 비면 버튼 비활성, 승인 호출, 멤버는 버튼 없음.
 - `tests/components/agent-hub-view.test.tsx`: refresh 실패 시 데이터 유지 + 문구, `router.refresh` 미사용(소스 문자열 검사).
-- `tests/ui/sidebar-project-context.test.tsx`: `/p/p1/agents` 링크 존재, 라벨 키.
+- `tests/ui/sidebar-project-context.test.tsx`: `/p/p1/agents` 링크 존재, 라벨 키, 전역 `/agents` 링크 부재.
+- `tests/components/agent-hub-queue.test.tsx`(HubStatusBar): `data-hub-seatmap-link` → `/agents`.
 - `tests/domain/agents-access.test.ts`: `nav.projectAgents` ko/en 존재.
 
 ## 9. 롤아웃
 
 브랜치 `feat/agent-hub`(origin/staging 0813b3a5 기반). UI 위험 파일(`src/components/app/Sidebar.tsx`) 포함이라 브랜치 push → staging 머지 → dflow-staging.vercel.app 에서 멤버(yoo7032)·슈퍼유저 양쪽 확인 → main. 마이그레이션 없음.
 
-확인 항목: 멤버 계정에서 메뉴 표시·자기 담당 리프 토글 가능·남의 리프 disabled·부모 체크 없음; 슈퍼유저에서 부모 체크 일괄 20건; 승인 큐 반려 사유 필수; 층 좌석 표시; 설정 페이지 링크.
+확인 항목: 멤버 계정에서 메뉴 표시·자기 담당 리프 토글 가능·남의 리프 disabled·부모 체크 없음; 슈퍼유저에서 부모 체크 일괄 20건; 승인 큐 반려 사유 필수; 층 좌석 표시; 설정 페이지 링크; 사이드바에 '에이전트' 하나만 보이고 전체 좌석표는 허브 상태 줄 링크로 열림.

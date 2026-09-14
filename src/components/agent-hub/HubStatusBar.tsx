@@ -1,5 +1,6 @@
 'use client'
-// 허브 상단 상태 줄 — 켜짐/중지(관리자 토글), 카운터 4개, 감시 중 에이전트, 내 토큰 링크.
+// 허브 상단 상태 줄 — 켜짐/중지(관리자 토글), 카운터 4개, 감시 중 에이전트, 전체 좌석표·내 토큰 링크.
+// 전역 좌석표(/agents)의 유일한 입구 — 사이드바에는 두지 않는다(2026-09-14).
 import Link from 'next/link'
 import { Bot, PauseCircle } from 'lucide-react'
 import type { AgentHub } from '@/lib/domain/agentHub'
@@ -51,6 +52,7 @@ export function HubStatusBar({ projectId, registered, enabled, counters, watcher
       </dl>
       <div className="flex items-center gap-3 text-[11px] text-ink-muted">
         <span title={watchLabel(watchers)}>{watchers.length ? `감시 중 · ${watchLabel(watchers)}` : '감시 없음'}</span>
+        <Link href="/agents" data-hub-seatmap-link className="text-brand underline-offset-2 hover:underline">전체 좌석표</Link>
         <Link href="/account" className="text-brand underline-offset-2 hover:underline">내 토큰</Link>
       </div>
     </section>

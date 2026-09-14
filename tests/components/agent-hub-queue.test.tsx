@@ -75,6 +75,7 @@ describe('HubStatusBar', () => {
     expect(host.textContent).toContain('hong/mbp 1/2 ~18:00')
     expect(host.querySelector('button')).not.toBeNull()
     expect((host.querySelector('a[href="/account"]') as HTMLAnchorElement).textContent).toContain('내 토큰')
+    expect((host.querySelector('[data-hub-seatmap-link]') as HTMLAnchorElement).getAttribute('href')).toBe('/agents')
   })
   it('미등록이면 안내, 멤버에게는 토글 없음', () => {
     act(() => root.render(<HubStatusBar {...base} registered={false} enabled={false} isAdmin={false} />))
