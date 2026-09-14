@@ -8,8 +8,8 @@ const HOOK = join(process.cwd(), 'kit/hooks/heartbeat.sh')
 let tmp: string, repo: string, home: string, log: string
 
 function git(...args: string[]) { execFileSync('git', args, { cwd: repo, stdio: 'ignore' }) }
-function run(cwd = repo, env: Record<string, string> = {}) {
-  execFileSync('sh', [HOOK], {
+function run(cwd = repo, env: Record<string, string> = {}, shell = 'sh') {
+  execFileSync(shell, [HOOK], {
     cwd, input: JSON.stringify({ cwd, tool_name: 'Bash' }),
     env: { PATH: process.env.PATH ?? '', HOME: home, CURL: join(tmp, 'fakecurl'), NODE_ENV: process.env.NODE_ENV, ...env },
     stdio: ['pipe', 'ignore', 'ignore'],
@@ -80,5 +80,12 @@ describe('heartbeat.sh — 스펙 §4-2', () => {
   it('git 리포가 아닌 cwd 에서는 조용히 끝난다', () => {
     const plain = join(tmp, 'plain'); mkdirSync(plain)
     run(plain); expect(sent()).toHaveLength(0)
+  })
+  it.skipIf(!existsSync('/bin/dash'))('dash(POSIX sh) 에서도 DFLOW_PATS 없이 DFLOW_PAT 만 있으면 exit 0 으로 heartbeat 를 보낸다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.env'), 'DFLOW_API_BASE=https://x.test\nDFLOW_PAT=dfl_u_abc_secret\n')
+    run(repo, {}, '/bin/dash')
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain('/api/v1/agent/work/22222222-2222-4222-8222-222222222222/heartbeat')
   })
 })

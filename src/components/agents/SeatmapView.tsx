@@ -16,7 +16,7 @@ function findSeat(map: Seatmap, orderId: string | null): { seat: Seat; floorName
   return null
 }
 
-const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour12: false })
+const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
 
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시. */
 export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; pollMs?: number }) {

@@ -40,6 +40,8 @@ describe('fetchSeatmapRows', () => {
     const orFilter = String(calls['agent_work_orders.or']?.[0]?.[0] ?? '')
     expect(orFilter).toContain('status.in.(ready,claimed,reported)')
     expect(orFilter).toContain(`updated_at.gte.${new Date(NOW - DONE_WINDOW_MS).toISOString()}`)
+    // 2000건 상한에 걸리면 오름차순은 최신(가장 claimed/ACTIVE 일 가능성이 큰) 주문을 버린다 — 내림차순이어야 한다.
+    expect(calls['agent_work_orders.order']?.[0]).toEqual(['created_at', { ascending: false }])
   })
   it('projectIds null(슈퍼유저)이면 프로젝트 필터를 걸지 않는다', async () => {
     const calls: Record<string, unknown[][]> = {}

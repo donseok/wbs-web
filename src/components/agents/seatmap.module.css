@@ -124,4 +124,3 @@
 .legend ul { list-style: none; margin: 0 0 8px; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; }
 .legend li { display: inline-flex; align-items: center; gap: 7px; }
 .sw { width: 22px; height: 14px; border-radius: 3px; border: 1px solid var(--sm-line); display: inline-block; }
-.error { margin-top: 14px; border: 1px solid var(--sm-warn); background: var(--sm-warn-soft); color: var(--sm-warn); border-radius: 10px; padding: 10px 14px; font-size: 13px; }

@@ -28,7 +28,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   let q = admin.from('agent_work_orders').select(ORDER_COLS)
     .or(`status.in.(ready,claimed,reported),and(status.eq.approved,updated_at.gte.${doneSince})`)
   if (projectIds !== null) q = q.in('project_id', projectIds)
-  const orders = must<OrderRow[]>('주문', await q.order('created_at', { ascending: true }).limit(2000))
+  const orders = must<OrderRow[]>('주문', await q.order('created_at', { ascending: false }).limit(2000))
   if (orders.length === 0) return empty
 
   const itemIds = [...new Set(orders.map(o => o.wbs_item_id).filter((x): x is string => !!x))]

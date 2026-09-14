@@ -11,7 +11,7 @@ export function AttentionBand({ items, onSelect }: { items: Attention[]; onSelec
         {items.map(a => (
           <li key={a.orderId}>
             <button type="button" className={css.alertBtn} onClick={() => onSelect(a.orderId)}>
-              <b>{a.code}</b> {a.name} · {STATE_LABEL[a.state]} · {a.why}
+              <span className={css.eyebrow}>{a.floorName}</span> <b>{a.code}</b> {a.name} · {STATE_LABEL[a.state]} · {a.why}
             </button>
           </li>
         ))}

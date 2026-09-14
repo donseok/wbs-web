@@ -70,7 +70,8 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
   // WAIT 의 idle 3종은 10초 슬롯으로 순환한다 — 서버·클라이언트가 같은 슬롯을 계산하도록 nowMs 기준.
   const idleSlot = Math.floor(nowMs / 10_000)
   const agent = o.heartbeat_agent ?? o.claimed_by
-  const signal = Number.isNaN(lastSignalMs(input)) ? null : new Date(lastSignalMs(input)).toISOString()
+  const sigMs = lastSignalMs(input)
+  const signal = sigMs > 0 ? new Date(sigMs).toISOString() : null
   return {
     orderId: o.id, id8: o.id.slice(0, 8), projectId: o.project_id, itemId: o.wbs_item_id,
     code: item?.code ?? o.id.slice(0, 8), name: item?.name ?? '(항목 삭제됨)',

@@ -82,6 +82,7 @@ create index if not exists agent_watchers_last_seen_idx on public.agent_watchers
 alter table public.agent_watchers enable row level security;
 -- 조회는 로그인 사용자 전체(0057 의 주문 조회 정책과 같은 수준). 쓰기 정책은 두지 않는다(service_role 전용, 서버 가드가 유일 관문).
 create policy agent_watchers_select on public.agent_watchers for select to authenticated using (true);
+-- (최종 리뷰 반영) 위 select 정책은 0095 에서 제거한다. 앱은 agent_watchers 를 service_role 로만 읽으며 authenticated 정책은 두지 않는다.
 ```
 
 롤백은 정책·인덱스·테이블 drop 과 열 4개 drop. `tests/migrations/migration-ledger.test.ts` 가 쌍 존재를 검사한다.

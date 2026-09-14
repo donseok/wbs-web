@@ -14,6 +14,6 @@ export async function refreshSeatmap(): Promise<{ ok: true; seatmap: Seatmap } |
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('[seatmap] 재조회 실패:', msg)
-    return { ok: false, error: msg }
+    return { ok: false, error: '좌석표 재조회에 실패했습니다.' }
   }
 }

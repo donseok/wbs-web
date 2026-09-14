@@ -38,6 +38,16 @@ describe('SeatmapView', () => {
     expect(host.querySelector('[data-panel]')?.textContent).toContain('어느 DB?')
     expect(host.querySelector('[data-panel]')?.textContent).toContain('TSK-04-01')
   })
+  it('확인 필요 띠의 버튼에 층(프로젝트) 이름이 보인다', () => {
+    act(() => root.render(<SeatmapView initial={map()} />))
+    expect(host.querySelector('[aria-label="확인 필요"]')?.textContent).toContain('mes-base')
+  })
+  it('갱신 스탬프는 서버·클라이언트 로컬 타임존과 무관하게 KST(Asia/Seoul) 기준으로 찍힌다', () => {
+    // NOW = 2026-09-14T09:00:00Z → KST 18:00:00. 이 실행 환경의 ICU 는 ko-KR 을 "18시 0분 0초" 로 렌더한다
+    // (콜론 포맷이 아니다) — 프로세스 TZ 와 무관하게 이 문자열이면 timeZone 고정이 실제로 적용된 것이다.
+    act(() => root.render(<SeatmapView initial={map()} />))
+    expect(host.textContent).toContain('18시 0분 0초')
+  })
   it('확인 필요 버튼을 누르면 그 책상이 선택된다', () => {
     act(() => root.render(<SeatmapView initial={map({ attention: [] })} />))
     const desk = [...host.querySelectorAll('button[aria-pressed]')].find(b => b.textContent?.includes('TSK-04-02')) as HTMLButtonElement

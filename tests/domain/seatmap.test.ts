@@ -119,6 +119,15 @@ describe('assembleSeatmap — 카운터·확인 필요·watcher', () => {
   it('fetchedAt 은 nowMs 의 ISO', () => {
     expect(assembleSeatmap(rows(), NOW).fetchedAt).toBe(new Date(NOW).toISOString())
   })
+  it('신호 시각을 둘 다 파싱 못하면(lastSignalMs=0) lastSignalAt 은 null 이다(끊김 56년 전 방지)', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ updated_at: 'garbage', last_heartbeat_at: 'garbage' })],
+    }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('OFFLINE')
+    expect(s.lastSignalAt).toBeNull()
+    expect(ageLabel(s.lastSignalAt, NOW)).toBe('—')
+  })
 })
 
 describe('ageLabel', () => {
