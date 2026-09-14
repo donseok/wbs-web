@@ -125,13 +125,6 @@ describe('assembleAgentHub — 카운터·큐·층·상태', () => {
     expect(hub.queue[1]).toMatchObject({ code: 'TSK-A-01', summary: '최신', percent: 100, agent: 'x', reportedAt: ago(2000) })
     expect(hub.queue[0]).toMatchObject({ code: 'TSK-A-02', summary: '', percent: 0 })
   })
-  it('floor: agent 태그 항목의 주문만 좌석이 된다. 없으면 null', () => {
-    const withTag = assembleAgentHub(rows(), NOW, VIEWER)
-    expect(withTag.floor?.name).toBe('mes-base')
-    expect(withTag.floor?.seatCount).toBe(1)
-    const noTag = assembleAgentHub(rows({ orders: [order({ wbs_item_id: 'a2' })] }), NOW, VIEWER)
-    expect(noTag.floor).toBeNull()
-  })
   it('registered·enabled·projectName·fetchedAt', () => {
     const on = assembleAgentHub(rows(), NOW, VIEWER)
     expect(on).toMatchObject({ registered: true, enabled: true, projectId: P1, projectName: 'mes-base', fetchedAt: new Date(NOW).toISOString() })
@@ -142,12 +135,12 @@ describe('assembleAgentHub — 카운터·큐·층·상태', () => {
 
 describe('assembleAgentHub — 감시자', () => {
   const w: WatcherRow = { id: 'w1', user_id: 'u1', project_id: P1, agent: 'hong/mbp', host: 'mbp', slots: 2, busy: 1, until_label: '18:00', last_seen_at: ago(60_000) }
-  it('층이 없어도(위임 주문 0) 이 프로젝트 감시자는 보인다', () => {
-    const noFloor = assembleAgentHub(rows({ orders: [], watchers: [w] }), NOW, VIEWER)
-    expect(noFloor.floor).toBeNull()
-    expect(noFloor.watchers.map(x => x.agent)).toEqual(['hong/mbp'])
-    const withFloor = assembleAgentHub(rows({ watchers: [w] }), NOW, VIEWER)
-    expect(withFloor.watchers.map(x => x.agent)).toEqual(['hong/mbp'])
+  it('위임 주문이 0 이어도 이 프로젝트 감시자는 보이고, 결과에 floor 필드가 없다', () => {
+    const noOrders = assembleAgentHub(rows({ orders: [], watchers: [w] }), NOW, VIEWER)
+    expect(noOrders.watchers.map(x => x.agent)).toEqual(['hong/mbp'])
+    expect('floor' in noOrders).toBe(false)
+    const withOrders = assembleAgentHub(rows({ watchers: [w] }), NOW, VIEWER)
+    expect(withOrders.watchers.map(x => x.agent)).toEqual(['hong/mbp'])
   })
   it('다른 프로젝트 감시자·70분 지난 감시자는 빠지고, 전역(project_id null)은 보인다', () => {
     const hub = assembleAgentHub(rows({ orders: [], watchers: [

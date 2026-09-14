@@ -1,9 +1,7 @@
 // 에이전트 허브 조립 — 순수 함수. 트리 순서·행 상태·카운터·승인 큐·좌석 층을 한 번에 만든다. DB·세션을 모른다.
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
-import {
-  AGENT_TAG, assembleSeatmap, type Floor, type ItemRow, type OrderRow, type ReviewRow, type Watcher, type WatcherRow,
-} from './seatmap'
+import { AGENT_TAG, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 
 export interface HubItemRow {
   id: string; project_id: string; parent_id: string | null; code: string; name: string; sort_order: number
@@ -44,8 +42,6 @@ export interface AgentHub {
   rows: HubRow[]
   /** reported 주문, 오래된 보고 먼저. */
   queue: HubQueueEntry[]
-  /** 이 프로젝트 층 — 좌석표 규칙(agent 태그 주문만). 없으면 null. */
-  floor: Floor | null
   fetchedAt: string
   viewer: { isAdmin: boolean; memberIds: string[] }
 }
@@ -167,23 +163,12 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     })
     .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))
 
-  // 좌석 층 — 좌석표 규칙(agent 태그 주문만) 그대로. 같은 행을 재사용해 추가 조회가 없다.
-  const seatItems: ItemRow[] = rows.items.map(i => ({
-    id: i.id, project_id: i.project_id, code: i.code, name: i.name, parent_id: i.parent_id, actual_pct: i.actual_pct,
-    assignee_member_id: i.assignee_member_id, tags: i.tags,
-  }))
-  const reviews: ReviewRow[] = rows.reports.map(r => ({ work_order_id: r.work_order_id, review_action: r.review_action, review_note: r.review_note, created_at: r.created_at }))
-  const seatmap = assembleSeatmap({
-    orders: rows.orders, items: seatItems, parents: seatItems, reviews, watchers: rows.watchers,
-    projects: rows.project ? [rows.project] : [],
-  }, nowMs)
-  const floor = seatmap.floors.find(f => f.id === projectId) ?? null
-
   return {
     projectId, projectName: rows.project?.name ?? '',
     registered: rows.agentProject !== null, enabled: rows.agentProject?.enabled === true,
-    counters, watchers: floor?.watchers ?? watchersFor(rows.watchers, projectId, nowMs),
-    rows: hubRows, queue, floor, fetchedAt: new Date(nowMs).toISOString(),
+    // 좌석 층은 /agents/office 가 그린다(2026-09-14 오피스 분리 스펙 §4-2). 감시자만 이 프로젝트 것으로.
+    counters, watchers: watchersFor(rows.watchers, projectId, nowMs),
+    rows: hubRows, queue, fetchedAt: new Date(nowMs).toISOString(),
     viewer: { isAdmin: viewer.isAdmin, memberIds },
   }
 }
