@@ -296,6 +296,9 @@ export const wbsKo = {
   'wbs.specBodyPlaceholder': '마크다운으로 명세를 작성하세요…',
   'wbs.specSaveFail': '명세를 저장하지 못했습니다.',
   'wbs.specRefSaveFail': '참조 필드를 저장하지 못했습니다.',
+  // 상세 패널 토글·select 의 debounce 저장(2026-09-14) — 대기 칩과 즉시 저장 버튼
+  'wbs.pendingSaveIn': '{n}초 뒤 저장',
+  'wbs.pendingSaveNow': '지금 저장',
   // 변경 이력(RowDetailPanel) 표시용 — change_logs.new_value 는 로케일 중립 토큰(spec:updated)만
   // 저장하고 이 키로 변환해 보여준다(리뷰 라운드 1 — 리터럴 한국어 저장 금지).
   'wbs.specUpdatedLogValue': '명세 갱신',

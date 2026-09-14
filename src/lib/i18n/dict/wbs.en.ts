@@ -283,5 +283,8 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.specBodyPlaceholder': 'Write the spec in markdown…',
   'wbs.specSaveFail': 'Could not save the spec.',
   'wbs.specRefSaveFail': 'Could not save the reference fields.',
+  // Debounced save for detail-panel toggles/selects (2026-09-14) — pending chip and save-now button
+  'wbs.pendingSaveIn': 'Saves in {n}s',
+  'wbs.pendingSaveNow': 'Save now',
   'wbs.specUpdatedLogValue': 'Spec updated',
 }

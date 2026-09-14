@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { User } from 'lucide-react'
 import type { ProjectMember } from '@/lib/domain/types'
@@ -11,9 +11,15 @@ import {
 } from '@/app/actions/wbsAssign'
 import { WbsSpecPanel } from './WbsSpecPanel'
 import { AssigneeComboBox } from './AssigneeComboBox'
+import { useDebouncedSave } from './useDebouncedSave'
+import { PendingSaveChip } from './PendingSaveChip'
 import type { DictKey } from '@/lib/i18n/dict'
 
 type Stage = 'as' | 'fp' | 'ip' | 'im' | 'xx'
+/** 서버 확정 값이자 debounce 저장 필드 — getWbsAssigneeStage 의 반환 형태 그대로다. */
+type AssigneeStage = { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean }
+/** 담당·단계·dev workflow 액션 반환의 합집합. count·cascadeFailed 는 cascade 계열만 실어 온다. */
+type AssigneeStageResult = { ok: boolean; error?: string; count?: number; cascadeFailed?: boolean; orderCreated?: boolean }
 const STAGE_KEYS: Record<Stage, DictKey> = {
   as: 'wbs.stageAs', fp: 'wbs.stageFp',
   ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
@@ -44,8 +50,7 @@ export function WbsAssigneeStagePanel({
   const { t } = useLocale()
   const teamCodes = useTeamCodes()
   const assigneeLabelId = useId()
-  const [loaded, setLoaded] = useState<{ assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean } | 'error' | null>(null)
-  const [busy, setBusy] = useState<'assignee' | 'stage' | 'devWorkflow' | null>(null)
+  const [loaded, setLoaded] = useState<AssigneeStage | 'error' | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [cascade, setCascade] = useState(true)
   const [cascadeResult, setCascadeResult] = useState<number | null>(null)
@@ -53,6 +58,12 @@ export function WbsAssigneeStagePanel({
   const [devCascade, setDevCascade] = useState(true)
   const [devWorkflowResult, setDevWorkflowResult] = useState<number | null>(null)
   const [devWorkflowWarn, setDevWorkflowWarn] = useState(false)
+  // 전파 체크는 저장이 실제로 나가는 순간(flush)의 값을 쓴다 — 담당을 고른 뒤 5초 안에 전파 체크를
+  // 바꿔도 반영되도록. commit 클로저는 set 시점에 잡히므로 ref 로 읽는다.
+  const cascadeRef = useRef(cascade)
+  const devCascadeRef = useRef(devCascade)
+  useEffect(() => { cascadeRef.current = cascade }, [cascade])
+  useEffect(() => { devCascadeRef.current = devCascade }, [devCascade])
 
   useEffect(() => {
     let alive = true
@@ -62,57 +73,80 @@ export function WbsAssigneeStagePanel({
     return () => { alive = false }
   }, [itemId])
 
-  async function onAssigneeChange(memberId: string | null) {
-    setBusy('assignee'); setErr(null); setCascadeResult(null); setCascadeWarn(false)
-    const useCascade = hasChildren && cascade && memberId !== null
-    const res = useCascade
-      ? await setWbsAssigneeCascade(itemId, memberId)
-      : await setWbsAssignee(itemId, memberId)
-    setBusy(null)
-    if (!res.ok) { setErr(res.error ?? (useCascade ? t('wbs.assigneeCascadeFail') : t('wbs.errGeneric'))); return }
-    // 배정 성공은 서버가 stage 도 함께 바꿀 수 있다(배정↔as 자동 전이) — 부분 낙관 갱신 대신
-    // 전체 재조회로 loaded 를 교체한다(F2, 최종 리뷰). 재조회 실패는 기존 로딩 관례대로 'error'.
-    const refreshed = await getWbsAssigneeStage(itemId)
-    setLoaded(refreshed ?? 'error')
-    if (useCascade && 'count' in res && typeof res.count === 'number' && res.count > 0) setCascadeResult(res.count)
-    // 하위 UPDATE 만 실패한 부분 성공(리뷰 라운드 2) — 본인 반영은 확정됐으므로 성공 취급하되
-    // "하위 일괄 적용은 실패했다"는 사실은 별도 경고로 알린다(assigneeCascadeFail 키 재사용).
-    if (useCascade && 'cascadeFailed' in res && res.cascadeFailed) setCascadeWarn(true)
-    router.refresh()
-  }
+  // 담당 콤보박스·단계 select·dev workflow 체크박스는 debounce 저장(2026-09-14). 종전엔 변경 하나마다
+  // 서버 액션 + router.refresh() 가 나가 WBS 페이지 전체가 다시 렌더됐다. 마지막 변경 뒤 SAVE_DEBOUNCE_MS
+  // 가 지나면(또는 패널 닫힘·항목 변경·「지금 저장」) 모아서 순서대로 저장하고 refresh 는 1회만 부른다.
+  // 화면은 quick.view 로 낙관 표시하고, 실패한 필드는 대기에서 빠져 loaded(서버 확정 값)로 돌아간다.
+  const quick = useDebouncedSave<AssigneeStage, AssigneeStageResult>({
+    scope: itemId,
+    baseline: loaded && loaded !== 'error' ? loaded : null,
+    commit: {
+      assigneeMemberId: memberId => (hasChildren && cascadeRef.current && memberId !== null)
+        ? setWbsAssigneeCascade(itemId, memberId)
+        : setWbsAssignee(itemId, memberId),
+      stage: stage => setWbsStage(itemId, stage as Stage | null),
+      // OFF 는 ready 주문 취소를 동반하는 서버 동작(브리프) — 확인 모달 없이 실행하고 결과 문구로만
+      // 알린다(브라우저 confirm() 은 자동화를 막아 세션 규칙상 금지).
+      devWorkflow: enabled => setWbsDevWorkflow(itemId, enabled, hasChildren && devCascadeRef.current),
+    },
+    onSaved: (key, value, res) => {
+      if (key === 'assigneeMemberId') {
+        if (typeof res.count === 'number' && res.count > 0) setCascadeResult(res.count)
+        // 하위 UPDATE 만 실패한 부분 성공(리뷰 라운드 2) — 본인 반영은 확정됐으므로 성공 취급하되
+        // "하위 일괄 적용은 실패했다"는 사실은 별도 경고로 알린다(assigneeCascadeFail 키 재사용).
+        if (res.cascadeFailed) setCascadeWarn(true)
+      } else if (key === 'stage') {
+        const stage = value as string | null
+        setLoaded(prev => (prev && prev !== 'error' ? { ...prev, stage } : prev))
+      } else {
+        if (typeof res.count === 'number' && res.count > 0) setDevWorkflowResult(res.count)
+        if (res.cascadeFailed) setDevWorkflowWarn(true)
+      }
+    },
+    onFailed: (key, value, error) => {
+      const usedCascade = key === 'assigneeMemberId' && hasChildren && cascadeRef.current && value !== null
+      setErr(error || (usedCascade ? t('wbs.assigneeCascadeFail') : t('wbs.errGeneric')))
+    },
+    onFlushed: async ({ saved, detached }) => {
+      // 배정·dev workflow 성공은 서버가 stage 도 함께 바꿀 수 있다(배정↔as 자동 전이·자동 발행) —
+      // 부분 낙관 갱신 대신 전체 재조회로 loaded 를 교체한다(F2, 최종 리뷰). 재조회 실패는 기존 로딩
+      // 관례대로 'error'. 분리 flush(패널이 닫혔거나 항목이 바뀜)면 재조회할 패널이 없다.
+      if (!detached && saved.some(k => k === 'assigneeMemberId' || k === 'devWorkflow')) {
+        const refreshed = await getWbsAssigneeStage(itemId)
+        setLoaded(refreshed ?? 'error')
+      }
+      router.refresh()
+    },
+  })
 
-  async function onStageChange(stage: Stage | null) {
-    setBusy('stage'); setErr(null)
-    const res = await setWbsStage(itemId, stage)
-    setBusy(null)
-    if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
-    setLoaded(prev => (prev && prev !== 'error' ? { ...prev, stage } : prev))
-    router.refresh()
+  function onAssigneeChange(memberId: string | null) {
+    setErr(null); setCascadeResult(null); setCascadeWarn(false)
+    quick.set('assigneeMemberId', memberId)
   }
-
-  async function onDevWorkflowChange(enabled: boolean) {
-    setBusy('devWorkflow'); setErr(null); setDevWorkflowResult(null); setDevWorkflowWarn(false)
-    const useCascade = hasChildren && devCascade
-    const res = await setWbsDevWorkflow(itemId, enabled, useCascade)
-    setBusy(null)
-    if (!res.ok) { setErr(res.error ?? t('wbs.errGeneric')); return }
-    // OFF 는 ready 주문 취소를 동반하는 서버 동작(브리프) — 확인 모달 없이 즉시 실행하고
-    // 결과 문구로만 알린다(브라우저 confirm() 은 자동화를 막아 세션 규칙상 금지).
-    // ON 은 배정↔as 자동 전이·자동 발행을 동반할 수 있다 — 부분 낙관 갱신 대신 전체 재조회(F2, 최종 리뷰).
-    const refreshed = await getWbsAssigneeStage(itemId)
-    setLoaded(refreshed ?? 'error')
-    if (typeof res.count === 'number' && res.count > 0) setDevWorkflowResult(res.count)
-    if (res.cascadeFailed) setDevWorkflowWarn(true)
-    router.refresh()
+  function onStageChange(stage: Stage | null) {
+    setErr(null)
+    quick.set('stage', stage)
+  }
+  function onDevWorkflowChange(enabled: boolean) {
+    setErr(null); setDevWorkflowResult(null); setDevWorkflowWarn(false)
+    quick.set('devWorkflow', enabled)
   }
 
   const memberName = (id: string | null) => id ? members.find(m => m.id === id)?.name ?? id : null
+  // 낙관 표시값 — 대기 중인 변경이 있으면 그 값, 없으면 서버 확정 값. loaded 가 객체일 때만 쓰인다.
+  const view: AssigneeStage = quick.view ?? { assigneeMemberId: null, stage: null, devWorkflow: false }
 
   return (
     <div className="space-y-3">
       <section className="rounded-xl border border-line bg-surface-2/40 p-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
-          <User className="h-3.5 w-3.5" /> {t('wbs.assigneeStagePanelTitle')}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-subtle">
+            <User className="h-3.5 w-3.5" /> {t('wbs.assigneeStagePanelTitle')}
+          </div>
+          <PendingSaveChip
+            isPending={quick.isPending} saving={quick.saving} remainingMs={quick.remainingMs}
+            onSaveNow={() => void quick.flush()}
+          />
         </div>
 
         <div className="mt-2 space-y-2">
@@ -134,8 +168,7 @@ export function WbsAssigneeStagePanel({
                   {editable ? (
                     <AssigneeComboBox
                       members={members}
-                      value={loaded.assigneeMemberId}
-                      disabled={busy === 'assignee'}
+                      value={view.assigneeMemberId}
                       onChange={onAssigneeChange}
                       categoryOrder={teamCodes}
                       unassignedLabel={t('wbs.assigneeUnassignedOption')}
@@ -144,7 +177,7 @@ export function WbsAssigneeStagePanel({
                       ariaLabelledBy={assigneeLabelId}
                     />
                   ) : (
-                    <p className="text-[13px] text-ink">{memberName(loaded.assigneeMemberId) ?? t('wbs.assigneeUnassignedOption')}</p>
+                    <p className="text-[13px] text-ink">{memberName(view.assigneeMemberId) ?? t('wbs.assigneeUnassignedOption')}</p>
                   )}
                   {editable && hasChildren && (
                     <label className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-muted">
@@ -153,7 +186,6 @@ export function WbsAssigneeStagePanel({
                         className="h-3.5 w-3.5 rounded border-line"
                         checked={cascade}
                         onChange={e => setCascade(e.target.checked)}
-                        disabled={busy === 'assignee'}
                       />
                       {t('wbs.assigneeCascadeLabel')}
                     </label>
@@ -164,8 +196,7 @@ export function WbsAssigneeStagePanel({
                   <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.stageLabel')}</span>
                   {editable ? (
                     <select
-                      value={loaded.stage ?? ''}
-                      disabled={busy === 'stage'}
+                      value={view.stage ?? ''}
                       onChange={e => onStageChange((e.target.value || null) as Stage | null)}
                       className="app-input h-9 text-xs"
                     >
@@ -177,7 +208,7 @@ export function WbsAssigneeStagePanel({
                     </select>
                   ) : (
                     <p className="text-[13px] text-ink">
-                      {loaded.stage && STAGE_KEYS[loaded.stage as Stage] ? t(STAGE_KEYS[loaded.stage as Stage]) : t('wbs.stageNoneOption')}
+                      {view.stage && STAGE_KEYS[view.stage as Stage] ? t(STAGE_KEYS[view.stage as Stage]) : t('wbs.stageNoneOption')}
                     </p>
                   )}
                   {editable && hasChildren && (
@@ -194,9 +225,9 @@ export function WbsAssigneeStagePanel({
                   <input
                     type="checkbox"
                     className="h-3.5 w-3.5 rounded border-line"
-                    checked={loaded.devWorkflow}
+                    checked={view.devWorkflow}
                     onChange={e => onDevWorkflowChange(e.target.checked)}
-                    disabled={!editable || busy === 'devWorkflow'}
+                    disabled={!editable}
                   />
                   {t('wbs.devWorkflowLabel')}
                 </label>
@@ -207,7 +238,6 @@ export function WbsAssigneeStagePanel({
                       className="h-3.5 w-3.5 rounded border-line"
                       checked={devCascade}
                       onChange={e => setDevCascade(e.target.checked)}
-                      disabled={busy === 'devWorkflow'}
                     />
                     {t('wbs.devWorkflowCascadeLabel')}
                   </label>

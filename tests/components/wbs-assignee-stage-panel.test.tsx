@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import type { ProjectMember } from '@/lib/domain/types'
+import { SAVE_DEBOUNCE_MS } from '@/components/wbs/useDebouncedSave'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -10,8 +11,9 @@ type ResolvedState = { assigneeMemberId: string | null; stage: string | null; de
 const getWbsAssigneeStage = vi.fn(async (): Promise<ResolvedState> => ({ assigneeMemberId: null, stage: null, devWorkflow: false }))
 const setWbsAssignee = vi.fn(async () => ({ ok: true }))
 const setWbsAssigneeCascade = vi.fn(async () => ({ ok: true, count: 0 }))
-const setWbsStage = vi.fn(async () => ({ ok: true }))
+const setWbsStage = vi.fn(async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true }))
 const setWbsDevWorkflow = vi.fn(async () => ({ ok: true, count: 1 }))
+const refresh = vi.fn()
 
 vi.mock('@/app/actions/wbsAssign', () => ({
   getWbsAssigneeStage: (...a: unknown[]) => getWbsAssigneeStage(...(a as [])),
@@ -20,7 +22,7 @@ vi.mock('@/app/actions/wbsAssign', () => ({
   setWbsStage: (...a: unknown[]) => setWbsStage(...(a as [])),
   setWbsDevWorkflow: (...a: unknown[]) => setWbsDevWorkflow(...(a as [])),
 }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
 vi.mock('@/components/providers/LocaleProvider', () => ({
   useLocale: () => ({ locale: 'ko', t: (k: string) => k }),
 }))
@@ -32,16 +34,25 @@ import { WbsAssigneeStagePanel } from '@/components/wbs/WbsAssigneeStagePanel'
 
 const members: ProjectMember[] = []
 
+/**
+ * 담당·단계·dev workflow 는 debounce 저장이다(2026-09-14) — 변경 직후에는 서버를 부르지 않고
+ * 마지막 변경 뒤 SAVE_DEBOUNCE_MS 가 지나야 한 번에 저장한다. 즉시 저장을 전제하던 단언은
+ * fake timers 로 그 시간을 흘려 보낸 뒤 단언한다.
+ */
 describe('WbsAssigneeStagePanel', () => {
   let container: HTMLDivElement
   let root: Root
 
   beforeEach(() => {
-    getWbsAssigneeStage.mockClear()
-    setWbsAssignee.mockClear()
-    setWbsAssigneeCascade.mockClear()
-    setWbsStage.mockClear()
-    setWbsDevWorkflow.mockClear()
+    vi.useFakeTimers()
+    // mockClear 는 mockResolvedValueOnce 잔재를 지우지 않는다 — 실패한 테스트가 남긴 Once 값이
+    // 다음 테스트의 첫 조회에 실려 오지 않도록 reset 뒤 기본 구현을 다시 건다.
+    getWbsAssigneeStage.mockReset().mockResolvedValue({ assigneeMemberId: null, stage: null, devWorkflow: false })
+    setWbsAssignee.mockReset().mockResolvedValue({ ok: true })
+    setWbsAssigneeCascade.mockReset().mockResolvedValue({ ok: true, count: 0 })
+    setWbsStage.mockReset().mockResolvedValue({ ok: true })
+    setWbsDevWorkflow.mockReset().mockResolvedValue({ ok: true, count: 1 })
+    refresh.mockReset()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -51,6 +62,7 @@ describe('WbsAssigneeStagePanel', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.useRealTimers()
   })
 
   async function mount(opts: {
@@ -74,6 +86,10 @@ describe('WbsAssigneeStagePanel', () => {
     // getWbsAssigneeStage 는 useEffect 안에서 비동기로 리졸브된다 — 한 틱 더 플러시.
     await act(async () => {})
   }
+  /** debounce 창을 흘려 보내고 flush(서버 액션 직렬 호출 + 재조회 + refresh)까지 끝낸다. */
+  async function elapse(ms = SAVE_DEBOUNCE_MS) {
+    await act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+  }
 
   const stageSelect = () => container.querySelector('select') as HTMLSelectElement
   const stageOptions = () => [...stageSelect().querySelectorAll('option')]
@@ -81,6 +97,18 @@ describe('WbsAssigneeStagePanel', () => {
     [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
       cb => cb.closest('label')?.textContent?.includes('wbs.devWorkflowLabel'),
     ) as HTMLInputElement
+  const cascadeCheckbox = (labelKey: string) =>
+    [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find(
+      cb => cb.closest('label')?.textContent?.includes(labelKey),
+    ) as HTMLInputElement
+  const pendingChip = () => container.querySelector<HTMLElement>('[data-pending-save]')
+  const saveNow = () => container.querySelector<HTMLButtonElement>('[data-pending-save-now]')
+  async function changeStage(value: string) {
+    await act(async () => {
+      stageSelect().value = value
+      stageSelect().dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
 
   it('(a) stage 셀렉트에 todo 옵션이 없고 as 라벨이 wbs.stageAs 키를 쓴다', async () => {
     await mount()
@@ -91,32 +119,101 @@ describe('WbsAssigneeStagePanel', () => {
     expect(asOption.textContent).toBe('wbs.stageAs')
   })
 
-  it('(b) devWorkflow 체크박스를 토글하면 setWbsDevWorkflow(itemId, checked, cascade) 로 호출된다', async () => {
+  it('(b) devWorkflow 체크박스를 토글하면 SAVE_DEBOUNCE_MS 뒤 setWbsDevWorkflow(itemId, checked, cascade) 로 호출된다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
     const cb = devWorkflowCheckbox()
     expect(cb).toBeTruthy()
     expect(cb.checked).toBe(false)
+    expect(pendingChip()).toBeNull()
     await act(async () => cb.click())
+    // 낙관 표시 + 대기 칩. 서버는 아직 부르지 않는다.
+    expect(devWorkflowCheckbox().checked).toBe(true)
+    expect(pendingChip()?.getAttribute('data-pending-save')).toBe('pending')
+    expect(container.textContent).toContain('wbs.pendingSaveIn')
+    expect(setWbsDevWorkflow).not.toHaveBeenCalled()
+    await elapse()
     expect(setWbsDevWorkflow).toHaveBeenCalledWith('item-1', true, false)
     expect(container.textContent).toContain('wbs.devWorkflowResult')
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(pendingChip()).toBeNull()
   })
 
   it('(b-2) hasChildren=true 면 cascade 체크박스가 기본 on 이고 인자로 전달된다', async () => {
     await mount({ hasChildren: true, resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
     const cb = devWorkflowCheckbox()
     await act(async () => cb.click())
+    await elapse()
     expect(setWbsDevWorkflow).toHaveBeenCalledWith('item-1', true, true)
   })
 
-  it('(c) devWorkflow=false 여도 stage 셀렉트는 활성 상태이며 값 변경 시 setWbsStage 가 호출된다', async () => {
+  it('(b-3) 전파 체크는 저장이 나가는 순간의 값을 쓴다 — 대기 중에 끄면 cascade=false 로 간다', async () => {
+    await mount({ hasChildren: true, resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await act(async () => devWorkflowCheckbox().click())
+    await act(async () => cascadeCheckbox('wbs.devWorkflowCascadeLabel').click())
+    await elapse()
+    expect(setWbsDevWorkflow).toHaveBeenCalledWith('item-1', true, false)
+  })
+
+  it('(c) devWorkflow=false 여도 stage 셀렉트는 활성 상태이며 값 변경 시 SAVE_DEBOUNCE_MS 뒤 setWbsStage 가 호출된다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
-    const select = stageSelect()
-    expect(select.disabled).toBe(false)
-    await act(async () => {
-      select.value = 'fp'
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-    })
+    expect(stageSelect().disabled).toBe(false)
+    await changeStage('fp')
+    expect(stageSelect().value).toBe('fp') // 낙관 표시
+    expect(setWbsStage).not.toHaveBeenCalled()
+    await elapse()
     expect(setWbsStage).toHaveBeenCalledWith('item-1', 'fp')
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('(c-2) 같은 필드를 여러 번 바꾸면 마지막 값만, 원래 값으로 돌아오면 저장하지 않는다', async () => {
+    await mount({ resolved: { assigneeMemberId: null, stage: 'as', devWorkflow: false } })
+    await changeStage('fp')
+    await changeStage('ip')
+    await elapse()
+    expect(setWbsStage).toHaveBeenCalledTimes(1)
+    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'ip')
+
+    await changeStage('im')
+    await changeStage('ip') // 서버 확정 값(직전 저장)으로 복귀
+    expect(pendingChip()).toBeNull()
+    await elapse()
+    expect(setWbsStage).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('(d) 여러 필드를 바꿔도 한 flush 에 순서대로 저장하고 router.refresh 는 1회다', async () => {
+    const order: string[] = []
+    setWbsStage.mockImplementation(async () => { order.push('stage'); return { ok: true } })
+    setWbsDevWorkflow.mockImplementation(async () => { order.push('devWorkflow'); return { ok: true, count: 1 } })
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await changeStage('fp')
+    await act(async () => devWorkflowCheckbox().click())
+    await elapse()
+    expect(order).toEqual(['stage', 'devWorkflow'])
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('(e) 「지금 저장」을 누르면 기다리지 않고 저장한다', async () => {
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await changeStage('fp')
+    expect(saveNow()).not.toBeNull()
+    await act(async () => saveNow()!.click())
+    await act(async () => {})
+    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'fp')
+    expect(refresh).toHaveBeenCalledTimes(1)
+    await elapse()
+    expect(setWbsStage).toHaveBeenCalledTimes(1) // 타이머가 다시 쏘지 않는다
+  })
+
+  it('(e-2) 저장이 실패하면 값을 되돌리고 오류를 표시한다 — 실패를 위장하지 않는다', async () => {
+    setWbsStage.mockResolvedValue({ ok: false, error: '허용되지 않는 단계입니다.' })
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await changeStage('fp')
+    expect(stageSelect().value).toBe('fp')
+    await elapse()
+    expect(stageSelect().value).toBe('')
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('허용되지 않는 단계입니다.')
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('(f) 담당자 변경 성공 후 getWbsAssigneeStage 재조회로 loaded 전체가 교체된다(부분 낙관 갱신 아님, F2 최종 리뷰)', async () => {
@@ -132,10 +229,24 @@ describe('WbsAssigneeStagePanel', () => {
     await act(async () => {
       option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
     })
-    await act(async () => {}) // 액션 await + 재조회 await, 마이크로태스크 한 틱 더 플러시
+    expect(setWbsAssignee).not.toHaveBeenCalled()
+    expect(getWbsAssigneeStage).toHaveBeenCalledTimes(1)
+    await elapse()
     expect(setWbsAssignee).toHaveBeenCalledWith('item-1', null)
     expect(getWbsAssigneeStage).toHaveBeenCalledTimes(2)
     expect(stageSelect().value).toBe('as')
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('(g) 패널이 닫히면(언마운트) 대기 중인 변경을 기다리지 않고 저장한다', async () => {
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await changeStage('fp')
+    expect(setWbsStage).not.toHaveBeenCalled()
+    await act(async () => { root.unmount() })
+    root = createRoot(container) // afterEach 의 unmount 가 두 번 되지 않게
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'fp')
+    expect(refresh).toHaveBeenCalledTimes(1)
   })
 
   it('editable=false 면 devWorkflow 체크박스가 렌더되되 disabled 다', async () => {

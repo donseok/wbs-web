@@ -1,13 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { ChevronDown, ChevronRight, FileText, Pencil } from 'lucide-react'
 import {
   getWbsSpec, setAgentDelegation, updateAgentPrompt, updateWbsSpec, updateWbsSpecFields,
-  type WbsPriority, type WbsSpecDetail,
+  type AgentDelegationResult, type WbsPriority, type WbsSpecDetail,
 } from '@/app/actions/wbsSpec'
+import { useDebouncedSave } from './useDebouncedSave'
+import { PendingSaveChip } from './PendingSaveChip'
 import {
   approveAgentCompletion, getAgentOrderForItem, rejectAgentCompletion,
   requestAgentRework, unapproveAgentCompletion,
@@ -26,6 +28,9 @@ const MarkdownView = dynamic(
   () => import('@/components/minutes/MarkdownView').then(m => m.MarkdownView),
   { ssr: false },
 )
+
+/** debounce 저장으로 묶는 빠른 필드 — 우선순위 select 와 에이전트 위임 체크박스. */
+type QuickFields = { priority: WbsPriority | null; delegate: boolean }
 
 const PRIORITIES: WbsPriority[] = ['critical', 'high', 'medium', 'low']
 const PRIORITY_KEYS: Record<WbsPriority, DictKey> = {
@@ -97,29 +102,42 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     return true
   }
 
-  async function commitPriority(priority: WbsPriority | null) {
-    setRefBusy(true); setRefErr(null)
-    const res = await updateWbsSpecFields(itemId, { priority })
-    setRefBusy(false)
-    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
-    setLoaded(prev => (prev && prev !== 'error' ? { ...prev, priority } : prev))
-    router.refresh()
-  }
-
-  async function commitAgentDelegate(delegated: boolean) {
-    setRefBusy(true); setRefErr(null)
-    const res = await setAgentDelegation(itemId, delegated)
-    setRefBusy(false)
-    if (!res.ok) { setRefErr(res.error ?? t('wbs.specRefSaveFail')); return }
-    // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않은 경우.
-    // 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
-    if (res.warning) setRefErr(res.warning)
-    setLoaded(prev => (prev && prev !== 'error'
-      ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
-      : prev))
-    setOrderRefreshKey(k => k + 1)
-    router.refresh()
-  }
+  // 우선순위 select·위임 체크박스는 debounce 저장(2026-09-14). 종전엔 체크 하나마다 서버 액션 +
+  // router.refresh() 가 나가 WBS 페이지 전체가 다시 렌더됐다. 마지막 변경 뒤 SAVE_DEBOUNCE_MS 가
+  // 지나면(또는 패널 닫힘·항목 변경·「지금 저장」) 모아서 순서대로 저장하고 refresh 는 1회만 부른다.
+  // 화면은 quick.view 로 낙관 표시하고, 실패한 필드는 대기에서 빠져 loaded(서버 확정 값)로 돌아간다.
+  const detail = loaded && loaded !== 'error' ? loaded : null
+  const quickBaseline = useMemo<QuickFields | null>(
+    () => (detail ? { priority: detail.priority, delegate: detail.tags.includes('agent') } : null),
+    [detail],
+  )
+  const quick = useDebouncedSave<QuickFields, AgentDelegationResult>({
+    scope: itemId,
+    baseline: quickBaseline,
+    commit: {
+      priority: priority => updateWbsSpecFields(itemId, { priority }),
+      delegate: delegated => setAgentDelegation(itemId, delegated),
+    },
+    onSaved: (key, value, res) => {
+      if (key === 'priority') {
+        const priority = value as WbsPriority | null
+        setLoaded(prev => (prev && prev !== 'error' ? { ...prev, priority } : prev))
+        return
+      }
+      const delegated = value as boolean
+      // ok 인데 warning — 태그는 바뀌었지만 주문이 안 나갔거나(프로젝트 중지) 진행 중 주문을 회수하지 않은 경우.
+      // 에러 칸에 그대로 보여준다(위장 금지). 다음 조작에서 지워진다.
+      if (res.warning) setRefErr(res.warning)
+      setLoaded(prev => (prev && prev !== 'error'
+        ? { ...prev, tags: delegated ? [...prev.tags.filter(tg => tg !== 'agent'), 'agent'] : prev.tags.filter(tg => tg !== 'agent') }
+        : prev))
+      // 위임 체크가 주문을 발행·취소하므로 아래 진행 상황 섹션도 다시 읽는다.
+      setOrderRefreshKey(k => k + 1)
+    },
+    onFailed: (_key, _value, error) => setRefErr(error || t('wbs.specRefSaveFail')),
+    onFlushed: () => router.refresh(),
+  })
+  const view = quick.view
 
   async function commitAgentPrompt(): Promise<boolean> {
     if (!loaded || loaded === 'error') return true
@@ -165,8 +183,14 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
     router.refresh()
   }
 
-  const hasScalarBadge = loaded && loaded !== 'error' &&
-    (loaded.category || loaded.domain || loaded.priority || loaded.model || loaded.tags.length > 0)
+  // 낙관 표시값 — 대기 중인 변경이 있으면 그 값, 없으면 서버 확정 값.
+  const priority = view?.priority ?? null
+  const delegated = view?.delegate ?? false
+  const displayTags = detail
+    ? (delegated ? [...detail.tags.filter(tg => tg !== 'agent'), 'agent'] : detail.tags.filter(tg => tg !== 'agent'))
+    : []
+  const hasScalarBadge = detail &&
+    (detail.category || detail.domain || priority || detail.model || displayTags.length > 0)
 
   return (
     <section className="rounded-xl border border-line bg-surface-2/40 p-3">
@@ -180,16 +204,23 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           {bodyOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           <FileText className="h-3.5 w-3.5" /> {t('wbs.specPanelTitle')}
         </button>
-        {bodyOpen && editable && loaded && loaded !== 'error' && (
-          <button
-            type="button" data-spec-edit-toggle aria-pressed={fieldsEditing} disabled={refBusy}
-            onClick={() => { if (fieldsEditing) void closeFieldsEditing(); else setFieldsEditing(true) }}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-subtle transition hover:bg-surface-2 hover:text-ink"
-          >
-            <Pencil className="h-3 w-3" />
-            {fieldsEditing ? t('common.done') : t('common.edit')}
-          </button>
-        )}
+        <div className="flex items-center gap-1.5">
+          {/* 대기 칩은 접힘과 무관하게 머리에 둔다 — 본문을 접어도 저장 대기 중이라는 사실은 보여야 한다. */}
+          <PendingSaveChip
+            isPending={quick.isPending} saving={quick.saving} remainingMs={quick.remainingMs}
+            onSaveNow={() => void quick.flush()}
+          />
+          {bodyOpen && editable && loaded && loaded !== 'error' && (
+            <button
+              type="button" data-spec-edit-toggle aria-pressed={fieldsEditing} disabled={refBusy}
+              onClick={() => { if (fieldsEditing) void closeFieldsEditing(); else setFieldsEditing(true) }}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-subtle transition hover:bg-surface-2 hover:text-ink"
+            >
+              <Pencil className="h-3 w-3" />
+              {fieldsEditing ? t('common.done') : t('common.edit')}
+            </button>
+          )}
+        </div>
       </div>
 
       {!bodyOpen ? null : loaded === null ? (
@@ -201,9 +232,9 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
           <div className="flex flex-wrap items-center gap-1.5">
             {loaded.category && <span className="chip bg-surface-2 text-ink-muted">{loaded.category}</span>}
             {loaded.domain && <span className="chip bg-surface-2 text-ink-muted">{loaded.domain}</span>}
-            {loaded.priority && !fieldsEditing && <span className="chip bg-brand-weak text-brand">{t(PRIORITY_KEYS[loaded.priority])}</span>}
+            {priority && !fieldsEditing && <span className="chip bg-brand-weak text-brand">{t(PRIORITY_KEYS[priority])}</span>}
             {loaded.model && <span className="chip bg-surface-2 text-ink-muted">{loaded.model}</span>}
-            {loaded.tags.map(tag => (
+            {displayTags.map(tag => (
               <span key={tag} className="chip border border-line text-ink-subtle">{tag}</span>
             ))}
             {!hasScalarBadge && <span className="text-xs text-ink-subtle">{t('wbs.specNone')}</span>}
@@ -226,9 +257,8 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
             <label className="block">
               <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.specPriorityLabel')}</span>
               <select
-                data-spec-priority value={loaded.priority ?? ''}
-                disabled={refBusy}
-                onChange={e => commitPriority((e.target.value || null) as WbsPriority | null)}
+                data-spec-priority value={priority ?? ''}
+                onChange={e => { setRefErr(null); quick.set('priority', (e.target.value || null) as WbsPriority | null) }}
                 className="app-input h-9 text-xs"
               >
                 <option value="">{t('wbs.specPriorityNoneOption')}</option>
@@ -241,9 +271,8 @@ export function WbsSpecPanel({ itemId, editable }: { itemId: string; editable: b
             <label className="flex items-center gap-2">
               <input
                 type="checkbox" data-spec-delegate
-                checked={loaded.tags.includes('agent')}
-                disabled={refBusy}
-                onChange={e => commitAgentDelegate(e.target.checked)}
+                checked={delegated}
+                onChange={e => { setRefErr(null); quick.set('delegate', e.target.checked) }}
                 className="h-3.5 w-3.5 rounded border-line"
               />
               <span className="text-xs font-semibold text-ink">{t('wbs.specAgentDelegateLabel')}</span>
