@@ -2047,7 +2047,8 @@ git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w;
   case "$a" in "<신원>/<host>/"*) ;; *) continue ;; esac
   rf=$(find "$w/docs/tasks" -mindepth 2 -maxdepth 2 -name .result 2>/dev/null | head -n 1)
   r=$([ -n "$rf" ] && head -n 1 "$rf")
-  printf '%s\t%s\t%s\t%s\n' "$a" "$w" "$(git -C "$w" branch --show-current)" "${r:--}"
+  b=$(git -C "$w" branch --show-current)
+  printf '%s\t%s\t%s\t%s\n' "$a" "$w" "${b:--}" "${r:--}"
 done
 ```
 - 루트 `.dflow-agent` 값이 `<신원>/<host>/w` 로 시작하는 워크트리가 팀원 워크트리이고, 값의 슬롯 번호가 그
@@ -2416,6 +2417,9 @@ poll exit 0 의 show 필터:
 (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <id8>) \
   | jq -c '{order: .order.id, ref: .order.item.external_ref, spec_empty: ((.order.item.spec // "") | length == 0)}'
 ```
+show 가 실패하면(dflow.sh 가 0 이 아닌 코드로 끝나거나, 404 로 exit 7 이거나, 출력이 비면) spec 부재로 보지 않는다.
+그 id8 은 "조회 실패" 사유로 일시 제외에 넣고 다음 기상에서 다시 판정한다. 이유: 조회 실패를 데이터 없음으로
+위장하면 살아 있는 작업이 spec 부재로 잘못 제외된다.
 
 ## 3. 결과 처리
 
@@ -2440,6 +2444,7 @@ git fetch origin && git log -1 --format=%ct 'origin/agent/<id8>-<slug>'   # 1. �
 (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <id8>) | jq -r '[.reports[]?] | last | .created_at // empty'   # 2. 서버 최신 progress
 git -C <워크트리> status --porcelain | cksum                                 # 3. 미커밋 변경 목록
 ```
+2번의 show 가 실패하면 증거 없음이 아니라 측정 실패로 기록하고, 그 `TICK` 에서는 2번을 비교에서 뺀다.
 **화면은 생존 증거로 쓰지 않는다.** Orca 화면(`orca terminal read`)은 보고용으로만 읽는다. 스피너 때문에 화면이
 매번 달라져 멈춘 팀원도 살아 있는 것처럼 보이기 때문이다. 터미널 핸들이 없는 옛 런타임에서는 화면을 읽지 않고
 위 셋만 쓴다.
@@ -2493,6 +2498,8 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 후보가 원
 - **다중 경합**: 두 팀장의 스윕이 같은 브랜치를 머지하려 하면 나중 쪽 `git push` 가 non-fast-forward 로
   거부된다. 그러면 `/dflow-merge` 가 머지 직전 HEAD 로 `git reset --keep` 해 되돌리고 "push 실패(경합)" 로 보고한
   뒤 스윕을 멈춘다. 다음 기상의 스윕이 fetch 부터 다시 하며, 그 사이에 머지된 것은 후보에서 빠진다.
+- **그 밖의 push 실패**: `/dflow-merge` 는 연결·권한 오류(128 등)를 "push 실패" 로 보고하고 스윕을 멈춘다. 팀장은
+  그 스윕을 "중간에 멈춤" 으로 보고하고 정상 완료로 적지 않는다. 머지되지 않은 후보는 다음 기상의 스윕이 다시 본다.
 - **push 훅 거부**: `/dflow-merge` 가 `git reset --keep` 으로 되돌리고 "push 실패(훅)" 로 보고한 뒤, 그 작업과 그
   후손만 빼고 다음 후보로 간다. 팀장은 그 id8 을 "사람이 머지해야 함" 으로 보고한다. 이유: 훅이 막는 작업(예:
   스테이징 리허설 트레일러가 없는 마이그레이션) 한 건이 후보 앞쪽에 있어도 뒤의 승인분은 계속 반영돼야 하며,
@@ -2502,7 +2509,7 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 후보가 원
   깨지지 않는다.
 - 로컬 agent 브랜치 삭제가 브랜치 없음이나 "checked out" 오류로 실패하면 `/dflow-merge` 가 건너뛰고 보고한다.
   그 워크트리는 결과 처리나 고아 스캔이 정리한다.
-- 승인 대기·건너뜀(서버 <status>·조회 실패·다른 D'Flow·승인 뒤 변경·승인 뒤 변경 확인 불가)은 보고만 한다.
+- 승인 대기·건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·승인 뒤 변경 확인 불가)은 보고만 한다.
 - `team.sweep`(merged, waiting, rejected 개수)을 기록한다.
 - 스윕은 팀장 체크아웃에서 기본 브랜치로 switch 한다. 팀장 체크아웃은 전제 검사로 이미 기본 브랜치에 있고,
   팀원은 각자 워크트리의 agent 브랜치나 detached HEAD 에 있으므로 충돌하지 않는다.
