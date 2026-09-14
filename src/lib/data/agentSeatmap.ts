@@ -6,14 +6,14 @@ import type { Actor } from '@/lib/domain/authz'
 import { seatmapProjectIds } from '@/lib/authz/agentsAccess'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 import {
-  assembleSeatmap, type ItemRow, type OrderRow, type ProjectRow, type ReviewRow, type Seatmap, type SeatmapRows, type WatcherRow,
+  assembleSeatmap, type ItemRow, type OrderRow, type ProjectRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type WatcherRow,
 } from '@/lib/domain/seatmap'
 
 /** DONE(approved) 은 최근 7일 것만 층에 접어 둔다. */
 export const DONE_WINDOW_MS = 7 * 24 * 3600_000
 
 const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note'
-const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct'
+const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id'
 
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {
   if (r.error) throw new Error(`[seatmap] ${what} 조회 실패: ${r.error.message}`)
@@ -52,7 +52,37 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   return { orders, items, parents, reviews, watchers, projects }
 }
 
-export async function getSeatmap(actor: Actor, nowMs = Date.now()): Promise<Seatmap> {
-  const rows = await fetchSeatmapRows(createAdminClient(), seatmapProjectIds(actor), nowMs)
-  return assembleSeatmap(rows, nowMs)
+/**
+ * 내 로스터 행 id — 접근 가능 프로젝트(null = 전체)의 project_members 중 user_id 가 나이거나 이메일이 같은(대소문자 무시) 행.
+ * scope=assigned(src/lib/agent/assignee.ts)와 같은 이중 매칭. 실패는 throw.
+ */
+export async function fetchMyMemberIds(
+  admin: AdminClient, who: { userId: string; userEmail: string | null }, projectIds: string[] | null,
+): Promise<string[]> {
+  if (projectIds !== null && projectIds.length === 0) return []
+  let q = admin.from('project_members').select('id, user_id, email')
+  if (projectIds !== null) q = q.in('project_id', projectIds)
+  const rows = must<Array<{ id: string; user_id: string | null; email: string | null }>>('로스터', await q)
+  const email = who.userEmail?.toLowerCase() ?? null
+  const out: string[] = []
+  for (const m of rows) {
+    if (m.user_id === who.userId || (email !== null && m.email !== null && m.email.toLowerCase() === email)) out.push(m.id)
+  }
+  return out
+}
+
+/** 뷰어의 이메일 — 로스터 이메일 매칭용. 실패는 throw(내 작업이 조용히 빠지면 안 된다). */
+async function viewerEmail(admin: AdminClient, userId: string): Promise<string | null> {
+  const { data, error } = await admin.auth.admin.getUserById(userId)
+  if (error) throw new Error(`[seatmap] 뷰어 조회 실패: ${error.message}`)
+  return data.user?.email ?? null
+}
+
+export async function getSeatmap(actor: Actor, nowMs = Date.now(), scope: SeatmapScope = 'mine'): Promise<Seatmap> {
+  const admin = createAdminClient()
+  const projectIds = seatmapProjectIds(actor)
+  const rows = await fetchSeatmapRows(admin, projectIds, nowMs)
+  if (scope === 'all') return assembleSeatmap(rows, nowMs)
+  const memberIds = await fetchMyMemberIds(admin, { userId: actor.userId, userEmail: await viewerEmail(admin, actor.userId) }, projectIds)
+  return assembleSeatmap(rows, nowMs, { mine: { userId: actor.userId, memberIds: new Set(memberIds) } })
 }

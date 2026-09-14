@@ -22,7 +22,7 @@ const map = (over: Partial<Seatmap> = {}): Seatmap => ({
   }],
   counters: { active: 1, standby: 0, idle: 0, offline: 1 },
   attention: [{ orderId: 'o1', id8: 'o1', floorName: 'mes-base', code: 'TSK-04-01', name: '목록', state: 'BLOCKED', why: '어느 DB?' }],
-  fetchedAt: new Date(NOW).toISOString(), ...over,
+  fetchedAt: new Date(NOW).toISOString(), scope: 'mine', ...over,
 })
 
 let host: HTMLDivElement, root: Root
@@ -79,5 +79,26 @@ describe('SeatmapView', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
     await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await vi.advanceTimersByTimeAsync(0) })
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('SeatmapView — 내 작업 / 전체 전환', () => {
+  it('기본은 내 작업이고, 전체를 누르면 즉시 scope=all 로 재조회하며 이후 폴링도 그 범위로 간다', async () => {
+    refresh.mockResolvedValue({ ok: true, seatmap: map({ scope: 'all' }) })
+    await act(async () => { root.render(<SeatmapView initial={map()} pollMs={30_000} />) })
+    const mine = [...host.querySelectorAll('button')].find(b => b.textContent === '내 작업') as HTMLButtonElement
+    const all = [...host.querySelectorAll('button')].find(b => b.textContent === '전체') as HTMLButtonElement
+    expect(mine.getAttribute('aria-pressed')).toBe('true')
+    expect(all.getAttribute('aria-pressed')).toBe('false')
+    await act(async () => { all.click() })
+    expect(refresh).toHaveBeenCalledWith('all')
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+    refresh.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    expect(refresh).toHaveBeenCalledWith('all')
+  })
+  it('내 작업에 아무것도 없으면 전체로 바꿔 보라는 안내가 뜬다', async () => {
+    await act(async () => { root.render(<SeatmapView initial={map({ floors: [], attention: [], counters: { active: 0, standby: 0, idle: 0, offline: 0 } })} />) })
+    expect(host.textContent).toContain('배정된 에이전트 작업이 없습니다')
   })
 })

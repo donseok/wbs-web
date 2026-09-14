@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Seat, Seatmap } from '@/lib/domain/seatmap'
+import type { Seat, Seatmap, SeatmapScope } from '@/lib/domain/seatmap'
 import { refreshSeatmap } from '@/app/actions/agentSeatmap'
 import { Counters } from './Counters'
 import { AttentionBand } from './AttentionBand'
@@ -24,13 +24,16 @@ export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; po
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
   const [selected, setSelected] = useState<string | null>(initial.attention[0]?.orderId ?? null)
   const [nowMs, setNowMs] = useState(() => Date.parse(initial.fetchedAt))
+  const [scope, setScope] = useState<SeatmapScope>(initial.scope)
+  const scopeRef = useRef(scope)
   const inflight = useRef(false)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (want?: SeatmapScope) => {
+    if (want) { scopeRef.current = want; setScope(want) }
     if (inflight.current) return
     inflight.current = true
     try {
-      const r = await refreshSeatmap()
+      const r = await refreshSeatmap(scopeRef.current)
       if (r.ok) { setMap(r.seatmap); setNowMs(Date.parse(r.seatmap.fetchedAt)); setError(null) }
       else setError({ at: new Date().toISOString(), message: r.error })
     } catch (e) {
@@ -40,7 +43,7 @@ export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; po
 
   useEffect(() => {
     let timer: number | null = null
-    const start = () => { if (timer === null) timer = window.setInterval(refresh, pollMs) }
+    const start = () => { if (timer === null) timer = window.setInterval(() => { void refresh() }, pollMs) }
     const stop = () => { if (timer !== null) { window.clearInterval(timer); timer = null } }
     const onVis = () => { if (document.visibilityState === 'hidden') stop(); else { void refresh(); start() } }
     document.addEventListener('visibilitychange', onVis)
@@ -60,14 +63,22 @@ export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; po
     <div className={css.root}>
       <header className={css.top}>
         <Counters counters={map.counters} />
-        <div className={`${css.stamp} ${error ? css.stampBad : ''}`}>
-          {error ? <span data-error="">갱신 실패 {hhmmss(error.at)} · {error.message}</span> : <span>갱신 {hhmmss(map.fetchedAt)}</span>}
+        <div className={css.topRight}>
+          <div className={css.scope} role="group" aria-label="표시 범위">
+            <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine') }}>내 작업</button>
+            <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all') }}>전체</button>
+          </div>
+          <div className={`${css.stamp} ${error ? css.stampBad : ''}`}>
+            {error ? <span data-error="">갱신 실패 {hhmmss(error.at)} · {error.message}</span> : <span>갱신 {hhmmss(map.fetchedAt)}</span>}
+          </div>
         </div>
       </header>
       <AttentionBand items={map.attention} onSelect={setSelected} />
       <main className={css.grid}>
         <section className={css.floors} aria-label="프로젝트별 좌석">
-          {map.floors.length === 0 && <p className={css.doneNote}>표시할 주문이 없습니다. 관리자인 프로젝트에 에이전트 주문이 생기면 여기 층이 생깁니다.</p>}
+          {map.floors.length === 0 && (map.scope === 'mine'
+            ? <p className={css.doneNote}>배정된 에이전트 작업이 없습니다. 담당자가 나이거나 내 에이전트가 잡은 주문만 보입니다 — 다른 사람 것까지 보려면 ‘전체’를 누르세요.</p>
+            : <p className={css.doneNote}>표시할 주문이 없습니다. 관리자인 프로젝트에 에이전트 주문이 생기면 여기 층이 생깁니다.</p>)}
           {map.floors.map(f => <FloorCard key={f.id} floor={f} selectedId={selected} nowMs={nowMs} onSelect={setSelected} />)}
         </section>
         <DetailPanel seat={sel?.seat ?? null} floorName={sel?.floorName ?? ''} zoneLabel={sel?.zoneLabel ?? ''} nowMs={nowMs} />
