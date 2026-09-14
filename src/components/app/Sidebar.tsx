@@ -56,7 +56,7 @@ function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, i
     { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
-    // 프로젝트 에이전트 허브(2026-09-14) — 위임·승인·좌석을 한곳에. 멤버 전원(프로젝트 목록 자체가 멤버 기준).
+    // 프로젝트 에이전트 허브(2026-09-14) — 위임·승인을 한곳에(좌석 층은 /agents/office 탭). 멤버 전원(프로젝트 목록 자체가 멤버 기준).
     { href: `${base}/agents`, labelKey: 'nav.projectAgents', icon: Bot, match: `${base}/agents` },
   ]
   // 설정은 프로젝트 관리자 전용(2026-08-20) — 링크만 숨기는 게 아니라 페이지 게이트도 함께 건다.
