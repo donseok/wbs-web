@@ -23,7 +23,7 @@ const hub = (over: Partial<AgentHub> = {}): AgentHub => ({
   projectId: 'p1', projectName: 'mes-base', registered: true, enabled: true,
   counters: { delegated: 1, ready: 0, working: 1, waiting: 0 }, watchers: [],
   rows: [{ itemId: 'a1', code: 'TSK-A-01', name: '리프1', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: '장', assigneeMine: true, delegated: true, devWorkflow: true, order: { id: 'o1', status: 'claimed', state: 'ACTIVE', agent: 'hong', lastSignalAt: new Date(NOW - 1000).toISOString() }, prompt: null, canToggle: true }],
-  queue: [], floor: null, fetchedAt: new Date(NOW).toISOString(), viewer: { isAdmin: false, memberIds: ['m1'] }, ...over,
+  queue: [], fetchedAt: new Date(NOW).toISOString(), viewer: { isAdmin: false, memberIds: ['m1'] }, ...over,
 })
 
 let host: HTMLDivElement, root: Root
@@ -31,12 +31,11 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('AgentHubView', () => {
-  it('상태 줄·표·큐·층 자리가 그려지고 멤버 기본 필터는 mine, 관리자는 all', () => {
+  it('상태 줄·표·큐가 그려지고 멤버 기본 필터는 mine, 관리자는 all', () => {
     act(() => root.render(<AgentHubView initial={hub()} />))
     expect(host.querySelector('[data-hub-counter="working"]')?.textContent).toBe('1')
     expect(host.querySelector('[data-hub-row="a1"]')).not.toBeNull()
     expect(host.textContent).toContain('승인 대기 없음')
-    expect(host.textContent).toContain('위임된 주문이 아직 없습니다')
     expect((host.querySelector('[data-hub-filter="mine"]') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true')
     // 기본 필터는 마운트 시점 초기값이라 새 루트로 다시 그린다.
     act(() => root.unmount()); root = createRoot(host)
@@ -58,11 +57,10 @@ describe('AgentHubView', () => {
     expect(host.querySelector('[data-hub-row="a1"]')).toBeNull()
     expect(refresh).toHaveBeenCalledWith('p1')
   })
-  it('층이 있으면 FloorCard 와 상세 패널이 그려진다', () => {
-    const floor = { id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [], zones: [{ key: 'z', code: 'WP-1', name: '구역', summary: { work: 1, wait: 0, ready: 0 }, seats: [{ orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'a1', code: 'TSK-A-01', name: '리프1', state: 'ACTIVE' as const, phase: 'build' as const, anim: 'typing' as const, character: 'cat_dev' as const, agent: 'hong', progress: 10, lastSignalAt: new Date(NOW - 1000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null }] }] }
-    act(() => root.render(<AgentHubView initial={hub({ floor })} />))
-    expect(host.querySelector('section[aria-label="mes-base"]')).not.toBeNull()
-    expect(host.querySelector('[data-panel]')).not.toBeNull()
+  it('좌석 층 섹션이 없다 — 층은 /agents/office 가 그린다(오피스 분리 스펙 §6-2)', () => {
+    act(() => root.render(<AgentHubView initial={hub()} />))
+    expect(host.querySelector('section[aria-label="좌석"]')).toBeNull()
+    expect(host.querySelector('[data-panel]')).toBeNull()
   })
   it('허브 컴포넌트는 router.refresh 를 쓰지 않는다(스펙 §7)', () => {
     const dir = join(process.cwd(), 'src/components/agent-hub')

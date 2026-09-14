@@ -1,12 +1,10 @@
 'use client'
-// 에이전트 허브 클라이언트 루트 — 상태 줄 → 위임 표 → 승인 큐 → 이 프로젝트 층. 폴링 없음(조작 화면).
-// 변경 뒤 refreshAgentHub 1회, 탭이 다시 보이면 1회. 실패는 마지막 데이터 유지 + 상단 표시. 페이지 전체 refresh 금지(스펙 §7).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// 에이전트 허브 클라이언트 루트 — 상태 줄 → 위임 표 → 승인 큐. 폴링 없음(조작 화면).
+// 좌석 층은 /agents/office 가 그린다(2026-09-14 오피스 분리). 변경 뒤 refreshAgentHub 1회, 탭이 다시 보이면 1회.
+// 실패는 마지막 데이터 유지 + 상단 표시. 페이지 전체 refresh 금지(허브 스펙 §7).
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AgentHub } from '@/lib/domain/agentHub'
 import { refreshAgentHub } from '@/app/actions/agentHub'
-import { FloorCard } from '@/components/agents/FloorCard'
-import { DetailPanel } from '@/components/agents/DetailPanel'
-import seatCss from '@/components/agents/seatmap.module.css'
 import { HubStatusBar } from './HubStatusBar'
 import { DelegationTable, type HubFilter } from './DelegationTable'
 import { ApprovalQueue } from './ApprovalQueue'
@@ -18,7 +16,6 @@ export function AgentHubView({ initial }: { initial: AgentHub }) {
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
   // 관리자는 프로젝트 전체를 관리하니 all, 멤버는 자기 담당부터.
   const [filter, setFilter] = useState<HubFilter>(initial.viewer.isAdmin ? 'all' : 'mine')
-  const [selected, setSelected] = useState<string | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.parse(initial.fetchedAt))
   const inflight = useRef(false)
 
@@ -42,12 +39,6 @@ export function AgentHubView({ initial }: { initial: AgentHub }) {
   // 경과 시간 표시만 1초마다 — 데이터는 건드리지 않는다.
   useEffect(() => { const t = window.setInterval(() => setNowMs(n => n + 1000), 1000); return () => window.clearInterval(t) }, [])
 
-  const sel = useMemo(() => {
-    if (!hub.floor || !selected) return null
-    for (const z of hub.floor.zones) for (const s of z.seats) if (s.orderId === selected) return { seat: s, zoneLabel: `${z.code} ${z.name}` }
-    return null
-  }, [hub.floor, selected])
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 text-xs text-ink-muted">
@@ -61,16 +52,6 @@ export function AgentHubView({ initial }: { initial: AgentHub }) {
       <DelegationTable rows={hub.rows} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} filter={filter} onFilter={setFilter}
         nowMs={nowMs} onChanged={refresh} />
       <ApprovalQueue queue={hub.queue} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
-      <section aria-label="좌석" className={seatCss.root}>
-        {hub.floor
-          ? (
-            <div className={seatCss.grid}>
-              <div className={seatCss.floors}><FloorCard floor={hub.floor} selectedId={selected} nowMs={nowMs} onSelect={setSelected} /></div>
-              <DetailPanel seat={sel?.seat ?? null} floorName={hub.floor.name} zoneLabel={sel?.zoneLabel ?? ''} nowMs={nowMs} />
-            </div>
-          )
-          : <p className="text-xs text-ink-muted">위임된 주문이 아직 없습니다. 위 표에서 리프 항목에 위임을 켜면 여기 좌석이 생깁니다.</p>}
-      </section>
     </div>
   )
 }

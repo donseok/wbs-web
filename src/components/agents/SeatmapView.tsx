@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import type { Seat, Seatmap, SeatmapScope } from '@/lib/domain/seatmap'
 import { refreshSeatmap } from '@/app/actions/agentSeatmap'
 import { Counters } from './Counters'
@@ -18,8 +19,9 @@ function findSeat(map: Seatmap, orderId: string | null): { seat: Seat; floorName
 
 const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
 
-/** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시. */
-export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; pollMs?: number }) {
+/** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
+ *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다. */
+export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: Seatmap; pollMs?: number; projectId?: string }) {
   const [map, setMap] = useState(initial)
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
   const [selected, setSelected] = useState<string | null>(initial.attention[0]?.orderId ?? null)
@@ -33,13 +35,13 @@ export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; po
     if (inflight.current) return
     inflight.current = true
     try {
-      const r = await refreshSeatmap(scopeRef.current)
+      const r = projectId === undefined ? await refreshSeatmap(scopeRef.current) : await refreshSeatmap(scopeRef.current, projectId)
       if (r.ok) { setMap(r.seatmap); setNowMs(Date.parse(r.seatmap.fetchedAt)); setError(null) }
       else setError({ at: new Date().toISOString(), message: r.error })
     } catch (e) {
       setError({ at: new Date().toISOString(), message: e instanceof Error ? e.message : String(e) })
     } finally { inflight.current = false }
-  }, [])
+  }, [projectId])
 
   useEffect(() => {
     let timer: number | null = null
@@ -64,6 +66,7 @@ export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; po
       <header className={css.top}>
         <Counters counters={map.counters} />
         <div className={css.topRight}>
+          {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
           <div className={css.scope} role="group" aria-label="표시 범위">
             <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine') }}>내 작업</button>
             <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all') }}>전체</button>
@@ -76,9 +79,13 @@ export function SeatmapView({ initial, pollMs = 30_000 }: { initial: Seatmap; po
       <AttentionBand items={map.attention} onSelect={setSelected} />
       <main className={css.grid}>
         <section className={css.floors} aria-label="프로젝트별 좌석">
-          {map.floors.length === 0 && (map.scope === 'mine'
-            ? <p className={css.doneNote}>배정된 에이전트 작업이 없습니다. 담당자가 나이거나 내 에이전트가 잡은 주문만 보입니다 — 다른 사람 것까지 보려면 ‘전체’를 누르세요.</p>
-            : <p className={css.doneNote}>표시할 주문이 없습니다. 에이전트 위임(agent 태그) 항목의 주문만 보이며, 내가 속한 프로젝트에 그런 주문이 생기면 여기 층이 생깁니다.</p>)}
+          {map.floors.length === 0 && (projectId !== undefined
+            ? (map.scope === 'mine'
+              ? <p className={css.doneNote}>이 프로젝트에서 내게 배정된 에이전트 작업이 없습니다. 다른 사람 것까지 보려면 ‘전체’를 누르세요.</p>
+              : <p className={css.doneNote}>이 프로젝트에 위임된 주문이 없습니다. 위임·승인 탭에서 리프 항목에 위임을 켜면 좌석이 생깁니다.</p>)
+            : map.scope === 'mine'
+              ? <p className={css.doneNote}>배정된 에이전트 작업이 없습니다. 담당자가 나이거나 내 에이전트가 잡은 주문만 보입니다 — 다른 사람 것까지 보려면 ‘전체’를 누르세요.</p>
+              : <p className={css.doneNote}>표시할 주문이 없습니다. 에이전트 위임(agent 태그) 항목의 주문만 보이며, 내가 속한 프로젝트에 그런 주문이 생기면 여기 층이 생깁니다.</p>)}
           {map.floors.map(f => <FloorCard key={f.id} floor={f} selectedId={selected} nowMs={nowMs} onSelect={setSelected} />)}
         </section>
         <DetailPanel seat={sel?.seat ?? null} floorName={sel?.floorName ?? ''} zoneLabel={sel?.zoneLabel ?? ''} nowMs={nowMs} />

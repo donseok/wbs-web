@@ -86,8 +86,16 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
     expect(container.querySelector('a[href="/p/p1/agents"]')?.textContent).toContain('nav.projectAgents')
   })
 
-  it('전역 좌석표(/agents)는 사이드바에 없다 — 입구는 허브 상태 줄 링크 한 곳(2026-09-14)', async () => {
+  it('전역 오피스(/agents)는 사이드바에 없다 — 입구는 프로젝트 오피스 탭의 전체 오피스 링크 한 곳(2026-09-14)', async () => {
     await renderAt('/p/p1/wbs')
+    expect(container.querySelector('a[href="/agents"]')).toBeNull()
+  })
+
+  it('가상 오피스(/p/p1/agents/office)에서도 사이드바 활성 항목은 에이전트 하나다', async () => {
+    await renderAt('/p/p1/agents/office')
+    const link = container.querySelector<HTMLAnchorElement>('a[href="/p/p1/agents"]')
+    expect(link?.className).toContain('side-link-active')
+    expect(link?.getAttribute('aria-current')).toBe('page')
     expect(container.querySelector('a[href="/agents"]')).toBeNull()
   })
 
