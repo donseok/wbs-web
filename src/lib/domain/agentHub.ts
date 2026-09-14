@@ -1,4 +1,5 @@
-// 에이전트 허브 조립 — 순수 함수. 트리 순서·행 상태·카운터·승인 큐·좌석 층을 한 번에 만든다. DB·세션을 모른다.
+// 에이전트 허브 조립 — 순수 함수. 트리 순서·행 상태·카운터·승인 큐·감시자를 한 번에 만든다. DB·세션을 모른다.
+// 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 오피스 분리 스펙 §4-2).
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
