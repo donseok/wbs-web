@@ -3,6 +3,7 @@ import {
   animFor, deriveSeatState, fnv1a32, inferPhase, isRejected, isWatcherAlive, lastSignalMs, pickCharacter,
   type AnimName, type CharacterName, type OrderStatus, type Phase, type SeatState,
 } from './seatState'
+import { deriveWaitReason, type PredecessorLike, type WaitReason } from './waitReason'
 
 export interface OrderRow {
   id: string; project_id: string; wbs_item_id: string | null; status: OrderStatus
@@ -10,7 +11,11 @@ export interface OrderRow {
   created_at: string; updated_at: string
   last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent: string | null; heartbeat_note: string | null
 }
-export interface ItemRow { id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null }
+export interface ItemRow {
+  id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null
+  /** 선행 external_ref 배열(0077) — 주문 항목 행에만 싣는다. 부모 행은 구역 라벨만 쓰므로 없어도 된다. */
+  depends?: string[] | null
+}
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
 export interface ReviewRow { work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string }
@@ -19,8 +24,13 @@ export interface WatcherRow {
   slots: number | null; busy: number | null; until_label: string | null; last_seen_at: string
 }
 export interface ProjectRow { id: string; name: string }
+/** 층 프로젝트의 로스터 행 — 담당자 이름과 PAT 계정(user_id) 매칭 재료. */
+export interface MemberRow { id: string; project_id: string; user_id: string | null; name: string }
+/** ready 주문 항목의 선행 항목(프로젝트 안 external_ref 매칭) + 승인 주문 유무. */
+export interface PredecessorRow extends PredecessorLike { id: string; project_id: string }
 export interface SeatmapRows {
   orders: OrderRow[]; items: ItemRow[]; parents: ItemRow[]; reviews: ReviewRow[]; watchers: WatcherRow[]; projects: ProjectRow[]
+  members: MemberRow[]; predecessors: PredecessorRow[]
 }
 
 export interface Seat {
@@ -29,6 +39,8 @@ export interface Seat {
   agent: string | null; progress: number
   lastSignalAt: string | null; heartbeatAt: string | null; heartbeatPhase: string | null
   note: string | null; rejected: boolean; reviewNote: string | null
+  /** READY(빈자리)만 값 — 왜 아직 안 집어갔는지(스펙 2026-09-14 착수 대기 사유 §1). 나머지 상태는 null. */
+  waitReason: WaitReason | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number } }
 export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
@@ -90,6 +102,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
+    waitReason: null,
   }
 }
 
@@ -119,12 +132,28 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const reviewByOrder = latestReviewByOrder(rows.reviews)
   const projectName = new Map(rows.projects.map(p => [p.id, p.name]))
 
+  // 착수 대기 사유 재료 — 담당자 로스터 행, 프로젝트 안 선행 항목, 이 층을 보는 살아 있는 감시자.
+  const memberById = new Map(rows.members.map(m => [m.id, m]))
+  const predByKey = new Map(rows.predecessors.map(p => [`${p.project_id}\u0000${p.external_ref}`, p]))
+  const aliveRows = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs))
+  const watchersOf = (pid: string) => aliveRows.filter(w => w.project_id === null || w.project_id === pid)
+
   // 층 → 구역 → 책상. 구역 키는 부모 항목 id, 부모가 없으면 고정 키 둘.
   const floorMap = new Map<string, Map<string, Zone>>()
   const done = new Map<string, number>()
   for (const o of rows.orders) {
     const item = o.wbs_item_id ? itemById.get(o.wbs_item_id) : undefined
     const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs)
+    if (seat.state === 'READY' && item) {
+      const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
+      seat.waitReason = deriveWaitReason({
+        depends: item.depends ?? null,
+        predecessorByRef: ref => predByKey.get(`${o.project_id}\u0000${ref}`),
+        // 담당자 id 는 있는데 로스터 행이 없으면 계정 미연결과 같은 취급(어느 PAT 도 담당자로 인정되지 않는다).
+        assignee: item.assignee_member_id ? { name: m?.name ?? '(로스터에 없음)', user_id: m?.user_id ?? null } : null,
+        watchers: watchersOf(o.project_id),
+      })
+    }
     if (seat.state === 'DONE') { done.set(o.project_id, (done.get(o.project_id) ?? 0) + 1); continue }
     const zones = floorMap.get(o.project_id) ?? new Map<string, Zone>()
     floorMap.set(o.project_id, zones)

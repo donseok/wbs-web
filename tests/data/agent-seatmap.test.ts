@@ -37,6 +37,10 @@ describe('fetchSeatmapRows', () => {
     // 담당자 판정에 쓰는 열을 항목 조회에 포함한다
     expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('assignee_member_id')
     expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('tags')
+    expect(String(calls['wbs_items.select']?.[0]?.[0] ?? '')).toContain('depends')
+    // 로스터는 층 프로젝트 범위로. 선행은 ready 주문이 없으면 조회하지 않는다.
+    expect(calls['project_members.in']?.[0]).toEqual(['project_id', ['p1']])
+    expect(rows.members).toEqual([]); expect(rows.predecessors).toEqual([])
     // 프로젝트 필터가 걸렸다
     expect(calls['agent_work_orders.in']?.[0]).toEqual(['project_id', ['p1']])
     // DONE 은 7일 창 — approved 는 updated_at >= now-7d 만
@@ -78,5 +82,40 @@ describe('fetchMyMemberIds', () => {
   })
   it('조회 실패는 throw', async () => {
     await expect(fetchMyMemberIds(admin({ project_members: [{ data: null, error: { message: 'roster boom' } }] }), { userId: 'u1', userEmail: null }, ['p1'])).rejects.toThrow(/roster boom/)
+  })
+})
+
+describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
+  const READY = { ...O, status: 'ready', claimed_by: null, claimed_by_user_id: null }
+  const ITEM = { id: 'i1', project_id: 'p1', code: 'T', name: 'n', parent_id: null, actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1', 'M/T2'] }
+  it('ready 주문 항목의 depends 가 있으면 프로젝트 안 external_ref 로 선행 항목 1회, 그 id 의 approved 주문 1회를 더 조회한다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const a = admin({
+      agent_work_orders: [{ data: [READY] }, { data: [{ wbs_item_id: 'x1' }] }],
+      wbs_items: [{ data: [ITEM] }, { data: [
+        { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'fp' },
+        { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null },
+      ] }],
+    }, calls)
+    const rows = await fetchSeatmapRows(a, ['p1'], NOW)
+    expect(calls['wbs_items.in']?.[1]).toEqual(['project_id', ['p1']])
+    expect(calls['wbs_items.in']?.[2]).toEqual(['external_ref', ['M/T1', 'M/T2']])
+    expect(calls['agent_work_orders.in']?.[1]).toEqual(['wbs_item_id', ['x1', 'x2']])
+    expect(calls['agent_work_orders.eq']?.[0]).toEqual(['status', 'approved'])
+    expect(rows.predecessors).toEqual([
+      { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'fp', order_approved: true },
+      { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null, order_approved: false },
+    ])
+  })
+  it('depends 가 있어도 그 항목의 주문이 ready 가 아니면 선행을 조회하지 않는다', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const rows = await fetchSeatmapRows(admin({ agent_work_orders: [{ data: [O] }], wbs_items: [{ data: [ITEM] }] }, calls), ['p1'], NOW)
+    expect(calls['wbs_items.in']).toHaveLength(1)
+    expect(calls['agent_work_orders.in']).toHaveLength(1)
+    expect(rows.predecessors).toEqual([])
+  })
+  it('선행 조회가 error 면 throw — 미충족으로 위장하지 않는다', async () => {
+    const a = admin({ agent_work_orders: [{ data: [READY] }], wbs_items: [{ data: [ITEM] }, { data: null, error: { message: 'boom' } }] })
+    await expect(fetchSeatmapRows(a, ['p1'], NOW)).rejects.toThrow('선행 항목')
   })
 })

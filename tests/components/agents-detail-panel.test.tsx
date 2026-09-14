@@ -14,7 +14,7 @@ const seat = (over: Partial<Seat> = {}): Seat => ({
   orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'i1', code: 'TSK-04-01', name: '목록',
   state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat_dev', agent: 'hong/mbp/w1', progress: 60,
   lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: new Date(NOW - 5000).toISOString(), heartbeatPhase: 'build',
-  note: null, rejected: false, reviewNote: null, ...over,
+  note: null, rejected: false, reviewNote: null, waitReason: null, ...over,
 })
 
 let host: HTMLDivElement, root: Root
