@@ -615,7 +615,7 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 | B | Phase 0 2번, 선행이 approved 인데 main 미반영이면 직접 머지 | 직접 머지한다 | **머지하지 않는다.** 기점을 그 `head_sha` 로 잡고, Phase 0 2번 공통 규칙대로 claim 전에 그 기점으로 detach 한 뒤 claim 하고 스택 브랜치를 만든다. state.json 에 `branch_base` 와 `risk: "선행 main 미반영(팀장 머지 대기)"` 를 기록한다 |
 | C | Phase 0 1번 재개 판정의 approved 갈래 | 즉시 머지하고 종료한다 | **머지하지 않고** `.result` 를 `{TSK} {ID8} <branch> <head_sha> - needs-merge approved` 로 쓰고 종료한다 |
 | D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 기본값이 있으면 택해 한 줄 남기고 진행하고, 없으면 `blocked`(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
-| E | Phase 1~4 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로로 호출한다(bare `git` 금지)" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단을 피하게 하기 위해서다 |
+| E | Phase 1~4 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단을 피하게 하기 위해서다 |
 | F | Phase 0 2번 claim exit 4 재시도 | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
 | G | Phase 0 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1 은 `skipped 선행 미승인`, 갈래 2 는 `skipped 선행 승인 대기` 로 끝낸다. 팀장은 일시 제외한다. 이유: 워커는 선행의 브랜치를 찾을 수단이 없어(`head_sha` 가 없다) 선행 코드 없이 개발하게 된다. 승인되면 스윕이 머지하고 재검사에서 `origin/<기본브랜치>` 기점으로 풀린다. 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다 |
 | H | Phase 0 3번의 브랜치 생성 또는 재개 판정으로 agent 브랜치에 들어온 직후 | 설치하지 않는다. 사람의 체크아웃에는 의존성이 이미 있다 | 생성 또는 재개로 agent 브랜치에 들어온 직후, 4번 기준선과 Phase 1~4 게이트 전에 아래 블록으로 설치한다. `blocked` 답을 받아 재spawn 된 워커처럼 재개 판정으로 기존 agent 브랜치에 들어온 경우도 같다. 재개는 브랜치를 새로 만들지 않아 3번을 지나지 않는데, 새 격리 워크트리에는 `node_modules` 가 없기 때문이다. lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만 설치하며, lockfile 이 없으면 설치하지 않는다. 설치가 실패하면 `.result` 에 `failed deps <실패한 명령과 exit>` 를 쓰고 끝낸다. 이유: 새 워크트리에는 `node_modules` 가 없어 기준선 명령이 127 로 끝나고, 스택이면 선행 작업이 lockfile 을 바꿨을 수 있어 브랜치 기점의 lockfile 로 설치해야 한다. 고정되지 않은 설치는 기준선을 재현하지 못하고 새 lockfile 을 산출물에 섞는다 |
@@ -1098,12 +1098,11 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('`<신원>/<host>/w<slot>`')
   })
 
-  it('git 은 절대경로로 부르고, 격리는 git-dir 과 git-common-dir 의 물리 경로로 확인한다', () => {
+  it('git 은 절대경로로 부르고, 격리 확인은 git-dir 와 git-common-dir 두 줄 비교 한 호출로 한다', () => {
     expect(p()).toContain('command -v git')
     expect(p()).toContain('bare `git` 금지')
-    expect(p()).toContain('_gd=$(cd "$(git rev-parse --git-dir)" && pwd -P)')
-    expect(p()).toContain('_cd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)')
-    expect(p()).toContain('[ "$_gd" != "$_cd" ] || { echo "NOT_ISOLATED"; exit 1; }')
+    expect(p()).toContain('git rev-parse --git-dir --git-common-dir')
+    expect(p()).toContain('출력 두 줄이 **같으면** 주 워크트리')
     expect(p()).toContain('{TSK} {ID8} - - - failed not-isolated')
     expect(p()).toContain('**아무 파일도 쓰지 않고**')
     expect(p()).not.toContain('show-toplevel')
@@ -1125,7 +1124,8 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
     expect(p()).toContain('if [ -d .claude/skills ] && [ ! -L .claude/skills ]; then')
     expect(p()).toContain('[ -e ".claude/skills/$s" ] || ln -s "{MAIN_CHECKOUT}/.claude/skills/$s" ".claude/skills/$s"')
     expect(p()).toContain('mkdir -p .claude && ln -s {MAIN_CHECKOUT}/.claude/skills .claude/skills')
-    expect(p()).toContain('set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"')
+    expect(p()).toContain('.claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"')
+    expect(p()).not.toContain('. ./.env')
     expect(p()).toContain('git fetch origin && git switch --detach origin/<기본브랜치>')
     expect(p()).toContain('symbolic-ref --short refs/remotes/origin/HEAD')
     expect(p()).toContain('git ls-remote --symref origin HEAD')
@@ -1215,22 +1215,24 @@ Expected: FAIL 11건. 파일이 없어 `ENOENT` 또는 `existsSync` 의 `toBe(tr
 
 ## 0. git 호출 규칙 (두 백엔드 공통, 모든 단계)
 
-첫 Bash 호출에서 `command -v git` 을 실행해 나온 절대경로(예 `/usr/bin/git`)를 이 세션의 git 으로 기억한다.
-이후 모든 git 호출은 그 절대경로로 한다(bare `git` 금지). 이 문서와 `/dflow-dev` 본문의 `git …` 예시도 그
-절대경로로 읽어 실행한다. 이유: 에이전트 팀 백엔드에서는 rtk 가 재작성한 git 을 워크트리 격리 가드가
-거부한다. pane 에서는 필요 없지만 무해하고, 백엔드별 분기를 두지 않으려고 공통으로 적용한다.
+첫 Bash 호출에서 `command -v git` 을 단독 실행해 절대경로(예 `/usr/bin/git`)를 알아낸다. 이후 모든 git 호출은
+그 경로를 **글자 그대로** 적는다. 금지 네 가지: bare `git` 금지(rtk 훅이 `rtk git` 으로 바꿔 격리 가드가
+거부한다), `$(command -v git)`·`"$GIT"` 처럼 경로를 치환이나 변수로 넣는 형태, git 을 감싼 명령 치환
+(`x=$(... git ...)`), `-C` 로 워크트리 밖을 가리키는 호출이다. git 출력이 필요하면 그 명령을 단독으로
+실행해 출력을 읽고, 셸 변수에 담지 않는다. 이 문서와 `/dflow-dev` 본문의 `git …` 예시는 그 절대경로로 바꿔
+읽는다. pane 백엔드에서는 필요 없지만 무해하고, 백엔드별 분기를 두지 않으려고 공통으로 적용한다.
 
 ## 1. 격리 확인 (첫 행동)
 
 ```bash
-_gd=$(cd "$(git rev-parse --git-dir)" && pwd -P)
-_cd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
-[ "$_gd" != "$_cd" ] || { echo "NOT_ISOLATED"; exit 1; }
+git rev-parse --git-dir --git-common-dir
 ```
-링크드 워크트리인지를 git 에 직접 묻는다(`git-dir` ≠ `git-common-dir`). 경로 문자열을 `{MAIN_CHECKOUT}` 와
-비교하지 않는 이유는 심링크·표기 차이로 같은 체크아웃이 다른 문자열이 될 수 있고, 격리의 정의가 "링크드
-워크트리" 이기 때문이다. 두 값을 `cd … && pwd -P` 로 물리 경로로 바꿔 비교하는 이유는 git 이 상대경로를
-돌려줄 수 있고, `--path-format` 옵션이 없는 옛 git 에서도 같은 검사가 돌아야 하기 때문이다.
+링크드 워크트리인지를 git 에 직접 묻는다. 판정 규칙: 출력 두 줄이 **같으면** 주 워크트리(`NOT_ISOLATED`),
+다르면 링크드 워크트리다(주 워크트리에서는 둘 다 `.git`, 링크드 워크트리에서는 `.../.git/worktrees/<이름>` 과
+`.../.git`). 같은 cwd 에서 같은 git 이 돌려준 두 값이므로 문자열 비교로 충분하다. `cd ... && pwd -P` 로
+물리 경로로 정규화하지 않는 이유는 git 을 감싼 명령 치환이라 격리 가드가 거부하기 때문이다. 경로 문자열을
+`{MAIN_CHECKOUT}` 와 비교하지 않는 이유는 심링크·표기 차이로 같은 체크아웃이 다른 문자열이 될 수 있고, 격리의
+정의가 "링크드 워크트리" 이기 때문이다.
 
 격리에 실패하면(주 워크트리이면) **아무 파일도 쓰지 않고** 마지막 응답으로
 `{TSK} {ID8} - - - failed not-isolated` 한 줄만 출력하고 끝낸다. `.result` 를 쓰면 그 파일이 팀장 체크아웃을
@@ -1263,8 +1265,8 @@ if [ ! -e .claude/skills/dflow-dev/SKILL.md ]; then
   fi
 fi
 test -e .claude/skills/dflow-dev/SKILL.md || echo NO_SKILL
-set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"
-set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh me >/dev/null || echo AUTH_FAILED
+.claude/skills/dflow-work/scripts/dflow.sh doctor; echo "doctor=$?"
+.claude/skills/dflow-work/scripts/dflow.sh me >/dev/null || echo AUTH_FAILED
 git fetch origin && git switch --detach origin/<기본브랜치>
 ```
 - 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면(스킬 일부만 커밋한 리포) 폴더째 링크하지 않고 워커가
@@ -1297,8 +1299,8 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   ```bash
   grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || echo NO_WORKER_FLAG
   ```
-- dflow.sh 를 부를 때마다 `set -a; . ./.env; set +a` 를 앞에 붙인다. env 는 Bash 호출 사이에 남지 않는다.
-  리허설 A0 (d) 로 dflow.sh 가 `DFLOW_GIT` 를 받게 됐으면 `DFLOW_GIT=<0번의 git 절대경로>` 도 붙인다.
+- dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면 현재 디렉터리의
+  `.env`(부트스트랩에서 만든 심링크)를 스스로 읽는다. 격리 가드가 `.` 소싱 접두를 거부하기 때문이다.
 - 심링크와 `.dflow-agent`·`.result` 는 커밋하지 않는다. 팀장이 공유 `info/exclude` 에 넣어 두고,
   `/dflow-dev` 는 파일명을 명시해 stage 한다.
 
@@ -1318,7 +1320,12 @@ Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세�
 ## 6. 판단 규칙 (자동 모드)
 
 `--worker` 이므로 AskUserQuestion 을 쓰지 않는다. 명백한 기본값이 있으면 그것을 택하고 결정 내용을 design.md
-나 커밋 메시지에 한 줄 남긴 뒤 진행한다. 기본값이 없어 담당자 결정이 꼭 필요할 때만 멈추며, 그때는
+나 커밋 메시지에 한 줄 남긴 뒤 진행한다. 기본값이 없어 담당자 결정이 꼭 필요할 때만 멈춘다. `.result` 를 쓰기
+전에 좌석표에 손 든 상태를 알린다. 실패해도 진행을 막지 않는다.
+```bash
+.claude/skills/dflow-work/scripts/dflow.sh heartbeat {ID8} --phase blocked --note "<질문 한 줄>" || :
+```
+`<질문 한 줄>` 은 `.result` 의 사유 자리에 쓰는 한 줄과 같은 문자열이다. 그럴 때는
 **현재 산출물을 커밋·push 한 뒤** `.result` 에 `blocked`(질문과 선택지를 사유 자리에 한 줄로, 예
 `질문? (A) … / (B) …`)를 쓴다. 그 다음 동작은 백엔드에 따라 갈린다.
 
@@ -1854,7 +1861,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   it('poll 은 docs/tasks 가 없는 빈 디렉터리를 cwd 로, DFLOW_ENV_FILE 로 .env 를 지정해 띄운다(스펙 §4-5 명령)', () => {
     expect(s()).toContain('mkdir -p "$(git rev-parse --git-path dflow-team-poll)"')
     expect(s()).toContain('POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)')
-    expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" \\')
+    expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" DFLOW_WATCH=0 \\')
     expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until <HH:MM> --interval 300 \\')
     expect(s()).toContain('[--exclude <id8,id8>] [--exclude-temp <id8,id8>] )')
   })
@@ -2277,7 +2284,16 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    그 다음 **승인 스윕**(「4. 승인 스윕」)을 한 번 돌고 결과(머지됨·대기·반려·건너뜀)를 한 줄씩 보고한다.
 5. **감시 시작**: 다음 TICK 예정 시각을 지금+1800초로 정하고 「2-2」 대로 감시 루프를 띄운다. 재기동 조건이
    맞으면 poll.sh 도 띄운다(「2-1」). 둘 다 Bash `run_in_background` 로 띄운다. 셸 `&` 는 쓰지 않는다. 종료
-   알림이 세션에 오지 않아 루프가 소리 없이 끊기기 때문이다.
+   알림이 세션에 오지 않아 루프가 소리 없이 끊기기 때문이다. 그 다음 좌석표에 감시 시작을 알린다. STANDBY 는
+   마지막 신호 뒤 70분에 꺼지므로 시작과 매 기상마다 보낸다.
+   ```bash
+   LOCK=$(git rev-parse --git-path dflow-team.lock); lead=$(cut -d' ' -f1 "$LOCK/owner")
+   set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$lead" \
+     --slots <N> --busy <M> --until <HH:MM> ${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"} || :
+   ```
+   `<N>` 은 「인자」 에서 정한 인원, `<M>` 은 지금 슬롯 표에서 찬 슬롯 수, `<HH:MM>` 은 「인자」 의 종료 시각이다.
+   신원은 `$who`·`$host` 를 다시 쓰지 않고 방금 쓴 잠금 `owner` 에서 읽는다. 이 5번이 1번과 다른 Bash 호출이라
+   env 가 남아 있지 않기 때문이다.
 
 ## 2. 기상과 감시
 
@@ -2290,7 +2306,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
 ```bash
 mkdir -p "$(git rev-parse --git-path dflow-team-poll)"
 POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
-( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" \
+( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" DFLOW_WATCH=0 \
     "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until <HH:MM> --interval 300 \
     [--exclude <id8,id8>] [--exclude-temp <id8,id8>] )
 ```
@@ -2302,6 +2318,8 @@ POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 - `DFLOW_ENV_FILE` 을 주는 이유: poll.sh 는 `.env` 를 `$PWD/.env` 에서 찾는다. dflow.sh 경로는 poll.sh 가 자기
   위치로 풀므로 따로 주지 않는다. `git rev-parse --git-path` 는 상대경로를 돌려줄 수 있어 `cd … && pwd` 로
   절대경로를 만든다.
+- `DFLOW_WATCH=0` 을 주는 이유: 팀장이 자기 식별자로 watch 를 이미 보내므로, poll.sh 의 watch 까지 더하면 같은
+  팀장이 둘로 보이거나 `slots`·`busy` 없는 신호가 `lead` 행을 덮어쓴다.
 - `--exclude` 에는 **영구 제외 ∪ 현재 슬롯의 id8** 을 넣는다. 슬롯의 id8 은 재구성으로 복원된다. 이유: 팀원이
   claim 하기 전까지 그 작업은 ready 라서, 넣지 않으면 poll 이 즉시 다시 찾아 짧은 간격으로 서버를 친다.
   `--exclude-temp` 에는 일시 제외 목록을 넣는다.
@@ -2371,14 +2389,17 @@ done
 
 ### 2-3. 기상마다 하는 일
 
-모든 기상은 먼저 잠금 소유를 확인하고, 소유가 맞을 때만 `beat` 를 갱신한다. `STALE` 은 그것만 하고 넘긴다.
-이유: 살아 있는 팀장의 잠금이 70분 뒤 죽은 것으로 보이지 않게 하되, 잠금을 잃은 팀장이 새 팀장의 잠금을 계속
-살아 있게 만들지 않는다(「1. 시작」 팀장 잠금).
+모든 기상은 먼저 잠금 소유를 확인하고, 소유가 맞을 때만 `beat` 를 갱신하고 좌석표에도 같은 신호를 보낸다.
+`STALE` 은 그것만 하고 넘긴다. 이유: 살아 있는 팀장의 잠금이 70분 뒤 죽은 것으로 보이지 않게 하되, 잠금을 잃은
+팀장이 새 팀장의 잠금을 계속 살아 있게 만들지 않는다(「1. 시작」 팀장 잠금).
 ```bash
 LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then
-  date +%s > "$LOCK/beat" && echo LOCK_OK || echo "LOCK_LOST beat 쓰기 실패"
+  date +%s > "$LOCK/beat" && { echo LOCK_OK
+    set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
+      --slots <N> --busy <M> --until <HH:MM> ${DFLOW_PROJECT_ID:+--project "$DFLOW_PROJECT_ID"} || :
+  } || echo "LOCK_LOST beat 쓰기 실패"
 else
   echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$PPID"
 fi
@@ -2475,7 +2496,8 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   표시를 가져 재구성이 충돌한다. `parked` 로 바꾸면 슬롯 스캔에서 빠진다.
 - **회수**: 에이전트 팀에서는 결과 줄을 처리한 직후(status 와 무관하며 `blocked` 도 포함한다)
   `TaskStop(w<slot>-<id8>)` 으로 idle 팀원을 회수한다. 이름 붙은 에이전트는 일을 마쳐도 idle 로 남기 때문이다.
-  pane 팀원은 별도 프로세스라서 TaskStop 대상이 아니다.
+  pane 팀원은 별도 프로세스라서 TaskStop 대상이 아니다. `TaskStop` 이 `is not running (status: completed)`
+  또는 `No task found with ID:` 로 실패하면 이미 회수된 것이므로 정상으로 보고 슬롯 해제를 계속한다.
 - **차단기**: 결과가 도착한 순서로 `failed`(`no-result`·`rate-limit` 포함)가 연속 2건이면 새 spawn 을 멈추고
   보고한다. `failed` 가 아닌 결과가 오면 연속 수를 0 으로 되돌린다. 걸린 동안에는 다음 `TICK` 마다 1건만 시험
   spawn 하고(대기 큐 맨 앞에서, 큐가 비었으면 poll 을 한 번 띄워 얻는다), 그 결과가 `failed` 가 아니면 차단기를
@@ -2611,32 +2633,45 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
 5. **agent 브랜치는 남긴다.** 승인은 사람이 D'Flow 웹에서 하고, 승인 뒤 머지는 다음 `/dflow-team` 의 스윕이나
    `/dflow-merge` 가 한다.
 6. poll 이 떠 있으면 TaskStop 으로 멈추고(태스크 id 를 모르면 종료 시각에 스스로 끝난다), 세대 파일의 세대를
-   올려 감시 루프를 끝낸다. `team.stop` 을 기록하고 팀장 잠금 디렉터리를 지운다. 지우기 전에 「1. 시작」 의 소유
-   판정(`owner` 의 신원이 자기 `<신원>/<host>/lead` 이고 PID 가 현재 `$PPID` 와 같다)을 한 번 더 하고, 참일 때만
-   지운다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓쳐 다른 팀장이 잠금을 가져갔다면 그 잠금은 신원·host·리포가
-   같아도 PID 가 다르며, 지우면 안 된다. events.jsonl 의 `team.start` 시각과 비교하지 않는 이유: 두 팀장의
-   이벤트가 같은 `agent`·`repo` 로 섞여, 마지막 `team.start` 가 새 팀장의 것일 수 있다. `owner` 를 읽는 `read`
-   는 `|| true` 로 감싼다. 이유: 파일이 없으면 `read` 가 0 이 아닌 값으로 끝나, 실패에 멈추는 셸 설정에서는
-   마감의 나머지가 통째로 건너뛰어진다.
+   올려 감시 루프를 끝낸다. `team.stop` 을 기록하고, 좌석표에 감시 종료를 알린 뒤 팀장 잠금 디렉터리를 지운다.
+   지우기 전에 「1. 시작」 의 소유 판정(`owner` 의 신원이 자기 `<신원>/<host>/lead` 이고 PID 가 현재 `$PPID` 와
+   같다)을 한 번 더 하고, 참일 때만 지운다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓쳐 다른 팀장이 잠금을 가져갔다면
+   그 잠금은 신원·host·리포가 같아도 PID 가 다르며, 지우면 안 된다. events.jsonl 의 `team.start` 시각과 비교하지
+   않는 이유: 두 팀장의 이벤트가 같은 `agent`·`repo` 로 섞여, 마지막 `team.start` 가 새 팀장의 것일 수 있다.
+   `owner` 를 읽는 `read` 는 `|| true` 로 감싼다. 이유: 파일이 없으면 `read` 가 0 이 아닌 값으로 끝나, 실패에
+   멈추는 셸 설정에서는 마감의 나머지가 통째로 건너뛰어진다. 좌석표 종료 신호는 같은 소유 판정이 참일 때만,
+   잠금을 지우기 전에 보낸다. 신원을 잠금 `owner` 에서 읽으므로 지운 뒤에는 보낼 수 없기 때문이다.
    ```bash
    LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
    { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
+   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then
+     set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" --stop || :
+   fi
    if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$PPID" ]; then rm -rf "$LOCK" && echo LOCK_RELEASED; else echo "LOCK_KEPT owner=$o_who $o_ts $o_pid"; fi
    ```
+7. **손자 정리**: ListAgents 를 다시 불러 `running` 인 이름 붙은 에이전트가 남아 있으면 그 이름으로 TaskStop
+   한다. 이유: 팀원이 띄운 서브에이전트는 팀원이 끝나도 살아남아 팀장 목록에 자기 이름으로 나타나며, 팀원을
+   멈춰도 같이 멈추지 않는다. poll 태스크와 감시 루프는 Bash 태스크라 이 목록에 없다.
 
-**잠금 상실 마감**(「2-3」 의 `LOCK_LOST`): 위 1~6 중 기다림·마지막 승인 스윕·워크트리 정리·`team.*` 기록·세대
-파일 변경·잠금 삭제를 하지 않는다. 떠 있는 poll 이 있으면 TaskStop 으로 멈추고, 집계와 남은 슬롯(TSK·id8·워크트리
-경로)을 "잠금 상실: 이 체크아웃은 다른 팀장이 맡았다" 와 함께 보고한 뒤 끝낸다. 이유: 체크아웃과 이 신원의
-워크트리·세대 파일은 이제 새 팀장 것이고, 새 팀장의 재구성은 같은 `agent`·`repo` 의 마지막 `team.start` 이후
-이벤트를 읽으므로 이 팀장이 남기는 기록이 새 팀장의 슬롯 표와 제외 목록에 섞인다.
+**잠금 상실 마감**(「2-3」 의 `LOCK_LOST`): 위 1~7 중 기다림·마지막 승인 스윕·워크트리 정리·`team.*` 기록·세대
+파일 변경·잠금 삭제를 하지 않는다. 떠 있는 poll 과 팀원을 TaskStop 으로 멈추고 7번(손자 정리)을 그대로 수행한
+뒤, 집계와 남은 슬롯(TSK·id8·워크트리 경로)을 "잠금 상실: 이 체크아웃은 다른 팀장이 맡았다" 와 함께 보고한
+뒤 끝낸다. 이유: 이 세션의 에이전트를 멈추는 것은 공유 상태를 건드리지 않으며, 남겨 두면 새 팀장의 에이전트와
+같은 agent 브랜치에서 경합한다. 체크아웃과 이 신원의 워크트리·세대 파일은 이제 새 팀장 것이고, 새 팀장의
+재구성은 같은 `agent`·`repo` 의 마지막 `team.start` 이후 이벤트를 읽으므로 이 팀장이 남기는 기록이 새 팀장의
+슬롯 표와 제외 목록에 섞인다.
 
 ## 좌석표 연동
 
 - 팀원의 좌석 식별은 워커가 쓰는 워크트리 루트 `.dflow-agent`(`<신원>/<host>/w<slot>`)다. 좌석표 S1 의 훅이 이
   파일을 `heartbeat_agent` 로 읽는다. `<신원>/<host>/parked` 는 좌석이 아니며 heartbeat 를 보내지 않는다.
 - 팀장 자신은 `<신원>/<host>/lead` 다. 같은 신원의 두 PC 팀장이 좌석표에서 하나로 합쳐지지 않게 한다.
-- 좌석표 STANDBY 신호: 서버 계약이 생기면 팀장이 「1. 시작」 5번, poll 재기동, 「7. 마감」 에서
-  `{host, agent: lead, slots, busy, until}` 을 보낸다. 그 전에는 `team.start`·`team.stop` 이 대신한다.
+- 좌석표 STANDBY 신호: 팀장은 「1. 시작」 5번과 매 기상(「2-3」)에서 잠금 `owner` 의 신원으로
+  `dflow.sh watch --agent <신원>/<host>/lead --slots <N> --busy <M> --until <HH:MM>` 을 1회 보내고, 「7. 마감」에서
+  `--stop` 을 1회 보낸다. 좌석표는 마지막 신호 뒤 70분에 STANDBY 를 끈다.
+- poll.sh 는 `DFLOW_WATCH=0` 으로 띄우므로 watch 를 보내지 않는다.
+- 실패는 무시한다(`|| :`). 이 호출은 표시용이고 팀장 절차의 판정에 쓰이지 않는다.
+- 팀원의 blocked 직전 heartbeat(worker-prompt.md)는 좌석표에 손 든 상태를 남기고, 다음 heartbeat 가 그것을 푼다.
 
 ## 금지
 
@@ -2859,8 +2894,8 @@ git commit -m "chore(kit): dflow-team 배포·에이전트 팀 권한 allow 병�
 ### Task 7: 리허설 준비와 A0 단독 실측 (사람이 대화형 세션에서 수행)
 
 **Files:**
-- Create (메인 체크아웃 staging): `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`
-- Modify (메인 체크아웃 staging): `docs/superpowers/specs/2026-09-10-dflow-team-design.md` (§3-8 사실, 필요하면 §12)
+- Create (staging 기반 docs 브랜치, 사용자가 staging 에 머지): `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`
+- Modify (staging 기반 docs 브랜치, 사용자가 staging 에 머지): `docs/superpowers/specs/2026-09-10-dflow-team-design.md` (§3-8 사실, 필요하면 §12)
 - 조건부 Modify (feat, A0 (d) 실패 시에만): `.claude/skills/dflow-work/scripts/dflow.sh`
 - 리허설 원격(버리는 bare, 커밋하지 않음): `~/project/mes-base-rehearsal.git`
 - 리허설 리포(커밋은 bare 에만 push): `~/project/mes-base-rehearsal`
@@ -2960,7 +2995,7 @@ D'Flow: 스테이징 리허설 프로젝트(전용 PAT), 스킬: `feat/dflow-tea
 | (f) 사용량 한도에 걸린 팀원이 무엇을 남기는가 | | |
 ````
 
-- [ ] **Step 5: A0 실행** (스펙 §11-3). 팀장 루프 없이, 일반 터미널에서 리허설 리포 루트에 `claude` 를 띄우고(기본 권한 모드) 아래 세 번을 차례로 지시한다. 스테이징 리허설 프로젝트에 **`agent` 태그 없이** 나에게 배정된 ready 작업 "A0 probe" 1건을 먼저 만든다. 태그가 없어 이후 팀장 리허설의 poll 이 잡지 않는다.
+- [ ] **Step 5: A0 실행** (스펙 §11-3). 팀장 루프 없이, 일반 터미널에서 리허설 리포 루트에 `claude` 를 띄우고(기본 권한 모드) 아래 세 번을 차례로 지시한다. 일반 터미널 대화형 대신 헤드리스 `claude -p … --permission-mode bypassPermissions` 로 돌려도 되며, 그 경우 권한 확인 동작은 Task 9 에서 본다. 스테이징 리허설 프로젝트에 **`agent` 태그 없이** 나에게 배정된 ready 작업 "A0 probe" 1건을 먼저 만든다. 태그가 없어 이후 팀장 리허설의 poll 이 잡지 않는다.
 
 A0-1 ((a)(b)(c)):
 ```
@@ -3030,7 +3065,7 @@ Agent 도구로 name "a0-grandchild" 인 손자를 띄워 Bash 로 sleep 600 을
 - 끝나면 남은 격리 워크트리를 `git worktree remove --force <경로>` 로 지운다. 스테이징의 "A0 probe" 주문은
   reported 로 남겨 둔다(승인하지 않는다).
 
-- [ ] **Step 6: 기록과 커밋** (메인 체크아웃, staging). 판정표를 채우고, 스펙 §3-8 의 "실측하지 않았다" 문장을 A0 결과 사실로 바꾼다(날짜·경위 없이, 예: "팀원이 손자를 기다리며 턴을 끝내면 결과 줄 없는 완료 알림이 온다"). (c) 가 되면 스펙 §12 후속의 "SendMessage 기반 blocked 재개" 에 근거 한 줄을 붙인다. (e) 가 "손자는 따로 멈춰야 한다" 면 스펙 §4-6 회수에 그 사실을 적고, 그 동작을 담는 SKILL.md 수정은 Task 8 Step 4 의 절차(파일 수정·테스트·커밋)로 한다. (f) 가 "미관찰" 이면 스펙 §12 잔여 위험에 한 줄 더한다.
+- [ ] **Step 6: 기록과 커밋** (메인 체크아웃, staging). 판정표를 채우고, 스펙 §3-8 의 "실측하지 않았다" 문장을 A0 결과 사실로 바꾼다(날짜·경위 없이, 예: "팀원이 손자를 기다리며 턴을 끝내면 결과 줄 없는 완료 알림이 온다"). (c) 는 채택하지 않는다: 스펙 §12 후속의 "SendMessage 기반 blocked 재개" 항목을 지우고 v1 은 `ANSWER=` 재spawn 을 유지한다. (e) 가 "손자는 따로 멈춰야 한다" 면 스펙 §4-6 회수에 그 사실을 적고, 그 동작을 담는 SKILL.md 수정은 Task 8 Step 4 의 절차(파일 수정·테스트·커밋)로 한다. (f) 가 "미관찰" 이면 스펙 §12 잔여 위험에 한 줄 더한다.
 
 ```bash
 cd /Users/jji/project/wbs-web
@@ -3048,7 +3083,7 @@ suspect 방어와 TaskStop 회수가 실제로 필요한지, 에이전트 팀 �
 ### Task 8: Orca 백엔드 리허설 (사람이 대화형 세션에서 수행)
 
 **Files:**
-- Modify (메인 체크아웃 staging): `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md` (Orca 절)
+- Modify (staging 기반 docs 브랜치, 사용자가 staging 에 머지): `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md` (Orca 절)
 - 조건부 Modify (feat 워크트리): 실패 원인이 스킬 문서에 있을 때 해당 파일과 대응 테스트
 
 **Interfaces:**
@@ -3090,7 +3125,7 @@ git commit -m "docs(dflow-team): Orca 리허설 판정: 합격 기준 12항"
 ### Task 9: 에이전트 팀 백엔드 리허설과 권한 목록 (사람이 대화형 세션에서 수행)
 
 **Files:**
-- Modify (메인 체크아웃 staging): `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md` (에이전트 팀 절), `docs/superpowers/specs/2026-09-10-dflow-team-design.md` (§3-6·§3-7·§8 사실)
+- Modify (staging 기반 docs 브랜치, 사용자가 staging 에 머지): `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md` (에이전트 팀 절), `docs/superpowers/specs/2026-09-10-dflow-team-design.md` (§3-6·§3-7·§8 사실)
 - Modify (feat): `kit/agent-team-allow.json`
 - 조건부 Modify (feat, rtk 예비책): `.claude/skills/dflow-team/references/worker-prompt.md`, `.claude/skills/dflow-team/references/backends.md`, `.claude/skills/dflow-dev/SKILL.md`(W7 표지 블록의 E 행), `tests/skills/dflow-dev-worker.test.ts`, `tests/skills/dflow-team.test.ts`
 
@@ -3123,9 +3158,10 @@ git commit -m "docs(dflow-team): Orca 리허설 판정: 합격 기준 12항"
   - 다중 신원: 같은 bare 에서 두 번째 클론 `~/project/mes-base-rehearsal2` 를 Task 7 Step 1 의 클론 이후 명령으로 준비하고(같은 `.env`), 두 클론에서 `/dflow-team 1명 <HH:MM>` 을 동시에 띄워 같은 ready 1건을 두고 경쟁시킨다. 늦은 쪽 팀원이 claim exit 4 로 `skipped` 가 되는지 본다. 이 구성은 `AGENT_ID` 가 겹칠 수 있어 운영에서는 쓰지 않지만, 좌석표가 없는 리허설의 exit 4 확인에는 지장이 없다. 이어서 첫 번째 클론에서 팀장이 도는 동안 같은 클론에 두 번째 `claude` 세션을 띄워 `/dflow-team 1명 <HH:MM>` 을 부르면 `LOCKED` 로 시작이 거부되는지 본다. 실제 두 신원·두 PC 는 후속 2차 리허설이다.
 
 - [ ] **Step 6: rtk 예비책 (Step 5 기준 2에서 차단이 나온 경우에만)**: git 경로를 리터럴 `/usr/bin/git` 으로 바꾼다(스펙 §11-5 2번). `<FEAT_WT>` 에서:
-  1. `worker-prompt.md` 「0. git 호출 규칙」 첫 문장을 "모든 git 호출은 절대경로 `/usr/bin/git` 으로 한다(bare `git` 금지)." 로 바꾸고 `command -v git` 언급을 지운다. backends.md 차이표 `git 호출` 행의 `` `command -v git` 절대경로 `` 를 `` `/usr/bin/git` `` 으로 바꾼다.
-  2. `/dflow-dev` SKILL.md W7 블록 E 행의 따옴표 안 문구를 "git 은 절대경로 `/usr/bin/git` 으로 호출한다(bare `git` 금지)" 로 바꾼다. 이 행은 표지 블록 안이라 보존 테스트에 영향이 없다.
-  3. 테스트 단언을 수정 뒤에만 참이 되는 것으로 바꾼다: `tests/skills/dflow-dev-worker.test.ts` 의 `expect(sec).toContain('command -v git')` → `expect(sec).toContain('git 은 절대경로 `/usr/bin/git` 으로 호출한다')` 와 `expect(sec).not.toContain('command -v git')`, `tests/skills/dflow-team.test.ts` 의 worker-prompt describe 에 있는 `expect(p()).toContain('command -v git')` → `expect(p()).toContain('모든 git 호출은 절대경로 `/usr/bin/git` 으로 한다')` 와 `expect(p()).not.toContain('command -v git')`. `toContain('/usr/bin/git')` 만으로는 worker-prompt 0절의 "(예 `/usr/bin/git`)" 때문에 수정 전에도 통과하므로 쓰지 않는다.
+  1~3. **이미 반영됨**: `worker-prompt.md` 「0. git 호출 규칙」·`backends.md` 차이표 `git 호출` 행·`/dflow-dev`
+     SKILL.md W7 블록 E 행은 이미 최종 규칙(첫 호출에서 `command -v git` 을 단독 실행해 절대경로를 알아낸
+     뒤 이후 모든 호출에 그 경로를 글자 그대로 적는다)을 담고 있다. 리터럴 `/usr/bin/git` 하드코딩으로
+     바꾸는 절차는 필요 없다.
   4. `npx vitest run tests/skills` PASS 71건을 확인하고 커밋한다.
      ```bash
      git add .claude/skills/dflow-team/references/worker-prompt.md .claude/skills/dflow-team/references/backends.md .claude/skills/dflow-dev/SKILL.md tests/skills/dflow-dev-worker.test.ts tests/skills/dflow-team.test.ts
@@ -3167,7 +3203,8 @@ git commit -m "docs(dflow-team): 에이전트 팀 리허설 판정: 격리·rtk�
 - 임시 워크트리: `/Users/jji/project/wbs-web-merge-main`, `/Users/jji/project/wbs-web-merge-staging`
 
 **Interfaces:**
-- Consumes: 리허설을 통과한 `feat/dflow-team`(Task 1~9), 메인 체크아웃 staging 의 리허설 문서 커밋(Task 7~9).
+- Consumes: 리허설을 통과한 `feat/dflow-team`(Task 1~9), staging 기반 docs 브랜치(사용자가 staging 에
+  머지)의 리허설 문서 커밋(Task 7~9).
 - Produces: `origin/main`·`origin/staging` 에 반영된 스킬. 메인 체크아웃 작업트리의 `/dflow-dev` 에 `--worker` 가 있어 모든 대상 리포의 심링크가 수정본을 가리킨다.
 
 - [ ] **Step 1: 최종 확인과 머지 지시**: `<FEAT_WT>` 에서 `npx vitest run tests/skills` 가 PASS 71건인지 본다. 메인 체크아웃에서 `git fetch origin && git log --oneline origin/staging..staging` 으로 staging 반영 때 함께 올라갈 로컬 staging 커밋 목록을 뽑는다. 사람에게 "feat/dflow-team 을 머지하면 `/dflow-dev`·`/dflow-merge` 변경이 심링크로 모든 리포에 즉시 적용된다. 리허설 판정은 `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`. staging 반영 때 위 로컬 커밋이 함께 push 된다" 를 알린 뒤 명시 지시를 받는다. 변경 파일은 UI 위험 파일(`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx`·`src/components/app/*`)이 아니므로 pre-push G2 가 해당하지 않는다. `SKIP_GUARD` 는 쓰지 않는다.
