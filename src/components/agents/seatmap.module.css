@@ -56,6 +56,19 @@
 .zoneCode { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12px; color: var(--sm-ink-2); }
 .zoneName { font-weight: 600; font-size: 13px; }
 .zoneSum { margin-left: auto; font-size: 11px; color: var(--sm-ink-3); font-variant-numeric: tabular-nums; }
+.zoneFold { font: inherit; font-size: 11px; color: var(--sm-ink-3); background: none; border: 0; padding: 0 2px; cursor: pointer; text-decoration: underline dotted; }
+.zoneFold:hover { color: var(--sm-ink-2); }
+/* 접힌 구역: 아이콘 한 개 + 숫자. data-kind 로 진행 중(work) / 승인 대기(wait) / 빈 구역(empty) 을 구분한다. */
+.zoneIcons { display: flex; flex-wrap: wrap; gap: 6px; }
+.zoneIcon { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px 3px 5px; border-radius: 8px; border: 1px dashed var(--sm-line-2); background: transparent; color: var(--sm-ink-3); font: inherit; font-size: 11px; line-height: 1; cursor: pointer; font-variant-numeric: tabular-nums; }
+.zoneIcon svg { width: 14px; height: 14px; }
+.zoneIcon b { font-weight: 600; }
+.zoneIcon::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--sm-line-2); }
+.zoneIcon:hover, .zoneIcon:focus-visible { border-style: solid; color: var(--sm-ink-2); background: var(--sm-zone); }
+.zoneIcon[data-kind="wait"] { border-style: solid; border-color: var(--sm-wait); color: var(--sm-wait-ink); background: var(--sm-wait-soft); }
+.zoneIcon[data-kind="wait"]::before { background: var(--sm-wait); }
+.zoneIcon[data-kind="work"] { border-style: solid; border-color: var(--sm-active); color: var(--sm-active-ink); background: var(--sm-active-soft); }
+.zoneIcon[data-kind="work"]::before { background: var(--sm-active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-active) 25%, transparent); }
 
 /* 좌석 블록: 가운데 통로선 양쪽 두 줄 */
 .block { position: relative; display: grid; grid-template-columns: 1fr 1fr; row-gap: 8px; padding-block: 4px; }
