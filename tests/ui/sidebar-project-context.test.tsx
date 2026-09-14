@@ -86,6 +86,11 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
     expect(container.querySelector('a[href="/p/p1/agents"]')?.textContent).toContain('nav.projectAgents')
   })
 
+  it('전역 좌석표(/agents)는 사이드바에 없다 — 입구는 허브 상태 줄 링크 한 곳(2026-09-14)', async () => {
+    await renderAt('/p/p1/wbs')
+    expect(container.querySelector('a[href="/agents"]')).toBeNull()
+  })
+
   it('회의록에서는 전역 메뉴를 활성화하면서 최근 프로젝트 하위 메뉴를 유지한다', async () => {
     await renderAt('/minutes')
 
