@@ -26,7 +26,7 @@
 - 좌석 식별 파일은 워크트리 루트 `.dflow-agent`(내용 `{AGENT_ID}` 한 줄)이며 격리 확인 직후, 부트스트랩 전에 쓴다. `docs/tasks/<TSK>/` 안에 두지 않는다. 이유: 부트스트랩이 실패해도 팀장 재구성에 보여야 하고, claim 전에 그 디렉터리가 있으면 `/dflow-dev` 잔재 격리 규칙이 `.prev-<날짜>` 로 옮긴다(스펙 §5, §9-1).
 - `AGENT_ID` 는 `<신원>/<host>/w<slot>`, 팀장은 `<신원>/<host>/lead`, 정리하지 못한 에이전트 팀 `blocked` 워크트리 표시는 `<신원>/<host>/parked` 다. `<신원>` 은 `dflow.sh me` 의 `user_email` 에서 `@` 앞부분을 소문자로 바꾸고 `[a-z0-9-]` 밖 문자를 `-` 로 바꾼 슬러그, `<host>` 는 `hostname -s` 를 같은 규칙으로 바꾼 슬러그다(스펙 §9-1). 이유: 같은 신원을 여러 PC 에서 띄워도 식별자가 겹치지 않는다.
 - 에이전트 팀 `name` = `w<slot>-<id8>`, `subagent_type` = `general-purpose`, `isolation: "worktree"` 필수(스펙 §4-8).
-- **git 호출 규칙(두 백엔드 공통)**: 워커와 Phase 서브에이전트는 `command -v git` 이 돌려주는 절대경로로 git 을 부른다(bare `git` 금지). 리허설에서 절대경로도 rtk 에 막히면 리터럴 `/usr/bin/git` 으로 바꾼다(스펙 §3-6, §11-5).
+- **git 호출 규칙(두 백엔드 공통)**: 워커와 Phase 서브에이전트는 첫 호출에서 `command -v git` 을 단독 실행해 절대경로를 알아내고, 이후 모든 호출에 그 경로를 글자 그대로 적는다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다(스펙 §3-6).
 - 백엔드는 자동 감지만 한다(`--backend` 없음). tmux 는 v1 에서 에이전트 팀으로 돈다(스펙 §4-3).
 - **팀장 상태는 캐시다.** 매 기상마다 `git worktree list --porcelain` + `.dflow-agent` + `.result`(정본)와 `~/.dflow/events.jsonl`(보조)에서 재구성한다. 결과 줄은 cksum 해시로 중복 처리를 막고, 감시 루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 한 체크아웃에 팀장은 하나이며 잠금은 디렉터리 `$(git rev-parse --git-path dflow-team.lock)` 을 `mkdir` 로 원자 획득한 것이다. 안에 `owner`(`<신원>/<host>/lead <epoch> <PID>`, PID 는 Bash 도구 셸의 `$PPID`)와 `beat` 를 두고, `beat` 가 70분보다 오래됐거나(`beat` 없으면 잠금 디렉터리 수정 시각이 10분보다 오래됐거나)
 하면 죽은 것으로 보고 `mv` 로 옮겨 다시 확인한 뒤 가져온다. 소유 판정은 "신원이 같고 PID 가 현재 `$PPID` 와 같다" 이며, 매 기상 이 판정을 통과해야 `beat` 를 쓰고(아니면 잠금 상실 마감), 마감도 이 판정을 통과할 때만 잠금을 지운다(스펙 §3-22, §4-2, §4-4, §4-5, §4-9).
@@ -44,7 +44,7 @@
 
 - [ ] **브랜치·워크트리**: superpowers:using-git-worktrees 로 `origin/main` 기점의 `feat/dflow-team` 브랜치 워크트리를 만든다. 메인 체크아웃(`/Users/jji/project/wbs-web`)에서 직접 고치지 않는다. 이유: 메인 체크아웃은 다른 리포의 스킬 심링크가 가리키는 곳이라 고치는 즉시 퍼진다. 이하 `<FEAT_WT>` 는 이 워크트리의 절대경로다(`git worktree list` 로 확인).
 - [ ] **의존 설치**: `<FEAT_WT>` 에서 `npm install`(vitest 와 pre-push 훅 `core.hooksPath` 설정).
-- [ ] **격리 에이전트 안에서 실행한다면**: 이 세션의 git 호출도 `command -v git` 절대경로로 한다(rtk 격리 가드, 스펙 §3-6).
+- [ ] **격리 에이전트 안에서 실행한다면**: 이 세션의 git 호출도 첫 호출에서 `command -v git` 을 단독 실행해 절대경로를 알아낸 뒤 이후 모든 호출에 그 경로를 글자 그대로 적는다. bare `git`, 치환·변수로 넣는 형태, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다(rtk 격리 가드, 스펙 §3-6).
 - [ ] **원문 줄 수 확인**: 이 계획서의 원문 줄 번호·문구는 아래 두 값 기준이다.
   ```bash
   git fetch origin
@@ -2875,7 +2875,7 @@ npx vitest run tests/skills
 out=$(mktemp -d); t=$(mktemp -d); git -C "$t" init -q
 sh scripts/kit-build.sh "$out" && sh "$out/install.sh" "$t" && jq '.permissions.allow' "$t/.claude/settings.json"
 ```
-Expected: vitest PASS 71건. kit-build 는 `빌드 완료:` 와 `skills: … dflow-team …` 를 출력한다. "킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다. 마지막 출력은 `["Bash(<이 PC 의 git 절대경로> *)"]` 한 항목이다.
+Expected: vitest PASS 77건. kit-build 는 `빌드 완료:` 와 `skills: … dflow-team …` 를 출력한다. "킷 밖 참조가 남아 있다" 가 나오면 SKILL.md 의 설계 정본 문구가 허용 표현 `wbs-web 리포 docs/superpowers` 를 벗어난 것이다. 마지막 출력은 `["Bash(<이 PC 의 git 절대경로> *)"]` 한 항목이다.
 
 - [ ] **Step 5: 커밋**
 
@@ -3043,7 +3043,7 @@ dflow.sh claim <A0 probe id8> → 브랜치 agent/<id8>-a0-probe 생성 → 빈 
      expect(sh).toContain('${DFLOW_GIT:-git}')
      ```
   3. A0-2 를 새 주문으로, 팀원 프롬프트의 dflow.sh 호출에 `DFLOW_GIT=<git 절대경로>` 를 붙여 다시 돌린다. 통과하면
-     `npx vitest run tests/skills` PASS 71건을 보고 커밋한다. 그래도 실패하면 사람에게 보고하고 멈춘다.
+     `npx vitest run tests/skills` PASS 77건을 보고 커밋한다. 그래도 실패하면 사람에게 보고하고 멈춘다.
      ```bash
      git add .claude/skills/dflow-work/scripts/dflow.sh .claude/skills/dflow-team/references/worker-prompt.md tests/skills/dflow-team.test.ts
      git commit -m "fix(dflow-work): dflow.sh 의 git 실행 경로를 DFLOW_GIT 로 주입받는다
@@ -3157,17 +3157,11 @@ git commit -m "docs(dflow-team): Orca 리허설 판정: 합격 기준 12항"
   7. 권한: Step 2~4 에서 적은 명령 목록과 최종적으로 필요했던 단계(auto·allow·생략)를 적는다.
   - 다중 신원: 같은 bare 에서 두 번째 클론 `~/project/mes-base-rehearsal2` 를 Task 7 Step 1 의 클론 이후 명령으로 준비하고(같은 `.env`), 두 클론에서 `/dflow-team 1명 <HH:MM>` 을 동시에 띄워 같은 ready 1건을 두고 경쟁시킨다. 늦은 쪽 팀원이 claim exit 4 로 `skipped` 가 되는지 본다. 이 구성은 `AGENT_ID` 가 겹칠 수 있어 운영에서는 쓰지 않지만, 좌석표가 없는 리허설의 exit 4 확인에는 지장이 없다. 이어서 첫 번째 클론에서 팀장이 도는 동안 같은 클론에 두 번째 `claude` 세션을 띄워 `/dflow-team 1명 <HH:MM>` 을 부르면 `LOCKED` 로 시작이 거부되는지 본다. 실제 두 신원·두 PC 는 후속 2차 리허설이다.
 
-- [ ] **Step 6: rtk 예비책 (Step 5 기준 2에서 차단이 나온 경우에만)**: git 경로를 리터럴 `/usr/bin/git` 으로 바꾼다(스펙 §11-5 2번). `<FEAT_WT>` 에서:
-  1~3. **이미 반영됨**: `worker-prompt.md` 「0. git 호출 규칙」·`backends.md` 차이표 `git 호출` 행·`/dflow-dev`
-     SKILL.md W7 블록 E 행은 이미 최종 규칙(첫 호출에서 `command -v git` 을 단독 실행해 절대경로를 알아낸
-     뒤 이후 모든 호출에 그 경로를 글자 그대로 적는다)을 담고 있다. 리터럴 `/usr/bin/git` 하드코딩으로
-     바꾸는 절차는 필요 없다.
-  4. `npx vitest run tests/skills` PASS 71건을 확인하고 커밋한다.
-     ```bash
-     git add .claude/skills/dflow-team/references/worker-prompt.md .claude/skills/dflow-team/references/backends.md .claude/skills/dflow-dev/SKILL.md tests/skills/dflow-dev-worker.test.ts tests/skills/dflow-team.test.ts
-     git commit -m "fix(dflow-team): git 경로를 /usr/bin/git 리터럴로: command -v 절대경로도 rtk 격리 가드에 막힌다"
-     ```
-  5. 에이전트 팀 리허설을 다시 돌려 기준 2를 재판정한다. 그래도 막히면 rtk 훅 수정(근본 해결)을 사람에게 보고하고 멈춘다.
+- [ ] **Step 6: rtk 재확인 (Step 5 기준 2에서 차단이 나온 경우에만)**: 절대경로 규칙은 이미 `worker-prompt.md`
+  「0. git 호출 규칙」·`/dflow-dev` SKILL.md W7 블록 E 행·`backends.md` 차이표와 그 테스트에 들어 있다(첫
+  호출에서 `command -v git` 을 단독 실행해 절대경로를 알아낸 뒤 이후 모든 호출에 그 경로를 글자 그대로
+  적는다). 이 단계에서 고칠 파일은 없다. 리허설에서 rtk 차단 메시지가 다시 나오면 그 명령 문구를 판정표에
+  적는 것으로 이 Step 을 끝내고, 사람에게 rtk 훅 수정(근본 해결)이 필요하다고 보고한다.
 
 - [ ] **Step 7: 권한 목록을 킷에 반영한다** (`<FEAT_WT>`): Step 2~3 에서 기록한 명령을 `Bash(<명령 접두> *)` 형태로 옮겨 `kit/agent-team-allow.json` 의 `allow` 배열에 넣는다(형식 예: `{"allow": ["Bash(.claude/skills/dflow-work/scripts/dflow.sh *)"]}`). git 은 install.sh 가 설치하는 PC 의 절대경로로 따로 넣으므로 이 파일에 넣지 않는다. 기록이 없으면 빈 목록 그대로 두고 이 Step 의 커밋을 건너뛴다.
 
@@ -3181,7 +3175,7 @@ git commit -m "feat(kit): 에이전트 팀 리허설에서 막힌 명령을 권�
 에이전트 팀 팀원은 팀장 세션의 권한 모드를 물려받아, 권한 확인에 걸리면 알림 없이 멈춘다.
 auto 모드 리허설에서 거부되거나 확인이 뜬 명령을 install.sh 가 병합할 목록으로 둔다."
 ```
-Expected: vitest PASS 71건(Task 6 의 "권한 규칙 문자열 배열" 테스트가 새 항목의 형식을 검사한다). 마지막 출력에 `Bash(<이 PC 의 git 절대경로> *)` 와 `kit/agent-team-allow.json` 의 항목이 모두 있다.
+Expected: vitest PASS 77건(Task 6 의 "권한 규칙 문자열 배열" 테스트가 새 항목의 형식을 검사한다). 마지막 출력에 `Bash(<이 PC 의 git 절대경로> *)` 와 `kit/agent-team-allow.json` 의 항목이 모두 있다.
 
 - [ ] **Step 8: 기록과 커밋**: 판정 파일에 `## 에이전트 팀 (스펙 §11-4·§11-5)` 표를 더한다. 스펙 §3-7 과 §8 권한 준비에 "auto 모드에서 막힌 명령" 과 최종 필요 단계를 사실로 적고, Step 6 을 탔으면 §3-6 에 "`command -v git` 절대경로도 막혀 리터럴 `/usr/bin/git` 을 쓴다" 를 사실로 적는다. 두 번째 클론을 지운다.
 
@@ -3207,7 +3201,7 @@ git commit -m "docs(dflow-team): 에이전트 팀 리허설 판정: 격리·rtk�
   머지)의 리허설 문서 커밋(Task 7~9).
 - Produces: `origin/main`·`origin/staging` 에 반영된 스킬. 메인 체크아웃 작업트리의 `/dflow-dev` 에 `--worker` 가 있어 모든 대상 리포의 심링크가 수정본을 가리킨다.
 
-- [ ] **Step 1: 최종 확인과 머지 지시**: `<FEAT_WT>` 에서 `npx vitest run tests/skills` 가 PASS 71건인지 본다. 메인 체크아웃에서 `git fetch origin && git log --oneline origin/staging..staging` 으로 staging 반영 때 함께 올라갈 로컬 staging 커밋 목록을 뽑는다. 사람에게 "feat/dflow-team 을 머지하면 `/dflow-dev`·`/dflow-merge` 변경이 심링크로 모든 리포에 즉시 적용된다. 리허설 판정은 `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`. staging 반영 때 위 로컬 커밋이 함께 push 된다" 를 알린 뒤 명시 지시를 받는다. 변경 파일은 UI 위험 파일(`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx`·`src/components/app/*`)이 아니므로 pre-push G2 가 해당하지 않는다. `SKIP_GUARD` 는 쓰지 않는다.
+- [ ] **Step 1: 최종 확인과 머지 지시**: `<FEAT_WT>` 에서 `npx vitest run tests/skills` 가 PASS 77건인지 본다. 메인 체크아웃에서 `git fetch origin && git log --oneline origin/staging..staging` 으로 staging 반영 때 함께 올라갈 로컬 staging 커밋 목록을 뽑는다. 사람에게 "feat/dflow-team 을 머지하면 `/dflow-dev`·`/dflow-merge` 변경이 심링크로 모든 리포에 즉시 적용된다. 리허설 판정은 `docs/superpowers/plans/2026-09-10-dflow-team-rehearsal.md`. staging 반영 때 위 로컬 커밋이 함께 push 된다" 를 알린 뒤 명시 지시를 받는다. 변경 파일은 UI 위험 파일(`src/app/globals.css`·`src/app/layout.tsx`·`src/app/(app)/layout.tsx`·`src/components/app/*`)이 아니므로 pre-push G2 가 해당하지 않는다. `SKIP_GUARD` 는 쓰지 않는다.
 
 - [ ] **Step 2: main 머지 (임시 워크트리에서)**: 메인 체크아웃은 여러 세션이 쓰므로 switch 하지 않는다.
 

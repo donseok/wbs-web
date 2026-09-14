@@ -22,6 +22,10 @@ D'Flow: 스테이징 리허설 프로젝트(전용 PAT), 스킬: `feat/dflow-tea
 `~/project/mes-base-rehearsal`, 스테이징 프로젝트를 썼고, 주문 `eccb75b2` 가 reported 로 끝났다. 실측일
 2026-09-14.
 
+좌석표는 `wbs_items.tags` 에 `agent` 가 든 항목의 주문만 보여 주므로, Task 8·9 리허설에서 좌석표를
+확인하려면 대상 항목의 에이전트 위임(agent 태그)을 켜 두어야 한다. A0 주문은 태그가 없어 좌석표에 보이지
+않은 것이 정상이다. Task 8·9 확인 항목: claim→blocked 경로가 좌석표에 실제로 보이는지.
+
 ### 격리 가드 관찰
 
 관찰이며, 정본 규칙은 스펙 §3-6 과 `backends.md` 에 있다.
