@@ -1,6 +1,6 @@
 'use client'
 // 위임 표 — WBS 트리 순서로 항목을 나열하고 리프마다 위임 체크·주문 상태·에이전트·마지막 신호·프롬프트.
-// 부모 행 체크 = 하위 리프 일괄(관리자). 변경은 액션 1회 + onChanged(허브 재조회) 1회. router.refresh 금지(스펙 §7).
+// 부모 행 체크 = 하위 리프 일괄(관리자). 변경은 액션 1회 + onChanged(허브 재조회) 1회. 페이지 전체 refresh 금지(스펙 §7).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Pencil } from 'lucide-react'
 import type { HubRow } from '@/lib/domain/agentHub'
