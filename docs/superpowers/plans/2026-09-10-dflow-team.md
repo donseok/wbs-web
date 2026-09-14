@@ -28,8 +28,8 @@
 - 프로세스 spawn 은 `git worktree add --detach` 로 워크트리를 만들고 포인터를 `.dflow-prompt` 에 쓴 뒤 `nohup claude -p` 로 띄운다. PID 와 시작 시각을 `.dflow-pid` 에 두 줄로 적어 생존을 확인하고, `team.spawn` 의 `handle` 은 `pid:<PID>` 다(스펙 §4-8).
 - **git 호출 규칙(두 백엔드 공통)**: 워커와 Phase 서브에이전트는 첫 호출에서 `command -v git` 을 단독 실행해 절대경로를 알아내고, 이후 모든 호출에 그 경로를 글자 그대로 적는다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다(스펙 §3-6).
 - 백엔드는 자동 감지만 한다(`--backend` 없음). tmux 는 프로세스 백엔드로 돈다(스펙 §4-3).
-- **팀장 상태는 캐시다.** 매 기상마다 `git worktree list --porcelain` + `.dflow-agent` + `.result`(정본)와 `~/.dflow/events.jsonl`(보조)에서 재구성한다. 결과 줄은 cksum 해시로 중복 처리를 막고, 감시 루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 한 체크아웃에 팀장은 하나이며 잠금은 디렉터리 `$(git rev-parse --git-path dflow-team.lock)` 을 `mkdir` 로 원자 획득한 것이다. 안에 `owner`(`<신원>/<host>/lead <epoch> <PID>`, PID 는 Bash 도구 셸의 `$PPID`)와 `beat` 를 두고, `beat` 가 70분보다 오래됐거나(`beat` 없으면 잠금 디렉터리 수정 시각이 10분보다 오래됐거나)
-하면 죽은 것으로 보고 `mv` 로 옮겨 다시 확인한 뒤 가져온다. 소유 판정은 "신원이 같고 PID 가 현재 `$PPID` 와 같다" 이며, 매 기상 이 판정을 통과해야 `beat` 를 쓰고(아니면 잠금 상실 마감), 마감도 이 판정을 통과할 때만 잠금을 지운다(스펙 §3-22, §4-2, §4-4, §4-5, §4-9).
+- **팀장 상태는 캐시다.** 매 기상마다 `git worktree list --porcelain` + `.dflow-agent` + `.result`(정본)와 `~/.dflow/events.jsonl`(보조)에서 재구성한다. 결과 줄은 cksum 해시로 중복 처리를 막고, 감시 루프 교체는 TaskStop 이 아니라 세대 파일 `$(git rev-parse --git-path dflow-team.gen)` 로 한다. 한 체크아웃에 팀장은 하나이며 잠금은 디렉터리 `$(git rev-parse --git-path dflow-team.lock)` 을 `mkdir` 로 원자 획득한 것이다. 안에 `owner`(`<신원>/<host>/lead <epoch> <PID>`, PID 는 `LEAD_PID=${CLAUDE_PID:-$PPID}` — Bash 도구가 내보내는 `CLAUDE_PID`, 없으면 `$PPID`)와 `beat` 를 두고, `beat` 가 70분보다 오래됐거나(`beat` 없으면 잠금 디렉터리 수정 시각이 10분보다 오래됐거나)
+하면 죽은 것으로 보고 `mv` 로 옮겨 다시 확인한 뒤 가져온다. 소유 판정은 "신원이 같고 PID 가 현재 `LEAD_PID` 와 같다" 이며, 매 기상 이 판정을 통과해야 `beat` 를 쓰고(아니면 잠금 상실 마감), 마감도 이 판정을 통과할 때만 잠금을 지운다(스펙 §3-22, §4-2, §4-4, §4-5, §4-9).
 - **팀장의 poll.sh 는 `docs/tasks/` 가 없는 빈 디렉터리를 cwd 로 두고 `DFLOW_ENV_FILE` 로 `.env` 를 지정해 띄운다.** 그래서 팀장에게 poll exit 9·10 은 오지 않고, 승인 반영과 반려 발견은 승인 스윕이 맡는다(스펙 §3-14, §4-5).
 - events.jsonl: `~/.dflow/events.jsonl`, 스키마 `{ts, host, repo, tsk, order, phase, event, agent}` + 이벤트별 추가 필드(스펙 §9-3). 기록은 `jq -nc` 로 만든 한 줄을 붙인다.
 - 참조는 id8 만 쓴다. 순번 금지. 팀원은 `dflow.sh list` 를 부르지 않는다(스펙 §3-4, §5).
@@ -1737,6 +1737,9 @@ git worktree remove --force "$WT"
    그대로 지킨다. 이유: 이름을 채우지 못해 정리를 건너뛰면 생성 브랜치가 쌓이고, 세 조건이 이름만 맞는 남의
    브랜치를 보호한다.
 ````
+> **참고**: 이 코드는 Task 실행 시점의 초안이며, 리허설 결함 G(`e401cece`)의 수정(3번에 살아 있는 팀원이
+> 아닌 워크트리를 `parked` 로 표시하는 규칙 추가)은 반영되지 않았다. 최신 내용은 `references/backends.md`
+> 실 파일이 정본이다.
 
 - [ ] **Step 4: `references/events.md` 작성**
 
@@ -1799,6 +1802,9 @@ mkdir -p ~/.dflow && jq -nc \
   | jq -c 'if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) then . else error("EVENT_ARGS_MISSING") end' \
   >> ~/.dflow/events.jsonl || echo EVENT_ARGS_MISSING
 ```
+> **참고**: 이 코드는 Task 실행 시점의 초안이며, 리허설 결함 A·F(`e401cece`)와 최종 검토(`30e9af0b`)의
+> 수정(가드를 `&&` 로 잇고 `phase`·`host`·이벤트별 필드까지 검사하는 것 등)은 반영되지 않았다. 최신 내용은
+> `references/events.md` 실 파일이 정본이다.
 - 마지막 `jq` 는 가드다. 공통 다섯 필드(`ts`·`host`·`repo`·`event`·`agent`) 가운데 하나라도 비면 줄을 붙이지 않고
   `EVENT_ARGS_MISSING` 을 낸다. 이유: 압축 뒤 기억으로 재구성한 명령은 인자가 비어 null 필드를 남기고, 그 줄은
   재구성이 걸러 내지 못한다. 이 출력이 보이면 이 문서의 명령 블록을 다시 읽어 그대로 다시 실행한다. 기록 실패는
@@ -1837,6 +1843,11 @@ Orca pane 과 프로세스는 기상 신호·blocked 이후·슬롯 점유·회�
 **Interfaces:**
 - Consumes: 포인터·`.result`·`ANSWER`·사유 값(Task 3), backends.md 절 이름·`--worktree path:` 선택자·`parked` 명령·고아 정리 규칙과 events.md 이벤트·필드·기록 명령(Task 4), `/dflow-merge` 의 보고 분기·충돌 되돌림·push 실패 되돌림(Task 2), `/dflow-dev` 의 `--worker`(Task 1), `poll.sh` exit code(머리말 3~8행: 0 2 3 5 6 7 8 9 10)와 인자 `--require-tag`·`--until`·`--interval`·`--exclude`·`--exclude-temp`, `DFLOW_ENV_FILE`(poll.sh 41행).
 - Produces: 사용자가 부르는 `/dflow-team [인원] <종료시각> [모델]`. SKILL.md 의 셸 블록은 `uname -s` 분기와 `CLAUDE_PID` 로 macOS·Linux·Windows(Git Bash) 에서 같은 절차로 돈다(차이 목록은 backends.md 「플랫폼 차이」, 스펙 §13). Task 6 배포 목록과 Task 7~9 리허설이 쓴다.
+
+> **참고**: 아래 본문 코드는 Task 실행 시점의 초안이다. 리허설 결함 A·F(`e401cece`, 압축 뒤 첫 기상 재독·
+> `references/events.md` 「기록 명령」 절 재읽기 규칙)와 최종 검토(`30e9af0b`, 좌석표 watch 호출의 `--project`
+> 미전달·고아 정리 규칙 2번 참조로 통일 등)의 수정은 여기 코드에 반영되지 않았다. 최신 내용은
+> `.claude/skills/dflow-team/SKILL.md` 실 파일이 정본이다.
 
 - [ ] **Step 1: 테스트 추가** (`tests/skills/dflow-team.test.ts` 끝에)
 
@@ -2943,7 +2954,7 @@ origin 의 스킬을 쓰므로 push 여부를 본다. 프로세스 blocked 답�
 
 **Interfaces:**
 - Consumes: 완성된 `.claude/skills/dflow-team/`(Task 3~5), `/dflow-merge` 후보 확대(Task 2), Phase 5 `reported` 커밋(Task 1).
-- Produces: dflow-kit 빌드에 dflow-team 과 `worker-allow.json` 포함, install.sh 의 `permissions.allow` 병합(스펙 §8 권한 준비 2번, §10)과 의존 점검(`python3` 이 없으면 `python` 을 받고 Windows 설치 안내를 낸다, 스펙 §13), 가이드의 사용 안내와 공지 두 줄(인자 없는 `/dflow-merge` 후보 확대, 수동 `/dflow-poll` exit 9 의 한계. 스펙 §11-1). `kit/worker-allow.json` 은 빈 목록으로 시작하고 Task 9 가 리허설 기록으로 채운다. 이 Task 는 머지하지 않는다. 머지는 리허설 뒤 Task 10 이다. kit-build 의 킷 밖 참조 검사는 넓히지 않는다(dflow-team 파일이 킷 밖 경로를 쓰지 않는 것으로 충분하다, 스펙 §10).
+- Produces: dflow-kit 빌드에 dflow-team 과 `worker-allow.json` 포함, install.sh 의 `permissions.allow` 병합(스펙 §8 권한 준비 2번, §10)과 의존 점검(`python3` 이 없으면 `python` 을 받고 Windows 설치 안내를 낸다, 스펙 §13), 가이드의 사용 안내와 공지 두 줄(인자 없는 `/dflow-merge` 후보 확대, 수동 `/dflow-poll` exit 9 의 한계. 스펙 §11-1). `kit/worker-allow.json` 은 빈 목록으로 시작하고 Task 9 가 리허설 기록으로 채운다. 이 Task 는 머지하지 않는다. 머지는 리허설 뒤 Task 10 이다. kit-build 의 킷 밖 참조 검사는 `*.md`(SKILL.md 와 references 모두)와 `*.sh` 를 본다(스펙 §10).
 
 - [ ] **Step 1: 테스트 추가** (새 파일 `tests/skills/dflow-team-kit.test.ts`)
 
@@ -3029,6 +3040,11 @@ jq --arg git "Bash($GIT_ABS *)" --slurpfile add "$KIT_DIR/worker-allow.json" \
   "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
 echo "권한 준비: $SETTINGS 의 permissions.allow 에 워커 허용 목록을 합쳤다"
 ```
+> **참고**: 이 코드는 Task 실행 시점의 초안이다. install.sh 의 의존 점검(`python3` 이 없으면 `python` 을
+> 받는 폴백, Windows 설치 안내)은 최종 검토(`30e9af0b`)에서 다른 자리에 추가돼 이 코드에는 없다. 위
+> `echo` 줄도 검토에서 "이 PC 의 git 경로다. 다른 PC 에서 설치하면 그 경로의 규칙이 하나 더 붙는다" 를
+> 덧붙였다. 최신 내용은 `kit/install.sh` 실 파일이 정본이다.
+
 48행을 아래로 바꾼다.
 ```sh
 설치 완료: $TARGET/.claude/skills/ (dflow-work · dflow-dev · dflow-poll · dflow-merge · dflow-team · dflow-export · dflow-wbs-nlevel)
@@ -3611,7 +3627,7 @@ git commit -m "docs(dflow-team): Windows(Git Bash) 리허설 판정과 스펙 §
 | §8 다중 신원·준비물·권한 준비 | Task 5 전제 검사·권한 안내, Task 6 install.sh 병합, Task 9 Step 2~4·7, Task 9 다중 신원 확인 |
 | §9-1 `AGENT_ID`·`.dflow-agent`·`lead`·`parked` | Task 3 「2. 좌석 식별」, Task 4 `parked`, Task 5 「좌석표 연동」 |
 | §9-2 팀원 신호 | v1 신호는 `.result` 와 서버 보고(Task 3). 팀원 로컬 이벤트와 heartbeat 는 스펙이 좌석표 S1 이후로 미뤘다 |
-| §9-3 팀장 신호 | Task 4 events.md, Task 5(각 기록 시점, STANDBY 자리) |
+| §9-3 팀장 신호 | Task 4 events.md, Task 5(각 기록 시점의 watch 호출) |
 | §9-4 좌석표 모습 | 화면은 좌석표 S1·S2 몫이다. 이 계획은 신호만 만든다 |
 | §10 파일 구성·킷 | 파일 구조 표, Task 3~6 |
 | §11-1 적용 좌표와 순서·가이드 공지 | Global Constraints, Task 6 가이드, Task 7~10 순서, Task 10 |

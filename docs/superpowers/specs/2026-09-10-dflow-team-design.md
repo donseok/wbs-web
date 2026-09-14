@@ -1307,9 +1307,10 @@ AskUserQuestion 이 답을 받지 못한다. 억제 계약은 두 백엔드에�
   슬롯·해시·제외 목록을 복원하지 못한다. 이 출력이 보이면 명령 블록을 다시 띄워(§4-5 「이벤트 기록 명령의
   재읽기」) 그대로 다시 실행한다. 재구성(§4-2)이 `team.spawn`·`team.result`·`team.blocked`·`team.answer`
   를 보조 정본으로 읽는다.
-- 좌석표의 STANDBY(감시 중) 표시는 poll.sh 존재를 서버에 알리는 계약이 아직 없다(좌석표 설계 §7 미결).
-  그 계약이 생기면 팀장이 시작·poll 재기동·마감 시점에 `{host, agent: lead, slots, busy, until}` 을
-  보내는 자리를 SKILL.md 에 표시해 둔다. 계약 전에는 `team.start`/`team.stop` 이 대체 근거다.
+- 좌석표의 STANDBY(감시 중) 표시는 `dflow.sh watch`(POST `/api/v1/agent/watch`)로 구현됐다. 팀장은
+  §4-4(시작)·§4-5(기상과 감시)·§4-9(마감)에서 `{agent, host, slots, busy, until}` 을 보내고, 마감에서는
+  `--stop` 을 보낸다. 좌석표는 마지막 신호 뒤 70분에 STANDBY 를 끈다. poll.sh 는 `DFLOW_WATCH=0` 으로 띄워
+  팀장 자신의 watch 신호와 겹치지 않게 한다.
 
 ### 9-4. 좌석표에서 기대하는 모습
 
