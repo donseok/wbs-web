@@ -30,6 +30,8 @@ type Props = {
   onHub: (hub: AgentHub) => void
   /** 재조회가 필요한 변경(프롬프트 저장, 저장 뒤 재조회 실패) — refreshAgentHub 1회. */
   onChanged: () => Promise<void> | void
+  /** 이름 클릭 → 그 WBS 항목의 상세 패널을 이 화면 위에 연다(AgentHubView 가 RowDetailPanel 을 띄운다). */
+  onSelect?: (itemId: string) => void
 }
 
 type NoteKind = 'reject' | 'rework'
@@ -66,7 +68,7 @@ function ParentCheckbox({ state, onClick }: { state: 'all' | 'some' | 'none'; on
   )
 }
 
-export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, nowMs, onHub, onChanged }: Props) {
+export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, nowMs, onHub, onChanged, onSelect }: Props) {
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
   // 프롬프트 저장·조정 처리 중인 행 — 체크는 잠그지 않으므로 여기에 들어가지 않는다.
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set())
@@ -252,7 +254,10 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                           {folded.has(r.itemId) ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                         </button>
                       )}
-                      <span className={r.isLeaf ? 'text-ink' : 'font-semibold text-ink'}>{r.name}</span>
+                      {onSelect
+                        ? <button type="button" data-hub-open={r.itemId} onClick={() => onSelect(r.itemId)}
+                            title="상세 보기" className={`text-left hover:underline ${r.isLeaf ? 'text-ink' : 'font-semibold text-ink'}`}>{r.name}</button>
+                        : <span className={r.isLeaf ? 'text-ink' : 'font-semibold text-ink'}>{r.name}</span>}
                     </span>
                   </td>
                   <td className="py-1 text-ink-muted">{r.assigneeName ?? ''}</td>

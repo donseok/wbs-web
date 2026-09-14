@@ -390,3 +390,19 @@ describe('DelegationTable — READY 행의 취소 버튼(§11-2, 2026-09-15): �
     expect(onHub).toHaveBeenCalledWith(HUB)
   })
 })
+
+describe('DelegationTable — 이름 클릭 → onSelect(상세 패널 열기, 2026-09-15)', () => {
+  it('onSelect 를 주면 이름이 버튼이 되고 클릭 시 itemId 로 부른다', async () => {
+    const onSelect = vi.fn()
+    render({ onSelect })
+    const btn = host.querySelector('[data-hub-row="a1"] [data-hub-open="a1"]') as HTMLButtonElement
+    expect(btn).not.toBeNull()
+    await click(btn)
+    expect(onSelect).toHaveBeenCalledWith('a1')
+  })
+  it('onSelect 가 없으면 이름은 클릭 불가 텍스트(버튼 아님)', () => {
+    render()
+    expect(host.querySelector('[data-hub-open]')).toBeNull()
+    expect((host.querySelector('[data-hub-row="a1"]') as HTMLElement).textContent).toContain('리프1')
+  })
+})
