@@ -101,6 +101,7 @@ create policy agent_watchers_select on public.agent_watchers for select to authe
 - 본문: `{ agent: string, host?: string, slots?: int, busy?: int, until?: string, project_id?: uuid }`. `agent` 필수 1~120자. PAT 가 프로젝트 한정이면 `project_id` 는 그 값으로 강제하고, 본문 값이 다르면 403 `forbidden_role`. 전역 PAT 면 본문 `project_id` 를 쓰고 없으면 null.
 - 효과: `agent_watchers` 를 `(user_id, agent)` 로 upsert, `last_seen_at=now`. 같은 호출에서 `last_seen_at < now - 7일` 인 행을 지운다(청소를 따로 두지 않는다).
 - 응답 200 `{ ok: true, expires_at }` (`last_seen_at + 70분`).
+- **감시 종료**(팀장 세션 조율 2, 2026-09-14): 본문에 `stop: true` 가 있으면 그 `(user_id, agent)` 행을 지우고 `{ ok: true, stopped: true }` 로 답한다. 팀장은 「7. 마감」에서, `poll.sh` 는 `--until` 도달(exit 8)에서 `dflow.sh watch --stop` 을 1회 부른다. TTL 만료를 기다리지 않고 STANDBY 가 꺼진다.
 - 살아 있음 판정은 화면이 한다: `last_seen_at > now - 70분`. 70분은 팀장 잠금의 죽음 판정(두 TICK 연속 누락)과 같은 값이다.
 
 ## 4. 클라이언트 신호
@@ -113,9 +114,9 @@ create policy agent_watchers_select on public.agent_watchers for select to authe
 dflow.sh heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id]
     POST /api/v1/agent/work/<id>/heartbeat. --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄, 없으면 claude-<host>.
     출력: last_heartbeat_at 한 줄. 종료 코드는 api_raw 규칙(409→4).
-dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id]
+dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--stop]
     POST /api/v1/agent/watch. --agent 기본값은 <신원>/<host>/poll (신원은 /me 의 user_email 로 만든 슬러그).
-    출력: expires_at 한 줄.
+    --stop 이면 본문 {agent, stop:true} 로 행을 지운다. 출력: expires_at 한 줄(--stop 은 "stopped").
 ```
 
 - `cmd_heartbeat` 는 `cmd_progress`(234행) 바로 뒤, case 줄은 `progress)` 다음에 둔다(팀장 세션 회신 3).
@@ -150,7 +151,11 @@ dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id
 ### 4-3. `poll.sh` 의 watch 호출
 
 `.claude/skills/dflow-poll/scripts/poll.sh` 의 매 주기 시작부(`--until` 검사 직후, 승인 스캔 앞, 54~55행 부근)에서
-`"$DFLOW" watch --until "$UNTIL" >/dev/null 2>&1 || :` 를 부른다. 이 자리는 exit 하는 주기(0/8/9/10)에도 반드시 한 번 지난다. 실패는 폴링을 막지 않는다. `poll.sh` 는 `.env` 와 `DFLOW` 경로를 이미 갖고 있어 배선이 더 필요 없다.
+`"$DFLOW" watch --until "$UNTIL_LABEL" >/dev/null 2>&1 || :` 를 부른다. 이 자리는 exit 하는 주기(0/8/9/10)에도 반드시 한 번 지난다. 실패는 폴링을 막지 않는다. `poll.sh` 는 `.env` 와 `DFLOW` 경로를 이미 갖고 있어 배선이 더 필요 없다.
+
+- **`DFLOW_WATCH=0` 이면 보내지 않는다**(팀장 세션 조율 1). 팀장은 poll.sh 를 자기 아래에서 띄울 때 이 값을 붙인다. 팀장이 `<신원>/<host>/lead` 로 직접 보내므로, poll.sh 까지 보내면 같은 사람이 watcher 둘로 보이거나 `slots`·`busy` 없는 신호가 lead 행을 덮는다.
+- 단독 `/dflow-poll` 의 watcher 는 `<신원>/<host>/poll` 이다(`dflow.sh watch` 기본값). 좌석표는 `<신원>/<host>` 앞부분이 같은 lead·poll 을 나란히 보여 준다.
+- `--until` 도달로 끝날 때(exit 8 직전) `"$DFLOW" watch --stop >/dev/null 2>&1 || :` 를 1회 부른다.
 
 ### 4-4. 팀장 스킬과의 계약 (팀장 세션 회신 반영)
 
@@ -158,7 +163,7 @@ dflow.sh watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id
 |---|---|---|
 | `blocked` | §2 판정. `phase` 없는 다음 heartbeat 가 푼다 | `worker-prompt.md` blocked 직전에 `dflow.sh heartbeat <id8> --phase blocked --note "<질문>"` 1회 |
 | `.dflow-agent` | 훅이 첫 줄을 `agent` 로 보냄. `parked` 면 침묵 | 팀원이 씀. 팀장은 쓰지 않음 |
-| STANDBY | `agent_watchers` + watch API, TTL 70분 | SKILL.md 「1. 시작」·매 기상·「7. 마감」에서 `dflow.sh watch --agent <신원>/<host>/lead --slots N --busy M --until HH:MM` |
+| STANDBY | `agent_watchers` + watch API, TTL 70분, `stop` 으로 즉시 종료 | SKILL.md 「1. 시작」·매 기상에서 `dflow.sh watch --agent <신원>/<host>/lead --slots N --busy M --until HH:MM`, 「7. 마감」에서 `dflow.sh watch --agent <신원>/<host>/lead --stop`. poll.sh 기동에 `DFLOW_WATCH=0` |
 | dflow.sh | `cmd_heartbeat`·`cmd_watch` 신설, git 은 `${DFLOW_GIT:-git}` | 미수정 |
 | 브랜치 | `staging` 기점 `feat/agent-office` 워크트리 | `feat/dflow-team` 은 main 기점, 미push |
 
