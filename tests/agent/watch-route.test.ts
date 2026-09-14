@@ -14,7 +14,7 @@ type Resp = { data?: unknown; error?: { message: string } | null }
 const PAT = generateAgentToken()
 const RUNNER = {
   id: 'r-1', kind: 'user_pat', owner_user_id: 'u-1', token_prefix: PAT.prefix, token_hash: PAT.hash,
-  project_id: null, scopes: ['work:claim'], enabled: true, revoked_at: null, expires_at: '2099-01-01T00:00:00Z',
+  project_id: null as string | null, scopes: ['work:claim'], enabled: true, revoked_at: null, expires_at: '2099-01-01T00:00:00Z',
 }
 
 function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[]> = {}) {

@@ -11,7 +11,7 @@ function git(...args: string[]) { execFileSync('git', args, { cwd: repo, stdio: 
 function run(cwd = repo, env: Record<string, string> = {}) {
   execFileSync('sh', [HOOK], {
     cwd, input: JSON.stringify({ cwd, tool_name: 'Bash' }),
-    env: { PATH: process.env.PATH ?? '', HOME: home, CURL: join(tmp, 'fakecurl'), ...env },
+    env: { PATH: process.env.PATH ?? '', HOME: home, CURL: join(tmp, 'fakecurl'), NODE_ENV: process.env.NODE_ENV, ...env },
     stdio: ['pipe', 'ignore', 'ignore'],
   })
   // 백그라운드 curl 이 로그를 쓸 시간을 준다
