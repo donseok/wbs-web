@@ -59,12 +59,12 @@
 
 `getAgentHub(projectId: string, viewer: { userId: string; isAdmin: boolean }, nowMs = Date.now()): Promise<AgentHub>` — 서버 전용, `createAdminClient()`.
 
-`Promise.all` 로 7건, 어느 하나라도 실패하면 throw(데이터 없음으로 위장하지 않는다):
+1차 `Promise.all` 6건 + 2차(살아 있는 주문의 완료 보고) 1건. 어느 하나라도 실패하면 throw(데이터 없음으로 위장하지 않는다):
 
 1. `wbs_items` — `id, parent_id, code, name, sort_order, level, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage` (`project_id` 필터)
 2. `agent_projects` — `enabled` (`maybeSingle`; 없으면 registered=false)
 3. `agent_work_orders` — 좌석표와 같은 컬럼(`ORDER_COLS`), `status in ready,claimed,reported` 전부 + `approved` 는 7일 이내. `created_at desc`, limit 2000
-4. `agent_work_reports` — 3의 `reported` 주문에 대한 `kind='completion'` 최신 1건씩(`work_order_id, percent, summary, links, agent, review_action, review_note, created_at`)
+4. `agent_work_reports` — (2차) 3의 살아 있는 주문(ready/claimed/reported) 전부의 `kind='completion'` 보고(`work_order_id, percent, summary, links, agent, review_action, review_note, created_at`). 승인 큐의 본문과 claimed 의 반려 판정(REJECTED)에 함께 쓴다. 살아 있는 주문이 없으면 생략
 5. `agent_watchers` — 70분 이내(좌석표 `fetchSeatmapRows` 와 같은 조건)
 6. `project_members` — `id, name, email, user_id`
 7. `projects` — `id, name`
