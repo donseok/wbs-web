@@ -203,26 +203,63 @@
 - **`done` 행의 parked 표시 누락**: 최종 검토에서 발견, `30e9af0b` 로 조치. 결과 처리 표의 `done`(과 이를 상속하는 `needs-merge`·`skipped`) 행이 정리 실패 시 `parked` 표시 없이 "경로를 보고하고 남긴다" 로만 적혀 있어 결함 G 의 재발 소지가 있었다. `blocked` 행과 같은 「고아 정리 규칙」 2·3번 패턴으로 통일했다.
 - **셸 블록 문법 가드 부재**: 최종 검토에서 발견, `30e9af0b` 로 조치. 스킬 문서의 bash 블록에 자동 문법 검사가 없어 zsh 에서만 갈라지는 확장 꼴이 리뷰를 통과할 수 있었다. `tests/skills/dflow-team-shell-blocks.test.ts` 를 새로 두어 SKILL.md·backends.md·events.md·worker-prompt.md·dflow.sh·heartbeat.sh 여섯 문서의 블록을 `sh`·`bash`·`zsh -n` 으로 파싱하고, `${V:+a "$V"}` 꼴과 `hostname -s` 부재를 검사한다.
 
-## Windows 리허설 (미실시)
+## Windows 코드 검증 (GitHub Actions 러너, 2026-09-15)
 
-스펙 §13 의 플랫폼 차이는 설계 전제이며 아직 Windows PC 에서 실측하지 않았다. 절차는 Task 9 프로세스
-백엔드 1단계(씨앗 4건·인원 3·`/compact`·마감)를 Windows PC 에서 반복하는 것이다(계획서 Task 11).
+GitHub Actions `windows-latest` 러너(이미지 `windows-2025-vs2026`, Windows Server 2025, Git
+2.55.0.windows.5, bash 5.3.15, node v22.23.2, jq 1.8.1, PowerShell 5.1.26100.33296, `core.autocrlf`
+기본값 `true`, `SHELLOPTS` 의 `igncr` 는 꺼짐)에서 SKILL.md·backends.md·events.md 의 셸 블록을 글자
+그대로 실행해 관찰했다. 팀원은 실제 `claude` 대신 node 프로세스로 대역했고 토큰 인증 없이 돌렸다.
+dflow-kit 리포 브랜치 `probe/windows`(`.github/workflows/windows-probe.yml`)로 5회 실행했다.
 
-실측 점검표:
+판정표:
 
-- [ ] Claude Code Bash 도구의 `uname -s` 값
-- [ ] `CLAUDE_PID` 와 `$PPID` 값(부모가 Cygwin 프로세스인지에 따라 달라지는지)
-- [ ] `hostname` 출력과 `hostname | cut -d. -f1` 의 결과
-- [ ] `nohup` 존재 여부
-- [ ] `nohup claude -p … &` 로 띄운 팀원이 Bash 호출 종료 뒤에도 살아남는지
-- [ ] MSYS `ps -p` 출력에서 WINPID 열의 실제 위치(고정폭 25~32번째 글자 가정이 맞는지)
-- [ ] PowerShell `Get-Process` 의 `StartTime` 문자열이 반복 조회에서 안정적인지
-- [ ] `kill -0`·`kill` 이 Cygwin 프로세스를 거쳐 네이티브 claude 자식에 전달되는지
-- [ ] `ln -s` 가 실제로 복사본을 만드는지, 복사본이 정적 `.env`·읽기 전용 스킬로 동작하는지
-- [ ] `git rev-parse --show-toplevel` 등 git 출력의 경로 형태(`C:/…` 인지)와 `pwd`(`/c/…`) 의 불일치
-- [ ] npm 심(`claude`)과 네이티브 `claude.exe` 두 설치 형태 모두에서 spawn 이 되는지
-- [ ] `.env` 파일의 CRLF 가 `set -a; . ./.env` 소싱에 지장을 주는지
-- [ ] Orca(Windows) 의 pane 백엔드 동작
-- [ ] auto 모드 권한 프롬프트가 Windows 에서도 같은 형태로 뜨는지
+| # | 항목 | 판정 | 관찰 |
+|---|---|---|---|
+| 1 | Claude Code Bash 도구의 `uname -s` 값 | 일치 | `MINGW64_NT-10.0-26100` |
+| 2 | `CLAUDE_PID` 와 `$PPID` 값(부모가 Cygwin 프로세스인지에 따라 달라지는지) | 부분 | `$PPID`=1(부모가 Cygwin 프로세스가 아니면)은 일치. `CLAUDE_PID` 자체는 실제 Claude Code 세션 없이는 잴 수 없어 미측정 |
+| 3 | `hostname` 출력과 `hostname \| cut -d. -f1` 의 결과 | 일치 | `runnervmvmocb`(점 없음). `hostname -s` 는 `unknown option -- s` 로 실패 |
+| 4 | `nohup` 존재 여부 | 일치 | 명령 점검표(`nohup` 포함 22개)에서 실제 명령 누락 0건 |
+| 5 | `nohup claude -p … &` 로 띄운 팀원이 Bash 호출 종료 뒤에도 살아남는지 | 일치 | 실제 `claude -p hi` 가 spawn·로그캡처·자연종료. `nohup … > log 2>&1 < /dev/null &` 의 `$!` 는 Bash 호출·러너 step 경계 너머 생존 |
+| 6 | MSYS `ps -p` 출력에서 WINPID 열의 실제 위치(고정폭 가정이 맞는지) | 일치 | 설계는 애초에 고정폭을 가정하지 않고 머리글(`PID PPID PGID WINPID TTY UID STIME COMMAND`)에서 위치를 찾는다. 원문 awk 가 `WINPID(1701)=[4364]` 를 정확히 뽑았다 |
+| 7 | PowerShell `Get-Process` 의 `StartTime` 문자열이 반복 조회에서 안정적인지 | 일치 | `pstart $$` 3회 모두 같은 타임스탬프. 호출당 `real 0m0.474s` |
+| 8 | `kill -0`·`kill` 이 Cygwin 프로세스를 거쳐 네이티브 claude 자식에 전달되는지 | 일치 | MSYS pid 를 죽이면 `tasklist` 가 "No tasks are running" 을 내 네이티브 node.exe 도 함께 종료됨을 확인 |
+| 9 | `ln -s` 가 실제로 복사본을 만드는지, 복사본이 정적 `.env`·읽기 전용 스킬로 동작하는지 | 일치 | `.env`→`IS_COPY`+`SAME_CONTENT`, `.claude/skills`→`IS_COPY`+`SKILL_VISIBLE` |
+| 10 | `git rev-parse --show-toplevel` 등 git 출력의 경로 형태(`C:/…` 인지)와 `pwd`(`/c/…`) 의 불일치 | 일치 | `pwd`=`/d/a/dflow-kit/dflow-kit/repo6`, `show-toplevel`=`D:/a/dflow-kit/dflow-kit/repo6`. `show-prefix` 로 루트·하위 판정, 워크트리 안 `--git-dir`·`--git-common-dir` 도 설계대로 |
+| 11 | npm 심(`claude`)과 네이티브 `claude.exe` 두 설치 형태 모두에서 spawn 이 되는지 | 일치 | npm 심은 `#!/bin/sh`(`exec node …`), 네이티브 설치(`irm https://claude.ai/install.ps1 \| iex`)도 `~/.local/bin/claude.exe` 로 정상 설치. 둘 다 spawn·WINPID 일치 확인 |
+| 12 | `.env` 파일의 CRLF 가 `set -a; . ./.env` 소싱에 지장을 주는지 | 이 bash 빌드 한정 일치 | 디스크 원본에 `\r` 이 있음을 `od -c` 로 먼저 확인한 뒤, 소싱한 값에는 `\r` 이 남지 않았다. 방어는 이 결과와 무관하게 `dflow.sh`·heartbeat 훅이 `.env` 값의 `\r` 을 무조건 걷어내는 것이다 |
+| 13 | Orca(Windows) 의 pane 백엔드 동작 | 미측정 | 러너에는 Orca 가 없다 |
+| 14 | auto 모드 권한 프롬프트가 Windows 에서도 같은 형태로 뜨는지 | 미측정 | 팀원을 node 로 대역해 인증·권한 확인 자체가 발생하지 않는다 |
 
-실측 뒤에는 스펙 §3 의 "설계 전제(실측 전)" 표시를 사실로 바꾸고, 이 절의 점검표 결과를 판정표로 옮긴다.
+### 발견과 조치
+
+1. **skip 감지·잠금 소유 판정이 `$PPID` 폴백(=1)에서 무너진다.** SKILL.md 의 `LEAD_PID=${CLAUDE_PID:-$PPID}`
+   를 WINPID 변환 없이 그대로 `Get-CimInstance` 에 넣으면, `$PPID`=1 폴백에서 `Get-CimInstance` 가 에러
+   없이 빈 결과를 내 확정적으로 `skip=0` 으로 오판한다. 조치: `CLAUDE_PID` 가 비어 있으면 전제 검사가
+   `NO_CLAUDE_PID` 로 중단한다(F2, 오판 대신 fail-closed).
+2. **`core.autocrlf=true` 클론에서 스크립트가 CRLF 로 바뀐다.** 로컬 경로 클론에서 재현되며 정확한 git
+   내부 원인은 미확정이다. 조치: 킷 루트와 대상 리포 두 곳에 `.gitattributes`(`eol=lf`)를 두고, `.env`
+   값의 `\r` 을 제거한다(F1). `.gitattributes` 의 효과는 이 세션의 git 2.54(Apple) 직접 재현으로
+   확인했고, Git for Windows(git 2.55)에서의 독립 확인은 하지 않았다.
+3. **"러너가 `SHELLOPTS=igncr` 를 심어 뒀다" 는 가설은 기각한다.** 이 러너는 애초에 igncr 가 꺼져 있고,
+   `env -u SHELLOPTS` 로 명시적으로 지운 별도 bash 프로세스에서도 같은 결과였다.
+4. **`skills/skills` 함정이 재현되고, 설계의 사전 존재 검사가 이를 회피한다.** 이미 있는 폴더에 폴더째
+   `ln -s` 를 걸면 `skills/skills` 가 생긴다.
+5. **`MSYS=winsymlinks:nativestrict` 를 주면 진짜 심링크가 가능하다.** 설계는 복사본 동작을 전제로 하며
+   바꿀 이유는 없다.
+6. **`pstart` 비용은 PowerShell 기동 때문에 호출당 0.4~0.5초다.** 슬롯 수 × 기상 횟수만큼 누적되지만
+   허용 범위다.
+7. **네이티브 설치기(`irm https://claude.ai/install.ps1 | iex`)가 PATH 경고를 낸다.** 실사용자 안내로
+   참고할 만하다.
+
+`git ls-files --eol` 의 eol 예측과 로컬 클론의 `-c core.autocrlf=` 오버라이드 이상(발견 2 의 세부 조사)은
+계기가 불확실해 판정 근거로 쓰지 않는다.
+
+### 미확인 3항
+
+러너에서는 잴 수 없어 사람이 실제 Windows 세션에서 확인해야 한다.
+
+1. 실제 Windows Claude Code 세션의 Bash 도구가 `CLAUDE_PID` 를 내보내는지. Windows 지원 상태의 핵심이며,
+   내보내지 않으면 `/dflow-team` 은 Windows 에서 시작하지 못한다(`NO_CLAUDE_PID`). 첫 확인 명령은
+   `env | grep CLAUDE_PID`.
+2. auto 모드 권한 프롬프트가 Windows 에서도 같은 형태로 뜨는지.
+3. Orca(Windows) pane 백엔드 동작.

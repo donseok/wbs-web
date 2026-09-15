@@ -72,7 +72,7 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
 | `blocked` 통지 | 팀장은 `blocked` 를 받으면 PushNotification 도구가 있을 때 한 번 알린다. 없으면 화면 통지만 한다 | 사람이 터미널을 보고 있지 않을 수 있다 |
 | 정본 위치 | `wbs-web/.claude/skills/dflow-team/`. 다른 dflow-* 와 같이 dflow-kit 으로 배포한다 | 기존 배포 경로를 그대로 쓴다 |
 | 관제 | 작업 중인 팀원·작업이 좌석표(가상 오피스)에 나타나야 한다(§9) | 여러 팀원이 동시에 돌 때 사람이 한눈에 봐야 한다 |
-| 플랫폼 | 이 문서·`references/backends.md`의 셸 블록은 macOS·Linux·Windows(Git Bash, MSYS)에서 같은 절차로 돌고, 다른 것만 블록 안에서 `uname -s` 로 가른다. `--backend` 처럼 플랫폼별 분기를 사람에게 넘기지 않는다(§13) | 담당자 PC 가 Windows 일 수 있고, 분기를 코드 밖으로 빼면 두 플랫폼이 서로 다른 절차를 밟게 된다 |
+| 플랫폼 | 이 문서·`references/backends.md`의 셸 블록은 macOS·Linux·Windows(Git Bash, MSYS)에서 같은 절차로 돌고, 다른 것만 블록 안에서 `uname -s` 로 가른다. `--backend` 처럼 플랫폼별 분기를 사람에게 넘기지 않는다(§13) | 담당자 PC 가 Windows 일 수 있고, 분기를 코드 밖으로 빼면 두 플랫폼이 서로 다른 절차를 밟게 된다. GitHub Actions Windows 러너로 실측 확인했다(2026-09-15) |
 
 ## 3. 전제 사실
 
@@ -213,20 +213,27 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
     세션 프로세스를 가리키고, 컨텍스트 압축 뒤에도 바뀌지 않는다. 그래서 `LEAD_PID=${CLAUDE_PID:-$PPID}` 로
     "지금 이 팀장 세션" 을 가리킬 수 있고, 팀장 잠금의 소유 판정(§4-4)이 이 값을 쓴다. `$PPID` 로만
     폴백하지 않는 이유는 Windows 의 Git Bash 가 부모를 Cygwin 프로세스로 보지 않으면 `$PPID` 를 1 로
-    보고해, `CLAUDE_PID` 없이는 팀장마다 같은 PID 를 갖게 되기 때문이다(§3-24, 설계 전제·실측 전).
+    보고해, `CLAUDE_PID` 없이는 팀장마다 같은 PID 를 갖게 되기 때문이다(§3-24). Windows 에서 `CLAUDE_PID`
+    가 비어 있으면 전제 검사가 `NO_CLAUDE_PID` 로 중단한다.
 23. **git push 실패는 모양으로 가를 수 있다.** git 2.50 실측: 경합은 `! [rejected] … (fetch first)` 또는
     `(non-fast-forward)` 줄을 남기고 1 로 끝난다. 로컬 pre-push 훅의 거부는 훅 출력과
     `error: failed to push some refs` 만 남기고 1 로 끝나며 고정 문구가 없다. 원격에 닿지 못하면 `fatal:` 로
     128 이다. 서버 훅의 거부는 `! [remote rejected] … (… hook declined)` 를 남기는 알려진 모양이며(실측하지
     않았다) 역시 경합 문구가 없다. 그래서 경합은 문구로, 훅 거부는 "경합 문구 없는 1" 로 가른다(§6-4).
-24. **Windows(Git Bash)의 전제는 설계 전제이며 실측 전이다.** Windows PC 실측(계획서 Task 11, 판정 기록
-    문서의 「Windows 리허설(미실시)」)으로 검증해야 한다. hostname.exe 에는 `-s` 옵션이 없어 호스트 이름은
-    `hostname` 의 첫 점 앞부분으로 통일한다(macOS·Linux 의 `hostname -s` 와 같은 값). MSYS `ps` 에는 `-o`
-    가 없어 `ps -o lstart=`·`ps -o command=` 같은 호출을 쓸 수 없고, 대신 `ps -p` 출력의 머리글 줄에서
-    `WINPID` 열의 위치를 찾아(고정 폭을 가정하지 않는다. 상태 글자가 첫 칸에 붙으면 한 칸 밀린다) 그
-    열을 PowerShell 로 넘긴다. 부모가 Cygwin 프로세스가 아니면 `$PPID` 가
-    1 이다(§3-22). `ln -s` 는 심링크 대신 복사본을 만들지만 `.env`·스킬 참조는 정적 파일이라 복사본으로도
-    동작한다. 자세한 항목은 §13.
+24. **Windows(Git Bash)의 전제는 GitHub Actions Windows 러너에서 실측했다(2026-09-15).** hostname.exe 에는
+    `-s` 옵션이 없어 호스트 이름은 `hostname` 의 첫 점 앞부분으로 통일한다(macOS·Linux 의 `hostname -s` 와
+    같은 값. 확인됨). MSYS `ps` 에는 `-o` 가 없어 `ps -o lstart=`·`ps -o command=` 같은 호출을 쓸 수 없고,
+    대신 `ps -p` 출력의 머리글 줄에서 `WINPID` 열의 위치를 찾아(고정 폭을 가정하지 않는다. 상태 글자가 첫
+    칸에 붙으면 한 칸 밀린다) 그 열을 PowerShell 로 넘긴다. 원문 awk 가 이 열을 정확히 뽑는 것을 확인했다.
+    부모가 Cygwin 프로세스가 아니면 `$PPID` 가 1 이다(§3-22. 확인됨). `ln -s` 는 심링크 대신 복사본을
+    만들며(확인됨), `.env`·스킬 참조는 정적 파일이라 복사본으로도 동작한다. `$!` 에 보낸 `kill` 이 네이티브
+    자식(node.exe·`claude`)까지 끝내는 신호 전달도 확인됐다. 권한 확인 생략 감지(`Get-CimInstance
+    Win32_Process` 의 `CommandLine`)는 Windows PID 로 조회할 때만 값이 보이고, MSYS pid 나 `$PPID` 폴백값
+    (1)으로 조회하면 에러 없이 빈 결과가 나와 오판하는 것까지 확인됐다(§4-4 「팀장 잠금」). 줄끝 대책
+    (`.gitattributes` 로 `eol=lf` 고정)의 효과는 이 세션에서 git 2.54(Apple)로 직접 재현해 확인했고, Git
+    for Windows(git 2.55)에서의 독립 확인은 하지 않았다. `CLAUDE_PID` 자체가 실제 Windows Claude Code
+    세션에서 채워지는지는 존재 미확인이며, 없으면 `NO_CLAUDE_PID` 로 시작하지 못한다. 그 밖에 auto 모드
+    권한 프롬프트의 형태와 Orca(Windows) pane 백엔드 동작도 미확인이다. 자세한 항목은 §13.
 
 ## 4. 팀장 절차
 
@@ -366,7 +373,8 @@ id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 
      통과한 뒤 블록의 마지막 단계에서 `mkdir` 로 획득한다. `mkdir` 는 원자적이라 동시에 시작한 팀장 둘 중
      하나만 성공한다. 실패한 검사가 잠금을 남기지 않게 하려고 마지막에 둔다. 획득하면 그 안에 소유자 정보
      `owner` 한 줄 `<신원>/<host>/lead <epoch> <PID>`(시작 시각의 epoch 초와 팀장 세션 PID)와 `beat`(epoch
-     초)를 쓴다. PID 는 팀장 세션 프로세스의 PID(`LEAD_PID=${CLAUDE_PID:-$PPID}`)다(§3-22). **소유 판정**은
+     초)를 쓴다. PID 는 팀장 세션 프로세스의 PID(`LEAD_PID=${CLAUDE_PID:-$PPID}`)다(§3-22). Windows 에서
+     `CLAUDE_PID` 가 비어 있으면 전제 검사가 `NO_CLAUDE_PID` 로 중단한다. **소유 판정**은
      "`owner` 의 신원이 자기 `<신원>/<host>/lead` 이고 PID 가 현재 `LEAD_PID` 와 같다" 이다. 이유: 잠금은
      체크아웃마다 하나라서 잠금을 가져간 다른 팀장도 신원·host·리포가 같고, 신원만으로는 누구의 잠금인지
      가려내지 못한다. 시작 시각은
@@ -926,7 +934,10 @@ AskUserQuestion 이 답을 받지 못한다. 억제 계약은 두 백엔드에�
        스택을 알아봐, 승인되지 않은 선행 위의 후손만 머지하지 않는다.
   - `dflow-work/scripts/dflow.sh`: 환경에 `DFLOW_PATS`·`DFLOW_PAT` 가 모두 없고 `${DFLOW_ENV_FILE:-./.env}`
     파일이 있으면 그것을 소싱해 `.env` 를 스스로 읽는다. 이미 export 된 값은 건드리지 않으므로 수동
-    동작은 그대로다. `poll.sh` 는 자체 소싱 뒤 dflow.sh 를 부르므로 이 자동 로드가 건너뛰어진다.
+    동작은 그대로다. `poll.sh` 는 자체 소싱 뒤 dflow.sh 를 부르므로 이 자동 로드가 건너뛰어진다. 소싱한
+    값은 무조건 `\r` 을 걷어낸다. Windows 편집기가 `.env` 를 CRLF 로 저장하면 값 끝에 `\r` 이 남아 URL·
+    Authorization 헤더를 깨뜨릴 수 있는데, `.env` 는 커밋되지 않아 `.gitattributes` 로는 방어되지 않기
+    때문이다. 좌석표 heartbeat 훅(`kit/hooks/heartbeat.sh`, 아직 서버 미구현·§3-17)도 같은 방어를 진다.
   - `/dflow-poll`·`poll.sh`: 고치지 않는다.
 - **보존 테스트**: "의도한 수정 목록에 없는 원문 줄은 보존된다" 를 단언한다. fixture 에서 의도적으로
   바꾸거나 지우는 줄을 테스트 파일에 명시 목록으로 두고, 나머지 줄은 같은 순서로 남아 있어야 한다.
@@ -1337,10 +1348,16 @@ AskUserQuestion 이 답을 받지 못한다. 억제 계약은 두 백엔드에�
 SKILL.md 와 같은 심링크 배포 경로로 대상 리포에 나가므로 킷 밖 참조가 있으면 다른 PC 에서 깨진다.
 
 킷 쪽 변경(별도 커밋):
-- `scripts/kit-build.sh`: 대상 목록(`SKILLS`)에 `dflow-team` 을 추가한다.
+- `scripts/kit-build.sh`: 대상 목록(`SKILLS`)에 `dflow-team` 을 추가하고, `kit/.gitattributes` 를 킷
+  산출물에 포함시킨다.
 - `kit/install.sh`: 대상 리포 `.claude/settings.json` 의 `permissions.allow` 에 §8 권한 준비의 목록
   (`kit/worker-allow.json`)을 병합한다. 이미 있는 항목은 두고 없는 것만 더한다. 이유: 프로세스 팀원이
   비대화형이라 권한 확인이 필요한 명령에서 거부되지 않게 하는 1차 방어선을 설치 한 번으로 깐다(§3-7).
+  대상 리포에 `.claude/skills/** text eol=lf` 를 넣어 스킬 줄끝을 LF 로 고정한다.
+- `kit/.gitattributes`: 킷 루트에 `* text=auto eol=lf` 를 둔다. Windows 기본 `core.autocrlf=true` 클론이
+  스크립트를 CRLF 로 바꾸는 것을 막는 대책이며, 효과는 git 2.54 재현으로 확인했다(§3-24).
+- `kit/README.md`: 「Windows(Git Bash)」 절에서 위 두 `.gitattributes` 와 `dflow.sh`·heartbeat 훅의 `.env`
+  값 `\r` 제거, `CLAUDE_PID` 가 없으면 `NO_CLAUDE_PID` 로 시작하지 못한다는 점을 안내한다.
 
 ## 11. 검증 (리허설)
 
@@ -1526,8 +1543,7 @@ D'Flow 를 향한 리허설로 검증한다.
   events.jsonl 과 화면 통지뿐이라, 터미널을 보고 있지 않으면 팀 전체가 조용히 멈춘 것을 모른다.
   "N분간 진척 없음" 통지는 v1 에 넣지 않는다.
 - **후속**: tmux pane 백엔드(dev-plugin 로드 실패 수정 뒤), 심링크 고정 워크트리(위), 실제 두 신원·두 PC
-  리허설, Windows(Git Bash) 리허설(§13 은 설계 전제이며 실측 전이다. 계획서 Task 11, 판정 기록 문서의
-  「Windows 리허설(미실시)」).
+  리허설, Windows 실제 세션 확인 3항(`CLAUDE_PID` 존재, auto 모드 권한 프롬프트 형태, Orca(Windows)).
 
 ## 13. 플랫폼
 
@@ -1544,21 +1560,27 @@ bash 는 `/c/…` 형으로 보여 같은 위치가 다른 문자열이 되기 �
 | 항목 | macOS·Linux | Windows(Git Bash) |
 |---|---|---|
 | 호스트 이름 | `hostname` 의 첫 점 앞부분(`hostname \| cut -d. -f1`) | 같다. Windows 의 hostname.exe 에는 `-s` 가 없다 |
-| 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`, §3-22) | `CLAUDE_PID`. `$PPID` 는 부모가 Cygwin 프로세스가 아니면 1 이다 |
+| 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`, §3-22) | `CLAUDE_PID`(필수. 없으면 전제 검사가 `NO_CLAUDE_PID` 로 중단). `$PPID` 는 부모가 Cygwin 프로세스가 아니면 1 이다 |
 | 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 출력의 머리글에서 `WINPID` 열 위치를 찾아(고정 폭 아님) Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
 | 권한 확인 생략 감지 | `ps -o command=` | PowerShell `Get-CimInstance Win32_Process` 의 `CommandLine` |
-| `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다: `.env` 는 정적이고 스킬은 읽기 전용이며, 고아 정리 규칙 1번의 알려진 부산물 정규식이 `.claude/skills/dflow-(dev\|work)/…` 하위 파일까지 허용한다. 대가로 팀장이 스킬을 고쳐도 이미 뜬 팀원의 복사본에는 반영되지 않는다 |
+| `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다: `.env` 는 정적이고 스킬은 읽기 전용이며, 고아 정리 규칙 1번의 알려진 부산물 정규식이 `.claude/skills/dflow-(dev\|work)/…` 하위 파일까지 허용한다. 대가로 팀장이 스킬을 고쳐도 이미 뜬 팀원의 복사본에는 반영되지 않는다. `MSYS=winsymlinks:nativestrict` 를 주면 진짜 심링크가 되지만 설계는 복사본을 전제로 한다 |
+| 줄끝 | 해당 없음 | Windows 기본 `core.autocrlf=true` 클론은 스크립트를 CRLF 로 바꾼다. 킷과 설치 대상의 `.gitattributes` 가 LF 로 고정하고, `dflow.sh`·heartbeat 훅이 `.env` 값의 `\r` 을 걷어낸다 |
 | 필요한 명령 | bash·coreutils·ps·git·jq·curl | Git for Windows 의 bash·coreutils·ps 와 git·jq·curl·powershell.exe |
 
-프로세스 생존 확인(`kill -0`)과 회수(`kill`)는 두 플랫폼에서 같은 명령이다. Windows 에서 `$!` 는 팀원을
-띄운 Cygwin 프로세스이며, Cygwin 이 그 프로세스에 보낸 신호를 네이티브 자식(claude)에 전달한다. 이 전달이
-실제로 되는지는 Windows 리허설이 확인한다.
+프로세스 생존 확인(`kill -0`)과 회수(`kill`)는 두 플랫폼에서 같은 명령이다. `$!` 에 보낸 `kill` 이 네이티브
+자식(node.exe·claude)까지 끝내는 것을 GitHub Actions Windows 러너(Windows Server 2025, Git 2.55, bash
+5.3)에서 확인했다. npm 심(`#!/bin/sh` 스크립트가 `exec node …`)과 네이티브 `claude.exe` 모두 같다.
+`pstart` 는 PowerShell 기동 때문에 호출당 0.4~0.5초 든다. 슬롯 수 × 기상 횟수만큼 누적되지만 허용
+범위다.
 
 **킷**: `dflow.sh` 의 agent 라벨과 poll·heartbeat 식별자는 `host_short()`(호스트 이름을 위 규칙으로 구하는
 함수, `dflow.sh`·`kit/hooks/heartbeat.sh` 공통)를 쓴다. `install.sh` 의 의존 점검은 `python3` 이 없으면
 `python` 을 받아들이고 Windows 설치 안내(`winget`·`scoop`, `python3` 은 `python` 으로 대신할 수 있다는
-점)를 낸다.
+점)를 낸다. 킷 루트의 `.gitattributes`(`* text=auto eol=lf`)와 install.sh 가 대상 리포에 넣는
+`.claude/skills/** text eol=lf` 가 줄끝을 LF 로 고정하고, README 「Windows(Git Bash)」 절이 이를 안내한다.
 
-**실측 여부**: 이 절은 설계 전제이며 Windows PC 실측 전이다(§3-24). 실측 항목과 절차는 계획서 Task 11,
-판정 기록 문서의 「Windows 리허설(미실시)」 절에 있다. 실측 뒤에는 그 결과를 여기와 §3-24 에 사실로
-옮긴다.
+**실측**: 이 절은 GitHub Actions Windows 러너(`windows-latest`, dflow-kit `windows-probe.yml`,
+2026-09-15)에서 실측했다. 줄끝 대책(`.gitattributes` 의 `eol=lf`)의 효과는 러너가 아니라 이 세션의 git
+2.54(Apple) 직접 재현이 근거이며, Git for Windows(git 2.55)에서의 독립 확인은 하지 않았다. 실제 Windows
+Claude Code 세션에서 `CLAUDE_PID` 가 채워지는지, auto 모드 권한 프롬프트의 형태, Orca(Windows) pane
+백엔드 동작은 러너로 잴 수 없어 미확인이다.
