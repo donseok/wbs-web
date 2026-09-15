@@ -72,6 +72,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.colOwners': 'Owner team',
   'wbs.colAssignee': 'Assignee',
   'wbs.colStatus': 'Progress',
+  'wbs.colStage': 'Stage',
   'wbs.colDeliverable': 'Deliverable',
   'wbs.colPlannedStart': 'Plan start',
   'wbs.colPlannedEnd': 'Plan end',

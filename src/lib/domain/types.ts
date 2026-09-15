@@ -34,6 +34,8 @@ export interface WbsRow {
    * 빠뜨렸을 때의 방향은 fail-closed 다 — spec 선행이 '대기'로 보일 뿐 '시작 가능'으로 뒤집히지 않는다.
    */
   stage?: string | null
+  /** 에이전트 위임(tags 에 'agent') 여부 — WBS 「단계」 컬럼 표시 조건(스펙 2026-09-15 D9). 선택 필드인 이유는 stage 와 같다. */
+  agentDelegated?: boolean
   /**
    * 개인 담당자(project_members.id, §항목1 2026-09-15). team(owners)과 별개 축 — 팀 컬럼을
    * 대체하지 않고 병존한다. stage 와 같은 이유로 선택 필드다: 필수로 올리면 WbsRow 리터럴을

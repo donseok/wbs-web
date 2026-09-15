@@ -78,6 +78,7 @@ export const wbsKo = {
   'wbs.colOwners': '담당팀',
   'wbs.colAssignee': '담당자',
   'wbs.colStatus': '진척',
+  'wbs.colStage': '단계',
   'wbs.colDeliverable': '산출물',
   'wbs.colPlannedStart': '계획시작',
   'wbs.colPlannedEnd': '계획종료',
