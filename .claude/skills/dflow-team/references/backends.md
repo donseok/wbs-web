@@ -203,12 +203,23 @@ git worktree remove --force "$WT"
 | 항목 | macOS·Linux | Windows(Git Bash) |
 |---|---|---|
 | 호스트 이름 | `hostname` 의 첫 점 앞부분(`hostname \| cut -d. -f1`) | 같다. Windows 의 hostname.exe 에는 `-s` 가 없다 |
-| 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) | `CLAUDE_PID`. `$PPID` 는 부모가 Cygwin 프로세스가 아니라 1 이다 |
+| 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) | `CLAUDE_PID`(필수. 없으면 전제 검사가 `NO_CLAUDE_PID` 로 중단). `$PPID` 는 부모가 Cygwin 프로세스가 아니면 1 이다 |
 | 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 의 WINPID 열(머리글로 위치를 찾는다)로 Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
 | 권한 확인 생략 감지 | `ps -o command=` | PowerShell `Get-CimInstance Win32_Process` 의 `CommandLine` |
 | `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다(「프로세스」 spawn) |
 | 필요한 명령 | bash·coreutils·ps·git·jq·curl | Git for Windows 의 bash·coreutils·ps 와 git·jq·curl·powershell.exe |
 
-프로세스 생존 확인(`kill -0`)과 회수(`kill`)는 두 플랫폼에서 같은 명령이다. Windows 에서 `$!` 는 팀원을 띄운
-Cygwin 프로세스이며, Cygwin 이 그 프로세스에 보낸 신호를 네이티브 자식(claude)에 전달한다. Windows 의 실제
-동작은 Windows 리허설이 확인한다.
+프로세스 생존 확인(`kill -0`)과 회수(`kill`)는 두 플랫폼에서 같은 명령이다.
+
+- **신호 전달**: `$!` 에 보낸 `kill` 이 네이티브 자식(node.exe·claude)까지 끝내는 것을 GitHub Actions
+  Windows 러너(Windows Server 2025, Git 2.55, bash 5.3)에서 확인했다. npm 심(`#!/bin/sh` 스크립트가
+  `exec node …`)과 네이티브 `claude.exe` 모두 같다.
+- **`pstart` 비용**: PowerShell 기동 때문에 호출당 0.4~0.5초 든다. 슬롯 수 × 기상 횟수만큼 누적되지만
+  허용 범위다.
+- **`ln -s`**: 복사본을 만든다(파일·폴더 모두). `MSYS=winsymlinks:nativestrict` 를 주면 진짜 심링크가
+  되지만 설계는 복사본을 전제로 한다.
+- **줄끝**: Windows 기본 `core.autocrlf=true` 클론은 스크립트를 CRLF 로 바꾼다. 킷과 설치 대상의
+  `.gitattributes`(install.sh 가 넣는다)가 LF 로 고정하고, `dflow.sh`·heartbeat 훅이 `.env` 값의 `\r`
+  을 걷어낸다.
+- **미확인**: 실제 Windows Claude Code 세션의 Bash 도구가 `CLAUDE_PID` 를 내보내는지는 러너에서 잴 수
+  없었다(세션이 없다). 그래서 전제 검사가 `NO_CLAUDE_PID` 로 막는다(SKILL.md 「1. 시작」 전제 검사).

@@ -75,6 +75,7 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
   it('플랫폼 차이 절: Windows(Git Bash) 는 uname 분기·CLAUDE_PID·pstart·복사본 링크로 같은 절차를 돈다', () => {
     expect(b()).toContain('## 플랫폼 차이')
     expect(b()).toContain('| 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) |')
+    expect(b()).toContain('NO_CLAUDE_PID') // CLAUDE_PID 없으면 전제 검사가 fail-closed 로 막는다(SKILL.md 와 같은 사실)
     expect(b()).toContain('`ln -s` 가 복사본을 만든다')
     expect(b()).not.toContain('ps -o lstart= -p "$(cat .dflow-pid)"')
     expect(b()).toContain('pstart "$(cat .dflow-pid)" >> .dflow-pid')
