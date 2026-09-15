@@ -21,6 +21,8 @@
 - 에러 처리 3원칙: 조회 실패를 "없음"으로 위장하지 않는다, 쓰기 전 선행 조회 실패는 중단, 가드는 fail-closed.
 - 검증 명령: `npm run lint`, `npx tsc --noEmit`, `npm run test`(vitest run). 단일 파일은 `npx vitest run <path>`.
 - 이 환경에서는 `Agent` 도구(서브에이전트)가 뜨지 않는다(tmux shim). **인라인 실행**(executing-plans) 으로 진행한다.
+- **실행 순서**: Task 0 → 1 → 6 → 2 → 3 → 4a → 4b → 4c → 4d → 5 → 7 → 8 → 9. 「단계」 컬럼(Task 6)은 0096·RPC 와 의존이 없고 사용자가 이번에 직접 요청한 것이라 먼저 한다. staging 머지는 전부 끝낸 뒤 한 번(사용자 규칙 — 단계마다 머지하지 않는다).
+- **잠금 조건**(사람의 단계 지정과 실적 100 입력을 막는다) = 위임됨(`tags ∋ 'agent'`) ∨ 주문 status ∈ {claimed, reported}. ready 는 넣지 않는다 — `ensureOrderForWorkflowLeaf` 가 dev_workflow 리프마다 배정과 무관하게 ready 주문을 상주시킨다. 위임은 넣는다 — 위임된 ready 주문은 `/dflow-poll` 이 자동 claim 해 사람이 찍은 완료를 덮어쓴다. 정의는 `stageLockedForHuman`(Task 2) 하나이고 SQL 은 같은 조건을 복제해 테스트가 대조한다. 허브는 서버가 계산한 `HubRow.stageLocked` 만 읽는다.
 
 ---
 
@@ -119,7 +121,8 @@ git commit -m "feat(wbs): 「상태」 컬럼 헤더를 「진척」으로 — �
 - `STAGE_CODES: readonly ['as','ip','im','xx']`, `type StageCode`, `STAGE_LABEL_KO`, `STAGE_NONE_LABEL_KO`, `isStageCode(v): v is StageCode`, `stageLabelKo(stage: string|null): string`
 - `type CreditKey = 'as'|'ip'|'rw'|'im'|'xx'`, `type CreditTable = Record<CreditKey, number>`, `type StageCredits = { default: CreditTable; if?: CreditTable; doc?: CreditTable }`, `DEFAULT_STAGE_CREDITS`, `CREDIT_STEP=5`, `CREDIT_GAP=10`, `validateStageCredits(raw: unknown): {ok:true; credits} | {ok:false; error}`, `type CreditEvent`, `EVENT_CREDIT`, `creditForKey(key, credits|null, creditKey|null): number`, `clampCredit(raw, key, table): number`
 - `REACHED_STAGES: ReadonlySet<string>`, `predecessorReached({ stage, orderApproved?, actualPct? }): boolean`
-- `WbsRow.agentDelegated?: boolean`
+- `AGENT_HELD_ORDER_STATUSES: readonly ['claimed','reported']`, `stageLockedForHuman({ delegated: boolean; orderStatus: string | null }): boolean`
+- `HubRow.stageLocked: boolean`
 
 - [ ] **Step 1: 라벨 정본 테스트**
 
@@ -217,7 +220,7 @@ describe('clampCredit — 슬라이더 핸들 제약', () => {
 ```ts
 // tests/domain/predecessor-reached.test.ts
 import { describe, expect, it } from 'vitest'
-import { REACHED_STAGES, STAGE_ORDER, predecessorReached } from '@/lib/domain/agentWork'
+import { AGENT_HELD_ORDER_STATUSES, REACHED_STAGES, STAGE_ORDER, predecessorReached, stageLockedForHuman } from '@/lib/domain/agentWork'
 
 describe('predecessorReached — 선행 충족 세 축(스펙 §3.7)', () => {
   it('stage im·xx', () => {
@@ -237,6 +240,23 @@ describe('predecessorReached — 선행 충족 세 축(스펙 §3.7)', () => {
   it('fp 는 어휘에 없다', () => {
     expect([...STAGE_ORDER]).toEqual(['as', 'ip', 'im', 'xx'])
     expect(REACHED_STAGES.has('fp')).toBe(false)
+  })
+})
+
+describe('stageLockedForHuman — 사람 단계 지정·실적 100 잠금(스펙 §3.5)', () => {
+  it('에이전트가 쥔 주문 status 는 claimed·reported 뿐 — ready 는 dev_workflow 리프마다 상주한다', () => {
+    expect([...AGENT_HELD_ORDER_STATUSES]).toEqual(['claimed', 'reported'])
+  })
+  it('위임됐으면 주문 status 와 무관하게 잠긴다', () => {
+    expect(stageLockedForHuman({ delegated: true, orderStatus: null })).toBe(true)
+    expect(stageLockedForHuman({ delegated: true, orderStatus: 'ready' })).toBe(true)
+  })
+  it('위임이 없으면 claimed·reported 만 잠근다', () => {
+    expect(stageLockedForHuman({ delegated: false, orderStatus: 'ready' })).toBe(false)
+    expect(stageLockedForHuman({ delegated: false, orderStatus: 'approved' })).toBe(false)
+    expect(stageLockedForHuman({ delegated: false, orderStatus: null })).toBe(false)
+    expect(stageLockedForHuman({ delegated: false, orderStatus: 'claimed' })).toBe(true)
+    expect(stageLockedForHuman({ delegated: false, orderStatus: 'reported' })).toBe(true)
   })
 })
 ```
@@ -391,9 +411,21 @@ export function predecessorReached(p: { stage: string | null; orderApproved?: bo
   if (p.orderApproved === true) return true
   return typeof p.actualPct === 'number' && Number.isFinite(p.actualPct) && p.actualPct >= 100
 }
+
+/** 에이전트가 쥐고 있는 주문 status — ready 는 dev_workflow 리프마다 상주하므로 넣지 않는다(스펙 §3.5). */
+export const AGENT_HELD_ORDER_STATUSES = ['claimed', 'reported'] as const
+
+/**
+ * 사람의 단계 지정·실적 100 입력 잠금(§3.5·§3.6) = 위임됨 ∨ 에이전트가 주문을 쥠. 위임된 ready 주문은
+ * /dflow-poll 이 자동 claim 하므로 잠그지 않으면 사람이 찍은 완료가 claim 사건으로 되돌아간다.
+ * RPC apply_workflow_event 의 set_stage 가 같은 조건을 SQL 로 복제한다(tests/migrations/0096 이 대조).
+ */
+export function stageLockedForHuman(p: { delegated: boolean; orderStatus: string | null }): boolean {
+  return p.delegated || (p.orderStatus !== null && (AGENT_HELD_ORDER_STATUSES as readonly string[]).includes(p.orderStatus))
+}
 ```
 
-`src/lib/domain/waitReason.ts`: `import { stageAtLeast }` → `import { predecessorReached } from './agentWork'` + `import { stageLabelKo } from './stageLabels'`. `STAGE_LABEL` 은 허브 표(`DelegationTable`)가 Task 5 까지 쓰므로 남기되 `fp` 키만 지운다. `stageText` 는 `stage === null ? '단계 없음' : \`${stage}(${stageLabelKo(stage)})\``. `PredecessorLike` 에 `actual_pct: number | null` 추가. `unmetDepends` 의 판정을 `if (predecessorReached({ stage: p.stage, orderApproved: p.order_approved, actualPct: p.actual_pct })) continue` 로. 대기 사유 문구 `선행이 im(구현) 단계 이상이 되거나 그 주문이 승인돼야` → `선행이 검수 대기(im) 이상이거나, 그 주문이 승인됐거나, 실적이 100% 여야`.
+`src/lib/domain/waitReason.ts`: `import { stageAtLeast }` → `import { predecessorReached } from './agentWork'` + `import { stageLabelKo } from './stageLabels'`. `STAGE_LABEL` 은 허브 표(`DelegationTable`)가 Task 5 까지 쓰므로 남기되 `fp` 키만 지운다. `stageText` 는 `stage === null ? '단계 없음' : \`${stage}(${stageLabelKo(stage)})\``. `PredecessorLike` 에 `actual_pct?: number | null` 추가(선택 — `WbsRow.stage` 를 선택으로 둔 이유와 같다). `unmetDepends` 의 판정을 `if (predecessorReached({ stage: p.stage, orderApproved: p.order_approved, actualPct: p.actual_pct })) continue` 로. 대기 사유 문구 `선행이 im(구현) 단계 이상이 되거나 그 주문이 승인돼야` → `선행이 검수 대기(im) 이상이거나, 그 주문이 승인됐거나, 실적이 100% 여야`.
 
 `src/lib/domain/dependencyReadiness.ts`: import 를 `predecessorReached` 로 바꾸고 69~74행을
 
@@ -405,20 +437,15 @@ export function predecessorReached(p: { stage: string | null; orderApproved?: bo
         : predecessor.rolledActualPct >= 100
 ```
 
-주석의 `stageAtLeast(stage, 'im')` 설명도 "stage im·xx 또는 실적 100(predecessorReached — claim 게이트와 같은 함수)" 로 고친다. `src/lib/domain/types.ts:31-36` 의 stage 주석에서 `'fp'` 를 빼고 그 아래에
+주석의 `stageAtLeast(stage, 'im')` 설명도 "stage im·xx 또는 실적 100(predecessorReached — claim 게이트와 같은 함수)" 로 고친다. `src/lib/domain/types.ts:31-36` 의 stage 주석에서 `'fp'` 를 뺀다.
 
-```ts
-  /** 에이전트 위임(tags 에 'agent') 여부 — WBS 「단계」 컬럼 표시 조건(D9). 선택 필드인 이유는 stage 와 같다. */
-  agentDelegated?: boolean
-```
-
-`src/lib/domain/agentHub.ts:189` 의 `byRef` 콜백이 만드는 `PredecessorLike` 에 `actual_pct: p.actual_pct` 를 넣는다(`AgentHubItem` 타입에 `actual_pct: number | null` 이 없으면 추가하고 `src/lib/data/agentHub.ts` 조회 select 에 `actual_pct` 를 더한다).
+`src/lib/domain/agentHub.ts:189` 의 `byRef` 콜백이 만드는 `PredecessorLike` 에 `actual_pct: p.actual_pct` 를 넣는다(`HubItemRow.actual_pct` 는 이미 있다). 같은 루프에서 `HubRow` 에 `stageLocked: stageLockedForHuman({ delegated, orderStatus: picked?.status ?? null })` 를 싣는다(`HubRow` 타입에 `stageLocked: boolean` 추가, stage 주석의 fp 제거).
 
 - [ ] **Step 5: 기존 테스트 갱신**
 
-- `tests/domain/wait-reason.test.ts`: fp 케이스 삭제, `stageText('im')` 기대를 `'im(검수 대기)'` 로, `PredecessorLike` 픽스처에 `actual_pct: null` 추가, 실적 100 선행이 충족되는 케이스 1개 추가.
+- `tests/domain/wait-reason.test.ts`: fp 케이스 삭제, `stageText('im')` 기대를 `'im(검수 대기)'` 로, 실적 100 선행이 충족되는 케이스 1개 추가.
 - `tests/domain/dependency-readiness.test.ts`: spec 링크에서 선행 `stage: null, rolledActualPct: 100` 이면 satisfied 인 케이스 추가, fp 참조 제거.
-- `tests/domain/agent-hub.test.ts`·`tests/data/agent-hub.test.ts`·`tests/data/agent-seatmap.test.ts`: fp 픽스처를 ip 로.
+- `tests/domain/agent-hub.test.ts`·`tests/data/agent-hub.test.ts`·`tests/data/agent-seatmap.test.ts`: fp 픽스처를 ip 로. `tests/domain/agent-hub.test.ts` 에는 `stageLocked` 케이스(위임 행 true, 미위임 + ready 주문 행 false, 미위임 + reported 주문 행 true)를 더한다.
 
 - [ ] **Step 6: 통과 확인**
 
@@ -428,7 +455,7 @@ Expected: PASS, tsc 오류 0 (`stageAtLeast`·`STAGE_LABEL` 을 남겨 두어 �
 - [ ] **Step 7: 커밋**
 
 ```bash
-git add src/lib/domain/stageLabels.ts src/lib/domain/stageCredits.ts src/lib/domain/agentWork.ts src/lib/domain/waitReason.ts src/lib/domain/dependencyReadiness.ts src/lib/domain/types.ts src/lib/domain/agentHub.ts tests/domain/stage-labels.test.ts tests/domain/stage-credits.test.ts tests/domain/predecessor-reached.test.ts tests/domain/wait-reason.test.ts tests/domain/dependency-readiness.test.ts
+git add src/lib/domain/stageLabels.ts src/lib/domain/stageCredits.ts src/lib/domain/agentWork.ts src/lib/domain/waitReason.ts src/lib/domain/dependencyReadiness.ts src/lib/domain/types.ts src/lib/domain/agentHub.ts tests/domain/stage-labels.test.ts tests/domain/stage-credits.test.ts tests/domain/predecessor-reached.test.ts tests/domain/wait-reason.test.ts tests/domain/dependency-readiness.test.ts tests/domain/agent-hub.test.ts
 git commit -m "feat(domain): 단계 라벨 정본·크레딧 표 검증·선행 충족 세 축 — fp 제거"
 ```
 
@@ -443,7 +470,7 @@ git commit -m "feat(domain): 단계 라벨 정본·크레딧 표 검증·선행 
 
 **Interfaces (Produces):** `public.apply_workflow_event(p_event text, p_actor uuid, p_item_id uuid = null, p_order_id uuid = null, p_stage text = null, p_agent text = null, p_agent_user_id uuid = null) returns jsonb`
 
-반환 jsonb: `{ ok, conflict?, reason?, order_status, stage, actual_pct, stage_changed, actual_changed, reached_first, skipped }`. 실패 reason: `bad_event | item_required | item_not_found | order_required | order_not_found | order_item_mismatch | bad_stage | not_workflow | parent | active_order`. skipped: `parent | not_workflow | stage | no_item | null`.
+반환 jsonb: `{ ok, conflict?, reason?, order_status, stage, actual_pct, stage_changed, actual_changed, reached_first, skipped }`. 실패 reason: `bad_event | item_required | item_not_found | order_required | order_not_found | order_item_mismatch | bad_stage | not_workflow | parent | locked`. skipped: `parent | not_workflow | stage | no_item | null`.
 
 - [ ] **Step 1: 마이그레이션 테스트 작성**
 
@@ -452,6 +479,7 @@ git commit -m "feat(domain): 단계 라벨 정본·크레딧 표 검증·선행 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_STAGE_CREDITS } from '@/lib/domain/stageCredits'
+import { AGENT_HELD_ORDER_STATUSES } from '@/lib/domain/agentWork'
 
 const s = () => readFileSync('supabase/migrations/0096_wbs_stage_credits.sql', 'utf8')
 const r = () => readFileSync('supabase/migrations/0096_wbs_stage_credits_rollback.sql', 'utf8')
@@ -492,6 +520,12 @@ describe('0096 진척·단계·크레딧 — 크레딧 컬럼·fp 제거·원자
     expect(body).toContain('from public.agent_work_orders where id = p_order_id for update')
     expect(body).toContain("when 'approve' then 'reported'")
     expect(body).toContain("'conflict', true")
+  })
+  it('set_stage 잠금 조건이 도메인 stageLockedForHuman 과 같다(위임 태그 ∨ claimed·reported)', () => {
+    const body = s()
+    expect(body).toContain("'agent' = any(coalesce(v_tags, '{}'::text[]))")
+    expect(body).toContain(`status in (${AGENT_HELD_ORDER_STATUSES.map(x => `'${x}'`).join(',')})`)
+    expect(body).toContain("'reason', 'locked'")
   })
   it('rollback 이 함수·컬럼을 지우고 CHECK 를 fp 포함으로, import RPC 를 0089 본문으로 되돌린다', () => {
     const rb = r()
@@ -568,6 +602,7 @@ declare
   v_old_pct numeric;
   v_dev_workflow boolean;
   v_item_credit_key text;
+  v_tags text[];
   v_is_leaf boolean := false;
   v_expect text;
   v_next text;
@@ -634,8 +669,8 @@ begin
 
   -- 항목 잠금. 주문 사건에서 항목이 지워진 주문이면 단계·실적만 건너뛴다(주문 전이는 한다).
   if v_item_id is not null then
-    select project_id, stage, actual_pct, dev_workflow, credit_key
-      into v_project_id, v_old_stage, v_old_pct, v_dev_workflow, v_item_credit_key
+    select project_id, stage, actual_pct, dev_workflow, credit_key, tags
+      into v_project_id, v_old_stage, v_old_pct, v_dev_workflow, v_item_credit_key, v_tags
       from public.wbs_items where id = v_item_id for update;
     v_item_found := found;
     if v_item_found then
@@ -692,10 +727,12 @@ begin
     if p_stage is not null and p_stage not in ('as','ip','im','xx') then
       return jsonb_build_object('ok', false, 'reason', 'bad_stage');
     end if;
-    -- 활성 주문이 있으면 해제(null)도 거부 — 단계는 승인·반려로만 바뀐다(§3.5).
-    if exists (select 1 from public.agent_work_orders
-                where wbs_item_id = v_item_id and status in ('ready','claimed','reported')) then
-      return jsonb_build_object('ok', false, 'reason', 'active_order');
+    -- 잠금(위임됨 ∨ 에이전트가 주문을 쥠)이면 해제(null)도 거부 — 단계는 승인·반려로만 바뀐다(§3.5).
+    -- ready 는 넣지 않는다: dev_workflow 리프마다 배정과 무관하게 상주한다. 조건은 agentWork.stageLockedForHuman 과 같다.
+    if 'agent' = any(coalesce(v_tags, '{}'::text[]))
+       or exists (select 1 from public.agent_work_orders
+                   where wbs_item_id = v_item_id and status in ('claimed','reported')) then
+      return jsonb_build_object('ok', false, 'reason', 'locked');
     end if;
     if p_stage is null then
       -- 해제는 워크플로·리프와 무관하게 허용(잘못 찍힌 값을 지울 길). 실적 불변.
@@ -798,8 +835,9 @@ select column_name from information_schema.columns where table_name = 'project_s
 select proname, prosecdef from pg_proc where proname = 'apply_workflow_event';
 with leaf as (
   select i.id, i.stage, i.actual_pct from public.wbs_items i
-   where i.dev_workflow and not exists (select 1 from public.wbs_items c where c.parent_id = i.id)
-     and not exists (select 1 from public.agent_work_orders o where o.wbs_item_id = i.id and o.status in ('ready','claimed','reported'))
+   where i.dev_workflow and not ('agent' = any(coalesce(i.tags, '{}'::text[])))
+     and not exists (select 1 from public.wbs_items c where c.parent_id = i.id)
+     and not exists (select 1 from public.agent_work_orders o where o.wbs_item_id = i.id and o.status in ('claimed','reported'))
    limit 1)
 select l.stage as before_stage, l.actual_pct as before_pct,
        public.apply_workflow_event('set_stage', (select user_id from public.change_logs limit 1), l.id, null, 'im') as result
@@ -868,9 +906,9 @@ describe('applyWorkflowEvent — RPC 인자 매핑·결과 파싱', () => {
     expect(r).toMatchObject({ ok: false, conflict: true, reason: 'conflict', orderStatus: 'claimed', error: REASON_TEXT.conflict })
   })
   it('reason 은 사람 문구로, 모르는 reason 도 감추지 않는다', async () => {
-    const { client } = admin({ data: { ok: false, reason: 'active_order' } })
+    const { client } = admin({ data: { ok: false, reason: 'locked' } })
     expect(await applyWorkflowEvent(client, { event: 'set_stage', actorUserId: 'u1', itemId: W1, stage: 'im' }))
-      .toMatchObject({ ok: false, conflict: false, reason: 'active_order', error: REASON_TEXT.active_order })
+      .toMatchObject({ ok: false, conflict: false, reason: 'locked', error: REASON_TEXT.locked })
     const { client: c2 } = admin({ data: { ok: false, reason: 'weird' } })
     expect(await applyWorkflowEvent(c2, { event: 'assign', actorUserId: 'u1', itemId: W1 })).toMatchObject({ ok: false, error: '전이 실패(weird)' })
   })
@@ -922,7 +960,7 @@ export type WorkflowEventFail = { ok: false; conflict: boolean; reason: string; 
 
 export const REASON_TEXT: Record<string, string> = {
   conflict: '상태가 바뀌어 처리하지 못했습니다. 다시 시도하세요.',
-  active_order: '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.',
+  locked: '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.',
   not_workflow: '개발 워크플로 대상이 아닌 항목입니다.',
   parent: '하위 항목이 있습니다 — 개발 워크플로 단계는 최종단계에만 지정합니다.',
   item_required: '항목이 필요한 사건입니다.',
@@ -1225,15 +1263,15 @@ git commit -m "feat(agent): 승인·반려·승인 취소·재작업·회수를 
 - Modify: `src/app/actions/wbsAssign.ts`, `src/lib/agent/delegation.ts:105-130`
 - Test: `tests/actions/wbs-assign.test.ts`, `tests/agent/delegation*.test.ts`(있으면)
 
-**Interfaces (Produces):** `setWbsStage(itemId, stage: 'as'|'ip'|'im'|'xx'|null)`, `getWbsAssigneeStage(itemId): Promise<{ assigneeMemberId; stage; devWorkflow; activeOrder: boolean } | null>`
+**Interfaces (Produces):** `setWbsStage(itemId, stage: 'as'|'ip'|'im'|'xx'|null)`, `getWbsAssigneeStage(itemId): Promise<{ assigneeMemberId; stage; devWorkflow; delegated: boolean } | null>`
 
 - [ ] **Step 1: 테스트 갱신**
 
 `tests/actions/wbs-assign.test.ts`: `transitionStage` 목·`stageTransition` 모듈 목 제거, admin 목에 `rpc` 큐 추가. 케이스:
 - 배정: `p_event:'assign', p_item_id: W1` 1회. 해제: `p_event:'unassign'`.
 - cascade: 갱신된 id 마다 `assign` 1회.
-- `setWbsStage(W1,'im')`: `p_event:'set_stage', p_stage:'im'` 1회, `wbs_items` update·`change_logs` insert·주문 조회를 직접 하지 않는다. RPC `reason:'active_order'` 면 `{ ok:false, error: REASON_TEXT.active_order }`. `reached_first:true` 면 후행 알림 조회(`wbs_items` `.contains('depends', …)`)가 돈다.
-- `getWbsAssigneeStage`: `agent_work_orders` 큐에 행이 있으면 `activeOrder: true`.
+- `setWbsStage(W1,'im')`: `p_event:'set_stage', p_stage:'im'` 1회, `wbs_items` update·`change_logs` insert·주문 조회를 직접 하지 않는다. RPC `reason:'locked'` 면 `{ ok:false, error: REASON_TEXT.locked }`. `reached_first:true` 면 후행 알림 조회(`wbs_items` `.contains('depends', …)`)가 돈다.
+- `getWbsAssigneeStage`: 같은 select 의 `tags` 에 `agent` 가 있으면 `delegated: true`. `agent_work_orders` 는 부르지 않는다.
 
 - [ ] **Step 2: 실패 확인**
 
@@ -1271,13 +1309,7 @@ export async function setWbsStage(itemId: string, stage: 'as' | 'ip' | 'im' | 'x
   return { ok: true }
 }
 ```
-- `getWbsAssigneeStage`: select 뒤에
-```ts
-  const { data: active, error: activeErr } = await sb
-    .from('agent_work_orders').select('id').eq('wbs_item_id', itemId).in('status', ['ready', 'claimed', 'reported']).limit(1).maybeSingle()
-  if (activeErr) { console.error('[getWbsAssigneeStage] 주문 조회 실패:', activeErr.message); return null }
-```
-반환에 `activeOrder: active !== null`. 파일 머리 주석의 `transitionStage` 언급을 RPC 로 고친다.
+- `getWbsAssigneeStage`: select 를 `'assignee_member_id, stage, dev_workflow, tags'` 로 넓히고 반환에 `delegated: (row.tags ?? []).includes(AGENT_TAG)` 를 더한다. 주문 조회는 더하지 않는다 — 상세 패널의 서버 액션 체인이 이미 느리다(1.5~2.6초). 위임 없이 reported 주문만 남은 드문 경우는 RPC `locked` 거부 문구가 드러낸다. 파일 머리 주석의 `transitionStage` 언급을 RPC 로 고친다.
 
 `src/lib/domain/agentWork.ts`: 호출부가 0 이 됐으므로 `stageAtLeast` 를 지운다.
 
@@ -1308,44 +1340,68 @@ git commit -m "feat(wbs): 배정·위임·단계 지정을 원자 전이 RPC 로
 기존 `updateActual` 테스트 파일(`grep -rl "updateActual" tests/actions`)에 케이스 추가. 없으면 `tests/actions/wbs-update-actual.test.ts` 를 만들되 목 골격은 `tests/actions/wbs-assign.test.ts` 의 `createServerClient` 큐 목을 따른다.
 
 ```ts
-  it('dev_workflow 항목에 활성 주문이 있으면 100 은 거부 — 완료는 승인으로', async () => {
-    server({
-      wbs_items: [{ data: { id: W1, actual_pct: 40, project_id: P1, dev_workflow: true } }, { data: null }],
-      agent_work_orders: [{ data: { id: O1 } }],
-    })
-    const r = await updateActual(W1, 100, 40)
-    expect(r).toEqual({ ok: false, error: '완료는 승인 버튼으로 처리합니다 — 에이전트에 위임된 작업은 99% 까지 입력할 수 있습니다.' })
+  const LOCKED_MSG = '완료는 승인 버튼으로 처리합니다 — 에이전트 관할 작업(위임됨·작업 중·검수 대기)은 99% 까지 입력할 수 있습니다. 직접 완료하려면 위임을 끄세요.'
+  it('위임된 dev_workflow 항목은 100 거부 — 주문 조회 없이', async () => {
+    const q = server({ wbs_items: [{ data: { id: W1, actual_pct: 40, project_id: P1, dev_workflow: true, tags: ['agent'] } }, { data: null }] })
+    expect(await updateActual(W1, 100, 40)).toEqual({ ok: false, error: LOCKED_MSG })
+    expect(q.calls).not.toContain('agent_work_orders')
   })
-  it('활성 주문이 있어도 99 는 저장된다', async () => { /* 같은 큐, newPct 99 → ok:true, wbs_items update payload actual_pct 99 */ })
-  it('dev_workflow=false 는 100 도 그대로 — 주문 조회를 하지 않는다', async () => { /* agent_work_orders 큐 미호출 */ })
+  it('위임은 꺼졌지만 reported 주문이 남아 있으면 100 거부', async () => {
+    server({ wbs_items: [{ data: { id: W1, actual_pct: 40, project_id: P1, dev_workflow: true, tags: [] } }, { data: null }], agent_work_orders: [{ data: { status: 'reported' } }] })
+    expect(await updateActual(W1, 100, 40)).toEqual({ ok: false, error: LOCKED_MSG })
+  })
+  it('사람이 하는 dev_workflow 항목(ready 주문만 상주)은 100 저장', async () => {
+    server({ wbs_items: [{ data: { id: W1, actual_pct: 40, project_id: P1, dev_workflow: true, tags: [] } }, { data: null }, { data: [{ id: W1 }] }], agent_work_orders: [{ data: null }] })
+    expect(await updateActual(W1, 100, 40)).toEqual({ ok: true })
+  })
+  it('위임돼 있어도 99 는 저장된다', async () => {
+    server({ wbs_items: [{ data: { id: W1, actual_pct: 40, project_id: P1, dev_workflow: true, tags: ['agent'] } }, { data: null }, { data: [{ id: W1 }] }] })
+    expect(await updateActual(W1, 99, 40)).toEqual({ ok: true })
+  })
+  it('dev_workflow=false 는 100 도 그대로 — 주문 조회를 하지 않는다', async () => {
+    const q = server({ wbs_items: [{ data: { id: W1, actual_pct: 40, project_id: P1, dev_workflow: false, tags: [] } }, { data: null }, { data: [{ id: W1 }] }] })
+    expect(await updateActual(W1, 100, 40)).toEqual({ ok: true })
+    expect(q.calls).not.toContain('agent_work_orders')
+  })
 ```
 
 - [ ] **Step 2: updateActual 구현**
 
-select 를 `'id, actual_pct, project_id, dev_workflow'` 로. 자식 검사 뒤에:
+select 를 `'id, actual_pct, project_id, dev_workflow, tags'` 로(`AGENT_TAG`·`AGENT_HELD_ORDER_STATUSES`·`stageLockedForHuman` import). 자식 검사 뒤에:
 
 ```ts
-  // D7 — 위임된 작업의 100 은 승인 버튼으로만. 에이전트 API 가 progress 를 99 로 막는 규칙과 같다(2026-08-25 드롭다운 우회 사고 재발 방지).
-  if (newPct > 99 && (item as { dev_workflow?: boolean | null }).dev_workflow === true) {
-    const { data: active, error: activeErr } = await sb
-      .from('agent_work_orders').select('id').eq('wbs_item_id', itemId).in('status', ['ready', 'claimed', 'reported']).limit(1).maybeSingle()
-    if (activeErr) return { ok: false, error: `에이전트 주문 확인 실패: ${activeErr.message}` }
-    if (active) return { ok: false, error: '완료는 승인 버튼으로 처리합니다 — 에이전트에 위임된 작업은 99% 까지 입력할 수 있습니다.' }
+  // D7 — 에이전트 관할 작업(잠금: 위임됨 ∨ 주문 claimed·reported)의 100 은 승인 버튼으로만. 에이전트 API 가
+  // progress 를 99 로 막는 규칙과 같다(2026-08-25 드롭다운 우회 사고 재발 방지). ready 는 dev_workflow 리프마다
+  // 상주하므로 잠금이 아니다 — 사람이 직접 하는 Task 는 100 을 넣을 수 있다.
+  const flags = item as { dev_workflow?: boolean | null; tags?: string[] | null }
+  if (newPct > 99 && flags.dev_workflow === true) {
+    const delegated = (flags.tags ?? []).includes(AGENT_TAG)
+    let heldStatus: string | null = null
+    if (!delegated) {
+      const { data: held, error: heldErr } = await sb
+        .from('agent_work_orders').select('status').eq('wbs_item_id', itemId)
+        .in('status', [...AGENT_HELD_ORDER_STATUSES]).limit(1).maybeSingle()
+      if (heldErr) return { ok: false, error: `에이전트 주문 확인 실패: ${heldErr.message}` }
+      heldStatus = (held as { status: string } | null)?.status ?? null
+    }
+    if (stageLockedForHuman({ delegated, orderStatus: heldStatus })) {
+      return { ok: false, error: '완료는 승인 버튼으로 처리합니다 — 에이전트 관할 작업(위임됨·작업 중·검수 대기)은 99% 까지 입력할 수 있습니다. 직접 완료하려면 위임을 끄세요.' }
+    }
   }
 ```
 
 - [ ] **Step 3: 라벨·드롭다운**
 
-- i18n ko: `'wbs.stageIp': '작업 중'`, `'wbs.stageIm': '검수 대기'`, `wbs.stageFp` 삭제, 추가 `'wbs.colStage': '단계'`, `'wbs.stageLockedByOrder': '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.'`, `'wbs.stageNotWorkflow': '개발 워크플로 대상이 아닙니다.'`. en: `'In progress'`, `'Awaiting review'`, `Force proceed` 삭제, `'wbs.colStage': 'Stage'`, `'wbs.stageLockedByOrder': 'Delegated to an agent. The stage changes through approve/reject. Turn delegation off to set it manually.'`, `'wbs.stageNotWorkflow': 'Not a dev-workflow item.'`.
-- `WbsAssigneeStagePanel.tsx`: `type Stage = 'as'|'ip'|'im'|'xx'`, `STAGE_KEYS`·`STAGES` 에서 fp 제거, `AssigneeStage` 에 `activeOrder: boolean`(기본 false). 단계 블록: `view.devWorkflow` 가 false 면 `<p className="text-[13px] text-ink-subtle">{t('wbs.stageNotWorkflow')}</p>`, true 면 select 에 `disabled={view.activeOrder}` 와 아래 `{view.activeOrder && <p className="mt-1 text-[11px] text-ink-subtle">{t('wbs.stageLockedByOrder')}</p>}`.
+- i18n ko: `'wbs.stageIp': '작업 중'`, `'wbs.stageIm': '검수 대기'`, `wbs.stageFp` 삭제, 추가 `'wbs.stageLockedByOrder': '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.'`, `'wbs.stageNotWorkflow': '개발 워크플로 대상이 아닙니다.'`. en: `'In progress'`, `'Awaiting review'`, `Force proceed` 삭제, `'wbs.stageLockedByOrder': 'Delegated to an agent. The stage changes through approve/reject. Turn delegation off to set it manually.'`, `'wbs.stageNotWorkflow': 'Not a dev-workflow item.'`.
+- `WbsAssigneeStagePanel.tsx`: `type Stage = 'as'|'ip'|'im'|'xx'`, `STAGE_KEYS`·`STAGES` 에서 fp 제거, `AssigneeStage` 에 `delegated: boolean`(기본 false). 단계 블록: `view.devWorkflow` 가 false 면 `<p className="text-[13px] text-ink-subtle">{t('wbs.stageNotWorkflow')}</p>`, true 면 select 에 `disabled={view.delegated}` 와 아래 `{view.delegated && <p className="mt-1 text-[11px] text-ink-subtle">{t('wbs.stageLockedByOrder')}</p>}`.
 - `labels.ts`: `export { STAGE_CODES } from '@/lib/domain/stageLabels'`, `export const STAGE_NONE_LABEL = STAGE_NONE_LABEL_KO`, OP_TITLE 을 `approve: '완료 보고를 승인합니다 — 단계 완료(xx)·실적 100'`, `unapprove: '승인을 무릅니다 — 승인 대기로 돌아가고 단계 검수 대기(im)·실적은 표의 IM 값'`, `rework: '완료(xx)를 취소하고 에이전트에게 되돌립니다 — 단계 작업 중(ip)·실적은 표의 RW 값(사유 필수)'`, `reject: '완료 보고를 되돌립니다 — 단계 작업 중(ip)·실적은 표의 RW 값, 에이전트가 사유를 읽고 재작업(사유 필수)'`, `release: '점유를 풀어 대기(미착수)로 되돌립니다 — 단계 할당됨(as)·실적은 표의 AS 값. 러너는 다음 신호에서 409 를 받고 멈춥니다'`.
-- `DelegationTable.tsx`: `import { STAGE_LABEL } from '@/lib/domain/waitReason'` → `import { stageLabelKo } from '@/lib/domain/stageLabels'`; `canStage` 에 `&& r.devWorkflow`; `const stageLocked = r.order !== null && r.order.state !== 'DONE'`; select 에 `disabled={isBusy || stageLocked}` + title 을 `stageLocked ? '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.' : '단계 직접 조정 — 실적은 그 단계의 크레딧으로 지정됩니다'`; 옵션 문구 `stageLabelKo(c)`; 읽기 전용 텍스트 `stageLabelKo(r.stage)`(null 은 미착수). 선행 미완료 title 문구를 `선행이 검수 대기(im) 이상이거나 그 주문이 승인됐거나 실적이 100% 여야` 로.
+- `DelegationTable.tsx`: `import { STAGE_LABEL } from '@/lib/domain/waitReason'` → `import { stageLabelKo } from '@/lib/domain/stageLabels'`; `canStage` 에 `&& r.devWorkflow`; `const stageLocked = r.stageLocked`(서버 계산값 — 8상태에서 재파생하지 않는다); select 에 `disabled={isBusy || stageLocked}` + title 을 `stageLocked ? '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.' : '단계 직접 조정 — 실적은 그 단계의 크레딧으로 지정됩니다'`; 옵션 문구 `stageLabelKo(c)`; 읽기 전용 텍스트 `stageLabelKo(r.stage)`(null 은 미착수). 선행 미완료 title 문구를 `선행이 검수 대기(im) 이상이거나 그 주문이 승인됐거나 실적이 100% 여야` 로.
 - `shared.tsx` `STAGE_META` 에서 fp 행 삭제.
 - `wbsImport.ts`: `STAGES` 는 그대로 두되 `toRpcNode` 의 stage 산출에서 `n.stage === 'fp' ? 'ip' : n.stage`(과도기 정규화, 계약 v2.3 #1).
 
 - [ ] **Step 4: 테스트 갱신·통과**
 
-`tests/components/wbs-assignee-stage-panel.test.tsx`: `getWbsAssigneeStage` 목 반환에 `activeOrder` 추가, fp 옵션 기대 삭제, "activeOrder 면 select disabled + 안내문", "devWorkflow=false 면 select 없음" 케이스 추가. `tests/components/agent-hub-table.test.tsx`: 라벨 기대를 새 문구로, "주문이 DONE 이 아닌 행은 단계 select disabled" 추가. `tests/agent/wbs-import*.test.ts`: fp 입력이 ip 로 정규화되는 기대.
+`tests/components/wbs-assignee-stage-panel.test.tsx`: `getWbsAssigneeStage` 목 반환에 `delegated` 추가, fp 옵션 기대 삭제, "delegated 면 select disabled + 안내문", "devWorkflow=false 면 select 없음" 케이스 추가. `tests/components/agent-hub-table.test.tsx`: 라벨 기대를 새 문구로, "`stageLocked:true` 행은 단계 select disabled, `false` 행(미위임·ready)은 활성" 추가. `tests/agent/wbs-import*.test.ts`: fp 입력이 ip 로 정규화되는 기대.
 
 Run: `npx vitest run tests/actions tests/components tests/agent tests/domain tests/ui` · `npx tsc --noEmit`
 Expected: PASS.
@@ -1364,7 +1420,7 @@ git commit -m "feat(wbs): 위임 작업 수기 실적 99 상한·활성 주문�
 ### Task 6: WBS 「단계」 컬럼(D9)
 
 **Files:**
-- Modify: `src/lib/data/wbs.ts:81-95`, `src/components/wbs/WbsGanttSheet.tsx:37-49,66,78,127-129,401,1373,1634-1639,1666`
+- Modify: `src/lib/domain/types.ts:36`, `src/lib/i18n/dict/wbs.ts`, `src/lib/i18n/dict/wbs.en.ts`, `src/lib/data/wbs.ts:81-95`, `src/components/wbs/WbsGanttSheet.tsx:37-49,66,78,127-129,401,1373,1634-1639,1666`
 - Test: `tests/ui/wbs-stage-column.test.tsx`(생성), `tests/ui/wbs-stage-chip.test.tsx`(삭제), `tests/ui/wbs-column-visibility.test.tsx`
 
 - [ ] **Step 1: 실패 테스트**
@@ -1441,6 +1497,17 @@ Expected: FAIL — 헤더 없음.
 
 - [ ] **Step 3: 구현**
 
+이 Task 는 Task 2 이전에 실행한다 — 필요한 타입·사전을 여기서 넣는다.
+
+`src/lib/domain/types.ts` 의 `stage?: string | null` 아래에:
+
+```ts
+  /** 에이전트 위임(tags 에 'agent') 여부 — WBS 「단계」 컬럼 표시 조건(D9). 선택 필드인 이유는 stage 와 같다. */
+  agentDelegated?: boolean
+```
+
+사전: `wbs.ts` 에 `'wbs.colStage': '단계',`, `wbs.en.ts` 에 `'wbs.colStage': 'Stage',` (둘 다 `wbs.colStatus` 바로 아래).
+
 `src/lib/data/wbs.ts` rows 매핑에 `agentDelegated: Array.isArray(r.tags) && (r.tags as string[]).includes(AGENT_TAG),` (`import { AGENT_TAG } from '@/lib/domain/seatmap'`).
 
 `WbsGanttSheet.tsx`:
@@ -1486,7 +1553,7 @@ Expected: PASS.
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add src/lib/data/wbs.ts src/components/wbs/WbsGanttSheet.tsx tests/ui/wbs-stage-column.test.tsx
+git add src/lib/domain/types.ts src/lib/i18n/dict/wbs.ts src/lib/i18n/dict/wbs.en.ts src/lib/data/wbs.ts src/components/wbs/WbsGanttSheet.tsx tests/ui/wbs-stage-column.test.tsx
 git rm tests/ui/wbs-stage-chip.test.tsx
 git commit -m "feat(wbs): 에이전트 위임이 1건이라도 있으면 「단계」 컬럼 — 작업명 칸 칩을 컬럼으로 이동"
 ```
@@ -1827,9 +1894,9 @@ git commit -m "feat(settings): 개발 워크플로 크레딧 슬라이더 — �
 
 `dflow-dev/SKILL.md` 117~127행의 선행 검사 문구 앞에: "**`d.reached` 키가 있으면(v2.3) 그 값이 판정이다** — 없으면 아래 v2.2 규칙." `troubleshooting.md:61` 을 `- 선행 항목 미충족(reached:false — 검수 대기 이상도, 승인도, 실적 100 도 아님) — stderr 로 흘러나온 바디의 unmet[] 로 어느 선행인지 확인` 로.
 
-- [ ] **Step 3: 스펙 §4.2 시그니처 정합**
+- [ ] **Step 3: 스펙 상태 줄**
 
-스펙의 시그니처 블록을 Task 3 의 실제 순서(`p_event, p_actor, p_item_id, p_order_id, p_stage, p_agent, p_agent_user_id`)와 `p_item_id 주문 사건 선택` 주석으로 맞추고, §4.2 4번의 set_stage 규칙을 "활성 주문이 있으면 해제(null)도 거부, 주문이 없으면 해제는 워크플로·리프와 무관하게 허용" 으로 고치고, 상태 줄을 `구현 완료(staging)` 로.
+스펙 머리의 상태를 `구현 완료(staging) · 운영 적용 대기` 로 바꾼다. 시그니처·잠금 규칙은 착수 전 개정 커밋에서 이미 맞췄다.
 
 - [ ] **Step 4: 커밋**
 
@@ -1872,4 +1939,4 @@ G4 는 0096 커밋의 `Staging-verified:` 트레일러로 통과한다. 푸시 �
 
 - **스펙 커버리지**: D1~D9 → Task 1(D6)·2(§3.2·3.3·3.7)·3(§7·§4)·4a~4d(§3.4·§4.3)·5(§3.5·3.6·5.3·5.4)·6(D9·§5.2)·7(D5·§5.1)·8(§6). §8 테스트는 각 Task 의 Step 에 분산. §9 범위 밖 항목은 손대지 않는다.
 - **플레이스홀더**: 0089 본문 복사 지시는 파일·행 범위·바꿀 줄이 명시돼 있다. "기존 블록 그대로" 는 현재 파일의 해당 행을 가리킨다.
-- **타입 정합**: `applyWorkflowEvent`/`WorkflowEventArgs`/`notifyOnReached`/`SKIPPED_WARN`/`REASON_TEXT`(4a) 를 4b·4c·4d 가 같은 이름으로 쓴다. `predecessorReached`(2) 를 4a 의 `depends.ts`·`stageTransition.ts` 가 쓴다. `isStageCode`(2) 를 4d 가, `stageLabelKo`(2) 를 5 가, `clampCredit`·`validateStageCredits`(2) 를 7 이 쓴다. `WbsRow.agentDelegated`(2) 를 6 이 채우고 읽는다. `getWbsAssigneeStage().activeOrder`(4d) 를 5 의 패널이 읽는다.
+- **타입 정합**: `applyWorkflowEvent`/`WorkflowEventArgs`/`notifyOnReached`/`SKIPPED_WARN`/`REASON_TEXT`(4a) 를 4b·4c·4d 가 같은 이름으로 쓴다. `predecessorReached`(2) 를 4a 의 `depends.ts`·`stageTransition.ts` 가 쓴다. `isStageCode`(2) 를 4d 가, `stageLabelKo`(2) 를 5 가, `clampCredit`·`validateStageCredits`(2) 를 7 이 쓴다. `WbsRow.agentDelegated`(2) 를 6 이 채우고 읽는다. `getWbsAssigneeStage().delegated`(4d) 를 5 의 패널이, `HubRow.stageLocked`(2) 를 5 의 허브 표가 읽는다. `stageLockedForHuman`(2) 을 5 의 `updateActual` 이 쓰고 3 의 SQL 이 복제한다.

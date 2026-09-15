@@ -37,7 +37,7 @@
 | D4 | 반려·재작업 사건에 별도 크레딧(RW)을 둔다. 기본 50 | 작업은 했으므로 claim 값(30)보다 높아야 한다 |
 | D5 | 크레딧 숫자는 프로젝트 설정에서 슬라이더 하나(핸들 다섯)로 지정한다 | G-Hub DPI 단계 슬라이더 방식 |
 | D6 | WBS 「상태」 컬럼 헤더를 「진척」으로 바꾼다. 칩 값 4개는 그대로 | 「진척 돋보기」·「계획 대비 차이」와 같은 어휘 축. 「진도」는 %값 자체와, 「진행」은 칩·단계 라벨과 충돌 |
-| D7 | 활성 주문이 있는 Task 의 수기 입력은 99 까지. 100 은 승인으로만 | 에이전트 API 가 progress 를 99 로 막아 완료를 승인 경로로 강제하는 규칙과 같다. 2026-08-25 드롭다운 우회 사고의 재발 방지 |
+| D7 | 에이전트 관할 Task(§3.5 잠금 조건)의 수기 입력은 99 까지. 100 은 승인으로만 | 에이전트 API 가 progress 를 99 로 막아 완료를 승인 경로로 강제하는 규칙과 같다. 2026-08-25 드롭다운 우회 사고의 재발 방지 |
 | D8 | 전이는 항상 표 값으로 덮어쓴다(큰 쪽 유지 규칙 없음) | 규칙 하나로 예측 가능 |
 | D9 | WBS 표에 「단계」 컬럼을 「진척」 옆에 두되, 프로젝트에 에이전트 위임(`agent` 태그) 항목이 1건 이상일 때만 보인다. 작업명 칸 우단의 단계 칩은 이 컬럼으로 옮긴다 | 담당자 컬럼(`hasAssignee`)과 같은 규칙 — 위임이 없는 D-CUBE 는 표가 그대로다. 칩과 컬럼을 둘 다 두면 같은 값이 두 번 보인다 |
 
@@ -93,7 +93,7 @@
 | 반려 | reported→claimed | →ip | 표.rw | 사람 |
 | 재작업 요청 | approved→claimed | →ip | 표.rw | 사람 |
 | 회수(release) | claimed→ready | →as | 표.as | 사람 |
-| 사람이 단계 지정 | 주문 없을 때만 | 지정값 | 표.<지정값> | 사람 |
+| 사람이 단계 지정 | 잠금이 아닐 때만(§3.5) | 지정값 | 표.<지정값> | 사람 |
 | 사람이 실적% 입력 | 불변 | 불변 | 입력값(D7 상한) | 사람 |
 
 단계 전이 사건은 `dev_workflow=true` 항목에서만 단계·실적을 쓴다. `dev_workflow=false` 항목에 주문이 있을 수 없으므로(발행 조건) 충돌은 없다.
@@ -101,15 +101,18 @@
 ### 3.5 사람의 단계 지정 규칙
 
 - 드롭다운은 `dev_workflow=true` 리프에만 보인다.
-- 활성 주문(ready·claimed·reported)이 있으면 드롭다운은 비활성이고 안내문을 띄운다: "에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요."
-- 주문이 없으면 어느 단계로든 바꿀 수 있고, 실적%는 그 단계의 크레딧으로 지정된다. xx 는 100 이다.
-- 현행 `setWbsStage` 의 리프 게이트(하위 항목 있으면 거부)와 서브트리 관리자 권한은 유지한다. `REACHED_STAGES` 우회 방어는 삭제한다(활성 주문 = 비활성 규칙이 대체).
+- **잠금 조건** = 위임됨(`tags ∋ 'agent'`) ∨ 주문 status ∈ {claimed, reported}. 잠기면 드롭다운은 비활성이고 안내문을 띄운다: "에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요."
+  - ready 는 넣지 않는다. `ensureOrderForWorkflowLeaf` 가 dev_workflow 리프마다 배정과 무관하게 ready 주문을 만들어 두므로, ready 를 넣으면 사람이 직접 하는 Task 의 단계 지정이 영구히 막힌다(D1 무력화).
+  - 대신 위임을 넣는다. 위임된 ready 주문은 `/dflow-poll` 이 자동 claim 하므로, 잠그지 않으면 사람이 찍은 완료가 claim 사건(D8 덮어쓰기)으로 ip·표.ip 로 되돌아간다.
+  - 정의는 `agentWork.stageLockedForHuman` 하나다. RPC 는 같은 조건을 SQL 로 복제하고 테스트가 대조한다. 허브는 서버가 행에 실어 보내는 `stageLocked` 만 읽는다.
+- 잠금이 아니면 어느 단계로든 바꿀 수 있고, 실적%는 그 단계의 크레딧으로 지정된다. xx 는 100 이다.
+- 현행 `setWbsStage` 의 리프 게이트(하위 항목 있으면 거부)와 서브트리 관리자 권한은 유지한다. `REACHED_STAGES` 우회 방어는 삭제한다(잠금 규칙이 대체).
 
 ### 3.6 수기 실적 입력 규칙 (`updateActual`)
 
 - `dev_workflow=false`: 0~100, 지금과 같다.
-- `dev_workflow=true` 이고 활성 주문이 있음: 0~99. 100 을 넣으면 "완료는 승인 버튼으로 처리합니다" 로 거부.
-- `dev_workflow=true` 이고 주문 없음: 0~100. 100 을 넣어도 단계는 바꾸지 않는다(단계는 드롭다운의 몫). 진척은 「완료」가 된다.
+- `dev_workflow=true` 이고 잠금(§3.5): 0~99. 100 을 넣으면 "완료는 승인 버튼으로 처리합니다" 로 거부.
+- `dev_workflow=true` 이고 잠금 아님: 0~100. 100 을 넣어도 단계는 바꾸지 않는다(단계는 드롭다운의 몫). 진척은 「완료」가 된다.
 - change_logs 는 지금처럼 `actual_pct` 1건.
 
 ### 3.7 선행 충족 판정
@@ -128,10 +131,10 @@
 
 ```sql
 apply_workflow_event(
-  p_item_id       uuid,
   p_event         text,                 -- assign|unassign|claim|report_completion|approve|unapprove|reject|rework|release|set_stage
   p_actor         uuid,                 -- change_logs.user_id
-  p_order_id      uuid default null,    -- 주문 사건이면 필수. CAS 대상(기대 status 는 사건이 정한다)
+  p_item_id       uuid default null,    -- assign|unassign|set_stage 필수. 주문 사건은 선택(주면 주문의 항목과 일치해야 한다)
+  p_order_id      uuid default null,    -- 주문 사건 필수. CAS 대상(기대 status 는 사건이 정한다)
   p_stage         text default null,    -- set_stage 전용
   p_agent         text default null,    -- 행위 에이전트 라벨: claim 은 기록, report_completion·release 는 점유자 일치 조건
   p_agent_user_id uuid default null     -- 행위 에이전트 계정(PAT): 위와 같다
@@ -143,7 +146,7 @@ apply_workflow_event(
 1. `wbs_items` 를 `for update` 로 읽는다. 없으면 `{ok:false, reason:'item_not_found'}`.
 2. 주문 사건이면 `agent_work_orders` 를 `for update` 로 읽고 사건이 정한 기대 status(claim=ready, report_completion·release=claimed, approve·reject=reported, unapprove·rework=approved)와 점유자 조건(`p_agent_user_id`/`p_agent` 가 주어지면 `claimed_by_user_id`/`claimed_by` 일치)을 확인한다. 어긋나면 `{ok:false, conflict:true, order_status}` 로 끝낸다(지금의 409 의미).
 3. 주문 갱신(사건 표대로). claim 은 `claimed_by·claimed_by_user_id·claimed_at` 을 쓰고, release 는 점유·heartbeat 흔적을 지운다(`releaseOrderByAdmin` 과 같은 컬럼).
-4. 단계·실적 갱신. **주문 사건**은 주문의 존재 자체가 워크플로 증거이므로 `dev_workflow` 를 보지 않고 리프이면 쓴다(구 `force` 플래그의 일반화 — 승인만 넘기던 게이트를 주문 사건 전부로 넓힌다). 리프가 아니면 `skipped='parent'`. **assign** 은 `dev_workflow=true`·리프·`stage is null` 일 때만 as 로, **unassign** 은 `dev_workflow=true`·`stage='as'` 일 때만 null 로(실적 불변). **set_stage** 는 `p_stage` 가 null 이면 항상 허용(잘못 찍힌 값 정리, 실적 불변), 아니면 `dev_workflow=true`·리프·활성 주문(ready·claimed·reported) 없음일 때만 — 활성 주문이 있으면 `{ok:false, reason:'active_order'}`, 워크플로가 아니면 `{ok:false, reason:'not_workflow'}`. 실적은 `project_settings.stage_credits`(없으면 기본값)에서 항목 `credit_key`(없으면 default) 표의 사건 크레딧으로 쓴다. 승인은 100 고정.
+4. 단계·실적 갱신. **주문 사건**은 주문의 존재 자체가 워크플로 증거이므로 `dev_workflow` 를 보지 않고 리프이면 쓴다(구 `force` 플래그의 일반화 — 승인만 넘기던 게이트를 주문 사건 전부로 넓힌다). 리프가 아니면 `skipped='parent'`. **assign** 은 `dev_workflow=true`·리프·`stage is null` 일 때만 as 로, **unassign** 은 `dev_workflow=true`·`stage='as'` 일 때만 null 로(실적 불변). **set_stage** 는 잠금(§3.5)이면 해제(null)까지 `{ok:false, reason:'locked'}`. 잠금이 아니면 null 은 워크플로·리프와 무관하게 허용(잘못 찍힌 값 정리, 실적 불변)이고, 값은 `dev_workflow=true`·리프일 때만 쓴다(아니면 `not_workflow`·`parent`). 실적은 `project_settings.stage_credits`(없으면 기본값)에서 항목 `credit_key`(없으면 default) 표의 사건 크레딧으로 쓴다. 승인은 100 고정.
 5. change_logs 를 `stage`·`actual_pct` 필드로 각 1건 남긴다(값이 바뀐 것만, `user_id=p_actor`).
 6. 결과를 반환한다. `reached_first` 는 이번 전이로 stage 가 im·xx 에 처음 들어갔는지다.
 
@@ -176,12 +179,12 @@ apply_workflow_event(
 
 ### 5.3 상세 패널 「담당·단계」
 
-- 단계 드롭다운: 3.5 규칙(활성 주문이면 비활성 + 안내문, `dev_workflow=false` 면 숨김).
+- 단계 드롭다운: 3.5 규칙(잠금이면 비활성 + 안내문, `dev_workflow=false` 면 숨김). 패널은 담당·단계를 읽는 같은 select 의 `tags` 로 위임 여부만 본다 — 주문 조회를 더하면 이미 느린 상세 패널 액션 체인에 왕복이 늘어난다. 위임 없이 reported 주문만 남은 드문 경우는 RPC 의 `locked` 거부 문구로 드러낸다.
 - 「에이전트 진행 상황」의 승인·반려·승인 취소·재작업·회수 버튼은 그대로이고, 툴팁의 실적 문구를 표 값으로 바꾼다("실적 100%, 단계 완료(xx)" → "단계 완료(xx)·실적 100" 등 사건 표와 일치).
 
 ### 5.4 허브 표
 
-단계 select 는 상세 패널과 같은 규칙. 상태 열(8상태)은 불변.
+단계 select 는 서버가 허브 행에 실어 보내는 `stageLocked` 만 읽는다(8상태에서 재파생하지 않는다 — READY·BLOCKED·OFFLINE 의 대응이 갈라진다). 상태 열(8상태)은 불변.
 
 ## 6. API 계약 v2.3 (`dflow-work/references/api-contract.md`)
 
