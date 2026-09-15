@@ -36,6 +36,7 @@ import { wbsFontScaleVariables } from '@/lib/wbsFontScale'
 type Col = { key: string; w: number; frozen?: boolean; sk?: number }
 const PLAN_COLS: Col[] = [
   { key: 'owners', w: 128 },
+  { key: 'assignee', w: 96 },
   { key: 'status', w: 76 },
   { key: 'deliverable', w: 150 },
   { key: 'pstart', w: 80 },
@@ -46,12 +47,13 @@ const PLAN_COLS: Col[] = [
   { key: 'achieve', w: 76 },
 ]
 /* narrow(모바일)에선 작업명 열을 줄인다 — 동결 열(44+360=404px)이 모바일 뷰포트(≈375px)를
-   넘어 캘린더가 아예 화면에 못 들어오던 문제. 44+176=220px 이면 캘린더가 150px 이상 보인다. */
-function buildCols(outline: boolean, narrow: boolean): Col[] {
+   넘어 캘린더가 아예 화면에 못 들어오던 문제. 44+176=220px 이면 캘린더가 150px 이상 보인다.
+   nameWidth 는 사용자 드래그(§항목3)로 조절되는 값 — 기본값(narrow?176:360)은 호출부가 넘긴다. */
+function buildCols(outline: boolean, narrow: boolean, nameWidth: number): Col[] {
   const frozenCols: Col[] = [
     { key: 'no', w: 44, frozen: true },
     ...(outline ? [{ key: 'outline', w: 96, frozen: true }] : []),
-    { key: 'name', w: narrow ? 176 : 360, frozen: true },
+    { key: 'name', w: nameWidth, frozen: true },
   ]
   let acc = 0
   for (const c of frozenCols) {
@@ -73,7 +75,12 @@ const GANTT_DAY_DEFAULT = 24
 /* 이 폭 미만이면 일 단위 정보(일 격자)를 접고 주 단위로만 그린다 — 4~10px 일 격자는 줄무늬 소음. */
 const GANTT_WEEK_VIEW_PX = 12
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
-const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
+const HIDEABLE_PLAN_COLS = new Set(['owners', 'assignee', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
+/* 작업명 컬럼 폭 드래그 조절(§항목3) — clamp 범위와 localStorage 키. 저장값은 사용자가
+   드래그를 한 번이라도 했다는 신호라 narrow 여부와 무관하게 우선한다(RowDetailPanel 폭과 같은 계열). */
+const NAME_COL_MIN = 120
+const NAME_COL_MAX = 720
+const NAME_COL_STORAGE_KEY = 'wbs.nameColWidth'
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
    과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
@@ -113,6 +120,12 @@ function splitParentIds(items: ComputedItem[]): Set<string> {
     })
   walk(items)
   return s
+}
+/* 프로젝트에 개인 담당자가 하나라도 지정돼 있는지(§항목1) — 담당자 컬럼 표시 조건.
+   items(전체 트리, collapse 무관) 위에서 직접 재귀한다 — allFlatItems 는 이 값보다 뒤에서
+   선언돼 TDZ 라 여기선 쓸 수 없다. */
+function hasAnyAssignee(items: ComputedItem[]): boolean {
+  return items.some(n => !!n.assigneeMemberId || hasAnyAssignee(n.children))
 }
 /* sub-act 트리 표시명 — 저장 이름 "{부모명} ({팀} 주관/지원)"에서 부모명 접두를 벗겨
    팀 부분만 남긴다(트리에선 부모가 바로 위에 보여 접두가 중복). 접두가 없으면(개명된
@@ -332,16 +345,65 @@ export function WbsGanttSheet({
     const others = presencePeers.filter(o => o.userId !== me?.id)
     return me ? [{ userId: me.id, name: me.name }, ...others] : others
   }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
+  // 담당자 컬럼 표시 조건(§항목1) — 프로젝트에 지정된 담당자가 하나도 없으면 열 자체를 뺀다.
+  // items(prop) 위에서 직접 재귀 — allFlatItems 는 아래에서 선언돼 여기선 TDZ.
+  const hasAssignee = useMemo(() => hasAnyAssignee(items), [items])
+  // id → 표시명. 표시명은 저장하지 않고(WbsRow.assigneeMemberId 주석 참고) 이미 받는 members
+  // prop(project_members)으로 렌더 시점에 해석한다 — 별도 조회 없이 기존 로스터를 재사용.
+  const memberNameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members])
+  // 작업명 컬럼 폭 드래그 조절(§항목3) — RowDetailPanel 패널 폭과 같은 lifecycle(초기 렌더는
+  // 반응형 기본값과 동일하게 그려 하이드레이션 파리티를 지키고, 저장값은 마운트 후 적용).
+  // null = "드래그로 커스텀한 적 없음" — 이 경우에만 narrow 반응형 기본값을 계속 따라간다.
+  const [nameColWidthSaved, setNameColWidthSaved] = useState<number | null>(null)
+  const nameColWidthRef = useRef<number | null>(null)
+  useEffect(() => {
+    let saved = NaN
+    try { saved = Number(window.localStorage?.getItem(NAME_COL_STORAGE_KEY)) } catch { /* 기본 폭 유지 */ }
+    if (Number.isFinite(saved) && saved >= NAME_COL_MIN && saved <= NAME_COL_MAX) {
+      nameColWidthRef.current = saved
+      setNameColWidthSaved(saved)
+    }
+  }, [])
+  const nameColWidth = nameColWidthSaved ?? (narrow ? 176 : 360)
+  const startNameColResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const handle = e.currentTarget
+    handle.setPointerCapture?.(e.pointerId)
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none' // 드래그 중 본문 텍스트 선택 방지
+    const startX = e.clientX
+    const startW = nameColWidth
+    const onMove = (ev: PointerEvent) => {
+      const w = Math.round(Math.min(NAME_COL_MAX, Math.max(NAME_COL_MIN, startW + (ev.clientX - startX))))
+      nameColWidthRef.current = w
+      setNameColWidthSaved(w)
+    }
+    const onUp = () => {
+      document.body.style.userSelect = prevUserSelect
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+      try {
+        if (nameColWidthRef.current != null) {
+          window.localStorage?.setItem(NAME_COL_STORAGE_KEY, String(nameColWidthRef.current))
+        }
+      } catch { /* 저장 실패는 무시 */ }
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  }
   // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
-  const cols = useMemo(() => buildCols(outlineVisible, narrow), [outlineVisible, narrow])
+  const cols = useMemo(() => buildCols(outlineVisible, narrow, nameColWidth), [outlineVisible, narrow, nameColWidth])
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {
-    const viewCols = timelineFocus ? cols.filter(col => TIMELINE_COLS.has(col.key)) : cols
+    const base = hasAssignee ? cols : cols.filter(col => col.key !== 'assignee')
+    const viewCols = timelineFocus ? base.filter(col => TIMELINE_COLS.has(col.key)) : base
     return !timelineFocus && planningColsHidden
       ? viewCols.filter(col => !HIDEABLE_PLAN_COLS.has(col.key))
       : viewCols
-  }, [cols, planningColsHidden, timelineFocus])
+  }, [cols, hasAssignee, planningColsHidden, timelineFocus])
   const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
   const FROZEN_W = visibleCols.filter(col => col.frozen).reduce((sum, col) => sum + col.w, 0)
@@ -810,10 +872,6 @@ export function WbsGanttSheet({
     () => groupGanttMilestones(milestoneTimeline(items, today, milestoneKeywords)),
     [items, today, milestoneKeywords],
   )
-  const milestoneCount = useMemo(
-    () => milestoneMarkers.reduce((n, m) => n + m.names.length, 0),
-    [milestoneMarkers],
-  )
 
   /* ── 편집 (WbsSheet 이식) ── */
   const actor = useMemo(() => actorFromView(actorView, projectId), [actorView, projectId])
@@ -916,6 +974,8 @@ export function WbsGanttSheet({
     align = 'justify-start',
     extra = '',
     sub?: { text: string; title: string; warn?: boolean },
+    /** 라벨 아래 두 번째 줄에 얹는 컨트롤(§항목2 — 레벨 펼침 버튼을 작업명 헤더 셀 안으로). */
+    actions?: React.ReactNode,
   ) => {
     const frozen = col.frozen
     const isName = col.key === 'name'
@@ -925,7 +985,7 @@ export function WbsGanttSheet({
         key={col.key}
         data-wbs-col={col.key}
         data-wbs-col-kind="header"
-        className={`${headBase} ${align} ${isName ? 'freeze-edge' : 'border-r border-grid-strong'} ${extra}`}
+        className={`${headBase} ${align} ${isName ? 'freeze-edge relative' : 'border-r border-grid-strong'} ${extra}`}
         style={{
           width: col.w,
           fontSize: 'var(--wbs-head-font, 10px)',
@@ -933,7 +993,12 @@ export function WbsGanttSheet({
         }}
         title={sub ? `${label} — ${sub.title}` : label}
       >
-        {sub ? (
+        {actions ? (
+          <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-0.5 overflow-hidden">
+            <span className="truncate">{label}</span>
+            {actions}
+          </div>
+        ) : sub ? (
           <span className={`flex min-w-0 flex-col gap-0.5 leading-none ${subAlign}`}>
             <span className="truncate">{label}</span>
             <span
@@ -947,6 +1012,21 @@ export function WbsGanttSheet({
           </span>
         ) : (
           label
+        )}
+        {/* 작업명 폭 드래그 핸들(§항목3) — hover 등 상태 변형을 건 display 전환 유틸은 이 리포의
+            unlayered 반응형 안전망에 져서 안 먹는다(CLAUDE.md, tests/css/breakpoint-safety-net).
+            그래서 항상 렌더해 두고 배경색만 hover 로 바꾼다 — RowDetailPanel 패널 폭 핸들(305-309)과
+            같은 패턴. */}
+        {isName && (
+          <div
+            data-wbs-name-col-resize
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('wbs.nameColResizeTitle')}
+            title={t('wbs.nameColResizeTitle')}
+            onPointerDown={startNameColResize}
+            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent transition-colors hover:bg-brand/40 active:bg-brand/60"
+          />
         )}
       </div>
     )
@@ -1030,32 +1110,9 @@ export function WbsGanttSheet({
               : 'flex min-w-0 flex-1 flex-wrap items-center gap-2'
           }
         >
-        {deepestLevel >= 2 && (
-          <div
-            role="group"
-            aria-label={t('wbs.expandToLevelGroup')}
-            className="flex h-9 items-center gap-0.5 rounded-xl border border-line px-1"
-          >
-            <span className="px-1 text-[10px] text-ink-subtle">{t('wbs.levelGroupLabel')}</span>
-            {Array.from({ length: Math.min(deepestLevel, 8) }, (_, i) => i + 1).map(lvl => (
-              <button
-                key={lvl}
-                data-level-btn={lvl}
-                onClick={() => expandToLevel(lvl)}
-                className="btn btn-ghost h-7 w-7 px-0 text-xs tabular-nums"
-                title={
-                  lvl === 1
-                    ? t('wbs.collapseAll')
-                    : lvl === deepestLevel
-                      ? t('wbs.expandAll')
-                      : `${t('wbs.expandToLevel')} ${lvl}`
-                }
-              >
-                {lvl}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* 레벨 펼침 버튼 그룹은 작업명 헤더 셀 안으로 옮겼다(2026-09-15, §항목2) —
+            표 폭이 아니라 표 자체(작업명 열) 안에 있는 게 발견 가능성이 높다는 판단.
+            data-level-btn·role="group"·expandToLevel 배선은 그대로(headCell 의 name 분기). */}
         <button
           type="button"
           data-outline-toggle
@@ -1167,7 +1224,7 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showMilestones ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <Flag className="h-3.5 w-3.5" />
-            {showLabels && <span data-btn-label>{t('wbs.milestones')}</span>} {milestoneCount}
+            {showLabels && <span data-btn-label>{t('wbs.milestones')}</span>}
           </button>
         )}
         {isAdmin && !readOnly && (
@@ -1278,8 +1335,41 @@ export function WbsGanttSheet({
           <div className="sticky top-0 z-40 flex w-max">
             {headCell(colOf('no'), '#', 'justify-center')}
             {showCol('outline') && headCell(colOf('outline'), t('wbs.colOutline'), 'justify-start')}
-            {headCell(colOf('name'), t('wbs.colName'), 'justify-start')}
+            {headCell(
+              colOf('name'),
+              t('wbs.colName'),
+              'justify-start',
+              '',
+              undefined,
+              deepestLevel >= 2 ? (
+                <div
+                  role="group"
+                  aria-label={t('wbs.expandToLevelGroup')}
+                  className="flex min-w-0 items-center gap-px overflow-x-auto"
+                >
+                  {Array.from({ length: Math.min(deepestLevel, 8) }, (_, i) => i + 1).map(lvl => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      data-level-btn={lvl}
+                      onClick={() => expandToLevel(lvl)}
+                      className="btn btn-ghost h-5 w-4 shrink-0 px-0 text-[9px] leading-none tabular-nums"
+                      title={
+                        lvl === 1
+                          ? t('wbs.collapseAll')
+                          : lvl === deepestLevel
+                            ? t('wbs.expandAll')
+                            : `${t('wbs.expandToLevel')} ${lvl}`
+                      }
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              ) : null,
+            )}
             {showCol('owners') && headCell(colOf('owners'), t('wbs.colOwners'), 'justify-start')}
+            {showCol('assignee') && headCell(colOf('assignee'), t('wbs.colAssignee'), 'justify-start')}
             {showCol('status') && headCell(colOf('status'), t('wbs.colStatus'), 'justify-center')}
             {showCol('deliverable') && headCell(colOf('deliverable'), t('wbs.colDeliverable'), 'justify-start')}
             {showCol('pstart') && headCell(colOf('pstart'), t('wbs.colPlannedStart'), 'justify-center')}
@@ -1556,6 +1646,20 @@ export function WbsGanttSheet({
                     style={{ width: W('owners') }}
                   >
                     <OwnerBadges owners={n.owners} nowrap />
+                  </div>
+                )}
+                {/* 담당자 — 개인. team(담당팀)과 별개 축, 지정된 프로젝트에만 열이 뜬다(hasAssignee). */}
+                {showCol('assignee') && (
+                  <div
+                    data-wbs-col="assignee"
+                    className={`${cellBase} overflow-hidden border-r border-grid text-ink-muted ${cellBg}`}
+                    style={{ width: W('assignee') }}
+                  >
+                    <span className="block truncate">
+                      {!n.assigneeMemberId
+                        ? '-'
+                        : memberNameById.get(n.assigneeMemberId) ?? t('wbs.unknownActor')}
+                    </span>
                   </div>
                 )}
                 {/* 상태 */}

@@ -34,6 +34,13 @@ export interface WbsRow {
    * 빠뜨렸을 때의 방향은 fail-closed 다 — spec 선행이 '대기'로 보일 뿐 '시작 가능'으로 뒤집히지 않는다.
    */
   stage?: string | null
+  /**
+   * 개인 담당자(project_members.id, §항목1 2026-09-15). team(owners)과 별개 축 — 팀 컬럼을
+   * 대체하지 않고 병존한다. stage 와 같은 이유로 선택 필드다: 필수로 올리면 WbsRow 리터럴을
+   * 만드는 테스트 수십 파일이 한꺼번에 깨진다. 표시명은 저장하지 않는다 — WbsGanttSheet 가 이미
+   * 받는 members prop(project_members)으로 렌더 시점에 해석한다(중복 조회·중복 저장 회피).
+   */
+  assigneeMemberId?: string | null
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */
