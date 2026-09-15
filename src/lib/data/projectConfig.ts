@@ -1,5 +1,6 @@
 import { createServerClient } from '@/lib/supabase/server'
 import type { SupabaseServerClient } from '@/lib/repositories/supabase/common'
+import type { StageCredits } from '@/lib/domain/stageCredits'
 
 /**
  * 프로젝트 설정 로더 (스펙 §7.3) — 전역 캐시가 아니라 주입.
@@ -13,6 +14,8 @@ export interface ProjectConfig {
   extraAxisLabel: string | null
   milestoneKeywords: string[]
   excelProfile: Record<string, unknown>
+  /** 단계 전이 실적 크레딧 표(0096) — null 이면 코드 기본값(DEFAULT_STAGE_CREDITS). 검증은 저장 경로(updateStageCredits)가 한다. */
+  stageCredits: StageCredits | null
 }
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
@@ -25,20 +28,21 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   // 기본값'이 아니라 설정 부재의 가시 신호로 남긴다.
   milestoneKeywords: [],
   excelProfile: {},
+  stageCredits: null,
 }
 
 export async function getProjectConfig(projectId: string, client?: SupabaseServerClient): Promise<ProjectConfig> {
   const sb = client ?? (await createServerClient())
   const { data, error } = await sb
     .from('project_settings')
-    .select('level_labels, max_depth, extra_axis_label, milestone_keywords, excel_profile')
+    .select('level_labels, max_depth, extra_axis_label, milestone_keywords, excel_profile, stage_credits')
     .eq('project_id', projectId)
     .maybeSingle()
   if (error) throw new Error(`프로젝트 설정 조회 실패: ${error.message}`)
   if (!data) return DEFAULT_PROJECT_CONFIG
   const row = data as {
     level_labels: string[]; max_depth: number | null; extra_axis_label: string | null
-    milestone_keywords: string[]; excel_profile: Record<string, unknown>
+    milestone_keywords: string[]; excel_profile: Record<string, unknown>; stage_credits?: StageCredits | null
   }
   return {
     levelLabels: row.level_labels,
@@ -47,5 +51,6 @@ export async function getProjectConfig(projectId: string, client?: SupabaseServe
     // §7.4 함정 2 — isMilestoneLeaf 는 lowercase 비교. 주입 전에 정규화해 계약을 로더가 보증한다.
     milestoneKeywords: (row.milestone_keywords ?? []).map(k => k.toLowerCase()),
     excelProfile: row.excel_profile ?? {},
+    stageCredits: row.stage_credits ?? null,
   }
 }

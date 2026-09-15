@@ -6,6 +6,7 @@ import { getActorViewState, requireProjectAdmin, requireSuperuser } from '@/lib/
 import { canSeeProject } from '@/lib/domain/authz'
 import { isValidDateRange } from '@/lib/domain/validate'
 import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
+import { validateStageCredits } from '@/lib/domain/stageCredits'
 import { PRESETS } from '@/lib/domain/projectPresets'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
@@ -144,6 +145,28 @@ export async function updateLevelSettings(projectId: string, labels: string[]): 
     project_id: projectId,
     level_labels: v.labels,
     max_depth: v.maxDepth,
+    updated_at: new Date().toISOString(),
+    updated_by: g.actor.userId,
+  })
+  if (error) return { ok: false, error: error.message }
+  revalidatePath(`/p/${projectId}`, 'layout')
+  return { ok: true }
+}
+
+/**
+ * 단계 전이 실적 크레딧 표(스펙 2026-09-15 §3.3·§5.1) — 관리자 전용. 검증 정본은 순수 함수(validateStageCredits)이고
+ * 여기는 가드·저장만 한다. 저장은 소급하지 않는다 — 이미 기록된 actual_pct 는 그대로, 다음 단계 전이부터 새 값이 쓰인다.
+ * project_settings 는 쓰기 정책이 없어(0058 — service_role 전용 관문) admin 클라이언트로 쓴다.
+ */
+export async function updateStageCredits(projectId: string, credits: unknown): Promise<{ ok: boolean; error?: string }> {
+  const g = await requireProjectAdmin(projectId)
+  if (!g.ok) return { ok: false, error: g.error }
+  const v = validateStageCredits(credits)
+  if (!v.ok) return { ok: false, error: v.error }
+  const admin = createAdminClient()
+  const { error } = await admin.from('project_settings').upsert({
+    project_id: projectId,
+    stage_credits: v.credits,
     updated_at: new Date().toISOString(),
     updated_by: g.actor.userId,
   })
