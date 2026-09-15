@@ -72,6 +72,7 @@ export const wbsKo = {
   // 컬럼 헤더
   'wbs.colLevel': '구분',
   'wbs.colName': '작업명',
+  'wbs.nameColResizeTitle': '작업명 열 폭 조절 — 드래그로 조정',
   // '담당'은 team(item_owners) 라벨이다 — 개인 담당자(assignee) 컬럼 신설로 팀/개인을 구분해야
   // 해서 '담당팀'으로 개명했다(2026-09-15). colAssignee 는 그 옆에 병존하는 개인 담당 컬럼.
   'wbs.colOwners': '담당팀',

@@ -68,6 +68,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.focusNotFound': 'Could not find the linked task (it may have been deleted or replaced)',
   'wbs.colLevel': 'Level',
   'wbs.colName': 'Task name',
+  'wbs.nameColResizeTitle': 'Resize task name column — drag to adjust',
   'wbs.colOwners': 'Owner team',
   'wbs.colAssignee': 'Assignee',
   'wbs.colStatus': 'Status',

@@ -47,12 +47,13 @@ const PLAN_COLS: Col[] = [
   { key: 'achieve', w: 76 },
 ]
 /* narrow(모바일)에선 작업명 열을 줄인다 — 동결 열(44+360=404px)이 모바일 뷰포트(≈375px)를
-   넘어 캘린더가 아예 화면에 못 들어오던 문제. 44+176=220px 이면 캘린더가 150px 이상 보인다. */
-function buildCols(outline: boolean, narrow: boolean): Col[] {
+   넘어 캘린더가 아예 화면에 못 들어오던 문제. 44+176=220px 이면 캘린더가 150px 이상 보인다.
+   nameWidth 는 사용자 드래그(§항목3)로 조절되는 값 — 기본값(narrow?176:360)은 호출부가 넘긴다. */
+function buildCols(outline: boolean, narrow: boolean, nameWidth: number): Col[] {
   const frozenCols: Col[] = [
     { key: 'no', w: 44, frozen: true },
     ...(outline ? [{ key: 'outline', w: 96, frozen: true }] : []),
-    { key: 'name', w: narrow ? 176 : 360, frozen: true },
+    { key: 'name', w: nameWidth, frozen: true },
   ]
   let acc = 0
   for (const c of frozenCols) {
@@ -75,6 +76,11 @@ const GANTT_DAY_DEFAULT = 24
 const GANTT_WEEK_VIEW_PX = 12
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
 const HIDEABLE_PLAN_COLS = new Set(['owners', 'assignee', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
+/* 작업명 컬럼 폭 드래그 조절(§항목3) — clamp 범위와 localStorage 키. 저장값은 사용자가
+   드래그를 한 번이라도 했다는 신호라 narrow 여부와 무관하게 우선한다(RowDetailPanel 폭과 같은 계열). */
+const NAME_COL_MIN = 120
+const NAME_COL_MAX = 720
+const NAME_COL_STORAGE_KEY = 'wbs.nameColWidth'
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
    과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
@@ -345,8 +351,50 @@ export function WbsGanttSheet({
   // id → 표시명. 표시명은 저장하지 않고(WbsRow.assigneeMemberId 주석 참고) 이미 받는 members
   // prop(project_members)으로 렌더 시점에 해석한다 — 별도 조회 없이 기존 로스터를 재사용.
   const memberNameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members])
+  // 작업명 컬럼 폭 드래그 조절(§항목3) — RowDetailPanel 패널 폭과 같은 lifecycle(초기 렌더는
+  // 반응형 기본값과 동일하게 그려 하이드레이션 파리티를 지키고, 저장값은 마운트 후 적용).
+  // null = "드래그로 커스텀한 적 없음" — 이 경우에만 narrow 반응형 기본값을 계속 따라간다.
+  const [nameColWidthSaved, setNameColWidthSaved] = useState<number | null>(null)
+  const nameColWidthRef = useRef<number | null>(null)
+  useEffect(() => {
+    let saved = NaN
+    try { saved = Number(window.localStorage?.getItem(NAME_COL_STORAGE_KEY)) } catch { /* 기본 폭 유지 */ }
+    if (Number.isFinite(saved) && saved >= NAME_COL_MIN && saved <= NAME_COL_MAX) {
+      nameColWidthRef.current = saved
+      setNameColWidthSaved(saved)
+    }
+  }, [])
+  const nameColWidth = nameColWidthSaved ?? (narrow ? 176 : 360)
+  const startNameColResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const handle = e.currentTarget
+    handle.setPointerCapture?.(e.pointerId)
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none' // 드래그 중 본문 텍스트 선택 방지
+    const startX = e.clientX
+    const startW = nameColWidth
+    const onMove = (ev: PointerEvent) => {
+      const w = Math.round(Math.min(NAME_COL_MAX, Math.max(NAME_COL_MIN, startW + (ev.clientX - startX))))
+      nameColWidthRef.current = w
+      setNameColWidthSaved(w)
+    }
+    const onUp = () => {
+      document.body.style.userSelect = prevUserSelect
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+      try {
+        if (nameColWidthRef.current != null) {
+          window.localStorage?.setItem(NAME_COL_STORAGE_KEY, String(nameColWidthRef.current))
+        }
+      } catch { /* 저장 실패는 무시 */ }
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  }
   // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
-  const cols = useMemo(() => buildCols(outlineVisible, narrow), [outlineVisible, narrow])
+  const cols = useMemo(() => buildCols(outlineVisible, narrow, nameColWidth), [outlineVisible, narrow, nameColWidth])
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {
@@ -939,7 +987,7 @@ export function WbsGanttSheet({
         key={col.key}
         data-wbs-col={col.key}
         data-wbs-col-kind="header"
-        className={`${headBase} ${align} ${isName ? 'freeze-edge' : 'border-r border-grid-strong'} ${extra}`}
+        className={`${headBase} ${align} ${isName ? 'freeze-edge relative' : 'border-r border-grid-strong'} ${extra}`}
         style={{
           width: col.w,
           fontSize: 'var(--wbs-head-font, 10px)',
@@ -961,6 +1009,21 @@ export function WbsGanttSheet({
           </span>
         ) : (
           label
+        )}
+        {/* 작업명 폭 드래그 핸들(§항목3) — hover 등 상태 변형을 건 display 전환 유틸은 이 리포의
+            unlayered 반응형 안전망에 져서 안 먹는다(CLAUDE.md, tests/css/breakpoint-safety-net).
+            그래서 항상 렌더해 두고 배경색만 hover 로 바꾼다 — RowDetailPanel 패널 폭 핸들(305-309)과
+            같은 패턴. */}
+        {isName && (
+          <div
+            data-wbs-name-col-resize
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('wbs.nameColResizeTitle')}
+            title={t('wbs.nameColResizeTitle')}
+            onPointerDown={startNameColResize}
+            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize bg-transparent transition-colors hover:bg-brand/40 active:bg-brand/60"
+          />
         )}
       </div>
     )
