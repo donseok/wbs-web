@@ -4,6 +4,9 @@ const mocks = vi.hoisted(() => ({
   requireProjectAdmin: vi.fn(),
   requireProjectMember: vi.fn(),
   requireDelegationRight: vi.fn(),
+  viewerEmail: vi.fn(),
+  myMemberIds: vi.fn(),
+  isSubtreeManager: vi.fn(),
   updateActual: vi.fn(),
   createAdminClient: vi.fn(),
   createServerClient: vi.fn(),
@@ -14,6 +17,11 @@ vi.mock('@/lib/authz', () => ({
 }))
 // 반려·승인 취소·재작업 요청은 loadOrderForReview → requireDelegationRight(관리자 또는 담당자 본인)로 판정한다(2026-09-14).
 vi.mock('@/lib/agent/delegation', () => ({ requireDelegationRight: mocks.requireDelegationRight }))
+// 승인·(반려 계열의 관리자·담당자 본인 실패 시 폴백)은 requireSubtreeManagerOrAdmin(트랙 B, 2026-09-15)
+// 이 관리자 또는 서브트리 관리자로 판정한다. subtreeManager.ts 는 실제 모듈을 쓰고(delegation.ts 와
+// 분리돼 있어 가벼움) 그 내부가 부르는 viewerEmail·myMemberIds·isSubtreeManager 만 목킹한다.
+vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail }))
+vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds, isSubtreeManager: mocks.isSubtreeManager }))
 vi.mock('@/app/actions/wbs', () => ({ updateActual: mocks.updateActual }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
@@ -61,6 +69,11 @@ beforeEach(() => {
   mocks.requireProjectMember.mockResolvedValue(ACTOR)
   // 기본은 관리자 통과 — 개별 테스트가 담당자 본인·거부로 바꾼다.
   mocks.requireDelegationRight.mockResolvedValue({ ok: true, actor: { userId: 'admin-1' }, projectId: P1, isAdmin: true })
+  // 서브트리 관리자 경로 기본값 — 개별 테스트가 필요할 때만 override. 기본은 "아니다" 쪽으로
+  // 안전하게 둔다(관리자 fast path 가 대부분의 테스트를 그 전에 통과시킨다).
+  mocks.viewerEmail.mockResolvedValue('member@example.com')
+  mocks.myMemberIds.mockResolvedValue([])
+  mocks.isSubtreeManager.mockResolvedValue(false)
   mocks.updateActual.mockResolvedValue({ ok: true })
 })
 
@@ -159,6 +172,48 @@ describe('approveAgentCompletion', () => {
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(true)
     expect(r.warning).toBeTruthy()
+  })
+  it('승인: 관리자도 리프 담당자도 아니지만 서브트리 관리자면 허용(트랙 B)', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+    mocks.myMemberIds.mockResolvedValue(['anc-member'])
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(mocks.isSubtreeManager).toHaveBeenCalledWith(
+      expect.anything(), { itemId: W1, projectId: P1, myMemberIds: ['anc-member'] },
+    )
+  })
+  // 알려진 한계(트랙 B, 2026-09-15 — main 보고 대상): updateActual(wbs.ts) 은 이 작업과 무관한
+  // 별도 게이트다 — 관리자가 아니면 "내 팀이 item_owners 에 있는지"(팀 단위)로 재검증하는데,
+  // 서브트리 관리자 자격은 assignee_member_id(개인) 축이라 그 팀이 item_owners 에 들어 있다는
+  // 보장이 없다. loadOrderForAdmin(이번 변경 대상)은 통과해도 그 다음 updateActual 에서 막히면
+  // 승인은 실패한다 — 이 테스트는 그 실패가 "회귀"가 아니라 "다른 게이트의 알려진 한계"임을
+  // 고정해 둔다. updateActual 은 브리프 범위(서버 액션 가드 4곳) 밖이라 넓히지 않는다.
+  it('승인: 서브트리 관리자로 loadOrderForAdmin 은 통과해도 updateActual(별도 팀 게이트)이 막으면 실패 — 알려진 한계', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+    mocks.myMemberIds.mockResolvedValue(['anc-member'])
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    mocks.updateActual.mockResolvedValue({ ok: false, error: '담당 작업이 아님' })
+    const { captured } = admin({ agent_work_orders: [{ data: ORDER }] })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(false)
+    expect(captured.agent_work_orders).toBeUndefined() // CAS 까지 못 감 — updateActual 에서 중단
+  })
+  it('승인: 조상 조회(isSubtreeManager)가 throw 하면 거부 — fail-closed', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+    mocks.myMemberIds.mockResolvedValue(['anc-member'])
+    mocks.isSubtreeManager.mockRejectedValue(new Error('조상 조회 실패: boom'))
+    admin({ agent_work_orders: [{ data: ORDER }] })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(false)
+    expect(mocks.updateActual).not.toHaveBeenCalled()
   })
   it('승인해도 work.unblocked 는 발행하지 않는다 — 정본은 setWbsStage(I2, 최종 리뷰)', async () => {
     admin({
@@ -496,11 +551,26 @@ describe('검토 계열 자격(2026-09-14 "담당자 본인도 허용") — 반�
     expect(mocks.requireDelegationRight).toHaveBeenCalledWith(W1)
     expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
   })
-  it('반려: requireDelegationRight 가 거부하면 그 오류 그대로, 상태 변경 없음', async () => {
+  it('반려: requireDelegationRight 가 거부하고 관리자·서브트리 관리자도 아니면 그 오류 그대로, 상태 변경 없음(트랙 B 폴백 포함)', async () => {
     mocks.requireDelegationRight.mockResolvedValue(DENY)
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '멤버 아님' })
     const { captured } = admin({ agent_work_orders: [{ data: REPORTED }] })
     expect(await rejectAgentCompletion(O1, '사유')).toEqual(DENY)
     expect(captured.agent_work_orders).toBeUndefined()
+  })
+  it('반려: requireDelegationRight 가 거부해도 서브트리 관리자면 허용(트랙 B)', async () => {
+    mocks.requireDelegationRight.mockResolvedValue(DENY)
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+    mocks.myMemberIds.mockResolvedValue(['anc-member'])
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    admin({
+      agent_work_orders: [{ data: REPORTED }, { data: [{ id: O1 }] }],
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+    })
+    const r = await rejectAgentCompletion(O1, '사유')
+    expect(r.ok).toBe(true)
   })
   it('승인 취소: 담당자 본인도 가능(requireDelegationRight), 관리자 가드 미사용', async () => {
     asMember()
@@ -514,10 +584,22 @@ describe('검토 계열 자격(2026-09-14 "담당자 본인도 허용") — 반�
     expect(mocks.requireDelegationRight).toHaveBeenCalledWith(W1)
     expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
   })
-  it('재작업 요청: requireDelegationRight 가 거부하면 거부', async () => {
+  it('재작업 요청: requireDelegationRight 가 거부하고 관리자·서브트리 관리자도 아니면 거부', async () => {
     mocks.requireDelegationRight.mockResolvedValue(DENY)
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '멤버 아님' })
     admin({ agent_work_orders: [{ data: APPROVED }] })
     expect(await requestAgentRework(O1, '테스트 빠짐')).toEqual(DENY)
+  })
+  it('재작업 요청: requireDelegationRight 가 거부해도 서브트리 관리자면 허용(트랙 B)', async () => {
+    mocks.requireDelegationRight.mockResolvedValue(DENY)
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+    mocks.myMemberIds.mockResolvedValue(['anc-member'])
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    admin(approvedQueues())
+    const r = await requestAgentRework(O1, '테스트 빠짐')
+    expect(r.ok).toBe(true)
   })
   it('WBS 항목이 삭제된 주문(wbs_item_id 없음)은 담당자를 특정 못 해 관리자만 — requireDelegationRight 대신 requireProjectAdmin', async () => {
     admin({ agent_work_orders: [{ data: { ...REPORTED, wbs_item_id: null } }, { data: [{ id: O1 }] }], agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }] })
@@ -526,10 +608,21 @@ describe('검토 계열 자격(2026-09-14 "담당자 본인도 허용") — 반�
     expect(mocks.requireDelegationRight).not.toHaveBeenCalled()
     expect(r.ok).toBe(true)
   })
-  it('승인은 담당자여도 관리자만 — requireProjectAdmin 이 거부하면 거부, review 경로 미사용', async () => {
+  it('승인은 담당자여도 관리자·서브트리 관리자가 아니면 거부, review 경로 미사용', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 필요' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '관리자 필요' })
     admin({ agent_work_orders: [{ data: REPORTED }] })
     expect(await approveAgentCompletion(O1)).toEqual({ ok: false, error: '관리자 필요' })
+    expect(mocks.requireDelegationRight).not.toHaveBeenCalled()
+  })
+  it('승인: 리프 본인 담당자(멤버)여도 거부 — isSubtreeManager 는 조상만 보고 리프 자신은 안 본다(분리 원칙)', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'leaf-1' } })
+    mocks.myMemberIds.mockResolvedValue(['leaf-member']) // 리프 자신의 담당자 id — 조상 담당자가 아니다
+    mocks.isSubtreeManager.mockResolvedValue(false)
+    admin({ agent_work_orders: [{ data: REPORTED }] })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(false)
     expect(mocks.requireDelegationRight).not.toHaveBeenCalled()
   })
 })

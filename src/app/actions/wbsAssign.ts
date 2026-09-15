@@ -8,6 +8,7 @@ import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { REACHED_STAGES, notifySuccessorsOnReached, transitionStage } from '@/lib/agent/stageTransition'
+import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 
 /**
  * WBS 담당자(로스터 축)·단계(stage) 갱신 — §2.5. 배정 권한은 프로젝트 관리자.
@@ -311,13 +312,17 @@ export async function setWbsAssigneeCascade(
   return { ok: true, count, ...(cascadeFailed ? { cascadeFailed: true } : {}) }
 }
 
+/**
+ * 개발 워크플로 단계 직접 조정 — 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15). itemId 를
+ * 이미 알고 있으니 그걸로 바로 조상(strict ancestor) 담당자를 본다(requireSubtreeManagerOrAdmin).
+ */
 export async function setWbsStage(
   itemId: string, stage: 'as' | 'fp' | 'ip' | 'im' | 'xx' | null,
 ): Promise<{ ok: boolean; error?: string }> {
   if (stage !== null && !STAGES.has(stage)) return { ok: false, error: '허용되지 않는 단계입니다.' }
   const resolved = await resolveItemProjectId(itemId)
   if (!resolved.ok) return resolved
-  const g = await requireProjectAdmin(resolved.projectId)
+  const g = await requireSubtreeManagerOrAdmin(itemId, resolved.projectId)
   if (!g.ok) return { ok: false, error: g.error }
   const loaded = await loadItem(itemId)
   if (!loaded.ok) return loaded

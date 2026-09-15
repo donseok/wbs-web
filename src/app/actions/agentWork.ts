@@ -11,6 +11,7 @@ import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 import { transitionStage } from '@/lib/agent/stageTransition'
 import { requireDelegationRight } from '@/lib/agent/delegation'
+import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 
 /**
  * 에이전트 작업 루프 UI 서버 액션 — 스펙 §5. 2026-08-24: 전용 관제 화면(/agent-ops)을 없애고
@@ -69,6 +70,12 @@ export async function getAgentProjectState(projectId: string): Promise<{ registe
   return { registered: true, enabled: (data as { enabled: boolean }).enabled === true }
 }
 
+/**
+ * 승인 자격 로더 — 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15). 완료를 확정하는 결정이라
+ * 리프 담당자 본인에게는 주지 않는다(분리 원칙: 자기 완료를 자기가 승인 못 함) — isSubtreeManager
+ * 는 strict 조상만 보므로 리프 자신의 담당자는 애초에 이 판정에 걸리지 않는다(assignee.ts 계약).
+ * WBS 항목이 삭제된 주문(wbs_item_id 없음)은 조상을 특정할 수 없어 관리자만.
+ */
 async function loadOrderForAdmin(orderId: string): Promise<
   | { ok: true; order: { id: string; project_id: string; status: string; wbs_item_id: string | null }; actor: { userId: string } }
   | { ok: false; error: string }
@@ -80,17 +87,25 @@ async function loadOrderForAdmin(orderId: string): Promise<
   if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
   if (!order) return { ok: false, error: '주문 없음' }
   const row = order as { id: string; project_id: string; status: string; wbs_item_id: string | null }
-  const g = await requireProjectAdmin(row.project_id)
-  if (!g.ok) return { ok: false, error: g.error }
-  return { ok: true, order: row, actor: g.actor }
+  if (row.wbs_item_id === null) {
+    const g = await requireProjectAdmin(row.project_id)
+    if (!g.ok) return { ok: false, error: g.error }
+    return { ok: true, order: row, actor: { userId: g.actor.userId } }
+  }
+  const right = await requireSubtreeManagerOrAdmin(row.wbs_item_id, row.project_id)
+  if (!right.ok) return { ok: false, error: right.error }
+  return { ok: true, order: row, actor: right.actor }
 }
 
 /**
- * 검토 계열(반려·승인 취소·재작업 요청)의 자격 로더(2026-09-14, 사용자 결정 "담당자 본인도 허용").
- * 승인(approve)은 여전히 관리자만(loadOrderForAdmin) — 완료를 확정하는 결정이라 그대로 둔다. 이쪽은
- * "되돌리는" 결정이라 그 항목의 담당자 본인도 할 수 있게 넓힌다. 자격 판정은 위임 토글과 같은 축
- * (requireDelegationRight: 관리자 또는 담당자 본인)을 그 주문의 wbs_item 으로 물어 재사용한다.
- * WBS 항목이 삭제된 주문(wbs_item_id 없음)은 담당자를 특정할 수 없어 관리자만.
+ * 검토 계열(반려·승인 취소·재작업 요청)의 자격 로더(2026-09-14, 사용자 결정 "담당자 본인도 허용";
+ * 2026-09-15 트랙 B — 서브트리 관리자 추가). 승인(approve)은 완료를 확정하는 결정이라 별도로
+ * loadOrderForAdmin(관리자 또는 서브트리 관리자, 리프 담당자 본인은 제외)을 쓴다. 이쪽은
+ * "되돌리는" 결정이라 더 넓다 — 관리자, 그 항목의 담당자 본인(requireDelegationRight), 그
+ * 항목의 서브트리 관리자(requireSubtreeManagerOrAdmin) 중 하나면 된다.
+ * 담당자 본인 판정(관리자 포함)을 먼저 보고 실패할 때만 서브트리 관리자를 추가로 본다 — 흔한
+ * 경로(관리자·담당자 본인)에서는 조상 조회가 돌지 않는다.
+ * WBS 항목이 삭제된 주문(wbs_item_id 없음)은 담당자도 조상도 특정할 수 없어 관리자만.
  */
 async function loadOrderForReview(orderId: string): Promise<
   | { ok: true; order: { id: string; project_id: string; status: string; wbs_item_id: string | null }; actor: { userId: string } }
@@ -109,8 +124,12 @@ async function loadOrderForReview(orderId: string): Promise<
     return { ok: true, order: row, actor: { userId: g.actor.userId } }
   }
   const right = await requireDelegationRight(row.wbs_item_id)
-  if (!right.ok) return { ok: false, error: right.error }
-  return { ok: true, order: row, actor: { userId: right.actor.userId } }
+  if (right.ok) return { ok: true, order: row, actor: { userId: right.actor.userId } }
+  // 관리자도 리프 담당자 본인도 아니다 — 서브트리 관리자인지 추가로 본다. 최종 거부는
+  // requireDelegationRight 의 사유를 그대로 쓴다(ERR_NOT_ASSIGNEE — 기존 계약·테스트 유지).
+  const subtree = await requireSubtreeManagerOrAdmin(row.wbs_item_id, row.project_id)
+  if (!subtree.ok) return { ok: false, error: right.error }
+  return { ok: true, order: row, actor: subtree.actor }
 }
 
 /**
