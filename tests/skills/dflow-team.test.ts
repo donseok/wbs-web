@@ -197,6 +197,8 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     const lockBlock = s().slice(s().indexOf('stale() {'), s().indexOf('PRECHECK_OK'))
     expect(lockBlock).not.toContain('kill -0')
     expect(s()).toContain('bad NO_CLAUDE_CLI') // 프로세스 백엔드는 claude CLI 로 팀원을 띄운다
+    // Windows 에서 CLAUDE_PID 가 비어 있으면 fail-closed: $PPID=1 폴백은 모든 팀장을 같은 프로세스로 본다
+    expect(s()).toContain('case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) [ -n "${CLAUDE_PID:-}" ] || bad "NO_CLAUDE_PID Windows 의 \\$PPID 는 1 이라 팀장 세션을 가려내지 못한다" ;; esac')
     expect(s()).toContain(`*) ps -o command= -p "$LEAD_PID" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1 ;;`)
     expect(s()).toContain('echo "PRECHECK_OK lead_pid=$LEAD_PID LEAD_SKIP_PERMISSIONS=$skip"')
     expect(s()).toContain('NOT_DEFAULT_BRANCH')

@@ -50,6 +50,7 @@ fi
 set -a; . "$_top/.env" 2>/dev/null; set +a
 _base="${DFLOW_API_BASE:-}"; [ -n "$_base" ] || exit 0
 _tok="${DFLOW_PATS:-}"; _tok="${_tok%%,*}"; [ -n "$_tok" ] || _tok="${DFLOW_PAT:-}"; [ -n "$_tok" ] || exit 0
+_base=$(printf '%s' "$_base" | tr -d '\r'); _tok=$(printf '%s' "$_tok" | tr -d '\r')
 
 # 6) fire-and-forget. 응답·실패는 보지 않는다.
 _json=$("$JQ" -nc --arg a "$_agent" --arg p "$_phase" '{agent:$a, phase:$p}')

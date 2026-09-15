@@ -1,6 +1,8 @@
 // tests/skills/dflow-team-kit.test.ts
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const ROOT = process.cwd() // vitest 는 리포 루트에서 돈다(기존 tests/ 관례)
@@ -41,5 +43,43 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     expect(g).toContain('인자 없이 부르면 원격 `origin/agent/*` 브랜치까지 후보로 본다')
     expect(g).toContain('승인 감지는 지금 작업트리의 state.json 만 본다')
     expect(g).not.toContain('--team-size')
+  })
+
+  it('F1: kit-build.sh 가 .gitattributes 를 복사하고, 킷·설치 대상 모두 스킬 줄끝을 LF 로 고정하며, dflow.sh·heartbeat.sh 가 .env 값의 CR 을 걷어내고, README 에 Windows 절이 있다', () => {
+    const kit = readFileSync(join(ROOT, 'scripts/kit-build.sh'), 'utf8')
+    expect(kit).toContain('cp "$ROOT/kit/.gitattributes" "$OUT/.gitattributes"')
+
+    expect(readFileSync(join(ROOT, 'kit/.gitattributes'), 'utf8')).toContain('* text=auto eol=lf')
+
+    const inst = readFileSync(join(ROOT, 'kit/install.sh'), 'utf8')
+    expect(inst).toContain('.claude/skills/** text eol=lf')
+    expect(inst).toContain('git add --renormalize .')
+
+    const hb = readFileSync(join(ROOT, 'kit/hooks/heartbeat.sh'), 'utf8')
+    expect(hb).toContain(`_base=$(printf '%s' "$_base" | tr -d '\\r'); _tok=$(printf '%s' "$_tok" | tr -d '\\r')`)
+
+    const dflow = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
+    expect(dflow).toContain("_cr=$(printf '\\r')")
+    expect(dflow).toContain('for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID; do')
+    expect(dflow).toContain(`tr -d '\\\\r'`)
+
+    expect(readFileSync(join(ROOT, 'kit/README.md'), 'utf8')).toMatch(/^## Windows\(Git Bash\)$/m)
+  })
+
+  it('F1: dflow.sh doctor 는 CRLF .env 를 읽어도 \\r 없는 출력을 내고 토큰 미설정으로 종료한다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dflow-crlf-'))
+    const envFile = join(dir, 'env-crlf')
+    try {
+      writeFileSync(envFile, 'DFLOW_API_BASE=https://example.invalid\r\nDFLOW_PATS=\r\n')
+      const r = spawnSync('sh', [join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'doctor'], {
+        env: { ...process.env, DFLOW_ENV_FILE: envFile, DFLOW_PATS: '', DFLOW_PAT: '' },
+        encoding: 'utf8',
+      })
+      expect(r.stdout).not.toContain('\r')
+      expect(r.stdout).toContain('base: https://example.invalid')
+      expect(r.status).toBe(2)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
