@@ -164,8 +164,17 @@ describe('RowDetailPanel — 선행/후속 섹션', () => {
       expect(predRow!.querySelector('button[aria-label="의존성 삭제"]')).toBeNull()
     })
 
-    it('실적이 아니라 stage 로 판정한다 — 실적 100% 여도 stage 가 ip 면 대기', async () => {
+    // 2026-09-15 §3.7: stage im·xx 에 더해 실적 100 도 충족 — 위임하지 않은 사람 Task 가 선행이면 드롭다운 없이 풀린다.
+    it('실적 100% 면 stage 가 ip 여도 시작 가능 — 사람이 직접 끝낸 선행', async () => {
       const predecessor = computedItem('pred-1', { name: '선행 작업 A', rolledActualPct: 100, stage: 'ip' })
+      const item = computedItem('item-1', { name: '대상 작업' })
+      await render({ item, allItems: [predecessor, item], dependencies: [spec()] })
+
+      expect(container.textContent).toContain('선행 충족 — 시작 가능')
+    })
+
+    it('실적 99% 에 stage 가 ip 면 대기', async () => {
+      const predecessor = computedItem('pred-1', { name: '선행 작업 A', rolledActualPct: 99, stage: 'ip' })
       const item = computedItem('item-1', { name: '대상 작업' })
       await render({ item, allItems: [predecessor, item], dependencies: [spec()] })
 

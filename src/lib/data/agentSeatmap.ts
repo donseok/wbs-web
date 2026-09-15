@@ -58,7 +58,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
   let predecessors: PredecessorRow[] = []
   if (refs.length) {
     const found = must<Array<Omit<PredecessorRow, 'order_approved'>>>('선행 항목',
-      await admin.from('wbs_items').select('id, project_id, external_ref, code, name, stage').in('project_id', projIds).in('external_ref', refs))
+      await admin.from('wbs_items').select('id, project_id, external_ref, code, name, stage, actual_pct').in('project_id', projIds).in('external_ref', refs))
     const approved = found.length
       ? must<Array<{ wbs_item_id: string }>>('선행 승인 주문',
         await admin.from('agent_work_orders').select('wbs_item_id').in('wbs_item_id', found.map(p => p.id)).eq('status', 'approved'))

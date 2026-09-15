@@ -93,8 +93,8 @@ describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
     const a = admin({
       agent_work_orders: [{ data: [READY] }, { data: [{ wbs_item_id: 'x1' }] }],
       wbs_items: [{ data: [ITEM] }, { data: [
-        { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'fp' },
-        { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null },
+        { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'ip' },
+        { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null, actual_pct: 100 },
       ] }],
     }, calls)
     const rows = await fetchSeatmapRows(a, ['p1'], NOW)
@@ -103,8 +103,8 @@ describe('fetchSeatmapRows — 선행 항목(predecessors)', () => {
     expect(calls['agent_work_orders.in']?.[1]).toEqual(['wbs_item_id', ['x1', 'x2']])
     expect(calls['agent_work_orders.eq']?.[0]).toEqual(['status', 'approved'])
     expect(rows.predecessors).toEqual([
-      { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'fp', order_approved: true },
-      { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null, order_approved: false },
+      { id: 'x1', project_id: 'p1', external_ref: 'M/T1', code: 'X1', name: 'x1', stage: 'ip', order_approved: true },
+      { id: 'x2', project_id: 'p1', external_ref: 'M/T2', code: 'X2', name: 'x2', stage: null, actual_pct: 100, order_approved: false },
     ])
   })
   it('depends 가 있어도 그 항목의 주문이 ready 가 아니면 선행을 조회하지 않는다', async () => {

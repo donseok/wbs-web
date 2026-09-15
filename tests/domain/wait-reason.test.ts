@@ -2,27 +2,35 @@
 import { describe, expect, it } from 'vitest'
 import { deriveWaitReason, STAGE_LABEL, stageText, unmetDepends, unmetDependsList, type PredecessorLike, type WatcherLike } from '@/lib/domain/waitReason'
 
-const pred = (over: Partial<PredecessorLike> = {}): PredecessorLike => ({ external_ref: 'M/T1', code: 'TSK-04-01', name: '목록', stage: 'fp', order_approved: false, ...over })
+const pred = (over: Partial<PredecessorLike> = {}): PredecessorLike => ({ external_ref: 'M/T1', code: 'TSK-04-01', name: '목록', stage: 'ip', order_approved: false, ...over })
 const lookup = (rows: PredecessorLike[]) => (ref: string) => rows.find(r => r.external_ref === ref)
 const watcher = (over: Partial<WatcherLike> = {}): WatcherLike => ({ agent: 'hong/mbp', user_id: 'u1', slots: 2, busy: 0, until_label: null, ...over })
 const base = { depends: null, predecessorByRef: lookup([]), assignee: null, watchers: [watcher()] }
 
 describe('stageText · STAGE_LABEL', () => {
-  it('코드와 한글 라벨을 같이 쓴다. 모르는 코드는 코드만, null 은 "단계 없음"', () => {
-    expect(STAGE_LABEL.im).toBe('구현')
-    expect(stageText('fp')).toBe('fp(기능 계획)')
+  it('코드와 정본 라벨(stageLabels)을 같이 쓴다. 모르는 코드는 코드만, null 은 "단계 없음"', () => {
+    expect(STAGE_LABEL.im).toBe('구현') // 허브 select 옛 문구 — 허브가 정본으로 옮기면 지운다
+    expect(stageText('ip')).toBe('ip(작업 중)')
+    expect(stageText('im')).toBe('im(검수 대기)')
+    expect(stageText('fp')).toBe('fp') // 0096 에서 제거된 코드 — 모르는 코드와 같다
     expect(stageText('zz')).toBe('zz')
     expect(stageText(null)).toBe('단계 없음')
   })
 })
 
 describe('unmetDepends — 클레임 API dependency_not_met 와 같은 축', () => {
-  it('im 이상이거나 승인된 주문이 있으면 충족, 아니면 미충족. 프로젝트에 없는 ref 도 미충족(fail-closed)', () => {
-    const rows = [pred(), pred({ external_ref: 'M/T2', code: 'TSK-04-02', stage: 'im' }), pred({ external_ref: 'M/T3', code: 'TSK-04-03', stage: 'as', order_approved: true })]
-    const u = unmetDepends(['M/T1', 'M/T2', 'M/T3', 'M/T9'], lookup(rows))
-    expect(u.map(x => x.ref)).toEqual(['M/T1', 'M/T9'])
-    expect(u[0]).toMatchObject({ found: true, code: 'TSK-04-01', name: '목록', stage: 'fp' })
-    expect(u[1]).toMatchObject({ found: false })
+  it('im 이상·승인된 주문·실적 100 중 하나면 충족, 아니면 미충족. 프로젝트에 없는 ref 도 미충족(fail-closed)', () => {
+    const rows = [
+      pred(),
+      pred({ external_ref: 'M/T2', code: 'TSK-04-02', stage: 'im' }),
+      pred({ external_ref: 'M/T3', code: 'TSK-04-03', stage: 'as', order_approved: true }),
+      pred({ external_ref: 'M/T4', code: 'TSK-04-04', stage: null, actual_pct: 100 }), // 위임하지 않은 사람 Task
+      pred({ external_ref: 'M/T5', code: 'TSK-04-05', stage: null, actual_pct: 99.5 }),
+    ]
+    const u = unmetDepends(['M/T1', 'M/T2', 'M/T3', 'M/T4', 'M/T5', 'M/T9'], lookup(rows))
+    expect(u.map(x => x.ref)).toEqual(['M/T1', 'M/T5', 'M/T9'])
+    expect(u[0]).toMatchObject({ found: true, code: 'TSK-04-01', name: '목록', stage: 'ip' })
+    expect(u[2]).toMatchObject({ found: false })
   })
   it('depends 가 null·빈 배열이면 빈 목록', () => {
     expect(unmetDepends(null, lookup([]))).toEqual([])
@@ -30,7 +38,7 @@ describe('unmetDepends — 클레임 API dependency_not_met 와 같은 축', () 
   })
   it('목록 문구: 코드 이름(현재 단계) · 없는 항목은 ref(프로젝트에 없는 항목)', () => {
     const u = unmetDepends(['M/T1', 'M/T9'], lookup([pred()]))
-    expect(unmetDependsList(u)).toBe('TSK-04-01 목록(현재 fp(기능 계획)), M/T9(프로젝트에 없는 항목)')
+    expect(unmetDependsList(u)).toBe('TSK-04-01 목록(현재 ip(작업 중)), M/T9(프로젝트에 없는 항목)')
   })
 })
 
@@ -38,7 +46,7 @@ describe('deriveWaitReason — 첫 일치 하나, 순서 선행 → 에이전트
   it('선행 미충족이면 감시자가 있어도 dependency', () => {
     const r = deriveWaitReason({ ...base, depends: ['M/T1'], predecessorByRef: lookup([pred()]) })
     expect(r.kind).toBe('dependency'); expect(r.label).toBe('선행 대기')
-    expect(r.text).toBe('선행 작업이 아직 끝나지 않았습니다: TSK-04-01 목록(현재 fp(기능 계획)). 선행이 im(구현) 단계 이상이 되거나 그 주문이 승인돼야 이 작업을 집어갈 수 있습니다.')
+    expect(r.text).toBe('선행 작업이 아직 끝나지 않았습니다: TSK-04-01 목록(현재 ip(작업 중)). 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야 이 작업을 집어갈 수 있습니다.')
   })
   it('담당자 없음 + 감시자 0 → agent_off, 누구든 켜라는 문구', () => {
     const r = deriveWaitReason({ ...base, watchers: [] })

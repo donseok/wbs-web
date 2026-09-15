@@ -1,30 +1,34 @@
 // 착수 대기 사유 — 순수 함수. ready 주문(빈자리)이 왜 안 시작되는지를 서버가 아는 재료로 판정한다.
 // 스펙: docs/superpowers/specs/2026-09-14-office-wait-reason-design.md §1
 // 판정 축은 클레임 API(work/[id]/claim)의 거절 조건과 같다 — not_assignee · dependency_not_met. 여기서 다르게 말하면 화면이 거짓말한다.
-import { stageAtLeast } from './agentWork'
+import { predecessorReached } from './agentWork'
+import { STAGE_LABEL_KO, isStageCode } from './stageLabels'
 
 export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup'
 export interface WaitReason { kind: WaitReasonKind; label: string; text: string }
 
-/** WBS 단계 코드의 한글 라벨(0077 check 제약의 6값). 화면 문구 전용 — 판정은 stageAtLeast 가 한다. */
+/** @deprecated 허브 표 단계 select 의 옛 문구 — 허브가 stageLabels 정본으로 옮기면 지운다. 새 코드는 stageLabels 를 쓴다. */
 export const STAGE_LABEL: Readonly<Record<string, string>> = { todo: '미착수', as: '분석', fp: '기능 계획', ip: '구현 계획', im: '구현', xx: '완료' }
 
 export function stageText(stage: string | null): string {
   if (stage === null) return '단계 없음'
-  const label = STAGE_LABEL[stage]
-  return label ? `${stage}(${label})` : stage
+  return isStageCode(stage) ? `${stage}(${STAGE_LABEL_KO[stage]})` : stage
 }
 
-export interface PredecessorLike { external_ref: string; code: string; name: string; stage: string | null; order_approved: boolean }
+export interface PredecessorLike {
+  external_ref: string; code: string; name: string; stage: string | null; order_approved: boolean
+  /** 선행 충족 세 번째 축(스펙 2026-09-15 §3.7) — 실적 100 이면 충족. 선택 필드: 모르는 호출부는 앞의 두 축으로만 판정한다. */
+  actual_pct?: number | null
+}
 export interface UnmetDepend { ref: string; found: boolean; code?: string; name?: string; stage?: string | null }
 
-/** 미충족 선행 — im 이상 또는 승인된 주문이 있으면 충족. 프로젝트에 없는 ref 는 미충족(fail-closed, 클레임 게이트와 동일). */
+/** 미충족 선행 — 검수 대기(im) 이상·승인된 주문·실적 100 중 하나면 충족(predecessorReached). 프로젝트에 없는 ref 는 미충족(fail-closed, 클레임 게이트와 동일). */
 export function unmetDepends(depends: string[] | null, byRef: (ref: string) => PredecessorLike | undefined): UnmetDepend[] {
   const out: UnmetDepend[] = []
   for (const ref of depends ?? []) {
     const p = byRef(ref)
     if (!p) { out.push({ ref, found: false }); continue }
-    if (stageAtLeast(p.stage, 'im') || p.order_approved) continue
+    if (predecessorReached({ stage: p.stage, orderApproved: p.order_approved, actualPct: p.actual_pct })) continue
     out.push({ ref, found: true, code: p.code, name: p.name, stage: p.stage })
   }
   return out
@@ -51,7 +55,7 @@ export function deriveWaitReason(args: {
   if (unmet.length > 0) {
     return {
       kind: 'dependency', label: '선행 대기',
-      text: `선행 작업이 아직 끝나지 않았습니다: ${unmetDependsList(unmet)}. 선행이 im(구현) 단계 이상이 되거나 그 주문이 승인돼야 이 작업을 집어갈 수 있습니다.`,
+      text: `선행 작업이 아직 끝나지 않았습니다: ${unmetDependsList(unmet)}. 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야 이 작업을 집어갈 수 있습니다.`,
     }
   }
   const a = args.assignee

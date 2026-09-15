@@ -218,7 +218,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.stageAs': 'Assigned',
   'wbs.stageFp': 'Force proceed',
   'wbs.stageIp': 'In progress',
-  'wbs.stageIm': 'Built · awaiting review',
+  'wbs.stageIm': 'Awaiting review',
   'wbs.stageXx': 'Done',
   'wbs.stageLeafOnlyHint': 'Workflow stages apply only to leaf tasks (items with no children).',
   'wbs.assigneeStageLoadFail': 'Could not load current values. Please reopen.',

@@ -5,16 +5,41 @@
 export type AgentOrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
 export type AgentReportKind = 'progress' | 'completion'
 
-/** WBS Task 단계 순서(§2.5) — depends 선행 게이트(결정 C-①)의 판정 축. */
-export const STAGE_ORDER = ['as', 'fp', 'ip', 'im', 'xx'] as const
+/** WBS Task 단계 순서(스펙 2026-09-15 §3.2) — fp 는 0096 에서 ip 로 이관됐다. */
+export const STAGE_ORDER = ['as', 'ip', 'im', 'xx'] as const
 
-/** stage 가 min 이상인지 — null·미지 값은 false(fail-closed). 순수 함수. */
+/** @deprecated 호출부가 predecessorReached 로 옮겨 가는 동안만 남긴다 — 마지막 호출부(claim 게이트)가 바뀌면 지운다. */
 export function stageAtLeast(stage: string | null, min: 'im'): boolean {
   if (stage === null) return false
   const stageIdx = STAGE_ORDER.indexOf(stage as (typeof STAGE_ORDER)[number])
   if (stageIdx === -1) return false
-  const minIdx = STAGE_ORDER.indexOf(min)
-  return stageIdx >= minIdx
+  return stageIdx >= STAGE_ORDER.indexOf(min)
+}
+
+/** "완료 도달"로 보는 단계 — §2.10 알림·선행 게이트 판정 축. */
+export const REACHED_STAGES: ReadonlySet<string> = new Set(['im', 'xx'])
+
+/**
+ * 선행 충족(§3.7) = stage ∈ {im,xx} ∨ 승인된 주문 ∨ 실적 ≥ 100. 세 번째 축은 위임하지 않은 사람 Task 가
+ * 선행일 때 드롭다운 없이 풀리게 한다. claim 게이트·대기 사유·WBS 착수 판정·unblocked 알림이 전부 이 함수다.
+ * 실적은 원시값 비교(statusOf 의 done 판정과 같다 — 99.6 은 완료가 아니다).
+ */
+export function predecessorReached(p: { stage: string | null; orderApproved?: boolean; actualPct?: number | null }): boolean {
+  if (p.stage !== null && REACHED_STAGES.has(p.stage)) return true
+  if (p.orderApproved === true) return true
+  return typeof p.actualPct === 'number' && Number.isFinite(p.actualPct) && p.actualPct >= 100
+}
+
+/** 에이전트가 쥐고 있는 주문 status — ready 는 dev_workflow 리프마다 상주하므로 넣지 않는다(스펙 §3.5). */
+export const AGENT_HELD_ORDER_STATUSES = ['claimed', 'reported'] as const
+
+/**
+ * 사람의 단계 지정·실적 100 입력 잠금(§3.5·§3.6) = 위임됨 ∨ 에이전트가 주문을 쥠. 위임된 ready 주문은
+ * /dflow-poll 이 자동 claim 하므로 잠그지 않으면 사람이 찍은 완료가 claim 사건으로 되돌아간다.
+ * RPC apply_workflow_event 의 set_stage 가 같은 조건을 SQL 로 복제한다(tests/migrations/0096 이 대조).
+ */
+export function stageLockedForHuman(p: { delegated: boolean; orderStatus: string | null }): boolean {
+  return p.delegated || (p.orderStatus !== null && (AGENT_HELD_ORDER_STATUSES as readonly string[]).includes(p.orderStatus))
 }
 
 export const AGENT_CLAIM_STALE_HOURS = 24

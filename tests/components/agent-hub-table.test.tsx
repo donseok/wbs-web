@@ -21,7 +21,7 @@ const NOW = Date.parse('2026-09-14T09:00:00Z')
 const row = (over: Partial<HubRow>): HubRow => ({
   itemId: 'x', code: 'X', name: 'x', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: null, assigneeMine: false,
   canManage: false,
-  delegated: false, devWorkflow: false, stage: null, order: null, prompt: null, canToggle: false, unmetDepends: null, ...over,
+  delegated: false, devWorkflow: false, stage: null, stageLocked: false, order: null, prompt: null, canToggle: false, unmetDepends: null, ...over,
 })
 const ROWS: HubRow[] = [
   row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),

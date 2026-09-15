@@ -229,11 +229,12 @@ export const wbsKo = {
   // 구현 때 추측으로 들어간 오역이었다: as=분석·설계(오역, 정본은 "할당됨"),
   // fp=기능 구현(오역, 정본은 선행 미충족 강행이라 "강제 진행"), im=검수 중(오역, 정본은
   // 구현 완료 후 검수 대기 상태). 'wbs.stageTodo' 는 todo stage 제거(0082)로 폐기.
+  // 2026-09-15 한 벌로 통일 — 정본은 src/lib/domain/stageLabels.ts(테스트가 대조). ip=작업 중, im=검수 대기.
   'wbs.stageNoneOption': '미착수',
   'wbs.stageAs': '할당됨',
   'wbs.stageFp': '강제 진행',
-  'wbs.stageIp': '진행 중',
-  'wbs.stageIm': '구현 완료·검수 대기',
+  'wbs.stageIp': '작업 중',
+  'wbs.stageIm': '검수 대기',
   'wbs.stageXx': '완료',
   'wbs.stageLeafOnlyHint': '개발 워크플로 단계는 최종단계(하위 항목이 없는 작업)에만 지정합니다.',
   'wbs.assigneeStageLoadFail': '현재 값을 불러오지 못했습니다. 다시 열어 주세요.',
