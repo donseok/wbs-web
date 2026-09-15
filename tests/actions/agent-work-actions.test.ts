@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   viewerEmail: vi.fn(),
   myMemberIds: vi.fn(),
   isSubtreeManager: vi.fn(),
-  updateActual: vi.fn(),
+  recordProgressSnapshot: vi.fn(async () => {}),
   createAdminClient: vi.fn(),
   createServerClient: vi.fn(),
 }))
@@ -22,7 +22,15 @@ vi.mock('@/lib/agent/delegation', () => ({ requireDelegationRight: mocks.require
 // 분리돼 있어 가벼움) 그 내부가 부르는 viewerEmail·myMemberIds·isSubtreeManager 만 목킹한다.
 vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail }))
 vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds, isSubtreeManager: mocks.isSubtreeManager }))
-vi.mock('@/app/actions/wbs', () => ({ updateActual: mocks.updateActual }))
+// 승인/승인 되돌림의 실적% 쓰기는 updateActual(팀 게이트) 대신 admin 경유 특권 헬퍼
+// (agentWork.ts 지역 함수 applyApprovedActualPct)로 admin(...) 큐 client 를 직접 쓴다(트랙 B
+// 후속, 2026-09-15) — updateActual 목은 더 필요 없다. after 는 요청 스코프 밖(vitest)에서 던지므로
+// stage-lifecycle.test.ts 와 같은 패턴으로 즉시 실행 shim 을 씌운다.
+vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
+vi.mock('next/server', async orig => {
+  const m = await orig() as Record<string, unknown>
+  return { ...m, after: (fn: () => unknown) => { void fn() } }
+})
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
@@ -74,8 +82,18 @@ beforeEach(() => {
   mocks.viewerEmail.mockResolvedValue('member@example.com')
   mocks.myMemberIds.mockResolvedValue([])
   mocks.isSubtreeManager.mockResolvedValue(false)
-  mocks.updateActual.mockResolvedValue({ ok: true })
 })
+
+/** applyApprovedActualPct(agentWork.ts 지역 특권 헬퍼)가 승인 시 소비하는 wbs_items 큐 3건 —
+ *  항목 조회(기존 actual_pct)·자식 없음(리프)·UPDATE. oldPct 는 100 과 다른 값을 줘야
+ *  멱등 단락(Number(old)===newPct)을 피해 실제 쓰기 경로를 태운다. */
+function actualPctWriteQueue(oldPct = 40) {
+  return [
+    { data: { id: W1, actual_pct: oldPct, project_id: P1 } },
+    { data: null },
+    { data: [{ id: W1 }] },
+  ]
+}
 
 describe('approveAgentCompletion', () => {
   const ORDER = { id: O1, project_id: P1, status: 'reported', wbs_item_id: W1 }
@@ -84,26 +102,41 @@ describe('approveAgentCompletion', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toBe('잘못된 요청입니다.')
   })
-  it('updateActual(100) 성공 후 승인 전이 + 보고 review 기록', async () => {
-    admin({
+  it('승인 시 실적 100% 반영(특권 헬퍼, updateActual 아님) + 승인 전이 + 보고 review 기록', async () => {
+    const { captured } = admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],       // 조회, CAS approved
+      wbs_items: actualPctWriteQueue(),
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }], // 최신 completion, review 기록
     })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(true)
-    expect(mocks.updateActual).toHaveBeenCalledWith(W1, 100)
+    expect(captured.wbs_items?.[0]).toMatchObject({ actual_pct: 100 })
   })
-  it('updateActual 실패면 주문은 reported 유지', async () => {
-    mocks.updateActual.mockResolvedValue({ ok: false, error: '하위 항목이 있어 롤업으로 계산됩니다' })
-    admin({ agent_work_orders: [{ data: ORDER }] })
+  it('멱등 — 이미 100% 인 항목을 재승인해도 추가 쓰기 없이 ok', async () => {
+    const { captured } = admin({
+      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      wbs_items: [{ data: { id: W1, actual_pct: 100, project_id: P1 } }], // 멱등 단락 — 자식 확인·UPDATE 안 감
+      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
+    })
+    const r = await approveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(captured.wbs_items).toBeUndefined() // update() 호출 자체가 없다
+  })
+  it('실적 반영 실패(자식 있는 항목 방어)면 주문은 reported 유지', async () => {
+    const { captured } = admin({
+      agent_work_orders: [{ data: ORDER }],
+      wbs_items: [{ data: { id: W1, actual_pct: 40, project_id: P1 } }, { data: { id: 'child-1' } }],
+    })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(false)
+    expect(r.error).toContain('하위 항목이 있어 롤업으로 계산됩니다')
+    expect(captured.agent_work_orders).toBeUndefined() // CAS 까지 못 감
   })
   it('wbs_item 삭제된 주문은 승인 불가 — 사람이 취소로 정리', async () => {
-    admin({ agent_work_orders: [{ data: { ...ORDER, wbs_item_id: null } }] })
+    const { captured } = admin({ agent_work_orders: [{ data: { ...ORDER, wbs_item_id: null } }] })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(false)
-    expect(mocks.updateActual).not.toHaveBeenCalled()
+    expect(captured.wbs_items).toBeUndefined()
   })
   it('CAS 0행 + 재조회 claimed → 반려 경합 안내 메시지(실적은 이미 100)', async () => {
     admin({
@@ -112,6 +145,7 @@ describe('approveAgentCompletion', () => {
         { data: [] },                  // CAS 0행 — 다른 관리자가 그 사이 반려함
         { data: { status: 'claimed' } }, // 경합 재조회
       ],
+      wbs_items: actualPctWriteQueue(),
     })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(false)
@@ -122,7 +156,7 @@ describe('approveAgentCompletion', () => {
     admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
-      wbs_items: [{ data: { name: '로그인', assignee_member_id: 'm-1', stage: null, external_ref: null } }],
+      wbs_items: [...actualPctWriteQueue(), { data: { name: '로그인', assignee_member_id: 'm-1', stage: null, external_ref: null } }],
     })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(true)
@@ -136,7 +170,7 @@ describe('approveAgentCompletion', () => {
     admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
-      wbs_items: [{ data: { name: '로그인', assignee_member_id: null, stage: null, external_ref: null } }],
+      wbs_items: [...actualPctWriteQueue(), { data: { name: '로그인', assignee_member_id: null, stage: null, external_ref: null } }],
     })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(true)
@@ -148,8 +182,9 @@ describe('approveAgentCompletion', () => {
     admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
-      // 알림용 조회 → transitionStage 항목 조회 → 리프 확인(자식 있음 → skipped:'parent')
+      // 실적 반영(특권 헬퍼) → 알림용 조회 → transitionStage 항목 조회 → 리프 확인(자식 있음 → skipped:'parent')
       wbs_items: [
+        ...actualPctWriteQueue(),
         { data: { name: '상위 항목', assignee_member_id: null } },
         { data: { id: W1, project_id: P1, name: '상위 항목', external_ref: null, stage: 'ip', dev_workflow: true } },
         { data: { id: 'child-1' } },
@@ -165,6 +200,7 @@ describe('approveAgentCompletion', () => {
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
       // stage 가 fromIn 밖(xx) → skipped:'stage'
       wbs_items: [
+        ...actualPctWriteQueue(),
         { data: { name: '로그인', assignee_member_id: null } },
         { data: { id: W1, project_id: P1, name: '로그인', external_ref: null, stage: 'xx', dev_workflow: true } },
       ],
@@ -173,13 +209,14 @@ describe('approveAgentCompletion', () => {
     expect(r.ok).toBe(true)
     expect(r.warning).toBeTruthy()
   })
-  it('승인: 관리자도 리프 담당자도 아니지만 서브트리 관리자면 허용(트랙 B)', async () => {
+  it('승인: 관리자도 리프 담당자도 아니지만 서브트리 관리자면 허용(트랙 B) — 실적이 실제로 100% 반영된다', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
     mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
     mocks.myMemberIds.mockResolvedValue(['anc-member'])
     mocks.isSubtreeManager.mockResolvedValue(true)
-    admin({
+    const { captured } = admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+      wbs_items: actualPctWriteQueue(),
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
     })
     const r = await approveAgentCompletion(O1)
@@ -187,39 +224,27 @@ describe('approveAgentCompletion', () => {
     expect(mocks.isSubtreeManager).toHaveBeenCalledWith(
       expect.anything(), { itemId: W1, projectId: P1, myMemberIds: ['anc-member'] },
     )
+    // 알려진 한계(2026-09-15) 는 해소됐다 — updateActual(팀 게이트) 대신 특권 헬퍼가 admin
+    // 경유로 쓰므로 서브트리 관리자(팀 축과 무관한 개인 축 자격)여도 실제로 100% 가 반영된다.
+    expect(captured.wbs_items?.[0]).toMatchObject({ actual_pct: 100 })
+    expect(captured.change_logs?.[0]).toMatchObject({ field: 'actual_pct', new_value: '100', user_id: 'anc-1' })
   })
-  // 알려진 한계(트랙 B, 2026-09-15 — main 보고 대상): updateActual(wbs.ts) 은 이 작업과 무관한
-  // 별도 게이트다 — 관리자가 아니면 "내 팀이 item_owners 에 있는지"(팀 단위)로 재검증하는데,
-  // 서브트리 관리자 자격은 assignee_member_id(개인) 축이라 그 팀이 item_owners 에 들어 있다는
-  // 보장이 없다. loadOrderForAdmin(이번 변경 대상)은 통과해도 그 다음 updateActual 에서 막히면
-  // 승인은 실패한다 — 이 테스트는 그 실패가 "회귀"가 아니라 "다른 게이트의 알려진 한계"임을
-  // 고정해 둔다. updateActual 은 브리프 범위(서버 액션 가드 4곳) 밖이라 넓히지 않는다.
-  it('승인: 서브트리 관리자로 loadOrderForAdmin 은 통과해도 updateActual(별도 팀 게이트)이 막으면 실패 — 알려진 한계', async () => {
-    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
-    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
-    mocks.myMemberIds.mockResolvedValue(['anc-member'])
-    mocks.isSubtreeManager.mockResolvedValue(true)
-    mocks.updateActual.mockResolvedValue({ ok: false, error: '담당 작업이 아님' })
-    const { captured } = admin({ agent_work_orders: [{ data: ORDER }] })
-    const r = await approveAgentCompletion(O1)
-    expect(r.ok).toBe(false)
-    expect(captured.agent_work_orders).toBeUndefined() // CAS 까지 못 감 — updateActual 에서 중단
-  })
-  it('승인: 조상 조회(isSubtreeManager)가 throw 하면 거부 — fail-closed', async () => {
+  it('승인: 조상 조회(isSubtreeManager)가 throw 하면 거부 — fail-closed, 실적 쓰기 없음', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
     mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
     mocks.myMemberIds.mockResolvedValue(['anc-member'])
     mocks.isSubtreeManager.mockRejectedValue(new Error('조상 조회 실패: boom'))
-    admin({ agent_work_orders: [{ data: ORDER }] })
+    const { captured } = admin({ agent_work_orders: [{ data: ORDER }] })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(false)
-    expect(mocks.updateActual).not.toHaveBeenCalled()
+    expect(captured.wbs_items).toBeUndefined() // loadOrderForAdmin 에서 막혀 실적 쓰기까지 못 감
   })
   it('승인해도 work.unblocked 는 발행하지 않는다 — 정본은 setWbsStage(I2, 최종 리뷰)', async () => {
     admin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
       wbs_items: [
+        ...actualPctWriteQueue(),
         { data: { name: '로그인', assignee_member_id: 'm-1', stage: 'im', external_ref: 'MES/TSK-01-00' } }, // 알림용 항목 조회
       ],
     })
@@ -422,12 +447,29 @@ const REVIEWED_REPORT = { id: 'r9', reviewed_at: '2026-08-26T01:00:00Z' }
 /** 승인이 실적을 40 → 100 으로 올린 흔적 */
 const ACTUAL_LOG = { old_value: '40', new_value: '100' }
 
-function approvedQueues(over: Record<string, unknown[]> = {}) {
+/**
+ * opts.revertsActual(기본 true): 실적 복원(applyApprovedActualPct, 특권 헬퍼) 경로를 실제로
+ * 타는 시나리오면 true — wbs_items 큐에 그 3건(항목 조회 100→자식 없음→UPDATE 40)을 ITEM_NOTIFY
+ * 와 ITEM_STAGE 사이에 끼워 넣는다. warning 으로 강등돼 복원을 건너뛰는 시나리오(실적 이력
+ * 불일치·부재, 승인 기록 없음)는 반드시 false 로 줘야 한다 — 큐는 테이블별 순차 소비라, 건너뛴
+ * 단계의 몫을 transitionStage 가 잘못 집어가면 그 뒤가 통째로 어긋난다.
+ */
+function approvedQueues(over: Record<string, unknown[]> = {}, opts: { revertsActual?: boolean } = {}) {
+  const revertsActual = opts.revertsActual ?? true
   return {
     agent_work_orders: [{ data: APPROVED }, { data: [{ id: O1 }] }],
     agent_work_reports: [{ data: REVIEWED_REPORT }, { data: [{ id: 'r9' }] }],
-    // ITEM_NOTIFY(알림용 조회) → ITEM_STAGE(transitionStage 자체 조회) → 리프 확인 → UPDATE
-    wbs_items: [{ data: ITEM_NOTIFY }, { data: ITEM_STAGE }, { data: null }, { data: [{ id: W1 }] }],
+    // ITEM_NOTIFY(알림용 조회) → [실적 복원: 항목 조회·자식 없음·UPDATE](revertsActual 일 때만)
+    // → ITEM_STAGE(transitionStage 자체 조회) → 리프 확인 → UPDATE
+    wbs_items: [
+      { data: ITEM_NOTIFY },
+      ...(revertsActual ? [
+        { data: { id: W1, actual_pct: 100, project_id: P1 } },
+        { data: null },
+        { data: [{ id: W1 }] },
+      ] : []),
+      { data: ITEM_STAGE }, { data: null }, { data: [{ id: W1 }] },
+    ],
     change_logs: [{ data: ACTUAL_LOG }, { data: null }],
     ...over,
   } as Record<string, { data?: unknown; error?: { message: string } | null }[]>
@@ -439,13 +481,13 @@ describe('unapproveAgentCompletion — 승인 취소(approved→reported)', () =
     expect(r).toEqual({ ok: false, error: '잘못된 요청입니다.' })
   })
   it('approved 아닌 주문은 거부', async () => {
-    admin({ agent_work_orders: [{ data: { ...APPROVED, status: 'reported' } }] })
+    const { captured } = admin({ agent_work_orders: [{ data: { ...APPROVED, status: 'reported' } }] })
     const r = await unapproveAgentCompletion(O1)
     expect(r.ok).toBe(false)
     expect(r.error).toContain('reported')
-    expect(mocks.updateActual).not.toHaveBeenCalled()
+    expect(captured.wbs_items).toBeUndefined()
   })
-  it('성공 — 주문 reported 복귀 + 리뷰 필드 전부 해제 + 실적 복원 + stage xx→im', async () => {
+  it('성공 — 주문 reported 복귀 + 리뷰 필드 전부 해제 + 실적 복원(특권 헬퍼로 실제 반영) + stage xx→im', async () => {
     const { captured } = admin(approvedQueues())
     const r = await unapproveAgentCompletion(O1)
     expect(r.ok).toBe(true)
@@ -453,35 +495,37 @@ describe('unapproveAgentCompletion — 승인 취소(approved→reported)', () =
     expect(captured.agent_work_reports[0]).toMatchObject({
       review_action: null, reviewed_by: null, reviewed_at: null, review_note: null,
     })
-    expect(mocks.updateActual).toHaveBeenCalledWith(W1, 40)
-    expect(captured.wbs_items[0]).toMatchObject({ stage: 'im' })
+    // wbs_items 의 update() 호출 순서: [0]=실적 복원(특권 헬퍼), [1]=stage 되돌림.
+    expect(captured.wbs_items[0]).toMatchObject({ actual_pct: 40 })
+    expect(captured.wbs_items[1]).toMatchObject({ stage: 'im' })
   })
   it('CAS 0행(경합) — 실적을 건드리지 않는다', async () => {
-    admin({ agent_work_orders: [{ data: APPROVED }, { data: [] }] })
+    const { captured } = admin({ agent_work_orders: [{ data: APPROVED }, { data: [] }] })
     const r = await unapproveAgentCompletion(O1)
     expect(r.ok).toBe(false)
-    expect(mocks.updateActual).not.toHaveBeenCalled()
+    expect(captured.wbs_items).toBeUndefined()
   })
   it('최신 실적 이력이 승인의 100 이 아니면(사람이 뒤에 손댐) 복원하지 않고 warning', async () => {
-    admin(approvedQueues({ change_logs: [{ data: { old_value: '100', new_value: '70' } }, { data: null }] }))
+    const { captured } = admin(approvedQueues({ change_logs: [{ data: { old_value: '100', new_value: '70' } }, { data: null }] }, { revertsActual: false }))
     const r = await unapproveAgentCompletion(O1)
     expect(r.ok).toBe(true)
-    expect(mocks.updateActual).not.toHaveBeenCalled()
     expect(r.warning).toContain('실적')
+    // 실적 복원은 건너뛰지만 stage 되돌림은 그대로 실행된다 — wbs_items 의 유일한 update() 는 stage.
+    expect(captured.wbs_items).toEqual([expect.objectContaining({ stage: 'im' })])
   })
   it('승인 이후 구간에 실적 이력이 없으면 되돌리지 않고 warning', async () => {
-    admin(approvedQueues({ change_logs: [{ data: null }, { data: null }] }))
+    const { captured } = admin(approvedQueues({ change_logs: [{ data: null }, { data: null }] }, { revertsActual: false }))
     const r = await unapproveAgentCompletion(O1)
     expect(r.ok).toBe(true)
-    expect(mocks.updateActual).not.toHaveBeenCalled()
     expect(r.warning).toContain('실적')
+    expect(captured.wbs_items).toEqual([expect.objectContaining({ stage: 'im' })])
   })
   it('승인 기록(reviewed_at)을 못 찾으면 실적을 건드리지 않는다', async () => {
-    admin(approvedQueues({ agent_work_reports: [{ data: { id: 'r9', reviewed_at: null } }, { data: [{ id: 'r9' }] }] }))
+    const { captured } = admin(approvedQueues({ agent_work_reports: [{ data: { id: 'r9', reviewed_at: null } }, { data: [{ id: 'r9' }] }] }, { revertsActual: false }))
     const r = await unapproveAgentCompletion(O1)
     expect(r.ok).toBe(true)
-    expect(mocks.updateActual).not.toHaveBeenCalled()
     expect(r.warning).toContain('승인 기록')
+    expect(captured.wbs_items).toEqual([expect.objectContaining({ stage: 'im' })])
   })
   it('배정자에게 work.rejected 발행 — detail 은 반려가 아니라 승인 취소', async () => {
     admin(approvedQueues())
@@ -511,7 +555,7 @@ describe('requestAgentRework — 재작업 요청(approved→claimed)', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toContain('claimed')
   })
-  it('성공 — 주문 claimed + 반려로 기록(사유 보존) + 실적 복원 + stage xx→im', async () => {
+  it('성공 — 주문 claimed + 반려로 기록(사유 보존) + 실적 복원(특권 헬퍼로 실제 반영) + stage xx→im', async () => {
     const { captured } = admin(approvedQueues())
     const r = await requestAgentRework(O1, '테스트가 빠졌습니다')
     expect(r.ok).toBe(true)
@@ -519,8 +563,8 @@ describe('requestAgentRework — 재작업 요청(approved→claimed)', () => {
     expect(captured.agent_work_reports[0]).toMatchObject({
       review_action: 'reject', reviewed_by: 'admin-1', review_note: '테스트가 빠졌습니다',
     })
-    expect(mocks.updateActual).toHaveBeenCalledWith(W1, 40)
-    expect(captured.wbs_items[0]).toMatchObject({ stage: 'im' })
+    expect(captured.wbs_items[0]).toMatchObject({ actual_pct: 40 })
+    expect(captured.wbs_items[1]).toMatchObject({ stage: 'im' })
   })
   it('배정자에게 work.rejected 발행 — detail 은 재작업 요청', async () => {
     admin(approvedQueues())
@@ -584,6 +628,22 @@ describe('검토 계열 자격(2026-09-14 "담당자 본인도 허용") — 반�
     expect(mocks.requireDelegationRight).toHaveBeenCalledWith(W1)
     expect(mocks.requireProjectAdmin).not.toHaveBeenCalled()
   })
+  // r.ok:true 만으로는 부족하다 — 옛 updateActual(팀 게이트) 경로에서도 실적 복원 실패는
+  // warning 으로 강등돼 r.ok 는 그대로 true 였다(구멍이 있어도 이 단언은 통과했을 것이다).
+  // 그래서 실제로 40 으로 쓰였는지(captured)와 warning 이 비었는지를 함께 본다.
+  it('승인 취소: requireDelegationRight 가 거부해도 서브트리 관리자면 허용(트랙 B) — 실적이 실제로 되돌아간다', async () => {
+    mocks.requireDelegationRight.mockResolvedValue(DENY)
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+    mocks.myMemberIds.mockResolvedValue(['anc-member'])
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    const { captured } = admin(approvedQueues())
+    const r = await unapproveAgentCompletion(O1)
+    expect(r.ok).toBe(true)
+    expect(r.warning).toBeUndefined()
+    expect(captured.wbs_items[0]).toMatchObject({ actual_pct: 40 })
+    expect(captured.change_logs?.[0]).toMatchObject({ field: 'actual_pct', new_value: '40', user_id: 'anc-1' })
+  })
   it('재작업 요청: requireDelegationRight 가 거부하고 관리자·서브트리 관리자도 아니면 거부', async () => {
     mocks.requireDelegationRight.mockResolvedValue(DENY)
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
@@ -591,15 +651,19 @@ describe('검토 계열 자격(2026-09-14 "담당자 본인도 허용") — 반�
     admin({ agent_work_orders: [{ data: APPROVED }] })
     expect(await requestAgentRework(O1, '테스트 빠짐')).toEqual(DENY)
   })
-  it('재작업 요청: requireDelegationRight 가 거부해도 서브트리 관리자면 허용(트랙 B)', async () => {
+  // r.ok:true 만으로는 부족하다(위 unapprove 케이스와 같은 이유) — 실제 반영·warning 부재까지 본다.
+  it('재작업 요청: requireDelegationRight 가 거부해도 서브트리 관리자면 허용(트랙 B) — 실적이 실제로 되돌아간다', async () => {
     mocks.requireDelegationRight.mockResolvedValue(DENY)
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '관리자 아님' })
     mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
     mocks.myMemberIds.mockResolvedValue(['anc-member'])
     mocks.isSubtreeManager.mockResolvedValue(true)
-    admin(approvedQueues())
+    const { captured } = admin(approvedQueues())
     const r = await requestAgentRework(O1, '테스트 빠짐')
     expect(r.ok).toBe(true)
+    expect(r.warning).toBeUndefined()
+    expect(captured.wbs_items[0]).toMatchObject({ actual_pct: 40 })
+    expect(captured.change_logs?.[0]).toMatchObject({ field: 'actual_pct', new_value: '40', user_id: 'anc-1' })
   })
   it('WBS 항목이 삭제된 주문(wbs_item_id 없음)은 담당자를 특정 못 해 관리자만 — requireDelegationRight 대신 requireProjectAdmin', async () => {
     admin({ agent_work_orders: [{ data: { ...REPORTED, wbs_item_id: null } }, { data: [{ id: O1 }] }], agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }] })

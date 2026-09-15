@@ -6,7 +6,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { backfillProjectOrders } from '@/lib/agent/ensureOrder'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
-import { updateActual } from '@/app/actions/wbs'
+import { after } from 'next/server'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 import { transitionStage } from '@/lib/agent/stageTransition'
@@ -180,6 +181,62 @@ const STAGE_SKIP_WARN: Record<string, string> = {
   dev_workflow: '승인은 처리됐지만 WBS 단계를 바꾸지 않았습니다(개발 워크플로 꺼짐) — 단계를 확인하세요.',
 }
 
+/**
+ * 승인/승인 되돌림 전용 특권 실적% 쓰기(트랙 B 후속, 2026-09-15). updateActual(actions/wbs.ts)
+ * 을 그대로 쓰지 않는 이유: 그 함수는 사용자가 직접 실적%를 입력하는 다수 호출부의 정본이고,
+ * 관리자가 아니면 "내 팀이 item_owners 에 있는지"(팀 축)를 세션 클라이언트 + RLS(member_update_actual)
+ * 이중으로 재검증한다. 서브트리 관리자 자격은 assignee_member_id(개인 축)라 그 팀이 item_owners
+ * 에 있다는 보장이 없어, 이 승인 자격을 새로 줘도 그 다음 updateActual 의 팀 게이트에 막혀
+ * 실제로는 승인이 안 먹는 문제가 있었다(2026-09-15 발견·보고).
+ *
+ * 여기서 쓰는 100%(또는 되돌림 값) 반영은 사용자가 직접 치는 실적% 편집이 아니라 "승인/승인
+ * 되돌림의 기계적 부작용"이고, 승인 자격 자체는 이미 loadOrderForAdmin·loadOrderForReview
+ * (관리자 또는 서브트리 관리자, 필요시 +리프 담당자 본인)가 확정했다 — 그래서 이 쓰기만
+ * admin(service_role) 경유로 담당 게이트·RLS 를 건너뛴다. updateActual 자체에 우회 플래그를
+ * 얹지 않는다 — 직접 편집 경로에 남는 우회 스위치는 영구적인 foot-gun 이 된다.
+ *
+ * 'use server' 파일의 비export 지역 함수라 클라이언트가 직접 부를 경로가 없다 — 호출부는
+ * 이 파일 안의 approveAgentCompletion·unapproveOrder 뿐이다. updateActual 이 게이트 다음에
+ * 하는 나머지(조회·자식 검사·멱등 단락·쓰기·이력·revalidate·스냅샷)는 그대로 복제한다.
+ */
+async function applyApprovedActualPct(
+  admin: AdminClient,
+  args: { itemId: string; newPct: number; actorUserId: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const { itemId, newPct, actorUserId } = args
+  if (!Number.isFinite(newPct) || newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
+  const { data: item, error: itemErr } = await admin
+    .from('wbs_items').select('id, actual_pct, project_id').eq('id', itemId).maybeSingle()
+  if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
+  if (!item) return { ok: false, error: '항목 없음' }
+  const row = item as { id: string; actual_pct: number | null; project_id: string }
+  // 자식이 있으면 롤업 부모 — updateActual 과 동일한 방어(승인 대상은 리프뿐이지만 방어적으로 유지).
+  const { data: child, error: childErr } = await admin
+    .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
+  if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
+  if (child) return { ok: false, error: '하위 항목이 있어 롤업으로 계산됩니다' }
+
+  const old = row.actual_pct
+  // 멱등 단락 — approveAgentCompletion 의 CAS 재시도 주석이 이 멱등성에 의존한다(아래 참조).
+  if (Number(old) === newPct) return { ok: true }
+  const { data: updated, error: upErr } = await admin
+    .from('wbs_items')
+    .update({ actual_pct: newPct, updated_at: new Date().toISOString() })
+    .eq('id', itemId).select('id')
+  if (upErr) return { ok: false, error: upErr.message }
+  if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
+
+  // 본 저장은 이미 성공했다 — 이력 기록 실패로 되돌리지는 않되, 조용히 삼키지도 않는다.
+  const { error: logInsErr } = await admin.from('change_logs').insert({
+    user_id: actorUserId, wbs_item_id: itemId, field: 'actual_pct',
+    old_value: old == null ? null : String(old), new_value: String(newPct),
+  })
+  if (logInsErr) console.error('[agentWork] 승인 실적 반영 이력 기록 실패:', logInsErr.message)
+  revalidatePath(`/p/${row.project_id}`, 'layout')
+  after(() => recordProgressSnapshot(row.project_id))
+  return { ok: true }
+}
+
 export async function approveAgentCompletion(orderId: string): Promise<ActionResult> {
   const loaded = await loadOrderForAdmin(orderId)
   if (!loaded.ok) return loaded
@@ -187,10 +244,12 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
   if (order.status !== 'reported') return { ok: false, error: `승인 가능한 상태가 아닙니다(${order.status}).` }
   if (!order.wbs_item_id) return { ok: false, error: 'WBS 항목이 삭제된 주문입니다. 취소로 정리하세요.' }
 
-  const applied = await updateActual(order.wbs_item_id, 100)
+  const admin = createAdminClient()
+  // 관리자·서브트리 관리자 분기 없이 둘 다 이 특권 헬퍼를 탄다 — 관리자는 어차피 updateActual
+  // 의 담당 게이트를 통과했을 사람이라 결과는 같고, 분기를 없애는 쪽이 더 안전하다(2026-09-15 지시).
+  const applied = await applyApprovedActualPct(admin, { itemId: order.wbs_item_id, newPct: 100, actorUserId: actor.userId })
   if (!applied.ok) return { ok: false, error: applied.error ?? 'WBS 반영 실패' }
 
-  const admin = createAdminClient()
   const now = new Date().toISOString()
   const { data: updated, error: casErr } = await admin
     .from('agent_work_orders')
@@ -375,7 +434,7 @@ async function unapproveOrder(
     if (!Number.isFinite(prev)) {
       warnings.push('실적을 되돌리지 못했습니다(이력 값을 읽을 수 없음) — 진척률을 직접 확인하세요.')
     } else {
-      const reverted = await updateActual(itemId, prev)
+      const reverted = await applyApprovedActualPct(admin, { itemId, newPct: prev, actorUserId: actor.userId })
       if (!reverted.ok) {
         console.error('[agentWork] 실적 복원 실패:', reverted.error)
         warnings.push(`실적을 되돌리지 못했습니다(${reverted.error ?? '알 수 없음'}) — 진척률을 직접 확인하세요.`)

@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   emitNotification: vi.fn().mockResolvedValue({ ok: true }),
   requireProjectAdmin: vi.fn(),
-  updateActual: vi.fn(),
   applyAgentProgress: vi.fn(),
   recordProgressSnapshot: vi.fn(async () => {}),
 }))
@@ -22,7 +21,9 @@ vi.mock('@/lib/authz', () => ({ requireProjectAdmin: mocks.requireProjectAdmin }
 vi.mock('@/lib/agent/delegation', () => ({
   requireDelegationRight: vi.fn(async () => ({ ok: true, actor: { userId: 'admin-1' }, projectId: '11111111-1111-4111-8111-111111111111', isAdmin: true })),
 }))
-vi.mock('@/app/actions/wbs', () => ({ updateActual: mocks.updateActual }))
+// 승인/승인 되돌림의 실적% 쓰기는 updateActual(팀 게이트) 이 아니라 admin 경유 특권 헬퍼
+// (agentWork.ts 지역 함수 applyApprovedActualPct)로 이 describe 블록의 useAdmin 큐를 직접 쓴다
+// (트랙 B 후속, 2026-09-15) — @/app/actions/wbs 는 더 이상 agentWork.ts 의 의존성이 아니다.
 vi.mock('@/lib/agent/applyProgress', () => ({ applyAgentProgress: mocks.applyAgentProgress }))
 vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
@@ -223,14 +224,16 @@ describe('승인/반려 → stage xx 전이', () => {
 
   beforeEach(() => {
     mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
-    mocks.updateActual.mockResolvedValue({ ok: true })
   })
 
-  it('승인 성공 → transitionStage 가 wbs_items.stage 를 xx 로 갱신한다', async () => {
+  it('승인 성공 → 실적 100% 반영(특권 헬퍼) + transitionStage 가 wbs_items.stage 를 xx 로 갱신한다', async () => {
     const { captured } = useAdmin({
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],           // 조회, CAS→approved
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }], // 최신 completion, review 기록
       wbs_items: [
+        { data: { id: W1, actual_pct: 40, project_id: P1 } }, // applyApprovedActualPct 항목 조회
+        { data: null },          // applyApprovedActualPct 자식 없음
+        { data: [{ id: W1 }] },  // applyApprovedActualPct UPDATE(actual_pct)
         { data: { name: '항목1', assignee_member_id: null, stage: 'im', external_ref: null } }, // 알림용 조회(배정자 없음)
         { data: STAGE_ROW({ stage: 'im' }) },                                                    // transitionStage 자체 조회
         { data: null }, // 리프 확인 — 자식 없음
@@ -239,8 +242,9 @@ describe('승인/반려 → stage xx 전이', () => {
     })
     const r = await approveAgentCompletion(O1)
     expect(r.ok).toBe(true)
-    const update = captured.wbs_items?.find((c) => c.op === 'update')
-    expect(update?.payload).toMatchObject({ stage: 'xx' })
+    const updates = captured.wbs_items?.filter((c) => c.op === 'update') ?? []
+    expect(updates[0]?.payload).toMatchObject({ actual_pct: 100 })
+    expect(updates[1]?.payload).toMatchObject({ stage: 'xx' })
   })
 
   it('반려는 stage 전이를 시도하지 않는다(im 유지)', async () => {
@@ -262,6 +266,9 @@ describe('승인/반려 → stage xx 전이', () => {
       agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
       wbs_items: [
+        { data: { id: W1, actual_pct: 40, project_id: P1 } }, // applyApprovedActualPct 항목 조회
+        { data: null },          // applyApprovedActualPct 자식 없음
+        { data: [{ id: W1 }] },  // applyApprovedActualPct UPDATE(actual_pct)
         { data: { name: '항목1', assignee_member_id: null, stage: 'im', external_ref: null } },
         { data: null, error: { message: '항목 없음' } }, // transitionStage 자체 조회 실패
       ],
