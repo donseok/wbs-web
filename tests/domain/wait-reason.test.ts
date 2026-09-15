@@ -1,15 +1,14 @@
 // tests/domain/wait-reason.test.ts
 import { describe, expect, it } from 'vitest'
-import { deriveWaitReason, STAGE_LABEL, stageText, unmetDepends, unmetDependsList, type PredecessorLike, type WatcherLike } from '@/lib/domain/waitReason'
+import { deriveWaitReason, stageText, unmetDepends, unmetDependsList, type PredecessorLike, type WatcherLike } from '@/lib/domain/waitReason'
 
 const pred = (over: Partial<PredecessorLike> = {}): PredecessorLike => ({ external_ref: 'M/T1', code: 'TSK-04-01', name: '목록', stage: 'ip', order_approved: false, ...over })
 const lookup = (rows: PredecessorLike[]) => (ref: string) => rows.find(r => r.external_ref === ref)
 const watcher = (over: Partial<WatcherLike> = {}): WatcherLike => ({ agent: 'hong/mbp', user_id: 'u1', slots: 2, busy: 0, until_label: null, ...over })
 const base = { depends: null, predecessorByRef: lookup([]), assignee: null, watchers: [watcher()] }
 
-describe('stageText · STAGE_LABEL', () => {
+describe('stageText', () => {
   it('코드와 정본 라벨(stageLabels)을 같이 쓴다. 모르는 코드는 코드만, null 은 "단계 없음"', () => {
-    expect(STAGE_LABEL.im).toBe('구현') // 허브 select 옛 문구 — 허브가 정본으로 옮기면 지운다
     expect(stageText('ip')).toBe('ip(작업 중)')
     expect(stageText('im')).toBe('im(검수 대기)')
     expect(stageText('fp')).toBe('fp') // 0096 에서 제거된 코드 — 모르는 코드와 같다

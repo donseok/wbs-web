@@ -94,6 +94,11 @@ describe('toRpcNode v2.2 — levels 문맥의 노드 변환(순수부)', () => {
     expect(toRpcNode('mes-op', { ...BASE, kind: 'wp' as const, level: 3 }, 0, LEVELS))
       .toMatchObject({ level_idx: 3, dev_workflow: false })
   })
+  it('stage fp 는 ip 로 정규화(0096·계약 v2.3 과도기), todo 는 null, 모르는 값은 노드 단위 거부', () => {
+    expect(toRpcNode('mes-op', { ...BASE, level: 5, stage: 'fp' }, 0, LEVELS)).toMatchObject({ stage: 'ip' })
+    expect(toRpcNode('mes-op', { ...BASE, level: 5, stage: 'todo' }, 0, LEVELS)).toMatchObject({ stage: null })
+    expect('error' in toRpcNode('mes-op', { ...BASE, level: 5, stage: 'zz' }, 0, LEVELS)).toBe(true)
+  })
   it('milestone 은 input 층이어도 dev_workflow:false — 발행 제외', () => {
     expect(toRpcNode('mes-op', { ...BASE, level: 5, milestone: true }, 0, LEVELS))
       .toMatchObject({ milestone: true, dev_workflow: false })

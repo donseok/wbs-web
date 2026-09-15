@@ -3,6 +3,7 @@ import { treeMaxDepth, validateLevelSettings } from '@/lib/domain/levelSettings'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
 import { emitNotification } from '@/lib/notify/emit'
+import { STAGE_CODES } from '@/lib/domain/stageLabels'
 
 /**
  * WBS 업로드(export JSON → upsert) 변환·후처리 — 계약 v2.0 §2.6.
@@ -88,7 +89,7 @@ export function validateLevels(raw: unknown): { levels: LevelDecl[] } | { error:
   if (!hasInput) return { error: 'levels 에 progress:input 층이 최소 1개 필요합니다.' }
   return { levels }
 }
-const STAGES = new Set(['as', 'fp', 'ip', 'im', 'xx'])
+const STAGES: ReadonlySet<string> = new Set(STAGE_CODES)
 const PRIORITY_LABELS = new Set(['critical', 'high', 'medium', 'low'])
 const SCHEDULE_RE = /^(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})$/
 const SCHEDULE_END_ONLY_RE = /^~\s*(\d{4}-\d{2}-\d{2})$/ // v2.2: nlevel wbs.md 의 ~종료일 토큰(시작일 없음)
@@ -131,7 +132,8 @@ export function toRpcNode(module: string, n: ImportNode, index: number, levels?:
   | { error: string } {
   if (!n.id || !n.title) return { error: `id·title 필수: ${JSON.stringify(n.id)}` }
   // v2.1: 'todo' 는 stage 축에서 제거됐다(0082) — 검증 전에 null 로 정규화해 하위호환 수용.
-  const stage = n.stage === 'todo' ? null : n.stage
+  // v2.3: 'fp' 도 제거됐다(0096) — 강제 진행은 작업 중이므로 ip 로 정규화해 옛 wbs.md 를 받는다(DB RPC 도 이중 방어).
+  const stage = n.stage === 'todo' ? null : n.stage === 'fp' ? 'ip' : n.stage
   if (stage !== null && stage !== undefined && !STAGES.has(stage)) return { error: `허용 밖 stage: ${stage} (${n.id})` }
   if (n.priority !== null && n.priority !== undefined && !PRIORITY_LABELS.has(n.priority)) {
     return { error: `허용 밖 priority 라벨: ${n.priority} (${n.id})` }

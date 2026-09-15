@@ -216,10 +216,11 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   // dev-workflow state-machine.json. 'wbs.stageTodo' dropped with the todo stage (0082).
   'wbs.stageNoneOption': 'Not started',
   'wbs.stageAs': 'Assigned',
-  'wbs.stageFp': 'Force proceed',
   'wbs.stageIp': 'In progress',
   'wbs.stageIm': 'Awaiting review',
   'wbs.stageXx': 'Done',
+  'wbs.stageLockedByOrder': 'Delegated to an agent. The stage changes through approve/reject. Turn delegation off to set it manually.',
+  'wbs.stageNotWorkflow': 'Not a dev-workflow item, so no stage is used.',
   'wbs.stageLeafOnlyHint': 'Workflow stages apply only to leaf tasks (items with no children).',
   'wbs.assigneeStageLoadFail': 'Could not load current values. Please reopen.',
   'wbs.assigneeStageReadOnly': 'Read-only — only project admins can change this.',

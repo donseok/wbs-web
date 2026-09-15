@@ -7,8 +7,8 @@ import { SAVE_DEBOUNCE_MS } from '@/components/wbs/useDebouncedSave'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-type ResolvedState = { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean }
-const getWbsAssigneeStage = vi.fn(async (): Promise<ResolvedState> => ({ assigneeMemberId: null, stage: null, devWorkflow: false }))
+type ResolvedState = { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean; delegated?: boolean }
+const getWbsAssigneeStage = vi.fn(async (): Promise<ResolvedState> => ({ assigneeMemberId: null, stage: null, devWorkflow: true }))
 const setWbsAssignee = vi.fn(async () => ({ ok: true }))
 const setWbsAssigneeCascade = vi.fn(async () => ({ ok: true, count: 0 }))
 const setWbsStage = vi.fn(async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true }))
@@ -47,7 +47,7 @@ describe('WbsAssigneeStagePanel', () => {
     vi.useFakeTimers()
     // mockClear 는 mockResolvedValueOnce 잔재를 지우지 않는다 — 실패한 테스트가 남긴 Once 값이
     // 다음 테스트의 첫 조회에 실려 오지 않도록 reset 뒤 기본 구현을 다시 건다.
-    getWbsAssigneeStage.mockReset().mockResolvedValue({ assigneeMemberId: null, stage: null, devWorkflow: false })
+    getWbsAssigneeStage.mockReset().mockResolvedValue({ assigneeMemberId: null, stage: null, devWorkflow: true })
     setWbsAssignee.mockReset().mockResolvedValue({ ok: true })
     setWbsAssigneeCascade.mockReset().mockResolvedValue({ ok: true, count: 0 })
     setWbsStage.mockReset().mockResolvedValue({ ok: true })
@@ -68,10 +68,10 @@ describe('WbsAssigneeStagePanel', () => {
   async function mount(opts: {
     editable?: boolean
     hasChildren?: boolean
-    resolved?: { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean }
+    resolved?: ResolvedState
   } = {}) {
     getWbsAssigneeStage.mockResolvedValue(
-      opts.resolved ?? { assigneeMemberId: null, stage: null, devWorkflow: false },
+      opts.resolved ?? { assigneeMemberId: null, stage: null, devWorkflow: true },
     )
     await act(async () =>
       root.render(
@@ -154,8 +154,21 @@ describe('WbsAssigneeStagePanel', () => {
     expect(setWbsDevWorkflow).toHaveBeenCalledWith('item-1', true, false)
   })
 
-  it('(c) devWorkflow=false 여도 stage 셀렉트는 활성 상태이며 값 변경 시 SAVE_DEBOUNCE_MS 뒤 setWbsStage 가 호출된다', async () => {
+  // 단계는 개발 워크플로 항목의 것이다(스펙 2026-09-15 §3.5) — 꺼진 항목에는 드롭다운을 두지 않는다.
+  it('(c-0) devWorkflow=false 면 단계 드롭다운을 두지 않고 안내문을 보인다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    expect(container.querySelector('select')).toBeNull()
+    expect(container.querySelector('[data-stage-not-workflow]')?.textContent).toBe('wbs.stageNotWorkflow')
+  })
+
+  it('(c-1) 위임된 작업은 단계 드롭다운을 잠그고 안내문을 보인다 — 단계는 승인·반려로 바뀐다', async () => {
+    await mount({ resolved: { assigneeMemberId: null, stage: 'ip', devWorkflow: true, delegated: true } })
+    expect(stageSelect().disabled).toBe(true)
+    expect(container.querySelector('[data-stage-locked]')?.textContent).toBe('wbs.stageLockedByOrder')
+  })
+
+  it('(c) devWorkflow=true 면 stage 셀렉트가 활성이고 값 변경 시 SAVE_DEBOUNCE_MS 뒤 setWbsStage 가 호출된다', async () => {
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: true } })
     expect(stageSelect().disabled).toBe(false)
     await changeStage('im')
     expect(stageSelect().value).toBe('im') // 낙관 표시
@@ -166,7 +179,7 @@ describe('WbsAssigneeStagePanel', () => {
   })
 
   it('(c-2) 같은 필드를 여러 번 바꾸면 마지막 값만, 원래 값으로 돌아오면 저장하지 않는다', async () => {
-    await mount({ resolved: { assigneeMemberId: null, stage: 'as', devWorkflow: false } })
+    await mount({ resolved: { assigneeMemberId: null, stage: 'as', devWorkflow: true } })
     await changeStage('im')
     await changeStage('ip')
     await elapse()
@@ -185,7 +198,7 @@ describe('WbsAssigneeStagePanel', () => {
     const order: string[] = []
     setWbsStage.mockImplementation(async () => { order.push('stage'); return { ok: true } })
     setWbsDevWorkflow.mockImplementation(async () => { order.push('devWorkflow'); return { ok: true, count: 1 } })
-    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: true } })
     await changeStage('im')
     await act(async () => devWorkflowCheckbox().click())
     await elapse()
@@ -194,7 +207,7 @@ describe('WbsAssigneeStagePanel', () => {
   })
 
   it('(e) 「지금 저장」을 누르면 기다리지 않고 저장한다', async () => {
-    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: true } })
     await changeStage('im')
     expect(saveNow()).not.toBeNull()
     await act(async () => saveNow()!.click())
@@ -207,7 +220,7 @@ describe('WbsAssigneeStagePanel', () => {
 
   it('(e-2) 저장이 실패하면 값을 되돌리고 오류를 표시한다 — 실패를 위장하지 않는다', async () => {
     setWbsStage.mockResolvedValue({ ok: false, error: '허용되지 않는 단계입니다.' })
-    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: true } })
     await changeStage('im')
     expect(stageSelect().value).toBe('im')
     await elapse()
@@ -217,10 +230,10 @@ describe('WbsAssigneeStagePanel', () => {
   })
 
   it('(f) 담당자 변경 성공 후 getWbsAssigneeStage 재조회로 loaded 전체가 교체된다(부분 낙관 갱신 아님, F2 최종 리뷰)', async () => {
-    await mount({ resolved: { assigneeMemberId: 'm-1', stage: null, devWorkflow: false } })
+    await mount({ resolved: { assigneeMemberId: 'm-1', stage: null, devWorkflow: true } })
     expect(getWbsAssigneeStage).toHaveBeenCalledTimes(1)
     // 서버가 배정과 함께 stage 도 as 로 바꿨다고 가정 — 재조회가 그 결과를 실어와야 한다.
-    getWbsAssigneeStage.mockResolvedValueOnce({ assigneeMemberId: null, stage: 'as', devWorkflow: false })
+    getWbsAssigneeStage.mockResolvedValueOnce({ assigneeMemberId: null, stage: 'as', devWorkflow: true })
     const input = container.querySelector('input[role="combobox"]') as HTMLInputElement
     await act(async () => { input.focus() })
     const option = [...container.querySelectorAll('[role="option"]')]
@@ -239,7 +252,7 @@ describe('WbsAssigneeStagePanel', () => {
   })
 
   it('(g) 패널이 닫히면(언마운트) 대기 중인 변경을 기다리지 않고 저장한다', async () => {
-    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
+    await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: true } })
     await changeStage('im')
     expect(setWbsStage).not.toHaveBeenCalled()
     await act(async () => { root.unmount() })
@@ -266,7 +279,7 @@ describe('WbsAssigneeStagePanel', () => {
     expect(container.textContent).toContain('wbs.stageLeafOnlyHint')
   })
 
-  it('자식이 없으면 다섯 단계를 모두 고를 수 있다', async () => {
+  it('자식이 없으면 네 단계를 모두 고를 수 있다(fp 는 0096 에서 제거)', async () => {
     await mount({ hasChildren: false })
     const select = [...container.querySelectorAll('select')].at(-1)!
     expect([...select.options].map(o => o.value)).toEqual(['', 'as', 'ip', 'im', 'xx'])

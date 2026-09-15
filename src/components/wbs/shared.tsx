@@ -134,16 +134,15 @@ export { collectLeaves } from '@/lib/domain/tree'
 /**
  * WBS Task 단계(wbs_items.stage) 칩 — 상태(status)와 다른 축이다.
  * 상태는 실적·계획에서 매번 파생되는 계산값이고, 단계는 에이전트 루프가 옮기는 저장값이다.
- * 특히 im("구현 완료·검수 대기")에서 둘이 가장 크게 벌어진다 — 구현은 끝났는데 실적은 아직 100 이 아니라
+ * 특히 im("검수 대기")에서 둘이 가장 크게 벌어진다 — 구현은 끝났는데 실적은 아직 100 이 아니라
  * 상태는 진행중/지연으로 남는다. 두 칩이 서로 어긋나 보이는 건 버그가 아니라 그 사실 자체다.
  *
- * 글자는 코드 두 자만 찍고 전체 라벨은 title 로 뺀다 — 작업명 칸 우단에 '구현 완료·검수 대기'가
- * 들어갈 자리가 없고, 짧은 한국어로 줄이면 stage ip('진행 중')가 StatusChip 의 '진행중'과 같은 행에서
+ * 글자는 코드 두 자만 찍고 전체 라벨은 title 로 뺀다 — 단계 컬럼 칸에 전체 라벨이
+ * 들어갈 자리가 없고, 짧은 한국어로 줄이면 stage ip('작업 중')가 StatusChip 의 '진행중'과 같은 행에서
  * 충돌한다. 코드 표기는 LevelBadge 의 PHASE/TASK/ACT 어법과 같은 결이다.
  */
 const STAGE_META: Record<string, { key: DictKey; cls: string }> = {
   as: { key: 'wbs.stageAs', cls: 'bg-pending-weak text-pending' },
-  fp: { key: 'wbs.stageFp', cls: 'bg-delayed-weak text-delayed' },
   ip: { key: 'wbs.stageIp', cls: 'bg-progress-weak text-progress' },
   im: { key: 'wbs.stageIm', cls: 'bg-brand-weak text-brand' },
   xx: { key: 'wbs.stageXx', cls: 'bg-done-weak text-done' },

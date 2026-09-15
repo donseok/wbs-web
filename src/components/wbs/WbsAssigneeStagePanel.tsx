@@ -19,6 +19,8 @@ import { STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
 type Stage = StageCode
 /** 서버 확정 값이자 debounce 저장 필드 — getWbsAssigneeStage 의 반환 형태 그대로다. */
 type AssigneeStage = { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean }
+/** 서버 확정 값 + 단계 잠금 표시 재료(위임 여부, 스펙 §3.5). delegated 는 저장 필드가 아니다. */
+type Loaded = AssigneeStage & { delegated?: boolean }
 /** 담당·단계·dev workflow 액션 반환의 합집합. count·cascadeFailed 는 cascade 계열만 실어 온다. */
 type AssigneeStageResult = { ok: boolean; error?: string; count?: number; cascadeFailed?: boolean; orderCreated?: boolean }
 const STAGE_KEYS: Record<Stage, DictKey> = {
@@ -50,7 +52,7 @@ export function WbsAssigneeStagePanel({
   const { t } = useLocale()
   const teamCodes = useTeamCodes()
   const assigneeLabelId = useId()
-  const [loaded, setLoaded] = useState<AssigneeStage | 'error' | null>(null)
+  const [loaded, setLoaded] = useState<Loaded | 'error' | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [cascade, setCascade] = useState(true)
   const [cascadeResult, setCascadeResult] = useState<number | null>(null)
@@ -135,6 +137,8 @@ export function WbsAssigneeStagePanel({
   const memberName = (id: string | null) => id ? members.find(m => m.id === id)?.name ?? id : null
   // 낙관 표시값 — 대기 중인 변경이 있으면 그 값, 없으면 서버 확정 값. loaded 가 객체일 때만 쓰인다.
   const view: AssigneeStage = quick.view ?? { assigneeMemberId: null, stage: null, devWorkflow: false }
+  // 위임된 작업은 단계를 승인·반려로만 바꾼다(잠금). 위임 없이 reported 주문만 남은 드문 경우는 서버 거부 문구가 드러낸다.
+  const delegated = loaded !== null && loaded !== 'error' && loaded.delegated === true
 
   return (
     <div className="space-y-3">
@@ -194,10 +198,14 @@ export function WbsAssigneeStagePanel({
 
                 <label className="block">
                   <span className="mb-1 block text-[11px] font-semibold text-ink-muted">{t('wbs.stageLabel')}</span>
-                  {editable ? (
+                  {/* 단계는 개발 워크플로 항목의 것이다(스펙 2026-09-15 §3.5) — 꺼진 항목은 드롭다운을 두지 않는다
+                      (서버가 not_workflow 로 거부할 값을 권하지 않는다). */}
+                  {editable && view.devWorkflow ? (
                     <select
                       value={view.stage ?? ''}
                       onChange={e => onStageChange((e.target.value || null) as Stage | null)}
+                      disabled={delegated}
+                      title={delegated ? t('wbs.stageLockedByOrder') : undefined}
                       className="app-input h-9 text-xs"
                     >
                       <option value="">{t('wbs.stageNoneOption')}</option>
@@ -211,8 +219,14 @@ export function WbsAssigneeStagePanel({
                       {view.stage && STAGE_KEYS[view.stage as Stage] ? t(STAGE_KEYS[view.stage as Stage]) : t('wbs.stageNoneOption')}
                     </p>
                   )}
-                  {editable && hasChildren && (
+                  {editable && view.devWorkflow && hasChildren && (
                     <p className="mt-1 text-[11px] text-ink-subtle">{t('wbs.stageLeafOnlyHint')}</p>
+                  )}
+                  {editable && view.devWorkflow && delegated && (
+                    <p data-stage-locked className="mt-1 text-[11px] text-ink-subtle">{t('wbs.stageLockedByOrder')}</p>
+                  )}
+                  {editable && !view.devWorkflow && (
+                    <p data-stage-not-workflow className="mt-1 text-[11px] text-ink-subtle">{t('wbs.stageNotWorkflow')}</p>
                   )}
                 </label>
               </div>

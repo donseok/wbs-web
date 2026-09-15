@@ -7,9 +7,6 @@ import { STAGE_LABEL_KO, isStageCode } from './stageLabels'
 export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup'
 export interface WaitReason { kind: WaitReasonKind; label: string; text: string }
 
-/** @deprecated 허브 표 단계 select 의 옛 문구 — 허브가 stageLabels 정본으로 옮기면 지운다. 새 코드는 stageLabels 를 쓴다. */
-export const STAGE_LABEL: Readonly<Record<string, string>> = { todo: '미착수', as: '분석', fp: '기능 계획', ip: '구현 계획', im: '구현', xx: '완료' }
-
 export function stageText(stage: string | null): string {
   if (stage === null) return '단계 없음'
   return isStageCode(stage) ? `${stage}(${STAGE_LABEL_KO[stage]})` : stage
