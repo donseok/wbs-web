@@ -46,6 +46,16 @@ describe('StageCreditSlider', () => {
     expect(saveBtn()!.disabled).toBe(true) // 바뀐 것이 없다
   })
 
+  it('눈금은 5 간격으로 긋고 10 간격마다 숫자를 붙인다', async () => {
+    await mount()
+    const scale = container.querySelector('[data-credit-table="default"] [data-credit-scale]')!
+    expect(scale.querySelectorAll('[data-credit-tick]').length).toBe(21)
+    expect([...scale.querySelectorAll('[data-credit-tick-label]')].map(e => e.textContent))
+      .toEqual(['0', '10', '20', '30', '40', '50', '60', '70', '80', '90', '100'])
+    expect(scale.querySelector<HTMLElement>('[data-credit-tick="45"]')!.style.left).toBe('45%')
+    expect(scale.querySelector('[data-credit-tick="45"] [data-credit-tick-label]')).toBeNull()
+  })
+
   it('직접 입력은 포커스를 벗어날 때 5 단위·이웃 간격으로 클램프된다', async () => {
     await mount()
     await type(input('default', 'ip'), '48')

@@ -9,7 +9,7 @@ import { useLocale } from '@/components/providers/LocaleProvider'
 import { updateStageCredits } from '@/app/actions/project'
 import type { DictKey } from '@/lib/i18n/dict'
 import {
-  CREDIT_KEYS, CREDIT_STEP, CREDIT_TABLE_KEYS, DEFAULT_STAGE_CREDITS, clampCredit, validateStageCredits,
+  CREDIT_GAP, CREDIT_KEYS, CREDIT_STEP, CREDIT_TABLE_KEYS, DEFAULT_STAGE_CREDITS, clampCredit, validateStageCredits,
   type CreditKey, type CreditTable, type CreditTableKey, type StageCredits,
 } from '@/lib/domain/stageCredits'
 
@@ -24,6 +24,11 @@ const KEY_LABEL: Record<CreditKey, DictKey> = {
 const HANDLE_CLS: Record<CreditKey, string> = {
   as: 'bg-pending', ip: 'bg-progress', rw: 'bg-delayed', im: 'bg-brand', xx: 'bg-done',
 }
+/**
+ * 트랙 눈금 — 입력 가능한 값(CREDIT_STEP=5)마다 긋고 CREDIT_GAP=10 마다 숫자를 붙인다.
+ * 두 간격을 눈으로 셀 수 있어야 핸들을 어디까지 밀 수 있는지 드래그 전에 안다.
+ */
+const SCALE_TICKS = Array.from({ length: 100 / CREDIT_STEP + 1 }, (_, i) => i * CREDIT_STEP)
 
 function cloneCredits(c: StageCredits): StageCredits {
   const out: StageCredits = { default: { ...c.default } }
@@ -199,8 +204,21 @@ function CreditRow({ tableKey, table, editable, onChange, onRemove }: {
             )
           })}
         </div>
-        <div className="mt-1.5 flex justify-between text-[10px] tabular-nums text-ink-subtle" aria-hidden>
-          <span>0</span><span>50</span><span>100</span>
+        <div data-credit-scale className="relative mt-1.5 h-6" aria-hidden>
+          {SCALE_TICKS.map(v => {
+            const major = v % CREDIT_GAP === 0
+            return (
+              <span key={v} data-credit-tick={v} className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
+                style={{ left: `${v}%` }}>
+                <span className={`w-px ${major ? 'h-2 bg-line-strong' : 'h-1 bg-line'}`} />
+                {major && (
+                  <span data-credit-tick-label={v} className="mt-0.5 text-[10px] leading-none tabular-nums text-ink-subtle">
+                    {v}
+                  </span>
+                )}
+              </span>
+            )
+          })}
         </div>
       </div>
 
