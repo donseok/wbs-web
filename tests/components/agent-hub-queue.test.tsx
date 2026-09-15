@@ -16,8 +16,10 @@ vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t:
 import { ApprovalQueue } from '@/components/agent-hub/ApprovalQueue'
 import { HubStatusBar } from '@/components/agent-hub/HubStatusBar'
 
-const Q: HubQueueEntry[] = [{ orderId: 'o1', itemId: 'i1', code: 'TSK-1', name: '화면', agent: 'hong/mbp', percent: 100, summary: '끝', links: [{ url: 'https://x/pr/1', label: 'PR' }], reportedAt: '2026-09-14T08:00:00Z', assigneeMine: false }]
+const Q: HubQueueEntry[] = [{ orderId: 'o1', itemId: 'i1', code: 'TSK-1', name: '화면', agent: 'hong/mbp', percent: 100, summary: '끝', links: [{ url: 'https://x/pr/1', label: 'PR' }], reportedAt: '2026-09-14T08:00:00Z', assigneeMine: false, canManage: false }]
 const QMINE: HubQueueEntry[] = [{ ...Q[0], assigneeMine: true }]
+/** 서브트리 관리자(트랙 B, 2026-09-15) — 리프 본인 담당자는 아니지만 조상 담당자가 나인 경우. */
+const QMANAGE: HubQueueEntry[] = [{ ...Q[0], canManage: true }]
 const HUB = { projectId: 'p1', queue: [] } as unknown as AgentHub
 
 let host: HTMLDivElement, root: Root
@@ -92,6 +94,20 @@ describe('ApprovalQueue — 처리는 runHubProcessOp 1건, 응답의 허브로 
     await act(async () => { setValue(host.querySelector('textarea') as HTMLTextAreaElement, '내가 다시 볼게요') })
     await act(async () => { (host.querySelector('[data-queue-reject]') as HTMLButtonElement).click() })
     expect(runOp).toHaveBeenCalledWith('p1', { kind: 'reject', orderId: 'o1', note: '내가 다시 볼게요' })
+  })
+  it('서브트리 관리자(canManage, 트랙 B): 리프 본인 담당자가 아니어도 approve+reject 가 보이고 안내문은 없다', async () => {
+    runOp.mockResolvedValueOnce({ ok: true, hub: HUB })
+    render({ isAdmin: false, queue: QMANAGE })
+    expect(host.querySelector('[data-queue-approve]')).not.toBeNull()
+    expect(host.querySelector('[data-queue-reject-open]')).not.toBeNull()
+    expect(host.textContent).not.toContain('담당자는 반려로')
+    await act(async () => { (host.querySelector('[data-queue-approve]') as HTMLButtonElement).click() })
+    expect(runOp).toHaveBeenCalledWith('p1', { kind: 'approve', orderId: 'o1' })
+  })
+  it('관리자(대조군): 전부 보인다 — approve·reject 둘 다', () => {
+    render({ isAdmin: true, queue: Q })
+    expect(host.querySelector('[data-queue-approve]')).not.toBeNull()
+    expect(host.querySelector('[data-queue-reject-open]')).not.toBeNull()
   })
 })
 

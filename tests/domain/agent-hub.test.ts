@@ -188,6 +188,59 @@ describe('assembleAgentHub — 선행 미완료(unmetDepends)', () => {
   })
 })
 
+describe('assembleAgentHub — 서브트리 관리자(canManage, 트랙 B 2026-09-15)', () => {
+  // root → a(SUB-A, 비리프, 담당자 m1) → a1(TSK-A-01, 리프, 본인 미배정 — 조상 경로로만 canManage)
+  // root → b(SUB-B, 비리프, 담당자 없음) → a2(TSK-A-02, 리프, 본인 담당 m1 — 조상엔 없다, "리프 본인만" 경로)
+  const withManager = (over: Partial<AgentHubRows> = {}) => rows({
+    items: [
+      item({ id: 'root', code: 'SYS-OP', name: '조업', sort_order: 1 }),
+      item({ id: 'a', parent_id: 'root', code: 'SUB-A', name: '첫째', sort_order: 1, assignee_member_id: 'm1' }),
+      item({ id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프1', sort_order: 1, dev_workflow: true, tags: ['agent'] }),
+      item({ id: 'b', parent_id: 'root', code: 'SUB-B', name: '둘째', sort_order: 2 }),
+      item({ id: 'a2', parent_id: 'b', code: 'TSK-A-02', name: '리프2', sort_order: 1, dev_workflow: true, assignee_member_id: 'm1' }),
+    ],
+    ...over,
+  })
+  const by = (hub: ReturnType<typeof assembleAgentHub>, c: string) => hub.rows.find(r => r.code === c)!
+
+  it('조상(비리프)의 담당자 = 나(VIEWER=m1) → 그 하위 리프는 canManage:true — 리프 자신은 미배정이어도(assigneeMine:false)', () => {
+    const hub = assembleAgentHub(withManager(), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-01').canManage).toBe(true)
+    expect(by(hub, 'TSK-A-01').assigneeMine).toBe(false)
+  })
+  it('리프 본인만 담당(조상 SUB-B 는 미배정) → 그 리프는 canManage:false — assigneeMine 과 분리', () => {
+    const hub = assembleAgentHub(withManager(), NOW, VIEWER)
+    expect(by(hub, 'TSK-A-02').assigneeMine).toBe(true)
+    expect(by(hub, 'TSK-A-02').canManage).toBe(false)
+  })
+  it('무관한 멤버(조상 SUB-A 의 담당자와 다른 사람, m9) → canManage:false', () => {
+    const hub = assembleAgentHub(withManager(), NOW, { userId: 'u9', userEmail: null, isAdmin: false })
+    expect(by(hub, 'TSK-A-01').canManage).toBe(false)
+  })
+  it('strict 조상만 본다 — 자기 자신의 담당은 canManage 에 안 잡힌다(비리프 SUB-A 자신의 행)', () => {
+    const hub = assembleAgentHub(withManager(), NOW, VIEWER)
+    expect(by(hub, 'SUB-A').canManage).toBe(false)
+  })
+  it('큐(HubQueueEntry) 도 같은 규칙 — reported 주문의 리프가 서브트리 관리 대상이면 canManage:true', () => {
+    const oid = '11111111-aaaa-4aaa-8aaa-000000000009'
+    const hub = assembleAgentHub(withManager({ orders: [order({ id: oid, wbs_item_id: 'a1', status: 'reported' })] }), NOW, VIEWER)
+    expect(hub.queue).toHaveLength(1)
+    expect(hub.queue[0]).toMatchObject({ itemId: 'a1', assigneeMine: false, canManage: true })
+  })
+  // 순환 parent_id 가드(isSubtreeManagerOf 의 visited Set) 자체는 tests/agent/subtree-manager.test.ts 의
+  // isSubtreeManager(assignee.ts, 같은 순회 알고리즘)에서 직접 검증한다. 여기서는 그 가드를 다시 증명하지
+  // 않고, assembleAgentHub 가 순환 섞인 items 를 받아도 죽지 않는지만 스모크로 확인한다.
+  it('assembleAgentHub 자체는 items 배열에 순환(orphan 가지)이 섞여도 멈추거나 던지지 않는다', () => {
+    expect(() => assembleAgentHub(withManager({
+      items: [
+        item({ id: 'root', code: 'SYS-OP', name: '조업', sort_order: 1 }),
+        item({ id: 'x', parent_id: 'y', code: 'SYS-X', name: '순환1' }), // x ↔ y 순환 — 루트에 안 닿는 고아 가지
+        item({ id: 'y', parent_id: 'x', code: 'SYS-Y', name: '순환2' }),
+      ],
+    }), NOW, VIEWER)).not.toThrow()
+  })
+})
+
 describe('assembleAgentHub — 단계(§11)', () => {
   it('행에 wbs_items.stage 가 그대로 실린다(미지정은 null)', () => {
     const hub = assembleAgentHub(rows({ items: [
