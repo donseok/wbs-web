@@ -71,7 +71,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.nameColResizeTitle': 'Resize task name column — drag to adjust',
   'wbs.colOwners': 'Owner team',
   'wbs.colAssignee': 'Assignee',
-  'wbs.colStatus': 'Status',
+  'wbs.colStatus': 'Progress',
   'wbs.colDeliverable': 'Deliverable',
   'wbs.colPlannedStart': 'Plan start',
   'wbs.colPlannedEnd': 'Plan end',

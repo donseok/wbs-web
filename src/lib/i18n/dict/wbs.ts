@@ -77,7 +77,7 @@ export const wbsKo = {
   // 해서 '담당팀'으로 개명했다(2026-09-15). colAssignee 는 그 옆에 병존하는 개인 담당 컬럼.
   'wbs.colOwners': '담당팀',
   'wbs.colAssignee': '담당자',
-  'wbs.colStatus': '상태',
+  'wbs.colStatus': '진척',
   'wbs.colDeliverable': '산출물',
   'wbs.colPlannedStart': '계획시작',
   'wbs.colPlannedEnd': '계획종료',

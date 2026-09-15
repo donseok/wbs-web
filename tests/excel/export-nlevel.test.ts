@@ -41,7 +41,7 @@ describe('buildWbsAoa — N단 라벨이면 계층 열이 라벨 수만큼 늘�
     expect(h3.slice(7, 9)).toEqual(['', ''])
     expect(h3.slice(9, 11)).toEqual(['PMO', 'ERP'])
     expect(h3[11]).toBe('산출물')
-    expect(h3[h3.length - 1]).toBe('상태')
+    expect(h3[h3.length - 1]).toBe('진척')
   })
 
   it('header2 에도 계층 라벨이 같은 자리에 실린다', () => {
