@@ -97,7 +97,7 @@ describe('claim 선행 게이트', () => {
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
+    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true }])
   })
 
   it('선행 stage=ip → 403 dependency_not_met + unmet 배열', async () => {
@@ -226,14 +226,34 @@ describe('depends_evidence', () => {
       agent_work_reports: [{ data: { evidence: { branch: 'main', head_sha: HEAD_SHA } } }],
     })
     const result1 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA, order_approved: true }])
+    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA, order_approved: true, actual_pct: null, reached: true }])
 
     useAdmin({
       wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
       agent_work_orders: [{ data: null }], // approved 주문 없음
     })
     const result2 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
+    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true }])
+  })
+})
+
+describe('loadDependsInfo — reached(계약 v2.3, 스펙 2026-09-15 §3.7)', () => {
+  it('stage 가 null 이어도 실적 100 이면 reached — 위임하지 않은 사람 Task', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: null, actual_pct: 100 }] }],
+      agent_work_orders: [{ data: null }],
+    })
+    const [d] = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
+    expect(d).toMatchObject({ stage: null, actual_pct: 100, order_approved: false, reached: true })
+  })
+  it('stage ip·실적 30·미승인이면 reached:false, 프로젝트에 없는 ref 도 false', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'ip', actual_pct: 30 }] }],
+      agent_work_orders: [{ data: null }],
+    })
+    const res = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF, 'MES/GONE'] })
+    expect(res.map(d => d.reached)).toEqual([false, false])
+    expect(res[1]).toMatchObject({ external_ref: 'MES/GONE', actual_pct: null, reached: false })
   })
 })
 

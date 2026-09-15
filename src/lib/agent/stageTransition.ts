@@ -1,5 +1,6 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { emitNotification } from '@/lib/notify/emit'
+import { predecessorReached } from '@/lib/domain/agentWork'
 
 /** WBS Task 단계(§2.5) — dev_workflow=true 항목의 자동 전이 대상. 미지정은 'todo' 문자열이 아니라 null(0082). */
 export type WbsStage = 'as' | 'fp' | 'ip' | 'im' | 'xx'
@@ -11,7 +12,7 @@ export const REACHED_STAGES: Set<string> = new Set(REACHED_STAGES_LIST)
 type StageItem = { id: string; project_id: string; name: string; external_ref: string | null }
 
 /**
- * 후행의 depends 전체가 im/xx 에 도달했는지 확인 — §2.10 알림 의미("착수 가능")와 T15 claim
+ * 후행의 depends 전체가 충족(predecessorReached — im·xx 또는 실적 100, 스펙 2026-09-15 §3.7)됐는지 확인 — §2.10 알림 의미("착수 가능")와 T15 claim
  * 게이트(depends 전부 stage ≥ im 이어야 통과)를 맞춘다. 선행 하나 도달마다 발행하면 depends
  * 가 여러 개인 후행에게 아직 착수 불가한데 "착수 가능합니다" 라는 거짓 알림이 나간다.
  * 조회 실패·일부 선행 미발견은 fail-closed(false 취급) — 호출부가 발행을 생략한다.
@@ -24,15 +25,15 @@ async function allPredecessorsReached(
   if (dependsRefs.length === 0) return true
   const { data, error } = await admin
     .from('wbs_items')
-    .select('external_ref, stage')
+    .select('external_ref, stage, actual_pct')
     .eq('project_id', projectId)
     .in('external_ref', dependsRefs)
   if (error) return null
-  const rows = (data ?? []) as { external_ref: string; stage: string | null }[]
+  const rows = (data ?? []) as { external_ref: string; stage: string | null; actual_pct: number | string | null }[]
   // dependsRefs 에 중복 external_ref 가 있으면 .in() 은 실제 존재 행만 반환해 항상 짧다 —
   // 배열 길이가 아니라 고유 개수로 비교해야 정상 depends 에서도 영구 미충족이 되지 않는다.
   if (rows.length < new Set(dependsRefs).size) return false // 일부 선행 미발견 — fail-closed
-  return rows.every(r => REACHED_STAGES.has(r.stage ?? ''))
+  return rows.every(r => predecessorReached({ stage: r.stage, actualPct: r.actual_pct == null ? null : Number(r.actual_pct) }))
 }
 
 /**

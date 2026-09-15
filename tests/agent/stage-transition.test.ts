@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
 
-import { transitionStage, REACHED_STAGES } from '@/lib/agent/stageTransition'
+import { transitionStage, REACHED_STAGES, notifySuccessorsOnReached } from '@/lib/agent/stageTransition'
 
 type Resp = { data?: unknown; error?: { message: string } | null }
 
@@ -253,5 +253,28 @@ describe('REACHED_STAGES', () => {
     expect(REACHED_STAGES.has('im')).toBe(true)
     expect(REACHED_STAGES.has('xx')).toBe(true)
     expect(REACHED_STAGES.has('ip')).toBe(false)
+  })
+})
+
+describe('notifySuccessorsOnReached — 선행 실적 100 도 충족(스펙 2026-09-15 §3.7)', () => {
+  it('다른 선행이 stage 없이 실적 100 이면 후행 담당자에게 unblocked 를 발행한다', async () => {
+    const { admin } = useAdmin({
+      wbs_items: [
+        { data: [{ id: 'succ-1', name: '후행', assignee_member_id: 'm-1', depends: ['MES/A', 'MES/B'] }] },
+        { data: [{ external_ref: 'MES/A', stage: 'im', actual_pct: 80 }, { external_ref: 'MES/B', stage: null, actual_pct: 100 }] },
+      ],
+    })
+    await notifySuccessorsOnReached(admin, { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: 'MES/A' }, ACTOR)
+    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({ type: 'work.unblocked', entityId: 'succ-1' }))
+  })
+  it('다른 선행이 실적 99 에 stage 미달이면 발행하지 않는다', async () => {
+    const { admin } = useAdmin({
+      wbs_items: [
+        { data: [{ id: 'succ-1', name: '후행', assignee_member_id: 'm-1', depends: ['MES/A', 'MES/B'] }] },
+        { data: [{ external_ref: 'MES/A', stage: 'im', actual_pct: 80 }, { external_ref: 'MES/B', stage: 'ip', actual_pct: 99 }] },
+      ],
+    })
+    await notifySuccessorsOnReached(admin, { id: ITEM_ID, project_id: PROJECT_ID, name: '항목', external_ref: 'MES/A' }, ACTOR)
+    expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
 })
