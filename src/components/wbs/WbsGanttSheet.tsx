@@ -872,10 +872,6 @@ export function WbsGanttSheet({
     () => groupGanttMilestones(milestoneTimeline(items, today, milestoneKeywords)),
     [items, today, milestoneKeywords],
   )
-  const milestoneCount = useMemo(
-    () => milestoneMarkers.reduce((n, m) => n + m.names.length, 0),
-    [milestoneMarkers],
-  )
 
   /* ── 편집 (WbsSheet 이식) ── */
   const actor = useMemo(() => actorFromView(actorView, projectId), [actorView, projectId])
@@ -978,6 +974,8 @@ export function WbsGanttSheet({
     align = 'justify-start',
     extra = '',
     sub?: { text: string; title: string; warn?: boolean },
+    /** 라벨 아래 두 번째 줄에 얹는 컨트롤(§항목2 — 레벨 펼침 버튼을 작업명 헤더 셀 안으로). */
+    actions?: React.ReactNode,
   ) => {
     const frozen = col.frozen
     const isName = col.key === 'name'
@@ -995,7 +993,12 @@ export function WbsGanttSheet({
         }}
         title={sub ? `${label} — ${sub.title}` : label}
       >
-        {sub ? (
+        {actions ? (
+          <div className="flex h-full min-w-0 flex-1 flex-col justify-center gap-0.5 overflow-hidden">
+            <span className="truncate">{label}</span>
+            {actions}
+          </div>
+        ) : sub ? (
           <span className={`flex min-w-0 flex-col gap-0.5 leading-none ${subAlign}`}>
             <span className="truncate">{label}</span>
             <span
@@ -1107,32 +1110,9 @@ export function WbsGanttSheet({
               : 'flex min-w-0 flex-1 flex-wrap items-center gap-2'
           }
         >
-        {deepestLevel >= 2 && (
-          <div
-            role="group"
-            aria-label={t('wbs.expandToLevelGroup')}
-            className="flex h-9 items-center gap-0.5 rounded-xl border border-line px-1"
-          >
-            <span className="px-1 text-[10px] text-ink-subtle">{t('wbs.levelGroupLabel')}</span>
-            {Array.from({ length: Math.min(deepestLevel, 8) }, (_, i) => i + 1).map(lvl => (
-              <button
-                key={lvl}
-                data-level-btn={lvl}
-                onClick={() => expandToLevel(lvl)}
-                className="btn btn-ghost h-7 w-7 px-0 text-xs tabular-nums"
-                title={
-                  lvl === 1
-                    ? t('wbs.collapseAll')
-                    : lvl === deepestLevel
-                      ? t('wbs.expandAll')
-                      : `${t('wbs.expandToLevel')} ${lvl}`
-                }
-              >
-                {lvl}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* 레벨 펼침 버튼 그룹은 작업명 헤더 셀 안으로 옮겼다(2026-09-15, §항목2) —
+            표 폭이 아니라 표 자체(작업명 열) 안에 있는 게 발견 가능성이 높다는 판단.
+            data-level-btn·role="group"·expandToLevel 배선은 그대로(headCell 의 name 분기). */}
         <button
           type="button"
           data-outline-toggle
@@ -1244,7 +1224,7 @@ export function WbsGanttSheet({
             className={`btn h-9 px-3 text-xs ${showMilestones ? 'border border-brand-ring bg-brand-weak text-brand' : 'btn-ghost'}`}
           >
             <Flag className="h-3.5 w-3.5" />
-            {showLabels && <span data-btn-label>{t('wbs.milestones')}</span>} {milestoneCount}
+            {showLabels && <span data-btn-label>{t('wbs.milestones')}</span>}
           </button>
         )}
         {isAdmin && !readOnly && (
@@ -1355,7 +1335,39 @@ export function WbsGanttSheet({
           <div className="sticky top-0 z-40 flex w-max">
             {headCell(colOf('no'), '#', 'justify-center')}
             {showCol('outline') && headCell(colOf('outline'), t('wbs.colOutline'), 'justify-start')}
-            {headCell(colOf('name'), t('wbs.colName'), 'justify-start')}
+            {headCell(
+              colOf('name'),
+              t('wbs.colName'),
+              'justify-start',
+              '',
+              undefined,
+              deepestLevel >= 2 ? (
+                <div
+                  role="group"
+                  aria-label={t('wbs.expandToLevelGroup')}
+                  className="flex min-w-0 items-center gap-px overflow-x-auto"
+                >
+                  {Array.from({ length: Math.min(deepestLevel, 8) }, (_, i) => i + 1).map(lvl => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      data-level-btn={lvl}
+                      onClick={() => expandToLevel(lvl)}
+                      className="btn btn-ghost h-5 w-4 shrink-0 px-0 text-[9px] leading-none tabular-nums"
+                      title={
+                        lvl === 1
+                          ? t('wbs.collapseAll')
+                          : lvl === deepestLevel
+                            ? t('wbs.expandAll')
+                            : `${t('wbs.expandToLevel')} ${lvl}`
+                      }
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+              ) : null,
+            )}
             {showCol('owners') && headCell(colOf('owners'), t('wbs.colOwners'), 'justify-start')}
             {showCol('assignee') && headCell(colOf('assignee'), t('wbs.colAssignee'), 'justify-start')}
             {showCol('status') && headCell(colOf('status'), t('wbs.colStatus'), 'justify-center')}
