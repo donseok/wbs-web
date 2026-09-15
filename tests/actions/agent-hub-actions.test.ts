@@ -232,8 +232,12 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
   })
   it('stage → 항목이 이 프로젝트 것인지 본 뒤 setWbsStage(itemId, stage); null(미지정)도 통과', async () => {
     fakeAdmin({ items: ITEMS })
-    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'fp' })).toEqual({ ok: true, hub: HUB })
-    expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), 'fp')
+    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'ip' })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), 'ip')
+    // fp 는 0096 에서 어휘에서 빠졌다 — 형식 검사에서 거부하고 내부 액션을 부르지 않는다.
+    mocks.setWbsStage.mockClear()
+    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'fp' as never })).toEqual({ ok: false, error: '잘못된 요청입니다.' })
+    expect(mocks.setWbsStage).not.toHaveBeenCalled()
     await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: null })
     expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), null)
   })

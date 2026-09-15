@@ -5,9 +5,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireProjectAdmin, requireProjectMember, resolveProjectId } from '@/lib/authz'
 import { isUuidLike } from '@/lib/domain/agentWork'
+import { AGENT_TAG } from '@/lib/domain/seatmap'
+import { isStageCode, type StageCode } from '@/lib/domain/stageLabels'
 import { emitNotification } from '@/lib/notify/emit'
 import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
-import { REACHED_STAGES, notifySuccessorsOnReached, transitionStage } from '@/lib/agent/stageTransition'
+import { applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
+import { after } from 'next/server'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 
 /**
@@ -15,10 +19,9 @@ import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
  * 담당자는 노드 속성 — 하위 상속·롤업 없음. 배정 해제 시 활성 주문은 자동 취소하지 않는다(§2.8).
  *
  * 2026-08-13 stage 워크플로 재설계 — 'todo'는 NULL로 통합됐다(0082). dev_workflow=true 항목은
- * 배정↔as 자동 전이가 걸린다(transitionStage, 아래 setWbsAssignee/Cascade/setWbsDevWorkflow).
+ * 배정↔as 전이가 걸린다(원자 전이 RPC apply_workflow_event — 아래 setWbsAssignee/Cascade/setWbsDevWorkflow,
+ * 스펙 2026-09-15 §3.4·§4).
  */
-
-const STAGES = new Set(['as', 'fp', 'ip', 'im', 'xx'])
 
 type LoadedItem = {
   id: string; project_id: string; parent_id: string | null; name: string
@@ -90,13 +93,12 @@ export async function setWbsAssignee(
   if (error) return { ok: false, error: error.message }
   if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
   revalidatePath(`/p/${item.project_id}`, 'layout')
-  // 배정↔as 자동 전이(2026-08-13 재설계) — dev_workflow=false·이미 다른 stage면 transitionStage
-  // 내부에서 no-op. 실패는 로깅만, 배정 결과(ok:true)는 유지한다(배정 성공에 종속된 오류 격리).
+  // 배정↔as 전이(스펙 2026-09-15 §3.4) — RPC 가 dev_workflow·리프·현재 stage 를 판정한다(배정은 stage 가 null
+  // 일 때만 as·표.as, 해제는 as 일 때만 null·실적 불변). 실패는 로깅만, 배정 결과(ok:true)는 유지한다.
   try {
-    const tr = memberId !== null
-      ? await transitionStage(admin, { itemId, to: 'as', fromIn: [null], actorUserId: g.actor.userId })
-      : await transitionStage(admin, { itemId, to: null, fromIn: ['as'], actorUserId: g.actor.userId })
-    if (!tr.ok) console.error('[wbsAssign] 배정↔stage 전이 실패:', itemId)
+    const tr = await applyWorkflowEvent(admin, { event: memberId !== null ? 'assign' : 'unassign', actorUserId: g.actor.userId, itemId })
+    if (!tr.ok) console.error('[wbsAssign] 배정↔stage 전이 실패:', itemId, tr.error)
+    else if (tr.actualChanged) after(() => recordProgressSnapshot(item.project_id))
   } catch (e) {
     console.error('[wbsAssign] 배정↔stage 전이 예외:', e)
   }
@@ -280,17 +282,19 @@ export async function setWbsAssigneeCascade(
     recipientMemberIds: [memberId],
   })
 
-  // 배정↔as 자동 전이(2026-08-13 재설계) — 실제 갱신된 항목 전부가 대상이다(하위는 원래
-  // 미지정→새 배정이므로 리프 여부와 무관). dev_workflow·현재 stage 검사는 transitionStage
-  // 내부가 맡는다. 실패는 로깅만, cascade 결과에는 영향을 주지 않는다.
+  // 배정↔as 전이(스펙 §3.4) — 실제 갱신된 항목 전부에 assign 사건. dev_workflow·리프·현재 stage 판정은
+  // RPC 가 맡는다(리프가 아니면 skipped). 실패는 로깅만, cascade 결과에는 영향을 주지 않는다.
+  let cascadeActualChanged = false
   for (const id of updatedIds) {
     try {
-      const tr = await transitionStage(admin, { itemId: id, to: 'as', fromIn: [null], actorUserId: g.actor.userId })
-      if (!tr.ok) console.error('[wbsAssign] cascade 배정↔stage 전이 실패:', id)
+      const tr = await applyWorkflowEvent(admin, { event: 'assign', actorUserId: g.actor.userId, itemId: id })
+      if (!tr.ok) console.error('[wbsAssign] cascade 배정↔stage 전이 실패:', id, tr.error)
+      else if (tr.actualChanged) cascadeActualChanged = true
     } catch (e) {
       console.error('[wbsAssign] cascade 배정↔stage 전이 예외:', e)
     }
   }
+  if (cascadeActualChanged) after(() => recordProgressSnapshot(resolved.projectId))
 
   // 새로 배정된 각 리프에 대해 자동 주문 발행 — 실패 격리(배정 성공은 유지, 로깅만).
   // 리프 판정은 이번에 읽은 전체 트리 기준(부모로 등장한 적 없는 항목 = 자식 없음).
@@ -315,69 +319,28 @@ export async function setWbsAssigneeCascade(
 /**
  * 개발 워크플로 단계 직접 조정 — 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15). itemId 를
  * 이미 알고 있으니 그걸로 바로 조상(strict ancestor) 담당자를 본다(requireSubtreeManagerOrAdmin).
+ *
+ * 리프 게이트·잠금(위임됨 ∨ 주문 claimed·reported)·실적 크레딧·change_logs 는 원자 전이 RPC 가 한
+ * 트랜잭션으로 판정·기록한다(스펙 2026-09-15 §3.5·§4). 종전의 REACHED_STAGES 우회 방어(2026-08-25
+ * 드롭다운으로 im·xx 를 찍어 승인을 건너뛴 사고)는 잠금 규칙이 대체한다 — 에이전트가 쥔 작업은 어떤
+ * 단계로도 바꿀 수 없고, 사람이 하는 작업은 어느 단계로든 바꾸되 실적이 그 단계의 크레딧으로 따라간다.
+ * 해제(null)는 잠금이 아니면 워크플로·리프와 무관하게 허용한다 — 잘못 찍힌 값을 지울 길이 이것뿐이다.
  */
 export async function setWbsStage(
-  itemId: string, stage: 'as' | 'fp' | 'ip' | 'im' | 'xx' | null,
+  itemId: string, stage: StageCode | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (stage !== null && !STAGES.has(stage)) return { ok: false, error: '허용되지 않는 단계입니다.' }
+  if (stage !== null && !isStageCode(stage)) return { ok: false, error: '허용되지 않는 단계입니다.' }
   const resolved = await resolveItemProjectId(itemId)
   if (!resolved.ok) return resolved
   const g = await requireSubtreeManagerOrAdmin(itemId, resolved.projectId)
   if (!g.ok) return { ok: false, error: g.error }
-  const loaded = await loadItem(itemId)
-  if (!loaded.ok) return loaded
-  const { item } = loaded
   const admin = createAdminClient()
-  // 리프 게이트 — 개발 워크플로 단계는 최종단계(자식 없는 항목)의 것이다. 해제(null)는 막지 않는다:
-  // 이미 잘못 찍힌 상위 항목의 값을 지울 길이 이 드롭다운뿐이다.
-  if (stage !== null) {
-    const { data: child, error: childErr } = await admin
-      .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
-    if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
-    if (child) return { ok: false, error: '하위 항목이 있습니다 — 개발 워크플로 단계는 최종단계에만 지정합니다.' }
-  }
-  const { data: cur, error: curErr } = await admin
-    .from('wbs_items').select('stage').eq('id', itemId).maybeSingle()
-  if (curErr) return { ok: false, error: `단계 조회 실패: ${curErr.message}` }
-  const oldStage = (cur as { stage: string | null } | null)?.stage ?? null
-  if (oldStage === stage) return { ok: true }
-  // 도달 단계(im·xx) 직행 차단 — 이 드롭다운은 dev_workflow·agent_work_orders 를 전혀 안 보는
-  // 경로라, claimed/reported 인 활성 에이전트 주문이 있는 상태에서 여기로 단계를 올리면 겉보기엔
-  // 승인된 것처럼 보이는데 주문은 그대로 남는다(2026-08-25 mes-runlog 리허설 실측 — 승인 버튼을
-  // 안 거치고 이 드롭다운으로 "완료"를 골라 발생). 완료·검수는 승인 버튼으로만.
-  //
-  // 판정 축을 REACHED_STAGES 로 잡는다 — 종전에는 'xx' 만 막았는데 claim 게이트는 stageAtLeast(im)
-  // 로 보므로 'im' 을 고르면 같은 우회가 그대로 성립했다. 막는 집합과 게이트가 보는 집합이
-  // 갈라지면 그 틈이 곧 구멍이다.
-  if (stage !== null && REACHED_STAGES.has(stage)) {
-    const { data: activeOrder, error: orderErr } = await admin
-      .from('agent_work_orders').select('id').eq('wbs_item_id', itemId)
-      .in('status', ['claimed', 'reported']).limit(1).maybeSingle()
-    if (orderErr) return { ok: false, error: `에이전트 주문 확인 실패: ${orderErr.message}` }
-    if (activeOrder) {
-      return {
-        ok: false,
-        error: '이 항목에 진행 중인 에이전트 주문이 있습니다 — 단계 변경은 "진행 상황"의 승인 버튼으로 하세요.',
-      }
-    }
-  }
-  const { data: updated, error } = await admin
-    .from('wbs_items')
-    .update({ stage, updated_at: new Date().toISOString() })
-    .eq('id', itemId).select('id')
-  if (error) return { ok: false, error: error.message }
-  if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
-  const { error: logErr } = await admin.from('change_logs').insert({
-    user_id: g.actor.userId, wbs_item_id: itemId, field: 'stage',
-    old_value: oldStage, new_value: stage,
-  })
-  if (logErr) console.error('[wbsAssign] 단계 변경 이력 기록 실패:', logErr.message)
-  revalidatePath(`/p/${item.project_id}`, 'layout')
-  // §2.10 — im 이상에 "처음" 도달할 때만(역전이·재설정은 위 oldStage === stage 조기 반환과
-  // 이 조건으로 모두 제외된다). 본 로직의 반환값에는 영향을 주지 않는다.
-  if (!REACHED_STAGES.has(oldStage ?? '') && stage !== null && REACHED_STAGES.has(stage)) {
-    await notifySuccessorsOnReached(admin, item, g.actor.userId)
-  }
+  const tr = await applyWorkflowEvent(admin, { event: 'set_stage', actorUserId: g.actor.userId, itemId, stage })
+  if (!tr.ok) return { ok: false, error: tr.error }
+  revalidatePath(`/p/${resolved.projectId}`, 'layout')
+  if (tr.actualChanged) after(() => recordProgressSnapshot(resolved.projectId))
+  // §2.10 — im·xx 에 "처음" 도달할 때만 후행 알림(재설정·역전이는 RPC 의 reachedFirst 가 거른다).
+  if (tr.reachedFirst) await notifyOnReached(admin, itemId, g.actor.userId)
   return { ok: true }
 }
 
@@ -397,7 +360,7 @@ type DevWorkflowUpdatedRow = { id: string; assignee_member_id: string | null; st
  * `.neq` 필터를 통과한 행은 전부 이전 값이 `!enabled` 였다는 뜻이라 방향에 관계없이 도출된다.
  *
  * ON 후처리(enabled=true): 갱신된 항목 중 리프(트리에서 자식으로 등장한 적 없는 항목)에만
- * (a) 담당자가 있고 stage 가 NULL 이면 transitionStage 로 as 전이, (b) ensureOrderForWorkflowLeaf
+ * (a) 담당자가 있으면 assign 사건(RPC 가 stage NULL 일 때만 as·표.as), (b) ensureOrderForWorkflowLeaf
  * 로 자동 주문 발행 — 부모 노드는 대상이 아니다(주문·초기 착수는 리프 개념이라 setWbsAssigneeCascade
  * 의 배정 전이와 달리 여기는 리프로 제한한다). 실패는 로깅만.
  *
@@ -519,14 +482,14 @@ export async function setWbsDevWorkflow(
     } catch (e) {
       console.error('[wbsAssign] dev_workflow ON 프로젝트 활성 예외:', e)
     }
-    // ON — 리프에만 초기 as 전이 + 자동 주문 발행. 실패는 로깅만(본 토글 결과는 유지).
+    // ON — 리프에만 초기 as 전이(assign 사건) + 자동 주문 발행. 실패는 로깅만(본 토글 결과는 유지).
     for (const id of updatedIds) {
       if (hasChildren.has(id)) continue
       const info = infoById.get(id)
       if (info?.assignee_member_id && info.stage === null) {
         try {
-          const tr = await transitionStage(admin, { itemId: id, to: 'as', fromIn: [null], actorUserId: g.actor.userId })
-          if (!tr.ok) console.error('[wbsAssign] dev_workflow ON stage 전이 실패:', id)
+          const tr = await applyWorkflowEvent(admin, { event: 'assign', actorUserId: g.actor.userId, itemId: id })
+          if (!tr.ok) console.error('[wbsAssign] dev_workflow ON stage 전이 실패:', id, tr.error)
         } catch (e) {
           console.error('[wbsAssign] dev_workflow ON stage 전이 예외:', e)
         }
@@ -570,7 +533,7 @@ export async function setWbsDevWorkflow(
  */
 export async function getWbsAssigneeStage(
   itemId: string,
-): Promise<{ assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean } | null> {
+): Promise<{ assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean; delegated: boolean } | null> {
   if (!isUuidLike(itemId)) return null
   const resolved = await resolveProjectId('wbs_items', itemId)
   if (!resolved.ok) {
@@ -584,16 +547,19 @@ export async function getWbsAssigneeStage(
   }
   const sb = await createServerClient()
   const { data, error } = await sb
-    .from('wbs_items').select('assignee_member_id, stage, dev_workflow').eq('id', itemId).maybeSingle()
+    .from('wbs_items').select('assignee_member_id, stage, dev_workflow, tags').eq('id', itemId).maybeSingle()
   if (error) {
     console.error('[getWbsAssigneeStage] 조회 실패:', error.message)
     return null
   }
   if (!data) return null
-  const row = data as { assignee_member_id: string | null; stage: string | null; dev_workflow: boolean | null }
+  const row = data as { assignee_member_id: string | null; stage: string | null; dev_workflow: boolean | null; tags: string[] | null }
   return {
     assigneeMemberId: row.assignee_member_id ?? null,
     stage: row.stage ?? null,
     devWorkflow: row.dev_workflow === true,
+    // 단계 드롭다운 잠금 표시 재료(스펙 §3.5) — 같은 select 로 읽어 왕복을 늘리지 않는다. 위임 없이 reported 주문만
+    // 남은 드문 경우는 RPC 의 locked 거부 문구가 드러낸다.
+    delegated: (row.tags ?? []).includes(AGENT_TAG),
   }
 }

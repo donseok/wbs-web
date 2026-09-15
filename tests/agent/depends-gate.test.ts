@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { generateAgentToken } from '@/lib/agent/token'
-import { stageAtLeast } from '@/lib/domain/agentWork'
 
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
@@ -68,14 +67,6 @@ beforeEach(() => {
   process.env.AGENT_API_SECRET = 'legacy-secret'
   vi.clearAllMocks()
   mocks.emitNotification.mockResolvedValue({ ok: true })
-})
-
-describe('stageAtLeast', () => {
-  it("im·xx 만 통과, null·todo~ip·미지 값은 false(fail-closed)", () => {
-    expect(stageAtLeast('im', 'im')).toBe(true)
-    expect(stageAtLeast('xx', 'im')).toBe(true)
-    for (const s of [null, 'todo', 'as', 'fp', 'ip', 'dd']) expect(stageAtLeast(s, 'im')).toBe(false)
-  })
 })
 
 describe('claim 선행 게이트', () => {
@@ -196,7 +187,7 @@ describe('claim 선행 게이트', () => {
 // 승인이 반쪽으로 끝난 선행(approved 인데 stage 미전이)이 후속을 영구히 막던 교착 —
 // 자동 루프가 스스로 못 푸는 조건이었다(2026-08-25 mes-runlog 리허설 3회 재발).
 describe('선행 게이트 — approved 주문을 도달로 인정', () => {
-  it("선행 stage='fp' 인데 approved 주문 있음 → claim 통과", async () => {
+  it("선행 stage='ip' 인데 approved 주문 있음 → claim 통과", async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
       agent_work_orders: [
@@ -209,7 +200,7 @@ describe('선행 게이트 — approved 주문을 도달로 인정', () => {
       project_roles: [{ data: [{ role: 'member' }] }],
       wbs_items: [
         { data: TARGET_ITEM },
-        { data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'fp' }] },
+        { data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'ip' }] },
       ],
       agent_work_reports: [{ data: { evidence: {} } }],
     })

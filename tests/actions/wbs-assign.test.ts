@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   createServerClient: vi.fn(),
   emitNotification: vi.fn(),
   ensureOrderForWorkflowLeaf: vi.fn(),
-  transitionStage: vi.fn(),
+  applyWorkflowEvent: vi.fn(),
+  recordProgressSnapshot: vi.fn(async () => {}),
   viewerEmail: vi.fn(),
   myMemberIds: vi.fn(),
   isSubtreeManager: vi.fn(),
@@ -26,16 +27,21 @@ vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds, isSubtr
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf }))
-// transitionStage 만 목킹하고 REACHED_STAGES·notifySuccessorsOnReached 는 실제 구현을 쓴다 —
-// setWbsStage 는 이 둘을 직접 임포트해서 쓰므로(T2 소관, 여기서 재검증하지 않는다) 전체
-// 모듈 목킹을 하면 기존 setWbsStage 테스트가 깨진다.
-vi.mock('@/lib/agent/stageTransition', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/agent/stageTransition')>()
-  return { ...actual, transitionStage: mocks.transitionStage }
+// 전이 RPC 래퍼(applyWorkflowEvent)만 목킹하고 notifyOnReached 는 실제 구현을 쓴다 — setWbsStage 의
+// 도달 알림은 RPC 결과(reachedFirst)를 보고 그 실제 경로(후행 조회·선행 전체 충족 게이트)를 탄다.
+vi.mock('@/lib/agent/workflowEvent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/agent/workflowEvent')>()
+  return { ...actual, applyWorkflowEvent: mocks.applyWorkflowEvent }
+})
+vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
+vi.mock('next/server', async (orig) => {
+  const m = await orig() as Record<string, unknown>
+  return { ...m, after: (fn: () => unknown) => { void fn() } }
 })
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { setWbsAssignee, setWbsAssigneeCascade, setWbsStage, getWbsAssigneeStage } from '@/app/actions/wbsAssign'
+import { REASON_TEXT } from '@/lib/agent/workflowEvent'
 
 const P1 = '11111111-1111-4111-8111-111111111111'
 const P2 = '99999999-9999-4999-8999-999999999999'
@@ -47,6 +53,8 @@ const W5 = '77777777-7777-4777-8777-777777777770'
 const W6 = '88888888-8888-4888-8888-888888888880'
 
 type Resp = { data?: unknown; error?: { message: string } | null }
+/** 전이 RPC 래퍼의 성공 결과 기본값 — 부수효과(스냅샷·도달 알림) 없음. 케이스마다 덮는다. */
+const WF_OK = { ok: true as const, orderStatus: null, stage: null, actualPct: null, stageChanged: false, actualChanged: false, reachedFirst: false, skipped: null }
 
 /** 큐 기반 admin 목 — 테이블별 순차 응답 + insert/update payload 캡처 + 호출된 테이블 목록. */
 function admin(queues: Record<string, Resp[]>) {
@@ -89,7 +97,7 @@ beforeEach(() => {
   mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
   mocks.emitNotification.mockResolvedValue({ ok: true, recipients: 1 })
   mocks.ensureOrderForWorkflowLeaf.mockResolvedValue({ ok: true, created: true })
-  mocks.transitionStage.mockResolvedValue({ ok: true, transitioned: true })
+  mocks.applyWorkflowEvent.mockResolvedValue(WF_OK)
   // 서브트리 관리자 경로 기본값(트랙 B) — 안전한 쪽("아니다")으로 두고, 개별 테스트가 override.
   mocks.viewerEmail.mockResolvedValue('member@example.com')
   mocks.myMemberIds.mockResolvedValue([])
@@ -197,7 +205,7 @@ describe('setWbsAssignee', () => {
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
   })
 
-  it('(a) 배정 성공 시 transitionStage가 {to:"as", fromIn:[null]}로 호출', async () => {
+  it('(a) 배정 성공 시 전이 RPC 를 assign 사건으로 호출(stage null 판정은 RPC 몫)', async () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
@@ -207,14 +215,11 @@ describe('setWbsAssignee', () => {
     })
     const r = await setWbsAssignee(W1, M1)
     expect(r.ok).toBe(true)
-    expect(mocks.transitionStage).toHaveBeenCalledTimes(1)
-    expect(mocks.transitionStage).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ itemId: W1, to: 'as', fromIn: [null], actorUserId: 'admin-1' }),
-    )
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'assign', actorUserId: 'admin-1', itemId: W1 })
   })
 
-  it('(b) 배정 해제 시 transitionStage가 {to:null, fromIn:["as"]}로 호출', async () => {
+  it('(b) 배정 해제 시 전이 RPC 를 unassign 사건으로 호출(as 일 때만 null 은 RPC 몫)', async () => {
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1 } },
@@ -223,16 +228,13 @@ describe('setWbsAssignee', () => {
     })
     const r = await setWbsAssignee(W1, null)
     expect(r.ok).toBe(true)
-    expect(mocks.transitionStage).toHaveBeenCalledTimes(1)
-    expect(mocks.transitionStage).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ itemId: W1, to: null, fromIn: ['as'], actorUserId: 'admin-1' }),
-    )
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'unassign', actorUserId: 'admin-1', itemId: W1 })
   })
 
-  it('(c) transitionStage 실패해도 setWbsAssignee 는 ok:true 유지', async () => {
+  it('(c) 전이 RPC 가 throw 해도 setWbsAssignee 는 ok:true 유지', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mocks.transitionStage.mockRejectedValueOnce(new Error('boom'))
+    mocks.applyWorkflowEvent.mockRejectedValueOnce(new Error('boom'))
     admin({
       wbs_items: [
         { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
@@ -452,7 +454,7 @@ describe('setWbsAssigneeCascade', () => {
     errSpy.mockRestore()
   })
 
-  it('(k) 실제 갱신된 모든 항목(리프 아닌 것 포함)에 transitionStage {to:"as", fromIn:[null]} 호출', async () => {
+  it('(k) 실제 갱신된 모든 항목(리프 아닌 것 포함)에 assign 사건 — 리프 판정은 RPC 몫', async () => {
     admin({
       project_members: [{ data: { id: M1, project_id: P1 } }],
       wbs_items: [
@@ -463,13 +465,10 @@ describe('setWbsAssigneeCascade', () => {
     })
     const r = await setWbsAssigneeCascade(W1, M1)
     expect(r.ok).toBe(true)
-    // W1(부모, 자식 있음)·W2(부모)·W6(리프) 전부 대상 — ensureOrder 와 달리 리프 제한 없음.
-    expect(mocks.transitionStage).toHaveBeenCalledTimes(3)
+    // W1(부모, 자식 있음)·W2(부모)·W6(리프) 전부에 사건을 보낸다 — 리프가 아니면 RPC 가 skipped:'parent' 로 건너뛴다.
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(3)
     for (const id of [W1, W2, W6]) {
-      expect(mocks.transitionStage).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ itemId: id, to: 'as', fromIn: [null], actorUserId: 'admin-1' }),
-      )
+      expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'assign', actorUserId: 'admin-1', itemId: id })
     }
   })
 
@@ -495,41 +494,34 @@ describe('setWbsAssigneeCascade', () => {
 
 describe('setWbsStage', () => {
   // 자격: 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15) — requireSubtreeManagerOrAdmin.
-  // 이 describe 블록의 다른 모든 테스트는 최상단 beforeEach 의 requireProjectAdmin 기본값
-  // (ok:true) 으로 관리자 fast path 를 타므로 여기서 회귀 없음을 별도로 확인할 필요는 없다 —
-  // 이 서브블록만 명시적으로 관리자를 막아 "그 다음"을 검사한다.
+  // 리프 게이트·잠금(위임됨 ∨ 주문 claimed·reported)·크레딧·change_logs 는 원자 전이 RPC(0096)가 판정하므로
+  // 여기서는 사건 인자·거부 문구 전달·부수효과(스냅샷·도달 알림)를 본다. RPC 판정 자체는 스테이징 리허설과
+  // tests/migrations/0096 이 검증한다.
   describe('자격 — 관리자 아닐 때', () => {
     beforeEach(() => { mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' }) })
-    it('멤버지만 서브트리 관리자가 아니면 거부, DB 접근 없음', async () => {
+    it('멤버지만 서브트리 관리자가 아니면 거부, DB 접근·전이 없음', async () => {
       mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
       const { calls } = admin({})
       const r = await setWbsStage(W1, 'ip')
       expect(r).toEqual({ ok: false, error: '관리자 또는 서브트리 관리자만 할 수 있습니다.' })
       expect(calls).toHaveLength(0)
+      expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
     })
     it('멤버도 아니면 그 가드 오류 그대로', async () => {
       mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '멤버 아님' })
       expect(await setWbsStage(W1, 'ip')).toEqual({ ok: false, error: '멤버 아님' })
     })
-    it('서브트리 관리자(strict 조상의 담당자)면 허용 — change_logs.user_id 도 그 사용자', async () => {
+    it('서브트리 관리자(strict 조상의 담당자)면 허용 — 전이도 그 사용자로 실행돼 change_logs.user_id 가 된다', async () => {
       mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
       mocks.myMemberIds.mockResolvedValue(['anc-member'])
       mocks.isSubtreeManager.mockResolvedValue(true)
-      const { captured } = admin({
-        wbs_items: [
-          { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-          { data: null }, // 리프 확인 — 자식 없음
-          { data: { stage: null } },
-          { data: [{ id: W1 }] },
-        ],
-        change_logs: [{ data: [{ id: 'log1' }] }],
-      })
+      admin({})
       const r = await setWbsStage(W1, 'ip')
       expect(r.ok).toBe(true)
       expect(mocks.isSubtreeManager).toHaveBeenCalledWith(
         expect.anything(), { itemId: W1, projectId: P1, myMemberIds: ['anc-member'] },
       )
-      expect(captured.change_logs[0]).toMatchObject({ field: 'stage', new_value: 'ip', user_id: 'anc-1' })
+      expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'set_stage', actorUserId: 'anc-1', itemId: W1, stage: 'ip' })
     })
     it('조상 조회(isSubtreeManager)가 throw 하면 거부 — fail-closed', async () => {
       mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
@@ -539,322 +531,149 @@ describe('setWbsStage', () => {
       const r = await setWbsStage(W1, 'ip')
       expect(r.ok).toBe(false)
       expect(calls).toHaveLength(0)
+      expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
     })
   })
 
-  it('유효 stage 갱신 + change_logs 기록', async () => {
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: null } },
-        { data: [{ id: W1 }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
-    })
-    const r = await setWbsStage(W1, 'ip')
-    expect(r.ok).toBe(true)
-    expect(captured.change_logs[0]).toMatchObject({ field: 'stage', old_value: null, new_value: 'ip' })
-  })
-
-  // 개발 워크플로 단계는 최종단계(자식 없는 리프)의 것이다.
-  it('자식이 있는 항목에는 단계를 찍지 않는다', async () => {
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: '상위' } },
-        { data: { id: 'child-1' } }, // 자식 있음
-      ],
-    })
-    const r = await setWbsStage(W1, 'ip')
-    expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/최종단계/)
-    expect(captured.wbs_items).toBeUndefined() // UPDATE 까지 안 감
-  })
-
-  it('자식이 있어도 단계 해제(null)는 허용한다 — 잘못 찍힌 값을 지울 길은 남긴다', async () => {
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: '상위' } },
-        { data: { stage: 'as' } },
-        { data: [{ id: W1 }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
-    })
-    const r = await setWbsStage(W1, null)
-    expect(r.ok).toBe(true)
-    expect(captured.change_logs[0]).toMatchObject({ field: 'stage', old_value: 'as', new_value: null })
-  })
-
-  it('자식 조회가 실패하면 단계를 찍지 않는다 — 쓰기 전 선행 조회 실패는 중단', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-        { error: { message: 'boom' } },
-      ],
-    })
-    const r = await setWbsStage(W1, 'ip')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('boom')
-  })
-
-  it('허용 밖 문자열 거부', async () => {
+  it('유효 단계 지정 → set_stage 사건 한 번(리프·잠금·크레딧·change_logs 는 RPC 가 한 트랜잭션으로)', async () => {
     const { calls } = admin({})
-    const r = await setWbsStage(W1, 'dd' as never)
-    expect(r.ok).toBe(false)
-    expect(calls).toHaveLength(0)
-  })
-
-  it('완료(xx) 직행 차단 — claimed 인 에이전트 주문이 있으면 거부(2026-08-25 mes-runlog 실측)', async () => {
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'im' } },
-      ],
-      agent_work_orders: [{ data: { id: 'order-1' } }],
-    })
-    const r = await setWbsStage(W1, 'xx')
-    expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/승인 버튼/)
-    expect(captured['agent_work_orders.in']).toEqual([['status', ['claimed', 'reported']]])
-    expect(captured.wbs_items).toBeUndefined() // update 까지 안 감
-  })
-
-  // 종전 가드는 'xx' 만 막았다. claim 게이트는 stageAtLeast(im) 로 보므로 'im' 을 고르면
-  // 같은 우회가 그대로 성립했다 — 후속 작업의 선행 게이트가 승인 없이 풀린다.
-  it('im 직행도 차단 — 도달 단계(REACHED_STAGES)면 xx 와 같은 취급', async () => {
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'ip' } },
-      ],
-      agent_work_orders: [{ data: { id: 'order-1' } }],
-    })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(false)
-    expect(r.error).toMatch(/승인 버튼/)
-    expect(captured.wbs_items).toBeUndefined() // update 까지 안 감
-  })
-
-  it('도달 단계가 아닌 ip 는 활성 주문이 있어도 통과 — 막는 것은 게이트가 보는 집합뿐이다', async () => {
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'as' } },
-        { data: [{ id: W1 }] }, // UPDATE
-      ],
-      agent_work_orders: [{ data: { id: 'order-1' } }],
-    })
     const r = await setWbsStage(W1, 'ip')
-    expect(r.ok).toBe(true)
-    expect(captured.wbs_items).toEqual([{ stage: 'ip', updated_at: expect.any(String) }])
+    expect(r).toEqual({ ok: true })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'set_stage', actorUserId: 'admin-1', itemId: W1, stage: 'ip' })
+    expect(calls).toHaveLength(0) // 앱이 wbs_items·change_logs 를 직접 쓰지 않는다
   })
 
-  it('완료(xx) 직행 차단 — reported 인 에이전트 주문이 있어도 거부', async () => {
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'im' } },
-      ],
-      agent_work_orders: [{ data: { id: 'order-1' } }],
-    })
+  it('해제(null)도 set_stage 사건으로 넘긴다 — 잘못 찍힌 값을 지울 길', async () => {
+    admin({})
+    expect(await setWbsStage(W1, null)).toEqual({ ok: true })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'set_stage', actorUserId: 'admin-1', itemId: W1, stage: null })
+  })
+
+  it.each([
+    ['parent', /최종단계/],
+    ['locked', /위임을 끄세요/],
+    ['not_workflow', /개발 워크플로 대상/],
+  ])('RPC 가 %s 로 거부하면 그 사람 문구를 그대로 돌려준다', async (reason, pattern) => {
+    admin({})
+    mocks.applyWorkflowEvent.mockResolvedValueOnce({ ok: false, conflict: false, reason, orderStatus: null, error: REASON_TEXT[reason as string] })
     const r = await setWbsStage(W1, 'xx')
     expect(r.ok).toBe(false)
-    expect(captured.change_logs).toBeUndefined()
+    expect(r.error).toMatch(pattern)
+    expect(mocks.recordProgressSnapshot).not.toHaveBeenCalled()
   })
 
-  it('완료(xx) 전 에이전트 주문 조회 실패 — 실패를 "주문 없음"으로 위장하지 않는다', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'im' } },
-      ],
-      agent_work_orders: [{ error: { message: 'boom' } }],
-    })
-    const r = await setWbsStage(W1, 'xx')
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('boom')
+  it('허용 밖 문자열 거부 — fp 도 0096 에서 어휘에서 빠졌다', async () => {
+    const { calls } = admin({})
+    for (const bad of ['dd', 'fp']) {
+      expect(await setWbsStage(W1, bad as never)).toEqual({ ok: false, error: '허용되지 않는 단계입니다.' })
+    }
+    expect(calls).toHaveLength(0)
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
   })
 
-  it('(a) fp→im 전이 시 depends 로 이 항목을 참조하는 후행 리프 담당자에게 work.unblocked 발행(미배정 후행은 건너뜀)', async () => {
-    const W3 = '77777777-7777-4777-8777-777777777777'
-    const { captured } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-        { data: [
-          { id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1'] },
-          { id: W3, name: 'Task C', assignee_member_id: null, depends: ['mod/1'] }, // 미배정 후행 — 발행 대상 아님(선행 조회도 스킵)
-        ] },
-        { data: [{ external_ref: 'mod/1', stage: 'im' }] }, // W2 의 depends 전체(mod/1 단일) 도달 확인
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
-    })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
-    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'work.unblocked',
-      projectId: P1,
-      actorUserId: 'admin-1',
-      entityType: 'wbs_item',
-      entityId: W2,
-      recipientMemberIds: [M2],
-      dedupeKey: `unblocked:${W2}:${W1}`,
-    }))
-    expect(captured['wbs_items.contains']).toEqual([['depends', ['mod/1']]])
+  it('실적이 바뀐 전이면 진척 스냅샷을 남긴다', async () => {
+    admin({})
+    mocks.applyWorkflowEvent.mockResolvedValueOnce({ ...WF_OK, stage: 'ip', actualPct: 30, stageChanged: true, actualChanged: true })
+    expect(await setWbsStage(W1, 'ip')).toEqual({ ok: true })
+    expect(mocks.recordProgressSnapshot).toHaveBeenCalledWith(P1)
   })
 
-  it('(e) 후행의 depends 2개 중 하나만 im — 전체 미충족이라 무발행', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
-        // mod/1(지금 im 도달) + mod/2(아직 fp) — 전체 미충족
-        { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: 'fp' }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
-    })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).not.toHaveBeenCalled()
-  })
+  describe('im·xx 첫 도달(reachedFirst) → 후행 unblocked 알림(§2.10, 실제 notifyOnReached 경로)', () => {
+    const REACHED = { ...WF_OK, stage: 'im', stageChanged: true, reachedFirst: true }
+    const ITEM = { id: W1, project_id: P1, name: 'Task A', external_ref: 'mod/1' }
+    beforeEach(() => { mocks.applyWorkflowEvent.mockResolvedValue(REACHED) })
 
-  it('(f) 후행의 depends 2개 중 마지막 선행이 im 도달 — 1회 발행', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
-        // mod/1(지금 im 도달) + mod/2(이미 im) — 전체 충족, 이 전이에서 1회만 발행
-        { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: 'im' }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
+    it('(a) depends 로 이 항목을 참조하는 후행 리프 담당자에게 발행(미배정 후행은 건너뜀)', async () => {
+      const W3 = '77777777-7777-4777-8777-777777777777'
+      const { captured } = admin({
+        wbs_items: [
+          { data: ITEM }, // 도달 알림용 항목
+          { data: [
+            { id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1'] },
+            { id: W3, name: 'Task C', assignee_member_id: null, depends: ['mod/1'] }, // 미배정 — 선행 조회도 스킵
+          ] },
+          { data: [{ external_ref: 'mod/1', stage: 'im' }] }, // W2 의 depends 전체 충족 확인
+        ],
+      })
+      const r = await setWbsStage(W1, 'im')
+      expect(r.ok).toBe(true)
+      expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+      expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'work.unblocked', projectId: P1, actorUserId: 'admin-1', entityType: 'wbs_item',
+        entityId: W2, recipientMemberIds: [M2], dedupeKey: `unblocked:${W2}:${W1}`,
+      }))
+      expect(captured['wbs_items.contains']).toEqual([['depends', ['mod/1']]])
     })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
-    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'work.unblocked',
-      entityId: W2,
-      dedupeKey: `unblocked:${W2}:${W1}`,
-    }))
-  })
-
-  it('depends 에 같은 external_ref 가 중복돼도 정상 발행(길이 대신 고유 개수로 비교)', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-        { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/1'] } ] },
-        // .in() 은 중복 없이 실제 존재하는 행만 1개 반환한다 — dependsRefs.length(2) 가 아니라
-        // new Set(dependsRefs).size(1) 과 비교해야 여기서 통과한다.
-        { data: [{ external_ref: 'mod/1', stage: 'im' }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
+    it('(e) 후행의 depends 2개 중 하나만 충족 — 전체 미충족이라 무발행', async () => {
+      admin({
+        wbs_items: [
+          { data: ITEM },
+          { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
+          { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: 'ip', actual_pct: 30 }] },
+        ],
+      })
+      expect((await setWbsStage(W1, 'im')).ok).toBe(true)
+      expect(mocks.emitNotification).not.toHaveBeenCalled()
     })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
-    expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'work.unblocked',
-      entityId: W2,
-      dedupeKey: `unblocked:${W2}:${W1}`,
-    }))
-  })
-
-  it('후행 목록에 자기 자신(자기 참조 depends)이 있으면 건너뛴다 — 본인에게 알림 가지 않음', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-        // 후행 조회가 자기 자신을 포함해 반환(자기 참조 depends) — 선행 확인 쿼리 없이 즉시 skip.
-        { data: [{ id: W1, name: 'Task A', assignee_member_id: M1, depends: ['mod/1'] }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
+    it('(f) 마지막 선행이 충족되면 1회 발행 — 실적 100 선행도 충족(스펙 §3.7)', async () => {
+      admin({
+        wbs_items: [
+          { data: ITEM },
+          { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/2'] }] },
+          { data: [{ external_ref: 'mod/1', stage: 'im' }, { external_ref: 'mod/2', stage: null, actual_pct: 100 }] },
+        ],
+      })
+      expect((await setWbsStage(W1, 'im')).ok).toBe(true)
+      expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
+      expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({ type: 'work.unblocked', entityId: W2, dedupeKey: `unblocked:${W2}:${W1}` }))
     })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).not.toHaveBeenCalled()
-  })
-
-  it('(b) im→xx(이미 im 이상) 전이는 unblocked 무발행', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'im' } },
-        { data: [{ id: W1 }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
+    it('depends 에 같은 external_ref 가 중복돼도 정상 발행(길이 대신 고유 개수로 비교)', async () => {
+      admin({
+        wbs_items: [
+          { data: ITEM },
+          { data: [{ id: W2, name: 'Task B', assignee_member_id: M2, depends: ['mod/1', 'mod/1'] }] },
+          // .in() 은 중복 없이 실제 존재하는 행만 1개 반환한다 — 고유 개수(1)와 비교해야 통과한다.
+          { data: [{ external_ref: 'mod/1', stage: 'im' }] },
+        ],
+      })
+      expect((await setWbsStage(W1, 'im')).ok).toBe(true)
+      expect(mocks.emitNotification).toHaveBeenCalledTimes(1)
     })
-    const r = await setWbsStage(W1, 'xx')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).not.toHaveBeenCalled()
-  })
-
-  it('(c) 후행 리프가 없으면 무발행', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-        { data: [] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
+    it('후행 목록에 자기 자신(자기 참조 depends)이 있으면 건너뛴다 — 본인에게 알림 가지 않음', async () => {
+      admin({
+        wbs_items: [
+          { data: ITEM },
+          { data: [{ id: W1, name: 'Task A', assignee_member_id: M1, depends: ['mod/1'] }] },
+        ],
+      })
+      expect((await setWbsStage(W1, 'im')).ok).toBe(true)
+      expect(mocks.emitNotification).not.toHaveBeenCalled()
     })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).not.toHaveBeenCalled()
-  })
-
-  it('(d) 후행 조회 실패 시 발행 생략 + setWbsStage 는 ok:true 유지', async () => {
-    admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: 'mod/1' } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-        { data: null, error: { message: 'boom' } },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
+    it('(b) 첫 도달이 아니면(reachedFirst:false — 예: im→xx) 알림 경로를 타지 않는다', async () => {
+      mocks.applyWorkflowEvent.mockResolvedValueOnce({ ...WF_OK, stage: 'xx', stageChanged: true, reachedFirst: false })
+      const { calls } = admin({})
+      expect((await setWbsStage(W1, 'xx')).ok).toBe(true)
+      expect(calls).toHaveLength(0)
+      expect(mocks.emitNotification).not.toHaveBeenCalled()
     })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).not.toHaveBeenCalled()
-  })
-
-  it('external_ref 가 없으면 후행 조회 자체를 하지 않는다', async () => {
-    const { calls } = admin({
-      wbs_items: [
-        { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A', assignee_member_id: M1, external_ref: null } },
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: { stage: 'fp' } },
-        { data: [{ id: W1 }] },
-      ],
-      change_logs: [{ data: [{ id: 'log1' }] }],
+    it('(c) 후행 리프가 없으면 무발행', async () => {
+      admin({ wbs_items: [{ data: ITEM }, { data: [] }] })
+      expect((await setWbsStage(W1, 'im')).ok).toBe(true)
+      expect(mocks.emitNotification).not.toHaveBeenCalled()
     })
-    const r = await setWbsStage(W1, 'im')
-    expect(r.ok).toBe(true)
-    expect(mocks.emitNotification).not.toHaveBeenCalled()
-    // 항목 조회 + 리프 확인 + 현재 stage 조회 + UPDATE. 후행 조회는 없다.
-    expect(calls.filter(t => t === 'wbs_items')).toHaveLength(4)
+    it('(d) 후행 조회 실패 시 발행 생략 + setWbsStage 는 ok:true 유지', async () => {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      admin({ wbs_items: [{ data: ITEM }, { data: null, error: { message: 'boom' } }] })
+      expect((await setWbsStage(W1, 'im')).ok).toBe(true)
+      expect(mocks.emitNotification).not.toHaveBeenCalled()
+      errSpy.mockRestore()
+    })
+    it('external_ref 가 없으면 후행 조회 자체를 하지 않는다', async () => {
+      const { calls } = admin({ wbs_items: [{ data: { ...ITEM, external_ref: null } }] })
+      expect((await setWbsStage(W1, 'im')).ok).toBe(true)
+      expect(mocks.emitNotification).not.toHaveBeenCalled()
+      expect(calls.filter(t => t === 'wbs_items')).toHaveLength(1) // 도달 알림용 항목 조회뿐
+    })
   })
 })
 
@@ -876,7 +695,21 @@ describe('getWbsAssigneeStage', () => {
     const r = await getWbsAssigneeStage(W1)
     expect(mocks.resolveProjectId).toHaveBeenCalledWith('wbs_items', W1)
     expect(mocks.requireProjectMember).toHaveBeenCalledWith(P1)
-    expect(r).toEqual({ assigneeMemberId: M1, stage: 'ip', devWorkflow: true })
+    expect(r).toEqual({ assigneeMemberId: M1, stage: 'ip', devWorkflow: true, delegated: false })
+  })
+
+  it('위임 태그가 있으면 delegated:true — 단계 드롭다운 잠금 표시 재료를 같은 select 로 읽는다', async () => {
+    const selected: string[] = []
+    mocks.createServerClient.mockResolvedValue({
+      from: () => ({
+        select: (cols: string) => {
+          selected.push(cols)
+          return { eq: () => ({ maybeSingle: async () => ({ data: { assignee_member_id: null, stage: 'ip', dev_workflow: true, tags: ['agent', 'x'] }, error: null }) }) }
+        },
+      }),
+    })
+    expect(await getWbsAssigneeStage(W1)).toEqual({ assigneeMemberId: null, stage: 'ip', devWorkflow: true, delegated: true })
+    expect(selected).toEqual(['assignee_member_id, stage, dev_workflow, tags'])
   })
 
   it('이 프로젝트 멤버가 아니면 거부 → null(조회 자체를 하지 않는다)', async () => {

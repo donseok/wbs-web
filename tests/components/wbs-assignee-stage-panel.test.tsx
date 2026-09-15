@@ -114,7 +114,7 @@ describe('WbsAssigneeStagePanel', () => {
     await mount()
     const values = stageOptions().map(o => o.value)
     expect(values).not.toContain('todo')
-    expect(values).toEqual(['', 'as', 'fp', 'ip', 'im', 'xx'])
+    expect(values).toEqual(['', 'as', 'ip', 'im', 'xx'])
     const asOption = stageOptions().find(o => o.value === 'as')!
     expect(asOption.textContent).toBe('wbs.stageAs')
   })
@@ -157,17 +157,17 @@ describe('WbsAssigneeStagePanel', () => {
   it('(c) devWorkflow=false 여도 stage 셀렉트는 활성 상태이며 값 변경 시 SAVE_DEBOUNCE_MS 뒤 setWbsStage 가 호출된다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
     expect(stageSelect().disabled).toBe(false)
-    await changeStage('fp')
-    expect(stageSelect().value).toBe('fp') // 낙관 표시
+    await changeStage('im')
+    expect(stageSelect().value).toBe('im') // 낙관 표시
     expect(setWbsStage).not.toHaveBeenCalled()
     await elapse()
-    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'fp')
+    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'im')
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
   it('(c-2) 같은 필드를 여러 번 바꾸면 마지막 값만, 원래 값으로 돌아오면 저장하지 않는다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: 'as', devWorkflow: false } })
-    await changeStage('fp')
+    await changeStage('im')
     await changeStage('ip')
     await elapse()
     expect(setWbsStage).toHaveBeenCalledTimes(1)
@@ -186,7 +186,7 @@ describe('WbsAssigneeStagePanel', () => {
     setWbsStage.mockImplementation(async () => { order.push('stage'); return { ok: true } })
     setWbsDevWorkflow.mockImplementation(async () => { order.push('devWorkflow'); return { ok: true, count: 1 } })
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
-    await changeStage('fp')
+    await changeStage('im')
     await act(async () => devWorkflowCheckbox().click())
     await elapse()
     expect(order).toEqual(['stage', 'devWorkflow'])
@@ -195,11 +195,11 @@ describe('WbsAssigneeStagePanel', () => {
 
   it('(e) 「지금 저장」을 누르면 기다리지 않고 저장한다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
-    await changeStage('fp')
+    await changeStage('im')
     expect(saveNow()).not.toBeNull()
     await act(async () => saveNow()!.click())
     await act(async () => {})
-    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'fp')
+    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'im')
     expect(refresh).toHaveBeenCalledTimes(1)
     await elapse()
     expect(setWbsStage).toHaveBeenCalledTimes(1) // 타이머가 다시 쏘지 않는다
@@ -208,8 +208,8 @@ describe('WbsAssigneeStagePanel', () => {
   it('(e-2) 저장이 실패하면 값을 되돌리고 오류를 표시한다 — 실패를 위장하지 않는다', async () => {
     setWbsStage.mockResolvedValue({ ok: false, error: '허용되지 않는 단계입니다.' })
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
-    await changeStage('fp')
-    expect(stageSelect().value).toBe('fp')
+    await changeStage('im')
+    expect(stageSelect().value).toBe('im')
     await elapse()
     expect(stageSelect().value).toBe('')
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('허용되지 않는 단계입니다.')
@@ -240,12 +240,12 @@ describe('WbsAssigneeStagePanel', () => {
 
   it('(g) 패널이 닫히면(언마운트) 대기 중인 변경을 기다리지 않고 저장한다', async () => {
     await mount({ resolved: { assigneeMemberId: null, stage: null, devWorkflow: false } })
-    await changeStage('fp')
+    await changeStage('im')
     expect(setWbsStage).not.toHaveBeenCalled()
     await act(async () => { root.unmount() })
     root = createRoot(container) // afterEach 의 unmount 가 두 번 되지 않게
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'fp')
+    expect(setWbsStage).toHaveBeenCalledWith('item-1', 'im')
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
@@ -269,7 +269,7 @@ describe('WbsAssigneeStagePanel', () => {
   it('자식이 없으면 다섯 단계를 모두 고를 수 있다', async () => {
     await mount({ hasChildren: false })
     const select = [...container.querySelectorAll('select')].at(-1)!
-    expect([...select.options].map(o => o.value)).toEqual(['', 'as', 'fp', 'ip', 'im', 'xx'])
+    expect([...select.options].map(o => o.value)).toEqual(['', 'as', 'ip', 'im', 'xx'])
     expect(container.textContent).not.toContain('wbs.stageLeafOnlyHint')
   })
 })

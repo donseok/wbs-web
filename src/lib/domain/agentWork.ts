@@ -8,14 +8,6 @@ export type AgentReportKind = 'progress' | 'completion'
 /** WBS Task 단계 순서(스펙 2026-09-15 §3.2) — fp 는 0096 에서 ip 로 이관됐다. */
 export const STAGE_ORDER = ['as', 'ip', 'im', 'xx'] as const
 
-/** @deprecated 호출부가 predecessorReached 로 옮겨 가는 동안만 남긴다 — 마지막 호출부(claim 게이트)가 바뀌면 지운다. */
-export function stageAtLeast(stage: string | null, min: 'im'): boolean {
-  if (stage === null) return false
-  const stageIdx = STAGE_ORDER.indexOf(stage as (typeof STAGE_ORDER)[number])
-  if (stageIdx === -1) return false
-  return stageIdx >= STAGE_ORDER.indexOf(min)
-}
-
 /** "완료 도달"로 보는 단계 — §2.10 알림·선행 게이트 판정 축. */
 export const REACHED_STAGES: ReadonlySet<string> = new Set(['im', 'xx'])
 
