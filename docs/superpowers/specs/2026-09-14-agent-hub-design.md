@@ -302,7 +302,9 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 - 화면: 조정 버튼에 `who`('admin' | 'review'). 표는 담당자 본인 행에 반려·승인 취소·재작업만, 승인 큐 카드는 담당자에게 반려만(승인 버튼 숨김). 단계 select 는 관리자만. `HubQueueEntry.assigneeMine` 추가.
 - 테스트: `tests/actions/agent-work-actions.test.ts`(반려·승인 취소·재작업은 requireDelegationRight, 삭제 주문은 관리자, 승인은 관리자만), `tests/actions/agent-hub-actions.test.ts`(멤버 회수 차단·멤버 반려 통과·isAdmin 전달), `tests/components/agent-hub-table.test.tsx`·`agent-hub-queue.test.tsx`(담당자 노출), `tests/domain/agent-hub.test.ts`(queue assigneeMine).
 
-### 11-2. READY 취소 버튼 (2026-09-15, 사용자 지적 "취소가 어디 있는지 안 보인다")
+### 11-2. READY 취소 버튼 → 철회, 체크박스 안내로 통일 (2026-09-15)
+
+> **철회(2026-09-15)**: 아래 「취소」 버튼은 위임 체크 끄기와 동작이 완전히 같아 군더더기라는 사용자 판단으로 **제거**했다. 무르기는 **위임 체크 끄기 하나**로 통일하고, 대신 체크박스 툴팁이 뜻을 명시한다 — 켜짐: `DELEGATE_ON_TITLE`("체크하면 이 작업을 에이전트에 위임합니다."), 체크된 상태: `DELEGATE_OFF_TITLE`("체크를 끄면 위임이 해제되고, 아직 시작 안 된 대기 주문은 취소됩니다."). `labels.ts` 의 `CANCEL_LABEL`·`CANCEL_TITLE`, `DelegationTable` 의 `data-hub-cancel` 버튼·`canCancel` 은 삭제. 아래는 철회된 원안의 기록이다.
 
 위임 표에서 취소는 위임 체크를 끄는 것뿐이라 담당자가 찾지 못했다(같은 지적이 되풀이됐다). 아직 착수 전(READY) 위임 항목의 **조정 열에 「취소」 버튼**을 두어 발견 가능하게 한다. 동작은 위임 해제와 정확히 같은 길이다 — `applyDelegation(false)`(agent 태그 제거 + ready·claimed 주문 취소, reported 는 보존+경고). 새 서버 op 가 아니라 위임 토글 경로·권한(`canToggle`=관리자 또는 담당자 본인)·debounce·낙관을 그대로 재사용한다.
 

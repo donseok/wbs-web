@@ -65,6 +65,7 @@ describe('DelegationTable', () => {
   it('canToggle 인 리프만 체크 가능, 아니면 disabled + title', () => {
     render()
     expect(toggle('a1').disabled).toBe(false); expect(toggle('a1').checked).toBe(true)
+    expect(toggle('a1').title).toContain('취소') // 체크된 위임은 "끄면 대기 주문이 취소된다"고 툴팁으로 안내(취소 버튼 제거, §11-2 개정)
     expect(toggle('a2').disabled).toBe(true); expect(toggle('a2').title).toBe('담당자 본인 또는 관리자만')
     expect(toggle('ms').disabled).toBe(true)
   })
@@ -393,41 +394,6 @@ describe('DelegationTable — 서브트리 관리자(canManage, 트랙 B 2026-09
     render({ rows: MANAGE, isAdmin: false })
     expect(ops('x')).toEqual([])
     expect(host.querySelector('[data-hub-row="x"] select[data-hub-stage]')).toBeNull()
-  })
-})
-
-describe('DelegationTable — READY 행의 취소 버튼(§11-2, 2026-09-15): 위임 해제와 같은 길, 관리자·담당자 본인', () => {
-  const CROWS: HubRow[] = [
-    row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
-    row({ itemId: 'r', code: 'TSK-R', name: '대기', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, stage: 'as', order: { id: 'or', status: 'ready', state: 'READY', agent: null, lastSignalAt: null } }),
-    row({ itemId: 'c', code: 'TSK-C', name: '작업 중', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, stage: 'im', order: { id: 'oc', status: 'claimed', state: 'ACTIVE', agent: 'a', lastSignalAt: null } }),
-    row({ itemId: 'w', code: 'TSK-W', name: '승인 대기', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, stage: 'im', order: { id: 'ow', status: 'reported', state: 'WAIT', agent: 'a', lastSignalAt: null } }),
-    row({ itemId: 'o', code: 'TSK-O', name: '남의 대기', depth: 1, parentId: 'root', assigneeMine: false, canToggle: false, delegated: true, stage: 'as', order: { id: 'oo', status: 'ready', state: 'READY', agent: null, lastSignalAt: null } }),
-    row({ itemId: 'n', code: 'TSK-N', name: '위임 안 함', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: false }),
-  ]
-  const cancelBtn = (id: string) => host.querySelector(`[data-hub-row="${id}"] [data-hub-cancel]`) as HTMLButtonElement | null
-
-  it('담당자 본인(멤버): 내 담당 READY 행에만 취소 — 작업 중·승인 대기·미위임·남의 담당에는 없다', () => {
-    render({ rows: CROWS, isAdmin: false })
-    expect(cancelBtn('r')).not.toBeNull(); expect(cancelBtn('r')!.textContent).toBe('취소')
-    expect(cancelBtn('c')).toBeNull(); expect(cancelBtn('w')).toBeNull(); expect(cancelBtn('n')).toBeNull(); expect(cancelBtn('o')).toBeNull()
-  })
-  it('관리자도 READY 행에 취소 — canToggle 이 게이트라 canToggle:true 인 남의 담당에도 뜬다', () => {
-    // 도메인은 관리자에게 남의 항목도 canToggle:true 로 준다. 여기서는 그 관점을 흉내 내 canToggle 을 켠 행으로 검증한다.
-    const asAdmin = CROWS.map(r => (r.itemId === 'o' ? { ...r, canToggle: true } : r))
-    render({ rows: asAdmin, isAdmin: true })
-    expect(cancelBtn('r')).not.toBeNull(); expect(cancelBtn('o')).not.toBeNull()
-  })
-  it('취소 클릭 → 체크 즉시 꺼지고 버튼도 사라짐 → 지연 뒤 applyHubDelegations(p1,[{itemId,delegated:false}]) 1회 → onHub', async () => {
-    const { onHub } = render({ rows: CROWS, isAdmin: false })
-    await click(cancelBtn('r')!)
-    expect(toggle('r').checked).toBe(false)
-    expect(cancelBtn('r')).toBeNull()
-    expect(applyHubDelegations).not.toHaveBeenCalled()
-    await settle()
-    expect(applyHubDelegations).toHaveBeenCalledTimes(1)
-    expect(applyHubDelegations).toHaveBeenCalledWith('p1', [{ itemId: 'r', delegated: false }])
-    expect(onHub).toHaveBeenCalledWith(HUB)
   })
 })
 

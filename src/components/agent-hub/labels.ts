@@ -39,6 +39,6 @@ export const OP_TITLE = {
 } as const
 export const NOTE_PLACEHOLDER = { reject: '반려 사유 (필수)', rework: '재작업 사유 (필수)' } as const
 
-/** READY 주문 취소 버튼(§11-2). 위임 해제(applyDelegation(false))와 같은 동작이라 별도 서버 op 가 아니다. */
-export const CANCEL_LABEL = '취소'
-export const CANCEL_TITLE = '위임을 해제해 이 대기 주문을 취소합니다 — 위임 체크를 끄는 것과 같습니다.'
+/** 위임 체크박스 안내(§11-2 개정). 취소는 체크를 끄는 것 하나로 통일 — 켜기/끄기 뜻을 툴팁으로 명시한다. */
+export const DELEGATE_ON_TITLE = '체크하면 이 작업을 에이전트에 위임합니다.'
+export const DELEGATE_OFF_TITLE = '체크를 끄면 위임이 해제되고, 아직 시작 안 된 대기 주문은 취소됩니다.'
