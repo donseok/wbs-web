@@ -29,11 +29,13 @@ export interface WbsRow {
   /** 담당별 자동 분리(sub-act) 항목 여부. 레벨·이름이 아니라 이 플래그가 판별 근거(스펙 §5.2). */
   isOwnerSplit: boolean
   /**
-   * WBS Task 단계('as'|'fp'|'ip'|'im'|'xx', 0082). 에이전트 워크플로 필드라 롤업 계약의 일부가 아니다.
+   * WBS Task 단계('as'|'ip'|'im'|'xx' — fp 는 0096 에서 ip 로 이관). 에이전트 워크플로 필드라 롤업 계약의 일부가 아니다.
    * 선택 필드인 이유: 필수로 올리면 WbsRow 리터럴을 만드는 테스트 51파일이 한꺼번에 깨진다.
    * 빠뜨렸을 때의 방향은 fail-closed 다 — spec 선행이 '대기'로 보일 뿐 '시작 가능'으로 뒤집히지 않는다.
    */
   stage?: string | null
+  /** 에이전트 위임(tags 에 'agent') 여부 — WBS 「단계」 컬럼 표시 조건(스펙 2026-09-15 D9). 선택 필드인 이유는 stage 와 같다. */
+  agentDelegated?: boolean
   /**
    * 개인 담당자(project_members.id, §항목1 2026-09-15). team(owners)과 별개 축 — 팀 컬럼을
    * 대체하지 않고 병존한다. stage 와 같은 이유로 선택 필드다: 필수로 올리면 WbsRow 리터럴을

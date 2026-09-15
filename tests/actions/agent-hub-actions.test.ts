@@ -57,8 +57,11 @@ function fakeAdmin(cfg: {
   orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null }>
   items?: Record<string, { project_id: string; name?: string; assignee_member_id?: string | null }>
   updateRows?: number
+  /** 전이 RPC 응답 — 기본은 회수 성공(실적 무변경이라 스냅샷 없음). */
+  rpc?: { data?: unknown; error?: { message: string } | null }
 }) {
   const updates: { table: string; payload: Record<string, unknown> }[] = []
+  const rpcCalls: Array<Record<string, unknown>> = []
   const client = { from: vi.fn((table: string) => {
     const b: Record<string, unknown> = {}
     let id: string | null = null
@@ -76,9 +79,13 @@ function fakeAdmin(cfg: {
       return Promise.resolve({ data: [], error: null }).then(res)
     }
     return b
+  }), rpc: vi.fn(async (...callArgs: unknown[]) => {
+    rpcCalls.push(callArgs[1] as Record<string, unknown>)
+    const r = cfg.rpc ?? { data: { ok: true, order_status: 'ready', stage: 'as', actual_pct: 0, stage_changed: true, actual_changed: false, reached_first: false, skipped: null } }
+    return { data: r.data ?? null, error: r.error ?? null }
   }) }
   mocks.createAdminClient.mockReturnValue(client)
-  return { client, updates }
+  return { client, updates, rpcCalls }
 }
 
 beforeEach(() => {
@@ -225,32 +232,32 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
   })
   it('stage → 항목이 이 프로젝트 것인지 본 뒤 setWbsStage(itemId, stage); null(미지정)도 통과', async () => {
     fakeAdmin({ items: ITEMS })
-    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'fp' })).toEqual({ ok: true, hub: HUB })
-    expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), 'fp')
+    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'ip' })).toEqual({ ok: true, hub: HUB })
+    expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), 'ip')
+    // fp 는 0096 에서 어휘에서 빠졌다 — 형식 검사에서 거부하고 내부 액션을 부르지 않는다.
+    mocks.setWbsStage.mockClear()
+    expect(await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: 'fp' as never })).toEqual({ ok: false, error: '잘못된 요청입니다.' })
+    expect(mocks.setWbsStage).not.toHaveBeenCalled()
     await runHubProcessOp(P1, { kind: 'stage', itemId: I(1), stage: null })
     expect(mocks.setWbsStage).toHaveBeenCalledWith(I(1), null)
   })
-  it('release → claimed 만, CAS 로 ready + 점유·heartbeat 흔적 제거, work.released 알림을 배정자에게', async () => {
-    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
+  it('release → claimed 만, 전이 RPC(release 사건 — 점유·heartbeat 흔적 제거는 DB 가 한다), work.released 알림을 배정자에게', async () => {
+    const { updates, rpcCalls } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
     expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
-    expect(updates).toHaveLength(1)
-    expect(updates[0].table).toBe('agent_work_orders')
-    expect(updates[0].payload).toMatchObject({
-      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
-      last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, heartbeat_note: null,
-    })
+    expect(updates).toHaveLength(0)
+    expect(rpcCalls).toEqual([expect.objectContaining({ p_event: 'release', p_order_id: O(1), p_actor: 'admin-1', p_agent: null, p_agent_user_id: null })])
     expect(mocks.emitNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'work.released', projectId: P1, actorUserId: 'admin-1', entityType: 'agent_order', entityId: O(1),
       payload: expect.objectContaining({ title: '입측 화면', detail: '관리자가 작업을 회수했습니다' }),
       recipientMemberIds: ['m1'],
     }))
   })
-  it('release — claimed 가 아니면 거부, CAS 0행이면 재시도 문구', async () => {
+  it('release — claimed 가 아니면 거부, 전이 RPC 가 경합(conflict)이면 재시도 문구', async () => {
     fakeAdmin({ orders: ORDERS })
     expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '회수할 수 있는 상태가 아닙니다(reported).' })
-    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, updateRows: 0 })
+    const { rpcCalls } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, rpc: { data: { ok: false, conflict: true, order_status: 'ready' } } })
     expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요.' })
-    expect(updates).toHaveLength(1)
+    expect(rpcCalls).toHaveLength(1)
     expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
   it('타 프로젝트 주문·항목 → 거부, 내부 액션 미호출', async () => {
@@ -320,9 +327,9 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       mocks.viewerEmail.mockResolvedValue('anc@x.com')
       mocks.myMemberIds.mockResolvedValue(['anc-member'])
       mocks.isSubtreeManager.mockResolvedValue(true)
-      const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
+      const { rpcCalls } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
       expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
-      expect(updates).toHaveLength(1)
+      expect(rpcCalls).toEqual([expect.objectContaining({ p_event: 'release', p_actor: 'member-1' })])
       expect(mocks.isSubtreeManager).toHaveBeenCalledWith(
         expect.anything(), { itemId: I(1), projectId: P1, myMemberIds: ['anc-member'] },
       )

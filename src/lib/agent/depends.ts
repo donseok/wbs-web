@@ -1,4 +1,5 @@
 import type { AdminClient } from '@/lib/minutes/externalApi'
+import { predecessorReached } from '@/lib/domain/agentWork'
 
 export type DependInfo = {
   external_ref: string; stage: string | null; branch: string | null; head_sha: string | null
@@ -9,6 +10,13 @@ export type DependInfo = {
    * 사람이 "이 일은 끝났다"고 판정한 사실 자체는 approved 주문에 이미 기록돼 있다.
    */
   order_approved: boolean
+  /** 선행 실적%(스펙 2026-09-15 §3.7 세 번째 축) — 프로젝트에 없는 ref 는 null. */
+  actual_pct: number | null
+  /**
+   * 선행 충족 판정 결과(계약 v2.3) = stage ∈ {im,xx} ∨ order_approved ∨ actual_pct ≥ 100. claim 게이트와 같은
+   * 함수(predecessorReached)라, 스킬은 축을 다시 조합하지 않고 이 값을 본다.
+   */
+  reached: boolean
 }
 
 /**
@@ -28,18 +36,18 @@ export async function loadDependsInfo(
   args: { projectId: string; depends: string[] },
 ): Promise<DependInfo[]> {
   const { data: items, error } = await admin
-    .from('wbs_items').select('id, external_ref, stage')
+    .from('wbs_items').select('id, external_ref, stage, actual_pct')
     .eq('project_id', args.projectId).in('external_ref', args.depends)
   if (error) throw new Error(`선행 항목 조회 실패: ${error.message}`) // 게이트 재료 — 위장 금지(호출부 500)
   const byRef = new Map(
     (items ?? []).map((i) => [(i as { external_ref: string }).external_ref, i]) as Array<
-      [string, { id: string; stage: string | null }]
+      [string, { id: string; stage: string | null; actual_pct: number | string | null }]
     >,
   )
   const out: DependInfo[] = []
   for (const ref of args.depends) {
     const item = byRef.get(ref)
-    if (!item) { out.push({ external_ref: ref, stage: null, branch: null, head_sha: null, order_approved: false }); continue }
+    if (!item) { out.push({ external_ref: ref, stage: null, branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: false }); continue }
     // 최근 approved 주문 → 최신 completion 보고의 evidence
     let branch: string | null = null
     let headSha: string | null = null
@@ -58,7 +66,11 @@ export async function loadDependsInfo(
       branch = typeof ev.branch === 'string' ? ev.branch : null
       headSha = typeof ev.head_sha === 'string' ? ev.head_sha : null
     }
-    out.push({ external_ref: ref, stage: item.stage, branch, head_sha: headSha, order_approved: order !== null })
+    const actualPct = item.actual_pct == null ? null : Number(item.actual_pct)
+    out.push({
+      external_ref: ref, stage: item.stage, branch, head_sha: headSha, order_approved: order !== null, actual_pct: actualPct,
+      reached: predecessorReached({ stage: item.stage, orderApproved: order !== null, actualPct }),
+    })
   }
   return out
 }

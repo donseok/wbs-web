@@ -96,7 +96,7 @@ describe('fetchAgentHubRows — 선행 승인 주문(approvedItemIds)', () => {
   const base = { id: 'i1', project_id: P1, parent_id: null, code: 'T', name: 'n', sort_order: 0, milestone: false, dev_workflow: true, tags: ['agent'], assignee_member_id: null, agent_prompt: null, actual_pct: 0, stage: null, external_ref: null, depends: null }
   it('위임 항목의 depends 가 가리키는 항목 id 로 approved 주문을 1회 더 조회한다', async () => {
     const { client, calls } = admin({
-      wbs_items: [{ data: [{ ...base, depends: ['M/T0'] }, { ...base, id: 'i0', code: 'T0', tags: [], external_ref: 'M/T0', stage: 'fp' }] }],
+      wbs_items: [{ data: [{ ...base, depends: ['M/T0'] }, { ...base, id: 'i0', code: 'T0', tags: [], external_ref: 'M/T0', stage: 'ip' }] }],
       agent_work_orders: [{ data: [] }, { data: [{ wbs_item_id: 'i0' }] }],
     })
     const rows = await fetchAgentHubRows(client as never, P1, NOW)

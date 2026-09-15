@@ -4,6 +4,7 @@
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { unmetDepends, unmetDependsList } from './waitReason'
+import { stageLockedForHuman } from './agentWork'
 
 export interface HubItemRow {
   id: string; project_id: string; parent_id: string | null; code: string; name: string; sort_order: number
@@ -34,8 +35,10 @@ export interface HubRow {
    *  (requireSubtreeManagerOrAdmin, agent/subtreeManager.ts)와 같은 축으로 맞춘다. */
   canManage: boolean
   delegated: boolean; devWorkflow: boolean
-  /** WBS 단계(as/fp/ip/im/xx, 미지정 null). 허브의 단계 직접 조정(§11)이 보이는 값이자 select 의 현재값. */
+  /** WBS 단계(as/ip/im/xx, 미지정 null). 허브의 단계 직접 조정(§11)이 보이는 값이자 select 의 현재값. */
   stage: string | null
+  /** 사람의 단계 지정 잠금(스펙 2026-09-15 §3.5) = 위임됨 ∨ 주문 claimed·reported. 서버가 계산하고 화면은 이 값만 읽는다(8상태에서 재파생 금지). */
+  stageLocked: boolean
   order: { id: string; status: OrderStatus; state: HubOrderState; agent: string | null; lastSignalAt: string | null } | null
   prompt: string | null
   /** 리프 && 마일스톤 아님 && (관리자 || 담당자 본인) — 화면의 체크 활성 판정. 서버 가드(requireDelegationRight)와 같은 규칙. */
@@ -186,13 +189,15 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     if (isLeaf && delegated) counters.delegated++
     const waitingStart = order === null || order.state === 'READY'
     const unmet = isLeaf && delegated && waitingStart
-      ? unmetDepends(item.depends, ref => { const p = byRef.get(ref); return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id) } : undefined })
+      ? unmetDepends(item.depends, ref => { const p = byRef.get(ref); return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id), actual_pct: p.actual_pct } : undefined })
       : []
     hubRows.push({
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,
       assigneeName: item.assignee_member_id ? (memberName.get(item.assignee_member_id) ?? null) : null, assigneeMine, canManage,
-      delegated, devWorkflow: item.dev_workflow, stage: item.stage, order, prompt: item.agent_prompt,
+      delegated, devWorkflow: item.dev_workflow, stage: item.stage,
+      stageLocked: stageLockedForHuman({ delegated, orderStatus: picked?.status ?? null }),
+      order, prompt: item.agent_prompt,
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
       unmetDepends: unmet.length ? unmetDependsList(unmet) : null,
     })

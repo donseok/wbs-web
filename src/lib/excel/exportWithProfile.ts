@@ -170,7 +170,7 @@ export function buildAoaWithProfile(
   // parseWithProfile 이 실제 라벨 행으로 읽는 건 dataStart=profile.headerRow+1 이므로, 이 고정 3행
   // 출력은 profile.headerRow=2 일 때만 그 위치와 일치한다. headerRow≠2 프로파일로 내보내면 어긋나
   // 재임포트가 틀어진다 — buildWorkbookWithProfile 의 ⚠️ 참고, 이 라운드에서 고치지 않는다). ──
-  // trailing 라벨은 3개뿐이다(계획%/계획대비%/상태) — 데이터 행의 4개(+성과율)와 폭이 다른 기존
+  // trailing 라벨은 3개뿐이다(계획%/계획대비%/진척) — 데이터 행의 4개(+성과율)와 폭이 다른 기존
   // buildWbsAoa 의 결함을 그대로 재현한다(무접촉 원칙 + 바이트 불변 회귀 기준 때문에 여기서 고치지
   // 않는다 — 계약 (a) 참조).
   const header3 = new Array(maxCol + 4).fill('')
@@ -188,7 +188,7 @@ export function buildAoaWithProfile(
   if (insertAt != null) header3[insertAt] = '세부업무' // 펼침 전용 — 접기 모드는 insertAt 자체가 null
   header3[maxCol + 1] = '계획%'
   header3[maxCol + 2] = '계획대비%'
-  header3[maxCol + 3] = '상태'
+  header3[maxCol + 3] = '진척'
 
   const rows: unknown[][] = [header1, header2, header3]
 

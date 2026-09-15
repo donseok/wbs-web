@@ -5,11 +5,10 @@ import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import {
   AGENT_LINKS_MAX, validateEvidence, validateReport, isUuidLike, type AgentReportKind,
 } from '@/lib/domain/agentWork'
-import { applyAgentProgress } from '@/lib/agent/applyProgress'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
 import { emitNotification } from '@/lib/notify/emit'
-import { transitionStage } from '@/lib/agent/stageTransition'
+import { applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
 
 export const dynamic = 'force-dynamic'
 
@@ -79,21 +78,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       }
     }
 
-    let appliedToWbs = false
-    if (kind === 'progress') {
-      // 항목이 삭제된 주문(set null)의 진척은 반영할 곳이 없다 — 실패로 알리고 사람이 정리한다.
-      if (!order.wbs_item_id) return apiFail(409, 'wbs_item_missing', 'WBS 항목이 삭제된 주문입니다.')
-      const applied = await applyAgentProgress(admin, {
-        wbsItemId: order.wbs_item_id, percent, actorUserId: loaded.userId,
-      })
-      if (!applied.ok) return apiFail(409, 'apply_failed', applied.error)
-      appliedToWbs = true
-      revalidatePath(`/p/${applied.projectId}`, 'layout')
-      after(() => recordProgressSnapshot(applied.projectId, admin as never))
-    }
+    // 계약 v2.3(스펙 2026-09-15 §3.4) — progress 보고는 보고 행만 남긴다. 실적은 단계 전이 사건의 크레딧과
+    // 사람의 수기 입력으로만 바뀐다(에이전트가 찍는 임의의 % 대신 정해진 값). 응답 필드는 호환을 위해 둔다.
+    const appliedToWbs = false
 
     // 보고 행은 판정·감사의 원천 — 실패를 삼키면 승인 화면이 거짓이 된다(fail-loud 500).
-    // completion 은 보고 insert 선행(경합 시 cleanup)이라 재시도 수렴. progress 는 WBS 반영 후 insert — 같은 percent 재보고는 멱등.
+    // completion 은 보고 insert 선행(경합 시 cleanup)이라 재시도 수렴. progress 는 보고 행만 남긴다.
     const { data: report, error: repErr } = await admin
       .from('agent_work_reports')
       .insert({
@@ -109,29 +99,24 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
     // completion 은 CAS 로 reported 전이 — 경합 시 cleanup(고아 행 무해) + 409.
     if (kind === 'completion') {
-      const casQuery = admin
-        .from('agent_work_orders')
-        .update({ status: 'reported', updated_at: new Date().toISOString() })
-        .eq('id', id).eq('status', 'claimed')
-      const { data: updated, error: casErr } = await (
-        actor.principal.kind === 'pat'
-          ? casQuery.eq('claimed_by_user_id', actor.userId as string)
-          : casQuery.eq('claimed_by', actor.agentLabel)
-      ).select('id')
-      if (casErr) {
-        console.error('[agent-api] completion 전이 실패:', casErr.message)
-        // Cleanup: best-effort delete 보고 행
+      // 원자 전이(스펙 §4) — claimed→reported CAS(점유자 일치) + 단계 im + 실적 표.im 이 한 트랜잭션.
+      // 경합·오류는 보고 행을 지워(고아 행 무해) 같은 내용의 재시도가 수렴하게 한다.
+      const transition = await applyWorkflowEvent(admin, {
+        event: 'report_completion', actorUserId: loaded.userId, orderId: id,
+        agent: actor.principal.kind === 'pat' ? null : actor.agentLabel,
+        agentUserId: actor.principal.kind === 'pat' ? (actor.userId as string) : null,
+      })
+      if (!transition.ok) {
         const { error: cleanupErr } = await admin
           .from('agent_work_reports').delete().eq('id', reportId)
         if (cleanupErr) console.error('[agent-api] 보고 행 cleanup 실패(고아 행 남음):', cleanupErr.message)
+        if (transition.conflict) return apiFail(409, 'conflict', '완료 요청 가능한 상태가 아닙니다.')
+        console.error('[agent-api] completion 전이 실패:', transition.error)
         return apiInternalError()
       }
-      if (!updated || (updated as unknown[]).length === 0) {
-        // Cleanup: best-effort delete 보고 행
-        const { error: cleanupErr } = await admin
-          .from('agent_work_reports').delete().eq('id', reportId)
-        if (cleanupErr) console.error('[agent-api] 보고 행 cleanup 실패(고아 행 남음):', cleanupErr.message)
-        return apiFail(409, 'conflict', '완료 요청 가능한 상태가 아닙니다.')
+      if (transition.actualChanged) {
+        revalidatePath(`/p/${order.project_id}`, 'layout')
+        after(() => recordProgressSnapshot(order.project_id, admin as never))
       }
       // 알림 발행 — completion→reported 전이 성공 직후. progress 보고에는 발행하지 않는다(fire-and-forget).
       const { data: admins, error: adminsErr } = await admin
@@ -153,18 +138,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.
       })
 
-      // stage 전이 — completion 보고로 reported 전이 확정 후. im 도달이면 내부에서 unblocked 발행까지 이어진다.
-      // 실패는 로깅만 — 응답에 영향 없음. progress 보고는 이 분기에 들어오지 않으므로 무간섭.
-      if (order.wbs_item_id) {
-        try {
-          const transitioned = await transitionStage(admin, {
-            itemId: order.wbs_item_id, to: 'im', fromIn: ['ip', 'as', 'fp', null], actorUserId: loaded.userId,
-          })
-          if (!transitioned.ok) console.error('[agent-api] report stage 전이 실패:', order.wbs_item_id)
-        } catch (e) {
-          console.error('[agent-api] report stage 전이 예외:', e instanceof Error ? e.message : e)
-        }
-      }
+      // im 첫 도달이면 후행 unblocked 알림(§2.10) — 실패는 로깅만, 응답에 영향 없음.
+      if (transition.reachedFirst && order.wbs_item_id) await notifyOnReached(admin, order.wbs_item_id, loaded.userId)
     } else {
       // progress 는 상태 유지 — updated_at 만 갱신해 보드의 활동 시각을 살린다.
       const { error: touchErr } = await admin

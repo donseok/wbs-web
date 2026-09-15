@@ -10,7 +10,7 @@ import { AGENT_TAG } from '@/lib/domain/seatmap'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { viewerEmail } from '@/lib/data/agentSeatmap'
 import { backfillProjectOrders, ensureAgentProject, ensureOrderForWorkflowLeaf } from '@/lib/agent/ensureOrder'
-import { transitionStage } from '@/lib/agent/stageTransition'
+import { applyWorkflowEvent } from '@/lib/agent/workflowEvent'
 
 export const ERR_NOT_ASSIGNEE = '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.'
 export const ERR_AGENT_OFF = '프로젝트 에이전트가 꺼져 있습니다. 관리자가 에이전트 페이지에서 켜야 합니다.'
@@ -120,8 +120,9 @@ export async function applyDelegation(
         if (logErr) console.error('[delegation] dev_workflow 변경 이력 기록 실패:', logErr.message)
         if (dw.assignee_member_id && dw.stage === null) {
           try {
-            const tr = await transitionStage(admin, { itemId, to: 'as', fromIn: [null], actorUserId })
-            if (!tr.ok) console.error('[delegation] dev_workflow ON stage 전이 실패:', itemId)
+            // assign 사건 — RPC 가 dev_workflow·리프·stage NULL 을 다시 판정해 as·표.as 를 쓴다(스펙 §3.4).
+            const tr = await applyWorkflowEvent(admin, { event: 'assign', actorUserId, itemId })
+            if (!tr.ok) console.error('[delegation] dev_workflow ON stage 전이 실패:', itemId, tr.error)
           } catch (e) {
             console.error('[delegation] dev_workflow ON stage 전이 예외:', e)
           }

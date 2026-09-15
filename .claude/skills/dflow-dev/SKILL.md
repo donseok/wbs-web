@@ -120,6 +120,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      `d.order_approved === true` 면 선행 완료다. 다른 축을 쓰면 "게이트는 통과하는데 스킬은
      막는다"가 된다. 재발행을 겪은 선행은 현재 주문이 ready 여도 과거 승인이 있으면
      `order_approved` 가 true 다 — 현재 주문 status 로 판정하면 그 승인을 영영 못 본다.
+     - **v2.3 서버는 판정 결과를 `d.reached` 로 준다**(= `stage ∈ {im,xx}` ∨ `order_approved` ∨
+       `actual_pct ≥ 100`). **`'reached' in d` 면 그 값이 선행 완료 판정이다** — 축을 다시 조합하지 않는다.
+       실적 100 축은 위임하지 않은 사람 Task 가 선행일 때 풀리는 길이라, 옛 규칙으로 판정하면 서버는
+       claim 을 통과시키는데 스킬만 막는다. 키가 없으면 아래 v2.2 규칙을 쓴다.
      - `order_approved` 는 **키 존재 여부로 지원을 가른다**(`'order_approved' in d`).
        `contract_version` 으로는 못 가른다 — 이 필드가 들어간 뒤로도 한동안 버전을 안 올려
        2.1 서버 중에 키를 주는 것과 안 주는 것이 섞여 있다(2.2 부터 계약에 명시됐다).

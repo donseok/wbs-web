@@ -10,6 +10,7 @@ import { isProjectAdmin } from '@/lib/domain/authz'
 import { projectTeamRowsSync } from '@/lib/teams/master'
 import { ProjectTeamsManager } from '@/components/settings/ProjectTeamsManager'
 import { LevelSettingsManager } from '@/components/settings/LevelSettingsManager'
+import { StageCreditSlider } from '@/components/settings/StageCreditSlider'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { PageHero, HeroBadge } from '@/components/ui/PageHero'
 import { KpiCard } from '@/components/ui/KpiCard'
@@ -244,6 +245,14 @@ export default async function SettingsPage({ params }: { params: Promise<{ proje
         <p className="-mt-2 text-xs leading-5 text-ink-muted">
           {t(locale, 'settings.agentDesc1')}<span className="font-medium text-pending">{t(locale, 'settings.agentDescBadge')}</span>{t(locale, 'settings.agentDesc2')}
         </p>
+        {/* 개발 워크플로 크레딧(스펙 2026-09-15 §5.1) — 설정 조회 실패면 그리지 않는다(잘못된 초기값으로 저장하면 표를 덮는다). */}
+        {levelConfig && (
+          <div className="mt-4 space-y-1 border-t border-line pt-4">
+            <p className="text-sm font-semibold text-ink">{t(locale, 'settings.creditsTitle')}</p>
+            <p className="text-xs leading-5 text-ink-muted">{t(locale, 'settings.creditsDesc')}</p>
+            <StageCreditSlider projectId={projectId} initial={levelConfig.stageCredits} editable={canMutate} />
+          </div>
+        )}
         </SectionCard>
 
       {/* ── DK Bot 의미검색 색인 ── */}

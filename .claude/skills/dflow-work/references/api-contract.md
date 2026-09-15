@@ -1,6 +1,27 @@
-# D'Flow Agent API 계약 v2.2
+# D'Flow Agent API 계약 v2.3
 
-`contract_version: "2.2"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영.
+`contract_version: "2.3"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영.
+
+## v2.3 변경점 (2026-09-15)
+
+단계 전이를 DB 트랜잭션 하나(`apply_workflow_event`, 마이그레이션 0096)로 묶고, 실적%를 사건 크레딧으로 지정한다
+(설계: `docs/superpowers/specs/2026-09-15-wbs-stage-credit-design.md`). 엔드포인트·인증·요청 형식은 v2.2 와 같다.
+
+| # | 항목 | v2.2 | v2.3 |
+|---|---|---|---|
+| 1 | stage enum | `as\|fp\|ip\|im\|xx\|null` | `as\|ip\|im\|xx\|null`. 서버는 입력 `fp` 를 `ip` 로 정규화한다(과도기 — import 앱 층·DB RPC 이중). 라벨: as=할당됨 · ip=작업 중 · im=검수 대기 · xx=완료 · null=미착수 |
+| 2 | progress 보고 | `actual_pct` 즉시 반영, 응답 `applied_to_wbs:true` | 보고 행만 기록한다. `actual_pct` 는 바뀌지 않고 응답은 `applied_to_wbs:false`(200 그대로). 항목이 삭제된 주문의 progress 도 기록한다 |
+| 3 | claim | 주문 CAS 뒤 stage `ip` 를 따로 실행 | 한 트랜잭션: 주문 `claimed` + stage `ip` + 실적 = 크레딧 표 IP 값 |
+| 4 | completion 보고 | 주문 `reported` 뒤 stage `im` 을 따로 실행 | 한 트랜잭션: 주문 `reported`(점유자 일치 조건) + stage `im` + 실적 = 크레딧 표 IM 값. 경합·오류면 보고 행을 지우고 409·500 |
+| 5 | release | 주문만 `ready` | 한 트랜잭션: 주문 `ready` + 점유·heartbeat 흔적 삭제 + stage `as` + 실적 = 크레딧 표 AS 값 |
+| 6 | depends_evidence | `{external_ref, stage, branch, head_sha, order_approved}` | `actual_pct`·`reached` 추가. `reached` = stage∈{im,xx} ∨ order_approved ∨ actual_pct≥100 — 서버 claim 게이트와 같은 함수(`predecessorReached`) |
+| 7 | claim 게이트 | stage ≥ im ∨ order_approved | `reached:false` 인 선행이 하나라도 있으면 403 `dependency_not_met` |
+
+⚠️ **`reached` 도 키 존재 여부로 지원을 가른다**(`'reached' in d`). 키가 없으면 v2.2 판정(stage ≥ im ∨ `order_approved`)으로
+폴백하고 그 사실을 한 줄 남긴다 — 실적 100 축이 없는 옛 서버에서는 사람이 끝낸 선행이 여전히 막힌다.
+
+크레딧 표는 프로젝트 설정 `project_settings.stage_credits`(없으면 기본 `as 0 · ip 30 · rw 50 · im 80 · xx 100`, 카테고리 `if`·`doc`
+는 `0 · 20 · 30 · 50 · 100`)이고 항목의 `credit_key` 로 고른다. 설정 저장은 소급하지 않는다.
 
 ## v2.2 변경점 (2026-08-28)
 
@@ -64,7 +85,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.1",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.2"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.3"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
@@ -80,7 +101,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 ```json
 { "project_id": "<uuid>", "module": "MES",
   "nodes": [ { "id": "TSK-01-01", "parent_id": "WP-01", "kind": "task|wp|act|phase",
-               "title": "…", "stage": "as|fp|ip|im|xx|null", "category": "dev",
+               "title": "…", "stage": "as|ip|im|xx|null", "category": "dev",
                "domain": "fullstack", "assignee": "a@b.c", "schedule": "2026-08-11 ~ 2026-08-14",
                "depends": ["TSK-01-00"], "acceptance": ["…"],
                "priority": "critical|high|medium|low",
@@ -91,7 +112,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
                  "description": "…|null" } } ] }
 ```
 `external_ref` = `<module>/<id>` (예: `MES/TSK-01-01`).
-- **stage(v2.1)**: `as|fp|ip|im|xx` 또는 미기재·`""`·null → 서버가 null(미착수)로 저장. **`"todo"`도 과도기 하위호환으로 수용해 null로 정규화**한다(app 레이어 `toRpcNode` + DB RPC `import_wbs_upsert`의 `case when … in ('', 'todo') then null` 이중 방어 — 부트스트랩이 서버 배포 전후 어느 쪽 export 를 올려도 결과가 같다). `todo`는 언제든 제거될 수 있는 호환 수용이지 정식 값이 아니다.
+- **stage(v2.3)**: `as|ip|im|xx` 또는 미기재·`""`·null → 서버가 null(미착수)로 저장. **`"fp"` 는 `ip` 로 정규화한다**(v2.3 과도기 — 0096 에서 제거된 값). **`"todo"`도 과도기 하위호환으로 수용해 null로 정규화**한다(app 레이어 `toRpcNode` + DB RPC `import_wbs_upsert`의 `case when … in ('', 'todo') then null` 이중 방어 — 부트스트랩이 서버 배포 전후 어느 쪽 export 를 올려도 결과가 같다). `todo`는 언제든 제거될 수 있는 호환 수용이지 정식 값이 아니다.
 - **dev_workflow(v2.1, 자동)**: 클라이언트가 지정하지 않는다. 서버가 `kind:"task"` 노드에는 `dev_workflow=true`, `wp|act|phase` 노드에는 `false`를 자동 설정한다(신규 삽입·기존 행 재업로드 갱신 모두 동일 — RPC의 `on conflict … do update set dev_workflow = excluded.dev_workflow`).
 - **priority는 문자열 라벨.** 주문 정수 priority 매핑(계약 고정): `critical=100 · high=50 · medium=10 · low=0` (미기재·미지 라벨=0).
 - **spec 조립**: import가 `spec_sections`를 고정 섹션 순서 — 머리말(description, 헤딩 없음) → `## 요구사항` → `## 제약` → `## 테스트 기준` → `## API 스펙` → `## 데이터 모델` — 의 마크다운으로 조립해 `wbs_items.spec`(text)에 저장한다. 빈 섹션은 생략. `acceptance[]`는 최상위 그대로 `acceptance jsonb`로.
@@ -122,43 +143,56 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 수동 발행 화면은 없다(2026-08-24 제거). **발행 = WBS 명세 패널의 "에이전트 위임"(tags: agent) 체크** — 체크하면 서버가 프로젝트 활성 → dev_workflow ON → 주문 보장을 한 번에 한다. 체크 해제 = 그 항목의 ready 주문 취소(claimed/reported 는 사람이 승인·반려로 정리).
 
-승인·반려도 전용 화면(`/agent-ops`)이 없다(2026-08-24 제거) — WBS 화면(`/p/<id>/wbs`) 항목 클릭 → 상세 패널의 "담당·단계" 섹션 → "진행 상황"에서 한다. `status=reported` 인 주문에만 승인/반려 버튼이 뜨고, 관리자(project admin·슈퍼유저)만 보인다(`editable={isAdmin}`). 별도 "회수" 액션은 없다 — 반려가 곧 회수다(`reported`→`claimed`로 되돌리고 stage 는 그대로 `im` 유지, 담당 에이전트가 같은 주문으로 재작업·재보고).
+승인·반려도 전용 화면(`/agent-ops`)이 없다(2026-08-24 제거) — WBS 화면(`/p/<id>/wbs`) 항목 클릭 → 상세 패널의 "담당·단계" 섹션 → "진행 상황"에서 한다. `status=reported` 인 주문에만 승인/반려 버튼이 뜨고, 관리자(project admin·슈퍼유저)만 보인다(`editable={isAdmin}`). 반려는 `reported`→`claimed`로 되돌리고 stage `ip`·실적은 크레딧 표의 RW 값으로 한 트랜잭션에 쓴다(v2.3). 담당 에이전트가 같은 주문으로 재작업·재보고한다. 점유를 강제로 푸는 회수는 에이전트 허브에서 관리자·서브트리 관리자가 한다.
 
 ## claim·show 응답 확장과 선행 게이트 (결정 A·C)
 
 - `GET /work/{id}`(PAT)와 `POST /work/{id}/claim` 200 응답의 `item`에 확장 필드를 포함한다:
   `external_ref·category·domain·priority·model·tags·depends·prd_ref·entry_point·acceptance·spec·stage`.
   클라이언트는 claim 성공 시 이걸로 `docs/tasks/<TSK-ID>/spec.md` 로컬 캐시를 만든다(TSK-ID = external_ref의 `/` 뒤).
-- 두 응답 모두 `depends_evidence: [{ external_ref, stage, branch|null, head_sha|null, order_approved }]`
+- 두 응답 모두 `depends_evidence: [{ external_ref, stage, branch|null, head_sha|null, order_approved, actual_pct|null, reached }]`
   포함 — 각 선행 항목의 **approved 주문의 completion 보고 evidence**에서 추출(없으면 null).
   `order_approved`(v2.2)는 그 선행에 `status='approved'` 주문이 하나라도 있는지다. 최신 주문이
   아니라 "아무 approved 주문" 이라 재발행을 겪은 선행에서도 승인 사실이 살아남는다.
-- **서버 선행 게이트**: claim 시 depends의 선행 항목 중 `stage`가 `im` 이상(`im`·`xx`)이 아닌 것이 하나라도 있으면
-  403 `dependency_not_met` + `unmet: [{external_ref, stage}]`. 선행 external_ref가 프로젝트에 없거나 stage가 null이면 미충족(fail-closed).
+- **서버 선행 게이트(v2.3)**: claim 시 depends의 선행 항목 중 `reached`(= `stage` ∈ {`im`,`xx`} ∨ `order_approved` ∨ `actual_pct` ≥ 100)가 false 인 것이 하나라도 있으면
+  403 `dependency_not_met` + `unmet: [{external_ref, stage}]`. 선행 external_ref가 프로젝트에 없으면 미충족(fail-closed).
   dflow.sh 는 이 403 을 바디 `code` 로 판독해 **exit 4**(선행·상태로 인한 진행 불가)로 낸다 — 권한 403(exit 5)과 처방이 다르기 때문이다(구조 필드 판독이므로 "산문 파싱 금지" 위반이 아니다).
 - **클라이언트 하드 차단**: ① claim 전 `show`의 depends_evidence로 `git cat-file -e <sha>` + `git merge-base --is-ancestor <sha> HEAD` 검사 — 미도달이면 메시지 출력 후 **실행 거부(exit 4)**. ② `done`은 `git ls-remote`로 현재 브랜치 tip이 원격에 도달했는지 확인 — 미도달이면 **보고 거부(exit 2)**. "완료 = push 완료"가 클라이언트 계약이다.
 
-## 상태 어휘 매핑 (§7.2-2, v2.1)
+## 상태 어휘 매핑 (§7.2-2, v2.3)
 
-파일 `[ ]`/`[as]`/`[fp]`/`[ip]`/`[im]`/`[xx]` ↔ DB `stage` `null/as/fp/ip/im/xx`(구 `todo` 열 제거, `[ ]`는 `null`) ↔ 진척 환산 0(null)/0/0/20/60/100(산식 정본은 D'Flow, 미결 ③ 승인 전 환산 미적용).
-전이 권한: 사람 전용 = assign/unassign/force/unforce/accept · 에이전트 = cycle.start/*.ok/*.fail/bypass. 에이전트 API에 사람 전용 이벤트 없음(도입 시 403 `human_gate`).
+파일 `[ ]`/`[as]`/`[ip]`/`[im]`/`[xx]` ↔ DB `stage` `null/as/ip/im/xx`(`[ ]`는 `null`). 옛 파일의 `[fp]` 는 `ip` 로 받는다(0096).
+로컬 state-machine.json 의 `[dd]`·`[ts]` 는 부트스트랩 전용이라 서버 어휘에 없다.
+전이 권한: 사람 전용 = assign/unassign/set_stage/approve/unapprove/reject/rework/release(허브) · 에이전트 = claim/completion/release(본인 점유).
+에이전트 API에 사람 전용 사건 없음(도입 시 403 `human_gate`).
 
-UI 라벨 정본(참고 표기용, `dev-workflow state-machine.json` 기준): `as`=할당됨 · `fp`=강제 진행 · `ip`=진행 중 · `im`=구현 완료·검수 대기 · `xx`=완료.
+UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업 중 · `im`=검수 대기 · `xx`=완료 · 미지정=미착수.
 
-### stage 자동 전이 표 (v2.1 신설)
+### 단계 전이 사건 표 (v2.3 — 정본은 설계 §3.4)
 
-모두 **`dev_workflow=true` 항목 한정** — 공용 함수 `transitionStage`가 dev_workflow 게이트·`fromIn`(현재 stage 제약)·`change_logs` 기록을 담당한다. `progress` 보고는 stage에 무간섭.
+모든 사건은 DB 함수 `apply_workflow_event` 하나가 **한 트랜잭션**으로 주문 CAS·단계·실적·`change_logs` 를 쓴다. 주문 사건은
+주문의 존재가 워크플로 증거라 `dev_workflow` 를 보지 않고, 리프가 아니면 단계·실적만 건너뛴다. 실적은 크레딧 표 값으로
+**덮어쓴다**(큰 쪽 유지 규칙 없음).
 
-| 이벤트 | to | fromIn(현재 stage가 이 안에 있을 때만 전이) | 비고 |
-|---|---|---|---|
-| 배정(담당자 지정) | `as` | `null`만 | 이미 진행 중인 항목(as 이후)은 배정해도 stage 유지 |
-| 배정 해제 | `null` | `as`만 | `ip` 이상은 해제해도 stage 유지(진행분 보존) |
-| claim(착수) | `ip` | `as`·`fp`·`null` | **`im`에서는 전이하지 않는다** — 반려 후 재작업은 `im` 유지, claim이 되돌려놓지 않음 |
-| 완료보고(completion) | `im` | `ip`·`as`·`fp`·`null` | `progress` 보고는 이 표에 해당 없음(전이 없음) |
-| 승인(accept) | `xx` | `im`·`ip`·`as`·`fp`·`null` | 사람 검수 통과가 곧 완료(accept는 사람 전용 이벤트) |
-| 반려(reject) | — | — | **stage 무변경** — 주문만 `reported`→`claimed`로 되돌린다. `im` 그대로 유지 |
+| 사건 | 주문 status | stage | 실적% | 누가 |
+|---|---|---|---|---|
+| 배정·위임 ON | (발행 조건은 현행) | `null`→`as` (stage 가 null 일 때만) | 표.as | 사람 |
+| 배정 해제 | 불변 | `as`→`null` (as 일 때만) | 불변 | 사람 |
+| claim | `ready`→`claimed` | `ip` | 표.ip | 에이전트 |
+| progress 보고 | 불변 | 불변 | **불변**(보고 행만) | 에이전트 |
+| completion 보고 | `claimed`→`reported` | `im` | 표.im | 에이전트 |
+| 승인 | `reported`→`approved` | `xx` | 100 | 사람 |
+| 승인 취소 | `approved`→`reported` | `im` | 표.im | 사람 |
+| 반려 | `reported`→`claimed` | `ip` | 표.rw | 사람 |
+| 재작업 요청 | `approved`→`claimed` | `ip` | 표.rw | 사람 |
+| 회수·반납(release) | `claimed`→`ready` | `as` | 표.as | 사람(허브)·에이전트(본인 점유) |
+| 사람의 단계 지정 | 잠금이 아닐 때만 | 지정값 | 표.<지정값>(해제는 불변) | 사람 |
 
-`im`/`xx` "처음 도달" 시(역전이·재설정 제외) depends 역참조로 후행 담당자에게 `work.unblocked` 알림이 발행된다(§2.10, 다중 depends는 전부 도달 시 1회).
+**잠금** = 위임됨(`tags` ∋ `agent`) ∨ 주문 `claimed`·`reported`. 잠기면 사람의 단계 지정은 거부되고 수기 실적 입력은 99 까지다
+(100 은 승인으로만). `ready` 는 dev_workflow 리프마다 상주하므로 잠금이 아니다.
+
+`im`/`xx` "처음 도달" 시(역전이·재설정 제외) depends 역참조로 후행 담당자에게 `work.unblocked` 알림이 발행된다
+(§2.10, 다중 depends는 전부 충족(`reached`) 시 1회).
 
 ## 에러코드 전수
 
@@ -173,7 +207,7 @@ UI 라벨 정본(참고 표기용, `dev-workflow state-machine.json` 기준): `a
 | 403 | `not_claim_owner` | 점유 소유자 아님(교차 소유 포함) |
 | 403 | `insufficient_scope` | PAT 스코프 부족 |
 | 403 | `not_assignee` | 배정 항목을 타인이 claim |
-| 403 | `dependency_not_met` | 선행(depends) stage 미충족 claim (결정 C — `unmet[]` 동반) |
+| 403 | `dependency_not_met` | 선행(depends) 미충족 claim — `reached:false`(v2.3, 결정 C — `unmet[]` 동반) |
 | 404 | — | 꺼짐/미등록/비멤버/없음(의도적 비구분) |
 | 409 | `conflict` | CAS 충돌·상태 불일치 |
 | 409 | `apply_failed` | WBS 반영 실패 |

@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   requireProjectAdmin: vi.fn(),
   resolveProjectId: vi.fn(),
   createAdminClient: vi.fn(),
-  transitionStage: vi.fn(),
+  applyWorkflowEvent: vi.fn(),
   ensureOrderForWorkflowLeaf: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({
@@ -16,9 +16,9 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminCli
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: vi.fn() }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: vi.fn() }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf }))
-// setWbsDevWorkflow 는 transitionStage 만 쓰고 notifySuccessorsOnReached·REACHED_STAGES 는
-// 쓰지 않으므로(그건 setWbsStage 소관) 이 파일에서는 모듈 전체를 목킹해도 안전하다.
-vi.mock('@/lib/agent/stageTransition', () => ({ transitionStage: mocks.transitionStage }))
+// setWbsDevWorkflow 는 전이 RPC 래퍼(applyWorkflowEvent)만 쓰고 도달 알림은 쓰지 않으므로(assign 사건은
+// im·xx 에 닿지 않는다) 이 파일에서는 모듈 전체를 목킹해도 안전하다.
+vi.mock('@/lib/agent/workflowEvent', () => ({ applyWorkflowEvent: mocks.applyWorkflowEvent, notifyOnReached: vi.fn() }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 
 import { setWbsDevWorkflow } from '@/app/actions/wbsAssign'
@@ -70,7 +70,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
   mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
-  mocks.transitionStage.mockResolvedValue({ ok: true, transitioned: true })
+  mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, orderStatus: null, stage: 'as', actualPct: 0, stageChanged: true, actualChanged: false, reachedFirst: false, skipped: null })
   mocks.ensureOrderForWorkflowLeaf.mockResolvedValue({ ok: true, created: true })
 })
 
@@ -84,10 +84,10 @@ describe('setWbsDevWorkflow', () => {
   })
 
   // 트리: W1(root) → W2(자식 있음, 담당자 M2·stage null)
-  //         → W6(리프, 담당자 M1·stage null — transitionStage 대상)
-  //         → W7(리프, 담당자 없음·stage null — ensureOrder 는 호출하되 transitionStage 는 스킵:
+  //         → W6(리프, 담당자 M1·stage null — assign 전이 대상)
+  //         → W7(리프, 담당자 없음·stage null — ensureOrder 는 호출하되 assign 전이 는 스킵:
   //              §2.8 재정의, 주문은 배정과 무관)
-  //         → W8(리프, 담당자 M1·stage 'ip' — stage 가 이미 NULL 이 아니므로 transitionStage 스킵)
+  //         → W8(리프, 담당자 M1·stage 'ip' — stage 가 이미 NULL 이 아니므로 assign 전이 스킵)
   const W7 = '99999999-9999-4999-8999-999999999991'
   const W8 = '22222222-2222-4222-8222-222222222229'
   const TREE = [
@@ -98,7 +98,7 @@ describe('setWbsDevWorkflow', () => {
     { id: W8, parent_id: W2 },
   ]
 
-  it('(e) cascade=true ON — 서브트리 UPDATE·리프에만 transitionStage·ensureOrder 호출·count 집계', async () => {
+  it('(e) cascade=true ON — 서브트리 UPDATE·리프에만 assign 전이·ensureOrder 호출·count 집계', async () => {
     const { captured } = admin({
       wbs_items: [
         { data: TREE }, // 트리 read
@@ -128,18 +128,18 @@ describe('setWbsDevWorkflow', () => {
       wbs_item_id: W1, field: 'dev_workflow', old_value: 'false', new_value: 'true',
     })
 
-    // transitionStage 는 "담당자 있고 stage NULL"인 리프(W6)에만 — W2는 자식이 있어 제외,
+    // assign 전이 는 "담당자 있고 stage NULL"인 리프(W6)에만 — W2는 자식이 있어 제외,
     // W7은 담당자가 없어 제외(§2.8 재정의: 주문은 배정과 무관하지만 stage 전이는 배정이 있어야
     // 한다), W8은 이미 stage가 있어 제외.
-    expect(mocks.transitionStage).toHaveBeenCalledTimes(1)
-    expect(mocks.transitionStage).toHaveBeenCalledWith(
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ itemId: W6, to: 'as', fromIn: [null], actorUserId: 'admin-1' }),
+      { event: 'assign', actorUserId: 'admin-1', itemId: W6 },
     )
 
     // ensureOrderForWorkflowLeaf 는 담당자·stage 와 무관하게 모든 리프(W6·W7·W8)에 호출된다
     // (§2.8 재정의 — "dev_workflow ON 인 리프에는 주문이 존재한다. 배정은 조건이 아니다").
-    // transitionStage 가드(assignee && stage===null) 안쪽으로 잘못 옮기면 이 단언이 깨진다.
+    // assign 전이 가드(assignee && stage===null) 안쪽으로 잘못 옮기면 이 단언이 깨진다.
     expect(mocks.ensureOrderForWorkflowLeaf).toHaveBeenCalledTimes(3)
     for (const id of [W6, W7, W8]) {
       expect(mocks.ensureOrderForWorkflowLeaf).toHaveBeenCalledWith(
@@ -174,7 +174,7 @@ describe('setWbsDevWorkflow', () => {
     expect(captured['agent_work_orders.eq']).toContainEqual(['status', 'ready'])
 
     // OFF 경로는 stage 자동전이·주문발행을 하지 않는다.
-    expect(mocks.transitionStage).not.toHaveBeenCalled()
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
   })
 
@@ -187,7 +187,7 @@ describe('setWbsDevWorkflow', () => {
     const r = await setWbsDevWorkflow(W1, true, true)
     expect(r.ok).toBe(false)
     expect(captured.wbs_items ?? []).toHaveLength(0)
-    expect(mocks.transitionStage).not.toHaveBeenCalled()
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
   })
 
@@ -204,14 +204,14 @@ describe('setWbsDevWorkflow', () => {
     expect(calls.filter(t => t === 'wbs_items')).toHaveLength(2) // UPDATE + 자식 확인
     expect(captured['wbs_items.eq']).toContainEqual(['id', W1])
     expect(captured['wbs_items.neq'][0]).toEqual(['dev_workflow', true])
-    expect(mocks.transitionStage).toHaveBeenCalledTimes(1)
-    expect(mocks.transitionStage).toHaveBeenCalledWith(
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledTimes(1)
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ itemId: W1, to: 'as', fromIn: [null] }),
+      expect.objectContaining({ event: 'assign', itemId: W1 }),
     )
   })
 
-  it('cascade=false — 리프 판정 조회 실패 시 fail-closed: transitionStage·ensureOrder 모두 스킵(로깅만)', async () => {
+  it('cascade=false — 리프 판정 조회 실패 시 fail-closed: assign 전이·ensureOrder 모두 스킵(로깅만)', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     admin({
       wbs_items: [
@@ -224,7 +224,7 @@ describe('setWbsDevWorkflow', () => {
     // 본 토글(dev_workflow UPDATE)은 이미 커밋됐으므로 ok:true·count:1 은 정직하게 유지 —
     // 다만 리프 여부를 모르니 as 전이·주문 발행 같은 후속 쓰기는 강행하지 않는다(3원칙 ②).
     expect(r).toEqual({ ok: true, count: 1 })
-    expect(mocks.transitionStage).not.toHaveBeenCalled()
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
     expect(errSpy).toHaveBeenCalled()
     errSpy.mockRestore()
@@ -240,7 +240,7 @@ describe('setWbsDevWorkflow', () => {
     const r = await setWbsDevWorkflow(W1, true, false)
     expect(r).toEqual({ ok: true, count: 0 })
     expect(captured.change_logs ?? []).toHaveLength(0)
-    expect(mocks.transitionStage).not.toHaveBeenCalled()
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
   })
 })

@@ -10,6 +10,8 @@ import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import type { DependencyType, OwnerKind, TeamCode } from '@/lib/domain/types'
 import { subActName } from '@/lib/domain/subact'
 import { businessDaysBetween } from '@/lib/domain/dates'
+import { AGENT_TAG } from '@/lib/domain/seatmap'
+import { AGENT_HELD_ORDER_STATUSES, stageLockedForHuman } from '@/lib/domain/agentWork'
 
 export interface ChangeLogEntry {
   id: number
@@ -83,7 +85,7 @@ export async function updateActual(
   if (!g.ok) return { ok: false, error: g.error }
   const sb = await createServerClient()
   // PGRST116 = 0행(항목 없음). 그 외 에러는 진성 조회 실패이므로 '항목 없음'으로 위장하지 않고 그대로 알린다.
-  const { data: item, error: itemErr } = await sb.from('wbs_items').select('id, actual_pct, project_id').eq('id', itemId).single()
+  const { data: item, error: itemErr } = await sb.from('wbs_items').select('id, actual_pct, project_id, dev_workflow, tags').eq('id', itemId).single()
   if (itemErr && itemErr.code !== 'PGRST116') return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
   if (!item) return { ok: false, error: '항목 없음' }
   // 자식이 있으면 롤업 부모 — 직접 입력한 값은 화면에도 엑셀에도 안 나오므로 거부한다.
@@ -101,6 +103,26 @@ export async function updateActual(
     const { data: owner, error: ownerErr } = await sb.from('item_owners').select('team_id').eq('wbs_item_id', itemId).in('team_id', myTeamIds).limit(1).maybeSingle()
     if (ownerErr) return { ok: false, error: `담당 확인 실패: ${ownerErr.message}` }
     if (!owner) return { ok: false, error: '담당 작업이 아님' }
+  }
+
+  // D7(스펙 2026-09-15 §3.6) — 에이전트 관할 작업(잠금: 위임됨 ∨ 주문 claimed·reported)의 100 은 승인 버튼으로만.
+  // 에이전트 API 가 progress 를 99 로 막는 규칙과 같다(2026-08-25 드롭다운 우회 사고 재발 방지). ready 는 dev_workflow
+  // 리프마다 상주하므로 잠금이 아니다 — 사람이 직접 하는 Task 는 100 을 넣을 수 있다. 권한 판정 뒤에 둬 잠금 여부를 흘리지 않는다.
+  const flags = item as { dev_workflow?: boolean | null; tags?: string[] | null }
+  if (newPct > 99 && flags.dev_workflow === true) {
+    const delegated = (flags.tags ?? []).includes(AGENT_TAG)
+    let heldStatus: string | null = null
+    if (!delegated) {
+      // 쓰기 전 선행 조회 — 실패는 거부(3원칙). 모르는 채로 100 을 쓰면 승인 우회가 된다.
+      const { data: held, error: heldErr } = await sb
+        .from('agent_work_orders').select('status').eq('wbs_item_id', itemId)
+        .in('status', [...AGENT_HELD_ORDER_STATUSES]).limit(1).maybeSingle()
+      if (heldErr) return { ok: false, error: `에이전트 주문 확인 실패: ${heldErr.message}` }
+      heldStatus = (held as { status: string } | null)?.status ?? null
+    }
+    if (stageLockedForHuman({ delegated, orderStatus: heldStatus })) {
+      return { ok: false, error: '완료는 승인 버튼으로 처리합니다 — 에이전트 관할 작업(위임됨·작업 중·검수 대기)은 99% 까지 입력할 수 있습니다. 직접 완료하려면 위임을 끄세요.' }
+    }
   }
 
   const old = item.actual_pct

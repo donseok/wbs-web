@@ -70,10 +70,17 @@ describe('evaluateStartReadiness', () => {
   })
 
   describe('origin 별 충족 규칙', () => {
-    // spec 축은 에이전트 claim 게이트가 실제로 막는 축이라 게이트와 같은 식(stage >= im)을 써야 한다.
-    // 실적으로 판정하면 화면은 "시작 가능"인데 claim 이 409 를 내는 어긋남이 생긴다.
-    it('spec 링크는 실적이 아니라 stage 로 판정한다 — 실적 100% 여도 stage 미달이면 대기', () => {
+    // spec 축은 에이전트 claim 게이트가 실제로 막는 축이라 게이트와 같은 함수(predecessorReached)를 쓴다.
+    // 2026-09-15 §3.7: stage im·xx 에 더해 실적 100 도 충족 — 위임하지 않은 사람 Task 가 선행이면 드롭다운 없이 풀린다.
+    it('spec 링크는 실적 100% 면 stage 미달이어도 충족 — 사람이 직접 끝낸 선행', () => {
       const index = new Map([['p', task('p', 100, 'ip')]])
+      const r = evaluateStartReadiness(task('t', 0), [specLink('s1', 'p')], index)
+      expect(r.byDependencyId.get('s1')).toBe('satisfied')
+      expect(r.ready).toBe(true)
+    })
+
+    it('spec 링크는 실적 99.5% 에 stage 미달이면 대기 — 반올림으로 완료가 되지 않는다', () => {
+      const index = new Map([['p', task('p', 99.5, 'ip')]])
       const r = evaluateStartReadiness(task('t', 0), [specLink('s1', 'p')], index)
       expect(r.byDependencyId.get('s1')).toBe('waiting')
       expect(r.ready).toBe(false)
@@ -92,8 +99,8 @@ describe('evaluateStartReadiness', () => {
       expect(r.byDependencyId.get('s1')).toBe('satisfied')
     })
 
-    it('spec 링크의 stage 가 없으면 대기 — 모르면 시작 가능으로 위장하지 않는다', () => {
-      const index = new Map([['p', task('p', 100, null)]])
+    it('spec 링크의 stage 가 없고 실적도 미달이면 대기 — 모르면 시작 가능으로 위장하지 않는다', () => {
+      const index = new Map([['p', task('p', 40, null)]])
       const r = evaluateStartReadiness(task('t', 0), [specLink('s1', 'p')], index)
       expect(r.byDependencyId.get('s1')).toBe('waiting')
     })

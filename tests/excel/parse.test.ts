@@ -98,7 +98,7 @@ describe('parseWbsWorkbook', () => {
 import { buildWbsColumnMap } from '@/lib/excel/parse'
 
 const H3 = ['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', 'MDM',
-  '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태']
+  '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '진척']
 
 describe('buildWbsColumnMap', () => {
   it('현행 5팀 헤더는 기존 고정 인덱스와 동일한 맵', () => {

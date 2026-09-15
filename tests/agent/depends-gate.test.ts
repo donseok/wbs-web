@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { generateAgentToken } from '@/lib/agent/token'
-import { stageAtLeast } from '@/lib/domain/agentWork'
 
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
@@ -45,6 +44,7 @@ function useAdmin(queues: Record<string, Resp[]>, users: Array<{ id: string; ema
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
     }),
+    rpc: vi.fn(async () => ({ data: { ok: true, order_status: 'claimed', stage: null, actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: null }, error: null })),
     auth: {
       admin: {
         getUserById: vi.fn(async () => ({ data: { user: { id: 'u-1', email: 'dev@example.com' } }, error: null })),
@@ -69,14 +69,6 @@ beforeEach(() => {
   mocks.emitNotification.mockResolvedValue({ ok: true })
 })
 
-describe('stageAtLeast', () => {
-  it("im·xx 만 통과, null·todo~ip·미지 값은 false(fail-closed)", () => {
-    expect(stageAtLeast('im', 'im')).toBe(true)
-    expect(stageAtLeast('xx', 'im')).toBe(true)
-    for (const s of [null, 'todo', 'as', 'fp', 'ip', 'dd']) expect(stageAtLeast(s, 'im')).toBe(false)
-  })
-})
-
 describe('claim 선행 게이트', () => {
   it('선행 stage=im → 통과(CAS 진행)', async () => {
     useAdmin({
@@ -97,7 +89,7 @@ describe('claim 선행 게이트', () => {
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a' }, PAT.token), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
+    expect(body.depends_evidence).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true }])
   })
 
   it('선행 stage=ip → 403 dependency_not_met + unmet 배열', async () => {
@@ -195,7 +187,7 @@ describe('claim 선행 게이트', () => {
 // 승인이 반쪽으로 끝난 선행(approved 인데 stage 미전이)이 후속을 영구히 막던 교착 —
 // 자동 루프가 스스로 못 푸는 조건이었다(2026-08-25 mes-runlog 리허설 3회 재발).
 describe('선행 게이트 — approved 주문을 도달로 인정', () => {
-  it("선행 stage='fp' 인데 approved 주문 있음 → claim 통과", async () => {
+  it("선행 stage='ip' 인데 approved 주문 있음 → claim 통과", async () => {
     useAdmin({
       agent_runners: [{ data: RUNNER }, { data: null }],
       agent_work_orders: [
@@ -208,7 +200,7 @@ describe('선행 게이트 — approved 주문을 도달로 인정', () => {
       project_roles: [{ data: [{ role: 'member' }] }],
       wbs_items: [
         { data: TARGET_ITEM },
-        { data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'fp' }] },
+        { data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'ip' }] },
       ],
       agent_work_reports: [{ data: { evidence: {} } }],
     })
@@ -226,14 +218,34 @@ describe('depends_evidence', () => {
       agent_work_reports: [{ data: { evidence: { branch: 'main', head_sha: HEAD_SHA } } }],
     })
     const result1 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA, order_approved: true }])
+    expect(result1).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: 'main', head_sha: HEAD_SHA, order_approved: true, actual_pct: null, reached: true }])
 
     useAdmin({
       wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'im' }] }],
       agent_work_orders: [{ data: null }], // approved 주문 없음
     })
     const result2 = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
-    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false }])
+    expect(result2).toEqual([{ external_ref: DEP_REF, stage: 'im', branch: null, head_sha: null, order_approved: false, actual_pct: null, reached: true }])
+  })
+})
+
+describe('loadDependsInfo — reached(계약 v2.3, 스펙 2026-09-15 §3.7)', () => {
+  it('stage 가 null 이어도 실적 100 이면 reached — 위임하지 않은 사람 Task', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: null, actual_pct: 100 }] }],
+      agent_work_orders: [{ data: null }],
+    })
+    const [d] = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF] })
+    expect(d).toMatchObject({ stage: null, actual_pct: 100, order_approved: false, reached: true })
+  })
+  it('stage ip·실적 30·미승인이면 reached:false, 프로젝트에 없는 ref 도 false', async () => {
+    useAdmin({
+      wbs_items: [{ data: [{ id: DEP_ID, external_ref: DEP_REF, stage: 'ip', actual_pct: 30 }] }],
+      agent_work_orders: [{ data: null }],
+    })
+    const res = await loadDependsInfo(mocks.createAdminClient(), { projectId: P1, depends: [DEP_REF, 'MES/GONE'] })
+    expect(res.map(d => d.reached)).toEqual([false, false])
+    expect(res[1]).toMatchObject({ external_ref: 'MES/GONE', actual_pct: null, reached: false })
   })
 })
 

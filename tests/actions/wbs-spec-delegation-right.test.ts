@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(), createServerClient: vi.fn(),
   myMemberIds: vi.fn(), viewerEmail: vi.fn(),
   ensureAgentProject: vi.fn(), backfillProjectOrders: vi.fn(), ensureOrderForWorkflowLeaf: vi.fn(),
-  transitionStage: vi.fn(),
+  applyWorkflowEvent: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({ requireProjectAdmin: mocks.requireProjectAdmin, requireProjectMember: mocks.requireProjectMember, resolveProjectId: mocks.resolveProjectId }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
@@ -15,7 +15,7 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds }))
 vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail, DONE_WINDOW_MS: 0 }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureAgentProject: mocks.ensureAgentProject, backfillProjectOrders: mocks.backfillProjectOrders, ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf }))
-vi.mock('@/lib/agent/stageTransition', () => ({ transitionStage: mocks.transitionStage }))
+vi.mock('@/lib/agent/workflowEvent', () => ({ applyWorkflowEvent: mocks.applyWorkflowEvent }))
 
 import { ERR_AGENT_OFF, ERR_NOT_ASSIGNEE, requireDelegationRight } from '@/lib/agent/delegation'
 import { setAgentDelegation, updateAgentPrompt } from '@/app/actions/wbsSpec'
@@ -58,7 +58,7 @@ beforeEach(() => {
   mocks.myMemberIds.mockResolvedValue(['m1'])
   mocks.ensureAgentProject.mockResolvedValue({ ok: true, enabled: true, activated: false, stopped: false })
   mocks.ensureOrderForWorkflowLeaf.mockResolvedValue({ ok: true, created: true })
-  mocks.transitionStage.mockResolvedValue({ ok: true })
+  mocks.applyWorkflowEvent.mockResolvedValue({ ok: true })
 })
 
 describe('requireDelegationRight', () => {
@@ -157,7 +157,7 @@ describe('setAgentDelegation — 멤버 경로', () => {
     expect(r.ok).toBe(true)
     expect((captured.wbs_items?.[1] as { dev_workflow: boolean }).dev_workflow).toBe(true)
     expect((captured.change_logs?.[0] as { field: string; new_value: string })).toMatchObject({ field: 'dev_workflow', new_value: 'true', wbs_item_id: W1 })
-    expect(mocks.transitionStage).toHaveBeenCalledWith(expect.anything(), { itemId: W1, to: 'as', fromIn: [null], actorUserId: 'admin-1' })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'assign', actorUserId: 'admin-1', itemId: W1 })
   })
   it('프로젝트가 중지 상태면 태그는 붙고 주문은 안 나가며 warning 에 에이전트 페이지 안내', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: true, actor: { userId: 'admin-1' } })

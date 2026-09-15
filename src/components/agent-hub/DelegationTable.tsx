@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Pencil } from 'lucide-react'
 import type { AgentHub, HubRow } from '@/lib/domain/agentHub'
 import { ageLabel } from '@/lib/domain/seatmap'
-import { STAGE_LABEL } from '@/lib/domain/waitReason'
+import { stageLabelKo } from '@/lib/domain/stageLabels'
 import { updateAgentPrompt } from '@/app/actions/wbsSpec'
 import { applyHubDelegations, runHubProcessOp, type HubDelegationsResult, type HubProcessOp, type WbsStageCode } from '@/app/actions/agentHub'
 import { PendingSaveChip } from '@/components/wbs/PendingSaveChip'
@@ -231,7 +231,8 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const stageShown = stageOpt.has(r.itemId) ? stageOpt.get(r.itemId) ?? null : r.stage
               // 단계 select 는 관리자 또는 서브트리 관리자. 조정 버튼은 관리자 + 담당자 본인 + 서브트리
               // 관리자가 볼 수 있고, 버튼별 who 로 다시 거른다(트랙 B, 2026-09-15).
-              const canStage = (isAdmin || r.canManage) && r.isLeaf && !r.milestone
+              // 단계는 개발 워크플로 리프의 것이다(스펙 §3.5) — dev_workflow 가 꺼진 행에는 select 를 두지 않는다.
+              const canStage = (isAdmin || r.canManage) && r.isLeaf && !r.milestone && r.devWorkflow
               const canReviewRow = (isAdmin || r.assigneeMine || r.canManage) && r.isLeaf && !r.milestone
               const ops = canReviewRow && r.order
                 ? (OPS_BY_STATUS[r.order.status] ?? []).filter(b => b.who === 'admin' ? (isAdmin || r.canManage) : (isAdmin || r.assigneeMine || r.canManage))
@@ -266,14 +267,16 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   <td className="py-1 text-ink-muted" title={r.canManage && !r.assigneeMine ? '상위 항목 담당자로서 조정할 수 있는 항목입니다(서브트리 관리)' : undefined}>{r.assigneeName ?? ''}</td>
                   <td className="py-1">
                     {canStage
-                      ? <select data-hub-stage value={stageShown ?? ''} disabled={isBusy} aria-label={`${r.code} 단계`}
-                          title="단계 직접 조정 — 진행 중 주문이 있으면 구현(im)·완료(xx)는 승인으로만 갑니다"
+                      ? <select data-hub-stage value={stageShown ?? ''} disabled={isBusy || r.stageLocked} aria-label={`${r.code} 단계`}
+                          title={r.stageLocked
+                            ? '에이전트에 위임된 작업입니다. 단계는 승인·반려로 바뀝니다. 직접 바꾸려면 위임을 끄세요.'
+                            : '단계 직접 조정 — 실적은 그 단계의 크레딧으로 지정됩니다'}
                           onChange={e => changeStage(r, e.target.value)} className="app-input h-7 py-0 text-[11px]">
                           <option value="">{STAGE_NONE_LABEL}</option>
-                          {STAGE_CODES.map(c => <option key={c} value={c}>{STAGE_LABEL[c]}</option>)}
+                          {STAGE_CODES.map(c => <option key={c} value={c}>{stageLabelKo(c)}</option>)}
                         </select>
                       : r.isLeaf && !r.milestone
-                        ? <span data-hub-stage-text className="text-ink-muted">{r.stage ? STAGE_LABEL[r.stage] ?? r.stage : STAGE_NONE_LABEL}</span>
+                        ? <span data-hub-stage-text className="text-ink-muted">{stageLabelKo(r.stage)}</span>
                         : null}
                   </td>
                   <td className="py-1">
@@ -281,7 +284,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                     {r.isLeaf && r.devWorkflow && !r.delegated && <small className="ml-1 text-[10px] text-accent-warning">{NEEDS_DELEGATION}</small>}
                     {r.unmetDepends && (
                       <small data-hub-depends className="block text-[10px] text-accent-warning"
-                        title={`선행 작업이 아직 끝나지 않았습니다: ${r.unmetDepends}. 선행이 im(구현) 단계 이상이 되거나 그 주문이 승인돼야 에이전트가 집어갑니다.`}>
+                        title={`선행 작업이 아직 끝나지 않았습니다: ${r.unmetDepends}. 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야 에이전트가 집어갑니다.`}>
                         선행 미완료: {r.unmetDepends}
                       </small>
                     )}

@@ -38,6 +38,7 @@ const PLAN_COLS: Col[] = [
   { key: 'owners', w: 128 },
   { key: 'assignee', w: 96 },
   { key: 'status', w: 76 },
+  { key: 'stage', w: 84 },
   { key: 'deliverable', w: 150 },
   { key: 'pstart', w: 80 },
   { key: 'pend', w: 80 },
@@ -63,7 +64,7 @@ function buildCols(outline: boolean, narrow: boolean, nameWidth: number): Col[] 
   return [...frozenCols, ...PLAN_COLS]
 }
 /* 타임라인 집중 모드에서 보이는 컬럼(나머지 수치/상세 열은 숨겨 간트 폭을 확보) */
-const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status'])
+const TIMELINE_COLS = new Set(['no', 'outline', 'name', 'owners', 'status', 'stage'])
 /* 1단계(루트) 색 스트립 팔레트 — 루트 순서대로 순환(rootIdx % 길이). 스트립은 3px 라
    채도 있는 색이 소음이 되지 않고, 팀 원색(MS_LINE)처럼 양 테마 고정 hex 를 쓴다. */
 const L1_BAND = ['#3b82f6', '#14b8a6', '#8b5cf6', '#f59e0b', '#f43f5e', '#22c55e', '#06b6d4', '#64748b']
@@ -75,7 +76,7 @@ const GANTT_DAY_DEFAULT = 24
 /* 이 폭 미만이면 일 단위 정보(일 격자)를 접고 주 단위로만 그린다 — 4~10px 일 격자는 줄무늬 소음. */
 const GANTT_WEEK_VIEW_PX = 12
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
-const HIDEABLE_PLAN_COLS = new Set(['owners', 'assignee', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
+const HIDEABLE_PLAN_COLS = new Set(['owners', 'assignee', 'status', 'stage', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 작업명 컬럼 폭 드래그 조절(§항목3) — clamp 범위와 localStorage 키. 저장값은 사용자가
    드래그를 한 번이라도 했다는 신호라 narrow 여부와 무관하게 우선한다(RowDetailPanel 폭과 같은 계열). */
 const NAME_COL_MIN = 120
@@ -126,6 +127,10 @@ function splitParentIds(items: ComputedItem[]): Set<string> {
    선언돼 TDZ 라 여기선 쓸 수 없다. */
 function hasAnyAssignee(items: ComputedItem[]): boolean {
   return items.some(n => !!n.assigneeMemberId || hasAnyAssignee(n.children))
+}
+/** 「단계」 컬럼 표시 조건(스펙 D9) — 에이전트 위임 항목이 트리 어디든 하나라도 있으면. 담당자 컬럼과 같은 규칙. */
+function hasAnyDelegation(items: ComputedItem[]): boolean {
+  return items.some(n => n.agentDelegated === true || hasAnyDelegation(n.children))
 }
 /* sub-act 트리 표시명 — 저장 이름 "{부모명} ({팀} 주관/지원)"에서 부모명 접두를 벗겨
    팀 부분만 남긴다(트리에선 부모가 바로 위에 보여 접두가 중복). 접두가 없으면(개명된
@@ -348,6 +353,8 @@ export function WbsGanttSheet({
   // 담당자 컬럼 표시 조건(§항목1) — 프로젝트에 지정된 담당자가 하나도 없으면 열 자체를 뺀다.
   // items(prop) 위에서 직접 재귀 — allFlatItems 는 아래에서 선언돼 여기선 TDZ.
   const hasAssignee = useMemo(() => hasAnyAssignee(items), [items])
+  // 「단계」 컬럼 표시 조건(D9) — 위임이 없는 프로젝트(D-CUBE)는 표가 그대로다.
+  const hasDelegation = useMemo(() => hasAnyDelegation(items), [items])
   // id → 표시명. 표시명은 저장하지 않고(WbsRow.assigneeMemberId 주석 참고) 이미 받는 members
   // prop(project_members)으로 렌더 시점에 해석한다 — 별도 조회 없이 기존 로스터를 재사용.
   const memberNameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members])
@@ -398,12 +405,12 @@ export function WbsGanttSheet({
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {
-    const base = hasAssignee ? cols : cols.filter(col => col.key !== 'assignee')
+    const base = cols.filter(col => (col.key !== 'assignee' || hasAssignee) && (col.key !== 'stage' || hasDelegation))
     const viewCols = timelineFocus ? base.filter(col => TIMELINE_COLS.has(col.key)) : base
     return !timelineFocus && planningColsHidden
       ? viewCols.filter(col => !HIDEABLE_PLAN_COLS.has(col.key))
       : viewCols
-  }, [cols, hasAssignee, planningColsHidden, timelineFocus])
+  }, [cols, hasAssignee, hasDelegation, planningColsHidden, timelineFocus])
   const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
   const FROZEN_W = visibleCols.filter(col => col.frozen).reduce((sum, col) => sum + col.w, 0)
@@ -1371,6 +1378,7 @@ export function WbsGanttSheet({
             {showCol('owners') && headCell(colOf('owners'), t('wbs.colOwners'), 'justify-start')}
             {showCol('assignee') && headCell(colOf('assignee'), t('wbs.colAssignee'), 'justify-start')}
             {showCol('status') && headCell(colOf('status'), t('wbs.colStatus'), 'justify-center')}
+            {showCol('stage') && headCell(colOf('stage'), t('wbs.colStage'), 'justify-center')}
             {showCol('deliverable') && headCell(colOf('deliverable'), t('wbs.colDeliverable'), 'justify-start')}
             {showCol('pstart') && headCell(colOf('pstart'), t('wbs.colPlannedStart'), 'justify-center')}
             {showCol('pend') && headCell(colOf('pend'), t('wbs.colPlannedEnd'), 'justify-center')}
@@ -1631,12 +1639,6 @@ export function WbsGanttSheet({
                       </span>
                     )}
                   </div>
-                  {/* 단계 칩 — 작업명 칸 우단. ml-auto 로 밀고 shrink-0 으로 지킨다(긴 이름이 truncate 된다). */}
-                  {n.stage && (
-                    <span className="ml-auto shrink-0 pl-1.5">
-                      <StageChip stage={n.stage} t={t} />
-                    </span>
-                  )}
                 </div>
                 {/* 담당 */}
                 {showCol('owners') && (
@@ -1662,7 +1664,7 @@ export function WbsGanttSheet({
                     </span>
                   </div>
                 )}
-                {/* 상태 */}
+                {/* 진척(파생 상태) */}
                 {showCol('status') && (
                   <div
                     data-wbs-col="status"
@@ -1681,6 +1683,16 @@ export function WbsGanttSheet({
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS[n.status].dot}`} />
                       <span className="min-w-0 truncate">{t(`status.${n.status}` as DictKey)}</span>
                     </span>
+                  </div>
+                )}
+                {/* 단계 — 위임 1건 이상인 프로젝트에만 뜬다(D9). 칩은 코드 대문자·라벨 title(§3.2), 미지정은 -. */}
+                {showCol('stage') && (
+                  <div
+                    data-wbs-col="stage"
+                    className={`${cellBase} overflow-hidden border-r border-grid justify-center ${cellBg}`}
+                    style={{ width: W('stage'), paddingInline: 4 }}
+                  >
+                    {n.stage ? <StageChip stage={n.stage} t={t} /> : <span className="text-ink-subtle">-</span>}
                   </div>
                 )}
                 {/* 산출물 */}

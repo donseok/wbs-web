@@ -161,14 +161,14 @@ describe('assembleAgentHub — 선행 미완료(unmetDepends)', () => {
     items: [
       item({ id: 'a', code: 'SUB-A', name: '첫째', sort_order: 1 }),
       item({ id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프1', sort_order: 1, dev_workflow: true, tags: ['agent'], depends: ['M/T0', 'M/T9'] }),
-      item({ id: 'a0', parent_id: 'a', code: 'TSK-A-00', name: '선행', sort_order: 0, dev_workflow: true, external_ref: 'M/T0', stage: 'fp' }),
+      item({ id: 'a0', parent_id: 'a', code: 'TSK-A-00', name: '선행', sort_order: 0, dev_workflow: true, external_ref: 'M/T0', stage: 'ip' }),
     ],
     orders: [ready()], ...over,
   })
   const rowOf = (hub: ReturnType<typeof assembleAgentHub>, code: string) => hub.rows.find(r => r.code === code)!
   it('위임된 리프의 주문이 READY 이고 선행이 im 미만·미승인이면 목록 문구. 프로젝트에 없는 ref 도 미충족', () => {
     const hub = assembleAgentHub(withDep(), NOW, VIEWER)
-    expect(rowOf(hub, 'TSK-A-01').unmetDepends).toBe('TSK-A-00 선행(현재 fp(기능 계획)), M/T9(프로젝트에 없는 항목)')
+    expect(rowOf(hub, 'TSK-A-01').unmetDepends).toBe('TSK-A-00 선행(현재 ip(작업 중)), M/T9(프로젝트에 없는 항목)')
     expect(rowOf(hub, 'TSK-A-00').unmetDepends).toBeNull()
     expect(rowOf(hub, 'SUB-A').unmetDepends).toBeNull()
   })
@@ -183,7 +183,7 @@ describe('assembleAgentHub — 선행 미완료(unmetDepends)', () => {
     expect(rowOf(noOrder, 'TSK-A-01').unmetDepends).not.toBeNull()
     const claimed = assembleAgentHub(withDep({ orders: [order({ wbs_item_id: 'a1' })] }), NOW, VIEWER)
     expect(rowOf(claimed, 'TSK-A-01').unmetDepends).toBeNull()
-    const off = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: [], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'fp' })] }), NOW, VIEWER)
+    const off = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: [], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'ip' })] }), NOW, VIEWER)
     expect(rowOf(off, 'TSK-A-01').unmetDepends).toBeNull()
   })
 })
@@ -245,11 +245,37 @@ describe('assembleAgentHub — 단계(§11)', () => {
   it('행에 wbs_items.stage 가 그대로 실린다(미지정은 null)', () => {
     const hub = assembleAgentHub(rows({ items: [
       item({ id: 'a', code: 'SYS-A', name: '부모', sort_order: 0 }),
-      item({ id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프', sort_order: 0, stage: 'fp' }),
+      item({ id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프', sort_order: 0, stage: 'ip' }),
       item({ id: 'a2', parent_id: 'a', code: 'TSK-A-02', name: '리프2', sort_order: 1 }),
     ] }), NOW, VIEWER)
-    expect(hub.rows.find(r => r.code === 'TSK-A-01')?.stage).toBe('fp')
+    expect(hub.rows.find(r => r.code === 'TSK-A-01')?.stage).toBe('ip')
     expect(hub.rows.find(r => r.code === 'TSK-A-02')?.stage).toBeNull()
     expect(hub.rows.find(r => r.code === 'SYS-A')?.stage).toBeNull()
+  })
+})
+
+describe('assembleAgentHub — 단계 잠금(stageLocked, 스펙 2026-09-15 §3.5)', () => {
+  const idle = { claimed_by: null, claimed_by_user_id: null, claimed_at: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null }
+  const lockRows = (orders: OrderRow[]) => rows({
+    items: [
+      item({ id: 'a', code: 'SUB-A', name: '부모', sort_order: 0 }),
+      item({ id: 'd1', parent_id: 'a', code: 'TSK-D', name: '위임 ready', sort_order: 0, dev_workflow: true, tags: ['agent'] }),
+      item({ id: 'h1', parent_id: 'a', code: 'TSK-H', name: '사람 ready', sort_order: 1, dev_workflow: true, tags: [] }),
+      item({ id: 'h2', parent_id: 'a', code: 'TSK-R', name: '위임 끔 reported', sort_order: 2, dev_workflow: true, tags: [] }),
+      item({ id: 'h3', parent_id: 'a', code: 'TSK-N', name: '주문 없음', sort_order: 3, dev_workflow: true, tags: [] }),
+    ],
+    orders,
+  })
+  it('위임 행은 잠기고, 미위임은 claimed·reported 주문일 때만 잠긴다(ready 는 dev_workflow 리프마다 상주하므로 제외)', () => {
+    const hub = assembleAgentHub(lockRows([
+      order({ id: '11111111-aaaa-4aaa-8aaa-00000000000a', wbs_item_id: 'd1', status: 'ready', ...idle }),
+      order({ id: '11111111-aaaa-4aaa-8aaa-00000000000b', wbs_item_id: 'h1', status: 'ready', ...idle }),
+      order({ id: '11111111-aaaa-4aaa-8aaa-00000000000c', wbs_item_id: 'h2', status: 'reported' }),
+    ]), NOW, VIEWER)
+    const locked = (code: string) => hub.rows.find(r => r.code === code)!.stageLocked
+    expect(locked('TSK-D')).toBe(true)
+    expect(locked('TSK-H')).toBe(false)
+    expect(locked('TSK-R')).toBe(true)
+    expect(locked('TSK-N')).toBe(false)
   })
 })

@@ -147,7 +147,7 @@ describe('buildWbsAoa 동적 팀 열', () => {
     const h3 = aoa[2] as string[]
     expect(h3.slice(6, 12)).toEqual(['PMO', 'ERP', 'MES', '가공', 'MDM', '신팀'])
     expect(h3[12]).toBe('산출물')
-    expect(h3[h3.length - 1]).toBe('상태')
+    expect(h3[h3.length - 1]).toBe('진척')
   })
 
   it('동적 헤더는 buildWbsColumnMap과 라운드트립된다', () => {
@@ -161,6 +161,6 @@ describe('buildWbsAoa 동적 팀 열', () => {
   it('기본(5팀) 헤더는 기존 양식과 동일(하위 호환)', () => {
     const aoa = buildWbsAoa([])
     expect(aoa[2]).toEqual(['Biz', 'Phase', 'Task', 'Activity', '', '', 'PMO', 'ERP', 'MES', '가공', 'MDM',
-      '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '상태'])
+      '산출물', '시작', '종료', '가중치', '', '실적%', '계획%', '계획대비%', '진척'])
   })
 })
