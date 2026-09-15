@@ -272,7 +272,7 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 **결정.** 완료 취소 = **재작업 요청**(승인된 xx 작업을 에이전트에게 되돌린다, 사유 필수). 단계 직접 조정도 허브에 둔다.
 
 **표 행의 조정 열(리프, 마일스톤 제외).** 주문 상태별 버튼. 문구는 WBS 상세 패널과 같다(같은 행위에 다른 이름을 주지 않는다).
-**누가 보나(§3)**: 관리자는 전부. 담당자 본인(assigneeMine)은 **반려·승인 취소·재작업 요청**만 보고, 승인·회수·단계 조정은 못 본다(버튼 `who`: 'admin' 은 관리자만, 'review' 는 관리자+담당자). 서버 자격과 UI 노출이 같은 경계다.
+**누가 보나(§3)**: 관리자는 전부. 담당자 본인(assigneeMine)은 **반려·승인 취소·재작업 요청**만 보고, 승인·회수·단계 조정은 못 본다(버튼 `who`: 'admin' 은 관리자만, 'review' 는 관리자+담당자). 서버 자격과 UI 노출이 같은 경계다. **서브트리 관리자(조상 담당자)는 승인·회수·단계 조정까지 본다 — §11-4.**
 
 | 주문 상태 | 버튼 | 액션 | 결과 |
 |---|---|---|---|
@@ -317,3 +317,19 @@ ProjectPageShell hero=<PageHero eyebrow="AGENTS" title="{프로젝트명} 에이
 - 권한: `editable = isAdmin`, `canAttach`·`canEditDeliverable` 는 WBS 와 같은 순수 함수로 미러링 — 멤버는 읽기 중심, 관리자는 전체 편집. UI 노출과 authz 가 같은 경계.
 - 갱신: 패널 편집은 그 자신의 `router.refresh`(WBS 컴포넌트, §7 "범위 밖" 계열)로 패널 데이터를 새로 받고, 닫을 때 `AgentHubView` 가 허브만 1회 재조회해 표의 낡은 행을 맞춘다. 허브 자체 흐름은 여전히 `router.refresh` 0회(§7 가드는 agent-hub 소유 컴포넌트만 훑는다).
 - 테스트: `tests/components/agent-hub-table.test.tsx`(이름 클릭 → onSelect(itemId), onSelect 없으면 텍스트), `tests/components/agent-hub-view.test.tsx`(이름 클릭 → 패널 열림, 닫기 → 닫힘 + 허브 재조회 1회).
+
+### 11-4. 서브트리 관리자로 확대 (2026-09-15, 사용자 요구 "WP/ACT 담당자가 하위 담당자의 개발 외 프로세스를 처리")
+
+담당자가 지정된 **비리프 노드의 담당자**를, 그 노드 하위 트리 리프들의 개발 프로세스 op에 대해 관리자와 동등하게 세운다("서브트리 관리자"). §11-1이 "되돌리는 계열"을 리프 담당자 본인에게 열었다면, 여기서는 승인·회수·단계 조정까지 포함해 **조상 담당자**에게 연다.
+
+- 규칙: 대상 리프의 **strict 조상**(부모·조부모…루트, 자신 제외) 중 어느 노드의 `assignee_member_id`가 나면 그 리프의 서브트리 관리자다. 리프 자신의 담당자는 조상이 아니므로 **승인에서 제외**된다(자기 완료를 자기가 승인하지 못하게 하는 분리 원칙을 유지). "WP/ACT"는 고정 스키마가 아니라 `parent_id` 트리의 depth·프로젝트별 `levelLabels`로 정해지므로, 노드 종류가 아니라 "담당자 있는 비리프"라는 구조 조건으로 판정한다.
+- op별 자격:
+  - 승인: 관리자 또는 서브트리 관리자(리프 본인 제외) — `loadOrderForAdmin`.
+  - 반려·승인취소·재작업: 관리자 또는 리프 담당자 본인 또는 서브트리 관리자 — `loadOrderForReview`(§11-1의 `requireDelegationRight`가 실패할 때만 조상 조회를 덧붙여, 관리자·담당자 본인의 흔한 경로에는 조상 조회 비용이 없다. 최종 거부 사유는 기존 `ERR_NOT_ASSIGNEE` 유지).
+  - 회수·단계 조정: 관리자 또는 서브트리 관리자 — `agentHub.ts`의 release 인라인 게이트·`setWbsStage`(`wbsAssign.ts`).
+  - WBS 항목이 삭제된 주문은 조상을 특정할 수 없어 관리자만.
+- 판정: `isSubtreeManager(admin, { itemId, projectId, myMemberIds })`(`src/lib/agent/assignee.ts`) — 프로젝트 전체 `wbs_items(id, parent_id, assignee_member_id)`를 **한 번 읽어** `parent_id` 체인을 메모리에서 걷는다(`project_id` 필터가 프로젝트 경계를 겸하고, `visited` Set으로 순환에도 종료하며, 조회 실패는 throw→호출부 fail-closed). 공용 가드 `requireSubtreeManagerOrAdmin(itemId, projectId)`(`src/lib/agent/subtreeManager.ts`, 관리자 fast-path 뒤 멤버+조상 판정, catch는 거부). `delegation.ts`에 섞지 않는다 — 그곳 `requireDelegationRight`는 위임 토글·프롬프트 편집이 공유하는 "관리자 또는 리프 담당자 본인" 계약이라, 서브트리 관리자를 섞으면 위임 토글까지 조용히 넓어진다.
+- 승인의 실적% 쓰기: `approveAgentCompletion`은 CAS 전에 `updateActual(item, 100)`을 부르는데, 그 함수는 팀(item_owners) 앱 게이트와 세션 클라이언트 RLS(`member_update_actual`, 팀 기반) 둘 다라 개인 축인 서브트리 관리자를 막는다. 승인 권한이 이미 선 경로 전용의 **non-exported 특권 헬퍼** `applyApprovedActualPct`(admin/service_role 클라이언트, `agentWork.ts`)로 그 게이트만 우회한다(멱등 단락·자식 롤업 방어·change_logs·revalidate·snapshot은 `updateActual`과 동일하게 재현). non-exported라 `'use server'`가 client action으로 만들지 않아 RPC 경로가 없고, `approveAgentCompletion`/`unapproveOrder`를 통해서만 도달한다. 직접 실적% 편집 경로(`updateActual`)는 손대지 않았다 — 거기 우회 플래그를 넣으면 다중 호출부·세션 클라이언트가 설계 의도인 파일에 영구 foot-gun이 된다. unapprove의 되돌림 쓰기도 같은 헬퍼로 실제 반영한다(종전엔 팀 게이트에 막혀 경고로 강등됐다).
+- 화면(§3): 허브 행(`HubRow`)·큐(`HubQueueEntry`)에 `canManage`(그 리프의 서브트리 관리자인지) 신설 — `assembleAgentHub`가 이미 가진 `rows.items`(전체 항목·parent_id·assignee_member_id)로 메모리 조상 워크(`isSubtreeManagerOf`), **새 DB 조회 없음**(서버 authz의 `isSubtreeManager`와 같은 규칙을 허브의 in-memory 형태에 맞춰 재구현). `mine` 필터는 `r.isLeaf && (r.assigneeMine || r.canManage)`로 넓혀 서브트리 관리자가 하위 리프를 mine에서 본다. 버튼 게이트는 admin-class(승인·회수)를 `isAdmin || r.canManage`, review-class(반려·승인취소·재작업)를 `isAdmin || r.assigneeMine || r.canManage`, 단계 select를 `isAdmin || r.canManage`로. 승인 큐 카드·"승인은 관리자가 합니다" 안내문도 canManage 포함. 자기 담당이 아닌 관리 대상 행에는 안내 tooltip("상위 항목 담당자로서 조정할 수 있는 항목입니다"). 서버 자격과 UI 노출이 같은 경계다. `getAgentHub`의 `isAdmin`은 여전히 서브트리 관리자에게 false — 노출은 전적으로 행별 `canManage`가 진다.
+- 마이그레이션 없음: `agent_work_orders`는 쓰기 RLS가 없어 service_role로 쓰므로 서버 가드가 유일 관문이고, 승인 실적% 우회도 admin 클라이언트라 RLS·트리거를 건드리지 않는다. 이 확대는 3단 권한 설계(`2026-07-29-authz-three-tier-design.md` §10)에 좁은 항목 축을 더한다 — 그 문서에도 예외로 명기했다.
+- 테스트: `tests/agent/subtree-manager.test.ts`(조상 워크의 부모·조부모 일치·무관·리프 본인 제외·순환·조회 실패 fail-closed, 가드의 관리자 fast-path·멤버 판정), `tests/actions/agent-work-actions.test.ts`·`agent-hub-actions.test.ts`·`wbs-assign.test.ts`(게이트별 허용/거부와 승인 실적% 실제 반영·되돌림), `tests/domain/agent-hub.test.ts`·`tests/components/agent-hub-table.test.tsx`·`agent-hub-queue.test.tsx`(canManage 계산·mine 필터·버튼 노출).

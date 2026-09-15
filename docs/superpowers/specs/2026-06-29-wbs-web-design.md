@@ -150,3 +150,12 @@ ChangeLog         변경 이력 (누가·언제·무엇을)
 - 담당: PMO/DT/ERP/MES, ●(주관)/△(지원)
 - 진도관리 칸(가중치/계획/실적/달성율)은 원본에서 비어 있음 → 웹에서 자동 계산으로 대체
 - Holiday 시트: 제헌절·광복절·추석·개천절·한글날·성탄절 등 → 계획% 영업일 계산에 사용
+
+## 11. 2026-09-15 UI 개정 (담당자 컬럼·작업명 폭·레벨 버튼)
+
+원 설계의 "담당"은 팀(item_owners) 축이다(§4 ●주관/△지원). 여기에 개인 담당자 축을 표시로 더한다.
+
+- **담당팀 ↔ 담당자 분리**: 기존 "담당" 컬럼을 "담당팀"으로 재라벨하고, 개인 담당자(`wbs_items.assignee_member_id`, 0077) 컬럼을 신설한다. 담당자 컬럼은 프로젝트에 담당자가 하나라도 배정됐을 때만 표시한다(`allFlat.some(i => i.assigneeMemberId)`). `WbsRow`/`ComputedItem`에 `assigneeMemberId?` 추가, `getComputedWbs`는 값만 passthrough(8개 호출부에 로스터 조회를 얹지 않으려고), 이름은 `WbsGanttSheet`가 이미 받는 `members` prop으로 in-component 해석(미상 id는 "알 수 없음", 미배정은 "-"). 팀 필수는 여전히 관례·권한 부작용(`permissions.ts`)이지 config 플래그가 아니다 — 이 변경은 담당자 축을 병존시킬 뿐 팀 축을 제거하지 않는다.
+- **작업명 컬럼 폭 드래그 조절**: 고정 px였던 작업명 폭을 상태로 만들고 헤더 경계 드래그로 조절, `localStorage('wbs.nameColWidth')` 저장. 핸들은 "항상 렌더 + 배경만 hover"(globals.css unlayered 안전망 때문에 `hidden group-hover:flex` 불가, `RowDetailPanel` 패턴 재사용). 전역 글자 크기(`useWbsFontScale`)와는 별개 축이다.
+- **레벨 버튼을 작업명 헤더 셀 안으로 + 마일스톤 개수 숫자 제거**: 표 위 툴바에 있던 레벨 펼침 버튼을 작업명 헤더 셀 안으로 옮긴다(컴팩트 아이콘, `deepestLevel` 8개 상한, `aria-label` 유지). 헤더 높이는 그대로 두고 flex-col로 쌓아 간트 날짜 헤더와 정렬을 유지한다. "마일스톤 N" 토글의 개수 숫자는 뺀다.
+- 테스트: `tests/ui/wbs-assignee-column.test.tsx`·`wbs-name-col-resize.test.tsx`·`wbs-name-header-levels.test.tsx`.
