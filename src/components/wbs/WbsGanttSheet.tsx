@@ -36,6 +36,7 @@ import { wbsFontScaleVariables } from '@/lib/wbsFontScale'
 type Col = { key: string; w: number; frozen?: boolean; sk?: number }
 const PLAN_COLS: Col[] = [
   { key: 'owners', w: 128 },
+  { key: 'assignee', w: 96 },
   { key: 'status', w: 76 },
   { key: 'deliverable', w: 150 },
   { key: 'pstart', w: 80 },
@@ -73,7 +74,7 @@ const GANTT_DAY_DEFAULT = 24
 /* 이 폭 미만이면 일 단위 정보(일 격자)를 접고 주 단위로만 그린다 — 4~10px 일 격자는 줄무늬 소음. */
 const GANTT_WEEK_VIEW_PX = 12
 /* 일반 WBS에서 사용자가 한 번에 숨길 수 있는 연속 열 범위: 담당~계획% */
-const HIDEABLE_PLAN_COLS = new Set(['owners', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
+const HIDEABLE_PLAN_COLS = new Set(['owners', 'assignee', 'status', 'deliverable', 'pstart', 'pend', 'weight', 'pplan'])
 /* 본문 행 높이(px) — CSS 변수(--wbs-row-h)와 배경 격자/오늘선 높이(rowsH)의 단일 진실원본.
    과거 rowsH 가 36 으로 하드코딩돼 실제 40px 행과 어긋나면서, 아래쪽 행들의 타임라인 격자·
    주말/공휴일 밴드·붉은 기준일선이 끝까지 그려지지 않던 버그가 있었다. 반드시 함께 움직여야 한다. */
@@ -113,6 +114,12 @@ function splitParentIds(items: ComputedItem[]): Set<string> {
     })
   walk(items)
   return s
+}
+/* 프로젝트에 개인 담당자가 하나라도 지정돼 있는지(§항목1) — 담당자 컬럼 표시 조건.
+   items(전체 트리, collapse 무관) 위에서 직접 재귀한다 — allFlatItems 는 이 값보다 뒤에서
+   선언돼 TDZ 라 여기선 쓸 수 없다. */
+function hasAnyAssignee(items: ComputedItem[]): boolean {
+  return items.some(n => !!n.assigneeMemberId || hasAnyAssignee(n.children))
 }
 /* sub-act 트리 표시명 — 저장 이름 "{부모명} ({팀} 주관/지원)"에서 부모명 접두를 벗겨
    팀 부분만 남긴다(트리에선 부모가 바로 위에 보여 접두가 중복). 접두가 없으면(개명된
@@ -332,16 +339,23 @@ export function WbsGanttSheet({
     const others = presencePeers.filter(o => o.userId !== me?.id)
     return me ? [{ userId: me.id, name: me.name }, ...others] : others
   }, [presencePeers, me?.id, me?.name]) // eslint-disable-line react-hooks/exhaustive-deps -- me는 원시값으로 구독(객체 참조는 렌더마다 새것)
+  // 담당자 컬럼 표시 조건(§항목1) — 프로젝트에 지정된 담당자가 하나도 없으면 열 자체를 뺀다.
+  // items(prop) 위에서 직접 재귀 — allFlatItems 는 아래에서 선언돼 여기선 TDZ.
+  const hasAssignee = useMemo(() => hasAnyAssignee(items), [items])
+  // id → 표시명. 표시명은 저장하지 않고(WbsRow.assigneeMemberId 주석 참고) 이미 받는 members
+  // prop(project_members)으로 렌더 시점에 해석한다 — 별도 조회 없이 기존 로스터를 재사용.
+  const memberNameById = useMemo(() => new Map(members.map(m => [m.id, m.name])), [members])
   // 개요 번호 열 켜짐 여부에 따라 동결 오프셋(sk)이 달라져 컬럼 메타 자체가 파생값이다.
   const cols = useMemo(() => buildCols(outlineVisible, narrow), [outlineVisible, narrow])
   const colOf = (key: string) => cols.find(c => c.key === key)!
   const W = (k: string) => colOf(k).w
   const visibleCols = useMemo(() => {
-    const viewCols = timelineFocus ? cols.filter(col => TIMELINE_COLS.has(col.key)) : cols
+    const base = hasAssignee ? cols : cols.filter(col => col.key !== 'assignee')
+    const viewCols = timelineFocus ? base.filter(col => TIMELINE_COLS.has(col.key)) : base
     return !timelineFocus && planningColsHidden
       ? viewCols.filter(col => !HIDEABLE_PLAN_COLS.has(col.key))
       : viewCols
-  }, [cols, planningColsHidden, timelineFocus])
+  }, [cols, hasAssignee, planningColsHidden, timelineFocus])
   const showCol = (key: string) => visibleCols.some(c => c.key === key)
   const LEFT_W = visibleCols.reduce((sum, col) => sum + col.w, 0)
   const FROZEN_W = visibleCols.filter(col => col.frozen).reduce((sum, col) => sum + col.w, 0)
@@ -1280,6 +1294,7 @@ export function WbsGanttSheet({
             {showCol('outline') && headCell(colOf('outline'), t('wbs.colOutline'), 'justify-start')}
             {headCell(colOf('name'), t('wbs.colName'), 'justify-start')}
             {showCol('owners') && headCell(colOf('owners'), t('wbs.colOwners'), 'justify-start')}
+            {showCol('assignee') && headCell(colOf('assignee'), t('wbs.colAssignee'), 'justify-start')}
             {showCol('status') && headCell(colOf('status'), t('wbs.colStatus'), 'justify-center')}
             {showCol('deliverable') && headCell(colOf('deliverable'), t('wbs.colDeliverable'), 'justify-start')}
             {showCol('pstart') && headCell(colOf('pstart'), t('wbs.colPlannedStart'), 'justify-center')}
@@ -1556,6 +1571,20 @@ export function WbsGanttSheet({
                     style={{ width: W('owners') }}
                   >
                     <OwnerBadges owners={n.owners} nowrap />
+                  </div>
+                )}
+                {/* 담당자 — 개인. team(담당팀)과 별개 축, 지정된 프로젝트에만 열이 뜬다(hasAssignee). */}
+                {showCol('assignee') && (
+                  <div
+                    data-wbs-col="assignee"
+                    className={`${cellBase} overflow-hidden border-r border-grid text-ink-muted ${cellBg}`}
+                    style={{ width: W('assignee') }}
+                  >
+                    <span className="block truncate">
+                      {!n.assigneeMemberId
+                        ? '-'
+                        : memberNameById.get(n.assigneeMemberId) ?? t('wbs.unknownActor')}
+                    </span>
                   </div>
                 )}
                 {/* 상태 */}

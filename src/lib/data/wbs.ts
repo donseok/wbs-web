@@ -92,6 +92,7 @@ export const getComputedWbs = cache(async (
     owners: ownerMap.get(r.id as string) ?? [],
     isOwnerSplit: r.is_owner_split === true,
     stage: (r.stage as string | null) ?? null, // spec 선행 충족 판정 재료 — claim 게이트와 같은 식을 쓴다
+    assigneeMemberId: (r.assignee_member_id as string | null) ?? null,
   }))
 
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
