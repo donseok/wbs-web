@@ -210,7 +210,7 @@ function CreditRow({ tableKey, table, editable, onChange, onRemove }: {
             return (
               <span key={v} data-credit-tick={v} className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
                 style={{ left: `${v}%` }}>
-                <span className={`w-px ${major ? 'h-2 bg-line-strong' : 'h-1 bg-line'}`} />
+                <span className={`w-px ${major ? 'h-2 bg-ink-subtle' : 'h-1 bg-line-strong'}`} />
                 {major && (
                   <span data-credit-tick-label={v} className="mt-0.5 text-[10px] leading-none tabular-nums text-ink-subtle">
                     {v}
