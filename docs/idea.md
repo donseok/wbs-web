@@ -1,37 +1,45 @@
 ## 수정요청사항
 
-- 
-- 작업에 대한 승인 취소 / 재작업 요청 버튼 (완)
-- 완료에 대한 취소 방법 (완)
-- wbs에서 명세를 바꿀때 md 에디터 사용하자. 따로 풀 스크린으로도 가능하게하자.
-- 개발 태스크의 경우 WBS의 상태에 진행 상태를 넣으면 좋겠다. (완)
+### 요청 대상
+
+- 담당팀, 담당자 구분 : 담당자는 담당팀과 구분없이 한명이라도 담당자가 할당이 되면 그 때 WBS에서 컬럼이 보이게 하자. (지금은 기존 'D-CUBE 프로젝트' 때문에 담당팀이 있어야 하고 구분되어야 한다.
+- WBS 페이지에서 레벨  버튼은 헤더의 작업명 옆에 배치하자. 그리고 마일 스톤 뒤에 숫자는 빼자. 
+- WBS에서 작업명 크기는 크기 변경가능하게 하자.
+- WP/ACT에 대해 지정되면 그 아래 트리의 관리자가 된다. 각 Task 에 할당된 작업자를 관리하는 관리자가 된다.
 - 완전자동/개발자동/수동 필요
   - 완전자동 : 설계-완료
   - 개발자동 : 설계는 수동(설계문서가 있어야한다.), 개발만 자동
   - 수동 : 모두 사람이 명령  / 직접 코딩/LLM  실행 으로 개발
+- 에이전트 작업중일때 취소를 할 수 있는 기능
+
+- 24시간 자동 실행하는 에이전트 필요
+
+---
+
+### 구현 완료
+
+- 작업에 대한 승인 취소 / 재작업 요청 버튼 (완)
+- 완료에 대한 취소 방법 (완)
+- wbs에서 명세를 바꿀때 md 에디터 사용하자. 따로 풀 스크린으로도 가능하게하자.
+- 개발 태스크의 경우 WBS의 상태에 진행 상태를 넣으면 좋겠다. (완)
 - 오른쪽 태스크 정보 사이드바에서 선행항목에서 진행 상태를 알려줘. 현재 태스크의 시작여부를 알수 있도록하고 선행항목을 클릭하면 해당 항목의 태스크 정보가 조회 되도록 해줘. 추가로 후행항목 표시도 하자. (완)
 - 태스크 정보 뷰에 대해 너무 복잡하다. (완)
   - 변경이력은 자리 너무 많이 차지 한다. 각 항목별로 한줄로 ... 
   - 변경이력 처음에는 최대 마지막 3개까지만 보이고 나머지는 접혀있는 것이 좋겠어.
   - 명세항목 개선필요 
   - 제일 처음 담당, 계획일정, 가중치, 산출물은 표형태로 단순하게
-  - 담당, 단계는  축약해서 높이를 줄이자.
-- 24시간 자동 실행하는 에이전트 필요
-- WP에 대한 관리자 기능
-- 에이전트 작업중일때 취소를 할 수 있는 기능
-- 이미지를 참고하여 개발하기
-- 가상오피스 구현 — [정리본](superpowers/specs/2026-09-10-agent-seatmap-monitoring-design.md) · [스프라이트 참조 이미지](superpowers/specs/2026-09-10-agent-seatmap-sprite-reference.png) · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 [남은 확인 사항](superpowers/specs/2026-09-11-office-team-blockers.md) 필독 · 배경: [자율 러너 설계](superpowers/specs/2026-08-20-wbs-autonomous-runner-design.md). **2026-09-14 착수** — 결정 1~3 확정, v1 구현 스펙 [2026-09-14-agent-office-v1-design.md](superpowers/specs/2026-09-14-agent-office-v1-design.md)(브랜치 `feat/agent-office`, 기점 staging). 좌석 식별 파일은 워크트리 루트 `.dflow-agent`.
-- 팀장 스킬 /dflow-team 구현 — D'Flow 에서 내게 배정되고 agent 태그가 붙은 ready 작업을 상시 폴링해 팀원 슬롯(기본 3, 상한 4)에 나눠 주고, 끝나면 다음 작업을 보충한다. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**이며(Orca=pane, 그 밖=에이전트 팀 `isolation: worktree`), 각자 워크트리에서 `/dflow-dev --worker` 를 돈다. 기존 스킬은 수동 동작이 퇴행하지 않는 조건에서 원문도 고친다. 사용법 `/dflow-team [인원] <종료시각> [모델]`. 문서: [스펙](superpowers/specs/2026-09-10-dflow-team-design.md) · [계획](superpowers/plans/2026-09-10-dflow-team.md)(Task 1~10, 테스트 71건) · [남은 확인 사항](superpowers/specs/2026-09-11-office-team-blockers.md) · 검토 원문 `superpowers/specs/reviews/`. 착수는 명시 지시 대기, 실행은 subagent-driven(계획서 "실행 준비" 의 `feat/dflow-team` 워크트리부터).
-  - [ ] Task 1 `/dflow-dev` 원문 수정(claim 전 detach·exit 4 재시도·Phase 0-가 는 `/dflow-merge` 절차·reported 커밋·`api_base`)과 `--worker` 블록(행 A~H), 보존 테스트
-  - [ ] Task 2 `/dflow-merge` 원격 후보·보고 분기·충돌 되돌림·push 순서·뒷정리
-  - [ ] Task 3 `references/worker-prompt.md` — 격리 확인·부트스트랩·인증 판정·`.result` 계약
-  - [ ] Task 4 `references/backends.md`·`events.md` — Orca·에이전트 팀 spawn·정리·이벤트
-  - [ ] Task 5 `SKILL.md` — 전제 검사·잠금·매 기상 재구성·poll 기동·결과 처리·승인 스윕·마감
-  - [ ] Task 6 킷 배포 목록·권한 allow 병합·설치 안내·가이드(머지 없음)
-  - [ ] Task 7 리허설 준비(bare 원격·스테이징 한정 PAT)와 A0 단독 실측(통과 전 Task 8·9 금지)
-  - [ ] Task 8 Orca 백엔드 리허설
-  - [ ] Task 9 에이전트 팀 백엔드 리허설과 권한 목록
-  - [ ] Task 10 main·staging 머지와 적용 확인(사람 확인 후)
-  - [ ] (후속) dev 플러그인(`~/project/dev-plugin`) hooks.json 로드 실패 수정 → tmux pane 백엔드
-  - [ ] (후속) 좌석표 S1 에 `.dflow-agent`→heartbeat_agent, `blocked` 상태, 팀장 STANDBY 신호 반영 요청 (스펙 §9)
+  - 담당, 단계는  축약해서 높이를 줄이자.가상오피스 구현 — 정리본 · 스프라이트 참조 이미지 · [목업](https://claude.ai/code/artifact/2ab42176-327d-49e4-916c-bc089e6c0e13) · ⚠️ 착수 전 남은 확인 사항 필독 · 배경: 자율 러너 설계. **2026-09-14 착수** — 결정 1~3 확정, v1 구현 스펙 2026-09-14-agent-office-v1-design.md(브랜치 `feat/agent-office`, 기점 staging). 좌석 식별 파일은 워크트리 루트 `.dflow-agent`.
+  - 팀장 스킬 /dflow-team 구현 — D'Flow 에서 내게 배정되고 agent 태그가 붙은 ready 작업을 상시 폴링해 팀원 슬롯(기본 3, 상한 4)에 나눠 주고, 끝나면 다음 작업을 보충한다. 팀원은 **자기 서브에이전트를 띄울 수 있는 독립 세션**이며(Orca=pane, 그 밖=에이전트 팀 `isolation: worktree`), 각자 워크트리에서 `/dflow-dev --worker` 를 돈다. 기존 스킬은 수동 동작이 퇴행하지 않는 조건에서 원문도 고친다. 사용법 `/dflow-team [인원] <종료시각> [모델]`. 문서: 스펙 · 계획(Task 1~10, 테스트 71건) · 남은 확인 사항 · 검토 원문 `superpowers/specs/reviews/`. 착수는 명시 지시 대기, 실행은 subagent-driven(계획서 "실행 준비" 의 `feat/dflow-team` 워크트리부터).
+    - [ ] Task 1 `/dflow-dev` 원문 수정(claim 전 detach·exit 4 재시도·Phase 0-가 는 `/dflow-merge` 절차·reported 커밋·`api_base`)과 `--worker` 블록(행 A~H), 보존 테스트
+    - [ ] Task 2 `/dflow-merge` 원격 후보·보고 분기·충돌 되돌림·push 순서·뒷정리
+    - [ ] Task 3 `references/worker-prompt.md` — 격리 확인·부트스트랩·인증 판정·`.result` 계약
+    - [ ] Task 4 `references/backends.md`·`events.md` — Orca·에이전트 팀 spawn·정리·이벤트
+    - [ ] Task 5 `SKILL.md` — 전제 검사·잠금·매 기상 재구성·poll 기동·결과 처리·승인 스윕·마감
+    - [ ] Task 6 킷 배포 목록·권한 allow 병합·설치 안내·가이드(머지 없음)
+    - [ ] Task 7 리허설 준비(bare 원격·스테이징 한정 PAT)와 A0 단독 실측(통과 전 Task 8·9 금지)
+    - [ ] Task 8 Orca 백엔드 리허설
+    - [ ] Task 9 에이전트 팀 백엔드 리허설과 권한 목록
+    - [ ] Task 10 main·staging 머지와 적용 확인(사람 확인 후)
+    - [ ] (후속) dev 플러그인(`~/project/dev-plugin`) hooks.json 로드 실패 수정 → tmux pane 백엔드
+    - [ ] (후속) 좌석표 S1 에 `.dflow-agent`→heartbeat_agent, `blocked` 상태, 팀장 STANDBY 신호 반영 요청 (스펙 §9)
 
