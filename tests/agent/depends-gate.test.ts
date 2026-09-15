@@ -45,6 +45,7 @@ function useAdmin(queues: Record<string, Resp[]>, users: Array<{ id: string; ema
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
     }),
+    rpc: vi.fn(async () => ({ data: { ok: true, order_status: 'claimed', stage: null, actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: null }, error: null })),
     auth: {
       admin: {
         getUserById: vi.fn(async () => ({ data: { user: { id: 'u-1', email: 'dev@example.com' } }, error: null })),

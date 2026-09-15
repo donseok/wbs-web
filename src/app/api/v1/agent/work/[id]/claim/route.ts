@@ -1,12 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { isUuidLike, stageAtLeast } from '@/lib/domain/agentWork'
+import { NextRequest, NextResponse, after } from 'next/server'
+import { revalidatePath } from 'next/cache'
+import { isUuidLike } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { ITEM_DETAIL_COLUMNS, loadDependsInfo, type DependInfo } from '@/lib/agent/depends'
 import { emitNotification } from '@/lib/notify/emit'
-import { transitionStage } from '@/lib/agent/stageTransition'
+import { applyWorkflowEvent, notifyOnReached } from '@/lib/agent/workflowEvent'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,44 +61,37 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       const depends = item?.depends ?? []
       if (depends.length > 0) {
         dependsInfo = await loadDependsInfo(admin, { projectId: loaded.order.project_id, depends })
-        // 충족 축은 둘이다: stage ≥ im, **또는** 선행에 approved 주문이 있음(2026-08-25).
-        // 후자를 인정하지 않으면 승인이 반쪽으로 끝난 선행(approved 인데 stage 미전이)이 후속을
-        // 영구히 막는다 — 사람이 화면에서 단계를 손으로 올려주기 전까지 루프가 스스로 못 푸는
-        // 교착이었다. 승인 자체가 "끝났다"는 사람의 판정이므로 그것을 도달로 받아들인다.
-        const unmet = dependsInfo.filter((d) => !stageAtLeast(d.stage, 'im') && !d.order_approved)
+        // 충족 판정은 depends_evidence 의 reached 하나다(predecessorReached — 스펙 2026-09-15 §3.7):
+        // stage ≥ im, **또는** 선행에 approved 주문이 있음(2026-08-25 — 승인이 반쪽으로 끝난 선행이 후속을
+        // 영구히 막던 교착), **또는** 선행 실적 100(위임하지 않은 사람 Task). 응답에 실린 reached 와 같은
+        // 값으로 막아야 스킬과 서버가 서로 다른 판정을 하지 않는다.
+        const unmet = dependsInfo.filter((d) => !d.reached)
         if (unmet.length > 0) {
           return NextResponse.json({
-            error: '선행 작업이 완료(im 이상)되지 않았고 승인된 주문도 없습니다.', code: 'dependency_not_met',
+            error: '선행 작업이 끝나지 않았습니다(검수 대기 이상도, 승인도, 실적 100% 도 아님).', code: 'dependency_not_met',
             unmet: unmet.map((d) => ({ external_ref: d.external_ref, stage: d.stage })),
           }, { status: 403 })
         }
       }
     }
 
-    // CAS: ready 일 때만 점유된다 — 동시 claim 은 한쪽이 0행을 본다.
-    // claimed_by_user_id 는 PAT 경로에서만 서버 유도값으로 기록한다(body 에서 받지 않는다).
-    const { data: updated, error: casErr } = await admin
-      .from('agent_work_orders')
-      .update({
-        status: 'claimed', claimed_by: actor.agentLabel,
-        claimed_by_user_id: actor.principal.kind === 'pat' ? actor.userId : null,
-        claimed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-      })
-      .eq('id', id).eq('status', 'ready')
-      .select('id')
-    if (casErr) {
-      console.error('[agent-api] claim 갱신 실패:', casErr.message)
+    // 원자 전이(스펙 2026-09-15 §4) — 주문 ready→claimed CAS + 단계 ip + 실적 크레딧이 한 트랜잭션.
+    // 점유자 신원은 서버 유도값이다(claimed_by_user_id 는 PAT 경로에서만 — body 에서 받지 않는다).
+    // 항목이 지워진 주문은 RPC 가 단계·실적만 건너뛴다(skipped:'no_item') — claim 자체는 종전처럼 된다.
+    const transition = await applyWorkflowEvent(admin, {
+      event: 'claim', actorUserId: loaded.userId, orderId: id,
+      agent: actor.agentLabel,
+      agentUserId: actor.principal.kind === 'pat' ? (actor.userId as string) : null,
+    })
+    if (!transition.ok) {
+      if (transition.conflict) {
+        return NextResponse.json(
+          { error: '이미 다른 에이전트가 점유했거나 점유 불가 상태입니다.', code: 'conflict', status: transition.orderStatus ?? 'unknown' },
+          { status: 409 },
+        )
+      }
+      console.error('[agent-api] claim 전이 실패:', transition.error)
       return apiInternalError()
-    }
-    if (!updated || (updated as unknown[]).length === 0) {
-      const { data: cur, error: curErr } = await admin
-        .from('agent_work_orders').select('status').eq('id', id).maybeSingle()
-      // 표시=로깅 원칙 — 재조회 실패도 조용히 unknown 으로 삼키지 않고 남긴다(동작은 폴백 유지).
-      if (curErr) console.error('[agent-api] claim 충돌 재조회 실패:', curErr.message)
-      return NextResponse.json(
-        { error: '이미 다른 에이전트가 점유했거나 점유 불가 상태입니다.', code: 'conflict', status: (cur as { status?: string } | null)?.status ?? 'unknown' },
-        { status: 409 },
-      )
     }
 
     // claim 알림 — fire-and-forget. 본인 배정 작업 본인 claim 은 행위자 제외 규칙(emitNotification)으로 자동 무발행.
@@ -112,18 +107,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       // 알림 실패는 로깅만 하고 본 로직에 영향을 주지 않는다.
     })
 
-    // stage 전이 — 주문 claimed 확정 후. dev_workflow 게이트·fromIn·change_logs 는 내부에서 처리.
-    // im 은 fromIn 에 넣지 않는다(반려 재작업은 im 유지, 역행 없음). 실패는 로깅만 — 응답에 영향 없음.
-    if (loaded.order.wbs_item_id) {
-      try {
-        const transitioned = await transitionStage(admin, {
-          itemId: loaded.order.wbs_item_id, to: 'ip', fromIn: ['as', 'fp', null], actorUserId: loaded.userId,
-        })
-        if (!transitioned.ok) console.error('[agent-api] claim stage 전이 실패:', loaded.order.wbs_item_id)
-      } catch (e) {
-        console.error('[agent-api] claim stage 전이 예외:', e instanceof Error ? e.message : e)
-      }
+    // 실적이 바뀌었으면 진척 스냅샷, im·xx 첫 도달이면 후행 알림 — 둘 다 실패는 로깅만(응답에 영향 없음).
+    if (transition.actualChanged) {
+      revalidatePath(`/p/${loaded.order.project_id}`, 'layout')
+      after(() => recordProgressSnapshot(loaded.order.project_id, admin as never))
     }
+    if (transition.reachedFirst && loaded.order.wbs_item_id) await notifyOnReached(admin, loaded.order.wbs_item_id, loaded.userId)
 
     return NextResponse.json({ ok: true, status: 'claimed', item, depends_evidence: dependsInfo })
   } catch (e) {

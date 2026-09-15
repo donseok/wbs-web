@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
+import { applyWorkflowEvent } from '@/lib/agent/workflowEvent'
 import { emitNotification } from '@/lib/notify/emit'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 
@@ -52,7 +55,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!loaded.ok) return loaded.res
     const order = loaded.order
 
-    // 소유 판정(§2.3) — 교차 소유는 양방향 모두 403 not_claim_owner. 하나의 UPDATE에 OR 로 섞지 않는다.
+    // 소유 판정(§2.3) — 교차 소유는 양방향 모두 403 not_claim_owner. 하나의 조건에 OR 로 섞지 않는다.
     if (actor.principal.kind === 'pat') {
       if (order.claimed_by_user_id === null) {
         return apiFail(403, 'not_claim_owner', '레거시 세션이 점유한 주문입니다.')
@@ -60,40 +63,31 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       if (order.claimed_by_user_id !== actor.userId) {
         return apiFail(403, 'not_claim_owner', '본인이 점유한 주문만 반납할 수 있습니다.')
       }
-      const { data: updated, error } = await admin
-        .from('agent_work_orders')
-        .update({ status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null, updated_at: new Date().toISOString() })
-        .eq('id', id).eq('status', 'claimed').eq('claimed_by_user_id', actor.userId)
-        .select('id')
-      if (error) {
-        console.error('[agent-api] release 갱신 실패:', error.message)
-        return apiInternalError()
+    } else {
+      // legacy — v1 그대로 + PAT 점유 주문 차단 한 줄.
+      if (order.claimed_by_user_id !== null) {
+        return apiFail(403, 'not_claim_owner', 'PAT 사용자가 점유한 주문입니다.')
       }
-      if (!updated || (updated as unknown[]).length === 0) {
-        return apiFail(409, 'conflict', '반납 가능한 상태가 아닙니다.')
+      if (order.claimed_by !== actor.agentLabel) {
+        return apiFail(403, 'not_claim_owner', '본인이 점유한 주문만 반납할 수 있습니다.')
       }
-      await emitReleaseNotification(admin, order, loaded.userId)
-      return NextResponse.json({ ok: true, status: 'ready' })
     }
 
-    // legacy — v1 그대로 + PAT 점유 주문 차단 한 줄.
-    if (order.claimed_by_user_id !== null) {
-      return apiFail(403, 'not_claim_owner', 'PAT 사용자가 점유한 주문입니다.')
-    }
-    if (order.claimed_by !== actor.agentLabel) {
-      return apiFail(403, 'not_claim_owner', '본인이 점유한 주문만 반납할 수 있습니다.')
-    }
-    const { data: updated, error } = await admin
-      .from('agent_work_orders')
-      .update({ status: 'ready', claimed_by: null, claimed_at: null, updated_at: new Date().toISOString() })
-      .eq('id', id).eq('status', 'claimed').eq('claimed_by', actor.agentLabel)
-      .select('id')
-    if (error) {
-      console.error('[agent-api] release 갱신 실패:', error.message)
+    // 원자 전이(스펙 2026-09-15 §4) — claimed→ready CAS(점유자 일치 조건 포함) + 단계 as + 실적 표.as.
+    // 점유·heartbeat 흔적도 같은 트랜잭션에서 지운다. 판정과 쓰기 사이의 경합은 RPC 의 CAS 가 409 로 돌려준다.
+    const transition = await applyWorkflowEvent(admin, {
+      event: 'release', actorUserId: loaded.userId, orderId: id,
+      agent: actor.principal.kind === 'pat' ? null : actor.agentLabel,
+      agentUserId: actor.principal.kind === 'pat' ? (actor.userId as string) : null,
+    })
+    if (!transition.ok) {
+      if (transition.conflict) return apiFail(409, 'conflict', '반납 가능한 상태가 아닙니다.')
+      console.error('[agent-api] release 전이 실패:', transition.error)
       return apiInternalError()
     }
-    if (!updated || (updated as unknown[]).length === 0) {
-      return apiFail(409, 'conflict', '반납 가능한 상태가 아닙니다.')
+    if (transition.actualChanged) {
+      revalidatePath(`/p/${order.project_id}`, 'layout')
+      after(() => recordProgressSnapshot(order.project_id, admin as never))
     }
     await emitReleaseNotification(admin, order, loaded.userId)
     return NextResponse.json({ ok: true, status: 'ready' })

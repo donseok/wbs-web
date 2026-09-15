@@ -23,6 +23,8 @@ const O1 = '22222222-2222-4222-8222-222222222222'
 const W1 = '33333333-3333-4333-8333-333333333333'
 const P2 = '99999999-9999-4999-8999-999999999999'
 type Resp = { data?: unknown; error?: { message: string } | null }
+/** 전이 RPC 기본 응답 — 항목 없는 주문의 성공(단계·실적 건너뜀), 부수효과 없음. 케이스마다 queues.rpc 로 덮는다. */
+const RPC_OK = { ok: true, order_status: 'claimed', stage: null, actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: 'no_item' }
 
 const PAT = generateAgentToken()
 const RUNNER = {
@@ -40,6 +42,7 @@ const ctx = { params: Promise.resolve({ id: O1 }) }
 
 function useAdmin(queues: Record<string, Resp[]>) {
   const captured: unknown[] = []
+  const rpcCalls: Array<Record<string, unknown>> = []
   const admin = {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
@@ -51,6 +54,11 @@ function useAdmin(queues: Record<string, Resp[]>) {
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
     }),
+    rpc: vi.fn(async (_fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push(args)
+      const resp = (queues.rpc ?? []).shift() ?? { data: RPC_OK }
+      return { data: resp.data ?? null, error: resp.error ?? null }
+    }),
     auth: {
       admin: {
         getUserById: vi.fn(async () => ({ data: { user: { id: 'u-1', email: 'dev@example.com' } }, error: null })),
@@ -59,7 +67,7 @@ function useAdmin(queues: Record<string, Resp[]>) {
     },
   }
   mocks.createAdminClient.mockReturnValue(admin)
-  return { admin, captured }
+  return { admin, captured, rpcCalls }
 }
 const post = (url: string, body: unknown, bearer: string) => new NextRequest(url, {
   method: 'POST',
@@ -75,9 +83,9 @@ beforeEach(() => {
 
 describe('PAT 쓰기 루프', () => {
   it('PAT claim 성공 → claimed_by_user_id 서버 유도 기록 (body 값 아님)', async () => {
-    const { captured } = useAdmin({
+    const { rpcCalls } = useAdmin({
       agent_runners: [{ data: CLAIM_SCOPES }, { data: null }], // 조회, last_seen
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }], // 로드, CAS
+      agent_work_orders: [{ data: ORDER }], // 로드(점유는 전이 RPC 가 한다)
       agent_projects: [{ data: { enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
       project_roles: [{ data: [{ role: 'member' }] }],
@@ -85,8 +93,8 @@ describe('PAT 쓰기 루프', () => {
     })
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'claude-pc1', claimed_by_user_id: 'attacker' }, PAT.token), ctx)
     expect(res.status).toBe(200)
-    const cas = captured.find(p => (p as Record<string, unknown>).status === 'claimed') as Record<string, unknown>
-    expect(cas.claimed_by_user_id).toBe('u-1') // principal 유도값 — body 의 'attacker' 무시
+    const claim = rpcCalls.find(a => a.p_event === 'claim')!
+    expect(claim.p_agent_user_id).toBe('u-1') // principal 유도값 — body 의 'attacker' 무시
   })
 
   it('PAT + body user_email 불일치 → 400 identity_mismatch', async () => {
@@ -144,7 +152,7 @@ describe('PAT 쓰기 루프', () => {
     expect((await res.json()).code).toBe('not_claim_owner')
   })
 
-  it('PAT 본인 점유 report(progress) → 200 + applied_to_wbs', async () => {
+  it('PAT 본인 점유 report(progress) → 200, 실적 무변경(applied_to_wbs:false — 계약 v2.3)', async () => {
     useAdmin({
       agent_runners: [{ data: REPORT_SCOPES }, { data: null }],
       agent_work_orders: [
@@ -154,17 +162,12 @@ describe('PAT 쓰기 루프', () => {
       agent_projects: [{ data: { enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
       project_roles: [{ data: [{ role: 'member' }] }],
-      wbs_items: [
-        { data: { id: W1, actual_pct: 0, project_id: P1 } }, // actual_pct 조회
-        { data: null }, // 자식 없음
-        { data: [{ id: W1 }] }, // update
-      ],
       agent_work_reports: [{ data: [{ id: 'r-1' }] }], // 보고 insert
     })
     const res = await reportPOST(post(`http://l/api/v1/agent/work/${O1}/report`, { agent: 'a', kind: 'progress', percent: 10, summary: 's' }, PAT.token), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.applied_to_wbs).toBe(true)
+    expect(body.applied_to_wbs).toBe(false)
   })
 
   it('completion + evidence 형식 위반(head_sha 39자) → 400', async () => {
@@ -189,11 +192,10 @@ describe('PAT 쓰기 루프', () => {
     expect(res1.status).toBe(403)
     expect((await res1.json()).code).toBe('not_claim_owner')
 
-    useAdmin({
+    const { rpcCalls } = useAdmin({
       agent_runners: [{ data: CLAIM_SCOPES }, { data: null }],
       agent_work_orders: [
         { data: { ...ORDER, status: 'claimed', claimed_by: 'pat-r1', claimed_by_user_id: 'u-1' } },
-        { data: [{ id: O1 }] }, // CAS
       ],
       agent_projects: [{ data: { enabled: true } }],
       memberships: [{ data: { is_superuser: false } }],
@@ -201,6 +203,7 @@ describe('PAT 쓰기 루프', () => {
     })
     const res2 = await releasePOST(post(`http://l/api/v1/agent/work/${O1}/release`, { agent: 'a' }, PAT.token), ctx)
     expect(res2.status).toBe(200)
+    expect(rpcCalls).toEqual([expect.objectContaining({ p_event: 'release', p_order_id: O1, p_agent_user_id: 'u-1', p_agent: null })])
   })
 
   it('C1: 프로젝트 한정(P2) PAT 로 "멤버인" 타 프로젝트(P1) 주문 claim → 404(존재 은닉)', async () => {
