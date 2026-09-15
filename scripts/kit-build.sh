@@ -20,6 +20,7 @@ done
 
 cp "$ROOT/kit/install.sh" "$OUT/install.sh"; chmod +x "$OUT/install.sh"
 cp "$ROOT/kit/.env.example" "$OUT/.env.example"
+cp "$ROOT/kit/.gitattributes" "$OUT/.gitattributes"
 cp "$ROOT/kit/worker-allow.json" "$OUT/worker-allow.json"
 cp "$ROOT/kit/README.md" "$OUT/README.md"
 mkdir -p "$OUT/hooks" && cp "$ROOT/kit/hooks/heartbeat.sh" "$OUT/hooks/heartbeat.sh" && chmod +x "$OUT/hooks/heartbeat.sh"

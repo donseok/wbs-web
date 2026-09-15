@@ -51,6 +51,13 @@ cd ~/dflow-kit && git pull && ./install.sh ~/project/<내 리포>
 
 git · curl · jq · python3 · gh(GitHub CLI, `done --auto-links` 와 리포 생성용). macOS: `brew install jq gh`.
 
+## Windows(Git Bash)
+
+Git for Windows 의 Git Bash 에서 같은 `install.sh` 를 쓴다. 킷과 설치 대상의 `.gitattributes` 가 스킬 줄끝을
+LF 로 고정한다(이미 CRLF 로 받은 클론은 `git add --renormalize .`). `.env` 를 CRLF 로 저장해도 `dflow.sh`·
+heartbeat 훅이 `\r` 을 걷어낸다. 네이티브 설치기(`irm https://claude.ai/install.ps1 | iex`)는 `~/.local/bin` 을
+PATH 에 넣으라고 경고하므로 그대로 따른다. `/dflow-team` 은 `powershell.exe` 를 쓴다(프로세스 시작 시각·권한 감지).
+
 ## 좌석표 heartbeat 훅
 
 D'Flow 좌석표(`/agents`)가 "진행 중/무응답/끊김"을 구분하려면 에이전트가 도구를 쓸 때마다 60초에 1회 신호가 서버에 닿아야 한다.

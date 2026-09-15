@@ -1,0 +1,2 @@
+# dflow-kit — Windows 의 core.autocrlf=true 체크아웃에서도 스크립트·예제 파일이 LF 로 남게 한다.
+* text=auto eol=lf

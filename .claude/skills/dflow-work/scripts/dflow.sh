@@ -51,6 +51,13 @@ if [ -z "${DFLOW_PATS:-}${DFLOW_PAT:-}" ]; then
   _envf="${DFLOW_ENV_FILE:-./.env}"
   if [ -f "$_envf" ]; then set -a; . "$_envf"; set +a; fi
 fi
+# Windows 편집기가 남긴 CR 제거 — 값 끝의 \r 은 URL·Authorization 헤더를 깨뜨린다. 값은 변수로만 다룬다.
+_cr=$(printf '\r')
+for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID; do
+  eval "_x=\${$_v:-}"
+  case "$_x" in *"$_cr"*) eval "$_v=\$(printf '%s' \"\$_x\" | tr -d '\\r')" ;; esac
+done
+unset _x _cr
 # DFLOW_PATS(쉼표 구분) 우선, 없으면 DFLOW_PAT 단일. 토큰 문자열은 변수로만 다룬다.
 tokens() {
   [ -n "${DFLOW_PATS:-}" ] || [ -n "${DFLOW_PAT:-}" ] || die 2 "DFLOW_PATS 또는 DFLOW_PAT 미설정"

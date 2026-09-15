@@ -43,6 +43,10 @@ fi
 touch "$TARGET/.gitignore"
 grep -qx '\.env' "$TARGET/.gitignore" || printf '\n# dflow-kit — 토큰 파일\n.env\n' >> "$TARGET/.gitignore"
 
+# 3-c) 줄끝 고정: Windows 의 core.autocrlf=true 클론에서 스킬 스크립트가 CRLF 로 바뀌면 sh 가 `\r` 에서 죽는다.
+touch "$TARGET/.gitattributes"
+grep -qxF '.claude/skills/** text eol=lf' "$TARGET/.gitattributes" || printf '\n# dflow-kit — 스킬 스크립트 줄끝 고정\n.claude/skills/** text eol=lf\n' >> "$TARGET/.gitattributes"
+
 # 3-b) 좌석표 heartbeat 훅 — --hooks 를 붙였을 때만 ~/.dflow/hooks 에 복사한다. settings.json 은 건드리지 않는다(안내만).
 if [ "${2:-}" = "--hooks" ]; then
   mkdir -p "$HOME/.dflow/hooks"
@@ -73,5 +77,6 @@ cat <<EOF
   2. $TARGET/.env 에 DFLOW_API_BASE · DFLOW_PATS · DFLOW_PROJECT_ID 기입 (값은 어디에도 붙여넣지 말 것)
   3. cd $TARGET && (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor)
   4. Claude Code 를 $TARGET 에서 열고 "/dflow-dev" 등 스킬 사용. 스킬 킷은 리포에 커밋해 팀과 공유한다.
+  Windows(Git Bash): .gitattributes 로 스킬 줄끝을 LF 로 고정했다. 이미 CRLF 로 받은 클론이면 git add --renormalize . 뒤 커밋한다.
   5. 좌석표 heartbeat 훅: ./install.sh <리포> --hooks 뒤 README 「좌석표 heartbeat 훅」 대로 settings.json 등록
 EOF
