@@ -1,6 +1,6 @@
 # WBS 진척·단계·실적 크레딧 설계
 
-작성 2026-09-15 · 상태 **설계 확정(사용자 결정 반영)** · 구현 미착수 · 목업 https://claude.ai/code/artifact/2f1a7669-a6c1-42f5-b8d2-db890c77e6f8
+작성 2026-09-15 · 개정 2026-09-15(D9 단계 컬럼, RPC 시그니처 확정) · 상태 **설계 확정(사용자 결정 반영)** · 구현 착수 · 목업 https://claude.ai/code/artifact/2f1a7669-a6c1-42f5-b8d2-db890c77e6f8
 
 > 개발 Task 의 실적%를 단계 전이 사건에서 크레딧 표로 지정하고, 사람이 그 값을 덮어쓸 수 있게 하며,
 > 전이를 한 트랜잭션으로 묶어 "승인은 됐는데 단계가 안 넘어간" 반쪽 상태를 없앤다.
@@ -39,13 +39,14 @@
 | D6 | WBS 「상태」 컬럼 헤더를 「진척」으로 바꾼다. 칩 값 4개는 그대로 | 「진척 돋보기」·「계획 대비 차이」와 같은 어휘 축. 「진도」는 %값 자체와, 「진행」은 칩·단계 라벨과 충돌 |
 | D7 | 활성 주문이 있는 Task 의 수기 입력은 99 까지. 100 은 승인으로만 | 에이전트 API 가 progress 를 99 로 막아 완료를 승인 경로로 강제하는 규칙과 같다. 2026-08-25 드롭다운 우회 사고의 재발 방지 |
 | D8 | 전이는 항상 표 값으로 덮어쓴다(큰 쪽 유지 규칙 없음) | 규칙 하나로 예측 가능 |
+| D9 | WBS 표에 「단계」 컬럼을 「진척」 옆에 두되, 프로젝트에 에이전트 위임(`agent` 태그) 항목이 1건 이상일 때만 보인다. 작업명 칸 우단의 단계 칩은 이 컬럼으로 옮긴다 | 담당자 컬럼(`hasAssignee`)과 같은 규칙 — 위임이 없는 D-CUBE 는 표가 그대로다. 칩과 컬럼을 둘 다 두면 같은 값이 두 번 보인다 |
 
 ## 3. 모델
 
 ### 3.1 세 축
 
 - **진척**(status): `statusOf(actual, planned)` 파생. 규칙 불변. 화면 이름만 「진척」.
-- **단계**(stage): `wbs_items.stage` ∈ {as, ip, im, xx} ∪ {null}. `dev_workflow=true` 리프에만 뜻이 있다. `dev_workflow=false` 항목(D-CUBE 전부)은 단계 UI 를 보이지 않고 실적% 수기 입력만 쓴다.
+- **단계**(stage): `wbs_items.stage` ∈ {as, ip, im, xx} ∪ {null}. `dev_workflow=true` 리프에만 뜻이 있다. `dev_workflow=false` 항목(D-CUBE 전부)은 단계 UI 를 보이지 않고 실적% 수기 입력만 쓴다. WBS 표의 「단계」 컬럼은 프로젝트 단위로 켜진다(D9 — 위임 1건 이상).
 - **실적%**(actual_pct): 저장값. 세 경로로 바뀐다. ① 전이 사건이 크레딧 표 값으로 지정 ② 사람이 셀에서 수기 입력 ③ 롤업(부모, 파생).
 
 ### 3.2 단계 라벨 (한 벌만)
@@ -115,7 +116,7 @@
 
 선행 충족 = `stage ∈ {im, xx}` ∨ `order_approved` ∨ `actual_pct ≥ 100`.
 
-세 번째 축을 더하는 이유: 위임하지 않은 사람 Task 가 선행이면 지금은 stage 가 null 이라 후행이 영원히 막히고 드롭다운으로 im 을 찍어야 풀렸다. 실적 100 이 곧 충족이면 드롭다운 없이 풀린다. claim 게이트(`claim/route.ts`), `waitReason.unmetDepends`, `depends.ts` 세 곳이 같은 함수(`predecessorReached`, 순수)를 쓴다. API 응답 `depends_evidence[]` 에 `reached: boolean` 을 추가한다(계약 v2.3). `stage` 필드는 유지한다.
+세 번째 축을 더하는 이유: 위임하지 않은 사람 Task 가 선행이면 지금은 stage 가 null 이라 후행이 영원히 막히고 드롭다운으로 im 을 찍어야 풀렸다. 실적 100 이 곧 충족이면 드롭다운 없이 풀린다. claim 게이트(`claim/route.ts`), `waitReason.unmetDepends`, `depends.ts`, WBS 착수 가능 판정 `dependencyReadiness.evaluateStartReadiness`(spec 축), `stageTransition.allPredecessorsReached`(알림 게이트) 다섯 곳이 같은 함수(`predecessorReached`, 순수, `src/lib/domain/agentWork.ts`)를 쓴다. `stageAtLeast`·`STAGE_ORDER` 의 fp 는 지운다. `evaluateStartReadiness` 는 주문 정보가 없어 `stage ∨ actual_pct` 두 축만 본다(승인이 RPC 로 xx·100 을 함께 쓰므로 결과는 같다). API 응답 `depends_evidence[]` 에 `reached: boolean` 을 추가한다(계약 v2.3). `stage` 필드는 유지한다.
 
 ## 4. 원자 전이 RPC
 
@@ -127,34 +128,34 @@
 
 ```sql
 apply_workflow_event(
-  p_item_id  uuid,
-  p_event    text,        -- assign|unassign|claim|report_completion|approve|unapprove|reject|rework|release|set_stage
-  p_actor    uuid,        -- change_logs.user_id
-  p_order_id uuid = null, -- 주문 사건이면 필수. CAS 대상
-  p_expect   text = null, -- 주문 CAS 기대 status
-  p_stage    text = null, -- set_stage 전용
-  p_note     text = null  -- reject·rework 사유(agent_work_reviews 등 기존 기록 경로에 전달)
-) returns jsonb  -- { ok, order_status, stage, actual_pct, skipped }
+  p_item_id       uuid,
+  p_event         text,                 -- assign|unassign|claim|report_completion|approve|unapprove|reject|rework|release|set_stage
+  p_actor         uuid,                 -- change_logs.user_id
+  p_order_id      uuid default null,    -- 주문 사건이면 필수. CAS 대상(기대 status 는 사건이 정한다)
+  p_stage         text default null,    -- set_stage 전용
+  p_agent         text default null,    -- 행위 에이전트 라벨: claim 은 기록, report_completion·release 는 점유자 일치 조건
+  p_agent_user_id uuid default null     -- 행위 에이전트 계정(PAT): 위와 같다
+) returns jsonb  -- { ok, conflict, reason, order_status, stage, actual_pct, stage_changed, actual_changed, reached_first, skipped }
 ```
 
 트랜잭션 안에서 순서대로 한다.
 
-1. `wbs_items` 를 `for update` 로 읽는다. 없으면 실패.
-2. 주문 사건이면 `agent_work_orders` 를 `for update` 로 읽고 `status = p_expect` 를 확인한다. 다르면 `{ok:false, conflict:true}` 로 끝낸다(지금의 409 의미).
-3. 주문 status 갱신(사건 표대로).
-4. `dev_workflow=true` 이고 리프이면 stage·actual_pct 를 사건 표와 `project_settings.stage_credits`(없으면 기본값) 로 갱신한다. 아니면 `skipped='not_workflow'` 로 표시만 하고 주문 갱신은 유지한다.
-5. change_logs 를 `stage`·`actual_pct` 필드로 각 1건 남긴다(값이 바뀐 것만).
-6. 결과를 반환한다.
+1. `wbs_items` 를 `for update` 로 읽는다. 없으면 `{ok:false, reason:'item_not_found'}`.
+2. 주문 사건이면 `agent_work_orders` 를 `for update` 로 읽고 사건이 정한 기대 status(claim=ready, report_completion·release=claimed, approve·reject=reported, unapprove·rework=approved)와 점유자 조건(`p_agent_user_id`/`p_agent` 가 주어지면 `claimed_by_user_id`/`claimed_by` 일치)을 확인한다. 어긋나면 `{ok:false, conflict:true, order_status}` 로 끝낸다(지금의 409 의미).
+3. 주문 갱신(사건 표대로). claim 은 `claimed_by·claimed_by_user_id·claimed_at` 을 쓰고, release 는 점유·heartbeat 흔적을 지운다(`releaseOrderByAdmin` 과 같은 컬럼).
+4. 단계·실적 갱신. **주문 사건**은 주문의 존재 자체가 워크플로 증거이므로 `dev_workflow` 를 보지 않고 리프이면 쓴다(구 `force` 플래그의 일반화 — 승인만 넘기던 게이트를 주문 사건 전부로 넓힌다). 리프가 아니면 `skipped='parent'`. **assign** 은 `dev_workflow=true`·리프·`stage is null` 일 때만 as 로, **unassign** 은 `dev_workflow=true`·`stage='as'` 일 때만 null 로(실적 불변). **set_stage** 는 `p_stage` 가 null 이면 항상 허용(잘못 찍힌 값 정리, 실적 불변), 아니면 `dev_workflow=true`·리프·활성 주문(ready·claimed·reported) 없음일 때만 — 활성 주문이 있으면 `{ok:false, reason:'active_order'}`, 워크플로가 아니면 `{ok:false, reason:'not_workflow'}`. 실적은 `project_settings.stage_credits`(없으면 기본값)에서 항목 `credit_key`(없으면 default) 표의 사건 크레딧으로 쓴다. 승인은 100 고정.
+5. change_logs 를 `stage`·`actual_pct` 필드로 각 1건 남긴다(값이 바뀐 것만, `user_id=p_actor`).
+6. 결과를 반환한다. `reached_first` 는 이번 전이로 stage 가 im·xx 에 처음 들어갔는지다.
 
-앱 층은 반환값으로 화면 문구를 정하고, 성공 시 `recordProgressSnapshot` 을 부른다(실패는 로깅만 — 기존 3종 세트 관례). `work.unblocked` 알림(§2.10)은 반환값의 stage 가 im·xx 에 처음 도달했을 때 앱 층에서 발행한다(지금 `notifySuccessorsOnReached` 재사용).
+앱 층은 `src/lib/agent/workflowEvent.ts` 의 `applyWorkflowEvent(admin, args)`(RPC 호출 + jsonb 파싱) 하나로 부르고, 반환값으로 화면 문구를 정하며, `actual_changed` 면 `recordProgressSnapshot` 을, `reached_first` 면 `notifySuccessorsOnReached` 를 부른다(둘 다 실패는 로깅만 — 기존 3종 세트 관례). 보고 검토 기록(`agent_work_reports.review_*`)·승인/반려 알림은 지금처럼 앱 층에서 RPC 성공 뒤에 한다.
 
 ### 4.3 지워지는 것
 
-- `src/lib/agent/stageTransition.ts` 의 `transitionStage` 와 호출부 7곳(배정·cascade·위임·claim·완료 보고·승인·승인 취소). `notifySuccessorsOnReached` 와 `REACHED_STAGES` 는 남긴다(알림·게이트 판정 축).
+- `src/lib/agent/stageTransition.ts` 의 `transitionStage` 와 호출부 8곳(`setWbsAssignee`·`setWbsAssigneeCascade`·`setWbsDevWorkflow`·`delegation.applyDelegation`·claim·완료 보고·승인·승인 되감기)과 `agentWork.STAGE_SKIP_WARN`. `notifySuccessorsOnReached` 는 남기고 `REACHED_STAGES` 는 도메인(`agentWork.ts`)으로 옮긴다. 반려(`rejectAgentCompletion`)와 회수(허브 `releaseOrderByAdmin`·API `release` 라우트)도 RPC 로 간다(지금은 단계를 안 건드린다).
 - `src/lib/agent/applyProgress.ts` 전체(progress 보고의 실적 반영).
 - `agentWork.ts` 의 `applyApprovedActualPct` 와 승인 취소의 change_logs 복원 코드.
 - `wbsAssign.ts` `setWbsStage` 의 `REACHED_STAGES` 우회 방어.
-- `waitReason.STAGE_LABEL`, i18n `wbs.stageFp`, `labels.STAGE_CODES` 의 fp.
+- `waitReason.STAGE_LABEL`, i18n `wbs.stageFp`, `labels.STAGE_CODES` 의 fp, `agentWork.stageAtLeast`. 라벨 정본은 `src/lib/domain/stageLabels.ts`(코드 4개 + 한글 라벨) 하나이고 i18n ko 사전은 이 값과 같아야 한다(테스트로 고정). 허브 표·대기 사유 문구는 이 모듈을 쓴다.
 
 ## 5. 화면
 
@@ -162,14 +163,16 @@ apply_workflow_event(
 
 목업(위 링크)대로. 트랙 하나에 AS·IP·RW·IM 핸들과 100 에 잠긴 XX 핸들. 핸들 위 숫자는 클릭해 직접 입력, 드래그·키보드(±5, Home/End) 지원, 순서·간격 제약을 클라이언트와 서버(`validateStageCredits`) 양쪽에서 검사. 아래 미리보기 표는 사건 표를 현재 값으로 보여 주고, 행을 누르면 그 값이 슬라이더 위 현재 위치(◆)로 표시된다. 카테고리별 표(IF·DOC)는 추가·제거할 수 있다. 저장 안내: "저장해도 이미 기록된 실적%는 바뀌지 않습니다."
 
-컴포넌트: `src/components/settings/StageCreditSlider.tsx`(순수 UI) + `src/app/actions/projectSettings.ts` 에 `updateStageCredits(projectId, credits)`(관리자 가드). 위치는 `AgentProjectToggle` 아래.
+컴포넌트: `src/components/settings/StageCreditSlider.tsx`(순수 UI) + `src/app/actions/project.ts` 에 `updateStageCredits(projectId, credits)`(관리자 가드, `updateLevelSettings` 와 같은 관례). 위치는 설정 페이지 「에이전트」 카드 안, 허브 링크 아래(킬스위치 `AgentProjectToggle` 은 2026-09-14 에 허브 상태 바로 옮겨졌다). 관리자가 아니면 읽기 전용으로 그린다. 값은 `getProjectConfig` 가 `stageCredits` 로 함께 읽는다.
 
 ### 5.2 WBS 표
 
 - 헤더 `wbs.colStatus` ko 「진척」· en "Progress". `RowDetailPanel` 의 같은 키 행도 함께 바뀐다.
 - 엑셀 export 3행 헤더의 「상태」→「진척」(`src/lib/excel/export.ts`). import 파서는 이 헤더를 읽지 않는다(2026-09-15 확인).
-- 실적% 셀 편집은 3.6 규칙. 활성 주문 항목에서 100 을 넣으면 셀 아래 안내문.
-- 단계 칩은 지금 자리(작업명 칸 우단) 그대로.
+- 실적% 셀 편집은 3.6 규칙. 활성 주문 항목에서 100 을 넣으면 서버 거부 사유를 토스트로 보인다.
+- **「단계」 컬럼(D9)**: `PLAN_COLS` 에 `stage`(폭 84) 를 `status` 바로 뒤에 둔다. 헤더 `wbs.colStage` ko 「단계」· en "Stage". 표시 조건은 `hasAnyDelegation(items)` — `WbsRow.agentDelegated`(`tags` 에 `agent` 포함, `src/lib/data/wbs.ts` 가 채운다) 가 트리 어디든 하나라도 true. 담당자 컬럼의 `hasAssignee` 와 같은 자리에서 걸러 낸다. 타임라인 집중 모드에서도 보이고(`TIMELINE_COLS`), 계획 열 숨김의 대상이다(`HIDEABLE_PLAN_COLS`).
+- 셀은 3.2 라벨 칩(`data-wbs-stage=코드`, 색은 지금 `STAGE_META`). null 은 `-`. 모르는 코드는 코드 그대로 중립색으로 그린다(표시 = 로깅). 작업명 칸 우단의 칩은 지운다.
+- 엑셀 export 에 단계 열은 넣지 않는다(범위 밖).
 
 ### 5.3 상세 패널 「담당·단계」
 
@@ -210,7 +213,7 @@ apply_workflow_event(
 - RPC: `tests/migrations/` 관례로 SQL 본문 검사 + 스테이징 실측 스크립트(승인 → 실적 100·stage xx 가 한 번에, 반려 → ip·표.rw, 주문 CAS 불일치 → conflict).
 - 액션: `updateActual` 상한 3분기, `setWbsStage` 활성 주문 비활성, `updateStageCredits` 관리자 가드·검증 거부.
 - 라우트: claim·report 가 RPC 를 통해 단계·실적을 쓰는지, progress 보고가 `actual_pct` 를 안 건드리는지, `depends_evidence.reached`.
-- 화면: 슬라이더 제약(드래그 경계·직접 입력 클램프·XX 잠금), 헤더 「진척」, 드롭다운 비활성 안내문.
+- 화면: 슬라이더 제약(드래그 경계·직접 입력 클램프·XX 잠금), 헤더 「진척」, 드롭다운 비활성 안내문, 「단계」 컬럼(위임 0건이면 없음·1건이면 헤더와 셀·깊은 자손 위임도 인정·작업명 칸 칩 없음).
 - 회귀: fp 를 참조하던 기존 테스트 15개 파일(2026-09-15 grep) 갱신.
 
 ## 9. 범위 밖
@@ -223,9 +226,10 @@ apply_workflow_event(
 ## 10. 구현 순서 (계획서에서 Task 로 쪼갠다)
 
 1. 「진척」 헤더·엑셀 헤더 (독립, 먼저 머지 가능).
-2. 순수 함수(크레딧 검증·사건 표·선행 판정) + 테스트.
+2. 순수 함수(크레딧 검증·사건 표·선행 판정·라벨 정본) + 테스트. fp 제거.
 3. 마이그레이션 0096 + 롤백 + 스테이징 리허설.
-4. RPC 호출부 교체(claim·report·승인·반려·재작업·승인 취소·회수·배정·위임) + 삭제 목록 정리.
-5. `updateActual` 상한, `setWbsStage` 규칙, 드롭다운 UI.
-6. 설정 슬라이더 + 저장 액션.
-7. API 계약 v2.3 문서, 스킬 문구, 라벨 사전 통일.
+4. RPC 호출부 교체(claim·report·승인·반려·재작업·승인 취소·회수·배정·위임·단계 지정) + 삭제 목록 정리.
+5. `updateActual` 상한, 드롭다운 UI(상세 패널·허브), 라벨 통일.
+6. WBS 「단계」 컬럼(D9).
+7. 설정 슬라이더 + 저장 액션.
+8. API 계약 v2.3 문서, 스킬 문구.
