@@ -6,13 +6,16 @@ import { join } from 'node:path'
 const mocks = vi.hoisted(() => ({
   requireProjectMember: vi.fn(), requireProjectAdmin: vi.fn(), createAdminClient: vi.fn(),
   getAgentHub: vi.fn(), applyDelegation: vi.fn(), viewerEmail: vi.fn(), myMemberIds: vi.fn(),
+  isSubtreeManager: vi.fn(),
   approve: vi.fn(), reject: vi.fn(), unapprove: vi.fn(), rework: vi.fn(), setWbsStage: vi.fn(), emitNotification: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({ requireProjectMember: mocks.requireProjectMember, requireProjectAdmin: mocks.requireProjectAdmin }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/data/agentHub', () => ({ getAgentHub: mocks.getAgentHub }))
 vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail }))
-vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds }))
+// isSubtreeManager 는 runHubProcessOp 의 회수 게이트가 requireSubtreeManagerOrAdmin(subtreeManager.ts,
+// 실제 모듈)을 통해 부른다 — myMemberIds 와 같은 자리에서 같이 목킹한다(트랙 B, 2026-09-15).
+vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds, isSubtreeManager: mocks.isSubtreeManager }))
 vi.mock('@/lib/agent/delegation', () => ({
   applyDelegation: mocks.applyDelegation, ERR_NOT_ASSIGNEE: '담당자 본인 또는 프로젝트 관리자만 바꿀 수 있습니다.',
 }))
@@ -285,19 +288,45 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
     expect(mocks.requireProjectMember).toHaveBeenCalledTimes(1)
   })
 
-  describe('멤버(비관리자) — 반려·승인 취소·재작업은 내부 액션(자격은 그쪽)으로, 회수·승인·단계는 여기서 관리자로 좁힌다', () => {
-    beforeEach(() => { mocks.requireProjectMember.mockResolvedValue(MEMBER) })
+  describe('멤버(비관리자) — 반려·승인 취소·재작업은 내부 액션(자격은 그쪽)으로, 회수는 여기서 관리자 또는 서브트리 관리자로 좁힌다(트랙 B)', () => {
+    beforeEach(() => {
+      mocks.requireProjectMember.mockResolvedValue(MEMBER)
+      // requireSubtreeManagerOrAdmin(subtreeManager.ts, 실제 모듈)의 내부 admin fast path 를
+      // 이 블록에서는 확실히 막는다 — 안 막으면 최상단 beforeEach 의 requireProjectAdmin 기본값
+      // (ADMIN, ok:true)이 그대로 살아 있어 "멤버" 시나리오에서도 회수가 새어 나간다.
+      mocks.requireProjectAdmin.mockResolvedValue(DENIED)
+      mocks.isSubtreeManager.mockResolvedValue(false)
+    })
     it('멤버의 반려는 통과 → rejectAgentCompletion 호출, 허브는 isAdmin=false 로 재조회', async () => {
       fakeAdmin({ orders: ORDERS })
       expect(await runHubProcessOp(P1, { kind: 'reject', orderId: O(1), note: '다시' })).toEqual({ ok: true, hub: HUB })
       expect(mocks.reject).toHaveBeenCalledWith(O(1), '다시')
       expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'member-1', isAdmin: false })
     })
-    it('멤버의 회수는 여기서 막는다 — 내부 액션·재조회 없음', async () => {
+    it('서브트리 관리자가 아닌 멤버의 회수는 여기서 막는다 — 내부 액션·재조회 없음', async () => {
       fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } } })
-      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: false, error: '회수는 관리자만 할 수 있습니다.' })
+      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) }))
+        .toEqual({ ok: false, error: '회수는 관리자 또는 서브트리 관리자만 할 수 있습니다.' })
       expect(mocks.emitNotification).not.toHaveBeenCalled()
       expect(mocks.getAgentHub).not.toHaveBeenCalled()
+    })
+    it('WBS 항목이 삭제된 주문(wbs_item_id 없음)의 회수는 조상을 특정 못 해 관리자만', async () => {
+      fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: null } } })
+      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) }))
+        .toEqual({ ok: false, error: '회수는 관리자만 할 수 있습니다.' })
+      expect(mocks.isSubtreeManager).not.toHaveBeenCalled()
+    })
+    it('서브트리 관리자인 멤버의 회수는 허용 — requireSubtreeManagerOrAdmin 을 통해 통과(트랙 B)', async () => {
+      mocks.viewerEmail.mockResolvedValue('anc@x.com')
+      mocks.myMemberIds.mockResolvedValue(['anc-member'])
+      mocks.isSubtreeManager.mockResolvedValue(true)
+      const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1) } }, items: ITEMS })
+      expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+      expect(updates).toHaveLength(1)
+      expect(mocks.isSubtreeManager).toHaveBeenCalledWith(
+        expect.anything(), { itemId: I(1), projectId: P1, myMemberIds: ['anc-member'] },
+      )
+      expect(mocks.getAgentHub).toHaveBeenCalledWith(P1, { userId: 'member-1', isAdmin: false })
     })
     it('멤버의 승인 취소·재작업도 내부 액션으로 넘어간다(자격 판정은 loadOrderForReview)', async () => {
       fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'approved', wbs_item_id: I(1) } } })

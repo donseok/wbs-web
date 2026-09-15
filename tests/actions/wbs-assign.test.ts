@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   emitNotification: vi.fn(),
   ensureOrderForWorkflowLeaf: vi.fn(),
   transitionStage: vi.fn(),
+  viewerEmail: vi.fn(),
+  myMemberIds: vi.fn(),
+  isSubtreeManager: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({
   requireProjectAdmin: mocks.requireProjectAdmin,
@@ -16,6 +19,10 @@ vi.mock('@/lib/authz', () => ({
   resolveProjectId: mocks.resolveProjectId,
 }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
+// setWbsStage 는 requireSubtreeManagerOrAdmin(subtreeManager.ts, 실제 모듈, 트랙 B 2026-09-15)로
+// 관리자 아닌 경로를 판정한다 — 그 내부가 부르는 viewerEmail·myMemberIds·isSubtreeManager 만 목킹한다.
+vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail }))
+vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds, isSubtreeManager: mocks.isSubtreeManager }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: mocks.emitNotification }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf }))
@@ -83,6 +90,10 @@ beforeEach(() => {
   mocks.emitNotification.mockResolvedValue({ ok: true, recipients: 1 })
   mocks.ensureOrderForWorkflowLeaf.mockResolvedValue({ ok: true, created: true })
   mocks.transitionStage.mockResolvedValue({ ok: true, transitioned: true })
+  // 서브트리 관리자 경로 기본값(트랙 B) — 안전한 쪽("아니다")으로 두고, 개별 테스트가 override.
+  mocks.viewerEmail.mockResolvedValue('member@example.com')
+  mocks.myMemberIds.mockResolvedValue([])
+  mocks.isSubtreeManager.mockResolvedValue(false)
 })
 
 describe('setWbsAssignee', () => {
@@ -483,6 +494,54 @@ describe('setWbsAssigneeCascade', () => {
 })
 
 describe('setWbsStage', () => {
+  // 자격: 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15) — requireSubtreeManagerOrAdmin.
+  // 이 describe 블록의 다른 모든 테스트는 최상단 beforeEach 의 requireProjectAdmin 기본값
+  // (ok:true) 으로 관리자 fast path 를 타므로 여기서 회귀 없음을 별도로 확인할 필요는 없다 —
+  // 이 서브블록만 명시적으로 관리자를 막아 "그 다음"을 검사한다.
+  describe('자격 — 관리자 아닐 때', () => {
+    beforeEach(() => { mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' }) })
+    it('멤버지만 서브트리 관리자가 아니면 거부, DB 접근 없음', async () => {
+      mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+      const { calls } = admin({})
+      const r = await setWbsStage(W1, 'ip')
+      expect(r).toEqual({ ok: false, error: '관리자 또는 서브트리 관리자만 할 수 있습니다.' })
+      expect(calls).toHaveLength(0)
+    })
+    it('멤버도 아니면 그 가드 오류 그대로', async () => {
+      mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '멤버 아님' })
+      expect(await setWbsStage(W1, 'ip')).toEqual({ ok: false, error: '멤버 아님' })
+    })
+    it('서브트리 관리자(strict 조상의 담당자)면 허용 — change_logs.user_id 도 그 사용자', async () => {
+      mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+      mocks.myMemberIds.mockResolvedValue(['anc-member'])
+      mocks.isSubtreeManager.mockResolvedValue(true)
+      const { captured } = admin({
+        wbs_items: [
+          { data: { id: W1, project_id: P1, parent_id: null, name: 'Task A' } },
+          { data: null }, // 리프 확인 — 자식 없음
+          { data: { stage: null } },
+          { data: [{ id: W1 }] },
+        ],
+        change_logs: [{ data: [{ id: 'log1' }] }],
+      })
+      const r = await setWbsStage(W1, 'ip')
+      expect(r.ok).toBe(true)
+      expect(mocks.isSubtreeManager).toHaveBeenCalledWith(
+        expect.anything(), { itemId: W1, projectId: P1, myMemberIds: ['anc-member'] },
+      )
+      expect(captured.change_logs[0]).toMatchObject({ field: 'stage', new_value: 'ip', user_id: 'anc-1' })
+    })
+    it('조상 조회(isSubtreeManager)가 throw 하면 거부 — fail-closed', async () => {
+      mocks.requireProjectMember.mockResolvedValue({ ok: true, actor: { userId: 'anc-1' } })
+      mocks.myMemberIds.mockResolvedValue(['anc-member'])
+      mocks.isSubtreeManager.mockRejectedValue(new Error('조상 조회 실패: boom'))
+      const { calls } = admin({})
+      const r = await setWbsStage(W1, 'ip')
+      expect(r.ok).toBe(false)
+      expect(calls).toHaveLength(0)
+    })
+  })
+
   it('유효 stage 갱신 + change_logs 기록', async () => {
     const { captured } = admin({
       wbs_items: [

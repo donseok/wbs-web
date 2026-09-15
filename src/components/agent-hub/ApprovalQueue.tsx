@@ -1,5 +1,6 @@
 'use client'
-// 승인 대기 큐 — 완료 보고(reported)가 올라온 주문을 카드로. 승인·반려는 관리자만.
+// 승인 대기 큐 — 완료 보고(reported)가 올라온 주문을 카드로. 승인은 관리자 또는 서브트리 관리자
+// (대상 리프의 strict 조상 중 담당자가 나, HubQueueEntry.canManage — 트랙 B, 2026-09-15).
 // 처리는 runHubProcessOp 1건으로 끝나고 응답의 허브로 화면을 바꾼다(§10·§11) — 재조회 요청 없음.
 import { useState } from 'react'
 import type { AgentHub, HubQueueEntry } from '@/lib/domain/agentHub'
@@ -54,18 +55,20 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
           {q.links.map((l, i) => <li key={i}><a href={l.url} target="_blank" rel="noreferrer" className="text-brand underline-offset-2 hover:underline">{l.label ?? l.url}</a></li>)}
         </ul>
       )}
-      {(isAdmin || q.assigneeMine) ? (
-        // 승인은 관리자만, 반려는 담당자 본인도(2026-09-14 §11). 담당자는 자기 완료 보고를 스스로 물릴 수 있다.
+      {(isAdmin || q.assigneeMine || q.canManage) ? (
+        // 승인은 관리자 또는 서브트리 관리자, 반려는 +담당자 본인도(2026-09-14 §11, 2026-09-15 트랙 B).
+        // 담당자는 자기 완료 보고를 스스로 물릴 수 있다. canManage 는 조상 전용이라 리프 본인 담당자만인
+        // 경우엔 여전히 approve 가 안 뜬다(분리 원칙 — 자기 완료를 자기가 승인 못 함).
         <div className="mt-2 flex flex-col gap-2">
           <div className="flex gap-2">
-            {isAdmin && (
+            {(isAdmin || q.canManage) && (
               <button type="button" data-queue-approve disabled={busy} title={OP_TITLE.approve}
                 onClick={() => { void run({ kind: 'approve', orderId: q.orderId }) }} className="btn btn-primary h-8 px-3 text-xs">{OP_LABEL.approve}</button>
             )}
             <button type="button" data-queue-reject-open disabled={busy} aria-expanded={rejecting} title={OP_TITLE.reject}
               onClick={() => setRejecting(v => !v)} className="btn btn-ghost h-8 px-3 text-xs">{OP_LABEL.reject}</button>
           </div>
-          {!isAdmin && <p className="text-[10px] text-ink-subtle">승인은 관리자가 합니다. 담당자는 반려로 자기 보고를 물릴 수 있습니다.</p>}
+          {!(isAdmin || q.canManage) && <p className="text-[10px] text-ink-subtle">승인은 관리자가 합니다. 담당자는 반려로 자기 보고를 물릴 수 있습니다.</p>}
           {rejecting && (
             <div className="flex flex-col gap-1">
               <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={NOTE_PLACEHOLDER.reject} className="app-input w-full text-xs" />

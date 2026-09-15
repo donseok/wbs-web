@@ -2,8 +2,9 @@
 // 위임 표 — WBS 트리 순서로 항목을 나열하고 리프마다 위임 체크·단계·주문 상태·에이전트·마지막 신호·조정·프롬프트.
 // 부모 행 체크 = 하위 리프 일괄(관리자). 체크는 즉시 표시되고 잠기지 않는다. 1.5초 모아 applyHubDelegations 1건으로
 // 보내고 응답의 허브로 표를 갱신한다(2026-09-14 체크 지연 개선 — 종전 체크 1개 = 액션 2건 직렬 + 0.8~1.0초 잠김).
-// 조정(승인·반려·승인 취소·재작업 요청·회수)과 단계 직접 조정은 관리자만, runHubProcessOp 1건으로 끝나고 응답의 허브로
-// 교체한다(스펙 §11). 페이지 전체 refresh 금지(스펙 §7).
+// 조정(승인·반려·승인 취소·재작업 요청·회수)과 단계 직접 조정은 관리자 또는 서브트리 관리자
+// (대상 리프의 strict 조상 중 담당자가 나, HubRow.canManage — 트랙 B, 2026-09-15), runHubProcessOp
+// 1건으로 끝나고 응답의 허브로 교체한다(스펙 §11). 페이지 전체 refresh 금지(스펙 §7).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Pencil } from 'lucide-react'
 import type { AgentHub, HubRow } from '@/lib/domain/agentHub'
@@ -37,8 +38,10 @@ type Props = {
 type NoteKind = 'reject' | 'rework'
 /**
  * 주문 상태별 조정 버튼(§11). note 가 있는 것은 사유 입력 줄을 먼저 연다.
- * who='admin' 은 관리자만(승인·회수), 'review' 는 관리자 또는 담당자 본인(반려·승인 취소·재작업 요청,
- * 2026-09-14 사용자 결정 "담당자 본인도 허용"). 서버 자격(loadOrderForReview·runHubProcessOp)과 같은 경계다.
+ * who='admin' 은 관리자 또는 서브트리 관리자(승인·회수), 'review' 는 관리자·담당자 본인·서브트리
+ * 관리자(반려·승인 취소·재작업 요청, 2026-09-14 "담당자 본인도 허용" + 2026-09-15 트랙 B). 서버 자격
+ * (loadOrderForAdmin·loadOrderForReview·requireSubtreeManagerOrAdmin, runHubProcessOp)과 같은 경계다.
+ * 리프 본인 담당자는 canManage 가 조상만 보므로 who='admin' 버튼(승인)에는 여전히 안 뜬다(분리 원칙).
  */
 type OpButton = { kind: keyof typeof OP_LABEL; who: 'admin' | 'review'; note?: NoteKind }
 const OPS_BY_STATUS: Readonly<Record<string, readonly OpButton[]>> = {
@@ -107,13 +110,14 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
     onError: (message, sent) => setRowErr(m => { const n = new Map(m); for (const c of sent) n.set(c.itemId, message); return n }),
   })
 
-  // 표시 행: mine 이면 내 담당 리프와 그 조상만. 접힌 부모의 자손은 숨긴다.
+  // 표시 행: mine 이면 내 담당 리프 + 내가 서브트리 관리자인 리프(트랙 B), 그리고 그 조상만.
+  // 접힌 부모의 자손은 숨긴다.
   const visible = useMemo(() => {
     let keep: Set<string> | null = null
     if (filter === 'mine') {
       keep = new Set()
       for (const r of rows) {
-        if (!(r.isLeaf && r.assigneeMine)) continue
+        if (!(r.isLeaf && (r.assigneeMine || r.canManage))) continue
         keep.add(r.itemId)
         let p = r.parentId
         while (p) { keep.add(p); p = byId.get(p)?.parentId ?? null }
@@ -225,11 +229,12 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
               const canEditPrompt = r.canToggle
               const sig = r.order?.lastSignalAt ? ageLabel(r.order.lastSignalAt, nowMs) : ''
               const stageShown = stageOpt.has(r.itemId) ? stageOpt.get(r.itemId) ?? null : r.stage
-              // 단계 select 는 관리자만. 조정 버튼은 관리자 + 담당자 본인이 볼 수 있고, 버튼별 who 로 다시 거른다.
-              const canStage = isAdmin && r.isLeaf && !r.milestone
-              const canReviewRow = (isAdmin || r.assigneeMine) && r.isLeaf && !r.milestone
+              // 단계 select 는 관리자 또는 서브트리 관리자. 조정 버튼은 관리자 + 담당자 본인 + 서브트리
+              // 관리자가 볼 수 있고, 버튼별 who 로 다시 거른다(트랙 B, 2026-09-15).
+              const canStage = (isAdmin || r.canManage) && r.isLeaf && !r.milestone
+              const canReviewRow = (isAdmin || r.assigneeMine || r.canManage) && r.isLeaf && !r.milestone
               const ops = canReviewRow && r.order
-                ? (OPS_BY_STATUS[r.order.status] ?? []).filter(b => b.who === 'admin' ? isAdmin : (isAdmin || r.assigneeMine))
+                ? (OPS_BY_STATUS[r.order.status] ?? []).filter(b => b.who === 'admin' ? (isAdmin || r.canManage) : (isAdmin || r.assigneeMine || r.canManage))
                 : []
               // READY(아직 착수 전) 위임 항목은 조정 열에 「취소」 — 위임 체크를 끄는 것과 같은 길(§11-2).
               const canCancel = r.canToggle && checked && (r.order === null || r.order.status === 'ready')
@@ -260,7 +265,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                         : <span className={r.isLeaf ? 'text-ink' : 'font-semibold text-ink'}>{r.name}</span>}
                     </span>
                   </td>
-                  <td className="py-1 text-ink-muted">{r.assigneeName ?? ''}</td>
+                  <td className="py-1 text-ink-muted" title={r.canManage && !r.assigneeMine ? '상위 항목 담당자로서 조정할 수 있는 항목입니다(서브트리 관리)' : undefined}>{r.assigneeName ?? ''}</td>
                   <td className="py-1">
                     {canStage
                       ? <select data-hub-stage value={stageShown ?? ''} disabled={isBusy} aria-label={`${r.code} 단계`}

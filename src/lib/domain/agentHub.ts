@@ -29,6 +29,10 @@ export interface HubRow {
   itemId: string; code: string; name: string; depth: number; parentId: string | null
   isLeaf: boolean; milestone: boolean
   assigneeName: string | null; assigneeMine: boolean
+  /** 서브트리 관리자(트랙 B, 2026-09-15) — 이 리프의 strict 조상(부모…루트, 자신 제외) 중
+   *  담당자가 나면 true. 허브 UI 의 mine 필터·조정 버튼 노출을 서버 가드
+   *  (requireSubtreeManagerOrAdmin, agent/subtreeManager.ts)와 같은 축으로 맞춘다. */
+  canManage: boolean
   delegated: boolean; devWorkflow: boolean
   /** WBS 단계(as/fp/ip/im/xx, 미지정 null). 허브의 단계 직접 조정(§11)이 보이는 값이자 select 의 현재값. */
   stage: string | null
@@ -44,6 +48,9 @@ export interface HubQueueEntry {
   links: { label?: string; url: string }[]; reportedAt: string
   /** 이 보고 항목의 담당자가 보는 사람 자신인가 — 카드의 반려 버튼 노출 판정(승인은 관리자만, 반려는 담당자도, §11). */
   assigneeMine: boolean
+  /** 서브트리 관리자(트랙 B) — 큐 항목은 항상 리프의 reported 주문이므로 그 리프의 strict 조상
+   *  중 담당자가 나면 true. HubRow.canManage 와 같은 규칙. */
+  canManage: boolean
 }
 export interface AgentHub {
   projectId: string; projectName: string
@@ -70,6 +77,25 @@ export function myMemberIdsOf(members: HubMemberRow[], viewer: { userId: string;
     if (m.user_id === viewer.userId || (email !== null && m.email !== null && m.email.toLowerCase() === email)) out.push(m.id)
   }
   return out
+}
+
+/**
+ * 서브트리 관리자 판정(트랙 B, 2026-09-15) — itemId 의 strict 조상(부모…루트, 자신 제외) 중
+ * 어느 노드의 assignee_member_id 가 mine 과 교집합이면 true. src/lib/agent/assignee.ts 의
+ * isSubtreeManager 와 같은 규칙이지만, 허브는 프로젝트 전체 항목(rows.items)을 이미 메모리에
+ * 들고 있으므로 새 DB 조회 없이 그 자리에서 조상을 탄다. visited Set 으로 parent_id 순환을 막는다.
+ */
+function isSubtreeManagerOf(itemId: string, itemById: ReadonlyMap<string, HubItemRow>, mine: ReadonlySet<string>): boolean {
+  const visited = new Set<string>()
+  let cur = itemById.get(itemId)?.parent_id ?? null
+  while (cur !== null && !visited.has(cur)) {
+    visited.add(cur)
+    const row = itemById.get(cur)
+    if (!row) break
+    if (row.assignee_member_id && mine.has(row.assignee_member_id)) return true
+    cur = row.parent_id
+  }
+  return false
 }
 
 const cmp = (a: HubItemRow, b: HubItemRow) => a.sort_order - b.sort_order || a.code.localeCompare(b.code)
@@ -127,6 +153,8 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   }
 
   const hasChildren = new Set(rows.items.map(i => i.parent_id).filter((x): x is string => x !== null))
+  // canManage(조상 워크)·큐(항목 표시)가 같이 쓴다 — 루프보다 먼저 만들어 둔다.
+  const itemById = new Map(rows.items.map(i => [i.id, i]))
   // 선행은 같은 프로젝트 항목의 external_ref 로 맞춘다 — 허브는 프로젝트 전체 항목을 이미 들고 있다.
   const byRef = new Map(rows.items.filter(i => i.external_ref !== null).map(i => [i.external_ref as string, i]))
   const approved = new Set(rows.approvedItemIds)
@@ -136,6 +164,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     const isLeaf = !hasChildren.has(item.id)
     const delegated = (item.tags ?? []).includes(AGENT_TAG)
     const assigneeMine = item.assignee_member_id !== null && mine.has(item.assignee_member_id)
+    const canManage = isSubtreeManagerOf(item.id, itemById, mine)
     const picked = pickOrder(ordersByItem.get(item.id) ?? [])
     let order: HubRow['order'] = null
     if (picked) {
@@ -162,14 +191,13 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     hubRows.push({
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,
-      assigneeName: item.assignee_member_id ? (memberName.get(item.assignee_member_id) ?? null) : null, assigneeMine,
+      assigneeName: item.assignee_member_id ? (memberName.get(item.assignee_member_id) ?? null) : null, assigneeMine, canManage,
       delegated, devWorkflow: item.dev_workflow, stage: item.stage, order, prompt: item.agent_prompt,
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
       unmetDepends: unmet.length ? unmetDependsList(unmet) : null,
     })
   }
 
-  const itemById = new Map(rows.items.map(i => [i.id, i]))
   const queue: HubQueueEntry[] = rows.orders
     .filter(o => o.status === 'reported')
     .map(o => {
@@ -180,6 +208,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
         agent: rep?.agent ?? o.heartbeat_agent ?? o.claimed_by ?? '', percent: rep?.percent ?? 0, summary: rep?.summary ?? '',
         links: rep?.links ?? [], reportedAt: rep?.created_at ?? o.updated_at,
         assigneeMine: it?.assignee_member_id != null && mine.has(it.assignee_member_id),
+        canManage: it ? isSubtreeManagerOf(it.id, itemById, mine) : false,
       }
     })
     .sort((a, b) => Date.parse(a.reportedAt) - Date.parse(b.reportedAt))

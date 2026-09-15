@@ -10,6 +10,7 @@ import { getAgentHub } from '@/lib/data/agentHub'
 import { viewerEmail } from '@/lib/data/agentSeatmap'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
+import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 import { emitNotification } from '@/lib/notify/emit'
 import { approveAgentCompletion, rejectAgentCompletion, requestAgentRework, unapproveAgentCompletion } from '@/app/actions/agentWork'
 import { setWbsStage } from '@/app/actions/wbsAssign'
@@ -108,9 +109,11 @@ export async function applyHubDelegations(projectId: string, changes: HubDelegat
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// 개발 프로세스 조정(2026-09-14 허브 스펙 §11) — 승인·반려·승인 취소·재작업 요청(=완료 취소)·회수·단계 직접 조정.
-// 판정은 기존 액션(agentWork·wbsAssign)이 각자 한다. 여기서는 (1) 관리자 가드 1회, (2) 대상이 이 프로젝트 것인지,
-// (3) 실행 뒤 허브 재조회를 한 응답에 싣는 것만 맡는다 — 화면은 요청 1건으로 끝난다(§10 과 같은 원칙).
+// 개발 프로세스 조정(2026-09-14 허브 스펙 §11, 2026-09-15 트랙 B — 서브트리 관리자 추가) —
+// 승인·반려·승인 취소·재작업 요청(=완료 취소)·회수·단계 직접 조정. 세부 자격(관리자 또는
+// 서브트리 관리자, 반려 계열은 +담당자 본인)은 기존 액션(agentWork·wbsAssign)이 각자 한다.
+// 여기서는 (1) 멤버 가드 1회, (2) 대상이 이 프로젝트 것인지, (3) 회수만 별도로 좁히는 것,
+// (4) 실행 뒤 허브 재조회를 한 응답에 싣는 것을 맡는다 — 화면은 요청 1건으로 끝난다(§10 과 같은 원칙).
 // ---------------------------------------------------------------------------------------------------------------------
 
 export type WbsStageCode = 'as' | 'fp' | 'ip' | 'im' | 'xx'
@@ -147,9 +150,12 @@ function isProcessOp(op: unknown): op is HubProcessOp {
 }
 
 /**
- * 관리자 회수 — claimed → ready(CAS). 점유·heartbeat 흔적을 지워 표에 옛 에이전트 이름이 남지 않게 한다.
- * 러너는 다음 heartbeat·report 에서 409 를 받고 멈춘다(보고 라우트가 status=claimed 만 받는다).
- * 알림은 러너 반납(release 라우트)과 같은 work.released 를 배정자에게 — fire-and-forget.
+ * 회수 본체 — claimed → ready(CAS). 호출부(runHubProcessOp)가 관리자 또는 서브트리 관리자로
+ * 자격을 이미 가렸다(트랙 B, 2026-09-15) — 이 함수 이름은 옛 "관리자 전용" 시절 그대로지만
+ * 상태 전이·알림 로직 자체는 호출자가 누구든 같다. 점유·heartbeat 흔적을 지워 표에 옛 에이전트
+ * 이름이 남지 않게 한다. 러너는 다음 heartbeat·report 에서 409 를 받고 멈춘다(보고 라우트가
+ * status=claimed 만 받는다). 알림은 러너 반납(release 라우트)과 같은 work.released 를
+ * 배정자에게 — fire-and-forget.
  */
 async function releaseOrderByAdmin(
   admin: AdminClient, orderId: string, actorUserId: string,
@@ -194,25 +200,36 @@ async function releaseOrderByAdmin(
 
 export async function runHubProcessOp(projectId: string, op: HubProcessOp): Promise<HubProcessResult> {
   if (!isUuidLike(projectId) || !isProcessOp(op)) return { ok: false, error: ERR_BAD }
-  // 멤버 이상이면 문을 연다 — 승인·회수·단계는 아래에서 관리자만으로 다시 좁히고, 반려·승인 취소·재작업 요청은
-  // 내부 액션(loadOrderForReview)이 "관리자 또는 담당자 본인"으로 판정한다(2026-09-14, 사용자 결정 "담당자 본인도 허용").
+  // 멤버 이상이면 문을 연다 — 승인·단계는 내부 액션(loadOrderForAdmin·setWbsStage)이 "관리자 또는
+  // 서브트리 관리자"로, 반려·승인 취소·재작업 요청은 내부 액션(loadOrderForReview)이 "관리자·담당자
+  // 본인·서브트리 관리자"로 판정한다(2026-09-14 담당자 본인, 2026-09-15 트랙 B 서브트리 관리자).
+  // 회수만 아래서 별도로 좁힌다 — 러너의 점유를 강제로 푸는 관리 행위라 일반 멤버에겐 안 연다.
   const g = await requireProjectMember(projectId)
   if (!g.ok) return { ok: false, error: g.error }
   const isAdmin = isProjectAdmin(g.actor, projectId)
-  // 회수는 담당자에게 넓힌 집합에 없다 — 러너의 점유를 강제로 푸는 관리 행위라 관리자만.
-  if (op.kind === 'release' && !isAdmin) return { ok: false, error: '회수는 관리자만 할 수 있습니다.' }
   const admin = createAdminClient()
 
   // 대상이 이 프로젝트 것인지 화면 단위로 한 번 더 본다 — 내부 액션도 각자 가드하지만, 남의 프로젝트 주문 id 를
-  // 이 화면에 끼워 넣는 길은 여기서 닫는다(fail-closed).
+  // 이 화면에 끼워 넣는 길은 여기서 닫는다(fail-closed). release 는 이 조회로 얻은 wbs_item_id 를
+  // 아래 서브트리 관리자 판정에도 그대로 쓴다(재조회 없이).
+  let releaseItemId: string | null = null
   if (op.kind === 'stage') {
     const { data, error } = await admin.from('wbs_items').select('project_id').eq('id', op.itemId).maybeSingle()
     if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
     if (!data || (data as { project_id: string }).project_id !== projectId) return { ok: false, error: '이 프로젝트의 항목이 아닙니다.' }
   } else {
-    const { data, error } = await admin.from('agent_work_orders').select('project_id').eq('id', op.orderId).maybeSingle()
+    const { data, error } = await admin.from('agent_work_orders').select('project_id, wbs_item_id').eq('id', op.orderId).maybeSingle()
     if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
     if (!data || (data as { project_id: string }).project_id !== projectId) return { ok: false, error: '이 프로젝트의 주문이 아닙니다.' }
+    releaseItemId = (data as { wbs_item_id: string | null }).wbs_item_id
+  }
+
+  // 회수는 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15). WBS 항목이 삭제된 주문(wbs_item_id
+  // 없음)은 조상을 특정할 수 없어 관리자만.
+  if (op.kind === 'release' && !isAdmin) {
+    if (!releaseItemId) return { ok: false, error: '회수는 관리자만 할 수 있습니다.' }
+    const subtree = await requireSubtreeManagerOrAdmin(releaseItemId, projectId)
+    if (!subtree.ok) return { ok: false, error: '회수는 관리자 또는 서브트리 관리자만 할 수 있습니다.' }
   }
 
   let r: { ok: boolean; error?: string; warning?: string }
