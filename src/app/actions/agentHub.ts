@@ -12,6 +12,9 @@ import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 import { emitNotification } from '@/lib/notify/emit'
+import { applyWorkflowEvent } from '@/lib/agent/workflowEvent'
+import { recordProgressSnapshot } from '@/lib/data/snapshots'
+import { after } from 'next/server'
 import { approveAgentCompletion, rejectAgentCompletion, requestAgentRework, unapproveAgentCompletion } from '@/app/actions/agentWork'
 import { setWbsStage } from '@/app/actions/wbsAssign'
 import type { AgentHub } from '@/lib/domain/agentHub'
@@ -166,16 +169,14 @@ async function releaseOrderByAdmin(
   const order = data as { id: string; project_id: string; wbs_item_id: string | null; status: string } | null
   if (!order) return { ok: false, error: '주문 없음' }
   if (order.status !== 'claimed') return { ok: false, error: `회수할 수 있는 상태가 아닙니다(${order.status}).` }
-  const { data: updated, error: upErr } = await admin
-    .from('agent_work_orders')
-    .update({
-      status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null,
-      last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, heartbeat_note: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', orderId).eq('status', 'claimed').select('id')
-  if (upErr) return { ok: false, error: upErr.message }
-  if (!updated || updated.length === 0) return { ok: false, error: '상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요.' }
+  // 원자 전이(스펙 2026-09-15 §4) — claimed→ready CAS + 점유·heartbeat 흔적 제거 + 단계 as·실적 표.as 가 한 트랜잭션.
+  // 사람 회수라 점유자 일치 조건은 넘기지 않는다(자격은 호출부 runHubProcessOp 가 이미 가렸다).
+  const transition = await applyWorkflowEvent(admin, { event: 'release', actorUserId, orderId })
+  if (!transition.ok) {
+    return { ok: false, error: transition.conflict ? '상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요.' : transition.error }
+  }
+  // 허브 액션은 페이지 재렌더를 싣지 않는다(응답의 hub 로 갱신) — 실적이 바뀌었으면 진척 스냅샷만 남긴다.
+  if (transition.actualChanged) after(() => recordProgressSnapshot(order.project_id))
 
   let itemName = '작업'
   let assigneeMemberId: string | null = null

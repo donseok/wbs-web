@@ -10,7 +10,7 @@ import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { isUuidLike } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
-import { transitionStage } from '@/lib/agent/stageTransition'
+import { applyWorkflowEvent, notifyOnReached, SKIPPED_WARN, type WorkflowEventOk, type WorkflowSkipped } from '@/lib/agent/workflowEvent'
 import { requireDelegationRight } from '@/lib/agent/delegation'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 
@@ -135,8 +135,8 @@ async function loadOrderForReview(orderId: string): Promise<
 
 /**
  * 승인/반려 알림 — fire-and-forget. 수신자는 그 항목의 배정자(없으면 발행 생략).
- * work.unblocked 는 여기서 발행하지 않는다 — 정본은 setWbsStage(wbsAssign.ts)의 전체-선행-충족
- * 게이트 경로 하나다. 이 액션은 게이트·dedupeKey 없이 판단해 거짓 알림을 낼 수 있었다(최종 리뷰 I2).
+ * work.unblocked 는 여기서 발행하지 않는다 — 전이 결과(reachedFirst)를 보고 notifyOnReached(후행의 선행 전체
+ * 충족 게이트)가 발행한다. 이 함수가 게이트·dedupeKey 없이 판단하면 거짓 알림을 낼 수 있었다(최종 리뷰 I2).
  */
 async function notifyReviewResult(
   admin: AdminClient,
@@ -170,73 +170,45 @@ async function notifyReviewResult(
   })
 }
 
-/** 승인 — WBS 100% 반영이 먼저다. 반영 실패면 주문은 reported 로 남아 재시도 가능해야 한다. */
-/**
- * transitionStage 가 전이를 건너뛴 사유별 사람 문구. 사유마다 사람이 할 일이 다르다 —
- * 'stage' 는 단계를 되돌릴지 판단, 'parent' 는 애초에 상위 항목에 주문이 나간 것 자체가 문제다.
- */
-const STAGE_SKIP_WARN: Record<string, string> = {
-  stage: '승인은 처리됐지만 현재 WBS 단계가 자동 전이 대상이 아니라 그대로 두었습니다 — 단계를 확인하세요.',
-  parent: '승인은 처리됐지만 이 항목에 하위 항목이 있어 단계를 바꾸지 않았습니다 — 개발 워크플로 단계는 최종단계의 것입니다. 주문이 상위 항목에 나간 경위를 확인하세요.',
-  dev_workflow: '승인은 처리됐지만 WBS 단계를 바꾸지 않았습니다(개발 워크플로 꺼짐) — 단계를 확인하세요.',
+/** 주문 사건이 단계·실적을 건너뛴 사유가 있으면 사람용 경고로. 사유가 무엇이든 알린다 — 종전 경로에서 'parent' 를 빠뜨려 반쪽 상태가 무음으로 끝난 적이 있다. */
+function skippedWarning(skipped: WorkflowSkipped | null): string | undefined {
+  if (!skipped) return undefined
+  // 모르는 사유도 무음으로 끝내지 않는다 — RPC 가 새 사유를 돌려줘도 여기서 걸리게.
+  return SKIPPED_WARN[skipped] ?? `처리는 됐지만 단계·실적을 바꾸지 않았습니다(${skipped}) — 확인하세요.`
 }
 
-/**
- * 승인/승인 되돌림 전용 특권 실적% 쓰기(트랙 B 후속, 2026-09-15). updateActual(actions/wbs.ts)
- * 을 그대로 쓰지 않는 이유: 그 함수는 사용자가 직접 실적%를 입력하는 다수 호출부의 정본이고,
- * 관리자가 아니면 "내 팀이 item_owners 에 있는지"(팀 축)를 세션 클라이언트 + RLS(member_update_actual)
- * 이중으로 재검증한다. 서브트리 관리자 자격은 assignee_member_id(개인 축)라 그 팀이 item_owners
- * 에 있다는 보장이 없어, 이 승인 자격을 새로 줘도 그 다음 updateActual 의 팀 게이트에 막혀
- * 실제로는 승인이 안 먹는 문제가 있었다(2026-09-15 발견·보고).
- *
- * 여기서 쓰는 100%(또는 되돌림 값) 반영은 사용자가 직접 치는 실적% 편집이 아니라 "승인/승인
- * 되돌림의 기계적 부작용"이고, 승인 자격 자체는 이미 loadOrderForAdmin·loadOrderForReview
- * (관리자 또는 서브트리 관리자, 필요시 +리프 담당자 본인)가 확정했다 — 그래서 이 쓰기만
- * admin(service_role) 경유로 담당 게이트·RLS 를 건너뛴다. updateActual 자체에 우회 플래그를
- * 얹지 않는다 — 직접 편집 경로에 남는 우회 스위치는 영구적인 foot-gun 이 된다.
- *
- * 'use server' 파일의 비export 지역 함수라 클라이언트가 직접 부를 경로가 없다 — 호출부는
- * 이 파일 안의 approveAgentCompletion·unapproveOrder 뿐이다. updateActual 이 게이트 다음에
- * 하는 나머지(조회·자식 검사·멱등 단락·쓰기·이력·revalidate·스냅샷)는 그대로 복제한다.
- */
-async function applyApprovedActualPct(
+/** 전이 뒤 공통 부수효과 — 화면 갱신, 실적이 바뀌었으면 진척 스냅샷, im·xx 첫 도달이면 후행 알림. 실패는 로깅만. */
+async function afterTransition(
   admin: AdminClient,
-  args: { itemId: string; newPct: number; actorUserId: string },
-): Promise<{ ok: boolean; error?: string }> {
-  const { itemId, newPct, actorUserId } = args
-  if (!Number.isFinite(newPct) || newPct < 0 || newPct > 100) return { ok: false, error: '0~100 범위' }
-  const { data: item, error: itemErr } = await admin
-    .from('wbs_items').select('id, actual_pct, project_id').eq('id', itemId).maybeSingle()
-  if (itemErr) return { ok: false, error: `항목 조회 실패: ${itemErr.message}` }
-  if (!item) return { ok: false, error: '항목 없음' }
-  const row = item as { id: string; actual_pct: number | null; project_id: string }
-  // 자식이 있으면 롤업 부모 — updateActual 과 동일한 방어(승인 대상은 리프뿐이지만 방어적으로 유지).
-  const { data: child, error: childErr } = await admin
-    .from('wbs_items').select('id').eq('parent_id', itemId).limit(1).maybeSingle()
-  if (childErr) return { ok: false, error: `하위 항목 확인 실패: ${childErr.message}` }
-  if (child) return { ok: false, error: '하위 항목이 있어 롤업으로 계산됩니다' }
-
-  const old = row.actual_pct
-  // 멱등 단락 — approveAgentCompletion 의 CAS 재시도 주석이 이 멱등성에 의존한다(아래 참조).
-  if (Number(old) === newPct) return { ok: true }
-  const { data: updated, error: upErr } = await admin
-    .from('wbs_items')
-    .update({ actual_pct: newPct, updated_at: new Date().toISOString() })
-    .eq('id', itemId).select('id')
-  if (upErr) return { ok: false, error: upErr.message }
-  if (!updated || updated.length === 0) return { ok: false, error: '갱신 대상 없음' }
-
-  // 본 저장은 이미 성공했다 — 이력 기록 실패로 되돌리지는 않되, 조용히 삼키지도 않는다.
-  const { error: logInsErr } = await admin.from('change_logs').insert({
-    user_id: actorUserId, wbs_item_id: itemId, field: 'actual_pct',
-    old_value: old == null ? null : String(old), new_value: String(newPct),
-  })
-  if (logInsErr) console.error('[agentWork] 승인 실적 반영 이력 기록 실패:', logInsErr.message)
-  revalidatePath(`/p/${row.project_id}`, 'layout')
-  after(() => recordProgressSnapshot(row.project_id))
-  return { ok: true }
+  args: { projectId: string; itemId: string | null; actorUserId: string; transition: WorkflowEventOk },
+): Promise<void> {
+  revalidatePath(`/p/${args.projectId}`, 'layout')
+  if (args.transition.actualChanged) after(() => recordProgressSnapshot(args.projectId))
+  if (args.transition.reachedFirst && args.itemId) await notifyOnReached(admin, args.itemId, args.actorUserId)
 }
 
+/** 최신 completion 보고의 review 필드를 갱신한다 — 전이 뒤 부수 기록이라 실패는 로깅만(전이 자체는 확정됐다). */
+async function recordReview(admin: AdminClient, orderId: string, patch: Record<string, unknown>, label: string): Promise<void> {
+  const { data: latest, error: latestErr } = await admin
+    .from('agent_work_reports').select('id').eq('work_order_id', orderId).eq('kind', 'completion')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (latestErr || !latest) {
+    console.error(`[agentWork] ${label} 보고 조회 실패:`, latestErr?.message ?? '0행')
+    return
+  }
+  const { error: revErr } = await admin.from('agent_work_reports')
+    .update(patch).eq('id', (latest as { id: string }).id).select('id')
+  if (revErr) console.error(`[agentWork] ${label} 기록 실패:`, revErr.message)
+}
+
+/**
+ * 승인 — 원자 전이(스펙 2026-09-15 §4). reported→approved CAS + 단계 xx + 실적 100 + change_logs 가 한 트랜잭션이다.
+ * 종전에는 실적 100 을 먼저 쓰고 CAS 에서 밀리면 "실적만 100" 인 반쪽 상태가 남았고, 단계 전이는 그 뒤에 따로
+ * 실행돼 뒤처지곤 했다(2026-08-25 mes-runlog 리허설 3회). 이제 CAS 가 지면 아무것도 쓰이지 않는다.
+ * 주문 사건은 dev_workflow 를 보지 않는다 — 주문의 존재가 곧 워크플로 증거다(구 force 의 일반화).
+ * 실적 쓰기가 담당 팀 게이트(updateActual)를 거치지 않는 이유는 종전과 같다 — 승인 자격(관리자·서브트리 관리자)은
+ * loadOrderForAdmin 이 이미 확정했고, 실적은 사람이 치는 값이 아니라 승인 사건의 크레딧이다.
+ */
 export async function approveAgentCompletion(orderId: string): Promise<ActionResult> {
   const loaded = await loadOrderForAdmin(orderId)
   if (!loaded.ok) return loaded
@@ -245,80 +217,18 @@ export async function approveAgentCompletion(orderId: string): Promise<ActionRes
   if (!order.wbs_item_id) return { ok: false, error: 'WBS 항목이 삭제된 주문입니다. 취소로 정리하세요.' }
 
   const admin = createAdminClient()
-  // 관리자·서브트리 관리자 분기 없이 둘 다 이 특권 헬퍼를 탄다 — 관리자는 어차피 updateActual
-  // 의 담당 게이트를 통과했을 사람이라 결과는 같고, 분기를 없애는 쪽이 더 안전하다(2026-09-15 지시).
-  const applied = await applyApprovedActualPct(admin, { itemId: order.wbs_item_id, newPct: 100, actorUserId: actor.userId })
-  if (!applied.ok) return { ok: false, error: applied.error ?? 'WBS 반영 실패' }
-
-  const now = new Date().toISOString()
-  const { data: updated, error: casErr } = await admin
-    .from('agent_work_orders')
-    .update({ status: 'approved', updated_at: now })
-    .eq('id', orderId).eq('status', 'reported')
-    .select('id')
-  if (casErr) return { ok: false, error: casErr.message }
-  if (!updated || updated.length === 0) {
-    // WBS 는 100 이 됐는데 주문 전이가 경합으로 밀렸다 — 재시도하면 updateActual(100) 은 멱등.
-    // 경합 시나리오: 승인자 A 가 updateActual(100) 을 실행하는 사이 다른 관리자 B 가 같은 주문을
-    // 반려(reported→claimed)하면, 이 CAS(.eq('status','reported')) 는 0행이 된다. 이때 WBS 실적은
-    // 이미 100%로 반영된 채 남고 주문은 claimed(반려됨)로 보인다 — 침묵하면 사람이 그 사실을 놓친다.
-    // 그래서 현재 상태를 재조회해 claimed 면 "실적이 이미 100%로 반영됐다"고 명시적으로 알린다.
-    const { data: current, error: reErr } = await admin
-      .from('agent_work_orders').select('status').eq('id', orderId).maybeSingle()
-    if (reErr) {
-      console.error('[agentWork] 승인 경합 재조회 실패:', reErr.message)
-    } else if ((current as { status?: string } | null)?.status === 'claimed') {
-      return {
-        ok: false,
-        error: '다른 관리자의 반려와 경합했습니다. WBS 실적이 이미 100%로 반영되었으니 확인 후 정정하세요.',
-      }
-    }
-    return { ok: false, error: '상태가 바뀌어 승인하지 못했습니다. 다시 시도하세요.' }
+  const transition = await applyWorkflowEvent(admin, { event: 'approve', actorUserId: actor.userId, orderId })
+  if (!transition.ok) {
+    return { ok: false, error: transition.conflict ? '상태가 바뀌어 승인하지 못했습니다. 다시 시도하세요.' : transition.error }
   }
-  const { data: latest, error: latestErr } = await admin
-    .from('agent_work_reports').select('id').eq('work_order_id', orderId).eq('kind', 'completion')
-    .order('created_at', { ascending: false }).limit(1).maybeSingle()
-  if (latestErr || !latest) {
-    console.error('[agentWork] 승인 보고 조회 실패:', latestErr?.message ?? '0행')
-  } else {
-    const { error: revErr } = await admin.from('agent_work_reports')
-      .update({ review_action: 'approve', reviewed_by: actor.userId, reviewed_at: now })
-      .eq('id', (latest as { id: string }).id).select('id')
-    if (revErr) console.error('[agentWork] 승인 기록 실패:', revErr.message)
-  }
+  await recordReview(admin, orderId, { review_action: 'approve', reviewed_by: actor.userId, reviewed_at: new Date().toISOString() }, '승인')
   await notifyReviewResult(admin, order, 'work.approved', actor.userId)
-
-  // stage 전이 — 사람 검수 통과가 곧 완료(정본: accept 는 사람만).
-  // force: dev_workflow 가 꺼져 있어도 넘어간다. 이 게이트가 ok:true 로 조용히 빠져나가는 바람에
-  // 승인은 성공인데 stage 만 뒤처진 반쪽 상태가 세 번 재발했고(2026-08-25 mes-runlog 리허설),
-  // 그 상태는 승인 버튼으로 자가 복구가 안 된다(:127 에서 status!=='reported' 로 막힌다).
-  // wbs_item_id 는 위에서 이미 null 이 아님이 확인됐다.
-  let stageWarn: string | null = null
-  try {
-    const transitioned = await transitionStage(admin, {
-      itemId: order.wbs_item_id as string, to: 'xx', fromIn: ['im', 'ip', 'as', 'fp', null],
-      actorUserId: actor.userId, force: true,
-    })
-    if (!transitioned.ok) {
-      console.error('[agentWork] 승인 stage 전이 실패:', order.wbs_item_id)
-      stageWarn = '승인은 처리됐지만 WBS 단계를 완료로 바꾸지 못했습니다 — 단계를 직접 확인하세요.'
-    } else if (transitioned.skipped) {
-      // 건너뛴 사유가 무엇이든 알린다. 종전에는 'stage' 만 짚고 'parent' 를 빠뜨려, 하위 항목이
-      // 달린 항목의 주문을 승인하면 승인은 성공인데 단계만 뒤처진 반쪽 상태가 무음으로 끝났다.
-      // 사유별 분기가 아니라 "skipped 면 무조건"인 이유: 새 사유가 생겨도 여기서 걸리게.
-      console.error(`[agentWork] 승인 stage 전이 비적용(${transitioned.skipped}):`, order.wbs_item_id)
-      stageWarn = STAGE_SKIP_WARN[transitioned.skipped]
-        ?? `승인은 처리됐지만 WBS 단계를 바꾸지 않았습니다(${transitioned.skipped}) — 단계를 확인하세요.`
-    }
-  } catch (e) {
-    console.error('[agentWork] 승인 stage 전이 예외:', e instanceof Error ? e.message : e)
-    stageWarn = '승인은 처리됐지만 WBS 단계 전이 중 오류가 났습니다 — 단계를 직접 확인하세요.'
-  }
-
-  revalidatePath(`/p/${order.project_id}/wbs`)
-  return stageWarn ? { ok: true, warning: stageWarn } : { ok: true }
+  await afterTransition(admin, { projectId: order.project_id, itemId: order.wbs_item_id, actorUserId: actor.userId, transition })
+  const warning = skippedWarning(transition.skipped)
+  return warning ? { ok: true, warning } : { ok: true }
 }
 
+/** 반려 — 원자 전이. reported→claimed CAS + 단계 ip + 실적 표.rw(반려·재작업 크레딧 — 작업은 했으므로 claim 보다 높다, 스펙 D4). */
 export async function rejectAgentCompletion(orderId: string, note: string): Promise<ActionResult> {
   const trimmed = note.trim()
   if (!trimmed) return { ok: false, error: '반려 사유가 필요합니다.' }
@@ -329,42 +239,25 @@ export async function rejectAgentCompletion(orderId: string, note: string): Prom
     return { ok: false, error: `반려 가능한 상태가 아닙니다(${order.status}).` }
   }
   const admin = createAdminClient()
-  const now = new Date().toISOString()
-  const { data: updated, error: casErr } = await admin
-    .from('agent_work_orders')
-    .update({ status: 'claimed', updated_at: now })
-    .eq('id', orderId).eq('status', 'reported')
-    .select('id')
-  if (casErr) return { ok: false, error: casErr.message }
-  if (!updated || updated.length === 0) return { ok: false, error: '상태가 바뀌어 반려하지 못했습니다.' }
-  const { data: latest, error: latestErr } = await admin
-    .from('agent_work_reports').select('id').eq('work_order_id', orderId).eq('kind', 'completion')
-    .order('created_at', { ascending: false }).limit(1).maybeSingle()
-  if (latestErr || !latest) {
-    console.error('[agentWork] 반려 보고 조회 실패:', latestErr?.message ?? '0행')
-  } else {
-    const { error: revErr } = await admin.from('agent_work_reports')
-      .update({ review_action: 'reject', reviewed_by: actor.userId, reviewed_at: now, review_note: trimmed })
-      .eq('id', (latest as { id: string }).id).select('id')
-    if (revErr) console.error('[agentWork] 반려 기록 실패:', revErr.message)
+  const transition = await applyWorkflowEvent(admin, { event: 'reject', actorUserId: actor.userId, orderId })
+  if (!transition.ok) {
+    return { ok: false, error: transition.conflict ? '상태가 바뀌어 반려하지 못했습니다.' : transition.error }
   }
+  await recordReview(admin, orderId, { review_action: 'reject', reviewed_by: actor.userId, reviewed_at: new Date().toISOString(), review_note: trimmed }, '반려')
   await notifyReviewResult(admin, order, 'work.rejected', actor.userId)
-  revalidatePath(`/p/${order.project_id}/wbs`)
-  return { ok: true }
+  await afterTransition(admin, { projectId: order.project_id, itemId: order.wbs_item_id, actorUserId: actor.userId, transition })
+  const warning = skippedWarning(transition.skipped)
+  return warning ? { ok: true, warning } : { ok: true }
 }
 
 /**
- * 승인 되감기 공통부(2026-08-27) — 승인이 남긴 부수효과 셋을 되돌린다: 주문 상태, 실적 100%,
- * stage 'xx'. 두 버튼(승인 취소 / 재작업 요청)이 착지 상태와 리뷰 기록만 다르고 나머지가 같아
- * 한곳에 둔다.
+ * 승인 되감기 공통부(2026-08-27) — 승인 취소(reported 로)와 재작업 요청(claimed 로). 원자 전이 RPC 가 주문 CAS·
+ * 단계·실적을 한 트랜잭션으로 쓴다(스펙 §3.4): 승인 취소 = 단계 im·실적 표.im, 재작업 = 단계 ip·실적 표.rw.
+ * 종전에는 change_logs 에서 승인 전 실적을 찾아 되돌렸는데, 승인 이후 이력이 바뀌면 복원을 포기하고 경고만 남겼다.
+ * 사건 표의 크레딧으로 쓰면 되돌릴 값을 추측할 필요가 없다.
  *
- * 순서는 승인의 반대다 — 상태 CAS 가 먼저. 승인은 실적을 먼저 쓰고 CAS 에서 밀리면 "실적만 100"
- * 인 반쪽 상태가 남는 알려진 함정이 있는데(:150 주석), 되감기에서 같은 실수를 반복하면 승인이
- * 살아 있는데 실적·단계만 내려간 더 나쁜 상태가 된다.
- *
- * stage 는 im 까지만 내린다. 승인이 풀리면 depends 게이트의 order_approved 축이 이미 false 로
- * 뒤집히므로(lib/agent/depends.ts) stage 마저 im 아래로 내리면 이 항목에 의존하는 후속 작업의
- * claim 이 전부 다시 막힌다 — 게다가 "선행 완료, 착수 가능" 알림은 이미 나갔고 회수할 수 없다.
+ * 승인 취소가 단계를 im 에 두는 이유는 그대로다 — im 아래로 내리면 이 항목을 선행으로 둔 후속 작업의 claim 이
+ * 다시 막히는데, "선행 완료, 착수 가능" 알림은 이미 나갔고 회수할 수 없다.
  */
 async function unapproveOrder(
   orderId: string,
@@ -375,92 +268,24 @@ async function unapproveOrder(
   const { order, actor } = loaded
   if (order.status !== 'approved') return { ok: false, error: `승인을 무를 수 있는 상태가 아닙니다(${order.status}).` }
   if (!order.wbs_item_id) return { ok: false, error: 'WBS 항목이 삭제된 주문입니다. 취소로 정리하세요.' }
-  const itemId = order.wbs_item_id
 
   const admin = createAdminClient()
-  const now = new Date().toISOString()
-  const { data: updated, error: casErr } = await admin
-    .from('agent_work_orders')
-    .update({ status: opts.to, updated_at: now })
-    .eq('id', orderId).eq('status', 'approved')
-    .select('id')
-  if (casErr) return { ok: false, error: casErr.message }
-  if (!updated || updated.length === 0) return { ok: false, error: '상태가 바뀌어 처리하지 못했습니다. 다시 시도하세요.' }
-
+  const transition = await applyWorkflowEvent(admin, {
+    event: opts.to === 'reported' ? 'unapprove' : 'rework', actorUserId: actor.userId, orderId,
+  })
+  if (!transition.ok) {
+    return { ok: false, error: transition.conflict ? '상태가 바뀌어 처리하지 못했습니다. 다시 시도하세요.' : transition.error }
+  }
   // 재작업은 반려로 남긴다(사유 보존) — review_action 은 CHECK 로 approve|reject 뿐이고,
   // 에이전트 쪽 반려 감지가 이 값을 본다. 승인 취소는 "아직 검토 안 함"으로 되돌린다.
   const reviewPatch = opts.note === null
     ? { review_action: null, reviewed_by: null, reviewed_at: null, review_note: null }
-    : { review_action: 'reject', reviewed_by: actor.userId, reviewed_at: now, review_note: opts.note }
-  const { data: latestRow, error: latestErr } = await admin
-    .from('agent_work_reports').select('id, reviewed_at').eq('work_order_id', orderId).eq('kind', 'completion')
-    .order('created_at', { ascending: false }).limit(1).maybeSingle()
-  const latest = latestRow as { id: string; reviewed_at: string | null } | null
-  if (latestErr || !latest) {
-    console.error('[agentWork] 되감기 대상 보고 조회 실패:', latestErr?.message ?? '0행')
-  } else {
-    const { error: revErr } = await admin.from('agent_work_reports')
-      .update(reviewPatch).eq('id', latest.id).select('id')
-    if (revErr) console.error('[agentWork] 되감기 리뷰 기록 실패:', revErr.message)
-  }
-
+    : { review_action: 'reject', reviewed_by: actor.userId, reviewed_at: new Date().toISOString(), review_note: opts.note }
+  await recordReview(admin, orderId, reviewPatch, '되감기')
   await notifyReviewResult(admin, order, 'work.rejected', actor.userId, opts.detail)
-
-  // 이후 단계는 실패해도 본 전이를 되돌리지 않는다 — 사람에게 warning 으로 알리고 직접 정정하게 한다.
-  const warnings: string[] = []
-
-  // 실적 복원 — 승인이 남긴 change_logs 항목(actual_pct → 100)의 old_value 로 되돌린다.
-  // 조회를 승인 시각 이후로 좁히는 게 핵심이다: updateActual 은 값이 그대로면 이력을 남기지
-  // 않으므로(이미 100%인 항목을 승인한 경우), 범위를 안 좁히면 무관한 옛 100 기록의 old_value 를
-  // 승인 전 값으로 착각해 엉뚱한 진척률을 박는다. 범위 안에 이력이 없으면 되돌리지 않고 알린다.
-  const reviewedAt = latest?.reviewed_at ?? null
-  const { data: logRow, error: logErr } = reviewedAt === null
-    ? { data: null, error: null }
-    : await admin
-      .from('change_logs').select('old_value, new_value')
-      .eq('wbs_item_id', itemId).eq('field', 'actual_pct')
-      .gte('created_at', reviewedAt)
-      .order('created_at', { ascending: false }).limit(1).maybeSingle()
-  const log = logRow as { old_value: string | null; new_value: string | null } | null
-  if (logErr) {
-    console.error('[agentWork] 실적 이력 조회 실패:', logErr.message)
-    warnings.push('실적을 되돌리지 못했습니다(이력 조회 실패) — 진척률을 직접 확인하세요.')
-  } else if (reviewedAt === null) {
-    warnings.push('실적을 되돌리지 않았습니다 — 승인 기록을 찾지 못했습니다. 진척률을 직접 확인하세요.')
-  } else if (!log || log.new_value !== '100') {
-    warnings.push('실적을 되돌리지 않았습니다 — 승인 이후 진척률이 바뀐 흔적이 있습니다. 직접 확인하세요.')
-  } else {
-    const prev = Number(log.old_value ?? 0)
-    if (!Number.isFinite(prev)) {
-      warnings.push('실적을 되돌리지 못했습니다(이력 값을 읽을 수 없음) — 진척률을 직접 확인하세요.')
-    } else {
-      const reverted = await applyApprovedActualPct(admin, { itemId, newPct: prev, actorUserId: actor.userId })
-      if (!reverted.ok) {
-        console.error('[agentWork] 실적 복원 실패:', reverted.error)
-        warnings.push(`실적을 되돌리지 못했습니다(${reverted.error ?? '알 수 없음'}) — 진척률을 직접 확인하세요.`)
-      }
-    }
-  }
-
-  // stage xx → im. force: 승인이 dev_workflow 게이트를 넘어 전이시켰으므로 되감기도 같아야 한다.
-  try {
-    const transitioned = await transitionStage(admin, {
-      itemId, to: 'im', fromIn: ['xx'], actorUserId: actor.userId, force: true,
-    })
-    if (!transitioned.ok) {
-      console.error('[agentWork] 되감기 stage 전이 실패:', itemId)
-      warnings.push('WBS 단계를 되돌리지 못했습니다 — 단계를 직접 확인하세요.')
-    } else if (transitioned.skipped === 'stage') {
-      console.error('[agentWork] 되감기 stage 전이 비적용(현재 단계가 xx 가 아님):', itemId)
-      warnings.push('현재 WBS 단계가 완료(xx)가 아니라 단계는 그대로 두었습니다 — 확인하세요.')
-    }
-  } catch (e) {
-    console.error('[agentWork] 되감기 stage 전이 예외:', e instanceof Error ? e.message : e)
-    warnings.push('WBS 단계를 되돌리는 중 오류가 났습니다 — 단계를 직접 확인하세요.')
-  }
-
-  revalidatePath(`/p/${order.project_id}/wbs`)
-  return warnings.length > 0 ? { ok: true, warning: warnings.join(' ') } : { ok: true }
+  await afterTransition(admin, { projectId: order.project_id, itemId: order.wbs_item_id, actorUserId: actor.userId, transition })
+  const warning = skippedWarning(transition.skipped)
+  return warning ? { ok: true, warning } : { ok: true }
 }
 
 /** 승인 취소 — 검토 대기열(reported)로 되돌린다. 아무도 작업하지 않는 상태이며 다시 승인/반려할 수 있다. */

@@ -27,7 +27,7 @@ function useAdmin(queues: Record<string, Resp[]>, users = [USER]) {
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
     }),
-    rpc: vi.fn(async (_fn: string, _args: Record<string, unknown>) => {
+    rpc: vi.fn(async () => {
       const resp = (queues.rpc ?? []).shift() ?? { data: RPC_OK }
       return { data: resp.data ?? null, error: resp.error ?? null }
     }),

@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server'
 /**
  * 단계 전이 배선. 라우트(claim·완료 보고)는 원자 전이 RPC(apply_workflow_event, 0096)를 한 번 부르고
  * 단계·실적 계산은 DB 가 한다(스펙 2026-09-15 §4) — 여기서는 사건 인자·부수효과(스냅샷)·실패 처리를 본다.
- * 승인·반려 액션 describe 는 아직 transitionStage 경로라 admin 큐로 실제 UPDATE 를 확인한다.
+ * 승인·반려 액션도 같은 RPC 를 사건만 바꿔 부른다.
  * 레거시 시크릿 경로만 사용 — agent_runners 조회를 피해 큐를 단순하게 유지한다.
  */
 
@@ -60,7 +60,7 @@ function useAdmin(queues: Record<string, Resp[]>, users = [USER]) {
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
     }),
-    rpc: vi.fn(async (_fn: string, _args: Record<string, unknown>) => {
+    rpc: vi.fn(async () => {
       const resp = (queues.rpc ?? []).shift() ?? { data: RPC_OK }
       return { data: resp.data ?? null, error: resp.error ?? null }
     }),
@@ -86,11 +86,6 @@ const ITEM_ROW = (overrides: Record<string, unknown> = {}) => ({
   id: W1, code: 'C1', name: '항목1', external_ref: null, stage: 'as', category: null, domain: null,
   priority: null, model: null, tags: null, depends: [], prd_ref: null, entry_point: null,
   acceptance: [], spec: null, assignee_member_id: null, planned_start: null, planned_end: null,
-  ...overrides,
-})
-// transitionStage 자체 조회가 쓰는 축약 행 — 승인/반려 describe 가 쓴다
-const STAGE_ROW = (overrides: Record<string, unknown> = {}) => ({
-  id: W1, project_id: P1, name: '항목1', external_ref: null, stage: 'as', dev_workflow: true,
   ...overrides,
 })
 
@@ -203,7 +198,7 @@ describe('completion 보고 → 전이 RPC(report_completion 사건)', () => {
   })
 })
 
-describe('승인/반려 → stage xx 전이', () => {
+describe('승인·반려 액션 → 전이 RPC(approve·reject 사건)', () => {
   const ORDER = { id: O1, project_id: P1, status: 'reported', wbs_item_id: W1 }
   const ACTOR = { ok: true, actor: { userId: 'admin-1' } }
 
@@ -211,55 +206,35 @@ describe('승인/반려 → stage xx 전이', () => {
     mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
   })
 
-  it('승인 성공 → 실적 100% 반영(특권 헬퍼) + transitionStage 가 wbs_items.stage 를 xx 로 갱신한다', async () => {
-    const { captured } = useAdmin({
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],           // 조회, CAS→approved
+  it('승인 → approve 사건 한 번(단계 xx·실적 100 은 DB 가 함께 쓴다), 항목을 직접 쓰지 않는다', async () => {
+    const { admin, captured } = useAdmin({
+      agent_work_orders: [{ data: ORDER }],                                   // loadOrderForAdmin 조회
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }], // 최신 completion, review 기록
-      wbs_items: [
-        { data: { id: W1, actual_pct: 40, project_id: P1 } }, // applyApprovedActualPct 항목 조회
-        { data: null },          // applyApprovedActualPct 자식 없음
-        { data: [{ id: W1 }] },  // applyApprovedActualPct UPDATE(actual_pct)
-        { data: { name: '항목1', assignee_member_id: null, stage: 'im', external_ref: null } }, // 알림용 조회(배정자 없음)
-        { data: STAGE_ROW({ stage: 'im' }) },                                                    // transitionStage 자체 조회
-        { data: null }, // 리프 확인 — 자식 없음
-        { data: [{ id: W1 }] },                                                                  // transitionStage UPDATE
-      ],
+      wbs_items: [{ data: { name: '항목1', assignee_member_id: null } }],      // 알림용 조회(배정자 없음)
+      rpc: [{ data: { ...RPC_OK, order_status: 'approved', stage: 'xx', actual_pct: 100, stage_changed: true, actual_changed: true } }],
     })
     const r = await approveAgentCompletion(O1)
-    expect(r.ok).toBe(true)
-    const updates = captured.wbs_items?.filter((c) => c.op === 'update') ?? []
-    expect(updates[0]?.payload).toMatchObject({ actual_pct: 100 })
-    expect(updates[1]?.payload).toMatchObject({ stage: 'xx' })
+    expect(r).toEqual({ ok: true })
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'approve', p_order_id: O1, p_actor: 'admin-1' }))
+    expect((captured.wbs_items ?? []).filter((c) => c.op === 'update')).toHaveLength(0)
+    expect(mocks.recordProgressSnapshot).toHaveBeenCalledWith(P1)
   })
 
-  it('반려는 stage 전이를 시도하지 않는다(im 유지)', async () => {
-    const { captured } = useAdmin({
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
+  it('반려 → reject 사건 한 번(단계 ip·실적 표.rw)', async () => {
+    const { admin } = useAdmin({
+      agent_work_orders: [{ data: ORDER }],
       agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
-      wbs_items: [
-        { data: { name: '항목1', assignee_member_id: null, stage: 'im', external_ref: null } },
-      ],
+      wbs_items: [{ data: { name: '항목1', assignee_member_id: null } }],
     })
     const r = await rejectAgentCompletion(O1, '보완 필요')
     expect(r.ok).toBe(true)
-    expect((captured.wbs_items ?? []).filter((c) => c.op === 'update')).toHaveLength(0)
+    expect(admin.rpc).toHaveBeenCalledWith('apply_workflow_event', expect.objectContaining({ p_event: 'reject', p_order_id: O1 }))
   })
 
-  it('전이 실패해도 승인 액션 결과는 성공 유지된다(로깅만)', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    useAdmin({
-      agent_work_orders: [{ data: ORDER }, { data: [{ id: O1 }] }],
-      agent_work_reports: [{ data: { id: 'r9' } }, { data: [{ id: 'r9' }] }],
-      wbs_items: [
-        { data: { id: W1, actual_pct: 40, project_id: P1 } }, // applyApprovedActualPct 항목 조회
-        { data: null },          // applyApprovedActualPct 자식 없음
-        { data: [{ id: W1 }] },  // applyApprovedActualPct UPDATE(actual_pct)
-        { data: { name: '항목1', assignee_member_id: null, stage: 'im', external_ref: null } },
-        { data: null, error: { message: '항목 없음' } }, // transitionStage 자체 조회 실패
-      ],
-    })
+  it('전이 RPC 가 오류면 승인 실패로 알린다 — 주문·단계·실적이 한 트랜잭션이라 반쪽 상태가 없다', async () => {
+    const { admin } = useAdmin({ agent_work_orders: [{ data: ORDER }], rpc: [{ error: { message: 'db down' } }] })
     const r = await approveAgentCompletion(O1)
-    expect(r.ok).toBe(true)
-    errSpy.mockRestore()
+    expect(r).toEqual({ ok: false, error: '전이 실패: db down' })
+    expect(admin.from.mock.calls.map((c) => c[0])).not.toContain('agent_work_reports')
   })
 })
