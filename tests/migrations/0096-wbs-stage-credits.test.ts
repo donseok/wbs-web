@@ -32,10 +32,14 @@ describe('0096 진척·단계·크레딧 — 크레딧 컬럼·fp 제거·원자
     expect(body).toContain('revoke all on function public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid) from public, anon, authenticated')
     expect(body).toContain('grant execute on function public.apply_workflow_event(text, uuid, uuid, uuid, text, text, uuid) to service_role')
   })
-  it('SQL 기본 크레딧 상수가 코드 기본값과 같다', () => {
+  it('SQL 기본 크레딧 상수는 0096 당시의 세 표다(단일화는 0097 이 한다)', () => {
     const m = /c_default\s+constant\s+jsonb\s*:=\s*'(\{[\s\S]*?\})'::jsonb/.exec(s())
     expect(m).not.toBeNull()
-    expect(JSON.parse(m![1])).toEqual(DEFAULT_STAGE_CREDITS)
+    expect(JSON.parse(m![1])).toEqual({
+      default: { as: 0, ip: 30, rw: 50, im: 80, xx: 100 },
+      if: { as: 0, ip: 20, rw: 30, im: 50, xx: 100 },
+      doc: { as: 0, ip: 20, rw: 30, im: 50, xx: 100 },
+    })
   })
   it('RPC 가 항목·주문 행을 for update 로 잠그고 사건별 기대 status 로 CAS 한다', () => {
     const body = s()

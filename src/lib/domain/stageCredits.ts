@@ -6,14 +6,14 @@
 export const CREDIT_KEYS = ['as', 'ip', 'rw', 'im', 'xx'] as const
 export type CreditKey = (typeof CREDIT_KEYS)[number]
 export type CreditTable = Record<CreditKey, number>
-export const CREDIT_TABLE_KEYS = ['default', 'if', 'doc'] as const
-export type CreditTableKey = (typeof CREDIT_TABLE_KEYS)[number]
-export type StageCredits = { default: CreditTable; if?: CreditTable; doc?: CreditTable }
+/**
+ * 표는 `default` 하나뿐이다(2026-09-16 결정). 카테고리별 `if`·`doc` 표를 없앴다 — 쓰는 프로젝트가 거의 없는데
+ * 설정 화면에는 모든 프로젝트에 슬라이더가 세 벌씩 쌓였다. 항목의 `credit_key`(0089) 는 남지만 전이 계산에 쓰지 않는다.
+ */
+export type StageCredits = { default: CreditTable }
 
 export const DEFAULT_STAGE_CREDITS: StageCredits = {
   default: { as: 0, ip: 30, rw: 50, im: 80, xx: 100 },
-  if: { as: 0, ip: 20, rw: 30, im: 50, xx: 100 },
-  doc: { as: 0, ip: 20, rw: 30, im: 50, xx: 100 },
 }
 export const CREDIT_STEP = 5
 export const CREDIT_GAP = 10
@@ -57,27 +57,18 @@ export function validateStageCredits(raw: unknown): { ok: true; credits: StageCr
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: '크레딧 표는 객체여야 합니다.' }
   const o = raw as Record<string, unknown>
   for (const k of Object.keys(o)) {
-    if (!(CREDIT_TABLE_KEYS as readonly string[]).includes(k)) return { ok: false, error: `모르는 카테고리입니다: ${k}` }
+    if (k !== 'default') return { ok: false, error: `모르는 카테고리입니다: ${k}` }
   }
   if (o.default === undefined) return { ok: false, error: 'default 표는 필수입니다.' }
-  const out: Partial<StageCredits> = {}
-  for (const k of CREDIT_TABLE_KEYS) {
-    if (o[k] === undefined) continue
-    const v = validateTable(k, o[k])
-    if (!v.ok) return v
-    out[k] = v.table
-  }
-  return { ok: true, credits: out as StageCredits }
+  const v = validateTable('default', o.default)
+  if (!v.ok) return v
+  return { ok: true, credits: { default: v.table } }
 }
 
-/** credits null → 코드 기본값. 항목 credit_key 가 표에 없으면 default. xx 는 100 고정. */
-export function creditForKey(key: CreditKey, credits: StageCredits | null, creditKey: string | null): number {
+/** credits null → 코드 기본값. xx 는 100 고정. 표가 하나라 항목 credit_key 는 보지 않는다. */
+export function creditForKey(key: CreditKey, credits: StageCredits | null): number {
   if (key === 'xx') return 100
-  const src = credits ?? DEFAULT_STAGE_CREDITS
-  const byKey = creditKey && (CREDIT_TABLE_KEYS as readonly string[]).includes(creditKey)
-    ? src[creditKey as CreditTableKey]
-    : undefined
-  const table = byKey ?? src.default ?? DEFAULT_STAGE_CREDITS.default
+  const table = (credits ?? DEFAULT_STAGE_CREDITS).default ?? DEFAULT_STAGE_CREDITS.default
   return table[key]
 }
 

@@ -67,13 +67,11 @@
 
 ```jsonc
 {
-  "default": { "as": 0, "ip": 30, "rw": 50, "im": 80, "xx": 100 },
-  "if":      { "as": 0, "ip": 20, "rw": 30, "im": 50, "xx": 100 },   // 선택 — credit_key='if' 항목
-  "doc":     { "as": 0, "ip": 20, "rw": 30, "im": 50, "xx": 100 }    // 선택 — credit_key='doc' 항목
+  "default": { "as": 0, "ip": 30, "rw": 50, "im": 80, "xx": 100 }
 }
 ```
 
-- 키는 `default` 필수, `if`·`doc` 선택. 항목의 `credit_key`(0089) 가 표에 없으면 `default` 를 쓴다.
+- **표는 `default` 하나다(2026-09-16 개정, 마이그레이션 0097).** 처음에는 카테고리별 `if`·`doc` 표를 두었는데, 쓰는 프로젝트는 하나뿐인데도 모든 프로젝트 설정에 슬라이더가 세 벌씩 쌓였다. 항목의 `credit_key`(0089) 컬럼과 wbs.md 의 `credit:` 문법은 그대로 남지만 전이 계산에서는 보지 않는다. 그래서 `credit_key='if'` 인 항목도 이제 `default` 표를 쓴다.
 - `rw` 는 단계가 아니라 **반려·재작업 사건**의 크레딧이다. 결과 단계는 ip.
 - 검증(순수 함수 `validateStageCredits`): 정수, 5 단위, `as < ip < rw < im < xx`, 인접 간격 ≥ 10, `xx === 100`. 위반은 저장 거부.
 - 저장은 소급하지 않는다. 이미 기록된 `actual_pct` 는 그대로이고 다음 전이부터 새 값이 적용된다.
@@ -146,7 +144,7 @@ apply_workflow_event(
 1. `wbs_items` 를 `for update` 로 읽는다. 없으면 `{ok:false, reason:'item_not_found'}`.
 2. 주문 사건이면 `agent_work_orders` 를 `for update` 로 읽고 사건이 정한 기대 status(claim=ready, report_completion·release=claimed, approve·reject=reported, unapprove·rework=approved)와 점유자 조건(`p_agent_user_id`/`p_agent` 가 주어지면 `claimed_by_user_id`/`claimed_by` 일치)을 확인한다. 어긋나면 `{ok:false, conflict:true, order_status}` 로 끝낸다(지금의 409 의미).
 3. 주문 갱신(사건 표대로). claim 은 `claimed_by·claimed_by_user_id·claimed_at` 을 쓰고, release 는 점유·heartbeat 흔적을 지운다(`releaseOrderByAdmin` 과 같은 컬럼).
-4. 단계·실적 갱신. **주문 사건**은 주문의 존재 자체가 워크플로 증거이므로 `dev_workflow` 를 보지 않고 리프이면 쓴다(구 `force` 플래그의 일반화 — 승인만 넘기던 게이트를 주문 사건 전부로 넓힌다). 리프가 아니면 `skipped='parent'`. **assign** 은 `dev_workflow=true`·리프·`stage is null` 일 때만 as 로, **unassign** 은 `dev_workflow=true`·`stage='as'` 일 때만 null 로(실적 불변). **set_stage** 는 잠금(§3.5)이면 해제(null)까지 `{ok:false, reason:'locked'}`. 잠금이 아니면 null 은 워크플로·리프와 무관하게 허용(잘못 찍힌 값 정리, 실적 불변)이고, 값은 `dev_workflow=true`·리프일 때만 쓴다(아니면 `not_workflow`·`parent`). 실적은 `project_settings.stage_credits`(없으면 기본값)에서 항목 `credit_key`(없으면 default) 표의 사건 크레딧으로 쓴다. 승인은 100 고정.
+4. 단계·실적 갱신. **주문 사건**은 주문의 존재 자체가 워크플로 증거이므로 `dev_workflow` 를 보지 않고 리프이면 쓴다(구 `force` 플래그의 일반화 — 승인만 넘기던 게이트를 주문 사건 전부로 넓힌다). 리프가 아니면 `skipped='parent'`. **assign** 은 `dev_workflow=true`·리프·`stage is null` 일 때만 as 로, **unassign** 은 `dev_workflow=true`·`stage='as'` 일 때만 null 로(실적 불변). **set_stage** 는 잠금(§3.5)이면 해제(null)까지 `{ok:false, reason:'locked'}`. 잠금이 아니면 null 은 워크플로·리프와 무관하게 허용(잘못 찍힌 값 정리, 실적 불변)이고, 값은 `dev_workflow=true`·리프일 때만 쓴다(아니면 `not_workflow`·`parent`). 실적은 `project_settings.stage_credits`(없으면 기본값)의 `default` 표에서 사건 크레딧으로 쓴다(0097 이후 표는 하나라 항목 `credit_key` 를 보지 않는다). 승인은 100 고정.
 5. change_logs 를 `stage`·`actual_pct` 필드로 각 1건 남긴다(값이 바뀐 것만, `user_id=p_actor`).
 6. 결과를 반환한다. `reached_first` 는 이번 전이로 stage 가 im·xx 에 처음 들어갔는지다.
 
@@ -164,7 +162,12 @@ apply_workflow_event(
 
 ### 5.1 프로젝트 설정 › 에이전트 › 개발 워크플로 크레딧
 
-목업(위 링크)대로. 트랙 하나에 AS·IP·RW·IM 핸들과 100 에 잠긴 XX 핸들. 핸들 위 숫자는 클릭해 직접 입력, 드래그·키보드(±5, Home/End) 지원, 순서·간격 제약을 클라이언트와 서버(`validateStageCredits`) 양쪽에서 검사. 아래 미리보기 표는 사건 표를 현재 값으로 보여 주고, 행을 누르면 그 값이 슬라이더 위 현재 위치(◆)로 표시된다. 카테고리별 표(IF·DOC)는 추가·제거할 수 있다. 저장 안내: "저장해도 이미 기록된 실적%는 바뀌지 않습니다."
+목업(위 링크)대로 그린다. 트랙 하나에 AS·IP·RW·IM 핸들과 100 에 잠긴 XX 핸들을 둔다. 값은 핸들 위 숫자에서 바로 고치고(드래그·키보드 ±5·Home/End 도 지원), 순서·간격 제약을 클라이언트와 서버(`validateStageCredits`) 양쪽에서 검사한다. 트랙 아래 눈금은 입력 단위(5)마다 긋고 최소 간격(10)마다 숫자를 붙인다.
+
+- **XX 는 입력 칸을 두지 않는다(2026-09-16).** 사람이 지정할 수 없는 값이 입력처럼 보이면 안 되므로 숫자는 읽기 전용 표기로만 두고 핸들은 자물쇠로 굳힌다. 100 은 승인으로만 간다.
+- **카테고리별 표(IF·DOC) 추가·제거 UI 는 없다(2026-09-16).** 표가 하나뿐이다(§3.3).
+- 아래 **미리보기 표**는 지금 값으로 위임 Task 한 건의 사건 흐름(위임 체크 ON → claim → 수기 입력 → 완료 보고 → 승인 → 승인 취소 → 반려·재작업)을 보여 준다. 행을 누르면 그 값이 슬라이더 위 현재 위치(◆)로 표시되고, 수기 입력 행의 숫자는 직접 바꿔 볼 수 있다(0~99 — 위임 작업의 수기 상한, §3.6). 「계획 진척」 입력과 비교해 진척(시작전·진행중·지연·완료)을 `progress.statusOf` 로 판정한다. 미리보기는 저장하지 않는다.
+- 저장 안내: "저장해도 이미 기록된 실적%는 바뀌지 않습니다. 새 값은 다음 단계 전이부터 적용됩니다."
 
 컴포넌트: `src/components/settings/StageCreditSlider.tsx`(순수 UI) + `src/app/actions/project.ts` 에 `updateStageCredits(projectId, credits)`(관리자 가드, `updateLevelSettings` 와 같은 관례). 위치는 설정 페이지 「에이전트」 카드 안, 허브 링크 아래(킬스위치 `AgentProjectToggle` 은 2026-09-14 에 허브 상태 바로 옮겨졌다). 관리자가 아니면 읽기 전용으로 그린다. 값은 `getProjectConfig` 가 `stageCredits` 로 함께 읽는다.
 
@@ -216,7 +219,7 @@ apply_workflow_event(
 - RPC: `tests/migrations/` 관례로 SQL 본문 검사 + 스테이징 실측 스크립트(승인 → 실적 100·stage xx 가 한 번에, 반려 → ip·표.rw, 주문 CAS 불일치 → conflict).
 - 액션: `updateActual` 상한 3분기, `setWbsStage` 활성 주문 비활성, `updateStageCredits` 관리자 가드·검증 거부.
 - 라우트: claim·report 가 RPC 를 통해 단계·실적을 쓰는지, progress 보고가 `actual_pct` 를 안 건드리는지, `depends_evidence.reached`.
-- 화면: 슬라이더 제약(드래그 경계·직접 입력 클램프·XX 잠금), 헤더 「진척」, 드롭다운 비활성 안내문, 「단계」 컬럼(위임 0건이면 없음·1건이면 헤더와 셀·깊은 자손 위임도 인정·작업명 칸 칩 없음).
+- 화면: 슬라이더 제약(드래그 경계·직접 입력 클램프·XX 입력 없음과 자물쇠·눈금 5/숫자 10), 미리보기 표(사건 행·현재 위치·진척 판정), 헤더 「진척」, 드롭다운 비활성 안내문, 「단계」 컬럼(위임 0건이면 없음·1건이면 헤더와 셀·깊은 자손 위임도 인정·작업명 칸 칩 없음).
 - 회귀: fp 를 참조하던 기존 테스트 15개 파일(2026-09-15 grep) 갱신.
 
 ## 9. 범위 밖

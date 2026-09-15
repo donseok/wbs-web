@@ -13,7 +13,7 @@ describe('validateStageCredits', () => {
     expect(validateStageCredits(only)).toEqual({ ok: true, credits: only })
   })
   it('default 표가 없으면 거부', () => {
-    expect(validateStageCredits({ if: DEFAULT_STAGE_CREDITS.if })).toMatchObject({ ok: false })
+    expect(validateStageCredits({})).toMatchObject({ ok: false })
   })
   it.each([
     ['정수 아님', { as: 0, ip: 30.5, rw: 50, im: 80, xx: 100 }],
@@ -43,14 +43,13 @@ describe('creditForKey — 사건 표', () => {
       unapprove: 'im', reject: 'rw', rework: 'rw', release: 'as',
     })
   })
-  it('credits null 이면 코드 기본값, credit_key 가 표에 없으면 default', () => {
-    expect(creditForKey('rw', null, null)).toBe(50)
-    expect(creditForKey('ip', null, 'if')).toBe(20)
-    expect(creditForKey('im', { default: { as: 0, ip: 10, rw: 20, im: 40, xx: 100 } }, 'doc')).toBe(40)
-    expect(creditForKey('im', { default: { as: 0, ip: 10, rw: 20, im: 40, xx: 100 } }, 'unknown')).toBe(40)
+  it('credits null 이면 코드 기본값, 있으면 그 표(2026-09-16 부터 표는 하나)', () => {
+    expect(creditForKey('rw', null)).toBe(50)
+    expect(creditForKey('ip', null)).toBe(30)
+    expect(creditForKey('im', { default: { as: 0, ip: 10, rw: 20, im: 40, xx: 100 } })).toBe(40)
   })
   it('xx 는 항상 100', () => {
-    expect(creditForKey('xx', { default: { as: 0, ip: 10, rw: 20, im: 40, xx: 100 } }, null)).toBe(100)
+    expect(creditForKey('xx', { default: { as: 0, ip: 10, rw: 20, im: 40, xx: 100 } })).toBe(100)
   })
 })
 
