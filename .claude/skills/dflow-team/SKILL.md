@@ -213,6 +213,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
    fi
    LEAD_PID=${CLAUDE_PID:-$PPID}   # 팀장 세션 프로세스. Bash 도구가 내보내는 CLAUDE_PID, 없으면 $PPID
+   case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) [ -n "${CLAUDE_PID:-}" ] || bad "NO_CLAUDE_PID Windows 의 \$PPID 는 1 이라 팀장 세션을 가려내지 못한다" ;; esac
    skip=0
    case "$(uname -s)" in
      MINGW*|MSYS*|CYGWIN*) powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=$LEAD_PID').CommandLine" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1 ;;
@@ -245,7 +246,9 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      `<신원>/<host>/lead <시작 epoch 초> <PID>` 와 `beat`(epoch 초)를 쓴다. PID 는 팀장 세션 프로세스의 PID 로,
      Bash 도구가 환경 변수 `CLAUDE_PID` 로 내보내는 값(없으면 `$PPID`)이며 Bash 호출마다, 컨텍스트 압축 뒤에도
      같다. `$PPID` 만 쓰지 않는 이유: Windows 의 Git Bash 는 부모가 Cygwin 프로세스가 아니면 `$PPID` 를 1 로
-     보고해 모든 팀장이 같은 PID 를 갖는다. **소유 판정**은 "`owner` 의 신원이 자기
+     보고해 모든 팀장이 같은 PID 를 갖는다. Windows 에서 `CLAUDE_PID` 가 비어 있으면 `NO_CLAUDE_PID` 로
+     중단한다. 이유: `$PPID` 가 1 이면 잠금 소유 판정이 모든 팀장을 같은 프로세스로 보고, 권한 확인 생략
+     감지도 `Get-CimInstance` 가 PID 1 을 찾지 못해 항상 0 이 된다(러너 실측). **소유 판정**은 "`owner` 의 신원이 자기
      `<신원>/<host>/lead` 이고 PID 가 현재 `$LEAD_PID` 와 같다" 이다. 이유: 잠금은 체크아웃마다 하나라서 잠금을 가져간
      다른 팀장도 신원·host·리포가 같고, 신원만으로는 누구의 잠금인지 가려내지 못한다. 시작 시각은 `LOCKED` 안내에서
      사람이 그 팀장을 알아보게 하려고 둔다. 팀장은 매 기상 소유를 확인한 뒤에만 `beat` 를 갱신한다(「2-3」).
