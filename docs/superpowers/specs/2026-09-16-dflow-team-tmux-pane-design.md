@@ -211,7 +211,7 @@ done
 | 생존 | `list-panes -t <pane> -F '#{pane_dead}'` | 빈 출력이면 pane 이 없고, `1` 이면 죽었으며, `0` 이면 살아 있다. **PID 와 시작 시각을 맞춰 보던 `pstart` 규칙이 통째로 사라진다** |
 | 종료 코드 | `#{pane_dead_status}` | 종전에 없던 정보다 |
 | 화면 | `capture-pane -p -t <pane>` | `orca terminal read` 대응 |
-| `blocked` 답 | `send-keys -t <pane> '<답>' Enter` | **재spawn 이 없어져 팀원이 맥락을 지킨다** |
+| `blocked` 답 | `send-keys -t <pane> -l -- '<답>'` 뒤에 `send-keys -t <pane> Enter` | **재spawn 이 없어져 팀원이 맥락을 지킨다** |
 | 회수 | `kill-pane -t <pane>` | — |
 | 워크트리 대응 | `#{pane_start_path}` | `.dflow-pid` 같은 파일 없이 재구성이 된다 |
 
@@ -293,7 +293,7 @@ tmux 자체의 Windows 제약도 알려져 있다. 검증 전까지 Windows 는 
 | shim 판별 | `tmux -V` 는 `3.4`(거짓), 실제 `3.7c`. `-L … ls` 는 `unsupported command: ls` |
 | detached 세션 크기 | `-x 200 -y 60` 으로 지정된다. 80×24 제약은 없다 |
 | `remain-on-exit` | 죽은 pane 이 화면과 `pane_dead_status=7` 을 남긴다 |
-| `send-keys` 전달 | 살아 있는 pane 에 들어간다 |
+| `send-keys` 전달 | 살아 있는 pane 에 들어간다. **`-l` 이 없으면 답을 키 이름으로 먼저 해석한다** — 답이 `Up` 이면 화살표가 눌려 답이 사라지고 `Space` 면 빈 답이 된다(구현 단계 실측). `;`·따옴표가 든 답은 한 인자로 넘기면 안전하다 |
 | `claude "<프롬프트>"` | **대화형으로 뜨면서 첫 턴이 자동 제출된다.** 답까지 받았다 |
 | 환경변수 상속 | `ORCA_AGENT_TEAMS_*` 다섯, `CLAUDE_CODE_*` 아홉, PATH 의 shim 디렉터리가 넘어간다 |
 | 폴더 신뢰 확인 | `--dangerously-skip-permissions` 로 넘어가지 않는다. `send-keys` 로 통과시켰다 |
