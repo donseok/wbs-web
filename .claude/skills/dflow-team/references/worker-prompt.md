@@ -13,9 +13,8 @@
 | `{ID8}` | `ID8` | 주문 id8. 모든 참조는 이것으로만 한다(순번 금지) |
 | `{AGENT_ID}` | `AGENT_ID` | 좌석표 식별자 `<신원>/<host>/w<slot>` |
 | `{MAIN_CHECKOUT}` | `MAIN_CHECKOUT` | 팀장의 상주 체크아웃 절대경로 |
-| `{BACKEND}` | `BACKEND` | `pane` 또는 `process`. `blocked` 이후 동작을 가른다 |
+| `{BACKEND}` | `BACKEND` | 언제나 `pane`. 팀원은 tmux pane 또는 Orca 탭에서 돌며 `blocked` 이후 동작이 같다 |
 | `{MODEL_FLAG}` | `MODEL` | `opus` 면 `--model opus`, `sonnet` 이면 `--model sonnet`, `default` 면 빈 값 |
-| `{ANSWER}` | `ANSWER` | 선택. 프로세스 백엔드에서 `blocked` 뒤 재spawn 할 때만 포인터 둘째 줄로 온다. 있으면 직전 질문에 대한 담당자 결정으로 보고 design.md 에 한 줄 남긴 뒤 이어 간다 |
 
 `<기본브랜치>` 는 `git symbolic-ref --short refs/remotes/origin/HEAD` 가 돌려주는 값에서 `origin/` 을 뗀
 이름이다. 이 ref 가 없으면 `git ls-remote --symref origin HEAD` 의 `ref: refs/heads/<이름>` 줄에서 구한다.
@@ -28,7 +27,8 @@
 거부한다), `$(command -v git)`·`"$GIT"` 처럼 경로를 치환이나 변수로 넣는 형태, git 을 감싼 명령 치환
 (`x=$(... git ...)`), `-C` 로 워크트리 밖을 가리키는 호출이다. git 출력이 필요하면 그 명령을 단독으로
 실행해 출력을 읽고, 셸 변수에 담지 않는다. 이 문서와 `/dflow-dev` 본문의 `git …` 예시는 그 절대경로로 바꿔
-읽는다. pane 백엔드에서는 필요 없지만 무해하고, 백엔드별 분기를 두지 않으려고 공통으로 적용한다.
+읽는다. 팀원이 권한 확인 생략 모드로 돌아 실제로 막히지는 않지만 무해하고, 환경별 분기를 두지 않으려고 공통으로
+적용한다.
 
 ## 1. 격리 확인 (첫 행동)
 
@@ -44,8 +44,7 @@ git rev-parse --git-dir --git-common-dir
 
 격리에 실패하면(주 워크트리이면) **아무 파일도 쓰지 않고** 마지막 응답으로
 `{TSK} {ID8} - - - failed not-isolated` 한 줄만 출력하고 끝낸다. `.result` 를 쓰면 그 파일이 팀장 체크아웃을
-더럽혀 전제 검사가 깨지기 때문이다. 팀장은 프로세스 종료와 로그의 마지막 응답(프로세스)이나 무응답 규칙(pane)으로
-이를 안다.
+더럽혀 전제 검사가 깨지기 때문이다. 팀장은 화면 종료와 그 화면에 남은 마지막 응답, 또는 무응답 규칙으로 이를 안다.
 
 ## 2. 좌석 식별 (격리 확인 직후, 부트스트랩 전)
 
@@ -61,7 +60,7 @@ claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면 이전 시도
 
 `.env` 는 gitignore 대상이라 새 워크트리에 없으므로 메인 체크아웃에서 심링크한다. `.claude/skills` 는 커밋된
 리포면 이미 있고, gitignore 된 심링크로 배포한 리포면 없으므로 없을 때 메인 체크아웃의 것을 심링크한다.
-프로세스 백엔드에서는 팀장이 spawn 전에 같은 링크를 만들어 두므로 아래 두 줄은 건너뛰어진다. Windows(Git Bash)
+tmux 백엔드에서는 팀장이 spawn 전에 같은 링크를 만들어 두므로 아래 두 줄은 건너뛰어진다. Windows(Git Bash)
 에서는 `ln -s` 가 복사본을 만들며 복사본으로도 동작한다(backends.md 「플랫폼 차이」). 그
 다음 인증을 확인하고 기점을 `origin/<기본브랜치>` 로 맞춘다. 줄마다 결과를 보며 실행한다.
 ```bash
@@ -91,16 +90,9 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   수 있고, claim 의 선행 도달 검사는 HEAD 를 본다. 스택 기점은 `/dflow-dev` Phase 0 2번이 claim 전에 다시
   맞춘다. 기점 이동이 실패하면 claim 하지 않고 `{TSK} {ID8} - - - failed detach` 를 쓰고 끝낸다. 아직 claim
   전이라 서버에 흔적이 없다.
-- `{ANSWER}` 가 있는 재spawn 이면 기점 줄 대신 기존 agent 브랜치로 옮긴다. 이미 claimed 인 작업을 그 브랜치
-  위에서 이어 가야 하기 때문이다. `git fetch origin` 뒤 브랜치 이름을 찾아 switch 한다.
-  ```bash
-  git fetch origin
-  git branch -r --list 'origin/agent/{ID8}-*'
-  git switch <위 출력에서 origin/ 을 뗀 이름>
-  ```
-  그 다음 `docs/tasks/{TSK}/design.md` 에 `- 담당자 결정(blocked 응답): {ANSWER}` 한 줄을 남기고(커밋은
-  `/dflow-dev` 커밋 규칙을 따른다) 설계 판단에 쓴다. 이 새 워크트리에도 `node_modules` 가 없으므로 의존성은
-  `/dflow-dev --worker` 가 재개로 agent 브랜치에 들어온 직후 설치한다(「--worker」 H).
+- `blocked` 로 멈췄다가 답을 받아 이어 가는 경우에는 이 3번을 다시 하지 않는다. 같은 세션이 같은 워크트리·
+  브랜치에서 그대로 이어 가기 때문이다. 받은 답은 `docs/tasks/{TSK}/design.md` 에
+  `- 담당자 결정(blocked 응답): <답>` 한 줄로 남기고(커밋은 `/dflow-dev` 커밋 규칙을 따른다) 설계 판단에 쓴다.
 - 의존성은 여기서 설치하지 않는다. `/dflow-dev --worker` 가 브랜치 생성 또는 재개로 agent 브랜치에 들어온
   직후, 기준선과 Phase 1~4 게이트 전에 설치하고 실패하면 `failed deps` 로 끝낸다(「--worker」 H). 이유: 스택이면 기점이 선행 agent 브랜치라 선행
   작업이 lockfile 을 바꿨을 수 있고, 설치할 lockfile 은 그 기점의 것이어야 한다.
@@ -113,16 +105,15 @@ git fetch origin && git switch --detach origin/<기본브랜치>
 - dflow.sh 를 부를 때마다 접두를 붙이지 않는다. dflow.sh 가 환경에 PAT 가 없으면 현재 디렉터리의
   `.env`(부트스트랩에서 만든 심링크)를 스스로 읽는다. 격리 가드가 `.` 소싱 접두를 거부하기 때문이다.
 - 심링크와 `.dflow-agent`·`.result` 는 커밋하지 않는다. 팀장이 공유 `info/exclude` 에 넣어 두고,
-  `/dflow-dev` 는 파일명을 명시해 stage 한다. 워크트리 루트의 `.dflow-pid`·`.dflow-prompt`·`.dflow-worker.log`
-  는 팀장이 쓰는 파일이다. 읽지도 고치지도 않는다.
+  `/dflow-dev` 는 파일명을 명시해 stage 한다. 워크트리 루트의 `.dflow-prompt`·`.dflow-pane`·`.dflow-run`
+  은 팀장이 쓰는 파일이다. 읽지도 고치지도 않는다.
 
 ## 4. 실행
 
 Skill 도구로 `/dflow-dev {ID8} --worker {MODEL_FLAG}` 를 실행한다. 참조는 id8 만 쓰고 순번은 쓰지 않는다.
 Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세션이 시작돼 등록되지 않은 경우)
 `.claude/skills/dflow-dev/SKILL.md` 를 Read 해서 `$ARGUMENTS` 를 `{ID8} --worker {MODEL_FLAG}` 로 놓고 그 절차를
-그대로 따른다. 스킬 hot-reload 를 기다리지 않는다. `{ANSWER}` 재spawn 이면 `/dflow-dev` 가 claimed 재개
-판정으로 이어받는다.
+그대로 따른다. 스킬 hot-reload 를 기다리지 않는다.
 
 ## 5. 서버 쓰기 범위
 
@@ -139,18 +130,16 @@ Skill 도구가 `dflow-dev` 를 모르면(스킬 없는 워크트리에서 세�
 ```
 `<질문 한 줄>` 은 `.result` 의 사유 자리에 쓰는 한 줄과 같은 문자열이다. 그럴 때는
 **현재 산출물을 커밋·push 한 뒤** `.result` 에 `blocked`(질문과 선택지를 사유 자리에 한 줄로, 예
-`질문? (A) … / (B) …`)를 쓴다. 그 다음 동작은 백엔드에 따라 갈린다.
+`질문? (A) … / (B) …`)를 쓴다. 그 다음 **질문을 화면에 출력한 채 세션을 멈춘다.** 화면(tmux pane 또는
+Orca 탭)이 열려 있으므로 사람이 거기서 직접 답하거나, 팀장이 사람의 답을 그 화면에 넣어 준다. 수동
+`/dflow-dev {ID8}` 로 이어받는 길도 있다. 답을 받아 이어 가면 끝날 때 `.result` 를 새 결과로 덮어쓴다.
+슬롯은 계속 점유한다. 두 백엔드가 같다.
 
-| `{BACKEND}` | `blocked` 이후 |
-|---|---|
-| `pane` | 질문을 화면에 출력한 채 세션을 멈춘다. 탭이 열려 있으므로 사람이 그 탭에서 답하거나 수동 `/dflow-dev {ID8}` 로 이어받는다. 답을 받아 이어 가면 끝날 때 `.result` 를 새 결과로 덮어쓴다. 슬롯은 계속 점유한다 |
-| `process` | 탭이 없어 멈춰 있어도 아무도 못 보므로, 질문을 `.result` 에 남기고 같은 줄을 마지막 응답으로 출력한 뒤 **세션을 끝낸다**(프로세스가 종료된다). 팀장이 받아 사람에게 전달하고, 답이 오면 팀장이 기존 브랜치로 워커를 다시 띄운다 |
+AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각자 질문을 띄우면 사람이 어느 팀원의 질문인지
+모른 채 창 N개를 받으므로 질문을 팀장 한 곳으로 모은다.
 
-pane 팀원도 AskUserQuestion 도구를 갖고 있지만 쓰지 않는다. 슬롯 N개가 각자 질문을 띄우면 사람이
-어느 팀원의 질문인지 모른 채 창 N개를 받으므로 질문을 팀장 한 곳으로 모은다. 프로세스 팀원은 비대화형이라
-AskUserQuestion 이 답을 받지 못한다.
-
-**권한 거부(프로세스)**: 프로세스 팀원은 비대화형이라 권한 확인이 필요한 도구 호출이 거부된다. 거부를 만나면
+**권한 거부**: 팀원은 권한 확인 생략 모드로 돌지만 설정의 거부 규칙에 걸린 도구 호출은 그래도 막힌다.
+거부를 만나면
 다른 방법으로 우회하지 않는다. 현재 산출물을 커밋·push 한 뒤 `.result` 에 `{TSK} {ID8} <branch> <head_sha> - failed permission <거부된 명령의 첫 낱말들>`
 을 쓰고 끝낸다. 이유: 거부된 명령 목록이 킷 허용 목록의 재료이며, 우회한 호출은 다음 실행에서 다시 막힌다.
 같은 사유는 Phase 서브에이전트에서 나도 워커가 받아 같은 형식으로 보고한다.
@@ -158,8 +147,7 @@ AskUserQuestion 이 답을 받지 못한다.
 ## 7. 보고: `.result` 파일 계약
 
 작업을 끝내거나 멈출 때 `docs/tasks/{TSK}/.result` 에 한 줄을 쓰고(디렉터리가 없으면 만든다), **같은 줄을
-마지막 응답으로도 출력한다.** 프로세스 백엔드의 로그 파일(`.dflow-worker.log`) 폴백이자 Orca `terminal read`
-용이다. 팀장은 이 줄만 파싱한다. 커밋하지 않고, 사유에 줄바꿈을 넣지 않는다.
+마지막 응답으로도 출력한다.** 죽은 pane 화면 폴백(`capture-pane -J -S -`)이자 Orca `terminal read` 용이다. 팀장은 이 줄만 파싱한다. 커밋하지 않고, 사유에 줄바꿈을 넣지 않는다.
 
 ```
 {TSK} {ID8} <branch|-> <head_sha|-> <done_exit|-> <status> <한 줄 사유 또는 질문>

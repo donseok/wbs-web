@@ -17,20 +17,21 @@
 | `team.sweep` | 「4. 승인 스윕」 | `merged`, `waiting`, `rejected` |
 | `team.stop` | 「7. 마감」 | 없음 |
 
-- `team.start`: `backend` 는 `pane` 또는 `process`, `slots` 는 숫자, `until` 은 `HH:MM`.
-- `team.spawn`: `worktree` 는 팀원 워크트리 절대경로이며 모르면 `-`. `handle` 은 Orca 터미널 핸들 또는 프로세스
-  백엔드의 `pid:<PID>` 이며 핸들이 없으면 `-`. 기본 필드 `tsk`·`order` 도 채운다. `blocked` 답 뒤 재spawn 도
-  같은 `team.spawn` 을 남긴다.
+- `team.start`: `backend` 는 `tmux` 또는 `orca`, `slots` 는 숫자, `until` 은 `HH:MM`.
+- `team.spawn`: `worktree` 는 팀원 워크트리 절대경로이며 모르면 `-`. `handle` 은 tmux 백엔드의
+  `tmux:<pane_id>`(예: `tmux:%3`) 또는 Orca 터미널 핸들이며, 핸들이 없으면 `-`. 기본 필드 `tsk`·`order` 도
+  채운다. `blocked` 는 재spawn 하지 않으므로 그 자리에 `team.spawn` 이 다시 오지 않는다.
 - `team.result`·`team.blocked`: `blocked` 는 `team.blocked`, 나머지 status 는 `team.result` 로 쓴다. `hash` 는
   결과 줄의 cksum 첫 필드, `reason` 은 결과 줄 7번째 칸부터(사유 또는 질문)다. `worktree` 와 기본 필드 `tsk`
   로 `.result` 경로(`<worktree>/docs/tasks/<tsk>/.result`)가 정해지므로, 재구성이 경로별 마지막 처리 해시를
   유도한다. `status` 는 `.result` 의 status 칸이며, `failed` 이고 사유 첫 낱말이 팀장이 구분하는 값이면
   `failed rate-limit`·`failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed permission` 처럼 붙인다.
-  결과 줄 없이 판정한 것(프로세스가 죽었는데 `.result` 도 로그의 결과 줄도 없음)은 `failed no-result`(hash `-`)다.
+  결과 줄 없이 판정한 것(pane 이 죽었는데 `.result` 도 pane 화면의 결과 줄도 없음)은 `failed no-result`(hash `-`)다.
   재구성이 이 값으로 제외 목록과 차단기를 복원한다. spec·TSK 부재로 걸러 spawn 하지 않은 작업은
   `slot`·`worktree`·`hash` 를 `-`, `status` 를 `skipped` 로 남긴다.
-- `team.answer`: `answer` 는 사람이 준 답 한 줄이다. 같은 id8 의 `team.spawn` 이 그 뒤에 있으면 재spawn 을
-  마친 답이다. 프로세스 백엔드의 `team.blocked` 뒤에 같은 id8 의 `team.answer` 가 없으면 답을 기다리는 질문이다.
+- `team.answer`: `answer` 는 사람이 준 답 한 줄이다. 팀장이 그 답을 팀원 화면에 넣은 **뒤에** 기록한다. 같은
+  id8 의 `team.blocked` 뒤에 `team.answer` 가 없으면 아직 답을 기다리는 질문이다. 이 기록이 없으면 컨텍스트
+  압축 뒤 재구성이 이미 답한 질문을 사람에게 다시 통지한다.
 - 제외 목록은 id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 마지막이 `team.spawn` 이나
   `team.blocked` 면 진행 중(영구 제외), `team.result` 면 그 `status` 의 제외 칸(SKILL.md 「3. 결과 처리」)이다.
   `team.answer` 는 제외를 바꾸지 않는다.
