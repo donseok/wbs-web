@@ -7,8 +7,12 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
 각자의 배정분이 병렬로 진행된다. 진행 중인 팀원과 작업은 D'Flow 에이전트 좌석표(가상 오피스)에
 그대로 나타나야 한다.
 
-상태: 설계 확정. 구현 착수는 별도 지시를 기다린다.
-구현계획: `docs/superpowers/plans/2026-09-10-dflow-team.md`
+상태: 설계 확정. 구현계획: `docs/superpowers/plans/2026-09-10-dflow-team.md`
+
+> **2026-09-16 개정**: 팀원 실행 방식이 tmux pane 으로 바뀌었고 `nohup claude -p` 프로세스 백엔드는
+> 없어졌다. 그 부분의 정본은 `2026-09-16-dflow-team-tmux-pane-design.md` 이며, 이 문서에서 프로세스
+> 백엔드를 서술한 대목(§3-5·§4-3·§4-6·§7 등)은 **당시 기록**으로 남긴다. 현재 절차는 `SKILL.md` 와
+> `references/backends.md` 가 정본이다.
 
 > **제1 제약: 팀원을 서브에이전트로 띄우지 않는다.** 팀원은 `/dflow-dev` 를 실행하고, `/dflow-dev` 는
 > Phase 1~4(설계·구현·검증·리팩터)를 서브에이전트로 쪼갠다(dev-discipline.md). 서브에이전트는 자기
@@ -28,6 +32,7 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
   서로의 작업을 건드리지 않는다(§8).
 - Orca·tmux·일반 터미널 어디서나 병렬로 동작한다. Orca 는 pane 백엔드를, 그 밖은 프로세스
   백엔드를 쓴다(§4-3). 어느 환경에서도 "병렬 포기" 분기는 없다.
+  (2026-09-16 개정: 백엔드는 pane(tmux) 와 pane(Orca) 둘이며, tmux 도 Orca 도 없으면 시작을 거부한다.)
 - 팀원·팀장의 활동이 좌석표 설계(`2026-09-10-agent-seatmap-monitoring-design.md`)의 데이터 경로에
   실린다. 이 문서는 연동 계약만 정하고, heartbeat API·화면 구현은 좌석표 설계의 S1·S2 가 한다.
 - 기존 스킬은 필요하면 원문도 고친다. 조건은 수동(`--worker` 없는) 동작이 퇴행하지 않는 것이다(§6-1).
@@ -41,7 +46,8 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
   것을 쓴다. 백엔드가 가르는 것은 spawn·기상 신호·`blocked` 이후 동작·정리뿐이다
   (`references/backends.md` 의 차이표).
 - `--backend` 수동 선택. 백엔드는 §4-3 자동 감지로만 정한다.
-- tmux pane 백엔드. tmux 에서도 프로세스 백엔드를 쓴다(§3-5).
+- ~~tmux pane 백엔드. tmux 에서도 프로세스 백엔드를 쓴다(§3-5).~~ → 2026-09-16 에 구현했다.
+  tmux 를 직접 부르는 방식이며 정본은 `2026-09-16-dflow-team-tmux-pane-design.md` 다.
 - `poll.sh` 출력에 전체 UUID 추가. 팀원이 `list` 를 부르지 않고 `known-ids.txt` 폴백이 있어 잔여
   위험이 얇다(§12).
 - 팀원별 PAT 분리. 한 신원(PAT)이 자기 배정분을 슬롯 N개로 처리하며, 서버 claim 이 잠금이다(§8).
@@ -110,8 +116,12 @@ D'Flow 에서 내게 배정되고 에이전트 위임(`tags:agent`)된 ready 작
      removal when supported; does not force branch deletion").
    - Orca 의 tmux shim: Orca 는 PATH 앞에 tmux shim 을 끼워 `display-message`·`list-panes -F`·
      `capture-pane` 등을 거부한다. 그래서 Orca 에서는 tmux 경로를 쓸 수 없다.
+     (2026-09-16 개정: 막는 것은 PATH 앞의 shim 뿐이고, **절대경로로 부르면 Orca 안에서도 진짜 tmux 가
+     완전히 돈다**는 것을 실측으로 확인했다. 판별 방법은 후속 설계 문서 §3 이다.)
    - tmux: pane 을 다룰 후보인 dev-plugin 의 `/team-mode` 는 플러그인이 `hooks/hooks.json` 로드 실패로
      뜨지 않는다. 그래서 tmux 는 pane 백엔드를 지원하지 않고 프로세스 백엔드로 돈다.
+     (2026-09-16 개정: 플러그인에 맡기지 않고 tmux 를 직접 불러 pane 백엔드를 구현했다. 전용 소켓
+     `-L dflow` 에 팀원마다 pane 하나를 띄운다.)
    - 프로세스: 팀장이 대상 리포 안 `.claude/worktrees/dflow-<id8>` 에 `git worktree add --detach` 로
      전용 워크트리를 만들고, `.env`·스킬 심링크를 건 뒤 그 안에서 `nohup claude -p` 로 팀원을 띄운다.
      기점은 `origin/<기본브랜치>` 로 명시한다. `.dflow-pid` 에 PID 와 시작 시각을 적어 생존을 확인하고,
@@ -1542,8 +1552,10 @@ D'Flow 를 향한 리허설로 검증한다.
 - **blocked 를 사람에게 알리는 경로는 PushNotification 하나다.** 이 도구가 없는 하네스에서는
   events.jsonl 과 화면 통지뿐이라, 터미널을 보고 있지 않으면 팀 전체가 조용히 멈춘 것을 모른다.
   "N분간 진척 없음" 통지는 v1 에 넣지 않는다.
-- **후속**: tmux pane 백엔드(dev-plugin 로드 실패 수정 뒤), 심링크 고정 워크트리(위), 실제 두 신원·두 PC
-  리허설, Windows 실제 세션 확인 3항(`CLAUDE_PID` 존재, auto 모드 권한 프롬프트 형태, Orca(Windows)).
+- **후속**: ~~tmux pane 백엔드(dev-plugin 로드 실패 수정 뒤)~~ → 2026-09-16 완료
+  (`2026-09-16-dflow-team-tmux-pane-design.md`). 남은 것은 심링크 고정 워크트리(위), 실제 두 신원·두 PC
+  리허설, Windows 실제 세션 확인 2항(`CLAUDE_PID` 존재, Orca(Windows))과 Windows MSYS2 tmux 검증이다.
+  auto 모드 권한 프롬프트 형태는 팀원이 언제나 권한 확인 생략 모드로 돌게 되어 확인할 필요가 없어졌다.
 
 ## 13. 플랫폼
 
