@@ -70,13 +70,16 @@ printf '%s\n' '<포인터 한 줄>' > "$WT/.dflow-prompt"
 cat > "$WT/.dflow-run" <<'RUNEOF'
 #!/bin/sh
 # 팀장 세션의 흔적을 벗긴다. 근거는 아래 「팀원 환경을 벗기는 이유」.
-for v in $(env | sed -n 's/^\(CLAUDE_CODE_[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+for v in $(env | sed -n 's/^\(CLAUDE[A-Z0-9_]*\)=.*/\1/p'); do
+  case "$v" in CLAUDE_CONFIG_DIR) continue ;; esac
+  unset "$v"
+done
 for v in $(env | sed -n 's/^\(ORCA_[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 unset TMUX TMUX_PANE
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v 'claude-agent-teams-bin' | paste -sd: -)
 export PATH
-exec claude --dangerously-skip-permissions <모델 플래그> "$(cat .dflow-prompt)"
 RUNEOF
+printf 'exec claude --dangerously-skip-permissions %s "$(cat .dflow-prompt)"\n' '<모델 플래그>' >> "$WT/.dflow-run"
 chmod +x "$WT/.dflow-run"
 if "$TM" -L dflow has-session -t dflow 2>/dev/null; then
   PANE=$("$TM" -L dflow split-window -t dflow -c "$WT" -P -F '#{pane_id}' './.dflow-run')
@@ -97,6 +100,9 @@ cat "$WT/.dflow-pane"
 - `remain-on-exit on` 은 죽은 pane 을 남긴다. 팀원이 무슨 말을 남기고 끝났는지 읽을 수 있고, 종료 코드도
   `#{pane_dead_status}` 로 얻는다.
 - `exec` 로 셸을 claude 로 대체해 `pane_pid` 가 곧 claude 가 된다.
+- **`exec` 줄만 heredoc 밖에서 `printf` 로 붙이는 이유**: `<모델 플래그>` 를 heredoc 안에 두고 치환을
+  빠뜨리면 그 자리가 **입력 리다이렉션**이 되어(`< 모델`) 아무 오류 없이 엉뚱한 파일을 읽는다. `printf` 의
+  인자로 넘기면 `default` 일 때 빈 문자열이 되어 그런 자리가 생기지 않는다.
 - 팀원을 띄우는 명령을 `.dflow-run` 파일에 써 두는 이유: 셸 인용을 한 겹 줄이고, 사람이 pane 에서 무엇이
   돌고 있는지 읽을 수 있다. 프롬프트도 `.dflow-prompt` 파일 경유라 따옴표·백틱을 걱정하지 않는다.
 - `claude "<프롬프트>"` 는 대화형 세션을 띄우면서 그 문자열을 첫 턴으로 제출한다(실측). `-p` 를 쓰지 않으므로
@@ -154,11 +160,15 @@ done
 | `CLAUDE_CODE_MESSAGING_SOCKET`·`TOKEN` | 팀원이 팀장의 메시징 채널에 붙는다 |
 | `CLAUDE_CODE_SESSION_ID`·`BRIDGE_SESSION_ID` | 팀원이 팀장의 세션 ID 를 자기 것으로 쓴다 |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | 팀원이 자기 팀을 만들려 든다 |
+| `CLAUDE_PID` | 팀원이 팀장 세션의 PID 를 자기 세션의 것으로 본다 |
 | `ORCA_AGENT_TEAMS_TEAM_ID`·`TOKEN`·`LEADER_PANE` | 팀원이 자기를 Orca 팀 리더의 pane 으로 오인할 여지가 있다 |
 | PATH 의 `claude-agent-teams-bin` | 팀원이 tmux 를 부르면 Orca shim 이 잡는다 |
 
-접두째 벗기는 쪽을 택한 이유는 목록을 손으로 관리하면 새 변수가 생길 때 놓치기 때문이다. `CLAUDE_CODE_` 와
-`ORCA_` 로 시작하는 것을 전부 지우고, `TMUX`·`TMUX_PANE` 을 따로 지운다. 팀원에게 필요한 설정은 모두
+접두째 벗기는 쪽을 택한 이유는 목록을 손으로 관리하면 새 변수가 생길 때 놓치기 때문이다. `CLAUDE` 와
+`ORCA_` 로 시작하는 것을 전부 지우고, `TMUX`·`TMUX_PANE` 을 따로 지운다. **`CLAUDE_CODE_` 가 아니라
+`CLAUDE` 로 자르는 이유**: 실측에서 `CLAUDECODE`(밑줄 없음)·`CLAUDE_PID`·`CLAUDE_EFFORT`·
+`CLAUDE_PLUGIN_DATA` 넷이 `CLAUDE_CODE_` 접두를 벗어나 있었다. `CLAUDE_CONFIG_DIR` 만 예외로 남긴다.
+사람이 설정하는 값이라 벗기면 팀원이 다른 설정 디렉터리를 쓴다. 팀원에게 필요한 설정은 모두
 `~/.claude/settings.json` 과 워크트리의 `.env` 에서 오므로 잃는 것이 없다. PATH 에서 shim 디렉터리를 빼도
 `claude` 해석은 안전하다(실측: 그 디렉터리에는 `tmux` 하나뿐이고 `claude` 는 다른 곳에 있다).
 
@@ -205,9 +215,18 @@ done
 `pane_start_path` 가 워크트리 경로이므로 pane 과 작업을 다시 맞출 수 있다. 워크트리 루트의 `.dflow-agent` 와
 `.dflow-pane` 이 교차 확인에 쓰인다.
 
-**마감**: 살아 있는 팀원이 하나도 없으면 `"$TM" -L dflow kill-server` 로 서버까지 거둔다. 하나라도 살아 있으면
-남긴다. 팀장 세션이 죽어도 팀원이 사는 성질은 tmux 서버가 따로 돌기 때문이다. 마감에서 `kill-server` 를
-놓치면 서버가 남는데, 그 경우 다음 팀장의 재구성이 `list-panes -a` 로 그 pane 들을 그대로 흡수한다.
+**마감**: **소켓에 pane 이 하나도 없을 때만** 서버를 거둔다.
+
+```bash
+[ -z "$("$TM" -L dflow list-panes -a -F '#{pane_id}' 2>/dev/null)" ] && "$TM" -L dflow kill-server
+```
+
+이 소켓은 **사용자 단위**이지 리포 단위가 아니다. 한 PC 에서 리포 둘에 팀장 둘이 도는 것은 정상이며(잠금은
+체크아웃마다 따로다), 자기 슬롯 표만 보고 `kill-server` 를 하면 **다른 체크아웃의 살아 있는 팀원이 미커밋
+산출물을 안은 채 죽는다.** 종전 프로세스 백엔드에는 이 위험이 없었다. `kill <PID>` 는 자기 프로세스만
+건드렸기 때문이다. 결과 처리가 끝난 pane 을 `kill-pane` 으로 거두므로, 이 팀장의 팀원이 모두 끝났고 다른
+팀장도 없으면 목록이 비어 서버가 거둬진다. 하나라도 남으면 서버를 남긴다. 대가는 tmux 서버 하나가 계속 도는
+것뿐이고, 다음 팀장의 재구성이 `list-panes -a` 로 그 pane 들을 그대로 흡수한다.
 `.dflow-agent` 가 없는 워크트리를 가리키는 pane 은 고아이므로 전제 검사가 찾아 보고한다.
 
 **정리**: 워크트리가 아직 있을 때만 팀장 체크아웃에서 한다.

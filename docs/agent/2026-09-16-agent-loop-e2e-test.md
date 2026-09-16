@@ -658,9 +658,10 @@ cd <REPO> && git log --oneline --graph -15 && npx vitest --run
 2회차 주행이 더러운 상태에서 시작하지 않도록 **역순으로** 치운다.
 
 ```bash
-# 1) tmux 소켓 — 살아 있는 팀원이 없는지 먼저 보고 서버째 거둔다
+# 1) tmux 소켓 — 이 소켓은 사용자 단위라 다른 리포의 팀장 pane 이 섞여 있을 수 있다
 TM=/opt/homebrew/bin/tmux
 "$TM" -L dflow list-panes -a -F '#{pane_id} #{pane_dead} #{pane_start_path}'
+# 위 목록이 이 주행의 워크트리만 가리키는지 눈으로 확인한 뒤에만 거둔다
 "$TM" -L dflow kill-server 2>/dev/null
 
 # 2) 팀원 워크트리

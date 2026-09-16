@@ -158,11 +158,14 @@ Orca 의 `--prompt` 와 같은 효과다. `-p` 를 쓰지 않으므로 세션은
 | `CLAUDE_CODE_MESSAGING_SOCKET`·`TOKEN` | 팀원이 팀장의 메시징 채널에 붙는다 |
 | `CLAUDE_CODE_SESSION_ID`·`BRIDGE_SESSION_ID` | 팀원이 팀장의 세션 ID 를 자기 것으로 쓴다 |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | 팀원이 자기 팀을 만들려 든다 |
+| `CLAUDE_PID` | 팀원이 팀장 세션의 PID 를 자기 것으로 본다 |
 | `ORCA_AGENT_TEAMS_TEAM_ID`·`TOKEN`·`LEADER_PANE` | 팀원이 자기를 Orca 팀 리더의 pane 으로 오인할 여지가 있다 |
 | PATH 의 `claude-agent-teams-bin` | 팀원이 tmux 를 부르면 Orca shim 이 잡는다 |
 
-접두째 벗기는 쪽을 택한 이유는 목록을 손으로 관리하면 새 변수가 생길 때 놓치기 때문이다. `CLAUDE_CODE_` 와
-`ORCA_` 로 시작하는 것을 전부 지우고, `TMUX`·`TMUX_PANE` 을 따로 지운다. 팀원에게 필요한 설정은 모두
+접두째 벗기는 쪽을 택한 이유는 목록을 손으로 관리하면 새 변수가 생길 때 놓치기 때문이다. 자르는 접두는
+`CLAUDE_CODE_` 가 아니라 **`CLAUDE`** 다. 구현 단계 실측에서 `CLAUDECODE`(밑줄 없음)·`CLAUDE_PID`·
+`CLAUDE_EFFORT`·`CLAUDE_PLUGIN_DATA` 넷이 `CLAUDE_CODE_` 밖에 있었다. `CLAUDE_CONFIG_DIR` 만 예외로
+남기고, `ORCA_` 로 시작하는 것을 전부 지우며, `TMUX`·`TMUX_PANE` 을 따로 지운다. 팀원에게 필요한 설정은 모두
 `~/.claude/settings.json` 과 워크트리의 `.env` 에서 오므로 잃는 것이 없다.
 
 ---
@@ -230,8 +233,9 @@ done
 ## 8. 정리와 재구성
 
 - **결과 처리 뒤**: `kill-pane -t <pane>`. 워크트리는 종전 「고아 정리 규칙」을 그대로 쓴다.
-- **마감**: 살아 있는 팀원이 없으면 `kill-server`. 있으면 남긴다. 팀장 세션이 죽어도 팀원이 사는 성질이
-  종전 프로세스 백엔드와 같다.
+- **마감**: 소켓에 pane 이 하나도 없을 때만 `kill-server` 한다. 이 소켓은 **사용자 단위**이지 리포 단위가
+  아니라, 자기 슬롯 표만 보고 거두면 같은 PC 의 다른 체크아웃에서 도는 팀장의 팀원이 죽는다(구현 단계에서
+  발견). 팀장 세션이 죽어도 팀원이 사는 성질은 종전 프로세스 백엔드와 같다.
 - **재구성**: 아래 한 줄로 살아 있는 팀원을 흡수한다.
   ```bash
   "$TM" -L dflow list-panes -a -F '#{pane_id} #{pane_dead} #{pane_start_path}'
