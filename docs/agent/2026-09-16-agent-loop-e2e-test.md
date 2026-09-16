@@ -340,7 +340,31 @@ grep -o 'jongik.jang@dongkuk.com\|yoo7032@gmail.com' docs/wbs.md | sort | uniq -
 
 **실패 시**: 담당자가 비어 있으면 **여기서 멈추고 `wbs.md` 를 직접 고친다.** 업로드 이후에는 D'Flow 가 정본이 되므로 이것이 마지막 기회다. spec 과 선행 관계의 결함은 기록하고 계속해도 된다.
 
-**결과**: [ ] 통과  [ ] 실패  비고:
+**결과**: [x] 통과  [ ] 실패  비고: 2026-09-16 주행(`mdm-dic` 세션이 실행, 커밋 `3f896ff`·`b89b7e3`).
+규모 판정 3단계(프로그램 12건 < 50, 모듈 1개 < 5, `group` 열 없음). `docs/wbs.md` 19 Task.
+WP-00 초기화 3 · WP-01 기본설계 2 · WP-02 dict 13(모듈 계약 1 + 기능 12) · WP-03 통합테스트 1.
+
+**차단 관문 세 줄이 모두 통과했다.**
+
+```
+grep -c 'assignee' docs/wbs.md               → 19  (Task 헤딩 수와 일치)
+grep -n 'assignee' docs/wbs.md | grep -v '@' → 출력 없음
+   7 jongik.jang@dongkuk.com
+  12 yoo7032@gmail.com
+```
+
+19 Task 전부 `requirements`·`acceptance`·`tech-spec` 본문이 차 있고, `depends` 사슬이
+`TSK-00-01`(스캐폴드)로 수렴한다. 기능 12건은 `prd-ref: program:DICT-001`~`DICT-012` 로
+입력 집합과 1:1 이며 중복이 없다.
+
+**단계 11 에서 주의할 것 둘.**
+- **`TSK-02-01` 은 기능 WP(WP-02) 안에 있지만 담당자가 `<SU>` 다.** 성격이 선행 계약
+  (`category: infra`, `tags: contract`)이라 선행 공정 갈래로 묶인 것이다. WP-02 를 훑어 위임
+  태그를 켤 때 이 한 건이 섞이지 않게 한다.
+- 기능 12건은 전부 `TSK-02-01` 에 depends 하고, 화면 3건(`TSK-02-06`·`02-10`·`02-13`)은
+  `TSK-00-03` 에도 depends 한다. 서버 선행 게이트가 claim 시 선행 stage 를 `im`/`xx` 로 요구하므로,
+  **단계 12 에서 `TSK-00-01` 하나만 끝내 놓으면 기능 Task 는 아직 claim 이 막힌다.** 단계 14 의
+  자동 착수 대상을 고를 때 선행이 먼저 완료되어 있어야 한다.
 
 ---
 
@@ -362,7 +386,22 @@ python3 .claude/skills/dflow-export/scripts/wbs-parse.py --tasks-all --wbs docs/
 
 **실패 시**: 즉시 중단한다. 잘못된 구조를 업로드하면 D'Flow 쪽 정리가 수작업이 된다.
 
-**결과**: [ ] 통과  [ ] 실패  비고:
+**결과**: [ ] 통과  [x] **실패(전량 오탐 — 신규 발견 N3)**  비고: 2026-09-16 주행.
+
+```
+{"ok": false, "summary": {"vague_action": 22, "total": 22, "task_count": 19}}
+```
+
+**`task_count` 가 19 로 정확하므로 R4 는 재현되지 않았다.** `ok: false` 를 만든 22건이 전부
+오탐이며 그 내역은 신규 발견 N3 에 적었다. 구조 검사는 깨끗하다.
+
+```
+missing_acceptance: 0    depends_unknown: 0    test_unmapped: 0    vague_action: 22
+```
+
+**곁가지 하나**: `--dev-config-json` 을 넘기지 않으면 `_check_domain_mapping` 이
+`dev_config is None` 으로 **검사를 통째로 건너뛴다.** 넘겨서 다시 돌려도 결과는 같았다.
+「0건 읽음」과 「문제 없음」을 구분하지 못하는 §3 의 A 와 같은 계열이다.
 
 ---
 
@@ -778,6 +817,7 @@ R9 부터 R14 까지 여섯은 다중 신원 구성에서만 나타난다. 이 �
 
 | 코드 | 내용 | 나타난 단계 |
 |---|---|---|
+| N3 | **`wbs-validate.py` 의 `vague_action` 이 도메인 명사에 오탐해 정상 WBS 를 `ok: false` 로 떨어뜨린다.** `:62` 의 `VAGUE_VERBS` 를 `:164` 에서 `if verb in lower or verb in line` 으로 **단어 경계 없이 부분 문자열 대조**한다. 이번 주행의 22건 내역은 「검증」 13(전부 **`검증식`** — 설계서의 1급 도메인 명사이고 `MD_DOMAIN.std_rule`·`biz_rule` 이 그것이다. 프로그램명 `DICT-006`·`DICT-008` 에 그대로 들어 있다), 「구현」 4(**전부 부정문** — 「판정 로직 구현은 하류 Task 의 몫이다」), 「배포」 5(**전부 범위 밖 선언** — 「배포와 결재는 범위 밖이므로 설계하지 않는다」)다. 즉 검사기가 잡은 것은 모호한 동사가 아니라 이 프로젝트의 도메인 어휘이고, 「배포」·「구현」은 오히려 **범위를 좁힌 문장에서만** 나왔으므로 WBS 가 잘 쓰인 증거다. 해소 방향은 단어 경계 기반 대조 또는 부정 어미 제외 규칙이다 | 7 |
 | N2 | **「에이전트 켜기」가 프로젝트 설정 화면에 없다.** 절차서 단계 3 의 3번이 가리키는 위치가 틀렸다. 설정 화면의 AGENT 절은 "WBS 항목의 '에이전트 위임'을 체크하면 이 프로젝트가 자동으로 활성되고 주문이 발행됩니다. 여기서는 **전체 중지 만** 합니다" 라고만 적혀 있다. 실제 활성 스위치는 **`/p/<PROJECT_ID>/agents` 화면의 「재개」 버튼**이다. 이것을 누르기 전에는 `dflow.sh me` 가 `projects: []` 를 돌려주어 그 PAT 로는 아무 작업도 볼 수 없다 | 3, 4 |
 | N1 | **킷 안에 끊어진 참조가 있다.** `dflow-export/SKILL.md:20` 이 `.claude/skills/dflow-wbs/SKILL.md` 를 참조하는데 `kit-build.sh:12` 의 `SKILLS` 목록에 `dflow-wbs` 가 없다. 킷 7종만 설치하면 `/dflow-export` 가 전제하는 `wbs.md` 를 만들 스킬이 리포에 없다. 킷이 담는 `dflow-wbs-nlevel` 은 levels 계약이라 형식이 다르고 자체 업로드 경로(`wbs-nlevel-parse.py` + import v2.2)를 쓰므로 `/dflow-export` 로 이어지지 않는다 | 2 (단계 6 에서 드러날 것을 앞당겨 발견) |
 
