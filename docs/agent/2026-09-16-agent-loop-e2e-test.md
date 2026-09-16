@@ -134,7 +134,7 @@ cd <REPO> && git ls-remote --symref origin HEAD && npx vitest --run --passWithNo
 
 **실패 시**: 즉시 중단한다. 원격이 없으면 `/dflow-team` 의 전제 검사가 `KIT_NOT_PUSHED` 로 막고, 팀원 전원이 시작하지 못한다.
 
-**결과**: [ ] 통과  [ ] 실패  비고:
+**결과**: [x] 통과  [ ] 실패  비고: 2026-09-16 주행. `jongik-sv/mdm-dict`(private) 생성·push, `33100e5`. `better-sqlite3@13.0.3` 은 npm 11 이 install script 를 막지만 prebuild 로 동작해 `node-gyp` 없이 통과했다.
 
 ---
 
@@ -179,7 +179,12 @@ grep -c find_tmux ~/dflow-kit/skills/dflow-team/references/backends.md   # 0 이
 
 **주의**: `.claude/settings.json` 의 워커 허용 규칙에는 이 PC 의 `git` 절대경로가 들어간다. 다른 PC 에서 같은 리포로 시험할 때는 그 PC 에서 `install.sh` 를 다시 실행해 규칙을 갱신해야 한다.
 
-**결과**: [ ] 통과  [ ] 실패  비고:
+**결과**: [x] 통과(단, 신규 발견 1건)  [ ] 실패  비고: 2026-09-16 주행. 킷은 `a0df458d` 로컬 빌드본,
+`find_tmux` 2건 확인, `git pull` 하지 않았다. `origin/main` 에 스킬 파일 30건. `.env` 초안은
+`DFLOW_PROJECT_ID` 단일 형식이고 `settings.json` 에 `Bash(/usr/bin/git *)` 가 들어갔다.
+**`worker-allow.json` 이 정본에서도 `{"allow": []}` 라 허용 규칙은 git 하나뿐이다** — 팀원 pane 이
+권한 확인 생략 모드로 돌므로 주행에는 지장이 없다. 신규 발견 N1 때문에 `dflow-wbs` 를 손으로 더
+넣고 다시 push 했다(스킬 파일 38건, `df65b51`).
 
 ---
 
@@ -268,7 +273,9 @@ cd <REPO> && head -3 docs/programs.csv && awk -F, 'NR>1{print $2}' docs/programs
 
 **실패 시**: 헤더 인식 실패, ID 중복, 필수 칸 누락은 `/dflow-wbs` 가 중단한다. csv 를 고치고 다시 한다.
 
-**결과**: [ ] 통과  [ ] 실패  비고:
+**결과**: [x] 통과  [ ] 실패  비고: 2026-09-16 주행. `PRD.md`(96줄)·`TRD.md`(140줄)·
+`programs.csv`(12건, `DICT-001`~`DICT-012`) 생성, 중복·빈 칸 없음. 커밋 `58c361e`.
+이 단계는 스킬을 쓰지 않으므로 wbs-web 세션에서 처리했다.
 
 ---
 
@@ -278,6 +285,10 @@ cd <REPO> && head -3 docs/programs.csv && awk -F, 'NR>1{print $2}' docs/programs
 ```
 /dflow-wbs --programs docs/programs.csv --start-date 2026-09-17
 ```
+
+> **주의 (2026-09-16 주행에서 확인)**: `dflow-wbs` 는 **킷 7종에 들어 있지 않다**(신규 발견 N1).
+> 단계 2 의 `install.sh` 만으로는 이 명령이 없다. 주행에서는 wbs-web 의 같은 스킬을 손으로 복사해
+> 넣었다. 킷에 담긴 `dflow-wbs-nlevel` 로 대체하면 안 된다 — 계약도 업로드 경로도 다르다.
 
 **기대**: `<REPO>/docs/wbs.md` 가 생기고, 프로그램 1건이 Task 1건(수직 슬라이스)으로 대응되며, 앞에 초기화·기본설계 공정이, 뒤에 통합테스트가 붙는다. 모든 상태는 `[ ]` 다.
 
@@ -731,6 +742,17 @@ rm -f ~/.cache/dflow/last-list.json ~/.cache/dflow/profiles.json
 | A | 검사 도구가 「0건 읽음」과 「문제 없음」을 구분하지 못하고 둘 다 0 으로 끝난다 | 7 | [ ] |
 
 R9 부터 R14 까지 여섯은 다중 신원 구성에서만 나타난다. 이 계열의 성격을 한 줄로 정리하면 이렇다. **쓰기 계열(claim·progress·done·release)과 폴링·팀 오케스트레이션은 전부 「그 순간 `.env` 가 가리키는 단일 신원」을 전제로 짜여 있다.** 동시에 여러 신원을 다루는 것은 `list --all` 과 `doctor` 만 지원한다. 그래서 이 계열의 사고는 거의 전부 「지금 어느 토큰이 첫 번째인지 사람이 착각」하는 형태로 나타나고, 스크립트 쪽 안전장치는 서버의 `not_assignee` 검사 하나뿐이다.
+
+### 신규 발견 (주행 중에 찾은 것)
+
+| 코드 | 내용 | 나타난 단계 |
+|---|---|---|
+| N1 | **킷 안에 끊어진 참조가 있다.** `dflow-export/SKILL.md:20` 이 `.claude/skills/dflow-wbs/SKILL.md` 를 참조하는데 `kit-build.sh:12` 의 `SKILLS` 목록에 `dflow-wbs` 가 없다. 킷 7종만 설치하면 `/dflow-export` 가 전제하는 `wbs.md` 를 만들 스킬이 리포에 없다. 킷이 담는 `dflow-wbs-nlevel` 은 levels 계약이라 형식이 다르고 자체 업로드 경로(`wbs-nlevel-parse.py` + import v2.2)를 쓰므로 `/dflow-export` 로 이어지지 않는다 | 2 (단계 6 에서 드러날 것을 앞당겨 발견) |
+
+N1 의 대응: 주행을 이어 가기 위해 wbs-web `a0df458d` 작업트리의 `.claude/skills/dflow-wbs` 를
+`<REPO>` 에 **손으로 복사**하고 커밋·push 했다(`df65b51`). 따라서 단계 6 이후의 `wbs.md` 는 킷만으로
+얻은 것이 아니다. 근본 대응은 둘 중 하나다. `kit-build.sh` 의 `SKILLS` 에 `dflow-wbs` 를 넣거나,
+`dflow-export` 를 levels 계약으로 옮기고 `dflow-wbs` 참조를 끊는다.
 
 ### 권한 경계에서 함께 볼 지점 (선택)
 
