@@ -13,10 +13,10 @@
 | 항목 | 값 | 근거 |
 |---|---|---|
 | D'Flow 서버 | `https://dflow-staging.vercel.app` | 프로젝트 생성·WBS 업로드·작업 보고가 전부 쓰기 작업이므로 운영을 쓰지 않는다 (CLAUDE.md 「데이터」) |
-| 스킬 출처 | `~/dflow-kit`(`ffb4980`) = wbs-web `origin/main`(`03fedcfe`) | 2026-09-16 시점에 킷과 정본이 일치하므로 재빌드가 필요 없다 |
+| 스킬 출처 | `~/dflow-kit`(tmux 백엔드 반영본) = wbs-web `origin/main` | tmux pane 백엔드를 main 에 머지하고 킷을 재빌드한 뒤 주행한다. 재빌드 전에 주행하면 옛 스킬(프로세스 백엔드)을 시험하게 되어 17단계 하나를 통째로 버린다 |
 | WBS 입력 | `/Users/jji/project/mdm/docs/design/basic/02-term-domain-column.md` (1,058줄) | 용어·도메인·컬럼 3계층, 테이블 8개 |
 | 작업 리포 | 새로 만드는 `~/project/mdm-dict` (GitHub 원격 필수) | `mdm` 폴더는 git 리포가 아니고, 팀원 워크트리는 `origin` 의 스킬을 쓴다 |
-| 팀 백엔드 | **pane(Orca) 하나만 쓴다** | 프로세스 백엔드(`nohup claude -p`)는 사람이 개입할 수 없어 이번 주행에서 뺀다(2026-09-16 결정, 단계 16). 일반 터미널과 tmux 는 전부 프로세스 백엔드로 떨어지므로 함께 빠진다 |
+| 팀 백엔드 | **pane(tmux)** 를 시험한다 | 2026-09-16 에 tmux pane 백엔드를 구현하고 프로세스 백엔드(`nohup claude -p`)는 없앴다. pane(Orca) 는 tmux 가 없는 환경 전용으로 내려가, tmux 가 깔린 이 PC 에서는 그 갈래로 떨어지지 않는다(단계 16) |
 | 실행 신원 | **두 개**: `jongik.jang@dongkuk.com`(슈퍼유저), `yoo7032@gmail.com`(일반 사용자) | 권한 경계가 실제로 닫혀 있는지를 한 신원으로는 확인할 수 없다 |
 
 ### 파라미터
@@ -94,7 +94,7 @@ TypeScript, Next.js, ORM 을 모두 뺀 구성이다.
 
 1. **수동 1건** (`/dflow-dev <번호>`): 루프의 각 단계를 눈으로 확인한다. 여기서 막히면 뒤는 의미가 없다.
 2. **반자동 1건** (`/dflow-poll`): 감시와 자동 착수, 그리고 승인 감지를 확인한다.
-3. **병렬 2건** (`/dflow-team 2명 <종료시각>`): 슬롯 동시 착수와 팀장의 승인 스윕을 확인한다. Orca 의 pane 백엔드로 한 번만 돌린다.
+3. **병렬 2건** (`/dflow-team 2명 <종료시각>`): 슬롯 동시 착수와 팀장의 승인 스윕을 확인한다. tmux pane 백엔드로 한 번 돌린다.
 
 여기에 **권한 경계 시험 1건**(단계 10)과 **반려 재작업 1건**(단계 15)을 끼워 넣는다. 앞의 것은 일반 사용자 토큰으로 업로드를 시도해 거부되는지 보는 자리이고, 뒤의 것은 이미 알려진 결함이 몰려 있는 구간이다(§3 의 C, E, R3).
 
@@ -532,7 +532,7 @@ cd <REPO> && (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.
 
 ---
 
-### 단계 16. 병렬 실행 2건 (`/dflow-team`, pane 백엔드)
+### 단계 16. 병렬 실행 2건 (`/dflow-team`, pane(tmux) 백엔드)
 
 **사전 조건**: 작업트리가 깨끗하고, 현재 브랜치가 기본 브랜치여야 한다. 스킬 push 는 단계 2 에서 이미 끝났으므로 여기서는 확인만 한다. 이 단계는 `<MEM>` 신원으로 돈다(단계 14 에서 토큰 순서를 뒤집었고, `/dflow-team` 역시 첫 토큰만 쓴다).
 
@@ -543,63 +543,94 @@ git rev-parse --abbrev-ref HEAD              # main 이어야 한다
 git ls-tree -r --name-only origin/main | grep -c '^\.claude/skills/'   # 0 이 아니어야 한다
 ```
 
-#### 백엔드는 pane 하나만 시험한다 (2026-09-16 결정)
+#### 백엔드 둘 중 하나만 실제로 시험된다
 
-이 스킬이 구분하는 백엔드는 둘이지만, 이번 주행은 **pane 만** 돌린다.
+이 스킬이 구분하는 백엔드는 **pane(tmux)** 와 **pane(Orca)** 둘이다. 감지가 tmux 를 먼저 보므로, tmux 가 깔린 PC 에서는 Orca 안에서 띄워도 tmux 로 떨어진다.
 
 | 실행 환경 | 감지 결과 | 이번 주행 |
 |---|---|---|
-| Orca | pane 백엔드. 팀원이 자기 탭에서 대화형 claude 로 돈다 | **시험한다** |
-| 일반 터미널·tmux·iTerm2 | 프로세스 백엔드. 팀장이 `nohup claude -p` 로 팀원을 띄운다 | 뺀다 |
+| 일반 터미널·tmux·Orca (tmux 가 깔림) | **pane(tmux)** | **시험한다** |
+| Orca (tmux 없음) | pane(Orca) | 이 PC 에서 재현할 수 없다. 건너뛰고 기록한다(R15) |
+| tmux 도 Orca 도 없음 | `FAIL NO_TMUX` 로 시작 거부 | 별도로 한 번 확인한다(아래 16-다) |
 
-프로세스 백엔드를 빼는 이유는 `claude -p` 가 비대화형이라는 데 있다. 기능이 모자란 것이 아니라 **사람이 끼어들 자리가 없다.**
+2026-09-16 에 `nohup claude -p` 프로세스 백엔드를 없앴다. 기능이 모자라서가 아니라 **사람이 끼어들 자리가 없었기 때문**이다. 권한 확인 프롬프트를 띄울 수 없고, 팀원 화면이 없으며, `blocked` 답이 재spawn 이라 팀원이 쌓아 둔 맥락을 잃고, 사람이 팀원 자리에 앉아 이어받을 수도 없었다. tmux pane 팀원은 넷 모두 해당하지 않는다.
 
-1. 권한 확인 프롬프트를 띄울 수 없다. 확인이 필요한 명령은 그대로 거부되어 `failed permission` 으로 끝나므로, 사실상 팀장을 권한 확인 생략 모드로 띄워야 쓸 만해진다.
-2. 팀원 화면이 없다. 진행 중에 볼 수 있는 것은 `<워크트리>/.dflow-worker.log` 뿐이고, 그것도 마지막 응답 폴백 용도다.
-3. `blocked` 로 멈춘 팀원에게 답을 주려면 프로세스를 다시 띄워야 한다. 팀원은 쌓아 둔 컨텍스트를 잃고 처음부터 다시 시작한다.
-4. 사람이 팀원 자리에 앉아 이어받을 수 없다.
+**tmux 로 옮기면서 새로 생긴 위험 둘이 이 단계의 주된 관찰 지점이다.** 둘 다 대화형으로 바꿨기 때문에 생기며, 종전 프로세스 백엔드에는 없던 것이다.
 
-pane 백엔드는 넷 모두 해당하지 않는다. 팀원이 대화형 claude 이므로 화면이 보이고, 권한 확인에 답할 수 있으며, `blocked` 면 그 탭에서 답을 주면 되고, 사람이 직접 타이핑해 이어받을 수 있다.
-
-**에이전트 역학은 두 백엔드가 같다.** `claude -p` 메인 에이전트도 Phase 손자 서브에이전트의 완료 알림으로 다시 깨어나는 것이 실측으로 확인되어 있다(`backends.md` 「프로세스」). 프로세스 백엔드를 빼는 근거는 오직 사람과의 상호작용이다.
-
-> **대가**: Orca 가 없는 환경에는 대화형 팀원 경로가 남지 않는다(결함 R15). tmux pane 백엔드가 그 자리를 메울 후보인데 아직 미구현이다. pane 을 다룰 후보였던 dev-plugin 의 `/team-mode` 가 플러그인 로드 실패로 뜨지 않아 미구현으로 남았고(`docs/superpowers/specs/2026-09-10-dflow-team-design.md:111-114`), 같은 문서 끝에 후속 과제로 적혀 있다. **tmux 가 pane 을 만들지 못해서가 아니다.**
+1. **폴더 신뢰 확인**이 `--dangerously-skip-permissions` 로 넘어가지 않는다. 팀장이 화면을 읽어 `send-keys` 로 통과시키는데, 이 판정이 화면 문자열에 기대므로 Claude Code 판본이 문구를 바꾸면 깨진다. 깨지면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가 통째로 논다.
+2. **팀장 환경 상속**. `CLAUDE_CODE_CHILD_SESSION` 이 넘어가면 팀원의 대화 기록이 저장되지 않는다. `.dflow-run` 이 `CLAUDE_CODE_*`·`ORCA_*` 를 접두째 벗기는데, 그것이 실제로 들었는지는 팀원 화면에 `Transcript saving is off` 가 **없는지**로 본다.
 
 **실행 전 환경 확인**
 ```bash
 printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORCA_WORKTREE_ID-}" "${TMUX-}"
+command -v tmux; /opt/homebrew/bin/tmux -V 2>/dev/null
+/opt/homebrew/bin/tmux -L dflow has-session -t dflow 2>/dev/null && echo "이미 세션 있음 — 먼저 정리한다" || echo "소켓 비어 있음"
 ```
 
-Orca 는 내부적으로 tmux 를 쓰기 때문에 `TMUX` 와 `ORCA_WORKTREE_ID` 가 **동시에** 설정된다. 감지가 그 조합에서 Orca 쪽으로 제대로 떨어지는지가 이 단계의 관찰 지점 하나다. 감지 순서가 뒤집혀 tmux 를 먼저 보면 Orca 세션이 오진된다.
+`command -v tmux` 가 `~/.orca/claude-agent-teams-bin/tmux` 를 가리키면 그것은 **Orca 의 shim** 이다. 스킬은 절대경로 후보를 훑어 진짜 tmux 를 찾으므로 정상이지만, 사람이 손으로 확인할 때는 절대경로를 써야 한다.
 
-**실행** (Orca 에서)
+#### 16-가. pane(tmux) 주행
+
+**실행**
 ```
 /dflow-team 2명 <종료시각>
 ```
 
 **기대**
-1. 전제 검사가 `PRECHECK_OK` 로 통과하고, 백엔드가 **pane(Orca)** 으로 감지된다.
-2. 팀장 잠금(`dflow-team.lock`)이 잡힌다.
-3. 워크트리 `dflow-<id8>` 두 개가 `origin/main` 기점으로 생기고, 각 팀원이 자기 워크트리에서 `agent/<id8>-<slug>` 브랜치를 만든다.
-4. D'Flow 좌석표(`/agents`)에 슬롯이 표시된다.
-5. 팀원이 끝나면 `.result` 파일이 남고, 팀장이 그것을 한 번만 처리한다.
-6. 팀장이 기상할 때마다 승인 스윕(`/dflow-merge`)을 직접 돈다.
+1. 전제 검사가 `PRECHECK_OK lead_pid=… BACKEND=tmux TM=/opt/homebrew/bin/tmux` 로 통과한다. `TM` 이 shim 경로(`claude-agent-teams-bin`)가 아니어야 한다.
+2. 시작 보고에 "팀원은 권한 확인 생략 모드로 돕니다" 와 `TMUX= tmux -L dflow attach` 두 줄이 나온다.
+3. 팀장 잠금(`dflow-team.lock`)이 잡힌다.
+4. 워크트리 `dflow-<id8>` 두 개가 `origin/main` 기점으로 생기고, 각 워크트리에 `.dflow-prompt`·`.dflow-run`·`.dflow-pane` 이 있다.
+5. tmux 소켓 `dflow` 에 pane 두 개가 `tiled` 로 나뉜다.
+6. **폴더 신뢰 확인이 자동으로 통과된다.** 팀원이 그 화면에서 멈춰 있지 않다.
+7. 팀원 화면에 `Transcript saving is off` 가 **없다**.
+8. 각 팀원이 자기 워크트리에서 `agent/<id8>-<slug>` 브랜치를 만든다.
+9. D'Flow 좌석표(`/agents`)에 슬롯이 표시된다.
+10. 팀원이 끝나면 `.result` 가 남고, 팀장이 그것을 한 번만 처리한 뒤 `kill-pane` 으로 거둔다.
+11. 팀장이 기상할 때마다 승인 스윕(`/dflow-merge`)을 직접 돈다.
 
 **확인**
 ```bash
-cd <REPO> && git worktree list && ls -d .claude/worktrees/* 2>/dev/null
-orca worktree list 2>/dev/null | head
+TM=/opt/homebrew/bin/tmux
+"$TM" -L dflow list-panes -a -F '#{pane_id} #{pane_dead} #{pane_start_path}'
+cd <REPO> && git worktree list && ls -a .claude/worktrees/*/ 2>/dev/null | grep dflow
+"$TM" -L dflow capture-pane -p -t <pane> | tail -30      # 팀원 화면을 눈으로 본다
 ```
 
+**사람이 붙어서 보기**: `TMUX= tmux -L dflow attach`. `Ctrl-b z` 로 pane 하나를 확대한다. `Ctrl-b d` 로 뗀다.
+
+**`blocked` 답 시험**: 팀원이 `blocked` 로 멈추면 팀장에게 `<id8> <답>` 으로 답해 본다. 팀장이 `send-keys -l --` 로 그 pane 에 넣고, 팀원이 **맥락을 유지한 채** 이어 가는지 본다(재spawn 이 아니다). 답이 오지 않으면 직접 pane 에 쳐도 되는지도 함께 본다.
+
 **실패 시**
+- `NO_TMUX`: tmux 가 없거나 후보 경로 밖에 있다. `find_tmux` 의 후보는 `/opt/homebrew/bin`·`/usr/local/bin`·`/usr/bin`·`command -v` 넷이다.
+- `NO_CLAUDE_CLI`: `claude` 가 PATH 에 없다. pane 이 뜨자마자 죽고 `#{pane_dead_status}` 가 `127` 이면 같은 원인이다.
 - `KIT_NOT_PUSHED`: 위 사전 조건의 push 를 빠뜨린 것이다.
-- `ORCA_OLD`: `orca worktree create` 가 `--agent`·`--prompt` 를 지원하지 않는 판이다. Orca 를 갱신한다. 프로세스 백엔드로 우회하지 않는다. 우회하면 이 단계가 시험하려던 대상 자체가 바뀐다.
-- 팀원이 `failed permission` 으로 끝나면 워커 허용 목록 문제다. `install.sh` 가 `.claude/settings.json` 에 넣은 항목을 확인한다.
-- 감지가 프로세스 백엔드로 떨어지면 **그 자리에서 멈추고 기록한다.** `TMUX` 를 `ORCA_WORKTREE_ID` 보다 먼저 보는 오진이며, 그것 자체가 이 단계의 소득이다.
+- **팀원이 첫 화면에서 멈춰 있으면** 폴더 신뢰 확인 판정이 깨진 것이다. 그 화면의 실제 문구를 기록한다. 판정이 기대하는 문자열은 `I trust this folder` 와 `bypass permissions on` 둘이다. 이것이 이 단계의 가장 값진 소득이 될 수 있다.
+- **팀원 화면에 `Transcript saving is off` 가 뜨면** `.dflow-run` 의 환경 벗기기가 듣지 않은 것이다. 그 pane 에서 `env | grep CLAUDE_CODE_` 를 쳐서 무엇이 남았는지 기록한다.
+- 감지가 `BACKEND=orca` 로 떨어지면 `find_tmux` 가 진짜 tmux 를 놓친 것이다. 그 자리에서 멈추고 `command -v tmux` 와 후보 경로들의 실제 내용을 기록한다.
 
 **결과**: [ ] 통과  [ ] 실패  비고:
 
-**이 단계가 남기는 것**: 워크트리 2개, `agent/*` 브랜치, 좌석표 항목, `dflow-team.lock`.
+#### 16-나. pane(Orca) — 이번 주행에서는 건너뛴다
+
+tmux 가 깔린 PC 에서는 이 갈래로 떨어지지 않는다. 시험하려면 `find_tmux` 후보 경로 넷에서 tmux 를 모두 치워야 하는데, 그것은 이 PC 의 다른 작업을 망가뜨린다. **건너뛰고 R15 에 기록한다.**
+
+#### 16-다. `NO_TMUX` 거부 확인 (30초)
+
+시작을 거부하는 갈래는 팀을 띄우지 않으므로 안전하게 확인할 수 있다. 빈 `PATH` 로 전제 검사의 감지 부분만 돌려 본다.
+
+```bash
+env -i PATH=/nonexistent HOME="$HOME" sh -c '
+  for c in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do
+    [ -x "$c" ] && echo "후보 살아 있음: $c"
+  done'
+```
+
+후보 절대경로가 실재하는 PC 에서는 이 갈래가 재현되지 않는다. tmux 가 없는 PC 에서 별도로 확인하고, 그때까지는 **미확인**으로 남긴다.
+
+**결과**: [ ] 통과  [ ] 실패  비고:
+
+**이 단계가 남기는 것**: 워크트리 2개, `agent/*` 브랜치, 좌석표 항목, `dflow-team.lock`, tmux 소켓 `dflow`(마감이 `kill-server` 로 거둔다).
 
 ---
 
@@ -627,17 +658,17 @@ cd <REPO> && git log --oneline --graph -15 && npx vitest --run
 2회차 주행이 더러운 상태에서 시작하지 않도록 **역순으로** 치운다.
 
 ```bash
-# 1) 팀원 워크트리 (pane 백엔드)
-orca worktree list
-orca worktree remove <워크트리 id>        # 살아 있는 팀원이 없는지 먼저 확인
+# 1) tmux 소켓 — 살아 있는 팀원이 없는지 먼저 보고 서버째 거둔다
+TM=/opt/homebrew/bin/tmux
+"$TM" -L dflow list-panes -a -F '#{pane_id} #{pane_dead} #{pane_start_path}'
+"$TM" -L dflow kill-server 2>/dev/null
 
-# 2) 팀원 워크트리 (프로세스 백엔드)
+# 2) 팀원 워크트리
 cd <REPO>
-ps -ax | grep '[c]laude -p'               # 살아 있으면 먼저 끝난 것을 확인하고 kill
 git worktree remove --force .claude/worktrees/dflow-*   # 있을 때만
 
 # 3) 팀장 잠금과 부산물
-rm -rf dflow-team.lock .dflow-worker.log .dflow-prompt .dflow-agent 2>/dev/null
+rm -rf dflow-team.lock .dflow-prompt .dflow-pane .dflow-run .dflow-agent 2>/dev/null
 git worktree prune
 
 # 4) 머지된 agent 브랜치
@@ -680,7 +711,7 @@ rm -f ~/.cache/dflow/last-list.json ~/.cache/dflow/profiles.json
 | R12 | 목록 캐시가 신원과 무관하게 공유되어, 신원을 바꾼 직후 순번을 쓰면 앞 신원의 목록에서 풀린다 | 11, 14 | [ ] |
 | R13 | 팀이 도는 중에 `.env` 를 바꾸면 심링크를 통해 이미 떠 있는 팀원의 신원까지 즉시 바뀐다 | 14, 16 | [ ] |
 | R14 | `--as` 매칭 실패와 그 토큰의 인증 깨짐이 같은 메시지(「프로필을 찾지 못했습니다」)로 보인다 | 4 | [ ] |
-| R15 | Orca 밖에서는 대화형 팀원을 띄울 방법이 없다. 일반 터미널과 tmux 가 모두 프로세스 백엔드로 떨어지는데, 그 팀원은 비대화형이라 사람이 화면을 보거나 답을 줄 수 없다 | 16 | [ ] |
+| R15 | tmux 가 깔린 PC 에서는 감지가 언제나 tmux 로 떨어져 pane(Orca) 갈래를 주행에서 시험할 수 없다. 그 코드 경로는 tmux 없는 Orca 환경 전용인데, 그런 조합이 실제로 있는지도 확인된 바 없다 | 16 | [ ] |
 | C | 반려가 stage 를 되돌리지 않아, 반려된 코드 위에서 후행 체인이 계속 자란다 | 15 | [ ] |
 | E | spec 캐시는 claim 시점 1회 스냅샷이고 해시가 없어서, 반려 후 개정된 수용 기준이 반영되지 않는 경로가 있다 | 15 | [ ] |
 | F | 진행률 25·60·85 는 근거 없는 관례 수치인데 그대로 실적(`actual_pct`)이 된다 | 12, 14 | [ ] |
