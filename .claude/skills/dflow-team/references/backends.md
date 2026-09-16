@@ -3,25 +3,222 @@
 SKILL.md 「0. 환경 감지」 가 백엔드를 고른다. 워커 프롬프트·`.result` 계약·`/dflow-dev --worker` 는 두
 백엔드가 같다. 백엔드가 가르는 것은 아래 차이표의 항목뿐이다.
 
-tmux pane 백엔드는 지원하지 않는다(tmux 에서도 프로세스 백엔드로 돈다).
+백엔드는 둘이다. **pane(tmux)** 가 기본이고, tmux 가 없는 Orca 환경에서만 **pane(Orca)** 를 쓴다.
 
 ## 차이표
 
-| 항목 | pane(Orca) | 프로세스 |
+| 항목 | pane(tmux) | pane(Orca) |
 |---|---|---|
-| 팀원 정체 | 별도 프로세스의 claude 메인 에이전트(권한 확인 생략 모드) | 팀장이 `nohup claude -p` 로 띄운 별도 프로세스의 claude 메인 에이전트(비대화형). 팀장과 같은 설정(권한 규칙)을 쓰고, 팀장이 권한 확인 생략 모드면 같은 플래그를 받는다 |
-| 워크트리 | `orca worktree create` 가 `origin/<기본브랜치>` 기점으로 만든다 | 팀장이 `git worktree add --detach` 로 `<MAIN>/.claude/worktrees/dflow-<id8>` 를 `origin/<기본브랜치>` 기점으로 만든다. 브랜치를 만들지 않는다 |
-| 기상 신호 | 감시 루프의 `RESULT_READY` | 감시 루프의 `RESULT_READY`·`PROC_DEAD` |
-| `blocked` 이후 | 팀원은 탭에서 멈춰 기다린다 | 팀원은 프로세스를 끝낸다 |
-| 슬롯 점유 | `blocked` 동안 슬롯을 계속 잡는다 | 결과 처리 직후 슬롯을 해제한다 |
-| 사람의 답 | 그 팀원 탭에 직접 준다 | 팀장 세션에 `<id8> <답>` 으로 준다. 팀장이 `ANSWER=` 를 붙여 재spawn 한다 |
-| 회수 | 없음(별도 프로세스) | 결과 줄 처리 뒤 프로세스가 아직 살아 있으면 `kill <PID>` |
-| 팀장 세션이 죽으면 | 팀원은 살아남는다 | 팀원은 살아남는다(`nohup`). 새 팀장이 재구성에서 `.dflow-pid` 로 살아 있는 팀원을 흡수한다 |
-| 정리 | `orca worktree rm --worktree path:<경로>` | `git worktree remove --force <경로>` |
-| 팀원 화면 | `orca terminal read`(보고용) | 없음. `<워크트리>/.dflow-worker.log` 가 마지막 응답 폴백이다 |
+| 팀원 정체 | 팀장이 tmux pane 에 띄운 대화형 claude 메인 에이전트(권한 확인 생략 모드) | Orca 탭의 claude 메인 에이전트(권한 확인 생략 모드) |
+| 워크트리 | 팀장이 `git worktree add --detach` 로 `<MAIN>/.claude/worktrees/dflow-<id8>` 를 `origin/<기본브랜치>` 기점으로 만든다. 브랜치를 만들지 않는다 | `orca worktree create` 가 `origin/<기본브랜치>` 기점으로 만든다 |
+| 기상 신호 | 감시 루프의 `RESULT_READY`·`PANE_DEAD` | 감시 루프의 `RESULT_READY` |
+| `blocked` 이후 | 팀원은 pane 에서 멈춰 기다린다 | 팀원은 탭에서 멈춰 기다린다 |
+| 슬롯 점유 | `blocked` 동안 슬롯을 계속 잡는다 | 같다 |
+| 사람의 답 | 그 pane 에 직접 치거나, 팀장이 `send-keys` 로 넣는다 | 그 팀원 탭에 직접 준다 |
+| 회수 | 결과 줄 처리 뒤 `kill-pane -t <pane>` | 없음(Orca 탭) |
+| 팀장 세션이 죽으면 | 팀원은 살아남는다(tmux 서버가 따로 돈다). 새 팀장이 재구성에서 `.dflow-pane` 과 `#{pane_start_path}` 로 흡수한다 | 팀원은 살아남는다 |
+| 정리 | `git worktree remove --force <경로>` | `orca worktree rm --worktree path:<경로>` |
+| 팀원 화면 | `capture-pane -p -t <pane>`(보고용), `-J -S -`(결과 줄 폴백) | `orca terminal read`(보고용) |
 | git 호출 | `command -v git` 절대경로 | 같다(두 백엔드 공통) |
 
+## pane(tmux)
+
+팀원은 팀장이 전용 tmux 소켓(`-L dflow`)의 pane 에 띄운 **대화형** claude 메인 에이전트다. Agent 도구
+서브에이전트로 띄우지 않는다. 이유: 서브에이전트는 자기 턴이 끝나면 하네스가 완료로 보고, 그 뒤에 끝난 Phase
+손자의 완료가 서브에이전트를 깨우지 못해 Phase 손자를 기다리다 멈춘다(리허설 실측). 별도 프로세스의 메인
+에이전트는 손자 완료 알림으로 다시 깨어나고(실측), 팀장 세션이 죽어도 살아남는다.
+
+### 진짜 tmux 찾기
+
+Orca 는 PATH 앞에 tmux shim 을 끼운다. 그 shim 은 `orca agent-teams-tmux` 로 위임하는 셸 스크립트이며,
+Claude Code 자체 에이전트 팀이 쓰는 부분집합만 처리하고 나머지를 `unsupported command` 로 거부한다.
+**`tmux -V` 는 거짓 버전을 답하므로** 버전으로는 가릴 수 없다(실측: shim 이 `3.4`, 실제 바이너리가 `3.7c`).
+
+```bash
+find_tmux() {
+  for c in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux "$(command -v tmux 2>/dev/null)"; do
+    [ -n "$c" ] && [ -x "$c" ] || continue
+    grep -q 'agent-teams-tmux' "$c" 2>/dev/null && continue
+    "$c" -L "dflowprobe$$" has-session -t __probe__ 2>&1 | grep -qi 'unsupported command' && continue
+    printf '%s\n' "$c"; return 0
+  done
+  return 1
+}
+```
+
+두 겹으로 거른다. 스크립트 내용에서 `agent-teams-tmux` 를 찾는 것이 첫째이고, 실제로 명령을 던져
+`unsupported command` 가 돌아오는지 보는 것이 둘째다. probe 소켓 이름에 `$$` 를 붙이는 이유는 운영 소켓
+`dflow` 를 건드리지 않기 위해서다. 찾은 절대경로는 `TM` 에 담아 이후 모든 호출에 쓴다. 팀장이 Orca 안에
+있어도 절대경로로 부르면 shim 을 그냥 지나친다(실측).
+
+**spawn**: 워크트리 준비는 팀장 체크아웃에서 한 번의 Bash 호출로 돌린다. `<모델 플래그>` 는 `MODEL` 이
+`opus`·`sonnet` 이면 `--model opus`·`--model sonnet`, `default` 면 빈 값이다.
+
+```bash
+TM=$(find_tmux)
+WT="<MAIN>/.claude/worktrees/dflow-<id8>"
+git fetch -q origin && git worktree prune && git worktree add --detach "$WT" origin/<기본브랜치> || echo SPAWN_FAILED_WORKTREE
+[ -e "$WT/.env" ] || ln -s "<MAIN>/.env" "$WT/.env"
+if [ ! -e "$WT/.claude/skills/dflow-dev/SKILL.md" ]; then
+  if [ -d "$WT/.claude/skills" ] && [ ! -L "$WT/.claude/skills" ]; then
+    for s in dflow-dev dflow-work; do [ -e "$WT/.claude/skills/$s" ] || ln -s "<MAIN>/.claude/skills/$s" "$WT/.claude/skills/$s"; done
+  else
+    mkdir -p "$WT/.claude" && ln -s "<MAIN>/.claude/skills" "$WT/.claude/skills"
+  fi
+fi
+printf '%s\n' '<포인터 한 줄>' > "$WT/.dflow-prompt"
+cat > "$WT/.dflow-run" <<'RUNEOF'
+#!/bin/sh
+# 팀장 세션의 흔적을 벗긴다. 근거는 아래 「팀원 환경을 벗기는 이유」.
+for v in $(env | sed -n 's/^\(CLAUDE_CODE_[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+for v in $(env | sed -n 's/^\(ORCA_[A-Z0-9_]*\)=.*/\1/p'); do unset "$v"; done
+unset TMUX TMUX_PANE
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -v 'claude-agent-teams-bin' | paste -sd: -)
+export PATH
+exec claude --dangerously-skip-permissions <모델 플래그> "$(cat .dflow-prompt)"
+RUNEOF
+chmod +x "$WT/.dflow-run"
+if "$TM" -L dflow has-session -t dflow 2>/dev/null; then
+  PANE=$("$TM" -L dflow split-window -t dflow -c "$WT" -P -F '#{pane_id}' './.dflow-run')
+else
+  "$TM" -L dflow new-session -d -s dflow -n dflow -x 200 -y 60 -c "$WT" './.dflow-run'
+  "$TM" -L dflow set-option -t dflow remain-on-exit on
+  PANE=$("$TM" -L dflow list-panes -t dflow -F '#{pane_id}' | head -1)
+fi
+"$TM" -L dflow select-layout -t dflow tiled
+printf '%s\n' "$PANE" > "$WT/.dflow-pane"
+cat "$WT/.dflow-pane"
+```
+
+- **전용 소켓 `-L dflow`** 라 팀장이 tmux 안이든 밖이든 코드 경로가 하나다. 사람의 기존 tmux 세션도 건드리지
+  않는다. 서버가 없으면 `new-session`, 있으면 `split-window` 로 갈리는 분기 한 줄이 전부다.
+- `-x 200 -y 60` 은 detached 동안의 가상 크기다. 사람이 붙으면 클라이언트 크기를 따른다. 팀장이
+  `capture-pane` 으로 읽을 때 이 크기가 쓰이므로 좁게 두지 않는다.
+- `remain-on-exit on` 은 죽은 pane 을 남긴다. 팀원이 무슨 말을 남기고 끝났는지 읽을 수 있고, 종료 코드도
+  `#{pane_dead_status}` 로 얻는다.
+- `exec` 로 셸을 claude 로 대체해 `pane_pid` 가 곧 claude 가 된다.
+- 팀원을 띄우는 명령을 `.dflow-run` 파일에 써 두는 이유: 셸 인용을 한 겹 줄이고, 사람이 pane 에서 무엇이
+  돌고 있는지 읽을 수 있다. 프롬프트도 `.dflow-prompt` 파일 경유라 따옴표·백틱을 걱정하지 않는다.
+- `claude "<프롬프트>"` 는 대화형 세션을 띄우면서 그 문자열을 첫 턴으로 제출한다(실측). `-p` 를 쓰지 않으므로
+  세션은 대화형으로 남고, 사람이 화면을 보며 끼어들 수 있다.
+- `.env`·스킬 링크를 팀장이 먼저 만드는 이유: claude 는 시작할 때 cwd 의 `.claude/skills` 를 읽으므로, 링크가
+  먼저 있어야 팀원의 Skill 도구가 `dflow-dev` 를 안다. 워커 부트스트랩(worker-prompt.md 「3」)의 같은 명령은
+  이미 있으면 건너뛴다. 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면 폴더째 링크하지 않고 워커가 쓰는
+  스킬만 하나씩 링크한다(있는 폴더에 폴더째 링크를 걸면 `.claude/skills/skills` 가 생긴다).
+- Windows(Git Bash) 에서는 `ln -s` 가 링크 대신 복사본을 만든다. 복사본으로도 동작한다: `.env` 는 정적이고
+  스킬은 읽기 전용이며, 두 경로 모두 `info/exclude`·`.gitignore` 로 가려진다. 대가로 팀장이 스킬을 고쳐도 이미
+  뜬 팀원의 복사본에는 반영되지 않고, 워크트리마다 `.env` 사본이 생기므로 정리 규칙이 워크트리를 지울 때 함께
+  지워진다.
+- `git worktree add` 가 실패하면(`SPAWN_FAILED_WORKTREE`, 대개 같은 경로가 남아 있음) 띄우지 않고 경로를
+  보고한다. 같은 id8 의 옛 워크트리는 결과 처리가 지웠거나 `parked` 로 남아 있다. `parked` 면 「6. blocked」 대로
+  "사람 확인 필요" 다.
+- `team.spawn` 의 `worktree` 는 `$WT`, `handle` 은 `tmux:<pane_id>` 다(예: `tmux:%3`).
+- 팀원 프로세스는 팀장 세션 안에 나타나지 않는다. ListAgents 에 팀원도 손자도 없다. 손자 Phase 서브에이전트는
+  팀원의 서브에이전트이므로 팀원이 스스로 회수한다.
+
+**폴더 신뢰 확인**: 대화형 claude 는 처음 보는 디렉터리에서 신뢰 확인을 띄운다.
+
+```
+Quick safety check: Is this a project you created or one you trust?
+❯ No, exit
+  Yes, I trust this folder
+```
+
+**`--dangerously-skip-permissions` 로 넘어가지 않는다.** `claude --help` 가 이유를 밝힌다. 그 대화상자는 `-p`
+를 쓰거나 stdout 이 TTY 가 아닐 때만 건너뛴다. 팀원 워크트리는 매번 새 경로(`dflow-<id8>`)이므로 **매번** 뜬다.
+아무도 답하지 않으면 팀원이 그대로 멈춘다. spawn 직후 팀장이 화면을 읽어 확인이 보이면 답을 보낸다.
+
+```bash
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  scr=$("$TM" -L dflow capture-pane -p -t "$PANE" 2>/dev/null)
+  case "$scr" in
+    *"I trust this folder"*) "$TM" -L dflow send-keys -t "$PANE" Down; \
+                             "$TM" -L dflow send-keys -t "$PANE" Enter; break ;;
+    *"bypass permissions on"*) break ;;
+  esac
+  sleep 1
+done
+```
+
+이 규칙은 **화면 문자열에 기댄다.** Claude Code 판본이 문구를 바꾸면 깨진다. 깨지면 팀원이 신뢰 확인 화면에서
+멈춘 채 살아 있으므로 무응답 자동 정리(SKILL.md 「3. 결과 처리」)가 가려낸다. 확인한 판본은 v2.1.273 이다.
+`~/.claude.json` 의 `hasTrustDialogAccepted` 를 미리 넣는 길은 택하지 않았다. 그 파일은 212KB 이고 여러 세션이
+동시에 쓰기 때문에, 읽고 고쳐 쓰는 사이에 남의 변경을 잃는다.
+
+**팀원 환경을 벗기는 이유**: 팀원 pane 은 팀장의 환경을 통째로 물려받는다. 실측에서 `ORCA_AGENT_TEAMS_*`
+다섯 개와 `CLAUDE_CODE_*` 아홉 개가 넘어갔고 PATH 에도 shim 디렉터리가 남았다.
+
+| 남는 것 | 깨지는 것 |
+|---|---|
+| `CLAUDE_CODE_CHILD_SESSION` | **팀원의 대화 기록이 저장되지 않는다.** 화면에 `Transcript saving is off` 가 뜬다. 팀원이 무엇을 했는지 나중에 볼 수 없다 |
+| `CLAUDE_CODE_MESSAGING_SOCKET`·`TOKEN` | 팀원이 팀장의 메시징 채널에 붙는다 |
+| `CLAUDE_CODE_SESSION_ID`·`BRIDGE_SESSION_ID` | 팀원이 팀장의 세션 ID 를 자기 것으로 쓴다 |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` | 팀원이 자기 팀을 만들려 든다 |
+| `ORCA_AGENT_TEAMS_TEAM_ID`·`TOKEN`·`LEADER_PANE` | 팀원이 자기를 Orca 팀 리더의 pane 으로 오인할 여지가 있다 |
+| PATH 의 `claude-agent-teams-bin` | 팀원이 tmux 를 부르면 Orca shim 이 잡는다 |
+
+접두째 벗기는 쪽을 택한 이유는 목록을 손으로 관리하면 새 변수가 생길 때 놓치기 때문이다. `CLAUDE_CODE_` 와
+`ORCA_` 로 시작하는 것을 전부 지우고, `TMUX`·`TMUX_PANE` 을 따로 지운다. 팀원에게 필요한 설정은 모두
+`~/.claude/settings.json` 과 워크트리의 `.env` 에서 오므로 잃는 것이 없다. PATH 에서 shim 디렉터리를 빼도
+`claude` 해석은 안전하다(실측: 그 디렉터리에는 `tmux` 하나뿐이고 `claude` 는 다른 곳에 있다).
+
+**생존·화면·답·회수**
+
+| 항목 | 명령 |
+|---|---|
+| 생존 | `"$TM" -L dflow list-panes -t <pane> -F '#{pane_dead}' 2>/dev/null` — 빈 출력이면 pane 이 없고, `1` 이면 죽었으며, `0` 이면 살아 있다 |
+| 종료 코드 | `"$TM" -L dflow list-panes -t <pane> -F '#{pane_dead_status}' 2>/dev/null` |
+| 화면(보고용) | `"$TM" -L dflow capture-pane -p -t <pane>` |
+| 결과 줄 폴백 | `"$TM" -L dflow capture-pane -p -J -S - -t <pane>` |
+| `blocked` 답 | `"$TM" -L dflow send-keys -t <pane> -l -- "$ans"` 뒤에 `"$TM" -L dflow send-keys -t <pane> Enter` |
+| 회수 | `"$TM" -L dflow kill-pane -t <pane>` 뒤에 `"$TM" -L dflow select-layout -t dflow tiled` |
+| 워크트리 대응 | `#{pane_start_path}` |
+
+- **화면은 생존 증거로 쓰지 않는다.** 스피너 때문에 화면이 매번 달라져 멈춘 팀원도 살아 있는 것처럼 보이기
+  때문이다. 생존 증거는 SKILL.md 「3. 결과 처리」 의 셋(브랜치 tip 커밋 시각·서버 progress·미커밋 변경 목록)이다.
+  화면은 사람에게 보여 줄 보고용과 신뢰 확인 판별에만 쓴다.
+- 빈 출력과 `1` 을 함께 죽음으로 보는 이유: `remain-on-exit` 를 놓친 pane 은 흔적 없이 사라지는데, 그 팀원도
+  끝난 것이다.
+- 답을 `-l --` 로 넣는 이유: `send-keys -t <pane> '<답>' Enter` 는 답을 키 이름으로 해석한다. 답에 `;` 가
+  들어가면 그 자리에서 명령이 끊기고, 한 단어 답이 우연히 키 이름이면 키로 들어간다. 신뢰 확인의
+  `Down`·`Enter` 는 키 이름이 맞으므로 `-l` 없이 보낸다.
+- 회수 뒤 `select-layout tiled` 를 다시 도는 이유: 남은 pane 이 빈자리를 메우게 한다.
+- 팀장과 사람이 같은 pane 에 동시에 입력하면 섞인다. 팀장이 답을 넣을 때는 그 사실을 한 줄 알린다.
+
+**결과 줄과 죽은 pane 폴백**: 결과는 `<워크트리>/docs/tasks/<TSK>/.result` 다. pane 이 죽었는데 파일이 없으면
+죽은 pane 의 화면 전체에서 `<TSK> <id8> ` 로 시작하는 마지막 줄을 찾는다(워커는 같은 줄을 마지막 응답으로도
+출력한다). 그것도 없으면 `failed no-result` 다(SKILL.md 「3. 결과 처리」).
+
+```bash
+"$TM" -L dflow capture-pane -p -J -S - -t <pane> 2>/dev/null | grep -E '^<TSK> <id8> ' | tail -n 1
+```
+
+`-J` 는 줄바꿈된 줄을 잇고 `-S -` 는 스크롤백 전체를 읽는다. 기본 캡처는 보이는 영역뿐이라 결과 줄이
+스크롤아웃되면 못 찾고, 200열에서 줄바꿈된 결과 줄은 앞부분만 잡혀 사유가 잘린다. `failed not-isolated` 는
+워커가 파일을 쓰지 않으므로 이 폴백으로만 온다.
+
+**재구성**: 팀장이 컨텍스트를 잃어도 아래 한 줄로 살아 있는 팀원을 흡수한다.
+```bash
+"$TM" -L dflow list-panes -a -F '#{pane_id} #{pane_dead} #{pane_start_path}' 2>/dev/null
+```
+`pane_start_path` 가 워크트리 경로이므로 pane 과 작업을 다시 맞출 수 있다. 워크트리 루트의 `.dflow-agent` 와
+`.dflow-pane` 이 교차 확인에 쓰인다.
+
+**마감**: 살아 있는 팀원이 하나도 없으면 `"$TM" -L dflow kill-server` 로 서버까지 거둔다. 하나라도 살아 있으면
+남긴다. 팀장 세션이 죽어도 팀원이 사는 성질은 tmux 서버가 따로 돌기 때문이다. 마감에서 `kill-server` 를
+놓치면 서버가 남는데, 그 경우 다음 팀장의 재구성이 `list-panes -a` 로 그 pane 들을 그대로 흡수한다.
+`.dflow-agent` 가 없는 워크트리를 가리키는 pane 은 고아이므로 전제 검사가 찾아 보고한다.
+
+**정리**: 워크트리가 아직 있을 때만 팀장 체크아웃에서 한다.
+```bash
+git worktree remove --force "$WT"
+```
+`--force` 는 미추적 부산물(`.result`·`.dflow-agent`·`.dflow-prompt`·`.dflow-pane`·`.dflow-run`·`.env` 링크·
+스킬 링크) 때문에 필요하다. 먼저 「고아 정리 규칙」 을 따른다. 살아 있는 팀원의 워크트리는 지우지 않는다.
+
 ## pane(Orca)
+
+tmux 를 찾지 못한 Orca 환경에서만 이 백엔드로 온다. 그런 조합이 실제로 있는지는 확인된 바 없다.
 
 **spawn**
 ```bash
@@ -54,105 +251,21 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
 워크트리보다 먼저 있던 브랜치는 보존한다. 미커밋분을 잃으므로 먼저 「고아 정리 규칙」 을 따른다. `--force` 는
 「고아 정리 규칙」 1번(부트스트랩 실패)에서만 붙인다. 워크트리 강제 제거만 하고 브랜치 삭제는 강제하지 않는다.
 
-## 프로세스
-
-팀원은 팀장이 만든 링크드 워크트리에서 도는 별도 `claude -p` 프로세스다. Agent 도구 서브에이전트로 띄우지
-않는다. 이유: 서브에이전트는 자기 턴이 끝나면 하네스가 완료로 보고, 그 뒤에 끝난 손자 서브에이전트의 완료가
-서브에이전트를 깨우지 못해 Phase 손자를 기다리다 멈춘다(리허설 실측). 별도 `claude -p` 프로세스의 메인 에이전트는
-손자 완료 알림으로 다시 깨어나고(실측), 팀장 세션이 죽어도 살아남는다.
-
-**spawn**: 「5. 팀원 spawn」 의 포인터 한 줄을 `<워크트리>/.dflow-prompt` 에 쓰고 그 파일 내용을 프롬프트로 넘긴다.
-`blocked` 재spawn 이면 둘째 줄이 `ANSWER=<담당자 답 한 줄>` 이다. 셸 인자에 답을 직접 넣지 않는 이유: 답에 따옴표·
-백틱이 들어갈 수 있다. 팀장 체크아웃에서 한 번의 Bash 호출로 돌린다.
-```bash
-WT="<MAIN>/.claude/worktrees/dflow-<id8>"
-git fetch -q origin && git worktree prune && git worktree add --detach "$WT" origin/<기본브랜치> || echo SPAWN_FAILED_WORKTREE
-[ -e "$WT/.env" ] || ln -s "<MAIN>/.env" "$WT/.env"
-if [ ! -e "$WT/.claude/skills/dflow-dev/SKILL.md" ]; then
-  if [ -d "$WT/.claude/skills" ] && [ ! -L "$WT/.claude/skills" ]; then
-    for s in dflow-dev dflow-work; do [ -e "$WT/.claude/skills/$s" ] || ln -s "<MAIN>/.claude/skills/$s" "$WT/.claude/skills/$s"; done
-  else
-    mkdir -p "$WT/.claude" && ln -s "<MAIN>/.claude/skills" "$WT/.claude/skills"
-  fi
-fi
-printf '%s\n' '<포인터 한 줄>' > "$WT/.dflow-prompt"            # 재spawn: printf '%s\n%s\n' '<포인터 한 줄>' 'ANSWER=<답 한 줄>'
-pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="WINPID") c=i} NR==2{if($1 ~ /^[A-Z]$/) c++; print $c}'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
-( cd "$WT" && nohup claude -p "$(cat .dflow-prompt)" <모델 플래그> <권한 플래그> > .dflow-worker.log 2>&1 < /dev/null &
-  echo $! > .dflow-pid && pstart "$(cat .dflow-pid)" >> .dflow-pid )
-cat "$WT/.dflow-pid"
-```
-- Windows(Git Bash) 에서는 `ln -s` 가 링크 대신 복사본을 만든다. 복사본으로도 동작한다: `.env` 는 정적이고
-  스킬은 읽기 전용이며, 두 경로 모두 `info/exclude`·`.gitignore` 로 가려진다. 대가로 팀장이 스킬을 고쳐도 이미
-  뜬 팀원의 복사본에는 반영되지 않고, 워크트리마다 `.env` 사본이 생기므로 정리 규칙이 워크트리를 지울 때 함께
-  지워진다.
-- `<모델 플래그>` 는 `MODEL` 이 `opus`·`sonnet` 이면 `--model opus`·`--model sonnet`, `default` 면 빈 값이다.
-- `<권한 플래그>` 는 팀장 세션이 권한 확인 생략 모드로 떠 있으면(전제 검사의 `LEAD_SKIP_PERMISSIONS=1`)
-  `--dangerously-skip-permissions`, 아니면 빈 값이다. 빈 값이면 팀원은 팀장과 같은 설정 파일의 권한 규칙
-  (`permissions.defaultMode`·`allow`)을 쓴다. 비대화형이라 확인 프롬프트를 띄울 수 없으므로 확인이 필요한 명령은
-  거부되고, 워커는 그것을 `failed permission <명령 앞부분>` 으로 보고한다(worker-prompt.md 「6. 판단 규칙」).
-- `.env`·스킬 링크를 팀장이 먼저 만드는 이유: `claude -p` 는 시작할 때 cwd 의 `.claude/skills` 를 읽으므로,
-  링크가 먼저 있어야 팀원의 Skill 도구가 `dflow-dev` 를 안다. 워커 부트스트랩(worker-prompt.md 「3」)의 같은
-  명령은 이미 있으면 건너뛴다. 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면 폴더째 링크하지 않고 워커가
-  쓰는 스킬만 하나씩 링크한다(있는 폴더에 폴더째 링크를 걸면 `.claude/skills/skills` 가 생긴다).
-- `git worktree add` 가 실패하면(`SPAWN_FAILED_WORKTREE`, 대개 같은 경로가 남아 있음) 띄우지 않고 경로를 보고한다.
-  같은 id8 의 옛 워크트리는 결과 처리가 지웠거나 `parked` 로 남아 있다. `parked` 면 「6. blocked」 대로 "사람 확인
-  필요" 다.
-- `nohup … &` 로 띄우는 이유: Bash 호출이 끝나도 프로세스가 살아남아야 하고(실측: 호출이 끝난 뒤에도 계속 돈다),
-  팀장 세션이 죽어도 팀원이 이어 가야 한다. `run_in_background` 로 띄우면 팀장 세션과 함께 죽는다. 팀원 spawn 은
-  SKILL.md 「금지」 의 "셸 `&`" 규칙의 유일한 예외다.
-- `.dflow-pid` 는 두 줄이다: PID 와 `pstart` 가 돌려준 시작 시각 문자열. 생존 확인은 둘을 함께 본다.
-  ```bash
-  pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="WINPID") c=i} NR==2{if($1 ~ /^[A-Z]$/) c++; print $c}'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
-  pid=$(head -n 1 "$WT/.dflow-pid"); st=$(sed -n '2p' "$WT/.dflow-pid")
-  kill -0 "$pid" 2>/dev/null && [ "$(pstart "$pid")" = "$st" ] && echo ALIVE || echo DEAD
-  ```
-  시작 시각까지 비교하는 이유: 죽은 팀원의 PID 를 다른 프로세스가 다시 받을 수 있다. `pstart` 는 macOS·Linux 에서
-  `ps -o lstart=`, Windows(Git Bash) 에서는 MSYS `ps -p` 출력의 WINPID 열(머리글에서 열 위치를 찾고, 첫 칸의 상태
-  글자만큼 밀린다)로 Windows PID 를 얻은 뒤 PowerShell `Get-Process` 의 `StartTime` 을 쓴다. MSYS `ps` 에는 `-o` 가 없고, `$!` 는 Cygwin PID 라
-  Windows PID 와 다를 수 있기 때문이다.
-- `.dflow-pid`·`.dflow-prompt`·`.dflow-worker.log` 는 팀장이 쓰는 미추적 파일이며 전제 검사가 공유 `info/exclude`
-  에 넣는다. 워커는 손대지 않는다.
-- `team.spawn` 의 `worktree` 는 `$WT`, `handle` 은 `pid:<PID>` 다.
-- 팀원 프로세스는 팀장 세션 안에 나타나지 않는다. ListAgents 에 팀원도 손자도 없다. 손자 Phase 서브에이전트는
-  팀원 프로세스의 서브에이전트이므로 팀원이 스스로 회수한다.
-
-**결과 줄과 마지막 응답 폴백**: 결과는 `<워크트리>/docs/tasks/<TSK>/.result` 다. 프로세스가 죽었는데 파일이
-없으면 `.dflow-worker.log` 에서 `<TSK> <id8> ` 로 시작하는 마지막 줄을 찾는다(워커는 같은 줄을 마지막 응답으로도
-출력한다). 그것도 없으면 `failed no-result` 다(SKILL.md 「3. 결과 처리」).
-```bash
-grep -E '^<TSK> <id8> ' "$WT/.dflow-worker.log" | tail -n 1
-```
-
-**회수**: 결과 줄을 처리한 뒤 프로세스가 아직 살아 있으면(위 생존 확인이 `ALIVE`) `kill "$pid"` 로 멈춘다. 워커는
-`.result` 를 쓴 뒤 곧 끝나므로 보통은 이미 죽어 있다. 무응답 자동 정리(두 TICK 연속 생존 증거 없음)도 같은
-`kill` 로 멈춘 뒤 워크트리를 「고아 정리 규칙」 대로 다룬다.
-
-**`blocked` 워크트리**: 팀원이 커밋·push 하고 끝나므로, 결과 처리 직후 「고아 정리 규칙」 2번(미커밋 변경 없음,
-HEAD 가 `origin/<agent 브랜치>` 와 같음)을 맞추면 그 자리에서 정리한다. 정리할 수 없으면 3번대로 `.dflow-agent` 값을 `parked`
-로 바꿔 정규 슬롯 스캔에서 빼고 보고한다.
-
-**정리**: 워크트리가 아직 있을 때만 팀장 체크아웃에서 한다.
-```bash
-git worktree remove --force "$WT"
-```
-`--force` 는 미추적 부산물(`.result`·`.dflow-agent`·`.dflow-pid`·`.dflow-prompt`·`.dflow-worker.log`·`.env` 링크·스킬
-링크) 때문에 필요하다. 먼저 「고아 정리 규칙」 을 따른다. 살아 있는 팀원의 워크트리는 지우지 않는다.
-
 ## 고아 정리 규칙
 
 두 백엔드 공통이다. 대상은 루트 `.dflow-agent` 값이 `<신원>/<host>/` 로 시작하는 워크트리(`parked` 포함)다.
-결과 처리(done·needs-merge·skipped·failed·프로세스 `blocked`), 고아 스캔, 무응답 자동 정리, 마감이 이
-규칙으로 팀원 워크트리를 지운다.
+결과 처리(done·needs-merge·skipped·failed), 고아 스캔, 무응답 자동 정리, 마감이 이 규칙으로 팀원 워크트리를
+지운다.
 1. **부트스트랩 실패**(`.result` 의 branch 칸이 `-`, 브랜치를 만들기 전에 끝남): 미커밋 목록이 알려진
-   부산물(`.dflow-agent`, `.dflow-pid`, `.dflow-prompt`, `.dflow-worker.log`, `.result`, `docs/tasks/<TSK>/spec.md`
+   부산물(`.dflow-agent`, `.dflow-prompt`, `.dflow-pane`, `.dflow-run`, `.result`, `docs/tasks/<TSK>/spec.md`
    캐시, `.env` 링크, 스킬 링크(`.claude/skills` 또는 그 안의 `dflow-dev`·`dflow-work`))뿐일 때만 정리한다
-   (프로세스는 `git worktree remove --force`, Orca 는 `orca worktree rm --worktree path:<경로> --force`). 두 백엔드
+   (tmux 는 `git worktree remove --force`, Orca 는 `orca worktree rm --worktree path:<경로> --force`). 두 백엔드
    모두 `--force` 를 쓰는 이유: 알려진 부산물 중 `spec.md` 캐시와 스킬 폴더 안의 개별 링크는 공유 `info/exclude` 가
    가리지 않는 미추적 파일이라 `--force` 없이는 제거가 거부될 수 있다. Orca 의 `--force` 는 워크트리 강제 제거만
    하고 브랜치 삭제는 강제하지 않는다.
    ```bash
    git -C <워크트리> status --porcelain --untracked-files=all \
-     | grep -v -E '^\?\? (\.dflow-(agent|pid|prompt|worker\.log)|\.env|\.claude/skills(/dflow-(dev|work)(/.*)?)?|docs/tasks/<TSK>/(spec\.md|\.result))$'
+     | grep -v -E '^\?\? (\.dflow-(agent|prompt|pane|run)|\.env|\.claude/skills(/dflow-(dev|work)(/.*)?)?|docs/tasks/<TSK>/(spec\.md|\.result))$'
    ```
    출력이 비어 있어야 한다. 그 밖의 변경이 있으면 보존하고 경로와 목록을 보고한다. 이유: 브랜치가 없어도
    워커가 무언가를 고쳤다면 그것은 사람이 판단할 산출물이다.
@@ -170,10 +283,11 @@ git worktree remove --force "$WT"
    ```bash
    printf '%s\n' '<신원>/<host>/parked' > <워크트리>/.dflow-agent
    ```
-4. 살아 있는 팀원(SKILL.md 「팀장 상태」 정의)의 워크트리는 조건과 무관하게 지우지 않는다. pane 의 `blocked`
-   워크트리도 여기에 든다(팀원이 탭에서 답을 기다린다). 예외는 무응답 자동 정리(SKILL.md 「3. 결과 처리」) 하나다.
+4. 살아 있는 팀원(SKILL.md 「팀장 상태」 정의)의 워크트리는 조건과 무관하게 지우지 않는다. 두 백엔드의
+   `blocked` 워크트리가 모두 여기에 든다(팀원이 pane 이나 탭에서 답을 기다린다). 예외는 무응답 자동 정리
+   (SKILL.md 「3. 결과 처리」) 하나다.
 5. **생성 브랜치 정리**: 워크트리를 지웠으면 그 워크트리를 만들 때 생긴 브랜치를 지운다. Orca 는 이름에
-   `dflow-<id8>` 이 든 브랜치다. 프로세스 워크트리는 `--detach` 로 만들어 생성 브랜치가 없다. `agent/` 로 시작하는
+   `dflow-<id8>` 이 든 브랜치다. tmux 워크트리는 `--detach` 로 만들어 생성 브랜치가 없다. `agent/` 로 시작하는
    브랜치는 지우지 않는다(작업 산출물이다).
    ```bash
    git fetch origin
@@ -202,20 +316,15 @@ git worktree remove --force "$WT"
 
 | 항목 | macOS·Linux | Windows(Git Bash) |
 |---|---|---|
+| tmux | 대개 설치되어 있거나 패키지 관리자로 깐다 | **MSYS2 로 따로 깔아야 한다. 미검증** |
 | 호스트 이름 | `hostname` 의 첫 점 앞부분(`hostname \| cut -d. -f1`) | 같다. Windows 의 hostname.exe 에는 `-s` 가 없다 |
 | 팀장 세션 PID | `CLAUDE_PID`(= `$PPID`) | `CLAUDE_PID`(필수. 없으면 전제 검사가 `NO_CLAUDE_PID` 로 중단). `$PPID` 는 부모가 Cygwin 프로세스가 아니면 1 이다 |
-| 프로세스 시작 시각(`pstart`) | `ps -o lstart=` | MSYS `ps -p` 의 WINPID 열(머리글로 위치를 찾는다)로 Windows PID 를 얻고 PowerShell `Get-Process` 의 `StartTime`. MSYS `ps` 에는 `-o` 가 없다 |
-| 권한 확인 생략 감지 | `ps -o command=` | PowerShell `Get-CimInstance Win32_Process` 의 `CommandLine` |
-| `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다(「프로세스」 spawn) |
-| 필요한 명령 | bash·coreutils·ps·git·jq·curl | Git for Windows 의 bash·coreutils·ps 와 git·jq·curl·powershell.exe |
+| `.env`·스킬 링크 | 심링크 | `ln -s` 가 복사본을 만든다. 복사본으로 동작한다(「pane(tmux)」 spawn) |
+| 필요한 명령 | bash·coreutils·tmux·git·jq·curl | Git for Windows 의 bash·coreutils 와 MSYS2 tmux·git·jq·curl |
 
-프로세스 생존 확인(`kill -0`)과 회수(`kill`)는 두 플랫폼에서 같은 명령이다.
-
-- **신호 전달**: `$!` 에 보낸 `kill` 이 네이티브 자식(node.exe·claude)까지 끝내는 것을 GitHub Actions
-  Windows 러너(Windows Server 2025, Git 2.55, bash 5.3)에서 확인했다. npm 심(`#!/bin/sh` 스크립트가
-  `exec node …`)과 네이티브 `claude.exe` 모두 같다.
-- **`pstart` 비용**: PowerShell 기동 때문에 호출당 0.4~0.5초 든다. 슬롯 수 × 기상 횟수만큼 누적되지만
-  허용 범위다.
+- **Windows tmux 미검증**: MSYS2 tmux 가 Git Bash 에서 실제로 도는지 확인한 적이 없다. Git for Windows 기본
+  구성이 아니고, tmux 자체의 Windows 제약도 알려져 있다. 검증 전까지 Windows 는 「돌 수도 있다」 로 둔다.
+  WSL 은 Linux 로 취급되므로 그대로 돈다.
 - **`ln -s`**: 복사본을 만든다(파일·폴더 모두). `MSYS=winsymlinks:nativestrict` 를 주면 진짜 심링크가
   되지만 설계는 복사본을 전제로 한다.
 - **줄끝**: Windows 기본 `core.autocrlf=true` 클론은 스크립트를 CRLF 로 바꾼다. 킷과 설치 대상의
