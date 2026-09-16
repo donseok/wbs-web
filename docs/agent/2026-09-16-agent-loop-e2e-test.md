@@ -142,7 +142,8 @@ cd <REPO> && git ls-remote --symref origin HEAD && npx vitest --run --passWithNo
 
 **실행**
 ```bash
-cd ~/dflow-kit && git pull
+# git pull 을 하지 않는다 — 아래 주의 참조. 로컬 빌드본을 그대로 쓴다
+cd ~/dflow-kit && git status --short && cat VERSION
 ~/dflow-kit/install.sh <REPO>
 ```
 
@@ -163,6 +164,16 @@ ls <REPO>/.claude/skills && grep -n '^\.env$' <REPO>/.gitignore && cat ~/dflow-k
 cd <REPO> && git ls-tree -r --name-only origin/main | grep -c '^\.claude/skills/'
 ```
 마지막 명령의 출력이 0 이면 스킬이 원격에 올라가지 않은 것이다.
+
+**주의 — 이번 주행은 원격에 올리지 않은 로컬 킷을 쓴다.** `~/dflow-kit` 은 wbs-web `staging`(`2a3572d1`)
+에서 빌드한 것이며 **`git pull` 하면 tmux 백엔드가 없는 옛 킷으로 덮인다.** 원격에 올리지 않는 이유는
+함께 빌드된 `dflow-work` 의 API 계약 v2.3 이 마이그레이션 0096 을 전제하는데 **운영 D'Flow 에는 아직
+적용되지 않았기 때문**이다. 올리면 다른 리포가 그 킷을 받아 운영을 친다. 0096·0097 을 운영에 적용하고
+staging 을 main 에 머지한 뒤에 킷을 다시 빌드해 push 한다.
+
+```bash
+grep -c find_tmux ~/dflow-kit/skills/dflow-team/references/backends.md   # 0 이 아니어야 한다
+```
 
 **실패 시**: `install.sh` 가 보고하는 누락 명령(`git curl jq gh python3`)을 먼저 설치하고 다시 실행한다.
 
