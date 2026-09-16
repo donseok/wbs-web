@@ -5,7 +5,8 @@
 ## v2.3 변경점 (2026-09-15)
 
 단계 전이를 DB 트랜잭션 하나(`apply_workflow_event`, 마이그레이션 0096)로 묶고, 실적%를 사건 크레딧으로 지정한다
-(설계: `docs/superpowers/specs/2026-09-15-wbs-stage-credit-design.md`). 엔드포인트·인증·요청 형식은 v2.2 와 같다.
+(설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-15-wbs-stage-credit-design.md, 킷에는 미동봉).
+엔드포인트·인증·요청 형식은 v2.2 와 같다.
 
 | # | 항목 | v2.2 | v2.3 |
 |---|---|---|---|
