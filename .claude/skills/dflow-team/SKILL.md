@@ -51,10 +51,10 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 
 ## 팀장 상태: 메모리는 캐시다
 
-팀장이 다루는 상태는 슬롯 표(슬롯 번호, `AGENT_ID`, TSK, id8, 워크트리 경로, 터미널 핸들 또는 팀원 프로세스
-PID, 시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없어 아직 못 준 id8), 영구 제외
-목록(failed·반려·진행 중), 일시 제외 목록(선행·spec 사유), 답을 받았으나 아직 재spawn 하지 못한 `blocked`
-작업, 답을 기다리는 프로세스 `blocked` 작업, 결과 줄 경로별 마지막 처리 해시, 차단기 상태, 감지된 백엔드다.
+팀장이 다루는 상태는 슬롯 표(슬롯 번호, `AGENT_ID`, TSK, id8, 워크트리 경로, 터미널 핸들 또는 pane id,
+시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없어 아직 못 준 id8), 영구 제외
+목록(failed·반려·진행 중), 일시 제외 목록(선행·spec 사유), 답을 받았으나 아직 팀원에게 넣지 못한 `blocked`
+작업, 답을 기다리는 `blocked` 작업, 결과 줄 경로별 마지막 처리 해시, 차단기 상태, 감지된 백엔드다.
 세션 메모리의 이 값들은 캐시일 뿐이며, 팀장은 **깨어날 때마다** 아래 정본에서 다시 만든다. 이유: 몇 시간 도는 세션은 컨텍스트 압축을 겪고, 요약에서
 슬롯이 빠지면 `.result` 가 와도 처리되지 않는다.
 
@@ -68,9 +68,9 @@ PID, 시작 시각, 직전 생존 증거), 대기 큐(ready 인데 슬롯이 없
 이 절의 접두는 모두 `<신원>/<host>/` 로 시작한다. 이유: 같은 신원이 다른 PC 에서 띄운 팀장의 워크트리를 이
 팀장이 자기 것으로 읽지 않게 한다.
 
-**정본**: 이 신원·이 PC 의 팀원 워크트리와 그 결과. `pstart` 는 backends.md 「프로세스」 의 시작 시각 함수와 같다.
+**정본**: 이 신원·이 PC 의 팀원 워크트리와 그 결과. `TM` 은 「1. 시작」 전제 검사가 출력한 tmux 절대경로다.
 ```bash
-pstart() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) w=$(ps -p "$1" | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="WINPID") c=i} NR==2{if($1 ~ /^[A-Z]$/) c++; print $c}'); [ -n "$w" ] && powershell.exe -NoProfile -Command "(Get-Process -Id $w).StartTime.ToString('o')" 2>/dev/null | tr -d '\r' ;; *) ps -o lstart= -p "$1" 2>/dev/null ;; esac; }
+TM='<진짜 tmux 절대경로>'   # Orca 백엔드면 빈 값
 git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w; do
   [ -f "$w/.dflow-agent" ] || continue
   a=$(head -n 1 "$w/.dflow-agent")
@@ -78,9 +78,10 @@ git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w;
   rf=$(find "$w/docs/tasks" -mindepth 2 -maxdepth 2 -name .result 2>/dev/null | head -n 1)
   r=$([ -n "$rf" ] && head -n 1 "$rf")
   b=$(git -C "$w" branch --show-current)
-  p=$(head -n 1 "$w/.dflow-pid" 2>/dev/null); st=$(sed -n '2p' "$w/.dflow-pid" 2>/dev/null); alive=-
-  if [ -n "$p" ]; then
-    if kill -0 "$p" 2>/dev/null && [ "$(pstart "$p")" = "$st" ]; then alive=alive; else alive=dead; fi
+  p=$(head -n 1 "$w/.dflow-pane" 2>/dev/null); alive=-
+  if [ -n "$p" ] && [ -n "$TM" ]; then
+    d=$("$TM" -L dflow list-panes -t "$p" -F '#{pane_dead}' 2>/dev/null | head -n 1)
+    case "$d" in 0) alive=alive ;; *) alive=dead ;; esac
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$w" "${b:--}" "${r:--}" "${p:--}" "$alive"
 done
@@ -90,8 +91,9 @@ done
 - 그 워크트리 안의 `docs/tasks/*/.result` 가 팀원의 결과다.
 - 그 워크트리의 브랜치 이름 `agent/<id8>-…`(있으면)과 워크트리 이름 `dflow-<id8>`(두 백엔드 공통)이 작업을
   알려 준다.
-- 프로세스 백엔드의 `.dflow-pid`(팀장이 spawn 때 쓴 PID 와 시작 시각, backends.md)가 팀원 프로세스의 생존을
-  알려 준다. 마지막 칸이 `alive` 면 살아 있고, `dead` 면 죽었으며, `-` 면 pane 팀원이다.
+- tmux 백엔드의 `.dflow-pane`(팀장이 spawn 때 쓴 pane id, backends.md)이 팀원 pane 의 생존을 알려 준다.
+  마지막 칸이 `alive` 면 살아 있고, `dead` 면 죽었거나 pane 이 사라졌으며, `-` 면 Orca 팀원이다. 빈 출력과
+  `1` 을 함께 `dead` 로 보는 이유: `remain-on-exit` 를 놓친 pane 은 흔적 없이 사라지는데, 그 팀원도 끝난 것이다.
 
 **보조**: `~/.dflow/events.jsonl` 에서 마지막 `team.start` 이후이고 `agent` 가 `<신원>/<host>/lead`, `repo` 가
 이 리포(`<MAIN>`)인 줄.
@@ -109,8 +111,8 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
   `team.blocked` 면 진행 중(영구 제외)이고, `team.result` 면 위 status 별 제외다. `team.answer` 는 제외를 바꾸지
   않는다. 이유: 일시 제외가 풀려 다시 띄운 작업이 옛 `skipped` 로 다시 일시 제외되거나, 결과가 난 작업이 진행
   중으로 남지 않게 한다.
-- 프로세스 백엔드의 `team.blocked` 중 그 뒤에 같은 id8 의 `team.answer` 가 없는 것이 답을 기다리는 질문이다.
-- `team.answer` 중 그 뒤에 같은 id8 의 `team.spawn` 이 없는 것이 아직 재spawn 하지 못한 답이다.
+- `team.blocked` 중 그 뒤에 같은 id8 의 `team.answer` 가 없는 것이 답을 기다리는 질문이다. 두 백엔드
+  공통이다.
 
 **재구성 규칙**
 - 살아 있는 팀원의 워크트리는 그 `.dflow-agent` 슬롯 번호로 슬롯 표에 흡수한다. 그 안에 `.result` 가 있으면
@@ -118,15 +120,14 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - 새로 줄 슬롯 번호는 흡수한 번호를 뺀 1..N 중 가장 작은 것이다. 이유: 살아 있는 팀원과 같은 `AGENT_ID` 를
   다시 발급하면 좌석표가 한 인물을 두 책상에 그린다.
 - "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`)을 받지 않은 팀원이다.
-  터미널이 떠 있는지로 판단하지 않는다. pane 이면 `.dflow-agent` 가 `w<slot>` 인 워크트리 중 최종 status 의
-  `.result` 가 없는 것이며, `blocked` 는 최종 판정이 아니므로 그 팀원은 살아 있다. 실제로 죽은 pane 팀원은
-  무응답 규칙(「3. 결과 처리」)이 가려낸다. 프로세스 백엔드는 `.dflow-agent` 가 `w<slot>` 이고 정본 표의 생존
-  칸이 `alive` 인 워크트리다. 프로세스가 죽었으면(`dead`) 살아 있지 않으며, `.result` 가 있으면 결과 처리로,
-  없으면 로그 폴백과 고아 스캔으로 간다(「3. 결과 처리」). `blocked` 로 끝난 프로세스 팀원은 살아 있지 않다.
-  팀장 세션이 새로 떠도 살아 있는 프로세스 팀원은 원래 슬롯 번호로 흡수한다. 팀원은 팀장과 독립된
-  프로세스라 팀장이 죽어도 계속 돌기 때문이다.
-- 대기 큐는 재구성하지 않는다. 비어 있어도 다음 poll 이 같은 ready 를 다시 찾는다. 예외는 답을 받은
-  `blocked` 작업이다. 이 작업은 진행 중으로 영구 제외돼 poll 이 다시 찾지 않으므로 `team.answer` 에서 복원해 대기 큐 맨 앞에 둔다.
+  화면이 떠 있는지로 판단하지 않는다. Orca 는 `.dflow-agent` 가 `w<slot>` 인 워크트리 중 최종 status 의
+  `.result` 가 없는 것이며, tmux 는 거기에 더해 정본 표의 생존 칸이 `alive` 여야 한다. `blocked` 는 최종
+  판정이 아니므로 그 팀원은 두 백엔드 모두 살아 있다. 실제로 죽은 Orca 팀원은 무응답 규칙(「3. 결과 처리」)이
+  가려낸다. tmux pane 이 죽었으면(`dead`) 살아 있지 않으며, `.result` 가 있으면 결과 처리로, 없으면 죽은 pane
+  화면 폴백과 고아 스캔으로 간다(「3. 결과 처리」). 팀장 세션이 새로 떠도 살아 있는 tmux 팀원은 원래 슬롯
+  번호로 흡수한다. tmux 서버가 팀장과 독립해 돌아 팀장이 죽어도 팀원이 계속 돌기 때문이다.
+- 대기 큐는 재구성하지 않는다. 비어 있어도 다음 poll 이 같은 ready 를 다시 찾는다. `blocked` 작업은 대기
+  큐에 넣지 않는다. 그 팀원이 슬롯을 계속 잡은 채 자기 화면에서 답을 기다리기 때문이다.
 - **결과 중복 방지**: 결과 줄은 그 줄의 해시로 식별한다. `.result` 경로마다 events.jsonl 의 `team.result`·
   `team.blocked` 에서 마지막으로 처리한 해시(경로별 마지막 처리 해시)를 유도하고, 현재 줄의 해시와 비교해
   해시가 다를 때만 처리한다. 이유: 보존된 `blocked` 워크트리의 같은 질문이 재구성마다 다시 통지되거나 같은
@@ -378,7 +379,7 @@ tmux 절대경로)을 출력한다. 백엔드 이름은 시작 보고와 `team.s
 ## 2. 기상과 감시
 
 팀장은 포그라운드로 기다리지 않는다. 팀장을 깨우는 것은 셋이다: poll.sh 종료(새 작업·시한·오류), 감시 루프
-종료(팀원 결과·팀원 프로세스 종료·`TICK`·`STALE`), 사람이 이 세션에 주는 답. 팀원은 별도 프로세스라 이 세션에
+종료(팀원 결과·팀원 pane 종료·`TICK`·`STALE`), 사람이 이 세션에 주는 답. 팀원은 별도 프로세스라 이 세션에
 완료 알림을 보내지 않는다.
 
 ### 2-1. poll
@@ -437,41 +438,47 @@ printf '%s %s\n' "$gen" '<다음 TICK epoch 초>' > "$GEN_FILE"; echo "GEN_FILE=
 다음 TICK 예정 시각은 시작과 `TICK` 기상 때만 지금+1800초로 새로 정하고, 그 밖의 교체에서는 세대 파일 둘째
 칸 값을 그대로 쓴다. 이유: 루프를 자주 바꿔도 TICK 이 밀리지 않게 하고, 컨텍스트 압축 뒤에도 그 값을 되찾는다.
 
-그리고 아래 루프를 `run_in_background` 로 띄운다. `set --` 에는 진행 중 슬롯(pane 의 `blocked` 포함)마다
-`'<워크트리>/docs/tasks/<TSK>/.result|<그 경로의 마지막 처리 해시 또는 ->|<PID 또는 ->'` 를 작은따옴표로 넣는다.
-PID 는 프로세스 팀원의 `.dflow-pid` 첫 줄이고 pane 팀원은 `-` 다. 진행 중 슬롯이 없으면 `set --` 를 비운다.
-경로에 공백이나 작은따옴표가 든 워크트리는 지원하지 않는다.
+그리고 아래 루프를 `run_in_background` 로 띄운다. `set --` 에는 진행 중 슬롯(`blocked` 포함)마다
+`'<워크트리>/docs/tasks/<TSK>/.result|<그 경로의 마지막 처리 해시 또는 ->|<pane id 또는 ->'` 를 작은따옴표로
+넣는다. pane id 는 tmux 팀원의 `.dflow-pane` 첫 줄이고 Orca 팀원은 `-` 다. 진행 중 슬롯이 없으면 `set --` 를
+비운다. 경로에 공백이나 작은따옴표가 든 워크트리는 지원하지 않는다. `TM` 은 **리터럴 절대경로**로 박는다.
+루프는 `run_in_background` 의 별도 셸이라 전제 검사의 변수를 물려받지 않고, PATH 에는 Orca shim 이 살아 있을
+수 있기 때문이다.
 ```bash
 GEN_FILE='<세대 파일 절대경로>'; MY_GEN=<세대>; TICK_AT=<다음 TICK epoch 초>
-set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<PID1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'
+TM='<진짜 tmux 절대경로 또는 빈 값>'
+set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'
 while :; do
   [ "$(cut -d' ' -f1 "$GEN_FILE" 2>/dev/null)" = "$MY_GEN" ] || { echo STALE; exit 0; }
   hit=''; dead=''
   for s in "$@"; do
-    f=${s%%|*}; rest=${s#*|}; prev=${rest%%|*}; pid=${rest#*|}
+    f=${s%%|*}; rest=${s#*|}; prev=${rest%%|*}; pane=${rest#*|}
     if [ -f "$f" ]; then
       cur=$(head -n 1 "$f"); sum=$(printf '%s\n' "$cur" | cksum | cut -d' ' -f1)
       [ "$sum" = "$prev" ] || hit="$hit $f"
     fi
-    [ "$pid" = - ] || kill -0 "$pid" 2>/dev/null || dead="$dead $f"
+    if [ "$pane" != - ] && [ -n "$TM" ]; then
+      d=$("$TM" -L dflow list-panes -t "$pane" -F '#{pane_dead}' 2>/dev/null | head -n 1)
+      [ "$d" = 0 ] || dead="$dead $f"
+    fi
   done
   [ -n "$hit" ] && { echo "RESULT_READY$hit"; exit 0; }
-  [ -n "$dead" ] && { echo "PROC_DEAD$dead"; exit 0; }
+  [ -n "$dead" ] && { echo "PANE_DEAD$dead"; exit 0; }
   [ "$(date +%s)" -ge "$TICK_AT" ] && { echo TICK; exit 0; }
   sleep 20
 done
 ```
 - **줄 전체를 비교한다.** status 만 비교하면 답을 받은 팀원이 다시 `blocked` 가 됐을 때 status 가 같아 깨어나지
   않는다. 줄에 따옴표가 든 질문이 올 수 있어 줄 대신 그 해시를 넘긴다.
-- `PROC_DEAD` 는 프로세스 팀원이 새 결과 줄 없이 죽었을 때 난다. 결과 줄이 새로 있으면 `RESULT_READY` 가
-  먼저다. PID 를 다른 프로세스가 다시 받은 경우는 루프가 놓치지만, `TICK` 기상의 생존 확인(시작 시각 비교)이
-  잡는다.
+- `PANE_DEAD` 는 tmux 팀원의 pane 이 새 결과 줄 없이 죽었을 때 난다. 결과 줄이 새로 있으면 `RESULT_READY` 가
+  먼저다. `list-panes` 는 없는 pane 에서 stderr 로 죽으므로 `2>/dev/null` 로 삼키고, 빈 출력을 `0` 이 아닌
+  값으로 보아 죽음으로 친다. pane 이 사라진 것도 팀원이 끝난 것이기 때문이다.
 - 루프는 기동 즉시 넘겨받은 전체 경로를 한 번 전수 검사한 뒤 20초 간격으로 감시한다. 루프를 바꾸는 사이에
   도착한 `.result` 를 놓치지 않기 위해서다.
 - 두 백엔드 모두 `TICK_AT` 이 지나면 `TICK` 을 출력하고 끝난다. 한가한 구간에도 30분마다 승인 스윕과
   무응답 점검을 하기 위해서다.
-- 교체 시점: 진행 중 슬롯의 경로·처리 해시·PID 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다(두 백엔드
-  공통). 컨텍스트 압축 뒤 루프가 떠 있는지 모르면 새로 띄운다. 옛 루프는 `STALE` 로 끝난다.
+- 교체 시점: 진행 중 슬롯의 경로·처리 해시·pane id 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다(두
+  백엔드 공통). 컨텍스트 압축 뒤 루프가 떠 있는지 모르면 새로 띄운다. 옛 루프는 `STALE` 로 끝난다.
 
 ### 2-3. 기상마다 하는 일
 
@@ -521,7 +528,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 | poll exit 8 (시한) | 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
 | poll exit 2·3·5·6·7 | 중단 사유(stderr)를 보고하고 「7. 마감」 으로 간다 |
 | `RESULT_READY <경로…>` | 경로마다 「3. 결과 처리」 |
-| `PROC_DEAD <경로…>` (프로세스) | 경로마다 「3. 결과 처리」. `.result` 가 있으면 그 줄, 없으면 로그 폴백, 그것도 없으면 `failed no-result` |
+| `PANE_DEAD <경로…>` (tmux) | 경로마다 「3. 결과 처리」. `.result` 가 있으면 그 줄, 없으면 죽은 pane 화면 폴백, 그것도 없으면 `failed no-result` |
 | 사람의 답 | 「6. blocked」 의 답 매칭 |
 | `TICK` | 다음 TICK 예정 시각을 지금+1800초로 새로 정한다. 진행 중 슬롯의 생존을 확인하고 무응답 슬롯의 생존 증거를 잰다(「3. 결과 처리」). 차단기가 걸려 있으면 시험 spawn 1건을 허용한다 |
 | `STALE` | 잠금 소유 확인과 `beat` 갱신만 하고 나머지는 넘긴다 |
