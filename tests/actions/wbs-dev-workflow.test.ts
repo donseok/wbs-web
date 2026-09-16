@@ -350,20 +350,57 @@ describe('setWbsDevWorkflow', () => {
     expect(calls.filter(t => t === 'wbs_items')).toHaveLength(2) // UPDATE + 자식 확인뿐
   })
 
-  it('OFF cascade: 서브트리에 위임된 항목이 있으면 거부 — UPDATE 하지 않는다', async () => {
+  // 일괄에서는 거부가 아니라 제외다 — 위임이 섞인 큰 묶음을 정리할 때 전체를 막으면 관리자가
+  // 위임을 하나씩 떼는 수밖에 없다(운영 프로젝트는 위임이 수십 건이다).
+  it('OFF cascade: 위임된 항목만 대상에서 빼고 나머지를 끈다', async () => {
     const { captured } = admin({
       wbs_items: [
         { data: [
           { id: W1, parent_id: null, tags: [] },
           { id: W2, parent_id: W1, tags: ['agent'] },
           { id: W6, parent_id: W2, tags: ['agent'] },
+          { id: W7, parent_id: W2, tags: ['x'] },
+        ] },
+        { data: [
+          { id: W1, assignee_member_id: null, stage: null },
+          { id: W7, assignee_member_id: M1, stage: 'as' },
+        ] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+      agent_work_orders: [{ data: [{ id: 'order-1' }] }],
+    })
+    expect(await setWbsDevWorkflow(W1, false, true)).toEqual({ ok: true, count: 2, skippedDelegated: 2 })
+    const [, idsArg] = captured['wbs_items.in'][0] as [string, string[]]
+    expect(new Set(idsArg)).toEqual(new Set([W1, W7]))
+  })
+
+  it('OFF cascade: 서브트리가 전부 위임이면 아무 것도 끄지 않고 그 사실을 알린다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: [
+          { id: W1, parent_id: null, tags: ['agent'] },
+          { id: W2, parent_id: W1, tags: ['agent'] },
         ] },
       ],
     })
-    expect(await setWbsDevWorkflow(W1, false, true)).toEqual({
-      ok: false, error: '하위에 에이전트 위임 작업이 2건 있습니다. 위임을 먼저 끄십시오.',
-    })
+    expect(await setWbsDevWorkflow(W1, false, true)).toEqual({ ok: true, count: 0, skippedDelegated: 2 })
     expect(captured.wbs_items ?? []).toHaveLength(0)
+  })
+
+  it('ON cascade: 위임 태그는 대상을 줄이지 않는다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: [
+          { id: W1, parent_id: null, tags: ['agent'] },
+          { id: W2, parent_id: W1, tags: [] },
+        ] },
+        { data: [{ id: W1, assignee_member_id: null, stage: null }, { id: W2, assignee_member_id: null, stage: null }] },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    expect(await setWbsDevWorkflow(W1, true, true)).toEqual({ ok: true, count: 2 })
+    const [, idsArg] = captured['wbs_items.in'][0] as [string, string[]]
+    expect(new Set(idsArg)).toEqual(new Set([W1, W2]))
   })
 
 })

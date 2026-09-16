@@ -25,7 +25,11 @@ type AssigneeStage = { assigneeMemberId: string | null; stage: string | null; de
  */
 type Loaded = AssigneeStage & { delegated?: boolean; canDevWorkflow?: boolean }
 /** 담당·단계·dev workflow 액션 반환의 합집합. count·cascadeFailed 는 cascade 계열만 실어 온다. */
-type AssigneeStageResult = { ok: boolean; error?: string; count?: number; cascadeFailed?: boolean; orderCreated?: boolean }
+type AssigneeStageResult = {
+  ok: boolean; error?: string; count?: number; cascadeFailed?: boolean; orderCreated?: boolean
+  /** 일괄 OFF 에서 위임 때문에 대상에서 빠진 항목 수(setWbsDevWorkflow). */
+  skippedDelegated?: number
+}
 const STAGE_KEYS: Record<Stage, DictKey> = {
   as: 'wbs.stageAs', ip: 'wbs.stageIp', im: 'wbs.stageIm', xx: 'wbs.stageXx',
 }
@@ -63,6 +67,7 @@ export function WbsAssigneeStagePanel({
   const [devCascade, setDevCascade] = useState(true)
   const [devWorkflowResult, setDevWorkflowResult] = useState<number | null>(null)
   const [devWorkflowWarn, setDevWorkflowWarn] = useState(false)
+  const [devWorkflowSkipped, setDevWorkflowSkipped] = useState<number | null>(null)
   // 전파 체크는 저장이 실제로 나가는 순간(flush)의 값을 쓴다 — 담당을 고른 뒤 5초 안에 전파 체크를
   // 바꿔도 반영되도록. commit 클로저는 set 시점에 잡히므로 ref 로 읽는다.
   const cascadeRef = useRef(cascade)
@@ -105,6 +110,9 @@ export function WbsAssigneeStagePanel({
         setLoaded(prev => (prev && prev !== 'error' ? { ...prev, stage } : prev))
       } else {
         if (typeof res.count === 'number' && res.count > 0) setDevWorkflowResult(res.count)
+        // 일괄 OFF 에서 위임된 항목은 워크플로에 남는다 — 몇 건이 빠졌는지 말해 주지 않으면
+        // 사람은 "일부가 안 됐다"를 실패로 오해한다.
+        if (typeof res.skippedDelegated === 'number' && res.skippedDelegated > 0) setDevWorkflowSkipped(res.skippedDelegated)
         if (res.cascadeFailed) setDevWorkflowWarn(true)
       }
     },
@@ -133,7 +141,7 @@ export function WbsAssigneeStagePanel({
     quick.set('stage', stage)
   }
   function onDevWorkflowChange(enabled: boolean) {
-    setErr(null); setDevWorkflowResult(null); setDevWorkflowWarn(false)
+    setErr(null); setDevWorkflowResult(null); setDevWorkflowWarn(false); setDevWorkflowSkipped(null)
     quick.set('devWorkflow', enabled)
   }
 
@@ -283,6 +291,11 @@ export function WbsAssigneeStagePanel({
               {devWorkflowResult !== null && (
                 <p className="text-[11px] font-medium text-brand">
                   {t('wbs.devWorkflowResult').replace('{n}', String(devWorkflowResult))}
+                </p>
+              )}
+              {devWorkflowSkipped !== null && (
+                <p data-dev-workflow-skipped className="text-[11px] text-ink-subtle">
+                  {t('wbs.devWorkflowSkippedDelegated').replace('{n}', String(devWorkflowSkipped))}
                 </p>
               )}
               {devWorkflowWarn && (

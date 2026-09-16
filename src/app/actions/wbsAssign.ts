@@ -376,6 +376,9 @@ type DevWorkflowUpdatedRow = { id: string; assignee_member_id: string | null; st
  * 로 자동 주문 발행 — 부모 노드는 대상이 아니다(주문·초기 착수는 리프 개념이라 setWbsAssigneeCascade
  * 의 배정 전이와 달리 여기는 리프로 제한한다). 실패는 로깅만.
  *
+ * OFF 대상(enabled=false): 위임(agent 태그)된 항목은 대상에서 뺀다 — 단건이면 거부하고, 일괄이면
+ * 그 항목만 제외한 뒤 몇 건을 뺐는지 skippedDelegated 로 알린다.
+ *
  * OFF 후처리(enabled=false): 갱신된 항목들의 활성 주문 중 `ready` 만 `cancelled` 로 일괄 전환한다
  * (claimed/reported 는 건드리지 않는다 — 진행 중인 작업을 강제 중단하지 않는다, §2.8 취지 연장).
  * 이 UPDATE 실패는 로깅 + `cascadeFailed:true` 로 알린다(본 토글 자체는 이미 커밋됐으므로 위장하지
@@ -383,7 +386,7 @@ type DevWorkflowUpdatedRow = { id: string; assignee_member_id: string | null; st
  */
 export async function setWbsDevWorkflow(
   itemId: string, enabled: boolean, cascade: boolean,
-): Promise<{ ok: boolean; error?: string; count?: number; cascadeFailed?: boolean }> {
+): Promise<{ ok: boolean; error?: string; count?: number; cascadeFailed?: boolean; skippedDelegated?: number }> {
   const resolved = await resolveItemProjectId(itemId)
   if (!resolved.ok) return resolved
   const g = await requireSubtreeManagerOrAdmin(itemId, resolved.projectId)
@@ -409,6 +412,8 @@ export async function setWbsDevWorkflow(
   const updatedIds: string[] = []
   const hasChildren = new Set<string>()
   const infoById = new Map<string, DevWorkflowUpdatedRow>()
+  /** 일괄 OFF 에서 위임 때문에 대상에서 뺀 항목 수 — 화면이 "N건은 제외했다"고 알린다. */
+  let skippedDelegated = 0
 
   if (!cascade) {
     const { data: updated, error } = await admin
@@ -467,19 +472,20 @@ export async function setWbsDevWorkflow(
       }
     }
 
-    // 단건과 같은 이유로 위임된 항목은 끄지 않는다 — 서브트리에 하나라도 있으면 일괄 자체를 막는다
-    // (일부만 끄고 일부는 남기면 사람이 무엇이 반영됐는지 알 수 없다).
+    // 단건과 같은 이유로 위임된 항목은 끄지 않는다. 다만 일괄에서는 거부가 아니라 제외다 —
+    // 위임이 섞인 큰 묶음을 정리할 때 전체를 막으면 관리자가 위임을 하나씩 떼는 수밖에 없다.
+    // 제외된 항목은 워크플로에 그대로 남으므로 모순된 행은 생기지 않고, 몇 건을 뺐는지 알린다.
+    let targetIds = subtreeIds
     if (!enabled) {
-      const delegatedCount = subtreeIds.filter(id => (byId.get(id)?.tags ?? []).includes(AGENT_TAG)).length
-      if (delegatedCount > 0) {
-        return { ok: false, error: `하위에 에이전트 위임 작업이 ${delegatedCount}건 있습니다. 위임을 먼저 끄십시오.` }
-      }
+      targetIds = subtreeIds.filter(id => !(byId.get(id)?.tags ?? []).includes(AGENT_TAG))
+      skippedDelegated = subtreeIds.length - targetIds.length
+      if (targetIds.length === 0) return { ok: true, count: 0, skippedDelegated }
     }
 
     const { data: updated, error: updErr } = await admin
       .from('wbs_items')
       .update({ dev_workflow: enabled, updated_at: nowIso })
-      .in('id', subtreeIds)
+      .in('id', targetIds)
       .neq('dev_workflow', enabled)
       .select('id, assignee_member_id, stage')
     if (updErr) return { ok: false, error: updErr.message }
@@ -490,7 +496,8 @@ export async function setWbsDevWorkflow(
   }
 
   const count = updatedIds.length
-  if (count === 0) return { ok: true, count: 0 }
+  const skipped = skippedDelegated > 0 ? { skippedDelegated } : {}
+  if (count === 0) return { ok: true, count: 0, ...skipped }
 
   // change_logs — 루트 1건만(일괄 이력 폭주 방지). .neq 를 통과한 행은 전부 이전 값이
   // !enabled 였다는 뜻이라 방향에 관계없이 old/new 를 이렇게 도출할 수 있다.
@@ -551,7 +558,7 @@ export async function setWbsDevWorkflow(
     }
   }
 
-  return { ok: true, count, ...(cascadeFailed ? { cascadeFailed: true } : {}) }
+  return { ok: true, count, ...skipped, ...(cascadeFailed ? { cascadeFailed: true } : {}) }
 }
 
 /**

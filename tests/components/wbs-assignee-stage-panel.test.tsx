@@ -314,4 +314,15 @@ describe('WbsAssigneeStagePanel', () => {
       .toContain('wbs.devWorkflowLockedByDelegation')
   })
 
+
+  it('일괄 OFF 에서 제외된 위임 항목 수를 알린다', async () => {
+    setWbsDevWorkflow.mockResolvedValue({ ok: true, count: 3, skippedDelegated: 2 } as never)
+    await mount({ hasChildren: true, resolved: { assigneeMemberId: null, stage: null, devWorkflow: true, canDevWorkflow: true } })
+    await act(async () => devWorkflowCheckbox().click())
+    await act(async () => { await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(container.querySelector('[data-dev-workflow-skipped]')?.textContent)
+      .toContain('wbs.devWorkflowSkippedDelegated')
+  })
+
 })
