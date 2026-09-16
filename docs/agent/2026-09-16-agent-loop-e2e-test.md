@@ -13,7 +13,7 @@
 | 항목 | 값 | 근거 |
 |---|---|---|
 | D'Flow 서버 | `https://dflow-staging.vercel.app` | 프로젝트 생성·WBS 업로드·작업 보고가 전부 쓰기 작업이므로 운영을 쓰지 않는다 (CLAUDE.md 「데이터」) |
-| 스킬 출처 | `~/dflow-kit`(tmux 백엔드 반영본) = wbs-web `origin/main` | tmux pane 백엔드를 main 에 머지하고 킷을 재빌드한 뒤 주행한다. 재빌드 전에 주행하면 옛 스킬(프로세스 백엔드)을 시험하게 되어 17단계 하나를 통째로 버린다 |
+| 스킬 출처 | `~/dflow-kit` 로컬 빌드본 = wbs-web `staging`(`2a3572d1`) | tmux 백엔드를 담은 킷을 staging 기준으로 빌드했다. **원격에 올리지 않았고 `git pull` 도 하지 않는다** — 이유는 단계 2 의 주의다 |
 | WBS 입력 | `/Users/jji/project/mdm/docs/design/basic/02-term-domain-column.md` (1,058줄) | 용어·도메인·컬럼 3계층, 테이블 8개 |
 | 작업 리포 | 새로 만드는 `~/project/mdm-dict` (GitHub 원격 필수) | `mdm` 폴더는 git 리포가 아니고, 팀원 워크트리는 `origin` 의 스킬을 쓴다 |
 | 팀 백엔드 | **pane(tmux)** 를 시험한다 | 2026-09-16 에 tmux pane 백엔드를 구현하고 프로세스 백엔드(`nohup claude -p`)는 없앴다. pane(Orca) 는 tmux 가 없는 환경 전용으로 내려가, tmux 가 깔린 이 PC 에서는 그 갈래로 떨어지지 않는다(단계 16) |
