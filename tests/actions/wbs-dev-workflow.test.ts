@@ -2,17 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   requireProjectAdmin: vi.fn(),
+  requireProjectMember: vi.fn(),
   resolveProjectId: vi.fn(),
   createAdminClient: vi.fn(),
   applyWorkflowEvent: vi.fn(),
   ensureOrderForWorkflowLeaf: vi.fn(),
+  viewerEmail: vi.fn(),
+  myMemberIds: vi.fn(),
+  isSubtreeManager: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({
   requireProjectAdmin: mocks.requireProjectAdmin,
-  requireProjectMember: vi.fn(),
+  requireProjectMember: mocks.requireProjectMember,
   resolveProjectId: mocks.resolveProjectId,
 }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
+// setWbsDevWorkflow 는 setWbsStage 와 같은 requireSubtreeManagerOrAdmin(실제 모듈)로 판정한다 —
+// 그 내부가 부르는 viewerEmail·myMemberIds·isSubtreeManager 만 목킹한다(wbs-assign.test.ts 와 동일 패턴).
+vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail }))
+vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds, isSubtreeManager: mocks.isSubtreeManager }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: vi.fn() }))
 vi.mock('@/lib/notify/emit', () => ({ emitNotification: vi.fn() }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf }))
@@ -65,21 +73,36 @@ function admin(queues: Record<string, Resp[]>) {
 }
 
 const ACTOR = { ok: true, actor: { userId: 'admin-1' } }
+const MEMBER = { ok: true, actor: { userId: 'member-1' } }
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.requireProjectAdmin.mockResolvedValue(ACTOR)
+  mocks.requireProjectMember.mockResolvedValue(MEMBER)
+  // 서브트리 관리자 경로 기본값 — 안전한 쪽("아니다")으로 두고 개별 테스트가 override 한다.
+  mocks.viewerEmail.mockResolvedValue('member@example.com')
+  mocks.myMemberIds.mockResolvedValue([])
+  mocks.isSubtreeManager.mockResolvedValue(false)
   mocks.resolveProjectId.mockResolvedValue({ ok: true, projectId: P1 })
   mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, orderStatus: null, stage: 'as', actualPct: 0, stageChanged: true, actualChanged: false, reachedFirst: false, skipped: null })
   mocks.ensureOrderForWorkflowLeaf.mockResolvedValue({ ok: true, created: true })
 })
 
 describe('setWbsDevWorkflow', () => {
-  it('(d) 비관리자 거부, DB 접근 없음', async () => {
+  it('(d) 관리자도 서브트리 관리자도 아니면 거부, DB 접근 없음', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    mocks.isSubtreeManager.mockResolvedValue(false)
     const { calls } = admin({})
     const r = await setWbsDevWorkflow(W1, true, false)
-    expect(r).toEqual({ ok: false, error: '권한 없음' })
+    expect(r).toEqual({ ok: false, error: '관리자 또는 서브트리 관리자만 할 수 있습니다.' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('프로젝트 멤버가 아니면 거부 — 서브트리 조회까지 가지 않는다', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    mocks.requireProjectMember.mockResolvedValue({ ok: false, error: '멤버 아님' })
+    const { calls } = admin({})
+    expect(await setWbsDevWorkflow(W1, true, false)).toEqual({ ok: false, error: '멤버 아님' })
     expect(calls).toHaveLength(0)
   })
 
@@ -243,4 +266,104 @@ describe('setWbsDevWorkflow', () => {
     expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
     expect(mocks.ensureOrderForWorkflowLeaf).not.toHaveBeenCalled()
   })
+
+  // ── 담당자·서브트리 관리자 개방(2026-09-16) ───────────────────────────────────────
+  // 가드가 requireProjectAdmin 에서 requireSubtreeManagerOrAdmin 으로 내려왔다. 단건 토글은
+  // 담당자·서브트리 관리자도 하고, 프로젝트 범위 부작용을 끌고 오는 일괄(cascade)은 관리자만 한다.
+
+  it('서브트리 관리자(비관리자)의 단건 ON 통과 — 관리자와 같은 경로를 탄다', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    const { captured } = admin({
+      wbs_items: [
+        { data: [{ id: W1, assignee_member_id: M1, stage: null }] }, // 단건 UPDATE 반환
+        { data: null }, // 자식 존재 확인 — 리프
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    expect(await setWbsDevWorkflow(W1, true, false)).toEqual({ ok: true, count: 1 })
+    expect(captured.wbs_items[0]).toMatchObject({ dev_workflow: true })
+    // 이력·전이의 행위자는 관리자가 아니라 그 멤버다.
+    expect(captured.change_logs[0]).toMatchObject({ user_id: 'member-1', field: 'dev_workflow' })
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ event: 'assign', actorUserId: 'member-1', itemId: W1 }),
+    )
+  })
+
+  it('비관리자의 cascade=true 는 거부 — DB 접근 없음', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    const { calls } = admin({})
+    expect(await setWbsDevWorkflow(W1, true, true)).toEqual({
+      ok: false, error: '하위 일괄 적용은 프로젝트 관리자만 할 수 있습니다.',
+    })
+    expect(calls).toHaveLength(0)
+  })
+
+  // ── 위임된 항목의 OFF 차단 ────────────────────────────────────────────────────────
+  // 위임 ON 은 개발 워크플로 ON 을 함의한다(delegation.ts) — 그 상태에서 워크플로만 끄면
+  // 모순된 행이 남는다. 관리자에게도 같이 적용한다.
+
+  it('OFF: 위임된 항목은 거부 — UPDATE 하지 않는다', async () => {
+    const { captured } = admin({
+      wbs_items: [{ data: { tags: ['agent'] } }], // 위임 확인 조회
+    })
+    expect(await setWbsDevWorkflow(W1, false, false)).toEqual({
+      ok: false, error: '에이전트에 위임된 작업입니다. 위임을 먼저 끄십시오.',
+    })
+    expect(captured.wbs_items ?? []).toHaveLength(0)
+  })
+
+  it('OFF: 위임 태그가 없으면 그대로 통과한다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: { tags: ['x'] } }, // 위임 확인 조회
+        { data: [{ id: W1, assignee_member_id: M1, stage: 'as' }] }, // 단건 UPDATE
+        { data: null }, // 자식 존재 확인
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+      agent_work_orders: [{ data: [{ id: 'order-1' }] }],
+    })
+    expect(await setWbsDevWorkflow(W1, false, false)).toEqual({ ok: true, count: 1 })
+    expect(captured.wbs_items[0]).toMatchObject({ dev_workflow: false })
+  })
+
+  it('OFF: 위임 확인 조회가 실패하면 중단한다(3원칙 ② — 모르면 쓰지 않는다)', async () => {
+    const { captured } = admin({
+      wbs_items: [{ data: null, error: { message: 'boom' } }],
+    })
+    const r = await setWbsDevWorkflow(W1, false, false)
+    expect(r.ok).toBe(false)
+    expect(captured.wbs_items ?? []).toHaveLength(0)
+  })
+
+  it('ON: 위임 태그가 있어도 확인 조회 없이 통과한다(ON 은 모순을 만들지 않는다)', async () => {
+    const { calls } = admin({
+      wbs_items: [
+        { data: [{ id: W1, assignee_member_id: M1, stage: null }] },
+        { data: null },
+      ],
+      change_logs: [{ data: [{ id: 'log1' }] }],
+    })
+    expect(await setWbsDevWorkflow(W1, true, false)).toEqual({ ok: true, count: 1 })
+    expect(calls.filter(t => t === 'wbs_items')).toHaveLength(2) // UPDATE + 자식 확인뿐
+  })
+
+  it('OFF cascade: 서브트리에 위임된 항목이 있으면 거부 — UPDATE 하지 않는다', async () => {
+    const { captured } = admin({
+      wbs_items: [
+        { data: [
+          { id: W1, parent_id: null, tags: [] },
+          { id: W2, parent_id: W1, tags: ['agent'] },
+          { id: W6, parent_id: W2, tags: ['agent'] },
+        ] },
+      ],
+    })
+    expect(await setWbsDevWorkflow(W1, false, true)).toEqual({
+      ok: false, error: '하위에 에이전트 위임 작업이 2건 있습니다. 위임을 먼저 끄십시오.',
+    })
+    expect(captured.wbs_items ?? []).toHaveLength(0)
+  })
+
 })

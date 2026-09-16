@@ -235,6 +235,7 @@ export const wbsEn: Record<keyof typeof wbsKo, string> = {
   'wbs.devWorkflowCascadeLabel': 'Apply to sub-items',
   'wbs.devWorkflowResult': '{n} item(s) updated',
   'wbs.devWorkflowFail': 'Some items could not be updated. Please retry.',
+  'wbs.devWorkflowLockedByDelegation': 'Delegated to an agent. Turn delegation off first to remove it from the workflow.',
   // Spec panel (Task 12A, decision B) — scalar badges, reference fields, acceptance checklist, spec markdown
   'wbs.specPanelTitle': 'Spec',
   'wbs.specLoadFail': 'Could not load spec. Please reopen.',

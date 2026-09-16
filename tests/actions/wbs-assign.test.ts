@@ -695,7 +695,7 @@ describe('getWbsAssigneeStage', () => {
     const r = await getWbsAssigneeStage(W1)
     expect(mocks.resolveProjectId).toHaveBeenCalledWith('wbs_items', W1)
     expect(mocks.requireProjectMember).toHaveBeenCalledWith(P1)
-    expect(r).toEqual({ assigneeMemberId: M1, stage: 'ip', devWorkflow: true, delegated: false })
+    expect(r).toEqual({ assigneeMemberId: M1, stage: 'ip', devWorkflow: true, delegated: false, canDevWorkflow: true })
   })
 
   it('위임 태그가 있으면 delegated:true — 단계 드롭다운 잠금 표시 재료를 같은 select 로 읽는다', async () => {
@@ -708,7 +708,7 @@ describe('getWbsAssigneeStage', () => {
         },
       }),
     })
-    expect(await getWbsAssigneeStage(W1)).toEqual({ assigneeMemberId: null, stage: 'ip', devWorkflow: true, delegated: true })
+    expect(await getWbsAssigneeStage(W1)).toEqual({ assigneeMemberId: null, stage: 'ip', devWorkflow: true, delegated: true, canDevWorkflow: true })
     expect(selected).toEqual(['assignee_member_id, stage, dev_workflow, tags'])
   })
 
@@ -740,4 +740,33 @@ describe('getWbsAssigneeStage', () => {
     const r = await getWbsAssigneeStage(W1)
     expect(r).toBeNull()
   })
+
+  // 개발 워크플로 체크박스의 활성 여부(2026-09-16) — 화면이 8상태에서 재파생하지 않도록 서버가
+  // requireSubtreeManagerOrAdmin 과 같은 판정을 실어 보낸다(stageLocked 과 같은 관례).
+  it('관리자가 아니고 서브트리 관리자도 아니면 canDevWorkflow:false', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    mocks.isSubtreeManager.mockResolvedValue(false)
+    mocks.createServerClient.mockResolvedValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: { assignee_member_id: M1, stage: null, dev_workflow: true, tags: [] }, error: null }) }),
+        }),
+      }),
+    })
+    expect(await getWbsAssigneeStage(W1)).toMatchObject({ canDevWorkflow: false })
+  })
+
+  it('서브트리 관리자면 canDevWorkflow:true', async () => {
+    mocks.requireProjectAdmin.mockResolvedValue({ ok: false, error: '권한 없음' })
+    mocks.isSubtreeManager.mockResolvedValue(true)
+    mocks.createServerClient.mockResolvedValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: { assignee_member_id: M1, stage: null, dev_workflow: true, tags: [] }, error: null }) }),
+        }),
+      }),
+    })
+    expect(await getWbsAssigneeStage(W1)).toMatchObject({ canDevWorkflow: true })
+  })
+
 })

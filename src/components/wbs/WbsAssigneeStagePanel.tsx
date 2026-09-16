@@ -19,8 +19,11 @@ import { STAGE_CODES, type StageCode } from '@/lib/domain/stageLabels'
 type Stage = StageCode
 /** 서버 확정 값이자 debounce 저장 필드 — getWbsAssigneeStage 의 반환 형태 그대로다. */
 type AssigneeStage = { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean }
-/** 서버 확정 값 + 단계 잠금 표시 재료(위임 여부, 스펙 §3.5). delegated 는 저장 필드가 아니다. */
-type Loaded = AssigneeStage & { delegated?: boolean }
+/**
+ * 서버 확정 값 + 표시 재료(위임 여부, 개발 워크플로 토글 권한). delegated·canDevWorkflow 는
+ * 저장 필드가 아니라 서버가 실어 보내는 판정값이다(스펙 §3.5 의 stageLocked 과 같은 관례).
+ */
+type Loaded = AssigneeStage & { delegated?: boolean; canDevWorkflow?: boolean }
 /** 담당·단계·dev workflow 액션 반환의 합집합. count·cascadeFailed 는 cascade 계열만 실어 온다. */
 type AssigneeStageResult = { ok: boolean; error?: string; count?: number; cascadeFailed?: boolean; orderCreated?: boolean }
 const STAGE_KEYS: Record<Stage, DictKey> = {
@@ -139,6 +142,9 @@ export function WbsAssigneeStagePanel({
   const view: AssigneeStage = quick.view ?? { assigneeMemberId: null, stage: null, devWorkflow: false }
   // 위임된 작업은 단계를 승인·반려로만 바꾼다(잠금). 위임 없이 reported 주문만 남은 드문 경우는 서버 거부 문구가 드러낸다.
   const delegated = loaded !== null && loaded !== 'error' && loaded.delegated === true
+  // 개발 워크플로 토글은 관리자 전용이 아니다(2026-09-16) — 담당자·서브트리 관리자도 한다.
+  // editable(관리자 전체 폼)과 별개의 축이라 서버 판정값을 그대로 쓴다.
+  const canDevWorkflow = loaded !== null && loaded !== 'error' && loaded.canDevWorkflow === true
 
   return (
     <div className="space-y-3">
@@ -231,9 +237,10 @@ export function WbsAssigneeStagePanel({
                 </label>
               </div>
 
-              {/* dev_workflow — NULL 진입점 토글. editable=false 에서도 현재값을 disabled
-                  체크박스로 보여준다(브리프). OFF 는 ready 주문 취소를 동반하는 서버 동작이라
-                  confirm() 없이 즉시 실행하고 결과 문구로 알린다(브라우저 모달 금지). */}
+              {/* dev_workflow — NULL 진입점 토글. 권한이 없으면 현재값을 disabled 체크박스로
+                  보여준다(브리프). 위임된 작업은 끄지 못한다 — 서버가 같은 이유로 거부하므로
+                  화면에서 미리 잠그고 사유를 적는다. OFF 는 ready 주문 취소를 동반하는 서버
+                  동작이라 confirm() 없이 즉시 실행하고 결과 문구로 알린다(브라우저 모달 금지). */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <label className="flex items-center gap-1.5 text-[11px] text-ink-muted">
                   <input
@@ -241,7 +248,7 @@ export function WbsAssigneeStagePanel({
                     className="h-3.5 w-3.5 rounded border-line"
                     checked={view.devWorkflow}
                     onChange={e => onDevWorkflowChange(e.target.checked)}
-                    disabled={!editable}
+                    disabled={!canDevWorkflow || delegated}
                   />
                   {t('wbs.devWorkflowLabel')}
                 </label>
@@ -257,6 +264,12 @@ export function WbsAssigneeStagePanel({
                   </label>
                 )}
               </div>
+
+              {canDevWorkflow && delegated && (
+                <p data-dev-workflow-locked className="text-[11px] text-ink-subtle">
+                  {t('wbs.devWorkflowLockedByDelegation')}
+                </p>
+              )}
 
               {/* 결과·경고는 있을 때만 자리를 차지한다 */}
               {cascadeResult !== null && (

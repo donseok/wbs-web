@@ -23,6 +23,13 @@ import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
  * 스펙 2026-09-15 §3.4·§4).
  */
 
+/**
+ * 개발 워크플로 토글 거부 문구 — 'use server' 모듈은 export 가 전부 async 함수여야 하므로
+ * (그렇지 않으면 클라이언트가 부를 수 있는 액션으로 취급된다) 내보내지 않고 안에 둔다.
+ */
+const ERR_DEV_WORKFLOW_CASCADE_ADMIN = '하위 일괄 적용은 프로젝트 관리자만 할 수 있습니다.'
+const ERR_DEV_WORKFLOW_DELEGATED = '에이전트에 위임된 작업입니다. 위임을 먼저 끄십시오.'
+
 type LoadedItem = {
   id: string; project_id: string; parent_id: string | null; name: string
   assignee_member_id: string | null; external_ref: string | null
@@ -348,6 +355,11 @@ type DevWorkflowUpdatedRow = { id: string; assignee_member_id: string | null; st
 
 /**
  * dev_workflow 토글(2026-08-13 재설계) — 개발 워크플로 도입 여부(NULL 진입점)를 켜고 끈다.
+ *
+ * 권한(2026-09-16): 단건은 setWbsStage 와 같은 requireSubtreeManagerOrAdmin — 관리자, 그 항목의
+ * 담당자 본인, 조상 담당자(서브트리 관리자)가 한다. "단계는 바꾸는데 워크플로에서는 못 빼는"
+ * 어긋남을 없앤 것이다. 일괄(cascade)과 위임된 항목의 OFF 는 아래에서 따로 막는다.
+ *
  * cascade=false 는 본인 1건만, cascade=true 는 setWbsAssigneeCascade 와 동일한 트리 로드·순회
  * 패턴으로 서브트리 전체를 일괄 갱신한다(방향 무관 — enabled 값으로 통일, 트리 조회 실패 시
  * 중단해 부분 적용을 막는다 — 3원칙 ②).
@@ -374,11 +386,25 @@ export async function setWbsDevWorkflow(
 ): Promise<{ ok: boolean; error?: string; count?: number; cascadeFailed?: boolean }> {
   const resolved = await resolveItemProjectId(itemId)
   if (!resolved.ok) return resolved
-  const g = await requireProjectAdmin(resolved.projectId)
+  const g = await requireSubtreeManagerOrAdmin(itemId, resolved.projectId)
   if (!g.ok) return { ok: false, error: g.error }
+  // 일괄(cascade)은 관리자만 — 프로젝트 자동 활성·백필·주문 일괄 취소를 끌고 오는 프로젝트 범위
+  // 행위라 applyDelegation 이 멤버에게 그은 선과 같은 자리에 둔다. 단건은 담당자·서브트리 관리자도 한다.
+  if (cascade && !g.isAdmin) return { ok: false, error: ERR_DEV_WORKFLOW_CASCADE_ADMIN }
 
   const admin = createAdminClient()
   const nowIso = new Date().toISOString()
+
+  // OFF 는 위임된 항목에 걸지 않는다 — 위임 ON 이 dev_workflow ON 을 함의하므로(delegation.ts)
+  // 워크플로만 끄면 "위임됐는데 워크플로 밖"인 모순된 행이 남는다. 관리자에게도 같이 적용한다.
+  // 조회 실패는 중단 사유다(3원칙 ② — 위임 여부를 모르는 채로 끄지 않는다).
+  if (!enabled && !cascade) {
+    const { data: tagRow, error: tagErr } = await admin
+      .from('wbs_items').select('tags').eq('id', itemId).maybeSingle()
+    if (tagErr) return { ok: false, error: `위임 확인 실패: ${tagErr.message}` }
+    const tags = ((tagRow as { tags: string[] | null } | null)?.tags ?? [])
+    if (tags.includes(AGENT_TAG)) return { ok: false, error: ERR_DEV_WORKFLOW_DELEGATED }
+  }
 
   const updatedIds: string[] = []
   const hasChildren = new Set<string>()
@@ -411,10 +437,10 @@ export async function setWbsDevWorkflow(
     // 하위 트리 조회 실패 시 중단(3원칙 ②) — setWbsAssigneeCascade 와 동일한 패턴.
     const { data: allItems, error: treeErr } = await admin
       .from('wbs_items')
-      .select('id, parent_id')
+      .select('id, parent_id, tags')
       .eq('project_id', resolved.projectId)
     if (treeErr) return { ok: false, error: `하위 항목 조회 실패: ${treeErr.message}` }
-    const rows = (allItems ?? []) as { id: string; parent_id: string | null }[]
+    const rows = (allItems ?? []) as { id: string; parent_id: string | null; tags: string[] | null }[]
     const byId = new Map(rows.map(r => [r.id, r]))
     const root = byId.get(itemId)
     if (!root) return { ok: false, error: '항목 없음' }
@@ -438,6 +464,15 @@ export async function setWbsDevWorkflow(
       subtreeIds.push(cur.id)
       for (const c of childrenOf.get(cur.id) ?? []) {
         if (!visited.has(c.id)) stack.push(c)
+      }
+    }
+
+    // 단건과 같은 이유로 위임된 항목은 끄지 않는다 — 서브트리에 하나라도 있으면 일괄 자체를 막는다
+    // (일부만 끄고 일부는 남기면 사람이 무엇이 반영됐는지 알 수 없다).
+    if (!enabled) {
+      const delegatedCount = subtreeIds.filter(id => (byId.get(id)?.tags ?? []).includes(AGENT_TAG)).length
+      if (delegatedCount > 0) {
+        return { ok: false, error: `하위에 에이전트 위임 작업이 ${delegatedCount}건 있습니다. 위임을 먼저 끄십시오.` }
       }
     }
 
@@ -533,7 +568,10 @@ export async function setWbsDevWorkflow(
  */
 export async function getWbsAssigneeStage(
   itemId: string,
-): Promise<{ assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean; delegated: boolean } | null> {
+): Promise<{
+  assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean
+  delegated: boolean; canDevWorkflow: boolean
+} | null> {
   if (!isUuidLike(itemId)) return null
   const resolved = await resolveProjectId('wbs_items', itemId)
   if (!resolved.ok) {
@@ -545,9 +583,17 @@ export async function getWbsAssigneeStage(
     console.error('[getWbsAssigneeStage] 권한 없음:', g.error)
     return null
   }
+  // project_id 가 null 인 행은 판정 대상이 아니다 — 권한은 fail-closed 로 닫는다.
+  const projectId = resolved.projectId
   const sb = await createServerClient()
-  const { data, error } = await sb
-    .from('wbs_items').select('assignee_member_id, stage, dev_workflow, tags').eq('id', itemId).maybeSingle()
+  // 값 조회와 권한 판정은 서로를 기다리지 않는다 — 패널 여는 지연을 늘리지 않으려고 같이 보낸다.
+  const [read, perm] = await Promise.all([
+    sb.from('wbs_items').select('assignee_member_id, stage, dev_workflow, tags').eq('id', itemId).maybeSingle(),
+    projectId === null
+      ? Promise.resolve({ ok: false as const, error: '대상을 찾을 수 없습니다.' })
+      : requireSubtreeManagerOrAdmin(itemId, projectId),
+  ])
+  const { data, error } = read
   if (error) {
     console.error('[getWbsAssigneeStage] 조회 실패:', error.message)
     return null
@@ -561,5 +607,8 @@ export async function getWbsAssigneeStage(
     // 단계 드롭다운 잠금 표시 재료(스펙 §3.5) — 같은 select 로 읽어 왕복을 늘리지 않는다. 위임 없이 reported 주문만
     // 남은 드문 경우는 RPC 의 locked 거부 문구가 드러낸다.
     delegated: (row.tags ?? []).includes(AGENT_TAG),
+    // 개발 워크플로 체크박스의 활성 여부 — setWbsDevWorkflow 의 가드와 같은 판정을 서버가 실어 보낸다
+    // (화면이 역할·담당자에서 재파생하지 않는다). 판정 실패는 거부로 잡히므로 fail-closed 다.
+    canDevWorkflow: perm.ok,
   }
 }
