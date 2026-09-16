@@ -251,6 +251,8 @@ export const wbsKo = {
   'wbs.devWorkflowCascadeLabel': '하위 항목에도 일괄 적용',
   'wbs.devWorkflowResult': '{n}건 변경됨',
   'wbs.devWorkflowFail': '일부 항목에 적용하지 못했습니다. 다시 시도해 주세요.',
+  'wbs.devWorkflowLockedByDelegation': '에이전트에 위임된 작업입니다. 위임을 먼저 꺼야 워크플로에서 뺄 수 있습니다.',
+  'wbs.devWorkflowSkippedDelegated': '위임된 {n}건은 제외했습니다. 위임을 먼저 끄면 함께 뺄 수 있습니다.',
   // 명세 패널(Task 12A, 결정 B) — 스칼라 배지·참조 필드·acceptance 체크리스트·spec 마크다운
   'wbs.specPanelTitle': '명세',
   'wbs.specLoadFail': '명세를 불러오지 못했습니다. 다시 열어 주세요.',

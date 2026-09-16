@@ -7,8 +7,11 @@ import { SAVE_DEBOUNCE_MS } from '@/components/wbs/useDebouncedSave'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-type ResolvedState = { assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean; delegated?: boolean }
-const getWbsAssigneeStage = vi.fn(async (): Promise<ResolvedState> => ({ assigneeMemberId: null, stage: null, devWorkflow: true }))
+type ResolvedState = {
+  assigneeMemberId: string | null; stage: string | null; devWorkflow: boolean
+  delegated?: boolean; canDevWorkflow?: boolean
+}
+const getWbsAssigneeStage = vi.fn(async (): Promise<ResolvedState> => ({ assigneeMemberId: null, stage: null, devWorkflow: true, canDevWorkflow: true }))
 const setWbsAssignee = vi.fn(async () => ({ ok: true }))
 const setWbsAssigneeCascade = vi.fn(async () => ({ ok: true, count: 0 }))
 const setWbsStage = vi.fn(async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true }))
@@ -47,7 +50,7 @@ describe('WbsAssigneeStagePanel', () => {
     vi.useFakeTimers()
     // mockClear 는 mockResolvedValueOnce 잔재를 지우지 않는다 — 실패한 테스트가 남긴 Once 값이
     // 다음 테스트의 첫 조회에 실려 오지 않도록 reset 뒤 기본 구현을 다시 건다.
-    getWbsAssigneeStage.mockReset().mockResolvedValue({ assigneeMemberId: null, stage: null, devWorkflow: true })
+    getWbsAssigneeStage.mockReset().mockResolvedValue({ assigneeMemberId: null, stage: null, devWorkflow: true, canDevWorkflow: true })
     setWbsAssignee.mockReset().mockResolvedValue({ ok: true })
     setWbsAssigneeCascade.mockReset().mockResolvedValue({ ok: true, count: 0 })
     setWbsStage.mockReset().mockResolvedValue({ ok: true })
@@ -70,9 +73,12 @@ describe('WbsAssigneeStagePanel', () => {
     hasChildren?: boolean
     resolved?: ResolvedState
   } = {}) {
-    getWbsAssigneeStage.mockResolvedValue(
-      opts.resolved ?? { assigneeMemberId: null, stage: null, devWorkflow: true },
-    )
+    // canDevWorkflow 는 개별 테스트가 관심 없으면 "권한 있음"으로 둔다 — 이 값을 명시한
+    // 테스트(권한·위임 잠금)는 그대로 덮어쓴다.
+    getWbsAssigneeStage.mockResolvedValue({
+      canDevWorkflow: true,
+      ...(opts.resolved ?? { assigneeMemberId: null, stage: null, devWorkflow: true }),
+    })
     await act(async () =>
       root.render(
         <WbsAssigneeStagePanel
@@ -262,8 +268,10 @@ describe('WbsAssigneeStagePanel', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
-  it('editable=false 면 devWorkflow 체크박스가 렌더되되 disabled 다', async () => {
-    await mount({ editable: false, resolved: { assigneeMemberId: null, stage: null, devWorkflow: true } })
+  // 2026-09-16 이전에는 editable(관리자)만 이 체크박스를 눌렀다. 이제 축이 canDevWorkflow 로
+  // 바뀌었으므로 "권한 없음"은 그 값으로 표현한다 — 렌더는 하되 disabled 인 계약은 그대로다.
+  it('권한이 없으면 devWorkflow 체크박스가 렌더되되 disabled 다', async () => {
+    await mount({ editable: false, resolved: { assigneeMemberId: null, stage: null, devWorkflow: true, canDevWorkflow: false } })
     const cb = devWorkflowCheckbox()
     expect(cb).toBeTruthy()
     expect(cb.checked).toBe(true)
@@ -285,4 +293,36 @@ describe('WbsAssigneeStagePanel', () => {
     expect([...select.options].map(o => o.value)).toEqual(['', 'as', 'ip', 'im', 'xx'])
     expect(container.textContent).not.toContain('wbs.stageLeafOnlyHint')
   })
+
+  // ── 개발 워크플로 체크박스의 활성 조건(2026-09-16) ──────────────────────────────
+  // 관리자 전용(editable)이 아니라 서버가 보낸 canDevWorkflow 를 본다. 위임된 작업은 끄지 못한다.
+
+  it('canDevWorkflow=true 면 비관리자(editable=false)에게도 devWorkflow 체크박스가 열린다', async () => {
+    await mount({ editable: false, resolved: { assigneeMemberId: null, stage: null, devWorkflow: true, canDevWorkflow: true } })
+    expect(devWorkflowCheckbox().disabled).toBe(false)
+  })
+
+  it('canDevWorkflow=false 면 관리자 폼(editable=true)이라도 체크박스가 잠긴다', async () => {
+    await mount({ editable: true, resolved: { assigneeMemberId: null, stage: null, devWorkflow: true, canDevWorkflow: false } })
+    expect(devWorkflowCheckbox().disabled).toBe(true)
+  })
+
+  it('위임된 작업은 체크박스를 잠그고 사유를 보인다', async () => {
+    await mount({ resolved: { assigneeMemberId: null, stage: 'ip', devWorkflow: true, delegated: true, canDevWorkflow: true } })
+    expect(devWorkflowCheckbox().disabled).toBe(true)
+    expect(container.querySelector('[data-dev-workflow-locked]')?.textContent)
+      .toContain('wbs.devWorkflowLockedByDelegation')
+  })
+
+
+  it('일괄 OFF 에서 제외된 위임 항목 수를 알린다', async () => {
+    setWbsDevWorkflow.mockResolvedValue({ ok: true, count: 3, skippedDelegated: 2 } as never)
+    await mount({ hasChildren: true, resolved: { assigneeMemberId: null, stage: null, devWorkflow: true, canDevWorkflow: true } })
+    await act(async () => devWorkflowCheckbox().click())
+    await act(async () => { await vi.advanceTimersByTimeAsync(SAVE_DEBOUNCE_MS) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(container.querySelector('[data-dev-workflow-skipped]')?.textContent)
+      .toContain('wbs.devWorkflowSkippedDelegated')
+  })
+
 })
