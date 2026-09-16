@@ -148,20 +148,22 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 
 ## 0. 환경 감지 (시작 맨 처음)
 
-```bash
-printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORCA_WORKTREE_ID-}" "${TMUX-}"
-```
-1. `TERM_PROGRAM` 이 `Orca` 이거나 `ORCA_WORKTREE_ID` 가 비어 있지 않으면 **pane 백엔드(Orca)** 다.
-2. 그 밖(진짜 tmux·일반 터미널)은 **프로세스 백엔드** 다. 팀원은 팀장이 `nohup claude -p` 로 띄우는 별도
-   프로세스다(backends.md). `TMUX` 가 있으면 "tmux pane 은 지원하지 않아 프로세스 백엔드로 돈다" 를 한 줄
-   알린다. 프로세스 백엔드면 "blocked 질문은 이 세션으로 모이고 팀원 화면은 보이지 않는다(워크트리의
-   `.dflow-worker.log` 만 있다)" 도 한 줄 알린다.
+백엔드는 tmux 를 **먼저** 보고, 없으면 Orca 를 본다. `TMUX` 환경변수는 감지에 쓰지 않는다. 전용 소켓을 쓰므로
+팀장이 tmux 안인지가 무의미하고, Orca 안에서도 `TMUX` 가 채워져 오진의 근원이었기 때문이다.
 
-어느 갈래에서도 병렬 불가로 종료하지 않는다. 백엔드 이름은 시작 보고와 `team.start` 에 남긴다.
+| 순위 | 조건 | 백엔드 |
+|---|---|---|
+| 1 | `find_tmux`(backends.md 「진짜 tmux 찾기」)가 진짜 tmux 절대경로를 돌려준다 | **pane(tmux)** |
+| 2 | 못 찾았고 `TERM_PROGRAM` 이 `Orca` 이거나 `ORCA_WORKTREE_ID` 가 비어 있지 않다 | pane(Orca) |
+| 3 | 그 밖 | `FAIL NO_TMUX` 로 중단하고 설치를 안내한다 |
+
+감지는 「1. 시작」 전제 검사 블록 안에서 한 번에 하며, 그 블록이 `BACKEND`(`tmux` 또는 `orca`)와 `TM`(진짜
+tmux 절대경로)을 출력한다. 백엔드 이름은 시작 보고와 `team.start` 에 남긴다. 3번 갈래에서만 시작하지 않는다.
+팀원을 대화형으로 띄울 수단이 없기 때문이다.
 
 **플랫폼**: 이 문서의 셸 블록은 macOS·Linux 와 Windows(Git Bash) 에서 같은 절차로 돈다. Windows 에서만 다른
-것(호스트 이름·프로세스 시작 시각·팀장 세션 PID·심링크)은 블록 안에서 `uname -s` 로 가르며
-(`MINGW*|MSYS*|CYGWIN*`), 그 차이의 목록은 backends.md 「플랫폼 차이」 다. WSL 은 Linux 다.
+것(호스트 이름·팀장 세션 PID·심링크·tmux 설치)은 블록 안에서 `uname -s` 로 가르며(`MINGW*|MSYS*|CYGWIN*`),
+그 차이의 목록은 backends.md 「플랫폼 차이」 다. WSL 은 Linux 다.
 
 ## 1. 시작
 
@@ -192,7 +194,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    [ -z "$legacy" ] || bad "LEGACY_REPORTED $legacy"
    mkdir -p ~/.dflow
    ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
-   for p in '**/.claude/worktrees/' '/.dflow-agent' '/.dflow-pid' '/.dflow-prompt' '/.dflow-worker.log' 'docs/tasks/*/.result'; do
+   for p in '**/.claude/worktrees/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' 'docs/tasks/*/.result'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
    tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
@@ -207,18 +209,28 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    fi
    [ -z "$(git status --porcelain)" ] || bad DIRTY
    [ "$(date +%H%M)" -lt <HHMM> ] || bad "UNTIL_PAST 종료 시각은 당일 시각만(자정 넘김 불가)"
-   if [ "${TERM_PROGRAM-}" = Orca ] || [ -n "${ORCA_WORKTREE_ID-}" ]; then
+   find_tmux() {
+     for c in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux "$(command -v tmux 2>/dev/null)"; do
+       [ -n "$c" ] && [ -x "$c" ] || continue
+       grep -q 'agent-teams-tmux' "$c" 2>/dev/null && continue
+       "$c" -L "dflowprobe$$" has-session -t __probe__ 2>&1 | grep -qi 'unsupported command' && continue
+       printf '%s\n' "$c"; return 0
+     done
+     return 1
+   }
+   TM=$(find_tmux) || TM=
+   if [ -n "$TM" ]; then
+     BACKEND=tmux
+     command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
+   elif [ "${TERM_PROGRAM-}" = Orca ] || [ -n "${ORCA_WORKTREE_ID-}" ]; then
+     BACKEND=orca
      { orca worktree create --help | grep -q -- '--agent' && orca worktree create --help | grep -q -- '--prompt'; } || bad ORCA_OLD
    else
-     command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
+     BACKEND=-
+     bad "NO_TMUX tmux 를 설치하라(macOS: brew install tmux · Debian/Ubuntu: apt install tmux · Windows: MSYS2 또는 WSL)"
    fi
    LEAD_PID=${CLAUDE_PID:-$PPID}   # 팀장 세션 프로세스. Bash 도구가 내보내는 CLAUDE_PID, 없으면 $PPID
    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) [ -n "${CLAUDE_PID:-}" ] || bad "NO_CLAUDE_PID Windows 의 \$PPID 는 1 이라 팀장 세션을 가려내지 못한다" ;; esac
-   skip=0
-   case "$(uname -s)" in
-     MINGW*|MSYS*|CYGWIN*) powershell.exe -NoProfile -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=$LEAD_PID').CommandLine" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1 ;;
-     *) ps -o command= -p "$LEAD_PID" 2>/dev/null | grep -q -- '--dangerously-skip-permissions' && skip=1 ;;
-   esac
    [ "$fail" = 0 ] || exit 1
    # 팀장 잠금: 나머지 검사가 모두 통과한 뒤 마지막에 원자 획득한다
    LOCK=$(git rev-parse --git-path dflow-team.lock)
@@ -239,7 +251,7 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    # owner = <신원>/<host>/lead <시작 epoch> <팀장 세션 PID>. 방금 만든 잠금이라 쓰기에 실패하면 지우고 끝낸다
    { printf '%s %s %s\n' "$who/$host/lead" "$(date +%s)" "$LEAD_PID" > "$LOCK/owner" && date +%s > "$LOCK/beat"; } \
      || { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }
-   echo "PRECHECK_OK lead_pid=$LEAD_PID LEAD_SKIP_PERMISSIONS=$skip"
+   echo "PRECHECK_OK lead_pid=$LEAD_PID BACKEND=$BACKEND TM=$TM"
    ```
    - **팀장 잠금**: 잠금은 디렉터리이며 `mkdir` 로 얻는다. `mkdir` 는 원자적이라 동시에 시작한 팀장 둘 중 하나만
      성공한다. 실패한 검사가 잠금을 남기지 않도록 블록의 마지막에 둔다. 안에 `owner` 한 줄
@@ -302,8 +314,8 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
      거부하며, 이는 안전한 쪽으로 기운 것이다.
    - `mkdir -p ~/.dflow`: 이벤트 기록이 디렉터리 부재로 조용히 실패하지 않게 한다.
    - 공유 `info/exclude` 에 워커 부산물 패턴을 없을 때만 넣는다. 커밋하지 않는 로컬 설정이며 링크드
-     워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 프로세스 팀원 워크트리(`dflow-<id8>`), `/.dflow-agent`·
-     `docs/tasks/*/.result` 는 워커가 쓰는 미추적 파일, `/.dflow-pid`·`/.dflow-prompt`·`/.dflow-worker.log` 는
+     워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 tmux 팀원 워크트리(`dflow-<id8>`), `/.dflow-agent`·
+     `docs/tasks/*/.result` 는 워커가 쓰는 미추적 파일, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
      팀장이 spawn 때 쓰는 미추적 파일, `/.claude/skills`(끝 슬래시 없음)는 스킬 심링크다. 끝 슬래시가 붙은 패턴은 디렉터리에만 걸려 심링크를 가리지 못한다. 이 패턴은 **`.claude/skills`
      가 추적되지 않는 리포에서만** 넣는다. 스킬이 커밋된 리포에 넣으면 새로 추가하는 스킬 파일이 무시돼
      `git add` 가 거부되기 때문이다. 이유: 부산물이 `/dflow-dev` Phase 5 의 "미커밋 잔여물 커밋" 에 섞이면,
@@ -316,12 +328,16 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    - `LEGACY_REPORTED` 검사와 이 블록 전체는 bash 와 zsh 모두에서 돈다. state.json 은 glob 대신 `find` 로 찾고,
      결과를 변수로 받아 루프 밖에서 `bad` 를 부른다. 이유: zsh 는 매치 없는 glob 에서 블록 전체를 `FAIL` 줄 없이
      죽이고, bash 는 파이프 안의 `while` 을 서브셸에서 돌려 그 안에서 바꾼 `fail` 이 밖으로 나오지 않는다.
-   - `ORCA_OLD`: pane(Orca)이면 `orca worktree create` 가 `--agent`·`--prompt` 를 지원해야 한다.
-   - `NO_CLAUDE_CLI`: 프로세스 백엔드는 팀원을 `claude -p` 로 띄우므로 `claude` 가 PATH 에 있어야 한다.
-   - `LEAD_SKIP_PERMISSIONS`: 팀장 세션 프로세스(`$PPID`)의 명령줄에 `--dangerously-skip-permissions` 가 있으면
-     1 이다. 프로세스 팀원을 띄울 때 같은 플래그를 붙이는 근거다(backends.md 「프로세스」). 이유: 사람이 팀장을
-     권한 확인 생략 모드로 띄웠다는 것은 팀원까지 그 조건으로 돌리겠다는 결정이고(권한 준비 3단계), 팀원은
-     비대화형이라 확인 프롬프트에 답할 수 없다.
+   - `ORCA_OLD`: pane(Orca)이면 `orca worktree create` 가 `--agent`·`--prompt` 를 지원해야 한다. tmux 를 찾지
+     못한 Orca 환경에서만 이 갈래로 온다.
+   - `NO_CLAUDE_CLI`: tmux 백엔드는 팀원을 `.dflow-run` 의 `exec claude` 로 띄우므로 `claude` 가 PATH 에 있어야
+     한다. 없으면 pane 이 즉시 죽고 종료 코드 127 만 남아, 무엇이 없어서 죽었는지 화면에 남지 않는다.
+   - `NO_TMUX`: tmux 도 Orca 도 없으면 시작하지 않는다. 팀원을 대화형으로 띄울 수단이 없기 때문이다. 안내에
+     설치 명령을 적는다(macOS `brew install tmux`, Debian·Ubuntu `apt install tmux`, Windows 는 MSYS2 또는
+     WSL). 종전의 비대화형 프로세스 백엔드(`nohup claude -p`)는 2026-09-16 에 없앴다. 사람이 권한 확인에
+     답하거나 화면을 보거나 `blocked` 를 맥락을 지킨 채 풀 자리가 없었기 때문이다.
+   - `find_tmux` 가 절대경로 후보를 훑는 이유: Orca 는 PATH 앞에 tmux shim 을 끼우는데, 그 shim 은 명령
+     부분집합만 처리하고 `tmux -V` 에 거짓 버전을 답한다. 판별 방법은 backends.md 「진짜 tmux 찾기」 다.
 2. **재구성**: 새 `team.start` 를 쓰기 **전에** 「팀장 상태」 의 재구성과 고아 스캔을 한다. 이유: "마지막
    `team.start` 이후" 필터가 이전 세션의 이벤트를 가리지 않게 한다. 이 단계가 곧 재기동 절차다. 이어서
    서버에 claimed 인데 흡수한 슬롯·고아 워크트리·답을 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8 을
@@ -333,10 +349,10 @@ printf 'TERM_PROGRAM=%s ORCA_WORKTREE_ID=%s TMUX=%s\n' "${TERM_PROGRAM-}" "${ORC
    ```
    상태 열이 `CL` 인 행만 센다. 이유: `--scope claimed` 는 보고까지 끝난 `RP`(reported) 행도 돌려주는데, 그 작업은
    승인 대기이지 재개 대상이 아니다.
-3. **권한 모드 안내 한 줄**: 프로세스 백엔드면 `LEAD_SKIP_PERMISSIONS` 가 1 일 때
-   "팀원은 별도 claude 프로세스로 뜨며 이 세션처럼 권한 확인 생략 모드로 돈다" 를, 0 일 때
-   "팀원은 별도 claude 프로세스로 뜨며 이 세션과 같은 권한 규칙을 쓴다. 비대화형이라 권한 확인이 필요한 명령은
-   거부되고 팀원이 failed permission 으로 보고한다" 를, pane 이면 "팀원은 권한 확인 생략 모드로 뜬다" 를 출력한다.
+3. **시작 보고 두 줄**: 백엔드와 무관하게 "팀원은 **권한 확인 생략 모드로** 돕니다. 팀장 세션의 권한 모드와
+   무관합니다." 를 알린다. tmux 백엔드면 "화면은 `TMUX= tmux -L dflow attach` 로 볼 수 있습니다." 를 한 줄 더
+   알린다. 첫 줄이 중요하다. 팀장을 평소 모드로 띄운 사람도 팀원은 무제한으로 돈다는 사실이 여기서 드러나야
+   하기 때문이다. `TMUX=` 를 앞에 붙이는 이유는 팀장이 이미 tmux 안일 때 중첩 attach 가 거부되기 때문이다.
 4. `team.start`(backend, slots, until)를 기록한다. 2번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
    다시 기록한다: 흡수한 슬롯마다 `team.spawn`, 답을 기다리는 `blocked` 마다 `team.blocked`, 아직
    재spawn 하지 못한 답마다 `team.answer`, 흡수한 슬롯의 마지막 처리 해시마다 `team.result` 또는 `team.blocked`.
