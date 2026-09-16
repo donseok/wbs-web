@@ -731,7 +731,25 @@ cd <REPO> && (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.
 > `MD_TERM` 의 용어 중복 판정에서 대소문자와 앞뒤 공백을 무시하도록, `UNIQUE(term_name, sense_no)`
 > 에 `COLLATE NOCASE` 를 적용하고 그 근거를 ERD 문서에 명시할 것.
 
-**E 와 R3 의 판정은 재작업 결과를 받은 뒤에 적는다.**
+**서버 값도 화면과 일치한다.** `dflow.sh show 2f856d6b` 에서 `order.status` 가 `reported`→`claimed`,
+`item.stage` 가 `im`→`ip` 다. 화면과 API 가 갈리지 않았다.
+
+**반려 사유 전달은 정확하다.** `.reports` 의 마지막 `kind=completion` 리포트에 `review_action: reject`
+와 `review_note` 가 글자 그대로 실렸다(`reviewed_at` 은 `None`).
+
+**R3 은 재현되지 않았다.** `phase=rejected` 를 기록한 뒤 `--scope claimed` 에는 그 주문이 뜨고
+`--scope available` 에는 뜨지 않는다. 폴링이 새 작업으로 다시 잡지 않으며, 이미 점유 중이므로
+`claimed` 목록에 재개 대상으로 보이는 것이 정상 동작이다.
+
+**담당자에 관한 기록 — claim 은 담당자를 바꾸지 않는다.** 주행 중 `TSK-01-02` 의 담당자가
+`<SU>` 에서 `<MEM>` 으로 보여 claim 부작용을 의심했으나 아니었다. **한 번도 claim 하지 않은
+`TSK-00-03`·`TSK-02-01` 에도 같은 `assignee_member_id` 가 붙어 있다.** 사용자가 웹에서 직접
+재배정한 것이며 본인이 그렇게 확인해 주었다. 업로드 때 탈락한 7건 중 여섯에 `<MEM>` 이 붙고
+`TSK-03-01` 하나만 `None` 인 분포가 「사람이 손으로 일부를 바꿨다」와 맞는다.
+곁들여, `order` 최상위의 `claimed_by_user_email` 과 `item` 의 `assignee_member_id` 는 **서로 다른
+축**이며 둘 다 응답에 실린다. 담당자와 점유자를 혼동하지 않는다.
+
+**E 의 판정은 재작업 결과를 받은 뒤에 적는다.**
 
 ---
 
@@ -903,7 +921,7 @@ rm -f ~/.cache/dflow/last-list.json ~/.cache/dflow/profiles.json
 |---|---|---|---|
 | R1 | 담당자가 배정되지 않은 작업은 폴링이 영원히 보지 못하고, 화면에도 아무 표시가 뜨지 않는다 | 11, 14 | [ ] |
 | R2 | 자동 착수 전제 다섯 가지(리프·`dev_workflow`·`agent` 태그·spec·담당자) 중 하나만 빠져도 무음으로 제외된다 | 11 | [ ] |
-| R3 | `state.json` 의 `phase` 가 `rejected` 가 되는 순간 이후 폴링에 잡히지 않는 사각지대가 있다 | 15 | [ ] |
+| R3 | `state.json` 의 `phase` 가 `rejected` 가 되는 순간 이후 폴링에 잡히지 않는 사각지대가 있다 | 15 | **[x] 재현 안 됨(2026-09-17).** `--scope claimed` 에 뜨고 `--scope available` 에는 안 뜬다. 점유 중이므로 정상이다 |
 | R4 | `dflow-wbs` 동봉 검증기는 3단계 헤딩만 읽어서, 4단계 WBS 에서 `task_count 0` 인데 `ok:true` 로 통과처럼 보인다 | 7 | [ ] |
 | R5 | `dflow.sh doctor` 는 토큰이 1개일 때 검사 루프를 0회 돌고도 종료 코드 0 을 낸다 | 4 | [ ] |
 | R6 | `state.json` 의 `order` 를 8자로 기록하면 승인 후 스윕이 그 주문을 못 찾는다 | 12 | [ ] |
@@ -928,6 +946,7 @@ R9 부터 R14 까지 여섯은 다중 신원 구성에서만 나타난다. 이 �
 
 | 코드 | 내용 | 나타난 단계 |
 |---|---|---|
+| N9 | **`show` 응답에 `actual_pct` 필드가 아예 없다.** `item` 의 키는 `acceptance`·`agent_prompt`·`assignee_member_id`·`category`·`code`·`depends`·`domain`·`entry_point`·`external_ref`·`id`·`model`·`name`·`planned_end`·`planned_start`·`prd_ref`·`priority`·`spec`·`stage`·`tags` 열아홉뿐이다. 반면 `depends_evidence[]` 에는 `actual_pct` 가 실린다. 즉 **자기 자신의 실적은 못 보고 선행의 실적만 본다.** `dflow-dev` 의 선행 판정이 쓰는 「`actual_pct` ≥ 100」 축은 evidence 를 통해서만 닿을 수 있고, `show` 로 자기 상태를 확인할 때는 쓸 수 없다. 실적%를 화면 없이 확인해야 하는 절차가 있으면 걸린다 | 12, 15 |
 | N8 | **`dev-discipline.md` 의 문서 작업 특례가 `research`·`docs` 만 지목해 공정형인 `design`·`itest` 가 빠져 있다.** 그래서 `design` 카테고리 Task 의 Build Phase 를 어떻게 다룰지가 규정되지 않는다. 이번 주행에서는 `TSK-01-01`·`TSK-01-02` 를 Design 다음 바로 Verify 로 보냈는데, **그것은 실행자의 판단이지 문서에 근거가 있는 처리가 아니다** | 12, 14 |
 | N7 | **계약 v2.1 의 `spec_sections` 6키가 `tech-spec`·`ui-spec` 을 조용히 버린다.** 계약대로이지 오류는 아니나, `/dflow-dev` 가 서버 spec 만 읽는다면 기술 스택 지침이 팀원에게 전달되지 않는다. 단계 8 의 곁가지와 같은 건이다 | 8, 12 |
 | N6 | **`depends_evidence` 의 `branch`·`head_sha` 는 승인 시점에 붙는데 `reached` 는 그전에 이미 true 다.** 그래서 승인 없이 후속 claim 이 통과하되 **선행 코드가 어느 브랜치에 있는지는 모르는 채로 진행한다.** `TSK-01-02` 를 claim 할 때 선행 evidence 가 `head_sha=null` 로 나온 것을 실측했다. 선행을 main 에 머지해 두면 실질 문제가 없지만, 머지하지 않고 진행하는 운영에서는 스킬이 기점을 정할 근거를 잃는다 | 12, 14 |
