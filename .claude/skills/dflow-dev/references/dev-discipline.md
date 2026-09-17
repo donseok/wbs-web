@@ -34,7 +34,7 @@ category 가 research/docs 인 작업은 테스트 기준선 대신 **Design 의
 실행하지 않는다** — 검증을 통과한 문서를 문체 손질로 흔들 이득이 없다.
 (2026-08-22 TSK-00-01-01 리허설에서 현장 재량으로 적용했던 판단을 명문화.)
 
-## Phase 1 — Design (설계)
+## Phase 02 — Design (설계)
 
 - 입력: spec.md(수용 기준 포함) + 대상 리포 탐색.
 - **에이전트 프롬프트**: show 의 `item.agent_prompt`(0090)가 있으면 위임자의 직접 지시다 —
@@ -52,7 +52,7 @@ category 가 research/docs 인 작업은 테스트 기준선 대신 **Design 의
 - 탐색에서 얻은 코드베이스 지식(관례·함정·기존 유틸)은 design.md 에 적는다 —
   다음 Phase 는 이 문서가 컨텍스트의 전부다.
 
-## Phase 2 — Build (TDD 구현)
+## Phase 03 — Build (TDD 구현)
 
 - **테스트 먼저**: design.md 의 테스트 전략대로 새 테스트를 작성하고 **실패를 확인한 뒤** 구현한다.
   새 테스트 없는 구현은 Build 완료가 아니다.
@@ -66,7 +66,7 @@ category 가 research/docs 인 작업은 테스트 기준선 대신 **Design 의
   설계는 design.md 작성 시점에 별도 커밋. 커밋 없는 산출물을 Phase 경계 너머로 끌고 가지 않는다 —
   Refactor 실패 시 되돌릴 경계가 커밋이다.
 
-## Phase 3 — Verify (검증)
+## Phase 04 — Verify (검증)
 
 - 전체 테스트 스위트 + 린트를 실행하고 **기준선과 차분 비교**한다.
 - **변이 검증**: Build 와 같은 절차를 여기서도 반복한다 — 「불변 규칙」 각 항목의 변이가
@@ -77,7 +77,7 @@ category 가 research/docs 인 작업은 테스트 기준선 대신 **Design 의
   테스트 총수 감소 = 게이트 실패. 수정 커밋은 Build 커밋과 분리.
 - 재시도는 1회. 두 번째 실패는 중단하고 사람에게 보고한다.
 
-## Phase 4 — Refactor (선택)
+## Phase 05 — Refactor (선택)
 
 - 동작 변경 금지 — 중복·네이밍·구조만. 끝나면 전체 스위트 재실행, 기준선 회귀 = 실패
   (이때 Refactor 커밋만 되돌린다. Build 산출물은 커밋 경계로 보호돼 있다).
