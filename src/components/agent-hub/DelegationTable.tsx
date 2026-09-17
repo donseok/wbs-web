@@ -352,7 +352,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
           {tool(false, '열 너비 초기화', '모든 열을 기본 폭으로 되돌립니다', resetAll)}
         </div>
       </div>
-      <p className="mb-2 text-[11px] text-ink-subtle">리프 항목의 체크가 위임(발행)입니다. 부모 체크는 하위 전체(관리자). 머리글 경계를 끌면 열 너비가 바뀝니다.</p>
+      <p className="mb-2 text-[11px] text-ink-subtle">리프 항목의 체크가 위임(발행)입니다. 부모 체크는 내가 켤 수 있는 하위 리프를 한 번에 켭니다. 머리글 경계를 끌면 열 너비가 바뀝니다.</p>
       {notice && <p data-hub-notice role="status" className="mb-2 rounded-md bg-pending-weak px-2 py-1 text-xs text-pending">{notice}</p>}
       <div ref={boxRef} data-shift="0" onScroll={onScroll} style={boxVars} className={s.box}>
         <table className={cls(s.table, dense && s.dense)} style={{ minWidth: `${totalW}px` }}>
