@@ -71,9 +71,13 @@
 /* 구역이 층 안에서 타일링한다. 하한 440px 은 좌석 두 줄(캐릭터 68px + 책상)이 읽히는 최소 폭이고,
    상한 620px 은 구역 하나뿐인 층에서 좌석이 지나치게 늘어지지 않게 한다. auto-fit 이라 빈 트랙이
    남지 않는다 — auto-fill 이면 구역 하나일 때 오른쪽 절반이 그대로 빈다.
+   하한 560px 은 좌석 두 줄이 각 257px 은 되게 하는 값이다: 그 아래에서는 책상이 130px 밑으로
+   내려가 항목 이름이 한 글자씩 쪼개진다. 더 좁아지면 아래 @container 가 배치를 세로로 바꾼다.
    min() 은 좁은 화면에서 하한이 화면을 넘지 않게 한다. */
-.zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 620px)); justify-content: start; gap: 10px; align-items: start; }
-.zone { background: var(--sm-zone); border: 1px solid var(--sm-line-2); border-radius: 10px; padding: 8px 10px 10px; }
+.zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(560px, 100%), 620px)); justify-content: start; gap: 10px; align-items: start; }
+/* container-type 은 아래 @container 가 구역 폭을 기준으로 재게 한다 — 좌석이 좁아지는 것은 화면 폭이
+   아니라 구역 폭 때문이고(사이드바·패딩이 사이에 낀다), 미디어 쿼리로는 그것을 맞출 수 없다. */
+.zone { background: var(--sm-zone); border: 1px solid var(--sm-line-2); border-radius: 10px; padding: 8px 10px 10px; container-type: inline-size; }
 .zoneHead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
 .zoneCode { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12px; color: var(--sm-ink-2); }
 .zoneName { font-weight: 600; font-size: 13px; }
@@ -255,3 +259,21 @@
 .card[data-state="READY"] { border-left: 4px dashed var(--sm-line); }
 /* 카드의 캐릭터는 작게 — 좌석의 절반. 반전은 하지 않는다(줄이 없다). */
 .card .sprite { --sm-cell-w: 46px; --sm-cell-h: 42px; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   좁은 구역 — 좌석을 한 줄로 세우고 캐릭터를 책상 위에 올린다.
+   기준은 구역 폭이다(화면 폭이 아니다). 두 줄을 유지한 채 폭만 줄이면 책상이 먼저 짜부라져
+   항목 이름이 한 글자씩 세로로 쪼개진다. display 는 건드리지 않는다 — 통로선은 의사요소의
+   content 로 지우고, 칸 수만 바꾼다(globals.css 의 unlayered 안전망과 무관하다).
+   ───────────────────────────────────────────────────────────────────────────── */
+@container (max-width: 559px) {
+  .block { grid-template-columns: 1fr; column-gap: 0; row-gap: 10px; }
+  .block::before { content: none; }
+  .seat, .seatLeft, .seatRight { grid-template-columns: 1fr; gap: 4px; }
+  /* 캐릭터가 위, 책상이 아래. 오른쪽 줄의 순서 바꿈과 좌우 반전은 통로가 없어졌으므로 되돌린다. */
+  .seatRight .chair { order: 0; transform: none; }
+  .seatRight .chair [data-glyph="1"] { transform: none; }
+  .chair { justify-content: flex-start; padding-left: 4px; }
+  /* 책상은 이제 한 줄을 다 쓰므로 반려 표시를 왼쪽으로 통일한다. */
+  .seatRight .desk[data-rejected="1"] { box-shadow: inset 5px 0 0 var(--sm-reject-bar); }
+}
