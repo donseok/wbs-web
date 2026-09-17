@@ -122,7 +122,7 @@
    원본 셀은 136x124 이고 화면에는 절반(--sm-cell-*)으로 그린다 — keyframe 의 이동량이 표시 폭과
    같아야 프레임이 어긋나지 않는다. image-rendering 은 손대지 않는다: 원화가 안티에일리어싱된
    렌더라 nearest 로 축소하면 재생 중 떨려 보인다. */
-.sprite { width: var(--sm-cell-w); height: var(--sm-cell-h); background-repeat: no-repeat; background-position: 0 0; background-size: auto var(--sm-cell-h); animation: seatStrip calc(var(--frames) / var(--fps) * 1s) steps(var(--frames)) infinite; }
+.sprite { display: block; width: var(--sm-cell-w); height: var(--sm-cell-h); background-repeat: no-repeat; background-position: 0 0; background-size: auto var(--sm-cell-h); animation: seatStrip calc(var(--frames) / var(--fps) * 1s) steps(var(--frames)) infinite; }
 .sprite[data-frames="1"], .sprite[data-still="1"] { animation: none; }
 @keyframes seatStrip { to { background-position-x: calc(var(--frames) * var(--sm-cell-w) * -1); } }
 @media (prefers-reduced-motion: reduce) { .sprite { animation: none; } }
