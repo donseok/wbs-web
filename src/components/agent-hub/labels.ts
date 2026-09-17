@@ -1,5 +1,6 @@
 // 에이전트 허브 — 표·큐가 공유하는 상태 라벨. 좌석표(Seat.tsx STATE_LABEL)와 뜻은 같되 관리 표에 맞춘 문구.
 import type { HubOrderState } from '@/lib/domain/agentHub'
+import type { WaitReasonKind } from '@/lib/domain/waitReason'
 import { STAGE_NONE_LABEL_KO } from '@/lib/domain/stageLabels'
 
 export const STATE_LABEL: Record<HubOrderState, string> = {
@@ -12,6 +13,37 @@ export const STATE_LABEL: Record<HubOrderState, string> = {
   REJECTED: '반려·재작업',
   DONE: '승인됨',
 }
+
+/**
+ * 상태 칩 색 — globals.css 의 기존 토큰만 쓴다(새 색을 만들지 않으므로 .dark 오버라이드가 그대로 따라온다).
+ * 기준은 "지금 누가 손대야 하나" 다. 사람 차례(승인 대기·결정 대기·반려)는 눈에 띄게, 기계 차례
+ * (작업 중·대기)는 조용하게, 끝난 것(승인됨)은 초록으로 둔다. 컴포넌트에 if (state === ...) 를
+ * 흩지 않으려고 표 하나로 모은다.
+ */
+export const STATE_TONE: Record<HubOrderState, string> = {
+  READY: 'bg-pending-weak text-pending',
+  ACTIVE: 'bg-progress-weak text-progress',
+  STALE: 'bg-delayed-weak text-delayed',
+  OFFLINE: 'bg-surface-2 text-ink-subtle',
+  BLOCKED: 'bg-pending-weak text-accent-warning',
+  WAIT: 'bg-brand-weak text-brand',
+  REJECTED: 'bg-delayed-weak text-delayed',
+  DONE: 'bg-done-weak text-done',
+}
+
+/**
+ * 착수 대기 사유 칩 색(waitReason.ts 의 네 종류). 위 둘은 사람이 움직여야 풀리고, 아래 둘은
+ * 시간이 지나면 저절로 풀린다 — 색이 그 차이를 말한다.
+ */
+export const REASON_TONE: Record<WaitReasonKind, string> = {
+  dependency: 'bg-delayed-weak text-delayed',
+  agent_off: 'bg-pending-weak text-accent-warning',
+  agents_busy: 'bg-progress-weak text-progress',
+  pickup: 'bg-pending-weak text-pending',
+}
+
+/** 위임이 안 된 개발 리프 — 사유 칩과 같은 자리에 같은 모양으로 둔다(사람이 체크를 켜야 풀린다). */
+export const NEEDS_DELEGATION_TONE = 'bg-pending-weak text-accent-warning'
 
 /** 주문이 없는 행의 상태 칸. */
 export const NO_ORDER = '—'

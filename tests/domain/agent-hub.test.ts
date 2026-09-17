@@ -105,12 +105,12 @@ describe('assembleAgentHub — 주문 상태', () => {
 })
 
 describe('assembleAgentHub — 카운터·큐·상태', () => {
-  it('counters: delegated(agent 태그 리프)·ready·working·waiting', () => {
+  it('counters: delegated(agent 태그 리프)·ready·working·waiting·stuck', () => {
     const hub = assembleAgentHub(rows({ orders: [
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1' }),
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000002', wbs_item_id: 'a2', status: 'reported' }),
     ] }), NOW, VIEWER)
-    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1 })
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1, stuck: 0 })
   })
   it('queue: reported 주문마다 최신 completion 보고 1건, 오래된 것 먼저, 보고 없으면 빈 요약', () => {
     const o1 = '11111111-aaaa-4aaa-8aaa-000000000001', o2 = '11111111-aaaa-4aaa-8aaa-000000000002'
@@ -155,7 +155,7 @@ describe('assembleAgentHub — 감시자', () => {
   })
 })
 
-describe('assembleAgentHub — 선행 미완료(unmetDepends)', () => {
+describe('assembleAgentHub — 착수 대기 사유(waitReason)', () => {
   const ready = () => order({ wbs_item_id: 'a1', status: 'ready', claimed_by: null, claimed_by_user_id: null, claimed_at: null, last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null })
   const withDep = (over: Partial<AgentHubRows> = {}) => rows({
     items: [
@@ -166,25 +166,81 @@ describe('assembleAgentHub — 선행 미완료(unmetDepends)', () => {
     orders: [ready()], ...over,
   })
   const rowOf = (hub: ReturnType<typeof assembleAgentHub>, code: string) => hub.rows.find(r => r.code === code)!
-  it('위임된 리프의 주문이 READY 이고 선행이 im 미만·미승인이면 목록 문구. 프로젝트에 없는 ref 도 미충족', () => {
+  it('위임된 리프의 주문이 READY 이고 선행이 im 미만·미승인이면 dependency. 프로젝트에 없는 ref 도 미충족', () => {
     const hub = assembleAgentHub(withDep(), NOW, VIEWER)
-    expect(rowOf(hub, 'TSK-A-01').unmetDepends).toBe('TSK-A-00 선행(현재 ip(작업 중)), M/T9(프로젝트에 없는 항목)')
-    expect(rowOf(hub, 'TSK-A-00').unmetDepends).toBeNull()
-    expect(rowOf(hub, 'SUB-A').unmetDepends).toBeNull()
+    const wr = rowOf(hub, 'TSK-A-01').waitReason!
+    expect(wr.kind).toBe('dependency')
+    expect(wr.label).toBe('선행 대기')
+    expect(wr.text).toContain('TSK-A-00 선행(현재 ip(작업 중)), M/T9(프로젝트에 없는 항목)')
+    expect(rowOf(hub, 'TSK-A-00').waitReason).toBeNull()
+    expect(rowOf(hub, 'SUB-A').waitReason).toBeNull()
   })
-  it('선행이 im 이상이거나 승인 주문(approvedItemIds)이 있으면 충족', () => {
+  it('선행이 im 이상이거나 승인 주문(approvedItemIds)이 있으면 dependency 가 아니다', () => {
     const im = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: ['agent'], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'im' })] }), NOW, VIEWER)
-    expect(rowOf(im, 'TSK-A-01').unmetDepends).toBeNull()
+    expect(rowOf(im, 'TSK-A-01').waitReason!.kind).not.toBe('dependency')
     const ok = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: ['agent'], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'as' })], approvedItemIds: ['a0'] }), NOW, VIEWER)
-    expect(rowOf(ok, 'TSK-A-01').unmetDepends).toBeNull()
+    expect(rowOf(ok, 'TSK-A-01').waitReason!.kind).not.toBe('dependency')
   })
-  it('주문이 없어도(위임만 켬) 표시하고, 이미 claimed 면 null, 위임이 꺼져 있으면 null', () => {
+  it('주문이 없어도(위임만 켬) 판정하고, 이미 claimed 면 null, 위임이 꺼져 있으면 null', () => {
     const noOrder = assembleAgentHub(withDep({ orders: [] }), NOW, VIEWER)
-    expect(rowOf(noOrder, 'TSK-A-01').unmetDepends).not.toBeNull()
+    expect(rowOf(noOrder, 'TSK-A-01').waitReason!.kind).toBe('dependency')
     const claimed = assembleAgentHub(withDep({ orders: [order({ wbs_item_id: 'a1' })] }), NOW, VIEWER)
-    expect(rowOf(claimed, 'TSK-A-01').unmetDepends).toBeNull()
+    expect(rowOf(claimed, 'TSK-A-01').waitReason).toBeNull()
     const off = assembleAgentHub(withDep({ items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: [], depends: ['M/T0'] }), item({ id: 'a0', code: 'TSK-A-00', external_ref: 'M/T0', stage: 'ip' })] }), NOW, VIEWER)
-    expect(rowOf(off, 'TSK-A-01').unmetDepends).toBeNull()
+    expect(rowOf(off, 'TSK-A-01').waitReason).toBeNull()
+  })
+
+  // 선행이 없는 리프 — 나머지 사유 셋(에이전트 꺼짐·바쁨·착수 대기)을 가른다.
+  // 담당자 m1 은 PAT 계정(user_id)이 이어져 있어야 그 사람의 감시자만 자격을 얻는다(좌석표와 같은 축).
+  const solo = (over: Partial<AgentHubRows> = {}) => rows({
+    items: [
+      item({ id: 'a', code: 'SUB-A', name: '첫째', sort_order: 1 }),
+      item({ id: 'a1', parent_id: 'a', code: 'TSK-A-01', name: '리프1', sort_order: 1, dev_workflow: true, tags: ['agent'], assignee_member_id: 'm1' }),
+    ],
+    orders: [ready()],
+    members: [{ id: 'm1', name: '장종익1', email: 'yoo@example.com', user_id: 'u1' }],
+    ...over,
+  })
+  const watcher = (over: Partial<WatcherRow> = {}): WatcherRow => ({
+    id: 'w1', user_id: 'u1', project_id: P1, agent: 'hong/mbp', host: 'mbp', slots: 2, busy: 0, until_label: null, last_seen_at: ago(60_000), ...over,
+  })
+  it('담당자의 감시자가 하나도 없으면 agent_off — 남의 감시자와 죽은 감시자는 세지 않는다', () => {
+    const none = assembleAgentHub(solo({ watchers: [] }), NOW, VIEWER)
+    const wr = rowOf(none, 'TSK-A-01').waitReason!
+    expect(wr.kind).toBe('agent_off')
+    expect(wr.label).toBe('에이전트 꺼짐')
+    expect(wr.text).toContain('장종익1')
+    const others = assembleAgentHub(solo({ watchers: [watcher({ user_id: 'u9', agent: 'nam/pc' })] }), NOW, VIEWER)
+    expect(rowOf(others, 'TSK-A-01').waitReason!.kind).toBe('agent_off')
+    const dead = assembleAgentHub(solo({ watchers: [watcher({ last_seen_at: ago(71 * 60_000) })] }), NOW, VIEWER)
+    expect(rowOf(dead, 'TSK-A-01').waitReason!.kind).toBe('agent_off')
+  })
+  it('담당자의 감시자가 켜져 있지만 자리가 다 찼으면 agents_busy', () => {
+    const hub = assembleAgentHub(solo({ watchers: [watcher({ slots: 2, busy: 2 })] }), NOW, VIEWER)
+    const wr = rowOf(hub, 'TSK-A-01').waitReason!
+    expect(wr.kind).toBe('agents_busy')
+    expect(wr.label).toBe('에이전트 바쁨')
+  })
+  it('빈자리가 있으면 pickup — 전역 감시자(project_id null)도 이 프로젝트를 본다', () => {
+    const hub = assembleAgentHub(solo({ watchers: [watcher({ slots: 2, busy: 1 })] }), NOW, VIEWER)
+    expect(rowOf(hub, 'TSK-A-01').waitReason!.kind).toBe('pickup')
+    const global = assembleAgentHub(solo({ watchers: [watcher({ project_id: null })] }), NOW, VIEWER)
+    expect(rowOf(global, 'TSK-A-01').waitReason!.kind).toBe('pickup')
+    const otherProject = assembleAgentHub(solo({ watchers: [watcher({ project_id: 'p2' })] }), NOW, VIEWER)
+    expect(rowOf(otherProject, 'TSK-A-01').waitReason!.kind).toBe('agent_off')
+  })
+  it('막힘(stuck) 은 사람이 손대야 풀리는 대기만 센다 — 선행 대기·에이전트 꺼짐', () => {
+    expect(assembleAgentHub(withDep(), NOW, VIEWER).counters.stuck).toBe(1) // dependency
+    expect(assembleAgentHub(solo({ watchers: [] }), NOW, VIEWER).counters.stuck).toBe(1) // agent_off
+    expect(assembleAgentHub(solo({ watchers: [watcher({ slots: 1, busy: 1 })] }), NOW, VIEWER).counters.stuck).toBe(0) // agents_busy
+    expect(assembleAgentHub(solo({ watchers: [watcher()] }), NOW, VIEWER).counters.stuck).toBe(0) // pickup
+  })
+  it('담당자가 없는 리프는 프로젝트를 보는 감시자 아무나로 판정한다', () => {
+    const hub = assembleAgentHub(solo({
+      items: [item({ id: 'a1', code: 'TSK-A-01', dev_workflow: true, tags: ['agent'] })],
+      watchers: [watcher({ user_id: 'u9', agent: 'nam/pc' })],
+    }), NOW, VIEWER)
+    expect(rowOf(hub, 'TSK-A-01').waitReason!.kind).toBe('pickup')
   })
 })
 
