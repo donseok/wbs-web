@@ -29,6 +29,15 @@ const SPEED = 0.5
 /** 글자·기호가 그려진 동작 — 오른쪽 줄에서 좌우를 뒤집으면 거꾸로 읽힌다. CSS 가 이 표시를 보고 되돌린다. */
 const HAS_GLYPH: ReadonlySet<AnimName> = new Set<AnimName>(['blocked', 'stale', 'rejected'])
 
+/**
+ * 되감아 재생하는 동작(1 2 3 4 4 3 2 1) — 마지막에서 처음으로 튀는 이음매가 없어진다.
+ * stale 만이다. 엎드렸다 일어나며 zzz 가 커지는 한 방향 동작이라 4→1 이 그 스트립에서 가장 큰
+ * 이음매이고(다섯 시트 −15~−29%), 1번과 4번이 서로 가장 먼 두 장이라 양 끝에서 한 번 더
+ * 머무는 것이 동작에 맞는다. 다른 아홉은 양 끝이 극단이 아니라 얻는 것 없이 주기만 두 배가 된다
+ * — 특히 blocked 는 없앨 이음매가 아예 없고 말풍선이 나타났다 사라지는 흐름만 되풀이된다.
+ */
+const ALTERNATE: ReadonlySet<AnimName> = new Set<AnimName>(['stale'])
+
 export function framesOf(character: CharacterName, anim: AnimName): number {
   return FRAME_OVERRIDE[character]?.[anim] ?? BASE_FRAMES[anim]
 }
@@ -40,6 +49,7 @@ export function Sprite({ character, anim, reduceMotion = false }: { character: C
     <span
       data-sprite="" data-frames={String(frames)} data-still={reduceMotion ? '1' : undefined}
       data-glyph={HAS_GLYPH.has(anim) ? '1' : undefined}
+      data-alt={ALTERNATE.has(anim) ? '1' : undefined}
       className={css.sprite} aria-hidden="true"
       style={{ backgroundImage: `url(${src})`, '--frames': String(frames), '--fps': String(BASE_FPS[anim] * SPEED) } as React.CSSProperties}
     />

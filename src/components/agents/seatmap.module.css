@@ -127,6 +127,8 @@
    렌더라 nearest 로 축소하면 재생 중 떨려 보인다. */
 .sprite { display: block; width: var(--sm-cell-w); height: var(--sm-cell-h); background-repeat: no-repeat; background-position: 0 0; background-size: auto var(--sm-cell-h); animation: seatStrip calc(var(--frames) / var(--fps) * 1s) steps(var(--frames)) infinite; }
 .sprite[data-frames="1"], .sprite[data-still="1"] { animation: none; }
+/* 되감기 재생 — steps 와 함께 쓰면 1 2 3 4 4 3 2 1 로 돈다. 양 끝 두 장이 두 배로 머물고 한 바퀴가 두 배다. */
+.sprite[data-alt="1"] { animation-direction: alternate; }
 @keyframes seatStrip { to { background-position-x: calc(var(--frames) * var(--sm-cell-w) * -1); } }
 @media (prefers-reduced-motion: reduce) { .sprite { animation: none; } }
 

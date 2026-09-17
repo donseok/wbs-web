@@ -38,6 +38,22 @@ describe('Sprite', () => {
     expect(el.style.backgroundImage).toContain('/sprites/empty.png')
     expect(el.dataset.frames).toBe('1')
   })
+  it('되감기는 stale 에만 붙는다 — 다른 동작은 양 끝이 극단이 아니라 주기만 두 배가 된다', () => {
+    act(() => root.render(<Sprite character="cat" anim="stale" />))
+    expect((host.querySelector('[data-sprite]') as HTMLElement).dataset.alt).toBe('1')
+    for (const a of ['typing', 'blocked', 'idle_look', 'rejected'] as const) {
+      act(() => root.render(<Sprite character="cat" anim={a} />))
+      expect((host.querySelector('[data-sprite]') as HTMLElement).dataset.alt).toBeUndefined()
+    }
+  })
+  it('글자가 그려진 세 동작만 좌우 반전을 되돌린다', () => {
+    for (const a of ['blocked', 'stale', 'rejected'] as const) {
+      act(() => root.render(<Sprite character="cat" anim={a} />))
+      expect((host.querySelector('[data-sprite]') as HTMLElement).dataset.glyph).toBe('1')
+    }
+    act(() => root.render(<Sprite character="cat" anim="typing" />))
+    expect((host.querySelector('[data-sprite]') as HTMLElement).dataset.glyph).toBeUndefined()
+  })
   it('reduceMotion 이면 정지 표식', () => {
     act(() => root.render(<Sprite character="cat" anim="typing" reduceMotion />))
     expect((host.querySelector('[data-sprite]') as HTMLElement).dataset.still).toBe('1')
