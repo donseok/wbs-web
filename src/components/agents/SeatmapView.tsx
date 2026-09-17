@@ -87,21 +87,27 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
       : { kind, orderId: seat.orderId }
     try {
       const r = await runHubProcessOp(seat.projectId, op)
-      if (!r.ok) { setOpError(r.error); return }
+      // 실패는 상세 패널에만 자리가 있다 — 좌석에서 바로 누른 op 였다면 그 좌석을 열어 보여 준다.
+      if (!r.ok) { setOpError(r.error); setSelected(seat.orderId); return }
       setNote(null)
       // 처리는 허브를 돌려주지만 오피스가 쥔 것은 좌석표다 — 한 번 더 읽어야 화면이 맞는다.
-      if (r.hubError) setOpError(r.hubError)
+      if (r.hubError) { setOpError(r.hubError); setSelected(seat.orderId) }
       await refresh(undefined, true)
     } catch (e) {
       setOpError(e instanceof Error ? e.message : String(e))
+      setSelected(seat.orderId)
     } finally { setBusyOrderId(null) }
   }, [refresh])
 
-  /** 좌석·패널에서 op 버튼을 누른 순간 — 사유가 필요한 op 는 곧바로 보내지 않고 입력을 연다. */
+  /**
+   * 좌석·패널에서 op 버튼을 누른 순간 — 사유가 필요한 op 는 곧바로 보내지 않고 입력을 연다.
+   * 사유가 없는 op(승인·승인 취소·회수)는 상세를 열지 않는다 — 결재하려고 누른 것이지
+   * 상세를 보려고 누른 것이 아니다. 실패했을 때만 runOp 가 그 좌석을 열어 사유를 보여 준다.
+   */
   const onOp = useCallback((seat: Seat, kind: SeatOpKind) => {
-    setSelected(seat.orderId)
     setOpError(null)
     if (opSpec(kind).needsNote) {
+      setSelected(seat.orderId) // 사유 입력이 상세 패널 안에 있다
       setNote(prev => (prev && prev.orderId === seat.orderId && prev.kind === kind)
         ? prev // 같은 op 를 다시 눌러도 쓰던 글을 지우지 않는다
         : { orderId: seat.orderId, kind, text: '' })

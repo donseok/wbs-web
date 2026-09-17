@@ -9,6 +9,8 @@ import type { Seatmap } from '@/lib/domain/seatmap'
 
 const refresh = vi.fn()
 vi.mock('@/app/actions/agentSeatmap', () => ({ refreshSeatmap: (...a: unknown[]) => refresh(...(a as [])) }))
+const runOp = vi.fn()
+vi.mock('@/app/actions/agentHub', () => ({ runHubProcessOp: (...a: unknown[]) => runOp(...(a as [])) }))
 import { SeatmapView } from '@/components/agents/SeatmapView'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
@@ -26,7 +28,7 @@ const map = (over: Partial<Seatmap> = {}): Seatmap => ({
 })
 
 let host: HTMLDivElement, root: Root
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('SeatmapView', () => {
@@ -139,5 +141,44 @@ describe('SeatmapView — 프로젝트 오피스(projectId)', () => {
     expect(host.textContent).toContain('이 프로젝트에서 내게 배정된 에이전트 작업이 없습니다. 다른 사람 것까지 보려면 ‘전체’를 누르세요.')
     expect(host.textContent).not.toContain('위임·승인 탭에서')
     expect(host.textContent).not.toContain('배정된 에이전트 작업이 없습니다. 담당자가')
+  })
+})
+
+describe('SeatmapView — 좌석에서 바로 결재', () => {
+  // WAIT 좌석 하나짜리 좌석표 — 승인(사유 없음)과 반려(사유 필수)가 둘 다 뜬다.
+  const waitSeat = (): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 0, wait: 1, ready: 0, done: 0 }, seats: [
+        { orderId: 'o9', id8: 'o9', projectId: 'p1', itemId: 'i9', code: 'TSK-04-09', name: '승인 대기 건', state: 'WAIT', phase: 'verify', anim: 'empty', character: 'bot', agent: 'hong/mbp/w1', progress: 100, lastSignalAt: null, heartbeatAt: null, heartbeatPhase: null, note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
+      ] }],
+    }],
+    attention: [],
+  })
+  const opButton = (label: string) =>
+    [...host.querySelectorAll('[data-seat-op]')].find(b => b.getAttribute('data-seat-op') === label) as HTMLButtonElement
+
+  it('승인은 상세 팝업을 열지 않고 바로 실행한다', async () => {
+    runOp.mockResolvedValue({ ok: true })
+    refresh.mockResolvedValue({ ok: true, seatmap: waitSeat() })
+    await act(async () => { root.render(<SeatmapView initial={waitSeat()} />) })
+    await act(async () => { opButton('approve').click() })
+    expect(runOp).toHaveBeenCalledWith('p1', { kind: 'approve', orderId: 'o9' })
+    // 결재하려고 누른 것이지 상세를 보려고 누른 것이 아니다.
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('반려는 사유를 받아야 하므로 상세 팝업을 열고, 곧바로 서버를 부르지 않는다', async () => {
+    await act(async () => { root.render(<SeatmapView initial={waitSeat()} />) })
+    await act(async () => { opButton('reject').click() })
+    expect(runOp).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-op-note]')).not.toBeNull()
+  })
+
+  it('승인이 실패하면 그 좌석의 상세 팝업을 열어 사유를 보여 준다', async () => {
+    runOp.mockResolvedValue({ ok: false, error: '이미 승인된 주문입니다' })
+    await act(async () => { root.render(<SeatmapView initial={waitSeat()} />) })
+    await act(async () => { opButton('approve').click() })
+    expect(document.querySelector('[data-op-error]')?.textContent).toContain('이미 승인된 주문입니다')
   })
 })
