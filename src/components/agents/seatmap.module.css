@@ -100,7 +100,7 @@
 .block::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--sm-line); border-radius: 1px; }
 /* 좌석에 상한을 둔다 — 2000px 화면에서 구역 하나가 전체 폭을 쓰면 책상이 760px 까지 늘어져
    한 줄에 대여섯 글자만 남는다. 두 줄은 통로 쪽으로 모아 마주보는 구도를 지킨다. */
-.seat { display: grid; align-items: stretch; min-height: var(--sm-cell-h); max-width: 520px; }
+.seat { display: grid; align-items: stretch; min-height: var(--sm-cell-h); width: 100%; max-width: 520px; }
 .seatLeft { justify-self: end; grid-template-columns: var(--sm-cell-w) minmax(0, 1fr); }
 .seatRight { justify-self: start; grid-template-columns: minmax(0, 1fr) var(--sm-cell-w); }
 .seatRight .chair { order: 2; }
@@ -286,7 +286,7 @@
   .block { grid-template-columns: 1fr; column-gap: 0; row-gap: 10px; }
   .block::before { content: none; }
   /* 통로가 없어졌으므로 상한과 통로 쪽 정렬도 함께 푼다 — 좌석이 구역 폭을 그대로 쓴다. */
-  .seat, .seatLeft, .seatRight { grid-template-columns: 1fr; gap: 4px; max-width: none; justify-self: stretch; }
+  .seat, .seatLeft, .seatRight { grid-template-columns: 1fr; gap: 4px; width: 100%; max-width: none; justify-self: stretch; }
   /* 캐릭터가 위, 책상이 아래. 오른쪽 줄의 순서 바꿈과 좌우 반전은 통로가 없어졌으므로 되돌린다. */
   .seatRight .chair { order: 0; transform: none; }
   .seatRight .chair [data-glyph="1"] { transform: none; }
