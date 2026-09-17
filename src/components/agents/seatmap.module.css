@@ -68,12 +68,11 @@
 .watchOn::before { background: var(--sm-standby); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-standby) 25%, transparent); }
 .doneNote { font-size: 12px; color: var(--sm-ink-3); margin: 8px 0 0; }
 
-/* 구역 하나가 층의 폭을 쓰되, 아주 넓은 화면에서만 둘로 나눈다. 하한 700px 은 그 안에서 좌석
-   두 줄이 각 340px(책상 270px)은 되게 하는 값이다 — 이보다 잘게 쪼개면 책상이 먼저 짜부라져
+/* 구역 하나가 층의 폭을 쓰되, 넓은 화면에서는 둘로 나눈다. 하한 660px 은 좌석 두 줄(각 300px)과
+   통로(26px), 구역 안쪽 여백(20px)을 더한 값이다 — 이보다 잘게 쪼개면 책상이 먼저 짜부라져
    항목 이름이 한 글자씩 세로로 쪼개진다(스테이징 실측: 구역 440px → 책상 129px).
-   1200px 안팎에서는 1열, 1500px 을 넘으면 2열이 된다.
    좁은 화면에서 좌석을 세로로 세우는 것은 아래 @container 가 맡는다. */
-.zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(700px, 100%), 1fr)); gap: 10px; align-items: start; }
+.zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(660px, 100%), 1fr)); gap: 10px; align-items: start; }
 /* container-type 은 아래 @container 가 구역 폭을 기준으로 재게 한다 — 좌석이 좁아지는 것은 화면 폭이
    아니라 구역 폭 때문이고(사이드바·패딩이 사이에 낀다), 미디어 쿼리로는 그것을 맞출 수 없다. */
 .zone { background: var(--sm-zone); border: 1px solid var(--sm-line-2); border-radius: 10px; padding: 8px 10px 10px; container-type: inline-size; }
@@ -96,11 +95,14 @@
 .zoneIcon[data-kind="work"]::before { background: var(--sm-active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-active) 25%, transparent); }
 
 /* 좌석 블록: 가운데 통로선 양쪽 두 줄 */
-.block { position: relative; display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 8px; padding-block: 4px; }
+/* 좌석 두 줄이 제 크기(300px)를 넘지 않으므로 블록에도 같은 상한을 두고 가운데로 모은다 —
+   상한이 없으면 아주 넓은 구역에서 통로가 화면 끝까지 벌어져 두 줄이 서로 마주보지 않는다. */
+.block { position: relative; display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 8px; padding-block: 4px; max-width: 626px; margin-inline: auto; }
 .block::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--sm-line); border-radius: 1px; }
-/* 좌석에 상한을 둔다 — 2000px 화면에서 구역 하나가 전체 폭을 쓰면 책상이 760px 까지 늘어져
-   한 줄에 대여섯 글자만 남는다. 두 줄은 통로 쪽으로 모아 마주보는 구도를 지킨다. */
-.seat { display: grid; align-items: stretch; min-height: var(--sm-cell-h); width: 100%; max-width: 520px; }
+/* 좌석에 상한을 둔다 — 상한이 없으면 넓은 화면에서 책상이 옆으로 늘어져 한 줄에 대여섯 글자만
+   남는다. 300px 은 캐릭터 칸(68px)과 책상(232px)을 더한 값이고, 시안에서 항목 코드와 이름이
+   각각 한 줄에 들어가는 최소 폭이다. 두 줄은 통로 쪽으로 모아 마주보는 구도를 지킨다. */
+.seat { display: grid; align-items: stretch; min-height: var(--sm-cell-h); width: 100%; max-width: 300px; }
 .seatLeft { justify-self: end; grid-template-columns: var(--sm-cell-w) minmax(0, 1fr); }
 .seatRight { justify-self: start; grid-template-columns: minmax(0, 1fr) var(--sm-cell-w); }
 .seatRight .chair { order: 2; }
