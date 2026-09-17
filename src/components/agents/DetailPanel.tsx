@@ -31,8 +31,8 @@ export function seatEyebrow(floorName: string, zoneLabel: string, seat: Seat): s
   return `${floorName} · ${zoneLabel} · 주문 ${seat.id8}`
 }
 
-export function DetailPanel({ seat, nowMs, busy, note, opError, onOp, onNoteChange, onNoteConfirm, onNoteCancel }: {
-  seat: Seat | null; nowMs: number
+export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy, note, opError, onOp, onNoteChange, onNoteConfirm, onNoteCancel, onClose }: {
+  seat: Seat | null; floorName?: string; zoneLabel?: string; nowMs: number
   busy: boolean
   note: NoteDraft | null
   opError: string | null
@@ -40,6 +40,8 @@ export function DetailPanel({ seat, nowMs, busy, note, opError, onOp, onNoteChan
   onNoteChange: (text: string) => void
   onNoteConfirm: () => void
   onNoteCancel: () => void
+  /** 있으면 카드 오른쪽 위에 닫기 버튼을 그린다. */
+  onClose?: () => void
 }) {
   if (!seat) return null
   const now = ladderPhase(seat)
@@ -51,6 +53,15 @@ export function DetailPanel({ seat, nowMs, busy, note, opError, onOp, onNoteChan
   const noteReady = (draft?.text ?? '').trim().length > 0
   return (
     <div className={css.panel} data-panel="" aria-live="polite">
+      <div className={css.panelHead}>
+        <div className={css.eyebrow}>{floorName} · {zoneLabel} · 주문 {seat.id8}</div>
+        {onClose && (
+          <button type="button" className={css.panelClose} data-panel-close="" aria-label="닫기" onClick={onClose}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        )}
+      </div>
+      <h3>{seat.code}</h3>
       <p className={css.task}>{seat.name}</p>
       <span className={css.pill} data-state={seat.state}>{STATE_LABEL[seat.state]}</span>
       {seat.state === 'READY' && seat.waitReason && (

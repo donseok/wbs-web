@@ -140,8 +140,23 @@
 @keyframes seatStrip { to { background-position-x: calc(var(--frames) * var(--sm-cell-w) * -1); } }
 @media (prefers-reduced-motion: reduce) { .sprite { animation: none; } }
 
-/* 상세 — 팝업 본문. 바깥 상자(테두리·머리·닫기)는 ui/Modal 이 그린다. */
+/* 상세 — 떠 있는 카드로 뜬다. 뒤 화면을 가리는 백드롭은 두지 않는다: 좌석 무대가 그대로 보이는 채로
+   고른 좌석의 상세만 위로 올라와야 한다. 카드 안쪽은 옛 오른쪽 패널 디자인 그대로다. */
+.popWrap { position: fixed; inset: 0; z-index: 140; display: grid; place-items: center; padding: 16px; pointer-events: none; }
+/* 투명한 닫기 판 — 뒤가 다 보이고, 바깥을 누르면 닫힌다. */
+.popScrim { position: absolute; inset: 0; background: transparent; border: 0; padding: 0; cursor: default; pointer-events: auto; }
+.pop { position: relative; z-index: 1; pointer-events: auto;
+  width: min(420px, 100%); max-height: min(78vh, 680px); overflow-y: auto;
+  background: var(--sm-surface); border: 1px solid var(--sm-line); border-radius: 14px; padding: 16px;
+  box-shadow: 0 2px 6px rgba(20,30,36,.10), 0 20px 56px rgba(20,30,36,.24); }
+.pop:focus { outline: none; }
+:global(.dark) .pop { box-shadow: 0 2px 6px rgba(0,0,0,.5), 0 20px 56px rgba(0,0,0,.55); }
 .panel { color: var(--sm-ink); }
+.panelHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.panelClose { flex: 0 0 auto; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; border: 1px solid var(--sm-line); background: transparent; color: var(--sm-ink-3); cursor: pointer; }
+.panelClose:hover { color: var(--sm-ink); border-color: var(--sm-ink-3); }
+.panelClose svg { width: 14px; height: 14px; }
 .eyebrow { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--sm-ink-3); }
 .panel h3 { margin: 2px 0 0; font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 20px; }
 .task { margin: 2px 0 0; font-weight: 600; font-size: 15px; }

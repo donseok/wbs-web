@@ -8,8 +8,7 @@ import { Counters } from './Counters'
 import { AttentionBand } from './AttentionBand'
 import { FloorCard } from './FloorCard'
 import { LaneBoard } from './LaneBoard'
-import { Modal } from '@/components/ui/Modal'
-import { DetailPanel, seatEyebrow, type NoteDraft } from './DetailPanel'
+import { DetailPanel, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
 import { IconFloorView, IconLaneView } from './icons'
 import css from './seatmap.module.css'
@@ -129,6 +128,16 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
   }, [])
 
   const sel = useMemo(() => findSeat(map, selected), [map, selected])
+  const popRef = useRef<HTMLDivElement>(null)
+  const closeDetail = useCallback(() => { setSelected(null); setNote(null); setOpError(null) }, [])
+  // Escape 로 닫고, 열릴 때 카드로 포커스를 옮긴다. 뒤 화면은 가리지 않으므로 스크롤은 막지 않는다.
+  useEffect(() => {
+    if (sel === null) return
+    popRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDetail() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sel === null, closeDetail]) // eslint-disable-line react-hooks/exhaustive-deps
   const doneTotal = map.floors.reduce((n, f) => n + f.doneCount, 0)
 
   return (
@@ -177,23 +186,24 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
           )}
         </section>
       </main>
-      {/* 상세와 결재는 팝업으로 — 좌석 무대가 화면 폭을 다 쓰고, 고른 좌석에 시선이 모인다.
-          닫으면 선택과 쓰던 사유를 함께 비운다(초안만 남으면 폴링이 계속 쉰다). */}
-      <Modal
-        open={sel !== null}
-        onClose={() => { setSelected(null); setNote(null); setOpError(null) }}
-        eyebrow={sel ? seatEyebrow(sel.floorName, sel.zoneLabel, sel.seat) : undefined}
-        title={sel?.seat.code}
-        size="lg">
-        <DetailPanel
-          seat={sel?.seat ?? null} nowMs={nowMs}
-          busy={sel?.seat != null && busyOrderId === sel.seat.orderId}
-          note={note} opError={opError} onOp={onOp}
-          onNoteChange={text => setNote(prev => (prev ? { ...prev, text } : prev))}
-          onNoteConfirm={() => { if (note && sel?.seat) void runOp(sel.seat, note.kind, note.text) }}
-          onNoteCancel={() => { setNote(null); setOpError(null) }}
-        />
-      </Modal>
+      {/* 상세와 결재는 떠 있는 카드로 — 뒤 화면을 가리지 않는다(어두운 백드롭 없음). 좌석 무대가
+          그대로 보이는 채로 고른 좌석의 상세만 위로 올라온다. 카드 디자인은 옛 오른쪽 패널 그대로다.
+          닫으면 선택과 쓰던 사유를 함께 비운다 — 초안만 남으면 폴링이 계속 쉰다. */}
+      {sel !== null && (
+        <div className={css.popWrap} role="dialog" aria-label={`${sel.seat.code} 상세`}>
+          <button type="button" className={css.popScrim} tabIndex={-1} aria-hidden="true" onClick={closeDetail} />
+          <div className={css.pop} ref={popRef} tabIndex={-1}>
+            <DetailPanel
+              seat={sel.seat} floorName={sel.floorName} zoneLabel={sel.zoneLabel} nowMs={nowMs}
+              busy={busyOrderId === sel.seat.orderId}
+              note={note} opError={opError} onOp={onOp} onClose={closeDetail}
+              onNoteChange={text => setNote(prev => (prev ? { ...prev, text } : prev))}
+              onNoteConfirm={() => { if (note) void runOp(sel.seat, note.kind, note.text) }}
+              onNoteCancel={() => { setNote(null); setOpError(null) }}
+            />
+          </div>
+        </div>
+      )}
       <footer className={css.legend}>
         <ul>
           <li><i className={css.sw} style={{ background: 'var(--sm-active)' }} />업무 중(신호 5분 이내)</li>
