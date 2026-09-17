@@ -207,25 +207,27 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
 
   const colWRef = useRef(colW)
   colWRef.current = colW
-  const drag = useRef<{ key: ColKey; x: number; w: number } | null>(null)
-
-  const setOne = (key: ColKey, px: number) => setColW(w => ({ ...w, [key]: Math.max(COL_MIN[key], Math.round(px)) }))
+  // last 는 이번 드래그로 확정된 폭이다 — pointerup 이 콜백 갱신보다 먼저 올 수 있어(빠른 드래그는
+  // move 와 up 이 한 배치에 묶인다) colWRef 만 믿고 저장하면 직전 값이 남는다.
+  const drag = useRef<{ key: ColKey; x: number; w: number; last: number } | null>(null)
 
   const onHandleDown = (key: ColKey) => (e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return
     e.preventDefault()
-    e.currentTarget.setPointerCapture(e.pointerId)
-    drag.current = { key, x: e.clientX, w: colW[key] }
+    e.currentTarget.setPointerCapture?.(e.pointerId) // 포인터 캡처가 없는 환경(jsdom)에서도 드래그는 된다
+    drag.current = { key, x: e.clientX, w: colW[key], last: colW[key] }
   }
   const onHandleMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     const d = drag.current
     if (!d) return
-    setOne(d.key, d.w + e.clientX - d.x)
+    d.last = Math.max(COL_MIN[d.key], Math.round(d.w + e.clientX - d.x))
+    setColW(w => ({ ...w, [d.key]: d.last }))
   }
   const onHandleUp = () => {
-    if (!drag.current) return
+    const d = drag.current
+    if (!d) return
     drag.current = null
-    saveColW(colWRef.current)
+    saveColW({ ...colWRef.current, [d.key]: d.last })
   }
   const onHandleKey = (key: ColKey) => (e: React.KeyboardEvent<HTMLButtonElement>) => {
     const step = e.shiftKey ? 32 : 8

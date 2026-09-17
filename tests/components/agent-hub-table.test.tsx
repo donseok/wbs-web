@@ -455,6 +455,14 @@ describe('DelegationTable — 열 너비·고정·밀도(2026-09-17 개편)', ()
     for (let i = 0; i < 20; i++) key(handle('ops'), 'ArrowLeft', true)
     expect(colEl('ops').style.width).toBe('96px')
   })
+  it('끌어서 바꾼 폭이 그대로 저장된다 — 빠른 드래그(move·up 이 한 배치)에서도 직전 값이 남지 않는다', () => {
+    render()
+    const h = handle('name')
+    const pe = (type: string, x: number) => { const e = new MouseEvent(type, { bubbles: true, clientX: x, button: 0 }); Object.defineProperty(e, 'pointerId', { value: 1 }); return e }
+    act(() => { h.dispatchEvent(pe('pointerdown', 100)); h.dispatchEvent(pe('pointermove', 140)); h.dispatchEvent(pe('pointerup', 140)) })
+    expect(colEl('name').style.width).toBe('336px')
+    expect(saved().name).toBe(336)
+  })
   it('저장된 폭이 있으면 그 폭으로 그린다', () => {
     try { localStorage.setItem('dflow-hub-colw', JSON.stringify({ name: 400, bogus: 1 })) } catch {}
     render()

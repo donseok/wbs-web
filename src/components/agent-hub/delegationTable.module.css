@@ -53,6 +53,8 @@
   letter-spacing: 0.04em;
   color: var(--color-ink-subtle);
   white-space: nowrap;
+  /* 손잡이를 끌 때 머리글 글자가 선택되지 않게 — 선택이 시작되면 드래그가 끊긴다. */
+  user-select: none;
 }
 
 /* 좌측 고정 — left 오프셋은 열 너비가 바뀔 때 JS 가 갱신하는 CSS 변수다. */
