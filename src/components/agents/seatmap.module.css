@@ -97,7 +97,7 @@
 .zoneIcon[data-kind="work"]::before { background: var(--sm-active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-active) 25%, transparent); }
 
 /* 좌석 블록: 가운데 통로선 양쪽 두 줄 */
-/* 좌석 두 줄이 제 크기(300px)를 넘지 않으므로 블록에도 같은 상한을 두고 가운데로 모은다 —
+/* 좌석 두 줄이 제 크기(334px)를 넘지 않으므로 블록에도 같은 상한(334*2 + 통로 26)을 두고 가운데로 모은다 —
    상한이 없으면 아주 넓은 구역에서 통로가 화면 끝까지 벌어져 두 줄이 서로 마주보지 않는다. */
 .block { position: relative; display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 8px; padding-block: 4px; max-width: 694px; margin-inline: auto; }
 .block::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--sm-line); border-radius: 1px; }
