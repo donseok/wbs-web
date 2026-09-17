@@ -42,6 +42,9 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
   const [opError, setOpError] = useState<string | null>(null)
   const scopeRef = useRef(scope)
   const inflight = useRef(false)
+  // 사유를 쓰는 동안 폴링이 그 좌석을 목록에서 지우면 쓰던 글이 조용히 사라진다 — 초안이 열려 있으면 자동 갱신을 쉰다.
+  const noteRef = useRef<NoteDraft | null>(null)
+  useEffect(() => { noteRef.current = note }, [note])
 
   useEffect(() => {
     try {
@@ -54,9 +57,17 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
     try { window.localStorage.setItem(VIEW_KEY, next) } catch { /* 기억하지 못해도 화면은 돈다 */ }
   }, [])
 
-  const refresh = useCallback(async (want?: SeatmapScope) => {
+  /** force = 사람이 부른 갱신(범위 전환·결재 직후). 자동 폴링만 양보한다 — 결재 뒤 갱신이 폴링과
+   *  겹쳤다고 건너뛰면 처리는 됐는데 화면이 최대 30초 옛 상태로 남아 사용자가 다시 누르게 된다. */
+  const refresh = useCallback(async (want?: SeatmapScope, force = false) => {
     if (want) { scopeRef.current = want; setScope(want) }
-    if (inflight.current) return
+    if (!force && noteRef.current !== null) return
+    if (inflight.current) {
+      if (!force) return
+      // 사람이 부른 갱신은 앞선 폴링이 끝나기를 기다렸다가 다시 읽는다.
+      for (let i = 0; i < 40 && inflight.current; i++) await new Promise(r => setTimeout(r, 100))
+      if (inflight.current) return
+    }
     inflight.current = true
     try {
       const r = projectId === undefined ? await refreshSeatmap(scopeRef.current) : await refreshSeatmap(scopeRef.current, projectId)
@@ -80,7 +91,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
       setNote(null)
       // 처리는 허브를 돌려주지만 오피스가 쥔 것은 좌석표다 — 한 번 더 읽어야 화면이 맞는다.
       if (r.hubError) setOpError(r.hubError)
-      await refresh()
+      await refresh(undefined, true)
     } catch (e) {
       setOpError(e instanceof Error ? e.message : String(e))
     } finally { setBusyOrderId(null) }
@@ -130,8 +141,8 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
             <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
           </div>
           <div className={css.scope} role="group" aria-label="표시 범위">
-            <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine') }}>내 작업</button>
-            <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all') }}>전체</button>
+            <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine', true) }}>내 작업</button>
+            <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all', true) }}>전체</button>
           </div>
           <div className={`${css.stamp} ${error ? css.stampBad : ''}`}>
             {error ? <span data-error="">갱신 실패 {hhmmss(error.at)} · {error.message}</span> : <span>갱신 {hhmmss(map.fetchedAt)}</span>}
@@ -140,7 +151,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
       </header>
       <AttentionBand items={map.attention} onSelect={setSelected} />
       <main className={css.grid}>
-        <section className={css.floors} aria-label={view === 'floor' ? '프로젝트별 좌석' : '상태별 좌석'}>
+        <section className={css.floors} data-view={view} aria-label={view === 'floor' ? '프로젝트별 좌석' : '상태별 좌석'}>
           {map.floors.length === 0 && (projectId !== undefined
             ? (map.scope === 'mine'
               ? <p className={css.doneNote}>이 프로젝트에서 내게 배정된 에이전트 작업이 없습니다. 다른 사람 것까지 보려면 ‘전체’를 누르세요.</p>

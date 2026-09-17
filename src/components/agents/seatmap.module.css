@@ -53,6 +53,9 @@
 @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
 /* 층 격자 — 층이 하나면 카드가 전체 폭을 쓴다. 옛 column-width 다단은 층 하나에서 340px 띠 한 줄이 됐다. */
 .floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+/* 상태 레인은 층이 아니라 화면 하나를 통째로 쓴다 — 층 격자의 340px 칸에 갇히면 레인이 다시 접힌다. */
+.floors[data-view="lane"] { display: block; }
+.floors > .doneNote { grid-column: 1 / -1; }
 .floor { background: var(--sm-surface); border: 1px solid var(--sm-line-2); border-radius: 14px; padding: 14px 14px 16px; box-shadow: var(--sm-shadow); }
 .floorHead { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: start; margin-bottom: 12px; }
 .floorHead h2 { margin: 0; font-weight: 800; font-size: 19px; letter-spacing: -.01em; }
