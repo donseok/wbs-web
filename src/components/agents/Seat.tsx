@@ -4,6 +4,8 @@ import type { Seat } from '@/lib/domain/seatmap'
 import type { SeatState } from '@/lib/domain/seatState'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { Sprite } from './Sprite'
+import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
+import { IconBlocked, IconOffline, IconRejected, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
 
 export const STATE_LABEL: Record<SeatState, string> = {
@@ -24,28 +26,46 @@ export function seatMetaLine(seat: Seat, nowMs: number): string {
   }
 }
 
-const FLAG: Partial<Record<SeatState, string>> = { STALE: '!', OFFLINE: '끊김', BLOCKED: '?' }
+/** 상태 표지 — 아이콘 I1. 옛 판의 글자 배지(`!` · `?` · "끊김")를 대신한다. */
+const MARK: Partial<Record<SeatState, () => React.JSX.Element>> = {
+  STALE: IconStale, OFFLINE: IconOffline, BLOCKED: IconBlocked, WAIT: IconWait, REJECTED: IconRejected,
+}
 const HAS_BAR: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED', 'OFFLINE']
 
-export function SeatCard({ seat, side, selected, nowMs, onSelect }: {
-  seat: Seat; side: 'left' | 'right'; selected: boolean; nowMs: number; onSelect: (orderId: string) => void
+export function SeatMark({ state }: { state: SeatState }) {
+  const Icon = MARK[state]
+  if (!Icon) return null
+  return <span className={css.mark} data-mark={state} title={STATE_LABEL[state]}><Icon /></span>
+}
+
+export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: {
+  seat: Seat; side: 'left' | 'right'; selected: boolean; nowMs: number
+  /** 이 좌석의 op 가 서버에 가 있는 동안 참 — 결재 바를 잠근다. */
+  busy: boolean
+  onSelect: (orderId: string) => void
+  onOp: SeatOpHandler
 }) {
-  const flag = FLAG[seat.state]
   return (
     <div className={`${css.seat} ${side === 'left' ? css.seatLeft : css.seatRight}`}>
       <div className={css.chair}><Sprite character={seat.character} anim={seat.anim} /></div>
-      <button
-        type="button" className={css.desk} data-state={seat.state} data-rejected={seat.rejected ? '1' : undefined}
-        aria-pressed={selected} aria-label={`${seat.code} ${seat.name} ${STATE_LABEL[seat.state]}`}
-        onClick={() => onSelect(seat.orderId)}
-      >
-        {flag && <span className={css.flag} data-flag="">{flag}</span>}
-        <span className={css.deskId}>{seat.code}</span>
-        <span className={css.deskName}>{seat.name}</span>
-        <span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span>
-        {seat.state === 'BLOCKED' && seat.note && <span className={css.note}>{seat.note}</span>}
-        {HAS_BAR.includes(seat.state) && <span className={css.bar}><i style={{ width: `${seat.progress}%` }} /></span>}
-      </button>
+      <div className={css.desk} data-state={seat.state} data-rejected={seat.rejected ? '1' : undefined}
+        data-selected={selected ? '1' : undefined}>
+        <button
+          type="button" className={css.deskPick}
+          aria-pressed={selected} aria-label={`${seat.code} ${seat.name} ${STATE_LABEL[seat.state]}`}
+          onClick={() => onSelect(seat.orderId)}
+        >
+          <span className={css.deskTop}>
+            <span className={css.deskId}>{seat.code}</span>
+            <SeatMark state={seat.state} />
+          </span>
+          <span className={css.deskName}>{seat.name}</span>
+          <span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span>
+          {seat.state === 'BLOCKED' && seat.note && <span className={css.note}>{seat.note}</span>}
+          {HAS_BAR.includes(seat.state) && <span className={css.bar}><i style={{ width: `${seat.progress}%` }} /></span>}
+        </button>
+        <SeatOpsBar seat={seat} busy={busy} onOp={onOp} />
+      </div>
     </div>
   )
 }

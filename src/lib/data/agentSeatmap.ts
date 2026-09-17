@@ -2,11 +2,11 @@
 // 실패는 throw 한다(에러 3원칙: 조회 실패를 데이터 없음으로 위장하지 않는다).
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { AdminClient } from '@/lib/minutes/externalApi'
-import type { Actor } from '@/lib/domain/authz'
+import { isProjectAdmin, type Actor } from '@/lib/domain/authz'
 import { seatmapProjectIds } from '@/lib/authz/agentsAccess'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 import {
-  assembleSeatmap, type ItemRow, type MemberRow, type OrderRow, type PredecessorRow, type ProjectRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type WatcherRow,
+  assembleSeatmap, type ItemRow, type MemberRow, type OrderRow, type PredecessorRow, type ProjectRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type SeatmapViewer, type WatcherRow,
 } from '@/lib/domain/seatmap'
 
 /** DONE(approved) 은 최근 7일 것만 층에 접어 둔다. */
@@ -18,6 +18,19 @@ const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_m
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {
   if (r.error) throw new Error(`[seatmap] ${what} 조회 실패: ${r.error.message}`)
   return (r.data ?? []) as T
+}
+
+/** 조상 사슬을 뿌리까지 올라가며 모은다(최대 12단 — 순환·이상 데이터 방어).
+ *  구역 라벨은 부모 1단만 쓰지만 서브트리 관리자 판정은 strict 조상 전체를 봐야 한다(오피스 v7 결재). */
+async function fetchAncestors(admin: AdminClient, seedIds: string[]): Promise<ItemRow[]> {
+  const out = new Map<string, ItemRow>()
+  let frontier = seedIds
+  for (let depth = 0; depth < 12 && frontier.length > 0; depth++) {
+    const rows = must<ItemRow[]>('조상 항목', await admin.from('wbs_items').select(ITEM_COLS).in('id', frontier))
+    for (const r of rows) out.set(r.id, r)
+    frontier = [...new Set(rows.map(r => r.parent_id).filter((x): x is string => x !== null && !out.has(x)))]
+  }
+  return [...out.values()]
 }
 
 export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] | null, nowMs: number): Promise<SeatmapRows> {
@@ -40,9 +53,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
     : []
   const parentIds = [...new Set(items.map(i => i.parent_id).filter((x): x is string => !!x))]
   const [parents, reviews, watchers, projects, members] = await Promise.all([
-    parentIds.length
-      ? admin.from('wbs_items').select(ITEM_COLS).in('id', parentIds).then(r => must<ItemRow[]>('부모 항목', r))
-      : Promise.resolve([] as ItemRow[]),
+    parentIds.length ? fetchAncestors(admin, parentIds) : Promise.resolve([] as ItemRow[]),
     admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at')
       .in('work_order_id', orderIds).eq('kind', 'completion').then(r => must<ReviewRow[]>('완료 보고', r)),
     admin.from('agent_watchers').select('id, user_id, project_id, agent, host, slots, busy, until_label, last_seen_at')
@@ -112,9 +123,15 @@ export async function getSeatmap(actor: Actor, nowMs = Date.now(), scope: Seatma
   const admin = createAdminClient()
   const projectIds = seatmapFloorIds(actor, opts.projectId)
   const rows = await fetchSeatmapRows(admin, projectIds, nowMs)
-  if (scope === 'all') return assembleSeatmap(rows, nowMs)
-  const memberIds = await fetchMyMemberIds(admin, { userId: actor.userId, userEmail: await viewerEmail(admin, actor.userId) }, projectIds)
-  return assembleSeatmap(rows, nowMs, { mine: { userId: actor.userId, memberIds: new Set(memberIds) } })
+  // 결재 어포던스 재료는 범위와 무관하게 싣는다 — 전체 보기에서도 버튼 노출은 서버 가드와 같은 축이어야 한다.
+  // 로스터 조회가 던지면 그대로 올린다(조회 실패를 권한 없음으로 위장하지 않는다).
+  const memberIds = new Set(await fetchMyMemberIds(admin, { userId: actor.userId, userEmail: await viewerEmail(admin, actor.userId) }, projectIds))
+  const viewer: SeatmapViewer = {
+    memberIds,
+    adminProjectIds: new Set(rows.projects.filter(p => isProjectAdmin(actor, p.id)).map(p => p.id)),
+  }
+  if (scope === 'all') return assembleSeatmap(rows, nowMs, { viewer })
+  return assembleSeatmap(rows, nowMs, { mine: { userId: actor.userId, memberIds }, viewer })
 }
 
 export interface ProjectOffice { projectName: string | null; seatmap: Seatmap }

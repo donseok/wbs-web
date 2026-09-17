@@ -41,8 +41,13 @@ export interface Seat {
   note: string | null; rejected: boolean; reviewNote: string | null
   /** READY(빈자리)만 값 — 왜 아직 안 집어갔는지(스펙 2026-09-14 착수 대기 사유 §1). 나머지 상태는 null. */
   waitReason: WaitReason | null
+  /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·회수 어포던스. 서버 가드
+   *  requireSubtreeManagerOrAdmin(agent/subtreeManager.ts)과 같은 축이다. 재료가 없으면 false(fail-closed). */
+  canManage: boolean
+  /** 이 항목의 담당자가 나 — 반려·승인 취소·재작업은 담당자 본인도 할 수 있다(허브 §11 과 같은 규칙). */
+  assigneeMine: boolean
 }
-export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number } }
+export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
 export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[] }
 export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
@@ -59,6 +64,36 @@ export type SeatmapScope = 'mine' | 'all'
 export const SEATMAP_SCOPES: readonly SeatmapScope[] = ['mine', 'all']
 /** 내 작업 판정 재료 — memberIds 는 접근 가능 프로젝트 로스터에서 나(user_id 링크 또는 이메일)와 맞는 행. */
 export interface MineFilter { userId: string; memberIds: ReadonlySet<string> }
+/** 결재 어포던스 재료(2026-09-17 오피스 v7). 넘기지 않으면 모든 좌석이 canManage=false 로 잠긴다(fail-closed). */
+export interface SeatmapViewer {
+  /** 내 로스터 행 id — 담당자 본인·서브트리 관리자 판정. */
+  memberIds: ReadonlySet<string>
+  /** 내가 관리자인 프로젝트 id. 층마다 다를 수 있어 집합으로 받는다(전체 오피스는 여러 층이다). */
+  adminProjectIds: ReadonlySet<string>
+}
+
+/** 조상 사슬 탐색에 필요한 최소 모양 — 항목 행이든 얕은 조상 행이든 이 셋만 있으면 된다. */
+export interface AncestorLike { id: string; parent_id: string | null; assignee_member_id: string | null }
+
+/**
+ * 서브트리 관리자 — 대상 항목의 strict 조상(부모·조부모…루트, 자신 제외) 중 담당자가 나인 노드가 있으면 true.
+ * 서버 가드(agent/assignee.ts 의 isSubtreeManager)와 같은 규칙이며 좌석표·허브가 같이 쓴다.
+ * 사슬이 끊기면(조상 행이 지도에 없으면) 거기서 멈춘다 — 모르면 권한을 주지 않는다(fail-closed).
+ */
+export function isSubtreeManagerOf(
+  itemId: string, itemById: ReadonlyMap<string, AncestorLike>, mine: ReadonlySet<string>,
+): boolean {
+  const visited = new Set<string>()
+  let cur = itemById.get(itemId)?.parent_id ?? null
+  while (cur !== null && !visited.has(cur)) {
+    visited.add(cur)
+    const row = itemById.get(cur)
+    if (!row) break
+    if (row.assignee_member_id && mine.has(row.assignee_member_id)) return true
+    cur = row.parent_id
+  }
+  return false
+}
 
 const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
 const ATTENTION_ORDER: readonly SeatState[] = ['BLOCKED', 'STALE', 'OFFLINE', 'REJECTED']
@@ -81,7 +116,7 @@ function latestReviewByOrder(reviews: ReviewRow[]): Map<string, ReviewRow> {
   return out
 }
 
-function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number): Seat {
+function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }): Seat {
   const input = {
     status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
@@ -103,6 +138,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
     waitReason: null,
+    canManage: rights.canManage, assigneeMine: rights.assigneeMine,
   }
 }
 
@@ -113,7 +149,7 @@ function attentionWhy(s: Seat, nowMs: number): string {
   return s.reviewNote ? `반려 · ${s.reviewNote}` : '반려 · 재작업'
 }
 
-export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?: MineFilter } = {}): Seatmap {
+export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?: MineFilter; viewer?: SeatmapViewer } = {}): Seatmap {
   const mine = opts.mine
   const itemById0 = new Map(rows.items.map(i => [i.id, i]))
   // 대상은 에이전트 위임(agent 태그) 항목의 주문뿐 — dev_workflow 리프마다 주문이 생기므로 사람이 하는 작업의 주문도 테이블엔 있다.
@@ -132,6 +168,13 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const reviewByOrder = latestReviewByOrder(rows.reviews)
   const projectName = new Map(rows.projects.map(p => [p.id, p.name]))
 
+  // 결재 어포던스 재료 — 조상 사슬은 items + parents 합집합이다(데이터층이 parents 를 조상 전체로 싣는다).
+  // 재료가 없으면 빈 집합 → canManage·assigneeMine 이 전부 false 로 잠긴다(fail-closed).
+  const ancestorById = new Map<string, AncestorLike>()
+  for (const it of [...rows.items, ...rows.parents]) ancestorById.set(it.id, it)
+  const myMemberIds: ReadonlySet<string> = opts.viewer?.memberIds ?? mine?.memberIds ?? new Set<string>()
+  const adminProjectIds: ReadonlySet<string> = opts.viewer?.adminProjectIds ?? new Set<string>()
+
   // 착수 대기 사유 재료 — 담당자 로스터 행, 프로젝트 안 선행 항목, 이 층을 보는 살아 있는 감시자.
   const memberById = new Map(rows.members.map(m => [m.id, m]))
   const predByKey = new Map(rows.predecessors.map(p => [`${p.project_id}\u0000${p.external_ref}`, p]))
@@ -143,7 +186,12 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const done = new Map<string, number>()
   for (const o of rows.orders) {
     const item = o.wbs_item_id ? itemById.get(o.wbs_item_id) : undefined
-    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs)
+    const rights = {
+      canManage: adminProjectIds.has(o.project_id)
+        || (item !== undefined && isSubtreeManagerOf(item.id, ancestorById, myMemberIds)),
+      assigneeMine: item?.assignee_member_id != null && myMemberIds.has(item.assignee_member_id),
+    }
+    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights)
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({
@@ -154,7 +202,9 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         watchers: watchersOf(o.project_id),
       })
     }
-    if (seat.state === 'DONE') { done.set(o.project_id, (done.get(o.project_id) ?? 0) + 1); continue }
+    // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(오피스 v7).
+    // 평면도는 이 좌석을 그리지 않고 상태 레인의 "빈자리·완료" 레인만 그린다.
+    if (seat.state === 'DONE') done.set(o.project_id, (done.get(o.project_id) ?? 0) + 1)
     const zones = floorMap.get(o.project_id) ?? new Map<string, Zone>()
     floorMap.set(o.project_id, zones)
     let key: string, code: string, name: string
@@ -162,11 +212,12 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     if (item.parent_id && parentById.get(item.parent_id)) {
       const p = parentById.get(item.parent_id)!; key = p.id; code = p.code; name = p.name
     } else { key = '__no_parent'; code = '—'; name = '구역 없음' }
-    const zone = zones.get(key) ?? { key, code, name, seats: [], summary: { work: 0, wait: 0, ready: 0 } }
+    const zone = zones.get(key) ?? { key, code, name, seats: [], summary: { work: 0, wait: 0, ready: 0, done: 0 } }
     zones.set(key, zone)
     zone.seats.push(seat)
     if (WORK_STATES.includes(seat.state)) zone.summary.work++
     else if (seat.state === 'WAIT') zone.summary.wait++
+    else if (seat.state === 'DONE') zone.summary.done++
     else zone.summary.ready++ // READY · OFFLINE(빈 의자)
   }
 
@@ -182,7 +233,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       .sort((a, b) => a.code.localeCompare(b.code))
     return {
       id, name: projectName.get(id) ?? id, zones,
-      seatCount: zones.reduce((n, z) => n + z.seats.length, 0),
+      seatCount: zones.reduce((n, z) => n + z.seats.filter(s => s.state !== 'DONE').length, 0),
       doneCount: done.get(id) ?? 0,
       watchers: aliveWatchers.filter(w => w.projectId === null || w.projectId === id),
     }
@@ -191,6 +242,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const counters = { active: 0, standby: aliveWatchers.length, idle: 0, offline: 0 }
   const attention: Attention[] = []
   for (const f of floors) for (const z of f.zones) for (const s of z.seats) {
+    if (s.state === 'DONE') continue // 승인분은 doneCount 로 따로 센다 — 현황판 넷에 끼우지 않는다
     if (WORK_STATES.includes(s.state)) counters.active++
     else if (s.state === 'WAIT') counters.idle++
     else counters.offline++
