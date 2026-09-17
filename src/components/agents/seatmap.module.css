@@ -234,6 +234,8 @@
 .opMini[data-op="approve"] { color: var(--sm-standby); }
 .opMini[data-op="reject"], .opMini[data-op="rework"] { color: var(--sm-reject-bar); }
 .opMini[data-op="release"] { color: var(--sm-warn); }
+/* 이어서 시작 — 되살리는 동작이라 회수(경고색)와 다른 축으로 읽혀야 한다. */
+.opMini[data-op="resume"] { color: var(--sm-active); }
 .opMini[data-op="unapprove"] { color: var(--sm-ink-3); }
 .opMini:disabled { opacity: .42; cursor: not-allowed; }
 .opMini:disabled:hover { border-color: transparent; }
@@ -246,6 +248,7 @@
 .act[data-op="approve"] { color: var(--sm-standby); font-weight: 600; }
 .act[data-op="reject"], .act[data-op="rework"] { color: var(--sm-reject-bar); }
 .act[data-op="release"] { color: var(--sm-warn); }
+.act[data-op="resume"] { color: var(--sm-active); font-weight: 600; }
 .act[data-op="unapprove"] { color: var(--sm-ink-3); }
 .act:disabled { opacity: .42; cursor: not-allowed; }
 .act:disabled:hover { border-color: currentColor; color: inherit; }

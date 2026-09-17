@@ -4,7 +4,7 @@ import type { Seat } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { STATE_LABEL } from './Seat'
 import { opsFor, opSpec, type SeatOpKind } from './seatOps'
-import { IconApprove, IconReject, IconRelease, IconRework, IconUnapprove } from './icons'
+import { IconApprove, IconReject, IconRelease, IconResume, IconRework, IconUnapprove } from './icons'
 import css from './seatmap.module.css'
 
 const LADDER: Array<{ phase: string; pct: number }> = [
@@ -13,6 +13,7 @@ const LADDER: Array<{ phase: string; pct: number }> = [
 
 const OP_ICON: Record<SeatOpKind, () => React.JSX.Element> = {
   approve: IconApprove, reject: IconReject, unapprove: IconUnapprove, rework: IconRework, release: IconRelease,
+  resume: IconResume,
 }
 
 function ladderPhase(seat: Seat): string {
@@ -82,6 +83,14 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
         <dt>진행</dt><dd>{seat.progress}%</dd>
         <dt>마지막 신호</dt><dd className={hbBad ? css.factBad : ''}>{showSignal ? ageLabel(seat.lastSignalAt, nowMs) : '—'}</dd>
         <dt>heartbeat</dt><dd>{seat.heartbeatAt ? `${ageLabel(seat.heartbeatAt, nowMs)} · ${seat.heartbeatPhase ?? '—'}` : '없음(훅 미설치 또는 옛 세션)'}</dd>
+        {seat.resumeRequestedAt && (
+          <>
+            <dt>재개 요청</dt>
+            <dd data-resume-requested="">
+              {ageLabel(seat.resumeRequestedAt, nowMs)} · {seat.resumeRequestedHost ?? '대상 PC 미상'} 의 팀장이 가져갑니다
+            </dd>
+          </>
+        )}
       </dl>
       {seat.state === 'BLOCKED' && seat.note && <p className={css.quote}>{seat.note}</p>}
       {seat.rejected && <p className={css.quote}>반려 사유: {seat.reviewNote ?? '(없음)'}</p>}

@@ -100,7 +100,7 @@ describe('claim → 전이 RPC(claim 사건)', () => {
   const ORDER = { id: O1, project_id: P1, status: 'ready', claimed_by: null, claimed_by_user_id: null, wbs_item_id: W1 }
   const claim = () => claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { user_email: USER.email, agent: 'claude-cli' }), ctx)
 
-  it('claim 성공 → 전이 RPC 를 claim 사건으로 한 번 부르고 주문·항목을 직접 쓰지 않는다', async () => {
+  it('claim 성공 → 전이 RPC 를 claim 사건으로 한 번 부르고, 주문에 직접 쓰는 것은 재개 표식 정리뿐이다', async () => {
     const { admin, captured } = useAdmin({ agent_work_orders: [{ data: ORDER }], ...member(), wbs_items: [{ data: ITEM_ROW() }] })
     const res = await claim()
     expect(res.status).toBe(200)
@@ -109,7 +109,11 @@ describe('claim → 전이 RPC(claim 사건)', () => {
       p_event: 'claim', p_order_id: O1, p_agent: 'claude-cli', p_agent_user_id: null, p_actor: USER.id,
     }))
     expect(captured.wbs_items).toBeUndefined()
-    expect(captured.agent_work_orders).toBeUndefined()
+    // 상태·점유·단계·실적은 여전히 RPC 만 쓴다. 라우트가 직접 쓰는 것은 전이가 아닌
+    // 재개 표식(0099)의 정리 한 건뿐이며, 그것도 전이가 성공한 뒤에만 간다.
+    expect(captured.agent_work_orders).toEqual([
+      { op: 'update', payload: { resume_requested_at: null, resume_requested_by: null, resume_requested_host: null } },
+    ])
   })
 
   it('실적이 바뀐 전이면 진척 스냅샷을 남긴다', async () => {

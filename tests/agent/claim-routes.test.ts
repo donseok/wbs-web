@@ -16,12 +16,13 @@ type Resp = { data?: unknown; error?: { message: string } | null }
 /** 전이 RPC 기본 응답 — 항목 없는 주문의 성공(단계·실적 건너뜀), 부수효과 없음. */
 const RPC_OK = { ok: true, order_status: 'claimed', stage: null, actual_pct: null, stage_changed: false, actual_changed: false, reached_first: false, skipped: 'no_item' }
 
-function useAdmin(queues: Record<string, Resp[]>, users = [USER]) {
+function useAdmin(queues: Record<string, Resp[]>, users = [USER], calls: Record<string, unknown[]> = {}) {
   const admin = {
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'eq', 'in', 'limit']) b[k] = () => b
+      for (const k of ['select', 'eq', 'in', 'limit']) b[k] = () => b
+      b.update = (payload: unknown) => { (calls[`${table}:update`] ??= []).push(payload); return b }
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
         Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -131,5 +132,21 @@ describe('POST release', () => {
     })
     const res = await releasePOST(post(`http://l/api/v1/agent/work/${O1}/release`, BODY), ctx)
     expect(res.status).toBe(409)
+  })
+})
+
+describe('claim — 새 점유자에게 옛 재개 요청을 물려주지 않는다(0099)', () => {
+  it('전이가 성공하면 재개 표식 세 열을 비운다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin({
+      agent_work_orders: [{ data: ORDER }],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: true } }],
+    }, [USER], calls)
+    const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, BODY), { params: Promise.resolve({ id: O1 }) })
+    expect(res.status).toBe(200)
+    expect(calls['agent_work_orders:update']).toEqual([
+      { resume_requested_at: null, resume_requested_by: null, resume_requested_host: null },
+    ])
   })
 })

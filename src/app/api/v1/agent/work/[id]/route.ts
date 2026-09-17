@@ -26,7 +26,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     const { data: order, error } = await admin
       .from('agent_work_orders')
-      .select('id, project_id, status, priority, instructions, claimed_by, claimed_by_user_id, claimed_at, wbs_item_id')
+      .select('id, project_id, status, priority, instructions, claimed_by, claimed_by_user_id, claimed_at, wbs_item_id, last_heartbeat_at, heartbeat_phase, resume_requested_at, resume_requested_host')
       .eq('id', id).maybeSingle()
     if (error) {
       console.error('[agent-api] 주문 조회 실패:', error.message)
@@ -79,6 +79,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       id: string; status: string; priority: number; instructions: string
       claimed_by: string | null; claimed_by_user_id: string | null
       claimed_at: string | null; wbs_item_id: string | null
+      last_heartbeat_at: string | null; heartbeat_phase: string | null
+      resume_requested_at: string | null; resume_requested_host: string | null
     }
     let extra: Record<string, unknown> = {}
     if (principal.kind === 'pat') {
@@ -94,7 +96,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
           claimedByUserEmail = ownerData.user.email
         }
       }
-      extra = { mine: full.claimed_by_user_id === principal.userId, claimed_by_user_email: claimedByUserEmail }
+      // heartbeat 두 열은 DB·좌석표가 이미 쓰는데 API 만 감추고 있었다(2026-09-18) — 그래서 팀장은
+      // 다른 PC 팀원의 생사를 판정하지 못하고 stale(점유 후 24시간)로 대신했다. 재개 요청도 같이 싣는다.
+      extra = {
+        mine: full.claimed_by_user_id === principal.userId, claimed_by_user_email: claimedByUserEmail,
+        last_heartbeat_at: full.last_heartbeat_at, heartbeat_phase: full.heartbeat_phase,
+        resume_requested_at: full.resume_requested_at, resume_requested_host: full.resume_requested_host,
+      }
     }
     return NextResponse.json({
       ok: true,

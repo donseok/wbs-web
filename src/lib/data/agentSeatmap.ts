@@ -12,7 +12,7 @@ import {
 /** DONE(approved) 은 최근 7일 것만 층에 접어 둔다. */
 export const DONE_WINDOW_MS = 7 * 24 * 3600_000
 
-const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note'
+const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, resume_requested_at, resume_requested_host'
 const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends'
 
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {

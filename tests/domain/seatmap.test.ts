@@ -223,3 +223,38 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
     expect(seatOf(missing).waitReason?.text).toContain('계정이 로스터에 연결돼 있지 않아')
   })
 })
+
+describe('재개 요청 표식(0099) — 멈춘 좌석에서 사람이 누른 흔적', () => {
+  const stale = (over: Partial<OrderRow> = {}) =>
+    order({ last_heartbeat_at: ago(STALE_MS + 1), updated_at: ago(STALE_MS + 1), ...over })
+
+  it('점유 중인 주문의 요청은 좌석에 그대로 실린다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [stale({ resume_requested_at: ago(30_000), resume_requested_host: 'jji-mac' })],
+    }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('STALE')
+    expect(s.resumeRequestedAt).toBe(ago(30_000))
+    expect(s.resumeRequestedHost).toBe('jji-mac')
+  })
+  it('확인 필요 밴드가 요청이 걸린 사실을 함께 말한다 — 같은 버튼을 다시 누르지 않도록', () => {
+    const m = assembleSeatmap(rows({
+      orders: [stale({ resume_requested_at: ago(30_000), resume_requested_host: 'jji-mac' })],
+    }), NOW)
+    expect(m.attention[0].why).toContain('무응답')
+    expect(m.attention[0].why).toContain('재개 요청됨')
+  })
+  it('요청이 없으면 밴드 문구는 종전 그대로다', () => {
+    const m = assembleSeatmap(rows({ orders: [stale()] }), NOW)
+    expect(m.attention[0].why).toBe(`무응답 ${ageLabel(ago(STALE_MS + 1), NOW)}`)
+  })
+  it('점유를 떠난 주문의 옛 요청은 화면에 남지 않는다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ status: 'approved', resume_requested_at: ago(30_000), resume_requested_host: 'jji-mac' })],
+    }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('DONE')
+    expect(s.resumeRequestedAt).toBeNull()
+    expect(s.resumeRequestedHost).toBeNull()
+  })
+})

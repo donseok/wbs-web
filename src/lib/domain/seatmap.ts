@@ -10,6 +10,10 @@ export interface OrderRow {
   claimed_by: string | null; claimed_by_user_id: string | null; claimed_at: string | null
   created_at: string; updated_at: string
   last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent: string | null; heartbeat_note: string | null
+  /** 사람이 「이어서 시작」을 누른 시각(0099). 워커가 다시 heartbeat 를 보내면 서버가 비운다. */
+  resume_requested_at?: string | null
+  /** 이어받을 PC 슬러그 — claimed_by 에서 서버가 파생한다. 화면은 누가 가져갈 자리인지 보여줄 때만 쓴다. */
+  resume_requested_host?: string | null
 }
 export interface ItemRow {
   id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null
@@ -39,6 +43,10 @@ export interface Seat {
   agent: string | null; progress: number
   lastSignalAt: string | null; heartbeatAt: string | null; heartbeatPhase: string | null
   note: string | null; rejected: boolean; reviewNote: string | null
+  /** 재개 요청이 걸린 시각. null 이면 아직 아무도 누르지 않았다(0099). */
+  resumeRequestedAt: string | null
+  /** 그 요청을 이어받아야 하는 PC. 그 워크트리가 있는 PC 만 실제로 복구할 수 있다. */
+  resumeRequestedHost: string | null
   /** READY(빈자리)만 값 — 왜 아직 안 집어갔는지(스펙 2026-09-14 착수 대기 사유 §1). 나머지 상태는 null. */
   waitReason: WaitReason | null
   /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·회수 어포던스. 서버 가드
@@ -136,6 +144,9 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     lastSignalAt: o.status === 'claimed' ? signal : null,
     heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
+    // 표식은 점유 중인 주문에서만 뜻이 있다 — 회수·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
+    resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
+    resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
     waitReason: null,
     canManage: rights.canManage, assigneeMine: rights.assigneeMine,
@@ -144,8 +155,10 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
 
 function attentionWhy(s: Seat, nowMs: number): string {
   if (s.state === 'BLOCKED') return s.note ?? '결정 필요'
-  if (s.state === 'STALE') return `무응답 ${ageLabel(s.lastSignalAt, nowMs)}`
-  if (s.state === 'OFFLINE') return `끊김 ${ageLabel(s.lastSignalAt, nowMs)}`
+  // 재개 요청이 걸렸으면 사람이 할 일은 끝났다는 것까지 밴드에서 읽혀야 한다(다시 누르지 않도록).
+  const resume = s.resumeRequestedAt ? ' · 재개 요청됨' : ''
+  if (s.state === 'STALE') return `무응답 ${ageLabel(s.lastSignalAt, nowMs)}${resume}`
+  if (s.state === 'OFFLINE') return `끊김 ${ageLabel(s.lastSignalAt, nowMs)}${resume}`
   return s.reviewNote ? `반려 · ${s.reviewNote}` : '반려 · 재작업'
 }
 

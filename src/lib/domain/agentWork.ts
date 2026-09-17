@@ -117,3 +117,19 @@ export function orderPriorityFromLabel(label: string | null): number {
   const priority = ORDER_PRIORITY_BY_LABEL[label as keyof typeof ORDER_PRIORITY_BY_LABEL]
   return priority !== undefined ? priority : 0
 }
+
+/**
+ * 재개 요청이 지목할 PC — 점유 라벨(claimed_by)에서 호스트를 뽑아 agent_watchers.host 와 같은 축의
+ * 슬러그로 맞춘다. 규칙은 dflow.sh 의 slug()·host_short() 와 같다(소문자, [a-z0-9-] 밖은 '-').
+ * 라벨 두 형태를 다 받는다: 단독 러너의 `claude-<host>`(cmd_claim)와 팀원의 `<신원>/<host>/w<슬롯>`.
+ * 클라이언트가 보낸 값을 쓰지 않는 이유: 호스트가 틀리면 워크트리가 없는 PC 의 팀장이 집어 가고,
+ * 진행 중 작업은 원격 브랜치가 대개 없으므로 그 산출물을 아무도 복구하지 못한다.
+ */
+export function resumeHostFromClaimLabel(claimedBy: string | null): string | null {
+  const label = (claimedBy ?? '').trim()
+  if (label === '') return null
+  const parts = label.split('/')
+  const raw = parts.length >= 2 ? parts[1] : (label.startsWith('claude-') ? label.slice('claude-'.length) : label)
+  const slug = raw.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+  return slug === '' || /^-+$/.test(slug) ? null : slug
+}

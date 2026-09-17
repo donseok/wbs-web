@@ -57,3 +57,7 @@ export const IconRework = () => (
 export const IconRelease = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
 )
+/** 이어서 시작 — 재생 삼각형에 이어 붙이는 획. 회수(정지)와 한눈에 갈라져야 한다. */
+export const IconResume = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 5.5v13" /><path d="M9.5 6.6l9 5.4-9 5.4z" /></svg>
+)

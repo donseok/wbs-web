@@ -58,6 +58,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .update({
         last_heartbeat_at: now, updated_at: now, heartbeat_agent: agent,
         heartbeat_phase: phase, heartbeat_note: phase === 'blocked' && note ? note : null,
+        // 재개 요청(0099)은 워커가 다시 숨을 쉬면 해소된다 — 사람이 따로 지우지 않아도
+        // 좌석의 「재개 요청됨」 표시와 팀장 watch 목록에서 같이 사라진다.
+        resume_requested_at: null, resume_requested_by: null, resume_requested_host: null,
       })
       .eq('id', id).eq('status', 'claimed')
       .select('id')

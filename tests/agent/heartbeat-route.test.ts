@@ -69,6 +69,10 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     expect(upd.heartbeat_note).toBeNull()
     expect(upd.last_heartbeat_at).toBe(body.last_heartbeat_at)
     expect(upd.updated_at).toBe(body.last_heartbeat_at)
+    // 워커가 되살아나면 사람이 건 재개 요청(0099)은 같은 update 에서 해소된다.
+    expect(upd.resume_requested_at).toBeNull()
+    expect(upd.resume_requested_by).toBeNull()
+    expect(upd.resume_requested_host).toBeNull()
     expect(calls['agent_work_reports:insert']).toBeUndefined()
   })
   it('blocked 는 note 를 저장하고, phase 생략은 phase·note 를 null 로 둔다', async () => {
