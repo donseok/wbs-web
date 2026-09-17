@@ -1,7 +1,7 @@
 # 에이전트 허브 위임·승인 표 개편 — 구현 계획
 
 - 작성: 2026-09-17
-- 상태: **시안 확정, 구현 착수 대기**
+- 상태: **구현 완료 · staging 육안 확인까지 끝남(2026-09-17). 운영(main) 반영은 지시 대기.**
 - 시안(Artifact): https://claude.ai/artifact/Tz8ZdkCPp44Da6htzywFYZ
 - 대상 화면: `/p/[projectId]/agents` 위임·승인 탭
 
@@ -196,7 +196,38 @@ git push -u origin HEAD          # Preview(이제 로그인 됨)
 
 ---
 
-## 9. 현재 상태
+## 9. 현재 상태 (2026-09-17 갱신)
 
-- 시안 v3 게시 완료. 코드는 **아직 한 줄도 건드리지 않았다.**
-- 세션 시작 시점 브랜치는 `staging`, 워킹 트리는 `docs/idea.md` 수정 1건뿐.
+구현을 마치고 staging(dflow-staging.vercel.app)에서 눈으로 확인했다. §7 의 일곱 단계를 전부 했다.
+
+| 단계 | 결과 |
+|---|---|
+| 1 도메인 waitReason | `HubRow.unmetDepends` → `waitReason` 교체, `assembleAgentHub` 이 `deriveWaitReason` 호출 |
+| 2 색 매핑 | `labels.ts` 에 `STATE_TONE`(8종)·`REASON_TONE`(4종)·`NEEDS_DELEGATION_TONE` |
+| 3 표 골격 | 7열 + 여유 열, `table-layout: fixed`, 셀마다 배경 |
+| 4 셀 서식 | 상태·사유 칩, 단계 select 축소, 에이전트 2줄, 프롬프트 연필 흡수, 부모 띠·zebra |
+| 5 열 너비 | 드래그·키보드(←/→·Shift·Home)·더블클릭·초기화 버튼, `localStorage` |
+| 6 스크롤 | 상자 높이로 sticky 머리글 발화, 좌측 2~3열 고정, 밀린 동안 경계 그림자 |
+| 7 나머지 | 조밀 토글, 「승인 대기만」 필터, 「막힘」 카운터(`counters.stuck`) |
+
+CSS 는 새 모듈 `src/components/agent-hub/delegationTable.module.css` 에 두었다 —
+`globals.css` 는 한 줄도 건드리지 않았고 새 색 토큰도 없다.
+
+### 육안 확인에서 잡힌 것
+
+- **끌어서 바꾼 폭이 저장되지 않던 경우** — `pointerup` 이 마지막 `pointermove` 의 상태 갱신보다
+  먼저 오면(빠른 드래그) 옛 폭이 저장됐다. 드래그 ref 에 확정 폭을 함께 들고 저장하도록 고쳤고
+  회귀 시험을 남겼다(`끌어서 바꾼 폭이 그대로 저장된다`).
+- 머리글에 `user-select: none` 을 줬다 — 손잡이를 끌 때 글자 선택이 드래그를 끊었다.
+
+### 확인한 항목
+
+라이트·다크 · sticky 머리글 · 좌측 고정(위임·코드 / 작업까지) · 가로 스크롤 중 경계 그림자 ·
+사유 칩 펼침(전문이 펼침 행에 한 줄로) · 「승인 대기만」 · 승인 대기 행 좌측 청록 띠 ·
+열 드래그 뒤 고정 열 오프셋 추종 · 조정 버튼 잘림 없음.
+
+### 남은 일
+
+- **운영(main) 반영은 지시 대기.** 마이그레이션이 없어 순서 제약은 없다.
+- 작업 브랜치는 `ui/hub-table-redesign`, 워크트리 `/Users/jji/project/wbs-web-hub`
+  (본 체크아웃에서 다른 세션이 동시에 작업 중이라 분리했다).
