@@ -2,7 +2,7 @@
 // 좌석 층은 여기서 만들지 않는다 — /agents/office 가 좌석표 로더로 그린다(2026-09-14 오피스 분리 스펙 §4-2).
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
-import { AGENT_TAG, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
+import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
 import { unmetDepends, unmetDependsList } from './waitReason'
 import { stageLockedForHuman } from './agentWork'
 
@@ -88,19 +88,6 @@ export function myMemberIdsOf(members: HubMemberRow[], viewer: { userId: string;
  * isSubtreeManager 와 같은 규칙이지만, 허브는 프로젝트 전체 항목(rows.items)을 이미 메모리에
  * 들고 있으므로 새 DB 조회 없이 그 자리에서 조상을 탄다. visited Set 으로 parent_id 순환을 막는다.
  */
-function isSubtreeManagerOf(itemId: string, itemById: ReadonlyMap<string, HubItemRow>, mine: ReadonlySet<string>): boolean {
-  const visited = new Set<string>()
-  let cur = itemById.get(itemId)?.parent_id ?? null
-  while (cur !== null && !visited.has(cur)) {
-    visited.add(cur)
-    const row = itemById.get(cur)
-    if (!row) break
-    if (row.assignee_member_id && mine.has(row.assignee_member_id)) return true
-    cur = row.parent_id
-  }
-  return false
-}
-
 const cmp = (a: HubItemRow, b: HubItemRow) => a.sort_order - b.sort_order || a.code.localeCompare(b.code)
 
 /** 전위 순서로 편다 — 루트(parent null) → 자식, 고아(부모가 목록에 없음)는 루트 뒤. */

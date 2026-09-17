@@ -78,10 +78,10 @@ describe('animFor — 스펙 §2 표', () => {
     expect(animFor('WAIT', 'reported', 2)).toBe('idle_look')
     expect(animFor('WAIT', 'reported', 3)).toBe('idle_coffee')
   })
-  it('STALE→stale, REJECTED→rejected, BLOCKED→idle_look, 빈자리 3종→empty', () => {
+  it('STALE→stale, REJECTED→rejected, BLOCKED→blocked, 빈자리 3종→empty', () => {
     expect(animFor('STALE', 'build')).toBe('stale')
     expect(animFor('REJECTED', 'build')).toBe('rejected')
-    expect(animFor('BLOCKED', 'blocked')).toBe('idle_look')
+    expect(animFor('BLOCKED', 'blocked')).toBe('blocked')
     expect(animFor('READY', 'design')).toBe('empty')
     expect(animFor('DONE', 'reported')).toBe('empty')
     expect(animFor('OFFLINE', 'build')).toBe('empty')
@@ -93,10 +93,10 @@ describe('pickCharacter — 같은 키는 늘 같은 캐릭터', () => {
     expect(fnv1a32('')).toBe(0x811c9dc5)
     expect(fnv1a32('a')).toBe(0xe40c292c)
   })
-  it('결정론이고 4종 안에 든다', () => {
+  it('결정론이고 5종 안에 든다', () => {
     const a = pickCharacter('hong/mbp/w2')
     expect(pickCharacter('hong/mbp/w2')).toBe(a)
-    expect(['monitor_bot', 'cat_dev', 'human_dev', 'dome_bot']).toContain(a)
+    expect(['cat', 'human_m', 'human_f', 'dog', 'bot']).toContain(a)
   })
 })
 

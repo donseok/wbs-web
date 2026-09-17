@@ -1,0 +1,66 @@
+{
+ "cw": 136,
+ "ch": 124,
+ "sheets": {
+  "cat": {
+   "design": 4,
+   "typing": 4,
+   "verify": 4,
+   "refactor": 4,
+   "idle_coffee": 6,
+   "idle_stretch": 5,
+   "idle_look": 6,
+   "blocked": 4,
+   "stale": 4,
+   "rejected": 4
+  },
+  "human_m": {
+   "design": 4,
+   "typing": 4,
+   "verify": 4,
+   "refactor": 4,
+   "idle_coffee": 6,
+   "idle_stretch": 5,
+   "idle_look": 6,
+   "blocked": 4,
+   "stale": 4,
+   "rejected": 4
+  },
+  "human_f": {
+   "design": 4,
+   "typing": 4,
+   "verify": 4,
+   "refactor": 4,
+   "idle_coffee": 6,
+   "idle_stretch": 5,
+   "idle_look": 6,
+   "blocked": 4,
+   "stale": 4,
+   "rejected": 4
+  },
+  "dog": {
+   "design": 4,
+   "typing": 4,
+   "verify": 4,
+   "refactor": 4,
+   "idle_coffee": 6,
+   "idle_stretch": 6,
+   "idle_look": 6,
+   "blocked": 4,
+   "stale": 4,
+   "rejected": 4
+  },
+  "bot": {
+   "design": 4,
+   "typing": 4,
+   "verify": 4,
+   "refactor": 4,
+   "idle_coffee": 6,
+   "idle_stretch": 5,
+   "idle_look": 6,
+   "blocked": 4,
+   "stale": 4,
+   "rejected": 4
+  }
+ }
+}

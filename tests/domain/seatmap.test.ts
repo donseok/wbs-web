@@ -31,7 +31,7 @@ describe('assembleSeatmap — 층·구역·책상', () => {
     expect(s.id8).toBe('11111111')
     expect(s.state).toBe('ACTIVE'); expect(s.anim).toBe('typing'); expect(s.progress).toBe(25)
     expect(s.agent).toBe('hong/mbp/w1')
-    expect(['monitor_bot', 'cat_dev', 'human_dev', 'dome_bot']).toContain(s.character)
+    expect(['cat', 'human_m', 'human_f', 'dog', 'bot']).toContain(s.character)
   })
   it('부모가 없는 항목은 "구역 없음"에 놓이고, 항목이 지워진 주문(wbs_item_id null)과 agent 태그가 없는 항목의 주문은 보이지 않는다', () => {
     const m = assembleSeatmap(rows({

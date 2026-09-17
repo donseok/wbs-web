@@ -1,13 +1,16 @@
 // src/components/agents/FloorCard.tsx
 'use client'
 import { useState } from 'react'
-import { Armchair } from 'lucide-react'
 import type { Floor, Zone } from '@/lib/domain/seatmap'
 import { ZoneBlock, isEmptyZone } from './ZoneBlock'
+import type { SeatOpHandler } from './SeatOpsBar'
+import { IconBlocked, IconFolded, IconWait } from './icons'
 import css from './seatmap.module.css'
 
 type ZoneKind = 'work' | 'wait' | 'empty'
 const KIND_LABEL: Record<ZoneKind, string> = { work: '진행', wait: '승인 대기', empty: '빈자리' }
+/** 접힌 구역을 세 종류로 가른다 — 옛 판은 Armchair 하나로 셋을 다 표현했다(아이콘 I1). */
+const KIND_ICON: Record<ZoneKind, () => React.JSX.Element> = { work: IconBlocked, wait: IconWait, empty: IconFolded }
 
 /** 아이콘으로 접혔을 때의 구분 — 진행 중(work) > 승인 대기(wait) > 빈 구역(empty). */
 export function zoneKind(z: Zone): ZoneKind {
@@ -16,10 +19,13 @@ export function zoneKind(z: Zone): ZoneKind {
   return 'empty'
 }
 
-export function FloorCard({ floor, selectedId, nowMs, onSelect }: {
+export function FloorCard({ floor, selectedId, nowMs, busyOrderId, onSelect, onOp }: {
   floor: Floor; selectedId: string | null; nowMs: number
+  /** op 가 서버에 가 있는 좌석 하나. */
+  busyOrderId: string | null
   /** null = 선택 해제. 구역을 접으면 그 안의 선택을 푼다 — 선택이 남아 있으면 구역이 다시 펼쳐져 접히지 않던 버그(2026-09-14). */
   onSelect: (orderId: string | null) => void
+  onOp: SeatOpHandler
 }) {
   // 빈 구역은 기본 접힘(opened 에 든 것만 펼침), 나머지는 기본 펼침(folded 에 든 것만 접힘).
   // 선택된 좌석이 든 구역은 어느 쪽이든 펼친다.
@@ -58,24 +64,25 @@ export function FloorCard({ floor, selectedId, nowMs, onSelect }: {
         <span className={`${css.watch} ${w.length ? css.watchOn : ''}`} title={watchLabel}>{w.length ? `감시 중 · ${watchLabel}` : '감시 없음'}</span>
       </header>
       <div className={css.zones}>
-        {shown.map(z => <ZoneBlock key={z.key} zone={z} selectedId={selectedId} nowMs={nowMs} onSelect={onSelect} onFold={() => fold(z)} />)}
+        {shown.map(z => <ZoneBlock key={z.key} zone={z} selectedId={selectedId} nowMs={nowMs} busyOrderId={busyOrderId} onSelect={onSelect} onOp={onOp} onFold={() => fold(z)} />)}
         {icons.length > 0 && (
           <div className={css.zoneIcons} role="group" aria-label="접힌 구역">
             {icons.map(z => {
               const kind = zoneKind(z)
-              const n = kind === 'work' ? z.summary.work : kind === 'wait' ? z.summary.wait : z.seats.length
+              // 빈 구역의 숫자는 빈자리 수다 — 머지 완료 좌석은 평면도에 그리지 않으므로 세지 않는다.
+              const n = kind === 'work' ? z.summary.work : kind === 'wait' ? z.summary.wait : z.summary.ready
               const label = `${z.code} ${z.name} · ${n} ${KIND_LABEL[kind]}`
+              const Icon = KIND_ICON[kind]
               return (
                 <button key={z.key} type="button" className={css.zoneIcon} data-kind={kind} aria-expanded="false"
                   aria-label={`${label} — 펼치기`} title={label} onClick={() => expand(z)}>
-                  <Armchair aria-hidden="true" /><b>{n}</b>
+                  <Icon /><b>{n}</b>
                 </button>
               )
             })}
           </div>
         )}
       </div>
-      {floor.doneCount > 0 && <p className={css.doneNote}>머지 완료 {floor.doneCount}건(최근 7일)은 접혀 있습니다.</p>}
     </section>
   )
 }

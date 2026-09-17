@@ -3,17 +3,21 @@
   --sm-paper: #F3F5F1; --sm-surface: #FFFFFF; --sm-ink: #1B252C; --sm-ink-2: #4B5A64; --sm-ink-3: #7E8B93;
   --sm-line: #C9D0CB; --sm-line-2: #E2E6E1; --sm-zone: #F7F8F5;
   --sm-band: #22394A; --sm-band-ink: #F2F6F8; --sm-band-muted: #9FB4C2;
-  --sm-active: #5DB1E5; --sm-active-ink: #0B2436; --sm-wait: #F0B068; --sm-wait-ink: #472705;
+  --sm-active: #5DB1E5; --sm-active-ink: #0B2436; --sm-active-soft: #E4F1FA;
+  --sm-wait: #F0B068; --sm-wait-ink: #472705; --sm-wait-soft: #FBEDDC;
   --sm-empty: #E3E7E2; --sm-empty-ink: #75828A; --sm-reject: #F4C7BE; --sm-reject-ink: #6A1C0F; --sm-reject-bar: #D8563E;
   --sm-standby: #3F8F58; --sm-standby-soft: #DCEFE0; --sm-warn: #D8563E; --sm-warn-soft: #FBE4DF;
   --sm-shadow: 0 1px 2px rgba(20,30,36,.06), 0 8px 22px rgba(20,30,36,.06);
+  /* 스프라이트 표시 칸 — 원본 셀은 136x124(public/sprites/manifest.json), 화면에는 절반으로 그린다. */
+  --sm-cell-w: 68px; --sm-cell-h: 62px;
   color: var(--sm-ink);
 }
 :global(.dark) .root {
   --sm-paper: #12181C; --sm-surface: #1A2126; --sm-ink: #E7ECEA; --sm-ink-2: #B1BBC0; --sm-ink-3: #7C878E;
   --sm-line: #33404A; --sm-line-2: #26313A; --sm-zone: #151B20;
   --sm-band: #0D1418; --sm-band-ink: #EEF3F5; --sm-band-muted: #7F94A2;
-  --sm-active: #4A9FD3; --sm-active-ink: #061521; --sm-wait: #D6984C; --sm-wait-ink: #241302;
+  --sm-active: #4A9FD3; --sm-active-ink: #061521; --sm-active-soft: #14252F;
+  --sm-wait: #D6984C; --sm-wait-ink: #241302; --sm-wait-soft: #2A1F11;
   --sm-empty: #28313A; --sm-empty-ink: #8B97A1; --sm-reject: #5B2A21; --sm-reject-ink: #F7CDC3; --sm-reject-bar: #E56A52;
   --sm-standby: #6DBD84; --sm-standby-soft: #1D3527; --sm-warn: #E56A52; --sm-warn-soft: #3B211C;
   --sm-shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35);
@@ -47,8 +51,9 @@
 /* 본문 */
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 336px; gap: 20px; margin-top: 18px; align-items: start; }
 @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
-.floors { column-width: 340px; column-gap: 18px; }
-.floor { background: var(--sm-surface); border: 1px solid var(--sm-line-2); border-radius: 14px; padding: 14px 14px 16px; box-shadow: var(--sm-shadow); break-inside: avoid; margin-bottom: 18px; }
+/* 층 격자 — 층이 하나면 카드가 전체 폭을 쓴다. 옛 column-width 다단은 층 하나에서 340px 띠 한 줄이 됐다. */
+.floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+.floor { background: var(--sm-surface); border: 1px solid var(--sm-line-2); border-radius: 14px; padding: 14px 14px 16px; box-shadow: var(--sm-shadow); }
 .floorHead { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: start; margin-bottom: 12px; }
 .floorHead h2 { margin: 0; font-weight: 800; font-size: 19px; letter-spacing: -.01em; }
 .floorHead h2 small { font-weight: 500; font-size: 11px; color: var(--sm-ink-3); margin-left: 6px; }
@@ -59,7 +64,8 @@
 .watchOn::before { background: var(--sm-standby); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-standby) 25%, transparent); }
 .doneNote { font-size: 12px; color: var(--sm-ink-3); margin: 8px 0 0; }
 
-.zones { display: grid; gap: 10px; }
+/* 구역도 층 카드 안에서 타일링한다 — 전체 폭을 받은 층이 한 줄만 쓰면 오른쪽이 빈다. */
+.zones { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; align-items: start; }
 .zone { background: var(--sm-zone); border: 1px solid var(--sm-line-2); border-radius: 10px; padding: 8px 10px 10px; }
 .zoneHead { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
 .zoneCode { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 12px; color: var(--sm-ink-2); }
@@ -80,23 +86,24 @@
 .zoneIcon[data-kind="work"]::before { background: var(--sm-active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-active) 25%, transparent); }
 
 /* 좌석 블록: 가운데 통로선 양쪽 두 줄 */
-.block { position: relative; display: grid; grid-template-columns: 1fr 1fr; row-gap: 8px; padding-block: 4px; }
-.block::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--sm-line); }
-.seat { display: grid; align-items: stretch; min-height: 96px; }
-.seatLeft { grid-template-columns: 96px minmax(0, 1fr); }
-.seatRight { grid-template-columns: minmax(0, 1fr) 96px; }
+.block { position: relative; display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 8px; padding-block: 4px; }
+.block::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--sm-line); border-radius: 1px; }
+.seat { display: grid; align-items: stretch; min-height: var(--sm-cell-h); }
+.seatLeft { grid-template-columns: var(--sm-cell-w) minmax(0, 1fr); }
+.seatRight { grid-template-columns: minmax(0, 1fr) var(--sm-cell-w); }
 .seatRight .chair { order: 2; }
-.chair { position: relative; min-height: 96px; display: flex; align-items: flex-end; justify-content: center; }
+.chair { position: relative; min-height: var(--sm-cell-h); display: flex; align-items: flex-end; justify-content: center; }
 .seatRight .chair { transform: scaleX(-1); }
+/* 글자·기호가 그려진 동작(? 말풍선 · zzz · REJECT 도장)은 되돌려 읽히게 둔다 — 마주보는 구도를 조금 잃는 대신 글자가 읽힌다. */
+.seatRight .chair [data-glyph="1"] { transform: scaleX(-1); }
 
-.desk { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 3px; text-align: center; border: 1px solid var(--sm-line); padding: 10px 8px 11px; cursor: pointer; background: var(--sm-empty); color: var(--sm-empty-ink); min-width: 0; font: inherit; }
-.seatLeft .desk { border-right: 0; border-radius: 8px 0 0 8px; }
-.seatRight .desk { border-left: 0; border-radius: 0 8px 8px 0; }
-.desk[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--sm-ink) inset; }
-.deskId { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 14px; line-height: 1.1; }
+/* 책상은 상자다 — 좌석을 고르는 버튼(.deskPick)과 결재 바(.seatOps)를 담는다.
+   옛 판에서는 책상 자체가 버튼이어서 결재 버튼을 넣을 자리가 없었다. */
+.desk { position: relative; display: grid; gap: 3px; border: 1px solid var(--sm-line); border-radius: 9px; padding: 8px 9px 9px; background: var(--sm-empty); color: var(--sm-empty-ink); min-width: 0; }
+.deskId { font-family: ui-monospace, Menlo, monospace; font-weight: 600; font-size: 13px; line-height: 1.1; }
 .deskName { font-weight: 600; font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
 .deskMeta { font-size: 11px; line-height: 1.3; opacity: .82; font-variant-numeric: tabular-nums; }
-.bar { display: block; height: 4px; border-radius: 2px; background: rgba(0,0,0,.14); margin-top: 4px; overflow: hidden; }
+.bar { display: block; height: 4px; border-radius: 2px; background: rgba(0,0,0,.14); margin-top: 2px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: currentColor; opacity: .8; }
 .flag { position: absolute; top: 5px; right: 5px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: var(--sm-warn); color: #fff; font-family: ui-monospace, Menlo, monospace; }
 .note { font-size: 11px; line-height: 1.3; margin-top: 2px; padding: 3px 6px; border-radius: 6px; background: rgba(255,255,255,.55); color: var(--sm-ink); text-align: left; }
@@ -111,10 +118,13 @@
 .desk[data-state="READY"] { background: transparent; border: 1.5px dashed var(--sm-line); color: var(--sm-ink-3); }
 .desk[data-state="OFFLINE"] { background: var(--sm-empty); color: var(--sm-empty-ink); border-color: var(--sm-warn); }
 
-/* 스프라이트: 96px 셀 가로 스트립, steps(n) 로 background-position 이동. JS 타이머 없음. */
-.sprite { width: 96px; height: 96px; background-repeat: no-repeat; background-size: auto 96px; image-rendering: pixelated; animation: seatStrip calc(var(--frames) / var(--fps) * 1s) steps(var(--frames)) infinite; }
+/* 스프라이트: 셀 하나 폭씩 background-position 을 옮기는 steps(n) 애니메이션. JS 타이머 없음.
+   원본 셀은 136x124 이고 화면에는 절반(--sm-cell-*)으로 그린다 — keyframe 의 이동량이 표시 폭과
+   같아야 프레임이 어긋나지 않는다. image-rendering 은 손대지 않는다: 원화가 안티에일리어싱된
+   렌더라 nearest 로 축소하면 재생 중 떨려 보인다. */
+.sprite { width: var(--sm-cell-w); height: var(--sm-cell-h); background-repeat: no-repeat; background-position: 0 0; background-size: auto var(--sm-cell-h); animation: seatStrip calc(var(--frames) / var(--fps) * 1s) steps(var(--frames)) infinite; }
 .sprite[data-frames="1"], .sprite[data-still="1"] { animation: none; }
-@keyframes seatStrip { to { background-position-x: calc(var(--frames) * -96px); } }
+@keyframes seatStrip { to { background-position-x: calc(var(--frames) * var(--sm-cell-w) * -1); } }
 @media (prefers-reduced-motion: reduce) { .sprite { animation: none; } }
 
 /* 상세 패널 */
@@ -150,3 +160,88 @@
 .legend ul { list-style: none; margin: 0 0 8px; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; }
 .legend li { display: inline-flex; align-items: center; gap: 7px; }
 .sw { width: 22px; height: 14px; border-radius: 3px; border: 1px solid var(--sm-line); display: inline-block; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   오피스 v7(2026-09-17) — 보기 전환 · 좌석 결재 · 상태 레인.
+   display 를 토글해 무엇을 보이고 감추지 않는다(globals.css 의 unlayered 안전망에 진다).
+   버튼이 없어야 할 좌석에는 아예 그리지 않는다(조건부 렌더).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* 보기 전환 — 상단 띠의 세그먼트. 범위 전환(.scope)과 같은 결. */
+.viewSeg { display: inline-flex; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; overflow: hidden; }
+.viewSeg button { font: inherit; font-size: 12px; line-height: 1; padding: 6px 13px; background: transparent; color: var(--sm-band-muted); border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.viewSeg button svg { width: 13px; height: 13px; }
+.viewSeg button[aria-pressed="true"] { background: rgba(255,255,255,.16); color: var(--sm-band-ink); font-weight: 600; }
+.viewSeg button:focus-visible { outline: 2px solid var(--sm-band-ink); outline-offset: -2px; }
+
+/* 상태 표지 — 아이콘 I1(라인). 옛 글자 배지(!·?·"끊김")를 대신한다. */
+.mark { margin-left: auto; display: inline-flex; align-items: center; }
+.mark svg { width: 15px; height: 15px; display: block; }
+
+/* 좌석을 고르는 버튼 — 책상 상자 안을 가득 채운다. */
+.deskPick { display: grid; gap: 3px; text-align: left; font: inherit; color: inherit; background: none; border: 0; padding: 0; width: 100%; cursor: pointer; }
+.deskPick:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.desk[data-selected="1"] { outline: 2.5px solid var(--sm-ink); outline-offset: 1px; z-index: 1; }
+.deskTop { display: flex; align-items: center; gap: 6px; }
+
+/* 좌석 위 결재 바 */
+.seatOps { display: flex; gap: 4px; margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(0,0,0,.10); }
+:global(.dark) .seatOps { border-top-color: rgba(255,255,255,.14); }
+.opMini { flex: 1; font: inherit; font-size: 10.5px; font-weight: 700; line-height: 1; padding: 5px 6px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; background: rgba(255,255,255,.74); color: var(--sm-ink-2); }
+:global(.dark) .opMini { background: rgba(0,0,0,.34); }
+.opMini svg { width: 11px; height: 11px; }
+.opMini:hover { border-color: currentColor; }
+.opMini:active { transform: scale(.96); }
+.opMini[data-op="approve"] { color: var(--sm-standby); }
+.opMini[data-op="reject"], .opMini[data-op="rework"] { color: var(--sm-reject-bar); }
+.opMini[data-op="release"] { color: var(--sm-warn); }
+.opMini[data-op="unapprove"] { color: var(--sm-ink-3); }
+.opMini:disabled { opacity: .42; cursor: not-allowed; }
+.opMini:disabled:hover { border-color: transparent; }
+
+/* 상세 패널의 결재 — 같은 op 표를 큰 버튼으로 */
+.acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 14px; }
+.act { font: inherit; font-size: 12px; line-height: 1; padding: 7px 11px; border-radius: 7px; cursor: pointer; border: 1px solid currentColor; background: transparent; color: var(--sm-ink-2); display: inline-flex; align-items: center; gap: 5px; }
+.act svg { width: 12px; height: 12px; }
+.act:hover { border-color: var(--sm-ink); color: var(--sm-ink); }
+.act[data-op="approve"] { color: var(--sm-standby); font-weight: 600; }
+.act[data-op="reject"], .act[data-op="rework"] { color: var(--sm-reject-bar); }
+.act[data-op="release"] { color: var(--sm-warn); }
+.act[data-op="unapprove"] { color: var(--sm-ink-3); }
+.act:disabled { opacity: .42; cursor: not-allowed; }
+.act:disabled:hover { border-color: currentColor; color: inherit; }
+.actNone { font-size: 12px; color: var(--sm-ink-3); }
+
+/* 사유 입력 — reject·rework 는 사유가 비면 서버가 거부한다 */
+.noteBox { display: grid; gap: 6px; margin-top: 10px; padding: 9px; border-radius: 8px; background: var(--sm-paper); border: 1px solid var(--sm-reject-bar); }
+.noteBox label { font-size: 11px; color: var(--sm-reject-bar); font-weight: 600; }
+.noteBox textarea { font: inherit; font-size: 12.5px; resize: vertical; min-height: 52px; border-radius: 6px; border: 1px solid var(--sm-line); background: var(--sm-surface); color: var(--sm-ink); padding: 6px 8px; width: 100%; }
+.noteRow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.noteHint { font-size: 11px; color: var(--sm-ink-3); }
+.opError { margin: 10px 0 0; font-size: 12px; color: var(--sm-warn); font-weight: 600; border-left: 3px solid var(--sm-warn); padding-left: 9px; }
+
+/* 상태 레인 보기 — 처리하는 화면. 결재 대기와 손봐야 할 것이 먼저 온다. */
+.lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+.lane { background: var(--sm-zone); border: 1px solid var(--sm-line-2); border-radius: 10px; padding: 9px 9px 10px; display: grid; gap: 7px; align-content: start; }
+.lane[data-lane="wait"] { border-color: var(--sm-wait); }
+.lane[data-lane="attention"] { border-color: var(--sm-warn); }
+.laneHead { display: flex; align-items: center; gap: 7px; }
+.laneHead b { font-size: 13px; font-weight: 700; }
+.laneHead svg { width: 15px; height: 15px; }
+.laneN { margin-left: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--sm-ink-3); font-variant-numeric: tabular-nums; }
+.laneEmpty { font-size: 12px; color: var(--sm-ink-3); padding: 6px 2px; margin: 0; }
+.card { display: grid; gap: 6px; padding: 8px 9px 9px; border-radius: 9px; background: var(--sm-surface); border: 1px solid var(--sm-line-2); box-shadow: 0 1px 2px rgba(20,30,36,.07); }
+.card[data-selected="1"] { outline: 2.5px solid var(--sm-ink); outline-offset: 1px; }
+.card .seatOps { border-top-color: var(--sm-line-2); }
+.card .opMini { background: var(--sm-zone); }
+.cardTop { display: flex; gap: 7px; align-items: flex-start; }
+.cardTop .cardText { min-width: 0; display: grid; gap: 1px; }
+.cardZone { font-size: 10px; letter-spacing: .08em; color: var(--sm-ink-3); font-family: ui-monospace, Menlo, monospace; }
+.card[data-state="WAIT"] { border-left: 4px solid var(--sm-wait); }
+.card[data-state="REJECTED"] { border-left: 4px solid var(--sm-reject-bar); }
+.card[data-state="STALE"], .card[data-state="OFFLINE"], .card[data-state="BLOCKED"] { border-left: 4px solid var(--sm-warn); }
+.card[data-state="ACTIVE"] { border-left: 4px solid var(--sm-active); }
+.card[data-state="DONE"] { border-left: 4px solid var(--sm-standby); }
+.card[data-state="READY"] { border-left: 4px dashed var(--sm-line); }
+/* 카드의 캐릭터는 작게 — 좌석의 절반. 반전은 하지 않는다(줄이 없다). */
+.card .sprite { --sm-cell-w: 46px; --sm-cell-h: 42px; }

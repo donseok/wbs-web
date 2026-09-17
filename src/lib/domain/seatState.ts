@@ -4,8 +4,9 @@ export type SeatState = 'READY' | 'WAIT' | 'DONE' | 'BLOCKED' | 'OFFLINE' | 'STA
 export type Phase = 'design' | 'build' | 'verify' | 'refactor' | 'blocked' | 'rejected' | 'reported'
 export type AnimName =
   | 'typing' | 'design' | 'verify' | 'refactor' | 'stale'
-  | 'idle_coffee' | 'idle_stretch' | 'idle_look' | 'rejected' | 'empty'
-export type CharacterName = 'monitor_bot' | 'cat_dev' | 'human_dev' | 'dome_bot'
+  | 'idle_coffee' | 'idle_stretch' | 'idle_look' | 'blocked' | 'rejected' | 'empty'
+/** public/sprites/<이 이름>/<AnimName>.png — 2026-09-16 새로 그린 캐릭터 시트 다섯 벌과 같은 이름이다. */
+export type CharacterName = 'cat' | 'human_m' | 'human_f' | 'dog' | 'bot'
 
 export const HEARTBEAT_PHASES: readonly Phase[] = ['design', 'build', 'verify', 'refactor', 'blocked', 'rejected', 'reported']
 /** 임계값 초안(정리본 §3). 운영하며 조정한다. */
@@ -14,7 +15,7 @@ export const OFFLINE_MS = 30 * 60_000
 /** 팀장 잠금의 죽음 판정(두 TICK 연속 누락)과 같은 값. */
 export const WATCHER_TTL_MS = 70 * 60_000
 
-const CHARACTERS: readonly CharacterName[] = ['monitor_bot', 'cat_dev', 'human_dev', 'dome_bot']
+const CHARACTERS: readonly CharacterName[] = ['cat', 'human_m', 'human_f', 'dog', 'bot']
 const IDLE_ANIMS: readonly AnimName[] = ['idle_coffee', 'idle_stretch', 'idle_look']
 
 export interface SeatInput {
@@ -73,7 +74,7 @@ export function animFor(state: SeatState, phase: Phase, idleSlot = 0): AnimName 
     case 'WAIT': return IDLE_ANIMS[((idleSlot % 3) + 3) % 3]
     case 'STALE': return 'stale'
     case 'REJECTED': return 'rejected'
-    case 'BLOCKED': return 'idle_look' // 손 든 그림이 아직 없다 — 정지 프레임 + 말풍선으로 대체(스펙 §2)
+    case 'BLOCKED': return 'blocked' // 새 시트에 물음표 말풍선 동작이 들어왔다(2026-09-16) — 옛 idle_look 대체를 걷었다
     default: return 'empty'
   }
 }
