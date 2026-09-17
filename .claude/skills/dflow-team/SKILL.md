@@ -13,7 +13,7 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 > 금지사항을 상속한다.
 >
 > **제1 제약: 팀원을 서브에이전트로 띄우지 않는다.** 팀원은 `/dflow-dev` 를 실행하고 `/dflow-dev` 는
-> Phase 1~4 를 서브에이전트로 쪼갠다. 서브에이전트는 자기 턴이 끝나면 하네스가 완료로 보아, 그 뒤에 끝난
+> Phase 02~05 를 서브에이전트로 쪼갠다. 서브에이전트는 자기 턴이 끝나면 하네스가 완료로 보아, 그 뒤에 끝난
 > Phase 손자의 완료가 팀원을 깨우지 못한다. 팀원은 별도 프로세스의 **대화형** claude 메인 에이전트여야
 > 한다: 팀장이 tmux pane 에 띄운 프로세스 또는 Orca 탭 프로세스(backends.md).
 
@@ -104,7 +104,7 @@ done
 jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .repo == $r)' ~/.dflow/events.jsonl 2>/dev/null \
   | awk '/"event":"team.start"/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}'
 ```
-- `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다. 아직 브랜치를 만들지 않은 Phase 0
+- `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다. 아직 브랜치를 만들지 않은 Phase 01
   의 팀원도 이것으로 id8 을 안다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
   `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`blocked` 는 영구, `failed rate-limit` 은 제외
@@ -322,7 +322,7 @@ tmux 절대경로)을 출력한다. 백엔드 이름은 시작 보고와 `team.s
      `docs/tasks/*/.result` 는 워커가 쓰는 미추적 파일, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
      팀장이 spawn 때 쓰는 미추적 파일, `/.claude/skills`(끝 슬래시 없음)는 스킬 심링크다. 끝 슬래시가 붙은 패턴은 디렉터리에만 걸려 심링크를 가리지 못한다. 이 패턴은 **`.claude/skills`
      가 추적되지 않는 리포에서만** 넣는다. 스킬이 커밋된 리포에 넣으면 새로 추가하는 스킬 파일이 무시돼
-     `git add` 가 거부되기 때문이다. 이유: 부산물이 `/dflow-dev` Phase 5 의 "미커밋 잔여물 커밋" 에 섞이면,
+     `git add` 가 거부되기 때문이다. 이유: 부산물이 `/dflow-dev` Phase 06 의 "미커밋 잔여물 커밋" 에 섞이면,
      브랜치마다 다른 `.dflow-agent` 가 스윕 머지를 충돌시키고 절대경로 심링크가 main 에 들어간다.
    - `DIRTY`: exclude 를 넣은 뒤 `git status --porcelain` 이 비어 있어야 한다. 팀장 체크아웃이 더러우면 승인
      스윕이 위험하다. 실패 안내에 "미커밋 `docs/tasks/*/state.json` 은 파일명을 명시해 먼저 커밋하라(수동
@@ -661,7 +661,7 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 후보가 원
      에 쓰고, 서버가 없으면 `new-session` 있으면 `split-window` 로 pane 을 띄운다(명령 전문은 backends.md
      「pane(tmux)」). pane id 를 `<워크트리>/.dflow-pane` 에 쓴다. **이어서 폴더 신뢰 확인 루프를 반드시 돈다.**
      그 확인을 넘기지 않으면 팀원이 첫 화면에서 멈춘 채 살아 있어 한 슬롯이 통째로 놀게 된다. 기점은
-     `origin/<기본브랜치>` 로 명시하고, 스택 기점은 `/dflow-dev` Phase 0 2번이 claim 전에 맞춘다.
+     `origin/<기본브랜치>` 로 명시하고, 스택 기점은 `/dflow-dev` Phase 01 2번이 claim 전에 맞춘다.
    - **pane(Orca)**:
      ```
      orca worktree create --name dflow-<id8> --agent claude --no-parent \

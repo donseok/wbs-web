@@ -28,6 +28,8 @@ import { useTeamCodes } from '@/components/app/TeamsProvider'
 import { useBotPageContext } from '@/components/chat/BotPageContextProvider'
 import type { DictKey } from '@/lib/i18n/dict'
 import { wbsFontScaleVariables } from '@/lib/wbsFontScale'
+import { useWbsRealtime } from '@/lib/hooks/useWbsRealtime'
+import { applyWbsChange } from '@/lib/domain/wbsRealtime'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ──
    구분(LevelBadge) 열은 삭제됐다(2026-08-21 개편) — 계층은 들여쓰기·타이포·1단계 스트립이
@@ -177,7 +179,7 @@ function buildMatch(items: ComputedItem[], q: string): Set<string> {
 }
 
 export function WbsGanttSheet({
-  items,
+  items: serverItems,
   dependencies = EMPTY_DEPENDENCIES,
   unresolvedDepends = EMPTY_UNRESOLVED,
   holidays,
@@ -246,6 +248,24 @@ export function WbsGanttSheet({
   const router = useRouter()
   const { t } = useLocale()
   const legendTeams = useTeamCodes()
+  /* 실시간 반영(0098) — 서버가 준 트리를 상태로 미러링하고 broadcast 가 오면 그 행만 갈아끼운다.
+     조상 롤업은 applyWbsChange 가 computeNode 를 다시 돌려 낸다: 리프만 고치면 공정율·달성률·
+     상태가 낡은 채 남아 화면이 조용히 틀린 숫자를 보여준다.
+     서버가 새 트리를 주면(경로 전환·router.refresh) 그쪽이 정본이므로 덮어쓴다 — 렌더 중에
+     맞추는 React 표준 패턴이라 낡은 값이 한 프레임 비치지 않는다. */
+  const [items, setItems] = useState(serverItems)
+  const [seenServerItems, setSeenServerItems] = useState(serverItems)
+  if (seenServerItems !== serverItems) {
+    setSeenServerItems(serverItems)
+    setItems(serverItems)
+  }
+  useWbsRealtime({
+    projectId,
+    onChange: payload => setItems(cur =>
+      applyWbsChange(cur, payload, { today, holidays: new Set(holidays) }) ?? cur),
+    // 끊긴 사이의 변경은 페이로드가 오지 않았다 — 재연결에서 한 번 받아 메운다(설계 §6-2).
+    onReconnect: () => router.refresh(),
+  })
   // 담당별 분리 부모는 기본 접힘 — 첫 화면이 엑셀 원본과 같은 행 구성이 된다.
   // 계정에 저장된 접힘 상태가 있으면(initialCollapsed) 그 값을 우선한다.
   const [collapsed, setCollapsed] = useState<Set<string>>(

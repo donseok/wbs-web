@@ -28,7 +28,12 @@ function siblingWeight(w: number | null): number {
   return w == null ? 1 : w
 }
 
-function computeNode(node: TreeNode, today: string, holidays: Set<string>): ComputedItem {
+/**
+ * 한 노드와 그 하위를 계산한다. `ComputedItem` 은 구조적으로 `TreeNode` 를 만족하므로
+ * **이미 계산된 트리에 다시 돌려도 안전하다** — 스프레드 뒤에 계산값을 덮어쓰므로 멱등이다.
+ * 실시간 부분 패치(`applyWbsChange`)가 리프를 고친 뒤 조상 롤업을 다시 내는 데 쓴다.
+ */
+export function computeNode(node: TreeNode, today: string, holidays: Set<string>): ComputedItem {
   const children = node.children.map(c => computeNode(c, today, holidays))
   const planned = plannedPct(node.plannedStart, node.plannedEnd, today, holidays)
 

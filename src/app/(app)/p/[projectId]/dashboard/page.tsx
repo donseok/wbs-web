@@ -14,6 +14,7 @@ import { t } from '@/lib/i18n/dict'
 import { getServerLocale } from '@/lib/i18n/server'
 import { PageHero } from '@/components/ui/PageHero'
 import { DashboardView } from '@/components/dashboard/DashboardView'
+import { WbsRealtimeRefresh } from '@/components/wbs/WbsRealtimeRefresh'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 
 export default async function Dashboard({ params }: { params: Promise<{ projectId: string }> }) {
@@ -36,7 +37,9 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
   ])
   // 보험 스냅샷 — 응답 전송 후 실행. 페이지의 after() 안에서는 cookies() 호출이 불가하므로
   // supabase 클라이언트를 미리 만들어 넘긴다(서버 액션 훅과 달리 이 경로만 client 인자 사용).
-  after(() => recordProgressSnapshot(projectId, sb))
+  // 방금 계산한 트리를 함께 넘긴다 — 안 넘기면 같은 요청에서 wbs_items 전량(운영 최대 528행)을
+  // 다시 읽고 computeTree 를 한 번 더 돌린다. 실시간 재조회가 잦아지면 그 중복이 배수로 커진다.
+  after(() => recordProgressSnapshot(projectId, sb, { roots: items, today }))
 
   const project = projects.find(p => p.id === projectId)
   const projectName = project?.name ?? t(locale, 'dash.heroProjectFallback')
@@ -64,6 +67,8 @@ export default async function Dashboard({ params }: { params: Promise<{ projectI
         canGenerateBrief={isProjectAdmin(membership, projectId)}
         milestoneKeywords={config.milestoneKeywords}
       />
+      {/* 진척률은 집계값이라 행 단위 패치가 정의되지 않는다 — 실시간 신호를 받아 재조회한다(0098). */}
+      <WbsRealtimeRefresh projectId={projectId} />
     </ProjectPageShell>
   )
 }

@@ -105,7 +105,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
   "nodes": [ { "id": "TSK-01-01", "parent_id": "WP-01", "kind": "task|wp|act|phase",
                "title": "…", "stage": "as|ip|im|xx|null", "category": "dev",
                "domain": "fullstack", "assignee": "a@b.c", "schedule": "2026-08-11 ~ 2026-08-14",
-               "depends": ["TSK-01-00"], "acceptance": ["…"],
+               "depends": ["TSK-01-02"], "acceptance": ["…"],
                "priority": "critical|high|medium|low",
                "model": "opus", "tags": ["contract"],
                "prd_ref": "docs/prd.md#3.2", "entry_point": "src/app/(app)/wbs/page.tsx",

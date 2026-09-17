@@ -94,6 +94,8 @@ export const getComputedWbs = cache(async (
     isOwnerSplit: r.is_owner_split === true,
     stage: (r.stage as string | null) ?? null, // spec 선행 충족 판정 재료 — claim 게이트와 같은 식을 쓴다
     assigneeMemberId: (r.assignee_member_id as string | null) ?? null,
+    // 실시간 broadcast 의 순서 판정 기준(0098). select('*') 가 이미 싣고 있다.
+    updatedAt: (r.updated_at as string | null) ?? null,
     // 「단계」 컬럼 표시 조건(D9) — 위임 태그. select('*') 가 tags 를 이미 싣는다.
     agentDelegated: Array.isArray(r.tags) && (r.tags as unknown[]).includes(AGENT_TAG),
   }))

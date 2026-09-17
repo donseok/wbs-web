@@ -23,7 +23,7 @@ category 는 7종 약어(`dev`/`defect`/`infra`/`feat`/`design`/`research`/`ites
 ## Task 블록 형식 (기능 Task 예)
 
 ```markdown
-### TSK-02-01: {Task명}
+### TSK-03-01: {Task명}
 - category: dev
 - domain: fullstack
 - model: {opus 또는 sonnet}
@@ -98,16 +98,18 @@ category 는 7종 약어(`dev`/`defect`/`infra`/`feat`/`design`/`research`/`ites
 
 ```mermaid
 graph LR
-  TSK-00-01 --> TSK-01-01
-  TSK-00-01 --> TSK-01-02
-  TSK-00-02 --> TSK-01-01
   TSK-01-01 --> TSK-02-01
+  TSK-02-01 --> TSK-01-02
+  TSK-02-01 --> TSK-02-02
+  TSK-01-02 --> TSK-01-03
+  TSK-01-02 --> TSK-03-01
+  TSK-02-02 --> TSK-03-01
   %% ... 모든 depends 관계를 간선으로 표기 ...
 ```
 
 노드 스타일 규칙:
-- 계약 전용 Task 는 `style TSK-00-02 fill:#e8f5e9,stroke:#2e7d32`
-- 구현 포함 선행 Task 는 `style TSK-00-03 fill:#fff3e0,stroke:#e65100`
+- 계약 전용 Task 는 `style TSK-01-02 fill:#e8f5e9,stroke:#2e7d32`
+- 구현 포함 선행 Task 는 `style TSK-01-03 fill:#fff3e0,stroke:#e65100`
 - 리뷰 후보(아래 `review_candidates`)는 `style TSK-XX stroke:#c62828,stroke-width:2px`
 
 ### 통계
@@ -129,7 +131,7 @@ graph LR
 
 | Task | 신호 | 판정 | 근거 |
 |------|------|------|------|
-| TSK-02-03 | depends=5 | 유지 | 실제 5개 시스템 상태 변경을 원자적으로 조합해야 함 |
-| TSK-02-07 | fan-in=6 | 분리 | `session` 타입만 공유 → 계약 전용 Task 신설 |
+| TSK-03-03 | depends=5 | 유지 | 실제 5개 시스템 상태 변경을 원자적으로 조합해야 함 |
+| TSK-03-07 | fan-in=6 | 분리 | `session` 타입만 공유 → 계약 전용 Task 신설 |
 
 **후보가 없으면 "검토 결과 후보 없음"이라고 명시한다.** 이 섹션을 비워두지 않는다.

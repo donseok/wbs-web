@@ -87,14 +87,14 @@ git fetch origin && git switch --detach origin/<기본브랜치>
   doctor 는 토큰 인증이 실패해도 그 줄만 출력하고 0 으로 끝나므로, 인증은 `me` 의 성공으로만 판정한다. 설정·
   인증이 깨진 채 claim 하지 않는다.
 - 기점 줄은 두 백엔드 공통이다. 이유: 워크트리의 시작 HEAD 는 팀장의 현재 HEAD 이거나 뒤처진 기본 브랜치일
-  수 있고, claim 의 선행 도달 검사는 HEAD 를 본다. 스택 기점은 `/dflow-dev` Phase 0 2번이 claim 전에 다시
+  수 있고, claim 의 선행 도달 검사는 HEAD 를 본다. 스택 기점은 `/dflow-dev` Phase 01 2번이 claim 전에 다시
   맞춘다. 기점 이동이 실패하면 claim 하지 않고 `{TSK} {ID8} - - - failed detach` 를 쓰고 끝낸다. 아직 claim
   전이라 서버에 흔적이 없다.
 - `blocked` 로 멈췄다가 답을 받아 이어 가는 경우에는 이 3번을 다시 하지 않는다. 같은 세션이 같은 워크트리·
   브랜치에서 그대로 이어 가기 때문이다. 받은 답은 `docs/tasks/{TSK}/design.md` 에
   `- 담당자 결정(blocked 응답): <답>` 한 줄로 남기고(커밋은 `/dflow-dev` 커밋 규칙을 따른다) 설계 판단에 쓴다.
 - 의존성은 여기서 설치하지 않는다. `/dflow-dev --worker` 가 브랜치 생성 또는 재개로 agent 브랜치에 들어온
-  직후, 기준선과 Phase 1~4 게이트 전에 설치하고 실패하면 `failed deps` 로 끝낸다(「--worker」 H). 이유: 스택이면 기점이 선행 agent 브랜치라 선행
+  직후, 기준선과 Phase 02~05 게이트 전에 설치하고 실패하면 `failed deps` 로 끝낸다(「--worker」 H). 이유: 스택이면 기점이 선행 agent 브랜치라 선행
   작업이 lockfile 을 바꿨을 수 있고, 설치할 lockfile 은 그 기점의 것이어야 한다.
 - 이 절에서 끝난 실패(`no-skill`·`doctor-<exit>`·`auth`·`detach`)는 브랜치를 만들기 전이므로 branch 칸이 `-` 다.
 - `/dflow-dev` SKILL.md 에 `--worker` 가 없으면(옛 버전) 실행하지 않고 `.result` 에
@@ -155,7 +155,7 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 
 | status | 언제 | 사유 |
 |---|---|---|
-| `done` | Phase 5 까지 마치고 `done --auto-links` 가 exit 0 | 한 줄 요약 |
+| `done` | Phase 06 까지 마치고 `done --auto-links` 가 exit 0 | 한 줄 요약 |
 | `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나 |
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙 | 질문과 선택지 |
