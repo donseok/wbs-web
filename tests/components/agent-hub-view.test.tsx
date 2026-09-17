@@ -16,12 +16,30 @@ vi.mock('@/app/actions/agentHub', () => ({ refreshAgentHub: (...a: unknown[]) =>
 vi.mock('@/app/actions/wbsSpec', () => ({ setAgentDelegation: vi.fn(), updateAgentPrompt: vi.fn() }))
 vi.mock('@/app/actions/agentWork', () => ({ approveAgentCompletion: vi.fn(), rejectAgentCompletion: vi.fn(), setAgentProjectEnabled: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+// 실시간 구독(0098) — 채널은 스텁이고 broadcast 콜백만 붙잡아 테스트가 직접 쏜다.
+const rt = vi.hoisted(() => ({ broadcast: null as ((m: { payload?: unknown }) => void) | null }))
+vi.mock('@/lib/supabase/client', () => ({
+  createBrowserClient: () => {
+    const channel = {
+      on: (_t: string, _f: unknown, cb: (m: { payload?: unknown }) => void) => { rt.broadcast = cb; return channel },
+      subscribe: () => channel,
+    }
+    return {
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u1' } } } }) },
+      realtime: { setAuth: vi.fn() },
+      channel: () => channel,
+      removeChannel: vi.fn(),
+    }
+  },
+}))
 vi.mock('@/components/ui/Toast', () => ({ useToast: () => ({ toast: vi.fn() }) }))
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ t: (k: string) => k }) }))
 // 상세 패널은 WBS 편집 전체 표면(무거운 의존성)이라 스텁으로 대체 — 여기서는 "열림/닫힘·대상 항목"만 검증한다.
 vi.mock('@/components/wbs/RowDetailPanel', () => ({
-  RowDetailPanel: ({ item, onClose }: { item: { id: string; name: string }; onClose: () => void }) => (
-    <div data-detail-panel={item.id}>{item.name}<button data-detail-close onClick={onClose} /></div>
+  RowDetailPanel: ({ item, onClose }: { item: { id: string; name: string; rolledActualPct?: number }; onClose: () => void }) => (
+    <div data-detail-panel={item.id} data-detail-actual={item.rolledActualPct}>
+      {item.name}<button data-detail-close onClick={onClose} />
+    </div>
   ),
 }))
 import { AgentHubView } from '@/components/agent-hub/AgentHubView'
@@ -99,6 +117,54 @@ describe('AgentHubView', () => {
     expect(host.querySelector('[data-detail-panel]')).toBeNull()
     expect(refresh).toHaveBeenCalledWith('p1')
   })
+  it('실시간 신호를 받으면 허브를 재조회한다 — 연속 신호는 1회로 접는다', async () => {
+    // 승인 대기 카드는 주문 상태·보고 본문·서브트리 관리자 판정으로 조립된다. 트리거 페이로드
+    // {id, stage, actual_pct} 만으로는 **새 카드를 만들 수 없다** — 그래서 부분 패치가 아니라
+    // 이미 있는 refreshAgentHub 1회로 추가·갱신·제거를 한꺼번에 덮는다(router.refresh 아님, §7).
+    refresh.mockResolvedValue({ ok: true, hub: hub() })
+    await act(async () => { root.render(<AgentHubView initial={hub()} wbs={wbs()} />) })
+    expect(rt.broadcast).not.toBeNull()
+
+    await act(async () => {
+      for (let n = 1; n <= 5; n++) {
+        rt.broadcast!({ payload: {
+          id: `a${n}`, project_id: 'p1', stage: 'im', actual_pct: 80,
+          updated_at: `2026-09-14T0${n}:00:00.000Z`,
+        } })
+        vi.advanceTimersByTime(200)
+      }
+    })
+    expect(refresh).not.toHaveBeenCalled() // 마지막 신호로부터 아직 조용하지 않다
+
+    await act(async () => { vi.advanceTimersByTime(8_000) }) // delay+maxWait+jitter 상한을 넘긴다
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledWith('p1')
+  })
+
+  it('허브에서 연 상세 패널도 실시간으로 따라온다', async () => {
+    // 이 화면의 상세 패널 데이터(wbs.items)는 서버 페이지가 실어 준 값이라 refreshAgentHub 로는
+    // 갱신되지 않는다. 허브만 바뀌고 패널이 낡으면 같은 화면이 서로 다른 숫자를 보여준다.
+    refresh.mockResolvedValue({ ok: true, hub: hub() })
+    await act(async () => { root.render(<AgentHubView initial={hub()} wbs={wbs()} />) })
+    await act(async () => { (host.querySelector('[data-hub-open="a1"]') as HTMLButtonElement).click() })
+    expect(host.querySelector('[data-detail-panel="a1"]')?.getAttribute('data-detail-actual')).toBe('0')
+
+    await act(async () => {
+      rt.broadcast!({ payload: {
+        id: 'a1', project_id: 'p1', stage: 'xx', actual_pct: 100,
+        updated_at: '2026-09-14T10:00:00.000Z',
+      } })
+    })
+    expect(host.querySelector('[data-detail-panel="a1"]')?.getAttribute('data-detail-actual')).toBe('100')
+  })
+
+  it('형태가 어긋난 실시간 페이로드는 재조회를 부르지 않는다', async () => {
+    await act(async () => { root.render(<AgentHubView initial={hub()} wbs={wbs()} />) })
+    await act(async () => { rt.broadcast!({ payload: { nope: true } }) })
+    await act(async () => { vi.advanceTimersByTime(30_000) })
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
   it('허브 컴포넌트는 router.refresh 를 쓰지 않는다(스펙 §7)', () => {
     // §7 의 금지는 허브 자체 흐름(잦은 위임 토글이 WBS 전체를 다시 그리지 못하게 하는 성능 예산)에 대한 것이다.
     // 이 검사는 agent-hub 소유 컴포넌트만 훑는다. 이름 클릭으로 여는 RowDetailPanel 은 components/wbs 소속이라

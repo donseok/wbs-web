@@ -11,6 +11,8 @@ import { actorFromView, isProjectAdmin, type ProjectActorView } from '@/lib/doma
 import { computeDependencySchedule } from '@/lib/domain/dependencySchedule'
 import { canAttachDeliverable, canEditDeliverable } from '@/lib/domain/permissions'
 import { refreshAgentHub } from '@/app/actions/agentHub'
+import { useWbsRealtimeBurst } from '@/lib/hooks/useWbsRealtimeBurst'
+import { applyWbsChange } from '@/lib/domain/wbsRealtime'
 import { RowDetailPanel } from '@/components/wbs/RowDetailPanel'
 import { HubStatusBar } from './HubStatusBar'
 import { DelegationTable, type HubFilter } from './DelegationTable'
@@ -49,6 +51,14 @@ export function AgentHubView({ initial, wbs }: { initial: AgentHub; wbs: HubWbsB
   // 이름 클릭으로 연 상세 패널 대상 — WBS 항목 id.
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const inflight = useRef(false)
+  /* 상세 패널이 읽는 계산된 트리. 서버 페이지가 준 값을 미러링하고 실시간 신호로 그 행만 고친다.
+     서버가 새 트리를 주면(경로 전환) 그쪽이 정본이라 덮어쓴다 — 렌더 중에 맞추는 React 표준 패턴. */
+  const [wbsItems, setWbsItems] = useState(wbs.items)
+  const [seenWbsItems, setSeenWbsItems] = useState(wbs.items)
+  if (seenWbsItems !== wbs.items) {
+    setSeenWbsItems(wbs.items)
+    setWbsItems(wbs.items)
+  }
 
   const applyHub = useCallback((h: AgentHub) => { setHub(h); setNowMs(Date.parse(h.fetchedAt)); setError(null) }, [])
   const refresh = useCallback(async () => {
@@ -68,11 +78,30 @@ export function AgentHubView({ initial, wbs }: { initial: AgentHub; wbs: HubWbsB
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
   }, [refresh])
+
+  // 실시간(0098) — 에이전트가 단계를 올리면 탭을 보고 있지 않아도 큐가 따라온다.
+  // **부분 패치가 아니라 재조회**인 이유: 승인 대기 카드는 주문 상태·보고 본문(agent·percent·
+  // summary·links)·서브트리 관리자 판정으로 조립되는데 트리거 페이로드에는 그 정보가 없다.
+  // 새 보고로 카드가 "뜨는" 것이 이 화면에서 가장 값진 실시간이라, 제거만 되는 부분 패치로는
+  // 반쪽이 된다. refreshAgentHub 1회면 추가·갱신·제거를 모두 덮는다(페이지 전체 refresh 아님, §7).
+  // 대시보드보다 짧게 잡는다 — 조작 화면이라 체감이 중요하고, 서버 액션 1회는 RSC 전량
+  // 재렌더보다 훨씬 싸며, 보는 사람이 그 프로젝트 관리자 몇뿐이라 쇄도 위험이 작다.
+  //
+  // 상세 패널 데이터(wbs.items)는 서버 페이지가 실어 준 값이라 refreshAgentHub 로 갱신되지 않는다.
+  // 허브만 바뀌고 패널이 낡으면 같은 화면이 서로 다른 숫자를 보여준다. 그쪽은 행 정체성이 있으니
+  // 같은 구독에서 즉시 부분 패치한다(채널은 하나만 연다).
+  useWbsRealtimeBurst({
+    projectId: hub.projectId,
+    run: () => { void refresh() },
+    delayMs: 1_000, maxWaitMs: 5_000, jitterMs: 2_000,
+    onChange: payload => setWbsItems(cur =>
+      applyWbsChange(cur, payload, { today: wbs.today, holidays: new Set(wbs.holidays) }) ?? cur),
+  })
   // 경과 시간 표시만 1초마다 — 데이터는 건드리지 않는다.
   useEffect(() => { const t = window.setInterval(() => setNowMs(n => n + 1000), 1000); return () => window.clearInterval(t) }, [])
 
   // 상세 패널 데이터 — WBS 페이지(WbsGanttSheet)와 같은 계산. 허브 갱신과 무관하게 서버 페이지 데이터로 고정된다.
-  const allFlat = useMemo(() => flattenComputed(wbs.items), [wbs.items])
+  const allFlat = useMemo(() => flattenComputed(wbsItems), [wbsItems])
   const itemById = useMemo(() => new Map(allFlat.map(i => [i.id, i])), [allFlat])
   const schedule = useMemo(
     () => computeDependencySchedule(

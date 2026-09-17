@@ -1,7 +1,7 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { computeTree, overallProgress } from '@/lib/domain/rollup'
 import type { SnapshotPoint } from '@/lib/domain/trend'
-import type { WbsRow } from '@/lib/domain/types'
+import type { ComputedItem, WbsRow } from '@/lib/domain/types'
 import { seoulToday } from '@/lib/domain/dates'
 import { activeCodes, teamOrderMap } from '@/lib/domain/teams'
 import { teamsForProjectSync } from '@/lib/teams/master'
@@ -33,9 +33,35 @@ export async function getSnapshots(projectId: string): Promise<SnapshotPoint[]> 
 /** 오늘(KST)의 전체 실적/계획%를 upsert. 본 작업을 실패시키지 않도록 오류는 삼키고 로그만 남긴다.
  *  실적 롤업은 날짜와 무관하고 계획%만 날짜 함수이므로, base_date와 무관하게 항상 실제 오늘로 계산한다.
  *  page 의 after() 안에서는 cookies() 호출이 불가 — 그 경로는 client 를 밖에서 만들어 넘긴다. */
-export async function recordProgressSnapshot(projectId: string, client?: Sb): Promise<void> {
+/** 오늘자 스냅샷 1행을 덮어쓴다. 실패는 로그만 남긴다 — 보험 기록이 본 화면을 죽이면 안 된다. */
+async function upsertSnapshot(sb: Sb, projectId: string, today: string, actual: number, planned: number) {
+  const { error } = await sb.from('wbs_progress_snapshots').upsert(
+    { project_id: projectId, snap_date: today, actual_pct: actual, planned_pct: planned, updated_at: new Date().toISOString() },
+    { onConflict: 'project_id,snap_date' },
+  )
+  // 42501(RLS 거부)은 게스트(비멤버) 조회 시 예상 가능한 소음이라 로그를 생략한다.
+  if (error && error.code !== '42501') console.error('[snapshot] upsert 실패(무시):', error.message)
+}
+
+export async function recordProgressSnapshot(
+  projectId: string,
+  client?: Sb,
+  /**
+   * 호출부가 **같은 요청에서 이미 계산한** 트리. 넘기면 wbs_items 전량 재조회와 computeTree 가
+   * 한 번씩 사라진다 — 대시보드는 지금까지 같은 계산을 요청마다 두 번 했다(운영 최대 528행).
+   * `today` 는 그 트리를 계산한 기준일이다. 스냅샷은 '오늘'의 기록이므로 기준일이 오늘과
+   * 다르면(프로젝트에 base_date 가 설정된 경우) 재사용하지 않고 종전 경로로 직접 계산한다.
+   */
+  precomputed?: { roots: ComputedItem[]; today: string },
+): Promise<void> {
   try {
     const sb = client ?? (await createServerClient())
+    const todayNow = seoulToday()
+    if (precomputed && precomputed.today === todayNow) {
+      const { actual, planned } = overallProgress(precomputed.roots)
+      await upsertSnapshot(sb, projectId, todayNow, actual, planned)
+      return
+    }
     const [{ data: items, error: itemsErr }, { data: hol, error: holErr }] = await Promise.all([
       sb.from('wbs_items')
         .select('id, parent_id, code, sort_order, name, planned_start, planned_end, weight, actual_pct, is_owner_split')
@@ -63,18 +89,10 @@ export async function recordProgressSnapshot(projectId: string, client?: Sb): Pr
       owners: [],
       isOwnerSplit: r.is_owner_split === true,
     }))
-    const today = seoulToday()
     const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))
     const opts = { subActTeamOrder: teamOrderMap(activeCodes(teamsForProjectSync(projectId))) }
-    const { actual, planned } = overallProgress(computeTree(rows, today, holidays, opts))
-    const { error: upsertErr } = await sb.from('wbs_progress_snapshots').upsert(
-      { project_id: projectId, snap_date: today, actual_pct: actual, planned_pct: planned, updated_at: new Date().toISOString() },
-      { onConflict: 'project_id,snap_date' },
-    )
-    if (upsertErr && upsertErr.code !== '42501') {
-      // 42501(RLS 거부)은 게스트(비멤버) 조회 시 예상 가능한 소음이라 로그를 생략한다.
-      console.error('[snapshot] upsert 실패(무시):', upsertErr.message)
-    }
+    const { actual, planned } = overallProgress(computeTree(rows, todayNow, holidays, opts))
+    await upsertSnapshot(sb, projectId, todayNow, actual, planned)
   } catch (e) {
     console.error('[snapshot] 진척 스냅샷 기록 실패(무시):', e)
   }

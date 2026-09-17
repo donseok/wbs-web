@@ -43,6 +43,15 @@ export interface WbsRow {
    * 받는 members prop(project_members)으로 렌더 시점에 해석한다(중복 조회·중복 저장 회피).
    */
   assigneeMemberId?: string | null
+  /**
+   * 마지막 수정 시각(ISO). 실시간 broadcast 의 **순서 판정** 재료다 — broadcast 는 전송 순서를
+   * 보장하지 않으므로, 보유 행의 이 값보다 오래된 페이로드를 버려야 늦게 도착한 옛 값이 새 값을
+   * 덮어쓰지 않는다(2026-09-16 실시간 설계 §6-1).
+   * stage·assigneeMemberId 와 같은 이유로 선택 필드다: 필수로 올리면 WbsRow 리터럴을 만드는
+   * 테스트 수십 파일이 한꺼번에 깨진다. 없으면 '비교할 기준이 없다'는 뜻이고, 그때는 페이로드를
+   * 받아들인다 — SSR 직후라 보유 값이 곧 최신이고, 버리면 갱신이 영영 오지 않는다.
+   */
+  updatedAt?: string | null
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */
