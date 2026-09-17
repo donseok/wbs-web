@@ -30,13 +30,21 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('SeatmapView', () => {
-  it('카운터·확인 필요·층이 그려지고, 첫 확인 필요 항목이 선택되어 상세에 질문이 보인다', () => {
+  it('카운터·확인 필요·층이 그려지고, 팝업은 아무것도 고르지 않은 채로는 열리지 않는다', () => {
     act(() => root.render(<SeatmapView initial={map()} />))
     expect(host.textContent).toContain('mes-base')
     expect(host.querySelector('[data-counter="active"]')?.textContent).toBe('1')
     expect(host.querySelector('[data-counter="offline"]')?.textContent).toBe('1')
-    expect(host.querySelector('[data-panel]')?.textContent).toContain('어느 DB?')
-    expect(host.querySelector('[data-panel]')?.textContent).toContain('TSK-04-01')
+    // 상세는 팝업이다 — 페이지를 열자마자 뜨면 안 된다.
+    expect(document.querySelector('[data-panel]')).toBeNull()
+  })
+  it('확인 필요 띠를 누르면 그 좌석의 상세 팝업이 열린다', () => {
+    act(() => root.render(<SeatmapView initial={map()} />))
+    const btn = host.querySelector('[aria-label="확인 필요"] button') as HTMLButtonElement
+    act(() => btn.click())
+    const panel = document.querySelector('[data-panel]')
+    expect(panel?.textContent).toContain('어느 DB?')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('TSK-04-01')
   })
   it('확인 필요 띠의 버튼에 층(프로젝트) 이름이 보인다', () => {
     act(() => root.render(<SeatmapView initial={map()} />))
@@ -48,11 +56,13 @@ describe('SeatmapView', () => {
     act(() => root.render(<SeatmapView initial={map()} />))
     expect(host.textContent).toContain('18시 0분 0초')
   })
-  it('확인 필요 버튼을 누르면 그 책상이 선택된다', () => {
+  it('책상을 누르면 그 좌석의 상세 팝업이 열리고, 닫으면 사라진다', () => {
     act(() => root.render(<SeatmapView initial={map({ attention: [] })} />))
     const desk = [...host.querySelectorAll('button[aria-pressed]')].find(b => b.textContent?.includes('TSK-04-02')) as HTMLButtonElement
     act(() => desk.click())
-    expect(host.querySelector('[data-panel]')?.textContent).toContain('TSK-04-02')
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain('TSK-04-02')
+    const close = [...document.querySelectorAll('[role="dialog"] button')].find(b => b.getAttribute('aria-label')?.includes('닫')) as HTMLButtonElement
+    if (close) { act(() => close.click()); expect(document.querySelector('[data-panel]')).toBeNull() }
   })
   it('30초마다 refreshSeatmap 을 부르고 결과로 갈아 끼운다', async () => {
     refresh.mockResolvedValue({ ok: true, seatmap: map({ counters: { active: 9, standby: 0, idle: 0, offline: 0 } }) })

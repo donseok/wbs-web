@@ -8,7 +8,8 @@ import { Counters } from './Counters'
 import { AttentionBand } from './AttentionBand'
 import { FloorCard } from './FloorCard'
 import { LaneBoard } from './LaneBoard'
-import { DetailPanel, type NoteDraft } from './DetailPanel'
+import { Modal } from '@/components/ui/Modal'
+import { DetailPanel, seatEyebrow, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
 import { IconFloorView, IconLaneView } from './icons'
 import css from './seatmap.module.css'
@@ -32,7 +33,7 @@ const VIEW_KEY = 'dflow.office.view'
 export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: Seatmap; pollMs?: number; projectId?: string }) {
   const [map, setMap] = useState(initial)
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
-  const [selected, setSelected] = useState<string | null>(initial.attention[0]?.orderId ?? null)
+  const [selected, setSelected] = useState<string | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.parse(initial.fetchedAt))
   const [scope, setScope] = useState<SeatmapScope>(initial.scope)
   // 기본은 평면도다. 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
@@ -150,7 +151,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
         </div>
       </header>
       <AttentionBand items={map.attention} onSelect={setSelected} />
-      <main className={css.grid}>
+      <main className={css.stage}>
         <section className={css.floors} data-view={view} aria-label={view === 'floor' ? '프로젝트별 좌석' : '상태별 좌석'}>
           {map.floors.length === 0 && (projectId !== undefined
             ? (map.scope === 'mine'
@@ -175,15 +176,24 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
             </p>
           )}
         </section>
+      </main>
+      {/* 상세와 결재는 팝업으로 — 좌석 무대가 화면 폭을 다 쓰고, 고른 좌석에 시선이 모인다.
+          닫으면 선택과 쓰던 사유를 함께 비운다(초안만 남으면 폴링이 계속 쉰다). */}
+      <Modal
+        open={sel !== null}
+        onClose={() => { setSelected(null); setNote(null); setOpError(null) }}
+        eyebrow={sel ? seatEyebrow(sel.floorName, sel.zoneLabel, sel.seat) : undefined}
+        title={sel?.seat.code}
+        size="lg">
         <DetailPanel
-          seat={sel?.seat ?? null} floorName={sel?.floorName ?? ''} zoneLabel={sel?.zoneLabel ?? ''} nowMs={nowMs}
+          seat={sel?.seat ?? null} nowMs={nowMs}
           busy={sel?.seat != null && busyOrderId === sel.seat.orderId}
           note={note} opError={opError} onOp={onOp}
           onNoteChange={text => setNote(prev => (prev ? { ...prev, text } : prev))}
           onNoteConfirm={() => { if (note && sel?.seat) void runOp(sel.seat, note.kind, note.text) }}
           onNoteCancel={() => { setNote(null); setOpError(null) }}
         />
-      </main>
+      </Modal>
       <footer className={css.legend}>
         <ul>
           <li><i className={css.sw} style={{ background: 'var(--sm-active)' }} />업무 중(신호 5분 이내)</li>

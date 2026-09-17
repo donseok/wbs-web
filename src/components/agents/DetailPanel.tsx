@@ -26,8 +26,13 @@ function ladderPhase(seat: Seat): string {
 /** 사유를 받아야 확정되는 op 의 입력 상태 — 정본은 SeatmapView 가 쥔다(30초 폴링이 작성 중인 글을 지우지 않게). */
 export interface NoteDraft { orderId: string; kind: SeatOpKind; text: string }
 
-export function DetailPanel({ seat, floorName, zoneLabel, nowMs, busy, note, opError, onOp, onNoteChange, onNoteConfirm, onNoteCancel }: {
-  seat: Seat | null; floorName: string; zoneLabel: string; nowMs: number
+/** 모달 머리에 쓰는 한 줄 — 층 · 구역 · 주문 8자리. */
+export function seatEyebrow(floorName: string, zoneLabel: string, seat: Seat): string {
+  return `${floorName} · ${zoneLabel} · 주문 ${seat.id8}`
+}
+
+export function DetailPanel({ seat, nowMs, busy, note, opError, onOp, onNoteChange, onNoteConfirm, onNoteCancel }: {
+  seat: Seat | null; nowMs: number
   busy: boolean
   note: NoteDraft | null
   opError: string | null
@@ -36,7 +41,7 @@ export function DetailPanel({ seat, floorName, zoneLabel, nowMs, busy, note, opE
   onNoteConfirm: () => void
   onNoteCancel: () => void
 }) {
-  if (!seat) return <aside className={css.panel} data-panel="">책상을 고르면 상세가 여기 보입니다.</aside>
+  if (!seat) return null
   const now = ladderPhase(seat)
   const idx = LADDER.findIndex(l => l.phase === now)
   const hbBad = seat.state === 'STALE' || seat.state === 'OFFLINE'
@@ -45,9 +50,7 @@ export function DetailPanel({ seat, floorName, zoneLabel, nowMs, busy, note, opE
   const draft = note && note.orderId === seat.orderId ? note : null
   const noteReady = (draft?.text ?? '').trim().length > 0
   return (
-    <aside className={css.panel} data-panel="" aria-live="polite">
-      <div className={css.eyebrow}>{floorName} · {zoneLabel} · 주문 {seat.id8}</div>
-      <h3>{seat.code}</h3>
+    <div className={css.panel} data-panel="" aria-live="polite">
       <p className={css.task}>{seat.name}</p>
       <span className={css.pill} data-state={seat.state}>{STATE_LABEL[seat.state]}</span>
       {seat.state === 'READY' && seat.waitReason && (
@@ -108,6 +111,6 @@ export function DetailPanel({ seat, floorName, zoneLabel, nowMs, busy, note, opE
       <div className={css.actions}>
         <Link href={`/p/${seat.projectId}/wbs`}>WBS 에서 열기</Link>
       </div>
-    </aside>
+    </div>
   )
 }
