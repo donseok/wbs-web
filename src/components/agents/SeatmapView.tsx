@@ -10,7 +10,7 @@ import { FloorCard } from './FloorCard'
 import { LaneBoard } from './LaneBoard'
 import { DetailPanel, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
-import { IconFloorView, IconLaneView } from './icons'
+import { IconApprove, IconFloorView, IconLaneView } from './icons'
 import css from './seatmap.module.css'
 
 function findSeat(map: Seatmap, orderId: string | null): { seat: Seat; floorName: string; zoneLabel: string } | null {
@@ -25,6 +25,8 @@ const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour
 
 type OfficeView = 'floor' | 'lane'
 const VIEW_KEY = 'dflow.office.view'
+/** '완료 포함' — 평면도에 머지 완료(최근 7일) 좌석까지 그릴지. 보기와 같이 이 브라우저에만 기억한다. */
+const DONE_KEY = 'dflow.office.done'
 
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
  *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다.
@@ -37,6 +39,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
   const [scope, setScope] = useState<SeatmapScope>(initial.scope)
   // 기본은 평면도다. 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
   const [view, setView] = useState<OfficeView>('floor')
+  const [withDone, setWithDone] = useState(false)
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
   const [note, setNote] = useState<NoteDraft | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
@@ -50,11 +53,21 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
     try {
       const saved = window.localStorage.getItem(VIEW_KEY)
       if (saved === 'lane' || saved === 'floor') setView(saved)
+      if (window.localStorage.getItem(DONE_KEY) === '1') setWithDone(true)
     } catch { /* 값이 없거나 접근이 막혀도 평면도로 그린다 */ }
   }, [])
   const pickView = useCallback((next: OfficeView) => {
     setView(next)
     try { window.localStorage.setItem(VIEW_KEY, next) } catch { /* 기억하지 못해도 화면은 돈다 */ }
+  }, [])
+  /** 층별 doneCount 의 합 — 토글 라벨과 안내 문구가 같은 수를 쓴다. */
+  const doneTotal = map.floors.reduce((n, f) => n + f.doneCount, 0)
+  const toggleDone = useCallback(() => {
+    setWithDone(prev => {
+      const next = !prev
+      try { window.localStorage.setItem(DONE_KEY, next ? '1' : '0') } catch { /* 기억하지 못해도 화면은 돈다 */ }
+      return next
+    })
   }, [])
 
   /** force = 사람이 부른 갱신(범위 전환·결재 직후). 자동 폴링만 양보한다 — 결재 뒤 갱신이 폴링과
@@ -144,7 +157,6 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [sel === null, closeDetail]) // eslint-disable-line react-hooks/exhaustive-deps
-  const doneTotal = map.floors.reduce((n, f) => n + f.doneCount, 0)
 
   return (
     <div className={css.root}>
@@ -156,6 +168,14 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
             <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
             <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
           </div>
+          {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다. */}
+          {view === 'floor' && (
+            <button type="button" className={css.doneToggle} data-done-toggle aria-pressed={withDone}
+              title="머지 완료(최근 7일) 좌석을 평면도에 함께 그립니다. 승인 취소·재작업 요청을 그 자리에서 할 수 있습니다."
+              onClick={toggleDone}>
+              <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
+            </button>
+          )}
           <div className={css.scope} role="group" aria-label="표시 범위">
             <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine', true) }}>내 작업</button>
             <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all', true) }}>전체</button>
@@ -177,17 +197,19 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
               : <p className={css.doneNote}>표시할 주문이 없습니다. 에이전트 위임(agent 태그) 항목의 주문만 보이며, 내가 속한 프로젝트에 그런 주문이 생기면 여기 층이 생깁니다.</p>)}
           {view === 'floor'
             ? map.floors.map(f => (
-              <FloorCard key={f.id} floor={f} selectedId={selected} nowMs={nowMs} busyOrderId={busyOrderId} onSelect={setSelected} onOp={onOp} />
+              <FloorCard key={f.id} floor={f} selectedId={selected} nowMs={nowMs} busyOrderId={busyOrderId} withDone={withDone} onSelect={setSelected} onOp={onOp} />
             ))
             : map.floors.length > 0 && (
               <LaneBoard map={map} selectedId={selected} nowMs={nowMs} busyOrderId={busyOrderId}
                 showFloorName={projectId === undefined} onSelect={setSelected} onOp={onOp} />
             )}
-          {view === 'floor' && doneTotal > 0 && (
+          {view === 'floor' && !withDone && doneTotal > 0 && (
             <p className={css.doneNote}>
               머지 완료 {doneTotal}건(최근 7일)은 평면도에 그리지 않습니다 —{' '}
+              <button type="button" className={css.zoneFold} data-goto-done onClick={toggleDone}>완료 포함으로 보기</button>
+              {' 또는 '}
               <button type="button" className={css.zoneFold} data-goto-lane onClick={() => pickView('lane')}>상태 레인에서 보기</button>
-              . 승인 취소·재작업 요청은 거기서 합니다.
+              . 승인 취소·재작업 요청은 둘 중 어디서든 합니다.
             </p>
           )}
         </section>

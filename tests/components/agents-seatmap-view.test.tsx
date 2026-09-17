@@ -28,7 +28,7 @@ const map = (over: Partial<Seatmap> = {}): Seatmap => ({
 })
 
 let host: HTMLDivElement, root: Root
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); window.localStorage.clear(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('SeatmapView', () => {
@@ -180,5 +180,57 @@ describe('SeatmapView — 좌석에서 바로 결재', () => {
     await act(async () => { root.render(<SeatmapView initial={waitSeat()} />) })
     await act(async () => { opButton('approve').click() })
     expect(document.querySelector('[data-op-error]')?.textContent).toContain('이미 승인된 주문입니다')
+  })
+})
+
+describe('SeatmapView — 완료 포함 보기', () => {
+  // 진행 중 한 자리와 머지 완료 한 자리가 같은 구역에 있는 층.
+  const withDoneSeat = (): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 1, watchers: [],
+      zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 1 }, seats: [
+        { orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'i1', code: 'TSK-04-01', name: '도는 중', state: 'ACTIVE', phase: 'typing', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'typing', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
+        { orderId: 'o2', id8: 'o2', projectId: 'p1', itemId: 'i2', code: 'TSK-04-02', name: '승인된 건', state: 'DONE', phase: 'verify', anim: 'empty', character: 'bot', agent: null, progress: 100, lastSignalAt: null, heartbeatAt: null, heartbeatPhase: null, note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
+      ] }],
+    }],
+    attention: [],
+  })
+  const toggle = () => host.querySelector('[data-done-toggle]') as HTMLButtonElement
+
+  it('기본은 꺼짐 — 완료 좌석은 평면도에 없고, 안내가 켜는 길을 준다', () => {
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
+    expect(host.textContent).toContain('TSK-04-01')
+    expect(host.textContent).not.toContain('TSK-04-02')
+    expect(toggle().getAttribute('aria-pressed')).toBe('false')
+    expect(host.querySelector('[data-goto-done]')).not.toBeNull()
+  })
+  it('켜면 완료 좌석이 평면도에 그려지고 안내가 사라진다', () => {
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
+    act(() => toggle().click())
+    expect(host.textContent).toContain('TSK-04-02')
+    expect(toggle().getAttribute('aria-pressed')).toBe('true')
+    expect(host.querySelector('[data-goto-done]')).toBeNull()
+  })
+  it('켜면 구역 요약과 층 머리에 완료 수가 붙는다', () => {
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
+    act(() => toggle().click())
+    expect(host.textContent).toContain('1 완료')
+    expect(host.textContent).toContain('완료 1')
+  })
+  it('선택을 이 브라우저에 기억한다', () => {
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
+    act(() => toggle().click())
+    expect(window.localStorage.getItem('dflow.office.done')).toBe('1')
+    act(() => root.unmount())
+    root = createRoot(host)
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
+    expect(toggle().getAttribute('aria-pressed')).toBe('true')
+    expect(host.textContent).toContain('TSK-04-02')
+  })
+  it('상태 레인 보기에서는 토글이 없다 — 그 보기는 완료 레인을 늘 안고 있다', () => {
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
+    const lane = [...host.querySelectorAll('button')].find(b => b.getAttribute('data-view') === 'lane') as HTMLButtonElement
+    act(() => lane.click())
+    expect(host.querySelector('[data-done-toggle]')).toBeNull()
   })
 })

@@ -207,6 +207,11 @@
 .viewSeg button svg { width: 13px; height: 13px; }
 .viewSeg button[aria-pressed="true"] { background: rgba(255,255,255,.16); color: var(--sm-band-ink); font-weight: 600; }
 .viewSeg button:focus-visible { outline: 2px solid var(--sm-band-ink); outline-offset: -2px; }
+/* 완료 포함 — 보기·범위와 같은 결의 단독 토글. 눌린 상태는 aria-pressed 로만 가른다(display 토글 금지). */
+.doneToggle { font: inherit; font-size: 12px; line-height: 1; padding: 6px 13px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; background: transparent; color: var(--sm-band-muted); cursor: pointer; }
+.doneToggle svg { width: 13px; height: 13px; }
+.doneToggle[aria-pressed="true"] { background: rgba(255,255,255,.16); color: var(--sm-band-ink); font-weight: 600; }
+.doneToggle:focus-visible { outline: 2px solid var(--sm-band-ink); outline-offset: -2px; }
 
 /* 상태 표지 — 아이콘 I1(라인). 옛 글자 배지(!·?·"끊김")를 대신한다. */
 .mark { margin-left: auto; display: inline-flex; align-items: center; }
