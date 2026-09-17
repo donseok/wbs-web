@@ -68,13 +68,11 @@
 .watchOn::before { background: var(--sm-standby); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-standby) 25%, transparent); }
 .doneNote { font-size: 12px; color: var(--sm-ink-3); margin: 8px 0 0; }
 
-/* 구역이 층 안에서 타일링한다. 하한 440px 은 좌석 두 줄(캐릭터 68px + 책상)이 읽히는 최소 폭이고,
-   상한 620px 은 구역 하나뿐인 층에서 좌석이 지나치게 늘어지지 않게 한다. auto-fit 이라 빈 트랙이
-   남지 않는다 — auto-fill 이면 구역 하나일 때 오른쪽 절반이 그대로 빈다.
-   하한 560px 은 좌석 두 줄이 각 257px 은 되게 하는 값이다: 그 아래에서는 책상이 130px 밑으로
-   내려가 항목 이름이 한 글자씩 쪼개진다. 더 좁아지면 아래 @container 가 배치를 세로로 바꾼다.
-   min() 은 좁은 화면에서 하한이 화면을 넘지 않게 한다. */
-.zones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(560px, 100%), 620px)); justify-content: start; gap: 10px; align-items: start; }
+/* 구역은 열로 쪼개지 않는다 — 한 구역이 층의 전체 폭을 쓰고 그 안에서 좌석이 통로 양쪽에 앉는다.
+   열로 나누면 구역이 좁아지고, 그 안의 좌석 두 줄이 다시 반씩 나뉘어 책상이 먼저 짜부라진다
+   (스테이징 실측: 구역 440px → 책상 129px, 항목 이름이 한 글자씩 세로로 쪼개짐).
+   좁은 화면에서 좌석을 세로로 세우는 것은 아래 @container 가 맡는다. */
+.zones { display: grid; gap: 10px; align-items: start; }
 /* container-type 은 아래 @container 가 구역 폭을 기준으로 재게 한다 — 좌석이 좁아지는 것은 화면 폭이
    아니라 구역 폭 때문이고(사이드바·패딩이 사이에 낀다), 미디어 쿼리로는 그것을 맞출 수 없다. */
 .zone { background: var(--sm-zone); border: 1px solid var(--sm-line-2); border-radius: 10px; padding: 8px 10px 10px; container-type: inline-size; }
