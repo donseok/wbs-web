@@ -21,7 +21,7 @@ const NOW = Date.parse('2026-09-14T09:00:00Z')
 const row = (over: Partial<HubRow>): HubRow => ({
   itemId: 'x', code: 'X', name: 'x', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: null, assigneeMine: false,
   canManage: false,
-  delegated: false, devWorkflow: false, stage: null, stageLocked: false, order: null, prompt: null, canToggle: false, unmetDepends: null, ...over,
+  delegated: false, devWorkflow: false, stage: null, stageLocked: false, order: null, prompt: null, canToggle: false, waitReason: null, ...over,
 })
 const ROWS: HubRow[] = [
   row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
@@ -202,16 +202,18 @@ describe('DelegationTable — 체크는 즉시 표시·잠기지 않음, 1.5초 
   })
 })
 
-describe('DelegationTable — 선행 미완료', () => {
-  it('unmetDepends 가 있으면 상태 칸에 "선행 미완료: 목록" 을 그리고 title 에 전문을 둔다', () => {
-    const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true, unmetDepends: 'TSK-D-00 선행(현재 fp(기능 계획))' })]
+describe('DelegationTable — 착수 대기 사유', () => {
+  it('waitReason 이 있으면 상태 칸에 라벨을 그리고 title 에 전문, data-wait-reason 에 종류를 둔다', () => {
+    const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true,
+      waitReason: { kind: 'dependency', label: '선행 대기', text: '선행 작업이 아직 끝나지 않았습니다: TSK-D-00 선행(현재 fp(기능 계획)). 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야 이 작업을 집어갈 수 있습니다.' } })]
     render({ rows })
     const el = host.querySelector('[data-hub-row="d1"] [data-hub-depends]') as HTMLElement
     expect(el).not.toBeNull()
-    expect(el.textContent).toBe('선행 미완료: TSK-D-00 선행(현재 fp(기능 계획))')
+    expect(el.textContent).toBe('선행 대기')
+    expect(el.getAttribute('data-wait-reason')).toBe('dependency')
     expect(el.title).toContain('선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야')
   })
-  it('unmetDepends 가 null 이면 그리지 않는다', () => {
+  it('waitReason 이 null 이면 그리지 않는다', () => {
     render()
     expect(host.querySelector('[data-hub-depends]')).toBeNull()
   })

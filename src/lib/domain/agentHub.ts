@@ -3,7 +3,7 @@
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §4-2
 import { deriveSeatState, isWatcherAlive, lastSignalMs, type OrderStatus, type SeatState } from './seatState'
 import { AGENT_TAG, isSubtreeManagerOf, type OrderRow, type Watcher, type WatcherRow } from './seatmap'
-import { unmetDepends, unmetDependsList } from './waitReason'
+import { deriveWaitReason, type WaitReason } from './waitReason'
 import { stageLockedForHuman } from './agentWork'
 
 export interface HubItemRow {
@@ -43,8 +43,10 @@ export interface HubRow {
   prompt: string | null
   /** 리프 && 마일스톤 아님 && (관리자 || 담당자 본인) — 화면의 체크 활성 판정. 서버 가드(requireDelegationRight)와 같은 규칙. */
   canToggle: boolean
-  /** 리프·위임·(주문 없음 또는 READY) 이고 선행이 미충족이면 그 목록 문구(waitReason.unmetDependsList), 아니면 null. 클레임 API dependency_not_met 와 같은 축. */
-  unmetDepends: string | null
+  /** 착수를 기다리는 이유 — 리프·위임·(주문 없음 또는 READY) 일 때만 채우고 그 밖에는 null.
+   *  좌석표(Seat.waitReason)와 같은 deriveWaitReason 을 쓴다. 두 화면이 다른 말을 하면 안 된다.
+   *  kind==='dependency' 가 종전 unmetDepends 를 대신한다(같은 게이트·같은 선행 판정). */
+  waitReason: WaitReason | null
 }
 export interface HubQueueEntry {
   orderId: string; itemId: string | null; code: string; name: string; agent: string; percent: number; summary: string
@@ -148,6 +150,10 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   // 선행은 같은 프로젝트 항목의 external_ref 로 맞춘다 — 허브는 프로젝트 전체 항목을 이미 들고 있다.
   const byRef = new Map(rows.items.filter(i => i.external_ref !== null).map(i => [i.external_ref as string, i]))
   const approved = new Set(rows.approvedItemIds)
+  // 착수 대기 사유 재료 — 담당자 로스터 행(user_id 포함)과 이 프로젝트를 보는 살아 있는 감시자.
+  // hub.watchers(Watcher[])를 재사용하지 않는다 — 그 형에는 user_id 가 없어 담당자 자격 판정이 전부 거짓이 된다.
+  const memberById = new Map(rows.members.map(m => [m.id, m]))
+  const hubWatchers = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (w.project_id === null || w.project_id === projectId))
   const hubRows: HubRow[] = []
   const counters = { delegated: 0, ready: 0, working: 0, waiting: 0 }
   for (const { item, depth } of flatten(rows.items)) {
@@ -175,9 +181,16 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     }
     if (isLeaf && delegated) counters.delegated++
     const waitingStart = order === null || order.state === 'READY'
-    const unmet = isLeaf && delegated && waitingStart
-      ? unmetDepends(item.depends, ref => { const p = byRef.get(ref); return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id), actual_pct: p.actual_pct } : undefined })
-      : []
+    const assigneeMember = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
+    const waitReason = isLeaf && delegated && waitingStart
+      ? deriveWaitReason({
+          depends: item.depends,
+          predecessorByRef: ref => { const p = byRef.get(ref); return p ? { external_ref: ref, code: p.code, name: p.name, stage: p.stage, order_approved: approved.has(p.id), actual_pct: p.actual_pct } : undefined },
+          // 담당자 id 는 있는데 로스터 행이 없으면 계정 미연결과 같은 취급(seatmap.ts 와 같은 규칙).
+          assignee: item.assignee_member_id ? { name: assigneeMember?.name ?? '(로스터에 없음)', user_id: assigneeMember?.user_id ?? null } : null,
+          watchers: hubWatchers,
+        })
+      : null
     hubRows.push({
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,
@@ -186,7 +199,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
       stageLocked: stageLockedForHuman({ delegated, orderStatus: picked?.status ?? null }),
       order, prompt: item.agent_prompt,
       canToggle: isLeaf && !item.milestone && (viewer.isAdmin || assigneeMine),
-      unmetDepends: unmet.length ? unmetDependsList(unmet) : null,
+      waitReason,
     })
   }
 

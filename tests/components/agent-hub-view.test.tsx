@@ -48,7 +48,7 @@ const NOW = Date.parse('2026-09-14T09:00:00Z')
 const hub = (over: Partial<AgentHub> = {}): AgentHub => ({
   projectId: 'p1', projectName: 'mes-base', registered: true, enabled: true,
   counters: { delegated: 1, ready: 0, working: 1, waiting: 0 }, watchers: [],
-  rows: [{ itemId: 'a1', code: 'TSK-A-01', name: '리프1', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: '장', assigneeMine: true, canManage: false, delegated: true, devWorkflow: true, stage: 'im', stageLocked: true, order: { id: 'o1', status: 'claimed', state: 'ACTIVE', agent: 'hong', lastSignalAt: new Date(NOW - 1000).toISOString() }, prompt: null, canToggle: true, unmetDepends: null }],
+  rows: [{ itemId: 'a1', code: 'TSK-A-01', name: '리프1', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: '장', assigneeMine: true, canManage: false, delegated: true, devWorkflow: true, stage: 'im', stageLocked: true, order: { id: 'o1', status: 'claimed', state: 'ACTIVE', agent: 'hong', lastSignalAt: new Date(NOW - 1000).toISOString() }, prompt: null, canToggle: true, waitReason: null }],
   queue: [], fetchedAt: new Date(NOW).toISOString(), viewer: { isAdmin: false, memberIds: ['m1'] }, ...over,
 })
 // 상세 패널 데이터 — 스텁은 id·name 만 읽고, AgentHubView 는 일정 계산에 plannedStart/End·rolledActualPct 를 쓴다.

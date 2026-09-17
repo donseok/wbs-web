@@ -282,10 +282,9 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   <td className="py-1">
                     {r.order ? <span className="chip bg-surface-2 text-ink">{STATE_LABEL[r.order.state]}</span> : <span className="text-ink-subtle">{NO_ORDER}</span>}
                     {r.isLeaf && r.devWorkflow && !r.delegated && <small className="ml-1 text-[10px] text-accent-warning">{NEEDS_DELEGATION}</small>}
-                    {r.unmetDepends && (
-                      <small data-hub-depends className="block text-[10px] text-accent-warning"
-                        title={`선행 작업이 아직 끝나지 않았습니다: ${r.unmetDepends}. 선행이 검수 대기(im) 이상이 되거나, 그 주문이 승인되거나, 실적이 100% 가 돼야 에이전트가 집어갑니다.`}>
-                        선행 미완료: {r.unmetDepends}
+                    {r.waitReason && (
+                      <small data-hub-depends data-wait-reason={r.waitReason.kind} className="block text-[10px] text-accent-warning" title={r.waitReason.text}>
+                        {r.waitReason.label}
                       </small>
                     )}
                   </td>
