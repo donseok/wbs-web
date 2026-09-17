@@ -8,8 +8,10 @@
   --sm-empty: #E3E7E2; --sm-empty-ink: #75828A; --sm-reject: #F4C7BE; --sm-reject-ink: #6A1C0F; --sm-reject-bar: #D8563E;
   --sm-standby: #3F8F58; --sm-standby-soft: #DCEFE0; --sm-warn: #D8563E; --sm-warn-soft: #FBE4DF;
   --sm-shadow: 0 1px 2px rgba(20,30,36,.06), 0 8px 22px rgba(20,30,36,.06);
-  /* 스프라이트 표시 칸 — 원본 셀은 136x124(public/sprites/manifest.json), 화면에는 절반으로 그린다. */
-  --sm-cell-w: 68px; --sm-cell-h: 62px;
+  /* 스프라이트 표시 칸 — 원본 셀은 136x124(public/sprites/manifest.json), 화면에는 3/4 로 그린다
+     (2026-09-17 "캐릭터가 너무 작다"). 원본보다 작으므로 여전히 축소라 흐려지지 않고, 가로세로가
+     원본 비율과 정확히 같아야(136:124 = 102:93) 프레임 이동이 어긋나지 않는다. */
+  --sm-cell-w: 102px; --sm-cell-h: 93px;
   color: var(--sm-ink);
 }
 :global(.dark) .root {
@@ -95,14 +97,14 @@
 .zoneIcon[data-kind="work"]::before { background: var(--sm-active); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sm-active) 25%, transparent); }
 
 /* 좌석 블록: 가운데 통로선 양쪽 두 줄 */
-/* 좌석 두 줄이 제 크기(300px)를 넘지 않으므로 블록에도 같은 상한을 두고 가운데로 모은다 —
+/* 좌석 두 줄이 제 크기(334px)를 넘지 않으므로 블록에도 같은 상한(334*2 + 통로 26)을 두고 가운데로 모은다 —
    상한이 없으면 아주 넓은 구역에서 통로가 화면 끝까지 벌어져 두 줄이 서로 마주보지 않는다. */
-.block { position: relative; display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 8px; padding-block: 4px; max-width: 626px; margin-inline: auto; }
+.block { position: relative; display: grid; grid-template-columns: 1fr 1fr; column-gap: 26px; row-gap: 8px; padding-block: 4px; max-width: 694px; margin-inline: auto; }
 .block::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--sm-line); border-radius: 1px; }
 /* 좌석에 상한을 둔다 — 상한이 없으면 넓은 화면에서 책상이 옆으로 늘어져 한 줄에 대여섯 글자만
-   남는다. 300px 은 캐릭터 칸(68px)과 책상(232px)을 더한 값이고, 시안에서 항목 코드와 이름이
-   각각 한 줄에 들어가는 최소 폭이다. 두 줄은 통로 쪽으로 모아 마주보는 구도를 지킨다. */
-.seat { display: grid; align-items: stretch; min-height: var(--sm-cell-h); width: 100%; max-width: 300px; }
+   남는다. 334px 은 캐릭터 칸(102px)과 책상(232px)을 더한 값이고, 232px 이 시안에서 항목 코드와
+   이름이 각각 한 줄에 들어가는 최소 폭이다. 두 줄은 통로 쪽으로 모아 마주보는 구도를 지킨다. */
+.seat { display: grid; align-items: stretch; min-height: var(--sm-cell-h); width: 100%; max-width: 334px; }
 .seatLeft { justify-self: end; grid-template-columns: var(--sm-cell-w) minmax(0, 1fr); }
 .seatRight { justify-self: start; grid-template-columns: minmax(0, 1fr) var(--sm-cell-w); }
 .seatRight .chair { order: 2; }
@@ -135,7 +137,7 @@
 .desk[data-state="OFFLINE"] { background: var(--sm-empty); color: var(--sm-empty-ink); border-color: var(--sm-warn); }
 
 /* 스프라이트: 셀 하나 폭씩 background-position 을 옮기는 steps(n) 애니메이션. JS 타이머 없음.
-   원본 셀은 136x124 이고 화면에는 절반(--sm-cell-*)으로 그린다 — keyframe 의 이동량이 표시 폭과
+   원본 셀은 136x124 이고 화면에는 3/4(--sm-cell-*)로 그린다 — keyframe 의 이동량이 표시 폭과
    같아야 프레임이 어긋나지 않는다. image-rendering 은 손대지 않는다: 원화가 안티에일리어싱된
    렌더라 nearest 로 축소하면 재생 중 떨려 보인다. */
 .sprite { display: block; width: var(--sm-cell-w); height: var(--sm-cell-h); background-repeat: no-repeat; background-position: 0 0; background-size: auto var(--sm-cell-h); animation: seatStrip calc(var(--frames) / var(--fps) * 1s) steps(var(--frames)) infinite; }
@@ -275,8 +277,8 @@
 .card[data-state="ACTIVE"] { border-left: 4px solid var(--sm-active); }
 .card[data-state="DONE"] { border-left: 4px solid var(--sm-standby); }
 .card[data-state="READY"] { border-left: 4px dashed var(--sm-line); }
-/* 카드의 캐릭터는 작게 — 좌석의 절반. 반전은 하지 않는다(줄이 없다). */
-.card .sprite { --sm-cell-w: 46px; --sm-cell-h: 42px; }
+/* 카드의 캐릭터는 작게 — 좌석의 2/3(원본의 절반). 반전은 하지 않는다(줄이 없다). */
+.card .sprite { --sm-cell-w: 68px; --sm-cell-h: 62px; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    좁은 구역 — 좌석을 한 줄로 세우고 캐릭터를 책상 위에 올린다.
@@ -284,7 +286,7 @@
    항목 이름이 한 글자씩 세로로 쪼개진다. display 는 건드리지 않는다 — 통로선은 의사요소의
    content 로 지우고, 칸 수만 바꾼다(globals.css 의 unlayered 안전망과 무관하다).
    ───────────────────────────────────────────────────────────────────────────── */
-@container (max-width: 559px) {
+@container (max-width: 620px) {
   .block { grid-template-columns: 1fr; column-gap: 0; row-gap: 10px; }
   .block::before { content: none; }
   /* 통로가 없어졌으므로 상한과 통로 쪽 정렬도 함께 푼다 — 좌석이 구역 폭을 그대로 쓴다. */
