@@ -69,6 +69,7 @@ const COLS = [
   { key: 'name', label: '작업', w: 296, min: 140 },
   { key: 'owner', label: '담당자', w: 88, min: 60 },
   { key: 'state', label: '단계 · 상태', w: 182, min: 128 },
+  { key: 'reason', label: '사유', w: 116, min: 72 },
   { key: 'agent', label: '에이전트 · 신호', w: 162, min: 92 },
   { key: 'ops', label: '조정', w: 176, min: 96 },
 ] as const
@@ -81,26 +82,31 @@ const VIEW_KEY = 'dflow-hub-view'
 
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ')
 
-/** 부모 → 자손 리프(마일스톤 제외) id. 표 행이 전위 순서라 stack 없이 한 번에 만든다. */
+/**
+ * 부모 → 내가 켤 수 있는 자손 리프 id. 표 행이 전위 순서라 stack 없이 한 번에 만든다.
+ * canToggle(리프·마일스톤 아님·관리자 또는 담당자 본인)로 미리 거른다 — 서버 가드
+ * (requireDelegationRight)와 같은 규칙이라 묶음에 거부당할 항목이 실리지 않는다.
+ * 관리자는 모든 리프가 canToggle 이라 종전과 같고, 멤버는 자기 담당 리프만 한 번에 켠다.
+ */
 function leafDescendants(rows: HubRow[]): Map<string, string[]> {
   const parentOf = new Map(rows.map(r => [r.itemId, r.parentId]))
   const out = new Map<string, string[]>()
   for (const r of rows) {
-    if (!r.isLeaf || r.milestone) continue
+    if (!r.canToggle) continue
     let p = r.parentId
     while (p) { const l = out.get(p); if (l) l.push(r.itemId); else out.set(p, [r.itemId]); p = parentOf.get(p) ?? null }
   }
   return out
 }
 
-function ParentCheckbox({ state, onClick }: { state: 'all' | 'some' | 'none'; onClick: () => void }) {
+function ParentCheckbox({ state, count, onClick }: { state: 'all' | 'some' | 'none'; count: number; onClick: () => void }) {
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => { if (ref.current) ref.current.indeterminate = state === 'some' }, [state])
   // 네이티브 체크박스를 그대로 쓴다 — indeterminate 3상태를 직접 그리지 않으려는 것이고,
   // 날것으로 보이던 원인은 형태가 아니라 파란 기본색이라 accent-color 만 바꾼다.
   return (
     <input ref={ref} type="checkbox" data-hub-parent-toggle checked={state === 'all'}
-      aria-label="하위 리프 전체 위임" title="하위 리프 전체 위임/해제"
+      aria-label={`하위 ${count}건 한 번에 위임`} title={`내가 켤 수 있는 하위 리프 ${count}건을 한 번에 위임/해제합니다.`}
       onChange={onClick} className="h-[15px] w-[15px] accent-brand" />
   )
 }
@@ -181,17 +187,19 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
   const mapWith = <V,>(m: ReadonlyMap<string, V>, k: string, v: V | null) => { const n = new Map(m); if (v === null) n.delete(k); else n.set(k, v); return n }
   const setWith = (s2: ReadonlySet<string>, k: string, on: boolean) => { const n = new Set(s2); if (on) n.add(k); else n.delete(k); return n }
 
+  // 폭의 동기 사본 — 상태 갱신은 다음 렌더에야 보이는데, 드래그의 pointermove·pointerup 과
+  // 키 반복은 한 배치에 여러 번 들어온다. 매번 state 를 읽으면 그 배치의 첫 값만 반영된다.
+  const wRef = useRef(colW)
   // ── 보기 설정 저장 — 이 브라우저 한정. 읽지 못해도 기본값으로 정상 동작해야 한다.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(COL_W_KEY)
       if (raw) {
         const saved = JSON.parse(raw) as Partial<Record<ColKey, number>>
-        setColW(w => {
-          const n = { ...w }
-          for (const c of COLS) { const v = saved[c.key]; if (typeof v === 'number' && Number.isFinite(v)) n[c.key] = Math.max(c.min, Math.round(v)) }
-          return n
-        })
+        const n = { ...COL_W }
+        for (const c of COLS) { const v = saved[c.key]; if (typeof v === 'number' && Number.isFinite(v)) n[c.key] = Math.max(c.min, Math.round(v)) }
+        wRef.current = n
+        setColW(n)
       }
       const view = localStorage.getItem(VIEW_KEY)
       if (view) {
@@ -205,40 +213,42 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
   const saveColW = (w: Record<ColKey, number>) => { try { localStorage.setItem(COL_W_KEY, JSON.stringify(w)) } catch {} }
   const saveView = (v: { freeze: 1 | 2; dense: boolean }) => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(v)) } catch {} }
 
-  const colWRef = useRef(colW)
-  colWRef.current = colW
-  // last 는 이번 드래그로 확정된 폭이다 — pointerup 이 콜백 갱신보다 먼저 올 수 있어(빠른 드래그는
-  // move 와 up 이 한 배치에 묶인다) colWRef 만 믿고 저장하면 직전 값이 남는다.
-  const drag = useRef<{ key: ColKey; x: number; w: number; last: number } | null>(null)
+  const applyW = (next: Record<ColKey, number>, persist: boolean) => {
+    wRef.current = next
+    setColW(next)
+    if (persist) saveColW(next)
+  }
+  const bump = (key: ColKey, px: number, persist: boolean) =>
+    applyW({ ...wRef.current, [key]: Math.max(COL_MIN[key], Math.round(px)) }, persist)
+
+  const drag = useRef<{ key: ColKey; x: number; w: number } | null>(null)
 
   const onHandleDown = (key: ColKey) => (e: React.PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return
     e.preventDefault()
     e.currentTarget.setPointerCapture?.(e.pointerId) // 포인터 캡처가 없는 환경(jsdom)에서도 드래그는 된다
-    drag.current = { key, x: e.clientX, w: colW[key], last: colW[key] }
+    drag.current = { key, x: e.clientX, w: wRef.current[key] }
   }
   const onHandleMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     const d = drag.current
     if (!d) return
-    d.last = Math.max(COL_MIN[d.key], Math.round(d.w + e.clientX - d.x))
-    setColW(w => ({ ...w, [d.key]: d.last }))
+    bump(d.key, d.w + e.clientX - d.x, false)
   }
   const onHandleUp = () => {
-    const d = drag.current
-    if (!d) return
+    if (!drag.current) return
     drag.current = null
-    saveColW({ ...colWRef.current, [d.key]: d.last })
+    saveColW(wRef.current)
   }
   const onHandleKey = (key: ColKey) => (e: React.KeyboardEvent<HTMLButtonElement>) => {
     const step = e.shiftKey ? 32 : 8
-    const next = e.key === 'ArrowLeft' ? colW[key] - step : e.key === 'ArrowRight' ? colW[key] + step : e.key === 'Home' ? COL_W[key] : null
+    const cur = wRef.current[key]
+    const next = e.key === 'ArrowLeft' ? cur - step : e.key === 'ArrowRight' ? cur + step : e.key === 'Home' ? COL_W[key] : null
     if (next === null) return
     e.preventDefault()
-    const w = { ...colW, [key]: Math.max(COL_MIN[key], next) }
-    setColW(w); saveColW(w)
+    bump(key, next, true)
   }
-  const resetOne = (key: ColKey) => { const w = { ...colW, [key]: COL_W[key] }; setColW(w); saveColW(w) }
-  const resetAll = () => { setColW(COL_W); saveColW(COL_W) }
+  const resetOne = (key: ColKey) => bump(key, COL_W[key], true)
+  const resetAll = () => applyW(COL_W, true)
 
   // 가로로 밀려 있는 동안에만 고정 구역 오른쪽에 경계 그림자 — 속성만 바꿔 다시 그리지 않는다.
   const boxRef = useRef<HTMLDivElement>(null)
@@ -391,8 +401,8 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                       ? <input type="checkbox" data-hub-toggle checked={checked} disabled={!r.canToggle}
                           title={!r.canToggle ? TOGGLE_DENIED_TITLE : checked ? DELEGATE_OFF_TITLE : DELEGATE_ON_TITLE} aria-label={`${r.code} 위임`}
                           onChange={() => toggleLeaf(r)} className="h-[15px] w-[15px] accent-brand" />
-                      : (isAdmin && (leaves.get(r.itemId)?.length ?? 0) > 0)
-                        ? <ParentCheckbox state={parentState(r)} onClick={() => toggleParent(r)} />
+                      : (leaves.get(r.itemId)?.length ?? 0) > 0
+                        ? <ParentCheckbox count={leaves.get(r.itemId)!.length} state={parentState(r)} onClick={() => toggleParent(r)} />
                         : null}
                   </td>
                   <td className={cls(colCls('code'), 'font-mono text-[11px] text-ink-muted')}>
@@ -441,12 +451,14 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                         ? <span className={`chip shrink-0 ${STATE_TONE[r.order.state]}`}>{STATE_LABEL[r.order.state]}</span>
                         : <span className="shrink-0 text-ink-subtle">{NO_ORDER}</span>}
                     </span>
-                    {r.isLeaf && r.devWorkflow && !r.delegated && <span className={`chip mt-0.5 ${NEEDS_DELEGATION_TONE}`}>{NEEDS_DELEGATION}</span>}
+                  </td>
+                  <td className={cls(colCls('reason'), s.clip)}>
+                    {r.isLeaf && r.devWorkflow && !r.delegated && <span className={`chip ${NEEDS_DELEGATION_TONE}`}>{NEEDS_DELEGATION}</span>}
                     {r.waitReason && (
                       <button type="button" data-hub-depends data-wait-reason={r.waitReason.kind}
                         aria-expanded={showReason} title={r.waitReason.text}
                         onClick={() => setReasonOpen(v => v === r.itemId ? null : r.itemId)}
-                        className={`chip mt-0.5 ${REASON_TONE[r.waitReason.kind]}`}>{r.waitReason.label}</button>
+                        className={`chip whitespace-nowrap ${REASON_TONE[r.waitReason.kind]}`}>{r.waitReason.label}</button>
                     )}
                   </td>
                   <td className={cls(colCls('agent'), s.clip)}>
@@ -474,7 +486,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                 </tr>,
                 (editing === r.itemId || noteOpen || showReason || err || warn) ? (
                   <tr key={`${r.itemId}-x`} data-hub-row-extra={r.itemId} className={s.extra}>
-                    <td colSpan={8} className="pb-2 pl-8">
+                    <td colSpan={9} className="pb-2 pl-8">
                       {showReason && r.waitReason && (
                         <p data-hub-reason-text className="mb-1 text-[11px] leading-relaxed text-ink-muted">{r.waitReason.text}</p>
                       )}

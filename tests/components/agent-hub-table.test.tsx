@@ -165,10 +165,23 @@ describe('DelegationTable — 체크는 즉시 표시·잠기지 않음, 1.5초 
     expect(onHub).not.toHaveBeenCalled()
     expect(onChanged).toHaveBeenCalledTimes(1)
   })
-  it('멤버에게는 부모 체크가 없고, 관리자의 indeterminate 부모 체크는 하위 리프(마일스톤 제외)를 한 묶음에 — 이미 같은 값인 리프는 보내지 않는다', async () => {
+  it('멤버의 부모 체크는 자기가 켤 수 있는 리프만 건드린다 — 남의 리프(a2)는 묶음에 실리지 않는다', async () => {
     render()
+    expect(parent('root')).not.toBeNull()
+    expect(parent('root').checked).toBe(true) // 켤 수 있는 리프는 a1 하나이고 이미 켜져 있다
+    await click(parent('root'))
+    expect(toggle('a1').checked).toBe(false); expect(toggle('a2').checked).toBe(false)
+    await settle()
+    expect(applyHubDelegations).toHaveBeenCalledWith('p1', [{ itemId: 'a1', delegated: false }])
+  })
+  it('켤 수 있는 하위 리프가 하나도 없는 부모에는 체크가 없다', () => {
+    render({ rows: ROWS.map(r => (r.itemId === 'a1' ? { ...r, canToggle: false } : r)) })
     expect(parent('root')).toBeNull()
-    const { onHub } = render({ isAdmin: true })
+  })
+  // 관리자는 서버가 모든 비마일스톤 리프에 canToggle 을 준다(canToggle = 리프 && !마일스톤 && (관리자 || 담당자 본인)).
+  const ADMIN_ROWS = ROWS.map(r => (r.isLeaf && !r.milestone ? { ...r, canToggle: true } : r))
+  it('관리자의 indeterminate 부모 체크는 하위 리프(마일스톤 제외)를 한 묶음에 — 이미 같은 값인 리프는 보내지 않는다', async () => {
+    const { onHub } = render({ isAdmin: true, rows: ADMIN_ROWS })
     expect(parent('root').indeterminate).toBe(true)
     await click(parent('root'))
     expect(toggle('a1').checked).toBe(true); expect(toggle('a2').checked).toBe(true)
@@ -179,7 +192,7 @@ describe('DelegationTable — 체크는 즉시 표시·잠기지 않음, 1.5초 
     expect(onHub).toHaveBeenCalled()
   })
   it('두 건 이상 실패는 표 위 알림 줄에 코드로', async () => {
-    const rows = ROWS.map(r => (r.itemId === 'a1' ? { ...r, delegated: false } : r))
+    const rows = ADMIN_ROWS.map(r => (r.itemId === 'a1' ? { ...r, delegated: false } : r))
     applyHubDelegations.mockResolvedValueOnce(OK({ failed: [{ itemId: 'a1', error: '리프 아님' }, { itemId: 'a2', error: '리프 아님' }] }))
     render({ rows, isAdmin: true })
     await click(parent('root'))
@@ -434,7 +447,7 @@ describe('DelegationTable — 열 너비·고정·밀도(2026-09-17 개편)', ()
 
   it('여유 열을 뺀 일곱 열 모두에 손잡이가 있고, 여유 열에는 없다', () => {
     render()
-    for (const k of ['check', 'code', 'name', 'owner', 'state', 'agent', 'ops']) expect(handle(k), k).not.toBeNull()
+    for (const k of ['check', 'code', 'name', 'owner', 'state', 'reason', 'agent', 'ops']) expect(handle(k), k).not.toBeNull()
     expect(handle('slack')).toBeNull()
     expect(colEl('slack')).not.toBeNull()
     expect(colEl('slack').style.width).toBe('') // 남는 폭을 먹는다 — px 를 주지 않는다
@@ -449,6 +462,12 @@ describe('DelegationTable — 열 너비·고정·밀도(2026-09-17 개편)', ()
     expect(colEl('name').style.width).toBe('272px')
     key(handle('name'), 'Home')
     expect(colEl('name').style.width).toBe('296px')
+  })
+  it('키를 연타해도 누른 만큼 누적된다 — 한 배치에 묶인 keydown 이 서로를 덮지 않는다', () => {
+    render()
+    for (let i = 0; i < 3; i++) key(handle('ops'), 'ArrowRight')
+    expect(colEl('ops').style.width).toBe('200px') // 176 + 8*3
+    expect(saved().ops).toBe(200)
   })
   it('최소 폭 아래로는 줄지 않는다 — table-layout: fixed 라 더 줄이면 내용이 잘린다', () => {
     render()
@@ -490,6 +509,16 @@ describe('DelegationTable — 승인 대기만·착수 대기 사유 펼침(2026
     expect(host.querySelector('[data-hub-row="w1"]')).not.toBeNull()
     expect(host.querySelector('[data-hub-row="root"]')).not.toBeNull()
     expect(host.querySelector('[data-hub-row="w2"]')).toBeNull()
+  })
+  it('사유 칩은 단계·상태 칸이 아니라 사유 칸에 있다 — 행 높이가 사유 유무로 달라지지 않는다', () => {
+    const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true,
+      waitReason: { kind: 'dependency', label: '선행 대기', text: '…' } })]
+    render({ rows })
+    const cells = [...(host.querySelector('[data-hub-row="d1"]') as HTMLElement).children] as HTMLElement[]
+    const chip = host.querySelector('[data-hub-depends]') as HTMLElement
+    expect(cells.length).toBe(9) // 실열 8 + 여유 1
+    expect(cells[5].contains(chip)).toBe(true)  // 사유 칸
+    expect(cells[4].contains(chip)).toBe(false) // 단계·상태 칸
   })
   it('사유 칩을 누르면 펼침 행에 전문이 열리고, 다시 누르면 닫힌다', async () => {
     const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true,
