@@ -47,7 +47,7 @@ import { AgentHubView } from '@/components/agent-hub/AgentHubView'
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const hub = (over: Partial<AgentHub> = {}): AgentHub => ({
   projectId: 'p1', projectName: 'mes-base', registered: true, enabled: true,
-  counters: { delegated: 1, ready: 0, working: 1, waiting: 0 }, watchers: [],
+  counters: { delegated: 1, ready: 0, working: 1, waiting: 0, stuck: 0 }, watchers: [],
   rows: [{ itemId: 'a1', code: 'TSK-A-01', name: '리프1', depth: 0, parentId: null, isLeaf: true, milestone: false, assigneeName: '장', assigneeMine: true, canManage: false, delegated: true, devWorkflow: true, stage: 'im', stageLocked: true, order: { id: 'o1', status: 'claimed', state: 'ACTIVE', agent: 'hong', lastSignalAt: new Date(NOW - 1000).toISOString() }, prompt: null, canToggle: true, waitReason: null }],
   queue: [], fetchedAt: new Date(NOW).toISOString(), viewer: { isAdmin: false, memberIds: ['m1'] }, ...over,
 })
@@ -82,7 +82,7 @@ describe('AgentHubView', () => {
     expect((host.querySelector('[data-hub-stamp]') as HTMLElement).textContent).toContain('재조회에 실패')
   })
   it('위임 체크 → 묶음 저장 응답의 허브로 교체하고 refreshAgentHub 는 부르지 않는다(2026-09-14 체크 지연 개선)', async () => {
-    apply.mockResolvedValueOnce({ ok: true, hub: hub({ rows: [], counters: { delegated: 0, ready: 0, working: 0, waiting: 0 } }), failed: [], warnings: [] })
+    apply.mockResolvedValueOnce({ ok: true, hub: hub({ rows: [], counters: { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0 } }), failed: [], warnings: [] })
     act(() => root.render(<AgentHubView initial={hub()} wbs={wbs()} />))
     const box = host.querySelector('[data-hub-row="a1"] input[data-hub-toggle]') as HTMLInputElement
     await act(async () => { box.click() })
@@ -95,7 +95,7 @@ describe('AgentHubView', () => {
     expect(refresh).not.toHaveBeenCalled()
   })
   it('갱신 성공은 새 데이터로 교체', async () => {
-    refresh.mockResolvedValueOnce({ ok: true, hub: hub({ rows: [], counters: { delegated: 0, ready: 0, working: 0, waiting: 0 } }) })
+    refresh.mockResolvedValueOnce({ ok: true, hub: hub({ rows: [], counters: { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0 } }) })
     act(() => root.render(<AgentHubView initial={hub()} wbs={wbs()} />))
     await act(async () => { (host.querySelector('[data-hub-refresh]') as HTMLButtonElement).click() })
     expect(host.querySelector('[data-hub-row="a1"]')).toBeNull()

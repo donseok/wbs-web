@@ -24,6 +24,8 @@ export function watchLabel(w: Watcher[]): string {
 
 const COUNTERS: Array<{ key: keyof AgentHub['counters']; label: string }> = [
   { key: 'delegated', label: '위임' }, { key: 'ready', label: '대기' }, { key: 'working', label: '작업 중' }, { key: 'waiting', label: '승인 대기' },
+  // 막힘 — 사람이 손대야 풀리는 대기(선행 대기·에이전트 꺼짐). 다른 넷과 달리 "지금 할 일"을 가리킨다.
+  { key: 'stuck', label: '막힘' },
 ]
 
 export function HubStatusBar({ projectId, registered, enabled, counters, watchers, isAdmin, onChanged }: Props) {

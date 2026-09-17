@@ -1,0 +1,131 @@
+/* src/components/agent-hub/delegationTable.module.css — 위임·승인 표 전용.
+   globals.css 를 건드리지 않으려고 모듈로 둔다(새 색 토큰 없음 — 값은 전부 globals.css 의 기존
+   토큰을 참조하므로 .dark 오버라이드가 그대로 따라온다). 상태 변형 display 유틸을 쓰지 않는다(안전망). */
+
+/* 스크롤 상자 — 세로 sticky 머리글이 붙으려면 이 상자가 세로 스크롤 주체여야 한다.
+   종전 코드는 overflow-x 만 있어 스크롤 주체가 페이지였고 sticky 가 발화하지 않았다. */
+.box {
+  position: relative;
+  overflow: auto;
+  max-height: clamp(320px, 62vh, 640px);
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) var(--color-surface-2);
+}
+.box::-webkit-scrollbar { width: 11px; height: 11px; }
+.box::-webkit-scrollbar-track { background: var(--color-surface-2); }
+.box::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border: 2px solid var(--color-surface-2);
+  border-radius: 6px;
+}
+
+/* 열 너비는 <colgroup> 의 px 만 바꾼다 — 셀 마크업은 건드리지 않는다. */
+.table {
+  table-layout: fixed;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+.table th,
+.table td {
+  padding: 5px 8px;
+  vertical-align: middle;
+  text-align: left;
+  background: var(--color-surface); /* 고정 열이 아래 행을 비치지 않게 — sticky 의 필수 조건 */
+  border-bottom: 1px solid var(--color-line);
+}
+.dense th,
+.dense td { padding: 2px 8px; }
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--color-sheet-head);
+  border-bottom: 1px solid var(--color-line-strong);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-subtle);
+  white-space: nowrap;
+}
+
+/* 좌측 고정 — left 오프셋은 열 너비가 바뀔 때 JS 가 갱신하는 CSS 변수다. */
+.freeze { position: sticky; z-index: 1; }
+.table thead .freeze { z-index: 4; }
+.cCheck { left: 0; }
+.cCode { left: var(--l-code, 38px); }
+.cName { left: var(--l-name, 164px); }
+
+/* 고정 구역 오른쪽 경계 그림자 — 가로로 밀려 있는 동안에만 보인다. */
+.edge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  transform: translateX(100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms linear;
+  background: linear-gradient(to right, rgb(0 0 0 / 0.14), rgb(0 0 0 / 0));
+}
+.box[data-shift='1'] .edge::after { opacity: 1; }
+
+/* 행 서식 — zebra 는 리프 순번으로 JS 가 붙인다(:nth-child(even of …) 는 지원 폭이 좁다). */
+.zebra td { background: var(--color-zebra); }
+.band td {
+  background: var(--color-sheet-head);
+  font-weight: 600;
+}
+.band td:first-child { box-shadow: inset 3px 0 0 0 var(--color-line-strong); }
+/* 승인 대기 행 — 스크롤 중에도 "지금 볼 것"이 걸리도록 좌측 청록 띠. */
+.mark td:first-child { box-shadow: inset 3px 0 0 0 var(--color-brand); }
+.row:hover td { background: var(--color-brand-weak); }
+.extra td { background: var(--color-surface-2); }
+
+/* table-layout: fixed 는 내용이 열보다 길면 삐져나온다 — 셀 안쪽에서 잘라낸다. */
+.trunc {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.clip { overflow: hidden; }
+
+/* 열 너비 드래그 손잡이 — 머리글 오른쪽 경계. 마우스 없이도 되게 키보드도 받는다. */
+.rsz {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  bottom: 0;
+  width: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 6;
+}
+.rsz::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  left: 4px;
+  width: 1px;
+  background: var(--color-line-strong);
+}
+.rsz:hover::before,
+.rsz:focus-visible::before {
+  left: 3px;
+  width: 3px;
+  background: var(--color-brand);
+}
+.rsz:focus-visible { outline: none; }

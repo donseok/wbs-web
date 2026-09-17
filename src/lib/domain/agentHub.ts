@@ -60,7 +60,9 @@ export interface HubQueueEntry {
 export interface AgentHub {
   projectId: string; projectName: string
   registered: boolean; enabled: boolean
-  counters: { delegated: number; ready: number; working: number; waiting: number }
+  /** stuck(막힘) = 위임됐는데 사람이 손대야 풀리는 대기 — 선행 대기·에이전트 꺼짐. 시간이 지나면
+   *  저절로 풀리는 대기(에이전트 바쁨·착수 대기)는 세지 않는다. */
+  counters: { delegated: number; ready: number; working: number; waiting: number; stuck: number }
   watchers: Watcher[]
   /** 트리 전위 순서(부모 → 자식). 형제는 sort_order 오름차순, 같으면 code. 고아는 루트 뒤. */
   rows: HubRow[]
@@ -155,7 +157,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
   const memberById = new Map(rows.members.map(m => [m.id, m]))
   const hubWatchers = rows.watchers.filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (w.project_id === null || w.project_id === projectId))
   const hubRows: HubRow[] = []
-  const counters = { delegated: 0, ready: 0, working: 0, waiting: 0 }
+  const counters = { delegated: 0, ready: 0, working: 0, waiting: 0, stuck: 0 }
   for (const { item, depth } of flatten(rows.items)) {
     const isLeaf = !hasChildren.has(item.id)
     const delegated = (item.tags ?? []).includes(AGENT_TAG)
@@ -191,6 +193,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
           watchers: hubWatchers,
         })
       : null
+    if (waitReason !== null && (waitReason.kind === 'dependency' || waitReason.kind === 'agent_off')) counters.stuck++
     hubRows.push({
       itemId: item.id, code: item.code, name: item.name, depth, parentId: item.parent_id,
       isLeaf, milestone: item.milestone,

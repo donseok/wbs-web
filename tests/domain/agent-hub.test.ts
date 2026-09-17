@@ -105,12 +105,12 @@ describe('assembleAgentHub — 주문 상태', () => {
 })
 
 describe('assembleAgentHub — 카운터·큐·상태', () => {
-  it('counters: delegated(agent 태그 리프)·ready·working·waiting', () => {
+  it('counters: delegated(agent 태그 리프)·ready·working·waiting·stuck', () => {
     const hub = assembleAgentHub(rows({ orders: [
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000001', wbs_item_id: 'a1' }),
       order({ id: '11111111-aaaa-4aaa-8aaa-000000000002', wbs_item_id: 'a2', status: 'reported' }),
     ] }), NOW, VIEWER)
-    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1 })
+    expect(hub.counters).toEqual({ delegated: 1, ready: 0, working: 1, waiting: 1, stuck: 0 })
   })
   it('queue: reported 주문마다 최신 completion 보고 1건, 오래된 것 먼저, 보고 없으면 빈 요약', () => {
     const o1 = '11111111-aaaa-4aaa-8aaa-000000000001', o2 = '11111111-aaaa-4aaa-8aaa-000000000002'
@@ -228,6 +228,12 @@ describe('assembleAgentHub — 착수 대기 사유(waitReason)', () => {
     expect(rowOf(global, 'TSK-A-01').waitReason!.kind).toBe('pickup')
     const otherProject = assembleAgentHub(solo({ watchers: [watcher({ project_id: 'p2' })] }), NOW, VIEWER)
     expect(rowOf(otherProject, 'TSK-A-01').waitReason!.kind).toBe('agent_off')
+  })
+  it('막힘(stuck) 은 사람이 손대야 풀리는 대기만 센다 — 선행 대기·에이전트 꺼짐', () => {
+    expect(assembleAgentHub(withDep(), NOW, VIEWER).counters.stuck).toBe(1) // dependency
+    expect(assembleAgentHub(solo({ watchers: [] }), NOW, VIEWER).counters.stuck).toBe(1) // agent_off
+    expect(assembleAgentHub(solo({ watchers: [watcher({ slots: 1, busy: 1 })] }), NOW, VIEWER).counters.stuck).toBe(0) // agents_busy
+    expect(assembleAgentHub(solo({ watchers: [watcher()] }), NOW, VIEWER).counters.stuck).toBe(0) // pickup
   })
   it('담당자가 없는 리프는 프로젝트를 보는 감시자 아무나로 판정한다', () => {
     const hub = assembleAgentHub(solo({

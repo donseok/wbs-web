@@ -424,3 +424,74 @@ describe('DelegationTable — 이름 클릭 → onSelect(상세 패널 열기, 2
     expect((host.querySelector('[data-hub-row="a1"]') as HTMLElement).textContent).toContain('리프1')
   })
 })
+
+describe('DelegationTable — 열 너비·고정·밀도(2026-09-17 개편)', () => {
+  const colEl = (key: string) => host.querySelector(`col[data-col="${key}"]`) as HTMLElement
+  const handle = (key: string) => host.querySelector(`[data-rsz="${key}"]`) as HTMLButtonElement
+  const key = (el: HTMLElement, k: string, shift = false) => act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey: shift, bubbles: true })) })
+  const saved = () => { try { return JSON.parse(localStorage.getItem('dflow-hub-colw') ?? 'null') } catch { return null } }
+  beforeEach(() => { try { localStorage.clear() } catch {} })
+
+  it('여유 열을 뺀 일곱 열 모두에 손잡이가 있고, 여유 열에는 없다', () => {
+    render()
+    for (const k of ['check', 'code', 'name', 'owner', 'state', 'agent', 'ops']) expect(handle(k), k).not.toBeNull()
+    expect(handle('slack')).toBeNull()
+    expect(colEl('slack')).not.toBeNull()
+    expect(colEl('slack').style.width).toBe('') // 남는 폭을 먹는다 — px 를 주지 않는다
+  })
+  it('마우스 없이도 조절된다 — ←/→ 8px, Shift 32px, Home 기본값. 결과는 이 브라우저에 남는다', () => {
+    render()
+    expect(colEl('name').style.width).toBe('296px')
+    key(handle('name'), 'ArrowRight')
+    expect(colEl('name').style.width).toBe('304px')
+    expect(saved().name).toBe(304)
+    key(handle('name'), 'ArrowLeft', true)
+    expect(colEl('name').style.width).toBe('272px')
+    key(handle('name'), 'Home')
+    expect(colEl('name').style.width).toBe('296px')
+  })
+  it('최소 폭 아래로는 줄지 않는다 — table-layout: fixed 라 더 줄이면 내용이 잘린다', () => {
+    render()
+    for (let i = 0; i < 20; i++) key(handle('ops'), 'ArrowLeft', true)
+    expect(colEl('ops').style.width).toBe('96px')
+  })
+  it('저장된 폭이 있으면 그 폭으로 그린다', () => {
+    try { localStorage.setItem('dflow-hub-colw', JSON.stringify({ name: 400, bogus: 1 })) } catch {}
+    render()
+    expect(colEl('name').style.width).toBe('400px')
+    expect(colEl('code').style.width).toBe('126px')
+  })
+  it('망가진 저장값이어도 기본 폭으로 그린다', () => {
+    try { localStorage.setItem('dflow-hub-colw', '{ 깨짐') } catch {}
+    render()
+    expect(colEl('name').style.width).toBe('296px')
+  })
+})
+
+describe('DelegationTable — 승인 대기만·착수 대기 사유 펼침(2026-09-17 개편)', () => {
+  const WAIT_ROWS: HubRow[] = [
+    row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
+    row({ itemId: 'w1', code: 'TSK-W-01', name: '보고됨', depth: 1, parentId: 'root', delegated: true, devWorkflow: true, canToggle: true,
+      order: { id: 'o9', status: 'reported', state: 'WAIT', agent: 'hong/mbp', lastSignalAt: null } }),
+    row({ itemId: 'w2', code: 'TSK-W-02', name: '그냥', depth: 1, parentId: 'root', delegated: true, devWorkflow: true }),
+  ]
+  it('「승인 대기만」을 켜면 WAIT 리프와 그 조상만 남는다', async () => {
+    render({ rows: WAIT_ROWS })
+    expect(host.querySelector('[data-hub-row="w2"]')).not.toBeNull()
+    await click(host.querySelector('[data-hub-only-wait]') as HTMLButtonElement)
+    expect(host.querySelector('[data-hub-row="w1"]')).not.toBeNull()
+    expect(host.querySelector('[data-hub-row="root"]')).not.toBeNull()
+    expect(host.querySelector('[data-hub-row="w2"]')).toBeNull()
+  })
+  it('사유 칩을 누르면 펼침 행에 전문이 열리고, 다시 누르면 닫힌다', async () => {
+    const rows = [row({ itemId: 'd1', code: 'TSK-D-01', name: '후속', delegated: true, devWorkflow: true, canToggle: true,
+      waitReason: { kind: 'agent_off', label: '에이전트 꺼짐', text: '담당자 장종익1 의 에이전트가 켜져 있지 않습니다.' } })]
+    render({ rows })
+    const chip = host.querySelector('[data-hub-row="d1"] [data-hub-depends]') as HTMLButtonElement
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+    await click(chip)
+    expect(text('[data-hub-row-extra="d1"] [data-hub-reason-text]')).toContain('에이전트가 켜져 있지 않습니다')
+    await click(host.querySelector('[data-hub-row="d1"] [data-hub-depends]') as HTMLButtonElement)
+    expect(host.querySelector('[data-hub-row-extra="d1"]')).toBeNull()
+  })
+})
