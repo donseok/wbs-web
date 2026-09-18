@@ -71,9 +71,9 @@ allowed_projects() {
   } | tr -d ' ' | grep -v '^$' | sort -u
 }
 ALLOWED_PROJECTS=$(allowed_projects)
-# 목록 캐시는 바인딩마다 나눈다. 한 파일을 모든 리포가 쓰면 순번·접두 해석이 다른 리포가 마지막으로 본
-# 목록으로 풀린다.
-LIST_CACHE="$CACHE_DIR/last-list-$(printf '%s' "${ALLOWED_PROJECTS:-any}" | cksum | cut -d' ' -f1).json"
+# 목록 캐시는 바인딩과 고른 키(DFLOW_AS)마다 나눈다. 한 파일을 모든 리포가 쓰면 순번·접두 해석이 다른 리포가
+# 마지막으로 본 목록으로 풀리고, 같은 리포의 두 팀장(워크트리마다 다른 키)도 서로의 목록을 덮어쓴다.
+LIST_CACHE="$CACHE_DIR/last-list-$(printf '%s|%s' "${ALLOWED_PROJECTS:-any}" "${DFLOW_AS:-}" | cksum | cut -d' ' -f1).json"
 # DFLOW_PATS(쉼표 구분) 우선, 없으면 DFLOW_PAT 단일. 토큰 문자열은 변수로만 다룬다.
 tokens() {
   [ -n "${DFLOW_PATS:-}" ] || [ -n "${DFLOW_PAT:-}" ] || die 2 "DFLOW_PATS 또는 DFLOW_PAT 미설정"

@@ -27,6 +27,8 @@ const CHANGED = [
   '2. **판정 — approved 만 진행**: `status=approved` 가 아니면 건너뛰고 "승인 대기"로 보고.',
   // 6. 순서(3번): 스택 판정을 브랜치 tip 이 아니라 state.json branch_base 로
   '3. **순서 — 스택은 조상 먼저**: 대상이 여럿이면 `git merge-base --is-ancestor A B` 로 조상',
+  // 4. 머지(4번): 머지 자리 선택. 기본 브랜치에 있지 않은 체크아웃(링크드 워크트리의 팀장)은 임시 머지 워크트리에서 머지한다
+  '4. **머지**:',
   // 4. 머지(4번): 머지 대상, 충돌 되돌림, merged 커밋을 push 전에(5번에서 옮겨 온다), push 실패 되돌림
   '   git merge --no-ff agent/<id8>-<slug> -m "merge: <TSK> <제목> (approved)"',
   '   - state.json `phase=merged` 갱신 → 기본브랜치에 커밋(파일명 명시).',

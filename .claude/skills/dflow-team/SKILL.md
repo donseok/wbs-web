@@ -299,6 +299,29 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - state.json 미러 같은 새 저장소는 만들지 않는다. 정본(서버·원격 agent 브랜치·워크트리)과 따로 도는 저장소는
   동기화 규칙을 계속 맞춰야 하기 때문이다.
 
+## 두 번째 팀장 (링크드 워크트리)
+
+같은 리포에서 **다른 신원(다른 PAT)** 의 팀장을 하나 더 돌릴 때는 리포를 다시 clone 하지 않고 링크드 워크트리를
+쓴다. 주 체크아웃 루트에서 아래를 실행한다.
+```bash
+.claude/skills/dflow-team/scripts/lead-worktree.sh <이름>
+```
+- 스크립트는 `<주 체크아웃>/.claude/worktrees/lead-<이름>` 을 `origin/<기본브랜치>` 에서 detached 로 만들고,
+  `.claude/skills` 를 주 체크아웃의 것으로 링크하고, 주 체크아웃의 `.env` 를 **복사**한다. 값은 출력하지 않는다.
+- 사람은 그 워크트리의 `.env` 에서 키를 고른 뒤(`DFLOW_AS`, 또는 `DFLOW_PATS` 순서), 그 워크트리에서 `claude` 를
+  띄워 `/dflow-team …` 을 실행한다.
+- `.env` 를 링크하지 않고 복사하는 이유: 두 팀장이 서로 다른 키를 써야 하는데, 링크하면 한쪽의 키 변경이 도는
+  다른 팀장과 그 팀원에게 번진다. 팀원 워크트리의 `.env` 링크는 팀장 체크아웃(`<MAIN>`)의 것을 가리키므로 두
+  번째 팀장의 팀원은 그 워크트리의 `.env` 를 쓴다.
+- 팀장 워크트리에는 `node_modules` 를 설치하지 않는다. 팀장은 테스트를 돌리지 않는다. 팀원은 `/dflow-dev
+  --worker` 행 H 가 설치한다.
+- 이 팀장의 `<MAIN>` 은 그 워크트리 경로다. 잠금·종료 파일·poll 디렉터리(`git rev-parse --git-path`)가 워크트리마다
+  따로 풀리고, events.jsonl 의 `repo` 도 달라지므로 두 팀장의 상태는 섞이지 않는다. 공유하는 것은
+  `info/exclude`(넣는 패턴이 같다)와 로컬 브랜치 저장소, 그리고 `git worktree list` 다.
+- 같은 신원으로는 두 번째 팀장을 띄울 수 없다(`SAME_IDENTITY_LEAD`, 「1. 시작」).
+- 다 쓴 팀장 워크트리는 마감한 뒤 `git worktree remove .claude/worktrees/lead-<이름>` 으로 지운다. `.env` 복사본이
+  미추적 파일이라 거부되면 `--force` 를 붙인다.
+
 ## 0. 환경 감지 (시작 맨 처음)
 
 백엔드는 Orca 를 **먼저** 보고, Orca 안이 아니면 tmux 를 본다. 이유: Orca 안에서 띄운 팀장은 팀원을 Orca 탭으로
@@ -332,7 +355,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null); base=${base#origin/}
    [ -n "$base" ] || base=$(git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p')
    [ -n "$base" ] || bad NO_DEFAULT_BRANCH
-   [ -n "$base" ] && [ "$(git branch --show-current)" != "$base" ] && bad "NOT_DEFAULT_BRANCH $base"
+   cur=$(git branch --show-current)   # detached HEAD 면 빈 값
+   [ -n "$base" ] && [ -n "$cur" ] && [ "$cur" != "$base" ] && bad "NOT_DEFAULT_BRANCH $base 또는 detached HEAD 여야 한다"
    for s in dflow-dev dflow-work dflow-poll dflow-merge dflow-team; do [ -e ".claude/skills/$s/SKILL.md" ] || bad "NO_SKILL $s"; done
    grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || bad OLD_DFLOW_DEV
    grep -q 'origin/agent/\*' .claude/skills/dflow-merge/SKILL.md || bad OLD_DFLOW_MERGE
@@ -396,14 +420,23 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    fi
    LEAD_PID=${CLAUDE_PID:-$PPID}   # 팀장 세션 프로세스. Bash 도구가 내보내는 CLAUDE_PID, 없으면 $PPID
    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) [ -n "${CLAUDE_PID:-}" ] || bad "NO_CLAUDE_PID Windows 의 \$PPID 는 1 이라 팀장 세션을 가려내지 못한다" ;; esac
-   [ "$fail" = 0 ] || exit 1
-   # 팀장 잠금: 나머지 검사가 모두 통과한 뒤 마지막에 원자 획득한다
-   LOCK=$(git rev-parse --git-path dflow-team.lock)
    stale() {   # $1: 잠금 디렉터리. beat 있으면 70분, 없으면 디렉터리 수정 시각 10분으로 죽음을 본다
      b=$(cat "$1/beat" 2>/dev/null || true)
      if [ -n "$b" ]; then [ $(( $(date +%s) - b )) -ge 4200 ]
      else [ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null)" ]; fi
    }
+   # 같은 리포의 다른 워크트리에서 같은 신원의 팀장이 살아 있으면 거부한다
+   dup=$(git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r w; do
+     [ "$w" = "$MAIN" ] && continue
+     l=$(git -C "$w" rev-parse --path-format=absolute --git-path dflow-team.lock 2>/dev/null) || continue
+     [ -d "$l" ] || continue
+     [ "$(cut -d' ' -f1 "$l/owner" 2>/dev/null)" = "$who/$host/lead" ] || continue
+     stale "$l" || printf '%s ' "$w"
+   done)
+   [ -z "$dup" ] || bad "SAME_IDENTITY_LEAD $dup"
+   [ "$fail" = 0 ] || exit 1
+   # 팀장 잠금: 나머지 검사가 모두 통과한 뒤 마지막에 원자 획득한다
+   LOCK=$(git rev-parse --git-path dflow-team.lock)
    if ! mkdir "$LOCK" 2>/dev/null; then
      stale "$LOCK" || { echo "LOCKED $LOCK owner=$(cat "$LOCK/owner" 2>/dev/null) beat=$(cat "$LOCK/beat" 2>/dev/null || echo 없음)"; exit 1; }
      T="$LOCK.stale.$$"
@@ -467,9 +500,20 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    - `SPACE_IN_PATH`: 메인 체크아웃 절대경로에 공백이 있으면 시작을 거부한다. 이유: 포인터 한 줄 형식과
      워커 부트스트랩의 `ln -s` 링크가 공백을 다루지 않는다.
    - `NO_DEFAULT_BRANCH`·`NOT_DEFAULT_BRANCH`: 기본 브랜치는 `origin/HEAD` 에서 구하고, 그 ref 가 없으면
-     `git ls-remote --symref origin HEAD` 에서 구한다(`origin/HEAD` 는 clone 할 때만 생긴다). 팀장 체크아웃의
-     현재 브랜치가 그 기본 브랜치여야 한다. 이유: 승인 스윕이 기본 브랜치로 switch 하므로, 다른 브랜치에서
-     시작하면 병렬 세션이 쓰는 체크아웃과 심링크가 가리키는 스킬 버전을 흔든다.
+     `git ls-remote --symref origin HEAD` 에서 구한다(`origin/HEAD` 는 clone 할 때만 생긴다). 팀장 체크아웃은
+     그 기본 브랜치 위에 있거나 **detached HEAD** 여야 한다. 다른 이름 있는 브랜치면 거부한다. 이유: 기본 브랜치
+     위의 팀장은 그 체크아웃에서 머지하고, detached HEAD 인 팀장은 `/dflow-merge` 가 임시 머지 워크트리에서
+     머지해 `HEAD:<기본브랜치>` 로 push 한다(「4. 승인 스윕」). 이름 있는 다른 브랜치를 허용하지 않는 이유는 그
+     브랜치가 사람의 작업 브랜치일 수 있어, 스윕 뒤 최신으로 다시 detach 하는 일이 그 작업을 흔들기 때문이다.
+     detached HEAD 를 허용하는 이유: 기본 브랜치는 워크트리 하나만 체크아웃할 수 있으므로, 같은 리포에서 두 번째
+     팀장을 링크드 워크트리로 띄우려면 기본 브랜치를 잡지 않아야 한다(「두 번째 팀장」).
+   - `SAME_IDENTITY_LEAD`: 같은 리포의 다른 워크트리에 잠금 `owner` 가 같은 `<신원>/<host>/lead` 이고 `beat` 가
+     살아 있는 팀장이 있으면 거부한다. 잠금은 워크트리마다 따로 생기므로 잠금만으로는 이 경우를 막지 못한다.
+     이유: 팀원 재구성과 고아 스캔은 `git worktree list` 로 리포의 모든 워크트리를 보고 `<신원>/<host>/` 접두로
+     자기 팀원을 가려낸다. 같은 신원의 팀장이 둘이면 서로의 팀원을 자기 슬롯으로 흡수하고, 같은 `w<slot>` 을
+     발급해 좌석표가 한 인물을 두 책상에 그리며, 「이어서 시작」 요청을 둘 다 받아 한 작업에 워커를 둘 띄운다.
+     같은 신원으로 일을 나눠 돌리고 싶으면 팀장 하나에 인원과 WP 범위를 주면 된다. 두 팀장이 동시에 시작하는
+     아주 짧은 틈은 막지 못한다.
    - `OLD_DFLOW_DEV`·`OLD_DFLOW_MERGE`: 수정된 기존 스킬이 적용되지 않았다. 옛 `/dflow-dev` 면 팀원이 기본
      브랜치 switch 에서 죽고, 옛 `/dflow-merge` 면 스윕이 팀원 작업을 영영 보지 못한다.
    - `AUTH`: 인증은 `dflow.sh me` 의 성공(`user_email` 이 나옴)으로 판정한다. doctor 는 진단 출력용이며 종료
@@ -869,8 +913,16 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 후보가 원
   그 워크트리는 결과 처리나 고아 스캔이 정리한다.
 - 승인 대기·건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·승인 뒤 변경 확인 불가)은 보고만 한다.
 - `team.sweep`(merged, waiting, rejected 개수)을 기록한다.
-- 스윕은 팀장 체크아웃에서 기본 브랜치로 switch 한다. 팀장 체크아웃은 전제 검사로 이미 기본 브랜치에 있고,
-  팀원은 각자 워크트리의 agent 브랜치나 detached HEAD 에 있으므로 충돌하지 않는다.
+- 머지 자리는 팀장 체크아웃의 상태로 갈린다(`/dflow-merge` 4번). 기본 브랜치 위의 팀장은 그 체크아웃에서
+  머지한다. detached HEAD 인 팀장은 임시 머지 워크트리 `<MAIN>/.claude/worktrees/dflow-merge` 에서 머지하고
+  `HEAD:<기본브랜치>` 로 push 한다. 팀원은 각자 워크트리의 agent 브랜치나 detached HEAD 에 있으므로 어느 쪽과도
+  충돌하지 않는다.
+- detached HEAD 인 팀장은 스윕이 끝나면 팀장 체크아웃을 최신으로 옮긴다. 체크아웃이 깨끗할 때만 한다.
+  ```bash
+  [ -z "$(git branch --show-current)" ] && [ -z "$(git status --porcelain)" ] && git switch -q --detach origin/<기본브랜치>
+  ```
+  이유: 팀장 체크아웃의 `docs/tasks/*/state.json` 은 `LEGACY_REPORTED` 검사가 읽는다. 옛 커밋에 머물면 이미
+  머지된 작업의 옛 state.json 을 보고 재기동을 거부할 수 있다.
 
 ## 5. 팀원 spawn
 

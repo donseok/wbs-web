@@ -306,13 +306,18 @@ git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h  
 
 행 H 의 설치 블록:
 ```bash
-if [ -f package.json ] && [ ! -d node_modules ]; then
-  if   [ -f package-lock.json ]; then npm ci
-  elif [ -f pnpm-lock.yaml ];    then pnpm install --frozen-lockfile
-  elif [ -f yarn.lock ];         then yarn install --frozen-lockfile
-  fi   # 실패하면 .result 에 failed deps
-fi
+.claude/skills/dflow-dev/scripts/deps.sh   # 0 이 아니면 .result 에 failed deps <DEPS_FAILED 줄의 명령과 exit>
 ```
+- 설치 규칙은 위 표와 같다(lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만,
+  lockfile 이 없으면 설치하지 않는다). npm 은 한 가지가 더 있다. lockfile·`node -v`·플랫폼으로 만든 키가 같은
+  설치본이 리포 공용 캐시(`<git-common-dir>/dflow-deps/<키>`)에 있으면 `npm ci` 대신 그것을 복제한다. macOS 는
+  `cp -Rc`(APFS 복제), Linux 는 `cp -R --reflink=auto` 이며, 복제가 실패하면 지우고 `npm ci` 로 간다.
+- 캐시는 이 스크립트의 `npm ci` 가 성공한 결과로만 채운다. 사람 체크아웃의 `node_modules` 는 쓰지 않는다. 이유:
+  사람이 lockfile 이 바뀐 커밋을 받고 설치를 안 했을 수 있어, lockfile 이 같아도 설치본이 맞는다는 보장이 없다.
+- 복제는 `postinstall` 을 다시 돌리지 않는다. Playwright 브라우저처럼 `postinstall` 이 받는 것은 사용자 전역
+  캐시(macOS `~/Library/Caches/ms-playwright`)에 있어 첫 `npm ci` 가 받아 두면 그대로 쓴다. 이 점을 "고치려고"
+  복제 뒤에 `npm rebuild` 를 넣지 않는다.
+- 캐시는 완성 항목 최근 3개만 남긴다.
 
 - 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다.
 - `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때

@@ -61,8 +61,14 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
   이 리포의 프로젝트에 속한 키가 하나면 묻지 않고 고르고, 둘 이상이면 묻는다. 바꾸려면 그 줄을 고친다. 키 목록은
   `.claude/skills/dflow-work/scripts/dflow.sh profiles` 로 본다. 시작 보고에 `키: <이름> (<email>, <prefix>)` 가 나온다.
 - 팀원이 잡을 작업은 D'Flow 에서 `agent` 태그를 켠다. 태그가 없는 작업은 사람 몫이라 건드리지 않는다.
-- 팀장은 한 체크아웃에 하나만 뜬다. 다른 계정으로 동시에 돌리려면 클론을 하나 더 만들고 그 `.env` 에 그 계정의
-  PAT 를 넣는다.
+- 팀장은 한 체크아웃에 하나만 뜬다. 다른 계정(다른 PAT)으로 동시에 돌리려면 클론 대신 팀장 워크트리를 만든다.
+  ```
+  .claude/skills/dflow-team/scripts/lead-worktree.sh <이름>     # 주 체크아웃 루트에서
+  ```
+  `.claude/worktrees/lead-<이름>` 이 생기고 `.env` 가 복사된다. 그 `.env` 에서 키를 고른 뒤 그 폴더에서 `claude` 를
+  띄워 `/dflow-team …` 을 실행한다. 팀장 워크트리에는 `node_modules` 가 필요 없다. 다 쓰면
+  `git worktree remove --force .claude/worktrees/lead-<이름>` 으로 지운다.
+- 같은 계정으로는 팀장을 둘 띄울 수 없다(`SAME_IDENTITY_LEAD`). 일을 더 나누려면 팀장 하나에 인원과 WP 범위를 준다.
 
 ## 팀원 화면과 질문
 
@@ -82,5 +88,6 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
 ## 그 밖
 
 - 승인은 사람이 D'Flow 웹에서 한다. 팀장은 30분마다(그리고 결과가 올 때마다) 승인된 작업을 main 에 머지한다.
+  팀장 워크트리의 팀장은 main 을 잡지 않고 임시 워크트리에서 머지해 올린다.
 - 반려된 작업은 자동으로 다시 잡지 않는다. `/dflow-dev <id8>` 로 사람이 재작업을 시작한다.
 - 마감 보고의 "멈춤" 표에는 자동으로 잇지 못한 작업과 이어받는 명령이 함께 나온다.

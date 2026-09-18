@@ -102,7 +102,12 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
    - 이유: `/dflow-dev` Phase 06 가 done 뒤 `reported` 를 커밋하므로 선행 tip 은 후속이 기점으로 삼은 커밋보다
      앞서 있어 후속의 조상이 아니다. tip 으로 판정하면 스택을 알아보지 못해, 승인이 철회된 선행 위에 쌓인
      후속만 승인됐을 때 선행의 코드가 main 에 들어간다.
-4. **머지**:
+4. **머지**: 먼저 머지 자리를 정한다. 호출한 체크아웃의 현재 브랜치가 `<기본브랜치>` 면 그 체크아웃에서
+   머지한다(아래 블록 그대로). 아니면(detached HEAD 이거나 다른 브랜치면) **임시 머지 워크트리** `<W>` 에서
+   머지한다(「임시 머지 워크트리」). 이유: git 은 한 브랜치를 워크트리 하나에서만 체크아웃하게 하므로, 기본 브랜치를
+   다른 체크아웃이 잡고 있으면 `git switch <기본브랜치>` 가 `already used by worktree` 로 실패한다. 링크드
+   워크트리에서 도는 두 번째 `/dflow-team` 팀장이 이 경우다. 수동 사용자가 다른 브랜치에서 불렀을 때도 체크아웃을
+   옮기지 않게 된다.
    ```bash
    git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>
    git rev-parse HEAD                      # 머지 직전 HEAD. 값을 기록해 둔다
@@ -147,6 +152,30 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
       우회하지 않는 것은 그대로다.
    `--no-ff` 고정 — 작업 단위 경계가 머지 커밋으로 남아야 추적이 된다. push 가 훅에 거부되면
    우회 금지. 되돌리고 보고한 뒤 그 작업과 후손만 빼는 절차는 위 5단계다.
+
+   **임시 머지 워크트리**: 호출한 체크아웃이 기본 브랜치에 있지 않을 때 쓴다. 스윕을 시작할 때 한 번 만들고
+   끝날 때 지운다. `<ROOT>` 는 호출한 체크아웃의 `git rev-parse --show-toplevel` 이다.
+   ```bash
+   W="<ROOT>/.claude/worktrees/dflow-merge"
+   ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
+   grep -qxF '**/.claude/worktrees/' "$ex" || printf '%s\n' '**/.claude/worktrees/' >> "$ex"
+   git worktree remove --force "$W" 2>/dev/null; rm -rf "$W"; git worktree prune
+   git fetch origin && git worktree add --detach "$W" origin/<기본브랜치> || echo MERGE_WT_FAILED
+   ```
+   - `MERGE_WT_FAILED` 면 이번 스윕은 아무것도 머지하지 않고 "머지 워크트리 생성 실패" 로 보고한다.
+   - 후보마다 위 1~5를 `<W>` 에서 한다. 달라지는 것은 셋뿐이다.
+     1. 1단계는 `git -C "$W" fetch origin && git -C "$W" switch --detach origin/<기본브랜치>` 다. `pull` 대신
+        detach 하는 이유: `<W>` 는 브랜치를 잡지 않는다. 그 뒤 `git -C "$W" rev-parse HEAD` 를 머지 직전 HEAD 로 기록한다.
+     2. 4단계의 state.json 은 `<W>/docs/tasks/<TSK>/state.json` 을 고쳐 `<W>` 에서 커밋한다.
+     3. 5단계는 `git -C "$W" push origin HEAD:<기본브랜치>` 다. 실패하면 `git -C "$W" reset --hard <기록한 HEAD>` 로
+        되돌리고 같은 규칙(경합·훅·그 밖)으로 가른다. `--keep` 대신 `--hard` 를 쓰는 이유: `<W>` 는 이 스윕만 쓰는
+        임시 트리라 지킬 미커밋 변경이 없다.
+   - 5번 뒷정리의 로컬 `git branch -d` 도 `git -C "$W"` 로 한다. `-d` 는 브랜치가 현재 HEAD 에 머지됐는지 보는데,
+     머지 커밋은 `<W>` 의 HEAD 에만 있기 때문이다.
+   - 스윕이 끝나면(멈춘 경우 포함) `git worktree remove --force "$W"` 로 지운다. 로컬 브랜치 저장소는 모든
+     워크트리가 함께 쓰므로 `<W>` 를 지워도 머지·삭제 결과는 남는다.
+   - 호출한 체크아웃은 건드리지 않는다. 팀장처럼 detached HEAD 로 도는 체크아웃은 스윕 뒤 스스로
+     `origin/<기본브랜치>` 로 다시 detach 해 최신을 따른다(`/dflow-team` 「4. 승인 스윕」).
 5. **뒷정리** (머지된 작업마다):
    - 머지된 `agent/` 브랜치를 지운다. 원격 agent 브랜치 삭제(`git push origin --delete agent/<id8>-<slug>`)는
      그대로 한다. 로컬 삭제(`git branch -d agent/<id8>-<slug>`)는 브랜치가 없거나(not found) 다른 워크트리가
