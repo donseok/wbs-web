@@ -22,7 +22,7 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    성공(exit 0) 출력:
    ```
    base: https://d-flow.example.com
-   프로필 1: alice@example.com (계약 2.2, 프로젝트 3)
+   프로필 1: OxMb1D1097Qz 맥북-에어 alice@example.com (계약 2.4, 프로젝트 3) [선택됨]
    ```
    계약 버전은 **major 가 다를 때만** 문제다 — "계약 major 불일치" 경고가 뜨면 dflow-kit
    (스킬 배포 킷)을 최신으로 갱신하라고 사용자에게 안내한다. minor 차이(서버의 additive 확장)는
@@ -31,7 +31,10 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    서버 응답에 contract_version 이 없는 것이므로 킷을 갱신해도 안 고쳐진다. 서버 배포·응답을
    확인해야 한다.
 
-2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) 사용자가 지목한 사람으로 `--as <이름|email>` 옵션을 사용한다.
+2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) `.env` 의 `DFLOW_AS=<prefix>` 가 이 리포의 키를 고정한다.
+   prefix 는 `dflow.sh profiles` 로 본다(토큰마다 한 줄 JSON: `prefix`·`name`·`email`·`projects`·`bound`·`selected`).
+   `DFLOW_AS` 가 없으면 첫 토큰이며 doctor 가 그 사실을 경고한다. 한 번만 다른 키로 부르려면 `--as <prefix|email>` 을
+   쓴다. 한 계정에 키가 둘이면 email 로는 갈리지 않으므로 prefix 를 쓴다. `DFLOW_AS` 는 prefix 만 받는다.
 
 ## 워크플로우
 
@@ -46,7 +49,7 @@ dflow.sh me
 ### 목록 조회
 
 ```bash
-dflow.sh [--as <이름|email>] list [--scope available|claimed|assigned|all] [--all]
+dflow.sh [--as <prefix|email>] list [--scope available|claimed|assigned|all] [--all]
 ```
 
 기본값: `--scope available` (새 작업).

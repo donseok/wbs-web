@@ -178,6 +178,11 @@ dflow.sh --as alice@example.com list
 dflow.sh --as alice@example.com claim <순번>
 ```
 
+**어느 키로 도는지 모르겠다**: `dflow.sh profiles` 가 토큰마다 `prefix`·`name`·`email`·`projects` 와 이 리포 바인딩에
+속하는지(`bound`), 지금 설정이 고르는 키인지(`selected`)를 낸다. `.env` 의 `DFLOW_AS=<prefix>` 로 고정한다.
+`DFLOW_AS=… 에 맞는 토큰이 없습니다`(exit 2)는 그 값이 어느 토큰의 prefix 와도 다르다는 뜻이다. 이메일·이름은 받지
+않는다. heartbeat 훅도 같은 값을 따르며, 맞는 토큰이 없으면 아무것도 보내지 않는다.
+
 ## 기타 확인사항
 
 ### git branch 상태

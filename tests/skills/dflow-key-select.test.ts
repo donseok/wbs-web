@@ -218,3 +218,30 @@ describe('/dflow-team 키 판정(스펙 §6)', () => {
     expect(help).toContain('dflow.sh profiles')
   })
 })
+
+describe('킷·dflow-work 문서(스펙 §7)', () => {
+  const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8')
+
+  it('.env.example 에 빈 DFLOW_AS 와 prefix 설명이 있다', () => {
+    const t = read('kit/.env.example')
+    expect(t).toMatch(/^DFLOW_AS=$/m)
+    expect(t).toContain('dflow.sh profiles')
+  })
+  it('api-contract.md 가 v2.4 와 두 필드를 적는다', () => {
+    const t = read('.claude/skills/dflow-work/references/api-contract.md')
+    expect(t).toContain('# D\'Flow Agent API 계약 v2.4')
+    expect(t).toContain('"token_name"')
+    expect(t).toContain('"token_prefix"')
+  })
+  it('dflow-work 문서와 kit README 가 DFLOW_AS·profiles·--as <prefix|email> 을 안내한다', () => {
+    for (const rel of [
+      '.claude/skills/dflow-work/SKILL.md', '.claude/skills/dflow-work/README.md',
+      '.claude/skills/dflow-work/references/troubleshooting.md', 'kit/README.md',
+    ]) {
+      expect(read(rel), rel).toContain('DFLOW_AS')
+      expect(read(rel), rel).toContain('dflow.sh profiles')
+    }
+    expect(read('.claude/skills/dflow-work/SKILL.md')).toContain('--as <prefix|email>')
+    expect(read('.claude/skills/dflow-work/SKILL.md')).not.toContain('--as <이름|email>')
+  })
+})

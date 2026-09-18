@@ -19,7 +19,7 @@ install.sh 가 하는 일: 의존 명령 점검(git curl jq python3 gh) → `<�
 그 다음 사람이 할 일:
 
 1. D'Flow 웹 → `/account` "내 토큰" → PAT 발급
-2. `<리포>/.env` 에 `DFLOW_API_BASE`(스테이징/운영) · `DFLOW_PATS` · `DFLOW_PROJECT_ID` 기입
+2. `<리포>/.env` 에 `DFLOW_API_BASE`(스테이징/운영) · `DFLOW_PATS` · `DFLOW_PROJECT_ID` 기입. 토큰이 둘 이상이면 `DFLOW_AS=<prefix>` 로 이 리포의 키를 고정한다(prefix 는 `dflow.sh profiles` 로 확인. `/dflow-team` 은 비어 있으면 시작할 때 묻고 적는다)
 3. 확인: `cd <리포> && (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor)`
 4. Claude Code 를 **리포 루트에서** 연다 — 스킬은 프로젝트 스코프(`.claude/skills/`)라 cwd 가 리포 루트여야 한다
 

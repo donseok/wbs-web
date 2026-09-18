@@ -209,6 +209,9 @@ dflow.sh --as alice@example.com list
 dflow.sh --as alice@example.com claim 1
 ```
 
+리포마다 쓸 키를 고정하려면 그 리포의 `.env` 에 `DFLOW_AS=<prefix>` 를 적는다. prefix 는 `dflow.sh profiles` 로 본다.
+`--as` 는 한 번만 다른 키로 부를 때 쓰며 prefix 와 email 을 모두 받는다. 한 계정에 키가 둘이면 email 로는 갈리지 않는다.
+
 ### 다중 PC·세션
 
 로컬 상태 파일에 의존하지 않으므로 안전:
