@@ -86,8 +86,12 @@ if "$TM" -L dflow has-session -t dflow 2>/dev/null; then
 else
   "$TM" -L dflow new-session -d -s dflow -n dflow -x 200 -y 60 -c "$WT" './.dflow-run'
   "$TM" -L dflow set-option -t dflow remain-on-exit on
+  "$TM" -L dflow set-option -w -t dflow pane-border-status top
+  "$TM" -L dflow set-option -w -t dflow pane-border-format ' #{pane_title} '
   PANE=$("$TM" -L dflow list-panes -t dflow -F '#{pane_id}' | head -1)
 fi
+"$TM" -L dflow set-option -p -t "$PANE" allow-set-title off
+"$TM" -L dflow select-pane -t "$PANE" -T 'w<slot> · <TSK> <id8> · <작업 이름>'
 "$TM" -L dflow select-layout -t dflow tiled
 printf '%s\n' "$PANE" > "$WT/.dflow-pane"
 cat "$WT/.dflow-pane"
@@ -97,6 +101,18 @@ cat "$WT/.dflow-pane"
   않는다. 서버가 없으면 `new-session`, 있으면 `split-window` 로 갈리는 분기 한 줄이 전부다.
 - `-x 200 -y 60` 은 detached 동안의 가상 크기다. 사람이 붙으면 클라이언트 크기를 따른다. 팀장이
   `capture-pane` 으로 읽을 때 이 크기가 쓰이므로 좁게 두지 않는다.
+- **pane 이름표**: `select-pane -T` 로 각 pane 에 `w<slot> · <TSK> <id8> · <작업 이름>` 을 붙이고,
+  `pane-border-status top` 과 `pane-border-format` 으로 테두리에 그 제목을 띄운다. 두 `set-option` 은 window
+  옵션이라 `-w` 가 필요하며 세션을 만들 때 한 번만 걸면 그 창의 모든 pane 에 적용된다. 이유: 이름표가 없으면
+  `attach` 로 붙은 사람이 화면 N개를 받고도 어느 pane 이 어느 슬롯의 무슨 작업인지 알 수 없다. pane id
+  (`%0`·`%2`)는 팀장의 장부에만 있고 화면에는 뜨지 않으며, 작업 이름은 스크롤아웃되면 사라진다. 슬롯 번호를
+  앞에 두는 이유는 팀장의 보고·`events.jsonl` 의 `slot` 과 같은 축으로 읽히게 하기 위해서다.
+- **`allow-set-title off` 를 `select-pane -T` 보다 먼저 건다.** 이것이 없으면 이름표가 붙자마자 지워진다.
+  claude 는 터미널 제목 이스케이프 시퀀스로 자기 진행 상황을 pane 제목에 계속 쓰기 때문이다(실측: 붙여 둔
+  이름표가 `◑ Worker-prompt 규칙 실행` 으로 덮였다). 이 옵션은 pane 옵션이라 `-p` 와 pane id 가 필요하고,
+  세션이 아니라 **pane 마다** 걸어야 하므로 `split-window` 로 늘린 pane 에도 매번 건다. tmux 3.3 이상에서
+  쓸 수 있다(이 주행의 실측 판본은 3.7c). 대가로 claude 가 제목에 싣던 진행 표시가 테두리에서 사라지지만,
+  진행 상황은 pane 본문에 그대로 보이므로 슬롯 식별을 택한다.
 - `remain-on-exit on` 은 죽은 pane 을 남긴다. 팀원이 무슨 말을 남기고 끝났는지 읽을 수 있고, 종료 코드도
   `#{pane_dead_status}` 로 얻는다.
 - `exec` 로 셸을 claude 로 대체해 `pane_pid` 가 곧 claude 가 된다.

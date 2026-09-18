@@ -785,7 +785,7 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 후보가 원
      `git worktree add --detach <MAIN>/.claude/worktrees/dflow-<id8> origin/<기본브랜치>` 로 워크트리를 만들고
      `.env`·스킬 링크를 건 뒤, 포인터를 `<워크트리>/.dflow-prompt` 에, 실행 스크립트를 `<워크트리>/.dflow-run`
      에 쓰고, 서버가 없으면 `new-session` 있으면 `split-window` 로 pane 을 띄운다(명령 전문은 backends.md
-     「pane(tmux)」). pane id 를 `<워크트리>/.dflow-pane` 에 쓴다. **이어서 폴더 신뢰 확인 루프를 반드시 돈다.**
+     「pane(tmux)」). pane id 를 `<워크트리>/.dflow-pane` 에 쓰고, `allow-set-title off` 를 걸고 `select-pane -T` 로 그 pane 에 `w<slot> · <TSK> <id8> · <작업 이름>` 이름표를 붙인다(순서와 테두리 표시 설정은 backends.md. 옵션을 먼저 걸지 않으면 claude 가 제목을 자기 진행 표시로 덮는다). **이어서 폴더 신뢰 확인 루프를 반드시 돈다.**
      그 확인을 넘기지 않으면 팀원이 첫 화면에서 멈춘 채 살아 있어 한 슬롯이 통째로 놀게 된다. 기점은
      `origin/<기본브랜치>` 로 명시하고, 스택 기점은 `/dflow-dev` Phase 01 2번이 claim 전에 맞춘다.
    - **pane(Orca)**:
