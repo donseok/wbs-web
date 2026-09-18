@@ -1,6 +1,6 @@
 ---
 name: dflow-team
-description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)된 ready 작업을 상시 감시해 슬롯 N개의 팀원에게 나눠 동시에 개발시키는 팀장 스킬. 팀원은 자기 서브에이전트를 띄울 수 있는 독립 세션(tmux pane 또는 Orca 탭)이며 각자 워크트리에서 /dflow-dev 를 돌린다. 낮 시간 supervised 전용. 트리거 - "/dflow-team", "팀으로 개발", "팀장 시작", "N건 동시 착수". 사용법 - /dflow-team [인원] <종료시각> [모델] [WP-XX…]
+description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)된 ready 작업을 상시 감시해 슬롯 N개의 팀원에게 나눠 동시에 개발시키는 팀장 스킬. 팀원은 자기 서브에이전트를 띄울 수 있는 독립 세션(tmux pane 또는 Orca 탭)이며 각자 워크트리에서 /dflow-dev 를 돌린다. 당일·여러 날·종료 요청 전까지 실행할 수 있다. 트리거 - "/dflow-team", "팀으로 개발", "팀장 시작", "N건 동시 착수", "팀장 종료". 사용법 - /dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [WP-XX…] · /dflow-team help
 ---
 
 # /dflow-team: 팀장 (슬롯 N개 동시 개발)
@@ -8,8 +8,8 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 인자: `$ARGUMENTS`
 
 > **위치 선언**: 설계 정본은 wbs-web 리포 docs/superpowers/specs/2026-09-10-dflow-team-design.md(킷에는
-> 미동봉). `/dflow-poll` 이 한 번에 1건만 착수하던 것을 슬롯 N개 동시 착수와 상시 보충으로 넓힌다. 담당자가
-> 자리에 있는 낮 시간 supervised 루프다. 서버 통신은 dflow.sh 로 하고 exit code 로 분기하며, dflow-work
+> 미동봉). `/dflow-poll` 이 한 번에 1건만 착수하던 것을 슬롯 N개 동시 착수와 상시 보충으로 넓힌다. 기본은
+> 담당자가 자리에 있는 supervised 루프이고, 사람이 명시하면 여러 날이나 종료 요청 전까지 무인으로도 돈다(「인자」). 서버 통신은 dflow.sh 로 하고 exit code 로 분기하며, dflow-work
 > 금지사항을 상속한다.
 >
 > **제1 제약: 팀원을 서브에이전트로 띄우지 않는다.** 팀원은 `/dflow-dev` 를 실행하고 `/dflow-dev` 는
@@ -28,35 +28,60 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 
 ## 인자
 
-`/dflow-team [인원] <종료시각> [모델] [WP-XX…]`. 예: `/dflow-team 18:00`, `/dflow-team 4명 18시까지 opus`,
-`/dflow-team 18:00 WP-02 WP-03`.
+`/dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [WP-XX…]`. 예: `/dflow-team 18:00`,
+`/dflow-team 4명 18시까지 opus`, `/dflow-team 18:00 WP-02 WP-03`, `/dflow-team 3일 뒤 06:00까지`,
+`/dflow-team 종료 요청 전까지`.
 
 - 인자는 자연어로 해석한다. 플래그 문법을 강제하지 않는다.
-- **종료 시각은 유일한 필수 인자다.** 없거나, 이미 지났거나, 자정을 넘기면 사용법만 출력하고 끝내지 않고
-  **AskUserQuestion 으로 묻는다.** 무인 야간 실행을 막는 규칙이며, 사람이 답해야 시작하므로 묻는 것도 그 규칙을
-  지킨다. 묻는 것은 「1. 시작」 전제 검사 **전**이다. 이유: 전제 검사는 마지막에 잠금을 잡으므로, 잠금을 쥔 채
-  사람의 답을 기다리면 그동안 다른 팀장이 이 체크아웃을 못 쓴다.
+- **`help`**: 인자가 `help`·`--help`·`-h`·`도움말`·`사용법` 중 하나면 `references/help.md` 를 Bash `cat` 으로 읽어
+  그대로 보여 주고 **끝낸다.** 전제 검사·잠금·서버 호출을 하지 않는다. 그 파일은 이때만 읽는다. 이유: 사용 안내는
+  사람이 요청할 때만 필요하고, 매 실행마다 읽으면 컨텍스트만 차지한다.
+- **종료 시각은 유일한 필수 인자다.** 새 배정을 멈추는 시각이며 세 형식 중 하나로 정규화한다. 정규화한 값을
+  `<UNTIL>`, 좌석표에 싣는 표시 문자열을 `<UNTIL_LABEL>` 이라 부른다.
+
+  | 말 | `<UNTIL>` | `<UNTIL_LABEL>` |
+  |---|---|---|
+  | `18:00`, "18시까지" (오늘) | `18:00` | `18:00` |
+  | "내일 아침 7시", "3일 뒤 06:00", "월요일 09:00", `2026-09-21 06:00` | `2026-09-21 06:00` | `09-21 06:00` |
+  | "종료 요청 전까지", "무기한", "계속", "끝날 때까지" | `none` | `종료요청까지` |
+
+  - 날짜가 붙은 말은 오늘 날짜(`date +%Y-%m-%d`)를 기준으로 절대 날짜로 바꾼다. "N일 뒤" 는 오늘+N일, 요일은 오늘
+    이후 가장 가까운 그 요일이다. 시각만 있고 그 시각이 오늘 이미 지났으면 **내일로 추측하지 않고** 묻는다. 이유:
+    22시에 "06:00" 이라고 쓴 사람이 오늘 아침을 잘못 쓴 것인지 내일 아침을 뜻한 것인지 팀장이 알 수 없다.
+  - 날짜가 붙은 종료 시각은 지금부터 **7일 이내**여야 한다(`UNTIL_TOO_FAR`). 그보다 길게 돌리려면 `종료 요청 전까지`
+    를 쓴다. 이유: 날짜 오타 한 번에 몇 주씩 도는 일을 막되, 정말 길게 돌리려는 사람에게는 명시적인 길을 둔다.
+  - 시작 보고의 첫 줄에 정규화한 절대 시각(또는 "종료 요청 전까지")을 적는다. 사람이 해석이 맞는지 바로 확인하게 한다.
+  - **종료 요청**: 종료 시각 전이라도, 또는 `none` 이면 언제든 둘 중 하나로 멈춘다. 둘 다 「7. 마감」 으로 간다.
+    1. 팀장 세션에 말로 한다: "팀장 종료", "마감해", "그만" 같은 말.
+    2. 다른 세션·터미널에서 종료 파일을 만든다. 감시 루프가 20초 안에 보고 `STOP_REQUESTED` 로 팀장을 깨운다.
+       ```bash
+       touch "$(git -C <팀장 체크아웃> rev-parse --git-path dflow-team.stop)"
+       ```
+  - 종료 시각이 없거나, 이미 지났거나, 형식이 틀리거나, 7일을 넘으면 사용법만 출력하고 끝내지 않고
+    **AskUserQuestion 으로 묻는다.** 묻는 것은 「1. 시작」 전제 검사 **전**이다. 이유: 전제 검사는 마지막에 잠금을
+    잡으므로, 잠금을 쥔 채 사람의 답을 기다리면 그동안 다른 팀장이 이 체크아웃을 못 쓴다.
   - 한 번의 AskUserQuestion 에 질문을 모아 묻는다. 종료 시각이 빠졌을 때만 묻고, 종료 시각이 주어졌으면 나머지
     선택 인자는 묻지 않고 기본값을 쓴다. 이유: 인자를 다 준 사람을 붙잡지 않는다.
-    1. **종료 시각**(필수): 선택지는 지금보다 늦은 당일 정시 가운데 가까운 것부터 최대 3개와, 가장 늦은
-       선택지로 `23:30`(지금이 23:30 이후면 뺀다)이다. 사람이 "Other" 로 직접 적을 수 있다. 지금 이후 당일에 고를
-       시각이 하나도 없으면(23:30 이후) 묻지 않고 아래 사용법과 "오늘은 더 시작할 수 없다" 를 출력하고 끝낸다.
+    1. **종료 시각**(필수): 선택지는 넷이다. 오늘 안의 가까운 정시 하나(없으면 뺀다), `내일 09:00`, `다음 월요일
+       09:00`(오늘이 금·토·일일 때만. 아니면 `내일 18:00`), `종료 요청 전까지`. 사람이 "Other" 로 직접 적을 수 있다.
     2. **인원**: 이번 인자에 없을 때만. `3 (기본)`·`1`·`2`·`4` 순이다.
     3. **WP 범위**: 이번 인자에 없을 때만. `전체 (기본)` 하나와, 서버 ready 목록에서 뽑은 WP 를 최대 3개까지
        선택지로 낸다. 목록은 `dflow.sh list --scope assigned` 의 `RD` 행마다 show 한 `external_ref` 의 TSK 번호
        첫 칸(`TSK-02-05` → `WP-02`)이며, 조회가 실패하면 `전체 (기본)` 과 "Other 로 직접 적는다" 만 둔다.
        `multiSelect` 로 묻는다. `전체` 를 함께 고르면 전체로 본다.
     모델은 묻지 않는다. 기본 모델로 도는 것이 통상이고, 질문이 많으면 답이 늦어지기 때문이다.
-  - 답으로 받은 종료 시각이 여전히 지났거나 형식이 틀리면 한 번만 더 묻고, 그래도 맞지 않으면 사용법을 출력하고
-    끝낸다.
+  - 답으로 받은 종료 시각이 여전히 틀리면 한 번만 더 묻고, 그래도 맞지 않으면 아래 사용법을 출력하고 끝낸다.
   ```
-  사용법: /dflow-team [인원] <종료시각> [모델] [WP-XX…]   예) /dflow-team 18:00 · /dflow-team 4명 18시까지 opus · /dflow-team 18:00 WP-02
-         종료시각은 당일 시각만(자정 넘김 불가)
+  사용법: /dflow-team [인원] <종료시각|종료 요청 전까지> [모델] [WP-XX…]
+         예) /dflow-team 18:00 · /dflow-team 4명 3일 뒤 06:00까지 opus · /dflow-team 종료 요청 전까지 WP-02
+         자세한 안내: /dflow-team help
   ```
-  종료 시각은 새 배정을 멈추는 시각이다. 진행 중인 팀원은 대기 상한까지 기다리고, 그 뒤에 남은 것은
-  목록으로 보고한다(「7. 마감」). 이미 지난 시각이나 자정을 넘기는 시각은 받지 않는다(poll.sh 가 자정 넘김을
-  지원하지 않는다). 늦은 밤에 새벽 시각을 주면 `UNTIL_PAST` 로 거부되므로, 사용법과 거부 안내 모두에 당일
-  시각만 받는다는 것을 적는다.
+  종료 시각이 지나면 새 배정을 멈추고, 진행 중인 팀원은 대기 상한까지 기다린 뒤 남은 것을 목록으로 보고한다
+  (「7. 마감」).
+- **여러 날·무기한 실행**(`<UNTIL>` 이 오늘이 아니거나 `none`): 시작 보고에 "팀원은 권한 확인 생략 모드로 무인으로
+  돕니다. 답을 기다리는 팀원은 사람이 답할 때까지 슬롯을 잡습니다." 를 한 줄 더 적는다. macOS 면 절전 방지를
+  건다(「1. 시작」 5번). 서버(Linux)와 Windows 는 절전 방지를 걸지 않는다. 서버는 절전하지 않고, 절전하는 PC 라면
+  사람이 전원 설정으로 막는다.
 - 인원은 동시 팀원 슬롯 수다. **기본 3, 하드 상한 4.** 4 를 넘기면 4 로 자르고 그 사실을 한 줄 알린다.
   슬롯마다 독립 메인 에이전트가 떠서 비용과 사용량 한도 소모가 빠르게 늘기 때문이다.
 - 모델은 선택이다(`opus`|`sonnet`). 없으면 포인터에 `MODEL=default` 를 넘겨 기본 모델을 쓴다. 값은 팀원이
@@ -257,7 +282,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 
 1. **전제 검사**: 아래 블록 하나를 한 번의 Bash 호출로 돌린다. 블록은 실패한 항목을 모두 `FAIL …` 로 출력한 뒤
    0 이 아닌 값으로 끝나고, **exit 가 0 이 아니면 아무것도 띄우지 않고 중단·보고한다.** 이유: 실패를 출력만 하는
-   검사는 읽고 넘어가면 그대로 진행된다. `<HHMM>` 은 종료 시각을 네 자리로 쓴 값이다.
+   검사는 읽고 넘어가면 그대로 진행된다. `<UNTIL>` 은 「인자」 에서 정규화한 종료 시각이다.
    ```bash
    fail=0; bad() { echo "FAIL $*"; fail=1; }
    MAIN=$(git rev-parse --show-toplevel); [ -z "$(git rev-parse --show-prefix)" ] || bad NOT_REPO_ROOT
@@ -297,7 +322,15 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      fi
    fi
    [ -z "$(git status --porcelain)" ] || bad DIRTY
-   [ "$(date +%H%M)" -lt <HHMM> ] || bad "UNTIL_PAST 종료 시각은 당일 시각만(자정 넘김 불가)"
+   UNTIL='<UNTIL>'   # HH:MM · YYYY-MM-DD HH:MM · none
+   if [ "$UNTIL" != none ]; then
+     case "$UNTIL" in ??:??) u="$(date +%Y-%m-%d) $UNTIL" ;; *) u="$UNTIL" ;; esac
+     ue=$(date -j -f '%Y-%m-%d %H:%M:%S' "$u:00" +%s 2>/dev/null || date -d "$u" +%s 2>/dev/null)
+     if [ -z "$ue" ]; then bad "UNTIL_BAD $UNTIL"
+     elif [ "$ue" -le "$(date +%s)" ]; then bad "UNTIL_PAST $UNTIL 는 이미 지났다"
+     elif [ "$ue" -gt $(( $(date +%s) + 7 * 86400 )) ]; then bad "UNTIL_TOO_FAR 7일을 넘는다. 더 길게는 '종료 요청 전까지'로 시작하라"
+     fi
+   fi
    find_tmux() {
      for c in /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux "$(command -v tmux 2>/dev/null)"; do
        [ -n "$c" ] && [ -x "$c" ] || continue
@@ -341,6 +374,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    # owner = <신원>/<host>/lead <시작 epoch> <팀장 세션 PID>. 방금 만든 잠금이라 쓰기에 실패하면 지우고 끝낸다
    { printf '%s %s %s\n' "$who/$host/lead" "$(date +%s)" "$LEAD_PID" > "$LOCK/owner" && date +%s > "$LOCK/beat"; } \
      || { rm -rf "$LOCK"; echo "FAIL LOCK_WRITE $LOCK"; exit 1; }
+   rm -f "$(git rev-parse --git-path dflow-team.stop)"   # 지난 실행이 남긴 종료 요청을 지운다
    echo "PRECHECK_OK lead_pid=$LEAD_PID BACKEND=$BACKEND TM=$TM"
    ```
    - **팀장 잠금**: 잠금은 디렉터리이며 `mkdir` 로 얻는다. `mkdir` 는 원자적이라 동시에 시작한 팀장 둘 중 하나만
@@ -418,8 +452,11 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    - `DIRTY`: exclude 를 넣은 뒤 `git status --porcelain` 이 비어 있어야 한다. 팀장 체크아웃이 더러우면 승인
      스윕이 위험하다. 실패 안내에 "미커밋 `docs/tasks/*/state.json` 은 파일명을 명시해 먼저 커밋하라(수동
      `/dflow-dev` 가 남긴 것일 수 있다)" 를 넣는다.
-   - `UNTIL_PAST`: 종료 시각이 오늘 안의 미래여야 한다. 당일 시각만 받고 자정 넘김은 받지 않으므로(poll.sh 가
-     지원하지 않는다) 거부 안내에 그 사실을 적는다. 늦은 밤에 새벽 시각을 준 사람이 이유를 알게 하기 위해서다.
+   - `UNTIL_BAD`·`UNTIL_PAST`·`UNTIL_TOO_FAR`: 종료 시각은 에포크 초로 비교한다(BSD `date -j` 먼저, 없으면 GNU
+     `date -d`. macOS·Linux 서버 모두에서 돈다). 형식이 틀리거나, 이미 지났거나, 7일을 넘으면 거부한다. `none` 은
+     검사하지 않는다. 「인자」 가 전제 검사 전에 이미 걸렀으므로 이 검사는 두 번째 방어선이다.
+   - 종료 파일(`dflow-team.stop`)은 잠금을 얻은 뒤 지운다. 이유: 지난 실행에서 마감 전에 죽은 팀장이 남긴 요청이
+     새 팀장을 곧바로 멈추지 않게 한다. 잠금을 얻기 전에 지우면 돌고 있는 다른 팀장에게 보낸 요청을 지우게 된다.
    - `LEGACY_REPORTED` 검사와 이 블록 전체는 bash 와 zsh 모두에서 돈다. state.json 은 glob 대신 `find` 로 찾고,
      결과를 변수로 받아 루프 밖에서 `bad` 를 부른다. 이유: zsh 는 매치 없는 glob 에서 블록 전체를 `FAIL` 줄 없이
      죽이고, bash 는 파이프 안의 `while` 을 서브셸에서 돌려 그 안에서 바꾼 `fail` 이 밖으로 나오지 않는다.
@@ -456,7 +493,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    무관합니다." 를 알린다. tmux 백엔드면 "화면은 `TMUX= tmux -L dflow attach` 로 볼 수 있습니다." 를 한 줄 더
    알린다. 첫 줄이 중요하다. 팀장을 평소 모드로 띄운 사람도 팀원은 무제한으로 돈다는 사실이 여기서 드러나야
    하기 때문이다. `TMUX=` 를 앞에 붙이는 이유는 팀장이 이미 tmux 안일 때 중첩 attach 가 거부되기 때문이다.
-4. `team.start`(backend, slots, until, wp)를 기록한다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. 2번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
+4. `team.start`(backend, slots, until, wp)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. 2번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
    다시 기록한다: 흡수한 슬롯마다 `team.spawn`(`spawn_kind` 는 `readopt`), 답을 기다리는 `blocked` 마다
    `team.blocked`, 흡수한 슬롯의 마지막 처리 해시마다 `team.result` 또는 `team.blocked`.
    이유: 이후 기상의 재구성은 새 `team.start` 이후만 읽으므로, 다시 기록하지 않으면
@@ -472,12 +509,19 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    ```bash
    LOCK=$(git rev-parse --git-path dflow-team.lock); lead=$(cut -d' ' -f1 "$LOCK/owner")
    set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$lead" \
-     --slots <N> --busy <M> --until <HH:MM> --json || :
+     --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json || :
    ```
+   **절전 방지**: `<UNTIL>` 이 오늘이 아니거나 `none` 이고 `uname -s` 가 `Darwin` 이면, 이어서 아래를 Bash
+   `run_in_background` 로 띄운다. `-w` 는 팀장 세션 프로세스가 끝나면 함께 끝나게 한다. 「7. 마감」 6번이 거둔다.
+   ```bash
+   caffeinate -i -w <LEAD_PID>
+   ```
+   `-i` 는 시스템 유휴 절전만 막는다. 뚜껑을 닫으면 막지 못하므로 시작 보고에 "전원을 연결하고 뚜껑을 연 채로
+   두라" 를 적는다. Linux 서버와 Windows 에서는 띄우지 않는다.
    이 첫 watch 응답에도 `resume_requests` 가 실려 온다. 「2-3」 의 처리 규칙대로 읽어, `host` 가 이 PC 인 요청은
    4번에서 띄우지 못한 재개 대상에 더해 지금 띄운다. 이유: 이것을 넘기면 사람이 화면에서 누른 요청이 첫
    `TICK`(최대 30분)까지 그대로 놓인다.
-   `<N>` 은 「인자」 에서 정한 인원, `<M>` 은 지금 슬롯 표에서 찬 슬롯 수, `<HH:MM>` 은 「인자」 의 종료 시각이다.
+   `<N>` 은 「인자」 에서 정한 인원, `<M>` 은 지금 슬롯 표에서 찬 슬롯 수, `<UNTIL_LABEL>` 은 「인자」 의 표시 문자열이다.
    `--project` 는 넘기지 않는다. `dflow.sh watch` 는 `.env` 에서 export 된 `DFLOW_PROJECT_ID` 를 기본값으로 쓰고,
    `${V:+--project "$V"}` 꼴은 zsh 에서 한 단어로 넘어가 호출이 usage 로 끝나기 때문이다.
    신원은 `$who`·`$host` 를 다시 쓰지 않고 방금 쓴 잠금 `owner` 에서 읽는다. 이 5번이 1번과 다른 Bash 호출이라
@@ -486,7 +530,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 ## 2. 기상과 감시
 
 팀장은 포그라운드로 기다리지 않는다. 팀장을 깨우는 것은 셋이다: poll.sh 종료(새 작업·시한·오류), 감시 루프
-종료(팀원 결과·팀원 pane 종료·`TICK`·`STALE`), 사람이 이 세션에 주는 답. 팀원은 별도 프로세스라 이 세션에
+종료(팀원 결과·팀원 pane 종료·`TICK`·`STALE`·`STOP_REQUESTED`), 사람이 이 세션에 주는 답(종료 요청 포함). 팀원은 별도 프로세스라 이 세션에
 완료 알림을 보내지 않는다.
 
 ### 2-1. poll
@@ -496,7 +540,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
 mkdir -p "$(git rev-parse --git-path dflow-team-poll)"
 POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)
 ( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" DFLOW_WATCH=0 \
-    "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until <HH:MM> --interval 300 \
+    "<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until '<UNTIL>' --interval 300 \
     [--wp <WP-02,dict/WP-03>] [--exclude <id8,id8>] [--exclude-temp <id8,id8>] )
 ```
 대괄호는 선택 플래그 표기이며 실제 명령에는 쓰지 않는다. `<MAIN>` 경로는 따옴표로 감싼다. 경로에 공백이 있으면
@@ -556,10 +600,12 @@ printf '%s %s\n' "$gen" '<다음 TICK epoch 초>' > "$GEN_FILE"; echo "GEN_FILE=
 수 있기 때문이다.
 ```bash
 GEN_FILE='<세대 파일 절대경로>'; MY_GEN=<세대>; TICK_AT=<다음 TICK epoch 초>
+STOP_FILE='<팀장 체크아웃>/.git/dflow-team.stop'   # git rev-parse --git-path dflow-team.stop 의 절대경로
 TM='<진짜 tmux 절대경로 또는 빈 값>'
 set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'
 while :; do
   [ "$(cut -d' ' -f1 "$GEN_FILE" 2>/dev/null)" = "$MY_GEN" ] || { echo STALE; exit 0; }
+  [ -e "$STOP_FILE" ] && { echo STOP_REQUESTED; exit 0; }
   hit=''; dead=''
   for s in "$@"; do
     f=${s%%|*}; rest=${s#*|}; prev=${rest%%|*}; pane=${rest#*|}
@@ -585,6 +631,8 @@ done
   값으로 보아 죽음으로 친다. pane 이 사라진 것도 팀원이 끝난 것이기 때문이다.
 - 루프는 기동 즉시 넘겨받은 전체 경로를 한 번 전수 검사한 뒤 20초 간격으로 감시한다. 루프를 바꾸는 사이에
   도착한 `.result` 를 놓치지 않기 위해서다.
+- 종료 파일이 생기면 `STOP_REQUESTED` 를 출력하고 끝난다(「인자」 종료 요청). 결과보다 먼저 보는 이유: 사람이
+  멈추라고 한 뒤에 새로 도착한 결과로 spawn 을 이어 가지 않게 한다. 결과 줄은 마감에서 그대로 처리된다.
 - 두 백엔드 모두 `TICK_AT` 이 지나면 `TICK` 을 출력하고 끝난다. 한가한 구간에도 30분마다 승인 스윕과
   무응답 점검을 하기 위해서다.
 - 교체 시점: 진행 중 슬롯의 경로·처리 해시·pane id 집합이 바뀔 때와 루프가 끝나 있을 때 새로 띄운다(두
@@ -606,7 +654,7 @@ LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
     wr=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
-      --slots <N> --busy <M> --until <HH:MM> --json) \
+      --slots <N> --busy <M> --until '<UNTIL_LABEL>' --json) \
       && ps=$(set -a; . ./.env; set +a; { printf '%s\n' "${DFLOW_PROJECT_ID:-}"
            printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | sed -n 's/^[^=]*=//p'; } | tr -d ' ' | sed '/^$/d') \
       && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
@@ -665,6 +713,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 | 기상 | 처리 |
 |---|---|
 | poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다. 이유: 겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌고 있을 수 있다. 일시 제외는 대조하지 않는다. poll.sh 가 6주기 뒤 풀어 돌려준 것을 그대로 다시 판정해야 하기 때문이며(「2-1」), 대가로 겹쳐 뜬 옛 poll 이 막 일시 제외한 작업을 돌려주면 한 번 더 띄워 `skipped` 로 끝난다. 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
+| `STOP_REQUESTED`, 사람의 종료 요청("팀장 종료"·"마감해" 등) | 종료 시각과 무관하게 「7. 마감」 으로 간다. "종료 요청으로 마감합니다" 를 한 줄 알린다. 종료 파일은 이 자리에서 지운다(요청을 받았다). 남기면 마감 중 다시 띄운 감시 루프가 곧바로 다시 끝나 공회전한다. 마감의 기다림(「7. 마감」 2번) 중에 종료 요청이 **한 번 더** 오면 기다림을 끝내고 곧바로 3번으로 간다 |
 | poll exit 8 (시한) | 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
 | poll exit 2·3·5·6·7 | 중단 사유(stderr)를 보고하고 「7. 마감」 으로 간다 |
 | `RESULT_READY <경로…>` | 경로마다 「3. 결과 처리」 |
@@ -950,7 +999,8 @@ PushNotification 도구가 있으면(지연 로드면 ToolSearch 로 불러) 질
 
 ## 7. 마감
 
-poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종료 시각 경과로 온다. 잠금 상실은 1~6 을 타지
+poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종료 시각 경과, 종료 요청(`STOP_REQUESTED` 또는
+사람의 말)으로 온다. 잠금 상실은 1~6 을 타지
 않고 아래 「잠금 상실 마감」 으로 간다.
 1. 새 spawn 을 멈춘다. 대기 큐는 보고만 하고 비운다.
 2. **기다림의 상한**: `blocked` 슬롯과 무응답 슬롯은 기다리지 않는다. 진행 중 슬롯은 마감에 들어선 뒤
@@ -996,8 +1046,14 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
      set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" --stop || :
    fi
-   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then rm -rf "$LOCK" && echo LOCK_RELEASED; else echo "LOCK_KEPT owner=$o_who $o_ts $o_pid"; fi
+   if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
+     rm -f "$(git rev-parse --git-path dflow-team.stop)"
+     pkill -f "caffeinate -i -w $LEAD_PID" 2>/dev/null || :
+     rm -rf "$LOCK" && echo LOCK_RELEASED
+   else echo "LOCK_KEPT owner=$o_who $o_ts $o_pid"; fi
    ```
+   종료 파일과 절전 방지도 여기서 거둔다. 종료 파일을 남기면 다음 팀장은 전제 검사에서 지우므로 해가 없지만,
+   소유가 맞을 때만 지우는 이유는 잠금을 가져간 새 팀장에게 온 요청을 지우지 않기 위해서다.
 7. **남은 에이전트 확인**: ListAgents 를 다시 불러 이 세션에 `running` 인 이름 붙은 에이전트가 남아 있으면
    그 이름으로 TaskStop 하고 보고한다. 정상이면 하나도 없다. 팀원과 그 Phase 손자는 별도 프로세스라 이 세션의
    목록에 나타나지 않고, 손자는 팀원이 스스로 회수한다. poll 태스크와 감시 루프는 Bash 태스크라 이
@@ -1018,7 +1074,7 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
   파일을 `heartbeat_agent` 로 읽는다. `<신원>/<host>/parked` 는 좌석이 아니며 heartbeat 를 보내지 않는다.
 - 팀장 자신은 `<신원>/<host>/lead` 다. 같은 신원의 두 PC 팀장이 좌석표에서 하나로 합쳐지지 않게 한다.
 - 좌석표 STANDBY 신호: 팀장은 「1. 시작」 5번과 매 기상(「2-3」)에서 잠금 `owner` 의 신원으로
-  `dflow.sh watch --agent <신원>/<host>/lead --slots <N> --busy <M> --until <HH:MM>` 을 1회 보내고, 「7. 마감」에서
+  `dflow.sh watch --agent <신원>/<host>/lead --slots <N> --busy <M> --until '<UNTIL_LABEL>'` 을 1회 보내고, 「7. 마감」에서
   `--stop` 을 1회 보낸다. 좌석표는 마지막 신호 뒤 70분에 STANDBY 를 끈다.
 - poll.sh 는 `DFLOW_WATCH=0` 으로 띄우므로 watch 를 보내지 않는다.
 - **이 호출은 표시용만이 아니다.** 응답의 `resume_requests` 가 좌석표의 「이어서 시작」 요청을 실어 오므로

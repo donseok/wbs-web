@@ -11,8 +11,11 @@
 set -u
 
 INTERVAL=300
-UNTIL=1800        # HHMM. --until HH:MM 로 변경. 자정 넘김(예: 02:00) 미지원 — 야간 사용 금지.
-UNTIL_LABEL="18:00"   # watch 신호에 실을 종료시각 표시 문자열(--until 원문)
+UNTIL_RAW="18:00" # --until 원문. 세 형식을 받는다:
+                  #   HH:MM              오늘 그 시각(이미 지났으면 곧바로 exit 8 — 지금과 같다)
+                  #   YYYY-MM-DD HH:MM   그 날짜의 그 시각(여러 날 무인 실행용)
+                  #   none               종료 시각 없음. 호출자가 멈출 때까지 돈다(팀장의 "종료 요청 전까지")
+UNTIL_LABEL=""    # watch 신호에 실을 종료시각 표시 문자열(서버가 16자까지 저장)
 EXCLUDE=""        # 쉼표 구분 id8 — 영구성 제외(사용자 결정 대기 등). 사람이 풀기 전까지 유지.
 EXCLUDE_TEMP=""   # 쉼표 구분 id8 — 일시성 제외(spec 부재·선행 대기). RECHECK_CYCLES 뒤 자동 해제
                   # → 재발견(exit 0)으로 세션이 착수 판정을 다시 하게 만든다(자율 재검사).
@@ -24,12 +27,12 @@ WP=""             # 쉼표 구분 WP 목록(WP-02 또는 모듈/WP-02). 지정 �
                   # Task ID 의 첫 칸이 WP 번호다. list 응답에는 external_ref 가 없어 show 를 쓴다.
 NET_FAIL_MAX=3
 
-usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03]" >&2; exit 2; }
+usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM|\"YYYY-MM-DD HH:MM\"|none] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03]" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --interval)       INTERVAL="${2:-}"; shift 2 || usage ;;
-    --until)          UNTIL_LABEL="${2:-}"; UNTIL=$(printf '%s' "${2:-}" | tr -d ':'); shift 2 || usage ;;
+    --until)          UNTIL_RAW="${2:-}"; shift 2 || usage ;;
     --exclude)        EXCLUDE="${2:-}"; shift 2 || usage ;;
     --exclude-temp)   EXCLUDE_TEMP="${2:-}"; shift 2 || usage ;;
     --recheck-cycles) RECHECK_CYCLES="${2:-}"; shift 2 || usage ;;
@@ -39,7 +42,22 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$INTERVAL"       in ''|*[!0-9]*) usage ;; esac
-case "$UNTIL"          in ''|*[!0-9]*) usage ;; esac
+# 종료 시각을 에포크 초로 바꾼다. HHMM 숫자 비교는 자정을 넘기면 판정이 뒤집혀 여러 날 실행을 받지 못했다.
+to_epoch() { # $1 = "YYYY-MM-DD HH:MM" → 에포크 초 (BSD date 먼저, 없으면 GNU date)
+  date -j -f '%Y-%m-%d %H:%M:%S' "$1:00" +%s 2>/dev/null || date -d "$1" +%s 2>/dev/null
+}
+case "$UNTIL_RAW" in
+  none)
+    UNTIL_EPOCH=''; UNTIL_LABEL='종료요청까지' ;;
+  [0-2][0-9]:[0-5][0-9])
+    UNTIL_EPOCH=$(to_epoch "$(date +%Y-%m-%d) $UNTIL_RAW") || usage
+    UNTIL_LABEL="$UNTIL_RAW" ;;
+  [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]' '[0-2][0-9]:[0-5][0-9])
+    UNTIL_EPOCH=$(to_epoch "$UNTIL_RAW") || usage
+    UNTIL_LABEL=$(printf '%s' "$UNTIL_RAW" | cut -c6-) ;;   # MM-DD HH:MM
+  *) usage ;;
+esac
+[ -z "$UNTIL_RAW" ] || [ "$UNTIL_RAW" = none ] || [ -n "$UNTIL_EPOCH" ] || usage
 case "$RECHECK_CYCLES" in ''|*[!0-9]*) usage ;; esac
 # --wp 형식 검사와 정규화: 항목마다 WP-<숫자> 또는 <모듈>/WP-<숫자>. 오타가 조용히 "감지 0건" 이 되지 않게
 # 막는다. 번호는 앞의 0 을 떼어 적는다(WP-2 와 WP-02 를 같게 보고, TSK-02-05 의 02 도 같은 방식으로 뗀다).
@@ -69,12 +87,10 @@ set -a; . "$ENV_FILE"; set +a
 net_fail=0
 cycle=0
 while :; do
-  # date +%H%M 는 선행 0 을 포함하지만 test(1) 는 십진수로 비교한다
-  now=$(date +%H%M)
-  [ "$now" -ge "$UNTIL" ] && {
+  if [ -n "$UNTIL_EPOCH" ] && [ "$(date +%s)" -ge "$UNTIL_EPOCH" ]; then
     [ "${DFLOW_WATCH:-1}" = "0" ] || "$DFLOW" watch --stop >/dev/null 2>&1 || :
-    echo "종료 시각 도달(--until $UNTIL)" >&2; exit 8
-  }
+    echo "종료 시각 도달(--until $UNTIL_RAW)" >&2; exit 8
+  fi
   # 좌석표 STANDBY 신호 — 매 주기 1회. 팀장 아래에서는 팀장이 lead 로 보내므로 DFLOW_WATCH=0 으로 끈다.
   [ "${DFLOW_WATCH:-1}" = "0" ] || "$DFLOW" watch --until "$UNTIL_LABEL" >/dev/null 2>&1 || :
 

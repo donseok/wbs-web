@@ -156,7 +156,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     const fm = s().match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
     expect(fm).toMatch(/^name: dflow-team$/m)
     expect(fm).toContain('"/dflow-team"')
-    expect(fm).toContain('사용법 - /dflow-team [인원] <종료시각> [모델]')
+    expect(fm).toContain('사용법 - /dflow-team [인원] <종료시각|종료 요청 전까지> [모델]')
     expect(fm).not.toContain('--worker')
     for (const old of ['--team-size', '--interval SEC', '--exclude id8', '--until HH:MM']) expect(s(), old).not.toContain(old)
   })
@@ -294,7 +294,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('mkdir -p "$(git rev-parse --git-path dflow-team-poll)"')
     expect(s()).toContain('POLL_DIR=$(cd "$(git rev-parse --git-path dflow-team-poll)" && pwd)')
     expect(s()).toContain('( cd "$POLL_DIR" && DFLOW_ENV_FILE="<MAIN>/.env" DFLOW_WATCH=0 \\')
-    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until <HH:MM> --interval 300 \\')
+    expect(s()).toContain('"<MAIN>/.claude/skills/dflow-poll/scripts/poll.sh" --require-tag agent --until \'<UNTIL>\' --interval 300 \\')
     expect(s()).toContain('[--exclude <id8,id8>] [--exclude-temp <id8,id8>] )')
   })
 
@@ -408,7 +408,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('**살아 있는 팀원의 워크트리는 조건과 무관하게 지우지 않는다.**')
     expect(s()).toContain('**agent 브랜치는 남긴다.**')
     expect(s()).toContain('`team.stop`')
-    expect(s()).toContain('[ "$o_pid" = "$LEAD_PID" ]; then rm -rf "$LOCK"')
+    expect(s()).toContain('[ "$o_pid" = "$LEAD_PID" ]; then\n     rm -f "$(git rev-parse --git-path dflow-team.stop)"')
     expect(s()).not.toContain('fromdateiso8601') // events.jsonl 의 team.start 는 새 팀장의 것일 수 있다
     expect(s()).not.toContain('rm -f "$(git rev-parse --git-path dflow-team.lock)"')
     expect(s()).toContain('**잠금 상실 마감**')

@@ -17,7 +17,7 @@
 | `team.sweep` | 「4. 승인 스윕」 | `merged`, `waiting`, `rejected` |
 | `team.stop` | 「7. 마감」 | 없음 |
 
-- `team.start`: `backend` 는 `tmux` 또는 `orca`, `slots` 는 숫자, `until` 은 `HH:MM`, `wp` 는 WP 범위를 쉼표로 이은
+- `team.start`: `backend` 는 `tmux` 또는 `orca`, `slots` 는 숫자, `until` 은 `HH:MM`·`YYYY-MM-DD HH:MM`·`none`(종료 요청 전까지) 중 하나, `wp` 는 WP 범위를 쉼표로 이은
   문자열(예: `WP-2,dict/WP-3`)이며 전체면 `-` 다. 재구성이 이 값으로 poll 의 `--wp` 를 복원한다.
 - `team.spawn`: `worktree` 는 팀원 워크트리 절대경로이며 모르면 `-`. `handle` 은 tmux 백엔드의
   `tmux:<pane_id>`(예: `tmux:%3`) 또는 Orca 터미널 핸들이며, 핸들이 없으면 `-`. 기본 필드 `tsk`·`order` 도
