@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
 done
 case "$(printf '%s' "$auth" | cut -d_ -f3)" in
   AAAAAAAAAAAA) code=200; body='{"ok":true,"user_email":"alice@example.com","token_name":"노트북","token_prefix":"AAAAAAAAAAAA","scopes":["work:read"],"kind":"user_pat","token_expires_at":"2099-01-01T00:00:00Z","contract_version":"2.4","projects":[{"id":"${P1}","name":"가","role":"member"}]}' ;;
-  BBBBBBBBBBBB) code=200; body='{"ok":true,"user_email":"alice@example.com","scopes":["work:read"],"kind":"user_pat","token_expires_at":"2099-06-01T00:00:00Z","contract_version":"2.3","projects":[{"id":"${P2}","name":"나","role":"admin"}]}' ;;
+  BBBBBBBBBBBB) code=200; body='{"ok":true,"user_email":"'"\${FAKE_EMAIL_B:-alice@example.com}"'","scopes":["work:read"],"kind":"user_pat","token_expires_at":"2099-06-01T00:00:00Z","contract_version":"2.3","projects":[{"id":"${P2}","name":"나","role":"admin"}]}' ;;
   *) code=401; body='{"ok":false,"code":"unauthorized"}' ;;
 esac
 printf '%s' "$body" > "$out"; printf '%s' "$code"
@@ -115,13 +115,21 @@ describe('dflow.sh profiles(스펙 §4-2)', () => {
     expect(r.status).toBe(0)
     const [a, b, c] = rows(r)
     expect(a).toEqual({
-      n: 1, prefix: 'AAAAAAAAAAAA', name: '노트북', email: 'alice@example.com', kind: 'user_pat',
+      n: 1, prefix: 'AAAAAAAAAAAA', name: '노트북', email: 'alice@example.com', who: 'alice', kind: 'user_pat',
       expires_at: '2099-01-01T00:00:00Z', projects: [{ id: P1, name: '가' }], bound: false, selected: true,
     })
     // 서버가 2.3 이면 token_name 이 없다 — 이름만 '-' 이고 나머지는 그대로다
     expect(b).toMatchObject({ n: 2, prefix: 'BBBBBBBBBBBB', name: '-', email: 'alice@example.com', bound: true, selected: false })
     expect(c).toEqual({ n: 3, prefix: 'CCCCCCCCCCCC', error: 'auth', selected: false })
     expect(r.stdout + r.stderr).not.toContain(SECRET)
+  })
+  it('who 는 팀장 잠금 owner 와 같은 규칙의 신원 슬러그다 — 같은 계정의 키 둘은 who 가 같다', () => {
+    const [a, b, c] = rows(run(['profiles']))
+    expect(a.who).toBe('alice')
+    expect(b.who).toBe('alice')
+    expect(c.who).toBeUndefined()
+    const [, b2] = rows(run(['profiles'], { FAKE_EMAIL_B: 'Bob.Kim+x@Example.com' }))
+    expect(b2.who).toBe('bob-kim-x')
   })
   it('바인딩이 없으면 bound 는 null 이다', () => {
     const [a] = rows(run(['profiles'], { DFLOW_PROJECT_ID: '', DFLOW_PROJECT_MAP: '' }))

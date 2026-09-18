@@ -424,10 +424,12 @@ cmd_profiles() {
     [ -n "$_sel" ] && [ "$_t" = "$_sel" ] && _issel=true
     _me=$(TOKEN="$_t" api_raw GET /api/v1/agent/me 2>/dev/null); _rc=$?
     if [ "$_rc" -eq 0 ]; then
+      # who: 팀장 잠금 owner 의 <신원> 과 같은 슬러그. /dflow-team 키 판정이 다른 워크트리의 팀장과 신원을 대조한다.
+      _em=$(printf '%s' "$_me" | jq -r '.user_email // empty')
       printf '%s' "$_me" | jq -c --argjson n "$_n" --arg p "$(token_prefix "$_t")" \
-        --arg ps "$ALLOWED_PROJECTS" --argjson s "$_issel" '
+        --arg ps "$ALLOWED_PROJECTS" --argjson s "$_issel" --arg w "$(slug "${_em%%@*}")" '
         ($ps | split("\n") | map(select(. != ""))) as $ok
-        | {n: $n, prefix: $p, name: (.token_name // "-"), email: .user_email, kind: .kind,
+        | {n: $n, prefix: $p, name: (.token_name // "-"), email: .user_email, who: $w, kind: .kind,
            expires_at: .token_expires_at, projects: [.projects[]? | {id, name}],
            bound: (if ($ok | length) == 0 then null
                    else ([.projects[]?.id] | any(. as $i | $ok | index($i) != null)) end),
