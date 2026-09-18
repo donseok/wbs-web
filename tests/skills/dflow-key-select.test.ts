@@ -42,6 +42,8 @@ function run(args: string[], env: Record<string, string> = {}) {
   return spawnSync('sh', [DFLOW, ...args], {
     encoding: 'utf8',
     env: {
+      // NODE_ENV 는 Next 의 ProcessEnv 타입이 필수로 요구한다(heartbeat-hook.test.ts 와 같은 이유). 스크립트는 읽지 않는다.
+      NODE_ENV: process.env.NODE_ENV,
       PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
       XDG_CACHE_HOME: join(tmp, 'cache'), // 프로필 캐시가 실제 ~/.cache/dflow 를 건드리지 않게 한다
       DFLOW_ENV_FILE: join(tmp, 'no-such-env'),
