@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { Seat, Seatmap, SeatmapScope } from '@/lib/domain/seatmap'
+import { seatmapChannelProjectIds } from '@/lib/domain/seatmap'
 import { refreshSeatmap } from '@/app/actions/agentSeatmap'
 import { runHubProcessOp, type HubProcessOp } from '@/app/actions/agentHub'
 import { Counters } from './Counters'
@@ -10,6 +11,7 @@ import { FloorCard } from './FloorCard'
 import { LaneBoard } from './LaneBoard'
 import { DetailPanel, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
+import { SeatmapRealtime } from './SeatmapRealtime'
 import { IconApprove, IconFloorView, IconLaneView } from './icons'
 import css from './seatmap.module.css'
 
@@ -60,6 +62,9 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
     setView(next)
     try { window.localStorage.setItem(VIEW_KEY, next) } catch { /* 기억하지 못해도 화면은 돈다 */ }
   }, [])
+  // 층 순서가 폴링마다 바뀌어도 구독을 다시 맺지 않도록 문자열 키로 고정한다.
+  const channelKey = seatmapChannelProjectIds(map, projectId).join(',')
+  const channelIds = useMemo(() => (channelKey ? channelKey.split(',') : []), [channelKey])
   /** 층별 doneCount 의 합 — 토글 라벨과 안내 문구가 같은 수를 쓴다. */
   const doneTotal = map.floors.reduce((n, f) => n + f.doneCount, 0)
   const toggleDone = useCallback(() => {
@@ -160,6 +165,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
 
   return (
     <div className={css.root}>
+      <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
       <header className={css.top}>
         <Counters counters={map.counters} />
         <div className={css.topRight}>

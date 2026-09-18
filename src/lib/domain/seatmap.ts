@@ -267,3 +267,14 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
 
   return { floors, counters, attention, fetchedAt: new Date(nowMs).toISOString(), scope: mine ? 'mine' : 'all' }
 }
+
+/**
+ * 좌석표가 들어야 할 실시간 채널의 프로젝트 — 프로젝트 오피스면 그 하나, 전체 오피스면 지금 층으로 그린
+ * 프로젝트들. 층이 없는 프로젝트는 듣지 않는다: 첫 주문이 생기는 변화는 30초 폴링이 잡는다.
+ * 정렬해 돌려주는 이유: 폴링마다 층 순서가 바뀌어도 구독을 다시 맺지 않게 한다.
+ */
+export function seatmapChannelProjectIds(map: Pick<Seatmap, 'floors'>, projectId?: string): string[] {
+  if (projectId) return [projectId]
+  return [...new Set(map.floors.map(f => f.id))].sort()
+}
+

@@ -10,6 +10,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { collectLeaves } from '@/components/wbs/shared'
 import { KanbanBoard } from '@/components/kanban/KanbanBoard'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
+import { WbsRealtimeRefresh } from '@/components/wbs/WbsRealtimeRefresh'
 
 export default async function KanbanPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params
@@ -45,6 +46,10 @@ export default async function KanbanPage({ params }: { params: Promise<{ project
         }
       />}
     >
+      {/* 실시간(0098) — 에이전트 done 보고가 단계를 im 으로 올리면 카드가 새로고침 없이 옮겨 가야 한다
+          (2026-09-18 사용자 보고: "다시 조회해야 바뀐다"). 카드 열·KPI 는 롤업 집계라 페이로드로 패치할 수
+          없어 재조회한다. 대시보드(10초)보다 짧게 잡는 이유: 카드를 보며 조작하는 화면이고 보는 사람이 소수다. */}
+      <WbsRealtimeRefresh projectId={projectId} delayMs={1_500} maxWaitMs={5_000} jitterMs={3_000} />
       <KanbanBoard projectId={projectId} items={items} actorView={toProjectActorView(actor, projectId)} today={today} />
     </ProjectPageShell>
   )

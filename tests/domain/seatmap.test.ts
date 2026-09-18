@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { animFor, OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
-import { ageLabel, assembleSeatmap, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
+import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
@@ -256,5 +256,17 @@ describe('재개 요청 표식(0099) — 멈춘 좌석에서 사람이 누른 �
     expect(s.state).toBe('DONE')
     expect(s.resumeRequestedAt).toBeNull()
     expect(s.resumeRequestedHost).toBeNull()
+  })
+})
+
+describe('seatmapChannelProjectIds — 오피스가 들어야 할 실시간 채널', () => {
+  it('프로젝트 오피스는 그 프로젝트 하나다', () => {
+    expect(seatmapChannelProjectIds({ floors: [] }, 'px')).toEqual(['px'])
+  })
+  it('전체 오피스는 지금 그린 층들이며, 순서가 바뀌어도 같은 목록이다(재구독 방지)', () => {
+    const a = seatmapChannelProjectIds({ floors: [{ id: P2 }, { id: P1 }] as never })
+    const b = seatmapChannelProjectIds({ floors: [{ id: P1 }, { id: P2 }] as never })
+    expect(a).toEqual([P1, P2])
+    expect(b).toEqual(a)
   })
 })
