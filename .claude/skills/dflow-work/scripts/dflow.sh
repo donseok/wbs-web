@@ -8,7 +8,7 @@ set -u
 
 # 이 스킬이 기대하는 계약 버전. doctor 는 major 만 본다 — 서버가 minor 를 올리는 것은
 # additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
-CONTRACT_VERSION=2.3
+CONTRACT_VERSION=2.4
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
@@ -20,7 +20,8 @@ IDMAP_CACHE="$CACHE_DIR/known-ids.txt"
 
 usage() {
   cat >&2 <<'EOF'
-사용법: dflow.sh [--as <이름|email>] <cmd> [args]
+사용법: dflow.sh [--as <prefix|email>] <cmd> [args]
+  키 선택: --as → .env 의 DFLOW_AS(prefix 만) → 첫 토큰. 한 계정에 키가 둘이면 email 로는 갈리지 않는다
   me                     현재 프로필 신원·접근 프로젝트
   list [--all] [--scope available|claimed|assigned|all] [--any-project]
                          기본은 이 리포에 바인딩된 프로젝트(DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP)의 주문만.
@@ -55,7 +56,7 @@ if [ -z "${DFLOW_PATS:-}${DFLOW_PAT:-}" ]; then
 fi
 # Windows 편집기가 남긴 CR 제거 — 값 끝의 \r 은 URL·Authorization 헤더를 깨뜨린다. 값은 변수로만 다룬다.
 _cr=$(printf '\r')
-for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP; do
+for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP DFLOW_AS; do
   eval "_x=\${$_v:-}"
   case "$_x" in *"$_cr"*) eval "$_v=\$(printf '%s' \"\$_x\" | tr -d '\\r')" ;; esac
 done
@@ -78,9 +79,11 @@ tokens() {
   if [ -n "${DFLOW_PATS:-}" ]; then printf '%s' "$DFLOW_PATS" | tr ',' '\n'
   else printf '%s\n' "$DFLOW_PAT"; fi
 }
+# 토큰의 prefix — dflow_pat_<prefix>_<secret> 의 셋째 '_' 칸(서버 PAT_RE). 비밀이 아니라 조회 키다.
+token_prefix() { printf '%s' "$1" | cut -d_ -f3; }
 # 프로필 캐시: [{prefix, email}] — 평문 토큰은 캐시하지 않는다(재조회 키는 prefix).
 profile_email() { # $1=token → 캐시에서 email, 없으면 /me 조회 후 캐시
-  _pfx=$(printf '%s' "$1" | cut -d_ -f3)
+  _pfx=$(token_prefix "$1")
   if [ -f "$PROFILE_CACHE" ]; then
     _hit=$(jq -r --arg p "$_pfx" '.[] | select(.prefix==$p) | .email' "$PROFILE_CACHE" 2>/dev/null | head -1)
     [ -n "$_hit" ] && { printf '%s' "$_hit"; return 0; }
@@ -94,11 +97,17 @@ profile_email() { # $1=token → 캐시에서 email, 없으면 /me 조회 후 �
   chmod 600 "$PROFILE_CACHE"
   printf '%s' "$_email"
 }
-# --as 해석: 이름/이메일 부분 일치 프로필의 토큰 1개 선택. 미지정이면 첫 토큰.
-pick_token() { # $1=--as 값('' 허용)
+# 키 선택: --as → DFLOW_AS → 첫 토큰. ① prefix 완전 일치(네트워크 없음) ② --as 에 한해 이메일 부분 일치.
+# DFLOW_AS 는 prefix 만 받는다 — heartbeat 훅이 /me 없이 같은 키를 골라야 하기 때문이다. 맞는 키가 없을 때
+# 첫 토큰으로 물러서지 않는다. 다른 신원으로 조용히 도는 것이 이 선택이 막으려는 오동작이다.
+pick_token() { # $1=선택 값('' 허용) $2=1 이면 prefix 일치만(DFLOW_AS)
   _want="$1"; _found=''
   for _t in $(tokens); do
     [ -z "$_want" ] && { printf '%s' "$_t"; return 0; }
+    [ "$(token_prefix "$_t")" = "$_want" ] && { printf '%s' "$_t"; return 0; }
+  done
+  [ -z "${2:-}" ] || die 2 "DFLOW_AS=$_want 에 맞는 토큰이 없습니다 — prefix 만 받습니다(dflow.sh profiles 로 확인)."
+  for _t in $(tokens); do
     _e=$(profile_email "$_t") || continue
     case "$_e" in *"$_want"*) _found="$_t"; break;; esac
   done
@@ -431,13 +440,13 @@ cmd_doctor() {
 
 # ---- main ----------------------------------------------------------------
 need curl; need jq
-AS=''
-[ "${1:-}" = "--as" ] && { AS="$2"; shift 2; }
+AS="${DFLOW_AS:-}"; AS_EXACT=1          # .env 의 DFLOW_AS 는 prefix 만
+[ "${1:-}" = "--as" ] && { AS="$2"; AS_EXACT=''; shift 2; }
 [ $# -ge 1 ] || usage
 CMD="$1"; shift
 case "$CMD" in
   doctor) cmd_doctor "$@" ;;   # doctor 는 전 프로필 순회라 TOK 불필요
-  *) TOK=$(pick_token "$AS") || exit 2
+  *) TOK=$(pick_token "$AS" "$AS_EXACT") || exit 2
      case "$CMD" in
        me) cmd_me "$@" ;;
        list) cmd_list "$@" ;;

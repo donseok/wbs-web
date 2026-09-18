@@ -60,7 +60,7 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
 
     const dflow = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
     expect(dflow).toContain("_cr=$(printf '\\r')")
-    expect(dflow).toContain('for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP; do')
+    expect(dflow).toContain('for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP DFLOW_AS; do')
     expect(dflow).toContain(`tr -d '\\\\r'`)
 
     expect(readFileSync(join(ROOT, 'kit/README.md'), 'utf8')).toMatch(/^## Windows\(Git Bash\)$/m)
