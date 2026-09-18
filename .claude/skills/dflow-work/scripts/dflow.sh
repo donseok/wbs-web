@@ -26,7 +26,7 @@ usage() {
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
   claim <ref>
   progress <ref> <pct 0-99> <요약>
-  heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id]
+  heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m]
                          진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
   watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--stop]
                          감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
@@ -273,19 +273,21 @@ watcher_id_default() {
 
 cmd_heartbeat() {
   _id=$(resolve_ref "$1"); shift
-  _phase=''; _note=''; _agent=''
+  _phase=''; _note=''; _agent=''; _model=''
   while [ $# -gt 0 ]; do
     case "$1" in
       --phase) _phase="${2:-}"; shift 2 || usage ;;
       --note)  _note="${2:-}";  shift 2 || usage ;;
       --agent) _agent="${2:-}"; shift 2 || usage ;;
+      --model) _model="${2:-}"; shift 2 || usage ;;
       *) usage ;;
     esac
   done
   [ -n "$_agent" ] || _agent=$(agent_id_default)
   case "$_agent" in */parked) die 2 "parked 워크트리는 heartbeat 를 보내지 않습니다." ;; esac
-  _json=$(jq -nc --arg a "$_agent" --arg p "$_phase" --arg n "$_note" \
-    '{agent:$a} + (if $p != "" then {phase:$p} else {} end) + (if $n != "" then {note:$n} else {} end)')
+  _json=$(jq -nc --arg a "$_agent" --arg p "$_phase" --arg n "$_note" --arg m "$_model" \
+    '{agent:$a} + (if $p != "" then {phase:$p} else {} end) + (if $n != "" then {note:$n} else {} end)
+     + (if $m != "" then {model:$m} else {} end)')
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/heartbeat" "$_json") || exit $?
   printf '%s' "$_body" | jq -r '.last_heartbeat_at'
 }

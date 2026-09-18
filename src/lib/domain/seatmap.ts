@@ -14,6 +14,8 @@ export interface OrderRow {
   resume_requested_at?: string | null
   /** 이어받을 PC 슬러그 — claimed_by 에서 서버가 파생한다. 화면은 누가 가져갈 자리인지 보여줄 때만 쓴다. */
   resume_requested_host?: string | null
+  /** 마지막 heartbeat 가 말한 실행 모델(0100). last_heartbeat_at 이 null 이면(재위임으로 비워진 행) 무효. */
+  heartbeat_model?: string | null
 }
 export interface ItemRow {
   id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null
@@ -56,8 +58,10 @@ export interface Seat {
   canManage: boolean
   /** 이 항목의 담당자가 나 — 반려·승인 취소·재작업은 담당자 본인도 할 수 있다(허브 §11 과 같은 규칙). */
   assigneeMine: boolean
-  /** 항목에 지정된 모델. 없으면 null — 명찰은 이 값만 쓴다(실행 모델 보고는 아직 없다). */
+  /** 명찰 모델 — 실행 모델(heartbeat)이 있으면 그것, 없으면 항목에 지정된 모델. 둘 다 없으면 null. */
   model?: string | null
+  /** model 의 출처 — run = 지금 도는 Phase 서브에이전트, plan = WBS 항목 지정값. */
+  modelSource?: 'run' | 'plan' | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
@@ -154,8 +158,16 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
     waitReason: null,
     canManage: rights.canManage, assigneeMine: rights.assigneeMine,
-    model: item?.model ?? null,
+    ...pickModel(o, item),
   }
+}
+
+/** 명찰 모델 — 점유 중이고 heartbeat 가 살아 있는 행의 실행 모델이 우선, 없으면 항목 지정 모델. */
+function pickModel(o: OrderRow, item: ItemRow | undefined): { model: string | null; modelSource: 'run' | 'plan' | null } {
+  const run = o.status === 'claimed' && o.last_heartbeat_at ? o.heartbeat_model?.trim() : ''
+  if (run) return { model: run, modelSource: 'run' }
+  const plan = item?.model?.trim()
+  return plan ? { model: plan, modelSource: 'plan' } : { model: null, modelSource: null }
 }
 
 function attentionWhy(s: Seat, nowMs: number): string {

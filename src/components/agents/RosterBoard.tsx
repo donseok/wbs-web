@@ -155,7 +155,8 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
 
 /**
  * 캐릭터 머리 위 명찰 — 어떤 모델이 앉아 있는지 한눈에. 제조사 표식(색 + 기호)과 짧은 모델 이름.
- * 팀장·단독 감시는 같은 자리에 ★ 명찰을 단다. 모델 값은 WBS 항목에 지정된 모델이다(실행 모델 보고는 아직 없다).
+ * 팀장·단독 감시는 같은 자리에 ★ 명찰을 단다. 모델은 heartbeat 의 실행 모델(0100, Phase 서브에이전트)이 우선이고,
+ * 아직 보고가 없으면 WBS 항목 지정 모델을 점선 명찰로 보인다. 같은 팀원도 Phase 마다 등급이 바뀐다.
  */
 function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg' }) {
   const pos = size === 'sm' ? 'absolute left-1/2 top-2 -translate-x-1/2' : ''
@@ -171,25 +172,35 @@ function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg'
   const b = modelBadge(desk.seat?.model)
   if (!b) {
     return (
-      <span data-nameplate="unknown" title="WBS 항목에 모델이 지정되지 않았습니다"
+      <span data-nameplate="unknown" title="실행 모델 보고도, WBS 지정 모델도 없습니다"
         className={`${pos} z-[1] inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-line-strong bg-surface/80 px-2.5 py-1 font-semibold text-ink-subtle ${text}`}>
-        모델 미지정
+        모델 미상
       </span>
     )
   }
   const ring = b.tier ? TIER_RING[b.tier] : null
+  // 실행 모델(heartbeat)은 꽉 찬 명찰, 지정 모델(WBS)은 점선 테두리의 흐린 명찰 — 지금 도는 모델인지 계획인지 한눈에.
+  const plan = desk.seat?.modelSource !== 'run'
+  const edge = plan ? '#8A8F99' : ring?.edge
+  const shadow = plan
+    ? '0 8px 16px -10px #0d1014'
+    : `${edge ? `0 0 0 1.5px ${edge}, ` : ''}${ring?.glow ? `0 0 ${ring.glow}px ${ring.edge}66, ` : ''}0 8px 16px -10px #0d1014`
+  const phase = desk.seat?.heartbeatPhase ? PHASE_KO[desk.seat.heartbeatPhase] : undefined
   return (
-    <span data-nameplate={b.vendor} data-tier={b.tier ?? undefined}
-      title={`지정 모델 · ${desk.seat?.model ?? ''}${b.tier ? ` · 등급 ${b.tier}/4 ${TIER_NAME[b.tier]}` : ''}`}
-      className={`${pos} z-[1] inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[#15191f] py-1 pl-1 pr-2 font-bold text-[#f4efe7] ${text}`}
-      style={{ boxShadow: ring ? `0 0 0 1.5px ${ring.edge}, 0 0 ${ring.glow}px ${ring.edge}66, 0 8px 16px -10px #0d1014` : '0 8px 16px -10px #0d1014' }}>
-      <span aria-hidden className="grid h-[18px] w-[18px] place-items-center rounded-full text-[11px] leading-none text-white" style={{ background: b.color }}>{b.mark}</span>
+    <span data-nameplate={b.vendor} data-tier={b.tier ?? undefined} data-model-source={plan ? 'plan' : 'run'}
+      title={`${plan ? 'WBS 지정 모델(실행 보고 전)' : `실행 모델${phase ? ` · ${phase} 단계` : ''}`} · ${desk.seat?.model ?? ''}${b.tier ? ` · 등급 ${b.tier}/4 ${TIER_NAME[b.tier]}` : ''}`}
+      className={`${pos} z-[1] inline-flex items-center gap-1.5 whitespace-nowrap rounded-full py-1 pl-1 pr-2 font-bold ${text} ${plan ? 'border border-dashed border-[#8A8F99] bg-[#15191fb3] text-[#d9d3cb]' : 'bg-[#15191f] text-[#f4efe7]'}`}
+      style={{ boxShadow: shadow }}>
+      <span aria-hidden className={`grid h-[18px] w-[18px] place-items-center rounded-full text-[11px] leading-none text-white ${plan ? 'opacity-70' : ''}`} style={{ background: b.color }}>{b.mark}</span>
       <span className="font-mono tracking-tight">{b.label}</span>
-      {b.tier && <TierPips tier={b.tier} color={ring!.edge} />}
-      {size === 'sm' && <i aria-hidden className="absolute -bottom-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-[#15191f]" />}
+      {b.tier && <TierPips tier={b.tier} color={plan ? '#b7bfba' : ring!.edge} />}
+      {plan && <span className="rounded-full bg-white/10 px-1.5 py-px text-[9px] font-semibold tracking-wide text-[#b7bfba]">지정</span>}
+      {size === 'sm' && <i aria-hidden className={`absolute -bottom-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 ${plan ? 'bg-[#15191fb3]' : 'bg-[#15191f]'}`} />}
     </span>
   )
 }
+
+const PHASE_KO: Record<string, string> = { design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고' }
 
 /** 등급 테두리 — 1 금 · 2 은 · 3 동 · 4 무광. 1등급만 은은하게 빛난다. */
 const TIER_RING: Record<ModelTier, { edge: string; glow: number }> = {
@@ -259,7 +270,11 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           {desk.kind !== 'lead' && desk.kind !== 'empty' && (
             <span className="mt-1.5 flex flex-wrap items-center gap-2">
               <Nameplate desk={desk} size="lg" />
-              {(() => { const t = modelBadge(desk.seat?.model)?.tier; return t ? <span className="text-[11px] font-semibold text-ink-muted">등급 {t}/4 · {TIER_NAME[t]}</span> : null })()}
+              {(() => {
+                const t = modelBadge(desk.seat?.model)?.tier
+                const src = desk.seat?.modelSource === 'run' ? '실행 모델' : desk.seat?.modelSource === 'plan' ? 'WBS 지정 모델' : null
+                return src ? <span className="text-[11px] font-semibold text-ink-muted">{src}{t ? ` · 등급 ${t}/4 ${TIER_NAME[t]}` : ''}</span> : null
+              })()}
             </span>
           )}
           <span className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"

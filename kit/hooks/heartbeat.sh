@@ -34,6 +34,8 @@ done
 [ -n "$_state" ] || exit 0
 _order=$("$JQ" -r '.order // empty' "$_state" 2>/dev/null || :)
 _phase=$("$JQ" -r '.phase // empty' "$_state" 2>/dev/null || :)
+# 실행 모델(0100) — dflow-dev 가 Phase 서브에이전트를 띄울 때 state.json 에 적는다. 없으면 싣지 않는다.
+_model=$("$JQ" -r '.model // empty' "$_state" 2>/dev/null | tr -d '\r' || :)
 case "$_order" in ????????-????-????-????-????????????) ;; *) exit 0 ;; esac
 
 # 4) 절제: ~/.dflow/hb/<order> mtime 이 60초 안이면 종료.
@@ -53,7 +55,7 @@ _tok="${DFLOW_PATS:-}"; _tok="${_tok%%,*}"; [ -n "$_tok" ] || _tok="${DFLOW_PAT:
 _base=$(printf '%s' "$_base" | tr -d '\r'); _tok=$(printf '%s' "$_tok" | tr -d '\r')
 
 # 6) fire-and-forget. 응답·실패는 보지 않는다.
-_json=$("$JQ" -nc --arg a "$_agent" --arg p "$_phase" '{agent:$a, phase:$p}')
+_json=$("$JQ" -nc --arg a "$_agent" --arg p "$_phase" --arg m "$_model" '{agent:$a, phase:$p} + (if $m == "" then {} else {model:$m} end)')
 "$CURL" -s -o /dev/null --max-time 1.5 -X POST \
   -H "Authorization: Bearer $_tok" -H 'Content-Type: application/json' \
   --data "$_json" "${_base%/}/api/v1/agent/work/$_order/heartbeat" >/dev/null 2>&1 &

@@ -270,3 +270,19 @@ describe('seatmapChannelProjectIds — 오피스가 들어야 할 실시간 채�
     expect(b).toEqual(a)
   })
 })
+
+describe('assembleSeatmap — 명찰 모델(0100)', () => {
+  const seat0 = (over: Partial<OrderRow>, itemModel: string | null = 'opus') =>
+    assembleSeatmap(rows({ orders: [order(over)], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], model: itemModel }] }), NOW)
+      .floors[0].zones[0].seats[0]
+  it('살아 있는 heartbeat 의 실행 모델이 지정 모델보다 먼저다 — 같은 팀원도 Phase 마다 바뀐다', () => {
+    expect(seat0({ heartbeat_model: 'haiku', heartbeat_phase: 'verify' })).toMatchObject({ model: 'haiku', modelSource: 'run' })
+  })
+  it('실행 모델이 없으면 WBS 지정 모델, 둘 다 없으면 null', () => {
+    expect(seat0({ heartbeat_model: null })).toMatchObject({ model: 'opus', modelSource: 'plan' })
+    expect(seat0({ heartbeat_model: null }, null)).toMatchObject({ model: null, modelSource: null })
+  })
+  it('재위임으로 heartbeat 가 비워진 행(last_heartbeat_at null)의 옛 실행 모델은 쓰지 않는다', () => {
+    expect(seat0({ heartbeat_model: 'haiku', last_heartbeat_at: null })).toMatchObject({ model: 'opus', modelSource: 'plan' })
+  })
+})

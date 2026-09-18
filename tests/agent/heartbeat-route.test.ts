@@ -100,6 +100,21 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'lunch' })).status).toBe(400)
     useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'blocked', note: 'x'.repeat(501) })).status).toBe(400)
   })
+  it('model(0100) — 실리면 heartbeat_model 을 덮어쓰고, 생략하면 열을 건드리지 않는다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    expect((await post({ agent: 'hong/mbp/w1', phase: 'verify', model: ' haiku ' })).status).toBe(200)
+    expect((calls.agent_work_orders[0] as Record<string, unknown>).heartbeat_model).toBe('haiku')
+    const calls2: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls2)
+    await post({ agent: 'hong/mbp/w1', phase: 'blocked', note: '질문' })
+    expect(calls2.agent_work_orders[0] as Record<string, unknown>).not.toHaveProperty('heartbeat_model')
+  })
+  it('400 — 모델 이름 형식이 아니면 거부한다', async () => {
+    useAdmin(okQueues()); expect((await post({ agent: 'a', model: 'x'.repeat(65) })).status).toBe(400)
+    useAdmin(okQueues()); expect((await post({ agent: 'a', model: 'opus 4' })).status).toBe(400)
+    useAdmin(okQueues()); expect((await post({ agent: 'a', model: 42 })).status).toBe(400)
+  })
   it('409 — claimed 가 아니면 touch 하지 않는다', async () => {
     const calls: Record<string, unknown[]> = {}
     useAdmin(okQueues({ ...ORDER, status: 'reported' }), calls)

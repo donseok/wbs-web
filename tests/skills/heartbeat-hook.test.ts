@@ -44,6 +44,16 @@ describe('heartbeat.sh — 스펙 §4-2', () => {
     expect(sent()[0]).toContain('"phase":"build"')
     expect(sent()[0]).toContain('--max-time 1.5')
   })
+  it('state.json 에 model 이 있으면 싣고, 없으면 싣지 않는다(0100 — Phase 서브에이전트 모델)', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    run()
+    expect(sent()[0]).not.toContain('"model"')
+    writeFileSync(join(repo, 'docs/tasks/TSK-01/state.json'), JSON.stringify({ tsk: 'TSK-01', order: '22222222-2222-4222-8222-222222222222', phase: 'verify', model: 'haiku' }))
+    rmSync(join(home, '.dflow/hb'), { recursive: true, force: true }) // 60초 절제 우회
+    run()
+    expect(sent()[1]).toContain('"model":"haiku"')
+    expect(sent()[1]).toContain('"phase":"verify"')
+  })
   it('.dflow-agent 가 없고 브랜치가 agent/ 로 시작하면 claude-<host> 로 보낸다', () => {
     git('switch', '-q', '-c', 'agent/abcd1234-slug')
     run()
