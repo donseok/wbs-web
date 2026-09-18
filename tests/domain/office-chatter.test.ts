@@ -17,7 +17,7 @@ describe('leadChatter', () => {
     expect(leadChatter(host(), NOW)).toBeNull()
   })
   it('최근 보고가 있으면 잔소리하지 않는다', () => {
-    expect(leadChatter(host(member('w1', { lastReport: { kind: 'progress', summary: 's', at: iso(5 * 60_000) } })), NOW)).toBeNull()
+    expect(leadChatter(host(member('w1', { lastReport: { kind: 'progress', summary: 's', at: iso(50_000) } })), NOW)).toBeNull()
   })
   it('한동안 아무도 보고하지 않으면 잔소리하고, {name} 을 가장 조용한 팀원으로 채운다', () => {
     const c = leadChatter(host(member('w1', {}), member('w2', { lastReport: { kind: 'progress', summary: 's', at: iso(QUIET_MS + 1) } })), NOW)
@@ -27,7 +27,7 @@ describe('leadChatter', () => {
     expect(pool).toContain(c!.text)
   })
   it('무응답 팀원이 있으면 다른 팀원이 보고 중이어도 그 팀원을 지목한다', () => {
-    const h = host(member('w1', { lastReport: { kind: 'progress', summary: 's', at: iso(3 * 60_000) } }), member('w2', { state: 'STALE' }))
+    const h = host(member('w1', { lastReport: { kind: 'progress', summary: 's', at: iso(50_000) } }), member('w2', { state: 'STALE' }))
     for (let t = 0; t < NAG_LINES.length; t++) {
       const c = leadChatter(h, NOW + t * 8_000)!
       expect(c.tone).toBe('nag')
@@ -35,7 +35,7 @@ describe('leadChatter', () => {
     }
   })
   it('막 보고가 들어오면 칭찬한다', () => {
-    const c = leadChatter(host(member('w1', { lastReport: { kind: 'completion', summary: 's', at: iso(30_000) } })), NOW)
+    const c = leadChatter(host(member('w1', { lastReport: { kind: 'completion', summary: 's', at: iso(20_000) } })), NOW)
     expect(c?.tone).toBe('praise')
     expect(PRAISE_LINES.map(l => l.replaceAll('{name}', '팀원 1'))).toContain(c!.text)
   })

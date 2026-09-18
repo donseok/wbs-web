@@ -5,11 +5,11 @@ import { fnv1a32 } from './seatState'
 import type { RosterDesk, RosterHost } from './agentRoster'
 
 /** 이 시간 동안 어떤 팀원도 보고하지 않으면 팀장이 잔소리를 시작한다. */
-export const QUIET_MS = 10 * 60_000
+export const QUIET_MS = 60_000 // 사용자 요청(09-18) 10분 → 1분
 /** 팀원 보고 말풍선이 떠 있는 시간 — 지나면 단계 말풍선으로 돌아간다. */
 export const REPORT_FRESH_MS = 10 * 60_000
 /** 막 보고가 들어왔을 때 팀장이 칭찬하는 시간. */
-export const PRAISE_MS = 90_000
+export const PRAISE_MS = 45_000 // 잔소리 기준(1분)보다 짧아야 칭찬 뒤 잔소리가 이어진다
 /** 대사가 바뀌는 간격. */
 export const ROTATE_MS = 8_000
 
