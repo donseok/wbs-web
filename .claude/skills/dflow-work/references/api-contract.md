@@ -1,6 +1,14 @@
-# D'Flow Agent API 계약 v2.3
+# D'Flow Agent API 계약 v2.4
 
-`contract_version: "2.3"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영.
+`contract_version: "2.4"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다.
+
+## v2.4 변경점 (2026-09-18)
+
+- `GET /agent/me` 응답에 `token_name`(발급할 때 적은 이름)·`token_prefix`(토큰의 셋째 `_` 칸)를 더했다. 필드 추가뿐이라
+  minor 다. 이유: `.env` 에 토큰이 둘 이상이면 어느 키로 도는지 사람이 알아볼 수 없었고, 한 계정에 키가 둘이면
+  이메일로도 갈리지 않는다. prefix 는 토큰 문자열 안에 평문으로 든 조회 키라 응답에 실어도 비밀이 늘지 않는다.
+- 클라이언트: `dflow.sh profiles`(토큰마다 한 줄 JSON) · `.env` 의 `DFLOW_AS=<prefix>`(리포가 쓸 키 고정) ·
+  `--as <prefix|email>`. 설계 정본: `docs/superpowers/specs/2026-09-18-dflow-key-select-design.md`.
 
 ## v2.3 변경점 (2026-09-15)
 
@@ -83,11 +91,12 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 `GET /agent/me` 200:
 ```json
-{ "ok": true, "user_email": "a@b.c", "scopes": ["work:read"], "kind": "user_pat",
-  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.1",
+{ "ok": true, "user_email": "a@b.c", "token_name": "맥북 에어", "token_prefix": "OxMb1D1097Qz",
+  "scopes": ["work:read"], "kind": "user_pat",
+  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.4",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.3"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.4"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
@@ -222,5 +231,6 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
   - 403 을 body 의 `code` 로 갈라 읽는다: 선행 미충족은 권한 문제가 아니라 상태 문제라
     호출부가 할 일이 "권한을 얻어라"가 아니라 "선행을 끝내고 다시 와라"이다.
   - 로컬 파싱·파일 쓰기 실패를 4 로 내지 않는다 — 호출부가 "선행을 기다린다"로 읽고 영원히 재시도한다.
-- 신원 해석: 토큰별 `GET /agent/me` 1회 → `~/.cache/dflow/profiles.json` 캐시. `--as <이름|email>` 프로필 선택.
+- 신원 해석: 토큰별 `GET /agent/me` 1회 → `~/.cache/dflow/profiles.json` 캐시. 키 선택은 `--as <prefix|email>` →
+  `.env` 의 `DFLOW_AS`(prefix 만) → 첫 토큰. prefix 일치는 `/me` 를 부르지 않는다. 목록은 `dflow.sh profiles`.
 - evidence 자동 조립: `git rev-parse HEAD`·`git remote get-url origin`·`git branch --show-current`·(`gh` 있으면) PR URL.

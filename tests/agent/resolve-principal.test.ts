@@ -45,13 +45,16 @@ describe('resolveAgentPrincipal', () => {
     process.env.AGENT_API_ENABLED = 'true'
     const { token, prefix, hash } = generateAgentToken()
     const row = {
-      id: 'r-1', kind: 'user_pat', owner_user_id: 'u-1', token_prefix: prefix, token_hash: hash,
+      id: 'r-1', kind: 'user_pat', owner_user_id: 'u-1', name: 'ci', token_prefix: prefix, token_hash: hash,
       project_id: null, scopes: ['work:read'], enabled: true, revoked_at: null,
       expires_at: '2099-01-01T00:00:00Z',
     }
     const m = await load()
     const p = await m.resolveAgentPrincipal(req(`Bearer ${token}`), adminWith(row) as never)
-    expect(p).toMatchObject({ kind: 'pat', userId: 'u-1', userEmail: 'dev@example.com', scopes: ['work:read'] })
+    expect(p).toMatchObject({
+      kind: 'pat', userId: 'u-1', userEmail: 'dev@example.com', scopes: ['work:read'],
+      runnerName: 'ci', tokenPrefix: prefix,
+    })
   })
   it('PAT 폐기·만료·비활성·해시 불일치 → 전부 401', async () => {
     process.env.AGENT_API_ENABLED = 'true'
@@ -91,6 +94,7 @@ describe('resolveAgentPrincipal', () => {
     const pat = {
       kind: 'pat', runnerId: 'r', userId: 'u', userEmail: 'e', scopes: ['work:read'],
       projectId: null, runnerKind: 'user_pat', tokenExpiresAt: '2099-01-01T00:00:00Z',
+      runnerName: 'n', tokenPrefix: 'p',
     } as const
     expect(m.requireScope({ kind: 'legacy' }, 'work:report')).toBeNull()
     expect(m.requireScope(pat, 'work:read')).toBeNull()

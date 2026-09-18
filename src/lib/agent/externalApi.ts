@@ -118,7 +118,7 @@ export async function agentMemberRole(
   return (roles[0] as { role: string }).role as 'admin' | 'member'
 }
 
-export const AGENT_CONTRACT_VERSION = '2.3'
+export const AGENT_CONTRACT_VERSION = '2.4'
 
 export type AgentPrincipal =
   | { kind: 'legacy' }
@@ -126,10 +126,12 @@ export type AgentPrincipal =
       kind: 'pat'; runnerId: string; userId: string; userEmail: string
       scopes: string[]; projectId: string | null; runnerKind: 'user_pat' | 'runner'
       tokenExpiresAt: string
+      /** 발급할 때 사람이 적은 이름과 조회 키(계약 2.4). /me 가 "이 키가 무엇인지" 알려 주는 데만 쓴다. */
+      runnerName: string; tokenPrefix: string
     }
 
 type RunnerRow = {
-  id: string; kind: 'user_pat' | 'runner'; owner_user_id: string
+  id: string; kind: 'user_pat' | 'runner'; owner_user_id: string; name: string
   token_prefix: string; token_hash: string; project_id: string | null
   scopes: string[]; enabled: boolean; revoked_at: string | null; expires_at: string
 }
@@ -153,7 +155,7 @@ export async function resolveAgentPrincipal(
   if (!prefix) return apiUnauthorized()
   const { data, error } = await admin
     .from('agent_runners')
-    .select('id, kind, owner_user_id, token_prefix, token_hash, project_id, scopes, enabled, revoked_at, expires_at')
+    .select('id, kind, owner_user_id, name, token_prefix, token_hash, project_id, scopes, enabled, revoked_at, expires_at')
     .eq('token_prefix', prefix).maybeSingle()
   if (error) {
     // 보안 가드 조회 실패 = 거부(fail-closed). 위장하지 않고 로깅.
@@ -179,6 +181,7 @@ export async function resolveAgentPrincipal(
     kind: 'pat', runnerId: row.id, userId: row.owner_user_id,
     userEmail: userData.user.email.toLowerCase(), scopes: row.scopes ?? [],
     projectId: row.project_id, runnerKind: row.kind, tokenExpiresAt: row.expires_at,
+    runnerName: row.name, tokenPrefix: row.token_prefix,
   }
 }
 

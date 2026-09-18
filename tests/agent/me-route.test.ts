@@ -12,7 +12,7 @@ const P2 = '22222222-2222-4222-8222-222222222222'
 type Resp = { data?: unknown; error?: { message: string } | null }
 const PAT = generateAgentToken()
 const RUNNER = {
-  id: 'r-1', kind: 'user_pat', owner_user_id: 'u-1', token_prefix: PAT.prefix,
+  id: 'r-1', kind: 'user_pat', owner_user_id: 'u-1', name: '맥북 에어', token_prefix: PAT.prefix,
   token_hash: PAT.hash, project_id: null, scopes: ['work:read'], enabled: true,
   revoked_at: null, expires_at: '2099-01-01T00:00:00Z',
 }
@@ -54,7 +54,10 @@ describe('GET /agent/me', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.user_email).toBe('dev@example.com')
-    expect(body.contract_version).toBe('2.3')
+    // 계약 2.4 — 토큰이 여럿일 때 "이 키가 무엇인지" 를 알려 주는 두 필드
+    expect(body.token_name).toBe('맥북 에어')
+    expect(body.token_prefix).toBe(PAT.prefix)
+    expect(body.contract_version).toBe('2.4')
     expect(body.projects).toHaveLength(1)
     expect(body.projects[0]).toMatchObject({ id: P1, role: 'admin' })
   })

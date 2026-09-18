@@ -47,7 +47,10 @@ export async function GET(req: NextRequest) {
       }
     }
     return NextResponse.json({
-      ok: true, user_email: principal.userEmail, scopes: principal.scopes,
+      ok: true, user_email: principal.userEmail,
+      // 계약 2.4 — .env 에 토큰이 여럿일 때 사람이 키를 알아보게 한다. prefix 는 토큰 안에 평문으로 든 조회 키다.
+      token_name: principal.runnerName, token_prefix: principal.tokenPrefix,
+      scopes: principal.scopes,
       kind: principal.runnerKind, token_expires_at: principal.tokenExpiresAt,
       contract_version: AGENT_CONTRACT_VERSION, projects,
     })

@@ -202,7 +202,7 @@ describe('accessibleProjectIds — 직접 단위 테스트', () => {
   const patPrincipal = {
     kind: 'pat' as const, runnerId: 'r-1', userId: 'u-1', userEmail: 'dev@example.com',
     scopes: ['work:read'], projectId: null, runnerKind: 'user_pat' as const,
-    tokenExpiresAt: '2099-01-01T00:00:00Z',
+    tokenExpiresAt: '2099-01-01T00:00:00Z', runnerName: 'n', tokenPrefix: 'p',
   }
 
   it('(a) enabled 프로젝트 P1·P2, PAT 소유자 P1만 멤버 → ["P1"] (P2 부재 직접 단언)', async () => {
