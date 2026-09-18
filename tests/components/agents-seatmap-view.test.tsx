@@ -48,7 +48,8 @@ describe('SeatmapView', () => {
     expect(host.querySelector('[data-roster-host="hong/mbp"]')?.textContent).toContain('팀원 1')
     // 결정 대기 자리를 먼저 고른다 — 질문이 프로필에 보인다.
     expect(host.querySelector('[data-roster-profile]')?.textContent).toContain('어느 DB?')
-    expect(host.querySelector('button[data-done-toggle]')).toBeNull() // 완료 포함은 평면도 전용
+    // 완료 포함은 평면도 전용 — 전체 오피스(다크 띠)는 보기 전환이 밀리지 않게 자리만 남기고 숨긴다.
+    expect((host.querySelector('button[data-done-toggle]') as HTMLButtonElement).style.visibility).toBe('hidden')
     expect(window.localStorage.getItem('dflow.office.view')).toBe('agent')
   })
   it('확인 필요 띠를 누르면 그 좌석의 상세 팝업이 열린다', () => {
@@ -238,10 +239,18 @@ describe('SeatmapView — 완료 포함 보기', () => {
     expect(toggle().getAttribute('aria-pressed')).toBe('true')
     expect(host.textContent).toContain('TSK-04-02')
   })
-  it('상태 레인 보기에서는 토글이 없다 — 그 보기는 완료 레인을 늘 안고 있다', () => {
+  it('상태 레인 보기에서는 토글을 쓸 수 없다 — 그 보기는 완료 레인을 늘 안고 있다', () => {
     act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
     const lane = [...host.querySelectorAll('button')].find(b => b.getAttribute('data-view') === 'lane') as HTMLButtonElement
     act(() => lane.click())
-    expect(host.querySelector('[data-done-toggle]')).toBeNull()
+    // 전체 오피스(다크 띠): 보기 전환이 밀리지 않게 자리만 남기고 숨긴다.
+    const t = host.querySelector('[data-done-toggle]') as HTMLButtonElement
+    expect(t.style.visibility).toBe('hidden'); expect(t.disabled).toBe(true)
+  })
+  it('프로젝트 오피스에서는 상태 레인일 때 토글을 아예 뺀다 — 보기 전환은 왼쪽에 고정돼 밀리지 않는다', () => {
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} projectId="11111111-1111-4111-8111-111111111111" projectName="P" />))
+    const lane = [...host.querySelectorAll('button')].find(b => b.getAttribute('data-view') === 'lane') as HTMLButtonElement
+    act(() => lane.click())
+    expect(document.querySelector('[data-done-toggle]')).toBeNull()
   })
 })

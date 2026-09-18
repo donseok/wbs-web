@@ -176,11 +176,14 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
         <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
         <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
       </div>
-      {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다. */}
-      {view === 'floor' && (
+      {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다.
+          전체 오피스의 다크 띠는 오른쪽 정렬이라, 버튼을 빼면 보기 전환이 좌우로 밀린다 — 자리는 남기고 숨긴다.
+          프로젝트 오피스는 보기 전환을 왼쪽에 고정하므로(.toolsLight) 그냥 뺀다. */}
+      {(view === 'floor' || projectId === undefined) && (
         <button type="button" className={css.doneToggle} data-done-toggle aria-pressed={withDone}
           title="머지 완료(최근 7일) 좌석을 평면도에 함께 그립니다. 승인 취소·재작업 요청을 그 자리에서 할 수 있습니다."
-          onClick={toggleDone}>
+          onClick={toggleDone}
+          {...(view !== 'floor' ? { 'aria-hidden': true, tabIndex: -1, disabled: true, style: { visibility: 'hidden' as const } } : {})}>
           <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
         </button>
       )}

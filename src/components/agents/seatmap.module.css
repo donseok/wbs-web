@@ -313,6 +313,9 @@
 .toolsLight .viewSeg, .toolsLight .scope, .toolsLight .doneToggle { border-color: var(--color-line-strong); background: var(--color-surface); }
 .toolsLight .viewSeg button[aria-pressed="true"], .toolsLight .scope button[aria-pressed="true"], .toolsLight .doneToggle[aria-pressed="true"] { background: var(--color-brand-weak); color: var(--color-brand); }
 .toolsLight .viewSeg button:focus-visible, .toolsLight .scope button:focus-visible, .toolsLight .doneToggle:focus-visible { outline-color: var(--color-brand); }
-.toolsLight .allLink { color: var(--color-brand); margin-right: auto; }
+.toolsLight .allLink { color: var(--color-brand); }
+/* 보기 전환은 왼쪽에 고정한다 — 오른쪽 정렬이면 뒤따르는 '완료 포함'(평면도 전용)이 생기고 사라질 때마다
+   평면도|상태 레인|에이전트 버튼이 좌우로 밀린다(2026-09-18 사용자 지적). 나머지는 오른쪽 묶음으로. */
+.toolsLight .viewSeg { margin-right: auto; }
 .toolsLight .stamp { color: var(--color-ink-subtle); }
 .toolsLight .stampBad { color: var(--color-delayed); }
