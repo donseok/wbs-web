@@ -11,7 +11,9 @@ import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName 
 import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
-import { PhaseBadge } from './PhaseBadge'
+import { PHASE_LOOK, PhaseBadge } from './PhaseBadge'
+import { leadChatter, memberReportBubble } from '@/lib/domain/officeChatter'
+import css from './seatmap.module.css'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -136,7 +138,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
         <span className="relative flex flex-col items-center pb-2.5 pt-2"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
-          <span className="flex h-[34px] items-start justify-center">{desk.seat && <PhaseBadge seat={desk.seat} />}</span>
+          <span className="flex h-[58px] w-full items-end justify-center px-2">{topBubble(desk, host, nowMs)}</span>
           <span className={desk.kind === 'empty' ? 'opacity-40' : ''}><Sprite character={look.character} anim={look.anim} /></span>
           <span className="flex h-[26px] items-end justify-center"><Nameplate desk={desk} /></span>
         </span>
@@ -153,6 +155,45 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
         </span>
       </button>
     </li>
+  )
+}
+
+/**
+ * 캐릭터 머리 위 — 팀장은 잔소리·칭찬 말풍선, 팀원은 막 올린 보고 말풍선, 그 밖엔 단계 말풍선(2026-09-18).
+ * 대사 고르기는 officeChatter(순수)가 한다. 보고가 식으면(10분) 단계 말풍선으로 돌아간다.
+ */
+function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number): React.ReactNode {
+  if (desk.kind === 'lead') {
+    const c = leadChatter(host, nowMs)
+    return c && <ChatBubble key={c.text} kind={c.tone} text={c.text} />
+  }
+  if (!desk.seat) return null
+  const r = memberReportBubble(desk, nowMs)
+  if (r) {
+    const color = PHASE_LOOK[desk.seat.phase]?.color ?? '#5DB1E5'
+    return <ChatBubble key={r.text} kind={r.kind === 'completion' ? 'done' : 'report'} opener={r.opener} text={r.text} color={r.kind === 'completion' ? '#4FC07E' : color} />
+  }
+  return <span className="self-center"><PhaseBadge seat={desk.seat} /></span>
+}
+
+const BUBBLE_LOOK = {
+  nag: { bg: '#FFF4D6', edge: '#E9B949', ink: '#5A4210' },
+  praise: { bg: '#E6F6EA', edge: '#6CC48A', ink: '#1F5A33' },
+  report: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
+  done: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
+} as const
+
+/** 만화 말풍선 — 아래 꼬리가 캐릭터를 가리킨다. 두 줄까지(넘으면 말줄임, 전문은 title). 새 대사마다 톡 튀어나온다. */
+function ChatBubble({ kind, text, opener, color }: { kind: keyof typeof BUBBLE_LOOK; text: string; opener?: string; color?: string }) {
+  const look = BUBBLE_LOOK[kind]
+  return (
+    <span data-chat-bubble={kind} title={opener ? `${opener} ${text}` : text}
+      className={`${css.chatPop} relative mb-1.5 max-w-full rounded-2xl border px-2.5 py-1.5 text-center text-[11px] font-semibold leading-snug break-keep shadow-[0_6px_14px_-10px_#0d1014]`}
+      style={{ background: look.bg, borderColor: look.edge, color: look.ink }}>
+      {opener && <b className="block text-[10px] font-extrabold" style={{ color }}>{opener}</b>}
+      <span className={opener ? 'line-clamp-2 font-medium' : 'line-clamp-2'}>{text}</span>
+      <i aria-hidden className="absolute -bottom-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-b border-r" style={{ background: look.bg, borderColor: look.edge }} />
+    </span>
   )
 }
 

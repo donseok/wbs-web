@@ -286,3 +286,20 @@ describe('assembleSeatmap — 명찰 모델(0100)', () => {
     expect(seat0({ heartbeat_model: 'haiku', last_heartbeat_at: null })).toMatchObject({ model: 'opus', modelSource: 'plan' })
   })
 })
+
+describe('assembleSeatmap — 보고 말풍선 재료(2026-09-18)', () => {
+  const item = { id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'] }
+  const seat0 = (over: Partial<OrderRow>, reports: Array<{ kind: 'progress' | 'completion'; summary: string; created_at: string }>) =>
+    assembleSeatmap({ ...rows({ orders: [order(over)], items: [item] }), reports: reports.map(r => ({ work_order_id: order(over).id, ...r })) }, NOW)
+      .floors[0].zones[0].seats[0]
+  it('주문별 가장 늦은 보고를 싣는다', () => {
+    const s = seat0({}, [
+      { kind: 'progress', summary: '옛 보고', created_at: new Date(NOW - 600_000).toISOString() },
+      { kind: 'progress', summary: ' 새 보고 ', created_at: new Date(NOW - 60_000).toISOString() },
+    ])
+    expect(s.lastReport).toMatchObject({ kind: 'progress', summary: '새 보고' })
+  })
+  it('점유·보고 중이 아닌 주문(승인 등)의 옛 보고는 싣지 않는다', () => {
+    expect(seat0({ status: 'approved' }, [{ kind: 'completion', summary: 'x', created_at: new Date(NOW).toISOString() }]).lastReport).toBeNull()
+  })
+})

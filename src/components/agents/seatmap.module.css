@@ -316,3 +316,7 @@
 .toolsLight .stampBad { color: var(--color-delayed); }
 /* 상태 레인 카드의 메타 줄 — 단계 칩 + 한 줄 요약 */
 .cardMeta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 에이전트 보기 말풍선(팀장 잔소리 · 팀원 보고) — 새 대사마다 아래에서 톡 튀어나온다. */
+.chatPop { transform-origin: 50% 100%; animation: chatPop .32s cubic-bezier(.34, 1.56, .64, 1) both; }
+@keyframes chatPop { from { opacity: 0; transform: translateY(4px) scale(.85); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .chatPop { animation: none; } }

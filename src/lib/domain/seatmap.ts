@@ -27,6 +27,8 @@ export interface ItemRow {
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
 export interface ReviewRow { work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string }
+/** 에이전트 보기의 보고 말풍선 재료 — 점유·보고 중 주문의 최근 보고 행(progress · completion). */
+export interface ReportRow { work_order_id: string; kind: 'progress' | 'completion'; summary: string; created_at: string }
 export interface WatcherRow {
   id: string; user_id: string; project_id: string | null; agent: string; host: string | null
   slots: number | null; busy: number | null; until_label: string | null; last_seen_at: string
@@ -39,6 +41,8 @@ export interface PredecessorRow extends PredecessorLike { id: string; project_id
 export interface SeatmapRows {
   orders: OrderRow[]; items: ItemRow[]; parents: ItemRow[]; reviews: ReviewRow[]; watchers: WatcherRow[]; projects: ProjectRow[]
   members: MemberRow[]; predecessors: PredecessorRow[]
+  /** 최근 보고(없으면 말풍선 없음). 옛 호출부·시험이 비워 둘 수 있게 선택 필드다. */
+  reports?: ReportRow[]
 }
 
 export interface Seat {
@@ -62,6 +66,8 @@ export interface Seat {
   model?: string | null
   /** model 의 출처 — run = 지금 도는 Phase 서브에이전트, plan = WBS 항목 지정값. */
   modelSource?: 'run' | 'plan' | null
+  /** 이 주문의 마지막 보고(점유·보고 중일 때만). 에이전트 보기가 팀원 말풍선으로 띄운다. */
+  lastReport?: { kind: 'progress' | 'completion'; summary: string; at: string } | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
@@ -122,6 +128,16 @@ export function ageLabel(fromIso: string | null, nowMs: number): string {
   return `${Math.floor(sec / 3600)}시간 ${Math.floor((sec % 3600) / 60)}분 전`
 }
 
+/** 주문별 가장 늦은 보고 행. */
+function latestReportByOrder(reports: ReportRow[]): Map<string, ReportRow> {
+  const out = new Map<string, ReportRow>()
+  for (const r of reports) {
+    const cur = out.get(r.work_order_id)
+    if (!cur || Date.parse(r.created_at) > Date.parse(cur.created_at)) out.set(r.work_order_id, r)
+  }
+  return out
+}
+
 /** 주문별 마지막 completion 보고(가장 늦은 created_at). */
 function latestReviewByOrder(reviews: ReviewRow[]): Map<string, ReviewRow> {
   const out = new Map<string, ReviewRow>()
@@ -132,7 +148,7 @@ function latestReviewByOrder(reviews: ReviewRow[]): Map<string, ReviewRow> {
   return out
 }
 
-function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }): Seat {
+function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }, report?: ReportRow): Seat {
   const input = {
     status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
@@ -159,6 +175,10 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     waitReason: null,
     canManage: rights.canManage, assigneeMine: rights.assigneeMine,
     ...pickModel(o, item),
+    // 점유·보고 중인 주문만 — 승인·회수로 떠난 주문의 옛 보고를 말풍선으로 되살리지 않는다.
+    lastReport: report && (o.status === 'claimed' || o.status === 'reported') && report.summary.trim()
+      ? { kind: report.kind, summary: report.summary.trim(), at: report.created_at }
+      : null,
   }
 }
 
@@ -196,6 +216,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const itemById = new Map(rows.items.map(i => [i.id, i]))
   const parentById = new Map(rows.parents.map(p => [p.id, p]))
   const reviewByOrder = latestReviewByOrder(rows.reviews)
+  const reportByOrder = latestReportByOrder(rows.reports ?? [])
   const projectName = new Map(rows.projects.map(p => [p.id, p.name]))
 
   // 결재 어포던스 재료 — 조상 사슬은 items + parents 합집합이다(데이터층이 parents 를 조상 전체로 싣는다).
@@ -221,7 +242,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         || (item !== undefined && isSubtreeManagerOf(item.id, ancestorById, myMemberIds)),
       assigneeMine: item?.assignee_member_id != null && myMemberIds.has(item.assignee_member_id),
     }
-    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights)
+    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id))
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({
