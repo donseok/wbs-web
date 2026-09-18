@@ -13,6 +13,7 @@ const MERGE = readFileSync(join(ROOT, '.claude/skills/dflow-merge/SKILL.md'), 'u
 const DEV = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
 const LEAD_WT = join(ROOT, '.claude/skills/dflow-team/scripts/lead-worktree.sh')
 const DEPS = join(ROOT, '.claude/skills/dflow-dev/scripts/deps.sh')
+const LIVE_LEADS = join(ROOT, '.claude/skills/dflow-team/scripts/live-leads.sh')
 
 const GIT_ENV = {
   ...process.env,
@@ -139,6 +140,63 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     writeFileSync(join(lock, 'owner'), `alice/pc/lead ${now} 1\n`)
     writeFileSync(join(lock, 'beat'), `${now - 5000}\n`)
     expect(run().out).toContain('DUP=[]')
+  })
+})
+
+describe('키 판정은 다른 워크트리의 살아 있는 팀장이 쓰는 신원을 가려낸다(live-leads.sh)', () => {
+  const HOST = spawnSync('sh', ['-c', "hostname | cut -d. -f1 | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9-]/-/g'"], { encoding: 'utf8' }).stdout.trim()
+  const now = () => Math.floor(Date.now() / 1000)
+  const lockOf = (cwd: string) => sh(cwd, 'git rev-parse --path-format=absolute --git-path dflow-team.lock').out.trim()
+  const hold = (cwd: string, owner: string, beat: number | null) => {
+    const l = lockOf(cwd)
+    mkdirSync(l, { recursive: true })
+    writeFileSync(join(l, 'owner'), `${owner} ${now()} 1\n`)
+    if (beat !== null) writeFileSync(join(l, 'beat'), `${beat}\n`)
+    return l
+  }
+
+  it('다른 워크트리의 살아 있는 잠금만 <신원><TAB><워크트리> 로 낸다 — 자기 잠금·죽은 잠금·다른 host 는 뺀다', () => {
+    sh(primary, `bash '${LEAD_WT}' k2`)
+    const lw = join(primary, '.claude/worktrees/lead-k2')
+    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    const l = hold(primary, `alice/${HOST}/lead`, now())
+    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe(`alice\t${primary}\n`)
+    // 자기 워크트리의 잠금은 세지 않는다
+    expect(sh(primary, `bash '${LIVE_LEADS}'`).out).toBe('')
+    // beat 가 70분을 넘기면 죽은 팀장이다(SAME_IDENTITY_LEAD 와 같은 기준)
+    writeFileSync(join(l, 'beat'), `${now() - 5000}\n`)
+    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+    // 다른 host 의 잠금은 SAME_IDENTITY_LEAD 가 막지 않으므로 여기서도 빼지 않는다
+    hold(primary, 'alice/other-pc/lead', now())
+    expect(sh(lw, `bash '${LIVE_LEADS}'`).out).toBe('')
+  })
+
+  it('--mark 는 profiles 행에 in_use 를 더하고 JSON 이 아닌 줄은 그대로 낸다', () => {
+    sh(primary, `bash '${LEAD_WT}' k2`)
+    const lw = join(primary, '.claude/worktrees/lead-k2')
+    hold(primary, `alice/${HOST}/lead`, now())
+    const input = [
+      'DFLOW_AS=없음',
+      '{"n":1,"prefix":"AAAAAAAAAAAA","email":"alice@example.com","who":"alice","bound":true,"selected":true}',
+      '{"n":2,"prefix":"BBBBBBBBBBBB","email":"bob@example.com","who":"bob","bound":true,"selected":false}',
+      '{"n":3,"prefix":"CCCCCCCCCCCC","error":"auth","selected":false}',
+    ].join('\n')
+    writeFileSync(join(tmp, 'in.txt'), input + '\n')
+    const r = sh(lw, `bash '${LIVE_LEADS}' --mark < '${join(tmp, 'in.txt')}'`)
+    expect(r.code, r.out).toBe(0)
+    const lines = r.out.trim().split('\n')
+    expect(lines[0]).toBe('DFLOW_AS=없음')
+    expect(JSON.parse(lines[1])).toMatchObject({ prefix: 'AAAAAAAAAAAA', in_use: primary })
+    expect(JSON.parse(lines[2])).toMatchObject({ prefix: 'BBBBBBBBBBBB', in_use: null })
+    expect(JSON.parse(lines[3])).toMatchObject({ prefix: 'CCCCCCCCCCCC', in_use: null })
+  })
+
+  it('살아 있음의 기준이 전제 검사의 stale() 와 같다', () => {
+    const t = readFileSync(LIVE_LEADS, 'utf8')
+    for (const s of ['-ge 4200', '-mmin +10']) {
+      expect(t, s).toContain(s)
+      expect(TEAM, s).toContain(s)
+    }
   })
 })
 
