@@ -12,7 +12,7 @@ import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, typ
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { PHASE_LOOK, PhaseBadge } from './PhaseBadge'
-import { leadChatter, memberReportBubble } from '@/lib/domain/officeChatter'
+import { leadChatter, memberChatter, memberReportBubble } from '@/lib/domain/officeChatter'
 import css from './seatmap.module.css'
 
 type Tone = { label: string; color: string }
@@ -160,6 +160,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
 
 /**
  * 캐릭터 머리 위 — 팀장은 잔소리·칭찬 말풍선, 팀원은 막 올린 보고 말풍선, 그 밖엔 단계 말풍선(2026-09-18).
+ * 작업 중인 팀원은 단계 말풍선 사이사이 한마디씩 한다(세 칸에 한 칸).
  * 대사 고르기는 officeChatter(순수)가 한다. 보고가 식으면(10분) 단계 말풍선으로 돌아간다.
  */
 function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number): React.ReactNode {
@@ -173,6 +174,8 @@ function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number): React.Rea
     const color = PHASE_LOOK[desk.seat.phase]?.color ?? '#5DB1E5'
     return <ChatBubble key={r.text} kind={r.kind === 'completion' ? 'done' : 'report'} opener={r.opener} text={r.text} color={r.kind === 'completion' ? '#4FC07E' : color} />
   }
+  const talk = memberChatter(desk, nowMs)
+  if (talk) return <ChatBubble key={talk} kind="chat" text={talk} />
   return <span className="self-center"><PhaseBadge seat={desk.seat} /></span>
 }
 
@@ -182,6 +185,7 @@ const BUBBLE_LOOK = {
   empty: { bg: '#EEF1F4', edge: '#B7C0C9', ink: '#3E4A56' },
   report: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
   done: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
+  chat: { bg: '#F7F9FB', edge: '#C9D2DA', ink: '#3E4A56' },
 } as const
 
 /** 만화 말풍선 — 아래 꼬리가 캐릭터를 가리킨다. 두 줄까지(넘으면 말줄임, 전문은 title). 새 대사마다 톡 튀어나온다. */
