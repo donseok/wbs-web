@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>에이전트 — 화면 시안 (claude)</title>
+<style>
+:root{
+  --canvas:#f5efe6; --surface:#fffaf4; --surface-2:#f3ece1;
+  --line:#e6dccd; --line-strong:#d6c9b6;
+  --ink:#17181d; --ink-muted:#4a4440; --ink-subtle:#7a6f68;
+  --brand:#0f766e; --brand-weak:#e3efec; --brand-ring:#9fd4cd;
+  --accent-warning:#c06f24; --accent-secondary:#cb6d37;
+  --done:#138a67; --done-weak:#e3f3ec;
+  --progress:#2d6fb0; --progress-weak:#e6eff7;
+  --delayed:#cb4b5f; --delayed-weak:#f8e6e9;
+  --pending:#7a6f68; --pending-weak:#efe7db;
+  --sheet-head:#efe7da; --grid-strong:#cdbfab; --zebra:#faf6ef;
+  --shadow-sm:0 10px 24px -18px #12182538;
+  --gradient-dark:linear-gradient(165deg,#1c2028,#14181f 55%,#0d1014);
+  --hero-ink:#f4efe7; --hero-ink-muted:#b6aa9e;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);
+  font-family:"Pretendard Variable",Pretendard,system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5}
+.page{width:1440px;margin:0 auto;padding:16px 20px 48px;display:flex;flex-direction:column;gap:12px}
+
+/* 셸 — 히어로 + 탭 */
+.hero{border-radius:24px;background:var(--gradient-dark);color:var(--hero-ink);padding:12px 28px;
+  display:flex;align-items:baseline;gap:12px;box-shadow:0 36px 80px -42px #11182757}
+.hero h1{font-size:18px;font-weight:700;margin:0}
+.hero .sub{font-size:11px;color:var(--hero-ink-muted)}
+.tabs{display:flex;gap:8px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 8px;
+  font-size:11px;font-weight:500;line-height:1}
+.tab{padding:4px 12px;border-radius:999px;font-size:12px;font-weight:500;color:var(--ink-muted);cursor:pointer}
+.tab.on{background:var(--brand-weak);color:var(--brand)}
+.dot{width:6px;height:6px;border-radius:999px;display:inline-block}
+
+/* 출처 배지 */
+.src{font-family:var(--mono);font-size:9.5px;letter-spacing:-.2px;color:var(--ink-subtle);
+  background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:1px 5px;white-space:nowrap}
+.src.new{color:#fff;background:var(--accent-secondary);border-color:var(--accent-secondary);font-weight:600}
+.srcrow{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;padding-top:7px;border-top:1px dashed var(--line)}
+
+.box{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:12px}
+.box h2{margin:0 0 9px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-subtle)}
+.eyebrow{font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-subtle)}
+.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--ink-muted)} .subtle{color:var(--ink-subtle)}
+
+/* ① 요약 스트립 */
+.strip{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.kpi{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:10px 12px;
+  display:flex;flex-direction:column;gap:2px;box-shadow:var(--shadow-sm)}
+.kpi .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi .k{font-size:11px;color:var(--ink-subtle)}
+.kpi .s{font-size:10px;color:var(--ink-subtle);margin-top:3px}
+.kpi.warn .v{color:var(--delayed)}
+
+/* ② 목록 */
+.split{display:grid;grid-template-columns:minmax(0,1fr) 392px;gap:12px;align-items:start}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+thead th{background:var(--sheet-head);border-bottom:1.5px solid var(--line-strong);
+  font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-subtle);
+  text-align:left;padding:6px 8px}
+tbody td{border-bottom:1px solid var(--line);padding:7px 8px;vertical-align:middle}
+tr.hostrow td{background:var(--surface-2);border-bottom:1px solid var(--line-strong)}
+tr.seat:hover td{background:var(--zebra)}
+tr.seat.sel td{background:var(--brand-weak)}
+.hostname{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink)}
+.seatid{font-family:var(--mono);font-size:12px}
+.seatid .pre{color:var(--ink-subtle)}
+.seatid .slot{font-weight:700;color:var(--ink)}
+.two{display:flex;flex-direction:column;gap:1px}
+.small{font-size:10px;color:var(--ink-subtle)}
+.bar{height:4px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:3px}
+.bar>i{display:block;height:100%;background:var(--brand)}
+.av{width:22px;height:22px;border-radius:7px;background:var(--surface-2);border:1px solid var(--line);
+  display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+
+/* 상태 칩 톤 — agent-hub/labels.ts 재사용 */
+.t-ACTIVE{background:var(--progress-weak);color:var(--progress)}
+.t-WAIT{background:var(--brand-weak);color:var(--brand)}
+.t-BLOCKED{background:var(--pending-weak);color:var(--accent-warning)}
+.t-STALE{background:var(--delayed-weak);color:var(--delayed)}
+.t-OFFLINE{background:var(--surface-2);color:var(--ink-subtle)}
+.t-READY{background:var(--pending-weak);color:var(--pending)}
+.t-DONE{background:var(--done-weak);color:var(--done)}
+.t-neutral{background:var(--surface-2);color:var(--ink-subtle)}
+
+/* ③ 상세 */
+.detail{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:12px;
+  box-shadow:var(--shadow-sm);position:sticky;top:12px}
+.idsplit{display:flex;gap:6px;margin:8px 0 2px}
+.idpart{flex:1;border:1px solid var(--line);border-radius:9px;background:var(--surface-2);padding:6px 8px}
+.idpart .l{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-subtle)}
+.idpart .v{font-family:var(--mono);font-size:12px;font-weight:600;margin-top:1px}
+.facts{display:grid;grid-template-columns:78px 1fr;gap:5px 10px;font-size:12px;margin-top:8px}
+.facts dt{color:var(--ink-subtle);font-size:11px}
+.facts dd{margin:0}
+.ladder{display:flex;gap:3px;margin-top:8px}
+.ladder span{flex:1;text-align:center;font-size:9.5px;padding:3px 0;border-radius:6px;
+  background:var(--surface-2);color:var(--ink-subtle);border:1px solid var(--line)}
+.ladder span.on{background:var(--progress-weak);color:var(--progress);border-color:transparent;font-weight:600}
+.hr{height:1px;background:var(--line);margin:11px 0}
+.warnbox{border:1px solid var(--accent-warning);border-radius:9px;background:var(--pending-weak);
+  padding:7px 9px;font-size:11px;color:var(--accent-warning);line-height:1.45}
+.log{list-style:none;margin:7px 0 0;padding:0;border-left:2px solid var(--line);}
+.log li{position:relative;padding:0 0 9px 12px}
+.log li::before{content:"";position:absolute;left:-4px;top:5px;width:6px;height:6px;border-radius:999px;
+  background:var(--line-strong)}
+.log li.ok::before{background:var(--done)}
+.log li.no::before{background:var(--delayed)}
+.log .when{font-size:10px;color:var(--ink-subtle);font-variant-numeric:tabular-nums}
+.log .what{font-size:11.5px}
+.pat{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);
+  border-radius:9px;padding:6px 9px;margin-top:6px;font-size:11.5px}
+.btn{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:9px;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink-muted);font-size:11.5px;
+  font-weight:600;cursor:pointer}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+
+/* ④ 수집 필요 */
+.needs td,.needs th{font-size:11.5px}
+.needs .why{color:var(--ink-muted)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="hero"><h1>에이전트</h1>
+    <span class="sub">누가 일하고 있는가 — 작업이 아니라 일꾼이 행이다</span></div>
+  <div class="tabs">
+    <span class="tab">위임 · 승인</span>
+    <span class="tab">가상 오피스</span>
+    <span class="tab on">에이전트</span>
+    <span class="subtle" style="margin-left:auto;font-size:11px">30초마다 갱신 · 방금</span>
+    <span class="src">AgentTabs.tsx tabs[] 에 1줄 추가</span>
+  </div>
+
+  <!-- ① 요약 스트립 -->
+  <section>
+    <div class="strip">
+      <div class="kpi"><span class="v">3</span><span class="k">작업 PC</span>
+        <span class="s">신원/host 접두어 기준</span></div>
+      <div class="kpi"><span class="v">7</span><span class="k">좌석</span>
+        <span class="s">lead 2 · poll 1 · w 4</span></div>
+      <div class="kpi"><span class="v" style="color:var(--progress)">4</span><span class="k">업무 중</span>
+        <span class="s">heartbeat 5분 이내</span></div>
+      <div class="kpi"><span class="v" style="color:var(--accent-warning)">1</span><span class="k">결정 대기</span>
+        <span class="s">사람이 답해야 풀린다</span></div>
+      <div class="kpi warn"><span class="v">1</span><span class="k">무응답 · 끊김</span>
+        <span class="s">30분 넘게 조용하다</span></div>
+      <div class="kpi"><span class="v">2</span><span class="k">만료 임박 토큰</span>
+        <span class="s">14일 이내</span></div>
+    </div>
+    <div class="srcrow">
+      <span class="src">src: agent_watchers.agent / host / slots / busy</span>
+      <span class="src">src: agent_work_orders.last_heartbeat_at · heartbeat_phase</span>
+      <span class="src">src: agent_runners.expires_at (본인 소유분만)</span>
+      <span class="src new">NEW: 만료 임박 집계 — 지금은 /account 에서 눈으로 세야 한다</span>
+    </div>
+  </section>
+
+  <div class="split">
+    <!-- ② 에이전트 목록 -->
+    <section class="box">
+      <h2>에이전트 — 작업 PC 아래 좌석</h2>
+      <table>
+        <colgroup>
+          <col style="width:206px"><col style="width:74px"><col style="width:96px">
+          <col><col style="width:104px"><col style="width:96px"><col style="width:86px">
+        </colgroup>
+        <thead><tr>
+          <th>좌석</th><th>역할</th><th>상태</th><th>지금 하는 일</th>
+          <th>마지막 신호</th><th>오늘 보고</th><th>자격증명</th>
+        </tr></thead>
+        <tbody>
+          <!-- 호스트 1 -->
+          <tr class="hostrow"><td colspan="7">
+            <span class="hostname">jji / macbook</span>
+            <span class="chip t-ACTIVE" style="margin-left:8px">슬롯 3 중 2 사용</span>
+            <span class="subtle" style="margin-left:6px;font-size:11px">팀장 감시 중 · 18:00 까지</span>
+          </td></tr>
+          <tr class="seat"><td>
+              <span class="av">🐱</span>
+              <span class="seatid"><span class="pre">jji/macbook/</span><span class="slot">w1</span></span></td>
+            <td><span class="chip t-neutral">워커</span></td>
+            <td><span class="chip t-ACTIVE">업무 중</span></td>
+            <td><div class="two"><span>TSK-0412 위임 표 열 폭 저장</span>
+              <span class="small">build · 60%</span><span class="bar"><i style="width:60%"></i></span></div></td>
+            <td class="num small">42초 전</td>
+            <td class="num">2건</td>
+            <td><span class="chip t-DONE">PAT 유효</span></td></tr>
+          <tr class="seat sel"><td>
+              <span class="av">🤖</span>
+              <span class="seatid"><span class="pre">jji/macbook/</span><span class="slot">w2</span></span></td>
+            <td><span class="chip t-neutral">워커</span></td>
+            <td><span class="chip t-BLOCKED">결정 대기</span></td>
+            <td><div class="two"><span>TSK-0407 좌석 회수 규칙</span>
+              <span class="small">“회수 시 브랜치를 지울까요?”</span></div></td>
+            <td class="num small">3분 전</td>
+            <td class="num">1건</td>
+            <td><span class="chip t-DONE">PAT 유효</span></td></tr>
+          <tr class="seat"><td>
+              <span class="av">👤</span>
+              <span class="seatid"><span class="pre">jji/macbook/</span><span class="slot">w3</span></span></td>
+            <td><span class="chip t-neutral">워커</span></td>
+            <td><span class="chip t-READY">빈자리</span></td>
+            <td class="subtle">—</td>
+            <td class="num small">—</td>
+            <td class="num">0건</td>
+            <td><span class="chip t-DONE">PAT 유효</span></td></tr>
+          <tr class="seat"><td>
+              <span class="av">🎧</span>
+              <span class="seatid"><span class="pre">jji/macbook/</span><span class="slot">lead</span></span></td>
+            <td><span class="chip t-WAIT">팀장</span></td>
+            <td><span class="chip t-WAIT">감시 중</span></td>
+            <td class="subtle">작업을 직접 돌지 않는다 — 배분과 회수만</td>
+            <td class="num small">1분 전</td>
+            <td class="num subtle">—</td>
+            <td><span class="chip t-DONE">PAT 유효</span></td></tr>
+
+          <!-- 호스트 2 -->
+          <tr class="hostrow"><td colspan="7">
+            <span class="hostname">jji / win-desk</span>
+            <span class="chip t-OFFLINE" style="margin-left:8px">감시자 없음</span>
+            <span class="subtle" style="margin-left:6px;font-size:11px">70분 넘게 조용하다</span>
+          </td></tr>
+          <tr class="seat"><td>
+              <span class="av">🐶</span>
+              <span class="seatid"><span class="pre">jji/win-desk/</span><span class="slot">w1</span></span></td>
+            <td><span class="chip t-neutral">워커</span></td>
+            <td><span class="chip t-STALE">무응답</span></td>
+            <td><div class="two"><span>TSK-0399 import 검증 보강</span>
+              <span class="small">verify 에서 멈춤 · 85%</span><span class="bar"><i style="width:85%"></i></span></div></td>
+            <td class="num small">17분 전</td>
+            <td class="num">3건</td>
+            <td><span class="chip t-BLOCKED">9일 뒤 만료</span></td></tr>
+          <tr class="seat"><td>
+              <span class="av">🐱</span>
+              <span class="seatid"><span class="pre">jji/win-desk/</span><span class="slot">poll</span></span></td>
+            <td><span class="chip t-WAIT">단독 감시</span></td>
+            <td><span class="chip t-OFFLINE">끊김</span></td>
+            <td class="subtle">감시가 꺼졌다 — 이 PC 의 좌석은 새 작업을 집지 않는다</td>
+            <td class="num small">1시간 22분 전</td>
+            <td class="num subtle">—</td>
+            <td><span class="chip t-BLOCKED">9일 뒤 만료</span></td></tr>
+
+          <!-- 호스트 3 -->
+          <tr class="hostrow"><td colspan="7">
+            <span class="hostname">tester / ci-runner</span>
+            <span class="chip t-OFFLINE" style="margin-left:8px">신원이 접두어 규칙을 따르지 않는다</span>
+          </td></tr>
+          <tr class="seat"><td>
+              <span class="av">🤖</span>
+              <span class="seatid"><span class="slot">pat-8f3a21bc</span></span></td>
+            <td><span class="chip t-neutral">외부 PAT</span></td>
+            <td><span class="chip t-ACTIVE">업무 중</span></td>
+            <td><div class="two"><span>TSK-0421 스모크 재실행</span>
+              <span class="small">신원 문자열이 없어 좌석으로 묶이지 않는다</span></div></td>
+            <td class="num small">2분 전</td>
+            <td class="num">5건</td>
+            <td><span class="chip t-neutral">타인 소유 · 조회 불가</span></td></tr>
+        </tbody>
+      </table>
+      <div class="srcrow">
+        <span class="src">행 키: agent_work_orders.heartbeat_agent 의 &lt;신원&gt;/&lt;host&gt; 접두어</span>
+        <span class="src">src: agent_watchers (역할 lead / poll · slots · busy · until_label)</span>
+        <span class="src">src: agent_work_orders.status · heartbeat_phase · last_heartbeat_at</span>
+        <span class="src">src: agent_work_reports.created_at (오늘 보고 수)</span>
+        <span class="src new">NEW: 오늘 보고 수를 좌석에 붙이는 집계 — 보고의 agent 는 좌석까지 못 내려온다(아래 ④)</span>
+        <span class="src new">NEW: 자격증명 열 — 지금은 본인 소유 토큰만, 좌석과 잇는 키가 없다</span>
+      </div>
+    </section>
+
+    <!-- ③ 상세 -->
+    <aside class="detail">
+      <div class="eyebrow">jji / macbook · 슬롯 2</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <span class="av" style="width:34px;height:34px;font-size:19px">🤖</span>
+        <div><div class="mono" style="font-size:14px;font-weight:700">jji/macbook/w2</div>
+          <div class="small">캐릭터는 신원 해시로 정해진다 — 늘 같은 인물</div></div>
+        <span class="chip t-BLOCKED" style="margin-left:auto">결정 대기</span>
+      </div>
+
+      <div class="idsplit">
+        <div class="idpart"><div class="l">신원</div><div class="v">jji</div></div>
+        <div class="idpart"><div class="l">호스트</div><div class="v">macbook</div></div>
+        <div class="idpart"><div class="l">슬롯</div><div class="v">w2</div></div>
+      </div>
+      <div class="small">PAT 소유자 이메일의 @ 앞 + hostname 첫 마디 + 팀장이 준 슬롯 번호</div>
+
+      <div class="hr"></div>
+      <div class="eyebrow">지금 하는 일</div>
+      <div style="font-weight:600;margin-top:3px">TSK-0407 좌석 회수 규칙</div>
+      <div class="ladder">
+        <span class="on">설계</span><span class="on">구현</span><span>검증</span><span>보고</span><span>머지</span>
+      </div>
+      <div class="warnbox" style="margin-top:8px">
+        질문 — “회수할 때 워크트리 브랜치까지 지울까요?”<br>
+        답이 올 때까지 이 좌석은 다음 작업을 집지 않는다.
+      </div>
+      <dl class="facts">
+        <dt>주문</dt><dd class="mono">7c1f9a2e</dd>
+        <dt>점유</dt><dd>2시간 12분째 <span class="subtle">(라벨 <span class="mono">claude-macbook</span>)</span></dd>
+        <dt>마지막 신호</dt><dd class="num">3분 전 · blocked</dd>
+        <dt>진행</dt><dd class="num">45%</dd>
+      </dl>
+      <div style="display:flex;gap:6px;margin-top:9px">
+        <button class="btn pri">답하기</button>
+        <button class="btn">회수</button>
+        <button class="btn">WBS 에서 열기</button>
+      </div>
+
+      <div class="hr"></div>
+      <div class="eyebrow">최근 보고</div>
+      <div class="warnbox" style="margin-top:6px">
+        이 목록은 <b>좌석이 아니라 이 PC 전체</b>의 것이다. 보고에 적히는 신원은
+        <span class="mono">claude-macbook</span> 까지라 w1 · w2 · w3 를 가르지 못한다.
+      </div>
+      <ul class="log">
+        <li class="ok"><div class="when">09-18 14:02</div>
+          <div class="what">TSK-0405 완료 보고 100% — 승인됨</div></li>
+        <li class="no"><div class="when">09-18 11:47</div>
+          <div class="what">TSK-0402 완료 보고 100% — 반려 “테스트가 없다”</div></li>
+        <li><div class="when">09-18 10:15</div>
+          <div class="what">TSK-0402 진행 보고 60%</div></li>
+      </ul>
+
+      <div class="hr"></div>
+      <div class="eyebrow">자격증명</div>
+      <div class="pat">
+        <div><div style="font-weight:600">macbook-team</div>
+          <div class="small mono">dfp_8f3a21…  ·  work:read, work:claim</div></div>
+        <div style="text-align:right"><div class="small">만료 2026-12-03</div>
+          <div class="small">마지막 사용 2분 전</div></div>
+      </div>
+      <div class="small" style="margin-top:5px">평문 토큰은 발급 때 한 번만 보인다. 해시는 어떤 경로로도 나오지 않는다.</div>
+
+      <div class="srcrow">
+        <span class="src">src: agent_work_orders (id8 · claimed_at · claimed_by · heartbeat_*)</span>
+        <span class="src">src: agent_work_reports (kind · percent · summary · review_action)</span>
+        <span class="src">src: agent_runners (name · token_prefix · scopes · expires_at · last_seen_at)</span>
+        <span class="src new">NEW: 좌석 단위 보고 이력 — 신원 정규화가 선행 과제다</span>
+        <span class="src new">NEW: “답하기” — 지금 blocked 질문에 답하는 경로는 좌석표 결재 바뿐이다</span>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ④ 수집 필요 -->
+  <section class="box needs">
+    <h2>수집이 필요한 데이터 — 이 시안에서 NEW 로 표시한 것</h2>
+    <table>
+      <colgroup><col style="width:210px"><col style="width:290px"><col><col style="width:150px"></colgroup>
+      <thead><tr><th>값</th><th>지금 없는 이유</th><th>채우는 방법</th><th>무게</th></tr></thead>
+      <tbody>
+        <tr><td>좌석 단위 작업 이력</td>
+          <td class="why"><span class="mono">agent_work_reports.agent</span> 와 <span class="mono">claimed_by</span> 는
+            정규식 <span class="mono">/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/</span> 가 슬래시를 거부해
+            <span class="mono">claude-&lt;host&gt;</span> 까지만 적힌다</td>
+          <td>정규식을 슬래시까지 넓히거나, 보고에 <span class="mono">seat</span> 열을 따로 둔다</td>
+          <td>API 계약 변경 + 마이그레이션 1건</td></tr>
+        <tr><td>에이전트별 처리량 · 가동률</td>
+          <td class="why">heartbeat 는 이력 행을 남기지 않고 주문 행 4열을 덮어쓴다(0094 의 명시적 결정)</td>
+          <td>보고 행에서 근사하거나, 좌석 상태 스냅샷을 따로 적재한다</td>
+          <td>적재 설계 필요 — 0094 의 결정을 되짚는 일</td></tr>
+        <tr><td>에이전트별 API 호출 이력</td>
+          <td class="why">PAT 트래픽은 <span class="mono">usage_events</span> 에 전혀 기록되지 않는다.
+            0078 주석의 “감사는 usage 몫”은 구현되지 않았다</td>
+          <td>PAT 라우트에 usage 기록을 붙인다</td>
+          <td>라우트 공통 경로 1곳</td></tr>
+        <tr><td>좌석 ↔ 자격증명 연결</td>
+          <td class="why">좌석 신원은 자유 문자열, PAT 은 <span class="mono">owner_user_id</span> 귀속.
+            둘을 잇는 키가 없다</td>
+          <td>claim 때 <span class="mono">claimed_by_user_id</span> 와 좌석 문자열을 함께 남긴다(이미 절반은 있다)</td>
+          <td>작다</td></tr>
+        <tr><td>조직 전체 토큰 조회</td>
+          <td class="why"><span class="mono">listMyAgentTokens</span> 가 <span class="mono">owner_user_id</span> 로 걸어
+            본인 것만 본다. RLS 정책은 0개</td>
+          <td>슈퍼유저용 서버 액션을 따로 둔다. <span class="mono">token_hash</span> 는 여전히 비노출</td>
+          <td>가드 1개 · 화면 1구역</td></tr>
+        <tr><td>에이전트 표시 이름 · 모델</td>
+          <td class="why">신원 마스터 테이블이 없다. 신원은 관례로만 유지되는 문자열이다</td>
+          <td><span class="mono">agent_identities</span> 를 만들거나, 표시 이름만 로컬에 둔다</td>
+          <td>테이블 1개 — 도입 전에 정말 필요한지 따질 것</td></tr>
+        <tr><td>무응답 자동 회수</td>
+          <td class="why">허브 스펙 §11 이 범위 밖으로 둔 채다 — 사람이 회수한다</td>
+          <td>이 화면은 회수 버튼을 보여 주기만 한다. 자동화는 별건</td>
+          <td>—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+</body>
+</html>

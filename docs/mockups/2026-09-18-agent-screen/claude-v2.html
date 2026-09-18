@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>에이전트 — 화면 시안 v2 (claude)</title>
+<style>
+:root{
+  --canvas:#f5efe6; --surface:#fffaf4; --surface-2:#f3ece1;
+  --line:#e6dccd; --line-strong:#d6c9b6;
+  --ink:#17181d; --ink-muted:#4a4440; --ink-subtle:#7a6f68;
+  --brand:#0f766e; --brand-weak:#e3efec;
+  --warn:#c06f24; --accent2:#cb6d37;
+  --done:#138a67; --done-weak:#e3f3ec;
+  --progress:#2d6fb0; --progress-weak:#e6eff7;
+  --delayed:#cb4b5f; --delayed-weak:#f8e6e9;
+  --pending:#7a6f68; --pending-weak:#efe7db;
+  --sm-active:#5DB1E5; --sm-wait:#F0B068; --sm-reject:#D8563E; --sm-standby:#3F8F58; --sm-empty:#E3E7E2;
+  --hero-ink:#f4efe7; --hero-muted:#b6aa9e;
+  --shadow:0 10px 24px -18px #12182538;
+  --shadow-lg:0 36px 80px -42px #11182757;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:
+  radial-gradient(900px 420px at 12% -8%,#0f766e1f,transparent 60%),
+  radial-gradient(700px 380px at 96% 4%,#cb6d3718,transparent 60%),var(--canvas);
+  color:var(--ink);font-family:"Pretendard Variable",Pretendard,system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5}
+.page{max-width:1440px;margin:0 auto;padding:16px 20px 56px;display:flex;flex-direction:column;gap:14px}
+.mono{font-family:var(--mono)} .num{font-variant-numeric:tabular-nums}
+.subtle{color:var(--ink-subtle)} .muted{color:var(--ink-muted)}
+.eyebrow{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-subtle)}
+.chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:600;line-height:1}
+.dot{width:7px;height:7px;border-radius:999px;display:inline-block;flex:none}
+
+/* 출처 배지 — 기본 숨김, 토글로 표시 */
+.src{display:none;font-family:var(--mono);font-size:9.5px;color:var(--ink-subtle);background:#fff;
+  border:1px solid var(--line);border-radius:5px;padding:1px 5px;white-space:nowrap}
+.src.new{color:#fff;background:var(--accent2);border-color:var(--accent2);font-weight:700}
+body.show-src .src{display:inline-block}
+.srcs{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+
+/* ── 히어로 ── */
+.hero{position:relative;overflow:hidden;border-radius:26px;padding:22px 28px 20px;color:var(--hero-ink);
+  background:linear-gradient(165deg,#1c2028,#14181f 55%,#0d1014);box-shadow:var(--shadow-lg);
+  display:grid;grid-template-columns:1fr 560px;gap:28px;align-items:center}
+.hero::after{content:"";position:absolute;right:-120px;top:-160px;width:420px;height:420px;border-radius:999px;
+  background:#0f766e;filter:blur(90px);opacity:.38}
+.hero > *{position:relative;z-index:1}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;color:var(--hero-muted);border:1px solid #2c323c}
+.tab.on{background:#32b6ab22;color:#66d6c6;border-color:#32b6ab66}
+.hero h1{margin:0;font-size:30px;font-weight:800;letter-spacing:-.5px}
+.hero .lede{margin-top:6px;font-size:15px;color:var(--hero-muted)}
+.hero .lede b{color:var(--hero-ink)}
+.hero .lede .ask{color:#f2aa4c}
+.fleet{display:flex;flex-direction:column;gap:12px}
+.fleetbar{display:flex;height:14px;border-radius:999px;overflow:hidden;background:#ffffff10}
+.fleetbar i{display:block;height:100%}
+.legend{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.lg{border:1px solid #ffffff14;background:#ffffff0a;border-radius:14px;padding:9px 11px}
+.lg .v{font-size:24px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.lg .k{font-size:11px;color:var(--hero-muted);margin-top:5px;display:flex;align-items:center;gap:5px}
+.toolbar{display:flex;align-items:center;gap:8px;justify-content:flex-end;font-size:11px;color:var(--hero-muted)}
+.toggle{cursor:pointer;border:1px solid #ffffff22;border-radius:999px;padding:4px 10px;color:var(--hero-ink);background:#ffffff0c;font-size:11px;font-weight:600}
+body.show-src .toggle{background:var(--accent2);border-color:var(--accent2)}
+
+/* ── 본문 ── */
+.main{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:14px;align-items:start}
+.col{display:flex;flex-direction:column;gap:14px}
+
+/* 작업 PC 카드 */
+.host{border:1px solid var(--line);border-radius:20px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+.host-h{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#fff,#fbf6ef)}
+.pc{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;font-size:17px;background:var(--brand-weak)}
+.host.off .pc{background:var(--surface-2);filter:grayscale(1)}
+.host-name{font-family:var(--mono);font-size:15px;font-weight:800}
+.host-sub{font-size:11px;color:var(--ink-subtle)}
+.slots{display:flex;gap:4px;align-items:center;margin-left:auto}
+.slot{width:22px;height:8px;border-radius:999px;background:var(--line)}
+.slot.b{background:var(--sm-active)}
+.lead{display:flex;align-items:center;gap:6px;padding:5px 10px 5px 6px;border-radius:999px;border:1px solid var(--line);background:#fff}
+.lead .pulse{width:8px;height:8px;border-radius:999px;background:var(--sm-standby);box-shadow:0 0 0 0 #3F8F5866;animation:pulse 2s infinite}
+.lead.off .pulse{background:#B7BFBA;animation:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 #3F8F5877}70%{box-shadow:0 0 0 8px #3F8F5800}100%{box-shadow:0 0 0 0 #3F8F5800}}
+
+.floor{display:flex;flex-wrap:wrap;gap:12px;padding:16px;background:
+  repeating-linear-gradient(0deg,#00000000 0 23px,#0000000a 23px 24px),
+  repeating-linear-gradient(90deg,#00000000 0 23px,#0000000a 23px 24px),#f7f8f5}
+.desk{width:176px;border-radius:16px;background:#fff;border:1px solid var(--line);padding:10px 10px 11px;cursor:pointer;
+  transition:transform .12s, box-shadow .12s;position:relative}
+.desk:hover{transform:translateY(-2px);box-shadow:0 14px 30px -20px #12182566}
+.desk.sel{outline:2.5px solid var(--ink);outline-offset:1px}
+.stage{height:93px;border-radius:12px;display:grid;place-items:center;position:relative;overflow:hidden}
+.s-ACTIVE .stage{background:linear-gradient(180deg,#e4f1fa,#cfe6f6)}
+.s-BLOCKED .stage{background:linear-gradient(180deg,#fdf1e1,#f9e0bf)}
+.s-STALE .stage{background:repeating-linear-gradient(135deg,#fbe4df 0 8px,#fff3f0 8px 16px)}
+.s-READY .stage{background:transparent;border:1.5px dashed var(--line-strong)}
+.s-OFFLINE .stage{background:#eceeeb}
+.s-LEAD .stage{background:linear-gradient(180deg,#e6f3e9,#cfe8d6)}
+.desk.boss{border-color:#3F8F5855;background:linear-gradient(180deg,#fff,#f5fbf6)}
+.crown{position:absolute;top:6px;left:6px;background:var(--sm-standby);color:#fff;font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;box-shadow:0 4px 10px -4px #3F8F5899}
+.desk.boss.s-OFFLINE .crown{background:#9aa39e}
+.agebar.l{background:linear-gradient(90deg,var(--sm-standby) 0 100%)}
+.spr{width:102px;height:93px;background-repeat:no-repeat;background-size:auto 93px;animation:play var(--dur,1.6s) steps(var(--f,4)) infinite}
+@keyframes play{from{background-position-x:0}to{background-position-x:calc(var(--f,4) * -102px)}}
+.s-OFFLINE .spr{filter:grayscale(1) opacity(.55);animation:none}
+.bubble{position:absolute;top:6px;right:6px;background:#fff;border:1.5px solid var(--warn);color:var(--warn);font-weight:800;
+  font-size:12px;width:22px;height:22px;border-radius:999px;display:grid;place-items:center;box-shadow:0 4px 10px -4px #c06f2488}
+.tag{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.tag .id{font-family:var(--mono);font-size:12px;font-weight:800}
+.ring{--p:0;width:30px;height:30px;border-radius:999px;display:grid;place-items:center;
+  background:conic-gradient(var(--c,var(--progress)) calc(var(--p)*1%),var(--line) 0)}
+.ring b{width:22px;height:22px;border-radius:999px;background:#fff;display:grid;place-items:center;font-size:9px;font-weight:800;font-variant-numeric:tabular-nums}
+.task{font-size:11.5px;margin-top:4px;min-height:34px;color:var(--ink-muted);line-height:1.4}
+.age{margin-top:7px}
+.agebar{position:relative;height:5px;border-radius:999px;background:linear-gradient(90deg,var(--sm-active) 0 16.6%,var(--sm-wait) 16.6% 100%);opacity:.28}
+.agewrap{position:relative}
+.agemark{position:absolute;top:-3px;width:3px;height:11px;border-radius:2px;background:var(--ink)}
+.agetxt{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-subtle);margin-top:3px}
+
+/* 상세(프로필) */
+.profile{position:sticky;top:12px;border:1px solid var(--line);border-radius:22px;background:var(--surface);box-shadow:var(--shadow-lg);overflow:hidden}
+.p-top{position:relative;padding:16px 18px 14px;background:linear-gradient(160deg,#fdf1e1,#f6e3c6 60%,#f3d7ae);min-height:170px}
+.p-top .big{position:absolute;right:10px;bottom:0;width:136px;height:124px;background-size:auto 124px;
+  animation:playbig 1.6s steps(4) infinite}
+@keyframes playbig{from{background-position-x:0}to{background-position-x:-544px}}
+.p-name{font-size:24px;font-weight:800;margin-top:4px;letter-spacing:-.3px}
+.p-raw{font-family:var(--mono);font-size:11px;color:var(--ink-subtle)}
+.tag .raw{font-family:var(--mono);font-size:10px;color:var(--ink-subtle);font-weight:500;margin-left:4px}
+.tag .id{font-size:13.5px;display:flex;flex-direction:column;line-height:1.25}
+.tag .raw{margin-left:0 !important}
+.idtrip{display:flex;gap:5px;margin-top:10px;max-width:250px}
+.idtrip span{flex:1;background:#ffffffb0;border:1px solid #0000000f;border-radius:10px;padding:5px 7px;font-size:9.5px;color:var(--ink-subtle);letter-spacing:.06em}
+.idtrip b{display:block;font-family:var(--mono);font-size:12.5px;color:var(--ink);letter-spacing:0}
+.p-body{padding:14px 18px 16px;display:flex;flex-direction:column;gap:14px}
+.q{border-radius:14px;background:var(--pending-weak);border:1.5px solid var(--warn);padding:10px 12px;color:#7a3f0c;font-size:12.5px;position:relative}
+.q::before{content:"";position:absolute;left:22px;top:-8px;width:12px;height:12px;background:var(--pending-weak);border-left:1.5px solid var(--warn);border-top:1.5px solid var(--warn);transform:rotate(45deg)}
+.q .acts{display:flex;gap:6px;margin-top:9px}
+.btn{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--ink-muted);font-size:12px;font-weight:700;cursor:pointer}
+.btn.pri{background:linear-gradient(135deg,#0f766e,#155e75 48%,#173a63);color:#fff;border:0}
+.stepper{display:flex;align-items:center}
+.st{display:flex;flex-direction:column;align-items:center;gap:4px;flex:none;width:52px}
+.st i{width:22px;height:22px;border-radius:999px;border:2px solid var(--line-strong);background:#fff;display:grid;place-items:center;font-style:normal;font-size:10px;font-weight:800;color:var(--ink-subtle)}
+.st.done i{background:var(--progress);border-color:var(--progress);color:#fff}
+.st.now i{background:#fff;border-color:var(--warn);color:var(--warn);box-shadow:0 0 0 4px #c06f2422}
+.st span{font-size:10px;color:var(--ink-subtle)}
+.st.now span{color:var(--warn);font-weight:700}
+.ln{flex:1;height:2px;background:var(--line-strong);margin-bottom:17px}
+.ln.done{background:var(--progress)}
+.meter{position:relative;height:10px;border-radius:999px;overflow:hidden;display:flex}
+.meter i{display:block;height:100%}
+.meter-wrap{position:relative}
+.needle{position:absolute;top:-5px;width:4px;height:20px;border-radius:3px;background:var(--ink);box-shadow:0 0 0 2px #fff}
+.ticks{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-subtle);margin-top:5px}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kv div{border:1px solid var(--line);border-radius:12px;padding:8px 10px;background:#fff}
+.kv b{display:block;font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
+.kv span{font-size:10.5px;color:var(--ink-subtle)}
+.token{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:#fff}
+.gauge{--p:50;width:52px;height:52px;border-radius:999px;display:grid;place-items:center;flex:none;
+  background:conic-gradient(var(--c,var(--done)) calc(var(--p)*1%),var(--line) 0)}
+.gauge b{width:40px;height:40px;border-radius:999px;background:#fff;display:grid;place-items:center;font-size:11px;font-weight:800;line-height:1.05;text-align:center}
+.gauge b small{display:block;font-size:8.5px;color:var(--ink-subtle);font-weight:600}
+.caveat{font-size:11px;color:var(--warn);background:#c06f240f;border:1px dashed #c06f2466;border-radius:10px;padding:6px 9px}
+
+/* 타임라인 */
+.card{border:1px solid var(--line);border-radius:20px;background:var(--surface);box-shadow:var(--shadow);padding:16px 18px}
+.card h2{margin:0;font-size:15px;font-weight:800}
+.card .hd{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.tl{display:grid;grid-template-columns:150px 1fr;row-gap:10px;align-items:center}
+.tl .who{font-family:var(--mono);font-size:12px;font-weight:700}
+.track{position:relative;height:34px;border-radius:10px;background:repeating-linear-gradient(90deg,#0000 0 calc(100%/9 - 1px),var(--line) calc(100%/9 - 1px) calc(100%/9));background-color:#fbf7f1}
+.ev{position:absolute;top:50%;transform:translate(-50%,-50%);border-radius:999px;border:2px solid #fff;box-shadow:0 2px 6px -2px #0005}
+.ev.p{width:12px;height:12px;background:var(--sm-active)}
+.ev.ok{width:18px;height:18px;background:var(--done)}
+.ev.no{width:18px;height:18px;background:var(--sm-reject)}
+.ev.w{width:18px;height:18px;background:var(--sm-wait)}
+.nowline{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--delayed)}
+.tl .track:nth-of-type(2) .nowline::after{content:"지금";white-space:nowrap;position:absolute;top:-16px;left:-11px;font-size:10px;color:var(--delayed);font-weight:800}
+.axis{position:relative;height:14px;margin-left:150px;font-size:10px;color:var(--ink-subtle);margin-top:6px}
+.axis span{position:absolute;transform:translateX(-50%)}
+.tlleg{display:flex;gap:14px;font-size:11px;color:var(--ink-muted);margin-left:auto}
+.tlleg span{display:flex;align-items:center;gap:5px}
+
+/* 데이터 공백 */
+.gaps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.gap{border-radius:16px;border:1px solid var(--line);background:#fff;padding:12px 13px;display:flex;flex-direction:column;gap:6px}
+.gap .ic{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;font-size:15px;background:#cb6d3718}
+.gap h3{margin:0;font-size:13px;font-weight:800}
+.gap p{margin:0;font-size:11.5px;color:var(--ink-muted);line-height:1.45}
+.gap .w{margin-top:auto;align-self:flex-start}
+.w-s{background:var(--done-weak);color:var(--done)} .w-m{background:var(--pending-weak);color:var(--warn)} .w-l{background:var(--delayed-weak);color:var(--delayed)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- 히어로 -->
+  <header class="hero">
+    <div>
+      <div class="tabs"><span class="tab">위임 · 승인</span><span class="tab">가상 오피스</span><span class="tab on">에이전트</span></div>
+      <h1>에이전트</h1>
+      <div class="lede">작업 PC <b>3대</b>에서 <b>4명</b>이 일하고 있다. <span class="ask">1명이 당신의 답을 기다린다.</span></div>
+      <div class="srcs"><span class="src">src: agent_watchers · agent_work_orders.heartbeat_*</span></div>
+    </div>
+    <div class="fleet">
+      <div class="toolbar"><span>30초마다 갱신 · 방금</span><span class="toggle" onclick="document.body.classList.toggle('show-src')">출처 보기</span></div>
+      <div class="fleetbar">
+        <i style="width:44%;background:var(--sm-active)"></i>
+        <i style="width:11%;background:var(--sm-wait)"></i>
+        <i style="width:11%;background:var(--sm-reject)"></i>
+        <i style="width:11%;background:#6b7580"></i>
+        <i style="width:23%;background:#ffffff26"></i>
+      </div>
+      <div class="legend">
+        <div class="lg"><div class="v" style="color:var(--sm-active)">4</div><div class="k"><span class="dot" style="background:var(--sm-active)"></span>업무 중</div></div>
+        <div class="lg"><div class="v" style="color:var(--sm-wait)">1</div><div class="k"><span class="dot" style="background:var(--sm-wait)"></span>결정 대기</div></div>
+        <div class="lg"><div class="v" style="color:#ff8a78">1</div><div class="k"><span class="dot" style="background:var(--sm-reject)"></span>무응답</div></div>
+        <div class="lg"><div class="v" style="color:#b7bfba">1</div><div class="k"><span class="dot" style="background:#6b7580"></span>끊김</div></div>
+        <div class="lg"><div class="v">2</div><div class="k"><span class="dot" style="background:#ffffff55"></span>빈자리</div></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="col" id="hosts"></div>
+
+    <!-- 프로필 -->
+    <aside class="profile">
+      <div class="p-top">
+        <div class="eyebrow">jji / macbook</div>
+        <div class="p-name">팀원 2</div><div class="p-raw">jji/macbook/w2</div>
+        <span class="chip" style="background:#fff;color:var(--warn);margin-top:6px"><span class="dot" style="background:var(--warn)"></span>결정 대기</span>
+        <div class="idtrip">
+          <span>신원<b>jji</b></span><span>호스트<b>macbook</b></span><span>자리<b>팀원 2</b></span>
+        </div>
+        <div class="big" style="background-image:url(sprites/bot/blocked.png)"></div>
+      </div>
+      <div class="p-body">
+        <div>
+          <div class="eyebrow">지금 하는 일</div>
+          <div style="font-size:15px;font-weight:800;margin-top:3px"><span class="mono subtle" style="font-size:12px">TSK-0407</span> 좌석 회수 규칙</div>
+          <div class="stepper" style="margin-top:12px">
+            <div class="st done"><i>✓</i><span>설계</span></div><div class="ln done"></div>
+            <div class="st now"><i>?</i><span>구현</span></div><div class="ln"></div>
+            <div class="st"><i>3</i><span>검증</span></div><div class="ln"></div>
+            <div class="st"><i>4</i><span>보고</span></div><div class="ln"></div>
+            <div class="st"><i>5</i><span>머지</span></div>
+          </div>
+          <div class="srcs"><span class="src">src: agent_work_orders.heartbeat_phase</span></div>
+        </div>
+
+        <div class="q">
+          <b>“회수할 때 워크트리 브랜치까지 지울까요?”</b>
+          <div style="font-size:11px;margin-top:3px">답이 올 때까지 이 좌석은 다음 작업을 집지 않는다.</div>
+          <div class="acts"><button class="btn pri">답하기</button><button class="btn">회수</button><button class="btn">WBS 에서 열기</button></div>
+          <div class="srcs"><span class="src">src: heartbeat_note</span><span class="src new">NEW: 답하기 경로</span></div>
+        </div>
+
+        <div>
+          <div class="eyebrow" style="margin-bottom:9px">마지막 신호 — 3분 전</div>
+          <div class="meter-wrap">
+            <div class="meter">
+              <i style="width:16.6%;background:var(--sm-active)"></i>
+              <i style="width:83.4%;background:linear-gradient(90deg,var(--sm-wait),var(--sm-reject))"></i>
+            </div>
+            <div class="needle" style="left:calc(10% - 2px)"></div>
+          </div>
+          <div class="ticks"><span>0</span><span style="margin-left:-60%">5분 · 무응답</span><span>30분 · 끊김</span></div>
+          <div class="srcs"><span class="src">src: last_heartbeat_at · STALE_MS · OFFLINE_MS</span></div>
+        </div>
+
+        <div class="kv">
+          <div><b>2:12</b><span>점유 시간</span></div>
+          <div><b>45%</b><span>진행</span></div>
+          <div><b>7c1f9a2e</b><span>주문</span></div>
+        </div>
+
+        <div>
+          <div class="eyebrow" style="margin-bottom:7px">자격증명</div>
+          <div class="token">
+            <div class="gauge" style="--p:42"><b>76<small>일 남음</small></b></div>
+            <div style="flex:1">
+              <div style="font-weight:800">macbook-team</div>
+              <div class="mono subtle" style="font-size:11px">dfp_8f3a21… · work:read · work:claim</div>
+              <div class="subtle" style="font-size:11px">마지막 사용 2분 전</div>
+            </div>
+          </div>
+          <div class="srcs"><span class="src">src: agent_runners (본인 소유분만)</span><span class="src new">NEW: 좌석 ↔ 토큰 연결</span></div>
+        </div>
+
+        <div class="caveat">보고 이력은 이 좌석이 아니라 <b>macbook 전체</b>의 것이다. 보고에 적히는 신원이 <span class="mono">claude-macbook</span> 까지라 팀원 1·2·3 을 가르지 못한다.</div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 타임라인 -->
+  <section class="card">
+    <div class="hd"><h2>오늘의 보고</h2><span class="subtle" style="font-size:12px">작업 PC 단위 — 좌석까지는 내려가지 않는다</span>
+      <div class="tlleg">
+        <span><i class="dot" style="background:var(--sm-active)"></i>진행 보고</span>
+        <span><i class="dot" style="background:var(--sm-wait)"></i>승인 대기</span>
+        <span><i class="dot" style="background:var(--done)"></i>승인</span>
+        <span><i class="dot" style="background:var(--sm-reject)"></i>반려</span>
+      </div></div>
+    <div class="tl">
+      <div class="who">claude-macbook</div>
+      <div class="track">
+        <i class="ev p" style="left:9%"></i><i class="ev p" style="left:15%"></i><i class="ev ok" style="left:21%"></i>
+        <i class="ev p" style="left:30%"></i><i class="ev no" style="left:31.8%"></i><i class="ev p" style="left:44%"></i>
+        <i class="ev ok" style="left:56%"></i><i class="ev w" style="left:61%"></i><i class="nowline" style="left:63%"></i>
+      </div>
+      <div class="who">claude-win-desk</div>
+      <div class="track">
+        <i class="ev p" style="left:4%"></i><i class="ev ok" style="left:12%"></i><i class="ev p" style="left:26%"></i>
+        <i class="ev w" style="left:38%"></i><i class="nowline" style="left:63%"></i>
+      </div>
+      <div class="who">pat-8f3a21bc</div>
+      <div class="track">
+        <i class="ev ok" style="left:18%"></i><i class="ev ok" style="left:24%"></i><i class="ev ok" style="left:36%"></i>
+        <i class="ev ok" style="left:48%"></i><i class="ev p" style="left:59%"></i><i class="nowline" style="left:63%"></i>
+      </div>
+    </div>
+    <div class="axis"><span style="left:0.00%">09</span><span style="left:11.11%">10</span><span style="left:22.22%">11</span><span style="left:33.33%">12</span><span style="left:44.44%">13</span><span style="left:55.56%">14</span><span style="left:66.67%">15</span><span style="left:77.78%">16</span><span style="left:88.89%">17</span><span style="left:100.00%">18</span></div>
+    <div class="srcs"><span class="src">src: agent_work_reports (agent · kind · created_at · review_action)</span></div>
+  </section>
+
+  <!-- 데이터 공백 -->
+  <section class="card">
+    <div class="hd"><h2>이 화면을 완성하려면 없는 데이터</h2><span class="subtle" style="font-size:12px">시안에서 주황 NEW 로 표시한 값 — 무게 순</span></div>
+    <div class="gaps">
+      <div class="gap"><div class="ic">🪪</div><h3>좌석 단위 이력</h3>
+        <p>보고·점유 라벨의 정규식이 슬래시를 거부해 <span class="mono">claude-&lt;host&gt;</span> 까지만 적힌다.</p>
+        <span class="chip w w-l">API 계약 + 마이그레이션</span></div>
+      <div class="gap"><div class="ic">📈</div><h3>처리량 · 가동률</h3>
+        <p>heartbeat 는 이력을 남기지 않고 주문 행 4열을 덮어쓴다. 0094 의 명시적 결정이다.</p>
+        <span class="chip w w-l">적재 설계 — 결정 재검토</span></div>
+      <div class="gap"><div class="ic">📡</div><h3>API 호출 이력</h3>
+        <p>PAT 트래픽은 <span class="mono">usage_events</span> 에 남지 않는다. 0078 주석의 의도가 구현되지 않았다.</p>
+        <span class="chip w w-m">라우트 공통 경로 1곳</span></div>
+      <div class="gap"><div class="ic">🔗</div><h3>좌석 ↔ 토큰 연결</h3>
+        <p>좌석은 자유 문자열, 토큰은 소유자 귀속이다. 둘을 잇는 키가 없다.</p>
+        <span class="chip w w-s">작다 — 절반은 이미 있다</span></div>
+      <div class="gap"><div class="ic">🔑</div><h3>조직 전체 토큰</h3>
+        <p>토큰 목록은 본인 것만 나온다. RLS 정책은 0개이고 해시는 계속 비노출이다.</p>
+        <span class="chip w w-m">슈퍼유저 가드 1개</span></div>
+      <div class="gap"><div class="ic">🏷️</div><h3>표시 이름 · 모델</h3>
+        <p>신원 마스터 테이블이 없다. 신원은 관례로만 유지되는 문자열이다.</p>
+        <span class="chip w w-m">테이블 1개 — 필요성부터</span></div>
+      <div class="gap"><div class="ic">💬</div><h3>질문에 답하기</h3>
+        <p>blocked 질문에 답하는 경로가 좌석표 결재 바뿐이다.</p>
+        <span class="chip w w-s">액션 1개</span></div>
+      <div class="gap"><div class="ic">⏱️</div><h3>무응답 자동 회수</h3>
+        <p>허브 스펙 §11 이 범위 밖으로 뒀다. 이 화면은 회수 버튼만 보여 준다.</p>
+        <span class="chip w" style="background:var(--surface-2);color:var(--ink-subtle)">별건</span></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const HOSTS=[
+ {name:'jji / macbook',sub:'팀장 감시 중 · 18:00 까지',on:true,slots:3,busy:2,lead:'lead',desks:[
+   {id:'lead',nm:'팀장',lead:true,c:'human_m',a:'idle_look',f:6,s:'LEAD',t:'팀원 3명에게 배분 · 18:00 까지 감시',age:1},
+   {id:'w1',nm:'팀원 1',c:'cat',a:'typing',s:'ACTIVE',t:'TSK-0412 위임 표 열 폭 저장',p:60,age:0.7},
+   {id:'w2',nm:'팀원 2',c:'bot',a:'blocked',s:'BLOCKED',t:'TSK-0407 좌석 회수 규칙',p:45,age:3,sel:true,q:true},
+   {id:'w3',nm:'팀원 3',s:'READY',t:'빈자리 — 다음 위임을 기다린다',p:0,age:null},
+ ]},
+ {name:'jji / win-desk',sub:'감시자 끊김 · 1시간 22분 전',on:false,slots:1,busy:1,lead:'poll',desks:[
+   {id:'poll',nm:'단독 감시',lead:true,c:'cat',a:'idle_coffee',f:6,s:'OFFLINE',t:'감시가 꺼졌다 — 이 PC 는 새 작업을 집지 않는다',age:82},
+   {id:'w1',nm:'팀원 1',c:'dog',a:'stale',s:'STALE',t:'TSK-0399 import 검증 보강',p:85,age:17},
+ ]},
+ {name:'tester / ci-runner',sub:'신원이 접두어 규칙을 따르지 않는다',on:true,slots:null,lead:null,desks:[
+   {id:'pat-8f3a21bc',nm:'외부 에이전트',c:'human_f',a:'verify',s:'ACTIVE',t:'TSK-0421 스모크 재실행',p:70,age:2},
+ ]},
+];
+const RC={ACTIVE:'var(--progress)',BLOCKED:'var(--warn)',STALE:'var(--delayed)',READY:'var(--line)',OFFLINE:'var(--pending)'};
+const LB={ACTIVE:['업무 중','var(--progress-weak)','var(--progress)'],BLOCKED:['결정 대기','var(--pending-weak)','var(--warn)'],
+  STALE:['무응답','var(--delayed-weak)','var(--delayed)'],READY:['빈자리','var(--surface-2)','var(--ink-subtle)'],LEAD:['감시 중','#dcefe0','var(--sm-standby)'],OFFLINE:['끊김','var(--surface-2)','var(--ink-subtle)']};
+const pos=m=>m==null?null:Math.min(100,m<=5?m/5*16.6:16.6+(m-5)/25*83.4);
+const lpos=m=>Math.min(100,m/70*100);
+const ago=m=>m<1?Math.round(m*60)+'초':m<60?m+'분':Math.floor(m/60)+'시간 '+(m%60)+'분';
+document.getElementById('hosts').innerHTML=HOSTS.map(h=>`
+ <section class="host ${h.on?'':'off'}">
+  <div class="host-h">
+    <div class="pc">💻</div>
+    <div><div class="host-name">${h.name}</div><div class="host-sub">${h.sub}</div></div>
+    ${h.lead?`<span style="display:none" class="lead ${h.on?'':'off'}"><span class="pulse"></span><span style="font-size:11.5px;font-weight:800">${h.lead==='lead'?'팀장':'단독 감시'}</span><span class="mono subtle" style="font-size:10px">${h.lead}</span></span>`:`<span class="chip" style="background:var(--surface-2);color:var(--ink-subtle)">감시자 없음 · 외부 PAT</span>`}
+    ${h.slots?`<div class="slots" title="슬롯 ${h.busy}/${h.slots}">${Array.from({length:h.slots},(_,i)=>`<i class="slot ${i<h.busy?'b':''}"></i>`).join('')}<span class="subtle num" style="font-size:11px;margin-left:4px">${h.busy}/${h.slots}</span></div>`:''}
+  </div>
+  <div class="floor">${h.desks.map(d=>{const l=LB[d.s];const x=pos(d.age);return `
+   <div class="desk s-${d.s} ${d.sel?'sel':''} ${d.lead?'boss':''}">
+     <div class="stage">${d.c?`<div class="spr" style="background-image:url(sprites/${d.c}/${d.a}.png);--f:${d.f||4};--dur:${d.f?2.4:1.6}s"></div>${d.lead?'<span class="crown">★ 팀장</span>':''}`:`<div class="spr" style="background-image:url(sprites/empty.png);animation:none"></div>`}
+       </div>
+     <div class="tag"><span class="id">${d.nm}<span class="raw">${d.id}</span></span>
+       ${d.p?`<span class="ring" style="--p:${d.p};--c:${RC[d.s]}"><b>${d.p}</b></span>`:''}</div>
+     <span class="chip" style="background:${l[1]};color:${l[2]};margin-top:4px">${l[0]}</span>
+     <div class="task">${d.t}</div>
+     ${d.lead?`<div class="age"><div class="agewrap"><div class="agebar l"></div><div class="agemark" style="left:calc(${lpos(d.age)}% - 1px)"></div></div>
+       <div class="agetxt"><span>신호 ${ago(d.age)} 전</span><span>70분</span></div></div>`:x==null?'':`<div class="age"><div class="agewrap"><div class="agebar"></div><div class="agemark" style="left:calc(${x}% - 1px)"></div></div>
+       <div class="agetxt"><span>신호 ${ago(d.age)} 전</span><span>5분 · 30분</span></div></div>`}
+   </div>`}).join('')}
+  </div>
+  <div class="srcs" style="padding:0 16px 12px"><span class="src">행 키: heartbeat_agent 의 &lt;신원&gt;/&lt;host&gt; 접두어</span><span class="src">src: agent_watchers (slots · busy · until_label · last_seen_at)</span><span class="src">src: seatState.ts 캐릭터 해시</span></div>
+ </section>`).join('');
+</script>
+</body>
+</html>
