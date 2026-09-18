@@ -91,6 +91,39 @@ describe('heartbeat.sh — 스펙 §4-2', () => {
     const plain = join(tmp, 'plain'); mkdirSync(plain)
     run(plain); expect(sent()).toHaveLength(0)
   })
+  // 키 선택(docs/superpowers/specs/2026-09-18-dflow-key-select-design.md §5)
+  const TWO = 'DFLOW_PATS=dflow_pat_AAAAAAAAAAAA_s1,dflow_pat_BBBBBBBBBBBB_s2\n'
+  it('DFLOW_AS 가 있으면 그 prefix 의 토큰으로 보낸다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.env'), `DFLOW_API_BASE=https://x.test\n${TWO}DFLOW_AS=BBBBBBBBBBBB\n`)
+    run()
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain('Bearer dflow_pat_BBBBBBBBBBBB_s2')
+  })
+  it('DFLOW_AS 가 어느 토큰과도 안 맞으면 보내지 않는다 — 첫 토큰으로 물러서지 않는다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.env'), `DFLOW_API_BASE=https://x.test\n${TWO}DFLOW_AS=ZZZZZZZZZZZZ\n`)
+    run(); expect(sent()).toHaveLength(0)
+  })
+  it('DFLOW_AS 가 없으면 지금처럼 첫 토큰으로 보낸다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.env'), `DFLOW_API_BASE=https://x.test\n${TWO}`)
+    run()
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain('Bearer dflow_pat_AAAAAAAAAAAA_s1')
+  })
+  it('DFLOW_PAT 단일 토큰에도 DFLOW_AS 를 적용한다 — prefix 가 다르면 보내지 않는다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.env'), 'DFLOW_API_BASE=https://x.test\nDFLOW_PAT=dflow_pat_AAAAAAAAAAAA_s1\nDFLOW_AS=BBBBBBBBBBBB\n')
+    run(); expect(sent()).toHaveLength(0)
+  })
+  it('.env 가 CRLF 여도 DFLOW_AS 를 맞춘다', () => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    writeFileSync(join(repo, '.env'), `DFLOW_API_BASE=https://x.test\r\n${TWO.replace('\n', '\r\n')}DFLOW_AS=BBBBBBBBBBBB\r\n`)
+    run()
+    expect(sent()).toHaveLength(1)
+    expect(sent()[0]).toContain('Bearer dflow_pat_BBBBBBBBBBBB_s2')
+  })
   it.skipIf(!existsSync('/bin/dash'))('dash(POSIX sh) 에서도 DFLOW_PATS 없이 DFLOW_PAT 만 있으면 exit 0 으로 heartbeat 를 보낸다', () => {
     writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
     writeFileSync(join(repo, '.env'), 'DFLOW_API_BASE=https://x.test\nDFLOW_PAT=dfl_u_abc_secret\n')

@@ -51,8 +51,21 @@ fi
 [ -f "$_top/.env" ] || exit 0
 set -a; . "$_top/.env" 2>/dev/null; set +a
 _base="${DFLOW_API_BASE:-}"; [ -n "$_base" ] || exit 0
-_tok="${DFLOW_PATS:-}"; _tok="${_tok%%,*}"; [ -n "$_tok" ] || _tok="${DFLOW_PAT:-}"; [ -n "$_tok" ] || exit 0
-_base=$(printf '%s' "$_base" | tr -d '\r'); _tok=$(printf '%s' "$_tok" | tr -d '\r')
+_all="${DFLOW_PATS:-}"; [ -n "$_all" ] || _all="${DFLOW_PAT:-}"; [ -n "$_all" ] || exit 0
+_base=$(printf '%s' "$_base" | tr -d '\r'); _all=$(printf '%s' "$_all" | tr -d '\r')
+_as=$(printf '%s' "${DFLOW_AS:-}" | tr -d '\r')
+# 키 선택: DFLOW_AS(prefix = 토큰의 셋째 '_' 칸)가 있으면 그 토큰만 쓴다. dflow.sh 의 pick_token 과 같은 규칙이다.
+# 맞는 토큰이 없으면 보내지 않는다 — 첫 토큰으로 물러서면 다른 신원의 좌석에 heartbeat 가 찍힌다(fail-closed).
+if [ -n "$_as" ]; then
+  _tok=''; _rest="$_all,"
+  while [ -n "$_rest" ]; do
+    _c="${_rest%%,*}"; _rest="${_rest#*,}"
+    [ "$(printf '%s' "$_c" | cut -d_ -f3)" = "$_as" ] && { _tok="$_c"; break; }
+  done
+  [ -n "$_tok" ] || exit 0
+else
+  _tok="${_all%%,*}"
+fi
 
 # 6) fire-and-forget. 응답·실패는 보지 않는다.
 _json=$("$JQ" -nc --arg a "$_agent" --arg p "$_phase" --arg m "$_model" '{agent:$a, phase:$p} + (if $m == "" then {} else {model:$m} end)')
