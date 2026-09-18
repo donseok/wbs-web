@@ -2,7 +2,7 @@
 # 같은 리포에서 두 번째 /dflow-team 팀장을 띄울 링크드 워크트리를 만든다.
 # 사용: lead-worktree.sh <이름>   (주 체크아웃 루트에서 실행. 이름은 소문자·숫자·- 만)
 # 만드는 것: <주 체크아웃>/.claude/worktrees/lead-<이름> (origin/<기본브랜치> 에서 detached),
-#           .claude/skills 링크(스킬이 git 추적되지 않을 때), .env 복사본(값은 출력하지 않는다).
+#           .claude/skills 링크(스킬이 git 추적되지 않을 때), .env 복사본(DFLOW_AS 줄은 뺀다. 값은 출력하지 않는다).
 set -eu
 name=${1:-}
 case "$name" in ''|*[!a-z0-9-]*) echo "FAIL BAD_NAME 사용: lead-worktree.sh <이름> (소문자·숫자·- 만)" >&2; exit 2 ;; esac
@@ -37,11 +37,14 @@ fi
 if [ -e "$LW/.env" ]; then
   echo "ENV_KEPT $LW/.env"
 elif [ -f "$PRIMARY/.env" ]; then
-  cp -p "$PRIMARY/.env" "$LW/.env" && chmod 600 "$LW/.env"
-  echo "ENV_COPIED $LW/.env"
+  # DFLOW_AS 는 주 체크아웃 팀장의 키다. 따라가면 이 워크트리의 /dflow-team 이 키를 묻지 않고 같은 신원으로
+  # 돌다가 SAME_IDENTITY_LEAD 로 거부된다. 그 줄만 빼고 복사해 키 판정이 이 워크트리의 키를 새로 정하게 한다.
+  ( umask 077; grep -v -E '^[[:space:]]*(export[[:space:]]+)?DFLOW_AS=' "$PRIMARY/.env" > "$LW/.env" || [ $? = 1 ] )
+  chmod 600 "$LW/.env"
+  echo "ENV_COPIED $LW/.env (DFLOW_AS 는 뺐다)"
 else
   echo "ENV_MISSING 주 체크아웃에 .env 가 없다. $LW/.env 를 만들어라"
 fi
 
-echo "NEXT 1) $LW/.env 에서 이 팀장의 키를 고른다(DFLOW_AS 또는 DFLOW_PATS 순서)"
+echo "NEXT 1) 키는 /dflow-team 이 시작할 때 정한다(다른 워크트리의 팀장이 쓰는 신원은 후보에서 빠진다). 미리 정하려면 $LW/.env 에 DFLOW_AS=<prefix>"
 echo "NEXT 2) cd $LW && claude  →  /dflow-team <종료시각> …"

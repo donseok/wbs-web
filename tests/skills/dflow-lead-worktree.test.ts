@@ -81,6 +81,29 @@ describe('두 번째 팀장은 링크드 워크트리에서 돈다', () => {
     expect(readFileSync(join(lw, '.env'), 'utf8')).toBe('DFLOW_AS=other\n')
   })
 
+  it('lead-worktree.sh 는 복사본에서 DFLOW_AS 줄만 빼고 나머지는 그대로 둔다', () => {
+    writeFileSync(join(primary, '.env'), 'DFLOW_API_BASE=https://x\nDFLOW_AS=AAAAAAAAAAAA\nDFLOW_PATS=secret\n  export DFLOW_AS=BBBBBBBBBBBB\nDFLOW_ASK=keep\n')
+    chmodSync(join(primary, '.env'), 0o644)
+    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).not.toContain('secret')
+    expect(r.out).not.toContain('AAAAAAAAAAAA')
+    expect(r.out).toContain('ENV_COPIED')
+    expect(r.out).toContain('DFLOW_AS 는 뺐다')
+    const lw = join(primary, '.claude/worktrees/lead-k2')
+    expect(readFileSync(join(lw, '.env'), 'utf8')).toBe('DFLOW_API_BASE=https://x\nDFLOW_PATS=secret\nDFLOW_ASK=keep\n')
+    expect(statSync(join(lw, '.env')).mode & 0o777).toBe(0o600)
+    // 주 체크아웃의 .env 는 건드리지 않는다
+    expect(readFileSync(join(primary, '.env'), 'utf8')).toContain('DFLOW_AS=AAAAAAAAAAAA')
+  })
+
+  it('lead-worktree.sh 는 .env 가 DFLOW_AS 줄뿐이어도 죽지 않는다', () => {
+    writeFileSync(join(primary, '.env'), 'DFLOW_AS=AAAAAAAAAAAA\n')
+    const r = sh(primary, `bash '${LEAD_WT}' k2`)
+    expect(r.code, r.out).toBe(0)
+    expect(readFileSync(join(primary, '.claude/worktrees/lead-k2/.env'), 'utf8')).toBe('')
+  })
+
   it('lead-worktree.sh 는 링크드 워크트리에서 부르면 거부한다', () => {
     sh(primary, `bash '${LEAD_WT}' k2`)
     const r = sh(join(primary, '.claude/worktrees/lead-k2'), `bash '${LEAD_WT}' k3`)
