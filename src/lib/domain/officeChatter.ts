@@ -105,13 +105,16 @@ function reportMs(d: RosterDesk): number {
   return at ? Date.parse(at) : 0
 }
 
-/** 팀원 말풍선 — 최근 보고가 있으면 머리말 + 요약. 없으면 null(단계 말풍선을 쓴다). */
-export function memberReportBubble(d: RosterDesk, nowMs: number): { opener: string; text: string; kind: 'progress' | 'completion' } | null {
+/**
+ * 팀원 말풍선 — 최근 보고가 있으면 머리말 + 요약. 없으면 null(단계 말풍선을 쓴다).
+ * 에이전트·평면도·상태 레인이 같은 좌석(주문)에 같은 말을 띄우도록 주문 id 로 고른다.
+ */
+export function memberReportBubble(d: Pick<RosterDesk, 'seat'>, nowMs: number): { opener: string; text: string; kind: 'progress' | 'completion' } | null {
   const r = d.seat?.lastReport
   if (!r || nowMs - Date.parse(r.at) > REPORT_FRESH_MS) return null
   const pool = REPORT_OPENERS[r.kind]
   // 머리말은 보고 하나에 하나로 고정한다 — 8초마다 바뀌면 산만하다.
-  return { opener: pool[fnv1a32(`${d.key}|${r.at}`) % pool.length], text: r.summary, kind: r.kind }
+  return { opener: pool[fnv1a32(`${d.seat!.orderId}|${r.at}`) % pool.length], text: r.summary, kind: r.kind }
 }
 
 /**
@@ -152,12 +155,13 @@ const MEMBER_TALK_EVERY = 3
  * 작업 중인 팀원의 한마디(2026-09-18 사용자 요청) — ACTIVE 일 때만. 말하지 않는 칸에는 null(단계 말풍선을 쓴다).
  * 세 번에 한 번은 지금 단계(설계·빌드·검증·리팩터)에 맞는 대사, 나머지는 공통 묶음.
  */
-export function memberChatter(d: Pick<RosterDesk, 'key' | 'seat'>, nowMs: number): string | null {
+export function memberChatter(d: Pick<RosterDesk, 'seat'>, nowMs: number): string | null {
   const seat = d.seat
   if (!seat || seat.state !== 'ACTIVE') return null
+  const key = seat.orderId // 어느 보기에서든 같은 좌석이 같은 때 같은 말을 한다
   const slot = slotOf(nowMs)
-  if ((slot + fnv1a32(d.key)) % MEMBER_TALK_EVERY !== 0) return null
+  if ((slot + fnv1a32(key)) % MEMBER_TALK_EVERY !== 0) return null
   const phase = MEMBER_PHASE_LINES[seat.phase as keyof typeof MEMBER_PHASE_LINES]
-  const groups = phase && hash(`${d.key}|p|${slot}`) % 3 === 0 ? [phase] : MEMBER_GROUPS
-  return pick(groups, `${d.key}|w`, nowMs, MEMBER_TALK_EVERY)
+  const groups = phase && hash(`${key}|p|${slot}`) % 3 === 0 ? [phase] : MEMBER_GROUPS
+  return pick(groups, `${key}|w`, nowMs, MEMBER_TALK_EVERY)
 }

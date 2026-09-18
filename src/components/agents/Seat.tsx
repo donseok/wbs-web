@@ -5,6 +5,7 @@ import type { SeatState } from '@/lib/domain/seatState'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
+import { ChatBubble, seatSpeech } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconOffline, IconRejected, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
@@ -39,6 +40,12 @@ export function SeatMark({ state }: { state: SeatState }) {
   return <span className={css.mark} data-mark={state} title={STATE_LABEL[state]}><Icon /></span>
 }
 
+/** 캐릭터 머리 위 — 보고·한마디가 있으면 말풍선, 없으면 단계 말풍선(에이전트 보기와 같은 규칙). */
+function SeatHead({ seat, nowMs }: { seat: Seat; nowMs: number }) {
+  const say = seatSpeech(seat, nowMs)
+  return say ? <ChatBubble key={say.text} {...say} className="block w-max max-w-[168px]" /> : <PhaseBadge seat={seat} />
+}
+
 export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: {
   seat: Seat; side: 'left' | 'right'; selected: boolean; nowMs: number
   /** 이 좌석의 op 가 서버에 가 있는 동안 참 — 결재 바를 잠근다. */
@@ -49,7 +56,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
   return (
     <div className={`${css.seat} ${side === 'left' ? css.seatLeft : css.seatRight}`}>
       <div className={css.chair}>
-        <span className={css.phaseSlot}><PhaseBadge seat={seat} /></span>
+        <span className={css.phaseSlot}><SeatHead seat={seat} nowMs={nowMs} /></span>
         <Sprite character={seat.character} anim={seat.anim} />
       </div>
       <div className={css.desk} data-state={seat.state} data-rejected={seat.rejected ? '1' : undefined}

@@ -11,9 +11,9 @@ import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName 
 import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
-import { PHASE_LOOK, PhaseBadge } from './PhaseBadge'
-import { leadChatter, memberChatter, memberReportBubble } from '@/lib/domain/officeChatter'
-import css from './seatmap.module.css'
+import { PhaseBadge } from './PhaseBadge'
+import { leadChatter } from '@/lib/domain/officeChatter'
+import { ChatBubble, seatSpeech } from './SeatSpeech'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -166,40 +166,12 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
 function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number): React.ReactNode {
   if (desk.kind === 'lead') {
     const c = leadChatter(host, nowMs, desk)
-    return c && <ChatBubble key={c.text} kind={c.tone} text={c.text} />
+    return c && <ChatBubble key={c.text} kind={c.tone} text={c.text} className="max-w-full" />
   }
   if (!desk.seat) return null
-  const r = memberReportBubble(desk, nowMs)
-  if (r) {
-    const color = PHASE_LOOK[desk.seat.phase]?.color ?? '#5DB1E5'
-    return <ChatBubble key={r.text} kind={r.kind === 'completion' ? 'done' : 'report'} opener={r.opener} text={r.text} color={r.kind === 'completion' ? '#4FC07E' : color} />
-  }
-  const talk = memberChatter(desk, nowMs)
-  if (talk) return <ChatBubble key={talk} kind="chat" text={talk} />
+  const say = seatSpeech(desk.seat, nowMs)
+  if (say) return <ChatBubble key={say.text} {...say} className="max-w-full" />
   return <span className="self-center"><PhaseBadge seat={desk.seat} /></span>
-}
-
-const BUBBLE_LOOK = {
-  nag: { bg: '#FFF4D6', edge: '#E9B949', ink: '#5A4210' },
-  praise: { bg: '#E6F6EA', edge: '#6CC48A', ink: '#1F5A33' },
-  empty: { bg: '#EEF1F4', edge: '#B7C0C9', ink: '#3E4A56' },
-  report: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
-  done: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
-  chat: { bg: '#F7F9FB', edge: '#C9D2DA', ink: '#3E4A56' },
-} as const
-
-/** 만화 말풍선 — 아래 꼬리가 캐릭터를 가리킨다. 두 줄까지(넘으면 말줄임, 전문은 title). 새 대사마다 톡 튀어나온다. */
-function ChatBubble({ kind, text, opener, color }: { kind: keyof typeof BUBBLE_LOOK; text: string; opener?: string; color?: string }) {
-  const look = BUBBLE_LOOK[kind]
-  return (
-    <span data-chat-bubble={kind} title={opener ? `${opener} ${text}` : text}
-      className={`${css.chatPop} relative mb-1.5 max-w-full rounded-2xl border px-2.5 py-1.5 text-center text-[11px] font-semibold leading-snug break-keep shadow-[0_6px_14px_-10px_#0d1014]`}
-      style={{ background: look.bg, borderColor: look.edge, color: look.ink }}>
-      {opener && <b className="block text-[10px] font-extrabold" style={{ color }}>{opener}</b>}
-      <span className={opener ? 'line-clamp-2 font-medium' : 'line-clamp-2'}>{text}</span>
-      <i aria-hidden className="absolute -bottom-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-b border-r" style={{ background: look.bg, borderColor: look.edge }} />
-    </span>
-  )
 }
 
 /**

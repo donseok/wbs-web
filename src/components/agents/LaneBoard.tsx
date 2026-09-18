@@ -4,6 +4,7 @@ import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import type { SeatState } from '@/lib/domain/seatState'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
+import { ChatBubble, seatSpeech } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { STATE_LABEL, SeatMark, seatMetaLine } from './Seat'
 import { IconFolded, IconStale, IconWait } from './icons'
@@ -30,6 +31,19 @@ function collect(map: Seatmap): Entry[] {
 }
 
 const HAS_BAR: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED', 'OFFLINE']
+
+/**
+ * 카드 속 말풍선 줄 — 보고·한마디(에이전트 보기와 같은 말). 한 줄 높이를 늘 잡아 두어
+ * 말할 때마다 카드 높이가 출렁이지 않게 한다. 꼬리는 왼쪽 캐릭터를 가리킨다.
+ */
+function LaneSpeech({ seat, nowMs }: { seat: Seat; nowMs: number }) {
+  const say = seatSpeech(seat, nowMs)
+  return (
+    <span className={css.cardSay} data-card-say>
+      {say && <ChatBubble key={say.text} {...say} tail="left" lines={1} className="block min-w-0 max-w-full truncate" />}
+    </span>
+  )
+}
 
 /**
  * 상태 레인 보기 — 층·구역을 접고 상태별로 모아 세운다. 승인 대기와 손봐야 할 좌석이 한눈에 오며,
@@ -70,6 +84,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                     </span>
                     <SeatMark state={seat.state} />
                   </span>
+                  {HAS_BAR.includes(seat.state) && <LaneSpeech seat={seat} nowMs={nowMs} />}
                   {HAS_BAR.includes(seat.state) && <span className={css.bar}><i style={{ width: `${seat.progress}%` }} /></span>}
                 </button>
                 <SeatOpsBar seat={seat} busy={busyOrderId === seat.orderId} onOp={onOp} />
