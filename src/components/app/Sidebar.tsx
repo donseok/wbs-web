@@ -114,8 +114,14 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
   // 안읽음 공지 배지 — ShellStateProvider 가 내비게이션당 통합 1왕복으로 조회한 값을 쓴다.
   // (종전엔 헤더와 이 컴포넌트가 같은 인자로 같은 액션을 각자 쐈다 — 2026-08-18 성능 감사.)
   // 회의록·내 회의에서는 보존한 프로젝트 메뉴(menuProjectId)의 배지를 유지한다.
-  const { menuUnreadAnnouncements } = useShellState()
+  const { menuUnreadAnnouncements, menuPendingApprovals } = useShellState()
   const unread = menuProjectId ? menuUnreadAnnouncements : 0
+  // 에이전트 메뉴 결재 대기 배지(2026-09-18) — 내가 승인할 수 있는 완료 보고 수. 허브에 들어가지 않아도 알 수 있게.
+  const pending = menuProjectId ? menuPendingApprovals : 0
+  const badges: Partial<Record<DictKey, { count: number; tip: string; bg: string }>> = {
+    'nav.announcements': { count: unread, tip: '', bg: 'bg-accent-secondary' },
+    'nav.projectAgents': { count: pending, tip: '결재 대기 ', bg: 'bg-amber-500' },
+  }
 
   return (
     <aside
@@ -228,22 +234,25 @@ export function Sidebar({ projects, showUsage = false, showPortfolio = false }: 
                   const ItemIcon = item.icon
                   const label = t(item.labelKey)
                   const projectPrefix = isGlobalBridge && menuProject ? `${menuProject.name} · ` : ''
-                  // 접힘 상태에서 공지 항목은 안읽음 수까지 툴팁에 노출(배지가 점으로 축약되므로)
-                  const tip = collapsed && item.labelKey === 'nav.announcements' && unread > 0
-                    ? `${projectPrefix}${label} · ${unread > 99 ? '99+' : unread}`
+                  // 접힘 상태에서 배지 항목(공지 안읽음 · 에이전트 결재 대기)은 수까지 툴팁에 노출(배지가 점으로 축약되므로)
+                  const badge = badges[item.labelKey]
+                  const n = badge && badge.count > 0 ? (badge.count > 99 ? '99+' : String(badge.count)) : null
+                  const tip = collapsed && badge && n
+                    ? `${projectPrefix}${label} · ${badge.tip}${n}`
                     : `${projectPrefix}${label}`
                   return (
                     <Tooltip key={item.href} label={tip} side="right" disabled={!collapsed}>
                       <Link href={item.href} aria-current={active ? 'page' : undefined} className={`side-link relative ${active ? 'side-link-active' : ''} ${collapsed ? 'justify-center px-0' : ''}`}>
                         <ItemIcon className="h-[18px] w-[18px] shrink-0" />
                         {!collapsed && <span className="flex-1">{label}</span>}
-                        {!collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
-                          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-secondary px-1.5 text-[10px] font-bold tabular-nums text-white">
-                            {unread > 99 ? '99+' : unread}
+                        {!collapsed && badge && n && (
+                          <span data-nav-badge={item.labelKey} title={badge.tip ? `${badge.tip}${n}건` : undefined}
+                            className={`flex h-5 min-w-5 items-center justify-center rounded-full ${badge.bg} px-1.5 text-[10px] font-bold tabular-nums text-white`}>
+                            {n}
                           </span>
                         )}
-                        {collapsed && item.labelKey === 'nav.announcements' && unread > 0 && (
-                          <span aria-hidden className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent-secondary ring-2 ring-sidebar" />
+                        {collapsed && badge && n && (
+                          <span aria-hidden data-nav-dot={item.labelKey} className={`absolute right-1.5 top-1.5 h-2 w-2 rounded-full ${badge.bg} ring-2 ring-sidebar`} />
                         )}
                       </Link>
                     </Tooltip>
