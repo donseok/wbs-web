@@ -11,6 +11,7 @@ import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName 
 import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
+import { PhaseBadge } from './PhaseBadge'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -132,10 +133,12 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
     <li>
       <button type="button" data-roster-desk={desk.slot} aria-pressed={selected} onClick={() => onSelect(desk.key)}
         className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
-        <span className="relative grid place-items-center pt-9"
+        {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
+        <span className="relative flex flex-col items-center pb-2.5 pt-2"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
-          <Nameplate desk={desk} />
+          <span className="flex h-[34px] items-start justify-center">{desk.seat && <PhaseBadge seat={desk.seat} />}</span>
           <span className={desk.kind === 'empty' ? 'opacity-40' : ''}><Sprite character={look.character} anim={look.anim} /></span>
+          <span className="flex h-[26px] items-end justify-center"><Nameplate desk={desk} /></span>
         </span>
         <span className="flex flex-col gap-1 px-3 pb-3 pt-2">
           <span className="flex items-center gap-2">
@@ -154,12 +157,12 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
 }
 
 /**
- * 캐릭터 머리 위 명찰 — 어떤 모델이 앉아 있는지 한눈에. 제조사 표식(색 + 기호)과 짧은 모델 이름.
+ * 캐릭터 발밑 명찰(위는 단계 말풍선 자리) — 어떤 모델이 앉아 있는지 한눈에. 제조사 표식(색 + 기호)과 짧은 모델 이름.
  * 팀장·단독 감시는 같은 자리에 ★ 명찰을 단다. 모델은 heartbeat 의 실행 모델(0100, Phase 서브에이전트)이 우선이고,
  * 아직 보고가 없으면 WBS 항목 지정 모델을 점선 명찰로 보인다. 같은 팀원도 Phase 마다 등급이 바뀐다.
  */
 function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg' }) {
-  const pos = size === 'sm' ? 'absolute left-1/2 top-2 -translate-x-1/2' : ''
+  const pos = size === 'sm' ? 'relative' : ''
   const text = size === 'sm' ? 'text-[11px]' : 'text-xs'
   if (desk.kind === 'lead') {
     return (
@@ -195,7 +198,7 @@ function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg'
       <span className="font-mono tracking-tight">{b.label}</span>
       {b.tier && <TierPips tier={b.tier} color={plan ? '#b7bfba' : ring!.edge} />}
       {plan && <span className="rounded-full bg-white/10 px-1.5 py-px text-[9px] font-semibold tracking-wide text-[#b7bfba]">지정</span>}
-      {size === 'sm' && <i aria-hidden className={`absolute -bottom-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 ${plan ? 'bg-[#15191fb3]' : 'bg-[#15191f]'}`} />}
+      {size === 'sm' && <i aria-hidden className={`absolute -top-[5px] left-1/2 -z-[1] h-2.5 w-2.5 -translate-x-1/2 rotate-45 ${plan ? 'bg-[#15191fb3]' : 'bg-[#15191f]'}`} />}
     </span>
   )
 }

@@ -3,6 +3,7 @@
 import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import type { SeatState } from '@/lib/domain/seatState'
 import { Sprite } from './Sprite'
+import { PhaseBadge } from './PhaseBadge'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { STATE_LABEL, SeatMark, seatMetaLine } from './Seat'
 import { IconFolded, IconStale, IconWait } from './icons'
@@ -65,7 +66,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                     <span className={css.cardText}>
                       <span className={css.cardZone}>{showFloorName ? `${floorName} · ${zoneLabel}` : zoneLabel}</span>
                       <span className={css.deskName}>{seat.code} {seat.name}</span>
-                      <span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span>
+                      <span className={css.cardMeta}><PhaseBadge seat={seat} size="chip" /><span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span></span>
                     </span>
                     <SeatMark state={seat.state} />
                   </span>

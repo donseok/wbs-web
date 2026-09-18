@@ -105,6 +105,10 @@
 .seatRight .chair { transform: scaleX(-1); }
 /* 글자·기호가 그려진 동작(? 말풍선 · zzz · REJECT 도장)은 되돌려 읽히게 둔다 — 마주보는 구도를 조금 잃는 대신 글자가 읽힌다. */
 .seatRight .chair [data-glyph="1"] { transform: scaleX(-1); }
+/* 머리 위 단계 말풍선(PhaseBadge) — 캐릭터 칸 위쪽 가장자리에 걸친다. 오른쪽 줄은 의자째 뒤집히므로 글자가 읽히게 되돌린다. */
+.phaseSlot { position: absolute; left: 50%; bottom: calc(50% + var(--sm-cell-h) / 2 - 16px); transform: translateX(-50%); z-index: 2; pointer-events: none; }
+.phaseSlot:empty { display: none; }
+.seatRight .chair .phaseSlot { transform: translateX(-50%) scaleX(-1); }
 
 /* 책상은 상자다 — 좌석을 고르는 버튼(.deskPick)과 결재 바(.seatOps)를 담는다.
    옛 판에서는 책상 자체가 버튼이어서 결재 버튼을 넣을 자리가 없었다. */
@@ -310,3 +314,5 @@
 .toolsLight .viewSeg { margin-right: auto; }
 .toolsLight .stamp { color: var(--color-ink-subtle); }
 .toolsLight .stampBad { color: var(--color-delayed); }
+/* 상태 레인 카드의 메타 줄 — 단계 칩 + 한 줄 요약 */
+.cardMeta { display: flex; align-items: center; gap: 6px; min-width: 0; }

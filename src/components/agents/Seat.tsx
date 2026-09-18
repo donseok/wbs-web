@@ -4,6 +4,7 @@ import type { Seat } from '@/lib/domain/seatmap'
 import type { SeatState } from '@/lib/domain/seatState'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { Sprite } from './Sprite'
+import { PhaseBadge } from './PhaseBadge'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconOffline, IconRejected, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
@@ -47,7 +48,10 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
 }) {
   return (
     <div className={`${css.seat} ${side === 'left' ? css.seatLeft : css.seatRight}`}>
-      <div className={css.chair}><Sprite character={seat.character} anim={seat.anim} /></div>
+      <div className={css.chair}>
+        <span className={css.phaseSlot}><PhaseBadge seat={seat} /></span>
+        <Sprite character={seat.character} anim={seat.anim} />
+      </div>
       <div className={css.desk} data-state={seat.state} data-rejected={seat.rejected ? '1' : undefined}
         data-selected={selected ? '1' : undefined}>
         <button
