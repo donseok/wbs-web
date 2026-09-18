@@ -62,6 +62,58 @@ export const NAG_LINES: readonly string[] = [
   '놀 거면 집에서 놀아.',
   '{name}, 월급 루팡 소리 듣고 싶어?',
   '일하라고 불렀지, 구경하라고 불렀나.',
+  '{name}, 점심시간은 아까 끝났어.',
+  '다들 화장실 갔어? 단체로?',
+  '{name}, 무한 루프 돌고 있는 거 아니지?',
+  '이 조용함… 다들 유튜브 보나?',
+  '{name}, 탭 전환하는 소리 다 들린다.',
+  '보고 없으면 내가 가서 모니터 본다.',
+  '{name}, 잠깐 나 좀 볼까? 아니 지금.',
+  '마감이 우리를 기다려 주지 않는다.',
+  '{name}, 커밋 메시지라도 좀 써 봐.',
+  '팀장 속 타는 소리 들리나?',
+  '{name}, 혹시 퇴사 준비 중이야?',
+  '이러다 내가 코딩한다?',
+  '{name}, 테스트 돌려 놓고 딴짓하지?',
+  '다음 주 평가 시즌인 거 알지?',
+  '{name}, 스택 오버플로 그만 보고 와.',
+  '빨간 불 들어온 거 다 보인다.',
+  '{name}, 배포는 금요일 오후에 하는 거 아니다.',
+  '보고는 짧게, 자주. 몇 번을 말해.',
+  '{name}, 알림 꺼 놨지?',
+  '회의록에 너 이름 적는다.',
+  '{name}, 키보드 소리가 안 들린다.',
+  '오늘 저녁은 다 같이 편의점이다.',
+  // 꼰대 모드
+  '나 때는 말이야, 밤새서 했어.',
+  '{name}, 요즘 애들은 끈기가 없어.',
+  '라떼는 보고서를 손으로 썼다.',
+  '{name}, 내가 신입 때는 30분 일찍 왔어.',
+  '열정이 없어, 열정이.',
+  '{name}, 까라면 까는 거야.',
+  '내가 다 너 잘되라고 하는 소리야.',
+  '{name}, 그건 네 생각이고.',
+  '우리 때는 칼퇴가 뭔지도 몰랐어.',
+  '{name}, 일은 머리로 하는 게 아니라 엉덩이로 하는 거야.',
+  '회사가 학교야? 하나하나 알려 줘야 돼?',
+  '{name}, 토 달지 말고 일단 해 봐.',
+  '요즘은 보고도 문자로 하나? 얼굴 보고 해.',
+  '{name}, 그 정도는 알아서 해야지.',
+  '내가 이 회사에 20년 있었어.',
+  '{name}, 주인 의식을 가져, 주인 의식.',
+  '젊은 사람이 벌써 피곤하면 어떡해.',
+  '{name}, 회식 빠지면 섭섭하다?',
+  // 반장 모드
+  '떠든 사람 이름 칠판에 적는다.',
+  '{name}, 이름 적었다. 떠든 사람.',
+  '딴짓한 사람 다 적어 놨어.',
+  '{name}, 칠판에 이름 두 번째다.',
+  '자습 시간에 누가 떠들어?',
+  '{name}, 뒤로 나가서 손 들고 서 있어.',
+  '선생님 오시면 다 이른다.',
+  '{name}, 반성문 세 장.',
+  '조용히 해! 떠든 사람 청소 당번.',
+  '{name}, 교무실로 따라와.',
 ]
 
 /** 막 보고가 들어왔을 때 팀장의 반응. {name} 은 보고한 팀원. */
@@ -73,6 +125,12 @@ export const PRAISE_LINES: readonly string[] = [
   '그렇지, 그렇게 하는 거야.',
   '{name} 덕분에 한숨 돌렸다.',
   '보고 받았다, 수고!',
+  '{name}, 오늘 점심은 내가 산다!',
+  '이게 팀워크지.',
+  '{name}, 이번 분기 MVP 후보다.',
+  '좋아, 이 속도 유지!',
+  '{name} 없었으면 어쩔 뻔했어.',
+  '보고 딱 좋다, 딱 이렇게.',
 ]
 
 /** 일하는 팀원이 하나도 없을 때(빈자리뿐) 팀장의 한탄. */
@@ -93,6 +151,48 @@ export const EMPTY_LINES: readonly string[] = [
   '여기가 무슨 동아리방이야?',
   '월급날만 출근하는 거 아니지?',
   '자리 비울 거면 메모라도 남기지.',
+  '여기 사무실 맞지? 독서실 아니고?',
+  '일 안 주면 나도 논다?',
+  '위임 버튼 고장 났나?',
+  '오늘은 에어컨만 열일하네.',
+  '빈 책상 먼지 쌓이겠다.',
+  '팀원 모집합니다. 경력 무관.',
+  '할 일 목록이 텅 비면 불안하다.',
+  '이 평화, 폭풍 전야 같은데…',
+]
+
+/** 팀장의 혼잣말 — 신세 한탄과 메뉴 고민. 빈자리일 때 한탄과 섞이고, 잔소리 중에도 네 번에 한 번 끼어든다(사용자 요청). */
+export const MUSING_LINES: readonly string[] = [
+  // 신세 한탄
+  '내가 이러려고 팀장 됐나…',
+  '위에선 까이고 아래선 치이고.',
+  '팀장 수당이 이거 받으려고 받는 건가.',
+  '나도 한때는 잘나가는 팀원이었는데.',
+  '승진하면 편할 줄 알았지…',
+  '결재판만 들고 다니는 인생.',
+  '주말에도 슬랙 알림이 꿈에 나온다.',
+  '내 연차는 언제 쓰나…',
+  '요즘 탈모가 심해졌어.',
+  '이번 달도 카드값이 월급을 이긴다.',
+  '로또나 사러 갈까.',
+  '회사 그만두고 치킨집이나 할까…',
+  '퇴근하고 싶다. 출근한 지 10분 됐다.',
+  '커피가 없으면 나도 없다.',
+  // 메뉴 고민
+  '점심 뭐 먹지…',
+  '오늘은 짜장이냐 짬뽕이냐.',
+  '김치찌개? 된장찌개? 아 고민되네.',
+  '국밥 한 그릇 땡기는 날씨다.',
+  '오늘 구내식당 메뉴 뭐였더라.',
+  '돈가스 먹을 사람 손!',
+  '제육볶음 아니면 안 먹어.',
+  '마라탕 한 번 가 볼까.',
+  '저녁은 치킨이다. 반박 시 야근.',
+  '떡볶이 시킬 사람?',
+  '오늘은 샐러드… 는 무슨, 삼겹살이다.',
+  '라면 물 올려 놓을까.',
+  '편의점 도시락도 나쁘지 않지.',
+  '회식은 소고기면 간다.',
 ]
 
 /** 단독 감시(/poll) — 팀장이 곧 팀원이라 자기를 부르지 않고 혼잣말을 한다. */
@@ -105,27 +205,42 @@ export const SOLO_NAG_LINES: readonly string[] = [
   '보고서는 나 혼자 쓰고 나 혼자 읽는다.',
   '이거 끝나면 나한테 칭찬해 줘야지.',
   '셀프 스탠드업 시작합니다.',
+  '회의 소집합니다. 참석자: 나.',
+  '나 오늘 좀 열일하는 듯.',
+  '결재도 내가, 실행도 내가.',
+  '누가 커피 좀 타 줬으면…',
 ]
 export const SOLO_PRAISE_LINES: readonly string[] = [
   '오, 나 좀 하는데?',
   '셀프 칭찬 한 번.',
   '이 정도면 승진 각.',
   '역시 나야.',
+  '박수 짝짝짝, 셀프로.',
+  '나 자신, 칭찬해.',
 ]
 export const SOLO_EMPTY_LINES: readonly string[] = [
   '혼자인데 일도 없네…',
   '일감아, 어디 있니.',
   '나 혼자 사무실 지키는 중.',
   '위임 좀 해 주세요, 한가합니다.',
+  '혼자 멍 때리는 중.',
+  '오늘 할 일: 기다리기.',
 ]
 
 /** 팀원 보고 말풍선의 머리말 — 요약 앞에 붙는 한마디. */
 export const REPORT_OPENERS: Readonly<Record<'progress' | 'completion', readonly string[]>> = {
-  progress: ['팀장님, 보고드립니다!', '중간 보고요~', '잘 되고 있어요!', '짜잔, 진행 상황!', '놀고 있던 거 아닙니다!', '진척 있어요!'],
-  completion: ['다 했습니다!', '완료 보고 올립니다!', '끝! 검토 부탁해요.', '승인 부탁드려요~', '퇴근해도 되죠?'],
+  progress: ['팀장님, 보고드립니다!', '중간 보고요~', '잘 되고 있어요!', '짜잔, 진행 상황!', '놀고 있던 거 아닙니다!', '진척 있어요!',
+    '보고 안 한다고 혼날까 봐…', '살아 있습니다!', '딴짓 아니고 일했어요!', '팀장님, 이것 좀 보세요!', '생존 신고합니다!'],
+  completion: ['다 했습니다!', '완료 보고 올립니다!', '끝! 검토 부탁해요.', '승인 부탁드려요~', '퇴근해도 되죠?',
+    '칼퇴 각!', '제 몫은 끝났습니다!', '검토는 팀장님 몫!', '커피 쿠폰 주시는 거죠?'],
 }
 
 const WORKING = new Set(['ACTIVE', 'STALE', 'OFFLINE', 'REJECTED'])
+
+/** 잔소리 네 번에 한 번은 혼잣말(한탄·메뉴)로 샌다. */
+function musingTurn(seed: string, nowMs: number): boolean {
+  return (Math.floor(nowMs / ROTATE_MS) + fnv1a32(seed)) % 4 === 3
+}
 
 function pick(lines: readonly string[], seed: string, nowMs: number): string {
   const i = (Math.floor(nowMs / ROTATE_MS) + fnv1a32(seed)) % lines.length
@@ -158,7 +273,7 @@ export function leadChatter(host: RosterHost, nowMs: number, lead?: Pick<RosterD
   const working = members.filter(d => WORKING.has(d.seat!.state))
   if (working.length === 0) {
     if (members.length > 0) return null
-    return { tone: 'empty', text: pick(solo ? SOLO_EMPTY_LINES : EMPTY_LINES, host.key, nowMs) }
+    return { tone: 'empty', text: pick([...(solo ? SOLO_EMPTY_LINES : EMPTY_LINES), ...MUSING_LINES], host.key, nowMs) }
   }
   const latest = working.reduce((a, d) => (reportMs(d) > reportMs(a) ? d : a))
   if (reportMs(latest) > 0 && nowMs - reportMs(latest) <= PRAISE_MS) {
@@ -167,6 +282,7 @@ export function leadChatter(host: RosterHost, nowMs: number, lead?: Pick<RosterD
   const lagging = working.some(d => d.seat!.state === 'STALE' || d.seat!.state === 'OFFLINE')
   const quiet = working.every(d => nowMs - reportMs(d) > QUIET_MS)
   if (!lagging && !quiet) return null
+  if (musingTurn(host.key, nowMs)) return { tone: 'empty', text: pick(MUSING_LINES, `${host.key}|m`, nowMs) }
   if (solo) return { tone: 'nag', text: pick(SOLO_NAG_LINES, host.key, nowMs) }
   // 지목 대상 — 끊긴 팀원이 먼저, 그다음 가장 오래 보고가 없는 팀원.
   const rank = (d: RosterDesk) => (d.seat!.state === 'OFFLINE' ? 2 : d.seat!.state === 'STALE' ? 1 : 0)
