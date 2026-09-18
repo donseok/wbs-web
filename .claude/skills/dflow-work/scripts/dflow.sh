@@ -35,6 +35,7 @@ usage() {
                          감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
   done <ref> <요약> [--auto-links]
   release <ref>
+  profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
 EOF
   exit 2
@@ -411,23 +412,57 @@ cmd_release() {
   printf '%s' "$_body" | jq -r '.status'
 }
 
+# 토큰마다 한 줄 JSON — /dflow-team 의 키 판정과 사람의 진단이 같은 출력을 읽는다. 토큰 값은 내지 않는다.
+cmd_profiles() {
+  _toks=$(tokens) || exit $?
+  # 지금 설정이 고르는 키. 맞는 키가 없어도 죽지 않는다 — 진단 명령이 진단할 상황에서 죽으면 안 된다.
+  _sel=$(pick_token "$AS" "$AS_EXACT" 2>/dev/null) || _sel=''
+  _n=0
+  printf '%s\n' "$_toks" | while IFS= read -r _t; do
+    [ -n "$_t" ] || continue
+    _n=$((_n+1)); _issel=false
+    [ -n "$_sel" ] && [ "$_t" = "$_sel" ] && _issel=true
+    _me=$(TOKEN="$_t" api_raw GET /api/v1/agent/me 2>/dev/null); _rc=$?
+    if [ "$_rc" -eq 0 ]; then
+      printf '%s' "$_me" | jq -c --argjson n "$_n" --arg p "$(token_prefix "$_t")" \
+        --arg ps "$ALLOWED_PROJECTS" --argjson s "$_issel" '
+        ($ps | split("\n") | map(select(. != ""))) as $ok
+        | {n: $n, prefix: $p, name: (.token_name // "-"), email: .user_email, kind: .kind,
+           expires_at: .token_expires_at, projects: [.projects[]? | {id, name}],
+           bound: (if ($ok | length) == 0 then null
+                   else ([.projects[]?.id] | any(. as $i | $ok | index($i) != null)) end),
+           selected: $s}'
+    else
+      # 401(exit 3)은 키가 죽은 것이고 그 밖은 서버·네트워크다. 처방이 달라 한 단어로 뭉개지 않는다.
+      _err=unreachable; [ "$_rc" -eq 3 ] && _err=auth
+      jq -nc --argjson n "$_n" --arg p "$(token_prefix "$_t")" --arg e "$_err" --argjson s "$_issel" \
+        '{n: $n, prefix: $p, error: $e, selected: $s}'
+    fi
+  done
+}
+
 cmd_doctor() {
   need curl; need jq
   _base=$(base) || exit $?
   printf 'base: %s\n' "$_base"
   _n=0
   _toks=$(tokens) || exit $?
+  _sel=$(pick_token "$AS" "$AS_EXACT" 2>/dev/null) || _sel=''
   # printf '%s' 는 개행을 안 붙인다 — POSIX read 는 구분자 없이 끝난 마지막 줄에서 0 이 아닌
   # 값을 돌려주므로 루프 본문이 그 줄에 대해 아예 실행되지 않는다. 토큰이 하나뿐이면
   # 반복이 0 회가 되고 rc 는 0 이라, doctor 가 아무것도 안 찍고 성공으로 끝났다(2026-08-27 감사).
   printf '%s\n' "$_toks" | while IFS= read -r _t; do
     [ -n "$_t" ] || continue
     _n=$((_n+1))
-    _me=$(TOKEN="$_t" api_raw GET /api/v1/agent/me) || { printf '프로필 %d: 인증 실패\n' "$_n"; continue; }
+    _mark=''; [ -n "$_sel" ] && [ "$_t" = "$_sel" ] && _mark=' [선택됨]'
+    _me=$(TOKEN="$_t" api_raw GET /api/v1/agent/me) \
+      || { printf '프로필 %d: %s 인증 실패%s\n' "$_n" "$(token_prefix "$_t")" "$_mark"; continue; }
     _cv=$(printf '%s' "$_me" | jq -r '.contract_version' 2>/dev/null)
-    printf '프로필 %d: %s (계약 %s, 프로젝트 %d)\n' "$_n" \
+    # prefix·이름을 함께 찍는다 — 한 계정에 키가 둘이면 email 만으로는 어느 키인지 알 수 없다.
+    printf '프로필 %d: %s %s %s (계약 %s, 프로젝트 %d)%s\n' "$_n" "$(token_prefix "$_t")" \
+      "$(printf '%s' "$_me" | jq -r '.token_name // "-"' 2>/dev/null)" \
       "$(printf '%s' "$_me" | jq -r '.user_email' 2>/dev/null)" "$_cv" \
-      "$(printf '%s' "$_me" | jq -r '.projects | length' 2>/dev/null)"
+      "$(printf '%s' "$_me" | jq -r '.projects | length' 2>/dev/null)" "$_mark"
     # 값이 없는 것과 major 가 다른 것은 처방이 다르다 — 전자는 킷을 갱신해도 안 고쳐진다.
     if [ -z "$_cv" ] || [ "$_cv" = "null" ]; then
       printf '  ⚠ 계약 버전 확인 불가 — /me 응답에 contract_version 이 없습니다(서버 배포·응답을 확인하세요).\n'
@@ -436,6 +471,15 @@ cmd_doctor() {
         "$_cv" "$CONTRACT_VERSION"
     fi
   done
+  # 키 선택 경고 — 토큰이 여럿인데 고정하지 않았거나, 고정한 값이 어느 토큰과도 맞지 않는다.
+  # pick_token 은 실패하면 exit 하므로 서브셸에서 부른다.
+  _cnt=$(printf '%s\n' "$_toks" | grep -c .)
+  if [ -n "${DFLOW_AS:-}" ]; then
+    ( pick_token "$DFLOW_AS" 1 ) >/dev/null 2>&1 \
+      || printf '⚠ DFLOW_AS=%s 에 맞는 토큰이 없습니다 — dflow.sh profiles 의 prefix 를 적으세요.\n' "$DFLOW_AS"
+  elif [ "$_cnt" -ge 2 ]; then
+    printf '⚠ 토큰이 %d개인데 DFLOW_AS 가 없습니다 — 첫 토큰을 씁니다(.env 에 DFLOW_AS=<prefix>).\n' "$_cnt"
+  fi
 }
 
 # ---- main ----------------------------------------------------------------
@@ -445,7 +489,7 @@ AS="${DFLOW_AS:-}"; AS_EXACT=1          # .env 의 DFLOW_AS 는 prefix 만
 [ $# -ge 1 ] || usage
 CMD="$1"; shift
 case "$CMD" in
-  doctor) cmd_doctor "$@" ;;   # doctor 는 전 프로필 순회라 TOK 불필요
+  doctor|profiles) "cmd_$CMD" "$@" ;;   # 전 프로필 순회라 TOK 불필요
   *) TOK=$(pick_token "$AS" "$AS_EXACT") || exit 2
      case "$CMD" in
        me) cmd_me "$@" ;;

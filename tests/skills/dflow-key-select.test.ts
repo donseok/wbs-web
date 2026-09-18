@@ -104,3 +104,75 @@ describe('dflow.sh 키 선택(스펙 §4-1)', () => {
     }
   })
 })
+
+describe('dflow.sh profiles(스펙 §4-2)', () => {
+  const rows = (r: { stdout: string }) => r.stdout.trim().split('\n').map((l) => JSON.parse(l))
+
+  it('토큰마다 한 줄 — 이름·바인딩·선택 여부를 내고 토큰 값은 내지 않는다', () => {
+    const r = run(['profiles'], { DFLOW_PROJECT_ID: P2 })
+    expect(r.status).toBe(0)
+    const [a, b, c] = rows(r)
+    expect(a).toEqual({
+      n: 1, prefix: 'AAAAAAAAAAAA', name: '노트북', email: 'alice@example.com', kind: 'user_pat',
+      expires_at: '2099-01-01T00:00:00Z', projects: [{ id: P1, name: '가' }], bound: false, selected: true,
+    })
+    // 서버가 2.3 이면 token_name 이 없다 — 이름만 '-' 이고 나머지는 그대로다
+    expect(b).toMatchObject({ n: 2, prefix: 'BBBBBBBBBBBB', name: '-', email: 'alice@example.com', bound: true, selected: false })
+    expect(c).toEqual({ n: 3, prefix: 'CCCCCCCCCCCC', error: 'auth', selected: false })
+    expect(r.stdout + r.stderr).not.toContain(SECRET)
+  })
+  it('바인딩이 없으면 bound 는 null 이다', () => {
+    const [a] = rows(run(['profiles'], { DFLOW_PROJECT_ID: '', DFLOW_PROJECT_MAP: '' }))
+    expect(a.bound).toBeNull()
+  })
+  it('DFLOW_PROJECT_MAP 의 프로젝트도 바인딩으로 본다', () => {
+    const [a, b] = rows(run(['profiles'], { DFLOW_PROJECT_MAP: `docs/a=${P1}` }))
+    expect(a.bound).toBe(true)
+    expect(b.bound).toBe(false)
+  })
+  it('DFLOW_AS 가 고른 키에 selected 가 붙는다', () => {
+    const [a, b] = rows(run(['profiles'], { DFLOW_AS: 'BBBBBBBBBBBB' }))
+    expect(a.selected).toBe(false)
+    expect(b.selected).toBe(true)
+  })
+  it('DFLOW_AS 가 어느 토큰과도 안 맞아도 죽지 않고 전부 selected=false 다', () => {
+    const r = run(['profiles'], { DFLOW_AS: 'ZZZZZZZZZZZZ' })
+    expect(r.status).toBe(0)
+    expect(rows(r).map((x) => x.selected)).toEqual([false, false, false])
+  })
+  it('서버에 닿지 못한 것은 죽은 키(auth)와 구분해 unreachable 로 낸다', () => {
+    const r = run(['profiles'], { FAKE_CURL_FAIL: '1' })
+    expect(r.status).toBe(0)
+    expect(rows(r).map((x) => x.error)).toEqual(['unreachable', 'unreachable', 'unreachable'])
+  })
+  it('토큰이 하나도 없으면 exit 2', () => {
+    expect(run(['profiles'], { DFLOW_PATS: '', DFLOW_PAT: '' }).status).toBe(2)
+  })
+})
+
+describe('dflow.sh doctor 의 키 표시(스펙 §4-3)', () => {
+  it('프로필 줄에 prefix·이름을 내고 고른 키에 [선택됨] 을 붙인다', () => {
+    const r = run(['doctor'], { DFLOW_AS: 'BBBBBBBBBBBB' })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('프로필 1: AAAAAAAAAAAA 노트북 alice@example.com (계약 2.4, 프로젝트 1)\n')
+    expect(r.stdout).toContain('프로필 2: BBBBBBBBBBBB - alice@example.com (계약 2.3, 프로젝트 1) [선택됨]\n')
+    expect(r.stdout).toContain('프로필 3: CCCCCCCCCCCC 인증 실패\n')
+    expect(r.stdout).not.toContain('⚠ 토큰이')
+    expect(r.stdout + r.stderr).not.toContain(SECRET)
+  })
+  it('토큰이 둘 이상인데 DFLOW_AS 가 없으면 첫 토큰을 쓴다고 경고한다', () => {
+    const r = run(['doctor'])
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('(계약 2.4, 프로젝트 1) [선택됨]')
+    expect(r.stdout).toContain('⚠ 토큰이 3개인데 DFLOW_AS 가 없습니다 — 첫 토큰을 씁니다(.env 에 DFLOW_AS=<prefix>).')
+  })
+  it('토큰이 하나면 경고하지 않는다', () => {
+    expect(run(['doctor'], { DFLOW_PATS: A }).stdout).not.toContain('⚠ 토큰이')
+  })
+  it('DFLOW_AS 가 어느 토큰과도 안 맞으면 경고하고 exit 0 이다', () => {
+    const r = run(['doctor'], { DFLOW_AS: 'ZZZZZZZZZZZZ' })
+    expect(r.status).toBe(0)
+    expect(r.stdout).toContain('⚠ DFLOW_AS=ZZZZZZZZZZZZ 에 맞는 토큰이 없습니다 — dflow.sh profiles 의 prefix 를 적으세요.')
+    expect(r.stdout).not.toContain('[선택됨]')
+  })
+})
