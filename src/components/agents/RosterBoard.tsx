@@ -8,7 +8,7 @@ import type React from 'react'
 import type { Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
-import { assembleRoster, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
+import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 
@@ -132,9 +132,9 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
     <li>
       <button type="button" data-roster-desk={desk.slot} aria-pressed={selected} onClick={() => onSelect(desk.key)}
         className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
-        <span className="relative grid place-items-center pt-2"
+        <span className="relative grid place-items-center pt-9"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
-          {desk.kind === 'lead' && <span className="absolute left-2 top-2 rounded-full bg-[#3F8F58] px-2 py-0.5 text-[10px] font-bold text-white">★ {desk.label}</span>}
+          <Nameplate desk={desk} />
           <span className={desk.kind === 'empty' ? 'opacity-40' : ''}><Sprite character={look.character} anim={look.anim} /></span>
         </span>
         <span className="flex flex-col gap-1 px-3 pb-3 pt-2">
@@ -150,6 +150,64 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
         </span>
       </button>
     </li>
+  )
+}
+
+/**
+ * 캐릭터 머리 위 명찰 — 어떤 모델이 앉아 있는지 한눈에. 제조사 표식(색 + 기호)과 짧은 모델 이름.
+ * 팀장·단독 감시는 같은 자리에 ★ 명찰을 단다. 모델 값은 WBS 항목에 지정된 모델이다(실행 모델 보고는 아직 없다).
+ */
+function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg' }) {
+  const pos = size === 'sm' ? 'absolute left-1/2 top-2 -translate-x-1/2' : ''
+  const text = size === 'sm' ? 'text-[11px]' : 'text-xs'
+  if (desk.kind === 'lead') {
+    return (
+      <span data-nameplate="lead" className={`${pos} z-[1] inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#2f6e44] px-2.5 py-1 font-bold text-white shadow-[0_6px_14px_-8px_#1b3a26] ${text}`}>
+        <span aria-hidden className="text-[#ffd76a]">★</span>{desk.slot === 'poll' ? '단독 감시' : '팀장'}
+      </span>
+    )
+  }
+  if (desk.kind === 'empty') return null
+  const b = modelBadge(desk.seat?.model)
+  if (!b) {
+    return (
+      <span data-nameplate="unknown" title="WBS 항목에 모델이 지정되지 않았습니다"
+        className={`${pos} z-[1] inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-dashed border-line-strong bg-surface/80 px-2.5 py-1 font-semibold text-ink-subtle ${text}`}>
+        모델 미지정
+      </span>
+    )
+  }
+  const ring = b.tier ? TIER_RING[b.tier] : null
+  return (
+    <span data-nameplate={b.vendor} data-tier={b.tier ?? undefined}
+      title={`지정 모델 · ${desk.seat?.model ?? ''}${b.tier ? ` · 등급 ${b.tier}/4 ${TIER_NAME[b.tier]}` : ''}`}
+      className={`${pos} z-[1] inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-[#15191f] py-1 pl-1 pr-2 font-bold text-[#f4efe7] ${text}`}
+      style={{ boxShadow: ring ? `0 0 0 1.5px ${ring.edge}, 0 0 ${ring.glow}px ${ring.edge}66, 0 8px 16px -10px #0d1014` : '0 8px 16px -10px #0d1014' }}>
+      <span aria-hidden className="grid h-[18px] w-[18px] place-items-center rounded-full text-[11px] leading-none text-white" style={{ background: b.color }}>{b.mark}</span>
+      <span className="font-mono tracking-tight">{b.label}</span>
+      {b.tier && <TierPips tier={b.tier} color={ring!.edge} />}
+      {size === 'sm' && <i aria-hidden className="absolute -bottom-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-[#15191f]" />}
+    </span>
+  )
+}
+
+/** 등급 테두리 — 1 금 · 2 은 · 3 동 · 4 무광. 1등급만 은은하게 빛난다. */
+const TIER_RING: Record<ModelTier, { edge: string; glow: number }> = {
+  1: { edge: '#F5C451', glow: 12 },
+  2: { edge: '#C9D3DD', glow: 0 },
+  3: { edge: '#C98A55', glow: 0 },
+  4: { edge: '#5B636E', glow: 0 },
+}
+
+/** 4칸 등급 막대 — 채운 칸 수 = 5 − 등급(1등급이면 네 칸). 칸 높이가 계단처럼 올라간다. */
+function TierPips({ tier, color }: { tier: ModelTier; color: string }) {
+  const filled = 5 - tier
+  return (
+    <span aria-label={`등급 ${tier}/4 ${TIER_NAME[tier]}`} className="ml-0.5 inline-flex items-end gap-[2px]">
+      {[0, 1, 2, 3].map(i => (
+        <i key={i} className="block w-[3px] rounded-[1px]" style={{ height: 5 + i * 2, background: i < filled ? color : '#ffffff26' }} />
+      ))}
+    </span>
   )
 }
 
@@ -198,6 +256,12 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <p className="font-mono text-[11px] text-ink-subtle">{host.label}</p>
           <h2 className="text-xl font-extrabold text-ink">{title}</h2>
           {desk.raw && <p className="truncate font-mono text-xs text-ink-subtle" title={desk.raw}>{desk.raw}</p>}
+          {desk.kind !== 'lead' && desk.kind !== 'empty' && (
+            <span className="mt-1.5 flex flex-wrap items-center gap-2">
+              <Nameplate desk={desk} size="lg" />
+              {(() => { const t = modelBadge(desk.seat?.model)?.tier; return t ? <span className="text-[11px] font-semibold text-ink-muted">등급 {t}/4 · {TIER_NAME[t]}</span> : null })()}
+            </span>
+          )}
           <span className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
             style={{ background: `color-mix(in srgb, ${tone.color} 18%, transparent)`, color: 'var(--color-ink)' }}>
             <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: tone.color }} />{tone.label}

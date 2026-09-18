@@ -122,3 +122,62 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     Number(b.conforming) - Number(a.conforming) || Number(b.watcher !== null) - Number(a.watcher !== null) || a.label.localeCompare(b.label))
   return { hosts: list, tiles, agentCount: seats.length }
 }
+
+/** 명찰에 쓰는 모델 표기 — 제조사 표식·색과 짧은 이름. 모르는 값은 원문을 그대로 둔다(추측해 바꾸지 않는다). */
+export type ModelVendor = 'claude' | 'openai' | 'gemini' | 'grok' | 'llama' | 'mistral' | 'deepseek' | 'qwen' | 'other'
+/** 등급 — 제조사마다 자기 라인업 안에서 4단계(1 최상위 · 2 상위 · 3 표준 · 4 경량). 판정 근거가 없으면 null. */
+export type ModelTier = 1 | 2 | 3 | 4
+export const TIER_NAME: Record<ModelTier, string> = { 1: '최상위', 2: '상위', 3: '표준', 4: '경량' }
+export interface ModelBadge { vendor: ModelVendor; label: string; color: string; mark: string; tier: ModelTier | null }
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+
+/** Claude 외 제조사 — 앞에서부터 처음 맞는 것. prefix 는 원문 앞머리를 보기 좋은 표기로 바꾼다. */
+const VENDORS: ReadonlyArray<{ vendor: ModelVendor; re: RegExp; color: string; mark: string; prefix?: [RegExp, string] }> = [
+  { vendor: 'openai', re: /gpt|codex|\bo\d\b/i, color: '#10A37F', mark: '◎', prefix: [/^gpt/i, 'GPT'] },
+  { vendor: 'gemini', re: /gemini/i, color: '#4285F4', mark: '✦', prefix: [/^gemini/i, 'Gemini'] },
+  { vendor: 'grok', re: /grok/i, color: '#9AA0A6', mark: '✕', prefix: [/^grok/i, 'Grok'] },
+  { vendor: 'llama', re: /llama/i, color: '#0668E1', mark: '∞', prefix: [/^llama/i, 'Llama'] },
+  { vendor: 'mistral', re: /mistral|ministral|magistral|codestral|devstral/i, color: '#FA520F', mark: '▲', prefix: [/^(mistral|ministral|magistral|codestral|devstral)/i, '$1'] },
+  { vendor: 'deepseek', re: /deepseek/i, color: '#4D6BFE', mark: '◆', prefix: [/^deepseek/i, 'DeepSeek'] },
+  { vendor: 'qwen', re: /qwen/i, color: '#615CED', mark: '◇', prefix: [/^qwen/i, 'Qwen'] },
+]
+
+
+/** 제조사별 등급 규칙 — 위에서부터 처음 맞는 줄. 라인업 이름이 바뀌면 이 표만 고친다. */
+const TIER_RULES: Partial<Record<ModelVendor, ReadonlyArray<[RegExp, ModelTier]>>> = {
+  claude: [[/fable/i, 1], [/opus/i, 2], [/sonnet/i, 3], [/haiku/i, 4]],
+  openai: [[/nano/i, 4], [/mini/i, 3], [/-pro\b|\bpro\b/i, 1], [/gpt|codex|\bo\d/i, 2]],
+  gemini: [[/ultra|deep-?think/i, 1], [/flash-?lite|nano/i, 4], [/flash/i, 3], [/pro/i, 2]],
+  grok: [[/heavy/i, 1], [/mini/i, 4], [/fast/i, 3], [/grok/i, 2]],
+  mistral: [[/ministral|tiny/i, 4], [/large/i, 1], [/medium|codestral|devstral/i, 2], [/small/i, 3]],
+  deepseek: [[/r\d|reason/i, 1], [/lite/i, 3], [/v\d|chat|coder/i, 2]],
+  qwen: [[/max/i, 1], [/turbo|flash/i, 3], [/plus|coder/i, 2]],
+  llama: [[/behemoth/i, 1], [/maverick/i, 2], [/scout/i, 3]],
+}
+
+export function modelTier(vendor: ModelVendor, raw: string): ModelTier | null {
+  if (vendor === 'llama') {
+    const size = /(\d+(?:\.\d+)?)\s*b\b/i.exec(raw)
+    if (size) { const b = Number(size[1]); return b >= 300 ? 1 : b >= 60 ? 2 : b >= 7 ? 3 : 4 }
+  }
+  for (const [re, t] of TIER_RULES[vendor] ?? []) if (re.test(raw)) return t
+  return null
+}
+
+export function modelBadge(model: string | null | undefined): ModelBadge | null {
+  const raw = model?.trim()
+  if (!raw) return null
+  // Claude — 가족명(Fable · Opus · Sonnet · Haiku)과 버전만 남긴다. 날짜 꼬리(-20250929)는 버린다.
+  const fam = /(fable|opus|sonnet|haiku)(?:[-\s]?(\d+)(?:[-.](\d{1,2}))?(?!\d))?/i.exec(raw)
+  if (fam || /claude/i.test(raw)) {
+    const label = fam ? `${cap(fam[1])}${fam[2] ? ` ${fam[2]}${fam[3] ? `.${fam[3]}` : ''}` : ''}` : 'Claude'
+    return { vendor: 'claude', label, color: '#D97757', mark: '✳', tier: modelTier('claude', raw) }
+  }
+  for (const v of VENDORS) {
+    if (!v.re.test(raw)) continue
+    const label = v.prefix ? raw.replace(v.prefix[0], m => (v.prefix![1] === '$1' ? cap(m) : v.prefix![1])) : raw
+    return { vendor: v.vendor, label, color: v.color, mark: v.mark, tier: modelTier(v.vendor, raw) }
+  }
+  return { vendor: 'other', label: raw, color: '#8A8F99', mark: '●', tier: null }
+}

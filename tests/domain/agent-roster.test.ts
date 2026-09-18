@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { assembleRoster, parseAgentId, slotLabel } from '@/lib/domain/agentRoster'
+import { assembleRoster, modelBadge, parseAgentId, slotLabel } from '@/lib/domain/agentRoster'
+
+const tier = (m: string) => modelBadge(m)?.tier ?? null
 import type { Floor, Seat, Watcher } from '@/lib/domain/seatmap'
 
 const seat = (orderId: string, agent: string | null, state: Seat['state']): Seat =>
@@ -48,5 +50,45 @@ describe('assembleRoster', () => {
     const r = assembleRoster({ floors: [floor([], [w]), { ...floor([], [w]), id: 'q' }] })
     expect(r.hosts[0].desks.filter(d => d.kind === 'lead')).toHaveLength(1)
     expect(r.tiles.empty).toBe(2)
+  })
+})
+
+describe('modelBadge', () => {
+  it('Claude 계열은 가족명과 버전을 짧게', () => {
+    expect(modelBadge('claude-opus-4-8')).toMatchObject({ vendor: 'claude', label: 'Opus 4.8' })
+    expect(modelBadge('sonnet')).toMatchObject({ vendor: 'claude', label: 'Sonnet' })
+    expect(modelBadge('claude-sonnet-4-5-20250929')).toMatchObject({ label: 'Sonnet 4.5' })
+    expect(modelBadge('claude-opus-5')).toMatchObject({ label: 'Opus 5' })
+  })
+  it('다른 제조사와 모르는 값', () => {
+    expect(modelBadge('gpt-5-codex')).toMatchObject({ vendor: 'openai', label: 'GPT-5-codex' })
+    expect(modelBadge('gemini-2.5-pro')).toMatchObject({ vendor: 'gemini' })
+    expect(modelBadge('fable-5-1')).toMatchObject({ vendor: 'claude', label: 'Fable 5.1' })
+    expect(modelBadge('claude-haiku-4-5-20251001')).toMatchObject({ label: 'Haiku 4.5' })
+    expect(modelBadge('grok-4')).toMatchObject({ vendor: 'grok', label: 'Grok-4' })
+    expect(modelBadge('llama-3.3-70b')).toMatchObject({ vendor: 'llama' })
+    expect(modelBadge('devstral-medium')).toMatchObject({ vendor: 'mistral', label: 'Devstral-medium' })
+    expect(modelBadge('deepseek-coder')).toMatchObject({ vendor: 'deepseek', label: 'DeepSeek-coder' })
+    expect(modelBadge('qwen3-coder')).toMatchObject({ vendor: 'qwen', label: 'Qwen3-coder' })
+    expect(modelBadge('local-llm')).toMatchObject({ vendor: 'other', label: 'local-llm' })
+    expect(modelBadge('  ')).toBeNull()
+    expect(modelBadge(null)).toBeNull()
+  })
+})
+
+describe('modelBadge 등급 — 제조사 라인업 안에서 4단계', () => {
+  it('Claude: Fable 1 · Opus 2 · Sonnet 3 · Haiku 4', () => {
+    expect(['fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'].map(tier)).toEqual([1, 2, 3, 4])
+    expect(tier('claude')).toBeNull()
+  })
+  it('다른 제조사', () => {
+    expect(['gpt-5-pro', 'gpt-5-codex', 'gpt-5-mini', 'gpt-5-nano'].map(tier)).toEqual([1, 2, 3, 4])
+    expect(['gemini-ultra', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].map(tier)).toEqual([1, 2, 3, 4])
+    expect(['grok-4-heavy', 'grok-4', 'grok-4-fast', 'grok-3-mini'].map(tier)).toEqual([1, 2, 3, 4])
+    expect(['mistral-large', 'devstral-medium', 'mistral-small', 'ministral-8b'].map(tier)).toEqual([1, 2, 3, 4])
+    expect(['llama-3.1-405b', 'llama-3.3-70b', 'llama-3.1-8b', 'llama-3.2-3b'].map(tier)).toEqual([1, 2, 3, 4])
+    expect(['deepseek-r1', 'deepseek-v3'].map(tier)).toEqual([1, 2])
+    expect(['qwen-max', 'qwen3-coder', 'qwen-turbo'].map(tier)).toEqual([1, 2, 3])
+    expect(tier('local-llm')).toBeNull()
   })
 })

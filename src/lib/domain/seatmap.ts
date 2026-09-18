@@ -19,6 +19,8 @@ export interface ItemRow {
   id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null
   /** 선행 external_ref 배열(0077) — 주문 항목 행에만 싣는다. 부모 행은 구역 라벨만 쓰므로 없어도 된다. */
   depends?: string[] | null
+  /** 항목에 지정된 모델(0077, import 스펙의 model) — 에이전트가 실제로 도는 모델은 아직 보고되지 않는다. */
+  model?: string | null
 }
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
@@ -54,6 +56,8 @@ export interface Seat {
   canManage: boolean
   /** 이 항목의 담당자가 나 — 반려·승인 취소·재작업은 담당자 본인도 할 수 있다(허브 §11 과 같은 규칙). */
   assigneeMine: boolean
+  /** 항목에 지정된 모델. 없으면 null — 명찰은 이 값만 쓴다(실행 모델 보고는 아직 없다). */
+  model?: string | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
@@ -150,6 +154,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
     waitReason: null,
     canManage: rights.canManage, assigneeMine: rights.assigneeMine,
+    model: item?.model ?? null,
   }
 }
 
