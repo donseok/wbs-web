@@ -13,7 +13,7 @@ import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
 import { leadChatter } from '@/lib/domain/officeChatter'
-import { ChatBubble, seatSpeech } from './SeatSpeech'
+import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -131,6 +131,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   const tone = deskTone(desk)
   const look = deskLook(desk)
   const sig = signalAt(desk)
+  const chatter = useOfficeChatter()
   return (
     <li>
       <button type="button" data-roster-desk={desk.slot} aria-pressed={selected} onClick={() => onSelect(desk.key)}
@@ -138,7 +139,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
         <span className="relative flex flex-col items-center pb-2.5 pt-2"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
-          <span className="flex h-[58px] w-full items-end justify-center px-2">{topBubble(desk, host, nowMs)}</span>
+          <span className="flex h-[58px] w-full items-end justify-center px-2">{topBubble(desk, host, nowMs, chatter)}</span>
           <span className={desk.kind === 'empty' ? 'opacity-40' : ''}><Sprite character={look.character} anim={look.anim} /></span>
           <span className="flex h-[26px] items-end justify-center"><Nameplate desk={desk} /></span>
         </span>
@@ -163,13 +164,15 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
  * 작업 중인 팀원은 단계 말풍선 사이사이 한마디씩 한다(세 칸에 한 칸).
  * 대사 고르기는 officeChatter(순수)가 한다. 보고가 식으면(10분) 단계 말풍선으로 돌아간다.
  */
-function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number): React.ReactNode {
+function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: boolean): React.ReactNode {
   if (desk.kind === 'lead') {
+    // 팀장 대사(잔소리·칭찬·한탄·혼잣말)는 전부 잡담이다 — 끄면 팀장 머리 위는 비운다.
+    if (!chatter) return null
     const c = leadChatter(host, nowMs, desk)
     return c && <ChatBubble key={c.text} kind={c.tone} text={c.text} className="max-w-full" />
   }
   if (!desk.seat) return null
-  const say = seatSpeech(desk.seat, nowMs)
+  const say = seatSpeech(desk.seat, nowMs, chatter)
   if (say) return <ChatBubble key={say.text} {...say} className="max-w-full" />
   return <span className="self-center"><PhaseBadge seat={desk.seat} /></span>
 }

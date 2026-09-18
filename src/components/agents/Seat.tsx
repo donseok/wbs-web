@@ -5,7 +5,7 @@ import type { SeatState } from '@/lib/domain/seatState'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
-import { ChatBubble, seatSpeech } from './SeatSpeech'
+import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { IconBlocked, IconOffline, IconRejected, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
@@ -42,7 +42,7 @@ export function SeatMark({ state }: { state: SeatState }) {
 
 /** 캐릭터 머리 위 — 보고·한마디가 있으면 말풍선, 없으면 단계 말풍선(에이전트 보기와 같은 규칙). */
 function SeatHead({ seat, nowMs }: { seat: Seat; nowMs: number }) {
-  const say = seatSpeech(seat, nowMs)
+  const say = seatSpeech(seat, nowMs, useOfficeChatter())
   return say ? <ChatBubble key={say.text} {...say} className="block w-max max-w-[168px]" /> : <PhaseBadge seat={seat} />
 }
 

@@ -4,7 +4,7 @@ import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import type { SeatState } from '@/lib/domain/seatState'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
-import { ChatBubble, seatSpeech } from './SeatSpeech'
+import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
 import { STATE_LABEL, SeatMark, seatMetaLine } from './Seat'
 import { IconFolded, IconStale, IconWait } from './icons'
@@ -37,7 +37,7 @@ const HAS_BAR: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED',
  * 말할 때마다 카드 높이가 출렁이지 않게 한다. 꼬리는 왼쪽 캐릭터를 가리킨다.
  */
 function LaneSpeech({ seat, nowMs }: { seat: Seat; nowMs: number }) {
-  const say = seatSpeech(seat, nowMs)
+  const say = seatSpeech(seat, nowMs, useOfficeChatter())
   return (
     <span className={css.cardSay} data-card-say>
       {say && <ChatBubble key={say.text} {...say} tail="left" lines={1} className="block min-w-0 max-w-full truncate" />}

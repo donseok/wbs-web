@@ -65,3 +65,7 @@ export const IconRelease = () => (
 export const IconResume = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 5.5v13" /><path d="M9.5 6.6l9 5.4-9 5.4z" /></svg>
 )
+/** 잡담 켬/끔 — 말풍선 두 개(주고받는 말). 보기 전환 아이콘과 같은 1.6px 라인. */
+export const IconChat = () => (
+  <Line><path d="M4 5.5h10a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 14 13.5H8.5L5.5 16v-2.5H4A1.5 1.5 0 0 1 2.5 12V7A1.5 1.5 0 0 1 4 5.5z" /><path d="M18 9.5h2a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5h-1.5V20l-3-2.5H11" /></Line>
+)

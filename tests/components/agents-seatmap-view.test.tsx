@@ -255,3 +255,52 @@ describe('SeatmapView — 완료 포함 보기', () => {
     expect(document.querySelector('[data-done-toggle]')).toBeNull()
   })
 })
+
+describe('SeatmapView — 잡담 켬/끔(2026-09-18)', () => {
+  // 작업 중(ACTIVE)이고 보고가 없는 자리 — 켜 두면 세 칸에 한 칸 한마디를 한다.
+  const working = (): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 0 }, seats: [
+        { orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'i1', code: 'TSK-04-01', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
+      ] }],
+    }],
+    attention: [],
+  })
+  const toggle = () => host.querySelector('[data-chatter-toggle]') as HTMLButtonElement
+  /** 8초 칸을 여섯 번 넘기며 잡담 말풍선이 한 번이라도 뜨는지 본다. */
+  const chatSeen = () => {
+    let seen = false
+    for (let k = 0; k < 6; k++) {
+      act(() => { vi.advanceTimersByTime(8_000) })
+      if (host.querySelector('[data-chat-bubble="chat"]')) seen = true
+    }
+    return seen
+  }
+
+  it('세 보기 모두에 토글이 있고 기본은 켬이다', () => {
+    act(() => root.render(<SeatmapView initial={working()} />))
+    for (const v of ['floor', 'lane', 'agent']) {
+      act(() => (host.querySelector(`button[data-view="${v}"]`) as HTMLButtonElement).click())
+      expect(toggle()?.getAttribute('aria-pressed')).toBe('true')
+    }
+  })
+  it('켬이면 작업 중 팀원의 한마디가 뜨고, 끄면 사라진다', () => {
+    act(() => root.render(<SeatmapView initial={working()} />))
+    expect(chatSeen()).toBe(true)
+    act(() => toggle().click())
+    expect(toggle().getAttribute('aria-pressed')).toBe('false')
+    expect(toggle().textContent).toContain('잡담 끔')
+    expect(chatSeen()).toBe(false)
+  })
+  it('선택을 이 브라우저에 기억한다', () => {
+    act(() => root.render(<SeatmapView initial={working()} />))
+    act(() => toggle().click())
+    expect(window.localStorage.getItem('dflow.office.chatter')).toBe('0')
+    act(() => root.unmount())
+    root = createRoot(host)
+    act(() => root.render(<SeatmapView initial={working()} />))
+    expect(toggle().getAttribute('aria-pressed')).toBe('false')
+  })
+})
+

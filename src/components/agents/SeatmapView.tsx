@@ -12,7 +12,8 @@ import { LaneBoard } from './LaneBoard'
 import { DetailPanel, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
 import { SeatmapRealtime } from './SeatmapRealtime'
-import { IconAgentView, IconApprove, IconFloorView, IconLaneView } from './icons'
+import { IconAgentView, IconApprove, IconChat, IconFloorView, IconLaneView } from './icons'
+import { OfficeChatterContext } from './SeatSpeech'
 import { RosterBoard, rosterHero, useRoster } from './RosterBoard'
 import { AgentFrame, type HeroTile } from '@/components/agent-hub/AgentFrame'
 import css from './seatmap.module.css'
@@ -32,6 +33,8 @@ type OfficeView = 'floor' | 'lane' | 'agent'
 const VIEW_KEY = 'dflow.office.view'
 /** '완료 포함' — 평면도에 머지 완료(최근 7일) 좌석까지 그릴지. 보기와 같이 이 브라우저에만 기억한다. */
 const DONE_KEY = 'dflow.office.done'
+/** 잡담 켬/끔 — 끈 사람만 '0' 을 남긴다. 값이 없으면 켬(토글이 생기기 전 동작). */
+const CHATTER_KEY = 'dflow.office.chatter'
 
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
  *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다.
@@ -45,6 +48,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   // 기본은 평면도다. 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
   const [view, setView] = useState<OfficeView>('floor')
   const [withDone, setWithDone] = useState(false)
+  const [chatter, setChatter] = useState(true)
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
   const [note, setNote] = useState<NoteDraft | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
@@ -59,6 +63,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       const saved = window.localStorage.getItem(VIEW_KEY)
       if (saved === 'lane' || saved === 'floor' || saved === 'agent') setView(saved)
       if (window.localStorage.getItem(DONE_KEY) === '1') setWithDone(true)
+      if (window.localStorage.getItem(CHATTER_KEY) === '0') setChatter(false)
     } catch { /* 값이 없거나 접근이 막혀도 평면도로 그린다 */ }
   }, [])
   const pickView = useCallback((next: OfficeView) => {
@@ -74,6 +79,14 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
     setWithDone(prev => {
       const next = !prev
       try { window.localStorage.setItem(DONE_KEY, next ? '1' : '0') } catch { /* 기억하지 못해도 화면은 돈다 */ }
+      return next
+    })
+  }, [])
+
+  const toggleChatter = useCallback(() => {
+    setChatter(prev => {
+      const next = !prev
+      try { window.localStorage.setItem(CHATTER_KEY, next ? '1' : '0') } catch { /* 기억하지 못해도 화면은 돈다 */ }
       return next
     })
   }, [])
@@ -185,6 +198,14 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
           <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
         </button>
       )}
+      {/* 잡담은 세 보기 모두에 말풍선이 있어 늘 보인다. 꺼도 팀원 보고·단계 말풍선(업무)은 남는다. */}
+      <button type="button" className={css.doneToggle} data-chatter-toggle aria-pressed={chatter}
+        title={chatter
+          ? '잡담 켬 — 팀장 잔소리·혼잣말과 팀원 한마디까지 말풍선으로 띄웁니다. 누르면 업무 말풍선(보고·단계)만 남습니다.'
+          : '잡담 끔 — 업무 말풍선(보고·단계)만 띄웁니다. 누르면 팀장 잔소리·혼잣말과 팀원 한마디가 돌아옵니다.'}
+        onClick={toggleChatter}>
+        <IconChat />잡담 {chatter ? '켬' : '끔'}
+      </button>
       <div className={css.scope} role="group" aria-label="표시 범위">
         <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine', true) }}>내 작업</button>
         <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all', true) }}>전체</button>
@@ -287,7 +308,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       tools={<div className={css.toolsLight}>{tools}</div>}>
       <div className={css.root}>
         {realtime}
-        {body}
+        <OfficeChatterContext.Provider value={chatter}>{body}</OfficeChatterContext.Provider>
       </div>
     </AgentFrame>
   )

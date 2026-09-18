@@ -1,5 +1,6 @@
 // src/components/agents/SeatSpeech.tsx — 캐릭터 말풍선(에이전트 · 평면도 · 상태 레인 공용, 2026-09-18)
 'use client'
+import { createContext, useContext } from 'react'
 import type { Seat } from '@/lib/domain/seatmap'
 import { memberChatter, memberReportBubble } from '@/lib/domain/officeChatter'
 import { PHASE_LOOK } from './PhaseBadge'
@@ -14,19 +15,29 @@ export const BUBBLE_LOOK = {
   chat: { bg: '#F7F9FB', edge: '#C9D2DA', ink: '#3E4A56' },
 } as const
 
+/**
+ * 잡담 켬/끔(2026-09-18 사용자 요청) — 켜면 팀장 잔소리·칭찬·한탄·혼잣말과 팀원 한마디까지, 끄면 업무 말풍선만
+ * (팀원 보고 · 단계). 오피스 상단 토글이 값을 정하고 평면도·상태 레인·에이전트 보기가 같은 값을 읽는다.
+ * 기본은 켬 — 토글이 생기기 전의 동작이다.
+ */
+export const OfficeChatterContext = createContext(true)
+export function useOfficeChatter(): boolean { return useContext(OfficeChatterContext) }
+
 export interface Speech { kind: keyof typeof BUBBLE_LOOK; text: string; opener?: string; color?: string }
 
 /**
  * 좌석(팀원) 말풍선 — 막 올린 보고가 먼저, 없으면 작업 중 한마디(세 칸에 한 칸), 둘 다 없으면 null(단계 말풍선 자리).
  * 대사 고르기는 officeChatter(순수)가 한다. 주문 id 로 고르므로 어느 보기에서든 같은 좌석은 같은 말을 한다.
+ * chatter=false 면 한마디를 건너뛴다 — 보고는 업무라 잡담을 꺼도 남는다.
  */
-export function seatSpeech(seat: Seat | null | undefined, nowMs: number): Speech | null {
+export function seatSpeech(seat: Seat | null | undefined, nowMs: number, chatter = true): Speech | null {
   if (!seat) return null
   const r = memberReportBubble({ seat }, nowMs)
   if (r) {
     const done = r.kind === 'completion'
     return { kind: done ? 'done' : 'report', opener: r.opener, text: r.text, color: done ? '#4FC07E' : PHASE_LOOK[seat.phase]?.color ?? '#5DB1E5' }
   }
+  if (!chatter) return null
   const talk = memberChatter({ seat }, nowMs)
   return talk ? { kind: 'chat', text: talk } : null
 }
