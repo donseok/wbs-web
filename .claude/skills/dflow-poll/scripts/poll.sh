@@ -61,6 +61,10 @@ STATE_GLOB="$PWD/docs/tasks"   # dflow-dev state.json 위치 — 승인 감지 �
 [ -f "$ENV_FILE" ] || { echo "env 파일 없음: $ENV_FILE" >&2; exit 2; }
 [ -x "$DFLOW" ]   || { echo "dflow.sh 없음: $DFLOW" >&2; exit 2; }
 set -a; . "$ENV_FILE"; set +a
+# 리포 ↔ D'Flow 프로젝트 바인딩이 없으면 감시하지 않는다. /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을
+# 돌려주므로, 바인딩 없이 돌면 다른 프로젝트의 ready 를 찾아 이 리포에서 착수하게 된다. 거르는 것은 dflow.sh list 다.
+[ -n "${DFLOW_PROJECT_ID:-}${DFLOW_PROJECT_MAP:-}" ] \
+  || { echo "프로젝트 바인딩 없음: $ENV_FILE 에 DFLOW_PROJECT_ID 또는 DFLOW_PROJECT_MAP 을 넣으세요" >&2; exit 2; }
 
 net_fail=0
 cycle=0

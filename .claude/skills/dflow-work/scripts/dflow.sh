@@ -22,9 +22,11 @@ usage() {
   cat >&2 <<'EOF'
 사용법: dflow.sh [--as <이름|email>] <cmd> [args]
   me                     현재 프로필 신원·접근 프로젝트
-  list [--all] [--scope available|claimed|assigned|all]
+  list [--all] [--scope available|claimed|assigned|all] [--any-project]
+                         기본은 이 리포에 바인딩된 프로젝트(DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP)의 주문만.
+                         --any-project 는 필터를 끈다(진단용)
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
-  claim <ref>
+  claim <ref>            주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH)
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id]
                          진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
@@ -53,11 +55,23 @@ if [ -z "${DFLOW_PATS:-}${DFLOW_PAT:-}" ]; then
 fi
 # Windows 편집기가 남긴 CR 제거 — 값 끝의 \r 은 URL·Authorization 헤더를 깨뜨린다. 값은 변수로만 다룬다.
 _cr=$(printf '\r')
-for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID; do
+for _v in DFLOW_API_BASE DFLOW_PATS DFLOW_PAT DFLOW_PROJECT_ID DFLOW_PROJECT_MAP; do
   eval "_x=\${$_v:-}"
   case "$_x" in *"$_cr"*) eval "$_v=\$(printf '%s' \"\$_x\" | tr -d '\\r')" ;; esac
 done
 unset _x _cr
+# 리포 ↔ D'Flow 프로젝트 바인딩: DFLOW_PROJECT_ID 와 DFLOW_PROJECT_MAP(docs/x=<uuid>,…) 값의 합집합.
+# /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을 돌려주므로, 거르지 않으면 한 리포의 세션이 다른
+# 프로젝트의 작업을 잡아 엉뚱한 리포에서 개발한다(2026-09-18 발견: 바인딩 없는 리포가 옛 프로젝트 작업을 봄).
+allowed_projects() {
+  { printf '%s\n' "${DFLOW_PROJECT_ID:-}"
+    printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | sed -n 's/^[^=]*=//p'
+  } | tr -d ' ' | grep -v '^$' | sort -u
+}
+ALLOWED_PROJECTS=$(allowed_projects)
+# 목록 캐시는 바인딩마다 나눈다. 한 파일을 모든 리포가 쓰면 순번·접두 해석이 다른 리포가 마지막으로 본
+# 목록으로 풀린다.
+LIST_CACHE="$CACHE_DIR/last-list-$(printf '%s' "${ALLOWED_PROJECTS:-any}" | cksum | cut -d' ' -f1).json"
 # DFLOW_PATS(쉼표 구분) 우선, 없으면 DFLOW_PAT 단일. 토큰 문자열은 변수로만 다룬다.
 tokens() {
   [ -n "${DFLOW_PATS:-}" ] || [ -n "${DFLOW_PAT:-}" ] || die 2 "DFLOW_PATS 또는 DFLOW_PAT 미설정"
@@ -167,24 +181,36 @@ cmd_me() {
   printf '%s' "$_body" | jq .
 }
 
+# 주문 배열(stdin)을 허용 프로젝트로 거른다. $1 이 비어 있지 않으면 거르지 않는다(--any-project).
+filter_projects() {
+  if [ -n "${1:-}" ] || [ -z "$ALLOWED_PROJECTS" ]; then jq '.'; return; fi
+  jq --arg ps "$ALLOWED_PROJECTS" '($ps | split("\n")) as $ok | [.[] | select(.project_id as $p | $ok | index($p))]'
+}
+
 cmd_list() {
-  _scope='available'; _all=''
+  _scope='available'; _all=''; _anyp=''
   while [ $# -gt 0 ]; do case "$1" in
     --all) _all=1 ;;
     --scope) _scope="$2"; shift ;;
+    --any-project) _anyp=1 ;;
     *) die 2 "알 수 없는 옵션: $1" ;;
   esac; shift; done
   mkdir -p "$CACHE_DIR"
+  # 바인딩이 없으면 거를 기준이 없다. 전 프로젝트를 보여 주되 그 사실을 알린다(목록은 사람이 보는 진단이다).
+  # 자동 착수 경로(poll.sh·팀장)는 바인딩이 없으면 시작하지 않는다.
+  [ -n "$ALLOWED_PROJECTS" ] || [ -n "$_anyp" ] \
+    || printf '⚠ 프로젝트 바인딩 없음(DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP) — 모든 프로젝트의 주문을 표시합니다.\n' >&2
   if [ -n "$_all" ]; then
     for _t in $(tokens); do
       printf '== %s ==\n' "$(profile_email "$_t" || printf '?')"
       _body=$(TOKEN="$_t" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
-      printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | tee "$LIST_CACHE.tmp" | print_list
+      printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | filter_projects "$_anyp" | tee "$LIST_CACHE.tmp" | print_list
       remember_ids "$LIST_CACHE.tmp"
     done
   else
     _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=$_scope") || exit $?
-    printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' > "$LIST_CACHE.tmp"
+    printf '%s' "$_body" | jq '[.claimed[]?, .assigned[]?, .available[]?]' | filter_projects "$_anyp" > "$LIST_CACHE.tmp" \
+      || die 6 "목록 해석 실패"
     print_list < "$LIST_CACHE.tmp"
   fi
   mv "$LIST_CACHE.tmp" "$LIST_CACHE" 2>/dev/null || true
@@ -235,8 +261,20 @@ write_spec_cache() { # $1=claim 응답 JSON
   printf 'spec 캐시: docs/tasks/%s/spec.md\n' "$_tsk"
 }
 
+# 주문의 프로젝트가 이 리포 바인딩 안인지 확인한다. show 응답에는 project_id 가 없어 /work/mine 목록에서 찾는다.
+check_project() { # $1=전체 UUID
+  [ -n "$ALLOWED_PROJECTS" ] || die 2 "PROJECT_MISMATCH 프로젝트 바인딩 없음 — .env 에 DFLOW_PROJECT_ID 또는 DFLOW_PROJECT_MAP 을 넣으세요. 어느 프로젝트의 작업인지 가릴 수 없어 claim 하지 않습니다."
+  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=all") || exit $?
+  _p=$(printf '%s' "$_body" | jq -r --arg id "$1" '[.claimed[]?, .assigned[]?, .available[]?] | map(select(.id == $id)) | .[0].project_id // empty') \
+    || die 6 "목록 해석 실패"
+  [ -n "$_p" ] || die 2 "PROJECT_MISMATCH 주문 $(printf '%s' "$1" | cut -c1-8) 의 프로젝트를 목록에서 찾지 못했습니다 — claim 하지 않습니다."
+  printf '%s\n' "$ALLOWED_PROJECTS" | grep -qxF "$_p" \
+    || die 2 "PROJECT_MISMATCH 주문 $(printf '%s' "$1" | cut -c1-8) 은 프로젝트 $(printf '%s' "$_p" | cut -c1-8) 소속입니다 — 이 리포의 바인딩 밖이라 claim 하지 않습니다."
+}
+
 cmd_claim() {
   _id=$(resolve_ref "$1")
+  check_project "$_id"
   # ① show 로 선행 evidence 를 먼저 받아 로컬 검사 — 통과 전에는 claim 자체를 하지 않는다(결정 C-②).
   _detail=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/$_id") || exit $?
   check_depends_local "$(printf '%s' "$_detail" | jq -c '.depends_evidence // []')"

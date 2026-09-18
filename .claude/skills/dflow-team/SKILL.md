@@ -270,6 +270,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    grep -q -- '--worker' .claude/skills/dflow-dev/SKILL.md || bad OLD_DFLOW_DEV
    grep -q 'origin/agent/\*' .claude/skills/dflow-merge/SKILL.md || bad OLD_DFLOW_MERGE
    test -f .env || bad NO_ENV
+   (set -a; . ./.env; set +a; [ -n "${DFLOW_PROJECT_ID:-}${DFLOW_PROJECT_MAP:-}" ]) || bad "NO_PROJECT .env 에 DFLOW_PROJECT_ID 또는 DFLOW_PROJECT_MAP 을 넣어라"
    (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh doctor)   # 진단 출력용. 종료 코드로 판정하지 않는다
    email=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh me | jq -r '.user_email // empty')
    [ -n "$email" ] || bad AUTH
@@ -382,6 +383,11 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      push 하지 않으면 작업트리 검사(`OLD_DFLOW_DEV`)는 통과하고 팀원은 전원 `failed no-worker-flag` 로 끝난다.
      안내에 "킷 커밋을 기본 브랜치에 push 한 뒤 다시 시작하라" 를 넣는다. 심링크 배포 리포는 워커가 메인
      체크아웃의 스킬을 링크하므로 이 검사를 하지 않는다.
+   - `NO_PROJECT`: `.env` 에 리포 ↔ D'Flow 프로젝트 바인딩(`DFLOW_PROJECT_ID` 또는 `DFLOW_PROJECT_MAP`)이 없으면
+     시작을 거부한다. 이유: 서버의 작업 목록(`/work/mine`)은 PAT 주인이 속한 **모든 프로젝트**의 주문을 돌려준다.
+     `dflow.sh list` 가 바인딩으로 거르고(poll·"멈춤" 재구성 모두 이 목록을 쓴다) `dflow.sh claim` 이 바인딩 밖
+     주문을 `PROJECT_MISMATCH` 로 거부하는데, 바인딩이 없으면 거를 기준이 없어 다른 프로젝트의 작업을 이 리포에서
+     개발하게 된다. 같은 모듈 이름·같은 TSK 번호 체계를 쓰는 프로젝트끼리는 겉으로 드러나지도 않는다.
    - `SPACE_IN_PATH`: 메인 체크아웃 절대경로에 공백이 있으면 시작을 거부한다. 이유: 포인터 한 줄 형식과
      워커 부트스트랩의 `ln -s` 링크가 공백을 다루지 않는다.
    - `NO_DEFAULT_BRANCH`·`NOT_DEFAULT_BRANCH`: 기본 브랜치는 `origin/HEAD` 에서 구하고, 그 ref 가 없으면
@@ -601,9 +607,13 @@ if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
     wr=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
       --slots <N> --busy <M> --until <HH:MM> --json) \
-      && printf '%s' "$wr" | jq -c '{n: (.resume_requests | if . == null then "NULL" else length end),
+      && ps=$(set -a; . ./.env; set +a; { printf '%s\n' "${DFLOW_PROJECT_ID:-}"
+           printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | sed -n 's/^[^=]*=//p'; } | tr -d ' ' | sed '/^$/d') \
+      && printf '%s' "$wr" | jq -c --arg ps "$ps" '($ps | split("\n")) as $ok
+           | {n: (.resume_requests | if . == null then "NULL" else length end),
            err: (.resume_requests_error // "-"),
-           reqs: [(.resume_requests // [])[] | {id8, code, host, requested_at}]}' \
+           reqs: [(.resume_requests // [])[] | select(.project_id as $p | $ok | index($p)) | {id8, code, host, requested_at}],
+           other_project: [(.resume_requests // [])[] | select(.project_id as $p | ($ok | index($p)) | not) | .id8]}' \
       || echo "WATCH_FAILED"
   } || echo "LOCK_LOST beat 쓰기 실패"
 else
@@ -614,7 +624,11 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 **`resume_requests` 는 좌석표의 「이어서 시작」 요청이다.** 사람이 화면에서 멈춘 좌석의 그 버튼을 누르면
 서버가 주문에 표식을 남기고, 이 응답이 그것을 실어 온다. 항목은
 `{order_id, id8, project_id, wbs_item_id, code, name, host, claimed_by, requested_at}` 이며 최대 50건, 오래된
-것부터다. 범위는 이 신원이 점유한 `claimed` 주문뿐이다. 처리 규칙은 셋이다.
+것부터다. 범위는 이 신원이 점유한 `claimed` 주문뿐이며 **프로젝트를 가리지 않는다.** 그래서 위 블록이 이 리포
+바인딩(`DFLOW_PROJECT_ID`·`DFLOW_PROJECT_MAP`) 밖의 요청을 `reqs` 에서 빼 `other_project` 로 따로 낸다.
+`other_project` 는 처리하지 않고 "다른 프로젝트의 요청: <id8…>. 그 프로젝트 리포의 팀장이 처리한다" 로 한 줄만
+보고한다. 이유: 같은 신원이 다른 프로젝트 리포에서도 팀장을 돌리므로, 거르지 않으면 이 리포에 남의 워크트리를
+만들어 재개한다. 처리 규칙은 셋이다.
 - `n` 이 `"NULL"` 이면 **요청이 없는 것이 아니라 조회가 실패한 것이다.** `err` 에 사유가 온다. 그 기상에서는
   요청을 하나도 처리하지 않고 사유를 한 줄 보고한 뒤 다음 기상에 다시 읽는다. 빈 배열(`n` 이 0)과 절대
   뭉개지 않는다. 조회 실패를 데이터 없음으로 위장하면 사람이 누른 버튼이 조용히 사라진다.
@@ -713,6 +727,7 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 | `failed rate-limit` | 해제 | 제외하지 않는다 | 고아 정리 규칙을 따른다 | 재시도할 수 있다. 아직 ready 면 poll 이 다시 찾고, 이미 claimed 면 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산에 넣는다 |
 | `failed no-result`(pane 이 죽었는데 결과 줄 없음) | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 서버에 claimed 면 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산 |
 | `failed not-isolated` | 해제 | 영구 제외 | 없음(워커가 파일을 쓰지 않았다) | 백엔드 결함이므로 새 spawn 을 멈추고 「7. 마감」 으로 간다 |
+| `failed project` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다(claim 전이라 대개 부트스트랩 실패 정리) | 주문이 이 리포의 D'Flow 프로젝트 밖이다. claim 하지 않았으므로 "멈춤" 표에 넣지 않는다. 바인딩(`.env`)이나 poll 필터가 새는 결함이므로 사유를 그대로 보고한다. 차단기 계산 |
 | `failed deps` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산. 설치는 claim 과 브랜치 생성 뒤라서(`/dflow-dev` 「--worker」 H) 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 대상 리포의 lockfile·패키지 관리자 문제라 사람이 고친다 |
 
 - **그 자리에서 정리하는 이유**: git 은 다른 워크트리가 체크아웃한 브랜치를 지우지 못한다. 워크트리를 마감까지

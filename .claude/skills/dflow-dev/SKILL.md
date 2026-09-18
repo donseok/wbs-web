@@ -175,6 +175,10 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      `failed detach`). 이유: 수동 사용자의 미커밋 변경이 기점과 부딪치면 switch 가 거부되는데, 그 상태로
      claim 하면 서버에는 claimed 가 남고 작업은 엉뚱한 HEAD 에서 시작한다. 거부된 switch 는 HEAD 를 옮기지
      않으므로 복귀할 것은 없다.
+   - claim 이 `PROJECT_MISMATCH`(exit 2)로 거부되면 그 주문은 이 리포에 바인딩된 D'Flow 프로젝트 밖이거나 리포에
+     바인딩(`.env` 의 `DFLOW_PROJECT_ID`·`DFLOW_PROJECT_MAP`)이 없다. 재시도하지 않고 원래 위치로 돌아가 중단·보고한다.
+     워커는 `.result` 에 `failed project <메시지>` 를 쓴다. 이유: 한 사람이 여러 프로젝트에 속하면 서버 목록에 남의
+     프로젝트 작업이 섞이며, 같은 TSK 번호를 쓰는 프로젝트끼리는 겉으로 구분되지 않는다.
    - claim 이 exit 4(선행·상태로 인한 진행 불가. 서버 403 `dependency_not_met` 재매핑 포함)면
      `git fetch origin` 뒤 기점을 다시 정해(다시 옮겨) 1회 재시도하고, 그래도 4 면 중단·보고한다. 우회
      금지. 이유: fetch 로 바뀌는 것은 기점이며, merge 는 기본 브랜치를 사용자의 현재 브랜치나 detached

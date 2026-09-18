@@ -32,7 +32,7 @@
   결과 줄의 cksum 첫 필드, `reason` 은 결과 줄 7번째 칸부터(사유 또는 질문)다. `worktree` 와 기본 필드 `tsk`
   로 `.result` 경로(`<worktree>/docs/tasks/<tsk>/.result`)가 정해지므로, 재구성이 경로별 마지막 처리 해시를
   유도한다. `status` 는 `.result` 의 status 칸이며, `failed` 이고 사유 첫 낱말이 팀장이 구분하는 값이면
-  `failed rate-limit`·`failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed permission` 처럼 붙인다.
+  `failed rate-limit`·`failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed permission`·`failed project` 처럼 붙인다.
   결과 줄 없이 판정한 것(pane 이 죽었는데 `.result` 도 pane 화면의 결과 줄도 없음)은 `failed no-result`(hash `-`)다.
   재구성이 이 값으로 제외 목록과 차단기를 복원한다. spec·TSK 부재로 걸러 spawn 하지 않은 작업은
   `slot`·`worktree`·`hash` 를 `-`, `status` 를 `skipped` 로 남긴다.

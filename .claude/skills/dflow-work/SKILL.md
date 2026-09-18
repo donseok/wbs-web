@@ -56,6 +56,12 @@ dflow.sh [--as <이름|email>] list [--scope available|claimed|assigned|all] [--
 **옵션**:
 - `--all`: 모든 프로필의 작업을 동시 조회 (다중 계정 설정 시)
 - `--scope`: available(기본), claimed, assigned, all
+- `--any-project`: 프로젝트 필터를 끈다(진단용)
+
+**프로젝트 필터**: 서버의 목록은 PAT 주인이 속한 모든 프로젝트의 주문을 돌려준다. `list` 는 그중 이 리포에
+바인딩된 프로젝트(`.env` 의 `DFLOW_PROJECT_ID` 와 `DFLOW_PROJECT_MAP` 값)의 주문만 보여 준다. 바인딩이 없으면
+경고와 함께 전부 보여 주지만, `claim` 은 바인딩 밖 주문이나 바인딩 없는 리포에서 `PROJECT_MISMATCH`(exit 2)로
+거부한다. 이유: 한 사람이 여러 프로젝트에 속하면 다른 프로젝트의 작업을 이 리포에서 개발하게 된다.
 
 **예시**:
 ```bash
