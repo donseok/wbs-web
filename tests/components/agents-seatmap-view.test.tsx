@@ -40,6 +40,17 @@ describe('SeatmapView', () => {
     // 상세는 팝업이다 — 페이지를 열자마자 뜨면 안 된다.
     expect(document.querySelector('[data-panel]')).toBeNull()
   })
+  it('보기는 평면도·상태 레인·에이전트 셋이고, 에이전트는 작업 PC 로 묶은 자리와 프로필을 그린다(2026-09-18)', () => {
+    act(() => root.render(<SeatmapView initial={map()} />))
+    expect([...host.querySelectorAll('button[data-view]')].map(b => b.getAttribute('data-view'))).toEqual(['floor', 'lane', 'agent'])
+    act(() => (host.querySelector('button[data-view="agent"]') as HTMLButtonElement).click())
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull()
+    expect(host.querySelector('[data-roster-host="hong/mbp"]')?.textContent).toContain('팀원 1')
+    // 결정 대기 자리를 먼저 고른다 — 질문이 프로필에 보인다.
+    expect(host.querySelector('[data-roster-profile]')?.textContent).toContain('어느 DB?')
+    expect(host.querySelector('button[data-done-toggle]')).toBeNull() // 완료 포함은 평면도 전용
+    expect(window.localStorage.getItem('dflow.office.view')).toBe('agent')
+  })
   it('확인 필요 띠를 누르면 그 좌석의 상세 팝업이 열린다', () => {
     act(() => root.render(<SeatmapView initial={map()} />))
     const btn = host.querySelector('[aria-label="확인 필요"] button') as HTMLButtonElement

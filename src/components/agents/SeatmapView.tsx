@@ -12,7 +12,8 @@ import { LaneBoard } from './LaneBoard'
 import { DetailPanel, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
 import { SeatmapRealtime } from './SeatmapRealtime'
-import { IconApprove, IconFloorView, IconLaneView } from './icons'
+import { IconAgentView, IconApprove, IconFloorView, IconLaneView } from './icons'
+import { RosterBoard, rosterHero, useRoster } from './RosterBoard'
 import { AgentFrame, type HeroTile } from '@/components/agent-hub/AgentFrame'
 import css from './seatmap.module.css'
 
@@ -26,7 +27,8 @@ function findSeat(map: Seatmap, orderId: string | null): { seat: Seat; floorName
 
 const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
 
-type OfficeView = 'floor' | 'lane'
+/** 평면도(지켜보는 화면) · 상태 레인(처리하는 화면) · 에이전트(누가 어느 PC 어느 자리에서 일하는가, 2026-09-18). */
+type OfficeView = 'floor' | 'lane' | 'agent'
 const VIEW_KEY = 'dflow.office.view'
 /** '완료 포함' — 평면도에 머지 완료(최근 7일) 좌석까지 그릴지. 보기와 같이 이 브라우저에만 기억한다. */
 const DONE_KEY = 'dflow.office.done'
@@ -55,7 +57,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(VIEW_KEY)
-      if (saved === 'lane' || saved === 'floor') setView(saved)
+      if (saved === 'lane' || saved === 'floor' || saved === 'agent') setView(saved)
       if (window.localStorage.getItem(DONE_KEY) === '1') setWithDone(true)
     } catch { /* 값이 없거나 접근이 막혀도 평면도로 그린다 */ }
   }, [])
@@ -164,12 +166,15 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
     return () => document.removeEventListener('keydown', onKey)
   }, [sel === null, closeDetail]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 에이전트 보기 재료 — 훅이라 보기와 무관하게 늘 부른다(좌석표가 바뀔 때만 다시 묶는다).
+  const roster = useRoster(map)
   const tools = (
     <>
       {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
       <div className={css.viewSeg} role="group" aria-label="보기">
         <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
         <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
+        <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
       </div>
       {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다. */}
       {view === 'floor' && (
@@ -192,6 +197,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
     <>
       <AttentionBand items={map.attention} onSelect={setSelected} />
       <main className={css.stage}>
+        {view === 'agent' ? <RosterBoard roster={roster} nowMs={nowMs} /> : (
         <section className={css.floors} data-view={view} aria-label={view === 'floor' ? '프로젝트별 좌석' : '상태별 좌석'}>
           {map.floors.length === 0 && (projectId !== undefined
             ? (map.scope === 'mine'
@@ -218,6 +224,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
             </p>
           )}
         </section>
+        )}
       </main>
       {/* 상세와 결재는 떠 있는 카드로 — 뒤 화면을 가리지 않는다(어두운 백드롭 없음). 좌석 무대가
           그대로 보이는 채로 고른 좌석의 상세만 위로 올라온다. 카드 디자인은 옛 오른쪽 패널 그대로다.
@@ -237,7 +244,8 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
           </div>
         </div>
       )}
-      <footer className={css.legend}>
+      {/* 범례는 좌석 색 설명이라 평면도·상태 레인에서만 — 에이전트 보기는 책상마다 상태 이름을 적는다. */}
+      {view !== 'agent' && <footer className={css.legend}>
         <ul>
           <li><i className={css.sw} style={{ background: 'var(--sm-active)' }} />업무 중(신호 5분 이내)</li>
           <li><i className={css.sw} style={{ background: 'var(--sm-active)', borderColor: 'var(--sm-warn)' }} />무응답 5분 초과</li>
@@ -248,7 +256,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
           <li><i className={css.sw} style={{ borderStyle: 'dashed' }} />빈자리</li>
         </ul>
         <p>프로젝트가 층, 주문 항목의 부모 항목이 구역, 작업 주문 하나가 책상입니다. 의자의 인물은 그 주문을 잡은 에이전트(슬롯)이며 같은 에이전트는 늘 같은 인물입니다. 신호는 PostToolUse 훅의 heartbeat(60초 절제)와 progress 보고입니다. 승인·반려·승인 취소·재작업 요청·회수는 좌석에서 바로 하며, 반려와 재작업 요청은 사유를 적어야 확정됩니다.</p>
-      </footer>
+      </footer>}
     </>
   )
   const realtime = <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
@@ -257,21 +265,23 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   // 전체 오피스(/agents)는 탭이 없는 화면이라 옛 다크 띠(카운터 + 조작부)를 그대로 쓴다.
   if (projectId !== undefined && projectName !== undefined) {
     const c = map.counters
-    const tiles: HeroTile[] = [
+    const officeTiles: HeroTile[] = [
       { key: 'active', label: '업무 중', value: c.active, color: '#5DB1E5' },
       { key: 'idle', label: '승인 대기', value: c.idle, color: '#F0B068' },
       { key: 'offline', label: '빈자리·끊김', value: c.offline, color: '#6b7580', valueColor: '#b7bfba' },
       // 감시 중은 좌석이 아니라 감시자 수 — 다른 축이라 막대에서 뺀다.
       { key: 'standby', label: '감시 중', value: c.standby, color: '#3F8F58', valueColor: '#7fd29a', bar: false },
     ]
-    const lede = (
+    const officeLede = (
       <>
         에이전트 <b>{c.active}명</b>이 이 층에서 일하고 있습니다.
         {map.attention.length > 0 && <> <em>{map.attention.length}건이 확인을 기다립니다.</em></>}
       </>
     )
+    // 에이전트 보기는 헤더도 자리 기준 숫자로 바꾼다(작업 PC · 결정 대기 · 무응답 · 끊김 · 빈자리).
+    const hero = view === 'agent' ? rosterHero(roster) : { tiles: officeTiles, lede: officeLede }
     return (
-      <AgentFrame projectId={projectId} projectName={projectName} title="가상 오피스" lede={lede} tiles={tiles}
+      <AgentFrame projectId={projectId} projectName={projectName} title="가상 오피스" lede={hero.lede} tiles={hero.tiles}
         tools={<div className={css.toolsLight}>{tools}</div>}>
         <div className={css.root}>
           {realtime}

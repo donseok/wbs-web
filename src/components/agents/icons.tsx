@@ -36,6 +36,10 @@ export const IconFloorView = () => (
 export const IconLaneView = () => (
   <Line><rect x="3" y="3.5" width="5" height="17" rx="1.6" /><rect x="9.5" y="3.5" width="5" height="12" rx="1.6" /><rect x="16" y="3.5" width="5" height="8" rx="1.6" /></Line>
 )
+/** 에이전트 — 모니터 앞의 사람(작업 PC 와 자리). */
+export const IconAgentView = () => (
+  <Line><rect x="3" y="4" width="18" height="11" rx="1.8" /><path d="M9 20h6M12 15v5" /><circle cx="12" cy="8.6" r="2" /><path d="M8.5 13a3.5 3.5 0 0 1 7 0" /></Line>
+)
 
 /** 승인 — 체크. op 아이콘은 획이 굵다(작게 그려도 읽혀야 한다). */
 export const IconApprove = () => (

@@ -1,17 +1,16 @@
 'use client'
-// 위임·승인 · 가상 오피스 · 에이전트 세 화면을 오가는 탭. 데스크톱에선 공통 헤더(AgentFrame) 띠 안에 dark 로,
+// 위임·승인 · 가상 오피스 두 화면을 오가는 탭(에이전트 명부는 오피스 안의 보기다, 2026-09-18). 데스크톱에선 공통 헤더(AgentFrame) 띠 안에 dark 로,
 // 컴팩트 뷰포트에선 헤더가 걷히므로 그 아래 고정 줄에 light 로 얹는다. 활성 판정은 경로 완전 일치.
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-export type AgentTabKey = 'hub' | 'office' | 'roster'
+export type AgentTabKey = 'hub' | 'office'
 
 export function agentTabs(projectId: string): ReadonlyArray<{ key: AgentTabKey; href: string; label: string }> {
   const base = `/p/${projectId}/agents`
   return [
     { key: 'hub', href: base, label: '위임·승인' },
     { key: 'office', href: `${base}/office`, label: '가상 오피스' },
-    { key: 'roster', href: `${base}/roster`, label: '에이전트' },
   ]
 }
 

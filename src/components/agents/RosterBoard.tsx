@@ -1,18 +1,16 @@
 'use client'
-// 에이전트 명부 — 작업 PC 한 줄에 자리(팀장·팀원 N)를 책상으로 늘어놓고, 고른 자리의 프로필을 오른쪽에 보인다.
-// 데이터는 가상 오피스와 같은 좌석표(refreshSeatmap, 범위 all)를 30초마다 다시 읽어 agentRoster 로 묶는다.
+// 가상 오피스의 세 번째 보기 '에이전트' — 작업 PC 한 줄에 자리(팀장·팀원 N)를 책상으로 늘어놓고,
+// 고른 자리의 프로필을 오른쪽에 보인다(2026-09-18 시안 v2, 사용자 결정으로 오피스 탭 안의 보기가 됐다).
+// 데이터는 오피스가 30초마다 읽는 좌석표 그대로를 agentRoster 로 다시 묶는다 — 폴링·범위(내 작업/전체)는 오피스 몫.
 // 좌석 단위 보고 이력·처리량·토큰 연결은 아직 데이터가 없어 그리지 않는다(시안 notes 의 NEW 항목).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type React from 'react'
 import type { Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
-import { assembleRoster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
-import { refreshSeatmap } from '@/app/actions/agentSeatmap'
-import { AgentFrame, type HeroTile } from '@/components/agent-hub/AgentFrame'
-import { Sprite } from '@/components/agents/Sprite'
-
-const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
+import { assembleRoster, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
+import type { HeroTile } from '@/components/agent-hub/AgentFrame'
+import { Sprite } from './Sprite'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -49,47 +47,8 @@ function signalAt(d: RosterDesk): string | null {
   return d.kind === 'lead' ? d.watcher?.lastSeenAt ?? null : d.seat?.lastSignalAt ?? null
 }
 
-export function RosterView({ initial, projectId, projectName, pollMs = 30_000 }: {
-  initial: Seatmap; projectId: string; projectName: string; pollMs?: number
-}) {
-  const [map, setMap] = useState(initial)
-  const [error, setError] = useState<{ at: string; message: string } | null>(null)
-  const [nowMs, setNowMs] = useState(() => Date.parse(initial.fetchedAt))
-  const [selected, setSelected] = useState<string | null>(null)
-  const inflight = useRef(false)
-
-  const refresh = useCallback(async () => {
-    if (inflight.current) return
-    inflight.current = true
-    try {
-      const r = await refreshSeatmap('all', projectId)
-      if (r.ok) { setMap(r.seatmap); setNowMs(Date.parse(r.seatmap.fetchedAt)); setError(null) }
-      else setError({ at: new Date().toISOString(), message: r.error })
-    } catch (e) {
-      setError({ at: new Date().toISOString(), message: e instanceof Error ? e.message : String(e) })
-    } finally { inflight.current = false }
-  }, [projectId])
-
-  // 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회(오피스와 같은 규칙).
-  useEffect(() => {
-    let t: number | undefined
-    const start = () => { if (t === undefined) t = window.setInterval(() => { void refresh() }, pollMs) }
-    const stop = () => { if (t !== undefined) { window.clearInterval(t); t = undefined } }
-    const onVis = () => { if (document.visibilityState === 'visible') { void refresh(); start() } else stop() }
-    if (document.visibilityState === 'visible') start()
-    document.addEventListener('visibilitychange', onVis)
-    return () => { stop(); document.removeEventListener('visibilitychange', onVis) }
-  }, [refresh, pollMs])
-  useEffect(() => { const t = window.setInterval(() => setNowMs(n => n + 1000), 1000); return () => window.clearInterval(t) }, [])
-
-  const roster = useMemo(() => assembleRoster(map), [map])
-  const allDesks = useMemo(() => roster.hosts.flatMap(h => h.desks.map(d => ({ d, h }))), [roster])
-  // 고른 자리가 폴링으로 사라지면 결정 대기 → 첫 에이전트 순으로 다시 고른다.
-  const current = allDesks.find(x => x.d.key === selected)
-    ?? allDesks.find(x => x.d.seat?.state === 'BLOCKED')
-    ?? allDesks.find(x => x.d.kind === 'member' || x.d.kind === 'external')
-    ?? allDesks[0] ?? null
-
+/** 에이전트 보기일 때 공통 헤더에 얹는 타일·요약. */
+export function rosterHero(roster: Roster): { tiles: HeroTile[]; lede: ReactNode } {
   const t = roster.tiles
   const tiles: HeroTile[] = [
     { key: 'working', label: '업무 중', value: t.working, color: '#5DB1E5' },
@@ -100,38 +59,42 @@ export function RosterView({ initial, projectId, projectName, pollMs = 30_000 }:
   ]
   const pcs = roster.hosts.filter(h => h.conforming).length
   const lede = roster.hosts.length === 0
-    ? <>지금 이 프로젝트에서 일하거나 감시 중인 에이전트가 없습니다.</>
+    ? <>지금 일하거나 감시 중인 에이전트가 없습니다.</>
     : (
       <>
         {pcs > 0 ? <>작업 PC <b>{pcs}대</b>에서 </> : null}<b>{roster.agentCount}명</b>이 일하고 있습니다.
         {t.blocked > 0 && <> <em>{t.blocked}명이 당신의 답을 기다립니다.</em></>}
       </>
     )
-  const tools = (
-    <div className="ml-auto flex items-center gap-2 text-xs text-ink-subtle">
-      <span data-roster-stamp className={error ? 'text-delayed' : ''}>
-        {error ? `갱신 실패 ${hhmmss(error.at)} · ${error.message}` : `30초마다 갱신 · ${hhmmss(map.fetchedAt)}`}
-      </span>
-      <button type="button" className="btn btn-ghost h-8 px-2 text-xs" onClick={() => { void refresh() }}>새로고침</button>
-    </div>
-  )
+  return { tiles, lede }
+}
 
+export function useRoster(map: Pick<Seatmap, 'floors'>): Roster {
+  return useMemo(() => assembleRoster(map), [map])
+}
+
+export function RosterBoard({ roster, nowMs }: { roster: Roster; nowMs: number }) {
+  const [selected, setSelected] = useState<string | null>(null)
+  const allDesks = roster.hosts.flatMap(h => h.desks.map(d => ({ d, h })))
+  // 고른 자리가 폴링으로 사라지면 결정 대기 → 첫 에이전트 순으로 다시 고른다.
+  const current = allDesks.find(x => x.d.key === selected)
+    ?? allDesks.find(x => x.d.seat?.state === 'BLOCKED')
+    ?? allDesks.find(x => x.d.kind === 'member' || x.d.kind === 'external')
+    ?? allDesks[0] ?? null
   return (
-    <AgentFrame projectId={projectId} projectName={projectName} title="에이전트" lede={lede} tiles={tiles} tools={tools}>
-      <div className="flex flex-wrap items-start gap-4">
-        <div className="flex min-w-0 flex-[1_1_520px] flex-col gap-4">
-          {roster.hosts.length === 0 && (
-            <p className="rounded-2xl border border-dashed border-line bg-surface px-5 py-8 text-center text-sm text-ink-muted">
-              감시 중인 작업 PC 도, 주문을 잡은 에이전트도 없습니다. 에이전트가 dflow 로 감시를 시작하거나 위임된 주문을 잡으면 여기에 자리가 생깁니다.
-            </p>
-          )}
-          {roster.hosts.map(h => (
-            <HostCard key={h.key} host={h} nowMs={nowMs} selectedKey={current?.d.key ?? null} onSelect={setSelected} />
-          ))}
-        </div>
-        {current && <Profile desk={current.d} host={current.h} nowMs={nowMs} />}
+    <div data-roster-board className="flex flex-wrap items-start gap-4">
+      <div className="flex min-w-0 flex-[1_1_520px] flex-col gap-4">
+        {roster.hosts.length === 0 && (
+          <p className="rounded-2xl border border-dashed border-line bg-surface px-5 py-8 text-center text-sm text-ink-muted">
+            감시 중인 작업 PC 도, 주문을 잡은 에이전트도 없습니다. 에이전트가 dflow 로 감시를 시작하거나 위임된 주문을 잡으면 여기에 자리가 생깁니다.
+          </p>
+        )}
+        {roster.hosts.map(h => (
+          <HostCard key={h.key} host={h} nowMs={nowMs} selectedKey={current?.d.key ?? null} onSelect={setSelected} />
+        ))}
       </div>
-    </AgentFrame>
+      {current && <Profile desk={current.d} host={current.h} nowMs={nowMs} />}
+    </div>
   )
 }
 
