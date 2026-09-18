@@ -9,7 +9,7 @@
 
 | 이벤트 | 시점(SKILL.md) | 추가 필드 |
 |---|---|---|
-| `team.start` | 「1. 시작」 4번 | `backend`, `slots`, `until` |
+| `team.start` | 「1. 시작」 4번 | `backend`, `slots`, `until`, `wp` |
 | `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 4번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |
 | `team.result` | 「3. 결과 처리」, 「1. 시작」 4번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |
 | `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 4번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |
@@ -17,7 +17,8 @@
 | `team.sweep` | 「4. 승인 스윕」 | `merged`, `waiting`, `rejected` |
 | `team.stop` | 「7. 마감」 | 없음 |
 
-- `team.start`: `backend` 는 `tmux` 또는 `orca`, `slots` 는 숫자, `until` 은 `HH:MM`.
+- `team.start`: `backend` 는 `tmux` 또는 `orca`, `slots` 는 숫자, `until` 은 `HH:MM`, `wp` 는 WP 범위를 쉼표로 이은
+  문자열(예: `WP-2,dict/WP-3`)이며 전체면 `-` 다. 재구성이 이 값으로 poll 의 `--wp` 를 복원한다.
 - `team.spawn`: `worktree` 는 팀원 워크트리 절대경로이며 모르면 `-`. `handle` 은 tmux 백엔드의
   `tmux:<pane_id>`(예: `tmux:%3`) 또는 Orca 터미널 핸들이며, 핸들이 없으면 `-`. 기본 필드 `tsk`·`order` 도
   채운다. `blocked` 는 재spawn 하지 않으므로 그 자리에 `team.spawn` 이 다시 오지 않는다.
@@ -60,7 +61,7 @@ mkdir -p ~/.dflow && line=$(jq -nc \
   --arg tsk '<TSK 또는 ->' --arg order '<주문 전체 UUID 또는 ->' --arg event 'team.result' --arg agent '<신원>/<host>/lead' \
   --arg slot '<slot 또는 ->' --arg id8 '<id8>' --arg status '<status>' --arg worktree '<워크트리 또는 ->' --arg hash "$hash" --arg reason "$reason" \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}') \
-  && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until"],"team.spawn":["slot","id8","worktree","handle","spawn_kind"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected"],"team.stop":[]} as $req
+  && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until","wp"],"team.spawn":["slot","id8","worktree","handle","spawn_kind"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected"],"team.stop":[]} as $req
       | if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) and .phase == "team" and .host == $h and $req[.event] != null
            and ([$req[.event][] as $k | has($k) and .[$k] != null and ($k == "reason" or .[$k] != "")] | all) then . else error("EVENT_ARGS_MISSING") end' \
   >> ~/.dflow/events.jsonl || echo EVENT_ARGS_MISSING

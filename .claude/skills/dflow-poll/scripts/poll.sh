@@ -19,9 +19,12 @@ EXCLUDE_TEMP=""   # 쉼표 구분 id8 — 일시성 제외(spec 부재·선행 �
 RECHECK_CYCLES=6  # 일시성 제외를 유지할 주기 수. 기본 6주기(interval 300s면 30분).
 REQUIRE_TAG=""    # 지정 시 item.tags 에 이 태그가 있는 작업만 감지(에이전트 위임 플래그).
                   # list 응답에는 tags 가 없어 후보별 show 1회씩 조회한다.
+WP=""             # 쉼표 구분 WP 목록(WP-02 또는 모듈/WP-02). 지정 시 그 WP 의 Task 만 감지.
+                  # WP 는 external_ref 의 TSK 번호 첫 칸(TSK-02-05 → WP-02)으로 가린다. WBS ID 규칙상
+                  # Task ID 의 첫 칸이 WP 번호다. list 응답에는 external_ref 가 없어 show 를 쓴다.
 NET_FAIL_MAX=3
 
-usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--require-tag 태그]" >&2; exit 2; }
+usage() { echo "사용법: poll.sh [--interval 초] [--until HH:MM] [--exclude id8,id8] [--exclude-temp id8,id8] [--recheck-cycles N] [--require-tag 태그] [--wp WP-02,모듈/WP-03]" >&2; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,12 +34,24 @@ while [ $# -gt 0 ]; do
     --exclude-temp)   EXCLUDE_TEMP="${2:-}"; shift 2 || usage ;;
     --recheck-cycles) RECHECK_CYCLES="${2:-}"; shift 2 || usage ;;
     --require-tag)    REQUIRE_TAG="${2:-}"; shift 2 || usage ;;
+    --wp)             WP="${2:-}"; shift 2 || usage ;;
     *) usage ;;
   esac
 done
 case "$INTERVAL"       in ''|*[!0-9]*) usage ;; esac
 case "$UNTIL"          in ''|*[!0-9]*) usage ;; esac
 case "$RECHECK_CYCLES" in ''|*[!0-9]*) usage ;; esac
+# --wp 형식 검사와 정규화: 항목마다 WP-<숫자> 또는 <모듈>/WP-<숫자>. 오타가 조용히 "감지 0건" 이 되지 않게
+# 막는다. 번호는 앞의 0 을 떼어 적는다(WP-2 와 WP-02 를 같게 보고, TSK-02-05 의 02 도 같은 방식으로 뗀다).
+if [ -n "$WP" ]; then
+  _norm=''
+  for _w in $(printf '%s' "$WP" | tr ',' ' '); do
+    printf '%s\n' "$_w" | grep -Eq '^([^/[:space:]]+/)?WP-[0-9]+$' || { echo "--wp 형식 오류: $_w (예: WP-02, dict/WP-02)" >&2; exit 2; }
+    _n=$(printf '%s' "${_w##*-}" | sed 's/^0*//'); _n=${_n:-0}
+    _norm="${_norm},${_w%-*}-${_n}"
+  done
+  WP=${_norm#,}
+fi
 
 # 기본 좌표는 자기 위치 기준 — 이 스킬 묶음(.claude/skills/)을 어느 리포에 심어도 닫힌다.
 SKILLS_DIR=$(cd "$(dirname "$0")/../.." && pwd)
@@ -117,16 +132,33 @@ while :; do
         '$2=="RD" && index(ex, ","$4",")==0 {print $1"\t"$4"\t"$5}')
       # 위임 플래그 필터: --require-tag 지정 시 태그가 있는 작업만 남긴다.
       # 태그 없는 ready 는 수동 몫이므로 감지 대상이 아니다(통지는 세션이 한다).
-      if [ -n "$ready" ] && [ -n "$REQUIRE_TAG" ]; then
+      # WP 필터: --wp 지정 시 그 WP 의 Task 만 남긴다. 두 필터는 같은 show 1회로 판정한다.
+      # show 가 실패하면 그 후보는 이번 주기에서 빠지고 다음 주기에 다시 판정된다(기존 태그 필터와 같다).
+      if [ -n "$ready" ] && { [ -n "$REQUIRE_TAG" ] || [ -n "$WP" ]; }; then
         _kept=''
         while IFS= read -r _line; do
           [ -n "$_line" ] || continue
           _id=$(printf '%s' "$_line" | cut -f2)
-          _tags=$("$DFLOW" show "$_id" 2>/dev/null | jq -r '.order.item.tags // [] | join(",")') || _tags=''
-          case ",$_tags," in
-            *",$REQUIRE_TAG,"*) _kept="${_kept}${_line}
-" ;;
-          esac
+          _item=$("$DFLOW" show "$_id" 2>/dev/null | jq -r '.order.item | [((.tags // []) | join(",")), (.external_ref // "")] | @tsv') || _item=''
+          [ -n "$_item" ] || continue
+          _tags=$(printf '%s' "$_item" | cut -f1)
+          _ref=$(printf '%s' "$_item" | cut -f2)
+          if [ -n "$REQUIRE_TAG" ]; then
+            case ",$_tags," in *",$REQUIRE_TAG,"*) ;; *) continue ;; esac
+          fi
+          if [ -n "$WP" ]; then
+            _wpn=$(printf '%s' "${_ref##*/}" | sed -n 's/^TSK-\([0-9][0-9]*\)-.*/\1/p')
+            [ -n "$_wpn" ] || continue
+            _wpn=$(printf '%s' "$_wpn" | sed 's/^0*//'); _wpn=${_wpn:-0}
+            case "$_ref" in */*) _mod=${_ref%/*} ;; *) _mod='' ;; esac
+            case ",$WP," in
+              *",WP-$_wpn,"*) ;;
+              *",$_mod/WP-$_wpn,"*) [ -n "$_mod" ] || continue ;;
+              *) continue ;;
+            esac
+          fi
+          _kept="${_kept}${_line}
+"
         done <<POLL_EOF
 $ready
 POLL_EOF
