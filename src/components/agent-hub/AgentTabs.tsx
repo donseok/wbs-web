@@ -14,7 +14,7 @@ export function agentTabs(projectId: string): ReadonlyArray<{ key: AgentTabKey; 
   ]
 }
 
-const TONE = {
+export const TAB_TONE = {
   light: { on: 'bg-brand-weak text-brand', off: 'text-ink-muted hover:text-ink' },
   dark: {
     on: 'border border-[#32b6ab66] bg-[#32b6ab22] text-[#66d6c6]',
@@ -22,9 +22,11 @@ const TONE = {
   },
 } as const
 
-export function AgentTabs({ projectId, tone = 'light' }: { projectId: string; tone?: keyof typeof TONE }) {
+export type TabTone = keyof typeof TAB_TONE
+
+export function AgentTabs({ projectId, tone = 'light' }: { projectId: string; tone?: TabTone }) {
   const pathname = usePathname()
-  const t = TONE[tone]
+  const t = TAB_TONE[tone]
   return (
     <nav aria-label="에이전트 화면" className="flex items-center gap-1.5">
       {agentTabs(projectId).map(tab => {

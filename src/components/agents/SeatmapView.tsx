@@ -5,7 +5,7 @@ import type { Seat, Seatmap, SeatmapScope } from '@/lib/domain/seatmap'
 import { seatmapChannelProjectIds } from '@/lib/domain/seatmap'
 import { refreshSeatmap } from '@/app/actions/agentSeatmap'
 import { runHubProcessOp, type HubProcessOp } from '@/app/actions/agentHub'
-import { Counters } from './Counters'
+import { OfficeNav } from './OfficeNav'
 import { AttentionBand } from './AttentionBand'
 import { FloorCard } from './FloorCard'
 import { LaneBoard } from './LaneBoard'
@@ -176,14 +176,12 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
         <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
         <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
       </div>
-      {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다.
-          전체 오피스의 다크 띠는 오른쪽 정렬이라, 버튼을 빼면 보기 전환이 좌우로 밀린다 — 자리는 남기고 숨긴다.
-          프로젝트 오피스는 보기 전환을 왼쪽에 고정하므로(.toolsLight) 그냥 뺀다. */}
-      {(view === 'floor' || projectId === undefined) && (
+      {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 안고 있고, 에이전트 보기는 좌석이 아니다.
+          보기 전환은 조작 줄 왼쪽에 고정돼(.toolsLight) 이 버튼이 빠져도 밀리지 않는다. */}
+      {view === 'floor' && (
         <button type="button" className={css.doneToggle} data-done-toggle aria-pressed={withDone}
           title="머지 완료(최근 7일) 좌석을 평면도에 함께 그립니다. 승인 취소·재작업 요청을 그 자리에서 할 수 있습니다."
-          onClick={toggleDone}
-          {...(view !== 'floor' ? { 'aria-hidden': true, tabIndex: -1, disabled: true, style: { visibility: 'hidden' as const } } : {})}>
+          onClick={toggleDone}>
           <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
         </button>
       )}
@@ -264,43 +262,33 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   )
   const realtime = <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
 
-  // 프로젝트 오피스는 에이전트 세 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
-  // 전체 오피스(/agents)는 탭이 없는 화면이라 옛 다크 띠(카운터 + 조작부)를 그대로 쓴다.
-  if (projectId !== undefined && projectName !== undefined) {
-    const c = map.counters
-    const officeTiles: HeroTile[] = [
-      { key: 'active', label: '업무 중', value: c.active, color: '#5DB1E5' },
-      { key: 'idle', label: '승인 대기', value: c.idle, color: '#F0B068' },
-      { key: 'offline', label: '빈자리·끊김', value: c.offline, color: '#6b7580', valueColor: '#b7bfba' },
-      // 감시 중은 좌석이 아니라 감시자 수 — 다른 축이라 막대에서 뺀다.
-      { key: 'standby', label: '감시 중', value: c.standby, color: '#3F8F58', valueColor: '#7fd29a', bar: false },
-    ]
-    const officeLede = (
-      <>
-        에이전트 <b>{c.active}명</b>이 이 층에서 일하고 있습니다.
-        {map.attention.length > 0 && <> <em>{map.attention.length}건이 확인을 기다립니다.</em></>}
-      </>
-    )
-    // 에이전트 보기는 헤더도 자리 기준 숫자로 바꾼다(작업 PC · 결정 대기 · 무응답 · 끊김 · 빈자리).
-    const hero = view === 'agent' ? rosterHero(roster) : { tiles: officeTiles, lede: officeLede }
-    return (
-      <AgentFrame projectId={projectId} projectName={projectName} title="가상 오피스" lede={hero.lede} tiles={hero.tiles}
-        tools={<div className={css.toolsLight}>{tools}</div>}>
-        <div className={css.root}>
-          {realtime}
-          {body}
-        </div>
-      </AgentFrame>
-    )
-  }
+  // 두 오피스 모두 에이전트 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
+  // 프로젝트 오피스는 헤더에 위임·승인|가상 오피스 탭을, 전체 오피스(/agents)는 층(프로젝트) 칩을 단다(2026-09-18).
+  const c = map.counters
+  const officeTiles: HeroTile[] = [
+    { key: 'active', label: '업무 중', value: c.active, color: '#5DB1E5' },
+    { key: 'idle', label: '승인 대기', value: c.idle, color: '#F0B068' },
+    { key: 'offline', label: '빈자리·끊김', value: c.offline, color: '#6b7580', valueColor: '#b7bfba' },
+    // 감시 중은 좌석이 아니라 감시자 수 — 다른 축이라 막대에서 뺀다.
+    { key: 'standby', label: '감시 중', value: c.standby, color: '#3F8F58', valueColor: '#7fd29a', bar: false },
+  ]
+  const attention = map.attention.length > 0 && <> <em>{map.attention.length}건이 확인을 기다립니다.</em></>
+  const officeLede = projectId !== undefined
+    ? <>에이전트 <b>{c.active}명</b>이 이 층에서 일하고 있습니다.{attention}</>
+    : <>에이전트 <b>{c.active}명</b>이 <b>{map.floors.length}개 층</b>에서 일하고 있습니다.{attention}</>
+  // 에이전트 보기는 헤더도 자리 기준 숫자로 바꾼다(작업 PC · 결정 대기 · 무응답 · 끊김 · 빈자리).
+  const hero = view === 'agent' ? rosterHero(roster) : { tiles: officeTiles, lede: officeLede }
+  const floorsNav = map.floors.map(f => ({ id: f.id, name: f.name }))
   return (
-    <div className={css.root}>
-      {realtime}
-      <header className={css.top}>
-        <Counters counters={map.counters} />
-        <div className={css.topRight}>{tools}</div>
-      </header>
-      {body}
-    </div>
+    <AgentFrame
+      {...(projectId !== undefined ? { projectId } : { nav: tone => <OfficeNav floors={floorsNav} tone={tone} /> })}
+      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '가상 오피스' : '가상 오피스 · 전체'}
+      lede={hero.lede} tiles={hero.tiles}
+      tools={<div className={css.toolsLight}>{tools}</div>}>
+      <div className={css.root}>
+        {realtime}
+        {body}
+      </div>
+    </AgentFrame>
   )
 }

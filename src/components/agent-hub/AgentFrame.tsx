@@ -8,20 +8,23 @@
 import type { ReactNode } from 'react'
 import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { useCompactViewport } from '@/lib/hooks/useCompactViewport'
-import { AgentTabs } from './AgentTabs'
+import { AgentTabs, type TabTone } from './AgentTabs'
+
+/** 헤더 띠 위(dark)·컴팩트 고정 줄(light)에 얹는 내비게이션. 기본은 프로젝트의 위임·승인|가상 오피스 탭이다. */
+export type HeroNav = (tone: TabTone) => ReactNode
 
 /** 헤더 타일 하나. bar=false 면 누적 막대에서 뺀다(합계가 다른 축의 숫자). */
 export interface HeroTile { key: string; label: string; value: number; color: string; valueColor?: string; bar?: boolean }
 
-export function AgentHero({ projectId, projectName, title, lede, tiles, aside }: {
-  projectId: string; projectName: string; title: string; lede: ReactNode; tiles: HeroTile[]; aside?: ReactNode
+export function AgentHero({ nav, projectName, title, lede, tiles, aside }: {
+  nav: ReactNode; projectName: string; title: string; lede: ReactNode; tiles: HeroTile[]; aside?: ReactNode
 }) {
   const barTiles = tiles.filter(t => t.bar !== false && t.value > 0)
   const total = barTiles.reduce((n, t) => n + t.value, 0)
   return (
     <header data-agent-hero className="hero-card hero-glow grid items-center gap-7 px-7 py-5 [grid-template-columns:minmax(0,1fr)_minmax(0,560px)]">
       <div className="relative z-[1] min-w-0">
-        <AgentTabs projectId={projectId} tone="dark" />
+        {nav}
         <p className="mt-3.5 text-[11px] font-semibold tracking-[0.12em] text-hero-ink-muted">{projectName}</p>
         <h1 className="text-[28px] font-extrabold leading-tight tracking-tight text-hero-ink">{title}</h1>
         <div data-agent-lede className="mt-1.5 text-[15px] text-hero-ink-muted [&_b]:text-hero-ink [&_em]:not-italic [&_em]:text-[#f2aa4c]">{lede}</div>
@@ -46,24 +49,28 @@ export function AgentHero({ projectId, projectName, title, lede, tiles, aside }:
   )
 }
 
-export function AgentFrame({ projectId, projectName, title, lede, tiles, tools, children }: {
-  projectId: string; projectName: string; title: string; lede: ReactNode; tiles: HeroTile[]
+export function AgentFrame({ projectId, nav, projectName, title, lede, tiles, tools, children }: {
+  /** 프로젝트 화면이면 그 프로젝트의 탭을 단다. 전체 오피스처럼 프로젝트가 없는 화면은 nav 를 직접 준다. */
+  projectId?: string; nav?: HeroNav
+  /** 제목 위 eyebrow — 프로젝트 화면은 프로젝트명. */
+  projectName: string; title: string; lede: ReactNode; tiles: HeroTile[]
   /** 이 화면에만 있는 조작부 — 헤더 아래 고정 줄. */
   tools?: ReactNode
   children: ReactNode
 }) {
   const compact = useCompactViewport()
+  const navFor: HeroNav = nav ?? (tone => projectId === undefined ? null : <AgentTabs projectId={projectId} tone={tone} />)
   const pinned = compact || tools
     ? (
       <div data-agent-tools className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {compact && <AgentTabs projectId={projectId} />}
+        {compact && navFor('light')}
         {tools}
       </div>
     )
     : undefined
   return (
     <ProjectPageShell
-      hero={<AgentHero projectId={projectId} projectName={projectName} title={title} lede={lede} tiles={tiles} />}
+      hero={<AgentHero nav={navFor('dark')} projectName={projectName} title={title} lede={lede} tiles={tiles} />}
       pinned={pinned}>
       {children}
     </ProjectPageShell>
