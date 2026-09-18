@@ -26,7 +26,7 @@ export function useOfficeChatter(): boolean { return useContext(OfficeChatterCon
 export interface Speech { kind: keyof typeof BUBBLE_LOOK; text: string; opener?: string; color?: string }
 
 /**
- * 좌석(팀원) 말풍선 — 막 올린 보고가 먼저, 없으면 작업 중 한마디(세 칸에 한 칸), 둘 다 없으면 null(단계 말풍선 자리).
+ * 좌석(팀원) 말풍선 — 막 올린 보고가 먼저, 없으면 작업 중·승인 대기 한마디(세 칸에 한 칸), 둘 다 없으면 null(단계 말풍선 자리).
  * 대사 고르기는 officeChatter(순수)가 한다. 주문 id 로 고르므로 어느 보기에서든 같은 좌석은 같은 말을 한다.
  * chatter=false 면 한마디를 건너뛴다 — 보고는 업무라 잡담을 꺼도 남는다.
  */

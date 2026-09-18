@@ -31,6 +31,8 @@ function collect(map: Seatmap): Entry[] {
 }
 
 const HAS_BAR: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED', 'OFFLINE']
+/** 말풍선 줄을 두는 카드 — 막대가 있는 좌석과, 승인을 조르는 승인 대기 좌석(2026-09-18). */
+const HAS_SAY: readonly SeatState[] = [...HAS_BAR, 'WAIT']
 
 /**
  * 카드 속 말풍선 줄 — 보고·한마디(에이전트 보기와 같은 말). 한 줄 높이를 늘 잡아 두어
@@ -84,7 +86,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                     </span>
                     <SeatMark state={seat.state} />
                   </span>
-                  {HAS_BAR.includes(seat.state) && <LaneSpeech seat={seat} nowMs={nowMs} />}
+                  {HAS_SAY.includes(seat.state) && <LaneSpeech seat={seat} nowMs={nowMs} />}
                   {HAS_BAR.includes(seat.state) && <span className={css.bar}><i style={{ width: `${seat.progress}%` }} /></span>}
                 </button>
                 <SeatOpsBar seat={seat} busy={busyOrderId === seat.orderId} onOp={onOp} />

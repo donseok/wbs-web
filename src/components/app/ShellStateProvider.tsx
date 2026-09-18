@@ -19,6 +19,8 @@ type ShellPayload = {
   inbox: { items: InboxItem[]; unseen: number; failed?: true }
   notifications: { items: NotificationItem[]; count: number } | null
   unreadAnnouncements: number
+  /** 메뉴 문맥 프로젝트에서 내가 승인할 수 있는 에이전트 결재 대기 수. 옛 응답(필드 없음)은 0. */
+  pendingApprovals?: number
   headerAnnouncements: AnnouncementSummary[]
 }
 
@@ -32,6 +34,8 @@ type ShellState = {
   notifLoading: boolean
   /** 메뉴 문맥 프로젝트의 안읽음 공지 수 — 전역 화면에서도 사이드바 배지를 유지한다. */
   menuUnreadAnnouncements: number
+  /** 메뉴 문맥 프로젝트의 에이전트 결재 대기 수(내가 승인할 수 있는 것만) — 사이드바 「에이전트」 배지. */
+  menuPendingApprovals: number
   headerAnnouncements: AnnouncementSummary[]
   refresh: () => void
 }
@@ -47,6 +51,7 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
   const [notifs, setNotifs] = useState<NotificationItem[]>([])
   const [notifLoading, setNotifLoading] = useState(false)
   const [menuUnreadAnnouncements, setMenuUnreadAnnouncements] = useState(0)
+  const [menuPendingApprovals, setMenuPendingApprovals] = useState(0)
   const [headerAnnouncements, setHeaderAnnouncements] = useState<AnnouncementSummary[]>([])
   // 내비게이션 연타 시 늦게 도착한 이전 응답이 최신 상태를 덮지 않도록 시퀀스로 가드.
   const seq = useRef(0)
@@ -63,7 +68,7 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
       setNotifLoading(false)
       setHeaderAnnouncements([])
     }
-    if (!menuProjectId) setMenuUnreadAnnouncements(0)
+    if (!menuProjectId) { setMenuUnreadAnnouncements(0); setMenuPendingApprovals(0) }
     try {
       const qs = new URLSearchParams()
       if (routeProjectId) qs.set('route', routeProjectId)
@@ -79,7 +84,10 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
         if (data.notifications) setNotifs(data.notifications.items)
         setHeaderAnnouncements(data.headerAnnouncements)
       }
-      if (menuProjectId) setMenuUnreadAnnouncements(data.unreadAnnouncements)
+      if (menuProjectId) {
+        setMenuUnreadAnnouncements(data.unreadAnnouncements)
+        setMenuPendingApprovals(data.pendingApprovals ?? 0)
+      }
     } catch {
       if (id === seq.current) setInboxFailed(true)
     } finally {
@@ -102,7 +110,7 @@ export function ShellStateProvider({ children }: { children: React.ReactNode }) 
       value={{
         inbox, setInbox, inboxLoading, inboxFailed,
         notifs, setNotifs, notifLoading,
-        menuUnreadAnnouncements, headerAnnouncements, refresh,
+        menuUnreadAnnouncements, menuPendingApprovals, headerAnnouncements, refresh,
       }}
     >
       {children}

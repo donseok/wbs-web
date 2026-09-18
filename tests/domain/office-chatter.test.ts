@@ -1,6 +1,6 @@
 // tests/domain/office-chatter.test.ts — 에이전트 보기 말풍선 대사(2026-09-18)
 import { describe, it, expect } from 'vitest'
-import { EMPTY_LINES, MEMBER_LINES, MEMBER_PHASE_LINES, memberChatter, MUSING_LINES, SEASON_LINES, seasonOf, leadChatter, memberReportBubble, NAG_LINES, PRAISE_LINES, QUIET_MS, REPORT_FRESH_MS, SOLO_EMPTY_LINES, SOLO_NAG_LINES } from '@/lib/domain/officeChatter'
+import { EMPTY_LINES, MEMBER_LINES, MEMBER_PHASE_LINES, memberChatter, MUSING_LINES, SEASON_LINES, seasonOf, leadChatter, memberReportBubble, NAG_LINES, PRAISE_LINES, QUIET_MS, REPORT_FRESH_MS, SOLO_EMPTY_LINES, SOLO_NAG_LINES, WAIT_LINES } from '@/lib/domain/officeChatter'
 import type { RosterDesk, RosterHost } from '@/lib/domain/agentRoster'
 import type { Seat } from '@/lib/domain/seatmap'
 import LINES from '@/lib/domain/officeChatter.lines.json'
@@ -155,8 +155,14 @@ describe('memberChatter — 작업 중인 팀원의 한마디(2026-09-18)', () =
     expect(t.some(x => MEMBER_PHASE_LINES.design.includes(x!))).toBe(true)
     expect(t.some(x => MEMBER_PHASE_LINES.build.includes(x!))).toBe(false)
   })
-  it('작업 중이 아니면(무응답·결정 대기·빈자리) 말하지 않는다', () => {
-    for (const state of ['STALE', 'OFFLINE', 'BLOCKED', 'WAIT', 'DONE'] as const) {
+  it('승인 대기면 세 칸에 한 칸 승인을 조른다', () => {
+    const t = texts(member('w1', { state: 'WAIT', phase: 'reported' }))
+    expect(t.filter(Boolean).length).toBe(20)
+    for (const x of t.filter(Boolean)) expect(WAIT_LINES).toContain(x)
+    expect(WAIT_LINES).toContain('승인해 주세요!')
+  })
+  it('작업 중·승인 대기가 아니면(무응답·결정 대기·완료) 말하지 않는다', () => {
+    for (const state of ['STALE', 'OFFLINE', 'BLOCKED', 'DONE'] as const) {
       expect(texts(member('w1', { state })).every(x => x === null), state).toBe(true)
     }
   })

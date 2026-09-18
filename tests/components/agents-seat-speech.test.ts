@@ -26,6 +26,12 @@ describe('seatSpeech — 잡담 켬/끔', () => {
     const s = seat()
     expect(seatSpeech(s, talkingAt(s), false)).toBeNull()
   })
+  it('승인 대기 팀원은 켬이면 승인을 조르고, 끔이면 말하지 않는다', () => {
+    const s = seat({ state: 'WAIT', phase: 'reported' })
+    const t = talkingAt(s)
+    expect(seatSpeech(s, t)?.kind).toBe('chat')
+    expect(seatSpeech(s, t, false)).toBeNull()
+  })
   it('끔이어도 막 올린 보고는 업무라 그대로 뜬다', () => {
     const s = seat({ lastReport: { kind: 'completion', summary: '로그인 화면 완료', at: new Date(NOW - 30_000).toISOString() } } as Partial<Seat>)
     const say = seatSpeech(s, NOW, false)
