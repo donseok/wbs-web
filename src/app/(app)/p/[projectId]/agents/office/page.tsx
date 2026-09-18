@@ -3,9 +3,6 @@ import { getActorForView } from '@/lib/authz'
 import { isProjectMember } from '@/lib/domain/authz'
 import { getProjectOffice } from '@/lib/data/agentSeatmap'
 import { UUID_RE } from '@/lib/domain/validate'
-import { PageHero } from '@/components/ui/PageHero'
-import { ProjectPageShell } from '@/components/app/ProjectPageShell'
-import { AgentTabs } from '@/components/agent-hub/AgentTabs'
 import { SeatmapView } from '@/components/agents/SeatmapView'
 
 export const dynamic = 'force-dynamic' // 좌석은 항상 최신이어야 한다
@@ -23,11 +20,6 @@ export default async function ProjectOfficePage({ params }: { params: Promise<{ 
   // 조회 실패는 throw → Next 의 error 경계가 받는다. 빈 오피스로 위장하지 않는다.
   const office = await getProjectOffice(actor, projectId)
   if (office.projectName === null) notFound()
-  return (
-    <ProjectPageShell
-      hero={<PageHero eyebrow="AGENTS" title={`${office.projectName} 가상 오피스`} description="이 프로젝트 층의 좌석을 30초마다 갱신합니다." />}
-      pinned={<AgentTabs projectId={projectId} />}>
-      <SeatmapView initial={office.seatmap} projectId={projectId} />
-    </ProjectPageShell>
-  )
+  // 공통 헤더(탭·요약·타일)는 뷰가 그린다 — 타일이 30초 폴링을 따라가야 한다(AgentFrame).
+  return <SeatmapView initial={office.seatmap} projectId={projectId} projectName={office.projectName} />
 }

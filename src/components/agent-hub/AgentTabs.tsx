@@ -1,23 +1,38 @@
 'use client'
-// 허브(위임·승인)와 가상 오피스를 오가는 탭 — 두 페이지의 ProjectPageShell pinned 슬롯에 얹는다(컴팩트 뷰포트에서도 남는다).
-// 사이드바 항목은 '에이전트' 하나(2026-09-14 오피스 분리 스펙 §6-1). 활성 판정은 경로 완전 일치.
+// 위임·승인 · 가상 오피스 · 에이전트 세 화면을 오가는 탭. 데스크톱에선 공통 헤더(AgentFrame) 띠 안에 dark 로,
+// 컴팩트 뷰포트에선 헤더가 걷히므로 그 아래 고정 줄에 light 로 얹는다. 활성 판정은 경로 완전 일치.
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-export function AgentTabs({ projectId }: { projectId: string }) {
-  const pathname = usePathname()
+export type AgentTabKey = 'hub' | 'office' | 'roster'
+
+export function agentTabs(projectId: string): ReadonlyArray<{ key: AgentTabKey; href: string; label: string }> {
   const base = `/p/${projectId}/agents`
-  const tabs = [
+  return [
     { key: 'hub', href: base, label: '위임·승인' },
     { key: 'office', href: `${base}/office`, label: '가상 오피스' },
-  ] as const
+    { key: 'roster', href: `${base}/roster`, label: '에이전트' },
+  ]
+}
+
+const TONE = {
+  light: { on: 'bg-brand-weak text-brand', off: 'text-ink-muted hover:text-ink' },
+  dark: {
+    on: 'border border-[#32b6ab66] bg-[#32b6ab22] text-[#66d6c6]',
+    off: 'border border-hero-line text-hero-ink-muted hover:text-hero-ink',
+  },
+} as const
+
+export function AgentTabs({ projectId, tone = 'light' }: { projectId: string; tone?: keyof typeof TONE }) {
+  const pathname = usePathname()
+  const t = TONE[tone]
   return (
-    <nav aria-label="에이전트 화면" className="flex items-center gap-2">
-      {tabs.map(t => {
-        const active = pathname === t.href
+    <nav aria-label="에이전트 화면" className="flex items-center gap-1.5">
+      {agentTabs(projectId).map(tab => {
+        const active = pathname === tab.href
         return (
-          <Link key={t.key} href={t.href} data-agent-tab={t.key} aria-current={active ? 'page' : undefined}
-            className={`chip ${active ? 'bg-brand-weak text-brand' : 'text-ink-muted hover:text-ink'}`}>{t.label}</Link>
+          <Link key={tab.key} href={tab.href} data-agent-tab={tab.key} aria-current={active ? 'page' : undefined}
+            className={`chip ${active ? t.on : t.off}`}>{tab.label}</Link>
         )
       })}
     </nav>

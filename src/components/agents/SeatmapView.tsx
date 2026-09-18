@@ -13,6 +13,7 @@ import { DetailPanel, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
 import { SeatmapRealtime } from './SeatmapRealtime'
 import { IconApprove, IconFloorView, IconLaneView } from './icons'
+import { AgentFrame, type HeroTile } from '@/components/agent-hub/AgentFrame'
 import css from './seatmap.module.css'
 
 function findSeat(map: Seatmap, orderId: string | null): { seat: Seat; floorName: string; zoneLabel: string } | null {
@@ -33,7 +34,7 @@ const DONE_KEY = 'dflow.office.done'
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
  *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다.
  *  보기는 둘이다 — 평면도(지켜보는 화면, 기본)와 상태 레인(처리하는 화면). 결재는 두 보기에서 모두 좌석에 붙는다. */
-export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: Seatmap; pollMs?: number; projectId?: string }) {
+export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }: { initial: Seatmap; pollMs?: number; projectId?: string; projectName?: string }) {
   const [map, setMap] = useState(initial)
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -163,34 +164,32 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
     return () => document.removeEventListener('keydown', onKey)
   }, [sel === null, closeDetail]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return (
-    <div className={css.root}>
-      <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
-      <header className={css.top}>
-        <Counters counters={map.counters} />
-        <div className={css.topRight}>
-          {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
-          <div className={css.viewSeg} role="group" aria-label="보기">
-            <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
-            <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
-          </div>
-          {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다. */}
-          {view === 'floor' && (
-            <button type="button" className={css.doneToggle} data-done-toggle aria-pressed={withDone}
-              title="머지 완료(최근 7일) 좌석을 평면도에 함께 그립니다. 승인 취소·재작업 요청을 그 자리에서 할 수 있습니다."
-              onClick={toggleDone}>
-              <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
-            </button>
-          )}
-          <div className={css.scope} role="group" aria-label="표시 범위">
-            <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine', true) }}>내 작업</button>
-            <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all', true) }}>전체</button>
-          </div>
-          <div className={`${css.stamp} ${error ? css.stampBad : ''}`}>
-            {error ? <span data-error="">갱신 실패 {hhmmss(error.at)} · {error.message}</span> : <span>갱신 {hhmmss(map.fetchedAt)}</span>}
-          </div>
-        </div>
-      </header>
+  const tools = (
+    <>
+      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
+      <div className={css.viewSeg} role="group" aria-label="보기">
+        <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
+        <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
+      </div>
+      {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다. */}
+      {view === 'floor' && (
+        <button type="button" className={css.doneToggle} data-done-toggle aria-pressed={withDone}
+          title="머지 완료(최근 7일) 좌석을 평면도에 함께 그립니다. 승인 취소·재작업 요청을 그 자리에서 할 수 있습니다."
+          onClick={toggleDone}>
+          <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
+        </button>
+      )}
+      <div className={css.scope} role="group" aria-label="표시 범위">
+        <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine', true) }}>내 작업</button>
+        <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all', true) }}>전체</button>
+      </div>
+      <div className={`${css.stamp} ${error ? css.stampBad : ''}`}>
+        {error ? <span data-error="">갱신 실패 {hhmmss(error.at)} · {error.message}</span> : <span>갱신 {hhmmss(map.fetchedAt)}</span>}
+      </div>
+    </>
+  )
+  const body = (
+    <>
       <AttentionBand items={map.attention} onSelect={setSelected} />
       <main className={css.stage}>
         <section className={css.floors} data-view={view} aria-label={view === 'floor' ? '프로젝트별 좌석' : '상태별 좌석'}>
@@ -250,6 +249,45 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
         </ul>
         <p>프로젝트가 층, 주문 항목의 부모 항목이 구역, 작업 주문 하나가 책상입니다. 의자의 인물은 그 주문을 잡은 에이전트(슬롯)이며 같은 에이전트는 늘 같은 인물입니다. 신호는 PostToolUse 훅의 heartbeat(60초 절제)와 progress 보고입니다. 승인·반려·승인 취소·재작업 요청·회수는 좌석에서 바로 하며, 반려와 재작업 요청은 사유를 적어야 확정됩니다.</p>
       </footer>
+    </>
+  )
+  const realtime = <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
+
+  // 프로젝트 오피스는 에이전트 세 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
+  // 전체 오피스(/agents)는 탭이 없는 화면이라 옛 다크 띠(카운터 + 조작부)를 그대로 쓴다.
+  if (projectId !== undefined && projectName !== undefined) {
+    const c = map.counters
+    const tiles: HeroTile[] = [
+      { key: 'active', label: '업무 중', value: c.active, color: '#5DB1E5' },
+      { key: 'idle', label: '승인 대기', value: c.idle, color: '#F0B068' },
+      { key: 'offline', label: '빈자리·끊김', value: c.offline, color: '#6b7580', valueColor: '#b7bfba' },
+      // 감시 중은 좌석이 아니라 감시자 수 — 다른 축이라 막대에서 뺀다.
+      { key: 'standby', label: '감시 중', value: c.standby, color: '#3F8F58', valueColor: '#7fd29a', bar: false },
+    ]
+    const lede = (
+      <>
+        에이전트 <b>{c.active}명</b>이 이 층에서 일하고 있습니다.
+        {map.attention.length > 0 && <> <em>{map.attention.length}건이 확인을 기다립니다.</em></>}
+      </>
+    )
+    return (
+      <AgentFrame projectId={projectId} projectName={projectName} title="가상 오피스" lede={lede} tiles={tiles}
+        tools={<div className={css.toolsLight}>{tools}</div>}>
+        <div className={css.root}>
+          {realtime}
+          {body}
+        </div>
+      </AgentFrame>
+    )
+  }
+  return (
+    <div className={css.root}>
+      {realtime}
+      <header className={css.top}>
+        <Counters counters={map.counters} />
+        <div className={css.topRight}>{tools}</div>
+      </header>
+      {body}
     </div>
   )
 }

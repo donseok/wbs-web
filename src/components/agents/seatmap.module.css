@@ -306,3 +306,13 @@
   /* 책상은 이제 한 줄을 다 쓰므로 반려 표시를 왼쪽으로 통일한다. */
   .seatRight .desk[data-rejected="1"] { box-shadow: inset 5px 0 0 var(--sm-reject-bar); }
 }
+
+/* 공통 헤더(AgentFrame) 아래 밝은 줄로 내려온 조작부 — 다크 띠용 색을 밝은 배경용으로 다시 입힌다(2026-09-18).
+   .root 밖(ProjectPageShell pinned)에 놓이므로 --sm-* 대신 전역 토큰을 쓴다. 눌림은 aria-pressed 로만 가른다. */
+.toolsLight { --sm-band-ink: var(--color-ink); --sm-band-muted: var(--color-ink-muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; justify-content: flex-end; }
+.toolsLight .viewSeg, .toolsLight .scope, .toolsLight .doneToggle { border-color: var(--color-line-strong); background: var(--color-surface); }
+.toolsLight .viewSeg button[aria-pressed="true"], .toolsLight .scope button[aria-pressed="true"], .toolsLight .doneToggle[aria-pressed="true"] { background: var(--color-brand-weak); color: var(--color-brand); }
+.toolsLight .viewSeg button:focus-visible, .toolsLight .scope button:focus-visible, .toolsLight .doneToggle:focus-visible { outline-color: var(--color-brand); }
+.toolsLight .allLink { color: var(--color-brand); margin-right: auto; }
+.toolsLight .stamp { color: var(--color-ink-subtle); }
+.toolsLight .stampBad { color: var(--color-delayed); }

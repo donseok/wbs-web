@@ -15,6 +15,7 @@ import { useWbsRealtimeBurst } from '@/lib/hooks/useWbsRealtimeBurst'
 import { applyWbsChange } from '@/lib/domain/wbsRealtime'
 import { RowDetailPanel } from '@/components/wbs/RowDetailPanel'
 import { HubStatusBar } from './HubStatusBar'
+import { AgentFrame, type HeroTile } from './AgentFrame'
 import { DelegationTable, type HubFilter } from './DelegationTable'
 import { ApprovalQueue } from './ApprovalQueue'
 
@@ -114,39 +115,61 @@ export function AgentHubView({ initial, wbs }: { initial: AgentHub; wbs: HubWbsB
   const isAdmin = isProjectAdmin(actor, hub.projectId)
   const selectedItem = selectedId ? itemById.get(selectedId) ?? null : null
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 text-xs text-ink-muted">
+  const c = hub.counters
+  const tiles: HeroTile[] = [
+    { key: 'delegated', label: '위임', value: c.delegated, color: '#ffffff55', valueColor: 'var(--color-hero-ink)', bar: false },
+    { key: 'ready', label: '대기', value: c.ready, color: '#8a8f99' },
+    { key: 'working', label: '작업 중', value: c.working, color: 'var(--sm-active, #5DB1E5)' },
+    { key: 'waiting', label: '승인 대기', value: c.waiting, color: 'var(--sm-wait, #F0B068)' },
+    // 막힘은 대기의 부분집합(선행 대기·에이전트 꺼짐) — 막대에 넣으면 이중으로 센다.
+    { key: 'stuck', label: '막힘', value: c.stuck, color: '#D8563E', valueColor: '#ff8a78', bar: false },
+  ]
+  const lede = (
+    <>
+      위임한 <b>{c.delegated}건</b> 중 <b>{c.working}건</b>을 에이전트가 하고 있습니다.
+      {c.waiting > 0 && <> <em>{c.waiting}건이 승인을 기다립니다.</em></>}
+    </>
+  )
+  const tools = (
+    <>
+      <HubStatusBar projectId={hub.projectId} registered={hub.registered} enabled={hub.enabled}
+        watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
+      <div className="ml-auto flex items-center gap-2 text-xs text-ink-muted">
         <span data-hub-stamp className={error ? 'text-accent-warning' : ''}>
           {error ? `갱신 실패 ${hhmmss(error.at)} · ${error.message}` : `갱신 ${hhmmss(hub.fetchedAt)}`}
         </span>
         <button type="button" data-hub-refresh className="btn btn-ghost h-8 px-2 text-xs" onClick={() => { void refresh() }}>새로고침</button>
       </div>
-      <HubStatusBar projectId={hub.projectId} registered={hub.registered} enabled={hub.enabled} counters={hub.counters}
-        watchers={hub.watchers} isAdmin={hub.viewer.isAdmin} onChanged={refresh} />
-      <DelegationTable rows={hub.rows} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} filter={filter} onFilter={setFilter}
-        nowMs={nowMs} onHub={applyHub} onChanged={refresh} onSelect={setSelectedId} />
-      <ApprovalQueue queue={hub.queue} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} onHub={applyHub} onChanged={refresh} />
-      {selectedItem && (
-        <RowDetailPanel
-          item={selectedItem}
-          allItems={allFlat}
-          dependencies={wbs.dependencies}
-          schedule={schedule.byId.get(selectedItem.id)}
-          // 패널에서 이름·일정 등을 고치면 표의 그 행이 낡는다(hub 는 useState 라 페이지 refresh 로 갱신되지 않는다).
-          // 닫을 때 허브만 1회 재조회해 표를 맞춘다 — 페이지 전체 재렌더는 하지 않는다(§7).
-          onClose={() => { setSelectedId(null); void refresh() }}
-          editable={isAdmin}
-          canAttach={canAttachDeliverable(selectedItem, actor, hub.projectId)}
-          canEditDeliverable={canEditDeliverable(selectedItem, actor, hub.projectId)}
-          projectId={hub.projectId}
-          levelLabels={wbs.levelLabels}
-          maxDepth={wbs.maxDepth}
-          members={wbs.members}
-          onSelectItem={setSelectedId}
-          unresolvedRefs={wbs.unresolvedDepends[selectedItem.id] ?? EMPTY_REFS}
-        />
-      )}
-    </div>
+    </>
+  )
+
+  return (
+    <AgentFrame projectId={hub.projectId} projectName={hub.projectName} title="위임·승인" lede={lede} tiles={tiles} tools={tools}>
+      <div className="space-y-4">
+        <DelegationTable rows={hub.rows} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} filter={filter} onFilter={setFilter}
+          nowMs={nowMs} onHub={applyHub} onChanged={refresh} onSelect={setSelectedId} />
+        <ApprovalQueue queue={hub.queue} projectId={hub.projectId} isAdmin={hub.viewer.isAdmin} onHub={applyHub} onChanged={refresh} />
+        {selectedItem && (
+          <RowDetailPanel
+            item={selectedItem}
+            allItems={allFlat}
+            dependencies={wbs.dependencies}
+            schedule={schedule.byId.get(selectedItem.id)}
+            // 패널에서 이름·일정 등을 고치면 표의 그 행이 낡는다(hub 는 useState 라 페이지 refresh 로 갱신되지 않는다).
+            // 닫을 때 허브만 1회 재조회해 표를 맞춘다 — 페이지 전체 재렌더는 하지 않는다(§7).
+            onClose={() => { setSelectedId(null); void refresh() }}
+            editable={isAdmin}
+            canAttach={canAttachDeliverable(selectedItem, actor, hub.projectId)}
+            canEditDeliverable={canEditDeliverable(selectedItem, actor, hub.projectId)}
+            projectId={hub.projectId}
+            levelLabels={wbs.levelLabels}
+            maxDepth={wbs.maxDepth}
+            members={wbs.members}
+            onSelectItem={setSelectedId}
+            unresolvedRefs={wbs.unresolvedDepends[selectedItem.id] ?? EMPTY_REFS}
+          />
+        )}
+      </div>
+    </AgentFrame>
   )
 }

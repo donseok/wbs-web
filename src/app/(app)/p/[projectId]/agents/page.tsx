@@ -5,10 +5,7 @@ import { getAgentHub } from '@/lib/data/agentHub'
 import { getComputedWbs } from '@/lib/data/wbs'
 import { getProjectConfig } from '@/lib/data/projectConfig'
 import { getProjectMembers } from '@/lib/data/members'
-import { PageHero } from '@/components/ui/PageHero'
-import { ProjectPageShell } from '@/components/app/ProjectPageShell'
 import { AgentHubView } from '@/components/agent-hub/AgentHubView'
-import { AgentTabs } from '@/components/agent-hub/AgentTabs'
 
 export const dynamic = 'force-dynamic' // 위임·주문 상태는 항상 최신이어야 한다
 
@@ -39,10 +36,6 @@ export default async function ProjectAgentsPage({ params }: { params: Promise<{ 
     members,
     actorView: toProjectActorView(actor, projectId),
   }
-  return (
-    <ProjectPageShell hero={<PageHero eyebrow="AGENTS" title={`${hub.projectName} 에이전트`} description="위임과 승인을 한곳에서 합니다." />}
-      pinned={<AgentTabs projectId={projectId} />}>
-      <AgentHubView initial={hub} wbs={wbs} />
-    </ProjectPageShell>
-  )
+  // 공통 헤더(탭·요약·타일)는 뷰가 그린다 — 타일이 뷰의 최신 허브 상태를 따라가야 한다(AgentFrame).
+  return <AgentHubView initial={hub} wbs={wbs} />
 }
