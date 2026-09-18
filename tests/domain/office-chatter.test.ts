@@ -96,3 +96,26 @@ describe('seasonOf — 계절 대사는 한국 시간 달을 따른다', () => {
     expect(seasonOf(Date.parse('2026-11-30T15:30:00Z'))).toBe('winter')
   })
 })
+
+describe('officeChatter.lines.json — 손으로 고치는 대사 파일의 안전망', () => {
+  const pools = { NAG_LINES, PRAISE_LINES, EMPTY_LINES, MUSING_LINES, SOLO_NAG_LINES, SOLO_EMPTY_LINES, ...SEASON_LINES }
+  it('묶음마다 대사가 있고 빈 줄이 없다', () => {
+    for (const [k, ls] of Object.entries(pools)) {
+      expect(ls.length, k).toBeGreaterThan(0)
+      for (const l of ls) expect(typeof l === 'string' && l.trim().length > 0, `${k}: "${l}"`).toBe(true)
+    }
+  })
+  it('한 상황 안에 같은 대사가 두 번 들어 있지 않다(상황이 다르면 겹쳐도 된다)', () => {
+    for (const [k, ls] of Object.entries(pools)) {
+      expect(ls.filter((l, i) => ls.indexOf(l) !== i), k).toEqual([])
+    }
+  })
+  it('팀원이 있을 때만 뜻이 통하는 말과 없을 때만 통하는 말이 공통 혼잣말에 섞이지 않는다', () => {
+    for (const l of MUSING_LINES) expect(l, l).not.toMatch(/\{name\}|퇴근한 것 같아|다들 어디/)
+  })
+  it('{name} 은 잔소리·칭찬에서만 쓴다 — 다른 묶음에선 바뀌지 않고 그대로 보인다', () => {
+    for (const l of [...EMPTY_LINES, ...MUSING_LINES, ...SOLO_NAG_LINES, ...SOLO_EMPTY_LINES, ...Object.values(SEASON_LINES).flat()]) {
+      expect(l, l).not.toContain('{name}')
+    }
+  })
+})
