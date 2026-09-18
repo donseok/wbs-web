@@ -15,7 +15,7 @@ const refresh = vi.fn(), apply = vi.fn()
 vi.mock('@/app/actions/agentHub', () => ({ refreshAgentHub: (...a: unknown[]) => refresh(...(a as [])), applyHubDelegations: (...a: unknown[]) => apply(...(a as [])), runHubProcessOp: vi.fn() }))
 vi.mock('@/app/actions/wbsSpec', () => ({ setAgentDelegation: vi.fn(), updateAgentPrompt: vi.fn() }))
 vi.mock('@/app/actions/agentWork', () => ({ approveAgentCompletion: vi.fn(), rejectAgentCompletion: vi.fn(), setAgentProjectEnabled: vi.fn() }))
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }), usePathname: () => '/p/p1/agents' }))
 // 실시간 구독(0098) — 채널은 스텁이고 broadcast 콜백만 붙잡아 테스트가 직접 쏜다.
 const rt = vi.hoisted(() => ({ broadcast: null as ((m: { payload?: unknown }) => void) | null }))
 vi.mock('@/lib/supabase/client', () => ({
@@ -64,7 +64,7 @@ afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() }
 describe('AgentHubView', () => {
   it('상태 줄·표·큐가 그려지고 멤버 기본 필터는 mine, 관리자는 all', () => {
     act(() => root.render(<AgentHubView initial={hub()} wbs={wbs()} />))
-    expect(host.querySelector('[data-hub-counter="working"]')?.textContent).toBe('1')
+    expect(host.querySelector('[data-hero-tile="working"]')?.textContent).toBe('1')
     expect(host.querySelector('[data-hub-row="a1"]')).not.toBeNull()
     expect(host.textContent).toContain('승인 대기 없음')
     expect((host.querySelector('[data-hub-filter="mine"]') as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true')
@@ -91,7 +91,7 @@ describe('AgentHubView', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
     expect(apply).toHaveBeenCalledWith('p1', [{ itemId: 'a1', delegated: false }])
     expect(host.querySelector('[data-hub-row="a1"]')).toBeNull()
-    expect(host.querySelector('[data-hub-counter="working"]')?.textContent).toBe('0')
+    expect(host.querySelector('[data-hero-tile="working"]')?.textContent).toBe('0')
     expect(refresh).not.toHaveBeenCalled()
   })
   it('갱신 성공은 새 데이터로 교체', async () => {

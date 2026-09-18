@@ -54,7 +54,7 @@ function adminClient(items: { id: string; assignee_member_id?: string | null }[]
  * `.eq('id', v)` 로 잡힌 id 의 행을 돌려준다. update 뒤 `.select()` thenable 은 updateRows 개 행.
  */
 function fakeAdmin(cfg: {
-  orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null }>
+  orders?: Record<string, { project_id: string; status?: string; wbs_item_id?: string | null; claimed_by?: string | null }>
   items?: Record<string, { project_id: string; name?: string; assignee_member_id?: string | null }>
   updateRows?: number
   /** 전이 RPC 응답 — 기본은 회수 성공(실적 무변경이라 스냅샷 없음). */
@@ -260,6 +260,39 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
     expect(rpcCalls).toHaveLength(1)
     expect(mocks.emitNotification).not.toHaveBeenCalled()
   })
+  it('resume → claimed 인 주문에 표식만 얹는다(상태·updated_at 불변), 호스트는 점유 라벨에서 서버가 판다', async () => {
+    const { updates, rpcCalls } = fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-Jji-MacBookPro' } },
+      items: ITEMS,
+    })
+    expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) })).toEqual({ ok: true, hub: HUB })
+    expect(rpcCalls).toHaveLength(0) // 상태 전이가 아니다 — 크레딧·단계에 손대지 않는다
+    expect(updates).toHaveLength(1)
+    expect(updates[0].table).toBe('agent_work_orders')
+    expect(updates[0].payload).toEqual({
+      resume_requested_at: expect.any(String), resume_requested_by: 'admin-1', resume_requested_host: 'jji-macbookpro',
+    })
+    // updated_at 을 touch 하면 침묵 판정이 풀려 멈춘 좌석이 ACTIVE 로 되돌아간다.
+    expect(updates[0].payload).not.toHaveProperty('updated_at')
+    expect(updates[0].payload).not.toHaveProperty('status')
+  })
+  it('resume — claimed 가 아니거나 점유 라벨에서 PC 를 못 읽으면 거부', async () => {
+    fakeAdmin({ orders: ORDERS })
+    expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
+      .toEqual({ ok: false, error: '재개를 요청할 수 있는 상태가 아닙니다(reported).' })
+    const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: null } } })
+    expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
+      .toEqual({ ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 회수한 뒤 다시 배정하세요.' })
+    expect(updates).toHaveLength(0)
+  })
+  it('resume — 경합으로 한 행도 못 고치면 재시도 문구', async () => {
+    fakeAdmin({
+      orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp' } },
+      updateRows: 0,
+    })
+    expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
+      .toEqual({ ok: false, error: '상태가 바뀌어 재개를 요청하지 못했습니다. 다시 시도하세요.' })
+  })
   it('타 프로젝트 주문·항목 → 거부, 내부 액션 미호출', async () => {
     fakeAdmin({ orders: ORDERS, items: ITEMS })
     expect(await runHubProcessOp(P1, { kind: 'approve', orderId: O(2) })).toEqual({ ok: false, error: '이 프로젝트의 주문이 아닙니다.' })
@@ -315,6 +348,13 @@ describe('runHubProcessOp — 멤버 이상 가드 → 이 프로젝트 것인�
       expect(await runHubProcessOp(P1, { kind: 'release', orderId: O(1) }))
         .toEqual({ ok: false, error: '회수는 관리자 또는 서브트리 관리자만 할 수 있습니다.' })
       expect(mocks.emitNotification).not.toHaveBeenCalled()
+      expect(mocks.getAgentHub).not.toHaveBeenCalled()
+    })
+    it('서브트리 관리자가 아닌 멤버의 재개 요청도 회수와 같은 축에서 막힌다', async () => {
+      const { updates } = fakeAdmin({ orders: { [O(1)]: { project_id: P1, status: 'claimed', wbs_item_id: I(1), claimed_by: 'claude-mbp' } } })
+      expect(await runHubProcessOp(P1, { kind: 'resume', orderId: O(1) }))
+        .toEqual({ ok: false, error: '재개 요청은 관리자 또는 서브트리 관리자만 할 수 있습니다.' })
+      expect(updates).toHaveLength(0)
       expect(mocks.getAgentHub).not.toHaveBeenCalled()
     })
     it('WBS 항목이 삭제된 주문(wbs_item_id 없음)의 회수는 조상을 특정 못 해 관리자만', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { animFor, OFFLINE_MS, STALE_MS } from '@/lib/domain/seatState'
-import { ageLabel, assembleSeatmap, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
+import { ageLabel, assembleSeatmap, seatmapChannelProjectIds, type OrderRow, type SeatmapRows, type WatcherRow } from '@/lib/domain/seatmap'
 
 const NOW = Date.parse('2026-09-14T09:00:00Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
@@ -221,5 +221,85 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
     const missing = assembleSeatmap(rows({ orders: [ready()], items, members: [], watchers: [w()] }), NOW)
     expect(seatOf(missing).waitReason?.text).toContain('(로스터에 없음)')
     expect(seatOf(missing).waitReason?.text).toContain('계정이 로스터에 연결돼 있지 않아')
+  })
+})
+
+describe('재개 요청 표식(0099) — 멈춘 좌석에서 사람이 누른 흔적', () => {
+  const stale = (over: Partial<OrderRow> = {}) =>
+    order({ last_heartbeat_at: ago(STALE_MS + 1), updated_at: ago(STALE_MS + 1), ...over })
+
+  it('점유 중인 주문의 요청은 좌석에 그대로 실린다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [stale({ resume_requested_at: ago(30_000), resume_requested_host: 'jji-mac' })],
+    }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('STALE')
+    expect(s.resumeRequestedAt).toBe(ago(30_000))
+    expect(s.resumeRequestedHost).toBe('jji-mac')
+  })
+  it('확인 필요 밴드가 요청이 걸린 사실을 함께 말한다 — 같은 버튼을 다시 누르지 않도록', () => {
+    const m = assembleSeatmap(rows({
+      orders: [stale({ resume_requested_at: ago(30_000), resume_requested_host: 'jji-mac' })],
+    }), NOW)
+    expect(m.attention[0].why).toContain('무응답')
+    expect(m.attention[0].why).toContain('재개 요청됨')
+  })
+  it('요청이 없으면 밴드 문구는 종전 그대로다', () => {
+    const m = assembleSeatmap(rows({ orders: [stale()] }), NOW)
+    expect(m.attention[0].why).toBe(`무응답 ${ageLabel(ago(STALE_MS + 1), NOW)}`)
+  })
+  it('점유를 떠난 주문의 옛 요청은 화면에 남지 않는다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ status: 'approved', resume_requested_at: ago(30_000), resume_requested_host: 'jji-mac' })],
+    }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('DONE')
+    expect(s.resumeRequestedAt).toBeNull()
+    expect(s.resumeRequestedHost).toBeNull()
+  })
+})
+
+describe('seatmapChannelProjectIds — 오피스가 들어야 할 실시간 채널', () => {
+  it('프로젝트 오피스는 그 프로젝트 하나다', () => {
+    expect(seatmapChannelProjectIds({ floors: [] }, 'px')).toEqual(['px'])
+  })
+  it('전체 오피스는 지금 그린 층들이며, 순서가 바뀌어도 같은 목록이다(재구독 방지)', () => {
+    const a = seatmapChannelProjectIds({ floors: [{ id: P2 }, { id: P1 }] as never })
+    const b = seatmapChannelProjectIds({ floors: [{ id: P1 }, { id: P2 }] as never })
+    expect(a).toEqual([P1, P2])
+    expect(b).toEqual(a)
+  })
+})
+
+describe('assembleSeatmap — 명찰 모델(0100)', () => {
+  const seat0 = (over: Partial<OrderRow>, itemModel: string | null = 'opus') =>
+    assembleSeatmap(rows({ orders: [order(over)], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], model: itemModel }] }), NOW)
+      .floors[0].zones[0].seats[0]
+  it('살아 있는 heartbeat 의 실행 모델이 지정 모델보다 먼저다 — 같은 팀원도 Phase 마다 바뀐다', () => {
+    expect(seat0({ heartbeat_model: 'haiku', heartbeat_phase: 'verify' })).toMatchObject({ model: 'haiku', modelSource: 'run' })
+  })
+  it('실행 모델이 없으면 WBS 지정 모델, 둘 다 없으면 null', () => {
+    expect(seat0({ heartbeat_model: null })).toMatchObject({ model: 'opus', modelSource: 'plan' })
+    expect(seat0({ heartbeat_model: null }, null)).toMatchObject({ model: null, modelSource: null })
+  })
+  it('재위임으로 heartbeat 가 비워진 행(last_heartbeat_at null)의 옛 실행 모델은 쓰지 않는다', () => {
+    expect(seat0({ heartbeat_model: 'haiku', last_heartbeat_at: null })).toMatchObject({ model: 'opus', modelSource: 'plan' })
+  })
+})
+
+describe('assembleSeatmap — 보고 말풍선 재료(2026-09-18)', () => {
+  const item = { id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'] }
+  const seat0 = (over: Partial<OrderRow>, reports: Array<{ kind: 'progress' | 'completion'; summary: string; created_at: string }>) =>
+    assembleSeatmap({ ...rows({ orders: [order(over)], items: [item] }), reports: reports.map(r => ({ work_order_id: order(over).id, ...r })) }, NOW)
+      .floors[0].zones[0].seats[0]
+  it('주문별 가장 늦은 보고를 싣는다', () => {
+    const s = seat0({}, [
+      { kind: 'progress', summary: '옛 보고', created_at: new Date(NOW - 600_000).toISOString() },
+      { kind: 'progress', summary: ' 새 보고 ', created_at: new Date(NOW - 60_000).toISOString() },
+    ])
+    expect(s.lastReport).toMatchObject({ kind: 'progress', summary: '새 보고' })
+  })
+  it('점유·보고 중이 아닌 주문(승인 등)의 옛 보고는 싣지 않는다', () => {
+    expect(seat0({ status: 'approved' }, [{ kind: 'completion', summary: 'x', created_at: new Date(NOW).toISOString() }]).lastReport).toBeNull()
   })
 })

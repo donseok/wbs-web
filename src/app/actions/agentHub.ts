@@ -3,7 +3,7 @@
 // 스펙: docs/superpowers/specs/2026-09-14-agent-hub-design.md §5
 import { requireProjectMember } from '@/lib/authz'
 import { isProjectAdmin } from '@/lib/domain/authz'
-import { isUuidLike } from '@/lib/domain/agentWork'
+import { isUuidLike, resumeHostFromClaimLabel } from '@/lib/domain/agentWork'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { AdminClient } from '@/lib/minutes/externalApi'
 import { getAgentHub } from '@/lib/data/agentHub'
@@ -132,6 +132,8 @@ export type HubProcessOp =
   | { kind: 'rework'; orderId: string; note: string }
   /** 사람 회수 — 점유(claimed)를 풀어 대기(ready)로. 작업 루프 스펙의 "응답 없음 카드 사람 회수". */
   | { kind: 'release'; orderId: string }
+  /** 재개 요청 — 멈춘(무응답·끊김) 좌석을 팀장이 이어받아 달라는 표식. 상태 전이가 아니다. */
+  | { kind: 'resume'; orderId: string }
   | { kind: 'stage'; itemId: string; stage: WbsStageCode | null }
 
 export type HubProcessResult =
@@ -143,7 +145,7 @@ function isProcessOp(op: unknown): op is HubProcessOp {
   const o = op as Record<string, unknown>
   const uuid = (v: unknown) => typeof v === 'string' && isUuidLike(v)
   switch (o.kind) {
-    case 'approve': case 'unapprove': case 'release':
+    case 'approve': case 'unapprove': case 'release': case 'resume':
       return uuid(o.orderId)
     case 'reject': case 'rework':
       return uuid(o.orderId) && typeof o.note === 'string'
@@ -201,6 +203,41 @@ async function releaseOrderByAdmin(
   return { ok: true }
 }
 
+/**
+ * 재개 요청 본체 — 주문은 claimed 그대로 두고 표식 세 열만 얹는다(0099).
+ * 상태를 바꾸지 않는 이유: 회수(release)는 claimed_by·heartbeat 흔적을 지우는데, 그러면 어느 PC 의
+ * 워크트리에 산출물이 남아 있는지 알 길이 없어진다. 워커는 개발 마지막 단계에서만 push 하므로
+ * 진행 중 작업의 원격 브랜치는 대개 없다 — 점유 라벨이 유일한 좌표다.
+ * updated_at 을 건드리지 않는 것도 의도다: 그 열은 좌석 침묵 판정(lastSignalMs)의 재료라,
+ * 여기서 touch 하면 멈춘 좌석이 ACTIVE 로 되돌아가 요청한 사람이 상황을 잘못 읽는다.
+ * 같은 버튼을 두 번 눌러도 같은 행을 덮어쓸 뿐이다(단일 슬롯).
+ */
+async function requestResumeOnOrder(
+  admin: AdminClient, orderId: string, actorUserId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data, error } = await admin
+    .from('agent_work_orders').select('id, status, claimed_by').eq('id', orderId).maybeSingle()
+  if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
+  const order = data as { id: string; status: string; claimed_by: string | null } | null
+  if (!order) return { ok: false, error: '주문 없음' }
+  if (order.status !== 'claimed') return { ok: false, error: `재개를 요청할 수 있는 상태가 아닙니다(${order.status}).` }
+  // 호스트는 서버가 점유 라벨에서 파생한다 — 클라이언트가 보낸 값을 믿으면 엉뚱한 PC 가 집어 간다.
+  const host = resumeHostFromClaimLabel(order.claimed_by)
+  if (!host) {
+    return { ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 회수한 뒤 다시 배정하세요.' }
+  }
+  const { data: updated, error: upErr } = await admin
+    .from('agent_work_orders')
+    .update({ resume_requested_at: new Date().toISOString(), resume_requested_by: actorUserId, resume_requested_host: host })
+    .eq('id', orderId).eq('status', 'claimed')
+    .select('id')
+  if (upErr) return { ok: false, error: `재개 요청 기록 실패: ${upErr.message}` }
+  if (!updated || (updated as unknown[]).length === 0) {
+    return { ok: false, error: '상태가 바뀌어 재개를 요청하지 못했습니다. 다시 시도하세요.' }
+  }
+  return { ok: true }
+}
+
 export async function runHubProcessOp(projectId: string, op: HubProcessOp): Promise<HubProcessResult> {
   if (!isUuidLike(projectId) || !isProcessOp(op)) return { ok: false, error: ERR_BAD }
   // 멤버 이상이면 문을 연다 — 승인·단계는 내부 액션(loadOrderForAdmin·setWbsStage)이 "관리자 또는
@@ -229,10 +266,15 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
 
   // 회수는 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15). WBS 항목이 삭제된 주문(wbs_item_id
   // 없음)은 조상을 특정할 수 없어 관리자만.
-  if (op.kind === 'release' && !isAdmin) {
-    if (!releaseItemId) return { ok: false, error: '회수는 관리자만 할 수 있습니다.' }
+  // 재개 요청도 같은 축이다 — 남의 PC 러너를 되살리라고 지시하는 관리 행위라 담당자 본인에게는 열지 않는다.
+  if ((op.kind === 'release' || op.kind === 'resume') && !isAdmin) {
+    // 문구는 op 마다 통째로 둔다 — 조사를 붙여 만들면 "회수은" 같은 말이 나온다.
+    const [adminOnly, subtreeOnly] = op.kind === 'release'
+      ? ['회수는 관리자만 할 수 있습니다.', '회수는 관리자 또는 서브트리 관리자만 할 수 있습니다.']
+      : ['재개 요청은 관리자만 할 수 있습니다.', '재개 요청은 관리자 또는 서브트리 관리자만 할 수 있습니다.']
+    if (!releaseItemId) return { ok: false, error: adminOnly }
     const subtree = await requireSubtreeManagerOrAdmin(releaseItemId, projectId)
-    if (!subtree.ok) return { ok: false, error: '회수는 관리자 또는 서브트리 관리자만 할 수 있습니다.' }
+    if (!subtree.ok) return { ok: false, error: subtreeOnly }
   }
 
   let r: { ok: boolean; error?: string; warning?: string }
@@ -242,6 +284,7 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
     case 'unapprove': r = await unapproveAgentCompletion(op.orderId); break
     case 'rework': r = await requestAgentRework(op.orderId, op.note); break
     case 'release': r = await releaseOrderByAdmin(admin, op.orderId, g.actor.userId); break
+    case 'resume': r = await requestResumeOnOrder(admin, op.orderId, g.actor.userId); break
     case 'stage': r = await setWbsStage(op.itemId, op.stage); break
   }
   if (!r.ok) return { ok: false, error: r.error ?? '처리에 실패했습니다.' }

@@ -182,6 +182,37 @@ describe('GET /agent/work/[id] — PAT 멤버십 게이트', () => {
     expect(body.order.claimed_by_user_email).toBe('dev@example.com') // 타인 점유라도 노출
   })
 
+  it('PAT — 좌석 신호(heartbeat·재개 요청)를 응답에 싣는다. 레거시 응답은 v1 그대로다', async () => {
+    const seatSignals = {
+      last_heartbeat_at: '2026-09-18T00:10:00.000Z', heartbeat_phase: 'build',
+      resume_requested_at: '2026-09-18T00:20:00.000Z', resume_requested_host: 'jji-mac',
+    }
+    const orderRow = {
+      id: O1, project_id: P1, status: 'claimed', priority: 0, instructions: '',
+      claimed_by: 'claude-jji-mac', claimed_by_user_id: 'u-1', claimed_at: null, wbs_item_id: null, ...seatSignals,
+    }
+    useAdmin({
+      agent_runners: [{ data: RUNNER }, { data: null }],
+      agent_work_orders: [{ data: orderRow }],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      agent_work_reports: [{ data: [] }],
+    })
+    const body = await (await detail(PAT.token)).json()
+    // 이 넷이 없어서 팀장은 다른 PC 팀원의 생사를 판정하지 못했다(2026-09-18).
+    expect(body.order).toMatchObject(seatSignals)
+
+    useAdmin({
+      agent_work_orders: [{ data: orderRow }],
+      agent_projects: [{ data: { enabled: true } }],
+      agent_work_reports: [{ data: [] }],
+    })
+    const legacy = await (await detail('legacy-secret')).json()
+    expect(legacy.order.last_heartbeat_at).toBeUndefined()
+    expect(legacy.order.resume_requested_at).toBeUndefined()
+  })
+
   it('PAT + wbs_item_id 있음 → item 이 ITEM_DETAIL_COLUMNS 로 확장 + depends_evidence 포함', async () => {
     const W1 = '33333333-3333-4333-8333-333333333333'
     const DEP_ID = '44444444-4444-4444-8444-444444444444'

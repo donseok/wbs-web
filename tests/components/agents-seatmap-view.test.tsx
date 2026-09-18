@@ -35,10 +35,25 @@ describe('SeatmapView', () => {
   it('카운터·확인 필요·층이 그려지고, 팝업은 아무것도 고르지 않은 채로는 열리지 않는다', () => {
     act(() => root.render(<SeatmapView initial={map()} />))
     expect(host.textContent).toContain('mes-base')
-    expect(host.querySelector('[data-counter="active"]')?.textContent).toBe('1')
-    expect(host.querySelector('[data-counter="offline"]')?.textContent).toBe('1')
+    expect(host.querySelector('[data-hero-tile="active"]')?.textContent).toBe('1')
+    expect(host.querySelector('[data-hero-tile="offline"]')?.textContent).toBe('1')
+    // 전체 오피스도 공통 헤더를 쓰고, 탭 자리에 층 칩(돌아갈 길)을 단다.
+    expect(host.querySelector('[data-office-nav="all"]')?.getAttribute('aria-current')).toBe('page')
+    expect(host.querySelector('a[data-office-nav="p1"]')?.getAttribute('href')).toBe('/p/p1/agents/office')
     // 상세는 팝업이다 — 페이지를 열자마자 뜨면 안 된다.
     expect(document.querySelector('[data-panel]')).toBeNull()
+  })
+  it('보기는 평면도·상태 레인·에이전트 셋이고, 에이전트는 작업 PC 로 묶은 자리와 프로필을 그린다(2026-09-18)', () => {
+    act(() => root.render(<SeatmapView initial={map()} />))
+    expect([...host.querySelectorAll('button[data-view]')].map(b => b.getAttribute('data-view'))).toEqual(['floor', 'lane', 'agent'])
+    act(() => (host.querySelector('button[data-view="agent"]') as HTMLButtonElement).click())
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull()
+    expect(host.querySelector('[data-roster-host="hong/mbp"]')?.textContent).toContain('팀원 1')
+    // 결정 대기 자리를 먼저 고른다 — 질문이 프로필에 보인다.
+    expect(host.querySelector('[data-roster-profile]')?.textContent).toContain('어느 DB?')
+    // 완료 포함은 평면도 전용 — 보기 전환이 왼쪽에 고정돼 있어 빼도 밀리지 않는다.
+    expect(host.querySelector('button[data-done-toggle]')).toBeNull()
+    expect(window.localStorage.getItem('dflow.office.view')).toBe('agent')
   })
   it('확인 필요 띠를 누르면 그 좌석의 상세 팝업이 열린다', () => {
     act(() => root.render(<SeatmapView initial={map()} />))
@@ -71,13 +86,13 @@ describe('SeatmapView', () => {
     act(() => root.render(<SeatmapView initial={map()} pollMs={30_000} />))
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
     expect(refresh).toHaveBeenCalledTimes(1)
-    expect(host.querySelector('[data-counter="active"]')?.textContent).toBe('9')
+    expect(host.querySelector('[data-hero-tile="active"]')?.textContent).toBe('9')
   })
   it('재조회가 실패하면 마지막 데이터를 유지하고 실패 시각을 표시한다', async () => {
     refresh.mockResolvedValue({ ok: false, error: 'boom' })
     act(() => root.render(<SeatmapView initial={map()} pollMs={1000} />))
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
-    expect(host.querySelector('[data-counter="active"]')?.textContent).toBe('1')
+    expect(host.querySelector('[data-hero-tile="active"]')?.textContent).toBe('1')
     expect(host.querySelector('[data-error]')?.textContent).toContain('갱신 실패')
     expect(host.querySelector('[data-error]')?.textContent).toContain('boom')
   })
@@ -227,10 +242,65 @@ describe('SeatmapView — 완료 포함 보기', () => {
     expect(toggle().getAttribute('aria-pressed')).toBe('true')
     expect(host.textContent).toContain('TSK-04-02')
   })
-  it('상태 레인 보기에서는 토글이 없다 — 그 보기는 완료 레인을 늘 안고 있다', () => {
+  it('상태 레인 보기에서는 토글을 쓸 수 없다 — 그 보기는 완료 레인을 늘 안고 있다', () => {
     act(() => root.render(<SeatmapView initial={withDoneSeat()} />))
     const lane = [...host.querySelectorAll('button')].find(b => b.getAttribute('data-view') === 'lane') as HTMLButtonElement
     act(() => lane.click())
-    expect(host.querySelector('[data-done-toggle]')).toBeNull()
+    expect(document.querySelector('[data-done-toggle]')).toBeNull()
+  })
+  it('프로젝트 오피스에서는 상태 레인일 때 토글을 아예 뺀다 — 보기 전환은 왼쪽에 고정돼 밀리지 않는다', () => {
+    act(() => root.render(<SeatmapView initial={withDoneSeat()} projectId="11111111-1111-4111-8111-111111111111" projectName="P" />))
+    const lane = [...host.querySelectorAll('button')].find(b => b.getAttribute('data-view') === 'lane') as HTMLButtonElement
+    act(() => lane.click())
+    expect(document.querySelector('[data-done-toggle]')).toBeNull()
   })
 })
+
+describe('SeatmapView — 잡담 켬/끔(2026-09-18)', () => {
+  // 작업 중(ACTIVE)이고 보고가 없는 자리 — 켜 두면 세 칸에 한 칸 한마디를 한다.
+  const working = (): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 0 }, seats: [
+        { orderId: 'o1', id8: 'o1', projectId: 'p1', itemId: 'i1', code: 'TSK-04-01', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false },
+      ] }],
+    }],
+    attention: [],
+  })
+  const toggle = () => host.querySelector('[data-chatter-toggle]') as HTMLButtonElement
+  /** 8초 칸을 여섯 번 넘기며 잡담 말풍선이 한 번이라도 뜨는지 본다. */
+  const chatSeen = () => {
+    let seen = false
+    for (let k = 0; k < 6; k++) {
+      act(() => { vi.advanceTimersByTime(8_000) })
+      if (host.querySelector('[data-chat-bubble="chat"]')) seen = true
+    }
+    return seen
+  }
+
+  it('세 보기 모두에 토글이 있고 기본은 켬이다', () => {
+    act(() => root.render(<SeatmapView initial={working()} />))
+    for (const v of ['floor', 'lane', 'agent']) {
+      act(() => (host.querySelector(`button[data-view="${v}"]`) as HTMLButtonElement).click())
+      expect(toggle()?.getAttribute('aria-pressed')).toBe('true')
+    }
+  })
+  it('켬이면 작업 중 팀원의 한마디가 뜨고, 끄면 사라진다', () => {
+    act(() => root.render(<SeatmapView initial={working()} />))
+    expect(chatSeen()).toBe(true)
+    act(() => toggle().click())
+    expect(toggle().getAttribute('aria-pressed')).toBe('false')
+    expect(toggle().textContent).toContain('잡담 끔')
+    expect(chatSeen()).toBe(false)
+  })
+  it('선택을 이 브라우저에 기억한다', () => {
+    act(() => root.render(<SeatmapView initial={working()} />))
+    act(() => toggle().click())
+    expect(window.localStorage.getItem('dflow.office.chatter')).toBe('0')
+    act(() => root.unmount())
+    root = createRoot(host)
+    act(() => root.render(<SeatmapView initial={working()} />))
+    expect(toggle().getAttribute('aria-pressed')).toBe('false')
+  })
+})
+

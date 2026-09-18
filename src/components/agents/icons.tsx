@@ -36,6 +36,10 @@ export const IconFloorView = () => (
 export const IconLaneView = () => (
   <Line><rect x="3" y="3.5" width="5" height="17" rx="1.6" /><rect x="9.5" y="3.5" width="5" height="12" rx="1.6" /><rect x="16" y="3.5" width="5" height="8" rx="1.6" /></Line>
 )
+/** 에이전트 — 모니터 앞의 사람(작업 PC 와 자리). */
+export const IconAgentView = () => (
+  <Line><rect x="3" y="4" width="18" height="11" rx="1.8" /><path d="M9 20h6M12 15v5" /><circle cx="12" cy="8.6" r="2" /><path d="M8.5 13a3.5 3.5 0 0 1 7 0" /></Line>
+)
 
 /** 승인 — 체크. op 아이콘은 획이 굵다(작게 그려도 읽혀야 한다). */
 export const IconApprove = () => (
@@ -56,4 +60,12 @@ export const IconRework = () => (
 /** 회수 — 정지 사각형. */
 export const IconRelease = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+)
+/** 이어서 시작 — 재생 삼각형에 이어 붙이는 획. 회수(정지)와 한눈에 갈라져야 한다. */
+export const IconResume = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 5.5v13" /><path d="M9.5 6.6l9 5.4-9 5.4z" /></svg>
+)
+/** 잡담 켬/끔 — 말풍선 두 개(주고받는 말). 보기 전환 아이콘과 같은 1.6px 라인. */
+export const IconChat = () => (
+  <Line><path d="M4 5.5h10a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 14 13.5H8.5L5.5 16v-2.5H4A1.5 1.5 0 0 1 2.5 12V7A1.5 1.5 0 0 1 4 5.5z" /><path d="M18 9.5h2a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5h-1.5V20l-3-2.5H11" /></Line>
 )

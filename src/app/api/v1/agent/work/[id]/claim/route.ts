@@ -94,6 +94,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       return apiInternalError()
     }
 
+    // 새 점유자에게 옛 재개 요청을 물려주지 않는다(0099). 회수→재claim 경로에서 표식이 남으면
+    // 좌석이 「재개 요청됨」으로 잠기고, 팀장의 watch 가 방금 정상 점유된 주문을 되살릴 대상으로
+    // 집어 가 같은 워크트리에 워커를 겹쳐 띄운다. heartbeat 가 지워 주기를 기다릴 수 없다 —
+    // 훅이 없는 세션은 heartbeat 를 아예 보내지 않아 표식이 영영 남는다.
+    // 전이는 이미 성공했으므로 이 뒷정리의 실패로 claim 을 되돌리지 않는다(로깅만).
+    const { error: resumeClearErr } = await admin
+      .from('agent_work_orders')
+      .update({ resume_requested_at: null, resume_requested_by: null, resume_requested_host: null })
+      .eq('id', id)
+    if (resumeClearErr) console.error('[agent-api] claim 뒤 재개 요청 정리 실패:', resumeClearErr.message)
+
     // claim 알림 — fire-and-forget. 본인 배정 작업 본인 claim 은 행위자 제외 규칙(emitNotification)으로 자동 무발행.
     // actorUserId 는 legacy 도 loaded.userId 로 채운다(release/report 관례) — principal.userId 는
     // legacy 에서 undefined 라 null 로 새면 자기제외가 비활성화되어 본인 claim 에도 알림이 간다.

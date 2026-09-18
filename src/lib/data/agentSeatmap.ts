@@ -6,14 +6,16 @@ import { isProjectAdmin, type Actor } from '@/lib/domain/authz'
 import { seatmapProjectIds } from '@/lib/authz/agentsAccess'
 import { WATCHER_TTL_MS } from '@/lib/domain/seatState'
 import {
-  assembleSeatmap, type ItemRow, type MemberRow, type OrderRow, type PredecessorRow, type ProjectRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type SeatmapViewer, type WatcherRow,
+  assembleSeatmap, type ItemRow, type MemberRow, type OrderRow, type PredecessorRow, type ProjectRow, type ReportRow, type ReviewRow, type Seatmap, type SeatmapRows, type SeatmapScope, type SeatmapViewer, type WatcherRow,
 } from '@/lib/domain/seatmap'
 
 /** DONE(approved) 은 최근 7일 것만 층에 접어 둔다. */
 export const DONE_WINDOW_MS = 7 * 24 * 3600_000
+/** 보고 말풍선 재료의 창 — 하루 넘은 보고는 말풍선으로 띄울 일이 없다. */
+const REPORT_WINDOW_MS = 24 * 3600_000
 
-const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note'
-const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends'
+const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, heartbeat_model, resume_requested_at, resume_requested_host'
+const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends, model'
 
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {
   if (r.error) throw new Error(`[seatmap] ${what} 조회 실패: ${r.error.message}`)
@@ -52,7 +54,9 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
     ? must<ItemRow[]>('항목', await admin.from('wbs_items').select(ITEM_COLS).in('id', itemIds))
     : []
   const parentIds = [...new Set(items.map(i => i.parent_id).filter((x): x is string => !!x))]
-  const [parents, reviews, watchers, projects, members] = await Promise.all([
+  // 보고 말풍선 — 점유·보고 중 주문의 최근 하루치만. 말풍선은 주문마다 마지막 한 줄이면 된다.
+  const liveIds = orders.filter(o => o.status === 'claimed' || o.status === 'reported').map(o => o.id)
+  const [parents, reviews, watchers, projects, members, reports] = await Promise.all([
     parentIds.length ? fetchAncestors(admin, parentIds) : Promise.resolve([] as ItemRow[]),
     admin.from('agent_work_reports').select('work_order_id, review_action, review_note, created_at')
       .in('work_order_id', orderIds).eq('kind', 'completion').then(r => must<ReviewRow[]>('완료 보고', r)),
@@ -61,6 +65,11 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
     admin.from('projects').select('id, name').in('id', projIds).then(r => must<ProjectRow[]>('프로젝트', r)),
     // 로스터는 담당자 이름·PAT 계정 매칭 재료(착수 대기 사유 §2). 층 프로젝트 범위로만.
     admin.from('project_members').select('id, project_id, user_id, name').in('project_id', projIds).then(r => must<MemberRow[]>('로스터', r)),
+    liveIds.length
+      ? admin.from('agent_work_reports').select('work_order_id, kind, summary, created_at')
+        .in('work_order_id', liveIds).gte('created_at', new Date(nowMs - REPORT_WINDOW_MS).toISOString())
+        .order('created_at', { ascending: false }).limit(500).then(r => must<ReportRow[]>('최근 보고', r))
+      : Promise.resolve([] as ReportRow[]),
   ])
   // 선행 항목 — ready 주문 항목의 depends 만 모아 프로젝트 안 external_ref 로 1회, 그 id 의 approved 주문 1회. ref 가 없으면 0회.
   // 승인 주문은 위 주문 조회(7일 창)에 없을 수 있어 따로 본다 — 오래전 승인된 선행을 미충족으로 말하면 화면이 거짓말한다.
@@ -77,7 +86,7 @@ export async function fetchSeatmapRows(admin: AdminClient, projectIds: string[] 
     const ok = new Set(approved.map(a => a.wbs_item_id))
     predecessors = found.map(p => ({ ...p, order_approved: ok.has(p.id) }))
   }
-  return { orders, items, parents, reviews, watchers, projects, members, predecessors }
+  return { orders, items, parents, reviews, watchers, projects, members, predecessors, reports }
 }
 
 /**

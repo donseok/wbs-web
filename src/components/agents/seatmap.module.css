@@ -25,15 +25,6 @@
   --sm-shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35);
 }
 
-/* 상단 현황판 */
-.top { background: var(--sm-band); color: var(--sm-band-ink); border-radius: 0 0 14px 14px; padding: 14px 18px 16px; display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; align-items: center; box-shadow: var(--sm-shadow); }
-.counters { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
-.counter { display: grid; grid-template-columns: auto auto; column-gap: 10px; align-items: center; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 6px 12px; min-width: 110px; }
-.counter b { font-family: ui-monospace, Menlo, monospace; font-size: 24px; font-weight: 600; line-height: 1; grid-row: 1 / 3; font-variant-numeric: tabular-nums; }
-.counter span { grid-column: 2; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--sm-band-muted); display: inline-flex; align-items: center; gap: 6px; }
-.counter span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--sm-dot, #B7BFBA); }
-.counter em { grid-column: 2; font-style: normal; font-size: 12px; }
-.topRight { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
 .allLink { font-size: 12px; color: var(--sm-band-ink); text-decoration: underline; text-underline-offset: 2px; }
 .allLink:hover { opacity: .85; }
 /* 표시 범위 전환(내 작업 | 전체) — 띠 위의 세그먼트 버튼 */
@@ -114,6 +105,10 @@
 .seatRight .chair { transform: scaleX(-1); }
 /* 글자·기호가 그려진 동작(? 말풍선 · zzz · REJECT 도장)은 되돌려 읽히게 둔다 — 마주보는 구도를 조금 잃는 대신 글자가 읽힌다. */
 .seatRight .chair [data-glyph="1"] { transform: scaleX(-1); }
+/* 머리 위 단계 말풍선(PhaseBadge) — 캐릭터 칸 위쪽 가장자리에 걸친다. 오른쪽 줄은 의자째 뒤집히므로 글자가 읽히게 되돌린다. */
+.phaseSlot { position: absolute; left: 50%; bottom: calc(50% + var(--sm-cell-h) / 2 - 16px); transform: translateX(-50%); z-index: 2; pointer-events: none; }
+.phaseSlot:empty { display: none; }
+.seatRight .chair .phaseSlot { transform: translateX(-50%) scaleX(-1); }
 
 /* 책상은 상자다 — 좌석을 고르는 버튼(.deskPick)과 결재 바(.seatOps)를 담는다.
    옛 판에서는 책상 자체가 버튼이어서 결재 버튼을 넣을 자리가 없었다. */
@@ -234,6 +229,8 @@
 .opMini[data-op="approve"] { color: var(--sm-standby); }
 .opMini[data-op="reject"], .opMini[data-op="rework"] { color: var(--sm-reject-bar); }
 .opMini[data-op="release"] { color: var(--sm-warn); }
+/* 이어서 시작 — 되살리는 동작이라 회수(경고색)와 다른 축으로 읽혀야 한다. */
+.opMini[data-op="resume"] { color: var(--sm-active); }
 .opMini[data-op="unapprove"] { color: var(--sm-ink-3); }
 .opMini:disabled { opacity: .42; cursor: not-allowed; }
 .opMini:disabled:hover { border-color: transparent; }
@@ -246,6 +243,7 @@
 .act[data-op="approve"] { color: var(--sm-standby); font-weight: 600; }
 .act[data-op="reject"], .act[data-op="rework"] { color: var(--sm-reject-bar); }
 .act[data-op="release"] { color: var(--sm-warn); }
+.act[data-op="resume"] { color: var(--sm-active); font-weight: 600; }
 .act[data-op="unapprove"] { color: var(--sm-ink-3); }
 .act:disabled { opacity: .42; cursor: not-allowed; }
 .act:disabled:hover { border-color: currentColor; color: inherit; }
@@ -303,3 +301,24 @@
   /* 책상은 이제 한 줄을 다 쓰므로 반려 표시를 왼쪽으로 통일한다. */
   .seatRight .desk[data-rejected="1"] { box-shadow: inset 5px 0 0 var(--sm-reject-bar); }
 }
+
+/* 공통 헤더(AgentFrame) 아래 밝은 줄로 내려온 조작부 — 다크 띠용 색을 밝은 배경용으로 다시 입힌다(2026-09-18).
+   .root 밖(ProjectPageShell pinned)에 놓이므로 --sm-* 대신 전역 토큰을 쓴다. 눌림은 aria-pressed 로만 가른다. */
+.toolsLight { --sm-band-ink: var(--color-ink); --sm-band-muted: var(--color-ink-muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: 1; justify-content: flex-end; }
+.toolsLight .viewSeg, .toolsLight .scope, .toolsLight .doneToggle { border-color: var(--color-line-strong); background: var(--color-surface); }
+.toolsLight .viewSeg button[aria-pressed="true"], .toolsLight .scope button[aria-pressed="true"], .toolsLight .doneToggle[aria-pressed="true"] { background: var(--color-brand-weak); color: var(--color-brand); }
+.toolsLight .viewSeg button:focus-visible, .toolsLight .scope button:focus-visible, .toolsLight .doneToggle:focus-visible { outline-color: var(--color-brand); }
+.toolsLight .allLink { color: var(--color-brand); }
+/* 보기 전환은 왼쪽에 고정한다 — 오른쪽 정렬이면 뒤따르는 '완료 포함'(평면도 전용)이 생기고 사라질 때마다
+   평면도|상태 레인|에이전트 버튼이 좌우로 밀린다(2026-09-18 사용자 지적). 나머지는 오른쪽 묶음으로. */
+.toolsLight .viewSeg { margin-right: auto; }
+.toolsLight .stamp { color: var(--color-ink-subtle); }
+.toolsLight .stampBad { color: var(--color-delayed); }
+/* 상태 레인 카드의 메타 줄 — 단계 칩 + 한 줄 요약 */
+.cardMeta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 에이전트 보기 말풍선(팀장 잔소리 · 팀원 보고) — 새 대사마다 아래에서 톡 튀어나온다. */
+/* 상태 레인 카드의 말풍선 줄 — 말하지 않을 때도 높이를 잡아 둔다(카드가 출렁이지 않게). */
+.cardSay { display: flex; align-items: center; min-width: 0; min-height: 28px; padding-left: 14px; }
+.chatPop { transform-origin: 50% 100%; animation: chatPop .32s cubic-bezier(.34, 1.56, .64, 1) both; }
+@keyframes chatPop { from { opacity: 0; transform: translateY(4px) scale(.85); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .chatPop { animation: none; } }

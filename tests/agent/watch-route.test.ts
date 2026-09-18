@@ -26,7 +26,7 @@ function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[
       b.upsert = (payload: unknown, opts: unknown) => { (calls[`${table}:upsert`] ??= []).push([payload, opts]); return b }
       b.delete = () => { (calls[`${table}:delete`] ??= []).push(true); return b }
       b.update = () => b
-      for (const k of ['eq', 'lt', 'in', 'limit', 'order']) b[k] = () => b
+      for (const k of ['eq', 'lt', 'in', 'limit', 'order', 'not']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
       return b
@@ -97,5 +97,44 @@ describe('POST /agent/watch', () => {
   it('403 insufficient_scope — work:read 만 있는 PAT', async () => {
     useAdmin(runnerQueues({ ...RUNNER, scopes: ['work:read'] }))
     expect((await post({ agent: 'a' })).status).toBe(403)
+  })
+})
+
+describe('POST /agent/watch — 재개 요청 전달(0099)', () => {
+  const ORDER = {
+    id: '44444444-4444-4444-8444-444444444441', project_id: P1, wbs_item_id: 'item-1',
+    claimed_by: 'claude-jji-mac', resume_requested_at: '2026-09-18T00:00:00.000Z', resume_requested_host: 'jji-mac',
+  }
+
+  it('내 신원이 점유한 멈춤 작업의 요청을 TSK 코드와 함께 싣는다', async () => {
+    useAdmin({
+      ...runnerQueues(),
+      agent_work_orders: [{ data: [ORDER] }],
+      wbs_items: [{ data: [{ id: 'item-1', code: 'TSK-04-02', name: '주문 상세' }] }],
+    })
+    const res = await post({ agent: 'hong/mbp/lead' })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.resume_requests).toEqual([{
+      order_id: ORDER.id, id8: '44444444', project_id: P1, wbs_item_id: 'item-1',
+      code: 'TSK-04-02', name: '주문 상세', host: 'jji-mac',
+      claimed_by: 'claude-jji-mac', requested_at: ORDER.resume_requested_at,
+    }])
+    expect(body.resume_requests_error).toBeUndefined()
+  })
+
+  it('요청이 없으면 빈 배열이다 — 항목 조회를 부르지 않는다', async () => {
+    useAdmin({ ...runnerQueues(), agent_work_orders: [{ data: [] }] })
+    const body = await (await post({ agent: 'a' })).json()
+    expect(body.resume_requests).toEqual([])
+  })
+
+  it('조회에 실패하면 빈 배열로 위장하지 않고 null 과 사유를 준다(에러 3원칙)', async () => {
+    useAdmin({ ...runnerQueues(), agent_work_orders: [{ data: null, error: { message: 'boom' } }] })
+    const res = await post({ agent: 'a' })
+    expect(res.status).toBe(200) // 존재 신호 자체는 기록됐다 — 팀장의 하트비트를 500 으로 끊지 않는다
+    const body = await res.json()
+    expect(body.resume_requests).toBeNull()
+    expect(body.resume_requests_error).toBe('재개 요청 조회에 실패했습니다.')
   })
 })

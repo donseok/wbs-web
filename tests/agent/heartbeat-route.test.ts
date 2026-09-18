@@ -69,6 +69,10 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     expect(upd.heartbeat_note).toBeNull()
     expect(upd.last_heartbeat_at).toBe(body.last_heartbeat_at)
     expect(upd.updated_at).toBe(body.last_heartbeat_at)
+    // 워커가 되살아나면 사람이 건 재개 요청(0099)은 같은 update 에서 해소된다.
+    expect(upd.resume_requested_at).toBeNull()
+    expect(upd.resume_requested_by).toBeNull()
+    expect(upd.resume_requested_host).toBeNull()
     expect(calls['agent_work_reports:insert']).toBeUndefined()
   })
   it('blocked 는 note 를 저장하고, phase 생략은 phase·note 를 null 로 둔다', async () => {
@@ -95,6 +99,21 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     useAdmin(okQueues()); expect((await post({ phase: 'build' })).status).toBe(400)
     useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'lunch' })).status).toBe(400)
     useAdmin(okQueues()); expect((await post({ agent: 'a', phase: 'blocked', note: 'x'.repeat(501) })).status).toBe(400)
+  })
+  it('model(0100) — 실리면 heartbeat_model 을 덮어쓰고, 생략하면 열을 건드리지 않는다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    expect((await post({ agent: 'hong/mbp/w1', phase: 'verify', model: ' haiku ' })).status).toBe(200)
+    expect((calls.agent_work_orders[0] as Record<string, unknown>).heartbeat_model).toBe('haiku')
+    const calls2: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls2)
+    await post({ agent: 'hong/mbp/w1', phase: 'blocked', note: '질문' })
+    expect(calls2.agent_work_orders[0] as Record<string, unknown>).not.toHaveProperty('heartbeat_model')
+  })
+  it('400 — 모델 이름 형식이 아니면 거부한다', async () => {
+    useAdmin(okQueues()); expect((await post({ agent: 'a', model: 'x'.repeat(65) })).status).toBe(400)
+    useAdmin(okQueues()); expect((await post({ agent: 'a', model: 'opus 4' })).status).toBe(400)
+    useAdmin(okQueues()); expect((await post({ agent: 'a', model: 42 })).status).toBe(400)
   })
   it('409 — claimed 가 아니면 touch 하지 않는다', async () => {
     const calls: Record<string, unknown[]> = {}

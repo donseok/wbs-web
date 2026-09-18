@@ -15,6 +15,58 @@ export const dynamic = 'force-dynamic'
 
 const AGENT_MAX = 120
 const STALE_ROW_MS = 7 * 24 * 3600_000
+/** 한 번에 실어 보내는 재개 요청 수 — 요청이 걸린 주문은 늘 소수다. */
+const RESUME_MAX = 50
+
+export interface ResumeRequest {
+  order_id: string; id8: string; project_id: string; wbs_item_id: string | null
+  code: string | null; name: string | null
+  /** 이어받아야 하는 PC. 팀장은 자기 host(watch 가 보내는 값과 같은 슬러그)와 맞을 때만 가져간다. */
+  host: string | null
+  claimed_by: string | null
+  requested_at: string
+}
+
+/**
+ * 내 신원이 점유한 주문 중 사람이 좌석표에서 「이어서 시작」을 누른 것(0099).
+ * 팀장은 매 기상마다 watch 를 부르므로 여기에 실으면 왕복이 늘지 않는다.
+ * 조회에 실패하면 빈 배열로 위장하지 않고 null 을 돌려준다 — 호출자는 "요청 없음"과 구별해야 한다.
+ */
+async function loadResumeRequests(
+  admin: ReturnType<typeof createAdminClient>, userId: string, projectId: string | null,
+): Promise<ResumeRequest[] | null> {
+  let q = admin
+    .from('agent_work_orders')
+    .select('id, project_id, wbs_item_id, claimed_by, resume_requested_at, resume_requested_host')
+    .eq('claimed_by_user_id', userId).eq('status', 'claimed')
+    .not('resume_requested_at', 'is', null)
+  if (projectId !== null) q = q.eq('project_id', projectId)
+  const { data, error } = await q.order('resume_requested_at', { ascending: true }).limit(RESUME_MAX)
+  if (error) { console.error('[agent-api] 재개 요청 조회 실패:', error.message); return null }
+  const rows = (data ?? []) as Array<{
+    id: string; project_id: string; wbs_item_id: string | null; claimed_by: string | null
+    resume_requested_at: string; resume_requested_host: string | null
+  }>
+  if (rows.length === 0) return []
+  // 팀장이 표로 보고할 때 TSK 코드가 있어야 사람이 어느 작업인지 안다 — 행이 소수라 한 번 더 읽는다.
+  const itemIds = [...new Set(rows.map(r => r.wbs_item_id).filter((x): x is string => x !== null))]
+  const labels = new Map<string, { code: string; name: string }>()
+  if (itemIds.length > 0) {
+    const { data: items, error: itemErr } = await admin.from('wbs_items').select('id, code, name').in('id', itemIds)
+    if (itemErr) { console.error('[agent-api] 재개 요청 항목 조회 실패:', itemErr.message); return null }
+    for (const it of (items ?? []) as Array<{ id: string; code: string; name: string }>) {
+      labels.set(it.id, { code: it.code, name: it.name })
+    }
+  }
+  return rows.map(r => {
+    const label = r.wbs_item_id ? labels.get(r.wbs_item_id) : undefined
+    return {
+      order_id: r.id, id8: r.id.slice(0, 8), project_id: r.project_id, wbs_item_id: r.wbs_item_id,
+      code: label?.code ?? null, name: label?.name ?? null,
+      host: r.resume_requested_host, claimed_by: r.claimed_by, requested_at: r.resume_requested_at,
+    }
+  })
+}
 
 function nonNegInt(v: unknown, name: string): number | null | { error: string } {
   if (v === undefined || v === null) return null
@@ -72,7 +124,14 @@ export async function POST(req: NextRequest) {
     const { error: gcErr } = await admin
       .from('agent_watchers').delete().lt('last_seen_at', new Date(now.getTime() - STALE_ROW_MS).toISOString())
     if (gcErr) console.error('[agent-api] watch 오래된 행 정리 실패:', gcErr.message)
-    return NextResponse.json({ ok: true, expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString() })
+    const resume = await loadResumeRequests(admin, principal.userId, projectId)
+    return NextResponse.json({
+      ok: true,
+      expires_at: new Date(now.getTime() + WATCHER_TTL_MS).toISOString(),
+      // 배열이면 그게 전부다. null 은 "조회에 실패했다"이며 "요청이 없다"가 아니다(에러 3원칙).
+      resume_requests: resume,
+      ...(resume === null ? { resume_requests_error: '재개 요청 조회에 실패했습니다.' } : {}),
+    })
   } catch (e) {
     console.error('[agent-api] watch 처리 실패:', e instanceof Error ? e.message : e)
     return apiInternalError()

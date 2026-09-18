@@ -2,11 +2,12 @@
 'use client'
 import type { Seat } from '@/lib/domain/seatmap'
 import { opsFor, type SeatOpKind } from './seatOps'
-import { IconApprove, IconReject, IconRelease, IconRework, IconUnapprove } from './icons'
+import { IconApprove, IconReject, IconRelease, IconResume, IconRework, IconUnapprove } from './icons'
 import css from './seatmap.module.css'
 
 const OP_ICON: Record<SeatOpKind, () => React.JSX.Element> = {
   approve: IconApprove, reject: IconReject, unapprove: IconUnapprove, rework: IconRework, release: IconRelease,
+  resume: IconResume,
 }
 
 export interface SeatOpHandler {

@@ -40,6 +40,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 
 - 로컬 `docs/tasks/<TSK>/state.json`:
   `{ "tsk", "order", "api_base", "phase", "baseline": {"failures": N, "tests": M}, "last": {"phase","event"} }`
+  `model`(선택)은 **지금 도는 Phase 서브에이전트의 모델**이다(아래 Phase 02~05). heartbeat 훅이 이 값을 서버로 실어
+  좌석표 에이전트 보기의 명찰·등급(Fable·Opus·Sonnet·Haiku …)이 Phase 마다 바뀐다(2026-09-18, 0100).
   `phase` 값: `design`·`build`·`verify`·`refactor`·`reported`·**`rejected`**·`merged`.
   `rejected` 는 서버가 반려를 통지한 상태다 — 승인 대기(reported)와 구분해야 스윕이 헛돌지 않는다.
   **`order` 는 전체 UUID(하이픈 포함 36자)로 기록한다 — id8 금지.** 주문이 approved 가 되면
@@ -211,6 +213,12 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 이름이 있어야 게이트 판정 뒤 `TaskStop(task_id: "<그 이름>")` 으로 회수할 수 있다(아래 3번).
 Phase 마다 모델이 다르므로(dev-discipline 모델 배정표) **하나의 에이전트를 4 Phase 가 돌려쓰지
 않는다** — 에이전트 모델은 spawn 시점에 고정된다.
+
+**띄우기 직전에 state.json 의 `model` 을 그 서브에이전트의 모델로 쓴다** — Agent 도구에 넘기는 값 그대로
+(`opus`·`sonnet`·`haiku`, 전체 id 를 넘겼으면 그 id). 커밋은 하지 않는다(다음 Phase 산출물 커밋에 같이 실린다).
+Verify 재시도로 sonnet 승격하면 다시 쓴다. 훅이 60초 안에 새 값을 실어 보내 명찰이 바뀐다 — 빠뜨리면
+좌석표가 이전 Phase 의 모델을 계속 보인다. 서브에이전트 없이 오케스트레이터가 직접 하는 단계(Phase 01·06)는
+`model` 을 지우지 않는다(마지막 Phase 의 값이 남는 것이 "누가 일했나"에 가깝다).
 
 공통 프롬프트에 반드시 포함:
 `docs/tasks/<TSK>/spec.md` + **design.md (Build 이후 Phase)** + **기준선 수치** + Phase 지시 +

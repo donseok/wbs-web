@@ -2,15 +2,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import type { Seat, Seatmap, SeatmapScope } from '@/lib/domain/seatmap'
+import { seatmapChannelProjectIds } from '@/lib/domain/seatmap'
 import { refreshSeatmap } from '@/app/actions/agentSeatmap'
 import { runHubProcessOp, type HubProcessOp } from '@/app/actions/agentHub'
-import { Counters } from './Counters'
+import { OfficeNav } from './OfficeNav'
 import { AttentionBand } from './AttentionBand'
 import { FloorCard } from './FloorCard'
 import { LaneBoard } from './LaneBoard'
 import { DetailPanel, type NoteDraft } from './DetailPanel'
 import { opSpec, type SeatOpKind } from './seatOps'
-import { IconApprove, IconFloorView, IconLaneView } from './icons'
+import { SeatmapRealtime } from './SeatmapRealtime'
+import { IconAgentView, IconApprove, IconChat, IconFloorView, IconLaneView } from './icons'
+import { OfficeChatterContext } from './SeatSpeech'
+import { RosterBoard, rosterHero, useRoster } from './RosterBoard'
+import { AgentFrame, type HeroTile } from '@/components/agent-hub/AgentFrame'
 import css from './seatmap.module.css'
 
 function findSeat(map: Seatmap, orderId: string | null): { seat: Seat; floorName: string; zoneLabel: string } | null {
@@ -23,15 +28,18 @@ function findSeat(map: Seatmap, orderId: string | null): { seat: Seat; floorName
 
 const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ko-KR', { hour12: false, timeZone: 'Asia/Seoul' })
 
-type OfficeView = 'floor' | 'lane'
+/** 평면도(지켜보는 화면) · 상태 레인(처리하는 화면) · 에이전트(누가 어느 PC 어느 자리에서 일하는가, 2026-09-18). */
+type OfficeView = 'floor' | 'lane' | 'agent'
 const VIEW_KEY = 'dflow.office.view'
 /** '완료 포함' — 평면도에 머지 완료(최근 7일) 좌석까지 그릴지. 보기와 같이 이 브라우저에만 기억한다. */
 const DONE_KEY = 'dflow.office.done'
+/** 잡담 켬/끔 — 끈 사람만 '0' 을 남긴다. 값이 없으면 켬(토글이 생기기 전 동작). */
+const CHATTER_KEY = 'dflow.office.chatter'
 
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
  *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다.
  *  보기는 둘이다 — 평면도(지켜보는 화면, 기본)와 상태 레인(처리하는 화면). 결재는 두 보기에서 모두 좌석에 붙는다. */
-export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: Seatmap; pollMs?: number; projectId?: string }) {
+export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }: { initial: Seatmap; pollMs?: number; projectId?: string; projectName?: string }) {
   const [map, setMap] = useState(initial)
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -40,6 +48,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
   // 기본은 평면도다. 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
   const [view, setView] = useState<OfficeView>('floor')
   const [withDone, setWithDone] = useState(false)
+  const [chatter, setChatter] = useState(true)
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
   const [note, setNote] = useState<NoteDraft | null>(null)
   const [opError, setOpError] = useState<string | null>(null)
@@ -52,20 +61,32 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(VIEW_KEY)
-      if (saved === 'lane' || saved === 'floor') setView(saved)
+      if (saved === 'lane' || saved === 'floor' || saved === 'agent') setView(saved)
       if (window.localStorage.getItem(DONE_KEY) === '1') setWithDone(true)
+      if (window.localStorage.getItem(CHATTER_KEY) === '0') setChatter(false)
     } catch { /* 값이 없거나 접근이 막혀도 평면도로 그린다 */ }
   }, [])
   const pickView = useCallback((next: OfficeView) => {
     setView(next)
     try { window.localStorage.setItem(VIEW_KEY, next) } catch { /* 기억하지 못해도 화면은 돈다 */ }
   }, [])
+  // 층 순서가 폴링마다 바뀌어도 구독을 다시 맺지 않도록 문자열 키로 고정한다.
+  const channelKey = seatmapChannelProjectIds(map, projectId).join(',')
+  const channelIds = useMemo(() => (channelKey ? channelKey.split(',') : []), [channelKey])
   /** 층별 doneCount 의 합 — 토글 라벨과 안내 문구가 같은 수를 쓴다. */
   const doneTotal = map.floors.reduce((n, f) => n + f.doneCount, 0)
   const toggleDone = useCallback(() => {
     setWithDone(prev => {
       const next = !prev
       try { window.localStorage.setItem(DONE_KEY, next ? '1' : '0') } catch { /* 기억하지 못해도 화면은 돈다 */ }
+      return next
+    })
+  }, [])
+
+  const toggleChatter = useCallback(() => {
+    setChatter(prev => {
+      const next = !prev
+      try { window.localStorage.setItem(CHATTER_KEY, next ? '1' : '0') } catch { /* 기억하지 못해도 화면은 돈다 */ }
       return next
     })
   }, [])
@@ -158,35 +179,47 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
     return () => document.removeEventListener('keydown', onKey)
   }, [sel === null, closeDetail]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return (
-    <div className={css.root}>
-      <header className={css.top}>
-        <Counters counters={map.counters} />
-        <div className={css.topRight}>
-          {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
-          <div className={css.viewSeg} role="group" aria-label="보기">
-            <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
-            <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
-          </div>
-          {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 승인분을 안고 있다. */}
-          {view === 'floor' && (
-            <button type="button" className={css.doneToggle} data-done-toggle aria-pressed={withDone}
-              title="머지 완료(최근 7일) 좌석을 평면도에 함께 그립니다. 승인 취소·재작업 요청을 그 자리에서 할 수 있습니다."
-              onClick={toggleDone}>
-              <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
-            </button>
-          )}
-          <div className={css.scope} role="group" aria-label="표시 범위">
-            <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine', true) }}>내 작업</button>
-            <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all', true) }}>전체</button>
-          </div>
-          <div className={`${css.stamp} ${error ? css.stampBad : ''}`}>
-            {error ? <span data-error="">갱신 실패 {hhmmss(error.at)} · {error.message}</span> : <span>갱신 {hhmmss(map.fetchedAt)}</span>}
-          </div>
-        </div>
-      </header>
+  // 에이전트 보기 재료 — 훅이라 보기와 무관하게 늘 부른다(좌석표가 바뀔 때만 다시 묶는다).
+  const roster = useRoster(map)
+  const tools = (
+    <>
+      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
+      <div className={css.viewSeg} role="group" aria-label="보기">
+        <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
+        <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
+        <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
+      </div>
+      {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 안고 있고, 에이전트 보기는 좌석이 아니다.
+          보기 전환은 조작 줄 왼쪽에 고정돼(.toolsLight) 이 버튼이 빠져도 밀리지 않는다. */}
+      {view === 'floor' && (
+        <button type="button" className={css.doneToggle} data-done-toggle aria-pressed={withDone}
+          title="머지 완료(최근 7일) 좌석을 평면도에 함께 그립니다. 승인 취소·재작업 요청을 그 자리에서 할 수 있습니다."
+          onClick={toggleDone}>
+          <IconApprove />완료 포함{doneTotal > 0 ? ` ${doneTotal}` : ''}
+        </button>
+      )}
+      {/* 잡담은 세 보기 모두에 말풍선이 있어 늘 보인다. 꺼도 팀원 보고·단계 말풍선(업무)은 남는다. */}
+      <button type="button" className={css.doneToggle} data-chatter-toggle aria-pressed={chatter}
+        title={chatter
+          ? '잡담 켬 — 팀장 잔소리·혼잣말과 팀원 한마디까지 말풍선으로 띄웁니다. 누르면 업무 말풍선(보고·단계)만 남습니다.'
+          : '잡담 끔 — 업무 말풍선(보고·단계)만 띄웁니다. 누르면 팀장 잔소리·혼잣말과 팀원 한마디가 돌아옵니다.'}
+        onClick={toggleChatter}>
+        <IconChat />잡담 {chatter ? '켬' : '끔'}
+      </button>
+      <div className={css.scope} role="group" aria-label="표시 범위">
+        <button type="button" aria-pressed={scope === 'mine'} onClick={() => { void refresh('mine', true) }}>내 작업</button>
+        <button type="button" aria-pressed={scope === 'all'} onClick={() => { void refresh('all', true) }}>전체</button>
+      </div>
+      <div className={`${css.stamp} ${error ? css.stampBad : ''}`}>
+        {error ? <span data-error="">갱신 실패 {hhmmss(error.at)} · {error.message}</span> : <span>갱신 {hhmmss(map.fetchedAt)}</span>}
+      </div>
+    </>
+  )
+  const body = (
+    <>
       <AttentionBand items={map.attention} onSelect={setSelected} />
       <main className={css.stage}>
+        {view === 'agent' ? <RosterBoard roster={roster} nowMs={nowMs} /> : (
         <section className={css.floors} data-view={view} aria-label={view === 'floor' ? '프로젝트별 좌석' : '상태별 좌석'}>
           {map.floors.length === 0 && (projectId !== undefined
             ? (map.scope === 'mine'
@@ -213,6 +246,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
             </p>
           )}
         </section>
+        )}
       </main>
       {/* 상세와 결재는 떠 있는 카드로 — 뒤 화면을 가리지 않는다(어두운 백드롭 없음). 좌석 무대가
           그대로 보이는 채로 고른 좌석의 상세만 위로 올라온다. 카드 디자인은 옛 오른쪽 패널 그대로다.
@@ -232,7 +266,8 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
           </div>
         </div>
       )}
-      <footer className={css.legend}>
+      {/* 범례는 좌석 색 설명이라 평면도·상태 레인에서만 — 에이전트 보기는 책상마다 상태 이름을 적는다. */}
+      {view !== 'agent' && <footer className={css.legend}>
         <ul>
           <li><i className={css.sw} style={{ background: 'var(--sm-active)' }} />업무 중(신호 5분 이내)</li>
           <li><i className={css.sw} style={{ background: 'var(--sm-active)', borderColor: 'var(--sm-warn)' }} />무응답 5분 초과</li>
@@ -243,7 +278,38 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId }: { initial: 
           <li><i className={css.sw} style={{ borderStyle: 'dashed' }} />빈자리</li>
         </ul>
         <p>프로젝트가 층, 주문 항목의 부모 항목이 구역, 작업 주문 하나가 책상입니다. 의자의 인물은 그 주문을 잡은 에이전트(슬롯)이며 같은 에이전트는 늘 같은 인물입니다. 신호는 PostToolUse 훅의 heartbeat(60초 절제)와 progress 보고입니다. 승인·반려·승인 취소·재작업 요청·회수는 좌석에서 바로 하며, 반려와 재작업 요청은 사유를 적어야 확정됩니다.</p>
-      </footer>
-    </div>
+      </footer>}
+    </>
+  )
+  const realtime = <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
+
+  // 두 오피스 모두 에이전트 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
+  // 프로젝트 오피스는 헤더에 위임·승인|가상 오피스 탭을, 전체 오피스(/agents)는 층(프로젝트) 칩을 단다(2026-09-18).
+  const c = map.counters
+  const officeTiles: HeroTile[] = [
+    { key: 'active', label: '업무 중', value: c.active, color: '#5DB1E5' },
+    { key: 'idle', label: '승인 대기', value: c.idle, color: '#F0B068' },
+    { key: 'offline', label: '빈자리·끊김', value: c.offline, color: '#6b7580', valueColor: '#b7bfba' },
+    // 감시 중은 좌석이 아니라 감시자 수 — 다른 축이라 막대에서 뺀다.
+    { key: 'standby', label: '감시 중', value: c.standby, color: '#3F8F58', valueColor: '#7fd29a', bar: false },
+  ]
+  const attention = map.attention.length > 0 && <> <em>{map.attention.length}건이 확인을 기다립니다.</em></>
+  const officeLede = projectId !== undefined
+    ? <>에이전트 <b>{c.active}명</b>이 이 층에서 일하고 있습니다.{attention}</>
+    : <>에이전트 <b>{c.active}명</b>이 <b>{map.floors.length}개 층</b>에서 일하고 있습니다.{attention}</>
+  // 에이전트 보기는 헤더도 자리 기준 숫자로 바꾼다(작업 PC · 결정 대기 · 무응답 · 끊김 · 빈자리).
+  const hero = view === 'agent' ? rosterHero(roster) : { tiles: officeTiles, lede: officeLede }
+  const floorsNav = map.floors.map(f => ({ id: f.id, name: f.name }))
+  return (
+    <AgentFrame
+      {...(projectId !== undefined ? { projectId } : { nav: tone => <OfficeNav floors={floorsNav} tone={tone} /> })}
+      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '가상 오피스' : '가상 오피스 · 전체'}
+      lede={hero.lede} tiles={hero.tiles}
+      tools={<div className={css.toolsLight}>{tools}</div>}>
+      <div className={css.root}>
+        {realtime}
+        <OfficeChatterContext.Provider value={chatter}>{body}</OfficeChatterContext.Provider>
+      </div>
+    </AgentFrame>
   )
 }

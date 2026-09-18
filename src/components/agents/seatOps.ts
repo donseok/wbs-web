@@ -3,11 +3,12 @@
 // 자격은 서버 로더와 같은 축이다(src/app/actions/agentWork.ts):
 //   · approve · release → loadOrderForAdmin / release 분기 = 관리자 또는 서브트리 관리자
 //   · reject · unapprove · rework → loadOrderForReview = 관리자 · 리프 담당자 본인 · 서브트리 관리자
+//   · resume → release 와 같은 분기(관리자 또는 서브트리 관리자) — 남의 PC 러너를 되살리는 관리 행위다.
 // 여기서 막는 것은 어포던스일 뿐이고 최종 판정은 서버가 한다(fail-closed는 서버 쪽).
 import type { Seat } from '@/lib/domain/seatmap'
 import type { SeatState } from '@/lib/domain/seatState'
 
-export type SeatOpKind = 'approve' | 'reject' | 'unapprove' | 'rework' | 'release'
+export type SeatOpKind = 'approve' | 'reject' | 'unapprove' | 'rework' | 'release' | 'resume'
 
 export interface SeatOpSpec {
   kind: SeatOpKind
@@ -40,15 +41,23 @@ const SPEC: Record<SeatOpKind, SeatOpSpec> = {
     kind: 'release', label: '회수', needsNote: false, assigneeMayDo: false,
     title: '점유를 풀어 대기(미착수)로 되돌립니다. 러너는 다음 신호에서 409 를 받고 멈춥니다(최대 60초쯤 더 돕니다)',
   },
+  resume: {
+    kind: 'resume', label: '이어서 시작', needsNote: false, assigneeMayDo: false,
+    title: '멈춘 작업을 이어받아 달라고 팀장에게 요청합니다 — 점유는 그대로 두므로 그 PC 의 워크트리(커밋·미커밋 산출물)가 살아 있습니다',
+  },
 }
+
+/** 요청이 이미 걸려 있을 때 버튼에 다는 설명 — 같은 버튼을 반복해서 누르지 않도록. */
+export const RESUME_PENDING = '재개 요청됨(대기 중) — 팀장이 다음 기상(최대 30분)에 가져갑니다'
 
 /** 상태마다 뜨는 op. 버튼 다섯 개를 한 줄에 놓는 설계는 실물과 맞지 않는다. */
 const BY_STATE: Record<SeatState, readonly SeatOpKind[]> = {
   WAIT: ['approve', 'reject'],
   DONE: ['unapprove', 'rework'],
   ACTIVE: ['release'],
-  STALE: ['release'],
-  OFFLINE: ['release'],
+  // 무응답·끊김만 재개 대상이다 — BLOCKED·REJECTED 의 러너는 살아서 사람의 답을 기다리는 중이라 되살릴 것이 없다.
+  STALE: ['resume', 'release'],
+  OFFLINE: ['resume', 'release'],
   BLOCKED: ['release'],
   REJECTED: ['release'],
   READY: [],
@@ -61,10 +70,16 @@ export function mayRun(seat: Pick<Seat, 'canManage' | 'assigneeMine'>, spec: Sea
   return seat.canManage || (spec.assigneeMayDo && seat.assigneeMine)
 }
 
+/** 좌석 어포던스가 보는 최소 모양 — 재개 요청 표식까지 읽는다. */
+export type SeatOpsInput = Pick<Seat, 'state' | 'canManage' | 'assigneeMine'> & { resumeRequestedAt?: string | null }
+
 /** 이 좌석에 그릴 결재 버튼 — 자격이 없는 것도 이유를 달아 비활성으로 남긴다(왜 못 누르는지 보여야 한다). */
-export function opsFor(seat: Pick<Seat, 'state' | 'canManage' | 'assigneeMine'>): Array<{ spec: SeatOpSpec; allowed: boolean; why: string }> {
+export function opsFor(seat: SeatOpsInput): Array<{ spec: SeatOpSpec; allowed: boolean; why: string }> {
+  const pending = seat.resumeRequestedAt != null
   return BY_STATE[seat.state].map(kind => {
     const spec = SPEC[kind]
+    // 요청이 이미 걸린 좌석의 재개 버튼은 자격이 있어도 잠근다 — 눌러 봐야 같은 값을 덮어쓸 뿐이다.
+    if (kind === 'resume' && pending) return { spec, allowed: false, why: RESUME_PENDING }
     const allowed = mayRun(seat, spec)
     return { spec, allowed, why: allowed ? spec.title : (spec.assigneeMayDo ? ERR_NO_RIGHT_REVIEW : ERR_NO_RIGHT) }
   })

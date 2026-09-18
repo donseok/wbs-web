@@ -14,6 +14,8 @@ export const dynamic = 'force-dynamic'
 
 const AGENT_MAX = 120
 const NOTE_MAX = 500
+/** 실행 모델(0100) — 모델 id 나 별칭(opus · claude-opus-4-8 · gpt-5-codex …). 공백·제어문자 없이 64자. */
+const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,63}$/
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
@@ -29,6 +31,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
   const note = typeof b.note === 'string' ? b.note.trim() : ''
   if (note.length > NOTE_MAX) return apiBadRequest(`note 는 ${NOTE_MAX}자 이하여야 합니다.`)
+  // model 은 선택이다 — 생략하면 열을 건드리지 않는다(사람이 부르는 blocked heartbeat 가 모델을 지우지 않게).
+  const model = b.model === undefined || b.model === null || b.model === '' ? null : b.model
+  if (model !== null && (typeof model !== 'string' || !MODEL_RE.test(model.trim()))) {
+    return apiBadRequest('model 은 영숫자로 시작하는 64자 이하 모델 이름이어야 합니다.')
+  }
 
   try {
     const admin = createAdminClient()
@@ -58,6 +65,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .update({
         last_heartbeat_at: now, updated_at: now, heartbeat_agent: agent,
         heartbeat_phase: phase, heartbeat_note: phase === 'blocked' && note ? note : null,
+        // 재개 요청(0099)은 워커가 다시 숨을 쉬면 해소된다 — 사람이 따로 지우지 않아도
+        // 좌석의 「재개 요청됨」 표시와 팀장 watch 목록에서 같이 사라진다.
+        resume_requested_at: null, resume_requested_by: null, resume_requested_host: null,
+        // 에이전트 보기 명찰(0100) — Phase 서브에이전트의 모델. 실린 때만 덮어쓴다.
+        ...(model !== null ? { heartbeat_model: (model as string).trim() } : {}),
       })
       .eq('id', id).eq('status', 'claimed')
       .select('id')

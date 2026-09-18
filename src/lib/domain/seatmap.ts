@@ -10,15 +10,25 @@ export interface OrderRow {
   claimed_by: string | null; claimed_by_user_id: string | null; claimed_at: string | null
   created_at: string; updated_at: string
   last_heartbeat_at: string | null; heartbeat_phase: string | null; heartbeat_agent: string | null; heartbeat_note: string | null
+  /** 사람이 「이어서 시작」을 누른 시각(0099). 워커가 다시 heartbeat 를 보내면 서버가 비운다. */
+  resume_requested_at?: string | null
+  /** 이어받을 PC 슬러그 — claimed_by 에서 서버가 파생한다. 화면은 누가 가져갈 자리인지 보여줄 때만 쓴다. */
+  resume_requested_host?: string | null
+  /** 마지막 heartbeat 가 말한 실행 모델(0100). last_heartbeat_at 이 null 이면(재위임으로 비워진 행) 무효. */
+  heartbeat_model?: string | null
 }
 export interface ItemRow {
   id: string; project_id: string; code: string; name: string; parent_id: string | null; actual_pct: number | null; assignee_member_id: string | null; tags: string[] | null
   /** 선행 external_ref 배열(0077) — 주문 항목 행에만 싣는다. 부모 행은 구역 라벨만 쓰므로 없어도 된다. */
   depends?: string[] | null
+  /** 항목에 지정된 모델(0077, import 스펙의 model) — 에이전트가 실제로 도는 모델은 아직 보고되지 않는다. */
+  model?: string | null
 }
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
 export interface ReviewRow { work_order_id: string; review_action: 'approve' | 'reject' | null; review_note: string | null; created_at: string }
+/** 에이전트 보기의 보고 말풍선 재료 — 점유·보고 중 주문의 최근 보고 행(progress · completion). */
+export interface ReportRow { work_order_id: string; kind: 'progress' | 'completion'; summary: string; created_at: string }
 export interface WatcherRow {
   id: string; user_id: string; project_id: string | null; agent: string; host: string | null
   slots: number | null; busy: number | null; until_label: string | null; last_seen_at: string
@@ -31,6 +41,8 @@ export interface PredecessorRow extends PredecessorLike { id: string; project_id
 export interface SeatmapRows {
   orders: OrderRow[]; items: ItemRow[]; parents: ItemRow[]; reviews: ReviewRow[]; watchers: WatcherRow[]; projects: ProjectRow[]
   members: MemberRow[]; predecessors: PredecessorRow[]
+  /** 최근 보고(없으면 말풍선 없음). 옛 호출부·시험이 비워 둘 수 있게 선택 필드다. */
+  reports?: ReportRow[]
 }
 
 export interface Seat {
@@ -39,6 +51,10 @@ export interface Seat {
   agent: string | null; progress: number
   lastSignalAt: string | null; heartbeatAt: string | null; heartbeatPhase: string | null
   note: string | null; rejected: boolean; reviewNote: string | null
+  /** 재개 요청이 걸린 시각. null 이면 아직 아무도 누르지 않았다(0099). */
+  resumeRequestedAt: string | null
+  /** 그 요청을 이어받아야 하는 PC. 그 워크트리가 있는 PC 만 실제로 복구할 수 있다. */
+  resumeRequestedHost: string | null
   /** READY(빈자리)만 값 — 왜 아직 안 집어갔는지(스펙 2026-09-14 착수 대기 사유 §1). 나머지 상태는 null. */
   waitReason: WaitReason | null
   /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·회수 어포던스. 서버 가드
@@ -46,6 +62,12 @@ export interface Seat {
   canManage: boolean
   /** 이 항목의 담당자가 나 — 반려·승인 취소·재작업은 담당자 본인도 할 수 있다(허브 §11 과 같은 규칙). */
   assigneeMine: boolean
+  /** 명찰 모델 — 실행 모델(heartbeat)이 있으면 그것, 없으면 항목에 지정된 모델. 둘 다 없으면 null. */
+  model?: string | null
+  /** model 의 출처 — run = 지금 도는 Phase 서브에이전트, plan = WBS 항목 지정값. */
+  modelSource?: 'run' | 'plan' | null
+  /** 이 주문의 마지막 보고(점유·보고 중일 때만). 에이전트 보기가 팀원 말풍선으로 띄운다. */
+  lastReport?: { kind: 'progress' | 'completion'; summary: string; at: string } | null
 }
 export interface Zone { key: string; code: string; name: string; seats: Seat[]; summary: { work: number; wait: number; ready: number; done: number } }
 export interface Watcher { agent: string; host: string | null; slots: number | null; busy: number | null; untilLabel: string | null; lastSeenAt: string; projectId: string | null }
@@ -106,6 +128,16 @@ export function ageLabel(fromIso: string | null, nowMs: number): string {
   return `${Math.floor(sec / 3600)}시간 ${Math.floor((sec % 3600) / 60)}분 전`
 }
 
+/** 주문별 가장 늦은 보고 행. */
+function latestReportByOrder(reports: ReportRow[]): Map<string, ReportRow> {
+  const out = new Map<string, ReportRow>()
+  for (const r of reports) {
+    const cur = out.get(r.work_order_id)
+    if (!cur || Date.parse(r.created_at) > Date.parse(cur.created_at)) out.set(r.work_order_id, r)
+  }
+  return out
+}
+
 /** 주문별 마지막 completion 보고(가장 늦은 created_at). */
 function latestReviewByOrder(reviews: ReviewRow[]): Map<string, ReviewRow> {
   const out = new Map<string, ReviewRow>()
@@ -116,7 +148,7 @@ function latestReviewByOrder(reviews: ReviewRow[]): Map<string, ReviewRow> {
   return out
 }
 
-function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }): Seat {
+function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | undefined, nowMs: number, rights: { canManage: boolean; assigneeMine: boolean }, report?: ReportRow): Seat {
   const input = {
     status: o.status, lastHeartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     updatedAt: o.updated_at, lastReview: review?.review_action ?? null, actualPct: item?.actual_pct ?? null,
@@ -136,16 +168,34 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     lastSignalAt: o.status === 'claimed' ? signal : null,
     heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
+    // 표식은 점유 중인 주문에서만 뜻이 있다 — 회수·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
+    resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
+    resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
     waitReason: null,
     canManage: rights.canManage, assigneeMine: rights.assigneeMine,
+    ...pickModel(o, item),
+    // 점유·보고 중인 주문만 — 승인·회수로 떠난 주문의 옛 보고를 말풍선으로 되살리지 않는다.
+    lastReport: report && (o.status === 'claimed' || o.status === 'reported') && report.summary.trim()
+      ? { kind: report.kind, summary: report.summary.trim(), at: report.created_at }
+      : null,
   }
+}
+
+/** 명찰 모델 — 점유 중이고 heartbeat 가 살아 있는 행의 실행 모델이 우선, 없으면 항목 지정 모델. */
+function pickModel(o: OrderRow, item: ItemRow | undefined): { model: string | null; modelSource: 'run' | 'plan' | null } {
+  const run = o.status === 'claimed' && o.last_heartbeat_at ? o.heartbeat_model?.trim() : ''
+  if (run) return { model: run, modelSource: 'run' }
+  const plan = item?.model?.trim()
+  return plan ? { model: plan, modelSource: 'plan' } : { model: null, modelSource: null }
 }
 
 function attentionWhy(s: Seat, nowMs: number): string {
   if (s.state === 'BLOCKED') return s.note ?? '결정 필요'
-  if (s.state === 'STALE') return `무응답 ${ageLabel(s.lastSignalAt, nowMs)}`
-  if (s.state === 'OFFLINE') return `끊김 ${ageLabel(s.lastSignalAt, nowMs)}`
+  // 재개 요청이 걸렸으면 사람이 할 일은 끝났다는 것까지 밴드에서 읽혀야 한다(다시 누르지 않도록).
+  const resume = s.resumeRequestedAt ? ' · 재개 요청됨' : ''
+  if (s.state === 'STALE') return `무응답 ${ageLabel(s.lastSignalAt, nowMs)}${resume}`
+  if (s.state === 'OFFLINE') return `끊김 ${ageLabel(s.lastSignalAt, nowMs)}${resume}`
   return s.reviewNote ? `반려 · ${s.reviewNote}` : '반려 · 재작업'
 }
 
@@ -166,6 +216,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const itemById = new Map(rows.items.map(i => [i.id, i]))
   const parentById = new Map(rows.parents.map(p => [p.id, p]))
   const reviewByOrder = latestReviewByOrder(rows.reviews)
+  const reportByOrder = latestReportByOrder(rows.reports ?? [])
   const projectName = new Map(rows.projects.map(p => [p.id, p.name]))
 
   // 결재 어포던스 재료 — 조상 사슬은 items + parents 합집합이다(데이터층이 parents 를 조상 전체로 싣는다).
@@ -191,7 +242,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         || (item !== undefined && isSubtreeManagerOf(item.id, ancestorById, myMemberIds)),
       assigneeMine: item?.assignee_member_id != null && myMemberIds.has(item.assignee_member_id),
     }
-    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights)
+    const seat = toSeat(o, item, reviewByOrder.get(o.id), nowMs, rights, reportByOrder.get(o.id))
     if (seat.state === 'READY' && item) {
       const m = item.assignee_member_id ? memberById.get(item.assignee_member_id) : undefined
       seat.waitReason = deriveWaitReason({
@@ -254,3 +305,14 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
 
   return { floors, counters, attention, fetchedAt: new Date(nowMs).toISOString(), scope: mine ? 'mine' : 'all' }
 }
+
+/**
+ * 좌석표가 들어야 할 실시간 채널의 프로젝트 — 프로젝트 오피스면 그 하나, 전체 오피스면 지금 층으로 그린
+ * 프로젝트들. 층이 없는 프로젝트는 듣지 않는다: 첫 주문이 생기는 변화는 30초 폴링이 잡는다.
+ * 정렬해 돌려주는 이유: 폴링마다 층 순서가 바뀌어도 구독을 다시 맺지 않게 한다.
+ */
+export function seatmapChannelProjectIds(map: Pick<Seatmap, 'floors'>, projectId?: string): string[] {
+  if (projectId) return [projectId]
+  return [...new Set(map.floors.map(f => f.id))].sort()
+}
+

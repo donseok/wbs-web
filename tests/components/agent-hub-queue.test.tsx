@@ -112,11 +112,10 @@ describe('ApprovalQueue — 처리는 runHubProcessOp 1건, 응답의 허브로 
 })
 
 describe('HubStatusBar', () => {
-  const base = { projectId: 'p1', counters: { delegated: 3, ready: 1, working: 1, waiting: 1 }, watchers: [], onChanged: () => {} }
-  it('카운터 4개와 켜짐 배지, 관리자에게 토글', () => {
+  const base = { projectId: 'p1', watchers: [], onChanged: () => {} }
+  it('켜짐 배지와 감시자, 관리자에게 토글 — 카운터는 공통 헤더 타일로 올라갔다(2026-09-18)', () => {
     act(() => root.render(<HubStatusBar {...base} registered enabled isAdmin watchers={[{ agent: 'hong/mbp', host: 'mbp', slots: 2, busy: 1, untilLabel: '18:00', lastSeenAt: '2026-09-14T08:59:00Z', projectId: 'p1' }]} />))
-    expect(host.querySelector('[data-hub-counter="delegated"]')?.textContent).toBe('3')
-    expect(host.querySelector('[data-hub-counter="waiting"]')?.textContent).toBe('1')
+    expect(host.querySelector('[data-hub-counter]')).toBeNull()
     expect(host.textContent).toContain('hong/mbp 1/2 ~18:00')
     expect(host.querySelector('button')).not.toBeNull()
     expect((host.querySelector('a[href="/account"]') as HTMLAnchorElement).textContent).toContain('내 토큰')
