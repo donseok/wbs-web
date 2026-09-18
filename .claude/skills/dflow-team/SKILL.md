@@ -208,17 +208,19 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 
 ## 0. 환경 감지 (시작 맨 처음)
 
-백엔드는 tmux 를 **먼저** 보고, 없으면 Orca 를 본다. `TMUX` 환경변수는 감지에 쓰지 않는다. 전용 소켓을 쓰므로
-팀장이 tmux 안인지가 무의미하고, Orca 안에서도 `TMUX` 가 채워져 오진의 근원이었기 때문이다.
+백엔드는 Orca 를 **먼저** 보고, Orca 안이 아니면 tmux 를 본다. 이유: Orca 안에서 띄운 팀장은 팀원을 Orca 탭으로
+띄워야 사람이 같은 화면에서 팀원을 보고 답할 수 있다. tmux 는 Orca 밖(터미널)에서 띄운 팀장의 백엔드다.
+`TMUX` 환경변수는 감지에 쓰지 않는다. 전용 소켓을 쓰므로 팀장이 tmux 안인지가 무의미하고, Orca 안에서도
+`TMUX` 가 채워져 오진의 근원이었기 때문이다.
 
 | 순위 | 조건 | 백엔드 |
 |---|---|---|
-| 1 | `find_tmux`(backends.md 「진짜 tmux 찾기」)가 진짜 tmux 절대경로를 돌려준다 | **pane(tmux)** |
-| 2 | 못 찾았고 `TERM_PROGRAM` 이 `Orca` 이거나 `ORCA_WORKTREE_ID` 가 비어 있지 않다 | pane(Orca) |
+| 1 | `TERM_PROGRAM` 이 `Orca` 이거나 `ORCA_WORKTREE_ID` 가 비어 있지 않다 | **pane(Orca)** |
+| 2 | Orca 밖이고 `find_tmux`(backends.md 「진짜 tmux 찾기」)가 진짜 tmux 절대경로를 돌려준다 | pane(tmux) |
 | 3 | 그 밖 | `FAIL NO_TMUX` 로 중단하고 설치를 안내한다 |
 
 감지는 「1. 시작」 전제 검사 블록 안에서 한 번에 하며, 그 블록이 `BACKEND`(`tmux` 또는 `orca`)와 `TM`(진짜
-tmux 절대경로)을 출력한다. 백엔드 이름은 시작 보고와 `team.start` 에 남긴다. 3번 갈래에서만 시작하지 않는다.
+tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름은 시작 보고와 `team.start` 에 남긴다. 3번 갈래에서만 시작하지 않는다.
 팀원을 대화형으로 띄울 수단이 없기 때문이다.
 
 **플랫폼**: 이 문서의 셸 블록은 macOS·Linux 와 Windows(Git Bash) 에서 같은 절차로 돈다. Windows 에서만 다른
@@ -278,14 +280,15 @@ tmux 절대경로)을 출력한다. 백엔드 이름은 시작 보고와 `team.s
      done
      return 1
    }
-   TM=$(find_tmux) || TM=
-   if [ -n "$TM" ]; then
-     BACKEND=tmux
-     command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
-   elif [ "${TERM_PROGRAM-}" = Orca ] || [ -n "${ORCA_WORKTREE_ID-}" ]; then
+   TM=
+   if [ "${TERM_PROGRAM-}" = Orca ] || [ -n "${ORCA_WORKTREE_ID-}" ]; then
      BACKEND=orca
      { orca worktree create --help | grep -q -- '--agent' && orca worktree create --help | grep -q -- '--prompt'; } || bad ORCA_OLD
+   elif TM=$(find_tmux); then
+     BACKEND=tmux
+     command -v claude >/dev/null 2>&1 || bad NO_CLAUDE_CLI
    else
+     TM=
      BACKEND=-
      bad "NO_TMUX tmux 를 설치하라(macOS: brew install tmux · Debian/Ubuntu: apt install tmux · Windows: MSYS2 또는 WSL)"
    fi

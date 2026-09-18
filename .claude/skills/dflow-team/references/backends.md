@@ -3,7 +3,7 @@
 SKILL.md 「0. 환경 감지」 가 백엔드를 고른다. 워커 프롬프트·`.result` 계약·`/dflow-dev --worker` 는 두
 백엔드가 같다. 백엔드가 가르는 것은 아래 차이표의 항목뿐이다.
 
-백엔드는 둘이다. **pane(tmux)** 가 기본이고, tmux 가 없는 Orca 환경에서만 **pane(Orca)** 를 쓴다.
+백엔드는 둘이다. 팀장이 Orca 안에 있으면 **pane(Orca)** 를 쓰고, Orca 밖이면 **pane(tmux)** 를 쓴다.
 
 ## 차이표
 
