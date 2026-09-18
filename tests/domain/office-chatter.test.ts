@@ -1,6 +1,6 @@
 // tests/domain/office-chatter.test.ts — 에이전트 보기 말풍선 대사(2026-09-18)
 import { describe, it, expect } from 'vitest'
-import { leadChatter, memberReportBubble, NAG_LINES, PRAISE_LINES, QUIET_MS, REPORT_FRESH_MS } from '@/lib/domain/officeChatter'
+import { EMPTY_LINES, leadChatter, memberReportBubble, NAG_LINES, PRAISE_LINES, QUIET_MS, REPORT_FRESH_MS, SOLO_EMPTY_LINES, SOLO_NAG_LINES } from '@/lib/domain/officeChatter'
 import type { RosterDesk, RosterHost } from '@/lib/domain/agentRoster'
 import type { Seat } from '@/lib/domain/seatmap'
 
@@ -13,9 +13,6 @@ const member = (slot: string, seat: Partial<Seat>): RosterDesk => ({
 const host = (...desks: RosterDesk[]): RosterHost => ({ key: 'a/h', label: 'a / h', conforming: true, watcher: null, slots: 2, desks })
 
 describe('leadChatter', () => {
-  it('일하는 팀원이 없으면 팀장은 말이 없다', () => {
-    expect(leadChatter(host(), NOW)).toBeNull()
-  })
   it('최근 보고가 있으면 잔소리하지 않는다', () => {
     expect(leadChatter(host(member('w1', { lastReport: { kind: 'progress', summary: 's', at: iso(50_000) } })), NOW)).toBeNull()
   })
@@ -56,5 +53,23 @@ describe('memberReportBubble', () => {
   it('머리말은 같은 보고에 대해 시간이 흘러도 그대로다', () => {
     const d = member('w1', { lastReport: { kind: 'progress', summary: 'x', at: iso(0) } })
     expect(memberReportBubble(d, NOW)?.opener).toBe(memberReportBubble(d, NOW + 60_000)?.opener)
+  })
+})
+
+describe('leadChatter — 혼자일 때(2026-09-18)', () => {
+  it('일하는 팀원이 하나도 없으면(빈자리뿐) 한탄한다', () => {
+    const c = leadChatter(host(), NOW)
+    expect(c?.tone).toBe('empty')
+    expect(EMPTY_LINES).toContain(c!.text)
+  })
+  it('결정 대기 팀원만 있으면 말하지 않는다', () => {
+    expect(leadChatter(host(member('w1', { state: 'BLOCKED' })), NOW)).toBeNull()
+  })
+  it('단독 감시는 자기 이름을 부르지 않고 혼잣말을 한다', () => {
+    const me = { ...member('w1', {}), slot: 'poll', label: '단독 감시' }
+    const h = host(me)
+    const nag = leadChatter(h, NOW, { slot: 'poll' })!
+    expect(SOLO_NAG_LINES).toContain(nag.text)
+    expect(SOLO_EMPTY_LINES).toContain(leadChatter(host(), NOW, { slot: 'poll' })!.text)
   })
 })

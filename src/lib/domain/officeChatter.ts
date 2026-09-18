@@ -57,6 +57,11 @@ export const NAG_LINES: readonly string[] = [
   '휴… 팀장은 외롭다.',
   '토큰만 태우고 있는 거 아니지?',
   '{name}, 컨텍스트 날아간 거 아니지?',
+  '회사 놀러 나온 거야?',
+  '{name}, 여기 카페 아니다.',
+  '놀 거면 집에서 놀아.',
+  '{name}, 월급 루팡 소리 듣고 싶어?',
+  '일하라고 불렀지, 구경하라고 불렀나.',
 ]
 
 /** 막 보고가 들어왔을 때 팀장의 반응. {name} 은 보고한 팀원. */
@@ -68,6 +73,50 @@ export const PRAISE_LINES: readonly string[] = [
   '그렇지, 그렇게 하는 거야.',
   '{name} 덕분에 한숨 돌렸다.',
   '보고 받았다, 수고!',
+]
+
+/** 일하는 팀원이 하나도 없을 때(빈자리뿐) 팀장의 한탄. */
+export const EMPTY_LINES: readonly string[] = [
+  '모두 일 안 하고 어디 갔어?',
+  '다들 휴가 갔나?',
+  '사무실이 텅 비었네…',
+  '일감 어디 없나…',
+  '커피나 한 잔 할까.',
+  '조용한 게 제일 무섭다.',
+  '출근 도장만 찍고 사라졌나?',
+  '빈 의자만 나를 보고 있다.',
+  '이럴 거면 나도 퇴근한다.',
+  '누가 위임 좀 해 줘요.',
+  '오늘 할 일이 없는 게 할 일인가.',
+  '다 어디 갔어, 회식이라도 간 거야?',
+  '회사 놀러 나온 거야?',
+  '여기가 무슨 동아리방이야?',
+  '월급날만 출근하는 거 아니지?',
+  '자리 비울 거면 메모라도 남기지.',
+]
+
+/** 단독 감시(/poll) — 팀장이 곧 팀원이라 자기를 부르지 않고 혼잣말을 한다. */
+export const SOLO_NAG_LINES: readonly string[] = [
+  '혼자 하니까 보고할 사람도 없네.',
+  '내가 팀장이고 내가 팀원이다.',
+  '야근 수당은 누가 주나…',
+  '나한테 잔소리할 사람도 없고…',
+  '1인 기업의 비애.',
+  '보고서는 나 혼자 쓰고 나 혼자 읽는다.',
+  '이거 끝나면 나한테 칭찬해 줘야지.',
+  '셀프 스탠드업 시작합니다.',
+]
+export const SOLO_PRAISE_LINES: readonly string[] = [
+  '오, 나 좀 하는데?',
+  '셀프 칭찬 한 번.',
+  '이 정도면 승진 각.',
+  '역시 나야.',
+]
+export const SOLO_EMPTY_LINES: readonly string[] = [
+  '혼자인데 일도 없네…',
+  '일감아, 어디 있니.',
+  '나 혼자 사무실 지키는 중.',
+  '위임 좀 해 주세요, 한가합니다.',
 ]
 
 /** 팀원 보고 말풍선의 머리말 — 요약 앞에 붙는 한마디. */
@@ -99,18 +148,26 @@ export function memberReportBubble(d: RosterDesk, nowMs: number): { opener: stri
 
 /**
  * 팀장 말풍선 — 막 보고가 들어왔으면 칭찬, 일하는 팀원이 있는데 QUIET_MS 동안 아무도 보고하지 않았거나
- * 누가 무응답·끊김이면 잔소리. 일하는 팀원이 없으면 null(팀장도 쉰다).
+ * 누가 무응답·끊김이면 잔소리, 일하는 팀원이 하나도 없으면(빈자리뿐) 한탄.
+ * 단독 감시(/poll)는 자기가 곧 팀원이라 자기 이름을 부르지 않고 혼잣말 묶음을 쓴다.
+ * 결정 대기 팀원만 있으면(공이 사람에게 있다) 말하지 않는다.
  */
-export function leadChatter(host: RosterHost, nowMs: number): { tone: 'nag' | 'praise'; text: string } | null {
-  const working = host.desks.filter(d => d.kind === 'member' && d.seat && WORKING.has(d.seat.state))
-  if (working.length === 0) return null
+export function leadChatter(host: RosterHost, nowMs: number, lead?: Pick<RosterDesk, 'slot'>): { tone: 'nag' | 'praise' | 'empty'; text: string } | null {
+  const solo = lead?.slot === 'poll'
+  const members = host.desks.filter(d => d.kind === 'member' && d.seat)
+  const working = members.filter(d => WORKING.has(d.seat!.state))
+  if (working.length === 0) {
+    if (members.length > 0) return null
+    return { tone: 'empty', text: pick(solo ? SOLO_EMPTY_LINES : EMPTY_LINES, host.key, nowMs) }
+  }
   const latest = working.reduce((a, d) => (reportMs(d) > reportMs(a) ? d : a))
   if (reportMs(latest) > 0 && nowMs - reportMs(latest) <= PRAISE_MS) {
-    return { tone: 'praise', text: pick(PRAISE_LINES, host.key, nowMs).replaceAll('{name}', latest.label) }
+    return { tone: 'praise', text: pick(solo ? SOLO_PRAISE_LINES : PRAISE_LINES, host.key, nowMs).replaceAll('{name}', latest.label) }
   }
   const lagging = working.some(d => d.seat!.state === 'STALE' || d.seat!.state === 'OFFLINE')
   const quiet = working.every(d => nowMs - reportMs(d) > QUIET_MS)
   if (!lagging && !quiet) return null
+  if (solo) return { tone: 'nag', text: pick(SOLO_NAG_LINES, host.key, nowMs) }
   // 지목 대상 — 끊긴 팀원이 먼저, 그다음 가장 오래 보고가 없는 팀원.
   const rank = (d: RosterDesk) => (d.seat!.state === 'OFFLINE' ? 2 : d.seat!.state === 'STALE' ? 1 : 0)
   const target = [...working].sort((a, b) => rank(b) - rank(a) || reportMs(a) - reportMs(b))[0]

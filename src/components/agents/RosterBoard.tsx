@@ -164,7 +164,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
  */
 function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number): React.ReactNode {
   if (desk.kind === 'lead') {
-    const c = leadChatter(host, nowMs)
+    const c = leadChatter(host, nowMs, desk)
     return c && <ChatBubble key={c.text} kind={c.tone} text={c.text} />
   }
   if (!desk.seat) return null
@@ -179,6 +179,7 @@ function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number): React.Rea
 const BUBBLE_LOOK = {
   nag: { bg: '#FFF4D6', edge: '#E9B949', ink: '#5A4210' },
   praise: { bg: '#E6F6EA', edge: '#6CC48A', ink: '#1F5A33' },
+  empty: { bg: '#EEF1F4', edge: '#B7C0C9', ink: '#3E4A56' },
   report: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
   done: { bg: '#FFFFFF', edge: '#D5DCE2', ink: '#243240' },
 } as const
