@@ -10,7 +10,7 @@
 | 이벤트 | 시점(SKILL.md) | 추가 필드 |
 |---|---|---|
 | `team.start` | 「1. 시작」 4번 | `backend`, `slots`, `until` |
-| `team.spawn` | 「5. 팀원 spawn」 6번, 「1. 시작」 4번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle` |
+| `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 4번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |
 | `team.result` | 「3. 결과 처리」, 「1. 시작」 4번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |
 | `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 4번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |
 | `team.answer` | 「6. blocked」 답 매칭, 「1. 시작」 4번(대기 중인 답 재기록) | `id8`, `answer` |
@@ -21,6 +21,12 @@
 - `team.spawn`: `worktree` 는 팀원 워크트리 절대경로이며 모르면 `-`. `handle` 은 tmux 백엔드의
   `tmux:<pane_id>`(예: `tmux:%3`) 또는 Orca 터미널 핸들이며, 핸들이 없으면 `-`. 기본 필드 `tsk`·`order` 도
   채운다. `blocked` 는 재spawn 하지 않으므로 그 자리에 `team.spawn` 이 다시 오지 않는다.
+  `spawn_kind` 는 세 값 중 하나인 문자열이다. `new` 는 「5. 팀원 spawn」 의 새 작업, `resume` 은
+  「5-1. 재개 spawn」, `readopt` 는 「1. 시작」 4번이 이어받은 슬롯을 다시 기록한 줄이다. 재구성은 마지막
+  `team.result` 이후의 **`resume` 줄 개수**로 재개 재시도 상한을 잰다(SKILL.md 「팀장 상태」 고아 스캔 2번).
+  세 값을 가르는 이유: 팀장을 다시 띄울 때마다 4번이 살아 있는 슬롯을 `team.spawn` 으로 재기록하므로, 종류를
+  가르지 않으면 멀쩡히 돌고 있는 팀원의 재기록이 재시도 횟수로 세어져 상한에 금방 닿는다. 이 필드가 없는 옛
+  줄은 `new` 로 읽는다(`.spawn_kind // "new"`).
 - `team.result`·`team.blocked`: `blocked` 는 `team.blocked`, 나머지 status 는 `team.result` 로 쓴다. `hash` 는
   결과 줄의 cksum 첫 필드, `reason` 은 결과 줄 7번째 칸부터(사유 또는 질문)다. `worktree` 와 기본 필드 `tsk`
   로 `.result` 경로(`<worktree>/docs/tasks/<tsk>/.result`)가 정해지므로, 재구성이 경로별 마지막 처리 해시를
@@ -54,7 +60,7 @@ mkdir -p ~/.dflow && line=$(jq -nc \
   --arg tsk '<TSK 또는 ->' --arg order '<주문 전체 UUID 또는 ->' --arg event 'team.result' --arg agent '<신원>/<host>/lead' \
   --arg slot '<slot 또는 ->' --arg id8 '<id8>' --arg status '<status>' --arg worktree '<워크트리 또는 ->' --arg hash "$hash" --arg reason "$reason" \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}') \
-  && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until"],"team.spawn":["slot","id8","worktree","handle"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected"],"team.stop":[]} as $req
+  && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until"],"team.spawn":["slot","id8","worktree","handle","spawn_kind"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected"],"team.stop":[]} as $req
       | if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) and .phase == "team" and .host == $h and $req[.event] != null
            and ([$req[.event][] as $k | has($k) and .[$k] != null and ($k == "reason" or .[$k] != "")] | all) then . else error("EVENT_ARGS_MISSING") end' \
   >> ~/.dflow/events.jsonl || echo EVENT_ARGS_MISSING
@@ -72,4 +78,6 @@ mkdir -p ~/.dflow && line=$(jq -nc \
 - `repo` 는 팀장 체크아웃의 절대경로다. 재구성이 이 값으로 이 리포의 줄만 거른다. 이름만 쓰면 같은 이름의
   클론 둘이 섞인다.
 - `<주문 전체 UUID>` 는 show 응답의 `.order.id` 다. 모르면 `-`.
-- `slot` 은 문자열(`2` 또는 `-`)로 쓴다. `team.start` 의 `slots` 와 `team.sweep` 의 세 필드는 `--argjson` 숫자다.
+- `slot` 은 문자열(`2` 또는 `-`)로 쓴다. `team.start` 의 `slots` 와 `team.sweep` 의 세 필드는 `--argjson` 숫자이고,
+  `team.spawn` 의 `spawn_kind` 는 `--arg` 문자열이며 `new`·`resume`·`readopt` 밖의 값을 쓰지 않는다. 다른 값을
+  쓰면 가드는 통과하지만 재시도 계산이 그 줄을 세지 않는다.

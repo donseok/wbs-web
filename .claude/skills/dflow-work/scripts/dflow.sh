@@ -28,7 +28,7 @@ usage() {
   progress <ref> <pct 0-99> <요약>
   heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id]
                          진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
-  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--stop]
+  watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--json] [--stop]
                          감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
   done <ref> <요약> [--auto-links]
   release <ref>
@@ -291,7 +291,7 @@ cmd_heartbeat() {
 }
 
 cmd_watch() {
-  _agent=''; _slots=''; _busy=''; _until=''; _project="${DFLOW_PROJECT_ID:-}"; _stop=''
+  _agent=''; _slots=''; _busy=''; _until=''; _project="${DFLOW_PROJECT_ID:-}"; _stop=''; _raw=''
   while [ $# -gt 0 ]; do
     case "$1" in
       --agent)   _agent="${2:-}";   shift 2 || usage ;;
@@ -299,6 +299,7 @@ cmd_watch() {
       --busy)    _busy="${2:-}";    shift 2 || usage ;;
       --until)   _until="${2:-}";   shift 2 || usage ;;
       --project) _project="${2:-}"; shift 2 || usage ;;
+      --json)    _raw=1; shift ;;
       --stop)    _stop=1; shift ;;
       *) usage ;;
     esac
@@ -317,7 +318,11 @@ cmd_watch() {
        + (if $p != "" then {project_id:$p} else {} end)')
   fi
   _body=$(TOKEN="$TOK" api_raw POST /api/v1/agent/watch "$_json") || exit $?
-  if [ -n "$_stop" ]; then printf 'stopped\n'; else printf '%s' "$_body" | jq -r '.expires_at'; fi
+  # --json 은 응답 본문 그대로. 기본 출력(expires_at 한 줄)만 두면 응답에 실려 오는 resume_requests
+  # (좌석표의 「이어서 시작」 요청)가 버려져 팀장에게 닿지 않는다.
+  if [ -n "$_stop" ]; then printf 'stopped\n'
+  elif [ -n "$_raw" ]; then printf '%s' "$_body"
+  else printf '%s' "$_body" | jq -r '.expires_at'; fi
 }
 
 cmd_done() {

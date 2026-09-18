@@ -260,8 +260,12 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
   it('재기동 때 이어받은 것(답 대기 blocked 포함)을 team.start 바로 뒤에 다시 기록하고 그 id8 은 재개 필요로 보지 않는다', () => {
     expect(s()).toContain('`team.start` 바로 뒤에')
     expect(s()).toContain('이어받은 팀원이 살아 있지 않은 것으로 보이고 같은 결과가 다시 처리된다')
-    expect(s()).toContain('답을 기다리는 `blocked` 마다 `team.blocked`')
+    expect(s()).toContain('답을 기다리는 `blocked` 마다')
+    // 이어받은 슬롯의 재기록은 재개 재시도로 세지 않는다 — spawn_kind 로 가른다.
+    expect(s()).toContain('`team.spawn`(`spawn_kind` 는 `readopt`)')
     expect(s()).toContain('답을 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8')
+    // 워크트리가 없는 갈래만 자동 재착수에서 뺀다. 남아 있는 갈래는 고아 스캔이 이어받는다.
+    expect(s()).toContain('**"멈춤" 표(사유 `워크트리 없음`)**')
   })
 
   it('권한 모드 안내 한 줄을 백엔드별·LEAD_SKIP_PERMISSIONS 별로 출력한다', () => {
@@ -463,7 +467,11 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('「2. 기상과 감시」「3. 결과 처리」「6. blocked」「7. 마감」 과 `references/events.md`')
     const i = s().indexOf('- **고아 스캔**')
     expect(i).toBeGreaterThan(-1)
-    expect(s().slice(i, i + 700)).toContain('`<신원>/<host>/parked` 로 바꾼다(그 규칙 3번)')
+    const scan = s().slice(i, i + 3000)
+    // 정리 가능·재개 가능·멈춤 셋으로 가른다. parked 는 재개 대상이 아닌 것에만 찍는다.
+    expect(scan).toContain('**정리 가능·재개 가능·멈춤** 셋으로 가른다')
+    expect(scan).toContain('`.dflow-agent` 를 `parked` 로 바꾸지\n     **않는다**')
+    expect(scan).toContain('`<신원>/<host>/parked` 로 바꾼 뒤(「고아 정리\n     규칙」 3번)')
   })
 
   it('Windows(Git Bash) 이식성: hostname -s·ps -o 직접 호출·pwd -P 비교·$PPID 단독 소유 판정이 없고, uname 분기와 CLAUDE_PID 를 쓴다', () => {

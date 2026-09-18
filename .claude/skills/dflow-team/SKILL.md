@@ -45,6 +45,11 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   슬롯마다 독립 메인 에이전트가 떠서 비용과 사용량 한도 소모가 빠르게 늘기 때문이다.
 - 모델은 선택이다(`opus`|`sonnet`). 없으면 포인터에 `MODEL=default` 를 넘겨 기본 모델을 쓴다. 값은 팀원이
   `/dflow-dev --model` 로 넘기고, tmux 백엔드는 팀원을 띄우는 `.dflow-run` 의 `claude --model` 에도 붙인다.
+- **재개 인자 `--resume <id8>[ <id8>…]`** 는 선택이다. 자연어로 "443b8ffe 재개" 라고 써도 같게 해석한다. 이 인자가
+  없어도 이 PC 에 남아 있는 중단된 팀원 워크트리는 자동으로 이어받는다(「팀장 상태」 고아 스캔의 "재개 가능"
+  분류). `--resume` 은 자동 판정이 닿지 않는 자리, 곧 **워크트리가 이 PC 에 없거나 다른 PC 가 claim 한 작업**을
+  사람이 손으로 지목해 이어받게 한다(「5-1. 재개 spawn」). 지목한 id8 은 자동 판정의 거부 사유(재시도 상한 초과,
+  `claimed_by` 불일치)를 무시하고 진행하며, 띄우기 전에 무엇이 남아 있고 무엇을 잃는지 한 줄로 보고한다.
 - 감시 주기는 300초로 고정한다.
 - 작업을 빼는 인자는 없다. 특정 작업을 잡지 않게 하려면 D'Flow 에서 그 작업의 `agent` 태그를 끈다. 팀장
   내부의 제외 목록은 그대로 있다.
@@ -140,10 +145,61 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
   l=$(head -n 1 '<경로>'); printf '%s\n' "$l"; printf '%s\n' "$l" | cksum | cut -d' ' -f1
   ```
 - **고아 스캔**: 값이 `<신원>/<host>/` 로 시작하는 `.dflow-agent` 워크트리(`parked` 포함) 중 살아 있는 팀원이
-  없는 것은 backends.md 「고아 정리 규칙」 대로 깨끗하고(미커밋 변경 없음) HEAD 가 `origin/<그 브랜치>` 와 같은
-  것만 정리한다. 나머지는 경로와 미커밋 목록을 "재개 필요" 보고에 붙이고 자동으로 지우지 않으며, `.dflow-agent`
-  값을 `<신원>/<host>/parked` 로 바꾼다(그 규칙 3번). 이유: 남긴 워크트리가 `w<slot>` 값을 그대로 가지면 그
-  슬롯에 새로 뜬 팀원과 같은 슬롯 표시를 가져 재구성이 충돌한다.
+  없는 것을 **정리 가능·재개 가능·멈춤** 셋으로 가른다. 판정 순서는 정리 → 재개 → 멈춤이며, 앞의 갈래에
+  걸리지 않은 것이 뒤로 간다.
+  1. **정리 가능**: backends.md 「고아 정리 규칙」 대로 깨끗하고(미커밋 변경 없음) HEAD 가 `origin/<그 브랜치>`
+     와 같다. 그 규칙대로 지운다. 산출물이 이미 원격에 있어 잃을 것이 없다.
+  2. **재개 가능**: 아래가 모두 참이다. 「5-1. 재개 spawn」 의 대상이며 `.dflow-agent` 를 `parked` 로 바꾸지
+     **않는다**.
+     - 브랜치가 `agent/<id8>-…` 이다(id8 을 여기서 얻는다). 브랜치가 없으면 claim 전에 죽은 것이라 재개할
+       산출물이 없다.
+     - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`)이 아니다.
+       최종 판정이 있으면 재개가 아니라 「3. 결과 처리」 의 몫이다.
+     - 서버 show 가 `status=claimed` 이고 `mine=true` 이며, `claimed_by` 를 소문자로 바꾼 값이
+       `claude-<host>` 와 같다(이 PC 가 claim 했다).
+     - 그 id8 의 재개 재시도가 상한(3)에 닿지 않았다.
+     ```bash
+     w='<워크트리>'; id8='<id8>'
+     br=$(git -C "$w" branch --show-current)
+     (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show "$id8") \
+       | jq -c --arg h 'claude-<host>' '.order | {status, mine,
+           same_host: (((.claimed_by // "") | ascii_downcase) == $h)}'
+     jq -r --arg a '<신원>/<host>/lead' --arg r '<MAIN>' --arg i "$id8" \
+       'select(.agent == $a and .repo == $r and (.id8 // "") == $i)
+        | select(.event == "team.result" or (.event == "team.spawn" and (.spawn_kind // "new") == "resume"))
+        | .event' ~/.dflow/events.jsonl 2>/dev/null \
+       | awk '/team\.result/{n=0; next} {n++} END{print "tries=" n+0}'
+     ```
+     재시도 수는 마지막 `team.result` 이후의 `spawn_kind == "resume"` 인 `team.spawn` 개수다. 새 작업(`new`)과
+     이어받은 슬롯의 재기록(`readopt`)은 세지 않는다. 세면 팀장을 다시 띄울 때마다 멀쩡한 팀원의 재기록이
+     재시도로 잡혀 상한에 금방 닿는다. `team.start` 로 구간을 자르지는 않는다.
+     이유: 재개가 매번 실패하는 작업이 팀장을 다시 띄울 때마다 슬롯을 먹는 것을 막아야 하는데, 그 반복은
+     세션을 넘어서 일어난다. 별도 카운터 파일을 두지 않는 이유는 새 저장소를 만들지 않기 위해서다.
+     결과 줄이 하나라도 나오면 `skipped` 여도 수가 0 으로 돌아가는 것은 **의도한 것이다.** 이 상한이 겨냥하는
+     것은 결과를 남기지 못하고 거듭 죽는 경우이며, 판정을 남기고 끝난 작업은 그 status 의 제외 규칙이 이미
+     다룬다.
+  3. **멈춤**: 나머지다. 자동으로 지우지 않고 `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼 뒤(「고아 정리
+     규칙」 3번) **"멈춤" 목록**에 넣는다. 이유: 남긴 워크트리가 `w<slot>` 값을 그대로 가지면 그 슬롯에 새로 뜬
+     팀원과 같은 슬롯 표시를 가져 재구성이 충돌한다.
+- **"멈춤" 보고**: 멈춤으로 분류한 것, 서버에 claimed 인데 이 PC 어디에도 워크트리가 없는 id8(「1. 시작」 2번),
+  결과가 `failed…` 이거나 무응답 자동 정리로 끝났는데 서버에 claimed 로 남은 작업(「3. 결과 처리」)을 한 표로
+  낸다. 칸은 id8 · TSK · 워크트리 경로(없으면 `-`) · 브랜치 · 미커밋 파일 수 · 사유 · **재시작 명령**이다.
+  사유는 `미커밋 보존`·`서버 미claim`·`다른 PC claim`·`재시도 상한`·`워크트리 없음`·`무응답`, 또는 결과 줄의
+  `failed <사유>` 로 적는다. `failed…` 로 끝난 작업이 자동 재개로 가지 않는 이유: 그 워크트리에는 최종 판정
+  `.result` 가 있어 고아 스캔의 "재개 가능" 조건에 걸리지 않으며, 원인(권한·의존성 설치·한도)을 사람이 먼저
+  고쳐야 같은 자리에서 다시 죽지 않는다. 고친 뒤에는 `--resume` 이 그 워크트리를 그대로 이어받는다. 이 표는
+  시작 보고와 마감 보고에 모두 낸다. 이유: 자동으로 잇지 못한 작업이 조용히 사라지면 미커밋 산출물을 안은
+  워크트리가 아무도 모르는 채 남는다.
+  재시작 명령은 갈래마다 아래 중 하나를 그대로 적어 사람이 복사해 쓸 수 있게 한다.
+  - 팀장에게 맡긴다: `/dflow-team <종료시각> --resume <id8>`
+  - 사람이 그 워크트리에서 직접 한다(워크트리가 있을 때):
+    ```bash
+    printf '%s\n' '<신원>/<host>/w<slot>' > <워크트리>/.dflow-agent   # parked 를 되돌린다
+    cd <워크트리> && claude   # 그 세션에서 /dflow-dev <TSK>
+    ```
+    `.dflow-agent` 를 먼저 되돌리는 이유: `dflow.sh heartbeat` 는 값이 `*/parked` 면 exit 2 로 거부하므로,
+    `parked` 인 채로 재개하면 그 세션은 좌석표에 진척을 알리지 못한다. `<slot>` 은 `.dflow-prompt` 의
+    `AGENT_ID=` 에 박혀 있는 번호다.
 - **부트스트랩 실패 정리**: `.result` 의 branch 가 `-`(브랜치를 만들기 전에 끝남)이면 backends.md
   「고아 정리 규칙」 1번대로, 알려진 부산물만 있을 때만 `--force` 로 정리하고 그 밖의 변경이 있으면 보존하고
   보고한다. 이유: 브랜치가 없어도 워커가 무언가를 고쳤다면 그것은 사람이 판단할 산출물이다.
@@ -345,25 +401,34 @@ tmux 절대경로)을 출력한다. 백엔드 이름은 시작 보고와 `team.s
 2. **재구성**: 새 `team.start` 를 쓰기 **전에** 「팀장 상태」 의 재구성과 고아 스캔을 한다. 이유: "마지막
    `team.start` 이후" 필터가 이전 세션의 이벤트를 가리지 않게 한다. 이 단계가 곧 재기동 절차다. 이어서
    서버에 claimed 인데 흡수한 슬롯·고아 워크트리·답을 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8 을
-   "재개 필요: 수동 `/dflow-dev <id8>`" 로 보고하고 영구 제외에 넣는다(자동 재착수 없음, 수동 세션이 진행 중인
-   작업일 수도 있다). 답을 기다리는 `blocked` 를 빼는 이유: 그 작업은 claimed 이면서 슬롯도
+   **"멈춤" 표(사유 `워크트리 없음`)** 에 넣고 영구 제외에 넣는다. 자동으로 재착수하지 않는다. 이유: 이 PC 에
+   워크트리가 없으면 그 작업이 다른 PC 나 수동 세션에서 지금 돌고 있는 것과 구분할 수단이 없다. 생존 신호는 서버 DB 에
+   쌓이지만(`last_heartbeat_at`·`heartbeat_phase` — 좌석표 화면은 이것으로 침묵을 그린다) **`show` 가 그 둘을
+   내주지 않는다.** `show` 가 주는 `stale` 은 `claimed_at` 으로부터 24시간이 지났는지
+   (`AGENT_CLAIM_STALE_HOURS`)일 뿐이라 이 판정에 쓸 수 없다. 사람이 `--resume <id8>` 으로 지목할 때만 이어받는다
+   (「5-1. 재개 spawn」). **워크트리가 이 PC 에 남아 있는 갈래는 이 조항이 아니라 「팀장 상태」 고아 스캔의
+   "재개 가능" 이 맡아 자동으로 이어받는다.** 그쪽은 `.dflow-agent` 가 이 신원·이 host 를 달고 있어 이 팀장
+   계보의 워커임이 드러나므로 같은 모호함이 없다. 답을 기다리는 `blocked` 를 빼는 이유: 그 작업은 claimed 이면서 슬롯도
    잡고 있어 재개 대상이 아니다. 그 팀원은 자기 화면에서 답을 기다리는 중이고, 4번이 답 대기 목록을 이어받는다.
    ```bash
    (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh list --scope claimed) | awk -F'\t' 'NF>=4 && $2=="CL" {print $4}'
    ```
    상태 열이 `CL` 인 행만 센다. 이유: `--scope claimed` 는 보고까지 끝난 `RP`(reported) 행도 돌려주는데, 그 작업은
    승인 대기이지 재개 대상이 아니다.
-3. **시작 보고 두 줄**: 백엔드와 무관하게 "팀원은 **권한 확인 생략 모드로** 돕니다. 팀장 세션의 권한 모드와
+3. **시작 보고**: 2번이 만든 **"멈춤" 표**(「팀장 상태」)를 먼저 내고, 재개 가능으로 분류한 것과 `--resume`
+   지목분은 "이번에 이어받습니다" 로 한 줄 알린다. 이어서 아래 두 줄을 알린다. 백엔드와 무관하게 "팀원은 **권한 확인 생략 모드로** 돕니다. 팀장 세션의 권한 모드와
    무관합니다." 를 알린다. tmux 백엔드면 "화면은 `TMUX= tmux -L dflow attach` 로 볼 수 있습니다." 를 한 줄 더
    알린다. 첫 줄이 중요하다. 팀장을 평소 모드로 띄운 사람도 팀원은 무제한으로 돈다는 사실이 여기서 드러나야
    하기 때문이다. `TMUX=` 를 앞에 붙이는 이유는 팀장이 이미 tmux 안일 때 중첩 attach 가 거부되기 때문이다.
 4. `team.start`(backend, slots, until)를 기록한다. 2번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
-   다시 기록한다: 흡수한 슬롯마다 `team.spawn`, 답을 기다리는 `blocked` 마다 `team.blocked`, 흡수한 슬롯의
-   마지막 처리 해시마다 `team.result` 또는 `team.blocked`.
+   다시 기록한다: 흡수한 슬롯마다 `team.spawn`(`spawn_kind` 는 `readopt`), 답을 기다리는 `blocked` 마다
+   `team.blocked`, 흡수한 슬롯의 마지막 처리 해시마다 `team.result` 또는 `team.blocked`.
    이유: 이후 기상의 재구성은 새 `team.start` 이후만 읽으므로, 다시 기록하지 않으면
    이어받은 팀원이 살아 있지 않은 것으로 보이고 같은 결과가 다시 처리된다. 답을 기다리던 질문도 대기 목록에서 사라져 사람이 준 `<id8> <답>`
    이 매칭되지 않고, "기다리는 질문이 하나면 id8 없이 답해도 된다" 가 깨진다.
    그 다음 **승인 스윕**(「4. 승인 스윕」)을 한 번 돌고 결과(머지됨·대기·반려·건너뜀)를 한 줄씩 보고한다.
+   스윕을 마친 뒤, 빈 슬롯이 있으면 재개 대상을 띄운다(「5-1. 재개 spawn」). 스윕보다 뒤에 두는 이유: 스윕이
+   선행을 main 에 반영하면 재개한 워커가 기점을 다시 잡지 않아도 되기 때문이다.
 5. **감시 시작**: 다음 TICK 예정 시각을 지금+1800초로 정하고 「2-2」 대로 감시 루프를 띄운다. 재기동 조건이
    맞으면 poll.sh 도 띄운다(「2-1」). 둘 다 Bash `run_in_background` 로 띄운다. 셸 `&` 는 쓰지 않는다. 종료
    알림이 세션에 오지 않아 루프가 소리 없이 끊기기 때문이다. 그 다음 좌석표에 감시 시작을 알린다. STANDBY 는
@@ -371,8 +436,11 @@ tmux 절대경로)을 출력한다. 백엔드 이름은 시작 보고와 `team.s
    ```bash
    LOCK=$(git rev-parse --git-path dflow-team.lock); lead=$(cut -d' ' -f1 "$LOCK/owner")
    set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$lead" \
-     --slots <N> --busy <M> --until <HH:MM> || :
+     --slots <N> --busy <M> --until <HH:MM> --json || :
    ```
+   이 첫 watch 응답에도 `resume_requests` 가 실려 온다. 「2-3」 의 처리 규칙대로 읽어, `host` 가 이 PC 인 요청은
+   4번에서 띄우지 못한 재개 대상에 더해 지금 띄운다. 이유: 이것을 넘기면 사람이 화면에서 누른 요청이 첫
+   `TICK`(최대 30분)까지 그대로 놓인다.
    `<N>` 은 「인자」 에서 정한 인원, `<M>` 은 지금 슬롯 표에서 찬 슬롯 수, `<HH:MM>` 은 「인자」 의 종료 시각이다.
    `--project` 는 넘기지 않는다. `dflow.sh watch` 는 `.env` 에서 export 된 `DFLOW_PROJECT_ID` 를 기본값으로 쓰고,
    `${V:+--project "$V"}` 꼴은 zsh 에서 한 단어로 넘어가 호출이 usage 로 끝나기 때문이다.
@@ -498,14 +566,34 @@ LOCK=$(git rev-parse --git-path dflow-team.lock); o_who=; o_ts=; o_pid=
 { read -r o_who o_ts o_pid < "$LOCK/owner"; } 2>/dev/null || true
 if [ "$o_who" = '<신원>/<host>/lead' ] && [ "$o_pid" = "$LEAD_PID" ]; then
   date +%s > "$LOCK/beat" && { echo LOCK_OK
-    set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
-      --slots <N> --busy <M> --until <HH:MM> || :
+    wr=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh watch --agent "$o_who" \
+      --slots <N> --busy <M> --until <HH:MM> --json) \
+      && printf '%s' "$wr" | jq -c '{n: (.resume_requests | if . == null then "NULL" else length end),
+           err: (.resume_requests_error // "-"),
+           reqs: [(.resume_requests // [])[] | {id8, code, host, requested_at}]}' \
+      || echo "WATCH_FAILED"
   } || echo "LOCK_LOST beat 쓰기 실패"
 else
   echo "LOCK_LOST owner=$o_who $o_ts $o_pid 내 PID=$LEAD_PID"
 fi
 sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md   # 이벤트 기록 명령의 정본. 이 출력의 블록으로만 기록한다
 ```
+**`resume_requests` 는 좌석표의 「이어서 시작」 요청이다.** 사람이 화면에서 멈춘 좌석의 그 버튼을 누르면
+서버가 주문에 표식을 남기고, 이 응답이 그것을 실어 온다. 항목은
+`{order_id, id8, project_id, wbs_item_id, code, name, host, claimed_by, requested_at}` 이며 최대 50건, 오래된
+것부터다. 범위는 이 신원이 점유한 `claimed` 주문뿐이다. 처리 규칙은 셋이다.
+- `n` 이 `"NULL"` 이면 **요청이 없는 것이 아니라 조회가 실패한 것이다.** `err` 에 사유가 온다. 그 기상에서는
+  요청을 하나도 처리하지 않고 사유를 한 줄 보고한 뒤 다음 기상에 다시 읽는다. 빈 배열(`n` 이 0)과 절대
+  뭉개지 않는다. 조회 실패를 데이터 없음으로 위장하면 사람이 누른 버튼이 조용히 사라진다.
+- `host` 가 이 PC 의 `<host>` 슬러그와 **글자 그대로 같은 것만** 「5-1. 재개 spawn」 으로 보낸다. 서버가 그
+  값을 `claimed_by` 에서 파생하므로 팀장이 다시 계산하지 않는다. 다른 값이면 그 워크트리가 이 PC 에 없다는
+  뜻이므로 **"멈춤" 표에 사유 `다른 PC claim` 으로 적고 띄우지 않는다.**
+- **팀장은 표식을 지우지 않으며 확인 응답도 보내지 않는다.** 되살아난 워커의 첫 heartbeat 가 그것을 비우고,
+  회수 뒤 재claim 하는 경로에서는 claim 라우트가 지운다. 팀장이 지우면 아직 띄우지 못한 요청이 사라지고,
+  팀장이 옛 요청을 계속 보면 이미 정상 점유된 주문에 워커를 겹쳐 띄운다.
+`WATCH_FAILED` 는 watch 호출 자체가 실패한 것이다. `beat` 는 이미 갱신됐으므로 잠금은 유효하고, 그 기상의
+요청 처리만 건너뛴다.
+
 `LOCK_LOST` 면 **잠금 상실**이다. "잠금 상실" 로 보고하고 새 spawn 을 멈추며, 잠금을 지우지 않은 채 「7. 마감」 의
 잠금 상실 마감으로 간다. 이유: 이 팀장이 `beat` 를 70분 넘게 놓친 사이 다른 팀장이 잠금을 가져갔다면 두 팀장이
 같은 체크아웃에서 스윕·spawn 을 하고 같은 슬롯 번호를 낸다. `beat` 를 쓰지 못한 경우도 곧 다른 팀장이 가져갈 수
@@ -520,7 +608,9 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
    다음 기상까지 늦어지며, `TICK` 이 있어 최대 30분이다. 이 지연 동안 승인됐으나 main 미반영인 선행은 워커가
    그 `head_sha` 를 스택 기점으로 받고(`/dflow-dev` 「--worker」 B), 승인 대기인 선행의 후속은 `skipped` 로 일시
    제외됐다가 승인·머지 뒤 재검사에서 풀린다(「--worker」 G).
-4. 빈 슬롯이 있고 차단기가 허락하면 대기 큐 맨 앞부터 spawn 한다(「5. 팀원 spawn」).
+4. 빈 슬롯이 있고 차단기가 허락하면 **재개 대상을 먼저**(「5-1. 재개 spawn」), 그 다음 대기 큐 맨 앞부터
+   spawn 한다(「5. 팀원 spawn」). 재개 대상은 재구성의 고아 스캔이 "재개 가능" 으로 분류한 것과 아직 띄우지
+   않은 `--resume` 지목분이다.
 5. 끝나 있는 감시 루프를 다시 띄우고, 재기동 조건(「2-1」)을 만족하면 poll.sh 를 다시 띄운다. 컨텍스트 압축 뒤
    poll 이 떠 있는지 모르면 재기동 조건에 따라 새로 띄운다. poll 이 겹쳐 떠도 poll exit 0 처리의 대조와 spawn 전
    확인(「5. 팀원 spawn」 1번)이 같은 작업을 두 번 띄우지 않게 막는다.
@@ -586,11 +676,11 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 | `skipped`(선행 미충족·선행 미승인·선행 승인 대기·claim exit 4·공통 기점 없음·spec 부재) | 해제 | 일시 제외 | branch 가 `-` 면 부트스트랩 실패 정리 규칙, 아니면 `done` 과 같다 | 사유 보고 |
 | `blocked` | 유지 | 진행 중으로 영구 제외에 남긴다 | 그대로 둔다(두 백엔드 공통). 팀원이 pane 이나 탭에서 답을 기다린다 | 통지(「6. blocked」) |
 | `failed <사유>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산 |
-| `failed permission <명령>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 거부된 명령을 "권한 목록 재료" 로 보고한다(킷 허용 목록에 넣을 값). 서버에 claimed 로 남으므로 "재개 필요" 로 보고한다. 차단기 계산 |
-| `failed rate-limit` | 해제 | 제외하지 않는다 | 고아 정리 규칙을 따른다 | 재시도할 수 있다. 아직 ready 면 poll 이 다시 찾고, 이미 claimed 면 "재개 필요" 로 보고한다. 차단기 계산에 넣는다 |
-| `failed no-result`(pane 이 죽었는데 결과 줄 없음) | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 서버에 claimed 면 "재개 필요" 로 보고한다. 차단기 계산 |
+| `failed permission <명령>` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 거부된 명령을 "권한 목록 재료" 로 보고한다(킷 허용 목록에 넣을 값). 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산 |
+| `failed rate-limit` | 해제 | 제외하지 않는다 | 고아 정리 규칙을 따른다 | 재시도할 수 있다. 아직 ready 면 poll 이 다시 찾고, 이미 claimed 면 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산에 넣는다 |
+| `failed no-result`(pane 이 죽었는데 결과 줄 없음) | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 서버에 claimed 면 **"멈춤" 표**에 넣는다(사유는 그 status). 차단기 계산 |
 | `failed not-isolated` | 해제 | 영구 제외 | 없음(워커가 파일을 쓰지 않았다) | 백엔드 결함이므로 새 spawn 을 멈추고 「7. 마감」 으로 간다 |
-| `failed deps` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산. 설치는 claim 과 브랜치 생성 뒤라서(`/dflow-dev` 「--worker」 H) 서버에 claimed 로 남으므로 "재개 필요" 로 보고한다. 대상 리포의 lockfile·패키지 관리자 문제라 사람이 고친다 |
+| `failed deps` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산. 설치는 claim 과 브랜치 생성 뒤라서(`/dflow-dev` 「--worker」 H) 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 대상 리포의 lockfile·패키지 관리자 문제라 사람이 고친다 |
 
 - **그 자리에서 정리하는 이유**: git 은 다른 워크트리가 체크아웃한 브랜치를 지우지 못한다. 워크트리를 마감까지
   남기면 같은 세션에서 승인된 작업의 로컬 agent 브랜치 삭제가 실패한다. 정리 명령은 backends.md 의 백엔드별
@@ -604,12 +694,15 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   spawn 하고(대기 큐 맨 앞에서, 큐가 비었으면 poll 을 한 번 띄워 얻는다), 그 결과가 `failed` 가 아니면 차단기를
   푼다. 이유: 사용량 한도나 환경 결함에 걸린 채 대기 큐 전체를 소진하지 않게 한다.
 - **무응답**: 결과도 알림도 없는 진행 슬롯의 생존 증거가 한 `TICK` 동안 변하지 않으면 "무응답" 으로 보고만 하고 슬롯을 유지한다.
+  생존 증거에 `show` 의 `last_heartbeat_at`·`heartbeat_phase` 를 넣는다. 워커가 Phase 마다 보내는 값이라 브랜치
+  tip 시각보다 촘촘하다. `stale` 은 쓰지 않는다. 그 값은 `claimed_at` 으로부터 24시간이 지났는지일 뿐이라,
+  두 시간 전에 죽은 워커에도 `false` 가 온다(2026-09-18 실측).
   느린 팀원을 죽이면 미커밋분을 잃고, 권한 확인에 걸려 멈춘 팀원은 사람이 보면 풀리기 때문이다. 자동 정리는
   **두 TICK 연속으로** 생존 증거가 없을 때만 한다. tmux 는 `kill-pane` 으로 팀원을 멈추고 슬롯을 해제하며,
   워크트리는 고아 정리 규칙을 따른다. Orca 는 팀원 프로세스를 멈출 수단이 워크트리 삭제뿐이므로, 깨끗하고
   push 된 경우에만 `orca worktree rm --worktree path:<경로>` 로 정리하고 슬롯을 해제한다. 그렇지
-  않으면 슬롯을 계속 잡고 "사람 확인 필요" 로 보고한다. 자동 정리한 작업은 영구 제외에 넣고 "재개 필요" 로
-  보고한다.
+  않으면 슬롯을 계속 잡고 "사람 확인 필요" 로 보고한다. 자동 정리한 작업은 영구 제외에 넣고 **"멈춤" 표**에 넣는다
+  (사유 `무응답`).
 
 ## 4. 승인 스윕
 
@@ -670,19 +763,99 @@ Skill 도구로 `/dflow-merge` 를 **인자 없이** 실행한다. 후보가 원
      기점은 agent 브랜치가 결국 머지될 `origin/<기본브랜치>` 로 명시한다. 생략하면 리포 기본 base 로 가는데,
      리포 기본 base 설정이 기본 브랜치와 다를 수 있기 때문이다. 결과 JSON 의 `result.worktree.path` 와
      `result.agentTerminalHandle` 을 슬롯 표에 저장한다. 핸들이 없으면(옛 런타임) 화면 읽기 없이 git·서버
-     증거만 쓴다. 이후 이 워크트리를 가리킬 때는 `--worktree path:<result.worktree.path>` 선택자를 쓴다.
+     증거만 쓴다. **create 뒤에 같은 포인터를 `<워크트리>/.dflow-prompt` 에도 쓴다**(backends.md). 재개가 슬롯
+     번호를 그 파일에서 되찾기 때문이다. 이후 이 워크트리를 가리킬 때는 `--worktree path:<result.worktree.path>`
+     선택자를 쓴다.
 
    팀원을 Agent 도구 서브에이전트로 띄우지 않는다. 서브에이전트는 턴이 끝나면 멈춰 Phase 손자를 기다리지
    못한다.
-6. spawn 직후 `team.spawn` 에 `slot`·`tsk`·`order`·`id8`·`worktree`·`handle` 을 남긴다. `worktree` 는 팀원
+6. spawn 직후 `team.spawn` 에 `slot`·`tsk`·`order`·`id8`·`worktree`·`handle`·`spawn_kind` 를 남긴다. 새 작업이므로
+   `spawn_kind` 는 `new` 다. `worktree` 는 팀원
    워크트리 절대경로(모르면 `-`), `handle` 은 `tmux:<pane_id>` 또는 Orca 터미널 핸들이며 핸들이 없으면 `-` 다.
    재구성이 이 기록으로 슬롯과 작업을 잇는다. id8 을 영구 제외(진행 중)에 넣는다. 빠뜨리면 압축 뒤 재구성이
    그 작업을 놓친다.
 
-같은 작업을 다시 띄우는 것은 poll 이 그 작업을 다시 돌려준 경우(일시 제외가 풀린 `skipped`, 제외하지 않는
-`failed rate-limit`)뿐이다. 그 밖의 재개는 사람 몫이다. `blocked` 는 재spawn 하지 않는다. 팀원이 자기 화면에서
+같은 작업을 다시 띄우는 것은 셋뿐이다. poll 이 그 작업을 다시 돌려준 경우(일시 제외가 풀린 `skipped`,
+제외하지 않는 `failed rate-limit`), 고아 스캔이 "재개 가능" 으로 분류한 중단 작업, `--resume` 으로 사람이 지목한
+작업이다. 뒤의 둘은 이 절이 아니라 「5-1. 재개 spawn」 의 절차로 띄운다. 워크트리를 새로 만들지 않고 claim 도
+하지 않기 때문이다. `blocked` 는 재spawn 하지 않는다. 팀원이 자기 화면에서
 답을 기다리므로 그 자리에서 이어 간다(「6. blocked」). 다시 띄울 때 이름·브랜치가 부딪치지 않는 것은
 backends.md 「고아 정리 규칙」 5번의 생성 브랜치 정리와 결과 처리의 워크트리 정리가 맡는다.
+
+### 5-1. 재개 spawn
+
+중단된 작업을 이어 띄운다. 새 작업 spawn 과 두 가지가 다르다. **워크트리를 새로 만들지 않고**(남아 있으면
+그대로 쓴다) **claim 하지 않는다**. 서버가 이미 `claimed` 이고, 이어받은 워커의 `/dflow-dev --worker` 가 재개
+판정으로 끊긴 Phase 를 잇는다.
+
+대상은 둘이다.
+- **자동**: 고아 스캔이 "재개 가능" 으로 분류한 워크트리(「팀장 상태」). 빈 슬롯이 있고 차단기가 풀려 있으면
+  대기 큐보다 **먼저** 띄운다. 이유: 그 작업은 이미 서버 claim 을 잡고 있어, 새 작업을 먼저 띄우면 점유만 늘고
+  진척은 늘지 않는다.
+- **요청**: 좌석표의 「이어서 시작」 버튼이 남긴 `resume_requests`(「2-3」). `host` 가 이 PC 인 것만 온다. 이미
+  워크트리가 있고 자동 조건도 맞으면 자동 갈래와 같고, 워크트리가 없으면 아래 3항이 새로 만든다. 사람이 화면에서
+  누른 것이므로 재시도 상한은 무시한다.
+- **지목**: 「인자」 의 `--resume <id8>`. 자동 판정의 거부 사유(재시도 상한, `claimed_by` 불일치)를 무시한다.
+  워크트리가 없어도 된다. 다만 **서버 status 가 `claimed` 일 때만 재개다.** 지목한 id8 이 `ready` 면 재개가
+  아니라 새 작업이므로 5번의 일반 spawn 으로 보내고(claim 은 워커가 한다), `reported`·`approved` 면 개발이
+  끝난 것이므로 "재개 대상 아님(서버 <status>)" 로 보고하고 띄우지 않는다. 승인 반영은 「4. 승인 스윕」 이
+  한다.
+
+절차:
+1. **손실 보고 한 줄을 먼저 낸다.** 사람이 이 줄만 보고 멈출 수 있어야 한다.
+   ```
+   재개 <id8> <TSK>: 워크트리 <경로|없음> · 브랜치 <agent/…@<head>|없음> · 원격 <origin/agent/…@<sha>|없음>
+        · 미커밋 <N파일|없음> · claimed_by=<값>(이 PC|다른 PC) · 잃는 것: <없음|…>
+   ```
+   ```bash
+   git ls-remote --heads origin "refs/heads/agent/<id8>-*"
+   git -C <워크트리> status --porcelain | wc -l      # 워크트리가 있을 때만
+   ```
+   "잃는 것" 은 갈래마다 이렇다. 워크트리가 있으면 `없음`(커밋·미커밋 모두 그대로 이어 간다). 워크트리가
+   없고 원격 브랜치가 있으면 `그 PC 의 미커밋 변경(마지막 push 인 <sha> 뒤의 작업)`. 워크트리도 원격 브랜치도
+   없으면 `이전 시도 전부(설계 문서 포함) — 사실상 처음부터 시작한다`. 워커는 Phase 06 에서만 push 하므로
+   진행 중이던 작업의 원격 브랜치는 대개 없다.
+2. **다른 PC 경고**: `claimed_by` 가 이 PC 가 아니면 "그 PC 의 워커가 아직 돌고 있어도 이 팀장은 알 수 없다
+   (생존 신호가 서버 DB 에는 있으나 지금 계약의 `show` 가 내주지 않는다). 겹쳐 돌면 같은 브랜치에 두 세션이
+   커밋한다" 를 한 줄 더 적는다. 이 갈래는
+   `--resume` 으로만 오므로 사람이 지목한 것으로 보고 진행한다.
+3. **워크트리 확보**
+   - 있으면 그대로 쓴다. 지우지 않는다.
+   - 없으면 새로 만든다. 기점은 `origin/agent/<id8>-<slug>` 가 있으면 그것, 없으면 `origin/<기본브랜치>` 다.
+     원격 agent 브랜치가 있으면 detach 하지 않고 그 브랜치로 만든다. 이어서 push 해야 하기 때문이다.
+     ```bash
+     git fetch origin
+     git worktree add <MAIN>/.claude/worktrees/dflow-<id8> -B agent/<id8>-<slug> origin/agent/<id8>-<slug>
+     ```
+     `.env`·스킬 링크는 새 작업 spawn(5번)과 같게 건다.
+4. **슬롯을 정하고 `.dflow-agent` 를 되돌린다.** 슬롯 번호는 `.dflow-prompt` 의 `AGENT_ID=` 에 박힌 번호를
+   먼저 쓰고, 그 번호가 이미 찼거나 파일이 없으면 「팀장 상태」 의 발급 규칙으로 새로 낸다.
+   ```bash
+   slot=$(sed -n 's/.*AGENT_ID=[^ /]*\/[^ /]*\/w\([0-9][0-9]*\).*/\1/p' <워크트리>/.dflow-prompt 2>/dev/null | head -n 1)
+   echo "slot=${slot:-없음}"   # 비었거나 이미 찬 번호면 발급 규칙으로 새로 정한 뒤 아래 줄을 쓴다
+   printf '%s\n' '<신원>/<host>/w<정한 슬롯>' > <워크트리>/.dflow-agent
+   ```
+   `slot` 이 빈 채로 두 번째 줄을 쓰지 않는다. `.../w` 로 끝나는 값은 `dflow.sh` 의 `*/parked` 가드에 걸리지
+   않아 번호 없는 좌석으로 heartbeat 가 나간다. 파일이 없어 번호를 못 찾는 경우는 `.dflow-prompt` 를 쓰기 전에
+   만들어진 옛 Orca 워크트리뿐이며, 그때는 새로 발급한다.
+   **이 되돌리기를 워커가 뜨기 전에 한다.** `dflow.sh heartbeat` 는 값이 `*/parked` 면 exit 2 로 거부하므로,
+   `parked` 인 채로 띄우면 그 팀원은 좌석표에 진척을 하나도 알리지 못한다.
+5. **포인터를 다시 쓴다.** 5번 4항의 형식 그대로이며 `AGENT_ID` 는 4항에서 정한 슬롯이다. 옛 파일을 그대로
+   두지 않는 이유: 슬롯을 새로 발급한 경우 옛 포인터의 `AGENT_ID` 와 어긋나 팀원이 남의 좌석으로 heartbeat 를
+   보낸다. `MODEL` 은 이번 실행의 인자를 쓴다.
+6. **띄운다.** 백엔드별 명령은 5번 5항과 같다. tmux 는 `.dflow-run` 을 **있든 없든 새로 쓰고**(새로 만든
+   워크트리에는 없고, 남아 있던 것은 옛 모델 인자를 달고 있다) pane id 를 `.dflow-pane` 에 덮어쓴다. **폴더 신뢰 확인 루프를 반드시 돈다.** 넘기면 팀원이 첫 화면에서 멈춘 채 살아 있어 슬롯 하나가
+   통째로 논다. Orca 는 포인터를 `--prompt` 로 넘겨 기존 워크트리에 탭을 다시 연다.
+7. **옛 `.result` 를 지운다**(`rm -f <워크트리>/docs/tasks/<TSK>/.result`). 이유: `failed…` 로 끝난 워크트리를
+   `--resume` 으로 이어받으면 옛 결과 줄이 그대로 남아 있는데, 재개한 팀원이 결과를 쓰기 전에 pane 이 한 번
+   흔들리면 `PANE_DEAD` 폴백이 그 옛 줄을 읽어 방금 띄운 작업을 다시 실패로 판정한다. 해시가 같아 중복
+   처리는 막히지만, 그 슬롯이 빈 것으로 돌아가 같은 작업이 두 번 뜬다.
+8. `team.spawn` 을 기록한다. 필드는 5번 6항과 같고 `spawn_kind` 는 `resume` 이다(events.md). 재시도 수를 이
+   값으로 세므로, `new` 로 적으면 상한이 동작하지 않는다.
+
+재개한 팀원이 다시 최종 판정 없이 죽으면 다음 기상의 고아 스캔이 같은 판정을 하고, 재시도가 상한(3)에 닿으면
+"멈춤"(사유 `재시도 상한`)으로 내려간다. `--resume` 은 그 상한을 무시하므로 사람이 원인을 고친 뒤 다시 지목할
+수 있다.
 
 ## 6. blocked
 
@@ -737,7 +910,8 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
    마지막 생존 증거를 목록으로 보고한다. 이유: 사람이 자리를 비운 시간대에 답이 오지 않는 슬롯 하나가 팀장을
    무한정 붙잡지 않게 한다. 팀원은 팀장이 끝나도 자기 pane 이나 탭에서 계속 돈다.
 3. 집계 표(TSK · id8 · 브랜치 · head · done exit · status · 사유)를 보고하고, 마지막 승인 스윕을 한 번 돈다.
-   대기 큐·남은 슬롯·"재개 필요" 도 함께 적는다.
+   대기 큐·남은 슬롯과 **"멈춤" 표**(「팀장 상태」 — 재시작 명령 칸까지)도 함께 적는다. 이유: 마감 뒤에 남는
+   워크트리는 사람이 이어받는 수밖에 없으므로, 이어받는 방법이 그 자리에 있어야 한다.
 4. 남은 팀원 워크트리 중 살아 있는 팀원(「팀장 상태」 정의)이 없는 것만 백엔드별로 정리한다. tmux 는
    워크트리가 아직 있을 때만 `git worktree remove --force <경로>`, Orca 는
    `orca worktree rm --worktree path:<경로>` 다. 두 경우 모두 backends.md 「고아 정리 규칙」 을 따라, 깨끗하고
@@ -798,23 +972,30 @@ poll exit 8, poll 오류 exit, `failed not-isolated`, 기상 때 확인한 종�
   `dflow.sh watch --agent <신원>/<host>/lead --slots <N> --busy <M> --until <HH:MM>` 을 1회 보내고, 「7. 마감」에서
   `--stop` 을 1회 보낸다. 좌석표는 마지막 신호 뒤 70분에 STANDBY 를 끈다.
 - poll.sh 는 `DFLOW_WATCH=0` 으로 띄우므로 watch 를 보내지 않는다.
-- 실패는 무시한다(`|| :`). 이 호출은 표시용이고 팀장 절차의 판정에 쓰이지 않는다.
+- **이 호출은 표시용만이 아니다.** 응답의 `resume_requests` 가 좌석표의 「이어서 시작」 요청을 실어 오므로
+  `--json` 으로 부르고 본문을 읽는다(「2-3」). 실패해도 팀장을 멈추지 않지만, 실패를 "요청 없음" 으로 읽지
+  않는다. 「1. 시작」 5번과 「7. 마감」 의 `--stop` 은 종전대로 결과를 보지 않는다.
 - 팀원의 blocked 직전 heartbeat(worker-prompt.md)는 좌석표에 손 든 상태를 남기고, 다음 heartbeat 가 그것을 푼다.
 
 ## 금지
 
 - 팀원에게 AskUserQuestion 을 쓰게 하는 것. 팀장이 사람에게 묻는 곳은 답 매칭의 id8 되묻기 하나다.
-- 팀장이 작업을 claim·progress·done 하는 것. 서버 쓰기는 팀원 몫이다(스윕의 머지만 팀장이 한다).
+- 팀장이 작업을 claim·progress·done 하는 것. 서버 쓰기는 팀원 몫이다(스윕의 머지만 팀장이 한다). 재개도
+  마찬가지다. 서버가 이미 `claimed` 이므로 다시 claim 하지 않으며, 끊긴 Phase 를 잇는 것은 이어받은 워커의
+  `/dflow-dev --worker` 다.
 - 팀원을 Agent 도구 서브에이전트로 띄우는 것(`isolation: "worktree"` 를 주어도). 서브에이전트는 턴이 끝나면
   하네스가 완료로 보고, 그 뒤 끝난 Phase 손자의 완료가 팀원을 깨우지 못한다. 팀원은 별도 프로세스의 대화형
   claude 다.
 - tmux 를 PATH 로 부르는 것. Orca 가 PATH 앞에 끼운 shim 이 잡아 대부분의 명령을 `unsupported command` 로
   거부한다. 언제나 전제 검사가 구한 절대경로(`TM`)로 부른다(backends.md 「진짜 tmux 찾기」).
-- 팀원 워크트리에서 팀장이 git 을 조작하는 것(읽기 조회, `parked` 표시, backends.md 의 정리 절차는 예외).
+- 팀원 워크트리에서 팀장이 git 을 조작하는 것(읽기 조회, `parked` 표시, 「5-1. 재개 spawn」 의 `.dflow-agent`
+  되돌리기·포인터 재작성·옛 `.result` 삭제, backends.md 의 정리 절차는 예외).
 - 팀장 체크아웃에서 poll.sh 를 띄우는 것. 빈 디렉터리(「2-1」)에서만 띄운다.
 - 순번 참조, force push, 훅 우회(SKIP_GUARD).
-- 같은 작업의 재spawn. 예외는 poll 이 다시 돌려준 작업(일시 제외가 풀린 `skipped`, `failed rate-limit`)뿐이다.
-  `blocked` 는 재spawn 하지 않는다. 팀원이 자기 화면에서 답을 기다리며 그 자리에서 이어 간다.
+- 같은 작업의 재spawn. 예외는 셋이다. poll 이 다시 돌려준 작업(일시 제외가 풀린 `skipped`,
+  `failed rate-limit`), 고아 스캔이 "재개 가능" 으로 분류한 중단 작업, `--resume` 으로 사람이 지목한 작업
+  (뒤의 둘은 「5-1. 재개 spawn」). `blocked` 는 재spawn 하지 않는다. 팀원이 자기 화면에서 답을 기다리며 그
+  자리에서 이어 간다.
 - poll·감시 루프를 셸 `&` 로 띄우는 것. 둘은 Bash `run_in_background` 로만 띄운다. 팀원 spawn 에도 `&` 를
   쓰지 않는다. tmux `split-window` 가 곧바로 돌아오고 pane 은 tmux 서버가 붙잡기 때문이다.
 - 인원 4 초과.

@@ -20,7 +20,9 @@ describe('dflow.sh heartbeat · watch 계약(좌석표 v1 스펙 §4-1)', () => 
   const src = readFileSync(DFLOW, 'utf8')
   it('usage 에 두 서브커맨드가 있다', () => {
     expect(src).toMatch(/heartbeat <ref> \[--phase p\] \[--note "<질문>"\] \[--agent id\]/)
-    expect(src).toMatch(/watch \[--agent id\] \[--slots n\] \[--busy n\] \[--until HH:MM\] \[--project id\] \[--stop\]/)
+    // --json 은 응답 본문을 그대로 낸다. 좌석표의 「이어서 시작」 요청(resume_requests)이 실려 오는 길이다.
+    expect(src).toMatch(/watch \[--agent id\] \[--slots n\] \[--busy n\] \[--until HH:MM\] \[--project id\] \[--json\] \[--stop\]/)
+    expect(src).toContain("--json)    _raw=1; shift ;;")
   })
   it('디스패치에 두 case 가 있고 heartbeat 는 ref 를 요구한다', () => {
     expect(src).toMatch(/heartbeat\) \[ \$# -ge 1 \] \|\| usage; cmd_heartbeat "\$@" ;;/)

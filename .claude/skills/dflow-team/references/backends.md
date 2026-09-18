@@ -258,6 +258,13 @@ orca worktree create --name dflow-<id8> --agent claude --no-parent \
   ```
 - 이후 이 워크트리를 가리킬 때는 `--worktree path:<result.worktree.path>` 선택자를 쓴다. 워크트리를 경로로
   지정하므로 다른 식별자는 필요 없다.
+- **create 가 끝나면 같은 포인터 한 줄을 `<result.worktree.path>/.dflow-prompt` 에도 쓴다.** `--prompt` 로
+  넘긴 것과 같은 줄이며 팀원은 이 파일을 읽지 않는다. 이 파일이 필요한 곳은 재개다. 고아 정리 규칙 3번이
+  `.dflow-agent` 를 `parked` 로 덮으면 슬롯 번호가 그 파일에서 사라지는데, 「5-1. 재개 spawn」 은 그 번호를
+  `.dflow-prompt` 의 `AGENT_ID=` 에서 되찾는다. tmux 백엔드는 spawn 절차가 이미 이 파일을 쓴다.
+  ```bash
+  printf '%s\n' '<포인터 한 줄>' > '<result.worktree.path>/.dflow-prompt'
+  ```
 - 팀원 화면 보기(사람에게 보여 줄 보고용): `orca terminal read --screen --terminal <handle>`.
   **화면은 생존 증거로 쓰지 않는다.** 스피너 때문에 화면이 매번 달라져 멈춘 팀원도 살아 있는 것처럼 보이기
   때문이다. 생존 증거는 SKILL.md 「3. 결과 처리」 의 셋(브랜치 tip 커밋 시각·서버 progress·미커밋 변경 목록)이다.
@@ -295,9 +302,11 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
    git fetch origin
    test "$(git -C <워크트리> rev-parse HEAD)" = "$(git -C <워크트리> rev-parse origin/<agent 브랜치>)"
    ```
-3. 하나라도 거짓이면 지우지 않고, 경로와 미커밋 목록(`git -C <워크트리> status --porcelain` 출력)을
-   "재개 필요" 보고에 붙이며, 살아 있는 팀원의 워크트리(4번)가 아니면 `.dflow-agent` 값을 `parked` 로 바꿔
-   정규 슬롯 스캔에서 뺀다. 이유: 느린 팀원이나 커밋 전에 멈춘 팀원의 산출물을 잃지 않는다. 보존된 워크트리의
+3. 하나라도 거짓이면 지우지 않는다. 그 다음 SKILL.md 「팀장 상태」 고아 스캔의 **"재개 가능"** 조건을 보고
+   가른다. 재개 가능이면 `.dflow-agent` 를 **건드리지 않고** 그대로 두어 「5-1. 재개 spawn」 이 이어받게 한다
+   (그 절차가 슬롯 값을 다시 쓴다). 재개 가능이 아니면 경로와 미커밋 목록
+   (`git -C <워크트리> status --porcelain` 출력)을 **"멈춤" 표**에 붙이며, 살아 있는 팀원의 워크트리(4번)가
+   아니면 `.dflow-agent` 값을 `parked` 로 바꿔 정규 슬롯 스캔에서 뺀다. 이유: 느린 팀원이나 커밋 전에 멈춘 팀원의 산출물을 잃지 않는다. 보존된 워크트리의
    `.dflow-agent` 가 `w<slot>` 값을 그대로 가지면, 그 슬롯에 새로 뜬 팀원과 같은 슬롯 표시를 가져 재구성이
    충돌한다.
    ```bash
