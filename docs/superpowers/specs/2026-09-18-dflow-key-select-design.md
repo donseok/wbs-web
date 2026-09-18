@@ -164,7 +164,8 @@ pick_token(AS):
 - `KEY_NOT_FOUND` 는 전제 검사가 아니라 6-1 에서 판정한다(`selected` 행이 없다). 안내: ".env 의 DFLOW_AS 를
   `dflow.sh profiles` 의 prefix 로 고쳐라". 전제 검사 블록은 바꾸지 않는다. 그 값으로는 `me` 가 exit 2 로 끝나
   기존 `AUTH` 에도 걸리므로, 6-1 을 건너뛴 경우에도 시작은 막힌다.
-- 시작 보고 첫 줄에 `키: <이름> (<email>, <prefix>)` 를 낸다. 토큰이 하나여도 낸다.
+- 시작 보고에서 종료 시각 줄 바로 다음에 `키: <이름> (<email>, <prefix>)` 를 낸다. 토큰이 하나여도 낸다
+  (`5bf6e07d` 가 첫 줄을 정규화한 종료 시각에 썼다).
 
 ### 6-3. 바꾸지 않는 것
 
@@ -192,11 +193,11 @@ pick_token(AS):
 | 훅 | `tests/skills/heartbeat-hook.test.ts` — `DFLOW_AS` 로 둘째 토큰 선택, 불일치면 무전송 |
 | 스킬 문서 | 같은 새 파일 `tests/skills/dflow-key-select.test.ts` — 키 판정 절이 전제 검사보다 앞, `NO_KEY_FOR_PROJECT`·`KEY_NOT_FOUND`, `.env` 추가 명령. 셸 블록 구문 검사는 기존 `dflow-team-shell-blocks.test.ts` 가 새 블록도 잡는다 |
 
-**기준선**(2026-09-18, `origin/staging` `6880743b`): `tests/skills` 의 문서 계약 테스트 31건이 이미 실패한다
-(`dflow-team.test.ts` 18, `dflow-team-backends.test.ts` 7, `dflow-dev-worker.test.ts` 6). 스킬 문서가 tmux pane
-백엔드 등으로 바뀐 뒤 단언이 옛 문구(프로세스 백엔드·`nohup claude -p`)에 머물러 있기 때문이다. 이 작업은 그
-31건을 고치지 않으며, 새 단언을 그 파일들에 섞지 않는다. 완료 기준은 "새 테스트 전부 통과, 기존 실패 수가
-31에서 늘지 않음" 이다.
+**기준선**(2026-09-18, 로컬 `staging` `5bf6e07d`): `tests/skills`·`tests/agent` 338건 중 문서 계약 테스트 31건이 이미
+실패한다(`dflow-team.test.ts` 18, `dflow-team-backends.test.ts` 7, `dflow-dev-worker.test.ts` 6). 스킬 문서가 tmux pane
+백엔드 등으로 바뀐 뒤 단언이 옛 문구(프로세스 백엔드·`nohup claude -p`)에 머물러 있기 때문이다. `npx tsc --noEmit` 의
+오류는 27건이다. 이 작업은 그것들을 고치지 않으며, 새 단언을 그 파일들에 섞지 않는다. 완료 기준은 "새 테스트 전부
+통과, 기존 실패 31건·tsc 오류 27건에서 늘지 않음" 이다. 구현 뒤 실측: 372건 중 실패 31건(같은 세 파일), tsc 27건.
 
 가짜 `curl` 은 `Authorization` 헤더의 prefix 로 응답을 가른다. 테스트 토큰은 `dflow_pat_<prefix>_<더미>` 꼴의
 가짜 값이다.
