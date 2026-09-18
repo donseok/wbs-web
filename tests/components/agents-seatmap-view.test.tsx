@@ -293,6 +293,13 @@ describe('SeatmapView — 잡담 켬/끔(2026-09-18)', () => {
     expect(toggle().textContent).toContain('잡담 끔')
     expect(chatSeen()).toBe(false)
   })
+  it('상태 레인에서도 끄면 한마디가 사라진다', () => {
+    act(() => root.render(<SeatmapView initial={working()} />))
+    act(() => (host.querySelector('button[data-view="lane"]') as HTMLButtonElement).click())
+    expect(chatSeen()).toBe(true)
+    act(() => toggle().click())
+    expect(chatSeen()).toBe(false)
+  })
   it('선택을 이 브라우저에 기억한다', () => {
     act(() => root.render(<SeatmapView initial={working()} />))
     act(() => toggle().click())
