@@ -40,20 +40,28 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   **전**, 다른 인자의 질문보다 **먼저** 한다. 이유: 잠금을 쥔 채 사람의 답을 기다리지 않아야 하고, WP 범위
   선택지를 뽑는 `list` 도 전제 검사의 `me` 도 고른 키로 돌아야 한다. 정본은 `.env` 의 `DFLOW_AS=<prefix>` 이며
   `dflow.sh`·`poll.sh`·팀원(`.env` 심링크)·heartbeat 훅이 모두 그 값을 따른다. 실행마다 골라 워커에 넘기지 않는
-  이유: 훅과 `/dflow-dev` 의 하위 Phase 는 그 값을 받지 못해 팀장과 팀원의 신원이 갈라진다.
+  이유: 훅과 `/dflow-dev` 의 하위 Phase 는 그 값을 받지 못해 팀장과 팀원의 신원이 갈라진다. `.env` 는 팀장
+  체크아웃마다(주 체크아웃, 그리고 「두 번째 팀장」 의 팀장 워크트리마다) **워크트리마다 따로** 있으므로, 키도
+  워크트리마다 정한다. 팀원의 `.env` 링크는 자기 팀장의 체크아웃을 가리키므로 팀원은 자기 팀장의 키를 따른다.
   ```bash
-  (set -a; . ./.env; set +a; echo "DFLOW_AS=${DFLOW_AS:-없음}"; .claude/skills/dflow-work/scripts/dflow.sh profiles)
+  (set -a; . ./.env; set +a; echo "DFLOW_AS=${DFLOW_AS:-없음}"; .claude/skills/dflow-work/scripts/dflow.sh profiles) \
+    | .claude/skills/dflow-team/scripts/live-leads.sh --mark
   ```
-  토큰마다 한 줄 JSON 이 나온다(`n`·`prefix`·`name`·`email`·`expires_at`·`projects`·`bound`·`selected`, `/me` 가 실패한
-  토큰은 `error`). 토큰 값은 나오지 않는다. `bound` 는 그 키의 프로젝트에 이 리포의 바인딩 프로젝트가 있다는 뜻이고,
-  `selected` 는 지금 설정으로 `dflow.sh` 가 고르는 키다.
+  토큰마다 한 줄 JSON 이 나온다(`n`·`prefix`·`name`·`email`·`who`·`expires_at`·`projects`·`bound`·`selected`·`in_use`,
+  `/me` 가 실패한 토큰은 `error`). 토큰 값은 나오지 않는다. `bound` 는 그 키의 프로젝트에 이 리포의 바인딩 프로젝트가
+  있다는 뜻이고, `selected` 는 지금 설정으로 `dflow.sh` 가 고르는 키다. `who` 는 그 키의 신원 슬러그(잠금 `owner` 의
+  `<신원>` 과 같은 규칙)이고, `in_use` 는 같은 리포의 **다른 워크트리에서 살아 있는 팀장**이 그 신원을 쓰고 있으면 그
+  워크트리 경로, 아니면 `null` 이다. 살아 있음의 기준은 전제 검사의 `SAME_IDENTITY_LEAD` 와 같다(`live-leads.sh`).
+  `in_use` 가 `null` 이 아닌 키로는 시작할 수 없다. 전제 검사가 어차피 거부하는데, 그것을 사람에게 종료 시각까지
+  물은 뒤가 아니라 묻기 전에 알기 위해 여기서 본다. **같은 계정의 키** 여러 개는 `who` 가 같아 함께 빠진다. 잠금
+  `owner` 에는 prefix 가 없고 신원만 있으며, 좌석표와 팀원 접두(`<신원>/<host>/`)도 신원 단위이기 때문이다.
 
   | 상태 | 처리 |
   |---|---|
-  | `DFLOW_AS` 가 있다(값이 비어 있지 않다) | 묻지 않는다. `selected` 가 `true` 인 행이 없으면 `KEY_NOT_FOUND` 로 끝낸다 |
-  | 없고 토큰이 1개 | 그대로 간다 |
-  | 없고 토큰이 2개 이상 | `error` 가 없고 `bound` 가 `true` 인 행이 후보다 |
-  | → 후보 0개 | `NO_KEY_FOR_PROJECT` 로 끝낸다 |
+  | `DFLOW_AS` 가 있다(값이 비어 있지 않다) | 묻지 않는다. `selected` 가 `true` 인 행이 없으면 `KEY_NOT_FOUND`, 그 행의 `in_use` 가 `null` 이 아니면 `KEY_IN_USE` 로 끝낸다 |
+  | 없고 토큰이 1개 | 그 행의 `in_use` 가 `null` 이 아니면 `KEY_IN_USE` 로 끝내고, 아니면 그대로 간다 |
+  | 없고 토큰이 2개 이상 | `error` 가 없고 `bound` 가 `true` 이고 `in_use` 가 `null` 인 행이 후보다 |
+  | → 후보 0개 | `bound` 가 `true` 인 행이 하나도 없으면 `NO_KEY_FOR_PROJECT`, 있는데 모두 `in_use` 면 `NO_FREE_KEY` 로 끝낸다 |
   | → 후보 1개 | 그 키를 자동 선택한다 |
   | → 후보 2개 이상 | AskUserQuestion 으로 묻는다. 종료 시각도 물어야 하면 같은 호출에 모은다 |
 
@@ -74,10 +82,18 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
   - `KEY_NOT_FOUND`: "`.env` 의 `DFLOW_AS` 가 어느 토큰과도 맞지 않는다. `dflow.sh profiles` 의 `prefix` 로 고쳐라" 와
     profiles 출력을 표로 내고 끝낸다. `DFLOW_AS` 는 prefix 만 받는다(이메일·이름 불가). 훅이 네트워크 없이 같은 키를
     골라야 하기 때문이다.
+  - `KEY_IN_USE`: "이 키의 신원(`<who>`)은 `<in_use 경로>` 의 팀장이 쓰고 있다. 같은 신원으로는 팀장을 둘 띄울 수
+    없다(`SAME_IDENTITY_LEAD`)" 와 profiles 출력을 표로 내고 끝낸다. `DFLOW_AS` 가 있었다면 "이 워크트리의 `.env` 에서
+    `DFLOW_AS` 줄을 지우고 다시 실행하면 남은 키에서 고른다" 를 덧붙인다. 다른 키로 **자동으로 바꾸지 않는다.** 사람이
+    적어 둔 `DFLOW_AS` 를 조용히 무시하면 의도한 계정이 아닌 신원으로 작업이 claim 된다.
+  - `NO_FREE_KEY`: "이 리포의 프로젝트에 속한 키가 모두 다른 워크트리의 팀장이 쓰는 신원이다. 다른 계정의 PAT 를 이
+    워크트리의 `.env` 의 `DFLOW_PATS` 에 더하거나, 그 팀장에 인원과 WP 범위를 더 주어라" 와 profiles 출력을 표로 내고
+    끝낸다.
   - `NO_KEY_FOR_PROJECT`: "이 리포의 D'Flow 프로젝트에 속한 키가 `.env` 에 없다" 와 profiles 출력을 표로 내고 끝낸다.
     `error` 가 `auth` 인 행은 "폐기·만료된 키", `unreachable` 인 행은 "서버에 닿지 못함" 으로 적는다. 조회 실패를
     후보 없음으로 뭉개지 않기 위해서다.
-  - profiles 가 0 이 아닌 값으로 끝나면 그 stderr 를 그대로 보고하고 끝낸다.
+  - 프로필 행이 하나도 나오지 않으면 `profiles` 가 실패한 것이다(파이프 뒤라 종료 코드는 보이지 않는다). 그 stderr 를
+    그대로 보고하고 끝낸다.
 - **종료 시각은 유일한 필수 인자다.** 새 배정을 멈추는 시각이며 세 형식 중 하나로 정규화한다. 정규화한 값을
   `<UNTIL>`, 좌석표에 싣는 표시 문자열을 `<UNTIL_LABEL>` 이라 부른다.
 
@@ -307,9 +323,12 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 .claude/skills/dflow-team/scripts/lead-worktree.sh <이름>
 ```
 - 스크립트는 `<주 체크아웃>/.claude/worktrees/lead-<이름>` 을 `origin/<기본브랜치>` 에서 detached 로 만들고,
-  `.claude/skills` 를 주 체크아웃의 것으로 링크하고, 주 체크아웃의 `.env` 를 **복사**한다. 값은 출력하지 않는다.
-- 사람은 그 워크트리의 `.env` 에서 키를 고른 뒤(`DFLOW_AS`, 또는 `DFLOW_PATS` 순서), 그 워크트리에서 `claude` 를
-  띄워 `/dflow-team …` 을 실행한다.
+  `.claude/skills` 를 주 체크아웃의 것으로 링크하고, 주 체크아웃의 `.env` 를 **복사**한다. `DFLOW_AS` 줄은 빼고
+  복사하며 값은 출력하지 않는다. 이유: 그 줄은 주 체크아웃 팀장의 키라서, 따라가면 이 워크트리의 키 판정이 묻지
+  않고 같은 신원으로 넘어가 `SAME_IDENTITY_LEAD` 에 걸린다.
+- 사람은 그 워크트리에서 `claude` 를 띄워 `/dflow-team …` 을 실행한다. 키는 그 실행의 키 판정(「인자」)이 정한다.
+  다른 워크트리의 팀장이 쓰는 신원을 후보에서 빼고, 남은 키가 하나면 자동으로 고르고 둘 이상이면 물은 뒤 그
+  워크트리의 `.env` 에 `DFLOW_AS` 로 적는다. 미리 정하려면 그 `.env` 에 `DFLOW_AS=<prefix>` 를 직접 적는다.
 - `.env` 를 링크하지 않고 복사하는 이유: 두 팀장이 서로 다른 키를 써야 하는데, 링크하면 한쪽의 키 변경이 도는
   다른 팀장과 그 팀원에게 번진다. 팀원 워크트리의 `.env` 링크는 팀장 체크아웃(`<MAIN>`)의 것을 가리키므로 두
   번째 팀장의 팀원은 그 워크트리의 `.env` 를 쓴다.

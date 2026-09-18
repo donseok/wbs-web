@@ -219,6 +219,23 @@ describe('/dflow-team 키 판정(스펙 §6)', () => {
     expect(sk).toContain('`auth`')
     expect(sk).toContain('`unreachable`')
   })
+  it('키는 워크트리마다 정하고, 다른 워크트리의 팀장이 쓰는 신원은 후보에서 뺀다', () => {
+    expect(sk).toContain('  | .claude/skills/dflow-team/scripts/live-leads.sh --mark')
+    for (const s of ['`who`', '`in_use`', '`KEY_IN_USE`', '`NO_FREE_KEY`', '같은 계정의 키', '워크트리마다 따로']) {
+      expect(sk, s).toContain(s)
+    }
+    // 키 판정은 전제 검사의 SAME_IDENTITY_LEAD 보다 앞에서, 사람에게 묻기 전에 같은 사실을 본다
+    expect(sk.indexOf('`KEY_IN_USE`')).toBeGreaterThan(sk.indexOf('- **키 판정**'))
+    expect(sk.indexOf('`KEY_IN_USE`')).toBeLessThan(sk.indexOf('- **종료 시각은 유일한 필수 인자다.**'))
+  })
+  it('두 번째 팀장 절과 help.md 가 DFLOW_AS 를 복사하지 않고 키 판정에 맡긴다고 적는다', () => {
+    const second = sk.slice(sk.indexOf('## 두 번째 팀장 (링크드 워크트리)'), sk.indexOf('\n## 0. 환경 감지'))
+    expect(second).toContain('`DFLOW_AS` 줄은 빼고')
+    expect(second).toContain('키 판정')
+    expect(second).not.toContain('사람은 그 워크트리의 `.env` 에서 키를 고른 뒤')
+    expect(help).toContain('`DFLOW_AS` 줄은 빼고')
+    expect(help).not.toContain('그 `.env` 에서 키를 고른 뒤')
+  })
   it('시작 보고가 키를 알린다', () => {
     expect(sk).toContain('`키: <이름> (<email>, <prefix>)`')
   })

@@ -65,8 +65,9 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
   ```
   .claude/skills/dflow-team/scripts/lead-worktree.sh <이름>     # 주 체크아웃 루트에서
   ```
-  `.claude/worktrees/lead-<이름>` 이 생기고 `.env` 가 복사된다. 그 `.env` 에서 키를 고른 뒤 그 폴더에서 `claude` 를
-  띄워 `/dflow-team …` 을 실행한다. 팀장 워크트리에는 `node_modules` 가 필요 없다. 다 쓰면
+  `.claude/worktrees/lead-<이름>` 이 생기고 `.env` 가 복사된다(`DFLOW_AS` 줄은 빼고 복사한다). 그 폴더에서 `claude` 를
+  띄워 `/dflow-team …` 을 실행하면, 다른 팀장이 쓰는 계정을 뺀 나머지 키에서 이 팀장의 키를 정해 그 폴더의 `.env` 에
+  적는다. 키는 폴더(워크트리)마다 따로다. 팀장 워크트리에는 `node_modules` 가 필요 없다. 다 쓰면
   `git worktree remove --force .claude/worktrees/lead-<이름>` 으로 지운다.
 - 같은 계정으로는 팀장을 둘 띄울 수 없다(`SAME_IDENTITY_LEAD`). 일을 더 나누려면 팀장 하나에 인원과 WP 범위를 준다.
 

@@ -32,7 +32,7 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    확인해야 한다.
 
 2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) `.env` 의 `DFLOW_AS=<prefix>` 가 이 리포의 키를 고정한다.
-   prefix 는 `dflow.sh profiles` 로 본다(토큰마다 한 줄 JSON: `prefix`·`name`·`email`·`projects`·`bound`·`selected`).
+   prefix 는 `dflow.sh profiles` 로 본다(토큰마다 한 줄 JSON: `prefix`·`name`·`email`·`who`·`projects`·`bound`·`selected`. `who` 는 그 키의 신원 슬러그다).
    `DFLOW_AS` 가 없으면 첫 토큰이며 doctor 가 그 사실을 경고한다. 한 번만 다른 키로 부르려면 `--as <prefix|email>` 을
    쓴다. 한 계정에 키가 둘이면 email 로는 갈리지 않으므로 prefix 를 쓴다. `DFLOW_AS` 는 prefix 만 받는다.
 
