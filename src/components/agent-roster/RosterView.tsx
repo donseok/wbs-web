@@ -119,7 +119,7 @@ export function RosterView({ initial, projectId, projectName, pollMs = 30_000 }:
   return (
     <AgentFrame projectId={projectId} projectName={projectName} title="에이전트" lede={lede} tiles={tiles} tools={tools}>
       <div className="flex flex-wrap items-start gap-4">
-        <div className="flex min-w-0 flex-[1_1_640px] flex-col gap-4">
+        <div className="flex min-w-0 flex-[1_1_520px] flex-col gap-4">
           {roster.hosts.length === 0 && (
             <p className="rounded-2xl border border-dashed border-line bg-surface px-5 py-8 text-center text-sm text-ink-muted">
               감시 중인 작업 PC 도, 주문을 잡은 에이전트도 없습니다. 에이전트가 dflow 로 감시를 시작하거나 위임된 주문을 잡으면 여기에 자리가 생깁니다.
@@ -225,7 +225,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
   const title = desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label
   const seat = desk.seat
   return (
-    <aside data-roster-profile className="sticky top-0 flex min-w-0 flex-[0_1_380px] flex-col gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm">
+    <aside data-roster-profile className="sticky top-0 flex min-w-0 flex-[0_1_340px] flex-col gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm">
       <div className="flex items-center gap-4">
         <span className="grid shrink-0 place-items-center rounded-2xl"
           style={{ background: `color-mix(in srgb, ${tone.color} 16%, var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
