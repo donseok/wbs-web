@@ -56,7 +56,9 @@ describe('dflow-team 배포·권한 준비(스펙 §8·§10)와 가이드(스펙
     expect(inst).toContain('git add --renormalize .')
 
     const hb = readFileSync(join(ROOT, 'kit/hooks/heartbeat.sh'), 'utf8')
-    expect(hb).toContain(`_base=$(printf '%s' "$_base" | tr -d '\\r'); _tok=$(printf '%s' "$_tok" | tr -d '\\r')`)
+    // 토큰 목록 전체(_all)와 키 선택 값(_as)에서 CR 을 걷어낸다 — 고르기 전에 걷어야 prefix 비교가 맞는다
+    expect(hb).toContain(`_base=$(printf '%s' "$_base" | tr -d '\\r'); _all=$(printf '%s' "$_all" | tr -d '\\r')`)
+    expect(hb).toContain(`_as=$(printf '%s' "\${DFLOW_AS:-}" | tr -d '\\r')`)
 
     const dflow = readFileSync(join(ROOT, '.claude/skills/dflow-work/scripts/dflow.sh'), 'utf8')
     expect(dflow).toContain("_cr=$(printf '\\r')")
