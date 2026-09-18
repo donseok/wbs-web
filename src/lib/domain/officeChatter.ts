@@ -68,6 +68,10 @@ export const MEMBER_PHASE_LINES: Readonly<Record<'design' | 'build' | 'verify' |
   design: WORK['단계별']['설계'], build: WORK['단계별']['빌드'], verify: WORK['단계별']['검증'], refactor: WORK['단계별']['리팩터'],
 }
 
+/** 승인 대기 팀원의 한마디 — 보고를 올려 두고 결재를 기다린다(2026-09-18 사용자 요청). */
+const WAIT_GROUPS = groupsOf(LINES['팀원 승인 대기'])
+export const WAIT_LINES: readonly string[] = WAIT_GROUPS.flat()
+
 const WORKING = new Set(['ACTIVE', 'STALE', 'OFFLINE', 'REJECTED'])
 
 const slotOf = (nowMs: number) => Math.floor(nowMs / ROTATE_MS)
@@ -152,15 +156,16 @@ export function leadChatter(host: RosterHost, nowMs: number, lead?: Pick<RosterD
 const MEMBER_TALK_EVERY = 3
 
 /**
- * 작업 중인 팀원의 한마디(2026-09-18 사용자 요청) — ACTIVE 일 때만. 말하지 않는 칸에는 null(단계 말풍선을 쓴다).
- * 세 번에 한 번은 지금 단계(설계·빌드·검증·리팩터)에 맞는 대사, 나머지는 공통 묶음.
+ * 팀원의 한마디(2026-09-18 사용자 요청) — 작업 중(ACTIVE)과 승인 대기(WAIT)일 때만. 말하지 않는 칸에는 null(단계 말풍선을 쓴다).
+ * 승인 대기는 승인을 조르는 묶음, 작업 중은 세 번에 한 번 지금 단계(설계·빌드·검증·리팩터)에 맞는 대사, 나머지는 공통 묶음.
  */
 export function memberChatter(d: Pick<RosterDesk, 'seat'>, nowMs: number): string | null {
   const seat = d.seat
-  if (!seat || seat.state !== 'ACTIVE') return null
+  if (!seat || (seat.state !== 'ACTIVE' && seat.state !== 'WAIT')) return null
   const key = seat.orderId // 어느 보기에서든 같은 좌석이 같은 때 같은 말을 한다
   const slot = slotOf(nowMs)
   if ((slot + fnv1a32(key)) % MEMBER_TALK_EVERY !== 0) return null
+  if (seat.state === 'WAIT') return pick(WAIT_GROUPS, `${key}|a`, nowMs, MEMBER_TALK_EVERY)
   const phase = MEMBER_PHASE_LINES[seat.phase as keyof typeof MEMBER_PHASE_LINES]
   const groups = phase && hash(`${key}|p|${slot}`) % 3 === 0 ? [phase] : MEMBER_GROUPS
   return pick(groups, `${key}|w`, nowMs, MEMBER_TALK_EVERY)
