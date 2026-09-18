@@ -54,9 +54,12 @@ D'Flow 에서 나에게 배정되고 `agent` 태그가 켜진 ready 작업을 �
 ## 시작 전 준비
 
 - 팀장 체크아웃은 기본 브랜치(main)이고 깨끗해야 한다.
-- `.env` 에 세 가지가 있어야 한다: `DFLOW_API_BASE`, `DFLOW_PATS`(첫 토큰이 팀장의 신원),
+- `.env` 에 세 가지가 있어야 한다: `DFLOW_API_BASE`, `DFLOW_PATS`,
   `DFLOW_PROJECT_ID`(또는 `DFLOW_PROJECT_MAP`). 프로젝트 바인딩이 없으면 시작하지 않는다. 한 사람이 여러 프로젝트에
   속하면 다른 프로젝트의 작업을 이 리포에서 개발하게 되기 때문이다.
+- `DFLOW_PATS` 에 토큰이 둘 이상이면 팀장이 시작할 때 이 리포가 쓸 키를 정해 `.env` 에 `DFLOW_AS=<prefix>` 로 적는다.
+  이 리포의 프로젝트에 속한 키가 하나면 묻지 않고 고르고, 둘 이상이면 묻는다. 바꾸려면 그 줄을 고친다. 키 목록은
+  `.claude/skills/dflow-work/scripts/dflow.sh profiles` 로 본다. 시작 보고에 `키: <이름> (<email>, <prefix>)` 가 나온다.
 - 팀원이 잡을 작업은 D'Flow 에서 `agent` 태그를 켠다. 태그가 없는 작업은 사람 몫이라 건드리지 않는다.
 - 팀장은 한 체크아웃에 하나만 뜬다. 다른 계정으로 동시에 돌리려면 클론을 하나 더 만들고 그 `.env` 에 그 계정의
   PAT 를 넣는다.

@@ -2,7 +2,7 @@
 // 키 선택(docs/superpowers/specs/2026-09-18-dflow-key-select-design.md). dflow.sh 를 가짜 curl 로 실제 실행한다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -174,5 +174,47 @@ describe('dflow.sh doctor 의 키 표시(스펙 §4-3)', () => {
     expect(r.status).toBe(0)
     expect(r.stdout).toContain('⚠ DFLOW_AS=ZZZZZZZZZZZZ 에 맞는 토큰이 없습니다 — dflow.sh profiles 의 prefix 를 적으세요.')
     expect(r.stdout).not.toContain('[선택됨]')
+  })
+})
+
+describe('/dflow-team 키 판정(스펙 §6)', () => {
+  const sk = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
+  const help = readFileSync(join(ROOT, '.claude/skills/dflow-team/references/help.md'), 'utf8')
+
+  it('키 판정은 「인자」 절에 있고 종료 시각 질문·전제 검사보다 앞이다', () => {
+    const args = sk.indexOf('\n## 인자')
+    const key = sk.indexOf('- **키 판정**')
+    const until = sk.indexOf('- **종료 시각은 유일한 필수 인자다.**')
+    const env0 = sk.indexOf('\n## 0. 환경 감지')
+    expect(args).toBeGreaterThan(-1)
+    expect(key).toBeGreaterThan(args)
+    expect(until).toBeGreaterThan(key)
+    expect(env0).toBeGreaterThan(until)
+    expect(sk).toContain('.claude/skills/dflow-work/scripts/dflow.sh profiles)')
+  })
+  it('DFLOW_AS 가 있으면 묻지 않고, 없으면 bound 후보로 좁혀 0·1·2개 이상을 가른다', () => {
+    for (const s of ['`KEY_NOT_FOUND`', '`NO_KEY_FOR_PROJECT`', '`bound`', '`selected`', '그 키를 자동 선택한다', 'AskUserQuestion 으로 묻는다']) {
+      expect(sk, s).toContain(s)
+    }
+  })
+  it('종료 시각이 주어져도 키 질문은 하고, 키를 묻는 호출에서는 WP 선택지를 서버에서 뽑지 않는다', () => {
+    expect(sk).toContain('**종료 시각이 인자로 주어져도 키 질문은 한다.**')
+    expect(sk).toContain('키를 묻는 호출에서는 WP 범위 선택지를 서버에서 뽑지 않고')
+  })
+  it('고른 prefix 를 .env 끝에 더한다 — 첫 토큰이어도', () => {
+    expect(sk).toContain(`printf '\\nDFLOW_AS=%s\\n' '<prefix>' >> .env`)
+    expect(sk).toContain('자동 선택한 키가 첫 토큰이어도')
+  })
+  it('조회 실패를 후보 없음으로 뭉개지 않는다', () => {
+    expect(sk).toContain('`auth`')
+    expect(sk).toContain('`unreachable`')
+  })
+  it('시작 보고가 키를 알린다', () => {
+    expect(sk).toContain('`키: <이름> (<email>, <prefix>)`')
+  })
+  it('help.md 가 첫 토큰이 아니라 DFLOW_AS 를 안내한다', () => {
+    expect(help).not.toContain('첫 토큰이 팀장의 신원')
+    expect(help).toContain('DFLOW_AS=<prefix>')
+    expect(help).toContain('dflow.sh profiles')
   })
 })

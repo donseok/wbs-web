@@ -36,6 +36,48 @@ description: D'Flow 에서 내게 배정되고 에이전트 위임(tags:agent)�
 - **`help`**: 인자가 `help`·`--help`·`-h`·`도움말`·`사용법` 중 하나면 `references/help.md` 를 Bash `cat` 으로 읽어
   그대로 보여 주고 **끝낸다.** 전제 검사·잠금·서버 호출을 하지 않는다. 그 파일은 이때만 읽는다. 이유: 사용 안내는
   사람이 요청할 때만 필요하고, 매 실행마다 읽으면 컨텍스트만 차지한다.
+- **키 판정**: `.env` 의 `DFLOW_PATS` 에 토큰이 둘 이상이면 어느 키로 돌지를 시작 전에 정한다. 「1. 시작」 전제 검사
+  **전**, 다른 인자의 질문보다 **먼저** 한다. 이유: 잠금을 쥔 채 사람의 답을 기다리지 않아야 하고, WP 범위
+  선택지를 뽑는 `list` 도 전제 검사의 `me` 도 고른 키로 돌아야 한다. 정본은 `.env` 의 `DFLOW_AS=<prefix>` 이며
+  `dflow.sh`·`poll.sh`·팀원(`.env` 심링크)·heartbeat 훅이 모두 그 값을 따른다. 실행마다 골라 워커에 넘기지 않는
+  이유: 훅과 `/dflow-dev` 의 하위 Phase 는 그 값을 받지 못해 팀장과 팀원의 신원이 갈라진다.
+  ```bash
+  (set -a; . ./.env; set +a; echo "DFLOW_AS=${DFLOW_AS:-없음}"; .claude/skills/dflow-work/scripts/dflow.sh profiles)
+  ```
+  토큰마다 한 줄 JSON 이 나온다(`n`·`prefix`·`name`·`email`·`expires_at`·`projects`·`bound`·`selected`, `/me` 가 실패한
+  토큰은 `error`). 토큰 값은 나오지 않는다. `bound` 는 그 키의 프로젝트에 이 리포의 바인딩 프로젝트가 있다는 뜻이고,
+  `selected` 는 지금 설정으로 `dflow.sh` 가 고르는 키다.
+
+  | 상태 | 처리 |
+  |---|---|
+  | `DFLOW_AS` 가 있다(값이 비어 있지 않다) | 묻지 않는다. `selected` 가 `true` 인 행이 없으면 `KEY_NOT_FOUND` 로 끝낸다 |
+  | 없고 토큰이 1개 | 그대로 간다 |
+  | 없고 토큰이 2개 이상 | `error` 가 없고 `bound` 가 `true` 인 행이 후보다 |
+  | → 후보 0개 | `NO_KEY_FOR_PROJECT` 로 끝낸다 |
+  | → 후보 1개 | 그 키를 자동 선택한다 |
+  | → 후보 2개 이상 | AskUserQuestion 으로 묻는다. 종료 시각도 물어야 하면 같은 호출에 모은다 |
+
+  - `bound` 가 `null` 이면(프로젝트 바인딩 없음) 키 판정을 건너뛰고 전제 검사로 간다. `NO_PROJECT` 가 시작을 막는다.
+  - 선택지는 후보마다 하나다. label 은 `<name> · <email>`, description 은 `prefix <prefix> · <프로젝트 이름들> · 만료
+    <expires_at 의 날짜>` 다. 후보가 4개를 넘으면 앞의 3개를 내고 나머지는 "Other 에 prefix 를 적는다" 로 받는다.
+  - **종료 시각이 인자로 주어져도 키 질문은 한다.** 인원·WP 범위는 기본값이 있어 묻지 않지만, 신원에는 안전한
+    기본값이 없다.
+  - 키를 묻는 호출에서는 WP 범위 선택지를 서버에서 뽑지 않고 `전체 (기본)` 과 "Other 로 직접 적는다" 만 둔다. 이유:
+    그 목록은 고른 키로 조회해야 하는데, 키는 같은 호출의 답으로 정해진다.
+  - 자동 선택이든 답이든, 고른 prefix 를 `.env` 끝에 더하고 한 줄 보고한다. 자동 선택한 키가 첫 토큰이어도
+    더한다. 이유: 나중에 토큰을 더하거나 순서를 바꿔도 이 리포의 키가 바뀌지 않는다.
+    ```bash
+    printf '\nDFLOW_AS=%s\n' '<prefix>' >> .env
+    ```
+    보고: "키: <이름> (<email>, <prefix>). `.env` 에 `DFLOW_AS` 로 저장했습니다. 바꾸려면 그 줄을 고치십시오."
+    `.env` 는 gitignore 대상이라 전제 검사의 `DIRTY` 에 걸리지 않는다.
+  - `KEY_NOT_FOUND`: "`.env` 의 `DFLOW_AS` 가 어느 토큰과도 맞지 않는다. `dflow.sh profiles` 의 `prefix` 로 고쳐라" 와
+    profiles 출력을 표로 내고 끝낸다. `DFLOW_AS` 는 prefix 만 받는다(이메일·이름 불가). 훅이 네트워크 없이 같은 키를
+    골라야 하기 때문이다.
+  - `NO_KEY_FOR_PROJECT`: "이 리포의 D'Flow 프로젝트에 속한 키가 `.env` 에 없다" 와 profiles 출력을 표로 내고 끝낸다.
+    `error` 가 `auth` 인 행은 "폐기·만료된 키", `unreachable` 인 행은 "서버에 닿지 못함" 으로 적는다. 조회 실패를
+    후보 없음으로 뭉개지 않기 위해서다.
+  - profiles 가 0 이 아닌 값으로 끝나면 그 stderr 를 그대로 보고하고 끝낸다.
 - **종료 시각은 유일한 필수 인자다.** 새 배정을 멈추는 시각이며 세 형식 중 하나로 정규화한다. 정규화한 값을
   `<UNTIL>`, 좌석표에 싣는 표시 문자열을 `<UNTIL_LABEL>` 이라 부른다.
 
@@ -493,6 +535,9 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    무관합니다." 를 알린다. tmux 백엔드면 "화면은 `TMUX= tmux -L dflow attach` 로 볼 수 있습니다." 를 한 줄 더
    알린다. 첫 줄이 중요하다. 팀장을 평소 모드로 띄운 사람도 팀원은 무제한으로 돈다는 사실이 여기서 드러나야
    하기 때문이다. `TMUX=` 를 앞에 붙이는 이유는 팀장이 이미 tmux 안일 때 중첩 attach 가 거부되기 때문이다.
+   종료 시각 줄 바로 다음에 `키: <이름> (<email>, <prefix>)` 를 적는다. 토큰이 하나여도 적는다. 값은 「인자」 키 판정의
+   `selected` 행이다. 이유: 어느 신원으로 도는지가 배정 목록·좌석표 신원·claim 주체를 모두 정하는데, 지금까지는
+   시작 보고 어디에도 나오지 않았다.
 4. `team.start`(backend, slots, until, wp)를 기록한다. `until` 은 `<UNTIL>` 이다. `wp` 는 정규화한 WP 범위를 쉼표로 이은 값이며 없으면 `-` 다. 2번에서 이어받은 것은 `team.start` 바로 뒤에 같은 필드로
    다시 기록한다: 흡수한 슬롯마다 `team.spawn`(`spawn_kind` 는 `readopt`), 답을 기다리는 `blocked` 마다
    `team.blocked`, 흡수한 슬롯의 마지막 처리 해시마다 `team.result` 또는 `team.blocked`.
