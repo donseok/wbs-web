@@ -135,12 +135,13 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
 
   /**
    * 좌석·패널에서 op 버튼을 누른 순간 — 사유가 필요한 op 는 곧바로 보내지 않고 입력을 연다.
-   * 사유가 없는 op(승인·승인 취소·회수)는 상세를 열지 않는다 — 결재하려고 누른 것이지
+   * 되돌리기 어려운 op(중단)도 같은 자리에 확인 상자를 열어 한 번 더 묻는다(브라우저 confirm() 금지).
+   * 그 밖의 op(승인·승인 취소·이어서 시작)는 상세를 열지 않는다 — 결재하려고 누른 것이지
    * 상세를 보려고 누른 것이 아니다. 실패했을 때만 runOp 가 그 좌석을 열어 사유를 보여 준다.
    */
   const onOp = useCallback((seat: Seat, kind: SeatOpKind) => {
     setOpError(null)
-    if (opSpec(kind).needsNote) {
+    if (opSpec(kind).needsNote || opSpec(kind).needsConfirm) {
       setSelected(seat.orderId) // 사유 입력이 상세 패널 안에 있다
       setNote(prev => (prev && prev.orderId === seat.orderId && prev.kind === kind)
         ? prev // 같은 op 를 다시 눌러도 쓰던 글을 지우지 않는다
@@ -277,7 +278,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
           <li><i className={css.sw} style={{ background: 'var(--sm-reject)' }} />반려 · 재작업</li>
           <li><i className={css.sw} style={{ borderStyle: 'dashed' }} />빈자리</li>
         </ul>
-        <p>프로젝트가 층, 주문 항목의 부모 항목이 구역, 작업 주문 하나가 책상입니다. 의자의 인물은 그 주문을 잡은 에이전트(슬롯)이며 같은 에이전트는 늘 같은 인물입니다. 신호는 PostToolUse 훅의 heartbeat(60초 절제)와 progress 보고입니다. 승인·반려·승인 취소·재작업 요청·회수는 좌석에서 바로 하며, 반려와 재작업 요청은 사유를 적어야 확정됩니다.</p>
+        <p>프로젝트가 층, 주문 항목의 부모 항목이 구역, 작업 주문 하나가 책상입니다. 의자의 인물은 그 주문을 잡은 에이전트(슬롯)이며 같은 에이전트는 늘 같은 인물입니다. 신호는 PostToolUse 훅의 heartbeat(60초 절제)와 progress 보고입니다. 승인·반려·승인 취소·재작업 요청·중단은 좌석에서 바로 하며, 반려와 재작업 요청은 사유를 적어야, 중단은 한 번 더 확인해야 확정됩니다. 중단은 에이전트 위임을 끄고 진행 중인 개발을 멈춥니다 — 단계는 착수 전(as)으로 돌아가고, 워커는 다음 신호(약 1분 안)에서 멈춥니다. 다시 맡기려면 위임 체크를 켭니다.</p>
       </footer>}
     </>
   )

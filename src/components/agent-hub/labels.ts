@@ -61,17 +61,17 @@ export const OP_LABEL = {
   reject: '반려',
   unapprove: '승인 취소',
   rework: '재작업 요청',
-  release: '회수',
+  stop: '중단',
 } as const
 export const OP_TITLE = {
   approve: '완료 보고를 승인합니다 — 단계 완료(xx)·실적 100',
   reject: '완료 보고를 되돌립니다 — 단계 작업 중(ip)·실적은 크레딧 표의 반려·재작업(RW) 값, 에이전트가 사유를 읽고 재작업(사유 필수)',
   unapprove: '승인을 무릅니다 — 승인 대기로 돌아가고 단계 검수 대기(im)·실적은 크레딧 표의 IM 값',
   rework: '완료(xx)를 취소하고 에이전트에게 되돌립니다 — 단계 작업 중(ip)·실적은 크레딧 표의 RW 값(사유 필수)',
-  release: '점유를 풀어 대기(미착수)로 되돌립니다 — 단계 할당됨(as)·실적은 크레딧 표의 AS 값. 러너는 다음 신호에서 409 를 받고 멈춥니다',
+  stop: '에이전트 위임을 끄고 진행 중인 개발을 멈춥니다 — 단계는 착수 전(as)으로 돌아가고, 워커는 다음 신호(약 1분 안)에서 멈춥니다',
 } as const
 export const NOTE_PLACEHOLDER = { reject: '반려 사유 (필수)', rework: '재작업 사유 (필수)' } as const
 
 /** 위임 체크박스 안내(§11-2 개정). 취소는 체크를 끄는 것 하나로 통일 — 켜기/끄기 뜻을 툴팁으로 명시한다. */
 export const DELEGATE_ON_TITLE = '체크하면 이 작업을 에이전트에 위임합니다.'
-export const DELEGATE_OFF_TITLE = '체크를 끄면 위임이 해제되고, 아직 시작 안 된 대기 주문은 취소됩니다.'
+export const DELEGATE_OFF_TITLE = '체크를 끄면 위임이 해제되고 대기 주문은 취소됩니다. 진행 중인 개발도 멈추고 단계는 착수 전(as)으로 돌아갑니다.'

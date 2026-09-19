@@ -12,7 +12,6 @@ import { myMemberIds } from '@/lib/agent/assignee'
 import { applyDelegation, ERR_NOT_ASSIGNEE } from '@/lib/agent/delegation'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 import { emitNotification } from '@/lib/notify/emit'
-import { applyWorkflowEvent } from '@/lib/agent/workflowEvent'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
 import { after } from 'next/server'
 import { approveAgentCompletion, rejectAgentCompletion, requestAgentRework, unapproveAgentCompletion } from '@/app/actions/agentWork'
@@ -92,6 +91,7 @@ export async function applyHubDelegations(projectId: string, changes: HubDelegat
 
   const failed: { itemId: string; error: string }[] = []
   const warnings: { itemId: string; warning: string }[] = []
+  let actualChanged = false
   for (const itemId of ids) {
     const assignee = items.get(itemId)?.assignee_member_id ?? null
     if (mine && !(assignee && mine.has(assignee))) { failed.push({ itemId, error: ERR_NOT_ASSIGNEE }); continue }
@@ -100,7 +100,10 @@ export async function applyHubDelegations(projectId: string, changes: HubDelegat
     })
     if (!r.ok) failed.push({ itemId, error: r.error ?? '실패' })
     else if (r.warning) warnings.push({ itemId, warning: r.warning })
+    if (r.ok && r.actualChanged) actualChanged = true
   }
+  // 위임 해제가 진행 중 작업을 멈추고 단계를 as 로 되돌려 실적이 바뀌었으면 진척 스냅샷을 남긴다(묶음당 1회).
+  if (actualChanged) after(() => recordProgressSnapshot(projectId))
 
   try {
     const hub = await getAgentHub(projectId, { userId: g.actor.userId, isAdmin })
@@ -114,9 +117,9 @@ export async function applyHubDelegations(projectId: string, changes: HubDelegat
 
 // ---------------------------------------------------------------------------------------------------------------------
 // 개발 프로세스 조정(2026-09-14 허브 스펙 §11, 2026-09-15 트랙 B — 서브트리 관리자 추가) —
-// 승인·반려·승인 취소·재작업 요청(=완료 취소)·회수·단계 직접 조정. 세부 자격(관리자 또는
+// 승인·반려·승인 취소·재작업 요청(=완료 취소)·중단·단계 직접 조정. 세부 자격(관리자 또는
 // 서브트리 관리자, 반려 계열은 +담당자 본인)은 기존 액션(agentWork·wbsAssign)이 각자 한다.
-// 여기서는 (1) 멤버 가드 1회, (2) 대상이 이 프로젝트 것인지, (3) 회수만 별도로 좁히는 것,
+// 여기서는 (1) 멤버 가드 1회, (2) 대상이 이 프로젝트 것인지, (3) 중단·재개 요청만 별도로 좁히는 것,
 // (4) 실행 뒤 허브 재조회를 한 응답에 싣는 것을 맡는다 — 화면은 요청 1건으로 끝난다(§10 과 같은 원칙).
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -130,8 +133,11 @@ export type HubProcessOp =
   | { kind: 'unapprove'; orderId: string }
   /** 완료 취소 — 승인된(xx) 작업을 에이전트에게 되돌린다. 사용자 결정(2026-09-14): "완료취소 = 재작업 요청". */
   | { kind: 'rework'; orderId: string; note: string }
-  /** 사람 회수 — 점유(claimed)를 풀어 대기(ready)로. 작업 루프 스펙의 "응답 없음 카드 사람 회수". */
-  | { kind: 'release'; orderId: string }
+  /**
+   * 중단(2026-09-19, 옛 "회수") — 진행 중(claimed) 작업의 위임을 끄고 주문을 cancelled 로. 워커는 다음
+   * heartbeat 에서 409 cancelled 를 받고 멈춘다. 다시 맡기려면 사람이 위임 체크를 켠다.
+   */
+  | { kind: 'stop'; orderId: string }
   /** 재개 요청 — 멈춘(무응답·끊김) 좌석을 팀장이 이어받아 달라는 표식. 상태 전이가 아니다. */
   | { kind: 'resume'; orderId: string }
   | { kind: 'stage'; itemId: string; stage: WbsStageCode | null }
@@ -145,7 +151,7 @@ function isProcessOp(op: unknown): op is HubProcessOp {
   const o = op as Record<string, unknown>
   const uuid = (v: unknown) => typeof v === 'string' && isUuidLike(v)
   switch (o.kind) {
-    case 'approve': case 'unapprove': case 'release': case 'resume':
+    case 'approve': case 'unapprove': case 'stop': case 'resume':
       return uuid(o.orderId)
     case 'reject': case 'rework':
       return uuid(o.orderId) && typeof o.note === 'string'
@@ -157,37 +163,54 @@ function isProcessOp(op: unknown): op is HubProcessOp {
 }
 
 /**
- * 회수 본체 — claimed → ready(CAS). 호출부(runHubProcessOp)가 관리자 또는 서브트리 관리자로
- * 자격을 이미 가렸다(트랙 B, 2026-09-15) — 이 함수 이름은 옛 "관리자 전용" 시절 그대로지만
- * 상태 전이·알림 로직 자체는 호출자가 누구든 같다. 점유·heartbeat 흔적을 지워 표에 옛 에이전트
- * 이름이 남지 않게 한다. 러너는 다음 heartbeat·report 에서 409 를 받고 멈춘다(보고 라우트가
- * status=claimed 만 받는다). 알림은 러너 반납(release 라우트)과 같은 work.released 를
- * 배정자에게 — fire-and-forget.
+ * 중단 본체(2026-09-19 중단 설계 §1) — 호출부(runHubProcessOp)가 관리자 또는 서브트리 관리자로 자격을 이미 가렸다.
+ *
+ * 위임 해제 경로(applyDelegation, delegated:false)를 그대로 탄다: 태그 해제 → ready·claimed 주문 cancelled(CAS)
+ * → claimed 를 취소했으면 set_stage as. 체크 해제로 위임을 끄는 길과 똑같이 동작하게 하려는 것이다.
+ * release 사건(→ ready)을 쓰지 않는 이유: ready 를 거치면 그 사이 /dflow-team·/dflow-poll 이 다시 집어 가
+ * 같은 태스크를 두 워커가 동시에 개발한다. cancelled 는 종착 상태라 그 틈이 없다.
+ * WBS 항목이 지워진 주문은 위임 태그가 없으므로 주문만 CAS 로 cancelled 로 바꾼다.
+ * 알림은 러너 반납(release 라우트)과 같은 work.released 타입을 배정자에게 — fire-and-forget.
  */
-async function releaseOrderByAdmin(
-  admin: AdminClient, orderId: string, actorUserId: string,
-): Promise<{ ok: boolean; error?: string }> {
+async function stopOrderByAdmin(
+  admin: AdminClient, orderId: string, actorUserId: string, projectId: string, isAdmin: boolean,
+): Promise<{ ok: boolean; error?: string; warning?: string }> {
   const { data, error } = await admin
     .from('agent_work_orders').select('id, project_id, wbs_item_id, status').eq('id', orderId).maybeSingle()
   if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
   const order = data as { id: string; project_id: string; wbs_item_id: string | null; status: string } | null
   if (!order) return { ok: false, error: '주문 없음' }
-  if (order.status !== 'claimed') return { ok: false, error: `회수할 수 있는 상태가 아닙니다(${order.status}).` }
-  // 원자 전이(스펙 2026-09-15 §4) — claimed→ready CAS + 점유·heartbeat 흔적 제거 + 단계 as·실적 표.as 가 한 트랜잭션.
-  // 사람 회수라 점유자 일치 조건은 넘기지 않는다(자격은 호출부 runHubProcessOp 가 이미 가렸다).
-  const transition = await applyWorkflowEvent(admin, { event: 'release', actorUserId, orderId })
-  if (!transition.ok) {
-    return { ok: false, error: transition.conflict ? '상태가 바뀌어 회수하지 못했습니다. 다시 시도하세요.' : transition.error }
+  if (order.status !== 'claimed') return { ok: false, error: `중단할 수 있는 상태가 아닙니다(${order.status}).` }
+
+  let warning: string | undefined
+  if (order.wbs_item_id) {
+    const r = await applyDelegation(admin, { itemId: order.wbs_item_id, projectId, delegated: false, actorUserId, isAdmin })
+    if (!r.ok) return { ok: false, error: r.error ?? '중단에 실패했습니다.' }
+    // 위임 해제는 항목 단위라, 그 사이 이 주문이 보고(reported)로 넘어갔으면 이 주문은 멈추지 않았다 — 성공으로 덮지 않는다.
+    if (!(r.cancelledClaimedIds ?? []).includes(orderId)) {
+      return { ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다 — 위임은 해제됐습니다. 새로고침 후 확인하세요.' }
+    }
+    warning = r.warning
+    // 허브 액션은 페이지 재렌더를 싣지 않는다(응답의 hub 로 갱신) — 실적이 바뀌었으면 진척 스냅샷만 남긴다.
+    if (r.actualChanged) after(() => recordProgressSnapshot(projectId))
+  } else {
+    const { data: updated, error: upErr } = await admin
+      .from('agent_work_orders')
+      .update({ status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null, updated_at: new Date().toISOString() })
+      .eq('id', orderId).eq('status', 'claimed')
+      .select('id')
+    if (upErr) return { ok: false, error: `주문 취소 실패: ${upErr.message}` }
+    if (!updated || (updated as unknown[]).length === 0) {
+      return { ok: false, error: '상태가 바뀌어 작업을 중단하지 못했습니다. 다시 시도하세요.' }
+    }
   }
-  // 허브 액션은 페이지 재렌더를 싣지 않는다(응답의 hub 로 갱신) — 실적이 바뀌었으면 진척 스냅샷만 남긴다.
-  if (transition.actualChanged) after(() => recordProgressSnapshot(order.project_id))
 
   let itemName = '작업'
   let assigneeMemberId: string | null = null
   if (order.wbs_item_id) {
     const { data: itemRow, error: itemErr } = await admin
       .from('wbs_items').select('name, assignee_member_id').eq('id', order.wbs_item_id).maybeSingle()
-    if (itemErr) console.error('[agentHub] 회수 알림용 항목 조회 실패(알림 계속):', itemErr.message)
+    if (itemErr) console.error('[agentHub] 중단 알림용 항목 조회 실패(알림 계속):', itemErr.message)
     else if (itemRow) {
       const row = itemRow as { name: string; assignee_member_id: string | null }
       itemName = row.name
@@ -197,15 +220,15 @@ async function releaseOrderByAdmin(
   emitNotification({
     type: 'work.released', projectId: order.project_id, actorUserId,
     entityType: 'agent_order', entityId: order.id,
-    payload: { title: itemName, detail: '관리자가 작업을 회수했습니다', href: `/p/${order.project_id}/agents` },
+    payload: { title: itemName, detail: '관리자가 작업을 중단했습니다', href: `/p/${order.project_id}/agents` },
     recipientMemberIds: assigneeMemberId ? [assigneeMemberId] : [],
   }).catch(() => {})
-  return { ok: true }
+  return warning ? { ok: true, warning } : { ok: true }
 }
 
 /**
  * 재개 요청 본체 — 주문은 claimed 그대로 두고 표식 세 열만 얹는다(0099).
- * 상태를 바꾸지 않는 이유: 회수(release)는 claimed_by·heartbeat 흔적을 지우는데, 그러면 어느 PC 의
+ * 상태를 바꾸지 않는 이유: 중단(stop)은 주문을 끝내고 claimed_by 를 지우는데, 그러면 어느 PC 의
  * 워크트리에 산출물이 남아 있는지 알 길이 없어진다. 워커는 개발 마지막 단계에서만 push 하므로
  * 진행 중 작업의 원격 브랜치는 대개 없다 — 점유 라벨이 유일한 좌표다.
  * updated_at 을 건드리지 않는 것도 의도다: 그 열은 좌석 침묵 판정(lastSignalMs)의 재료라,
@@ -224,7 +247,7 @@ async function requestResumeOnOrder(
   // 호스트는 서버가 점유 라벨에서 파생한다 — 클라이언트가 보낸 값을 믿으면 엉뚱한 PC 가 집어 간다.
   const host = resumeHostFromClaimLabel(order.claimed_by)
   if (!host) {
-    return { ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 회수한 뒤 다시 배정하세요.' }
+    return { ok: false, error: '점유 라벨에서 이어받을 PC 를 읽지 못했습니다 — 중단한 뒤 다시 위임하세요.' }
   }
   const { data: updated, error: upErr } = await admin
     .from('agent_work_orders')
@@ -243,16 +266,16 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
   // 멤버 이상이면 문을 연다 — 승인·단계는 내부 액션(loadOrderForAdmin·setWbsStage)이 "관리자 또는
   // 서브트리 관리자"로, 반려·승인 취소·재작업 요청은 내부 액션(loadOrderForReview)이 "관리자·담당자
   // 본인·서브트리 관리자"로 판정한다(2026-09-14 담당자 본인, 2026-09-15 트랙 B 서브트리 관리자).
-  // 회수만 아래서 별도로 좁힌다 — 러너의 점유를 강제로 푸는 관리 행위라 일반 멤버에겐 안 연다.
+  // 중단·재개 요청은 아래서 별도로 좁힌다 — 남의 PC 러너를 세우거나 되살리는 관리 행위라 일반 멤버에겐 안 연다.
   const g = await requireProjectMember(projectId)
   if (!g.ok) return { ok: false, error: g.error }
   const isAdmin = isProjectAdmin(g.actor, projectId)
   const admin = createAdminClient()
 
   // 대상이 이 프로젝트 것인지 화면 단위로 한 번 더 본다 — 내부 액션도 각자 가드하지만, 남의 프로젝트 주문 id 를
-  // 이 화면에 끼워 넣는 길은 여기서 닫는다(fail-closed). release 는 이 조회로 얻은 wbs_item_id 를
+  // 이 화면에 끼워 넣는 길은 여기서 닫는다(fail-closed). stop·resume 은 이 조회로 얻은 wbs_item_id 를
   // 아래 서브트리 관리자 판정에도 그대로 쓴다(재조회 없이).
-  let releaseItemId: string | null = null
+  let orderItemId: string | null = null
   if (op.kind === 'stage') {
     const { data, error } = await admin.from('wbs_items').select('project_id').eq('id', op.itemId).maybeSingle()
     if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
@@ -261,19 +284,19 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
     const { data, error } = await admin.from('agent_work_orders').select('project_id, wbs_item_id').eq('id', op.orderId).maybeSingle()
     if (error) return { ok: false, error: `주문 조회 실패: ${error.message}` }
     if (!data || (data as { project_id: string }).project_id !== projectId) return { ok: false, error: '이 프로젝트의 주문이 아닙니다.' }
-    releaseItemId = (data as { wbs_item_id: string | null }).wbs_item_id
+    orderItemId = (data as { wbs_item_id: string | null }).wbs_item_id
   }
 
-  // 회수는 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15). WBS 항목이 삭제된 주문(wbs_item_id
-  // 없음)은 조상을 특정할 수 없어 관리자만.
+  // 중단은 관리자 또는 서브트리 관리자(트랙 B, 2026-09-15 — 옛 회수와 같은 자격). WBS 항목이 삭제된 주문
+  // (wbs_item_id 없음)은 조상을 특정할 수 없어 관리자만.
   // 재개 요청도 같은 축이다 — 남의 PC 러너를 되살리라고 지시하는 관리 행위라 담당자 본인에게는 열지 않는다.
-  if ((op.kind === 'release' || op.kind === 'resume') && !isAdmin) {
-    // 문구는 op 마다 통째로 둔다 — 조사를 붙여 만들면 "회수은" 같은 말이 나온다.
-    const [adminOnly, subtreeOnly] = op.kind === 'release'
-      ? ['회수는 관리자만 할 수 있습니다.', '회수는 관리자 또는 서브트리 관리자만 할 수 있습니다.']
+  if ((op.kind === 'stop' || op.kind === 'resume') && !isAdmin) {
+    // 문구는 op 마다 통째로 둔다 — 조사를 붙여 만들면 "재개 요청는" 같은 말이 나온다.
+    const [adminOnly, subtreeOnly] = op.kind === 'stop'
+      ? ['중단은 관리자만 할 수 있습니다.', '중단은 관리자 또는 서브트리 관리자만 할 수 있습니다.']
       : ['재개 요청은 관리자만 할 수 있습니다.', '재개 요청은 관리자 또는 서브트리 관리자만 할 수 있습니다.']
-    if (!releaseItemId) return { ok: false, error: adminOnly }
-    const subtree = await requireSubtreeManagerOrAdmin(releaseItemId, projectId)
+    if (!orderItemId) return { ok: false, error: adminOnly }
+    const subtree = await requireSubtreeManagerOrAdmin(orderItemId, projectId)
     if (!subtree.ok) return { ok: false, error: subtreeOnly }
   }
 
@@ -283,7 +306,7 @@ export async function runHubProcessOp(projectId: string, op: HubProcessOp): Prom
     case 'reject': r = await rejectAgentCompletion(op.orderId, op.note); break
     case 'unapprove': r = await unapproveAgentCompletion(op.orderId); break
     case 'rework': r = await requestAgentRework(op.orderId, op.note); break
-    case 'release': r = await releaseOrderByAdmin(admin, op.orderId, g.actor.userId); break
+    case 'stop': r = await stopOrderByAdmin(admin, op.orderId, g.actor.userId, projectId, isAdmin); break
     case 'resume': r = await requestResumeOnOrder(admin, op.orderId, g.actor.userId); break
     case 'stage': r = await setWbsStage(op.itemId, op.stage); break
   }

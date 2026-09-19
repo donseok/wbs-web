@@ -100,14 +100,14 @@ describe('SeatCard', () => {
     expect(host.querySelector('[data-mark]')).toBeNull()
   })
 
-  it('상태에 맞는 결재 버튼이 좌석에 붙는다 — 승인 대기는 승인·반려, 업무 중은 회수, 빈자리는 없다', () => {
+  it('상태에 맞는 결재 버튼이 좌석에 붙는다 — 승인 대기는 승인·반려, 업무 중은 중단, 빈자리는 없다', () => {
     const seen: string[] = []
     act(() => root.render(<SeatCard seat={seat({ state: 'WAIT' })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={(_s, k) => { seen.push(k) }} />))
     expect([...host.querySelectorAll('[data-seat-op]')].map(b => (b as HTMLElement).dataset.seatOp)).toEqual(['approve', 'reject'])
     act(() => (host.querySelector('[data-seat-op="approve"]') as HTMLButtonElement).click())
     expect(seen).toEqual(['approve'])
     act(() => root.render(<SeatCard seat={seat({ state: 'ACTIVE' })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
-    expect([...host.querySelectorAll('[data-seat-op]')].map(b => (b as HTMLElement).dataset.seatOp)).toEqual(['release'])
+    expect([...host.querySelectorAll('[data-seat-op]')].map(b => (b as HTMLElement).dataset.seatOp)).toEqual(['stop'])
     act(() => root.render(<SeatCard seat={seat({ state: 'READY' })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
     expect(host.querySelectorAll('[data-seat-op]')).toHaveLength(0)
   })

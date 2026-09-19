@@ -197,6 +197,37 @@ describe('SeatmapView — 좌석에서 바로 결재', () => {
     expect(document.querySelector('[data-op-note]')).not.toBeNull()
   })
 
+  // 작업 중(ACTIVE) 좌석 — 중단 버튼만 뜬다.
+  const activeSeat = (): Seatmap => map({
+    floors: [{
+      id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
+      zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 0 }, seats: [
+        { orderId: 'o7', id8: 'o7', projectId: 'p1', itemId: 'i7', code: 'TSK-04-07', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false, resumeRequestedAt: null, resumeRequestedHost: null },
+      ] }],
+    }],
+    attention: [],
+  })
+  it('중단은 곧바로 보내지 않고 상세 팝업에 확인을 띄운다 — 확정하면 보내고, 취소하면 아무 것도 안 한다', async () => {
+    runOp.mockResolvedValue({ ok: true })
+    refresh.mockResolvedValue({ ok: true, seatmap: activeSeat() })
+    await act(async () => { root.render(<SeatmapView initial={activeSeat()} />) })
+    await act(async () => { opButton('stop').click() })
+    expect(runOp).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-op-note]')).toBeNull() // 사유 입력이 아니라 확인이다
+    const box = document.querySelector('[data-op-confirm-box="stop"]')
+    expect(box).not.toBeNull()
+    expect(box!.textContent).toContain('워커는 다음 신호')
+    await act(async () => { (document.querySelector('[data-op-cancel]') as HTMLButtonElement).click() })
+    expect(document.querySelector('[data-op-confirm-box]')).toBeNull()
+    expect(runOp).not.toHaveBeenCalled()
+    await act(async () => { opButton('stop').click() })
+    const go = document.querySelector('[data-op-confirm]') as HTMLButtonElement
+    expect(go.disabled).toBe(false)
+    expect(go.textContent).toBe('중단 확정')
+    await act(async () => { go.click() })
+    expect(runOp).toHaveBeenCalledWith('p1', { kind: 'stop', orderId: 'o7' })
+  })
+
   it('승인이 실패하면 그 좌석의 상세 팝업을 열어 사유를 보여 준다', async () => {
     runOp.mockResolvedValue({ ok: false, error: '이미 승인된 주문입니다' })
     await act(async () => { root.render(<SeatmapView initial={waitSeat()} />) })
