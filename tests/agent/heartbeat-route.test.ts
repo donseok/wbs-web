@@ -125,7 +125,7 @@ describe('POST /agent/work/[id]/heartbeat', () => {
   it('409 cancelled — 사람이 중단한 주문이면 code=cancelled 로 워커를 세운다(touch 없음)', async () => {
     const calls: Record<string, unknown[]> = {}
     // 중단은 점유 흔적(claimed_by*)을 지운다 — 소유 판정보다 상태 판정이 먼저여야 403 이 아니라 409 cancelled 가 간다.
-    useAdmin(okQueues({ ...ORDER, status: 'cancelled', claimed_by: null, claimed_by_user_id: null }), calls)
+    useAdmin(okQueues({ ...ORDER, status: 'cancelled', claimed_by: null, claimed_by_user_id: null } as unknown as typeof ORDER), calls)
     const res = await post({ agent: 'a', phase: 'build' })
     expect(res.status).toBe(409)
     const body = await res.json()
