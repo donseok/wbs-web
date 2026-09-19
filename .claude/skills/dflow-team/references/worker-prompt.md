@@ -156,6 +156,11 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 을 쓰고 끝낸다. 이유: 거부된 명령 목록이 킷 허용 목록의 재료이며, 우회한 호출은 다음 실행에서 다시 막힌다.
 같은 사유는 Phase 서브에이전트에서 나도 워커가 받아 같은 형식으로 보고한다.
 
+**중단(exit 10)**: `dflow.sh` 가 exit 10 을 내면 사람이 D'Flow 에서 이 작업을 멈춘 것이다. 재시도·우회하지 않는다.
+하던 일을 로컬 커밋으로만 남기고(push·done 금지) `.result` 에 `cancelled` 를 쓴 뒤 끝낸다. heartbeat 훅이
+`continue:false` 로 세션을 세웠다면 그 뒤로 도구를 부르지 못할 수 있다 — 그때는 결과 줄이 없어도 팀장이 서버의
+`cancelled` 를 보고 같은 처리를 한다(SKILL.md 「3. 결과 처리」).
+
 ## 7. 보고: `.result` 파일 계약
 
 작업을 끝내거나 멈출 때 `docs/tasks/{TSK}/.result` 에 한 줄을 쓰고(디렉터리가 없으면 만든다), **같은 줄을
@@ -171,6 +176,7 @@ AskUserQuestion 도구를 갖고 있어도 쓰지 않는다. 슬롯 N개가 각�
 | `skipped` | 착수 전에 멈춤. 팀장은 일시 제외로 다룬다 | `claim-exit-4`, `선행 미충족`, `선행 미승인`, `선행 승인 대기`, `선행을 모두 조상으로 갖는 기점 없음`, `spec 부재` 중 하나 |
 | `needs-merge` | 재개 판정이 approved(`/dflow-dev` 「--worker」 C) | `approved` |
 | `blocked` | 6번 판단 규칙(되돌리기 어려운 결정만) | 질문과 선택지 |
+| `cancelled` | 사람이 D'Flow 에서 이 작업을 중단했다. `dflow.sh` 의 progress·heartbeat·done 이 exit 10 이거나, heartbeat 훅이 세션을 세웠다(`/dflow-dev` 상태 모델) | 멈춘 Phase 와 호출(예 `build progress exit 10`). 산출물은 로컬 커밋만 하고 **push 하지 않는다** |
 | `failed` | 그 밖의 중단(push 훅 거부, 게이트 실패, Verify 재시도 소진, 부트스트랩 실패, 권한 거부) | 자유 문구. 팀장이 구분하는 값은 첫 낱말로 쓴다: `rate-limit`(사용량 한도·rate limit 오류로 멈춤, 재시도 가능), `not-isolated`(격리 실패, 파일로는 쓰지 않는다), `no-worker-flag`(옛 `/dflow-dev`), `deps`(의존성 설치 실패), `permission`(권한 거부, 뒤에 거부된 명령의 첫 낱말들), `project`(claim 이 `PROJECT_MISMATCH` 로 거부됨. 주문이 이 리포에 바인딩된 D'Flow 프로젝트 밖이다), `not-assignee`(claim 이 `not_assignee` 로 거부됨. 다른 멤버에게 배정된 작업이다) |
 
 - `<branch>` 는 agent 브랜치 이름이고, 브랜치를 만들기 전에 끝났으면 `-` 다.

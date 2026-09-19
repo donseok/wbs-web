@@ -19,6 +19,10 @@ export type AgentDelegationResult = {
   ok: boolean; error?: string
   /** 사람이 알아야 할 부수 상황 — 프로젝트가 중지 상태라 주문이 안 나갔다, 진행 중 주문은 회수하지 않았다 등. */
   warning?: string
+  /** 위임 해제가 진행 중(claimed) 주문을 취소한 경우 그 주문 id — 중단(stop) op 가 대상 주문이 실제로 멈췄는지 본다. */
+  cancelledClaimedIds?: string[]
+  /** 단계 되돌리기(set_stage as)가 실적을 바꿨다 — 호출부가 진척 스냅샷을 남긴다. */
+  actualChanged?: boolean
 }
 
 export type DelegationRight =
@@ -62,7 +66,8 @@ export async function requireDelegationRight(itemId: string): Promise<Delegation
  * ON : tags 에 agent 추가 → 프로젝트 자동 활성(처음이면 백필) → dev_workflow ON(아니었으면) → 이 항목 주문 보장.
  *      프로젝트가 "에이전트 중지"(enabled=false) 상태면 태그는 붙이되 주문은 안 나간다 — warning 으로 알린다.
  *      멤버(비관리자)는 프로젝트가 등록·활성일 때만 ON 할 수 있다 — 등록·백필은 프로젝트 범위 부작용이라 관리자 행위다.
- * OFF: tags 에서 agent 제거 → 이 항목의 ready·claimed 주문 취소. reported 는 결과물이 올라온 상태라 건드리지 않고 warning.
+ * OFF: tags 에서 agent 제거 → 이 항목의 ready·claimed 주문 취소(claimed 를 취소했으면 단계 as 로 되돌림).
+ *      reported 는 결과물이 올라온 상태라 건드리지 않고 warning.
  *
  * dev_workflow 는 여기서 켜기만 하고 끄지 않는다(위임 해제 ≠ 워크플로 이탈 — 사람이 직접 할 수도 있다).
  * revalidatePath 는 호출부(액션) 책임 — 일괄 위임이 항목마다 부르면서 마지막에 1회만 하려는 것.
@@ -138,8 +143,8 @@ export async function applyDelegation(
       if (!ord.created && ord.reason === 'not_leaf') warnings.push('리프(하위 없음) 항목만 에이전트가 집어갑니다 — 이 항목은 하위가 있어 주문이 없습니다.')
     }
   } else {
-    // ready·claimed 는 체크 해제만으로 취소한다(2026-08-24 — "회수" 버튼을 따로 안 둔다: 위임을
-    // 끄면 그 항목엔 에이전트를 더 안 쓰겠다는 뜻이니 대기 중이든 작업 중이든 그대로 끝낸다).
+    // ready·claimed 는 체크 해제만으로 취소한다(2026-08-24 — 위임을 끄면 그 항목엔 에이전트를 더 안 쓰겠다는
+    // 뜻이니 대기 중이든 작업 중이든 그대로 끝낸다). 허브·좌석의 "중단" 버튼(2026-09-19)도 이 경로를 탄다.
     // reported 는 이미 결과물이 올라온 상태라 취소로 지우지 않는다 — 승인·반려로만 정리한다.
     const { data: active, error: actErr } = await admin
       .from('agent_work_orders').select('id, status').eq('wbs_item_id', itemId)
@@ -147,16 +152,42 @@ export async function applyDelegation(
     if (actErr) return { ok: false, error: `주문 조회 실패: ${actErr.message}` }
     const rows = (active ?? []) as Array<{ id: string; status: string }>
     const cancelIds = rows.filter(o => o.status === 'ready' || o.status === 'claimed').map(o => o.id)
+    let cancelledClaimedIds: string[] = []
+    let actualChanged = false
     if (cancelIds.length > 0) {
-      const { error: cancelErr } = await admin
+      const { data: cancelled, error: cancelErr } = await admin
         .from('agent_work_orders')
         .update({ status: 'cancelled', claimed_by: null, claimed_by_user_id: null, claimed_at: null, updated_at: new Date().toISOString() })
         .in('id', cancelIds).in('status', ['ready', 'claimed'])
+        .select('id')
       if (cancelErr) return { ok: false, error: `주문 취소 실패: ${cancelErr.message}` }
+      // 실제로 취소된 행 중 읽을 때 claimed 였던 것 — 워커가 돌던 주문이다(2026-09-19 중단 설계 §1).
+      const done = new Set(((cancelled ?? []) as Array<{ id: string }>).map(o => o.id))
+      cancelledClaimedIds = rows.filter(o => o.status === 'claimed' && done.has(o.id)).map(o => o.id)
+    }
+    if (cancelledClaimedIds.length > 0) {
+      // 진행 중이던 작업을 멈췄으니 단계·실적을 착수 전(as)으로 되돌린다. 태그를 먼저 뗐으므로 locked 에 걸리지 않는다.
+      // ready 만 취소한 경우는 건드리지 않는다 — 재작업 대기(ip) 같은 단계를 체크 해제가 지우면 안 된다.
+      // 되돌리기가 실패해도 취소는 이미 끝났다 — 실패로 뒤집지 않고 warning 으로 드러낸다(표시 = 로깅).
+      try {
+        const tr = await applyWorkflowEvent(admin, { event: 'set_stage', actorUserId, itemId, stage: 'as' })
+        if (!tr.ok) {
+          console.error('[delegation] 중단 뒤 단계 되돌리기 실패:', itemId, tr.error)
+          warnings.push(`작업은 멈췄지만 단계를 착수 전(as)으로 되돌리지 못했습니다 — ${tr.error}`)
+        } else if (tr.actualChanged) actualChanged = true
+      } catch (e) {
+        console.error('[delegation] 중단 뒤 단계 되돌리기 예외:', itemId, e)
+        warnings.push('작업은 멈췄지만 단계를 착수 전(as)으로 되돌리지 못했습니다 — 서버 로그를 확인하세요.')
+      }
     }
     if (rows.some(o => o.status === 'reported')) {
       warnings.push('완료 보고가 이미 올라온 주문은 취소되지 않았습니다 — 진행 상황에서 승인·반려로 정리하세요.')
     }
+    const extra = {
+      ...(cancelledClaimedIds.length > 0 ? { cancelledClaimedIds } : {}),
+      ...(actualChanged ? { actualChanged } : {}),
+    }
+    return warnings.length > 0 ? { ok: true, warning: warnings.join(' '), ...extra } : { ok: true, ...extra }
   }
   return warnings.length > 0 ? { ok: true, warning: warnings.join(' ') } : { ok: true }
 }

@@ -6,12 +6,14 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(), createServerClient: vi.fn(),
   myMemberIds: vi.fn(), viewerEmail: vi.fn(),
   ensureAgentProject: vi.fn(), backfillProjectOrders: vi.fn(), ensureOrderForWorkflowLeaf: vi.fn(),
-  applyWorkflowEvent: vi.fn(),
+  applyWorkflowEvent: vi.fn(), after: vi.fn(), recordProgressSnapshot: vi.fn(),
 }))
 vi.mock('@/lib/authz', () => ({ requireProjectAdmin: mocks.requireProjectAdmin, requireProjectMember: mocks.requireProjectMember, resolveProjectId: mocks.resolveProjectId }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/supabase/server', () => ({ createServerClient: mocks.createServerClient }))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+vi.mock('next/server', () => ({ after: mocks.after }))
+vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
 vi.mock('@/lib/agent/assignee', () => ({ myMemberIds: mocks.myMemberIds }))
 vi.mock('@/lib/data/agentSeatmap', () => ({ viewerEmail: mocks.viewerEmail, DONE_WINDOW_MS: 0 }))
 vi.mock('@/lib/agent/ensureOrder', () => ({ ensureAgentProject: mocks.ensureAgentProject, backfillProjectOrders: mocks.backfillProjectOrders, ensureOrderForWorkflowLeaf: mocks.ensureOrderForWorkflowLeaf }))
@@ -135,6 +137,48 @@ describe('setAgentDelegation — 멤버 경로', () => {
     const r = await setAgentDelegation(W1, false)
     expect(r.ok).toBe(true)
     expect((captured.agent_work_orders?.[0] as { status: string }).status).toBe('cancelled')
+  })
+  // 2026-09-19 중단 설계 §1 — 위임 해제가 진행 중(claimed) 주문을 취소했으면 단계를 착수 전(as)으로 되돌린다.
+  const offQueues = (orders: Array<{ id: string; status: string }>, cancelledIds: string[]) => ({
+    wbs_items: [{ data: { assignee_member_id: 'm1' } }, { data: { tags: ['agent'], dev_workflow: true } }, { data: [{ id: W1 }] }],
+    agent_work_orders: [{ data: orders }, { data: cancelledIds.map(id => ({ id })) }],
+  })
+  it('해제가 claimed 주문을 취소하면 태그·주문 정리 뒤 set_stage as 로 단계를 되돌린다', async () => {
+    const { calls } = admin(offQueues([{ id: 'o1', status: 'claimed' }], ['o1']))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: true, actualChanged: true })
+    const r = await setAgentDelegation(W1, false)
+    expect(r).toMatchObject({ ok: true, cancelledClaimedIds: ['o1'], actualChanged: true })
+    expect(r.warning).toBeUndefined()
+    expect(mocks.applyWorkflowEvent).toHaveBeenCalledWith(expect.anything(), { event: 'set_stage', actorUserId: 'member-1', itemId: W1, stage: 'as' })
+    // 순서: 태그 update(wbs_items) → 주문 조회·취소(agent_work_orders) 뒤에 전이 RPC 가 온다(locked 회피).
+    expect(calls.lastIndexOf('agent_work_orders')).toBeGreaterThan(calls.lastIndexOf('wbs_items'))
+    // 실적이 바뀌었으면 진척 스냅샷을 응답 뒤로 미룬다.
+    expect(mocks.after).toHaveBeenCalledTimes(1)
+    mocks.after.mock.calls[0][0]()
+    expect(mocks.recordProgressSnapshot).toHaveBeenCalledWith(P1)
+  })
+  it('ready 만 취소했으면 단계는 건드리지 않는다(재작업 대기 단계를 지우지 않는다)', async () => {
+    admin(offQueues([{ id: 'o1', status: 'ready' }], ['o1']))
+    const r = await setAgentDelegation(W1, false)
+    expect(r.ok).toBe(true)
+    expect(r.cancelledClaimedIds).toBeUndefined()
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+  })
+  it('claimed 로 읽었어도 CAS 가 못 바꿨으면(경합) 단계를 되돌리지 않는다', async () => {
+    admin(offQueues([{ id: 'o1', status: 'claimed' }], []))
+    const r = await setAgentDelegation(W1, false)
+    expect(r.ok).toBe(true)
+    expect(r.cancelledClaimedIds).toBeUndefined()
+    expect(mocks.applyWorkflowEvent).not.toHaveBeenCalled()
+  })
+  it('단계 되돌리기가 실패해도 해제는 성공 — warning 으로 드러낸다', async () => {
+    admin(offQueues([{ id: 'o1', status: 'claimed' }], ['o1']))
+    mocks.applyWorkflowEvent.mockResolvedValue({ ok: false, conflict: false, reason: 'rpc_error', orderStatus: null, error: '전이 실패: boom' })
+    const r = await setAgentDelegation(W1, false)
+    expect(r.ok).toBe(true)
+    expect(r.cancelledClaimedIds).toEqual(['o1'])
+    expect(r.warning).toContain('단계를 착수 전(as)으로 되돌리지 못했습니다')
+    expect(r.warning).toContain('전이 실패: boom')
   })
   it('관리자 경로는 agent_projects 사전 확인 없이 ensureAgentProject 로 간다(종전 동작)', async () => {
     mocks.requireProjectAdmin.mockResolvedValue({ ok: true, actor: { userId: 'admin-1' } })

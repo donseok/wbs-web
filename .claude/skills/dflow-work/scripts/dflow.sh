@@ -2,7 +2,7 @@
 # dflow.sh — D'Flow Agent API 얇은 curl 래퍼. 계약 v2.x (references/api-contract.md).
 # 정확한 기대 버전은 아래 CONTRACT_VERSION 하나뿐이다 — 주석과 비교문에 숫자를 따로 두면
 # 둘이 따로 낡는다(2026-08-27 감사: 서버가 2.1 인데 비교문만 2.0 으로 남아 있었다).
-# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐
+# exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨(409 code=cancelled)
 # 토큰은 env 확장으로만 전달한다 — echo·파일 기록·명령 문자열 보간 금지.
 set -u
 
@@ -37,6 +37,8 @@ usage() {
   release <ref>
   profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
+exit: 0 성공 / 2 사용법·설정 / 3 인증 / 4 상태충돌 / 5 권한 / 6 네트워크·서버·로컬 환경 / 7 기능꺼짐 / 10 중단됨
+      10 = 사람이 D'Flow 에서 작업을 중단했다(409 code=cancelled). 더 진행하지 말고 멈춘다
 EOF
   exit 2
 }
@@ -137,7 +139,13 @@ api_raw() { # $1=METHOD $2=PATH [$3=JSON body] — TOKEN env 필요. 성공 시 
       fi
       exit 5 ;;
     404) printf '%s\n' "$_body" >&2; exit 7 ;;
-    409) printf '%s\n' "$_body" >&2; exit 4 ;;
+    409)
+      printf '%s\n' "$_body" >&2
+      # 사람이 중단한 주문(2026-09-19)은 경합·상태 불일치와 처방이 다르다 — 재시도가 아니라 즉시 멈춤이다.
+      if [ "$(printf '%s' "$_body" | jq -r '.code // empty' 2>/dev/null)" = "cancelled" ]; then
+        exit 10
+      fi
+      exit 4 ;;
     4??) printf '%s\n' "$_body" >&2; exit 2 ;;
     *)   printf '%s\n' "$_body" >&2; exit 6 ;;
   esac

@@ -63,11 +63,11 @@ export const IconUnapprove = () => (
 export const IconRework = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.4 12a8.4 8.4 0 1 1-2.5-6" /><path d="M20.6 3.6v4.6H16" /></svg>
 )
-/** 회수 — 정지 사각형. */
-export const IconRelease = () => (
+/** 중단 — 정지 사각형(옛 「회수」 자리. 위임을 끄고 워커를 세운다). */
+export const IconStop = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
 )
-/** 이어서 시작 — 재생 삼각형에 이어 붙이는 획. 회수(정지)와 한눈에 갈라져야 한다. */
+/** 이어서 시작 — 재생 삼각형에 이어 붙이는 획. 중단(정지)과 한눈에 갈라져야 한다. */
 export const IconResume = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 5.5v13" /><path d="M9.5 6.6l9 5.4-9 5.4z" /></svg>
 )

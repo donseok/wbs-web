@@ -260,24 +260,25 @@ describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(�
     expect(text('[data-hub-row="n"] [data-hub-stage-text]')).toBe('미착수')
     expect(host.querySelector('[data-hub-op]')).toBeNull()
   })
-  it('관리자: 주문 상태별 버튼 — 승인 대기(승인·반려), 승인됨(승인 취소·재작업 요청), 작업 중(회수), 대기·없음·마일스톤(없음)', () => {
+  it('관리자: 주문 상태별 버튼 — 승인 대기(승인·반려), 승인됨(승인 취소·재작업 요청), 작업 중(중단), 대기·없음·마일스톤(없음)', () => {
     render({ rows: NOTE_ROWS, isAdmin: true })
     expect(ops('w')).toEqual(['approve', 'reject'])
     expect(ops('d')).toEqual(['unapprove', 'rework'])
-    expect(ops('c')).toEqual(['release'])
+    expect(ops('c')).toEqual(['stop'])
     expect(ops('r')).toEqual([]); expect(ops('n')).toEqual([]); expect(ops('ms')).toEqual([])
-    expect(op('w', 'approve').textContent).toBe('승인'); expect(op('d', 'rework').textContent).toBe('재작업 요청'); expect(op('c', 'release').textContent).toBe('회수')
+    expect(op('w', 'approve').textContent).toBe('승인'); expect(op('d', 'rework').textContent).toBe('재작업 요청'); expect(op('c', 'stop').textContent).toBe('중단')
     expect(op('d', 'rework').title).toContain('완료(xx)를 취소')
     expect(stageSel('ms')).toBeNull() // 마일스톤은 단계 없음
   })
-  it('승인 → runHubProcessOp(p1, {approve, orderId}) → onHub(hub); 회수·승인 취소도 같은 길', async () => {
+  it('승인 → runHubProcessOp(p1, {approve, orderId}) → onHub(hub); 중단·승인 취소도 같은 길', async () => {
     runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
     const { onHub, onChanged } = render({ rows: NOTE_ROWS, isAdmin: true })
     await click(op('w', 'approve'))
     expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'approve', orderId: 'ow' })
     expect(onHub).toHaveBeenCalledWith(HUB); expect(onChanged).not.toHaveBeenCalled()
-    await click(op('c', 'release'))
-    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'release', orderId: 'oc' })
+    await click(op('c', 'stop'))
+    await click(host.querySelector('[data-hub-row-extra="c"] [data-hub-confirm-go]') as HTMLButtonElement)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'stop', orderId: 'oc' })
     await click(op('d', 'unapprove'))
     expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'unapprove', orderId: 'od' })
   })
@@ -296,6 +297,26 @@ describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(�
     await click(op('w', 'reject'))
     expect(host.querySelector('[data-hub-row-extra="w"] [data-hub-note="reject"]')).not.toBeNull()
   })
+  it('중단은 되돌리기 어려워 한 번 확인한다 — 첫 클릭은 확인 줄만 열고, 확정해야 보낸다, 취소하면 닫힌다', async () => {
+    runHubProcessOp.mockResolvedValue({ ok: true, hub: HUB })
+    render({ rows: NOTE_ROWS, isAdmin: true })
+    await click(op('c', 'stop'))
+    expect(runHubProcessOp).not.toHaveBeenCalled()
+    const box = host.querySelector('[data-hub-row-extra="c"] [data-hub-confirm="stop"]')
+    expect(box).not.toBeNull()
+    expect(box!.textContent).toContain('워커는 다음 신호')
+    expect((box!.querySelector('[data-hub-confirm-go]') as HTMLButtonElement).textContent).toBe('중단 확정')
+    await click(box!.querySelector('[data-hub-confirm-cancel]') as HTMLButtonElement)
+    expect(host.querySelector('[data-hub-confirm]')).toBeNull()
+    expect(runHubProcessOp).not.toHaveBeenCalled()
+    // 같은 버튼을 다시 누르면 확인 줄을 닫는다(사유 줄과 같은 토글).
+    await click(op('c', 'stop')); await click(op('c', 'stop'))
+    expect(host.querySelector('[data-hub-confirm]')).toBeNull()
+    await click(op('c', 'stop'))
+    await click(host.querySelector('[data-hub-confirm-go]') as HTMLButtonElement)
+    expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'stop', orderId: 'oc' })
+    expect(host.querySelector('[data-hub-confirm]')).toBeNull() // 성공하면 닫힌다
+  })
   it('실패는 그 행 아래 오류, warning 은 경고 문구, hub:null 은 알림 줄 + onChanged', async () => {
     runHubProcessOp.mockResolvedValueOnce({ ok: false, error: '승인 가능한 상태가 아닙니다(claimed).' })
     const { onHub, onChanged } = render({ rows: NOTE_ROWS, isAdmin: true })
@@ -306,7 +327,8 @@ describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(�
     await click(op('d', 'unapprove'))
     expect(text('[data-hub-row-extra="d"] [data-hub-warning]')).toContain('실적을 되돌리지')
     runHubProcessOp.mockResolvedValueOnce({ ok: true, hub: null, hubError: '처리는 됐지만 현황 재조회에 실패했습니다. 새로고침을 누르세요.' })
-    await click(op('c', 'release'))
+    await click(op('c', 'stop'))
+    await click(host.querySelector('[data-hub-confirm-go]') as HTMLButtonElement)
     expect(text('[data-hub-notice]')).toContain('재조회에 실패')
     expect(onChanged).toHaveBeenCalledTimes(1)
   })
@@ -339,7 +361,7 @@ describe('DelegationTable — 개발 프로세스 조정·단계 직접 조정(�
   })
 })
 
-describe('DelegationTable — 담당자 본인도 반려·승인 취소·재작업(승인·회수·단계는 관리자만, 2026-09-14 §11)', () => {
+describe('DelegationTable — 담당자 본인도 반려·승인 취소·재작업(승인·중단·단계는 관리자만, 2026-09-14 §11)', () => {
   const MINE: HubRow[] = [
     row({ itemId: 'root', code: 'SYS-OP', name: '조업', isLeaf: false }),
     row({ itemId: 'w', code: 'TSK-W', name: '승인 대기', depth: 1, parentId: 'root', assigneeMine: true, canToggle: true, delegated: true, devWorkflow: true, stage: 'im', order: { id: 'ow', status: 'reported', state: 'WAIT', agent: 'a', lastSignalAt: null } }),
@@ -350,11 +372,11 @@ describe('DelegationTable — 담당자 본인도 반려·승인 취소·재작�
   const ops = (id: string) => [...host.querySelectorAll(`[data-hub-row="${id}"] [data-hub-op]`)].map(b => b.getAttribute('data-hub-op'))
   const op = (id: string, kind: string) => host.querySelector(`[data-hub-row="${id}"] [data-hub-op="${kind}"]`) as HTMLButtonElement
 
-  it('멤버(isAdmin=false): 내 담당 승인 대기 → 반려만(승인 없음), 승인됨 → 승인 취소·재작업, 작업 중 → 없음(회수는 관리자만)', () => {
+  it('멤버(isAdmin=false): 내 담당 승인 대기 → 반려만(승인 없음), 승인됨 → 승인 취소·재작업, 작업 중 → 없음(중단은 관리자만)', () => {
     render({ rows: MINE, isAdmin: false })
     expect(ops('w')).toEqual(['reject'])
     expect(ops('d')).toEqual(['unapprove', 'rework'])
-    expect(ops('c')).toEqual([]) // 회수(release)는 관리자만
+    expect(ops('c')).toEqual([]) // 중단(stop)은 관리자만
     expect(host.querySelector('[data-hub-row="w"] select[data-hub-stage]')).toBeNull() // 단계 조정은 관리자만
     expect(host.querySelector('[data-hub-row="w"] [data-hub-stage-text]')?.textContent).toBe('검수 대기')
   })
@@ -374,10 +396,10 @@ describe('DelegationTable — 담당자 본인도 반려·승인 취소·재작�
     await click(op('d', 'unapprove'))
     expect(runHubProcessOp).toHaveBeenCalledWith('p1', { kind: 'unapprove', orderId: 'od' })
   })
-  it('관리자는 회수·단계까지 모두 보인다(대조군)', () => {
+  it('관리자는 중단·단계까지 모두 보인다(대조군)', () => {
     render({ rows: MINE, isAdmin: true })
     expect(ops('w')).toEqual(['approve', 'reject'])
-    expect(ops('c')).toEqual(['release'])
+    expect(ops('c')).toEqual(['stop'])
     expect(host.querySelector('[data-hub-row="w"] select[data-hub-stage]')).not.toBeNull()
     expect(ops('o')).toEqual(['approve', 'reject']) // 관리자는 남의 담당도
   })
@@ -407,7 +429,7 @@ describe('DelegationTable — 서브트리 관리자(canManage, 트랙 B 2026-09
   it('서브트리 관리자(멤버, isAdmin=false): 관리 대상 리프에 approve·reject·release·stage 가 뜬다', () => {
     render({ rows: MANAGE, isAdmin: false })
     expect(ops('w')).toEqual(['approve', 'reject'])
-    expect(ops('c')).toEqual(['release'])
+    expect(ops('c')).toEqual(['stop'])
     expect(host.querySelector('[data-hub-row="n"] select[data-hub-stage]')).not.toBeNull()
   })
   it('리프 본인 담당자(canManage 아님): review 만 — approve 는 안 뜨고 단계 select 도 없다(분리 원칙)', () => {

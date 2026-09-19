@@ -2,7 +2,7 @@
 // 위임 표 — WBS 트리 순서로 항목을 나열하고 리프마다 위임 체크·단계·주문 상태·착수 대기 사유·에이전트·마지막 신호·조정.
 // 부모 행 체크 = 하위 리프 일괄(관리자). 체크는 즉시 표시되고 잠기지 않는다. 1.5초 모아 applyHubDelegations 1건으로
 // 보내고 응답의 허브로 표를 갱신한다(2026-09-14 체크 지연 개선 — 종전 체크 1개 = 액션 2건 직렬 + 0.8~1.0초 잠김).
-// 조정(승인·반려·승인 취소·재작업 요청·회수)과 단계 직접 조정은 관리자 또는 서브트리 관리자
+// 조정(승인·반려·승인 취소·재작업 요청·중단)과 단계 직접 조정은 관리자 또는 서브트리 관리자
 // (대상 리프의 strict 조상 중 담당자가 나, HubRow.canManage — 트랙 B, 2026-09-15), runHubProcessOp
 // 1건으로 끝나고 응답의 허브로 교체한다(스펙 §11). 페이지 전체 refresh 금지(스펙 §7).
 //
@@ -45,17 +45,18 @@ type Props = {
 
 type NoteKind = 'reject' | 'rework'
 /**
- * 주문 상태별 조정 버튼(§11). note 가 있는 것은 사유 입력 줄을 먼저 연다.
- * who='admin' 은 관리자 또는 서브트리 관리자(승인·회수), 'review' 는 관리자·담당자 본인·서브트리
+ * 주문 상태별 조정 버튼(§11). note 가 있는 것은 사유 입력 줄을, confirm 인 것(중단 — 되돌리기 어렵다)은
+ * 같은 자리에 확인 줄을 먼저 연다(브라우저 confirm() 금지).
+ * who='admin' 은 관리자 또는 서브트리 관리자(승인·중단), 'review' 는 관리자·담당자 본인·서브트리
  * 관리자(반려·승인 취소·재작업 요청, 2026-09-14 "담당자 본인도 허용" + 2026-09-15 트랙 B). 서버 자격
  * (loadOrderForAdmin·loadOrderForReview·requireSubtreeManagerOrAdmin, runHubProcessOp)과 같은 경계다.
  * 리프 본인 담당자는 canManage 가 조상만 보므로 who='admin' 버튼(승인)에는 여전히 안 뜬다(분리 원칙).
  */
-type OpButton = { kind: keyof typeof OP_LABEL; who: 'admin' | 'review'; note?: NoteKind }
+type OpButton = { kind: keyof typeof OP_LABEL; who: 'admin' | 'review'; note?: NoteKind; confirm?: true }
 const OPS_BY_STATUS: Readonly<Record<string, readonly OpButton[]>> = {
   reported: [{ kind: 'approve', who: 'admin' }, { kind: 'reject', who: 'review', note: 'reject' }],
   approved: [{ kind: 'unapprove', who: 'review' }, { kind: 'rework', who: 'review', note: 'rework' }],
-  claimed: [{ kind: 'release', who: 'admin' }],
+  claimed: [{ kind: 'stop', who: 'admin', confirm: true }],
 }
 
 /**
@@ -122,6 +123,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
   const [draft, setDraft] = useState('')
   // 사유가 필요한 조정(반려·재작업)의 입력 줄. 한 번에 하나만 연다.
   const [noteOp, setNoteOp] = useState<{ itemId: string; orderId: string; kind: NoteKind } | null>(null)
+  const [confirmOp, setConfirmOp] = useState<{ itemId: string; orderId: string; kind: 'stop' } | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
   // 단계 select 의 낙관 표시 — 응답(성공·실패)이 오면 지운다. 실패면 서버값으로 돌아간다.
   const [stageOpt, setStageOpt] = useState<ReadonlyMap<string, string | null>>(() => new Map())
@@ -287,6 +289,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
       if (!res.ok) { setRowErr(m => mapWith(m, r.itemId, res.error)); return }
       if (res.warning) setRowWarn(m => mapWith(m, r.itemId, res.warning ?? null))
       if (noteOp?.itemId === r.itemId) { setNoteOp(null); setNoteDraft('') }
+      if (confirmOp?.itemId === r.itemId) setConfirmOp(null)
       if (res.hub) onHub(res.hub)
       else { setNotice(res.hubError ?? null); await onChanged() }
     } catch (e) {
@@ -391,6 +394,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                 ? (OPS_BY_STATUS[r.order.status] ?? []).filter(b => b.who === 'admin' ? (isAdmin || r.canManage) : (isAdmin || r.assigneeMine || r.canManage))
                 : []
               const noteOpen = noteOp?.itemId === r.itemId ? noteOp : null
+              const confirmOpen = confirmOp?.itemId === r.itemId ? confirmOp : null
               const showReason = reasonOpen === r.itemId && r.waitReason !== null
               const zebra = r.isLeaf && leafSeq++ % 2 === 1
               return [
@@ -470,11 +474,12 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                       <span className="flex flex-nowrap gap-1">
                         {ops.map(b => (
                           <button key={b.kind} type="button" data-hub-op={b.kind} disabled={isBusy} title={OP_TITLE[b.kind]}
-                            aria-expanded={b.note ? noteOpen?.kind === b.note : undefined}
+                            aria-expanded={b.note ? noteOpen?.kind === b.note : b.confirm ? confirmOpen?.kind === b.kind : undefined}
                             onClick={() => {
                               const orderId = r.order?.id
                               if (!orderId) return
-                              if (b.note) { setNoteOp(noteOpen?.kind === b.note ? null : { itemId: r.itemId, orderId, kind: b.note }); setNoteDraft(''); return }
+                              if (b.confirm && b.kind === 'stop') { setConfirmOp(confirmOpen ? null : { itemId: r.itemId, orderId, kind: b.kind }); setNoteOp(null); return }
+                              if (b.note) { setNoteOp(noteOpen?.kind === b.note ? null : { itemId: r.itemId, orderId, kind: b.note }); setNoteDraft(''); setConfirmOp(null); return }
                               void runOp(r, { kind: b.kind, orderId } as HubProcessOp)
                             }}
                             className={`btn h-6 shrink-0 whitespace-nowrap px-2 text-[11px] ${b.kind === 'approve' ? 'btn-primary' : 'btn-ghost'}`}>{OP_LABEL[b.kind]}</button>
@@ -484,7 +489,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                   </td>
                   <td />
                 </tr>,
-                (editing === r.itemId || noteOpen || showReason || err || warn) ? (
+                (editing === r.itemId || noteOpen || confirmOpen || showReason || err || warn) ? (
                   <tr key={`${r.itemId}-x`} data-hub-row-extra={r.itemId} className={s.extra}>
                     <td colSpan={9} className="pb-2 pl-8">
                       {showReason && r.waitReason && (
@@ -507,6 +512,17 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                               onClick={() => { void runOp(r, { kind: noteOpen.kind, orderId: noteOpen.orderId, note: noteDraft.trim() }) }}
                               className="btn btn-primary h-7 px-2 text-xs">{OP_LABEL[noteOpen.kind]} 확정</button>
                             <button type="button" onClick={() => { setNoteOp(null); setNoteDraft('') }} className="btn btn-ghost h-7 px-2 text-xs">취소</button>
+                          </div>
+                        </div>
+                      )}
+                      {confirmOpen && (
+                        <div data-hub-confirm={confirmOpen.kind} className="flex flex-col gap-1">
+                          <p className="text-[11px] leading-relaxed text-ink-muted">{OP_LABEL[confirmOpen.kind]}할까요? {OP_TITLE[confirmOpen.kind]}</p>
+                          <div className="flex gap-2">
+                            <button type="button" data-hub-confirm-go disabled={isBusy}
+                              onClick={() => { void runOp(r, { kind: confirmOpen.kind, orderId: confirmOpen.orderId }) }}
+                              className="btn btn-primary h-7 px-2 text-xs">{OP_LABEL[confirmOpen.kind]} 확정</button>
+                            <button type="button" data-hub-confirm-cancel onClick={() => setConfirmOp(null)} className="btn btn-ghost h-7 px-2 text-xs">취소</button>
                           </div>
                         </div>
                       )}

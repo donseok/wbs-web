@@ -57,7 +57,7 @@ export interface Seat {
   resumeRequestedHost: string | null
   /** READY(빈자리)만 값 — 왜 아직 안 집어갔는지(스펙 2026-09-14 착수 대기 사유 §1). 나머지 상태는 null. */
   waitReason: WaitReason | null
-  /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·회수 어포던스. 서버 가드
+  /** 관리자이거나 이 항목의 서브트리 관리자 — 승인·중단 어포던스. 서버 가드
    *  requireSubtreeManagerOrAdmin(agent/subtreeManager.ts)과 같은 축이다. 재료가 없으면 false(fail-closed). */
   canManage: boolean
   /** 이 항목의 담당자가 나 — 반려·승인 취소·재작업은 담당자 본인도 할 수 있다(허브 §11 과 같은 규칙). */
@@ -188,14 +188,14 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     lastSignalAt: o.status === 'claimed' ? signal : null,
     heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
     note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
-    // 표식은 점유 중인 주문에서만 뜻이 있다 — 회수·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
+    // 표식은 점유 중인 주문에서만 뜻이 있다 — 중단·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
     resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
     resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
     rejected: isRejected(input), reviewNote: review?.review_action === 'reject' ? review.review_note : null,
     waitReason: null,
     canManage: rights.canManage, assigneeMine: rights.assigneeMine,
     ...pickModel(o, item),
-    // 점유·보고 중인 주문만 — 승인·회수로 떠난 주문의 옛 보고를 말풍선으로 되살리지 않는다.
+    // 점유·보고 중인 주문만 — 승인·중단으로 떠난 주문의 옛 보고를 말풍선으로 되살리지 않는다.
     lastReport: report && (o.status === 'claimed' || o.status === 'reported') && report.summary.trim()
       ? { kind: report.kind, summary: report.summary.trim(), at: report.created_at }
       : null,

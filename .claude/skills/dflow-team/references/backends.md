@@ -297,7 +297,7 @@ orca worktree list        # 누수 확인. dflow-<id8> 가 남아 있으면 같�
 ## 고아 정리 규칙
 
 두 백엔드 공통이다. 대상은 루트 `.dflow-agent` 값이 `<신원>/<host>/` 로 시작하는 워크트리(`parked` 포함)다.
-결과 처리(done·needs-merge·skipped·failed), 고아 스캔, 무응답 자동 정리, 마감이 이 규칙으로 팀원 워크트리를
+결과 처리(done·needs-merge·skipped·failed·cancelled), 고아 스캔, 무응답 자동 정리, 마감이 이 규칙으로 팀원 워크트리를
 지운다.
 1. **부트스트랩 실패**(`.result` 의 branch 칸이 `-`, 브랜치를 만들기 전에 끝남): 미커밋 목록이 알려진
    부산물(`.dflow-agent`, `.dflow-prompt`, `.dflow-pane`, `.dflow-run`, `.result`, `docs/tasks/<TSK>/spec.md`

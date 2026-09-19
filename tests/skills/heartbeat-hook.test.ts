@@ -20,12 +20,28 @@ function run(cwd = repo, env: Record<string, string> = {}, shell = 'sh') {
   execFileSync('sh', ['-c', 'sleep 0.8'])
 }
 const sent = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [])
+/** stdout 을 받는 실행 — 중단 신호(continue:false JSON)를 확인할 때 쓴다. 전송은 동기라 기다릴 필요가 없다. */
+function runOut(env: Record<string, string> = {}, cwd = repo) {
+  return execFileSync('sh', [HOOK], {
+    cwd, input: JSON.stringify({ cwd, tool_name: 'Bash' }), encoding: 'utf8',
+    env: { PATH: process.env.PATH ?? '', HOME: home, CURL: join(tmp, 'fakecurl'), NODE_ENV: process.env.NODE_ENV, ...env },
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+}
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'hb-'))
   repo = join(tmp, 'repo'); home = join(tmp, 'home'); log = join(tmp, 'curl.log')
   mkdirSync(repo); mkdirSync(home)
-  writeFileSync(join(tmp, 'fakecurl'), `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\n`, { mode: 0o755 })
+  // 가짜 curl — 인자를 로그에 남기고, FAKE_HB_CODE 가 있으면 훅의 -w '\n%{http_code}' 꼴(본문, 줄바꿈, 코드)로 답한다.
+  // FAKE_HB_FAIL 이면 네트워크 실패처럼 출력 없이 28(타임아웃)로 끝난다.
+  writeFileSync(join(tmp, 'fakecurl'), [
+    '#!/bin/sh',
+    `printf '%s\\n' "$*" >> "${log}"`,
+    '[ -n "${FAKE_HB_FAIL:-}" ] && exit 28',
+    '[ -n "${FAKE_HB_CODE:-}" ] && printf \'%s\\n%s\' "${FAKE_HB_BODY:-}" "$FAKE_HB_CODE"',
+    'exit 0', '',
+  ].join('\n'), { mode: 0o755 })
   git('init', '-q', '-b', 'main'); git('config', 'user.email', 't@t'); git('config', 'user.name', 't')
   writeFileSync(join(repo, '.env'), 'DFLOW_API_BASE=https://x.test\nDFLOW_PATS=dfl_u_abc_secret\n')
   mkdirSync(join(repo, 'docs/tasks/TSK-01'), { recursive: true })
@@ -130,5 +146,77 @@ describe('heartbeat.sh — 스펙 §4-2', () => {
     run(repo, {}, '/bin/dash')
     expect(sent()).toHaveLength(1)
     expect(sent()[0]).toContain('/api/v1/agent/work/22222222-2222-4222-8222-222222222222/heartbeat')
+  })
+})
+
+// 2026-09-19 중단 설계 §3 — 사람이 D'Flow 에서 중단하면 서버가 409 code=cancelled 를 준다. 그때만 세운다(fail-open).
+describe('heartbeat.sh — 중단 신호', () => {
+  const ORDER = '22222222-2222-4222-8222-222222222222'
+  const STATE = () => join(repo, 'docs/tasks/TSK-01/state.json')
+  const MARK = () => join(home, `.dflow/hb/${ORDER}.cancelled`)
+  const CANCELLED = { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"error":"작업이 중단되었습니다.","code":"cancelled"}' }
+  const phase = () => JSON.parse(readFileSync(STATE(), 'utf8')).phase
+  const rearm = () => rmSync(join(home, `.dflow/hb/${ORDER}`), { force: true }) // 60초 절제 우회
+  beforeEach(() => { writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n') })
+
+  it('409 cancelled 면 continue:false 로 세우고, 표식 파일을 남기고, state.json 을 phase=cancelled 로 바꾼다', () => {
+    const out = runOut(CANCELLED)
+    expect(JSON.parse(out)).toEqual({
+      continue: false, stopReason: "D'Flow 에서 이 작업이 중단되었습니다(22222222). 더 진행하지 말고 멈추세요.",
+    })
+    expect(existsSync(MARK())).toBe(true)
+    expect(phase()).toBe('cancelled')
+    expect(JSON.parse(readFileSync(STATE(), 'utf8')).order).toBe(ORDER) // 다른 필드는 그대로
+  })
+  it('표식이 있으면 60초 절제와 무관하게 매 호출 다시 세우고, 서버에는 보내지 않는다', () => {
+    runOut(CANCELLED)
+    expect(sent()).toHaveLength(1)
+    // 절제 파일이 방금 찍혔지만(60초 안) 표식 판정이 먼저 돈다 — 서브에이전트 밖 부모 세션도 다음 도구에서 선다.
+    const out = runOut()
+    expect(JSON.parse(out).continue).toBe(false)
+    expect(sent()).toHaveLength(1)
+  })
+  it('phase 가 이미 cancelled 인 state.json 도 표식 검사 대상이다(진행 중 목록에서는 빠진다)', () => {
+    mkdirSync(join(home, '.dflow/hb'), { recursive: true })
+    writeFileSync(MARK(), '')
+    writeFileSync(STATE(), JSON.stringify({ tsk: 'TSK-01', order: ORDER, phase: 'cancelled' }))
+    expect(JSON.parse(runOut()).continue).toBe(false)
+    expect(sent()).toHaveLength(0)
+  })
+  it('표식이 없는 cancelled state.json 은 진행 중이 아니므로 조용히 끝난다', () => {
+    writeFileSync(STATE(), JSON.stringify({ tsk: 'TSK-01', order: ORDER, phase: 'cancelled' }))
+    expect(runOut(CANCELLED)).toBe('')
+    expect(sent()).toHaveLength(0)
+  })
+  it('표식이 있어도 다른 주문의 것이면 이 작업을 세우지 않는다', () => {
+    mkdirSync(join(home, '.dflow/hb'), { recursive: true })
+    writeFileSync(join(home, '.dflow/hb/33333333-3333-4333-8333-333333333333.cancelled'), '')
+    expect(runOut({ FAKE_HB_CODE: '200', FAKE_HB_BODY: '{"ok":true}' })).toBe('')
+    expect(sent()).toHaveLength(1)
+  })
+  it('그 밖의 결과는 fail-open — 200·다른 409·5xx·네트워크 실패는 무출력, 표식·phase 불변', () => {
+    const cases: Record<string, string>[] = [
+      { FAKE_HB_CODE: '200', FAKE_HB_BODY: '{"ok":true}' },
+      { FAKE_HB_CODE: '409', FAKE_HB_BODY: '{"error":"x","code":"conflict"}' },
+      { FAKE_HB_CODE: '409', FAKE_HB_BODY: 'not json' },
+      { FAKE_HB_CODE: '500', FAKE_HB_BODY: '{"code":"cancelled"}' },
+      { FAKE_HB_FAIL: '1' },
+    ]
+    for (const env of cases) {
+      rearm()
+      expect(runOut(env), JSON.stringify(env)).toBe('')
+      expect(existsSync(MARK())).toBe(false)
+      expect(phase()).toBe('build')
+    }
+    expect(sent()).toHaveLength(cases.length)
+  })
+  it.skipIf(!existsSync('/bin/dash'))('dash(POSIX sh) 에서도 409 cancelled 면 세운다', () => {
+    const out = execFileSync('/bin/dash', [HOOK], {
+      cwd: repo, input: JSON.stringify({ cwd: repo, tool_name: 'Bash' }), encoding: 'utf8',
+      env: { PATH: process.env.PATH ?? '', HOME: home, CURL: join(tmp, 'fakecurl'), NODE_ENV: process.env.NODE_ENV, ...CANCELLED },
+      stdio: ['pipe', 'pipe', 'ignore'],
+    })
+    expect(JSON.parse(out).continue).toBe(false)
+    expect(phase()).toBe('cancelled')
   })
 })
