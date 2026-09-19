@@ -19,7 +19,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { HeaderAnnouncementTicker } from './HeaderAnnouncementTicker'
 import { InboxPanel } from './InboxPanel'
 import { useProjectNavigation } from './ProjectNavigationContext'
-import type { SidebarProject } from './Sidebar'
+import { projectMenu, type SidebarProject } from './Sidebar'
 import { ChangePasswordModal } from '@/components/account/ChangePasswordModal'
 
 const SECTION_LABEL: Record<string, string> = {
@@ -285,28 +285,21 @@ function MobileMenu({
   // 선택한다. 그래야 전역 화면에서 최근 프로젝트 자체를 골라도 change가 발생한다.
   const selectedProjectId = routeProjectId ?? ''
 
-  // 안읽음 공지 배지 — 데스크탑 사이드바와 동일한 지표를 모바일 메뉴에서도 노출.
+  // 배지(공지 안읽음 · 에이전트 결재 대기) — 데스크탑 사이드바와 동일한 지표를 모바일 메뉴에서도 노출.
   // 별도 조회 없이 셸 상태(메뉴 문맥 기준)를 그대로 쓴다.
-  const { menuUnreadAnnouncements } = useShellState()
-  const unreadAnn = menuProjectId ? menuUnreadAnnouncements : 0
+  const { menuUnreadAnnouncements, menuPendingApprovals } = useShellState()
+  const badgeOf: Partial<Record<string, { count: number; bg: string }>> = menuProjectId
+    ? {
+        'nav.announcements': { count: menuUnreadAnnouncements, bg: 'bg-accent-secondary' },
+        'nav.projectAgents': { count: menuPendingApprovals, bg: 'bg-amber-500' },
+      }
+    : {}
 
+  // 항목·순서·설정 노출은 사이드바의 projectMenu 하나로 정한다 — 모바일이 따로 목록을 들고 있다가
+  // 에이전트 메뉴가 빠지고 순서가 어긋났다(2026-09-19). 포트폴리오·사용 현황은 위 전역 목록에 이미 있어 뺀다.
   const links = menuProjectId
-    ? [
-        { href: `/p/${menuProjectId}/dashboard`, label: t('nav.dashboard') },
-        { href: `/p/${menuProjectId}/wbs`, label: t('nav.wbsGantt') },
-        { href: `/p/${menuProjectId}/kanban`, label: t('nav.kanban') },
-        { href: `/p/${menuProjectId}/issues`, label: t('nav.issues') },
-        { href: `/p/${menuProjectId}/wiki`, label: t('nav.wiki') },
-        { href: `/p/${menuProjectId}/members`, label: t('nav.members') },
-        { href: `/p/${menuProjectId}/attendance`, label: t('nav.attendance') },
-        { href: `/p/${menuProjectId}/announcements`, label: t('nav.announcements'), badge: unreadAnn },
-        { href: `/p/${menuProjectId}/meetings`, label: t('nav.meetings') },
-        { href: `/p/${menuProjectId}/weekly`, label: t('nav.weekly') },
-        // 설정은 프로젝트 관리자 전용(2026-08-20) — 데스크톱 사이드바와 같은 판정
-        ...(projects.find(p => p.id === menuProjectId)?.isAdmin
-          ? [{ href: `/p/${menuProjectId}/settings`, label: t('nav.settings') }]
-          : []),
-      ]
+    ? projectMenu(`/p/${menuProjectId}`, false, false, projects.find(p => p.id === menuProjectId)?.isAdmin ?? false)
+        .map(item => ({ href: item.href, match: item.match, labelKey: item.labelKey, label: t(item.labelKey), badge: badgeOf[item.labelKey] }))
     : []
   return (
     <div className="fixed inset-0 z-[100] lg:hidden" role="dialog" aria-modal="true" aria-label="모바일 메뉴">
@@ -359,13 +352,14 @@ function MobileMenu({
               </div>
               {links.map(l => {
                 const active = routeProjectId === menuProjectId
-                  && (pathname === l.href || pathname.startsWith(`${l.href}/`))
+                  && (pathname === l.match || pathname.startsWith(`${l.match}/`))
+                const n = l.badge && l.badge.count > 0 ? (l.badge.count > 99 ? '99+' : String(l.badge.count)) : null
                 return (
-                  <Link key={l.label} onClick={onClose} href={l.href} aria-current={active ? 'page' : undefined} className={`side-link ${active ? 'side-link-active' : ''}`}>
+                  <Link key={l.href} onClick={onClose} href={l.href} aria-current={active ? 'page' : undefined} className={`side-link ${active ? 'side-link-active' : ''}`}>
                     <span className="flex-1">{l.label}</span>
-                    {(l.badge ?? 0) > 0 && (
-                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent-secondary px-1.5 text-[10px] font-bold tabular-nums text-white">
-                        {l.badge! > 99 ? '99+' : l.badge}
+                    {l.badge && n && (
+                      <span data-nav-badge={l.labelKey} className={`flex h-5 min-w-5 items-center justify-center rounded-full ${l.badge.bg} px-1.5 text-[10px] font-bold tabular-nums text-white`}>
+                        {n}
                       </span>
                     )}
                   </Link>

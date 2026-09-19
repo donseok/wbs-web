@@ -69,6 +69,7 @@ vi.mock('@/lib/prefs/debouncedSave', () => ({
 import { HeaderChrome } from '@/components/app/HeaderChrome'
 import { ProjectNavigationProvider } from '@/components/app/ProjectNavigationContext'
 import { ShellStateProvider } from '@/components/app/ShellStateProvider'
+import { projectMenu } from '@/components/app/Sidebar'
 
 const projects = [
   { id: 'p1', name: 'D-CUBE 프로젝트', status: 'active' as const },
@@ -207,6 +208,29 @@ describe('HeaderChrome 브레드크럼', () => {
     expect(mocks.routerPush).toHaveBeenCalledTimes(1)
     expect(mocks.routerPush).toHaveBeenCalledWith('/p/p2/dashboard')
     expect(container.querySelector('[role="dialog"][aria-label="모바일 메뉴"]')).toBeNull()
+  })
+
+  it('모바일 프로젝트 메뉴는 데스크톱 사이드바와 같은 목록·순서이고 에이전트 결재 대기 배지를 단다(2026-09-19)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        inbox: { items: [], unseen: 0 },
+        notifications: { items: [], count: 0 },
+        unreadAnnouncements: 2,
+        pendingApprovals: 5,
+        headerAnnouncements: [],
+      }),
+    })))
+    await renderAt('/p/p1/agents/office')
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="메뉴 열기"]')?.click())
+    const menu = container.querySelector<HTMLElement>('[role="dialog"][aria-label="모바일 메뉴"]')!
+    const hrefs = [...menu.querySelectorAll<HTMLAnchorElement>('a[href^="/p/p1/"]')].map(a => a.getAttribute('href'))
+    const desktop = projectMenu('/p/p1', false, false, false).map(i => i.href)
+    expect(hrefs).toEqual(desktop)
+    const agents = menu.querySelector<HTMLAnchorElement>('a[href="/p/p1/agents"]')!
+    expect(agents.getAttribute('aria-current')).toBe('page')
+    expect(agents.querySelector('[data-nav-badge="nav.projectAgents"]')?.textContent).toBe('5')
+    expect(menu.querySelector('a[href="/p/p1/announcements"] [data-nav-badge="nav.announcements"]')?.textContent).toBe('2')
   })
 
   it('Wiki 상세 경로에서도 프로젝트 Wiki 브레드크럼과 모바일 활성 링크를 유지한다', async () => {

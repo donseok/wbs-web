@@ -44,7 +44,8 @@ const STATUS_META: Record<SidebarProject['status'], { dot: string; label: string
   unknown: { dot: 'bg-slate-400', label: '확인 불가' },
 }
 
-function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, isAdmin: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
+/** 프로젝트 메뉴 목록 — 데스크톱 사이드바와 모바일 메뉴(HeaderChrome)가 같은 목록을 쓴다(2026-09-19, 모바일에 에이전트가 빠져 있었다). */
+export function projectMenu(base: string, showUsage: boolean, showPortfolio: boolean, isAdmin: boolean): { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] {
   const items: { href: string; labelKey: DictKey; icon: LucideIcon; match: string }[] = [
     { href: `${base}/dashboard`, labelKey: 'nav.dashboard', icon: LayoutDashboard, match: `${base}/dashboard` },
     { href: `${base}/wbs`, labelKey: 'nav.wbsGantt', icon: ListTree, match: `${base}/wbs` },
