@@ -98,7 +98,9 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
    **승인 전 머지분 판정**(1번 로컬 스캔의 넷째 칸이 `merged` 인 후보): 절대 다시 머지하지 않는다. 같은 show 로 가른다.
    - `status=approved`: "승인 반영(이미 머지됨)". state.json 에서 `unapproved` 를 지우는 커밋 하나만 기본 브랜치에 올린다
      (4번의 머지 자리·push 실패 처리 그대로, `git merge` 단계만 없다. 커밋 메시지 `chore(<TSK>): approved (승인 전 머지분)`).
-     이유: 표식이 남으면 매 스윕이 같은 작업을 다시 show 한다.
+     이유: 표식이 남으면 매 스윕이 같은 작업을 다시 show 한다. 머지 자리의 state.json 에 표식이 이미 없으면
+     (`jq -e '.unapproved == true'` 가 거짓) 커밋하지 않고 건너뛴다. 호출한 체크아웃이 옛 커밋에 머물러 표식을 계속
+     읽어도 기본 브랜치에 빈 커밋이 쌓이지 않게 한다.
    - 마지막 completion 리포트가 `review_action=reject`: "반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>)". state.json 은
      고치지 않는다. 이유: 반려 재작업(`/dflow-dev` Phase 01 1번)은 로컬 `merged` 와 서버 `claimed` 로 반려를 알아보며, 승인
      뒤 재작업처럼 기본 브랜치에서 새 agent 브랜치를 따 머지된 코드 위에 수정 커밋을 얹는다. 되돌리기(`git revert`)는
