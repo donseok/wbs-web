@@ -49,6 +49,13 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
   영영 못 본다(2026-08-25 실증). 기존 파일이 id8 이면 발견 즉시 전체 UUID 로 고쳐 커밋한다.
   기록 순서 고정: **산출물 커밋 → state.json 갱신 → progress 보고.** progress 보고가 실패(exit≠0)해도
   state 는 유지하고 그 사실만 보고한다(성공 Phase 를 되돌리지 않는다).
+  **예외는 exit 10(중단됨)이다.** 사람이 D'Flow 에서 이 작업을 중단했다(주문 `cancelled`, 위임 해제). progress·
+  heartbeat·done 중 어느 호출이든 exit 10 이면 **그 자리에서 멈춘다** — 다음 Phase 로 가지 않고, 재시도하지 않는다.
+  state.json 을 `phase=cancelled` 로 바꾸고, 산출물은 로컬 커밋만 남긴다(**push 하지 않는다**, done 하지 않는다).
+  사용자에게는 `"{TSK} 중단됨 — D'Flow 에서 사람이 멈췄습니다. 로컬 커밋만 남겼습니다."` 한 줄로 알린다.
+  PostToolUse heartbeat 훅도 같은 신호(409 `cancelled`)를 받으면 `~/.dflow/hb/<order>.cancelled` 표식을 남기고
+  세션을 세운다(`continue:false`). 표식이 남은 동안 훅은 도구를 부를 때마다 다시 세우므로, 같은 주문을 다시
+  위임받아 이어 갈 때만 그 파일을 지운다. `cancelled` 는 진행 중 phase 가 아니다 — 스윕·재개 판정은 건너뛴다.
   **`api_base` 는 claim 한 시점의 `DFLOW_API_BASE` 에서 끝 `/` 를 뺀 값이다**(dflow.sh `base()` 와 같은
   정규화). Phase 01 에서 state.json 을 처음 쓰는 곳에서 기록한다. 스택이면 3번의 `branch_base`·`risk` 기록,
   아니면 4번의 기준선 기록이다. 반려 재작업이 기존 state.json 에 `phase=rejected` 를 쓸 때 `api_base` 가
@@ -325,6 +332,9 @@ git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h  
 - 인자 파싱: `$ARGUMENTS` 에 `--worker` 가 있으면 이 모드다. 참조는 id8 으로만 온다.
 - `.result` 형식과 status 뜻은 `.claude/skills/dflow-team/references/worker-prompt.md` 가 정본이다. 끝날 때
   status·agent 브랜치·head·`done` exit·한 줄 사유를 마지막에 요약해 워커가 `.result` 로 옮기게 한다.
+- 중단(exit 10, 상태 모델)이면 `.result` 에 `{TSK} {ID8} <branch|-> <head_sha|-> - cancelled <멈춘 Phase 와 호출>` 을
+  쓰고 끝낸다. push 하지 않으므로 `<head_sha>` 는 로컬 커밋이다. 팀장이 슬롯을 풀고 pane 을 거두되 워크트리는
+  남긴다(산출물 보존).
 - 기본 브랜치를 switch·pull·merge·push 하는 지점은 행 A·B·C 뿐이며, 워커는 셋 다 하지 않는다. 행 F 의
   재시도는 수동·워커 모두 merge 하지 않는다. claim 전 기점 이동(`git switch --detach`, Phase 01 2번)은 기본
   브랜치를 체크아웃하지 않으므로 팀장 체크아웃과 부딪치지 않는다. agent 브랜치를 만들고 그 위에 push

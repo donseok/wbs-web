@@ -251,8 +251,8 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
 - `team.spawn` 의 `slot`·`id8`·`worktree`·`handle` 로 슬롯과 작업을 잇는다. 아직 브랜치를 만들지 않은 Phase 01
   의 팀원도 이것으로 id8 을 안다.
 - `team.result`·`team.blocked` 로 이미 판정한 작업, 제외 목록(`skipped` 는 일시, `failed`·`failed no-result`·
-  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`blocked` 는 영구, `failed rate-limit` 은 제외
-  없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee` 는 세지도 끊지도 않고 건너뛴다), 결과 줄 경로별 마지막 처리 해시(경로는
+  `failed not-isolated`·`failed no-worker-flag`·`failed deps`·`failed not-assignee`·`cancelled`·`blocked` 는 영구, `failed rate-limit` 은 제외
+  없음), 차단기 상태(끝에서부터 연속한 `failed…` 수. `failed not-assignee`·`cancelled` 는 세지도 끊지도 않고 건너뛴다), 결과 줄 경로별 마지막 처리 해시(경로는
   `<worktree>/docs/tasks/<tsk>/.result`)를 복원한다.
 - 제외 목록은 id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result` 로 정한다. 마지막이 `team.spawn` 이나
   `team.blocked` 면 진행 중(영구 제외)이고, `team.result` 면 위 status 별 제외다. `team.answer` 는 제외를 바꾸지
@@ -266,7 +266,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
   처리 여부를 해시로 가린 뒤 처리한다(「3. 결과 처리」).
 - 새로 줄 슬롯 번호는 흡수한 번호를 뺀 1..N 중 가장 작은 것이다. 이유: 살아 있는 팀원과 같은 `AGENT_ID` 를
   다시 발급하면 좌석표가 한 인물을 두 책상에 그린다.
-- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`)을 받지 않은 팀원이다.
+- "살아 있는 팀원" 은 spawn 했고 아직 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`)을 받지 않은 팀원이다.
   화면이 떠 있는지로 판단하지 않는다. Orca 는 `.dflow-agent` 가 `w<slot>` 인 워크트리 중 최종 status 의
   `.result` 가 없는 것이며, tmux 는 거기에 더해 정본 표의 생존 칸이 `alive` 여야 한다. `blocked` 는 최종
   판정이 아니므로 그 팀원은 두 백엔드 모두 살아 있다. 실제로 죽은 Orca 팀원은 무응답 규칙(「3. 결과 처리」)이
@@ -292,7 +292,7 @@ jq -c --arg a '<신원>/<host>/lead' --arg r '<MAIN>' 'select(.agent == $a and .
      **않는다**.
      - 브랜치가 `agent/<id8>-…` 이다(id8 을 여기서 얻는다). 브랜치가 없으면 claim 전에 죽은 것이라 재개할
        산출물이 없다.
-     - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`)이 아니다.
+     - `.result` 가 없거나, 있어도 status 가 최종 판정(`done`·`needs-merge`·`skipped`·`failed`·`cancelled`)이 아니다.
        최종 판정이 있으면 재개가 아니라 「3. 결과 처리」 의 몫이다.
      - 서버 show 가 `status=claimed` 이고 `mine=true` 이며, `claimed_by` 를 소문자로 바꾼 값이
        `claude-<host>` 와 같다(이 PC 가 claim 했다).
@@ -925,6 +925,7 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
 | `failed project` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다(claim 전이라 대개 부트스트랩 실패 정리) | 주문이 이 리포의 D'Flow 프로젝트 밖이다. claim 하지 않았으므로 "멈춤" 표에 넣지 않는다. 바인딩(`.env`)이나 poll 필터가 새는 결함이므로 사유를 그대로 보고한다. 차단기 계산 |
 | `failed not-assignee` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다(claim 전이라 대개 부트스트랩 실패 정리) | 다른 멤버에게 배정된 작업을 claim 하려다 서버가 `not_assignee` 로 거부했다. claim 하지 않았으므로 "멈춤" 표에 넣지 않는다. **차단기 계산에 넣지 않는다**: 환경 결함이 아니라 배정 불일치라, 세면 정상인 팀이 멈춘다. poll 과 claim 은 같은 기준(내 멤버 id)으로 배정을 보므로, 대개 poll 이 돌려준 뒤 담당자가 바뀌었거나 팀장이 poll 을 거치지 않고 띄운 것이다(2026-09-19 mdm-dict-v2: 일시 제외를 비운 뒤 poll 을 기다리지 않고 직접 띄웠는데 그사이 담당자가 다른 멤버로 바뀌었다). 사유와 함께 "담당자 변경 여부를 D'Flow 에서 확인하라" 를 보고한다 |
 | `failed deps` | 해제 | 영구 제외 | 고아 정리 규칙을 따른다 | 사유 보고, 차단기 계산. 설치는 claim 과 브랜치 생성 뒤라서(`/dflow-dev` 「--worker」 H) 서버에 claimed 로 남으므로 **"멈춤" 표**에 넣는다(사유는 그 status). 대상 리포의 lockfile·패키지 관리자 문제라 사람이 고친다 |
+| `cancelled`(사람이 D'Flow 에서 중단 — 주문 `cancelled`·위임 해제) | 해제 | 영구 제외 | **지우지 않는다**(산출물 보존). 미커밋 변경이 있어도 그대로 두고 경로만 보고하며, `.dflow-agent` 값을 `<신원>/<host>/parked` 로 바꾼다 | 사람 알림은 한 줄(`<TSK> <id8> 중단됨 — 워크트리 <경로> 보존`). 사람이 멈춘 것이라 "멈춤" 표에 넣지 않고, **차단기 계산에 넣지 않는다**(세지도 끊지도 않는다). 다시 맡기려면 사람이 위임 체크를 켜며, 그때 새 주문으로 다시 poll 에 잡힌다 |
 
 - **그 자리에서 정리하는 이유**: git 은 다른 워크트리가 체크아웃한 브랜치를 지우지 못한다. 워크트리를 마감까지
   남기면 같은 세션에서 승인된 작업의 로컬 agent 브랜치 삭제가 실패한다. 정리 명령은 backends.md 의 백엔드별
@@ -937,6 +938,10 @@ spawn」 6번이 넣은 진행 중 제외가 남으면 `skipped`(일시 제외)�
   보고한다. `failed` 가 아닌 결과가 오면 연속 수를 0 으로 되돌린다. 걸린 동안에는 다음 `TICK` 마다 1건만 시험
   spawn 하고(대기 큐 맨 앞에서, 큐가 비었으면 poll 을 한 번 띄워 얻는다), 그 결과가 `failed` 가 아니면 차단기를
   푼다. 이유: 사용량 한도나 환경 결함에 걸린 채 대기 큐 전체를 소진하지 않게 한다.
+- **중단**: 워커는 `dflow.sh` exit 10 을 받으면 `.result` 에 `cancelled` 를 쓰지만, heartbeat 훅이 먼저 세션을 세우면
+  결과 줄 없이 멈춘다. 그래서 결과 줄이 없는 진행 슬롯이라도 생존 증거 2번의 `show` 가 `status=cancelled` 면 결과 줄
+  `cancelled`(hash `-`)를 받은 것과 똑같이 처리한다 — 무응답 판정을 기다리지 않는다. tmux 는 `kill-pane` 으로 거두되
+  워크트리는 지우지 않는다. 이유: 주문이 종착 상태라 더 올 결과가 없고, 멈춘 세션이 슬롯을 계속 잡으면 대기 큐가 선다.
 - **무응답**: 결과도 알림도 없는 진행 슬롯의 생존 증거가 한 `TICK` 동안 변하지 않으면 "무응답" 으로 보고만 하고 슬롯을 유지한다.
   생존 증거에 `show` 의 `last_heartbeat_at`·`heartbeat_phase` 를 넣는다. 워커가 Phase 마다 보내는 값이라 브랜치
   tip 시각보다 촘촘하다. `stale` 은 쓰지 않는다. 그 값은 `claimed_at` 으로부터 24시간이 지났는지일 뿐이라,
