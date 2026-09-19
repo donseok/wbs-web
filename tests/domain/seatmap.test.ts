@@ -215,6 +215,15 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
     const m = assembleSeatmap(rows({ orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'] }], watchers: [w()] }), NOW)
     expect(seatOf(m).waitReason?.kind).toBe('pickup')
   })
+  it('선행 대기(dependency)만 실루엣(waiting)으로 그리고, 다른 사유의 READY 는 빈 의자(empty)로 둔다', () => {
+    const base = { orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
+    const dep = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }), NOW)
+    expect(seatOf(dep).waitReason?.kind).toBe('dependency')
+    expect(seatOf(dep).anim).toBe('waiting')
+    const pick = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'xx', order_approved: true }] }), NOW)
+    expect(seatOf(pick).waitReason?.kind).toBe('pickup')
+    expect(seatOf(pick).anim).toBe('empty')
+  })
   it('선행은 같은 프로젝트의 external_ref 로만 맞춘다 — 다른 프로젝트의 같은 ref 는 무시(미충족 = dependency)', () => {
     const base = { orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
     const other = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P2, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'xx', order_approved: true }] }), NOW)

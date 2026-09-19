@@ -84,7 +84,7 @@ export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, 
                       <span className={css.deskName}>{seat.code} {seat.name}</span>
                       <span className={css.cardMeta}><PhaseBadge seat={seat} size="chip" /><span className={css.deskMeta}>{seatMetaLine(seat, nowMs)}</span></span>
                     </span>
-                    <SeatMark state={seat.state} />
+                    <SeatMark state={seat.state} anim={seat.anim} />
                   </span>
                   {HAS_SAY.includes(seat.state) && <LaneSpeech seat={seat} nowMs={nowMs} />}
                   {HAS_BAR.includes(seat.state) && <span className={css.bar}><i style={{ width: `${seat.progress}%` }} /></span>}

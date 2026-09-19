@@ -5,7 +5,10 @@ export type Phase = 'design' | 'build' | 'verify' | 'refactor' | 'blocked' | 're
 export type AnimName =
   | 'typing' | 'design' | 'verify' | 'refactor' | 'stale'
   | 'idle_coffee' | 'idle_stretch' | 'idle_look' | 'blocked' | 'rejected' | 'empty'
-/** public/sprites/<이 이름>/<AnimName>.png — 2026-09-16 새로 그린 캐릭터 시트 다섯 벌과 같은 이름이다. */
+  /** 자리를 비우지 않은 두 상태의 가명 — 전용 시트가 아직 없어 Sprite 가 기존 시트로 그린다(2026-09-19 안 A).
+   *  done = 끝내고 쉬는 사람(DONE), waiting = 아직 오지 않은 사람(READY 중 선행 대기). */
+  | 'done' | 'waiting'
+/** public/sprites/<이 이름>/<AnimName>.png — 2026-09-16 새로 그린 캐릭터 시트 다섯 벌과 같은 이름이다(가명 done·waiting 제외). */
 export type CharacterName = 'cat' | 'human_m' | 'human_f' | 'dog' | 'bot'
 
 export const HEARTBEAT_PHASES: readonly Phase[] = ['design', 'build', 'verify', 'refactor', 'blocked', 'rejected', 'reported']
@@ -75,6 +78,8 @@ export function animFor(state: SeatState, phase: Phase, idleSlot = 0): AnimName 
     case 'STALE': return 'stale'
     case 'REJECTED': return 'rejected'
     case 'BLOCKED': return 'blocked' // 새 시트에 물음표 말풍선 동작이 들어왔다(2026-09-16) — 옛 idle_look 대체를 걷었다
+    case 'DONE': return 'done' // 빈 의자와 구분한다 — 끝낸 사람이 자리에 남아 쉰다
+    // READY 는 사유를 알아야 갈린다(선행 대기면 waiting) — 사유는 조립 뒤에 정해지므로 seatmap 이 다시 고른다.
     default: return 'empty'
   }
 }

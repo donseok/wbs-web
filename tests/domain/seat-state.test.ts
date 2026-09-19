@@ -78,12 +78,12 @@ describe('animFor — 스펙 §2 표', () => {
     expect(animFor('WAIT', 'reported', 2)).toBe('idle_look')
     expect(animFor('WAIT', 'reported', 3)).toBe('idle_coffee')
   })
-  it('STALE→stale, REJECTED→rejected, BLOCKED→blocked, 빈자리 3종→empty', () => {
+  it('STALE→stale, REJECTED→rejected, BLOCKED→blocked, DONE→done, 빈자리 2종→empty', () => {
     expect(animFor('STALE', 'build')).toBe('stale')
     expect(animFor('REJECTED', 'build')).toBe('rejected')
     expect(animFor('BLOCKED', 'blocked')).toBe('blocked')
     expect(animFor('READY', 'design')).toBe('empty')
-    expect(animFor('DONE', 'reported')).toBe('empty')
+    expect(animFor('DONE', 'reported')).toBe('done') // 안 A(2026-09-19): 끝낸 사람은 자리에 남아 쉰다
     expect(animFor('OFFLINE', 'build')).toBe('empty')
   })
 })

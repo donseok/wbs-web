@@ -252,6 +252,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         assignee: item.assignee_member_id ? { name: m?.name ?? '(로스터에 없음)', user_id: m?.user_id ?? null } : null,
         watchers: watchersOf(o.project_id),
       })
+      // 선행 대기는 빈자리가 아니다 — 올 사람이 정해져 있고 앞 작업만 기다린다. 실루엣으로 그린다(안 A).
+      if (seat.waitReason?.kind === 'dependency') seat.anim = 'waiting'
     }
     // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(오피스 v7).
     // 평면도는 이 좌석을 그리지 않고 상태 레인의 "빈자리·완료" 레인만 그린다.

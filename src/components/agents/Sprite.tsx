@@ -12,6 +12,7 @@ const BASE_FRAMES: Record<AnimName, number> = {
   design: 4, typing: 4, verify: 4, refactor: 4,
   idle_coffee: 6, idle_stretch: 5, idle_look: 6,
   blocked: 4, stale: 4, rejected: 4, empty: 1,
+  done: 5, waiting: 6, // 가명 — 실제 값은 POSE 가 가리키는 시트의 것을 쓴다(framesOf)
 }
 const FRAME_OVERRIDE: Partial<Record<CharacterName, Partial<Record<AnimName, number>>>> = {
   dog: { idle_stretch: 6 },
@@ -22,6 +23,7 @@ const BASE_FPS: Record<AnimName, number> = {
   design: 6, typing: 8, verify: 4, refactor: 6,
   idle_coffee: 4, idle_stretch: 4, idle_look: 3,
   blocked: 4, stale: 2, rejected: 6, empty: 1,
+  done: 1, waiting: 3,
 }
 /** 전체 재생 속도 배율 — 사용자 요청(2026-09-17)으로 절반으로 늦췄다. 한 숫자만 만지면 전부 따라온다. */
 const SPEED = 0.5
@@ -38,20 +40,38 @@ const HAS_GLYPH: ReadonlySet<AnimName> = new Set<AnimName>(['blocked', 'stale', 
  */
 const ALTERNATE: ReadonlySet<AnimName> = new Set<AnimName>(['stale'])
 
+/**
+ * 전용 시트가 없는 가명 동작(안 A, 2026-09-19). 새 그림이 생기면 이 표에서 그 줄만 지운다.
+ * - done: 기지개 시트의 가운데 한 장에 멈춘다. 움직이는 WAIT idle 과 달리 멈춰 있어 "끝났다" 로 읽힌다.
+ * - waiting: 두리번 시트를 실루엣으로 그린다. 올 사람은 정해졌지만 아직 자리에 없다.
+ */
+const POSE: Partial<Record<AnimName, { sheet: AnimName; still?: boolean; ghost?: boolean }>> = {
+  done: { sheet: 'idle_stretch', still: true },
+  waiting: { sheet: 'idle_look', ghost: true },
+}
+
 export function framesOf(character: CharacterName, anim: AnimName): number {
-  return FRAME_OVERRIDE[character]?.[anim] ?? BASE_FRAMES[anim]
+  const a = POSE[anim]?.sheet ?? anim
+  return FRAME_OVERRIDE[character]?.[a] ?? BASE_FRAMES[a]
 }
 
 export function Sprite({ character, anim, reduceMotion = false }: { character: CharacterName; anim: AnimName; reduceMotion?: boolean }) {
   const frames = framesOf(character, anim)
-  const src = anim === 'empty' ? '/sprites/empty.png' : `/sprites/${character}/${anim}.png`
+  const pose = POSE[anim]
+  const sheet = pose?.sheet ?? anim
+  const src = sheet === 'empty' ? '/sprites/empty.png' : `/sprites/${character}/${sheet}.png`
   return (
     <span
-      data-sprite="" data-frames={String(frames)} data-still={reduceMotion ? '1' : undefined}
+      data-sprite="" data-anim={anim} data-frames={String(frames)} data-still={reduceMotion || pose?.still ? '1' : undefined}
       data-glyph={HAS_GLYPH.has(anim) ? '1' : undefined}
       data-alt={ALTERNATE.has(anim) ? '1' : undefined}
+      data-ghost={pose?.ghost ? '1' : undefined}
       className={css.sprite} aria-hidden="true"
-      style={{ backgroundImage: `url(${src})`, '--frames': String(frames), '--fps': String(BASE_FPS[anim] * SPEED) } as React.CSSProperties}
+      style={{
+        backgroundImage: `url(${src})`, '--frames': String(frames), '--fps': String(BASE_FPS[anim] * SPEED),
+        // 멈춘 가명은 가운데 프레임을 보인다 — 첫 장은 기지개 전의 앉은 자세라 WAIT 와 구분되지 않는다.
+        ...(pose?.still ? { '--pose-frame': String(Math.floor(frames / 2)) } : {}),
+      } as React.CSSProperties}
     />
   )
 }
