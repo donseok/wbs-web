@@ -122,6 +122,21 @@ describe('POST /agent/work/[id]/heartbeat', () => {
     expect(res.status).toBe(409)
     expect(calls.agent_work_orders).toBeUndefined()
   })
+  it('409 cancelled — 사람이 중단한 주문이면 code=cancelled 로 워커를 세운다(touch 없음)', async () => {
+    const calls: Record<string, unknown[]> = {}
+    // 중단은 점유 흔적(claimed_by*)을 지운다 — 소유 판정보다 상태 판정이 먼저여야 403 이 아니라 409 cancelled 가 간다.
+    useAdmin(okQueues({ ...ORDER, status: 'cancelled', claimed_by: null, claimed_by_user_id: null }), calls)
+    const res = await post({ agent: 'a', phase: 'build' })
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe('cancelled')
+    expect(body.error).toBe('작업이 중단되었습니다.')
+    expect(calls.agent_work_orders).toBeUndefined()
+  })
+  it('409 conflict — cancelled 가 아닌 다른 상태 불일치는 지금처럼 conflict', async () => {
+    useAdmin(okQueues({ ...ORDER, status: 'reported' }))
+    expect((await (await post({ agent: 'a', phase: 'build' })).json()).code).toBe('conflict')
+  })
   it('403 not_claim_owner — 다른 사용자가 점유한 주문', async () => {
     useAdmin(okQueues({ ...ORDER, claimed_by_user_id: 'u-9' }))
     const res = await post({ agent: 'a', phase: 'build' })

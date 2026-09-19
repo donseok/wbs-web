@@ -121,6 +121,21 @@ describe('POST report', () => {
     const res = await reportPOST(post({ ...BASE, kind: 'progress', percent: 50 }), ctx)
     expect(res.status).toBe(409)
   })
+  it.each([
+    ['progress', { kind: 'progress', percent: 50 }],
+    ['completion', { kind: 'completion', percent: 100 }],
+  ])('중단된(cancelled) 주문에 %s 보고하면 409 code=cancelled', async (_k, extra) => {
+    useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, status: 'cancelled', claimed_by: null } }], ...member() })
+    const res = await reportPOST(post({ ...BASE, ...extra }), ctx)
+    expect(res.status).toBe(409)
+    const j = await res.json()
+    expect(j.code).toBe('cancelled')
+    expect(j.error).toBe('작업이 중단되었습니다.')
+  })
+  it('reported 등 다른 상태 불일치는 409 conflict 그대로', async () => {
+    useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, status: 'reported' } }], ...member() })
+    expect((await (await reportPOST(post({ ...BASE, kind: 'progress', percent: 50 }), ctx)).json()).code).toBe('conflict')
+  })
   it('타 에이전트 점유 주문에 보고 403', async () => {
     useAdmin({ agent_work_orders: [{ data: { ...CLAIMED, claimed_by: 'other' } }], ...member() })
     const res = await reportPOST(post({ ...BASE, kind: 'progress', percent: 50 }), ctx)

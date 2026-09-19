@@ -46,6 +46,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       : await loadGatedOrder(admin, id, (parseAgentActor(raw) as { userEmail: string }).userEmail)
     if (!loaded.ok) return loaded.res
     const order = loaded.order
+    // 사람이 중단한 주문(2026-09-19 중단 설계 §2) — 워커가 구분해 멈추도록 전용 코드를 준다(훅·dflow.sh exit 10).
+    // 소유 판정보다 먼저 본다: 중단은 점유 흔적을 지우므로 뒤에 두면 403 not_claim_owner 로 뭉개진다.
+    if (order.status === 'cancelled') return apiFail(409, 'cancelled', '작업이 중단되었습니다.')
     if (order.status !== 'claimed') {
       return apiFail(409, 'conflict', `heartbeat 가능한 상태가 아닙니다(현재: ${order.status}).`)
     }
