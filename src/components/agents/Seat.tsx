@@ -7,6 +7,7 @@ import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 import { SeatOpsBar, type SeatOpHandler } from './SeatOpsBar'
+import { OwnerTag, ownerLabel } from './OwnerTag'
 import { IconBlocked, IconDependency, IconDone, IconOffline, IconRejected, IconStale, IconWait } from './icons'
 import css from './seatmap.module.css'
 
@@ -57,6 +58,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
   onSelect: (orderId: string) => void
   onOp: SeatOpHandler
 }) {
+  const owner = ownerLabel(seat)
   return (
     <div className={`${css.seat} ${side === 'left' ? css.seatLeft : css.seatRight}`}>
       <div className={css.chair}>
@@ -64,7 +66,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
         <Sprite character={seat.character} anim={seat.anim} />
       </div>
       <div className={css.desk} data-state={seat.state} data-rejected={seat.rejected ? '1' : undefined}
-        data-selected={selected ? '1' : undefined}>
+        data-selected={selected ? '1' : undefined} data-owner={owner?.kind}>
         <button
           type="button" className={css.deskPick}
           aria-pressed={selected} aria-label={`${seat.code} ${seat.name} ${STATE_LABEL[seat.state]}`}
@@ -72,6 +74,7 @@ export function SeatCard({ seat, side, selected, nowMs, busy, onSelect, onOp }: 
         >
           <span className={css.deskTop}>
             <span className={css.deskId}>{seat.code}</span>
+            {owner && <OwnerTag owner={owner} />}
             <SeatMark state={seat.state} anim={seat.anim} />
           </span>
           <span className={css.deskName}>{seat.name}</span>

@@ -136,6 +136,7 @@ export async function getSeatmap(actor: Actor, nowMs = Date.now(), scope: Seatma
   // 로스터 조회가 던지면 그대로 올린다(조회 실패를 권한 없음으로 위장하지 않는다).
   const memberIds = new Set(await fetchMyMemberIds(admin, { userId: actor.userId, userEmail: await viewerEmail(admin, actor.userId) }, projectIds))
   const viewer: SeatmapViewer = {
+    userId: actor.userId,
     memberIds,
     adminProjectIds: new Set(rows.projects.filter(p => isProjectAdmin(actor, p.id)).map(p => p.id)),
   }
