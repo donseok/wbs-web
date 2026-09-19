@@ -858,7 +858,7 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 
 | 기상 | 처리 |
 |---|---|
-| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다. 이유: 겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌고 있을 수 있다. 일시 제외는 대조하지 않는다. poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정해야 하기 때문이며(「2-1」), 대가로 겹쳐 뜬 옛 poll 이 막 일시 제외한 작업을 돌려주면 한 번 더 띄워 `skipped` 로 끝난다. 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
+| poll exit 0 (ready N줄) | 각 줄 `순번<TAB>id8<TAB>이름` 에서 순번은 버리고 id8 만 쓴다. 먼저 후보를 영구 제외 목록과 슬롯 표에만 한 번 더 대조해 걸리는 것을 버린다. 이유: 겹쳐 뜬 옛 poll 은 옛 제외 목록으로 돌고 있을 수 있다. 일시 제외는 대조하지 않는다. poll.sh 가 10주기 뒤 풀어 돌려준 것을 그대로 다시 판정해야 하기 때문이며(「2-1」), 대가로 겹쳐 뜬 옛 poll 이 막 일시 제외한 작업을 돌려주면 한 번 더 띄워 `skipped` 로 끝난다. 남은 후보마다 아래 show 필터로 `.order.item.spec` 이 비었는지와 선행 사전 검사(`deps_unmet`)만 본다(spec 본문을 컨텍스트에 싣지 않는다). 비었거나 `ref` 가 비면 일시 제외에 넣고 사유(spec 부재·TSK 없음)를 보고하며 `team.result`(slot `-`, status `skipped`)를 남긴다. `deps_unmet` 이 비어 있지 않으면 띄우지 않고 사유 `선행 미충족(사전 검사: <ref…>)` 로 같은 처리를 한다(아래 「선행 사전 검사」). 남은 것을 빈 슬롯 수만큼 spawn 하고 나머지는 대기 큐 끝에 넣는다. 차단기가 걸려 있으면 spawn 하지 않고 대기 큐에 넣는다(시험 spawn 예외는 「2-1」 재기동 조건). 대기 큐를 잃어도 그 작업들은 아직 ready 이므로 다음 poll 이 다시 찾는다 |
 | `STOP_REQUESTED`, 사람의 종료 요청("팀장 종료"·"마감해" 등) | 종료 시각과 무관하게 「7. 마감」 으로 간다. "종료 요청으로 마감합니다" 를 한 줄 알린다. 종료 파일은 이 자리에서 지운다(요청을 받았다). 남기면 마감 중 다시 띄운 감시 루프가 곧바로 다시 끝나 공회전한다. 마감의 기다림(「7. 마감」 2번) 중에 종료 요청이 **한 번 더** 오면 기다림을 끝내고 곧바로 3번으로 간다 |
 | poll exit 8 (시한) | 먼저 지금 시각이 현재 `<UNTIL>`(연장 반영) 전인지 본다. 전이면 연장 전에 띄운 옛 poll 이 끝난 것이므로 무시하고 재기동 조건(「2-1」)대로 새 `--until` 로 다시 띄운다. 지났으면 새 배정을 멈춘다. 대기 큐를 비우고(보고만 한다) 「7. 마감」 으로 간다 |
 | poll exit 2·3·5·6·7 | 중단 사유(stderr)를 보고하고 「7. 마감」 으로 간다 |
@@ -871,11 +871,25 @@ sed -n '/^## 기록 명령/,$p' .claude/skills/dflow-team/references/events.md  
 poll exit 0 의 show 필터:
 ```bash
 (set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <id8>) \
-  | jq -c '{order: .order.id, ref: .order.item.external_ref, spec_empty: ((.order.item.spec // "") | length == 0)}'
+  | jq -c '{order: .order.id, ref: .order.item.external_ref, spec_empty: ((.order.item.spec // "") | length == 0),
+            deps_unmet: [.depends_evidence[]? | select(has("reached") and .reached == false) | .external_ref]}'
 ```
 show 가 실패하면(dflow.sh 가 0 이 아닌 코드로 끝나거나, 404 로 exit 7 이거나, 출력이 비면) spec 부재로 보지 않는다.
 그 id8 은 "조회 실패" 사유로 일시 제외에 넣고 다음 기상에서 다시 판정한다. 이유: 조회 실패를 데이터 없음으로
 위장하면 살아 있는 작업이 spec 부재로 잘못 제외된다.
+
+**선행 사전 검사**(`deps_unmet`): 서버 판정 `reached` 가 거짓인 선행이 하나라도 있으면 spawn 하지 않는다.
+이 경우는 워커가 무엇을 하든 `skipped` 로 끝나는 확정 skip 이다. `head_sha` 는 승인된 주문의 완료 보고에서만
+나오므로 `reached` 가 거짓이면 `head_sha` 도 없고(워커 행 G 갈래 1 → `skipped 선행 미승인`), 설령 워커가 진행해도
+서버 claim 게이트가 같은 `reached` 로 `dependency_not_met` 을 돌려준다. 그래서 이 검사는 워커 G 의 판정을 대신하지
+않는다. `reached` 가 참인 선행(승인 대기·기본 브랜치 반영 여부·스택 기점)은 전부 워커가 판정하고, `reached` 키가
+없는 옛 서버 응답이나 `depends_evidence` 가 없는 응답은 걸러내지 않고 워커에 맡긴다(판정 불가를 미충족으로 단정하지
+않는다). `state.json` 의 `phase=merged` 로 거르지 않는다. 이유: 진행 중인 선행이라도 승인되면 `head_sha` 를 기점으로
+스택해 진행하는 것이 워커 규칙(행 B)이라, merged 기준은 확정 skip 이 아닌 작업까지 30분씩 묶는다. 이유(이 검사를 두는
+까닭): poll 은 10주기마다 일시 제외를 풀어 선행이 진행 중인 후속을 다시 돌려준다. 그대로 띄우면 후속마다 팀원 세션이
+열려 행 G 판정만 하고 `skipped` 로 끝나며, 선행이 끝날 때까지 30분마다 되풀이되어 토큰과 슬롯을 쓴다(2026-09-19
+mdm-dict-v2 실측: 한 선행에 걸린 후속 5건). 사유 문자열이 「선행 미충족」 으로 시작하므로 자동 머지 뒤 일시 제외
+해제(「3. 결과 처리」)의 선행 계열에 그대로 들어간다.
 
 ## 3. 결과 처리
 
