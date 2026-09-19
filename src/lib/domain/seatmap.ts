@@ -272,8 +272,10 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     else zone.summary.ready++ // READY · OFFLINE(빈 의자)
   }
 
+  // 내 작업이면 다른 계정의 팀장(감시자)도 뺀다 — 좌석은 내 것만 남는데 감시자만 남의 것이 보이면
+  // 「내 팀장이 떠 있다」로 오독한다. 착수 대기 사유(watchersOf)는 「누가 이 층을 감시하나」라 거르지 않는다.
   const aliveWatchers: Watcher[] = rows.watchers
-    .filter(w => isWatcherAlive(w.last_seen_at, nowMs))
+    .filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (!mine || w.user_id === mine.userId))
     .map(w => ({ agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id }))
     .sort((a, b) => a.agent.localeCompare(b.agent))
 

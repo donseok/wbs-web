@@ -181,6 +181,18 @@ describe('assembleSeatmap — 내 작업(scope=mine)', () => {
     expect(m.floors[0].seatCount).toBe(3)
     expect(m.floors[0].doneCount).toBe(1)
   })
+  it('다른 계정의 팀장(감시자)은 층 watchers 와 standby 에서 빠진다', () => {
+    const watchers = [
+      { id: 'w1', user_id: 'u1', project_id: null, agent: 'me/mbp/lead', host: 'mbp', slots: 3, busy: 1, until_label: null, last_seen_at: ago(60_000) },
+      { id: 'w2', user_id: 'u9', project_id: null, agent: 'other/air/lead', host: 'air', slots: 3, busy: 1, until_label: null, last_seen_at: ago(60_000) },
+    ]
+    const m = assembleSeatmap(rows({ items, orders, watchers }), NOW, { mine: { userId: 'u1', memberIds: new Set(['m1']) } })
+    expect(m.floors[0].watchers.map(w => w.agent)).toEqual(['me/mbp/lead'])
+    expect(m.counters.standby).toBe(1)
+    const all = assembleSeatmap(rows({ items, orders, watchers }), NOW)
+    expect(all.floors[0].watchers.map(w => w.agent)).toEqual(['me/mbp/lead', 'other/air/lead'])
+    expect(all.counters.standby).toBe(2)
+  })
   it('내 것이 하나도 없으면 층이 없다', () => {
     const m = assembleSeatmap(rows({ items, orders }), NOW, { mine: { userId: 'nobody', memberIds: new Set() } })
     expect(m.floors).toEqual([])
