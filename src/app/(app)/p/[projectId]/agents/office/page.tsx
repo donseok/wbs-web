@@ -18,7 +18,7 @@ export default async function ProjectOfficePage({ params }: { params: Promise<{ 
   // 형식이 아닌 값은 DB 까지 가면 uuid 비교에서 throw 해 500 이 된다 — 슈퍼유저는 멤버 판정을 통과하므로 여기서 404 로 끊는다.
   if (!UUID_RE.test(projectId)) notFound()
   // 조회 실패는 throw → Next 의 error 경계가 받는다. 빈 오피스로 위장하지 않는다.
-  const office = await getProjectOffice(actor, projectId)
+  const office = await getProjectOffice(actor, projectId, Date.now(), 'all') // 기본은 전체(2026-09-19)
   if (office.projectName === null) notFound()
   // 공통 헤더(탭·요약·타일)는 뷰가 그린다 — 타일이 30초 폴링을 따라가야 한다(AgentFrame).
   return <SeatmapView initial={office.seatmap} projectId={projectId} projectName={office.projectName} />

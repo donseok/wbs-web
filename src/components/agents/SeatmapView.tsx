@@ -38,15 +38,15 @@ const CHATTER_KEY = 'dflow.office.chatter'
 
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
  *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다.
- *  보기는 둘이다 — 평면도(지켜보는 화면, 기본)와 상태 레인(처리하는 화면). 결재는 두 보기에서 모두 좌석에 붙는다. */
+ *  보기는 셋이다 — 에이전트(기본)·평면도(지켜보는 화면)·상태 레인(처리하는 화면). 결재는 평면도·상태 레인의 좌석에 붙는다. */
 export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }: { initial: Seatmap; pollMs?: number; projectId?: string; projectName?: string }) {
   const [map, setMap] = useState(initial)
   const [error, setError] = useState<{ at: string; message: string } | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.parse(initial.fetchedAt))
   const [scope, setScope] = useState<SeatmapScope>(initial.scope)
-  // 기본은 평면도다. 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
-  const [view, setView] = useState<OfficeView>('floor')
+  // 기본은 에이전트 보기다(2026-09-19). 서버 렌더와 어긋나지 않도록 localStorage 는 마운트 뒤에 읽는다.
+  const [view, setView] = useState<OfficeView>('agent')
   const [withDone, setWithDone] = useState(false)
   const [chatter, setChatter] = useState(true)
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
@@ -64,7 +64,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       if (saved === 'lane' || saved === 'floor' || saved === 'agent') setView(saved)
       if (window.localStorage.getItem(DONE_KEY) === '1') setWithDone(true)
       if (window.localStorage.getItem(CHATTER_KEY) === '0') setChatter(false)
-    } catch { /* 값이 없거나 접근이 막혀도 평면도로 그린다 */ }
+    } catch { /* 값이 없거나 접근이 막혀도 기본 보기로 그린다 */ }
   }, [])
   const pickView = useCallback((next: OfficeView) => {
     setView(next)
@@ -185,9 +185,9 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
     <>
       {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
       <div className={css.viewSeg} role="group" aria-label="보기">
+        <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
         <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
         <button type="button" data-view="lane" aria-pressed={view === 'lane'} onClick={() => pickView('lane')}><IconLaneView />상태 레인</button>
-        <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
       </div>
       {/* 완료 포함은 평면도에서만 뜻이 있다 — 상태 레인은 "빈자리 · 완료" 레인이 늘 안고 있고, 에이전트 보기는 좌석이 아니다.
           보기 전환은 조작 줄 왼쪽에 고정돼(.toolsLight) 이 버튼이 빠져도 밀리지 않는다. */}

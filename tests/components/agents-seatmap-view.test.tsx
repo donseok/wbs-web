@@ -28,7 +28,8 @@ const map = (over: Partial<Seatmap> = {}): Seatmap => ({
 })
 
 let host: HTMLDivElement, root: Root
-beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); window.localStorage.clear(); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
+// 기본 보기는 에이전트다(2026-09-19). 좌석을 다루는 테스트가 대부분이라 평면도를 기억해 둔 브라우저로 시작한다.
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); refresh.mockReset(); runOp.mockReset(); window.localStorage.clear(); window.localStorage.setItem('dflow.office.view', 'floor'); host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers() })
 
 describe('SeatmapView', () => {
@@ -43,9 +44,15 @@ describe('SeatmapView', () => {
     // 상세는 팝업이다 — 페이지를 열자마자 뜨면 안 된다.
     expect(document.querySelector('[data-panel]')).toBeNull()
   })
-  it('보기는 평면도·상태 레인·에이전트 셋이고, 에이전트는 작업 PC 로 묶은 자리와 프로필을 그린다(2026-09-18)', () => {
+  it('기억한 보기가 없으면 에이전트 보기로 열리고, 보기 버튼은 에이전트·평면도·상태 레인 순이다(2026-09-19)', () => {
+    window.localStorage.clear()
     act(() => root.render(<SeatmapView initial={map()} />))
-    expect([...host.querySelectorAll('button[data-view]')].map(b => b.getAttribute('data-view'))).toEqual(['floor', 'lane', 'agent'])
+    expect([...host.querySelectorAll('button[data-view]')].map(b => b.getAttribute('data-view'))).toEqual(['agent', 'floor', 'lane'])
+    expect(host.querySelector('button[data-view="agent"]')?.getAttribute('aria-pressed')).toBe('true')
+    expect(host.querySelector('[data-roster-board]')).not.toBeNull()
+  })
+  it('보기는 에이전트·평면도·상태 레인 셋이고, 에이전트는 작업 PC 로 묶은 자리와 프로필을 그린다(2026-09-18)', () => {
+    act(() => root.render(<SeatmapView initial={map()} />))
     act(() => (host.querySelector('button[data-view="agent"]') as HTMLButtonElement).click())
     expect(host.querySelector('[data-roster-board]')).not.toBeNull()
     expect(host.querySelector('[data-roster-host="hong/mbp"]')?.textContent).toContain('팀원 1')
