@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// SeatmapRealtime — 오피스가 층마다 0098 채널을 듣고, 신호가 오면 좌석표를 한 번 재조회한다.
-// 2026-09-18 실측: done 보고마다 서버는 wbs_changed 를 쐈지만 오피스만 듣지 않아 30초 폴링을 기다렸다.
+// SeatmapRealtime — 스튜디오가 층마다 0098 채널을 듣고, 신호가 오면 좌석표를 한 번 재조회한다.
+// 2026-09-18 실측: done 보고마다 서버는 wbs_changed 를 쐈지만 스튜디오만 듣지 않아 30초 폴링을 기다렸다.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

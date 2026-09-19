@@ -23,7 +23,7 @@ function must<T>(what: string, r: { data: T | null; error: { message: string } |
 }
 
 /** 조상 사슬을 뿌리까지 올라가며 모은다(최대 12단 — 순환·이상 데이터 방어).
- *  구역 라벨은 부모 1단만 쓰지만 서브트리 관리자 판정은 strict 조상 전체를 봐야 한다(오피스 v7 결재). */
+ *  구역 라벨은 부모 1단만 쓰지만 서브트리 관리자 판정은 strict 조상 전체를 봐야 한다(스튜디오 v7 결재). */
 async function fetchAncestors(admin: AdminClient, seedIds: string[]): Promise<ItemRow[]> {
   const out = new Map<string, ItemRow>()
   let frontier = seedIds
@@ -146,7 +146,7 @@ export async function getSeatmap(actor: Actor, nowMs = Date.now(), scope: Seatma
 
 export interface ProjectOffice { projectName: string | null; seatmap: Seatmap }
 
-/** 프로젝트 가상 오피스 — 이름 + 이 프로젝트 층 하나. 프로젝트가 없으면 projectName null(페이지가 notFound 로 보낸다). */
+/** 프로젝트 스튜디오 — 이름 + 이 프로젝트 층 하나. 프로젝트가 없으면 projectName null(페이지가 notFound 로 보낸다). */
 export async function getProjectOffice(actor: Actor, projectId: string, nowMs = Date.now(), scope: SeatmapScope = 'mine'): Promise<ProjectOffice> {
   const admin = createAdminClient()
   const [project, seatmap] = await Promise.all([

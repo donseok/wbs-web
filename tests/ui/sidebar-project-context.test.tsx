@@ -78,7 +78,7 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
     await act(async () => {}) // /api/shell 응답 flush
   }
 
-  it('프로젝트 메뉴에 에이전트 링크가 있다 — 근태 다음, 설정 앞. 기본 화면은 가상 오피스(2026-09-19)', async () => {
+  it('프로젝트 메뉴에 에이전트 링크가 있다 — 근태 다음, 설정 앞. 기본 화면은 에이전트 스튜디오(2026-09-19)', async () => {
     await renderAt('/p/p1/wbs')
     const hrefs = [...container.querySelectorAll<HTMLAnchorElement>('a[href^="/p/p1/"]')].map(a => a.getAttribute('href'))
     expect(hrefs).toContain('/p/p1/agents/office')
@@ -86,7 +86,7 @@ describe('Sidebar 최근 프로젝트 문맥', () => {
     expect(container.querySelector('a[href="/p/p1/agents/office"]')?.textContent).toContain('nav.projectAgents')
   })
 
-  it('전역 오피스(/agents)는 사이드바에 없다 — 입구는 프로젝트 오피스 탭의 전체 오피스 링크 한 곳(2026-09-14)', async () => {
+  it('전역 스튜디오(/agents)는 사이드바에 없다 — 입구는 프로젝트 스튜디오 탭의 전체 스튜디오 링크 한 곳(2026-09-14)', async () => {
     await renderAt('/p/p1/wbs')
     expect(container.querySelector('a[href="/agents"]')).toBeNull()
   })

@@ -1,5 +1,5 @@
 // src/components/agents/icons.tsx
-// 좌석표 아이콘 I1(라인) — 1.6px 획. 앱의 나머지 화면이 쓰는 lucide-react 와 같은 결이라 오피스만 겉돌지 않는다.
+// 좌석표 아이콘 I1(라인) — 1.6px 획. 앱의 나머지 화면이 쓰는 lucide-react 와 같은 결이라 스튜디오만 겉돌지 않는다.
 // 옛 판은 무응답 `!`·결정 대기 `?`·끊김이라는 한글 두 글자로 표지를 대신했고, 접힌 구역 세 종류를
 // Armchair 하나로 표현했다. 여섯 자리를 각자 다른 그림으로 가른다.
 import type React from 'react'

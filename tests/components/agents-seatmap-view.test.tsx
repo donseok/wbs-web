@@ -38,7 +38,7 @@ describe('SeatmapView', () => {
     expect(host.textContent).toContain('mes-base')
     expect(host.querySelector('[data-hero-tile="active"]')?.textContent).toBe('1')
     expect(host.querySelector('[data-hero-tile="offline"]')?.textContent).toBe('1')
-    // 전체 오피스도 공통 헤더를 쓰고, 탭 자리에 층 칩(돌아갈 길)을 단다.
+    // 전체 스튜디오도 공통 헤더를 쓰고, 탭 자리에 층 칩(돌아갈 길)을 단다.
     expect(host.querySelector('[data-office-nav="all"]')?.getAttribute('aria-current')).toBe('page')
     expect(host.querySelector('a[data-office-nav="p1"]')?.getAttribute('href')).toBe('/p/p1/agents/office')
     // 상세는 팝업이다 — 페이지를 열자마자 뜨면 안 된다.
@@ -137,8 +137,8 @@ describe('SeatmapView — 내 작업 / 전체 전환', () => {
   })
 })
 
-describe('SeatmapView — 프로젝트 오피스(projectId)', () => {
-  it('재조회에 projectId 를 넘기고 전체 오피스 링크가 보인다', async () => {
+describe('SeatmapView — 프로젝트 스튜디오(projectId)', () => {
+  it('재조회에 projectId 를 넘기고 전체 스튜디오 링크가 보인다', async () => {
     refresh.mockResolvedValue({ ok: true, seatmap: map() })
     act(() => root.render(<SeatmapView initial={map()} pollMs={1000} projectId="p1" />))
     expect((host.querySelector('[data-office-all-link]') as HTMLAnchorElement).getAttribute('href')).toBe('/agents')
@@ -286,7 +286,7 @@ describe('SeatmapView — 완료 포함 보기', () => {
     act(() => lane.click())
     expect(document.querySelector('[data-done-toggle]')).toBeNull()
   })
-  it('프로젝트 오피스에서는 상태 레인일 때 토글을 아예 뺀다 — 보기 전환은 왼쪽에 고정돼 밀리지 않는다', () => {
+  it('프로젝트 스튜디오에서는 상태 레인일 때 토글을 아예 뺀다 — 보기 전환은 왼쪽에 고정돼 밀리지 않는다', () => {
     act(() => root.render(<SeatmapView initial={withDoneSeat()} projectId="11111111-1111-4111-8111-111111111111" projectName="P" />))
     const lane = [...host.querySelectorAll('button')].find(b => b.getAttribute('data-view') === 'lane') as HTMLButtonElement
     act(() => lane.click())

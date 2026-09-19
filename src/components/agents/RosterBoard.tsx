@@ -1,7 +1,7 @@
 'use client'
-// 가상 오피스의 세 번째 보기 '에이전트' — 작업 PC 한 줄에 자리(팀장·팀원 N)를 책상으로 늘어놓고,
-// 고른 자리의 프로필을 오른쪽에 보인다(2026-09-18 시안 v2, 사용자 결정으로 오피스 탭 안의 보기가 됐다).
-// 데이터는 오피스가 30초마다 읽는 좌석표 그대로를 agentRoster 로 다시 묶는다 — 폴링·범위(내 작업/전체)는 오피스 몫.
+// 에이전트 스튜디오의 세 번째 보기 '에이전트' — 작업 PC 한 줄에 자리(팀장·팀원 N)를 책상으로 늘어놓고,
+// 고른 자리의 프로필을 오른쪽에 보인다(2026-09-18 시안 v2, 사용자 결정으로 스튜디오 탭 안의 보기가 됐다).
+// 데이터는 스튜디오가 30초마다 읽는 좌석표 그대로를 agentRoster 로 다시 묶는다 — 폴링·범위(내 작업/전체)는 스튜디오 몫.
 // 좌석 단위 보고 이력·처리량·토큰 연결은 아직 데이터가 없어 그리지 않는다(시안 notes 의 NEW 항목).
 import { useMemo, useState, type ReactNode } from 'react'
 import type React from 'react'
@@ -342,7 +342,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
         <section className="rounded-2xl border border-[#F0B068] bg-[color-mix(in_srgb,#F0B068_12%,var(--color-surface))] p-3">
           <h3 className="text-xs font-bold text-ink">결정이 필요합니다</h3>
           <p className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">{seat.note ?? '에이전트가 사유를 남기지 않았습니다.'}</p>
-          <p className="mt-2 text-[11px] text-ink-subtle">답은 위임·승인 탭이나 가상 오피스의 이 좌석에서 합니다.</p>
+          <p className="mt-2 text-[11px] text-ink-subtle">답은 위임·승인 탭이나 에이전트 스튜디오의 이 좌석에서 합니다.</p>
         </section>
       )}
       {desk.kind === 'lead' && desk.watcher && (

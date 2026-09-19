@@ -1,6 +1,6 @@
-# 가상 오피스 착수 대기 사유 · 구역 접기 — 설계
+# 에이전트 스튜디오 착수 대기 사유 · 구역 접기 — 설계
 
-작성 2026-09-14. 오피스 분리 스펙(`2026-09-14-agent-office-split-design.md`) 위에 얹는다. 마이그레이션 없음.
+작성 2026-09-14. 스튜디오 분리 스펙(`2026-09-14-agent-office-split-design.md`) 위에 얹는다. 마이그레이션 없음.
 브랜치 `feat/office-blockers`(origin/staging d05fcfd9 기반). 머지는 마지막에 한 번.
 
 ## 0. 배경·결정
@@ -10,7 +10,7 @@
 - 서버가 판정할 수 있는 사유만 보여준다. 러너가 스스로 건너뛴 사유는 러너가 서버에 남기지 않아 범위 밖.
 - 사유는 **하나만**, 순서는 "고쳐도 소용없는 것"부터. 문구는 자세하게(무엇이 막는지 + 누가 무엇을 하면 풀리는지).
 - "에이전트 없음"과 "담당자 에이전트 꺼짐"은 한 사유로 합친다 — 차이는 누구의 에이전트냐뿐이라 주어만 바꾼다.
-- 가상 오피스는 **상세 패널**에 전문을, 책상 메타 줄에는 짧은 라벨만. 위임·승인 표에는 **선행 미완료만** 표시.
+- 에이전트 스튜디오는 **상세 패널**에 전문을, 책상 메타 줄에는 짧은 라벨만. 위임·승인 표에는 **선행 미완료만** 표시.
 - 구역 접기: 접으면 상세 선택을 푼다(선택된 좌석이 든 구역이 안 접히던 버그의 해법). 층마다 "모두 펼치기/접기".
 
 ## 1. 판정(순수, `src/lib/domain/seatmap.ts`)
@@ -63,7 +63,7 @@ export interface WaitReason { kind: WaitReasonKind; label: string; text: string 
 - `HubRow.unmetDepends: string | null` — 리프 && 위임 && (주문 없음 || READY) 일 때 미충족 목록 문구(§1-1 목록과 같은 형식), 아니면 null.
 - 표: 상태 칸 아래 `<small data-hub-depends>선행 미완료: {목록}</small>`(경고색), title 에 전문.
 
-## 4. 오피스 화면
+## 4. 스튜디오 화면
 
 - `Seat.tsx` `seatMetaLine`: READY 는 `waitReason?.label ?? '미착수'`.
 - `DetailPanel.tsx`: READY 이고 waitReason 있으면 상태 배지 아래 `<p data-wait-reason={kind} className={css.waitReason}>{text}</p>`.

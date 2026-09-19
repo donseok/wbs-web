@@ -54,7 +54,7 @@ function LaneSpeech({ seat, nowMs }: { seat: Seat; nowMs: number }) {
  */
 export function LaneBoard({ map, selectedId, nowMs, busyOrderId, showFloorName, onSelect, onOp }: {
   map: Seatmap; selectedId: string | null; nowMs: number; busyOrderId: string | null
-  /** 전체 오피스는 층이 여러 개라 카드에 층 이름을 같이 쓴다. */
+  /** 전체 스튜디오는 층이 여러 개라 카드에 층 이름을 같이 쓴다. */
   showFloorName: boolean
   onSelect: (orderId: string) => void
   onOp: SeatOpHandler

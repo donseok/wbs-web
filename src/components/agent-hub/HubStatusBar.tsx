@@ -1,6 +1,6 @@
 'use client'
 // 허브 조작 줄 — 켜짐/중지(관리자 토글), 감시 중 에이전트, 내 토큰 링크. 공통 헤더(AgentFrame) 아래 고정 줄에 얹는다.
-// 카운터는 헤더 타일로 올라갔다(2026-09-18). 전체 오피스 링크는 오피스 탭에 있다(2026-09-14).
+// 카운터는 헤더 타일로 올라갔다(2026-09-18). 전체 스튜디오 링크는 스튜디오 탭에 있다(2026-09-14).
 import Link from 'next/link'
 import { Bot, PauseCircle } from 'lucide-react'
 import type { Watcher } from '@/lib/domain/seatmap'

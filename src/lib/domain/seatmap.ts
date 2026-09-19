@@ -97,13 +97,13 @@ export type SeatmapScope = 'mine' | 'all'
 export const SEATMAP_SCOPES: readonly SeatmapScope[] = ['mine', 'all']
 /** 내 작업 판정 재료 — memberIds 는 접근 가능 프로젝트 로스터에서 나(user_id 링크 또는 이메일)와 맞는 행. */
 export interface MineFilter { userId: string; memberIds: ReadonlySet<string> }
-/** 결재 어포던스 재료(2026-09-17 오피스 v7). 넘기지 않으면 모든 좌석이 canManage=false 로 잠긴다(fail-closed). */
+/** 결재 어포던스 재료(2026-09-17 스튜디오 v7). 넘기지 않으면 모든 좌석이 canManage=false 로 잠긴다(fail-closed). */
 export interface SeatmapViewer {
   /** 보는 사람 계정 — 내 에이전트(주문 claimed_by_user_id · 감시자 user_id) 판정. 없으면 전부 남의 것(fail-closed). */
   userId?: string
   /** 내 로스터 행 id — 담당자 본인·서브트리 관리자 판정. */
   memberIds: ReadonlySet<string>
-  /** 내가 관리자인 프로젝트 id. 층마다 다를 수 있어 집합으로 받는다(전체 오피스는 여러 층이다). */
+  /** 내가 관리자인 프로젝트 id. 층마다 다를 수 있어 집합으로 받는다(전체 스튜디오는 여러 층이다). */
   adminProjectIds: ReadonlySet<string>
 }
 
@@ -289,7 +289,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       // 선행 대기는 빈자리가 아니다 — 올 사람이 정해져 있고 앞 작업만 기다린다. 실루엣으로 그린다(안 A).
       if (seat.waitReason?.kind === 'dependency') seat.anim = 'waiting'
     }
-    // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(오피스 v7).
+    // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(스튜디오 v7).
     // 평면도는 이 좌석을 그리지 않고 상태 레인의 "빈자리·완료" 레인만 그린다.
     if (seat.state === 'DONE') done.set(o.project_id, (done.get(o.project_id) ?? 0) + 1)
     const zones = floorMap.get(o.project_id) ?? new Map<string, Zone>()
@@ -348,7 +348,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
 }
 
 /**
- * 좌석표가 들어야 할 실시간 채널의 프로젝트 — 프로젝트 오피스면 그 하나, 전체 오피스면 지금 층으로 그린
+ * 좌석표가 들어야 할 실시간 채널의 프로젝트 — 프로젝트 스튜디오면 그 하나, 전체 스튜디오면 지금 층으로 그린
  * 프로젝트들. 층이 없는 프로젝트는 듣지 않는다: 첫 주문이 생기는 변화는 30초 폴링이 잡는다.
  * 정렬해 돌려주는 이유: 폴링마다 층 순서가 바뀌어도 구독을 다시 맺지 않게 한다.
  */

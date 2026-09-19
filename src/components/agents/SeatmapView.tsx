@@ -37,7 +37,7 @@ const DONE_KEY = 'dflow.office.done'
 const CHATTER_KEY = 'dflow.office.chatter'
 
 /** 좌석표 클라이언트 루트. 30초 폴링, 숨긴 탭은 쉬고 다시 보이면 즉시 1회. 실패는 마지막 데이터 유지 + 표시.
- *  projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 오피스 링크를 보인다.
+ *  projectId 가 있으면 프로젝트 스튜디오(/p/[id]/agents/office): 재조회를 그 층으로 좁히고 전체 스튜디오 링크를 보인다.
  *  보기는 셋이다 — 에이전트(기본)·평면도(지켜보는 화면)·상태 레인(처리하는 화면). 결재는 평면도·상태 레인의 좌석에 붙는다. */
 export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }: { initial: Seatmap; pollMs?: number; projectId?: string; projectName?: string }) {
   const [map, setMap] = useState(initial)
@@ -124,7 +124,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
       // 실패는 상세 패널에만 자리가 있다 — 좌석에서 바로 누른 op 였다면 그 좌석을 열어 보여 준다.
       if (!r.ok) { setOpError(r.error); setSelected(seat.orderId); return }
       setNote(null)
-      // 처리는 허브를 돌려주지만 오피스가 쥔 것은 좌석표다 — 한 번 더 읽어야 화면이 맞는다.
+      // 처리는 허브를 돌려주지만 스튜디오가 쥔 것은 좌석표다 — 한 번 더 읽어야 화면이 맞는다.
       if (r.hubError) { setOpError(r.hubError); setSelected(seat.orderId) }
       await refresh(undefined, true)
     } catch (e) {
@@ -184,7 +184,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   const roster = useRoster(map)
   const tools = (
     <>
-      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 오피스</Link>}
+      {projectId !== undefined && <Link href="/agents" data-office-all-link className={css.allLink}>전체 스튜디오</Link>}
       <div className={css.viewSeg} role="group" aria-label="보기">
         <button type="button" data-view="agent" aria-pressed={view === 'agent'} onClick={() => pickView('agent')}><IconAgentView />에이전트</button>
         <button type="button" data-view="floor" aria-pressed={view === 'floor'} onClick={() => pickView('floor')}><IconFloorView />평면도</button>
@@ -284,8 +284,8 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   )
   const realtime = <SeatmapRealtime projectIds={channelIds} run={() => { void refresh() }} />
 
-  // 두 오피스 모두 에이전트 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
-  // 프로젝트 오피스는 헤더에 위임·승인|가상 오피스 탭을, 전체 오피스(/agents)는 층(프로젝트) 칩을 단다(2026-09-18).
+  // 두 스튜디오 모두 에이전트 화면의 공통 헤더(AgentFrame)를 쓰고, 이 화면에만 있는 조작부는 헤더 아래 줄로 뺀다.
+  // 프로젝트 스튜디오는 헤더에 위임·승인|에이전트 스튜디오 탭을, 전체 스튜디오(/agents)는 층(프로젝트) 칩을 단다(2026-09-18).
   const c = map.counters
   const officeTiles: HeroTile[] = [
     { key: 'active', label: '업무 중', value: c.active, color: '#5DB1E5' },
@@ -304,7 +304,7 @@ export function SeatmapView({ initial, pollMs = 30_000, projectId, projectName }
   return (
     <AgentFrame
       {...(projectId !== undefined ? { projectId } : { nav: tone => <OfficeNav floors={floorsNav} tone={tone} /> })}
-      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '가상 오피스' : '가상 오피스 · 전체'}
+      projectName={projectName ?? '전체 프로젝트'} title={projectId !== undefined ? '에이전트 스튜디오' : '에이전트 스튜디오 · 전체'}
       lede={hero.lede} tiles={hero.tiles}
       tools={<div className={css.toolsLight}>{tools}</div>}>
       <div className={css.root}>

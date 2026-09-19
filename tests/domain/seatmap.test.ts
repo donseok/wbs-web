@@ -280,11 +280,11 @@ describe('재개 요청 표식(0099) — 멈춘 좌석에서 사람이 누른 �
   })
 })
 
-describe('seatmapChannelProjectIds — 오피스가 들어야 할 실시간 채널', () => {
-  it('프로젝트 오피스는 그 프로젝트 하나다', () => {
+describe('seatmapChannelProjectIds — 스튜디오가 들어야 할 실시간 채널', () => {
+  it('프로젝트 스튜디오는 그 프로젝트 하나다', () => {
     expect(seatmapChannelProjectIds({ floors: [] }, 'px')).toEqual(['px'])
   })
-  it('전체 오피스는 지금 그린 층들이며, 순서가 바뀌어도 같은 목록이다(재구독 방지)', () => {
+  it('전체 스튜디오는 지금 그린 층들이며, 순서가 바뀌어도 같은 목록이다(재구독 방지)', () => {
     const a = seatmapChannelProjectIds({ floors: [{ id: P2 }, { id: P1 }] as never })
     const b = seatmapChannelProjectIds({ floors: [{ id: P1 }, { id: P2 }] as never })
     expect(a).toEqual([P1, P2])

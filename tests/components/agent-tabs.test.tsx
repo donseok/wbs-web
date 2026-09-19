@@ -17,13 +17,13 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 const tab = (k: string) => host.querySelector(`[data-agent-tab="${k}"]`) as HTMLAnchorElement
 
 describe('AgentTabs', () => {
-  it('가상 오피스가 첫 탭, 위임·승인이 둘째 탭이다 — 오피스가 에이전트 메뉴의 기본 화면(2026-09-19)', () => {
+  it('에이전트 스튜디오가 첫 탭, 위임·승인이 둘째 탭이다 — 스튜디오가 에이전트 메뉴의 기본 화면(2026-09-19)', () => {
     nav.pathname = '/p/p1/agents/office'
     act(() => root.render(<AgentTabs projectId="p1" />))
     const keys = [...host.querySelectorAll('[data-agent-tab]')].map(a => a.getAttribute('data-agent-tab'))
     expect(keys).toEqual(['office', 'hub'])
   })
-  it('허브 경로에서는 위임·승인이 활성, 오피스 링크는 /agents/office', () => {
+  it('허브 경로에서는 위임·승인이 활성, 스튜디오 링크는 /agents/office', () => {
     nav.pathname = '/p/p1/agents'
     act(() => root.render(<AgentTabs projectId="p1" />))
     expect(tab('hub').getAttribute('href')).toBe('/p/p1/agents')
@@ -31,9 +31,9 @@ describe('AgentTabs', () => {
     expect(tab('hub').textContent).toBe('위임·승인')
     expect(tab('office').getAttribute('href')).toBe('/p/p1/agents/office')
     expect(tab('office').getAttribute('aria-current')).toBeNull()
-    expect(tab('office').textContent).toBe('가상 오피스')
+    expect(tab('office').textContent).toBe('에이전트 스튜디오')
   })
-  it('오피스 경로에서는 가상 오피스가 활성', () => {
+  it('스튜디오 경로에서는 에이전트 스튜디오가 활성', () => {
     nav.pathname = '/p/p1/agents/office'
     act(() => root.render(<AgentTabs projectId="p1" />))
     expect(tab('office').getAttribute('aria-current')).toBe('page')

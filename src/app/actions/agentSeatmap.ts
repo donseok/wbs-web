@@ -9,7 +9,7 @@ import { UUID_RE } from '@/lib/domain/validate'
 
 /**
  * 좌석표 재조회(30초 폴링). 페이지와 같은 게이트를 다시 검사한다 — 액션은 URL 로도 불릴 수 있다.
- * projectId 가 있으면 프로젝트 오피스(/p/[id]/agents/office): 형식 검증 → 멤버 검증 → 그 층 하나만.
+ * projectId 가 있으면 프로젝트 스튜디오(/p/[id]/agents/office): 형식 검증 → 멤버 검증 → 그 층 하나만.
  */
 export async function refreshSeatmap(scope: SeatmapScope = 'mine', projectId?: string): Promise<{ ok: true; seatmap: Seatmap } | { ok: false; error: string }> {
   const actor = await getActorForView()
