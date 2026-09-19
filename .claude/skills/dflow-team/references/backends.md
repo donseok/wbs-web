@@ -10,7 +10,7 @@ SKILL.md 「0. 환경 감지」 가 백엔드를 고른다. 워커 프롬프트�
 | 항목 | pane(tmux) | pane(Orca) |
 |---|---|---|
 | 팀원 정체 | 팀장이 tmux pane 에 띄운 대화형 claude 메인 에이전트(권한 확인 생략 모드) | Orca 탭의 claude 메인 에이전트(권한 확인 생략 모드) |
-| 워크트리 | 팀장이 `git worktree add --detach` 로 `<MAIN>/.claude/worktrees/dflow-<id8>` 를 `origin/<기본브랜치>` 기점으로 만든다. 브랜치를 만들지 않는다 | `orca worktree create` 가 `origin/<기본브랜치>` 기점으로 만든다 |
+| 워크트리 | 팀장이 `git worktree add --detach` 로 `<MAIN>/.claude/worktrees/dflow-<id8>` 를 `origin/<기본브랜치>` 기점으로 만든다. 브랜치를 만들지 않는다 | `orca worktree create` 가 `origin/<기본브랜치>` 기점으로 `<MAIN>/dflow-<id8>`(리포 루트 바로 아래)에 만들고 브랜치 `<사용자>/dflow-<id8>` 도 만든다. 전제 검사의 exclude `/dflow-*/` 가 이 폴더를 가린다 |
 | 기상 신호 | 감시 루프의 `RESULT_READY`·`PANE_DEAD` | 감시 루프의 `RESULT_READY` |
 | `blocked` 이후 | 팀원은 pane 에서 멈춰 기다린다 | 팀원은 탭에서 멈춰 기다린다 |
 | 슬롯 점유 | `blocked` 동안 슬롯을 계속 잡는다 | 같다 |

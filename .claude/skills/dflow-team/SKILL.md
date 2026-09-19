@@ -395,7 +395,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    [ -z "$legacy" ] || bad "LEGACY_REPORTED $legacy"
    mkdir -p ~/.dflow
    ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
-   for p in '**/.claude/worktrees/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' 'docs/tasks/*/.result'; do
+   for p in '**/.claude/worktrees/' '/dflow-*/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' 'docs/tasks/*/.result'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
    tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
@@ -550,7 +550,9 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      거부하며, 이는 안전한 쪽으로 기운 것이다.
    - `mkdir -p ~/.dflow`: 이벤트 기록이 디렉터리 부재로 조용히 실패하지 않게 한다.
    - 공유 `info/exclude` 에 워커 부산물 패턴을 없을 때만 넣는다. 커밋하지 않는 로컬 설정이며 링크드
-     워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 tmux 팀원 워크트리(`dflow-<id8>`), `/.dflow-agent`·
+     워크트리가 모두 공유한다. `**/.claude/worktrees/` 는 tmux 팀원 워크트리(`dflow-<id8>`), `/dflow-*/` 는 Orca 팀원 워크트리다
+     (`orca worktree create --name dflow-<id8>` 은 `.claude/worktrees/` 가 아니라 리포 루트 바로 아래에 만든다 —
+     2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다), `/.dflow-agent`·
      `docs/tasks/*/.result` 는 워커가 쓰는 미추적 파일, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
      팀장이 spawn 때 쓰는 미추적 파일, `/.claude/skills`(끝 슬래시 없음)는 스킬 심링크다. 끝 슬래시가 붙은 패턴은 디렉터리에만 걸려 심링크를 가리지 못한다. 이 패턴은 **`.claude/skills`
      가 추적되지 않는 리포에서만** 넣는다. 스킬이 커밋된 리포에 넣으면 새로 추가하는 스킬 파일이 무시돼
