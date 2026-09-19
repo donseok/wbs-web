@@ -152,7 +152,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
           완료 처리된 것(서버 가드는 `xx` 만 막고 `im` 은 안 막는다). 진행하되 **반드시 한 줄
           남긴다** — 서버가 못 막는 우회를 스킬이 최소한 드러낸다.
           <!-- worker:begin -->
-          `--worker` 면 갈래 1·2 는 스택하지 않고 `skipped` 로 끝낸다(「--worker」 G).
+          `--worker` 면 갈래 1·2 는 스택하지 않는다. 갈래 1 은 `skipped` 로 끝내고, 갈래 2 는 기본 브랜치 반영이
+          확인될 때만 진행하며 아니면 `skipped` 로 끝낸다(「--worker」 G).
           <!-- worker:end -->
        3. `order_approved:true` 인데 `head_sha` 없음 → 승인은 됐으나 evidence 가 비었거나 주문
           재발행으로 옛 완료 보고가 가려진 경우. 한 줄 남기고 진행한다.
@@ -295,6 +296,8 @@ git show origin/<기본브랜치>:docs/tasks/<선행TSK>/state.json   # phase �
 git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 한 줄이라도 나와야 한다
 ```
 
+팀장의 자동 머지(`DFLOW_AUTOMERGE=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가
+붙을 뿐이므로 같은 확인을 통과한다. `unapproved` 는 이 판정에서 보지 않는다.
 두 조건이 **모두** 참일 때만 반영된 것으로 본다. 첫 명령이 실패하거나(그 경로에 파일이 없다) `phase` 가
 `merged` 가 아니거나 둘째 명령의 출력이 비면 반영되지 않은 것이며, 그때는 `skipped 선행 승인 대기` 로 끝낸다.
 둘을 함께 요구하는 이유: state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 수 있고, 커밋 트레일러는

@@ -1,11 +1,18 @@
 ---
 name: dflow-merge
-description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브랜치(main)에 반영. 스택 브랜치는 조상 순서대로, approved 확인 전 머지 금지. 트리거 - "/dflow-merge", "승인된 작업 머지", "approved 반영". 사용법 - /dflow-merge [<ref>...]
+description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브랜치(main)에 반영. 스택 브랜치는 조상 순서대로, approved 확인 전 머지 금지(팀장 전용 --on-report 만 예외). 트리거 - "/dflow-merge", "승인된 작업 머지", "approved 반영". 사용법 - /dflow-merge [<ref>...]
 ---
 
 # /dflow-merge — 승인된 작업의 main 반영
 
-인자: `$ARGUMENTS` (선택: ref 목록. 없으면 로컬 `phase=reported` 작업과, 원격 `origin/agent/*` 브랜치 중 `phase` 가 `merged` 가 아닌 작업이 후보. `api_base` 가 현재 D'Flow 와 다른 후보는 건너뛴다)
+인자: `$ARGUMENTS` (선택: ref 목록. 없으면 로컬 `phase=reported` 작업, 로컬 `phase=merged` 이고 `unapproved=true` 인 작업(승인 전 머지분, 판정만 한다), 원격 `origin/agent/*` 브랜치 중 `phase` 가 `merged` 가 아닌 작업이 후보. `api_base` 가 현재 D'Flow 와 다른 후보는 건너뛴다)
+
+**`--on-report`(팀장 전용, 승인 전 머지)**: `/dflow-team` 팀장이 자동 머지 모드에서만 붙인다. 사람이 직접 쓰지 않으며
+description 의 사용법에도 노출하지 않는다. 이 플래그가 있으면 서버 `status=reported`(완료 보고, 승인 대기)이고 반려되지
+않은 작업도 머지한다(2번). 승인은 사람이 나중에 D'Flow 웹에서 하고, 그 판정은 다음 스윕이 「승인 전 머지분」 으로 읽어
+정리한다. 이유: 의존 사슬이 있는 WBS 에서 선행이 승인될 때까지 후속이 착수하지 못하면, 사람이 Task 마다 승인해야
+진척된다(2026-09-19 mdm-dict-v2 실측: 팀원 4명 중 3명이 `skipped 선행 승인 대기`). 자율로 돌고 사람은 사후에
+확인한다는 팀장 설계와 어긋난다. 플래그가 없으면 종전대로 approved 만 머지한다.
 
 > **위치 선언**: /dflow-dev 는 done(reported, 승인 대기)에서 끝난다. 사람이 D'Flow 웹에서
 > approve 한 뒤 그 브랜치를 main 에 합치는 것이 이 스킬이다. 이게 없으면 후속 작업의 선행
@@ -52,10 +59,14 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
      후보의 값은 아래로 본다.
      ```bash
      find docs/tasks -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null | while IFS= read -r f; do
-       jq -r --arg f "$f" --arg api "$api" 'select(.phase == "reported")
-         | [$f, .tsk, .order, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end)] | @tsv' "$f"
+       jq -r --arg f "$f" --arg api "$api" 'select(.phase == "reported" or (.phase == "merged" and .unapproved == true))
+         | [$f, .tsk, .order, .phase, (if (.api_base // "") == "" then "none" elif .api_base == $api then "same" else "other" end)] | @tsv' "$f"
      done
      ```
+     넷째 칸이 `merged` 인 줄은 **승인 전 머지분**이다(`--on-report` 가 머지하며 `unapproved: true` 를 남겼다). 이미 기본
+     브랜치에 들어 있으므로 머지 대상이 아니라 2번의 「승인 전 머지분 판정」 만 받는다. 플래그와 무관하게 늘 본다. 이유:
+     머지한 뒤에는 원격 스캔(`phase != "merged"`)에도 `reported` 스캔에도 걸리지 않아, 그 작업의 승인·반려를 아무도
+     읽지 못한다. 팀장의 poll 에는 반려 신호(exit 10)도 오지 않는다(`/dflow-team` 「2-3」).
      glob(`docs/tasks/*/state.json`)을 쓰지 않는 이유: zsh 에서는 매치가 없으면 `no matches found` 로 명령
      전체가 죽는다. `docs/tasks` 가 없는 리포에서도 `find` 는 조용히 아무것도 내지 않는다.
      이유: 스테이징 D'Flow DB 는 운영을 복제하므로, 스테이징 `.env` 로 실제 리포에서 스윕하면 운영에서
@@ -70,9 +81,12 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
      j=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <order 전체 UUID>); echo "show=$?"
      printf '%s' "$j" | jq -c '{status: .order.status, last: ([.reports[]? | select(.kind == "completion")] | last | {review_action, review_note, head_sha: .evidence.head_sha})}'
      ```
-2. **판정: approved 만 진행**: 후보마다 아래 중 하나로 보고한다. 승인 대기나 데이터 없음으로 뭉개지 않는다.
+2. **판정: approved 만 진행**(`--on-report` 면 승인 대기도): 후보마다 아래 중 하나로 보고한다. 승인 대기나 데이터 없음으로 뭉개지 않는다.
    **approved 확인 전 머지 절대 금지** — 로컬 state 나 기억이 아니라 show 응답이 판정이다.
+   예외는 `--on-report` 의 승인 대기 머지 하나뿐이며, 그 판정도 show 응답으로 한다.
    - `status=approved`: 머지 대상.
+   - `--on-report` 이고 `status=reported` 이며 마지막 completion 리포트의 `review_action` 이 `reject` 가 아님: 머지 대상
+     (**승인 전 머지**). 4번 4단계에서 state.json 에 `unapproved: true` 를 함께 남긴다. 플래그가 없으면 아래 "승인 대기" 다.
    - 마지막 completion 리포트가 `review_action=reject`: "반려: 재작업 필요 (<review_note>)". dflow-dev
      Phase 01 1번의 반려 판정과 같은 기준이다. 반려는 로컬 후보도 state.json 을 고치지 않고 보고만 한다. 이유:
      수동 `/dflow-poll` 의 반려 감지(exit 10)는 로컬 state.json 의 `reported`·`merged` 를 재료로 쓰므로,
@@ -80,10 +94,28 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
    - `status=reported`: "승인 대기".
    - 그 밖의 status: "건너뜀(서버 <status>)".
    - show 가 404(dflow.sh exit 7)이거나 그 밖의 이유로 실패: "건너뜀(조회 실패)".
+
+   **승인 전 머지분 판정**(1번 로컬 스캔의 넷째 칸이 `merged` 인 후보): 절대 다시 머지하지 않는다. 같은 show 로 가른다.
+   - `status=approved`: "승인 반영(이미 머지됨)". state.json 에서 `unapproved` 를 지우는 커밋 하나만 기본 브랜치에 올린다
+     (4번의 머지 자리·push 실패 처리 그대로, `git merge` 단계만 없다. 커밋 메시지 `chore(<TSK>): approved (승인 전 머지분)`).
+     이유: 표식이 남으면 매 스윕이 같은 작업을 다시 show 한다.
+   - 마지막 completion 리포트가 `review_action=reject`: "반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>)". state.json 은
+     고치지 않는다. 이유: 반려 재작업(`/dflow-dev` Phase 01 1번)은 로컬 `merged` 와 서버 `claimed` 로 반려를 알아보며, 승인
+     뒤 재작업처럼 기본 브랜치에서 새 agent 브랜치를 따 머지된 코드 위에 수정 커밋을 얹는다. 되돌리기(`git revert`)는
+     스윕이 하지 않는다. 그 위에 이미 다른 작업이 올라갔을 수 있어 사람이 고른다. 보고에 **그 위에 쌓였을 수 있는 작업**을
+     붙인다: 다른 승인 전 머지분 가운데, 그 작업의 첫 산출 커밋이 반려된 작업의 첫 산출 커밋을 조상으로 갖는 것이다.
+     ```bash
+     git log origin/<기본브랜치> --grep='DFlow-Order: <order>' --format=%H | tail -n 1   # 각 작업의 첫 산출 커밋
+     git merge-base --is-ancestor <반려된 작업의 첫 커밋> <다른 작업의 첫 커밋>        # 참이면 그 위에 쌓였을 수 있다
+     ```
+   - `status=reported`: "승인 대기(머지됨)". 보고만 한다.
+   - 그 밖의 status(`claimed` 인데 반려 리포트가 아님 등): "건너뜀(머지됨, 서버 <status>)".
+   - show 실패: "건너뜀(조회 실패)".
 3. **순서: 스택은 조상 먼저**: 대상이 여럿이면 브랜치 tip 이 아니라 후보 state.json 의 `branch_base` 로 조상
    관계를 판정해 조상부터 머지한다. 선행이 approved 가 아니어서 조상 브랜치를 머지할 수 없으면
    그 위의 후손도 이번엔 머지하지 않는다(선행을 건너뛰고 후손만 합치면 미승인 커밋이 main 에
    섞인다).
+   `--on-report` 면 "approved 가 아니어서" 를 "2번의 머지 대상이 아니어서" 로 읽는다(반려·조회 실패 등).
    - `branch_base`(기점 커밋. `/dflow-dev` 「--worker」 B 면 선행 완료 증적의 head_sha)가 없거나
      `origin/<기본브랜치>` 의 조상이면 스택이 아니다.
    - 아니면 스택이며, 선행은 `git merge-base --is-ancestor <branch_base> <그 후보의 머지 대상>` 이 참인 다른
@@ -113,14 +145,14 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
    git rev-parse HEAD                      # 머지 직전 HEAD. 값을 기록해 둔다
    git merge-base --is-ancestor <증적 head_sha> <머지 대상>   # 증적에 head_sha 가 있을 때만. 0 이 아니면(커밋이 없거나 조상이 아님) 머지하지 않는다
    git diff --name-only <증적 head_sha>..<머지 대상>   # 증적에 head_sha 가 있을 때만. 실패하면 머지하지 않고, 그 작업의 state.json 뿐이거나 비어 있어야 머지한다
-   git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>
+   git merge --no-ff <머지 대상> -m "merge: <TSK> <제목> (approved)"   # 로컬 후보 agent/<id8>-<slug>, 원격 전용 후보 origin/agent/<id8>-<slug>. 승인 전 머지는 (reported, 승인 전)
    git add docs/tasks/<TSK>/state.json && git commit -m "chore(<TSK>): phase=merged"   # state.json 을 phase=merged 로 고친 뒤, push 전에
    git push origin <기본브랜치>
    ```
    후보마다 다음 순서로 한다.
    1. `git fetch origin && git switch <기본브랜치> && git pull --ff-only origin <기본브랜치>` 뒤 머지 직전
       HEAD 를 기록한다.
-   2. **승인 뒤 변경 확인**: 증적 head_sha 가 로컬에 있고 머지 대상의 조상이며
+   2. **승인 뒤 변경 확인**(승인 전 머지면 "보고 뒤 변경 확인"이며 규칙은 같다. 증적은 완료 보고의 것이다): 증적 head_sha 가 로컬에 있고 머지 대상의 조상이며
       (`git merge-base --is-ancestor <증적 head_sha> <머지 대상>` 이 참), `git diff --name-only <증적 head_sha>..<머지 대상>`
       이 성공해 그 작업의 `docs/tasks/<TSK>/state.json` 뿐이거나 비어 있으면 머지한다. 다른 파일이 있으면
       "건너뜀(승인 뒤 변경)", head_sha 가 로컬에 없거나 머지 대상의 조상이 아니거나 `git diff` 가 실패하면
@@ -135,7 +167,10 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
       보고한 뒤 다음 후보로 간다. 이유: 충돌 상태로 남으면 체크아웃이 더러워져, 팀장이면 이후 모든
       기상이 전제 검사에서 멈추고 수동이면 사람이 그 상태를 치워야 한다.
    4. state.json 을 `phase=merged` 로 갱신해 기본 브랜치에 커밋한다(파일명 명시). 이 커밋을 **push 전에**
-      만든다.
+      만든다. 승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다. `phase` 를 `merged` 가 아닌 새 값으로
+      만들지 않는 이유: `/dflow-dev` 「--worker」 행 G 의 기본 브랜치 반영 확인이 `phase` 가 `merged` 인지를 보고,
+      `poll.sh` 의 반려 감지도 `reported|merged` 만 훑는다. 새 값을 쓰면 후속이 여전히 `skipped` 로 끝나고 반려도
+      감지되지 않는다.
    5. `git push origin <기본브랜치>` 로 머지와 `merged` 커밋을 한 번에 올린다. push 가 실패하면 먼저
       `git reset --keep <기록한 HEAD>` 로 되돌리고, 거부 모양으로 가른다.
       - 출력에 `non-fast-forward` 나 `fetch first` 가 있으면 경합이다. "push 실패(경합)" 로 보고하고 스윕을
@@ -182,14 +217,17 @@ description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브�
      잡고 있으면(checked out) 건너뛰고 보고한다. 원격 전용 후보에는 로컬 브랜치가 없고, 팀원 워크트리가 그
      브랜치를 잡고 있을 수 있기 때문이다. 아직 미승인 후손 스택 브랜치는 **삭제·rebase
      하지 않는다** — 이미 머지된 커밋을 조상으로 포함하므로 그대로 두면 제 차례에 깨끗이 머지된다.
-6. **보고**: 머지됨 / 승인 대기 / 반려: 재작업 필요 (<review_note>) / 머지 실패(충돌) / push 실패(경합) /
+6. **보고**: 머지됨 / 머지됨(승인 전) / 승인 반영(이미 머지됨) / 승인 대기 / 승인 대기(머지됨) / 반려: 재작업 필요 (<review_note>) /
+   반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>, 그 위에 쌓였을 수 있는 작업) / 머지 실패(충돌) / push 실패(경합) /
    push 실패(훅) / push 실패 / 건너뜀(서버 <status>·조회 실패·다른 D'Flow·조상 미승인·기점 미반영·승인 뒤 변경·
    승인 뒤 변경 확인 불가·로컬 브랜치 삭제 건너뜀)을 표로. 반려·머지 실패(충돌)·push 실패(훅)는 id8 과 함께 따로
-   적는다. 호출자(`/dflow-team` 팀장 등)가 이 목록으로 후속 처리를 한다.
+   적는다. 반려(머지됨)도 따로 적는다. 호출자(`/dflow-team` 팀장 등)가 이 목록으로 후속 처리를 한다.
 
 ## 금지
 
 - approved 아닌 작업의 머지(reported·claimed 포함). 서버 approve 시도.
+  예외는 `--on-report` 의 반려되지 않은 `reported` 하나뿐이다. 반려된 작업·`claimed`·승인 전 머지분의 재머지는 플래그가
+  있어도 금지.
 - force push. 훅 우회(SKIP_GUARD).
 - 머지 순서 뒤집기(후손 먼저).
 - 대상 저장소가 wbs-web 자신이면 G1~G4 훅 제약을 사용자에게 사전 경고.
