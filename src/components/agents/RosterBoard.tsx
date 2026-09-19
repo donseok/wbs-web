@@ -14,6 +14,7 @@ import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
 import { awayBubble, awayReason, leadChatter } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
+import { OwnerTag, ownerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -46,6 +47,11 @@ function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boole
   // 잡담이 켜져 있으면 부재 사유(농담)를 붙인다 — 끄면 사실만 남는다.
   if (d.kind === 'empty') return chatter ? `자리 비움 · ${awayReason(d.key, nowMs)}` : host.watcher ? '빈자리 — 다음 위임을 기다립니다' : '빈자리'
   return d.seat ? `${d.seat.code} ${d.seat.name}` : ''
+}
+/** 책상의 계정 명찰 — 팀장은 감시자 계정, 팀원은 주문을 잡은 계정. 빈자리는 null. */
+function deskOwner(d: RosterDesk): OwnerLabel | null {
+  if (d.kind === 'lead') return d.watcher ? watcherOwnerLabel(d.watcher) : null
+  return d.seat ? ownerLabel(d.seat) : null
 }
 function signalAt(d: RosterDesk): string | null {
   return d.kind === 'lead' ? d.watcher?.lastSeenAt ?? null : d.seat?.lastSignalAt ?? null
@@ -133,10 +139,15 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   const look = deskLook(desk)
   const sig = signalAt(desk)
   const chatter = useOfficeChatter()
+  const owner = deskOwner(desk)
+  // 테두리 색은 선택이 쓰고(평면도·레인과 같은 분담), 내 책상은 바깥 2px 브랜드 링으로 그린다 — 테두리 폭을 바꾸면
+  // 책상 줄이 어긋난다. 내 책상을 고르면 선택 링을 브랜드 링 바깥(ring-offset)에 둔다. 남의 것은 흐리게 하지 않는다.
+  const mine = owner?.kind === 'mine'
+  const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
     <li>
-      <button type="button" data-roster-desk={desk.slot} aria-pressed={selected} onClick={() => onSelect(desk.key)}
-        className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
+      <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} aria-pressed={selected} onClick={() => onSelect(desk.key)}
+        className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
         <span className="relative flex flex-col items-center pb-2.5 pt-2"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
@@ -151,6 +162,8 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
               <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: tone.color }} />{tone.label}
             </span>
           </span>
+          {/* 계정 명찰 줄 — 빈자리도 높이를 지켜 책상 줄이 맞는다. 모델 명찰(캐릭터 발밑)과는 다른 칸이다. */}
+          <span className="flex h-4 min-w-0 items-center">{owner && <OwnerTag owner={owner} />}</span>
           <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
           {desk.seat && <Progress pct={desk.seat.progress} color={tone.color} />}
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
@@ -287,6 +300,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
   const look = deskLook(desk)
   const title = desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label
   const seat = desk.seat
+  const owner = deskOwner(desk)
   return (
     <aside data-roster-profile className="sticky top-0 flex min-w-0 flex-[0_1_340px] flex-col gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm">
       <div className="flex items-center gap-4">
@@ -298,6 +312,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <p className="font-mono text-[11px] text-ink-subtle">{host.label}</p>
           <h2 className="text-xl font-extrabold text-ink">{title}</h2>
           {desk.raw && <p className="truncate font-mono text-xs text-ink-subtle" title={desk.raw}>{desk.raw}</p>}
+          {owner && <span className="mt-1 flex min-w-0"><OwnerTag owner={owner} /></span>}
           {desk.kind !== 'lead' && desk.kind !== 'empty' && (
             <span className="mt-1.5 flex flex-wrap items-center gap-2">
               <Nameplate desk={desk} size="lg" />

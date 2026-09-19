@@ -227,7 +227,7 @@ describe('HeaderChrome 브레드크럼', () => {
     const hrefs = [...menu.querySelectorAll<HTMLAnchorElement>('a[href^="/p/p1/"]')].map(a => a.getAttribute('href'))
     const desktop = projectMenu('/p/p1', false, false, false).map(i => i.href)
     expect(hrefs).toEqual(desktop)
-    const agents = menu.querySelector<HTMLAnchorElement>('a[href="/p/p1/agents"]')!
+    const agents = menu.querySelector<HTMLAnchorElement>('a[href="/p/p1/agents/office"]')!
     expect(agents.getAttribute('aria-current')).toBe('page')
     expect(agents.querySelector('[data-nav-badge="nav.projectAgents"]')?.textContent).toBe('5')
     expect(menu.querySelector('a[href="/p/p1/announcements"] [data-nav-badge="nav.announcements"]')?.textContent).toBe('2')

@@ -17,6 +17,12 @@ afterEach(() => { act(() => root.unmount()); host.remove() })
 const tab = (k: string) => host.querySelector(`[data-agent-tab="${k}"]`) as HTMLAnchorElement
 
 describe('AgentTabs', () => {
+  it('가상 오피스가 첫 탭, 위임·승인이 둘째 탭이다 — 오피스가 에이전트 메뉴의 기본 화면(2026-09-19)', () => {
+    nav.pathname = '/p/p1/agents/office'
+    act(() => root.render(<AgentTabs projectId="p1" />))
+    const keys = [...host.querySelectorAll('[data-agent-tab]')].map(a => a.getAttribute('data-agent-tab'))
+    expect(keys).toEqual(['office', 'hub'])
+  })
   it('허브 경로에서는 위임·승인이 활성, 오피스 링크는 /agents/office', () => {
     nav.pathname = '/p/p1/agents'
     act(() => root.render(<AgentTabs projectId="p1" />))

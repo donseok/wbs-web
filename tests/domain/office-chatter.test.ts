@@ -11,7 +11,7 @@ const member = (slot: string, seat: Partial<Seat>): RosterDesk => ({
   key: `h/${slot}`, slot, label: `팀원 ${slot.slice(1)}`, kind: 'member', watcher: null, raw: `a/h/${slot}`,
   seat: { orderId: `o-${slot}`, state: 'ACTIVE', phase: 'build', lastReport: null, ...seat } as Seat,
 })
-const host = (...desks: RosterDesk[]): RosterHost => ({ key: 'a/h', label: 'a / h', conforming: true, watcher: null, slots: 2, desks })
+const host = (...desks: RosterDesk[]): RosterHost => ({ key: 'a/h', label: 'a / h', conforming: true, mine: false, watcher: null, slots: 2, desks })
 
 describe('leadChatter', () => {
   it('최근 보고가 있으면 잔소리하지 않는다', () => {

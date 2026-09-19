@@ -57,8 +57,9 @@ export function projectMenu(base: string, showUsage: boolean, showPortfolio: boo
     { href: `${base}/announcements`, labelKey: 'nav.announcements', icon: Megaphone, match: `${base}/announcements` },
     { href: `${base}/members`, labelKey: 'nav.members', icon: Users, match: `${base}/members` },
     { href: `${base}/attendance`, labelKey: 'nav.attendance', icon: CalendarCheck, match: `${base}/attendance` },
-    // 프로젝트 에이전트 허브(2026-09-14) — 위임·승인을 한곳에(좌석 층은 /agents/office 탭). 멤버 전원(프로젝트 목록 자체가 멤버 기준).
-    { href: `${base}/agents`, labelKey: 'nav.projectAgents', icon: Bot, match: `${base}/agents` },
+    // 프로젝트 에이전트(2026-09-14) — 가상 오피스(/agents/office)가 기본 화면이고 위임·승인(/agents)은 둘째 탭이다(2026-09-19).
+    // match 는 /agents 접두라 두 탭 어디서든 이 항목 하나가 켜진다. 멤버 전원(프로젝트 목록 자체가 멤버 기준).
+    { href: `${base}/agents/office`, labelKey: 'nav.projectAgents', icon: Bot, match: `${base}/agents` },
   ]
   // 설정은 프로젝트 관리자 전용(2026-08-20) — 링크만 숨기는 게 아니라 페이지 게이트도 함께 건다.
   if (isAdmin) items.push({ href: `${base}/settings`, labelKey: 'nav.settings', icon: Settings, match: `${base}/settings` })

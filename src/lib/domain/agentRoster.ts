@@ -27,6 +27,8 @@ export interface RosterHost {
   label: string
   /** <신원>/<host> 규칙을 따르는 행인지. false 면 claimed_by 한 줄짜리(작업 PC 를 알 수 없다). */
   conforming: boolean
+  /** 내 계정의 팀장이나 에이전트가 이 행에 있다 — 에이전트 보기는 내 팀을 맨 앞에 둔다(2026-09-19). */
+  mine: boolean
   watcher: Watcher | null
   slots: number | null
   desks: RosterDesk[]
@@ -58,7 +60,7 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
   const hosts = new Map<string, RosterHost>()
   const ensure = (key: string, label: string, conforming: boolean): RosterHost => {
     let h = hosts.get(key)
-    if (!h) { h = { key, label, conforming, watcher: null, slots: null, desks: [] }; hosts.set(key, h) }
+    if (!h) { h = { key, label, conforming, mine: false, watcher: null, slots: null, desks: [] }; hosts.set(key, h) }
     return h
   }
 
@@ -117,9 +119,11 @@ export function assembleRoster(map: Pick<Seatmap, 'floors'>): Roster {
     else tiles.working++ // ACTIVE · REJECTED(재작업 중)
   }
 
-  // 규칙을 따르는 작업 PC 먼저(감시 중인 곳 먼저), 규칙 밖 한 줄짜리는 뒤로.
+  for (const h of hosts.values()) h.mine = h.desks.some(d => d.watcher?.mine === true || d.seat?.agentMine === true)
+
+  // 내 팀 먼저, 그다음 규칙을 따르는 작업 PC(감시 중인 곳 먼저), 규칙 밖 한 줄짜리는 뒤로.
   const list = [...hosts.values()].sort((a, b) =>
-    Number(b.conforming) - Number(a.conforming) || Number(b.watcher !== null) - Number(a.watcher !== null) || a.label.localeCompare(b.label))
+    Number(b.mine) - Number(a.mine) || Number(b.conforming) - Number(a.conforming) || Number(b.watcher !== null) - Number(a.watcher !== null) || a.label.localeCompare(b.label))
   return { hosts: list, tiles, agentCount: seats.length }
 }
 
