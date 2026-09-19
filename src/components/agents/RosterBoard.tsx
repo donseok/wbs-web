@@ -14,7 +14,7 @@ import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
 import { awayBubble, awayReason, leadChatter } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
-import { OwnerTag, ownerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
+import { OwnerTag, ownerLabel, teamOwnerLabel, watcherOwnerLabel, type OwnerLabel } from './OwnerTag'
 
 type Tone = { label: string; color: string }
 const TONE: Record<string, Tone> = {
@@ -118,10 +118,18 @@ function HostCard({ host, nowMs, selectedKey, onSelect }: {
     : w
       ? `감시 중 · 신호 ${ageLabel(w.lastSeenAt, nowMs)}${w.untilLabel ? ` · ${w.untilLabel} 까지` : ''}`
       : '감시자 없음 — 이 PC 는 새 작업을 집지 않습니다'
+  // 팀(작업 PC 행) 명찰 — 팀장 계정이 먼저고, 팀장이 없는 행은 앉아 있는 에이전트의 계정을 쓴다.
+  const teamOwner = teamOwnerLabel(host.mine, w?.ownerName ?? host.desks.find(d => d.seat?.agentOwnerName)?.seat?.agentOwnerName ?? null)
+  // 내 팀은 행 전체를 브랜드 바탕과 링으로 들어 올린다(2026-09-20 사용자 요청: 책상만이 아니라 팀에도 표시).
+  // 남의 팀은 종전 표면색 그대로다 — 흐리게 하지 않는다.
+  const skin = host.mine
+    ? 'border-brand bg-brand-weak shadow-[0_0_0_2px_var(--color-brand)]'
+    : 'border-line bg-surface shadow-sm'
   return (
-    <section data-roster-host={host.key} className="rounded-3xl border border-line bg-surface p-4 shadow-sm">
+    <section data-roster-host={host.key} data-owner={teamOwner.kind} className={`rounded-3xl border p-4 ${skin}`}>
       <header className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="font-mono text-base font-bold text-ink">{host.label}</h2>
+        <h2 className={`font-mono text-base font-bold ${host.mine ? 'text-brand' : 'text-ink'}`}>{host.label}</h2>
+        <OwnerTag owner={teamOwner} />
         <span className="text-xs text-ink-subtle">{sub}</span>
         {host.slots !== null && <span className="ml-auto text-xs font-semibold tabular-nums text-ink-muted">자리 {busy}/{host.slots}</span>}
       </header>
@@ -155,7 +163,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
           <span className={desk.kind === 'empty' ? 'opacity-60' : ''}><Sprite character={look.character} anim={look.anim} /></span>
           <span className="flex h-[26px] items-end justify-center"><Nameplate desk={desk} /></span>
         </span>
-        <span className="flex flex-col gap-1 px-3 pb-3 pt-2">
+        <span className={`flex flex-col gap-1 px-3 pb-3 pt-2 ${mine ? 'bg-brand-weak' : ''}`}>
           <span className="flex items-center gap-2">
             <b className="text-sm text-ink">{desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label}</b>
             <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: tone.color === '#b7bfba' ? 'var(--color-ink-subtle)' : tone.color }}>

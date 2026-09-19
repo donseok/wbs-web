@@ -118,6 +118,22 @@ describe('에이전트 보기(RosterBoard)', () => {
     expect(lead.className).not.toContain('border-brand')
     for (const d of other) expect(d.className).not.toContain('var(--color-brand)')
   })
+  it('팀(작업 PC 행)에도 표시가 간다 — 내 팀은 브랜드 바탕·링과 「내 팀」 명찰, 남의 팀은 이름 명찰(2026-09-20)', () => {
+    render(map(
+      [seat({ orderId: 'a', agent: 'hong/alpha/w1', agentOwnerName: '홍길동' }), seat({ orderId: 'b', agent: 'me/zeta/w1', agentMine: true })],
+      [watcher('hong/alpha/lead', { ownerName: '홍길동', mine: false, slots: 2 }), watcher('me/zeta/lead', { mine: true })],
+    ))
+    const mineHost = host.querySelector('[data-roster-host="me/zeta"]') as HTMLElement
+    expect(mineHost.dataset.owner).toBe('mine')
+    expect(mineHost.className).toContain('bg-brand-weak')
+    expect(mineHost.className).toContain('shadow-[0_0_0_2px_var(--color-brand)]')
+    expect(mineHost.querySelector('header [data-owner-tag]')?.textContent).toBe('내 팀')
+    const otherHost = host.querySelector('[data-roster-host="hong/alpha"]') as HTMLElement
+    expect(otherHost.dataset.owner).toBe('other')
+    expect(otherHost.className).toContain('bg-surface')
+    expect(otherHost.className).not.toContain('var(--color-brand)')
+    expect(otherHost.querySelector('header [data-owner-tag]')?.textContent).toBe('홍길동의 팀')
+  })
   it('흐리게 하지 않는다 — 남의 책상에 opacity 클래스가 붙지 않는다', () => {
     render(map([seat({ agentOwnerName: '홍길동' })]))
     const desk = host.querySelector('[data-roster-desk]') as HTMLElement

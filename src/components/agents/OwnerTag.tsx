@@ -24,6 +24,14 @@ export function watcherOwnerLabel(w: Watcher): OwnerLabel | null {
   return label(w.mine, w.ownerName)
 }
 
+/** 작업 PC 행(팀)의 명찰 — 책상 명찰과 같은 말투로 「내 팀」·「<이름>의 팀」.
+ *  재료는 그 행의 팀장(감시자)이고, 감시자가 없으면 그 행에 앉은 에이전트의 계정을 쓴다. */
+export function teamOwnerLabel(mine: boolean, name: string | null | undefined): OwnerLabel {
+  if (mine) return { kind: 'mine', text: '내 팀' }
+  const n = name?.trim()
+  return { kind: 'other', text: n ? `${n}의 팀` : '다른 계정' }
+}
+
 /** 작은 명찰 — 내 것은 브랜드 바탕, 남의 것은 표면색 바탕에 이름(대비는 라이트·다크 토큰이 맞춘다). */
 export function OwnerTag({ owner, className = '' }: { owner: OwnerLabel; className?: string }) {
   const tone = owner.kind === 'mine'
