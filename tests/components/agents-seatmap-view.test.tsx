@@ -202,7 +202,7 @@ describe('SeatmapView — 좌석에서 바로 결재', () => {
     floors: [{
       id: 'p1', name: 'mes-base', seatCount: 1, doneCount: 0, watchers: [],
       zones: [{ key: 'z1', code: 'WP-04', name: '주문 관리', summary: { work: 1, wait: 0, ready: 0, done: 0 }, seats: [
-        { orderId: 'o7', id8: 'o7', projectId: 'p1', itemId: 'i7', code: 'TSK-04-07', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false, resumeRequestedAt: null, resumeRequestedHost: null },
+        { orderId: 'o7', id8: 'o7', projectId: 'p1', itemId: 'i7', code: 'TSK-04-07', name: '도는 중', state: 'ACTIVE', phase: 'build', anim: 'typing', character: 'cat', agent: 'hong/mbp/w1', progress: 40, lastSignalAt: new Date(NOW - 5000).toISOString(), heartbeatAt: null, heartbeatPhase: 'build', note: null, rejected: false, reviewNote: null, waitReason: null, canManage: true, assigneeMine: false, resumeRequestedAt: null, resumeRequestedHost: null, agentMine: false, agentOwnerName: null },
       ] }],
     }],
     attention: [],
