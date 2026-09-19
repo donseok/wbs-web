@@ -110,6 +110,13 @@ describe('에이전트 보기(RosterBoard)', () => {
     expect(other[0].querySelector('[data-owner-tag]')?.textContent).toBe('홍길동의 에이전트')
     expect(other[1].querySelector('[data-owner-tag]')?.textContent).toBe('홍길동의 에이전트')
     expect(other[2].querySelector('[data-owner-tag]')).toBeNull()
+    // 테두리 색은 선택 몫, 내 것은 바깥 브랜드 링 — 고른 내 책상은 선택 링을 브랜드 링 바깥에 둔다.
+    const [lead, member] = mineDesks
+    expect(member.getAttribute('aria-pressed')).toBe('true')
+    expect(member.className).toContain('ring-offset-brand')
+    expect(lead.className).toContain('shadow-[0_0_0_2px_var(--color-brand)]')
+    expect(lead.className).not.toContain('border-brand')
+    for (const d of other) expect(d.className).not.toContain('var(--color-brand)')
   })
   it('흐리게 하지 않는다 — 남의 책상에 opacity 클래스가 붙지 않는다', () => {
     render(map([seat({ agentOwnerName: '홍길동' })]))

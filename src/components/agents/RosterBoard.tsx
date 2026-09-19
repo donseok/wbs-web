@@ -140,14 +140,14 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   const sig = signalAt(desk)
   const chatter = useOfficeChatter()
   const owner = deskOwner(desk)
-  // 내 책상은 브랜드 테두리(바깥 1px 그림자로 두 겹 — 테두리 폭을 바꾸면 책상 줄이 어긋난다). 남의 것은 흐리게 하지 않는다.
-  const edge = owner?.kind === 'mine'
-    ? 'border-brand shadow-[0_0_0_1px_var(--color-brand)]'
-    : selected ? 'border-brand' : 'border-line hover:border-line-strong'
+  // 테두리 색은 선택이 쓰고(평면도·레인과 같은 분담), 내 책상은 바깥 2px 브랜드 링으로 그린다 — 테두리 폭을 바꾸면
+  // 책상 줄이 어긋난다. 내 책상을 고르면 선택 링을 브랜드 링 바깥(ring-offset)에 둔다. 남의 것은 흐리게 하지 않는다.
+  const mine = owner?.kind === 'mine'
+  const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
     <li>
       <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} aria-pressed={selected} onClick={() => onSelect(desk.key)}
-        className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${selected ? 'ring-2 ring-brand-ring' : ''} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
+        className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
         <span className="relative flex flex-col items-center pb-2.5 pt-2"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
