@@ -309,6 +309,28 @@ describe('SeatmapView — 잡담 켬/끔(2026-09-18)', () => {
     act(() => toggle().click())
     expect(chatSeen()).toBe(false)
   })
+  it('에이전트 보기의 빈 팀원 자리는 켬이면 부재 사유를, 끄면 빈자리만 보인다(2026-09-19)', () => {
+    const w = working()
+    w.floors[0].watchers = [{ agent: 'hong/mbp/lead', host: 'mbp', slots: 3, busy: 1, untilLabel: null, lastSeenAt: new Date(NOW - 5000).toISOString(), projectId: null }]
+    act(() => root.render(<SeatmapView initial={w} />))
+    act(() => (host.querySelector('button[data-view="agent"]') as HTMLButtonElement).click())
+    const empties = () => [...host.querySelectorAll('[data-roster-desk="w2"], [data-roster-desk="w3"]')]
+    expect(empties()).toHaveLength(2)
+    for (const d of empties()) expect(d.textContent).toContain('자리 비움 · ')
+    // 세 칸에 한 칸 말풍선 — 여섯 칸 안에 빈자리 말풍선이 한 번은 뜬다
+    let seen = false
+    for (let k = 0; k < 6; k++) {
+      act(() => { vi.advanceTimersByTime(8_000) })
+      if (empties().some(d => d.querySelector('[data-chat-bubble="empty"]'))) seen = true
+    }
+    expect(seen).toBe(true)
+    act(() => toggle().click())
+    for (const d of empties()) {
+      expect(d.textContent).not.toContain('자리 비움')
+      expect(d.textContent).toContain('빈자리')
+      expect(d.querySelector('[data-chat-bubble]')).toBeNull()
+    }
+  })
   it('선택을 이 브라우저에 기억한다', () => {
     act(() => root.render(<SeatmapView initial={working()} />))
     act(() => toggle().click())

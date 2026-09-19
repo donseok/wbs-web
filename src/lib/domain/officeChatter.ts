@@ -170,3 +170,36 @@ export function memberChatter(d: Pick<RosterDesk, 'seat'>, nowMs: number): strin
   const groups = phase && hash(`${key}|p|${slot}`) % 3 === 0 ? [phase] : MEMBER_GROUPS
   return pick(groups, `${key}|w`, nowMs, MEMBER_TALK_EVERY)
 }
+
+/** 빈자리 부재 사유(2026-09-19 사용자 요청) — 아무도 앉지 않은 팀원 자리가 왜 비었는지 익살로 보인다. 잡담이다. */
+const AWAY = LINES['빈자리 부재 사유']
+const AWAY_GROUPS = groupsOf(AWAY['상시'])
+export const AWAY_LINES: readonly string[] = AWAY_GROUPS.flat()
+export const AWAY_LUNCH_LINES: readonly string[] = AWAY['점심시간 (12~13시)']
+export const AWAY_OFF_HOURS_LINES: readonly string[] = AWAY['퇴근 뒤 (18시~7시)']
+/** 한 자리가 같은 사유를 유지하는 시간 — 8초마다 담배에서 은행으로 오가면 어색하다. */
+export const AWAY_HOLD_MS = 5 * 60_000
+
+/**
+ * 빈자리의 지금 부재 사유. 자리 키(empty:<host>:<slot>)로 고르므로 자리마다 다르고, 5분 동안 같다.
+ * 점심시간(한국 시간 12시대)과 퇴근 뒤(18시~7시)에는 절반의 확률로 그 시간대 묶음을 쓴다.
+ * 주제 묶음은 직전 5분과 겹치지 않게 한다(pick 과 같은 규칙).
+ */
+export function awayReason(deskKey: string, nowMs: number): string {
+  const slot = Math.floor(nowMs / AWAY_HOLD_MS)
+  const hour = new Date(nowMs + 9 * 3600_000).getUTCHours()
+  const timed = hour === 12 ? AWAY_LUNCH_LINES : hour >= 18 || hour < 7 ? AWAY_OFF_HOURS_LINES : null
+  if (timed && hash(`${deskKey}|t|${slot}`) % 2 === 0) return timed[hash(`${deskKey}|tl|${slot}`) % timed.length]
+  const n = AWAY_GROUPS.length
+  const groupAt = (s: number) => hash(`${deskKey}|g|${s}`) % n
+  let g = groupAt(slot)
+  if (n > 1 && g === groupAt(slot - 1)) g = (g + 1) % n
+  const lines = AWAY_GROUPS[g]
+  return lines[hash(`${deskKey}|l|${slot}`) % lines.length]
+}
+
+/** 빈자리 말풍선 — 팀원 한마디처럼 세 칸에 한 칸만 띄운다. 자리마다 박자가 어긋나 한꺼번에 뜨지 않는다. */
+export function awayBubble(deskKey: string, nowMs: number): string | null {
+  if ((slotOf(nowMs) + fnv1a32(deskKey)) % MEMBER_TALK_EVERY !== 0) return null
+  return awayReason(deskKey, nowMs)
+}

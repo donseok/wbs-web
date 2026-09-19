@@ -19,6 +19,8 @@ const orig = parseFixture(readFileSync(join(ROOT, 'tests/skills/fixtures/dflow-m
 
 /** 스펙 §6-1 수정 목록으로 의도적으로 바꾸는 원문 줄. 이 밖의 원문 줄은 같은 순서로 남아야 한다. */
 const CHANGED = [
+  // 0. description: 팀장 전용 --on-report(승인 전 머지) 예외를 적는다(2026-09-19 DFLOW_AUTOMERGE)
+  "description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브랜치(main)에 반영. 스택 브랜치는 조상 순서대로, approved 확인 전 머지 금지. 트리거 - \"/dflow-merge\", \"승인된 작업 머지\", \"approved 반영\". 사용법 - /dflow-merge [<ref>...]",
   // 1. 인자 설명: 원격 후보를 포함한다
   '인자: `$ARGUMENTS` (선택 — ref 목록. 없으면 로컬 reported 전체가 후보)',
   // 2. 후보 식별(1번): 원격 후보·api_base 필터·전체 UUID 조회·show jq 축약
@@ -123,5 +125,34 @@ describe('/dflow-merge 수정(스펙 §6-4)', () => {
     expect(skill).toContain('(not found)')
     expect(skill).toContain('(checked out)')
     expect(skill).toContain('건너뛰고 보고한다')
+  })
+})
+
+describe('/dflow-merge --on-report 와 /dflow-team 자동 머지(2026-09-19)', () => {
+  const team = readFileSync(join(ROOT, '.claude/skills/dflow-team/SKILL.md'), 'utf8')
+  const dev = readFileSync(join(ROOT, '.claude/skills/dflow-dev/SKILL.md'), 'utf8')
+
+  it('승인 전 머지분은 phase 를 merged 로 두고 unapproved 로 구분한다 — 새 phase 값은 행 G·반려 감지를 깨뜨린다', () => {
+    expect(skill).toContain('승인 전 머지면 같은 커밋에서 `unapproved: true` 를 함께 넣는다')
+    expect(skill).not.toContain('merged_unapproved')
+    // 행 G 의 반영 확인은 여전히 phase=merged 를 본다
+    expect(dev).toContain('phase 가 merged 여야 하고')
+  })
+
+  it('로컬 스캔이 승인 전 머지분을 다시 읽고, 재머지 없이 승인·반려만 판정한다', () => {
+    expect(skill).toContain('select(.phase == "reported" or (.phase == "merged" and .unapproved == true))')
+    expect(skill).toContain('절대 다시 머지하지 않는다')
+    expect(skill).toContain('"반려(머지됨): 되돌리기 또는 재작업 필요 (<review_note>)"')
+  })
+
+  it('플래그 없는 기본 동작은 approved 만 머지한다(원문 금지 줄 유지)', () => {
+    expect(skill).toContain('**approved 확인 전 머지 절대 금지** — 로컬 state 나 기억이 아니라 show 응답이 판정이다.')
+    expect(skill).toContain('예외는 `--on-report` 의 반려되지 않은 `reported` 하나뿐이다')
+  })
+
+  it('팀장은 DFLOW_AUTOMERGE=1 일 때만 --on-report 로 스윕하고, done 결과에서 곧바로 스윕한다', () => {
+    expect(team).toContain('[ "${DFLOW_AUTOMERGE:-}" = 1 ] && echo AUTOMERGE_ON || echo AUTOMERGE_OFF')
+    expect(team).toContain('자동 머지(`AUTOMERGE_ON`, 「인자」)면 `--on-report` 하나만 붙여')
+    expect(team).toContain('자동 머지(`AUTOMERGE_ON`)면 **먼저 승인 스윕을 곧바로 한다**')
   })
 })

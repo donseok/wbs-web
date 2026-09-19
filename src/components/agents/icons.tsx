@@ -21,6 +21,12 @@ export const IconBlocked = () => (
 )
 /** 승인 대기 — 시계. */
 export const IconWait = () => <Line><circle cx="12" cy="12" r="8.5" /><path d="M12 7.2V12l3 1.8" /></Line>
+/** 머지 완료 — 체크 동그라미. */
+export const IconDone = () => <Line><circle cx="12" cy="12" r="8.5" /><path d="M8.3 12.3l2.5 2.5 4.9-5.2" /></Line>
+/** 선행 대기 — 모래시계. 승인 대기(시계)와 헷갈리지 않게 다른 그림을 쓴다. */
+export const IconDependency = () => (
+  <Line><path d="M7 4h10M7 20h10" /><path d="M8 4v2.6a4 4 0 0 0 1.6 3.2L12 12l2.4-2.2A4 4 0 0 0 16 6.6V4" /><path d="M8 20v-2.6a4 4 0 0 1 1.6-3.2L12 12l2.4 2.2a4 4 0 0 1 1.6 3.2V20" /></Line>
+)
 /** 반려·재작업 — 되돌리는 화살표. */
 export const IconRejected = () => <Line><path d="M3.6 12a8.4 8.4 0 1 0 2.5-6" /><path d="M3.4 3.6v4.6h4.6" /></Line>
 /** 접힌 구역 — 의자. */

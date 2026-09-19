@@ -1,6 +1,6 @@
 // tests/domain/office-chatter.test.ts — 에이전트 보기 말풍선 대사(2026-09-18)
 import { describe, it, expect } from 'vitest'
-import { EMPTY_LINES, MEMBER_LINES, MEMBER_PHASE_LINES, memberChatter, MUSING_LINES, SEASON_LINES, seasonOf, leadChatter, memberReportBubble, NAG_LINES, PRAISE_LINES, QUIET_MS, REPORT_FRESH_MS, SOLO_EMPTY_LINES, SOLO_NAG_LINES, WAIT_LINES } from '@/lib/domain/officeChatter'
+import { AWAY_HOLD_MS, AWAY_LINES, AWAY_LUNCH_LINES, AWAY_OFF_HOURS_LINES, awayBubble, awayReason, EMPTY_LINES, MEMBER_LINES, MEMBER_PHASE_LINES, memberChatter, MUSING_LINES, SEASON_LINES, seasonOf, leadChatter, memberReportBubble, NAG_LINES, PRAISE_LINES, QUIET_MS, REPORT_FRESH_MS, SOLO_EMPTY_LINES, SOLO_NAG_LINES, WAIT_LINES } from '@/lib/domain/officeChatter'
 import type { RosterDesk, RosterHost } from '@/lib/domain/agentRoster'
 import type { Seat } from '@/lib/domain/seatmap'
 import LINES from '@/lib/domain/officeChatter.lines.json'
@@ -169,5 +169,44 @@ describe('memberChatter — 작업 중인 팀원의 한마디(2026-09-18)', () =
   it('팀원마다 말하는 박자가 달라 한꺼번에 떠들지 않는다', () => {
     const talking = ['w1', 'w2', 'w3', 'w4', 'w5', 'w6'].map(s => texts(member(s, {}), 3).map(Boolean))
     expect(new Set(talking.map(t => t.indexOf(true))).size).toBeGreaterThan(1)
+  })
+})
+
+describe('빈자리 부재 사유(2026-09-19)', () => {
+  const DAY = Date.parse('2026-09-18T01:00:00Z') // 한국 시간 10시 — 시간대 묶음이 섞이지 않는다
+  it('같은 자리는 5분 동안 같은 사유를 유지하고, 상시 묶음에서 고른다', () => {
+    const start = Math.floor(DAY / AWAY_HOLD_MS) * AWAY_HOLD_MS
+    const r = awayReason('empty:a/h:w2', start)
+    expect(AWAY_LINES).toContain(r)
+    for (let t = start; t < start + AWAY_HOLD_MS; t += 30_000) expect(awayReason('empty:a/h:w2', t)).toBe(r)
+  })
+  it('자리마다 사유가 흩어지고, 하루 동안 여러 주제가 나온다', () => {
+    const keys = Array.from({ length: 12 }, (_, i) => `empty:a/h:w${i}`)
+    expect(new Set(keys.map(k => awayReason(k, DAY))).size).toBeGreaterThan(4)
+    const seen = new Set<string>()
+    for (let k = 0; k < 60; k++) seen.add(awayReason('empty:a/h:w2', DAY + k * AWAY_HOLD_MS))
+    expect(seen.size).toBeGreaterThan(10)
+  })
+  it('점심시간과 퇴근 뒤에는 그 시간대 사유가 섞인다', () => {
+    const lunch = Date.parse('2026-09-18T03:10:00Z') // 한국 시간 12:10
+    const night = Date.parse('2026-09-18T12:00:00Z') // 한국 시간 21:00
+    const at = (base: number) => Array.from({ length: 30 }, (_, i) => awayReason(`empty:a/h:w${i}`, base))
+    expect(at(lunch).some(r => AWAY_LUNCH_LINES.includes(r))).toBe(true)
+    expect(at(night).some(r => AWAY_OFF_HOURS_LINES.includes(r))).toBe(true)
+    expect(at(DAY).some(r => AWAY_LUNCH_LINES.includes(r) || AWAY_OFF_HOURS_LINES.includes(r))).toBe(false)
+  })
+  it('말풍선은 세 칸에 한 칸이고, 뜨면 그때의 사유다', () => {
+    const shown = Array.from({ length: 30 }, (_, k) => awayBubble('empty:a/h:w2', DAY + k * 8_000))
+    expect(shown.filter(Boolean).length).toBe(10)
+    for (let k = 0; k < 30; k++) {
+      const b = shown[k]
+      if (b) expect(b).toBe(awayReason('empty:a/h:w2', DAY + k * 8_000))
+    }
+  })
+  it('대사 JSON 에 설명과 묶음이 있다', () => {
+    const away = (LINES as Record<string, Record<string, unknown>>)['빈자리 부재 사유']
+    expect(typeof away['$설명']).toBe('string')
+    expect(AWAY_LINES).toContain('담타 중')
+    expect(AWAY_LINES).toContain('커피 마시러 감')
   })
 })

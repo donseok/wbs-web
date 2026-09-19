@@ -152,7 +152,8 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
           완료 처리된 것(서버 가드는 `xx` 만 막고 `im` 은 안 막는다). 진행하되 **반드시 한 줄
           남긴다** — 서버가 못 막는 우회를 스킬이 최소한 드러낸다.
           <!-- worker:begin -->
-          `--worker` 면 갈래 1·2 는 스택하지 않고 `skipped` 로 끝낸다(「--worker」 G).
+          `--worker` 면 갈래 1·2 는 스택하지 않는다. 갈래 1 은 `skipped` 로 끝내고, 갈래 2 는 기본 브랜치 반영이
+          확인될 때만 진행하며 아니면 `skipped` 로 끝낸다(「--worker」 G).
           <!-- worker:end -->
        3. `order_approved:true` 인데 `head_sha` 없음 → 승인은 됐으나 evidence 가 비었거나 주문
           재발행으로 옛 완료 보고가 가려진 경우. 한 줄 남기고 진행한다.
@@ -277,7 +278,7 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 | A | Phase 01-가 승인 스윕 | claim 앞에서 매번 스윕한다 | **건너뛴다.** 스윕은 팀장 몫이며, 이유를 한 줄 남긴다 |
 | B | Phase 01 2번, 선행이 approved 인데 main 미반영이면 직접 머지 | 직접 머지한다 | **머지하지 않는다.** 기점을 그 `head_sha` 로 잡고, Phase 01 2번 공통 규칙대로 claim 전에 그 기점으로 detach 한 뒤 claim 하고 스택 브랜치를 만든다. state.json 에 `branch_base` 와 `risk: "선행 main 미반영(팀장 머지 대기)"` 를 기록한다 |
 | C | Phase 01 1번 재개 판정의 approved 갈래 | 즉시 머지하고 종료한다 | **머지하지 않고** `.result` 를 `{TSK} {ID8} <branch> <head_sha> - needs-merge approved` 로 쓰고 종료한다 |
-| D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 기본값이 있으면 택해 한 줄 남기고 진행하고, 없으면 `blocked`(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
+| D | 사람 판단이 필요한 분기(AskUserQuestion, `--only` 확인) | 지금처럼 묻는다 | **AskUserQuestion 을 쓰지 않는다.** 합리적으로 고른 뒤 나중에 알린다. 기본값이 있으면 택해 한 줄 남기고 진행한다. 없어도 근거가 더 강한 쪽을 골라 진행하고, design.md `## 담당자 확인 필요 결정` 절에 질문·선택지·택한 것·근거·반려 시 재작업 방향을 남긴다. Phase 06 `done` 요약 끝에 `확인 필요 결정 N건: …` 을 싣는다. `blocked` 는 되돌리기 어려운 결정(데이터 삭제·외부 공개·다른 Task 산출물의 대폭 수정·보안·권한 변경)에만 쓴다(worker-prompt.md 판단 규칙). 팀장은 `--only` 를 넘기지 않으므로 `--only` 확인은 워커 경로에 없다 |
 | E | Phase 02~05 공통 프롬프트 | 지금 문구 그대로 | 공통 프롬프트에 "git 은 `command -v git` 이 돌려주는 절대경로를 글자 그대로 적어 호출한다. bare `git`, `$(command -v git)`·변수로 넣는 치환, git 을 감싼 명령 치환, 워크트리 밖을 가리키는 `-C` 는 쓰지 않는다" 한 줄을 덧붙인다. 오케스트레이터 자신도 같은 규칙을 따른다. 손자 서브에이전트까지 rtk 격리 가드 차단을 피하게 하기 위해서다 |
 | F | Phase 01 2번 claim exit 4 재시도 | `git fetch origin` 뒤 기점을 다시 정해 1회 재시도하고, 그래도 4 면 중단·보고한다(merge 없음) | 같다. 그래도 4 면 `.result` 에 `skipped` 를 쓴다 |
 | G | Phase 01 2번 `head_sha` 없는 선행의 갈래 1·2 | 갈래 1(미승인·stage 미달)은 로컬 선행 산출물이 있으면 스택하고, 갈래 2(`stage >= im`·`order_approved:false`, 완료 보고 뒤 승인 대기)는 한 줄 남기고 진행한다 | **스택하지 않는다.** 갈래 1(`reached` 가 거짓)은 `skipped 선행 미승인` 으로 끝내고 팀장이 일시 제외한다. 갈래 2(`reached` 가 참인데 `head_sha` 가 없음)는 아래 **기본 브랜치 반영 확인**을 거쳐, 반영이 확인되면 `origin/<기본브랜치>` 기점으로 **스택 없이 진행**하고 그 사실을 한 줄 남긴다. 확인되지 않으면 `skipped 선행 승인 대기` 로 끝낸다. 이유: 종전에는 갈래 2 도 `skipped` 였으나, 그 근거였던 「`head_sha` 가 없으면 선행 코드도 없다」 가 참이 아니다. 승인 전에 기본 브랜치로 머지하는 운영에서는 선행 산출물이 `origin/<기본브랜치>` 에 이미 있고, 그때 워커만 멈추면 그 선행에 걸린 후속 전부가 승인 버튼 하나를 기다리며 영영 착수하지 못한다(2026-09-17 mdm-dict 실측: 기능 12건이 한 선행에 함께 막혔다). 수동 경로는 같은 갈래에서 이미 「한 줄 남기고 진행」 이므로, 이 변경은 새 정책이 아니라 워커에만 있던 이탈을 없애는 것이다. 워커의 스택은 `head_sha` 가 있는 선행(행 B)에만 한다 |
@@ -295,6 +296,8 @@ git show origin/<기본브랜치>:docs/tasks/<선행TSK>/state.json   # phase �
 git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 한 줄이라도 나와야 한다
 ```
 
+팀장의 자동 머지(`DFLOW_AUTOMERGE=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가
+붙을 뿐이므로 같은 확인을 통과한다. `unapproved` 는 이 판정에서 보지 않는다.
 두 조건이 **모두** 참일 때만 반영된 것으로 본다. 첫 명령이 실패하거나(그 경로에 파일이 없다) `phase` 가
 `merged` 가 아니거나 둘째 명령의 출력이 비면 반영되지 않은 것이며, 그때는 `skipped 선행 승인 대기` 로 끝낸다.
 둘을 함께 요구하는 이유: state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 수 있고, 커밋 트레일러는
@@ -328,7 +331,7 @@ git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h  
   하는 Phase 01 3번과 Phase 06(`reported` 커밋 포함)는 워커에서도 그대로 돈다.
 - 새로 만드는 "사람에게 묻기" 지점은 없다. dflow-dev 의 판단 실패는 이미 전부 "중단·보고"(push 훅
   거부, Verify 재시도 소진, 빨간 기준선)라서 워커에서는 `.result` 의 `failed <사유>` 로 떨어진다. 설계
-  재량 분기만 판단 규칙(`blocked`)이 받는다.
+  재량 분기는 판단 규칙이 받으며, 대부분은 골라서 진행하고 기록한다. `blocked` 는 되돌리기 어려운 결정뿐이다.
 - 인자 파싱과 위 여덟 행만 워커용으로 갈린다(행 F 는 수동과 같고 결과 표기만 다르다). 게이트·Phase
   정의·커밋 규칙·모델 배정(dev-discipline.md)은 워커에서도 같다.
 <!-- worker:end -->

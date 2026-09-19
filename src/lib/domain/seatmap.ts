@@ -252,6 +252,8 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         assignee: item.assignee_member_id ? { name: m?.name ?? '(로스터에 없음)', user_id: m?.user_id ?? null } : null,
         watchers: watchersOf(o.project_id),
       })
+      // 선행 대기는 빈자리가 아니다 — 올 사람이 정해져 있고 앞 작업만 기다린다. 실루엣으로 그린다(안 A).
+      if (seat.waitReason?.kind === 'dependency') seat.anim = 'waiting'
     }
     // DONE(최근 7일 승인분)도 구역에 남긴다 — 승인 취소·재작업 요청을 좌석에서 하려면 좌석이 있어야 한다(오피스 v7).
     // 평면도는 이 좌석을 그리지 않고 상태 레인의 "빈자리·완료" 레인만 그린다.
@@ -272,8 +274,10 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
     else zone.summary.ready++ // READY · OFFLINE(빈 의자)
   }
 
+  // 내 작업이면 다른 계정의 팀장(감시자)도 뺀다 — 좌석은 내 것만 남는데 감시자만 남의 것이 보이면
+  // 「내 팀장이 떠 있다」로 오독한다. 착수 대기 사유(watchersOf)는 「누가 이 층을 감시하나」라 거르지 않는다.
   const aliveWatchers: Watcher[] = rows.watchers
-    .filter(w => isWatcherAlive(w.last_seen_at, nowMs))
+    .filter(w => isWatcherAlive(w.last_seen_at, nowMs) && (!mine || w.user_id === mine.userId))
     .map(w => ({ agent: w.agent, host: w.host, slots: w.slots, busy: w.busy, untilLabel: w.until_label, lastSeenAt: w.last_seen_at, projectId: w.project_id }))
     .sort((a, b) => a.agent.localeCompare(b.agent))
 

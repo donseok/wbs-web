@@ -181,6 +181,18 @@ describe('assembleSeatmap — 내 작업(scope=mine)', () => {
     expect(m.floors[0].seatCount).toBe(3)
     expect(m.floors[0].doneCount).toBe(1)
   })
+  it('다른 계정의 팀장(감시자)은 층 watchers 와 standby 에서 빠진다', () => {
+    const watchers = [
+      { id: 'w1', user_id: 'u1', project_id: null, agent: 'me/mbp/lead', host: 'mbp', slots: 3, busy: 1, until_label: null, last_seen_at: ago(60_000) },
+      { id: 'w2', user_id: 'u9', project_id: null, agent: 'other/air/lead', host: 'air', slots: 3, busy: 1, until_label: null, last_seen_at: ago(60_000) },
+    ]
+    const m = assembleSeatmap(rows({ items, orders, watchers }), NOW, { mine: { userId: 'u1', memberIds: new Set(['m1']) } })
+    expect(m.floors[0].watchers.map(w => w.agent)).toEqual(['me/mbp/lead'])
+    expect(m.counters.standby).toBe(1)
+    const all = assembleSeatmap(rows({ items, orders, watchers }), NOW)
+    expect(all.floors[0].watchers.map(w => w.agent)).toEqual(['me/mbp/lead', 'other/air/lead'])
+    expect(all.counters.standby).toBe(2)
+  })
   it('내 것이 하나도 없으면 층이 없다', () => {
     const m = assembleSeatmap(rows({ items, orders }), NOW, { mine: { userId: 'nobody', memberIds: new Set() } })
     expect(m.floors).toEqual([])
@@ -202,6 +214,15 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
   it('READY + 감시자(project_id null) 있음 → pickup', () => {
     const m = assembleSeatmap(rows({ orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'] }], watchers: [w()] }), NOW)
     expect(seatOf(m).waitReason?.kind).toBe('pickup')
+  })
+  it('선행 대기(dependency)만 실루엣(waiting)으로 그리고, 다른 사유의 READY 는 빈 의자(empty)로 둔다', () => {
+    const base = { orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
+    const dep = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'ip', order_approved: false }] }), NOW)
+    expect(seatOf(dep).waitReason?.kind).toBe('dependency')
+    expect(seatOf(dep).anim).toBe('waiting')
+    const pick = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'X', name: 'x', stage: 'xx', order_approved: true }] }), NOW)
+    expect(seatOf(pick).waitReason?.kind).toBe('pickup')
+    expect(seatOf(pick).anim).toBe('empty')
   })
   it('선행은 같은 프로젝트의 external_ref 로만 맞춘다 — 다른 프로젝트의 같은 ref 는 무시(미충족 = dependency)', () => {
     const base = { orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }

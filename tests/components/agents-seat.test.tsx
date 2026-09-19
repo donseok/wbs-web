@@ -54,6 +54,20 @@ describe('Sprite', () => {
     act(() => root.render(<Sprite character="cat" anim="typing" />))
     expect((host.querySelector('[data-sprite]') as HTMLElement).dataset.glyph).toBeUndefined()
   })
+  it('done 은 작업한 캐릭터의 기지개 시트 가운데 장에 멈추고, waiting 은 두리번 시트 실루엣이다(안 A)', () => {
+    act(() => root.render(<Sprite character="cat" anim="done" />))
+    const d = host.querySelector('[data-sprite]') as HTMLElement
+    expect(d.style.backgroundImage).toContain('/sprites/cat/idle_stretch.png')
+    expect(d.dataset.still).toBe('1')
+    expect(d.dataset.anim).toBe('done')
+    expect(d.style.getPropertyValue('--pose-frame')).toBe('2') // 5장 중 가운데
+    act(() => root.render(<Sprite character="dog" anim="waiting" />))
+    const w = host.querySelector('[data-sprite]') as HTMLElement
+    expect(w.style.backgroundImage).toContain('/sprites/dog/idle_look.png')
+    expect(w.dataset.ghost).toBe('1')
+    expect(w.dataset.still).toBeUndefined()
+    expect(w.dataset.frames).toBe('6')
+  })
   it('reduceMotion 이면 정지 표식', () => {
     act(() => root.render(<Sprite character="cat" anim="typing" reduceMotion />))
     expect((host.querySelector('[data-sprite]') as HTMLElement).dataset.still).toBe('1')
@@ -98,6 +112,14 @@ describe('SeatCard', () => {
     expect(host.querySelectorAll('[data-seat-op]')).toHaveLength(0)
   })
 
+  it('완료는 체크 표지, 선행 대기는 모래시계 표지 — 다른 사유의 READY 는 표지가 없다', () => {
+    act(() => root.render(<SeatCard seat={seat({ state: 'DONE', anim: 'done' })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
+    expect(host.querySelector('[data-mark="DONE"]')).not.toBeNull()
+    act(() => root.render(<SeatCard seat={seat({ state: 'READY', anim: 'waiting', waitReason: { kind: 'dependency', label: '선행 대기', text: '' } })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
+    expect(host.querySelector('[data-mark="waiting"]')?.getAttribute('title')).toBe('선행 대기')
+    act(() => root.render(<SeatCard seat={seat({ state: 'READY', anim: 'empty', waitReason: { kind: 'pickup', label: '착수 대기', text: '' } })} side="left" selected={false} nowMs={NOW} busy={false} onSelect={() => {}} onOp={() => {}} />))
+    expect(host.querySelector('[data-mark]')).toBeNull()
+  })
   it('처리 중이면 결재 바가 잠긴다', () => {
     act(() => root.render(<SeatCard seat={seat({ state: 'WAIT' })} side="left" selected={false} nowMs={NOW} busy onSelect={() => {}} onOp={() => {}} />))
     for (const b of host.querySelectorAll('[data-seat-op]')) expect((b as HTMLButtonElement).disabled).toBe(true)
