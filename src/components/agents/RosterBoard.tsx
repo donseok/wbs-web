@@ -12,7 +12,7 @@ import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, typ
 import type { HeroTile } from '@/components/agent-hub/AgentFrame'
 import { Sprite } from './Sprite'
 import { PhaseBadge } from './PhaseBadge'
-import { leadChatter } from '@/lib/domain/officeChatter'
+import { awayBubble, awayReason, leadChatter } from '@/lib/domain/officeChatter'
 import { ChatBubble, seatSpeech, useOfficeChatter } from './SeatSpeech'
 
 type Tone = { label: string; color: string }
@@ -37,13 +37,14 @@ function deskLook(d: RosterDesk): { character: CharacterName; anim: AnimName } {
   return { character: 'cat', anim: 'empty' }
 }
 /** 책상 한 줄 설명 — 무엇을 하고 있는지. */
-function deskLine(d: RosterDesk, host: RosterHost): string {
+function deskLine(d: RosterDesk, host: RosterHost, nowMs: number, chatter: boolean): string {
   if (d.kind === 'lead') {
     const w = d.watcher
     const seats = w?.slots != null ? `팀원 ${w.slots}명 배정` : '감시'
     return w?.untilLabel ? `${seats} · ${w.untilLabel} 까지` : seats
   }
-  if (d.kind === 'empty') return host.watcher ? '빈자리 — 다음 위임을 기다립니다' : '빈자리'
+  // 잡담이 켜져 있으면 부재 사유(농담)를 붙인다 — 끄면 사실만 남는다.
+  if (d.kind === 'empty') return chatter ? `자리 비움 · ${awayReason(d.key, nowMs)}` : host.watcher ? '빈자리 — 다음 위임을 기다립니다' : '빈자리'
   return d.seat ? `${d.seat.code} ${d.seat.name}` : ''
 }
 function signalAt(d: RosterDesk): string | null {
@@ -140,7 +141,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
         <span className="relative flex flex-col items-center pb-2.5 pt-2"
           style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${tone.color} 16%, var(--color-surface)), var(--color-surface))`, '--sm-cell-w': '102px', '--sm-cell-h': '93px' } as React.CSSProperties}>
           <span className="flex h-[58px] w-full items-end justify-center px-2">{topBubble(desk, host, nowMs, chatter)}</span>
-          <span className={desk.kind === 'empty' ? 'opacity-40' : ''}><Sprite character={look.character} anim={look.anim} /></span>
+          <span className={desk.kind === 'empty' ? 'opacity-60' : ''}><Sprite character={look.character} anim={look.anim} /></span>
           <span className="flex h-[26px] items-end justify-center"><Nameplate desk={desk} /></span>
         </span>
         <span className="flex flex-col gap-1 px-3 pb-3 pt-2">
@@ -150,7 +151,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
               <i className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: tone.color }} />{tone.label}
             </span>
           </span>
-          <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host)}</span>
+          <span className="line-clamp-2 min-h-[2.5em] text-xs text-ink-muted">{deskLine(desk, host, nowMs, chatter)}</span>
           {desk.seat && <Progress pct={desk.seat.progress} color={tone.color} />}
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
         </span>
@@ -170,6 +171,11 @@ function topBubble(desk: RosterDesk, host: RosterHost, nowMs: number, chatter: b
     if (!chatter) return null
     const c = leadChatter(host, nowMs, desk)
     return c && <ChatBubble key={c.text} kind={c.tone} text={c.text} className="max-w-full" />
+  }
+  if (desk.kind === 'empty') {
+    // 빈자리 부재 사유 — 세 칸에 한 칸만 띄운다. 잡담이라 끄면 비운다.
+    const away = chatter ? awayBubble(desk.key, nowMs) : null
+    return away && <ChatBubble key={away} kind="empty" text={away} className="max-w-full" />
   }
   if (!desk.seat) return null
   const say = seatSpeech(desk.seat, nowMs, chatter)
@@ -276,6 +282,7 @@ function SignalGauge({ at, nowMs, lead }: { at: string | null; nowMs: number; le
 }
 
 function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; nowMs: number }) {
+  const chatter = useOfficeChatter()
   const tone = deskTone(desk)
   const look = deskLook(desk)
   const title = desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label
@@ -330,7 +337,10 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
         </section>
       )}
       {desk.kind === 'empty' && (
-        <p className="text-sm text-ink-muted">아무도 앉지 않은 자리입니다. 팀장이 다음 위임을 이 자리에 배정합니다.</p>
+        <p className="text-sm text-ink-muted">
+          {chatter && <b data-away className="mb-1 block text-ink">지금은 {awayReason(desk.key, nowMs)}</b>}
+          아무도 앉지 않은 자리입니다. 팀장이 다음 위임을 이 자리에 배정합니다.
+        </p>
       )}
 
       <section className="flex flex-col gap-1.5">
