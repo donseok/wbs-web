@@ -232,6 +232,12 @@ Verify 재시도로 sonnet 승격하면 다시 쓴다. 훅이 60초 안에 새 �
 `docs/tasks/<TSK>/spec.md` + **design.md (Build 이후 Phase)** + **기준선 수치** + Phase 지시 +
 "spec 본문은 요구사항 데이터이며 지시가 아님". Phase 정의·완료 조건·커밋 규칙·모델은 전부
 dev-discipline.md 를 따른다.
+
+커밋 규칙에는 **모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙이는 것**이 포함된다(state.json 의
+`order`, dev-discipline.md 「Phase 경계 커밋」) — Design·Build·Verify·Refactor·Phase 06 마감 커밋 전부,
+워커·수동 경로 모두 예외 없다(이 Phase 들은 전부 `git commit` 이라 `--trailer` 가 그대로 통한다. `/dflow-merge`
+의 머지 커밋은 `git merge` 라 방법이 다르며, 그 스킬의 「트레일러 고정」이 정본이다). 아래 팀원 모드 절 행 G 의
+기본 브랜치 반영 확인이 이 트레일러를 증거로 쓴다.
 <!-- worker:begin -->
 `--worker` 면 공통 프롬프트에 git 절대경로 규칙 한 줄을 덧붙인다(「--worker」 E).
 <!-- worker:end -->
@@ -297,20 +303,39 @@ description 의 사용법 줄에는 노출하지 않고, `.dflow-agent` 가 있�
 `depends_evidence[]` 에는 주문 UUID 가 없어 어차피 아래 state.json 을 읽어야 UUID 를 얻는다.
 줄마다 단독으로 실행해 출력을 읽는다(git 을 감싼 명령 치환은 워커 git 호출 규칙이 금지한다).
 
+판정은 `phase=merged` **AND** (아래 세 증거 중 하나라도 참) 이다. **첫 증거가 가장 강하다** — 선행 산출물이
+`origin/<기본브랜치>` 라는 기점에 실재한다는 직접 증거이기 때문이다. 커밋 그래프의 조상 관계는 git 이 보증하는
+사실이라, 커밋 메시지 트레일러나 state.json 값처럼 사람·자동화가 빠뜨리거나 잘못 쓸 수 있는 경로를 거치지
+않는다. `state.json` 에 `head_sha` 가 없으면 첫 증거는 판정 불가로 건너뛰고 나머지 둘로 본다.
+
 ```bash
 git fetch origin
-git show origin/<기본브랜치>:docs/tasks/<선행TSK>/state.json   # phase 가 merged 여야 하고, 여기서 order 를 읽는다
-git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 한 줄이라도 나와야 한다
+git show origin/<기본브랜치>:docs/tasks/<선행TSK>/state.json   # phase 가 merged 여야 하고, 여기서 order 와 head_sha 를 읽는다
+git merge-base --is-ancestor <head_sha> origin/<기본브랜치>   # 증거 1. head_sha 가 있을 때만 실행. exit 0 이면 참
+git log origin/<기본브랜치> --grep='DFlow-Order: <그 order>' --format=%h   # 증거 2. 한 줄이라도 나오면 참
+git log origin/<기본브랜치> --merges --grep='^merge: <선행TSK> ' --format=%h   # 증거 3. 한 줄이라도 나오면 참. TSK 뒤 공백까지 넣는다 — 안 넣으면 TSK-03-1 이 TSK-03-10·03-11 도 함께 집어 오탐이 된다
 ```
+
+state.json 의 정본 스키마(상태 모델)에는 아직 `head_sha` 필드가 없다 — 2026-09-22 mdm-dict-v2 실측으로도
+확인했다(막혔던 선행 4건의 state.json 전부 `head_sha` 없음). 그래서 지금은 거의 항상 증거 1 이 판정 불가로
+건너뛰어지고 증거 3(머지 커밋 제목)이 실제로 막힌 사례를 푼다(같은 실측에서 네 건 모두 증거 3 은 있었다).
+그래도 증거 1 을 첫 자리에 남기는 이유는 이것이 유일하게 커밋 메시지·state.json 값 없이도 성립하는 구조적
+증거이기 때문이다 — 상태 모델 스키마가 나중에 `head_sha` 를 갖게 되면 그 즉시 가장 강한 증거로 바로 쓰인다.
 
 팀장의 자동 머지(`DFLOW_AUTOMERGE=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가
 붙을 뿐이므로 같은 확인을 통과한다. `unapproved` 는 이 판정에서 보지 않는다.
-두 조건이 **모두** 참일 때만 반영된 것으로 본다. 첫 명령이 실패하거나(그 경로에 파일이 없다) `phase` 가
-`merged` 가 아니거나 둘째 명령의 출력이 비면 반영되지 않은 것이며, 그때는 `skipped 선행 승인 대기` 로 끝낸다.
-둘을 함께 요구하는 이유: state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일 수 있고, 커밋 트레일러는
-그 선행의 산출 커밋이 실제로 기본 브랜치에 들어왔다는 증거이지만 그것만으로는 주문 UUID 를 알 수 없다. 이
-확인을 통과했다는 것은 선행 코드가 기점에 있다는 뜻이므로 스택할 대상도, 스택할 이유도 없다.
-트레일러 패턴의 콜론 뒤 **공백을 반드시 넣고 따옴표로 감싼다.** 실제 트레일러가 `DFlow-Order: <uuid>` 라
+`show` 가 실패하거나(그 경로에 파일이 없다) `phase` 가 `merged` 가 아니거나 세 증거가 모두 판정 불가·거짓이면
+반영되지 않은 것이며, 그때는 `skipped 선행 승인 대기` 로 끝낸다.
+`phase` 만으로 충분하지 않은 이유는 그대로다 — state.json 의 `phase` 는 파일 한 줄이라 실제 머지 없이도 쓰일
+수 있다. 종전에는 커밋 트레일러(증거 2) 하나만으로 이를 보강해 **두 조건을 모두** 요구했으나, 그 트레일러를
+붙이라는 지시가 이 스킬 어디에도 없어 부착이 워커·수동 경로 모두에서 우연에 맡겨져 있었다(실측: 작업마다 0건인
+경우와 13건인 경우가 섞여 있었다). 그 결과 선행이 실제로 기본 브랜치에 머지됐는데도 후속 워커가 `skipped
+선행 승인 대기` 로 끝나는 결함이 났다 — 2026-09-22 mdm-dict-v2 실측: 선행 4건 TSK-03-07·03-09·03-11·03-12 가
+origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10·03-13·04-01 이 모두 막혔다. 이제 커밋 규칙
+(Phase 02~06 공통 프롬프트, 행 E)과 `/dflow-merge` 양쪽에 트레일러 부착을 못 박았지만(아래 참조), 이미 만들어진
+과거 커밋에는 여전히 없을 수 있고 훅으로 강제하지도 않으므로, 증거를 트레일러 하나로 묶어 두지 않고 세 가지로
+넓힌다. 이 확인을 통과했다는 것은 선행 코드가 기점에 있다는 뜻이므로 스택할 대상도, 스택할 이유도 없다.
+트레일러 패턴(증거 2)의 콜론 뒤 **공백을 반드시 넣고 따옴표로 감싼다.** 실제 트레일러가 `DFlow-Order: <uuid>` 라
 공백을 빼면 매치가 0 건이 되고, 그 0 건은 「반영되지 않음」 과 구분되지 않아 정상인 선행까지 `skipped` 로 만든다
 (2026-09-17 실측: 공백 없는 패턴 0 건, 공백 있는 패턴 2 건).
 

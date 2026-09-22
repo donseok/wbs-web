@@ -93,6 +93,13 @@ API 시험만으로는 화면의 JavaScript(DOM 바인딩·이벤트·fetch 호�
 - **Phase 경계 커밋**: Build 완료 시 즉시 커밋한다(파일명 명시, `git add -A` 금지).
   설계는 design.md 작성 시점에 별도 커밋. 커밋 없는 산출물을 Phase 경계 너머로 끌고 가지 않는다 —
   Refactor 실패 시 되돌릴 경계가 커밋이다.
+- **모든 커밋에 `--trailer "DFlow-Order: <주문 UUID>"` 를 붙인다**(state.json 의 `order`). Design·Build·
+  Verify·Refactor·Phase 06 마감 커밋 전부, 워커·수동 경로 모두 예외 없다. 이 트레일러가 `/dflow-dev`
+  「--worker」 행 G 의 기본 브랜치 반영 확인이 보는 증거 중 하나다 — 빠뜨리면 이 작업이 기본 브랜치에
+  머지된 뒤에도 그 작업에 의존하는 후속 워커가 반영을 확인하지 못해 `skipped 선행 승인 대기` 로
+  오판한다(2026-09-22 mdm-dict-v2 실측: 부착이 워커마다 0건·13건으로 갈려 있었다). `--trailer` 는
+  `git commit` 옵션이다 — 머지 커밋(`git merge`)은 이 옵션을 모르므로 `/dflow-merge` 「트레일러 고정」의
+  방법(둘째 `-m`)을 따른다.
 
 ## Phase 04 — Verify (검증)
 
