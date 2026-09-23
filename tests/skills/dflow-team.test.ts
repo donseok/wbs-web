@@ -114,7 +114,7 @@ describe('dflow-team worker-prompt.md 계약(스펙 §5)', () => {
       expect(p(), r).toContain(r)
     }
     for (const r of ['`rate-limit`', '`not-isolated`', '`no-worker-flag`', '`deps`']) expect(p(), r).toContain(r)
-    expect(p()).toContain('docs/tasks/{TSK}/.result')
+    expect(p()).toContain('{TASK_DIR}/.result')
   })
 
   // BACKEND 는 이제 언제나 pane 이라 백엔드별 표가 없어졌다(스펙 2026-09-16 §9, 236a3a25).
@@ -217,7 +217,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     expect(s()).toContain('LEGACY_REPORTED')
     expect(s()).toContain('수동 `/dflow-merge` 로 먼저 정리하라')
     // .dflow-pid·.dflow-worker.log 는 .dflow-pane·.dflow-run 으로 바뀌었다(스펙 2026-09-16 §9)
-    for (const p of ["'**/.claude/worktrees/'", "'/.dflow-agent'", "'/.dflow-pane'", "'/.dflow-prompt'", "'/.dflow-run'", "'docs/tasks/*/.result'", "'/.claude/skills'"]) {
+    for (const p of ["'**/.claude/worktrees/'", "'/.dflow-agent'", "'/.dflow-pane'", "'/.dflow-prompt'", "'/.dflow-run'", "'**/tasks/*/.result'", "'/.claude/skills'"]) {
       expect(s(), p).toContain(p)
     }
     expect(s()).toContain('git rev-parse --git-path info/exclude')
@@ -292,7 +292,7 @@ describe('dflow-team SKILL.md 계약(스펙 §4·§7)', () => {
     // tmux 팀원은 pane_dead 로 죽음을 감지한다(146ea66d, 종전 PID). 결과 줄이 새로 있으면 RESULT_READY 가 먼저다
     expect(s()).toContain('[ "$d" = 0 ] || dead="$dead $f"')
     expect(s()).toContain('[ -n "$hit" ] && { echo "RESULT_READY$hit"; exit 0; }\n  [ -n "$dead" ] && { echo "PANE_DEAD$dead"; exit 0; }')
-    expect(s()).toContain("set -- '<워크트리1>/docs/tasks/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/docs/tasks/<TSK2>/.result|-|-'")
+    expect(s()).toContain("set -- '<워크트리1>/<TASKS>/<TSK1>/.result|<해시1>|<pane1>' '<워크트리2>/<TASKS>/<TSK2>/.result|-|-'")
   })
 
   // DFLOW_ENV_FILE=<MAIN>/.env 는 .dflow 전환(cdccee70)으로 DFLOW_CONFIG_DIR=<MAIN> 이, --interval 300 은 ab8ee46b 로 180 이 됐다.

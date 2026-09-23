@@ -98,7 +98,7 @@ dflow.sh claim 1
 ```
 
 성공 시:
-- 명세 스냅샷 생성: `docs/tasks/TSK-01-01/spec.md`
+- 명세 스냅샷 생성: `<DOCS_DIR>/tasks/TSK-01-01/spec.md`
 - **반드시 spec.md 읽고 구현 시작**
 
 ⚠️ 브랜치는 만들어지지 않는다 — claim 직후 직접 만든다(SKILL.md 착수 절 참조):

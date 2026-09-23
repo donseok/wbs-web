@@ -160,7 +160,7 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 
 - `GET /work/{id}`(PAT)와 `POST /work/{id}/claim` 200 응답의 `item`에 확장 필드를 포함한다:
   `external_ref·category·domain·priority·model·tags·depends·prd_ref·entry_point·acceptance·spec·stage`.
-  클라이언트는 claim 성공 시 이걸로 `docs/tasks/<TSK-ID>/spec.md` 로컬 캐시를 만든다(TSK-ID = external_ref의 `/` 뒤).
+  클라이언트는 claim 성공 시 이걸로 `<DOCS_DIR>/tasks/<TSK-ID>/spec.md` 로컬 캐시를 만든다(TSK-ID = external_ref의 `/` 뒤).
 - 두 응답 모두 `depends_evidence: [{ external_ref, stage, branch|null, head_sha|null, order_approved, actual_pct|null, reached }]`
   포함 — 각 선행 항목의 **approved 주문의 completion 보고 evidence**에서 추출(없으면 null).
   `order_approved`(v2.2)는 그 선행에 `status='approved'` 주문이 하나라도 있는지다. 최신 주문이
