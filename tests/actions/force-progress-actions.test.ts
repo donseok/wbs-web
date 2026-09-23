@@ -24,6 +24,7 @@ function adminWith(opts: { rpc?: unknown; tables?: Record<string, Array<{ data?:
     for (const k of ['select', 'eq', 'in', 'is', 'not', 'limit']) b[k] = () => b
     b.update = (payload: unknown) => { writes.push({ table: t, op: 'update', payload }); return b }
     b.delete = () => { writes.push({ table: t, op: 'delete' }); return b }
+    b.insert = (payload: unknown) => { writes.push({ table: t, op: 'insert', payload }); return b }
     b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
     b.single = b.maybeSingle
     b.then = (r: (v: unknown) => unknown) => Promise.resolve({ data: resp.data ?? null, error: resp.error ?? null }).then(r)
@@ -70,24 +71,40 @@ describe('setDependencyWaiver', () => {
 })
 
 describe('cancelStubTask', () => {
+  const SUB_ROW = { data: { id: SUB, parent_id: ITEM, stub_for: 'm/TSK-01' } }
+  it('사유가 비면 조회 없이 거부한다', async () => {
+    adminWith({})
+    expect(await cancelStubTask(SUB, ' ')).toEqual({ ok: false, error: '사유를 입력하세요.' })
+    expect(mocks.requireSubtreeManagerOrAdmin).not.toHaveBeenCalled()
+  })
   it('stub 하위가 아니면 거부한다', async () => {
     adminWith({ tables: { wbs_items: [{ data: { id: SUB, parent_id: ITEM, stub_for: null } }] } })
-    expect(await cancelStubTask(SUB)).toEqual({ ok: false, error: '스텁 제거 작업이 아닙니다.' })
+    expect(await cancelStubTask(SUB, '스텁 없음')).toEqual({ ok: false, error: '스텁 제거 작업이 아닙니다.' })
+  })
+  it('면제가 살아 있으면 거부한다 — 먼저 면제를 해제해야 한다(쓰기 없음)', async () => {
+    const { writes } = adminWith({ tables: { wbs_items: [SUB_ROW, { data: { id: ITEM, depends_waived: ['m/TSK-01'] } }] } })
+    const r = await cancelStubTask(SUB, '스텁 없음')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('먼저 면제를 해제하세요')
+    expect(writes).toEqual([])
   })
   it('에이전트가 쥔 주문(claimed·reported)이 있으면 거부한다', async () => {
-    adminWith({ tables: {
-      wbs_items: [{ data: { id: SUB, parent_id: ITEM, stub_for: 'm/TSK-01' } }],
+    const { writes } = adminWith({ tables: {
+      wbs_items: [SUB_ROW, { data: { id: ITEM, depends_waived: [] } }],
       agent_work_orders: [{ data: [{ id: 'o1', status: 'claimed' }] }],
     } })
-    expect(await cancelStubTask(SUB)).toEqual({ ok: false, error: '에이전트가 작업 중이거나 보고한 스텁 제거 작업은 취소할 수 없습니다 — 중단·반려로 먼저 정리하세요.' })
+    expect(await cancelStubTask(SUB, '스텁 없음')).toEqual({ ok: false, error: '에이전트가 작업 중이거나 보고한 스텁 제거 작업은 취소할 수 없습니다 — 중단·반려로 먼저 정리하세요.' })
+    expect(writes).toEqual([])
   })
-  it('ready 주문을 취소하고 행을 지운다(가드는 후행 기준)', async () => {
+  it('부모 기준 이력(stub_cancelled)을 먼저 남기고, ready 주문을 취소하고 행을 지운다(가드는 후행 기준)', async () => {
     const { writes } = adminWith({ tables: {
-      wbs_items: [{ data: { id: SUB, parent_id: ITEM, stub_for: 'm/TSK-01' } }, { data: [{ id: SUB }] }],
+      wbs_items: [SUB_ROW, { data: { id: ITEM, depends_waived: [] } }, { data: [{ id: SUB }] }],
       agent_work_orders: [{ data: [{ id: 'o1', status: 'ready' }] }, { data: [{ id: 'o1' }] }],
     } })
-    expect(await cancelStubTask(SUB)).toEqual({ ok: true })
+    expect(await cancelStubTask(SUB, '스텁을 만들기 전에 선행이 끝났다')).toEqual({ ok: true })
     expect(mocks.requireSubtreeManagerOrAdmin).toHaveBeenCalledWith(ITEM, 'p1')
-    expect(writes.map(w => `${w.table}:${w.op}`)).toEqual(['agent_work_orders:update', 'wbs_items:delete'])
+    expect(writes.map(w => `${w.table}:${w.op}`)).toEqual(['change_logs:insert', 'agent_work_orders:update', 'wbs_items:delete'])
+    expect(writes[0].payload).toEqual(expect.objectContaining({ wbs_item_id: ITEM, field: 'stub_cancelled', user_id: 'u1', old_value: 'm/TSK-01' }))
+    expect(String((writes[0].payload as { new_value: string }).new_value)).toContain('스텁을 만들기 전에 선행이 끝났다')
   })
 })

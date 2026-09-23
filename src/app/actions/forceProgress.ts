@@ -5,7 +5,7 @@ import { resolveProjectId } from '@/lib/authz'
 import { requireSubtreeManagerOrAdmin } from '@/lib/agent/subtreeManager'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isUuidLike } from '@/lib/domain/agentWork'
-import { ERR_NOT_STUB, applyWaiver, cancelStub } from '@/lib/agent/forceProgress'
+import { ERR_NOT_STUB, ERR_REASON_REQUIRED, applyWaiver, cancelStub } from '@/lib/agent/forceProgress'
 
 export async function setDependencyWaiver(itemId: string, predRef: string, waive: boolean, reason: string) {
   if (!isUuidLike(itemId) || typeof predRef !== 'string' || predRef.trim() === '') return { ok: false as const, error: '잘못된 요청입니다.' }
@@ -22,8 +22,9 @@ export async function setDependencyWaiver(itemId: string, predRef: string, waive
   return r
 }
 
-export async function cancelStubTask(subTaskId: string): Promise<{ ok: boolean; error?: string }> {
+export async function cancelStubTask(subTaskId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
   if (!isUuidLike(subTaskId)) return { ok: false, error: '잘못된 요청입니다.' }
+  if (typeof reason !== 'string' || reason.trim() === '') return { ok: false, error: ERR_REASON_REQUIRED }
   const admin = createAdminClient()
   const { data: row, error } = await admin.from('wbs_items').select('id, parent_id, stub_for').eq('id', subTaskId).maybeSingle()
   if (error) return { ok: false, error: `항목 조회 실패: ${error.message}` }
@@ -36,7 +37,7 @@ export async function cancelStubTask(subTaskId: string): Promise<{ ok: boolean; 
   // 권한은 후행 기준 — 면제와 같은 사람이 치운다.
   const g = await requireSubtreeManagerOrAdmin(sub.parent_id, found.projectId)
   if (!g.ok) return { ok: false, error: g.error }
-  const r = await cancelStub(admin, subTaskId)
+  const r = await cancelStub(admin, { subTaskId, parentId: sub.parent_id, stubFor: sub.stub_for, reason, actorUserId: g.actor.userId })
   if (r.ok) revalidatePath(`/p/${found.projectId}`, 'layout')
   return r
 }

@@ -37,13 +37,38 @@ export async function applyWaiver(
 export const ERR_NOT_STUB = '스텁 제거 작업이 아닙니다.'
 export const ERR_STUB_HELD = '에이전트가 작업 중이거나 보고한 스텁 제거 작업은 취소할 수 없습니다 — 중단·반려로 먼저 정리하세요.'
 
-/** F12 — 스텁이 아직 없을 때 사람이 하위 Task 를 치운다. ready 주문 취소 → 행 삭제. 에이전트가 쥐었으면 거부. */
-export async function cancelStub(admin: AdminClient, subTaskId: string): Promise<{ ok: boolean; error?: string }> {
+export const ERR_WAIVER_ACTIVE = '면제가 살아 있어 스텁 제거 작업을 취소할 수 없습니다 — 먼저 면제를 해제하세요.'
+export const ERR_REASON_REQUIRED = '사유를 입력하세요.'
+
+/**
+ * F12 — 스텁이 아직 없을 때 사람이 하위 Task 를 치운다. 순서: 면제 확인 → 주문 확인 → 부모 기준 이력(삭제 전)
+ * → ready 주문 취소 → 행 삭제. 면제가 살아 있으면 거부한다(하위를 지우면 후행이 스텁 없이 풀린 셈이 된다).
+ * 에이전트가 쥔 주문(claimed·reported)이 있으면 거부. 선행 조회·이력 기록 실패는 쓰기 전에 중단한다.
+ */
+export async function cancelStub(
+  admin: AdminClient,
+  a: { subTaskId: string; parentId: string; stubFor: string; reason: string; actorUserId: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const reason = a.reason.trim()
+  if (reason === '') return { ok: false, error: ERR_REASON_REQUIRED }
+  const { data: parent, error: pErr } = await admin.from('wbs_items').select('id, depends_waived').eq('id', a.parentId).maybeSingle()
+  if (pErr) return { ok: false, error: `상위 작업 조회 실패: ${pErr.message}` }
+  if (!parent) return { ok: false, error: '상위 작업 없음' }
+  if (((parent as { depends_waived: string[] | null }).depends_waived ?? []).includes(a.stubFor)) return { ok: false, error: ERR_WAIVER_ACTIVE }
+
   const { data: orders, error: oErr } = await admin.from('agent_work_orders').select('id, status')
-    .eq('wbs_item_id', subTaskId).in('status', ['ready', 'claimed', 'reported'])
+    .eq('wbs_item_id', a.subTaskId).in('status', ['ready', 'claimed', 'reported'])
   if (oErr) return { ok: false, error: `주문 조회 실패: ${oErr.message}` }
   const list = (orders ?? []) as Array<{ id: string; status: string }>
   if (list.some(o => o.status !== 'ready')) return { ok: false, error: ERR_STUB_HELD }
+
+  // 행이 지워지면 그 행의 이력은 cascade 로 사라진다 — 부모(후행) 기준으로 먼저 남긴다.
+  const { error: logErr } = await admin.from('change_logs').insert({
+    user_id: a.actorUserId, wbs_item_id: a.parentId, field: 'stub_cancelled',
+    old_value: a.stubFor, new_value: `${a.subTaskId} | ${reason}`,
+  })
+  if (logErr) return { ok: false, error: `이력 기록 실패: ${logErr.message}` }
+
   if (list.length > 0) {
     const { data: done, error: cErr } = await admin.from('agent_work_orders')
       .update({ status: 'cancelled', updated_at: new Date().toISOString() })
@@ -51,7 +76,7 @@ export async function cancelStub(admin: AdminClient, subTaskId: string): Promise
     if (cErr) return { ok: false, error: `주문 취소 실패: ${cErr.message}` }
     if (((done ?? []) as unknown[]).length !== list.length) return { ok: false, error: '상태가 바뀌어 취소하지 못했습니다. 다시 시도하세요.' }
   }
-  const { data: del, error: dErr } = await admin.from('wbs_items').delete().eq('id', subTaskId).not('stub_for', 'is', null).select('id')
+  const { data: del, error: dErr } = await admin.from('wbs_items').delete().eq('id', a.subTaskId).not('stub_for', 'is', null).select('id')
   if (dErr) return { ok: false, error: `삭제 실패: ${dErr.message}` }
   if (((del ?? []) as unknown[]).length === 0) return { ok: false, error: ERR_NOT_STUB }
   return { ok: true }
