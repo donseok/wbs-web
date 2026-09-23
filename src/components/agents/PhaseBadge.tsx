@@ -1,6 +1,6 @@
 // 캐릭터 머리 위 단계 말풍선 — 지금 설계·구현·검증·리팩터 중 어디인지 눌러 보지 않고 바로 읽힌다(2026-09-18 사용자 선택).
 // 말풍선은 단계색 + 아이콘 + 이름, 그 아래 네 점이 dflow-dev Phase 순서(설계 → 구현 → 검증 → 리팩터)에서 지금 위치다.
-// 결정 대기·재작업은 순서 밖의 상태라 점 없이 말풍선만 단다. 에이전트가 붙어 있지 않은 좌석(빈자리·승인 대기·완료)엔 달지 않는다.
+// 결정 대기·재작업은 순서 밖의 상태라 점 없이 말풍선만 단다. 준비(2026-09-24, Phase 01 claim·브랜치·기준선)도 네 단계 앞이라 점이 없다. 에이전트가 붙어 있지 않은 좌석(빈자리·승인 대기·완료)엔 달지 않는다.
 // 예외: 머지 충돌(2026-09-23)은 승인 대기·완료 좌석에도 점 없이 단다 — 팀장이 대리로 쏜 표시다.
 import type React from 'react'
 import type { Seat } from '@/lib/domain/seatmap'
@@ -12,6 +12,8 @@ const I = (d: React.ReactNode) => (
 )
 /** 단계 모양 — 색은 좌석 상태색(업무 중 파랑 · 승인 대기 주황 · 반려 빨강)과 겹치지 않게 골랐다. 구현만 업무 중 파랑과 같은 계열이다. */
 export const PHASE_LOOK: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  // 준비 — 착수했지만 아직 설계 전(Phase 01). heartbeat 가 없는 착수 좌석도 여기로 온다. 무채색으로 "아직 본업 전" 을 보인다.
+  prepare: { label: '준비', color: '#8C97A6', icon: I(<><rect x="3.5" y="3" width="9" height="11" rx="1.5" /><path d="M6 2.5h4v1.5H6z" /><path d="M6 7.5h4M6 10.5h2.5" /></>) },
   design: { label: '설계', color: '#A58BF0', icon: I(<><path d="M3 13l2.5-.6L13 4.9 11.1 3 3.6 10.5z" /><path d="M9.8 4.3l1.9 1.9" /></>) },
   build: { label: '구현', color: '#5DB1E5', icon: I(<><path d="M5.5 4.5L2 8l3.5 3.5" /><path d="M10.5 4.5L14 8l-3.5 3.5" /></>) },
   verify: { label: '검증', color: '#4FC07E', icon: I(<><circle cx="7" cy="7" r="4" /><path d="M10 10l3.5 3.5" /><path d="M5.3 7l1.2 1.2L8.8 6" /></>) },

@@ -6,7 +6,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type React from 'react'
 import Link from 'next/link'
-import type { Seatmap } from '@/lib/domain/seatmap'
+import type { Seat, Seatmap } from '@/lib/domain/seatmap'
 import { ageLabel } from '@/lib/domain/seatmap'
 import { pickCharacter, STALE_MS, OFFLINE_MS, type AnimName, type CharacterName } from '@/lib/domain/seatState'
 import { assembleRoster, modelBadge, TIER_NAME, type ModelTier, type Roster, type RosterDesk, type RosterHost } from '@/lib/domain/agentRoster'
@@ -282,7 +282,16 @@ function Nameplate({ desk, size = 'sm' }: { desk: RosterDesk; size?: 'sm' | 'lg'
   )
 }
 
-export const PHASE_KO: Record<string, string> = { design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고', merge_conflict: '머지 충돌' }
+export const PHASE_KO: Record<string, string> = { prepare: '준비', design: '설계', build: '구현', verify: '검증', refactor: '리팩터', blocked: '결정 대기', rejected: '재작업', reported: '보고', merge_conflict: '머지 충돌' }
+
+/**
+ * 프로필 카드 「단계 …」 — 보고된 단계를 한국어로 읽는다. 단계 보고가 없는 착수 좌석(seat.phase=prepare)은 비우지 않고
+ * 「준비」다(2026-09-24: 착수 직후가 구현으로 보이던 문제). 추정 단계만 있는 승인 대기·완료 좌석은 종전대로 비운다.
+ */
+export function profilePhaseLabel(seat: Pick<Seat, 'heartbeatPhase' | 'phase'>): string | null {
+  const key = seat.heartbeatPhase ?? (seat.phase === 'prepare' ? 'prepare' : null)
+  return key ? PHASE_KO[key] ?? key : null
+}
 
 /** 등급 테두리 — 1 금 · 2 은 · 3 동 · 4 무광. 1등급만 은은하게 빛난다. */
 const TIER_RING: Record<ModelTier, { edge: string; glow: number }> = {
@@ -339,6 +348,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
   const look = deskLook(desk)
   const title = desk.kind === 'lead' ? (desk.slot === 'poll' ? '단독 감시' : '팀장') : desk.label
   const seat = desk.seat
+  const stepLabel = seat ? profilePhaseLabel(seat) : null
   const owner = deskOwner(desk)
   return (
     <aside data-roster-profile className="sticky top-0 flex min-w-0 flex-[0_1_340px] flex-col gap-4 rounded-3xl border border-line bg-surface p-5 shadow-sm">
@@ -374,7 +384,7 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
           <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지금 하는 일</h3>
           <p className="text-sm font-semibold text-ink"><span className="font-mono text-ink-muted">{seat.code}</span> {seat.name}</p>
           <Progress pct={seat.progress} color={tone.color} />
-          <p className="text-[11px] text-ink-subtle">진척 {seat.progress}%{seat.heartbeatPhase ? ` · 단계 ${seat.heartbeatPhase}` : ''}</p>
+          <p className="text-[11px] text-ink-subtle">진척 {seat.progress}%{stepLabel ? ` · 단계 ${stepLabel}` : ''}</p>
           {/* 에이전트 상세(DetailPanel)와 같은 WBS 딥링크 — 명세·진행 표가 바로 열린다(2026-09-24 사용자 요청).
               제목 옆 글자 링크로는 버튼인 줄 몰라 지나쳤다 — 폭을 채운 버튼으로 둔다. */}
           {seat.itemId && (

@@ -74,6 +74,20 @@ describe('assembleSeatmap — 층·구역·책상', () => {
     const s = m.floors[0].zones[0].seats[0]
     expect(s.state).toBe('REJECTED'); expect(s.rejected).toBe(true); expect(s.reviewNote).toBe('테스트 누락')
   })
+  it('착수 직후(heartbeat 없음) 좌석은 claim 크레딧(30%)이 있어도 구현이 아니라 준비(prepare)다', () => {
+    const m = assembleSeatmap(rows({
+      orders: [order({ last_heartbeat_at: null, heartbeat_phase: null, heartbeat_agent: null, updated_at: ago(30_000) })],
+      items: [{ id: 'i1', project_id: P1, code: 'TSK-08-01', name: '착수 직후', parent_id: 'z1', actual_pct: 30, assignee_member_id: 'm1', tags: ['agent'] }],
+    }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('ACTIVE'); expect(s.phase).toBe('prepare'); expect(s.anim).toBe('typing')
+    expect(s.heartbeatPhase).toBeNull()
+  })
+  it('훅이 prepare 를 보냈으면 좌석 phase 도 prepare 다', () => {
+    const m = assembleSeatmap(rows({ orders: [order({ heartbeat_phase: 'prepare' })] }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.phase).toBe('prepare'); expect(s.heartbeatPhase).toBe('prepare')
+  })
   it('DONE(approved) 은 doneCount 로 세고 카운터에는 들어가지 않는다', () => {
     const m = assembleSeatmap(rows({ orders: [order({ status: 'approved' })] }), NOW)
     expect(m.floors[0].doneCount).toBe(1)

@@ -1,7 +1,7 @@
 // 좌석표 상태 판정 — IO 없음. 정본: docs/superpowers/specs/2026-09-14-agent-office-v1-design.md §2
 export type OrderStatus = 'ready' | 'claimed' | 'reported' | 'approved' | 'cancelled'
 export type SeatState = 'READY' | 'WAIT' | 'DONE' | 'BLOCKED' | 'OFFLINE' | 'STALE' | 'REJECTED' | 'ACTIVE'
-export type Phase = 'design' | 'build' | 'verify' | 'refactor' | 'blocked' | 'rejected' | 'reported' | 'merge_conflict'
+export type Phase = 'prepare' | 'design' | 'build' | 'verify' | 'refactor' | 'blocked' | 'rejected' | 'reported' | 'merge_conflict'
 export type AnimName =
   | 'typing' | 'design' | 'verify' | 'refactor' | 'stale'
   | 'idle_coffee' | 'idle_stretch' | 'idle_look' | 'blocked' | 'rejected' | 'empty'
@@ -11,7 +11,9 @@ export type AnimName =
 /** public/sprites/<이 이름>/<AnimName>.png — 2026-09-16 새로 그린 캐릭터 시트 다섯 벌과 같은 이름이다(가명 done·waiting 제외). */
 export type CharacterName = 'cat' | 'human_m' | 'human_f' | 'dog' | 'bot'
 
-export const HEARTBEAT_PHASES: readonly Phase[] = ['design', 'build', 'verify', 'refactor', 'blocked', 'rejected', 'reported']
+/** prepare = /dflow-dev Phase 01(claim·브랜치·기준선) 중 — state.json 을 phase=prepare 로 쓰면 훅이 보낸다(2026-09-24).
+ *  scaffold 가 만드는 ready 는 싣지 않는다: 주문 전 자리표라 받으면 남의 ready 주문으로 신호가 샌다. */
+export const HEARTBEAT_PHASES: readonly Phase[] = ['prepare', 'design', 'build', 'verify', 'refactor', 'blocked', 'rejected', 'reported']
 /** 팀장이 대리로 쏘는 표시 phase — reported·approved 주문에만 받는다(heartbeat 라우트). 워커 phase 와 섞지 않는다.
  *  정본: docs/superpowers/specs/2026-09-23-parallel-merge-conflict-design.md §7.2~7.3 */
 export const LEAD_PHASES: readonly Phase[] = ['merge_conflict']
@@ -65,6 +67,10 @@ export function inferPhase(i: SeatInput): Phase {
   if (i.heartbeatPhase && ([...HEARTBEAT_PHASES, ...LEAD_PHASES] as readonly string[]).includes(i.heartbeatPhase)) {
     return i.heartbeatPhase as Phase
   }
+  // 점유 중인데 단계 보고가 없으면 Phase 01(claim·브랜치·기준선) 중이다. pct 로 추정하지 않는다 — claim 이
+  // ip 크레딧(기본 30%)을 쓰므로 착수 직후가 '구현'으로 보였다(2026-09-24 dmes-standard 실측).
+  // 반려 재작업은 예외 — 종전대로 pct 로 추정한다(재작업은 준비 단계를 다시 거치지 않는다).
+  if (i.status === 'claimed' && i.lastReview !== 'reject') return 'prepare'
   const pct = i.actualPct ?? 0
   if (pct < 25) return 'design'
   if (pct < 60) return 'build'

@@ -55,12 +55,36 @@ describe('inferPhase — heartbeat_phase 우선, 없으면 actual_pct', () => {
   it('heartbeat_phase 가 알려진 값이면 그대로', () => {
     expect(inferPhase(base({ heartbeatPhase: 'verify' }))).toBe('verify')
   })
-  it('없거나 모르는 값이면 pct 로: <25 design, <60 build, <85 verify, 그 외 refactor', () => {
-    expect(inferPhase(base({ heartbeatPhase: null, actualPct: 0 }))).toBe('design')
-    expect(inferPhase(base({ heartbeatPhase: 'weird', actualPct: 25 }))).toBe('build')
-    expect(inferPhase(base({ heartbeatPhase: null, actualPct: 60 }))).toBe('verify')
-    expect(inferPhase(base({ heartbeatPhase: null, actualPct: 85 }))).toBe('refactor')
-    expect(inferPhase(base({ heartbeatPhase: null, actualPct: null }))).toBe('design')
+  it('점유(claimed) 밖의 주문은 없거나 모르는 값이면 pct 로: <25 design, <60 build, <85 verify, 그 외 refactor', () => {
+    expect(inferPhase(base({ status: 'reported', heartbeatPhase: null, actualPct: 0 }))).toBe('design')
+    expect(inferPhase(base({ status: 'reported', heartbeatPhase: 'weird', actualPct: 25 }))).toBe('build')
+    expect(inferPhase(base({ status: 'approved', heartbeatPhase: null, actualPct: 60 }))).toBe('verify')
+    expect(inferPhase(base({ status: 'reported', heartbeatPhase: null, actualPct: 85 }))).toBe('refactor')
+    expect(inferPhase(base({ status: 'ready', heartbeatPhase: null, actualPct: null }))).toBe('design')
+  })
+  // 2026-09-24 dmes-standard 실측: claim 이 ip 크레딧(30%)을 쓰므로 pct 로 추정하면 착수 직후가 '구현'으로 보였다.
+  // 점유 중인데 단계 보고가 아직 없으면 Phase 01(claim·브랜치·기준선) 중이다 — 준비로 본다.
+  it('점유(claimed) 중인데 heartbeat_phase 가 없거나 모르는 값이면 pct 와 무관하게 prepare(준비)', () => {
+    expect(inferPhase(base({ heartbeatPhase: null, actualPct: 30 }))).toBe('prepare')
+    expect(inferPhase(base({ heartbeatPhase: null, actualPct: 0 }))).toBe('prepare')
+    expect(inferPhase(base({ heartbeatPhase: null, actualPct: 85 }))).toBe('prepare')
+    expect(inferPhase(base({ heartbeatPhase: 'weird', actualPct: 30 }))).toBe('prepare')
+    expect(inferPhase(base({ heartbeatPhase: null, lastHeartbeatAt: null, actualPct: null }))).toBe('prepare')
+  })
+  it('훅이 보낸 prepare 는 알려진 값이라 그대로다', () => {
+    expect(inferPhase(base({ heartbeatPhase: 'prepare', actualPct: 30 }))).toBe('prepare')
+  })
+  it('반려 재작업(마지막 판정 reject)은 준비로 접지 않고 종전대로 pct 로 추정한다', () => {
+    expect(inferPhase(base({ heartbeatPhase: null, lastReview: 'reject', actualPct: 50 }))).toBe('build')
+  })
+})
+
+describe('prepare — Phase 01 준비 단계(2026-09-24)', () => {
+  it('워커 phase 목록(HEARTBEAT_PHASES)에 있어 서버가 받는다', () => {
+    expect(HEARTBEAT_PHASES).toContain('prepare')
+  })
+  it('ACTIVE 의 prepare 는 전용 시트가 없어 typing 으로 그린다', () => {
+    expect(animFor('ACTIVE', 'prepare')).toBe('typing')
   })
 })
 
