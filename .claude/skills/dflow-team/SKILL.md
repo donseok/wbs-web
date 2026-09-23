@@ -652,10 +652,24 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      답하거나 화면을 보거나 `blocked` 를 맥락을 지킨 채 풀 자리가 없었기 때문이다.
    - `find_tmux` 가 절대경로 후보를 훑는 이유: Orca 는 PATH 앞에 tmux shim 을 끼우는데, 그 shim 은 명령
      부분집합만 처리하고 `tmux -V` 에 거짓 버전을 답한다. 판별 방법은 backends.md 「진짜 tmux 찾기」 다.
-2. **담당 작업 폴더 scaffold**: 팀장 체크아웃에서 `.claude/skills/dflow-work/scripts/dflow.sh scaffold` 를 한 번 부르고
-   출력 한 줄(`scaffold created=N skipped=N no_ref=N`)을 시작 보고에 싣는다. 실패(exit≠0)는 경고만 하고 계속한다 —
-   편의 기능이지 게이트가 아니다. 이유: 내게 배정된 작업의 `<TASKS>/<TSK>/state.json`(phase=ready)이 개발 브랜치에
-   있으면 사람이 리포만 보고 할 일을 알고, 팀원 워크트리(`origin/<기본브랜치>` 기점)에도 같은 폴더가 보인다.
+2. **담당 작업 폴더 scaffold**: 팀장 체크아웃(개발 브랜치)에서 `.claude/skills/dflow-work/scripts/dflow.sh scaffold` 를
+   한 번 부르고 출력 한 줄(`scaffold created=N skipped=N no_ref=N`)을 시작 보고에 싣는다. **개발 브랜치 위일 때만
+   부른다** — detached HEAD 팀장(「두 번째 팀장」의 팀장 워크트리는 언제나 detached)에서 부르면 scaffold 가 만든
+   `state.json` 을 커밋하지 못해(`dflow.sh scaffold` 는 개발 브랜치 위에서만 커밋한다) 작업 트리가 더러워지고,
+   다음 시작이 `DIRTY` 로 막히거나 승인 스윕 뒤 재-detach 가 깨끗한 트리를 요구해 멈춘다. 아래 블록 하나로
+   판정하고 부른다(1번과 다른 Bash 호출이라 그 블록의 변수는 남아 있지 않으므로 이 블록 안에서 다시 구한다):
+   ```bash
+   dev=$(.claude/skills/dflow-work/scripts/dflow.sh branch dev); cur=$(git branch --show-current)
+   if [ -n "$dev" ] && [ "$cur" = "$dev" ]; then
+     .claude/skills/dflow-work/scripts/dflow.sh scaffold || echo "scaffold 경고: exit $?"
+   else
+     echo "scaffold 건너뜀(detached HEAD 또는 개발 브랜치 아님)"
+   fi
+   ```
+   실패(exit≠0)는 경고만 하고 계속한다 — 편의 기능이지 게이트가 아니다. 이유: 내게 배정된 작업의
+   `<TASKS>/<TSK>/state.json`(phase=ready)이 개발 브랜치에 있으면 사람이 리포만 보고 할 일을 알고, 팀원
+   워크트리(`origin/<기본브랜치>` 기점)에도 같은 폴더가 보인다 — 이는 팀장이 실제로 커밋해 개발 브랜치에
+   반영했을 때만 참이다.
 3. **재구성**: 새 `team.start` 를 쓰기 **전에** 「팀장 상태」 의 재구성과 고아 스캔을 한다. 이유: "마지막
    `team.start` 이후" 필터가 이전 세션의 이벤트를 가리지 않게 한다. 이 단계가 곧 재기동 절차다. 이어서
    서버에 claimed 인데 흡수한 슬롯·고아 워크트리·답을 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8 을
@@ -667,14 +681,16 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    (「5-1. 재개 spawn」). **워크트리가 이 PC 에 남아 있는 갈래는 이 조항이 아니라 「팀장 상태」 고아 스캔의
    "재개 가능" 이 맡아 자동으로 이어받는다.** 그쪽은 `.dflow-agent` 가 이 신원·이 host 를 달고 있어 이 팀장
    계보의 워커임이 드러나므로 같은 모호함이 없다. 답을 기다리는 `blocked` 를 빼는 이유: 그 작업은 claimed 이면서 슬롯도
-   잡고 있어 재개 대상이 아니다. 그 팀원은 자기 화면에서 답을 기다리는 중이고, 4번이 답 대기 목록을 이어받는다.
+   잡고 있어 재개 대상이 아니다. 그 팀원은 자기 화면에서 답을 기다리는 중이고, 5번이 답 대기 목록을 이어받는다.
    ```bash
    (.claude/skills/dflow-work/scripts/dflow.sh list --scope claimed) | awk -F'\t' 'NF>=4 && $2=="CL" {print $4}'
    ```
    상태 열이 `CL` 인 행만 센다. 이유: `--scope claimed` 는 보고까지 끝난 `RP`(reported) 행도 돌려주는데, 그 작업은
    승인 대기이지 재개 대상이 아니다.
 4. **시작 보고**: 3번이 만든 **"멈춤" 표**(「팀장 상태」)를 먼저 내고, 재개 가능으로 분류한 것과 `--resume`
-   지목분은 "이번에 이어받습니다" 로 한 줄 알린다. WP 범위가 있으면 "새 배정은 <WP 목록> 만 합니다. 재개·승인
+   지목분은 "이번에 이어받습니다" 로 한 줄 알린다. 2번의 scaffold 출력 한 줄(부른 경우 `scaffold created=N
+   skipped=N no_ref=N`, 건너뛴 경우 "scaffold 건너뜀(detached HEAD 또는 개발 브랜치 아님)")도 여기 싣는다.
+   WP 범위가 있으면 "새 배정은 <WP 목록> 만 합니다. 재개·승인
    스윕은 범위와 무관합니다." 를 한 줄 알린다. 이어서 아래 두 줄을 알린다. 백엔드와 무관하게 "팀원은 **권한 확인 생략 모드로** 돕니다. 팀장 세션의 권한 모드와
    무관합니다." 를 알린다. tmux 백엔드면 "화면은 `TMUX= tmux -L dflow attach` 로 볼 수 있습니다." 를 한 줄 더
    알린다. 첫 줄이 중요하다. 팀장을 평소 모드로 띄운 사람도 팀원은 무제한으로 돈다는 사실이 여기서 드러나야

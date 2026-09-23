@@ -122,11 +122,13 @@ dflow.sh taskdir <ref>
 dflow.sh scaffold
 ```
 
-내게 배정된(assigned) 작업만 골라 바인딩된 프로젝트마다 `<DOCS_DIR>/tasks/<TSK>/state.json`
-(`{"tsk","order","api_base","phase":"ready"}`)을 미리 만든다. 이미 있는 폴더는 내용을 보지도 고치지도 않고
-건너뛴다. 출력 한 줄: `scaffold created=N skipped=N no_ref=N`(필요하면 뒤에 안내 한 마디가 더 붙는다).
-바인딩이 없으면 **exit 2** `PROJECT_MISMATCH`, 배정 목록을 못 읽으면 **exit 6**. 새 파일이 있고 현재 브랜치가
-`dflow.sh branch dev` 의 값이면 커밋·push 까지 하고, 아니면 파일만 남긴다.
+내게 배정된(assigned) 작업 중 **`phase=ready`(아직 아무도 착수하지 않은) 것만** 골라 바인딩된 프로젝트마다
+`<DOCS_DIR>/tasks/<TSK>/state.json`(`{"tsk","order","api_base","phase":"ready"}`)을 미리 만든다. 이미 있는 폴더는
+내용을 보지도 고치지도 않고 건너뛴다. 출력 한 줄: `scaffold created=N skipped=N no_ref=N`(필요하면 뒤에 안내 한
+마디가 더 붙는다). exit code: **exit 2** 는 바인딩 없음(`PROJECT_MISMATCH`) 또는 git 리포가 아닌 곳에서 부름
+(`NOT_REPO`), **exit 6** 은 배정 목록 파싱 실패·폴더 `mkdir`·`state.json` 쓰기·커밋 실패, API/인증 오류는
+`dflow.sh` 의 기존 exit code 를 그대로 쓴다. 새 파일이 있고 현재 브랜치가 `dflow.sh branch dev` 의 값이면 커밋·push 까지 하고,
+아니면 파일만 남긴다. **push 실패는 로컬 커밋만 남기고 exit 0 + 경고 한 줄**이다(팀장 시작을 막지 않는다).
 
 ### 진행 보고
 

@@ -29,6 +29,18 @@ describe('스킬 문서의 작업 폴더', () => {
   it('팀장이 시작할 때 scaffold 를 부른다', () => {
     expect(read('dflow-team/SKILL.md')).toContain('dflow.sh scaffold')
   })
+  it('scaffold 블록이 개발 브랜치인지 확인한 뒤에만 부른다(detached HEAD 팀장은 커밋 못 해 DIRTY 를 남긴다)', () => {
+    const t = read('dflow-team/SKILL.md')
+    const block = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+      .find((b) => b.includes('dflow.sh scaffold'))!
+    expect(block).toBeDefined()
+    expect(block).toContain('branch --show-current')
+    expect(block).toContain('branch dev')
+    expect(block).toMatch(/scaffold 건너뜀/)
+  })
+  it('renumbering 뒤 "4번이 답 대기" 참조가 남아 있지 않다(5번으로 고쳤다)', () => {
+    expect(read('dflow-team/SKILL.md')).not.toContain('4번이 답 대기 목록을 이어받는다')
+  })
   it('팀장이 taskdir 에 order(전체 UUID·id8) 를 넘기고 external_ref 를 넘기지 않는다', () => {
     const t = read('dflow-team/SKILL.md')
     expect(t).not.toContain('taskdir <ref>)` 로 이 작업의 작업 폴더')
