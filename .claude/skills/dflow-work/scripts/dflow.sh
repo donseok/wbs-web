@@ -36,6 +36,8 @@ usage() {
                          감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
   done <ref> <요약> [--auto-links]
   release <ref>
+  scaffold               내게 배정된 작업(바인딩 안)의 <DOCS_DIR>/tasks/<TSK>/state.json(phase=ready)을 만들고
+                         개발 브랜치에 있으면 커밋·push. 있는 폴더는 건드리지 않는다
   profiles               토큰마다 한 줄 JSON(n·prefix·name·email·expires_at·projects·bound·selected). 토큰 값은 내지 않는다
   doctor                 설정·의존성·계약 버전 점검
   config <key>|projects|--source|docs-dir <uuid>|tasks-dirs
@@ -331,6 +333,62 @@ cmd_taskdir() {
   printf '%s/tasks/%s\n' "$ORDER_DOCS_DIR" "$_tsk"
 }
 
+# 내게 배정된 작업의 폴더와 state.json(phase=ready)을 미리 만든다(스펙 2026-09-23-dflow-task-scaffold §4).
+# 대상은 assigned ∩ 바인딩뿐 — 남의 작업 폴더를 만들면 사람 사이 커밋이 충돌한다. 있는 폴더는 건드리지 않는다.
+cmd_scaffold() {
+  [ -n "$ALLOWED_PROJECTS" ] || die 2 "PROJECT_MISMATCH 프로젝트 바인딩 없음 — .dflow 의 project_id 또는 .dflow.local 의 project_map 을 넣으세요."
+  _top=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "NOT_REPO git 리포 안에서 실행하세요."
+  _body=$(TOKEN="$TOK" api_raw GET "/api/v1/agent/work/mine?scope=assigned&limit=100") || exit $?
+  printf '%s' "$_body" | jq -e 'has("assigned")' >/dev/null 2>&1 || die 6 "목록 해석 실패"
+  # ready 만 폴더를 만든다 — assigned 는 ready·claimed·reported 를 다 담아 오므로, 이미 claim 된
+  # 주문까지 여기서 phase=ready state.json 을 만들면 팀장 재시작 때 에이전트 브랜치의 같은 경로와
+  # add/add 충돌이 난다(2026-09-23). 폴더는 claim 전 단계의 몫이라는 스펙 의도대로 ready 만 남긴다.
+  _rows=$(printf '%s' "$_body" | jq -c '[.assigned[]?]' | filter_projects '' | jq -c '[.[] | select(.status == "ready")]') || die 6 "목록 해석 실패"
+  _total=$(printf '%s' "$_body" | jq '[.assigned[]?] | length')
+  [ "$_total" -lt 100 ] || printf '⚠ 목록이 100건에서 잘렸을 수 있습니다 — 남은 작업은 다음 scaffold 에서 만듭니다.\n' >&2
+  _kept=$(printf '%s' "$_rows" | jq 'length')
+  _api=$(base) || exit $?
+  _list=$(printf '%s' "$_rows" | jq -r '.[] | [.id, .project_id, (((.item.external_ref // "") | split("/") | last) // "")] | @tsv') \
+    || die 6 "목록 해석 실패"
+  _created=0; _skipped=0; _noref=0; _new=''
+  # here-doc 으로 받는다 — 파이프 while 은 서브셸이라 카운터가 부모에 남지 않는다.
+  while IFS="$(printf '\t')" read -r _oid _pid _tsk; do
+    [ -n "$_oid" ] || continue
+    [ -n "$_tsk" ] || { _noref=$((_noref + 1)); continue; }
+    case "$_tsk" in .|..|*[!A-Za-z0-9._-]*) _skipped=$((_skipped + 1)); continue ;; esac
+    _dd=$(dflow_config_docs_dir "$_pid" 2>/dev/null) || { _skipped=$((_skipped + 1)); continue; }
+    _rel="$_dd/tasks/$_tsk"
+    [ ! -e "$_top/$_rel" ] || { _skipped=$((_skipped + 1)); continue; }
+    mkdir -p "$_top/$_rel" || die 6 "폴더 생성 실패: $_rel"
+    jq -n --arg t "$_tsk" --arg o "$_oid" --arg a "$_api" '{tsk:$t, order:$o, api_base:$a, phase:"ready"}' \
+      > "$_top/$_rel/state.json.tmp" && mv "$_top/$_rel/state.json.tmp" "$_top/$_rel/state.json" \
+      || die 6 "state.json 쓰기 실패: $_rel"
+    _created=$((_created + 1)); _new="$_new$_rel/state.json
+"
+  done <<EOF
+$_list
+EOF
+  _note=''
+  if [ "$_created" -gt 0 ]; then
+    _dev=$(dflow_config_branch dev 2>/dev/null) || _dev=''
+    if [ -z "$_dev" ] || [ "$(git -C "$_top" branch --show-current)" != "$_dev" ]; then
+      _note=' (개발 브랜치가 아니라 커밋하지 않음)'
+    else
+      set --
+      while IFS= read -r _f; do [ -n "$_f" ] && set -- "$@" "$_f"; done <<EOF
+$_new
+EOF
+      # 경로를 명시한 commit(--only) — 사람이 stage 해 둔 다른 파일을 싣지 않는다.
+      git -C "$_top" add -- "$@" && git -C "$_top" commit -q -m "chore(dflow): 담당 작업 폴더 ${_created}건 생성" -- "$@" \
+        || die 6 "scaffold 커밋 실패"
+      git -C "$_top" push -q origin "HEAD:$_dev" 2>/dev/null || _note=' (push 실패 — 로컬 커밋만 남김)'
+    fi
+  fi
+  [ "$_noref" -eq 0 ] || [ "$_noref" -ne "$_kept" ] \
+    || _note="$_note (서버에 external_ref 응답이 없습니다 — D'Flow 업데이트 필요)"
+  printf 'scaffold created=%d skipped=%d no_ref=%d%s\n' "$_created" "$_skipped" "$_noref" "$_note"
+}
+
 cmd_progress() {
   _id=$(resolve_ref "$1"); _pct="$2"; _sum="$3"
   [ "$_pct" -ge 0 ] 2>/dev/null && [ "$_pct" -le 99 ] || die 2 "pct 는 0~99 — 완료는 done 을 쓰세요."
@@ -565,6 +623,7 @@ case "$CMD" in
        watch) cmd_watch "$@" ;;
        done) [ $# -ge 2 ] || usage; cmd_done "$@" ;;
        release) [ $# -ge 1 ] || usage; cmd_release "$@" ;;
+       scaffold) cmd_scaffold "$@" ;;
        *) usage ;;
      esac ;;
 esac

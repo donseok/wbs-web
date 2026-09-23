@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
     const itemById = new Map<string, unknown>()
     if (itemIds.length > 0) {
       const { data: items, error: itemErr } = await admin
-        .from('wbs_items').select('id, code, name, planned_start, planned_end').in('id', itemIds)
+        .from('wbs_items').select('id, code, name, planned_start, planned_end, external_ref').in('id', itemIds)
       if (itemErr) {
         console.error('[agent-api] mine 항목 컨텍스트 조회 실패:', itemErr.message)
         return apiInternalError()

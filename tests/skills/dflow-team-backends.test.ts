@@ -86,11 +86,11 @@ describe('dflow-team backends.md·events.md 계약(스펙 §3-5·§4-2·§4-6·�
 
   it('events.md 는 일곱 이벤트와 스펙 §9-3 추가 필드를 표로 담는다', () => {
     for (const row of [
-      '| `team.start` | 「1. 시작」 4번 | `backend`, `slots`, `until`, `wp` |', // wp 는 87805910
-      '| `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 4번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |',
-      '| `team.result` | 「3. 결과 처리」, 「1. 시작」 4번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |',
-      '| `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 4번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |',
-      '| `team.answer` | 「6. blocked」 답 매칭, 「1. 시작」 4번(대기 중인 답 재기록) | `id8`, `answer` |',
+      '| `team.start` | 「1. 시작」 5번 | `backend`, `slots`, `until`, `wp` |', // wp 는 87805910
+      '| `team.spawn` | 「5. 팀원 spawn」 6번, 「5-1. 재개 spawn」 7번, 「1. 시작」 5번(이어받은 슬롯 재기록) | `slot`, `id8`, `worktree`, `handle`, `spawn_kind` |',
+      '| `team.result` | 「3. 결과 처리」, 「1. 시작」 5번(이어받은 해시 재기록) | `slot`, `id8`, `status`, `worktree`, `hash`, `reason` |',
+      '| `team.blocked` | 「3. 결과 처리」·「6. blocked」, 「1. 시작」 5번(이어받은 해시·답 대기 재기록) | `slot`, `id8`, `worktree`, `hash`, `reason` |',
+      '| `team.answer` | 「6. blocked」 답 매칭, 「1. 시작」 5번(대기 중인 답 재기록) | `id8`, `answer` |',
       '| `team.sweep` | 「4. 승인 스윕」 | `merged`, `waiting`, `rejected` |',
       '| `team.stop` | 「7. 마감」 | 없음 |',
     ]) expect(e(), row).toContain(row)
