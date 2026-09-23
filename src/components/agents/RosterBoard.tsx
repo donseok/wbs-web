@@ -151,7 +151,7 @@ function HostCard({ host, nowMs, selectedKey, onSelect, onReleaseLead }: {
             (2026-09-23 사용자 요청). 한 PC 가 여러 프로젝트의 팀장이면 칩마다 층 이름을 붙여 구분한다. */}
         <span className="ml-auto flex flex-wrap items-center gap-2">
           {leads.map(l => (
-            <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={leads.length > 1 ? l.floorName : undefined}
+            <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={leads.length > 1 ? l.floorName : undefined} hideHost
               onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
           ))}
           {host.slots !== null && <span className="text-xs font-semibold tabular-nums text-ink-muted">자리 {busy}/{host.slots}</span>}
