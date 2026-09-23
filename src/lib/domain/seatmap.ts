@@ -97,7 +97,11 @@ export interface LeadLease {
   canRelease: boolean
 }
 export interface Floor { id: string; name: string; zones: Zone[]; seatCount: number; doneCount: number; watchers: Watcher[]; leads: LeadLease[] }
-export interface Attention { orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string }
+export interface Attention {
+  orderId: string; id8: string; floorName: string; code: string; name: string; state: SeatState; why: string
+  /** 머지 충돌 표시(팀장 대리, 2026-09-23). state 는 좌석 상태(WAIT·DONE) 그대로이고 이 표식이 띠 순서를 정한다. */
+  mergeConflict?: boolean
+}
 export interface Seatmap {
   floors: Floor[]
   counters: { active: number; standby: number; idle: number; offline: number }
@@ -146,6 +150,10 @@ export function isSubtreeManagerOf(
 
 const WORK_STATES: readonly SeatState[] = ['ACTIVE', 'STALE', 'REJECTED', 'BLOCKED']
 const ATTENTION_ORDER: readonly SeatState[] = ['BLOCKED', 'STALE', 'OFFLINE', 'REJECTED']
+/** 확인 필요 띠 순서 — 머지 충돌은 BLOCKED 바로 뒤. WAIT·DONE 은 ATTENTION_ORDER 밖(-1)이라 따로 매긴다. */
+function attentionRank(a: Attention): number {
+  return a.mergeConflict ? 0.5 : ATTENTION_ORDER.indexOf(a.state)
+}
 
 export function ageLabel(fromIso: string | null, nowMs: number): string {
   if (!fromIso) return '—'
@@ -201,7 +209,7 @@ function toSeat(o: OrderRow, item: ItemRow | undefined, review: ReviewRow | unde
     agent, progress: Math.max(0, Math.min(100, Math.round(item?.actual_pct ?? 0))),
     lastSignalAt: o.status === 'claimed' ? signal : null,
     heartbeatAt: o.last_heartbeat_at, heartbeatPhase: o.heartbeat_phase,
-    note: o.heartbeat_phase === 'blocked' ? o.heartbeat_note : null,
+    note: o.heartbeat_phase === 'blocked' || o.heartbeat_phase === 'merge_conflict' ? o.heartbeat_note : null,
     // 표식은 점유 중인 주문에서만 뜻이 있다 — 중단·승인으로 떠난 주문의 옛 요청을 화면에 남기지 않는다.
     resumeRequestedAt: o.status === 'claimed' ? (o.resume_requested_at ?? null) : null,
     resumeRequestedHost: o.status === 'claimed' ? (o.resume_requested_host ?? null) : null,
@@ -361,6 +369,10 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
   const counters = { active: 0, standby: aliveWatchers.length, idle: 0, offline: 0 }
   const attention: Attention[] = []
   for (const f of floors) for (const z of f.zones) for (const s of z.seats) {
+    // 머지 충돌은 승인 대기·승인 좌석에서 난다 — DONE 을 건너뛰기 전에 띠에 넣는다(카운터에는 넣지 않는다).
+    if (s.heartbeatPhase === 'merge_conflict') {
+      attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: `머지 충돌 · ${s.note ?? '확인 필요'}`, mergeConflict: true })
+    }
     if (s.state === 'DONE') continue // 승인분은 doneCount 로 따로 센다 — 현황판 넷에 끼우지 않는다
     if (WORK_STATES.includes(s.state)) counters.active++
     else if (s.state === 'WAIT') counters.idle++
@@ -369,7 +381,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
       attention.push({ orderId: s.orderId, id8: s.id8, floorName: f.name, code: s.code, name: s.name, state: s.state, why: attentionWhy(s, nowMs) })
     }
   }
-  attention.sort((a, b) => ATTENTION_ORDER.indexOf(a.state) - ATTENTION_ORDER.indexOf(b.state))
+  attention.sort((a, b) => attentionRank(a) - attentionRank(b))
 
   return { floors, counters, attention, fetchedAt: new Date(nowMs).toISOString(), scope: mine ? 'mine' : 'all' }
 }

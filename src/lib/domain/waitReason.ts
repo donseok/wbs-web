@@ -4,7 +4,7 @@
 import { predecessorReached } from './agentWork'
 import { STAGE_LABEL_KO, isStageCode } from './stageLabels'
 
-export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup'
+export type WaitReasonKind = 'dependency' | 'agent_off' | 'agents_busy' | 'pickup' | 'merge_conflict'
 export interface WaitReason { kind: WaitReasonKind; label: string; text: string }
 
 export function stageText(stage: string | null): string {
@@ -16,6 +16,8 @@ export interface PredecessorLike {
   external_ref: string; code: string; name: string; stage: string | null; order_approved: boolean
   /** 선행 충족 세 번째 축(스펙 2026-09-15 §3.7) — 실적 100 이면 충족. 선택 필드: 모르는 호출부는 앞의 두 축으로만 판정한다. */
   actual_pct?: number | null
+  /** 선행 주문이 개발 브랜치와 머지 충돌 중(heartbeat_phase=merge_conflict, 2026-09-23). 선택 필드 — 모르는 호출부는 싣지 않는다. */
+  merge_conflict?: boolean
 }
 export interface UnmetDepend { ref: string; found: boolean; code?: string; name?: string; stage?: string | null }
 
@@ -74,6 +76,14 @@ export function deriveWaitReason(args: {
     return {
       kind: 'agents_busy', label: '에이전트 바쁨',
       text: `에이전트 ${eligible.length}개가 켜져 있지만 모두 다른 작업 중입니다(${eligible.map(watcherLabel).join(', ')}). 자리가 비면 다음 확인 주기에 자동으로 집어갑니다.`,
+    }
+  }
+  // 선행이 머지 충돌 중이면 claim 게이트는 통과하지만 팀장 사전 필터가 거른다(2026-09-23 §6.3) — 그 이유를 보여 준다.
+  const conflicted = (args.depends ?? []).map(r => args.predecessorByRef(r)).filter((p): p is PredecessorLike => p?.merge_conflict === true)
+  if (conflicted.length > 0) {
+    return {
+      kind: 'merge_conflict', label: '선행 머지 충돌',
+      text: `선행 ${conflicted.map(p => p.code).join(', ')} 가 개발 브랜치와 충돌해 머지 대기 중입니다. 해소되면 자동으로 착수합니다.`,
     }
   }
   return {

@@ -244,6 +244,14 @@ describe('assembleSeatmap — 착수 대기 사유(waitReason)', () => {
     expect(seatOf(missing).waitReason?.text).toContain('(로스터에 없음)')
     expect(seatOf(missing).waitReason?.text).toContain('계정이 로스터에 연결돼 있지 않아')
   })
+  it('선행이 merge_conflict 이면 pickup 대신 merge_conflict(선행 머지 충돌)로 말한다', () => {
+    const base = { orders: [ready()], items: [{ id: 'i1', project_id: P1, code: 'T', name: 'n', parent_id: 'z1', actual_pct: 0, assignee_member_id: null, tags: ['agent'], depends: ['M/T1'] }], watchers: [w()] }
+    const m = assembleSeatmap(rows({ ...base, predecessors: [{ id: 'x', project_id: P1, external_ref: 'M/T1', code: 'TSK-03-01', name: 'x', stage: 'im', order_approved: false, merge_conflict: true }] }), NOW)
+    expect(seatOf(m).waitReason?.kind).toBe('merge_conflict')
+    expect(seatOf(m).waitReason?.label).toBe('선행 머지 충돌')
+    expect(seatOf(m).waitReason?.text).toContain('선행 TSK-03-01 가 개발 브랜치와 충돌해 머지 대기 중입니다')
+    expect(seatOf(m).anim).toBe('empty')
+  })
 })
 
 describe('재개 요청 표식(0099) — 멈춘 좌석에서 사람이 누른 흔적', () => {
@@ -428,5 +436,35 @@ describe('assembleSeatmap — 내 에이전트·다른 계정 구분(2026-09-19)
     expect(byAgent['me/mbp/lead']).toMatchObject({ mine: true, ownerName: null })
     expect(byAgent['hong/win/lead']).toMatchObject({ mine: false, ownerName: '홍길동' })
     expect(byAgent['kim/lx/lead']).toMatchObject({ mine: false, ownerName: null })
+  })
+})
+
+describe('assembleSeatmap — 머지 충돌 표시(2026-09-23 §7.3)', () => {
+  it('reported·approved 주문의 merge_conflict 는 좌석 phase 와 note 로 싣고 상태는 WAIT·DONE 그대로', () => {
+    const m = assembleSeatmap(rows({ orders: [
+      order({ id: '1'.repeat(8) + '-a', status: 'reported', heartbeat_phase: 'merge_conflict', heartbeat_note: '충돌 2개(src/a.ts…) · 해소 중 w2 1/3', updated_at: ago(60_000) }),
+    ] }), NOW)
+    const s = m.floors[0].zones[0].seats[0]
+    expect(s.state).toBe('WAIT')
+    expect(s.phase).toBe('merge_conflict')
+    expect(s.note).toBe('충돌 2개(src/a.ts…) · 해소 중 w2 1/3')
+  })
+  it('확인 필요 띠: 머지 충돌은 BLOCKED 바로 뒤, DONE 좌석도 든다', () => {
+    const m = assembleSeatmap(rows({ orders: [
+      order({ id: '1'.repeat(8) + '-a', last_heartbeat_at: ago(STALE_MS + 1), updated_at: ago(STALE_MS + 1) }),
+      order({ id: '2'.repeat(8) + '-b', status: 'approved', heartbeat_phase: 'merge_conflict', heartbeat_note: '사람 머지 필요: 해소 상한(3/3)', updated_at: ago(60_000) }),
+      order({ id: '3'.repeat(8) + '-c', heartbeat_phase: 'blocked', heartbeat_note: '어느 DB?' }),
+      order({ id: '4'.repeat(8) + '-d', status: 'reported', heartbeat_phase: 'merge_conflict', heartbeat_note: '충돌 1개(a) · 해소 대기 1/3' }),
+    ] }), NOW)
+    expect(m.attention.map(a => [a.state, a.mergeConflict ?? false])).toEqual([
+      ['BLOCKED', false], ['DONE', true], ['WAIT', true], ['STALE', false],
+    ])
+    expect(m.attention[1].why).toBe('머지 충돌 · 사람 머지 필요: 해소 상한(3/3)')
+    // DONE 은 여전히 현황판 넷(active·idle·offline)에 끼지 않는다
+    expect(m.counters).toEqual({ active: 2, standby: 0, idle: 1, offline: 0 })
+  })
+  it('blocked 가 아닌 워커 phase 의 note 는 여전히 싣지 않는다', () => {
+    const m = assembleSeatmap(rows({ orders: [order({ heartbeat_phase: 'build', heartbeat_note: '남은 값' })] }), NOW)
+    expect(m.floors[0].zones[0].seats[0].note).toBeNull()
   })
 })
