@@ -58,7 +58,7 @@
 | `src/components/agents/FloorCard.tsx` · `SeatmapView.tsx` · `seatmap.module.css` | lease 표시·해제 버튼 | 6 |
 | `tests/domain/seatmap.test.ts` · `tests/components/agents-seatmap-view.test.tsx` · `tests/actions/…` | 화면·액션 | 6 |
 
-Task 의존: 2·3·6 은 Task 1 의 함수 이름·반환 모양을, 5 는 Task 4 의 명령·출력을 쓴다. 이름은 이 계획에 고정돼 있으므로 **2·3·4·6 은 병렬로 해도 된다.** 5 는 4 뒤, 7 은 모두 끝난 뒤다.
+Task 의존: 2·3·6 은 Task 1 의 함수 이름·반환 모양을, 5 는 Task 4 의 명령·출력을 쓴다. 이름은 이 계획에 고정돼 있으므로 **2·4·6 은 병렬로 해도 된다.** 3 은 2 뒤(`src/lib/agent/leadLease.ts` 의 `HOLDER_RE` 를 쓴다), 5 는 4 뒤, 7 은 모두 끝난 뒤다.
 
 ---
 
@@ -762,7 +762,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Test: `tests/agent/watch-route.test.ts`
 
 **Interfaces:**
-- Consumes: 테이블 `agent_lead_leases`(Task 1), `HOLDER_RE`(Task 2 의 `src/lib/agent/leadLease.ts`. 병렬로 할 때는 Task 2 가 먼저 머지된다고 가정하지 말고, 이 Task 에서 같은 정규식을 import 한다. 파일이 아직 없으면 Task 2 의 Step 3 코드 그대로 파일을 만든다. 둘 다 같은 내용이면 cherry-pick 충돌 없이 합쳐진다.)
+- Consumes: 테이블 `agent_lead_leases`(Task 1), `HOLDER_RE`(Task 2 가 만든 `src/lib/agent/leadLease.ts`). Task 2 가 끝난 뒤 한다.
 - Produces: watch 본문 선택 필드 `holder`. 있으면 `resume_requests` 는 이 사용자가 그 holder 로 **유효한(expires_at > now)** lease 를 쥔 프로젝트의 것만.
 
 - [ ] **Step 1: 테스트 추가**
@@ -859,7 +859,6 @@ hostname 이 같은 다른 PC 의 팀장이 남의 재개 요청을 가져가던
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 ```
 
-(Task 2 와 병렬이라 `src/lib/agent/leadLease.ts` 를 이 Task 에서 새로 만들었다면 그 파일도 stage 한다.)
 
 ---
 
@@ -879,7 +878,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
   - `dflow.sh lease acquire [--takeover]` → exit 0 + `LEASE_OK <n>` / exit 4 + 줄마다 `LEAD_LEASE_HELD <project_id> <host> <agent> <expires_at>` / 그 밖 dflow.sh 공통 코드.
   - `dflow.sh lease renew` → exit 0 + `LEASE_OK` / exit 4 + `LEASE_LOST <pid…>` / 상태 파일 없음 exit 2 + `LEASE_NONE`.
   - `dflow.sh lease release` → exit 0 + `LEASE_RELEASED <n>` 또는 `LEASE_NONE`.
-  - `dflow.sh lease keep --pid <PID> --lost-file <path>` → 팀장 PID 가 죽으면 release 하고 0, 상태 파일이 없어지면 0, lost 면 `<path>` 에 `LEASE_LOST …` 쓰고 4, 연속 3회 실패면 `<path>` 에 `LEASE_UNREACHABLE rc=<n>` 쓰고 6. 성공한 갱신마다 `<상태 파일>.beat` 에 epoch 초를 쓴다.
+  - `dflow.sh lease keep --pid <PID> --lost-file <path>` → 팀장 PID 가 죽거나 TERM·HUP·INT 를 받으면 release 하고 0, 상태 파일이 없어지면 0, lost 면 `<path>` 에 `LEASE_LOST …` 쓰고 4, 연속 3회 실패면 `<path>` 에 `LEASE_UNREACHABLE rc=<n>` 쓰고 6. 성공한 갱신마다 `<상태 파일>.beat` 에 epoch 초를 쓴다.
   - `dflow.sh watch … --holder <h>` → 본문에 `holder`.
   - 상태 파일: `git rev-parse --path-format=absolute --git-path dflow-team.lease`, 한 줄에 `<project_id> <generation>`, 권한 600.
   - 시험용 환경 변수(문서화하지 않는다): `DFLOW_LEASE_INTERVAL`(기본 60), `DFLOW_LEASE_STEP`(기본 5), `DFLOW_MACHINE_ID_FILE`(기본 `$HOME/.dflow/machine-id`).
@@ -892,7 +891,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 // tests/skills/dflow-lead-lease.test.ts
 // 팀장 lease CLI(docs/superpowers/specs/2026-09-23-dflow-lead-lease-design.md §6). dflow.sh 를 가짜 curl 로 실제 실행한다.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -933,18 +932,16 @@ printf '%s' "$body" > "$out"; printf '%s' "$code"
 `
 
 let tmp: string, repo: string, log: string
+const envFor = (env: Record<string, string>) => ({
+  NODE_ENV: process.env.NODE_ENV,
+  PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
+  XDG_CACHE_HOME: join(tmp, 'cache'), FAKE_LOG: log,
+  DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
+  DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, DFLOW_PROJECT_MAP: `a=${P1},b=${P2}`,
+  DFLOW_LEASE_INTERVAL: '1', DFLOW_LEASE_STEP: '1', ...env,
+})
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync('sh', [DFLOW, ...args], {
-    cwd: repo, encoding: 'utf8',
-    env: {
-      NODE_ENV: process.env.NODE_ENV,
-      PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, HOME: join(tmp, 'home'),
-      XDG_CACHE_HOME: join(tmp, 'cache'), FAKE_LOG: log,
-      DFLOW_ENV_FILE: join(tmp, 'no-such-env'), DFLOW_CONFIG_DIR: join(tmp, 'no-config'),
-      DFLOW_API_BASE: 'https://x.test', DFLOW_PATS: TOKEN, DFLOW_PROJECT_MAP: `a=${P1},b=${P2}`,
-      DFLOW_LEASE_INTERVAL: '1', DFLOW_LEASE_STEP: '1', ...env,
-    },
-  })
+  return spawnSync('sh', [DFLOW, ...args], { cwd: repo, encoding: 'utf8', env: envFor(env) })
 }
 const sent = () => readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l))
 const stateFile = () => join(repo, '.git', 'dflow-team.lease')
@@ -1051,6 +1048,18 @@ describe('lease keep', () => {
     const r = run(['lease', 'keep', '--pid', String(process.pid), '--lost-file', join(tmp, 'lost')], { FAKE_MODE: 'down' })
     expect(r.status).toBe(6)
     expect(readFileSync(join(tmp, 'lost'), 'utf8')).toMatch(/^LEASE_UNREACHABLE rc=6/)
+  })
+  it('SIGTERM 을 받으면 release 하고 끝난다(세션 종료가 백그라운드 태스크를 거둘 때)', async () => {
+    run(['lease', 'acquire'])
+    const child = spawn('sh', [DFLOW, 'lease', 'keep', '--pid', String(process.pid), '--lost-file', join(tmp, 'lost')], {
+      cwd: repo, env: envFor({}),
+    })
+    await new Promise(r => setTimeout(r, 1500))   // 첫 갱신까지
+    child.kill('SIGTERM')
+    const code = await new Promise<number | null>(r => child.on('exit', c => r(c)))
+    expect(code).toBe(0)
+    expect(sent().some(b => b.op === 'release')).toBe(true)
+    expect(existsSync(stateFile())).toBe(false)
   })
   it('성공한 갱신마다 beat 파일을 쓴다', () => {
     run(['lease', 'acquire'])
@@ -1167,6 +1176,8 @@ lease_keep() {
   [ -n "$_pid" ] && [ -n "$_lf" ] || usage
   _iv="${DFLOW_LEASE_INTERVAL:-60}"; _st="${DFLOW_LEASE_STEP:-5}"; _fails=0
   _sf=$(lease_state_file) || die 2 "LEASE_STATE git 리포 안에서 실행하라"
+  # 세션이 끝나며 백그라운드 태스크를 신호로 거두면 kill -0 분기에 닿지 못한다. 그때도 바로 반납한다.
+  trap '(lease_release) >/dev/null 2>&1; exit 0' TERM HUP INT
   while :; do
     # 팀장이 죽었으면 바로 반납한다 — TTL 을 기다리면 같은 신원이 다른 곳에서 3분간 시작하지 못한다.
     kill -0 "$_pid" 2>/dev/null || { (lease_release) >/dev/null 2>&1; exit 0; }
@@ -1317,10 +1328,11 @@ describe('dflow-team lease', () => {
     expect(s).toMatch(/LEASE_KEEP_DEAD/)
     expect(s).toMatch(/\| `LEASE_LOST/)
   })
-  it('lease 상실 마감은 워커를 건드리지 않고 release 를 부르지 않는다', () => {
+  it('lease 상실 마감은 워커를 건드리지 않고, 6번 블록의 release 가 남의 lease 를 풀지 않는 이유를 적는다', () => {
     const s = section('**lease 상실 마감**', '## 좌석표 연동')
     expect(s).toMatch(/워커[^\n]*건드리지 않는다/)
-    expect(s).toMatch(/lease release[^\n]*부르지 않는다/)
+    expect(s).toMatch(/holder·generation 이 맞는 행만/)
+    expect(s).toMatch(/새 claim·새 spawn·승인 스윕·머지를 하지 않는다/)
   })
   it('정상 마감은 lease release 를 부른다', () => {
     const s = section('## 7. 마감', '**잠금 상실 마감**')
@@ -1470,12 +1482,14 @@ lb=$(cat "$LB" 2>/dev/null); lb=${lb:-0}
 1. "팀장 lease 상실: <사유>. 이 프로젝트는 다른 곳의 팀장이 맡았다" 를 보고한다.
 2. 새 claim·새 spawn·승인 스윕·머지를 하지 않는다. 대기 큐는 보고만 하고 비운다.
 3. 떠 있는 poll 을 TaskStop 으로 멈추고, 세대 파일의 세대를 올려 감시 루프를 끝낸다. lease 갱신 프로세스는 이미
-   끝나 있다(표식을 쓰고 끝난다). **`dflow.sh lease release` 는 부르지 않는다.** 이미 남의 lease 다.
+   끝나 있다(표식을 쓰고 끝난다).
 4. **떠 있는 워커는 건드리지 않는다.** 워커는 하던 작업을 끝까지 하고 agent 브랜치 push 와 done 보고를 한다. 그
    결과는 새 팀장의 승인 스윕이 서버에서 이어받는다. 팀원 pane·탭을 닫지 않고 `kill-server` 도 하지 않는다.
-5. 좌석표에 감시 종료를 알리고(6번 블록의 `watch --stop`), 6번의 소유 판정이 참이면 로컬 잠금을 지운다. 이유:
-   같은 체크아웃에서 사람이 나중에 팀장을 다시 띄울 수 있어야 한다. 표식 파일(`dflow-team.lease-lost`)은 다음
-   시작의 전제 검사가 지운다.
+5. 「7. 마감」 6번 블록을 그대로 실행한다: 좌석표 감시 종료, `lease release`, 로컬 잠금 삭제(소유 판정이 참일 때).
+   그 블록의 `lease release` 는 남의 lease 를 풀지 않는다. 서버가 holder·generation 이 맞는 행만 풀기 때문에
+   빼앗긴 lease 에는 0건으로 끝나고, 서버에 닿지 못해 끝난 경우(`LEASE_UNREACHABLE`)에는 아무도 가져가지 않은 내
+   lease 를 바로 풀어 준다. 이유(로컬 잠금 삭제): 같은 체크아웃에서 사람이 나중에 팀장을 다시 띄울 수 있어야 한다.
+   표식 파일(`dflow-team.lease-lost`)은 다음 시작의 전제 검사가 지운다.
 6. 7번(남은 에이전트 확인)을 그대로 한다.
 7. 보고에 남은 슬롯(TSK·id8·워크트리 경로·pane id)과 "워커 N명은 하던 작업을 끝낸 뒤 스스로 끝난다" 를 적는다.
 ```
@@ -1519,6 +1533,7 @@ Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>"
 - Modify: `src/lib/data/agentSeatmap.ts` (lease 조회)
 - Modify: `src/app/actions/agentSeatmap.ts` (`releaseLeadLease`)
 - Modify: `src/components/agents/FloorCard.tsx`, `src/components/agents/SeatmapView.tsx`, `src/components/agents/seatmap.module.css`
+- 모델: 이 Task 는 기존 화면·액션 테스트 방식을 읽고 맞춰야 하므로 중간 등급(Sonnet) 이상에 맡긴다.
 - Test: `tests/authz/lead-lease-release.test.ts`, `tests/domain/seatmap.test.ts`, `tests/components/agents-seatmap-view.test.tsx`, `tests/actions/agent-seatmap-release-lease.test.ts`
 
 **Interfaces:**
@@ -1577,23 +1592,40 @@ Run: `npx vitest run tests/authz/lead-lease-release.test.ts` → PASS.
 
 `tests/domain/seatmap.test.ts` 에 추가(기존 파일의 행 생성 도우미와 `assembleSeatmap` 호출 방식을 따른다. 층이 생기려면 그 프로젝트의 주문이 하나 있어야 한다):
 
+import 줄에 `type LeaseRow` 를 더하고, 파일 끝에 추가한다. `rows()`·`ago`·`NOW`·`P1` 은 파일 머리의 도우미다. 기본 `rows()` 의 주문은 `claimed_by_user_id: 'u1'` 이라 `mine: u1` 에서도 층이 생긴다.
+
 ```ts
 describe('층의 팀장 lease', () => {
+  const lease = (user_id: string, expInMs: number): LeaseRow => ({
+    user_id, project_id: P1, host: user_id === 'u1' ? 'mbp' : 'air', agent: `${user_id}/x/lead`,
+    renewed_at: ago(30_000), expires_at: new Date(NOW + expInMs).toISOString(),
+  })
+  const v = (admin: boolean) => ({ userId: 'u1', memberIds: new Set<string>(), adminProjectIds: new Set<string>(admin ? [P1] : []) })
   it('유효한 lease 를 층에 싣고, 본인·관리자만 canRelease', () => {
-    // rows: 프로젝트 P1 에 주문 하나 + leases 두 개(내 것 u-1, 남의 것 u-9). 보는 사람 u-1, 관리자 아님.
-    // 기대: floor.leads 길이 2, u-1 행은 mine=true·canRelease=true, u-9 행은 mine=false·canRelease=false.
-    // 같은 rows 에 viewer.adminProjectIds 에 P1 을 넣으면 u-9 행도 canRelease=true.
+    const m = assembleSeatmap(rows({ leases: [lease('u1', 120_000), lease('u9', 120_000)] }), NOW, { viewer: v(false) })
+    const by = Object.fromEntries(m.floors[0].leads.map(l => [l.userId, l]))
+    expect(by.u1).toMatchObject({ mine: true, canRelease: true, host: 'mbp' })
+    expect(by.u9).toMatchObject({ mine: false, canRelease: false, host: 'air' })
+    const adm = assembleSeatmap(rows({ leases: [lease('u9', 120_000)] }), NOW, { viewer: v(true) })
+    expect(adm.floors[0].leads[0].canRelease).toBe(true)
   })
   it('만료된 lease 는 싣지 않는다', () => {
-    // expires_at 이 nowMs 이전인 행은 floor.leads 에 없다.
+    const m = assembleSeatmap(rows({ leases: [lease('u1', -1000)] }), NOW, { viewer: v(false) })
+    expect(m.floors[0].leads).toEqual([])
   })
-  it('scope=mine 이면 남의 lease 를 빼지 않는다 — 팀장 해제 대상은 남의 것이다', () => {
-    // mine 필터를 줘도 floor.leads 에 u-9 행이 남는다.
+  it('viewer 가 없으면 canRelease 는 모두 false(fail-closed)', () => {
+    const m = assembleSeatmap(rows({ leases: [lease('u1', 120_000)] }), NOW)
+    expect(m.floors[0].leads[0].canRelease).toBe(false)
+  })
+  it('scope=mine 이어도 남의 lease 를 빼지 않는다 — 팀장 해제 대상은 남의 것이다', () => {
+    const m = assembleSeatmap(rows({ leases: [lease('u9', 120_000)] }), NOW,
+      { mine: { userId: 'u1', memberIds: new Set(['m1']) }, viewer: v(false) })
+    expect(m.floors[0].leads.map(l => l.userId)).toEqual(['u9'])
   })
 })
 ```
 
-위 주석을 기존 파일의 도우미(`orderRow`·`itemRow` 등 이름은 파일에서 확인)로 실제 코드로 채운다. 기대값은 주석 그대로다.
+`leases` 가 없는 기존 `rows()` 호출은 그대로 두어도 `leads: []` 가 된다(선택 필드).
 
 - [ ] **Step 4: 도메인 구현**
 

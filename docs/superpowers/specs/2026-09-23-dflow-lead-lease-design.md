@@ -65,7 +65,7 @@ alter table agent_lead_leases enable row level security;
 
 RLS 는 켜고 정책은 두지 않는다. 0095 가 `agent_watchers` 의 select 정책을 지운 이유(로그인 사용자 전체가 남의 신원·host 를 읽게 됨)가 이 테이블에도 그대로 해당한다. 오피스 화면은 좌석표 조회(`src/lib/data/agentSeatmap.ts`)처럼 서버에서 admin 클라이언트로 읽는다.
 
-DB 함수 세 개(`security definer` 아님, service_role 이 부른다). 모두 한 트랜잭션에서 대상 행을 `for update` 로 잠근다.
+DB 함수 넷(`security definer` 아님, 실행 권한은 service_role 에게만). acquire 는 대상 행을 `for update` 로 잠그고, 나머지는 조건부 update 로 CAS 한다.
 
 ### `lead_lease_acquire(p_user uuid, p_projects uuid[], p_holder text, p_host text, p_agent text, p_takeover boolean)`
 1. 없는 행은 `holder=null, generation=0` 으로 insert (`on conflict do nothing`).
@@ -83,9 +83,12 @@ DB 함수 세 개(`security definer` 아님, service_role 이 부른다). 모두
 ### `lead_lease_release(p_user uuid, p_holder text, p_leases jsonb)`
 holder·generation 이 맞는 행만 `holder = null, expires_at = now(), generation = generation + 1`. 행을 지우지 않는다: generation 을 이어 가야 옛 팀장의 갱신이 확실히 실패한다.
 
-웹 강제 해제는 같은 효과를 holder·generation 조건 없이 낸다(§7).
+### `lead_lease_force_release(p_user uuid, p_project uuid)`
+웹 강제 해제(§7). 살아 있는 lease(`holder is not null and expires_at >= now()`)만 release 와 같은 효과로 풀고, holder·generation 조건은 보지 않는다. 풀린 행 수를 돌려준다.
 
-TTL 3분은 서버 상수 하나로 둔다(`LEAD_LEASE_TTL_SECONDS`). 함수 인자로 받지 않는다.
+TTL 3분은 SQL 함수 `lead_lease_ttl()` 한 곳에만 둔다. 함수 인자로 받지 않는다.
+
+리허설 동작 검증은 `scripts/checks/0101_lead_lease_check.sql`(롤백되는 트랜잭션 안의 assert)로 한다.
 
 ## 5. API — `POST /api/v1/agent/lead/lease`
 
@@ -117,9 +120,9 @@ PAT 전용(레거시 시크릿은 `identity_required` 400). `requireScope(princi
 | 하위 명령 | 동작 | 출력·종료 |
 |---|---|---|
 | `lease acquire [--takeover]` | 대상 = `dflow.sh config projects` 전체. 성공하면 상태 파일을 쓴다 | 0 + `LEASE_OK <n>`. 막히면 4 + 줄마다 `LEAD_LEASE_HELD <project_id> <host> <agent> <expires_at>` |
-| `lease renew` | 상태 파일의 lease 를 갱신 | 0 + `LEASE_OK`. lost 가 있으면 4 + `LEASE_LOST <project_id…>` |
+| `lease renew` | 상태 파일의 lease 를 갱신하고 `<상태 파일>.beat` 에 epoch 초를 쓴다 | 0 + `LEASE_OK`. lost 가 있으면 4 + `LEASE_LOST <project_id…>`. 상태 파일이 없으면 2 + `LEASE_NONE` |
 | `lease release` | 상태 파일의 lease 를 반납하고 파일을 지운다 | 0 + `LEASE_RELEASED <n>`. 파일이 없으면 0 + `LEASE_NONE` |
-| `lease keep --pid <PID> --lost-file <path>` | 60초마다 renew. `kill -0 <PID>` 가 실패하면 release 하고 0 으로 끝난다. renew 가 `LEASE_LOST` 면 `<path>` 에 그 줄을 쓰고 4 로 끝난다. 네트워크 실패(6)는 다음 주기에 다시 시도하고, 연속 3회(=3분) 실패하면 `LEASE_UNREACHABLE` 을 `<path>` 에 쓰고 6 으로 끝난다 | — |
+| `lease keep --pid <PID> --lost-file <path>` | 60초마다 renew. `kill -0 <PID>` 가 실패하거나 TERM·HUP·INT 를 받으면 release 하고 0 으로 끝난다. 상태 파일이 없어지면(정상 마감의 release) 0 으로 끝난다. renew 가 `LEASE_LOST` 면 `<path>` 에 그 줄을 쓰고 4 로 끝난다. 네트워크 실패(6)는 다음 주기에 다시 시도하고, 연속 3회(=3분) 실패하면 `LEASE_UNREACHABLE` 을 `<path>` 에 쓰고 6 으로 끝난다 | — |
 | `lease holder` | holder 문자열을 찍는다(machine-id 가 없으면 만든다) | 0 |
 
 `holder` 계산과 machine-id 생성은 `dflow-config.sh` 옆의 작은 함수로 둔다. machine-id 파일 내용은 비밀이 아니지만 권한을 600 으로 둔다.
@@ -151,11 +154,12 @@ PAT 전용(레거시 시크릿은 `identity_required` 400). `requireScope(princi
 
 ### 기상마다
 watch 호출에 `--holder "$(dflow.sh lease holder)"` 를 더한다(재개 요청 거르기, §5).
+`<상태 파일>.beat` 가 180초 넘게 낡았으면 `LEASE_KEEP_DEAD` 로 보고하고 `lease renew` 를 한 번 부른다. `LEASE_OK` 면 `lease keep` 을 다시 띄우고, `LEASE_LOST`·`LEASE_NONE` 이면 lease 상실 마감으로 간다(§12 의 「`lease keep` 만 죽음」).
 
 ### `LEASE_LOST` 기상 → 밀려난 팀장의 마감
 1. "팀장 lease 상실(다른 곳에서 인수)" 로 보고한다.
 2. 새 claim·새 spawn·승인 스윕을 하지 않는다.
-3. poll·감시 루프·`lease keep` 을 거둔다. `lease release` 는 부르지 않는다(이미 남의 것이다).
+3. poll·감시 루프를 거둔다(`lease keep` 은 표식을 쓰고 이미 끝나 있다). 정상 마감의 블록을 그대로 써서 `lease release` 를 불러도 된다: 서버가 holder·generation 이 맞는 행만 풀므로 빼앗긴 lease 에는 0건이고, `LEASE_UNREACHABLE` 로 끝난 경우에는 아무도 가져가지 않은 내 lease 를 바로 푼다.
 4. **떠 있는 워커는 건드리지 않는다.** 워커는 하던 작업을 끝까지 하고 agent 브랜치 push 와 done 보고를 한다. 그 결과는 새 팀장의 승인 스윕이 서버에서 이어받는다.
 5. 로컬 잠금(`dflow-team.lock`)을 지우고 끝낸다. 이유: 같은 리포에서 새 팀장을 다시 띄울 수 있어야 한다.
 6. 보고에 "워커 N명은 하던 작업을 끝낸 뒤 스스로 끝난다" 와 그 슬롯 목록을 적는다.
@@ -193,6 +197,6 @@ watch 호출에 `--holder "$(dflow.sh lease holder)"` 를 더한다(재개 요�
 |---|---|
 | 서버가 0101 없이 새 스킬을 받음(404) | 팀장이 시작하지 못하고 사유를 보고한다(fail-closed). 운영 순서를 DB 먼저로 고정 |
 | 팀장 기상 처리가 길어 갱신이 끊김 | 갱신은 별도 `lease keep` 프로세스가 하므로 기상 처리와 무관하다 |
-| `lease keep` 만 죽음 | lease 가 3분 뒤 만료되고 다른 곳이 가져갈 수 있다. 이 팀장은 다음 기상의 watch 에서 알 수 없으므로, 기상마다 `lease keep` 이 살아 있는지 보고 죽었으면 `lease renew` 로 확인한 뒤 다시 띄운다(lost 면 `LEASE_LOST` 마감) |
+| `lease keep` 만 죽음 | lease 가 3분 뒤 만료되고 다른 곳이 가져갈 수 있다. 기상마다 `.beat` 의 나이로 keep 의 생존을 보고(`LEASE_KEEP_DEAD`), 죽었으면 `lease renew` 로 확인한 뒤 다시 띄운다(lost 면 lease 상실 마감) |
 | Windows 에서 `CLAUDE_PID` 가 없음 | 기존 관문과 같다(`NO_CLAUDE_PID` 로 시작 불가). `kill -0` 은 Git Bash 에서 동작 |
 | 두 곳이 동시에 acquire | DB 함수의 `for update` 가 직렬화한다. 늦은 쪽은 막힘 |
