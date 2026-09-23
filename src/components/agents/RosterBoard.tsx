@@ -178,7 +178,7 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
   const mine = owner?.kind === 'mine'
   const edge = `${selected ? 'border-brand ring-2 ring-brand-ring' : 'border-line hover:border-line-strong'} ${mine ? (selected ? 'ring-offset-2 ring-offset-brand' : 'shadow-[0_0_0_2px_var(--color-brand)]') : ''}`
   return (
-    <li className="flex flex-col gap-1">
+    <li className="relative flex flex-col gap-1">
       <button type="button" data-roster-desk={desk.slot} data-owner={owner?.kind} aria-pressed={selected} onClick={() => onSelect(desk.key)}
         className={`flex w-full flex-col overflow-hidden rounded-2xl border text-left transition ${edge} ${desk.kind === 'empty' ? 'border-dashed' : ''}`}>
         {/* 위에서부터 단계 말풍선 · 캐릭터 · 모델 명찰(2026-09-18 사용자 선택) — 말풍선 자리는 비어도 높이를 지켜 책상 줄이 맞는다. */}
@@ -202,6 +202,12 @@ function Desk({ desk, host, nowMs, selected, onSelect }: {
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
         </span>
       </button>
+      {/* 책상 카드에서도 바로 WBS 로 간다(2026-09-24 사용자 요청) — 카드가 <button> 이라 안에 링크를 넣지 못해
+          신호 줄 오른쪽에 겹쳐 둔다. 프로필 카드의 「WBS 에서 보기」와 같은 focus·open 딥링크다. */}
+      {desk.seat?.itemId && (
+        <Link href={`/p/${desk.seat.projectId}/wbs?focus=${desk.seat.itemId}&open=1`} data-roster-desk-wbs={desk.seat.itemId}
+          className="absolute bottom-2.5 right-3 rounded-md border border-line bg-surface px-1.5 py-0.5 text-[11px] font-semibold text-brand hover:border-brand">WBS 에서 열기</Link>
+      )}
     </li>
   )
 }

@@ -141,3 +141,16 @@ describe('에이전트 보기(RosterBoard)', () => {
     expect(desk.querySelector('[class*="opacity"]')).toBeNull()
   })
 })
+
+describe('에이전트 보기 책상 카드의 WBS 바로가기(2026-09-24)', () => {
+  it('일하는 책상에는 focus·open 딥링크가 붙고, 카드 버튼 밖에 있어 중첩되지 않는다 — 빈자리에는 없다', () => {
+    act(() => root.render(<RosterBoard roster={assembleRoster(map(
+      [seat({ agent: 'hong/alpha/w1', itemId: 'i9' })],
+      [watcher('hong/alpha/lead', { slots: 2 })],
+    ))} nowMs={NOW} />))
+    const links = [...host.querySelectorAll('[data-roster-desk-wbs]')] as HTMLAnchorElement[]
+    expect(links.map(a => a.getAttribute('href'))).toEqual(['/p/p1/wbs?focus=i9&open=1'])
+    expect(links[0].textContent).toBe('WBS 에서 열기')
+    expect(links[0].closest('button')).toBeNull()
+  })
+})
