@@ -398,6 +398,9 @@ origin/main 에 머지됐는데 트레일러가 0건이라 후속 3건 TSK-03-10
 ```bash
 .claude/skills/dflow-dev/scripts/deps.sh   # 0 이 아니면 .result 에 failed deps <DEPS_FAILED 줄의 명령과 exit>
 ```
+- `DEPS_GRADLE_JAR_MISSING <폴더>` 줄은 실패가 아니라 경고다. 그 폴더의 `gradlew` 는 wrapper jar 가 없어 돌지 않는다.
+  그 폴더의 Gradle 작업이 이번 작업에 필요하면 jar 를 커밋하거나 `.gitignore` 를 고치지 말고 팀장에게 이슈로 보고한다
+  (수동 실행이면 사용자에게 알린다). 필요 없는 폴더(예제·PoC)면 무시한다.
 - 설치 규칙은 위 표와 같다(lockfile 로 관리자를 고르고, `package.json` 이 있고 `node_modules` 가 없을 때만,
   lockfile 이 없으면 설치하지 않는다). npm 은 한 가지가 더 있다. lockfile·`node -v`·플랫폼으로 만든 키가 같은
   설치본이 리포 공용 캐시(`<git-common-dir>/dflow-deps/<키>`)에 있으면 `npm ci` 대신 그것을 복제한다. macOS 는

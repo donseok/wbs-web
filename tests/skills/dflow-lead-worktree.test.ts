@@ -494,4 +494,13 @@ describe('gradle-wrapper.jar 복구: 메인 체크아웃에서 복사한다(요�
     expect(r.out).not.toContain('DEPS_GRADLE_JAR')
     expect(readFileSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'), 'utf8')).toBe('OLD')
   })
+
+  it('메인 체크아웃에도 없으면 DEPS_GRADLE_JAR_MISSING 을 알리고 설치는 계속한다', () => {
+    commitGradlew()
+    const w = bareWorker('dflow-77777777')
+    const r = sh(w, `bash '${DEPS}'`)
+    expect(r.code, r.out).toBe(0)
+    expect(r.out).toContain('DEPS_GRADLE_JAR_MISSING sub')
+    expect(existsSync(join(w, 'sub/gradle/wrapper/gradle-wrapper.jar'))).toBe(false)
+  })
 })

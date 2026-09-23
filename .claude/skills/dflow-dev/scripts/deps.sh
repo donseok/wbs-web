@@ -5,6 +5,8 @@
 #    없을 수 있다. 메인 체크아웃(env MAIN_CHECKOUT, 없으면 `git worktree list --porcelain` 의 첫 worktree)의
 #    같은 상대 경로에 jar 가 있고 이 워크트리에 없을 때만 복사한다(이미 있으면 건드리지 않는다). gradlew 가
 #    있는 폴더(루트 포함)마다 본다. 링크가 아니라 복사인 이유: 워크트리를 지워도 메인 체크아웃 쪽이 안전하다.
+#    메인 체크아웃에도 jar 가 없으면 DEPS_GRADLE_JAR_MISSING <폴더> 로 알리기만 하고 계속한다(실패로 치지 않는다 —
+#    jar 없이 방치된 예제 폴더도 있다). 조용히 건너뛰면 팀원이 testAll 실패 뒤에야 원인을 찾는다(2026-09-24).
 # 2) JS 의존성 설치: npm(package-lock.json)이면 lockfile·node 버전·플랫폼·폴더가 같은 설치본을 리포 공용
 #    캐시(<git-common-dir>/dflow-deps/<key>)에서 복제한다. APFS·reflink 파일시스템에서는 쓸 때만 실제로
 #    복사된다. 캐시는 이 스크립트의 npm ci 가 성공한 결과로만 채운다. 사람 체크아웃의 node_modules 는 쓰지
@@ -13,7 +15,7 @@
 #    DEPS_MAXDEPTH(기본 4)로 제한한다. 폴더마다 한 줄씩 보고하며, 루트 줄의 형식은 기존 계약과 글자 그대로
 #    같다(접미사 없음) — 하위 폴더 줄만 끝에 그 폴더 경로를 붙인다.
 #
-# 출력 첫 단어: DEPS_GRADLE_JAR · DEPS_SKIP · DEPS_CLONED · DEPS_INSTALLED · DEPS_FAILED(exit 는 설치 명령의 exit)
+# 출력 첫 단어: DEPS_GRADLE_JAR · DEPS_GRADLE_JAR_MISSING · DEPS_SKIP · DEPS_CLONED · DEPS_INSTALLED · DEPS_FAILED(exit 는 설치 명령의 exit)
 set -u
 
 MAXDEPTH="${DEPS_MAXDEPTH:-4}"
@@ -23,20 +25,18 @@ MAIN="${MAIN_CHECKOUT:-}"
 if [ -z "$MAIN" ]; then
   MAIN=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
 fi
-if [ -n "$MAIN" ] && [ -d "$MAIN" ]; then
-  find . -maxdepth "$MAXDEPTH" \( -name node_modules -o -name .git -o -path ./.claude \) -prune -o -name gradlew -type f -print 2>/dev/null |
-  while IFS= read -r gw; do
-    d=$(dirname "$gw"); d=${d#./}
-    if [ "$d" = "." ]; then
-      src="$MAIN/gradle/wrapper/gradle-wrapper.jar"; dst="gradle/wrapper/gradle-wrapper.jar"
-    else
-      src="$MAIN/$d/gradle/wrapper/gradle-wrapper.jar"; dst="$d/gradle/wrapper/gradle-wrapper.jar"
-    fi
-    [ -f "$dst" ] && continue
-    [ -f "$src" ] || continue
-    mkdir -p "$(dirname "$dst")" && cp "$src" "$dst" && echo "DEPS_GRADLE_JAR $d"
-  done
-fi
+[ -n "$MAIN" ] && [ -d "$MAIN" ] || MAIN=""
+find . -maxdepth "$MAXDEPTH" \( -name node_modules -o -name .git -o -path ./.claude \) -prune -o -name gradlew -type f -print 2>/dev/null |
+while IFS= read -r gw; do
+  d=$(dirname "$gw"); d=${d#./}
+  if [ "$d" = "." ]; then rel="gradle/wrapper/gradle-wrapper.jar"; else rel="$d/gradle/wrapper/gradle-wrapper.jar"; fi
+  [ -f "$rel" ] && continue
+  if [ -n "$MAIN" ] && [ -f "$MAIN/$rel" ]; then
+    mkdir -p "$(dirname "$rel")" && cp "$MAIN/$rel" "$rel" && echo "DEPS_GRADLE_JAR $d"
+  else
+    echo "DEPS_GRADLE_JAR_MISSING $d"   # 경고만 한다(exit 0): 이 폴더의 gradlew 는 jar 가 없어 실패한다
+  fi
+done
 
 # ---- 2) JS 의존성 ----
 clone_dir() { # $1 원본 $2 대상(없어야 한다)
