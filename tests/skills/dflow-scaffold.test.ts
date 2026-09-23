@@ -179,7 +179,7 @@ describe('scaffold', () => {
       order(`aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`, P1, `MES/TSK-${i}`))
     const r = run(['scaffold'], { MINE_BODY: mine(...many), DFLOW_DEV_BRANCH: 'nope' })
     expect(r.stderr).toContain('100건에서 잘렸을 수 있습니다')
-  })
+  }, 30_000)   // 폴더 100개를 실제로 만든다 — 전체 스위트 부하에서 기본 5초를 넘는다
   it('바인딩이 없으면 exit 2 PROJECT_MISMATCH', () => {
     const r = run(['scaffold'], { MINE_BODY: mine(), DFLOW_PROJECT_ID: '', DFLOW_PROJECT_MAP: '' })
     expect(r.status).toBe(2); expect(r.stderr).toContain('PROJECT_MISMATCH')
