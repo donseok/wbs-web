@@ -76,21 +76,43 @@ describe('dflow.sh config docs-dir|tasks-dirs', () => {
   })
 })
 
-// project_map 키 검증(최종 리뷰 #5·#8). 키는 리포 최상위 기준 상대경로다 — 절대경로·'..'·빈 키는
+// project_map 키 검증(최종 리뷰 #5·#8, 잔여 수정). 키는 리포 최상위 기준 상대경로다 — 절대경로·'..'·빈 키는
 // 원격 스캔의 git diff 를 exit 128 로 죽이고(후보 0건) claim 이 리포 밖에 폴더를 만든다.
+// 잘못된 항목은 그 항목만 건너뛴다 — 무관한 잘못된 키 때문에 제대로 바인딩된 프로젝트까지 멈추지 않는다.
+const runDflow = (args: string[], env: Record<string, string>) => spawnSync('sh', [DFLOW, ...args], {
+  encoding: 'utf8', cwd: mkdtempSync(join(tmpdir(), 'dflow-td-')),
+  env: {
+    PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV, HOME: '/nonexistent',
+    DFLOW_ENV_FILE: '/nonexistent/.env', DFLOW_CONFIG_DIR: '/nonexistent', ...env,
+  } as NodeJS.ProcessEnv,
+})
 describe('project_map 키 검증 — BAD_DOCS_DIR', () => {
   const BAD = ['/Users/me/repo/docs/mdm', '../other', 'docs/../x', 'docs/..', '..', '', '/']
   for (const k of BAD) {
-    it(`키 '${k}' 면 docs_dir·tasks_dirs 는 BAD_DOCS_DIR 로 return 2`, () => {
+    it(`키 '${k}': 그 항목의 UUID 만 BAD_DOCS_DIR(return 2), 나머지는 경고와 함께 그대로 푼다`, () => {
       const env = { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `docs/ok=${C},${k}=${B}` }
       const d = lib(`dflow_config_docs_dir ${B}`, env)
       expect(d.code).toBe(2); expect(d.err).toContain('BAD_DOCS_DIR'); expect(d.out).toBe('')
-      // 다른 프로젝트를 물어도 설정이 깨졌으면 멈춘다 — 조용히 일부만 쓰지 않는다
-      expect(lib(`dflow_config_docs_dir ${A}`, env).code).toBe(2)
+      const a = lib(`dflow_config_docs_dir ${A}`, env)
+      expect(a.code, a.err).toBe(0); expect(a.out).toBe('docs\n'); expect(a.err).toContain('BAD_DOCS_DIR')
+      expect(lib(`dflow_config_docs_dir ${C}`, env).out).toBe('docs/ok\n')
       const t = lib('dflow_config_tasks_dirs', env)
-      expect(t.code).toBe(2); expect(t.err).toContain('BAD_DOCS_DIR'); expect(t.out).toBe('')
+      expect(t.code).toBe(0); expect(t.err).toContain('BAD_DOCS_DIR'); expect(t.out).toBe('docs/ok/tasks\ndocs/tasks\n')
     })
   }
+  it('project_id 와 무관한 잘못된 키(실측 .dflow.local 꼴): docs_dir 는 docs, tasks_dirs 는 docs/tasks, 둘 다 exit 0 + 경고', () => {
+    const env = { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `/Users/jji/project/mes-base=${B}` }
+    const d = lib(`dflow_config_docs_dir ${A}`, env)
+    expect(d.code, d.err).toBe(0); expect(d.out).toBe('docs\n'); expect(d.err).toContain('BAD_DOCS_DIR /Users/jji/project/mes-base')
+    const t = lib('dflow_config_tasks_dirs', env)
+    expect(t.code).toBe(0); expect(t.out).toBe('docs/tasks\n'); expect(t.err).toContain('BAD_DOCS_DIR')
+    const b = lib(`dflow_config_docs_dir ${B}`, env)
+    expect(b.code).toBe(2); expect(b.err).toContain('BAD_DOCS_DIR'); expect(b.out).toBe('')
+  })
+  it('project_id 이면서 잘못된 map 항목에도 있는 UUID 는 docs 로 조용히 물러서지 않고 exit 2', () => {
+    const r = lib(`dflow_config_docs_dir ${A}`, { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `/abs/docs=${A}` })
+    expect(r.code).toBe(2); expect(r.err).toContain('BAD_DOCS_DIR'); expect(r.out).toBe('')
+  })
   it('projects 는 잘못된 키의 UUID 를 바인딩하지 않고 BAD_DOCS_DIR 를 알린다(나머지는 그대로)', () => {
     const r = lib('dflow_config_projects', { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `docs/ok=${C},/abs/docs=${B}` })
     expect(r.code).toBe(0); expect(r.err).toContain('BAD_DOCS_DIR /abs/docs')
@@ -100,14 +122,16 @@ describe('project_map 키 검증 — BAD_DOCS_DIR', () => {
     const r = lib('dflow_config_tasks_dirs', { DFLOW_PROJECT_MAP: `docs/a..b/=${B},docs/.x=${C}` })
     expect(r.code, r.err).toBe(0); expect(r.err).toBe(''); expect(r.out).toBe('docs/.x/tasks\ndocs/a..b/tasks\n')
   })
-  it('dflow.sh config tasks-dirs 는 잘못된 키면 exit 2', () => {
-    const r = spawnSync('sh', [DFLOW, 'config', 'tasks-dirs'], {
-      encoding: 'utf8', cwd: mkdtempSync(join(tmpdir(), 'dflow-td-')),
-      env: {
-        PATH: process.env.PATH ?? '', NODE_ENV: process.env.NODE_ENV, HOME: '/nonexistent',
-        DFLOW_ENV_FILE: '/nonexistent/.env', DFLOW_CONFIG_DIR: '/nonexistent', DFLOW_PROJECT_MAP: `/abs/docs=${B}`,
-      } as NodeJS.ProcessEnv,
-    })
-    expect(r.status).toBe(2); expect(r.stderr).toContain('BAD_DOCS_DIR'); expect(r.stdout).toBe('')
+  it('dflow.sh config tasks-dirs 는 잘못된 항목만 빼고 exit 0 + 경고', () => {
+    const r = runDflow(['config', 'tasks-dirs'], { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `/abs/docs=${B}` })
+    expect(r.status).toBe(0); expect(r.stderr).toContain('BAD_DOCS_DIR'); expect(r.stdout).toBe('docs/tasks\n')
+  })
+  it('dflow.sh 는 시작 때 바인딩을 구하며 경고하지 않는다(config branch 같은 무관한 호출은 조용하다)', () => {
+    const r = runDflow(['config', 'api_base'], { DFLOW_API_BASE: 'https://x.test', DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `/abs/docs=${B}` })
+    expect(r.status, r.stderr).toBe(0); expect(r.stderr).not.toContain('BAD_DOCS_DIR')
+  })
+  it('dflow.sh config docs-dir 는 잘못된 항목의 UUID 면 exit 2', () => {
+    const r = runDflow(['config', 'docs-dir', B], { DFLOW_PROJECT_ID: A, DFLOW_PROJECT_MAP: `/abs/docs=${B}` })
+    expect(r.status).toBe(2); expect(r.stderr).toContain('BAD_DOCS_DIR')
   })
 })

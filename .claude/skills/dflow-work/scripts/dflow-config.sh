@@ -121,28 +121,31 @@ dflow_config_branch() {
   esac
   _dfc_origin_head || { echo "NO_DEFAULT_BRANCH origin/HEAD 를 알 수 없다" >&2; return 2; }
 }
-# project_map(docs/x=<uuid>,…)을 검증해 "키=uuid" 줄로 낸다(공백·CR·키 끝 / 제거, 값이 빈 항목은 버린다).
-# 키는 리포 최상위 기준 상대경로여야 한다 — 빈 키, / 로 시작하는 키, '..' 칸이 든 키는 한 줄씩 BAD_DOCS_DIR 로
-# 알리고 그 항목을 빼며, 하나라도 있으면 return 2. 그런 키는 원격 스캔의 git diff pathspec 을 리포 밖으로 보내
-# exit 128(후보 조용히 0건)을 내고, claim 이 리포 밖·엉뚱한 곳에 작업 폴더를 만든다.
+# project_map(docs/x=<uuid>,…)을 검증해 낸다(공백·CR·키 끝 / 제거, 값이 빈 항목은 버린다).
+# 키는 리포 최상위 기준 상대경로여야 한다 — 빈 키, / 로 시작하는 키, '..' 칸이 든 키는 잘못된 항목이다.
+# 그런 키는 원격 스캔의 git diff pathspec 을 리포 밖으로 보내 exit 128(후보 조용히 0건)을 내고, claim 이
+# 리포 밖·엉뚱한 곳에 작업 폴더를 만든다. 잘못된 항목은 **그 항목만** 건너뛴다 — 무관한 한 줄 때문에 제대로
+# 바인딩된 프로젝트까지 멈추면 안 된다. 늘 return 0.
+#   $1=ok(기본): 올바른 항목을 "키=uuid" 줄로 내고, 잘못된 항목마다 BAD_DOCS_DIR 한 줄을 stderr 에 낸다
+#                (DFLOW_CONFIG_QUIET 가 있으면 알리지 않는다).
+#   $1=bad     : 잘못된 항목의 UUID 만 줄로 낸다(알리지 않는다). docs_dir 가 그 UUID 를 물으면 멈추는 데 쓴다.
 _dfc_map_keys() {
-  printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | tr -d ' \r' | awk -F= '
+  printf '%s' "${DFLOW_PROJECT_MAP:-}" | tr ',' '\n' | tr -d ' \r' | awk -F= -v mode="${1:-ok}" -v quiet="${DFLOW_CONFIG_QUIET:-}" '
     NF == 2 && $2 != "" {
       k = $1
       if (k ~ /^\// || k == ".." || k ~ /^\.\.\// || k ~ /\/\.\.\// || k ~ /\/\.\.$/) bad_k = 1; else bad_k = 0
       if (!bad_k) { sub(/\/+$/, "", k); if (k == "") bad_k = 1 }
       if (bad_k) {
-        print "BAD_DOCS_DIR " ($1 == "" ? "(빈 키)" : $1) " — project_map 의 키는 리포 최상위 기준 상대경로여야 한다(빈 키·/ 로 시작·.. 금지). .dflow.local 을 고쳐라" > "/dev/stderr"
-        bad = 1; next
+        if (mode == "bad") print $2
+        else if (quiet == "") print "BAD_DOCS_DIR " ($1 == "" ? "(빈 키)" : $1) " — project_map 의 키는 리포 최상위 기준 상대경로여야 한다(빈 키·/ 로 시작·.. 금지). 이 항목은 건너뛴다. .dflow.local 을 고쳐라" > "/dev/stderr"
+        next
       }
-      print k "=" $2
-    }
-    END { exit bad ? 2 : 0 }'
+      if (mode != "bad") print k "=" $2
+    }'
 }
 
 # 리포 ↔ D'Flow 프로젝트 바인딩: project_id 와 project_map(docs/x=<uuid>,…) 값의 합집합.
-# 키가 잘못된 project_map 항목(BAD_DOCS_DIR)의 UUID 는 바인딩하지 않는다 — 그 사유를 stderr 에 매번 알린다.
-# 나머지 바인딩은 살려 둔다(list·show 는 쓸 수 있게). claim 은 docs_dir 가 같은 사유로 멈춘다.
+# 키가 잘못된 project_map 항목(BAD_DOCS_DIR)의 UUID 는 바인딩하지 않고 사유를 stderr 에 알린다(나머지는 그대로).
 dflow_config_projects() {
   { printf '%s\n' "${DFLOW_PROJECT_ID:-}"
     _dfc_map_keys | sed -n 's/^[^=]*=//p'
@@ -154,8 +157,13 @@ dflow_config_projects() {
 dflow_config_docs_dir() {
   _dfc_u=$(printf '%s' "${1:-}" | tr -d ' \r')
   [ -n "$_dfc_u" ] || { echo "사용: dflow_config_docs_dir <project_uuid>" >&2; return 2; }
-  # 키 하나라도 잘못되면(BAD_DOCS_DIR) 어느 프로젝트든 멈춘다 — 설정이 깨진 채 일부만 쓰지 않는다.
-  _dfc_pairs=$(_dfc_map_keys) || return 2
+  # 이 UUID 가 잘못된 map 항목에 있으면 멈춘다 — project_id 폴백(docs)보다 먼저 본다. 잘못 적은 키가 조용히
+  # docs 로 풀리면 작업 폴더가 의도와 다른 곳에 생긴다. 무관한 잘못된 항목은 경고만 하고 건너뛴다.
+  if _dfc_map_keys bad | grep -qxF "$_dfc_u"; then
+    echo "BAD_DOCS_DIR 프로젝트 ${_dfc_u%%-*} 의 project_map 키가 리포 최상위 기준 상대경로가 아니다(빈 키·/ 로 시작·.. 금지). .dflow.local 을 고쳐라" >&2
+    return 2
+  fi
+  _dfc_pairs=$(_dfc_map_keys)
   _dfc_keys=$(printf '%s\n' "$_dfc_pairs" | awk -F= -v u="$_dfc_u" 'NF == 2 && $2 == u { print $1 }' | sort -u)
   _dfc_n=$(printf '%s' "$_dfc_keys" | grep -c .)
   if [ "$_dfc_n" -gt 1 ]; then
@@ -167,9 +175,9 @@ dflow_config_docs_dir() {
 }
 
 # 바인딩된 작업 폴더 목록(리포 최상위 기준 상대경로). 여러 작업을 훑는 스윕·감지가 쓴다.
-# 키가 잘못되면(BAD_DOCS_DIR) 아무것도 내지 않고 return 2 — 일부 폴더만 훑으면 후보를 조용히 놓친다.
+# 키가 잘못된 항목(BAD_DOCS_DIR)은 경고하고 건너뛴다 — 그 프로젝트는 바인딩되지 않으므로 그 폴더에 작업이 생기지 않는다.
 dflow_config_tasks_dirs() {
-  _dfc_pairs=$(_dfc_map_keys) || return 2
+  _dfc_pairs=$(_dfc_map_keys)
   { [ -n "$(printf '%s' "${DFLOW_PROJECT_ID:-}" | tr -d ' \r')" ] && echo docs
     printf '%s\n' "$_dfc_pairs" | sed -n 's/=.*//p'
   } | sed 's|$|/tasks|' | sort -u

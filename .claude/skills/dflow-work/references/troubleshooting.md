@@ -14,8 +14,8 @@
 - `progress` 명령에서 진행률 100을 시도
 - `done` 명령 호출 시 git push 미완료
 - `BAD_DOCS_DIR <키>` — `.dflow.local` 의 `project_map` 키가 빈 값·`/` 로 시작(절대경로)·`..` 칸을 가졌다. 키는 리포
-  최상위 기준 상대경로(예 `docs/mdm`)여야 한다. 고치기 전에는 그 프로젝트가 바인딩되지 않고, `claim`·`taskdir`·
-  `config tasks-dirs`·`/dflow-poll` 이 멈춘다
+  최상위 기준 상대경로(예 `docs/mdm`)여야 한다. 그 항목만 건너뛴다 — 고치기 전에는 그 프로젝트가 바인딩되지 않고
+  그 프로젝트의 `claim`·`taskdir`·`config docs-dir` 가 exit 2 로 멈춘다. 다른 프로젝트는 경고만 보고 그대로 쓴다
 
 **해결**:
 1. 명령 사용법 확인: `dflow.sh <명령> --help` (있으면)

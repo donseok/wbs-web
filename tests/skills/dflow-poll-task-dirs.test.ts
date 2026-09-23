@@ -123,13 +123,18 @@ esac
     expect(r.out).toContain('TSK-B')
   })
 
-  it('project_map 키가 잘못되면(BAD_DOCS_DIR) 승인 감지를 조용히 0건으로 돌지 않고 시작하지 않는다(exit 2)', () => {
+  it('무관한 project_map 키가 잘못돼도(BAD_DOCS_DIR) poll 은 멈추지 않고 제대로 바인딩된 폴더의 승인을 감지한다', () => {
     writeFileSync(join(repo, '.dflow'), 'api_base=https://p.test\nproject_id=11111111-1111-4111-8111-111111111111\nrelease_branch=main\n')
     writeFileSync(join(repo, '.dflow.local'), 'pats=dflow_pat_TEST_token\ndev_branch=dev/test\nproject_map=/abs/docs/mdm=22222222-2222-4222-8222-222222222222\n')
+    mkdirSync(join(repo, 'docs/tasks/TSK-A'), { recursive: true })
+    writeFileSync(join(repo, 'docs/tasks/TSK-A/state.json'), JSON.stringify({
+      tsk: 'TSK-A', order: 'uuid-order-a-1234567890ab', api_base: 'https://p.test', phase: 'reported' }))
     const r = sh(repo, `sh '${POLL_SH}' --interval 1 --until none`, {
       DFLOW_SH: join(stubBinDir, 'dflow.sh'), DFLOW_WATCH: '0', DFLOW_CONFIG_DIR: repo, PATH: `${stubBinDir}:${GIT_ENV.PATH}`,
     })
-    expect(r.code).toBe(2)
-    expect(r.err).toContain('BAD_DOCS_DIR /abs/docs/mdm')
+    expect(r.code).toBe(9)
+    expect(r.out).toContain('TSK-A')
+    // 경고는 시작 때 한 번만 — 매 주기 반복하지 않는다
+    expect(r.err.split('BAD_DOCS_DIR /abs/docs/mdm').length - 1).toBe(1)
   })
 })

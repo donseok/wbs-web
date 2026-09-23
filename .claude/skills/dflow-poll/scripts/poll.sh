@@ -80,15 +80,15 @@ DFLOW="${DFLOW_SH:-$SKILLS_DIR/dflow-work/scripts/dflow.sh}"
 dflow_config_load || exit 2
 # dflow-dev state.json 위치 — 승인 감지 재료. 바인딩된 <DOCS_DIR>/tasks 전부(리포 최상위 기준).
 STATE_TOP=$(git rev-parse --show-toplevel 2>/dev/null) || STATE_TOP=$PWD
-STATE_FILES() { dflow_config_tasks_dirs | while IFS= read -r _d; do
+STATE_FILES() { (DFLOW_CONFIG_QUIET=1; dflow_config_tasks_dirs) | while IFS= read -r _d; do
   [ -d "$STATE_TOP/$_d" ] && find "$STATE_TOP/$_d" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null; done; }
 # 리포 ↔ D'Flow 프로젝트 바인딩이 없으면 감시하지 않는다. /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을
 # 돌려주므로, 바인딩 없이 돌면 다른 프로젝트의 ready 를 찾아 이 리포에서 착수하게 된다. 거르는 것은 dflow.sh list 다.
-[ -n "$(dflow_config_projects)" ] \
+[ -n "$(DFLOW_CONFIG_QUIET=1; dflow_config_projects)" ] \
   || { echo "프로젝트 바인딩 없음: .dflow 의 project_id 또는 .dflow.local 의 project_map(레거시는 .env 의 DFLOW_PROJECT_ID·DFLOW_PROJECT_MAP)을 넣으세요" >&2; exit 2; }
-# project_map 키가 잘못되면(BAD_DOCS_DIR) 시작하지 않는다. STATE_FILES 는 파이프라 그 실패가 사라져 승인 감지가
-# 조용히 0건이 된다 — 사유는 dflow_config_tasks_dirs 가 stderr 에 이미 냈다.
-dflow_config_tasks_dirs >/dev/null || exit 2
+# 잘못된 project_map 키(BAD_DOCS_DIR)는 시작 때 한 번 알린다. 그 항목만 건너뛰고 감시는 계속한다 — 매 주기
+# 반복하지 않도록 STATE_FILES 는 조용히 부른다.
+dflow_config_tasks_dirs >/dev/null
 
 net_fail=0
 cycle=0

@@ -69,7 +69,9 @@ unset _x _cr
 # 리포 ↔ D'Flow 프로젝트 바인딩: DFLOW_PROJECT_ID 와 DFLOW_PROJECT_MAP(docs/x=<uuid>,…) 값의 합집합.
 # /work/mine 은 PAT 주인이 속한 모든 프로젝트의 주문을 돌려주므로, 거르지 않으면 한 리포의 세션이 다른
 # 프로젝트의 작업을 잡아 엉뚱한 리포에서 개발한다(2026-09-18 발견: 바인딩 없는 리포가 옛 프로젝트 작업을 봄).
-ALLOWED_PROJECTS=$(dflow_config_projects)
+# 여기서는 BAD_DOCS_DIR 경고를 내지 않는다 — 모든 호출(branch·config 등)마다 같은 줄이 쌓인다. 경고는 그 값을
+# 쓰는 경로(claim·taskdir 의 docs_dir, config projects|tasks-dirs|docs-dir, doctor)에서 낸다.
+ALLOWED_PROJECTS=$(DFLOW_CONFIG_QUIET=1; dflow_config_projects)
 # 목록 캐시는 바인딩과 고른 키(DFLOW_AS)마다 나눈다. 한 파일을 모든 리포가 쓰면 순번·접두 해석이 다른 리포가
 # 마지막으로 본 목록으로 풀리고, 같은 리포의 두 팀장(워크트리마다 다른 키)도 서로의 목록을 덮어쓴다.
 LIST_CACHE="$CACHE_DIR/last-list-$(printf '%s|%s' "${ALLOWED_PROJECTS:-any}" "${DFLOW_AS:-}" | cksum | cut -d' ' -f1).json"
@@ -485,6 +487,7 @@ cmd_doctor() {
   need curl; need jq
   _base=$(base) || exit $?
   printf 'base: %s\n' "$_base"
+  dflow_config_projects >/dev/null   # 잘못된 project_map 키(BAD_DOCS_DIR)를 알린다 — 시작 때는 조용히 구했다
   _n=0
   _toks=$(tokens) || exit $?
   _sel=$(pick_token "$AS" "$AS_EXACT" 2>/dev/null) || _sel=''
@@ -528,7 +531,7 @@ cmd_config() {
     --source) printf 'mode=%s\ndflow=%s\nlocal=%s\n' "$DFLOW_CONFIG_MODE" "${DFLOW_CONFIG_DOT:--}" "${DFLOW_CONFIG_LOCAL:--}" ;;
     projects) dflow_config_projects ;;
     docs-dir) [ -n "${2:-}" ] || usage; dflow_config_docs_dir "$2" || exit 2 ;;
-    tasks-dirs) dflow_config_tasks_dirs || exit 2 ;;
+    tasks-dirs) dflow_config_tasks_dirs ;;
     pats|pat) die 2 "SECRET 비밀 값은 출력하지 않는다" ;;
     '') usage ;;
     *) _n=$(_dfc_env "$1") || die 2 "UNKNOWN_KEY $1"; eval "printf '%s\n' \"\${$_n:-}\"" ;;
