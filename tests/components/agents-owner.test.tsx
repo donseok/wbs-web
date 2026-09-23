@@ -153,4 +153,13 @@ describe('에이전트 보기 책상 카드의 WBS 바로가기(2026-09-24)', ()
     expect(links[0].textContent).toBe('WBS 에서 열기')
     expect(links[0].closest('button')).toBeNull()
   })
+  it('프로필 카드에도 같은 딥링크의 「WBS 에서 열기」 버튼이 있다', () => {
+    act(() => root.render(<RosterBoard roster={assembleRoster(map(
+      [seat({ agent: 'hong/alpha/w1', itemId: 'i9' })],
+      [watcher('hong/alpha/lead', { slots: 2 })],
+    ))} nowMs={NOW} />))
+    const a = host.querySelector('[data-roster-profile] [data-roster-wbs-link]') as HTMLAnchorElement
+    expect(a.getAttribute('href')).toBe('/p/p1/wbs?focus=i9&open=1')
+    expect(a.textContent).toContain('WBS 에서 열기')
+  })
 })

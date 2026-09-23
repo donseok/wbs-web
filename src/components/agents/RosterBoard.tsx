@@ -371,17 +371,16 @@ function Profile({ desk, host, nowMs }: { desk: RosterDesk; host: RosterHost; no
 
       {seat && (
         <section className="flex flex-col gap-1.5">
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지금 하는 일</h3>
-            {/* 에이전트 상세(DetailPanel)와 같은 WBS 딥링크 — 명세·진행 표가 바로 열린다(2026-09-24 사용자 요청). */}
-            {seat.itemId && (
-              <Link href={`/p/${seat.projectId}/wbs?focus=${seat.itemId}&open=1`} data-roster-wbs-link={seat.itemId}
-                className="shrink-0 text-[11px] font-semibold text-brand underline-offset-2 hover:underline">WBS 에서 보기</Link>
-            )}
-          </div>
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">지금 하는 일</h3>
           <p className="text-sm font-semibold text-ink"><span className="font-mono text-ink-muted">{seat.code}</span> {seat.name}</p>
           <Progress pct={seat.progress} color={tone.color} />
           <p className="text-[11px] text-ink-subtle">진척 {seat.progress}%{seat.heartbeatPhase ? ` · 단계 ${seat.heartbeatPhase}` : ''}</p>
+          {/* 에이전트 상세(DetailPanel)와 같은 WBS 딥링크 — 명세·진행 표가 바로 열린다(2026-09-24 사용자 요청).
+              제목 옆 글자 링크로는 버튼인 줄 몰라 지나쳤다 — 폭을 채운 버튼으로 둔다. */}
+          {seat.itemId && (
+            <Link href={`/p/${seat.projectId}/wbs?focus=${seat.itemId}&open=1`} data-roster-wbs-link={seat.itemId}
+              className="mt-1 inline-flex items-center justify-center rounded-xl border border-brand bg-brand-weak px-3 py-2 text-xs font-bold text-brand transition hover:bg-brand hover:text-brand-fg">WBS 에서 열기 →</Link>
+          )}
         </section>
       )}
       {seat?.state === 'BLOCKED' && (
