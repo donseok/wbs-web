@@ -71,12 +71,17 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
         <p className={css.waitReason} data-stub-pending="">
           <b>스텁 잔존</b> ·{' '}
           {(seat.stubPending ?? []).map((s, i) => (
-            <span key={s.subTaskId}>{i > 0 && ' · '}<Link href={`/p/${seat.projectId}/wbs?focus=${s.subTaskId}`} data-stub-link={s.subTaskId}>{s.label}</Link></span>
+            <span key={s.subTaskId}>{i > 0 && ' · '}<Link href={`/p/${seat.projectId}/wbs?focus=${s.subTaskId}&open=1`} data-stub-link={s.subTaskId}>{s.label}</Link></span>
           ))}
         </p>
       )}
       {seat.state === 'READY' && seat.waitReason && (
-        <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}</p>
+        <p className={css.waitReason} data-wait-reason={seat.waitReason.kind}><b>{seat.waitReason.label}</b> · {seat.waitReason.text}
+          {/* 강제 진행 두 번째 진입점(스펙 §3.2) — 선행 대기 좌석에서 WBS 사이드바의 「강제 진행」 절로 바로 간다. */}
+          {seat.waitReason.kind === 'dependency' && seat.itemId && (
+            <> <Link href={`/p/${seat.projectId}/wbs?focus=${seat.itemId}&open=1`} data-force-entry={seat.itemId}>강제 진행 검토</Link></>
+          )}
+        </p>
       )}
       <ul className={css.ladder} aria-label="Phase">
         {LADDER.map((l, i) => (

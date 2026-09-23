@@ -32,7 +32,7 @@ const EMPTY_REFS: string[] = []
 export function RowDetailPanel({
   item, allItems = [], dependencies = [], schedule, onClose, editable = false, canAttach = false,
   canEditDeliverable = false, projectId, levelLabels = DEFAULT_LEVEL_LABELS, maxDepth = null,
-  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS,
+  members = EMPTY_MEMBERS, onSelectItem, unresolvedRefs = EMPTY_REFS, canForce = false,
 }: {
   item: ComputedItem
   allItems?: ComputedItem[]
@@ -57,6 +57,8 @@ export function RowDetailPanel({
    * claim 게이트는 이것을 미충족으로 보고 409 를 내므로 목록에서 빼면 화면이 위장한다.
    */
   unresolvedRefs?: string[]
+  /** 후행의 서브트리 관리자 — 관리자가 아니어도 강제 진행 절 버튼을 본다(스펙 2026-09-23 §3.2). */
+  canForce?: boolean
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -413,7 +415,7 @@ export function RowDetailPanel({
 
           {/* 강제 진행(스펙 2026-09-23 §3.2) — 선행 간선마다 면제·해제, 스텁 잔존 목록. 의존성 절이 접혀 있어도 보이도록 따로 둔다. */}
           {!editing && (
-            <ForceProgressSection item={item} itemByRef={itemByRef} editable={editable} onSelectItem={onSelectItem} />
+            <ForceProgressSection item={item} itemByRef={itemByRef} editable={editable} canForce={canForce} onSelectItem={onSelectItem} />
           )}
 
           {!editing && (

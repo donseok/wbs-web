@@ -180,10 +180,12 @@ export function WbsGanttSheet({
   initialOutline = false,
   initialGanttScale,
   focusId = null,
+  focusOpen = false,
   levelLabels = DEFAULT_LEVEL_LABELS,
   maxDepth = null,
   milestoneKeywords = EMPTY_MILESTONE_KEYWORDS,
   members = EMPTY_MEMBERS,
+  forceManagedIds = EMPTY_REFS,
 }: {
   items: ComputedItem[]
   dependencies?: TaskDependency[]
@@ -218,6 +220,8 @@ export function WbsGanttSheet({
   initialGanttScale?: number
   /** 대시보드 액션 큐 등에서 ?focus= 로 진입한 항목 id — 조상을 펼치고 해당 행으로 스크롤+플래시 */
   focusId?: string | null
+  /** ?open=1 — focus 대상의 작업 정보 사이드바까지 연다(스텁 잔존·선행 대기 링크, 강제 진행 스펙 §3.6). */
+  focusOpen?: boolean
   /** 프로젝트별 depth 라벨(§7.3 ProjectConfig) — 서버 페이지가 getProjectConfig 로 로드해 주입. 없으면 D-CUBE 기본값. */
   levelLabels?: string[]
   /** 프로젝트별 최대 깊이(§7.3 ProjectConfig, null=무제한) — RowDetailPanel 자식추가 어포던스 판정에 전파. */
@@ -226,6 +230,8 @@ export function WbsGanttSheet({
   milestoneKeywords?: readonly string[]
   /** 프로젝트 로스터 — WbsAssigneeStagePanel 의 담당자 셀렉트 데이터 소스(§2.5). */
   members?: ProjectMember[]
+  /** 보는 사람이 서브트리 관리자인 항목 id(강제 진행 버튼 노출, 스펙 2026-09-23 §3.2). 서버 가드가 정본이다. */
+  forceManagedIds?: readonly string[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -467,7 +473,8 @@ export function WbsGanttSheet({
       setHideExempt(exempt)
     }
     setFlashId(focusId)
-  }, [focusId, items, t, hideDone, hideDoneResult])
+    if (focusOpen) setSelectedId(focusId)
+  }, [focusId, focusOpen, items, t, hideDone, hideDoneResult])
 
   // 플래시 해제 — toast 와 동일한 타이머 패턴(StrictMode 이중 실행 안전). 2000ms 는 minutes
   // 소스 점프(mblock-flash)와 같은 지속시간.
@@ -2089,6 +2096,7 @@ export function WbsGanttSheet({
           levelLabels={levelLabels}
           maxDepth={maxDepth}
           members={members}
+          canForce={!readOnly && forceManagedIds.includes(selectedItem.id)}
           onSelectItem={selectLinkedItem}
           unresolvedRefs={unresolvedDepends[selectedItem.id] ?? EMPTY_REFS}
         />

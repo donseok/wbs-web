@@ -45,7 +45,7 @@ describe('ApprovalQueue — 처리는 runHubProcessOp 1건, 응답의 허브로 
     expect((host.querySelector('[data-queue-approve]') as HTMLButtonElement).disabled).toBe(true)
     const link = host.querySelector('[data-queue-stub-link]') as HTMLAnchorElement
     expect(link.textContent).toBe('스텁 잔존: TSK-01 대체')
-    expect(link.getAttribute('href')).toBe('/p/p1/wbs?focus=s1')
+    expect(link.getAttribute('href')).toBe('/p/p1/wbs?focus=s1&open=1')
   })
   it('카드에 코드·이름·에이전트·요약·링크가 보이고 승인 → {kind:approve} + onHub(hub), onChanged 없음', async () => {
     runOp.mockResolvedValueOnce({ ok: true, hub: HUB })

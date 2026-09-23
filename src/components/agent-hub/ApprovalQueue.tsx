@@ -54,7 +54,7 @@ function QueueCard({ q, projectId, isAdmin, onHub, onChanged }: { q: HubQueueEnt
       {stubs.length > 0 && (
         <p className="mt-1 flex flex-wrap gap-2 text-[11px] font-semibold text-delayed">
           {stubs.map(s => (
-            <a key={s.subTaskId} data-queue-stub-link href={`/p/${projectId}/wbs?focus=${s.subTaskId}`} className="underline-offset-2 hover:underline">{s.label}</a>
+            <a key={s.subTaskId} data-queue-stub-link href={`/p/${projectId}/wbs?focus=${s.subTaskId}&open=1`} className="underline-offset-2 hover:underline">{s.label}</a>
           ))}
         </p>
       )}

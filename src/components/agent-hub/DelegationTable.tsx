@@ -428,7 +428,7 @@ export function DelegationTable({ rows, projectId, isAdmin, filter, onFilter, no
                             title={r.name} className={cls(s.trunc, 'min-w-0 text-left hover:underline', r.isLeaf ? 'text-ink' : 'font-semibold text-ink')}>{r.name}</button>
                         : <span className={cls(s.trunc, 'min-w-0', r.isLeaf ? 'text-ink' : 'font-semibold text-ink')} title={r.name}>{r.name}</span>}
                       {stubs.length > 0 && (
-                        <a data-hub-stub-badge href={`/p/${projectId}/wbs?focus=${stubs[0].subTaskId}`} title={stubs.map(x => x.label).join('\n')}
+                        <a data-hub-stub-badge href={`/p/${projectId}/wbs?focus=${stubs[0].subTaskId}&open=1`} title={stubs.map(x => x.label).join('\n')}
                           className="shrink-0 rounded-full border border-delayed/40 bg-delayed-weak px-1.5 py-0.5 text-[10px] font-bold text-delayed">
                           {stubBadgeText(stubs.length)}
                         </a>

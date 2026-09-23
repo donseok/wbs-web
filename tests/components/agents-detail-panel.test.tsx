@@ -96,3 +96,20 @@ describe('DetailPanel — 좌석 결재', () => {
     expect([...host.querySelectorAll('[data-panel-op]')].map(b => (b as HTMLElement).dataset.panelOp)).toEqual(['unapprove', 'rework'])
   })
 })
+
+describe('DetailPanel — 강제 진행(스펙 2026-09-23)', () => {
+  it('선행 대기 좌석은 WBS 사이드바의 강제 진행 절로 가는 링크를 보인다(두 번째 진입점)', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'READY', waitReason: { kind: 'dependency', label: '선행 대기', text: '선행 작업이 아직…' } })} nowMs={NOW} {...OPS} />))
+    expect(host.querySelector('[data-force-entry="i1"]')!.getAttribute('href')).toBe('/p/p1/wbs?focus=i1&open=1')
+  })
+  it('다른 대기 사유에는 링크가 없다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'READY', waitReason: { kind: 'agent_off', label: '에이전트 꺼짐', text: '…' } })} nowMs={NOW} {...OPS} />))
+    expect(host.querySelector('[data-force-entry]')).toBeNull()
+  })
+  it('스텁 잔존 좌석은 하위 Task 로 가는 링크를 사이드바 열기와 함께 단다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'WAIT', stubPending: [{ subTaskId: 's1', label: '스텁 잔존: TSK-01 대체' }] })} nowMs={NOW} {...OPS} />))
+    const a = host.querySelector('[data-stub-link="s1"]')!
+    expect(a.textContent).toBe('스텁 잔존: TSK-01 대체')
+    expect(a.getAttribute('href')).toBe('/p/p1/wbs?focus=s1&open=1')
+  })
+})

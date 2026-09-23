@@ -8,7 +8,7 @@ import type { ComputedItem } from '@/lib/domain/types'
 vi.mock('@/app/actions/wbs', () => ({ updateActual: vi.fn(), updateWeight: vi.fn(), addWbsItem: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
 vi.mock('@/components/providers/LocaleProvider', () => ({ useLocale: () => ({ locale: 'ko', t: (k: string) => k }) }))
-vi.mock('@/components/wbs/RowDetailPanel', () => ({ RowDetailPanel: () => null }))
+vi.mock('@/components/wbs/RowDetailPanel', () => ({ RowDetailPanel: ({ item }: { item: { id: string } }) => <div data-detail-open={item.id} /> }))
 const queueWbsCollapse = vi.fn()
 vi.mock('@/lib/prefs/debouncedSave', () => ({ queueWbsCollapse: (...a: unknown[]) => queueWbsCollapse(...(a as [])) }))
 
@@ -85,6 +85,20 @@ describe('WBS focus 점프(대시보드 액션 큐 → WBS 위치 이동)', () =
     await act(async () => toggle!.click())
     expect(rowCount(container)).toBe(3)
     expect(queueWbsCollapse).not.toHaveBeenCalled()
+  })
+
+  it('focus 만으로는 사이드바를 열지 않는다(종전 동작)', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" />,
+    ))
+    expect(container.querySelector('[data-detail-open]')).toBeNull()
+  })
+
+  it('?open=1(focusOpen)이면 대상의 작업 정보 사이드바까지 연다 — 스텁 잔존·선행 대기 링크(강제 진행 §3.6)', async () => {
+    await act(async () => root.render(
+      <WbsGanttSheet items={fixture()} holidays={[]} today="2026-07-03" actorView={null} projectId="p1" readOnly focusId="s1" focusOpen />,
+    ))
+    expect(container.querySelector('[data-detail-open="s1"]')).not.toBeNull()
   })
 
   it('트리에 없는 focusId면 펼치지 않되, 조용히 삼키지 않고 토스트로 알린다', async () => {
