@@ -48,7 +48,13 @@ describe('agentWork 상태 머신', () => {
     expect(AGENT_NAME_RE.test('claude-cli.jerry_1')).toBe(true)
     expect(AGENT_NAME_RE.test('')).toBe(false)
     expect(AGENT_NAME_RE.test('이름에 공백')).toBe(false)
-    expect(AGENT_NAME_RE.test('x'.repeat(65))).toBe(false)
+    expect(AGENT_NAME_RE.test('x'.repeat(120))).toBe(true)
+    expect(AGENT_NAME_RE.test('x'.repeat(121))).toBe(false)
+  })
+  it('에이전트 이름 — / 로 나눈 팀원 라벨 <신원>/<host>/w<슬롯> 을 받는다', () => {
+    expect(AGENT_NAME_RE.test('jongik-jang/jangjong-ig-ui-macbookair-813/w1')).toBe(true)
+    expect(AGENT_NAME_RE.test('jji/win/lead')).toBe(true)
+    for (const bad of ['a//b', '/a', 'a/', 'a/../b', 'a/.x', 'a/ b']) expect(AGENT_NAME_RE.test(bad), bad).toBe(false)
   })
   it('UUID 형식 검증', () => {
     expect(isUuidLike('11111111-1111-4111-8111-111111111111')).toBe(true)

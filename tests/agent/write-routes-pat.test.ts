@@ -97,6 +97,21 @@ describe('PAT 쓰기 루프', () => {
     expect(claim.p_agent_user_id).toBe('u-1') // principal 유도값 — body 의 'attacker' 무시
   })
 
+  // 2026-09-23: 팀원 라벨 <신원>/<host>/w<슬롯> 이 pat-<runnerId8> 로 바뀌어 좌석표에 외부 에이전트로 나왔다.
+  it('PAT claim — / 로 나눈 팀원 라벨은 그대로 p_agent 로 간다(pat- 대체 금지)', async () => {
+    const { rpcCalls } = useAdmin({
+      agent_runners: [{ data: CLAIM_SCOPES }, { data: null }],
+      agent_work_orders: [{ data: ORDER }],
+      agent_projects: [{ data: { enabled: true } }],
+      memberships: [{ data: { is_superuser: false } }],
+      project_roles: [{ data: [{ role: 'member' }] }],
+      wbs_items: [{ data: null }],
+    })
+    const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'jongik-jang/macbookair-813/w1' }, PAT.token), ctx)
+    expect(res.status).toBe(200)
+    expect(rpcCalls.find(a => a.p_event === 'claim')!.p_agent).toBe('jongik-jang/macbookair-813/w1')
+  })
+
   it('PAT + body user_email 불일치 → 400 identity_mismatch', async () => {
     useAdmin({ agent_runners: [{ data: CLAIM_SCOPES }, { data: null }] })
     const res = await claimPOST(post(`http://l/api/v1/agent/work/${O1}/claim`, { agent: 'a', user_email: 'other@example.com' }, PAT.token), ctx)

@@ -38,8 +38,10 @@ export function stageLockedForHuman(p: { delegated: boolean; orderStatus: string
 }
 
 export const AGENT_CLAIM_STALE_HOURS = 24
-/** 식별 라벨일 뿐 권한 주체가 아니다(권한은 user_email 계정) — 형식만 좁게 잡는다. */
-export const AGENT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+/** 식별 라벨일 뿐 권한 주체가 아니다(권한은 user_email 계정) — 형식만 좁게 잡는다.
+ *  `/` 로 나눈 세그먼트를 허용한다 — 팀원 라벨 `<신원>/<host>/w<슬롯>`(resumeHostFromClaimLabel·agentRoster 가 전제).
+ *  세그먼트마다 첫 글자는 영숫자라 빈 세그먼트·`..` 는 거부된다. 전체 상한은 heartbeat·watch 의 AGENT_MAX(120)와 같다. */
+export const AGENT_NAME_RE = /^(?=.{1,120}$)[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/
 export const AGENT_LINKS_MAX = 20
 export { UUID_RE, isUuidLike } from './validate'
 

@@ -17,7 +17,7 @@ export function parseAgentActor(raw: unknown): { userEmail: string; agent: strin
   const userEmail = typeof b.user_email === 'string' ? b.user_email.trim() : ''
   if (!userEmail) return { error: 'user_email이 필요합니다.' }
   const agent = typeof b.agent === 'string' ? b.agent.trim() : ''
-  if (!AGENT_NAME_RE.test(agent)) return { error: 'agent 이름 형식이 올바르지 않습니다(영숫자·._- 64자).' }
+  if (!AGENT_NAME_RE.test(agent)) return { error: 'agent 이름 형식이 올바르지 않습니다(영숫자·._- 와 / 구분, 120자).' }
   return { userEmail, agent }
 }
 
