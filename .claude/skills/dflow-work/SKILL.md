@@ -13,9 +13,10 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
 
 ## 시작 절차 (매 세션 1회)
 
-0. `.env` 소싱 — dflow.sh 는 환경에 `DFLOW_PATS`·`DFLOW_PAT` 가 모두 없을 때만 현재 디렉터리의
-   `.env`(`DFLOW_ENV_FILE` 로 바꿀 수 있다)를 스스로 읽는다. 이미 export 된 값이 있으면 건드리지 않는다.
-   수동 실행의 접두 `set -a; . ./.env; set +a` 는 선택이다(`poll.sh` 는 자체 소싱하므로 불필요).
+0. 설정 — dflow.sh 는 워크트리 최상위의 `.dflow`(프로젝트 공통: `api_base`·`project_id`·`release_branch`)와
+   `.dflow.local`(개인: `pats`·`as`·`dev_branch`·`automerge`·`project_map`)을 스스로 읽는다. 이미 export 된
+   env 가 이긴다. 두 파일이 모두 없으면 종전대로 현재 디렉터리의 `.env`(`DFLOW_ENV_FILE`)를 읽는다. 값 확인은
+   `dflow.sh config <key>`(비밀 제외)·`dflow.sh branch dev` 로.
 1. `dflow.sh doctor` 실행 — 모든 프로필 확인, 계약 버전 검증.
    ```bash
    dflow.sh doctor
@@ -32,7 +33,8 @@ description: D'Flow 작업(내 작업 조회·착수·진행 보고·완료 보�
    서버 응답에 contract_version 이 없는 것이므로 킷을 갱신해도 안 고쳐진다. 서버 배포·응답을
    확인해야 한다.
 
-2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) `.env` 의 `DFLOW_AS=<prefix>` 가 이 리포의 키를 고정한다.
+2. 프로필이 여럿이면(`DFLOW_PATS` 에 쉼표 구분 여러 토큰) `.dflow.local` 의 `as=<prefix>`(레거시 `.env` 의
+   `DFLOW_AS`) 가 이 리포의 키를 고정한다.
    prefix 는 `dflow.sh profiles` 로 본다(토큰마다 한 줄 JSON: `prefix`·`name`·`email`·`who`·`projects`·`bound`·`selected`. `who` 는 그 키의 신원 슬러그다).
    `DFLOW_AS` 가 없으면 첫 토큰이며 doctor 가 그 사실을 경고한다. 한 번만 다른 키로 부르려면 `--as <prefix|email>` 을
    쓴다. 한 계정에 키가 둘이면 email 로는 갈리지 않으므로 prefix 를 쓴다. `DFLOW_AS` 는 prefix 만 받는다.
@@ -63,7 +65,8 @@ dflow.sh [--as <prefix|email>] list [--scope available|claimed|assigned|all] [--
 - `--any-project`: 프로젝트 필터를 끈다(진단용)
 
 **프로젝트 필터**: 서버의 목록은 PAT 주인이 속한 모든 프로젝트의 주문을 돌려준다. `list` 는 그중 이 리포에
-바인딩된 프로젝트(`.env` 의 `DFLOW_PROJECT_ID` 와 `DFLOW_PROJECT_MAP` 값)의 주문만 보여 준다. 바인딩이 없으면
+바인딩된 프로젝트(`.dflow` 의 `project_id` 와 `.dflow.local` 의 `project_map` 값, 레거시 `.env` 의
+`DFLOW_PROJECT_ID`·`DFLOW_PROJECT_MAP`)의 주문만 보여 준다. 바인딩이 없으면
 경고와 함께 전부 보여 주지만, `claim` 은 바인딩 밖 주문이나 바인딩 없는 리포에서 `PROJECT_MISMATCH`(exit 2)로
 거부한다. 이유: 한 사람이 여러 프로젝트에 속하면 다른 프로젝트의 작업을 이 리포에서 개발하게 된다.
 
@@ -131,7 +134,8 @@ claimed 가 아니면 exit 4, 사람이 중단한 주문(`cancelled`)이면 exit
 좌석표 층 헤더의 STANDBY 배지가 이 신호로 켜지고, 마지막 신호 70분 뒤 꺼진다. `--stop` 은 즉시 끈다.
 - `poll.sh` 가 매 주기 자동으로 보내고 `--until` 도달 시 `--stop` 을 보낸다. 팀장(`/dflow-team`) 아래에서 poll.sh 를 띄울 때는
   `DFLOW_WATCH=0` 을 붙여 끈다 — 팀장이 `<신원>/<host>/lead` 로 직접 보내기 때문이다.
-- 기본 agent 는 `<신원>/<host>/poll`, `--project` 기본값은 `.env` 의 `DFLOW_PROJECT_ID`(없으면 전 프로젝트 = 모든 층에 표시).
+- 기본 agent 는 `<신원>/<host>/poll`, `--project` 기본값은 `.dflow` 의 `project_id`(레거시 `.env` 의
+  `DFLOW_PROJECT_ID`. 없으면 전 프로젝트 = 모든 층에 표시).
 
 ### 완료 보고
 

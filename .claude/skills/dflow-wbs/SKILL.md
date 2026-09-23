@@ -189,32 +189,35 @@ Phase → WP → [ACT(4단계만)] → Task → [Sub Task 수동]
 
   어느 쪽이든 **이 스킬의 범위가 아니다.** 분산 추적에 대한 `/dflow-wbs` 의 기여는 다른 둘이다 — **안정적 ID**(서버 추적이 한 항목에 누적되려면 `external_ref` 가 안 바뀌어야 한다)와 **`assignee` 시드**(자동 발행 → 주문 → claim → 서버 추적의 진입점).
 
-### D'Flow 프로젝트 바인딩 — wbs.md 가 아니라 작업 리포의 `.env`
+### D'Flow 프로젝트 바인딩 — wbs.md 가 아니라 작업 리포의 `.dflow`·`.dflow.local`
 
-**D'Flow 에는 프로젝트가 여러 개 있다.** wbs.md 하나가 어느 D'Flow 프로젝트로 올라가는지는 반드시 명시돼야 하며, 그 자리는 **작업 리포의 `.env`** 다. wbs.md 에 넣지 않는 이유: 파일은 git 으로 복제·브랜치되고 테스트/운영 환경을 오가는데, 그 안에 환경 결합을 박으면 **엉뚱한 프로젝트에 업로드되어 운영 데이터를 오염시킨다.**
+**D'Flow 에는 프로젝트가 여러 개 있다.** wbs.md 하나가 어느 D'Flow 프로젝트로 올라가는지는 반드시 명시돼야 하며, 그 자리는 **작업 리포의 `.dflow`·`.dflow.local`** 이다. wbs.md 에 넣지 않는 이유: 파일은 git 으로 복제·브랜치되고 테스트/운영 환경을 오가는데, 그 안에 환경 결합을 박으면 **엉뚱한 프로젝트에 업로드되어 운영 데이터를 오염시킨다.**
 
-```env
-DFLOW_API_BASE=https://<host>
-DFLOW_PATS=dflow_pat_<prefix>_<secret>[,dflow_pat_...]
+```
+# .dflow (커밋됨, 프로젝트 공통)
+api_base=https://<host>
+project_id=<D'Flow project uuid>          # 리포 전체가 한 프로젝트일 때
 
-# 리포 ↔ D'Flow 프로젝트 바인딩
-DFLOW_PROJECT_ID=<D'Flow project uuid>          # 리포 전체가 한 프로젝트일 때
-DFLOW_PROJECT_MAP=docs/c10=<uuid>,docs/m30=<uuid>  # DOCS_DIR 마다 프로젝트가 다를 때
+# .dflow.local (개인, gitignore)
+pats=dflow_pat_<prefix>_<secret>[,dflow_pat_...]
+project_map=docs/c10=<uuid>,docs/m30=<uuid>   # .dflow.local — DOCS_DIR 마다 프로젝트가 다를 때
 ```
 
-해석 순서(먼저 맞는 것이 이긴다):
+해석 순서(먼저 맞는 것이 이긴다. 값 확인은 `dflow.sh config project_map`·`dflow.sh config project_id`, 레거시는
+`.env` 의 `DFLOW_PROJECT_MAP`·`DFLOW_PROJECT_ID`):
 
-1. `DFLOW_PROJECT_MAP` 에 현재 `DOCS_DIR` 키가 있으면 그 값
-2. 없으면 `DFLOW_PROJECT_ID`
-3. **둘 다 없으면 업로드를 시도하지 않는다** — 추측하거나 "프로젝트 하나뿐이겠지"로 진행하지 않는다(fail-closed). 생성은 정상 완료하되 리포트에 `업로드 불가 — .env 에 DFLOW_PROJECT_ID 또는 DFLOW_PROJECT_MAP 필요` 를 남긴다.
+1. `.dflow.local` 의 `project_map` 에 현재 `DOCS_DIR` 키가 있으면 그 값
+2. 없으면 `.dflow` 의 `project_id`
+3. **둘 다 없으면 업로드를 시도하지 않는다** — 추측하거나 "프로젝트 하나뿐이겠지"로 진행하지 않는다(fail-closed). 생성은 정상 완료하되 리포트에 `업로드 불가 — .dflow 에 project_id 또는 .dflow.local 에 project_map 필요` 를 남긴다.
 
-`module` 업로드 파라미터는 `DOCS_DIR` 의 마지막 경로 세그먼트다(`docs/c10` → `c10`, `docs` → `docs`). 별도 env 키를 만들지 않는다.
+`module` 업로드 파라미터는 `DOCS_DIR` 의 마지막 경로 세그먼트다(`docs/c10` → `c10`, `docs` → `docs`). 별도 키를 만들지 않는다.
 
 스킬이 지키는 것:
 
-- `.env` 는 **존재·키 유무만 확인하고 값을 출력하지 않는다.** 같은 파일에 PAT 가 들어 있다(부록 §2.7 — 한 파일에 N인분 자격증명).
+- 설정 파일 값은 출력하지 않는다(`.dflow.local` 에 PAT 가 있다 — 부록 §2.7, 한 파일에 N인분 자격증명). **존재·키
+  유무만 확인한다.**
 - 이 키들을 **wbs.md 에도, 생성 리포트 본문에도 값으로 적지 않는다.** 리포트에는 "설정됨 / 없음"만 쓴다.
-- `.env` 를 생성하거나 수정하지 않는다. 없으면 필요한 키 이름만 알린다.
+- `.dflow`·`.dflow.local` 을 생성하거나 수정하지 않는다. 없으면 필요한 키 이름만 알린다.
 
 ⚠️ 키 이름은 부록 §2.7 로컬 계약의 확장이며 **TSK-02-01(계약 동결)에서 최종 확정된다.** 확정 값이 다르면 이 절을 그쪽에 맞춘다.
 
@@ -563,9 +566,9 @@ depends 기반 시작/종료일 산출. 산출 후 FS+겹침 검증식 통과 �
     - **4단계: `wbs-validate.py` 결과를 구조 검증으로 쓰지 않는다**(task_count 0 + `ok:true`). 대신
       `wbs-parse.py --tasks-all` 로 Task 건수·`category`·`domain`·`entry-point` 를 직접 확인하고,
       생성 리포트에 "4단계 — wbs-validate·merge-wbs-status 무력화(DEV-03 대기)" 를 출력한다.
-13. **`.env` 바인딩 확인** — `## D'Flow 연동 표기` 의 프로젝트 바인딩 절 그대로. 키 유무만 보고
-    (값 출력 금지), 해석 결과(업로드 가능 / `업로드 불가 — .env 에 DFLOW_PROJECT_ID 또는
-    DFLOW_PROJECT_MAP 필요`)를 생성 리포트에 남긴다. 없어도 생성은 정상 완료다(fail-closed 는 업로드에만).
+13. **`.dflow`·`.dflow.local` 바인딩 확인** — `## D'Flow 연동 표기` 의 프로젝트 바인딩 절 그대로. 키 유무만 보고
+    (값 출력 금지), 해석 결과(업로드 가능 / `업로드 불가 — .dflow 에 project_id 또는
+    .dflow.local 에 project_map 필요`)를 생성 리포트에 남긴다. 없어도 생성은 정상 완료다(fail-closed 는 업로드에만).
     **실제 업로드는 이 스킬이 하지 않는다 — `/dflow-export` 스킬이 담당한다**
     (검증 게이트 → `--export` → 봉투 조립 → dry-run/`--push`). 리포트에 다음 단계로 안내한다.
 14. (`--export-xlsx` 있을 때) **엑셀 보고본 생성** — `## 엑셀 export` 절 그대로. 실패해도 wbs.md 생성 결과를 되돌리지 않고, 실패 사유를 리포트에 남긴다.
@@ -573,7 +576,7 @@ depends 기반 시작/종료일 산출. 산출 후 FS+겹침 검증식 통과 �
 **생성 리포트** — 실행 종료 시 사용자에게 출력하는 요약이다(별도 파일이 아니다 — 파일 산출물은
 wbs.md 와 xlsx 뿐). 반드시 담는 것: 규모 판정(3/4단계)과 근거 · 검증 스크립트 실행 결과 요약 ·
 4단계면 "wbs-validate·merge-wbs-status 무력화(DEV-03 대기)" 경고 · 담당 미매칭 요약 ·
-`.env` 바인딩 상태("설정됨/없음"만 — 값 금지) · export 결과(해당 시).
+`.dflow`·`.dflow.local` 바인딩 상태("설정됨/없음"만 — 값 금지) · export 결과(해당 시).
 
 ## 출력 형식 (요약)
 

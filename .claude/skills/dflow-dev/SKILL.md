@@ -103,6 +103,12 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
 
 ## Phase 01 — Claim·브랜치·기준선 (오케스트레이터 본인)
 
+`<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다(`.dflow.local` 의 `dev_branch`, 레거시는
+`origin/HEAD`).
+<!-- worker:begin -->
+팀원(`--worker`)은 팀장이 넘긴 `DEV_BRANCH` 를 쓴다.
+<!-- worker:end -->
+
 1. `dflow.sh doctor` (세션 첫 호출 시). `dflow.sh show <ref>` 로 상태 확인:
    ready → 착수 가능 판정(2번) 후 claim / claimed → **반려 판정 먼저(아래), 아니면** 재개 판정(위 상태 모델) /
    reported → 종료 / approved → 위 Phase 01-가 스윕이 이미 처리했어야 함(로컬 state.json 이 없는
@@ -186,7 +192,7 @@ Phase 서브에이전트의 `PHASE_RESULT` 자기 신고는 **참고 신호일 �
      claim 하면 서버에는 claimed 가 남고 작업은 엉뚱한 HEAD 에서 시작한다. 거부된 switch 는 HEAD 를 옮기지
      않으므로 복귀할 것은 없다.
    - claim 이 `PROJECT_MISMATCH`(exit 2)로 거부되면 그 주문은 이 리포에 바인딩된 D'Flow 프로젝트 밖이거나 리포에
-     바인딩(`.env` 의 `DFLOW_PROJECT_ID`·`DFLOW_PROJECT_MAP`)이 없다. 재시도하지 않고 원래 위치로 돌아가 중단·보고한다.
+     바인딩(`.dflow` 의 `project_id`·`.dflow.local` 의 `project_map`)이 없다. 재시도하지 않고 원래 위치로 돌아가 중단·보고한다.
      워커는 `.result` 에 `failed project <메시지>` 를 쓴다. 이유: 한 사람이 여러 프로젝트에 속하면 서버 목록에 남의
      프로젝트 작업이 섞이며, 같은 TSK 번호를 쓰는 프로젝트끼리는 겉으로 구분되지 않는다.
    - claim 이 exit 4(선행·상태로 인한 진행 불가. 서버 403 `dependency_not_met` 재매핑 포함)면
@@ -322,7 +328,7 @@ state.json 의 정본 스키마(상태 모델)에는 아직 `head_sha` 필드가
 그래도 증거 1 을 첫 자리에 남기는 이유는 이것이 유일하게 커밋 메시지·state.json 값 없이도 성립하는 구조적
 증거이기 때문이다 — 상태 모델 스키마가 나중에 `head_sha` 를 갖게 되면 그 즉시 가장 강한 증거로 바로 쓰인다.
 
-팀장의 자동 머지(`DFLOW_AUTOMERGE=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가
+팀장의 자동 머지(`automerge=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가
 붙을 뿐이므로 같은 확인을 통과한다. `unapproved` 는 이 판정에서 보지 않는다.
 `show` 가 실패하거나(그 경로에 파일이 없다) `phase` 가 `merged` 가 아니거나 세 증거가 모두 판정 불가·거짓이면
 반영되지 않은 것이며, 그때는 `skipped 선행 승인 대기` 로 끝낸다.

@@ -7,8 +7,8 @@
 - `GET /agent/me` 응답에 `token_name`(발급할 때 적은 이름)·`token_prefix`(토큰의 셋째 `_` 칸)를 더했다. 필드 추가뿐이라
   minor 다. 이유: `.env` 에 토큰이 둘 이상이면 어느 키로 도는지 사람이 알아볼 수 없었고, 한 계정에 키가 둘이면
   이메일로도 갈리지 않는다. prefix 는 토큰 문자열 안에 평문으로 든 조회 키라 응답에 실어도 비밀이 늘지 않는다.
-- 클라이언트: `dflow.sh profiles`(토큰마다 한 줄 JSON) · `.env` 의 `DFLOW_AS=<prefix>`(리포가 쓸 키 고정) ·
-  `--as <prefix|email>`. 설계 정본: `docs/superpowers/specs/2026-09-18-dflow-key-select-design.md`.
+- 클라이언트: `dflow.sh profiles`(토큰마다 한 줄 JSON) · `.dflow.local` 의 `as=<prefix>`(레거시 `.env` 의
+  `DFLOW_AS`, 리포가 쓸 키 고정) · `--as <prefix|email>`. 설계 정본: `docs/superpowers/specs/2026-09-18-dflow-key-select-design.md`.
 
 ## v2.3 변경점 (2026-09-15)
 
@@ -236,5 +236,5 @@ UI 라벨 정본(`src/lib/domain/stageLabels.ts`): `as`=할당됨 · `ip`=작업
   - 409 도 body 의 `code` 로 갈라 읽는다: `cancelled`(사람이 중단)는 경합이 아니라 끝난 작업이라 호출부가 할 일이
     "다시 시도"가 아니라 "즉시 멈춤"이다. 그래서 4 와 섞지 않고 10 으로 낸다.
 - 신원 해석: 토큰별 `GET /agent/me` 1회 → `~/.cache/dflow/profiles.json` 캐시. 키 선택은 `--as <prefix|email>` →
-  `.env` 의 `DFLOW_AS`(prefix 만) → 첫 토큰. prefix 일치는 `/me` 를 부르지 않는다. 목록은 `dflow.sh profiles`.
+  `.dflow.local` 의 `as`(prefix 만, 레거시 `.env` 의 `DFLOW_AS`) → 첫 토큰. prefix 일치는 `/me` 를 부르지 않는다. 목록은 `dflow.sh profiles`.
 - evidence 자동 조립: `git rev-parse HEAD`·`git remote get-url origin`·`git branch --show-current`·(`gh` 있으면) PR URL.

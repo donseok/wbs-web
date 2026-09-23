@@ -32,7 +32,7 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
 > 없이 방치하는 사용을 금지한다. 무인 야간 실행은 러너(launchd)의 영역이다.
 >
 > 감시는 결정적 스크립트(`scripts/poll.sh`)가 한다 — 대기 중 LLM 토큰 소모 0. 스크립트가
-> `.env` 소싱과 dflow.sh 래핑을 담당하므로 세션이 env 를 직접 다루지 않는다.
+> 설정 로드(`.dflow`·`.dflow.local`, 레거시 `.env`)와 dflow.sh 래핑을 담당하므로 세션이 env 를 직접 다루지 않는다.
 
 ## 절차
 
@@ -44,7 +44,8 @@ description: D'Flow 할당 작업 폴링 루프 — 백그라운드 스크립트
    **반드시 Bash 의 `run_in_background` 로** — 셸 `&` 백그라운드 금지. `&` 로 띄우면 종료
    알림이 세션에 오지 않아 루프가 소리 없이 끊긴다(2026-08-22 실증). 첫 조회는 즉시 —
    ready 가 이미 있으면 곧바로 종료 알림이 온다.
-   기본값: `.env` 는 cwd 의 것, dflow.sh 는 poll.sh 와 같은 스킬 묶음의 것(자기 위치 기준). `DFLOW_ENV_FILE`·`DFLOW_SH` env 로 오버라이드.
+   기본값: 설정은 cwd 의 git 최상위, `DFLOW_CONFIG_DIR` 로 오버라이드(레거시 `.env` 는 `DFLOW_ENV_FILE`). dflow.sh 는
+   poll.sh 와 같은 스킬 묶음의 것(자기 위치 기준), `DFLOW_SH` env 로 오버라이드.
 2. **종료 알림 분기** (exit code — 산문 파싱 금지):
    - **0 = ready 발견**: stdout 각 줄이 `순번<TAB>id8<TAB>이름`. **착수 전에 dflow-dev
      Phase 01 의 착수 가능 판정(spec 실재·선행 검사)을 먼저 통과시킨다** — 불가 판정이면

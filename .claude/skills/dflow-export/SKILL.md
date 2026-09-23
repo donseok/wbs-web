@@ -19,16 +19,18 @@ description: 로컬 wbs.md 를 검증하고 D'Flow /wbs/import 계약 v2.1 JSON 
 
 `dflow-wbs` 스킬(`.claude/skills/dflow-wbs/SKILL.md` §"D'Flow 프로젝트 바인딩")과 동일 규칙을 쓴다 — wbs.md 자체에는 프로젝트 결합을 넣지 않는다(파일은 git 으로 복제·브랜치되므로, 안에 박으면 엉뚱한 프로젝트로 업로드될 위험).
 
-해석 순서(먼저 맞는 것이 이긴다):
+해석 순서(먼저 맞는 것이 이긴다. 값 확인은 `dflow.sh config project_map`·`dflow.sh config project_id`, 레거시는
+`.env` 의 `DFLOW_PROJECT_MAP`·`DFLOW_PROJECT_ID`):
 
 1. CLI 인자 `--project-id`/`--module` — 최우선.
-2. 없으면 작업 리포 `.env` 의 `DFLOW_PROJECT_MAP` 에서 현재 `DOCS_DIR`(= `docs/{SUBPROJECT}`) 키 조회.
-3. 없으면 `.env` 의 `DFLOW_PROJECT_ID`.
-4. **전부 없으면 업로드·payload 조립을 중단한다** (fail-closed — 추측 금지). export 는 정상 완료하되 필요한 키 이름(`DFLOW_PROJECT_ID` 또는 `DFLOW_PROJECT_MAP`)만 안내한다.
+2. 없으면 작업 리포 `.dflow.local` 의 `project_map` 에서 현재 `DOCS_DIR`(= `docs/{SUBPROJECT}`) 키 조회.
+3. 없으면 `.dflow` 의 `project_id`.
+4. **전부 없으면 업로드·payload 조립을 중단한다** (fail-closed — 추측 금지). export 는 정상 완료하되 필요한 키 이름(`.dflow` 의 `project_id` 또는 `.dflow.local` 의 `project_map`)만 안내한다.
 
 `module` 기본값 = `DOCS_DIR` 마지막 경로 세그먼트 (`docs/c10` → `c10`).
 
-`.env` 는 **존재·키 유무만 확인하고 값을 출력하지 않는다** — PAT 등 N인분 자격증명이 같은 파일에 들어 있다. 생성·수정하지 않는다.
+설정 파일 값은 출력하지 않는다(`.dflow.local` 에 PAT 등 N인분 자격증명이 들어 있다) — **존재·키 유무만
+확인한다.** 생성·수정하지 않는다.
 
 ## PAT
 

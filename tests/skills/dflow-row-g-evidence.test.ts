@@ -32,7 +32,7 @@ describe('행 G 기본 브랜치 반영 확인: head_sha 조상 확인을 첫 �
   it('공백 경고(2026-09-17)와 자동 머지의 unapproved 설명을 그대로 남긴다', () => {
     expect(dev).toContain('트레일러 패턴(증거 2)의 콜론 뒤 **공백을 반드시 넣고 따옴표로 감싼다.**')
     expect(dev).toContain('(2026-09-17 실측: 공백 없는 패턴 0 건, 공백 있는 패턴 2 건).')
-    expect(dev).toContain('팀장의 자동 머지(`DFLOW_AUTOMERGE=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가')
+    expect(dev).toContain('팀장의 자동 머지(`automerge=1`)가 승인 전에 머지한 선행도 `phase` 는 `merged` 이고 `unapproved: true` 가')
     expect(dev).toContain('`unapproved` 는 이 판정에서 보지 않는다.')
   })
 

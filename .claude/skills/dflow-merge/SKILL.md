@@ -1,6 +1,6 @@
 ---
 name: dflow-merge
-description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 기본브랜치(main)에 반영. 스택 브랜치는 조상 순서대로, approved 확인 전 머지 금지(팀장 전용 --on-report 만 예외). 트리거 - "/dflow-merge", "승인된 작업 머지", "approved 반영". 사용법 - /dflow-merge [<ref>...]
+description: 승인(approved)된 D'Flow 작업의 agent 브랜치를 개발 브랜치(`.dflow.local` 의 `dev_branch`)에 반영. 스택 브랜치는 조상 순서대로, approved 확인 전 머지 금지(팀장 전용 --on-report 만 예외). 트리거 - "/dflow-merge", "승인된 작업 머지", "approved 반영". 사용법 - /dflow-merge [<ref>...]
 ---
 
 # /dflow-merge — 승인된 작업의 main 반영
@@ -21,13 +21,16 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
 
 ## 절차
 
+`<기본브랜치>` 는 개발 브랜치, 즉 `dflow.sh branch dev` 의 값이다(`.dflow.local` 의 `dev_branch`, 레거시는
+`origin/HEAD`). 팀원(`--worker`)은 팀장이 넘긴 `DEV_BRANCH` 를 쓴다.
+
 1. **후보 식별**: 인자 없으면 대상 저장소의 `docs/tasks/*/state.json` 에서 `phase=reported`
    인 작업 전부(로컬 후보). 여기에 원격 후보를 더한다.
    - `git fetch origin` 뒤 `git branch -r --list 'origin/agent/*'` 의 각 `<ref>` 에서, state.json 경로를
      `git diff --name-only origin/<기본브랜치>...<ref> -- 'docs/tasks/*/state.json'` 로 찾고
      `git show <ref>:<경로>` 로 읽는다. `git show` 에는 glob 을 쓰지 않는다(경로를 해석하지 않는다).
      ```bash
-     set -a; . ./.env; set +a; api=${DFLOW_API_BASE%/}
+     api=$(.claude/skills/dflow-work/scripts/dflow.sh config api_base); api=${api%/}
      git fetch origin
      for ref in $(git branch -r --list 'origin/agent/*'); do
        id8=$(printf '%s' "${ref#origin/agent/}" | cut -c1-8)
@@ -69,7 +72,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      읽지 못한다. 팀장의 poll 에는 반려 신호(exit 10)도 오지 않는다(`/dflow-team` 「2-3」).
      glob(`docs/tasks/*/state.json`)을 쓰지 않는 이유: zsh 에서는 매치가 없으면 `no matches found` 로 명령
      전체가 죽는다. `docs/tasks` 가 없는 리포에서도 `find` 는 조용히 아무것도 내지 않는다.
-     이유: 스테이징 D'Flow DB 는 운영을 복제하므로, 스테이징 `.env` 로 실제 리포에서 스윕하면 운영에서
+     이유: 스테이징 D'Flow DB 는 운영을 복제하므로, 스테이징 `api_base`(export 된 `DFLOW_API_BASE`) 로 실제 리포에서 스윕하면 운영에서
      승인된 작업을 로컬 후보든 원격 후보든 머지할 수 있다. 값이 없는 옛 로컬 후보는 출처를 가릴 수 없으므로
      사람이 보는 수동 경로에만 남긴다.
    - 서버 조회는 state.json 의 전체 UUID 로 한다. 원격에만 있는 후보의 머지 대상은
@@ -78,7 +81,7 @@ description 의 사용법에도 노출하지 않는다. 이 플래그가 있으�
      증적의 `head_sha` 만 뽑는다. 스윕마다 spec 본문을 컨텍스트에 싣지 않기 위해서다. `head_sha` 는 4번의 승인 뒤
      변경 확인에 쓴다.
      ```bash
-     j=$(set -a; . ./.env; set +a; .claude/skills/dflow-work/scripts/dflow.sh show <order 전체 UUID>); echo "show=$?"
+     j=$(.claude/skills/dflow-work/scripts/dflow.sh show <order 전체 UUID>); echo "show=$?"
      printf '%s' "$j" | jq -c '{status: .order.status, last: ([.reports[]? | select(.kind == "completion")] | last | {review_action, review_note, head_sha: .evidence.head_sha})}'
      ```
 2. **판정: approved 만 진행**(`--on-report` 면 승인 대기도): 후보마다 아래 중 하나로 보고한다. 승인 대기나 데이터 없음으로 뭉개지 않는다.
