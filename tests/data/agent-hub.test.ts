@@ -48,7 +48,7 @@ describe('fetchAgentHubRows', () => {
     expect(rows.agentProject).toEqual({ enabled: true })
     expect(rows.reports).toHaveLength(1)
     const c = (t: string) => calls.find(x => x.table === t)!
-    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends')
+    expect(c('wbs_items').select).toBe('id, project_id, parent_id, code, name, sort_order, milestone, dev_workflow, tags, assignee_member_id, agent_prompt, actual_pct, stage, external_ref, depends, stub_for, depends_waived')
     expect(rows.approvedItemIds).toEqual([]) // depends 가 없으면 선행 승인 조회도 없다
     expect(c('agent_work_orders').select).toContain('last_heartbeat_at')
     expect(c('agent_work_orders').filters.find(f => f[0] === 'or')?.[1][0]).toContain('status.in.(ready,claimed,reported)')

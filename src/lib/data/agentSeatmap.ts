@@ -15,7 +15,7 @@ export const DONE_WINDOW_MS = 7 * 24 * 3600_000
 const REPORT_WINDOW_MS = 24 * 3600_000
 
 const ORDER_COLS = 'id, project_id, wbs_item_id, status, claimed_by, claimed_by_user_id, claimed_at, created_at, updated_at, last_heartbeat_at, heartbeat_phase, heartbeat_agent, heartbeat_note, heartbeat_model, resume_requested_at, resume_requested_host'
-const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends, model'
+const ITEM_COLS = 'id, project_id, code, name, parent_id, actual_pct, assignee_member_id, tags, depends, model, stub_for, depends_waived, planned_start, stage, external_ref'
 
 function must<T>(what: string, r: { data: T | null; error: { message: string } | null }): T {
   if (r.error) throw new Error(`[seatmap] ${what} 조회 실패: ${r.error.message}`)

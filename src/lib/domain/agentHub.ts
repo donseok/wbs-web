@@ -12,6 +12,8 @@ export interface HubItemRow {
   assignee_member_id: string | null; agent_prompt: string | null; actual_pct: number | null; stage: string | null
   /** 선행 매칭 키(0077) — 프로젝트 안 external_ref. depends 는 선행 external_ref 배열. */
   external_ref: string | null; depends: string[] | null
+  /** 강제 진행(0103) — stub_for 가 있으면 스텁 제거 하위 Task(구조에 투명), depends_waived 는 면제한 선행 ref. */
+  stub_for?: string | null; depends_waived?: string[] | null
 }
 export interface HubMemberRow { id: string; name: string; email: string | null; user_id: string | null }
 export interface HubReportRow {
@@ -146,7 +148,8 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
     if (!cur || Date.parse(r.created_at) > Date.parse(cur.created_at)) latestReport.set(r.work_order_id, r)
   }
 
-  const hasChildren = new Set(rows.items.map(i => i.parent_id).filter((x): x is string => x !== null))
+  // stub 하위는 구조에 투명하다(스펙 2026-09-23 F9) — 후행을 부모로 만들지 않는다. 하위 행 자신은 표에 리프로 보인다.
+  const hasChildren = new Set(rows.items.filter(i => !i.stub_for).map(i => i.parent_id).filter((x): x is string => x !== null))
   // canManage(조상 워크)·큐(항목 표시)가 같이 쓴다 — 루프보다 먼저 만들어 둔다.
   const itemById = new Map(rows.items.map(i => [i.id, i]))
   // 선행은 같은 프로젝트 항목의 external_ref 로 맞춘다 — 허브는 프로젝트 전체 항목을 이미 들고 있다.
@@ -191,6 +194,7 @@ export function assembleAgentHub(rows: AgentHubRows, nowMs: number, viewer: HubV
           // 담당자 id 는 있는데 로스터 행이 없으면 계정 미연결과 같은 취급(seatmap.ts 와 같은 규칙).
           assignee: item.assignee_member_id ? { name: assigneeMember?.name ?? '(로스터에 없음)', user_id: assigneeMember?.user_id ?? null } : null,
           watchers: hubWatchers,
+          waived: item.depends_waived ?? [],
         })
       : null
     if (waitReason !== null && (waitReason.kind === 'dependency' || waitReason.kind === 'agent_off')) counters.stuck++

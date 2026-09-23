@@ -26,7 +26,7 @@ const MID = '20000000-0000-4000-8000-000000000002'
 const LEAF = '20000000-0000-4000-8000-000000000003'
 const OTHER_LEAF = '20000000-0000-4000-8000-000000000004'
 
-type TreeRow = { id: string; parent_id: string | null; assignee_member_id: string | null }
+type TreeRow = { id: string; parent_id: string | null; assignee_member_id: string | null; stub_for?: string | null }
 type RosterRow = { id: string; user_id?: string | null; email?: string | null }
 
 /**
@@ -68,6 +68,16 @@ function fakeAdmin(opts: {
 }
 
 describe('isSubtreeManager — strict 조상(부모·조부모…루트, 자신 제외) 담당자 판정', () => {
+  it('stub 하위(0103)의 조상 탐색은 후행을 건너뛴다 — 후행 담당자는 자기 스텁 제거를 승인할 수 없다(F15)', async () => {
+    const tree = [
+      { id: ROOT, parent_id: null, assignee_member_id: 'm-lead' },
+      { id: MID, parent_id: ROOT, assignee_member_id: 'm-dev' },
+      { id: LEAF, parent_id: MID, assignee_member_id: 'm-dev', stub_for: 'm/TSK-01' },
+    ]
+    expect(await isSubtreeManager(fakeAdmin({ tree }), { itemId: LEAF, projectId: P1, myMemberIds: ['m-dev'] })).toBe(false)
+    expect(await isSubtreeManager(fakeAdmin({ tree }), { itemId: LEAF, projectId: P1, myMemberIds: ['m-lead'] })).toBe(true)
+  })
+
   it('부모의 담당자가 나 → true', async () => {
     const admin = fakeAdmin({ tree: [
       { id: ROOT, parent_id: null, assignee_member_id: null },

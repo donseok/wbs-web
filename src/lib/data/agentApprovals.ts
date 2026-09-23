@@ -14,7 +14,7 @@ import { isSubtreeManagerOf } from '@/lib/domain/seatmap'
 import { myMemberIds } from '@/lib/agent/assignee'
 import { viewerEmail } from '@/lib/data/agentSeatmap'
 
-type ItemRow = { id: string; parent_id: string | null; assignee_member_id: string | null }
+type ItemRow = { id: string; parent_id: string | null; assignee_member_id: string | null; stub_for?: string | null }
 
 /** 순수 판정 — 관리자면 전부, 아니면 내가 조상 담당자인(서브트리 관리자) 항목의 주문만. */
 export function countApprovable(
@@ -45,7 +45,7 @@ export async function getPendingApprovalCount(projectId: string): Promise<number
   const memberIds = await myMemberIds(admin, { userId: actor.userId, userEmail: email ?? '', projectId })
   if (memberIds.length === 0) return 0
   const { data: items, error: itemErr } = await admin.from('wbs_items')
-    .select('id, parent_id, assignee_member_id').eq('project_id', projectId)
+    .select('id, parent_id, assignee_member_id, stub_for').eq('project_id', projectId)
   if (itemErr) throw new Error(`[approvals] 항목 트리 조회 실패: ${itemErr.message}`)
   return countApprovable(rows, (items ?? []) as ItemRow[], { isAdmin: false, memberIds })
 }

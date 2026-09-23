@@ -23,6 +23,12 @@ export interface ItemRow {
   depends?: string[] | null
   /** 항목에 지정된 모델(0077, import 스펙의 model) — 에이전트가 실제로 도는 모델은 아직 보고되지 않는다. */
   model?: string | null
+  /** 강제 진행(0103) — 스텁 제거 하위 표식·면제한 선행 ref. 병목 계산 재료로 계획 시작일·단계·ref 도 싣는다. */
+  stub_for?: string | null
+  depends_waived?: string[] | null
+  planned_start?: string | null
+  stage?: string | null
+  external_ref?: string | null
 }
 /** 에이전트 위임 태그 — src/app/actions/wbsSpec.ts AGENT_TAG·dflow-poll 자동 착수 계약과 같은 값. 좌석표는 이 태그가 붙은 항목의 주문만 대상으로 한다. */
 export const AGENT_TAG = 'agent'
@@ -122,7 +128,7 @@ export interface SeatmapViewer {
 }
 
 /** 조상 사슬 탐색에 필요한 최소 모양 — 항목 행이든 얕은 조상 행이든 이 셋만 있으면 된다. */
-export interface AncestorLike { id: string; parent_id: string | null; assignee_member_id: string | null }
+export interface AncestorLike { id: string; parent_id: string | null; assignee_member_id: string | null; stub_for?: string | null }
 
 /**
  * 서브트리 관리자 — 대상 항목의 strict 조상(부모·조부모…루트, 자신 제외) 중 담당자가 나인 노드가 있으면 true.
@@ -133,7 +139,10 @@ export function isSubtreeManagerOf(
   itemId: string, itemById: ReadonlyMap<string, AncestorLike>, mine: ReadonlySet<string>,
 ): boolean {
   const visited = new Set<string>()
-  let cur = itemById.get(itemId)?.parent_id ?? null
+  const start = itemById.get(itemId)
+  let cur = start?.parent_id ?? null
+  // stub 하위(0103)는 후행과 같은 자리로 본다 — 후행을 조상으로 치면 후행 담당자가 자기 스텁 제거를 승인한다(스펙 F15).
+  if (start?.stub_for && cur !== null) cur = itemById.get(cur)?.parent_id ?? null
   while (cur !== null && !visited.has(cur)) {
     visited.add(cur)
     const row = itemById.get(cur)
@@ -299,6 +308,7 @@ export function assembleSeatmap(rows: SeatmapRows, nowMs: number, opts: { mine?:
         // 담당자 id 는 있는데 로스터 행이 없으면 계정 미연결과 같은 취급(어느 PAT 도 담당자로 인정되지 않는다).
         assignee: item.assignee_member_id ? { name: m?.name ?? '(로스터에 없음)', user_id: m?.user_id ?? null } : null,
         watchers: watchersOf(o.project_id),
+        waived: item.depends_waived ?? [],
       })
       // 선행 대기는 빈자리가 아니다 — 올 사람이 정해져 있고 앞 작업만 기다린다. 실루엣으로 그린다(안 A).
       if (seat.waitReason?.kind === 'dependency') seat.anim = 'waiting'

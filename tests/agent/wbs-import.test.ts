@@ -74,7 +74,7 @@ function useAdmin(queues: Record<string, Resp[]>, rpcQueue: Resp[] = [], users: 
     from: vi.fn((table: string) => {
       const resp = (queues[table] ?? []).shift() ?? { data: null, error: null }
       const b: Record<string, unknown> = {}
-      for (const k of ['select', 'update', 'insert', 'delete', 'eq', 'in', 'limit']) b[k] = () => b
+      for (const k of ['select', 'update', 'insert', 'delete', 'eq', 'in', 'limit', 'is']) b[k] = () => b
       b.maybeSingle = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.single = async () => ({ data: resp.data ?? null, error: resp.error ?? null })
       b.then = (r: (v: unknown) => unknown) =>
