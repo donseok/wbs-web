@@ -26,6 +26,7 @@ function useAdmin(queues: Record<string, Resp[]>, calls: Record<string, unknown[
       b.select = () => b
       b.update = (payload: unknown) => { (calls[table] ??= []).push(payload); return b }
       b.insert = (payload: unknown) => { (calls[`${table}:insert`] ??= []).push(payload); return b }
+      b.upsert = (payload: unknown, opts: unknown) => { (calls[`${table}:upsert`] ??= []).push({ payload, opts }); return b }
       for (const k of ['limit', 'order']) b[k] = () => b
       // 가드 조건(.eq('heartbeat_phase', …)·.in('status', …))을 시험이 확인할 수 있게 인자를 남긴다.
       b.eq = (...a: unknown[]) => { (calls[`${table}:eq`] ??= []).push(a); return b }
@@ -254,5 +255,54 @@ describe('POST heartbeat — 팀장 대리 merge_conflict(2026-09-23 머지 충�
     expect((await post({ agent: LEAD, phase: 'merge_conflict', note: 'x' })).status).toBe(500)
     useAdmin({ ...okQueues(REPORTED), agent_work_orders: [{ data: REPORTED }, { error: { message: 'boom' } }] })
     expect((await post({ agent: LEAD, clear: 'merge_conflict' })).status).toBe(500)
+  })
+})
+
+describe('POST heartbeat — 사용 토큰(0104)', () => {
+  const SID = '52b91445-2c69-487c-a73c-885a77849c54'
+  const tokens = { session: SID, models: [
+    { model: 'claude-opus-4-8', input: 12, output: 3400, cache_creation: 23376, cache_read: 118719 },
+    { model: 'claude-haiku-4-5-20251001', input: 4, output: 120, cache_creation: 0, cache_read: 900 },
+  ] }
+
+  it('주문·세션·모델 키로 upsert 하고 tokens_saved 를 알린다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin({ ...okQueues(), agent_work_order_tokens: [{ data: null }] }, calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'build', tokens })
+    expect(res.status).toBe(200)
+    expect((await res.json()).tokens_saved).toBe(true)
+    const up = calls['agent_work_order_tokens:upsert']?.[0] as { payload: Record<string, unknown>[]; opts: unknown }
+    expect(up.opts).toEqual({ onConflict: 'work_order_id,session_id,model' })
+    expect(up.payload).toHaveLength(2)
+    expect(up.payload[0]).toMatchObject({ work_order_id: O1, session_id: SID, model: 'claude-opus-4-8', input_tokens: 12, output_tokens: 3400, cache_creation_tokens: 23376, cache_read_tokens: 118719 })
+  })
+
+  it('tokens 가 없으면 토큰 표를 건드리지 않는다', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin(okQueues(), calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'build' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).tokens_saved).toBeUndefined()
+    expect(calls['agent_work_order_tokens:upsert']).toBeUndefined()
+  })
+
+  it('토큰 저장이 실패해도 heartbeat 는 200 — tokens_saved:false', async () => {
+    const calls: Record<string, unknown[]> = {}
+    useAdmin({ ...okQueues(), agent_work_order_tokens: [{ error: { message: 'boom' } }] }, calls)
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'build', tokens })
+    expect(res.status).toBe(200)
+    expect((await res.json()).tokens_saved).toBe(false)
+  })
+
+  it.each([
+    [{ session: 'bad id!', models: [] }],
+    [{ session: SID, models: [{ model: 'x', input: -1, output: 0, cache_creation: 0, cache_read: 0 }] }],
+    [{ session: SID, models: [{ model: 'x', input: 1.5, output: 0, cache_creation: 0, cache_read: 0 }] }],
+    [{ session: SID, models: [{ model: 'x', input: 1, output: 0, cache_creation: 0, cache_read: 0 }, { model: 'x', input: 1, output: 0, cache_creation: 0, cache_read: 0 }] }],
+    ['nope'],
+  ])('형식이 틀린 tokens 는 400 — %j', async (bad) => {
+    useAdmin(okQueues())
+    const res = await post({ agent: 'hong/mbp/w1', phase: 'build', tokens: bad })
+    expect(res.status).toBe(400)
   })
 })

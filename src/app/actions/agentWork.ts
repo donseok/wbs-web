@@ -8,7 +8,7 @@ import type { AdminClient } from '@/lib/minutes/externalApi'
 import { requireProjectAdmin, requireProjectMember } from '@/lib/authz'
 import { after } from 'next/server'
 import { recordProgressSnapshot } from '@/lib/data/snapshots'
-import { isUuidLike } from '@/lib/domain/agentWork'
+import { isUuidLike, type TokenRow } from '@/lib/domain/agentWork'
 import { emitNotification } from '@/lib/notify/emit'
 import { applyWorkflowEvent, notifyOnReached, SKIPPED_WARN, type WorkflowEventOk, type WorkflowSkipped } from '@/lib/agent/workflowEvent'
 import { requireDelegationRight } from '@/lib/agent/delegation'
@@ -320,6 +320,8 @@ export type AgentOrderStatus = {
   /** 마지막 heartbeat 의 실행 모델(0100). last_heartbeat_at 이 null 이면 무효 — orderTimeline 이 거른다. */
   heartbeat_model?: string | null; last_heartbeat_at?: string | null
   reports: AgentOrderReport[]
+  /** 주문의 사용 토큰 행(0104, 세션×모델). 화면은 sumTokenUsage 로 합친다. 없으면 빈 배열. */
+  tokens?: TokenRow[]
 }
 /** 이전 주문 한 줄 — 본문 없이 "있었다"는 사실만. 상세는 주문 id 로 단건 조회한다. */
 export type AgentOrderBrief = { id: string; status: string; updated_at: string }
@@ -361,7 +363,13 @@ export async function getAgentOrderForItem(itemId: string): Promise<
     .eq('work_order_id', row.id)
     .order('created_at', { ascending: true })
   if (repErr) return { ok: false, error: `보고 조회 실패: ${repErr.message}` }
-  return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[] }, priorOrders, projectId }
+  // 사용 토큰(0104) — 조회 실패를 "토큰 없음"으로 위장하지 않는다(3원칙). 표가 없는 DB(마이그레이션 전)도 실패로 드러난다.
+  const { data: tokens, error: tokErr } = await sb
+    .from('agent_work_order_tokens')
+    .select('model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens')
+    .eq('work_order_id', row.id)
+  if (tokErr) return { ok: false, error: `토큰 조회 실패: ${tokErr.message}` }
+  return { ok: true, order: { ...row, reports: (reports ?? []) as AgentOrderReport[], tokens: (tokens ?? []) as TokenRow[] }, priorOrders, projectId }
 }
 
 /**

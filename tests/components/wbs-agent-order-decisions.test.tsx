@@ -112,4 +112,20 @@ describe('WbsSpecPanel 진행 상황 — 결정 목록', () => {
     expect(folds).toHaveLength(1)
     expect(folds[0].hasAttribute('data-pending')).toBe(true)
   })
+  it('토큰 행(0104)이 있으면 합계 아래에 입력·캐시·출력과 모델별 합계를 한 줄로 보인다, 없으면 줄이 없다', async () => {
+    const o = reportedOrder([rep('r3', 'completion', '2026-09-23T03:00:00Z', [])])
+    getAgentOrderForItem.mockResolvedValue({ ...o, order: { ...o.order, tokens: [
+      { model: 'claude-opus-4-8', input_tokens: 12, output_tokens: 3400, cache_creation_tokens: 23_376, cache_read_tokens: 1_187_190 },
+      { model: 'claude-haiku-4-5', input_tokens: 4, output_tokens: 120, cache_creation_tokens: 0, cache_read_tokens: 900 },
+    ] } })
+    await render()
+    const tr = container.querySelector('[data-agent-order-tokens]') as HTMLElement
+    // 이 시험의 t() 는 키를 그대로 돌려준다 — 값과 순서(입력·캐시 쓰기·캐시 읽기·출력)만 본다
+    expect(tr.textContent).toMatch(/TokIn 16 · \S+ 23k · \S+ 1\.2M · \S+ 3\.5k/)
+    expect(tr.textContent).toContain('opus-4-8 1.2M · haiku-4-5 1.0k')
+    getAgentOrderForItem.mockResolvedValue(reportedOrder([rep('r3', 'completion', '2026-09-23T03:00:00Z', [])]))
+    act(() => root.unmount()); root = createRoot(container)
+    await render()
+    expect(container.querySelector('[data-agent-order-tokens]')).toBeNull()
+  })
 })

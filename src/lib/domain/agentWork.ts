@@ -256,3 +256,61 @@ export function orderTimeline(order: {
   const openMinutes = order.status === 'claimed' && openFrom ? min(ms(openFrom), now.getTime()) : null
   return { startedAt, endedAt, minutes, model, gaps, openMinutes }
 }
+
+/**
+ * 사용 토큰(0104) — heartbeat 훅이 싣는 세션 누적값. 훅이 셸로 대화 기록을 합치므로 LLM 토큰을 쓰지 않는다.
+ * `tokens` 는 선택이다: 없으면 null(아무것도 쓰지 않음), 형식이 틀리면 error(요청 전체를 400 으로 거절).
+ * 세션 id 는 Claude Code 세션 UUID, 모델은 transcript 의 message.model 이다(0100 과 같은 이름 규칙).
+ */
+export type TokenCounts = { input: number; output: number; cache_creation: number; cache_read: number }
+export type TokenUsagePayload = { session: string; models: Array<{ model: string } & TokenCounts> }
+export const TOKEN_MODELS_MAX = 20
+/** 한 세션·모델의 누적 상한 — 1조. 정상 사용량의 몇 자릿수 위라 오염된 값만 걸러낸다. */
+const TOKEN_COUNT_MAX = 1_000_000_000_000
+const TOKEN_SESSION_RE = /^[A-Za-z0-9-]{1,64}$/
+const TOKEN_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,63}$/
+export function parseTokenUsage(raw: unknown): { ok: true; value: TokenUsagePayload | null } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) return { ok: true, value: null }
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'tokens 는 객체여야 합니다.' }
+  const t = raw as Record<string, unknown>
+  if (typeof t.session !== 'string' || !TOKEN_SESSION_RE.test(t.session)) return { ok: false, error: 'tokens.session 은 영숫자·하이픈 64자 이하여야 합니다.' }
+  if (!Array.isArray(t.models) || t.models.length > TOKEN_MODELS_MAX) return { ok: false, error: `tokens.models 는 ${TOKEN_MODELS_MAX}개 이하 배열이어야 합니다.` }
+  const count = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= TOKEN_COUNT_MAX ? v : null)
+  const models: TokenUsagePayload['models'] = []
+  const seen = new Set<string>()
+  for (const m of t.models) {
+    const r = (typeof m === 'object' && m !== null ? m : {}) as Record<string, unknown>
+    if (typeof r.model !== 'string' || !TOKEN_MODEL_RE.test(r.model) || seen.has(r.model)) return { ok: false, error: 'tokens.models[].model 이 올바르지 않거나 중복입니다.' }
+    const c = { input: count(r.input), output: count(r.output), cache_creation: count(r.cache_creation), cache_read: count(r.cache_read) }
+    if (Object.values(c).some(v => v === null)) return { ok: false, error: 'tokens 의 토큰 수는 0 이상 정수여야 합니다.' }
+    seen.add(r.model)
+    models.push({ model: r.model, ...(c as TokenCounts) })
+  }
+  return { ok: true, value: { session: t.session, models } }
+}
+
+/** 주문의 토큰 행(세션×모델)을 모델별·전체로 합친다 — 명세 패널 진행 표의 「토큰」 줄. 행이 없으면 null. */
+export type TokenRow = { model: string; input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number }
+export function sumTokenUsage(rows: ReadonlyArray<TokenRow>): { total: TokenCounts; byModel: Array<{ model: string } & TokenCounts> } | null {
+  if (rows.length === 0) return null
+  const by = new Map<string, TokenCounts>()
+  const total: TokenCounts = { input: 0, output: 0, cache_creation: 0, cache_read: 0 }
+  for (const r of rows) {
+    const c = by.get(r.model) ?? { input: 0, output: 0, cache_creation: 0, cache_read: 0 }
+    // PostgREST 는 bigint 를 문자열로 줄 수 있다 — Number 로 받는다(토큰 수는 2^53 안이다).
+    const add = { input: Number(r.input_tokens), output: Number(r.output_tokens), cache_creation: Number(r.cache_creation_tokens), cache_read: Number(r.cache_read_tokens) }
+    for (const k of Object.keys(add) as (keyof TokenCounts)[]) { c[k] += add[k]; total[k] += add[k] }
+    by.set(r.model, c)
+  }
+  const tot = (c: TokenCounts) => c.input + c.output + c.cache_creation + c.cache_read
+  const byModel = [...by].map(([model, c]) => ({ model, ...c })).sort((a, b) => tot(b) - tot(a))
+  return { total, byModel }
+}
+
+/** 1234 → 1.2k, 1234567 → 1.2M. 표 칸이 좁아 유효 숫자 둘로 줄인다. */
+export function compactCount(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
+  if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`
+  return `${(n / 1_000_000_000).toFixed(1)}B`
+}

@@ -12,6 +12,18 @@
 - CLI: `check_depends_local` 이 `waived` 간선을 건너뛴다. `dflow.sh stub-check [<ref>]` — 승격 관문(표식 있으면 exit 4).
 - 설계 정본: wbs-web 리포 docs/superpowers/specs/2026-09-23-force-progress-design.md(킷에는 미동봉).
 
+## heartbeat `tokens` (2026-09-24, 0104 — 계약 버전 불변)
+
+- `POST /api/v1/agent/work/{id}/heartbeat` 가 선택 필드 `tokens` 를 받는다:
+  `{session, models:[{model, input, output, cache_creation, cache_read}]}`. 값은 그 Claude Code 세션의 **누적** 토큰이고
+  서버는 (주문, 세션, 모델) 행을 upsert 한다(`agent_work_order_tokens`). 옛 서버는 모르는 필드를 무시하므로 버전을 올리지 않는다.
+- 보내는 쪽은 heartbeat 훅(`kit/hooks/heartbeat.sh`)뿐이다. 훅이 transcript(서브에이전트 기록 포함)를 jq 로 합쳐 싣고 LLM 은
+  부르지 않는다. CLI(`dflow.sh heartbeat`)는 싣지 않는다.
+- 검증: session `^[A-Za-z0-9-]{1,64}$`, models 20개 이하·모델명 중복 금지, 수는 0 이상 정수(상한 1조). 틀리면 400.
+  팀장 대리 표시 갈래(merge_conflict 설정·해제)와 함께 보내면 400.
+- 토큰 저장이 실패해도 heartbeat 는 200 이고 응답에 `tokens_saved:false` 가 붙는다(성공이면 `true`, 안 보냈으면 필드 없음).
+- heartbeat 는 `claimed` 에서만 받으므로 마지막 신호 뒤(최대 1분)와 완료 보고 뒤의 사용량은 기록되지 않는다.
+
 ## v2.7 변경점 (2026-09-23)
 
 - `POST /api/v1/agent/work/{id}/heartbeat` 에 팀장 대리 표시 갈래(머지 충돌 설계 §7.2). **PAT 전용**(레거시 400 `identity_required`), 소유 판정은 워커와 같다(`claimed_by_user_id`).

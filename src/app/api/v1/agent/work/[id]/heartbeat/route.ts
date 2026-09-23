@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isUuidLike } from '@/lib/domain/agentWork'
+import { isUuidLike, parseTokenUsage } from '@/lib/domain/agentWork'
 import { HEARTBEAT_PHASES, LEAD_PHASES } from '@/lib/domain/seatState'
 import { apiBadRequest, apiFail, apiInternalError, apiNotFound } from '@/lib/agent/externalApi'
 import { loadGatedOrder, loadGatedOrderForUser, parseAgentActor, resolveWriteActor } from '@/lib/agent/routeShared'
@@ -49,6 +49,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (model !== null && (typeof model !== 'string' || !MODEL_RE.test(model.trim()))) {
     return apiBadRequest('model 은 영숫자로 시작하는 64자 이하 모델 이름이어야 합니다.')
   }
+  // 사용 토큰(0104) — 훅이 세션 누적값을 싣는다. 선택이며, 팀장 대리 표시 갈래에서는 받지 않는다.
+  const tokens = parseTokenUsage(b.tokens)
+  if (!tokens.ok) return apiBadRequest(tokens.error)
+  if (tokens.value && lead) return apiBadRequest('tokens 는 워커 heartbeat 에만 보냅니다.')
 
   try {
     const admin = createAdminClient()
@@ -107,7 +111,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!updated || (updated as unknown[]).length === 0) {
       return apiFail(409, 'conflict', '주문 상태가 바뀌어 heartbeat 를 기록하지 못했습니다.')
     }
-    return NextResponse.json({ ok: true, last_heartbeat_at: now })
+    // 토큰 저장 실패는 heartbeat 를 실패시키지 않는다 — 살아 있음 신호가 본업이고, 토큰은 다음 신호가 같은 누적값을
+    // 다시 싣는다. 대신 조용히 삼키지 않고 로그를 남기고 응답에 tokens_saved:false 로 알린다(3원칙: 표시 = 로깅).
+    let tokensSaved: boolean | undefined
+    if (tokens.value && tokens.value.models.length > 0) {
+      const session = tokens.value.session
+      const { error: tokErr } = await admin.from('agent_work_order_tokens').upsert(
+        tokens.value.models.map(m => ({
+          work_order_id: id, session_id: session, model: m.model, updated_at: now,
+          input_tokens: m.input, output_tokens: m.output, cache_creation_tokens: m.cache_creation, cache_read_tokens: m.cache_read,
+        })),
+        { onConflict: 'work_order_id,session_id,model' },
+      )
+      if (tokErr) console.error('[agent-api] heartbeat 토큰 저장 실패:', tokErr.message)
+      tokensSaved = !tokErr
+    }
+    return NextResponse.json({ ok: true, last_heartbeat_at: now, ...(tokensSaved === undefined ? {} : { tokens_saved: tokensSaved }) })
   } catch (e) {
     console.error('[agent-api] heartbeat 처리 실패:', e instanceof Error ? e.message : e)
     return apiInternalError()

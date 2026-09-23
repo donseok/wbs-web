@@ -292,3 +292,83 @@ describe('heartbeat.sh — 심볼릭 링크된 <DOCS_DIR>', () => {
     }
   })
 })
+
+// 사용 토큰(0104) — 훅이 대화 기록을 셸로 합쳐 싣는다. 계산은 백그라운드라 캐시 파일이 생긴 뒤의 다음 전송에 실린다.
+describe('heartbeat.sh — 사용 토큰(0104)', () => {
+  const ORDER = '22222222-2222-4222-8222-222222222222'
+  const SID = '52b91445-2c69-487c-a73c-885a77849c54'
+  const line = (id: string, model: string, u: [number, number, number, number], ts = '2026-09-24T01:00:00.000Z', type = 'assistant') =>
+    JSON.stringify({ type, timestamp: ts, message: { id, model, usage: { input_tokens: u[0], output_tokens: u[1], cache_creation_input_tokens: u[2], cache_read_input_tokens: u[3] } } })
+  let transcript: string
+  function runTok(extra: Record<string, unknown> = {}) {
+    execFileSync('sh', [HOOK], {
+      cwd: repo, input: JSON.stringify({ cwd: repo, tool_name: 'Bash', transcript_path: transcript, session_id: SID, ...extra }),
+      env: { PATH: process.env.PATH ?? '', HOME: home, CURL: join(tmp, 'fakecurl'), NODE_ENV: process.env.NODE_ENV },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    })
+    execFileSync('sh', ['-c', 'sleep 0.8'])
+  }
+  const cache = () => join(home, '.dflow/hb', `${ORDER}.tok.${SID}`)
+  const age = () => { const old = new Date(Date.now() - 120_000); utimesSync(join(home, '.dflow/hb', ORDER), old, old) }
+  const body = (n: number) => JSON.parse(sent()[n].match(/--data (\{.*\}) https?:/)![1])
+
+  beforeEach(() => {
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w1\n')
+    const proj = join(tmp, 'proj'); mkdirSync(join(proj, SID, 'subagents'), { recursive: true })
+    transcript = join(proj, `${SID}.jsonl`)
+    writeFileSync(transcript, [
+      JSON.stringify({ type: 'user', message: { content: 'hi' } }),
+      // 같은 id 가 스트리밍으로 두 줄 — 마지막 줄(output 266)만 센다
+      line('m1', 'claude-opus-4-8', [2, 16, 100, 1000]),
+      line('m1', 'claude-opus-4-8', [2, 266, 100, 1000]),
+      line('m2', 'claude-opus-4-8', [3, 10, 0, 2000]),
+      line('s1', '<synthetic>', [0, 0, 0, 0]),
+    ].join('\n') + '\n' + '{"type":"assistant","message":{"id":"partial"')   // 쓰는 중인 끝 줄 — 줄바꿈 없음
+    writeFileSync(join(proj, SID, 'subagents', 'agent-a1.jsonl'), line('h1', 'claude-haiku-4-5', [4, 120, 0, 900]) + '\n')
+  })
+
+  it('첫 전송은 토큰 없이 보내고 백그라운드가 캐시를 만든다. 다음 전송에 모델별 누적이 실린다', () => {
+    runTok()
+    expect(sent()).toHaveLength(1)
+    expect(body(0).tokens).toBeUndefined()
+    expect(existsSync(cache())).toBe(true)
+    age(); runTok()
+    const t = body(1).tokens
+    expect(t.session).toBe(SID)
+    const by = Object.fromEntries(t.models.map((m: { model: string }) => [m.model, m]))
+    expect(Object.keys(by).sort()).toEqual(['claude-haiku-4-5', 'claude-opus-4-8'])
+    expect(by['claude-opus-4-8']).toMatchObject({ input: 5, output: 276, cache_creation: 100, cache_read: 3000 })
+    expect(by['claude-haiku-4-5']).toMatchObject({ input: 4, output: 120, cache_creation: 0, cache_read: 900 })
+  })
+
+  it('수동 세션(.dflow-agent 없음)은 이 주문을 처음 본 뒤의 줄만 센다', () => {
+    rmSync(join(repo, '.dflow-agent'))
+    git('switch', '-q', '-c', 'agent/22222222-slug')
+    // 처음 본 시각(지금) 이전 줄(2020년)은 세지 않고, 이후 줄(2999년 — 지금보다 뒤)만 센다
+    writeFileSync(transcript, [
+      line('old', 'claude-opus-4-8', [9, 9, 9, 9], '2020-01-01T00:00:00.000Z'),
+      line('new', 'claude-opus-4-8', [1, 2, 3, 4], '2999-01-01T00:00:00.000Z'),
+    ].join('\n') + '\n')
+    rmSync(join(tmp, 'proj', SID, 'subagents'), { recursive: true })
+    runTok()
+    expect(readFileSync(`${cache()}.since`, 'utf8').trim()).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/)
+    age(); runTok()
+    const t = body(1).tokens
+    expect(t.models).toEqual([{ model: 'claude-opus-4-8', input: 1, output: 2, cache_creation: 3, cache_read: 4 }])
+  })
+
+  it('transcript_path·session_id 가 없거나 이상하면 토큰 없이 평소대로 보낸다', () => {
+    runTok({ session_id: '../../etc' })
+    expect(sent()).toHaveLength(1)
+    expect(body(0).tokens).toBeUndefined()
+    expect(existsSync(join(home, '.dflow/hb', `${ORDER}.tok...`))).toBe(false)
+  })
+
+  it('캐시가 깨져 있으면 싣지 않는다(전송은 그대로)', () => {
+    mkdirSync(join(home, '.dflow/hb'), { recursive: true })
+    writeFileSync(cache(), '{not json')
+    runTok()
+    expect(sent()).toHaveLength(1)
+    expect(body(0).tokens).toBeUndefined()
+  })
+})

@@ -61,6 +61,29 @@ stop_now() {
   exit 0
 }
 
+# 사용 토큰(0104) 계산 — 백그라운드 전용. $1=transcript $2=session $3=since(빈 값이면 전부) $4=캐시 파일.
+# 부모 세션 기록과 <세션>/subagents/*.jsonl 을 합쳐 message.id 마다 마지막 줄만 센다(같은 id 가 스트리밍으로
+# 여러 줄 남고 output_tokens 는 뒤 줄이 크다). cat 대신 awk 1 로 이어 붙인다 — 쓰는 중인 파일의 끝 줄에 줄바꿈이
+# 없으면 다음 파일 첫 줄과 붙어 둘 다 깨진다. 깨진 줄은 fromjson? 이 건너뛴다. 모델명이 영숫자로 시작하지 않는
+# 줄(<synthetic> 등)은 뺀다. LLM 은 부르지 않는다.
+tokens_compute() {
+  _sd="${1%.jsonl}/subagents"
+  { awk 1 "$1"; [ -d "$_sd" ] && find "$_sd" -maxdepth 1 -type f -name '*.jsonl' -exec awk 1 {} +; } 2>/dev/null \
+  | grep '"usage"' \
+  | "$JQ" -c -n -R --arg sid "$2" --arg since "$3" '
+      reduce (inputs | fromjson? | select(type == "object" and .type == "assistant" and ((.message.usage // null) | type) == "object")
+              | select($since == "" or ((.timestamp // "") >= $since))
+              | select((.message.model // "") | test("^[A-Za-z0-9]"))) as $l
+        ({}; .[($l.message.id // $l.uuid // "") | tostring] = {m: $l.message.model, u: $l.message.usage})
+      | [.[]] | group_by(.m)
+      | map({model: .[0].m,
+             input: (map(.u.input_tokens // 0) | add), output: (map(.u.output_tokens // 0) | add),
+             cache_creation: (map(.u.cache_creation_input_tokens // 0) | add), cache_read: (map(.u.cache_read_input_tokens // 0) | add)})
+      | {session: $sid, models: .[:20]}' > "$4.tmp.$$" 2>/dev/null && mv -f "$4.tmp.$$" "$4" 2>/dev/null
+  rm -f "$4.tmp.$$" 2>/dev/null
+  return 0
+}
+
 # 3-b) 중단 표식: 절제 판정 전에 본다. 표식은 order UUID 로 찾는다.
 if [ -n "$_mark" ]; then
   _mo=$("$JQ" -r '.order // empty' "$_mark" 2>/dev/null || :)
@@ -83,6 +106,35 @@ if [ -f "$_stamp" ]; then
   [ $((_now - _mt)) -ge 60 ] || exit 0
 fi
 : > "$_stamp"
+
+# 4-b) 사용 토큰(0104): 훅 입력의 transcript_path 는 서브에이전트 안의 도구 호출에서도 부모 세션 파일이다(실측
+#      2026-09-24, agent_id 만 더 붙는다). 계산은 백그라운드로 돌려 캐시에 쓰고, 이번 전송에는 직전 캐시를 싣는다 —
+#      대화 기록이 수십 MB 라 훅 제한 시간(5초) 안에서 동기로 읽지 않는다. 절제(60초) 뒤라 계산도 60초에 한 번이다.
+#      자식은 세 표준 스트림을 모두 끊는다. 물려받은 stdout 이 훅 파이프를 붙잡으면 Claude Code 가 제한 시간을 다 기다린다.
+_tkj=''
+_tp=$(printf '%s' "$_in" | "$JQ" -r '.transcript_path // empty' 2>/dev/null || :)
+_sid=$(printf '%s' "$_in" | "$JQ" -r '.session_id // empty' 2>/dev/null || :)
+case "$_sid" in ''|*[!A-Za-z0-9-]*) _sid='' ;; esac
+if [ -n "$_sid" ] && [ -f "$_tp" ]; then
+  _tc="$_hbdir/$_order.tok.$_sid"
+  _tkj=$("$JQ" -c 'select(type == "object" and (.models | type) == "array")' "$_tc" 2>/dev/null || :)
+  # 수동 /dflow-dev 세션은 여러 주문을 거칠 수 있어 이 주문을 처음 본 뒤의 줄만 센다. 팀원 워크트리(.dflow-agent)는
+  # 주문 하나 전용 세션이라 처음부터 센다.
+  _since=''
+  if [ ! -f "$_top/.dflow-agent" ]; then
+    [ -f "$_tc.since" ] || date -u +%Y-%m-%dT%H:%M:%SZ > "$_tc.since" 2>/dev/null || :
+    _since=$(cat "$_tc.since" 2>/dev/null || :)
+  fi
+  _lock="$_tc.lock"
+  # 잠금이 10분 넘게 남아 있으면 죽은 계산의 흔적이다.
+  if [ -d "$_lock" ]; then
+    _lm=$(stat -f %m "$_lock" 2>/dev/null || stat -c %Y "$_lock" 2>/dev/null || echo 0)
+    [ $(( $(date +%s) - _lm )) -lt 600 ] || rmdir "$_lock" 2>/dev/null || :
+  fi
+  if mkdir "$_lock" 2>/dev/null; then
+    ( tokens_compute "$_tp" "$_sid" "$_since" "$_tc"; rmdir "$_lock" 2>/dev/null ) </dev/null >/dev/null 2>&1 &
+  fi
+fi
 
 # 5) 인증: 새 방식은 리포의 dflow-config.sh 로 .dflow·.dflow.local 을 읽는다(팀원 워크트리에는 링크가 있다).
 #    라이브러리가 없는 리포는 종전대로 루트 .env. 설정이 깨졌으면 조용히 끝낸다. 토큰은 env 로만 다룬다.
@@ -113,7 +165,8 @@ fi
 
 # 6) 동기 전송(--max-time 1.5, 훅 timeout 5초 안). 응답은 중단 신호만 본다 — 409 이고 바디 code 가 cancelled 일 때만.
 #    본문과 코드를 한 번에 받는다(-w 로 끝 줄에 코드). 임시파일을 쓰지 않는다. 그 밖의 결과·실패는 무시(fail-open).
-_json=$("$JQ" -nc --arg a "$_agent" --arg p "$_phase" --arg m "$_model" '{agent:$a, phase:$p} + (if $m == "" then {} else {model:$m} end)')
+_json=$("$JQ" -nc --arg a "$_agent" --arg p "$_phase" --arg m "$_model" --argjson t "${_tkj:-null}" \
+  '{agent:$a, phase:$p} + (if $m == "" then {} else {model:$m} end) + (if $t == null then {} else {tokens:$t} end)')
 _out=$("$CURL" -s --max-time 1.5 -w '\n%{http_code}' -X POST \
   -H "Authorization: Bearer $_tok" -H 'Content-Type: application/json' \
   --data "$_json" "${_base%/}/api/v1/agent/work/$_order/heartbeat" 2>/dev/null) || exit 0

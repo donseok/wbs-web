@@ -18,7 +18,7 @@ import {
   type AgentOrderBrief,
   type AgentOrderStatus,
 } from '@/app/actions/agentWork'
-import { isClaimStale, orderTimeline, parseDecisions } from '@/lib/domain/agentWork'
+import { compactCount, isClaimStale, orderTimeline, parseDecisions, sumTokenUsage } from '@/lib/domain/agentWork'
 import { seoulStamp } from '@/lib/domain/dates'
 import { DecisionList } from '@/components/agent-hub/DecisionList'
 import { useLocale } from '@/components/providers/LocaleProvider'
@@ -454,6 +454,7 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
 
   const lastReport = order.reports.at(-1)
   const tl = orderTimeline(order)
+  const tok = sumTokenUsage(order.tokens ?? [])
   // 표 칸은 좁아 연도를 뺀 MM-DD HH:mm 로 쓴다(전체 시각은 title).
   const at = (iso: string) => seoulStamp(iso).slice(5)
   const mins = (n: number | null) => n === null ? '—' : t('wbs.agentOrderMinutes').replace('{n}', String(n))
@@ -577,6 +578,21 @@ function WbsAgentOrderStatus({ itemId, editable, refreshKey, stubs }: { itemId: 
               <span className="block truncate text-[10px]" title={tl.model ?? undefined}>{t('wbs.agentOrderModel')} <span className="font-mono">{tl.model ?? '—'}</span></span>
             </td>
           </tr>
+          {/* 사용 토큰(0104) — heartbeat 훅이 세션 기록을 셸로 합친 누적값. 캐시 읽기가 대부분이라 한 숫자로 뭉치지 않고
+              입력·캐시 쓰기·캐시 읽기·출력을 나눠 쓴다. 모델별 값은 title 로 본다. 마지막 신호 뒤(최대 1분)와 완료 보고
+              뒤의 사용량은 실리지 않는다(heartbeat 는 작업 중에만 받는다). */}
+          {tok && (
+            <tr data-agent-order-tokens className="font-normal text-ink-muted">
+              <td className="py-1 pr-2 font-semibold text-ink">{t('wbs.agentOrderTokens')}</td>
+              <td colSpan={5} className="max-w-0 py-1">
+                <span className="block truncate text-[10px]"
+                  title={tok.byModel.map(m => `${m.model} — ${t('wbs.agentOrderTokIn')} ${m.input} · ${t('wbs.agentOrderTokCacheW')} ${m.cache_creation} · ${t('wbs.agentOrderTokCacheR')} ${m.cache_read} · ${t('wbs.agentOrderTokOut')} ${m.output}`).join('\n')}>
+                  {t('wbs.agentOrderTokIn')} {compactCount(tok.total.input)} · {t('wbs.agentOrderTokCacheW')} {compactCount(tok.total.cache_creation)} · {t('wbs.agentOrderTokCacheR')} {compactCount(tok.total.cache_read)} · {t('wbs.agentOrderTokOut')} <b className="text-ink">{compactCount(tok.total.output)}</b>
+                  {' · '}{tok.byModel.map(m => `${m.model.replace(/^claude-/, '')} ${compactCount(m.input + m.output + m.cache_creation + m.cache_read)}`).join(' · ')}
+                </span>
+              </td>
+            </tr>
+          )}
         </tfoot>
       </table>
       {/* 결정 목록은 표 한 칸에 담기 어려워 완료 보고마다 표 아래에 붙인다. */}
