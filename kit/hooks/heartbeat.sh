@@ -35,9 +35,11 @@ fi
 #    작업 폴더는 docs/tasks/<TSK> 와 project_map 리포의 <DOCS_DIR>/tasks/<TSK>(docs/<x>/tasks/<TSK>) 둘 다 본다.
 #    설정(project_map)을 읽지 않고 모양으로 찾는다 — 인증보다 먼저 도는 단계이고, 절제 전에는 싸야 한다.
 #    glob 대신 find 로 목록을 만든다: zsh 로 돌리면 매치 없는 glob 하나가 명령 전체를 죽인다(no matches found).
+#    -L 로 심볼릭 링크를 따라간다(glob 과 같다) — docs/<x> 를 다른 프로젝트로 링크해 두는 체크아웃이 있다.
+#    먼저 tasks 폴더(깊이 1~2 의 디렉터리)만 찾고 그 안을 훑는다 — 매 도구 호출마다 도는 곳이라 docs 전체를 stat 하지 않는다.
 _state=''; _mark=''
-_list=$( { find "$_top/docs/tasks" -mindepth 2 -maxdepth 2 -name state.json
-           find "$_top/docs" -mindepth 4 -maxdepth 4 -path "$_top/docs/*/tasks/*/state.json"; } 2>/dev/null )
+_list=$(find -L "$_top/docs" -mindepth 1 -maxdepth 2 -type d -name tasks 2>/dev/null | while IFS= read -r _td; do
+  find -L "$_td" -mindepth 2 -maxdepth 2 -name state.json 2>/dev/null; done)
 for _f in $([ -n "$_list" ] && printf '%s\n' "$_list" | xargs ls -t 2>/dev/null); do
   _ph=$("$JQ" -r '.phase // empty' "$_f" 2>/dev/null || :)
   case "$_ph" in

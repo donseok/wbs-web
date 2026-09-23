@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, utimesSync, copyFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, utimesSync, copyFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -273,5 +273,22 @@ describe('heartbeat.sh — <DOCS_DIR>/tasks 작업 폴더', () => {
     expect(JSON.parse(out).continue).toBe(false)
     expect(existsSync(join(home, `.dflow/hb/${MDM}.cancelled`))).toBe(true)
     expect(JSON.parse(readFileSync(MSTATE(), 'utf8')).phase).toBe('cancelled')
+  })
+})
+
+// 사용자 체크아웃은 docs 아래 폴더를 다른 프로젝트로 심볼릭 링크해 둔다(예 docs/mdm → mdm 프로젝트). glob 처럼 따라간다.
+describe('heartbeat.sh — 심볼릭 링크된 <DOCS_DIR>', () => {
+  it('docs/mdm 이 리포 밖 디렉터리를 가리키는 링크여도 그 아래 state.json 으로 보낸다', () => {
+    const MDM = '44444444-4444-4444-8444-444444444444'
+    writeFileSync(join(repo, '.dflow-agent'), 'hong/mbp/w2\n')
+    rmSync(join(repo, 'docs/tasks'), { recursive: true, force: true })
+    const ext = join(tmp, 'mdm-docs'); mkdirSync(join(ext, 'tasks/TSK-09'), { recursive: true })
+    writeFileSync(join(ext, 'tasks/TSK-09/state.json'), JSON.stringify({ tsk: 'TSK-09', order: MDM, phase: 'design' }))
+    symlinkSync(ext, join(repo, 'docs/mdm'))
+    for (const shell of ['sh', 'zsh']) {
+      rmSync(join(home, '.dflow/hb'), { recursive: true, force: true })
+      run(repo, {}, shell)
+      expect(sent().at(-1), shell).toContain(`/api/v1/agent/work/${MDM}/heartbeat`)
+    }
   })
 })
