@@ -70,7 +70,6 @@ ln -s /path/to/wbs-web/.claude/skills/dflow-work <대상리포>/.claude/skills/d
 대상 리포 루트에서:
 
 ```bash
-set -a; . ./.env; set +a
 .claude/skills/dflow-work/scripts/dflow.sh doctor
 ```
 

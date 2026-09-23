@@ -51,7 +51,7 @@ need() { command -v "$1" >/dev/null 2>&1 || die 2 "필요한 명령이 없습니
 
 # ---- 설정·프로필 ----------------------------------------------------------
 base() {
-  [ -n "${DFLOW_API_BASE:-}" ] || die 2 "DFLOW_API_BASE 미설정 — .env 를 확인하세요."
+  [ -n "${DFLOW_API_BASE:-}" ] || die 2 "DFLOW_API_BASE 미설정 — .dflow(레거시는 .env)를 확인하세요."
   printf '%s' "${DFLOW_API_BASE%/}"
 }
 # 설정 로드: .dflow(프로젝트 공통)·.dflow.local(개인) → 없으면 레거시 .env. 규칙은 dflow-config.sh 머리말.
@@ -515,7 +515,7 @@ case "${1:-}" in
   branch) shift; cmd_branch "$@"; exit $? ;;
 esac
 need curl; need jq
-AS="${DFLOW_AS:-}"; AS_EXACT=1          # .env 의 DFLOW_AS 는 prefix 만
+AS="${DFLOW_AS:-}"; AS_EXACT=1          # .dflow.local 의 as(레거시 .env 의 DFLOW_AS)는 prefix 만
 [ "${1:-}" = "--as" ] && { AS="$2"; AS_EXACT=''; shift 2; }
 [ $# -ge 1 ] || usage
 CMD="$1"; shift
