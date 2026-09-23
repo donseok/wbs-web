@@ -12,7 +12,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { getInboxFeed } from '@/app/actions/inbox'
 import { getNotifications } from '@/app/actions/notifications'
 import { getHeaderAnnouncements, getUnreadAnnouncementCount } from '@/app/actions/announcements'
-import { getPendingApprovalCount } from '@/lib/data/agentApprovals'
+import { getPendingApprovals, type PendingApprovals } from '@/lib/data/agentApprovals'
 
 export async function GET(req: NextRequest) {
   // route = 현재 URL 의 프로젝트(파생 알림·티커 기준), menu = 메뉴 문맥 프로젝트(공지 배지 기준 —
@@ -20,21 +20,27 @@ export async function GET(req: NextRequest) {
   const route = req.nextUrl.searchParams.get('route') || null
   const menu = req.nextUrl.searchParams.get('menu') || null
 
-  const [inbox, notifications, unreadAnnouncements, headerAnnouncements, pendingApprovals] = await Promise.all([
+  const [inbox, notifications, unreadAnnouncements, headerAnnouncements, approvals] = await Promise.all([
     getInboxFeed(),
     // 파생 알림은 실패해도 벨 전체를 죽이지 않는다(기존 HeaderChrome catch(() => {}) 시맨틱).
     route ? getNotifications(route).catch(() => null) : Promise.resolve(null),
     menu ? getUnreadAnnouncementCount(menu).catch(() => 0) : Promise.resolve(0),
     route ? getHeaderAnnouncements(route).catch(() => [] as Awaited<ReturnType<typeof getHeaderAnnouncements>>) : Promise.resolve([]),
     // 에이전트 메뉴의 결재 대기 배지 — 공지 배지처럼 메뉴 문맥 기준. 배지 하나 때문에 셸 전체를 죽이지 않되 로그는 남긴다.
-    menu ? getPendingApprovalCount(menu).catch((e: unknown) => {
+    // 확인 필요 결정 수(과제 C)는 실패 시 null — 수는 종전처럼 0 으로 두지만 결정 수까지 0 으로 위장하지 않는다.
+    menu ? getPendingApprovals(menu).catch((e: unknown): PendingApprovals => {
       console.error('[shell] 결재 대기 수 조회 실패:', e instanceof Error ? e.message : e)
-      return 0
-    }) : Promise.resolve(0),
+      return { count: 0, decisions: null, decisionsPartial: false }
+    }) : Promise.resolve<PendingApprovals>({ count: 0, decisions: 0, decisionsPartial: false }),
   ])
 
   return NextResponse.json(
-    { inbox, notifications, unreadAnnouncements, headerAnnouncements, pendingApprovals },
+    {
+      inbox, notifications, unreadAnnouncements, headerAnnouncements,
+      pendingApprovals: approvals.count,
+      pendingDecisions: approvals.decisions,
+      pendingDecisionsPartial: approvals.decisionsPartial,
+    },
     { headers: { 'Cache-Control': 'no-store' } },
   )
 }
