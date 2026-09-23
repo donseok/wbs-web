@@ -298,7 +298,8 @@ force push 금지와 `merge-base --is-ancestor <head_sha>` 검사에 모두 걸�
    `DFlow-Order` 는 「트레일러 고정」 과 같은 이유로 빠뜨리지 않는다(행 G 증거 2).
 5. **게이트**: 머지 커밋 **직후, state.json 커밋 전에** 한 번 돈다. 충돌이 없었어도 돈다. 의미 충돌은 텍스트 충돌
    없이 오기 때문이다(2026-09-21 가드 Task: 텍스트 충돌 한 줄에 시험 85건이 401). 판정은
-   `dflow-team/references/resolve-prompt.md` 「게이트」 이며, 기준선은 호출자가 기준 HEAD 에서 잰 것이다. 통과하지
+   `dflow-team/references/resolve-prompt.md` 「게이트」 이며, 기준선은 호출자가 기준 HEAD 에서 잰 총수와 머지 대상
+   단독 총수 중 큰 쪽이다. 통과하지
    못하면 `git reset --keep <기준 HEAD>` 로 버리고 `RESOLVE_GATE_FAILED <신규 실패 수>` 로 끝난다.
 6. **state.json**: 4단계 4번 그대로 `phase=merged`(승인 전이면 `unapproved: true` 도) 커밋을 만든다. 이 커밋과 머지
    커밋 사이에 게이트를 다시 돌지 않는다.

@@ -20,7 +20,7 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
     expect(PROMPT).toContain('## 해소 규약')
     expect(PROMPT).toContain('### blocked 로 멈추는 경우')
     expect(PROMPT).toContain('## 게이트')
-    expect(PROMPT).toContain('**기준선 대비 신규 실패 0 + 시험 총수가 기준선 이상**')
+    expect(PROMPT).toContain('**기준선 대비 신규 실패 0 + 시험 총수가 max(개발 브랜치 총수, MERGE_HEAD 단독 총수) 이상**')
     expect(PROMPT).toContain('## 금지')
     for (const s of ['| `resolved` |', '| `skipped` |', '| `blocked` |', '| `failed <사유>` |']) expect(PROMPT).toContain(s)
   })
@@ -40,6 +40,31 @@ describe('resolve-prompt.md — 해소 워커 규칙', () => {
   })
   it('H(워커 자동 재시작)의 대상이 아니라고 적는다', () => {
     expect(PROMPT).toContain('워커 자동 재시작(H)의 대상이 아니다')
+  })
+})
+
+describe('resolve-prompt.md 「게이트」 판정 블록 — MERGE_HEAD 가 더한 시험을 지우면 떨어진다(2026-09-23 리뷰)', () => {
+  const gate = (dev: number, head: number, total: number, fail: number) => {
+    const sec = PROMPT.slice(PROMPT.indexOf('## 게이트'), PROMPT.indexOf('## 기록'))
+    const m = sec.match(/```bash\n([\s\S]*?)```/)
+    if (!m) throw new Error('게이트 블록을 찾지 못했다')
+    const script = m[1].replace("'<개발 브랜치 총수>'", String(dev)).replace("'<MERGE_HEAD 단독 총수>'", String(head))
+      .replace("'<머지 결과 총수>'", String(total)).replace("'<기준선 대비 신규 실패 수>'", String(fail))
+    return spawnSync('sh', ['-c', script], { encoding: 'utf8' }).stdout.trim()
+  }
+  it('결과 총수가 MERGE_HEAD 단독 총수보다 적으면 개발 브랜치 총수를 넘어도 실패', () => {
+    expect(gate(10, 12, 11, 0)).toBe('GATE_FAIL new=0 total=11 need=12')
+  })
+  it('두 기준선 중 큰 쪽 이상이고 신규 실패 0 이면 통과', () => {
+    expect(gate(10, 12, 12, 0)).toBe('GATE_PASS need=12 total=12')
+    expect(gate(15, 12, 15, 0)).toBe('GATE_PASS need=15 total=15')
+  })
+  it('신규 실패가 있으면 총수와 무관하게 실패', () => {
+    expect(gate(10, 12, 20, 1)).toBe('GATE_FAIL new=1 total=20 need=12')
+  })
+  it('기준선에 MERGE_HEAD 단독 총수를 재는 절차와 resolution.md 기록 줄이 있다', () => {
+    expect(PROMPT).toContain("git branch -r --list 'origin/agent/{ID8}-*'")
+    expect(PROMPT).toContain('`게이트: 개발 브랜치 <dev_total> · MERGE_HEAD 단독 <head_total> · 결과 <total>`')
   })
 })
 
