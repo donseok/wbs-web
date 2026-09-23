@@ -177,6 +177,34 @@ describe('lease keep', () => {
     run(['lease', 'renew'])
     expect(Number(readFileSync(`${stateFile()}.beat`, 'utf8'))).toBeGreaterThan(0)
   })
+
+  // Windows(Git Bash/MSYS): CLAUDE_PID 는 네이티브 Windows PID 라 MSYS 의 kill -0 이 못 알아본다.
+  // uname -s 를 MINGW/MSYS/CYGWIN 으로 흉내 내고, ps -W 의 WINPID 열로 한 번 더 찾는지 검사한다.
+  const FAKE_UNAME = `#!/bin/sh\nprintf 'MINGW64_NT-10.0\\n'\n`
+  const FAKE_PS_WITH_WINPID = `#!/bin/sh
+cat <<'EOF'
+      PID    PPID    PGID   WINPID   TTY        UID    STIME COMMAND
+    12345   67890   12345   424242  ?        1000  10:00:00 /usr/bin/bash
+EOF
+`
+  it('Windows 흉내: kill -0 실패해도 ps -W 의 WINPID 로 살아있으면 먼저 반납하지 않고 renew 로 간다', () => {
+    run(['lease', 'acquire'])
+    writeFileSync(join(tmp, 'bin/uname'), FAKE_UNAME, { mode: 0o755 })
+    writeFileSync(join(tmp, 'bin/ps'), FAKE_PS_WITH_WINPID, { mode: 0o755 })
+    const r = run(['lease', 'keep', '--pid', '424242', '--lost-file', join(tmp, 'lost')], { FAKE_MODE: 'lost' })
+    expect(r.status).toBe(4)
+    expect(readFileSync(join(tmp, 'lost'), 'utf8').trim()).toBe(`LEASE_LOST ${P1}`)
+    expect(sent().some(b => b.op === 'release')).toBe(false)
+  })
+  it('Windows 흉내: ps -W 목록에 없는 PID 는 죽은 것으로 보고 즉시 반납한다', () => {
+    run(['lease', 'acquire'])
+    writeFileSync(join(tmp, 'bin/uname'), FAKE_UNAME, { mode: 0o755 })
+    writeFileSync(join(tmp, 'bin/ps'), FAKE_PS_WITH_WINPID, { mode: 0o755 })
+    const r = run(['lease', 'keep', '--pid', '999999', '--lost-file', join(tmp, 'lost')])
+    expect(r.status).toBe(0)
+    expect(sent().some(b => b.op === 'release')).toBe(true)
+    expect(existsSync(stateFile())).toBe(false)
+  })
 })
 
 describe('watch --holder', () => {

@@ -23,6 +23,20 @@ lease_holder() {
   printf '%s:%s\n' "$_mid" "$(printf '%s' "$_top" | cksum | cut -d' ' -f1)"
 }
 lease_state_file() { ${DFLOW_GIT:-git} rev-parse --path-format=absolute --git-path dflow-team.lease 2>/dev/null; }
+# PID 생존 확인. Windows(Git Bash/MSYS)는 CLAUDE_PID 가 네이티브 Windows PID 라 MSYS 의 kill -0 이
+# 못 알아본다(항상 죽은 걸로 본다) — 팀장이 멀쩡한데 lease_keep 첫 검사에서 바로 반납하는 사고가 난다.
+# kill -0 이 실패하면 MSYS/MinGW/Cygwin 한정으로 `ps -W`(WINPID 열)에서 한 번 더 찾는다.
+lease_pid_alive() {
+  kill -0 "$1" 2>/dev/null && return 0
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+      ps -W 2>/dev/null | awk -v pid="$1" '
+        NR==1 { for (i=1;i<=NF;i++) if ($i=="WINPID") c=i; next }
+        c && $c==pid { found=1 }
+        END { exit !found }' ;;
+    *) return 1 ;;
+  esac
+}
 # 상태 파일 → [{project_id, generation}]
 lease_refs_json() { jq -Rnc '[inputs | select(. != "") | split(" ") | {project_id: .[0], generation: (.[1] | tonumber)}]' < "$1"; }
 
@@ -90,13 +104,13 @@ lease_keep() {
   trap '(lease_release) >/dev/null 2>&1; exit 0' TERM HUP INT
   while :; do
     # 팀장이 죽었으면 바로 반납한다 — TTL 을 기다리면 같은 신원이 다른 곳에서 3분간 시작하지 못한다.
-    kill -0 "$_pid" 2>/dev/null || { (lease_release) >/dev/null 2>&1; exit 0; }
+    lease_pid_alive "$_pid" || { (lease_release) >/dev/null 2>&1; exit 0; }
     # 정상 마감이 release 로 상태 파일을 지웠다.
     [ -s "$_sf" ] || exit 0
     _out=$( (lease_renew) 2>/dev/null ); _rc=$?
     case "$_rc" in
       0) _fails=0 ;;
-      4) printf '%s\n' "$_out" > "$_lf"; exit 4 ;;
+      4) printf '%s\n' "${_out:-LEASE_LOST rc=4}" > "$_lf"; exit 4 ;;
       *) [ -s "$_sf" ] || exit 0
          _fails=$((_fails + 1))
          # 3분 넘게 서버에 닿지 못하면 이미 만료돼 다른 곳이 가져갔을 수 있다. 소유를 장담할 수 없으니 잃은 것으로 다룬다.
@@ -105,7 +119,7 @@ lease_keep() {
     _t=0
     while [ "$_t" -lt "$_iv" ]; do
       sleep "$_st"; _t=$((_t + _st))
-      kill -0 "$_pid" 2>/dev/null || break
+      lease_pid_alive "$_pid" || break
       [ -s "$_sf" ] || break
     done
   done
