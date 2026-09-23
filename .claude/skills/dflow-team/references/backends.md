@@ -60,7 +60,7 @@ WT="<MAIN>/.claude/worktrees/dflow-<id8>"
 git fetch -q origin && git worktree prune && git worktree add --detach "$WT" origin/<기본브랜치> || echo SPAWN_FAILED_WORKTREE
 [ -e "$WT/.dflow.local" ] || [ ! -e "<MAIN>/.dflow.local" ] || ln -s "<MAIN>/.dflow.local" "$WT/.dflow.local"
 [ -e "$WT/.dflow" ] || [ ! -e "<MAIN>/.dflow" ] || ln -s "<MAIN>/.dflow" "$WT/.dflow"
-[ -e "$WT/.dflow.local" ] || [ -e "$WT/.env" ] || ln -s "<MAIN>/.env" "$WT/.env"
+[ ! -e "<MAIN>/.env" ] || [ -e "$WT/.env" ] || ln -s "<MAIN>/.env" "$WT/.env"
 if [ ! -e "$WT/.claude/skills/dflow-dev/SKILL.md" ]; then
   if [ -d "$WT/.claude/skills" ] && [ ! -L "$WT/.claude/skills" ]; then
     for s in dflow-dev dflow-work; do [ -e "$WT/.claude/skills/$s" ] || ln -s "<MAIN>/.claude/skills/$s" "$WT/.claude/skills/$s"; done
@@ -129,6 +129,10 @@ cat "$WT/.dflow-pane"
   먼저 있어야 팀원의 Skill 도구가 `dflow-dev` 를 안다. 워커 부트스트랩(worker-prompt.md 「3」)의 같은 명령은
   이미 있으면 건너뛴다. 스킬 폴더가 실제 폴더로 있는데 `dflow-dev` 가 없으면 폴더째 링크하지 않고 워커가 쓰는
   스킬만 하나씩 링크한다(있는 폴더에 폴더째 링크를 걸면 `.claude/skills/skills` 가 생긴다).
+- `.env` 도 메인 체크아웃에 있으면 함께 링크한다 — 이 PC 에 예전에 설치된 좌석표 heartbeat 훅
+  (`~/.dflow/hooks/heartbeat.sh`)이 아직 구버전이면 `.dflow`·`.dflow.local` 을 모르고 `$_top/.env` 만 읽기
+  때문이다. `dflow.sh`·`dflow-config.sh` 는 `.dflow`·`.dflow.local` 이 있으면 `.env` 를 읽지 않으므로 새
+  스크립트 동작에는 영향이 없다.
 - Windows(Git Bash) 에서는 `ln -s` 가 링크 대신 복사본을 만든다. 복사본으로도 동작한다: `.dflow.local`(레거시
   `.env`)은 정적이고
   스킬은 읽기 전용이며, 두 경로 모두 `info/exclude`·`.gitignore` 로 가려진다. 대가로 팀장이 스킬을 고쳐도 이미

@@ -47,6 +47,10 @@ cd ~/dflow-kit && git pull && ./install.sh ~/project/<내 리포>
 
 `doctor` 가 계약 버전 불일치를 알리면 이 절차로 갱신한다. `VERSION` 파일에 빌드 원본(wbs-web 커밋) 이 있다.
 
+좌석표 heartbeat 훅(`~/.dflow/hooks/heartbeat.sh`)을 예전에 설치했다면 `.dflow`·`.dflow.local` 전환 뒤
+`./install.sh ~/project/<내 리포> --hooks` 를 다시 돌려 훅도 갱신한다 — 예전 훅은 `.env` 만 읽어 새 방식
+리포에서는 신호를 보내지 못한다.
+
 ## 의존
 
 git · curl · jq · python3 · gh(GitHub CLI, `done --auto-links` 와 리포 생성용). macOS: `brew install jq gh`.

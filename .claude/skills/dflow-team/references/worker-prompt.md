@@ -63,12 +63,15 @@ claim 하려는 작업의 `docs/tasks/<TSK>/` 가 이미 있으면 이전 시도
 `.dflow` 는 커밋돼 있으면 이미 있고, 없으면 링크한다. `.claude/skills` 는 커밋된
 리포면 이미 있고, gitignore 된 심링크로 배포한 리포면 없으므로 없을 때 메인 체크아웃의 것을 심링크한다.
 tmux 백엔드에서는 팀장이 spawn 전에 같은 링크를 만들어 두므로 아래 두 줄은 건너뛰어진다. Windows(Git Bash)
-에서는 `ln -s` 가 복사본을 만들며 복사본으로도 동작한다(backends.md 「플랫폼 차이」). 그
+에서는 `ln -s` 가 복사본을 만들며 복사본으로도 동작한다(backends.md 「플랫폼 차이」). `.env` 도 메인
+체크아웃에 있으면 함께 링크한다 — 이 PC 에 예전에 설치된 좌석표 heartbeat 훅(`~/.dflow/hooks/heartbeat.sh`)이
+아직 구버전이면 `.dflow`·`.dflow.local` 을 모르고 `$_top/.env` 만 읽기 때문이다. `dflow.sh`·`dflow-config.sh`
+는 `.dflow`·`.dflow.local` 이 있으면 `.env` 를 읽지 않으므로 새 스크립트 동작에는 영향이 없다. 그
 다음 인증을 확인하고 기점을 `origin/<기본브랜치>` 로 맞춘다. 줄마다 결과를 보며 실행한다.
 ```bash
 [ -e .dflow.local ] || [ ! -e {MAIN_CHECKOUT}/.dflow.local ] || ln -s {MAIN_CHECKOUT}/.dflow.local .dflow.local
 [ -e .dflow ] || [ ! -e {MAIN_CHECKOUT}/.dflow ] || ln -s {MAIN_CHECKOUT}/.dflow .dflow
-[ -e .dflow.local ] || [ -e .env ] || ln -s {MAIN_CHECKOUT}/.env .env
+[ ! -e {MAIN_CHECKOUT}/.env ] || [ -e .env ] || ln -s {MAIN_CHECKOUT}/.env .env
 if [ ! -e .claude/skills/dflow-dev/SKILL.md ]; then
   if [ -d .claude/skills ] && [ ! -L .claude/skills ]; then
     for s in dflow-dev dflow-work; do
