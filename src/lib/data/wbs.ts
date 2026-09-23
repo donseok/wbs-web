@@ -6,6 +6,7 @@ import { teamOrderMap } from '@/lib/domain/teams'
 import { teamsForProjectSync } from '@/lib/teams/master'
 import type { WbsRow, ComputedItem, TeamCode, OwnerKind, TaskDependency } from '@/lib/domain/types'
 import { mergeSpecDepends } from '@/lib/domain/mergeDependencies'
+import { hasContract } from '@/lib/domain/forceProgress'
 import { seoulToday } from '@/lib/domain/dates'
 import { AGENT_TAG } from '@/lib/domain/seatmap'
 
@@ -102,6 +103,9 @@ export const getComputedWbs = cache(async (
     stubFor: (r.stub_for as string | null) ?? null,
     externalRef: (r.external_ref as string | null) ?? null,
     dependsWaived: (r.depends_waived as string[] | null) ?? [],
+    // 선행 계약 판정 재료(F4)·간선 목록 — 사이드바 「강제 진행」 절이 쓴다.
+    hasContract: hasContract({ spec: (r.spec as string | null) ?? null, acceptance: r.acceptance ?? [] }),
+    depends: (r.depends as string[] | null) ?? null,
   }))
 
   const holidays = new Set((hol ?? []).map((h: { date: string }) => h.date))

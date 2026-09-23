@@ -67,7 +67,8 @@ export const WAIVE_BLOCK_TEXT: Record<WaiveBlock, string> = {
 export function waiveBlock(a: {
   successor: { externalRef: string | null; depends: string[] | null; dependsWaived: string[] | null; stubFor: string | null; hasNormalChildren: boolean }
   predRef: string
-  pred: { stage: string | null; orderApproved: boolean; actualPct: number | null; spec: string | null; acceptance: unknown } | null
+  /** 계약 재료는 spec·acceptance 원본 또는 로더가 계산한 hasContract 중 하나(hasContract 가 있으면 그것을 쓴다). */
+  pred: { stage: string | null; orderApproved: boolean; actualPct: number | null; spec?: string | null; acceptance?: unknown; hasContract?: boolean } | null
 }): WaiveBlock | null {
   const s = a.successor
   if (s.stubFor) return 'is_stub_task'
@@ -76,7 +77,9 @@ export function waiveBlock(a: {
   if (!(s.depends ?? []).includes(a.predRef)) return 'not_in_depends'
   if ((s.dependsWaived ?? []).includes(a.predRef)) return 'already_waived'
   if (a.pred && predecessorReached({ stage: a.pred.stage, orderApproved: a.pred.orderApproved, actualPct: a.pred.actualPct })) return 'already_reached'
-  if (!a.pred || !hasContract(a.pred)) return 'no_contract'
+  if (!a.pred) return 'no_contract'
+  const contract = a.pred.hasContract ?? hasContract({ spec: a.pred.spec ?? null, acceptance: a.pred.acceptance })
+  if (!contract) return 'no_contract'
   return null
 }
 

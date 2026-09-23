@@ -30,6 +30,9 @@ import type { DictKey } from '@/lib/i18n/dict'
 import { wbsFontScaleVariables } from '@/lib/wbsFontScale'
 import { useWbsRealtime } from '@/lib/hooks/useWbsRealtime'
 import { applyWbsChange } from '@/lib/domain/wbsRealtime'
+import { pendingStubs } from '@/lib/domain/forceProgress'
+import { StubBadge } from './StubBadge'
+import { flattenForSheet, findAncestorPath } from './sheetTree'
 
 /* ── 컬럼 메타 (좌→우). frozen=true면 sticky 동결, sk=누적 left offset ──
    구분(LevelBadge) 열은 삭제됐다(2026-08-21 개편) — 계층은 들여쓰기·타이포·1단계 스트립이
@@ -103,16 +106,6 @@ const MS_CHIP: Record<MilestoneStatus, string> = { done: 'bg-phasebar', overdue:
 function iso(d: Date) {
   return d.toISOString().slice(0, 10)
 }
-function flatten(items: ComputedItem[], collapsed: Set<string>): ComputedItem[] {
-  const out: ComputedItem[] = []
-  const walk = (ns: ComputedItem[]) =>
-    ns.forEach(n => {
-      out.push(n)
-      if (!collapsed.has(n.id)) walk(n.children)
-    })
-  walk(items)
-  return out
-}
 /* 담당별 분리 부모(isOwnerSplit 자식을 가진 노드) id — 기본 접힘 대상 */
 function splitParentIds(items: ComputedItem[]): Set<string> {
   const s = new Set<string>()
@@ -146,25 +139,14 @@ function subActLabel(name: string, parentName: string): string {
   }
   return name
 }
-/* focus 대상의 조상 id 경로(루트→부모 순). 트리에 없으면 null */
-function ancestorPath(items: ComputedItem[], id: string): string[] | null {
-  const walk = (ns: ComputedItem[], anc: string[]): string[] | null => {
-    for (const n of ns) {
-      if (n.id === id) return anc
-      const found = walk(n.children, [...anc, n.id])
-      if (found) return found
-    }
-    return null
-  }
-  return walk(items, [])
-}
 /* 검색: 매칭 노드 + 조상 id 집합 */
 function buildMatch(items: ComputedItem[], q: string): Set<string> {
   const keep = new Set<string>()
   const walk = (n: ComputedItem, anc: string[]): boolean => {
     const self = n.name.toLowerCase().includes(q)
     let child = false
-    n.children.forEach(c => {
+    // stub 하위(스펙 2026-09-23 F9)도 검색에 걸려야 한다 — 표에는 후행 바로 아래 행으로 보인다.
+    ;[...n.children, ...(n.subTasks ?? [])].forEach(c => {
       if (walk(c, [...anc, n.id])) child = true
     })
     if (self || child) {
@@ -457,7 +439,7 @@ export function WbsGanttSheet({
     }
     if (handledFocusRef.current === focusId) return
     handledFocusRef.current = focusId
-    const path = ancestorPath(items, focusId)
+    const path = findAncestorPath(items, focusId)
     if (!path) {
       setToast({ kind: 'err', msg: t('wbs.focusNotFound') })
       return
@@ -470,7 +452,7 @@ export function WbsGanttSheet({
       const findNode = (ns: ComputedItem[]): ComputedItem | null => {
         for (const n of ns) {
           if (n.id === focusId) return n
-          const c = findNode(n.children)
+          const c = findNode(n.children) ?? findNode(n.subTasks ?? [])
           if (c) return c
         }
         return null
@@ -478,6 +460,7 @@ export function WbsGanttSheet({
       const addSubtree = (n: ComputedItem) => {
         exempt.add(n.id)
         n.children.forEach(addSubtree)
+        n.subTasks?.forEach(addSubtree)
       }
       const target = findNode(items)
       if (target) addSubtree(target)
@@ -563,6 +546,7 @@ export function WbsGanttSheet({
       ns.forEach(n => {
         m.set(n.id, d)
         walk(n.children, d + 1)
+        walk(n.subTasks ?? [], d + 1) // stub 하위 행(0103) — 후행 한 칸 아래로 들여쓴다
       })
     walk(items, 0)
     return m
@@ -586,7 +570,8 @@ export function WbsGanttSheet({
   const descendantCounts = useMemo(() => {
     const m = new Map<string, number>()
     const walk = (n: ComputedItem): number => {
-      const c = n.children.reduce((sum, ch) => sum + 1 + walk(ch), 0)
+      // stub 하위 행도 접힘으로 숨으므로 센다(숨는 행 수와 일치).
+      const c = [...n.children, ...(n.subTasks ?? [])].reduce((sum, ch) => sum + 1 + walk(ch), 0)
       m.set(n.id, c)
       return c
     }
@@ -603,6 +588,8 @@ export function WbsGanttSheet({
         const num = prefix ? `${prefix}.${i + 1}` : String(i + 1)
         m.set(n.id, num)
         walk(n.children, num)
+        // stub 하위는 번호 체계 밖이다(구조에 투명) — 후행 번호에 S 접미를 붙여 구분한다.
+        ;(n.subTasks ?? []).forEach((s, j) => m.set(s.id, `${num}.S${j + 1}`))
       })
     walk(items, '')
     return m
@@ -616,6 +603,7 @@ export function WbsGanttSheet({
       const walk = (n: ComputedItem) => {
         m.set(n.id, i)
         n.children.forEach(walk)
+        n.subTasks?.forEach(walk)
       }
       walk(root)
     })
@@ -630,6 +618,7 @@ export function WbsGanttSheet({
         const g = depth === 0 ? null : depth === 1 ? n.id : anc
         m.set(n.id, g)
         walk(n.children, g, depth + 1)
+        walk(n.subTasks ?? [], g, depth + 1)
       })
     walk(items, null, 0)
     return m
@@ -647,12 +636,20 @@ export function WbsGanttSheet({
   const matchKeep = useMemo(() => (q ? buildMatch(items, q) : null), [items, q])
   const flatRows = useMemo(() => {
     // 검색이 우선 — 완료 작업도 검색으로 찾을 수 있어야 하므로 숨김 미적용(스펙 §결정 사항)
-    if (matchKeep) return flatten(items, new Set()).filter(n => matchKeep.has(n.id))
-    const rows = flatten(items, effCollapsed)
+    if (matchKeep) return flattenForSheet(items, new Set()).filter(n => matchKeep.has(n.id))
+    const rows = flattenForSheet(items, effCollapsed)
     if (!hideDone) return rows
-    return rows.filter(n => !hideDoneResult.hiddenIds.has(n.id) || hideExempt.has(n.id))
+    // stub 하위(0103)는 hideDone 판정 밖이라 후행을 따라간다 — 후행이 숨으면 같이 숨는다(고아 행 방지).
+    const kept = new Set<string>()
+    return rows.filter(n => {
+      const show = n.stubFor && n.parentId
+        ? kept.has(n.parentId)
+        : !hideDoneResult.hiddenIds.has(n.id) || hideExempt.has(n.id)
+      if (show) kept.add(n.id)
+      return show
+    })
   }, [items, effCollapsed, matchKeep, hideDone, hideDoneResult, hideExempt])
-  const allFlatItems = useMemo(() => flatten(items, new Set()), [items])
+  const allFlatItems = useMemo(() => flattenForSheet(items, new Set()), [items])
   // 가중치 헤더 밑 합계 — 1레벨(Phase) 가중치의 합. 가중치는 형제 그룹 안에서만 의미가 있어
   // '전체 합'이 성립하는 층은 루트뿐이다(하위까지 더하면 그룹 수만큼 100%가 쌓인다).
   // 100%에서 벗어나면 배분 누락·오타 신호이므로 색으로 구분한다.
@@ -788,7 +785,8 @@ export function WbsGanttSheet({
   // "레벨 N까지 표시" = depth ≥ N-1 인 부모를 전부 접는다. 화면 밖(이미 숨은) 깊은 부모도
   // 접어 두므로 이후 개별 펼침 때 깊은 층이 한꺼번에 쏟아지지 않는다.
   const deepestLevel = useMemo(
-    () => allFlatItems.reduce((max, n) => Math.max(max, (depthMap.get(n.id) ?? 0) + 1), 1),
+    // stub 하위 행(0103)은 레벨 수에 넣지 않는다 — 구조에 투명하다(스펙 F9).
+    () => allFlatItems.reduce((max, n) => n.stubFor ? max : Math.max(max, (depthMap.get(n.id) ?? 0) + 1), 1),
     [allFlatItems, depthMap],
   )
   const expandToLevel = (lvl: number) => {
@@ -815,7 +813,7 @@ export function WbsGanttSheet({
   // 상세 패널의 선행·후속 항목 클릭 — 대상이 접힌 구간이나 완료 숨김 뒤에 있어도
   // 조상 경로를 임시로 펼쳐 표에서 같이 보이게 한 뒤 선택을 옮긴다(focus 딥링크와 같은 계열).
   const selectLinkedItem = useCallback((id: string) => {
-    const path = ancestorPath(items, id)
+    const path = findAncestorPath(items, id)
     if (path?.length) setForcedOpen(prev => new Set([...prev, ...path]))
     if (path && hideDone && (hideDoneResult.hiddenIds.has(id) || path.some(p => hideDoneResult.hiddenIds.has(p)))) {
       setHideExempt(prev => new Set([...prev, ...path, id]))
@@ -1648,6 +1646,15 @@ export function WbsGanttSheet({
                       )}
                     </button>
                     {isCritical && <span className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full bg-critical" aria-label={t('wbs.criticalPath')} />}
+                    {/* 강제 진행(스펙 2026-09-23 F13) — 스텁 잔존 배지는 후행에, 「스텁 제거」 칩은 하위 행에. */}
+                    {n.subTasks && n.subTasks.length > 0 && (
+                      <span className="ml-1 shrink-0">
+                        <StubBadge
+                          stubs={pendingStubs(n.subTasks.map(s => ({ id: s.id, stubFor: s.stubFor as string, externalRef: s.externalRef ?? null, stage: s.stage ?? null })))}
+                          onOpen={selectLinkedItem} />
+                      </span>
+                    )}
+                    {n.stubFor && <span className="chip ml-1 shrink-0 text-[10px]" data-stub-task>스텁 제거</span>}
                     {isCollapsed && (
                       <span
                         data-collapsed-count

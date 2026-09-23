@@ -27,7 +27,6 @@ import { addWbsItem, updateActual } from '@/app/actions/wbs'
 const W1 = '33333333-3333-4333-8333-333333333333'
 type Resp = { data?: unknown; error?: { message: string } | null }
 const ADMIN = { ok: true, actor: { userId: 'u1', isSuperuser: false, projectRoles: new Map([['p1', 'admin']]), rosterTeams: new Map(), teamCode: null, teamId: null } }
-const LOCKED_MSG = '완료는 승인 버튼으로 처리합니다 — 에이전트 관할 작업(위임됨·작업 중·검수 대기)은 99% 까지 입력할 수 있습니다. 직접 완료하려면 위임을 끄세요.'
 
 /** 세션 클라이언트 흉내 — 테이블별 순차 응답, update·insert payload 와 호출 테이블을 기록한다. */
 function server(queues: Record<string, Resp[]>) {

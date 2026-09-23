@@ -61,6 +61,13 @@ export interface WbsRow {
   externalRef?: string | null
   /** 강제 진행으로 면제한 선행 ref(0103). */
   dependsWaived?: string[]
+  /**
+   * 선행 계약 유무(스펙 2026-09-23 F4 — spec 본문 ∨ acceptance 1건 이상). 로더가 forceProgress.hasContract 로
+   * 계산해 불리언만 싣는다 — spec 본문을 항목마다 클라이언트로 보내면 WBS 페이로드가 불어난다. 버튼 상태용이고 정본 판정은 RPC 다.
+   */
+  hasContract?: boolean
+  /** wbs.md 선행 ref(0077). 강제 진행 절이 간선마다 버튼을 그린다. */
+  depends?: string[] | null
 }
 
 /** WBS 작업 간 일정 의존성. predecessor → successor 방향. */

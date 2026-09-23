@@ -57,6 +57,11 @@ describe('계약(F4)과 면제 가능 판정', () => {
     expect(waiveBlock({ successor: succ, predRef: 'm/TSK-01', pred: null })).toBe('no_contract')
     expect(WAIVE_BLOCK_TEXT.no_contract).toBe('선행 계약 없음')
   })
+  it('로더가 계산한 hasContract 가 있으면 그것을 쓴다(spec 본문을 클라이언트로 보내지 않는 경로)', () => {
+    const lite = { stage: 'ip', orderApproved: false, actualPct: 30 }
+    expect(waiveBlock({ successor: succ, predRef: 'm/TSK-01', pred: { ...lite, hasContract: true } })).toBeNull()
+    expect(waiveBlock({ successor: succ, predRef: 'm/TSK-01', pred: { ...lite, hasContract: false } })).toBe('no_contract')
+  })
 })
 
 describe('병목(F14)', () => {

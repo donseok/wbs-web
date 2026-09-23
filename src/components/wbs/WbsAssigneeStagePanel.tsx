@@ -1,5 +1,6 @@
 'use client'
 
+import type { StubTaskLike } from '@/lib/domain/forceProgress'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { User } from 'lucide-react'
@@ -47,13 +48,15 @@ const STAGES: readonly Stage[] = STAGE_CODES
  * 클라이언트에서 별도 로드한다. 편집은 프로젝트 관리자만(editable=false 면 읽기 전용).
  */
 export function WbsAssigneeStagePanel({
-  itemId, members, editable, hasChildren = false,
+  itemId, members, editable, hasChildren = false, stubs,
 }: {
   itemId: string
   members: ProjectMember[]
   editable: boolean
   /** 하위 항목이 있으면 "미지정 하위 항목에도 적용" 체크박스를 노출한다(스테이징 피드백). */
   hasChildren?: boolean
+  /** 스텁 잔존(스펙 2026-09-23 F6) — 있으면 승인 버튼을 끄고 문구를 보인다. pendingStubs 로 거른 목록. */
+  stubs?: readonly StubTaskLike[]
 }) {
   const router = useRouter()
   const { t } = useLocale()
@@ -312,7 +315,7 @@ export function WbsAssigneeStagePanel({
       {/* 명세(Task 12A, 결정 B) — 이 패널의 섹션으로 편입, 별도 오버레이 아님(리뷰 라운드 1 관례). */}
       {/* 선행·후행 항목 — 명세에서 분리한 독립 섹션(실행 순서 축). */}
 
-      <WbsSpecPanel itemId={itemId} editable={editable} />
+      <WbsSpecPanel itemId={itemId} editable={editable} stubs={stubs} />
     </div>
   )
 }
