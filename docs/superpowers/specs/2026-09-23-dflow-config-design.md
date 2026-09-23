@@ -34,7 +34,7 @@
 ### 3.1 `.dflow`(커밋, 프로젝트 공통)
 
 ```ini
-api_base=https://<dflow-host>/api/v1
+api_base=https://<dflow-host>   # 호스트만. 경로(/api/v1)는 스크립트가 붙인다
 project_id=<uuid>          # 리포 전체의 바인딩(단일 프로젝트 리포)
 release_branch=main        # 운영 브랜치. 승격 대상
 ```
