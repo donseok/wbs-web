@@ -445,7 +445,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    [ -z "$legacy" ] || bad "LEGACY_REPORTED $legacy"
    mkdir -p ~/.dflow
    ex=$(git rev-parse --git-path info/exclude); mkdir -p "$(dirname "$ex")"; touch "$ex"
-   for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' '/.dflow.local' 'docs/tasks/*/.result'; do
+   for p in '**/.claude/worktrees/' '/dflow-*/' '.vitest/' '/.dflow-agent' '/.dflow-prompt' '/.dflow-pane' '/.dflow-run' '/.dflow.local' 'docs/tasks/*/.result' 'docs/tasks/*/decisions.json'; do
      grep -qxF "$p" "$ex" || printf '%s\n' "$p" >> "$ex"
    done
    tracked=$(git ls-files .claude/skills | head -n 1)   # 비어 있지 않으면 킷 복사형(스킬이 git 추적됨)
@@ -631,7 +631,7 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
      2026-09-19 mdm-dict-v2 실측. 빼면 재기동 때 `DIRTY` 에 걸린다), `.vitest/` 는 워커가 vitest 를 돌리면 남기는 결과
      파일(`.vitest/json/output.json`)이다(빼면 done 뒤 워크트리가 깨끗하지 않아 「고아 정리 규칙」 과 `orca worktree rm` 이
      실패한다. 2026-09-19 mdm-dict-v2 실측), `/.dflow-agent`·
-     `docs/tasks/*/.result` 는 워커가 쓰는 미추적 파일, `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
+     `docs/tasks/*/.result`·`docs/tasks/*/decisions.json` 은 워커가 쓰는 미추적 파일(decisions.json 은 `done --decisions` 의 전송용으로, 커밋하지 않는다), `/.dflow-prompt`·`/.dflow-pane`·`/.dflow-run` 은
      팀장이 spawn 때 쓰는 미추적 파일, `/.dflow.local` 은 워크트리 부트스트랩이 거는 심링크다. `.gitignore` 가
      `.dflow.local` 을 가리기 전에도 DIRTY 를 트립하지 않게 여기 둔다. `.dflow` 는 **넣지 않는다** — 스펙 §3.1 대로
      커밋 대상이며, exclude 에 넣으면 아직 커밋되지 않은 `.dflow` 가 `git status`·`git add -A` 에서 조용히
