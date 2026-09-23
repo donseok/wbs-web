@@ -18,6 +18,7 @@
 | `team.conflict` | 「4-1. 머지 충돌 해소」(merge-conflict.md 「1」「4」「5」) | `id8`, `decision`, `files` |
 | `team.extend` | 「인자」 실행 중 연장 | `until`, `until_label` |
 | `team.lost` | 「3. 결과 처리」 재시작 판정(`references/restart.md`) | `slot`, `id8`, `worktree`, `cause`, `next`, `restart_at` |
+| `team.issue` | 「2-4. 팀원 이슈 보고 처리」 1번(저장)·3번(지시 뒤 재기록) | `id8`, `summary`, `decision` |
 | `team.stop` | 「7. 마감」 | 없음 |
 
 - `team.start`: `backend` 는 `tmux` 또는 `orca`, `slots` 는 숫자, `until` 은 `HH:MM`·`YYYY-MM-DD HH:MM`·`none`(종료 요청 전까지) 중 하나, `wp` 는 WP 범위를 쉼표로 이은
@@ -60,6 +61,11 @@
 - 제외 목록은 id8 마다 마지막 `team.spawn`·`team.blocked`·`team.result`·`team.lost` 로 정한다. 마지막이 `team.spawn` 이나
   `team.blocked` 면 진행 중(영구 제외), `team.result` 면 그 `status` 의 제외 칸(SKILL.md 「3. 결과 처리」), `team.lost` 면
   진행 중(영구 제외, restart.md 「이벤트로 본 상태」)이다. `team.answer` 는 제외를 바꾸지 않는다.
+- `team.issue`: 팀원의 SendMessage 이슈 보고를 저장한 기록이다(SKILL.md 「2-4. 팀원 이슈 보고 처리」).
+  `summary` 는 이슈 보고 첫 줄(`[이슈 <TSK> <id8>] <요약>`)의 요약부다. `decision` 은 처음 저장할 때
+  `pending`, 팀장이 지시를 보낸 뒤 다시 기록할 때는 그 결정 요약(문자열, `pending` 아님)이다. id8 마다
+  **마지막** `team.issue` 의 `decision` 이 `pending` 이면 아직 지시를 보내지 않은 이슈다 — 재구성이 이
+  값으로 미답 이슈를 찾는다(SKILL.md 「팀장 상태」 「보조」).
 - `team.sweep`: 네 필드 모두 개수(숫자)다. `resolved` 는 직전 스윕 뒤 해소 머지가 조상 확인까지 통과한 수다.
 - `team.conflict`: `decision` 은 `queued`(해소 큐에 넣음)·`human`(사람 몫)·`cleared`(표시 해제) 중 하나, `files` 는 충돌 파일 목록(쉼표로 이음, 모르면 `-`)이다. id8 마다 마지막 `decision` 이 `cleared` 가 아니면 충돌 목록에 남는다(merge-conflict.md 「5」).
 
@@ -80,7 +86,7 @@ mkdir -p ~/.dflow && line=$(jq -nc \
   --arg tsk '<TSK 또는 ->' --arg order '<주문 전체 UUID 또는 ->' --arg event 'team.result' --arg agent '<신원>/<host>/lead' \
   --arg slot '<slot 또는 ->' --arg id8 '<id8>' --arg status '<status>' --arg worktree '<워크트리 또는 ->' --arg hash "$hash" --arg reason "$reason" \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,status:$status,worktree:$worktree,hash:$hash,reason:$reason}') \
-  && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until","wp"],"team.spawn":["slot","id8","worktree","handle","spawn_kind"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected","resolved"],"team.conflict":["id8","decision","files"],"team.extend":["until","until_label"],"team.lost":["slot","id8","worktree","cause","next","restart_at"],"team.stop":[]} as $req
+  && printf '%s\n' "$line" | jq -c --arg h "$(hostname | cut -d. -f1)" '{"team.start":["backend","slots","until","wp"],"team.spawn":["slot","id8","worktree","handle","spawn_kind"],"team.result":["slot","id8","status","worktree","hash","reason"],"team.blocked":["slot","id8","worktree","hash","reason"],"team.answer":["id8","answer"],"team.sweep":["merged","waiting","rejected","resolved"],"team.conflict":["id8","decision","files"],"team.extend":["until","until_label"],"team.lost":["slot","id8","worktree","cause","next","restart_at"],"team.issue":["id8","summary","decision"],"team.stop":[]} as $req
       | if ([.ts,.host,.repo,.event,.agent] | all(. != null and . != "")) and .phase == "team" and .host == $h and $req[.event] != null
            and ([$req[.event][] as $k | has($k) and .[$k] != null and ($k == "reason" or .[$k] != "")] | all)
            and (.event != "team.spawn" or .spawn_kind != "readopt" or ((.orig_kind // "") != "")) then . else error("EVENT_ARGS_MISSING") end' \
@@ -93,6 +99,13 @@ mkdir -p ~/.dflow && line=$(jq -nc \
 ```text
   --arg slot '<slot 또는 ->' --arg id8 '<id8>' --arg worktree '<워크트리 또는 ->' --arg cause '<no-response|pane-dead|rate-limit>' --arg next '<restart|wait|park>' --arg restart_at '<epoch 초 또는 ->' --arg evidence '<생존 증거 요약 또는 ->' \
   '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {slot:$slot,id8:$id8,worktree:$worktree,cause:$cause,next:$next,restart_at:$restart_at,evidence:$evidence}') \
+```
+`team.issue` 는 위 블록의 `--arg event` 를 `'team.issue'` 로 쓰고, 넷째·다섯째 줄을 아래 두 줄로 바꾼다.
+`summary` 는 이슈 보고 첫 줄의 요약부이고, `decision` 은 처음 저장할 때 `pending`, 지시를 보낸 뒤 다시
+기록할 때는 그 결정 요약이다.
+```text
+  --arg id8 '<id8>' --arg summary '<이슈 보고 첫 줄의 요약부>' --arg decision '<pending 또는 결정 요약>' \
+  '{ts:$ts,host:$host,repo:$repo,tsk:$tsk,order:$order,phase:"team",event:$event,agent:$agent} + {id8:$id8,summary:$summary,decision:$decision}') \
 ```
 - 첫 `jq` 는 줄을 만들고 둘째 `jq` 는 가드다. 둘은 `&&` 로 잇는다. 이유: 파이프로 이으면 첫 `jq` 가 컴파일
   오류(`--arg` 하나를 빠뜨리고 필터에 `$slot` 이 남은 경우)로 죽어도 가드가 빈 입력을 받아 0 으로 끝나
