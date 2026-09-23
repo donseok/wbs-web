@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   recordProgressSnapshot: vi.fn(async () => {}),
   // 인자 타입을 적어 둔다 — mock.calls[0][0].payload 를 tsc 가 읽을 수 있게.
-  emitNotification: vi.fn(async (_n: { payload: { detail: string } }) => {}),
+  emitNotification: vi.fn<(n: { payload: { detail: string } }) => Promise<void>>(async () => {}),
 }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: mocks.createAdminClient }))
 vi.mock('@/lib/data/snapshots', () => ({ recordProgressSnapshot: mocks.recordProgressSnapshot }))
