@@ -1,6 +1,7 @@
 // 캐릭터 머리 위 단계 말풍선 — 지금 설계·구현·검증·리팩터 중 어디인지 눌러 보지 않고 바로 읽힌다(2026-09-18 사용자 선택).
 // 말풍선은 단계색 + 아이콘 + 이름, 그 아래 네 점이 dflow-dev Phase 순서(설계 → 구현 → 검증 → 리팩터)에서 지금 위치다.
 // 결정 대기·재작업은 순서 밖의 상태라 점 없이 말풍선만 단다. 에이전트가 붙어 있지 않은 좌석(빈자리·승인 대기·완료)엔 달지 않는다.
+// 예외: 머지 충돌(2026-09-23)은 승인 대기·완료 좌석에도 점 없이 단다 — 팀장이 대리로 쏜 표시다.
 import type React from 'react'
 import type { Seat } from '@/lib/domain/seatmap'
 
@@ -17,12 +18,16 @@ export const PHASE_LOOK: Record<string, { label: string; color: string; icon: Re
   refactor: { label: '리팩터', color: '#2FB8AC', icon: I(<><path d="M8 2.5l1.3 3.2L12.5 7 9.3 8.3 8 11.5 6.7 8.3 3.5 7l3.2-1.3z" /><path d="M12.5 11.5l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" /></>) },
   blocked: { label: '결정 대기', color: '#F2AA4C', icon: I(<><path d="M6 6.2a2 2 0 1 1 2.6 1.9c-.4.2-.6.5-.6.9v.5" /><path d="M8 12h0" /></>) },
   rejected: { label: '재작업', color: '#EE7B6A', icon: I(<><path d="M3 8a5 5 0 1 0 1.5-3.5" /><path d="M3 2.5v2.5h2.5" /></>) },
+  // 머지 충돌(팀장 대리 표시, 2026-09-23) — 승인 대기·완료 좌석에도 단다. 순서 밖 상태라 점이 없다.
+  merge_conflict: { label: '머지 충돌', color: '#D35FB7', icon: I(<><path d="M8 14V9" /><path d="M8 9L4 5" /><path d="M8 9l4-4" /><path d="M2.5 5.5L4 5l.5-1.5" /><path d="M13.5 5.5L12 5l-.5-1.5" /></>) },
 }
 
 /** 이 좌석에 말풍선을 다는가 — 에이전트가 붙어 일하는(또는 일하다 멈춘) 좌석만. */
 const WORKING: ReadonlySet<Seat['state']> = new Set<Seat['state']>(['ACTIVE', 'STALE', 'OFFLINE', 'BLOCKED', 'REJECTED'])
 
 export function seatPhaseKey(seat: Pick<Seat, 'state' | 'phase'>): string | null {
+  // 머지 충돌은 WAIT·DONE 좌석에서 난다 — WORKING 검사보다 먼저 본다.
+  if (seat.phase === 'merge_conflict') return 'merge_conflict'
   if (!WORKING.has(seat.state)) return null
   if (seat.state === 'BLOCKED') return 'blocked'
   if (seat.state === 'REJECTED' && !PHASE_STEPS.includes(seat.phase as typeof PHASE_STEPS[number])) return 'rejected'

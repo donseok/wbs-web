@@ -94,6 +94,7 @@ export function DetailPanel({ seat, floorName = '', zoneLabel = '', nowMs, busy,
         )}
       </dl>
       {seat.state === 'BLOCKED' && seat.note && <p className={css.quote}>{seat.note}</p>}
+      {seat.phase === 'merge_conflict' && seat.note && <p className={css.quote}>머지 충돌: {seat.note}</p>}
       {seat.rejected && <p className={css.quote}>반려 사유: {seat.reviewNote ?? '(없음)'}</p>}
 
       {/* 결재 — 좌석 위 결재 바와 같은 op 표를 큰 버튼으로. 사유가 필요한 op 는 아래 입력이 열린다. */}

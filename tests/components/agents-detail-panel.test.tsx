@@ -96,3 +96,14 @@ describe('DetailPanel — 좌석 결재', () => {
     expect([...host.querySelectorAll('[data-panel-op]')].map(b => (b as HTMLElement).dataset.panelOp)).toEqual(['unapprove', 'rework'])
   })
 })
+
+describe('DetailPanel — 머지 충돌 인용(2026-09-23)', () => {
+  it('phase 가 merge_conflict 이고 note 가 있으면 "머지 충돌: <note>" 를 인용한다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'WAIT', phase: 'merge_conflict', heartbeatPhase: 'merge_conflict', note: '충돌 2개(src/a.ts…) · 해소 중 w2 1/3' })} nowMs={NOW} {...OPS} />))
+    expect(host.textContent).toContain('머지 충돌: 충돌 2개(src/a.ts…) · 해소 중 w2 1/3')
+  })
+  it('note 가 없으면 인용하지 않는다', () => {
+    act(() => root.render(<DetailPanel seat={seat({ state: 'DONE', phase: 'merge_conflict', heartbeatPhase: 'merge_conflict', note: null })} nowMs={NOW} {...OPS} />))
+    expect(host.textContent).not.toContain('머지 충돌:')
+  })
+})
