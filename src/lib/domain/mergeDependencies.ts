@@ -11,6 +11,9 @@ export interface SpecDependSource {
   depends: string[] | null
   /** 면제한 선행 ref(0103 depends_waived). 없으면 면제 없음. */
   dependsWaived?: string[] | null
+  /** 부모 id 와 stub 표식(0103) — 스텁 하위의 depends 에 든 후행(=부모) 간선은 간트에 긋지 않는다(구조에 투명). */
+  parentId?: string | null
+  stubFor?: string | null
 }
 
 export interface MergedDependencies {
@@ -79,6 +82,8 @@ export function mergeSpecDepends(
         continue
       }
       if (predecessorId === item.id) continue // 자기참조 — 미해석으로도 세지 않는다
+      // 스텁 하위의 depends 에는 후행(자기 부모)이 든다 — 착수 게이트 재료일 뿐, 부모→자식 선은 간트에 긋지 않는다.
+      if (item.stubFor && item.parentId && predecessorId === item.parentId) continue
 
       const pair = `${predecessorId}>${item.id}`
       if (takenPairs.has(pair)) continue // 실제 행이 이긴다

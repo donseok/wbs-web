@@ -130,6 +130,8 @@ export const getComputedWbs = cache(async (
         externalRef: (r.external_ref as string | null) ?? null,
         depends: (r.depends as string[] | null) ?? null,
         dependsWaived: (r.depends_waived as string[] | null) ?? null,
+        parentId: (r.parent_id as string | null) ?? null,
+        stubFor: (r.stub_for as string | null) ?? null,
       })),
     )
     return { dependencies: merged.dependencies, unresolvedDepends: Object.fromEntries(merged.unresolvedBySuccessorId) }

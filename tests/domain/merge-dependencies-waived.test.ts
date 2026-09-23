@@ -31,3 +31,15 @@ describe('mergeSpecDepends — dependsWaived', () => {
     expect(r.ready).toBe(true)
   })
 })
+
+describe('mergeSpecDepends — 스텁 하위의 부모 간선', () => {
+  it('stub 하위의 depends 에 든 부모(후행) 간선은 긋지 않고, 선행 간선은 남긴다', () => {
+    const { dependencies, unresolvedBySuccessorId } = mergeSpecDepends([], [
+      { id: 'pred', projectId: 'p', externalRef: 'm/TSK-01', depends: null },
+      { id: 'succ', projectId: 'p', externalRef: 'm/TSK-02', depends: null },
+      { id: 's1', projectId: 'p', externalRef: 'm/TSK-02.stub.x', depends: ['m/TSK-01', 'm/TSK-02'], parentId: 'succ', stubFor: 'm/TSK-01' },
+    ])
+    expect(dependencies.map(d => `${d.predecessorId}>${d.successorId}`)).toEqual(['pred>s1'])
+    expect(unresolvedBySuccessorId.size).toBe(0)
+  })
+})
