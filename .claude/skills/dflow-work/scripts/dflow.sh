@@ -8,7 +8,8 @@ set -u
 
 # 이 스킬이 기대하는 계약 버전. doctor 는 major 만 본다 — 서버가 minor 를 올리는 것은
 # additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
-CONTRACT_VERSION=2.5
+# 2.7: 팀장 머지 충돌 표시(heartbeat --clear-merge-conflict). 병행 과제 C 가 2.6 — 머지 순서에 따라 조정한다.
+CONTRACT_VERSION=2.7
 
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dflow"
 LIST_CACHE="$CACHE_DIR/last-list.json"
@@ -29,8 +30,10 @@ usage() {
   show <ref>             ref = 목록 순번 | UUID 앞 8자 | 전체 UUID
   claim <ref>            주문의 프로젝트가 이 리포 바인딩 밖이면 거부(exit 2, PROJECT_MISMATCH)
   progress <ref> <pct 0-99> <요약>
-  heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m]
+  heartbeat <ref> [--phase p] [--note "<질문>"] [--agent id] [--model m] [--clear-merge-conflict]
                          진행 중 신호(보고 행 없음). --agent 기본값은 워크트리 루트 .dflow-agent 첫 줄
+                         팀장 전용: reported·approved 주문에 --phase merge_conflict --note 로 머지 충돌 표시,
+                         --clear-merge-conflict 로 해제(출력 MERGE_CONFLICT_SET·CLEARED·ABSENT)
   watch [--agent id] [--slots n] [--busy n] [--until HH:MM] [--project id] [--holder h] [--json] [--stop]
                          감시자 존재 신호(좌석표 STANDBY). 기본 agent 는 <신원>/<host>/poll
   done <ref> <요약> [--auto-links]
@@ -333,23 +336,29 @@ watcher_id_default() {
 
 cmd_heartbeat() {
   _id=$(resolve_ref "$1"); shift
-  _phase=''; _note=''; _agent=''; _model=''
+  _phase=''; _note=''; _agent=''; _model=''; _clear=''
   while [ $# -gt 0 ]; do
     case "$1" in
       --phase) _phase="${2:-}"; shift 2 || usage ;;
       --note)  _note="${2:-}";  shift 2 || usage ;;
       --agent) _agent="${2:-}"; shift 2 || usage ;;
       --model) _model="${2:-}"; shift 2 || usage ;;
+      --clear-merge-conflict) _clear=1; shift ;;
       *) usage ;;
     esac
   done
+  # 해제는 phase 와 함께 보내지 않는다 — 서버도 400 으로 거부한다(머지 충돌 설계 2026-09-23 §7.1).
+  [ -z "$_clear" ] || [ -z "$_phase" ] || usage
   [ -n "$_agent" ] || _agent=$(agent_id_default)
   case "$_agent" in */parked) die 2 "parked 워크트리는 heartbeat 를 보내지 않습니다." ;; esac
-  _json=$(jq -nc --arg a "$_agent" --arg p "$_phase" --arg n "$_note" --arg m "$_model" \
+  _json=$(jq -nc --arg a "$_agent" --arg p "$_phase" --arg n "$_note" --arg m "$_model" --arg c "$_clear" \
     '{agent:$a} + (if $p != "" then {phase:$p} else {} end) + (if $n != "" then {note:$n} else {} end)
-     + (if $m != "" then {model:$m} else {} end)')
+     + (if $m != "" then {model:$m} else {} end) + (if $c != "" then {clear:"merge_conflict"} else {} end)')
   _body=$(TOKEN="$TOK" api_raw POST "/api/v1/agent/work/$_id/heartbeat" "$_json") || exit $?
-  printf '%s' "$_body" | jq -r '.last_heartbeat_at'
+  # 워커 갈래는 last_heartbeat_at, 팀장 표시 갈래는 phase·cleared 를 돌려준다(계약 2.7).
+  printf '%s' "$_body" | jq -r 'if .last_heartbeat_at then .last_heartbeat_at
+    elif .phase == "merge_conflict" then "MERGE_CONFLICT_SET"
+    elif .cleared == true then "MERGE_CONFLICT_CLEARED" else "MERGE_CONFLICT_ABSENT" end'
 }
 
 cmd_watch() {

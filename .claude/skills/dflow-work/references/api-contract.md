@@ -1,6 +1,15 @@
-# D'Flow Agent API 계약 v2.5
+# D'Flow Agent API 계약 v2.7
 
-`contract_version: "2.5"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다.
+`contract_version: "2.7"` — v1(전역 시크릿) 계약은 불변 유지, v2는 PAT 축 추가. v2.1은 stage 워크플로 재설계(0082) 반영, v2.2는 그 뒤 버전을 안 올린 채 넓혀온 세 필드를 뒤늦게 반영. v2.3은 단계 전이 원자화(0096)·실적 크레딧·선행 충족 세 축을 반영. v2.4는 `/me` 에 토큰 이름·prefix 를 더했다. v2.5는 팀장 lease 를 더했다. v2.7은 heartbeat 에 팀장의 머지 충돌 표시를 더했다(v2.6 은 병행 과제 C 몫 — 머지 순서에 따라 번호를 조정한다).
+
+## v2.7 변경점 (2026-09-23)
+
+- `POST /api/v1/agent/work/{id}/heartbeat` 에 팀장 대리 표시 갈래(머지 충돌 설계 §7.2). **PAT 전용**(레거시 400 `identity_required`), 소유 판정은 워커와 같다(`claimed_by_user_id`).
+  - 주문 `reported`·`approved` 에 `{agent, phase:"merge_conflict", note}`(note 필수) → 200 `{ok, phase:"merge_conflict"}`. `heartbeat_phase`·`heartbeat_note` 두 열만 쓴다 — `updated_at`·`last_heartbeat_at`·`heartbeat_agent`·재개 요청 열은 그대로다.
+  - `{agent, clear:"merge_conflict"}` → 200 `{ok, phase:null, cleared}`. 현재 값이 `merge_conflict` 일 때만 지운다(`cleared:false` 는 지울 것이 없었다는 뜻).
+  - `claimed` 주문에 `merge_conflict` 는 400, 그 밖의 상태는 409 `conflict`, 중단은 409 `cancelled`. 워커 phase 는 종전대로 `claimed` 에서만 받는다.
+- CLI: `dflow.sh heartbeat <order> --agent <신원>/<host>/lead --phase merge_conflict --note "<…>"`(출력 `MERGE_CONFLICT_SET`), `--clear-merge-conflict`(출력 `MERGE_CONFLICT_CLEARED`·`MERGE_CONFLICT_ABSENT`).
+```
 
 ## v2.5 변경점 (2026-09-23)
 
@@ -104,10 +113,10 @@ stage 워크플로 재설계(마이그레이션 0082)를 계약에 반영. **엔
 ```json
 { "ok": true, "user_email": "a@b.c", "token_name": "맥북 에어", "token_prefix": "OxMb1D1097Qz",
   "scopes": ["work:read"], "kind": "user_pat",
-  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.5",
+  "token_expires_at": "2026-11-08T00:00:00Z", "contract_version": "2.7",
   "projects": [{ "id": "<uuid>", "name": "…", "role": "admin|member|superuser" }] }
 ```
-응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.5"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
+응답의 `contract_version`은 `src/lib/agent/externalApi.ts`의 `AGENT_CONTRACT_VERSION` 상수 값이다 — 현재 `"2.7"`. 스킬은 **major 만** 비교한다(`dflow.sh` 의 `CONTRACT_VERSION`): 서버가 minor 를 올리는 것은 additive 라 정상이고, 등호로 보면 상향 때마다 전 세션이 오경보를 본다.
 `projects`는 `agent_projects.enabled=true` ∩ 내가 멤버인 프로젝트만. 활성은 **자동**이다(2026-08-24) — WBS 항목의 "에이전트 위임" 체크·dev_workflow ON·task 가 있는 wbs.md 업로드 중 하나가 처음 일어나면 서버가 활성한다. 사람이 따로 등록하지 않는다. 설정에서 "전체 중지"한 프로젝트(enabled=false)만 은닉된다.
 
 `GET /agent/work/mine` 200:
