@@ -127,6 +127,7 @@ function HostCard({ host, nowMs, selectedKey, onSelect, onReleaseLead }: {
   host: RosterHost; nowMs: number; selectedKey: string | null; onSelect: (k: string) => void; onReleaseLead?: ReleaseLeadHandler
 }) {
   const busy = host.desks.filter(d => d.kind === 'member').length
+  const leads = host.desks.flatMap(d => d.leads)
   const w = host.watcher
   const sub = !host.conforming
     ? '신원이 <신원>/<PC> 규칙을 따르지 않아 작업 PC 를 알 수 없습니다'
@@ -146,17 +147,25 @@ function HostCard({ host, nowMs, selectedKey, onSelect, onReleaseLead }: {
         <h2 className={`font-mono text-base font-bold ${host.mine ? 'text-brand' : 'text-ink'}`}>{host.label}</h2>
         <OwnerTag owner={teamOwner} />
         <span className="text-xs text-ink-subtle">{sub}</span>
-        {host.slots !== null && <span className="ml-auto text-xs font-semibold tabular-nums text-ink-muted">자리 {busy}/{host.slots}</span>}
+        {/* 팀장 lease(0101, 스펙 §7) — 팀장 책상 밑에 두면 행 높이가 들쭉날쭉해져 팀 머리 오른쪽, 자리 수 왼쪽에 둔다
+            (2026-09-23 사용자 요청). 한 PC 가 여러 프로젝트의 팀장이면 칩마다 층 이름을 붙여 구분한다. */}
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          {leads.map(l => (
+            <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={leads.length > 1 ? l.floorName : undefined}
+              onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
+          ))}
+          {host.slots !== null && <span className="text-xs font-semibold tabular-nums text-ink-muted">자리 {busy}/{host.slots}</span>}
+        </span>
       </header>
       <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(172px,1fr))]">
-        {host.desks.map(d => <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} onReleaseLead={onReleaseLead} />)}
+        {host.desks.map(d => <Desk key={d.key} desk={d} host={host} nowMs={nowMs} selected={d.key === selectedKey} onSelect={onSelect} />)}
       </ul>
     </section>
   )
 }
 
-function Desk({ desk, host, nowMs, selected, onSelect, onReleaseLead }: {
-  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void; onReleaseLead?: ReleaseLeadHandler
+function Desk({ desk, host, nowMs, selected, onSelect }: {
+  desk: RosterDesk; host: RosterHost; nowMs: number; selected: boolean; onSelect: (k: string) => void
 }) {
   const tone = deskTone(desk)
   const look = deskLook(desk)
@@ -192,17 +201,6 @@ function Desk({ desk, host, nowMs, selected, onSelect, onReleaseLead }: {
           <span className="text-[11px] tabular-nums text-ink-subtle">{sig ? `신호 ${ageLabel(sig, nowMs)}` : ' '}</span>
         </span>
       </button>
-      {/* 팀장 lease(0101, 스펙 §7) — 책상 버튼 밖의 형제로 둔다: 해제 확인은 진짜 <button> 이라
-          선택 버튼 안에 넣으면(중첩 button) 잘못된 HTML 이 되고 클릭이 선택과 뒤섞인다. */}
-      {desk.leads.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {/* 한 책상(identity)이 여러 프로젝트의 팀장이면 칩마다 층 이름을 붙여 구분한다. */}
-          {desk.leads.map(l => (
-            <LeadChip key={`${l.projectId}:${l.userId}`} lead={l} projectLabel={desk.leads.length > 1 ? l.floorName : undefined}
-              onRelease={onReleaseLead ? () => onReleaseLead(l.projectId, l.userId) : undefined} />
-          ))}
-        </div>
-      )}
     </li>
   )
 }
