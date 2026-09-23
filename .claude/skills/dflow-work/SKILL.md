@@ -122,7 +122,7 @@ dflow.sh taskdir <ref>
 dflow.sh scaffold
 ```
 
-내게 배정된(assigned) 작업 중 **`phase=ready`(아직 아무도 착수하지 않은) 것만** 골라 바인딩된 프로젝트마다
+내게 배정된(assigned) 작업 중 **주문 status 가 `ready`(아직 아무도 착수하지 않은)인 것만** 골라 바인딩된 프로젝트마다
 `<DOCS_DIR>/tasks/<TSK>/state.json`(`{"tsk","order","api_base","phase":"ready"}`)을 미리 만든다. 이미 있는 폴더는
 내용을 보지도 고치지도 않고 건너뛴다. 출력 한 줄: `scaffold created=N skipped=N no_ref=N`(필요하면 뒤에 안내 한
 마디가 더 붙는다). exit code: **exit 2** 는 바인딩 없음(`PROJECT_MISMATCH`) 또는 git 리포가 아닌 곳에서 부름

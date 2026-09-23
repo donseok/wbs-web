@@ -38,6 +38,14 @@ describe('스킬 문서의 작업 폴더', () => {
     expect(block).toContain('branch dev')
     expect(block).toMatch(/scaffold 건너뜀/)
   })
+  it('scaffold 전에 개발 브랜치를 fast-forward 한다(뒤처진 dev 에서 커밋하면 push 가 갈라진다)', () => {
+    const t = read('dflow-team/SKILL.md')
+    const block = [...t.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+      .find((b) => b.includes('dflow.sh scaffold'))!
+    expect(block).toBeDefined()
+    expect(block).toContain('pull -q --ff-only')
+    expect(block.indexOf('pull -q --ff-only')).toBeLessThan(block.indexOf('dflow.sh scaffold'))
+  })
   it('renumbering 뒤 "4번이 답 대기" 참조가 남아 있지 않다(5번으로 고쳤다)', () => {
     expect(read('dflow-team/SKILL.md')).not.toContain('4번이 답 대기 목록을 이어받는다')
   })

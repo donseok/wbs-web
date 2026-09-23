@@ -657,11 +657,20 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    부른다** — detached HEAD 팀장(「두 번째 팀장」의 팀장 워크트리는 언제나 detached)에서 부르면 scaffold 가 만든
    `state.json` 을 커밋하지 못해(`dflow.sh scaffold` 는 개발 브랜치 위에서만 커밋한다) 작업 트리가 더러워지고,
    다음 시작이 `DIRTY` 로 막히거나 승인 스윕 뒤 재-detach 가 깨끗한 트리를 요구해 멈춘다. 아래 블록 하나로
-   판정하고 부른다(1번과 다른 Bash 호출이라 그 블록의 변수는 남아 있지 않으므로 이 블록 안에서 다시 구한다):
+   판정하고 부른다(1번과 다른 Bash 호출이라 그 블록의 변수는 남아 있지 않으므로 이 블록 안에서 다시 구한다).
+   **scaffold 를 부르기 전에 개발 브랜치를 fast-forward 한다** — 뒤처진 로컬 dev 에서 scaffold 가 커밋하면 push 가
+   거부되고(exit 0 + "push 실패 — 로컬 커밋만 남김"), 로컬과 원격 dev 가 갈라져 이후 모든 스윕의
+   `git pull --ff-only origin <기본브랜치>`(`/dflow-merge`)가 사람이 rebase 할 때까지 계속 실패한다.
+   fast-forward 가 실패하면(로컬에 origin 에 없는 커밋이 있어 fast-forward 가 안 되는 등) scaffold 자체를
+   건너뛴다 — pull 실패를 무시하고 그냥 부르면 같은 갈라짐이 재현된다:
    ```bash
    dev=$(.claude/skills/dflow-work/scripts/dflow.sh branch dev); cur=$(git branch --show-current)
    if [ -n "$dev" ] && [ "$cur" = "$dev" ]; then
-     .claude/skills/dflow-work/scripts/dflow.sh scaffold || echo "scaffold 경고: exit $?"
+     if git pull -q --ff-only origin "$dev"; then
+       .claude/skills/dflow-work/scripts/dflow.sh scaffold || echo "scaffold 경고: exit $?"
+     else
+       echo "scaffold 건너뜀(개발 브랜치 fast-forward 실패)"
+     fi
    else
      echo "scaffold 건너뜀(detached HEAD 또는 개발 브랜치 아님)"
    fi
@@ -669,7 +678,8 @@ tmux 절대경로. Orca 백엔드면 빈 값)을 출력한다. 백엔드 이름�
    실패(exit≠0)는 경고만 하고 계속한다 — 편의 기능이지 게이트가 아니다. 이유: 내게 배정된 작업의
    `<TASKS>/<TSK>/state.json`(phase=ready)이 개발 브랜치에 있으면 사람이 리포만 보고 할 일을 알고, 팀원
    워크트리(`origin/<기본브랜치>` 기점)에도 같은 폴더가 보인다 — 이는 팀장이 실제로 커밋해 개발 브랜치에
-   반영했을 때만 참이다.
+   반영했을 때만 참이다. **그래도 push 실패가 보고되면** 다음 승인 스윕 전에 `git pull --rebase origin <기본브랜치>`
+   로 사람이 직접 되돌린다.
 3. **재구성**: 새 `team.start` 를 쓰기 **전에** 「팀장 상태」 의 재구성과 고아 스캔을 한다. 이유: "마지막
    `team.start` 이후" 필터가 이전 세션의 이벤트를 가리지 않게 한다. 이 단계가 곧 재기동 절차다. 이어서
    서버에 claimed 인데 흡수한 슬롯·고아 워크트리·답을 기다리는 `blocked`·대기 중인 답 어디에도 없는 id8 을
