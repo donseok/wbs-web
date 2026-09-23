@@ -92,7 +92,7 @@ declare
   v_ps date; v_pe date;
   v_pred_id uuid; v_pred_code text; v_pred_name text; v_pred_stage text; v_pred_pct numeric;
   v_pred_spec text; v_pred_acc jsonb; v_pred_approved boolean;
-  v_sub_id uuid; v_sub_created boolean := false; v_sort int; v_sub_name text; v_pred_last text;
+  v_sub_id uuid; v_sub_created boolean := false; v_sort int; v_sub_name text; v_pred_last text; v_pred_key text;
 begin
   if p_reason is null or btrim(p_reason) = '' then
     return jsonb_build_object('ok', false, 'reason', 'reason_required');
@@ -148,13 +148,16 @@ begin
   select id into v_sub_id from public.wbs_items where parent_id = p_item_id and stub_for = p_pred_ref;
   if v_sub_id is null then
     v_pred_last := regexp_replace(p_pred_ref, '^.*/', '');
+    -- 하위 ref·code 는 선행 ref **전체**를 안전 문자로 바꿔 만든다(forceProgress.stubRefKey). 마지막 칸만 쓰면
+    -- 모듈이 다른 두 선행(a/TSK-01·b/TSK-01)이 같은 ref 를 만들어 부딪친다. [A-Za-z0-9._-] 라 dflow.sh 작업 폴더 규칙도 통과한다.
+    v_pred_key := regexp_replace(p_pred_ref, '[^A-Za-z0-9._-]', '_', 'g');
     v_sub_name := '스텁 제거·실연결: ' || v_pred_code || ' ' || v_pred_name;
     select coalesce(max(sort_order), 0) + 1 into v_sort from public.wbs_items where parent_id = p_item_id;
     insert into public.wbs_items (
       project_id, parent_id, code, sort_order, name, external_ref, stub_for, depends,
       dev_workflow, tags, assignee_member_id, category, model, priority, planned_start, planned_end, weight, spec
     ) values (
-      v_project, p_item_id, v_pred_last, v_sort, v_sub_name, v_ref || '.stub.' || v_pred_last, p_pred_ref,
+      v_project, p_item_id, v_pred_key, v_sort, v_sub_name, v_ref || '.stub.' || v_pred_key, p_pred_ref,
       array[p_pred_ref, v_ref],
       true, v_tags, v_assignee, v_category, v_model, v_priority, v_ps, v_pe, null,
       '## 스텁 제거·실연결' || E'\n\n'

@@ -24,7 +24,7 @@ begin
   assert (r->>'ok')::boolean and (r->>'sub_task_created')::boolean, '면제 실패: ' || r::text;
   v_sub := (r->>'sub_task_id')::uuid;
   assert (select depends_waived = array['zz0103/TSK-Z-01'] from public.wbs_items where id = v_succ), 'depends_waived 미기록';
-  assert (select external_ref = 'zz0103/TSK-Z-02.stub.TSK-Z-01' and stub_for = 'zz0103/TSK-Z-01' and parent_id = v_succ
+  assert (select external_ref = 'zz0103/TSK-Z-02.stub.zz0103_TSK-Z-01' and code = 'zz0103_TSK-Z-01' and stub_for = 'zz0103/TSK-Z-01' and parent_id = v_succ
                  and depends = array['zz0103/TSK-Z-01', 'zz0103/TSK-Z-02'] and dev_workflow
             from public.wbs_items where id = v_sub), '하위 Task 속성이 틀렸다';
   -- 3. 재면제는 하위를 새로 만들지 않는다

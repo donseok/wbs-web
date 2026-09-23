@@ -55,7 +55,9 @@ describe('0103 강제 진행', () => {
     for (const reason of ['reason_required', 'item_not_found', 'is_stub_task', 'not_leaf', 'no_ref', 'not_in_depends', 'pred_not_found', 'already_reached', 'no_contract']) {
       expect(f).toContain(`'${reason}'`)
     }
-    expect(f).toContain("v_ref || '.stub.' || ")
+    expect(f).toContain("v_ref || '.stub.' || v_pred_key")
+    // 하위 ref 키는 도메인 stubRefKey 와 같은 치환이다(선행 ref 전체 — 모듈 간 충돌 방지)
+    expect(f).toContain("v_pred_key := regexp_replace(p_pred_ref, '[^A-Za-z0-9._-]', '_', 'g');")
     expect(f).toContain('insert into public.wbs_items')
     expect(f).toContain("'depends_waived'")
   })
